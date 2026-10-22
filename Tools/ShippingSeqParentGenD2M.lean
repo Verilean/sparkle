@@ -707,6 +707,8 @@ structure D2MParams where
   instGroup : List Nat
   /-- per call instance of `P`, the index of its callee -/
   instCallee : List Nat
+  /-- diagnostic: how the partition read from the old term compares with the recomputed approximation -/
+  partitionNote : String
 deriving Repr
 
 def refuseM {α : Type} (fn : Name) (why : String) : CommandElabM α :=
@@ -785,10 +787,21 @@ def analyseM (fn : Name) : CommandElabM D2MParams := do
     if G == fn then refuseM fn s!"the leaf {G} is the parent itself"
   let al ← liftTermElabM do readNatLists (← elabText s!"({fn}.machineData.shape.insts.map (·.2.1))")
   let kP ← nat "(@F@.machineData.bsIn.length - @F@.machineData.shape.insts.length)" fn
-  let (instGroup, grpNames) ← match (← liftTermElabM <| oldGroupKeysM fn pc kP al) with
-    | .ok r => pure r
-    | .error why => refuseM fn s!"the old generator's group key (callee, argument lets, the call's argument Signals) cannot be computed: {why}"
-  let groups := grpNames.map fun (c, a) => (Cs.idxOf c, a)
+  let oldThm := fn ++ `machine_composedNR2
+  unless env.contains oldThm do
+    refuseM fn s!"{oldThm} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`, which also generates the child pieces)"
+  -- (unit SR3w, per review) the numbering is READ from the old generated `hcalls`; the recomputed call-argument approximation is a diagnostic only
+  let instGroup ← match ← liftTermElabM <| Tools.ShippingSeqParentGenD2.oldInstGroups oldThm with
+    | .ok og => pure og
+    | .error why => refuseM fn s!"the partition of the instances into groups cannot be read from the old generated {oldThm}: {why}"
+  unless instGroup.length == al.length do
+    refuseM fn s!"the old generated {oldThm} has {instGroup.length} call entries but {fn} has {al.length} call instances"
+  let some groupKeys := Tools.ShippingSeqParentGenD2.groupKeysOf instGroup (pc.map Cs.idxOf |>.zip al)
+    | refuseM fn s!"the old generated {oldThm} groups the instances as {instGroup}, but the instances of one group do not have one (callee, argument list) (callees {pc}, argument lists {al})"
+  let groups := groupKeys
+  let partitionNote : String ← match ← liftTermElabM <| oldGroupKeysM fn pc kP al with
+    | .ok (inst, _) => pure (if inst == instGroup then "the recomputed call-argument approximation of the old key gives the same partition" else s!"the recomputed call-argument approximation of the old key gives a DIFFERENT partition {inst} (the old term's numbering is used)")
+    | .error why => pure s!"the call-argument approximation of the old key was not computed ({why})"
   for (n, ss) in [(fn, [`machine_composedNR2, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
         `machine_ext_causal, `machineSource, `machineInits, `machineBody, `machineResult, `machineExt, `machineExtB, `machineData])] ++
       Cs.map (fun C => (C, [`machine_composedNR1, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
@@ -798,14 +811,9 @@ def analyseM (fn : Name) : CommandElabM D2MParams := do
     for s in ss do
       unless env.contains (n ++ s) do
         refuseM fn s!"{n ++ s} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`, which also generates the child pieces)"
-  let nOld ← liftTermElabM <| Tools.ShippingSeqParentGenD2.oldGroupCount (fn ++ `machine_composedNR2)
+  let nOld ← liftTermElabM <| Tools.ShippingSeqParentGenD2.oldGroupCount oldThm
   unless nOld == groups.length do
-    refuseM fn s!"the old generated {fn ++ `machine_composedNR2} has {nOld} group(s) of facts but the recomputed call-argument approximation of the key (callee, argument lets, call arguments) gives {groups.length}: the group numbering cannot be aligned"
-  match ← liftTermElabM <| Tools.ShippingSeqParentGenD2.oldInstGroups (fn ++ `machine_composedNR2) with
-  | .error why => refuseM fn s!"the partition of the instances into groups cannot be read from the old generated {fn ++ `machine_composedNR2}: {why}"
-  | .ok og =>
-    unless og == instGroup do
-      refuseM fn s!"the old generated {fn ++ `machine_composedNR2} puts the instances into the groups {og} but the recomputed call-argument approximation of its key gives {instGroup}: the group numbering cannot be aligned"
+    refuseM fn s!"the old generated {oldThm} has {nOld} group(s) of facts but its entries use {groups.length} group(s)"
   let ip ← liftTermElabM <| sourceIndex fn
   unless ip == ``Unit || ip == ``PUnit do refuseM fn s!"the parent's machineSource is indexed by {ip}, expected Unit (a top-level, non-polymorphic machine)"
   let mut kCs : Array Nat := #[]
@@ -824,7 +832,7 @@ def analyseM (fn : Name) : CommandElabM D2MParams := do
     gws := gws.push (← liftTermElabM do readNats (← elabText s!"(Tools.ShippingPortWidthsPure.declWidths {G}.machineData)"))
   let mP ← nat "@F@.machineData.shape.insts.length" fn
   return { P := fn, Cs := Cs, Gs := Gs.toList, kCs := kCs.toList, gws := gws.toList, nOutsCs := nOuts.toList, kP := kP, mP := mP,
-           groups := groups, instGroup := instGroup, instCallee := pc.map Cs.idxOf }
+           groups := groups, instGroup := instGroup, instCallee := pc.map Cs.idxOf, partitionNote := partitionNote }
 
 /-! ## text assembly -/
 
@@ -1016,7 +1024,7 @@ def elabEndpointD2M : CommandElab := fun stx => do
       if n > 0 then deep := true
   unless deep do throwUnsupportedSyntax
   let p ← analyseM fn
-  logInfo m!"SR3w: depth-2 class instance with {p.Cs.length} callees of {p.P}: {p.Cs.zip p.Gs} (kP {p.kP}, kC {p.kCs}); {p.mP} call instance(s) with (callee index, argument list) groups {p.groups} (instance -> group {p.instGroup}, instance -> callee {p.instCallee}); leaf argument widths {p.gws}"
+  logInfo m!"SR3w: depth-2 class instance with {p.Cs.length} callees of {p.P}: {p.Cs.zip p.Gs} (kP {p.kP}, kC {p.kCs}); {p.mP} call instance(s) with (callee index, argument list) groups {p.groups} (instance -> group {p.instGroup}, instance -> callee {p.instCallee}; numbering READ from the old term: {p.partitionNote}); leaf argument widths {p.gws}"
   let src := assembleM p
   try
     Tools.ShippingSeqParentGen.runCmds src

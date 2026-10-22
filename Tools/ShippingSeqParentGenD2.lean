@@ -52,14 +52,14 @@ results; `T` is an ADDED boundary.
 The old generated terms are read through helpers that select by BINDER NAME of the consumer head (`hcalls`, `hextB`, `hext`), by the
 lambda-binder name of the group-fact redex (`gfL0 gfR0 gfHb0 gfHv0`) and by BINDER KIND (the one instance-implicit argument).  Still
 structural (not chosen by index): "the first application of the head constant in the value", "the argument `hcalls` is a lambda whose
-body is a beta-redex".  The group index is no longer fixed to `0` (unit SR3u): group `j` is the `j`-th DISTINCT argument list in order of
-first occurrence among `P`'s instances, RECOMPUTED here from the shape data (not read from the old term); the old generator opens a new group
-for a new (callee, argument lets, families) tuple, so the correspondence is an ASSUMPTION about the old generator (the order of distinct
-argument lists need not equal the old generator's (callee, lets, families) grouping order).  A misnumbered group FAILS either in the typed
-extraction (`oldGroupFact%` throws unless the extracted type is `isDefEq` to the group's stated type, whose argument list is the one
-computed here) OR in the later semantic equation check (the `Hb`/`Hv` right-hand sides are holes `_`, checked only by the final
-`.trans rfl`); it is not guaranteed to be caught by `oldGroupFact%` alone, and such a stop is a safe failure, NOT support for the whole class
-(integrator wording, par/int-r44, per review).  The typed helpers STILL depend on term structure (`findHeadApp?`, the zip pairing); removal is NOT claimed.  Each extracted term is checked `isDefEq` against an EXPLICIT type written in the
+body is a beta-redex", "the chain over the entries is `forall_getElem?_cons … (entry proof) (rest)`" and the names `gfB/gfL/gfR/gfHb/gfHv` + index
+(unit SR3w).  The group index is no longer fixed to `0` (unit SR3u): since unit SR3w the instance -> group numbering is READ from the old generated
+`hcalls` (`oldInstGroups`: which group-fact hypotheses each entry's proof uses) and the argument list of group `j` is that of its members (members
+with different argument lists are refused); the earlier recomputation (first occurrence of a call-argument key, `oldGroupKeys`) is only a diagnostic
+now (it is a call-argument APPROXIMATION of the old key `(callee, argument lets, famA, famB)`, not that key; review of par/int-r44).  A misnumbered
+group would still FAIL in the typed extraction (`oldGroupFact%` throws unless the extracted type is `isDefEq` to the group's stated type) OR in the
+later semantic equation check (the `Hb`/`Hv` right-hand sides are holes `_`, checked only by the final `.trans rfl`); such a stop is a safe failure, NOT
+support for the whole class.  The typed helpers STILL depend on term structure (`findHeadApp?`, the zip pairing); removal is NOT claimed.  Each extracted term is checked `isDefEq` against an EXPLICIT type written in the
 template (the group-fact types of `Hb`/`Hv` leave their right-hand side as `_`: the family the generator absorbed into; the final
 `.trans rfl` of the entry proof checks it against the entry's value). -/
 namespace Tools.ShippingSeqParentGenD2
@@ -768,6 +768,8 @@ structure D2Params where
   mC : Nat
   gw : List Nat
   nOutsC : Nat
+  /-- diagnostic: how the partition read from the old term compares with the recomputed approximation -/
+  partitionNote : String
 deriving Repr
 
 def refuse {α : Type} (fn : Name) (why : String) : CommandElabM α :=
@@ -797,6 +799,16 @@ def groupPartition {κ : Type} [BEq κ] (keys : List κ) : List Nat × List κ :
     match acc.2.findIdx? (· == k) with
     | some j => (acc.1 ++ [j], acc.2)
     | none => (acc.1 ++ [acc.2.length], acc.2 ++ [k])) ([], [])
+
+/-- PURE (unit SR3w): the key of each group `0 .. max` of a given partition (instance -> group index) of the instances' keys.  `none` unless every group
+index below the maximum is used and all members of a group have the SAME key (so a partition whose members disagree is rejected). -/
+def groupKeysOf {κ : Type} [BEq κ] (part : List Nat) (keys : List κ) : Option (List κ) :=
+  if part.length != keys.length then none else
+  let n := if part.isEmpty then 0 else part.foldl max 0 + 1
+  (List.range n).mapM fun j =>
+    match ((part.zip keys).filter (·.1 == j)).map (·.2) with
+    | [] => none
+    | k :: rest => if rest.all (· == k) then some k else none
 
 /-- The keys of the calls of `fn`, one per instance, as READ from `fn.machineExt` / `fn.machineExtB` (a CALL-ARGUMENT APPROXIMATION of the old
 generator's key, see below): `(argument lets, the call's argument Signals)`.  The Signals are read exactly as the old generator reads them
@@ -916,18 +928,25 @@ def analyse (fn : Name) : CommandElabM D2Params := do
   let gi ← nat "@F@.machineData.shape.insts.length" G
   unless gi == 0 do
     refuse fn s!"the grandchild {G} has {gi} call instance(s) of its own: depth 3, OPEN (no depth-3 interface/closing lemma on the new boundary)"
-  -- the argument lists of the parent's calls: one group per DISTINCT list, in order of first occurrence (the old generated `hcalls` has
-  -- one group-facts bundle `gf*{j}` per group; its group index is NOT read from the old term but recomputed here, and a wrong
-  -- correspondence fails either in the typed extraction (`oldGroupFact%`, `isDefEq` against the stated type) or in the later semantic
-  -- equation check (`Hb`/`Hv` right-hand sides are holes); a safe stop, not class coverage)
+  -- the argument lists of the parent's calls.  (unit SR3w, per review) The group numbering is READ from the old generated `hcalls`
+  -- (`oldInstGroups`: which group-fact hypotheses the entry's proof uses), so it is the old generator's numbering by reading, not by a
+  -- recomputed key; a call-argument APPROXIMATION of the old key (`oldGroupKeys`) is computed only as a diagnostic
   let al ← liftTermElabM do readNatLists (← elabText s!"({fn}.machineData.shape.insts.map (·.2.1))")
   if al.isEmpty then refuse fn "no call instance"
-  -- (unit SR3v/SR3w) a call-argument APPROXIMATION of the old generator's key (not the old key itself); the partition it gives is compared below
-  -- with the partition READ from the old generated term
   let kP ← nat "(@F@.machineData.bsIn.length - @F@.machineData.shape.insts.length)" fn
-  let (instGroup, groups) ← match (← liftTermElabM <| oldGroupKeys fn C kP al) with
-    | .ok r => pure r
-    | .error why => refuse fn s!"the old generator's group key (callee, argument lets, the call's argument Signals) cannot be computed: {why}"
+  let oldThm := fn ++ `machine_composedNR2
+  unless env.contains oldThm do
+    refuse fn s!"{oldThm} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`, which also generates the child pieces)"
+  let instGroup ← match ← liftTermElabM <| oldInstGroups oldThm with
+    | .ok og => pure og
+    | .error why => refuse fn s!"the partition of the instances into groups cannot be read from the old generated {oldThm}: {why}"
+  unless instGroup.length == al.length do
+    refuse fn s!"the old generated {oldThm} has {instGroup.length} call entries but {fn} has {al.length} call instances"
+  let some groups := groupKeysOf instGroup al
+    | refuse fn s!"the old generated {oldThm} groups the instances as {instGroup}, but the instances of one group do not have one argument list (argument lists {al})"
+  let partitionNote : String ← match ← liftTermElabM <| oldGroupKeys fn C kP al with
+    | .ok (inst, _) => pure (if inst == instGroup then "the recomputed call-argument approximation of the old key gives the same partition" else s!"the recomputed call-argument approximation of the old key gives a DIFFERENT partition {inst} (the old term's numbering is used)")
+    | .error why => pure s!"the call-argument approximation of the old key was not computed ({why})"
   for (n, ss) in [(fn, [`machine_composedNR2, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
         `machine_ext_causal, `machineSource, `machineInits, `machineBody, `machineResult, `machineExt, `machineExtB, `machineData]),
       (C, [`machine_composedNR1, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
@@ -937,16 +956,10 @@ def analyse (fn : Name) : CommandElabM D2Params := do
     for s in ss do
       unless env.contains (n ++ s) do
         refuse fn s!"{n ++ s} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`, which also generates the child pieces)"
-  -- the number of groups must equal the number of group-fact bundles of the old generated term, AND (unit SR3w) the partition of the instances must
-  -- equal the partition READ from the old term (a mismatch of either is refused here; the typed extraction and the semantic equation check remain)
-  let nOld ← liftTermElabM <| oldGroupCount (fn ++ `machine_composedNR2)
+  -- the number of groups must equal the number of group-fact bundles of the old generated term
+  let nOld ← liftTermElabM <| oldGroupCount oldThm
   unless nOld == groups.length do
-    refuse fn s!"the old generated {fn ++ `machine_composedNR2} has {nOld} group(s) of facts but the recomputed call-argument approximation of the key (argument lets, call arguments) gives {groups.length}: the group numbering cannot be aligned"
-  match ← liftTermElabM <| oldInstGroups (fn ++ `machine_composedNR2) with
-  | .error why => refuse fn s!"the partition of the instances into groups cannot be read from the old generated {fn ++ `machine_composedNR2}: {why}"
-  | .ok og =>
-    unless og == instGroup do
-      refuse fn s!"the old generated {fn ++ `machine_composedNR2} puts the instances into the groups {og} but the recomputed call-argument approximation of its key gives {instGroup}: the group numbering cannot be aligned"
+    refuse fn s!"the old generated {oldThm} has {nOld} group(s) of facts but its entries use {groups.length} group(s)"
   -- domain polymorphism: the parent is a top-level machine (index `Unit`), the child a `{dom : DomainConfig}` hardware module
   let ip ← liftTermElabM <| sourceIndex fn
   let ic ← liftTermElabM <| sourceIndex C
@@ -962,7 +975,7 @@ def analyse (fn : Name) : CommandElabM D2Params := do
   let mC ← nat "@F@.machineData.shape.insts.length" C
   let nOutsC ← nat "@F@.machineData.shape.layout.outs.length" C
   let gw ← liftTermElabM do readNats (← elabText s!"(Tools.ShippingPortWidthsPure.declWidths {G}.machineData)")
-  return { P := fn, C := C, G := G, kP := kP, kC := kC, mP := mP, mC := mC, gw := gw, groups := groups, instGroup := instGroup, nOutsC := nOutsC }
+  return { P := fn, C := C, G := G, kP := kP, kC := kC, mP := mP, mC := mC, gw := gw, groups := groups, instGroup := instGroup, nOutsC := nOutsC, partitionNote := partitionNote }
 
 /-! ## text assembly -/
 
@@ -1071,7 +1084,7 @@ def elabEndpointD2 : CommandElab := fun stx => do
       if n > 0 then deep := true
   unless deep do throwUnsupportedSyntax
   let p ← analyse fn
-  logInfo m!"SR3t: depth-2 class instance {p.P} -> {p.C} -> {p.G}: kP {p.kP}, kC {p.kC}, {p.mP} call instance(s) of {p.C} with argument lists {p.groups} (instance -> group {p.instGroup}), {p.mC} of {p.G} with widths {p.gw}"
+  logInfo m!"SR3t: depth-2 class instance {p.P} -> {p.C} -> {p.G}: kP {p.kP}, kC {p.kC}, {p.mP} call instance(s) of {p.C} with argument lists {p.groups} (instance -> group {p.instGroup}; numbering READ from the old term: {p.partitionNote}), {p.mC} of {p.G} with widths {p.gw}"
   let src := assembleD2 p
   try
     runCmds src
