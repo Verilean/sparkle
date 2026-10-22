@@ -32,14 +32,23 @@ open Tools.ShippingClosedKinds Tools.ShippingSharedLeafNL
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
+/-- **The machine synthesis does not fall back at the START world of the outermost entry** (`JQC O 1`, cache value
+`{}`): the weaker, start-world-only form of `MachineClosesAtA`, which is all that the outermost entry uses. -/
+def MachineClosesAtStart0 (O : RefLawsAOps MkRefd mref cref) (mctx : Meta.Context)
+    (cctx : Core.Context) (declName : Name) (shape : MachineShape) : Prop :=
+  ∀ {tenv : Lean.Environment}, ∀ (b : Bool) w r w', JQC O 1 w → cv w = {} →
+    RunsTo (synthesizeMachineCertified
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape)
+      mctx mref cctx cref w r w' → r ≠ none
+
 /-- **A returning run of the OUTERMOST core entry (`D = 0`) of a machine, with the cache tracked.** The machine
 synthesis starts in a `JQC O 1` world whose cache VALUE is `{}` (the clear `set {}`; the sets after it keep the
 cache), and the entry's end world has the SAME cache value as the machine synthesis's end (the `finally` is
 cache-neutral) and is `JQC O 0` once the machine synthesis ends in `JQC O 1`. -/
-theorem core_run_tracked0 (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+theorem core_run_tracked0' (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
     {c : Name} {shape : MachineShape}
     (entry : MachineDefines mctx mref cctx cref c shape)
-    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx c shape)
+    (closes : MachineClosesAtStart0 (mref := mref) (cref := cref) O mctx cctx c shape)
     {w w1 : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {Dg : Sparkle.IR.AST.Design}
     (hw : JQC O 0 w)
     (hr : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, Dg) w1) :
@@ -98,8 +107,7 @@ theorem core_run_tracked0 (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quie
   rw [hshape] at hbody
   dsimp only at hbody
   obtain ⟨r, w8, hmach, hbody⟩ := RunsTo.bind hbody
-  have hne := closes (tenv := env) prof.isSome (0 + 1) _ r w8 hw5.1
-    (Nat.succ_le_succ (Nat.zero_le 0)) hmach
+  have hne := closes (tenv := env) prof.isSome _ r w8 hw5.1 hw5.2 hmach
   cases r with
   | none => exact absurd rfl hne
   | some res =>
@@ -116,6 +124,22 @@ theorem core_run_tracked0 (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quie
       (FramedA.sideModify _ .subModule))) h1 s2'
     have h3 := triple_runs (finK O hA 0 (cv w8) _ _ _ _ _ _ _) h2 hfin
     exact ⟨h3.1, h3.2⟩
+
+/-- `core_run_tracked0'` with the full `MachineClosesAtA` (the start-world form follows). -/
+theorem core_run_tracked0 (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {c : Name} {shape : MachineShape}
+    (entry : MachineDefines mctx mref cctx cref c shape)
+    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx c shape)
+    {w w1 : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {Dg : Sparkle.IR.AST.Design}
+    (hw : JQC O 0 w)
+    (hr : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, Dg) w1) :
+    ∃ (tenv : Lean.Environment) (b : Bool) (w9 w10 : Void IO.RealWorld),
+      RunsTo (synthesizeMachineCertified
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c shape)
+        mctx mref cctx cref w9 (some (M, Dg)) w10 ∧
+      JQC O 1 w9 ∧ cv w9 = {} ∧ (JQC O 1 w10 → JQC O 0 w1 ∧ cv w1 = cv w10) :=
+  core_run_tracked0' O hA entry
+    (fun b _ r _ hj _ hr' => closes b 1 _ r _ hj (Nat.le_refl 1) hr') hw hr
 
 /-- **The machine synthesis of a machine with calls (any callees), split at its closing.** From a `JQC O D'`
 world, a returning run of `synthesizeMachineCertified` of `d.shape` to `some (M, Dg)` is: the mixed synthesis
@@ -418,6 +442,7 @@ theorem topshare_entry_run4 (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.qu
 
 end Tools.ShippingTopShareRun
 
+#print axioms Tools.ShippingTopShareRun.core_run_tracked0'
 #print axioms Tools.ShippingTopShareRun.core_run_tracked0
 #print axioms Tools.ShippingTopShareRun.machineSynth_closing_split
 #print axioms Tools.ShippingTopShareRun.topshare_entry_run
