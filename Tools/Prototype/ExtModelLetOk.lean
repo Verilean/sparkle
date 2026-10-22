@@ -290,7 +290,8 @@ def LowerCorr : Prop := ∀ (e : Lean.Expr) (s d : Nat), e.lowerLooseBVars s d =
 def Inst1Corr : Prop := ∀ b a : Lean.Expr, b.instantiate1 a = inst1M b a 0
 /-- PREMISE (NOT proved; `partial def betaRev`): `f.beta #[a]` is `betaM f a`. -/
 def BetaCorr : Prop := ∀ f a : Lean.Expr, f.beta #[a] = betaM f a
-/-- PREMISE (NOT proved; extern): `a == b` implies `eqvM a b`. -/
+/-- PREMISE (NOT proved; extern): `a == b` implies `eqvM a b` — ONE direction only (real `eqv` success ⇒ the coarse `eqvM` success);
+`eqvM` is NOT a full equivalence model of `Expr.eqv` (integrator wording, par/int-r46, per review). -/
 def EqvCorr : Prop := ∀ a b : Lean.Expr, (a == b) = true → eqvM a b = true
 /-- PREMISE (NOT proved; `partial def rootFloat`, which itself calls the extern `liftLooseBVars`): the shipped answer is some fuel's
 `rootFloatN` answer. -/
@@ -362,7 +363,8 @@ run_meta (Tools.Prototype.ReaderExec.auditPropBinders ``machineShapeNM_typed_all
 /- THROWING: (1) none of the six replaced `Range` constants occurs in the new type; (2) the new conclusion is `isDefEq` to the previous
 corollary's conclusion; the binders `sm ps ci ai sp senv hsig hz hpe h` are shared fvars (types `isDefEq`), the six replaced binders are
 skipped (fresh mvars in the old type). Mutations: (1) the old conclusion with `execNormM` ↦ `execNorm`; (2) the shared binder `hpe`
-dropped from the matching. Both must be rejected. -/
+dropped from the matching. Both must be rejected. Scope (integrator wording, par/int-r46, per review): mutation (2) is rejected because,
+after skipping `hpe`, a binder NAME no longer matches — it does NOT show that a type-correct changed theorem has a different conclusion. -/
 open Meta in
 def checkExt (mutate : Nat) : MetaM Unit := do
   let newI ← getConstInfo ``machineShapeNM_typed_all_rawNode_corr
