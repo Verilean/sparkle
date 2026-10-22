@@ -632,6 +632,78 @@ theorem topshare_pair (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mc
       (List.mem_cons_self ..) hbn
     rw [← this]; exact hb
 
+/-- **The parent's closing over the two non-leaf callees.** A returning run of `closeInstsGM` of a parent whose
+calls are `[(c₁, o₁), (c₂, o₂)]` (non-memory origins) returns the pure `closeInstsG` of `[y₁, y₂]`, and the two
+children satisfy the `hcross` shape of `closeInstsG_of_kidsPT` (the step that the generator's refusal of
+`topshare` names): any two modules of the two children's designs with one name are equal. -/
+theorem topshare_closing (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} (hD : D ≠ 0) {c₁ c₂ : Name} (hc12 : c₁ ≠ c₂) {o₁ o₂ : InstOrigin}
+    (ho₁ : o₁.child? = none) (ho₂ : o₂.child? = none)
+    {shape : MachineShape} (hP : shape.instTagged = [(c₁, o₁), (c₂, o₂)])
+    (d₁ d₂ : MachineData) (ok₁ : d₁.ok = true) (ok₂ : d₂.ok = true)
+    (hbody₁ : d₁.shape.body = quote d₁.dom
+      (fun j => inputExpr d₁.shape.binders.length (d₁.bpos j))
+      (fun j => inputExpr d₁.shape.binders.length (d₁.vpos j)) d₁.packed)
+    (hbody₂ : d₂.shape.body = quote d₂.dom
+      (fun j => inputExpr d₂.shape.binders.length (d₂.bpos j))
+      (fun j => inputExpr d₂.shape.binders.length (d₂.vpos j)) d₂.packed)
+    {n₁ n₂ : Nat} (hC₁ : d₁.callsOk n₁ = true) (hC₂ : d₂.callsOk n₂ = true)
+    (hslots₁ : d₁.ss.length = d₁.shape.layout.slots.length)
+    (hslots₂ : d₂.ss.length = d₂.shape.layout.slots.length)
+    (hdomB₁ : ∀ b ∈ d₁.shape.binders.drop n₁, b.2 ≠ .domain)
+    (hdomB₂ : ∀ b ∈ d₂.shape.binders.drop n₂, b.2 ≠ .domain)
+    (hins₁ : d₁.shape.insts ≠ []) (hins₂ : d₂.shape.insts ≠ [])
+    (hfne₁ : d₁.shape.instFields ≠ []) (hfne₂ : d₂.shape.instFields ≠ [])
+    (hleaf₁ : ∀ x ∈ d₁.shape.instTagged, x.2.child? = none ∧ LeafOK mctx mref cctx cref x.1)
+    (hleaf₂ : ∀ x ∈ d₂.shape.instTagged, x.2.child? = none ∧ LeafOK mctx mref cctx cref x.1)
+    (hcne₁ : ∀ k (hk : k < d₁.shape.insts.length), (d₁.shape.insts[k]).1 ≠ c₁)
+    (hcne₂ : ∀ k (hk : k < d₂.shape.insts.length), (d₂.shape.insts[k]).1 ≠ c₂)
+    (hc2not : ∀ k (hk : k < d₁.shape.insts.length), (d₁.shape.insts[k]).1 ≠ c₂)
+    (entry₁ : MachineDefines mctx mref cctx cref c₁ d₁.shape)
+    (entry₂ : MachineDefines mctx mref cctx cref c₂ d₂.shape)
+    (closes₁ : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx c₁ d₁.shape)
+    (closes₂ : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx c₂ d₂.shape)
+    {t m₀ : Sparkle.IR.AST.Module} {d₀ : Sparkle.IR.AST.Design}
+    {r : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)} {w w' : Void IO.RealWorld}
+    (hw : JQC O D w) (hcl : CacheClosed (cv w)) (hk : KeyTop (cv w))
+    (hm₁ : (cv w).get? c₁ = none) (hm₂ : (cv w).get? c₂ = none)
+    (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w r w') :
+    ∃ y₁ y₂ : Res, r = Sparkle.IR.Machine.closeInstsG (machNIn shape) shape.insts.length
+        shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1))
+        shape.instFields [y₁, y₂] (m₀, d₀) ∧
+      JQC O D w' ∧ CacheClosed (cv w') ∧ KeyTop (cv w') ∧ CacheCoh (cv w') ∧
+      (cv w').get? c₁ = some y₁ ∧ (cv w').get? c₂ = some y₂ ∧
+      (∀ a ∈ ModsOf y₁, ∀ b ∈ ModsOf y₂, a.name = b.name → a = b) ∧
+      ∀ k₁ (hk₁ : k₁ < d₁.shape.insts.length) k₂ (hk₂ : k₂ < d₂.shape.insts.length),
+        (d₁.shape.insts[k₁]).1 = (d₂.shape.insts[k₂]).1 →
+        ∃ e, (cv w').get? (d₁.shape.insts[k₁]).1 = some e ∧ e.1 ∈ y₁.2.modules ∧ e.1 ∈ y₂.2.modules := by
+  unfold closeInstsGM at hr
+  obtain ⟨synth?, wa, hget, hr⟩ := RunsTo.bind hr
+  obtain ⟨hwa, rfl⟩ := triple_runs (tripleC_synthRead O hA D) hw hget
+  have hcva : cv wa = cv w := by
+    have hk0 := O.frame hA _ FramedA.synthGet w hw.1.1
+    rw [endW_of_runs hget] at hk0
+    exact hk0.1
+  dsimp only at hr
+  obtain ⟨children, wb, hch, hr⟩ := RunsTo.bind hr
+  obtain ⟨heq, rfl⟩ := RunsTo.pure_world hr
+  rw [hP] at hch
+  simp only [List.mapM, List.mapM.loop, ho₁, ho₂] at hch
+  obtain ⟨y₁, wm, h1, hch⟩ := RunsTo.bind hch
+  obtain ⟨y₂, wn, h2, hch⟩ := RunsTo.bind hch
+  obtain ⟨hchildren, rfl⟩ := RunsTo.pure_world hch
+  have hcl' : CacheClosed (cv wa) := by rw [hcva]; exact hcl
+  have hk' : KeyTop (cv wa) := by rw [hcva]; exact hk
+  have hm₁' : (cv wa).get? c₁ = none := by rw [hcva]; exact hm₁
+  have hm₂' : (cv wa).get? c₂ = none := by rw [hcva]; exact hm₂
+  obtain ⟨hj, hc, hkt, hcoh, hg1, hg2, hcross, hshared⟩ :=
+    topshare_pair O hA hD hc12 d₁ d₂ ok₁ ok₂ hbody₁ hbody₂ hC₁ hC₂ hslots₁ hslots₂ hdomB₁ hdomB₂
+      hins₁ hins₂ hfne₁ hfne₂ hleaf₁ hleaf₂ hcne₁ hcne₂ hc2not entry₁ entry₂ closes₁ closes₂
+      hwa hcl' hk' hm₁' hm₂' h1 h2
+  have hlist : children = [y₁, y₂] := by rw [hchildren]; rfl
+  subst hlist
+  exact ⟨y₁, y₂, heq, hj, hc, hkt, hcoh, hg1, hg2, hcross, hshared⟩
+
 end Tools.ShippingSharedLeafNL
 
 #print axioms Tools.ShippingSharedLeafNL.leafKid_step
@@ -643,3 +715,4 @@ end Tools.ShippingSharedLeafNL
 #print axioms Tools.ShippingSharedLeafNL.designWith_hasName
 #print axioms Tools.ShippingSharedLeafNL.synthesizeChild_nonleaf_miss
 #print axioms Tools.ShippingSharedLeafNL.topshare_pair
+#print axioms Tools.ShippingSharedLeafNL.topshare_closing
