@@ -106,7 +106,7 @@ the range of every call's arguments, the callees' `hcalls`, depth-2 runs and ser
 theorem kary_composed_split
     (Q : KaryAll dP dG cs c G nP)
     (GP : GenFacts dP dom initsP bodyP obsRP extP extBP srcP)
-    (gens : ∀ e ∈ cs, KaryGen e G dG srcG)
+    (gens : ∀ (j : Nat) (hj : j < cs.length), KaryGen (cs[j]) G dG srcG)
     (hleafRun : LeafSeqRunN G dG srcG)
     (hFP : CallFactF dP nP (letObsB dP dom initsP bodyP extP extBP)
       (fun i bools bits => extP i bools bits (stateLoop initsP (bodyP i bools bits)))
@@ -144,19 +144,21 @@ theorem kary_composed_split
         Tools.ShippingMachineCallsLinkedT.args_facts (callsOk_args dP nP Q.hP.callsOk k hlt)
           (by simp [letObsB]), hR, hF⟩
       intro mc hmc
-      obtain ⟨e, he, hn, hce⟩ := kary_callee_at Q.hP.names hlt
+      have hj : k / 2 < cs.length := kary_idx_lt Q.hP.names hlt
+      obtain ⟨hce, hn⟩ := kary_call_callee Q.hP.names hlt
+      have he : cs[k / 2] ∈ cs := List.getElem_mem hj
       rw [hn] at hmc ⊢
       unfold kPC at hmc
       rw [kFind_of_mem Q.hP.nodup he] at hmc
-      have g := gens e he
+      have g := gens (k / 2) hj
       letI := g.inh
-      have hr := leafCallee_seqChildRunN2 O T Q.hG (Q.hC e he) (Q.hX e he) hcl g.gen
-        (fun m' d' => leafCallee_hcalls Q.hG Q.hK (Q.hC e he) (Q.hX e he) hleafRun g.hF m' d') g.hextB g.hext hmc
+      have hr := leafCallee_seqChildRunN2 O T Q.hG (Q.hC _ he) (Q.hX _ he) hcl g.gen
+        (fun m' d' => leafCallee_hcalls Q.hG Q.hK (Q.hC _ he) (Q.hX _ he) hleafRun g.hF m' d') g.hextB g.hext hmc
       refine ⟨?_, ?_⟩
       · unfold kBsF kOutsOf kSrcF
         simp only [kFind_of_mem Q.hP.nodup he]
         exact hr
-      · rw [hr.2.2.2.2.2.1, ← (Q.hC e he).hNIn, ← Q.hP.argsN k hlt]
+      · rw [hr.2.2.2.2.2.1, ← (Q.hC _ he).hNIn, ← Q.hP.argsN k hlt]
         exact (kNk_of hce).symm)
     (fun k c' hc' hnone mctx' cctx' mc Dc w1 w2 hadm hcache hsv hq hrun hcons hmod => by
       obtain ⟨e, he, hck⟩ := kary_name_mem Q.hP.names hc'

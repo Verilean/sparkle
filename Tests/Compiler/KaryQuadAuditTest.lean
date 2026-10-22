@@ -1,6 +1,6 @@
 import Tools.ShippingKaryBridge
 import Tests.Compiler.ChildVertAuditTest
--- UNBUILT (unit SR21): see STATUS-SR21.md for the run names.
+-- BUILT (unit SR21): k8 exit 0 (Tests.Compiler.KaryQuadAuditTest, dev run); the final-SHA rebuild is in REPORT-SR21.md.
 -- SCOPE (binding, ledger L8ba): the K = 2 AUDIT.  Each parent-level generic lemma of the two-callee QUAD class (`quad_closes0`, `quad_machineRun`, `quad_entry_run_ret_np`, `quad_ranA`, `quad_hkid`,
 -- `quad_runFacts`, `quad_outsCheck`, `quad_kidsMasked`, `quad_designCheck`, `quad_traceXA`, `quad_soundLA`, `quad_composed_split`) is RE-DERIVED here, with its OLD statement (`type_of%` of the old
 -- constant), from the K-ary lemma at the callee list `quad2 c₁ c₂ d₁ d₂ n₁ n₂ src₁ src₂` and the bridged data bundles (`Tools/ShippingKaryBridge.lean`).  The old lemmas are untouched and stay in the
@@ -100,9 +100,9 @@ theorem soundLA_via_kary : type_of% @Tools.ShippingQuadComposed.quad_soundLA := 
     (KaryEntries.ofQuad (src₁ := fun _ _ _ => []) (src₂ := fun _ _ _ => []) entry₁ entry₂) hR0 hcl hw hcore
 
 theorem composed_split_via_kary : type_of% @Tools.ShippingQuadCalls.quad_composed_split := by
-  intro mctx mref cctx cref dP d₁ d₂ dG c c₁ c₂ G nP n₁ n₂ ι dom ρ instP initsP bodyP obsRP extP extBP srcP inst₁ inst₂ ρ₁ ρ₂
-    inits₁ body₁ obsR₁ ext₁ extB₁ src₁ inits₂ body₂ obsR₂ ext₂ extB₂ src₂ srcG Q GP G₁ G₂ hrun hF₁ hF₂ hFP hextB₁ hext₁ hextB₂ hext₂ hcl
-    w w' m design hcore entry hB
+  intro dP d₁ d₂ dG c c₁ c₂ G nP n₁ n₂ ι dom ρ instP initsP bodyP obsRP extP extBP srcP inst₁ inst₂ ρ₁ ρ₂
+    inits₁ body₁ obsR₁ ext₁ extB₁ src₁ inits₂ body₂ obsR₂ ext₂ extB₂ src₂ srcG mref cref mctx cctx
+    Q GP G₁ G₂ hrun hF₁ hF₂ hFP hextB₁ hext₁ hextB₂ hext₂ hcl w w' m design hcore entry hB
   have hFP' : CallFactF dP nP (letObsB dP dom initsP bodyP extP extBP)
       (fun i bools bits => extP i bools bits (stateLoop initsP (bodyP i bools bits)))
       (fun i bools bits => extBP i bools bits (stateLoop initsP (bodyP i bools bits)))
@@ -113,13 +113,12 @@ theorem composed_split_via_kary : type_of% @Tools.ShippingQuadCalls.quad_compose
       funext fun i => funext fun n => kSrcF_quad2 c₁ c₂ d₁ d₂ n₁ n₂ src₁ src₂ i n
     rw [e1, e2]; exact hFP
   exact kary_composed_split (cs := quad2 c₁ c₂ d₁ d₂ n₁ n₂ src₁ src₂) (KaryAll.ofQuad src₁ src₂ Q) GP
-    (fun e he => by
-      simp only [quad2, List.mem_cons, List.not_mem_nil, or_false] at he
-      rcases he with rfl | rfl
-      · exact { inh := inst₁, ρ := ρ₁, inits := inits₁, body := body₁, obsR := obsR₁, ext := ext₁, extB := extB₁, gen := G₁,
-                hF := hF₁, hextB := hextB₁, hext := hext₁ }
-      · exact { inh := inst₂, ρ := ρ₂, inits := inits₂, body := body₂, obsR := obsR₂, ext := ext₂, extB := extB₂, gen := G₂,
-                hF := hF₂, hextB := hextB₂, hext := hext₂ })
+    (fun j hj => match j, hj with
+      | 0, _ => { inh := inst₁, ρ := ρ₁, inits := inits₁, body := body₁, obsR := obsR₁, ext := ext₁, extB := extB₁, gen := G₁,
+                  hF := hF₁, hextB := hextB₁, hext := hext₁ }
+      | 1, _ => { inh := inst₂, ρ := ρ₂, inits := inits₂, body := body₂, obsR := obsR₂, ext := ext₂, extB := extB₂, gen := G₂,
+                  hF := hF₂, hextB := hextB₂, hext := hext₂ }
+      | n + 2, h => absurd h (by simp [quad2]))
     hrun hFP' hcl hcore entry (KaryBnd.ofQuad src₁ src₂ hB)
 
 /-! ## the audit -/
