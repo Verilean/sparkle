@@ -12,7 +12,7 @@ shortcuts), `String`/`Nat`/`Bool` literals, `evExpr_reflExprS` (the `Expr`-of-`E
 KERNEL-CHECKED guard `dataE_unchanged`: the extracted `dataE` (candidate change, `Tools/ShippingMachineCommand.lean`) equals its pre-extraction text `dataEOrig` by `rfl`.
 META-CHECKS (throw): `reflExpr_samples` (finite sample agreement of `reflExpr`/`reflExprS`: evidence, not a proof), `generateCore_mentions` (names only).
 PREMISES (named): `ReflExprAgree` (`reflExpr` is a `partial def`); `ShapeDenotes` (the stored `d.shape` is the denotation of the shape expression `dataE` declared it
-with: the constant-to-`Expr` link is not formulated in the current implementation and not proved on this route); `hb`/`hl` (`dataE` did not throw).
+with: the constant-to-`Expr` link is not formulated in the current implementation and not proved on this route); `hb`/`hl` (the body `reflExpr` and the `layoutE` builds succeeded — NOT "dataE did not throw": that also needs the `dom` reflection to succeed; integrator wording, par/int-r50).
 OPEN: `Term`s (`termE`) read-back, `dom` is read back (`dom_readback`) but `dom` is not part of `StoredFromRead`. -/
 
 namespace Tools.Prototype.DGenStored2
@@ -656,7 +656,8 @@ constant `x.machineData` is `dataE r` and that the Lean value `d` it defines is 
 def ShapeDenotes (e : Lean.Expr) (v : MachineShape) : Prop := evShape e = some v
 
 /-- **PROVED, conditional on `ReflExprAgree` and the denotation premise `hK`**: `StoredFromRead d r`.
-* `hb`, `hl`: `dataE r` did not throw (its `reflExpr` of the body and its `layoutE` succeeded, with results `b`, `lay`);
+* `hb`, `hl`: the body `reflExpr` and the `layoutE` builds succeeded, with results `b`, `lay` (this is NOT "`dataE r` did not throw", which
+  also needs the `dom` reflection to succeed — integrator wording, par/int-r50);
 * `hK` (**PREMISE (B)**: the stored `d.shape` is the denotation, under `evShape`, of the shape expression `dataE` declared it with: the
   constant-to-`Expr` link is not formulated in the current implementation and not proved on this route);
 * nothing about `Name`/`String`/`Nat`/`List`/`Prod`/`SType`/`binders`/`insts`/`runs`/`loops`/`instFields`/`instOrigins`/`layout`: PROVED. -/
