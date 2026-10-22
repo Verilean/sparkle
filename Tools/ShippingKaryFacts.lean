@@ -1,6 +1,6 @@
 import Tools.ShippingKaryCalls
 import Tools.ShippingQuadHPoint
--- UNBUILT (unit SR21): see STATUS-SR21.md for the run names.
+-- BUILT (unit SR21): k12 exit 0 (dev run); the final-SHA rebuild is in REPORT-SR21.md.
 -- SCOPE (binding, ledger L8ba): the K-ary dispatch equation for the callee-source table, used to build the parent's `CallFactF` (`hFP` of `kary_composed_split`) from one `HPointAt` per call
 -- (`Tools.ShippingQuadHPoint.callFactF_of_hPointAt`, untouched): `kSrcA` (the callees' sources on decoded families, by name) and `kSrcF_eq` (`kSrcF` is `kSrcA` on the decoded families).
 -- The per-call residues `HPointAt … k` themselves are facts about GENERATED definitions and stay per declaration (an instance proves them; see `Tests/Compiler/KaryThreeTest.lean`).

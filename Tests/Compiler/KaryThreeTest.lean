@@ -2,7 +2,7 @@ import Tools.ShippingKaryBridge
 import Tools.ShippingKaryFacts
 import Tools.ShippingSeqParentGenD2MS
 import Tests.Compiler.ChildVertAuditTest
--- UNBUILT (unit SR21): see STATUS-SR21.md for the run names.
+-- BUILT (unit SR21): k12 exit 0 (dev run); the final-SHA rebuild is in REPORT-SR21.md.
 -- SCOPE (binding, ledger L8ba): a NEW example OUTSIDE the two-callee QUAD class, handled by the K-ary lemmas of `Tools/ShippingKary*.lean`: the parent `topshare3` calls THREE different callees
 -- `wrapA` (one call of the leaf, argument `x + y`), `wrapB` (two calls, arguments `x`, `y`), `wrapC` (one call, argument `x + x`), all of which call the SAME 16-bit leaf `leafK`; the call list is
 -- `[wrapA, wrapA, wrapB, wrapB, wrapC, wrapC]` (asserted).  The generator is NOT used and NOT changed (the three-callee parent is outside its class); the endpoint is hand-applied:
@@ -494,7 +494,6 @@ end
 
 open Tests.Compiler.ChildVertAuditTest in
 open Lean Elab Command Meta in
-set_option maxHeartbeats 4000000 in
 run_cmd liftTermElabM do
   let ep := N ++ `topshare3 ++ `epK_endpoint
   let gt ← instantiateMVars (← getConstInfo ep).type
@@ -530,7 +529,6 @@ theorem neg_leaf : wrapB.machineData.shape.insts.map (·.1) ≠ [``leafK, ``leaf
 
 open Tests.Compiler.ChildVertAuditTest in
 open Lean Elab Command Meta in
-set_option maxHeartbeats 4000000 in
 run_cmd liftTermElabM do
   let P := N ++ `topshare3
   let ep := P ++ `epK_endpoint

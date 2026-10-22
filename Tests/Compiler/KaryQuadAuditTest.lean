@@ -1,6 +1,6 @@
 import Tools.ShippingKaryBridge
 import Tests.Compiler.ChildVertAuditTest
--- BUILT (unit SR21): k8 exit 0 (Tests.Compiler.KaryQuadAuditTest, dev run); the final-SHA rebuild is in REPORT-SR21.md.
+-- BUILT (unit SR21): k12 exit 0 (dev run); the final-SHA rebuild is in REPORT-SR21.md.
 -- SCOPE (binding, ledger L8ba): the K = 2 AUDIT.  Each parent-level generic lemma of the two-callee QUAD class (`quad_closes0`, `quad_machineRun`, `quad_entry_run_ret_np`, `quad_ranA`, `quad_hkid`,
 -- `quad_runFacts`, `quad_outsCheck`, `quad_kidsMasked`, `quad_designCheck`, `quad_traceXA`, `quad_soundLA`, `quad_composed_split`) is RE-DERIVED here, with its OLD statement (`type_of%` of the old
 -- constant), from the K-ary lemma at the callee list `quad2 c₁ c₂ d₁ d₂ n₁ n₂ src₁ src₂` and the bridged data bundles (`Tools/ShippingKaryBridge.lean`).  The old lemmas are untouched and stay in the
@@ -124,7 +124,8 @@ theorem composed_split_via_kary : type_of% @Tools.ShippingQuadCalls.quad_compose
 /-! ## the audit -/
 
 open Lean Elab Command Meta in
-set_option maxHeartbeats 4000000 in
+-- scoped raise, unavoidable: `isDefEq` of the large old statements exceeds 200000 at the default (the K-ary proofs themselves run at the default)
+set_option maxHeartbeats 1000000 in
 run_cmd liftTermElabM do
   let pairs : List (Name × Name × Name) :=
     [(``closes0_via_kary, ``Tools.ShippingQuadLeafGeneric.quad_closes0, ``Tools.ShippingKaryLeafGeneric.kary_closes0),
