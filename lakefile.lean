@@ -3718,3 +3718,21 @@ lean_lib «Tools.Prototype.ExtModelLetOk» where
 
 lean_lib «Tests.Compiler.ExtModelAgreeTest» where
   roots := #[`Tests.Compiler.ExtModelAgreeTest]
+
+lean_lib «Tools.Prototype.ExtReaderDefs» where
+  roots := #[`Tools.Prototype.ExtReaderDefs]
+
+lean_lib «Tools.Prototype.ExtReaderShipped» where
+  roots := #[`Tools.Prototype.ExtReaderShipped]
+
+lean_lib «Tools.Prototype.ExtRootFloat» where
+  roots := #[`Tools.Prototype.ExtRootFloat]
+
+lean_lib «Tools.Prototype.ExtReaderLetOk» where
+  roots := #[`Tools.Prototype.ExtReaderLetOk]
+
+lean_lib «Tools.Prototype.ExtReaderClo» where
+  roots := #[`Tools.Prototype.ExtReaderClo]
+
+lean_lib «Tools.Prototype.ExtReaderTab» where
+  roots := #[`Tools.Prototype.ExtReaderTab]
