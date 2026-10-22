@@ -1,5 +1,5 @@
 import Tools.ShippingKaryRun
--- UNBUILT (unit SR21): see STATUS-SR21.md for the run names.
+-- BUILT (unit SR21): k3 exit 0 (Tools.ShippingKaryEntry, dev run); the final-SHA rebuild is in REPORT-SR21.md.
 -- SCOPE (binding, ledger L8ba): the parent-level RUN theorems of the K-callee shared-leaf class, on top of `Tools/ShippingKaryRun.lean` (`kary_closing`).  PROVED here, by
 -- the same proofs as the two-callee forms, with the list of callees `cs : List KCal` in place of `c₁ c₂ d₁ d₂`:
 --  * `kary_machineSynth_ne_none` (K-ary `machineSynth_ne_none4`): the parent's machine synthesis does not fall back at the entry's start world (`JQC O 1`, cache `{}`);

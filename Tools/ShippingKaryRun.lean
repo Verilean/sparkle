@@ -1,6 +1,6 @@
 import Tools.ShippingTopShareNoParent
 import Tools.ShippingQuadLeafGeneric
--- UNBUILT (unit SR21): see STATUS-SR21.md for the run names.
+-- BUILT (unit SR21): k2 exit 0 (Tools.ShippingKaryRun), k3 exit 0 (dev run); the final-SHA rebuild is in REPORT-SR21.md.
 -- SCOPE (binding, ledger L8ba): the RUNTIME layer of the shared-leaf class generalised from TWO callees to a LIST of K callees.  A parent whose call list is
 -- `cs.flatMap (fun e => [e.c, e.c])` (every callee called twice: a cache MISS then a cache HIT, all origins without a memory child) and whose callees are
 -- pairwise different, whose calls are never one of the callees (`hnc`), is closed by `synthesizeChild` on the K groups in order.  PROVED here (by induction on
