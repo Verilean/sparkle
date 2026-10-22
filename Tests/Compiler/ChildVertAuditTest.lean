@@ -66,6 +66,8 @@ import Tools.ShippingEntryDefinesRun
 import Tools.ShippingEntryReadsLinked
 import Tools.ShippingLeafTermKeeps
 import Tools.ShippingSharedLeafHit
+import Tools.ShippingSharedLeafExt
+import Tools.ShippingSharedLeafNL
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -501,7 +503,18 @@ def audited : List Name :=
    ``Tools.ShippingSharedLeafHit.synthesizeChild_hit,
    ``Tools.ShippingSharedLeafHit.synthesizeChild_leafMiss_nested_ins,
    ``Tools.ShippingSharedLeafHit.sharedLeaf_nested,
-   ``Tools.ShippingSharedLeafHit.sharedLeaf_nested_ext]
+   ``Tools.ShippingSharedLeafHit.sharedLeaf_nested_ext,
+   ``Tools.ShippingSharedLeafExt.cacheExtends_of_synthesizeChild,
+   ``Tools.ShippingSharedLeafExt.cacheExtends_of_two_runs,
+   ``Tools.ShippingSharedLeafExt.sharedLeaf_nested_ext_run,
+   ``Tools.ShippingSharedLeafExt.mem_designWith,
+   ``Tools.ShippingSharedLeafExt.cacheClosed_insert_kids,
+   ``Tools.ShippingSharedLeafNL.leafKid_step, ``Tools.ShippingSharedLeafNL.closeLoop_leaf,
+   ``Tools.ShippingSharedLeafNL.closeInstsGM_leafRun, ``Tools.ShippingSharedLeafNL.machineSynth_leafKids,
+   ``Tools.ShippingSharedLeafNL.core_run_tracked, ``Tools.ShippingSharedLeafNL.full_run_tracked,
+   ``Tools.ShippingSharedLeafNL.designWith_hasName,
+   ``Tools.ShippingSharedLeafNL.synthesizeChild_nonleaf_miss, ``Tools.ShippingSharedLeafNL.topshare_pair,
+   ``Tools.ShippingSharedLeafNL.topshare_closing]
 
 end Tests.Compiler.ChildVertAuditTest
 

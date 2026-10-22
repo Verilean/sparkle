@@ -1,6 +1,6 @@
 import Tools.ShippingSharedLeafHit
 import Tools.ShippingChildPinC
--- BUILT (unit SR8): e3 exit 0 on the tree committed with this header; see REPORT-SR8.md for the final-SHA run.
+-- BUILT (unit SR8): see REPORT-SR8.md for run names / exits at the final committed SHA.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
 /-! # Shared leaf: `hext` (cache monotonicity across a non-leaf callee's nested run) from the PIN, and the F1 insert (unit SR8, L8an)
@@ -22,7 +22,7 @@ of `Tools.ShippingChildPinC.synthesizeChild_pinned`; no new premise, no body pre
 `sharedLeaf_nested_ext_run` (`sharedLeaf_nested_ext` with `hext` replaced by one such intermediate run),
 and, for F1, the pure `mem_designWith` / `cacheClosed_insert_kids` (a non-leaf result whose design is
 `designWith kids d₀` with `d₀` empty and `kids` cache entries, inserted at an absent key into a `CacheClosed`
-cache, keeps `CacheClosed`). NOT derived here: `CacheClosed` of the cache AT that insert (see REPORT-SR8). -/
+cache, keeps `CacheClosed`). NOT derived in this file: `CacheClosed` of the cache AT that insert (the invariant along a run); for non-leaf callees whose calls are leaves it is derived in `Tools/ShippingSharedLeafNL.lean` (`synthesizeChild_nonleaf_miss`, by walking the machine branch of the real run). -/
 
 namespace Tools.ShippingSharedLeafExt
 open Lean Meta

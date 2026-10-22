@@ -5,17 +5,28 @@ import Tools.ShippingChildRunAKids
 import Tools.ShippingMachineOutcomeA3
 import Tools.ShippingClosedKinds
 import Tools.ShippingMachineDepthRunR
--- UNBUILT (unit SR8, part A): run names / exits are in REPORT-SR8.md.
+-- BUILT (unit SR8): see REPORT-SR8.md for run names / exits at the final committed SHA.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
-/-! # Shared leaf: the leaf calls of a NON-leaf callee's closing, as real runs (unit SR8, L8an, part A)
+/-! # Shared leaf: the leaf calls of REAL non-leaf callee runs (wrap / wrap3 of `topshare`) (unit SR8, L8an)
 
-`LeafOK n` bundles the data premises the SR6/SR7 leaf miss already takes about the leaf `n`. `leafKid_step`:
-ONE real run of `synthesizeChild n` for such an `n` (a cache hit OR the real leaf miss) from a world with
-`JQC`, `CacheClosed`, `KeyTop` ends in a world with the same three clauses, `(cv w').get? n = some y`, the cache
-extended, and every new key equal to `n`. `closeLoop_leaf`: the `mapM` loop of the general closing over a list of
-leaf calls (the loop that `closeInstsGM` runs) does the same for the whole list; the child `k` IS the end
-cache's entry at the callee `k`. `closeInstsGM_leafRun`: the closing run with that. -/
+Extraction from the real runs, no `T` and no pin (`O`, `hA` only):
+* A: `LeafOK n` (the data premises of the SR6/SR7 leaf miss), `leafKid_step` (ONE real run of `synthesizeChild n`: a
+  hit or the real leaf miss), `closeLoop_leaf` / `closeInstsGM_leafRun` (the `mapM` loop of `closeInstsGM` over
+  leaf calls: child `k` IS the end cache's entry at callee `k`; the cache only gains callee keys).
+* B: `machineSynth_leafKids` (the machine synthesis of a machine WITH calls: harness keeps the cache value
+  (translator on the quoted body), `closeLets` pure, closing = `closeInstsGM`); `core_run_tracked` (the nested
+  core entry with worlds tracked: prefix and `finally` are cache-neutral); `full_run_tracked` (clean-up);
+  `designWith_hasName`.
+* C: `synthesizeChild_nonleaf_miss` (a real miss of a non-leaf callee whose calls are leaves: `CacheClosed`/`KeyTop`
+  kept, cache extended, every call's child = the cache entry at the callee, its module name is in the design).
+* D: `topshare_pair` (the two callee runs in sequence: end cache `CacheCoh`; the shared leaf's entry `e` has `e.1` inside
+  BOTH designs; retention of the first callee's entries across the second run is DERIVED: `CacheExtends` of the second miss),
+  `topshare_closing` (the parent's `closeInstsGM` run over `[(c₁,o₁),(c₂,o₂)]`: `hcross` shape for the two children).
+NOT done here: the parent's own core run is not connected to the start of its closing (start-cache clauses `JQC`/
+`CacheClosed`/`KeyTop`/absence are premises of the closing run); no instantiation at the declarations `wrap`, `wrap3`,
+`acc` (their `MachineDefines`/`MachineClosesAtA`/data premises stay premises); callees whose calls are not leaves
+(`topd3`), memory-bearing children (`not_cacheClosed_of_mem`) are outside; the generator still REFUSES `topshare`. -/
 
 namespace Tools.ShippingSharedLeafNL
 open Lean Meta
