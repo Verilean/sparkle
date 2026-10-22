@@ -1,6 +1,8 @@
 import Tools.ShippingSharedLeafExt
 import Tools.ShippingCallsMemPinned
 import Tools.ShippingLeafTermKeeps
+import Tools.ShippingChildRunAKids
+import Tools.ShippingMachineOutcomeA3
 -- UNBUILT (unit SR8, part A): run names / exits are in REPORT-SR8.md.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
@@ -27,6 +29,7 @@ open Tools.ShippingMachineCloses Tools.ShippingSeqChildIface Tools.ShippingSeqCh
 open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
 open Tools.ShippingMachineAuto Tools.ShippingMixedEntrySoundness
 open Sparkle.Compiler.MachInstOrigin (InstOrigin)
+open Tools.ShippingChildRunAKids Tools.ShippingMachineOutcomeA3 Tools.ShippingChildCoreC Tools.ShippingChildVertA
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -225,9 +228,97 @@ theorem machineSynth_leafKids (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.
   · have := RunsTo.pure_eq hr
     cases this
 
+/-! ## The nested core entry, with the worlds tracked (part B2) -/
+
+/-- **A returning run of the nested core entry (`D ≠ 0`) of a machine callee, with the cache tracked.** The
+machine synthesis starts in a `JQC O (D + 1)` world with the SAME cache value as the entry's start (the prefix
+is cache-neutral, `JK`), and the entry's end world has the SAME cache value as the machine synthesis's end (the
+`finally` is cache-neutral, `finK`) and is `JQC O D`. `entry`/`closes` as in `machine_run_of_coreA`. -/
+theorem core_run_tracked (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} (hD : D ≠ 0) {c : Name} {shape : MachineShape}
+    (entry : MachineDefines mctx mref cctx cref c shape)
+    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx c shape)
+    {w w1 : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {Dg : Sparkle.IR.AST.Design}
+    (hw : JQC O D w)
+    (hr : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, Dg) w1) :
+    ∃ (tenv : Lean.Environment) (b : Bool) (w9 w10 : Void IO.RealWorld),
+      RunsTo (synthesizeMachineCertified
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c shape)
+        mctx mref cctx cref w9 (some (M, Dg)) w10 ∧
+      JQC O (D + 1) w9 ∧ cv w9 = cv w ∧ (JQC O (D + 1) w10 → JQC O D w1 ∧ cv w1 = cv w10) := by
+  unfold synthesizeCombinationalCore synthesizeCombinationalCoreWith at hr
+  simp only [Bool.false_eq_true, ↓reduceIte] at hr
+  have hwK : JK O D (cv w) w := ⟨hw, rfl⟩
+  obtain ⟨prof, wa, s1, hr⟩ := RunsTo.bind hr
+  have hw := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableK O D (cv w))
+    (FramedA.ioEnv _))) hwK s1
+  obtain ⟨_, wb, s2, hr⟩ := RunsTo.bind hr
+  have hw := triple_runs (keeps_iff.mp (keepsA_diag O hA (stableK O D (cv w))
+    (Diag.profLog prof.isSome _))) hw s2
+  obtain ⟨d, wc, s3, hr⟩ := RunsTo.bind hr
+  have hd := triple_runs (tripleA_depthGet O hA (stableK O D (cv w))) hw s3
+  have hdD : d = D := hd.2.trans hd.1.1.1.2.2
+  have hw := hd.1
+  subst hdD
+  rcases RunsTo.ite hr with hr | hr
+  · obtain ⟨_, _, ht, _⟩ := RunsTo.bind hr
+    exact (throwError_not_runs _ ht).elim
+  have h0' : ¬ ((d == 0) = true) := by simpa using hD
+  simp only [h0', Bool.false_eq_true, ↓reduceIte] at hr
+  peelF O hA (stableK O d (cv w)) hr hw; peelF O hA (stableK O d (cv w)) hr hw
+  peelF O hA (stableK O d (cv w)) hr hw; peelF O hA (stableK O d (cv w)) hr hw
+  peelF O hA (stableK O d (cv w)) hr hw; peelF O hA (stableK O d (cv w)) hr hw
+  peelF O hA (stableK O d (cv w)) hr hw
+  peelF O hA (stableK O d (cv w)) hr hw; peelF O hA (stableK O d (cv w)) hr hw
+  peelF O hA (stableK O d (cv w)) hr hw; peelF O hA (stableK O d (cv w)) hr hw
+  peelF O hA (stableK O d (cv w)) hr hw; peelF O hA (stableK O d (cv w)) hr hw
+  peelF O hA (stableK O d (cv w)) hr hw
+  obtain ⟨_, _, step, hr⟩ := RunsTo.bind hr
+  have hw := triple_runs (tripleK_depthSet O hA d (d + 1) (cv w) (R := fun _ _ => False)) hw step
+  clear step
+  obtain ⟨w4, u, hbody, hfin⟩ := RunsTo.try_finally' hr
+  obtain ⟨ci, w2, hget, hbody⟩ := RunsTo.bind hbody
+  have hw2 := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableK O (d + 1) (cv w))
+    (FramedA.constInfo _))) hw hget
+  obtain ⟨env, w2b, henv, hbody⟩ := RunsTo.bind hbody
+  have hw2b := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableK O (d + 1) (cv w))
+    FramedA.env)) hw2 henv
+  obtain ⟨old, miss, _⟩ := entry _ _ _ _ _ _ _ _ _ hget henv henv
+  unfold synthesizeFromConst at hbody
+  simp only [↓reduceIte, old, miss, Bool.not_false, Bool.and_self, List.isEmpty_nil] at hbody
+  obtain ⟨envR, w5, henv', hbody⟩ := RunsTo.bind hbody
+  have hw5 := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableK O (d + 1) (cv w))
+    FramedA.env)) hw2b henv'
+  obtain ⟨mach, w6, hp, hbody⟩ := RunsTo.bind hbody
+  obtain ⟨hm, rfl⟩ := RunsTo.pure_world hp
+  subst hm
+  obtain ⟨_, _, hshape⟩ := entry _ _ _ _ _ _ _ _ _ hget henv henv'
+  rw [hshape] at hbody
+  dsimp only at hbody
+  obtain ⟨r, w8, hmach, hbody⟩ := RunsTo.bind hbody
+  have hne := closes (tenv := env) prof.isSome (d + 1) _ r w8 hw5.1
+    (Nat.succ_le_succ (Nat.zero_le d)) hmach
+  cases r with
+  | none => exact absurd rfl hne
+  | some res =>
+    dsimp only at hbody
+    obtain ⟨_, wl, s1', hbody⟩ := RunsTo.bind hbody
+    obtain ⟨_, wm, s2', hbody⟩ := RunsTo.bind hbody
+    obtain ⟨hres, rfl⟩ := RunsTo.pure_world hbody
+    cases hres
+    refine ⟨env, prof.isSome, w6, w8, hmach, hw5.1, hw5.2, ?_⟩
+    intro hJ8
+    have h1 := triple_runs (keeps_iff.mp (keepsA_diag O hA (stableK O (d + 1) (cv w8))
+      (Diag.profLog prof.isSome _))) ⟨hJ8, rfl⟩ s1'
+    have h2 := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableK O (d + 1) (cv w8))
+      (FramedA.sideModify _ .subModule))) h1 s2'
+    have h3 := triple_runs (finK O hA d (cv w8) _ _ _ _ _ _ _) h2 hfin
+    exact ⟨h3.1, h3.2⟩
+
 end Tools.ShippingSharedLeafNL
 
 #print axioms Tools.ShippingSharedLeafNL.leafKid_step
 #print axioms Tools.ShippingSharedLeafNL.closeLoop_leaf
 #print axioms Tools.ShippingSharedLeafNL.closeInstsGM_leafRun
 #print axioms Tools.ShippingSharedLeafNL.machineSynth_leafKids
+#print axioms Tools.ShippingSharedLeafNL.core_run_tracked
