@@ -231,7 +231,7 @@ def refusedM (decl : Name) (needles : List String) : CommandElabM Unit := do
 
 open Lean Meta Elab Command in
 run_cmd do
-  refusedM ``Tests.Compiler.SeqDeepGenDiffTest.topshare ["REFUSED", "SAME leaf", "hdisjD", "acc", "wrap3"]
+  refusedM ``Tests.Compiler.SeqDeepGenDiffTest.topshare ["REFUSED", "SAME leaf", "hdisjD", "acc", "wrap3", "unit SR3x", "RealChildA"]
   refusedM ``Tests.Compiler.SeqDeepGenDiffTest.topmix ["REFUSED", "LEAF", "cnt"]
   refusedM ``Tests.Compiler.SeqDeepGenDiffTest.topd3 ["REFUSED", "depth 3", "wrap4", "wrap"]
   refusedM ``Tests.Compiler.SeqDeepGenDiffTest.topdmem ["REFUSED", "memory in P", "topdmem"]

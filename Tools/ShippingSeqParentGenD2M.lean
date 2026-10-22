@@ -1,5 +1,5 @@
 import Tools.ShippingSeqParentGenD2
--- BUILT (unit SR3w): m1 exit 0 (module), m2/m3(exit 1: my asserted call lists and the audit traversal order)/m4/m5 exit 0 (Tests.Compiler.SeqDeepGenDiffTest, SeqDeepGenDiffConclTest), r1 exit 1 (universe error in `oldInstGroups`) /r2/r3/f1 exit 0 (group numbering read from the old term; Tests.Compiler.SeqDeepGenGroupTest).
+-- UNIT SR3x: only the REFUSAL text for callees sharing a leaf changed (step that fails stated); builds x3 (see report). BUILT (unit SR3w): m1 exit 0 (module), m2/m3(exit 1: my asserted call lists and the audit traversal order)/m4/m5 exit 0 (Tests.Compiler.SeqDeepGenDiffTest, SeqDeepGenDiffConclTest), r1 exit 1 (universe error in `oldInstGroups`) /r2/r3/f1 exit 0 (group numbering read from the old term; Tests.Compiler.SeqDeepGenGroupTest).
 /-! # `#machine_seq_parent_endpoint P`, DEPTH-2 path with SEVERAL DIFFERENT callees at the parent (unit SR3w, ledger L8af)
 
 A THIRD elaborator for the same command syntax (the depth-1 elaborator of `Tools/ShippingSeqParentGen.lean` and the one-callee depth-2
@@ -22,7 +22,9 @@ names `P.epD2M{i}_*`); the parent level uses callee-dispatch families (`epD2M_ou
   mix `MachineRun` and `MachineRunNCA`, and the parent's `ChildIfaceP` / `KidFactsA` for a leaf next to a deep callee is not instantiated here; OPEN;
 * two callees that call the SAME leaf `G` (OR a leaf that is also a callee): the library closing `Tools.ShippingCallsMemPinned.machineClosesAtA_of_memKids'`
   has the premise `hdisjD` (the sets of module names of two different call classes must be disjoint), which is FALSE when both contain `G`; the old
-  piece that is MISSING is a closing lemma for different callees that share a module (a cache-aware disjointness);
+  piece that is MISSING is a closing lemma for different callees that share a module. Unit SR3x examined it: the step that fails is the equality of
+  the two same-named modules of the callees' results (`KidTA`/`RealChildA` are histories of past runs; no law relates two runs of one declaration);
+  a premise `hagree` for it would restate that obligation, so none was added;
 * memory in `P` / a callee / a leaf; several leaves of ONE callee; depth 3 (a leaf with calls of its own); a non-polymorphic callee; no instField;
   a missing generated piece; a group numbering that cannot be aligned with the old generated `hcalls`.
 
@@ -782,7 +784,7 @@ def analyseM (fn : Name) : CommandElabM D2MParams := do
   for G in Gs.toList do
     if Gs.toList.count G > 1 then
       let who := (Cs.zip Gs.toList).filter (·.2 == G) |>.map (·.1)
-      refuseM fn s!"the callees {who} call the SAME leaf {G}: the closing lemma `Tools.ShippingCallsMemPinned.machineClosesAtA_of_memKids'` has the premise `hdisjD` (the module-name sets of two DIFFERENT call classes must be disjoint), which is FALSE when both contain {G}; the old piece that is MISSING is a closing lemma for different callees that share a module (OPEN)"
+      refuseM fn s!"the callees {who} call the SAME leaf {G}: the closing lemma `Tools.ShippingCallsMemPinned.machineClosesAtA_of_memKids'` has the premise `hdisjD` (the module-name sets of two DIFFERENT call classes must be disjoint), which is FALSE when both contain {G}; the step that FAILS (unit SR3x): the last obligation of that closing is that a module of callee i's result and a module of callee j's result with one name are EQUAL; the children are `KidTA`/`RealChildA` values, i.e. results of PAST runs of `synthesizeCombinational`, and no law of `RefLawsAOps` or invariant relates two such runs (two compiles of {G} are not known equal); a premise stating it would be that obligation itself (a restated premise, not a lemma) and could not be discharged for {G} (OPEN)"
     if Cs.contains G then refuseM fn s!"the leaf {G} is also a callee of the parent: `hdisjD` of `machineClosesAtA_of_memKids'` cannot hold (OPEN)"
     if G == fn then refuseM fn s!"the leaf {G} is the parent itself"
   let al ← liftTermElabM do readNatLists (← elabText s!"({fn}.machineData.shape.insts.map (·.2.1))")
