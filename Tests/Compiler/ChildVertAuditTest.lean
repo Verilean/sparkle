@@ -87,6 +87,8 @@ import Tools.ShippingKaryCalls
 import Tools.ShippingKaryFacts
 import Tools.ShippingKaryBridge
 import Tools.ShippingKaryReturned
+import Tools.ShippingMemLeafCache
+import Tools.ShippingMemLeafRun
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -569,7 +571,14 @@ def audited : List Name :=
    ``Tools.ShippingKaryComposed.kary_soundLA, ``Tools.ShippingKaryComposed.kary_inRange,
    ``Tools.ShippingKaryCalls.kary_composed_split, ``Tools.ShippingKaryFacts.kSrcF_eq,
    ``Tools.ShippingKaryBridge.KaryParentData.ofQuad, ``Tools.ShippingKaryBridge.KaryAll.ofQuad, ``Tools.ShippingKaryBridge.KaryBnd.ofQuad,
-   ``Tools.ShippingKaryReturned.kary_returned, ``Tools.ShippingKaryReturned.kary_wired]
+   ``Tools.ShippingKaryReturned.kary_returned, ``Tools.ShippingKaryReturned.kary_wired,
+   -- SRM1: shared leaf / callee with a memory child (cache clauses CacheClosedNM + MemDet, memory-aware real runs)
+   ``Tools.ShippingMemLeafCache.cacheCoh_of_nm, ``Tools.ShippingMemLeafCache.cacheClosedNM_insert_kids, ``Tools.ShippingMemLeafCache.memDet_insert_kids,
+   ``Tools.ShippingMemLeafCache.cacheClosedNM_insert_leaf, ``Tools.ShippingMemLeafCache.memDet_insert_leaf,
+   ``Tools.ShippingMemLeafRun.closeLoop_gen, ``Tools.ShippingMemLeafRun.closeInstsGM_gen, ``Tools.ShippingMemLeafRun.machineSynth_gen,
+   ``Tools.ShippingMemLeafRun.synthesizeChild_miss_nm, ``Tools.ShippingMemLeafRun.stepNM_of_data, ``Tools.ShippingMemLeafRun.memTags_of_data,
+   ``Tools.ShippingMemLeafRun.leafKid_step_nm, ``Tools.ShippingMemLeafRun.hcalls_of_names, ``Tools.ShippingMemLeafRun.memLeaf_stepNM,
+   ``Tools.ShippingMemLeafRun.calleeOverLeaf_stepNM, ``Tools.ShippingMemLeafRun.closing_nm]
 
 end Tests.Compiler.ChildVertAuditTest
 
