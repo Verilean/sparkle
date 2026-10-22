@@ -3932,3 +3932,6 @@ lean_lib «Tests.Compiler.KaryQuadAuditTest» where
 
 lean_lib «Tools.ShippingKaryFacts» where
   roots := #[`Tools.ShippingKaryFacts]
+
+lean_lib «Tests.Compiler.KaryThreeTest» where
+  roots := #[`Tests.Compiler.KaryThreeTest]
