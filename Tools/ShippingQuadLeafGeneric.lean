@@ -2,6 +2,7 @@ import Tools.ShippingTopShareNoParent
 import Tools.ShippingSeqChildDeepIfacePA
 import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingCallsMemPinned
+import Tools.ShippingServedRealA
 -- UNBUILT (unit SR13, commit 1 of 2): run names are recorded in REPORT-SR13.md (final-SHA rebuild there).
 -- SCOPE (binding): DATA-GENERIC lemmas of the shared-leaf class "QUAD" — a parent `dP` whose four call entries are `[c₁, c₁, c₂, c₂]`
 -- (all four origins without a memory child), two DIFFERENT callees `c₁`, `c₂` whose calls are ALL one NON-memory LEAF `G` (the SAME leaf for
@@ -312,4 +313,78 @@ theorem quad_closes0 (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quie
     (fun k hk hx => Tools.ShippingModuleName.ofDecl_ne hP.cneG (List.mem_singleton.mp hx))
     hj hcv hr
 
+/-- `MachineRunJQC` of the parent at depth `1` from ONE core run at depth `0` (generic form of `topshare_machineRun`). -/
+theorem quad_machineRun (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (hA : AdmCtx O.quiet mctx cctx) {dP d₁ d₂ dG : MachineData} {c c₁ c₂ G : Name} {nP n₁ n₂ : Nat}
+    (hP : QuadParentData dP d₁ d₂ c c₁ c₂ G nP)
+    (hG : LeafData dG) (h₁ : LeafCalleeData d₁ dG c₁ G n₁) (h₂ : LeafCalleeData d₂ dG c₂ G n₂)
+    (entryP : MachineDefines mctx mref cctx cref c dP.shape)
+    (entry₁ : MachineDefines mctx mref cctx cref c₁ d₁.shape)
+    (entry₂ : MachineDefines mctx mref cctx cref c₂ d₂.shape)
+    (hR0 : MachineDefines mctx mref cctx cref G dG.shape)
+    (hcl : ∀ (mc : Meta.Context) (cc : Core.Context), MachineCloses mc mref cc cref G dG.shape)
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hw : JQC O 0 w)
+    (hcore : RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (m, design) w') :
+    Tools.ShippingServedRealA.MachineRunJQC O mctx cctx 1 c dP.shape m design := by
+  obtain ⟨tenv, b, w9, w10, hmach, hw9, -, -⟩ :=
+    core_run_tracked0' O hA entryP (quad_closes0 O T hA hP hG h₁ h₂ entry₁ entry₂ hR0 hcl) hw hcore
+  exact ⟨tenv, b, w9, w10, hmach, hw9⟩
+
+/-- **The parent's own run with the returned value linked and no parent module in `Dg`** (generic form of the premises-wiring of
+`topshare_returned`; the conclusion is that of `Tools.ShippingTopShareNoParent.topshare_entry_run4_ret_np`). -/
+theorem quad_entry_run_ret_np (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (hA : AdmCtx O.quiet mctx cctx) {dP d₁ d₂ dG : MachineData} {c c₁ c₂ G : Name} {nP n₁ n₂ : Nat}
+    (hP : QuadParentData dP d₁ d₂ c c₁ c₂ G nP)
+    (hG : LeafData dG) (h₁ : LeafCalleeData d₁ dG c₁ G n₁) (h₂ : LeafCalleeData d₂ dG c₂ G n₂)
+    (entryP : MachineDefines mctx mref cctx cref c dP.shape)
+    (entry₁ : MachineDefines mctx mref cctx cref c₁ d₁.shape)
+    (entry₂ : MachineDefines mctx mref cctx cref c₂ d₂.shape)
+    (hR0 : MachineDefines mctx mref cctx cref G dG.shape)
+    (hcl : ∀ (mc : Meta.Context) (cc : Core.Context), MachineCloses mc mref cc cref G dG.shape)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O 0 w)
+    (h : RunsTo (synthesizeCombinational c) mctx mref cctx cref w y w') :
+    ∃ (y₁ y₂ : Res) (t t' : Sparkle.IR.AST.Module) (d₀ : Sparkle.IR.AST.Design)
+      (M : Sparkle.IR.AST.Module) (Dg : Sparkle.IR.AST.Design) (w10 wc : Void IO.RealWorld),
+      closeLets dP.shape.layout.lets t = some t' ∧
+      some (M, Dg) = Sparkle.IR.Machine.closeInstsG (machNIn dP.shape) dP.shape.insts.length
+        dP.shape.layout.slots.length (t.inputs.map (·.name)) (dP.shape.insts.map (·.2.1))
+        dP.shape.instFields [y₁, y₁, y₂, y₂] (closeMachine dP.shape.layout t', d₀) ∧
+      JQC O 0 w' ∧ cv w' = cv w10 ∧
+      CacheClosed (cv w10) ∧ KeyTop (cv w10) ∧ CacheCoh (cv w10) ∧
+      (cv w10).get? c₁ = some y₁ ∧ (cv w10).get? c₂ = some y₂ ∧
+      (∀ a ∈ ModsOf y₁, ∀ b ∈ ModsOf y₂, a.name = b.name → a = b) ∧
+      (∀ k₁ (hk₁ : k₁ < d₁.shape.insts.length) k₂ (hk₂ : k₂ < d₂.shape.insts.length),
+        (d₁.shape.insts[k₁]).1 = (d₂.shape.insts[k₂]).1 →
+        ∃ e, (cv w10).get? (d₁.shape.insts[k₁]).1 = some e ∧ e.1 ∈ y₁.2.modules ∧ e.1 ∈ y₂.2.modules) ∧
+      RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (M, Dg) wc ∧ cv wc = cv w10 ∧
+      ((y.1 = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∧
+          y.2 = topMap M.name Sparkle.IR.ZeroWidth.dropZeroWidthModule Dg) ∨
+       (y.1 = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M) ∧
+          y.2 = topMap M.name Sparkle.IR.RefineCheck.mergeChecked
+            (topMap M.name Sparkle.IR.ZeroWidth.dropZeroWidthModule Dg))) ∧
+      (∀ x ∈ Dg.modules, x.name ≠ M.name) := by
+  obtain ⟨o₁, o₁', o₂, o₂', ho₁, ho₁', ho₂, ho₂', hPt⟩ := quad_shape hP.names hP.child
+  have hc2not : ∀ k (hk : k < d₁.shape.insts.length), (d₁.shape.insts[k]).1 ≠ c₂ := by
+    intro k hk e
+    rw [(h₁.kids k hk).1] at e
+    exact h₂.GneC e
+  exact Tools.ShippingTopShareNoParent.topshare_entry_run4_ret_np O hA hP.c12 ho₁ ho₁' ho₂ ho₂' dP hP.ok hP.body
+    hP.insts_ne hP.fne hP.callsOk hP.slots hP.domB hPt entryP
+    (quad_closes0 O T hA hP hG h₁ h₂ entry₁ entry₂ hR0 hcl) d₁ d₂
+    (leafCallee_calleeOK O T hA hG h₁ entry₁ hR0 hcl) (leafCallee_calleeOK O T hA hG h₂ entry₂ hR0 hcl) hc2not
+    hP.cne1 hP.cne2
+    (fun k hk e => hP.cneG (by rw [← e, (h₁.kids k hk).1]))
+    (fun k hk e => hP.cneG (by rw [← e, (h₂.kids k hk).1])) hw h
+
 end Tools.ShippingQuadLeafGeneric
+
+#print axioms Tools.ShippingQuadLeafGeneric.leafCallee_closesA
+#print axioms Tools.ShippingQuadLeafGeneric.leafCallee_hsep
+#print axioms Tools.ShippingQuadLeafGeneric.leafCallee_hgk
+#print axioms Tools.ShippingQuadLeafGeneric.leafCallee_ifaceP
+#print axioms Tools.ShippingQuadLeafGeneric.leafCallee_calleeOK
+#print axioms Tools.ShippingQuadLeafGeneric.quad_shape
+#print axioms Tools.ShippingQuadLeafGeneric.quad_closes0
+#print axioms Tools.ShippingQuadLeafGeneric.quad_machineRun
+#print axioms Tools.ShippingQuadLeafGeneric.quad_entry_run_ret_np

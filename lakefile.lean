@@ -3848,3 +3848,6 @@ lean_lib «Tools.ShippingSeqParentAt» where
 
 lean_lib «Tools.ShippingQuadLeafGeneric» where
   roots := #[`Tools.ShippingQuadLeafGeneric]
+
+lean_lib «Tests.Compiler.QuadLeafGenericTest» where
+  roots := #[`Tests.Compiler.QuadLeafGenericTest]
