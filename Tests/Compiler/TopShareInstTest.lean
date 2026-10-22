@@ -297,8 +297,124 @@ theorem wrap3_ifaceP {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean
     _ (wrap3_hgk O hR0) (wrap3_hsep O hR0) entry
     (fun _ _ hA' => wrap3_closesA O T hA' (Tools.ShippingReflectCtx.MachineDefines.ctx hR0)) h
 
+/-- group functions of the parent's four calls (`wrap`, `wrap`, `wrap3`, `wrap3`) -/
+def nameK (k : Nat) : String :=
+  if k < 2 then Sparkle.IR.ModuleName.ofDecl wrapN
+  else Sparkle.IR.ModuleName.ofDecl ``Tests.Compiler.SeqDeepGenDiffTest.wrap3
+noncomputable def nkK (k : Nat) : Nat :=
+  if k < 2 then machNIn Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape
+  else machNIn wrap3.machineData.shape
+noncomputable def outsK (k : Nat) : List String :=
+  if k < 2 then Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.layout.outs.map (·.name)
+  else wrap3.machineData.shape.layout.outs.map (·.name)
+def namesK (_ : Nat) : List String := [Sparkle.IR.ModuleName.ofDecl accN]
+
+theorem topshare_halias : topshare.machineData.letsAliasOk = true := by first | decide | decide +kernel
+theorem topshare_hC : topshare.machineData.callsOk 3 = true := by first | decide | decide +kernel
+theorem topshare_hslots : topshare.machineData.ss.length = topshare.machineData.shape.layout.slots.length := by
+  first | decide | decide +kernel
+theorem topshare_hdomB : ∀ b ∈ topshare.machineData.shape.binders.drop 3, b.2 ≠ .domain := by
+  first | decide | decide +kernel
+theorem topshare_hlen4 : topshare.machineData.shape.insts.length = 4 := by first | decide | decide +kernel
+theorem topshare_hmk : ∀ k (hk : k < topshare.machineData.shape.insts.length),
+    Tools.ShippingMemCloses.memKey (originAt topshare.machineData.shape k) = none := by
+  first | decide | decide +kernel
+theorem topshare_hargsN : ∀ (k : Nat) (hk : k < topshare.machineData.shape.insts.length),
+    nkK k = (topshare.machineData.shape.insts[k]).2.1.length := by
+  first | decide | decide +kernel
+theorem topshare_hfieldOut : ∀ (k : Nat), k < topshare.machineData.shape.insts.length →
+    topshare.machineData.shape.instFields.getD k "" ∈ outsK k := by
+  first | decide | decide +kernel
+theorem topshare_hfieldsNd : ∀ (k : Nat) (hk : k < topshare.machineData.shape.insts.length) (k' : Nat)
+    (hk' : k' < topshare.machineData.shape.insts.length),
+    (topshare.machineData.shape.insts[k]).1 = (topshare.machineData.shape.insts[k']).1 →
+    Tools.ShippingMemCloses.memKey (originAt topshare.machineData.shape k) =
+      Tools.ShippingMemCloses.memKey (originAt topshare.machineData.shape k') →
+    (topshare.machineData.shape.insts[k]).2.1 = (topshare.machineData.shape.insts[k']).2.1 →
+    topshare.machineData.shape.instFields.getD k "" = topshare.machineData.shape.instFields.getD k' "" → k = k' := by
+  first | decide | decide +kernel
+theorem topshare_hsep : ∀ (k : Nat) (hk : k < topshare.machineData.shape.insts.length) (k' : Nat)
+    (hk' : k' < topshare.machineData.shape.insts.length), nameK k = nameK k' →
+    (topshare.machineData.shape.insts[k]).1 = (topshare.machineData.shape.insts[k']).1 ∧
+      Tools.ShippingMemCloses.memKey (originAt topshare.machineData.shape k) =
+        Tools.ShippingMemCloses.memKey (originAt topshare.machineData.shape k') := by
+  first | decide | decide +kernel
+theorem topshare_hparent : ∀ (k : Nat), k < topshare.machineData.shape.insts.length →
+    nameK k ≠ Sparkle.IR.ModuleName.ofDecl ``Tests.Compiler.SeqDeepGenDiffTest.topshare := by
+  first | decide | decide +kernel
+theorem topshare_hfresh : ∀ (gi : Nat) (k : Nat), k < topshare.machineData.shape.insts.length →
+    ∀ o ∈ topshare.machineData.shape.layout.outs, o.name ≠ s!"inst{gi}_{nameK k}" := by
+  intro gi k _ o ho
+  have : ∀ o ∈ topshare.machineData.shape.layout.outs, o.name.toList.head? ≠ some 'i' := by
+    first | decide | decide +kernel
+  exact Tools.ShippingCallsGate.instName_ne_of_head (this o ho) gi _
+theorem topshare_hparentD : ∀ (k : Nat), k < topshare.machineData.shape.insts.length →
+    Sparkle.IR.ModuleName.ofDecl ``Tests.Compiler.SeqDeepGenDiffTest.topshare ∉ namesK k := by
+  first | decide | decide +kernel
+
+/-- **THE PARENT'S OWN RUN AT `wrap`, `wrap3`, `acc` (`topshare`), without a `MachineClosesAtA` premise on `topshare`.**
+Same conclusion as `topshare_entry_run_inst`; the parent's no-fallback premise is DERIVED at the entry's start world
+(`machineSynth_ne_none4`: `closeLets` accepted, the closing returns `closeInstsG … [y₁,y₁,y₂,y₂]` which is `some` by
+`closeInstsG_of_kidsPT` with `hcross` from `topshare_quad`; the children's interfaces `ChildIfaceP` from `RealChildA`:
+the end cache is a `CacheInvA` cache; the data facts are kernel-checked). PREMISES (named): `O`, `hA`, `T`,
+`MachineDefines` of `topshare`, `wrap`, `wrap3`, `acc`. The generator still REFUSES `topshare`. -/
+theorem topshare_entry_run_inst' {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (hA : AdmCtx O.quiet mctx cctx)
+    (entryT : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.topshare
+      topshare.machineData.shape)
+    (entryW : MachineDefines mctx mref cctx cref wrapN Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape)
+    (entryW3 : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 wrap3.machineData.shape)
+    (hR0 : MachineDefines mctx mref cctx cref accN
+      Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData.shape)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O 0 w)
+    (h : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinational ``Tests.Compiler.SeqDeepGenDiffTest.topshare)
+      mctx mref cctx cref w y w') :
+    ∃ (y₁ y₂ : Res) (t t' : Sparkle.IR.AST.Module) (d₀ : Sparkle.IR.AST.Design)
+      (M : Sparkle.IR.AST.Module) (Dg : Sparkle.IR.AST.Design) (w10 : Void IO.RealWorld),
+      Sparkle.IR.Machine.closeLets topshare.machineData.shape.layout.lets t = some t' ∧
+      some (M, Dg) = Sparkle.IR.Machine.closeInstsG (machNIn topshare.machineData.shape)
+        topshare.machineData.shape.insts.length topshare.machineData.shape.layout.slots.length
+        (t.inputs.map (·.name)) (topshare.machineData.shape.insts.map (·.2.1))
+        topshare.machineData.shape.instFields [y₁, y₁, y₂, y₂]
+        (Sparkle.IR.Machine.closeMachine topshare.machineData.shape.layout t', d₀) ∧
+      JQC O 0 w' ∧ cv w' = cv w10 ∧
+      CacheClosed (cv w10) ∧ KeyTop (cv w10) ∧ CacheCoh (cv w10) ∧
+      (cv w10).get? wrapN = some y₁ ∧ (cv w10).get? ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 = some y₂ ∧
+      (∀ a ∈ ModsOf y₁, ∀ b ∈ ModsOf y₂, a.name = b.name → a = b) ∧
+      ∀ k₁ (hk₁ : k₁ < Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts.length)
+        k₂ (hk₂ : k₂ < wrap3.machineData.shape.insts.length),
+        (Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts[k₁]).1 =
+          (wrap3.machineData.shape.insts[k₂]).1 →
+        ∃ e, (cv w10).get? (Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts[k₁]).1 = some e ∧
+          e.1 ∈ y₁.2.modules ∧ e.1 ∈ y₂.2.modules := by
+  obtain ⟨o₁, o₁', o₂, o₂', h1, h1', h2, h2', hP⟩ := topshare_instTagged_shape
+  have closes0 : MachineClosesAtStart0 (mref := mref) (cref := cref) O mctx cctx
+      ``Tests.Compiler.SeqDeepGenDiffTest.topshare topshare.machineData.shape := by
+    intro tenv b w9 r w10 hj hcv hr
+    exact machineSynth_ne_none4 O hA (by decide) h1 h1' h2 h2' topshare.machineData topshare.machine_ok
+      topshare.machine_body topshare_halias topshare_hC topshare_hslots topshare_hdomB
+      (by first | decide | decide +kernel) (by first | decide | decide +kernel) hP topshare_hlen4 topshare_hmk
+      _ _ (wrap_calleeOK O T hA entryW hR0) (wrap3_calleeOK O T hA entryW3 hR0) topshare_calleeOKs_ne
+      nameK nkK outsK namesK
+      (fun y hy k hk => by
+        have := topdiff2.epD2M0_C_ifaceP O T entryW hR0 hy
+        simpa [nameK, nkK, outsK, namesK, if_pos hk] using this)
+      (fun y hy k hk2 hk4 => by
+        have := wrap3_ifaceP O T hA entryW3 hR0 hy
+        simpa [nameK, nkK, outsK, namesK, if_neg (Nat.not_lt.mpr hk2)] using this)
+      topshare_hargsN topshare_hfieldOut topshare_hfieldsNd topshare_hsep topshare_hparent topshare_hfresh
+      topshare_hparentD hj hcv hr
+  exact topshare_entry_run4' O hA (by decide) h1 h1' h2 h2' topshare.machineData topshare.machine_ok
+    topshare.machine_body (by first | decide | decide +kernel) (by first | decide | decide +kernel) hP
+    entryT closes0 _ _ (wrap_calleeOK O T hA entryW hR0) (wrap3_calleeOK O T hA entryW3 hR0)
+    topshare_calleeOKs_ne hw h
+
 end Tests.Compiler.TopShareInstTest
 
 #print axioms Tests.Compiler.TopShareInstTest.wrap_calleeOK
 #print axioms Tests.Compiler.TopShareInstTest.wrap3_calleeOK
 #print axioms Tests.Compiler.TopShareInstTest.topshare_entry_run_inst
+#print axioms Tests.Compiler.TopShareInstTest.topshare_entry_run_inst'
