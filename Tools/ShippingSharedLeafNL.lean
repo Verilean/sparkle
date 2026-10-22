@@ -3,6 +3,8 @@ import Tools.ShippingCallsMemPinned
 import Tools.ShippingLeafTermKeeps
 import Tools.ShippingChildRunAKids
 import Tools.ShippingMachineOutcomeA3
+import Tools.ShippingClosedKinds
+import Tools.ShippingMachineDepthRunR
 -- UNBUILT (unit SR8, part A): run names / exits are in REPORT-SR8.md.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
@@ -30,6 +32,7 @@ open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
 open Tools.ShippingMachineAuto Tools.ShippingMixedEntrySoundness
 open Sparkle.Compiler.MachInstOrigin (InstOrigin)
 open Tools.ShippingChildRunAKids Tools.ShippingMachineOutcomeA3 Tools.ShippingChildCoreC Tools.ShippingChildVertA
+open Tools.ShippingClosedKinds
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -416,6 +419,125 @@ theorem designWith_hasName {kids : List Res} {d : Sparkle.IR.AST.Design} :
   intro k hk
   exact (key kids d.modules).2 k hk
 
+/-! ## A non-leaf callee's real miss (part C) -/
+
+/-- **The real miss of a NON-leaf callee `c` whose calls are all to leaves.** From a `JQC O D` world (`D ≠ 0`)
+with `CacheClosed`/`KeyTop` and `c` absent, a returning run of `synthesizeChild c`: the cache gets `y` at `c`
+(`y` the cleaned-up `closeInstsG` of the children), keeps `JQC`/`CacheClosed`/`KeyTop`, extends the start cache,
+and EVERY call's child is the cache's entry at the callee, a module with that child's name is in `y`'s design.
+Data premises (named): `d` (`ok`, `hbody`, `hC`, `hslots`, `hdomB`), `hins`/`hfne` (calls, struct-result), every call
+a non-memory leaf (`hleaf`) different from `c` (`hcne`), `entry` (`MachineDefines`), `closes`
+(`MachineClosesAtA`: the machine synthesis does not fall back). No `T`, no pin. -/
+theorem synthesizeChild_nonleaf_miss (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} (hD : D ≠ 0) {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ []) (hfne : d.shape.instFields ≠ [])
+    (hleaf : ∀ x ∈ d.shape.instTagged, x.2.child? = none ∧ LeafOK mctx mref cctx cref x.1)
+    (hcne : ∀ k (hk : k < d.shape.insts.length), (d.shape.insts[k]).1 ≠ c)
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx c d.shape)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O D w)
+    (hcl : CacheClosed (cv w)) (hk : KeyTop (cv w)) (hmiss : (cv w).get? c = none)
+    (h : RunsTo (synthesizeChild c) mctx mref cctx cref w y w') :
+    JQC O D w' ∧ CacheClosed (cv w') ∧ KeyTop (cv w') ∧ CacheExtends (cv w) (cv w') ∧
+      (cv w').get? c = some y ∧
+      ∀ k (hk : k < d.shape.insts.length), ∃ e, (cv w').get? (d.shape.insts[k]).1 = some e ∧
+        ∃ a ∈ y.2.modules, a.name = e.1.name := by
+  unfold synthesizeChild at h
+  obtain ⟨m, w1, hget, h⟩ := RunsTo.bind h
+  obtain ⟨hm, hw1⟩ := jqc_cacheGet O hA hw hget
+  have hc1 := cacheGet_cv O hA hw hget
+  cases hc : m.get? c with
+  | some r' => rw [hm] at hc; rw [hmiss] at hc; cases hc
+  | none =>
+    simp only [hc] at h
+    obtain ⟨r, w2, hrun, h⟩ := RunsTo.bind h
+    have hr : RealChildA O c r := RealChildA.of_jqc O hA hw1 hrun
+    obtain ⟨u, w3, hmod, h⟩ := RunsTo.bind h
+    obtain ⟨rfl, rfl⟩ := RunsTo.pure_world h
+    obtain ⟨M, Dg, wc, hcore, htail, hpost⟩ := full_run_tracked O hA (D := D) hrun
+    obtain ⟨tenv, b, w9, w10, hmach, hw9, hc9, htl⟩ := core_run_tracked O hA hD entry closes hw1 hcore
+    have hcl9 : CacheClosed (cv w9) := by rw [hc9, hc1]; exact hcl
+    have hk9 : KeyTop (cv w9) := by rw [hc9, hc1]; exact hk
+    obtain ⟨t, t', d₀, kids, run, hcl', hcc, hlen, hcache, hj10, hcl10, hk10, hext, hgrow⟩ :=
+      machineSynth_leafKids O hA (Nat.succ_ne_zero D) d ok hbody hins hfne hleaf hw9 hcl9 hk9 hmach
+    obtain ⟨hjc, hcvc⟩ := htl hj10
+    obtain ⟨hj2, hcv2⟩ := htail hjc
+    obtain ⟨-, hname0, hd0⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl'
+    obtain ⟨-, -, hMname, L, hLinst, hperm, -, -, -, -, -, hDeq, -⟩ := hcc.some
+    have hMc : M.name = Sparkle.IR.ModuleName.ofDecl c := hMname.trans hname0
+    have hcv9 : cv w9 = cv w := hc9.trans hc1
+    -- the key `c` is not in the cache after the closing
+    have hnot : (cv w10).get? c = none := by
+      cases hq : (cv w10).get? c with
+      | none => rfl
+      | some q =>
+        rcases hgrow c q hq with h0 | h0
+        · rw [hcv9, hmiss] at h0; cases h0
+        · obtain ⟨x, hx, hxc⟩ := List.mem_map.mp h0
+          obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hx
+          exact absurd hxc (hcne i hi)
+    -- every module of the entry's design is the top of a cached entry, so none is named like the entry
+    have hkidIn : ∀ kd ∈ kids, ∃ c', (cv w10).get? c' = some kd := by
+      intro kd hkd
+      obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hkd
+      have hi' : i < d.shape.insts.length := hlen ▸ hi
+      obtain ⟨e, hke, hce⟩ := hcache i hi'
+      have : kids[i] = e := by
+        have := List.getElem?_eq_getElem hi
+        rw [this] at hke
+        exact Option.some.inj hke
+      exact ⟨_, this ▸ hce⟩
+    have hnoclash : ∀ x ∈ Dg.modules, x.name ≠ M.name := by
+      intro x hx hxn
+      rw [hDeq] at hx
+      rcases mem_designWith hx with h0 | ⟨kd, hkd, hak⟩
+      · rw [hd0] at h0; cases h0
+      · obtain ⟨c', hc'⟩ := hkidIn kd hkd
+        have hmods : x ∈ ModsOf kd := by
+          rcases hak with h1 | h1
+          · exact List.mem_cons_of_mem _ h1
+          · rw [h1]; exact List.mem_cons_self ..
+        obtain ⟨c'', r'', hr'', rfl⟩ := hcl10 c' kd hc' x hmods
+        have hnm := hk10 c'' r'' hr''
+        have : c'' = c := Tools.ShippingModuleName.ofDecl_injective (hnm.symm.trans (hxn.trans hMc))
+        subst this
+        rw [hnot] at hr''; cases hr''
+    have hid1 : topMap M.name Sparkle.IR.ZeroWidth.dropZeroWidthModule Dg = Dg := topMap_id _ _ _ hnoclash
+    have hrdesign : y.2 = designWith kids d₀ := by
+      rcases hpost with ⟨-, h2⟩ | ⟨-, h2⟩
+      · rw [h2, hid1, hDeq]
+      · rw [h2, hid1, topMap_id _ _ _ hnoclash, hDeq]
+    have hrname : y.1.name = Sparkle.IR.ModuleName.ofDecl c := by
+      rcases hpost with ⟨h1, -⟩ | ⟨h1, -⟩
+      · rw [h1, Tools.ShippingMachineDepthRun.dropZW_name]; exact hMc
+      · rw [h1, Tools.ShippingMachineDepthRun.mergeChecked_name,
+          Tools.ShippingMachineDepthRun.dropZW_name]; exact hMc
+    -- the insert
+    have hc3 := (O.cacheModify' hA (fun m : Std.HashMap Name Res => m.insert c y) hj2.1.1 hmod).1
+    have hj3 := jqc_insert_runs O hA hj2 hr hmod
+    have hcvw2 : cv w2 = cv w10 := hcv2.trans hcvc
+    have hcv3 : cv w' = (cv w10).insert c y := by rw [hc3, hcvw2]
+    refine ⟨hj3, ?_, ?_, ?_, ?_, ?_⟩
+    · rw [hcv3]; exact cacheClosed_insert_kids hcl10 hnot hrdesign hd0 hkidIn
+    · rw [hcv3]; exact keyTop_insert hk10 hrname
+    · rw [hcv3]
+      have h1 : CacheExtends (cv w) (cv w10) := by rw [← hcv9]; exact hext
+      exact cacheExtends_trans h1 (cacheExtends_insert_missing y hnot)
+    · rw [hcv3]; exact get?_insert_self _ _ _
+    · intro k hkl
+      obtain ⟨e, hke, hce⟩ := hcache k hkl
+      refine ⟨e, ?_, ?_⟩
+      · rw [hcv3, get?_insert_ne _ (hcne k hkl)]; exact hce
+      · rw [hrdesign]
+        obtain ⟨a, ha, han⟩ := designWith_hasName (kids := kids) (d := d₀) e (List.mem_of_getElem? hke)
+        exact ⟨a, ha, han⟩
+
 end Tools.ShippingSharedLeafNL
 
 #print axioms Tools.ShippingSharedLeafNL.leafKid_step
@@ -425,3 +547,4 @@ end Tools.ShippingSharedLeafNL
 #print axioms Tools.ShippingSharedLeafNL.core_run_tracked
 #print axioms Tools.ShippingSharedLeafNL.full_run_tracked
 #print axioms Tools.ShippingSharedLeafNL.designWith_hasName
+#print axioms Tools.ShippingSharedLeafNL.synthesizeChild_nonleaf_miss
