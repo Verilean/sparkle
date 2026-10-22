@@ -106,18 +106,18 @@ theorem memCallee_seqChildRunN (O : RefLawsAOps MkRefd mref cref) (T : RefLawsAT
       (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)) (j n' : Nat), j < n →
       extC i bools bits (stateLoop initsC (bodyC i bools bits)) j n' = bits j n')
     (BndA : Meta.Context → Core.Context → Void IO.RealWorld → Sparkle.IR.AST.Module → Sparkle.IR.AST.Design → Prop)
-    (depth : Nat) {mc : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (i : DomainConfig) (depth : Nat) {mc : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
     (hrun : MachineRunNCA O C dC.shape BndA mc design)
     :
     Tools.ShippingMachineDepth.SeqChildRunN (childMap design.modules) design (depth + 1) mc (List.take n dC.bsIn) dC.shape.layout.outs
-      (fun vals => srcC defaultDomain
+      (fun vals => srcC i
         (Tools.ShippingMachineChild.boolsOf (List.take n dC.bsIn) vals)
         (Tools.ShippingMachineChild.bitsOf (List.take n dC.bsIn) vals)) :=
   Tools.ShippingSeqChildDeepRunA.seqChildRunN_of_composedCA O depth BndA
     (fun hcore hadm hjqc ent cl _ =>
       memCallee_composedNW O T hadm hC GF hmem depth hjqc.1 (Or.inr hjqc.2) hcore ent cl)
     hC.outTy hOk hC.slotsNe (Nat.pos_of_ne_zero (fun h0 => hC.insts_ne (List.eq_nil_of_length_eq_zero h0)))
-    hC.hkD hC.hIlen hC.hSL hC.hSlen hC.hLlen hC.hNIn hextB hext defaultDomain hrun
+    hC.hkD hC.hIlen hC.hSL hC.hSlen hC.hLlen hC.hNIn hextB hext i hrun
 
 end Callee
 

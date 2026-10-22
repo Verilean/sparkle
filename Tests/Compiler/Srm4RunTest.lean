@@ -59,14 +59,14 @@ theorem leafM_outOk : ∀ o ∈ leafM.machineData.shape.layout.outs, outNameOk o
 /-- **`leafM` (a register machine whose one call is a memory), the run theorem at every depth** (the `seq_child_runN` the machine route asks of a memory-bearing leaf; `MachineClosesAtA` of `leafM` is DERIVED). -/
 theorem leafM_seqChildRunN (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
     (BndA : Lean.Meta.Context → Lean.Core.Context → Void IO.RealWorld → Sparkle.IR.AST.Module → Sparkle.IR.AST.Design → Prop)
-    (depth : Nat) {mc : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (i : DomainConfig) (depth : Nat) {mc : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
     (hrun : MachineRunNCA O ``leafM leafM.machineData.shape BndA mc design) :
     Tools.ShippingMachineDepth.SeqChildRunN (Tools.ShippingMachineLinked.childMap design.modules) design (depth + 1) mc
       (List.take 4 leafM.machineData.bsIn) leafM.machineData.shape.layout.outs
-      (fun vals => leafM.machineSource defaultDomain
+      (fun vals => leafM.machineSource i
         (Tools.ShippingMachineChild.boolsOf (List.take 4 leafM.machineData.bsIn) vals)
         (Tools.ShippingMachineChild.bitsOf (List.take 4 leafM.machineData.bsIn) vals)) :=
-  memCallee_seqChildRunN O T leafM_memCallee leafM_outOk leafM_gen leafM_memcalls leafM_hextB leafM_hext BndA depth hrun
+  memCallee_seqChildRunN O T leafM_memCallee leafM_outOk leafM_gen leafM_memcalls leafM_hextB leafM_hext BndA i depth hrun
 
 end Tests.Compiler.SharedLeafMemKidIfaceTest
 
