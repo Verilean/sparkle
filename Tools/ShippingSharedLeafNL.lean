@@ -446,8 +446,10 @@ theorem synthesizeChild_nonleaf_miss (O : RefLawsAOps MkRefd mref cref) (hA : Ad
     (h : RunsTo (synthesizeChild c) mctx mref cctx cref w y w') :
     JQC O D w' ∧ CacheClosed (cv w') ∧ KeyTop (cv w') ∧ CacheExtends (cv w) (cv w') ∧
       (cv w').get? c = some y ∧
-      ∀ k (hk : k < d.shape.insts.length), ∃ e, (cv w').get? (d.shape.insts[k]).1 = some e ∧
-        ∃ a ∈ y.2.modules, a.name = e.1.name := by
+      (∀ k (hk : k < d.shape.insts.length), ∃ e, (cv w').get? (d.shape.insts[k]).1 = some e ∧
+        ∃ a ∈ y.2.modules, a.name = e.1.name) ∧
+      (∀ c' r', (cv w').get? c' = some r' → (cv w).get? c' = some r' ∨ c' = c ∨
+        c' ∈ d.shape.insts.map (·.1)) := by
   unfold synthesizeChild at h
   obtain ⟨m, w1, hget, h⟩ := RunsTo.bind h
   obtain ⟨hm, hw1⟩ := jqc_cacheGet O hA hw hget
@@ -523,7 +525,7 @@ theorem synthesizeChild_nonleaf_miss (O : RefLawsAOps MkRefd mref cref) (hA : Ad
     have hj3 := jqc_insert_runs O hA hj2 hr hmod
     have hcvw2 : cv w2 = cv w10 := hcv2.trans hcvc
     have hcv3 : cv w' = (cv w10).insert c y := by rw [hc3, hcvw2]
-    refine ⟨hj3, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨hj3, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · rw [hcv3]; exact cacheClosed_insert_kids hcl10 hnot hrdesign hd0 hkidIn
     · rw [hcv3]; exact keyTop_insert hk10 hrname
     · rw [hcv3]
@@ -537,6 +539,98 @@ theorem synthesizeChild_nonleaf_miss (O : RefLawsAOps MkRefd mref cref) (hA : Ad
       · rw [hrdesign]
         obtain ⟨a, ha, han⟩ := designWith_hasName (kids := kids) (d := d₀) e (List.mem_of_getElem? hke)
         exact ⟨a, ha, han⟩
+    · intro c' r' hc'
+      rw [hcv3] at hc'
+      rcases insert_get_cases hc' with ⟨e, -⟩ | ⟨-, hc''⟩
+      · exact Or.inr (Or.inl e)
+      · rcases hgrow c' r' hc'' with h0 | h0
+        · exact Or.inl (by rw [← hcv9]; exact h0)
+        · exact Or.inr (Or.inr h0)
+
+/-! ## The two non-leaf callees of `topshare`, as real runs (part D) -/
+
+/-- **Two non-leaf callees `c₁`, `c₂` (wrap / wrap3) called one after the other; the SHARED leaf.** The two
+`synthesizeChild` runs are the two entries of the parent's closing loop (`closeLoop`: `RunsTo.bind` of
+`mapM.loop`); each is a real non-leaf miss (`synthesizeChild_nonleaf_miss`), whose calls are real leaf calls
+(`closeInstsGM_leafRun`: a miss or a hit at the cache). The end cache is `CacheClosed`/`KeyTop`, hence
+`CacheCoh`; the end cache holds both results (the retention of the first entry across the second run is the
+`CacheExtends` of the second miss); the `hcross` shape holds for the two results, and for every pair of calls
+(one of each callee) to the same leaf `n` the cache's entry `e` at `n` has its module `e.1` INSIDE both
+designs. Premises: `hD`, the start world (`JQC`, `CacheClosed`, `KeyTop`, both callees absent), the data of the
+two callees (`d₁`/`d₂`: `ok`, `hbody`, `hC`, `hslots`, `hdomB`, `hins`, `hfne`, every call a non-memory leaf with
+`LeafOK`, `entry`, `closes`), and name distinctness (`c₁ ≠ c₂`, no call of `c₁` is `c₂`, no call is its own
+callee). -/
+theorem topshare_pair (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} (hD : D ≠ 0) {c₁ c₂ : Name} (hc12 : c₁ ≠ c₂)
+    (d₁ d₂ : MachineData) (ok₁ : d₁.ok = true) (ok₂ : d₂.ok = true)
+    (hbody₁ : d₁.shape.body = quote d₁.dom
+      (fun j => inputExpr d₁.shape.binders.length (d₁.bpos j))
+      (fun j => inputExpr d₁.shape.binders.length (d₁.vpos j)) d₁.packed)
+    (hbody₂ : d₂.shape.body = quote d₂.dom
+      (fun j => inputExpr d₂.shape.binders.length (d₂.bpos j))
+      (fun j => inputExpr d₂.shape.binders.length (d₂.vpos j)) d₂.packed)
+    {n₁ n₂ : Nat} (hC₁ : d₁.callsOk n₁ = true) (hC₂ : d₂.callsOk n₂ = true)
+    (hslots₁ : d₁.ss.length = d₁.shape.layout.slots.length)
+    (hslots₂ : d₂.ss.length = d₂.shape.layout.slots.length)
+    (hdomB₁ : ∀ b ∈ d₁.shape.binders.drop n₁, b.2 ≠ .domain)
+    (hdomB₂ : ∀ b ∈ d₂.shape.binders.drop n₂, b.2 ≠ .domain)
+    (hins₁ : d₁.shape.insts ≠ []) (hins₂ : d₂.shape.insts ≠ [])
+    (hfne₁ : d₁.shape.instFields ≠ []) (hfne₂ : d₂.shape.instFields ≠ [])
+    (hleaf₁ : ∀ x ∈ d₁.shape.instTagged, x.2.child? = none ∧ LeafOK mctx mref cctx cref x.1)
+    (hleaf₂ : ∀ x ∈ d₂.shape.instTagged, x.2.child? = none ∧ LeafOK mctx mref cctx cref x.1)
+    (hcne₁ : ∀ k (hk : k < d₁.shape.insts.length), (d₁.shape.insts[k]).1 ≠ c₁)
+    (hcne₂ : ∀ k (hk : k < d₂.shape.insts.length), (d₂.shape.insts[k]).1 ≠ c₂)
+    (hc2not : ∀ k (hk : k < d₁.shape.insts.length), (d₁.shape.insts[k]).1 ≠ c₂)
+    (entry₁ : MachineDefines mctx mref cctx cref c₁ d₁.shape)
+    (entry₂ : MachineDefines mctx mref cctx cref c₂ d₂.shape)
+    (closes₁ : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx c₁ d₁.shape)
+    (closes₂ : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx c₂ d₂.shape)
+    {w w₁ w₂ : Void IO.RealWorld} {y₁ y₂ : Res} (hw : JQC O D w)
+    (hcl : CacheClosed (cv w)) (hk : KeyTop (cv w))
+    (hm₁ : (cv w).get? c₁ = none) (hm₂ : (cv w).get? c₂ = none)
+    (h₁ : RunsTo (synthesizeChild c₁) mctx mref cctx cref w y₁ w₁)
+    (h₂ : RunsTo (synthesizeChild c₂) mctx mref cctx cref w₁ y₂ w₂) :
+    JQC O D w₂ ∧ CacheClosed (cv w₂) ∧ KeyTop (cv w₂) ∧ CacheCoh (cv w₂) ∧
+      (cv w₂).get? c₁ = some y₁ ∧ (cv w₂).get? c₂ = some y₂ ∧
+      (∀ a ∈ ModsOf y₁, ∀ b ∈ ModsOf y₂, a.name = b.name → a = b) ∧
+      ∀ k₁ (hk₁ : k₁ < d₁.shape.insts.length) k₂ (hk₂ : k₂ < d₂.shape.insts.length),
+        (d₁.shape.insts[k₁]).1 = (d₂.shape.insts[k₂]).1 →
+        ∃ e, (cv w₂).get? (d₁.shape.insts[k₁]).1 = some e ∧ e.1 ∈ y₁.2.modules ∧ e.1 ∈ y₂.2.modules := by
+  obtain ⟨hj1, hcl1, hk1, hext1, hget1, hkids1, hgrow1⟩ :=
+    synthesizeChild_nonleaf_miss O hA hD d₁ ok₁ hbody₁ hC₁ hslots₁ hdomB₁ hins₁ hfne₁ hleaf₁ hcne₁
+      entry₁ closes₁ hw hcl hk hm₁ h₁
+  have hm₂' : (cv w₁).get? c₂ = none := by
+    cases hq : (cv w₁).get? c₂ with
+    | none => rfl
+    | some q =>
+      rcases hgrow1 c₂ q hq with h0 | h0 | h0
+      · rw [hm₂] at h0; cases h0
+      · exact absurd h0.symm hc12
+      · obtain ⟨x, hx, hxc⟩ := List.mem_map.mp h0
+        obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hx
+        exact absurd hxc (hc2not i hi)
+  obtain ⟨hj2, hcl2, hk2, hext2, hget2, hkids2, -⟩ :=
+    synthesizeChild_nonleaf_miss O hA hD d₂ ok₂ hbody₂ hC₂ hslots₂ hdomB₂ hins₂ hfne₂ hleaf₂ hcne₂
+      entry₂ closes₂ hj1 hcl1 hk1 hm₂' h₂
+  have hcoh : CacheCoh (cv w₂) :=
+    cacheCoh_of_closed_topAgree hcl2 (cacheTopAgree_of_keyTop hk2)
+  have hy1 : (cv w₂).get? c₁ = some y₁ := hext2 c₁ y₁ hget1
+  refine ⟨hj2, hcl2, hk2, hcoh, hy1, hget2, fun a ha b hb hab => hcoh c₁ y₁ c₂ y₂ hy1 hget2 a ha b hb hab, ?_⟩
+  intro k₁ hk₁ k₂ hk₂ hn
+  obtain ⟨e₁, he₁, a, ha, han⟩ := hkids1 k₁ hk₁
+  obtain ⟨e₂, he₂, b, hb, hbn⟩ := hkids2 k₂ hk₂
+  have he₁' : (cv w₂).get? (d₁.shape.insts[k₁]).1 = some e₁ := hext2 _ e₁ he₁
+  have he₂' : (cv w₂).get? (d₂.shape.insts[k₂]).1 = some e₂ := he₂
+  rw [← hn] at he₂'
+  have hee : e₂ = e₁ := Option.some.inj (he₂'.symm.trans he₁')
+  subst hee
+  refine ⟨e₂, he₁', ?_, ?_⟩
+  · have : a = e₂.1 := hcoh c₁ y₁ _ e₂ hy1 he₁' a (List.mem_cons_of_mem _ ha) e₂.1
+      (List.mem_cons_self ..) han
+    rw [← this]; exact ha
+  · have : b = e₂.1 := hcoh c₂ y₂ _ e₂ hget2 he₂ b (List.mem_cons_of_mem _ hb) e₂.1
+      (List.mem_cons_self ..) hbn
+    rw [← this]; exact hb
 
 end Tools.ShippingSharedLeafNL
 
@@ -548,3 +642,4 @@ end Tools.ShippingSharedLeafNL
 #print axioms Tools.ShippingSharedLeafNL.full_run_tracked
 #print axioms Tools.ShippingSharedLeafNL.designWith_hasName
 #print axioms Tools.ShippingSharedLeafNL.synthesizeChild_nonleaf_miss
+#print axioms Tools.ShippingSharedLeafNL.topshare_pair
