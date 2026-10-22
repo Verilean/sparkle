@@ -1,6 +1,6 @@
 import Tests.Compiler.SeqDeepGenDiffTest
 import Tools.ShippingTopShareRun
--- UNBUILT (unit SR9): see REPORT-SR9.md for run names / exits at the final committed SHA.
+-- BUILT (unit SR9): i5, i8, i9, i11, a1 exit 0 (dev runs); see REPORT-SR9.md for the final-SHA rebuild.
 -- SCOPE (binding): INSTANTIATION of `Tools.ShippingTopShareRun.topshare_entry_run4` at the real declarations
 -- `topshare` (callees `wrap`, `wrap3`; the shared leaf `acc`) of `Tests/Compiler/SeqDeepGenDiffTest.lean`.  The generator still REFUSES
 -- `topshare` (no guard / generator change).  PROVED here: the data premises about `wrap`, `wrap3`, `acc`, `topshare` (kernel-checked
@@ -412,7 +412,80 @@ theorem topshare_entry_run_inst' {mctx : Lean.Meta.Context} {mref : ST.Ref IO.Re
     entryT closes0 _ _ (wrap_calleeOK O T hA entryW hR0) (wrap3_calleeOK O T hA entryW3 hR0)
     topshare_calleeOKs_ne hw h
 
+/-! ## The expected WHOLE statement, written independently, compared by `isDefEq`; type-correct mutations are REJECTED -/
+
+/-- The expected statement of `topshare_entry_run_inst'`, written out by hand (premises AND conclusion). `v = 0` is the
+expected statement; `v = 1…8, 10` are TYPE-CORRECT mutations that must be rejected:
+1 the children list `[y₁,y₂,y₁,y₂]`; 2 the cache entries swapped (`wrap ↦ y₂`); 3 the shared-leaf clause puts the module in
+`y₁` twice; 4 the end world at depth `1`; 5 the children list `[y₁,y₂]`; 6 `hcross` for `(y₁,y₁)`; 7 the start world at
+depth `1`; 8 the end cache is that of the START world; 10 the closing's lets are not required.
+(An extra premise, e.g. `MachineClosesAtA` of `topshare` as in `topshare_entry_run_inst`, is rejected by the premise-name check.) -/
+def TopShareFull (v : Nat) : Prop :=
+  ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (entryT : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.topshare
+      topshare.machineData.shape)
+    (entryW : MachineDefines mctx mref cctx cref wrapN Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape)
+    (entryW3 : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 wrap3.machineData.shape)
+    (hR0 : MachineDefines mctx mref cctx cref accN
+      Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData.shape)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O (if v = 7 then 1 else 0) w)
+    (h : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinational ``Tests.Compiler.SeqDeepGenDiffTest.topshare)
+      mctx mref cctx cref w y w'),
+    ∃ (y₁ y₂ : Res) (t t' : Sparkle.IR.AST.Module) (d₀ : Sparkle.IR.AST.Design)
+      (M : Sparkle.IR.AST.Module) (Dg : Sparkle.IR.AST.Design) (w10 : Void IO.RealWorld),
+      (if v = 10 then True else Sparkle.IR.Machine.closeLets topshare.machineData.shape.layout.lets t = some t') ∧
+      some (M, Dg) = Sparkle.IR.Machine.closeInstsG (machNIn topshare.machineData.shape)
+        topshare.machineData.shape.insts.length topshare.machineData.shape.layout.slots.length
+        (t.inputs.map (·.name)) (topshare.machineData.shape.insts.map (·.2.1))
+        topshare.machineData.shape.instFields
+        (if v = 1 then [y₁, y₂, y₁, y₂] else if v = 5 then [y₁, y₂] else [y₁, y₁, y₂, y₂])
+        (Sparkle.IR.Machine.closeMachine topshare.machineData.shape.layout t', d₀) ∧
+      JQC O (if v = 4 then 1 else 0) w' ∧ cv w' = cv (if v = 8 then w else w10) ∧
+      CacheClosed (cv w10) ∧ KeyTop (cv w10) ∧ CacheCoh (cv w10) ∧
+      (cv w10).get? wrapN = some (if v = 2 then y₂ else y₁) ∧
+      (cv w10).get? ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 = some (if v = 2 then y₁ else y₂) ∧
+      (∀ a ∈ ModsOf y₁, ∀ b ∈ ModsOf (if v = 6 then y₁ else y₂), a.name = b.name → a = b) ∧
+      ∀ k₁ (hk₁ : k₁ < Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts.length)
+        k₂ (hk₂ : k₂ < wrap3.machineData.shape.insts.length),
+        (Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts[k₁]).1 =
+          (wrap3.machineData.shape.insts[k₂]).1 →
+        ∃ e, (cv w10).get? (Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts[k₁]).1 = some e ∧
+          e.1 ∈ y₁.2.modules ∧ e.1 ∈ (if v = 3 then y₁ else y₂).2.modules
+
+open Lean Meta Elab Command in
+set_option maxHeartbeats 0 in
+run_cmd liftTermElabM do
+  let thm := ``Tests.Compiler.TopShareInstTest.topshare_entry_run_inst'
+  let ty := (← getConstInfo thm).type
+  -- the premises are exactly these (in particular NO `closes` premise on `topshare` itself)
+  forallTelescope ty fun xs _ => do
+    let names ← xs.toList.mapM fun x => return (← x.fvarId!.getUserName).eraseMacroScopes.toString
+    unless names == ["mctx", "mref", "cctx", "cref", "O", "T", "hA", "entryT", "entryW", "entryW3", "hR0", "w", "w'", "y", "hw", "h"] do
+      throwError "SR9 AUDIT FAILED: premises of {thm} are {names}"
+  if ty.hasMVar then throwError "SR9 AUDIT FAILED: metavariables in the statement"
+  Meta.check ty
+  let full (v : Nat) : Lean.Expr := mkApp (mkConst ``Tests.Compiler.TopShareInstTest.TopShareFull) (mkNatLit v)
+  let mut rejected : List Nat := []
+  unless ← isDefEq ty (full 0) do throwError "SR9 AUDIT FAILED: the statement of {thm} differs from the hand-written expected statement"
+  for v in [1, 2, 3, 4, 5, 6, 7, 8, 10] do
+    if ← isDefEq ty (full v) then throwError "SR9 AUDIT FAILED: the mutation {v} of the expected statement was ACCEPTED"
+    rejected := v :: rejected
+  logInfo m!"SR9 STATEMENT AUDIT: {thm} equals the hand-written TopShareFull 0 (isDefEq, no mvars, Meta.check); premises exactly [O, T, hA, entryT, entryW, entryW3, hR0, hw, h]; type-correct mutations rejected: {rejected.reverse}"
+
 end Tests.Compiler.TopShareInstTest
+
+open Lean Meta Elab Command in
+run_cmd liftTermElabM do
+  for n in [``Tests.Compiler.TopShareInstTest.wrap_calleeOK, ``Tests.Compiler.TopShareInstTest.wrap3_calleeOK,
+      ``Tests.Compiler.TopShareInstTest.topshare_entry_run_inst, ``Tests.Compiler.TopShareInstTest.topshare_entry_run_inst'] do
+    Tests.Compiler.ChildVertAuditTest.stdAxioms n
+    let s ← Tests.Compiler.ChildVertAuditTest.depClosure n
+    let hs := Tests.Compiler.ChildVertAuditTest.hits s
+    unless hs.isEmpty do throwError "SR9 AUDIT FAILED: {n} depends on the old boundary: {hs}"
+    logInfo m!"SR9 AUDIT: {n}: closure {s.size} constants, standard axioms only, no RefLaws / RefLawsCore / toAOps / toA"
 
 #print axioms Tests.Compiler.TopShareInstTest.wrap_calleeOK
 #print axioms Tests.Compiler.TopShareInstTest.wrap3_calleeOK

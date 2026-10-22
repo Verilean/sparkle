@@ -1,7 +1,7 @@
 import Tools.ShippingSharedLeafNL
 import Tools.ShippingMemClosesKidsT
 import Tools.ShippingMachineClosesData
--- BUILT (unit SR9): t1 exit 0; see REPORT-SR9.md for the final-SHA rebuild.
+-- BUILT (unit SR9): t1, t4, t5, t8, t9 exit 0 (dev runs); see REPORT-SR9.md for the final-SHA rebuild.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
 /-! # The parent's own run connected to its closing (unit SR9, L8ao)
@@ -12,7 +12,17 @@ import Tools.ShippingMachineClosesData
   cache value, and the rest of the run is a run of `closeInstsGM` from a `JQC O D'` world with the same cache value.
 * `topshare_entry_run`: ONE theorem from the parent's `synthesizeCombinational` run at `D = 0` to the conclusion of
   `topshare_closing` (the start world `JQC`/`CacheClosed`/`KeyTop`/absence is DERIVED: the cache is `{}`).
-Not done here: instantiation at the declarations (`TopShareInstTest`); the data premises stay premises. -/
+* WORDING (reviewer): `topshare_closing`, `topshare_closing4`, `topshare_entry_run*` prove only the RELATION `r = closeInstsG …`
+  (and the cache facts); they do NOT exclude `none` and are not a semantics-preserving endpoint. `none` is excluded SEPARATELY, for
+  this call shape, by `machineSynth_ne_none4`; a semantic conclusion (the emitted module computes the source) is NOT stated here.
+* `CalleeOK`, `topshare_quad`, `topshare_closing4`, `topshare_entry_run4`: the REAL call list of `topshare` is
+  `[wrap, wrap, wrap3, wrap3]` (two field reads per call): the second call of each callee is a cache HIT.
+* `MachineClosesAtStart0`, `core_run_tracked0'`, `machineSynth_ne_none4`, `topshare_entry_run4'`: the parent's own
+  no-fallback premise is needed only at the entry's start world (`JQC O 1`, cache `{}`) and is DERIVED there
+  (`closeLets` accepted; the closing returns `closeInstsG … [y₁,y₁,y₂,y₂]`, `some` by `closeInstsG_of_kidsPT`).
+Instantiation at `wrap`, `wrap3`, `acc`, `topshare`: `Tests/Compiler/TopShareInstTest.lean`. NOT done: callees whose calls are
+not leaves (`topd3`), memory-bearing children; the generator still REFUSES `topshare`; the data premises of the `CalleeOK`
+bundles, `MachineDefines` of the entry/callees/leaf, `T` and the interface facts of `machineSynth_ne_none4` stay premises -/
 
 namespace Tools.ShippingTopShareRun
 open Lean Meta
