@@ -93,6 +93,17 @@ import Tools.ShippingNmGroup
 import Tools.ShippingNmEntry
 import Tools.ShippingSrm3Iface
 import Tools.ShippingSrm3Callee
+import Tools.ShippingSrm4Run
+import Tools.ShippingSrm4Core1
+import Tools.ShippingSrm4Core2
+import Tools.ShippingSrm4Core3
+import Tools.ShippingSrm4Core4
+import Tools.ShippingSrm4Core5
+import Tools.ShippingSrm4Core6
+import Tools.ShippingSrm4Check
+import Tools.ShippingSrm4Kid
+import Tools.ShippingSrm4Callee
+import Tools.ShippingSrm4Parent
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -594,7 +605,25 @@ def audited : List Name :=
    ``Tools.ShippingSrm3Iface.core_calls_portsG_ranAM, ``Tools.ShippingSrm3Iface.core_inPorts_ranAM, ``Tools.ShippingSrm3Iface.deepChild_ifaceP_M,
    ``Tools.ShippingSrm3Callee.memT_of, ``Tools.ShippingSrm3Callee.memCallee_closesA, ``Tools.ShippingSrm3Callee.adm_of_realChildA,
    ``Tools.ShippingSrm3Callee.gk_of_iface, ``Tools.ShippingSrm3Callee.sep_of_iface, ``Tools.ShippingSrm3Callee.memCallee_ifaceP,
-   ``Tools.ShippingSrm3Callee.leafKid_ifaceP]
+   ``Tools.ShippingSrm3Callee.leafKid_ifaceP,
+   -- SRM4: run theorem of a memory-bearing register machine, the hnomem-free A-form copies, KidFactsNC, the obstruction, callee over a memory leaf, parent consumers
+   ``Tools.ShippingSrm4Run.MemCalls.child_ne_none, ``Tools.ShippingSrm4Run.memCallee_composedNW, ``Tools.ShippingSrm4Run.memCallee_seqChildRunN,
+   ``Tools.ShippingSrm4Core1.kidTA_ofO, ``Tools.ShippingSrm4Core1.core_linkedWF_ranAM, ``Tools.ShippingSrm4Core1.core_instOuts_not_assigned_ranAM,
+   ``Tools.ShippingSrm4Core1.core_closed_typedIn_ranAM,
+   ``Tools.ShippingSrm4Core2.core_hierGate_anyAM, ``Tools.ShippingSrm4Core2.core_kids_self_ranAM, ``Tools.ShippingSrm4Core2.core_raw_facts_ranAM,
+   ``Tools.ShippingSrm4Core2.core_outsExtracted_ranAM, ``Tools.ShippingSrm4Core2.core_callPorts_ranAM, ``Tools.ShippingSrm4Core2.core_instOutWidthsOk_ranAM,
+   ``Tools.ShippingSrm4Core2.core_runFacts_ranAM,
+   ``Tools.ShippingSrm4Core3.core_callConns_ranAM, ``Tools.ShippingSrm4Core3.core_conn_refsG_ranAM,
+   ``Tools.ShippingSrm4Core4.core_callConns_ranAM, ``Tools.ShippingSrm4Core4.core_portsMatch_raw_ranAM, ``Tools.ShippingSrm4Core4.core_clk_ranAM,
+   ``Tools.ShippingSrm4Core5.deepChild_ifaceA'M, ``Tools.ShippingSrm4Core5.deepChild_ranAM, ``Tools.ShippingSrm4Core5.deepChild_outsMaskedAM,
+   ``Tools.ShippingSrm4Core6.KidTA.real', ``Tools.ShippingSrm4Core6.KidTA.mem', ``Tools.ShippingSrm4Core6.KidFactsNC.toT, ``Tools.ShippingSrm4Core6.memKidTNC_facts,
+   ``Tools.ShippingSrm4Core6.hkidW_of_dataAM, ``Tools.ShippingSrm4Core6.deepChild_kidFactsNC,
+   ``Tools.ShippingSrm4Check.textCheckI_memModule, ``Tools.ShippingSrm4Check.designCheck_memModule, ``Tools.ShippingSrm4Check.kidCheck_memModule_succ,
+   ``Tools.ShippingSrm4Check.kidFactsA_check_false,
+   ``Tools.ShippingSrm4Kid.memCallee_hsep, ``Tools.ShippingSrm4Kid.memCallee_kidFactsNC, ``Tools.ShippingSrm4Kid.memModule_inj, ``Tools.ShippingSrm4Kid.KidFactsA.toNC,
+   ``Tools.ShippingSrm4Callee.memLeafCallee_hcalls, ``Tools.ShippingSrm4Callee.memLeafCallee_composedNW, ``Tools.ShippingSrm4Callee.memLeafCallee_seqChildRunN2,
+   ``Tools.ShippingSrm4Parent.kidsNC_runFacts, ``Tools.ShippingSrm4Parent.kidsNC_outsCheck, ``Tools.ShippingSrm4Parent.kidsNC_maskedN,
+   ``Tools.ShippingSrm4Parent.kidsNC_designCheck_of_kidsPass]
 
 end Tests.Compiler.ChildVertAuditTest
 
