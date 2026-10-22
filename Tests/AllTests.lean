@@ -363,6 +363,8 @@ import Tests.Compiler.SeqDeepGenTest
 import Tests.Compiler.SeqDeepGenInstTest
 import Tests.Compiler.SeqDeepGenInstConclTest
 import Tests.Compiler.SeqDeepGenArgsTest
+import Tests.Compiler.SeqDeepGenKeyTest
+import Tests.Compiler.SeqDeepGenKeyConclTest
 import Tests.Compiler.SeqDeepGenArgsConclTest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.LeafDesignClosedFamilyTest

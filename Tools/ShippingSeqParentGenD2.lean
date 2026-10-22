@@ -6,6 +6,9 @@ import Tools.ShippingSeqChildDeepKidFactsA
 import Tools.ShippingSeqChildDeepIfacePA
 import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingSeqParentKidFactsA
+import Tools.ShippingMachineSeqCommand
+import Tools.ShippingMachineDepthCommandR
+-- BUILT (unit SR3v): k2 exit 0 (existing tests on the changed module), k3/k4 exit 0 (tf1-tf4 generated), k5 exit 0 (SeqDeepGenKeyTest assertions, SeqDeepGenKeyConclTest). k1 exit 1: `machineExt` has four binders (family point and state), not three.
 -- BUILT (unit SR3u): a4 exit 0 (Tests.Compiler.SeqDeepGenArgsTest: `topargs`, `toptwo` generated, `topdiff` refused), a5 exit 0 (SeqDeepGenArgsConclTest, SeqDeepGenInstConclTest, SeqDeepGenTest, SeqDeepGrandEndpointTest, ChildVertAuditTest on the changed module). a1-a3 exit 1: the origin of a later call is `.field i`, not `.field k` (a1); `memKey` namespace (a2); `KidTA` not unfolded before the rewrite (a3).
 -- BUILT (unit GAUD): i4 exit 0 (Tests.Compiler.SeqDeepGenInstTest, memory refusals), g4 exit 0 (SeqDeepGenTest on the changed module), c2 exit 0 (SeqDeepGenInstConclTest); the module itself was built as a dependency of those (i3 exit 1: a Nat annotation in the test).
 -- BUILT (unit SR3t): t2 exit 0 (module), g3 exit 0 (templates run on `grand`), i2 exit 0 (second instance `topw` + two refusals). t1 exit 1 (an `s!` string with braces); g1 exit 1 (`Unit` vs `PUnit` in the class check); g2 exit 1 (audit counted partial applications of `MachineDefines`).
@@ -786,6 +789,53 @@ def isMemName (n : Name) : Bool := n.getRoot == `SparkleMem
 def memWhy (role : String) (d : Name) : String :=
   s!"memory in {role}: {d} has a memory (`Signal.memory` / `memoryComboRead`, a call of a built memory module among its call instances); memory in the parent / child / grandchild is OPEN on this path (the closing and the checks of the depth-2 class are for sequential register machines without memory)"
 
+/-- The group numbering of the OLD generator (`Tools/ShippingMachineDepthCommandR.lean`, phase 1 of the grouped loop): call `k` joins the
+first earlier group with the SAME key `(callee, argument lets, family over Bool binders, family over bit-vector binders)`, else opens a new
+group.  The two families are `extendBools`/`extendBits` nests over the same base whose only call-dependent data are the call's argument
+Signals, so the key is recomputed here as `(callee, argument lets, the call's argument Signals)`: the Signals are read from
+`P.machineExt` / `P.machineExtB` exactly as the old generator does (`sigAtPos` at port `nDecl + k`, then `findCall C`), both bodies
+instantiated with the SAME four locals (family point and state) so that the Signals of different calls are comparable by `==`.  Returns, per instance, its group
+index, and per group its argument list.  If a Signal cannot be read, the key cannot be computed and the declaration is REFUSED up front. -/
+def oldGroupKeys (fn C : Name) (kP : Nat) (al : List (List Nat)) : MetaM (Except String (List Nat × List (List Nat))) := do
+  let env ← getEnv
+  let some _ := env.find? (fn ++ `machineExt) | return .error s!"{fn ++ `machineExt} not found"
+  let ext ← mkConstWithFreshMVarLevels (fn ++ `machineExt)
+  let extB? ← if env.contains (fn ++ `machineExtB) then some <$> mkConstWithFreshMVarLevels (fn ++ `machineExtB) else pure none
+  forallBoundedTelescope (← inferType ext) (some 4) fun ibb _ => do
+    unless ibb.size == 4 do return .error s!"{fn ++ `machineExt} does not start with the four binders (i, bools, bits, state)"
+    let unfoldExt (c : Expr) : MetaM Expr := do
+      let e ← whnfCore (mkAppN c ibb).headBeta
+      if let .const n _ := e.getAppFn then
+        if let some v := env.find? n >>= (·.value?) then
+          return (v.beta e.getAppArgs).headBeta
+      pure e
+    let extBody ← unfoldExt ext
+    let extBBody ← match extB? with | some x => unfoldExt x | none => pure extBody
+    let mut keys : Array (List Nat × List Expr) := #[]
+    let mut inst : Array Nat := #[]
+    for (a, k) in al.zipIdx do
+      let pos := kP + k
+      let some sig := (Tools.ShippingMachineSeqCommand.sigAtPos pos extBody).orElse fun _ => Tools.ShippingMachineSeqCommand.sigAtPos pos extBBody
+        | return .error s!"call instance {k}: no argument Signal at port {pos} of {fn ++ `machineExt}"
+      let some call := Tools.ShippingMachineSeqCommand.findCall C sig
+        | return .error s!"call instance {k}: no call of {C} in the Signal at port {pos}"
+      let key := (a, (← instantiateMVars call).getAppArgs.toList)
+      match keys.findIdx? (· == key) with
+      | some j => inst := inst.push j
+      | none => inst := inst.push keys.size; keys := keys.push key
+    return .ok (inst.toList, keys.toList.map (·.1))
+
+/-- The number of group-fact bundles (`gfL{j}` binders) of the old generated `hcalls` in `thm`. -/
+def oldGroupCount (thm : Name) : MetaM Nat := do
+  let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+  lambdaTelescope ti.value fun _ body => do
+    let some app := Tools.ShippingSeqOldPieces.findHeadApp? body ``Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN
+      | throwError "no machine_linkedT_callsRN in {thm}"
+    let tbl ← Tools.ShippingSeqOldPieces.namedArgs app
+    let some (_, a) := tbl.find? (·.1 == `hcalls) | throwError "no `hcalls` binder in {thm}"
+    lambdaTelescope a fun _ inner =>
+      pure ((Tools.ShippingSeqOldPieces.lamNames inner.getAppFn).filter fun n => n.toString.startsWith "gfL").length
+
 def analyse (fn : Name) : CommandElabM D2Params := do
   let env ← getEnv
   let nat := fun (s : String) (n : Name) => liftTermElabM do reduceNat (← elabText (s.replace "@F@" n.toString))
@@ -816,8 +866,11 @@ def analyse (fn : Name) : CommandElabM D2Params := do
   -- equation check (`Hb`/`Hv` right-hand sides are holes); a safe stop, not class coverage)
   let al ← liftTermElabM do readNatLists (← elabText s!"({fn}.machineData.shape.insts.map (·.2.1))")
   if al.isEmpty then refuse fn "no call instance"
-  let groups := al.eraseDups
-  let instGroup := al.map fun a => (groups.findIdx? (· == a)).getD 0
+  -- (unit SR3v) the FULL key of the old generator, not just the argument list
+  let kP ← nat "(@F@.machineData.bsIn.length - @F@.machineData.shape.insts.length)" fn
+  let (instGroup, groups) ← match (← liftTermElabM <| oldGroupKeys fn C kP al) with
+    | .ok r => pure r
+    | .error why => refuse fn s!"the old generator's group key (callee, argument lets, the call's argument Signals) cannot be computed: {why}"
   for (n, ss) in [(fn, [`machine_composedNR2, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
         `machine_ext_causal, `machineSource, `machineInits, `machineBody, `machineResult, `machineExt, `machineExtB, `machineData]),
       (C, [`machine_composedNR1, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
@@ -827,6 +880,10 @@ def analyse (fn : Name) : CommandElabM D2Params := do
     for s in ss do
       unless env.contains (n ++ s) do
         refuse fn s!"{n ++ s} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`, which also generates the child pieces)"
+  -- the number of groups must equal the number of group-fact bundles of the old generated term (a mismatch is refused up front)
+  let nOld ← liftTermElabM <| oldGroupCount (fn ++ `machine_composedNR2)
+  unless nOld == groups.length do
+    refuse fn s!"the old generated {fn ++ `machine_composedNR2} has {nOld} group(s) of facts but the recomputed full key (callee, argument lets, argument Signals) gives {groups.length}: the group numbering cannot be aligned"
   -- domain polymorphism: the parent is a top-level machine (index `Unit`), the child a `{dom : DomainConfig}` hardware module
   let ip ← liftTermElabM <| sourceIndex fn
   let ic ← liftTermElabM <| sourceIndex C
@@ -837,7 +894,6 @@ def analyse (fn : Name) : CommandElabM D2Params := do
     let nf ← nat "@F@.machineData.shape.instFields.length" n
     if nf == 0 then
       refuse fn s!"{n} has no instField: its calls are one-output COMBINATIONAL children, not the sequential calls of this path"
-  let kP ← nat "(@F@.machineData.bsIn.length - @F@.machineData.shape.insts.length)" fn
   let kC ← nat "(@F@.machineData.bsIn.length - @F@.machineData.shape.insts.length)" C
   let mP ← nat "@F@.machineData.shape.insts.length" fn
   let mC ← nat "@F@.machineData.shape.insts.length" C
