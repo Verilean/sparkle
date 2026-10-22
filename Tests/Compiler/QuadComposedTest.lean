@@ -2,7 +2,7 @@ import Tests.Compiler.QuadReturnedTest
 import Tests.Compiler.TopShareComposedTest
 import Tests.Compiler.ChildVertAuditTest
 import Tools.ShippingQuadComposed
--- UNBUILT (unit SR15): see REPORT-SR15.md for the run names and exits.
+-- BUILT (unit SR15): t7 exit 0 (dev run, all in-file statement / mismatch / closure audits pass); the final-SHA rebuild is in REPORT-SR15.md.
 -- SCOPE (binding, ledger L8au): the `topshare` INSTANCES of the GENERIC per-callee / per-parent blocks of `Tools/ShippingQuadComposed.lean`.  For the real declarations
 -- (`topshare`; callees `wrap`, `wrap3`; shared leaf `acc`) each OLD hand-pasted block of `Tests/Compiler/TopShareComposedTest.lean` (the generated `ts0_*` / `ts1_*` text and the
 -- parent's `ts_*` text) is RE-DERIVED from the generic lemma + decided data facts + the named text-supplied premises; the statement of each re-derived theorem is INFERRED
@@ -222,6 +222,201 @@ set_option maxHeartbeats 0 in
 quad_audit parent_composedA ≡ Tests.Compiler.TopShareComposedTest.ts_composedA :=
   quad_composed topshare_quadAll topshare_gen wrap_gen wrap3_gen Tests.Compiler.TopShareComposedTest.ts0_C_hcalls Tests.Compiler.TopShareComposedTest.ts1_C_hcalls wrap_hextB wrap_hext wrap3_hextB wrap3_hext qc_hgrp accHcl
     hcore entry ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩
+
+/-! ## `quad_returned` / `quad_wired` with the blocks taken from the GENERIC lemmas -/
+
+open Lean Elab Command Meta Term in
+set_option maxHeartbeats 4000000 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let stx ← `(fun {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (entryT : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.topshare topshare.machineData.shape)
+    (entryW : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenInstTest.wrap Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape)
+    (entryW3 : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 wrap3.machineData.shape)
+    (hR0 : MachineDefines mctx mref cctx cref ``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc
+      Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData.shape)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O 0 w)
+    (h : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinational ``Tests.Compiler.SeqDeepGenDiffTest.topshare) mctx mref cctx cref w y w') =>
+    @Tools.ShippingQuadReturned.quad_returned _ _ _ _ topshare.machineData Tests.Compiler.SeqDeepGenInstTest.wrap.machineData wrap3.machineData
+      Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData
+      ``Tests.Compiler.SeqDeepGenDiffTest.topshare ``Tests.Compiler.SeqDeepGenInstTest.wrap ``Tests.Compiler.SeqDeepGenDiffTest.wrap3
+      ``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc 3 3 3 2 3 Unit (fun _ : Unit => Sparkle.Core.Domain.defaultDomain)
+      topshare.machineSource
+      (fun i bools bits => topshare.machineExt i bools bits
+        (Tools.ShippingMachineSource.stateLoop topshare.machineInits (topshare.machineBody i bools bits)))
+      (fun i bools bits => topshare.machineExtB i bools bits
+        (Tools.ShippingMachineSource.stateLoop topshare.machineInits (topshare.machineBody i bools bits)))
+      (Tools.ShippingMachineCausal.letObsB topshare.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshare.machineInits
+        topshare.machineBody topshare.machineExt topshare.machineExtB)
+      topshare.machineSource
+      (fun i bools bits => topshare.machineExt i bools bits
+        (Tools.ShippingMachineSource.stateLoop topshare.machineInits (topshare.machineBody i bools bits)))
+      (fun i bools bits => topshare.machineExtB i bools bits
+        (Tools.ShippingMachineSource.stateLoop topshare.machineInits (topshare.machineBody i bools bits)))
+      (fun hcore entry hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_soundLA O T hA topshare_quadAll topshare_gen entry hM0 hM1 hR0 accHcl hw hcore)
+      (fun hcore entry hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_composed topshare_quadAll topshare_gen wrap_gen wrap3_gen Tests.Compiler.TopShareComposedTest.ts0_C_hcalls Tests.Compiler.TopShareComposedTest.ts1_C_hcalls wrap_hextB wrap_hext wrap3_hextB wrap3_hext qc_hgrp accHcl hcore entry ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩)
+      topshare_quadAll.hPX.outTy
+      (fun hcore hpost entry hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_runFacts O T 1 hA topshare_quadAll hM0 hM1 hR0 accHcl hcore hpost entry hw)
+      (fun hcore hpost entry _ hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_outsCheck O T 1 hA topshare_quadAll hM0 hM1 hR0 accHcl hcore hpost entry hw)
+      (fun hcore hpost entry hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_kidsMasked O T 1 hA topshare_quadAll hM0 hM1 hR0 accHcl hcore hpost entry hw)
+      (fun hcore hpost entry hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_designCheck O T 1 hA topshare_quadAll hM0 hM1 hR0 accHcl hcore hpost entry hw)
+      O T hA topshare_quadData acc_leafData wrap_calleeData wrap3_calleeData entryT entryW entryW3 hR0
+      (fun mc cc => Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machine_closes mc _ cc _) w w' y hw h)
+  let e ← elabTerm stx none
+  synthesizeSyntheticMVarsNoPostponing
+  let e ← instantiateMVars e
+  let ty ← instantiateMVars (← inferType e)
+  if e.hasMVar || ty.hasMVar then throwError "unassigned mvars in the instance term"
+  addAndCompile <| .thmDecl { name := `Tests.Compiler.QuadComposedTest.topshare_returned3, levelParams := [], type := ty, value := e }
+  -- statement audit: the instance's statement is `isDefEq` (same binders) to the OLD hand-written theorem
+  let tb := (← getConstInfo ``Tests.Compiler.TopShareReturnedTest.topshare_returned).type
+  forallTelescope ty fun xs ca => do
+    let cb ← instantiateForall tb xs
+    unless (← isDefEq ca cb) do throwError "SR15 statement audit: Tests.Compiler.QuadComposedTest.topshare_returned3 differs from Tests.Compiler.TopShareReturnedTest.topshare_returned"
+    logInfo m!"SR15: statement of Tests.Compiler.QuadComposedTest.topshare_returned3 ≡ statement of Tests.Compiler.TopShareReturnedTest.topshare_returned ({xs.size} binders)"
+#print axioms Tests.Compiler.QuadComposedTest.topshare_returned3
+
+open Lean Elab Command Meta Term in
+set_option maxHeartbeats 4000000 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let stx ← `(fun {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (entryT : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.topshare topshare.machineData.shape)
+    (entryW : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenInstTest.wrap Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape)
+    (entryW3 : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 wrap3.machineData.shape)
+    (hR0 : MachineDefines mctx mref cctx cref ``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc
+      Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData.shape)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O 0 w)
+    (h : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinational ``Tests.Compiler.SeqDeepGenDiffTest.topshare) mctx mref cctx cref w y w') =>
+    @Tools.ShippingQuadReturned.quad_wired _ _ _ _ topshare.machineData Tests.Compiler.SeqDeepGenInstTest.wrap.machineData wrap3.machineData
+      Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData
+      ``Tests.Compiler.SeqDeepGenDiffTest.topshare ``Tests.Compiler.SeqDeepGenInstTest.wrap ``Tests.Compiler.SeqDeepGenDiffTest.wrap3
+      ``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc 3 3 3 2 3 Unit (fun _ : Unit => Sparkle.Core.Domain.defaultDomain)
+      topshare.machineSource
+      (fun i bools bits => topshare.machineExt i bools bits
+        (Tools.ShippingMachineSource.stateLoop topshare.machineInits (topshare.machineBody i bools bits)))
+      (fun i bools bits => topshare.machineExtB i bools bits
+        (Tools.ShippingMachineSource.stateLoop topshare.machineInits (topshare.machineBody i bools bits)))
+      (Tools.ShippingMachineCausal.letObsB topshare.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshare.machineInits
+        topshare.machineBody topshare.machineExt topshare.machineExtB)
+      topshare.machineSource
+      (fun i bools bits => topshare.machineExt i bools bits
+        (Tools.ShippingMachineSource.stateLoop topshare.machineInits (topshare.machineBody i bools bits)))
+      (fun i bools bits => topshare.machineExtB i bools bits
+        (Tools.ShippingMachineSource.stateLoop topshare.machineInits (topshare.machineBody i bools bits)))
+      (fun hcore entry hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_soundLA O T hA topshare_quadAll topshare_gen entry hM0 hM1 hR0 accHcl hw hcore)
+      (fun hcore entry hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_composed topshare_quadAll topshare_gen wrap_gen wrap3_gen Tests.Compiler.TopShareComposedTest.ts0_C_hcalls Tests.Compiler.TopShareComposedTest.ts1_C_hcalls wrap_hextB wrap_hext wrap3_hextB wrap3_hext qc_hgrp accHcl hcore entry ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩)
+      topshare_quadAll.hPX.outTy
+      (fun hcore hpost entry hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_runFacts O T 1 hA topshare_quadAll hM0 hM1 hR0 accHcl hcore hpost entry hw)
+      (fun hcore hpost entry _ hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_outsCheck O T 1 hA topshare_quadAll hM0 hM1 hR0 accHcl hcore hpost entry hw)
+      (fun hcore hpost entry hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_kidsMasked O T 1 hA topshare_quadAll hM0 hM1 hR0 accHcl hcore hpost entry hw)
+      (fun hcore hpost entry hB => by
+        obtain ⟨O, T, hA, hM0, hR0, hM1, hR1, hw⟩ := hB
+        exact quad_designCheck O T 1 hA topshare_quadAll hM0 hM1 hR0 accHcl hcore hpost entry hw)
+      O T hA topshare_quadData acc_leafData wrap_calleeData wrap3_calleeData entryT entryW entryW3 hR0
+      (fun mc cc => Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machine_closes mc _ cc _) w w' y hw h)
+  let e ← elabTerm stx none
+  synthesizeSyntheticMVarsNoPostponing
+  let e ← instantiateMVars e
+  let ty ← instantiateMVars (← inferType e)
+  if e.hasMVar || ty.hasMVar then throwError "unassigned mvars in the instance term"
+  addAndCompile <| .thmDecl { name := `Tests.Compiler.QuadComposedTest.topshare_wired3, levelParams := [], type := ty, value := e }
+  -- statement audit: the instance's statement is `isDefEq` (same binders) to the OLD hand-written theorem
+  let tb := (← getConstInfo ``Tests.Compiler.TopShareComposedTest.topshare_wired).type
+  forallTelescope ty fun xs ca => do
+    let cb ← instantiateForall tb xs
+    unless (← isDefEq ca cb) do throwError "SR15 statement audit: Tests.Compiler.QuadComposedTest.topshare_wired3 differs from Tests.Compiler.TopShareComposedTest.topshare_wired"
+    logInfo m!"SR15: statement of Tests.Compiler.QuadComposedTest.topshare_wired3 ≡ statement of Tests.Compiler.TopShareComposedTest.topshare_wired ({xs.size} binders)"
+#print axioms Tests.Compiler.QuadComposedTest.topshare_wired3
+
+
+/-! ## the audit discriminates: swapped declarations / different blocks are NOT `isDefEq` -/
+
+open Lean Elab Command Meta in
+set_option maxHeartbeats 0 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let T (n : Name) : MetaM Lean.Expr := do pure (← getConstInfo n).type
+  let ns := `Tests.Compiler.QuadComposedTest
+  let old := `Tests.Compiler.TopShareComposedTest
+  let pairs : List (Name × Name) :=
+    [(ns ++ `wrap_kidFactsA, old ++ `ts1_C_kidFactsA), (ns ++ `wrap3_kidFactsA, old ++ `ts0_C_kidFactsA),
+     (ns ++ `wrap_traceXA, old ++ `ts1_C_traceXA), (ns ++ `wrap_composedA, old ++ `ts1_C_composedA),
+     (ns ++ `wrap3_composedA, old ++ `ts0_C_composedA), (ns ++ `wrap_seqChildRunN2, old ++ `ts1_C_seqChildRunN2),
+     (ns ++ `leaf0_kidFactsA, old ++ `ts0_C_kidFactsA),
+     (ns ++ `parent_runFacts, old ++ `ts_designCheck), (ns ++ `parent_outsCheck, old ++ `ts_kidsMasked),
+     (ns ++ `parent_composedA, old ++ `ts_soundLA), (ns ++ `parent_soundLA, old ++ `ts_composedA),
+     (ns ++ `parent_traceXA, old ++ `ts_composedA)]
+  for (a, b) in pairs do
+    let ta ← T a
+    let tb ← T b
+    if (← isDefEq ta tb) then throwError "SR15 AUDIT FAILED: the statements of {a} and {b} were judged equal (the statement audit would not discriminate)"
+  logInfo m!"SR15: the statement audit discriminates: {pairs.length} type-correct mismatched pairs (callee swapped / different block) are rejected"
+
+/-! ## closure audit -/
+
+open Lean Elab Command Meta in
+open Tests.Compiler.ChildVertAuditTest in
+set_option maxHeartbeats 0 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for c in [``Tests.Compiler.QuadComposedTest.topshare_returned3, ``Tests.Compiler.QuadComposedTest.topshare_wired3] do
+    stdAxioms c
+    let cl ← depClosure c
+    let forbidden : List Name := [`Tools.ShippingChildInv.ChildBnd, `Tools.ShippingChildInv.StartV, `Tools.ShippingGenKid.GenKid,
+      `Tools.ShippingKidFacts.KidFacts, `Tools.ShippingMachineDepthRun.MachineRunNC,
+      `Tools.ShippingMachineDepthRun.machineRunNC_of_real, `Tools.ShippingMachineDepthRun.seqChildRunN_of_composedC]
+    for f in forbidden do
+      unless (← getEnv).contains f do throwError "SR15 AUDIT FAILED: the forbidden name {f} does not exist (the audit would check nothing)"
+    let bad := hits cl ++ cl.toList.filter fun x => forbidden.any (·.isPrefixOf x)
+    unless bad.isEmpty do throwError "SR15 AUDIT FAILED: old boundary / old child predicate in the closure of {c}: {bad}"
+    -- the OLD hand-pasted per-callee / per-parent blocks are NOT in the closure
+    let oldBlocks : List Name :=
+      [`ts_soundLA, `ts_composedA, `ts_traceXA, `ts_ranA, `ts_hkid, `ts_runFacts, `ts_outsCheck, `ts_kidsMasked, `ts_designCheck, `ts_houtTy,
+       `ts0_C_closesA, `ts0_C_hsep, `ts0_C_kidFactsA, `ts0_G_kidFactsA, `ts0_C_hgk, `ts0_C_ifaceP, `ts0_C_traceXA, `ts0_C_composedA, `ts0_C_seqChildRunN2,
+       `ts1_C_closesA, `ts1_C_hsep, `ts1_C_kidFactsA, `ts1_G_kidFactsA, `ts1_C_hgk, `ts1_C_ifaceP, `ts1_C_traceXA, `ts1_C_composedA, `ts1_C_seqChildRunN2,
+       `topshare_noShips_noBd_dc]
+    for b in oldBlocks do
+      let n := `Tests.Compiler.TopShareComposedTest ++ b
+      unless (← getEnv).contains n do throwError "SR15 AUDIT FAILED: {n} does not exist (the audit would check nothing)"
+      if cl.contains n then throwError "SR15 AUDIT FAILED: the old pasted block {n} is in the closure of {c}"
+    for n in [`Tests.Compiler.TopShareTraceTest.topshare_closes0, `Tests.Compiler.TopShareTraceTest.topshare_machineRun,
+        `Tests.Compiler.SeqDeepGenDiffTest.topshare.machine_design_svNR2] do
+      unless (← getEnv).contains n do throwError "SR15 AUDIT FAILED: {n} does not exist (the audit would check nothing)"
+      if cl.contains n then throwError "SR15 AUDIT FAILED: {n} is in the closure of {c}"
+    for must in [(if c == ``Tests.Compiler.QuadComposedTest.topshare_returned3 then ``Tools.ShippingQuadReturned.quad_returned else ``Tools.ShippingQuadReturned.quad_wired),
+        ``Tools.ShippingQuadReturned.quad_returned, ``Tools.ShippingQuadComposed.quad_composed, ``Tools.ShippingQuadComposed.quad_soundLA,
+        ``Tools.ShippingQuadComposed.quad_runFacts, ``Tools.ShippingQuadComposed.quad_outsCheck, ``Tools.ShippingQuadComposed.quad_kidsMasked,
+        ``Tools.ShippingQuadComposed.quad_designCheck, ``Tools.ShippingQuadComposed.leafCallee_seqChildRunN2, ``Tools.ShippingQuadComposed.leaf_kidFactsA,
+        ``Tools.ShippingQuadComposed.leafCallee_kidFactsA, ``Tools.ShippingQuadComposed.leafCallee_runNCA,
+        ``Tools.ShippingSeqParentAt.machine_design_noShips_noBd_dc_at] do
+      unless cl.contains must do throwError "SR15 AUDIT FAILED: {must} not in the closure of {c}"
+    let remaining := cl.toList.filter fun x => (`Tests.Compiler.TopShareComposedTest).isPrefixOf x
+    logInfo m!"SR15 CLOSURE AUDIT: {c}: standard axioms; closure {cl.size} constants; no old pasted ts_/ts0_/ts1_ block; the generic quad_composed / quad_soundLA / four checks / callee lemmas are in it; remaining TopShareComposedTest constants (the named text-supplied premises): {remaining}"
 
 end Tests.Compiler.QuadComposedTest
 end

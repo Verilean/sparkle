@@ -7,7 +7,7 @@ import Tools.ShippingMachineDepthRunRA
 import Tools.ShippingMachineCallsLinkedTNR
 import Tools.ShippingTopShareRan
 import Tools.ShippingSeqParentLemmas
--- UNBUILT (unit SR15): see STATUS-SR15.md / REPORT-SR15.md for the run names and exits.
+-- BUILT (unit SR15): c9 exit 0 (dev run, with the #print axioms below: standard axioms); the final-SHA rebuild is in REPORT-SR15.md.
 -- SCOPE (binding, ledger L8au): the PER-CALLEE and PER-PARENT blocks of the shared-leaf class QUAD (`QuadParentData` / `LeafCalleeData` / `LeafData`),
 -- stated and proved GENERICALLY (no `topshare` / `wrap` / `wrap3` / `acc` / `wrap`-text in any statement): the leaf's `KidFactsA`, the callee's
 -- `KidFactsA`, trace, `ComposedNW`, `SeqChildRunN` at depth 2 (via `seqChildRunN_of_composedCA`), the `MachineRunNCA` of a served callee run
