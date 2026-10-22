@@ -3797,3 +3797,6 @@ lean_lib «Tools.ShippingLeafMissCoh» where
 
 lean_lib «Tools.ShippingLeafKeepCache» where
   roots := #[`Tools.ShippingLeafKeepCache]
+
+lean_lib «Tools.ShippingLeafBodyCi» where
+  roots := #[`Tools.ShippingLeafBodyCi]
