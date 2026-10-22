@@ -20,7 +20,7 @@ open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
 open Sparkle.Compiler.Elab
 open Tools.ShippingChildInv Tools.ShippingChildBndInit Tools.ShippingChildBndCore Tools.ShippingChildInvA
 open Tools.ShippingChildVCA Tools.ShippingChildFresh Tools.ShippingChildCacheA Tools.ShippingChildPinC
-open Tools.ShippingChildDepthC Tools.ShippingChildRunA
+open Tools.ShippingChildDepthC Tools.ShippingChildRunA Tools.ShippingChildRunAKids
 open Sparkle.IR.AST Sparkle.IR.Machine
 open Tools.ShippingMachineCloses
 open Tools.ShippingMachineAuto
@@ -122,6 +122,84 @@ theorem memLeafCallee_hcalls (O : RefLawsAOps MkRefd mref cref)
   refine ⟨?_, ?_⟩
   · unfold memLeafBsC memLeafOutsC memLeafSrcC; simp only [↓reduceIte]; exact hr
   · rw [hr.2.2.2.2.2.1]; exact (hargsN k hlt).symm
+
+/-- **`ComposedNW 1` of a callee over a memory-bearing leaf** (`leafCallee_composedA` for a leaf WITH calls).  `hcalls` is `memLeafCallee_hcalls` (or any proof of its type). -/
+theorem memLeafCallee_composedNW (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {nameK : Nat → String} {nk : Nat → Nat} {outsK namesK : Nat → List String} {names : List String}
+    (hC : MemCalleeData dC C nC nameK nk outsK namesK names)
+    (hkids : ∀ (k : Nat) (hk : k < dC.shape.insts.length), (dC.shape.insts[k]).1 = G)
+    (GF : GenFacts dC (fun i : DomainConfig => i) initsC bodyC obsRC extC extBC srcC)
+    (hR0 : MachineDefines mctx mref cctx cref G dG.shape)
+    (hGcloses : ∀ (mctx' : Meta.Context) (cctx' : Core.Context), AdmCtx O.quiet mctx' cctx' →
+      MachineClosesAtA (mref := mref) (cref := cref) O mctx' cctx' G dG.shape)
+    (hGins : dG.shape.insts ≠ [])
+    (hcalls : ∀ (m : Sparkle.IR.AST.Module) (design : Sparkle.IR.AST.Design),
+      HCallsOf 1 dC design m (dom := fun i : DomainConfig => i)
+        (letObsB dC (fun i : DomainConfig => i) initsC bodyC extC extBC)
+        (fun i bools bits => extC i bools bits (stateLoop initsC (bodyC i bools bits)))
+        (fun i bools bits => extBC i bools bits (stateLoop initsC (bodyC i bools bits)))
+        nC (memLeafBsC G dG nG) (memLeafOutsC G dG) (memLeafSrcC G dG nG srcG) (memLeafPC O G dG design))
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    {D₀ : Nat} (hw : JQ O.quiet D₀ w) (hc : D₀ = 0 ∨ CacheInvA O (cv w))
+    (hcore : RunsTo (synthesizeCombinationalCore C [] false) mctx mref cctx cref w (m, design) w')
+    (entry : MachineDefines mctx mref cctx cref C dC.shape)
+    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx C dC.shape) :
+    Tools.ShippingMachineDepthRun.ComposedNW 1 C dC nC m design (fun i : DomainConfig => i) srcC
+      (fun i bools bits => extC i bools bits (stateLoop initsC (bodyC i bools bits)))
+      (fun i bools bits => extBC i bools bits (stateLoop initsC (bodyC i bools bits))) := by
+  have h := genTrace O T hA dC (fun i : DomainConfig => i) GF (machineRunJQC_of_closesA O hA hcore entry closes hw hc)
+  exact machine_linkedT_callsRNA 1 O h hC.fne nC hC.hkD (bsIn_drop_nodomain dC nC hC.domB) hC.hIlen hC.hSL hC.hSlen hC.hLlen hC.hNIn
+    (memLeafBsC G dG nG) (memLeafOutsC G dG) (memLeafSrcC G dG nG srcG) (memLeafPC O G dG design) (hcalls m design)
+    (fun k c hc' hnone mctx' cctx' mc Dc w1 w2 hadm hcache hsv hq hrun hcons hmod => by
+      have hk : k < dC.shape.insts.length := by
+        have := (List.getElem?_eq_some_iff.mp hc').1; simpa using this
+      have hck : c = G := by
+        rw [List.getElem?_map, List.getElem?_eq_getElem hk] at hc'
+        rw [← Option.some.inj hc']
+        exact hkids k hk
+      subst hck
+      exact machineRunNCA_of_real_main O T (BndA := fun _ _ _ _ _ => True)
+        (RealChildA.run mctx' cctx' w1 w2 hadm hcache hsv hq hrun) hcons hR0
+        (fun _ _ _ _ _ _ _ => trivial)
+        (fun m' c' _ _ _ hch _ => by
+          obtain ⟨_, _, _, hadm', _⟩ := hch
+          exact hGcloses m' c' hadm')
+        hGins)
+
+/-- **`SeqChildRunN` at depth 2 of a served callee run over a memory-bearing leaf** (`leafCallee_seqChildRunN2` for a leaf WITH calls).  The boundary of the callee's run is the leaf's `MachineDefines`. -/
+theorem memLeafCallee_seqChildRunN2 (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    {nameK : Nat → String} {nk : Nat → Nat} {outsK namesK : Nat → List String} {names : List String}
+    (hC : MemCalleeData dC C nC nameK nk outsK namesK names)
+    (hOk : ∀ o ∈ dC.shape.layout.outs, outNameOk o.name = true)
+    (hkids : ∀ (k : Nat) (hk : k < dC.shape.insts.length), (dC.shape.insts[k]).1 = G)
+    (GF : GenFacts dC (fun i : DomainConfig => i) initsC bodyC obsRC extC extBC srcC)
+    (hR0 : MachineDefines mctx mref cctx cref G dG.shape)
+    (hGcloses : ∀ (mctx' : Meta.Context) (cctx' : Core.Context), AdmCtx O.quiet mctx' cctx' →
+      MachineClosesAtA (mref := mref) (cref := cref) O mctx' cctx' G dG.shape)
+    (hGins : dG.shape.insts ≠ [])
+    (hcalls : ∀ (m : Sparkle.IR.AST.Module) (design : Sparkle.IR.AST.Design),
+      HCallsOf 1 dC design m (dom := fun i : DomainConfig => i)
+        (letObsB dC (fun i : DomainConfig => i) initsC bodyC extC extBC)
+        (fun i bools bits => extC i bools bits (stateLoop initsC (bodyC i bools bits)))
+        (fun i bools bits => extBC i bools bits (stateLoop initsC (bodyC i bools bits)))
+        nC (memLeafBsC G dG nG) (memLeafOutsC G dG) (memLeafSrcC G dG nG srcG) (memLeafPC O G dG design))
+    (hextB : ∀ (i : DomainConfig) (bools : Nat → Signal i Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)) (j : Nat), j < nC →
+      extBC i bools bits (stateLoop initsC (bodyC i bools bits)) j = bools j)
+    (hext : ∀ (i : DomainConfig) (bools : Nat → Signal i Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)) (j n' : Nat), j < nC →
+      extC i bools bits (stateLoop initsC (bodyC i bools bits)) j n' = bits j n')
+    (i : DomainConfig) {mc : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (h : MachineRunNCA O C dC.shape (fun mctx cctx _ _ _ => MachineDefines mctx mref cctx cref G dG.shape) mc design) :
+    SeqChildRunN (childMap design.modules) design 2 mc (List.take nC dC.bsIn) dC.shape.layout.outs
+      (fun vals => srcC i
+        (Tools.ShippingMachineChild.boolsOf (List.take nC dC.bsIn) vals)
+        (Tools.ShippingMachineChild.bitsOf (List.take nC dC.bsIn) vals)) :=
+  Tools.ShippingSeqChildDeepRunA.seqChildRunN_of_composedCA O 1 (fun mctx cctx _ _ _ => MachineDefines mctx mref cctx cref G dG.shape)
+    (fun hcore hadm hjqc entry cl hB =>
+      memLeafCallee_composedNW O T hadm hC hkids GF hB hGcloses hGins hcalls hjqc.1 (Or.inr hjqc.2) hcore entry cl)
+    hC.outTy hOk hC.slotsNe (Nat.pos_of_ne_zero (fun h0 => hC.insts_ne (List.eq_nil_of_length_eq_zero h0)))
+    hC.hkD hC.hIlen hC.hSL hC.hSlen hC.hLlen hC.hNIn hextB hext i h
 
 end Callee
 
