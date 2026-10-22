@@ -4010,3 +4010,6 @@ lean_lib «Tools.ShippingSrm4Core5» where
 
 lean_lib «Tools.ShippingSrm4Core6» where
   roots := #[`Tools.ShippingSrm4Core6]
+
+lean_lib «Tools.ShippingSrm4Check» where
+  roots := #[`Tools.ShippingSrm4Check]
