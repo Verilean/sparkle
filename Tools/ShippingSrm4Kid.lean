@@ -1,6 +1,6 @@
 import Tools.ShippingSrm4Core6
 import Tools.ShippingSrm3Callee
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): e2 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (binding, residue R2): `KidFactsNC` (all fields of `KidFactsA` but `check`, see `Tools/ShippingSrm4Check.lean` for why) of a `RealChildA O C y` of a callee `C` whose call entries are MEMORY entries (the origin builds the
 -- memory module) and/or ordinary callees, A-form: `deepChild_kidFactsNC` of `Tools/ShippingSrm4Core6.lean` (the `hnomem`-free copies of the `core_*_ranA` chain, scripted by `.cluster/logs/port_srm4.py`) applied to a
 -- `MemCalleeData`; `hsep` DERIVED from the interfaces (`hord`) and the table facts; `closes` DERIVED by `memCallee_closesA`.

@@ -1,7 +1,7 @@
 import Tests.Compiler.SharedLeafMemKidIfaceTest
 import Tools.ShippingSrm4Run
 import Tools.ShippingSeqParentGenD2MSD
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): g2 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (residue R3): `Tools.ShippingSrm4Run.memCallee_seqChildRunN` HAND-APPLIED to `leafM` of `Tests/Compiler/SharedLeafMemKidTest.lean` (a register machine whose ONE call is the synchronous 4/8 memory; its endpoint is built from
 -- `machine_trace_of_data_causal`, where `generateSeqChildN` refuses it).  The statement of `leafM_seqChildRunN` is the type of `leafM.seq_child_runN_ofR{n+1}` (a run of the served callee, every depth).
 -- PREMISES kept (named): `leafM_gen` (the generated `machine_*` facts, assembled from the declaration's own theorems), `leafM_memcalls` (per-call `MemFacts`, kernel `rfl` / `decide`), `leafM_hext(B)` (the generated extension reads the

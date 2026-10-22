@@ -1,6 +1,11 @@
 import Tools.ShippingParentTailsA
 import Tools.ShippingSrm3Iface
--- GENERATED
+-- BUILT (unit SRM4): c4 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
+-- SCOPE (binding, residue R2): SCRIPTED copies (`scripts/srm4/port_srm4.py`, specs `scripts/srm4/spec*.json`) of `core_linkedWF_ranA`, `core_instOuts_not_assigned_ranA`, `core_closed_typedIn_ranA` (and `kidTA_ofO`, the A-form of `kidT_ofO`), from the A-form originals in `Tools/ShippingParentTailsA.lean`, with the memory entries of the callee allowed.  The script's changes, all of them:
+-- the theorem's name gets the suffix `M`; the binder `hnomem` is removed and `hfne : d.shape.instFields ≠ []` is added after `hins` where the original had none; a call of a copied theorem calls the copy; `RealChildA O (d.shape.insts[k]).1 y` (the kid of
+-- call entry `k`) becomes `KidTA O (originAt d.shape k) (d.shape.insts[k]).1 y` (the origin's built module, or a `RealChildA` when the origin builds none); the three lines refuting the memory case of a child (`rw [nomem_tag hnomem …] at hmem; cases hmem`) become
+-- `kidTA_ofO` (from `MemChildren` of the closing, taken from the closing's own statement); `set_option maxHeartbeats … in` lines are DROPPED (the copies run at the default budget).  Nothing is routed through the old-form `RealChild` / `MachineRan` / `MachineClosesAt` or `kidsChild_of_realM`.
+-- The per-kid facts stay hypotheses over `KidTA`.  `RealChildA` is a history of past synthesis results, not freshness or semantic correctness in the current environment.  No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 namespace Tools.ShippingSrm4Core1
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine

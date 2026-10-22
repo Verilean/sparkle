@@ -1,5 +1,5 @@
 import Tools.ShippingSrm4Core6
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): d3 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (binding): a PROVED OBSTRUCTION, not a theorem about a class.  The depth-indexed child check `kidCheck C (m + 1)` is `designCheck C m`, whose text check `textCheckI` asks `seqStmtOkI` of every
 -- statement of the module; `seqStmtOkI (.memory ..) = false` (memories "have their own layer").  So the built memory module of a memory entry fails `kidCheck C (m + 1)` for EVERY module list `C` and EVERY
 -- `m`: a memory module can be checked as a child only at `kidCheck C 0` (`leafCheck`, `leafCheck_memModule`).  Consequently the `check` field of `KidFactsA` (`Tools/ShippingSeqChildDeepKidFactsA.lean`), which asks

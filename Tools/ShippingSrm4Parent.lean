@@ -1,6 +1,6 @@
 import Tools.ShippingSrm4Core6
 import Tools.ShippingSeqParentKidFactsA
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): h1 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (binding, residue R5): the parent-side consumers of the callees' facts WITHOUT the `check` field: `kidsA_runFacts` / `kidsA_outsCheck` / `kidsA_maskedN` of `Tools/ShippingSeqParentKidFactsA.lean` with `KidFactsNC`
 -- (`Tools/ShippingSrm4Core6.lean`: `KidFactsA` minus `check`, which is unsatisfiable for a design with a memory module, `Tools/ShippingSrm4Check.lean`) in place of `KidFactsA`, and `kidsNC_designCheck_of_kidsPass`: the parent's
 -- `designCheck` with EVERYTHING derived except the children's check, which is the NAMED premise `hkids` (`kidsPass … (kidCheck … n) … = true`, the conclusion of `core_kidsPass_deep_ranA`).

@@ -1,5 +1,5 @@
 import Tools.ShippingSrm4Callee
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): m2 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (binding, residues R3/R5): the callee-level composition for a callee whose calls are ORDINARY calls of ONE leaf `G` AND/OR memory entries (`wrapQ`: two calls of the plain leaf `leafP` and one memory entry), generic in the leaf's
 -- interface tables (`genBsC` / `genOutsC` / `genSrcC` / `genPC`) so that BOTH a plain leaf (old-form `MachineRun`, run at every depth) and a leaf with a memory child (`MachineRunNCA`, depth 1) fit.
 -- PROVED: `call_inRange_at` (`call_inRange` of `Tools/ShippingQuadCalls.lean` at ONE call: the table of a memory placeholder is not needed), `ordCallee_hcalls` (the per-call `SeqFactsRN` of the ORDINARY calls, the memory calls by `MemFacts`),

@@ -1,0 +1,180 @@
+{
+ "out": "Tools/ShippingSrm4Core6.lean",
+ "imports": [
+  "Tools.ShippingSeqChildDeepKidFactsA",
+  "Tools.ShippingSrm4Core5",
+  "Tools.ShippingMemKidFacts"
+ ],
+ "header": "-- GENERATED",
+ "namespace": "Tools.ShippingSrm4Core6",
+ "extra_opens": [
+  "open Tools.ShippingSrm3Iface Tools.ShippingCallsMemA Tools.ShippingSrm4Core1 Tools.ShippingSrm4Core2 Tools.ShippingSrm4Core3 Tools.ShippingSrm4Core4 Tools.ShippingSrm4Core5",
+  "open Tools.ShippingInstTagged (originAt)"
+ ],
+ "sources": [
+  {
+   "file": "Tools/ShippingParentRunFactsA.lean",
+   "names": [
+    "hkidW_of_dataA"
+   ]
+  },
+  {
+   "file": "Tools/ShippingSeqChildDeepKidFactsA.lean",
+   "names": [
+    "deepChild_kidFactsA"
+   ]
+  }
+ ],
+ "all": [
+  {
+   "name": "core_kids_facts_ranA",
+   "new": "core_kids_facts_ranAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm3Iface"
+  },
+  {
+   "name": "core_outsIn_ranA",
+   "new": "core_outsIn_ranAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm3Iface"
+  },
+  {
+   "name": "core_calls_portsG_ranA",
+   "new": "core_calls_portsG_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm3Iface"
+  },
+  {
+   "name": "core_inPorts_ranA",
+   "new": "core_inPorts_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm3Iface"
+  },
+  {
+   "name": "core_linkedWF_ranA",
+   "new": "core_linkedWF_ranAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core1"
+  },
+  {
+   "name": "core_instOuts_not_assigned_ranA",
+   "new": "core_instOuts_not_assigned_ranAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core1"
+  },
+  {
+   "name": "core_closed_typedIn_ranA",
+   "new": "core_closed_typedIn_ranAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core1"
+  },
+  {
+   "name": "core_hierGate_anyA",
+   "new": "core_hierGate_anyAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core2"
+  },
+  {
+   "name": "core_kids_self_ranA",
+   "new": "core_kids_self_ranAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core2"
+  },
+  {
+   "name": "core_raw_facts_ranA",
+   "new": "core_raw_facts_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core2"
+  },
+  {
+   "name": "core_outsExtracted_ranA",
+   "new": "core_outsExtracted_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core2"
+  },
+  {
+   "name": "core_callPorts_ranA",
+   "new": "core_callPorts_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core2"
+  },
+  {
+   "name": "core_instOutWidthsOk_ranA",
+   "new": "core_instOutWidthsOk_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core2"
+  },
+  {
+   "name": "core_runFacts_ranA",
+   "new": "core_runFacts_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core2"
+  },
+  {
+   "name": "core_conn_refsG_ranA",
+   "new": "core_conn_refsG_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core3"
+  },
+  {
+   "name": "core_portsMatch_raw_ranA",
+   "new": "core_portsMatch_raw_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core4"
+  },
+  {
+   "name": "core_clk_ranA",
+   "new": "core_clk_ranAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core4"
+  },
+  {
+   "name": "deepChild_ifaceA'",
+   "new": "deepChild_ifaceA'M",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core5"
+  },
+  {
+   "name": "deepChild_ranA",
+   "new": "deepChild_ranAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core5"
+  },
+  {
+   "name": "deepChild_outsMaskedA",
+   "new": "deepChild_outsMaskedAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm4Core5"
+  },
+  {
+   "name": "hkidW_of_dataA",
+   "file": "Tools/ShippingParentRunFactsA.lean",
+   "ns": "Tools.ShippingSrm4Core6"
+  },
+  {
+   "name": "deepChild_kidFactsA",
+   "file": "Tools/ShippingSeqChildDeepKidFactsA.lean",
+   "ns": "Tools.ShippingSrm4Core6"
+  }
+ ]
+}

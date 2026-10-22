@@ -1,7 +1,7 @@
 import Tests.Compiler.SharedLeafMemKidIfaceTest
 import Tools.ShippingSrm4Kid
 import Tools.ShippingQuadComposed
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): e7 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (residue R2): `Tools.ShippingSrm4Kid.memCallee_kidFactsNC` HAND-APPLIED to the callees of `Tests/Compiler/SharedLeafMemKidTest.lean`: `leafM` (every call a memory entry), `wrapM` (every call the memory-bearing leaf `leafM`),
 -- `wrapQ` (two calls of the plain leaf `leafP` and one memory entry).  `KidFactsNC` = `KidFactsA` WITHOUT the `check` field (unsatisfiable for a design with a memory module, `Tools.ShippingSrm4Check`).
 -- PREMISES kept (named): `entry` / `hR0` (`MachineDefines`), `hcl` (`MachineCloses` of the plain leaf), `O`, `T`; the decidable data (`MemCalleeData`, `callWidthsOk`, name / type conditions).  An example does not make the class complete.

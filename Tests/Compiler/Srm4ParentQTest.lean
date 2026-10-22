@@ -1,6 +1,6 @@
 import Tests.Compiler.Srm4KidTest
 import Tools.ShippingSrm4Parent
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): p2 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (residue R5, parent half): the parent soundness blocks HAND-APPLIED to `topshareQ` (two calls of the PLAIN callee `wrapP` over the plain leaf `leafP`, two calls of `wrapQ`, whose calls are two of `leafP` and ONE memory entry;
 -- `Tests/Compiler/SharedLeafMemKidTest.lean`): `ranA`, `hkid` (`KidFactsNC`: `wrapP` from `leafCallee_kidFactsA` minus `check`, `wrapQ` from `Tests/Compiler/Srm4KidTest.lean`), `runFacts`, `outsCheck`, `kidsMasked`, `traceXA`, and
 -- `designCheck` UP TO the children's check `hkids` (named, OPEN).  NOT done here: the composed theorem of `topshareQ` (the callee `wrapQ` mixes a plain-leaf call and a memory call: OPEN, see REPORT-SRM4.md).

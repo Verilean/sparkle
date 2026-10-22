@@ -1,6 +1,6 @@
 import Tools.ShippingSrm3Callee
 import Tools.ShippingQuadComposed
--- UNBUILT (unit SRM4): see STATUS-SRM4.md / REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): a2 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (binding, residue R3): the run theorem of a register machine (a `circuit do`, head `machine_trace_of_data_causal`) whose calls are ALL memory entries (the origin builds the memory module), at every depth,
 -- proved GENERICALLY from the existing composition results `machine_linkedT_callsRNA` (the memory half `MemFacts` of its per-call disjunction) and `seqChildRunN_of_composedCA`.  No generator change:
 -- `generateSeqChildN` / `#machine_composedT` do not accept the head `machine_trace_of_data_causal` for such a machine (SRM1 evidence), this is the statement they would produce, as a theorem.

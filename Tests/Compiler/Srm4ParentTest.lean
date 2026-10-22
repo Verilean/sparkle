@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm4CalleeTest
 import Tools.ShippingSrm4Parent
 import Tools.ShippingQuadCalls
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): p2 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (residue R5, parent half): the parent soundness blocks of the shared-leaf class HAND-APPLIED to `topshareM` (two calls of `wrapM`, two of `wrapM3`, both callees over the memory-bearing leaf `leafM`; `Tests/Compiler/SharedLeafMemKidTest.lean`):
 -- `ranA`, `hkid` (`KidFactsNC` of both callees, `Tests/Compiler/Srm4KidTest.lean`), `runFacts`, `outsCheck`, `kidsMasked`, `traceXA`, and `designCheck` UP TO the children's check `hkids` (the named premise: OPEN, `Tools/ShippingSrm4Check.lean`).
 -- PREMISES kept (named): `O`, `T`, `hA`, the `MachineDefines` of the four machines, the start world `JQC O 0 w`, the core run `hcore`; `hkids` for `designCheck`.  `RealChildA` is a history of past synthesis results.

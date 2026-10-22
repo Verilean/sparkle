@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm4ParentQTest
 import Tests.Compiler.Srm4ComposedTest
 import Tools.ShippingSrm4Mixed
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): n4 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (residue R5, composed half, mixed callee): `Tools.ShippingSrm4Mixed.callee_seqChildRunN2` HAND-APPLIED to `wrapQ` (two calls of the PLAIN leaf `leafP` and ONE memory entry), and `ComposedNW 2` of `topshareQ` (callees `wrapP`, plain over the
 -- plain leaf, via `leafCallee_seqChildRunN2`; and `wrapQ`).  The leaf `leafP`'s run is its GENERATED `leafP.seq_child_runN` (made here by `generateSeqChildN`, the generator the K-ary templates use).
 -- PREMISES kept (named): `hF` (`CallFactFO` of `wrapQ`: the output equation of its ORDINARY calls under the generated `machineExt`; text-supplied), `hcalls` of `wrapP` (the old chain's, as `leafCallee_hcalls`), `hgrp` (`QuadGroupFacts` of the parent;

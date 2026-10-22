@@ -1,5 +1,5 @@
 import Tests.Compiler.Srm4MixedTest
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): o1 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (residue R5, composed half): `ComposedNW 2` (the form `ComposedG` is built from) of `topshareQ`, HAND-APPLIED: callees `wrapP` (a PLAIN callee over the plain leaf `leafP`: `leafCallee_seqChildRunN2`) and `wrapQ` (two calls of `leafP` and a
 -- memory call: `wrapQ_seqChildRunN2`).  The parent's trace is `topshareQ_traceXA`.
 -- PREMISES kept (named): `hcalls₁` (`wrapP`'s per-call `SeqFactsRN`, the old chain's `hcalls` as in `leafCallee_hcalls`), `hF` (`CallFactFO` of `wrapQ`), `hgrp` (`QuadGroupFacts` of the parent; text-supplied), `hR0` / `hcl` (the plain leaf), the

@@ -1,5 +1,5 @@
 import Tests.Compiler.Srm4ParentTest
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): i4 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (residue R5, composed half): `ComposedNW 2` (the stateful linked run at depth 2, the form `ComposedG` is built from) of `topshareM`, HAND-APPLIED: the parent's trace is `topshareM_traceXA`, the callees' depth-2 runs are
 -- `memLeafCallee_seqChildRunN2` (callees over the memory-bearing leaf `leafM`), the served callee runs are `MachineRunNCA` by `machineRunNCA_of_real_main` (`MachineClosesAtA` of the callees DERIVED, SRM3).
 -- PREMISES kept (named): `hcalls₁` / `hcalls₂` (the callees' per-call `SeqFactsRN`; `memLeafCallee_hcalls` derives them from the callee's `CallFactF` `hF`, text-supplied), `hextB*` / `hext*`, `hgrp` (`QuadGroupFacts` of the parent: the parent's

@@ -1,7 +1,11 @@
 import Tools.ShippingSeqChildDeepKidFactsA
 import Tools.ShippingSrm4Core5
 import Tools.ShippingMemKidFacts
--- (header written at the end)
+-- BUILT (unit SRM4): c10 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
+-- SCOPE (binding, residue R2): `KidFactsNC` / `KidFactsTNC` (the facts of a callee's kids WITHOUT the `check` field: `KidFactsA` minus its design-check conjunct, which is UNSATISFIABLE for a design with a memory module at a positive kid depth, see
+-- `Tools/ShippingSrm4Check.lean`; `KidFactsTNC` takes the kid of a call ENTRY, `flat` (`FlatOk`) in place of `masked`), the memory module's facts (`memKidTNC_facts`, no depth) and `deepChild_kidFactsNC`: `deepChild_kidFactsA`
+-- of `Tools/ShippingSeqChildDeepKidFactsA.lean` with `hnomem` removed, the `hhi` / `check` parts dropped, and the callees of the call entries taken at `KidFactsTNC` (a scripted copy, see the header of `Tools/ShippingSrm4Core1.lean`, followed by the hand edits named here; `hkidW_of_dataAM` is a pure scripted copy).
+-- PROVED relative to `O`, `T`, `MachineDefines` / `MachineClosesAtA` of the callee in `AdmCtx` contexts.  OPEN: the `check` field (a height-indexed check).  `RealChildA` is a history of past synthesis results, not freshness or runtime fit.  No `sorry`, no `axiom`, no `native_decide`.
 namespace Tools.ShippingSrm4Core6
 open Lean Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine

@@ -1,7 +1,7 @@
 import Tools.ShippingSrm4Run
 import Tools.ShippingSrm4Kid
 import Tools.ShippingQuadCalls
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): f7 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (binding, residues R3/R5): a CALLEE `C` whose calls are all ordinary calls of ONE leaf `G` that itself has MEMORY children (`G` as `leafM`): the generic forms of `leafCallee_hcalls` / `leafCallee_composedA` /
 -- `leafCallee_seqChildRunN2` of `Tools/ShippingQuadCalls.lean` / `Tools/ShippingQuadComposed.lean` for a leaf WITH calls.  The leaf's run is its `SeqChildRunN` at depth 1 from `MachineRunNCA` (`Tools.ShippingSrm4Run.memCallee_seqChildRunN`),
 -- not `LeafSeqRunN` (a plain leaf's run at every depth, impossible for a leaf with an instance).

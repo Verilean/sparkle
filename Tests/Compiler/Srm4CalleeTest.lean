@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm4KidTest
 import Tests.Compiler.Srm4RunTest
 import Tools.ShippingSrm4Callee
--- UNBUILT (unit SRM4): see REPORT-SRM4.md for the run names and exits.
+-- BUILT (unit SRM4): g2 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM4.md.
 -- SCOPE (residue R5, semantic half): `Tools.ShippingSrm4Callee.memLeafCallee_seqChildRunN2` HAND-APPLIED to `wrapM` (a callee whose two calls are the memory-bearing leaf `leafM`, `Tests/Compiler/SharedLeafMemKidTest.lean`).  The
 -- leaf's run is `Tests/Compiler/Srm4RunTest.lean` (`leafM_seqChildRunN`).
 -- PREMISES kept (named): `hF` (`CallFactF`: the output equation at the call-output position under the GENERATED `machineExt`; text-supplied, NOT discharged here for the memory leaf — the generator's `hPoint` templates are stated
