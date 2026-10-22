@@ -67,6 +67,10 @@ theorem _root_.@P@.epD2M_quadAll : Tools.ShippingQuadComposed.QuadAll @P@.machin
 
 /-- `GenFacts`, `hextB`, `hext` of callee `@I@` and the leaf run (once) -/
 def calleeGenTmpl : String := r#"
+instance _root_.@P@.epD2M@I@_C_inhab : Inhabited (HList (Tools.ShippingMachineDenote.tys @C@.machineData.ss)) :=
+  oldInst% (Inhabited (HList (Tools.ShippingMachineDenote.tys @C@.machineData.ss))) @C@.machine_composedNR1
+    Tools.ShippingMachineCausal.machine_traceL_of_data_causalRA
+
 theorem _root_.@P@.epD2M@I@_C_gen : Tools.ShippingQuadComposed.GenFacts @C@.machineData (fun i : Sparkle.Core.Domain.DomainConfig => i) @C@.machineInits @C@.machineBody
     @C@.machineResult @C@.machineExt @C@.machineExtB @C@.machineSource :=
   ⟨@C@.machine_ok, @C@.machine_body, @C@.machine_inits, @C@.machine_writes, @C@.machine_result, @C@.machine_source,
@@ -149,6 +153,7 @@ theorem _root_.@P@.epD2M@I@_C_hF : Tools.ShippingQuadCalls.CallFactF @C@.machine
   Tools.ShippingQuadHPoint.callFactF_of_hPointAt _ _ (fun i => i) (fun _ => @G@.machineData.bsIn)
     (Tools.ShippingQuadCallFacts.leafSrcA ``@G@ @G@.machineSource) (fun i n v => Tools.ShippingQuadCallFacts.leafSrcC_eq _ _ _ i n v)
     (fun k hk => by
+      have hl : @C@.machineData.shape.insts.length = @MC@ := by decide
       rcases k with @MPAT@
       all_goals first
         | omega
@@ -164,6 +169,7 @@ theorem _root_.@P@.epD2M_hFP : Tools.ShippingQuadCalls.CallFactF @P@.machineData
     (Tools.ShippingQuadCallFacts.quadSrcA ``@C0@ ``@C1@ @C0@.machineSource @C1@.machineSource)
     (fun i n v => Tools.ShippingQuadCallFacts.quadSrcF_eq _ _ _ _ _ _ _ _ i n v)
     (fun k hk => by
+      have hl : @P@.machineData.shape.insts.length = @MC@ := by decide
       rcases k with @MPAT@
       all_goals first
         | omega
@@ -190,14 +196,14 @@ def genB (p : D2MParams) (g : GenInfo) : String := Id.run do
       out := out ++ (sub1 p i (calleePointTmpl.replace "@FAM@" calleeFam)).replace "@CK@" (toString k)
         |>.replace "@HBHV@" (hbhv s!"{(p.Cs.getD i .anonymous)}.machine_composedNR1" (g.nGCs.getD i 0))
         |>.replace "@ALTS@" (pointAlts groupsC)
-    out := out ++ ((sub1 p i (calleeHFTmpl.replace "@FAM@" calleeFam)).replace "@MPAT@" (pat mC)).replace "@EXACTS@"
+    out := out ++ ((sub1 p i (calleeHFTmpl.replace "@FAM@" calleeFam)).replace "@MC@" (toString mC) |>.replace "@MPAT@" (pat mC)).replace "@EXACTS@"
       ("\n".intercalate ((List.range mC).map fun k => s!"        | exact @P@.epD2M@I@_C_hPoint{k}".replace "@I@" (toString i)))
   let groupsP := p.groups.zipIdx.map fun ((ci, _), j) => (j, p.nOutsCs.getD ci 0)
   for k in List.range p.mP do
     out := out ++ (parentPointTmpl.replace "@FAM@" parentFam).replace "@CK@" (toString k)
       |>.replace "@HBHV@" (hbhv s!"{p.P}.machine_composedNR2" p.groups.length)
       |>.replace "@ALTS@" (pointAlts groupsP)
-  out := out ++ ((parentHFTmpl.replace "@FAM@" parentFam).replace "@MPAT@" (pat p.mP)).replace "@EXACTS@"
+  out := out ++ ((parentHFTmpl.replace "@FAM@" parentFam).replace "@MC@" (toString p.mP) |>.replace "@MPAT@" (pat p.mP)).replace "@EXACTS@"
     ("\n".intercalate ((List.range p.mP).map fun k => s!"        | exact @P@.epD2M_hPoint{k}"))
   let o2 := out.replace "@C0@" (p.Cs.getD 0 .anonymous).toString |>.replace "@C1@" (p.Cs.getD 1 .anonymous).toString
   let o3 := o2.replace "@G@" (p.Gs.getD 0 .anonymous).toString |>.replace "@K0@" (toString (p.kCs.getD 0 0)) |>.replace "@K1@" (toString (p.kCs.getD 1 0))

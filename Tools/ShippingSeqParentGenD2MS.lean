@@ -354,8 +354,10 @@ def auditS (p : D2MParams) (ep : Name) (generic : Bool := false) : MetaM Unit :=
       ``Tools.ShippingQuadCallFacts.leafSrcC_eq, ``Tools.ShippingQuadCallFacts.extendBits_of_ne, ``Tools.ShippingQuadCallFacts.extendBools_of_ne,
       ``Tools.ShippingQuadComposed.quad_hkid, ``Tools.ShippingQuadComposed.quad_ranA, ``Tools.ShippingQuadComposed.quad_runFacts,
       ``Tools.ShippingQuadComposed.quad_traceXA, ``Tools.ShippingQuadComposed.quad_soundLA]
-  for must in (if generic then common ++ genericMust else common ++ perCallee) do
-    unless cl.contains must do throwError "SR13 AUDIT FAILED: {must} not in the closure of {ep}"
+  -- generic path: `epD2M_traceXA / hkid / closes0 / machineRun` are emitted (statements of the template) but the generic lemmas are used directly by the endpoint's proof, so they are required through the lemmas
+  let wrappersNotUsed := [pe "epD2M_traceXA", pe "epD2M_hkid", pe "epD2M_closes0", pe "epD2M_machineRun"]
+  let missing := (if generic then (common.filter (!wrappersNotUsed.contains ·)) ++ genericMust else common ++ perCallee).filter fun must => !cl.contains must
+  unless missing.isEmpty do throwError "SR13 AUDIT FAILED: {missing} not in the closure of {ep}"
   if generic then
     for no in perCallee do
       if !(no.toString.endsWith "calleeData") && cl.contains no then throwError "SR18 AUDIT FAILED: the pasted per-callee block {no} is in the closure of {ep}"
@@ -392,6 +394,32 @@ def auditS (p : D2MParams) (ep : Name) (generic : Bool := false) : MetaM Unit :=
 
 /-! ## the command (a fourth elaborator; tried FIRST, defers to the existing ones) -/
 
+/-- `Tools.ShippingSeqParentGen.runCmds` with the elaboration errors of the failing command in the thrown message (unit SR18: the generic path logs WHICH generated declaration failed and why) -/
+def runCmdsDiag (src : String) : CommandElabM Unit := do
+  let inputCtx := Parser.mkInputContext src "<seq-parent-gen>"
+  let mut pstate : Parser.ModuleParserState := {}
+  let mut msgs : MessageLog := {}
+  repeat
+    let scope ← getScope
+    let pmctx : Parser.ParserModuleContext :=
+      { env := ← getEnv, options := scope.opts, currNamespace := scope.currNamespace, openDecls := scope.openDecls }
+    let (cmd, ps', msgs') := Parser.parseCommand inputCtx pmctx pstate msgs
+    pstate := ps'; msgs := msgs'
+    if Parser.isTerminalCommand cmd then break
+    if msgs.hasErrors then
+      throwError "template parse error: {← msgs.toList.mapM (·.toString)}"
+    let msgs0 := (← get).messages
+    modify fun s => { s with messages := {} }
+    elabCommand cmd
+    let ms := (← get).messages
+    modify fun s => { s with messages := msgs0 ++ ms }
+    if ms.hasErrors then
+      let txt := match cmd.getPos?, cmd.getTailPos? with
+        | some a, some b => (Substring.Raw.toString ⟨src, a, b⟩).take 160 |>.toString
+        | _, _ => ""
+      let errs ← (ms.toList.filter (·.severity == .error)).mapM fun m => m.data.toString
+      throwError "the generated command failed: {txt} … ERRORS: {errs.take 2}"
+
 /-- facts read from the environment for the generic path -/
 def genInfoS (p : D2MParams) : CommandElabM Tools.ShippingSeqParentGenD2MSG.GenInfo := do
   let nat := fun (s : String) (n : Name) => liftTermElabM do reduceNat (← elabText (s.replace "@F@" n.toString))
@@ -404,7 +432,7 @@ def genInfoS (p : D2MParams) : CommandElabM Tools.ShippingSeqParentGenD2MSG.GenI
 def runPathS (fn : Name) (p : D2MParams) (gen : Option Tools.ShippingSeqParentGenD2MSG.GenInfo) : CommandElabM Unit := do
   let src := assembleMS p gen
   try
-    Tools.ShippingSeqParentGen.runCmds src
+    if gen.isSome then runCmdsDiag src else Tools.ShippingSeqParentGen.runCmds src
   catch e =>
     try Tools.ShippingSeqParentGen.runCmds "end" catch _ => pure ()
     throw e
