@@ -3887,3 +3887,6 @@ lean_lib «Tools.ShippingQuadCallFacts» where
 
 lean_lib «Tests.Compiler.QuadCallFactsTest» where
   roots := #[`Tests.Compiler.QuadCallFactsTest]
+
+lean_lib «Tools.ShippingQuadHPoint» where
+  roots := #[`Tools.ShippingQuadHPoint]
