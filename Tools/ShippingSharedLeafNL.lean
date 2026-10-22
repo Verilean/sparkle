@@ -1,5 +1,6 @@
 import Tools.ShippingSharedLeafExt
 import Tools.ShippingCallsMemPinned
+import Tools.ShippingLeafTermKeeps
 -- UNBUILT (unit SR8, part A): run names / exits are in REPORT-SR8.md.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
@@ -20,7 +21,7 @@ open Tools.ShippingChildInv Tools.ShippingChildBndInit Tools.ShippingChildBndCor
 open Tools.ShippingChildVCA Tools.ShippingChildFresh Tools.ShippingChildCacheA Tools.ShippingChildPinC
 open Tools.ShippingChildDepthC Tools.ShippingChildRunA
 open Tools.ShippingSharedLeafCoh Tools.ShippingLeafMissCoh Tools.ShippingSharedLeafHit
-open Tools.ShippingSharedLeafExt
+open Tools.ShippingSharedLeafExt Tools.ShippingLeafKeepCache Tools.ShippingLeafBodyCi Tools.ShippingLeafTermKeeps
 open Sparkle.IR.AST Sparkle.IR.Machine
 open Tools.ShippingMachineCloses Tools.ShippingSeqChildIface Tools.ShippingSeqChildIfaceA
 open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
@@ -162,8 +163,71 @@ theorem closeInstsGM_leafRun (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.q
       rw [he]
       exact List.mem_map.mpr ⟨_, List.getElem_mem hkl, rfl⟩
 
+/-! ## The machine synthesis of a non-leaf callee (part B1) -/
+
+/-- **The machine synthesis of a machine WITH calls, all calls to leaves, as a real run.** From a `JQC O D'` world
+(`D' ≠ 0`; here `D' = D + 1`, the depth of the body) with `CacheClosed`/`KeyTop`, a returning run of
+`synthesizeMachineCertified` of `d.shape` to `some (M, Dg)`: the harness keeps the cache VALUE (the translator on
+the quoted body, `leafTranslatorKeeps_of_machineData` at `JK`), `closeLets` is pure, and the closing is
+`closeInstsGM` over the leaf calls (`closeInstsGM_leafRun`). -/
+theorem machineSynth_leafKids (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D' : Nat} (hD' : D' ≠ 0) {tenv : Lean.Environment} {b : Bool} {c : Name}
+    (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hins : d.shape.insts ≠ []) (hfne : d.shape.instFields ≠ [])
+    (hleaf : ∀ x ∈ d.shape.instTagged, x.2.child? = none ∧ LeafOK mctx mref cctx cref x.1)
+    {w9 w10 : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {Dg : Sparkle.IR.AST.Design}
+    (hw : JQC O D' w9) (hcl : CacheClosed (cv w9)) (hk : KeyTop (cv w9))
+    (hr : RunsTo (synthesizeMachineCertified
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c d.shape)
+      mctx mref cctx cref w9 (some (M, Dg)) w10) :
+    ∃ t t' d₀ kids, MReturns (synthesizeMixedCertified
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c
+        d.shape.binders d.shape.body) (t, d₀) ∧
+      closeLets d.shape.layout.lets t = some t' ∧
+      CloseCalls d.shape t (closeMachine d.shape.layout t') d₀ kids M Dg ∧
+      kids.length = d.shape.insts.length ∧
+      (∀ k (hk : k < d.shape.insts.length), ∃ y, kids[k]? = some y ∧
+        (cv w10).get? (d.shape.insts[k]).1 = some y) ∧
+      JQC O D' w10 ∧ CacheClosed (cv w10) ∧ KeyTop (cv w10) ∧ CacheExtends (cv w9) (cv w10) ∧
+      (∀ c' r', (cv w10).get? c' = some r' → (cv w9).get? c' = some r' ∨
+        c' ∈ d.shape.insts.map (·.1)) := by
+  unfold synthesizeMachineCertified at hr
+  obtain ⟨⟨t, d'⟩, w1, run, hr⟩ := RunsTo.bind hr
+  have hw1 := triple_runs (keeps_iff.mp (mixed_keepsLeaf O hA (stableK O D' (cv w9))
+    (fun e hint top named => translateExprToWire tenv e hint top named) b c
+    d.shape.binders d.shape.body
+    (leafTranslatorKeeps_of_machineData O hA (stableK O D' (cv w9)) d ok hbody tenv))) ⟨hw, rfl⟩ run
+  dsimp only at hr
+  split at hr
+  · rename_i t' hcl'
+    split at hr
+    · rename_i hi
+      exact absurd hi hins
+    · rename_i hi
+      split at hr
+      · rename_i hf
+        exact absurd (List.isEmpty_iff.mp hf) hfne
+      · rename_i hf
+        obtain ⟨kids, hres, hlen, hcache, hj, hcl2, hk2, hext, hgrow⟩ :=
+          closeInstsGM_leafRun O hA hD' hleaf hw1.1 (by rw [hw1.2]; exact hcl) (by rw [hw1.2]; exact hk) hr
+        refine ⟨t, t', d', kids, run.mreturns, hcl', Or.inr ⟨hfne, hres.symm, ?_⟩, hlen, hcache, hj, hcl2,
+          hk2, by rw [← hw1.2]; exact hext, by rw [← hw1.2]; exact hgrow⟩
+        intro k hkl md hmd
+        obtain ⟨hkT, he⟩ := instTagged_getAt d.shape hkl
+        have h0 := (hleaf _ (List.getElem_mem hkT)).1
+        rw [he] at h0
+        simp only at h0
+        rw [hmd] at h0
+        cases h0
+  · have := RunsTo.pure_eq hr
+    cases this
+
 end Tools.ShippingSharedLeafNL
 
 #print axioms Tools.ShippingSharedLeafNL.leafKid_step
 #print axioms Tools.ShippingSharedLeafNL.closeLoop_leaf
 #print axioms Tools.ShippingSharedLeafNL.closeInstsGM_leafRun
+#print axioms Tools.ShippingSharedLeafNL.machineSynth_leafKids
