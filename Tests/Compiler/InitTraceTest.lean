@@ -1,6 +1,6 @@
 import Tools.ShippingInitAlloc
 import Tests.Compiler.ChildVertAuditTest
--- BUILT (unit RT4b: strict evidence mode, seq/name check, finally-cleanup; rt4b1 exit 0, INIT TRACE OK); previous: BUILT (unit RT4): rt4c, rt4d, rt4e exit 1 (test-file syntax/type errors); rt4f, rt4g exit 0; rt4h exit 0 (final, shim source embedded; INIT TRACE OK). EVIDENCE + audit; proves none of the premises.
+-- BUILT (unit RT4c: rt4c1 exit 0, rt4c2 see report; pure checker, MKREF-filtered counts, negative tests); previous BUILT (unit RT4b: strict evidence mode, seq/name check, finally-cleanup; rt4b1 exit 0, INIT TRACE OK); previous: BUILT (unit RT4): rt4c, rt4d, rt4e exit 1 (test-file syntax/type errors); rt4f, rt4g exit 0; rt4h exit 0 (final, shim source embedded; INIT TRACE OK). EVIDENCE + audit; proves none of the premises.
 
 /-! Unit RT4 (L9f).
 (1) Audits of `xfer_of_alloc` / `startContents_session_init_alloc` (axioms, closure, exact Prop-binder head list;
@@ -18,8 +18,8 @@ that elaborates this file; the `.so` is whatever is in `.lake/build/lib`; the `O
 counted, not proved to satisfy `OthersFrameRefs`; no model heap is related; runtime fit NOT PROVEN.
 Scope (integrator wording, par/int-r47, per review): the shim's mutex only makes the LOG sequence numbers consecutive; it does not
 establish the execution order of the primitives as a whole, nor dlsym/concurrency safety. The strict-mode FAILURE paths (seq gap, unknown
-event, missing tracked MKREF, non-zero child exit) were NOT exercised (no fault injection); only the OK path ran. The per-interval MKREF
-counts are index differences and also count other events (to be fixed by filtering). -/
+event, missing tracked MKREF, non-zero child exit) are exercised only by SYNTHETIC inputs to the pure checker `checkTraceResult` (not by fault injection into
+the real child run). The per-interval MKREF counts filter on the event name MKREF. OK = single-run evidence; InitOrder holding and runtime fit are NOT proved. -/
 
 open Lean Meta Elab in
 run_meta do
@@ -184,6 +184,61 @@ EXP o lean_st_ref_swap(o r, o a) { static o (*f)(o, o); if (!f) f = dlsym(RTLD_N
 EXP o lean_st_ref_reset(o r) { static o (*f)(o); if (!f) f = dlsym(RTLD_NEXT, \"lean_st_ref_reset\"); LOG(\"RESET\", r); return f(r); }
 "
 
+/-- PURE trace checker over the child's exit code, its combined stdout/stderr and the trace-file contents
+(`none` = file absent). Every failure is an `.error` (strict evidence mode). -/
+def checkTraceResult (exitCode : UInt32) (out : String) (logText : Option String) : Except String String := do
+  if exitCode != 0 then throw s!"child lean exited {exitCode}: {out.take 400}"
+  let some addrLine := (out.splitOn "\n").find? (·.startsWith "ADDR ") | throw s!"no ADDR line: {out.take 400}"
+  let ws := addrLine.splitOn " "
+  let bad := s!"malformed ADDR line {addrLine}"
+  unless ws.length == 7 && ws[1]? == some "depth" && ws[3]? == some "cache" && ws[5]? == some "synth" do throw bad
+  let some ad := (ws[2]?).bind String.toNat? | throw bad
+  let some ac := (ws[4]?).bind String.toNat? | throw bad
+  let some as_ := (ws[6]?).bind String.toNat? | throw bad
+  unless out.contains "SYNTH_SOME true DEPTH 0 CACHE_EMPTY true" do
+    throw s!"end-state probe line unexpected: {out.take 400}"
+  let some logText := logText | throw "no trace file written (interposition ineffective)"
+  let lines := (logText.splitOn "\n").filter (· ≠ "")
+  let allowed := ["MKREF", "SET", "SWAP", "RESET"]
+  let mut ev : Array (String × Nat) := #[]
+  for l in lines do
+    match l.splitOn " " with
+    | [sq, k, a] =>
+      -- sequence numbers must be exactly 0,1,2,... and the event name in the allowed set
+      unless sq.toNat? == some ev.size do
+        throw s!"TRACE FAIL: sequence number not consecutive (expected {ev.size}): {l}"
+      unless allowed.contains k do throw s!"TRACE FAIL: unknown event name in {l}"
+      let some v := hexNat? a | throw s!"bad trace line {l}"
+      ev := ev.push (k, v)
+    | _ => throw s!"bad trace line {l}"
+  let idxOf (a : Nat) : Array Nat := Id.run do
+    let mut o := #[]
+    for h : i in [0:ev.size] do
+      if ev[i].1 == "MKREF" && ev[i].2 == a then o := o.push i
+    return o
+  let mkIdx := [ad, ac, as_].map fun a => (idxOf a).toList
+  let [[id], [ic], [is]] := mkIdx | throw s!"TRACE FAIL: MKREF events of depth/cache/synth refs: {mkIdx}"
+  unless id < ic && ic < is do throw s!"TRACE FAIL: order {id} {ic} {is}"
+  let mkAddrs := (ev.filter (·.1 == "MKREF")).map (·.2)
+  unless (mkAddrs.toList.eraseDups.length == mkAddrs.size) do
+    throw "TRACE FAIL: a cell address was allocated twice in the window"
+  let tracked := [ad, ac, as_]
+  let mut wr : Array (Nat × String × Nat) := #[]
+  for h : i in [0:ev.size] do
+    if ev[i].1 != "MKREF" && tracked.contains ev[i].2 then wr := wr.push (i, ev[i].1, ev[i].2)
+  match wr.toList with
+  | [(iw, "SET", a)] =>
+    unless a == as_ && iw > is do throw s!"TRACE FAIL: the one write is not the synth set after its mkRef: {wr}"
+    let cnt (lo hi : Nat) : Nat := (((ev.toList.take hi).drop lo).filter (·.1 == "MKREF")).length
+    let beforeD := cnt 0 id
+    let betweenDC := cnt (id + 1) ic
+    let betweenCS := cnt (ic + 1) is
+    let afterSynth := cnt (is + 1) iw
+    let otherWrites := (ev.toList.filter fun e => e.1 != "MKREF" && !tracked.contains e.2).length
+    return s!"events {ev.size} (sequence numbers consecutive, names in {allowed}); MKREF index depth={id} < cache={ic} < synth={is}; the only write to the three cells is SET on the synth cell at event {iw} (after the synth MKREF); other-cell MKREFs (counted by FILTERING on the event name MKREF, not by index difference) before depth / between depth and cache / between cache and synth / between synth and the set: {beforeD} / {betweenDC} / {betweenCS} / {afterSynth}; writes to other cells in the window: {otherWrites}; all {mkAddrs.size} MKREF addresses distinct"
+  | _ => throw s!"TRACE FAIL: writes to the three cells: {wr}"
+
+
 /-- Everything after the prerequisites are known present: EVERY failure here throws (strict evidence mode). -/
 def runInitTraceBody (cwd : System.FilePath) (lean leanc : System.FilePath) (tmp : System.FilePath) : IO String := do
   let lib : System.FilePath := cwd / ".lake/build/lib/libsparkle_Sparkle.so"
@@ -211,52 +266,16 @@ open Sparkle.Compiler.Elab
         ("LEAN_PATH", some libdir.toString)] }
   let r ← IO.Process.output spec
   let out := r.stdout ++ "\n" ++ r.stderr
-  if r.exitCode != 0 then throw (IO.userError s!"child lean exited {r.exitCode}: {out.take 400}")
-  let some addrLine := (out.splitOn "\n").find? (·.startsWith "ADDR ") | throw (IO.userError s!"no ADDR line: {out.take 400}")
-  let ws := addrLine.splitOn " "
-  let bad := IO.userError s!"malformed ADDR line {addrLine}"
-  unless ws.length == 7 && ws[1]? == some "depth" && ws[3]? == some "cache" && ws[5]? == some "synth" do throw bad
-  let some ad := (ws[2]?).bind String.toNat? | throw bad
-  let some ac := (ws[4]?).bind String.toNat? | throw bad
-  let some as_ := (ws[6]?).bind String.toNat? | throw bad
-  unless out.contains "SYNTH_SOME true DEPTH 0 CACHE_EMPTY true" do
-    throw (IO.userError s!"end-state probe line unexpected: {out.take 400}")
-  unless ← log.pathExists do throw (IO.userError "no trace file written (interposition ineffective)")
-  let lines := ((← IO.FS.readFile log).splitOn "\n").filter (· ≠ "")
-  let allowed := ["MKREF", "SET", "SWAP", "RESET"]
-  let mut ev : Array (String × Nat) := #[]
-  for l in lines do
-    match l.splitOn " " with
-    | [sq, k, a] =>
-      -- sequence numbers must be exactly 0,1,2,... and the event name in the allowed set
-      unless sq.toNat? == some ev.size do
-        throw (IO.userError s!"TRACE FAIL: sequence number not consecutive (expected {ev.size}): {l}")
-      unless allowed.contains k do throw (IO.userError s!"TRACE FAIL: unknown event name in {l}")
-      let some v := hexNat? a | throw (IO.userError s!"bad trace line {l}")
-      ev := ev.push (k, v)
-    | _ => throw (IO.userError s!"bad trace line {l}")
-  let idxOf (a : Nat) : Array Nat := Id.run do
-    let mut o := #[]
-    for h : i in [0:ev.size] do
-      if ev[i].1 == "MKREF" && ev[i].2 == a then o := o.push i
-    return o
-  let mkIdx := [ad, ac, as_].map fun a => (idxOf a).toList
-  let [[id], [ic], [is]] := mkIdx | throw (IO.userError s!"TRACE FAIL: MKREF events of depth/cache/synth refs: {mkIdx}")
-  unless id < ic && ic < is do throw (IO.userError s!"TRACE FAIL: order {id} {ic} {is}")
-  let mkAddrs := (ev.filter (·.1 == "MKREF")).map (·.2)
-  unless (mkAddrs.toList.eraseDups.length == mkAddrs.size) do
-    throw (IO.userError "TRACE FAIL: a cell address was allocated twice in the window")
-  let tracked := [ad, ac, as_]
-  let mut wr : Array (Nat × String × Nat) := #[]
-  for h : i in [0:ev.size] do
-    if ev[i].1 != "MKREF" && tracked.contains ev[i].2 then wr := wr.push (i, ev[i].1, ev[i].2)
-  match wr.toList with
-  | [(iw, "SET", a)] =>
-    unless a == as_ && iw > is do throw (IO.userError s!"TRACE FAIL: the one write is not the synth set after its mkRef: {wr}")
-    let otherWrites := (ev.toList.filter fun e => e.1 != "MKREF" && !tracked.contains e.2).length
-    let afterSynth := ((ev.toList.take iw).drop (is + 1)).filter (·.1 == "MKREF") |>.length
-    return s!"events {ev.size} (sequence numbers consecutive, names in {allowed}); MKREF index depth={id} < cache={ic} < synth={is}; the only write to the three cells is SET on the synth cell at event {iw} (after the synth MKREF); other-cell MKREFs before depth / between depth and cache / between cache and synth / between synth and the set: {id} / {ic-id-1} / {is-ic-1} / {afterSynth}; writes to other cells in the window: {otherWrites}; all {mkAddrs.size} MKREF addresses distinct"
-  | _ => throw (IO.userError s!"TRACE FAIL: writes to the three cells: {wr}")
+  let logText ← if ← log.pathExists then pure (some (← IO.FS.readFile log)) else pure none
+  match checkTraceResult r.exitCode out logText with
+  | .ok rep => return rep
+  | .error e => throw (IO.userError e)
+
+/-- Runs `body` on a fresh temp dir and removes the dir on EVERY path (normal return or exception). -/
+def withTmpDir {α} (body : System.FilePath → IO α) : IO α := do
+  let tmp ← IO.FS.createTempDir
+  try body tmp
+  finally IO.FS.removeDirAll tmp
 
 /-- `.error reason` = SKIPPED, only when a prerequisite (libsparkle `.so`, `leanc`) is genuinely absent;
 `.ok report` = OK; any other failure is an `IO` error (FAILED). Temp dir removed on every path. -/
@@ -268,11 +287,7 @@ def runInitTrace : IO (Except String String) := do
   let leanc := bindir / "leanc"
   for p in [lib, leanc] do
     unless ← p.pathExists do return .error s!"prerequisite {p} not present"
-  let tmp ← IO.FS.createTempDir
-  try
-    return .ok (← runInitTraceBody cwd lean leanc tmp)
-  finally
-    IO.FS.removeDirAll tmp
+  return .ok (← withTmpDir (runInitTraceBody cwd lean leanc))
 
 open Lean Meta Elab in
 run_meta do
@@ -280,3 +295,32 @@ run_meta do
   | .ok (.ok rep) => logInfo m!"INIT TRACE OK (executed, child process, LD_PRELOAD shim): {rep}"
   | .ok (.error why) => logInfo m!"INIT TRACE SKIPPED (NOT evidence): {why}"
   | .error e => throwError "INIT TRACE FAILED: {e}"
+
+/-! ## Limited negative tests of the strict mode (synthetic inputs; the real run above is untouched) -/
+def goodLog : String := "0 MKREF 0x10\n1 MKREF 0x20\n2 MKREF 0x30\n3 MKREF 0x40\n4 SET 0x30\n"
+def goodOut : String := "ADDR depth 16 cache 32 synth 48\nSYNTH_SOME true DEPTH 0 CACHE_EMPTY true\n"
+
+open Lean Meta Elab in
+run_meta do
+  -- sanity: the synthetic good input is accepted, so the rejections below are due to the injected fault
+  match checkTraceResult 0 goodOut (some goodLog) with
+  | .ok r => logInfo m!"negative-test baseline (synthetic good trace) accepted: {r}"
+  | .error e => throwError "negative-test baseline rejected: {e}"
+  let cases : List (String × Except String String) := [
+    ("seq gap", checkTraceResult 0 goodOut (some "0 MKREF 0x10\n2 MKREF 0x20\n3 MKREF 0x30\n4 SET 0x30\n")),
+    ("unknown event name", checkTraceResult 0 goodOut (some "0 MKREF 0x10\n1 MKREF 0x20\n2 FROB 0x99\n3 MKREF 0x30\n4 SET 0x30\n")),
+    ("missing tracked MKREF", checkTraceResult 0 goodOut (some "0 MKREF 0x10\n1 MKREF 0x20\n2 SET 0x30\n")),
+    ("non-zero child exit", checkTraceResult 1 goodOut (some goodLog))]
+  for (nm, r) in cases do
+    match r with
+    | .error e => logInfo m!"negative test {nm}: checker returned FAILED as expected: {e.take 120}"
+    | .ok _ => throwError "NEGATIVE TEST FAILED: {nm} was accepted"
+  -- temp dir removed on the exception path and on the normal path
+  let seen ← IO.mkRef (none : Option System.FilePath)
+  let r ← (withTmpDir fun d => do seen.set (some d); (throw (IO.userError "injected") : IO Unit)).toBaseIO
+  let some d ← seen.get | throwError "temp dir not created"
+  unless r.toOption.isNone do throwError "injected failure not propagated"
+  if ← d.pathExists then throwError "temp dir NOT removed on the failure path"
+  let d2 ← withTmpDir fun d => do IO.FS.writeFile (d / "f") "x"; pure d
+  if ← d2.pathExists then throwError "temp dir NOT removed on the normal path"
+  logInfo m!"negative tests OK: seq gap, unknown event, missing tracked MKREF, non-zero child exit each give FAILED; temp dir removed on failure and normal paths. LIMITED: synthetic inputs to the pure checker, not fault injection into the real child run"
