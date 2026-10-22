@@ -2,6 +2,7 @@ import Tools.ShippingSeqParentGenD2M
 import Tools.ShippingQuadLeafGeneric
 import Tools.ShippingTopShareRan
 import Tools.ShippingQuadReturned
+import Tools.ShippingSeqParentGenD2MSG
 -- BUILT (unit SR13): s4 exit 0 (module), s5 exit 0 (Tests.Compiler.SharedLeafGenTest), s6 exit 0 (Tests.Compiler.SharedLeafGenTopshareTest) (dev runs); the final-SHA rebuild is in REPORT-SR13.md.
 /-! # `#machine_seq_parent_endpoint P` — a LIMITED shared-leaf CANDIDATE (unit SR13, ledger L8as)
 
@@ -192,7 +193,7 @@ theorem _root_.@P@.epD2M_machineRun (O : RefLawsAOps MkRefd mref cref) (T : RefL
 "#
 
 /-- the parent text of the shared-leaf candidate: the existing templates with the shared-leaf-incompatible pieces replaced -/
-def parentTextS : String :=
+def parentTextS (gen : Option (String × String) := none) : String :=
   let h := cutBetween pHead "theorem _root_.@P@.epD2M_disj" "theorem _root_.@P@.epD2M_callArgs"
   let h := cutBetween h "theorem _root_.@P@.epD2M_closesA" "theorem _root_.@P@.epD2M_hkid"
   let t := pMid ++ pTail
@@ -208,13 +209,24 @@ def parentTextS : String :=
       "(@P@.epD2M_machineRun O T hA @HA@ hw hcore entry)"),
      ("(n := D₀ + 1) (htr_of_tele O hA T D₀)", "(n := 0 + 1) (htr_of_tele O hA T 0)"),
      ("∃ D₀, JQ O.quiet D₀ w ∧ (D₀ = 0 ∨ CacheInvA O (cv w))", "JQC O 0 w")]
-  h ++ quadExtra ++ reps.foldl (fun s (a, b) => s.replace a b) t
+  let t := reps.foldl (fun s (a, b) => s.replace a b) t
+  match gen with
+  | none => h ++ quadExtra ++ t
+  | some (ga, gb) =>
+    -- (unit SR18) the GENERIC-lemma path: the bodies of the template theorems are the generic lemmas (statements untouched), the generated facts come first
+    let (hpre, hk) := match h.splitOn "theorem _root_.@P@.epD2M_hkid" with
+      | [a, b] => (a, b)
+      | _ => panic! "parentTextS: epD2M_hkid marker not unique"
+    let t := t.replace "theorem _root_.@P@.epD2M_hcausal" (gb ++ "\ntheorem _root_.@P@.epD2M_hcausal")
+    let full := hpre ++ quadExtra ++ ga ++ "theorem _root_.@P@.epD2M_hkid" ++ hk ++ t
+    Tools.ShippingSeqParentGenD2MSG.bodies.foldl (fun s (m, b) => Tools.ShippingSeqParentGenD2MSG.replaceBody s m b) full
 
-def assembleMS (p : D2MParams) : String :=
-  let tcs := "\n".intercalate ((rangeR p).map fun i => sub1 p i tcTmpl)
+def assembleMS (p : D2MParams) (g : Option Tools.ShippingSeqParentGenD2MSG.GenInfo := none) : String :=
+  let tcs := if g.isSome then "" else "\n".intercalate ((rangeR p).map fun i => sub1 p i tcTmpl)
   let pat := "".intercalate ((List.range p.mP).map fun _ => "_ | ") ++ "k"
-  let ptxt := parentTextS
-  let ptxt := ptxt.replace "@DISPDEFS@" (dispDefs p)
+  let ptxt := parentTextS (g.map fun gi => (Tools.ShippingSeqParentGenD2MSG.genA p, Tools.ShippingSeqParentGenD2MSG.genB p gi))
+  -- generic path: the dispatch families `epD2M_bsF / srcF / PC` belong to the pasted per-callee blocks and are not emitted
+  let ptxt := ptxt.replace "@DISPDEFS@" (if g.isSome then ((dispDefs p).splitOn "noncomputable def _root_.@P@.epD2M_bsF").head! else dispDefs p)
   let ptxt := ptxt.replace "@KIDBRANCHES@" (kidBranches p)
   let ptxt := ptxt.replace "@HKIDBRANCHES@" (hkidBranches p)
   let ptxt := ptxt.replace "@RUNBRANCHES@" (runBranches p)
@@ -302,7 +314,7 @@ def returnedSrcS (p : D2MParams) (qr : String) : String :=
 /-! ## audit of the generated endpoint -/
 
 open Tests.Compiler.ChildVertAuditTest in
-def auditS (p : D2MParams) (ep : Name) : MetaM Unit := do
+def auditS (p : D2MParams) (ep : Name) (generic : Bool := false) : MetaM Unit := do
   stdAxioms ep
   let ty := (← getConstInfo ep).type
   let premises ← forallTelescope ty fun xs _ => do
@@ -324,7 +336,7 @@ def auditS (p : D2MParams) (ep : Name) : MetaM Unit := do
   let pe := fun (s : String) => p.P ++ Name.mkSimple s
   let perCallee := (rangeR p).foldr (fun i acc => acc ++ [pe s!"epD2M{i}_C_composedA", pe s!"epD2M{i}_C_seqChildRunN2",
       pe s!"epD2M{i}_C_kidFactsA", pe s!"epD2M{i}_C_closesA", pe s!"epD2M{i}_calleeData"]) []
-  for must in [pe "epD2M_soundLA", pe "epD2M_composedA", pe "epD2M_traceXA", pe "epD2M_designCheck", pe "epD2M_runFacts", pe "epD2M_outsCheck",
+  let common : List Name := [pe "epD2M_soundLA", pe "epD2M_composedA", pe "epD2M_traceXA", pe "epD2M_designCheck", pe "epD2M_runFacts", pe "epD2M_outsCheck",
       pe "epD2M_kidsMasked", pe "epD2M_closes0", pe "epD2M_machineRun", pe "epD2M_quadData", pe "epD2M_leafData", pe "epD2M_hkid",
       ``Tools.ShippingQuadLeafGeneric.quad_closes0, ``Tools.ShippingQuadLeafGeneric.quad_machineRun,
       ``Tools.ShippingQuadLeafGeneric.leafCallee_ifaceP, ``Tools.ShippingQuadLeafGeneric.leafCallee_calleeOK,
@@ -332,8 +344,21 @@ def auditS (p : D2MParams) (ep : Name) : MetaM Unit := do
       ``Tools.ShippingSeqChildDeepRunA.seqChildRunN_of_composedCA, ``Tools.ShippingMachineDepthRunRA.machine_linkedT_callsRNA,
       ``Tools.ShippingMachineDepthRunRA.machineRunNCA_of_real_main, ``Tools.ShippingParentSeqComposedA.machine_traceL_of_data_causalRA_ranA,
       ``Tools.ShippingMachineShipsDepth.composedG_of_NW,
-      ``Tools.ShippingSeqParentLemmas.machine_design_noShips_noBd_dc] ++ perCallee do
+      ``Tools.ShippingSeqParentLemmas.machine_design_noShips_noBd_dc]
+  -- (unit SR18) the generic path: the emitted proof uses the generic lemmas and the GENERATED per-declaration facts, and none of the pasted per-callee blocks
+  let genericMust : List Name := [pe "epD2M_quadAll", pe "epD2M_genP", pe "epD2M_leafRun", pe "epD2M_hFP", pe "epD2M_hPoint0",
+      pe "epD2M0_C_gen", pe "epD2M1_C_gen", pe "epD2M0_C_hF", pe "epD2M1_C_hF", pe "epD2M0_C_hextB", pe "epD2M0_C_hext", pe "epD2M1_C_hextB", pe "epD2M1_C_hext",
+      pe "epD2M0_C_hPoint0", pe "epD2M1_C_hPoint0",
+      ``Tools.ShippingQuadCalls.quad_composed_split, ``Tools.ShippingQuadCalls.leafCallee_hcalls, ``Tools.ShippingQuadComposed.quad_composed,
+      ``Tools.ShippingQuadHPoint.callFactF_of_hPointAt, ``Tools.ShippingQuadCallFacts.callFactF_of_fam, ``Tools.ShippingQuadCallFacts.quadSrcF_eq,
+      ``Tools.ShippingQuadCallFacts.leafSrcC_eq, ``Tools.ShippingQuadCallFacts.extendBits_of_ne, ``Tools.ShippingQuadCallFacts.extendBools_of_ne,
+      ``Tools.ShippingQuadComposed.quad_hkid, ``Tools.ShippingQuadComposed.quad_ranA, ``Tools.ShippingQuadComposed.quad_runFacts,
+      ``Tools.ShippingQuadComposed.quad_traceXA, ``Tools.ShippingQuadComposed.quad_soundLA]
+  for must in (if generic then common ++ genericMust else common ++ perCallee) do
     unless cl.contains must do throwError "SR13 AUDIT FAILED: {must} not in the closure of {ep}"
+  if generic then
+    for no in perCallee do
+      if !(no.toString.endsWith "calleeData") && cl.contains no then throwError "SR18 AUDIT FAILED: the pasted per-callee block {no} is in the closure of {ep}"
   -- the pieces that need `hdisjD` (false for a shared leaf) must NOT be in the closure
   for no in [pe "epD2M_closesA", pe "epD2M_disj"] do
     if cl.contains no then throwError "SR13 AUDIT FAILED: {no} is in the closure of {ep}"
@@ -363,22 +388,21 @@ def auditS (p : D2MParams) (ep : Name) : MetaM Unit := do
   let want := (p.Cs ++ [p.Gs.getD 0 .anonymous, p.Gs.getD 1 .anonymous]).toArray
   unless defs.qsort (·.toString < ·.toString) == want.qsort (·.toString < ·.toString) do
     throwError "SR13 AUDIT FAILED: {bnd} asks MachineDefines for {defs}, expected exactly {want}"
-  logInfo m!"SR13 AUDIT OK: {ep}: standard axioms; outer Prop premises ASSERTED {premises}; closure {cl.size} constants, none of ChildBnd/StartV/GenKid/old KidFacts/MachineRunNC/machineRunNC_of_real/seqChildRunN_of_composedC; neither {pe "epD2M_closesA"} nor {pe "epD2M_disj"} (they need hdisjD) is in the closure; the old generated theorems are not in the closure; {bnd} (an EXISTENTIAL over O/T/AdmCtx/MachineDefines of {p.Cs} and the shared leaf {p.Gs.getD 0 .anonymous}/start world JQC O 0, not a proof that it holds) stays in the conclusion; chains {p.Cs.zip p.Gs}"
+  logInfo m!"SR13 AUDIT OK: {ep}: standard axioms; outer Prop premises ASSERTED {premises}; closure {cl.size} constants, none of ChildBnd/StartV/GenKid/old KidFacts/MachineRunNC/machineRunNC_of_real/seqChildRunN_of_composedC; neither {pe "epD2M_closesA"} nor {pe "epD2M_disj"} (they need hdisjD) is in the closure; the old generated theorems are not in the closure; {bnd} (an EXISTENTIAL over O/T/AdmCtx/MachineDefines of {p.Cs} and the shared leaf {p.Gs.getD 0 .anonymous}/start world JQC O 0, not a proof that it holds) stays in the conclusion; chains {p.Cs.zip p.Gs}{if generic then "; [SR18 generic-lemma path: the proof uses quad_composed_split / callFactF_of_hPointAt / quad_* and the generated per-declaration facts, no pasted per-callee block]" else ""}"
 
 /-! ## the command (a fourth elaborator; tried FIRST, defers to the existing ones) -/
 
-open Tools.ShippingSeqParentGen in
-@[command_elab Tools.ShippingSeqParentGen.«command#machine_seq_parent_endpoint_»]
-def elabEndpointD2MS : CommandElab := fun stx => do
-  unless sparkle.sharedLeafCandidate.get (← getOptions) do throwUnsupportedSyntax
-  let f : Ident := ⟨stx[1]⟩
-  let fn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo f
-  unless (← getEnv).contains (fn ++ `machineData) do throwUnsupportedSyntax
-  let pc ← liftTermElabM do readNames (← elabText (s!"({fn}.machineData.shape.insts.map (·.1))"))
-  unless pc.eraseDups.length ≥ 2 do throwUnsupportedSyntax
-  let some p ← analyseS fn | throwUnsupportedSyntax
-  logInfo m!"SR13 shared-leaf candidate (class QUAD): {p.P} calls {p.Cs} (call list {pc}), all of which call the SAME leaf {p.Gs.getD 0 .anonymous} (kP {p.kP}, kC {p.kCs}); {p.mP} call instance(s), groups {p.groups} (instance -> group {p.instGroup}; numbering READ from the old term: {p.partitionNote}); leaf argument widths {p.gws}"
-  let src := assembleMS p
+/-- facts read from the environment for the generic path -/
+def genInfoS (p : D2MParams) : CommandElabM Tools.ShippingSeqParentGenD2MSG.GenInfo := do
+  let nat := fun (s : String) (n : Name) => liftTermElabM do reduceNat (← elabText (s.replace "@F@" n.toString))
+  let mCs ← p.Cs.mapM (nat "@F@.machineData.shape.insts.length")
+  let nGCs ← p.Cs.mapM fun C => liftTermElabM <| Tools.ShippingSeqParentGenD2.oldGroupCount (C ++ `machine_composedNR1)
+  let nOutsG ← nat "@F@.machineData.shape.layout.outs.length" (p.Gs.getD 0 .anonymous)
+  return { mCs := mCs, nGCs := nGCs, nOutsG := nOutsG }
+
+/-- generate, audit and register `fn.epD2M_endpoint` (+ returned / wired); `gen = some _`: the generic-lemma path of unit SR18 -/
+def runPathS (fn : Name) (p : D2MParams) (gen : Option Tools.ShippingSeqParentGenD2MSG.GenInfo) : CommandElabM Unit := do
+  let src := assembleMS p gen
   try
     Tools.ShippingSeqParentGen.runCmds src
   catch e =>
@@ -395,7 +419,7 @@ def elabEndpointD2MS : CommandElab := fun stx => do
       let ty ← instantiateMVars (← inferType e)
       if e.hasMVar || ty.hasMVar then throwError "#machine_seq_parent_endpoint (SR13 candidate): unassigned mvars in the endpoint term"
       addAndCompile <| .thmDecl { name := ep, levelParams := [], type := ty, value := e }
-    liftTermElabM <| auditS p ep
+    liftTermElabM <| auditS p ep gen.isSome
     -- unit SR14 (L8at): the RETURNED (`y.2 = Dg`) and WIRED theorems, from the generic theorems
     for (nm, qr) in [(`epD2M_returned, "quad_returned"), (`epD2M_wired, "quad_wired")] do
       liftTermElabM do
@@ -410,5 +434,31 @@ def elabEndpointD2MS : CommandElab := fun stx => do
         Tests.Compiler.ChildVertAuditTest.stdAxioms (fn ++ nm)
   finally
     Tools.ShippingSeqParentGen.runCmds "end"
+
+
+
+open Tools.ShippingSeqParentGen in
+@[command_elab Tools.ShippingSeqParentGen.«command#machine_seq_parent_endpoint_»]
+def elabEndpointD2MS : CommandElab := fun stx => do
+  unless sparkle.sharedLeafCandidate.get (← getOptions) do throwUnsupportedSyntax
+  let f : Ident := ⟨stx[1]⟩
+  let fn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo f
+  unless (← getEnv).contains (fn ++ `machineData) do throwUnsupportedSyntax
+  let pc ← liftTermElabM do readNames (← elabText (s!"({fn}.machineData.shape.insts.map (·.1))"))
+  unless pc.eraseDups.length ≥ 2 do throwUnsupportedSyntax
+  let some p ← analyseS fn | throwUnsupportedSyntax
+  logInfo m!"SR13 shared-leaf candidate (class QUAD): {p.P} calls {p.Cs} (call list {pc}), all of which call the SAME leaf {p.Gs.getD 0 .anonymous} (kP {p.kP}, kC {p.kCs}); {p.mP} call instance(s), groups {p.groups} (instance -> group {p.instGroup}; numbering READ from the old term: {p.partitionNote}); leaf argument widths {p.gws}"
+  -- (unit SR18, L8ax) first the GENERIC-lemma path; if one of its generated declarations fails to check (or the audit fails) nothing of it is kept, the failure is logged and
+  -- the SR13 path (pasted per-callee blocks) runs instead.  No input is refused by this.
+  let saved ← get
+  let generic ← try
+      let gi ← genInfoS p
+      runPathS fn p (some gi)
+      pure true
+    catch e =>
+      set saved
+      logInfo m!"SR18: the generic-lemma path FAILED for {fn} (a generated declaration did not check, or the audit failed): {e.toMessageData}; nothing of it is kept, falling back to the SR13 path"
+      pure false
+  unless generic do runPathS fn p none
 
 end Tools.ShippingSeqParentGenD2MS
