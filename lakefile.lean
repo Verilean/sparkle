@@ -3727,3 +3727,9 @@ lean_lib «Tools.Prototype.DGenConnectNM» where
 
 lean_lib «Tools.ShippingInitSession» where
   roots := #[`Tools.ShippingInitSession]
+
+lean_lib «Tools.Prototype.ExtModelLetOk» where
+  roots := #[`Tools.Prototype.ExtModelLetOk]
+
+lean_lib «Tests.Compiler.ExtModelAgreeTest» where
+  roots := #[`Tests.Compiler.ExtModelAgreeTest]
