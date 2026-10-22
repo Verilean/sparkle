@@ -12,10 +12,12 @@ import Tools.ShippingSeqParentGenD2MS
 -- the call list is `[wrapQ, wrapQ, wrapP, wrapP]`, i.e. the callee that is DEFINED first is called second in the source of its sibling, the callees have 2 and 4 leaf instances
 -- (`topshare`: 2 and 2) and different groups of arguments.  CONCRETE example, not whole-class coverage; the class is the one stated in the module header.
 --   * with the option OFF `topshare2` is REFUSED with the existing SR3x text (asserted, nothing generated);
---   * with the option ON the endpoint `topshare2.epD2M_endpoint` is generated, with the generator's own audit (`SR13 AUDIT OK`); its WHOLE statement is compared by `isDefEq`
---     with the independent hand-written `ShareConclWith ShareBnd 2 3`; 8 type-correct mutations are REJECTED; a closure audit follows;
+--   * with the option ON the endpoint `topshare2.epD2M_endpoint` is generated, with the generator's own audit (`SR13 AUDIT OK`); its CONCLUSION is compared by `isDefEq`
+--     with the independent hand-written `ShareConclWith ShareBnd 2 3` (8 type-correct mutations REJECTED) and (unit SR14, review fix) its FULL forall-type (outer binders, the form of
+--     `hr`: declaration / start and end world, `entry`, `closes`) with the hand-written `ShareFull` (7 type-correct mutations REJECTED, among them 5 of the form of `hr`/`entry`); a closure audit follows;
 --   * OUT-OF-CLASS refusals with the option ON (message asserted, no `epD2M_*` declaration): three callees sharing the leaf (Q1), an interleaved call list (Q2); and the
 --     existing path's refusals are untouched: `topd3` (depth 3), a memory in a callee, a memory in the shared leaf.
+-- Two examples do NOT make the class complete; a failure of the `decide` data stage in the generated text is an elaboration error, not a refusal; the option stays default false.
 -- NOT claimed: the other shared-leaf parents; that the generated template is correct for any further example; `RealChildA` is a history of past results; `O`, `T`, `AdmCtx`,
 -- `MachineDefines` and the start world `JQC O 0 w` stay inside the conclusion (`epD2M_Bnd`).
 namespace Tests.Compiler.SharedLeafGenTest
@@ -325,7 +327,77 @@ def ShareConclWith (B : Tools.ShippingMachineShipsHier.CtxBnd) (n kP : Nat) (mct
                   topshare2.machineData.shape.layout.outs[k]? = some o → (topshare2.machineSource i bools bits)[k]? = some f →
                   (envs'[j]'hj) o.name = f j)
 
+/-- The expected FULL type of the endpoint `topshare2.epD2M_endpoint` (outer binders included), written by hand.  `dHr` = the declaration `hr` synthesizes, `dEn` = the
+declaration of `entry`'s `MachineDefines` (the real ones are both `topshare2`). -/
+def ShareFullWith (B : Tools.ShippingMachineShipsHier.CtxBnd) (n kP : Nat) (dHr dEn : Lean.Name) : Prop :=
+  ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design},
+    RunsTo (synthesizeCombinational dHr) mctx mref cctx cref w (b, design) w' →
+    MachineDefines mctx mref cctx cref dEn topshare2.machineData.shape → True →
+    ShareConclWith B n kP mctx mref cctx cref w b design
+
+/-- the expected full type -/
+def ShareFull : Prop := ShareFullWith ShareBnd 2 3 ``topshare2 ``topshare2
+
+/-- MUTATION of `hr`'s declaration: `hr` synthesizes `wrapQ` (type-correct) -/
+def ShareFullHrDecl : Prop := ShareFullWith ShareBnd 2 3 ``wrapQ ``topshare2
+/-- MUTATION of `entry`'s declaration -/
+def ShareFullEnDecl : Prop := ShareFullWith ShareBnd 2 3 ``topshare2 ``wrapQ
+/-- MUTATION of `hr`'s form: the core synthesis `synthesizeCombinationalCore … [] false` instead of `synthesizeCombinational` -/
+def ShareFullHrCore : Prop :=
+  ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design},
+    RunsTo (synthesizeCombinationalCore ``topshare2 [] false) mctx mref cctx cref w (b, design) w' →
+    MachineDefines mctx mref cctx cref ``topshare2 topshare2.machineData.shape → True →
+    ShareConclWith ShareBnd 2 3 mctx mref cctx cref w b design
+/-- MUTATION of `hr`'s world: it ends in `w` itself -/
+def ShareFullHrWorld : Prop :=
+  ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design},
+    RunsTo (synthesizeCombinational ``topshare2) mctx mref cctx cref w (b, design) w →
+    MachineDefines mctx mref cctx cref ``topshare2 topshare2.machineData.shape → True →
+    ShareConclWith ShareBnd 2 3 mctx mref cctx cref w b design
+/-- MUTATION of `hr`'s world: it STARTS in `w'` -/
+def ShareFullHrStart : Prop :=
+  ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design},
+    RunsTo (synthesizeCombinational ``topshare2) mctx mref cctx cref w' (b, design) w →
+    MachineDefines mctx mref cctx cref ``topshare2 topshare2.machineData.shape → True →
+    ShareConclWith ShareBnd 2 3 mctx mref cctx cref w b design
+/-- MUTATION of `closes`: `False` instead of `True` -/
+def ShareFullClosesFalse : Prop :=
+  ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design},
+    RunsTo (synthesizeCombinational ``topshare2) mctx mref cctx cref w (b, design) w' →
+    MachineDefines mctx mref cctx cref ``topshare2 topshare2.machineData.shape → False →
+    ShareConclWith ShareBnd 2 3 mctx mref cctx cref w b design
+/-- MUTATION: the `entry` premise dropped -/
+def ShareFullNoEntry : Prop :=
+  ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Design},
+    RunsTo (synthesizeCombinational ``topshare2) mctx mref cctx cref w (b, design) w' → True →
+    ShareConclWith ShareBnd 2 3 mctx mref cctx cref w b design
+
 end
+
+open Lean Elab Command Meta in
+set_option maxHeartbeats 0 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  -- the FULL forall-type of the generated endpoint (outer binders, the form of `hr` / `entry` / `closes`, the conclusion) against the hand-written `ShareFull`
+  let gt ← instantiateMVars (← getConstInfo ``Tests.Compiler.SharedLeafGenTest.topshare2.epD2M_endpoint).type
+  let muts : List (Name × String) := [(``ShareFullHrDecl, "hr synthesizes wrapQ"), (``ShareFullEnDecl, "entry is for wrapQ"),
+    (``ShareFullHrCore, "hr is the core synthesis"), (``ShareFullHrWorld, "hr ends in w"), (``ShareFullHrStart, "hr starts in w'"),
+    (``ShareFullClosesFalse, "closes : False"), (``ShareFullNoEntry, "entry dropped")]
+  let allC : List (Expr × String) := [(gt, "the endpoint's type"), (mkConst ``ShareFull, "the expected full type")] ++ muts.map fun (c, w) => (mkConst c, s!"mutation {w}")
+  for (e, what) in allC do
+    if e.hasMVar || e.hasFVar then throwError "SR14 AUDIT FAILED: metavariables / free variables in {what}"
+    Meta.check e
+    unless (← Meta.isProp e) do throwError "SR14 AUDIT FAILED: {what} is not a Prop"
+  unless (← isDefEq gt (mkConst ``ShareFull)) do
+    throwError "SR14 AUDIT FAILED: the FULL type of the generated topshare2 endpoint is not definitionally the hand-written ShareFull"
+  for (c, w) in muts do
+    if (← isDefEq gt (mkConst c)) then throwError "SR14 AUDIT FAILED: the mutated full type ({w}) was ACCEPTED"
+  logInfo m!"SR14: the FULL forall-type of the GENERATED topshare2.epD2M_endpoint (outer binders, hr : RunsTo (synthesizeCombinational topshare2) … w (b, design) w', entry : MachineDefines … topshare2, closes : True, and the conclusion) is isDefEq to the hand-written ShareFull; 7 type-correct mutations (hr's declaration, hr's form, hr's end world, hr's start world, entry's declaration, closes : False, entry dropped) are REJECTED"
 
 open Lean Elab Command Meta in
 set_option maxHeartbeats 0 in

@@ -20,6 +20,8 @@ refusal is NOT lifted: this module refuses with a reason that NAMES the failed c
   `#machine_design_svNR P 2` present, group numbering read from the old term) is kept.
 The decidable DATA facts (`LeafData`, `LeafCalleeData`, `QuadParentData` of `Tools/ShippingQuadLeafGeneric.lean`) are discharged by `decide` in the generated text; a
 failure there is an elaboration error of the generated declaration, not a refusal.
+Two tested examples (`topshare`, `topshare2`) do NOT make the class complete: besides (Q0)–(Q3) the DATA conditions (`decide` on the stored `machineData`) and the NAME conditions
+(`epD2M_*`, the group numbering read from the old chain term) must hold, otherwise generation fails with an elaboration error; `sparkle.sharedLeafCandidate` stays `false` by default (unit SR14 wording).
 
 ## What the candidate generates
 The text of the existing depth-2 several-callee template (`Tools/ShippingSeqParentGenD2M.lean`, UNCHANGED) with: the same-leaf-incompatible parent declarations `epD2M_disj` and
