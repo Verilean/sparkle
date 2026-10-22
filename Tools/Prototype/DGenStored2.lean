@@ -392,4 +392,313 @@ theorem evExpr_reflExprS (e : Lean.Expr) : ∀ b, reflExprS e = .ok b → evExpr
   | mdata _ _ _ => intro b h; simp [reflExprS] at h
   | proj _ _ _ _ => intro b h; simp [reflExprS] at h
 
+/-! ## Part 3: layout, instFields, instOrigins; the shape as `dataE` builds it -/
+
+section Part3
+open Sparkle.IR.Machine Sparkle.Compiler.MachInstOrigin Tools.ShippingMachineCommand Tools.ShippingMachineAuto
+open Sparkle.Compiler.Elab
+
+def evHW : Lean.Expr → Option Sparkle.IR.Type.HWType
+  | .const c _ => if c = ``Sparkle.IR.Type.HWType.bit then some .bit else none
+  | .app (.const c _) w =>
+    if c = ``Sparkle.IR.Type.HWType.bitVector then (evNat w).map Sparkle.IR.Type.HWType.bitVector else none
+  | _ => none
+
+def evResetKind : Lean.Expr → Option Sparkle.IR.Type.ResetKind
+  | .const c _ =>
+    if c = ``Sparkle.IR.Type.ResetKind.synchronous then some .synchronous
+    else if c = ``Sparkle.IR.Type.ResetKind.asynchronous then some .asynchronous else none
+  | _ => none
+
+def evSlot : Lean.Expr → Option SlotField
+  | .app (.app (.app (.const c _) lo) w) i =>
+    if c = ``SlotField.mk then do
+      let lo' ← evNat lo
+      let w' ← evNat w
+      let i' ← evNat i
+      pure ⟨lo', w', i'⟩
+    else none
+  | _ => none
+
+def evOut : Lean.Expr → Option OutField
+  | .app (.app (.app (.app (.const c _) nm) lo) w) ty =>
+    if c = ``OutField.mk then do
+      let nm' ← evStr nm
+      let lo' ← evNat lo
+      let w' ← evNat w
+      let ty' ← evHW ty
+      pure ⟨nm', lo', w', ty'⟩
+    else none
+  | _ => none
+
+def evLayout : Lean.Expr → Option Layout
+  | .app (.app (.app (.app (.const c _) sl) os) rk) lets =>
+    if c = ``Layout.mk then do
+      let sl' ← evList evSlot sl
+      let os' ← evList evOut os
+      let rk' ← evResetKind rk
+      let lets' ← evNat lets
+      pure ⟨sl', os', rk', lets'⟩
+    else none
+  | _ => none
+
+def evOrigin : Lean.Expr → Option InstOrigin
+  | .const c _ => if c = ``InstOrigin.ord then some .ord else none
+  | .app (.const c _) i => if c = ``InstOrigin.field then (evNat i).map InstOrigin.field else none
+  | .app (.app (.app (.const c _) cb) aw) dw =>
+    if c = ``InstOrigin.mem then do
+      let cb' ← evBool cb
+      let aw' ← evNat aw
+      let dw' ← evNat dw
+      pure (.mem cb' aw' dw')
+    else none
+  | _ => none
+
+/-- A generic version of `evList_listE` for an encoder that can fail (`layoutE`'s `mapM`). -/
+theorem evList_listE_mapM {α : Type} (ev : Lean.Expr → Option α) (f : α → Option Lean.Expr) (ty : Lean.Expr) (u : Level)
+    (hf : ∀ x e, f x = some e → ev e = some x) :
+    ∀ (xs : List α) (es : List Lean.Expr), xs.mapM f = some es → evList ev (listE ty es u) = some xs := by
+  intro xs
+  induction xs with
+  | nil => intro es h; simp [List.mapM_nil, pure] at h; subst h; simp [listE, evList, Lean.mkApp, Lean.mkConst]
+  | cons x xs ih =>
+    intro es h
+    rw [List.mapM_cons] at h
+    cases hx : f x with
+    | none => simp [hx, bind] at h
+    | some e =>
+      cases hs : xs.mapM f with
+      | none => simp [hx, hs, bind] at h
+      | some es' =>
+        simp [hx, hs, bind, pure] at h
+        subst h
+        show evList ev (.app (.app (.app (.const ``List.cons [u]) ty) e) (listE ty es' u)) = _
+        rw [evList]
+        simp [hf x e hx, ih es' hs]
+
+theorem evHW_hwTypeE (t : Sparkle.IR.Type.HWType) (e : Lean.Expr) (h : hwTypeE t = some e) : evHW e = some t := by
+  cases t <;> simp [hwTypeE] at h <;> subst h <;> simp [evHW, evNat_natL, Lean.mkApp, Lean.mkConst]
+
+theorem evResetKind_resetKindE (k : Sparkle.IR.Type.ResetKind) : evResetKind (resetKindE k) = some k := by
+  cases k <;> rfl
+
+theorem evSlot_enc (f : SlotField) :
+    evSlot (Lean.mkApp3 (Lean.mkConst ``SlotField.mk) (natL f.lo) (natL f.width) (natL f.init)) = some f := by
+  cases f; simp [evSlot, Lean.mkApp3, Lean.mkApp, Lean.mkConst, evNat_natL]
+
+theorem evOut_enc (o : OutField) (ty : Lean.Expr) (hty : hwTypeE o.ty = some ty) :
+    evOut (Lean.mkApp4 (Lean.mkConst ``OutField.mk) (toExpr o.name) (natL o.lo) (natL o.width) ty) = some o := by
+  rcases o with ⟨name, lo, width, t⟩
+  change hwTypeE t = some ty at hty
+  have := evHW_hwTypeE t ty hty
+  simp [evOut, Lean.mkApp4, Lean.mkApp3, Lean.mkApp, Lean.mkConst, evNat_natL, evStr_toExpr, this]
+
+/-- `layoutE`'s per-output encoder. -/
+def outEnc (o : OutField) : Option Lean.Expr := do
+  let ty ← hwTypeE o.ty
+  some (Lean.mkApp4 (Lean.mkConst ``OutField.mk) (toExpr o.name) (natL o.lo) (natL o.width) ty)
+
+/-- `layoutE` is this, definitionally (the guard that the restated pieces are the compiler's). -/
+theorem layoutE_eq (l : Layout) : layoutE l = (l.outs.mapM outEnc).bind fun outs =>
+    some (Lean.mkApp4 (Lean.mkConst ``Layout.mk)
+      (listE (Lean.mkConst ``SlotField) (l.slots.map fun f =>
+        Lean.mkApp3 (Lean.mkConst ``SlotField.mk) (natL f.lo) (natL f.width) (natL f.init)))
+      (listE (Lean.mkConst ``OutField) outs) (resetKindE l.resetKind) (natL l.lets)) := rfl
+
+theorem evLayout_app4 (a b c d : Lean.Expr) :
+    evLayout (Lean.mkApp4 (Lean.mkConst ``Layout.mk) a b c d) =
+      (evList evSlot a).bind fun sl => (evList evOut b).bind fun os => (evResetKind c).bind fun rk =>
+        (evNat d).bind fun lets => some ⟨sl, os, rk, lets⟩ := by
+  simp [evLayout, Lean.mkApp4, Lean.mkApp3, Lean.mkApp, Lean.mkConst]
+
+theorem evLayout_layoutE (l : Layout) (e : Lean.Expr) (h : layoutE l = some e) : evLayout e = some l := by
+  rw [layoutE_eq] at h
+  cases hm : l.outs.mapM outEnc with
+  | none => simp [hm] at h
+  | some outs =>
+    simp [hm] at h
+    subst h
+    have hsl := evList_listE evSlot (fun f : SlotField =>
+      Lean.mkApp3 (Lean.mkConst ``SlotField.mk) (natL f.lo) (natL f.width) (natL f.init))
+      (Lean.mkConst ``SlotField) .zero evSlot_enc l.slots
+    have hos := evList_listE_mapM evOut outEnc (Lean.mkConst ``OutField) .zero ?_ l.outs outs hm
+    · rw [evLayout_app4, hsl, hos, evResetKind_resetKindE, evNat_natL]
+      cases l; rfl
+    · intro o e he
+      cases hty : hwTypeE o.ty with
+      | none => simp [outEnc, hty] at he
+      | some ty =>
+        simp [outEnc, hty] at he
+        subst he
+        exact evOut_enc o ty hty
+
+/-! ### The pure part of `dataE`, restated, and the guard that it IS `dataE` -/
+
+def natPairT : Lean.Expr := Lean.mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) (Lean.mkConst ``Nat) (Lean.mkConst ``Nat)
+
+def pairsE (xs : List (Nat × Nat)) : Lean.Expr :=
+  listE natPairT (xs.map fun (a, b) =>
+    Lean.mkApp4 (Lean.mkConst ``Prod.mk [.zero, .zero]) (Lean.mkConst ``Nat) (Lean.mkConst ``Nat) (natL a) (natL b))
+
+def instT : Lean.Expr := Lean.mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) (Lean.mkConst ``Lean.Name)
+  (Lean.mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) (Lean.mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``Nat))
+    (Lean.mkConst ``MixedGateBinder))
+
+def instsE (xs : List (Name × List Nat × MixedGateBinder)) : Lean.Expr :=
+  listE instT (xs.map fun (c, js, k) =>
+    Lean.mkApp4 (Lean.mkConst ``Prod.mk [.zero, .zero]) (Lean.mkConst ``Lean.Name)
+      (Lean.mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) (Lean.mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``Nat))
+        (Lean.mkConst ``MixedGateBinder))
+      (toExpr c)
+      (Lean.mkApp4 (Lean.mkConst ``Prod.mk [.zero, .zero]) (Lean.mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``Nat))
+        (Lean.mkConst ``MixedGateBinder) (natListE js) (binderKindE k)))
+
+def originT : Lean.Expr := Lean.mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin
+
+def originE : Sparkle.Compiler.MachInstOrigin.InstOrigin → Lean.Expr
+  | .ord => Lean.mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.ord
+  | .field i => Lean.mkApp (Lean.mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.field) (natL i)
+  | .mem cb aw dw => Lean.mkApp3 (Lean.mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.mem)
+      (toExpr cb) (natL aw) (natL dw)
+
+/-- The `MachineShape` constructor application `dataE` builds, given the two reflected pieces (`body` through `reflExpr`,
+`layout` through `layoutE`). -/
+def shapeE (r : Read) (body layout : Lean.Expr) : Lean.Expr :=
+  .app (.app (.app (.app (.app (.app (.app (.app (Lean.mkConst ``MachineShape.mk)
+    (listE binderT (r.shape.binders.map binderE))) body) layout) (pairsE r.shape.runs)) (instsE r.shape.insts))
+    (pairsE r.shape.loops)) (listE (Lean.mkConst ``String) (r.shape.instFields.map toExpr)))
+    (listE originT (r.shape.instOrigins.map originE))
+
+def dataPure (r : Read) (body dom layout : Lean.Expr) : Lean.Expr :=
+  mkAppN (Lean.mkConst ``MachineData.mk)
+    #[shapeE r body layout, natL r.nIn, dom, natListE r.bposL, natListE r.vposL, natListE r.vwL,
+      listE stypeT (r.nexts.map fun t => stypeE t.1), listE anyTermT (r.ls.map anyTermE),
+      listE anyTermT (r.outs.map anyTermE), termsE r.nexts]
+
+/-- The restated `dataE`: the same three effects (`reflExpr` of the body, of the domain, `layoutE`), then the pure part. -/
+def dataE' (r : Read) : MetaM Lean.Expr := do
+  let body ← match reflExpr r.shape.body with
+    | .ok b => pure b
+    | .error msg => throwError msg
+  let dom ← match reflExpr r.dom with
+    | .ok b => pure b
+    | .error msg => throwError msg
+  let some layout := layoutE r.shape.layout | throwError "an output type is not a bit vector"
+  return dataPure r body dom layout
+
+/-- **TEXTUAL-DIVERGENCE GUARD (kernel-checked)**: `dataE` is, as a function, definitionally the restatement `dataE'` above.  If `dataE`
+changes (a field added/reordered, a different builder), this `rfl` stops type-checking and the build fails.
+SCOPE: it ties `dataE` to the `shapeE`/`pairsE`/`instsE`/`originE` used by the read-back lemmas of THIS file.  It does NOT say that
+`generateCore` stores `dataE r` (see the meta-check `generateCore_stores_dataE` below, which checks only that `generateCore`'s code
+mentions `dataE`, `addDef`). -/
+theorem dataE_eq_dataE' : Tools.ShippingMachineCommand.dataE = dataE' := rfl
+
+theorem evOrigin_originE (o : Sparkle.Compiler.MachInstOrigin.InstOrigin) : evOrigin (originE o) = some o := by
+  cases o <;> simp [originE, evOrigin, Lean.mkApp3, Lean.mkApp, Lean.mkConst, evNat_natL, evBool_toExpr]
+
+/-- Read-back of the `MachineShape` constructor application. -/
+def evShape : Lean.Expr → Option MachineShape
+  | .app (.app (.app (.app (.app (.app (.app (.app (.const c _) b1) b2) b3) b4) b5) b6) b7) b8 =>
+    if c = ``MachineShape.mk then do
+      let bs ← evList (evPair evName evKind) b1
+      let body ← evExpr b2
+      let lay ← evLayout b3
+      let runs ← evList (evPair evNat evNat) b4
+      let insts ← evList (evPair evName (evPair (evList evNat) evKind)) b5
+      let loops ← evList (evPair evNat evNat) b6
+      let iF ← evList evStr b7
+      let iO ← evList evOrigin b8
+      pure ⟨bs, body, lay, runs, insts, loops, iF, iO⟩
+    else none
+  | _ => none
+
+/-- **PROVED**: the shape expression `dataE` builds reads back as `r.shape`, GIVEN that its two reflected pieces (`body` via
+`reflExpr`, `layout` via `layoutE`) read back as `r.shape.body`/`r.shape.layout`.  `Name`/`String`/`Nat`/`List`/`Prod`/`SType`
+pieces need no premise (`nameRefl`). -/
+theorem evShape_shapeE (r : Read) (body layout : Lean.Expr)
+    (hb : evExpr body = some r.shape.body) (hl : evLayout layout = some r.shape.layout) :
+    evShape (shapeE r body layout) = some r.shape := by
+  have h1 := evList_binders evName nameRefl r.shape.binders
+  have h4 : evList (evPair evNat evNat) (pairsE r.shape.runs) = some r.shape.runs := evList_runs _
+  have h5 : evList (evPair evName (evPair (evList evNat) evKind)) (instsE r.shape.insts) = some r.shape.insts :=
+    evList_insts evName nameRefl _
+  have h6 : evList (evPair evNat evNat) (pairsE r.shape.loops) = some r.shape.loops := evList_runs _
+  have h7 := evList_listE evStr toExpr (Lean.mkConst ``String) .zero evStr_toExpr r.shape.instFields
+  simp only [Lean.mkConst] at h7
+  have h8 := evList_listE evOrigin originE originT .zero evOrigin_originE r.shape.instOrigins
+  simp only [shapeE, Lean.mkConst, evShape, if_true, h1, hb, hl, h4, h5, h6, h7, h8]
+  rfl
+
+/-! ### The named premise per partial def, and the assembled theorem -/
+
+/-- **PREMISE** (OPEN, one per `partial def`: `reflExpr`; `reflLevel` is only called from `reflExpr`, so it is covered by the same
+statement): the compiler's `reflExpr` (a `partial def`, opaque to proofs) agrees with the structural copy `reflExprS`.  Evidence is
+only the sample check `reflExpr_samples` below (a throwing meta-check on a finite list), NOT a proof. -/
+def ReflExprAgree : Prop := ∀ e, reflExpr e = reflExprS e
+
+/-- **PROVED** (from `ReflExprAgree`): what `reflExpr` builds reads back as its argument (`body` and `dom` of `dataE`). -/
+theorem body_readback (hag : ReflExprAgree) (e b : Lean.Expr) (h : reflExpr e = .ok b) : evExpr b = some e :=
+  evExpr_reflExprS e b (by rw [← hag e]; exact h)
+
+/-- **PROVED, conditional on `ReflExprAgree` and the kernel-read premise `hK`**: `StoredFromRead d r`.
+* `hb`, `hl`: `dataE r` did not throw (its `reflExpr` of the body and its `layoutE` succeeded, with results `b`, `lay`);
+* `hK` (**PREMISE (B)**: the Lean VALUE `d.shape` of the stored constant is the read-back of the shape expression it was declared with:
+  the kernel reads a constructor application as that constructor application; not expressible as a Prop about the constant's own value);
+* nothing about `Name`/`String`/`Nat`/`List`/`Prod`/`SType`/`binders`/`insts`/`runs`/`loops`/`instFields`/`instOrigins`/`layout`: PROVED. -/
+theorem storedFromRead_of_kernelRead (hag : ReflExprAgree) (d : MachineData) (r : Read) (b lay : Lean.Expr)
+    (hb : reflExpr r.shape.body = .ok b) (hl : layoutE r.shape.layout = some lay)
+    (hK : evShape (shapeE r b lay) = some d.shape) : DGenProv.StoredFromRead d r := by
+  have h := evShape_shapeE r b lay (body_readback hag _ _ hb) (evLayout_layoutE _ _ hl)
+  rw [h] at hK
+  exact (Option.some.inj hK).symm
+
+/-- The domain expression of `dataE` reads back as `r.dom` (not part of `StoredFromRead`, which is about the shape only). -/
+theorem dom_readback (hag : ReflExprAgree) (r : Read) (dom : Lean.Expr) (h : reflExpr r.dom = .ok dom) :
+    evExpr dom = some r.dom := body_readback hag _ _ h
+
+end Part3
+
+/-! ## Meta-checks (THROW at build time) -/
+
+open Lean Meta in
+/-- Sample agreement of `reflExpr` and `reflExprS` (finite evidence for `ReflExprAgree`, not a proof). -/
+def reflExpr_samples : MetaM Unit := do
+  let n := Lean.mkConst `Nat.add [.zero, .succ .zero]
+  let samples : List Lean.Expr :=
+    [.bvar 3, .const `Nat [], n, .app n (.bvar 0), .lam `x (.const `Nat []) (.bvar 0) .default,
+     .lam `x (.const `Nat []) (.bvar 0) .instImplicit, .forallE `y (.sort (.succ .zero)) (.bvar 0) .implicit,
+     .letE `z (.const `Nat []) (.lit (.natVal 5)) (.bvar 0) true, .lit (.natVal 7), .sort .zero,
+     .lit (.strVal "s"), .mdata {} (.bvar 0), .fvar ⟨`f⟩, .sort (.param `u), .const `A [.param `u],
+     .app (.lam `a.b.c (.sort (.succ .zero)) (.app (.bvar 0) (.lit (.natVal 1))) .strictImplicit) (.mdata {} (.bvar 0))]
+  for e in samples do
+    let a := reflExpr e
+    let b := reflExprS e
+    let same := match a, b with
+      | .ok x, .ok y => x == y
+      | .error x, .error y => x == y
+      | _, _ => false
+    unless same do throwError "reflExpr and reflExprS differ on {e}"
+
+run_meta reflExpr_samples
+
+open Lean Meta in
+/-- THROWS unless `generateCore`'s code (its `_unsafe_rec`, since it is a `partial def`) mentions `dataE`, `addDef` and `readMachine`.  SCOPE: constant-name MENTIONS only; it does not check that the stored value is `dataE r`, nor the order. -/
+def generateCore_mentions : MetaM Unit := do
+  let ci ← getConstInfo `Tools.ShippingMachineCommand.generateCore._unsafe_rec
+  let some v := ci.value? | throwError "generateCore._unsafe_rec has no value"
+  for c in [``Tools.ShippingMachineCommand.dataE, ``Tools.ShippingMachineCommand.addDef,
+      ``Tools.ShippingMachineCommand.readMachine] do
+    unless (v.find? fun e => e.isConstOf c).isSome do
+      throwError "generateCore no longer mentions {c}: the stored-data read-back may be stale"
+
+run_meta generateCore_mentions
+
+#print axioms nameRefl
+#print axioms evExpr_reflExprS
+#print axioms evLayout_layoutE
+#print axioms evShape_shapeE
+#print axioms dataE_eq_dataE'
+#print axioms body_readback
+#print axioms storedFromRead_of_kernelRead
+
 end Tools.Prototype.DGenStored2
