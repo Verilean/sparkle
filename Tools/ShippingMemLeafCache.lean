@@ -1,6 +1,6 @@
 import Tools.ShippingSharedLeafExt
 import Tools.ShippingMemOnlyNames
--- UNBUILT (unit SRM1): see REPORT-SRM1.md for the run names / exits at the final committed SHA.
+-- BUILT (unit SRM1): c1 exit 0 (dev run); the final-SHA rebuild is in REPORT-SRM1.md.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
 /-! # Shared leaf with a MEMORY child: the cache clauses (unit SRM1, ledger L8bd)

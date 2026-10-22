@@ -3959,3 +3959,6 @@ lean_lib «Tools.ShippingMemLeafCache» where
 
 lean_lib «Tools.ShippingMemLeafRun» where
   roots := #[`Tools.ShippingMemLeafRun]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidRunTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidRunTest]
