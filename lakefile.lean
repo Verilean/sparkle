@@ -3731,6 +3731,7 @@ lean_lib «Tools.Prototype.DGenConnectNM» where
 lean_lib «Tools.ShippingInitSession» where
   roots := #[`Tools.ShippingInitSession]
 
+
 lean_lib «Tools.Prototype.ExtModelLetOk» where
   roots := #[`Tools.Prototype.ExtModelLetOk]
 
@@ -3751,3 +3752,39 @@ lean_lib «Tools.Prototype.DGenStored2» where
 
 lean_lib «Tests.Compiler.DGenToggleStoredTest» where
   roots := #[`Tests.Compiler.DGenToggleStoredTest]
+
+lean_lib «Tools.Prototype.ExtReaderDefs» where
+  roots := #[`Tools.Prototype.ExtReaderDefs]
+
+lean_lib «Tools.Prototype.ExtReaderShipped» where
+  roots := #[`Tools.Prototype.ExtReaderShipped]
+
+lean_lib «Tools.Prototype.ExtRootFloat» where
+  roots := #[`Tools.Prototype.ExtRootFloat]
+
+lean_lib «Tools.Prototype.ExtReaderLetOk» where
+  roots := #[`Tools.Prototype.ExtReaderLetOk]
+
+lean_lib «Tools.Prototype.ExtReaderClo» where
+  roots := #[`Tools.Prototype.ExtReaderClo]
+
+lean_lib «Tools.Prototype.ExtReaderTab» where
+  roots := #[`Tools.Prototype.ExtReaderTab]
+
+lean_lib «Tools.Prototype.ExtReaderDom» where
+  roots := #[`Tools.Prototype.ExtReaderDom]
+
+lean_lib «Tools.Prototype.ExtReaderRaw» where
+  roots := #[`Tools.Prototype.ExtReaderRaw]
+
+lean_lib «Tools.Prototype.ExtReaderGlue» where
+  roots := #[`Tools.Prototype.ExtReaderGlue]
+
+lean_lib «Tests.Compiler.ExtReaderWholeAgreeTest» where
+  roots := #[`Tests.Compiler.ExtReaderWholeAgreeTest]
+
+lean_lib «Tests.Compiler.ExtReaderOpsAgreeTest» where
+  roots := #[`Tests.Compiler.ExtReaderOpsAgreeTest]
+
+lean_lib «Tools.Prototype.ExtReaderFinal» where
+  roots := #[`Tools.Prototype.ExtReaderFinal]
