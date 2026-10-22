@@ -3971,3 +3971,6 @@ lean_lib «Tests.Compiler.SharedLeafMemKidRunTest» where
 
 lean_lib «Tests.Compiler.SharedLeafMemKidEntryTest» where
   roots := #[`Tests.Compiler.SharedLeafMemKidEntryTest]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidEntryAuditTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidEntryAuditTest]
