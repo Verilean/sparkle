@@ -1,5 +1,5 @@
 import Tools.ShippingInitSession
--- UNBUILT (unit RT4): not yet built. No sorry/axiom/native_decide.
+-- BUILT (unit RT4): rt4a exit 1 (and_assoc), rt4b (lib) exit 0. No sorry/axiom/native_decide.
 
 /-! # Unit RT4: the allocation part of `InitHeapRelXfer`, split into named statements (ledger L9f)
 
