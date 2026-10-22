@@ -25,6 +25,18 @@ failure there is an elaboration error of the generated declaration, not a refusa
 Two tested examples (`topshare`, `topshare2`) do NOT make the class complete: besides (Q0)–(Q3) the DATA conditions (`decide` on the stored `machineData`) and the NAME conditions
 (`epD2M_*`, the group numbering read from the old chain term) must hold, otherwise generation fails with an elaboration error; `sparkle.sharedLeafCandidate` stays `false` by default (unit SR14 wording).
 
+## Unit SR18 (ledger L8ax): the generic-lemma path (default behaviour of the candidate when it is enabled)
+With `sparkle.sharedLeafCandidate true` the generator FIRST tries the generic-lemma path (`Tools/ShippingSeqParentGenD2MSG.lean`): for each accepted parent it elaborates, one command at a time and
+each checked by the kernel, the decided data bundles (`epD2M_quadAll` …), `GenFacts` of the parent and of each callee (`epD2M_genP`, `epD2M{i}_C_gen`), the leaf run (`epD2M_leafRun := G.seq_child_runN`),
+`epD2M{i}_C_hextB` / `_hext`, the PER-CALL residues `epD2M{i}_C_hPoint{k}` / `epD2M_hPoint{k}` (`Tools.ShippingQuadHPoint.HPointAt`) and `epD2M{i}_C_hF` / `epD2M_hFP` (`callFactF_of_hPointAt`), and the template
+theorems `epD2M_hkid / ranA / runFacts / outsCheck / kidsMasked / designCheck / traceXA / soundLA / composedA` with the STATEMENTS of the SR13 template and the generic lemmas (`quad_*`,
+`quad_composed_split`) as bodies; the per-callee pasted blocks (`epD2M{i}_C_composedA` …) are NOT emitted.  The endpoint statement is unchanged.  If one of these commands fails, or the audit fails, the
+failing command and its errors are LOGGED (`SR18: the generic-lemma path FAILED …`), NOTHING of the attempt is kept, and the SR13 path (pasted blocks) runs instead; no input is refused by this.
+What is generated is kernel-checked per declaration, instance-specific facts about the accepted declarations — NOT a theorem over the class.  What stays a PREMISE of a generated endpoint: the conclusion's
+existential `O`/`T`/`AdmCtx`/`MachineDefines`/`JQC O 0 w` (inside `epD2M_Bnd`), the run `hr`, `entry`, and the leaf's `MachineCloses` (`G.machine_closes`); the generated `GenFacts`, `LeafSeqRunN`
+(`G.seq_child_runN`), `hPoint`, `hext`/`hextB` are THEOREMS of the generated declarations (the decoding equations are extracted typed from the OLD chain's own kernel-checked `gfHb*`/`gfHv*`,
+`oldGroupFact%`; the Inhabited instances likewise, `oldInst%`).  `RealChildA` / `ServedRealA` are histories of past synthesis results.
+
 ## What the candidate generates
 (unit SR14, L8at) In addition to `epD2M_endpoint`, the RETURNED theorem `epD2M_returned` (= `Tools.ShippingQuadReturned.quad_returned` applied to the generated data facts and
 per-callee blocks: the same `M`, `Dg`, `y.2 = Dg`, `DesignSemConcl … y.1 M y.2`) and the WIRED theorem `epD2M_wired` (`quad_wired`) are generated; their FULL types are checked in

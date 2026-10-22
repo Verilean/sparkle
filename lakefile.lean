@@ -3893,3 +3893,6 @@ lean_lib «Tools.ShippingQuadHPoint» where
 
 lean_lib «Tools.ShippingSeqParentGenD2MSG» where
   roots := #[`Tools.ShippingSeqParentGenD2MSG]
+
+lean_lib «Tests.Compiler.SharedLeafGenFactsTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenFactsTest]

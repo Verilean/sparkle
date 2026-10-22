@@ -78,6 +78,7 @@ import Tools.ShippingQuadReturned
 import Tools.ShippingQuadComposed
 import Tools.ShippingQuadCalls
 import Tools.ShippingQuadCallFacts
+import Tools.ShippingQuadHPoint
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -545,7 +546,8 @@ def audited : List Name :=
    ``Tools.ShippingQuadComposed.genTrace, ``Tools.ShippingQuadComposed.leaf_kidFactsA, ``Tools.ShippingQuadComposed.leafCallee_kidFactsA, ``Tools.ShippingQuadComposed.leafCallee_traceXA, ``Tools.ShippingQuadComposed.leafCallee_composedA, ``Tools.ShippingQuadComposed.leafCallee_seqChildRunN2, ``Tools.ShippingQuadComposed.leafCallee_runNCA, ``Tools.ShippingQuadComposed.quad_ranA, ``Tools.ShippingQuadComposed.quad_hkid, ``Tools.ShippingQuadComposed.quad_runFacts, ``Tools.ShippingQuadComposed.quad_outsCheck, ``Tools.ShippingQuadComposed.quad_kidsMasked, ``Tools.ShippingQuadComposed.quad_designCheck, ``Tools.ShippingQuadComposed.quad_traceXA, ``Tools.ShippingQuadComposed.quad_soundLA, ``Tools.ShippingQuadComposed.quad_composed,
    ``Tools.ShippingQuadCalls.call_inRange, ``Tools.ShippingQuadCalls.quadGroupFacts_of_RF, ``Tools.ShippingQuadCalls.quad_inRange, ``Tools.ShippingQuadCalls.leafCallee_hcalls,
    ``Tools.ShippingQuadCalls.quad_composed_split,
-   ``Tools.ShippingQuadCallFacts.callFactF_of_fam, ``Tools.ShippingQuadCallFacts.quadSrcF_eq, ``Tools.ShippingQuadCallFacts.leafSrcC_eq]
+   ``Tools.ShippingQuadCallFacts.callFactF_of_fam, ``Tools.ShippingQuadCallFacts.quadSrcF_eq, ``Tools.ShippingQuadCallFacts.leafSrcC_eq,
+   ``Tools.ShippingQuadCallFacts.extendBits_of_ne, ``Tools.ShippingQuadCallFacts.extendBools_of_ne, ``Tools.ShippingQuadHPoint.callFactF_of_hPointAt]
 
 end Tests.Compiler.ChildVertAuditTest
 
