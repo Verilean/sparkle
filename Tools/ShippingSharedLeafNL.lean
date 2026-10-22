@@ -1,0 +1,169 @@
+import Tools.ShippingSharedLeafExt
+import Tools.ShippingCallsMemPinned
+-- UNBUILT (unit SR8, part A): run names / exits are in REPORT-SR8.md.
+-- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
+
+/-! # Shared leaf: the leaf calls of a NON-leaf callee's closing, as real runs (unit SR8, L8an, part A)
+
+`LeafOK n` bundles the data premises the SR6/SR7 leaf miss already takes about the leaf `n`. `leafKid_step`:
+ONE real run of `synthesizeChild n` for such an `n` (a cache hit OR the real leaf miss) from a world with
+`JQC`, `CacheClosed`, `KeyTop` ends in a world with the same three clauses, `(cv w').get? n = some y`, the cache
+extended, and every new key equal to `n`. `closeLoop_leaf`: the `mapM` loop of the general closing over a list of
+leaf calls (the loop that `closeInstsGM` runs) does the same for the whole list; the child `k` IS the end
+cache's entry at the callee `k`. `closeInstsGM_leafRun`: the closing run with that. -/
+
+namespace Tools.ShippingSharedLeafNL
+open Lean Meta
+open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
+open Sparkle.Compiler.Elab
+open Tools.ShippingChildInv Tools.ShippingChildBndInit Tools.ShippingChildBndCore Tools.ShippingChildInvA
+open Tools.ShippingChildVCA Tools.ShippingChildFresh Tools.ShippingChildCacheA Tools.ShippingChildPinC
+open Tools.ShippingChildDepthC Tools.ShippingChildRunA
+open Tools.ShippingSharedLeafCoh Tools.ShippingLeafMissCoh Tools.ShippingSharedLeafHit
+open Tools.ShippingSharedLeafExt
+open Sparkle.IR.AST Sparkle.IR.Machine
+open Tools.ShippingMachineCloses Tools.ShippingSeqChildIface Tools.ShippingSeqChildIfaceA
+open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
+open Tools.ShippingMachineAuto Tools.ShippingMixedEntrySoundness
+open Sparkle.Compiler.MachInstOrigin (InstOrigin)
+
+variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+  {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+
+/-- The data premises of the SR6/SR7 real leaf miss about the leaf `n` (a machine without calls whose body
+is the quotation of a well-formed term, its entry constant and its closing). -/
+def LeafOK (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
+    (cref : ST.Ref IO.RealWorld Core.State) (n : Name) : Prop :=
+  ∃ d : MachineData, d.ok = true ∧
+    d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed ∧
+    d.shape.insts = [] ∧ (∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width) ∧
+    MachineDefines mctx mref cctx cref n d.shape ∧
+    (∀ (mctx' : Meta.Context) (cctx' : Core.Context), MachineCloses mctx' mref cctx' cref n d.shape)
+
+/-- **One real run of `synthesizeChild n` for a leaf `n`: hit or real miss.** -/
+theorem leafKid_step (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} (hD : D ≠ 0) {n : Name} (hl : LeafOK mctx mref cctx cref n)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O D w)
+    (hcl : CacheClosed (cv w)) (hk : KeyTop (cv w))
+    (h : RunsTo (synthesizeChild n) mctx mref cctx cref w y w') :
+    JQC O D w' ∧ CacheClosed (cv w') ∧ KeyTop (cv w') ∧ (cv w').get? n = some y ∧
+      CacheExtends (cv w) (cv w') ∧
+      ∀ c r, (cv w').get? c = some r → (cv w).get? c = some r ∨ c = n := by
+  cases hm : (cv w).get? n with
+  | some r =>
+    obtain ⟨rfl, hj, hc⟩ := synthesizeChild_hit O hA hw hm h
+    rw [hc]
+    exact ⟨hj, hcl, hk, hm, cacheExtends_refl _, fun c r' h' => Or.inl h'⟩
+  | none =>
+    obtain ⟨d, ok, hbody, hno, outTy, entry, closes⟩ := hl
+    obtain ⟨hj, hc, hcl', hk', -, -⟩ :=
+      synthesizeChild_leafMiss_nested_ins O hA hD d ok hbody hno outTy entry closes hw hcl hk hm h
+    refine ⟨hj, hcl', hk', by rw [hc]; simp, by rw [hc]; exact cacheExtends_insert_missing y hm, ?_⟩
+    intro c r' h'
+    rw [hc] at h'
+    rcases insert_get_cases h' with ⟨e, -⟩ | ⟨-, h''⟩
+    · exact Or.inr e
+    · exact Or.inl h''
+
+/-- **The loop of the general closing over leaf calls.** -/
+theorem closeLoop_leaf (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} (hD : D ≠ 0) (f : Name × InstOrigin → MetaM Res)
+    (hf : ∀ x, f x = match x.2.child? with
+      | some md => pure md
+      | none => synthesizeChild x.1) :
+    ∀ (l : List (Name × InstOrigin)) (acc : List Res) (r : List Res) (w w' : Void IO.RealWorld),
+      (∀ x ∈ l, x.2.child? = none ∧ LeafOK mctx mref cctx cref x.1) →
+      JQC O D w → CacheClosed (cv w) → KeyTop (cv w) →
+      RunsTo (List.mapM.loop f l acc) mctx mref cctx cref w r w' →
+      ∃ ys, r = acc.reverse ++ ys ∧ ys.length = l.length ∧
+        (∀ k (hk : k < l.length), ∃ y, ys[k]? = some y ∧ (cv w').get? l[k].1 = some y) ∧
+        JQC O D w' ∧ CacheClosed (cv w') ∧ KeyTop (cv w') ∧ CacheExtends (cv w) (cv w') ∧
+        (∀ c r', (cv w').get? c = some r' → (cv w).get? c = some r' ∨ c ∈ l.map (·.1))
+  | [], acc, r, w, w', _, hj, hcl, hk, h => by
+    obtain ⟨rfl, rfl⟩ := RunsTo.pure_world h
+    exact ⟨[], by simp, rfl, fun k hk => absurd hk (Nat.not_lt_zero k), hj, hcl, hk,
+      cacheExtends_refl _, fun c r' h' => Or.inl h'⟩
+  | (c, o) :: xs, acc, r, w, w', hleaf, hj, hcl, hk, h => by
+    obtain ⟨y, w1, hy, h2⟩ := RunsTo.bind h
+    rw [hf] at hy
+    dsimp only at hy
+    obtain ⟨hch, hlo⟩ := hleaf (c, o) (List.mem_cons_self ..)
+    rw [hch] at hy
+    obtain ⟨hj1, hcl1, hk1, hget1, hext1, hgrow1⟩ := leafKid_step O hA hD hlo hj hcl hk hy
+    obtain ⟨ys, hr, hlen, hks, hj', hcl', hk', hext', hgrow'⟩ :=
+      closeLoop_leaf O hA hD f hf xs (y :: acc) r w1 w'
+        (fun x hx => hleaf x (List.mem_cons_of_mem _ hx)) hj1 hcl1 hk1 h2
+    refine ⟨y :: ys, by simp [hr], by simp [hlen], fun kk hkk => ?_, hj', hcl', hk',
+      cacheExtends_trans hext1 hext', fun c' r' hc' => ?_⟩
+    · cases kk with
+      | zero => exact ⟨y, rfl, hext' c y hget1⟩
+      | succ kk =>
+        obtain ⟨z, hz, hcz⟩ := hks kk (by simpa using hkk)
+        exact ⟨z, by simpa using hz, by simpa using hcz⟩
+    · rcases hgrow' c' r' hc' with h3 | h3
+      · rcases hgrow1 c' r' h3 with h4 | h4
+        · exact Or.inl h4
+        · exact Or.inr (by simp [h4])
+      · exact Or.inr (by simp [h3])
+
+/-- **The general closing over leaf calls, as a real run.** The children are the end cache's entries at the
+callees; the cache clauses are kept; every new key is a callee. -/
+theorem closeInstsGM_leafRun (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} (hD : D ≠ 0)
+    {shape : MachineShape} {t m₀ : Sparkle.IR.AST.Module} {d₀ : Sparkle.IR.AST.Design}
+    {r : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)} {w w' : Void IO.RealWorld}
+    (hleaf : ∀ x ∈ shape.instTagged, x.2.child? = none ∧ LeafOK mctx mref cctx cref x.1)
+    (hw : JQC O D w) (hcl : CacheClosed (cv w)) (hk : KeyTop (cv w))
+    (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w r w') :
+    ∃ children, r = Sparkle.IR.Machine.closeInstsG (machNIn shape) shape.insts.length
+        shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1))
+        shape.instFields children (m₀, d₀) ∧
+      children.length = shape.insts.length ∧
+      (∀ k (hk : k < shape.insts.length), ∃ y, children[k]? = some y ∧
+        (cv w').get? (shape.insts[k]).1 = some y) ∧
+      JQC O D w' ∧ CacheClosed (cv w') ∧ KeyTop (cv w') ∧ CacheExtends (cv w) (cv w') ∧
+      (∀ c r', (cv w').get? c = some r' → (cv w).get? c = some r' ∨ c ∈ shape.insts.map (·.1)) := by
+  unfold closeInstsGM at hr
+  obtain ⟨synth?, w1, hget, hr⟩ := RunsTo.bind hr
+  obtain ⟨hw1, rfl⟩ := triple_runs (tripleC_synthRead O hA D) hw hget
+  have hcv1 : cv w1 = cv w := by
+    have hk0 := O.frame hA _ FramedA.synthGet w hw.1.1
+    rw [endW_of_runs hget] at hk0
+    exact hk0.1
+  dsimp only at hr
+  obtain ⟨children, w2, hch, hr⟩ := RunsTo.bind hr
+  obtain ⟨heq, rfl⟩ := RunsTo.pure_world hr
+  obtain ⟨ys, hys, hlen, hks, hj', hcl', hk', hext', hgrow'⟩ :=
+    closeLoop_leaf O hA hD
+      (fun (x : Name × InstOrigin) => match x.2.child? with
+        | some md => pure md
+        | none => synthesizeChild x.1) (fun _ => rfl)
+      shape.instTagged [] children w1 w' hleaf hw1 (by rw [hcv1]; exact hcl) (by rw [hcv1]; exact hk) hch
+  simp only [List.reverse_nil, List.nil_append] at hys
+  subst hys
+  have hlenI : children.length = shape.insts.length := by
+    rw [hlen]; exact instTagged_length' shape
+  refine ⟨children, heq, hlenI, fun k hkl => ?_, hj', hcl', hk', by rw [← hcv1]; exact hext', ?_⟩
+  · obtain ⟨hkT, he⟩ := instTagged_getAt shape hkl
+    obtain ⟨y, hky, hcy⟩ := hks k hkT
+    rw [he] at hcy
+    exact ⟨y, hky, hcy⟩
+  · intro c r' hc'
+    rw [hcv1] at hgrow'
+    rcases hgrow' c r' hc' with h | h
+    · exact Or.inl h
+    · refine Or.inr ?_
+      obtain ⟨x, hx, rfl⟩ := List.mem_map.mp h
+      obtain ⟨k, hkT, rfl⟩ := List.mem_iff_getElem.mp hx
+      have hkl : k < shape.insts.length := by rw [← instTagged_length']; exact hkT
+      obtain ⟨_, he⟩ := instTagged_getAt shape hkl
+      rw [he]
+      exact List.mem_map.mpr ⟨_, List.getElem_mem hkl, rfl⟩
+
+end Tools.ShippingSharedLeafNL
+
+#print axioms Tools.ShippingSharedLeafNL.leafKid_step
+#print axioms Tools.ShippingSharedLeafNL.closeLoop_leaf
+#print axioms Tools.ShippingSharedLeafNL.closeInstsGM_leafRun
