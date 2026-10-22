@@ -79,6 +79,13 @@ import Tools.ShippingQuadComposed
 import Tools.ShippingQuadCalls
 import Tools.ShippingQuadCallFacts
 import Tools.ShippingQuadHPoint
+import Tools.ShippingKaryRun
+import Tools.ShippingKaryEntry
+import Tools.ShippingKaryLeafGeneric
+import Tools.ShippingKaryComposed
+import Tools.ShippingKaryCalls
+import Tools.ShippingKaryFacts
+import Tools.ShippingKaryBridge
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -547,7 +554,20 @@ def audited : List Name :=
    ``Tools.ShippingQuadCalls.call_inRange, ``Tools.ShippingQuadCalls.quadGroupFacts_of_RF, ``Tools.ShippingQuadCalls.quad_inRange, ``Tools.ShippingQuadCalls.leafCallee_hcalls,
    ``Tools.ShippingQuadCalls.quad_composed_split,
    ``Tools.ShippingQuadCallFacts.callFactF_of_fam, ``Tools.ShippingQuadCallFacts.quadSrcF_eq, ``Tools.ShippingQuadCallFacts.leafSrcC_eq,
-   ``Tools.ShippingQuadCallFacts.extendBits_of_ne, ``Tools.ShippingQuadCallFacts.extendBools_of_ne, ``Tools.ShippingQuadHPoint.callFactF_of_hPointAt]
+   ``Tools.ShippingQuadCallFacts.extendBits_of_ne, ``Tools.ShippingQuadCallFacts.extendBools_of_ne, ``Tools.ShippingQuadHPoint.callFactF_of_hPointAt,
+   -- (unit SR21, ledger L8ba) the K-ary generalisation: a LIST of K callees that share one leaf
+   ``Tools.ShippingKaryRun.dup_getElem?, ``Tools.ShippingKaryRun.dup_length', ``Tools.ShippingKaryRun.kary_group, ``Tools.ShippingKaryRun.kary_loop,
+   ``Tools.ShippingKaryRun.kary_closing, ``Tools.ShippingKaryRun.kary_insts_names, ``Tools.ShippingKaryRun.kary_insts_length,
+   ``Tools.ShippingKaryEntry.kary_idx_of_name, ``Tools.ShippingKaryEntry.kary_machineSynth_ne_none, ``Tools.ShippingKaryEntry.kary_entry_run_ret_np,
+   ``Tools.ShippingKaryLeafGeneric.kary_calleeOK, ``Tools.ShippingKaryLeafGeneric.kary_nc, ``Tools.ShippingKaryLeafGeneric.kary_call_callee,
+   ``Tools.ShippingKaryLeafGeneric.kary_closes0, ``Tools.ShippingKaryLeafGeneric.kary_machineRun, ``Tools.ShippingKaryLeafGeneric.kary_entry_run,
+   ``Tools.ShippingKaryComposed.kFind_of_mem, ``Tools.ShippingKaryComposed.kandk_forall, ``Tools.ShippingKaryComposed.forall_kandk,
+   ``Tools.ShippingKaryComposed.kary_callee_at, ``Tools.ShippingKaryComposed.kary_name_mem, ``Tools.ShippingKaryComposed.kary_ranA,
+   ``Tools.ShippingKaryComposed.kary_hkid, ``Tools.ShippingKaryComposed.kary_runFacts, ``Tools.ShippingKaryComposed.kary_outsCheck,
+   ``Tools.ShippingKaryComposed.kary_kidsMasked, ``Tools.ShippingKaryComposed.kary_designCheck, ``Tools.ShippingKaryComposed.kary_traceXA,
+   ``Tools.ShippingKaryComposed.kary_soundLA, ``Tools.ShippingKaryComposed.kary_inRange,
+   ``Tools.ShippingKaryCalls.kary_composed_split, ``Tools.ShippingKaryFacts.kSrcF_eq,
+   ``Tools.ShippingKaryBridge.KaryParentData.ofQuad, ``Tools.ShippingKaryBridge.KaryAll.ofQuad, ``Tools.ShippingKaryBridge.KaryBnd.ofQuad]
 
 end Tests.Compiler.ChildVertAuditTest
 
