@@ -3608,6 +3608,9 @@ lean_lib «Tools.ShippingSeqOldPieces» where
 lean_lib «Tools.ShippingSeqParentGenD2» where
   roots := #[`Tools.ShippingSeqParentGenD2]
 
+lean_lib «Tools.ShippingSeqParentGenD2M» where
+  roots := #[`Tools.ShippingSeqParentGenD2M]
+
 lean_lib «Tools.ShippingStRefCorrespondence» where
   roots := #[`Tools.ShippingStRefCorrespondence]
 
