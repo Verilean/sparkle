@@ -614,6 +614,50 @@ theorem machineSynth_ne_none4 (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.
       rw [← hrr] at hsome
       simp at hsome
 
+/-- **`topshare_entry_run4` with the START-WORLD form of the parent's no-fallback premise** (`MachineClosesAtStart0`,
+instead of `MachineClosesAtA` at every `JQC` world with any cache); `machineSynth_ne_none4` derives it for `topshare`. -/
+theorem topshare_entry_run4' (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {c c₁ c₂ : Name} (hc12 : c₁ ≠ c₂) {o₁ o₁' o₂ o₂' : InstOrigin}
+    (ho₁ : o₁.child? = none) (ho₁' : o₁'.child? = none) (ho₂ : o₂.child? = none) (ho₂' : o₂'.child? = none)
+    (dp : MachineData) (okp : dp.ok = true)
+    (hbodyp : dp.shape.body = quote dp.dom
+      (fun j => inputExpr dp.shape.binders.length (dp.bpos j))
+      (fun j => inputExpr dp.shape.binders.length (dp.vpos j)) dp.packed)
+    (hinsp : dp.shape.insts ≠ []) (hfnep : dp.shape.instFields ≠ [])
+    (hP : dp.shape.instTagged = [(c₁, o₁), (c₁, o₁'), (c₂, o₂), (c₂, o₂')])
+    (entryP : MachineDefines mctx mref cctx cref c dp.shape)
+    (closes0 : MachineClosesAtStart0 (mref := mref) (cref := cref) O mctx cctx c dp.shape)
+    (d₁ d₂ : MachineData) (K₁ : CalleeOK O mctx cctx c₁ d₁) (K₂ : CalleeOK O mctx cctx c₂ d₂)
+    (hc2not : ∀ k (hk : k < d₁.shape.insts.length), (d₁.shape.insts[k]).1 ≠ c₂)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O 0 w)
+    (h : RunsTo (synthesizeCombinational c) mctx mref cctx cref w y w') :
+    ∃ (y₁ y₂ : Res) (t t' : Sparkle.IR.AST.Module) (d₀ : Sparkle.IR.AST.Design)
+      (M : Sparkle.IR.AST.Module) (Dg : Sparkle.IR.AST.Design) (w10 : Void IO.RealWorld),
+      closeLets dp.shape.layout.lets t = some t' ∧
+      some (M, Dg) = Sparkle.IR.Machine.closeInstsG (machNIn dp.shape) dp.shape.insts.length
+        dp.shape.layout.slots.length (t.inputs.map (·.name)) (dp.shape.insts.map (·.2.1))
+        dp.shape.instFields [y₁, y₁, y₂, y₂] (closeMachine dp.shape.layout t', d₀) ∧
+      JQC O 0 w' ∧ cv w' = cv w10 ∧
+      CacheClosed (cv w10) ∧ KeyTop (cv w10) ∧ CacheCoh (cv w10) ∧
+      (cv w10).get? c₁ = some y₁ ∧ (cv w10).get? c₂ = some y₂ ∧
+      (∀ a ∈ ModsOf y₁, ∀ b ∈ ModsOf y₂, a.name = b.name → a = b) ∧
+      ∀ k₁ (hk₁ : k₁ < d₁.shape.insts.length) k₂ (hk₂ : k₂ < d₂.shape.insts.length),
+        (d₁.shape.insts[k₁]).1 = (d₂.shape.insts[k₂]).1 →
+        ∃ e, (cv w10).get? (d₁.shape.insts[k₁]).1 = some e ∧ e.1 ∈ y₁.2.modules ∧ e.1 ∈ y₂.2.modules := by
+  obtain ⟨M, Dg, wc, hcore, htail, -⟩ := full_run_tracked O hA (D := 0) h
+  obtain ⟨tenv, b, w9, w10, hmach, hw9, hc9, htl⟩ := core_run_tracked0' O hA entryP closes0 hw hcore
+  obtain ⟨t, t', d₀, w1, -, hlets, hj1, hcv1, hclose⟩ :=
+    machineSynth_closing_split O hA (D' := 1) dp okp hbodyp hinsp hfnep hw9 hmach
+  have hcvw1 : cv w1 = {} := hcv1.trans hc9
+  obtain ⟨y₁, y₂, hrr, hj, hc, hk, hcoh, hg1, hg2, hcross, hshared⟩ :=
+    topshare_closing4 O hA (D := 1) Nat.one_ne_zero hc12 ho₁ ho₁' ho₂ ho₂' hP d₁ d₂ K₁ K₂ hc2not hj1
+      (by rw [hcvw1]; exact cacheClosed_empty) (by rw [hcvw1]; exact keyTop_empty)
+      (by rw [hcvw1]; simp) (by rw [hcvw1]; simp) hclose
+  obtain ⟨hjc, hcvc⟩ := htl hj
+  obtain ⟨hj2, hcv2⟩ := htail hjc
+  exact ⟨y₁, y₂, t, t', d₀, M, Dg, w10, hlets, hrr, hj2, hcv2.trans hcvc, hc, hk, hcoh, hg1, hg2,
+    hcross, hshared⟩
+
 end Tools.ShippingTopShareRun
 
 #print axioms Tools.ShippingTopShareRun.core_run_tracked0'
@@ -624,3 +668,4 @@ end Tools.ShippingTopShareRun
 #print axioms Tools.ShippingTopShareRun.topshare_closing4
 #print axioms Tools.ShippingTopShareRun.topshare_entry_run4
 #print axioms Tools.ShippingTopShareRun.machineSynth_ne_none4
+#print axioms Tools.ShippingTopShareRun.topshare_entry_run4'
