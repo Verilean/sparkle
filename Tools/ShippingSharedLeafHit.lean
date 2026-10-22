@@ -4,10 +4,13 @@ import Tools.ShippingLeafTermKeeps
 
 /-! # Shared leaf (`topshare`): a real leaf MISS followed by a real cache HIT of the same key (unit SR7, L8am)
 
-Two callees call the SAME leaf `n`. The first call is the real leaf miss (`Tools.ShippingLeafBodyCi`/
-`Tools.ShippingLeafTermKeeps`, SR6): it inserts the result `y` at key `n`. The second call is a cache hit:
-`synthesizeChild n` returns the entry the cache holds at `n`. Hence the second callee's leaf module IS the first
-callee's (`y₂ = y₁`), by the run's cache; no equality of the two modules / designs is assumed anywhere.
+The first call of `synthesizeChild n` is the real leaf miss (`Tools.ShippingLeafBodyCi`/
+`Tools.ShippingLeafTermKeeps`, SR6): it inserts the result `y` at key `n`. A later call of `synthesizeChild n`
+from a world whose cache holds the entry at `n` is a cache hit and returns that entry. Hence the miss result and
+the hit result COINCIDE (`y₂ = y₁`), by the run's cache. SCOPE: this file does NOT mention the two callees' runs
+(wrap/wrap3 of `topshare`) nor the modules inside their designs: connecting the leaf modules of the two callee
+designs to these two calls is NOT done here, and this is not a `topshare` proof. No equality of two modules /
+designs is assumed anywhere.
 
 PROVED here: `synthesizeChild_hit` (hit returns the cache entry, keeps `JQC` and the cache value);
 `synthesizeChild_leafMiss_nested_ins` (the SR6 miss with the extra conclusions `JQC O D w'` and
