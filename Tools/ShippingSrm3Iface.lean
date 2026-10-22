@@ -12,6 +12,8 @@ import Tools.ShippingMemClosesKids
 -- The memory kids are handled by the built `memIface` / `mem_design` / `mem_noInst` (the memory module is a fixed built module, no reflection).
 -- PREMISES kept (named): `hgk` / `hsep` for the `RealChildA` kids whose origin builds no module (as in `deepChild_ifaceP`), `hmem` (the name of the module an origin builds is in `names` and is not the parent's; decidable), `entry`, `closes`.
 -- `RealChildA` is a history of past synthesis results, not freshness, not runtime fit.  No `sorry`, no `axiom`, no `native_decide`, no new law / field.
+-- OPEN (not proved here): the endpoint of a callee with a memory child on the `RealChildA` side (`KidFactsA` / `seq_child_runN` / composed trace); a parent whose OWN entries are memory entries; the data classes beyond the
+-- examples of `Tests/Compiler/SharedLeafMemKidIfaceTest.lean`.  No heartbeat option is raised in this file (the copied proofs run at the default budget).
 
 namespace Tools.ShippingSrm3Iface
 open Lean Meta
