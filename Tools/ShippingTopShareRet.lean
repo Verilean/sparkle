@@ -2,7 +2,7 @@ import Tools.ShippingSharedLeafNL
 import Tools.ShippingMemClosesKidsT
 import Tools.ShippingMachineClosesData
 import Tools.ShippingTopShareRun
--- UNBUILT (unit SR10): see REPORT-SR10.md for run names / exits.
+-- BUILT (unit SR10): r1 exit 0 (dev run); see REPORT-SR10.md for the final-SHA rebuild.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 -- `topshare_entry_run4_ret`: `topshare_entry_run4'` with the outer run's RETURNED value linked (L8ap); NOT a semantic endpoint.
 

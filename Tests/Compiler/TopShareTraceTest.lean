@@ -1,5 +1,5 @@
 import Tests.Compiler.TopShareRetInstTest
--- UNBUILT (unit SR10): see REPORT-SR10.md.
+-- BUILT (unit SR10): r2/r3 exit 0 (dev runs); see REPORT-SR10.md for the final-SHA rebuild.
 -- SCOPE: `topshare_traceXA`: the served-real TRACE (`MachineTraceLBX`) of `topshare` from ONE core run of `topshare` at depth 0, where the
 -- parent's no-fallback premise is DERIVED (`topshare_closes0` = `machineSynth_ne_none4` at the real declarations).  This is the `soundL`
 -- piece of the endpoint `machine_design_noShips_noBd_dc`; NOT the semantic endpoint (composed, houtTy and the four design checks are not

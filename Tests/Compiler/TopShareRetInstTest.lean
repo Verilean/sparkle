@@ -2,7 +2,7 @@ import Tests.Compiler.SeqDeepGenDiffTest
 import Tools.ShippingTopShareRun
 import Tools.ShippingTopShareRet
 import Tests.Compiler.TopShareInstTest
--- UNBUILT (unit SR10): see REPORT-SR10.md.
+-- BUILT (unit SR10): r2/r3 exit 0 (dev runs); see REPORT-SR10.md for the final-SHA rebuild.
 -- SCOPE: the outer run's RETURNED value y is linked to the closing's (M, Dg); NOT a semantic endpoint (module = source is not stated).
 namespace Tests.Compiler.TopShareRetInstTest
 open Tests.Compiler.TopShareInstTest
