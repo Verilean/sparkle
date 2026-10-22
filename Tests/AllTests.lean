@@ -368,6 +368,7 @@ import Tests.Compiler.SeqDeepGenKeyConclTest
 import Tests.Compiler.SeqDeepGenArgsConclTest
 import Tests.Compiler.SeqDeepGenDiffTest
 import Tests.Compiler.SeqDeepGenDiffConclTest
+import Tests.Compiler.SeqDeepGenGroupTest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.LeafDesignClosedFamilyTest
 import Tests.Compiler.HeapProvenanceRegressTest

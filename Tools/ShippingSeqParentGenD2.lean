@@ -789,19 +789,20 @@ def isMemName (n : Name) : Bool := n.getRoot == `SparkleMem
 def memWhy (role : String) (d : Name) : String :=
   s!"memory in {role}: {d} has a memory (`Signal.memory` / `memoryComboRead`, a call of a built memory module among its call instances); memory in the parent / child / grandchild is OPEN on this path (the closing and the checks of the depth-2 class are for sequential register machines without memory)"
 
-/-- The group numbering of the OLD generator (`Tools/ShippingMachineDepthCommandR.lean`, phase 1 of the grouped loop): call `k` joins the
-first earlier group with the SAME key `(callee, argument lets, family over Bool binders, family over bit-vector binders)`, else opens a new
-group.  The two families are `extendBools`/`extendBits` nests over the same base whose only call-dependent data are the call's argument
-Signals, so the key is recomputed here as `(callee, argument lets, the call's argument Signals)`: the Signals are read from
-`P.machineExt` / `P.machineExtB` exactly as the old generator does (`sigAtPos` at port `nDecl + k`, then `findCall C`), both bodies
-instantiated with the SAME four locals (family point and state) so that the Signals of different calls are comparable by `==`.  Returns, per instance, its group
-index, and per group its argument list.  If a Signal cannot be read, the key cannot be computed and the declaration is REFUSED up front.
-SCOPE (integrator wording, par/int-r49, per review): the old generator's real group key is `famA`/`famB`; this recomputation uses
-the CALL ARGUMENTS (including the domain argument, which the old family does not take) + independent state locals, so it is an
-APPROXIMATION of the old key, NOT a guaranteed full-key match; the count check (`oldGroupCount`) compares only the NUMBER of groups and
-does NOT detect a different partition with the same count. Safety comes from the typed extraction / semantic equation checks; NOT all
-mismatches are refused up front. -/
-def oldGroupKeys (fn C : Name) (kP : Nat) (al : List (List Nat)) : MetaM (Except String (List Nat × List (List Nat))) := do
+/-- PURE (unit SR3w, per review): the first-occurrence partition of a list of keys.  Returns, per position, the index of its group, and the
+distinct keys in order of first occurrence.  The old generator opens a new group for an entry whose key matches no earlier group, so its group
+index is this first-occurrence index IF its key relation is the one used here. -/
+def groupPartition {κ : Type} [BEq κ] (keys : List κ) : List Nat × List κ :=
+  keys.foldl (fun (acc : List Nat × List κ) k =>
+    match acc.2.findIdx? (· == k) with
+    | some j => (acc.1 ++ [j], acc.2)
+    | none => (acc.1 ++ [acc.2.length], acc.2 ++ [k])) ([], [])
+
+/-- The keys of the calls of `fn`, one per instance, as READ from `fn.machineExt` / `fn.machineExtB` (a CALL-ARGUMENT APPROXIMATION of the old
+generator's key, see below): `(argument lets, the call's argument Signals)`.  The Signals are read exactly as the old generator reads them
+(`sigAtPos` at port `nDecl + k`, then `findCall C`), both bodies instantiated with the SAME four locals (family point and state) so that the
+Signals of different calls are comparable by `==`.  `Except.error` if a Signal cannot be read. -/
+def oldGroupKeyList (fn C : Name) (kP : Nat) (al : List (List Nat)) : MetaM (Except String (List (List Nat × List Expr))) := do
   let env ← getEnv
   let some _ := env.find? (fn ++ `machineExt) | return .error s!"{fn ++ `machineExt} not found"
   let ext ← mkConstWithFreshMVarLevels (fn ++ `machineExt)
@@ -817,18 +818,68 @@ def oldGroupKeys (fn C : Name) (kP : Nat) (al : List (List Nat)) : MetaM (Except
     let extBody ← unfoldExt ext
     let extBBody ← match extB? with | some x => unfoldExt x | none => pure extBody
     let mut keys : Array (List Nat × List Expr) := #[]
-    let mut inst : Array Nat := #[]
     for (a, k) in al.zipIdx do
       let pos := kP + k
       let some sig := (Tools.ShippingMachineSeqCommand.sigAtPos pos extBody).orElse fun _ => Tools.ShippingMachineSeqCommand.sigAtPos pos extBBody
         | return .error s!"call instance {k}: no argument Signal at port {pos} of {fn ++ `machineExt}"
       let some call := Tools.ShippingMachineSeqCommand.findCall C sig
         | return .error s!"call instance {k}: no call of {C} in the Signal at port {pos}"
-      let key := (a, (← instantiateMVars call).getAppArgs.toList)
-      match keys.findIdx? (· == key) with
-      | some j => inst := inst.push j
-      | none => inst := inst.push keys.size; keys := keys.push key
-    return .ok (inst.toList, keys.toList.map (·.1))
+      keys := keys.push (a, (← instantiateMVars call).getAppArgs.toList)
+    return .ok keys.toList
+
+/-- The group numbering of the OLD generator (`Tools/ShippingMachineDepthCommandR.lean`, phase 1 of the grouped loop): call `k` joins the
+first earlier group with the SAME key `(callee, argument lets, family over Bool binders, family over bit-vector binders)`, else opens a new
+group.  The two families are `extendBools`/`extendBits` nests over the same base whose only call-dependent data are the call's argument
+Signals (at the Bool / bit-vector binders, NOT the domain binder).  What is computed here is a CALL-ARGUMENT APPROXIMATION of that key:
+`(argument lets, ALL the call's arguments including the domain argument)`, with locals chosen here; it is NOT the old key (review of par/int-r44).
+The partition is then compared with the one READ from the old generated term (`oldInstGroups`), see `analyse`.  Returns, per instance, its group
+index, and per group its argument list. -/
+def oldGroupKeys (fn C : Name) (kP : Nat) (al : List (List Nat)) : MetaM (Except String (List Nat × List (List Nat))) := do
+  match ← oldGroupKeyList fn C kP al with
+  | .error why => return .error why
+  | .ok keys =>
+    let (inst, ks) := groupPartition keys
+    return .ok (inst, ks.map (·.1))
+
+/-- The partition of the call entries into groups AS READ from the old generated `thm = f.machine_composedNR{n}` (unit SR3w, per review): the
+chain over the entries is `forall_getElem?_cons … (entry proof) (rest)`; the group of entry `k` is the index of the group-fact hypotheses
+(`gfB/gfL/gfR/gfHb/gfHv` + index) that its proof uses.  Structural: it needs the shape `hcalls := fun i bools bits k c hk => (fun gf… => chain k c hk) proofs`
+and the names of the group-fact binders.  `Except.error` if the shape is not as expected, or an entry uses the facts of not exactly one group. -/
+def oldInstGroups (thm : Name) : MetaM (Except String (List Nat)) := do
+  let some (.thmInfo ti) := (← getEnv).find? thm | return .error s!"{thm} is not a theorem"
+  lambdaTelescope ti.value fun _ body => do
+    let some app := Tools.ShippingSeqOldPieces.findHeadApp? body ``Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN
+      | return .error s!"no machine_linkedT_callsRN in {thm}"
+    let tbl ← Tools.ShippingSeqOldPieces.namedArgs app
+    let some (_, a) := tbl.find? (·.1 == `hcalls) | return .error s!"no `hcalls` binder in {thm}"
+    lambdaTelescope a fun _ inner => do
+      let f := inner.getAppFn
+      unless f.isLambda do return .error s!"the body of `hcalls` in {thm} is not a beta-redex"
+      lambdaTelescope f fun gs chainBody => do
+        let mut gidx : Array (FVarId × Nat) := #[]
+        for g in gs do
+          let un := (← g.fvarId!.getUserName).toString
+          unless un.startsWith "gf" do return .error s!"unexpected binder {un} in the group-fact redex of {thm}"
+          let some j := (String.mk (un.toList.filter Char.isDigit)).toNat? | return .error s!"cannot read the group index of {un}"
+          gidx := gidx.push (g.fvarId!, j)
+        let mut cur := chainBody
+        let mut out : Array Nat := #[]
+        let mut fuel := 100000
+        while fuel > 0 do
+          fuel := fuel - 1
+          let cur' := cur.consumeMData
+          if cur'.getAppFn.isConstOf ``Tools.ShippingMachineChild.forall_getElem?_cons && cur'.getAppNumArgs ≥ 6 then
+            let args := cur'.getAppArgs
+            let used := (gidx.filter fun (id, _) => args[4]!.containsFVar id).toList.map (·.2) |>.eraseDups
+            match used with
+            | [j] => out := out.push j
+            | _ => return .error s!"an entry of the chain in {thm} uses the group facts of {used.length} groups (expected exactly one)"
+            cur := args[5]!
+          else if cur'.getAppFn.isConstOf ``Tools.ShippingMachineChild.forall_getElem?_nil then
+            return .ok out.toList
+          else
+            return .error s!"unexpected term in the chain over the entries of {thm}: {cur'.getAppFn}"
+        return .error s!"the chain in {thm} is too long"
 
 /-- The number of group-fact bundles (`gfL{j}` binders) of the old generated `hcalls` in `thm`. -/
 def oldGroupCount (thm : Name) : MetaM Nat := do
@@ -871,7 +922,8 @@ def analyse (fn : Name) : CommandElabM D2Params := do
   -- equation check (`Hb`/`Hv` right-hand sides are holes); a safe stop, not class coverage)
   let al ← liftTermElabM do readNatLists (← elabText s!"({fn}.machineData.shape.insts.map (·.2.1))")
   if al.isEmpty then refuse fn "no call instance"
-  -- (unit SR3v) a call-argument APPROXIMATION of the old generator's famA/famB key (not a guaranteed full-key match), not just the argument list
+  -- (unit SR3v/SR3w) a call-argument APPROXIMATION of the old generator's key (not the old key itself); the partition it gives is compared below
+  -- with the partition READ from the old generated term
   let kP ← nat "(@F@.machineData.bsIn.length - @F@.machineData.shape.insts.length)" fn
   let (instGroup, groups) ← match (← liftTermElabM <| oldGroupKeys fn C kP al) with
     | .ok r => pure r
@@ -885,11 +937,16 @@ def analyse (fn : Name) : CommandElabM D2Params := do
     for s in ss do
       unless env.contains (n ++ s) do
         refuse fn s!"{n ++ s} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`, which also generates the child pieces)"
-  -- the number of groups must equal the number of group-fact bundles of the old generated term (a COUNT mismatch is refused up front;
-  -- a different partition with the same count is NOT detected here)
+  -- the number of groups must equal the number of group-fact bundles of the old generated term, AND (unit SR3w) the partition of the instances must
+  -- equal the partition READ from the old term (a mismatch of either is refused here; the typed extraction and the semantic equation check remain)
   let nOld ← liftTermElabM <| oldGroupCount (fn ++ `machine_composedNR2)
   unless nOld == groups.length do
-    refuse fn s!"the old generated {fn ++ `machine_composedNR2} has {nOld} group(s) of facts but the recomputed call-argument key (callee, argument lets, argument Signals; an approximation of the old famA/famB key) gives {groups.length}: the group numbering cannot be aligned"
+    refuse fn s!"the old generated {fn ++ `machine_composedNR2} has {nOld} group(s) of facts but the recomputed call-argument approximation of the key (argument lets, call arguments) gives {groups.length}: the group numbering cannot be aligned"
+  match ← liftTermElabM <| oldInstGroups (fn ++ `machine_composedNR2) with
+  | .error why => refuse fn s!"the partition of the instances into groups cannot be read from the old generated {fn ++ `machine_composedNR2}: {why}"
+  | .ok og =>
+    unless og == instGroup do
+      refuse fn s!"the old generated {fn ++ `machine_composedNR2} puts the instances into the groups {og} but the recomputed call-argument approximation of its key gives {instGroup}: the group numbering cannot be aligned"
   -- domain polymorphism: the parent is a top-level machine (index `Unit`), the child a `{dom : DomainConfig}` hardware module
   let ip ← liftTermElabM <| sourceIndex fn
   let ic ← liftTermElabM <| sourceIndex C

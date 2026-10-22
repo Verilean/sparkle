@@ -10,7 +10,7 @@ declaration it throws `unsupportedSyntax` (the earlier elaborators run as before
 ## The TARGET CLASS (each condition is checked; a declaration outside it is REFUSED with a reason, never silently narrowed)
 `P -> C_i -> G_i` for `i < r` (`r >= 2` DIFFERENT callees `C_i`), where
 * `P` is a top-level machine (`machineSource` indexed by `Unit`), no memory, `instFields <> []`; its call instances call the `C_i` in any
-  order / number, with any number of argument lists (the group numbering is the old generator's, key `(callee, argument lets, argument Signals)`);
+  order / number, with any number of argument lists (the group numbering is recomputed from a call-argument approximation of the old key `(callee, argument lets, call arguments)` and compared with the partition read from the old term);
 * every `C_i` is a `{dom : DomainConfig}` hardware module with ONE leaf callee `G_i` (any number of instances), no memory, `instFields <> []`;
 * every `G_i` is a generated sequential leaf, no memory; the `G_i` are PAIRWISE DIFFERENT and different from every `C_j` and from `P`;
 * the old chain exists: `#machine_design_svNR P 2`.
@@ -27,9 +27,9 @@ names `P.epD2M{i}_*`); the parent level uses callee-dispatch families (`epD2M_ou
   a missing generated piece; a group numbering that cannot be aligned with the old generated `hcalls`.
 
 ## What is still STRUCTURAL (not claimed removed)
-`findHeadApp?` ("first application of the head constant"), the beta-redex / zip pairing in `oldGroupFact%`, reading the old group key by
-`sigAtPos` / `findCall` (recomputed here for every instance with ITS callee), and the assumption that the old generator's group order is the one
-recomputed here (checked by count up front and by the typed extraction; a wrong numbering is a safe failure).  Concrete examples are not whole-class
+`findHeadApp?` ("first application of the head constant"), the beta-redex / zip pairing in `oldGroupFact%`, reading the call arguments by
+`sigAtPos` / `findCall` (for every instance with ITS callee), reading the old partition from the chain `forall_getElem?_cons … (entry proof)` by the names `gfB/gfL/gfR/gfHb/gfHv`, and the assumption that the old generator's group order is the one
+recomputed here (checked by the group COUNT and by the partition READ from the old generated term, up front; and by the typed extraction; a wrong numbering is a safe failure).  Concrete examples are not whole-class
 coverage.  The boundary `P.epD2M_Bnd` (an existential over `O`, `T`, `AdmCtx`, `MachineDefines` of every `C_i` and `G_i`, a start world in `JQ`, the
 cache invariant) stays in the CONCLUSION; `RealChildA` is a history of past synthesis results; `T` is an ADDED boundary. -/
 namespace Tools.ShippingSeqParentGenD2M
@@ -712,10 +712,10 @@ deriving Repr
 def refuseM {α : Type} (fn : Name) (why : String) : CommandElabM α :=
   throwError "#machine_seq_parent_endpoint (unit SR3w, depth 2, several callees): REFUSED `{fn}`: {why}"
 
-/-- The group numbering of the OLD generator (see `Tools.ShippingSeqParentGenD2.oldGroupKeys`), now with the callee of EACH instance: key
-`(callee, argument lets, the call's argument Signals)`; returns per instance its group index and per group its (callee, argument list). -/
-def oldGroupKeysM (fn : Name) (cs : List Name) (kP : Nat) (al : List (List Nat)) :
-    MetaM (Except String (List Nat × List (Name × List Nat))) := do
+/-- The keys of the calls of `fn`, one per instance, as READ from `fn.machineExt` / `fn.machineExtB` (a CALL-ARGUMENT APPROXIMATION of the old
+generator's key): `(callee of THIS instance, argument lets, the call's arguments)`; see `Tools.ShippingSeqParentGenD2.oldGroupKeyList`. -/
+def oldGroupKeyListM (fn : Name) (cs : List Name) (kP : Nat) (al : List (List Nat)) :
+    MetaM (Except String (List (Name × List Nat × List Expr))) := do
   let env ← getEnv
   let some _ := env.find? (fn ++ `machineExt) | return .error s!"{fn ++ `machineExt} not found"
   let ext ← mkConstWithFreshMVarLevels (fn ++ `machineExt)
@@ -731,18 +731,24 @@ def oldGroupKeysM (fn : Name) (cs : List Name) (kP : Nat) (al : List (List Nat))
     let extBody ← unfoldExt ext
     let extBBody ← match extB? with | some x => unfoldExt x | none => pure extBody
     let mut keys : Array (Name × List Nat × List Expr) := #[]
-    let mut inst : Array Nat := #[]
     for ((a, k), C) in al.zipIdx.zip cs do
       let pos := kP + k
       let some sig := (Tools.ShippingMachineSeqCommand.sigAtPos pos extBody).orElse fun _ => Tools.ShippingMachineSeqCommand.sigAtPos pos extBBody
         | return .error s!"call instance {k}: no argument Signal at port {pos} of {fn ++ `machineExt}"
       let some call := Tools.ShippingMachineSeqCommand.findCall C sig
         | return .error s!"call instance {k}: no call of {C} in the Signal at port {pos}"
-      let key := (C, a, (← instantiateMVars call).getAppArgs.toList)
-      match keys.findIdx? (· == key) with
-      | some j => inst := inst.push j
-      | none => inst := inst.push keys.size; keys := keys.push key
-    return .ok (inst.toList, keys.toList.map fun (c, a, _) => (c, a))
+      keys := keys.push (C, a, (← instantiateMVars call).getAppArgs.toList)
+    return .ok keys.toList
+
+/-- Per instance its group index, per group its (callee, argument list): the first-occurrence partition (`Tools.ShippingSeqParentGenD2.groupPartition`)
+of the keys. -/
+def oldGroupKeysM (fn : Name) (cs : List Name) (kP : Nat) (al : List (List Nat)) :
+    MetaM (Except String (List Nat × List (Name × List Nat))) := do
+  match ← oldGroupKeyListM fn cs kP al with
+  | .error why => return .error why
+  | .ok keys =>
+    let (inst, ks) := Tools.ShippingSeqParentGenD2.groupPartition keys
+    return .ok (inst, ks.map fun (c, a, _) => (c, a))
 
 def analyseM (fn : Name) : CommandElabM D2MParams := do
   let env ← getEnv
@@ -794,7 +800,12 @@ def analyseM (fn : Name) : CommandElabM D2MParams := do
         refuseM fn s!"{n ++ s} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`, which also generates the child pieces)"
   let nOld ← liftTermElabM <| Tools.ShippingSeqParentGenD2.oldGroupCount (fn ++ `machine_composedNR2)
   unless nOld == groups.length do
-    refuseM fn s!"the old generated {fn ++ `machine_composedNR2} has {nOld} group(s) of facts but the recomputed full key (callee, argument lets, argument Signals) gives {groups.length}: the group numbering cannot be aligned"
+    refuseM fn s!"the old generated {fn ++ `machine_composedNR2} has {nOld} group(s) of facts but the recomputed call-argument approximation of the key (callee, argument lets, call arguments) gives {groups.length}: the group numbering cannot be aligned"
+  match ← liftTermElabM <| Tools.ShippingSeqParentGenD2.oldInstGroups (fn ++ `machine_composedNR2) with
+  | .error why => refuseM fn s!"the partition of the instances into groups cannot be read from the old generated {fn ++ `machine_composedNR2}: {why}"
+  | .ok og =>
+    unless og == instGroup do
+      refuseM fn s!"the old generated {fn ++ `machine_composedNR2} puts the instances into the groups {og} but the recomputed call-argument approximation of its key gives {instGroup}: the group numbering cannot be aligned"
   let ip ← liftTermElabM <| sourceIndex fn
   unless ip == ``Unit || ip == ``PUnit do refuseM fn s!"the parent's machineSource is indexed by {ip}, expected Unit (a top-level, non-polymorphic machine)"
   let mut kCs : Array Nat := #[]
