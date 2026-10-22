@@ -197,6 +197,23 @@ theorem topshareM_traceXA (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O
   genTrace O T hA topshareM.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareM_gen (D₀ := 0)
     (topshareM_machineRun_derived O T hA entryL entry₁ entry₂ entryP hw hcore)
 
+/-- **`MachineTraceLB` of `topshareM`** (`ts_soundLA` for the memory-leaf class; the `soundL` premise of the endpoint): the trace without the `ServedRealA` witness. -/
+theorem topshareM_soundLA (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (entryL : MachineDefines mctx mref cctx cref ``leafM leafM.machineData.shape)
+    (entry₁ : MachineDefines mctx mref cctx cref ``wrapM wrapM.machineData.shape)
+    (entry₂ : MachineDefines mctx mref cctx cref ``wrapM3 wrapM3.machineData.shape)
+    (entryP : MachineDefines mctx mref cctx cref ``topshareM topshareM.machineData.shape)
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hw : JQC O 0 w)
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareM [] false) mctx mref cctx cref w (m, design) w') :
+    Tools.ShippingMachineAuto.MachineTraceLB ``topshareM topshareM.machineData m design (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareM.machineSource
+      (fun i bools bits => topshareM.machineExt i bools bits (stateLoop topshareM.machineInits (topshareM.machineBody i bools bits)))
+      (fun i bools bits => topshareM.machineExtB i bools bits (stateLoop topshareM.machineInits (topshareM.machineBody i bools bits)))
+      (Tools.ShippingMachineCausal.letObsB topshareM.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareM.machineInits
+        topshareM.machineBody topshareM.machineExt topshareM.machineExtB) := by
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, -, tr⟩ := topshareM_traceXA O T hA entryL entry₁ entry₂ entryP hw hcore
+  exact ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, tr⟩
+
 end Tests.Compiler.SharedLeafMemKidIfaceTest
 
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidFactsNC
@@ -207,3 +224,4 @@ end Tests.Compiler.SharedLeafMemKidIfaceTest
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_kidsMasked
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designCheck_of_kidsPass
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_traceXA
+#print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_soundLA

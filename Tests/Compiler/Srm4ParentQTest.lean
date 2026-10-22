@@ -178,6 +178,24 @@ theorem topshareQ_traceXA (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O
   genTrace O T hA topshareQ.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareQ_gen (D₀ := 0)
     (topshareQ_machineRun_derived O T hA hR0 hcl entry₁ entry₂ entryP hw hcore)
 
+/-- **`MachineTraceLB` of `topshareQ`** (`ts_soundLA` for the memory-leaf class; the `soundL` premise of the endpoint): the trace without the `ServedRealA` witness. -/
+theorem topshareQ_soundLA (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (hR0 : MachineDefines mctx mref cctx cref ``leafP leafP.machineData.shape)
+    (hcl : ∀ (mc : Lean.Meta.Context) (cc : Lean.Core.Context), MachineCloses mc mref cc cref ``leafP leafP.machineData.shape)
+    (entry₁ : MachineDefines mctx mref cctx cref ``wrapP wrapP.machineData.shape)
+    (entry₂ : MachineDefines mctx mref cctx cref ``wrapQ wrapQ.machineData.shape)
+    (entryP : MachineDefines mctx mref cctx cref ``topshareQ topshareQ.machineData.shape)
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hw : JQC O 0 w)
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareQ [] false) mctx mref cctx cref w (m, design) w') :
+    Tools.ShippingMachineAuto.MachineTraceLB ``topshareQ topshareQ.machineData m design (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareQ.machineSource
+      (fun i bools bits => topshareQ.machineExt i bools bits (stateLoop topshareQ.machineInits (topshareQ.machineBody i bools bits)))
+      (fun i bools bits => topshareQ.machineExtB i bools bits (stateLoop topshareQ.machineInits (topshareQ.machineBody i bools bits)))
+      (Tools.ShippingMachineCausal.letObsB topshareQ.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareQ.machineInits
+        topshareQ.machineBody topshareQ.machineExt topshareQ.machineExtB) := by
+  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, -, tr⟩ := topshareQ_traceXA O T hA hR0 hcl entry₁ entry₂ entryP hw hcore
+  exact ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, tr⟩
+
 end Tests.Compiler.SharedLeafMemKidIfaceTest
 
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hkid
@@ -186,3 +204,4 @@ end Tests.Compiler.SharedLeafMemKidIfaceTest
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_kidsMasked
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designCheck_of_kidsPass
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_traceXA
+#print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_soundLA

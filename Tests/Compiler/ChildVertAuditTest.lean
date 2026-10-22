@@ -104,6 +104,7 @@ import Tools.ShippingSrm4Check
 import Tools.ShippingSrm4Kid
 import Tools.ShippingSrm4Callee
 import Tools.ShippingSrm4Parent
+import Tools.ShippingSrm4Mixed
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -623,7 +624,9 @@ def audited : List Name :=
    ``Tools.ShippingSrm4Kid.memCallee_hsep, ``Tools.ShippingSrm4Kid.memCallee_kidFactsNC, ``Tools.ShippingSrm4Kid.memModule_inj, ``Tools.ShippingSrm4Kid.KidFactsA.toNC,
    ``Tools.ShippingSrm4Callee.memLeafCallee_hcalls, ``Tools.ShippingSrm4Callee.memLeafCallee_composedNW, ``Tools.ShippingSrm4Callee.memLeafCallee_seqChildRunN2,
    ``Tools.ShippingSrm4Parent.kidsNC_runFacts, ``Tools.ShippingSrm4Parent.kidsNC_outsCheck, ``Tools.ShippingSrm4Parent.kidsNC_maskedN,
-   ``Tools.ShippingSrm4Parent.kidsNC_designCheck_of_kidsPass]
+   ``Tools.ShippingSrm4Parent.kidsNC_designCheck_of_kidsPass,
+   ``Tools.ShippingSrm4Mixed.call_inRange_at, ``Tools.ShippingSrm4Mixed.ordCallee_hcalls, ``Tools.ShippingSrm4Mixed.callee_composedNW,
+   ``Tools.ShippingSrm4Mixed.callee_seqChildRunN2]
 
 end Tests.Compiler.ChildVertAuditTest
 
