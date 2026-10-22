@@ -3875,3 +3875,9 @@ lean_lib «Tools.ShippingQuadComposed» where
 
 lean_lib «Tests.Compiler.QuadComposedTest» where
   roots := #[`Tests.Compiler.QuadComposedTest]
+
+lean_lib «Tools.ShippingQuadCalls» where
+  roots := #[`Tools.ShippingQuadCalls]
+
+lean_lib «Tests.Compiler.QuadCallsTest» where
+  roots := #[`Tests.Compiler.QuadCallsTest]

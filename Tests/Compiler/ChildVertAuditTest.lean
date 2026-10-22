@@ -76,6 +76,7 @@ import Tools.ShippingTopShareNoParent
 import Tools.ShippingQuadLeafGeneric
 import Tools.ShippingQuadReturned
 import Tools.ShippingQuadComposed
+import Tools.ShippingQuadCalls
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -540,7 +541,9 @@ def audited : List Name :=
    ``Tools.ShippingQuadLeafGeneric.quad_closes0, ``Tools.ShippingQuadLeafGeneric.quad_machineRun,
    ``Tools.ShippingQuadLeafGeneric.quad_entry_run_ret_np,
    ``Tools.ShippingQuadReturned.quad_returned, ``Tools.ShippingQuadReturned.quad_wired,
-   ``Tools.ShippingQuadComposed.genTrace, ``Tools.ShippingQuadComposed.leaf_kidFactsA, ``Tools.ShippingQuadComposed.leafCallee_kidFactsA, ``Tools.ShippingQuadComposed.leafCallee_traceXA, ``Tools.ShippingQuadComposed.leafCallee_composedA, ``Tools.ShippingQuadComposed.leafCallee_seqChildRunN2, ``Tools.ShippingQuadComposed.leafCallee_runNCA, ``Tools.ShippingQuadComposed.quad_ranA, ``Tools.ShippingQuadComposed.quad_hkid, ``Tools.ShippingQuadComposed.quad_runFacts, ``Tools.ShippingQuadComposed.quad_outsCheck, ``Tools.ShippingQuadComposed.quad_kidsMasked, ``Tools.ShippingQuadComposed.quad_designCheck, ``Tools.ShippingQuadComposed.quad_traceXA, ``Tools.ShippingQuadComposed.quad_soundLA, ``Tools.ShippingQuadComposed.quad_composed]
+   ``Tools.ShippingQuadComposed.genTrace, ``Tools.ShippingQuadComposed.leaf_kidFactsA, ``Tools.ShippingQuadComposed.leafCallee_kidFactsA, ``Tools.ShippingQuadComposed.leafCallee_traceXA, ``Tools.ShippingQuadComposed.leafCallee_composedA, ``Tools.ShippingQuadComposed.leafCallee_seqChildRunN2, ``Tools.ShippingQuadComposed.leafCallee_runNCA, ``Tools.ShippingQuadComposed.quad_ranA, ``Tools.ShippingQuadComposed.quad_hkid, ``Tools.ShippingQuadComposed.quad_runFacts, ``Tools.ShippingQuadComposed.quad_outsCheck, ``Tools.ShippingQuadComposed.quad_kidsMasked, ``Tools.ShippingQuadComposed.quad_designCheck, ``Tools.ShippingQuadComposed.quad_traceXA, ``Tools.ShippingQuadComposed.quad_soundLA, ``Tools.ShippingQuadComposed.quad_composed,
+   ``Tools.ShippingQuadCalls.call_inRange, ``Tools.ShippingQuadCalls.quadGroupFacts_of_RF, ``Tools.ShippingQuadCalls.quad_inRange, ``Tools.ShippingQuadCalls.leafCallee_hcalls,
+   ``Tools.ShippingQuadCalls.quad_composed_split]
 
 end Tests.Compiler.ChildVertAuditTest
 
