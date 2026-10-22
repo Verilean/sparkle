@@ -3,7 +3,7 @@ import Tests.Compiler.SharedLeafGenTopshareTest
 import Tools.ShippingQuadLeafGeneric
 import Tools.ShippingQuadComposed
 import Tests.Compiler.KaryThreeTest
--- BUILT (unit SRM1): s7 exit 0 (dev run; log-only probes, no theorem is claimed beyond the decided data equations); final-SHA rebuild in REPORT-SRM1.md.
+-- BUILT (unit SRM1): s9 exit 0 (dev run; log-only probes, no theorem is claimed beyond the decided data equations); final-SHA rebuild in REPORT-SRM1.md.
 -- SCOPE (SRM1, step 1 = EVIDENCE): the smallest shared-leaf example whose SHARED LEAF has a MEMORY child: `topshareM` calls the callees `wrapM` and `wrapM3`, both call the SAME leaf
 -- `leafM`, whose one call is the synchronous 4/8 memory (`Signal.memory`, an instance of the memory-only submodule).  The existing machine-route commands are run on it as LOG-ONLY steps
 -- (`#mem_depth_try`), and the existing data classes (`LeafData`, `LeafKidData`, `LeafCalleeData`, `QuadParentData`-style) are evaluated FIELD BY FIELD to record which one fails first.
@@ -194,6 +194,28 @@ open Tools.ShippingQuadLeafGeneric Tools.ShippingQuadComposed in
 -- `callsOk n` for `n = 0..7`, to read the right `n` of each machine (read: leafM true at 4 only, wrapM at 4, wrapQ at 5; nIn = 5, 6, 8)
 #reduce ((List.range 8).map fun n => (n, leafM.machineData.callsOk n, wrapM.machineData.callsOk n, wrapQ.machineData.callsOk n))
 #reduce (leafM.machineData.nIn, wrapM.machineData.nIn, wrapQ.machineData.nIn, leafP.machineData.nIn, wrapP.machineData.nIn)
+
+/-! ## the per-leaf run theorem the K-ary chain asks (`G.seq_child_runN`), by the generator the K-ary templates use -/
+#mem_depth_try "S0 generateSeqChildN leafP (plain leaf, control)" in
+  run_cmd liftTermElabM do
+    let n ← Tools.ShippingMachineDepthCommand.generateSeqChildN ``Tests.Compiler.SharedLeafMemKidTest.leafP
+    logInfo m!"generated {n}"
+#mem_depth_try "S1 generateSeqChildN leafM (leaf WITH a memory child)" in
+  run_cmd liftTermElabM do
+    let n ← Tools.ShippingMachineDepthCommand.generateSeqChildN ``Tests.Compiler.SharedLeafMemKidTest.leafM
+    logInfo m!"generated {n}"
+
+/-! ## which head the endpoints' `machine_sound` are built from -/
+open Lean Elab Command in
+run_cmd liftTermElabM do
+  for n in [``Tests.Compiler.SharedLeafMemKidTest.leafM, ``Tests.Compiler.SharedLeafMemKidTest.leafP, ``Tests.Compiler.SharedLeafMemKidTest.wrapM,
+      ``Tests.Compiler.SharedLeafMemKidTest.wrapQ] do
+    match (← getEnv).find? (n ++ `machine_sound) with
+    | some (.thmInfo t) =>
+      let v := t.value
+      let v := if v.isAppOfArity ``Eq.mpr 4 then v.getAppArgs[3]! else v
+      logInfo m!"SRM1 HEAD {n}.machine_sound: {v.getAppFn.constName?}"
+    | _ => logInfo m!"SRM1 HEAD {n}.machine_sound: not a theorem"
 
 end Tests.Compiler.SharedLeafMemKidTest
 end

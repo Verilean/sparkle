@@ -1,7 +1,7 @@
 import Tests.Compiler.SharedLeafMemKidTest
 import Tools.ShippingMemLeafRun
 import Tests.Compiler.ChildVertAuditTest
--- BUILT (unit SRM1): t3 exit 0 (dev run); the final-SHA rebuild is in REPORT-SRM1.md.
+-- BUILT (unit SRM1): t6 exit 0 (dev run); the final-SHA rebuild is in REPORT-SRM1.md.
 -- SCOPE (SRM1, step 2): the memory-aware run layer of `Tools/ShippingMemLeafRun.lean` HAND-APPLIED to the example of `Tests/Compiler/SharedLeafMemKidTest.lean`: the shared leaf `leafM` (ONE memory child, the
 -- synchronous 4/8 memory), the callees `wrapM`, `wrapM3` (each calls the leaf twice), the parent `topshareM`.  What is applied: the one-step contract `StepNM` of the leaf (`memLeaf_stepNM`; the leaf's
 -- `MachineClosesAtA` is DERIVED from decided data), of each callee (`calleeOverLeaf_stepNM`; `MachineClosesAtA` of the callee is a PREMISE: residue R1), and the parent's closing over the two callees

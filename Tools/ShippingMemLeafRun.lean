@@ -2,7 +2,7 @@ import Tools.ShippingMemLeafCache
 import Tools.ShippingSharedLeafNL
 import Tools.ShippingCallsMemA
 import Tools.ShippingMemOnlyCloses
--- BUILT (unit SRM1): r9 exit 0 (dev run); the final-SHA rebuild is in REPORT-SRM1.md.
+-- BUILT (unit SRM1): r10 exit 0 (dev run); the final-SHA rebuild is in REPORT-SRM1.md.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
 /-! # Shared leaf with a MEMORY child: the real runs (unit SRM1, ledger L8bd)
@@ -17,6 +17,11 @@ PROVED here: `closeLoop_gen`, `closeInstsGM_gen`, `machineSynth_gen`, `synthesiz
 `MachineClosesAtA` of the leaf DERIVED by `machineClosesAtA_of_memOnlyData_names`, not a premise).
 PREMISES (named, per machine): `MachineDefines` of every machine, `MachineClosesAtA` of a callee that has callee calls (`closes`, as in `synthesizeChild_nonleaf_miss`), the start-world
 clauses, `RefLawsAOps` `O`, `RefLawsATele` `T` (memory leaf only), `AdmCtx`.
+CLASS BOUNDARY (the run / cache layer only; an example does not make the class complete).  PROVED for machines whose calls are each (a) a MEMORY entry (the origin's child is a built `memModule`) or (b) a callee with a
+`StepNM` contract, at every depth `≠ 0`, under the cache clauses `CacheClosedNM` + `KeyTop` + `MemDet` (so `CacheCoh` of the end cache, `closing_nm`).  Instances: a memory-only machine (`MemOnlyData` + `MemOnlyCloseData`:
+every call a memory placeholder of ONE pair of widths, any number of them; its closing is DERIVED); a plain leaf (`LeafOK`; reflection and closing are premises); a callee whose calls are memory entries and/or `StepNM`
+callees (`MachineClosesAtA` of the callee is a PREMISE); the parent's closing over `StepNM` callees (the parent itself has no memory entry: `closing_nm` asks `child? = none` for every call).
+OPEN (not in the class): see the residue list R1–R5 in REPORT-SRM1.md (the `RealChildA` interface / `KidFactsA` / `seq_child_runN` / composed trace of a machine WITH a memory child; the full `kary_entry_run` assembly).
 NOT proved here (residue, see REPORT-SRM1.md): anything about interfaces — `ChildIfaceP`, `KidFactsA`, `hgk`, `hsep`, `seq_child_runN` — of a machine with a memory child on the `RealChildA`
 side (the memory-kid `core_*` chain of `Tools/ShippingMemKid*.lean` is stated over the old-form `RealChild` / `MachineRan`); the parent's closing over several callees and `kary_*` of it. -/
 
