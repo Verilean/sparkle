@@ -3791,3 +3791,6 @@ lean_lib «Tools.Prototype.ExtReaderFinal» where
 
 lean_lib «Tools.ShippingSharedLeafCoh» where
   roots := #[`Tools.ShippingSharedLeafCoh]
+
+lean_lib «Tools.ShippingLeafMissCoh» where
+  roots := #[`Tools.ShippingLeafMissCoh]
