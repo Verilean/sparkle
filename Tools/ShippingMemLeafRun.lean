@@ -46,7 +46,7 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
 start cache, and gains only `n` and names of `Gs`. -/
 def StepNM (O : RefLawsAOps MkRefd mref cref) (mctx : Meta.Context) (cctx : Core.Context) (D : Nat) (n : Name)
     (Gs : List Name) : Prop :=
-  ∀ {w w' : Void IO.RealWorld} {y : Res}, JQC O D w → CacheClosedNM (cv w) → KeyTop (cv w) → MemDet (cv w) →
+  ∀ (w w' : Void IO.RealWorld) (y : Res), JQC O D w → CacheClosedNM (cv w) → KeyTop (cv w) → MemDet (cv w) →
     RunsTo (synthesizeChild n) mctx mref cctx cref w y w' →
     JQC O D w' ∧ CacheClosedNM (cv w') ∧ KeyTop (cv w') ∧ MemDet (cv w') ∧ (cv w').get? n = some y ∧
       CacheExtends (cv w) (cv w') ∧
@@ -56,7 +56,7 @@ theorem StepNM.mono {O : RefLawsAOps MkRefd mref cref} {D : Nat} {n : Name} {Gs 
     (h : StepNM (mref := mref) (cref := cref) O mctx cctx D n Gs) (hs : ∀ x ∈ Gs, x ∈ Gs') :
     StepNM (mref := mref) (cref := cref) O mctx cctx D n Gs' := by
   intro w w' y hw hcl hk hmd hr
-  obtain ⟨a, b, c, d, e, f, g⟩ := h hw hcl hk hmd hr
+  obtain ⟨a, b, c, d, e, f, g⟩ := h w w' y hw hcl hk hmd hr
   exact ⟨a, b, c, d, e, f, fun c' r hc' => (g c' r hc').elim Or.inl fun h' => h'.elim (fun h => Or.inr (Or.inl h)) fun h => Or.inr (Or.inr (hs _ h))⟩
 
 /-- **The loop of the general closing over memory entries and `StepNM` callees.** -/
@@ -103,7 +103,7 @@ theorem closeLoop_gen (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mc
         · exact Or.inr (Or.inl (by simp [h3]))
         · exact Or.inr (Or.inr h3)
     · rw [hch] at hy
-      obtain ⟨hj1, hcl1, hk1, hmd1, hget1, hext1, hgrow1⟩ := hstep hj hcl hk hmd hy
+      obtain ⟨hj1, hcl1, hk1, hmd1, hget1, hext1, hgrow1⟩ := hstep _ _ _ hj hcl hk hmd hy
       obtain ⟨ys, hr, hlen, hks, hj', hcl', hk', hmd', hext', hgrow'⟩ :=
         closeLoop_gen O hA Gs f hf xs (y :: acc) r w1 w' (fun x hx => hcalls x (List.mem_cons_of_mem _ hx))
           hj1 hcl1 hk1 hmd1 h2
@@ -411,6 +411,104 @@ theorem stepNM_of_data (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet m
     · exact Or.inr (Or.inr (List.mem_append_left _ h0))
     · exact Or.inr (Or.inr (List.mem_append_right _ h0))
 
+/-! ## The shared leaf WITH a memory child, and a callee over it -/
+
+/-- every call of a memory-only machine carries a built memory module (the origin's child) -/
+theorem memTags_of_data {d : MachineData} {aw dw : Nat}
+    (hmem : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      ∃ cb, memChild? (d.shape.insts[k]).1 = some (memModule cb aw dw))
+    (hagree : Tools.ShippingInstTagged.TagsAgree d.shape) :
+    ∀ x ∈ d.shape.instTagged, ∃ md, x.2.child? = some md ∧ MemKid md := by
+  intro x hx
+  obtain ⟨k, hkT, rfl⟩ := List.mem_iff_getElem.mp hx
+  have hk : k < d.shape.insts.length := by rw [← instTagged_length']; exact hkT
+  obtain ⟨hkT', he⟩ := instTagged_getAt d.shape hk
+  obtain ⟨cb, hc⟩ := hmem k hk
+  have h := Tools.ShippingInstTagged.agree_at hagree hk
+  rw [hc] at h
+  rw [he]
+  exact ⟨memModule cb aw dw, h.symm, cb, aw, dw, rfl⟩
+
+/-- **The leaf with memory children: its one-step contract at every depth `≠ 0`.**  `MachineClosesAtA` of the leaf is DERIVED (`machineClosesAtA_of_memOnlyData_names`), not a
+premise.  The leaf's calls are all memory placeholders of widths `aw`/`dw` (`MemOnlyData`, `MemOnlyCloseData` are decidable on the stored `machineData`); `hcne`: no placeholder is
+the leaf's own name.  Premises: `O`, `T`, `hA`, `MachineDefines` of the leaf.  (The growth set is the placeholder names; they are not cache keys, but this is not used.) -/
+theorem memLeaf_stepNM (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (hA : AdmCtx O.quiet mctx cctx) {c : Name} {d : MachineData} {nDecl aw dw : Nat}
+    (hd : Tools.ShippingMemOnly.MemOnlyData d nDecl aw dw) (hcl : Tools.ShippingMemOnlyCloses.MemOnlyCloseData d)
+    (hcne : ∀ k (hk : k < d.shape.insts.length), (d.shape.insts[k]).1 ≠ c)
+    (entry : MachineDefines mctx mref cctx cref c d.shape) :
+    ∀ D, D ≠ 0 → StepNM (mref := mref) (cref := cref) O mctx cctx D c (d.shape.insts.map (·.1)) := by
+  intro D hD
+  have h : StepNM (mref := mref) (cref := cref) O mctx cctx D c (d.shape.insts.map (·.1) ++ []) :=
+    stepNM_of_data O hA hD ([] : List Name) (List.not_mem_nil) d hd.ok hd.body hd.calls hd.slots hd.domB hd.ins hd.fne
+    (fun x hx => Or.inl (memTags_of_data hd.mem hd.agree x hx)) hcne entry
+    (Tools.ShippingCallsMemA.machineClosesAtA_of_memOnlyData_names O T hA hd hcl)
+  exact StepNM.mono (Gs' := d.shape.insts.map (·.1)) h (fun x hx => List.mem_append.mp hx |>.elim id (fun h0 => absurd h0 List.not_mem_nil))
+
+/-- **A callee whose calls are all the shared leaf `G`** (the leaf's step contract at every depth `≠ 0` is the premise `hG`): its one-step contract at every depth `≠ 0`.
+`closes` (`MachineClosesAtA` of the callee) stays a premise of this theorem: deriving it needs the `ChildIfaceP` of the memory-bearing leaf on the `RealChildA` side (residue R1). -/
+theorem calleeOverLeaf_stepNM (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {C G : Name} (Gs : List Name) (hCG : C ∉ Gs) (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ []) (hfne : d.shape.instFields ≠ [])
+    (hleaf : ∀ x ∈ d.shape.instTagged, x.2.child? = none ∧ x.1 = G)
+    (hG : ∀ D', D' ≠ 0 → StepNM (mref := mref) (cref := cref) O mctx cctx D' G Gs)
+    (hcne : ∀ k (hk : k < d.shape.insts.length), (d.shape.insts[k]).1 ≠ C)
+    (entry : MachineDefines mctx mref cctx cref C d.shape)
+    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx C d.shape) :
+    ∀ D, D ≠ 0 → StepNM (mref := mref) (cref := cref) O mctx cctx D C (d.shape.insts.map (·.1) ++ Gs) := by
+  intro D hD
+  exact stepNM_of_data O hA hD Gs hCG d ok hbody hC hslots hdomB hins hfne
+    (fun x hx => Or.inr ⟨(hleaf x hx).1, (hleaf x hx).2 ▸ hG (D + 1) (Nat.succ_ne_zero D)⟩) hcne entry closes
+
+/-- **The parent's closing over callees with step contracts** (K-ary closing, memory-aware): the pure `closeInstsG` of the children, the end cache is `CacheClosedNM`/`KeyTop`/`MemDet`,
+hence `CacheCoh`; every call's child is the cache entry at its callee; any two children agree on same-named modules (`hcross`).  Every call is a callee (no memory entry of the parent). -/
+theorem closing_nm (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} (Gs : List Name)
+    {shape : MachineShape} {t m₀ : Sparkle.IR.AST.Module} {d₀ : Sparkle.IR.AST.Design}
+    {r : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)} {w w' : Void IO.RealWorld}
+    (hcalls : ∀ x ∈ shape.instTagged, x.2.child? = none ∧
+      StepNM (mref := mref) (cref := cref) O mctx cctx D x.1 Gs)
+    (hw : JQC O D w) (hcl : CacheClosedNM (cv w)) (hk : KeyTop (cv w)) (hmd : MemDet (cv w))
+    (hr : RunsTo (closeInstsGM shape t m₀ d₀) mctx mref cctx cref w r w') :
+    ∃ children, r = Sparkle.IR.Machine.closeInstsG (machNIn shape) shape.insts.length
+        shape.layout.slots.length (t.inputs.map (·.name)) (shape.insts.map (·.2.1))
+        shape.instFields children (m₀, d₀) ∧
+      children.length = shape.insts.length ∧
+      (∀ k (hk : k < shape.insts.length), ∃ y, children[k]? = some y ∧
+        (cv w').get? (shape.insts[k]).1 = some y) ∧
+      JQC O D w' ∧ CacheClosedNM (cv w') ∧ KeyTop (cv w') ∧ MemDet (cv w') ∧ CacheCoh (cv w') ∧
+      CacheExtends (cv w) (cv w') ∧
+      (∀ i (_hi : i < children.length) j (_hj : j < children.length) (y y' : Res), children[i]? = some y →
+        children[j]? = some y' → ∀ a ∈ ModsOf y, ∀ b ∈ ModsOf y', a.name = b.name → a = b) := by
+  obtain ⟨children, hres, hlen, hks, hj, hcl', hk', hmd', hext, -⟩ :=
+    closeInstsGM_gen O hA Gs (fun x hx => Or.inr (hcalls x hx)) hw hcl hk hmd hr
+  have hget : ∀ k (hk : k < shape.insts.length), ∃ y, children[k]? = some y ∧
+      (cv w').get? (shape.insts[k]).1 = some y := by
+    intro k hkl
+    rcases hks k hkl with ⟨md, h1, -, -⟩ | ⟨-, hy⟩
+    · obtain ⟨hkT, he⟩ := instTagged_getAt shape hkl
+      have := (hcalls _ (List.getElem_mem hkT)).1
+      rw [he] at this
+      rw [h1] at this
+      cases this
+    · exact hy
+  have hcoh : CacheCoh (cv w') := cacheCoh_of_nm hcl' hk' hmd'
+  refine ⟨children, hres, hlen, hget, hj, hcl', hk', hmd', hcoh, hext, ?_⟩
+  intro i hi j hj0 y y' hy hy' a ha b hb hab
+  have hi' : i < shape.insts.length := hlen ▸ hi
+  have hj' : j < shape.insts.length := hlen ▸ hj0
+  obtain ⟨y1, h1, g1⟩ := hget i hi'
+  obtain ⟨y2, h2, g2⟩ := hget j hj'
+  rw [hy] at h1; rw [hy'] at h2
+  cases h1; cases h2
+  exact hcoh _ _ _ _ g1 g2 a ha b hb hab
+
 end Tools.ShippingMemLeafRun
 
 #print axioms Tools.ShippingMemLeafRun.closeLoop_gen
@@ -418,3 +516,7 @@ end Tools.ShippingMemLeafRun
 #print axioms Tools.ShippingMemLeafRun.machineSynth_gen
 #print axioms Tools.ShippingMemLeafRun.synthesizeChild_miss_nm
 #print axioms Tools.ShippingMemLeafRun.stepNM_of_data
+#print axioms Tools.ShippingMemLeafRun.memTags_of_data
+#print axioms Tools.ShippingMemLeafRun.memLeaf_stepNM
+#print axioms Tools.ShippingMemLeafRun.calleeOverLeaf_stepNM
+#print axioms Tools.ShippingMemLeafRun.closing_nm
