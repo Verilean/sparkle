@@ -22,6 +22,8 @@ import Tests.Compiler.SeqDeepGrandEndpointTest
 -- `old_seqparent%` / `oldGroupFact%` / `oldInst%` as for `grand`; the old theorems themselves are asserted NOT in the closure (in-file audit).
 -- PREMISES (not derived here): `O : RefLawsAOps`, `T : RefLawsATele`, `AdmCtx`, `MachineDefines` of topshare/wrap/wrap3/acc, start world `JQC O 0 w`;
 -- these are carried in `ts_Bnd` / the hypotheses of `topshare_wired`.  `RealChildA`/`ServedRealA`/`JQC` are histories, not semantic correctness in the current environment.
+-- WORDING (SR12, reviewer): the exact object of the semantic conclusion is `checkedOptimize` of `y.1` judged with the children of the RAW design `Dg`
+-- (inputs / reset / bounds etc. remain inside `DesignSemConcl`); it is NOT `y.1` itself in its own design and NOT `DesignSV` of the returned design `y.2`.
 open Tests.Compiler.SeqDeepGenDiffTest Tests.Compiler.SeqDeepGenInstTest
 set_option maxHeartbeats 0 in
 #machine_design_svNR Tests.Compiler.SeqDeepGenDiffTest.topshare 2

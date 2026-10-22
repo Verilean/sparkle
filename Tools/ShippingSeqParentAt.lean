@@ -10,6 +10,8 @@ import Tools.ShippingSharedLeafNL
 -- Also: `DesignSemConcl` (the semantic conclusion of the endpoint for the post-processed `b` with the children of the raw design `D`, stated as a
 -- definition so a caller can put it in a conclusion) and `moduleByName_post_other` (the returned design `y.2 = topMap …` looks up every module not
 -- named like the entry's as the core run's design does).
+-- WORDING (SR12, reviewer): the exact object of the semantic conclusion is `checkedOptimize` of `y.1` judged with the children of the RAW design `Dg`
+-- (inputs / reset / bounds etc. remain inside `DesignSemConcl`); it is NOT `y.1` itself in its own design and NOT `DesignSV` of the returned design `y.2`.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field, no existing statement changed.
 namespace Tools.ShippingSeqParentAt
 open Tools.ShippingSeqParentLemmas
