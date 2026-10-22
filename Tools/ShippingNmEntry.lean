@@ -1,6 +1,6 @@
 import Tools.ShippingNmGroup
 import Tools.ShippingKaryEntry
--- UNBUILT (unit SRM2): the run names and exits are recorded in REPORT-SRM2.md.
+-- BUILT (unit SRM2): e1 exit 0 (dev run); the final-SHA rebuild is in REPORT-SRM2.md.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
 /-! # Memory-aware entry / machineRun / closes0 of the parent (unit SRM2, ledger L8bd2)
@@ -13,7 +13,9 @@ facts and the SHARED-LEAF DESIGN CLAUSE of `nm_closing`.
 PREMISES (named): `CalleeNM` of every callee (`NmCallees`), the parent's decidable data facts (`NmParentData`), `MachineDefines` of the parent, and `hIface`: the interface `ChildIfaceP` of every
 `RealChildA` result of every callee.  `hIface` is OPEN for a callee with a memory child (residue R1 of SRM1: the memory-kid `core_*` chain of `Tools/ShippingMemKid*.lean` is stated over the old-form
 `RealChild` / `MachineRan`, not over `RealChildA`); for a plain callee it is `leafCallee_ifaceP`.  `RealChildA` is a history of past synthesis results, not semantic correctness in the current environment.
-CLASS BOUNDARY: as in `Tools/ShippingNmGroup.lean` (K callees, each called twice, no memory origin in the parent's own calls).  An example does not make the class complete. -/
+CLASS BOUNDARY: as in `Tools/ShippingNmGroup.lean` (K callees, each called twice, no memory origin in the parent's own calls).  An example does not make the class complete.
+STILL OPEN for an ENDPOINT of such a parent (named, not proved here): R1 `hIface` / `MachineClosesAtA` of a callee with a memory child, via the `RealChildA` side (`hnomem` in `core_kids_facts_ranA` / `core_outsIn_ranA` / `core_inPorts_ranA` / `deepChild_ifaceP`);
+R2 `KidFactsA` / `hgk` / `hsep` for those callees; R3 `seq_child_runN` of the memory-bearing leaf; R5 the composed trace (`kary_ranA` … `kary_soundLA`) with memory kids; the NM forms of `kary_returned` (`y.2 = Dg`) and `kary_wired`. -/
 
 namespace Tools.ShippingNmEntry
 open Tools.ShippingNmGroup Tools.ShippingKaryEntry

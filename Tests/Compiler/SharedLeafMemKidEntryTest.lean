@@ -1,7 +1,7 @@
 import Tests.Compiler.SharedLeafMemKidRunTest
 import Tools.ShippingNmEntry
 import Tests.Compiler.ChildVertAuditTest
--- UNBUILT (unit SRM2): the run names and exits are recorded in REPORT-SRM2.md.
+-- BUILT (unit SRM2): t3 exit 0 (dev run); the final-SHA rebuild is in REPORT-SRM2.md.
 -- SCOPE (SRM2, step 2): the memory-aware parent layer of `Tools/ShippingNmGroup.lean` / `Tools/ShippingNmEntry.lean` HAND-APPLIED to the two examples of `Tests/Compiler/SharedLeafMemKidTest.lean`:
 --   variant A  `topshareM` = [wrapM, wrapM, wrapM3, wrapM3], both callees call the SAME leaf `leafM` WITH a memory child;
 --   variant B  `topshareQ` = [wrapP, wrapP, wrapQ, wrapQ], `wrapP` calls the plain leaf `leafP`, `wrapQ` calls `leafP` AND a memory child.

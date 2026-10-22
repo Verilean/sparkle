@@ -1,5 +1,5 @@
 import Tests.Compiler.SharedLeafMemKidEntryTest
--- UNBUILT (unit SRM2): the run names and exits are recorded in REPORT-SRM2.md.
+-- BUILT (unit SRM2): a6 exit 0 (dev run); the final-SHA rebuild is in REPORT-SRM2.md.
 -- SCOPE (SRM2, step 2, audits): for each of the eight hand-applied theorems of `Tests/Compiler/SharedLeafMemKidEntryTest.lean` (`topshareM_*`, `topshareQ_*`: `closes0`, `machineRun`, `entry_run`, `shared_leaf`) the FULL
 -- forall-type of the theorem is compared with `isDefEq` at DEFAULT transparency against a hand-written statement, and type-correct MUTATIONS of the hand-written statement (checked with `withReducible`: at default transparency that check exhausts the heartbeat budget) (parent name, depth, start world,
 -- dropped interface / closing / reflection premise, wrong interface names, callees in the other order, no `CacheCoh`, wrong shared entry, callee not absent at the start) are REJECTED.  Then a closure audit: standard axioms

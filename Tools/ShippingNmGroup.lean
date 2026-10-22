@@ -1,6 +1,6 @@
 import Tools.ShippingMemLeafRun
 import Tools.ShippingKaryRun
--- UNBUILT (unit SRM2): the run names and exits are recorded in REPORT-SRM2.md.
+-- BUILT (unit SRM2): g1 exit 0 (dev run); the final-SHA rebuild is in REPORT-SRM2.md.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
 /-! # Memory-aware miss-then-hit tracking and the parent's closing over K callees (unit SRM2, ledger L8bd2)

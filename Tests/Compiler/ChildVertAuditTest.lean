@@ -89,6 +89,8 @@ import Tools.ShippingKaryBridge
 import Tools.ShippingKaryReturned
 import Tools.ShippingMemLeafCache
 import Tools.ShippingMemLeafRun
+import Tools.ShippingNmGroup
+import Tools.ShippingNmEntry
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -578,7 +580,13 @@ def audited : List Name :=
    ``Tools.ShippingMemLeafRun.closeLoop_gen, ``Tools.ShippingMemLeafRun.closeInstsGM_gen, ``Tools.ShippingMemLeafRun.machineSynth_gen,
    ``Tools.ShippingMemLeafRun.synthesizeChild_miss_nm, ``Tools.ShippingMemLeafRun.stepNM_of_data, ``Tools.ShippingMemLeafRun.memTags_of_data,
    ``Tools.ShippingMemLeafRun.leafKid_step_nm, ``Tools.ShippingMemLeafRun.hcalls_of_names, ``Tools.ShippingMemLeafRun.memLeaf_stepNM,
-   ``Tools.ShippingMemLeafRun.calleeOverLeaf_stepNM, ``Tools.ShippingMemLeafRun.closing_nm]
+   ``Tools.ShippingMemLeafRun.calleeOverLeaf_stepNM, ``Tools.ShippingMemLeafRun.closing_nm,
+   -- SRM2: memory-aware miss-then-hit tracking and the parent's entry / machineRun / closes0
+   ``Tools.ShippingNmGroup.memMod_eq_kid, ``Tools.ShippingNmGroup.nm_group, ``Tools.ShippingNmGroup.nm_loop, ``Tools.ShippingNmGroup.nm_insts_names,
+   ``Tools.ShippingNmGroup.nm_insts_length, ``Tools.ShippingNmGroup.nm_closing,
+   ``Tools.ShippingNmEntry.nm_idx_of_name, ``Tools.ShippingNmEntry.noParent_nm, ``Tools.ShippingNmEntry.nm_idx_lt, ``Tools.ShippingNmEntry.nm_call_callee,
+   ``Tools.ShippingNmEntry.nm_machineSynth_ne_none, ``Tools.ShippingNmEntry.nm_entry_run_ret_np, ``Tools.ShippingNmEntry.nm_closes0,
+   ``Tools.ShippingNmEntry.nm_machineRun, ``Tools.ShippingNmEntry.nm_entry_run]
 
 end Tests.Compiler.ChildVertAuditTest
 
