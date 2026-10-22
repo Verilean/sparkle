@@ -65,6 +65,7 @@ import Tools.ShippingMachineComposeRM
 import Tools.ShippingEntryDefinesRun
 import Tools.ShippingEntryReadsLinked
 import Tools.ShippingLeafTermKeeps
+import Tools.ShippingSharedLeafHit
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -496,7 +497,11 @@ def audited : List Name :=
    ``Tools.ShippingLeafTermKeeps.term_fuel_keeps, ``Tools.ShippingLeafTermKeeps.leafTranslatorKeeps_of_quote,
    ``Tools.ShippingLeafTermKeeps.leafTranslatorKeeps_of_machineData,
    ``Tools.ShippingLeafTermKeeps.synthesizeChild_leafMiss_nested_final,
-   ``Tools.ShippingLeafTermKeeps.synthesizeChild_leafMiss_zero_final]
+   ``Tools.ShippingLeafTermKeeps.synthesizeChild_leafMiss_zero_final,
+   ``Tools.ShippingSharedLeafHit.synthesizeChild_hit,
+   ``Tools.ShippingSharedLeafHit.synthesizeChild_leafMiss_nested_ins,
+   ``Tools.ShippingSharedLeafHit.sharedLeaf_nested,
+   ``Tools.ShippingSharedLeafHit.sharedLeaf_nested_ext]
 
 end Tests.Compiler.ChildVertAuditTest
 
