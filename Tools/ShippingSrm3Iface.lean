@@ -10,7 +10,7 @@ import Tools.ShippingMemClosesKids
 -- COPIES of those with `hnomem` removed and the design clause of `core_kids_facts_ranAM` stating `KidTA` (the origin's built module OR a `RealChildA`) for the kid a design module comes
 -- from.  Nothing here is routed through the old-form `RealChild` / `MachineRan` / `MachineClosesAt` or through `kidsChild_of_realM`.
 -- The memory kids are handled by the built `memIface` / `mem_design` / `mem_noInst` (the memory module is a fixed built module, no reflection).
--- PREMISES kept (named): `hgk` / `hsep` for the `RealChildA` kids (as in `deepChild_ifaceP`), `hmem` (the memory module's name is in `names` and is not the parent's), `entry`, `closes`.
+-- PREMISES kept (named): `hgk` / `hsep` for the `RealChildA` kids whose origin builds no module (as in `deepChild_ifaceP`), `hmem` (the name of the module an origin builds is in `names` and is not the parent's; decidable), `entry`, `closes`.
 -- `RealChildA` is a history of past synthesis results, not freshness, not runtime fit.  No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 
 namespace Tools.ShippingSrm3Iface
@@ -617,50 +617,57 @@ theorem deepChild_ifaceP_M (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele 
     (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)
     (names : List String)
     (hgk : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
-      RealChildA O (d.shape.insts[k]).1 y' →
+      (originAt d.shape k).child? = none → RealChildA O (d.shape.insts[k]).1 y' →
       ∀ g ∈ y'.1 :: y'.2.modules, g.name ∈ names ∧
         ∀ mn i conns, Stmt.inst mn i conns ∈ g.body → mn ∈ names)
     (hsep : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
-      RealChildA O (d.shape.insts[k]).1 y' →
+      (originAt d.shape k).child? = none → RealChildA O (d.shape.insts[k]).1 y' →
       ∀ g ∈ y'.1 :: y'.2.modules, g.name ≠ (Sparkle.IR.ModuleName.ofDecl c))
-    (hmem : ∀ (k : Nat) (hk : k < d.shape.insts.length) (cb : Bool) (aw dw : Nat),
-      originAt d.shape k = InstOrigin.mem cb aw dw →
-      (memModule cb aw dw).1.name ∈ names ∧ (memModule cb aw dw).1.name ≠ Sparkle.IR.ModuleName.ofDecl c)
+    (hmem : ∀ (k : Nat) (hk : k < d.shape.insts.length), (originAt d.shape k).child?.all
+      (fun y => decide (y.1.name ∈ names) && decide (y.1.name ≠ Sparkle.IR.ModuleName.ofDecl c)) = true)
     (entry : MachineDefines mctx mref cctx cref c d.shape)
     (closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context), AdmCtx O.quiet mctx' cctx' →
       MachineClosesAtA (mref := mref) (cref := cref) O mctx' cctx' c d.shape)
     {y : Res} (h : RealChildA O c y) :
     Tools.ShippingMemCloses.ChildIfaceP (Sparkle.IR.ModuleName.ofDecl c) (machNIn d.shape)
       (d.shape.layout.outs.map (·.name)) names y.1 y.2 := by
+  have hmemN : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res), (originAt d.shape k).child? = some y →
+      y.1.name ∈ names ∧ y.1.name ≠ Sparkle.IR.ModuleName.ofDecl c := by
+    intro k hk y hc
+    have hm := hmem k hk
+    rw [hc] at hm
+    simpa only [Option.all_some, Bool.and_eq_true, decide_eq_true_eq] using hm
   have hgkK : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
       KidTA O (originAt d.shape k) (d.shape.insts[k]).1 y' →
       ∀ g ∈ y'.1 :: y'.2.modules, g.name ∈ names ∧
         ∀ mn i conns, Stmt.inst mn i conns ∈ g.body → mn ∈ names := by
     intro k hk y' hy' g hg
-    rcases hy' with hc | ⟨-, hre⟩
-    · obtain ⟨cb, aw, dw, ho, hyy⟩ := origin_mem_of_child hc
+    rcases hy' with hc | ⟨hc, hre⟩
+    · obtain ⟨cb, aw, dw, -, hyy⟩ := origin_mem_of_child hc
+      have hn := hmemN k hk y' hc
       subst hyy
       have hgm : g = (memModule cb aw dw).1 := by
         rcases List.mem_cons.mp hg with e | e
         · exact e
         · exact Tools.ShippingMemKid.mem_design e
       subst hgm
-      exact ⟨(hmem k hk cb aw dw ho).1, fun mn i conns hm => absurd hm (Tools.ShippingMemKid.mem_noInst cb aw dw mn i conns)⟩
-    · exact hgk k hk y' hre g hg
+      exact ⟨hn.1, fun mn i conns hm => absurd hm (Tools.ShippingMemKid.mem_noInst cb aw dw mn i conns)⟩
+    · exact hgk k hk y' hc hre g hg
   have hsepK : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
       KidTA O (originAt d.shape k) (d.shape.insts[k]).1 y' →
       ∀ g ∈ y'.1 :: y'.2.modules, g.name ≠ (Sparkle.IR.ModuleName.ofDecl c) := by
     intro k hk y' hy' g hg
-    rcases hy' with hc | ⟨-, hre⟩
-    · obtain ⟨cb, aw, dw, ho, hyy⟩ := origin_mem_of_child hc
+    rcases hy' with hc | ⟨hc, hre⟩
+    · obtain ⟨cb, aw, dw, -, hyy⟩ := origin_mem_of_child hc
+      have hn := hmemN k hk y' hc
       subst hyy
       have hgm : g = (memModule cb aw dw).1 := by
         rcases List.mem_cons.mp hg with e | e
         · exact e
         · exact Tools.ShippingMemKid.mem_design e
       subst hgm
-      exact (hmem k hk cb aw dw ho).2
-    · exact hsep k hk y' hre g hg
+      exact hn.2
+    · exact hsep k hk y' hc hre g hg
   cases h with
   | run mctx' cctx' w w' adm cache synth quiet hr =>
     obtain ⟨M, D, w1, hcore, hpost, hdesL⟩ := synthesizeCombinational_designL hr

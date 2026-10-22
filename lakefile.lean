@@ -3674,6 +3674,9 @@ lean_lib «Tools.ShippingSeqChildDeepIfacePA» where
 lean_lib «Tools.ShippingSrm3Iface» where
   roots := #[`Tools.ShippingSrm3Iface]
 
+lean_lib «Tools.ShippingSrm3Callee» where
+  roots := #[`Tools.ShippingSrm3Callee]
+
 lean_lib «Tools.Prototype.NormRangeLetOk» where
   roots := #[`Tools.Prototype.NormRangeLetOk]
 
@@ -3977,3 +3980,6 @@ lean_lib «Tests.Compiler.SharedLeafMemKidEntryTest» where
 
 lean_lib «Tests.Compiler.SharedLeafMemKidEntryAuditTest» where
   roots := #[`Tests.Compiler.SharedLeafMemKidEntryAuditTest]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidIfaceTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidIfaceTest]
