@@ -3,7 +3,26 @@ import Tools.ShippingLeafCtxQ
 import Tools.ShippingUnifiedRecursion
 import Tools.ShippingVectorMuxRecursion
 import Tools.ShippingUnifiedMeaning
--- UNBUILT (unit SR6, L8al part B): see REPORT-SR6.md.
+import Tools.ShippingMachineAuto
+import Tools.ShippingUnifiedExecutionSoundness
+-- BUILT at the final committed SHA: see REPORT-SR6.md for run names / exits.
+-- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
+
+/-! # The translator keeps the cache value on a quoted leaf (unit SR6, L8al, part B)
+
+`LeafTranslatorKeeps` (`Tools.ShippingLeafBodyCi`) is PROVED for a shape whose body is the quotation of a
+well-formed `Term` (the form `seqChild_of_realA` already assumes: `hbody`, `d.ok`). The proof is a fuel
+induction over the 21 constructors of `Tools.ShippingUnifiedSource.Term` (`term_fuel_keeps`) in the contexts
+that bind the input fvars (`KeepsCQ`/`BoundIn`, `Tools/ShippingLeafCtxQ.lean`). Each node is rewritten with the
+step equations already proved for the semantic contracts (`Tools.ShippingUnifiedRecursion.*_step`,
+`ShippingMixedRecursion.*_step`, `ShippingBoolMuxSoundness.boolMux_step`, `ShippingVectorMuxRecursion.vector_step`)
+and walked with the existing emitter lemmas of `ShippingChildFallbackA`; the only nodes with a translator-level
+effect are the core nodes (fvar lookup, `Signal.pure` literal, canonical binary) and the control-cached
+fallback arms. The instance arm (`fallbackKind = .other`), the only caller of `synthesizeChild`, is never
+reached: that is what "a LEAF body has no child calls" comes to at the translator level.
+SCOPE: this is about the translator on the quoted fragment; the laws of `O : RefLawsAOps` (unproved boundary)
+are used exactly as in `Tools.ShippingChildFallbackA`. -/
+
 
 namespace Tools.ShippingLeafTermKeeps
 open Tools.ShippingLeafCtxQ
@@ -561,4 +580,140 @@ theorem term_fuel_keeps (fuel : Nat) {dom : Lean.Expr} {kb kv : Nat} {vw : Nat �
 
 end Walk
 
+open Tools.ShippingLeafBodyCi Tools.ShippingLeafKeepCache Tools.ShippingLeafMissCoh Tools.ShippingSharedLeafCoh
+open Tools.ShippingChildBndInit Tools.ShippingChildBndCore Tools.ShippingChildCoreC Tools.ShippingSeqChildIface Tools.ShippingSeqChildIfaceA Tools.ShippingGateChildComb
+open Tools.ShippingMachineAuto Tools.ShippingMachineEntry Tools.ShippingMachineCloses
+open Sparkle.IR.AST
+
+section Final
+variable (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+  {I : Void IO.RealWorld → Prop} (hS : StableA O.quiet I)
+include O hA hS
+
+/-- **The translator keeps `I` on the leaf expression of a shape whose body is the quotation of a well-formed
+term** (in the contexts the binder walk hands to `emitLeaves`). Facts used: the quotation (`hbody`), the
+well-formedness `he`, the binder kinds at the input positions (`hb`, `hv`). Discharges `LeafTranslatorKeeps`. -/
+theorem leafTranslatorKeeps_of_quote (shape : MachineShape) {dom : Lean.Expr} {kb kv : Nat}
+    {vw bpos vpos : Nat → Nat} {srt : SType} (e : Term srt) (he : e.WF kb kv vw)
+    (hb : ∀ j, j < kb → ∃ name, shape.binders[bpos j]? = some (name, .bool))
+    (hv : ∀ j, j < kv → ∃ name, shape.binders[vpos j]? = some (name, .bits (vw j)))
+    (hbody : shape.body = quote dom (fun j => inputExpr shape.binders.length (bpos j))
+      (fun j => inputExpr shape.binders.length (vpos j)) e) :
+    LeafTranslatorKeeps (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref) I shape := by
+  intro tenv ids len
+  have hq : instFVars (ids.map Lean.Expr.fvar).toArray 0 shape.body =
+      quote (instFVars (ids.map Lean.Expr.fvar).toArray 0 dom)
+        (fun j => .fvar (ids[bpos j]!)) (fun j => .fvar (ids[vpos j]!)) e := by
+    rw [hbody]
+    apply Tools.ShippingUnifiedExecutionSoundness.instantiated_quote _ _ e he
+    · intro j hj
+      obtain ⟨name, pos⟩ := hb j hj
+      exact instantiated_input len (List.getElem_of_getElem? pos).choose
+    · intro j hj
+      obtain ⟨name, pos⟩ := hv j hj
+      exact instantiated_input len (List.getElem_of_getElem? pos).choose
+  rw [hq]
+  exact term_fuel_keeps O hA hS (tenv := tenv) translateFuelLimit
+    (fun j hj ctx hp => by
+      obtain ⟨name, pos⟩ := hb j hj
+      exact hp _ (zip_member len pos) (by simp))
+    (fun j hj ctx hp => by
+      obtain ⟨name, pos⟩ := hv j hj
+      exact hp _ (zip_member len pos) (by simp)) e he "out" false true
+
+omit O hA hS in
+/-- The side conditions `leafTranslatorKeeps_of_quote` reads, from `MachineData.ok` (copy of the
+extraction in `seqChild_iface`). -/
+theorem machineData_ok_facts (d : MachineData) (ok : d.ok = true) :
+    d.packed.WF d.kb d.kv d.vw ∧
+    (∀ j, j < d.kb → ∃ name, d.shape.binders[d.bpos j]? = some (name, .bool)) ∧
+    (∀ j, j < d.kv → ∃ name, d.shape.binders[d.vpos j]? = some (name, .bits (d.vw j))) := by
+  simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok
+  obtain ⟨hlen, hlets, positive, slotKinds, letKinds, layB, outsOk, outsNodup, hwf, hb, hv,
+    hfit, houtfit, hscoped, _, _, _, _, _, _, _, _⟩ := ok
+  refine ⟨hwf, ?_, ?_⟩
+  · intro j hj
+    have := hb j hj
+    cases h : d.shape.binders[d.bpos j]? with
+    | none => rw [h] at this; cases this
+    | some b =>
+      obtain ⟨name, k⟩ := b
+      rw [h] at this
+      simp only [Option.map_some, Option.some.injEq] at this
+      exact ⟨name, by rw [← this]⟩
+  · intro j hj
+    have := hv j hj
+    cases h : d.shape.binders[d.vpos j]? with
+    | none => rw [h] at this; cases this
+    | some b =>
+      obtain ⟨name, k⟩ := b
+      rw [h] at this
+      simp only [Option.map_some, Option.some.injEq] at this
+      exact ⟨name, by rw [← this]⟩
+
+/-- **`LeafTranslatorKeeps` for a machine datum**: from `d.ok` and the quotation `hbody` (both already
+premises of `seqChild_of_realA`). -/
+theorem leafTranslatorKeeps_of_machineData (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed) :
+    LeafTranslatorKeeps (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref) I d.shape := by
+  obtain ⟨hwf, hb, hv⟩ := machineData_ok_facts d ok
+  exact leafTranslatorKeeps_of_quote O hA hS d.shape d.packed hwf hb hv hbody
+
+end Final
+
+/-! ## `hbodyK` replaced by facts about THIS leaf (no translator premise left) -/
+
+/-- **`synthesizeChild_leafMiss_nested` with `hbodyK` replaced by facts about THIS leaf's constant.**
+The body premise of `Tools.ShippingLeafKeepCache` (arbitrary `tenv`/`ci`/`isInst`) is gone, and so is the
+translator premise of `synthesizeChild_leafMiss_nestedL`. Used about the real leaf: `entry`
+(`MachineDefines`: the `ci`/`env` reads of this run give the machine constant `d.shape`), `closes`
+(`MachineCloses`), `hno` (`insts = []`: no `closeInsts`, no `synthesizeChild` from the machine branch),
+`ok`/`hbody` (the body is the quotation of the well-formed term `d.packed`: the translator reaches only the
+nodes of `Tools.ShippingUnifiedSource.Term`, none of them the instance arm). -/
+theorem synthesizeChild_leafMiss_nested_final (O : RefLawsAOps MkRefd mref cref)
+    (hA : AdmCtx O.quiet mctx cctx) {D : Nat} (hD : D ≠ 0) {n : Name}
+    (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hno : d.shape.insts = [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (entry : MachineDefines mctx mref cctx cref n d.shape)
+    (closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
+      MachineCloses mctx' mref cctx' cref n d.shape)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O D w)
+    (hcl : CacheClosed (cv w)) (hk : KeyTop (cv w)) (hmiss : (cv w).get? n = none)
+    (h : RunsTo (synthesizeChild n) mctx mref cctx cref w y w') :
+    CacheClosed (cv w') ∧ KeyTop (cv w') ∧ CohWith (cv w) y ∧ CacheCoh (cv w') :=
+  synthesizeChild_leafMiss_nestedL O hA hD d ok hbody hno outTy entry closes
+    (fun c0 => leafTranslatorKeeps_of_machineData O hA (stableK O (D + 1) c0) d ok hbody)
+    hw hcl hk hmiss h
+
+/-- **(b) at `D = 0`.** -/
+theorem synthesizeChild_leafMiss_zero_final (O : RefLawsAOps MkRefd mref cref)
+    (hA : AdmCtx O.quiet mctx cctx) {n : Name}
+    (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    (hno : d.shape.insts = [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (entry : MachineDefines mctx mref cctx cref n d.shape)
+    (closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context),
+      MachineCloses mctx' mref cctx' cref n d.shape)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O 0 w) (hmiss : (cv w).get? n = none)
+    (h : RunsTo (synthesizeChild n) mctx mref cctx cref w y w') :
+    cv w' = ({} : Std.HashMap Name Res).insert n y ∧ CacheClosed (cv w') ∧ KeyTop (cv w') ∧
+      CohWith ({} : Std.HashMap Name Res) y ∧ CacheCoh (cv w') :=
+  synthesizeChild_leafMiss_zeroL O hA d ok hbody hno outTy entry closes
+    (leafTranslatorKeeps_of_machineData O hA (stableK O 1 {}) d ok hbody) hw hmiss h
+
 end Tools.ShippingLeafTermKeeps
+
+#print axioms Tools.ShippingLeafTermKeeps.term_fuel_keeps
+#print axioms Tools.ShippingLeafTermKeeps.leafTranslatorKeeps_of_quote
+#print axioms Tools.ShippingLeafTermKeeps.leafTranslatorKeeps_of_machineData
+#print axioms Tools.ShippingLeafTermKeeps.synthesizeChild_leafMiss_nested_final
+#print axioms Tools.ShippingLeafTermKeeps.synthesizeChild_leafMiss_zero_final

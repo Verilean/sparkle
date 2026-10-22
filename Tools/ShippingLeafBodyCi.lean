@@ -3,8 +3,24 @@ import Tools.ShippingChildFrontCP
 import Tools.ShippingChildTranslatePathA
 import Tools.ShippingLeafCtxQ
 import Tools.ShippingSeqChildIface
--- UNBUILT (unit SR6, L8al): see REPORT-SR6.md for the run names / exits at the final committed SHA.
+-- BUILT at the final committed SHA: see REPORT-SR6.md for run names / exits (earlier runs b1,b2 exit 1; b3..b8 exit 0 on intermediate trees).
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
+
+/-! # `hbodyK` localised to the real leaf's constant (unit SR6, L8al, part A)
+
+`Tools.ShippingLeafKeepCache` left the body premise `hbodyK`: `synthesizeFromConst … ci isInst` keeps the cache
+value for ARBITRARY `tenv`/`ci`/`isInst`. Here the body is the one the entry actually runs,
+`getConstInfo declName >>= fun ci => getEnv >>= fun env => synthesizeFromConst … (entryConst … ci …) …`, and
+the run facts pin its `ci`/`env`:
+* `MachineDefines` (both certified gates refuse `entryConst … ci …`, `machineShape?` of the structure facts of
+  the environment the run reads is `shape`) — instantiated at the three reads of THIS run (`getConstInfo`, the
+  entry's `getEnv`, and the machine branch's own `getEnv`);
+* `MachineCloses` (`synthesizeMachineCertified` of `shape` returns `some _` — the legacy tail is not reached);
+* `shape.insts = []` (the machine branch closes no instances: `closeInstsM`/`closeInstsGM`, hence
+  `synthesizeChild`, are not reached by the branch itself).
+What remains is the translator at the ONE expression `emitLeaves` translates (`LeafTranslatorKeeps`, in the
+compiler contexts the binder walk produces, `BoundIn`); it is discharged for a quoted machine body in
+`Tools/ShippingLeafTermKeeps.lean`. -/
 
 namespace Tools.ShippingLeafBodyCi
 open Lean Meta

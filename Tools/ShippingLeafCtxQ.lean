@@ -1,6 +1,6 @@
 import Tools.ShippingChildFrontCP
 import Tools.ShippingMixedSourceBridge
--- UNBUILT (unit SR6, L8al part B): see REPORT-SR6.md for run names / exits at the final committed SHA.
+-- BUILT at the final committed SHA: see REPORT-SR6.md for run names / exits.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field.
 
 /-! # `KeepsCP` restricted to compiler contexts that bind given fvars (unit SR6)

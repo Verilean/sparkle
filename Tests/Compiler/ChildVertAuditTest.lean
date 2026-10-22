@@ -64,6 +64,7 @@ import Tools.ShippingParentRunFactsA
 import Tools.ShippingMachineComposeRM
 import Tools.ShippingEntryDefinesRun
 import Tools.ShippingEntryReadsLinked
+import Tools.ShippingLeafTermKeeps
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -487,7 +488,15 @@ def audited : List Name :=
    ``Tools.ShippingEntryReadsLinked.EntryDefinesRunG.at_core, ``Tools.ShippingEntryReadsLinked.EntryDefinesRunG.of_entry,
    ``Tools.ShippingEntryReadsLinked.getEnv_value, ``Tools.ShippingEntryReadsLinked.getConstInfo_value,
    ``Tools.ShippingEntryReadsLinked.ci_in_envR, ``Tools.ShippingEntryReadsLinked.gate_child_fullFactsG,
-   ``Tools.ShippingEntryReadsLinked.childFull_of_realAG]
+   ``Tools.ShippingEntryReadsLinked.childFull_of_realAG,
+   ``Tools.ShippingLeafBodyCi.leaf_body_triple, ``Tools.ShippingLeafBodyCi.core_tripleKL,
+   ``Tools.ShippingLeafBodyCi.core_tripleK0L, ``Tools.ShippingLeafBodyCi.hkeep_nestedL,
+   ``Tools.ShippingLeafBodyCi.hkeep_zeroL, ``Tools.ShippingLeafBodyCi.synthesizeChild_leafMiss_nestedL,
+   ``Tools.ShippingLeafBodyCi.synthesizeChild_leafMiss_zeroL,
+   ``Tools.ShippingLeafTermKeeps.term_fuel_keeps, ``Tools.ShippingLeafTermKeeps.leafTranslatorKeeps_of_quote,
+   ``Tools.ShippingLeafTermKeeps.leafTranslatorKeeps_of_machineData,
+   ``Tools.ShippingLeafTermKeeps.synthesizeChild_leafMiss_nested_final,
+   ``Tools.ShippingLeafTermKeeps.synthesizeChild_leafMiss_zero_final]
 
 end Tests.Compiler.ChildVertAuditTest
 
