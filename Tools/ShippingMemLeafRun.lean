@@ -411,6 +411,59 @@ theorem stepNM_of_data (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet m
     · exact Or.inr (Or.inr (List.mem_append_left _ h0))
     · exact Or.inr (Or.inr (List.mem_append_right _ h0))
 
+/-- **A plain (non-memory) leaf: its one-step contract under the memory-aware clauses** (the NM form of `Tools.ShippingSharedLeafNL.leafKid_step`; same real run, only the cache clauses
+differ).  Needed for a callee that has a memory child NEXT TO a call of a plain leaf. -/
+theorem leafKid_step_nm (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {n : Name} (hl : LeafOK mctx mref cctx cref n) :
+    ∀ D, D ≠ 0 → StepNM (mref := mref) (cref := cref) O mctx cctx D n [] := by
+  intro D hD w w' y hw hcl hk hmd h
+  cases hm : (cv w).get? n with
+  | some r =>
+    obtain ⟨rfl, hj, hc⟩ := synthesizeChild_hit O hA hw hm h
+    rw [hc]
+    exact ⟨hj, hcl, hk, hmd, hm, cacheExtends_refl _, fun c r' h' => Or.inl h'⟩
+  | none =>
+    obtain ⟨d, ok, hbody, hno, outTy, entry, closes⟩ := hl
+    unfold synthesizeChild at h
+    obtain ⟨m, w1, hget, h⟩ := RunsTo.bind h
+    obtain ⟨hm1, hw1⟩ := jqc_cacheGet O hA hw hget
+    have hc1 := cacheGet_cv O hA hw hget
+    cases hc : m.get? n with
+    | some r' => rw [hm1] at hc; rw [hm] at hc; cases hc
+    | none =>
+      simp only [hc] at h
+      obtain ⟨r, w2, hrun, h⟩ := RunsTo.bind h
+      have hr : RealChildA O n r := RealChildA.of_jqc O hA hw1 hrun
+      have hI := seqChild_of_realA O d ok hbody hno outTy entry closes hr
+      obtain ⟨hw2, hk2⟩ := hkeep_nestedL O hA hD d.shape hno entry (closes mctx cctx)
+        (fun c0 => leafTranslatorKeeps_of_machineData O hA (stableK O (D + 1) c0) d ok hbody)
+        w1 r w2 hw1 hrun
+      obtain ⟨u, w3, hmod, h⟩ := RunsTo.bind h
+      have hc3 := (O.cacheModify' hA (fun m : Std.HashMap Name Res => m.insert n r) hw2.1.1 hmod).1
+      have hj3 := jqc_insert_runs O hA hw2 hr hmod
+      obtain ⟨rfl, rfl⟩ := RunsTo.pure_world h
+      have hcv : cv w' = (cv w).insert n y := by rw [hc3, hk2, hc1]
+      rw [hcv]
+      refine ⟨hj3, cacheClosedNM_insert_leaf hcl hm hI.design, keyTop_insert hk hI.name,
+        memDet_insert_leaf hmd hI.name hI.design, get?_insert_self _ _ _, cacheExtends_insert_missing y hm, ?_⟩
+      intro c' r' hc'
+      rcases insert_get_cases hc' with ⟨e, -⟩ | ⟨-, hc''⟩
+      · exact Or.inr (Or.inl e)
+      · exact Or.inl hc''
+
+/-- the origin's child of each call, from the names: `TagsAgree` turns `memChild?` of the placeholder name into the origin's `child?`.  Calls are memory placeholders (built memory modules)
+or calls of the declaration `G`. -/
+theorem hcalls_of_names {shape : MachineShape} (hagree : Tools.ShippingInstTagged.TagsAgree shape) (G : Name)
+    (h : ∀ x ∈ shape.instTagged, (∃ cb aw dw, memChild? x.1 = some (memModule cb aw dw)) ∨
+      (memChild? x.1 = none ∧ x.1 = G)) :
+    ∀ x ∈ shape.instTagged, (∃ md, x.2.child? = some md ∧ MemKid md) ∨ (x.2.child? = none ∧ x.1 = G) := by
+  intro x hx
+  have ha := hagree x hx
+  have hc : memChild? x.1 = x.2.child? := Tools.ShippingInstTagged.memChild_of_tagAgrees ha
+  rcases h x hx with ⟨cb, aw, dw, h1⟩ | ⟨h1, h2⟩
+  · exact Or.inl ⟨memModule cb aw dw, hc ▸ h1, cb, aw, dw, rfl⟩
+  · exact Or.inr ⟨hc ▸ h1, h2⟩
+
 /-! ## The shared leaf WITH a memory child, and a callee over it -/
 
 /-- every call of a memory-only machine carries a built memory module (the origin's child) -/
@@ -517,6 +570,8 @@ end Tools.ShippingMemLeafRun
 #print axioms Tools.ShippingMemLeafRun.synthesizeChild_miss_nm
 #print axioms Tools.ShippingMemLeafRun.stepNM_of_data
 #print axioms Tools.ShippingMemLeafRun.memTags_of_data
+#print axioms Tools.ShippingMemLeafRun.leafKid_step_nm
+#print axioms Tools.ShippingMemLeafRun.hcalls_of_names
 #print axioms Tools.ShippingMemLeafRun.memLeaf_stepNM
 #print axioms Tools.ShippingMemLeafRun.calleeOverLeaf_stepNM
 #print axioms Tools.ShippingMemLeafRun.closing_nm

@@ -121,8 +121,37 @@ theorem memDet_insert_kids {m : Std.HashMap Name Res} {n : Name} {r : Res} {kids
         · exact mods_of_memKid hmk hak
   · exact hmd c x hx a ha hma
 
+/-- **Insert of a plain leaf entry** (no module besides its top) keeps `CacheClosedNM`; key `n` absent. -/
+theorem cacheClosedNM_insert_leaf {m : Std.HashMap Name Res} {n : Name} {r : Res}
+    (h : CacheClosedNM m) (hmiss : m.get? n = none) (hleaf : r.2.modules = []) :
+    CacheClosedNM (m.insert n r) := by
+  intro c x hx a ha hna
+  rcases insert_get_cases hx with ⟨-, hxr⟩ | ⟨hne, hx⟩
+  · refine ⟨n, r, get?_insert_self m n r, ?_⟩
+    rw [hxr] at ha
+    simp only [ModsOf, hleaf, List.mem_cons, List.not_mem_nil, or_false] at ha
+    exact ha
+  · obtain ⟨c', r', hr', rfl⟩ := h c x hx a ha hna
+    have hne' : c' ≠ n := fun e => by subst e; rw [hmiss] at hr'; cases hr'
+    exact ⟨c', r', get?_insert_ne m hne' r ▸ hr', rfl⟩
+
+/-- **Insert of a plain leaf entry** keeps `MemDet` (its top is named like the declaration, hence not memory-named). -/
+theorem memDet_insert_leaf {m : Std.HashMap Name Res} {n : Name} {r : Res}
+    (hmd : MemDet m) (hrname : r.1.name = Sparkle.IR.ModuleName.ofDecl n) (hleaf : r.2.modules = []) :
+    MemDet (m.insert n r) := by
+  intro c x hx a ha hma
+  rcases insert_get_cases hx with ⟨-, hxr⟩ | ⟨hne, hx⟩
+  · rw [hxr] at ha
+    simp only [ModsOf, hleaf, List.mem_cons, List.not_mem_nil, or_false] at ha
+    subst ha
+    obtain ⟨cb, aw, dw, e⟩ := hma
+    exact absurd (hrname.symm.trans e) (Tools.ShippingModuleName.ofDecl_ne_ofMem n cb aw dw)
+  · exact hmd c x hx a ha hma
+
 end Tools.ShippingMemLeafCache
 
 #print axioms Tools.ShippingMemLeafCache.cacheCoh_of_nm
 #print axioms Tools.ShippingMemLeafCache.cacheClosedNM_insert_kids
 #print axioms Tools.ShippingMemLeafCache.memDet_insert_kids
+#print axioms Tools.ShippingMemLeafCache.cacheClosedNM_insert_leaf
+#print axioms Tools.ShippingMemLeafCache.memDet_insert_leaf
