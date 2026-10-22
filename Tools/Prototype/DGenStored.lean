@@ -2,7 +2,7 @@ import Tools.Prototype.DGenProv
 
 /-! # Unit DGEN3: what can be proved about `StoredFromRead` (the reflection `dataE` of a `Read` into a closed constant)
 
-BUILT (unit DGEN3): g1 exit 1 (namespace/`as` keyword), g2 exit 1 (cons case), g3 `build Tools.Prototype.DGenStored` exit 0. No sorry/axiom/native_decide; axioms of the lemmas: propext, Classical.choice, Quot.sound.
+BUILT (unit DGEN3): g1 exit 1 (namespace/`as` keyword), g2 exit 1 (cons case), g3 `build Tools.Prototype.DGenStored` exit 0, g4 (adds `stored_runs`/`stored_binders`) exit 0. No sorry/axiom/native_decide; axioms of the lemmas: propext, Classical.choice, Quot.sound.
 
 `dataE r : MetaM Lean.Expr` builds the CONSTRUCTOR-APPLICATION term of `MachineData` that `generateCore` stores with `addDef`.
 `StoredFromRead d r := d.shape = r.shape` asks that the Lean VALUE `d` of that constant be `r`'s shape.  Two different steps:
@@ -161,11 +161,32 @@ theorem storedFromRead_iff (d : MachineData) (r : Read) :
     subst h1 h2 h3 h4 h5 h6 h7 h8
     rfl
 
+/-! ## Per-field supply: the kernel-read premise (B) is the only hypothesis -/
+
+/-- `runs`/`loops`: if the kernel value `v` of the stored list is the read-back of the `Expr` `dataE` builds (premise (B), `hK`),
+then `v` is `r`'s list. -/
+theorem stored_runs (xs v : List (Nat × Nat))
+    (hK : evList (evPair evNat evNat)
+      (listE (mkApp2 (mkConst ``Prod [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat))
+        (xs.map fun (a, b) =>
+          mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat) (natL a) (natL b))) = some v) :
+    v = xs := by
+  rw [evList_runs] at hK
+  exact (Option.some.inj hK).symm
+
+theorem stored_binders (evName : Lean.Expr → Option Name) (hN : NameRefl evName)
+    (xs v : List (Name × MixedGateBinder))
+    (hK : evList (evPair evName evKind) (listE binderT (xs.map binderE)) = some v) : v = xs := by
+  rw [evList_binders evName hN] at hK
+  exact (Option.some.inj hK).symm
+
 #print axioms evList_listE
 #print axioms evList_natListE
 #print axioms evList_runs
 #print axioms evList_binders
 #print axioms evList_insts
 #print axioms storedFromRead_iff
+#print axioms stored_runs
+#print axioms stored_binders
 
 end Tools.Prototype.DGenStored
