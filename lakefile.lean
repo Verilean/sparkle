@@ -3908,3 +3908,9 @@ lean_lib «Tests.Compiler.SharedLeafGenFactsTest» where
 
 lean_lib «Tests.Compiler.SharedLeafGenNoOldChainTest» where
   roots := #[`Tests.Compiler.SharedLeafGenNoOldChainTest]
+
+lean_lib «Tools.ShippingKaryRun» where
+  roots := #[`Tools.ShippingKaryRun]
+
+lean_lib «Tools.ShippingKaryEntry» where
+  roots := #[`Tools.ShippingKaryEntry]
