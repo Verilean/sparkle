@@ -3736,3 +3736,18 @@ lean_lib «Tools.Prototype.ExtReaderClo» where
 
 lean_lib «Tools.Prototype.ExtReaderTab» where
   roots := #[`Tools.Prototype.ExtReaderTab]
+
+lean_lib «Tools.Prototype.ExtReaderDom» where
+  roots := #[`Tools.Prototype.ExtReaderDom]
+
+lean_lib «Tools.Prototype.ExtReaderRaw» where
+  roots := #[`Tools.Prototype.ExtReaderRaw]
+
+lean_lib «Tools.Prototype.ExtReaderGlue» where
+  roots := #[`Tools.Prototype.ExtReaderGlue]
+
+lean_lib «Tests.Compiler.ExtReaderWholeAgreeTest» where
+  roots := #[`Tests.Compiler.ExtReaderWholeAgreeTest]
+
+lean_lib «Tests.Compiler.ExtReaderOpsAgreeTest» where
+  roots := #[`Tests.Compiler.ExtReaderOpsAgreeTest]
