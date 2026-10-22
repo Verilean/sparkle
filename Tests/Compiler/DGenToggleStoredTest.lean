@@ -50,4 +50,60 @@ run_meta (Tools.Prototype.ReaderExec.auditPropBinders ``Tests.Compiler.DGenToggl
   ["RootFloatRange", "LiftRange", "Inst1Range", "ZeroLitAgrees", "EqvLetOk0", "SigTyRange", "RawNodeRange",
     "NormNodeRange", "RunsTo", "ReflExprAgree", "Eq", "Eq", "ShapeDenotes"])
 
+/-! ## Instance probe on `toggle` (meta-level evidence, NOT a proof)
+
+Runs `readMachine` on `toggle`, and checks (1) the declared value of `toggle.machineData` is `dataE r` (as an `Expr`), (2) `evShape` of its
+shape argument reads back to the fields of `r.shape`.  This tests the evaluator on the real declared term; it does not discharge `hK`. -/
+
+open Sparkle.IR.Machine in
+run_meta do
+  let r ← readMachine ``Sparkle.Tests.Compiler.ShippingMachineCommandTest.toggle false
+  let ci ← getConstInfo ``Sparkle.Tests.Compiler.ShippingMachineCommandTest.toggle.machineData
+  let some v := ci.value? | throwError "toggle.machineData has no value"
+  let e ← dataE r
+  unless v == e do throwError "PROBE FAILED: the declared value of toggle.machineData is not `dataE r`"
+  let args := e.getAppArgs
+  let some sh := evShape args[0]! | throwError "PROBE FAILED: evShape does not read the shape argument"
+  let s := r.shape
+  unless sh.binders == s.binders && sh.body == s.body && sh.layout.slots == s.layout.slots && sh.layout.outs == s.layout.outs &&
+      sh.layout.lets == s.layout.lets && sh.runs == s.runs && sh.insts == s.insts && sh.loops == s.loops &&
+      sh.instFields == s.instFields && sh.instOrigins == s.instOrigins do
+    throwError "PROBE FAILED: evShape of the declared shape differs from r.shape"
+  logInfo m!"instance probe toggle: declared value = dataE r, evShape reads back r.shape ({s.binders.length} binders, {s.runs.length} runs, {s.layout.slots.length} slots)"
+
+/-! ## Probe for review item (c): opaque constants reachable from the shape function
+
+A kernel `Eq.refl` for `machineShapeN … = some (some d.shape)` can only go through if the kernel can unfold everything it meets.
+`partial def`s are opaque to the kernel.  THIS probe lists the opaque constants (and `implemented_by`-style opaques) that occur in the
+TEXT of the definitions reachable from `machineShapeN`.  Whether the kernel's reduction on `toggle` actually reaches one is NOT decided
+by this probe; it shows that the question is live. -/
+
+open Lean in
+partial def reachOpaque (env : Environment) (todo : List Name) (seen : NameSet) (acc : Array Name) : NameSet × Array Name :=
+  match todo with
+  | [] => (seen, acc)
+  | n :: rest =>
+    if seen.contains n then reachOpaque env rest seen acc
+    else
+      let seen := seen.insert n
+      match env.find? n with
+      | some (.defnInfo d) =>
+        reachOpaque env (d.value.getUsedConstants.toList ++ rest) seen acc
+      | some (.opaqueInfo d) =>
+        reachOpaque env (d.value.getUsedConstants.toList ++ rest) seen (acc.push n)
+      | _ => reachOpaque env rest seen acc
+
+run_meta do
+  let env ← getEnv
+  let (seen, ops) := reachOpaque env [``machineShapeN] {} #[]
+  let relevant := ops.filter fun n => !(`_private).isPrefixOf n
+  logInfo m!"PROBE (c): {seen.size} constants reachable from machineShapeN's definitions; {ops.size} opaque ({relevant.size} non-private), first: {relevant.toList.take 25}"
+
+partial def pf (n : Nat) : Nat := if n = 0 then 0 else pf (n - 1)
+
+run_meta do
+  let env ← getEnv
+  let k := Lean.Kernel.isDefEq env {} (Lean.mkApp (Lean.mkConst ``pf) (Lean.mkRawNatLit 0)) (Lean.mkRawNatLit 0)
+  logInfo m!"PROBE (c): kernel isDefEq (pf 0) 0 for a `partial def pf` = {repr (k.toOption)} (the kernel does not unfold a partial def)"
+
 end Tests.Compiler.DGenToggleStoredTest

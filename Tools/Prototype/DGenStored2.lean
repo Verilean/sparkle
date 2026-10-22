@@ -1,6 +1,19 @@
 import Tools.Prototype.DGenStored
 
-/-! # Unit DGEN4: read-back of the remaining `StoredFromRead` fields (part 1: `Name`, `String`, `Nat` literal) -/
+/-! # Unit DGEN4: read-back of the remaining `StoredFromRead` fields
+
+BUILT (unit DGEN4, `./.cluster/qbuild.sh build Tools.Prototype.DGenStored2`): s1–s22 exit 1 (own errors: private-name syntax, `mkApp`/`mkConst` ambiguity,
+unsolved goals, a meta-check name), s23 exit 0 (before the candidate change), s24–s26 exit 1/1/1 (after it: namespace ambiguity, a leftover name, `mkAppN` on an array
+literal), s27 exit 0.  No sorry / axiom / native_decide; axioms of the main theorems: propext, Classical.choice, Quot.sound.
+
+PROVED here (no premise): `nameRefl` (core `toExpr : Name → Expr`, through its private `Name.toExprAux` reached by `priv%`, incl. the `mkStr1..8`
+shortcuts), `String`/`Nat`/`Bool` literals, `evExpr_reflExprS` (the `Expr`-of-`Expr` that the structural copy `reflExprS` builds reads back), `evLayout_layoutE`,
+`instFields`, `instOrigins`, `evShape_dataShapeE` (the whole `MachineShape` expression `dataE` builds reads back as `r.shape`, given the body/layout pieces).
+KERNEL-CHECKED guard `dataE_unchanged`: the extracted `dataE` (candidate change, `Tools/ShippingMachineCommand.lean`) equals its pre-extraction text `dataEOrig` by `rfl`.
+META-CHECKS (throw): `reflExpr_samples` (finite sample agreement of `reflExpr`/`reflExprS`: evidence, not a proof), `generateCore_mentions` (names only).
+PREMISES (named): `ReflExprAgree` (`reflExpr` is a `partial def`); `ShapeDenotes` (the stored `d.shape` is the denotation of the shape expression `dataE` declared it
+with: the constant-to-`Expr` link is not formulated in the current implementation and not proved on this route); `hb`/`hl` (`dataE` did not throw).
+OPEN: `Term`s (`termE`) read-back, `dom` is read back (`dom_readback`) but `dom` is not part of `StoredFromRead`. -/
 
 namespace Tools.Prototype.DGenStored2
 open Lean Meta
