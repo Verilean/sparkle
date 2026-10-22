@@ -3998,3 +3998,15 @@ lean_lib «Tools.ShippingSrm4Core1» where
 
 lean_lib «Tools.ShippingSrm4Core2» where
   roots := #[`Tools.ShippingSrm4Core2]
+
+lean_lib «Tools.ShippingSrm4Core3» where
+  roots := #[`Tools.ShippingSrm4Core3]
+
+lean_lib «Tools.ShippingSrm4Core4» where
+  roots := #[`Tools.ShippingSrm4Core4]
+
+lean_lib «Tools.ShippingSrm4Core5» where
+  roots := #[`Tools.ShippingSrm4Core5]
+
+lean_lib «Tools.ShippingSrm4Core6» where
+  roots := #[`Tools.ShippingSrm4Core6]
