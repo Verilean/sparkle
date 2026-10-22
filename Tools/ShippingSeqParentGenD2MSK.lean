@@ -169,7 +169,8 @@ noncomputable def _root_.{P}.epK_gens : ∀ (j : Nat) (hj : j < {P}.epK_cs.lengt
 /-! ## the endpoint / returned / wired terms (text) -/
 
 def hclTxt (G : Name) : String := s!"(fun mc cc => {G}.machine_closes mc _ cc _)"
-def obtTxt : String := "obtain ⟨O, T, hA, hB'⟩ := hB\n      obtain ⟨hent, hR0, hw⟩ := Tools.ShippingKaryComposed.kandk_forall hB'"
+def obtTxt (indent : Nat := 6) : String :=
+  "obtain ⟨O, T, hA, hB'⟩ := hB\n" ++ "".pushn ' ' indent ++ "obtain ⟨hent, hR0, hw⟩ := Tools.ShippingKaryComposed.kandk_forall hB'"
 
 /-- the endpoint term: `machine_design_noShips_noBd_dc` applied to the K-ary blocks (no pasted per-callee block, no old chain) -/
 def endpointK (P G : Name) (kP : Nat) : String :=
@@ -200,17 +201,17 @@ def endpointK (P G : Name) (kP : Nat) : String :=
 `entry0 … entry{K-1}`; `hent` is built from them. -/
 def returnedK (P G : Name) (Cs : List Name) (kP : Nat) (qr : String) : String :=
   let hcl := hclTxt G
-  let obt := obtTxt
+  let obt := obtTxt 8
   let entryBinders := " ".intercalate ((Cs.zipIdx).map fun (C, i) =>
     s!"(entry{i} : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``{C} {C}.machineData.shape)")
   let entriesTuple := "⟨" ++ ", ".intercalate ((Cs.zipIdx).map fun (_, i) => s!"entry{i}") ++ ", trivial⟩"
   s!"(fun \{mctx : Lean.Meta.Context} \{mref : ST.Ref IO.RealWorld Lean.Meta.State}
     \{cctx : Lean.Core.Context} \{cref : ST.Ref IO.RealWorld Lean.Core.State}
-    (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) (T : Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref) (hA : Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx)
     (entryP : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``{P} {P}.machineData.shape)
     {entryBinders}
     (hR0 : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``{G} {G}.machineData.shape)
-    \{w w' : Void IO.RealWorld} \{y : Tools.ShippingChildInv.Res} (hw : JQC O 0 w)
+    \{w w' : Void IO.RealWorld} \{y : Tools.ShippingChildInv.Res} (hw : Tools.ShippingChildCacheA.JQC O 0 w)
     (h : Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``{P}) mctx mref cctx cref w y w') =>
     Tools.ShippingKaryReturned.{qr} (dP := {P}.machineData) (dG := {G}.machineData) (cs := {P}.epK_cs) (c := ``{P}) (G := ``{G}) (nP := {kP})
       (n := 2) (kD := {kP}) (ι := Unit) (dom := fun _ : Unit => Sparkle.Core.Domain.defaultDomain)
@@ -347,7 +348,9 @@ def runPathK (p : KParams) : CommandElabM Unit := do
         (`epK_returned, returnedK p.P p.G p.Cs p.kP "kary_returned", ``Tools.ShippingKaryReturned.kary_returned),
         (`epK_wired, returnedK p.P p.G p.Cs p.kP "kary_wired", ``Tools.ShippingKaryReturned.kary_wired)] do
       liftTermElabM do
-        let some stx := (Parser.runParserCategory (← getEnv) `term src).toOption | throwError "{nm} term: parse error"
+        let stx ← match Parser.runParserCategory (← getEnv) `term src with
+          | .ok stx => pure stx
+          | .error err => throwError "{nm} term: parse error: {err}"
         let e ← elabTerm stx none
         synthesizeSyntheticMVarsNoPostponing
         let e ← instantiateMVars e

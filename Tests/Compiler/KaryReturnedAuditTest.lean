@@ -90,8 +90,6 @@ theorem wired_via_kary : type_of% @Tools.ShippingQuadReturned.quad_wired := by
 /-! ## the audit -/
 
 open Lean Elab Command Meta in
--- scoped raise, unavoidable (as in `KaryQuadAuditTest`): `isDefEq` of the large old statements exceeds 200000 at the default
-set_option maxHeartbeats 1000000 in
 run_cmd liftTermElabM do
   let pairs : List (Name × Name × Name) :=
     [(``returned_via_kary, ``Tools.ShippingQuadReturned.quad_returned, ``Tools.ShippingKaryReturned.kary_returned),
