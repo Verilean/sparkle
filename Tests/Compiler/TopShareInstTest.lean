@@ -5,6 +5,8 @@ import Tools.ShippingTopShareRun
 -- `topshare` (callees `wrap`, `wrap3`; the shared leaf `acc`) of `Tests/Compiler/SeqDeepGenDiffTest.lean`.  The generator still REFUSES
 -- `topshare` (no guard / generator change).  PROVED here: the data premises about `wrap`, `wrap3`, `acc`, `topshare` (kernel-checked
 -- `decide`, the stored `machineData`).  PREMISES (named, in the statement of `topshare_entry_run_inst`): `O`, `hA`, `T`, `MachineDefines`
+-- WORDING (SR10): `topshare_entry_run_inst*` do NOT relate their conclusion (`M`, `Dg`) to the outer run's returned value `y`
+-- (`y` occurs only in the run premise); "closing succeeds" is not semantic preservation.  The statement audit below inherits this.
 -- of `topshare`, `wrap`, `wrap3`, `acc` (the entry's reads of the environment), and `MachineClosesAtA` of `topshare` itself.
 namespace Tests.Compiler.TopShareInstTest
 open Tools.ShippingChildInvA Tools.ShippingChildFresh Tools.ShippingChildCacheA Tools.ShippingChildVCA

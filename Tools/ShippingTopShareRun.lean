@@ -15,6 +15,8 @@ import Tools.ShippingMachineClosesData
 * WORDING (reviewer): `topshare_closing`, `topshare_closing4`, `topshare_entry_run*` prove only the RELATION `r = closeInstsG …`
   (and the cache facts); they do NOT exclude `none` and are not a semantics-preserving endpoint. `none` is excluded SEPARATELY, for
   this call shape, by `machineSynth_ne_none4`; a semantic conclusion (the emitted module computes the source) is NOT stated here.
+  (SR10 wording) "closing succeeds" (the machine synthesis is not `none`) is NOT semantic preservation of the returned value:
+  these theorems do not relate the closing's `M`/`Dg` to the outer run's returned value `y` (`y` occurs only in the run premise).
 * `CalleeOK`, `topshare_quad`, `topshare_closing4`, `topshare_entry_run4`: the REAL call list of `topshare` is
   `[wrap, wrap, wrap3, wrap3]` (two field reads per call): the second call of each callee is a cache HIT.
 * `MachineClosesAtStart0`, `core_run_tracked0'`, `machineSynth_ne_none4`, `topshare_entry_run4'`: the parent's own
