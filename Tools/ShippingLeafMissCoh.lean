@@ -1,6 +1,14 @@
 import Tools.ShippingSharedLeafCoh
--- BUILT: s1 exit 1, s2 exit 1 (name/open errors), s3 exit 0 (unit SR4, branch par/u-sr4; base 5f60aef0).
--- UNBUILT (unit SR4): see REPORT-SR4.md for run names / exits.
+import Tools.ShippingModuleName
+import Tools.ShippingSeqChildIface
+import Tools.ShippingSeqChildIfaceA
+import Tools.ShippingMachineCloses
+import Tools.ShippingMachineAuto
+import Tools.ShippingGateChildComb
+import Tools.ShippingMixedEntrySoundness
+-- STATUS (unit SR5 correction of the SR4 header, which listed a single BUILT line twice): the SR4 commit b4a7e97e
+-- did NOT build as committed (k1 exit 1 at SR5: unknown namespaces / `Tools.ShippingModuleName.*` — the file imported
+-- only ShippingSharedLeafCoh). SR5 adds the imports above; BUILT/UNBUILT of THIS file is recorded in REPORT-SR5.md.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
 /-! # One real non-memory LEAF cache miss supplies `CacheClosed` / `CohWith` (unit SR4, L8aj)
