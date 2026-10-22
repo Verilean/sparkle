@@ -3809,3 +3809,6 @@ lean_lib «Tools.ShippingLeafCtxQ» where
 
 lean_lib «Tools.ShippingSharedLeafHit» where
   roots := #[`Tools.ShippingSharedLeafHit]
+
+lean_lib «Tools.ShippingSharedLeafExt» where
+  roots := #[`Tools.ShippingSharedLeafExt]
