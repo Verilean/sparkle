@@ -15,7 +15,11 @@ registered refs; the test checks their `mkRef` events, the order, that no other 
 address was allocated twice in the window. Limits: one process, one run (addresses vary per run); only calls through
 the dynamic symbol table are seen (not `lean_st_ref_get`, not runtime-internal calls); the child is NOT the process
 that elaborates this file; the `.so` is whatever is in `.lake/build/lib`; the `Other` steps between are only
-counted, not proved to satisfy `OthersFrameRefs`; no model heap is related; runtime fit NOT PROVEN. -/
+counted, not proved to satisfy `OthersFrameRefs`; no model heap is related; runtime fit NOT PROVEN.
+Scope (integrator wording, par/int-r47, per review): the shim's mutex only makes the LOG sequence numbers consecutive; it does not
+establish the execution order of the primitives as a whole, nor dlsym/concurrency safety. The strict-mode FAILURE paths (seq gap, unknown
+event, missing tracked MKREF, non-zero child exit) were NOT exercised (no fault injection); only the OK path ran. The per-interval MKREF
+counts are index differences and also count other events (to be fixed by filtering). -/
 
 open Lean Meta Elab in
 run_meta do

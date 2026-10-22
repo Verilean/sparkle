@@ -12,14 +12,20 @@ BUILT (unit DGEN3): g1 exit 1 (namespace/`as` keyword), g2 exit 1 (cons case), g
   builders that are structural definitions (`natL`, `listE`, `natListE`, `stypeE`, `binderKindE`, `binderE`, the `runs`/`loops`/`insts`
   pairs).
 * (B) the Lean value of a constant whose declared value is the constructor-application `Expr` `e` is `ev e` — i.e. the KERNEL reads a
-  constructor application as that constructor application.  This is not a statement of the logic (a Lean term cannot talk about the
-  `Expr` that is its own declared value), so it is NOT proved and not stated as a Lean `Prop`; it is the one meta-fact the stored
+  constructor application as that constructor application.  It is NOT FORMULATED in the current implementation (a relation with the
+  environment and the declaration's `Expr` as explicit arguments could be considered; impossibility is NOT claimed), so it is NOT proved and
+  not stated as a Lean `Prop` here; it is the one meta-fact the stored
   constant needs, stated in the REPORT per type (Nat raw literal, List.cons/nil, Prod.mk, the constructors of `SType`/`MixedGateBinder`;
   and for `Name`/`String` the core `ToExpr` instances).
 
 NOT covered (OPEN, with the reason): `shape.body` and `dom` go through `reflExpr`, a `partial def` (opaque to proofs: no equation lemma);
 `Name` (`instToExprName`: private `Name.toExprAux`, `Name.mkStrN` constants) and `String` (`mkStrLit`) are kept as the named
-hypothesis `NameRefl`; `layout` and the `Term`s (`termE`, 20 constructors) are not done here. -/
+hypothesis `NameRefl`; `layout` and the `Term`s (`termE`, 20 constructors) are not done here.
+Scope (integrator wording, par/int-r47, per review): `stored_runs`/`stored_binders` take `hK : ev (encode xs) = some stored`; with the
+read-back lemma this is equivalent to `stored = xs`, so they do NOT reduce the premises about the real stored constant's provenance. The
+evaluator lemmas restate `dataE`'s closures TEXTUALLY; they are not the real builder's reflection until `dataE` is factored into pure helpers
+that it actually uses (next step, a reviewable candidate). `hrun` is NOT PROVED on this route; the compiler PROPOSAL (emit
+`machineShape? … = some d.shape` by `Eq.refl`) passes through partial/opaque functions and is NOT shown implementable. -/
 
 namespace Tools.Prototype.DGenStored
 open Lean Sparkle.Compiler.Elab Tools.ShippingMachineCommand Tools.ShippingMachineAuto Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
