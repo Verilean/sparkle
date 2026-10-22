@@ -3,7 +3,7 @@ import Tools.ShippingSeqChildDeepIfacePA
 import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingCallsMemPinned
 import Tools.ShippingServedRealA
--- UNBUILT (unit SR13, commit 1 of 2): run names are recorded in REPORT-SR13.md (final-SHA rebuild there).
+-- BUILT (unit SR13): g2/g3 (module) exit 0, g8 (with Tests.Compiler.QuadLeafGenericTest) exit 0, g9 (Tests.Compiler.ChildVertAuditTest) exit 0 (dev runs); the final-SHA rebuild is in REPORT-SR13.md.
 -- SCOPE (binding): DATA-GENERIC lemmas of the shared-leaf class "QUAD" — a parent `dP` whose four call entries are `[c₁, c₁, c₂, c₂]`
 -- (all four origins without a memory child), two DIFFERENT callees `c₁`, `c₂` whose calls are ALL one NON-memory LEAF `G` (the SAME leaf for
 -- both).  The statements are over `MachineData` / names / call lists; no declaration of `topshare`, `wrap`, `wrap3`, `acc` occurs here.

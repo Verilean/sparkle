@@ -1,6 +1,6 @@
 import Tests.Compiler.TopShareTraceTest
 import Tools.ShippingQuadLeafGeneric
--- UNBUILT (unit SR13, commit 1 of 2): run names are recorded in REPORT-SR13.md (final-SHA rebuild there).
+-- BUILT (unit SR13): g8 exit 0 (dev run, with the statement audit); the final-SHA rebuild is in REPORT-SR13.md.
 -- SCOPE (binding): the `topshare` instances of `Tools/ShippingQuadLeafGeneric.lean` — the data-generic lemmas re-derive, for the real declarations
 -- `topshare` (callees `wrap`, `wrap3`; shared leaf `acc`), the statements that `TopShareInstTest` / `TopShareTraceTest` proved by hand
 -- (`wrap_calleeOK`, `wrap3_calleeOK`, `wrap3_ifaceP`, `topshare_closes0`, `topshare_machineRun`).  The OLD theorems are untouched and stay;

@@ -5,7 +5,7 @@ import Tests.Compiler.ChildVertAuditTest
 import Tools.ShippingSeqOldPieces
 import Tools.ShippingSeqChildDeepRunA
 import Tools.ShippingSeqParentGenD2MS
--- BUILT/UNBUILT: see REPORT-SR13.md (unit SR13, commit 2 of 2; dev runs and the final-SHA rebuild are recorded there).
+-- BUILT (unit SR13): s5 exit 0 (dev run, all in-file audits pass); the final-SHA rebuild is in REPORT-SR13.md.
 -- SCOPE (binding, ledger L8as): the shared-leaf CANDIDATE `Tools/ShippingSeqParentGenD2MS.lean` (opt-in `set_option sparkle.sharedLeafCandidate true`) on a SECOND
 -- example whose structure differs from `topshare`: the parent `topshare2` calls `wrapQ` (ONE call of the leaf, argument `x + y`) and then `wrapP` (TWO calls of the
 -- leaf, arguments `x` and `y`), both calling the SAME 16-bit leaf `leaf16` (`Acc16Out`: a 16-bit and a Bool output; `topshare`: 8-bit `acc`, one leaf call per callee);

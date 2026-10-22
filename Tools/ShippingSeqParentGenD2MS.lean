@@ -1,7 +1,7 @@
 import Tools.ShippingSeqParentGenD2M
 import Tools.ShippingQuadLeafGeneric
 import Tools.ShippingTopShareRan
--- UNBUILT (unit SR13, commit 2 of 2): run names are recorded in REPORT-SR13.md (final-SHA rebuild there).
+-- BUILT (unit SR13): s4 exit 0 (module), s5 exit 0 (Tests.Compiler.SharedLeafGenTest), s6 exit 0 (Tests.Compiler.SharedLeafGenTopshareTest) (dev runs); the final-SHA rebuild is in REPORT-SR13.md.
 /-! # `#machine_seq_parent_endpoint P` — a LIMITED shared-leaf CANDIDATE (unit SR13, ledger L8as)
 
 STATUS (binding): a CANDIDATE, opt-in.  `set_option sparkle.sharedLeafCandidate true` (default `false`) lets THIS elaborator take over a declaration `P` of the explicitly
