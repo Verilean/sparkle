@@ -3827,3 +3827,6 @@ lean_lib «Tools.ShippingTopShareRet» where
 
 lean_lib «Tests.Compiler.TopShareRetInstTest» where
   roots := #[`Tests.Compiler.TopShareRetInstTest]
+
+lean_lib «Tests.Compiler.TopShareTraceTest» where
+  roots := #[`Tests.Compiler.TopShareTraceTest]
