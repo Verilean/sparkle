@@ -3739,3 +3739,6 @@ lean_lib «Tools.Prototype.DGenProv» where
 
 lean_lib «Tools.ShippingInitAlloc» where
   roots := #[`Tools.ShippingInitAlloc]
+
+lean_lib «Tools.Prototype.DGenStored» where
+  roots := #[`Tools.Prototype.DGenStored]
