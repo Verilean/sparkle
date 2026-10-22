@@ -231,6 +231,72 @@ theorem topshare_entry_run_inst {mctx : Lean.Meta.Context} {mref : ST.Ref IO.Rea
     entryT closesT _ _ (wrap_calleeOK O T hA entryW hR0) (wrap3_calleeOK O T hA entryW3 hR0)
     topshare_calleeOKs_ne hw h
 
+/-! ## `MachineClosesAtStart0` of `topshare` ITSELF, derived (`machineSynth_ne_none4`) -/
+
+theorem wrap3_hsep {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref)
+    (hR0 : MachineDefines mctx mref cctx cref accN
+      Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData.shape) :
+    ∀ (k : Nat) (hk : k < wrap3.machineData.shape.insts.length) (y' : Tools.ShippingChildInv.Res),
+      RealChildA O (wrap3.machineData.shape.insts[k]).1 y' →
+      ∀ g ∈ y'.1 :: y'.2.modules, g.name ≠ (Sparkle.IR.ModuleName.ofDecl ``Tests.Compiler.SeqDeepGenDiffTest.wrap3) := by
+  have hn := wrap3_insts_acc
+  refine Tools.ShippingSeqChildDeepConsumerA.hsep_of_leaf_kids (mctx := mctx) (cctx := cctx) O wrap3.machineData ?_
+    (fun k hk => by rw [hn k hk]; decide)
+  intro k hk
+  rw [hn k hk]
+  exact ⟨Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData,
+    Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machine_ok,
+    Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machine_body, by decide, by decide, hR0,
+    fun mc cc => Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machine_closes mc _ cc _⟩
+
+theorem wrap3_hgk {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref)
+    (hR0 : MachineDefines mctx mref cctx cref accN
+      Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData.shape) :
+    ∀ (k : Nat) (hk : k < wrap3.machineData.shape.insts.length) (y' : Tools.ShippingChildInv.Res),
+      RealChildA O (wrap3.machineData.shape.insts[k]).1 y' →
+      ∀ g ∈ y'.1 :: y'.2.modules, g.name ∈ [Sparkle.IR.ModuleName.ofDecl accN] ∧
+        ∀ mn i conns, Sparkle.IR.AST.Stmt.inst mn i conns ∈ g.body → mn ∈ [Sparkle.IR.ModuleName.ofDecl accN] := by
+  intro k hk y' hy g hg
+  rw [wrap3_insts_acc k hk] at hy
+  have hI := Tools.ShippingSeqChildIfaceA.seqChild_of_realA O
+    Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData
+    Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machine_ok
+    Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machine_body
+    (by decide) (by decide) hR0 (fun mc cc => Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machine_closes mc _ cc _) hy
+  rcases List.mem_cons.mp hg with e | hin
+  · subst e
+    refine ⟨by rw [hI.name]; exact List.mem_singleton_self _, fun mn i conns hm => ?_⟩
+    have := List.all_eq_true.mp hI.seqOk _ hm
+    simp [Sparkle.IR.OptCheck.seqStmtOk] at this
+  · rw [hI.design] at hin
+    cases hin
+
+theorem wrap3_ifaceP {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (hA : AdmCtx O.quiet mctx cctx)
+    (entry : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 wrap3.machineData.shape)
+    (hR0 : MachineDefines mctx mref cctx cref accN
+      Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData.shape)
+    {y : Tools.ShippingChildInv.Res} (h : RealChildA O ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 y) :
+    ChildIfaceP (Sparkle.IR.ModuleName.ofDecl ``Tests.Compiler.SeqDeepGenDiffTest.wrap3)
+      (Tools.ShippingMachineEntry.machNIn wrap3.machineData.shape)
+      (wrap3.machineData.shape.layout.outs.map (·.name)) [Sparkle.IR.ModuleName.ofDecl accN] y.1 y.2 :=
+  Tools.ShippingSeqChildDeepIfacePA.deepChild_ifaceP O T wrap3.machineData wrap3.machine_ok wrap3.machine_body (nDecl := 3)
+    (by first | decide | decide +kernel) (by first | decide | decide +kernel) (by first | decide | decide +kernel)
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (by first | decide | decide +kernel) (by first | decide | decide +kernel)
+    (fun h0 => absurd (congrArg List.length h0) (by decide)) 3
+    (by first | decide | decide +kernel) (by first | decide | decide +kernel) (by first | decide | decide +kernel)
+    (by first | decide | decide +kernel) (by first | decide | decide +kernel) (by first | decide | decide +kernel)
+    _ (wrap3_hgk O hR0) (wrap3_hsep O hR0) entry
+    (fun _ _ hA' => wrap3_closesA O T hA' (Tools.ShippingReflectCtx.MachineDefines.ctx hR0)) h
+
 end Tests.Compiler.TopShareInstTest
 
 #print axioms Tests.Compiler.TopShareInstTest.wrap_calleeOK
