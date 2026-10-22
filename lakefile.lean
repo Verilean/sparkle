@@ -3950,3 +3950,6 @@ lean_lib «Tests.Compiler.KaryThreeReturnedTest» where
 
 lean_lib «Tests.Compiler.KaryGenTest» where
   roots := #[`Tests.Compiler.KaryGenTest]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidTest]
