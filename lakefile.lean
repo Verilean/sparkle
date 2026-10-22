@@ -3953,3 +3953,9 @@ lean_lib «Tests.Compiler.KaryGenTest» where
 
 lean_lib «Tests.Compiler.SharedLeafMemKidTest» where
   roots := #[`Tests.Compiler.SharedLeafMemKidTest]
+
+lean_lib «Tools.ShippingMemLeafCache» where
+  roots := #[`Tools.ShippingMemLeafCache]
+
+lean_lib «Tools.ShippingMemLeafRun» where
+  roots := #[`Tools.ShippingMemLeafRun]
