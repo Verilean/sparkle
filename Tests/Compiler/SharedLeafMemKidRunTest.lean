@@ -16,7 +16,7 @@ open Tests.Compiler.SharedLeafMemKidTest
 open Tools.ShippingMemLeafRun Tools.ShippingMemLeafCache
 open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry Tools.ShippingChildInvA Tools.ShippingChildFresh
 open Tools.ShippingChildCacheA Tools.ShippingChildRunAKids Tools.ShippingSharedLeafCoh Tools.ShippingLeafMissCoh
-open Tools.ShippingSharedLeafHit Tools.ShippingChildInv Sparkle.IR.AST Sparkle.IR.Machine
+open Tools.ShippingSharedLeafHit Tools.ShippingChildInv Sparkle.IR.AST Sparkle.IR.Machine Tools.ShippingSharedLeafNL
 open Sparkle.Compiler.Elab Tools.ShippingChildBndCore Tools.ShippingChildVCA
 
 /-! ## the decided data of the memory leaf `leafM` (nDecl 4, memory 4/8, synchronous read) -/
@@ -140,6 +140,98 @@ theorem topshareM_closing (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O
     · rw [h2]; exact (wrapM_step O T hA entryL entry₁ closes₁ D hD).mono wrapM_sub
     · rw [h2]; exact (wrapM3_step O T hA entryL entry₂ closes₂ D hD).mono wrapM3_sub) hw hcl hk hmd hr
 
+/-! ## variant B: a CALLEE with a memory child next to its call of a plain leaf (`wrapQ`: calls `[leafP, leafP, memory]`) -/
+
+theorem leafP_data : Tools.ShippingQuadLeafGeneric.LeafData leafP.machineData :=
+  ⟨leafP.machine_ok, leafP.machine_body, by first | decide | decide +kernel, by first | decide | decide +kernel⟩
+
+/-- the plain leaf `leafP`'s data, as the step contract's premise (its reflection and its closing are the named premises) -/
+theorem leafP_leafOK (hR0 : MachineDefines mctx mref cctx cref ``leafP leafP.machineData.shape)
+    (hcl : ∀ (mc : Lean.Meta.Context) (cc : Lean.Core.Context), MachineCloses mc mref cc cref ``leafP leafP.machineData.shape) :
+    LeafOK mctx mref cctx cref ``leafP :=
+  Tools.ShippingQuadLeafGeneric.leafOK_of_data leafP_data hR0 hcl
+
+theorem wrapP_tags : ∀ x ∈ wrapP.machineData.shape.instTagged, x.2.child? = none ∧ x.1 = ``leafP := by first | decide | decide +kernel
+theorem wrapP_cne : ∀ k (hk : k < wrapP.machineData.shape.insts.length), (wrapP.machineData.shape.insts[k]).1 ≠ ``wrapP := by
+  first | decide | decide +kernel
+theorem wrapP_calls : wrapP.machineData.callsOk 3 = true := by first | decide | decide +kernel
+theorem wrapP_slots : wrapP.machineData.ss.length = wrapP.machineData.shape.layout.slots.length := by first | decide | decide +kernel
+theorem wrapP_domB : ∀ b ∈ wrapP.machineData.shape.binders.drop 3, b.2 ≠ .domain := by first | decide | decide +kernel
+theorem wrapP_notin : ``wrapP ∉ ([] : List Lean.Name) := List.not_mem_nil
+
+theorem wrapQ_calls : wrapQ.machineData.callsOk 5 = true := by first | decide | decide +kernel
+theorem wrapQ_slots : wrapQ.machineData.ss.length = wrapQ.machineData.shape.layout.slots.length := by first | decide | decide +kernel
+theorem wrapQ_domB : ∀ b ∈ wrapQ.machineData.shape.binders.drop 5, b.2 ≠ .domain := by first | decide | decide +kernel
+theorem wrapQ_cne : ∀ k (hk : k < wrapQ.machineData.shape.insts.length), (wrapQ.machineData.shape.insts[k]).1 ≠ ``wrapQ := by
+  first | decide | decide +kernel
+theorem wrapQ_names : ∀ x ∈ wrapQ.machineData.shape.instTagged,
+    x.1 = Sparkle.Compiler.MachMemory.memChildName false 4 8 ∨ x.1 = ``leafP := by first | decide | decide +kernel
+theorem wrapQ_agree : Tools.ShippingInstTagged.TagsAgree wrapQ.machineData.shape := by first | decide | decide +kernel
+theorem leafP_nomem : Sparkle.Compiler.MachMemory.memChild? ``leafP = none := by first | rfl | decide
+
+theorem wrapQ_hcalls : ∀ x ∈ wrapQ.machineData.shape.instTagged, (∃ md, x.2.child? = some md ∧ MemKid md) ∨ (x.2.child? = none ∧ x.1 = ``leafP) :=
+  hcalls_of_names wrapQ_agree ``leafP (fun x hx => (wrapQ_names x hx).elim
+    (fun h => Or.inl ⟨false, 4, 8, by rw [h]; exact mem_isMem_sync⟩) (fun h => Or.inr ⟨by rw [h]; exact leafP_nomem, h⟩))
+
+theorem wrapP_step (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (hR0 : MachineDefines mctx mref cctx cref ``leafP leafP.machineData.shape)
+    (hcl : ∀ (mc : Lean.Meta.Context) (cc : Lean.Core.Context), MachineCloses mc mref cc cref ``leafP leafP.machineData.shape)
+    (entry : MachineDefines mctx mref cctx cref ``wrapP wrapP.machineData.shape)
+    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx ``wrapP wrapP.machineData.shape) :
+    ∀ D, D ≠ 0 → StepNM (mref := mref) (cref := cref) O mctx cctx D ``wrapP (wrapP.machineData.shape.insts.map (·.1) ++ []) :=
+  calleeOverLeaf_stepNM O hA [] wrapP_notin wrapP.machineData wrapP.machine_ok wrapP.machine_body wrapP_calls wrapP_slots wrapP_domB
+    (fun h0 => absurd (congrArg List.length h0) (by decide)) (fun h0 => absurd (congrArg List.length h0) (by decide))
+    wrapP_tags (leafKid_step_nm O hA (leafP_leafOK hR0 hcl)) wrapP_cne entry closes
+
+/-- the callee WITH a memory child: the generic miss (`stepNM_of_data`) over the mixed call list; `MachineClosesAtA wrapQ` is a named PREMISE (its derivation needs the leaf's and the memory's
+`ChildIfaceP` assembled with `machineClosesAtA_of_memKids'`; not done here) -/
+theorem wrapQ_step (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (hR0 : MachineDefines mctx mref cctx cref ``leafP leafP.machineData.shape)
+    (hcl : ∀ (mc : Lean.Meta.Context) (cc : Lean.Core.Context), MachineCloses mc mref cc cref ``leafP leafP.machineData.shape)
+    (entry : MachineDefines mctx mref cctx cref ``wrapQ wrapQ.machineData.shape)
+    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx ``wrapQ wrapQ.machineData.shape) :
+    ∀ D, D ≠ 0 → StepNM (mref := mref) (cref := cref) O mctx cctx D ``wrapQ (wrapQ.machineData.shape.insts.map (·.1) ++ []) := by
+  intro D hD
+  exact stepNM_of_data O hA hD [] List.not_mem_nil wrapQ.machineData wrapQ.machine_ok wrapQ.machine_body wrapQ_calls wrapQ_slots wrapQ_domB
+    (fun h0 => absurd (congrArg List.length h0) (by decide)) (fun h0 => absurd (congrArg List.length h0) (by decide))
+    (fun x hx => (wrapQ_hcalls x hx).elim Or.inl (fun h => Or.inr ⟨h.1, h.2 ▸ leafKid_step_nm O hA (leafP_leafOK hR0 hcl) (D + 1) (Nat.succ_ne_zero D)⟩))
+    wrapQ_cne entry closes
+
+def GsQ : List Lean.Name := [``leafP, Sparkle.Compiler.MachMemory.memChildName false 4 8]
+theorem topshareQ_tags : ∀ x ∈ topshareQ.machineData.shape.instTagged, x.2.child? = none ∧ (x.1 = ``wrapP ∨ x.1 = ``wrapQ) := by
+  first | decide | decide +kernel
+theorem wrapP_subQ : ∀ x ∈ wrapP.machineData.shape.insts.map (·.1) ++ [], x ∈ GsQ := by first | decide | decide +kernel
+theorem wrapQ_subQ : ∀ x ∈ wrapQ.machineData.shape.insts.map (·.1) ++ [], x ∈ GsQ := by first | decide | decide +kernel
+
+/-- **The parent's closing over `wrapP` and `wrapQ`** (callee WITH a memory child), hand-applied `closing_nm`. -/
+theorem topshareQ_closing (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (hR0 : MachineDefines mctx mref cctx cref ``leafP leafP.machineData.shape)
+    (hcl0 : ∀ (mc : Lean.Meta.Context) (cc : Lean.Core.Context), MachineCloses mc mref cc cref ``leafP leafP.machineData.shape)
+    (entry₁ : MachineDefines mctx mref cctx cref ``wrapP wrapP.machineData.shape)
+    (entry₂ : MachineDefines mctx mref cctx cref ``wrapQ wrapQ.machineData.shape)
+    (closes₁ : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx ``wrapP wrapP.machineData.shape)
+    (closes₂ : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx ``wrapQ wrapQ.machineData.shape)
+    {D : Nat} (hD : D ≠ 0) {t m₀ : Sparkle.IR.AST.Module} {d₀ : Sparkle.IR.AST.Design}
+    {r : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)} {w w' : Void IO.RealWorld}
+    (hw : JQC O D w) (hcl : CacheClosedNM (cv w)) (hk : KeyTop (cv w)) (hmd : MemDet (cv w))
+    (hr : RunsTo (closeInstsGM topshareQ.machineData.shape t m₀ d₀) mctx mref cctx cref w r w') :
+    ∃ children, r = Sparkle.IR.Machine.closeInstsG (machNIn topshareQ.machineData.shape) topshareQ.machineData.shape.insts.length
+        topshareQ.machineData.shape.layout.slots.length (t.inputs.map (·.name)) (topshareQ.machineData.shape.insts.map (·.2.1))
+        topshareQ.machineData.shape.instFields children (m₀, d₀) ∧
+      children.length = topshareQ.machineData.shape.insts.length ∧
+      (∀ k (hk : k < topshareQ.machineData.shape.insts.length), ∃ y, children[k]? = some y ∧
+        (cv w').get? (topshareQ.machineData.shape.insts[k]).1 = some y) ∧
+      JQC O D w' ∧ CacheClosedNM (cv w') ∧ KeyTop (cv w') ∧ MemDet (cv w') ∧ CacheCoh (cv w') ∧
+      CacheExtends (cv w) (cv w') ∧
+      (∀ i (_hi : i < children.length) j (_hj : j < children.length) (y y' : Res), children[i]? = some y →
+        children[j]? = some y' → ∀ a ∈ ModsOf y, ∀ b ∈ ModsOf y', a.name = b.name → a = b) :=
+  closing_nm O hA GsQ (fun x hx => by
+    obtain ⟨h1, h2⟩ := topshareQ_tags x hx
+    refine ⟨h1, ?_⟩
+    rcases h2 with h2 | h2
+    · rw [h2]; exact (wrapP_step O hA hR0 hcl0 entry₁ closes₁ D hD).mono wrapP_subQ
+    · rw [h2]; exact (wrapQ_step O hA hR0 hcl0 entry₂ closes₂ D hD).mono wrapQ_subQ) hw hcl hk hmd hr
+
 /-! ## the FULL forall-types, written by hand and compared with `isDefEq`; type-correct mutations are REJECTED -/
 
 /-- expected full type of `leafM_step` -/
@@ -227,6 +319,26 @@ theorem topshareM_closing (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O
 /-- MUTATION: no coherence in the conclusion -/
 @[reducible] def ClosingNoCoh : Prop := ClosingWith (· ≠ 0) ``wrapM3 (fun _ => True)
 
+/-- expected full type of `wrapQ_step` (callee WITH a memory child; its `MachineClosesAtA` and the plain leaf's reflection / closing are named premises) -/
+@[reducible] def QStepWith (cn closesDecl : Lean.Name) (gs : List Lean.Name) (hyp : Nat → Prop) : Prop :=
+  ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (_hA : AdmCtx O.quiet mctx cctx),
+    MachineDefines mctx mref cctx cref ``leafP leafP.machineData.shape →
+    (∀ (mc : Lean.Meta.Context) (cc : Lean.Core.Context), MachineCloses mc mref cc cref ``leafP leafP.machineData.shape) →
+    MachineDefines mctx mref cctx cref ``wrapQ wrapQ.machineData.shape →
+    MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx closesDecl wrapQ.machineData.shape →
+    ∀ D, hyp D → StepNM (mref := mref) (cref := cref) O mctx cctx D cn gs
+
+@[reducible] def QStepFull : Prop := QStepWith ``wrapQ ``wrapQ (wrapQ.machineData.shape.insts.map (·.1) ++ []) (· ≠ 0)
+/-- MUTATION: the closing premise is for `wrapP` -/
+@[reducible] def QStepCloses : Prop := QStepWith ``wrapQ ``wrapP (wrapQ.machineData.shape.insts.map (·.1) ++ []) (· ≠ 0)
+/-- MUTATION: depth 0 -/
+@[reducible] def QStepD0 : Prop := QStepWith ``wrapQ ``wrapQ (wrapQ.machineData.shape.insts.map (·.1) ++ []) (· = 0)
+/-- MUTATION: the step is for `wrapP` -/
+@[reducible] def QStepName : Prop := QStepWith ``wrapP ``wrapQ (wrapQ.machineData.shape.insts.map (·.1) ++ []) (· ≠ 0)
+/-- MUTATION: empty growth set -/
+@[reducible] def QStepGs : Prop := QStepWith ``wrapQ ``wrapQ [] (· ≠ 0)
+
 end Tests.Compiler.SharedLeafMemKidRunTest
 
 open Tests.Compiler.ChildVertAuditTest in
@@ -238,6 +350,8 @@ run_cmd liftTermElabM do
         (N ++ `LeafStepEntry, "reflection of wrapM"), (N ++ `LeafStepNoEntry, "reflection dropped")]),
      (N ++ `wrapM_step, N ++ `WrapStepFull, [(N ++ `WrapStepGs, "growth set without the leaf"), (N ++ `WrapStepCloses, "closing premise of wrapM3"), (N ++ `WrapStepD0, "depth 0"),
         (N ++ `WrapStepName, "step for wrapM3"), (N ++ `WrapStepNoCloses, "closing premise dropped")]),
+     (N ++ `wrapQ_step, N ++ `QStepFull, [(N ++ `QStepCloses, "closing premise of wrapP"), (N ++ `QStepD0, "depth 0"), (N ++ `QStepName, "step for wrapP"),
+        (N ++ `QStepGs, "empty growth set")]),
      (N ++ `topshareM_closing, N ++ `ClosingFull, [(N ++ `ClosingD0, "depth 0"), (N ++ `ClosingCloses, "second closing premise of wrapM"),
         (N ++ `ClosingNoCoh, "no CacheCoh in the conclusion")])]
   for (thm, full, muts) in pairs do
@@ -258,7 +372,7 @@ open Tests.Compiler.ChildVertAuditTest in
 open Lean Elab Command Meta in
 run_cmd liftTermElabM do
   let N := `Tests.Compiler.SharedLeafMemKidRunTest
-  for thm in [N ++ `leafM_step, N ++ `wrapM_step, N ++ `topshareM_closing] do
+  for thm in [N ++ `leafM_step, N ++ `wrapM_step, N ++ `topshareM_closing, N ++ `wrapP_step, N ++ `wrapQ_step, N ++ `topshareQ_closing] do
     let cl ← depClosure thm
     let bad := hits cl
     unless bad.isEmpty do throwError "SRM1 AUDIT FAILED: old RefLaws boundary in the closure of {thm}: {bad}"
@@ -266,14 +380,19 @@ run_cmd liftTermElabM do
       `Tools.ShippingKidFacts.KidFacts, `Tools.ShippingMachineDepthRun.MachineRunNC, `Tools.ShippingSharedLeafCoh.CacheClosed]
     let bad2 := cl.toList.filter fun c => forbidden.any (·.isPrefixOf c)
     unless bad2.isEmpty do throwError "SRM1 AUDIT FAILED: old boundary / CacheClosed in the closure of {thm}: {bad2}"
+    let memLeaf : Bool := (thm.toString.splitOn "leafM").length > 1 || (thm.toString.splitOn "wrapM").length > 1 || (thm.toString.splitOn "topshareM").length > 1
     let must : List Name := [``Tools.ShippingMemLeafRun.synthesizeChild_miss_nm, ``Tools.ShippingMemLeafRun.closeLoop_gen, ``Tools.ShippingMemLeafCache.MemDet,
-      ``Tools.ShippingLeafMissCoh.CacheClosedNM, ``Tools.ShippingCallsMemA.machineClosesAtA_of_memOnlyData_names]
-    for m in (if thm == N ++ `topshareM_closing then ``Tools.ShippingMemLeafRun.closing_nm :: ``Tools.ShippingMemLeafCache.cacheCoh_of_nm :: must else must) do
+      ``Tools.ShippingLeafMissCoh.CacheClosedNM] ++
+      (if memLeaf then [``Tools.ShippingCallsMemA.machineClosesAtA_of_memOnlyData_names] else [``Tools.ShippingMemLeafRun.leafKid_step_nm])
+    for m in (if thm == N ++ `topshareM_closing || thm == N ++ `topshareQ_closing then ``Tools.ShippingMemLeafRun.closing_nm :: ``Tools.ShippingMemLeafCache.cacheCoh_of_nm :: must else must) do
       unless cl.contains m do throwError "SRM1 AUDIT FAILED: {m} not in the closure of {thm}"
     logInfo m!"SRM1 CLOSURE AUDIT: {thm}: standard axioms; closure {cl.size} constants; no old RefLaws boundary, no `CacheClosed`, no ChildBnd / GenKid / KidFacts; the memory-aware lemmas are in it"
 
 #print axioms Tests.Compiler.SharedLeafMemKidRunTest.leafM_step
 #print axioms Tests.Compiler.SharedLeafMemKidRunTest.wrapM_step
 #print axioms Tests.Compiler.SharedLeafMemKidRunTest.topshareM_closing
+#print axioms Tests.Compiler.SharedLeafMemKidRunTest.wrapP_step
+#print axioms Tests.Compiler.SharedLeafMemKidRunTest.wrapQ_step
+#print axioms Tests.Compiler.SharedLeafMemKidRunTest.topshareQ_closing
 
 end
