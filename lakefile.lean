@@ -3947,3 +3947,6 @@ lean_lib «Tools.ShippingSeqParentGenD2MSK» where
 
 lean_lib «Tests.Compiler.KaryThreeReturnedTest» where
   roots := #[`Tests.Compiler.KaryThreeReturnedTest]
+
+lean_lib «Tests.Compiler.KaryGenTest» where
+  roots := #[`Tests.Compiler.KaryGenTest]

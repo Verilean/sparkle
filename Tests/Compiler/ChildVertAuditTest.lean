@@ -86,6 +86,7 @@ import Tools.ShippingKaryComposed
 import Tools.ShippingKaryCalls
 import Tools.ShippingKaryFacts
 import Tools.ShippingKaryBridge
+import Tools.ShippingKaryReturned
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -567,7 +568,8 @@ def audited : List Name :=
    ``Tools.ShippingKaryComposed.kary_kidsMasked, ``Tools.ShippingKaryComposed.kary_designCheck, ``Tools.ShippingKaryComposed.kary_traceXA,
    ``Tools.ShippingKaryComposed.kary_soundLA, ``Tools.ShippingKaryComposed.kary_inRange,
    ``Tools.ShippingKaryCalls.kary_composed_split, ``Tools.ShippingKaryFacts.kSrcF_eq,
-   ``Tools.ShippingKaryBridge.KaryParentData.ofQuad, ``Tools.ShippingKaryBridge.KaryAll.ofQuad, ``Tools.ShippingKaryBridge.KaryBnd.ofQuad]
+   ``Tools.ShippingKaryBridge.KaryParentData.ofQuad, ``Tools.ShippingKaryBridge.KaryAll.ofQuad, ``Tools.ShippingKaryBridge.KaryBnd.ofQuad,
+   ``Tools.ShippingKaryReturned.kary_returned, ``Tools.ShippingKaryReturned.kary_wired]
 
 end Tests.Compiler.ChildVertAuditTest
 

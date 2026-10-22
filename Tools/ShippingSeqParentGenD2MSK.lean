@@ -2,7 +2,7 @@ import Tools.ShippingSeqParentGenD2MS
 import Tools.ShippingKaryBridge
 import Tools.ShippingKaryReturned
 import Tools.ShippingKaryFacts
--- BUILT (unit SR22): r2 exit 0 (dev run; 830 jobs); the final-SHA rebuild is in REPORT-SR22.md.
+-- BUILT (unit SR22): g2 exit 0 (Tests.Compiler.KaryGenTest, dev run; this module and its injection hook); the final-SHA rebuild is in REPORT-SR22.md.
 /-! # `#machine_seq_parent_endpoint P` — the K-ary shared-leaf CANDIDATE (unit SR22, ledger L8bb)
 
 STATUS (binding): a CANDIDATE, opt-in.  `set_option sparkle.karyCandidate true` (default `false`) lets THIS elaborator (registered after `Tools.ShippingSeqParentGenD2MS`, so tried first) take over a
@@ -11,7 +11,7 @@ declaration `P` of the K-ary class stated below; with the option off, for `K = 2
 statements, so the existing `SharedLeafGen*` audits are unaffected under every setting of this option.
 
 ## The K-ary class used by this generator (read from the stored `machineData` before any text is generated; each condition is only a PRE-FILTER, the kernel-checked declarations decide)
-* (K0) `P` has a call list `[C₀, C₀, C₁, C₁, …, C_{K-1}, C_{K-1}]` (each callee called exactly twice, consecutively), `K ≥ 1`, `K ≠ 2`, the `C_i` pairwise different, none a memory;
+* (K0) the instance list of `P` (`machineData.shape.insts`, which carries the TWO instances of each source call, consecutively) is `[C₀, C₀, C₁, C₁, …, C_{K-1}, C_{K-1}]`, `K ≥ 1`, `K ≠ 2`, the `C_i` pairwise different (so each callee has ONE source call), none a memory;
 * (K1) every callee has call instances, none a memory, all to ONE leaf `G` (the same for every callee; each callee may call it one or more times); `G` is not a memory and has no call instances;
   `G ∉ {C_i, P}`;
 * (K2) the decidable data facts (`KaryParentData`, `KaryParentExtra`, `LeafCalleeData`, `LeafCalleeExtra`, `LeafData`, `LeafKidData` of `Tools/ShippingKary*.lean` and `ShippingQuad*.lean`) are discharged by `decide` in the generated
@@ -30,7 +30,7 @@ open Tools.ShippingSeqParentGenD2MSD (callDecOf CallDec)
 
 register_option sparkle.karyCandidate : Bool := {
   defValue := false
-  descr := "SR22: let `#machine_seq_parent_endpoint` take over the K-ary shared-leaf class (K callees, each called twice consecutively, one shared leaf; K != 2) (candidate; default off)" }
+  descr := "SR22: let `#machine_seq_parent_endpoint` take over the K-ary shared-leaf class (K callees, one source call each (two consecutive instances), one shared leaf; K != 2) (candidate; default off)" }
 
 def patK (m : Nat) : String := "".intercalate ((List.range m).map fun _ => "_ | ") ++ "k"
 
@@ -270,6 +270,10 @@ def auditK (ep : Name) (lemma : Name) : MetaM Unit := do
 
 /-! ## the command -/
 
+register_option sparkle.karyInject : String := {
+  defValue := ""
+  descr := "SR22 TEST HOOK (default empty = off): `decl` appends a deliberately failing declaration to the K-ary path's text, `audit` makes its audit fail; either way the K-ary path must be undone and the existing elaborators run" }
+
 /-- the facts read for the K-ary class -/
 structure KParams where
   P : Name
@@ -339,6 +343,9 @@ def runPathK (p : KParams) : CommandElabM Unit := do
     genText p.P p.Cs p.kCs p.G p.kP p.mP p.mCs p.nOutsG calleeCalls parentCalls parentCallee
   for bad in ["maxHeartbeats", "oldGroupFact%", "oldInst%", "oldNamed%", "machine_composedNR", "seq_child_runN_ofR"] do
     if (txt.splitOn bad).length > 1 then throwError "SR22 AUDIT FAILED: the generated text mentions `{bad}`"
+  -- (test hook, default off) a deliberately failing generated declaration, placed AFTER the generated facts so that earlier declarations exist when it fails
+  let inj := sparkle.karyInject.get (← getOptions)
+  let txt := if inj == "decl" then txt ++ s!"\ntheorem _root_.{p.P}.epK_injected : (1 : Nat) = 2 := by decide\n" else txt
   try Tools.ShippingSeqParentGenD2MS.runCmdsDiag txt
   catch e =>
     try Tools.ShippingSeqParentGen.runCmds "end" catch _ => pure ()
@@ -358,6 +365,7 @@ def runPathK (p : KParams) : CommandElabM Unit := do
         if e.hasMVar || ty.hasMVar then throwError "SR22: unassigned metavariables in the {nm} term"
         addAndCompile <| .thmDecl { name := p.P ++ nm, levelParams := [], type := ty, value := e }
         auditK (p.P ++ nm) lem
+    if inj == "audit" then throwError "SR22 injected audit failure"
   finally
     Tools.ShippingSeqParentGen.runCmds "end"
 
@@ -383,7 +391,7 @@ def elabEndpointK : CommandElab := fun stx => do
   let fn ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo f
   unless (← getEnv).contains (fn ++ `machineData) do throwUnsupportedSyntax
   let some p ← analyseK fn | throwUnsupportedSyntax
-  logInfo m!"SR22 K-ary candidate: {p.P} calls {p.Cs} (each twice, consecutively; K = {p.Cs.length}), all of which call the SAME leaf {p.G} (kP {p.kP}, kC {p.kCs}); {p.mP} call instance(s)"
+  logInfo m!"SR22 K-ary candidate: {p.P} calls {p.Cs} (two consecutive instances each, one source call each; K = {p.Cs.length}), all of which call the SAME leaf {p.G} (kP {p.kP}, kC {p.kCs}); {p.mP} call instance(s)"
   let saved ← get
   let ok ← try
       runPathK p
