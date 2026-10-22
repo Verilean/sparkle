@@ -3818,3 +3818,6 @@ lean_lib «Tools.ShippingSharedLeafNL» where
 
 lean_lib «Tools.ShippingTopShareRun» where
   roots := #[`Tools.ShippingTopShareRun]
+
+lean_lib «Tests.Compiler.TopShareInstTest» where
+  roots := #[`Tests.Compiler.TopShareInstTest]
