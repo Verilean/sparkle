@@ -3,12 +3,13 @@ import Tools.Prototype.ExtRootFloat
 
 /-! # Unit EXT2 (1/N): the operation record `ExtOps`, an exact `Expr.eqv` model, and the ISOLATED reader phases that CALL it
 
-STATUS: UNBUILT at the time of writing this header (the build log is kept in REPORT-EXT2.md and in the ledger L6c28).
+STATUS: BUILT; run names and exits are kept in REPORT-EXT2.md and in the ledger L6c28 (docs/parallel/main-theorem-connection.md).
 
-Scope. `ExtOps` collects the seven operations the model reader previously took from the shipped (extern / partial) code and the
+Scope. `ExtOps` collects the operations the model reader previously took from the shipped (extern / partial) code and the
 LetOk proofs needed premises for: `Expr.liftLooseBVars`, `Expr.lowerLooseBVars`, `Expr.instantiate1`, `Expr.beta` (one argument),
-`Expr.eqv` (`==`), `rootFloat` (`partial def`) and `zeroLit` (the extern `Expr.replace`). `shippedOps` are the shipped operations;
-`modelOps` the kernel-visible models (`liftM`, `lowerM`, `inst1M`, `betaM`, `eqvX`, `rootFloatM`, `zeroLitM`).
+`Expr.eqv` (`==`), `rootFloat` (`partial def`), `zeroLit` (the extern `Expr.replace`) and, for the slot reservation, `zetaAll` (`partial def`).
+`shippedOps` are the shipped operations; `modelOps` the kernel-visible models (`liftM`, `lowerM`, `inst1M`, `betaM`, `eqvX`, `rootFloatS`, `zeroLitM`,
+`zetaAllM`).
 `xxxX O …` is the TEXT of the shipped reader phase `xxx` with the call sites of those operations turned into `O.…`
 (the phases that do not call them are shared, not copied). `…X shippedOps` is the shipped phase (checked by `rfl`/short proofs below).
 
@@ -46,8 +47,10 @@ def levelsEqX : List Lean.Level → List Lean.Level → Bool
   | a :: as, b :: bs => levelEqX a b && levelsEqX as bs
   | _, _ => false
 
-/-- Model of `Expr.eqv` (`==` on `Expr`). Unlike `eqvM` (EXT; an over-approximation sufficient for the `LetOk` direction), this one
-compares constants, levels, literals and `mdata` payloads, so a reader that CALLS it takes the same branches as one that calls the extern. -/
+/-- Model of `Expr.eqv` (`==` on `Expr`): binder names and binder infos are ignored; the `let` `nonDep` flag, constants, levels, literals and
+`mdata` payloads are compared (the executed grid `Tests/Compiler/ExtReaderOpsAgreeTest.lean` found that the extern DOES compare `nonDep`).
+Unlike `eqvM` (EXT; an over-approximation sufficient for the `LetOk` direction, one direction of `EqvCorr` only), this is intended as a
+faithful model, so that a reader that CALLS it takes the same branches as one that calls the extern; agreement is tested, not proved. -/
 def eqvX : Lean.Expr → Lean.Expr → Bool
   | .bvar i, .bvar j => i == j
   | .fvar a, .fvar b => a.name == b.name
@@ -58,7 +61,7 @@ def eqvX : Lean.Expr → Lean.Expr → Bool
   | .app f a, .app f' a' => eqvX f f' && eqvX a a'
   | .lam _ t b _, .lam _ t' b' _ => eqvX t t' && eqvX b b'
   | .forallE _ t b _, .forallE _ t' b' _ => eqvX t t' && eqvX b b'
-  | .letE _ t v b _, .letE _ t' v' b' _ => eqvX t t' && eqvX v v' && eqvX b b'
+  | .letE _ t v b nd, .letE _ t' v' b' nd' => nd == nd' && (eqvX t t' && eqvX v v' && eqvX b b')
   | .mdata m e, .mdata m' e' => m == m' && eqvX e e'
   | .proj s i e, .proj s' i' e' => s == s' && i == i' && eqvX e e'
   | _, _ => false
@@ -96,7 +99,7 @@ theorem letOk_eqvX (k : Nat) : ∀ (a b : Lean.Expr), eqvX a b = true → LetOk 
     cases c <;> simp only [eqvX] at h <;> try contradiction
     simp only [Bool.and_eq_true] at h
     simp only [LetOk, Bool.and_eq_true] at hc ⊢
-    exact ⟨⟨iht _ h.1.1 hc.1.1, ihv _ h.1.2 hc.1.2⟩, ihb _ h.2 hc.2⟩
+    exact ⟨⟨iht _ h.2.1.1 hc.1.1, ihv _ h.2.1.2 hc.1.2⟩, ihb _ h.2.2 hc.2⟩
   | mdata m e ih =>
     intro c h hc
     cases c <;> simp only [eqvX] at h <;> try contradiction

@@ -3751,3 +3751,6 @@ lean_lib «Tests.Compiler.ExtReaderWholeAgreeTest» where
 
 lean_lib «Tests.Compiler.ExtReaderOpsAgreeTest» where
   roots := #[`Tests.Compiler.ExtReaderOpsAgreeTest]
+
+lean_lib «Tools.Prototype.ExtReaderFinal» where
+  roots := #[`Tools.Prototype.ExtReaderFinal]

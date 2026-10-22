@@ -33,15 +33,17 @@ def runEqv : IO Unit := do
   let mut trues := 0
   let mut falses := 0
   let mut nonSyn := 0
+  let mut diffs : List String := []
   for a in eqvGrid do
     for c in eqvGrid do
       let r := a == c
-      unless r == eqvX a c do throw (IO.userError s!"eqv differs on {a} / {c}: real {r} model {eqvX a c}")
+      if r != eqvX a c then diffs := s!"{a} / {c}: real {r} model {eqvX a c}" :: diffs
       if r then
         trues := trues + 1
         unless a.equal c do nonSyn := nonSyn + 1
       else falses := falses + 1
-  IO.println s!"EXT2 EQV AGREEMENT: pairs={trues + falses} equal={trues} unequal={falses} alpha-only-equal={nonSyn}"
+  IO.println s!"EXT2 EQV AGREEMENT: pairs={trues + falses} equal={trues} unequal={falses} alpha-only-equal={nonSyn} differences={diffs.length}"
+  unless diffs.isEmpty do throw (IO.userError s!"eqv differs ({diffs.length}); first: {diffs.take 12}")
   unless trues ≥ eqvGrid.length && falses ≥ 100 && nonSyn ≥ 3 do throw (IO.userError "vacuous eqv grid")
 
 #eval runEqv
