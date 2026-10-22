@@ -2,7 +2,24 @@ import Tools.Prototype.NormStepModel
 
 /-! # Unit EXT (1/2): kernel-visible MODELS of the extern / partial operations of the model reader, with `LetOk` proved for the models
 
-UNBUILT until the run names below are filled in (unit EXT).
+BUILT (unit EXT): e1 exit 1 (3 proof errors), e2 exit 1 (missing `open`s), e3 exit 0 (first full file); Tests.Compiler.ExtModelAgreeTest
+t4 exit 0 after the `lowerM` guard (t1 exit 1 / t2 exit 1 / t3 exit 1 = test-file errors and the probe that found the guard); the `lowerM` change was
+built through t4, which compiles this file. No sorry / axiom / native_decide. `#print axioms` below: only [propext] / [propext, Quot.sound]
+for the model lemmas.
+
+EVERY Prop premise of `machineShapeNM_typed_all_rawNode'` and its kind (before this unit):
+* `hroot : RootFloatRange` — `partial def rootFloat` (MachRawSurface.lean:198; calls the extern `liftLooseBVars`).
+* `hinst1 : Inst1Range` — extern `Expr.instantiate1`.
+* `hsig : SigTyRange senv` — INPUT condition on the environment (`senv.instS` result types mention no `_machLet`).
+* `hz : ZeroLitAgrees` — extern `Expr.replace` ↔ structural `replaceNoCache` (already a correspondence; its range is `zeroLit_ok`, proved).
+* `hll : LiftLooseRange` — extern `liftLooseBVars`.   * `hlo : LowerLooseRange` — extern `lowerLooseBVars`.
+* `hbeta : BetaRange` — `partial def betaRev` behind `Expr.beta`.   * `hE : EqvLetOk0` — extern `Expr.eqv`.
+* `hpe` — INPUT condition (the preprocessed term of `shapePre` has `LetOk 0`; a generation-time fact about the user's term, not derived).
+After this unit the six operation premises (`hroot hinst1 hll hlo hbeta hE`) are replaced, in `machineShapeNM_typed_all_rawNode_corr`, by one
+correspondence premise per operation. The `LetOk` part is PROVED for the models. `hsig`, `hz`, `hpe` are unchanged.
+What was NOT done: the reader copies still call the shipped operations (`rootFloat` at Elab.lean:3990/4155/5088, `instantiate1` at
+4095/4989/4992, `liftLooseBVars` in `rootFloat`/`rawNode`); no reader variant that calls the models exists. A correspondence premise is
+extensional agreement of an extern with a model, NOT a discharge; it is evidence-tested only.
 
 Scope. Models of the operations behind the premises of `machineShapeNM_typed_all_rawNode'`, each by structural recursion on `Expr`
 (`rootFloat`: fuel recursion): `liftM` (`Expr.liftLooseBVars`, extern), `lowerM` (`lowerLooseBVars`, extern), `inst1M`
@@ -35,16 +52,20 @@ def liftM : Lean.Expr → Nat → Nat → Lean.Expr
   | .proj sn i e, s, d => .proj sn i (liftM e s d)
   | e, _, _ => e
 
-/-- Model of `Expr.lowerLooseBVars e s d`: loose `bvar i` with `i ≥ s` becomes `bvar (i - d)`. -/
-def lowerM : Lean.Expr → Nat → Nat → Lean.Expr
+/-- Structural part of the `lowerLooseBVars` model: loose `bvar i` with `i ≥ s` becomes `bvar (i - d)`. -/
+def lowerCore : Lean.Expr → Nat → Nat → Lean.Expr
   | .bvar i, s, d => if s ≤ i then .bvar (i - d) else .bvar i
-  | .app f a, s, d => .app (lowerM f s d) (lowerM a s d)
-  | .lam n t b bi, s, d => .lam n (lowerM t s d) (lowerM b (s + 1) d) bi
-  | .forallE n t b bi, s, d => .forallE n (lowerM t s d) (lowerM b (s + 1) d) bi
-  | .letE n t v b nd, s, d => .letE n (lowerM t s d) (lowerM v s d) (lowerM b (s + 1) d) nd
-  | .mdata m e, s, d => .mdata m (lowerM e s d)
-  | .proj sn i e, s, d => .proj sn i (lowerM e s d)
+  | .app f a, s, d => .app (lowerCore f s d) (lowerCore a s d)
+  | .lam n t b bi, s, d => .lam n (lowerCore t s d) (lowerCore b (s + 1) d) bi
+  | .forallE n t b bi, s, d => .forallE n (lowerCore t s d) (lowerCore b (s + 1) d) bi
+  | .letE n t v b nd, s, d => .letE n (lowerCore t s d) (lowerCore v s d) (lowerCore b (s + 1) d) nd
+  | .mdata m e, s, d => .mdata m (lowerCore e s d)
+  | .proj sn i e, s, d => .proj sn i (lowerCore e s d)
   | e, _, _ => e
+
+/-- Model of `Expr.lowerLooseBVars e s d`. The executed probe (Tests/Compiler/ExtModelAgreeTest.lean) shows the shipped extern returns
+`e` unchanged when `s < d` (the precondition `d ≤ s` of the C++ is not met), so the model has that guard. -/
+def lowerM (e : Lean.Expr) (s d : Nat) : Lean.Expr := if s < d then e else lowerCore e s d
 
 /-- Model of `instantiate1 b a` under `off` binders: `bvar off` is `a` lifted by `off`, deeper loose variables drop by one. -/
 def inst1M : Lean.Expr → Lean.Expr → Nat → Lean.Expr
@@ -106,17 +127,23 @@ theorem letOk_liftM (k : Nat) : ∀ (e : Lean.Expr) (s d : Nat), LetOk k (liftM 
   | proj sn i e ih => intro s d; simp only [liftM, LetOk, ih]
   | _ => intro s d; simp [liftM, LetOk]
 
-theorem letOk_lowerM (k : Nat) : ∀ (e : Lean.Expr) (s d : Nat), LetOk k (lowerM e s d) = LetOk k e := by
+theorem letOk_lowerCore (k : Nat) : ∀ (e : Lean.Expr) (s d : Nat), LetOk k (lowerCore e s d) = LetOk k e := by
   intro e
   induction e with
-  | bvar i => intro s d; unfold lowerM; split <;> rfl
-  | app f a ihf iha => intro s d; simp only [lowerM, LetOk, ihf, iha]
-  | lam n t b bi iht ihb => intro s d; simp only [lowerM, LetOk, iht, ihb]
-  | forallE n t b bi iht ihb => intro s d; simp only [lowerM, LetOk, iht, ihb]
-  | letE n t v b nd iht ihv ihb => intro s d; simp only [lowerM, LetOk, iht, ihv, ihb]
-  | mdata m e ih => intro s d; simp only [lowerM, LetOk, ih]
-  | proj sn i e ih => intro s d; simp only [lowerM, LetOk, ih]
-  | _ => intro s d; simp [lowerM, LetOk]
+  | bvar i => intro s d; unfold lowerCore; split <;> rfl
+  | app f a ihf iha => intro s d; simp only [lowerCore, LetOk, ihf, iha]
+  | lam n t b bi iht ihb => intro s d; simp only [lowerCore, LetOk, iht, ihb]
+  | forallE n t b bi iht ihb => intro s d; simp only [lowerCore, LetOk, iht, ihb]
+  | letE n t v b nd iht ihv ihb => intro s d; simp only [lowerCore, LetOk, iht, ihv, ihb]
+  | mdata m e ih => intro s d; simp only [lowerCore, LetOk, ih]
+  | proj sn i e ih => intro s d; simp only [lowerCore, LetOk, ih]
+  | _ => intro s d; simp [lowerCore, LetOk]
+
+theorem letOk_lowerM (k : Nat) (e : Lean.Expr) (s d : Nat) : LetOk k (lowerM e s d) = LetOk k e := by
+  unfold lowerM
+  split
+  · rfl
+  · exact letOk_lowerCore k e s d
 
 theorem letOk_inst1M (k : Nat) {a : Lean.Expr} (ha : LetOk k a = true) :
     ∀ (b : Lean.Expr) (off : Nat), LetOk k b = true → LetOk k (inst1M b a off) = true := by

@@ -15,11 +15,18 @@ def f1 : Expr := .const `f []
 
 def grid : List Expr :=
   [ b 0, b 1, b 3, f1, nat 4, .app f1 (b 0), .app (b 2) (.app (b 0) (b 5)),
-    .lam `x f1 (.app (b 0) (b 1)), .lam `x (b 0) (.lam `y (b 1) (.app (b 0) (.app (b 1) (b 2)))),
+    .lam `x f1 (.app (b 0) (b 1)) .default,
+    .lam `x (b 0) (.lam `y (b 1) (.app (b 0) (.app (b 1) (b 2))) .default) .default,
     .forallE `x (b 0) (.app (b 1) (b 0)) .default,
     .letE `x (b 0) (.app (b 1) (b 0)) (.app (b 0) (.app (b 1) (b 2))) false,
     .mdata {} (.app (b 0) (b 2)), .proj `Prod 1 (.app (b 0) (b 3)),
-    .lam `x f1 (.mdata {} (.letE `y (b 0) (b 1) (.lam `z (b 2) (b 3)) true)) .default ]
+    .lam `x f1 (.mdata {} (.letE `y (b 0) (b 1) (.lam `z (b 2) (b 3) .default) true)) .default ]
+
+def probe : IO Unit := do
+  for (s, d) in [(0, 1), (1, 1), (1, 2), (2, 1), (2, 2), (3, 2)] do
+    IO.println s!"lower probe s={s} d={d}: real {(b 1).lowerLooseBVars s d} / {(b 2).lowerLooseBVars s d} / {(b 3).lowerLooseBVars s d}; model {lowerM (b 1) s d} / {lowerM (b 2) s d} / {lowerM (b 3) s d}"
+
+#eval probe
 
 def run : IO Unit := do
   let mut cnt := 0
@@ -28,7 +35,7 @@ def run : IO Unit := do
     for s in [0, 1, 2] do
       for d in [0, 1, 2] do
         unless (e.liftLooseBVars s d).equal (liftM e s d) do throw (IO.userError s!"lift differs {e} {s} {d}")
-        unless (e.lowerLooseBVars s d).equal (lowerM e s d) do throw (IO.userError s!"lower differs {e} {s} {d}")
+        unless (e.lowerLooseBVars s d).equal (lowerM e s d) do throw (IO.userError s!"lower differs {e} {s} {d}: real {e.lowerLooseBVars s d} model {lowerM e s d}")
         cnt := cnt + 2
         unless (e.liftLooseBVars s d).equal e do changed := changed + 1
     for a in grid do
