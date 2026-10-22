@@ -3745,3 +3745,6 @@ lean_lib «Tools.Prototype.DGenStored» where
 
 lean_lib «Tools.Prototype.DGenStored2» where
   roots := #[`Tools.Prototype.DGenStored2]
+
+lean_lib «Tests.Compiler.DGenToggleStoredTest» where
+  roots := #[`Tests.Compiler.DGenToggleStoredTest]
