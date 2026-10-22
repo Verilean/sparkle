@@ -1,6 +1,6 @@
 import Tools.ShippingSeqParentGenD2M
+import Tools.ShippingQuadHPoint
 -- BUILT (unit SR18): h2 exit 0 (Tools.ShippingSeqParentGenD2MSG), h3 exit 0 (Tools.ShippingSeqParentGenD2MS) (dev runs); final-SHA rebuild in REPORT-SR18.md.
--- UNBUILT (unit SR18): to be built as run h2.
 /-! # Text of the GENERIC-lemma path of the shared-leaf candidate (unit SR18, ledger L8ax)
 
 Strings only (no elaborator): the declarations that `Tools/ShippingSeqParentGenD2MS.lean` (opt-in `sparkle.sharedLeafCandidate`, default `false`) emits, per accepted parent `P`, for the
