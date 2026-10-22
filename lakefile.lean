@@ -4034,3 +4034,6 @@ lean_lib «Tests.Compiler.Srm4ParentTest» where
 
 lean_lib «Tests.Compiler.Srm4ComposedTest» where
   roots := #[`Tests.Compiler.Srm4ComposedTest]
+
+lean_lib «Tests.Compiler.Srm4ParentQTest» where
+  roots := #[`Tests.Compiler.Srm4ParentQTest]
