@@ -4046,3 +4046,6 @@ lean_lib «Tools.ShippingSrm4Mixed» where
 
 lean_lib «Tests.Compiler.Srm4MixedTest» where
   roots := #[`Tests.Compiler.Srm4MixedTest]
+
+lean_lib «Tests.Compiler.Srm4ComposedQTest» where
+  roots := #[`Tests.Compiler.Srm4ComposedQTest]
