@@ -3860,3 +3860,9 @@ lean_lib «Tests.Compiler.SharedLeafGenTest» where
 
 lean_lib «Tests.Compiler.SharedLeafGenTopshareTest» where
   roots := #[`Tests.Compiler.SharedLeafGenTopshareTest]
+
+lean_lib «Tools.ShippingQuadReturned» where
+  roots := #[`Tools.ShippingQuadReturned]
+
+lean_lib «Tests.Compiler.QuadReturnedTest» where
+  roots := #[`Tests.Compiler.QuadReturnedTest]

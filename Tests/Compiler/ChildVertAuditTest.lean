@@ -74,6 +74,7 @@ import Tools.ShippingTopShareRan
 import Tools.ShippingSeqParentAt
 import Tools.ShippingTopShareNoParent
 import Tools.ShippingQuadLeafGeneric
+import Tools.ShippingQuadReturned
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -536,7 +537,8 @@ def audited : List Name :=
    ``Tools.ShippingQuadLeafGeneric.leafCallee_hgk, ``Tools.ShippingQuadLeafGeneric.leafCallee_ifaceP,
    ``Tools.ShippingQuadLeafGeneric.leafCallee_calleeOK, ``Tools.ShippingQuadLeafGeneric.quad_shape,
    ``Tools.ShippingQuadLeafGeneric.quad_closes0, ``Tools.ShippingQuadLeafGeneric.quad_machineRun,
-   ``Tools.ShippingQuadLeafGeneric.quad_entry_run_ret_np]
+   ``Tools.ShippingQuadLeafGeneric.quad_entry_run_ret_np,
+   ``Tools.ShippingQuadReturned.quad_returned, ``Tools.ShippingQuadReturned.quad_wired]
 
 end Tests.Compiler.ChildVertAuditTest
 
