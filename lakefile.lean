@@ -3968,3 +3968,6 @@ lean_lib «Tools.ShippingNmEntry» where
 
 lean_lib «Tests.Compiler.SharedLeafMemKidRunTest» where
   roots := #[`Tests.Compiler.SharedLeafMemKidRunTest]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidEntryTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidEntryTest]
