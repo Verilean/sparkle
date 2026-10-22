@@ -3920,3 +3920,6 @@ lean_lib «Tools.ShippingKaryLeafGeneric» where
 
 lean_lib «Tools.ShippingKaryComposed» where
   roots := #[`Tools.ShippingKaryComposed]
+
+lean_lib «Tools.ShippingKaryCalls» where
+  roots := #[`Tools.ShippingKaryCalls]
