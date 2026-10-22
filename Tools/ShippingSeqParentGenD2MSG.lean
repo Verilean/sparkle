@@ -1,5 +1,7 @@
 import Tools.ShippingSeqParentGenD2M
 import Tools.ShippingQuadHPoint
+import Tools.ShippingSeqParentGenD2MSD
+-- BUILT (unit SR19): a8 exit 0 (dev run; decoding equations from the generated machineExt, no old chain); final-SHA rebuild in REPORT-SR19.md.
 -- BUILT (unit SR18): h2 exit 0 (Tools.ShippingSeqParentGenD2MSG), h3 exit 0 (Tools.ShippingSeqParentGenD2MS) (dev runs); final-SHA rebuild in REPORT-SR18.md.
 /-! # Text of the GENERIC-lemma path of the shared-leaf candidate (unit SR18, ledger L8ax)
 
@@ -10,7 +12,7 @@ class QUAD, in addition to the data facts of SR13:
 * `epD2M_genP`, `epD2M{i}_C_gen`: the `GenFacts` of the parent and of each callee, assembled from the generator's own `machine_*` theorems;
 * `epD2M_leafRun := G.seq_child_runN` (the leaf's generated run theorem, a theorem of the machine route, not an input);
 * `epD2M{i}_C_hextB` / `_hext`: the declared inputs are read by the generated `machineExtB` / `machineExt` (`unfold` + `extendBits_of_ne`);
-* `epD2M{i}_C_hPoint{k}` / `epD2M_hPoint{k}`: the PER-CALL residue `HPointAt … k` of `CallFactF` (decoding equations = the generator's own `gfHb*`/`gfHv*`, output defeq by `rfl`), and
+* `epD2M{i}_C_hPoint{k}` / `epD2M_hPoint{k}`: the PER-CALL residue `HPointAt … k` of `CallFactF` (decoding equations `Hb0`/`Hv0` stated and proved in the theorem from the generated `machineExt`/`machineExtB` (unit SR19; before: the old chain's `gfHb*`/`gfHv*`), output defeq by `rfl`), and
   `epD2M{i}_C_hF`, `epD2M_hFP` (`callFactF_of_hPointAt`);
 * the bodies of `epD2M_hkid / ranA / runFacts / outsCheck / kidsMasked / designCheck / traceXA / soundLA / composedA` are the generic lemmas (`quad_hkid` … `quad_composed_split`); their
   STATEMENTS are the ones of the SR13 template (unchanged), so the endpoint statement is unchanged.
@@ -18,15 +20,18 @@ Each declaration is checked by the kernel when it is elaborated.  These are fact
 theorem over the whole class.  If a generated declaration fails to check, the generator logs which one and falls back to the SR13 path (nothing of the failed run is kept; no input is refused). -/
 namespace Tools.ShippingSeqParentGenD2MSG
 open Tools.ShippingSeqParentGenD2M
+open Tools.ShippingSeqParentGenD2MSD (CallDec)
 
 /-- facts read from the environment by the elaborator -/
 structure GenInfo where
   /-- call instances of each callee -/
   mCs : List Nat
-  /-- number of group-fact bundles (`gfHb{j}`) of each callee's old `hcalls` -/
-  nGCs : List Nat
   /-- output fields of the leaf -/
   nOutsG : Nat
+  /-- per callee, the decoding data of each of its calls (of the leaf) -/
+  calleeCalls : List (List CallDec)
+  /-- the decoding data of each call of the parent -/
+  parentCalls : List CallDec
 deriving Repr
 
 /-- replace the BODY of the declaration that starts with `marker`: from its first `:=` up to the first blank line (the statement is kept) -/
@@ -67,9 +72,8 @@ theorem _root_.@P@.epD2M_quadAll : Tools.ShippingQuadComposed.QuadAll @P@.machin
 
 /-- `GenFacts`, `hextB`, `hext` of callee `@I@` and the leaf run (once) -/
 def calleeGenTmpl : String := r#"
-instance _root_.@P@.epD2M@I@_C_inhab : Inhabited (HList (Tools.ShippingMachineDenote.tys @C@.machineData.ss)) :=
-  oldInst% (Inhabited (HList (Tools.ShippingMachineDenote.tys @C@.machineData.ss))) @C@.machine_composedNR1
-    Tools.ShippingMachineCausal.machine_traceL_of_data_causalRA
+noncomputable instance _root_.@P@.epD2M@I@_C_inhab : Inhabited (HList (Tools.ShippingMachineDenote.tys @C@.machineData.ss)) :=
+  ⟨Tools.ShippingSeqParentGenD2MSD.defaultHList _⟩
 
 theorem _root_.@P@.epD2M@I@_C_gen : Tools.ShippingQuadComposed.GenFacts @C@.machineData (fun i : Sparkle.Core.Domain.DomainConfig => i) @C@.machineInits @C@.machineBody
     @C@.machineResult @C@.machineExt @C@.machineExtB @C@.machineSource :=
@@ -116,11 +120,30 @@ def parentFam : String := r#"(Tools.ShippingMachineCausal.letObsB @P@.machineDat
     (fun i bools bits => @P@.machineExtB i bools bits (Tools.ShippingMachineSource.stateLoop @P@.machineInits (@P@.machineBody i bools bits)))
     (Tools.ShippingQuadComposed.quadOutsOf ``@C0@ ``@C1@ @C0@.machineData @C1@.machineData)"#
 
-/-- the `have Hb{j} Hv{j}` lines (the generator's own `gfHb*` / `gfHv*` of the old chain `thm`, extracted typed) -/
-def hbhv (thm : String) (nG : Nat) : String :=
-  "\n".intercalate ((List.range nG).map fun j =>
-    s!"  have Hb{j} := oldGroupFact% (_) {thm} Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN hcalls gfHb{j}\n" ++
-    s!"  have Hv{j} := oldGroupFact% (_) {thm} Tools.ShippingMachineCallsLinkedTNR.machine_linkedT_callsRN hcalls gfHv{j}")
+/-- (unit SR19) the decoding equations `Hb0` / `Hv0` of ONE call, stated and proved directly (no old chain): the decoded families of the call's argument `let`s equal the
+family extended at the callee's input positions by the call's argument expressions read from the generated `machineExt` / `machineExtB`.  `bs` = the callee's input binders, `lsrc` = the caller's `let` observations. -/
+def decHaves (dom bs lsrc : String) (cd : CallDec) : String :=
+  let args := "[" ++ ", ".intercalate (cd.args.map toString) ++ "]"
+  let vals := s!"(Tools.ShippingMachineCallsLinkedT.valsOf {lsrc} ({args} : List Nat))"
+  let baseA := s!"(Tools.ShippingMachineChild.boolsOf (D := {dom}) {bs} {vals})"
+  let baseB := s!"(Tools.ShippingMachineChild.bitsOf (D := {dom}) {bs} {vals})"
+  let chainA := (cd.kinds.filter (· == true)).foldl (fun acc _ =>
+    s!"(Tools.ShippingMachineDepthCommand.Grouped.extendBools_absorb {acc} (Tools.ShippingMachineCallsLinkedT.boolsOf_at (fun τ => Tools.ShippingMachineCallsLinkedT.decB_valsOf rfl (by decide) rfl τ)))") "rfl"
+  let chainB := (cd.kinds.filter (· == false)).foldl (fun acc _ =>
+    s!"(Tools.ShippingMachineDepthCommand.Grouped.extendBits_absorb {acc} (Tools.ShippingMachineCallsLinkedT.bitsOf_at (fun τ => Tools.ShippingMachineCallsLinkedT.decV_valsOf rfl (by decide) rfl τ)))") "rfl"
+  let hb := if cd.kinds.any (· == true) then
+      s!"  have Hb0 : {baseA} = {cd.aTxt.replace "@BASEA@" baseA} := by
+    first
+      | (funext p; (try simp (config := \{ zetaDelta := true }) only [Tools.ShippingMachineCausal.extendBools]); (repeat' split) <;> (first | (rename_i hp; subst hp; exact Tools.ShippingMachineCallsLinkedT.boolsOf_at (fun τ => Tools.ShippingMachineCallsLinkedT.decB_valsOf rfl (by decide) rfl τ)) | rfl))
+      | exact {chainA}"
+    else s!"  have Hb0 : {baseA} = {cd.aTxt.replace "@BASEA@" baseA} := rfl"
+  let hv := if cd.kinds.any (· == false) then
+      s!"  have Hv0 : {baseB} = {cd.bTxt.replace "@BASEB@" baseB} := by
+    first
+      | (funext p n; (try simp (config := \{ zetaDelta := true }) only [Tools.ShippingMachineAuto.extendBits]); (repeat' split) <;> (first | (rename_i hp; obtain ⟨hp1, hp2⟩ := hp; subst hp1; subst hp2; (try simp only [cast_eq]); exact Tools.ShippingMachineCallsLinkedT.bitsOf_at (fun τ => Tools.ShippingMachineCallsLinkedT.decV_valsOf rfl (by decide) rfl τ)) | rfl))
+      | exact {chainB}"
+    else s!"  have Hv0 : {baseB} = {cd.bTxt.replace "@BASEB@" baseB} := rfl"
+  hb ++ "\n" ++ hv
 
 /-- `first | (refine …) | …` over the (group, output field) pairs -/
 def pointAlts (groups : List (Nat × Nat)) : String :=
@@ -191,18 +214,22 @@ def genB (p : D2MParams) (g : GenInfo) : String := Id.run do
   for i in rangeR p do
     out := out ++ sub1 p i calleeGenTmpl
     let mC := g.mCs.getD i 0
-    let groupsC := (List.range (g.nGCs.getD i 0)).map fun j => (j, g.nOutsG)
+    let C := (p.Cs.getD i .anonymous).toString
+    let lsrcC := s!"(Tools.ShippingMachineCausal.letObsB {C}.machineData (fun i : Sparkle.Core.Domain.DomainConfig => i) {C}.machineInits {C}.machineBody {C}.machineExt {C}.machineExtB i bools bits)"
     for k in List.range mC do
+      let some cd := (g.calleeCalls.getD i [])[k]? | panic! s!"genB: no decoding data for call {k} of {C}"
       out := out ++ (sub1 p i (calleePointTmpl.replace "@FAM@" calleeFam)).replace "@CK@" (toString k)
-        |>.replace "@HBHV@" (hbhv s!"{(p.Cs.getD i .anonymous)}.machine_composedNR1" (g.nGCs.getD i 0))
-        |>.replace "@ALTS@" (pointAlts groupsC)
+        |>.replace "@HBHV@" (decHaves "i" s!"{(p.Gs.getD i .anonymous)}.machineData.bsIn" lsrcC cd)
+        |>.replace "@ALTS@" (pointAlts [(0, g.nOutsG)])
     out := out ++ ((sub1 p i (calleeHFTmpl.replace "@FAM@" calleeFam)).replace "@MC@" (toString mC) |>.replace "@MPAT@" (pat mC)).replace "@EXACTS@"
       ("\n".intercalate ((List.range mC).map fun k => s!"        | exact @P@.epD2M@I@_C_hPoint{k}".replace "@I@" (toString i)))
-  let groupsP := p.groups.zipIdx.map fun ((ci, _), j) => (j, p.nOutsCs.getD ci 0)
+  let lsrcP := s!"(Tools.ShippingMachineCausal.letObsB {p.P}.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) {p.P}.machineInits {p.P}.machineBody {p.P}.machineExt {p.P}.machineExtB i bools bits)"
   for k in List.range p.mP do
+    let some cd := g.parentCalls[k]? | panic! s!"genB: no decoding data for call {k} of {p.P}"
+    let ci := p.instCallee.getD k 0
     out := out ++ (parentPointTmpl.replace "@FAM@" parentFam).replace "@CK@" (toString k)
-      |>.replace "@HBHV@" (hbhv s!"{p.P}.machine_composedNR2" p.groups.length)
-      |>.replace "@ALTS@" (pointAlts groupsP)
+      |>.replace "@HBHV@" (decHaves "Sparkle.Core.Domain.defaultDomain" s!"(List.take {p.kCs.getD ci 0} {(p.Cs.getD ci .anonymous)}.machineData.bsIn)" lsrcP cd)
+      |>.replace "@ALTS@" (pointAlts [(0, p.nOutsCs.getD ci 0)])
   out := out ++ ((parentHFTmpl.replace "@FAM@" parentFam).replace "@MC@" (toString p.mP) |>.replace "@MPAT@" (pat p.mP)).replace "@EXACTS@"
     ("\n".intercalate ((List.range p.mP).map fun k => s!"        | exact @P@.epD2M_hPoint{k}"))
   let o2 := out.replace "@C0@" (p.Cs.getD 0 .anonymous).toString |>.replace "@C1@" (p.Cs.getD 1 .anonymous).toString

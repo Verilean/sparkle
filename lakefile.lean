@@ -3861,6 +3861,12 @@ lean_lib «Tests.Compiler.SharedLeafGenTest» where
 lean_lib «Tests.Compiler.SharedLeafGenTopshareTest» where
   roots := #[`Tests.Compiler.SharedLeafGenTopshareTest]
 
+lean_lib «Tests.Compiler.SharedLeafGenDefaultHbTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenDefaultHbTest]
+
+lean_lib «Tests.Compiler.SharedLeafGenFallbackTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenFallbackTest]
+
 lean_lib «Tools.ShippingQuadReturned» where
   roots := #[`Tools.ShippingQuadReturned]
 
@@ -3893,6 +3899,9 @@ lean_lib «Tools.ShippingQuadHPoint» where
 
 lean_lib «Tools.ShippingSeqParentGenD2MSG» where
   roots := #[`Tools.ShippingSeqParentGenD2MSG]
+
+lean_lib «Tools.ShippingSeqParentGenD2MSD» where
+  roots := #[`Tools.ShippingSeqParentGenD2MSD]
 
 lean_lib «Tests.Compiler.SharedLeafGenFactsTest» where
   roots := #[`Tests.Compiler.SharedLeafGenFactsTest]

@@ -3,6 +3,8 @@ import Tools.ShippingQuadLeafGeneric
 import Tools.ShippingTopShareRan
 import Tools.ShippingQuadReturned
 import Tools.ShippingSeqParentGenD2MSG
+import Tools.ShippingSeqParentGenD2MSD
+-- BUILT (unit SR19): a8 exit 0 (Tests.Compiler.SharedLeafGenDefaultHbTest), f1 exit 0 (Tests.Compiler.SharedLeafGenFallbackTest) (dev runs); final-SHA rebuild in REPORT-SR19.md.
 -- BUILT (unit SR13): s4 exit 0 (module), s5 exit 0 (Tests.Compiler.SharedLeafGenTest), s6 exit 0 (Tests.Compiler.SharedLeafGenTopshareTest) (dev runs); the final-SHA rebuild is in REPORT-SR13.md.
 /-! # `#machine_seq_parent_endpoint P` — a LIMITED shared-leaf CANDIDATE (unit SR13, ledger L8as)
 
@@ -34,8 +36,13 @@ theorems `epD2M_hkid / ranA / runFacts / outsCheck / kidsMasked / designCheck / 
 failing command and its errors are LOGGED (`SR18: the generic-lemma path FAILED …`), NOTHING of the attempt is kept, and the SR13 path (pasted blocks) runs instead; no input is refused by this.
 What is generated is kernel-checked per declaration, instance-specific facts about the accepted declarations — NOT a theorem over the class.  What stays a PREMISE of a generated endpoint: the conclusion's
 existential `O`/`T`/`AdmCtx`/`MachineDefines`/`JQC O 0 w` (inside `epD2M_Bnd`), the run `hr`, `entry`, and the leaf's `MachineCloses` (`G.machine_closes`); the generated `GenFacts`, `LeafSeqRunN`
-(`G.seq_child_runN`), `hPoint`, `hext`/`hextB` are THEOREMS of the generated declarations (the decoding equations are extracted typed from the OLD chain's own kernel-checked `gfHb*`/`gfHv*`,
-`oldGroupFact%`; the Inhabited instances likewise, `oldInst%`).  `RealChildA` / `ServedRealA` are histories of past synthesis results.
+(`G.seq_child_runN`), `hPoint`, `hext`/`hextB` are THEOREMS of the generated declarations.
+(Unit SR19, ledger L8ay) The decoding equations `Hb0`/`Hv0` of every call are NO LONGER extracted from the old chain (`oldGroupFact%`): they are stated and proved per call as `have`s inside each generated `hPoint`, the
+families being read from the generated `machineExt`/`machineExtB` (`Tools/ShippingSeqParentGenD2MSD.lean`, text only; a wrong reading makes that theorem fail and triggers the logged fallback); the `Inhabited` instances are
+`⟨defaultHList _⟩` (not `oldInst%`); the generic path runs under the AMBIENT `maxHeartbeats` (the shared header's `set_option maxHeartbeats 4000000` is dropped from its text; `Tests/Compiler/SharedLeafGenDefaultHbTest.lean`).
+STILL read from the old chain by the ANALYSIS (needed by the SR13 fallback and for the parent's group numbering): its presence and the partition of the instances into groups; the generic text itself mentions none of
+`oldGroupFact%`/`oldInst%`/`oldNamed%`/`machine_composedNR` (asserted in the test).  Test hooks (default off): `sparkle.sharedLeafTiming` (measurement), `sparkle.sharedLeafInject` (`decl`/`audit`, forces the fallback; `Tests/Compiler/SharedLeafGenFallbackTest.lean`).
+`RealChildA` / `ServedRealA` are histories of past synthesis results.
 
 ## What the candidate generates
 (unit SR14, L8at) In addition to `epD2M_endpoint`, the RETURNED theorem `epD2M_returned` (= `Tools.ShippingQuadReturned.quad_returned` applied to the generated data facts and
@@ -229,6 +236,9 @@ def parentTextS (gen : Option (String × String) := none) : String :=
     let (hpre, hk) := match h.splitOn "theorem _root_.@P@.epD2M_hkid" with
       | [a, b] => (a, b)
       | _ => panic! "parentTextS: epD2M_hkid marker not unique"
+    -- (unit SR19) the parent's `Inhabited` instance by instance search (the old chain's term is `instInhabitedProd`), not extracted from the old chain
+    let t := t.replace "instance _root_.@P@.epD2M_inhab" "noncomputable instance _root_.@P@.epD2M_inhab"
+    let t := t.replace "  oldInst% (Inhabited (HList (Tools.ShippingMachineDenote.tys @P@.machineData.ss))) @P@.machine_composedNR2\n    Tools.ShippingMachineCausal.machine_traceL_of_data_causalRA\n" "  ⟨Tools.ShippingSeqParentGenD2MSD.defaultHList _⟩\n"
     let t := t.replace "theorem _root_.@P@.epD2M_hcausal" (gb ++ "\ntheorem _root_.@P@.epD2M_hcausal")
     let full := hpre ++ quadExtra ++ ga ++ "theorem _root_.@P@.epD2M_hkid" ++ hk ++ t
     Tools.ShippingSeqParentGenD2MSG.bodies.foldl (fun s (m, b) => Tools.ShippingSeqParentGenD2MSG.replaceBody s m b) full
@@ -261,7 +271,9 @@ def assembleMS (p : D2MParams) (g : Option Tools.ShippingSeqParentGenD2MSG.GenIn
   let ptxt := ptxt.replace "@K0@" (toString (p.kCs.getD 0 0))
   let ptxt := ptxt.replace "@K1@" (toString (p.kCs.getD 1 0))
   let ptxt := ptxt.replace "@G@" (p.Gs.getD 0 .anonymous).toString
-  let src := Tools.ShippingSeqParentGenD2.openBlock2 ++ tcs ++ ptxt
+  -- (unit SR19) the generic path runs under the AMBIENT heartbeat limit: the pre-existing `set_option maxHeartbeats 4000000` of the shared header is dropped from its text
+  let hdr := if g.isSome then Tools.ShippingSeqParentGenD2.openBlock2.replace "set_option maxHeartbeats 4000000\n" "" else Tools.ShippingSeqParentGenD2.openBlock2
+  let src := hdr ++ tcs ++ ptxt
   (src.replace "@P@" p.P.toString).replace "@KP@" (toString p.kP)
 
 def obtainPatS (p : D2MParams) : String :=
@@ -406,6 +418,24 @@ def auditS (p : D2MParams) (ep : Name) (generic : Bool := false) : MetaM Unit :=
 
 /-! ## the command (a fourth elaborator; tried FIRST, defers to the existing ones) -/
 
+register_option sparkle.sharedLeafTiming : Bool := {
+  defValue := false
+  descr := "SR19: log, for every command of the generic-lemma path, its heartbeats (in the unit of `maxHeartbeats`: raw count / 1000) and the process peak RSS (measurement only; default off)" }
+
+register_option sparkle.sharedLeafInject : String := {
+  defValue := ""
+  descr := "SR19 TEST HOOK (default empty = off): `decl` appends a deliberately failing declaration to the generic path's text, `audit` makes the generic path's audit fail; either way the generic path must fall back to the SR13 path" }
+
+/-- peak resident set size of this process in kB (`VmHWM`), `0` if unreadable -/
+def peakRssKb : IO Nat := do
+  try
+    let t ← IO.FS.readFile "/proc/self/status"
+    for l in t.splitOn "\n" do
+      if l.startsWith "VmHWM:" then
+        return ((l.drop 6).trimAscii.takeWhile Char.isDigit).toString.toNat!
+    return 0
+  catch _ => return 0
+
 /-- `Tools.ShippingSeqParentGen.runCmds` with the elaboration errors of the failing command in the thrown message (unit SR18: the generic path logs WHICH generated declaration failed and why) -/
 def runCmdsDiag (src : String) : CommandElabM Unit := do
   let inputCtx := Parser.mkInputContext src "<seq-parent-gen>"
@@ -422,13 +452,19 @@ def runCmdsDiag (src : String) : CommandElabM Unit := do
       throwError "template parse error: {← msgs.toList.mapM (·.toString)}"
     let msgs0 := (← get).messages
     modify fun s => { s with messages := {} }
+    let hb0 ← IO.getNumHeartbeats
+    let t0 ← IO.monoMsNow
     elabCommand cmd
+    let hb1 ← IO.getNumHeartbeats
+    let t1 ← IO.monoMsNow
     let ms := (← get).messages
     modify fun s => { s with messages := msgs0 ++ ms }
+    let txt : String := match cmd.getPos?, cmd.getTailPos? with
+      | some a, some b => (Substring.Raw.toString ⟨src, a, b⟩).take 160 |>.toString
+      | _, _ => ""
+    if sparkle.sharedLeafTiming.get (← getOptions) && (txt.startsWith "theorem" || txt.startsWith "instance" || txt.startsWith "noncomputable") then
+      logInfo m!"SR19 TIMING: heartbeats {(hb1 - hb0) / 1000} (the unit of maxHeartbeats, default limit 200000), {t1 - t0} ms, peak RSS {(← peakRssKb) / 1024} MB, errors {ms.hasErrors}: {(txt.splitOn " :=").head!.take 110}"
     if ms.hasErrors then
-      let txt := match cmd.getPos?, cmd.getTailPos? with
-        | some a, some b => (Substring.Raw.toString ⟨src, a, b⟩).take 160 |>.toString
-        | _, _ => ""
       let errs ← (ms.toList.filter (·.severity == .error)).mapM fun m => m.data.toString
       throwError "the generated command failed: {txt} … ERRORS: {errs.take 2}"
 
@@ -436,13 +472,32 @@ def runCmdsDiag (src : String) : CommandElabM Unit := do
 def genInfoS (p : D2MParams) : CommandElabM Tools.ShippingSeqParentGenD2MSG.GenInfo := do
   let nat := fun (s : String) (n : Name) => liftTermElabM do reduceNat (← elabText (s.replace "@F@" n.toString))
   let mCs ← p.Cs.mapM (nat "@F@.machineData.shape.insts.length")
-  let nGCs ← p.Cs.mapM fun C => liftTermElabM <| Tools.ShippingSeqParentGenD2.oldGroupCount (C ++ `machine_composedNR1)
   let nOutsG ← nat "@F@.machineData.shape.layout.outs.length" (p.Gs.getD 0 .anonymous)
-  return { mCs := mCs, nGCs := nGCs, nOutsG := nOutsG }
+  -- (unit SR19) the decoding data of every call, read from the generated `machineExt` / `machineExtB` (no old chain)
+  let argLists := fun (n : Name) => liftTermElabM do readNatLists (← elabText (s!"({n}.machineData.shape.insts.map (·.2.1))"))
+  let mut calleeCalls := []
+  for (C, i) in p.Cs.zipIdx do
+    let G := p.Gs.getD i .anonymous
+    let al ← argLists C
+    let kC := p.kCs.getD i 0
+    let cds ← (List.range (mCs.getD i 0)).mapM fun k =>
+      liftTermElabM <| Tools.ShippingSeqParentGenD2MSD.callDecOf C G kC k none (al.getD k [])
+    calleeCalls := calleeCalls ++ [cds]
+  let alP ← argLists p.P
+  let parentCalls ← (List.range p.mP).mapM fun k => do
+    let ci := p.instCallee.getD k 0
+    liftTermElabM <| Tools.ShippingSeqParentGenD2MSD.callDecOf p.P (p.Cs.getD ci .anonymous) p.kP k (some (p.kCs.getD ci 0)) (alP.getD k [])
+  return { mCs := mCs, nOutsG := nOutsG, calleeCalls := calleeCalls, parentCalls := parentCalls }
 
 /-- generate, audit and register `fn.epD2M_endpoint` (+ returned / wired); `gen = some _`: the generic-lemma path of unit SR18 -/
 def runPathS (fn : Name) (p : D2MParams) (gen : Option Tools.ShippingSeqParentGenD2MSG.GenInfo) : CommandElabM Unit := do
   let src := assembleMS p gen
+  -- (unit SR19, test hook) a deliberately failing generated declaration, placed AFTER the generated facts so that earlier declarations exist when it fails
+  let inj := sparkle.sharedLeafInject.get (← getOptions)
+  let src := if gen.isSome && inj == "decl" then
+      src.replace ("theorem _root_.@P@.epD2M_composedA".replace "@P@" p.P.toString)
+        (s!"theorem _root_.{p.P}.epD2M_injected : (1 : Nat) = 2 := by decide\n\n" ++ "theorem _root_.@P@.epD2M_composedA".replace "@P@" p.P.toString)
+    else src
   try
     if gen.isSome then runCmdsDiag src else Tools.ShippingSeqParentGen.runCmds src
   catch e =>
@@ -459,6 +514,7 @@ def runPathS (fn : Name) (p : D2MParams) (gen : Option Tools.ShippingSeqParentGe
       let ty ← instantiateMVars (← inferType e)
       if e.hasMVar || ty.hasMVar then throwError "#machine_seq_parent_endpoint (SR13 candidate): unassigned mvars in the endpoint term"
       addAndCompile <| .thmDecl { name := ep, levelParams := [], type := ty, value := e }
+    if gen.isSome && inj == "audit" then throwError "SR19 injected audit failure"
     liftTermElabM <| auditS p ep gen.isSome
     -- unit SR14 (L8at): the RETURNED (`y.2 = Dg`) and WIRED theorems, from the generic theorems
     for (nm, qr) in [(`epD2M_returned, "quad_returned"), (`epD2M_wired, "quad_wired")] do
