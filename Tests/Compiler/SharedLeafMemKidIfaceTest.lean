@@ -1,7 +1,7 @@
 import Tests.Compiler.SharedLeafMemKidEntryTest
 import Tools.ShippingSrm3Callee
 import Tests.Compiler.ChildVertAuditTest
--- UNBUILT (unit SRM3).
+-- BUILT (unit SRM3): b11 exit 0 (dev run); the final-SHA rebuild is in REPORT-SRM3.md.
 -- SCOPE (SRM3, residue R1): the A-form memory-aware interface / closing layer of `Tools/ShippingSrm3Iface.lean` + `Tools/ShippingSrm3Callee.lean` HAND-APPLIED to the callees of `Tests/Compiler/SharedLeafMemKidTest.lean`:
 --   `leafM` (memory-only: its `MachineClosesAtA` and the interface of its `RealChildA` are DERIVED),
 --   `wrapM`, `wrapM3` (each calls `leafM`, which has a memory child), `wrapQ` (calls the plain leaf `leafP` AND a memory child).

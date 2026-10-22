@@ -91,6 +91,8 @@ import Tools.ShippingMemLeafCache
 import Tools.ShippingMemLeafRun
 import Tools.ShippingNmGroup
 import Tools.ShippingNmEntry
+import Tools.ShippingSrm3Iface
+import Tools.ShippingSrm3Callee
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -586,7 +588,13 @@ def audited : List Name :=
    ``Tools.ShippingNmGroup.nm_insts_length, ``Tools.ShippingNmGroup.nm_closing,
    ``Tools.ShippingNmEntry.nm_idx_of_name, ``Tools.ShippingNmEntry.noParent_nm, ``Tools.ShippingNmEntry.nm_idx_lt, ``Tools.ShippingNmEntry.nm_call_callee,
    ``Tools.ShippingNmEntry.nm_machineSynth_ne_none, ``Tools.ShippingNmEntry.nm_entry_run_ret_np, ``Tools.ShippingNmEntry.nm_closes0,
-   ``Tools.ShippingNmEntry.nm_machineRun, ``Tools.ShippingNmEntry.nm_entry_run]
+   ``Tools.ShippingNmEntry.nm_machineRun, ``Tools.ShippingNmEntry.nm_entry_run,
+   -- SRM3: the A-form memory-aware interface of a callee with a memory child (no `hnomem`) and its `MachineClosesAtA`
+   ``Tools.ShippingSrm3Iface.origin_mem_of_child, ``Tools.ShippingSrm3Iface.core_kids_facts_ranAM, ``Tools.ShippingSrm3Iface.core_outsIn_ranAM,
+   ``Tools.ShippingSrm3Iface.core_calls_portsG_ranAM, ``Tools.ShippingSrm3Iface.core_inPorts_ranAM, ``Tools.ShippingSrm3Iface.deepChild_ifaceP_M,
+   ``Tools.ShippingSrm3Callee.memT_of, ``Tools.ShippingSrm3Callee.memCallee_closesA, ``Tools.ShippingSrm3Callee.adm_of_realChildA,
+   ``Tools.ShippingSrm3Callee.gk_of_iface, ``Tools.ShippingSrm3Callee.sep_of_iface, ``Tools.ShippingSrm3Callee.memCallee_ifaceP,
+   ``Tools.ShippingSrm3Callee.leafKid_ifaceP]
 
 end Tests.Compiler.ChildVertAuditTest
 

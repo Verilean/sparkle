@@ -3983,3 +3983,6 @@ lean_lib «Tests.Compiler.SharedLeafMemKidEntryAuditTest» where
 
 lean_lib «Tests.Compiler.SharedLeafMemKidIfaceTest» where
   roots := #[`Tests.Compiler.SharedLeafMemKidIfaceTest]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidIfaceAuditTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidIfaceAuditTest]

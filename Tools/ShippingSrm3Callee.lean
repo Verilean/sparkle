@@ -1,6 +1,6 @@
 import Tools.ShippingSrm3Iface
 import Tools.ShippingQuadLeafGeneric
--- UNBUILT (unit SRM3).
+-- BUILT (unit SRM3): b8 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM3.md.
 -- SCOPE (binding): a callee `d` (named `C`) with calls whose entries are MEMORY entries (the origin builds the module: `InstOrigin.child? = some md`) and/or ORDINARY calls (`RealChildA` of a callee), on the A-form
 -- side (`RealChildA`, `MachineRanA`, `MachineClosesAtA`; nothing of the old-form `RealChild` / `MachineRan` / `MachineClosesAt`).
 -- PROVED here: `memCallee_closesA` (`MachineClosesAtA` of such a callee: `machineClosesAtA_of_memKids'` with the memory half of its `hkid` DERIVED by `memIface`; the ordinary half is the premise `hord`),
