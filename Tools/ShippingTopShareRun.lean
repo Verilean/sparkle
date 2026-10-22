@@ -1,4 +1,6 @@
 import Tools.ShippingSharedLeafNL
+import Tools.ShippingMemClosesKidsT
+import Tools.ShippingMachineClosesData
 -- BUILT (unit SR9): t1 exit 0; see REPORT-SR9.md for the final-SHA rebuild.
 -- No `sorry`, no `axiom`, no `native_decide`, no new RefLawsAOps/RefLawsATele field, no existing statement changed.
 
@@ -28,6 +30,8 @@ open Tools.ShippingMachineAuto Tools.ShippingMixedEntrySoundness
 open Sparkle.Compiler.MachInstOrigin (InstOrigin)
 open Tools.ShippingChildRunAKids Tools.ShippingMachineOutcomeA3 Tools.ShippingChildCoreC Tools.ShippingChildVertA
 open Tools.ShippingClosedKinds Tools.ShippingSharedLeafNL
+open Tools.ShippingMemCloses Tools.ShippingMachineClosesData
+open Tools.ShippingInstTagged (originAt)
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -440,6 +444,176 @@ theorem topshare_entry_run4 (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.qu
   exact ⟨y₁, y₂, t, t', d₀, M, Dg, w10, hlets, hrr, hj2, hcv2.trans hcvc, hc, hk, hcoh, hg1, hg2,
     hcross, hshared⟩
 
+/-! ## `MachineClosesAtStart0` of the parent, from the closing's own facts -/
+
+theorem insts_names4 {dp : MachineData} {c₁ c₂ : Name} {o₁ o₁' o₂ o₂' : InstOrigin}
+    (hP : dp.shape.instTagged = [(c₁, o₁), (c₁, o₁'), (c₂, o₂), (c₂, o₂')]) :
+    ∀ k (hk : k < dp.shape.insts.length), (dp.shape.insts[k]).1 = if k < 2 then c₁ else c₂ := by
+  intro k hk
+  obtain ⟨hkT, he⟩ := instTagged_getAt dp.shape hk
+  have e2 : dp.shape.instTagged[k]? = some ((dp.shape.insts[k]).1, dp.shape.instOrigins.getD k .ord) := by
+    rw [List.getElem?_eq_getElem hkT, he]
+  have hk4 : k < 4 := by
+    have h := hkT
+    rw [hP] at h
+    simpa using h
+  rw [hP] at e2
+  rcases k with _ | _ | _ | _ | k
+  all_goals first
+    | (exfalso; omega)
+    | (simp only [List.getElem?_cons_zero, List.getElem?_cons_succ, Option.some.injEq,
+        Prod.mk.injEq] at e2; simpa using e2.1.symm)
+
+/-- **The machine synthesis of the parent `topshare` (calls `[c₁, c₁, c₂, c₂]`) does not fall back at the entry's start
+world.** From a `JQC O 1` world with cache value `{}`, a run of `synthesizeMachineCertified` does not return `none`:
+`closeLets` is accepted (`letsClose_of_data`), and the closing returns `closeInstsG … [y₁, y₁, y₂, y₂]` (`topshare_closing4`)
+which is `some` by `closeInstsG_of_kidsPT`, whose children premises are: the interface of each result
+(`ChildIfaceP`, from `RealChildA`: the end cache is a `CacheInvA` cache), the same-name pair (`hpair`: the repeated call
+is the same child), and `hcross` (the cross-callee agreement of `topshare_quad`). The data facts about the parent
+(`hargsN`, `hfieldOut`, `hfieldsNd`, `hsep`, `hparent`, `hfresh`, `hparentD`, `hmk`, `hlen4`) are premises, stated for
+the group functions `nameK`, `nk`, `outsK`, `namesK`. -/
+theorem machineSynth_ne_none4 (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {c c₁ c₂ : Name} (hc12 : c₁ ≠ c₂) {o₁ o₁' o₂ o₂' : InstOrigin}
+    (ho₁ : o₁.child? = none) (ho₁' : o₁'.child? = none) (ho₂ : o₂.child? = none) (ho₂' : o₂'.child? = none)
+    (dp : MachineData) (okp : dp.ok = true)
+    (hbodyp : dp.shape.body = quote dp.dom
+      (fun j => inputExpr dp.shape.binders.length (dp.bpos j))
+      (fun j => inputExpr dp.shape.binders.length (dp.vpos j)) dp.packed)
+    (haliasp : dp.letsAliasOk = true)
+    {nDecl : Nat} (hCp : dp.callsOk nDecl = true)
+    (hslotsp : dp.ss.length = dp.shape.layout.slots.length)
+    (hdomBp : ∀ b ∈ dp.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hinsp : dp.shape.insts ≠ []) (hfnep : dp.shape.instFields ≠ [])
+    (hP : dp.shape.instTagged = [(c₁, o₁), (c₁, o₁'), (c₂, o₂), (c₂, o₂')])
+    (hlen4 : dp.shape.insts.length = 4)
+    (hmk : ∀ k (hk : k < dp.shape.insts.length), memKey (originAt dp.shape k) = none)
+    (d₁ d₂ : MachineData) (K₁ : CalleeOK O mctx cctx c₁ d₁) (K₂ : CalleeOK O mctx cctx c₂ d₂)
+    (hc2not : ∀ k (hk : k < d₁.shape.insts.length), (d₁.shape.insts[k]).1 ≠ c₂)
+    (nameK : Nat → String) (nk : Nat → Nat) (outsK : Nat → List String) (namesK : Nat → List String)
+    (hI₁ : ∀ y : Res, RealChildA O c₁ y → ∀ k, k < 2 →
+      ChildIfaceP (nameK k) (nk k) (outsK k) (namesK k) y.1 y.2)
+    (hI₂ : ∀ y : Res, RealChildA O c₂ y → ∀ k, 2 ≤ k → k < 4 →
+      ChildIfaceP (nameK k) (nk k) (outsK k) (namesK k) y.1 y.2)
+    (hargsN : ∀ (k : Nat) (hk : k < dp.shape.insts.length), nk k = (dp.shape.insts[k]).2.1.length)
+    (hfieldOut : ∀ (k : Nat), k < dp.shape.insts.length → dp.shape.instFields.getD k "" ∈ outsK k)
+    (hfieldsNd : ∀ (k : Nat) (hk : k < dp.shape.insts.length) (k' : Nat)
+      (hk' : k' < dp.shape.insts.length), (dp.shape.insts[k]).1 = (dp.shape.insts[k']).1 →
+      memKey (originAt dp.shape k) = memKey (originAt dp.shape k') →
+      (dp.shape.insts[k]).2.1 = (dp.shape.insts[k']).2.1 →
+      dp.shape.instFields.getD k "" = dp.shape.instFields.getD k' "" → k = k')
+    (hsep : ∀ (k : Nat) (hk : k < dp.shape.insts.length) (k' : Nat)
+      (hk' : k' < dp.shape.insts.length), nameK k = nameK k' →
+      (dp.shape.insts[k]).1 = (dp.shape.insts[k']).1 ∧
+        memKey (originAt dp.shape k) = memKey (originAt dp.shape k'))
+    (hparent : ∀ (k : Nat), k < dp.shape.insts.length → nameK k ≠ (Sparkle.IR.ModuleName.ofDecl c))
+    (hfresh : ∀ (gi : Nat) (k : Nat), k < dp.shape.insts.length → ∀ o ∈ dp.shape.layout.outs,
+      o.name ≠ s!"inst{gi}_{nameK k}")
+    (hparentD : ∀ (k : Nat), k < dp.shape.insts.length → (Sparkle.IR.ModuleName.ofDecl c) ∉ namesK k)
+    {tenv : Lean.Environment} {b : Bool} {w9 w10 : Void IO.RealWorld}
+    {r : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)}
+    (hw : JQC O 1 w9) (hcv : cv w9 = {})
+    (hr : RunsTo (synthesizeMachineCertified
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) c dp.shape)
+      mctx mref cctx cref w9 r w10) : r ≠ none := by
+  unfold synthesizeMachineCertified at hr
+  obtain ⟨⟨t, d'⟩, w1, run, hr⟩ := RunsTo.bind hr
+  have hw1 := triple_runs (keeps_iff.mp (mixed_keepsLeaf O hA (stableK O 1 (cv w9))
+    (fun e hint top named => translateExprToWire tenv e hint top named) b c
+    dp.shape.binders dp.shape.body
+    (leafTranslatorKeeps_of_machineData O hA (stableK O 1 (cv w9)) dp okp hbodyp tenv))) ⟨hw, rfl⟩ run
+  dsimp only at hr
+  obtain ⟨t', ht'⟩ := Option.isSome_iff_exists.mp
+    (letsClose_of_data dp okp hbodyp haliasp mctx mref cctx cref (profLogIO b) w9 t d' w1 run)
+  rw [ht'] at hr
+  dsimp only at hr
+  split at hr
+  · rename_i hi
+    exact absurd hi hinsp
+  · rename_i hi
+    split at hr
+    · rename_i hf
+      exact absurd (List.isEmpty_iff.mp hf) hfnep
+    · rename_i hf
+      have hcvw1 : cv w1 = {} := hw1.2.trans hcv
+      obtain ⟨y₁, y₂, hrr, hj, hc, hkt, hcoh, hg1, hg2, hcross, -⟩ :=
+        topshare_closing4 O hA (D := 1) Nat.one_ne_zero hc12 ho₁ ho₁' ho₂ ho₂' hP d₁ d₂ K₁ K₂ hc2not hw1.1
+          (by rw [hcvw1]; exact cacheClosed_empty) (by rw [hcvw1]; exact keyTop_empty)
+          (by rw [hcvw1]; simp) (by rw [hcvw1]; simp) hr
+      have hreal₁ : RealChildA O c₁ y₁ := hj.2 c₁ y₁ hg1
+      have hreal₂ : RealChildA O c₂ y₂ := hj.2 c₂ y₂ hg2
+      have hnm := insts_names4 hP
+      have hch : ∀ k, ([y₁, y₁, y₂, y₂] : List Res)[k]? = if k < 2 then some y₁ else if k < 4 then some y₂ else none := by
+        intro k
+        rcases k with _ | _ | _ | _ | k
+        · simp
+        · simp
+        · simp
+        · simp
+        · have h2 : ¬ (k + 1 + 1 + 1 + 1 < 2) := by omega
+          have h4 : ¬ (k + 1 + 1 + 1 + 1 < 4) := by omega
+          rw [if_neg h2, if_neg h4]
+          simp
+      have hsome := closeInstsG_of_kidsPT (tenv := tenv) (declName := c) dp okp hbodyp hCp hslotsp hdomBp
+        (logProf := profLogIO b) (t := t) (t' := t') (d₀ := d') (children := [y₁, y₁, y₂, y₂])
+        run.mreturns ht' (by rw [hlen4]; rfl) nameK nk outsK namesK
+        (by
+          intro k c' hk
+          rw [hch] at hk
+          by_cases h2 : k < 2
+          · rw [if_pos h2] at hk
+            rw [← Option.some.inj hk]
+            exact hI₁ y₁ hreal₁ k h2
+          · rw [if_neg h2] at hk
+            by_cases h4 : k < 4
+            · rw [if_pos h4] at hk
+              rw [← Option.some.inj hk]
+              exact hI₂ y₂ hreal₂ k (by omega) h4
+            · rw [if_neg h4] at hk
+              cases hk)
+        (by
+          intro i j hi hj hnm' hmk'
+          have e1 := hnm i hi
+          have e2 := hnm j hj
+          rw [hch, hch]
+          by_cases h1 : i < 2 <;> by_cases h2 : j < 2
+          · rw [if_pos h1, if_pos h2]
+          · rw [if_pos h1] at e1
+            rw [if_neg h2] at e2
+            exact absurd (e1.symm.trans (hnm'.trans e2)) hc12
+          · rw [if_neg h1] at e1
+            rw [if_pos h2] at e2
+            exact absurd (e2.symm.trans (hnm'.symm.trans e1)) hc12
+          · have hi4 : i < 4 := hlen4 ▸ hi
+            have hj4 : j < 4 := hlen4 ▸ hj
+            rw [if_neg h1, if_pos hi4, if_neg h2, if_pos hj4])
+        (by
+          intro i j hi hj ci cj hci hcj hne a ha b hb hab
+          have e1 := hnm i hi
+          have e2 := hnm j hj
+          rw [hch] at hci hcj
+          by_cases h1 : i < 2 <;> by_cases h2 : j < 2
+          · exact absurd ⟨by rw [e1, e2, if_pos h1, if_pos h2], by rw [hmk i hi, hmk j hj]⟩ hne
+          · rw [if_pos h1] at hci
+            rw [if_neg h2] at hcj
+            have hj4 : j < 4 := hlen4 ▸ hj
+            rw [if_pos hj4] at hcj
+            rw [← Option.some.inj hci] at ha
+            rw [← Option.some.inj hcj] at hb
+            exact hcross a ha b hb hab
+          · rw [if_neg h1] at hci
+            rw [if_pos h2] at hcj
+            have hi4 : i < 4 := hlen4 ▸ hi
+            rw [if_pos hi4] at hci
+            rw [← Option.some.inj hci] at ha
+            rw [← Option.some.inj hcj] at hb
+            exact (hcross b hb a ha hab.symm).symm
+          · exact absurd ⟨by rw [e1, e2, if_neg h1, if_neg h2], by rw [hmk i hi, hmk j hj]⟩ hne)
+        hargsN hfieldOut hfieldsNd hsep hparent hfresh hparentD
+      intro h
+      rw [h] at hrr
+      rw [← hrr] at hsome
+      simp at hsome
+
 end Tools.ShippingTopShareRun
 
 #print axioms Tools.ShippingTopShareRun.core_run_tracked0'
@@ -449,3 +623,4 @@ end Tools.ShippingTopShareRun
 #print axioms Tools.ShippingTopShareRun.topshare_quad
 #print axioms Tools.ShippingTopShareRun.topshare_closing4
 #print axioms Tools.ShippingTopShareRun.topshare_entry_run4
+#print axioms Tools.ShippingTopShareRun.machineSynth_ne_none4
