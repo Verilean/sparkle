@@ -157,6 +157,6 @@ theorem KaryBnd.ofQuad (src₁ src₂ : KSrc) {w : Void IO.RealWorld} {m : Spark
     (h : QuadBnd c₁ c₂ G d₁ d₂ dG mctx mref cctx cref w m design) :
     KaryBnd (quad2 c₁ c₂ d₁ d₂ n₁ n₂ src₁ src₂) G dG mctx mref cctx cref w m design := by
   obtain ⟨O, T, hA, hM0, hR0, hM1, -, hw⟩ := h
-  exact ⟨O, T, hA, ⟨hM0, hM1⟩, hR0, hw⟩
+  exact ⟨O, T, hA, hM0, hM1, hR0, hw⟩
 
 end Tools.ShippingKaryBridge

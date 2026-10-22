@@ -120,8 +120,8 @@ theorem kary_composed_split
     ComposedG (fun D => KSn (childMap D.modules) 2) (ResetNk 2) c dP nP m design dom srcP
       (fun i bools bits => extP i bools bits (stateLoop initsP (bodyP i bools bits)))
       (fun i bools bits => extBP i bools bits (stateLoop initsP (bodyP i bools bits))) := by
-  obtain ⟨O, T, hA, hentA, hR0, hw⟩ := hB
-  have hent : KaryEntries mctx mref cctx cref cs := kand_forall hentA
+  obtain ⟨O, T, hA, hB'⟩ := hB
+  obtain ⟨hent, hR0, hw⟩ := kandk_forall hB'
   have h := kary_traceXA O T hA Q GP entry hent hR0 hcl hw hcore
   have hgrp : QuadGroupFacts dP nP (letObsB dP dom initsP bodyP extP extBP)
       (fun i bools bits => extP i bools bits (stateLoop initsP (bodyP i bools bits)))

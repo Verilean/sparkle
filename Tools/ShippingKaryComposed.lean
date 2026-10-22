@@ -132,33 +132,31 @@ structure KaryAll (dP dG : MachineData) (cs : List KCal) (c G : Name) (nP : Nat)
   hC : KaryCallees cs dG G
   hX : ∀ e ∈ cs, LeafCalleeExtra e.d dG e.n
 
-/-- the conjunction of `p` over the list, written as an explicit `∧` chain (`p a ∧ p b ∧ p c` for `[a, b, c]`, no trailing `True`): the boundary of an endpoint then unfolds to the
-conjunction a human would write for K callees. -/
-def KAnd {α : Type} (p : α → Prop) : List α → Prop
-  | [] => True
-  | [a] => p a
-  | a :: b :: l => p a ∧ KAnd p (b :: l)
+/-- `p` over the list followed by `r`, as an explicit right-nested `∧` chain: `p a ∧ p b ∧ p c ∧ r` for `[a, b, c]` (no extra nesting, no trailing `True`), so the boundary of an
+endpoint unfolds to the flat conjunction a human would write for K callees. -/
+def KAndK {α : Type} (p : α → Prop) : List α → Prop → Prop
+  | [], r => r
+  | a :: l, r => p a ∧ KAndK p l r
 
-theorem kand_forall {α : Type} {p : α → Prop} : ∀ {l : List α}, KAnd p l → ∀ a ∈ l, p a
-  | [], _, a, ha => absurd ha (List.not_mem_nil)
-  | [x], h, a, ha => by
-    have : a = x := by simpa using ha
-    subst this; exact h
-  | x :: y :: l, h, a, ha => by
+theorem kandk_forall {α : Type} {p : α → Prop} {r : Prop} : ∀ {l : List α}, KAndK p l r → (∀ a ∈ l, p a) ∧ r
+  | [], h => ⟨fun a ha => absurd ha (List.not_mem_nil), h⟩
+  | x :: l, h => by
+    obtain ⟨hx, hl⟩ := kandk_forall (l := l) h.2
+    refine ⟨fun a ha => ?_, hl⟩
     rcases List.mem_cons.mp ha with rfl | ha'
     · exact h.1
-    · exact kand_forall h.2 a ha'
+    · exact hx a ha'
 
-theorem forall_kand {α : Type} {p : α → Prop} : ∀ {l : List α}, (∀ a ∈ l, p a) → KAnd p l
-  | [], _ => trivial
-  | [x], h => h x (List.mem_cons_self ..)
-  | x :: y :: l, h => ⟨h x (List.mem_cons_self ..), forall_kand (fun a ha => h a (List.mem_cons_of_mem _ ha))⟩
+theorem forall_kandk {α : Type} {p : α → Prop} {r : Prop} : ∀ {l : List α}, (∀ a ∈ l, p a) → r → KAndK p l r
+  | [], _, hr => hr
+  | x :: l, h, hr => ⟨h x (List.mem_cons_self ..), forall_kandk (fun a ha => h a (List.mem_cons_of_mem _ ha)) hr⟩
 
-/-- The class boundary of the K-callee endpoint: the callees' and the leaf's `MachineDefines` and the start world `JQC O 0 w` (K-ary `QuadBnd`; the callees as a `KAnd` chain). -/
+/-- The class boundary of the K-callee endpoint: the callees' and the leaf's `MachineDefines` and the start world `JQC O 0 w` (K-ary `QuadBnd`; the callees as a flat `KAndK` chain). -/
 def KaryBnd (cs : List KCal) (G : Name) (dG : MachineData) : CtxBnd := fun mctx mref cctx cref w _ _ =>
   ∃ (O : RefLawsAOps MkRefd mref cref) (_ : RefLawsATele O.quiet mref cref),
-    AdmCtx O.quiet mctx cctx ∧ KAnd (fun e : KCal => MachineDefines mctx mref cctx cref e.c e.d.shape) cs ∧
-    MachineDefines mctx mref cctx cref G dG.shape ∧ JQC O 0 w
+    AdmCtx O.quiet mctx cctx ∧
+    KAndK (fun e : KCal => MachineDefines mctx mref cctx cref e.c e.d.shape) cs
+      (MachineDefines mctx mref cctx cref G dG.shape ∧ JQC O 0 w)
 
 /-- the callee of call `k` is a member of `cs` found by name -/
 theorem kary_callee_at {dP : MachineData} {cs : List KCal}
