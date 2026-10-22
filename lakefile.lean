@@ -3733,3 +3733,6 @@ lean_lib «Tools.Prototype.ExtModelLetOk» where
 
 lean_lib «Tests.Compiler.ExtModelAgreeTest» where
   roots := #[`Tests.Compiler.ExtModelAgreeTest]
+
+lean_lib «Tools.Prototype.DGenProv» where
+  roots := #[`Tools.Prototype.DGenProv]

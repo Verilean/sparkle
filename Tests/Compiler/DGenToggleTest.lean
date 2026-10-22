@@ -1,4 +1,5 @@
 import Tools.Prototype.DGenConnect
+import Tools.Prototype.DGenProv
 import Tests.Compiler.ShippingMachineCommandTest
 
 /-! # DGEN: `dgen_connect` instantiated on ONE generated declaration (`toggle`)
@@ -9,7 +10,7 @@ theorem below supplies exactly those as `d`, `d.ok`, `hbody` of `dgen_connect`; 
 A's range premises, `MachineDefines` (not generated), the three reads, `hpe`, and `ShippedToProto` (shipped↔prototype, OPEN). -/
 namespace Tests.Compiler.DGenToggleTest
 open Lean Elab Command Meta Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core.Circuit
-open Tools.Prototype.DGenConnect
+open Tools.Prototype.DGenConnect Tools.Prototype.DGenProv
 
 open Sparkle.Tests.Compiler.ShippingMachineCommandTest (toggle)
 
@@ -76,5 +77,39 @@ theorem toggle_connected_gen
 run_meta (Tools.Prototype.ReaderExec.auditPropBinders ``Tests.Compiler.DGenToggleTest.toggle_connected_gen
   ["RootFloatRange", "LiftRange", "Inst1Range", "ZeroLitAgrees", "EqvLetOk0", "SigTyRange", "RawNodeRange",
     "NormNodeRange", "GenReadsShape", "Eq", "ShippedToProto"])
+
+/-- DGEN2: the provenance instance for `toggle`, with NO free `E`/`envG` binders.  The entry constant and the environment are the results of the
+two reads at the start of the run of `readMachine ``toggle` (`GenEntry ci env`, produced by `dgen_connect_prov`).  PREMISES: the run `hrun`
+(a hypothesis in the RunsTo style; not produced from the elaboration of `#machine_endpoint toggle` in this change), `StoredFromRead`
+(`toggle.machineData.shape = r.shape`: NOT proved in this change), and, for the discovered `ci`/`env`, `hpe` and `ShippedToProto`.
+`toggle.machine_ok`/`toggle.machine_body` are the kernel-checked (i) facts. -/
+theorem toggle_connected_prov
+    (hroot : RootFloatRange) (hlift : LiftRange) (hinst1 : Inst1Range) (hz : ZeroLitAgrees) (hE : EqvLetOk0)
+    (hsig : ∀ senv, SigTyRange senv) (hraw : ∀ senv, RawNodeRange senv) (hnode : ∀ senv, NormNodeRange senv)
+    {allowGate : Bool}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w : Void IO.RealWorld} {r : Tools.ShippingMachineCommand.Read} {w' : Void IO.RealWorld}
+    (hrun : RunsTo (Tools.ShippingMachineCommand.readMachine
+      ``Sparkle.Tests.Compiler.ShippingMachineCommandTest.toggle allowGate) mctx mref cctx cref w r w')
+    (hstore : StoredFromRead toggle.machineData r) :
+    ∃ (ci : Lean.ConstantInfo) (env : Lean.Environment) (w1 w2 : Void IO.RealWorld),
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
+      RunsTo (getConstInfo ``Sparkle.Tests.Compiler.ShippingMachineCommandTest.toggle) mctx mref cctx cref w1 ci w2 ∧
+      r.entry = GenEntry ci env ∧ GenReadsShape (GenEntry ci env) env toggle.machineData ∧
+      ((∀ p : ShapePre, shapePre false [] (GenEntry ci env) (structEnv env) = some p → LetOk 0 p.e = true) →
+        ShippedToProto (GenEntry ci env) (structEnv env) toggle.machineData.shape →
+        machineShapeN false [] (GenEntry ci env) (structEnv env) true = some (some toggle.machineData.shape) ∧
+        toggle.machineData.letsAliasOk = true ∧
+        ∀ {declName : Name} (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+          (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State),
+          Tools.ShippingClosesSplit.LetsClose mctx mref cctx cref declName toggle.machineData.shape) :=
+  dgen_connect_prov hroot hlift hinst1 hz hE hsig hraw hnode hrun toggle.machineData toggle.machine_ok toggle.machine_body hstore
+
+#print axioms toggle_connected_prov
+
+run_meta (Tools.Prototype.ReaderExec.auditPropBinders ``Tests.Compiler.DGenToggleTest.toggle_connected_prov
+  ["RootFloatRange", "LiftRange", "Inst1Range", "ZeroLitAgrees", "EqvLetOk0", "SigTyRange", "RawNodeRange",
+    "NormNodeRange", "RunsTo", "StoredFromRead"])
 
 end Tests.Compiler.DGenToggleTest
