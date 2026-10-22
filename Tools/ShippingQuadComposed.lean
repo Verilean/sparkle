@@ -380,19 +380,27 @@ theorem leafCallee_runNCA (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O
 
 /-! ## The parent with the call list `[c₁, c₁, c₂, c₂]` -/
 
+/-- the callee at call `k` (`Name.anonymous` out of range) -/
+def quadCalleeAt (dP : MachineData) (k : Nat) : Name := ((dP.shape.insts[k]?).map (·.1)).getD Name.anonymous
+
+theorem quadCalleeAt_eq (dP : MachineData) (k : Nat) (hk : k < dP.shape.insts.length) :
+    quadCalleeAt dP k = (dP.shape.insts[k]).1 := by
+  simp [quadCalleeAt, List.getElem?_eq_getElem hk]
+
+/-- the callee's output fields by name -/
+def quadOutsOf (c₁ c₂ : Name) (d₁ d₂ : MachineData) (n : Name) : List OutField :=
+  if n = c₁ then d₁.shape.layout.outs else if n = c₂ then d₂.shape.layout.outs else []
+/-- the callee's argument widths by name -/
+def quadWidthsOf (c₁ c₂ : Name) (d₁ d₂ : MachineData) (n₁ n₂ : Nat) (n : Name) : List Nat :=
+  if n = c₁ then Tools.ShippingCallsChildPorts.argWidths d₁ n₁ else if n = c₂ then Tools.ShippingCallsChildPorts.argWidths d₂ n₂ else []
 /-- Extra DECIDABLE facts of the parent (`nP` declared inputs) used for its call-entry bundle, the four design checks and the `machine_linkedT_callsRNA`
 data conditions: an instance proves them by `decide` on the stored `machineData`. -/
 structure QuadParentExtra (dP d₁ d₂ : MachineData) (c₁ c₂ : Name) (nP n₁ n₂ : Nat) : Prop where
   slotsNe : dP.shape.layout.slots ≠ []
   outTy : ∀ o ∈ dP.shape.layout.outs, o.ty.bitWidth = o.width
   nomem : ∀ x ∈ dP.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true
-  callWidths : Tools.ShippingCallWidths.callWidthsOk dP nP
-    (fun k => (fun n => if n = c₁ then d₁.shape.layout.outs else if n = c₂ then d₂.shape.layout.outs else [])
-      (((dP.shape.insts[k]?).map (·.1)).getD Name.anonymous)) = true
-  callArgs : Tools.ShippingPortsMatchRaw.callArgsOk dP nP
-    (fun k => (fun n => if n = c₁ then Tools.ShippingCallsChildPorts.argWidths d₁ n₁
-      else if n = c₂ then Tools.ShippingCallsChildPorts.argWidths d₂ n₂ else [])
-      (((dP.shape.insts[k]?).map (·.1)).getD Name.anonymous)) = true
+  callWidths : Tools.ShippingCallWidths.callWidthsOk dP nP (fun k => quadOutsOf c₁ c₂ d₁ d₂ (quadCalleeAt dP k)) = true
+  callArgs : Tools.ShippingPortsMatchRaw.callArgsOk dP nP (fun k => quadWidthsOf c₁ c₂ d₁ d₂ n₁ n₂ (quadCalleeAt dP k)) = true
   outsClean : ∀ o ∈ dP.shape.layout.outs, ∀ c ∈ o.name.toList, Sparkle.IR.NameHints.charOk c = true
   scalar : ∀ o ∈ dP.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true
   hkD : nP ≤ dP.bsIn.length
@@ -414,19 +422,6 @@ structure QuadAll (dP d₁ d₂ dG : MachineData) (c c₁ c₂ G : Name) (nP n�
   hC₂ : LeafCalleeData d₂ dG c₂ G n₂
   hX₂ : LeafCalleeExtra d₂ dG n₂
 
-/-- the callee at call `k` (`Name.anonymous` out of range) -/
-def quadCalleeAt (dP : MachineData) (k : Nat) : Name := ((dP.shape.insts[k]?).map (·.1)).getD Name.anonymous
-
-theorem quadCalleeAt_eq (dP : MachineData) (k : Nat) (hk : k < dP.shape.insts.length) :
-    quadCalleeAt dP k = (dP.shape.insts[k]).1 := by
-  simp [quadCalleeAt, List.getElem?_eq_getElem hk]
-
-/-- the callee's output fields by name -/
-def quadOutsOf (c₁ c₂ : Name) (d₁ d₂ : MachineData) (n : Name) : List OutField :=
-  if n = c₁ then d₁.shape.layout.outs else if n = c₂ then d₂.shape.layout.outs else []
-/-- the callee's argument widths by name -/
-def quadWidthsOf (c₁ c₂ : Name) (d₁ d₂ : MachineData) (n₁ n₂ : Nat) (n : Name) : List Nat :=
-  if n = c₁ then Tools.ShippingCallsChildPorts.argWidths d₁ n₁ else if n = c₂ then Tools.ShippingCallsChildPorts.argWidths d₂ n₂ else []
 /-- the `S`-tables of the parent's `machine_linkedT_callsRNA`: binders, outputs, sources and child predicate, by callee name -/
 def quadBsF (c₁ c₂ : Name) (d₁ d₂ : MachineData) (n₁ n₂ : Nat) : Name → List (Name × MixedGateBinder) :=
   fun n => if n = c₁ then List.take n₁ d₁.bsIn else if n = c₂ then List.take n₂ d₂.bsIn else []
