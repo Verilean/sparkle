@@ -1,6 +1,6 @@
 import Tests.Compiler.SeqDeepGenDiffTest
 import Tests.Compiler.SeqDeepGenKeyTest
--- BUILT (unit SR3w): g1/r3/f1 exit 0.
+-- BUILT (unit SR3w): g1/r3/f1 exit 0.  UNIT SR3x: refusal regressions of the reader on SYNTHETIC chains (see the end of this file; run names in the report).
 -- SCOPE (binding; per the review of par/int-r44 on SR3v): DIRECT tests of the group-numbering helpers of the depth-2 generators.
 --   * `groupPartition` (PURE, `Tools/ShippingSeqParentGenD2.lean`): same argument list but DIFFERENT Signals gives different groups; a different
 --     CALLEE gives a different group; the same group COUNT can come with a DIFFERENT partition (so a count check alone does not detect a
@@ -15,7 +15,7 @@ import Tests.Compiler.SeqDeepGenKeyTest
 -- What is NOT tested: a real old term whose partition differs from the approximation (none was found), the refusal text of `analyse` on such a
 -- mismatch (the comparison is inline), and the reading of an old term of a different shape.
 namespace Tests.Compiler.SeqDeepGenGroupTest
-open Tools.ShippingSeqParentGenD2 (groupPartition groupKeysOf oldInstGroups oldGroupKeys)
+open Tools.ShippingSeqParentGenD2 (groupPartition groupKeysOf oldInstGroups oldInstGroupsOfHcalls oldGroupKeys)
 
 /-- A stand-in key: (callee, argument lets, the call's argument Signals as strings). -/
 abbrev K := String × List Nat × List String
@@ -80,5 +80,55 @@ run_cmd liftTermElabM do
   | .error _ => pure ()
   | .ok r => throwError "SR3w AUDIT FAILED: a non-theorem was read: {r}"
   logInfo m!"SR3w: the partition read from the old term equals the recomputed one on topw/topargs/toptwo/tf1/tf2/topdiff3; the reader's error branches are exercised; the pure helper separates different Signals / callees and keeps same-count partitions apart"
+
+
+-- UNIT SR3x: REFUSAL regressions of the chain reader `oldInstGroupsOfHcalls` on SYNTHETIC `hcalls` expressions shaped like the old chain
+-- `fun i => (fun gf0 gf1 … => cons _ _ _ _ (proof using gf*) (cons … nil)) args`.  They are untyped Exprs (the reader is structural), so they test the
+-- reader's refusals, NOT that the real generated terms are refused.  Each refusal message is asserted (by a substring).
+open Lean Meta Elab Command in
+run_cmd liftTermElabM do
+  let nat := mkConst ``Nat
+  let consC := mkConst ``Tools.ShippingMachineChild.forall_getElem?_cons
+  let nilC := mkConst ``Tools.ShippingMachineChild.forall_getElem?_nil
+  -- binders `bs`, entries = the binder indices each entry's proof uses, `tl` = the end of the chain, `nargs` = arguments given to `cons`
+  let mk (bs : List String) (entries : List (List Nat)) (tl : Expr) (nargs : Nat := 6) (redex : Bool := true) : MetaM Expr := do
+    withLocalDeclsD (bs.toArray.map fun n => (Name.mkSimple n, fun _ => pure nat)) fun gs => do
+      let chain := entries.foldr (fun us rest =>
+        let proof := mkAppN nat (us.toArray.map fun u => gs[u]!)
+        mkAppN consC ((#[nat, nat, nat, nat, proof, rest] : Array Expr).extract 0 nargs)) tl
+      let body ← if redex then pure (mkAppN (← mkLambdaFVars gs chain) (gs.map fun _ => mkNatLit 0)) else pure chain
+      withLocalDeclD `i nat fun i => mkLambdaFVars #[i] body
+  let has (r : Except String (List Nat)) (sub : String) : Bool :=
+    match r with | .error m => (m.splitOn sub).length > 1 | .ok _ => false
+  let thm := `Synthetic.thm
+  -- positive control: a well-formed chain
+  match ← oldInstGroupsOfHcalls thm (← mk ["gfB0", "gfB1"] [[0], [0], [1]] nilC) with
+  | .ok [0, 0, 1] => pure ()
+  | r => throwError "SR3x AUDIT FAILED: the well-formed synthetic chain was not read as [0,0,1]: {repr (r.toOption)}"
+  -- wrong head: the chain ends in something that is neither `cons` nor `nil`
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0"] [[0]] nat)
+  unless has r "unexpected term in the chain" do throwError "SR3x AUDIT FAILED: wrong chain end not refused with its reason: {repr r.toOption}"
+  -- wrong head at the first link
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0"] [] nat)
+  unless has r "unexpected term in the chain" do throwError "SR3x AUDIT FAILED: wrong first link not refused: {repr r.toOption}"
+  -- missing link: `cons` applied to fewer than 6 arguments
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0"] [[0]] nilC (nargs := 5))
+  unless has r "unexpected term in the chain" do throwError "SR3x AUDIT FAILED: a `cons` without its tail not refused: {repr r.toOption}"
+  -- unexpected binder name
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0", "hx"] [[0]] nilC)
+  unless has r "unexpected binder hx" do throwError "SR3x AUDIT FAILED: unexpected binder not refused: {repr r.toOption}"
+  -- a `gf` binder without a group index
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfL"] [[0]] nilC)
+  unless has r "cannot read the group index of gfL" do throwError "SR3x AUDIT FAILED: binder without index not refused: {repr r.toOption}"
+  -- an instance referring to SEVERAL groups
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0", "gfL1"] [[0], [0, 1]] nilC)
+  unless has r "uses the group facts of 2 groups (expected exactly one)" do throwError "SR3x AUDIT FAILED: an entry using two groups not refused: {repr r.toOption}"
+  -- an instance referring to NO group
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0"] [[]] nilC)
+  unless has r "uses the group facts of 0 groups (expected exactly one)" do throwError "SR3x AUDIT FAILED: an entry using no group not refused: {repr r.toOption}"
+  -- not the beta-redex shape
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0"] [[0]] nilC (redex := false))
+  unless has r "is not a beta-redex" do throwError "SR3x AUDIT FAILED: a non-redex body not refused: {repr r.toOption}"
+  logInfo m!"SR3x: the chain reader refuses synthetic chains with a wrong head, a missing link, an unexpected / index-less binder, an entry using several (or no) groups, and a non-redex body; messages asserted"
 
 end Tests.Compiler.SeqDeepGenGroupTest

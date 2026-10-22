@@ -858,6 +858,36 @@ def oldGroupKeys (fn C : Name) (kP : Nat) (al : List (List Nat)) : MetaM (Except
 chain over the entries is `forall_getElem?_cons … (entry proof) (rest)`; the group of entry `k` is the index of the group-fact hypotheses
 (`gfB/gfL/gfR/gfHb/gfHv` + index) that its proof uses.  Structural: it needs the shape `hcalls := fun i bools bits k c hk => (fun gf… => chain k c hk) proofs`
 and the names of the group-fact binders.  `Except.error` if the shape is not as expected, or an entry uses the facts of not exactly one group. -/
+def oldInstGroupsOfHcalls (thm : Name) (a : Expr) : MetaM (Except String (List Nat)) := do
+  lambdaTelescope a fun _ inner => do
+    let f := inner.getAppFn
+    unless f.isLambda do return .error s!"the body of `hcalls` in {thm} is not a beta-redex"
+    lambdaTelescope f fun gs chainBody => do
+      let mut gidx : Array (FVarId × Nat) := #[]
+      for g in gs do
+        let un := (← g.fvarId!.getUserName).toString
+        unless un.startsWith "gf" do return .error s!"unexpected binder {un} in the group-fact redex of {thm}"
+        let some j := (String.mk (un.toList.filter Char.isDigit)).toNat? | return .error s!"cannot read the group index of {un}"
+        gidx := gidx.push (g.fvarId!, j)
+      let mut cur := chainBody
+      let mut out : Array Nat := #[]
+      let mut fuel := 100000
+      while fuel > 0 do
+        fuel := fuel - 1
+        let cur' := cur.consumeMData
+        if cur'.getAppFn.isConstOf ``Tools.ShippingMachineChild.forall_getElem?_cons && cur'.getAppNumArgs ≥ 6 then
+          let args := cur'.getAppArgs
+          let used := (gidx.filter fun (id, _) => args[4]!.containsFVar id).toList.map (·.2) |>.eraseDups
+          match used with
+          | [j] => out := out.push j
+          | _ => return .error s!"an entry of the chain in {thm} uses the group facts of {used.length} groups (expected exactly one)"
+          cur := args[5]!
+        else if cur'.getAppFn.isConstOf ``Tools.ShippingMachineChild.forall_getElem?_nil then
+          return .ok out.toList
+        else
+          return .error s!"unexpected term in the chain over the entries of {thm}: {cur'.getAppFn}"
+      return .error s!"the chain in {thm} is too long"
+
 def oldInstGroups (thm : Name) : MetaM (Except String (List Nat)) := do
   let some (.thmInfo ti) := (← getEnv).find? thm | return .error s!"{thm} is not a theorem"
   lambdaTelescope ti.value fun _ body => do
@@ -865,34 +895,7 @@ def oldInstGroups (thm : Name) : MetaM (Except String (List Nat)) := do
       | return .error s!"no machine_linkedT_callsRN in {thm}"
     let tbl ← Tools.ShippingSeqOldPieces.namedArgs app
     let some (_, a) := tbl.find? (·.1 == `hcalls) | return .error s!"no `hcalls` binder in {thm}"
-    lambdaTelescope a fun _ inner => do
-      let f := inner.getAppFn
-      unless f.isLambda do return .error s!"the body of `hcalls` in {thm} is not a beta-redex"
-      lambdaTelescope f fun gs chainBody => do
-        let mut gidx : Array (FVarId × Nat) := #[]
-        for g in gs do
-          let un := (← g.fvarId!.getUserName).toString
-          unless un.startsWith "gf" do return .error s!"unexpected binder {un} in the group-fact redex of {thm}"
-          let some j := (String.mk (un.toList.filter Char.isDigit)).toNat? | return .error s!"cannot read the group index of {un}"
-          gidx := gidx.push (g.fvarId!, j)
-        let mut cur := chainBody
-        let mut out : Array Nat := #[]
-        let mut fuel := 100000
-        while fuel > 0 do
-          fuel := fuel - 1
-          let cur' := cur.consumeMData
-          if cur'.getAppFn.isConstOf ``Tools.ShippingMachineChild.forall_getElem?_cons && cur'.getAppNumArgs ≥ 6 then
-            let args := cur'.getAppArgs
-            let used := (gidx.filter fun (id, _) => args[4]!.containsFVar id).toList.map (·.2) |>.eraseDups
-            match used with
-            | [j] => out := out.push j
-            | _ => return .error s!"an entry of the chain in {thm} uses the group facts of {used.length} groups (expected exactly one)"
-            cur := args[5]!
-          else if cur'.getAppFn.isConstOf ``Tools.ShippingMachineChild.forall_getElem?_nil then
-            return .ok out.toList
-          else
-            return .error s!"unexpected term in the chain over the entries of {thm}: {cur'.getAppFn}"
-        return .error s!"the chain in {thm} is too long"
+    oldInstGroupsOfHcalls thm a
 
 /-- The number of group-fact bundles (`gfL{j}` binders) of the old generated `hcalls` in `thm`. -/
 def oldGroupCount (thm : Name) : MetaM Nat := do
