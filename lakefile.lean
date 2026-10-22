@@ -3845,3 +3845,6 @@ lean_lib «Tests.Compiler.TopShareReturnedTest» where
 
 lean_lib «Tools.ShippingSeqParentAt» where
   roots := #[`Tools.ShippingSeqParentAt]
+
+lean_lib «Tools.ShippingQuadLeafGeneric» where
+  roots := #[`Tools.ShippingQuadLeafGeneric]
