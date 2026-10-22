@@ -243,4 +243,178 @@ theorem machineSynth_gen (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet
   · have := RunsTo.pure_eq hr
     cases this
 
+
+/-! ## The real miss of a machine whose calls are memory entries / `StepNM` callees -/
+
+/-- **The real miss of `c` with memory entries and `StepNM` callees as calls.**  Same walk as `synthesizeChild_nonleaf_miss` (`Tools/ShippingSharedLeafNL.lean`), over the clauses
+`CacheClosedNM` / `KeyTop` / `MemDet`.  `Gs` are the names the callees' steps may add (`c ∉ Gs`); `hcne`: no call is `c`.  The entry `y` is `designWith kids d₀` with every kid a cache
+entry or a built memory module. -/
+theorem synthesizeChild_miss_nm (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} (hD : D ≠ 0) {c : Name} (Gs : List Name) (hcG : c ∉ Gs) (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ []) (hfne : d.shape.instFields ≠ [])
+    (hcalls : ∀ x ∈ d.shape.instTagged, (∃ md, x.2.child? = some md ∧ MemKid md) ∨
+      (x.2.child? = none ∧ StepNM (mref := mref) (cref := cref) O mctx cctx (D + 1) x.1 Gs))
+    (hcne : ∀ k (hk : k < d.shape.insts.length), (d.shape.insts[k]).1 ≠ c)
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx c d.shape)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O D w)
+    (hcl : CacheClosedNM (cv w)) (hk : KeyTop (cv w)) (hmd : MemDet (cv w)) (hmiss : (cv w).get? c = none)
+    (h : RunsTo (synthesizeChild c) mctx mref cctx cref w y w') :
+    JQC O D w' ∧ CacheClosedNM (cv w') ∧ KeyTop (cv w') ∧ MemDet (cv w') ∧ CacheExtends (cv w) (cv w') ∧
+      (cv w').get? c = some y ∧
+      (∃ (kids : List Res) (d₀ : Sparkle.IR.AST.Design), y.2 = designWith kids d₀ ∧ d₀.modules = [] ∧
+        kids.length = d.shape.insts.length ∧
+        (∀ k (hk : k < d.shape.insts.length),
+          (∃ md, (d.shape.instOrigins.getD k .ord).child? = some md ∧ kids[k]? = some md ∧ MemKid md) ∨
+          ((d.shape.instOrigins.getD k .ord).child? = none ∧ ∃ e, kids[k]? = some e ∧
+            (cv w').get? (d.shape.insts[k]).1 = some e))) ∧
+      (∀ c' r', (cv w').get? c' = some r' → (cv w).get? c' = some r' ∨ c' = c ∨
+        c' ∈ d.shape.insts.map (·.1) ∨ c' ∈ Gs) := by
+  unfold synthesizeChild at h
+  obtain ⟨m, w1, hget, h⟩ := RunsTo.bind h
+  obtain ⟨hm, hw1⟩ := jqc_cacheGet O hA hw hget
+  have hc1 := cacheGet_cv O hA hw hget
+  cases hc : m.get? c with
+  | some r' => rw [hm] at hc; rw [hmiss] at hc; cases hc
+  | none =>
+    simp only [hc] at h
+    obtain ⟨r, w2, hrun, h⟩ := RunsTo.bind h
+    have hr : RealChildA O c r := RealChildA.of_jqc O hA hw1 hrun
+    obtain ⟨u, w3, hmod, h⟩ := RunsTo.bind h
+    obtain ⟨rfl, rfl⟩ := RunsTo.pure_world h
+    obtain ⟨M, Dg, wc, hcore, htail, hpost⟩ := full_run_tracked O hA (D := D) hrun
+    obtain ⟨tenv, b, w9, w10, hmach, hw9, hc9, htl⟩ := core_run_tracked O hA hD entry closes hw1 hcore
+    have hcl9 : CacheClosedNM (cv w9) := by rw [hc9, hc1]; exact hcl
+    have hk9 : KeyTop (cv w9) := by rw [hc9, hc1]; exact hk
+    have hmd9 : MemDet (cv w9) := by rw [hc9, hc1]; exact hmd
+    obtain ⟨t, t', d₀, kids, run, hcl', hcc, hlen, hcache, hj10, hcl10, hk10, hmd10, hext, hgrow⟩ :=
+      machineSynth_gen O hA (Nat.succ_ne_zero D) Gs d ok hbody hins hfne hcalls hw9 hcl9 hk9 hmd9 hmach
+    obtain ⟨hjc, hcvc⟩ := htl hj10
+    obtain ⟨hj2, hcv2⟩ := htail hjc
+    obtain ⟨-, hname0, hd0⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl'
+    obtain ⟨-, -, hMname, L, hLinst, hperm, -, -, -, -, -, hDeq, -⟩ := hcc.some
+    have hMc : M.name = Sparkle.IR.ModuleName.ofDecl c := hMname.trans hname0
+    have hcv9 : cv w9 = cv w := hc9.trans hc1
+    have hnot : (cv w10).get? c = none := by
+      cases hq : (cv w10).get? c with
+      | none => rfl
+      | some q =>
+        rcases hgrow c q hq with h0 | h0 | h0
+        · rw [hcv9, hmiss] at h0; cases h0
+        · obtain ⟨x, hx, hxc⟩ := List.mem_map.mp h0
+          obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hx
+          exact absurd hxc (hcne i hi)
+        · exact absurd h0 hcG
+    -- every kid is a cache entry or a built memory module
+    have hkidIn : ∀ kd ∈ kids, (∃ c', (cv w10).get? c' = some kd) ∨ MemKid kd := by
+      intro kd hkd
+      obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hkd
+      have hi' : i < d.shape.insts.length := hlen ▸ hi
+      have hgi : kids[i]? = some kids[i] := List.getElem?_eq_getElem hi
+      rcases hcache i hi' with ⟨md, -, h2, h3⟩ | ⟨-, e, hke, hce⟩
+      · rw [hgi] at h2
+        cases h2
+        exact Or.inr h3
+      · rw [hgi] at hke
+        cases hke
+        exact Or.inl ⟨_, hce⟩
+    have hnoclash : ∀ x ∈ Dg.modules, x.name ≠ M.name := by
+      intro x hx hxn
+      rw [hDeq] at hx
+      by_cases hmn : MemNamed x.name
+      · obtain ⟨cb, aw, dw, e⟩ := hmn
+        exact Tools.ShippingModuleName.ofDecl_ne_ofMem c cb aw dw ((hxn.trans hMc).symm.trans e)
+      rcases mem_designWith hx with h0 | ⟨kd, hkd, hak⟩
+      · rw [hd0] at h0; cases h0
+      · have hmods : x ∈ ModsOf kd := by
+          rcases hak with h1 | h1
+          · exact List.mem_cons_of_mem _ h1
+          · rw [h1]; exact List.mem_cons_self ..
+        rcases hkidIn kd hkd with ⟨c', hc'⟩ | hmk
+        · obtain ⟨c'', r'', hr'', rfl⟩ := hcl10 c' kd hc' x hmods hmn
+          have hnm := hk10 c'' r'' hr''
+          have : c'' = c := Tools.ShippingModuleName.ofDecl_injective (hnm.symm.trans (hxn.trans hMc))
+          subst this
+          rw [hnot] at hr''; cases hr''
+        · exact hmn (memMod_memNamed (mods_of_memKid hmk (by simpa using hak)))
+    have hid1 : topMap M.name Sparkle.IR.ZeroWidth.dropZeroWidthModule Dg = Dg := topMap_id _ _ _ hnoclash
+    have hrdesign : y.2 = designWith kids d₀ := by
+      rcases hpost with ⟨-, h2⟩ | ⟨-, h2⟩
+      · rw [h2, hid1, hDeq]
+      · rw [h2, hid1, topMap_id _ _ _ hnoclash, hDeq]
+    have hrname : y.1.name = Sparkle.IR.ModuleName.ofDecl c := by
+      rcases hpost with ⟨h1, -⟩ | ⟨h1, -⟩
+      · rw [h1, Tools.ShippingMachineDepthRun.dropZW_name]; exact hMc
+      · rw [h1, Tools.ShippingMachineDepthRun.mergeChecked_name,
+          Tools.ShippingMachineDepthRun.dropZW_name]; exact hMc
+    have hc3 := (O.cacheModify' hA (fun m : Std.HashMap Name Res => m.insert c y) hj2.1.1 hmod).1
+    have hj3 := jqc_insert_runs O hA hj2 hr hmod
+    have hcvw2 : cv w2 = cv w10 := hcv2.trans hcvc
+    have hcv3 : cv w' = (cv w10).insert c y := by rw [hc3, hcvw2]
+    refine ⟨hj3, ?_, ?_, ?_, ?_, ?_, ⟨kids, d₀, hrdesign, hd0, hlen, fun k hkl => ?_⟩, ?_⟩
+    · rw [hcv3]; exact cacheClosedNM_insert_kids hcl10 hnot hrdesign hd0 hkidIn
+    · rw [hcv3]; exact keyTop_insert hk10 hrname
+    · rw [hcv3]; exact memDet_insert_kids hmd10 hrname hrdesign hd0 hkidIn
+    · rw [hcv3]
+      have h1 : CacheExtends (cv w) (cv w10) := by rw [← hcv9]; exact hext
+      exact cacheExtends_trans h1 (cacheExtends_insert_missing y hnot)
+    · rw [hcv3]; exact get?_insert_self _ _ _
+    · rcases hcache k hkl with hmem | ⟨h1, e, hke, hce⟩
+      · exact Or.inl hmem
+      · refine Or.inr ⟨h1, e, hke, ?_⟩
+        rw [hcv3, get?_insert_ne _ (hcne k hkl)]; exact hce
+    · intro c' r' hc'
+      rw [hcv3] at hc'
+      rcases insert_get_cases hc' with ⟨e, -⟩ | ⟨-, hc''⟩
+      · exact Or.inr (Or.inl e)
+      · rcases hgrow c' r' hc'' with h0 | h0 | h0
+        · exact Or.inl (by rw [← hcv9]; exact h0)
+        · exact Or.inr (Or.inr (Or.inl h0))
+        · exact Or.inr (Or.inr (Or.inr h0))
+
+/-- **Hit or real miss: the one-step contract of a machine with memory entries / `StepNM` calls.** -/
+theorem stepNM_of_data (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {D : Nat} (hD : D ≠ 0) {c : Name} (Gs : List Name) (hcG : c ∉ Gs) (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ []) (hfne : d.shape.instFields ≠ [])
+    (hcalls : ∀ x ∈ d.shape.instTagged, (∃ md, x.2.child? = some md ∧ MemKid md) ∨
+      (x.2.child? = none ∧ StepNM (mref := mref) (cref := cref) O mctx cctx (D + 1) x.1 Gs))
+    (hcne : ∀ k (hk : k < d.shape.insts.length), (d.shape.insts[k]).1 ≠ c)
+    (entry : MachineDefines mctx mref cctx cref c d.shape)
+    (closes : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx c d.shape) :
+    StepNM (mref := mref) (cref := cref) O mctx cctx D c (d.shape.insts.map (·.1) ++ Gs) := by
+  intro w w' y hw hcl hk hmd h
+  cases hm : (cv w).get? c with
+  | some r =>
+    obtain ⟨rfl, hj, hcv⟩ := synthesizeChild_hit O hA hw hm h
+    rw [hcv]
+    exact ⟨hj, hcl, hk, hmd, hm, cacheExtends_refl _, fun c' r' h' => Or.inl h'⟩
+  | none =>
+    obtain ⟨hj, hcl', hk', hmd', hext, hget, -, hgrow⟩ :=
+      synthesizeChild_miss_nm O hA hD Gs hcG d ok hbody hC hslots hdomB hins hfne hcalls hcne entry closes hw
+        hcl hk hmd hm h
+    refine ⟨hj, hcl', hk', hmd', hget, hext, fun c' r' hc' => ?_⟩
+    rcases hgrow c' r' hc' with h0 | h0 | h0 | h0
+    · exact Or.inl h0
+    · exact Or.inr (Or.inl h0)
+    · exact Or.inr (Or.inr (List.mem_append_left _ h0))
+    · exact Or.inr (Or.inr (List.mem_append_right _ h0))
+
 end Tools.ShippingMemLeafRun
+
+#print axioms Tools.ShippingMemLeafRun.closeLoop_gen
+#print axioms Tools.ShippingMemLeafRun.closeInstsGM_gen
+#print axioms Tools.ShippingMemLeafRun.machineSynth_gen
+#print axioms Tools.ShippingMemLeafRun.synthesizeChild_miss_nm
+#print axioms Tools.ShippingMemLeafRun.stepNM_of_data
