@@ -14,6 +14,8 @@ open Tools.ShippingMemCloses (ChildIfaceP)
 open Tools.ShippingChildRunAKids Tools.ShippingChildInv
 open Tests.Compiler.SeqDeepGenDiffTest
 open Tools.ShippingTopShareRun Tools.ShippingSharedLeafNL
+open Tools.ShippingChildBndInit Tools.ShippingChildBndCore Tools.ShippingChildPinC Tools.ShippingChildDepthC
+open Tools.ShippingSharedLeafCoh Tools.ShippingLeafMissCoh Tools.ShippingSharedLeafHit
 
 abbrev wrapN : Lean.Name := ``Tests.Compiler.SeqDeepGenInstTest.wrap
 abbrev accN : Lean.Name := ``Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc
@@ -151,7 +153,86 @@ theorem wrap3_calleeOK {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Le
     fun k hk => by rw [wrap3_insts_acc k hk]; decide,
     entry, wrap3_closesA O T hA hR0⟩
 
+theorem topshare_instTagged_names : topshare.machineData.shape.instTagged.map (·.1) =
+    [wrapN, wrapN, ``Tests.Compiler.SeqDeepGenDiffTest.wrap3, ``Tests.Compiler.SeqDeepGenDiffTest.wrap3] := by
+  first | decide | decide +kernel
+
+theorem topshare_instTagged_child : ∀ x ∈ topshare.machineData.shape.instTagged, x.2.child? = none := by
+  first | decide | decide +kernel
+
+/-- the parent's call list has exactly the shape `[c₁, c₁, c₂, c₂]` of `topshare_entry_run4` (origins: all without a child) -/
+theorem topshare_instTagged_shape : ∃ o₁ o₁' o₂ o₂' : Sparkle.Compiler.MachInstOrigin.InstOrigin,
+    o₁.child? = none ∧ o₁'.child? = none ∧ o₂.child? = none ∧ o₂'.child? = none ∧
+    topshare.machineData.shape.instTagged = [(wrapN, o₁), (wrapN, o₁'),
+      (``Tests.Compiler.SeqDeepGenDiffTest.wrap3, o₂), (``Tests.Compiler.SeqDeepGenDiffTest.wrap3, o₂')] := by
+  have h1 := topshare_instTagged_names
+  have h2 := topshare_instTagged_child
+  revert h1 h2
+  generalize topshare.machineData.shape.instTagged = L
+  intro h1 h2
+  rcases L with _ | ⟨⟨n1, o1⟩, _ | ⟨⟨n2, o2⟩, _ | ⟨⟨n3, o3⟩, _ | ⟨⟨n4, o4⟩, _ | ⟨e, L⟩⟩⟩⟩⟩
+  · simp at h1
+  · simp at h1
+  · simp at h1
+  · simp at h1
+  · simp only [List.map_cons, List.map_nil, List.cons.injEq, and_true] at h1
+    obtain ⟨e1, e2, e3, e4⟩ := h1
+    subst e1 e2 e3 e4
+    exact ⟨o1, o2, o3, o4, h2 (wrapN, o1) (by simp), h2 (wrapN, o2) (by simp), h2 (``Tests.Compiler.SeqDeepGenDiffTest.wrap3, o3) (by simp), h2 (``Tests.Compiler.SeqDeepGenDiffTest.wrap3, o4) (by simp), rfl⟩
+  · simp at h1
+
+theorem topshare_calleeOKs_ne : ∀ k (hk : k < Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts.length),
+    (Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts[k]).1 ≠ ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 := by
+  intro k hk; rw [wrap_insts_acc k hk]; decide
+
+/-- **THE PARENT'S OWN RUN AT `wrap`, `wrap3`, `acc` (`topshare`).** A returning run of `synthesizeCombinational topshare`
+from a `JQC O 0` world: the machine synthesis's result is the pure `closeInstsG` of `[y₁, y₁, y₂, y₂]`; the end cache is
+`CacheCoh` with `y₁` at `wrap`, `y₂` at `wrap3`; the `hcross` shape holds for `(y₁, y₂)`; and for every pair of calls (one of
+`wrap`, one of `wrap3`) to the shared leaf `acc`, the cache's entry `e` has its module `e.1` inside BOTH designs.
+PREMISES (named): `O`, `hA`, `T` (`RefLawsATele`, as the existing generator), `MachineDefines` of `topshare`, `wrap`, `wrap3`,
+`acc`, `MachineClosesAtA` of `topshare` ITSELF (not derived in this change; see REPORT-SR9). The generator still REFUSES `topshare`. -/
+theorem topshare_entry_run_inst {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (hA : AdmCtx O.quiet mctx cctx)
+    (entryT : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.topshare
+      topshare.machineData.shape)
+    (entryW : MachineDefines mctx mref cctx cref wrapN Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape)
+    (entryW3 : MachineDefines mctx mref cctx cref ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 wrap3.machineData.shape)
+    (hR0 : MachineDefines mctx mref cctx cref accN
+      Sparkle.Tests.Compiler.ShippingChildBoundaryTest.acc.machineData.shape)
+    (closesT : MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx
+      ``Tests.Compiler.SeqDeepGenDiffTest.topshare topshare.machineData.shape)
+    {w w' : Void IO.RealWorld} {y : Res} (hw : JQC O 0 w)
+    (h : Tools.ShippingEntrySoundness.RunsTo
+      (Sparkle.Compiler.Elab.synthesizeCombinational ``Tests.Compiler.SeqDeepGenDiffTest.topshare)
+      mctx mref cctx cref w y w') :
+    ∃ (y₁ y₂ : Res) (t t' : Sparkle.IR.AST.Module) (d₀ : Sparkle.IR.AST.Design)
+      (M : Sparkle.IR.AST.Module) (Dg : Sparkle.IR.AST.Design) (w10 : Void IO.RealWorld),
+      Sparkle.IR.Machine.closeLets topshare.machineData.shape.layout.lets t = some t' ∧
+      some (M, Dg) = Sparkle.IR.Machine.closeInstsG (machNIn topshare.machineData.shape)
+        topshare.machineData.shape.insts.length topshare.machineData.shape.layout.slots.length
+        (t.inputs.map (·.name)) (topshare.machineData.shape.insts.map (·.2.1))
+        topshare.machineData.shape.instFields [y₁, y₁, y₂, y₂]
+        (Sparkle.IR.Machine.closeMachine topshare.machineData.shape.layout t', d₀) ∧
+      JQC O 0 w' ∧ cv w' = cv w10 ∧
+      CacheClosed (cv w10) ∧ KeyTop (cv w10) ∧ CacheCoh (cv w10) ∧
+      (cv w10).get? wrapN = some y₁ ∧ (cv w10).get? ``Tests.Compiler.SeqDeepGenDiffTest.wrap3 = some y₂ ∧
+      (∀ a ∈ ModsOf y₁, ∀ b ∈ ModsOf y₂, a.name = b.name → a = b) ∧
+      ∀ k₁ (hk₁ : k₁ < Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts.length)
+        k₂ (hk₂ : k₂ < wrap3.machineData.shape.insts.length),
+        (Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts[k₁]).1 =
+          (wrap3.machineData.shape.insts[k₂]).1 →
+        ∃ e, (cv w10).get? (Tests.Compiler.SeqDeepGenInstTest.wrap.machineData.shape.insts[k₁]).1 = some e ∧
+          e.1 ∈ y₁.2.modules ∧ e.1 ∈ y₂.2.modules := by
+  obtain ⟨o₁, o₁', o₂, o₂', h1, h1', h2, h2', hP⟩ := topshare_instTagged_shape
+  exact topshare_entry_run4 O hA (by decide) h1 h1' h2 h2' topshare.machineData topshare.machine_ok
+    topshare.machine_body (by first | decide | decide +kernel) (by first | decide | decide +kernel) hP
+    entryT closesT _ _ (wrap_calleeOK O T hA entryW hR0) (wrap3_calleeOK O T hA entryW3 hR0)
+    topshare_calleeOKs_ne hw h
+
 end Tests.Compiler.TopShareInstTest
 
 #print axioms Tests.Compiler.TopShareInstTest.wrap_calleeOK
 #print axioms Tests.Compiler.TopShareInstTest.wrap3_calleeOK
+#print axioms Tests.Compiler.TopShareInstTest.topshare_entry_run_inst
