@@ -4,6 +4,7 @@ import Tools.ShippingTopShareRan
 import Tools.ShippingQuadReturned
 import Tools.ShippingSeqParentGenD2MSG
 import Tools.ShippingSeqParentGenD2MSD
+-- BUILT (unit SR20): n5 exit 0 (Tests.Compiler.SharedLeafGenNoOldChainTest; dev run on the dirty tree); the final-SHA rebuild is in REPORT-SR20.md.
 -- BUILT (unit SR19): a8 exit 0 (Tests.Compiler.SharedLeafGenDefaultHbTest), f1 exit 0 (Tests.Compiler.SharedLeafGenFallbackTest) (dev runs); final-SHA rebuild in REPORT-SR19.md.
 -- BUILT (unit SR13): s4 exit 0 (module), s5 exit 0 (Tests.Compiler.SharedLeafGenTest), s6 exit 0 (Tests.Compiler.SharedLeafGenTopshareTest) (dev runs); the final-SHA rebuild is in REPORT-SR13.md.
 /-! # `#machine_seq_parent_endpoint P` — a LIMITED shared-leaf CANDIDATE (unit SR13, ledger L8as)
@@ -40,8 +41,13 @@ existential `O`/`T`/`AdmCtx`/`MachineDefines`/`JQC O 0 w` (inside `epD2M_Bnd`), 
 (Unit SR19, ledger L8ay) The decoding equations `Hb0`/`Hv0` of every call are NO LONGER extracted from the old chain (`oldGroupFact%`): they are stated and proved per call as `have`s inside each generated `hPoint`, the
 families being read from the generated `machineExt`/`machineExtB` (`Tools/ShippingSeqParentGenD2MSD.lean`, text only; a wrong reading makes that theorem fail and triggers the logged fallback); the `Inhabited` instances are
 `⟨defaultHList _⟩` (not `oldInst%`); the generic path runs under the AMBIENT `maxHeartbeats` (the shared header's `set_option maxHeartbeats 4000000` is dropped from its text; `Tests/Compiler/SharedLeafGenDefaultHbTest.lean`).
-STILL read from the old chain by the ANALYSIS (needed by the SR13 fallback and for the parent's group numbering): its presence and the partition of the instances into groups; the generic text itself mentions none of
-`oldGroupFact%`/`oldInst%`/`oldNamed%`/`machine_composedNR` (asserted in the test).  Test hooks (default off): `sparkle.sharedLeafTiming` (measurement), `sparkle.sharedLeafInject` (`decl`/`audit`, forces the fallback; `Tests/Compiler/SharedLeafGenFallbackTest.lean`).
+(Unit SR20, ledger L8az) The ANALYSIS of the generic path (`analyseG`) no longer needs the old chain: the instance → group partition is the first-occurrence partition of the call keys read from the generated
+`machineExt`/`machineExtB` (`oldGroupKeysM`, a reading of the generated terms, not trusted: every generated declaration built on it is kernel-checked and a wrong partition makes one fail), and the leaf's run theorem
+`G.seq_child_runN` is generated on demand by `Tools.ShippingMachineDepthCommand.generateSeqChildN` (from `G.machine_sound`).  Nothing of `#machine_design_svNR` is required: no `machine_composedNR*`, `seq_child_runN_ofR1`.
+The old chain is still used for the SR13 FALLBACK only: if `fn.machine_composedNR2` exists, `analyseS` (old-chain analysis, numbering read from the old term) is run as before and the SR13 path is the fallback of a failed generic attempt.
+If there is NO old chain and the generic attempt fails, the failure is logged (`SR18: … FAILED … NO old chain: no SR13 fallback`), the state is restored, and the pre-existing elaborators for the command are run (`runOtherElabs`; for a
+shared-leaf parent: their own shared-leaf refusal text).  This elaborator itself raises no error and keeps nothing of the failed attempt.  `Tests/Compiler/SharedLeafGenNoOldChainTest.lean`.
+STILL needed: `#machine_endpoint P` (the machine data of the parent and of its callees/leaf, `machine_ok`, `machine_body`, `machine_closes` of the leaf).  Test hooks (default off): `sparkle.sharedLeafTiming`, `sparkle.sharedLeafInject`.
 `RealChildA` / `ServedRealA` are histories of past synthesis results.
 
 ## What the candidate generates
@@ -78,7 +84,7 @@ def cutBetween (s a b : String) : String :=
   | _ => panic! s!"cutBetween: start marker {a} not unique"
 
 /-- the class test: `none` = this elaborator does not apply (the existing path decides); `some p` = a QUAD instance (conditions checked) -/
-def analyseS (fn : Name) : CommandElabM (Option D2MParams) := do
+def analyseCore (fn : Name) (old : Bool) : CommandElabM (Option D2MParams) := do
   let env ← getEnv
   let calleesOf := fun (n : Name) => liftTermElabM do readNames (← elabText (s!"({n}.machineData.shape.insts.map (·.1))"))
   let nat := fun (s : String) (n : Name) => liftTermElabM do reduceNat (← elabText (s.replace "@F@" n.toString))
@@ -119,19 +125,27 @@ def analyseS (fn : Name) : CommandElabM (Option D2MParams) := do
   let al ← liftTermElabM do readNatLists (← elabText s!"({fn}.machineData.shape.insts.map (·.2.1))")
   let kP ← nat "(@F@.machineData.bsIn.length - @F@.machineData.shape.insts.length)" fn
   let oldThm := fn ++ `machine_composedNR2
-  unless env.contains oldThm do
-    refuseS fn "old chain present" s!"{oldThm} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`)"
-  let instGroup ← match ← liftTermElabM <| Tools.ShippingSeqParentGenD2.oldInstGroups oldThm with
-    | .ok og => pure og
-    | .error why => refuseS fn "group numbering" s!"the partition of the instances into groups cannot be read from the old generated {oldThm}: {why}"
+  -- (unit SR20) `old = false`: NO old chain is read or required.  The instance → group partition is the first-occurrence partition of the call keys read from the generated
+  -- `machineExt`/`machineExtB` (`oldGroupKeysM`); it is not trusted: the generated declarations built on it are kernel-checked, and a wrong partition makes one of them fail.
+  let instGroup ← if old then do
+      unless env.contains oldThm do
+        refuseS fn "old chain present" s!"{oldThm} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`)"
+      match ← liftTermElabM <| Tools.ShippingSeqParentGenD2.oldInstGroups oldThm with
+      | .ok og => pure og
+      | .error why => refuseS fn "group numbering" s!"the partition of the instances into groups cannot be read from the old generated {oldThm}: {why}"
+    else match ← liftTermElabM <| oldGroupKeysM fn pc kP al with
+      | .ok (inst, _) => pure inst
+      | .error why => refuseS fn "group numbering (machine route)" s!"the partition of the instances into groups cannot be computed from the generated machineExt of {fn}: {why}"
   unless instGroup.length == al.length do
-    refuseS fn "group numbering" s!"the old generated {oldThm} has {instGroup.length} call entries but {fn} has {al.length} call instances"
+    refuseS fn "group numbering" s!"the partition has {instGroup.length} call entries but {fn} has {al.length} call instances"
   let some groups := Tools.ShippingSeqParentGenD2.groupKeysOf instGroup (pc.map Cs.idxOf |>.zip al)
-    | refuseS fn "group numbering" s!"the old generated {oldThm} groups the instances as {instGroup}, but the instances of one group do not have one (callee, argument list)"
-  let partitionNote : String ← match ← liftTermElabM <| oldGroupKeysM fn pc kP al with
+    | refuseS fn "group numbering" s!"the partition groups the instances as {instGroup}, but the instances of one group do not have one (callee, argument list)"
+  let partitionNote : String ← if !old then pure "machine route: first-occurrence partition of the call keys read from the generated machineExt/machineExtB (no old chain)" else
+    match ← liftTermElabM <| oldGroupKeysM fn pc kP al with
     | .ok (inst, _) => pure (if inst == instGroup then "the recomputed call-argument approximation of the old key gives the same partition" else s!"the recomputed call-argument approximation of the old key gives a DIFFERENT partition {inst} (the old term's numbering is used)")
     | .error why => pure s!"the call-argument approximation of the old key was not computed ({why})"
-  for (n, ss) in [(fn, [`machine_composedNR2, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
+  if old then
+   for (n, ss) in [(fn, [`machine_composedNR2, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
         `machine_ext_causal, `machineSource, `machineInits, `machineBody, `machineResult, `machineExt, `machineExtB, `machineData])] ++
       Cs.map (fun C => (C, [`machine_composedNR1, `machine_ok, `machine_body, `machine_inits, `machine_writes, `machine_result, `machine_source,
         `machine_ext_causal, `machineSource, `machineInits, `machineBody, `machineResult, `machineExt, `machineExtB, `machineData,
@@ -140,9 +154,10 @@ def analyseS (fn : Name) : CommandElabM (Option D2MParams) := do
     for s in ss do
       unless env.contains (n ++ s) do
         refuseS fn "old chain present" s!"{n ++ s} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`)"
-  let nOld ← liftTermElabM <| Tools.ShippingSeqParentGenD2.oldGroupCount oldThm
-  unless nOld == groups.length do
-    refuseS fn "group numbering" s!"the old generated {oldThm} has {nOld} group(s) of facts but its entries use {groups.length} group(s)"
+  if old then
+    let nOld ← liftTermElabM <| Tools.ShippingSeqParentGenD2.oldGroupCount oldThm
+    unless nOld == groups.length do
+      refuseS fn "group numbering" s!"the old generated {oldThm} has {nOld} group(s) of facts but its entries use {groups.length} group(s)"
   let ip ← liftTermElabM <| sourceIndex fn
   unless ip == ``Unit || ip == ``PUnit do refuseS fn "top-level parent" s!"the parent's machineSource is indexed by {ip}, expected Unit"
   let mut kCs : Array Nat := #[]
@@ -161,6 +176,12 @@ def analyseS (fn : Name) : CommandElabM (Option D2MParams) := do
   let mP ← nat "@F@.machineData.shape.insts.length" fn
   return some { P := fn, Cs := Cs, Gs := Gs.toList, kCs := kCs.toList, gws := gws.toList, nOutsCs := nOuts.toList, kP := kP, mP := mP,
                 groups := groups, instGroup := instGroup, instCallee := pc.map Cs.idxOf, partitionNote := partitionNote }
+
+/-- the class test with the OLD CHAIN (SR13 fallback and its group numbering read from the old term); behaviour unchanged -/
+def analyseS (fn : Name) : CommandElabM (Option D2MParams) := analyseCore fn true
+
+/-- (unit SR20) the class test for the GENERIC path: no old chain read or required -/
+def analyseG (fn : Name) : CommandElabM (Option D2MParams) := analyseCore fn false
 
 /-! ## text -/
 
@@ -533,6 +554,20 @@ def runPathS (fn : Name) (p : D2MParams) (gen : Option Tools.ShippingSeqParentGe
 
 
 
+/-- (unit SR20) run the elaborators registered for `stx` OTHER than this one, in registration order of precedence, exactly as `elabCommand` would after `unsupportedSyntax` -- but WITHOUT
+the state rollback that `unsupportedSyntax` performs (it would discard the log of the failure of the generic path).  The first one that does not defer decides (its own errors propagate). -/
+def runOtherElabs (stx : Syntax) : CommandElabM Unit := do
+  let ents := (Lean.Elab.Command.commandElabAttribute.getEntries (← getEnv) stx.getKind).filter (·.declName != `Tools.ShippingSeqParentGenD2MS.elabEndpointD2MS)
+  for e in ents do
+    try
+      e.value stx
+      return
+    catch ex =>
+      match ex with
+      | .internal id _ => if id == Lean.Elab.unsupportedSyntaxExceptionId then continue else throw ex
+      | _ => throw ex
+  throwError "#machine_seq_parent_endpoint: no other elaborator accepted the declaration"
+
 open Tools.ShippingSeqParentGen in
 @[command_elab Tools.ShippingSeqParentGen.«command#machine_seq_parent_endpoint_»]
 def elabEndpointD2MS : CommandElab := fun stx => do
@@ -542,19 +577,35 @@ def elabEndpointD2MS : CommandElab := fun stx => do
   unless (← getEnv).contains (fn ++ `machineData) do throwUnsupportedSyntax
   let pc ← liftTermElabM do readNames (← elabText (s!"({fn}.machineData.shape.insts.map (·.1))"))
   unless pc.eraseDups.length ≥ 2 do throwUnsupportedSyntax
-  let some p ← analyseS fn | throwUnsupportedSyntax
-  logInfo m!"SR13 shared-leaf candidate (class QUAD): {p.P} calls {p.Cs} (call list {pc}), all of which call the SAME leaf {p.Gs.getD 0 .anonymous} (kP {p.kP}, kC {p.kCs}); {p.mP} call instance(s), groups {p.groups} (instance -> group {p.instGroup}; numbering READ from the old term: {p.partitionNote}); leaf argument widths {p.gws}"
+  -- (unit SR20) the GENERIC path is analysed WITHOUT the old chain (partition from the generated machineExt); the SR13 fallback needs the old chain and is available only if it exists
+  let some pg ← analyseG fn | throwUnsupportedSyntax
+  let oldThm := fn ++ `machine_composedNR2
+  let pOld? : Option D2MParams ← if (← getEnv).contains oldThm then
+      (try analyseS fn catch e =>
+        logInfo m!"SR20: the old chain of {fn} is present but unusable for the SR13 fallback: {e.toMessageData}"; pure none)
+    else pure none
+  logInfo m!"SR13 shared-leaf candidate (class QUAD): {pg.P} calls {pg.Cs} (call list {pc}), all of which call the SAME leaf {pg.Gs.getD 0 .anonymous} (kP {pg.kP}, kC {pg.kCs}); {pg.mP} call instance(s), groups {pg.groups} (instance -> group {pg.instGroup}; numbering: {pg.partitionNote}); leaf argument widths {pg.gws}; old chain {if pOld?.isSome then "present (SR13 fallback available)" else "absent or unusable (no SR13 fallback)"}"
   -- (unit SR18, L8ax) first the GENERIC-lemma path; if one of its generated declarations fails to check (or the audit fails) nothing of it is kept, the failure is logged and
-  -- the SR13 path (pasted per-callee blocks) runs instead.  No input is refused by this.
+  -- the SR13 path (pasted per-callee blocks) runs instead.
+  -- (unit SR20) WITHOUT an old chain there is no SR13 path: the failure is logged, the state restored, and the command throws `unsupportedSyntax`, i.e. the pre-existing elaborators
+  -- run (for a shared-leaf parent: their own SR3x refusal, which names the old chain).  This elaborator itself refuses nothing and keeps nothing of the failed attempt.
   let saved ← get
   let generic ← try
-      let gi ← genInfoS p
-      runPathS fn p (some gi)
+      -- (unit SR20) without the old chain nobody has generated the leaf's run theorem: the machine-route generator of the old chain's first step is called for the leaf alone
+      -- (`Tools.ShippingMachineDepthCommand.generateSeqChildN`: a theorem built from the leaf's `machine_sound`, kernel-checked, nothing of the old chain's composed theorems)
+      for G in pg.Gs.eraseDups do
+        unless (← getEnv).contains (G ++ `seq_child_runN) do
+          discard <| liftTermElabM <| withOptions (fun o => Lean.Elab.async.set o false) (Tools.ShippingMachineDepthCommand.generateSeqChildN G)
+      let gi ← genInfoS pg
+      runPathS fn pg (some gi)
       pure true
     catch e =>
       set saved
-      logInfo m!"SR18: the generic-lemma path FAILED for {fn} (a generated declaration did not check, or the audit failed): {e.toMessageData}; nothing of it is kept, falling back to the SR13 path"
+      logInfo m!"SR18: the generic-lemma path FAILED for {fn} (a generated declaration did not check, or the audit failed): {e.toMessageData}; nothing of it is kept{if pOld?.isSome then ", falling back to the SR13 path" else ", NO old chain: no SR13 fallback; the pre-existing elaborators run"}"
       pure false
-  unless generic do runPathS fn p none
+  unless generic do
+    match pOld? with
+    | some p => runPathS fn p none
+    | none => runOtherElabs stx
 
 end Tools.ShippingSeqParentGenD2MS
