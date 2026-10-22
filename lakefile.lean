@@ -3788,3 +3788,6 @@ lean_lib «Tests.Compiler.ExtReaderOpsAgreeTest» where
 
 lean_lib «Tools.Prototype.ExtReaderFinal» where
   roots := #[`Tools.Prototype.ExtReaderFinal]
+
+lean_lib «Tools.ShippingSharedLeafCoh» where
+  roots := #[`Tools.ShippingSharedLeafCoh]
