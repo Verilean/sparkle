@@ -1,6 +1,7 @@
 import Tools.ShippingSeqParentGenD2M
 import Tools.ShippingQuadLeafGeneric
 import Tools.ShippingTopShareRan
+import Tools.ShippingQuadReturned
 -- BUILT (unit SR13): s4 exit 0 (module), s5 exit 0 (Tests.Compiler.SharedLeafGenTest), s6 exit 0 (Tests.Compiler.SharedLeafGenTopshareTest) (dev runs); the final-SHA rebuild is in REPORT-SR13.md.
 /-! # `#machine_seq_parent_endpoint P` — a LIMITED shared-leaf CANDIDATE (unit SR13, ledger L8as)
 
@@ -24,6 +25,10 @@ Two tested examples (`topshare`, `topshare2`) do NOT make the class complete: be
 (`epD2M_*`, the group numbering read from the old chain term) must hold, otherwise generation fails with an elaboration error; `sparkle.sharedLeafCandidate` stays `false` by default (unit SR14 wording).
 
 ## What the candidate generates
+(unit SR14, L8at) In addition to `epD2M_endpoint`, the RETURNED theorem `epD2M_returned` (= `Tools.ShippingQuadReturned.quad_returned` applied to the generated data facts and
+per-callee blocks: the same `M`, `Dg`, `y.2 = Dg`, `DesignSemConcl … y.1 M y.2`) and the WIRED theorem `epD2M_wired` (`quad_wired`) are generated; their FULL types are checked in
+`Tests/Compiler/SharedLeafGenReturnedTest.lean` on `topshare2` only (hand-written statements, type-correct mutations, closure audit).  Their premises are those of the endpoint
+(`O`, `T`, `AdmCtx`, `MachineDefines`, `JQC O 0 w`, the run `h`).
 The text of the existing depth-2 several-callee template (`Tools/ShippingSeqParentGenD2M.lean`, UNCHANGED) with: the same-leaf-incompatible parent declarations `epD2M_disj` and
 `epD2M_closesA` REMOVED (their library lemma needs `hdisjD`, false for a shared leaf); the generic QUAD data facts and `epD2M_closes0` (= `quad_closes0`, the START-world
 no-fallback of the parent, DERIVED), `epD2M_machineRun` (= `quad_machineRun`); the start world `JQC O 0 w` (the outermost entry) instead of `JQ … ∧ (D₀ = 0 ∨ CacheInvA …)`;
@@ -241,6 +246,59 @@ def obtainPatS (p : D2MParams) : String :=
 def endpointSrcS (p : D2MParams) : String :=
   ((((endpointTermM.replace " hw hc" " hw").replace "@OBT@" (obtainPatS p)).replace "@HA@" (hypArgs p)).replace "@P@" p.P.toString).replace "@KP@" (toString p.kP)
 
+/-- (unit SR14, ledger L8at) the term of the RETURNED / WIRED theorem: the generic `Tools.ShippingQuadReturned.quad_returned` / `quad_wired` applied to the generated data facts and
+the generated per-callee blocks of the candidate (`epD2M_soundLA` … `epD2M_designCheck`).  `@QR@` is the generic theorem. -/
+def returnedTermS : String := r#"(fun {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (entryP : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``@P@ @P@.machineData.shape)
+    (entry0 : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``@C0@ @C0@.machineData.shape)
+    (entry1 : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``@C1@ @C1@.machineData.shape)
+    (hR0 : Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref ``@G@ @G@.machineData.shape)
+    {w w' : Void IO.RealWorld} {y : Tools.ShippingChildInv.Res} (hw : JQC O 0 w)
+    (h : Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``@P@) mctx mref cctx cref w y w') =>
+    @Tools.ShippingQuadReturned.@QR@ _ _ _ _ @P@.machineData @C0@.machineData @C1@.machineData @G@.machineData
+      ``@P@ ``@C0@ ``@C1@ ``@G@ @KP@ @K0@ @K1@ 2 @KP@ Unit (fun _ : Unit => Sparkle.Core.Domain.defaultDomain)
+      @P@.machineSource
+      (fun i bools bits => @P@.machineExt i bools bits
+        (Tools.ShippingMachineSource.stateLoop @P@.machineInits (@P@.machineBody i bools bits)))
+      (fun i bools bits => @P@.machineExtB i bools bits
+        (Tools.ShippingMachineSource.stateLoop @P@.machineInits (@P@.machineBody i bools bits)))
+      (Tools.ShippingMachineCausal.letObsB @P@.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) @P@.machineInits
+        @P@.machineBody @P@.machineExt @P@.machineExtB)
+      @P@.machineSource
+      (fun i bools bits => @P@.machineExt i bools bits
+        (Tools.ShippingMachineSource.stateLoop @P@.machineInits (@P@.machineBody i bools bits)))
+      (fun i bools bits => @P@.machineExtB i bools bits
+        (Tools.ShippingMachineSource.stateLoop @P@.machineInits (@P@.machineBody i bools bits)))
+      (fun hcore entry hB => by
+        obtain @OBT@ := hB
+        exact @P@.epD2M_soundLA O T hA @HA@ hw hcore entry)
+      (fun hcore entry hB => by
+        obtain @OBT@ := hB
+        exact @P@.epD2M_composedA O T hA @HA@ hw hcore entry)
+      @P@.epD2M_houtTy
+      (fun hcore hpost entry hB => by
+        obtain @OBT@ := hB
+        exact @P@.epD2M_runFacts O T 1 hA @HA@ hcore hpost entry hw)
+      (fun hcore hpost entry _ hB => by
+        obtain @OBT@ := hB
+        exact @P@.epD2M_outsCheck O T 1 hA @HA@ hcore hpost entry hw)
+      (fun hcore hpost entry hB => by
+        obtain @OBT@ := hB
+        exact @P@.epD2M_kidsMasked O T 1 hA @HA@ hcore hpost entry hw)
+      (fun hcore hpost entry hB => by
+        obtain @OBT@ := hB
+        exact @P@.epD2M_designCheck O T 1 hA @HA@ hcore hpost entry hw)
+      O T hA @P@.epD2M_quadData @P@.epD2M_leafData @P@.epD2M0_calleeData @P@.epD2M1_calleeData entryP entry0 entry1 hR0
+      (fun mc cc => @G@.machine_closes mc _ cc _) w w' y hw h)"#
+
+def returnedSrcS (p : D2MParams) (qr : String) : String :=
+  let t := ((returnedTermS.replace "@QR@" qr).replace "@OBT@" (obtainPatS p)).replace "@HA@" (hypArgs p)
+  let t := t.replace "@C0@" (p.Cs.getD 0 .anonymous).toString |>.replace "@C1@" (p.Cs.getD 1 .anonymous).toString
+  let t := t.replace "@G@" (p.Gs.getD 0 .anonymous).toString |>.replace "@K0@" (toString (p.kCs.getD 0 0)) |>.replace "@K1@" (toString (p.kCs.getD 1 0))
+  (t.replace "@P@" p.P.toString).replace "@KP@" (toString p.kP)
+
 /-! ## audit of the generated endpoint -/
 
 open Tests.Compiler.ChildVertAuditTest in
@@ -338,6 +396,18 @@ def elabEndpointD2MS : CommandElab := fun stx => do
       if e.hasMVar || ty.hasMVar then throwError "#machine_seq_parent_endpoint (SR13 candidate): unassigned mvars in the endpoint term"
       addAndCompile <| .thmDecl { name := ep, levelParams := [], type := ty, value := e }
     liftTermElabM <| auditS p ep
+    -- unit SR14 (L8at): the RETURNED (`y.2 = Dg`) and WIRED theorems, from the generic theorems
+    for (nm, qr) in [(`epD2M_returned, "quad_returned"), (`epD2M_wired, "quad_wired")] do
+      liftTermElabM do
+        let some stx := (Parser.runParserCategory (← getEnv) `term (returnedSrcS p qr)).toOption
+          | throwError "{nm} term: parse error"
+        let e ← elabTerm stx none
+        synthesizeSyntheticMVarsNoPostponing
+        let e ← instantiateMVars e
+        let ty ← instantiateMVars (← inferType e)
+        if e.hasMVar || ty.hasMVar then throwError "#machine_seq_parent_endpoint (SR14 candidate): unassigned mvars in the {nm} term"
+        addAndCompile <| .thmDecl { name := fn ++ nm, levelParams := [], type := ty, value := e }
+        Tests.Compiler.ChildVertAuditTest.stdAxioms (fn ++ nm)
   finally
     Tools.ShippingSeqParentGen.runCmds "end"
 

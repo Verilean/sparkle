@@ -3866,3 +3866,6 @@ lean_lib «Tools.ShippingQuadReturned» where
 
 lean_lib «Tests.Compiler.QuadReturnedTest» where
   roots := #[`Tests.Compiler.QuadReturnedTest]
+
+lean_lib «Tests.Compiler.SharedLeafGenReturnedTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenReturnedTest]
