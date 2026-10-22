@@ -3986,3 +3986,6 @@ lean_lib «Tests.Compiler.SharedLeafMemKidIfaceTest» where
 
 lean_lib «Tests.Compiler.SharedLeafMemKidIfaceAuditTest» where
   roots := #[`Tests.Compiler.SharedLeafMemKidIfaceAuditTest]
+
+lean_lib «Tools.ShippingSrm4Run» where
+  roots := #[`Tools.ShippingSrm4Run]
