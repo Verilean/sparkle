@@ -795,7 +795,12 @@ group.  The two families are `extendBools`/`extendBits` nests over the same base
 Signals, so the key is recomputed here as `(callee, argument lets, the call's argument Signals)`: the Signals are read from
 `P.machineExt` / `P.machineExtB` exactly as the old generator does (`sigAtPos` at port `nDecl + k`, then `findCall C`), both bodies
 instantiated with the SAME four locals (family point and state) so that the Signals of different calls are comparable by `==`.  Returns, per instance, its group
-index, and per group its argument list.  If a Signal cannot be read, the key cannot be computed and the declaration is REFUSED up front. -/
+index, and per group its argument list.  If a Signal cannot be read, the key cannot be computed and the declaration is REFUSED up front.
+SCOPE (integrator wording, par/int-r49, per review): the old generator's real group key is `famA`/`famB`; this recomputation uses
+the CALL ARGUMENTS (including the domain argument, which the old family does not take) + independent state locals, so it is an
+APPROXIMATION of the old key, NOT a guaranteed full-key match; the count check (`oldGroupCount`) compares only the NUMBER of groups and
+does NOT detect a different partition with the same count. Safety comes from the typed extraction / semantic equation checks; NOT all
+mismatches are refused up front. -/
 def oldGroupKeys (fn C : Name) (kP : Nat) (al : List (List Nat)) : MetaM (Except String (List Nat × List (List Nat))) := do
   let env ← getEnv
   let some _ := env.find? (fn ++ `machineExt) | return .error s!"{fn ++ `machineExt} not found"
@@ -866,7 +871,7 @@ def analyse (fn : Name) : CommandElabM D2Params := do
   -- equation check (`Hb`/`Hv` right-hand sides are holes); a safe stop, not class coverage)
   let al ← liftTermElabM do readNatLists (← elabText s!"({fn}.machineData.shape.insts.map (·.2.1))")
   if al.isEmpty then refuse fn "no call instance"
-  -- (unit SR3v) the FULL key of the old generator, not just the argument list
+  -- (unit SR3v) a call-argument APPROXIMATION of the old generator's famA/famB key (not a guaranteed full-key match), not just the argument list
   let kP ← nat "(@F@.machineData.bsIn.length - @F@.machineData.shape.insts.length)" fn
   let (instGroup, groups) ← match (← liftTermElabM <| oldGroupKeys fn C kP al) with
     | .ok r => pure r
@@ -880,10 +885,11 @@ def analyse (fn : Name) : CommandElabM D2Params := do
     for s in ss do
       unless env.contains (n ++ s) do
         refuse fn s!"{n ++ s} not found (the class needs the old generated chain: `#machine_design_svNR {fn} 2`, which also generates the child pieces)"
-  -- the number of groups must equal the number of group-fact bundles of the old generated term (a mismatch is refused up front)
+  -- the number of groups must equal the number of group-fact bundles of the old generated term (a COUNT mismatch is refused up front;
+  -- a different partition with the same count is NOT detected here)
   let nOld ← liftTermElabM <| oldGroupCount (fn ++ `machine_composedNR2)
   unless nOld == groups.length do
-    refuse fn s!"the old generated {fn ++ `machine_composedNR2} has {nOld} group(s) of facts but the recomputed full key (callee, argument lets, argument Signals) gives {groups.length}: the group numbering cannot be aligned"
+    refuse fn s!"the old generated {fn ++ `machine_composedNR2} has {nOld} group(s) of facts but the recomputed call-argument key (callee, argument lets, argument Signals; an approximation of the old famA/famB key) gives {groups.length}: the group numbering cannot be aligned"
   -- domain polymorphism: the parent is a top-level machine (index `Unit`), the child a `{dom : DomainConfig}` hardware module
   let ip ← liftTermElabM <| sourceIndex fn
   let ic ← liftTermElabM <| sourceIndex C

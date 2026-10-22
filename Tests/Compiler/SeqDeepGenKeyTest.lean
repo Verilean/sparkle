@@ -1,12 +1,13 @@
 import Tests.Compiler.SeqDeepGenArgsTest
 -- BUILT (unit SR3v): k5 exit 0.
--- SCOPE (binding, unit SR3v): the depth-2 generator now numbers the groups of the old generated `hcalls` by the old generator's FULL key
--- (callee, argument lets, the call's argument Signals read from `machineExt`/`machineExtB`), not by the argument list alone, and refuses up
--- front if the key cannot be computed or the group count differs from the `gfL` bundles of the old term.  Concrete examples only:
+-- SCOPE (binding, unit SR3v; integrator wording par/int-r49): the depth-2 generator numbers the groups of the old generated `hcalls` by a
+-- CALL-ARGUMENT APPROXIMATION of the old generator's famA/famB key (callee, argument lets, the call's argument Signals read from
+-- `machineExt`/`machineExtB`; NOT a guaranteed full-key match), and refuses up front only if the key cannot be computed or the group COUNT
+-- differs from the `gfL` bundles of the old term (a different partition with the same count is NOT detected; safety = typed/semantic checks).  Concrete examples only:
 --   * `tf1`, `tf2`, `tf3`: two calls of `wrap` whose arguments are expressions / constants (generated; groups ASSERTED below);
 --   * `tf4`: the CHILD `wrap3` calls the leaf `acc` twice with different arguments (generated; whole conclusion in SeqDeepGenKeyConclTest).
 -- A case with EQUAL argument-let lists but DIFFERENT argument Signals could NOT be constructed from the surface language (an expression or a
--- constant argument becomes its own let, so a different Signal gives a different let list): the full key then coincides with the argument list
+-- constant argument becomes its own let, so a different Signal gives a different let list): the recomputed key then coincides with the argument list
 -- on every example here, and the shifted-numbering case is NOT exercised by a test.  The refusal paths (Signal unreadable / group count
 -- mismatch) are not triggered by any test either.
 namespace Tests.Compiler.SeqDeepGenKeyTest
@@ -99,7 +100,7 @@ def groupsOf (fn C : Name) (al : List (List Nat)) : MetaM (List Nat × List (Lis
   | .ok r => pure r
   | .error e => throwError "key not computed: {e}"
 
--- the recomputed full key and the group count of the OLD generated term agree on every example
+-- the recomputed (approximate) key's group count and the group count of the OLD generated term agree on every example
 open Lean Meta Elab Command in
 run_cmd liftTermElabM do
   let wrapN := ``Tests.Compiler.SeqDeepGenInstTest.wrap
@@ -112,6 +113,6 @@ run_cmd liftTermElabM do
     unless i == inst && g == grp do throwError "SR3v AUDIT FAILED: {fn}: groups {i} {g}, expected {inst} {grp}"
     let n ← Tools.ShippingSeqParentGenD2.oldGroupCount (fn ++ `machine_composedNR2)
     unless n == grp.length do throwError "SR3v AUDIT FAILED: {fn}: old term has {n} gfL groups, expected {grp.length}"
-  logInfo m!"SR3v: full-key groups of tf1/tf2/tf3/tf4 asserted, and equal to the gfL group counts of the old generated terms"
+  logInfo m!"SR3v: approximate-key groups of tf1/tf2/tf3/tf4 asserted; their COUNTS equal the gfL group counts of the old generated terms"
 
 end Tests.Compiler.SeqDeepGenKeyTest
