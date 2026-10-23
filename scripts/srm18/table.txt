@@ -1,0 +1,25 @@
+
+== APPLICABILITY TABLE (hand-written from the definitions above; files actually read: ShippingHierStateG 15-110,615-640; ShippingHierState 20-40; ShippingMachineDepth 40-80;
+   ShippingMachineShipsDepth 235-275; ShippingMachineShipsHier 100-160,465-535; ShippingComposedGW 170-215; ShippingKidsResetSat 345-380; ShippingSrm16Reset 1-90; ShippingSrm13Supply 120-160;
+   Tests/Compiler/Srm16ParentTest, Srm17ParentTest) ==
+Columns: kind of `s`/kids there | gives `s.kids = resetKids D n raw` exactly? | instance-name-restricted equality? | only Prop ResetNk/ResetN? | nothing
+ (M = topshareM, depth 2, KT 2; Q = topshareQ, depth 1, KT 1; the answer is the same for M and Q since each row is about a definition generic in n)
+
+C1  runModuleTG KS we ch body seed T s  (HierStateG:67)        s : KState σ  UNIVERSALLY QUANTIFIED, no constraint (it is a function of s; `= some envs` is the only link) | NO | NO | NO | NOTHING (M,Q)
+C2  KState / KidState / KT n / KSn constructors (HierStateG:20, HierState:25, HierStateG:623/628)   data types and steppers; no initial state | NO | NO | NO | NOTHING
+C3  RunOn children n mc seed T s (MachineDepth:27)               s : KT n quantified; used with `ResetN dsn n mc s` as hypothesis in SeqChildRunN (MachineDepth:64) | NO | NO | ResetN Prop (a Prop on registers/mems/instances of mc) | not equality
+C4  ResetN dsn n mc s (MachineDepth:52)                           Prop: registers named r in mc.body are init.toNat, mems 0, read-latch 0, instances' kids ResetN; says NOTHING about st at names not registers of mc, nor kids at non-instance names | NO | NO | YES (Prop) | not equality
+C5  ResetNk n m D kids (ShipsDepth:245)                          Prop over `kids` for instance statements of m.body only (mc.name = module name) | NO | NO (a Prop: pointwise ResetN at instance names, not an equation) | YES | not equality
+C6  ComposedG / ComposedGW / ComposedNW `Reset m dsn kids → ∃ envs, runModuleTG (KS dsn) … ⟨st0, mems, kids⟩ = some envs ∧ …` (ShipsHier:115, ComposedGW:181; Reset := ResetNk n at every topshare/shipping instance: TopShareComposedTest, Srm9ComposedTest, SeqParentGen*, …)
+                                                                  THE ACTUAL initial-state proposition of the shipping chain: start state ⟨st0, mems, kids⟩ with kids UNIVERSALLY QUANTIFIED, constrained by `ResetNk n m dsn kids` (Prop) only; st0 constrained on slot registers only (st0 r = f.init), mems unconstrained | NO | NO | YES: exactly `ResetNk n raw D kids` | not equality
+C7  Reset1 (ShipsHier:474) / ResetM (ShipsHier:529)               Props on `String → KidState` (depth 0): depth-0 shape only | NO (depth 0 ≠ KT 1/KT 2) | NO | ResetM/Reset1 Props; not ResetNk | not applicable to M,Q
+C8  kidsInit raw D (KidsResetSat:350) / kidsInit_sat (:369)       CONSTRUCTED String → KidState (depth 0), other names 0 (NOT raw's reset like resetKids) | NO (depth, and fallback differs) | NO | Reset1∧InvN depth 0 | not applicable to M,Q
+C9  kidsZero (KidsResetSat:445)                                   CONSTRUCTED all-zero depth-0 kids | NO | NO | NoRegs only | not applicable
+C10 resetKids D n raw (Srm16Reset:21) / resetKT (:16)             CONSTRUCTED depth-n state (the hsk RHS); `resetNk_resetKids` : ResetNk under hIUraw hIU hAg hRd | (this IS the RHS) | — | — | the RHS; hsk is a PREMISE of SRM16/17 corollaries
+C11 SRM11/13/16/17 instance theorems (Srm13ParentTest:47,76,104,133; Srm16ParentTest; Srm17ParentTest:155,225,260,296)
+                                                                  s : KState (KT n) UNIVERSALLY QUANTIFIED; linked to anything only by `hrun`; SRM13/_viaResetO take `hrk : ResetNk n raw D s.kids`; SRM16/17 `_viaResetState/_viaResetSrc` take `hsk : s.kids = resetKids D n raw` | hsk is a PREMISE there | NO | hrk (SRM13, _viaResetO) is exactly C5 on s.kids | —
+C12 machine_ships_* / ShippingMachineShips* top-level start state built from the source: `Reset`, `ResetN`, `Reset1` appear ONLY as the Reset PARAMETER of ComposedG (C6) | NO constructor of the start state from the source exists in the chain; "start from reset" is the HYPOTHESIS `Reset m dsn kids` | NO | YES | —
+C13 Srm8 bridge (ShippingSrm8Bridge: HeightPass, HeightBridge, design_at_free_h) : height/rank bookkeeping, no start state | NO | NO | NO | NOTHING
+C14 ShippingSrm13Supply kidReset_of_resetNk / kidInvN_of_resetNk (:130,:143)  consumes ResetNk n raw D kids (+hO, FitTree) | consumer | NO | needs only ResetNk | —
+
+READING: no row gives hsk.  The only actual start-state proposition (C6) is the Prop `ResetNk n raw D kids`; the consumers of the topshare chain (C14, SRM13 `hrk`) need exactly that Prop, which is also the pre-SRM16 binder `hrk` of `_viaResetO` (SRM16).
