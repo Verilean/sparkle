@@ -1,0 +1,64 @@
+PREMISES SRM26 (machine-generated from the audit run a3; binder tables (index|binderInfo|name|isProp|type), one line per binder)
+S26THM|Tools.ShippingSrm26.nodup_getElem?_inj
+S26PREM|Tools.ShippingSrm26.nodup_getElem?_inj|0|Lean.BinderInfo.implicit|α|false|Type
+S26PREM|Tools.ShippingSrm26.nodup_getElem?_inj|1|Lean.BinderInfo.default|l|false|List α
+S26PREM|Tools.ShippingSrm26.nodup_getElem?_inj|2|Lean.BinderInfo.default|i|false|Nat
+S26PREM|Tools.ShippingSrm26.nodup_getElem?_inj|3|Lean.BinderInfo.default|j|false|Nat
+S26PREM|Tools.ShippingSrm26.nodup_getElem?_inj|4|Lean.BinderInfo.default|x|false|α
+S26PREM|Tools.ShippingSrm26.nodup_getElem?_inj|5|Lean.BinderInfo.default|a._@._internal._hyg.0|true|l.Nodup
+S26PREM|Tools.ShippingSrm26.nodup_getElem?_inj|6|Lean.BinderInfo.default|a._@._internal._hyg.0|true|l[i]? = some x
+S26PREM|Tools.ShippingSrm26.nodup_getElem?_inj|7|Lean.BinderInfo.default|a._@._internal._hyg.0|true|l[j]? = some x
+S26CONC|Tools.ShippingSrm26.nodup_getElem?_inj|i = j
+S26THM|Tools.ShippingSrm26.subset_of_length_le
+S26PREM|Tools.ShippingSrm26.subset_of_length_le|0|Lean.BinderInfo.implicit|α|false|Type
+S26PREM|Tools.ShippingSrm26.subset_of_length_le|1|Lean.BinderInfo.instImplicit|inst._@.Tools.ShippingSrm26Order.3465152280._hygCtx._hyg.3|false|DecidableEq
+S26PREM|Tools.ShippingSrm26.subset_of_length_le|2|Lean.BinderInfo.default|l1|false|List α
+S26PREM|Tools.ShippingSrm26.subset_of_length_le|3|Lean.BinderInfo.default|l2|false|List α
+S26PREM|Tools.ShippingSrm26.subset_of_length_le|4|Lean.BinderInfo.default|hnd|true|l1.Nodup
+S26PREM|Tools.ShippingSrm26.subset_of_length_le|5|Lean.BinderInfo.default|hsub|true|∀ (x : α), x ∈ l1 → x ∈ l2
+S26PREM|Tools.ShippingSrm26.subset_of_length_le|6|Lean.BinderInfo.default|hlen|true|l2.length ≤ l1.length
+S26PREM|Tools.ShippingSrm26.subset_of_length_le|7|Lean.BinderInfo.default|x|false|α
+S26PREM|Tools.ShippingSrm26.subset_of_length_le|8|Lean.BinderInfo.default|a._@._internal._hyg.0|true|x ∈ l2
+S26CONC|Tools.ShippingSrm26.subset_of_length_le|x ∈ l1
+S26THM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|0|Lean.BinderInfo.default|b|false|Sparkle.IR.AST.Module
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|1|Lean.BinderInfo.default|psN|false|List String
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|2|Lean.BinderInfo.default|regs|false|List String
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|3|Lean.BinderInfo.default|slots|false|List
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|4|Lean.BinderInfo.default|hpsNd|true|psN.Nodup
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|5|Lean.BinderInfo.default|hregsNd|true|regs.Nodup
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|6|Lean.BinderInfo.default|hlen|true|regs.length =
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|7|Lean.BinderInfo.default|hpl|true|psN.length ≤
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|8|Lean.BinderInfo.default|hslot|true|∀ (k : Nat)
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|9|Lean.BinderInfo.default|hK0|true|Tools.ShippingSrm25Init.SourceRegsAreSlots
+S26CONC|Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports|Tools.ShippingSrm25Init.SourceRegsAreSlots b regs slots
+S26THM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|0|Lean.BinderInfo.implicit|declName|false|Name
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|1|Lean.BinderInfo.implicit|shape|false|Sparkle.Compiler.Elab.MachineShape
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|2|Lean.BinderInfo.implicit|ids|false|List FVarId
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|3|Lean.BinderInfo.implicit|cache|false|IO.Ref
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|4|Lean.BinderInfo.implicit|m|false|Sparkle.IR.AST.Module
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|5|Lean.BinderInfo.implicit|dsn|false|Sparkle.IR.AST.Design
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|6|Lean.BinderInfo.implicit|regs|false|List String
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|7|Lean.BinderInfo.implicit|lets|false|List String
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|8|Lean.BinderInfo.default|hW|true|Tools.ShippingMachineEntry.MachineWired
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|9|Lean.BinderInfo.default|hregsNd|true|regs.Nodup
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|10|Lean.BinderInfo.default|hlen|true|regs.length =
+S26PREM|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|11|Lean.BinderInfo.default|hK0|true|Tools.ShippingSrm25Init.SourceRegsAreSlots
+S26CONC|Tools.ShippingSrm26.sourceRegsAreSlots_of_wired|Tools.ShippingSrm25Init.SourceRegsAreSlots m regs
+S26THM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|0|Lean.BinderInfo.implicit|declName|false|Name
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|1|Lean.BinderInfo.implicit|shape|false|Sparkle.Compiler.Elab.MachineShape
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|2|Lean.BinderInfo.implicit|ids|false|List FVarId
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|3|Lean.BinderInfo.implicit|cache|false|IO.Ref
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|4|Lean.BinderInfo.implicit|m|false|Sparkle.IR.AST.Module
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|5|Lean.BinderInfo.implicit|dsn|false|Sparkle.IR.AST.Design
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|6|Lean.BinderInfo.implicit|regs|false|List String
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|7|Lean.BinderInfo.implicit|lets|false|List String
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|8|Lean.BinderInfo.default|hgate|true|Sparkle.IR.RefineCheck.hierGate
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|9|Lean.BinderInfo.default|hW|true|Tools.ShippingMachineEntry.MachineWired
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|10|Lean.BinderInfo.default|hregsNd|true|regs.Nodup
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|11|Lean.BinderInfo.default|hlen|true|regs.length =
+S26PREM|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|12|Lean.BinderInfo.default|hK0|true|Tools.ShippingSrm25Init.SourceRegsAreSlots
+S26CONC|Tools.ShippingSrm26.shippedRegsAreSlots_of_wired|Tools.ShippingSrm22Width.ShippedRegsAreSlots m regs
+RESIDUAL PREMISES: only hK0 (K0N: SourceRegsAreSlots m psN slots) in the last three theorems; hslot/hregsNd/hlen/hW are exported MachineWired / ComposedGW facts; K1 equation is NOT a premise and NOT proved.
