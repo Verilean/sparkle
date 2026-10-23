@@ -1,0 +1,25 @@
+SRM24 EXPECTED (fixed BEFORE any proof file).  Gap: G4 `ShippedRegWidthLe b` (Tools/ShippingSrm22Width.lean:38) ONLY.
+Notation as in scripts/srm23/EXPECTED.txt (cO = Sparkle.IR.OptCheck.checkedOptimize, hierGate = Sparkle.IR.RefineCheck.hierGate, declWidth = Sparkle.IR.RegDedup.declWidth).
+Generic file Tools/ShippingSrm24Width.lean, namespace Tools.ShippingSrm24Width.  Instances/corollaries Tests/Compiler/Srm24WidthTest.lean, namespace Tests.Compiler.Srm24WidthTest.
+
+=== GENERIC ===
+theorem regWidth_eq_of_hierGate {b : Module} (hgate : hierGate b = true) (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int) :
+    Stmt.register r c rs inp init ∈ (cO b).body → declWidth b r = declWidth (cO b) r
+theorem shippedRegWidthLe_of_hierGate {b : Module} (hgate : hierGate b = true)
+    (hwn : ∀ p ∈ b.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) : Tools.ShippingSrm22Width.ShippedRegWidthLe b
+
+=== INSTANCES (premises: exactly those of SRM23 topshare{M,Q}_shippedRegsFromSource; hwn derived from hT.wn as in SRM23 topshare{M,Q}_hstX_of_hst3) ===
+theorem topshareM_shippedRegWidthLe {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w1 : Void IO.RealWorld} {b raw : Module} {D : Design}
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareM [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw))
+    (entry : MachineDefines mctx mref cctx cref ``topshareM topshareM.machineData.shape)
+    (hBnd : TmBnd mctx mref cctx cref w raw D) :
+    Tools.ShippingSrm22Width.ShippedRegWidthLe b
+theorem topshareQ_shippedRegWidthLe  -- identical with ``topshareQ and TqBnd
+
+=== COROLLARIES (SRM23 topshare{M,Q}_regsFit_of_hstR_hst1 CALLED UNCHANGED; ONLY the binder `hW : ShippedRegWidthLe b` removed; st0 and everything else stay) ===
+theorem topshareM_regsFit_of_hstR_hst1_noW {…as above, hcore hpost entry hBnd…} (st0 : String → Nat) :
+    RegsAtInit (cO b) st0 → (∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1) → RegsFit (cO b)
+theorem topshareQ_regsFit_of_hstR_hst1_noW  -- identical with ``topshareQ and TqBnd
+G1 InputsAreWires, G3 SourceRegsKept, G5 ShippedRegsAreSlots, hst1/hst2/hst3 untouched; no new premise.
