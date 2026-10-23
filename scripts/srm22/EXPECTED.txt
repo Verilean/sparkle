@@ -1,0 +1,66 @@
+SRM22 EXPECTED (fixed BEFORE any proof file; exact Lean types of every planned declaration).  Written 2026-10-23.
+Notation: `declWidth` = Sparkle.IR.RegDedup.declWidth, `weS` = Tools.ShippingDesignSV.weS, `cO` = Sparkle.IR.OptCheck.checkedOptimize, `tyW` = Tools.ShippingLeafInputWidths.tyW,
+`san` = Sparkle.Backend.Verilog.sanitizeName, `Reg r c rs inp init` = Sparkle.IR.AST.Stmt.register r c rs inp init, `hierGate` = Sparkle.IR.RefineCheck.hierGate.
+Namespace of generic lemmas: Tools.ShippingSrm22Width (file Tools/ShippingSrm22Width.lean).  Namespace of instances/corollaries: Tests.Compiler.Srm22PairsTest.
+
+=== GAP PROPS (def … : Prop; none is the text of a binder of either side) ===
+def InputsAreWires (b : Module) : Prop := ∀ p ∈ b.inputs, p ∈ b.wires
+def ShippedRegsFromSource (b : Module) : Prop :=
+  ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+    Reg r c rs inp init ∈ (cO b).body → ∃ (c' : String) (rs' : String × Sparkle.IR.Type.ResetKind) (inp' : Expr) (init' : Int), Reg r c' rs' inp' init' ∈ b.body
+def SourceRegsKept (b : Module) : Prop :=
+  ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+    Reg r c rs inp init ∈ b.body → ∃ (c' : String) (rs' : String × Sparkle.IR.Type.ResetKind) (inp' : Expr), Reg r c' rs' inp' init ∈ (cO b).body
+def ShippedRegWidthLe (b : Module) : Prop :=
+  ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int), Reg r c rs inp init ∈ (cO b).body → declWidth b r ≤ weS (cO b) r
+def ShippedRegsAreSlots (b : Module) (regs : List String) (slots : List SlotField) : Prop :=
+  ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+    Reg r c rs inp init ∈ (cO b).body → ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ slots[k]? = some f ∧ f.init = init.toNat
+
+=== PROVED DIRECTIONS (generic; hold for every Module b) ===
+[A, CG ⇒ S19]  theorem hin_of_hinsFit {b : Module} (hgate : hierGate b = true) (hnd : (b.wires.map (·.name)).Nodup)
+    (hs : ∀ p ∈ b.wires ++ b.inputs ++ b.outputs, san p.name = p.name)
+    (hoi : ∀ q ∈ b.outputs, ∀ p ∈ b.inputs, san p.name ≠ q.name)
+    (hIW : ∀ p ∈ b.inputs, declWidth b p.name ≤ tyW p.ty) (ins : Nat → String → Nat) :
+    (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) → ∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ weS (cO b) x
+[A, S19 ⇒ CG]  theorem hinsFit_of_hin {b : Module} (hgate : hierGate b = true) (hnd : (b.wires.map (·.name)).Nodup)
+    (hs : ∀ p ∈ b.wires ++ b.inputs ++ b.outputs, san p.name = p.name)
+    (hoi : ∀ q ∈ b.outputs, ∀ p ∈ b.inputs, san p.name ≠ q.name)
+    (hW : InputsAreWires b) (huniq : ∀ p ∈ b.inputs, ∀ q ∈ b.inputs, q.name = p.name → q = p)
+    (hty : ∀ p ∈ b.inputs, p.ty = .bit ∨ ∃ n, p.ty = .bitVector n) (ins : Nat → String → Nat) :
+    (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ weS (cO b) x) → ∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x
+[B, S19 ⇒ CG]  theorem hstX_of_hst3 {b : Module} (hgate : hierGate b = true) (hnd : (b.wires.map (·.name)).Nodup)
+    (hs : ∀ p ∈ b.wires ++ b.inputs ++ b.outputs, san p.name = p.name)
+    (how : ∀ q ∈ b.outputs, ∀ p ∈ b.wires, p.name ≠ q.name) (hreg : ShippedRegsFromSource b)
+    (C : String → Option (Module × Sparkle.IR.Semantics.WEnv)) (st0 : String → Nat) :
+    NonRegBounded (cO b) st0 → ∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts C b.body → st0 x < 2 ^ declWidth b x
+[C/D, S19 ⇒ CG]  theorem hstR_of_hst1_hst2 {b : Module} (hgate : hierGate b = true) (hnd : (b.wires.map (·.name)).Nodup)
+    (hs : ∀ p ∈ b.wires ++ b.inputs ++ b.outputs, san p.name = p.name)
+    (hrio : ∀ r c rs inp init, Reg r c rs inp init ∈ b.body → r ∉ b.outputs.map (·.name) ∧ r ∉ b.inputs.map (·.name))
+    (hkeep : SourceRegsKept b) (st0 : String → Nat) :
+    RegsAtInit (cO b) st0 → RegsFit (cO b) → ∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1
+[D, CG(+hst1) ⇒ S19]  theorem regsFit_of_hstR_hst1 {b : Module} (st0 : String → Nat) (hreg : ShippedRegsFromSource b) (hW : ShippedRegWidthLe b) :
+    RegsAtInit (cO b) st0 → (∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1) → RegsFit (cO b)
+[C, hinit ⇒ S19]  theorem regsAtInit_of_hinit {b : Module} (regs : List String) (slots : List SlotField) (st0 : String → Nat)
+    (hG : ShippedRegsAreSlots b regs slots) (hinit : ∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → slots[k]? = some f → st0 r = f.init) :
+    RegsAtInit (cO b) st0
+
+=== COUNTEREXAMPLES (Tests/Compiler/Srm22PairsTest.lean; hpost = the SRM9 hypothesis; C is the childMap of any design, here `fun _ => none`) ===
+[A, S19 ⇏ CG without InputsAreWires]  theorem hin_not_hinsFit : ∃ (raw b : Module) (ins : Nat → String → Nat),
+    (b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw)) ∧
+    (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ weS (cO b) x) ∧ ¬ (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x)
+[B, CG ⇏ S19]  theorem hstX_hstR_not_hst3 : ∃ (raw b : Module) (st0 : String → Nat),
+    (b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw)) ∧
+    (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (fun _ => none) b.body → st0 x < 2 ^ declWidth b x) ∧
+    (∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1) ∧ ¬ NonRegBounded (cO b) st0
+
+=== COROLLARIES (Tests/Compiler/Srm22PairsTest.lean): SRM20 `topshareM_svBoundsH_underComposedG` / SRM21 `topshareQ_svBoundsH_underComposedG'` CALLED UNCHANGED ===
+Generated from the SOURCE statements by the substitution/deletion list in scripts/srm22/gen_exp.py:
+  DELETE the binder `hin` (the 9th binder after hfit-chain: `(∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ Tools.ShippingDesignSV.weS (checkedOptimize b) x) →`)
+  INSERT, directly after the outer binder `hBd`, three explicit PREMISES (REPLACING hin):
+     (hnd : (b.wires.map (·.name)).Nodup) (hsI : ∀ p ∈ b.inputs, san p.name = p.name) (hIW : ∀ p ∈ b.inputs, declWidth b p.name ≤ tyW p.ty)
+  Everything else (hRK-binder `ResetNk _ raw D kids`, hfit, hst₁₋₃, hinsFit, hstX, hstR, hsrc, hpass, hrst, hclk, hinit, hBnd, hBd, hcore, hpost, conclusion) UNCHANGED.
+  The structural facts hgate, wires/outputs sanitize-stability and `hoi` are DERIVED inside the proof from `hBnd`/`hcore`/`hpost` (core_hierGate_anyAM; core_closed_typedIn_ranAM: TypedIn.wn/ostable/oi).
+  theorem topshareM_svBoundsH_underComposedG_noHin  (statement = M statement with the deletion + insertion above)
+  theorem topshareQ_svBoundsH_underComposedG'_noHin (statement = Q' statement with the deletion + insertion above)
+OPEN (no corollary): hst₁ (needs ShippedRegsAreSlots), hst₂, hst₃, and hstX/hstR replacement (needs ShippedRegsFromSource / SourceRegsKept / ShippedRegWidthLe, none derived for topshare).
