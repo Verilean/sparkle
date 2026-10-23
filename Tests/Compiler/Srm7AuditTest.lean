@@ -2,7 +2,7 @@ import Tests.Compiler.Srm7RankTest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.Srm7AuditExpected
 import Tools.ShippingKidsChildIfaceM
--- BUILT (unit SRM7): dev run s7c2 exit 0 (default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM7.md.
+-- BUILT (unit SRM7B): fixture 1 made semantic (` ∧ True`); see REPORT-SRM7B.md for runs.  History: SRM7 dev run s7c2 exit 0.
 -- SCOPE (SRM7, audits; copied from `Srm5AuditTest`, SRM5 files untouched).  For each audited SRM7 theorem: (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S7PREM` / `S7DATA` line
 -- and the WHOLE table must EQUAL the committed `Tests/Compiler/Srm7AuditExpected.lean` (`expectedRows`) EXACTLY and `scripts/srm7/PREMISES.txt`, line for line.  LITERAL guards: `audited7.length == 40`, `expectedRows.length == 40`.
 -- NEGATIVE FIXTURES: three mutations of the actual table (changed Prop binder type, added data binder, reordered binders) are REJECTED by the comparator and are non-vacuous (`S7FIXTURE`).
@@ -11,6 +11,7 @@ import Tools.ShippingKidsChildIfaceM
 -- (4) the two instances with COMPUTED ranks have no rank-table binder (`rk`, `hrkmem`, `hrT`, ...) and their closure contains `declRank` and `hcheck`.  (5) each listed rank fact has the corresponding `machineData` constant and `instTagged` in its closure (the graph is READ, not typed in).
 -- NOT guaranteed: truth/satisfiability of the remaining hypotheses (`O`, `T`, `hA`, `MachineDefines`, `hcore`, `hpost`, `hw`); type strings are `ppExpr` renderings.  No `sorry`, no `axiom`, no `native_decide`.
 set_option Elab.async false
+set_option autoImplicit false
 section
 open Lean Elab Command Meta
 
@@ -81,14 +82,14 @@ def tableDiff (a e : List (Name × List Row)) : Option String := Id.run do
       if r != r' then return some s!"{n}: binder {r.1} differs: {rowLine n r} vs expected {rowLine n r'}"
   return none
 
-/-- mutation 1: change the type of the first Prop binder (same name) -/
+/-- mutation 1: SEMANTIC change of the type of the first Prop binder (same index, binderInfo, name, isProp): ` ∧ True` is appended to its type string -/
 def mutType (t : List (Name × List Row)) : List (Name × List Row) :=
   match t.findIdx? (fun (_, rs) => rs.any (·.2.2.2.1)) with
   | none => t
   | some k => t.mapIdx fun j (n, rs) =>
     if j == k then
       let idx := (rs.findIdx? (·.2.2.2.1)).getD 0
-      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ") else r)
+      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ∧ True") else r)
     else (n, rs)
 
 /-- mutation 2: add a data binder to the first theorem -/
@@ -153,6 +154,29 @@ run_cmd liftTermElabM do
   unless fileLines == lines do
     throwError "SRM7 AUDIT FAILED: scripts/srm7/PREMISES.txt differs from the regenerated table ({fileLines.length} lines vs {lines.length})"
   -- NEGATIVE FIXTURES: each mutation of the table is a DIFFERENT table and is REJECTED by the comparator
+  -- FIXTURE 1 assertions: a visible semantic change of ONE Prop binder, everything else unchanged, rejected naming that binder
+  do
+    let mt := mutType actual
+    let some k := actual.findIdx? (fun (_, rs) => rs.any (·.2.2.2.1)) | throwError "SRM7 AUDIT FAILED: no Prop binder to mutate"
+    let (thm, rs) := actual[k]!
+    let idx := (rs.findIdx? (·.2.2.2.1)).getD 0
+    let r := rs[idx]!
+    let (thm', rs') := mt[k]!
+    let r' := rs'[idx]!
+    unless thm' == thm && rs'.length == rs.length do throwError "SRM7 AUDIT FAILED: fixture 1 changed the shape of {thm}"
+    if r'.2.2.2.2 == r.2.2.2.2 then throwError "SRM7 AUDIT FAILED: fixture 1 type string is not different"
+    unless r'.2.2.2.2 == r.2.2.2.2 ++ " ∧ True" do throwError "SRM7 AUDIT FAILED: fixture 1 is not the visible ` ∧ True` change"
+    unless r'.2.2.2.1 == true && r'.1 == r.1 && r'.2.1 == r.2.1 && r'.2.2.1 == r.2.2.1 do throwError "SRM7 AUDIT FAILED: fixture 1 mutated row is not a Prop binder with unchanged index/binderInfo/name"
+    for ((n, rows), j) in actual.zipIdx do
+      for (row, i) in rows.zipIdx do
+        unless (j == k && i == idx) || mt[j]!.2[i]! == row do throwError "SRM7 AUDIT FAILED: fixture 1 changed another row ({n}, binder {i})"
+    unless mt.length == actual.length && (mt.map (·.1)) == (actual.map (·.1)) do throwError "SRM7 AUDIT FAILED: fixture 1 changed the theorem list"
+    match tableDiff mt Tests.Compiler.Srm7AuditExpected.expectedRows with
+    | none => throwError "SRM7 AUDIT FAILED: the comparator ACCEPTED fixture 1"
+    | some msg =>
+      unless (msg.splitOn s!"{thm}: binder {idx} differs").length > 1 do throwError "SRM7 AUDIT FAILED: the comparator did not name the mutated binder ({thm}, {idx}): {msg}"
+    logInfo m!"S7FIXTURE1|original: {rowLine thm r}"
+    logInfo m!"S7FIXTURE1|mutated:  {rowLine thm r'}"
   for (nm, mt) in [("changed Prop binder type", mutType actual), ("added data binder", mutAdd actual), ("reordered binders", mutSwap actual)] do
     if mt == actual then throwError "SRM7 AUDIT FAILED: the fixture '{nm}' did not change the table (vacuous)"
     match tableDiff mt Tests.Compiler.Srm7AuditExpected.expectedRows with
