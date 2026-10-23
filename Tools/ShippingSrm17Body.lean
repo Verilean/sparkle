@@ -1,7 +1,7 @@
 import Tools.ShippingKidsResetSat
 import Tools.ShippingMergeKeepsBridge
 set_option autoImplicit false
--- UNBUILT (unit SRM17): see REPORT-SRM17.md for run names / exits.
+-- BUILT (unit SRM17): dev runs b6 (Body with Ran/Corr/ParentTest) exit 0; the final-SHA rebuild in REPORT-SRM17.md is the only final evidence.
 -- SCOPE: PURE statement-list facts (no compiler run) for the three structural facts `IUb`/`Agb`/`Rdb` (the bodies of SRM16's `hIU`/`hAg`/`hRd` binders, per module) and their conjunction `ModP`:
 -- * `modP_of_nodups`: distinct instance names + distinct register names + no memory statement give `ModP` of a body;
 -- * `modP_of_perm`: a permutation of such a body keeps the three distinctness facts;

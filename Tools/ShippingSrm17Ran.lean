@@ -4,7 +4,7 @@ import Tools.ShippingSrm3Iface
 import Tools.ShippingSeqChildIfaceA
 import Tools.ShippingQuadLeafGeneric
 set_option autoImplicit false
--- UNBUILT (unit SRM17): see REPORT-SRM17.md for run names / exits.
+-- BUILT (unit SRM17): dev run b4 exit 0 (default heartbeats); the final-SHA rebuild in REPORT-SRM17.md is the only final evidence.
 -- SCOPE: the three structural facts `ModP` (= `IUb ∧ Agb ∧ Rdb`, Tools/ShippingSrm17Body.lean) of the modules a MACHINE RUN produced.
 -- * `ran_modP`: a `MachineRanA` run with calls (`insts ≠ []`, `instFields ≠ []`): of the run's module `M` and of its post-processed form `b` (`b.body = M.body` from `core_kids_facts_ranAM`).  Distinct instance names are
 --   `core_raw_facts_ranAM`'s (it takes `hsl : slots ≠ []`, kept as a premise here); distinct register names and no memory statement come from the closing's `nextKeys` nodup (`CloseCalls.some`), the closed machine being

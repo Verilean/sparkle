@@ -1,7 +1,7 @@
 import Tools.ShippingSrm17Ran
 import Tools.ShippingSrm12Corr
 set_option autoImplicit false
--- UNBUILT (unit SRM17): see REPORT-SRM17.md for run names / exits.
+-- BUILT (unit SRM17): dev run b5 exit 0; the final-SHA rebuild in REPORT-SRM17.md is the only final evidence.
 -- SCOPE: the RECURSION over `RealChildA` for the three structural facts `ModP` (Tools/ShippingSrm17Body.lean), in the style of SRM12's `ran_designCorr`/`memCallee_childCorr`/`childCorr_noInst`.
 -- `ChildP O c`: the served module and every module of the served design of every `RealChildA` of `c` satisfy `ModP`.  PROVED generically: `ran_designP` (a machine run with calls: its module, post-processed module and every module of its
 -- design, from the callees' `ChildP`), `memCallee_childP` (a callee over `MemCalleeData`), `leaf_childP` (a plain leaf: from the interface and `leaf_modPA`), `memModule_modP` (a built memory module).

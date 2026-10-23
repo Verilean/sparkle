@@ -2,7 +2,7 @@ import Tests.Compiler.Srm16ParentTest
 import Tests.Compiler.Srm12CorrTest
 import Tools.ShippingSrm17Corr
 set_option autoImplicit false
--- UNBUILT (unit SRM17): see REPORT-SRM17.md for run names / exits.
+-- BUILT (unit SRM17): dev run b6 exit 0; the final-SHA rebuild in REPORT-SRM17.md is the only final evidence.
 -- SCOPE: for `topshareM` (depth 2) and `topshareQ` (depth 1) under the SRM16 machine premises (`O`, `T`, `hA`, the `MachineDefines` of the machines, `hcore`, `hpost`, `hw`):
 -- * `ChildP` of the callees (`leafM`/`wrapM`/`wrapM3`, `leafP`/`wrapP`/`wrapQ`) by `memCallee_childP`/`leaf_childP` (Tools/ShippingSrm17Corr.lean);
 -- * `topshare{M,Q}_modP`: the run's module `raw` and every module of `D.modules` satisfy `ModP` (`ran_designP`), under the extra explicit premise-free facts `slots ≠ []` of each machine, decided here;
