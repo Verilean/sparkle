@@ -1,6 +1,6 @@
 import Tests.Compiler.Srm7RankTest
 import Tools.ShippingSrm12Corr
--- UNBUILT (unit SRM12): dev runs are recorded in REPORT-SRM12.md.
+-- BUILT (unit SRM12): dev runs a5 (Corr + CorrTest) exit 0, a8 (audit) exit 0; the final-SHA rebuild is in REPORT-SRM12.md.
 -- SCOPE: the edge correspondence (`Tools/ShippingSrm12Corr.lean`) for `topshareM` (graph `gM`, SRM7) and `topshareQ` (graph `gQ`): every module of the run (`b`, its optimised form, every module of `D.modules`) satisfies `ModCorr`,
 -- i.e. its instance statements and the graph's call entries (memory-origin and ordinary entries kept apart) correspond in both directions; and the per-instance-statement rank facts (`rkOf g F mn = some r'`, `r' < r`) that follow from SRM7's computed ranks.
 -- The generic part is `ran_designCorr`/`memCallee_childCorr`/`childCorr_noInst`; the per-design part is the instantiation below (callee tables: `wrapM_kids`, `wrapM_memCallee`, `leafKid_ifaceP`, ...).

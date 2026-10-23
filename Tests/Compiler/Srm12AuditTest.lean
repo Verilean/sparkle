@@ -3,7 +3,7 @@ import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.Srm12AuditExpected
 import Tools.ShippingKidsChildIfaceM
 import Tools.ShippingSrm12Corr
--- UNBUILT (unit SRM12): dev runs are recorded in REPORT-SRM12.md.
+-- BUILT (unit SRM12): dev runs a5 (Corr + CorrTest) exit 0, a8 (audit) exit 0; the final-SHA rebuild is in REPORT-SRM12.md.
 -- SCOPE (SRM12, audits).  For each audited SRM12 theorem (Tools/ShippingSrm12Corr.lean and Tests/Compiler/Srm12CorrTest.lean): (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S12PREM` / `S12DATA` line and the WHOLE
 -- table must EQUAL the committed `Tests/Compiler/Srm12AuditExpected.lean` (`expectedRows`) EXACTLY and the committed text view `scripts/srm12/PREMISES.txt`, line for line; one `S12THM` marker line per theorem (zero-binder theorems kept).
 -- NEGATIVE FIXTURES: three mutations of the actual table (SEMANTIC Prop type change ` ∧ True`, added data binder, reordered binders) are REJECTED, each asserted non-vacuous.  REGENERATION: `./.cluster/qbuild.sh build Tests.Compiler.Srm12AuditTest > LOG 2>&1; python3 scripts/srm12/gen_audit.py LOG`.

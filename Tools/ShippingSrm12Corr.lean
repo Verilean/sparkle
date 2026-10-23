@@ -3,7 +3,7 @@ import Tools.ShippingSrm5Deep
 import Tools.ShippingSrm5Ident
 import Tools.ShippingSrm4Core2
 import Tools.ShippingSrm4Kid
--- UNBUILT (unit SRM12): dev runs are recorded in REPORT-SRM12.md.
+-- BUILT (unit SRM12): dev runs a5 (Corr + CorrTest) exit 0, a8 (audit) exit 0; the final-SHA rebuild is in REPORT-SRM12.md.
 -- SCOPE (binding): the CORRESPONDENCE between the SRM7 call-graph edges (`Kid = (callee name, origin)`, read from `X.machineData.shape.instTagged`) and the INSTANCE STATEMENTS
 -- `Stmt.inst mn iname conns` of the modules of the compiled design `D.modules`.
 -- DEFINED (Props): `InstFwd ks body` (every instance statement targets `kidModName k` for an edge `k ∈ ks`, and `k` is a memory-origin edge iff the target name decodes as a memory module),
