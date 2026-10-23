@@ -4091,3 +4091,15 @@ lean_lib «Tests.Compiler.Srm6AuditExpected» where
 
 lean_lib «Tests.Compiler.Srm6AuditTest» where
   roots := #[`Tests.Compiler.Srm6AuditTest]
+
+lean_lib «Tools.ShippingSrm7Rank» where
+  roots := #[`Tools.ShippingSrm7Rank]
+
+lean_lib «Tests.Compiler.Srm7RankTest» where
+  roots := #[`Tests.Compiler.Srm7RankTest]
+
+lean_lib «Tests.Compiler.Srm7AuditExpected» where
+  roots := #[`Tests.Compiler.Srm7AuditExpected]
+
+lean_lib «Tests.Compiler.Srm7AuditTest» where
+  roots := #[`Tests.Compiler.Srm7AuditTest]
