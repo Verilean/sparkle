@@ -4328,3 +4328,6 @@ lean_lib «Tests.Compiler.Srm23AuditTest» where
 
 lean_lib «Tools.ShippingSrm24Width» where
   roots := #[`Tools.ShippingSrm24Width]
+
+lean_lib «Tests.Compiler.Srm24WidthTest» where
+  roots := #[`Tests.Compiler.Srm24WidthTest]
