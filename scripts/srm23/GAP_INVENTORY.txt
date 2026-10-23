@@ -1,0 +1,124 @@
+=== GAP PROP TEXT (Tools/ShippingSrm22Width.lean, verbatim) ===
+Tools/ShippingSrm22Width.lean:23: def InputsAreWires (b : Module) : Prop := ∀ p ∈ b.inputs, p ∈ b.wires
+Tools/ShippingSrm22Width.lean:24: 
+Tools/ShippingSrm22Width.lean:26: def ShippedRegsFromSource (b : Module) : Prop :=
+Tools/ShippingSrm22Width.lean:27:   ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+Tools/ShippingSrm22Width.lean:28:     Stmt.register r c rs inp init ∈ (checkedOptimize b).body →
+Tools/ShippingSrm22Width.lean:29:       ∃ (c' : String) (rs' : String × Sparkle.IR.Type.ResetKind) (inp' : Expr) (init' : Int), Stmt.register r c' rs' inp' init' ∈ b.body
+Tools/ShippingSrm22Width.lean:30: 
+Tools/ShippingSrm22Width.lean:32: def SourceRegsKept (b : Module) : Prop :=
+Tools/ShippingSrm22Width.lean:33:   ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+Tools/ShippingSrm22Width.lean:34:     Stmt.register r c rs inp init ∈ b.body →
+Tools/ShippingSrm22Width.lean:35:       ∃ (c' : String) (rs' : String × Sparkle.IR.Type.ResetKind) (inp' : Expr), Stmt.register r c' rs' inp' init ∈ (checkedOptimize b).body
+Tools/ShippingSrm22Width.lean:36: 
+Tools/ShippingSrm22Width.lean:38: def ShippedRegWidthLe (b : Module) : Prop :=
+Tools/ShippingSrm22Width.lean:39:   ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+Tools/ShippingSrm22Width.lean:40:     Stmt.register r c rs inp init ∈ (checkedOptimize b).body → declWidth b r ≤ weS (checkedOptimize b) r
+Tools/ShippingSrm22Width.lean:41: 
+Tools/ShippingSrm22Width.lean:43: def ShippedRegsAreSlots (b : Module) (regs : List String) (slots : List SlotField) : Prop :=
+Tools/ShippingSrm22Width.lean:44:   ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+Tools/ShippingSrm22Width.lean:45:     Stmt.register r c rs inp init ∈ (checkedOptimize b).body →
+Tools/ShippingSrm22Width.lean:46:       ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ slots[k]? = some f ∧ f.init = init.toNat
+Tools/ShippingSrm22Width.lean:47: 
+=== CITED LEMMAS (file:line of declaration) ===
+LEMMA wire_ne_clk: Tools/ShippingPortWidthsPure.lean:258:theorem wire_ne_clk {x : String}
+LEMMA weS_clk_rst: Tools/ShippingPortWidthsPure.lean:274:theorem weS_clk_rst {m : Sparkle.IR.AST.Module} {A X : List Port}
+LEMMA clk_input: Tools/ShippingSatInputs.lean:408:theorem clk_input {P : List Port} {K : Nat} {outWs : List String} {extra : List Port}
+LEMMA weS_input: Tools/ShippingSatInputs.lean:535:theorem weS_input {b : Module} {p : Port}
+LEMMA declWidth_of_wire: Tools/ShippingSatInputs.lean:523:theorem declWidth_of_wire {b : Module} {p : Port} (hnd : (b.wires.map (·.name)).Nodup)
+LEMMA weOf_port: Tools/ShippingMachineCleanup.lean:20:theorem weOf_port {m : Module} (nd : (m.wires.map (·.name)).Nodup) {p : Port} (hp : p ∈ m.wires) :
+LEMMA refineCheck_regWidth: Tools/ShippingMachineShipsS.lean:106:theorem refineCheck_regWidth {m o : Sparkle.IR.AST.Module} (h : refineCheck m o = true) :
+LEMMA refineCheck_regs: Tools/ShippingMachineSeqChild.lean:161:theorem refineCheck_regs {m o : Sparkle.IR.AST.Module} (h : refineCheck m o = true) :
+LEMMA regOf_some: Tools/ShippingRefineSoundness.lean:673:theorem regOf_some {rM : List (String × String × (String × Sparkle.IR.Type.ResetKind) × Expr × Int)}
+LEMMA mem_seqRegs_openFlat: Tools/ShippingSrm22Width.lean:115:theorem mem_seqRegs_openFlat {b : Module} {r : String × String × (String × Sparkle.IR.Type.ResetKind) × Expr × Int} :
+LEMMA checkedOptimize_binding: Tools/ShippingGuardsSound.lean:301:theorem checkedOptimize_binding {b : Sparkle.IR.AST.Module} (hb : hierBinds b = true) :
+LEMMA checkedOptimize_not_binding: Tools/ShippingGuardsSound.lean:291:theorem checkedOptimize_not_binding {b : Sparkle.IR.AST.Module} (hgate : hierGate b = true)
+LEMMA hierRefineCheck_inputs: Tools/ShippingHierShipsSV.lean:26:theorem hierRefineCheck_inputs {m o : Module}
+LEMMA core_hierGate_anyAM: Tools/ShippingSrm4Core2.lean:47:theorem core_hierGate_anyAM (O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) {c : Name} (d : MachineData) 
+LEMMA core_closed_typedIn_ranAM: Tools/ShippingSrm4Core1.lean:148:theorem core_closed_typedIn_ranAM (O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) {c : Name} (d : 
+LEMMA dropZW_inputs: Tools/ShippingOutsExtractedParts.lean:176:theorem dropZW_inputs (m : Sparkle.IR.AST.Module) :
+LEMMA dropZW_wires_sub: Tools/ShippingInstWidthsParts.lean:79:theorem dropZW_wires_sub (m : Sparkle.IR.AST.Module) :
+LEMMA dropZW_wires_sub: Tools/ShippingClosedTyped.lean:87:theorem dropZW_wires_sub {m : Sparkle.IR.AST.Module} {p : Sparkle.IR.AST.Port}
+LEMMA mergeChecked_ports: Sparkle/IR/RefineCheck.lean:291:theorem mergeChecked_ports (m : Module) :
+LEMMA weS_checkedOptimize_le: Tools/ShippingNoPortsTypedI.lean:241:theorem weS_checkedOptimize_le {b : Module} (hgate : Sparkle.IR.RefineCheck.hierGate b = true)
+LEMMA checkedOptimize_ports_wires: Tools/ShippingNoPortsTypedI.lean:214:theorem checkedOptimize_ports_wires {b : Module} (hgate : Sparkle.IR.RefineCheck.hierGate b = true) :
+LEMMA declWidth_le_weS_input: Tools/ShippingLeafInputWidths.lean:65:theorem declWidth_le_weS_input {m o : Sparkle.IR.AST.Module} (hi : o.inputs = m.inputs)
+LEMMA optimizeModule_ports: Tools/ShippingOptimizePorts.lean:33:theorem optimizeModule_ports (m : Sparkle.IR.AST.Module) :
+LEMMA optimizeModule_wires_subset: Tools/ShippingOptSoundness.lean:338:theorem optimizeModule_wires_subset (m : Sparkle.IR.AST.Module) :
+LEMMA deinline_cases: Sparkle/IR/HierCheck.lean:276:theorem deinline_cases (m o : Module) :
+LEMMA hin_of_hinsFit: Tools/ShippingSrm22Width.lean:49:theorem hin_of_hinsFit {b : Module} (hgate : Sparkle.IR.RefineCheck.hierGate b = true)
+LEMMA hstX_of_hst3: Tools/ShippingSrm22Width.lean:80:theorem hstX_of_hst3 {b : Module} (hgate : Sparkle.IR.RefineCheck.hierGate b = true)
+LEMMA regsFit_of_hstR_hst1: Tools/ShippingSrm22Width.lean:151:theorem regsFit_of_hstR_hst1 {b : Module} (st0 : String → Nat) (hreg : ShippedRegsFromSource b)
+LEMMA regsAtInit_of_hinit: Tools/ShippingSrm22Width.lean:166:theorem regsAtInit_of_hinit {b : Module} (regs : List String) (slots : List SlotField) (st0 : String → Nat)
+=== DEFS ===
+Sparkle/IR/HierCheck.lean:23:def openBody (body : List Stmt) : List Stmt :=
+Sparkle/IR/HierCheck.lean:32:def openFlat (m : Module) (insX outsX : List Port) : Module :=
+Sparkle/IR/RefineCheck.lean:136:def regOf (rM : List (String × String × (String × Sparkle.IR.Type.ResetKind) × Expr × Int))
+Sparkle/IR/RefineCheck.lean:142:def refineCheck (m o : Module) : Bool :=
+Sparkle/IR/RefineCheck.lean:196:def hierGate (m : Module) : Bool :=
+Sparkle/IR/RefineCheck.lean:206:def hierRefineCheck (m o : Module) : Bool :=
+Sparkle/IR/RefineCheck.lean:218:def hierBinds (m : Module) : Bool :=
+Sparkle/IR/RefineCheck.lean:387:def checkedOptimize (m : Module) : Module :=
+Sparkle/IR/OptCheck.lean:228:def seqRegs (m : Module) : List (String × String × (String × Sparkle.IR.Type.ResetKind)
+Sparkle/Compiler/Elab.lean:2200:def addClockResetIfSequential (module : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
+Sparkle/Compiler/Elab.lean:2747:def hierGateBoolBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) :
+Sparkle/Compiler/Elab.lean:2787:def hierGateBitsBody (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder) (n : Nat) :
+Sparkle/Compiler/Elab.lean:2846:def hierGateRoot (isInst : Lean.Expr → Bool) (kinds : Array MixedGateBinder)
+Tools/ShippingTextTyped.lean:171:structure TypedIn (m : Sparkle.IR.AST.Module) : Prop where
+Tools/ShippingMachineEntry.lean:654:def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
+Tools/ShippingSeqOptSoundness.lean:377:def seqRegsL (body : List Stmt) :
+=== INSTANCE b (from scripts/srm22/INVENTORY.txt) ===
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH_underComposedG|6|implicit|b|Sparkle.IR.AST.Module
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH_underComposedG|7|implicit|raw|Sparkle.IR.AST.Module
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH_underComposedG|8|implicit|D|Sparkle.IR.AST.Design
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH_underComposedG|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH_underComposedG|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH_underComposedG|12|explicit|hBnd|Srm9ComposedTest.TmBnd mctx mref cctx cref w raw D
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH_underComposedG|6|implicit|b|Sparkle.IR.AST.Module
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH_underComposedG|7|implicit|raw|Sparkle.IR.AST.Module
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH_underComposedG|8|implicit|D|Sparkle.IR.AST.Design
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH_underComposedG|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH_underComposedG|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S22INV|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH_underComposedG|12|explicit|hBnd|Srm9ComposedTest.TqBnd mctx mref cctx cref w raw D
+
+=== ANALYSIS (hand-written; every fact cites a line above or in the files named) ===
+Instance data (both topshareM and topshareQ; same shape of facts, TmBnd / TqBnd resp.): b is implicit, related to raw only by
+hpost : b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw); raw comes from hcore (RunsTo of synthesizeCombinationalCore).
+So every fact about b is a fact about a run of the front end, NOT a closed term (nothing is decidable by `decide`).  `checkedOptimize b` is branched
+(Sparkle/IR/RefineCheck.lean:387): with hierGate b = true (derived for the instance: Tools/ShippingSrm4Core2.lean:47 core_hierGate_anyAM, as used in
+Tests/Compiler/Srm22PairsTest.lean:142,203) the result is `b` (not binding) or `if hierRefineCheck b o' then o' else b`, o' = deinline b (optimizeModule b)
+(Tools/ShippingGuardsSound.lean:291 checkedOptimize_not_binding, :301 checkedOptimize_binding).  The instance has instances (insts ≠ []) so the `shape.insts = []` clauses of MachineWired
+(Tools/ShippingMachineEntry.lean:654) do NOT apply to topshare{M,Q}.
+
+--- G1 InputsAreWires b (Tools/ShippingSrm22Width.lean:23) ---
+ Says of the actual b: every port of b.inputs, INCLUDING "clk" and "rst", is a port of b.wires.
+ Source facts: TypedIn (Tools/ShippingTextTyped.lean:171, from core_closed_typedIn_ranAM Tools/ShippingSrm4Core1.lean:148) has no input-is-wire field;
+ the wires of the front-end module are Allocated / next names (Tools/ShippingCallsRun.lean:79-80 `∀ p ∈ m.inputs, p ∈ m.wires` is stated for the transition BEFORE addClockResetIfSequential,
+ Sparkle/Compiler/Elab.lean:2200, which only addInput's clk/rst); Tools/ShippingPortWidthsPure.lean:258 wire_ne_clk / :274 weS_clk_rst say no wire is named clk or rst; the clk/rst
+ inputs of a machine with slots come from MachineWired's input clause (Tools/ShippingMachineEntry.lean:~730).  wireNames_runMT / inputWires_runMT concern the transition, not the closed module.
+ Route / blocker: BLOCKER.  The clause for clk/rst has no wire counterpart in any exported lemma (ShippingMachineCleanup.lean:453 states `p ∈ M.wires ∨ p.name = "clk" ∨ p.name = "rst"`, i.e. clk/rst are treated as NOT wires).  Missing fact as Lean text:
+   ∀ p ∈ b.inputs, p.name = "clk" ∨ p.name = "rst" → p ∈ b.wires   (and the existing lemmas point the other way).  Not claimed refuted; no proof route.
+--- G2 ShippedRegsFromSource b (:26) ---
+ Says of the actual b: every register statement of checkedOptimize b has a register statement with the same output name in b.body.
+ Source facts (all GENERIC in b, needing only hierGate b = true, which the instance derives): checkedOptimize_not_binding / checkedOptimize_binding (above);
+ hierRefineCheck (RefineCheck.lean:206) contains `refineCheck (openFlat b (openIns b) (openOuts b)) (openFlat o' (openIns b) (openOuts b))`; refineCheck's clause
+ `rO.all (fun ro => match regOf rM ro.1 with | some rm => … | none => false)` (RefineCheck.lean:159-) is exported as Tools/ShippingMachineShipsS.lean:106 refineCheck_regWidth
+ (`∀ ro ∈ seqRegs o, ∃ rm ∈ seqRegs m, rm.1 = ro.1 ∧ …`); openBody keeps registers (HierCheck.lean:23); Tools/ShippingSrm22Width.lean:115 mem_seqRegs_openFlat turns seqRegs (openFlat b ..) membership into body membership.
+ Route: PLAUSIBLE, closes generically: by_cases hierBinds; binding: split on hierRefineCheck; accepted ⇒ refineCheck_regWidth gives the b-register of the same name; rejected / not binding ⇒ checkedOptimize b = b.
+ Then the M/Q instances follow from core_hierGate_anyAM (hierGate b).  No source fact about raw beyond hgate is needed.
+--- G3 SourceRegsKept b (:32) ---
+ Says: every register of b.body (name r, reset value init) survives in checkedOptimize b with the same name and reset value.
+ Source facts: refineCheck_regs (ShippingMachineSeqChild.lean:161) pairs o ⊆ m only; refineCheck's last clause `rM.all (… rNormE … isSome)` is explicit that m's registers may be DROPPED
+ ("the dropped ones too").  RegDedup merges registers; no lemma says which survive.  Route / blocker: BLOCKER: needs a fact about what the optimizer drops for the actual raw (a computation on the run's module).  Missing: ∀ r ∈ seqRegs b, r.1 ∈ (seqRegs (checkedOptimize b)).map (·.1) — not derivable from checks.
+--- G4 ShippedRegWidthLe b (:38) ---
+ Says: for a shipped register r, declWidth b r ≤ weS (checkedOptimize b) r.
+ Source facts: refineCheck_regWidth gives declWidth m rm.1 = declWidth o ro.1 (for the o' branch); weS_checkedOptimize_le (ShippingNoPortsTypedI.lean:241) is the OTHER direction (weS ≤ declWidth);
+ weOf_port (ShippingMachineCleanup.lean:20) gives weOf = port width for a wire under nodup.  Route: PLAUSIBLE but needs (a) the register's name in the shipped module's wires with a typed port,
+ (b) sanitize-stability and nodup of those wires; (a) is not exported for a machine with calls (register output ↔ wire).  Second candidate; not chosen because G2 is fully generic.
+--- G5 ShippedRegsAreSlots b regs slots (:43) ---
+ Says: every shipped register is the k-th machine register with slot init.  Needs G2 plus the SOURCE fact for a machine with calls:
+   ∀ r c rs inp init, Stmt.register r c rs inp init ∈ b.body → ∃ k f, regs[k]? = some r ∧ slots[k]? = some f ∧ init = Int.ofNat f.init
+ which MachineWired (ShippingMachineEntry.lean:654) states only under `shape.insts = []` and Tools/ShippingChecksExtract.lean:~21 records as MISSING for machines with calls.  Also `regs` is existential in the SRM20/21 conclusion.
+ Route / blocker: BLOCKER (the quoted source fact), after G2.  Next lemma: the displayed statement for the core run of a machine with calls.
+=== CHOICE ===
+G2 `ShippedRegsFromSource b`: the only gap whose route is generic (hierGate + refineCheck_regWidth + mem_seqRegs_openFlat), needing no new fact about raw.
