@@ -1,0 +1,40 @@
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.topshareM kid=Tests.Compiler.SharedLeafMemKidTest.wrapM origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 0
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.topshareM kid=Tests.Compiler.SharedLeafMemKidTest.wrapM origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 1
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.topshareM kid=Tests.Compiler.SharedLeafMemKidTest.wrapM3 origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 0
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.topshareM kid=Tests.Compiler.SharedLeafMemKidTest.wrapM3 origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 1
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.wrapM kid=Tests.Compiler.SharedLeafMemKidTest.leafM origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 0
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.wrapM kid=Tests.Compiler.SharedLeafMemKidTest.leafM origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 1
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.wrapM3 kid=Tests.Compiler.SharedLeafMemKidTest.leafM origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 0
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.wrapM3 kid=Tests.Compiler.SharedLeafMemKidTest.leafM origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 1
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.leafM kid=SparkleMem.sync.4.8 origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.mem false 4 8
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.topshareQ kid=Tests.Compiler.SharedLeafMemKidTest.wrapP origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 0
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.topshareQ kid=Tests.Compiler.SharedLeafMemKidTest.wrapP origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 1
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.topshareQ kid=Tests.Compiler.SharedLeafMemKidTest.wrapQ origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 0
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.topshareQ kid=Tests.Compiler.SharedLeafMemKidTest.wrapQ origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 1
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.wrapP kid=Tests.Compiler.SharedLeafMemKidTest.leafP origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 0
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.wrapP kid=Tests.Compiler.SharedLeafMemKidTest.leafP origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 1
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.wrapQ kid=Tests.Compiler.SharedLeafMemKidTest.leafP origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 0
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.wrapQ kid=Tests.Compiler.SharedLeafMemKidTest.leafP origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.field 1
+EDGE caller=Tests.Compiler.SharedLeafMemKidTest.wrapQ kid=SparkleMem.sync.4.8 origin=Sparkle.Compiler.MachInstOrigin.InstOrigin.mem false 4 8
+DESIGN Tests.Compiler.SharedLeafMemKidTest.topshareM: top=Tests_Compiler_SharedLeafMemKidTest_topshareM [decl Tests.Compiler.SharedLeafMemKidTest.topshareM] D.modules=[SparkleMem_sync_4_8, Tests_Compiler_SharedLeafMemKidTest_leafM, Tests_Compiler_SharedLeafMemKidTest_wrapM, Tests_Compiler_SharedLeafMemKidTest_wrapM3]
+MODULE Tests_Compiler_SharedLeafMemKidTest_topshareM [decl Tests.Compiler.SharedLeafMemKidTest.topshareM] (top)
+INST module=Tests_Compiler_SharedLeafMemKidTest_topshareM iname=inst0_Tests_Compiler_SharedLeafMemKidTest_wrapM target=Tests_Compiler_SharedLeafMemKidTest_wrapM [decl Tests.Compiler.SharedLeafMemKidTest.wrapM]
+INST module=Tests_Compiler_SharedLeafMemKidTest_topshareM iname=inst1_Tests_Compiler_SharedLeafMemKidTest_wrapM3 target=Tests_Compiler_SharedLeafMemKidTest_wrapM3 [decl Tests.Compiler.SharedLeafMemKidTest.wrapM3]
+MODULE SparkleMem_sync_4_8 [mem false 4 8]
+MODULE Tests_Compiler_SharedLeafMemKidTest_leafM [decl Tests.Compiler.SharedLeafMemKidTest.leafM]
+INST module=Tests_Compiler_SharedLeafMemKidTest_leafM iname=inst0_SparkleMem_sync_4_8 target=SparkleMem_sync_4_8 [mem false 4 8]
+MODULE Tests_Compiler_SharedLeafMemKidTest_wrapM [decl Tests.Compiler.SharedLeafMemKidTest.wrapM]
+INST module=Tests_Compiler_SharedLeafMemKidTest_wrapM iname=inst0_Tests_Compiler_SharedLeafMemKidTest_leafM target=Tests_Compiler_SharedLeafMemKidTest_leafM [decl Tests.Compiler.SharedLeafMemKidTest.leafM]
+MODULE Tests_Compiler_SharedLeafMemKidTest_wrapM3 [decl Tests.Compiler.SharedLeafMemKidTest.wrapM3]
+INST module=Tests_Compiler_SharedLeafMemKidTest_wrapM3 iname=inst0_Tests_Compiler_SharedLeafMemKidTest_leafM target=Tests_Compiler_SharedLeafMemKidTest_leafM [decl Tests.Compiler.SharedLeafMemKidTest.leafM]
+DESIGN Tests.Compiler.SharedLeafMemKidTest.topshareQ: top=Tests_Compiler_SharedLeafMemKidTest_topshareQ [decl Tests.Compiler.SharedLeafMemKidTest.topshareQ] D.modules=[Tests_Compiler_SharedLeafMemKidTest_leafP, Tests_Compiler_SharedLeafMemKidTest_wrapP, SparkleMem_sync_4_8, Tests_Compiler_SharedLeafMemKidTest_wrapQ]
+MODULE Tests_Compiler_SharedLeafMemKidTest_topshareQ [decl Tests.Compiler.SharedLeafMemKidTest.topshareQ] (top)
+INST module=Tests_Compiler_SharedLeafMemKidTest_topshareQ iname=inst0_Tests_Compiler_SharedLeafMemKidTest_wrapP target=Tests_Compiler_SharedLeafMemKidTest_wrapP [decl Tests.Compiler.SharedLeafMemKidTest.wrapP]
+INST module=Tests_Compiler_SharedLeafMemKidTest_topshareQ iname=inst1_Tests_Compiler_SharedLeafMemKidTest_wrapQ target=Tests_Compiler_SharedLeafMemKidTest_wrapQ [decl Tests.Compiler.SharedLeafMemKidTest.wrapQ]
+MODULE Tests_Compiler_SharedLeafMemKidTest_leafP [decl Tests.Compiler.SharedLeafMemKidTest.leafP]
+MODULE Tests_Compiler_SharedLeafMemKidTest_wrapP [decl Tests.Compiler.SharedLeafMemKidTest.wrapP]
+INST module=Tests_Compiler_SharedLeafMemKidTest_wrapP iname=inst0_Tests_Compiler_SharedLeafMemKidTest_leafP target=Tests_Compiler_SharedLeafMemKidTest_leafP [decl Tests.Compiler.SharedLeafMemKidTest.leafP]
+MODULE SparkleMem_sync_4_8 [mem false 4 8]
+MODULE Tests_Compiler_SharedLeafMemKidTest_wrapQ [decl Tests.Compiler.SharedLeafMemKidTest.wrapQ]
+INST module=Tests_Compiler_SharedLeafMemKidTest_wrapQ iname=inst0_Tests_Compiler_SharedLeafMemKidTest_leafP target=Tests_Compiler_SharedLeafMemKidTest_leafP [decl Tests.Compiler.SharedLeafMemKidTest.leafP]
+INST module=Tests_Compiler_SharedLeafMemKidTest_wrapQ iname=inst1_SparkleMem_sync_4_8 target=SparkleMem_sync_4_8 [mem false 4 8]
