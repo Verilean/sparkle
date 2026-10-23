@@ -1,0 +1,23 @@
+# thm|binder|status|suppliers(comma-separated theorem names, - for none)|owner|note
+# status: PROVED-GENERIC = a theorem for every instance of the premise's shape (itself under its own premises); PROVED-INSTANCE = a theorem for the memory-bearing instances topshareM/topshareQ only;
+#         PREMISE = no theorem of this shape in the repository, taken as a hypothesis; MISSING = neither a theorem nor a stated bridge of this shape exists.
+# 'anon:N' = the anonymous (arrow) binder at index N.  Owners: SRM1-5, SR*, SRD*, SRM6 (semantic bridge), SRM7 (rank witnesses), SRM8 (this unit).
+Tools.ShippingSrm8Bridge.design_at_free_h|hbridge|PREMISE|-|SRM6|HeightBridge n: height-indexed design_sv_runN + svBounds_of_checks + design_sv_all; stated by SRM8, truth NOT shown
+Tools.ShippingSrm8Bridge.design_at_free_h|F|PROVED-GENERIC|Tools.ShippingShipsFree.machine_ships_hierC_at_free|SR/SRM4|F is the conclusion of machine_ships_hierC_at_free at KSn; its own premises are the rows below
+Tools.ShippingSrm8Bridge.design_at_free_h|hoc|PROVED-INSTANCE|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_outsCheck,Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_outsCheck,Tools.ShippingSrm4Parent.kidsNC_outsCheck|SRM4|UNIFORM outsCheck at depth n (not height-indexed); generic kidsNC_outsCheck needs KidFactsNC per callee
+Tools.ShippingSrm8Bridge.design_at_free_h|anon:20|PROVED-INSTANCE|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_heightPass,Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_heightPass,Tools.ShippingSrm5Transfer.kidsNC_hcheck|SRM5/SRM8|HeightPass; instance-specific rank tables rkM/rkQ are premises (SRM7 owns a general rank supply, not derived)
+Tools.ShippingSrm8Bridge.design_at_free_h|anon:21|PREMISE|-|boundary|Bnd raw D (BndA): the run boundary; an antecedent of the conclusion, not discharged
+Tools.ShippingSrm8Bridge.design_at_free_h|anon:22|PROVED-INSTANCE|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_kidsMasked,Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_kidsMasked,Tools.ShippingSrm4Parent.kidsNC_maskedN|SRM4|Bd b D = kidsMaskedN
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|hloc|PROVED-GENERIC|Tools.ShippingHierStateG.KSn_local|SR|every depth
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|hBd|PROVED-GENERIC|Tools.ShippingMachineShipsDepth.KSn_boundedIn|SR|under kidsMaskedN
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|hRI|PROVED-GENERIC|Tools.ShippingMachineShipsHier.true_inv|SR|Inv = True
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|soundL|PROVED-INSTANCE|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_soundLA,Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_soundLA|SRM4|MachineTraceLB, the binder's trace
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|composed|MISSING|Tools.ShippingSrm4Run.memCallee_composedNW|SRM4/SRM6|memCallee_composedNW is ComposedNW of the served run, not the ComposedG-at-KSn binder (with memFree of the parent body); that step is not stated in SRM1-5
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|houtTy|PROVED-INSTANCE|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_outTy,Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_outTy|SRM4|decidable data
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|hcore|PREMISE|Tools.ShippingMachineShipping.synthesizeCombinational_checked|runtime|the core run is obtained from the entry run hr by synthesizeCombinational_checked; the entry run itself is a premise
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|hpost|PREMISE|Tools.ShippingMachineShipping.synthesizeCombinational_checked|runtime|same
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|entry|PREMISE|-|runtime|MachineDefines of the parent (and callees): reflection premise
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|closes|PREMISE|-|runtime|C mctx mref cctx cref: the closing premise
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|facts|PROVED-INSTANCE|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_runFacts,Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_runFacts,Tools.ShippingSrm4Parent.kidsNC_runFacts|SRM4|RunFacts at the core run
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|anon:39|PREMISE|-|boundary|Bnd mctx mref cctx cref w raw D
+Tools.ShippingShipsFree.machine_ships_hierC_at_free|anon:40|PROVED-INSTANCE|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_kidsMasked,Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_kidsMasked|SRM4|Bd b D

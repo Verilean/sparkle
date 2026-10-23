@@ -4103,3 +4103,15 @@ lean_lib «Tests.Compiler.Srm7AuditExpected» where
 
 lean_lib «Tests.Compiler.Srm7AuditTest» where
   roots := #[`Tests.Compiler.Srm7AuditTest]
+
+lean_lib «Tools.ShippingSrm8Bridge» where
+  roots := #[`Tools.ShippingSrm8Bridge]
+
+lean_lib «Tests.Compiler.Srm8ChainTest» where
+  roots := #[`Tests.Compiler.Srm8ChainTest]
+
+lean_lib «Tests.Compiler.Srm8AuditExpected» where
+  roots := #[`Tests.Compiler.Srm8AuditExpected]
+
+lean_lib «Tests.Compiler.Srm8AuditTest» where
+  roots := #[`Tests.Compiler.Srm8AuditTest]
