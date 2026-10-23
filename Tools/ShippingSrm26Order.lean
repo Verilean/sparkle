@@ -99,7 +99,7 @@ theorem sourceRegsAreSlots_of_wired {declName : Name} {shape : MachineShape} {id
             shape.layout.slots.length)).take shape.layout.slots.length) shape.layout.slots) :
     SourceRegsAreSlots m regs shape.layout.slots := by
   simp only [MachineWired] at hW
-  obtain ⟨hnd, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, hlast⟩ := hW
+  obtain ⟨hnd, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, hlast, -⟩ := hW
   exact sourceRegsAreSlots_regs_of_ports m _ regs shape.layout.slots
     (List.Nodup.sublist ((List.take_sublist _ _).trans (List.drop_sublist _ _)) hnd) hregsNd hlen
     (List.length_take_le ..) hlast hK0
