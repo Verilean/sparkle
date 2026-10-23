@@ -48,12 +48,13 @@ leaf children). **(C)** depth 2 `grand → mid → cnt`: the checks `Tests.Compi
 | class generalisation (memory parents, polymorphic domains, depth > 2, several children at depth 2) | B, C | — | OPEN (L8s) | one class at a time, per generator |
 | legacy-route semantics | — | — | OPEN (only split off, L7e*) | — |
 
-## 0b. Height-indexed kid check and the memory-parent chain (L8bd4; units SRM5–SRM10, integration candidate par/int-srm2; supersedes candidate par/int-srm1 2d8cee85, which lacked SRM5B)
+## 0b. Height-indexed kid check and the memory-parent chain (L8bd4; units SRM5–SRM12, integration candidate par/int-srm3 = approved local candidate par/int-srm2 0c248ef2 + SRM11 + SRM12; par/int-srm1 2d8cee85 superseded)
 
 Each unit lists its THEOREM commit (proof content) and its AUDIT commit. The B units (SRMnB) change only the unit's audit test
 (fixture 1 was a whitespace-only type change, i.e. vacuous; it is now the semantic change `… ∧ True` with row-level assertions);
 they are not separate proof content. Superseded final runs remain development history for the binder audit only.
 All six B repairs (SRM5B–SRM10B) are merged in par/int-srm2; SRM5 itself is already in the base 124f7db7, so only its B commit is merged here.
+SRM11 and SRM12 are merged (no-ff, unrewritten) in par/int-srm3; their audit tests had a semantic fixture 1 from the start, so they have no B unit; their Tools theorems are also in `Tests.Compiler.ChildVertAuditTest`'s closure audit.
 Builds named here are local `./.cluster/qbuild.sh build …` runs; nothing here is CI, a production statement or a general theorem.
 
 | unit | theorem commit (final run) | audit evidence (supersedes) | PROVED | PREMISE | OPEN |
@@ -64,6 +65,8 @@ Builds named here are local `./.cluster/qbuild.sh build …` runs; nothing here 
 | SRM8 | 0a035c79 (s8f1) | SRM8B 47de0e97 (s8f1 superseded) | `design_at_free_h` CONDITIONAL on `HeightBridge n`; machine-generated premise-supply table | `HeightBridge n` | HeightBridge truth; height-indexed outsCheck; general rank supply; endpoint assembly (bridge/audit unit, not endpoint progress) |
 | SRM9 | 35878bbc (f1) | SRM9B 13c416b0 (f1 superseded) | the `composed` binder of `machine_ships_hierC_at_free` for topshareM/Q only, from the pre-existing generic `composedG_of_NW` + SRM4 `topshare*_composedNW` | the boundary bundles `TmBnd`/`TqBnd` | `ComposedNW` supply for an arbitrary memory-bearing parent; endpoint assembly |
 | SRM10 | fb0327f0 (s10f3) | SRM10B 3fdfe984 (s10f3 superseded) | `houtsMod`/`houtsCheck`; link A (`UniRank`, balanced trees only); link B (`hcheck` + uniform `outsCheck` ⇒ `houtsCheck`); topshareM/Q `houtsCheck` | the SRM4 uniform `outsCheck` is still CONSUMED (output facts not discharged) | height-indexed output facts derived from source; `design_sv_backN` at heights; unbalanced supply |
+| SRM11 | 69d328fa (f1) | SRM11 audit test (fixture 1 semantic from the start) | height-indexed width chain over `hcheck` (`leafStepTG_bound`, `moduleStepBoundH`, `KSn_stepBoundH`, `runModuleTG_envBoundH`) and `svBoundsH_of_checks`; `svBoundsH_of_svBounds` (uniform `SVBounds` ⇒ `SVBoundsH` under `hcheck` and rank facts; converse NOT claimed); topshareM/Q `*_svBoundsH` and `*_designSVH_noB` (SRM6's `hB` binder removed) | `hB` is REPLACED (not discharged) by the machine-side facts `hseedB` (top seeding bounded), `hst` (bounded start state), `hkids` (`InvN` of every instance state), together with `hcheck`, the rank facts and the actual IR run | supply of `hseedB`/`hst`/`hkids` from the actual machine run / Reset (no Reset ⇒ `InvN` lemma); `hrun` for the actual machine run; endpoint |
+| SRM12 | 58791e76 (f1) | SRM12 audit test (fixture 1 semantic from the start) | correspondence Props `InstFwd`/`InstBwd`/`ModCorr`/`DesignCorr`/`ChildCorr` (both directions, memory vs ordinary origin kept: `kidModName_mem_iff`); generic `ran_instFwd`/`ran_instBwd`/`ran_designCorr` over `MachineRanA` (`closeInstsG` + `ChildrenRealA`); topshareM/Q `*_corr` on `b`, `checkedOptimize b` and `D.modules` (on target SETS: `closeInstsG` groups calls by callee); `inst_rank`, topshareM/Q `*_inst_ranks` (every instance target ranks strictly below its caller) | generic: `hname` (ordinary kid named `ofDecl callee`), `hkids` (callees' `ChildCorr`), `hgraph` (graph entry = `shape.instTagged`; checked for gM/gQ); instances: SRM5 `topshare*_hcheck` premises without the rank table (`O`, `T`, `hA`, `MachineDefines`, `hcore`, `hpost`, `hw`); `RealChildA` is a history | arbitrary graph / design; graph provenance beyond `hgraph`; unique module names; fuel; `HeightBridge`/`hkidH`; endpoint; nothing about emitted SV text |
 
 `kidFactsA_check_false` (SRM4) is an obstruction of the UNIFORM positive-depth `KidFactsA.check` only, not of unbalanced trees.
 
