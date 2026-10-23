@@ -121,6 +121,7 @@ import Tools.ShippingSrm17Body
 import Tools.ShippingSrm17Ran
 import Tools.ShippingSrm17Corr
 import Tools.ShippingSrm18Start
+import Tools.ShippingSrm21Lift
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -669,7 +670,8 @@ def audited : List Name :=
    ``Tools.ShippingSrm17Body.ModP.iu, ``Tools.ShippingSrm17Body.ModP.ag, ``Tools.ShippingSrm17Body.ModP.rd, ``Tools.ShippingSrm17Body.regNames_eq, ``Tools.ShippingSrm17Body.regNames_perm, ``Tools.ShippingSrm17Body.mem_regNames, ``Tools.ShippingSrm17Body.agb_of_nodup, ``Tools.ShippingSrm17Body.rdb_of_noMem, ``Tools.ShippingSrm17Body.modP_of_nodups, ``Tools.ShippingSrm17Body.noMemB_of_perm, ``Tools.ShippingSrm17Body.nextKeys_eq_regNames, ``Tools.ShippingSrm17Body.rs_inv, ``Tools.ShippingSrm17Body.inst_of_rw, ``Tools.ShippingSrm17Body.reg_of_rw, ``Tools.ShippingSrm17Body.mem_of_rw, ``Tools.ShippingSrm17Body.modP_body_map, ``Tools.ShippingSrm17Body.mergeDuplicates_body, ``Tools.ShippingSrm17Body.parts_shape, ``Tools.ShippingSrm17Body.modP_mergeChecked,
    ``Tools.ShippingSrm17Ran.nodup_idx, ``Tools.ShippingSrm17Ran.ran_modP, ``Tools.ShippingSrm17Ran.leaf_modPA,
    ``Tools.ShippingSrm17Corr.memModule_modP, ``Tools.ShippingSrm17Corr.ran_designP, ``Tools.ShippingSrm17Corr.memCallee_childP, ``Tools.ShippingSrm17Corr.leaf_childP,
-   ``Tools.ShippingSrm18Start.evalAssignsKG_relZ, ``Tools.ShippingSrm18Start.runModuleTG_kids_congr, ``Tools.ShippingSrm18Start.bumpKT_ne, ``Tools.ShippingSrm18Start.mem_instNames, ``Tools.ShippingSrm18Start.length_le_sum, ``Tools.ShippingSrm18Start.freshName_fresh, ``Tools.ShippingSrm18Start.bumpedStart_spec]
+   ``Tools.ShippingSrm18Start.evalAssignsKG_relZ, ``Tools.ShippingSrm18Start.runModuleTG_kids_congr, ``Tools.ShippingSrm18Start.bumpKT_ne, ``Tools.ShippingSrm18Start.mem_instNames, ``Tools.ShippingSrm18Start.length_le_sum, ``Tools.ShippingSrm18Start.freshName_fresh, ``Tools.ShippingSrm18Start.bumpedStart_spec,
+   ``Tools.ShippingSrm21Lift.evalAssignsKG_sim, ``Tools.ShippingSrm21Lift.stepModuleTG_sim, ``Tools.ShippingSrm21Lift.runModuleTG_sim, ``Tools.ShippingSrm21Lift.stepModuleTG_instFree, ``Tools.ShippingSrm21Lift.simO_instFree_step, ``Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree, ``Tools.ShippingSrm21Lift.resetNk_depth_lift]
 
 end Tests.Compiler.ChildVertAuditTest
 
