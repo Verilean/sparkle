@@ -4079,3 +4079,6 @@ lean_lib «Tests.Compiler.Srm5AuditTest» where
 
 lean_lib «Tests.Compiler.Srm5AuditExpected» where
   roots := #[`Tests.Compiler.Srm5AuditExpected]
+
+lean_lib «Tests.Compiler.Srm9ComposedTest» where
+  roots := #[`Tests.Compiler.Srm9ComposedTest]
