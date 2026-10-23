@@ -4247,3 +4247,30 @@ lean_lib «Tests.Compiler.Srm18ExpStmt» where
 
 lean_lib «Tests.Compiler.Srm18AuditTest» where
   roots := #[`Tests.Compiler.Srm18AuditTest]
+
+lean_lib «Tests.Compiler.Srm19EndToEndTest» where
+  roots := #[`Tests.Compiler.Srm19EndToEndTest]
+
+lean_lib «Tests.Compiler.Srm19ExpStmt» where
+  roots := #[`Tests.Compiler.Srm19ExpStmt]
+
+lean_lib «Tests.Compiler.Srm19AuditExpected» where
+  roots := #[`Tests.Compiler.Srm19AuditExpected]
+
+lean_lib «Tests.Compiler.Srm19AuditTest» where
+  roots := #[`Tests.Compiler.Srm19AuditTest]
+
+lean_lib «Tests.Compiler.Srm20InventoryTest» where
+  roots := #[`Tests.Compiler.Srm20InventoryTest]
+
+lean_lib «Tests.Compiler.Srm20BridgeTest» where
+  roots := #[`Tests.Compiler.Srm20BridgeTest]
+
+lean_lib «Tests.Compiler.Srm20ExpStmt» where
+  roots := #[`Tests.Compiler.Srm20ExpStmt]
+
+lean_lib «Tests.Compiler.Srm20AuditExpected» where
+  roots := #[`Tests.Compiler.Srm20AuditExpected]
+
+lean_lib «Tests.Compiler.Srm20AuditTest» where
+  roots := #[`Tests.Compiler.Srm20AuditTest]
