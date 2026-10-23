@@ -1,0 +1,240 @@
+S11THM|Tools.ShippingSrm11Bounds.leafStepTG_bound|12
+S11DATA|Tools.ShippingSrm11Bounds.leafStepTG_bound|0|implicit|σ|Type
+S11DATA|Tools.ShippingSrm11Bounds.leafStepTG_bound|1|explicit|KS|Tools.ShippingHierStateG.KStep σ
+S11DATA|Tools.ShippingSrm11Bounds.leafStepTG_bound|2|explicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S11DATA|Tools.ShippingSrm11Bounds.leafStepTG_bound|3|implicit|o|Sparkle.IR.AST.Module
+S11PREM|Tools.ShippingSrm11Bounds.leafStepTG_bound|4|explicit|hl|Tools.ShippingDesignSV.leafCheck o = true
+S11DATA|Tools.ShippingSrm11Bounds.leafStepTG_bound|5|implicit|env0|Sparkle.IR.Semantics.Env
+S11PREM|Tools.ShippingSrm11Bounds.leafStepTG_bound|6|explicit|hb0|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS o) env0
+S11DATA|Tools.ShippingSrm11Bounds.leafStepTG_bound|7|implicit|s|Tools.ShippingHierStateG.KState σ
+S11PREM|Tools.ShippingSrm11Bounds.leafStepTG_bound|8|explicit|hst|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS o) s.st
+S11DATA|Tools.ShippingSrm11Bounds.leafStepTG_bound|9|implicit|envF|Sparkle.IR.Semantics.Env
+S11DATA|Tools.ShippingSrm11Bounds.leafStepTG_bound|10|implicit|s'|Tools.ShippingHierStateG.KState σ
+S11PREM|Tools.ShippingSrm11Bounds.leafStepTG_bound|11|explicit|h|Tools.ShippingHierStateG.stepModuleTG KS (Sparkle.IR.RegDedup.declWidth o) C o.body env0 s = some (envF, s')
+S11THM|Tools.ShippingSrm11Bounds.moduleStepBoundH|18
+S11DATA|Tools.ShippingSrm11Bounds.moduleStepBoundH|0|explicit|ms|List Sparkle.IR.AST.Module
+S11DATA|Tools.ShippingSrm11Bounds.moduleStepBoundH|1|explicit|rk|String → Option Nat
+S11DATA|Tools.ShippingSrm11Bounds.moduleStepBoundH|2|explicit|m|Nat
+S11PREM|Tools.ShippingSrm11Bounds.moduleStepBoundH|3|explicit|ih|Tools.ShippingSrm11Bounds.StepBoundH ms rk m
+S11DATA|Tools.ShippingSrm11Bounds.moduleStepBoundH|4|implicit|o|Sparkle.IR.AST.Module
+S11DATA|Tools.ShippingSrm11Bounds.moduleStepBoundH|5|implicit|f|Nat
+S11DATA|Tools.ShippingSrm11Bounds.moduleStepBoundH|6|implicit|r|Nat
+S11PREM|Tools.ShippingSrm11Bounds.moduleStepBoundH|7|explicit|hr|rk o.name = some r
+S11PREM|Tools.ShippingSrm11Bounds.moduleStepBoundH|8|explicit|hrm|r ≤ m + 1
+S11PREM|Tools.ShippingSrm11Bounds.moduleStepBoundH|9|explicit|hchk|Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f o = true
+S11DATA|Tools.ShippingSrm11Bounds.moduleStepBoundH|10|implicit|env0|Sparkle.IR.Semantics.Env
+S11PREM|Tools.ShippingSrm11Bounds.moduleStepBoundH|11|explicit|hb0|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS o) env0
+S11DATA|Tools.ShippingSrm11Bounds.moduleStepBoundH|12|implicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT m)
+S11PREM|Tools.ShippingSrm11Bounds.moduleStepBoundH|13|explicit|hst|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS o) s.st
+S11PREM|Tools.ShippingSrm11Bounds.moduleStepBoundH|14|explicit|hkids|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body → Tools.ShippingMachineLinked.childMap ms mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap ms) m gc (s.kids iname)
+S11DATA|Tools.ShippingSrm11Bounds.moduleStepBoundH|15|implicit|envF|Sparkle.IR.Semantics.Env
+S11DATA|Tools.ShippingSrm11Bounds.moduleStepBoundH|16|implicit|s'|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT m)
+S11PREM|Tools.ShippingSrm11Bounds.moduleStepBoundH|17|explicit|h|Tools.ShippingHierStateG.stepModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap ms) m) (Sparkle.IR.RegDedup.declWidth o) (Tools.ShippingMachineLinked.childMap ms) o.body env0 s = some (envF, s')
+S11THM|Tools.ShippingSrm11Bounds.KSn_stepBoundH|3
+S11DATA|Tools.ShippingSrm11Bounds.KSn_stepBoundH|0|explicit|ms|List Sparkle.IR.AST.Module
+S11DATA|Tools.ShippingSrm11Bounds.KSn_stepBoundH|1|explicit|rk|String → Option Nat
+S11DATA|Tools.ShippingSrm11Bounds.KSn_stepBoundH|2|explicit|n|Nat
+S11THM|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|19
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|0|explicit|ms|List Sparkle.IR.AST.Module
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|1|explicit|rk|String → Option Nat
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|2|explicit|n|Nat
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|3|implicit|o|Sparkle.IR.AST.Module
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|4|implicit|f|Nat
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|5|implicit|r|Nat
+S11PREM|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|6|explicit|hr|rk o.name = some r
+S11PREM|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|7|explicit|hrn|r ≤ n + 1
+S11PREM|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|8|explicit|hchk|Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f o = true
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|9|implicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S11PREM|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|10|explicit|hseedB|∀ (k : Nat) (st : Sparkle.IR.Semantics.Env), Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS o) st → Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS o) (seed k st)
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|11|explicit|T|Nat
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|12|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT n)
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|13|explicit|envs|List Sparkle.IR.Semantics.Env
+S11PREM|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|14|explicit|_anon|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS o) s.st
+S11PREM|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|15|explicit|_anon|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body → Tools.ShippingMachineLinked.childMap ms mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap ms) n gc (s.kids iname)
+S11PREM|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|16|explicit|_anon|Tools.ShippingHierStateG.runModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap ms) n) (Sparkle.IR.RegDedup.declWidth o) (Tools.ShippingMachineLinked.childMap ms) o.body seed T s = some envs
+S11DATA|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|17|explicit|j|Nat
+S11PREM|Tools.ShippingSrm11Bounds.runModuleTG_envBoundH|18|explicit|hj|j < envs.length
+S11THM|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|17
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|0|explicit|ms|List Sparkle.IR.AST.Module
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|1|explicit|rk|String → Option Nat
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|2|explicit|n|Nat
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|3|explicit|o|Sparkle.IR.AST.Module
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|4|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|5|explicit|T|Nat
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|6|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT n)
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|7|explicit|envs|List Sparkle.IR.Semantics.Env
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|8|explicit|f|Nat
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|9|explicit|r|Nat
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|10|explicit|_anon|rk o.name = some r
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|11|explicit|_anon|r ≤ n + 1
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|12|explicit|_anon|Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f o = true
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|13|explicit|_anon|∀ (k : Nat) (st : Sparkle.IR.Semantics.Env), Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS o) st → Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS o) (seed k st)
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|14|explicit|_anon|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS o) s.st
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|15|explicit|_anon|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body → Tools.ShippingMachineLinked.childMap ms mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap ms) n gc (s.kids iname)
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_checks|16|explicit|_anon|Tools.ShippingHierStateG.runModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap ms) n) (Sparkle.IR.RegDedup.declWidth o) (Tools.ShippingMachineLinked.childMap ms) o.body seed T s = some envs
+S11THM|Tools.ShippingSrm11Bounds.bodyInstOuts_instFree|3
+S11DATA|Tools.ShippingSrm11Bounds.bodyInstOuts_instFree|0|explicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S11DATA|Tools.ShippingSrm11Bounds.bodyInstOuts_instFree|1|explicit|body|List Sparkle.IR.AST.Stmt
+S11PREM|Tools.ShippingSrm11Bounds.bodyInstOuts_instFree|2|explicit|_anon|Tools.ShippingHierStateG.instFree body
+S11THM|Tools.ShippingSrm11Bounds.leafBounds_of_parentBounds|8
+S11DATA|Tools.ShippingSrm11Bounds.leafBounds_of_parentBounds|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S11DATA|Tools.ShippingSrm11Bounds.leafBounds_of_parentBounds|1|implicit|o|Sparkle.IR.AST.Module
+S11PREM|Tools.ShippingSrm11Bounds.leafBounds_of_parentBounds|2|explicit|hf|Tools.ShippingHierStateG.instFree o.body
+S11DATA|Tools.ShippingSrm11Bounds.leafBounds_of_parentBounds|3|implicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S11DATA|Tools.ShippingSrm11Bounds.leafBounds_of_parentBounds|4|implicit|T|Nat
+S11DATA|Tools.ShippingSrm11Bounds.leafBounds_of_parentBounds|5|implicit|st|String → Nat
+S11DATA|Tools.ShippingSrm11Bounds.leafBounds_of_parentBounds|6|implicit|envs|List Sparkle.IR.Semantics.Env
+S11PREM|Tools.ShippingSrm11Bounds.leafBounds_of_parentBounds|7|explicit|h|Tools.ShippingDesignSV.ParentBounds C o seed T st envs
+S11THM|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|14
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|0|explicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|1|explicit|rk|String → Option Nat
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|2|explicit|n|Nat
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|3|explicit|o|Sparkle.IR.AST.Module
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|4|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|5|explicit|T|Nat
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|6|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT n)
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|7|explicit|envs|List Sparkle.IR.Semantics.Env
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|8|explicit|f|Nat
+S11DATA|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|9|explicit|r|Nat
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|10|explicit|_anon|rk o.name = some r
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|11|explicit|_anon|r ≤ n + 1
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|12|explicit|_anon|Tools.ShippingSrm5Height.hcheck C rk f o = true
+S11PREM|Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds|13|explicit|_anon|Tools.ShippingDesignSV.SVBounds C n o seed T s envs
+S11THM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|33
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|0|implicit|mctx|Meta.Context
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|2|implicit|cctx|Core.Context
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|7|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|8|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM Tests.Compiler.SharedLeafMemKidTest.wrapM.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|9|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM3 Tests.Compiler.SharedLeafMemKidTest.wrapM3.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|10|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|11|implicit|w|Void IO.RealWorld
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|12|implicit|w1|Void IO.RealWorld
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|13|implicit|raw|Sparkle.IR.AST.Module
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|14|implicit|b|Sparkle.IR.AST.Module
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|15|implicit|D|Sparkle.IR.AST.Design
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|16|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|17|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|18|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|19|explicit|rk|String → Option Nat
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|20|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|21|explicit|hrT|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.topshareM) = some (2 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|22|explicit|hrW|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapM) = some (1 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|23|explicit|hrW3|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapM3) = some (1 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|24|explicit|hrL|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafM) = some 1
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|25|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|26|explicit|T'|Nat
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|27|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT 2)
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|28|explicit|envs|List Sparkle.IR.Semantics.Env
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|29|explicit|hrun|Tools.ShippingHierStateG.runModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap D.modules) 2) (Sparkle.IR.RegDedup.declWidth (Sparkle.IR.OptCheck.checkedOptimize b)) (Tools.ShippingMachineLinked.childMap D.modules) (Sparkle.IR.OptCheck.checkedOptimize b).body seed T' s = some envs
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|30|explicit|hseedB|∀ (k : Nat) (st : Sparkle.IR.Semantics.Env), Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) st → Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) (seed k st)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|31|explicit|hst|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) s.st
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_svBoundsH|32|explicit|hkids|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ (Sparkle.IR.OptCheck.checkedOptimize b).body → Tools.ShippingMachineLinked.childMap D.modules mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap D.modules) 2 gc (s.kids iname)
+S11THM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|34
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|0|implicit|mctx|Meta.Context
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|2|implicit|cctx|Core.Context
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|7|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|8|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|9|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|10|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|12|implicit|w|Void IO.RealWorld
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|13|implicit|w1|Void IO.RealWorld
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|14|implicit|raw|Sparkle.IR.AST.Module
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|15|implicit|b|Sparkle.IR.AST.Module
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|16|implicit|D|Sparkle.IR.AST.Design
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|17|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|18|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|19|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|20|explicit|rk|String → Option Nat
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|21|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|22|explicit|hrT|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.topshareQ) = some (1 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|23|explicit|hrP|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapP) = some (0 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|24|explicit|hrQ|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapQ) = some (0 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|25|explicit|hrL|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafP) = some 0
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|26|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|27|explicit|T'|Nat
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|28|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT 1)
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|29|explicit|envs|List Sparkle.IR.Semantics.Env
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|30|explicit|hrun|Tools.ShippingHierStateG.runModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap D.modules) 1) (Sparkle.IR.RegDedup.declWidth (Sparkle.IR.OptCheck.checkedOptimize b)) (Tools.ShippingMachineLinked.childMap D.modules) (Sparkle.IR.OptCheck.checkedOptimize b).body seed T' s = some envs
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|31|explicit|hseedB|∀ (k : Nat) (st : Sparkle.IR.Semantics.Env), Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) st → Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) (seed k st)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|32|explicit|hst|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) s.st
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_svBoundsH|33|explicit|hkids|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ (Sparkle.IR.OptCheck.checkedOptimize b).body → Tools.ShippingMachineLinked.childMap D.modules mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap D.modules) 1 gc (s.kids iname)
+S11THM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|33
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|0|implicit|mctx|Meta.Context
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|2|implicit|cctx|Core.Context
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|7|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|8|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM Tests.Compiler.SharedLeafMemKidTest.wrapM.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|9|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM3 Tests.Compiler.SharedLeafMemKidTest.wrapM3.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|10|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|11|implicit|w|Void IO.RealWorld
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|12|implicit|w1|Void IO.RealWorld
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|13|implicit|raw|Sparkle.IR.AST.Module
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|14|implicit|b|Sparkle.IR.AST.Module
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|15|implicit|D|Sparkle.IR.AST.Design
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|16|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|17|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|18|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|19|explicit|rk|String → Option Nat
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|20|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|21|explicit|hrT|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.topshareM) = some (2 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|22|explicit|hrW|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapM) = some (1 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|23|explicit|hrW3|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapM3) = some (1 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|24|explicit|hrL|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafM) = some 1
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|25|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|26|explicit|T'|Nat
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|27|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT 2)
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|28|explicit|envs|List Sparkle.IR.Semantics.Env
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|29|explicit|hrun|Tools.ShippingHierStateG.runModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap D.modules) 2) (Sparkle.IR.RegDedup.declWidth (Sparkle.IR.OptCheck.checkedOptimize b)) (Tools.ShippingMachineLinked.childMap D.modules) (Sparkle.IR.OptCheck.checkedOptimize b).body seed T' s = some envs
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|30|explicit|hseedB|∀ (k : Nat) (st : Sparkle.IR.Semantics.Env), Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) st → Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) (seed k st)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|31|explicit|hst|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) s.st
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_designSVH_noB|32|explicit|hkids|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ (Sparkle.IR.OptCheck.checkedOptimize b).body → Tools.ShippingMachineLinked.childMap D.modules mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap D.modules) 2 gc (s.kids iname)
+S11THM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|34
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|0|implicit|mctx|Meta.Context
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|2|implicit|cctx|Core.Context
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|7|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|8|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|9|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|10|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|12|implicit|w|Void IO.RealWorld
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|13|implicit|w1|Void IO.RealWorld
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|14|implicit|raw|Sparkle.IR.AST.Module
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|15|implicit|b|Sparkle.IR.AST.Module
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|16|implicit|D|Sparkle.IR.AST.Design
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|17|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|18|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|19|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|20|explicit|rk|String → Option Nat
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|21|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|22|explicit|hrT|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.topshareQ) = some (1 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|23|explicit|hrP|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapP) = some (0 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|24|explicit|hrQ|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapQ) = some (0 + 1)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|25|explicit|hrL|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafP) = some 0
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|26|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|27|explicit|T'|Nat
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|28|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT 1)
+S11DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|29|explicit|envs|List Sparkle.IR.Semantics.Env
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|30|explicit|hrun|Tools.ShippingHierStateG.runModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap D.modules) 1) (Sparkle.IR.RegDedup.declWidth (Sparkle.IR.OptCheck.checkedOptimize b)) (Tools.ShippingMachineLinked.childMap D.modules) (Sparkle.IR.OptCheck.checkedOptimize b).body seed T' s = some envs
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|31|explicit|hseedB|∀ (k : Nat) (st : Sparkle.IR.Semantics.Env), Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) st → Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) (seed k st)
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|32|explicit|hst|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) s.st
+S11PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_designSVH_noB|33|explicit|hkids|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ (Sparkle.IR.OptCheck.checkedOptimize b).body → Tools.ShippingMachineLinked.childMap D.modules mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap D.modules) 1 gc (s.kids iname)
