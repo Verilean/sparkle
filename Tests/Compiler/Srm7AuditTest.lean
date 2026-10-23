@@ -2,7 +2,7 @@ import Tests.Compiler.Srm7RankTest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.Srm7AuditExpected
 import Tools.ShippingKidsChildIfaceM
--- UNBUILT (unit SRM7): see REPORT-SRM7.md for the run names.
+-- BUILT (unit SRM7): dev run s7c2 exit 0 (default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM7.md.
 -- SCOPE (SRM7, audits; copied from `Srm5AuditTest`, SRM5 files untouched).  For each audited SRM7 theorem: (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S7PREM` / `S7DATA` line
 -- and the WHOLE table must EQUAL the committed `Tests/Compiler/Srm7AuditExpected.lean` (`expectedRows`) EXACTLY and `scripts/srm7/PREMISES.txt`, line for line.  LITERAL guards: `audited7.length == 40`, `expectedRows.length == 40`.
 -- NEGATIVE FIXTURES: three mutations of the actual table (changed Prop binder type, added data binder, reordered binders) are REJECTED by the comparator and are non-vacuous (`S7FIXTURE`).

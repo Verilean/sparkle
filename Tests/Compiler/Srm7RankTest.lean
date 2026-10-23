@@ -3,7 +3,7 @@ import Tests.Compiler.Srm5ParentQTest
 import Tests.Compiler.NonzeroInitParentTest
 import Tests.Compiler.NoPortsMemSeqGenNewTest
 import Tools.ShippingSrm7Rank
--- UNBUILT (unit SRM7): see REPORT-SRM7.md for the run names.
+-- BUILT (unit SRM7): dev run s7b4 exit 0 (default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM7.md.
 -- SCOPE: the computed rank table (`Tools/ShippingSrm7Rank.lean`) applied to the call graphs READ FROM `X.machineData.shape.instTagged` of the generated declarations.
 -- (R3) `topshareM`/`topshareQ`: the computed table equals SRM5's `rkM`/`rkQ` on every module name the SRM5 premises query (`rkOf_gM_eq_rkM`, `rkOf_gQ_eq_rkQ`), and `topshareM_hcheck_computed`/`topshareQ_hcheck_computed` are
 -- SRM5's `topshareM_hcheck`/`topshareQ_hcheck` with the rank-table premises (`rk`, `hrkmem`, `hrT`, `hrW`, `hrW3`, `hrL`) REPLACED by the computation (the graph is read from the machine data; the equalities `rank = n` are decided).

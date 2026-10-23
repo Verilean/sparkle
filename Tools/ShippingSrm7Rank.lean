@@ -1,6 +1,6 @@
 import Tools.ShippingMemOnlyNames
 import Tools.ShippingModuleName
--- UNBUILT (unit SRM7): see the BUILT line below once a run is recorded.
+-- BUILT (unit SRM7): dev run s7a3 exit 0 (default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM7.md.
 -- SCOPE (binding): a COMPUTED rank table for a BOUNDED, CONCRETE class of designs, replacing the hand-written `rkM`/`rkQ` of SRM5.
 -- THE CLASS (R1): a CALL GRAPH `g : CallGraph` (one entry per declaration: its name and the callee names of its call entries, i.e. `X.machineData.shape.insts.map (·.1)`),
 -- a fuel bound `B` and a root `top`; `InClass g B top` (decidable, a `Bool`) holds iff `WfG g` (declaration names pairwise distinct, no declaration is named like a memory placeholder)
