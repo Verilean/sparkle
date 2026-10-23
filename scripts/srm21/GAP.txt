@@ -1,0 +1,13 @@
+SRM21 GAP TABLE (Q1; committed BEFORE any proof file).  Status words: PROVED (theorem name) / MISSING (exact Prop + where it would come from) / counterexample.
+Duplicate check (UTC 2026-10-23): grep QGrandInstFree|GrandInstFree|KidCorr|resetNk_depth_lift over *.lean -> no hit; QDepthLift only in Tests/Compiler/Srm20{BridgeTest,ExpStmt,AuditTest,AuditExpected}.lean.
+Facts read from INVENTORY.txt: runKS_instFree (Tools/ShippingHierStateG.lean:648) is about RUNS of an instance-free child (runKS), not a single step of an instance whose own body has instances;
+ the depth-2 vs depth-1 step of an instance gc1 (non instance-free) differs only in how gc1's own instances are stepped, so the needed lemma is a STEP-wise simulation (planned: generic evalAssignsKG/stepModuleTG/runModuleTG simulation lemma + a one-step instFree lemma); runKS_instFree itself is not used unless the proof needs it.
+Source facts for topshareQ: ModCorr gQ for b, checkedOptimize b, D.modules (Srm12CorrTest.topshareQ_corr), b.body = raw.body and raw.name = ofDecl topshareQ (core_kids_facts_ranAM), ranks gQ_top=2 gQ_wrapP=gQ_wrapQ=1 gQ_leaf=0 memory=0 (Srm7RankTest),
+ inst_rank_of_modCorr_Q (Srm12CorrTest:214): an instance statement in a module of rank r targets a module of rank r' < r.  A module of rank 0 has no instance statement.
+
+        | generic (any D, b)                                                             | topshareQ instance
+ P1     | def GrandInstFree / QGrandInstFree (a definition, not a theorem)                | PLANNED from ranks: top rank 2 -> child rank <=1 -> grandchild rank 0 -> instFree (needs the premises of topshareQ_corr; premise-free of QDepthLift)
+ P2     | PLANNED: runModuleTG_depth2_depth1_of_grandInstFree (hyp P1 on checkedOptimize b)   | follows from P1 instance
+ P3     | PLANNED: resetNk_depth_lift (hyp P1 on raw; construct kids2 from kids1's grandchild registers/memories) | follows from P1 instance on raw
+ P4     | PLANNED: qDepthLift_of_grandInstFree                                            | PLANNED: topshareQ_qDepthLift
+All rows are PLANNED at this commit (nothing proved yet); the final table with outcomes is in REPORT-SRM21.md.
