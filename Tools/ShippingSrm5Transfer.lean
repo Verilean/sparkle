@@ -229,8 +229,107 @@ theorem kids_hcheck_inA (O : RefLawsAOps MkRefd mref cref)
     (kidsH_body_ranA O d ok hbody hC hslots hdomB hins outTy hnomem hpost ran rk h f hrank hkidH ms
       (fun g hg => hms g (Tools.ShippingHierPremisesBase.moduleByName_mem hg).1))
 
+/-- **The children's half for the OPTIMISED module and the design `D` itself** (`ms := D.modules`): the height analogue of `core_kidsPass_deep_ranA`. -/
+theorem kidsH_pass_ranA (O : RefLawsAOps MkRefd mref cref)
+    {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧
+      (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D)
+    (rk : String → Option Nat) (h f : Nat)
+    (hrank : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
+      RealChildA O (d.shape.insts[k]).1 y' → ∃ r, rk y'.1.name = some r ∧ r ≤ h)
+    (hkidH : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
+      RealChildA O (d.shape.insts[k]).1 y' → ∀ ms : List Sparkle.IR.AST.Module,
+      moduleByName ms y'.1.name = some y'.1 →
+      (∀ g ∈ y'.2.modules, moduleByName ms g.name = some g) →
+      hcheck (childMap ms) rk f y'.1 = true) :
+    (checkedOptimize b).body.all (instOkH (childMap D.modules) rk (hcheck (childMap D.modules) rk f) h) = true := by
+  have hgate : Sparkle.IR.RefineCheck.hierGate b = true :=
+    Tools.ShippingParentDesignA.core_hierGate_anyA O d ok hbody hC hslots hdomB hins outTy hnomem hpost ran
+  have hall := kidsH_body_ranA O d ok hbody hC hslots hdomB hins outTy hnomem hpost ran rk h f hrank hkidH
+    D.modules (fun g hg => hg)
+  rw [List.all_eq_true] at hall ⊢
+  intro st hst
+  cases st with
+  | inst mn iname conns =>
+    exact hall _ ((Tools.ShippingChecksDepthGate.checkedOptimize_inst_iff_gate hgate mn iname conns).mp hst)
+  | _ => rfl
+
+/-- the text check of the shipped module from the run facts, typedness and the connection widths -/
+theorem textCheckI_shipped {C : String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)}
+    {b : Sparkle.IR.AST.Module} (h : Tools.ShippingGuardsSound.RunFacts C b) (ht : Tools.ShippingTextTyped.TypedIn b)
+    (hports : Tools.ShippingDesignSV.portsMatchB C (checkedOptimize b) = true) :
+    Tools.ShippingDesignSV.textCheckI C (checkedOptimize b) = true := by
+  obtain ⟨h2, h3⟩ := Tools.ShippingTextShipped.text_shipped_of h.gate ht.seqCheck
+  exact Tools.ShippingChecksDesign.textCheckI_of (Tools.ShippingChecksDesign.core_design_kinds h) h2 h3
+    (Tools.ShippingChecksDesign.core_design_linked h) (Tools.ShippingChecksDesign.core_design_names h)
+    (Tools.ShippingChecksDesign.core_design_self h) hports (Tools.ShippingChecksDesign.core_design_resolve h)
+
+/-- **The parent block, height-indexed**: `kidsNC_designCheck_of_kidsPass` with the children's check `hkids` DISCHARGED by the rank premise `hrank` and the per-kid height fact `hkidH`
+(identification of the statement's target by name: `Tools/ShippingSrm5Ident.lean`).  The parent's OWN rank is the premise `hrb`. -/
+theorem kidsNC_hcheck (O : RefLawsAOps MkRefd mref cref) {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hsl : d.shape.layout.slots ≠ [])
+    (hfne : d.shape.instFields ≠ [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ x ∈ d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
+    (kidOuts : Nat → List OutField) (kidIns : Nat → List Nat)
+    (hkid : ∀ (k : Nat) (hk : k < d.shape.insts.length),
+      Tools.ShippingSrm4Core6.KidFactsNC O (d.shape.insts[k]).1 (kidOuts k) (kidIns k))
+    (hcw : Tools.ShippingCallWidths.callWidthsOk d nDecl kidOuts = true)
+    (hargs : Tools.ShippingPortsMatchRaw.callArgsOk d nDecl kidIns = true)
+    {M b : Sparkle.IR.AST.Module} {D : Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D)
+    (hon : ∀ o ∈ d.shape.layout.outs, Sparkle.Backend.Verilog.sanitizeName o.name = o.name)
+    (hoty : ∀ o ∈ d.shape.layout.outs, Tools.ShippingTextTyped.scalarTy o.ty = true)
+    (rk : String → Option Nat) (h f : Nat) (hrb : rk (checkedOptimize b).name = some (h + 1))
+    (hrank : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
+      RealChildA O (d.shape.insts[k]).1 y' → ∃ r, rk y'.1.name = some r ∧ r ≤ h)
+    (hkidH : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
+      RealChildA O (d.shape.insts[k]).1 y' → ∀ ms : List Sparkle.IR.AST.Module,
+      moduleByName ms y'.1.name = some y'.1 →
+      (∀ g ∈ y'.2.modules, moduleByName ms g.name = some g) →
+      hcheck (childMap ms) rk f y'.1 = true) :
+    hcheck (childMap D.modules) rk (f + 1) (checkedOptimize b) = true := by
+  have hkidW := Tools.ShippingParentRunFactsA.hkidW_of_dataA O hcw (fun k hk y hy => (hkid k hk).outTys y hy)
+  rw [hcheck_succ hrb f]
+  exact Tools.ShippingChecksDepth.and_true_intro
+    (textCheckI_shipped
+      (Tools.ShippingSrm4Parent.kidsNC_runFacts O d ok hbody hC hslots hdomB hins hsl hfne outTy hnomem kidOuts kidIns hkid hcw hpost ran)
+      (Tools.ShippingParentTailsA.core_closed_typedIn_ranA O d ok hbody hC hslots hdomB hins outTy hnomem hpost ran hon hoty)
+      (Tools.ShippingPortsMatchShipped.portsMatchB_shipped
+        (Tools.ShippingParentDesignA.core_hierGate_anyA O d ok hbody hC hslots hdomB hins outTy hnomem hpost ran)
+        (Tools.ShippingParentDesignFA.core_portsMatch_raw_ranA O d ok hbody hC hslots hdomB hins hfne outTy hnomem hkidW
+          (fun k hk y hy => (hkid k hk).portsIn y hy) hargs
+          (fun k hk y hy j q hq => (hkid k hk).inW y hy j q hq)
+          (fun k hk y hy hs => (hkid k hk).clk y hy hs)
+          hpost ran hon hoty
+          (Tools.ShippingParentDesignFA.core_clk_ranA O d ok hbody hC hslots hdomB hins outTy hnomem hsl hpost ran))))
+    (kidsH_pass_ranA O d ok hbody hC hslots hdomB hins outTy hnomem hpost ran rk h f hrank hkidH)
+
 end Tools.ShippingSrm5Transfer
 
 #print axioms Tools.ShippingSrm5Transfer.kids_textCheck_inA
 #print axioms Tools.ShippingSrm5Transfer.kidsH_body_ranA
 #print axioms Tools.ShippingSrm5Transfer.kids_hcheck_inA
+#print axioms Tools.ShippingSrm5Transfer.kidsH_pass_ranA
+#print axioms Tools.ShippingSrm5Transfer.kidsNC_hcheck
