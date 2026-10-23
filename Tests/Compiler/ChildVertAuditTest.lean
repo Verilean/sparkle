@@ -111,6 +111,7 @@ import Tools.ShippingSrm5Transfer
 import Tools.ShippingSrm5TransferM
 import Tools.ShippingSrm5Deep
 import Tools.ShippingSrm7Rank
+import Tools.ShippingSrm10Outs
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -644,7 +645,8 @@ def audited : List Name :=
    ``Tools.ShippingSrm7Rank.kidsMax_le, ``Tools.ShippingSrm7Rank.kidsMax_mono, ``Tools.ShippingSrm7Rank.kidsMax_lt, ``Tools.ShippingSrm7Rank.declRank_mono,
    ``Tools.ShippingSrm7Rank.declRank_le, ``Tools.ShippingSrm7Rank.rkOf_mem, ``Tools.ShippingSrm7Rank.rkOf_decl, ``Tools.ShippingSrm7Rank.rkOf_edge,
    ``Tools.ShippingSrm7Rank.rank_pos, ``Tools.ShippingSrm7Rank.declRank_self, ``Tools.ShippingSrm7Rank.rkChecked_dup, ``Tools.ShippingSrm7Rank.rkChecked_wf,
-   ``Tools.ShippingSrm7Rank.inClass_rank]
+   ``Tools.ShippingSrm7Rank.inClass_rank,
+   ``Tools.ShippingSrm10Outs.outsLeaf_of_outsAssigned, ``Tools.ShippingSrm10Outs.houtsMod_rank0, ``Tools.ShippingSrm10Outs.houtsMod_succ_iff, ``Tools.ShippingSrm10Outs.houtsMod_pos, ``Tools.ShippingSrm10Outs.houtsMod_outs, ``Tools.ShippingSrm10Outs.houtsCheck_at, ``Tools.ShippingSrm10Outs.kidsPass_of_resolved, ``Tools.ShippingSrm10Outs.outsCheck_succ_at, ``Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni, ``Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck, ``Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck, ``Tools.ShippingSrm10Outs.houtsMod_norank, ``Tools.ShippingSrm10Outs.houtsCheck_unresolved, ``Tools.ShippingSrm10Outs.houtsCheck_notBelow, ``Tools.ShippingSrm10Outs.houtsMod_rank0_refused]
 
 end Tests.Compiler.ChildVertAuditTest
 
