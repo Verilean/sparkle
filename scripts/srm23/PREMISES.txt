@@ -1,0 +1,139 @@
+S23THM|Tools.ShippingSrm23Regs.shippedRegsFromSource_of_hierGate|2
+S23DATA|Tools.ShippingSrm23Regs.shippedRegsFromSource_of_hierGate|0|implicit|b|Sparkle.IR.AST.Module
+S23PREM|Tools.ShippingSrm23Regs.shippedRegsFromSource_of_hierGate|1|explicit|hgate|Sparkle.IR.RefineCheck.hierGate b = true
+S23THM|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|13
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|0|implicit|mctx|Meta.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|2|implicit|cctx|Core.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|4|implicit|w|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|5|implicit|w1|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|6|implicit|b|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|7|implicit|raw|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|8|implicit|D|Sparkle.IR.AST.Design
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hierGate|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TmBnd mctx mref cctx cref w raw D
+S23THM|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|13
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|0|implicit|mctx|Meta.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|2|implicit|cctx|Core.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|4|implicit|w|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|5|implicit|w1|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|6|implicit|b|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|7|implicit|raw|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|8|implicit|D|Sparkle.IR.AST.Design
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_shippedRegsFromSource|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TmBnd mctx mref cctx cref w raw D
+S23THM|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|21
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|0|implicit|mctx|Meta.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|2|implicit|cctx|Core.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|4|implicit|w|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|5|implicit|w1|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|6|implicit|b|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|7|implicit|raw|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|8|implicit|D|Sparkle.IR.AST.Design
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TmBnd mctx mref cctx cref w raw D
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|13|explicit|hnd|(List.map (fun x => x.name) b.wires).Nodup
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|14|explicit|hsI|∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → Sparkle.Backend.Verilog.sanitizeName p.name = p.name
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|15|explicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|16|explicit|st0|String → Nat
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|17|explicit|_anon|Tools.ShippingSrm13Supply.NonRegBounded (Sparkle.IR.OptCheck.checkedOptimize b) st0
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|18|explicit|x|String
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|19|explicit|_anon|x ∈ List.map (fun x => x.name) (Sparkle.IR.HierCheck.openIns b)
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_hstX_of_hst3|20|explicit|_anon|¬x ∈ Tools.ShippingHierOpen.bodyInstOuts C b.body
+S23THM|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|17
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|0|implicit|mctx|Meta.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|2|implicit|cctx|Core.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|4|implicit|w|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|5|implicit|w1|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|6|implicit|b|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|7|implicit|raw|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|8|implicit|D|Sparkle.IR.AST.Design
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TmBnd mctx mref cctx cref w raw D
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|13|explicit|st0|String → Nat
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|14|explicit|hW|Tools.ShippingSrm22Width.ShippedRegWidthLe b
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|15|explicit|_anon|Tools.ShippingSrm13Supply.RegsAtInit (Sparkle.IR.OptCheck.checkedOptimize b) st0
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareM_regsFit_of_hstR_hst1|16|explicit|_anon|∀ (r : String × String × (String × Sparkle.IR.Type.ResetKind) × Sparkle.IR.AST.Expr × Int), r ∈ Sparkle.IR.OptCheck.seqRegs (Sparkle.IR.HierCheck.openFlat b (Sparkle.IR.HierCheck.openIns b) (Sparkle.IR.HierCheck.openOuts b)) → st0 r.fst < 2 ^ Sparkle.IR.RegDedup.declWidth b r.fst
+S23THM|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|13
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|0|implicit|mctx|Meta.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|2|implicit|cctx|Core.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|4|implicit|w|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|5|implicit|w1|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|6|implicit|b|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|7|implicit|raw|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|8|implicit|D|Sparkle.IR.AST.Design
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hierGate|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TqBnd mctx mref cctx cref w raw D
+S23THM|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|13
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|0|implicit|mctx|Meta.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|2|implicit|cctx|Core.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|4|implicit|w|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|5|implicit|w1|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|6|implicit|b|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|7|implicit|raw|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|8|implicit|D|Sparkle.IR.AST.Design
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_shippedRegsFromSource|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TqBnd mctx mref cctx cref w raw D
+S23THM|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|21
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|0|implicit|mctx|Meta.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|2|implicit|cctx|Core.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|4|implicit|w|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|5|implicit|w1|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|6|implicit|b|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|7|implicit|raw|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|8|implicit|D|Sparkle.IR.AST.Design
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TqBnd mctx mref cctx cref w raw D
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|13|explicit|hnd|(List.map (fun x => x.name) b.wires).Nodup
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|14|explicit|hsI|∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → Sparkle.Backend.Verilog.sanitizeName p.name = p.name
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|15|explicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|16|explicit|st0|String → Nat
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|17|explicit|_anon|Tools.ShippingSrm13Supply.NonRegBounded (Sparkle.IR.OptCheck.checkedOptimize b) st0
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|18|explicit|x|String
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|19|explicit|_anon|x ∈ List.map (fun x => x.name) (Sparkle.IR.HierCheck.openIns b)
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_hstX_of_hst3|20|explicit|_anon|¬x ∈ Tools.ShippingHierOpen.bodyInstOuts C b.body
+S23THM|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|17
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|0|implicit|mctx|Meta.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|2|implicit|cctx|Core.Context
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|4|implicit|w|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|5|implicit|w1|Void IO.RealWorld
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|6|implicit|b|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|7|implicit|raw|Sparkle.IR.AST.Module
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|8|implicit|D|Sparkle.IR.AST.Design
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TqBnd mctx mref cctx cref w raw D
+S23DATA|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|13|explicit|st0|String → Nat
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|14|explicit|hW|Tools.ShippingSrm22Width.ShippedRegWidthLe b
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|15|explicit|_anon|Tools.ShippingSrm13Supply.RegsAtInit (Sparkle.IR.OptCheck.checkedOptimize b) st0
+S23PREM|Tests.Compiler.Srm23RegsTest.topshareQ_regsFit_of_hstR_hst1|16|explicit|_anon|∀ (r : String × String × (String × Sparkle.IR.Type.ResetKind) × Sparkle.IR.AST.Expr × Int), r ∈ Sparkle.IR.OptCheck.seqRegs (Sparkle.IR.HierCheck.openFlat b (Sparkle.IR.HierCheck.openIns b) (Sparkle.IR.HierCheck.openOuts b)) → st0 r.fst < 2 ^ Sparkle.IR.RegDedup.declWidth b r.fst
