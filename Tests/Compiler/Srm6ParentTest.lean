@@ -1,6 +1,7 @@
 import Tests.Compiler.Srm5ParentQTest
 import Tools.ShippingSrm6Sem
--- BUILT (unit SRM6): m5 exit 0 (dev); final-SHA rebuild in REPORT-SRM6.md.
+set_option autoImplicit false
+-- BUILT (unit SRM6): m12 exit 0 (dev); final-SHA rebuild in REPORT-SRM6.md.
 -- SCOPE: the SEMANTIC conclusion `DesignSVH` (the closed run of the emitted texts, `Tools/ShippingSrm6Sem.lean`) for the two instances of SRM5, from `topshareM_hcheck` / `topshareQ_hcheck` and `design_sv_runH`.
 -- PROVED here: `topshareM_designSVH` (rank 3, stateful run at depth 2) and `topshareQ_designSVH` (rank 2, depth 1).
 -- PREMISES kept (named): all those of `topshareM_hcheck` / `topshareQ_hcheck` (rank table `rk` with `hrkmem`, `hrT`..; `O`, `T`, `hA`, machine definitions, `hcore`, `hw`, `hpost`), PLUS the IR run `hrun` of the shipped module at depth 2 / 1 from a state `s` and the width premises `hB : SVBoundsH` (run-level premises, as `SVBounds` in `design_sv_runN`).

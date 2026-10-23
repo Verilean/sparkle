@@ -2,7 +2,8 @@ import Tests.Compiler.Srm6ParentTest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.Srm6AuditExpected
 import Tools.ShippingKidsChildIfaceM
--- BUILT (unit SRM6): m11 exit 0 (dev); final-SHA rebuild in REPORT-SRM6.md.
+set_option autoImplicit false
+-- BUILT (unit SRM6): m13 exit 0 (dev); final-SHA rebuild in REPORT-SRM6.md.
 -- SCOPE (SRM6, audits; generalised COPY of Srm5AuditTest, SRM5 files untouched).  For each of the 7 audited SRM6 theorems (`Tools.ShippingSrm6Sem.{hcheck_leaf, hcheck_fuel, instFree_of_leafCheck, leaf_forwardH, design_sv_runH}`, `topshareM_designSVH`, `topshareQ_designSVH`):
 -- (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S6PREM` / `S6DATA` line and the WHOLE table must EQUAL the committed `Tests/Compiler/Srm6AuditExpected.lean` (`expectedRows`) EXACTLY and `scripts/srm6/PREMISES.txt` line for line.  Literal guards: 7 theorems.
 -- NEGATIVE FIXTURES: changed Prop binder type, added data binder, reordered binders: each must differ from the actual table and be REJECTED by the comparator (`S6FIXTURE` lines).
