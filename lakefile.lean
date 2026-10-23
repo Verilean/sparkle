@@ -4310,3 +4310,18 @@ lean_lib «Tests.Compiler.Srm22AuditExpected» where
 
 lean_lib «Tests.Compiler.Srm22AuditTest» where
   roots := #[`Tests.Compiler.Srm22AuditTest]
+
+lean_lib «Tools.ShippingSrm23Regs» where
+  roots := #[`Tools.ShippingSrm23Regs]
+
+lean_lib «Tests.Compiler.Srm23RegsTest» where
+  roots := #[`Tests.Compiler.Srm23RegsTest]
+
+lean_lib «Tests.Compiler.Srm23ExpStmt» where
+  roots := #[`Tests.Compiler.Srm23ExpStmt]
+
+lean_lib «Tests.Compiler.Srm23AuditExpected» where
+  roots := #[`Tests.Compiler.Srm23AuditExpected]
+
+lean_lib «Tests.Compiler.Srm23AuditTest» where
+  roots := #[`Tests.Compiler.Srm23AuditTest]
