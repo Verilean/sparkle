@@ -112,6 +112,8 @@ import Tools.ShippingSrm5TransferM
 import Tools.ShippingSrm5Deep
 import Tools.ShippingSrm7Rank
 import Tools.ShippingSrm10Outs
+import Tools.ShippingSrm11Bounds
+import Tools.ShippingSrm12Corr
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -646,7 +648,14 @@ def audited : List Name :=
    ``Tools.ShippingSrm7Rank.declRank_le, ``Tools.ShippingSrm7Rank.rkOf_mem, ``Tools.ShippingSrm7Rank.rkOf_decl, ``Tools.ShippingSrm7Rank.rkOf_edge,
    ``Tools.ShippingSrm7Rank.rank_pos, ``Tools.ShippingSrm7Rank.declRank_self, ``Tools.ShippingSrm7Rank.rkChecked_dup, ``Tools.ShippingSrm7Rank.rkChecked_wf,
    ``Tools.ShippingSrm7Rank.inClass_rank,
-   ``Tools.ShippingSrm10Outs.outsLeaf_of_outsAssigned, ``Tools.ShippingSrm10Outs.houtsMod_rank0, ``Tools.ShippingSrm10Outs.houtsMod_succ_iff, ``Tools.ShippingSrm10Outs.houtsMod_pos, ``Tools.ShippingSrm10Outs.houtsMod_outs, ``Tools.ShippingSrm10Outs.houtsCheck_at, ``Tools.ShippingSrm10Outs.kidsPass_of_resolved, ``Tools.ShippingSrm10Outs.outsCheck_succ_at, ``Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni, ``Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck, ``Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck, ``Tools.ShippingSrm10Outs.houtsMod_norank, ``Tools.ShippingSrm10Outs.houtsCheck_unresolved, ``Tools.ShippingSrm10Outs.houtsCheck_notBelow, ``Tools.ShippingSrm10Outs.houtsMod_rank0_refused]
+   ``Tools.ShippingSrm10Outs.outsLeaf_of_outsAssigned, ``Tools.ShippingSrm10Outs.houtsMod_rank0, ``Tools.ShippingSrm10Outs.houtsMod_succ_iff, ``Tools.ShippingSrm10Outs.houtsMod_pos, ``Tools.ShippingSrm10Outs.houtsMod_outs, ``Tools.ShippingSrm10Outs.houtsCheck_at, ``Tools.ShippingSrm10Outs.kidsPass_of_resolved, ``Tools.ShippingSrm10Outs.outsCheck_succ_at, ``Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni, ``Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck, ``Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck, ``Tools.ShippingSrm10Outs.houtsMod_norank, ``Tools.ShippingSrm10Outs.houtsCheck_unresolved, ``Tools.ShippingSrm10Outs.houtsCheck_notBelow, ``Tools.ShippingSrm10Outs.houtsMod_rank0_refused,
+   ``Tools.ShippingSrm11Bounds.leafStepTG_bound, ``Tools.ShippingSrm11Bounds.moduleStepBoundH, ``Tools.ShippingSrm11Bounds.KSn_stepBoundH, ``Tools.ShippingSrm11Bounds.runModuleTG_envBoundH,
+   ``Tools.ShippingSrm11Bounds.svBoundsH_of_checks, ``Tools.ShippingSrm11Bounds.bodyInstOuts_instFree, ``Tools.ShippingSrm11Bounds.leafBounds_of_parentBounds, ``Tools.ShippingSrm11Bounds.svBoundsH_of_svBounds,
+   ``Tools.ShippingSrm12Corr.decode_ofMem, ``Tools.ShippingSrm12Corr.decode_ofDecl, ``Tools.ShippingSrm12Corr.kidModName_mem_iff, ``Tools.ShippingSrm12Corr.decode_kidModName,
+   ``Tools.ShippingSrm12Corr.kidTA_name, ``Tools.ShippingSrm12Corr.instTagged_mem_idx, ``Tools.ShippingSrm12Corr.instTagged_exists_idx, ``Tools.ShippingSrm12Corr.memModule_modCorr,
+   ``Tools.ShippingSrm12Corr.memModule_design_modules, ``Tools.ShippingSrm12Corr.ran_instFwd, ``Tools.ShippingSrm12Corr.ran_instBwd, ``Tools.ShippingSrm12Corr.modCorr_of_run,
+   ``Tools.ShippingSrm12Corr.ran_designCorr, ``Tools.ShippingSrm12Corr.memCallee_childCorr, ``Tools.ShippingSrm12Corr.childCorr_noInst, ``Tools.ShippingSrm12Corr.callees_mem_names,
+   ``Tools.ShippingSrm12Corr.inst_rank]
 
 end Tests.Compiler.ChildVertAuditTest
 
