@@ -8,6 +8,7 @@ import Tests.Compiler.Srm8AuditExpected
 import Tools.ShippingOneOutHead
 import Tools.ShippingSrm8Bridge
 -- UNBUILT (unit SRM8): see STATUS-SRM8.md for run names; the final-SHA rebuild is in REPORT-SRM8.md.
+-- SRM8B: fixture 1 is now semantic (` ∧ True` appended to the first Prop binder type) with explicit assertions (typeFixtureCheck); dev build srm8b-dev1 exit 0; final-SHA rebuild in REPORT-SRM8B.md.
 -- SCOPE (SRM8, chain audit).  (1) PREMISE TABLE: for each audited theorem (the memory-free endpoints, the consumers of `designCheck`, the SRM4/SRM5 memory-bearing supplies, the new bridge endpoint) every binder
 -- `(index, binderInfo, name, isProp, type)` is printed as `S8PREM`/`S8DATA` and the WHOLE table must EQUAL the committed `Tests/Compiler/Srm8AuditExpected.lean` and `scripts/srm8/PREMISES.txt` (exact), with a literal count guard
 -- and three NEGATIVE fixtures (changed Prop binder type, added data binder, reordered binders).  REGENERATION: `./.cluster/qbuild.sh build Tests.Compiler.Srm8AuditTest > LOG 2>&1; python3 scripts/srm8/gen_audit.py LOG`.
@@ -16,6 +17,7 @@ import Tools.ShippingSrm8Bridge
 -- and standard axioms).  `scripts/srm8/gen_table.py` renders the table `scripts/srm8/SUPPLY_TABLE.md` from the printed rows plus SUPPLY.txt.
 -- (3) CLOSURE: standard axioms for every audited theorem; the new `design_at_free_h` does NOT have `design_sv_runN` / `svBounds_of_checks` / `design_sv_all` in its closure (control: `design_at_free` does), and has no old-form boundary.
 -- NOT guaranteed: that `HeightBridge` is true or provable (it is a PREMISE); that hypotheses are satisfiable beyond the instances; type strings are `ppExpr` renderings.  No `sorry`, no `axiom`, no `native_decide`.
+set_option autoImplicit false
 set_option Elab.async false
 section
 open Lean Elab Command Meta
@@ -78,15 +80,35 @@ def tableDiff (a e : List (Name × List Row)) : Option String := Id.run do
       if r != r' then return some s!"{n}: binder {r.1} differs: {rowLine n r} vs expected {rowLine n r'}"
   return none
 
-/-- mutation 1: change the type of the first Prop binder (same name) -/
+/-- mutation 1: SEMANTICALLY change the type of the first Prop binder: its type string becomes `T ∧ True` (index, binderInfo, name, isProp unchanged) -/
 def mutType (t : List (Name × List Row)) : List (Name × List Row) :=
   match t.findIdx? (fun (_, rs) => rs.any (·.2.2.2.1)) with
   | none => t
   | some k => t.mapIdx fun j (n, rs) =>
     if j == k then
       let idx := (rs.findIdx? (·.2.2.2.1)).getD 0
-      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ") else r)
+      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ∧ True") else r)
     else (n, rs)
+
+/-- the fixture-1 contract: exactly ONE row differs; it is a Prop binder with unchanged index/binderInfo/name, and its type string differs by a visible change.
+Returns the (theorem, original row, mutated row) or the reason for failure. -/
+def typeFixtureCheck (a m : List (Name × List Row)) : Except String (Name × Row × Row) := do
+  unless a.length == m.length do throw "theorem count changed"
+  let mut found : List (Name × Row × Row) := []
+  for ((n, rs), (n', rs')) in a.zip m do
+    unless n == n' do throw "theorem name changed"
+    unless rs.length == rs'.length do throw s!"{n}: row count changed"
+    for (r, r') in rs.zip rs' do
+      if r != r' then found := found ++ [(n, r, r')]
+  match found with
+  | [(n, r, r')] =>
+    unless r'.2.2.2.1 && r.2.2.2.1 do throw "the mutated row is not a Prop binder"
+    unless r.1 == r'.1 && r.2.1 == r'.2.1 && r.2.2.1 == r'.2.2.1 do throw "index/binderInfo/name changed"
+    unless r.2.2.2.2 != r'.2.2.2.2 do throw "type string did not change"
+    unless r'.2.2.2.2 == r.2.2.2.2 ++ " ∧ True" do throw "type string did not change by the visible ` ∧ True`"
+    unless (r'.2.2.2.2.splitOn " ∧ True").length > 1 do throw "printed mutated type does not show the change"
+    return (n, r, r')
+  | _ => throw s!"{found.length} rows differ, expected exactly 1"
 
 /-- mutation 2: add a data binder to the first theorem -/
 def mutAdd (t : List (Name × List Row)) : List (Name × List Row) :=
@@ -142,7 +164,16 @@ run_cmd liftTermElabM do
     if mt == actual then throwError "SRM8 AUDIT FAILED: the fixture '{nm}' did not change the table (vacuous)"
     match tableDiff mt Tests.Compiler.Srm8AuditExpected.expectedRows with
     | none => throwError "SRM8 AUDIT FAILED: the comparator ACCEPTED the fixture '{nm}'"
-    | some msg => logInfo m!"S8FIXTURE|{nm}|rejected: {msg}"
+    | some msg =>
+      logInfo m!"S8FIXTURE|{nm}|rejected: {msg}"
+      if nm == "changed Prop binder type" then
+        match typeFixtureCheck actual mt with
+        | .error e => throwError "SRM8 AUDIT FAILED: fixture '{nm}' is not a semantic Prop-type mutation: {e}"
+        | .ok (n, r, r') =>
+          unless (msg.splitOn (rowLine n r')).length > 1 do throwError "SRM8 AUDIT FAILED: the comparator message does not name the mutated binder {n} #{r.1}: {msg}"
+          logInfo m!"S8FIXTURE1-ORIG|{rowLine n r}"
+          logInfo m!"S8FIXTURE1-MUT|{rowLine n r'}"
+          logInfo m!"S8FIXTURE1-CHECK|{n} binder {r.1} ({r.2.2.1}): isProp, index/binderInfo/name unchanged, type text differs, all other rows unchanged"
   logInfo m!"S8TABLE|{audited8.length} theorems, {lines.length} binders: equal to the committed table and to scripts/srm8/PREMISES.txt"
   -- (2) SUPPLY MAP
   let sup ← IO.FS.readFile "scripts/srm8/SUPPLY.txt"
