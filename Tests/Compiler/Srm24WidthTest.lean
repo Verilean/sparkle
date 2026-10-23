@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm23RegsTest
 import Tools.ShippingSrm24Width
 set_option autoImplicit false
--- UNBUILT (unit SRM24): dev runs in STATUS/REPORT-SRM24.md; final-SHA rebuild only in REPORT-SRM24.md.
+-- BUILT (unit SRM24): dev run h3 (exit 0); the final-SHA rebuild in REPORT-SRM24.md is the only final evidence.
 -- SCOPE: the SRM22 gap Prop `ShippedRegWidthLe b` (G4) for the ACTUAL topshareM / topshareQ modules, PROVED from `hierGate b` and the sanitize-stable wire table `hT.wn`
 --   (core_closed_typedIn_ranAM, as in SRM23 topshare{M,Q}_hstX_of_hst3), via `Tools.ShippingSrm24Width.shippedRegWidthLe_of_hierGate`.
 --   Corollaries: SRM23 `topshare{M,Q}_regsFit_of_hstR_hst1` CALLED UNCHANGED with ONLY the binder `hW : ShippedRegWidthLe b` removed.
