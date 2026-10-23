@@ -1,0 +1,156 @@
+S7THM|Tools.ShippingSrm7Rank.kidsMax_le|6
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_le|0|implicit|kr|Tools.ShippingSrm7Rank.Kid → Option Nat
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_le|1|implicit|ks|List Tools.ShippingSrm7Rank.Kid
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_le|2|implicit|m|Nat
+S7PREM|Tools.ShippingSrm7Rank.kidsMax_le|3|explicit|_anon|Tools.ShippingSrm7Rank.kidsMax kr ks = some m
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_le|4|explicit|k|Tools.ShippingSrm7Rank.Kid
+S7PREM|Tools.ShippingSrm7Rank.kidsMax_le|5|explicit|_anon|k ∈ ks
+S7THM|Tools.ShippingSrm7Rank.kidsMax_mono|6
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_mono|0|implicit|kr|Tools.ShippingSrm7Rank.Kid → Option Nat
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_mono|1|implicit|kr'|Tools.ShippingSrm7Rank.Kid → Option Nat
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_mono|2|implicit|ks|List Tools.ShippingSrm7Rank.Kid
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_mono|3|implicit|m|Nat
+S7PREM|Tools.ShippingSrm7Rank.kidsMax_mono|4|explicit|_anon|∀ (k : Tools.ShippingSrm7Rank.Kid), k ∈ ks → ∀ (a : Nat), kr k = some a → kr' k = some a
+S7PREM|Tools.ShippingSrm7Rank.kidsMax_mono|5|explicit|_anon|Tools.ShippingSrm7Rank.kidsMax kr ks = some m
+S7THM|Tools.ShippingSrm7Rank.kidsMax_lt|6
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_lt|0|implicit|kr|Tools.ShippingSrm7Rank.Kid → Option Nat
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_lt|1|implicit|B|Nat
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_lt|2|implicit|ks|List Tools.ShippingSrm7Rank.Kid
+S7DATA|Tools.ShippingSrm7Rank.kidsMax_lt|3|implicit|m|Nat
+S7PREM|Tools.ShippingSrm7Rank.kidsMax_lt|4|explicit|_anon|Tools.ShippingSrm7Rank.kidsMax kr ks = some m
+S7PREM|Tools.ShippingSrm7Rank.kidsMax_lt|5|explicit|_anon|∀ (k : Tools.ShippingSrm7Rank.Kid), k ∈ ks → ∀ (a : Nat), kr k = some a → a ≤ B
+S7THM|Tools.ShippingSrm7Rank.declRank_mono|7
+S7DATA|Tools.ShippingSrm7Rank.declRank_mono|0|explicit|g|Tools.ShippingSrm7Rank.CallGraph
+S7DATA|Tools.ShippingSrm7Rank.declRank_mono|1|explicit|f|Nat
+S7DATA|Tools.ShippingSrm7Rank.declRank_mono|2|explicit|c|Name
+S7DATA|Tools.ShippingSrm7Rank.declRank_mono|3|explicit|r|Nat
+S7PREM|Tools.ShippingSrm7Rank.declRank_mono|4|explicit|_anon|Tools.ShippingSrm7Rank.declRank g f c = some r
+S7DATA|Tools.ShippingSrm7Rank.declRank_mono|5|explicit|F|Nat
+S7PREM|Tools.ShippingSrm7Rank.declRank_mono|6|explicit|_anon|f ≤ F
+S7THM|Tools.ShippingSrm7Rank.declRank_le|5
+S7DATA|Tools.ShippingSrm7Rank.declRank_le|0|explicit|g|Tools.ShippingSrm7Rank.CallGraph
+S7DATA|Tools.ShippingSrm7Rank.declRank_le|1|explicit|f|Nat
+S7DATA|Tools.ShippingSrm7Rank.declRank_le|2|explicit|c|Name
+S7DATA|Tools.ShippingSrm7Rank.declRank_le|3|explicit|r|Nat
+S7PREM|Tools.ShippingSrm7Rank.declRank_le|4|explicit|_anon|Tools.ShippingSrm7Rank.declRank g f c = some r
+S7THM|Tools.ShippingSrm7Rank.rkOf_mem|5
+S7DATA|Tools.ShippingSrm7Rank.rkOf_mem|0|explicit|g|Tools.ShippingSrm7Rank.CallGraph
+S7DATA|Tools.ShippingSrm7Rank.rkOf_mem|1|explicit|F|Nat
+S7DATA|Tools.ShippingSrm7Rank.rkOf_mem|2|explicit|cb|Bool
+S7DATA|Tools.ShippingSrm7Rank.rkOf_mem|3|explicit|aw|Nat
+S7DATA|Tools.ShippingSrm7Rank.rkOf_mem|4|explicit|dw|Nat
+S7THM|Tools.ShippingSrm7Rank.rkOf_decl|3
+S7DATA|Tools.ShippingSrm7Rank.rkOf_decl|0|explicit|g|Tools.ShippingSrm7Rank.CallGraph
+S7DATA|Tools.ShippingSrm7Rank.rkOf_decl|1|explicit|F|Nat
+S7DATA|Tools.ShippingSrm7Rank.rkOf_decl|2|explicit|c|Name
+S7THM|Tools.ShippingSrm7Rank.rkOf_edge|9
+S7DATA|Tools.ShippingSrm7Rank.rkOf_edge|0|implicit|g|Tools.ShippingSrm7Rank.CallGraph
+S7DATA|Tools.ShippingSrm7Rank.rkOf_edge|1|implicit|F|Nat
+S7DATA|Tools.ShippingSrm7Rank.rkOf_edge|2|implicit|c|Name
+S7DATA|Tools.ShippingSrm7Rank.rkOf_edge|3|implicit|r|Nat
+S7DATA|Tools.ShippingSrm7Rank.rkOf_edge|4|implicit|ks|List Tools.ShippingSrm7Rank.Kid
+S7PREM|Tools.ShippingSrm7Rank.rkOf_edge|5|explicit|h|Tools.ShippingSrm7Rank.declRank g F c = some r
+S7PREM|Tools.ShippingSrm7Rank.rkOf_edge|6|explicit|hc|Tools.ShippingSrm7Rank.callees g c = some ks
+S7DATA|Tools.ShippingSrm7Rank.rkOf_edge|7|implicit|k|Tools.ShippingSrm7Rank.Kid
+S7PREM|Tools.ShippingSrm7Rank.rkOf_edge|8|explicit|hk|k ∈ ks
+S7THM|Tools.ShippingSrm7Rank.rank_pos|9
+S7DATA|Tools.ShippingSrm7Rank.rank_pos|0|implicit|g|Tools.ShippingSrm7Rank.CallGraph
+S7DATA|Tools.ShippingSrm7Rank.rank_pos|1|implicit|F|Nat
+S7DATA|Tools.ShippingSrm7Rank.rank_pos|2|implicit|c|Name
+S7DATA|Tools.ShippingSrm7Rank.rank_pos|3|implicit|r|Nat
+S7DATA|Tools.ShippingSrm7Rank.rank_pos|4|implicit|ks|List Tools.ShippingSrm7Rank.Kid
+S7PREM|Tools.ShippingSrm7Rank.rank_pos|5|explicit|h|Tools.ShippingSrm7Rank.declRank g F c = some r
+S7PREM|Tools.ShippingSrm7Rank.rank_pos|6|explicit|hc|Tools.ShippingSrm7Rank.callees g c = some ks
+S7DATA|Tools.ShippingSrm7Rank.rank_pos|7|implicit|k|Tools.ShippingSrm7Rank.Kid
+S7PREM|Tools.ShippingSrm7Rank.rank_pos|8|explicit|hk|k ∈ ks
+S7THM|Tools.ShippingSrm7Rank.declRank_self|6
+S7DATA|Tools.ShippingSrm7Rank.declRank_self|0|implicit|g|Tools.ShippingSrm7Rank.CallGraph
+S7DATA|Tools.ShippingSrm7Rank.declRank_self|1|implicit|c|Name
+S7DATA|Tools.ShippingSrm7Rank.declRank_self|2|implicit|ks|List Tools.ShippingSrm7Rank.Kid
+S7PREM|Tools.ShippingSrm7Rank.declRank_self|3|explicit|hc|Tools.ShippingSrm7Rank.callees g c = some ks
+S7PREM|Tools.ShippingSrm7Rank.declRank_self|4|explicit|hk|(c, Sparkle.Compiler.MachInstOrigin.InstOrigin.ord) ∈ ks
+S7DATA|Tools.ShippingSrm7Rank.declRank_self|5|explicit|F|Nat
+S7THM|Tools.ShippingSrm7Rank.rkChecked_dup|4
+S7DATA|Tools.ShippingSrm7Rank.rkChecked_dup|0|implicit|g|Tools.ShippingSrm7Rank.CallGraph
+S7PREM|Tools.ShippingSrm7Rank.rkChecked_dup|1|explicit|h|Tools.ShippingSrm7Rank.WfG g = false
+S7DATA|Tools.ShippingSrm7Rank.rkChecked_dup|2|explicit|F|Nat
+S7DATA|Tools.ShippingSrm7Rank.rkChecked_dup|3|explicit|s|String
+S7THM|Tools.ShippingSrm7Rank.rkChecked_wf|3
+S7DATA|Tools.ShippingSrm7Rank.rkChecked_wf|0|implicit|g|Tools.ShippingSrm7Rank.CallGraph
+S7PREM|Tools.ShippingSrm7Rank.rkChecked_wf|1|explicit|h|Tools.ShippingSrm7Rank.WfG g = true
+S7DATA|Tools.ShippingSrm7Rank.rkChecked_wf|2|explicit|F|Nat
+S7THM|Tools.ShippingSrm7Rank.inClass_rank|4
+S7DATA|Tools.ShippingSrm7Rank.inClass_rank|0|implicit|g|Tools.ShippingSrm7Rank.CallGraph
+S7DATA|Tools.ShippingSrm7Rank.inClass_rank|1|implicit|B|Nat
+S7DATA|Tools.ShippingSrm7Rank.inClass_rank|2|implicit|top|Name
+S7PREM|Tools.ShippingSrm7Rank.inClass_rank|3|explicit|h|Tools.ShippingSrm7Rank.InClass g B top = true
+S7THM|Tests.Compiler.Srm7RankTest.gM_inClass|0
+S7THM|Tests.Compiler.Srm7RankTest.gM_top|0
+S7THM|Tests.Compiler.Srm7RankTest.gM_wrap|0
+S7THM|Tests.Compiler.Srm7RankTest.gM_wrap3|0
+S7THM|Tests.Compiler.Srm7RankTest.gM_leaf|0
+S7THM|Tests.Compiler.Srm7RankTest.gQ_inClass|0
+S7THM|Tests.Compiler.Srm7RankTest.gQ_top|0
+S7THM|Tests.Compiler.Srm7RankTest.gQ_wrapP|0
+S7THM|Tests.Compiler.Srm7RankTest.gQ_wrapQ|0
+S7THM|Tests.Compiler.Srm7RankTest.gQ_leaf|0
+S7THM|Tests.Compiler.Srm7RankTest.rkOf_gM_eq_rkM|0
+S7THM|Tests.Compiler.Srm7RankTest.rkOf_gQ_eq_rkQ|0
+S7THM|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|20
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|0|implicit|mctx|Meta.Context
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|2|implicit|cctx|Core.Context
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S7PREM|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S7PREM|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|7|explicit|f|Nat
+S7PREM|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|8|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S7PREM|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|9|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM Tests.Compiler.SharedLeafMemKidTest.wrapM.machineData.shape
+S7PREM|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|10|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM3 Tests.Compiler.SharedLeafMemKidTest.wrapM3.machineData.shape
+S7PREM|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|12|implicit|w|Void IO.RealWorld
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|13|implicit|w1|Void IO.RealWorld
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|14|implicit|raw|Sparkle.IR.AST.Module
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|15|implicit|b|Sparkle.IR.AST.Module
+S7DATA|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|16|implicit|D|Sparkle.IR.AST.Design
+S7PREM|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|17|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S7PREM|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|18|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S7PREM|Tests.Compiler.Srm7RankTest.topshareM_hcheck_computed|19|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S7THM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|21
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|0|implicit|mctx|Meta.Context
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|2|implicit|cctx|Core.Context
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S7PREM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S7PREM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|7|explicit|f|Nat
+S7PREM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|8|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S7PREM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|9|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S7PREM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|10|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S7PREM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|11|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S7PREM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|12|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|13|implicit|w|Void IO.RealWorld
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|14|implicit|w1|Void IO.RealWorld
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|15|implicit|raw|Sparkle.IR.AST.Module
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|16|implicit|b|Sparkle.IR.AST.Module
+S7DATA|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|17|implicit|D|Sparkle.IR.AST.Design
+S7PREM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|18|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S7PREM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|19|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S7PREM|Tests.Compiler.Srm7RankTest.topshareQ_hcheck_computed|20|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S7THM|Tests.Compiler.Srm7RankTest.gTwo_inClass|0
+S7THM|Tests.Compiler.Srm7RankTest.gTwo_top|0
+S7THM|Tests.Compiler.Srm7RankTest.gColl_refused|0
+S7THM|Tests.Compiler.Srm7RankTest.gColl_notInClass|0
+S7THM|Tests.Compiler.Srm7RankTest.okG_rank|0
+S7THM|Tests.Compiler.Srm7RankTest.cycG_refused|0
+S7THM|Tests.Compiler.Srm7RankTest.selfG_refused|0
+S7THM|Tests.Compiler.Srm7RankTest.missG_refused|0
+S7THM|Tests.Compiler.Srm7RankTest.dupG_wf|0
+S7THM|Tests.Compiler.Srm7RankTest.dupG_class|0
+S7THM|Tests.Compiler.Srm7RankTest.dupG_table|2
+S7DATA|Tests.Compiler.Srm7RankTest.dupG_table|0|explicit|F|Nat
+S7DATA|Tests.Compiler.Srm7RankTest.dupG_table|1|explicit|s|String
+S7THM|Tests.Compiler.Srm7RankTest.okG_fuel|0
+S7THM|Tests.Compiler.Srm7RankTest.gMnoLeaf_refused|0

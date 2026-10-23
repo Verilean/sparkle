@@ -110,6 +110,7 @@ import Tools.ShippingSrm5Ident
 import Tools.ShippingSrm5Transfer
 import Tools.ShippingSrm5TransferM
 import Tools.ShippingSrm5Deep
+import Tools.ShippingSrm7Rank
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -639,7 +640,11 @@ def audited : List Name :=
    ``Tools.ShippingSrm5Transfer.kids_textCheck_inA, ``Tools.ShippingSrm5Transfer.kidsH_body_ranA, ``Tools.ShippingSrm5Transfer.kids_hcheck_inA,
    ``Tools.ShippingSrm5Transfer.kidsH_pass_ranA, ``Tools.ShippingSrm5Transfer.textCheckI_shipped, ``Tools.ShippingSrm5Transfer.kidsNC_hcheck,
    ``Tools.ShippingSrm5TransferM.kids_textCheck_inAM, ``Tools.ShippingSrm5TransferM.kidsH_body_ranAM, ``Tools.ShippingSrm5TransferM.kids_hcheck_inAM,
-   ``Tools.ShippingSrm5Deep.deepChild_kidHeightAM, ``Tools.ShippingSrm5Deep.memCallee_kidHeight]
+   ``Tools.ShippingSrm5Deep.deepChild_kidHeightAM, ``Tools.ShippingSrm5Deep.memCallee_kidHeight,
+   ``Tools.ShippingSrm7Rank.kidsMax_le, ``Tools.ShippingSrm7Rank.kidsMax_mono, ``Tools.ShippingSrm7Rank.kidsMax_lt, ``Tools.ShippingSrm7Rank.declRank_mono,
+   ``Tools.ShippingSrm7Rank.declRank_le, ``Tools.ShippingSrm7Rank.rkOf_mem, ``Tools.ShippingSrm7Rank.rkOf_decl, ``Tools.ShippingSrm7Rank.rkOf_edge,
+   ``Tools.ShippingSrm7Rank.rank_pos, ``Tools.ShippingSrm7Rank.declRank_self, ``Tools.ShippingSrm7Rank.rkChecked_dup, ``Tools.ShippingSrm7Rank.rkChecked_wf,
+   ``Tools.ShippingSrm7Rank.inClass_rank]
 
 end Tests.Compiler.ChildVertAuditTest
 
