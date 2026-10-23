@@ -1,0 +1,514 @@
+K1_INVENTORY (SRM26, unit question: can the register-ORDER relation K1 of the ComposedG/ComposedGW `regs` witness for actual topshare{M,Q} be EXPORTED from facts existing theorems already prove?).
+Base 60c257cd.  Machine part below: scripts/srm26/gen_inventory.sh (verbatim file:line).  Wording: PROVED / PREMISE / OPEN; no impossibility claim about the producer.
+
+=== 1. WHERE regs / ids / cache / ps ARE INTRODUCED AND WHAT EACH LEVEL KEEPS ===
+L0 producer synthesizeMachineCertified_soundX (Tools/ShippingMachineEntry.lean:1035; final refine :2037):
+   ids, cache from synthesizeMixedCertified_returns (:1068); ps := inputPorts zb zv (slotBs.zip idsS) a1 (:1104)  [a1 = prepare … (bsIn.zip idsIn) a, :1101];
+   t.inputs = P1 ++ ps ++ ls (tInputs :1113); regs := ps.map Port.name (:2037) — here regs IS CONCRETE (rfl-level), and `wired : MachineWired … (ps.map Port.name) (ls.map Port.name)` (:1448) is proved for exactly this regs.
+   EXPORTED type (MachinePreservesX :799): `∃ regs, regs.Nodup ∧ regs.length = slotBs.length ∧ ∃ lets, lets.length = letBs.length ∧ MachineWired … regs lets ∧ X ids cache ∧ …`  ⇒ regs is EXISTENTIAL; `ps` is not a binder/witness; `machPorts declName ids cache shape.binders` is visible only inside MachineWired (its `names`).
+   What the existential keeps: Nodup, length = slotBs.length, MachineWired cl.3 (:662 regs ⊆ names.drop(len-lets-n), a SET statement), the slot→register clause (:752-754, unconditional: regs[k]=r ∧ slots[k]=f → register r "clk" ("rst",rk) inp (ofNat f.init) ∈ m.body), the insts=[] clauses (:689-696: weOf/ r∉inputs / "every register statement is a slot's": register r … ∈ m.body → ∃k f, regs[k]=r ∧ slots[k]=f ∧ init = ofNat f.init), and the semantic clause (env0 r = posEnc … slotBs[i]; step = fieldNexts … regs slots).
+   What it loses: the equation regs = ps.map Port.name, i.e. K1 (as an equality or as `regs = (names.drop(…)).take n`).
+L1 machine_traceX (Tools/ShippingMachineTraceX.lean:38), machine_ref_traceX (:156), MachineTraceLBX (:377): same existential regs, same Nodup/length (length = d.ss.length), MachineWired, X ids cache; hypotheses on regs: `r ∈ regs → seed t st r = st r`, `regs[k]=r ∧ slots[k]=f → st0 r = f.init`.  Nothing added about order.
+L2 machine_linkedT_callsRGW (Tools/ShippingComposedGW.lean ~:84): `∃ ids … ∃ cache regs, regs.Nodup ∧ regs.length = d.ss.length ∧ (∃ lets, MachineWired … regs lets) ∧ ∀ …`; ComposedGW (:181), composedGW_of_T (:236): same.  `wired` is kept (that was the point of the GW twin); the SourceInputs there covers `d.bsIn.take kD` only (INPUT binders), so the slot binders' port names are not tied to regs by the composed statement.
+So at EVERY level above L0, regs is existential and only the facts listed above pin it.
+
+=== 2. DOES ANY EXPORTED RELATION PIN THE ORDER? ===
+(a) Nodup / length / cl.3: leave the k-th assignment free (cl.3 is a membership statement; it even allows a let-port name, since the drop-part contains the lets).
+(b) slot→register clause (:752): regs[k] has a register statement with init = slots[k].init.  It relates regs[k] to slot k only through the INIT VALUE (and, for insts=[], the width): it distinguishes positions only when inits differ.  By itself it does not give regs[k] = ps[k].name (no relation to ps or machPorts is in it).
+(c) semantic clause of MachinePreservesX (:817-830): quantifies over env0 satisfying `SourceInputs … bsIn` (input binders only) AND `env0 r = posEnc … (bsIn.length + i)` for regs[i]; the conclusion is about `fieldNexts … regs slots`.  It says what regs do; it does not relate regs[i] to the i-th slot PORT NAME of machPorts (the slot binders are not in SourceInputs bsIn).  Not an order equation.
+(d) MachineTraceLBX / ComposedGW semantic parts: hypotheses of the same shape about regs and st0; conclusion about outputs.  They constrain m's behaviour for regs satisfying the init hypothesis; they do not state regs = ps.names.  (A behavioural argument that order is forced would be a new theorem about the producer's module, i.e. K0-class body facts; not exported.)
+(e) Concrete M/Q numbers (slots.length, lets, binders): the MachineData `d` of topshare{M,Q} is run-derived (MachineData.ok, Tools/ShippingMachineAuto.lean:221 decides it); these Props are not stated by any theorem I found as constants (grep topshareM in Tests/Compiler: theorems about hierGate/hkid/ranA/runFacts, none of `slots.length`).  A length/Nodup/subset argument would pin the order only if lets = 0 ∧ slots.length ≤ 1 (cl.3 then gives regs ⊆ the n+lets last names; with lets>0 even n=1 leaves a let-port name possible).  I did NOT evaluate M/Q's slot/let counts (would need elaboration of the actual declarations): per-instance status = NOT DETERMINED here; no counterexample permutation was constructed for the concrete M/Q.
+   Predicate-level statement: the exported clauses are all invariant under any permutation π of regs that preserves the slot inits (slots[π k].init = slots[k].init), except the semantic/init hypotheses, which are hypotheses ON regs, not constraints. So for M/Q whenever two slots share an init the exported facts do not distinguish their order (stated about the exported Props, not about the producer).
+
+=== 3. WHAT G5 ACTUALLY NEEDS, AND A DERIVATION THAT AVOIDS K1 ===
+G5 (via SRM25 shippedRegsAreSlots_of_source) needs only SourceRegsAreSlots b regs slots: every register stmt (r, init) of b.body has k,f with regs[k]=r, slots[k]=f, init = ofNat f.init.  It does NOT need regs[k] = ps[k].name.
+New derivation (order-free, counting): let psN := (names.drop (names.length - lets - n)).take n  (names := (machPorts declName ids cache shape.binders).map (·.name)).  Assume
+   K0N: SourceRegsAreSlots b psN slots      (every register stmt of b.body is the j-th of psN with slots[j].init; the K0 fact stated for psN instead of regs — PREMISE, kept explicit)
+   exported: regs.Nodup, regs.length = slots.length, names.Nodup (MachineWired cl.1 :661), slot→register clause (:752).
+ Then: (1) regs ⊆ psN (regs[k]'s register stmt ∈ b.body, apply K0N); (2) psN.length ≤ n = regs.length, regs Nodup, regs ⊆ psN ⇒ psN ⊆ regs (pigeonhole, by induction with List.erase; core-only); (3) for a register stmt (r,init): K0N gives j with psN[j]=r, slots[j]=f, init=ofNat f.init; r ∈ regs gives k, regs[k]=r, slots[k]=f' (k < n); slot→register clause at k gives (r, ofNat f'.init) ∈ b.body, K0N gives j' with psN[j']=r, slots[j']=f'', ofNat f'.init = ofNat f''.init; psN.Nodup (names.Nodup, sublist) ⇒ j = j' ⇒ f=f'' ⇒ init = ofNat f'.init.  So SourceRegsAreSlots b regs slots, with NO equation regs = psN.
+ So: K1-as-equation is NOT derivable from the export and is not NEEDED for G5 given K0N.  K0N itself is NOT exported by any theorem (MachineWired states "every register statement is a slot's" only for shape.insts = [] :692-696, with regs, not psN).
+
+=== 4. ROUTE TABLE (sub-fact × instance) ===
+(each row identical for M and Q: the exported statements are generic in d; the instance data (slots.length, lets) was not evaluated)
+sub-fact                                                                                   | M / Q status
+R1 regs.Nodup, regs.length = d.ss.length, MachineWired (∃ lets) for the ComposedGW witness   | PROVED-by composedGW_of_T / SRM9,SRM20 composed theorems (exported; Tools/ShippingComposedGW.lean:181)
+R2 slot→register clause (:752-754) for regs                                                  | PROVED-by MachineWired (exported conjunct, unconditional)
+R3 names.Nodup                                                                               | PROVED-by MachineWired cl.1 (:661)
+R4 regs.length = slots.length                                                                | DERIVABLE: rlen (= d.ss.length) + d.slotBs.length = slots.length (MachineData.ok, zipAllB layW); instance-level `decide`; NOT stated as a constant for M/Q here
+R5 psN.length ≤ slots.length                                                                 | PROVED (List.length_take) generic
+R6 regs ⊆ psN, psN ⊆ regs, bijection (the counting step)                                     | PROVED in this unit's new file (if built) generic in b, regs, psN, slots, from R2,R3,R4/R5,K0N
+R7 K0N : SourceRegsAreSlots b psN slots                                                      | MISSING (PREMISE here, kept explicit).  Exact Prop: `∀ r c rs inp init, Stmt.register r c rs inp init ∈ b.body → ∃ k f, psN[k]? = some r ∧ slots[k]? = some f ∧ init = Int.ofNat f.init`.  Holds by construction at the producer (MachineEntry.lean:1104-1119 tInputs :1113 / hdropL :1115 / htakeL :1117 + :2014-2028 slot register ∈ registers rk ps slots (mem_registers) + closeMachine_body), not exported; for calls via CloseCalls.some + closeInsts_some perm (:2033-2035).
+R8 K1 as equation `regs = psN`                                                              | MISSING (exact Prop: scripts/srm25/G5_INVENTORY.txt §5; here: `regs = ((machPorts declName ids cache shape.binders).map (·.name)).drop (names.length - shape.layout.lets - shape.layout.slots.length) |>.take shape.layout.slots.length`). Producer site where it holds by construction: Tools/ShippingMachineEntry.lean:2037 (regs := ps.map Port.name) with tInputs :1113.  NOT derivable from the export (§2); NOT needed for G5 given R7 (§3).
+R9 S3 (shipped register has a source register of the same name AND init)                      | PROVED-by Tools/ShippingSrm25Init.lean shippedRegInit_of_hierGate (SRM25), from hierGate b (topshare{M,Q}_hierGate)
+R10 G5 for the witness regs                                                                  | OPEN: = R9 + R6 + R7; R7 open.  Not closed here.
+
+=== 5. REQUIRED RETURN PREDICATE (no producer edit made; no impossibility claim) ===
+Either (A) K1 (R8) as a conjunct next to MachineWired, or (B, smaller, sufficient with R6) K0N:
+ (B)  in `MachineWired` (Tools/ShippingMachineEntry.lean:654), replace/extend the insts=[]-only "every register statement is a slot's" clause (:692-696) by the unconditional
+      `(∀ r c rs inp init, Stmt.register r c rs inp init ∈ m.body → ∃ (k : Nat) (f : SlotField), (names.drop (names.length - shape.layout.lets - n)).take n)[k]? = some r ∧ shape.layout.slots[k]? = some f ∧ init = Int.ofNat f.init)`
+      proved at the producer :1448 (for calls: via CloseCalls.some / closeInsts_some perm, as :2033-2035 does for the slot→register clause), and passed through machine_traceX (:38), machine_ref_traceX (:156), MachineTraceLBX (:377), machine_linkedT_callsRGW, ComposedGW (:181), composedGW_of_T (:236) — they already carry `MachineWired` unchanged, so no consumer statement changes; only the producer proof and the definition of MachineWired.
+ Next lemma: B at :1448 for the call case (the body of `closeMachine`/`closeInsts` register statements are exactly `registers rk ps slots`).
+
+=== MACHINE PART (scripts/srm26/gen_inventory.sh, verbatim output) ===
+=== MachineWired (verbatim) ===
+Tools/ShippingMachineEntry.lean:654: def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
+Tools/ShippingMachineEntry.lean:655:     (cache : IO.Ref (ExprStructMap String)) (m : Sparkle.IR.AST.Module) (dsn : Design)
+Tools/ShippingMachineEntry.lean:656:     (regs lets : List String) : Prop :=
+Tools/ShippingMachineEntry.lean:657:   let names := (machPorts declName ids cache shape.binders).map (·.name)
+Tools/ShippingMachineEntry.lean:658:   let kI := shape.insts.length
+Tools/ShippingMachineEntry.lean:659:   let n := shape.layout.slots.length
+Tools/ShippingMachineEntry.lean:660:   let nIn := machNIn shape
+Tools/ShippingMachineEntry.lean:661:   names.Nodup ∧ (∀ x ∈ names, Sparkle.IR.NameHints.Allocated x) ∧
+Tools/ShippingMachineEntry.lean:662:   (∀ r ∈ regs, r ∈ names.drop (names.length - shape.layout.lets - n)) ∧
+Tools/ShippingMachineEntry.lean:663:   lets = names.drop (names.length - shape.layout.lets) ∧
+Tools/ShippingMachineEntry.lean:664:   (shape.instFields = [] → ∀ k, k < kI → ∃ args mc st, (shape.insts.map (·.2.1))[k]? = some args ∧
+Tools/ShippingMachineEntry.lean:665:     st ∈ m.body ∧
+Tools/ShippingMachineEntry.lean:666:     moduleByName dsn.modules mc.name = some mc ∧ Tools.ShippingMachineInst.CallStmt nIn kI n names k args mc st) ∧
+Tools/ShippingMachineEntry.lean:667:   (shape.instFields = [] → ∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body → ∃ k args mc,
+Tools/ShippingMachineEntry.lean:668:     (shape.insts.map (·.2.1))[k]? = some args ∧ moduleByName dsn.modules mn = some mc ∧
+Tools/ShippingMachineEntry.lean:669:     Tools.ShippingMachineInst.CallStmt nIn kI n names k args mc (.inst mn iname conns)) ∧
+Tools/ShippingMachineEntry.lean:670:   linkedOk (moduleByName dsn.modules) m.body = true ∧
+Tools/ShippingMachineEntry.lean:671:   -- the output ports are the layout's
+Tools/ShippingMachineEntry.lean:672:   m.outputs = shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) ∧
+Tools/ShippingMachineEntry.lean:673:   -- without calls, the module's ports are the declaration's
+Tools/ShippingMachineEntry.lean:674:   (shape.insts = [] → m.inputs.filter (fun p => p.name != "clk" && p.name != "rst") =
+Tools/ShippingMachineEntry.lean:675:     machPorts declName ids cache
+Tools/ShippingMachineEntry.lean:676:       (shape.binders.take (shape.binders.length - n - shape.layout.lets))) ∧
+Tools/ShippingMachineEntry.lean:677:   -- without calls and slots, the body is assignments
+Tools/ShippingMachineEntry.lean:678:   (shape.insts = [] → shape.layout.slots = [] → m.body.all Sparkle.IR.RegDedup.isAssign = true) ∧
+Tools/ShippingMachineEntry.lean:679:   -- and the full entry's zero-width cleanup changes no statement, width or
+Tools/ShippingMachineEntry.lean:680:   -- port (the outputs' types are their widths: `machOutFields`); each slot's
+Tools/ShippingMachineEntry.lean:681:   -- register is a register statement with the slot's reset value and width
+Tools/ShippingMachineEntry.lean:682:   (shape.insts = [] →
+Tools/ShippingMachineEntry.lean:683:     (∀ o ∈ shape.layout.outs, o.ty.bitWidth = o.width) →
+Tools/ShippingMachineEntry.lean:684:     ((Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+Tools/ShippingMachineEntry.lean:685:       weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+Tools/ShippingMachineEntry.lean:686:       (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
+Tools/ShippingMachineEntry.lean:687:       (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs) ∧
+Tools/ShippingMachineEntry.lean:688:     (shape.layout.slots ≠ [] → "rst" ∈ m.inputs.map (·.name)) ∧
+Tools/ShippingMachineEntry.lean:689:     (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → shape.layout.slots[k]? = some f →
+Tools/ShippingMachineEntry.lean:690:       weOf m r = f.width ∧ r ∉ m.inputs.map (·.name) ∧
+Tools/ShippingMachineEntry.lean:691:       ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body) ∧
+Tools/ShippingMachineEntry.lean:692:     -- and every register statement is a slot's
+Tools/ShippingMachineEntry.lean:693:     (∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Sparkle.IR.AST.Expr) (init : Int),
+Tools/ShippingMachineEntry.lean:694:       Stmt.register r c rs inp init ∈ m.body →
+Tools/ShippingMachineEntry.lean:695:       ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ shape.layout.slots[k]? = some f ∧
+Tools/ShippingMachineEntry.lean:696:         init = Int.ofNat f.init) ∧
+Tools/ShippingMachineEntry.lean:697:     -- and the ports: distinct inputs, the clock an input, no output an input
+Tools/ShippingMachineEntry.lean:698:     (m.inputs.map (·.name)).Nodup ∧ (shape.layout.slots ≠ [] → "clk" ∈ m.inputs.map (·.name)) ∧
+Tools/ShippingMachineEntry.lean:699:     (∀ x ∈ m.outputs.map (·.name), x ∉ m.inputs.map (·.name)) ∧
+Tools/ShippingMachineEntry.lean:700:     (∀ p ∈ m.inputs, p.name ≠ "clk" → p.name ≠ "rst" →
+Tools/ShippingMachineEntry.lean:701:       weOf m p.name = match p.ty with
+Tools/ShippingMachineEntry.lean:702:         | .bitVector k => k
+Tools/ShippingMachineEntry.lean:703:         | .bit => 1
+Tools/ShippingMachineEntry.lean:704:         | _ => 0) ∧
+Tools/ShippingMachineEntry.lean:705:     -- and the body is assignments and registers
+Tools/ShippingMachineEntry.lean:706:     m.body.all Sparkle.IR.OptCheck.seqStmtOk = true) ∧
+Tools/ShippingMachineEntry.lean:707:   -- calls with several outputs or of sequential children: every instance
+Tools/ShippingMachineEntry.lean:708:   -- statement is a call group's (`closeInstsG`) ...
+Tools/ShippingMachineEntry.lean:709:   (shape.instFields ≠ [] → ∀ st ∈ m.body, Sparkle.IR.Machine.isInst st = true →
+Tools/ShippingMachineEntry.lean:710:     ∃ (args : List Nat) (outs : List (Nat × String)) (mc : Sparkle.IR.AST.Module),
+Tools/ShippingMachineEntry.lean:711:       Tools.ShippingMachineInstG.CallStmtG nIn kI n names args outs mc st ∧
+Tools/ShippingMachineEntry.lean:712:       moduleByName dsn.modules mc.name = some mc ∧ outs ≠ [] ∧
+Tools/ShippingMachineEntry.lean:713:       ∀ e ∈ outs, (shape.insts.map (·.2.1))[e.1]? = some args ∧
+Tools/ShippingMachineEntry.lean:714:         shape.instFields.getD e.1 "" = e.2 ∧
+Tools/ShippingMachineEntry.lean:715:         -- a memory-ORIGIN call's instance is of the built memory module's
+Tools/ShippingMachineEntry.lean:716:         -- name (origin dispatch: the tag at `e.1`, not the name `c`)
+Tools/ShippingMachineEntry.lean:717:         ∀ c md, (shape.insts.map (·.1))[e.1]? = some c →
+Tools/ShippingMachineEntry.lean:718:           (shape.instOrigins.getD e.1 .ord).child? = some md → mc = md.1) ∧
+Tools/ShippingMachineEntry.lean:719:   -- ... and every call is read from its group's instance statement
+Tools/ShippingMachineEntry.lean:720:   (shape.instFields ≠ [] → ∀ k, k < kI → ∃ st ∈ m.body,
+Tools/ShippingMachineEntry.lean:721:     ∃ (args : List Nat) (outs : List (Nat × String)) (mc : Sparkle.IR.AST.Module),
+Tools/ShippingMachineEntry.lean:722:       Tools.ShippingMachineInstG.CallStmtG nIn kI n names args outs mc st ∧
+Tools/ShippingMachineEntry.lean:723:       moduleByName dsn.modules mc.name = some mc ∧ (k, shape.instFields.getD k "") ∈ outs ∧
+Tools/ShippingMachineEntry.lean:724:       (shape.insts.map (·.2.1))[k]? = some args) ∧
+Tools/ShippingMachineEntry.lean:725:   -- and the instances have distinct names, none feeding itself
+Tools/ShippingMachineEntry.lean:726:   (shape.instFields ≠ [] → (m.body.filterMap instNameOf).Nodup ∧
+Tools/ShippingMachineEntry.lean:727:     noSelfFeed (moduleByName dsn.modules) m.body = true) ∧
+Tools/ShippingMachineEntry.lean:728:   -- and no statement assigns the reset or the clock
+Tools/ShippingMachineEntry.lean:729:   (∀ r, Stmt.assign "rst" r ∉ m.body ∧ Stmt.assign "clk" r ∉ m.body) ∧
+Tools/ShippingMachineEntry.lean:730:   -- and the zero-width cleanup keeps the module, with or without instances
+Tools/ShippingMachineEntry.lean:731:   ((∀ o ∈ shape.layout.outs, o.ty.bitWidth = o.width) →
+Tools/ShippingMachineEntry.lean:732:     (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+Tools/ShippingMachineEntry.lean:733:     weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+Tools/ShippingMachineEntry.lean:734:     (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
+Tools/ShippingMachineEntry.lean:735:     (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs) ∧
+Tools/ShippingMachineEntry.lean:736:   -- and the input names: the transition's ports before the slots and
+Tools/ShippingMachineEntry.lean:737:   -- `let`s, the clock and reset (with slots, or added for sequential
+Tools/ShippingMachineEntry.lean:738:   -- children), without the call ports
+Tools/ShippingMachineEntry.lean:739:   (∃ (outWs : List String) (extra : List Port),
+Tools/ShippingMachineEntry.lean:740:     (∀ w ∈ outWs, ∃ k, k < shape.insts.length ∧ names[machNIn shape + k]? = some w) ∧
+Tools/ShippingMachineEntry.lean:741:     (∀ k, k < shape.insts.length → ∃ w, names[machNIn shape + k]? = some w ∧ w ∈ outWs) ∧
+Tools/ShippingMachineEntry.lean:742:     (extra = [] ∨ (extra = [({ name := "clk", ty := .bit } : Port), { name := "rst", ty := .bit }] ∧
+Tools/ShippingMachineEntry.lean:743:       shape.layout.slots = [])) ∧
+Tools/ShippingMachineEntry.lean:744:     m.inputs =
+Tools/ShippingMachineEntry.lean:745:       ((machPorts declName ids cache shape.binders).take
+Tools/ShippingMachineEntry.lean:746:           (names.length - shape.layout.lets - shape.layout.slots.length) ++
+Tools/ShippingMachineEntry.lean:747:         (if shape.layout.slots.isEmpty then [] else
+Tools/ShippingMachineEntry.lean:748:           [({ name := "clk", ty := .bit } : Port), { name := "rst", ty := .bit }]) ++ extra).filter
+Tools/ShippingMachineEntry.lean:749:         fun p => !outWs.contains p.name) ∧
+Tools/ShippingMachineEntry.lean:750:   -- and, with or without calls, each slot's register is a register statement
+Tools/ShippingMachineEntry.lean:751:   -- with the slot's reset value
+Tools/ShippingMachineEntry.lean:752:   (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+Tools/ShippingMachineEntry.lean:753:     shape.layout.slots[k]? = some f →
+Tools/ShippingMachineEntry.lean:754:     ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body)
+=== MachinePreservesX (verbatim) ===
+Tools/ShippingMachineEntry.lean:799: def MachinePreservesX (X : List FVarId → IO.Ref (ExprStructMap String) → Prop)
+Tools/ShippingMachineEntry.lean:800:     (declName : Name) (shape : MachineShape)
+Tools/ShippingMachineEntry.lean:801:     (bsIn slotBs letBs : List (Name × MixedGateBinder)) (m : Sparkle.IR.AST.Module)
+Tools/ShippingMachineEntry.lean:802:     (dsn : Design) : Prop :=
+Tools/ShippingMachineEntry.lean:803:   ∃ ids : List FVarId, ids.Nodup ∧ ids.length = shape.binders.length ∧
+Tools/ShippingMachineEntry.lean:804:   ∃ cache : IO.Ref (ExprStructMap String),
+Tools/ShippingMachineEntry.lean:805:     ∀ (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (bpos vpos : Nat → Nat)
+Tools/ShippingMachineEntry.lean:806:       (fs : List (Σ w : Nat, Term (.bits w))) {c : Nat} (core : Term (.bits c)),
+Tools/ShippingMachineEntry.lean:807:     (packLets fs core).2.WF kb kv vw →
+Tools/ShippingMachineEntry.lean:808:     (∀ j, j < kb → ∃ name, shape.binders[bpos j]? = some (name, .bool)) →
+Tools/ShippingMachineEntry.lean:809:     (∀ j, j < kv → ∃ name, shape.binders[vpos j]? = some (name, .bits (vw j))) →
+Tools/ShippingMachineEntry.lean:810:     shape.body = quote dom (fun j => inputExpr shape.binders.length (bpos j))
+Tools/ShippingMachineEntry.lean:811:       (fun j => inputExpr shape.binders.length (vpos j)) (packLets fs core).2 →
+Tools/ShippingMachineEntry.lean:812:     (∀ f ∈ shape.layout.slots, f.lo + f.width ≤ c) →
+Tools/ShippingMachineEntry.lean:813:     (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
+Tools/ShippingMachineEntry.lean:814:     ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
+Tools/ShippingMachineEntry.lean:815:     ∃ lets : List String, lets.length = letBs.length ∧
+Tools/ShippingMachineEntry.lean:816:     MachineWired declName shape ids cache m dsn regs lets ∧ X ids cache ∧
+Tools/ShippingMachineEntry.lean:817:     ∀ (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n) (env0 : Env) (mems : MEnv),
+Tools/ShippingMachineEntry.lean:818:       SourceInputs declName bsIn ids cache bools bits env0 →
+Tools/ShippingMachineEntry.lean:819:       (∀ i r b, regs[i]? = some r → slotBs[i]? = some b →
+Tools/ShippingMachineEntry.lean:820:         env0 r = posEnc bools bits (bsIn.length + i) b.2) →
+Tools/ShippingMachineEntry.lean:821:       env0 "rst" = 0 →
+Tools/ShippingMachineEntry.lean:822:       LetsHold bpos vpos bools bits (bsIn.length + slotBs.length) letBs fs →
+Tools/ShippingMachineEntry.lean:823:       ∃ envF, stepModule (weOf m) m.body env0 mems =
+Tools/ShippingMachineEntry.lean:824:           some (envF, fieldNexts (packedAt core bpos vpos bools bits) regs shape.layout.slots,
+Tools/ShippingMachineEntry.lean:825:             mems) ∧
+Tools/ShippingMachineEntry.lean:826:         (∀ o ∈ shape.layout.outs, envF o.name =
+Tools/ShippingMachineEntry.lean:827:           mask o.width (packedAt core bpos vpos bools bits >>> o.lo)) ∧
+Tools/ShippingMachineEntry.lean:828:         -- the `let` wires carry the `let` binders' values
+Tools/ShippingMachineEntry.lean:829:         ∀ (j : Nat) (name : String) (b : Name × MixedGateBinder), lets[j]? = some name →
+Tools/ShippingMachineEntry.lean:830:           letBs[j]? = some b → envF name = posEnc bools bits (bsIn.length + slotBs.length + j) b.2
+Tools/ShippingMachineEntry.lean:831: 
+Tools/ShippingMachineEntry.lean:832: theorem MachinePreservesX.toPreserves {X : List FVarId → IO.Ref (ExprStructMap String) → Prop}
+=== synthesizeMachineCertified_soundX (verbatim) ===
+Tools/ShippingMachineEntry.lean:1035: theorem synthesizeMachineCertified_soundX {logProf declName shape m d}
+Tools/ShippingMachineEntry.lean:1036:     {bsIn slotBs letBs : List (Name × MixedGateBinder)}
+Tools/ShippingMachineEntry.lean:1037:     {t t' : Sparkle.IR.AST.Module} {d₀ : Design}
+Tools/ShippingMachineEntry.lean:1038:     (X : List FVarId → IO.Ref (ExprStructMap String) → Prop)
+Tools/ShippingMachineEntry.lean:1039:     (hrun : MReturns (synthesizeMixedCertified
+Tools/ShippingMachineEntry.lean:1040:         (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
+Tools/ShippingMachineEntry.lean:1041:         shape.binders shape.body) (t, d₀))
+Tools/ShippingMachineEntry.lean:1042:     (hcl : closeLets shape.layout.lets t = some t')
+Tools/ShippingMachineEntry.lean:1043:     (hmt0 : (shape.insts = [] ∧ m = closeMachine shape.layout t' ∧ d = d₀) ∨
+Tools/ShippingMachineEntry.lean:1044:        (shape.insts ≠ [] ∧ ∃ children,
+Tools/ShippingMachineEntry.lean:1045:           CloseCalls shape t (closeMachine shape.layout t') d₀ children m d))
+Tools/ShippingMachineEntry.lean:1046:     (hX : ∀ ids cache regs lets, MachineWired declName shape ids cache m d regs lets →
+Tools/ShippingMachineEntry.lean:1047:       machPorts declName ids cache shape.binders = t.inputs →
+Tools/ShippingMachineEntry.lean:1048:       (∀ st ∈ (closeMachine shape.layout t').body, Sparkle.IR.Machine.isInst st = true → False) →
+Tools/ShippingMachineEntry.lean:1049:       X ids cache)
+Tools/ShippingMachineEntry.lean:1050:     (hbs : shape.binders = bsIn ++ slotBs ++ letBs)
+Tools/ShippingMachineEntry.lean:1051:     (hlets : shape.layout.lets = letBs.length)
+Tools/ShippingMachineEntry.lean:1052:     (positive : PositiveBinders shape.binders)
+Tools/ShippingMachineEntry.lean:1053:     (slotKinds : ∀ b ∈ slotBs, b.2 ≠ .domain)
+Tools/ShippingMachineEntry.lean:1054:     (letKinds : ∀ b ∈ letBs, b.2 ≠ .domain)
+Tools/ShippingMachineEntry.lean:1055:     (layW : Zip₂ (fun (f : SlotField) (b : Name × MixedGateBinder) => f.width = machWidth b.2)
+Tools/ShippingMachineEntry.lean:1056:       shape.layout.slots slotBs)
+Tools/ShippingMachineEntry.lean:1057:     (outsOk : ∀ o ∈ shape.layout.outs, 0 < o.width ∧ outNameOk o.name = true)
+Tools/ShippingMachineEntry.lean:1058:     (outsNodup : (shape.layout.outs.map (·.name)).Nodup) :
+Tools/ShippingMachineEntry.lean:1059:     MachinePreservesX X declName shape bsIn slotBs letBs m d := by
+Tools/ShippingMachineEntry.lean:1060:   have hmt := hmt0
+Tools/ShippingMachineEntry.lean:1061:   -- the module is the closed transition, or `closeInsts` of it
+Tools/ShippingMachineEntry.lean:1062:   have hmt : (shape.insts = [] ∧ m = closeMachine shape.layout t') ∨
+Tools/ShippingMachineEntry.lean:1063:       (shape.insts ≠ [] ∧ ∃ children : List (Sparkle.IR.AST.Module × Design),
+Tools/ShippingMachineEntry.lean:1064:         CloseCalls shape t (closeMachine shape.layout t') d₀ children m d) := by
+Tools/ShippingMachineEntry.lean:1065:     rcases hmt with ⟨hi, h, _⟩ | ⟨hne, children, h⟩
+Tools/ShippingMachineEntry.lean:1066:     · exact Or.inl ⟨hi, h⟩
+=== machine_traceX (verbatim) ===
+Tools/ShippingMachineTraceX.lean:38: theorem machine_traceX {X : List FVarId → IO.Ref (ExprStructMap String) → Prop} {declName shape m dsn} {bsIn slotBs letBs : List (Name × MixedGateBinder)}
+Tools/ShippingMachineTraceX.lean:39:     (h : MachinePreservesX X declName shape bsIn slotBs letBs m dsn)
+Tools/ShippingMachineTraceX.lean:40:     (slotsLen : shape.layout.slots.length = slotBs.length) :
+Tools/ShippingMachineTraceX.lean:41:     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = shape.binders.length ∧
+Tools/ShippingMachineTraceX.lean:42:     ∃ cache : IO.Ref (ExprStructMap String),
+Tools/ShippingMachineTraceX.lean:43:       ∀ (dom : Lean.Expr) (kb kv : Nat) (vw : Nat → Nat) (bpos vpos : Nat → Nat)
+Tools/ShippingMachineTraceX.lean:44:         (fs : List (Σ w : Nat, Term (.bits w))) {c : Nat} (core : Term (.bits c)),
+Tools/ShippingMachineTraceX.lean:45:       (packLets fs core).2.WF kb kv vw →
+Tools/ShippingMachineTraceX.lean:46:       (∀ j, j < kb → ∃ name, shape.binders[bpos j]? = some (name, .bool)) →
+Tools/ShippingMachineTraceX.lean:47:       (∀ j, j < kv → ∃ name, shape.binders[vpos j]? = some (name, .bits (vw j))) →
+Tools/ShippingMachineTraceX.lean:48:       shape.body = quote dom (fun j => inputExpr shape.binders.length (bpos j))
+Tools/ShippingMachineTraceX.lean:49:         (fun j => inputExpr shape.binders.length (vpos j)) (packLets fs core).2 →
+Tools/ShippingMachineTraceX.lean:50:       (∀ f ∈ shape.layout.slots, f.lo + f.width ≤ c) →
+Tools/ShippingMachineTraceX.lean:51:       (∀ o ∈ shape.layout.outs, o.lo + o.width ≤ c) →
+Tools/ShippingMachineTraceX.lean:52:       ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
+Tools/ShippingMachineTraceX.lean:53:       ∃ lets : List String, lets.length = letBs.length ∧
+Tools/ShippingMachineTraceX.lean:54:       MachineWired declName shape ids cache m dsn regs lets ∧ X ids cache ∧
+Tools/ShippingMachineTraceX.lean:55:       ∀ (T : Nat) (bools : Nat → Nat → Bool) (bits : Nat → (j : Nat) → (n : Nat) → BitVec n)
+Tools/ShippingMachineTraceX.lean:56:         (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+Tools/ShippingMachineTraceX.lean:57:         (∀ t st, t < T →
+Tools/ShippingMachineTraceX.lean:58:           SourceInputs declName bsIn ids cache (bools (T - 1 - t)) (bits (T - 1 - t)) (seed t st)) →
+Tools/ShippingMachineTraceX.lean:59:         (∀ t st r, r ∈ regs → seed t st r = st r) →
+Tools/ShippingMachineTraceX.lean:60:         (∀ t st, seed t st "rst" = 0) →
+Tools/ShippingMachineTraceX.lean:61:         (∀ i r b, regs[i]? = some r → slotBs[i]? = some b →
+Tools/ShippingMachineTraceX.lean:62:           st0 r = posEnc (bools 0) (bits 0) (bsIn.length + i) b.2) →
+Tools/ShippingMachineTraceX.lean:63:         (∀ τ i f b, shape.layout.slots[i]? = some f → slotBs[i]? = some b →
+Tools/ShippingMachineTraceX.lean:64:           posEnc (bools (τ + 1)) (bits (τ + 1)) (bsIn.length + i) b.2 =
+Tools/ShippingMachineTraceX.lean:65:             mask f.width (packedAt core bpos vpos (bools τ) (bits τ) >>> f.lo)) →
+Tools/ShippingMachineTraceX.lean:66:         (∀ τ, LetsHold bpos vpos (bools τ) (bits τ) (bsIn.length + slotBs.length) letBs fs) →
+Tools/ShippingMachineTraceX.lean:67:         ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
+Tools/ShippingMachineTraceX.lean:68:           (∀ j (hj : j < envs.length), ∀ o ∈ shape.layout.outs, (envs[j]'hj) o.name =
+Tools/ShippingMachineTraceX.lean:69:             mask o.width (packedAt core bpos vpos (bools j) (bits j) >>> o.lo)) ∧
+=== MachineTraceLBX (verbatim) ===
+Tools/ShippingMachineTraceX.lean:377: def MachineTraceLBX (X : List FVarId → IO.Ref (ExprStructMap String) → Prop) (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module)
+Tools/ShippingMachineTraceX.lean:378:     (dsn : Sparkle.IR.AST.Design)
+Tools/ShippingMachineTraceX.lean:379:     {ι : Type} (dom : ι → DomainConfig)
+Tools/ShippingMachineTraceX.lean:380:     (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+Tools/ShippingMachineTraceX.lean:381:       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+Tools/ShippingMachineTraceX.lean:382:     (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+Tools/ShippingMachineTraceX.lean:383:       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+Tools/ShippingMachineTraceX.lean:384:       (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+Tools/ShippingMachineTraceX.lean:385:     (extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+Tools/ShippingMachineTraceX.lean:386:       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool)
+Tools/ShippingMachineTraceX.lean:387:     (lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
+Tools/ShippingMachineTraceX.lean:388:       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)) : Prop :=
+Tools/ShippingMachineTraceX.lean:389:   ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+Tools/ShippingMachineTraceX.lean:390:   ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+Tools/ShippingMachineTraceX.lean:391:     regs.Nodup ∧ regs.length = d.ss.length ∧
+Tools/ShippingMachineTraceX.lean:392:     ∃ lets : List String, lets.length = d.letBs.length ∧
+Tools/ShippingMachineTraceX.lean:393:     MachineWired declName d.shape ids cache m dsn regs lets ∧ X ids cache ∧
+Tools/ShippingMachineTraceX.lean:394:     ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+Tools/ShippingMachineTraceX.lean:395:       (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+Tools/ShippingMachineTraceX.lean:396:       (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
+Tools/ShippingMachineTraceX.lean:397:       (∀ t st, t < T → SourceInputs declName d.bsIn ids cache
+Tools/ShippingMachineTraceX.lean:398:         (fun j => (extB i bools bits j).val (T - 1 - t))
+Tools/ShippingMachineTraceX.lean:399:         (fun j n => (ext i bools bits j n).val (T - 1 - t))
+Tools/ShippingMachineTraceX.lean:400:         (seed t st)) →
+Tools/ShippingMachineTraceX.lean:401:       (∀ t st r, r ∈ regs → seed t st r = st r) →
+Tools/ShippingMachineTraceX.lean:402:       (∀ t st, seed t st "rst" = 0) →
+Tools/ShippingMachineTraceX.lean:403:       (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+Tools/ShippingMachineTraceX.lean:404:         d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+Tools/ShippingMachineTraceX.lean:405:       ∃ envs, runModule (weOf m) m.body seed T st0 mems = some envs ∧ envs.length = T ∧
+Tools/ShippingMachineTraceX.lean:406:         (∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+Tools/ShippingMachineTraceX.lean:407:           d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+Tools/ShippingMachineTraceX.lean:408:           (envs[j]'hj) o.name = f j) ∧
+Tools/ShippingMachineTraceX.lean:409:         ∀ j (hj : j < envs.length) (q : Nat) (name : String) (g : Nat → Nat),
+Tools/ShippingMachineTraceX.lean:410:           lets[q]? = some name → (lsrc i bools bits)[q]? = some g → q < d.ls.length →
+Tools/ShippingMachineTraceX.lean:411:           (envs[j]'hj) name = g j
+Tools/ShippingMachineTraceX.lean:412: 
+Tools/ShippingMachineTraceX.lean:413: /-- **The instance serving a call is a real child.** For the binder ids and
+Tools/ShippingMachineTraceX.lean:414: wire cache of the run: on the general closing (`instFields ≠ []`), an
+Tools/ShippingMachineTraceX.lean:415: instance statement one of whose output connections is call `k`'s port has as
+Tools/ShippingMachineTraceX.lean:416: its module (resolved by name) the built memory module of a memory call, or a
+Tools/ShippingMachineTraceX.lean:417: result of the real entry on call `k`'s declaration in these contexts. -/
+Tools/ShippingMachineTraceX.lean:418: def ServedRealG (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+=== ComposedGW (verbatim) ===
+Tools/ShippingComposedGW.lean:181: def ComposedGW {σ : Type} (KS : Design → KStep σ)
+Tools/ShippingComposedGW.lean:182:     (Reset : Sparkle.IR.AST.Module → Design → (String → σ) → Prop)
+Tools/ShippingComposedGW.lean:183:     (declName : Name) (d : MachineData) (kD : Nat)
+Tools/ShippingComposedGW.lean:184:     (m : Sparkle.IR.AST.Module) (dsn : Design) {ι : Type} (dom : ι → DomainConfig)
+Tools/ShippingComposedGW.lean:185:     (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+Tools/ShippingComposedGW.lean:186:       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+Tools/ShippingComposedGW.lean:187:     (ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+Tools/ShippingComposedGW.lean:188:       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+Tools/ShippingComposedGW.lean:189:       (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+Tools/ShippingComposedGW.lean:190:     (extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+Tools/ShippingComposedGW.lean:191:       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool) : Prop :=
+Tools/ShippingComposedGW.lean:192:   ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+Tools/ShippingComposedGW.lean:193:   ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+Tools/ShippingComposedGW.lean:194:     regs.Nodup ∧ regs.length = d.ss.length ∧
+Tools/ShippingComposedGW.lean:195:     (∃ lets : List String, MachineWired declName d.shape ids cache m dsn regs lets) ∧
+Tools/ShippingComposedGW.lean:196:     ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+Tools/ShippingComposedGW.lean:197:       (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+Tools/ShippingComposedGW.lean:198:       (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
+Tools/ShippingComposedGW.lean:199:       (kids : String → σ),
+Tools/ShippingComposedGW.lean:200:       (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+Tools/ShippingComposedGW.lean:201:         (fun j => (extB i bools bits j).val (T - 1 - t))
+Tools/ShippingComposedGW.lean:202:         (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
+Tools/ShippingComposedGW.lean:203:       (∀ t st r, r ∈ regs → seed t st r = st r) →
+Tools/ShippingComposedGW.lean:204:       (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
+Tools/ShippingComposedGW.lean:205:       (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+Tools/ShippingComposedGW.lean:206:         d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+Tools/ShippingComposedGW.lean:207:       Reset m dsn kids →
+Tools/ShippingComposedGW.lean:208:       ∃ envs, runModuleTG (KS dsn) (Tools.ShippingEntrySoundness.weOf m)
+Tools/ShippingComposedGW.lean:209:           (childMap dsn.modules) m.body seed T ⟨st0, mems, kids⟩ = some envs ∧
+Tools/ShippingComposedGW.lean:210:         envs.length = T ∧
+Tools/ShippingComposedGW.lean:211:         ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+Tools/ShippingComposedGW.lean:212:           d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+Tools/ShippingComposedGW.lean:213:           (envs[j]'hj) o.name = f j
+Tools/ShippingComposedGW.lean:214: 
+Tools/ShippingComposedGW.lean:215: /-- Forgetting the wiring. -/
+Tools/ShippingComposedGW.lean:216: theorem ComposedGW.toG {σ : Type} {KS : Design → KStep σ}
+=== composedGW_of_T (verbatim) ===
+Tools/ShippingComposedGW.lean:236: theorem composedGW_of_T {declName : Name} {d : MachineData} {kD : Nat}
+Tools/ShippingComposedGW.lean:237:     {m : Sparkle.IR.AST.Module} {dsn : Design} {ι : Type} {dom : ι → DomainConfig}
+Tools/ShippingComposedGW.lean:238:     {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+Tools/ShippingComposedGW.lean:239:       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+Tools/ShippingComposedGW.lean:240:     {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+Tools/ShippingComposedGW.lean:241:       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+Tools/ShippingComposedGW.lean:242:       (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+Tools/ShippingComposedGW.lean:243:     {extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+Tools/ShippingComposedGW.lean:244:       ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+Tools/ShippingComposedGW.lean:245:     (h : ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+Tools/ShippingComposedGW.lean:246:       ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+Tools/ShippingComposedGW.lean:247:         regs.Nodup ∧ regs.length = d.ss.length ∧
+Tools/ShippingComposedGW.lean:248:         (∃ lets : List String, MachineWired declName d.shape ids cache m dsn regs lets) ∧
+Tools/ShippingComposedGW.lean:249:         ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+Tools/ShippingComposedGW.lean:250:           (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+Tools/ShippingComposedGW.lean:251:           (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
+Tools/ShippingComposedGW.lean:252:           (kids : String → KidState),
+Tools/ShippingComposedGW.lean:253:           (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+Tools/ShippingComposedGW.lean:254:             (fun j => (extB i bools bits j).val (T - 1 - t))
+Tools/ShippingComposedGW.lean:255:             (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
+Tools/ShippingComposedGW.lean:256:           (∀ t st r, r ∈ regs → seed t st r = st r) →
+Tools/ShippingComposedGW.lean:257:           (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
+Tools/ShippingComposedGW.lean:258:           (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+Tools/ShippingComposedGW.lean:259:             d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+Tools/ShippingComposedGW.lean:260:           (∀ iname n a, (kids iname).mems n a = 0) → (∀ iname, (kids iname).st "out_rdata" = 0) →
+Tools/ShippingComposedGW.lean:261:           (∀ (iname : String) (mc : Sparkle.IR.AST.Module), (∃ conns, Stmt.inst mc.name iname conns ∈ m.body) →
+Tools/ShippingComposedGW.lean:262:             moduleByName dsn.modules mc.name = some mc →
+Tools/ShippingComposedGW.lean:263:             ∀ r c rs inp init, Stmt.register r c rs inp init ∈ mc.body →
+Tools/ShippingComposedGW.lean:264:               (kids iname).st r = init.toNat) →
+Tools/ShippingComposedGW.lean:265:           ∃ envs, runModuleT (Tools.ShippingEntrySoundness.weOf m) (childMap dsn.modules) m.body
+Tools/ShippingComposedGW.lean:266:               seed T st0 mems kids = some envs ∧
+Tools/ShippingComposedGW.lean:267:             envs.length = T ∧
+Tools/ShippingComposedGW.lean:268:             ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+Tools/ShippingComposedGW.lean:269:               d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+Tools/ShippingComposedGW.lean:270:               (envs[j]'hj) o.name = f j)
+Tools/ShippingComposedGW.lean:271:     (hm : Tools.ConeFold.memFree m.body) :
+Tools/ShippingComposedGW.lean:272:     ComposedGW (fun _ => flatKS) Reset1 declName d kD m dsn dom src ext extB := by
+Tools/ShippingComposedGW.lean:273:   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, hw, H⟩ := h
+Tools/ShippingComposedGW.lean:274:   refine ⟨ids, nd, len, cache, regs, rnd, rlen, hw, ?_⟩
+Tools/ShippingComposedGW.lean:275:   intro i bools bits T seed st0 mems kids hin hpass hrst hclk hinit ⟨h1, h2, h3⟩
+Tools/ShippingComposedGW.lean:276:   obtain ⟨envs, hrun, hlen, hobs⟩ := H i bools bits T seed st0 mems kids hin hpass hrst hclk hinit
+Tools/ShippingComposedGW.lean:277:     h1 h2 h3
+Tools/ShippingComposedGW.lean:278:   refine ⟨envs, ?_, hlen, hobs⟩
+Tools/ShippingComposedGW.lean:279:   rw [← runModuleT_flat _ _ _ hm]
+Tools/ShippingComposedGW.lean:280:   exact hrun
+Tools/ShippingComposedGW.lean:281: 
+Tools/ShippingComposedGW.lean:282: end Tools.ShippingComposedGW
+=== machine_linkedT_callsRGW conclusion (verbatim) ===
+Tools/ShippingComposedGW.lean:99:     ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+Tools/ShippingComposedGW.lean:100:     ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+Tools/ShippingComposedGW.lean:101:       regs.Nodup ∧ regs.length = d.ss.length ∧
+Tools/ShippingComposedGW.lean:102:       -- (round par/sat) the wiring of the SAME ids, cache, registers
+Tools/ShippingComposedGW.lean:103:       (∃ lets : List String, Tools.ShippingMachineEntry.MachineWired declName d.shape ids cache m dsn
+Tools/ShippingComposedGW.lean:104:         regs lets) ∧
+Tools/ShippingComposedGW.lean:105:       ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+Tools/ShippingComposedGW.lean:106:         (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+Tools/ShippingComposedGW.lean:107:         (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv)
+Tools/ShippingComposedGW.lean:108:         (kids : String → KidState),
+Tools/ShippingComposedGW.lean:109:         (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+Tools/ShippingComposedGW.lean:110:           (fun j => (extB i bools bits j).val (T - 1 - t))
+Tools/ShippingComposedGW.lean:111:           (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seed t st)) →
+Tools/ShippingComposedGW.lean:112:         (∀ t st r, r ∈ regs → seed t st r = st r) →
+Tools/ShippingComposedGW.lean:113:         (∀ t st, seed t st "rst" = 0) → (∀ t st, seed t st "clk" = 0) →
+Tools/ShippingComposedGW.lean:114:         (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+Tools/ShippingComposedGW.lean:115:           d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+Tools/ShippingComposedGW.lean:116:         (∀ iname n a, (kids iname).mems n a = 0) → (∀ iname, (kids iname).st "out_rdata" = 0) →
+Tools/ShippingComposedGW.lean:117:         (∀ (iname : String) (mc : Module), (∃ conns, Stmt.inst mc.name iname conns ∈ m.body) →
+Tools/ShippingComposedGW.lean:118:           moduleByName dsn.modules mc.name = some mc →
+Tools/ShippingComposedGW.lean:119:           ∀ r c rs inp init, Stmt.register r c rs inp init ∈ mc.body →
+Tools/ShippingComposedGW.lean:120:             (kids iname).st r = init.toNat) →
+Tools/ShippingComposedGW.lean:121:         ∃ envs, runModuleT (Tools.ShippingEntrySoundness.weOf m) (childMap dsn.modules) m.body
+Tools/ShippingComposedGW.lean:122:             seed T st0 mems kids = some envs ∧
+Tools/ShippingComposedGW.lean:123:           envs.length = T ∧
+Tools/ShippingComposedGW.lean:124:           ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+Tools/ShippingComposedGW.lean:125:             d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+Tools/ShippingComposedGW.lean:126:             (envs[j]'hj) o.name = f j := by
+=== producer sites for regs / ps / ids / cache ===
+Tools/ShippingMachineEntry.lean:838:  refine ⟨ids, nd, len, cache, ?_⟩
+Tools/ShippingMachineEntry.lean:1068:  obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ :=
+Tools/ShippingMachineEntry.lean:1070:  refine ⟨ids, nd, len, cache, ?_⟩
+Tools/ShippingMachineEntry.lean:1104:  let ps := inputPorts zb zv (slotBs.zip idsS) a1
+Tools/ShippingMachineEntry.lean:1448:  have wired : MachineWired declName shape ids cache m d (ps.map Port.name) (ls.map Port.name) := by
+Tools/ShippingMachineEntry.lean:2037:  refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
+Tools/ShippingMachineEntry.lean:2154:  refine ⟨ids, nd, len, cache, ?_⟩
+=== machPorts def ===
+Tools/ShippingMachineEntry.lean:644: def machPorts (declName : Name) (ids : List FVarId) (cache : IO.Ref (ExprStructMap String))
+Tools/ShippingMachineEntry.lean:645:     (bs : List (Name × MixedGateBinder)) : List Port :=
+Tools/ShippingMachineEntry.lean:646:   inputPorts (fun _ => false) (fun _ n => 0#n) (bs.zip ids)
+Tools/ShippingMachineEntry.lean:647:     (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))
+Tools/ShippingMachineEntry.lean:648: 
+Tools/ShippingMachineEntry.lean:649: /-- How a machine module is wired to its children in its design: the
+Tools/ShippingMachineEntry.lean:650: transition's port names are distinct, the `let` wires are the last of them,
+Tools/ShippingMachineEntry.lean:651: the registers are among the slot and `let` ports, every call `k` is an instance statement of the module (`CallStmt`) whose
+Tools/ShippingMachineEntry.lean:652: module is what its name resolves to in the design, every instance statement
+Tools/ShippingMachineEntry.lean:653: is such a call, and the body is in the linked order. -/
+Tools/ShippingMachineEntry.lean:654: def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
+Tools/ShippingMachineEntry.lean:655:     (cache : IO.Ref (ExprStructMap String)) (m : Sparkle.IR.AST.Module) (dsn : Design)
+Tools/ShippingMachineEntry.lean:656:     (regs lets : List String) : Prop :=
+Tools/ShippingMachineEntry.lean:657:   let names := (machPorts declName ids cache shape.binders).map (·.name)
+Tools/ShippingMachineEntry.lean:658:   let kI := shape.insts.length
+Tools/ShippingMachineEntry.lean:659:   let n := shape.layout.slots.length
+Tools/ShippingMachineEntry.lean:660:   let nIn := machNIn shape
+Tools/ShippingMachineEntry.lean:661:   names.Nodup ∧ (∀ x ∈ names, Sparkle.IR.NameHints.Allocated x) ∧
+Tools/ShippingMachineEntry.lean:662:   (∀ r ∈ regs, r ∈ names.drop (names.length - shape.layout.lets - n)) ∧
+Tools/ShippingMachineEntry.lean:663:   lets = names.drop (names.length - shape.layout.lets) ∧
+Tools/ShippingMachineEntry.lean:664:   (shape.instFields = [] → ∀ k, k < kI → ∃ args mc st, (shape.insts.map (·.2.1))[k]? = some args ∧
+Tools/ShippingMachineEntry.lean:665:     st ∈ m.body ∧
+Tools/ShippingMachineEntry.lean:666:     moduleByName dsn.modules mc.name = some mc ∧ Tools.ShippingMachineInst.CallStmt nIn kI n names k args mc st) ∧
+Tools/ShippingMachineEntry.lean:667:   (shape.instFields = [] → ∀ mn iname conns, Stmt.inst mn iname conns ∈ m.body → ∃ k args mc,
+Tools/ShippingMachineEntry.lean:668:     (shape.insts.map (·.2.1))[k]? = some args ∧ moduleByName dsn.modules mn = some mc ∧
+Tools/ShippingMachineEntry.lean:669:     Tools.ShippingMachineInst.CallStmt nIn kI n names k args mc (.inst mn iname conns)) ∧
+Tools/ShippingMachineEntry.lean:670:   linkedOk (moduleByName dsn.modules) m.body = true ∧
+Tools/ShippingMachineEntry.lean:671:   -- the output ports are the layout's
+Tools/ShippingMachineEntry.lean:672:   m.outputs = shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) ∧
+Tools/ShippingMachineEntry.lean:673:   -- without calls, the module's ports are the declaration's
+Tools/ShippingMachineEntry.lean:674:   (shape.insts = [] → m.inputs.filter (fun p => p.name != "clk" && p.name != "rst") =
+Tools/ShippingMachineEntry.lean:675:     machPorts declName ids cache
+Tools/ShippingMachineEntry.lean:676:       (shape.binders.take (shape.binders.length - n - shape.layout.lets))) ∧
+Tools/ShippingMachineEntry.lean:677:   -- without calls and slots, the body is assignments
+Tools/ShippingMachineEntry.lean:678:   (shape.insts = [] → shape.layout.slots = [] → m.body.all Sparkle.IR.RegDedup.isAssign = true) ∧
+Tools/ShippingMachineEntry.lean:679:   -- and the full entry's zero-width cleanup changes no statement, width or
+Tools/ShippingMachineEntry.lean:680:   -- port (the outputs' types are their widths: `machOutFields`); each slot's
+Tools/ShippingMachineEntry.lean:681:   -- register is a register statement with the slot's reset value and width
+Tools/ShippingMachineEntry.lean:682:   (shape.insts = [] →
+Tools/ShippingMachineEntry.lean:683:     (∀ o ∈ shape.layout.outs, o.ty.bitWidth = o.width) →
+Tools/ShippingMachineEntry.lean:684:     ((Sparkle.IR.ZeroWidth.dropZeroWidthModule m).body = m.body ∧
+Tools/ShippingMachineEntry.lean:685:       weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m) = weOf m ∧
+Tools/ShippingMachineEntry.lean:686:       (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).inputs = m.inputs ∧
+Tools/ShippingMachineEntry.lean:687:       (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).outputs = m.outputs) ∧
+Tools/ShippingMachineEntry.lean:688:     (shape.layout.slots ≠ [] → "rst" ∈ m.inputs.map (·.name)) ∧
+Tools/ShippingMachineEntry.lean:689:     (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → shape.layout.slots[k]? = some f →
+Tools/ShippingMachineEntry.lean:690:       weOf m r = f.width ∧ r ∉ m.inputs.map (·.name) ∧
+Tools/ShippingMachineEntry.lean:691:       ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body) ∧
+Tools/ShippingMachineEntry.lean:692:     -- and every register statement is a slot's
+Tools/ShippingMachineEntry.lean:693:     (∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Sparkle.IR.AST.Expr) (init : Int),
+Tools/ShippingMachineEntry.lean:694:       Stmt.register r c rs inp init ∈ m.body →
+Tools/ShippingMachineEntry.lean:695:       ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ shape.layout.slots[k]? = some f ∧
+Tools/ShippingMachineEntry.lean:696:         init = Int.ofNat f.init) ∧
+Tools/ShippingMachineEntry.lean:697:     -- and the ports: distinct inputs, the clock an input, no output an input
+Tools/ShippingMachineEntry.lean:698:     (m.inputs.map (·.name)).Nodup ∧ (shape.layout.slots ≠ [] → "clk" ∈ m.inputs.map (·.name)) ∧
+Tools/ShippingMachineEntry.lean:699:     (∀ x ∈ m.outputs.map (·.name), x ∉ m.inputs.map (·.name)) ∧
+Tools/ShippingMachineEntry.lean:700:     (∀ p ∈ m.inputs, p.name ≠ "clk" → p.name ≠ "rst" →
+Tools/ShippingMachineEntry.lean:701:       weOf m p.name = match p.ty with
+Tools/ShippingMachineEntry.lean:702:         | .bitVector k => k
+Tools/ShippingMachineEntry.lean:703:         | .bit => 1
+=== MachineWired's slot->register conjunct (last conjunct), verbatim ===
+Tools/ShippingMachineEntry.lean:750:   -- and, with or without calls, each slot's register is a register statement
+Tools/ShippingMachineEntry.lean:751:   -- with the slot's reset value
+Tools/ShippingMachineEntry.lean:752:   (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+Tools/ShippingMachineEntry.lean:753:     shape.layout.slots[k]? = some f →
+Tools/ShippingMachineEntry.lean:754:     ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body)
+=== every consumer of MachineWired/regs between soundX and ComposedGW (file:line of 'regs' in binder/obtain) ===
+1:52:      ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
+5:76:  obtain ⟨regs, regsNd, regsLen, lets, letsLen, wired, hx, step⟩ :=
+11:174:      ∃ regs : List String, regs.Nodup ∧ regs.length = slotBs.length ∧
+15:201:  obtain ⟨regs, regsNd, regsLen, lets, letsLen, wired, hx, trace⟩ :=
+17:307:    ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+22:347:  obtain ⟨regs, rnd, rlen, lets, llen, wired, hx, trace⟩ := href'
+24:390:  ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+30:679:  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, hx, h⟩ :=
+32:867:  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, lets, llen, wired, _, h⟩ := h
+=== uses of 'regs' pinning beyond Nodup/length (any hypothesis mentioning machPorts/ps with regs) ===
+Tools/ShippingMachineShipsComb.lean:266:  have hregs : regs = [] := List.eq_nil_of_length_eq_zero (rlen.trans hSS)
+Tools/Prototype/ExtReaderRaw.lean:34:    (hr : LetOk 0 regs = true) (hbody : LetOk 0 body = true) (ht : ∀ t ∈ tys, LetOk 0 t = true) :
+Tools/Prototype/RawNodeRangeLetOk.lean:159:    (hr : LetOk 0 regs = true) (ht : ∀ t ∈ tys, LetOk 0 t = true)
+Tools/Prototype/RawNodeRangeLetOk.lean:236:    (hr : LetOk 0 regs = true) (hbody : LetOk 0 body = true) (ht : ∀ t ∈ tys, LetOk 0 t = true) :
+Tools/ShippingMachineChild.lean:199:  have hregs : regs = [] := List.length_eq_zero_iff.mp (by rw [rlen, hss]; rfl)
+=== SourceInputs / Admissible: which binders it covers in ComposedGW (take kD of bsIn only) ===
+109:        (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+200:      (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+253:          (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+Tools/ShippingMixedSourceBridge.lean:151:def SourceInputs (declName : Name) (bs : List (Name × MixedGateBinder)) (ids : List FVarId)
+Tools/ShippingMixedSourceBridge.lean:152-    (cache : IO.Ref (ExprStructMap String)) (bools : Nat → Bool)
+Tools/ShippingMixedSourceBridge.lean:153-    (bits : (j : Nat) → (n : Nat) → BitVec n) (initial : Env) : Prop :=
+Tools/ShippingMixedSourceBridge.lean:154-  Admissible (boolValues ids bools) (bitValues ids bits) initial (bs.zip ids)
+Tools/ShippingMixedSourceBridge.lean:155-    (start (entryCompilerState false cache) (Sparkle.IR.ModuleName.ofDecl declName))
+=== Mathlib-free? ===
+0
