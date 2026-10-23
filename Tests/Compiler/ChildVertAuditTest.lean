@@ -116,6 +116,11 @@ import Tools.ShippingSrm11Bounds
 import Tools.ShippingSrm12Corr
 import Tools.ShippingSrm13Supply
 import Tools.ShippingSrm15Graph
+import Tools.ShippingSrm16Reset
+import Tools.ShippingSrm17Body
+import Tools.ShippingSrm17Ran
+import Tools.ShippingSrm17Corr
+import Tools.ShippingSrm18Start
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -659,7 +664,12 @@ def audited : List Name :=
    ``Tools.ShippingSrm12Corr.ran_designCorr, ``Tools.ShippingSrm12Corr.memCallee_childCorr, ``Tools.ShippingSrm12Corr.childCorr_noInst, ``Tools.ShippingSrm12Corr.callees_mem_names,
    ``Tools.ShippingSrm12Corr.inst_rank,
    ``Tools.ShippingSrm13Supply.seedB_of_seedIn, ``Tools.ShippingSrm13Supply.seedB_checkedOptimize, ``Tools.ShippingSrm13Supply.seedIn_not_bounded, ``Tools.ShippingSrm13Supply.hseedB_not_forced, ``Tools.ShippingSrm13Supply.bounded_of_regsAtInit, ``Tools.ShippingSrm13Supply.bounded_not_forced, ``Tools.ShippingSrm13Supply.invN0_not_forced, ``Tools.ShippingSrm13Supply.invN_of_resetN_fitTree, ``Tools.ShippingSrm13Supply.moduleByName_name, ``Tools.ShippingSrm13Supply.kidReset_of_resetNk, ``Tools.ShippingSrm13Supply.kidInvN_of_resetNk,
-   ``Tools.ShippingSrm15Graph.callees_graphOf, ``Tools.ShippingSrm15Graph.hname_of_iface, ``Tools.ShippingSrm15Graph.firstOcc_unique, ``Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf, ``Tools.ShippingSrm15Graph.graphCovers_callees]
+   ``Tools.ShippingSrm15Graph.callees_graphOf, ``Tools.ShippingSrm15Graph.hname_of_iface, ``Tools.ShippingSrm15Graph.firstOcc_unique, ``Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf, ``Tools.ShippingSrm15Graph.graphCovers_callees,
+   ``Tools.ShippingSrm16Reset.mem_of_moduleByName, ``Tools.ShippingSrm16Reset.instModule_of_inst, ``Tools.ShippingSrm16Reset.resetN_resetKT, ``Tools.ShippingSrm16Reset.resetNk_resetKids,
+   ``Tools.ShippingSrm17Body.ModP.iu, ``Tools.ShippingSrm17Body.ModP.ag, ``Tools.ShippingSrm17Body.ModP.rd, ``Tools.ShippingSrm17Body.regNames_eq, ``Tools.ShippingSrm17Body.regNames_perm, ``Tools.ShippingSrm17Body.mem_regNames, ``Tools.ShippingSrm17Body.agb_of_nodup, ``Tools.ShippingSrm17Body.rdb_of_noMem, ``Tools.ShippingSrm17Body.modP_of_nodups, ``Tools.ShippingSrm17Body.noMemB_of_perm, ``Tools.ShippingSrm17Body.nextKeys_eq_regNames, ``Tools.ShippingSrm17Body.rs_inv, ``Tools.ShippingSrm17Body.inst_of_rw, ``Tools.ShippingSrm17Body.reg_of_rw, ``Tools.ShippingSrm17Body.mem_of_rw, ``Tools.ShippingSrm17Body.modP_body_map, ``Tools.ShippingSrm17Body.mergeDuplicates_body, ``Tools.ShippingSrm17Body.parts_shape, ``Tools.ShippingSrm17Body.modP_mergeChecked,
+   ``Tools.ShippingSrm17Ran.nodup_idx, ``Tools.ShippingSrm17Ran.ran_modP, ``Tools.ShippingSrm17Ran.leaf_modPA,
+   ``Tools.ShippingSrm17Corr.memModule_modP, ``Tools.ShippingSrm17Corr.ran_designP, ``Tools.ShippingSrm17Corr.memCallee_childP, ``Tools.ShippingSrm17Corr.leaf_childP,
+   ``Tools.ShippingSrm18Start.evalAssignsKG_relZ, ``Tools.ShippingSrm18Start.runModuleTG_kids_congr, ``Tools.ShippingSrm18Start.bumpKT_ne, ``Tools.ShippingSrm18Start.mem_instNames, ``Tools.ShippingSrm18Start.length_le_sum, ``Tools.ShippingSrm18Start.freshName_fresh, ``Tools.ShippingSrm18Start.bumpedStart_spec]
 
 end Tests.Compiler.ChildVertAuditTest
 
