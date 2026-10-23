@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm24WidthTest
 import Tools.ShippingSrm28Regs
 set_option autoImplicit false
--- BUILT/UNBUILT: UNBUILT at writing time; see STATUS-SRM28.md / REPORT-SRM28.md; the final-SHA rebuild in REPORT-SRM28.md is the only final evidence.
+-- BUILT (unit SRM28): dev runs r3 (exit 1), r4 (exit 0); the final-SHA rebuild in REPORT-SRM28.md is the only final evidence.
 -- SCOPE: for the ACTUAL topshareM / topshareQ (hypotheses as SRM24: hcore, hpost, entry, hBnd), G5 `ShippedRegsAreSlots b regs slots` for the `regs` witness of the SINGLE `ComposedNW 2`
 --   witness (`topshare{M,Q}_composedNW`), PROVED from `MachineWired`'s new call-case clause (Tools/ShippingMachineEntry.lean), `hierGate b` (SRM23) and `b.body = raw.body` (hpost via core_kids_facts_ranAM),
 --   through SRM25's `shippedRegsAreSlots_of_source`; and the SRM22 `regsAtInit_of_hinit` with ONLY the G5 binder removed.  K1, G1, G3, hsk, FitTree, hRK, hst facts, hW and the ComposedNW tail

@@ -1,7 +1,7 @@
 import Tools.ShippingMachineDepthRun
 import Tools.ShippingSrm25Init
 set_option autoImplicit false
--- BUILT/UNBUILT: UNBUILT at writing time; see STATUS-SRM28.md / REPORT-SRM28.md for the dev runs; the final-SHA rebuild in REPORT-SRM28.md is the only final evidence.
+-- BUILT (unit SRM28): dev runs r2 (exit 0); the final-SHA rebuild in REPORT-SRM28.md is the only final evidence.
 -- SCOPE (generic, no topshare instance): `MachineWired` (Tools/ShippingMachineEntry.lean) now EXPORTS, as its 19th conjunct, SRM25's source fact for its own `m`, `regs`, UNCONDITIONALLY
 -- (also for shape.insts ≠ []); it is PROVED at the producer from closeMachine's body + closeInsts_some / closeInstsG_some.  Here: (1) that conjunct read as `SourceRegsAreSlots m regs slots`;
 -- (2) G5 `ShippedRegsAreSlots b regs slots` from `hierGate b`, `b.body = m.body` and the wiring (no K0N, no K1, no hregsNd/hlen); (3) `ComposedNWRegs`: ComposedNW with ONE extra conjunct `P regs`

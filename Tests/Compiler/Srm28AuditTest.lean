@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm28ExpStmt
 import Tests.Compiler.Srm26AuditTest
 import Tools.ShippingSrm28Regs
--- BUILT/UNBUILT: see STATUS-SRM28.md / REPORT-SRM28.md (dev runs); the final-SHA rebuild in REPORT-SRM28.md is the only final evidence.
+-- BUILT (unit SRM28): dev runs a1-a3 (exit 1, script errors), a4 (exit 0, S28AUDIT|ok); the final-SHA rebuild in REPORT-SRM28.md is the only final evidence.
 -- Audit of Tools/ShippingSrm28Regs.lean, Tests/Compiler/Srm28InstTest.lean and the CHANGED statement `MachineWired`:
 -- (0) `MachineWired` unfolds to exactly 19 conjuncts and the 19th is defeq to `Exp_lastClause` (EXPECTED §1); the 18th is untouched in count;
 -- (1) literal count guard and binder tables for the 8 theorems;
