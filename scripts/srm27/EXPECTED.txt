@@ -1,0 +1,27 @@
+EXPECTED (SRM27) — frozen before any proof file.  Status of each: NOT PROVED here (no proof file produced; K0N for the actual witness is MISSING, see K0N_INVENTORY.txt §2,§4).
+Wording: PREMISE / OPEN; no impossibility claim.
+
+-- (1) K0N for the actual witness (what SRM26's hK0 binder asks), M and Q: the proposition that would be proved, with
+--     m := the run's raw module (raw/M of hcore; b via hpost has b.body = M.body), (declName, shape, ids, cache) := the ComposedGW/NW witness bindings,
+--     slots := topshare{M,Q}.machineData.shape.layout.slots, psN as SRM26 defines it:
+SourceRegsAreSlots m
+  ((((machPorts declName ids cache shape.binders).map (·.name)).drop
+      (((machPorts declName ids cache shape.binders).map (·.name)).length - shape.layout.lets - shape.layout.slots.length)).take shape.layout.slots.length)
+  shape.layout.slots
+-- unfolding SourceRegsAreSlots (Tools/ShippingSrm25Init.lean:67):
+∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+  Stmt.register r c rs inp init ∈ m.body →
+    ∃ (k : Nat) (f : SlotField), psN[k]? = some r ∧ slots[k]? = some f ∧ init = Int.ofNat f.init
+
+-- (2) the G5 instance that WOULD follow (not produced): shippedRegsAreSlots_of_wired (Tools/ShippingSrm26Order.lean:109) for the witness, i.e.
+ShippedRegsAreSlots b regs topshare{M,Q}.machineData.shape.layout.slots
+-- from hgate (topshare{M,Q}_hierGate), hW (MachineWired of the witness), hregsNd, hlen (exported), and (1).
+
+-- (3) REQUIRED RETURN PREDICATE (the exact Prop that must be exported next to the witness), R-A form: X := (1) at soundX's hX site
+--     (Tools/ShippingMachineEntry.lean:1048-1051; hmp : machPorts declName ids cache shape.binders = t.inputs is an argument there), and
+--     R-B form: the same Prop as a new last conjunct of MachineWired (:752-754).  The ingredients that make it provable at that site:
+hmp : machPorts declName ids cache shape.binders = t.inputs
+T1  : ∀ r c rs inp init, Stmt.register r c rs inp init ∈ (closeMachine shape.layout t').body →
+        ∃ (k : Nat) (p : Port) (f : SlotField), ps[k]? = some p ∧ shape.layout.slots[k]? = some f ∧ p.name = r ∧ init = Int.ofNat f.init
+        -- ps := t'.inputs.drop (t'.inputs.length - shape.layout.slots.length)
+-- NOT planned / untouched and EXPLICIT: K1 equation (regs = psN), G1, G3, hsk, FitTree, hRK, hst facts, hW width premise; run not assumed to start at reset; no endpoint/production claim.
