@@ -135,6 +135,9 @@ open Tests.Compiler.ChildVertAuditTest in
 run_cmd liftTermElabM do
   -- (2) CONTROL: the binder audit REJECTS the hand-made mutation, and ACCEPTS a real height theorem
   unless (← restatesConclusion ``Tests.Compiler.Srm5AuditTest.wrapper_mutation) do throwError "SRM5 AUDIT FAILED: the wrapper control was not caught"
+  -- LITERAL fixed-count guard, independent of the generated expected file
+  unless audited5.length == 39 do throwError "SRM5 AUDIT FAILED: audited5 has {audited5.length} theorems, expected exactly 39"
+  unless Tests.Compiler.Srm5AuditExpected.expectedRows.length == 39 do throwError "SRM5 AUDIT FAILED: the expected table has {Tests.Compiler.Srm5AuditExpected.expectedRows.length} theorem entries, expected exactly 39"
   -- (1)+(2) premise table (EXACT comparison) and binder audit
   let mut actual : List (Name × List Row) := []
   let mut lines : List String := []

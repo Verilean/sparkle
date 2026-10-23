@@ -2,7 +2,7 @@ import Tests.Compiler.Srm4ParentQTest
 import Tests.Compiler.Srm5ParentTest
 -- BUILT (unit SRM5): s5h3 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM5.md.
 -- SCOPE: the height-indexed check applied to `topshareQ` (`Tests/Compiler/SharedLeafMemKidTest.lean`): calls `wrapP` ×2 (two calls of the PLAIN leaf `leafP`) and `wrapQ` ×2 (two calls of `leafP` and ONE memory entry).  Heights: `leafP` 0, memory 0, `wrapP` 1,
--- `wrapQ` 1, `topshareQ` 2 — NOTE: `leafP` (an ordinary leaf) and the memory module are both at rank 0, so the kids of `wrapQ` sit at heights 0 and 0 while `wrapM`'s kid `leafM` sits at 1; the unbalanced shape is the point of the height index.
+-- `wrapQ` 1, `topshareQ` 2.  This tree is BALANCED (every leaf, plain or memory, is two levels below `topshareQ`); the unbalanced case is only in `Tests/Compiler/Srm5HeightTest.lean`.
 -- PROVED here (same premises as `Tests/Compiler/Srm4ParentQTest.lean`): `wrapP_memCallee` (the decidable data of `wrapP` as a `MemCalleeData` with ordinary calls only), `leafP_kidHeight`, `wrapP_kidHeight`, `wrapQ_kidHeight`,
 -- `topshareQ_hcheck`: the parent's height check with the children's check `hkids` of `topshareQ_designCheck_of_kidsPass` DISCHARGED, under a RANK TABLE premise (`rk`, `hrkmem`, the four rank equations).
 -- PREMISES kept (named): `O`, `T`, `hA`, `hR0`/`hcl` (the plain leaf), the `MachineDefines` of the machines, `hcore`, `hw`, `hpost`.  `RealChildA` is a history of past synthesis results, not freshness or runtime fit.
