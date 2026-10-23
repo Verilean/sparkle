@@ -1,5 +1,5 @@
 import Tools.ShippingSrm12Corr
--- UNBUILT (unit SRM15): no build run yet (see REPORT-SRM15.md for the run names and exits once built).
+-- BUILT (unit SRM15): dev runs s15b (Graph + GraphTest) exit 0, s15e (audit) exit 0; the final-SHA rebuild is in REPORT-SRM15.md.
 -- SCOPE (SRM15): the GENERIC supply of SRM12's `hgraph` / `hname` premises of `ran_designCorr` (Tools/ShippingSrm12Corr.lean).  For `topshareM`/`topshareQ` both premises are already supplied inside SRM12's instance theorems
 -- (`gM_top_callees`/`gQ_top_callees`, and the kids' `ChildIfaceP.name`); nothing here is a new discharge for those two designs.  What is new is the GENERIC statement:
 --  * `graphOf ds`: the call graph read from a declaration list `ds : List (Name × MachineData)` (entry `(c, d.shape.instTagged)`);
@@ -64,6 +64,13 @@ theorem hname_of_iface (O : RefLawsAOps MkRefd mref cref) (d : MachineData)
   intro k hk y hn hre
   obtain ⟨_, _, _, hI⟩ := hiface k hk y hn hre
   exact hI.name
+
+/-- the condition determines the machine data: two first occurrences of `c` in `ds` agree -/
+theorem firstOcc_unique {ds : List (Name × MachineData)} {c : Name} {d d' : MachineData}
+    (h : FirstOcc ds c d) (h' : FirstOcc ds c d') : d = d' := by
+  unfold FirstOcc at h h'
+  rw [h] at h'
+  exact (Prod.mk.inj (Option.some.inj h')).2
 
 /-- **`ran_designCorr` over a graph read from a declaration list.**  Replaces the binders `hgraph`, `hname` of `ran_designCorr` by `hfirst : FirstOcc ds c d` and the per-kid `ChildIfaceP` fact `hiface`; `hkids` is unchanged. -/
 theorem ran_designCorr_of_graphOf (O : RefLawsAOps MkRefd mref cref) (ds : List (Name × MachineData)) {c : Name}

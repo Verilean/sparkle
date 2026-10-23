@@ -1,6 +1,6 @@
 import Tests.Compiler.Srm12CorrTest
 import Tools.ShippingSrm15Graph
--- UNBUILT (unit SRM15): no build run yet (see REPORT-SRM15.md).
+-- BUILT (unit SRM15): dev runs s15b (Graph + GraphTest) exit 0, s15e (audit) exit 0; the final-SHA rebuild is in REPORT-SRM15.md.
 -- SCOPE: `topshareM`/`topshareQ` re-stated through `ran_designCorr_of_graphOf` (Tools/ShippingSrm15Graph.lean).  This is NOT a new discharge of `hgraph`/`hname`: SRM12's `topshareM_corr`/`topshareQ_corr` already supply them.
 -- Here `gM`/`gQ` are shown equal to `graphOf dsM`/`graphOf dsQ` (`rfl`), the `FirstOcc` conditions hold by `rfl`, and the per-kid fact is the kids' `ChildIfaceP` (`wrapM_ifaceP` etc., unchanged from SRM12).
 -- `hkids` is supplied exactly as in SRM12 (`wrapM_childCorr` ...).  NOT claimed: an arbitrary graph, that `dsM`/`dsQ` list the right declarations beyond these two designs.

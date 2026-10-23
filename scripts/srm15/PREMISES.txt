@@ -1,0 +1,102 @@
+S15THM|Tools.ShippingSrm15Graph.callees_graphOf|4
+S15DATA|Tools.ShippingSrm15Graph.callees_graphOf|0|explicit|ds|List (Name × Tools.ShippingMachineAuto.MachineData)
+S15DATA|Tools.ShippingSrm15Graph.callees_graphOf|1|explicit|c|Name
+S15DATA|Tools.ShippingSrm15Graph.callees_graphOf|2|explicit|d|Tools.ShippingMachineAuto.MachineData
+S15PREM|Tools.ShippingSrm15Graph.callees_graphOf|3|explicit|h|Tools.ShippingSrm15Graph.FirstOcc ds c d
+S15THM|Tools.ShippingSrm15Graph.hname_of_iface|10
+S15DATA|Tools.ShippingSrm15Graph.hname_of_iface|0|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S15DATA|Tools.ShippingSrm15Graph.hname_of_iface|1|implicit|cref|ST.Ref IO.RealWorld Core.State
+S15DATA|Tools.ShippingSrm15Graph.hname_of_iface|2|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S15DATA|Tools.ShippingSrm15Graph.hname_of_iface|3|explicit|d|Tools.ShippingMachineAuto.MachineData
+S15PREM|Tools.ShippingSrm15Graph.hname_of_iface|4|explicit|hiface|∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y → ∃ nArgs outs names, Tools.ShippingMemCloses.ChildIfaceP (Sparkle.IR.ModuleName.ofDecl d.shape.insts[k].fst) nArgs outs names y.fst y.snd
+S15DATA|Tools.ShippingSrm15Graph.hname_of_iface|5|explicit|k|Nat
+S15PREM|Tools.ShippingSrm15Graph.hname_of_iface|6|explicit|hk|k < d.shape.insts.length
+S15DATA|Tools.ShippingSrm15Graph.hname_of_iface|7|explicit|y|Tools.ShippingChildInv.Res
+S15PREM|Tools.ShippingSrm15Graph.hname_of_iface|8|explicit|_anon|(Tools.ShippingInstTagged.originAt d.shape k).child? = none
+S15PREM|Tools.ShippingSrm15Graph.hname_of_iface|9|explicit|_anon|Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y
+S15THM|Tools.ShippingSrm15Graph.firstOcc_unique|6
+S15DATA|Tools.ShippingSrm15Graph.firstOcc_unique|0|implicit|ds|List (Name × Tools.ShippingMachineAuto.MachineData)
+S15DATA|Tools.ShippingSrm15Graph.firstOcc_unique|1|implicit|c|Name
+S15DATA|Tools.ShippingSrm15Graph.firstOcc_unique|2|implicit|d|Tools.ShippingMachineAuto.MachineData
+S15DATA|Tools.ShippingSrm15Graph.firstOcc_unique|3|implicit|d'|Tools.ShippingMachineAuto.MachineData
+S15PREM|Tools.ShippingSrm15Graph.firstOcc_unique|4|explicit|h|Tools.ShippingSrm15Graph.FirstOcc ds c d
+S15PREM|Tools.ShippingSrm15Graph.firstOcc_unique|5|explicit|h'|Tools.ShippingSrm15Graph.FirstOcc ds c d'
+S15THM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|25
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|0|implicit|mctx|Meta.Context
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|2|implicit|cctx|Core.Context
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|5|explicit|ds|List (Name × Tools.ShippingMachineAuto.MachineData)
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|6|implicit|c|Name
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|7|explicit|d|Tools.ShippingMachineAuto.MachineData
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|8|explicit|hfirst|Tools.ShippingSrm15Graph.FirstOcc ds c d
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|9|explicit|ok|d.ok = true
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|10|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|11|implicit|nDecl|Nat
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|12|explicit|hC|d.callsOk nDecl = true
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|13|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|14|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|15|explicit|hins|d.shape.insts ≠ []
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|16|explicit|hfne|d.shape.instFields ≠ []
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|17|explicit|outTy|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → o.ty.bitWidth = o.width
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|18|implicit|M|Sparkle.IR.AST.Module
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|19|implicit|b|Sparkle.IR.AST.Module
+S15DATA|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|20|implicit|D|Sparkle.IR.AST.Design
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|21|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|22|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|23|explicit|hiface|∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y → ∃ nArgs outs names, Tools.ShippingMemCloses.ChildIfaceP (Sparkle.IR.ModuleName.ofDecl d.shape.insts[k].fst) nArgs outs names y.fst y.snd
+S15PREM|Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf|24|explicit|hkids|∀ (k : Nat) (hk : k < d.shape.insts.length), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingSrm12Corr.ChildCorr (Tools.ShippingSrm15Graph.graphOf ds) O d.shape.insts[k].fst
+S15THM|Tools.ShippingSrm15Graph.graphCovers_callees|7
+S15DATA|Tools.ShippingSrm15Graph.graphCovers_callees|0|implicit|ds|List (Name × Tools.ShippingMachineAuto.MachineData)
+S15PREM|Tools.ShippingSrm15Graph.graphCovers_callees|1|explicit|hcov|Tools.ShippingSrm15Graph.GraphCovers ds
+S15DATA|Tools.ShippingSrm15Graph.graphCovers_callees|2|implicit|p|Name × Tools.ShippingMachineAuto.MachineData
+S15PREM|Tools.ShippingSrm15Graph.graphCovers_callees|3|explicit|hp|p ∈ ds
+S15DATA|Tools.ShippingSrm15Graph.graphCovers_callees|4|implicit|k|Tools.ShippingSrm7Rank.Kid
+S15PREM|Tools.ShippingSrm15Graph.graphCovers_callees|5|explicit|hk|k ∈ p.snd.shape.instTagged
+S15PREM|Tools.ShippingSrm15Graph.graphCovers_callees|6|explicit|hn|k.snd.child? = none
+S15THM|Tests.Compiler.Srm15GraphTest.gM_eq_graphOf|0
+S15THM|Tests.Compiler.Srm15GraphTest.gQ_eq_graphOf|0
+S15THM|Tests.Compiler.Srm15GraphTest.dsM_top_first|0
+S15THM|Tests.Compiler.Srm15GraphTest.dsQ_top_first|0
+S15THM|Tests.Compiler.Srm15GraphTest.topshareM_corr15|19
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareM_corr15|0|implicit|mctx|Meta.Context
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareM_corr15|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareM_corr15|2|implicit|cctx|Core.Context
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareM_corr15|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareM_corr15|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareM_corr15|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareM_corr15|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareM_corr15|7|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareM_corr15|8|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM Tests.Compiler.SharedLeafMemKidTest.wrapM.machineData.shape
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareM_corr15|9|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM3 Tests.Compiler.SharedLeafMemKidTest.wrapM3.machineData.shape
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareM_corr15|10|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareM_corr15|11|implicit|w|Void IO.RealWorld
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareM_corr15|12|implicit|w1|Void IO.RealWorld
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareM_corr15|13|implicit|raw|Sparkle.IR.AST.Module
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareM_corr15|14|implicit|b|Sparkle.IR.AST.Module
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareM_corr15|15|implicit|D|Sparkle.IR.AST.Design
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareM_corr15|16|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareM_corr15|17|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareM_corr15|18|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S15THM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|20
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|0|implicit|mctx|Meta.Context
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|2|implicit|cctx|Core.Context
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|7|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|8|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|9|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|10|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|12|implicit|w|Void IO.RealWorld
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|13|implicit|w1|Void IO.RealWorld
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|14|implicit|raw|Sparkle.IR.AST.Module
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|15|implicit|b|Sparkle.IR.AST.Module
+S15DATA|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|16|implicit|D|Sparkle.IR.AST.Design
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|17|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|18|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S15PREM|Tests.Compiler.Srm15GraphTest.topshareQ_corr15|19|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
