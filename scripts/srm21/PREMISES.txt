@@ -1,0 +1,79 @@
+S21THM|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|10
+S21DATA|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|0|explicit|D|Sparkle.IR.AST.Design
+S21DATA|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|1|explicit|b|Sparkle.IR.AST.Module
+S21PREM|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|2|explicit|hf|Tools.ShippingSrm21Lift.GrandInstFree D (Sparkle.IR.OptCheck.checkedOptimize b).body
+S21DATA|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|3|explicit|kids2|String → Tools.ShippingHierStateG.KT 2
+S21DATA|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|4|explicit|kids1|String → Tools.ShippingHierStateG.KT 1
+S21PREM|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|5|explicit|hc|∀ (i : String), Tools.ShippingSrm21Lift.KidCorr (kids2 i) (kids1 i)
+S21DATA|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|6|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S21DATA|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|7|explicit|T|Nat
+S21DATA|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|8|explicit|st0|String → Nat
+S21DATA|Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree|9|explicit|mems|Sparkle.IR.Semantics.MEnv
+S21THM|Tools.ShippingSrm21Lift.resetNk_depth_lift|5
+S21DATA|Tools.ShippingSrm21Lift.resetNk_depth_lift|0|explicit|raw|Sparkle.IR.AST.Module
+S21DATA|Tools.ShippingSrm21Lift.resetNk_depth_lift|1|explicit|D|Sparkle.IR.AST.Design
+S21PREM|Tools.ShippingSrm21Lift.resetNk_depth_lift|2|explicit|hf|Tools.ShippingSrm21Lift.GrandInstFree D raw.body
+S21DATA|Tools.ShippingSrm21Lift.resetNk_depth_lift|3|explicit|kids1|String → Tools.ShippingHierStateG.KT 1
+S21PREM|Tools.ShippingSrm21Lift.resetNk_depth_lift|4|explicit|h|Tools.ShippingMachineShipsDepth.ResetNk 1 raw D kids1
+S21THM|Tests.Compiler.Srm21LiftTest.qDepthLift_of_grandInstFree|4
+S21DATA|Tests.Compiler.Srm21LiftTest.qDepthLift_of_grandInstFree|0|explicit|raw|Sparkle.IR.AST.Module
+S21DATA|Tests.Compiler.Srm21LiftTest.qDepthLift_of_grandInstFree|1|explicit|D|Sparkle.IR.AST.Design
+S21DATA|Tests.Compiler.Srm21LiftTest.qDepthLift_of_grandInstFree|2|explicit|b|Sparkle.IR.AST.Module
+S21PREM|Tests.Compiler.Srm21LiftTest.qDepthLift_of_grandInstFree|3|explicit|h|Tools.ShippingSrm21Lift.QGrandInstFree raw D b
+S21THM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|20
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|0|implicit|mctx|Meta.Context
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|2|implicit|cctx|Core.Context
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|7|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|8|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|9|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|10|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|12|implicit|w|Void IO.RealWorld
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|13|implicit|w1|Void IO.RealWorld
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|14|implicit|raw|Sparkle.IR.AST.Module
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|15|implicit|b|Sparkle.IR.AST.Module
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|16|implicit|D|Sparkle.IR.AST.Design
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|17|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|18|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree|19|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S21THM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|20
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|0|implicit|mctx|Meta.Context
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|2|implicit|cctx|Core.Context
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|7|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|8|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|9|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|10|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|12|implicit|w|Void IO.RealWorld
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|13|implicit|w1|Void IO.RealWorld
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|14|implicit|raw|Sparkle.IR.AST.Module
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|15|implicit|b|Sparkle.IR.AST.Module
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|16|implicit|D|Sparkle.IR.AST.Design
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|17|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|18|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift|19|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S21THM|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|14
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|0|implicit|mctx|Meta.Context
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|2|implicit|cctx|Core.Context
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|4|implicit|w|Void IO.RealWorld
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|5|implicit|w1|Void IO.RealWorld
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|6|implicit|b|Sparkle.IR.AST.Module
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|7|implicit|raw|Sparkle.IR.AST.Module
+S21DATA|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|8|implicit|D|Sparkle.IR.AST.Design
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TqBnd mctx mref cctx cref w raw D
+S21PREM|Tests.Compiler.Srm21LiftTest.topshareQ_svBoundsH_underComposedG'|13|explicit|hBd|Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body = true

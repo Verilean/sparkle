@@ -1,0 +1,13 @@
+SRM21 GAP TABLE.  First version committed in the Q1 commit (84ce1641) with every row PLANNED; this version records the outcomes (dev runs l4, t2, a3 all exit 0; final-SHA evidence only in REPORT-SRM21.md).
+Status words: PROVED (theorem) / MISSING (exact Lean Prop + where it would come from) / counterexample.  No impossibility claim is made anywhere.
+
+        | generic (any D, b)                                                                                              | topshareQ instance
+ P1     | DEFINITION Tools.ShippingSrm21Lift.GrandInstFree / QGrandInstFree (Props on D.modules via childMap + instFree)   | PROVED: Tests.Compiler.Srm21LiftTest.topshareQ_grandInstFree (QGrandInstFree raw D b) from SRM12 topshareQ_corr (ModCorr gQ for b, checkedOptimize b, D.modules),
+        |                                                                                                                 |   core_kids_facts_ranAM (raw.name = ofDecl topshareQ, b.body = raw.body) and SRM7 computed ranks (top 2, wrapP/wrapQ 1, leafP 0, memory 0)
+ P2     | PROVED: Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree (hyp: GrandInstFree D (checkedOptimize b).body, KidCorr)  | follows from the P1 instance (inside topshareQ_qDepthLift)
+ P3     | PROVED: Tools.ShippingSrm21Lift.resetNk_depth_lift (hyp: GrandInstFree D raw.body)                              | follows from the P1 instance (inside topshareQ_qDepthLift)
+ P4     | PROVED: Tests.Compiler.Srm21LiftTest.qDepthLift_of_grandInstFree (hyp: QGrandInstFree raw D b)                  | PROVED: Tests.Compiler.Srm21LiftTest.topshareQ_qDepthLift (premises = those of topshareQ_corr: O T hA hR0 hcl entry₁ entry₂ entry hcore hpost hw)
+ corollary: topshareQ_svBoundsH_underComposedG' (Tests/Compiler/Srm21LiftTest.lean) = SRM20's theorem without `hlift`, premises O T hA ... hw taken from `hBnd : TqBnd …` (destructured).
+Premises that remain (PREMISE, unchanged from SRM20/TqBnd): TqBnd bundle (O, T, AdmCtx, MachineDefines/MachineCloses of the callees, TqHcallsP, TqFQ, TqGrp, JQC O 0 w), hBd, the ComposedG antecedents, hRK, hinsFit/hstX/hstR, hin/hst₁₋₃, hfit.
+Not used BY SRM21's lemmas: runKS_instFree (Tools/ShippingHierStateG.lean:648; it is nevertheless in the corollary's closure through SRM20/earlier units, audit line S21CLOSURE2) -- it is about the run of an instance-free CHILD; the needed comparison is step-wise for an instance that is itself NOT instance-free, proved by a generic step simulation (evalAssignsKG_sim/stepModuleTG_sim/runModuleTG_sim) and evalAssignsKG_instFree.
+OPEN (unchanged, not this unit): the TqBnd premises are not discharged; the statement is about this design's computed ranks only (gQ), nothing about other designs.
