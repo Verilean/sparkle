@@ -1,14 +1,19 @@
 import Tests.Compiler.Srm5ParentQTest
 import Tests.Compiler.Srm5HeightTest
 import Tests.Compiler.ChildVertAuditTest
+import Tests.Compiler.Srm5AuditExpected
 import Tools.ShippingKidsChildIfaceM
 -- BUILT (unit SRM5): s5j1 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM5.md.
--- SCOPE (SRM5, audits).  For each audited5 SRM5 theorem: (1) PREMISE TABLE: every binder (kind, name, Prop-or-data, type) is printed as an `S5PREM` / `S5DATA` line (machine-generated, extracted into `scripts/srm5/PREMISES.txt`), and the list of
--- HYPOTHESIS (Prop) binder names must equal the EXPECTED list; (2) BINDER AUDIT: no hypothesis restates the conclusion (`isDefEq` at reducible transparency), and no hypothesis of the height theorems mentions the uniform children's check (`kidsPass`/`kidCheck`);
--- (3) CLOSURE AUDIT: standard axioms only, no old `RefLaws`/`RealChild`/`InvW`/`MachineRan`/`MachineClosesAt`/`ChildBnd`/`KidFacts`-form constant in the closure, the transfer/instance theorems use `hcheck` and the identification lemma, and
--- the parent instances do NOT route through `kidsNC_designCheck_of_kidsPass` / `core_kidsPass_deep_ranA` (the uniform route; `kids_designCheck_inA` is reported as an `S5NOTE`: it can enter through `KidFactsA.toNC` of the plain callee, whose `check` field is projected away).  CONTROLS: every forbidden root exists; the old-form `kidsChild_of_realM` IS caught by the same walk;
--- the binder audit REJECTS a hand-made mutation (a theorem whose hypothesis is its own conclusion).  Examples do not make the class complete; `RealChildA` is a history of past synthesis results.
--- No `sorry`, no `axiom`, no `native_decide`.
+-- SCOPE (SRM5, audits).  For each audited SRM5 theorem: (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S5PREM` / `S5DATA` line and the WHOLE table (every binder of every audited theorem,
+-- in order) must EQUAL the committed `Tests/Compiler/Srm5AuditExpected.lean` (`expectedRows`) EXACTLY (list equality of the normalised tuples; a changed type, an added/removed/reordered binder, a changed implicit/data binder FAILS the build)
+-- AND the committed text view `scripts/srm5/PREMISES.txt`, line for line.  NEGATIVE FIXTURES: three mutations of the actual table (a changed Prop binder type with the same name; an added data binder; a reordered binder list) are REJECTED by the comparator.
+-- REGENERATION (from the head revision): `./.cluster/qbuild.sh build Tests.Compiler.Srm5AuditTest > LOG 2>&1; python3 scripts/srm5/gen_audit.py LOG` rewrites `Tests/Compiler/Srm5AuditExpected.lean` and `scripts/srm5/PREMISES.txt` from the `S5PREM`/`S5DATA` lines
+-- (a stale expected file makes the first build fail AFTER printing the rows, so the log is always available).  Binder names containing `_hyg` (anonymous arrows) are normalised to `_anon`.
+-- (2) BINDER AUDIT: no hypothesis restates the conclusion (`isDefEq` at reducible transparency; control: a hand-made wrapper IS caught), and no hypothesis of the height theorems mentions the uniform children's check (`kidsPass`/`kidCheck`).
+-- (3) CLOSURE AUDIT: standard axioms only, no old `RefLaws`/`RealChild`/`InvW`/`MachineRan`/`MachineClosesAt`/`ChildBnd`/`KidFacts`-form constant in the closure, every height theorem uses `hcheck`, the parent instances use the identification lemma and
+-- `memCallee_kidHeight` and do NOT route through `kidsNC_designCheck_of_kidsPass` / `core_kidsPass_deep_ranA` (the uniform route; `kids_designCheck_inA` is reported as an `S5NOTE`: it can enter through `KidFactsA.toNC` of the plain callee, whose `check`
+-- field is projected away).  CONTROLS: every forbidden root exists; the old-form `kidsChild_of_realM` IS caught by the same walk.  Examples do not make the class complete; `RealChildA` is a history of past synthesis results.
+-- NOT guaranteed: that the hypotheses are TRUE or satisfiable in general (only that they are the listed ones); the type strings are `ppExpr` renderings in the head environment.  No `sorry`, no `axiom`, no `native_decide`.
 set_option Elab.async false
 section
 open Lean Elab Command Meta
@@ -48,63 +53,61 @@ def heightThms : List Name :=
 def parentInstances : List Name :=
   [``Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck, ``Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck]
 
--- BEGIN EXPECTED
-def expectedPrem : List (Name × List String) :=
-  [(`Tools.ShippingSrm5Height.hcheck_memKids, ["hr", "ht", "hk"]),
-   (`Tools.ShippingSrm5Height.hcheck_memModule, ["hr"]),
-   (`Tools.ShippingSrm5Height.hcheck_ord, ["hr", "ht", "hk"]),
-   (`Tools.ShippingSrm5Height.hcheck_edge, ["hr", "hc", "hm"]),
-   (`Tools.ShippingSrm5Height.hcheck_unresolved, ["hr", "hm", "hu"]),
-   (`Tools.ShippingSrm5Height.hcheck_norank, ["hr", "hm", "hu"]),
-   (`Tools.ShippingSrm5Height.hcheck_notBelow, ["hr", "hm", "hrm", "hge"]),
-   (`Tools.ShippingSrm5Height.hcheck_selfInst, ["hr", "hm"]),
-   (`Tools.ShippingSrm5Height.hcheck_misnamed, ["hr", "hm", "hc", "hne"]),
-   (`Tools.ShippingSrm5Height.hcheck_eq_designCheck, ["a._@._internal._hyg.0"]),
-   (`Tools.ShippingSrm5Ident.inst_target_ranA, ["ok", "hbody", "hC", "hslots", "hdomB", "ran", "a._@._internal._hyg.0"]),
-   (`Tools.ShippingSrm5Ident.inst_target_ord_ranA, ["ok", "hbody", "hC", "hslots", "hdomB", "hnomem", "ran", "a._@._internal._hyg.0"]),
-   (`Tools.ShippingSrm5Transfer.kids_textCheck_inA, ["ok", "hbody", "hC", "hslots", "hdomB", "hins", "hsl", "hfne", "outTy", "hnomem", "hkidP", "hkidW", "hkidT", "hargs", "hkidIn", "hkidClk", "hpost", "ran", "hon", "hoty", "hms"]),
-   (`Tools.ShippingSrm5Transfer.kidsH_body_ranA, ["ok", "hbody", "hC", "hslots", "hdomB", "hins", "outTy", "hnomem", "hpost", "ran", "hrank", "hkidH", "hmsD"]),
-   (`Tools.ShippingSrm5Transfer.kids_hcheck_inA, ["ok", "hbody", "hC", "hslots", "hdomB", "hins", "hsl", "hfne", "outTy", "hnomem", "hkidP", "hkidW", "hkidT", "hargs", "hkidIn", "hkidClk", "hpost", "ran", "hon", "hoty", "hms", "hrb", "hrank", "hkidH"]),
-   (`Tools.ShippingSrm5Transfer.kidsH_pass_ranA, ["ok", "hbody", "hC", "hslots", "hdomB", "hins", "outTy", "hnomem", "hpost", "ran", "hrank", "hkidH"]),
-   (`Tools.ShippingSrm5Transfer.textCheckI_shipped, ["h", "ht", "hports"]),
-   (`Tools.ShippingSrm5Transfer.kidsNC_hcheck, ["ok", "hbody", "hC", "hslots", "hdomB", "hins", "hsl", "hfne", "outTy", "hnomem", "hkid", "hcw", "hargs", "hpost", "ran", "hon", "hoty", "hrb", "hrank", "hkidH"]),
-   (`Tools.ShippingSrm5TransferM.kids_textCheck_inAM, ["ok", "hbody", "hC", "hslots", "hdomB", "hins", "hsl", "hfne", "outTy", "hkidP", "hkidW", "hkidT", "hargs", "hkidIn", "hkidClk", "hpost", "ran", "hon", "hoty", "hms"]),
-   (`Tools.ShippingSrm5TransferM.kidsH_body_ranAM, ["ok", "hbody", "hC", "hslots", "hdomB", "hins", "hfne", "outTy", "hpost", "ran", "hrkmem", "hrank", "hkidH", "hmsD"]),
-   (`Tools.ShippingSrm5TransferM.kids_hcheck_inAM, ["ok", "hbody", "hC", "hslots", "hdomB", "hins", "hsl", "hfne", "outTy", "hkidP", "hkidW", "hkidT", "hargs", "hkidIn", "hkidClk", "hpost", "ran", "hon", "hoty", "hms", "hrb", "hrkmem", "hrank", "hkidH"]),
-   (`Tools.ShippingSrm5Deep.deepChild_kidHeightAM, ["T", "ok", "hbody", "hC", "hslots", "hdomB", "hins", "hsl", "hfne", "outTy", "hlo", "hcw", "hargs", "hon", "hoty", "hsep", "entry", "closes", "hrb", "hrkmem", "hrank", "hkidH"]),
-   (`Tools.ShippingSrm5Deep.memCallee_kidHeight, ["T", "hC", "hord", "hmemT", "hKid", "hcw", "hargs", "hon", "hoty", "entry", "hrb", "hrkmem", "hrk", "hKidH"]),
-   (`Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight, ["T", "entryL", "hrb", "hrkmem"]),
-   (`Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight, ["T", "entryL", "entry", "hrb", "hl", "hrkmem", "hleaf"]),
-   (`Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight, ["T", "entryL", "entry", "hrb", "hl", "hrkmem", "hleaf"]),
-   (`Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck, ["T", "hA", "entryL", "entry₁", "entry₂", "entry", "hcore", "hpost", "hw", "hrkmem", "hrT", "hrW", "hrW3", "hrL"]),
-   (`Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight, ["hR0", "hcl", "hr"]),
-   (`Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight, ["T", "hR0", "hcl", "entry", "hrb", "hl", "hrkmem", "hleaf"]),
-   (`Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight, ["T", "hR0", "hcl", "entry", "hrb", "hl", "hrkmem", "hleaf"]),
-   (`Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck, ["T", "hA", "hR0", "hcl", "entry₁", "entry₂", "entry", "hcore", "hpost", "hw", "hrkmem", "hrT", "hrP", "hrQ", "hrL"]),
-   (`Tests.Compiler.Srm5HeightTest.unbalanced_height_ok, ["hRt", "hAt"]),
-   (`Tests.Compiler.Srm5HeightTest.uniform_fails, []),
-   (`Tests.Compiler.Srm5HeightTest.mut_self, []),
-   (`Tests.Compiler.Srm5HeightTest.mut_backEdge, []),
-   (`Tests.Compiler.Srm5HeightTest.mut_unresolved, []),
-   (`Tests.Compiler.Srm5HeightTest.mut_norank, []),
-   (`Tests.Compiler.Srm5HeightTest.mut_misnamed, []),
-   (`Tests.Compiler.Srm5HeightTest.balanced_reproduces, [])]
--- END EXPECTED
 
-/-- rows `(index, kind, name, isProp, type)` of the binders of a theorem's type -/
-def premiseRows (thm : Name) : MetaM (List (Nat × String × String × Bool × String)) := do
+abbrev Row := Nat × String × String × Bool × String
+
+/-- normalised binder name -/
+def normName (n : String) : String := if (n.splitOn "_hyg").length > 1 then "_anon" else n
+
+/-- rows `(index, binderInfo, name, isProp, type)` of the binders of a theorem's type -/
+def premiseRows (thm : Name) : MetaM (List Row) := do
   let ci ← getConstInfo thm
   forallTelescope ci.type fun xs _ => do
-    let mut rows : List (Nat × String × String × Bool × String) := []
+    let mut rows : List Row := []
     let mut i := 0
     for x in xs do
       let d ← x.fvarId!.getDecl
       let isP ← Meta.isProp d.type
       let bi := match d.binderInfo with
         | .implicit => "implicit" | .strictImplicit => "strict" | .instImplicit => "inst" | .default => "explicit"
-      rows := rows ++ [(i, bi, d.userName.toString, isP, ((← ppExpr d.type).pretty 100000).replace "\n" " ")]
+      rows := rows ++ [(i, bi, normName d.userName.toString, isP, ((← ppExpr d.type).pretty 100000).replace "\n" " ")]
       i := i + 1
     return rows
+
+/-- the text line of a row (the format of `scripts/srm5/PREMISES.txt`) -/
+def rowLine (thm : Name) (r : Row) : String :=
+  s!"S5{if r.2.2.2.1 then "PREM" else "DATA"}|{thm}|{r.1}|{r.2.1}|{r.2.2.1}|{r.2.2.2.2}"
+
+/-- EXACT comparison of two whole tables: `none` iff equal, else the first difference -/
+def tableDiff (a e : List (Name × List Row)) : Option String := Id.run do
+  if a.length != e.length then return some s!"{a.length} theorems vs {e.length} expected"
+  for ((n, rs), (n', rs')) in a.zip e do
+    if n != n' then return some s!"theorem {n} vs expected {n'}"
+    if rs.length != rs'.length then return some s!"{n}: {rs.length} binders vs {rs'.length} expected"
+    for (r, r') in rs.zip rs' do
+      if r != r' then return some s!"{n}: binder {r.1} differs: {rowLine n r} vs expected {rowLine n r'}"
+  return none
+
+/-- mutation 1: change the type of the first Prop binder (same name) -/
+def mutType (t : List (Name × List Row)) : List (Name × List Row) :=
+  match t.findIdx? (fun (_, rs) => rs.any (·.2.2.2.1)) with
+  | none => t
+  | some k => t.mapIdx fun j (n, rs) =>
+    if j == k then
+      let idx := (rs.findIdx? (·.2.2.2.1)).getD 0
+      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ") else r)
+    else (n, rs)
+
+/-- mutation 2: add a data binder to the first theorem -/
+def mutAdd (t : List (Name × List Row)) : List (Name × List Row) :=
+  t.mapIdx fun j (n, rs) => if j == 0 then (n, rs ++ [(rs.length, "implicit", "extraBinder", false, "Nat")]) else (n, rs)
+
+/-- mutation 3: swap the first two binders of the first theorem that has two -/
+def mutSwap (t : List (Name × List Row)) : List (Name × List Row) :=
+  match t.findIdx? (fun (_, rs) => rs.length ≥ 2) with
+  | none => t
+  | some k => t.mapIdx fun j (n, rs) =>
+    if j == k then (match rs with | r0 :: r1 :: rest => (n, r1 :: r0 :: rest) | _ => (n, rs)) else (n, rs)
 
 /-- does a hypothesis of `thm` restate its conclusion (reducible `isDefEq`)? -/
 def restatesConclusion (thm : Name) : MetaM Bool := do
@@ -132,18 +135,34 @@ open Tests.Compiler.ChildVertAuditTest in
 run_cmd liftTermElabM do
   -- (2) CONTROL: the binder audit REJECTS the hand-made mutation, and ACCEPTS a real height theorem
   unless (← restatesConclusion ``Tests.Compiler.Srm5AuditTest.wrapper_mutation) do throwError "SRM5 AUDIT FAILED: the wrapper control was not caught"
-  -- (1)+(2) premise table and binder audit
+  -- (1)+(2) premise table (EXACT comparison) and binder audit
+  let mut actual : List (Name × List Row) := []
+  let mut lines : List String := []
   for thm in audited5 do
     let rows ← premiseRows thm
-    let hyps := rows.filter (·.2.2.2.1) |>.map (·.2.2.1)
-    for (i, bi, nm, isP, ty) in rows do
-      logInfo m!"S5{if isP then "PREM" else "DATA"}|{thm}|{i}|{bi}|{nm}|{ty}"
-    logInfo m!"S5HYPS|{thm}|{String.intercalate "," hyps}"
+    actual := actual ++ [(thm, rows)]
+    logInfo m!"S5THM|{thm}|{rows.length}"
+    lines := lines ++ [s!"S5THM|{thm}|{rows.length}"]
+    for r in rows do
+      logInfo m!"{rowLine thm r}"
+      lines := lines ++ [rowLine thm r]
     if (← restatesConclusion thm) then throwError "SRM5 AUDIT FAILED: a hypothesis of {thm} restates its conclusion"
-    match expectedPrem.lookup thm with
-    | some exp =>
-      unless exp == hyps do throwError "SRM5 AUDIT FAILED: the hypotheses of {thm} are {hyps}, expected {exp}"
-    | none => pure ()
+  -- the whole table equals the committed expected table, EXACTLY
+  match tableDiff actual Tests.Compiler.Srm5AuditExpected.expectedRows with
+  | some msg => throwError "SRM5 AUDIT FAILED: the premise table differs from Tests/Compiler/Srm5AuditExpected.lean: {msg}"
+  | none => pure ()
+  -- the committed text view equals the table line for line
+  let txt ← IO.FS.readFile "scripts/srm5/PREMISES.txt"
+  let fileLines := (txt.splitOn "\n").filter (· != "")
+  unless fileLines == lines do
+    throwError "SRM5 AUDIT FAILED: scripts/srm5/PREMISES.txt differs from the regenerated table ({fileLines.length} lines vs {lines.length})"
+  -- NEGATIVE FIXTURES: each mutation of the table is a DIFFERENT table and is REJECTED by the comparator
+  for (nm, mt) in [("changed Prop binder type", mutType actual), ("added data binder", mutAdd actual), ("reordered binders", mutSwap actual)] do
+    if mt == actual then throwError "SRM5 AUDIT FAILED: the fixture '{nm}' did not change the table (vacuous)"
+    match tableDiff mt Tests.Compiler.Srm5AuditExpected.expectedRows with
+    | none => throwError "SRM5 AUDIT FAILED: the comparator ACCEPTED the fixture '{nm}'"
+    | some msg => logInfo m!"S5FIXTURE|{nm}|rejected: {msg}"
+  logInfo m!"S5TABLE|{audited5.length} theorems, {lines.length} binders: equal to the committed table and to scripts/srm5/PREMISES.txt"
   for thm in heightThms do
     if (← mentionsUniform thm) then throwError "SRM5 AUDIT FAILED: a hypothesis of {thm} mentions the uniform children's check"
   -- (3) closure audit

@@ -1,3 +1,4 @@
+S5THM|Tools.ShippingSrm5Height.hcheck_memKids|8
 S5DATA|Tools.ShippingSrm5Height.hcheck_memKids|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Height.hcheck_memKids|1|implicit|rk|String → Option Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_memKids|2|implicit|o|Sparkle.IR.AST.Module
@@ -6,6 +7,7 @@ S5PREM|Tools.ShippingSrm5Height.hcheck_memKids|4|explicit|hr|rk o.name = some (h
 S5PREM|Tools.ShippingSrm5Height.hcheck_memKids|5|explicit|ht|Tools.ShippingDesignSV.textCheckI C o = true
 S5PREM|Tools.ShippingSrm5Height.hcheck_memKids|6|explicit|hk|Tools.ShippingSrm5Height.MemKidsH C rk o.body
 S5DATA|Tools.ShippingSrm5Height.hcheck_memKids|7|explicit|f|Nat
+S5THM|Tools.ShippingSrm5Height.hcheck_memModule|7
 S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|1|implicit|rk|String → Option Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|2|explicit|cb|Bool
@@ -13,6 +15,7 @@ S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|3|explicit|aw|Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|4|explicit|dw|Nat
 S5PREM|Tools.ShippingSrm5Height.hcheck_memModule|5|explicit|hr|rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
 S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|6|explicit|f|Nat
+S5THM|Tools.ShippingSrm5Height.hcheck_ord|8
 S5DATA|Tools.ShippingSrm5Height.hcheck_ord|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Height.hcheck_ord|1|implicit|rk|String → Option Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_ord|2|implicit|f|Nat
@@ -21,6 +24,7 @@ S5DATA|Tools.ShippingSrm5Height.hcheck_ord|4|implicit|h|Nat
 S5PREM|Tools.ShippingSrm5Height.hcheck_ord|5|explicit|hr|rk o.name = some (h + 1)
 S5PREM|Tools.ShippingSrm5Height.hcheck_ord|6|explicit|ht|Tools.ShippingDesignSV.textCheckI C o = true
 S5PREM|Tools.ShippingSrm5Height.hcheck_ord|7|explicit|hk|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body → ∃ child cwe r, C mn = some (child, cwe) ∧ rk mn = some r ∧ r ≤ h ∧ child.name = mn ∧ Tools.ShippingSrm5Height.hcheck C rk f child = true
+S5THM|Tools.ShippingSrm5Height.hcheck_edge|11
 S5DATA|Tools.ShippingSrm5Height.hcheck_edge|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Height.hcheck_edge|1|implicit|rk|String → Option Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_edge|2|implicit|o|Sparkle.IR.AST.Module
@@ -32,6 +36,7 @@ S5DATA|Tools.ShippingSrm5Height.hcheck_edge|7|implicit|mn|String
 S5DATA|Tools.ShippingSrm5Height.hcheck_edge|8|implicit|iname|String
 S5DATA|Tools.ShippingSrm5Height.hcheck_edge|9|implicit|conns|List (String × Sparkle.IR.AST.Expr)
 S5PREM|Tools.ShippingSrm5Height.hcheck_edge|10|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
+S5THM|Tools.ShippingSrm5Height.hcheck_unresolved|11
 S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|1|implicit|rk|String → Option Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|2|implicit|o|Sparkle.IR.AST.Module
@@ -43,6 +48,7 @@ S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|7|implicit|iname|String
 S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|8|implicit|conns|List (String × Sparkle.IR.AST.Expr)
 S5PREM|Tools.ShippingSrm5Height.hcheck_unresolved|9|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
 S5PREM|Tools.ShippingSrm5Height.hcheck_unresolved|10|explicit|hu|C mn = none
+S5THM|Tools.ShippingSrm5Height.hcheck_norank|11
 S5DATA|Tools.ShippingSrm5Height.hcheck_norank|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Height.hcheck_norank|1|implicit|rk|String → Option Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_norank|2|implicit|o|Sparkle.IR.AST.Module
@@ -54,6 +60,7 @@ S5DATA|Tools.ShippingSrm5Height.hcheck_norank|7|implicit|iname|String
 S5DATA|Tools.ShippingSrm5Height.hcheck_norank|8|implicit|conns|List (String × Sparkle.IR.AST.Expr)
 S5PREM|Tools.ShippingSrm5Height.hcheck_norank|9|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
 S5PREM|Tools.ShippingSrm5Height.hcheck_norank|10|explicit|hu|rk mn = none
+S5THM|Tools.ShippingSrm5Height.hcheck_notBelow|13
 S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|1|implicit|rk|String → Option Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|2|implicit|o|Sparkle.IR.AST.Module
@@ -67,6 +74,7 @@ S5PREM|Tools.ShippingSrm5Height.hcheck_notBelow|9|explicit|hm|Sparkle.IR.AST.Stm
 S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|10|implicit|r|Nat
 S5PREM|Tools.ShippingSrm5Height.hcheck_notBelow|11|explicit|hrm|rk mn = some r
 S5PREM|Tools.ShippingSrm5Height.hcheck_notBelow|12|explicit|hge|h + 1 ≤ r
+S5THM|Tools.ShippingSrm5Height.hcheck_selfInst|9
 S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|1|implicit|rk|String → Option Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|2|implicit|o|Sparkle.IR.AST.Module
@@ -76,6 +84,7 @@ S5PREM|Tools.ShippingSrm5Height.hcheck_selfInst|5|explicit|hr|rk o.name = some (
 S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|6|implicit|iname|String
 S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|7|implicit|conns|List (String × Sparkle.IR.AST.Expr)
 S5PREM|Tools.ShippingSrm5Height.hcheck_selfInst|8|explicit|hm|Sparkle.IR.AST.Stmt.inst o.name iname conns ∈ o.body
+S5THM|Tools.ShippingSrm5Height.hcheck_misnamed|14
 S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|1|implicit|rk|String → Option Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|2|implicit|o|Sparkle.IR.AST.Module
@@ -90,11 +99,13 @@ S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|10|implicit|child|Sparkle.IR.AST
 S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|11|implicit|cwe|Sparkle.IR.Semantics.WEnv
 S5PREM|Tools.ShippingSrm5Height.hcheck_misnamed|12|explicit|hc|C mn = some (child, cwe)
 S5PREM|Tools.ShippingSrm5Height.hcheck_misnamed|13|explicit|hne|child.name ≠ mn
+S5THM|Tools.ShippingSrm5Height.hcheck_eq_designCheck|5
 S5DATA|Tools.ShippingSrm5Height.hcheck_eq_designCheck|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Height.hcheck_eq_designCheck|1|implicit|rk|String → Option Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_eq_designCheck|2|explicit|n|Nat
 S5DATA|Tools.ShippingSrm5Height.hcheck_eq_designCheck|3|explicit|o|Sparkle.IR.AST.Module
-S5PREM|Tools.ShippingSrm5Height.hcheck_eq_designCheck|4|explicit|a._@._internal._hyg.0|Tools.ShippingSrm5Height.Uni C rk n o
+S5PREM|Tools.ShippingSrm5Height.hcheck_eq_designCheck|4|explicit|_anon|Tools.ShippingSrm5Height.Uni C rk n o
+S5THM|Tools.ShippingSrm5Ident.inst_target_ranA|20
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|2|implicit|cctx|Core.Context
@@ -114,7 +125,8 @@ S5PREM|Tools.ShippingSrm5Ident.inst_target_ranA|15|explicit|ran|Tools.ShippingPa
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|16|explicit|mn|String
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|17|explicit|i|String
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|18|explicit|conns|List (String × Sparkle.IR.AST.Expr)
-S5PREM|Tools.ShippingSrm5Ident.inst_target_ranA|19|explicit|a._@._internal._hyg.0|Sparkle.IR.AST.Stmt.inst mn i conns ∈ M.body
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ranA|19|explicit|_anon|Sparkle.IR.AST.Stmt.inst mn i conns ∈ M.body
+S5THM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|21
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|2|implicit|cctx|Core.Context
@@ -135,7 +147,8 @@ S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|16|explicit|ran|Tools.Shippi
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|17|explicit|mn|String
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|18|explicit|i|String
 S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|19|explicit|conns|List (String × Sparkle.IR.AST.Expr)
-S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|20|explicit|a._@._internal._hyg.0|Sparkle.IR.AST.Stmt.inst mn i conns ∈ M.body
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|20|explicit|_anon|Sparkle.IR.AST.Stmt.inst mn i conns ∈ M.body
+S5THM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|34
 S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|2|implicit|cctx|Core.Context
@@ -170,6 +183,7 @@ S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|30|explicit|hon|∀ (o : Sp
 S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|31|explicit|hoty|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Tools.ShippingTextTyped.scalarTy o.ty = true
 S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|32|explicit|ms|List Sparkle.IR.AST.Module
 S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|33|explicit|hms|∀ (g : Sparkle.IR.AST.Module), g ∈ D.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g
+S5THM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|28
 S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|2|implicit|cctx|Core.Context
@@ -198,6 +212,7 @@ S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|24|explicit|hrank|∀ (k : Nat
 S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|25|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
 S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|26|explicit|ms|List Sparkle.IR.AST.Module
 S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|27|explicit|hmsD|∀ (g : Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName D.modules g.name = some g → Sparkle.IR.Machine.moduleByName ms g.name = some g
+S5THM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|40
 S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|2|implicit|cctx|Core.Context
@@ -238,6 +253,7 @@ S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|36|explicit|f|Nat
 S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|37|explicit|hrb|rk b.name = some (h + 1)
 S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|38|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
 S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|39|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5THM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|26
 S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|2|implicit|cctx|Core.Context
@@ -264,11 +280,13 @@ S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|22|explicit|h|Nat
 S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|23|explicit|f|Nat
 S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|24|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
 S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|25|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5THM|Tools.ShippingSrm5Transfer.textCheckI_shipped|5
 S5DATA|Tools.ShippingSrm5Transfer.textCheckI_shipped|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
 S5DATA|Tools.ShippingSrm5Transfer.textCheckI_shipped|1|implicit|b|Sparkle.IR.AST.Module
 S5PREM|Tools.ShippingSrm5Transfer.textCheckI_shipped|2|explicit|h|Tools.ShippingGuardsSound.RunFacts C b
 S5PREM|Tools.ShippingSrm5Transfer.textCheckI_shipped|3|explicit|ht|Tools.ShippingTextTyped.TypedIn b
 S5PREM|Tools.ShippingSrm5Transfer.textCheckI_shipped|4|explicit|hports|Tools.ShippingDesignSV.portsMatchB C (Sparkle.IR.OptCheck.checkedOptimize b) = true
+S5THM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|36
 S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|2|implicit|cctx|Core.Context
@@ -305,6 +323,7 @@ S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|32|explicit|f|Nat
 S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|33|explicit|hrb|rk (Sparkle.IR.OptCheck.checkedOptimize b).name = some (h + 1)
 S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|34|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
 S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|35|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5THM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|33
 S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|2|implicit|cctx|Core.Context
@@ -338,6 +357,7 @@ S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|29|explicit|hon|∀ (o : 
 S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|30|explicit|hoty|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Tools.ShippingTextTyped.scalarTy o.ty = true
 S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|31|explicit|ms|List Sparkle.IR.AST.Module
 S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|32|explicit|hms|∀ (g : Sparkle.IR.AST.Module), g ∈ D.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g
+S5THM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|29
 S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|2|implicit|cctx|Core.Context
@@ -367,6 +387,7 @@ S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|25|explicit|hrank|∀ (k : N
 S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|26|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
 S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|27|explicit|ms|List Sparkle.IR.AST.Module
 S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|28|explicit|hmsD|∀ (g : Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName D.modules g.name = some g → Sparkle.IR.Machine.moduleByName ms g.name = some g
+S5THM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|40
 S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|2|implicit|cctx|Core.Context
@@ -407,6 +428,7 @@ S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|36|explicit|hrb|rk b.name = 
 S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|37|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
 S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|38|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
 S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|39|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5THM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|35
 S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|2|implicit|cctx|Core.Context
@@ -442,6 +464,7 @@ S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|31|explicit|hrb|rk (Sparkle.
 S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|32|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
 S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|33|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
 S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|34|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5THM|Tools.ShippingSrm5Deep.memCallee_kidHeight|32
 S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|0|implicit|mctx|Meta.Context
 S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|2|implicit|cctx|Core.Context
@@ -474,6 +497,7 @@ S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|28|explicit|hrb|rk (Sparkle.IR
 S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|29|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
 S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|30|explicit|hrk|∀ (k : Nat), k < d.shape.insts.length → (Tools.ShippingInstTagged.originAt d.shape k).child? = none → ∃ r, rk (nameK k) = some r ∧ r ≤ h
 S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|31|explicit|hKidH|∀ (k : Nat) (hk : k < d.shape.insts.length), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingSrm5Deep.KidHeight O d.shape.insts[k].fst rk f
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|11
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|0|implicit|mctx|Meta.Context
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|2|implicit|cctx|Core.Context
@@ -485,6 +509,7 @@ S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|7|explicit|rk|St
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|8|explicit|f|Nat
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|9|explicit|hrb|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafM) = some (0 + 1)
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|10|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|14
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|0|implicit|mctx|Meta.Context
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|2|implicit|cctx|Core.Context
@@ -499,6 +524,7 @@ S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|10|explicit|hrb|
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|11|explicit|hl|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafM) = some 1
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|12|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|13|explicit|hleaf|Tools.ShippingSrm5Deep.KidHeight O `Tests.Compiler.SharedLeafMemKidTest.leafM rk f
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|14
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|0|implicit|mctx|Meta.Context
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|2|implicit|cctx|Core.Context
@@ -513,6 +539,7 @@ S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|10|explicit|hrb
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|11|explicit|hl|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafM) = some 1
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|12|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|13|explicit|hleaf|Tools.ShippingSrm5Deep.KidHeight O `Tests.Compiler.SharedLeafMemKidTest.leafM rk f
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|26
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|0|implicit|mctx|Meta.Context
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|2|implicit|cctx|Core.Context
@@ -539,6 +566,7 @@ S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|22|explicit|hrT
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|23|explicit|hrW|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapM) = some (1 + 1)
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|24|explicit|hrW3|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapM3) = some (1 + 1)
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|25|explicit|hrL|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafM) = some 1
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|10
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|0|implicit|mctx|Meta.Context
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|2|implicit|cctx|Core.Context
@@ -549,6 +577,7 @@ S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|6|explicit|hcl|�
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|7|explicit|rk|String → Option Nat
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|8|explicit|f|Nat
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|9|explicit|hr|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafP) = some 0
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|15
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|0|implicit|mctx|Meta.Context
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|2|implicit|cctx|Core.Context
@@ -564,6 +593,7 @@ S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|11|explicit|hrb|
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|12|explicit|hl|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafP) = some 0
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|13|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|14|explicit|hleaf|Tools.ShippingSrm5Deep.KidHeight O `Tests.Compiler.SharedLeafMemKidTest.leafP rk f
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|15
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|0|implicit|mctx|Meta.Context
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|2|implicit|cctx|Core.Context
@@ -579,6 +609,7 @@ S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|11|explicit|hrb|
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|12|explicit|hl|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafP) = some 0
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|13|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|14|explicit|hleaf|Tools.ShippingSrm5Deep.KidHeight O `Tests.Compiler.SharedLeafMemKidTest.leafP rk f
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|27
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|0|implicit|mctx|Meta.Context
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
 S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|2|implicit|cctx|Core.Context
@@ -606,11 +637,19 @@ S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|23|explicit|hrT
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|24|explicit|hrP|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapP) = some (0 + 1)
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|25|explicit|hrQ|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapQ) = some (0 + 1)
 S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|26|explicit|hrL|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafP) = some 0
+S5THM|Tests.Compiler.Srm5HeightTest.unbalanced_height_ok|2
 S5PREM|Tests.Compiler.Srm5HeightTest.unbalanced_height_ok|0|explicit|hRt|Tools.ShippingDesignSV.textCheckI Tests.Compiler.Srm5HeightTest.C Tests.Compiler.Srm5HeightTest.Rm = true
 S5PREM|Tests.Compiler.Srm5HeightTest.unbalanced_height_ok|1|explicit|hAt|Tools.ShippingDesignSV.textCheckI Tests.Compiler.Srm5HeightTest.C Tests.Compiler.Srm5HeightTest.Am = true
+S5THM|Tests.Compiler.Srm5HeightTest.uniform_fails|1
 S5DATA|Tests.Compiler.Srm5HeightTest.uniform_fails|0|explicit|n|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.mut_self|1
 S5DATA|Tests.Compiler.Srm5HeightTest.mut_self|0|explicit|f|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.mut_backEdge|1
 S5DATA|Tests.Compiler.Srm5HeightTest.mut_backEdge|0|explicit|f|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.mut_unresolved|1
 S5DATA|Tests.Compiler.Srm5HeightTest.mut_unresolved|0|explicit|f|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.mut_norank|1
 S5DATA|Tests.Compiler.Srm5HeightTest.mut_norank|0|explicit|f|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.mut_misnamed|1
 S5DATA|Tests.Compiler.Srm5HeightTest.mut_misnamed|0|explicit|f|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.balanced_reproduces|0
