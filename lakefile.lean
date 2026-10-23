@@ -4235,3 +4235,6 @@ lean_lib «Tests.Compiler.Srm17AuditTest» where
 
 lean_lib «Tools.ShippingSrm18Start» where
   roots := #[`Tools.ShippingSrm18Start]
+
+lean_lib «Tests.Compiler.Srm18ParentTest» where
+  roots := #[`Tests.Compiler.Srm18ParentTest]
