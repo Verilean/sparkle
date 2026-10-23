@@ -128,9 +128,9 @@ theorem topshareM_svBoundsH_viaResetState (O : RefLawsAOps MkRefd mref cref) (T 
     (hin : ∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ Tools.ShippingDesignSV.weS (checkedOptimize b) x)
     (hst₁ : RegsAtInit (checkedOptimize b) s.st) (hst₂ : RegsFit (checkedOptimize b)) (hst₃ : NonRegBounded (checkedOptimize b) s.st)
     (hsk : s.kids = Tools.ShippingSrm16Reset.resetKids D 2 raw)
-    (hIUraw : ∀ (mn i : String) (c : List (String × Expr)) (mn' : String) (c' : List (String × Expr)),
+    (hIUraw : ∀ (mn i : String) (c : List (String × Sparkle.IR.AST.Expr)) (mn' : String) (c' : List (String × Sparkle.IR.AST.Expr)),
       Stmt.inst mn i c ∈ raw.body → Stmt.inst mn' i c' ∈ raw.body → mn = mn')
-    (hIU : ∀ m ∈ D.modules, ∀ (mn i : String) (c : List (String × Expr)) (mn' : String) (c' : List (String × Expr)),
+    (hIU : ∀ m ∈ D.modules, ∀ (mn i : String) (c : List (String × Sparkle.IR.AST.Expr)) (mn' : String) (c' : List (String × Sparkle.IR.AST.Expr)),
       Stmt.inst mn i c ∈ m.body → Stmt.inst mn' i c' ∈ m.body → mn = mn')
     (hAg : ∀ m ∈ D.modules, ∀ r c rs inp (init : Int) c' rs' inp' (init' : Int),
       Stmt.register r c rs inp init ∈ m.body → Stmt.register r c' rs' inp' init' ∈ m.body → init.toNat = init'.toNat)
@@ -195,9 +195,9 @@ theorem topshareQ_svBoundsH_viaResetState (O : RefLawsAOps MkRefd mref cref) (T 
     (hin : ∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ Tools.ShippingDesignSV.weS (checkedOptimize b) x)
     (hst₁ : RegsAtInit (checkedOptimize b) s.st) (hst₂ : RegsFit (checkedOptimize b)) (hst₃ : NonRegBounded (checkedOptimize b) s.st)
     (hsk : s.kids = Tools.ShippingSrm16Reset.resetKids D 1 raw)
-    (hIUraw : ∀ (mn i : String) (c : List (String × Expr)) (mn' : String) (c' : List (String × Expr)),
+    (hIUraw : ∀ (mn i : String) (c : List (String × Sparkle.IR.AST.Expr)) (mn' : String) (c' : List (String × Sparkle.IR.AST.Expr)),
       Stmt.inst mn i c ∈ raw.body → Stmt.inst mn' i c' ∈ raw.body → mn = mn')
-    (hIU : ∀ m ∈ D.modules, ∀ (mn i : String) (c : List (String × Expr)) (mn' : String) (c' : List (String × Expr)),
+    (hIU : ∀ m ∈ D.modules, ∀ (mn i : String) (c : List (String × Sparkle.IR.AST.Expr)) (mn' : String) (c' : List (String × Sparkle.IR.AST.Expr)),
       Stmt.inst mn i c ∈ m.body → Stmt.inst mn' i c' ∈ m.body → mn = mn')
     (hAg : ∀ m ∈ D.modules, ∀ r c rs inp (init : Int) c' rs' inp' (init' : Int),
       Stmt.register r c rs inp init ∈ m.body → Stmt.register r c' rs' inp' init' ∈ m.body → init.toNat = init'.toNat)
@@ -260,9 +260,9 @@ theorem topshareM_designSVH_viaResetState (O : RefLawsAOps MkRefd mref cref) (T 
     (hin : ∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ Tools.ShippingDesignSV.weS (checkedOptimize b) x)
     (hst₁ : RegsAtInit (checkedOptimize b) s.st) (hst₂ : RegsFit (checkedOptimize b)) (hst₃ : NonRegBounded (checkedOptimize b) s.st)
     (hsk : s.kids = Tools.ShippingSrm16Reset.resetKids D 2 raw)
-    (hIUraw : ∀ (mn i : String) (c : List (String × Expr)) (mn' : String) (c' : List (String × Expr)),
+    (hIUraw : ∀ (mn i : String) (c : List (String × Sparkle.IR.AST.Expr)) (mn' : String) (c' : List (String × Sparkle.IR.AST.Expr)),
       Stmt.inst mn i c ∈ raw.body → Stmt.inst mn' i c' ∈ raw.body → mn = mn')
-    (hIU : ∀ m ∈ D.modules, ∀ (mn i : String) (c : List (String × Expr)) (mn' : String) (c' : List (String × Expr)),
+    (hIU : ∀ m ∈ D.modules, ∀ (mn i : String) (c : List (String × Sparkle.IR.AST.Expr)) (mn' : String) (c' : List (String × Sparkle.IR.AST.Expr)),
       Stmt.inst mn i c ∈ m.body → Stmt.inst mn' i c' ∈ m.body → mn = mn')
     (hAg : ∀ m ∈ D.modules, ∀ r c rs inp (init : Int) c' rs' inp' (init' : Int),
       Stmt.register r c rs inp init ∈ m.body → Stmt.register r c' rs' inp' init' ∈ m.body → init.toNat = init'.toNat)
@@ -327,9 +327,9 @@ theorem topshareQ_designSVH_viaResetState (O : RefLawsAOps MkRefd mref cref) (T 
     (hin : ∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ Tools.ShippingDesignSV.weS (checkedOptimize b) x)
     (hst₁ : RegsAtInit (checkedOptimize b) s.st) (hst₂ : RegsFit (checkedOptimize b)) (hst₃ : NonRegBounded (checkedOptimize b) s.st)
     (hsk : s.kids = Tools.ShippingSrm16Reset.resetKids D 1 raw)
-    (hIUraw : ∀ (mn i : String) (c : List (String × Expr)) (mn' : String) (c' : List (String × Expr)),
+    (hIUraw : ∀ (mn i : String) (c : List (String × Sparkle.IR.AST.Expr)) (mn' : String) (c' : List (String × Sparkle.IR.AST.Expr)),
       Stmt.inst mn i c ∈ raw.body → Stmt.inst mn' i c' ∈ raw.body → mn = mn')
-    (hIU : ∀ m ∈ D.modules, ∀ (mn i : String) (c : List (String × Expr)) (mn' : String) (c' : List (String × Expr)),
+    (hIU : ∀ m ∈ D.modules, ∀ (mn i : String) (c : List (String × Sparkle.IR.AST.Expr)) (mn' : String) (c' : List (String × Sparkle.IR.AST.Expr)),
       Stmt.inst mn i c ∈ m.body → Stmt.inst mn' i c' ∈ m.body → mn = mn')
     (hAg : ∀ m ∈ D.modules, ∀ r c rs inp (init : Int) c' rs' inp' (init' : Int),
       Stmt.register r c rs inp init ∈ m.body → Stmt.register r c' rs' inp' init' ∈ m.body → init.toNat = init'.toNat)

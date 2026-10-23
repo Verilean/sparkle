@@ -9,9 +9,9 @@ import re, sys
 src = open('Tests/Compiler/Srm13ParentTest.lean').read()
 blocks = re.findall(r'(theorem \w+_viaReset .*?)(?=\n\ntheorem |\nend )', src, re.S)
 assert len(blocks) == 4, len(blocks)
-STRUCT = '''    (hIUraw : ∀ (mn i : String) (c : List (String × Expr)) (mn' : String) (c' : List (String × Expr)),
+STRUCT = '''    (hIUraw : ∀ (mn i : String) (c : List (String × Sparkle.IR.AST.Expr)) (mn' : String) (c' : List (String × Sparkle.IR.AST.Expr)),
       Stmt.inst mn i c ∈ raw.body → Stmt.inst mn' i c' ∈ raw.body → mn = mn')
-    (hIU : ∀ m ∈ D.modules, ∀ (mn i : String) (c : List (String × Expr)) (mn' : String) (c' : List (String × Expr)),
+    (hIU : ∀ m ∈ D.modules, ∀ (mn i : String) (c : List (String × Sparkle.IR.AST.Expr)) (mn' : String) (c' : List (String × Sparkle.IR.AST.Expr)),
       Stmt.inst mn i c ∈ m.body → Stmt.inst mn' i c' ∈ m.body → mn = mn')
     (hAg : ∀ m ∈ D.modules, ∀ r c rs inp (init : Int) c' rs' inp' (init' : Int),
       Stmt.register r c rs inp init ∈ m.body → Stmt.register r c' rs' inp' init' ∈ m.body → init.toNat = init'.toNat)
