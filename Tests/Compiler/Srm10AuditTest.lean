@@ -3,7 +3,7 @@ import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.Srm10AuditExpected
 import Tools.ShippingKidsChildIfaceM
 import Tools.ShippingSrm10Outs
--- BUILT (unit SRM10): s10c3 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM10.md.
+-- BUILT (unit SRM10): s10c3 exit 0; (unit SRM10B) mutType made semantic (` ∧ True`) with row-level assertions; dev run d1 exit 0; the final-SHA rebuild is in REPORT-SRM10B.md.
 -- SCOPE (SRM10, audits).  For each audited SRM10 theorem: (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S10PREM` / `S10DATA` line and the WHOLE table must EQUAL the committed
 -- `Tests/Compiler/Srm10AuditExpected.lean` (`expectedRows`) EXACTLY and the committed text view `scripts/srm10/PREMISES.txt`, line for line.  NEGATIVE FIXTURES: three mutations of the actual table (changed Prop binder type, added data binder,
 -- reordered binders) are REJECTED.  REGENERATION: `./.cluster/qbuild.sh build Tests.Compiler.Srm10AuditTest > LOG 2>&1; python3 scripts/srm10/gen_audit.py LOG`.  Binder names containing `_hyg` are normalised to `_anon`.
@@ -11,6 +11,7 @@ import Tools.ShippingSrm10Outs
 -- (3) CLOSURE AUDIT: standard axioms only, no old `RefLaws`/`RealChild`/`InvW`/`MachineRan`/`MachineClosesAt`/`ChildBnd`/`KidFacts`-form constant in the closure (every forbidden root exists; the old-form `kidsChild_of_realM` IS caught by the same walk);
 -- `houtsCheck` is in the closure of the link theorems and the instances; the instances use `hcheck` (SRM5) and SRM4's `outsCheck` supply.  NOT guaranteed: that the hypotheses are TRUE in general; type strings are `ppExpr` renderings.
 set_option Elab.async false
+set_option autoImplicit false
 section
 open Lean Elab Command Meta
 
@@ -78,14 +79,14 @@ def tableDiff (a e : List (Name × List Row)) : Option String := Id.run do
       if r != r' then return some s!"{n}: binder {r.1} differs: {rowLine n r} vs expected {rowLine n r'}"
   return none
 
-/-- mutation 1: change the type of the first Prop binder (same name) -/
+/-- mutation 1: SEMANTIC change of the type of the first Prop binder (same index, binderInfo, name): the type string gets ` ∧ True` appended -/
 def mutType (t : List (Name × List Row)) : List (Name × List Row) :=
   match t.findIdx? (fun (_, rs) => rs.any (·.2.2.2.1)) with
   | none => t
   | some k => t.mapIdx fun j (n, rs) =>
     if j == k then
       let idx := (rs.findIdx? (·.2.2.2.1)).getD 0
-      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ") else r)
+      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ∧ True") else r)
     else (n, rs)
 
 /-- mutation 2: add a data binder to the first theorem -/
@@ -150,6 +151,25 @@ run_cmd liftTermElabM do
   unless fileLines == lines do
     throwError "SRM10 AUDIT FAILED: scripts/srm10/PREMISES.txt differs from the regenerated table ({fileLines.length} lines vs {lines.length})"
   -- NEGATIVE FIXTURES: each mutation of the table is a DIFFERENT table and is REJECTED by the comparator
+  -- fixture 1 is SEMANTIC: exactly one row differs, it is still a Prop binder with the same index/binderInfo/name, and its type string visibly differs
+  do
+    let mt := mutType actual
+    let mut changed : List (Name × Row × Row) := []
+    unless mt.length == actual.length do throwError "SRM10 AUDIT FAILED: fixture 1 changed the number of theorems"
+    for ((n, rs), (n', rs')) in actual.zip mt do
+      unless n == n' && rs.length == rs'.length do throwError "SRM10 AUDIT FAILED: fixture 1 changed the shape of {n}"
+      for (r, r') in rs.zip rs' do
+        if r != r' then changed := changed ++ [(n, r, r')]
+    match changed with
+    | [(n, r, r')] =>
+      unless r'.2.2.2.1 do throwError "SRM10 AUDIT FAILED: fixture 1 mutated row of {n} is not a Prop binder"
+      unless r.2.2.2.1 && r'.1 == r.1 && r'.2.1 == r.2.1 && r'.2.2.1 == r.2.2.1 do throwError "SRM10 AUDIT FAILED: fixture 1 changed index/binderInfo/name/isProp of binder {r.1} of {n}"
+      unless r'.2.2.2.2 != r.2.2.2.2 && r'.2.2.2.2.endsWith " ∧ True" && r'.2.2.2.2.length == r.2.2.2.2.length + 7 do throwError "SRM10 AUDIT FAILED: fixture 1 type string is not visibly changed"
+      logInfo m!"S10FIXTURE1|{n}|binder {r.1} ({r.2.2.1})|original type: {r.2.2.2.2}|mutated type: {r'.2.2.2.2}"
+      match tableDiff mt Tests.Compiler.Srm10AuditExpected.expectedRows with
+      | some msg => unless (msg.splitOn s!"binder {r.1} differs").length > 1 && (msg.splitOn (toString n)).length > 1 do throwError "SRM10 AUDIT FAILED: fixture 1 rejection does not name the mutated binder: {msg}"
+      | none => throwError "SRM10 AUDIT FAILED: the comparator ACCEPTED fixture 1"
+    | _ => throwError "SRM10 AUDIT FAILED: fixture 1 changed {changed.length} rows, expected exactly 1"
   for (nm, mt) in [("changed Prop binder type", mutType actual), ("added data binder", mutAdd actual), ("reordered binders", mutSwap actual)] do
     if mt == actual then throwError "SRM10 AUDIT FAILED: the fixture '{nm}' did not change the table (vacuous)"
     match tableDiff mt Tests.Compiler.Srm10AuditExpected.expectedRows with
