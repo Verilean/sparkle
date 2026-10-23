@@ -48,16 +48,17 @@ leaf children). **(C)** depth 2 `grand → mid → cnt`: the checks `Tests.Compi
 | class generalisation (memory parents, polymorphic domains, depth > 2, several children at depth 2) | B, C | — | OPEN (L8s) | one class at a time, per generator |
 | legacy-route semantics | — | — | OPEN (only split off, L7e*) | — |
 
-## 0b. Height-indexed kid check and the memory-parent chain (L8bd4; units SRM5–SRM10, integration candidate par/int-srm1)
+## 0b. Height-indexed kid check and the memory-parent chain (L8bd4; units SRM5–SRM10, integration candidate par/int-srm2; supersedes candidate par/int-srm1 2d8cee85, which lacked SRM5B)
 
 Each unit lists its THEOREM commit (proof content) and its AUDIT commit. The B units (SRMnB) change only the unit's audit test
 (fixture 1 was a whitespace-only type change, i.e. vacuous; it is now the semantic change `… ∧ True` with row-level assertions);
 they are not separate proof content. Superseded final runs remain development history for the binder audit only.
+All six B repairs (SRM5B–SRM10B) are merged in par/int-srm2; SRM5 itself is already in the base 124f7db7, so only its B commit is merged here.
 Builds named here are local `./.cluster/qbuild.sh build …` runs; nothing here is CI, a production statement or a general theorem.
 
 | unit | theorem commit (final run) | audit evidence (supersedes) | PROVED | PREMISE | OPEN |
 |---|---|---|---|---|---|
-| SRM5 | 124f7db7 (s5f9) | SRM5B 7f72ec55 (s5f9 superseded for the audit; SRM5B is NOT part of this batch) | height checker `hcheck`; `hkids` of the parent designCheck discharged for topshareM/Q under the concrete rank tables rkM/rkQ; `hcheck_eq_designCheck` CONDITIONAL on `Uni` | `hrank`/`hkidH`/`hrb`/`hrkmem` in every transfer | general rank supply; semantic bridge |
+| SRM5 | 124f7db7 (s5f9) | SRM5B 7f72ec55 (s5f9 superseded) | height checker `hcheck`; `hkids` of the parent designCheck discharged for topshareM/Q under the concrete rank tables rkM/rkQ; `hcheck_eq_designCheck` CONDITIONAL on `Uni` | `hrank`/`hkidH`/`hrb`/`hrkmem` in every transfer | general rank supply; semantic bridge |
 | SRM6 | 5776c9d1 (s6final) | SRM6B 66cec648 (s6final superseded) | `design_sv_runH` from `hcheck` | the IR run, `SVBoundsH`; topshare instances keep their rank and machine premises | source endpoint; machine-side invariant supply |
 | SRM7 | 2291bbea (s7f1) | SRM7B 5592b95e (s7f1 superseded) | computed rank witnesses; rank premises discharged for topshareM/Q from their machineData call graphs only | — | arbitrary graph provenance; graph ↔ compiled `D.modules` edge correspondence; per-kid `hkidH`; unique module names; fuel supply; endpoint |
 | SRM8 | 0a035c79 (s8f1) | SRM8B 47de0e97 (s8f1 superseded) | `design_at_free_h` CONDITIONAL on `HeightBridge n`; machine-generated premise-supply table | `HeightBridge n` | HeightBridge truth; height-indexed outsCheck; general rank supply; endpoint assembly (bridge/audit unit, not endpoint progress) |
