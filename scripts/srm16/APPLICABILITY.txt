@@ -1,0 +1,23 @@
+SRM16 applicability table (base 077d428d).  Files actually inspected: Tools/ShippingKidsResetSat.lean, Tools/ShippingMachineShipsDepth.lean, Tools/ShippingMachineDepth.lean,
+Tools/ShippingSrm4Core2.lean, Tools/ShippingParentTailsA.lean, Tests/Compiler/Srm4ParentTest.lean, Tests/Compiler/Srm4ParentQTest.lean.  (Tools/ShippingKidsDepth.lean does NOT exist at this base.)
+Targets: hrk : ResetNk n raw D s.kids (M: n=2, Q: n=1);  hO : inst stmts of (checkedOptimize b).body are inst stmts of raw.body.
+
+ROW | lemma (file:line) | conclusion | premises | available for topshareM/Q? | matches binder exactly?
+R1  | inst_checkedOptimize_sub (ShippingKidsResetSat:321) | inst ∈ (checkedOptimize b).body → inst ∈ b.body | hierGate b = true | via R2 | b.body, not raw.body: needs R3
+R2  | core_hierGate_anyAM (ShippingSrm4Core2:47) | hierGate b = true | d.ok, hbody, hC, hslots, hdomB, hins, hfne, outTy, hpost, ran : MachineRanA | M: topshareM_parentData.{ok,body,callsOk,slots,domB}, topshareM_insts_ne (Srm4ParentTest:~58), topshareM_fne (Srm4ParentTest:61), topshareM_outTy; ran = topshareM_ranA (Srm4ParentTest:91) from entries/hcore/hw.  Q: same with topshareQ_* (Srm4ParentQTest:46-74) | yes (b same)
+R3  | core_kids_facts_ranA .2.1 (ShippingParentTailsA:48) | b.body = M.body (M := raw) | as R2 plus hnomem (topshareM_nomem / topshareQ_nomem) | yes | exact equality, so exact-conns hO holds (reviewer's concern about dzExpr rewriting conns: b.body = raw.body is a PROVED conclusion of this lemma, used as is)
+=> hO: SUPPLIED by composition R2+R3+R1 (new theorems topshare{M,Q}_hO in Tests/Compiler/Srm16ParentTest.lean: a composition, no existing lemma has this statement; grep for 'checkedOptimize b).body → Stmt.inst' over raw.body finds only the SRM13 binder).
+R4  | kidsInit (ShippingKidsResetSat:350), kidsInit_sat (:369) | kidsInit raw D : String → KidState (depth 0); Reset1 raw D kids ∧ InvN … 0 … | hInst hRegAg hRd hW hO | would give ResetNk 0 shape only (KT 0 = KidState); topshareM needs KT 2 = KState (KState KidState), topshareQ KT 1 | NO: depth differs, n=1,2 not 0; also Reset1/InvN, not ResetN
+R5  | kidsZero (:445), kidsZero_sat (:449), core_kidsSatMT (:544) | depth-0 all-zero kids; NoRegs kids | NoRegs y.1 per KidT kid | topshareM/Q kids (wrapM,wrapP…) have registers? not established; and depth 0 | NO (depth 0)
+R6  | ResetNk (ShippingMachineShipsDepth:245) / ResetN (ShippingMachineDepth:52) | definitions | -- | -- | binder
+R7  | any depth-n (n=1,2) constructor of a KT n reset state, or a theorem ResetNk n .. (kids) | none found: grep 'ResetNk|ResetN ' in Tools/Tests gives only the definitions and SRM13 binders (Tests/Compiler/SeqParentGenTest:106 is a comment) | -- | MISSING | => NEW: resetKT/resetKids (Tools/ShippingSrm16Reset) generalise kidsInit to depth n; resetN_resetKT, resetNk_resetKids give ResetNk n raw D (resetKids D n raw).
+Residual PREMISES of resetNk_resetKids (not supplied for concrete topshareM/Q; D is the output of the opaque run hcore, whose modules are only known through RealChildA, a HISTORY):
+  hIUraw : in raw.body an instance name determines its module name.  Decidable on a concrete raw; raw is not concrete here.  Possible supplier: RunFacts.ndB on b.body with b.body = raw.body (R3) (kidsInit docstring: instAgree_of_nodup); not wired here.
+  hIU    : the same for every module of D.  No supplier: modules of D are known via core_kids_facts_ranA .2.2.2.2.1 (RealChildA history) only.
+  hAg    : same-name registers of every module of D have equal init.toNat.  No supplier (needs structure of the children's synthesized bodies; Srm4Core2:374 treats closeMachine registers for the parent only).
+  hRd    : a register named like a memory's read register has init 0.  No supplier.
+  hsk    : s.kids = resetKids D n raw — the start state's kids ARE the constructed state; relation hrun-start-state = reset state: PREMISE, not proved.
+  Also explicit: FitTree (hfit), RegsAtInit, RegsFit, NonRegBounded, hin.
+H3 status: NOT "supplied": a constructed state with a proof of ResetNk under premises hIUraw/hIU/hAg/hRd.  Next proposition to prove for the unconditional form (OPEN):
+  ∀ O T … (hcore …) , ∀ m ∈ D.modules, (∀ mn i c mn' c', inst mn i c ∈ m.body → inst mn' i c' ∈ m.body → mn = mn') ∧ (register agreement) ∧ (memory read-reg init 0)
+  via a ChildCorr-style recursion over RealChildA (Tools/ShippingSrm12Corr ran_designCorr pattern).
