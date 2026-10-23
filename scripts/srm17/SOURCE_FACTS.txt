@@ -1,0 +1,29 @@
+SRM17 SOURCE FACTS table (base b4df089c).  Status words: PROVED (theorem, file) / MISSING (exact Lean Prop, where it would come from) / counterexample.
+Nothing below is a claim about an arbitrary design: the rows for M/Q are for the concrete `topshareM` (depth 2) / `topshareQ` (depth 1) under the SRM16 machine premises (O, T, hA, MachineDefines, hcore, hpost, hw).
+RealChildA is a HISTORY of past synthesis results, not semantic correctness in the current environment.  Row statuses are PROVED only once the final-SHA build in REPORT-SRM17.md shows the module Built.
+
+RESIDUALS (SRM16 binders of resetNk_resetKids)
+R   residual  inst  status
+R1  hIUraw    M     PROVED  topshareM_hIUraw (Tests/Compiler/Srm17ParentTest.lean) from topshareM_modP .1 via IUb of ModP raw (distinct instance names)
+R2  hIUraw    Q     PROVED  topshareQ_hIUraw (same file)
+R3  hIU       M     PROVED  topshareM_hIU (same file): ∀ m ∈ D.modules, from ran_designP (Tools/ShippingSrm17Corr.lean)
+R4  hIU       Q     PROVED  topshareQ_hIU
+R5  hAg       M     PROVED  topshareM_hAg
+R6  hAg       Q     PROVED  topshareQ_hAg
+R7  hRd       M     PROVED  topshareM_hRd
+R8  hRd       Q     PROVED  topshareQ_hRd
+
+SUB-FACTS (per module kind)
+F1  distinct instance names of the module of a run with calls (M.body, b.body)        PROVED  core_raw_facts_ranAM .2.1 (Tools/ShippingSrm4Core2.lean:151, premise hsl : slots ≠ []) + b.body = M.body (core_kids_facts_ranAM .2.1, Tools/ShippingSrm3Iface.lean:59); used in ran_modP (Tools/ShippingSrm17Ran.lean)
+F2  instance-name uniqueness => instance name determines module name                   PROVED  instAgree_of_nodup (Tools/ShippingKidsResetSat.lean:270), used by modP_of_nodups (Tools/ShippingSrm17Body.lean)
+F3  closed machine body is assignments and registers (no memory, no instance)          PROVED  closedBody_kinds_of_run (Tools/ShippingClosedKinds.lean:162), consumed in ran_modP
+F4  statements added by the call closing are instances (L.all isInst)                  PROVED  CloseCalls.some (Tools/ShippingMachineEntry.lean:948), consumed in ran_modP
+F5  distinct register names of the closed module of a run with calls                   PROVED  nextKeys nodup of (m0.body ++ L) from CloseCalls.some + Perm; nextKeys_eq_regNames, regNames_perm, modP_of_nodups (Tools/ShippingSrm17Body.lean); used in ran_modP
+F6  memory module body has no register / no instance                                   PROVED  memModule_modP (Tools/ShippingSrm17Corr.lean)
+F7  plain leaf (no calls): registers are slot registers of distinct names              PROVED  MachineWired clause (Tools/ShippingMachineEntry.lean:693, regs.Nodup) consumed in leaf_modPA (Tools/ShippingSrm17Ran.lean)
+F8  plain leaf: body is assignments and registers                                      PROVED  MachineWired seqStmtOk clause, consumed in leaf_modPA
+F9  post-processing (dropZeroWidthModule / mergeChecked) keeps the three facts         PROVED  dropZW: (dropZeroWidthModule M).body = M.body (MachineWired clause; core_kids_facts_ranAM .2.1 for calls); mergeChecked: modP_mergeChecked (Tools/ShippingSrm17Body.lean; uses parts_eq_model/model_eq_rec of Tools/ShippingMergeKeepsBridge.lean and rewriteStmt)
+F10 child bodies from RealChildA ordinary case (callee with memory kids / ordinary kids) PROVED  memCallee_childP (Tools/ShippingSrm17Corr.lean), premises: hord (the ordinary kids' ChildIfaceP), entry, hsl, hkids
+F11 child bodies from RealChildA plain-leaf case                                        PROVED  leaf_childP (same file), premises LeafData, MachineDefines, MachineCloses
+F12 every module of the parent's design D                                               PROVED  ran_designP (same file): each g ∈ D.modules is a memory module or in y.1 :: y.2.modules of a RealChildA kid (core_kids_facts_ranAM .2.2.2.2.1)
+F13 slots ≠ [] of each machine (premise hsl of F1)                                      PROVED by `decide` for leafM wrapM wrapM3 leafP-callers wrapP wrapQ topshareQ; topshareM_slotsNe (Tests/Compiler/Srm4ParentTest.lean:60) for topshareM

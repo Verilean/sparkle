@@ -4196,3 +4196,54 @@ lean_lib «Tests.Compiler.Srm15AuditExpected» where
 
 lean_lib «Tests.Compiler.Srm15AuditTest» where
   roots := #[`Tests.Compiler.Srm15AuditTest]
+
+lean_lib «Tools.ShippingSrm16Reset» where
+  roots := #[`Tools.ShippingSrm16Reset]
+
+lean_lib «Tests.Compiler.Srm16ParentTest» where
+  roots := #[`Tests.Compiler.Srm16ParentTest]
+
+lean_lib «Tests.Compiler.Srm16ExpStmt» where
+  roots := #[`Tests.Compiler.Srm16ExpStmt]
+
+lean_lib «Tests.Compiler.Srm16AuditExpected» where
+  roots := #[`Tests.Compiler.Srm16AuditExpected]
+
+lean_lib «Tests.Compiler.Srm16AuditTest» where
+  roots := #[`Tests.Compiler.Srm16AuditTest]
+
+lean_lib «Tools.ShippingSrm17Body» where
+  roots := #[`Tools.ShippingSrm17Body]
+
+lean_lib «Tools.ShippingSrm17Ran» where
+  roots := #[`Tools.ShippingSrm17Ran]
+
+lean_lib «Tools.ShippingSrm17Corr» where
+  roots := #[`Tools.ShippingSrm17Corr]
+
+lean_lib «Tests.Compiler.Srm17ParentTest» where
+  roots := #[`Tests.Compiler.Srm17ParentTest]
+
+lean_lib «Tests.Compiler.Srm17ExpStmt» where
+  roots := #[`Tests.Compiler.Srm17ExpStmt]
+
+lean_lib «Tests.Compiler.Srm17AuditExpected» where
+  roots := #[`Tests.Compiler.Srm17AuditExpected]
+
+lean_lib «Tests.Compiler.Srm17AuditTest» where
+  roots := #[`Tests.Compiler.Srm17AuditTest]
+
+lean_lib «Tools.ShippingSrm18Start» where
+  roots := #[`Tools.ShippingSrm18Start]
+
+lean_lib «Tests.Compiler.Srm18ParentTest» where
+  roots := #[`Tests.Compiler.Srm18ParentTest]
+
+lean_lib «Tests.Compiler.Srm18AuditExpected» where
+  roots := #[`Tests.Compiler.Srm18AuditExpected]
+
+lean_lib «Tests.Compiler.Srm18ExpStmt» where
+  roots := #[`Tests.Compiler.Srm18ExpStmt]
+
+lean_lib «Tests.Compiler.Srm18AuditTest» where
+  roots := #[`Tests.Compiler.Srm18AuditTest]
