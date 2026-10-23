@@ -10,6 +10,8 @@ import Tools.ShippingShipsFree
 --   binder but the run ones supplied: `hloc`, `hBd`, `hRI`, `soundL`, `composed`, `houtTy`, `facts`).
 -- PREMISE: the instance data bundle `TmBnd` / `TqBnd` (the run boundary `Bnd`): `O`, `T`, `AdmCtx`, the `MachineDefines` of the leaves/callees, SRM4's text-supplied `hcalls`/`hF`/`hgrp` and the start-world fact `JQC O 0 w` (a history of past synthesis results).
 --   The bundle is a premise of the conclusion (`Bnd mctx mref cctx cref w raw D →`); it is NOT discharged.  `C` is `True`.  `entry` (the parent's `MachineDefines`), `hcore`, `hpost` stay run premises of the conclusion.
+-- CORRECTION of SRM8's supply table: its supplier `memCallee_composedNW` is the composed theorem of a CALLEE whose calls are all memory entries; `topshareM`/`topshareQ` call ordinary callees (`child? = none`), their `ComposedNW 2` are SRM4's
+--   `topshareM_composedNW` / `topshareQ_composedNW` (hand-applied, premises `hcalls`/`hF`/`hgrp` text-supplied).  OPEN: any other memory-bearing parent (no generic supply of `ComposedNW` from `C`/`Bnd`).  The exact type difference is in `scripts/srm9/TYPE_DIFF.md`.
 -- No `sorry`, no `axiom`, no `native_decide`, no heartbeat option.
 namespace Tests.Compiler.Srm9ComposedTest
 open Lean Meta
