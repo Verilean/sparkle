@@ -1,0 +1,133 @@
+SRM25 G5 INVENTORY (hand part; machine part below, produced by scripts/srm25/gen_inventory.sh).  Wording: PROVED / PREMISE / OPEN.
+
+=== 1. Where regs / slots occur ===
+* slots = `topshare{M,Q}.machineData.shape.layout.slots` (SlotField list; `.init : Nat`).
+* regs in the SRM20/21 ComposedG statement (Tools/ShippingMachineShipsHier.lean:115, built by composedG_of_T / composedGW_of_T ShippingComposedGW.lean:236): an EXISTENTIAL
+  `∃ ids … ∃ (cache) (regs : List String), regs.Nodup ∧ regs.length = d.ss.length ∧ (ComposedGW only: ∃ lets, MachineWired declName d.shape ids cache m dsn regs lets) ∧ ∀ … hinit …`,
+  with hinit : ∀ k r f, regs[k]? = some r → d.shape.layout.slots[k]? = some f → st0 r = f.init.
+  Exported facts about regs: Nodup, length = ss.length, and (ComposedGW only) MachineWired clause 3: `∀ r ∈ regs, r ∈ names.drop (names.length - lets - n)`.  NOTHING about the order (k-th).
+* regs in SRM22 regsAtInit_of_hinit (Tools/ShippingSrm22Width.lean:166): a universally quantified `regs slots st0` with premises hG (G5) and hinit (the ComposedG one).
+  `hinit` comes from the ComposedG hypothesis list (a binder of the consumer), not from the machine run.
+* Producer of the witness: Tools/ShippingMachineEntry.lean:2037 `refine ⟨ps.map Port.name, …⟩` (inside synthesizeMachineCertified_soundX :1035), ps = inputPorts of the SLOT binders.
+  The equation `regs = ps.map Port.name` is NOT carried by MachinePreserves(X) (:765/:799), MachineTraceLBX, ComposedG or ComposedGW; there it appears only through the semantic
+  step clause `stepModule … = some (envF, fieldNexts … regs shape.layout.slots, mems)`.
+
+=== 2. How b.body's register statements arise for a machine with calls ===
+* raw module M = (CloseCalls shape t (closeMachine lay t') d₀ children M d) (MachineEntry.lean:939); CloseCalls.some (:948): ∃ L, L.all isInst ∧ ((closeMachine lay t').body ++ L).Perm M.body.
+* closeMachine (Sparkle/IR/Machine.lean:98): body = t'.body.dropLast ++ nextAssigns ++ registers lay.resetKind slotPorts lay.slots ++ outAssigns; slotPorts = t'.inputs.drop (len - n);
+  `registers` (Machine.lean:82) gives `register p.name "clk" ("rst", rk) (ref (next p)) (Int.ofNat f.init)` for p ∈ slotPorts ∥ f ∈ slots.  closeMachine_body (ShippingCloseMachineFacts.lean:169) gives
+  body = B ++ (nextAssigns ++ (registers ++ outAssigns)) with B assignments (Acyclic.assign) and `(ps.map Port.name).Nodup`.
+* b = dropZeroWidth M (∨ mergeChecked of it) (hpost); core_kids_facts(_ranAM) gives b.body = M.body (Srm3Iface.lean:59 conclusion 2).
+* the shipped module is checkedOptimize b: b, or the accepted candidate o' (SRM23: checkedOptimize_binding/_not_binding).
+
+=== 3. Two independent halves of G5 ===
+ (S) SHIPPED → SOURCE (generic in b).  SRM23 shippedRegsFromSource_of_hierGate (Srm23Regs.lean:16) gives a source register of the same NAME only; its ∃ forgets the reset value.
+     refineCheck (RefineCheck.lean:165) DOES compare it: `rm.2.2.2.2 == ro.2.2.2.2`; refineCheck_regWidth (ShippingMachineShipsS.lean:106) discards that conjunct (`hf.1.2` only).
+     ⇒ the init-preserving form  (r,init) ∈ shipped ⇒ source register r with the SAME init  is derivable generically from hierGate b (needs only a new refineCheck extraction).  Not in any existing file.
+ (K) SOURCE → SLOT (the "source fact").  ∀ r c rs inp init, register r c rs inp init ∈ b.body → ∃ k f, regs[k]? = some r ∧ slots[k]? = some f ∧ init = Int.ofNat f.init.
+     MachineWired states it only under shape.insts = [] (MachineEntry.lean:692-696); ShippingChecksExtract.lean:~21 records it MISSING for calls.
+
+=== 4. ROUTE TABLE ===
+sub-fact                                                                    | M                                         | Q
+S1  hierGate b = true                                                       | PROVED-by core_hierGate_anyAM via topshareM_hierGate (hcore hpost entry hBnd) | same, topshareQ_hierGate
+S2  shipped reg → source reg, same name                                     | PROVED shippedRegsFromSource_of_hierGate  | same
+S3  shipped reg → source reg, same name AND same init                      | DERIVABLE (generic, new refineCheck_regInit; planned PROVED here) | same
+K0  every register stmt of b.body is `registers rk ps slots` element (calls)| DERIVABLE from MachineRanA's (t,t',run,hcl,hmt), CloseCalls.some, closeMachine_body; no exported theorem (core_kids_facts_ranAM does not state it); needs the heavy hypotheses of closeMachine_body (acyclic, named, …) which closedBody_kinds_of_run proves internally | same
+K1  regs (witness of ComposedG(W)) = ps.map Port.name  (order pinned)       | MISSING (exact Prop below)               | MISSING
+K2  K for the witness regs                                                  | = K0 + K1: MISSING because of K1          | same
+G5  ShippedRegsAreSlots b regs slots for the witness regs                   | = S3 + K2: OPEN (K1)                       | OPEN
+Facts that do NOT close K1: regs.Nodup, regs.length = ss.length, MachineWired cl.3 (regs ⊆ last lets+n port names): they leave the ORDER (k-th) free, so for the given
+   exported conclusion a permuted regs is not excluded by any exported hypothesis.  (No claim that a permuted regs occurs; only that it is not ruled out by the export.)
+
+=== 5. Missing Prop (exact Lean text) and where it would come from ===
+ K1 (as a conjunct of the exported witness, next to MachineWired):
+   regs = ((machPorts declName ids cache shape.binders).map (·.name)).drop (names.length - shape.layout.lets - shape.layout.slots.length) |>.take shape.layout.slots.length
+   -- equivalently, at the producer: regs = ps.map Port.name  (MachineEntry.lean:2037)
+ It would come from: MachineEntry.lean:2037 (the producer states it by rfl-level data) → a strengthened MachineWired/MachinePreservesX clause → machine_traceX/…/ComposedGW.
+ This needs EDITS of existing files (MachineWired :654, MachinePreserves(X), machine_traceX, machine_ref_traceX, MachineTraceLBX, ComposedGW, composedGW_of_T …) — forbidden in this unit (Y7: new files only).
+ Closest existing fact: MachineWired clause 3 (:662) + the semantic clause of MachinePreserves (:789).
+ Next lemma: export K1 from synthesizeMachineCertified_soundX (a new MachineWiredK / MachinePreservesXK copy of the chain, or an edit of the chain), then K0, then G5 = S3 + K0 + K1.
+
+=== MACHINE PART (scripts/srm25/gen_inventory.sh, verbatim output) ===
+=== G5 PROP (verbatim) ===
+Tools/ShippingSrm22Width.lean:43: def ShippedRegsAreSlots (b : Module) (regs : List String) (slots : List SlotField) : Prop :=
+Tools/ShippingSrm22Width.lean:44:   ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+Tools/ShippingSrm22Width.lean:45:     Stmt.register r c rs inp init ∈ (checkedOptimize b).body →
+Tools/ShippingSrm22Width.lean:46:       ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ slots[k]? = some f ∧ f.init = init.toNat
+Tools/ShippingSrm22Width.lean:47: 
+=== closeMachine / registers (verbatim) ===
+Sparkle/IR/Machine.lean:82:def registers (rk : ResetKind) : List Port → List SlotField → List Stmt
+Sparkle/IR/Machine.lean:83-  | p :: ps, f :: fs =>
+Sparkle/IR/Machine.lean:84-    .register p.name "clk" ("rst", rk) (.ref (nextName p.name)) (Int.ofNat f.init) ::
+Sparkle/IR/Machine.lean:85-      registers rk ps fs
+Sparkle/IR/Machine.lean:86-  | _, _ => []
+Sparkle/IR/Machine.lean:87-
+Sparkle/IR/Machine.lean:98:def closeMachine (lay : Layout) (t : Module) : Module :=
+Sparkle/IR/Machine.lean:99-  match packedWire? t.body with
+Sparkle/IR/Machine.lean:100-  | none => t
+Sparkle/IR/Machine.lean:101-  | some w =>
+Sparkle/IR/Machine.lean:102-    let k := t.inputs.length - lay.slots.length
+Sparkle/IR/Machine.lean:103-    let slotPorts := t.inputs.drop k
+Sparkle/IR/Machine.lean:104-    { t with
+Sparkle/IR/Machine.lean:105-      -- a machine without slots (a combinational body with `let`s) has no
+Sparkle/IR/Machine.lean:106-      -- clock: its interface is the combinational module's
+Sparkle/IR/Machine.lean:107-      inputs := t.inputs.take k ++
+Sparkle/IR/Machine.lean:108-        (if lay.slots.isEmpty then []
+Sparkle/IR/Machine.lean:109-         else [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }])
+Sparkle/IR/Machine.lean:110-      outputs := lay.outs.map fun o => { name := o.name, ty := o.ty }
+Sparkle/IR/Machine.lean:111-      wires := t.wires ++ slotPorts.map fun p => { name := nextName p.name, ty := p.ty }
+Sparkle/IR/Machine.lean:112-      body := t.body.dropLast ++ nextAssigns w slotPorts lay.slots ++
+Sparkle/IR/Machine.lean:113-        registers lay.resetKind slotPorts lay.slots ++
+Sparkle/IR/Machine.lean:114-        outAssigns w lay.outs }
+Sparkle/IR/Machine.lean:115-
+Sparkle/IR/Machine.lean:116-/-! ## Hardware `let`s
+=== refineCheck init clause (verbatim) ===
+Sparkle/IR/RefineCheck.lean:159-      | .assign l _ => l != "rst"
+Sparkle/IR/RefineCheck.lean:160-      | _ => true) &&
+Sparkle/IR/RefineCheck.lean:161-    rO.all (fun ro =>
+Sparkle/IR/RefineCheck.lean:162-      match regOf rM ro.1 with
+Sparkle/IR/RefineCheck.lean:163-      | some rm =>
+Sparkle/IR/RefineCheck.lean:164-        rm.2.1 == ro.2.1 && rm.2.2.1.1 == "rst" && ro.2.2.1.1 == "rst" &&
+Sparkle/IR/RefineCheck.lean:165:          decide (rm.2.2.1.2 = ro.2.2.1.2) && rm.2.2.2.2 == ro.2.2.2.2 &&
+Sparkle/IR/RefineCheck.lean:166-          wm rm.1 == wo ro.1 && decide (0 < wm rm.1)
+Sparkle/IR/RefineCheck.lean:167-      | none => false) &&
+=== CloseCalls ===
+Tools/ShippingMachineEntry.lean:939:def CloseCalls (shape : MachineShape) (t m₀ : Sparkle.IR.AST.Module) (d₀ : Design)
+Tools/ShippingMachineEntry.lean:940-    (children : List (Sparkle.IR.AST.Module × Design)) (m : Sparkle.IR.AST.Module) (d : Design) : Prop :=
+Tools/ShippingMachineEntry.lean:941-  (shape.instFields = [] ∧ closeInsts (machNIn shape) shape.insts.length shape.layout.slots.length
+Tools/ShippingMachineEntry.lean:942-      (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) children (m₀, d₀) = some (m, d)) ∨
+Tools/ShippingMachineEntry.lean:943-  (shape.instFields ≠ [] ∧ closeInstsG (machNIn shape) shape.insts.length shape.layout.slots.length
+Tools/ShippingMachineEntry.lean:944-      (t.inputs.map (·.name)) (shape.insts.map (·.2.1)) shape.instFields children (m₀, d₀) =
+Tools/ShippingMachineEntry.lean:945-      some (m, d) ∧ MemChildren shape children)
+Tools/ShippingMachineEntry.lean:946-
+Tools/ShippingMachineEntry.lean:947-/-- The facts either closing establishes (`closeInsts_some`). -/
+=== producer: regs := ps.map Port.name ===
+Tools/ShippingMachineEntry.lean:2037:  refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
+=== CITED LEMMAS (file:line) ===
+LEMMA refineCheck_regWidth: Tools/ShippingMachineShipsS.lean:106:theorem refineCheck_regWidth {m o : Sparkle.IR.AST.Module} (h : refineCheck m o = true) :
+LEMMA registers_mem: Tools/ShippingMachineCleanup.lean:323:theorem registers_mem (rk : ResetKind) :
+LEMMA closeMachine_body: Tools/ShippingCloseMachineFacts.lean:169:theorem closeMachine_body {t : Module} {lay : Layout} {B : List Stmt} {w : String}
+LEMMA closeMachine_parts: Tools/ShippingCallsParent.lean:81:theorem closeMachine_parts {lay : Layout} {t : Module} {B : List Stmt} {w : String}
+LEMMA closedBody_kinds_of_run: Tools/ShippingClosedKinds.lean:162:theorem closedBody_kinds_of_run {declName : Lean.Name} (d : MachineData) (ok : d.ok = true)
+LEMMA core_kids_facts: Tools/ShippingChecksCore.lean:225:theorem core_kids_facts {c : Name} (d : MachineData) (ok : d.ok = true)
+LEMMA core_kids_facts_ranAM: Tools/ShippingSrm3Iface.lean:59:theorem core_kids_facts_ranAM (O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) {c : Name} (d : MachineDa
+LEMMA core_raw_facts_ranAM: Tools/ShippingSrm4Core2.lean:151:theorem core_raw_facts_ranAM (O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) {c : Name} (d : MachineDat
+LEMMA machine_ref_traceX: Tools/ShippingMachineTraceX.lean:156:theorem machine_ref_traceX {X : List FVarId → IO.Ref (ExprStructMap String) → Prop} {declName shape m dsn}
+LEMMA machine_traceX: Tools/ShippingMachineTraceX.lean:38:theorem machine_traceX {X : List FVarId → IO.Ref (ExprStructMap String) → Prop} {declName shape m dsn} {bsIn slotBs letBs : List (Name × Mixed
+LEMMA shippedRegsFromSource_of_hierGate: Tools/ShippingSrm23Regs.lean:16:theorem shippedRegsFromSource_of_hierGate {b : Module} (hgate : hierGate b = true) : ShippedRegsFromSource b := by
+LEMMA regsAtInit_of_hinit: Tools/ShippingSrm22Width.lean:166:theorem regsAtInit_of_hinit {b : Module} (regs : List String) (slots : List SlotField) (st0 : String → Nat)
+LEMMA mem_seqRegs_openFlat: Tools/ShippingSrm22Width.lean:115:theorem mem_seqRegs_openFlat {b : Module} {r : String × String × (String × Sparkle.IR.Type.ResetKind) × Expr × Int} :
+LEMMA regOf_some: Tools/ShippingRefineSoundness.lean:673:theorem regOf_some {rM : List (String × String × (String × Sparkle.IR.Type.ResetKind) × Expr × Int)}
+LEMMA checkedOptimize_binding: Tools/ShippingGuardsSound.lean:301:theorem checkedOptimize_binding {b : Sparkle.IR.AST.Module} (hb : hierBinds b = true) :
+LEMMA checkedOptimize_not_binding: Tools/ShippingGuardsSound.lean:291:theorem checkedOptimize_not_binding {b : Sparkle.IR.AST.Module} (hgate : hierGate b = true)
+LEMMA synthesizeMachineCertified_soundX: Tools/ShippingMachineEntry.lean:1035:theorem synthesizeMachineCertified_soundX {logProf declName shape m d}
+LEMMA synthesizeMachineCertified_returns: Tools/ShippingMachineEntry.lean:971:theorem synthesizeMachineCertified_returns {logProf declName shape m d}
+LEMMA composedGW_of_T: Tools/ShippingComposedGW.lean:236:theorem composedGW_of_T {declName : Name} {d : MachineData} {kD : Nat}
+LEMMA machine_linkedT_callsRGW: Tools/ShippingComposedGW.lean:51:theorem machine_linkedT_callsRGW {declName : Name} {d : MachineData} {m : Module} {dsn : Design}
+LEMMA core_hierGate_anyAM: Tools/ShippingSrm4Core2.lean:47:theorem core_hierGate_anyAM (O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) {c : Name} (d : MachineData) 
+DEF MachineWired: Tools/ShippingMachineEntry.lean:654:def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
+DEF MachinePreserves: Tools/ShippingMachineEntry.lean:765:def MachinePreserves (declName : Name) (shape : MachineShape)
+DEF MachinePreservesX: Tools/ShippingMachineEntry.lean:799:def MachinePreservesX (X : List FVarId → IO.Ref (ExprStructMap String) → Prop)
+DEF MachineTraceLBX: Tools/ShippingMachineTraceX.lean:377:def MachineTraceLBX (X : List FVarId → IO.Ref (ExprStructMap String) → Prop) (declName : Name) (d : MachineData) (m : Sparkle.IR.AST.Module)
+DEF ComposedGW: Tools/ShippingComposedGW.lean:181:def ComposedGW {σ : Type} (KS : Design → KStep σ)
+DEF ComposedG: Tools/ShippingMachineShipsHier.lean:115:def ComposedG {σ : Type} (KS : Design → KStep σ)
