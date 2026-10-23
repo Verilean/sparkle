@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm19EndToEndTest
 import Tests.Compiler.Srm9ComposedTest
 set_option autoImplicit false
--- UNBUILT (unit SRM20) until a run is recorded in the REPORT; the final-SHA rebuild in REPORT-SRM20.md is the only final evidence.
+-- BUILT (unit SRM20): dev runs b1 (exit 1), b2 (exit 0); the final-SHA rebuild in REPORT-SRM20.md is the only final evidence.
 -- SCOPE: a typed bridge from the ComposedG statement of `topshare{M,Q}` (SRM9 `topshare*_composed_binder`: ComposedG at KS = KSn (childMap D.modules) 2, Reset = ResetNk 2, consumed by `machine_ships_hierC_at_free`)
 -- to the SRM19 `topshare{M,Q}_svBoundsH_endToEnd`.  The ComposedG run is the run of the CORE module `raw` (weOf raw, arbitrary seed); the optimizer transport to `checkedOptimize b` with `seedIn b ins` is the one of
 -- `machine_ships_hierC_at_free` (SRM9 `topshare*_hierC_at_free`).  Its `∃ envsO` run is the `hrun` of SRM19: same width function, childMap, body, seed, T, start state; `envsO` is the same list in `SVBoundsH`.

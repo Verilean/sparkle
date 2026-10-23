@@ -6,7 +6,7 @@ import Tools.ShippingComposedGW
 import Tools.ShippingShipsFree
 import Tools.ShippingMachineShipsDepth
 set_option autoImplicit false
--- UNBUILT (unit SRM20) until a run is recorded in STATUS-SRM20.md.
+-- BUILT (unit SRM20): dev runs i1 (exit 1), i2 (exit 0).
 -- SCOPE: G1 INVENTORY ONLY (no theorem).  It prints, for each listed constant, the machine-generated lines
 --   S20INV|<const>|<i>|<binderInfo>|<name>|<type>   (binders of the TYPE; `S20CONCL|<const>|<conclusion>`)  and, for definitions,
 --   S20DEF|<const>|<body after its lambda binders>.

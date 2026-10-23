@@ -4265,3 +4265,12 @@ lean_lib «Tests.Compiler.Srm20InventoryTest» where
 
 lean_lib «Tests.Compiler.Srm20BridgeTest» where
   roots := #[`Tests.Compiler.Srm20BridgeTest]
+
+lean_lib «Tests.Compiler.Srm20ExpStmt» where
+  roots := #[`Tests.Compiler.Srm20ExpStmt]
+
+lean_lib «Tests.Compiler.Srm20AuditExpected» where
+  roots := #[`Tests.Compiler.Srm20AuditExpected]
+
+lean_lib «Tests.Compiler.Srm20AuditTest» where
+  roots := #[`Tests.Compiler.Srm20AuditTest]
