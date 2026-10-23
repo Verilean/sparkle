@@ -1,4 +1,5 @@
 import Tools.ShippingKidsSelfA
+import Tools.ShippingSrm4Core1
 -- UNBUILT (unit SRM5)
 -- SCOPE (binding): INSTANCE-TARGET IDENTIFICATION.  An instance statement `inst mn _ _` of the module `M` a machine run produced (`MachineRanA O … M D`) names, BY NAME, the module of the CHILD of some call `k`:
 -- `mn = y.1.name`, `moduleByName D.modules mn = some y.1` and the child's own design resolves in `D`, where `y = children[k]` is the run's `k`-th child — NOT a module of that child's own design (`y.2.modules`).  Together with the closing's
@@ -15,6 +16,9 @@ open Tools.ShippingMachineAuto Tools.ShippingMachineClosesData Tools.ShippingMac
 open Tools.ShippingChildInv Tools.ShippingClosedKinds
 open Sparkle.IR.OptCheck (seqStmtOk)
 open Tools.ShippingChildInvA Tools.ShippingChildFresh Tools.ShippingChildCacheA Tools.ShippingChildRunAKids
+open Tools.ShippingCallsMemA (KidTA)
+open Tools.ShippingInstTagged (originAt)
+open Tools.ShippingSrm4Core1 (kidTA_ofO)
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -33,7 +37,8 @@ theorem inst_target_ranA (O : RefLawsAOps MkRefd mref cref) {c : Name} (d : Mach
       ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
         ((d.shape.instOrigins.getD k .ord).child? = some y ∨ RealChildA O (d.shape.insts[k]).1 y) ∧
         mn = y.1.name ∧ moduleByName D.modules mn = some y.1 ∧
-        ∀ g ∈ y.2.modules, moduleByName D.modules g.name = some g := by
+        (∀ g ∈ y.2.modules, moduleByName D.modules g.name = some g) ∧
+        (d.shape.instFields ≠ [] → KidTA O (originAt d.shape k) (d.shape.insts[k]).1 y) := by
   obtain ⟨_, bb, w9, w10, hrun9, t, t', d₀, run, hcl, hmt⟩ := ran
   obtain ⟨hseq0, -, -⟩ := closedBody_kinds_of_run d ok hbody hC hslots hdomB run hcl
   have h0 : ∀ st ∈ (closeMachine d.shape.layout t').body, isInst st = false := fun st hs => by
@@ -43,20 +48,26 @@ theorem inst_target_ranA (O : RefLawsAOps MkRefd mref cref) {c : Name} (d : Mach
   rcases hmt with ⟨hi, hM, hD⟩ | ⟨hne, children, hcc, hreal⟩
   · subst hM
     exact absurd (h0 _ hm) (by simp [isInst])
+  have hMC : d.shape.instFields ≠ [] → MemChildren d.shape children := by
+    intro hf
+    rcases hcc with ⟨hf0, -⟩ | ⟨-, -, h⟩
+    · exact absurd hf0 hf
+    · exact h
   obtain ⟨hlenC, hall⟩ := hreal
   have hfin : ∀ (k : Nat) (y : Res), children[k]? = some y → mn = y.1.name →
       moduleByName D.modules y.1.name = some y.1 → (∀ g ∈ y.2.modules, moduleByName D.modules g.name = some g) →
       ∃ (k : Nat) (hk : k < d.shape.insts.length) (y : Res),
         ((d.shape.instOrigins.getD k .ord).child? = some y ∨ RealChildA O (d.shape.insts[k]).1 y) ∧
         mn = y.1.name ∧ moduleByName D.modules mn = some y.1 ∧
-        ∀ g ∈ y.2.modules, moduleByName D.modules g.name = some g := by
+        (∀ g ∈ y.2.modules, moduleByName D.modules g.name = some g) ∧
+        (d.shape.instFields ≠ [] → KidTA O (originAt d.shape k) (d.shape.insts[k]).1 y) := by
     intro k y hy hmn hres hres2
     have hk : k < d.shape.insts.length := by
       rw [← hlenC]; exact (List.getElem?_eq_some_iff.mp hy).1
     obtain ⟨y', hy', hor⟩ := hall k hk
     rw [hy] at hy'
     cases hy'
-    exact ⟨k, hk, y, hor, hmn, hmn ▸ hres, hres2⟩
+    exact ⟨k, hk, y, hor, hmn, hmn ▸ hres, hres2, fun hf => kidTA_ofO hk (hMC hf) hy hor⟩
   rcases hcc with ⟨hfe, hI⟩ | ⟨hfe, hG, hmc⟩
   · rcases Tools.ShippingMachineInst.closeInsts_insts hI _ hm rfl with h0' | ⟨k, args, child, mc, hargs, hchild, hmc', hcs⟩
     · exact absurd (h0 _ h0') (by simp [isInst])
@@ -96,7 +107,7 @@ theorem inst_target_ord_ranA (O : RefLawsAOps MkRefd mref cref) {c : Name} (d : 
         RealChildA O (d.shape.insts[k]).1 y ∧ mn = y.1.name ∧ moduleByName D.modules mn = some y.1 ∧
         ∀ g ∈ y.2.modules, moduleByName D.modules g.name = some g := by
   intro mn i conns hm
-  obtain ⟨k, hk, y, hor, hmn, hres, hres2⟩ := inst_target_ranA O d ok hbody hC hslots hdomB ran mn i conns hm
+  obtain ⟨k, hk, y, hor, hmn, hres, hres2, -⟩ := inst_target_ranA O d ok hbody hC hslots hdomB ran mn i conns hm
   rcases hor with h | h
   · rw [nomem_tag hnomem hk] at h; cases h
   · exact ⟨k, hk, y, h, hmn, hres, hres2⟩

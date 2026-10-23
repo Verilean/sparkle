@@ -133,9 +133,9 @@ theorem kidsH_body_ranAM (O : RefLawsAOps MkRefd mref cref)
     (ran : Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D)
     (rk : String → Option Nat) (h f : Nat)
     (hrkmem : ∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.name = some 0)
-    (hrank : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
+    (hrank : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res), (originAt d.shape k).child? = none →
       RealChildA O (d.shape.insts[k]).1 y' → ∃ r, rk y'.1.name = some r ∧ r ≤ h)
-    (hkidH : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
+    (hkidH : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res), (originAt d.shape k).child? = none →
       RealChildA O (d.shape.insts[k]).1 y' → ∀ ms : List Sparkle.IR.AST.Module,
       moduleByName ms y'.1.name = some y'.1 →
       (∀ g ∈ y'.2.modules, moduleByName ms g.name = some g) →
@@ -149,20 +149,20 @@ theorem kidsH_body_ranAM (O : RefLawsAOps MkRefd mref cref)
   intro st hst
   cases st with
   | inst mn iname conns =>
-    obtain ⟨k, hk, y, hor, hmn, hres, hres2⟩ :=
+    obtain ⟨k, hk, y, -, hmn, hres, hres2, hKT⟩ :=
       Tools.ShippingSrm5Ident.inst_target_ranA O d ok hbody hC hslots hdomB ran mn iname conns (hbody' ▸ hst)
     subst hmn
     have hy1 : moduleByName ms y.1.name = some y.1 := hmsD y.1 hres
     have hCm : childMap ms y.1.name = some (y.1, Sparkle.IR.RegDedup.declWidth y.1) := by
       simp only [Tools.ShippingMachineLinked.childMap, hy1, Option.map_some]
-    rcases hor with hmem | hre
+    rcases hKT hfne with hmem | ⟨hnone, hre⟩
     · obtain ⟨cb, aw, dw, hy⟩ := instOrigin_child?_mem hmem
       subst hy
       exact instOkH_inst.mpr ⟨_, _, 0, hCm, hrkmem cb aw dw, Nat.zero_le _, rfl,
         hcheck_memModule cb aw dw (hrkmem cb aw dw) f⟩
     · have hy2 : ∀ g ∈ y.2.modules, moduleByName ms g.name = some g := fun g hg => hmsD g (hres2 g hg)
-      obtain ⟨r, hr1, hr2⟩ := hrank k hk y hre
-      exact instOkH_inst.mpr ⟨y.1, _, r, hCm, hr1, hr2, rfl, hkidH k hk y hre ms hy1 hy2⟩
+      obtain ⟨r, hr1, hr2⟩ := hrank k hk y hnone hre
+      exact instOkH_inst.mpr ⟨y.1, _, r, hCm, hr1, hr2, rfl, hkidH k hk y hnone hre ms hy1 hy2⟩
   | _ => rfl
 
 /-- **`kids_hcheck_inA`, memory-aware**: the check of the UNOPTIMISED `b` at its rank `h + 1`, for a parent whose calls may be memory entries. -/
@@ -207,9 +207,9 @@ theorem kids_hcheck_inAM (O : RefLawsAOps MkRefd mref cref)
     (hms : ∀ g ∈ D.modules, moduleByName ms g.name = some g)
     (rk : String → Option Nat) (h f : Nat) (hrb : rk b.name = some (h + 1))
     (hrkmem : ∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).1.name = some 0)
-    (hrank : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
+    (hrank : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res), (originAt d.shape k).child? = none →
       RealChildA O (d.shape.insts[k]).1 y' → ∃ r, rk y'.1.name = some r ∧ r ≤ h)
-    (hkidH : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res),
+    (hkidH : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Res), (originAt d.shape k).child? = none →
       RealChildA O (d.shape.insts[k]).1 y' → ∀ ms : List Sparkle.IR.AST.Module,
       moduleByName ms y'.1.name = some y'.1 →
       (∀ g ∈ y'.2.modules, moduleByName ms g.name = some g) →
