@@ -1,6 +1,6 @@
 import Tests.Compiler.Srm5ParentQTest
 import Tools.ShippingSrm10Outs
--- BUILT/UNBUILT: UNBUILT (unit SRM10; build runs are listed in REPORT-SRM10.md).
+-- BUILT (unit SRM10): s10b2 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM10.md.
 -- SCOPE (instance-specific, topshareM and topshareQ ONLY): `Tools/ShippingSrm10Outs.lean` link B applied to SRM5's `topshareM_hcheck` / `topshareQ_hcheck` under the CONCRETE rank tables `rkM` / `rkQ`
 -- (their rank premises are discharged by `rkM_*` / `rkQ_*`) and SRM4's `topshareM_outsCheck` / `topshareQ_outsCheck`: the height-indexed output check `houtsCheck` of the printed parent module.
 -- PREMISES kept (named, the same as SRM4/SRM5): `O`, `T`, `hA`, the `MachineDefines` of the machines, `hcore`, `hpost`, `hw`.  NOTE (honest scope): the instance proof USES the uniform `outsCheck` of SRM4 at every depth `m+1`;

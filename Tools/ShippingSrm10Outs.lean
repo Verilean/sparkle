@@ -1,6 +1,6 @@
 import Tools.ShippingSrm5Height
 import Tools.ShippingDesignSVBack
--- BUILT/UNBUILT: UNBUILT (unit SRM10; build runs are listed in REPORT-SRM10.md).
+-- BUILT (unit SRM10): s10a2 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM10.md.
 -- SCOPE (binding): a HEIGHT-INDEXED output check `houtsMod C rk f o` / `houtsCheck C rk f h o` that mirrors SRM5's `hcheck` (rank table `rk` by module NAME; a built memory module is rank 0),
 -- and the smallest links to the UNIFORM `outsCheck C n` of `Tools/ShippingDesignSVBack.lean` (the check consumed by `design_sv_backN` / `design_sv_unique` / `design_sv_all`):
 --   * `houtsMod`: a rank-0 module needs `outsLeaf` (its outputs are assigned or are the read port of a combinational memory); a module of rank `h+1` needs `outsAssigned` AND, for each of its instances, the edge facts of `hcheck` (target resolves, rank `r ≤ h`, `child.name = mn`) and `houtsMod` of the child.  Unranked / unresolved is a REFUSAL (`false`).

@@ -3,7 +3,7 @@ import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.Srm10AuditExpected
 import Tools.ShippingKidsChildIfaceM
 import Tools.ShippingSrm10Outs
--- BUILT/UNBUILT: UNBUILT (unit SRM10; build runs are listed in REPORT-SRM10.md).
+-- BUILT (unit SRM10): s10c3 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM10.md.
 -- SCOPE (SRM10, audits).  For each audited SRM10 theorem: (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S10PREM` / `S10DATA` line and the WHOLE table must EQUAL the committed
 -- `Tests/Compiler/Srm10AuditExpected.lean` (`expectedRows`) EXACTLY and the committed text view `scripts/srm10/PREMISES.txt`, line for line.  NEGATIVE FIXTURES: three mutations of the actual table (changed Prop binder type, added data binder,
 -- reordered binders) are REJECTED.  REGENERATION: `./.cluster/qbuild.sh build Tests.Compiler.Srm10AuditTest > LOG 2>&1; python3 scripts/srm10/gen_audit.py LOG`.  Binder names containing `_hyg` are normalised to `_anon`.
@@ -173,13 +173,12 @@ run_cmd liftTermElabM do
     unless bad.isEmpty do throwError "SRM10 AUDIT FAILED: old RefLaws boundary in the closure of {thm}: {bad}"
     let bad2 := cl.toList.filter fun c => forbidden.any (·.isPrefixOf c)
     unless bad2.isEmpty do throwError "SRM10 AUDIT FAILED: old-form boundary in the closure of {thm}: {bad2}"
-    let s := thm.toString
-    let has (x : String) : Bool := (s.splitOn x).length > 1
-    if has "outsCheck_of_houtsCheck_uni" || has "_houts" || has "houtsCheck_of_outsCheck_hcheck" || has "houtsMod_of_outsCheck_hcheck" then
+    let T := `Tools.ShippingSrm10Outs
+    if thm == T ++ `outsCheck_of_houtsCheck_uni || thm == T ++ `houtsMod_of_outsCheck_hcheck || thm == T ++ `houtsCheck_of_outsCheck_hcheck || instanceThms.contains thm then
       unless cl.contains ``Tools.ShippingSrm10Outs.houtsMod do throwError "SRM10 AUDIT FAILED: houtsMod not in the closure of {thm}"
-    if has "houtsCheck_of_outsCheck_hcheck" || has "houtsMod_of_outsCheck_hcheck" || has "_houts" then
+    if thm == T ++ `houtsCheck_of_outsCheck_hcheck || thm == T ++ `houtsMod_of_outsCheck_hcheck || instanceThms.contains thm then
       unless cl.contains ``Tools.ShippingSrm5Height.hcheck do throwError "SRM10 AUDIT FAILED: hcheck not in the closure of {thm}"
-    if has "outsCheck_of_houtsCheck_uni" then
+    if thm == T ++ `outsCheck_of_houtsCheck_uni then
       unless cl.contains ``Tools.ShippingDesignSVBack.outsCheck do throwError "SRM10 AUDIT FAILED: outsCheck not in the closure of {thm}"
     if instanceThms.contains thm then
       unless cl.contains ``Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck do throwError "SRM10 AUDIT FAILED: link B not in the closure of {thm}"
