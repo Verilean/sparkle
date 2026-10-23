@@ -12,6 +12,7 @@ import Tools.ShippingMachineShipsDepth
 -- finds one); the SRM9 theorems have `composedG_of_NW`, the matching `topshare*_composedNW`, and (for the application theorems) `machine_ships_hierC_at_free` in their closure.
 -- NOT guaranteed: that the hypotheses are TRUE or satisfiable; the bundle `TmBnd` / `TqBnd` is a PREMISE.  No `sorry`, no `axiom`, no `native_decide`.
 set_option Elab.async false
+set_option autoImplicit false
 section
 open Lean Elab Command Meta
 
@@ -66,15 +67,20 @@ def tableDiff (a e : List (Name × List Row)) : Option String := Id.run do
       if r != r' then return some s!"{n}: binder {r.1} differs: {rowLine n r} vs expected {rowLine n r'}"
   return none
 
-/-- mutation 1: change the type of the first Prop binder (same name) -/
+/-- mutation 1: SEMANTIC change of the type of the first Prop binder (same index, binderInfo, name, isProp): the type string gets ` ∧ True` appended -/
 def mutType (t : List (Name × List Row)) : List (Name × List Row) :=
   match t.findIdx? (fun (_, rs) => rs.any (·.2.2.2.1)) with
   | none => t
   | some k => t.mapIdx fun j (n, rs) =>
     if j == k then
       let idx := (rs.findIdx? (·.2.2.2.1)).getD 0
-      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ") else r)
+      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ∧ True") else r)
     else (n, rs)
+
+/-- position (theorem index, binder index) of the binder changed by `mutType` -/
+def mutTypePos (t : List (Name × List Row)) : Option (Nat × Nat) :=
+  (t.findIdx? (fun (_, rs) => rs.any (·.2.2.2.1))).map fun k =>
+    (k, ((t.getD k (default, [])).2.findIdx? (·.2.2.2.1)).getD 0)
 
 /-- mutation 2: add a data binder to the first theorem -/
 def mutAdd (t : List (Name × List Row)) : List (Name × List Row) :=
@@ -130,6 +136,31 @@ run_cmd liftTermElabM do
   unless fileLines == lines do
     throwError "SRM9 AUDIT FAILED: scripts/srm9/PREMISES.txt differs from the regenerated table ({fileLines.length} lines vs {lines.length})"
   -- NEGATIVE FIXTURES: each mutation of the table is a DIFFERENT table and is REJECTED by the comparator
+  -- fixture 1 is SEMANTIC: the mutated row is a Prop binder whose type TEXT differs, everything else is unchanged
+  let some (mk, mi) := mutTypePos actual | throwError "SRM9 AUDIT FAILED: fixture 1 found no Prop binder"
+  let mt1 := mutType actual
+  let (mthm, orows) := actual.getD mk (default, [])
+  let mrows := (mt1.getD mk (default, [])).2
+  let some orow := orows[mi]? | throwError "SRM9 AUDIT FAILED: fixture 1 original row missing"
+  let some mrow := mrows[mi]? | throwError "SRM9 AUDIT FAILED: fixture 1 mutated row missing"
+  unless orow.2.2.2.2 != mrow.2.2.2.2 do throwError "SRM9 AUDIT FAILED: fixture 1 type string unchanged"
+  unless mrow.2.2.2.2 == orow.2.2.2.2 ++ " ∧ True" && (mrow.2.2.2.2.splitOn "∧ True").length > 1 do
+    throwError "SRM9 AUDIT FAILED: fixture 1 printed text does not visibly show the change"
+  unless mrow.2.2.2.1 && orow.2.2.2.1 do throwError "SRM9 AUDIT FAILED: fixture 1 mutated row is not a Prop binder"
+  unless mrow.1 == orow.1 && mrow.2.1 == orow.2.1 && mrow.2.2.1 == orow.2.2.1 do
+    throwError "SRM9 AUDIT FAILED: fixture 1 changed index/binderInfo/name"
+  unless mt1.length == actual.length do throwError "SRM9 AUDIT FAILED: fixture 1 changed the theorem count"
+  for ((n, rs), (n', rs')) in actual.zip mt1 do
+    unless n == n' && rs.length == rs'.length do throwError "SRM9 AUDIT FAILED: fixture 1 changed the shape of {n}"
+    for (r, r') in rs.zip rs' do
+      unless r == r' || (n == mthm && r.1 == mi) do throwError "SRM9 AUDIT FAILED: fixture 1 changed an unrelated row of {n}: binder {r.1}"
+  logInfo m!"S9MUTROW|before: {rowLine mthm orow}"
+  logInfo m!"S9MUTROW|after : {rowLine mthm mrow}"
+  match tableDiff mt1 Tests.Compiler.Srm9AuditExpected.expectedRows with
+  | none => throwError "SRM9 AUDIT FAILED: the comparator ACCEPTED fixture 1"
+  | some msg =>
+    unless (msg.splitOn s!"{mthm}: binder {mi} differs").length > 1 do
+      throwError "SRM9 AUDIT FAILED: the comparator rejected fixture 1 without naming {mthm} binder {mi}: {msg}"
   for (nm, mt) in [("changed Prop binder type", mutType actual), ("added data binder", mutAdd actual), ("reordered binders", mutSwap actual)] do
     if mt == actual then throwError "SRM9 AUDIT FAILED: the fixture '{nm}' did not change the table (vacuous)"
     match tableDiff mt Tests.Compiler.Srm9AuditExpected.expectedRows with
