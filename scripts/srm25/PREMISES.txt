@@ -50,25 +50,3 @@ S25AXIOMS|Tools.ShippingSrm25Init.refineCheck_regInit|[propext, Quot.sound]
 S25AXIOMS|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|[propext, Classical.choice, Quot.sound]
 S25AXIOMS|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|[propext, Classical.choice, Quot.sound]
 S25AUDIT|ok
-Build completed successfully (573 jobs).
-	Command being timed: "lake build Tests.Compiler.Srm25AuditTest"
-	User time (seconds): 1.54
-	System time (seconds): 0.46
-	Percent of CPU this job got: 92%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.18
-	Average shared text size (kbytes): 0
-	Average unshared data size (kbytes): 0
-	Average stack size (kbytes): 0
-	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 1887220
-	Average resident set size (kbytes): 0
-	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 67497
-	Voluntary context switches: 7348
-	Involuntary context switches: 54
-	Swaps: 0
-	File system inputs: 0
-	File system outputs: 2872
-	Socket messages sent: 0
-	Socket messages received: 0
-	Signals delivered: 0
