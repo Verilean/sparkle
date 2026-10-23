@@ -1,0 +1,112 @@
+S22THM|Tools.ShippingSrm22Width.hin_of_hinsFit|11
+S22DATA|Tools.ShippingSrm22Width.hin_of_hinsFit|0|implicit|b|Sparkle.IR.AST.Module
+S22PREM|Tools.ShippingSrm22Width.hin_of_hinsFit|1|explicit|hgate|Sparkle.IR.RefineCheck.hierGate b = true
+S22PREM|Tools.ShippingSrm22Width.hin_of_hinsFit|2|explicit|hnd|(List.map (fun x => x.name) b.wires).Nodup
+S22PREM|Tools.ShippingSrm22Width.hin_of_hinsFit|3|explicit|hs|∀ (p : Sparkle.IR.AST.Port), p ∈ b.wires ++ b.inputs ++ b.outputs → Sparkle.Backend.Verilog.sanitizeName p.name = p.name
+S22PREM|Tools.ShippingSrm22Width.hin_of_hinsFit|4|explicit|hoi|∀ (q : Sparkle.IR.AST.Port), q ∈ b.outputs → ∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → Sparkle.Backend.Verilog.sanitizeName p.name ≠ q.name
+S22PREM|Tools.ShippingSrm22Width.hin_of_hinsFit|5|explicit|hIW|∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → Sparkle.IR.RegDedup.declWidth b p.name ≤ Tools.ShippingLeafInputWidths.tyW p.ty
+S22DATA|Tools.ShippingSrm22Width.hin_of_hinsFit|6|explicit|ins|Nat → String → Nat
+S22PREM|Tools.ShippingSrm22Width.hin_of_hinsFit|7|explicit|_anon|∀ (t : Nat) (x : String), x ∈ List.map (fun x => x.name) b.inputs → ins t x < 2 ^ Sparkle.IR.RegDedup.declWidth b x
+S22DATA|Tools.ShippingSrm22Width.hin_of_hinsFit|8|explicit|t|Nat
+S22DATA|Tools.ShippingSrm22Width.hin_of_hinsFit|9|explicit|x|String
+S22PREM|Tools.ShippingSrm22Width.hin_of_hinsFit|10|explicit|_anon|x ∈ List.map (fun x => x.name) b.inputs
+S22THM|Tools.ShippingSrm22Width.hinsFit_of_hin|13
+S22DATA|Tools.ShippingSrm22Width.hinsFit_of_hin|0|implicit|b|Sparkle.IR.AST.Module
+S22PREM|Tools.ShippingSrm22Width.hinsFit_of_hin|1|explicit|hgate|Sparkle.IR.RefineCheck.hierGate b = true
+S22PREM|Tools.ShippingSrm22Width.hinsFit_of_hin|2|explicit|hnd|(List.map (fun x => x.name) b.wires).Nodup
+S22PREM|Tools.ShippingSrm22Width.hinsFit_of_hin|3|explicit|hs|∀ (p : Sparkle.IR.AST.Port), p ∈ b.wires ++ b.inputs ++ b.outputs → Sparkle.Backend.Verilog.sanitizeName p.name = p.name
+S22PREM|Tools.ShippingSrm22Width.hinsFit_of_hin|4|explicit|hoi|∀ (q : Sparkle.IR.AST.Port), q ∈ b.outputs → ∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → Sparkle.Backend.Verilog.sanitizeName p.name ≠ q.name
+S22PREM|Tools.ShippingSrm22Width.hinsFit_of_hin|5|explicit|hW|Tools.ShippingSrm22Width.InputsAreWires b
+S22PREM|Tools.ShippingSrm22Width.hinsFit_of_hin|6|explicit|huniq|∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → ∀ (q : Sparkle.IR.AST.Port), q ∈ b.inputs → q.name = p.name → q = p
+S22PREM|Tools.ShippingSrm22Width.hinsFit_of_hin|7|explicit|hty|∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → p.ty = Sparkle.IR.Type.HWType.bit ∨ ∃ n, p.ty = Sparkle.IR.Type.HWType.bitVector n
+S22DATA|Tools.ShippingSrm22Width.hinsFit_of_hin|8|explicit|ins|Nat → String → Nat
+S22PREM|Tools.ShippingSrm22Width.hinsFit_of_hin|9|explicit|_anon|∀ (t : Nat) (x : String), x ∈ List.map (fun x => x.name) b.inputs → ins t x < 2 ^ Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b) x
+S22DATA|Tools.ShippingSrm22Width.hinsFit_of_hin|10|explicit|t|Nat
+S22DATA|Tools.ShippingSrm22Width.hinsFit_of_hin|11|explicit|x|String
+S22PREM|Tools.ShippingSrm22Width.hinsFit_of_hin|12|explicit|_anon|x ∈ List.map (fun x => x.name) b.inputs
+S22THM|Tools.ShippingSrm22Width.hstX_of_hst3|12
+S22DATA|Tools.ShippingSrm22Width.hstX_of_hst3|0|implicit|b|Sparkle.IR.AST.Module
+S22PREM|Tools.ShippingSrm22Width.hstX_of_hst3|1|explicit|hgate|Sparkle.IR.RefineCheck.hierGate b = true
+S22PREM|Tools.ShippingSrm22Width.hstX_of_hst3|2|explicit|hnd|(List.map (fun x => x.name) b.wires).Nodup
+S22PREM|Tools.ShippingSrm22Width.hstX_of_hst3|3|explicit|hs|∀ (p : Sparkle.IR.AST.Port), p ∈ b.wires ++ b.inputs ++ b.outputs → Sparkle.Backend.Verilog.sanitizeName p.name = p.name
+S22PREM|Tools.ShippingSrm22Width.hstX_of_hst3|4|explicit|how|∀ (q : Sparkle.IR.AST.Port), q ∈ b.outputs → ∀ (p : Sparkle.IR.AST.Port), p ∈ b.wires → p.name ≠ q.name
+S22PREM|Tools.ShippingSrm22Width.hstX_of_hst3|5|explicit|hreg|Tools.ShippingSrm22Width.ShippedRegsFromSource b
+S22DATA|Tools.ShippingSrm22Width.hstX_of_hst3|6|explicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S22DATA|Tools.ShippingSrm22Width.hstX_of_hst3|7|explicit|st0|String → Nat
+S22PREM|Tools.ShippingSrm22Width.hstX_of_hst3|8|explicit|_anon|Tools.ShippingSrm13Supply.NonRegBounded (Sparkle.IR.OptCheck.checkedOptimize b) st0
+S22DATA|Tools.ShippingSrm22Width.hstX_of_hst3|9|explicit|x|String
+S22PREM|Tools.ShippingSrm22Width.hstX_of_hst3|10|explicit|_anon|x ∈ List.map (fun x => x.name) (Sparkle.IR.HierCheck.openIns b)
+S22PREM|Tools.ShippingSrm22Width.hstX_of_hst3|11|explicit|_anon|¬x ∈ Tools.ShippingHierOpen.bodyInstOuts C b.body
+S22THM|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|11
+S22DATA|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|0|implicit|b|Sparkle.IR.AST.Module
+S22PREM|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|1|explicit|hgate|Sparkle.IR.RefineCheck.hierGate b = true
+S22PREM|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|2|explicit|hnd|(List.map (fun x => x.name) b.wires).Nodup
+S22PREM|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|3|explicit|hs|∀ (p : Sparkle.IR.AST.Port), p ∈ b.wires ++ b.inputs ++ b.outputs → Sparkle.Backend.Verilog.sanitizeName p.name = p.name
+S22PREM|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|4|explicit|hrio|∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Sparkle.IR.AST.Expr) (init : Int), Sparkle.IR.AST.Stmt.register r c rs inp init ∈ b.body → ¬r ∈ List.map (fun x => x.name) b.outputs ∧ ¬r ∈ List.map (fun x => x.name) b.inputs
+S22PREM|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|5|explicit|hkeep|Tools.ShippingSrm22Width.SourceRegsKept b
+S22DATA|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|6|explicit|st0|String → Nat
+S22PREM|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|7|explicit|_anon|Tools.ShippingSrm13Supply.RegsAtInit (Sparkle.IR.OptCheck.checkedOptimize b) st0
+S22PREM|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|8|explicit|_anon|Tools.ShippingSrm13Supply.RegsFit (Sparkle.IR.OptCheck.checkedOptimize b)
+S22DATA|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|9|explicit|r|String × String × (String × Sparkle.IR.Type.ResetKind) × Sparkle.IR.AST.Expr × Int
+S22PREM|Tools.ShippingSrm22Width.hstR_of_hst1_hst2|10|explicit|_anon|r ∈ Sparkle.IR.OptCheck.seqRegs (Sparkle.IR.HierCheck.openFlat b (Sparkle.IR.HierCheck.openIns b) (Sparkle.IR.HierCheck.openOuts b))
+S22THM|Tools.ShippingSrm22Width.regsFit_of_hstR_hst1|6
+S22DATA|Tools.ShippingSrm22Width.regsFit_of_hstR_hst1|0|implicit|b|Sparkle.IR.AST.Module
+S22DATA|Tools.ShippingSrm22Width.regsFit_of_hstR_hst1|1|explicit|st0|String → Nat
+S22PREM|Tools.ShippingSrm22Width.regsFit_of_hstR_hst1|2|explicit|hreg|Tools.ShippingSrm22Width.ShippedRegsFromSource b
+S22PREM|Tools.ShippingSrm22Width.regsFit_of_hstR_hst1|3|explicit|hW|Tools.ShippingSrm22Width.ShippedRegWidthLe b
+S22PREM|Tools.ShippingSrm22Width.regsFit_of_hstR_hst1|4|explicit|_anon|Tools.ShippingSrm13Supply.RegsAtInit (Sparkle.IR.OptCheck.checkedOptimize b) st0
+S22PREM|Tools.ShippingSrm22Width.regsFit_of_hstR_hst1|5|explicit|_anon|∀ (r : String × String × (String × Sparkle.IR.Type.ResetKind) × Sparkle.IR.AST.Expr × Int), r ∈ Sparkle.IR.OptCheck.seqRegs (Sparkle.IR.HierCheck.openFlat b (Sparkle.IR.HierCheck.openIns b) (Sparkle.IR.HierCheck.openOuts b)) → st0 r.fst < 2 ^ Sparkle.IR.RegDedup.declWidth b r.fst
+S22THM|Tools.ShippingSrm22Width.regsAtInit_of_hinit|6
+S22DATA|Tools.ShippingSrm22Width.regsAtInit_of_hinit|0|implicit|b|Sparkle.IR.AST.Module
+S22DATA|Tools.ShippingSrm22Width.regsAtInit_of_hinit|1|explicit|regs|List String
+S22DATA|Tools.ShippingSrm22Width.regsAtInit_of_hinit|2|explicit|slots|List Sparkle.IR.Machine.SlotField
+S22DATA|Tools.ShippingSrm22Width.regsAtInit_of_hinit|3|explicit|st0|String → Nat
+S22PREM|Tools.ShippingSrm22Width.regsAtInit_of_hinit|4|explicit|hG|Tools.ShippingSrm22Width.ShippedRegsAreSlots b regs slots
+S22PREM|Tools.ShippingSrm22Width.regsAtInit_of_hinit|5|explicit|hinit|∀ (k : Nat) (r : String) (f : Sparkle.IR.Machine.SlotField), regs[k]? = some r → slots[k]? = some f → st0 r = f.init
+S22THM|Tools.ShippingSrm22Width.mem_seqRegs_openFlat|2
+S22DATA|Tools.ShippingSrm22Width.mem_seqRegs_openFlat|0|implicit|b|Sparkle.IR.AST.Module
+S22DATA|Tools.ShippingSrm22Width.mem_seqRegs_openFlat|1|implicit|r|String × String × (String × Sparkle.IR.Type.ResetKind) × Sparkle.IR.AST.Expr × Int
+S22THM|Tests.Compiler.Srm22PairsTest.eIn_dz|0
+S22THM|Tests.Compiler.Srm22PairsTest.eEmpty_dz|0
+S22THM|Tests.Compiler.Srm22PairsTest.eEmpty_opt|0
+S22THM|Tests.Compiler.Srm22PairsTest.eIn_weS|0
+S22THM|Tests.Compiler.Srm22PairsTest.eEmpty_weS|0
+S22THM|Tests.Compiler.Srm22PairsTest.eIn_declWidth|0
+S22THM|Tests.Compiler.Srm22PairsTest.hin_not_hinsFit|0
+S22THM|Tests.Compiler.Srm22PairsTest.hstX_hstR_not_hst3|0
+S22THM|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|17
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|0|implicit|mctx|Meta.Context
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|2|implicit|cctx|Core.Context
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|4|implicit|w|Void IO.RealWorld
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|5|implicit|w1|Void IO.RealWorld
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|6|implicit|b|Sparkle.IR.AST.Module
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|7|implicit|raw|Sparkle.IR.AST.Module
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|8|implicit|D|Sparkle.IR.AST.Design
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TmBnd mctx mref cctx cref w raw D
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|13|explicit|hBd|Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body = true
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|14|explicit|hnd|(List.map (fun x => x.name) b.wires).Nodup
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|15|explicit|hsI|∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → Sparkle.Backend.Verilog.sanitizeName p.name = p.name
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareM_svBoundsH_underComposedG_noHin|16|explicit|hIW|∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → Sparkle.IR.RegDedup.declWidth b p.name ≤ Tools.ShippingLeafInputWidths.tyW p.ty
+S22THM|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|17
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|0|implicit|mctx|Meta.Context
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|2|implicit|cctx|Core.Context
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|4|implicit|w|Void IO.RealWorld
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|5|implicit|w1|Void IO.RealWorld
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|6|implicit|b|Sparkle.IR.AST.Module
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|7|implicit|raw|Sparkle.IR.AST.Module
+S22DATA|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|8|implicit|D|Sparkle.IR.AST.Design
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|9|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|10|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|12|explicit|hBnd|Tests.Compiler.Srm9ComposedTest.TqBnd mctx mref cctx cref w raw D
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|13|explicit|hBd|Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body = true
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|14|explicit|hnd|(List.map (fun x => x.name) b.wires).Nodup
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|15|explicit|hsI|∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → Sparkle.Backend.Verilog.sanitizeName p.name = p.name
+S22PREM|Tests.Compiler.Srm22PairsTest.topshareQ_svBoundsH_underComposedG'_noHin|16|explicit|hIW|∀ (p : Sparkle.IR.AST.Port), p ∈ b.inputs → Sparkle.IR.RegDedup.declWidth b p.name ≤ Tools.ShippingLeafInputWidths.tyW p.ty

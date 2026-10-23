@@ -4301,3 +4301,12 @@ lean_lib «Tools.ShippingSrm22Width» where
 
 lean_lib «Tests.Compiler.Srm22PairsTest» where
   roots := #[`Tests.Compiler.Srm22PairsTest]
+
+lean_lib «Tests.Compiler.Srm22ExpStmt» where
+  roots := #[`Tests.Compiler.Srm22ExpStmt]
+
+lean_lib «Tests.Compiler.Srm22AuditExpected» where
+  roots := #[`Tests.Compiler.Srm22AuditExpected]
+
+lean_lib «Tests.Compiler.Srm22AuditTest» where
+  roots := #[`Tests.Compiler.Srm22AuditTest]

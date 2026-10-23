@@ -23,7 +23,7 @@ import Tools.ShippingMachineShipsS
 import Tools.ShippingSeqOptSoundness
 import Tools.ShippingHierOpen
 set_option autoImplicit false
--- BUILT (unit SRM22): dev runs see STATUS/REPORT.
+-- BUILT (unit SRM22): dev run i1 (exit 0); the final-SHA rebuild in REPORT-SRM22.md is the only final evidence.
 -- SCOPE: W1 INVENTORY ONLY (no theorem).  For each listed constant it prints the machine-generated lines
 --   S22INV|<const>|<i>|<binderInfo>|<name>|<type>   (binders of the TYPE), `S22CONCL|<const>|<conclusion>`, `S22LOC|<const>|<module>:<line>`
 -- and, for definitions, S22DEF|<const>|<body after its lambda binders> and S22DEFB|<const>|<i>|<name>|<type>.

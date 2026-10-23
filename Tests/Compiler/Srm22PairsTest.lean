@@ -3,7 +3,7 @@ import Tests.Compiler.Srm16ParentTest
 import Tools.ShippingSrm22Width
 import Tools.ShippingNamesClk
 set_option autoImplicit false
--- BUILT (unit SRM22): dev runs see STATUS/REPORT; the final-SHA rebuild in REPORT-SRM22.md is the only final evidence.
+-- BUILT (unit SRM22): dev runs p1 (exit 1), p2 (exit 1), p3 (exit 0); the final-SHA rebuild in REPORT-SRM22.md is the only final evidence.
 -- SCOPE: (1) two COUNTEREXAMPLES (Prop-level, over ARBITRARY modules `raw`/`b` related by `hpost`; they say nothing about the concrete topshare modules):
 --   `hin_not_hinsFit` (SRM19 `hin` does not give ComposedG `hinsFit` without an input-is-wire fact), `hstX_hstR_not_hst3` (ComposedG `hstX`+`hstR` do not give SRM19 `hst₃`).
 -- (2) corollaries: SRM20 `topshareM_svBoundsH_underComposedG` / SRM21 `topshareQ_svBoundsH_underComposedG'` CALLED UNCHANGED, with the `hin` binder REPLACED (not discharged) by three explicit structural PREMISES
