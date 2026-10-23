@@ -122,6 +122,12 @@ import Tools.ShippingSrm17Ran
 import Tools.ShippingSrm17Corr
 import Tools.ShippingSrm18Start
 import Tools.ShippingSrm21Lift
+import Tools.ShippingSrm22Width
+import Tools.ShippingSrm23Regs
+import Tools.ShippingSrm24Width
+import Tools.ShippingSrm25Init
+import Tools.ShippingSrm26Order
+import Tools.ShippingSrm28Regs
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -671,7 +677,13 @@ def audited : List Name :=
    ``Tools.ShippingSrm17Ran.nodup_idx, ``Tools.ShippingSrm17Ran.ran_modP, ``Tools.ShippingSrm17Ran.leaf_modPA,
    ``Tools.ShippingSrm17Corr.memModule_modP, ``Tools.ShippingSrm17Corr.ran_designP, ``Tools.ShippingSrm17Corr.memCallee_childP, ``Tools.ShippingSrm17Corr.leaf_childP,
    ``Tools.ShippingSrm18Start.evalAssignsKG_relZ, ``Tools.ShippingSrm18Start.runModuleTG_kids_congr, ``Tools.ShippingSrm18Start.bumpKT_ne, ``Tools.ShippingSrm18Start.mem_instNames, ``Tools.ShippingSrm18Start.length_le_sum, ``Tools.ShippingSrm18Start.freshName_fresh, ``Tools.ShippingSrm18Start.bumpedStart_spec,
-   ``Tools.ShippingSrm21Lift.evalAssignsKG_sim, ``Tools.ShippingSrm21Lift.stepModuleTG_sim, ``Tools.ShippingSrm21Lift.runModuleTG_sim, ``Tools.ShippingSrm21Lift.stepModuleTG_instFree, ``Tools.ShippingSrm21Lift.simO_instFree_step, ``Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree, ``Tools.ShippingSrm21Lift.resetNk_depth_lift]
+   ``Tools.ShippingSrm21Lift.evalAssignsKG_sim, ``Tools.ShippingSrm21Lift.stepModuleTG_sim, ``Tools.ShippingSrm21Lift.runModuleTG_sim, ``Tools.ShippingSrm21Lift.stepModuleTG_instFree, ``Tools.ShippingSrm21Lift.simO_instFree_step, ``Tools.ShippingSrm21Lift.runModuleTG_depth2_depth1_of_grandInstFree, ``Tools.ShippingSrm21Lift.resetNk_depth_lift,
+   ``Tools.ShippingSrm22Width.hin_of_hinsFit, ``Tools.ShippingSrm22Width.hinsFit_of_hin, ``Tools.ShippingSrm22Width.hstX_of_hst3, ``Tools.ShippingSrm22Width.mem_seqRegs_openFlat, ``Tools.ShippingSrm22Width.hstR_of_hst1_hst2, ``Tools.ShippingSrm22Width.regsFit_of_hstR_hst1, ``Tools.ShippingSrm22Width.regsAtInit_of_hinit,
+   ``Tools.ShippingSrm23Regs.shippedRegsFromSource_of_hierGate,
+   ``Tools.ShippingSrm24Width.regWidth_eq_of_hierGate, ``Tools.ShippingSrm24Width.shippedRegWidthLe_of_hierGate,
+   ``Tools.ShippingSrm25Init.refineCheck_regInit, ``Tools.ShippingSrm25Init.shippedRegInit_of_hierGate, ``Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source,
+   ``Tools.ShippingSrm26.subset_of_length_le, ``Tools.ShippingSrm26.nodup_getElem?_inj, ``Tools.ShippingSrm26.sourceRegsAreSlots_regs_of_ports, ``Tools.ShippingSrm26.sourceRegsAreSlots_of_wired, ``Tools.ShippingSrm26.shippedRegsAreSlots_of_wired,
+   ``Tools.ShippingSrm28.sourceRegsAreSlots_of_wired_all, ``Tools.ShippingSrm28.shippedRegsAreSlots_of_wired_all, ``Tools.ShippingSrm28.composedNWRegs_of_composedNW, ``Tools.ShippingSrm28.ComposedNWRegs.toNW]
 
 end Tests.Compiler.ChildVertAuditTest
 
