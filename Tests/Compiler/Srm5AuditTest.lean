@@ -3,7 +3,7 @@ import Tests.Compiler.Srm5HeightTest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.Srm5AuditExpected
 import Tools.ShippingKidsChildIfaceM
--- BUILT (unit SRM5): s5j1 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM5.md.
+-- BUILT (unit SRM5): s5k4 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM5.md.
 -- SCOPE (SRM5, audits).  For each audited SRM5 theorem: (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S5PREM` / `S5DATA` line and the WHOLE table (every binder of every audited theorem,
 -- in order) must EQUAL the committed `Tests/Compiler/Srm5AuditExpected.lean` (`expectedRows`) EXACTLY (list equality of the normalised tuples; a changed type, an added/removed/reordered binder, a changed implicit/data binder FAILS the build)
 -- AND the committed text view `scripts/srm5/PREMISES.txt`, line for line.  NEGATIVE FIXTURES: three mutations of the actual table (a changed Prop binder type with the same name; an added data binder; a reordered binder list) are REJECTED by the comparator.
