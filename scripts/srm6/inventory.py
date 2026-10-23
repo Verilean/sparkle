@@ -6,6 +6,7 @@ NOT elaborated: a hit inside a comment/docstring is stripped, a use through an u
 Usage: python3 scripts/srm6/inventory.py [Tools-dir] > scripts/srm6/inventory.tsv ; summary on stderr.
 Columns: file, line, kind, name, role, uses, depth, class
  role   : PRODUCER  (the statement CONCLUDES a designCheck/kidsPass/kidCheck = true)
+          TRANSFORMER (takes one as hypothesis AND concludes one)
           CONSUMER  (the statement takes one as hypothesis, or the body unfolds/uses one)
           DEF       (a def/abbrev whose body mentions one)
  uses   : conjuncts used (text = textCheckI/textCheckI_sound; inst = kidsPass_at / instance resolution (Resolved, childMap);
@@ -40,13 +41,23 @@ for path in sorted(glob.glob(os.path.join(root, '*.lean'))):
         kind, name = m.group(1), m.group(2) or '?'
         k = txt.find(':=')
         sig, body = (txt[:k], txt[k:]) if k >= 0 else (txt, '')
-        # conclusion = text after the last top-level ':' of the signature heuristically: the part after the last '→'/':' ; we test the tail
-        tail = sig.split('→')[-1] if '→' in sig else sig.split(':')[-1]
-        concl = bool(re.search(r'(designCheck|kidsPass|kidCheck)[^=]*=\s*true', tail)) and not re.search(r'(designCheck|kidsPass|kidCheck)[^=]*=\s*true\s*→', sig[sig.rfind(tail)-0:] )
-        hyp = bool(KEY.search(sig[:len(sig) - len(tail)])) if tail is not sig else False
+        # split the signature at the LAST top-level ':' (paren/brace/bracket depth 0): binders | conclusion
+        depth_, cut = 0, -1
+        for i, ch in enumerate(sig):
+            if ch in '([{⟨': depth_ += 1
+            elif ch in ')]}⟩': depth_ -= 1
+            elif ch == ':' and depth_ == 0 and sig[i+1:i+2] != '=': cut = i
+        binders, concl_txt = (sig[:cut], sig[cut+1:]) if cut >= 0 else (sig, '')
+        # hypotheses can also sit in the conclusion as `A → B → goal`
+        parts = concl_txt.split('→')
+        goal = parts[-1]
+        hyp = bool(KEY.search(binders)) or any(KEY.search(x) for x in parts[:-1])
+        concl = bool(KEY.search(goal))
         if kind in ('def', 'abbrev', 'structure', 'instance'):
             role = 'DEF'
-        elif concl and not hyp:
+        elif concl and hyp:
+            role = 'TRANSFORMER'
+        elif concl:
             role = 'PRODUCER'
         else:
             role = 'CONSUMER'

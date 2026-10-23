@@ -1,6 +1,6 @@
 import Tools.ShippingSrm5Height
 import Tools.ShippingDesignSVBounds
--- UNBUILT (unit SRM6): see STATUS-SRM6.md for run names.
+-- BUILT (unit SRM6): m2 exit 0 (dev); final-SHA rebuild in REPORT-SRM6.md.
 -- SCOPE (binding): the SEMANTIC side of SRM5's `hcheck`.  `design_sv_runH` is the height-indexed restatement of `Tools.ShippingDesignSV.design_sv_runN` (the forward simulation of the IR linked
 -- run by the emitted texts): its check hypothesis `designCheck C n o = true` is replaced by `hcheck C rk f o = true`, its relation `DesignSV C n` by `DesignSVH C rk n` and its width
 -- premises `SVBounds C n` by `SVBoundsH C rk n` (the same premises, per kid at ITS rank).  A module of rank 0 is an instance-free leaf: its text runs as `LeafRun` at ANY state depth
