@@ -3,7 +3,7 @@ import Tests.Compiler.Srm5HeightTest
 import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.Srm5AuditExpected
 import Tools.ShippingKidsChildIfaceM
--- BUILT (unit SRM5): s5k4 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM5.md.
+-- BUILT (unit SRM5B): dev run b2 exit 0 (fixture 1 made semantic: ` ∧ True`); the final-SHA rebuild is in REPORT-SRM5B.md.  (SRM5 history: s5k4 exit 0; its fixture 1 was whitespace-only.)
 -- SCOPE (SRM5, audits).  For each audited SRM5 theorem: (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S5PREM` / `S5DATA` line and the WHOLE table (every binder of every audited theorem,
 -- in order) must EQUAL the committed `Tests/Compiler/Srm5AuditExpected.lean` (`expectedRows`) EXACTLY (list equality of the normalised tuples; a changed type, an added/removed/reordered binder, a changed implicit/data binder FAILS the build)
 -- AND the committed text view `scripts/srm5/PREMISES.txt`, line for line.  NEGATIVE FIXTURES: three mutations of the actual table (a changed Prop binder type with the same name; an added data binder; a reordered binder list) are REJECTED by the comparator.
@@ -14,6 +14,7 @@ import Tools.ShippingKidsChildIfaceM
 -- `memCallee_kidHeight` and do NOT route through `kidsNC_designCheck_of_kidsPass` / `core_kidsPass_deep_ranA` (the uniform route; `kids_designCheck_inA` is reported as an `S5NOTE`: it can enter through `KidFactsA.toNC` of the plain callee, whose `check`
 -- field is projected away).  CONTROLS: every forbidden root exists; the old-form `kidsChild_of_realM` IS caught by the same walk.  Examples do not make the class complete; `RealChildA` is a history of past synthesis results.
 -- NOT guaranteed: that the hypotheses are TRUE or satisfiable in general (only that they are the listed ones); the type strings are `ppExpr` renderings in the head environment.  No `sorry`, no `axiom`, no `native_decide`.
+set_option autoImplicit false
 set_option Elab.async false
 section
 open Lean Elab Command Meta
@@ -88,14 +89,19 @@ def tableDiff (a e : List (Name × List Row)) : Option String := Id.run do
       if r != r' then return some s!"{n}: binder {r.1} differs: {rowLine n r} vs expected {rowLine n r'}"
   return none
 
-/-- mutation 1: change the type of the first Prop binder (same name) -/
-def mutType (t : List (Name × List Row)) : List (Name × List Row) :=
+/-- position `(theorem index, binder index)` of the first Prop binder of the table -/
+def firstPropPos (t : List (Name × List Row)) : Option (Nat × Nat) :=
   match t.findIdx? (fun (_, rs) => rs.any (·.2.2.2.1)) with
+  | none => none
+  | some k => (t[k]?.bind fun (_, rs) => rs.findIdx? (·.2.2.2.1)).map fun i => (k, i)
+
+/-- mutation 1: SEMANTIC change of the type of the first Prop binder (same index, binderInfo, name, isProp): the type string becomes `T ∧ True` -/
+def mutType (t : List (Name × List Row)) : List (Name × List Row) :=
+  match firstPropPos t with
   | none => t
-  | some k => t.mapIdx fun j (n, rs) =>
+  | some (k, idx) => t.mapIdx fun j (n, rs) =>
     if j == k then
-      let idx := (rs.findIdx? (·.2.2.2.1)).getD 0
-      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ") else r)
+      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, "(" ++ r.2.2.2.2 ++ ") ∧ True") else r)
     else (n, rs)
 
 /-- mutation 2: add a data binder to the first theorem -/
@@ -160,6 +166,29 @@ run_cmd liftTermElabM do
   unless fileLines == lines do
     throwError "SRM5 AUDIT FAILED: scripts/srm5/PREMISES.txt differs from the regenerated table ({fileLines.length} lines vs {lines.length})"
   -- NEGATIVE FIXTURES: each mutation of the table is a DIFFERENT table and is REJECTED by the comparator
+  -- FIXTURE 1 is a SEMANTIC type change: the type string differs visibly; the row is still the same Prop binder; every other row is unchanged; the comparator names that binder
+  let some (fk, fi) := firstPropPos actual | throwError "SRM5 AUDIT FAILED: no Prop binder in the table (fixture 1 vacuous)"
+  let m1 := mutType actual
+  let some (fthm, frows) := actual[fk]? | throwError "SRM5 AUDIT FAILED: fixture 1 position out of range"
+  let some (_, mrows) := m1[fk]? | throwError "SRM5 AUDIT FAILED: fixture 1 position out of range in the mutated table"
+  let some orow := frows[fi]? | throwError "SRM5 AUDIT FAILED: fixture 1 binder out of range"
+  let some mrow := mrows[fi]? | throwError "SRM5 AUDIT FAILED: fixture 1 binder out of range in the mutated table"
+  logInfo m!"S5FIXTURE1|original: {rowLine fthm orow}"
+  logInfo m!"S5FIXTURE1|mutated : {rowLine fthm mrow}"
+  if mrow.2.2.2.2 == orow.2.2.2.2 then throwError "SRM5 AUDIT FAILED: fixture 1 did not change the type string"
+  unless (mrow.2.2.2.2.splitOn "∧ True").length > 1 do throwError "SRM5 AUDIT FAILED: fixture 1 mutated text does not visibly show the change"
+  unless mrow.2.2.2.1 == true && mrow.1 == orow.1 && mrow.2.1 == orow.2.1 && mrow.2.2.1 == orow.2.2.1 do
+    throwError "SRM5 AUDIT FAILED: fixture 1 changed more than the type of a Prop binder (index/binderInfo/name/isProp)"
+  unless m1.length == actual.length && (m1.zip actual).all (fun ((n, rs), (n', rs')) => n == n' && rs.length == rs'.length) do
+    throwError "SRM5 AUDIT FAILED: fixture 1 changed the shape of the table"
+  for ((((n, rs), (_, rs')), j)) in (m1.zip actual).zipIdx do
+    for (((r, r'), i)) in (rs.zip rs').zipIdx do
+      if !(j == fk && i == fi) && r != r' then throwError "SRM5 AUDIT FAILED: fixture 1 changed another row ({rowLine n r})"
+  match tableDiff m1 Tests.Compiler.Srm5AuditExpected.expectedRows with
+  | none => throwError "SRM5 AUDIT FAILED: the comparator ACCEPTED fixture 1"
+  | some msg =>
+    unless (msg.splitOn (toString fthm)).length > 1 && (msg.splitOn s!"binder {fi} differs").length > 1 && (msg.splitOn orow.2.2.1).length > 1 do
+      throwError "SRM5 AUDIT FAILED: the comparator rejected fixture 1 but did not name the binder: {msg}"
   for (nm, mt) in [("changed Prop binder type", mutType actual), ("added data binder", mutAdd actual), ("reordered binders", mutSwap actual)] do
     if mt == actual then throwError "SRM5 AUDIT FAILED: the fixture '{nm}' did not change the table (vacuous)"
     match tableDiff mt Tests.Compiler.Srm5AuditExpected.expectedRows with
