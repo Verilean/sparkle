@@ -4196,3 +4196,9 @@ lean_lib «Tests.Compiler.Srm15AuditExpected» where
 
 lean_lib «Tests.Compiler.Srm15AuditTest» where
   roots := #[`Tests.Compiler.Srm15AuditTest]
+
+lean_lib «Tools.ShippingSrm16Reset» where
+  roots := #[`Tools.ShippingSrm16Reset]
+
+lean_lib «Tests.Compiler.Srm16ParentTest» where
+  roots := #[`Tests.Compiler.Srm16ParentTest]
