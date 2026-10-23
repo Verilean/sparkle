@@ -1,7 +1,7 @@
 import Tools.ShippingSrm6Sem
 import Tools.ShippingDesignSVBounds
 set_option autoImplicit false
--- UNBUILT (unit SRM11): see STATUS-SRM11.md for run names; the final-SHA rebuild is in REPORT-SRM11.md.
+-- BUILT (unit SRM11): dev runs b3 (exit 0); the final-SHA rebuild is in REPORT-SRM11.md.
 -- SCOPE (binding): the HEIGHT-INDEXED analogue of `Tools.ShippingDesignSVBounds.svBounds_of_checks`.  Where the uniform chain needs `designCheck C n o = true` (every kid checked at
 -- the SAME depth, which a built memory module below depth 0 cannot satisfy), this file runs the same width-bound argument over `hcheck C rk f o = true` (SRM5) with `rk o.name = some r`, `r ≤ n + 1`.
 -- PROVED here: `stepModuleTG_instFree`, `leafStepTG_bound` (a rank-0 module's cycle at any depth), `moduleStepBoundH`, `KSn_stepBoundH`, `runModuleTG_envBoundH`, `svBoundsH_of_checks`
@@ -155,7 +155,7 @@ theorem KSn_stepBoundH (ms : List Module) (rk : String → Option Nat) : ∀ n, 
     | some r =>
       obtain ⟨envF, nexts, mems'⟩ := r
       rw [hsm] at hstep
-      simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hstep
+      simp only [Option.map_some] at hstep
       obtain ⟨rfl, rfl⟩ := hstep
       obtain ⟨hbe, hnb⟩ := leaf_stepBound (hcheck_leaf hr hlc) hseed hsm
       exact ⟨hbe, applyNexts_bound hinv hnb⟩

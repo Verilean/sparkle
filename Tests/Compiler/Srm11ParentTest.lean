@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm6ParentTest
 import Tools.ShippingSrm11Bounds
 set_option autoImplicit false
--- UNBUILT (unit SRM11): see STATUS-SRM11.md for run names; the final-SHA rebuild is in REPORT-SRM11.md.
+-- BUILT (unit SRM11): dev runs b3 (exit 0) and a3 (exit 0); the final-SHA rebuild is in REPORT-SRM11.md.
 -- SCOPE: the width premise `hB : SVBoundsH …` of SRM6's `topshareM_designSVH` / `topshareQ_designSVH`, PROVED from `Tools.ShippingSrm11Bounds.svBoundsH_of_checks` (the `hcheck` analogue of `svBounds_of_checks`)
 -- with `topshare*_hcheck`.  The hypothesis `hB` is REPLACED (not discharged) by the machine-side width facts of the uniform chain: `hseedB` (the top seeding maps bounded states to bounded environments),
 -- `hst` (bounded start state) and `hkids` (`InvN` of every instance's state at the shipped module's instance statements).  All other premises are those of `topshare*_designSVH`.

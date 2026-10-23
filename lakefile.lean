@@ -4142,3 +4142,9 @@ lean_lib «Tools.ShippingSrm11Bounds» where
 
 lean_lib «Tests.Compiler.Srm11ParentTest» where
   roots := #[`Tests.Compiler.Srm11ParentTest]
+
+lean_lib «Tests.Compiler.Srm11AuditExpected» where
+  roots := #[`Tests.Compiler.Srm11AuditExpected]
+
+lean_lib «Tests.Compiler.Srm11AuditTest» where
+  roots := #[`Tests.Compiler.Srm11AuditTest]
