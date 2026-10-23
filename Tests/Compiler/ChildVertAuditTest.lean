@@ -114,6 +114,8 @@ import Tools.ShippingSrm7Rank
 import Tools.ShippingSrm10Outs
 import Tools.ShippingSrm11Bounds
 import Tools.ShippingSrm12Corr
+import Tools.ShippingSrm13Supply
+import Tools.ShippingSrm15Graph
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -655,7 +657,9 @@ def audited : List Name :=
    ``Tools.ShippingSrm12Corr.kidTA_name, ``Tools.ShippingSrm12Corr.instTagged_mem_idx, ``Tools.ShippingSrm12Corr.instTagged_exists_idx, ``Tools.ShippingSrm12Corr.memModule_modCorr,
    ``Tools.ShippingSrm12Corr.memModule_design_modules, ``Tools.ShippingSrm12Corr.ran_instFwd, ``Tools.ShippingSrm12Corr.ran_instBwd, ``Tools.ShippingSrm12Corr.modCorr_of_run,
    ``Tools.ShippingSrm12Corr.ran_designCorr, ``Tools.ShippingSrm12Corr.memCallee_childCorr, ``Tools.ShippingSrm12Corr.childCorr_noInst, ``Tools.ShippingSrm12Corr.callees_mem_names,
-   ``Tools.ShippingSrm12Corr.inst_rank]
+   ``Tools.ShippingSrm12Corr.inst_rank,
+   ``Tools.ShippingSrm13Supply.seedB_of_seedIn, ``Tools.ShippingSrm13Supply.seedB_checkedOptimize, ``Tools.ShippingSrm13Supply.seedIn_not_bounded, ``Tools.ShippingSrm13Supply.hseedB_not_forced, ``Tools.ShippingSrm13Supply.bounded_of_regsAtInit, ``Tools.ShippingSrm13Supply.bounded_not_forced, ``Tools.ShippingSrm13Supply.invN0_not_forced, ``Tools.ShippingSrm13Supply.invN_of_resetN_fitTree, ``Tools.ShippingSrm13Supply.moduleByName_name, ``Tools.ShippingSrm13Supply.kidReset_of_resetNk, ``Tools.ShippingSrm13Supply.kidInvN_of_resetNk,
+   ``Tools.ShippingSrm15Graph.callees_graphOf, ``Tools.ShippingSrm15Graph.hname_of_iface, ``Tools.ShippingSrm15Graph.firstOcc_unique, ``Tools.ShippingSrm15Graph.ran_designCorr_of_graphOf, ``Tools.ShippingSrm15Graph.graphCovers_callees]
 
 end Tests.Compiler.ChildVertAuditTest
 
