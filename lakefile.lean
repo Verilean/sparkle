@@ -4064,3 +4064,6 @@ lean_lib «Tools.ShippingSrm5Transfer» where
 
 lean_lib «Tools.ShippingSrm5TransferM» where
   roots := #[`Tools.ShippingSrm5TransferM]
+
+lean_lib «Tools.ShippingSrm5Deep» where
+  roots := #[`Tools.ShippingSrm5Deep]
