@@ -4172,3 +4172,12 @@ lean_lib «Tests.Compiler.Srm13AuditExpected» where
 
 lean_lib «Tests.Compiler.Srm13AuditTest» where
   roots := #[`Tests.Compiler.Srm13AuditTest]
+
+lean_lib «Tests.Compiler.Srm14RankTest» where
+  roots := #[`Tests.Compiler.Srm14RankTest]
+
+lean_lib «Tests.Compiler.Srm14AuditExpected» where
+  roots := #[`Tests.Compiler.Srm14AuditExpected]
+
+lean_lib «Tests.Compiler.Srm14AuditTest» where
+  roots := #[`Tests.Compiler.Srm14AuditTest]
