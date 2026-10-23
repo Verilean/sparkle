@@ -1,0 +1,25 @@
+SRM23 EXPECTED (fixed BEFORE any proof file).  Chosen gap: G2 `ShippedRegsFromSource b` (reason: scripts/srm23/GAP_INVENTORY.txt, CHOICE).
+Notation as in scripts/srm22/EXPECTED.txt (cO = Sparkle.IR.OptCheck.checkedOptimize, hierGate = Sparkle.IR.RefineCheck.hierGate, declWidth = Sparkle.IR.RegDedup.declWidth).
+Generic file Tools/ShippingSrm23Regs.lean, namespace Tools.ShippingSrm23Regs.  Instances/corollaries Tests/Compiler/Srm23RegsTest.lean, namespace Tests.Compiler.Srm23RegsTest.
+
+=== GENERIC ===
+theorem shippedRegsFromSource_of_hierGate {b : Module} (hgate : hierGate b = true) : Tools.ShippingSrm22Width.ShippedRegsFromSource b
+
+=== INSTANCES (same premises as the SRM22 *_noHin corollaries minus hBd, hnd, hsI, hIW: only what the gap needs) ===
+theorem topshareM_shippedRegsFromSource {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w w1 : Void IO.RealWorld} {b raw : Module} {D : Design}
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareM [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw))
+    (entry : MachineDefines mctx mref cctx cref ``topshareM topshareM.machineData.shape)
+    (hBnd : TmBnd mctx mref cctx cref w raw D) :
+    Tools.ShippingSrm22Width.ShippedRegsFromSource b
+theorem topshareQ_shippedRegsFromSource  -- identical with ``topshareQ and TqBnd
+
+=== COROLLARIES (SRM22 lemmas CALLED UNCHANGED; ONLY the binder `hreg : ShippedRegsFromSource b` removed; the other premises of the SRM22 lemma stay: hnd explicit; hs's input part hsI explicit; hgate / wire+output sanitize / how derived from hBnd as in SRM22 PairsTest) ===
+theorem topshareM_hstX_of_hst3 {…as above…} (hnd : (b.wires.map (·.name)).Nodup)
+    (hsI : ∀ p ∈ b.inputs, Sparkle.Backend.Verilog.sanitizeName p.name = p.name)
+    (C : String → Option (Module × Sparkle.IR.Semantics.WEnv)) (st0 : String → Nat) :
+    NonRegBounded (cO b) st0 → ∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts C b.body → st0 x < 2 ^ declWidth b x
+theorem topshareM_regsFit_of_hstR_hst1 {…as above…} (st0 : String → Nat) (hW : ShippedRegWidthLe b) :
+    RegsAtInit (cO b) st0 → (∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1) → RegsFit (cO b)
+(and the Q versions with topshareQ / TqBnd).  hW stays an explicit PREMISE (gap G4, not proved here); G1 G3 G5 untouched.
