@@ -4052,3 +4052,6 @@ lean_lib «Tests.Compiler.Srm4ComposedQTest» where
 
 lean_lib «Tools.ShippingSrm5Height» where
   roots := #[`Tools.ShippingSrm5Height]
+
+lean_lib «Tests.Compiler.Srm5HeightTest» where
+  roots := #[`Tests.Compiler.Srm5HeightTest]
