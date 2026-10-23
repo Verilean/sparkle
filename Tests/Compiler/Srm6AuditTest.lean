@@ -3,7 +3,7 @@ import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.Srm6AuditExpected
 import Tools.ShippingKidsChildIfaceM
 set_option autoImplicit false
--- BUILT (unit SRM6): m13 exit 0 (dev); final-SHA rebuild in REPORT-SRM6.md.
+-- BUILT (unit SRM6B): b1 exit 0 (dev); fixture 1 is now semantic (` ∧ True`); final-SHA rebuild in REPORT-SRM6B.md.
 -- SCOPE (SRM6, audits; generalised COPY of Srm5AuditTest, SRM5 files untouched).  For each of the 7 audited SRM6 theorems (`Tools.ShippingSrm6Sem.{hcheck_leaf, hcheck_fuel, instFree_of_leafCheck, leaf_forwardH, design_sv_runH}`, `topshareM_designSVH`, `topshareQ_designSVH`):
 -- (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S6PREM` / `S6DATA` line and the WHOLE table must EQUAL the committed `Tests/Compiler/Srm6AuditExpected.lean` (`expectedRows`) EXACTLY and `scripts/srm6/PREMISES.txt` line for line.  Literal guards: 7 theorems.
 -- NEGATIVE FIXTURES: changed Prop binder type, added data binder, reordered binders: each must differ from the actual table and be REJECTED by the comparator (`S6FIXTURE` lines).
@@ -67,14 +67,14 @@ def tableDiff (a e : List (Name × List Row)) : Option String := Id.run do
       if r != r' then return some s!"{n}: binder {r.1} differs: {rowLine n r} vs expected {rowLine n r'}"
   return none
 
-/-- mutation 1: change the type of the first Prop binder (same name) -/
+/-- mutation 1: SEMANTICALLY change the type of the first Prop binder (same index, binderInfo, name): append ` ∧ True` -/
 def mutType (t : List (Name × List Row)) : List (Name × List Row) :=
   match t.findIdx? (fun (_, rs) => rs.any (·.2.2.2.1)) with
   | none => t
   | some k => t.mapIdx fun j (n, rs) =>
     if j == k then
       let idx := (rs.findIdx? (·.2.2.2.1)).getD 0
-      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ") else r)
+      (n, rs.mapIdx fun i r => if i == idx then (r.1, r.2.1, r.2.2.1, r.2.2.2.1, r.2.2.2.2 ++ " ∧ True") else r)
     else (n, rs)
 
 /-- mutation 2: add a data binder to the first theorem -/
@@ -139,6 +139,28 @@ run_cmd liftTermElabM do
   unless fileLines == lines do
     throwError "SRM6 AUDIT FAILED: scripts/srm6/PREMISES.txt differs from the regenerated table ({fileLines.length} lines vs {lines.length})"
   -- NEGATIVE FIXTURES: each mutation of the table is a DIFFERENT table and is REJECTED by the comparator
+  -- fixture 1 is a SEMANTIC change of exactly one Prop binder: the type string differs (visibly), index/binderInfo/name/isProp are unchanged, all other rows are unchanged
+  do
+    let mt := mutType actual
+    let mut diffs : List (Name × Row × Row) := []
+    unless mt.length == actual.length do throwError "SRM6 AUDIT FAILED: fixture 'changed Prop binder type' changed the theorem count"
+    for ((n, rs), (n', rs')) in actual.zip mt do
+      unless n == n' && rs.length == rs'.length do throwError "SRM6 AUDIT FAILED: fixture 'changed Prop binder type' changed the shape of {n}"
+      for (r, r') in rs.zip rs' do
+        if r != r' then diffs := diffs ++ [(n, r, r')]
+    match diffs with
+    | [(n, r, r')] =>
+      unless r'.2.2.2.2 != r.2.2.2.2 do throwError "SRM6 AUDIT FAILED: fixture 'changed Prop binder type': the type string did not change"
+      unless r.2.2.2.1 && r'.2.2.2.1 do throwError "SRM6 AUDIT FAILED: fixture 'changed Prop binder type': the mutated binder is not a Prop binder"
+      unless r.1 == r'.1 && r.2.1 == r'.2.1 && r.2.2.1 == r'.2.2.1 do throwError "SRM6 AUDIT FAILED: fixture 'changed Prop binder type': index/binderInfo/name changed"
+      unless r'.2.2.2.2 == r.2.2.2.2 ++ " ∧ True" do throwError "SRM6 AUDIT FAILED: fixture 'changed Prop binder type': not the expected ` ∧ True` change"
+      match tableDiff mt Tests.Compiler.Srm6AuditExpected.expectedRows with
+      | none => throwError "SRM6 AUDIT FAILED: the comparator ACCEPTED the semantic type fixture"
+      | some msg =>
+        unless (msg.splitOn s!"{n}: binder {r.1} differs").length > 1 && (msg.splitOn s!"|{r.2.2.1}|").length > 1 do
+          throwError "SRM6 AUDIT FAILED: the rejection message does not name the mutated binder {n}#{r.1} ({r.2.2.1}): {msg}"
+        logInfo m!"S6FIXTURE1|binder {n}#{r.1} ({r.2.2.1}, Prop)|orig type: {r.2.2.2.2}|mutated type: {r'.2.2.2.2}"
+    | _ => throwError "SRM6 AUDIT FAILED: fixture 'changed Prop binder type' changed {diffs.length} rows, expected exactly 1"
   for (nm, mt) in [("changed Prop binder type", mutType actual), ("added data binder", mutAdd actual), ("reordered binders", mutSwap actual)] do
     if mt == actual then throwError "SRM6 AUDIT FAILED: the fixture '{nm}' did not change the table (vacuous)"
     match tableDiff mt Tests.Compiler.Srm6AuditExpected.expectedRows with
