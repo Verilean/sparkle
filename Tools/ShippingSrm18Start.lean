@@ -1,6 +1,6 @@
 import Tools.ShippingSrm16Reset
 set_option autoImplicit false
--- BUILT (unit SRM18): dev run a4 (exit 0; edit after a4 removed two unused simp arguments, rebuilt in a5); the final-SHA rebuild is in REPORT-SRM18.md.
+-- BUILT (unit SRM18): dev run a6 (exit 0); the final-SHA rebuild is in REPORT-SRM18.md.
 -- SCOPE: the start-state premise `hsk : s.kids = resetKids D n raw` of the SRM16/17 corollaries is an EQUALITY of functions over ALL names.  The actual start-state proposition of the shipping chain
 -- (`ComposedG`'s `Reset m dsn kids`, instantiated `ResetNk n`) is a Prop on the instance names of `raw` only, and the consumers (`kidReset_of_resetNk`, SRM13 `hrk`) need only that Prop.
 -- PROVED here (no premise about the design): for ANY state `s` admitted by `hrun : runModuleTG … = some envs` there is an explicit state `bumpedStart …` with the same registers/memories, the SAME run result, a
@@ -99,7 +99,7 @@ theorem runModuleTG_kids_congr {σ : Type} (KS : KStep σ) (we : WEnv)
         obtain ⟨he, hk2⟩ := hrel
         try simp only at he hk2
         subst he
-        simp only [Option.bind_some]
+        simp only [Option.bind_eq_bind, Option.bind_some]
         cases hN : regNexts we mems body e1 with
         | none => rfl
         | some nexts =>
