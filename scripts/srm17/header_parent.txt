@@ -1,0 +1,12 @@
+import Tests.Compiler.Srm16ParentTest
+import Tests.Compiler.Srm12CorrTest
+import Tools.ShippingSrm17Corr
+set_option autoImplicit false
+-- UNBUILT (unit SRM17): see REPORT-SRM17.md for run names / exits.
+-- SCOPE: for `topshareM` (depth 2) and `topshareQ` (depth 1) under the SRM16 machine premises (`O`, `T`, `hA`, the `MachineDefines` of the machines, `hcore`, `hpost`, `hw`):
+-- * `ChildP` of the callees (`leafM`/`wrapM`/`wrapM3`, `leafP`/`wrapP`/`wrapQ`) by `memCallee_childP`/`leaf_childP` (Tools/ShippingSrm17Corr.lean);
+-- * `topshare{M,Q}_modP`: the run's module `raw` and every module of `D.modules` satisfy `ModP` (`ran_designP`), under the extra explicit premise-free facts `slots ≠ []` of each machine, decided here;
+-- * `topshare{M,Q}_{hIUraw,hIU,hAg,hRd}` (PROVED): the four residual premises of SRM16's `resetNk_resetKids`, stated with the SAME Prop text as SRM16's binders, from `topshare{M,Q}_modP`;
+-- * `topshare{M,Q}_{svBoundsH,designSVH}_viaResetSrc`: SRM16's `_viaResetState` (CALLED, statement unchanged) WITHOUT the binders `hIUraw hIU hAg hRd`; `hsk` (the start state's kids ARE `resetKids D n raw`), `hin`, `RegsAtInit`/`RegsFit`/`NonRegBounded`, `FitTree`
+--   stay explicit PREMISES; hrun is NOT assumed to start at the reset state beyond `hsk`.
+-- `RealChildA` is a history of past synthesis results, not semantic correctness in the current environment.  No `sorry`, no `axiom`, no `native_decide`.

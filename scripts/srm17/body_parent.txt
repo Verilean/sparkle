@@ -1,0 +1,64 @@
+
+open Tools.ShippingSrm17Body Tools.ShippingSrm17Corr
+open Tools.ShippingInstTagged (originAt)
+
+variable {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+  {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+
+/-! ## `ChildP` of the callees -/
+
+theorem leafM_childP (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (entryL : MachineDefines mctx mref cctx cref ``leafM leafM.machineData.shape) : ChildP O ``leafM :=
+  memCallee_childP O T leafM_memCallee (fun _ _ _ k hk y hn _ => (leafM_none_false hk hn).elim) entryL (by decide)
+    (fun k hk hn => (leafM_none_false hk hn).elim)
+
+theorem wrapM_childP (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (entryL : MachineDefines mctx mref cctx cref ``leafM leafM.machineData.shape)
+    (entry : MachineDefines mctx mref cctx cref ``wrapM wrapM.machineData.shape) : ChildP O ``wrapM :=
+  memCallee_childP O T wrapM_memCallee
+    (fun m' c' _ k hk y _ hre => by
+      rw [wrapM_kids k hk] at hre
+      exact leafM_ifaceP (mctx := m') (cctx := c') O T (Tools.ShippingReflectCtx.MachineDefines.ctx entryL) hre)
+    entry (by decide) (fun k hk _ => by rw [wrapM_kids k hk]; exact leafM_childP O T entryL)
+
+theorem wrapM3_childP (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (entryL : MachineDefines mctx mref cctx cref ``leafM leafM.machineData.shape)
+    (entry : MachineDefines mctx mref cctx cref ``wrapM3 wrapM3.machineData.shape) : ChildP O ``wrapM3 :=
+  memCallee_childP O T wrapM3_memCallee
+    (fun m' c' _ k hk y _ hre => by
+      rw [wrapM3_kids k hk] at hre
+      exact leafM_ifaceP (mctx := m') (cctx := c') O T (Tools.ShippingReflectCtx.MachineDefines.ctx entryL) hre)
+    entry (by decide) (fun k hk _ => by rw [wrapM3_kids k hk]; exact leafM_childP O T entryL)
+
+theorem leafP_childP (O : RefLawsAOps MkRefd mref cref)
+    (hR0 : MachineDefines mctx mref cctx cref ``leafP leafP.machineData.shape)
+    (hcl : ∀ (mc : Lean.Meta.Context) (cc : Lean.Core.Context), MachineCloses mc mref cc cref ``leafP leafP.machineData.shape) :
+    ChildP O ``leafP :=
+  leaf_childP O leafP_data hR0 hcl
+
+theorem wrapP_childP (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (hR0 : MachineDefines mctx mref cctx cref ``leafP leafP.machineData.shape)
+    (hcl : ∀ (mc : Lean.Meta.Context) (cc : Lean.Core.Context), MachineCloses mc mref cc cref ``leafP leafP.machineData.shape)
+    (entry : MachineDefines mctx mref cctx cref ``wrapP wrapP.machineData.shape) : ChildP O ``wrapP :=
+  memCallee_childP O T wrapP_memCallee
+    (fun m' c' _ k hk y _ hre => by
+      rw [wrapP_kids k hk] at hre
+      exact leafKid_ifaceP (mctx := m') (cctx := c') O leafP_data (Tools.ShippingReflectCtx.MachineDefines.ctx hR0) hcl hre)
+    entry (by decide) (fun k hk _ => by rw [wrapP_kids k hk]; exact leafP_childP O hR0 hcl)
+
+theorem wrapQ_childP (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (hR0 : MachineDefines mctx mref cctx cref ``leafP leafP.machineData.shape)
+    (hcl : ∀ (mc : Lean.Meta.Context) (cc : Lean.Core.Context), MachineCloses mc mref cc cref ``leafP leafP.machineData.shape)
+    (entry : MachineDefines mctx mref cctx cref ``wrapQ wrapQ.machineData.shape) : ChildP O ``wrapQ :=
+  memCallee_childP O T wrapQ_memCallee
+    (fun m' c' _ k hk y hn hre => by
+      obtain ⟨hk2, hnm⟩ := wrapQ_ord k hk hn
+      rw [hnm] at hre
+      simp only [wqName, wqNk, wqOuts, wqNames, if_pos hk2]
+      exact leafKid_ifaceP (mctx := m') (cctx := c') O leafP_data (Tools.ShippingReflectCtx.MachineDefines.ctx hR0) hcl hre)
+    entry (by decide)
+    (fun k hk hn => by
+      obtain ⟨hk2, hnm⟩ := wrapQ_ord k hk hn
+      rw [hnm]
+      exact leafP_childP O hR0 hcl)
+

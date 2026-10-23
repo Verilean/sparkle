@@ -4211,3 +4211,24 @@ lean_lib «Tests.Compiler.Srm16AuditExpected» where
 
 lean_lib «Tests.Compiler.Srm16AuditTest» where
   roots := #[`Tests.Compiler.Srm16AuditTest]
+
+lean_lib «Tools.ShippingSrm17Body» where
+  roots := #[`Tools.ShippingSrm17Body]
+
+lean_lib «Tools.ShippingSrm17Ran» where
+  roots := #[`Tools.ShippingSrm17Ran]
+
+lean_lib «Tools.ShippingSrm17Corr» where
+  roots := #[`Tools.ShippingSrm17Corr]
+
+lean_lib «Tests.Compiler.Srm17ParentTest» where
+  roots := #[`Tests.Compiler.Srm17ParentTest]
+
+lean_lib «Tests.Compiler.Srm17ExpStmt» where
+  roots := #[`Tests.Compiler.Srm17ExpStmt]
+
+lean_lib «Tests.Compiler.Srm17AuditExpected» where
+  roots := #[`Tests.Compiler.Srm17AuditExpected]
+
+lean_lib «Tests.Compiler.Srm17AuditTest» where
+  roots := #[`Tests.Compiler.Srm17AuditTest]

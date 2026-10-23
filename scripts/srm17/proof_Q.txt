@@ -1,0 +1,9 @@
+  have ran := topshareQ_ranA O T hA hR0 hcl entry₁ entry₂ entry hcore hw
+  obtain ⟨hM, -, hD⟩ := ran_designP O topshareQ.machineData topshareQ_parentData.ok topshareQ_parentData.body
+    (nDecl := 4) topshareQ_parentData.callsOk topshareQ_parentData.slots topshareQ_parentData.domB topshareQ_insts_ne
+    (by decide) topshareQ_fne topshareQ_outTy hpost ran
+    (fun k hk _ => by
+      by_cases hk2 : k < 2
+      · rw [topshareQ_name k hk, if_pos hk2]; exact wrapP_childP O T hR0 hcl entry₁
+      · rw [topshareQ_name k hk, if_neg hk2]; exact wrapQ_childP O T hR0 hcl entry₂)
+  exact ⟨hM, hD⟩
