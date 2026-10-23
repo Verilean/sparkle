@@ -4250,3 +4250,12 @@ lean_lib «Tests.Compiler.Srm18AuditTest» where
 
 lean_lib «Tests.Compiler.Srm19EndToEndTest» where
   roots := #[`Tests.Compiler.Srm19EndToEndTest]
+
+lean_lib «Tests.Compiler.Srm19ExpStmt» where
+  roots := #[`Tests.Compiler.Srm19ExpStmt]
+
+lean_lib «Tests.Compiler.Srm19AuditExpected» where
+  roots := #[`Tests.Compiler.Srm19AuditExpected]
+
+lean_lib «Tests.Compiler.Srm19AuditTest» where
+  roots := #[`Tests.Compiler.Srm19AuditTest]
