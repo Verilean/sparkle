@@ -4067,3 +4067,6 @@ lean_lib «Tools.ShippingSrm5TransferM» where
 
 lean_lib «Tools.ShippingSrm5Deep» where
   roots := #[`Tools.ShippingSrm5Deep]
+
+lean_lib «Tests.Compiler.Srm5ParentTest» where
+  roots := #[`Tests.Compiler.Srm5ParentTest]
