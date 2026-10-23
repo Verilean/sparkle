@@ -4061,3 +4061,6 @@ lean_lib «Tools.ShippingSrm5Ident» where
 
 lean_lib «Tools.ShippingSrm5Transfer» where
   roots := #[`Tools.ShippingSrm5Transfer]
+
+lean_lib «Tools.ShippingSrm5TransferM» where
+  roots := #[`Tools.ShippingSrm5TransferM]
