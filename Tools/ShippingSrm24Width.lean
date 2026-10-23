@@ -1,8 +1,8 @@
 import Tools.ShippingSrm22Width
 import Tools.ShippingSrm23Regs
--- BUILT (unit SRM24): dev runs h1 (exit 1, split syntax), h2 (exit 0); the final-SHA rebuild in REPORT-SRM24.md is the only final evidence.
+import Tools.ShippingWidthTables
 set_option autoImplicit false
--- UNBUILT (unit SRM24): dev runs are listed in STATUS-SRM24.md / REPORT-SRM24.md; the final-SHA rebuild is only in REPORT-SRM24.md.
+-- BUILT (unit SRM24): dev runs h1 (exit 1, split syntax), h2 (exit 0); the final-SHA rebuild in REPORT-SRM24.md is the only final evidence.
 -- SCOPE (generic, every Module b): the SRM22 gap Prop `ShippedRegWidthLe b` (G4) is PROVED from `hierGate b = true` and sanitize-stability of `b.wires`.
 -- Route: (1) on both branches of `checkedOptimize b` the declared width of a shipped register's name agrees between `b` and the shipped module
 -- (`refineCheck_regWidth` inside `hierRefineCheck`; `openFlat` leaves wires unchanged); (2) in the shipped module a positive declared width is a wire
