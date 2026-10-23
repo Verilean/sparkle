@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm13ParentTest
 import Tools.ShippingSrm16Reset
 set_option autoImplicit false
--- UNBUILT (unit SRM16): dev runs are in REPORT-SRM16.md.
+-- BUILT (unit SRM16): dev runs a4 (exit 1 only for the placeholder audit table; this module Built), a5 (exit 0); the final-SHA rebuild is in REPORT-SRM16.md.
 -- SCOPE: corollaries of the SRM13 `_viaReset` theorems (statements untouched; they are CALLED) for `topshareM`/`topshareQ`.
 -- `topshare{M,Q}_hO` (PROVED): the shipped module's instance statements are statements of `raw`, from the machine run `ran` (`core_hierGate_anyAM`), `b.body = raw.body` (`core_kids_facts_ranA`) and `inst_checkedOptimize_sub`.
 -- `_viaResetO`: the SRM13 theorem without the `hO` binder.  `_viaResetState`: without `hO` and `hrk`; the start state's kids are the CONSTRUCTED `resetKids D n raw` (`hsk`, a PREMISE: that the run starts from the reset state is not proved here), and `hrk` is

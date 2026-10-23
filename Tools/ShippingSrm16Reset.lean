@@ -1,7 +1,7 @@
 import Tools.ShippingKidsResetSat
 import Tools.ShippingMachineShipsDepth
 set_option autoImplicit false
--- UNBUILT (unit SRM16): see REPORT-SRM16.md for the dev runs.
+-- BUILT (unit SRM16): dev run a2 (exit 0); the final-SHA rebuild is in REPORT-SRM16.md.
 -- SCOPE: an EXPLICIT constructed children state `resetKids D n raw` of depth `n` (every instance's registers at their first-register reset values, memories 0, recursively) and
 -- `resetNk_resetKids`: it satisfies `ResetNk n raw D`, PROVIDED the structural facts below hold of the modules of the design.  The structural facts (`hIU`, `hAg`, `hRd`) are PREMISES; they are not proved here for any concrete design.
 -- No `sorry`, no `axiom`, no `native_decide`.
