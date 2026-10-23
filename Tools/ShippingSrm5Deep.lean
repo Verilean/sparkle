@@ -1,6 +1,6 @@
 import Tools.ShippingSrm5TransferM
 import Tools.ShippingSrm4Kid
--- UNBUILT (unit SRM5)
+-- BUILT (unit SRM5): s5f2 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM5.md.
 -- SCOPE (binding): the per-CALLEE height fact `KidHeight O c rk f` (every `RealChildA O c y` has its OWN module `y.1` checked by `hcheck` at fuel `f`: the kid's module only, not its served design) and its derivation for a callee
 -- with memory and/or ordinary calls: `deepChild_kidHeightAM` (the height analogue of `deepChild_kidFactsNC`, from `deepChild_ranAM` + `kids_hcheck_inAM`) and `memCallee_kidHeight` (the analogue of `memCallee_kidFactsNC`, over `MemCalleeData`).
 -- PREMISES (named): the callee's rank `rk (ofDecl c) = some (h + 1)` (`hrb`), `hrkmem` (built memory modules are at height 0), the ranks of the ordinary kids `hrk` (at their `nameK k`, read off `hord`'s `ChildIfaceP.name`), `hKidH` (the height fact of each ordinary kid),

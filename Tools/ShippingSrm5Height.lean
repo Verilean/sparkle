@@ -1,6 +1,6 @@
 import Tools.ShippingDesignSVMem
 import Tools.ShippingChecksDesign
--- UNBUILT (unit SRM5): see the BUILT line below once a run is recorded.
+-- BUILT (unit SRM5): s5a2 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM5.md.
 -- SCOPE (binding): a HEIGHT-INDEXED child check `hcheck C rk f` replacing the UNIFORM-depth `kidCheck C n` / `designCheck C n` for the children of a design.
 -- `rk : String → Option Nat` is a RANK TABLE by module NAME.  A module of rank 0 is checked by `leafCheck` (a built memory module, or an ordinary leaf without instances); a module of rank `h + 1`
 -- by its own text check `textCheckI C` AND, for each of its instance statements, (i) the statement's target name `mn` resolves in `C` to a module `child` (an unresolved name is a REFUSAL: the check is `false`),

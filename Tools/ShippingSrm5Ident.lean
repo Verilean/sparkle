@@ -1,6 +1,6 @@
 import Tools.ShippingKidsSelfA
 import Tools.ShippingSrm4Core1
--- UNBUILT (unit SRM5)
+-- BUILT (unit SRM5): s5e2 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM5.md.
 -- SCOPE (binding): INSTANCE-TARGET IDENTIFICATION.  An instance statement `inst mn _ _` of the module `M` a machine run produced (`MachineRanA O … M D`) names, BY NAME, the module of the CHILD of some call `k`:
 -- `mn = y.1.name`, `moduleByName D.modules mn = some y.1` and the child's own design resolves in `D`, where `y = children[k]` is the run's `k`-th child — NOT a module of that child's own design (`y.2.modules`).  Together with the closing's
 -- `ChildrenRealA` this gives `RealChildA O (insts[k]).1 y` (ordinary entry: `hnomem`) or the memory-origin disjunct (`(insts-origins k).child? = some y`).

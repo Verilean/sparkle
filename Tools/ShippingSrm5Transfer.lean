@@ -2,7 +2,7 @@ import Tools.ShippingSeqChildDeepKidCheckA
 import Tools.ShippingSrm4Parent
 import Tools.ShippingSrm5Height
 import Tools.ShippingSrm5Ident
--- UNBUILT (unit SRM5)
+-- BUILT (unit SRM5): s5e2 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM5.md.
 -- SCOPE (binding): the HEIGHT-INDEXED transfer of `kids_designCheck_inA` (`Tools/ShippingSeqChildDeepKidCheckA.lean`) and of the parent's `designCheck` block (`kidsNC_designCheck_of_kidsPass`, `Tools/ShippingSrm4Parent.lean`).
 -- * `kids_textCheck_inA`: the text-check half of `kids_designCheck_inA`, a SCRIPTED copy (the `hkids` block and the `n`/`hkidC` hypotheses deleted, conclusion `textCheckI`); nothing else changed.
 -- * `kidsH_body_ranA`: every instance statement of the run's module passes `instOkH` at the rank table `rk`: the statement's target is IDENTIFIED BY NAME with the kid's own module `y.1` (`Tools/ShippingSrm5Ident.lean`), which is checked at ITS rank

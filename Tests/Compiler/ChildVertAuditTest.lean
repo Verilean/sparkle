@@ -105,6 +105,11 @@ import Tools.ShippingSrm4Kid
 import Tools.ShippingSrm4Callee
 import Tools.ShippingSrm4Parent
 import Tools.ShippingSrm4Mixed
+import Tools.ShippingSrm5Height
+import Tools.ShippingSrm5Ident
+import Tools.ShippingSrm5Transfer
+import Tools.ShippingSrm5TransferM
+import Tools.ShippingSrm5Deep
 
 /-! # Audit: the vertical path does not use the old boundary (round par/vert)
 
@@ -626,7 +631,15 @@ def audited : List Name :=
    ``Tools.ShippingSrm4Parent.kidsNC_runFacts, ``Tools.ShippingSrm4Parent.kidsNC_outsCheck, ``Tools.ShippingSrm4Parent.kidsNC_maskedN,
    ``Tools.ShippingSrm4Parent.kidsNC_designCheck_of_kidsPass,
    ``Tools.ShippingSrm4Mixed.call_inRange_at, ``Tools.ShippingSrm4Mixed.ordCallee_hcalls, ``Tools.ShippingSrm4Mixed.callee_composedNW,
-   ``Tools.ShippingSrm4Mixed.callee_seqChildRunN2]
+   ``Tools.ShippingSrm4Mixed.callee_seqChildRunN2,
+   ``Tools.ShippingSrm5Height.hcheck_memKids, ``Tools.ShippingSrm5Height.hcheck_memModule, ``Tools.ShippingSrm5Height.hcheck_ord, ``Tools.ShippingSrm5Height.hcheck_edge,
+   ``Tools.ShippingSrm5Height.hcheck_unresolved, ``Tools.ShippingSrm5Height.hcheck_norank, ``Tools.ShippingSrm5Height.hcheck_notBelow, ``Tools.ShippingSrm5Height.hcheck_selfInst,
+   ``Tools.ShippingSrm5Height.hcheck_misnamed, ``Tools.ShippingSrm5Height.hcheck_eq_designCheck,
+   ``Tools.ShippingSrm5Ident.inst_target_ranA, ``Tools.ShippingSrm5Ident.inst_target_ord_ranA,
+   ``Tools.ShippingSrm5Transfer.kids_textCheck_inA, ``Tools.ShippingSrm5Transfer.kidsH_body_ranA, ``Tools.ShippingSrm5Transfer.kids_hcheck_inA,
+   ``Tools.ShippingSrm5Transfer.kidsH_pass_ranA, ``Tools.ShippingSrm5Transfer.textCheckI_shipped, ``Tools.ShippingSrm5Transfer.kidsNC_hcheck,
+   ``Tools.ShippingSrm5TransferM.kids_textCheck_inAM, ``Tools.ShippingSrm5TransferM.kidsH_body_ranAM, ``Tools.ShippingSrm5TransferM.kids_hcheck_inAM,
+   ``Tools.ShippingSrm5Deep.deepChild_kidHeightAM, ``Tools.ShippingSrm5Deep.memCallee_kidHeight]
 
 end Tests.Compiler.ChildVertAuditTest
 

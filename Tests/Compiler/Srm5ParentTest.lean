@@ -3,7 +3,7 @@ import Tests.Compiler.Srm4KidTest
 import Tools.ShippingSrm5Deep
 import Tools.ShippingSrm5Transfer
 import Tools.ShippingModuleNames
--- UNBUILT (unit SRM5)
+-- BUILT (unit SRM5): s5g3 exit 0 (dev run, default heartbeats, no heartbeat option); the final-SHA rebuild is in REPORT-SRM5.md.
 -- SCOPE: the height-indexed check applied to the memory-leaf class of `Tests/Compiler/SharedLeafMemKidTest.lean`: `topshareM` (calls `wrapM` ×2 and `wrapM3` ×2; each calls `leafM` ×2; `leafM` has the memory entry).  Heights: memory 0, `leafM` 1, `wrapM`/`wrapM3` 2, `topshareM` 3.
 -- PROVED here (relative to the same premises as `Tests/Compiler/Srm4ParentTest.lean`): `leafM_kidHeight`, `wrapM_kidHeight`, `wrapM3_kidHeight` (the callee height facts), and `topshareM_hcheck`: the parent's height check with the children's check `hkids` of `topshareM_designCheck_of_kidsPass`
 -- DISCHARGED.  The RANK TABLE is a premise (`rk`, with `hrkmem` and the four rank equations); `rkM` is a concrete table satisfying all of them (`rkM_*`), so the premises are satisfiable.
