@@ -5,7 +5,7 @@ import Tools.ShippingSrm13Supply
 import Tools.ShippingHierOpen
 import Tools.ShippingHierOptRunHNoRst
 set_option autoImplicit false
--- UNBUILT (unit SRM22) until the REPORT: dev runs are in STATUS-SRM22.md; the final-SHA rebuild in REPORT-SRM22.md is the only final evidence.
+-- BUILT (unit SRM22): dev run w1 (exit 0); the final-SHA rebuild in REPORT-SRM22.md is the only final evidence.
 -- SCOPE (generic, every Module b; `o := checkedOptimize b`): which DIRECTIONS between the ComposedG-side binders (hinsFit / hstX / hstR, over `declWidth b`, `openIns b`, `seqRegs (openFlat b …)`)
 -- and the SRM19-side binders (hin / hst₁ / hst₂ / hst₃, over `weS o`, `RegsAtInit o`, `RegsFit o`, `NonRegBounded o`) are PROVED here, each under its EXACT premises.
 -- The gap Props (`InputsAreWires`, `ShippedRegsFromSource`, `SourceRegsKept`, `ShippedRegWidthLe`, `ShippedRegsAreSlots`) are PREMISES of the lemmas that name them; none is a binder of either side and none is proved here.

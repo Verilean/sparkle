@@ -4298,3 +4298,6 @@ lean_lib «Tests.Compiler.Srm22InventoryTest» where
 
 lean_lib «Tools.ShippingSrm22Width» where
   roots := #[`Tools.ShippingSrm22Width]
+
+lean_lib «Tests.Compiler.Srm22PairsTest» where
+  roots := #[`Tests.Compiler.Srm22PairsTest]
