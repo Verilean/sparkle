@@ -4247,3 +4247,6 @@ lean_lib «Tests.Compiler.Srm18ExpStmt» where
 
 lean_lib «Tests.Compiler.Srm18AuditTest» where
   roots := #[`Tests.Compiler.Srm18AuditTest]
+
+lean_lib «Tests.Compiler.Srm19EndToEndTest» where
+  roots := #[`Tests.Compiler.Srm19EndToEndTest]
