@@ -6,7 +6,7 @@ import Tools.ShippingModuleName
 -- a fuel bound `B` and a root `top`; `InClass g B top` (decidable, a `Bool`) holds iff `WfG g` (declaration names pairwise distinct, no declaration is named like a memory placeholder)
 -- and `declRank g B top` succeeds.  The graph is READ from the generated declarations by the test file (never typed in by hand beyond the list of declaration names to read).
 -- THE COMPUTATION (R2): `declRank g f c` = height of `c` in the call graph: a declaration without call entries has rank 0, otherwise 1 + the maximum rank of its callees; a memory placeholder
--- (`memChild? k` is `some _`) has rank 0; a name missing from the graph, a cycle (fuel runs out), or a graph failing `WfG` is REFUSED (`none`).
+-- (origin `.mem cb aw dw`, named `memChildName cb aw dw`) has rank 0; a name missing from the graph, a cycle (fuel runs out), or a graph failing `WfG` is REFUSED (`none`).
 -- `rkOf g F` is the rank table by MODULE NAME (decoded with the injective encoding `ModuleName.decode`): every built memory module has rank 0, the module of declaration `n` has rank `declRank g F n`, every other name has no rank.
 -- SOUNDNESS (PROVED): `rkOf_mem` (= SRM5 `hrkmem`), `rkOf_decl` (= the `hrb`/`hrT`-style own-rank equation), `rkOf_edge` (= `hrank`: a rank-`r` declaration's callees have module ranks `< r`, hence `≤ h` when `r = h+1`),
 -- `rkOf_ge_one` (a declaration with a callee has rank `≥ 1`), `declRank_le` (rank `≤` fuel), `declRank_mono`, and the refusals `declRank_self` (self call), `declRank_cycle2` style facts follow from `rkOf_edge`
@@ -17,37 +17,45 @@ import Tools.ShippingModuleName
 namespace Tools.ShippingSrm7Rank
 open Lean (Name)
 open Sparkle.IR.ModuleName
-open Sparkle.Compiler.MachMemory (memChild? memModule)
+open Sparkle.Compiler.MachMemory (memChildName memModule)
+open Sparkle.Compiler.MachInstOrigin (InstOrigin)
 
-/-- the call graph: one entry per declaration, with the callee names of its call entries (in the reader's order) -/
-abbrev CallGraph := List (Name × List Name)
+/-- a call entry: the callee name and its ORIGIN (`X.machineData.shape.instTagged`): the origin, not the name, says whether the callee is a built memory -/
+abbrev Kid := Name × InstOrigin
+
+/-- the call graph: one entry per declaration, with its call entries (in the reader's order) -/
+abbrev CallGraph := List (Name × List Kid)
 
 /-- the callees of declaration `c` (the first entry of that name) -/
-def callees : CallGraph → Name → Option (List Name)
+def callees : CallGraph → Name → Option (List Kid)
   | [], _ => none
   | (d, ks) :: t, c => if d == c then some ks else callees t c
 
 /-- the maximum of the callee ranks, `none` as soon as one callee has no rank -/
-def kidsMax (kr : Name → Option Nat) : List Name → Option Nat
+def kidsMax (kr : Kid → Option Nat) : List Kid → Option Nat
   | [] => some 0
   | k :: ks => match kr k, kidsMax kr ks with
     | some a, some b => some (max a b)
     | _, _ => none
 
-/-- **The rank computation** (fuel-bounded): a memory placeholder has rank 0; a declaration without call entries rank 0; otherwise `1 +` the maximum of its callees' ranks. -/
+/-- the rank of a call entry: an entry of origin `.mem cb aw dw` (named by its placeholder) is the built memory module, rank 0; any other entry is a declaration, looked up in the graph at one less fuel -/
+def kidRank (dr : Name → Option Nat) : Kid → Option Nat
+  | (k, .mem cb aw dw) => if k == memChildName cb aw dw then some 0 else none
+  | (k, _) => dr k
+
+/-- **The rank computation** (fuel-bounded): a memory entry has rank 0; a declaration without call entries rank 0; otherwise `1 +` the maximum of its callees' ranks. -/
 def declRank (g : CallGraph) : Nat → Name → Option Nat
   | 0, _ => none
   | f + 1, c => match callees g c with
     | none => none
-    | some ks => match kidsMax (fun k => if (memChild? k).isSome then some 0 else declRank g f k) ks with
+    | some ks => match kidsMax (kidRank (declRank g f)) ks with
       | none => none
       | some m => some (if ks.isEmpty then 0 else m + 1)
 
-/-- the module name of a callee: the built memory module's name for a placeholder, the declaration's module name otherwise -/
-def kidModName (k : Name) : String :=
-  match memChild? k with
-  | some (m, _) => m.name
-  | none => ofDecl k
+/-- the module name of a call entry: the built memory module's name for a memory origin, the declaration's module name otherwise -/
+def kidModName : Kid → String
+  | (_, .mem cb aw dw) => ofMem cb aw dw
+  | (k, _) => ofDecl k
 
 /-- **The rank table by module name.** -/
 def rkOf (g : CallGraph) (F : Nat) (s : String) : Option Nat :=
@@ -56,9 +64,9 @@ def rkOf (g : CallGraph) (F : Nat) (s : String) : Option Nat :=
   | some (.decl n) => declRank g F n
   | _ => none
 
-/-- (R1) well-formedness: declaration names pairwise distinct, none named like a memory placeholder -/
+/-- (R1) well-formedness: declaration names pairwise distinct -/
 def WfG (g : CallGraph) : Bool :=
-  (g.map Prod.fst).eraseDups.length == g.length && g.all fun p => (memChild? p.1).isNone
+  (g.map Prod.fst).eraseDups.length == g.length
 
 /-- (R1) **the class**: a well-formed graph whose root has a rank within the fuel bound `B` -/
 def InClass (g : CallGraph) (B : Nat) (top : Name) : Bool := WfG g && (declRank g B top).isSome
@@ -69,8 +77,8 @@ def rkChecked (g : CallGraph) (F : Nat) : String → Option Nat :=
 
 /-! ## Soundness -/
 
-theorem kidsMax_le {kr : Name → Option Nat} :
-    ∀ {ks : List Name} {m : Nat}, kidsMax kr ks = some m → ∀ k ∈ ks, ∃ a, kr k = some a ∧ a ≤ m := by
+theorem kidsMax_le {kr : Kid → Option Nat} :
+    ∀ {ks : List Kid} {m : Nat}, kidsMax kr ks = some m → ∀ k ∈ ks, ∃ a, kr k = some a ∧ a ≤ m := by
   intro ks
   induction ks with
   | nil => intro _ _ k hk; cases hk
@@ -91,8 +99,8 @@ theorem kidsMax_le {kr : Name → Option Nat} :
         · obtain ⟨a', ha', hle⟩ := ih h1 k hk
           exact ⟨a', ha', Nat.le_trans hle (Nat.le_max_right _ _)⟩
 
-theorem kidsMax_mono {kr kr' : Name → Option Nat} :
-    ∀ {ks : List Name} {m : Nat}, (∀ k ∈ ks, ∀ a, kr k = some a → kr' k = some a) →
+theorem kidsMax_mono {kr kr' : Kid → Option Nat} :
+    ∀ {ks : List Kid} {m : Nat}, (∀ k ∈ ks, ∀ a, kr k = some a → kr' k = some a) →
       kidsMax kr ks = some m → kidsMax kr' ks = some m := by
   intro ks
   induction ks with
@@ -110,8 +118,8 @@ theorem kidsMax_mono {kr kr' : Name → Option Nat} :
         rw [hm k0 (List.mem_cons_self) a h0, ih (fun k hk => hm k (List.mem_cons_of_mem _ hk)) h1]
         exact h
 
-theorem kidsMax_lt {kr : Name → Option Nat} {B : Nat} :
-    ∀ {ks : List Name} {m : Nat}, kidsMax kr ks = some m → (∀ k ∈ ks, ∀ a, kr k = some a → a ≤ B) → m ≤ B := by
+theorem kidsMax_lt {kr : Kid → Option Nat} {B : Nat} :
+    ∀ {ks : List Kid} {m : Nat}, kidsMax kr ks = some m → (∀ k ∈ ks, ∀ a, kr k = some a → a ≤ B) → m ≤ B := by
   intro ks
   induction ks with
   | nil => intro m h _; simp [kidsMax] at h; omega
@@ -147,17 +155,18 @@ theorem declRank_mono (g : CallGraph) : ∀ (f : Nat) (c : Name) (r : Nat),
       try rw [hc] at h
       try rw [hc]
       simp only at h ⊢
-      cases hk : kidsMax (fun k => if (memChild? k).isSome then some 0 else declRank g f k) ks with
+      cases hk : kidsMax (kidRank (declRank g f)) ks with
       | none => rw [hk] at h; simp at h
       | some m =>
         rw [hk] at h
-        rw [kidsMax_mono (kr' := fun k => if (memChild? k).isSome then some 0 else declRank g F' k) ?_ hk]
+        rw [kidsMax_mono (kr' := kidRank (declRank g F')) ?_ hk]
         · exact h
         · intro k _ a ha
-          by_cases hm : (memChild? k).isSome
-          · simpa [hm] using ha
-          · simp only [hm] at ha ⊢
-            exact ih k a ha F' (by omega)
+          obtain ⟨n, o⟩ := k
+          cases o with
+          | ord => exact ih n a ha F' (by omega)
+          | field i => exact ih n a ha F' (by omega)
+          | mem cb aw dw => exact ha
 
 /-- the rank is at most the fuel -/
 theorem declRank_le (g : CallGraph) : ∀ (f : Nat) (c : Name) (r : Nat), declRank g f c = some r → r ≤ f := by
@@ -172,15 +181,21 @@ theorem declRank_le (g : CallGraph) : ∀ (f : Nat) (c : Name) (r : Nat), declRa
     | some ks =>
       try rw [hc] at h
       simp only at h
-      cases hk : kidsMax (fun k => if (memChild? k).isSome then some 0 else declRank g f k) ks with
+      cases hk : kidsMax (kidRank (declRank g f)) ks with
       | none => rw [hk] at h; simp at h
       | some m =>
         rw [hk] at h
         simp only [Option.some.injEq] at h
         have hm : m ≤ f := kidsMax_lt hk (fun k _ a ha => by
-          by_cases hmem : (memChild? k).isSome
-          · simp only [hmem] at ha; simp at ha; omega
-          · simp only [hmem] at ha; exact ih k a ha)
+          obtain ⟨n, o⟩ := k
+          cases o with
+          | ord => exact ih n a ha
+          | field i => exact ih n a ha
+          | mem cb aw dw =>
+            simp only [kidRank] at ha
+            split at ha
+            · simp at ha; omega
+            · cases ha)
         split at h <;> omega
 
 /-- (`hrkmem`) every built memory module has rank 0 -/
@@ -193,9 +208,9 @@ theorem rkOf_mem (g : CallGraph) (F : Nat) (cb : Bool) (aw dw : Nat) :
 theorem rkOf_decl (g : CallGraph) (F : Nat) (c : Name) : rkOf g F (ofDecl c) = declRank g F c := by
   rw [rkOf, ofDecl, Tools.ShippingModuleName.decode_encode]
 
-/-- (`hrank`) **every callee of a ranked declaration has a module rank strictly below it** -/
-theorem rkOf_edge {g : CallGraph} {F : Nat} {c : Name} {r : Nat} {ks : List Name}
-    (h : declRank g F c = some r) (hc : callees g c = some ks) {k : Name} (hk : k ∈ ks) :
+/-- (`hrank`) **every call entry of a ranked declaration has a module rank strictly below it** -/
+theorem rkOf_edge {g : CallGraph} {F : Nat} {c : Name} {r : Nat} {ks : List Kid}
+    (h : declRank g F c = some r) (hc : callees g c = some ks) {k : Kid} (hk : k ∈ ks) :
     ∃ r', rkOf g F (kidModName k) = some r' ∧ r' < r := by
   obtain ⟨f, rfl⟩ : ∃ f, F = f + 1 := by
     cases F with
@@ -204,45 +219,44 @@ theorem rkOf_edge {g : CallGraph} {F : Nat} {c : Name} {r : Nat} {ks : List Name
   unfold declRank at h
   try rw [hc] at h
   simp only at h
-  cases hm : kidsMax (fun k => if (memChild? k).isSome then some 0 else declRank g f k) ks with
+  cases hm : kidsMax (kidRank (declRank g f)) ks with
   | none => rw [hm] at h; simp at h
   | some m =>
     rw [hm] at h
-    simp only [Option.some.injEq] at h
     have hne : ks.isEmpty = false := by cases ks with | nil => cases hk | cons _ _ => rfl
     rw [hne] at h
     simp only [Bool.false_eq_true, ↓reduceIte] at h
+    simp only [Option.some.injEq] at h
     subst h
     obtain ⟨a, ha, hle⟩ := kidsMax_le hm k hk
-    unfold kidModName
-    cases hmc : memChild? k with
-    | some p =>
-      obtain ⟨cb, aw, dw, -, hp⟩ := Tools.ShippingMemOnlyNames.memChild_shape hmc
-      subst hp
-      exact ⟨0, rkOf_mem g _ cb aw dw, by omega⟩
-    | none =>
-      simp only [hmc, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at ha
-      exact ⟨a, by rw [rkOf_decl]; exact declRank_mono g f k a ha _ (by omega), by omega⟩
+    obtain ⟨n, o⟩ := k
+    cases o with
+    | ord => exact ⟨a, by simp only [kidModName]; rw [rkOf_decl]; exact declRank_mono g f n a ha _ (by omega), by omega⟩
+    | field i => exact ⟨a, by simp only [kidModName]; rw [rkOf_decl]; exact declRank_mono g f n a ha _ (by omega), by omega⟩
+    | mem cb aw dw =>
+      refine ⟨0, ?_, by omega⟩
+      have := rkOf_mem g (f + 1) cb aw dw
+      rwa [Tools.ShippingMemOnlyNames.memModule_name] at this
 
 /-- a declaration with a call entry has rank `≥ 1` -/
-theorem rank_pos {g : CallGraph} {F : Nat} {c : Name} {r : Nat} {ks : List Name}
-    (h : declRank g F c = some r) (hc : callees g c = some ks) {k : Name} (hk : k ∈ ks) : 1 ≤ r := by
+theorem rank_pos {g : CallGraph} {F : Nat} {c : Name} {r : Nat} {ks : List Kid}
+    (h : declRank g F c = some r) (hc : callees g c = some ks) {k : Kid} (hk : k ∈ ks) : 1 ≤ r := by
   obtain ⟨r', -, hlt⟩ := rkOf_edge h hc hk
   omega
 
-/-- (refusal) a declaration that calls itself has NO rank, at any fuel -/
-theorem declRank_self {g : CallGraph} {c : Name} {ks : List Name} (hc : callees g c = some ks) (hk : c ∈ ks)
-    (hmem : memChild? c = none) (F : Nat) : declRank g F c = none := by
+/-- (refusal) a declaration that calls itself (as a declaration, not as a memory) has NO rank, at any fuel -/
+theorem declRank_self {g : CallGraph} {c : Name} {ks : List Kid} (hc : callees g c = some ks) (hk : (c, InstOrigin.ord) ∈ ks)
+    (F : Nat) : declRank g F c = none := by
   cases h : declRank g F c with
   | none => rfl
   | some r =>
     obtain ⟨r', hr', hlt⟩ := rkOf_edge h hc hk
-    unfold kidModName at hr'
-    rw [hmem, rkOf_decl, h] at hr'
+    simp only [kidModName] at hr'
+    rw [rkOf_decl, h] at hr'
     simp only [Option.some.injEq] at hr'
     omega
 
-/-- (refusal) a graph that is not well-formed (duplicate declaration names, or a declaration named like a memory placeholder) gets the EMPTY table -/
+/-- (refusal) a graph with duplicate declaration names gets the EMPTY table -/
 theorem rkChecked_dup {g : CallGraph} (h : WfG g = false) (F : Nat) (s : String) : rkChecked g F s = none := by
   unfold rkChecked
   rw [if_neg (by simp [h])]
