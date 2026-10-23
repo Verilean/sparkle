@@ -4055,3 +4055,9 @@ lean_lib «Tools.ShippingSrm5Height» where
 
 lean_lib «Tests.Compiler.Srm5HeightTest» where
   roots := #[`Tests.Compiler.Srm5HeightTest]
+
+lean_lib «Tools.ShippingSrm5Ident» where
+  roots := #[`Tools.ShippingSrm5Ident]
+
+lean_lib «Tools.ShippingSrm5Transfer» where
+  roots := #[`Tools.ShippingSrm5Transfer]
