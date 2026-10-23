@@ -3,7 +3,7 @@ import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.Srm9AuditExpected
 import Tools.ShippingKidsChildIfaceM
 import Tools.ShippingMachineShipsDepth
--- UNBUILT (unit SRM9): see STATUS-SRM9.md for run names; the final-SHA rebuild is in REPORT-SRM9.md.
+-- BUILT (unit SRM9): a3 exit 0 (dev run, default heartbeats); the final-SHA rebuild is in REPORT-SRM9.md.
 -- SCOPE (SRM9, audits).  Audited theorems (8): the PRE-EXISTING generic bridge `composedG_of_NW` and the endpoint `machine_ships_hierC_at_free` (their binder tuples pin the `composed` binder), SRM4's `topshareM_composedNW` / `topshareQ_composedNW`
 -- (the source), and the four SRM9 theorems.  (1) PREMISE TABLE: every binder (index, binderInfo, name, Prop-or-data, type) is printed as an `S9PREM` / `S9DATA` line and the WHOLE table must EQUAL the committed `Tests/Compiler/Srm9AuditExpected.lean`
 -- EXACTLY and the committed text view `scripts/srm9/PREMISES.txt` line for line; LITERAL count guard (8 theorems); 3 NEGATIVE FIXTURES (changed Prop binder type, added data binder, reordered binders), each must be rejected and non-vacuous.
