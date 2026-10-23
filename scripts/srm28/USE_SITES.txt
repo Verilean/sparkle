@@ -1,0 +1,190 @@
+USE SITES of MachineWired (SRM28) — generated before any Lean edit.  Change: ONE new last conjunct (19th) in MachineWired (EXPECTED.txt §1).
+
+== A. Definition (statement edit): Tools/ShippingMachineEntry.lean:654-720 (append the clause after :695-696).
+== B. Only constructor of MachineWired in the repo (proof edit): Tools/ShippingMachineEntry.lean:1448 `have wired : MachineWired …`; `refine ⟨namesNodup, ?_ ×17⟩` at :1453 becomes ×18 and one bullet is appended after the slot-register bullet (ends :2042). 
+     Transport sites that pass `wired` through unchanged (hx ids cache _ _ wired …, :1046-1051 hX binder, :2156-2158, :840-842): unchanged.
+== C. Destructuring sites (every anonymous-constructor/obtain/rcases of a MachineWired hypothesis with ≥ 3 components), classification:
+   NEEDS PATTERN EDIT (18 components, the 18th is NAMED and used): append `, -`
+   Tools/ShippingMachineDepthRun.lean:166: n=18 last='hW1' rhs=wired  -> PATTERN EDIT
+   Tools/ShippingMachineDepthRunR.lean:151: n=18 last='hW1' rhs=wired  -> PATTERN EDIT
+   Tools/ShippingSatAssemblyS.lean:127: n=18 last='hsr' rhs=h  -> PATTERN EDIT
+   Tools/ShippingSeqChildDeepRunA.lean:67: n=18 last='hW1' rhs=wired  -> PATTERN EDIT
+   Tools/ShippingSrm26Order.lean:102: n=18 last='hlast' rhs=hW  -> PATTERN EDIT
+   NEEDS PATTERN EDIT total: 5
+   UNCHANGED (last component is `-`/`_`, or fewer than 18 components whose last component only swallows a tail; checked: no use of a tail by projection chain except `.2.1` at TraceX:524, ServedRealA:173):
+   Tests/Compiler/KaryReturnedAuditTest.lean:29: n=7 last='hw' rhs=h  -> unchanged
+   Tests/Compiler/ShippingMachineEntryTest.lean:339: n=7 last='trace' rhs=h (.bvar 5) 2 3 (fun _ => 4) m  -> unchanged
+   Tests/Compiler/ShippingMachineEntryTest.lean:701: n=7 last='trace' rhs=h (.bvar 22) 4 18 linVw linBpo  -> unchanged
+   Tests/Compiler/ShippingMachineEntryTest.lean:914: n=7 last='trace' rhs=h (.bvar 22) 4 18 linVw linBpo  -> unchanged
+   Tests/Compiler/ShippingMachineEntryTest.lean:1055: n=7 last='trace' rhs=h (.bvar 22) 4 18 linVw linBpo  -> unchanged
+   Tools/ShippingCallWidthsChildRealA.lean:197: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingCallsChildPorts.lean:259: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingCallsGate.lean:226: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingCallsPortsG.lean:174: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingChecksCore.lean:416: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingChecksMaskedLeaf.lean:140: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingChecksMaskedLeaf.lean:209: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingChecksMaskedLeafA.lean:114: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingChecksRaw.lean:225: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingChecksRun.lean:140: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingChecksRun.lean:178: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingChildIfaceTy.lean:144: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingChildIfaceTy.lean:189: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingClosedTyped.lean:182: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingCombLeafDesign.lean:293: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingCombLeafDesign.lean:294: n=12 last='_' rhs=wired  -> unchanged
+   Tools/ShippingCombLeafShape.lean:358: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingComposedGW.lean:127: n=12 last='trace' rhs=h  -> unchanged
+   Tools/ShippingComposedGW.lean:229: n=9 last='H' rhs=h  -> unchanged
+   Tools/ShippingComposedGW.lean:273: n=9 last='H' rhs=h  -> unchanged
+   Tools/ShippingCoreClk.lean:137: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingEntrySoundness.lean:91: n=7 last='hrun' rhs=h  -> unchanged
+   Tools/ShippingEntrySoundness.lean:100: n=7 last='hrun' rhs=h  -> unchanged
+   Tools/ShippingEntrySoundness.lean:106: n=7 last='hrun' rhs=h  -> unchanged
+   Tools/ShippingEntrySoundness.lean:112: n=7 last='hrun' rhs=h  -> unchanged
+   Tools/ShippingEntrySoundness.lean:123: n=7 last='hrun' rhs=h  -> unchanged
+   Tools/ShippingGateChild.lean:350: n=9 last='entry' rhs=h  -> unchanged
+   Tools/ShippingGateChild.lean:373: n=10 last='closes' rhs=h  -> unchanged
+   Tools/ShippingGatePorts.lean:286: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingGatePorts.lean:428: n=6 last='hl' rhs=h.typed st hst  -> unchanged
+   Tools/ShippingGatePorts.lean:450: n=6 last='hl' rhs=h.typed st hst  -> unchanged
+   Tools/ShippingGateTypedWalk.lean:114: n=8 last='hl' rhs=h  -> unchanged
+   Tools/ShippingGateTypedWalk.lean:129: n=6 last='h3' rhs=h  -> unchanged
+   Tools/ShippingGateTypedWalk.lean:144: n=12 last='hc' rhs=h  -> unchanged
+   Tools/ShippingGenKidM.lean:193: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingGenKidM.lean:457: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingKidsChildIface.lean:388: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingKidsChildIfaceM.lean:350: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingLeafDesign.lean:290: n=8 last='H' rhs=h  -> unchanged
+   Tools/ShippingLeafEntryBnd.lean:145: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingLeafInputWidths.lean:244: n=12 last='-' rhs=hW  -> unchanged
+   Tools/ShippingLeafInputWidthsA.lean:159: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingLeafInputWidthsA.lean:629: n=12 last='-' rhs=hW  -> unchanged
+   Tools/ShippingLeafOneOut.lean:511: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingLeafOneOut.lean:706: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingLeafPorts.lean:224: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingLeafPorts.lean:305: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingLeafSat.lean:204: n=11 last='H' rhs=id hL  -> unchanged
+   Tools/ShippingLeafSat.lean:205: n=12 last='_' rhs=id wired  -> unchanged
+   Tools/ShippingLeafTyped.lean:430: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingLeafTyped.lean:610: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingLinkedFresh.lean:229: n=8 last='-' rhs=wired  -> unchanged
+   Tools/ShippingMachineAuto.lean:354: n=11 last='h' rhs=h  -> unchanged
+   Tools/ShippingMachineAuto.lean:363: n=11 last='h' rhs=h  -> unchanged
+   Tools/ShippingMachineCallsLinkedTG.lean:74: n=9 last='entry' rhs=h  -> unchanged
+   Tools/ShippingMachineCallsLinkedTG.lean:537: n=12 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineCallsLinkedTNR.lean:274: n=12 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineCallsLinkedTR.lean:268: n=12 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineCausal.lean:264: n=11 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineChild.lean:183: n=11 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineChild.lean:184: n=10 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineChild.lean:399: n=11 last='_' rhs=h  -> unchanged
+   Tools/ShippingMachineChild.lean:400: n=11 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineChild.lean:456: n=11 last='_' rhs=id h  -> unchanged
+   Tools/ShippingMachineChild.lean:457: n=12 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineCompose.lean:609: n=10 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineCompose.lean:855: n=11 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineComposeR.lean:168: n=12 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineComposeRA.lean:58: n=15 last='hni' rhs=h  -> unchanged
+   Tools/ShippingMachineComposeRA.lean:67: n=15 last='hni' rhs=h  -> unchanged
+   Tools/ShippingMachineComposeRA.lean:110: n=12 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineComposedT.lean:76: n=11 last='H' rhs=h  -> unchanged
+   Tools/ShippingMachineComposedT.lean:122: n=16 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineDepthChild.lean:61: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingMachineDepthH.lean:206: n=8 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineDepthHR.lean:223: n=8 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineDepthRun.lean:309: n=11 last='_' rhs=id h  -> unchanged
+   Tools/ShippingMachineDepthRun.lean:310: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineDepthRunRA.lean:211: n=12 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineEntry.lean:965: n=12 last='_' rhs=h.some  -> unchanged
+   Tools/ShippingMachineLinkedT.lean:211: n=16 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineLinkedT.lean:562: n=11 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineLinkedTG.lean:123: n=16 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineLinkedTG.lean:475: n=11 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineSeqChild.lean:115: n=11 last='trace' rhs=h  -> unchanged
+   Tools/ShippingMachineSeqChild.lean:116: n=12 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineSeqChild.lean:307: n=11 last='_' rhs=id h  -> unchanged
+   Tools/ShippingMachineSeqChild.lean:308: n=12 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineSeqInst.lean:380: n=11 last='_' rhs=id h  -> unchanged
+   Tools/ShippingMachineSeqInst.lean:381: n=12 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineShipsComb.lean:239: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingMachineShipsComb.lean:240: n=12 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineShipsHier.lean:260: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingMachineShipsHier.lean:261: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineShipsHier.lean:518: n=8 last='H' rhs=h  -> unchanged
+   Tools/ShippingMachineShipsHier.lean:566: n=8 last='H' rhs=h  -> unchanged
+   Tools/ShippingMachineShipsHierH.lean:158: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingMachineShipsHierH.lean:159: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineShipsS.lean:309: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingMachineShipsS.lean:310: n=12 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineShipsSW.lean:109: n=9 last='H' rhs=h  -> unchanged
+   Tools/ShippingMachineShipsSW.lean:253: n=11 last='H' rhs=hL  -> unchanged
+   Tools/ShippingMachineShipsSW.lean:254: n=12 last='_' rhs=id wired  -> unchanged
+   Tools/ShippingMachineShipsW.lean:33: n=8 last='H' rhs=h  -> unchanged
+   Tools/ShippingMachineShipsW.lean:77: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingMachineShipsW.lean:78: n=12 last='_' rhs=wired  -> unchanged
+   Tools/ShippingMachineTraceX.lean:867: n=12 last='h' rhs=h  -> unchanged
+   Tools/ShippingMemKidCore.lean:172: n=8 last='-' rhs=wired  -> unchanged
+   Tools/ShippingMemKidPorts.lean:146: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingMemKidPorts.lean:417: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingMergeKeeps.lean:698: n=6 last='-' rhs=h  -> unchanged
+   Tools/ShippingMergeKeeps.lean:709: n=6 last='hpost' rhs=hL  -> unchanged
+   Tools/ShippingMergeKeepsCheck.lean:61: n=6 last='hp' rhs=h  -> unchanged
+   Tools/ShippingMergeKeepsLeaf.lean:213: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingNoPortsTyped.lean:183: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingNoPortsTyped.lean:184: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingNoPortsTypedB.lean:178: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingNoPortsTypedB.lean:179: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingNoPortsTypedBS.lean:217: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingNoPortsTypedBS.lean:218: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingNoPortsTypedBW.lean:181: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingNoPortsTypedBW.lean:182: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingNoPortsTypedI.lean:401: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingNoPortsTypedI.lean:402: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingOneOutClose.lean:198: n=14 last='he' rhs=h  -> unchanged
+   Tools/ShippingOneOutClose.lean:230: n=9 last='hcs' rhs=h mn iname conns hst  -> unchanged
+   Tools/ShippingOneOutFacts.lean:518: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingOneOutHead.lean:206: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingOneOutHead.lean:207: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingParentDesignA.lean:464: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingParentDesignFA.lean:131: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingParentDesignFA.lean:271: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingParentDesignFA.lean:788: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingParentPortsA.lean:206: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingParentRunFactsA.lean:126: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingParentRunFactsA.lean:217: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingParentTailsA.lean:259: n=8 last='-' rhs=wired  -> unchanged
+   Tools/ShippingParentTailsA.lean:374: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingPortsMatchRaw.lean:101: n=15 last='he' rhs=h  -> unchanged
+   Tools/ShippingPortsMatchRawLeafAny.lean:149: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingPortsMatchRawLeafAny.lean:176: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingSatAssembly.lean:198: n=8 last='hi' rhs=wired_parts wired  -> unchanged
+   Tools/ShippingSatAssemblyS.lean:297: n=8 last='hi' rhs=wired_parts wired  -> unchanged
+   Tools/ShippingSatInputs.lean:348: n=18 last='-' rhs=h  -> unchanged
+   Tools/ShippingSeqChildDeepKidFactsA.lean:157: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingSeqChildDeepMaskedA.lean:149: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingSeqChildIface.lean:176: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingSeqChildIface.lean:250: n=6 last='hr' rhs=h.inv  -> unchanged
+   Tools/ShippingSeqChildIfaceA.lean:109: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingShipsFree.lean:162: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingShipsFree.lean:163: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingShipsHierFree.lean:146: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingShipsHierFree.lean:147: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingShipsHierSame.lean:143: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingShipsHierSame.lean:144: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingShipsNoOuts.lean:143: n=11 last='_' rhs=id hL  -> unchanged
+   Tools/ShippingShipsNoOuts.lean:144: n=17 last='_' rhs=wired  -> unchanged
+   Tools/ShippingSlotlessClk.lean:336: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingSrm17Ran.lean:159: n=12 last='-' rhs=wired  -> unchanged
+   Tools/ShippingSrm3Iface.lean:293: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingSrm3Iface.lean:415: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingSrm4Core1.lean:115: n=8 last='-' rhs=wired  -> unchanged
+   Tools/ShippingSrm4Core1.lean:228: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingSrm4Core2.lean:216: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingSrm4Core4.lean:386: n=18 last='-' rhs=wired  -> unchanged
+   Tools/ShippingUnifiedSpine.lean:936: n=7 last='hcl' rhs=h.1 s sm w miss hq  -> unchanged
+   Tools/ShippingWireNamesRun.lean:167: n=18 last='-' rhs=wired  -> unchanged
+   UNCHANGED total: 172
+   Statement-carrying sites (type mentions `MachineWired …` by name; no text change): see `grep -rn MachineWired` — 140 lines in 66 files incl. TraceX, Compose, ComposedT, ComposedGW, DepthRun*, LinkedT(G), NoPortsTypedB*, Sat*, Leaf*; all UNCHANGED (need rebuild only).
+   Helper theorems that restate parts of MachineWired by hand (prefix-component statements, unchanged text): SatInputs.wired_parts (:325, pattern 18 comps ends `-`), SatAssemblyS.wired_more (:113, pattern ends hsr = 18th -> PATTERN EDIT listed above).
+== D. Transitive importers of Tools.ShippingMachineEntry: scripts/srm28/IMPORTERS.txt (1067 modules: 631 Tools, 436 Tests incl. Tests.AllTests and Tests.Compiler.ChildVertAuditTest).  Each is 'unchanged' unless listed in C.

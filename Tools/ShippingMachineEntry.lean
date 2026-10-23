@@ -751,7 +751,13 @@ def MachineWired (declName : Name) (shape : MachineShape) (ids : List FVarId)
   -- with the slot's reset value
   (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
     shape.layout.slots[k]? = some f →
-    ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body)
+    ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body) ∧
+  -- and, with or without calls, every register statement of the module is a slot's
+  -- (`regs[k]` with the slot's reset value; `SourceRegsAreSlots m regs slots`, SRM25)
+  (∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Sparkle.IR.AST.Expr) (init : Int),
+    Stmt.register r c rs inp init ∈ m.body →
+    ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ shape.layout.slots[k]? = some f ∧
+      init = Int.ofNat f.init)
 
 /-- **One cycle of a compiled state machine.** The module the machine route
 returns has one register per slot (`regs`, in slot order) and, on every
@@ -1452,7 +1458,7 @@ theorem synthesizeMachineCertified_soundX {logProf declName shape m d}
     have outs0 : (closeMachine shape.layout t').outputs =
         shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
       unfold closeMachine; rw [hpwC]
-    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨namesNodup, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro x hx
       obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
       exact pb.wireNames p (pb.inputWires p hp)
@@ -2034,6 +2040,44 @@ theorem synthesizeMachineCertified_soundX {logProf declName shape m d}
           exact hperm.mem_iff.mp (List.mem_append_left _ hmem0)
         · obtain ⟨_, _, _, L, _, hperm, _⟩ := Tools.ShippingMachineInst.closeInstsG_some hci
           exact hperm.mem_iff.mp (List.mem_append_left _ hmem0)
+    · -- every register statement of the module, with or without calls, is a slot's: it is a
+      -- statement of the closed transition (an instance statement is no register)
+      intro r c rs inp init hmem
+      have hmemC : Stmt.register r c rs inp init ∈ (closeMachine shape.layout t').body := by
+        rcases hmt with ⟨_, hm'⟩ | ⟨_, children, hci⟩
+        · subst hm'; exact hmem
+        · have hperm : ∀ {L : List Stmt}, L.all Sparkle.IR.Machine.isInst = true →
+              ((closeMachine shape.layout t').body ++ L).Perm m.body →
+              Stmt.register r c rs inp init ∈ (closeMachine shape.layout t').body := by
+            intro L hL hperm
+            rcases List.mem_append.mp (hperm.mem_iff.mpr hmem) with h | h
+            · exact h
+            · have := List.all_eq_true.mp hL _ h
+              simp [Sparkle.IR.Machine.isInst] at this
+          rcases hci with ⟨_, hci⟩ | ⟨_, hci, _⟩
+          · obtain ⟨_, _, _, L, hL, hp, _⟩ := Tools.ShippingMachineInst.closeInsts_some hci
+            exact hperm hL hp
+          · obtain ⟨_, _, _, L, hL, hp, _⟩ := Tools.ShippingMachineInst.closeInstsG_some hci
+            exact hperm hL hp
+      rw [show (closeMachine shape.layout t').body = t'.body.dropLast ++
+          nextAssigns coreW ps shape.layout.slots ++
+          registers shape.layout.resetKind ps shape.layout.slots ++
+          outAssigns coreW shape.layout.outs by simp [closeMachine, hpwC, hdrop]] at hmemC
+      simp only [List.mem_append] at hmemC
+      rcases hmemC with ((hB | hN) | hR) | hO
+      · have := List.all_eq_true.mp typed'.isAssign _ (List.dropLast_subset _ hB)
+        simp [Sparkle.IR.RegDedup.isAssign] at this
+      · obtain ⟨l, rr, he⟩ := Tools.ShippingMachineClose.nextAssigns_assigns coreW ps
+          shape.layout.slots _ hN
+        cases he
+      · obtain ⟨k, p, f, hp, hf, he⟩ :=
+          Tools.ShippingMachineCleanup.registers_mem _ ps shape.layout.slots _ hR
+        injection he with h1 h2 h3 h4 h5
+        subst h1 h5
+        exact ⟨k, f, by rw [List.getElem?_map, hp]; rfl, hf, rfl⟩
+      · simp only [outAssigns, List.mem_map] at hO
+        obtain ⟨o, _, he⟩ := hO
+        cases he
   refine ⟨ps.map Port.name, psNodup, by rw [List.length_map, psLen], ls.map Port.name,
     by rw [List.length_map, lsLen], wired, hX ids cache _ _ wired hmp notInst0, ?_⟩
   intro bools bits env0 mems inputs slotVals hrst hold

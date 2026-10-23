@@ -124,7 +124,7 @@ theorem wired_more {declName : Name} {shape : MachineShape} {ids : List FVarId}
       ∃ rk inp, Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ m.body) := by
   -- (writing-time guess: the 18 conjuncts as `wireNames_runMT` destructures them: 8 outputs,
   -- 16 the cleanup, 18 the slot registers)
-  obtain ⟨-, -, -, -, -, -, -, houts, -, -, -, -, -, -, -, hcl, -, hsr⟩ := h
+  obtain ⟨-, -, -, -, -, -, -, houts, -, -, -, -, -, -, -, hcl, -, hsr, -⟩ := h
   exact ⟨hcl, houts, hsr⟩
 
 set_option maxHeartbeats 4000000 in
