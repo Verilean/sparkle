@@ -1,0 +1,114 @@
+S14THM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|27
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|0|implicit|mctx|Meta.Context
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|2|implicit|cctx|Core.Context
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|7|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|8|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM Tests.Compiler.SharedLeafMemKidTest.wrapM.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|9|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM3 Tests.Compiler.SharedLeafMemKidTest.wrapM3.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|10|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|11|implicit|w|Void IO.RealWorld
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|12|implicit|w1|Void IO.RealWorld
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|13|implicit|raw|Sparkle.IR.AST.Module
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|14|implicit|b|Sparkle.IR.AST.Module
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|15|implicit|D|Sparkle.IR.AST.Design
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|16|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|17|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|18|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|19|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|20|explicit|T'|Nat
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|21|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT 2)
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|22|explicit|envs|List Sparkle.IR.Semantics.Env
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|23|explicit|hrun|Tools.ShippingHierStateG.runModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap D.modules) 2) (Sparkle.IR.RegDedup.declWidth (Sparkle.IR.OptCheck.checkedOptimize b)) (Tools.ShippingMachineLinked.childMap D.modules) (Sparkle.IR.OptCheck.checkedOptimize b).body seed T' s = some envs
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|24|explicit|hseedB|∀ (k : Nat) (st : Sparkle.IR.Semantics.Env), Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) st → Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) (seed k st)
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|25|explicit|hst|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) s.st
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_svBoundsH_computed|26|explicit|hkids|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ (Sparkle.IR.OptCheck.checkedOptimize b).body → Tools.ShippingMachineLinked.childMap D.modules mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap D.modules) 2 gc (s.kids iname)
+S14THM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|28
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|0|implicit|mctx|Meta.Context
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|2|implicit|cctx|Core.Context
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|7|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|8|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|9|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|10|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|12|implicit|w|Void IO.RealWorld
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|13|implicit|w1|Void IO.RealWorld
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|14|implicit|raw|Sparkle.IR.AST.Module
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|15|implicit|b|Sparkle.IR.AST.Module
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|16|implicit|D|Sparkle.IR.AST.Design
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|17|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|18|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|19|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|20|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|21|explicit|T'|Nat
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|22|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT 1)
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|23|explicit|envs|List Sparkle.IR.Semantics.Env
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|24|explicit|hrun|Tools.ShippingHierStateG.runModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap D.modules) 1) (Sparkle.IR.RegDedup.declWidth (Sparkle.IR.OptCheck.checkedOptimize b)) (Tools.ShippingMachineLinked.childMap D.modules) (Sparkle.IR.OptCheck.checkedOptimize b).body seed T' s = some envs
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|25|explicit|hseedB|∀ (k : Nat) (st : Sparkle.IR.Semantics.Env), Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) st → Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) (seed k st)
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|26|explicit|hst|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) s.st
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_svBoundsH_computed|27|explicit|hkids|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ (Sparkle.IR.OptCheck.checkedOptimize b).body → Tools.ShippingMachineLinked.childMap D.modules mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap D.modules) 1 gc (s.kids iname)
+S14THM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|27
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|0|implicit|mctx|Meta.Context
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|2|implicit|cctx|Core.Context
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|7|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|8|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM Tests.Compiler.SharedLeafMemKidTest.wrapM.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|9|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM3 Tests.Compiler.SharedLeafMemKidTest.wrapM3.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|10|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|11|implicit|w|Void IO.RealWorld
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|12|implicit|w1|Void IO.RealWorld
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|13|implicit|raw|Sparkle.IR.AST.Module
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|14|implicit|b|Sparkle.IR.AST.Module
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|15|implicit|D|Sparkle.IR.AST.Design
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|16|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|17|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|18|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|19|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|20|explicit|T'|Nat
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|21|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT 2)
+S14DATA|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|22|explicit|envs|List Sparkle.IR.Semantics.Env
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|23|explicit|hrun|Tools.ShippingHierStateG.runModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap D.modules) 2) (Sparkle.IR.RegDedup.declWidth (Sparkle.IR.OptCheck.checkedOptimize b)) (Tools.ShippingMachineLinked.childMap D.modules) (Sparkle.IR.OptCheck.checkedOptimize b).body seed T' s = some envs
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|24|explicit|hseedB|∀ (k : Nat) (st : Sparkle.IR.Semantics.Env), Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) st → Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) (seed k st)
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|25|explicit|hst|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) s.st
+S14PREM|Tests.Compiler.Srm14RankTest.topshareM_designSVH_noB_computed|26|explicit|hkids|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ (Sparkle.IR.OptCheck.checkedOptimize b).body → Tools.ShippingMachineLinked.childMap D.modules mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap D.modules) 2 gc (s.kids iname)
+S14THM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|28
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|0|implicit|mctx|Meta.Context
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|2|implicit|cctx|Core.Context
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|7|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|8|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|9|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|10|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|12|implicit|w|Void IO.RealWorld
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|13|implicit|w1|Void IO.RealWorld
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|14|implicit|raw|Sparkle.IR.AST.Module
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|15|implicit|b|Sparkle.IR.AST.Module
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|16|implicit|D|Sparkle.IR.AST.Design
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|17|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|18|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|19|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|20|explicit|seed|Nat → (String → Nat) → Sparkle.IR.Semantics.Env
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|21|explicit|T'|Nat
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|22|explicit|s|Tools.ShippingHierStateG.KState (Tools.ShippingHierStateG.KT 1)
+S14DATA|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|23|explicit|envs|List Sparkle.IR.Semantics.Env
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|24|explicit|hrun|Tools.ShippingHierStateG.runModuleTG (Tools.ShippingHierStateG.KSn (Tools.ShippingMachineLinked.childMap D.modules) 1) (Sparkle.IR.RegDedup.declWidth (Sparkle.IR.OptCheck.checkedOptimize b)) (Tools.ShippingMachineLinked.childMap D.modules) (Sparkle.IR.OptCheck.checkedOptimize b).body seed T' s = some envs
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|25|explicit|hseedB|∀ (k : Nat) (st : Sparkle.IR.Semantics.Env), Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) st → Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) (seed k st)
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|26|explicit|hst|Sparkle.IR.Semantics.Bounded (Tools.ShippingDesignSV.weS (Sparkle.IR.OptCheck.checkedOptimize b)) s.st
+S14PREM|Tests.Compiler.Srm14RankTest.topshareQ_designSVH_noB_computed|27|explicit|hkids|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)) (gc : Sparkle.IR.AST.Module) (gcwe : Sparkle.IR.Semantics.WEnv), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ (Sparkle.IR.OptCheck.checkedOptimize b).body → Tools.ShippingMachineLinked.childMap D.modules mn = some (gc, gcwe) → Tools.ShippingDesignSVBounds.InvN (Tools.ShippingMachineLinked.childMap D.modules) 1 gc (s.kids iname)
