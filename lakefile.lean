@@ -4283,3 +4283,12 @@ lean_lib «Tools.ShippingSrm21Lift» where
 
 lean_lib «Tests.Compiler.Srm21LiftTest» where
   roots := #[`Tests.Compiler.Srm21LiftTest]
+
+lean_lib «Tests.Compiler.Srm21ExpStmt» where
+  roots := #[`Tests.Compiler.Srm21ExpStmt]
+
+lean_lib «Tests.Compiler.Srm21AuditExpected» where
+  roots := #[`Tests.Compiler.Srm21AuditExpected]
+
+lean_lib «Tests.Compiler.Srm21AuditTest» where
+  roots := #[`Tests.Compiler.Srm21AuditTest]
