@@ -4262,3 +4262,6 @@ lean_lib «Tests.Compiler.Srm19AuditTest» where
 
 lean_lib «Tests.Compiler.Srm20InventoryTest» where
   roots := #[`Tests.Compiler.Srm20InventoryTest]
+
+lean_lib «Tests.Compiler.Srm20BridgeTest» where
+  roots := #[`Tests.Compiler.Srm20BridgeTest]
