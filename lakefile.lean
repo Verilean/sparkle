@@ -4070,3 +4070,6 @@ lean_lib «Tools.ShippingSrm5Deep» where
 
 lean_lib «Tests.Compiler.Srm5ParentTest» where
   roots := #[`Tests.Compiler.Srm5ParentTest]
+
+lean_lib «Tests.Compiler.Srm5ParentQTest» where
+  roots := #[`Tests.Compiler.Srm5ParentQTest]

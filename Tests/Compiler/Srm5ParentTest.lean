@@ -134,8 +134,54 @@ theorem topshareM_hcheck (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.
     · exact wrapM_kidHeight O T entryL entry₁ rk (f + 1) hrW hrL hrkmem hleaf y' hre ms hy1 hy2
     · exact wrapM3_kidHeight O T entryL entry₂ rk (f + 1) hrW3 hrL hrkmem hleaf y' hre ms hy1 hy2
 
+/-! ## A concrete rank table satisfying the premises (the premises are satisfiable) -/
+
+open Classical in
+/-- the rank table: built memory modules at height 0, `leafM` 1, `wrapM`/`wrapM3` 2, `topshareM` 3; every other name has NO rank (refused) -/
+noncomputable def rkM : String → Option Nat := fun n =>
+  if ∃ (cb : Bool) (aw dw : Nat), n = Sparkle.IR.ModuleName.ofMem cb aw dw then some 0
+  else if n = Sparkle.IR.ModuleName.ofDecl ``leafM then some 1
+  else if n = Sparkle.IR.ModuleName.ofDecl ``wrapM ∨ n = Sparkle.IR.ModuleName.ofDecl ``wrapM3 then some 2
+  else if n = Sparkle.IR.ModuleName.ofDecl ``topshareM then some 3 else none
+
+theorem rkM_mem : ∀ (cb : Bool) (aw dw : Nat), rkM (memModule cb aw dw).1.name = some 0 := by
+  intro cb aw dw
+  have : ∃ (cb' : Bool) (aw' dw' : Nat), (memModule cb aw dw).1.name = Sparkle.IR.ModuleName.ofMem cb' aw' dw' := ⟨cb, aw, dw, rfl⟩
+  simp [rkM, this]
+
+private theorem rkM_notMem (c : Lean.Name) : ¬ ∃ (cb : Bool) (aw dw : Nat), Sparkle.IR.ModuleName.ofDecl c = Sparkle.IR.ModuleName.ofMem cb aw dw :=
+  fun ⟨cb, aw, dw, h⟩ => Tools.ShippingModuleName.ofDecl_ne_ofMem c cb aw dw h
+
+theorem rkM_leaf : rkM (Sparkle.IR.ModuleName.ofDecl ``leafM) = some 1 := by
+  rw [rkM, if_neg (rkM_notMem _)]
+  simp
+
+theorem rkM_wrap : rkM (Sparkle.IR.ModuleName.ofDecl ``wrapM) = some 2 := by
+  have h1 : ¬ Sparkle.IR.ModuleName.ofDecl ``wrapM = Sparkle.IR.ModuleName.ofDecl ``leafM :=
+    fun h => absurd (Tools.ShippingModuleName.ofDecl_injective h) (by decide)
+  rw [rkM, if_neg (rkM_notMem _)]
+  simp [h1]
+
+theorem rkM_wrap3 : rkM (Sparkle.IR.ModuleName.ofDecl ``wrapM3) = some 2 := by
+  have h1 : ¬ Sparkle.IR.ModuleName.ofDecl ``wrapM3 = Sparkle.IR.ModuleName.ofDecl ``leafM :=
+    fun h => absurd (Tools.ShippingModuleName.ofDecl_injective h) (by decide)
+  rw [rkM, if_neg (rkM_notMem _)]
+  simp [h1]
+
+theorem rkM_top : rkM (Sparkle.IR.ModuleName.ofDecl ``topshareM) = some 3 := by
+  have h1 : ¬ Sparkle.IR.ModuleName.ofDecl ``topshareM = Sparkle.IR.ModuleName.ofDecl ``leafM :=
+    fun h => absurd (Tools.ShippingModuleName.ofDecl_injective h) (by decide)
+  have h2 : ¬ Sparkle.IR.ModuleName.ofDecl ``topshareM = Sparkle.IR.ModuleName.ofDecl ``wrapM :=
+    fun h => absurd (Tools.ShippingModuleName.ofDecl_injective h) (by decide)
+  have h3 : ¬ Sparkle.IR.ModuleName.ofDecl ``topshareM = Sparkle.IR.ModuleName.ofDecl ``wrapM3 :=
+    fun h => absurd (Tools.ShippingModuleName.ofDecl_injective h) (by decide)
+  rw [rkM, if_neg (rkM_notMem _)]
+  simp [h1, h2, h3]
+
 end Tests.Compiler.SharedLeafMemKidIfaceTest
 
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight
 #print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck
+#print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.rkM_top
+#print axioms Tests.Compiler.SharedLeafMemKidIfaceTest.rkM_mem
