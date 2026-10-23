@@ -4295,3 +4295,6 @@ lean_lib «Tests.Compiler.Srm21AuditTest» where
 
 lean_lib «Tests.Compiler.Srm22InventoryTest» where
   roots := #[`Tests.Compiler.Srm22InventoryTest]
+
+lean_lib «Tools.ShippingSrm22Width» where
+  roots := #[`Tools.ShippingSrm22Width]
