@@ -1,3 +1,4 @@
+BASE (recorded late, REVIEW-SRM32 Q1/Q3): HEAD base 1b1ac9dd553d4ea08213b44cab334a13c4937f3a; `git merge-base --is-ancestor a664fba6 HEAD` = true (SRM28 a664fba6 is an ancestor); 19th MachineWired clause at base: Tools/ShippingMachineEntry.lean:755-760; the 20th clause is added after it, clauses 1-19 unchanged.
 USE SITES of MachineWired (SRM32) — generated before any Lean edit (base 1b1ac9dd). Change: ONE new last conjunct (20th) in MachineWired (EXPECTED.txt §1).
 
 == A. Definition (statement edit): Tools/ShippingMachineEntry.lean:654-760 (append the clause after :757-760).
