@@ -1,0 +1,53 @@
+SRM31 EXPECTED (exact Lean text; committed before any proof file). Namespaces/opens as in Tools/ShippingShipsFree.lean:60-70 for the generic theorem.
+
+== G (Tools/ShippingSrm31Core.lean, namespace Tools.ShippingSrm31) ==
+theorem machine_ships_hierC_at_nw {n : Nat}
+    (hloc : ∀ D, KSLocal (KSn (childMap D.modules) n))
+    (Bnd : CtxBnd)
+    (C : Meta.Context → ST.Ref IO.RealWorld Meta.State → Core.Context → ST.Ref IO.RealWorld Core.State → Prop)
+    (Bd : Sparkle.IR.AST.Module → Design → Prop) (Inv : Sparkle.IR.AST.Module → KT n → Prop)
+    (hBd : ∀ b D, Bd b D → KSBoundedIn (childMap D.modules) (KSn (childMap D.modules) n) b.body Inv)
+    (hRI : ResetImpliesInv (ResetNk n) Inv)
+    {declName : Name} (d : MachineData) {kD : Nat} {ι : Type} {dom : ι → DomainConfig}
+    {src ext extB lsrc srcL extL extBL : <same types as machine_ships_hierC_at_free>}
+    (soundL : <same as machine_ships_hierC_at_free>)
+    (composed : ∀ {mctx mref cctx cref w w' m design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape → C mctx mref cctx cref →
+      Bnd mctx mref cctx cref w m design → Tools.ConeFold.memFree m.body →
+      Tools.ShippingMachineDepthRun.ComposedNW n declName d kD m design dom src ext extB)
+    (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hinitW : ∀ f ∈ d.shape.layout.slots, f.init < 2 ^ f.width)
+    {mctx mref cctx cref w w1 b raw D} (hcore) (hpost) (entry) (closes) (facts : <same>) :
+        Bnd mctx mref cctx cref w raw D → Bd b D →
+        ∃ ids, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+        ∃ (cache) (regs : List String), regs.Nodup ∧ regs.length = d.ss.length ∧
+          ∀ i bools bits T ins st0 mems kids,
+            (SourceInputs ...) → (regs pass) → (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
+            (hinit as original) → ResetNk n raw D kids → (hinsFit as original) → (hstX as original) →
+            (hWd : ∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+                d.shape.layout.slots[k]? = some f → f.width ≤ declWidth b r) →
+            (conclusion exactly as machine_ships_hierC_at_free with KS D = KSn (childMap D.modules) n)
+  i.e. machine_ships_hierC_at_free with (KS := fun D => KSn (childMap D.modules) n, Reset := ResetNk n, σ := KT n), `composed` : ComposedG -> ComposedNW, the extra binder hinitW,
+  and the LAST antecedent hstR REPLACED by hWd.  [REPLACEMENT, not a discharge of hstR.]
+
+Auxiliary (PROVED): theorem hstR_of_wired_slots : Sparkle.IR.AST.Module b, raw ... (wired fact ⇒ full hstR)
+    {b m : Module} {regs : List String} {slots : List SlotField} {st0 : String → Nat}
+    (hb : b.body = m.body) (hS : SourceRegsAreSlots m regs slots)
+    (hinit : ∀ k r f, regs[k]? = some r → slots[k]? = some f → st0 r = f.init)
+    (hinitW : ∀ f ∈ slots, f.init < 2 ^ f.width)
+    (hWd : ∀ k r f, regs[k]? = some r → slots[k]? = some f → f.width ≤ declWidth b r) :
+    ∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1
+
+== E (Tests/Compiler/Srm31EndpointTest.lean, namespace Tests.Compiler.Srm31EndpointTest) ==
+theorem topshareM_hierC_at_nw  (and topshareQ_hierC_at_nw)
+  binders and conclusion: IDENTICAL to Tests.Compiler.Srm9ComposedTest.topshare{M,Q}_hierC_at_free
+  EXCEPT the last antecedent
+     (∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1)
+  is replaced by
+     (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+        topshare{M,Q}.machineData.shape.layout.slots[k]? = some f → f.width ≤ declWidth b r).
+  (TmBnd/TqBnd, Bd = kidsMaskedN, SourceInputs, regs pass, rst, clk, hinit, ResetNk 2, hinsFit, hstX all kept.)
+  Proved from machine_ships_hierC_at_nw with topshare{M,Q}_composedNW (NOT through composedG_of_NW) and hinitW by decide on the concrete layout.
+
+STATUS WORDS: hstR is NOT discharged. The replacement hWd is a PREMISE (width link for machines with calls; producer fact missing: MachineWired exports weOf m r = f.width only for shape.insts = []).
