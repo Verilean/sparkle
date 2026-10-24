@@ -1,10 +1,10 @@
 import Tests.Compiler.Srm9ComposedTest
 import Tools.ShippingSrm31Core
 set_option autoImplicit false
--- BUILT (unit SRM31): dev run c2 (exit 0); further dev runs are recorded in REPORT-SRM31.md; the final-SHA rebuild there is the only final evidence.
+-- BUILT (unit SRM31): dev runs c2, a4 (exit 0); further dev runs are recorded in REPORT-SRM31.md; the final-SHA rebuild there is the only final evidence.
 -- SCOPE (instance-specific, topshareM / topshareQ ONLY).  `topshare{M,Q}_hierC_at_nw` = `Tests.Compiler.Srm9ComposedTest.topshare{M,Q}_hierC_at_free` with EVERY binder and the conclusion unchanged EXCEPT the last antecedent `hstR`,
 -- which is REPLACED by the per-slot width link `slot.width ≤ declWidth b r` (for the same `regs` witness).  The `composed` binder is supplied by SRM4's `topshare*_composedNW` DIRECTLY (not through `composedG_of_NW`), so the wiring is used.
--- NOT a discharge of `hstR`: the width link is a PREMISE (MachineWired exports it only for shape.insts = []); the slot-init fit `f.init < 2^f.width` is decided on the concrete layout.  TmBnd/TqBnd, Bd, SourceInputs, hinit, ResetNk 2, hinsFit, hstX stay explicit.
+-- INTERMEDIATE endpoint theorems, CONDITIONAL on the width link (a new machine-derived PREMISE).  NOT a discharge of `hstR` (the endpoint hstR gap stays OPEN): the width link is a PREMISE (MachineWired exports it only for shape.insts = []); the slot-init fit `f.init < 2^f.width` is decided on the concrete layout.  TmBnd/TqBnd, Bd, SourceInputs, hinit, ResetNk 2, hinsFit, hstX stay explicit.
 namespace Tests.Compiler.Srm31EndpointTest
 open Lean Meta
 open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry Tools.ShippingChildInvA Tools.ShippingChildFresh
@@ -79,7 +79,7 @@ theorem topshareM_hierC_at_nw
     (fun hrun hentry _ hB _ => by
       obtain ⟨O, T, hA, entryL, entry₁, entry₂, hc1, hc2, hgrp, hw⟩ := hB
       exact topshareM_composedNW O T hA entryL entry₁ entry₂ hentry hc1 hc2 hgrp hw hrun)
-    topshareM_outTy (by first | decide | decide +kernel) hcore hpost entry closes
+    topshareM_outTy (by decide) hcore hpost entry closes
     (fun hB => by
       obtain ⟨O, T, hA, entryL, entry₁, entry₂, hc1, hc2, hgrp, hw⟩ := hB
       exact topshareM_runFacts O T hA entryL entry₁ entry₂ entry hcore hpost hw)
@@ -134,7 +134,7 @@ theorem topshareQ_hierC_at_nw
     (fun hrun hentry _ hB _ => by
       obtain ⟨O, T, hA, hR0, hcl, entry₁, entry₂, hc1, hF, hgrp, hw⟩ := hB
       exact topshareQ_composedNW O T hA hR0 hcl entry₁ entry₂ hentry hc1 hF hgrp hw hrun)
-    topshareQ_outTy (by first | decide | decide +kernel) hcore hpost entry closes
+    topshareQ_outTy (by decide) hcore hpost entry closes
     (fun hB => by
       obtain ⟨O, T, hA, hR0, hcl, entry₁, entry₂, hc1, hF, hgrp, hw⟩ := hB
       exact topshareQ_runFacts O T hA hR0 hcl entry₁ entry₂ entry hcore hpost hw)

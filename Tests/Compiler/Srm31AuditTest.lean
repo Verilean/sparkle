@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm31AuditExpected
 import Tests.Compiler.Srm9ComposedTest
 import Tools.ShippingSlotRegsRun
--- BUILT (unit SRM31): dev run a3 (exit 0, S31AUDIT|ok); a1,a2 exit 1 (generated-file opens; script bug); dev runs are in REPORT-SRM31.md, the final-SHA rebuild there is the only final evidence.
+-- BUILT (unit SRM31): dev runs a3, a4 (exit 0, S31AUDIT|ok); a1,a2 exit 1 (generated-file opens; script bug); dev runs are in REPORT-SRM31.md, the final-SHA rebuild there is the only final evidence.
 -- Audit of Tools/ShippingSrm31Core.lean and Tests/Compiler/Srm31EndpointTest.lean (4 theorems):
 -- (1) literal count guards; full binder tuples printed per theorem (S31PREM) and a marker per theorem (S31THM);
 -- (2) STRUCTURAL comparator `walk` (forall rows: binderInfo, name when not hygienic, isProp, isDefEq type; Exists / And descended; leaf isDefEq) of each theorem against the generated Exp_* statement
@@ -171,6 +171,11 @@ elab "#srm31_audit" : command => liftTermElabM do
     unless ds.length == 1 && kindOf ds.head! == "type" do
       throwError "SRM31 AUDIT FAILED: {t} vs {o}: expected exactly one differing row, got {ds}"
     logInfo m!"S31ONEROW|{t}|{o}|{ds}"
+    -- REPLACEMENT row (REVIEW S1/S4): one Prop binder replaced; hinitW is NOT a binder of the instance
+    forallTelescope (← thmType t) fun xs _ => do
+      for x in xs do
+        if (← x.fvarId!.getDecl).userName == `hinitW then throwError "SRM31 AUDIT FAILED: hinitW is a binder of {t}"
+    logInfo m!"S31REPLACEMENT|{t}|row hstR -> hWd (width link, PREMISE); hinitW not a binder; hstR NOT discharged"
   -- (4) mutants
   for (t, mname, want) in mutants31 do
     let mt ← expType mname
