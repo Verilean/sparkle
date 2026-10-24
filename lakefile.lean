@@ -4400,3 +4400,9 @@ lean_lib «Tools.ShippingSrm33Core» where
 
 lean_lib «Tests.Compiler.Srm33EndpointTest» where
   roots := #[`Tests.Compiler.Srm33EndpointTest]
+
+lean_lib «Tests.Compiler.Srm33AuditExpected» where
+  roots := #[`Tests.Compiler.Srm33AuditExpected]
+
+lean_lib «Tests.Compiler.Srm33AuditTest» where
+  roots := #[`Tests.Compiler.Srm33AuditTest]
