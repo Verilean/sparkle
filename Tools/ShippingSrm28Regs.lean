@@ -25,7 +25,7 @@ theorem sourceRegsAreSlots_of_wired_all {declName : Name} {shape : MachineShape}
     {cache : IO.Ref (ExprStructMap String)} {m : Module} {dsn : Design} {regs lets : List String}
     (hW : MachineWired declName shape ids cache m dsn regs lets) :
     SourceRegsAreSlots m regs shape.layout.slots := by
-  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, hall⟩ := hW
+  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, hall, -⟩ := hW
   exact hall
 
 /-- **PROVED**: G5 for the exported `regs` witness, from `hierGate b`, `b.body = m.body` and the wiring alone. -/

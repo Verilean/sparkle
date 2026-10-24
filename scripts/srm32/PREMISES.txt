@@ -1,0 +1,9 @@
+PREMISES (SRM32).  PROVED / PREMISE / OPEN kept apart.  SCOPE: export + width link; the endpoint hstR gap is closed only after integration with SRM31 and review.
+Existing statement changed: MachineWired gained a 20th conjunct (theorem-backed at the producer, Tools/ShippingMachineEntry.lean, last bullet of `have wired`; no premise relabelled). No other theorem type changed.
+New theorems and their binders (Tools/ShippingSrm32Width.lean, Tests/Compiler/Srm32InstTest.lean):
+* slotWidths_of_wired (hW : MachineWired …) — PROVED; premise = the wiring itself (what every producer run exports). Conclusion: ∀ k r f, regs[k]? = some r → slots[k]? = some f → weOf m r = f.width.
+* hWd_of_wired (hpost : b = dropZeroWidthModule m ∨ b = mergeChecked (dropZeroWidthModule m)) (hgate : hierGate b = true) (houtTy : ∀ o ∈ outs, o.ty.bitWidth = o.width) (hW : MachineWired …) — PROVED; premises hpost, hgate, houtTy, hW. Conclusion: ∀ k r f, … → f.width ≤ declWidth b r.
+* topshare{M,Q}_composedNW_hWd (hcore) (hpost) (entry) (hBnd : TmBnd/TqBnd) — PROVED; premises = exactly SRM28's: hcore, hpost, entry, hBnd (TmBnd/TqBnd are PREMISE boundaries of the existing instance supplier).
+  Conclusion: ComposedNWRegs 2 … P with P regs = SRM31's hWd text for the regs of the ONE ComposedNW 2 witness (topshare{M,Q}_composedNW used once, via composedNWRegs_of_composedNW).
+Still PREMISE / OPEN (explicit, untouched): G1, G3 SourceRegsKept, K1, K0N, hsk, FitTree, hRK, hst1/hst2/hst3, hW (ShippedRegWidthLe) wherever used, hinit and all other ComposedNW tail hypotheses, TmBnd/TqBnd contents.
+OPEN: that the SRM31 endpoint takes this as the last hypothesis (integration + review); general designs, designSVH, endpoint, production, concrete-run satisfaction. NOT claimed: hstR discharged (it is discharged only by SRM31 hookup + hinitW).

@@ -3,7 +3,7 @@ import Tests.Compiler.Srm26AuditTest
 import Tools.ShippingSrm28Regs
 -- BUILT (unit SRM28): dev runs a1-a3 (exit 1, script errors), a4 (exit 0, S28AUDIT|ok); the final-SHA rebuild in REPORT-SRM28.md is the only final evidence.
 -- Audit of Tools/ShippingSrm28Regs.lean, Tests/Compiler/Srm28InstTest.lean and the CHANGED statement `MachineWired`:
--- (0) `MachineWired` unfolds to exactly 19 conjuncts and the 19th is defeq to `Exp_lastClause` (EXPECTED §1); the 18th is untouched in count;
+-- (0) `MachineWired` unfolds to 20 conjuncts (SRM32 appended the 20th; edited from 19) and the 19th is defeq to `Exp_lastClause` (EXPECTED §1);
 -- (1) literal count guard and binder tables for the 8 theorems;
 -- (2) BINDER-TABLE comparator (binderInfo, name, isProp, isDefEq type per row, then conclusion) against Srm28ExpStmt (written from scripts/srm28/EXPECTED.txt, committed before any Lean edit);
 --     wrong-expected mutants rejected with the specific row kind: ` ∧ True` on the Prop binder hW, an added data binder, reordered binders, hb dropped; for the instance: P := True, hpost dropped;
@@ -123,12 +123,12 @@ elab "#srm28_audit" : command => liftTermElabM do
         n := n + 1
         last := b.appFn!.appArg!
         b := b.appArg!
-      last := b   -- the final non-And tail is the last conjunct
+      -- SRM32: MachineWired now has a 20th conjunct; `last` is the head of the final `And`, i.e. the 19th conjunct
       n := n + 1
-      unless n == 19 do throwError "SRM28 AUDIT FAILED: MachineWired has {n} conjuncts, expected 19"
+      unless n == 20 do throwError "SRM28 AUDIT FAILED: MachineWired has {n} conjuncts, expected 20 (19 + the SRM32 width clause)"
       let exp ← mkAppM ``Exp_lastClause #[xs[1]!, xs[4]!, xs[6]!]
       unless (← isDefEq last exp) do throwError "SRM28 AUDIT FAILED: the last conjunct of MachineWired differs from Exp_lastClause"
-      logInfo m!"S28WIRED|19 conjuncts; the 19th is defeq to Exp_lastClause"
+      logInfo m!"S28WIRED|20 conjuncts; the 19th is defeq to Exp_lastClause"
   -- (1) binder tables
   for t in audited28 do
     let ci ← getConstInfo t

@@ -1,0 +1,59 @@
+EXPECTED (SRM32) — frozen BEFORE any Lean edit.  Wording: PROVED / PREMISE / OPEN.  Status of every item at freeze time: NOT YET PROVED.
+Duplicate check at receipt (base 1b1ac9dd): `weOf m r = f.width` for slot registers occurs in Tools/ShippingMachineEntry.lean:690 (only under `shape.insts = []`),
+Tools/ShippingSlotRegsRun.lean:53,101 (old-form ChildBnd/MachineClosesAt; NOT usable), Tools/ShippingSatAssemblyS.lean:243 (hypothesis restatement), Tools/ShippingClosedTransitionTyped.lean:245 (Zip₂ slot facts).
+No unconditional MachineWired export of the width relation exists.
+
+== (1) MachineWired: ONE new LAST conjunct (the 20th), Tools/ShippingMachineEntry.lean, after the 19th (":757-760" area, "every register statement of the module is a slot's").
+   Exact text appended (joined by ∧ after the 19th conjunct's closing paren):
+
+  ∧
+  -- and, with or without calls, each slot's register has the slot's width in the module
+  (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+    shape.layout.slots[k]? = some f → weOf m r = f.width)
+
+   Unconditional (also for shape.insts ≠ []), for the SAME m, regs.  Statements of MachinePreserves(X)/MachineTraceLB(X)/ComposedG(W)/ComposedNW mention `MachineWired …` by name: textually UNCHANGED.
+
+== (2) Producer proof: the 20th `?_` of `have wired` (Tools/ShippingMachineEntry.lean:1454ff), the `refine ⟨namesNodup, ?_ ×18⟩` becomes ×19 plus one last bullet. No separate producer lemma, no import of SlotRegsRun/old-form ChildBnd/MachineClosesAt.
+   Proof sketch (in-file, same pieces as conjunct 13 at ~:1585-1596 and the 19th bullet):
+     r = p.name with ps[k]? = some p;  hsl := Zip₂.get slotsOk k p f hp hf  (weOf t' p.name = f.width ∧ 0 < f.width);
+     weOf (closeMachine shape.layout t') p.name = f.width   by ShippingMachineClose.weOf_wires_append (wires = t'.wires ++ nextName ports) hpos;
+     no calls (hmt left): m = closeMachine …  (subst);
+     calls (hmt right): ShippingMachineInst.closeInsts_some / ShippingMachineInstG.closeInstsG_some give m.wires = (closeMachine …).wires; then weOf_congr_wires (Tools.ShippingMachineEntry.weOf_congr_wires :624) transports.
+   The call case "only adds instance statements and keeps the wires" — no other fact used.
+
+== (3) New file Tools/ShippingSrm32Width.lean, namespace Tools.ShippingSrm32   (binder text; statements to be audited)
+
+theorem slotWidths_of_wired {declName : Name} {shape : MachineShape} {ids : List FVarId}
+    {cache : IO.Ref (ExprStructMap String)} {m : Module} {dsn : Design} {regs lets : List String}
+    (hW : MachineWired declName shape ids cache m dsn regs lets) :
+    ∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+      shape.layout.slots[k]? = some f → weOf m r = f.width
+
+theorem hWd_of_wired {declName : Name} {shape : MachineShape} {ids : List FVarId}
+    {cache : IO.Ref (ExprStructMap String)} {m b : Module} {dsn : Design} {regs lets : List String}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule m ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule m))
+    (hgate : hierGate b = true)
+    (houtTy : ∀ o ∈ shape.layout.outs, o.ty.bitWidth = o.width)
+    (hW : MachineWired declName shape ids cache m dsn regs lets) :
+    ∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+      shape.layout.slots[k]? = some f → f.width ≤ declWidth b r
+   (b = dropZeroWidthModule m from hpost via mergeChecked_inst + hasInst_of_hierGate exactly as Tools/ShippingShipsFree.lean:171-175; declWidth b = weOf m from the cleanup conjunct (hclean houtTy .2.1); then weOf m r = f.width ≤.)
+   [Also, if cheap: hWdEq_of_wired with `declWidth b r = f.width`; not required.]
+
+== (4) Actual topshareM / topshareQ, Tests/Compiler/Srm32InstTest.lean (namespace Tests.Compiler.Srm32InstTest; binders IDENTICAL to Tests.Compiler.Srm28InstTest.topshare{M,Q}_composedNW_g5: implicit mctx mref cctx cref w w1 b raw D; hcore hpost entry hBnd)
+
+theorem topshareM_composedNW_hWd  (and topshareQ_composedNW_hWd with ``topshareQ, TqBnd, tqExt, tqExtB)
+    {mctx mref cctx cref w w1 b raw D} (hcore : RunsTo (synthesizeCombinationalCore ``topshareM [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw))
+    (entry : MachineDefines mctx mref cctx cref ``topshareM topshareM.machineData.shape)
+    (hBnd : TmBnd mctx mref cctx cref w raw D) :
+    Tools.ShippingSrm28.ComposedNWRegs 2 ``topshareM topshareM.machineData 4 raw D (fun _ : Unit => defaultDomain) topshareM.machineSource tmExt tmExtB
+      (fun regs => ∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+        topshareM.machineData.shape.layout.slots[k]? = some f → f.width ≤ declWidth b r)
+   The P-clause is EXACTLY SRM31's frozen hWd text (srm31/EXPECTED.txt: `∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → d.shape.layout.slots[k]? = some f → f.width ≤ declWidth b r`, d := topshare{M,Q}.machineData) for the regs witness of the ONE ComposedNW 2 witness (`topshare{M,Q}_composedNW`, used once, via Tools.ShippingSrm28.composedNWRegs_of_composedNW). hgate from topshare{M,Q}_hierGate (SRM23), houtTy from topshare{M,Q}_outTy.
+   Sharing of regs: ComposedNWRegs = ∃ ids cache regs …, P regs ∧ <ComposedNW tail on the SAME regs>; hence the hWd statement and the ComposedNW tail (hinit etc.) talk about the same `regs`.
+
+== (5) NOT touched / EXPLICIT: all binders of the SRM28 instance theorems; G1, G3, K1, hsk, FitTree, hRK, hst, hW, hinit and every ComposedNW tail hypothesis; no reset-start assumption.  Clauses 1–19 of MachineWired unchanged.
+   No endpoint/production/general-design claim. SCOPE: export + width link; the endpoint hstR gap is closed only after integration with SRM31 and review.
+== (6) Types changed: only the def MachineWired (one conjunct appended). Every statement naming MachineWired keeps its text.
