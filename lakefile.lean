@@ -4370,3 +4370,9 @@ lean_lib «Tests.Compiler.Srm28ExpStmt» where
 
 lean_lib «Tests.Compiler.Srm28AuditTest» where
   roots := #[`Tests.Compiler.Srm28AuditTest]
+
+lean_lib «Tools.ShippingSrm32Width» where
+  roots := #[`Tools.ShippingSrm32Width]
+
+lean_lib «Tests.Compiler.Srm32InstTest» where
+  roots := #[`Tests.Compiler.Srm32InstTest]
