@@ -4376,3 +4376,9 @@ lean_lib «Tools.ShippingSrm32Width» where
 
 lean_lib «Tests.Compiler.Srm32InstTest» where
   roots := #[`Tests.Compiler.Srm32InstTest]
+
+lean_lib «Tests.Compiler.Srm32AuditExpected» where
+  roots := #[`Tests.Compiler.Srm32AuditExpected]
+
+lean_lib «Tests.Compiler.Srm32AuditTest» where
+  roots := #[`Tests.Compiler.Srm32AuditTest]
