@@ -2,7 +2,7 @@ import Tests.Compiler.Srm24WidthTest
 import Tools.ShippingSrm28Regs
 import Tools.ShippingSrm32Width
 set_option autoImplicit false
--- UNBUILT (unit SRM32): see REPORT-SRM32.md for dev runs and the final-SHA rebuild (the only final evidence).
+-- BUILT (unit SRM32): dev runs e1 (Entry, exit 0), e2 (exit 1, syntax), e3 (exit 0), a1 (exit 1, stale Srm28AuditTest count), a2 (exit 0); the final-SHA rebuild in REPORT-SRM32.md is the only final evidence.
 -- SCOPE: for the ACTUAL topshareM / topshareQ (hypotheses as SRM28: hcore, hpost, entry, hBnd), the width link hWd (the text frozen in SRM31's EXPECTED) for the `regs` witness of the SINGLE
 --   `ComposedNW 2` witness (`topshare{M,Q}_composedNW`), PROVED from `MachineWired`'s 20th conjunct (Tools/ShippingMachineEntry.lean), `hierGate b` (SRM23) and `hpost` (declWidth b = weOf raw).
 --   All other binders (G1, G3, K1, hsk, FitTree, hRK, hst, hW, hinit, ComposedNW tail) are untouched and explicit; no reset-start assumption; no endpoint / production / general-design claim.

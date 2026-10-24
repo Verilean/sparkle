@@ -444,3 +444,6 @@ Tools/ShippingTransitionTyped.lean:70: n=22 last='_' after=':= ok'
 Tools/ShippingWalkStillMore.lean:525: n=17 last='hv4' after=':='
 Tools/ShippingWireNamesRun.lean:128: n=22 last='_' after=':= ok''
 Tools/ShippingWireNamesRun.lean:167: n=18 last='-' after=':= wired'
+
+== F. ADDENDUM (found by build a1, not by the scan): Tests/Compiler/Srm28AuditTest.lean:128 asserts `MachineWired` has exactly 19 conjuncts and compares the LAST one to Exp_lastClause.
+   Effect: PROOF/TEST edit (count 19 -> 20; `last` = head of the final And = the 19th conjunct, still defeq to Exp_lastClause). Only audit consumer of the conjunct count (grep conjuncts in Tests).

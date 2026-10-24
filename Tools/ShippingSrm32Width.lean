@@ -1,7 +1,7 @@
 import Tools.ShippingSrm28Regs
 import Tools.ShippingShipsFree
 set_option autoImplicit false
--- UNBUILT (unit SRM32): see REPORT-SRM32.md for the dev runs and the final-SHA rebuild (the only final evidence).
+-- BUILT (unit SRM32): dev runs e1 (Entry, exit 0), e2 (exit 1, syntax), e3 (exit 0), a1 (exit 1, stale Srm28AuditTest count), a2 (exit 0); the final-SHA rebuild in REPORT-SRM32.md is the only final evidence.
 -- SCOPE (generic, no topshare instance): `MachineWired` (Tools/ShippingMachineEntry.lean) now EXPORTS, as its 20th conjunct, the slot-register WIDTH relation for its own `m`, `regs`,
 -- UNCONDITIONALLY (also for shape.insts ≠ []); it is PROVED at the producer (closeMachine wires + closeInsts_some / closeInstsG_some).  Here: (1) that conjunct read off;
 -- (2) the width link `f.width ≤ declWidth b r` for the shipped `b` (b = dropZeroWidthModule m via hpost, hierGate b, the cleanup conjunct of MachineWired).

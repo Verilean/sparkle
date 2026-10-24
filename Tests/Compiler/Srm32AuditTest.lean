@@ -1,7 +1,7 @@
 import Tests.Compiler.Srm32AuditExpected
 
 import Tools.ShippingSrm32Width
--- UNBUILT (unit SRM32): see REPORT-SRM32.md; the final-SHA rebuild is the only final evidence.
+-- BUILT (unit SRM32): dev runs e1 (Entry, exit 0), e2 (exit 1, syntax), e3 (exit 0), a1 (exit 1, stale Srm28AuditTest count), a2 (exit 0); the final-SHA rebuild in REPORT-SRM32.md is the only final evidence.
 -- Audit of Tools/ShippingSrm32Width.lean, Tests/Compiler/Srm32InstTest.lean and the CHANGED statement `MachineWired` (20th conjunct):
 -- (0) `MachineWired` unfolds to exactly 20 conjuncts; the 20th is defeq to `Exp_lastClause` and NOT defeq to the weakened `≤` fixture;
 -- (1) literal count guard and binder tables for the 4 theorems;
