@@ -1,0 +1,177 @@
+SRM33 EXPECTED AMENDMENT (REVIEW P4/P5): COMPLETE Lean text, copied from the GENERATED Tests/Compiler/Srm33AuditExpected.lean
+(scripts/srm33/gen_audit_expected.py: from the TEXT of the ORIGINAL theorems at_free + EXPECTED rules; independent of the proof files).
+Namespaces/opens: as the header of that file.
+
+DEPENDENCY (P5): topshare{M,Q}_composedNW_hWd needs hBnd (TmBnd/TqBnd) and hpost; both are taken from EXISTING binders of the original endpoint
+(hBnd = the first antecedent of the conclusion, hpost, hcore, entry are original binders). No hinitW/hWd/hc1/hc2/hgrp binder is added.
+In T1 the `composed` binder differs from SRM31's: it is b-quantified with the hpost tie and returns ComposedNWRegs (P = width link for b);
+hinitW is a T1 binder, discharged by `decide` in T2.  Independent audit: the audit MECHANICALLY deletes the hstR row of the ELABORATED type of
+topshare{M,Q}_hierC_at_free (dropRow, count must be 1) and requires walk/isDefEq equality with the proved T2 type.
+
+==== T1 ====
+def Exp_generic : Prop :=
+  ∀ {n : Nat} (hloc : ∀ D : Design, KSLocal (KSn (childMap D.modules) n))
+    (Bnd : CtxBnd)
+    (C : Meta.Context → ST.Ref IO.RealWorld Meta.State → Core.Context →
+      ST.Ref IO.RealWorld Core.State → Prop)
+    (Bd : Sparkle.IR.AST.Module → Design → Prop) (Inv : Sparkle.IR.AST.Module → KT n → Prop)
+    (hBd : ∀ b D, Bd b D → KSBoundedIn (childMap D.modules) (KSn (childMap D.modules) n) b.body Inv)
+    (hRI : ResetImpliesInv (ResetNk n) Inv)
+    {declName : Name} (d : MachineData) {kD : Nat}
+    {ι : Type} {dom : ι → DomainConfig}
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+    {lsrc srcL : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}
+    {extL : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}
+    {extBL : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}
+    -- the wired endpoint, for the cleanup facts only (its source may be the
+    -- fused / sign-normalised one a transported endpoint rewrites)
+    (soundL : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Sparkle.IR.AST.Module} {design : Design},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      C mctx mref cctx cref →
+      Bnd mctx mref cctx cref w m design →
+      MachineTraceLB declName d m design dom srcL extL extBL lsrc)
+    (composed : ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+      {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+      {m : Sparkle.IR.AST.Module} {design : Design} {b : Sparkle.IR.AST.Module},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+        (m, design) w' →
+      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule m ∨
+        b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule m)) →
+      MachineDefines mctx mref cctx cref declName d.shape →
+      C mctx mref cctx cref →
+      Bnd mctx mref cctx cref w m design → Tools.ConeFold.memFree m.body →
+      Tools.ShippingSrm28.ComposedNWRegs n declName d kD m design dom src ext extB
+        (fun regs => ∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+          d.shape.layout.slots[k]? = some f → f.width ≤ declWidth b r))
+    (houtTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hinitW : ∀ f ∈ d.shape.layout.slots, f.init < 2 ^ f.width)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w1 : Void IO.RealWorld}
+    {b raw : Sparkle.IR.AST.Module} {D : Design}
+    (hcore : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w
+      (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : MachineDefines mctx mref cctx cref declName d.shape)
+    (closes : C mctx mref cctx cref)
+    -- what the core run provides of the full entry's module, at this run
+    (facts : Bnd mctx mref cctx cref w raw D →
+      Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b),
+  -- NO checker premise: the run's facts are derived (`facts`)
+        -- the run boundary of the children (in the run's contexts)
+        Bnd mctx mref cctx cref w raw D →
+        -- the children's outputs within their ports' widths
+        Bd b D →
+        ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+        ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+          regs.Nodup ∧ regs.length = d.ss.length ∧
+          ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+            (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+            (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv)
+            (kids : String → KT n),
+            (∀ t st, t < T → SourceInputs declName (d.bsIn.take kD) ids cache
+              (fun j => (extB i bools bits j).val (T - 1 - t))
+              (fun j n => (ext i bools bits j n).val (T - 1 - t)) (seedIn b ins t st)) →
+            (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
+            (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
+            (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+              d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+            ResetNk n raw D kids →
+            (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) →
+            (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (childMap D.modules) b.body →
+              st0 x < 2 ^ declWidth b x) →
+            ∃ envsO, runModuleTG (KSn (childMap D.modules) n) (declWidth (checkedOptimize b))
+                (childMap D.modules) (checkedOptimize b).body (seedIn b ins) T
+                ⟨st0, mems, kids⟩ = some envsO ∧
+              envsO.length = T ∧
+              ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+                d.shape.layout.outs[k]? = some o → (src i bools bits)[k]? = some f →
+                (envsO[j]'hj) o.name = f j
+
+==== T2 (M) ====
+def Exp_M : Prop :=
+  ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} {w w1 : Void IO.RealWorld}
+    {b raw : Sparkle.IR.AST.Module} {D : Design}
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareM [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : MachineDefines mctx mref cctx cref ``topshareM topshareM.machineData.shape)
+    (closes : (fun _ _ _ _ => True) mctx mref cctx cref),
+  TmBnd mctx mref cctx cref w raw D → (fun (b : Sparkle.IR.AST.Module) (D : Design) => kidsMaskedN D.modules b.body = true) b D →
+        ∃ ids : List FVarId, ids.Nodup ∧ ids.length = topshareM.machineData.shape.binders.length ∧
+        ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+          regs.Nodup ∧ regs.length = topshareM.machineData.ss.length ∧
+          ∀ (i : Unit) (bools : Nat → Signal (defaultDomain) Bool)
+            (bits : (j : Nat) → (n : Nat) → Signal (defaultDomain) (BitVec n))
+            (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv)
+            (kids : String → KT 2),
+            (∀ t st, t < T → SourceInputs ``topshareM (topshareM.machineData.bsIn.take 4) ids cache
+              (fun j => (tmExtB i bools bits j).val (T - 1 - t))
+              (fun j n => (tmExt i bools bits j n).val (T - 1 - t)) (seedIn b ins t st)) →
+            (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
+            (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
+            (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+              topshareM.machineData.shape.layout.slots[k]? = some f → st0 r = f.init) →
+            ResetNk 2 raw D kids →
+            (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) →
+            (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (childMap D.modules) b.body →
+              st0 x < 2 ^ declWidth b x) →
+            ∃ envsO, runModuleTG (KSn (childMap D.modules) 2) (declWidth (checkedOptimize b))
+                (childMap D.modules) (checkedOptimize b).body (seedIn b ins) T
+                ⟨st0, mems, kids⟩ = some envsO ∧
+              envsO.length = T ∧
+              ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+                topshareM.machineData.shape.layout.outs[k]? = some o → (topshareM.machineSource i bools bits)[k]? = some f →
+                (envsO[j]'hj) o.name = f j
+
+==== T2 (Q) ====
+def Exp_Q : Prop :=
+  ∀ {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} {w w1 : Void IO.RealWorld}
+    {b raw : Sparkle.IR.AST.Module} {D : Design}
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareQ [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : MachineDefines mctx mref cctx cref ``topshareQ topshareQ.machineData.shape)
+    (closes : (fun _ _ _ _ => True) mctx mref cctx cref),
+  TqBnd mctx mref cctx cref w raw D → (fun (b : Sparkle.IR.AST.Module) (D : Design) => kidsMaskedN D.modules b.body = true) b D →
+        ∃ ids : List FVarId, ids.Nodup ∧ ids.length = topshareQ.machineData.shape.binders.length ∧
+        ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+          regs.Nodup ∧ regs.length = topshareQ.machineData.ss.length ∧
+          ∀ (i : Unit) (bools : Nat → Signal (defaultDomain) Bool)
+            (bits : (j : Nat) → (n : Nat) → Signal (defaultDomain) (BitVec n))
+            (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv)
+            (kids : String → KT 2),
+            (∀ t st, t < T → SourceInputs ``topshareQ (topshareQ.machineData.bsIn.take 4) ids cache
+              (fun j => (tqExtB i bools bits j).val (T - 1 - t))
+              (fun j n => (tqExt i bools bits j n).val (T - 1 - t)) (seedIn b ins t st)) →
+            (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
+            (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
+            (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+              topshareQ.machineData.shape.layout.slots[k]? = some f → st0 r = f.init) →
+            ResetNk 2 raw D kids →
+            (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) →
+            (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (childMap D.modules) b.body →
+              st0 x < 2 ^ declWidth b x) →
+            ∃ envsO, runModuleTG (KSn (childMap D.modules) 2) (declWidth (checkedOptimize b))
+                (childMap D.modules) (checkedOptimize b).body (seedIn b ins) T
+                ⟨st0, mems, kids⟩ = some envsO ∧
+              envsO.length = T ∧
+              ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+                topshareQ.machineData.shape.layout.outs[k]? = some o → (topshareQ.machineSource i bools bits)[k]? = some f →
+                (envsO[j]'hj) o.name = f j
