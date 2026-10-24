@@ -1,5 +1,5 @@
 import Tests.Compiler.Srm32AuditExpected
-import Tests.Compiler.Srm28AuditTest
+
 import Tools.ShippingSrm32Width
 -- UNBUILT (unit SRM32): see REPORT-SRM32.md; the final-SHA rebuild is the only final evidence.
 -- Audit of Tools/ShippingSrm32Width.lean, Tests/Compiler/Srm32InstTest.lean and the CHANGED statement `MachineWired` (20th conjunct):
