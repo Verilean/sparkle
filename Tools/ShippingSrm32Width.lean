@@ -12,7 +12,8 @@ open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.Compiler.Elab
 open Sparkle.IR.RefineCheck (hierGate mergeChecked)
 open Sparkle.IR.RegDedup (declWidth)
 open Sparkle.IR.Machine (SlotField)
-open Tools.ShippingMachineEntry Tools.ShippingEntrySoundness (weOf)
+open Tools.ShippingMachineEntry
+open Tools.ShippingEntrySoundness (weOf)
 
 /-- **PROVED**: `MachineWired` exports the slot-register widths for its own `regs` (any machine, with or without calls). -/
 theorem slotWidths_of_wired {declName : Name} {shape : MachineShape} {ids : List FVarId}
