@@ -1,0 +1,9 @@
+SRM33 WITNESS INVENTORY (before Lean).
+How the endpoint's ∃ regs is obtained from the ONE ComposedNWRegs witness:
+* Tests/Compiler/Srm32InstTest.lean:~60 topshareM_composedNW_hWd: ComposedNWRegs 2 … P  built by
+  Tools.ShippingSrm28.composedNWRegs_of_composedNW (Tools/ShippingSrm28Regs.lean:~70) from ONE `topshareM_composedNW …` term; P regs is proved from the
+  SAME regs inside (hP receives that witness's wired fact) -- the ComposedNWRegs def (Srm28Regs.lean:~45) puts `P regs` on the same ∃ regs as MachineWired and the H tail.
+* T1 (new): `obtain ⟨ids, nd, len, cache, regs, rnd, rlen, hP, lets, llen, wired, H⟩ := composed hcore hpost entry closes hBnd hmf`
+  (cf. Tools/ShippingSrm31Core.lean:~121 where the NW witness is destructured). The goal `refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩` exports THAT regs;
+  hP is about that same regs variable, hence hWd for the exported regs is `hP` itself (no matching of independent witnesses, no choice).
+* T2: composed := a lambda calling topshare*_composedNW_hWd once (Srm32InstTest.lean:~45/~65); each instance proof contains topshare*_composedNW_hWd once.
