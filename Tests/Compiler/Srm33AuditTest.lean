@@ -2,7 +2,7 @@ import Tests.Compiler.Srm33AuditExpected
 import Tests.Compiler.Srm9ComposedTest
 import Tests.Compiler.Srm31EndpointTest
 import Tools.ShippingSlotRegsRun
--- UNBUILT (unit SRM33): see REPORT-SRM33.md for run names.
+-- BUILT (unit SRM33): dev runs s1 (Core, exit 0), s2 (Endpoint, exit 0), a1,a2 (audit, exit 1), a4 (audit, exit 0, S33AUDIT|ok); final-SHA rebuild in REPORT-SRM33.md is the only final evidence.
 -- Audit of Tools/ShippingSrm33Core.lean and Tests/Compiler/Srm33EndpointTest.lean (3 theorems):
 -- (1) literal count guards; full binder tuples printed per theorem (S33PREM) and a marker per theorem (S33THM);
 -- (2) STRUCTURAL comparator `walk` of each theorem against the generated Exp_* (scripts/srm33/gen_audit_expected.py: TEXT of the ORIGINAL theorems + scripts/srm33/EXPECTED.txt);

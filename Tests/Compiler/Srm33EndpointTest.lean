@@ -2,7 +2,7 @@ import Tests.Compiler.Srm9ComposedTest
 import Tools.ShippingSrm33Core
 import Tests.Compiler.Srm32InstTest
 set_option autoImplicit false
--- UNBUILT (unit SRM33): see STATUS/REPORT-SRM33.md for run names.
+-- BUILT (unit SRM33): dev runs s1 (Core, exit 0), s2 (Endpoint, exit 0), a1,a2 (audit, exit 1), a4 (audit, exit 0, S33AUDIT|ok); final-SHA rebuild in REPORT-SRM33.md is the only final evidence.
 -- SCOPE (instance-specific, topshareM / topshareQ ONLY).  `topshare{M,Q}_hierC_noHstR` = `Tests.Compiler.Srm9ComposedTest.topshare{M,Q}_hierC_at_free` with EVERY binder unchanged and the LAST antecedent `hstR` DELETED
 -- (no `hWd`, no replacement).  Supplied by `Tools.ShippingSrm33.machine_ships_hierC_noHstR` with `composed` := `Srm32InstTest.topshare{M,Q}_composedNW_hWd` (one joint `ComposedNWRegs` witness).
 -- TmBnd/TqBnd, Bd, SourceInputs, hinit, ResetNk 2, hinsFit, hstX stay explicit.  Instance result for the ACTUAL topshareM/Q; no general-design / production / CI claim.

@@ -1,6 +1,6 @@
 import Tools.ShippingSrm31Core
 set_option autoImplicit false
--- UNBUILT (unit SRM33): see STATUS/REPORT-SRM33.md for run names.
+-- BUILT (unit SRM33): dev runs s1 (Core, exit 0), s2 (Endpoint, exit 0), a1,a2 (audit, exit 1), a4 (audit, exit 0, S33AUDIT|ok); final-SHA rebuild in REPORT-SRM33.md is the only final evidence.
 -- SCOPE (generic).  `machine_ships_hierC_noHstR`: a copy of SRM31's `machine_ships_hierC_at_nw` whose `composed` binder is the JOINT `ComposedNWRegs` (one witness: wiring, `regs`, the width link on THOSE `regs`, the run tail);
 -- the conclusion is `machine_ships_hierC_at_free`'s with its LAST antecedent `hstR` removed (no `hWd` antecedent, nothing replaces it).  `hstR` is derived inside the proof from the single witness's `regs`
 -- (SRM31's `hstR_of_wired_slots`: hinit + 19th clause + width link + hinitW).  No `sorry`, no `axiom`, no `native_decide`.
