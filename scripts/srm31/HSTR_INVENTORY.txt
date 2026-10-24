@@ -1,0 +1,44 @@
+SRM31 HSTR_INVENTORY (written before any Lean edit; base 1b1ac9dd)
+
+GOAL: full endpoint binder  hstR : ∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1
+(Tools/ShippingShipsFree.lean:~159, instances Tests/Compiler/Srm9ComposedTest.lean:~121 (M), ~203 (Q)).
+Consumer: hierRefineCheck_linked -> hfitR (Tools/ShippingHierOptRunH.lean:428), called Tools/ShippingShipsFree.lean:~206.
+
+A. FACTS ON THE PATH (hinit + slots + widths => hstR)
+ A1 r ∈ seqRegs(openFlat b ..)  <->  Stmt.register r.1 r.2.1 r.2.2.1 r.2.2.2.1 r.2.2.2.2 ∈ b.body
+    PROVED: Tools.ShippingSrm22Width.mem_seqRegs_openFlat (Tools/ShippingSrm22Width.lean:115).
+ A2 b.body = raw.body (= m.body of the ComposedNW): hbB inside machine_ships_hierC_at_free (ShippingShipsFree.lean:~137, from `hclean houtTy` of MachineWired-in-MachineTraceLB + hpost).
+ A3 every register statement of m.body is regs[k] with slot k, init = Int.ofNat f.init:
+    MachineWired 19th conjunct (Tools/ShippingMachineEntry.lean:757-760); exported as
+    Tools.ShippingSrm28.sourceRegsAreSlots_of_wired_all (Tools/ShippingSrm28Regs.lean:23). Needs the MachineWired for the SAME regs.
+ A4 hinit (endpoint antecedent, Srm9ComposedTest.lean:~109/~191): regs[k]?=some r -> slots[k]?=some f -> st0 r = f.init.
+ A5 f.init < 2 ^ f.width for every slot of the ACTUAL d: MachineData.ok (Tools/ShippingMachineAuto.lean:225) is a Bool containing
+    `decide (f.init < 2 ^ f.width)` per slot (zipAllB); Zip₂ fact `layW` Tools/ShippingSrm4Core1.lean:105,217, Tools/ShippingCallsPortsG.lean:160.
+    It is NOT a field of MachineData and is NOT exported by ComposedNW/MachineWired as a Prop on slots; for the concrete topshare{M,Q} data it should be
+    decidable (`d.ok = true` is already established for them: Tests/Compiler/SharedLeafMemKidEntryTest topshareM_parentData.ok).
+ A6 WIDTH LINK  declWidth b r = f.width  (declWidth b = weOf raw by hbW, ShippingShipsFree.lean:~138):
+    * MachineWired conjunct 12/13 (Tools/ShippingMachineEntry.lean:690) `weOf m r = f.width` holds ONLY under `shape.insts = []`.
+      topshare{M,Q} have insts ≠ [] (4 calls: topshareM_len, Srm4ComposedTest.lean hk4) => NOT exported for the actual M/Q.
+    * Tools.ShippingSlotRegsRun.slotRegs_runMT (Tools/ShippingSlotRegsRun.lean:85-130) proves `weOf M r = f.width` for machines WITH calls, but takes
+      MachineClosesAt (Tools/ShippingChildInv.lean) and ChildBnd (ShippingChildInv.lean:674, old RefLaws-typed). The endpoint has C := True (no closes) and the
+      SRM4 audit forbids those old-form roots in the closure (Tests/Compiler/Srm4AuditTest.lean:12,1154). => not usable without breaking the A-form discipline.
+    * Producer closeMachine_regs (Tools/ShippingSlotRegsRun.lean:48-80) is the only place the call-case width is proved; MachineWired (producer) does not export it.
+ => the missing Prop (not derivable from exported facts):
+      hWd: ∀ k r f, regs[k]? = some r -> d.shape.layout.slots[k]? = some f -> f.width ≤ declWidth b r   (equality weOf m r = f.width would imply it)
+    (it follows from A5 + A6; A6 needs a producer change: 19th-conjunct-like export `weOf m r = f.width` for insts ≠ []).
+
+B. HOW THE ENDPOINT'S regs RELATE TO THE ComposedNW regs
+ B1 topshare{M,Q}_composed_binder = composedG_of_NW (topshare*_composedNW ...) (Srm9ComposedTest.lean:~64,~150).
+ B2 composedG_of_NW (Tools/ShippingMachineShipsDepth.lean:251-266) destructs ⟨ids,nd,len,cache,regs,rnd,rlen,_,_,_,H⟩: SAME regs, ids, cache; DROPS lets, llen, MachineWired.
+ B3 machine_ships_hierC_at_free obtains regs from `composed` (ShippingShipsFree.lean:~146) and exports it in the conclusion; wiring is not visible. So the existing theorem cannot
+    relate its regs to slots/registers of b. Hence a generic copy with ComposedNW binder (wiring kept) is needed (Route R).
+ B4 H (the NW run clause) takes ResetN-per-instance, definitionally ResetNk n (ShippingMachineShipsDepth.lean:245).
+
+C. PLAN
+ C1 Tools/ShippingSrm31Core.lean: machine_ships_hierC_at_nw (copy of machine_ships_hierC_at_free, KS=KSn n, Reset=ResetNk n, composed binder = ComposedNW form),
+    hstR REPLACED by hWd (the Prop above). PROVED inside: hstR from hinit + MachineWired 19th conjunct + hWd. [REPLACEMENT, not a discharge.]
+ C2 Tests/Compiler/Srm31EndpointTest.lean: topshare{M,Q}_hierC_at_nw_hWd (instances; all binders of the original endpoint except hstR, which is replaced by hWd).
+ C3 Audit Tests/Compiler/Srm31AuditTest.lean.
+ D. DECISION (recorded): the replacement Prop is the WIDTH LINK  hWd : ∀ k r f, regs[k]? = some r -> slots[k]? = some f -> f.width ≤ declWidth b r  (weaker than equality).
+    The slot-init fit  f.init < 2^f.width  (A5) is a binder `hinitW` of the generic theorem, supplied for actual M/Q by decide on the concrete layout (not a premise of the M/Q endpoint).
+    Then f.init < 2^f.width ≤ 2^declWidth b r.
