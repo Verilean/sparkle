@@ -214,6 +214,10 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   unless expected.length == 15 do throwError "CDEF AUDIT FAILED: expected-name list has {expected.length} entries, not 15"
   unless audits.length == 15 do throwError "CDEF AUDIT FAILED: audit list has {audits.length} entries, not 15"
   unless audits.Nodup do throwError "CDEF AUDIT FAILED: duplicate entries in the audit list"
+  unless expected.Nodup do throwError "CDEF AUDIT FAILED: duplicate entries in the expected-name list"
+  -- exact set equality (both directions), in addition to the length and Nodup guards
+  for a in audits do
+    unless expected.contains a do throwError "CDEF AUDIT FAILED: {a} in the audit list is not an expected name"
   for e in expected do
     unless audits.contains e do throwError "CDEF AUDIT FAILED: {e} missing from the audit list"
     discard <| getConstInfo e
