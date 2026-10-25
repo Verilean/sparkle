@@ -4406,3 +4406,6 @@ lean_lib «Tests.Compiler.Srm33AuditExpected» where
 
 lean_lib «Tests.Compiler.Srm33AuditTest» where
   roots := #[`Tests.Compiler.Srm33AuditTest]
+
+lean_lib «Tests.Compiler.CDefTest» where
+  roots := #[`Tests.Compiler.CDefTest]
