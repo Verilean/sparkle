@@ -207,6 +207,16 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let audits := [``P_M_group_defeq, ``P_M_ext_defeq, ``P_M_extB_defeq, ``P_M_lsrc_defeq, ``P_M_tables_defeq, ``P_M_soundL_defeq,
                  ``P_Q_group_defeq, ``P_Q_ext_defeq, ``P_Q_extB_defeq, ``P_Q_lsrc_defeq, ``P_Q_tables_defeq, ``P_Q_soundL_defeq, ``leafP_gen,
                  ``P_M, ``P_Q]  -- the constructed members themselves (their stored GenFacts / wrapper / leaf packages)
+  -- literal coverage guard: exactly these 15 constants (P_M, P_Q, leafP_gen, 12 projection audits); deleting one fails here
+  let expected : List Name := [``P_M, ``P_Q, ``leafP_gen,
+    ``P_M_group_defeq, ``P_M_ext_defeq, ``P_M_extB_defeq, ``P_M_lsrc_defeq, ``P_M_tables_defeq, ``P_M_soundL_defeq,
+    ``P_Q_group_defeq, ``P_Q_ext_defeq, ``P_Q_extB_defeq, ``P_Q_lsrc_defeq, ``P_Q_tables_defeq, ``P_Q_soundL_defeq]
+  unless expected.length == 15 do throwError "CDEF AUDIT FAILED: expected-name list has {expected.length} entries, not 15"
+  unless audits.length == 15 do throwError "CDEF AUDIT FAILED: audit list has {audits.length} entries, not 15"
+  unless audits.Nodup do throwError "CDEF AUDIT FAILED: duplicate entries in the audit list"
+  for e in expected do
+    unless audits.contains e do throwError "CDEF AUDIT FAILED: {e} missing from the audit list"
+    discard <| getConstInfo e
   for a in audits do
     let axs ← Lean.collectAxioms a
     for x in axs do
