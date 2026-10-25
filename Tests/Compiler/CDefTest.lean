@@ -1,5 +1,6 @@
 import Tests.Compiler.Srm9ComposedTest
 import Tests.Compiler.SharedLeafMemKidEntryTest
+import Tools.ShippingSeqParentGenD2MSD
 -- C-DEF (issue sparkle-gen-c4-cdef): GenPkg / MemSharedLeafParent exactly as scripts/c3/EXPECTED_CDEF.lean.txt (+ members and defeq audits below). Test-only; no production edit.
 -- NOT proved here: G-KID, G-HCALLS (unresolved dependencies). C4 and G3 stay OPEN.
 namespace Tests.Compiler.CDef
@@ -124,4 +125,91 @@ theorem P_M_soundL_defeq (hgrp : TmGrp) :
       (fun i bools bits => topshareM.machineExtB i bools bits (stateLoop topshareM.machineInits (topshareM.machineBody i bools bits)))
       (Tools.ShippingMachineCausal.letObsB topshareM.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareM.machineInits
         topshareM.machineBody topshareM.machineExt topshareM.machineExtB) := rfl
+
+/-! ## leafP generator package (NEW here: no leafP_gen / leafP_inhab existed; built from leafP.machine_* exactly as leafM_gen, Srm4RunTest.lean:23-31) -/
+noncomputable instance leafP_inhab : Inhabited (HList (tys leafP.machineData.ss)) :=
+  ⟨Tools.ShippingSeqParentGenD2MSD.defaultHList _⟩
+
+theorem leafP_gen : GenFacts leafP.machineData (fun i : DomainConfig => i) leafP.machineInits leafP.machineBody leafP.machineResult
+    leafP.machineExt leafP.machineExtB leafP.machineSource :=
+  ⟨leafP.machine_ok, leafP.machine_body, leafP.machine_inits, leafP.machine_writes, leafP.machine_result, leafP.machine_source,
+   fun i bools bits S S' t h =>
+    leafP.machine_ext_causal i { B := bools, V := bits, S := S } { B := bools, V := bits, S := S' } t
+      (Tools.ShippingMachineCausal.CtxAgree.of_state bools bits S S' t h)⟩
+
+/-! ## P_Q  (TqGrp is a PREMISE of TqBnd, not a theorem: P_Q takes it as a hypothesis = the structural class assumption) -/
+noncomputable def P_Q (hgrp : TqGrp) : MemSharedLeafParent where
+  top := { decl := ``topshareQ, d := topshareQ.machineData, ρ := _, inh := topshareQ_inhab, inits := topshareQ.machineInits,
+           body := topshareQ.machineBody, obsR := topshareQ.machineResult, ext := topshareQ.machineExt, extB := topshareQ.machineExtB,
+           src := topshareQ.machineSource, gen := topshareQ_gen }
+  nDecl := 4
+  cs := csQ
+  pdata := topshareQ_parentData
+  outTy := topshareQ_outTy
+  noMem := topshareQ_nomem
+  slotsNe := topshareQ_slotsNe
+  outsOf := tqOuts
+  insOf := tqIns
+  cw := topshareQ_cw
+  ca := topshareQ_ca
+  leaf := { decl := ``leafP, d := leafP.machineData, ρ := _, inh := leafP_inhab, inits := leafP.machineInits, body := leafP.machineBody,
+            obsR := leafP.machineResult, ext := leafP.machineExt, extB := leafP.machineExtB, src := leafP.machineSource, gen := leafP_gen }
+  wrappers := [{ decl := ``wrapP, d := wrapP.machineData, ρ := _, inh := wrapP_inhab, inits := wrapP.machineInits, body := wrapP.machineBody,
+                 obsR := wrapP.machineResult, ext := wrapP.machineExt, extB := wrapP.machineExtB, src := wrapP.machineSource, gen := wrapP_gen },
+               { decl := ``wrapQ, d := wrapQ.machineData, ρ := _, inh := wrapQ_inhab, inits := wrapQ.machineInits, body := wrapQ.machineBody,
+                 obsR := wrapQ.machineResult, ext := wrapQ.machineExt, extB := wrapQ.machineExtB, src := wrapQ.machineSource, gen := wrapQ_gen }]
+  bsC := tqBsC
+  outsC := tqOutsC
+  srcC := tqSrcC
+  group := hgrp
+  wArity := [3, 5]
+  wOf := fun k => if k < 2 then 0 else 1
+  wlen := rfl
+  tieCallee := by first | decide | decide +kernel
+  tieOuts := by first | decide | decide +kernel
+  tieIns := by first | decide | decide +kernel
+  tieLeaf := by first | decide | decide +kernel
+  tieBsC := by first | decide | decide +kernel | (intro p hp; simp [List.zip] at hp; rcases hp with rfl | rfl <;> rfl)
+  tieOutsC := by first | decide | decide +kernel | (intro p hp; simp [List.zip] at hp; rcases hp with rfl | rfl <;> rfl)
+  tieSrcC := by intro p hp; simp [List.zip] at hp; rcases hp with rfl | rfl <;> rfl
+
+/-! ## defeq audits (Q): the class projections ARE the terms of TqGrp / topshareQ_soundLA / tqOuts / tqIns / tqBsC -/
+theorem P_Q_group_defeq (hgrp : TqGrp) :
+    QuadGroupFacts (P_Q hgrp).top.d (P_Q hgrp).nDecl (P_Q hgrp).top.lsrc (P_Q hgrp).top.extS (P_Q hgrp).top.extBS (P_Q hgrp).bsC (P_Q hgrp).outsC (P_Q hgrp).srcC = TqGrp := rfl
+theorem P_Q_ext_defeq (hgrp : TqGrp) : (P_Q hgrp).top.extS = tqExt := rfl
+theorem P_Q_extB_defeq (hgrp : TqGrp) : (P_Q hgrp).top.extBS = tqExtB := rfl
+theorem P_Q_lsrc_defeq (hgrp : TqGrp) :
+    (P_Q hgrp).top.lsrc = Tools.ShippingMachineCausal.letObsB topshareQ.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareQ.machineInits
+        topshareQ.machineBody topshareQ.machineExt topshareQ.machineExtB := rfl
+theorem P_Q_tables_defeq (hgrp : TqGrp) : (P_Q hgrp).outsOf = tqOuts ∧ (P_Q hgrp).insOf = tqIns ∧ (P_Q hgrp).bsC = tqBsC ∧ (P_Q hgrp).outsC = tqOutsC ∧ (P_Q hgrp).srcC = tqSrcC :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+/-- the statement of `topshareQ_soundLA` re-spelled through the class projections is the same type -/
+theorem P_Q_soundL_defeq (hgrp : TqGrp) :
+    Tools.ShippingMachineAuto.MachineTraceLB (P_Q hgrp).top.decl (P_Q hgrp).top.d m design (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) (P_Q hgrp).top.src
+      (P_Q hgrp).top.extS (P_Q hgrp).top.extBS (P_Q hgrp).top.lsrc =
+    Tools.ShippingMachineAuto.MachineTraceLB ``topshareQ topshareQ.machineData m design (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareQ.machineSource
+      (fun i bools bits => topshareQ.machineExt i bools bits (stateLoop topshareQ.machineInits (topshareQ.machineBody i bools bits)))
+      (fun i bools bits => topshareQ.machineExtB i bools bits (stateLoop topshareQ.machineInits (topshareQ.machineBody i bools bits)))
+      (Tools.ShippingMachineCausal.letObsB topshareQ.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareQ.machineInits
+        topshareQ.machineBody topshareQ.machineExt topshareQ.machineExtB) := rfl
+
+/-! ## expected / binder / closure checks for BOTH members (M and Q); UNBUILT -/
+open Lean Meta in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  -- members take exactly ONE explicit binder, the group class assumption (TmGrp / TqGrp), nothing else
+  for (n, g) in [(``P_M, ``Tests.Compiler.Srm9ComposedTest.TmGrp), (``P_Q, ``TqGrp)] do
+    let t := (← getConstInfo n).type
+    forallTelescope t fun xs body => do
+      unless xs.size == 1 do throwError "CDEF AUDIT FAILED: {n} has {xs.size} binders, expected 1 (the group assumption)"
+      unless ← isDefEq (← inferType xs[0]!) (mkConst g) do throwError "CDEF AUDIT FAILED: {n}'s binder is not {g}"
+      unless ← isDefEq body (mkConst ``MemSharedLeafParent) do throwError "CDEF AUDIT FAILED: {n} is not a MemSharedLeafParent"
+  -- the defeq audit theorems exist for both members and use only standard axioms
+  let audits := [``P_M_group_defeq, ``P_M_ext_defeq, ``P_M_extB_defeq, ``P_M_lsrc_defeq, ``P_M_tables_defeq, ``P_M_soundL_defeq,
+                 ``P_Q_group_defeq, ``P_Q_ext_defeq, ``P_Q_extB_defeq, ``P_Q_lsrc_defeq, ``P_Q_tables_defeq, ``P_Q_soundL_defeq, ``leafP_gen]
+  for a in audits do
+    let axs ← Lean.collectAxioms a
+    for x in axs do
+      unless [``propext, ``Classical.choice, ``Quot.sound].contains x do throwError "CDEF AUDIT FAILED: non-standard axiom {x} in {a}"
+  logInfo m!"CDEF|ok|P_M P_Q: one binder (TmGrp/TqGrp), type MemSharedLeafParent; {audits.length} audit theorems with standard axioms"
+
 end Tests.Compiler.CDef
