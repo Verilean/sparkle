@@ -60,3 +60,12 @@ it does NOT derive grouping. Deriving it from a Bool check is the separate, opti
   or an explicitly labelled structural class assumption, recorded as a C amendment). Until then C over-approximates the class for those two lemmas.
 Members (to be instantiated by the C4 unit, by decide + the generated `f.machine_*` theorems): P_M (topshareM; wrappers wrapM/wrapM3; leaf leafM),
 P_Q (topshareQ). C is the structure, not the list {topshareM, topshareQ}.
+
+## AMENDMENT 1 (C-DEF, issue sparkle-gen-c4-cdef, frozen before elaboration; base 42f1db69)
+Exact Lean text: scripts/c3/EXPECTED_CDEF.lean.txt. Adds to MemSharedLeafParent the wrapper/leaf/callee ties that the "Known incompleteness" paragraph left open:
+`wArity, wOf, wlen, tieCallee, tieOuts, tieIns, tieLeaf, tieBsC, tieOutsC, tieSrcC` (all DATA CHECKS by decide, except tieSrcC = structural defeq of the callee source table).
+Reason for `wArity`: P_Q's wrappers have different declared arities (wrapP 3, wrapQ 5, parent nDecl 4), so `argWidths w.d nDecl` cannot be the tie.
+Reason for `tieLeaf` as membership (not equality): in P_Q, wrapQ has a leaf call AND its own memory child (`wrapQ_kids`); the memory is not in a single shared leaf there. P_Q therefore only
+conforms to the *shape* of C (and its `leaf` is leafP, which has no memory); the class name "MemSharedLeafParent" over-states P_Q and this is recorded, not hidden.
+UNRESOLVED (NOT fields, NOT assumed): G-KID (`KidFactsNC` per call) and G-HCALLS (TmH1/TmH2 shape) remain separate dependencies; no per-design binder is added for them.
+`gen` fields need the Inhabited instance + GenFacts proofs of leaf/wrappers (wrapM_gen etc., spread over Srm4CalleeTest/Srm4ComposedTest/Srm4MixedTest/Srm4RunTest/Srm4ComposedQTest); leafP_gen is not found in the tree and, if missing, is built from leafP.machine_* in CDefTest.
