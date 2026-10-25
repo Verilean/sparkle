@@ -205,11 +205,12 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       unless ← isDefEq body (mkConst ``MemSharedLeafParent) do throwError "CDEF AUDIT FAILED: {n} is not a MemSharedLeafParent"
   -- the defeq audit theorems exist for both members and use only standard axioms
   let audits := [``P_M_group_defeq, ``P_M_ext_defeq, ``P_M_extB_defeq, ``P_M_lsrc_defeq, ``P_M_tables_defeq, ``P_M_soundL_defeq,
-                 ``P_Q_group_defeq, ``P_Q_ext_defeq, ``P_Q_extB_defeq, ``P_Q_lsrc_defeq, ``P_Q_tables_defeq, ``P_Q_soundL_defeq, ``leafP_gen]
+                 ``P_Q_group_defeq, ``P_Q_ext_defeq, ``P_Q_extB_defeq, ``P_Q_lsrc_defeq, ``P_Q_tables_defeq, ``P_Q_soundL_defeq, ``leafP_gen,
+                 ``P_M, ``P_Q]  -- the constructed members themselves (their stored GenFacts / wrapper / leaf packages)
   for a in audits do
     let axs ← Lean.collectAxioms a
     for x in axs do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains x do throwError "CDEF AUDIT FAILED: non-standard axiom {x} in {a}"
-  logInfo m!"CDEF|ok|P_M P_Q: one binder (TmGrp/TqGrp), type MemSharedLeafParent; {audits.length} audit theorems with standard axioms"
+  logInfo m!"CDEF|ok|P_M P_Q: one binder (TmGrp/TqGrp), type MemSharedLeafParent; {audits.length} constants (12 defeq audits, leafP_gen, P_M, P_Q) with standard axioms only"
 
 end Tests.Compiler.CDef
