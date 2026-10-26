@@ -69,3 +69,25 @@ Reason for `tieLeaf` as membership (not equality): in P_Q, wrapQ has a leaf call
 conforms to the *shape* of C (and its `leaf` is leafP, which has no memory); the class name "MemSharedLeafParent" over-states P_Q and this is recorded, not hidden.
 UNRESOLVED (NOT fields, NOT assumed): G-KID (`KidFactsNC` per call) and G-HCALLS (TmH1/TmH2 shape) remain separate dependencies; no per-design binder is added for them.
 `gen` fields need the Inhabited instance + GenFacts proofs of leaf/wrappers (wrapM_gen etc., spread over Srm4CalleeTest/Srm4ComposedTest/Srm4MixedTest/Srm4RunTest/Srm4ComposedQTest); leafP_gen is not found in the tree and, if missing, is built from leafP.machine_* in CDefTest.
+
+## AMENDMENT 2 (C-DEF, issue sparkle-gen-c4-cdef; found AFTER freezing, at first elaboration 2026-10-26; base addc3543, recorded at the C-DEF review SHA)
+This amendment was found only when the class first elaborated (it was never built before the runner fix). It is NOT part of the frozen
+scripts/c3/EXPECTED_CDEF.lean.txt, which stays as frozen. The exact text that builds is in Tests/Compiler/CDefTest.lean (cdef-focused-0c30b6d7 exit 0).
+Change: the `leaf` field of MemSharedLeafParent is `leaf : LeafPkg DomainConfig (fun i => i)` instead of `leaf : GenPkg DomainConfig (fun i => i)`, with
+
+```lean
+structure LeafPkg (ι : Type) (dom : ι → DomainConfig) where
+  decl : Lean.Name
+  d : MachineData
+  src : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)
+```
+
+(the same three fields as in GenPkg, with the same types; GenPkg's ρ, inh, inits, body, obsR, ext, extB, gen are dropped for the leaf).
+Reason: leafP (the leaf of P_Q) has no instances, so the generator emits no leafP.machineExt / machineExtB / machine_ext_causal, and the
+GenFacts certificate that GenPkg.gen requires cannot be built for it (the drafted leafP_gen, see AMENDMENT 1's last line, does not exist and
+cannot). The class reads the leaf only through leaf.decl, leaf.d and leaf.src (memLeafBsC / memLeafOutsC / memLeafSrcC / memLeafPC in the
+G-HCALLS row of GAP_MAP.md, and tieLeaf). This narrows the requirement; it adds no field and no assumption.
+Audit consequence: leafP_gen (and leafP_inhab) are removed, so the CDefTest audit set goes from 15 to 14 constants (P_M, P_Q, 12 projection
+defeq audits), with the literal count guard changed to 14.
+Elaboration-only fixes recorded with it (not class changes): EXPECTED line 8 `open A B C (x y)` is invalid Lean and is split into two opens with
+the same names (D1); the opens EXPECTED never had (MachineData, NmParentData, NCal, MixedGateBinder) are added and autoImplicit is false (D2).

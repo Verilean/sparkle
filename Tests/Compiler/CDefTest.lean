@@ -9,7 +9,7 @@ import Tools.ShippingSeqParentGenD2MSD
 -- 8:88); here it is split into `open A B` + `open C (x y)` with the same names, and `open Tools.ShippingMachineAuto (MachineData)` is added
 -- (EXPECTED never opened it: every `d.ss` failed), likewise NmParentData / NCal / MixedGateBinder; autoImplicit is turned off so an
 -- unresolved name is an error, not a silent implicit binder. EXPECTED_CDEF is left as frozen.
--- AMENDMENT 2 (PROPOSED, for review): `leaf` is a LeafPkg (decl, d, src), not a GenPkg. leafP has no instances, so the generator emits no
+-- AMENDMENT 2 (recorded in scripts/c3/C_CLASS.md, found after freezing): `leaf` is a LeafPkg (decl, d, src), not a GenPkg. leafP has no instances, so the generator emits no
 -- leafP.machineExt / machineExtB / machine_ext_causal and the drafted leafP_gen cannot exist; the class only ever reads leaf.decl, leaf.d,
 -- leaf.src (memLeafBsC / memLeafOutsC / memLeafSrcC / memLeafPC in the G-HCALLS row). Fewer requirements, not more.
 set_option autoImplicit false
