@@ -91,3 +91,29 @@ Audit consequence: leafP_gen (and leafP_inhab) are removed, so the CDefTest audi
 defeq audits), with the literal count guard changed to 14.
 Elaboration-only fixes recorded with it (not class changes): EXPECTED line 8 `open A B C (x y)` is invalid Lean and is split into two opens with
 the same names (D1); the opens EXPECTED never had (MachineData, NmParentData, NCal, MixedGateBinder) are added and autoImplicit is false (D2).
+
+## AMENDMENT 3 (C4, issue sparkle-gen-c4-amend3; user decision 2026-10-26: "M shape only first")
+Scope narrowing, decided after the C4 gap analysis (G-KID / G-HCALLS / G-COMPOSED instance proofs, 2026-10-26):
+* C is narrowed to the M SHAPE: every wrapper calls only the leaf, and every call of the leaf is a memory entry. Every wrapper's declared
+  arity equals nDecl (`wArityN`).
+* P_Q (topshareQ) is NOT a member, for three reasons:
+  - leafP is a plain leaf, so its closes fact `MachineCloses leafP` would be needed, and it is proved nowhere and is not a binder of the frozen C4 statement;
+  - wrapQ mixes leaf and memory calls, so memLeafCallee_hcalls does not apply;
+  - the wrapper arities (3, 5) differ from nDecl 4.
+
+  The Q shape becomes a separate later class (issue sparkle-gen-c5-qshape).
+* `leaf` is a GenPkg again. AMENDMENT 2's LeafPkg existed only because leafP has no generated ext. Every M-shape leaf has instances,
+  so it has a generated machineExt / machineExtB, and its GenFacts are needed by the leaf run (memCallee_seqChildRunN).
+* New fields. Exact Lean text is in Tests/Compiler/CDefTest.lean, the block "AMENDMENT 3" in MemSharedLeafParent. Each is labelled:
+  - DATA: decide, plus machine_ok/body.
+  - GEN-SHAPE: a fact about the generated ext / extB / body, filled per member by the same uniform unfolding as the existing
+    leafM_hext / wrapM_hext / leafM_memcalls. NOT a generator certificate. A later unit may derive these generically.
+  - Leaf call tables: lNameK lNk lOutsK lNamesK lNames lKidOuts lKidIns.
+  - Leaf: leafMem (MemCalleeData, DATA), leafAllMem, leafMemT, leafCw, leafOutsClean, leafScalar, leafOutOk (DATA);
+    leafMemCalls, leafHextB, leafHext (GEN-SHAPE).
+  - Per wrapper: wMem (MemCalleeData with the leaf's tables, DATA), wKids, wAllOrd, wArgsN, wWid, wCw, wOutsClean, wScalar,
+    wOutOk (DATA); wHextB, wHext (GEN-SHAPE); and wArityN (DATA).
+  - None of them is a target Prop (KidFactsNC, HCallsOf, CallFactF, closes, run): those stay the C4 work items.
+* Audit consequence: the CDefTest audit set is P_M plus its 6 defeq audits = 7 constants (was 14 with P_Q). C4 recovers only the
+  topshareM corollary.
+* The frozen C4 statement text (scripts/c3/C4_STATEMENT.lean.txt) is unchanged, since it only reads P.leaf.decl / P.leaf.d.
