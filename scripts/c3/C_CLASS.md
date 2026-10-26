@@ -139,7 +139,8 @@ CallFactF part (4) needs the decoding equations `boolsOf (take nDecl leaf.bsIn) 
 These are value statements about the wrapper's generated `let` terms, and do NOT follow from wKids / wArgsN / wWid / wArityN / wMem.
 Those fields give only counts and widths: a wrapper passing two equal-width ports swapped satisfies all of them.
 Added one DATA field (decide for P_M), exact text in CDefTest.lean, block "AMENDMENT 5":
-* `wArgsIn`: for every wrapper call k and every non-domain leaf port p, the argument at portIdx p is a let `a` whose term is the
+* `wArgsIn` (as the decidable Bool check `argInOk`, bounded over the leaf ports): for every wrapper call k and every non-domain
+  leaf port p, the argument at portIdx p is a let `a` whose term is the
   wrapper's own input term (`boolInput j` with `bpos j = p`, or `bitsInput n j` with `vpos j = p`).
 
 The per-call OUTPUT fact (`wCallOut`, GEN-SHAPE, user decision 2026-10-26) is still to be stated; it is not part of this amendment.

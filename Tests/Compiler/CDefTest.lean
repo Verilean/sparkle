@@ -53,6 +53,30 @@ noncomputable def GenPkg.extBS {ι} {dom} (p : GenPkg ι dom) := fun i bools bit
 noncomputable def GenPkg.lsrc {ι} {dom} (p : GenPkg ι dom) :=
   @Tools.ShippingMachineCausal.letObsB p.d ι dom p.inh p.ρ p.inits p.body p.ext p.extB
 
+/-- AMENDMENT 5: at leaf port `p` (of the port list `bs`), the call argument `args[portIdx bs p]` is a let of `d` whose term is
+`d`'s own input term of that port: `boolInput j` with `bpos j = p`, or `bitsInput n j` (same width) with `vpos j = p`. Domain ports and
+positions past the list are vacuous. -/
+def argInOk (d : MachineData) (bs : List (Name × MixedGateBinder)) (args : List Nat) (p : Nat) : Bool :=
+  match bs[p]? with
+  | none => true
+  | some b =>
+    match b.2 with
+    | .domain => true
+    | .bool =>
+      match args[Tools.ShippingMachineChild.portIdx bs p]? with
+      | none => false
+      | some a =>
+        match d.ls[a]? with
+        | some ⟨.bool, .boolInput j⟩ => d.bpos j == p
+        | _ => false
+    | .bits n =>
+      match args[Tools.ShippingMachineChild.portIdx bs p]? with
+      | none => false
+      | some a =>
+        match d.ls[a]? with
+        | some ⟨.bits m, .bitsInput _ j⟩ => m == n && d.vpos j == p
+        | _ => false
+
 structure MemSharedLeafParent where
   top : GenPkg Unit (fun _ => defaultDomain)
   nDecl : Nat
@@ -144,13 +168,8 @@ structure MemSharedLeafParent where
   csCd : ∀ e ∈ cs, (∀ k (hk : k < e.d.shape.insts.length), (e.d.shape.insts[k]).1 ≠ top.decl) ∧ top.decl ∉ e.Gs    -- DATA
   -- AMENDMENT 5 (G-HCALLS decoding data; scripts/c3/C_CLASS.md): each wrapper call passes, at every non-domain leaf port p, the
   -- wrapper's own input term of that port (so the decoded call arguments ARE the wrapper's input families). DATA (decide).
-  wArgsIn : ∀ w ∈ wrappers, ∀ (k : Nat) (hk : k < w.d.shape.insts.length) (p : Nat) (b : Name × MixedGateBinder),
-    (leaf.d.bsIn.take nDecl)[p]? = some b → b.2 ≠ .domain →
-    ∃ a, (w.d.shape.insts[k]).2.1[Tools.ShippingMachineChild.portIdx (leaf.d.bsIn.take nDecl) p]? = some a ∧
-      (match b.2 with
-       | .bool => ∃ j, w.d.ls[a]? = some ⟨.bool, .boolInput j⟩ ∧ w.d.bpos j = p
-       | .bits n => ∃ j, w.d.ls[a]? = some ⟨.bits n, .bitsInput n j⟩ ∧ w.d.vpos j = p
-       | .domain => True)
+  wArgsIn : ∀ w ∈ wrappers, ∀ (k : Nat) (hk : k < w.d.shape.insts.length) (p : Nat),
+    p < (leaf.d.bsIn.take nDecl).length → argInOk w.d (leaf.d.bsIn.take nDecl) (w.d.shape.insts[k]).2.1 p = true
 
 
 open Tests.Compiler.SharedLeafMemKidTest Tests.Compiler.SharedLeafMemKidIfaceTest Tests.Compiler.SharedLeafMemKidEntryTest
