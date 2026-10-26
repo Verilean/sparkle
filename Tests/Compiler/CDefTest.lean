@@ -11,6 +11,7 @@ import Tools.ShippingSeqParentGenD2MSD
 -- unresolved name is an error, not a silent implicit binder. EXPECTED_CDEF is left as frozen.
 -- AMENDMENT 3 (2026-10-26, user decision, recorded in scripts/c3/C_CLASS.md): the class is narrowed to the M shape (every wrapper calls only
 -- the memory-bearing leaf); P_Q is NOT a member; leaf is a GenPkg again; per-leaf / per-wrapper certificate fields (DATA / GEN-SHAPE) added.
+-- AMENDMENT 4 (G-CLOSES data: tieCs, leaf MemOnlyData/CloseData/cne, wrapper tags/agree/cne/notin, csNc/csCd; all DATA) is not yet built at this SHA.
 -- AMENDMENT 3 BUILT: amend3-cdef-50f8b26e (issue-linked, runner 2a678c60) exit 0, 932/932, CDEF|ok (P_M + 6 audits). History:
 -- AMENDMENT 2 (recorded in scripts/c3/C_CLASS.md, found after freezing): `leaf` is a LeafPkg (decl, d, src), not a GenPkg. leafP has no instances, so the generator emits no
 -- leafP.machineExt / machineExtB / machine_ext_causal and the drafted leafP_gen cannot exist; the class only ever reads leaf.decl, leaf.d,
@@ -125,6 +126,20 @@ structure MemSharedLeafParent where
   wHext : ∀ w ∈ wrappers, ∀ (i : DomainConfig) (bools : Nat → Signal i Bool) (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n))
     (j n' : Nat), j < nDecl → w.extS i bools bits j n' = bits j n'                                         -- GEN-SHAPE
   wArityN : ∀ a ∈ wArity, a = nDecl                                                                         -- DATA (one arity)
+  -- AMENDMENT 4 (G-CLOSES data; scripts/c3/C_CLASS.md): ties the callee list cs to the wrappers, and the leaf / wrapper step data. All DATA.
+  lAw : Nat                                           -- DATA: the leaf's memory address / data width (one memory shape)
+  lDw : Nat
+  leafMemOnly : Tools.ShippingMemOnly.MemOnlyData leaf.d nDecl lAw lDw                                     -- DATA
+  leafCloseData : Tools.ShippingMemOnlyCloses.MemOnlyCloseData leaf.d                                     -- DATA
+  leafCne : ∀ k (hk : k < leaf.d.shape.insts.length), (leaf.d.shape.insts[k]).1 ≠ leaf.decl               -- DATA
+  wTags : ∀ w ∈ wrappers, ∀ x ∈ w.d.shape.instTagged, x.2.child? = none ∧ x.1 = leaf.decl                -- DATA
+  wAgree : ∀ w ∈ wrappers, Tools.ShippingInstTagged.TagsAgree w.d.shape                                    -- DATA
+  wCne : ∀ w ∈ wrappers, ∀ k (hk : k < w.d.shape.insts.length), (w.d.shape.insts[k]).1 ≠ w.decl          -- DATA
+  wNotin : ∀ w ∈ wrappers, w.decl ∉ leaf.d.shape.insts.map (·.1)                                          -- DATA
+  tieCs : cs = wrappers.map (fun w => (⟨w.decl, w.d, leaf.d.shape.insts.map (·.1),
+    Sparkle.IR.ModuleName.ofDecl leaf.decl :: lNames⟩ : NCal))                                            -- DATA (rfl)
+  csNc : ∀ e ∈ cs, ∀ e' ∈ cs, (∀ k (hk : k < e.d.shape.insts.length), (e.d.shape.insts[k]).1 ≠ e'.c) ∧ e'.c ∉ e.Gs  -- DATA
+  csCd : ∀ e ∈ cs, (∀ k (hk : k < e.d.shape.insts.length), (e.d.shape.insts[k]).1 ≠ top.decl) ∧ top.decl ∉ e.Gs    -- DATA
 
 
 open Tests.Compiler.SharedLeafMemKidTest Tests.Compiler.SharedLeafMemKidIfaceTest Tests.Compiler.SharedLeafMemKidEntryTest
@@ -201,6 +216,18 @@ noncomputable def P_M (hgrp : TmGrp) : MemSharedLeafParent where
   wHextB := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | exact wrapM_hextB | exact wrapM3_hextB
   wHext := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | exact wrapM_hext | exact wrapM3_hext
   wArityN := by decide
+  lAw := 4
+  lDw := 8
+  leafMemOnly := leafM_memOnly
+  leafCloseData := leafM_closeData
+  leafCne := leafM_cne
+  wTags := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | exact wrapM_tags | exact wrapM3_tags
+  wAgree := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | exact wrapM_agree | exact wrapM3_agree
+  wCne := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | exact wrapM_cne | exact wrapM3_cne
+  wNotin := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | exact wrapM_notin | exact wrapM3_notin
+  tieCs := rfl
+  csNc := csM_nc
+  csCd := csM_cd
 
 /-! ## defeq audits (M): the class projections ARE the terms of TmGrp / topshareM_soundLA / tmOuts / tmIns / tmBsC -/
 theorem P_M_group_defeq (hgrp : TmGrp) :

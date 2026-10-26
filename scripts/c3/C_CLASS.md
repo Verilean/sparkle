@@ -117,3 +117,19 @@ Scope narrowing, decided after the C4 gap analysis (G-KID / G-HCALLS / G-COMPOSE
 * Audit consequence: the CDefTest audit set is P_M plus its 6 defeq audits = 7 constants (was 14 with P_Q). C4 recovers only the
   topshareM corollary.
 * The frozen C4 statement text (scripts/c3/C4_STATEMENT.lean.txt) is unchanged, since it only reads P.leaf.decl / P.leaf.d.
+
+## AMENDMENT 4 (C4, issue sparkle-gen-c4-amend4; found by G-CLOSES worker c4-closes on 088da6aa, 2026-10-26)
+G-CLOSES (nm_closes0 / nm_machineRun, Tools/ShippingNmEntry.lean:363/397) needs CalleeNM for every e ∈ cs and CalleeIface cs.
+Every CalleeNM field reads e.d / e.Gs / e.names. The class only tied the call-target names (pdata.names, tieCallee), so e.d, e.Gs and
+e.names were unconstrained. Added fields, all DATA (decide / rfl for P_M; exact text in the CDefTest.lean block "AMENDMENT 4"):
+* The callee list:
+  - `tieCs : cs = wrappers.map (fun w => ⟨w.decl, w.d, leaf.d.shape.insts.map (·.1), ofDecl leaf.decl :: lNames⟩)`
+  - csNc / csCd (the nc / cd checks of NmCallees, as csM_nc / csM_cd).
+* The leaf's step data, as leafM_step = memLeaf_stepNM (Tools/ShippingMemLeafRun.lean:493):
+  - lAw, lDw (one memory shape)
+  - leafMemOnly : MemOnlyData leaf.d nDecl lAw lDw
+  - leafCloseData : MemOnlyCloseData leaf.d
+  - leafCne.
+* The wrappers' CalleeNM data, as wrapM_calleeNM: wTags, wAgree (TagsAgree), wCne, wNotin.
+
+No target Prop is added. The closes / step / ifaceP facts are still derived by the C4 units.
