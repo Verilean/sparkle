@@ -3,7 +3,7 @@ import Tests.Compiler.SharedLeafMemKidEntryTest
 import Tools.ShippingSeqParentGenD2MSD
 -- C-DEF (issue sparkle-gen-c4-cdef): GenPkg / MemSharedLeafParent exactly as scripts/c3/EXPECTED_CDEF.lean.txt (+ members and defeq audits below). Test-only; no production edit.
 -- NOT proved here: G-KID, G-HCALLS (unresolved dependencies). C4 and G3 stay OPEN.
--- BUILT: cdef-focused-6127769f (issue-linked, runner 2a678c60) exit 0, 932/932, CDEF|ok (14 constants, standard axioms). Earlier
+-- (C-DEF, before AMENDMENT 3) BUILT: cdef-focused-6127769f (issue-linked, runner 2a678c60) exit 0, 932/932, CDEF|ok (14 constants, standard axioms). Earlier
 -- cdef-focused-addc3543-r2a6 / -f96ef0f4 / -13242754 failed in this file (the deviations below), after the C targets built.
 -- DEVIATION (2026-10-26, first build cdef-focused-addc3543-r2a6): EXPECTED_CDEF line 8 `open A B C (x y)` is not valid Lean (parse error at
 -- 8:88); here it is split into `open A B` + `open C (x y)` with the same names, and `open Tools.ShippingMachineAuto (MachineData)` is added
@@ -11,7 +11,7 @@ import Tools.ShippingSeqParentGenD2MSD
 -- unresolved name is an error, not a silent implicit binder. EXPECTED_CDEF is left as frozen.
 -- AMENDMENT 3 (2026-10-26, user decision, recorded in scripts/c3/C_CLASS.md): the class is narrowed to the M shape (every wrapper calls only
 -- the memory-bearing leaf); P_Q is NOT a member; leaf is a GenPkg again; per-leaf / per-wrapper certificate fields (DATA / GEN-SHAPE) added.
--- The AMENDMENT 3 build is not yet run at this SHA. History:
+-- AMENDMENT 3 BUILT: amend3-cdef-50f8b26e (issue-linked, runner 2a678c60) exit 0, 932/932, CDEF|ok (P_M + 6 audits). History:
 -- AMENDMENT 2 (recorded in scripts/c3/C_CLASS.md, found after freezing): `leaf` is a LeafPkg (decl, d, src), not a GenPkg. leafP has no instances, so the generator emits no
 -- leafP.machineExt / machineExtB / machine_ext_causal and the drafted leafP_gen cannot exist; the class only ever reads leaf.decl, leaf.d,
 -- leaf.src (memLeafBsC / memLeafOutsC / memLeafSrcC / memLeafPC in the G-HCALLS row). Fewer requirements, not more.
