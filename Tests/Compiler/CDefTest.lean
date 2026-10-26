@@ -176,6 +176,7 @@ noncomputable def P_M (hgrp : TmGrp) : MemSharedLeafParent where
   leafMem := leafM_memCallee
   leafAllMem := leafM_allmem
   leafMemT := fun k hk cb aw dw h => by
+    have hk' : k < leafM.machineData.shape.insts.length := hk
     have hk0 : k = 0 := by have := leafM_len; omega
     subst hk0
     obtain ⟨e1, e2, e3⟩ := Tools.ShippingSrm4Kid.memModule_inj ((Option.some.inj (leafM_origin0.symm.trans h)))
@@ -188,7 +189,7 @@ noncomputable def P_M (hgrp : TmGrp) : MemSharedLeafParent where
   leafMemCalls := leafM_memcalls
   leafHextB := leafM_hextB
   leafHext := leafM_hext
-  wMem := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl; exacts [wrapM_memCallee, wrapM3_memCallee]
+  wMem := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | exact wrapM_memCallee | exact wrapM3_memCallee
   wKids := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | decide | decide +kernel
   wAllOrd := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | decide | decide +kernel
   wArgsN := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | decide | decide +kernel
@@ -197,8 +198,8 @@ noncomputable def P_M (hgrp : TmGrp) : MemSharedLeafParent where
   wOutsClean := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | decide | decide +kernel
   wScalar := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | decide | decide +kernel
   wOutOk := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | decide | decide +kernel
-  wHextB := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl; exacts [wrapM_hextB, wrapM3_hextB]
-  wHext := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl; exacts [wrapM_hext, wrapM3_hext]
+  wHextB := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | exact wrapM_hextB | exact wrapM3_hextB
+  wHext := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | exact wrapM_hext | exact wrapM3_hext
   wArityN := by decide
 
 /-! ## defeq audits (M): the class projections ARE the terms of TmGrp / topshareM_soundLA / tmOuts / tmIns / tmBsC -/
