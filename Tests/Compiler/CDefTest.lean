@@ -4,11 +4,16 @@ import Tools.ShippingSeqParentGenD2MSD
 -- C-DEF (issue sparkle-gen-c4-cdef): GenPkg / MemSharedLeafParent exactly as scripts/c3/EXPECTED_CDEF.lean.txt (+ members and defeq audits below). Test-only; no production edit.
 -- NOT proved here: G-KID, G-HCALLS (unresolved dependencies). C4 and G3 stay OPEN.
 -- DEVIATION (2026-10-26, first build cdef-focused-addc3543-r2a6): EXPECTED_CDEF line 8 `open A B C (x y)` is not valid Lean (parse error at
--- 8:88); here it is split into `open A B` + `open C (x y)` with the same names. No definition text changed; EXPECTED_CDEF is left as frozen.
+-- 8:88); here it is split into `open A B` + `open C (x y)` with the same names, and `open Tools.ShippingMachineAuto (MachineData)` is added
+-- (EXPECTED never opened it: every `d.ss` failed). EXPECTED_CDEF is left as frozen.
+-- AMENDMENT 2 (PROPOSED, for review): `leaf` is a LeafPkg (decl, d, src), not a GenPkg. leafP has no instances, so the generator emits no
+-- leafP.machineExt / machineExtB / machine_ext_causal and the drafted leafP_gen cannot exist; the class only ever reads leaf.decl, leaf.d,
+-- leaf.src (memLeafBsC / memLeafOutsC / memLeafSrcC / memLeafPC in the G-HCALLS row). Fewer requirements, not more.
 namespace Tests.Compiler.CDef
 open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.IR.Machine
 open Tools.ShippingMachineSource Tools.ShippingMachineDenote
 open Tools.ShippingQuadComposed (GenFacts QuadGroupFacts)
+open Tools.ShippingMachineAuto (MachineData)
 open Tools.ShippingCallsChildPorts (argWidths)
 
 structure GenPkg (ι : Type) (dom : ι → DomainConfig) where
@@ -35,6 +40,12 @@ noncomputable def GenPkg.extBS {ι} {dom} (p : GenPkg ι dom) := fun i bools bit
 noncomputable def GenPkg.lsrc {ι} {dom} (p : GenPkg ι dom) :=
   @Tools.ShippingMachineCausal.letObsB p.d ι dom p.inh p.ρ p.inits p.body p.ext p.extB
 
+/-- AMENDMENT 2: the leaf as the class reads it -/
+structure LeafPkg (ι : Type) (dom : ι → DomainConfig) where
+  decl : Lean.Name
+  d : MachineData
+  src : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)
+
 structure MemSharedLeafParent where
   top : GenPkg Unit (fun _ => defaultDomain)
   nDecl : Nat
@@ -47,7 +58,7 @@ structure MemSharedLeafParent where
   insOf : Nat → List Nat
   cw : Tools.ShippingCallWidths.callWidthsOk top.d nDecl outsOf = true
   ca : Tools.ShippingPortsMatchRaw.callArgsOk top.d nDecl insOf = true
-  leaf : GenPkg DomainConfig (fun i => i)
+  leaf : LeafPkg DomainConfig (fun i => i)            -- AMENDMENT 2 (was GenPkg)
   wrappers : List (GenPkg DomainConfig (fun i => i))
   bsC : Lean.Name → List (Name × MixedGateBinder)
   outsC : Lean.Name → List OutField
@@ -88,8 +99,7 @@ noncomputable def P_M (hgrp : TmGrp) : MemSharedLeafParent where
   insOf := tmIns
   cw := topshareM_cw
   ca := topshareM_ca
-  leaf := { decl := ``leafM, d := leafM.machineData, ρ := _, inh := leafM_inhab, inits := leafM.machineInits, body := leafM.machineBody,
-            obsR := leafM.machineResult, ext := leafM.machineExt, extB := leafM.machineExtB, src := leafM.machineSource, gen := leafM_gen }
+  leaf := { decl := ``leafM, d := leafM.machineData, src := leafM.machineSource }
   wrappers := [{ decl := ``wrapM, d := wrapM.machineData, ρ := _, inh := wrapM_inhab, inits := wrapM.machineInits, body := wrapM.machineBody,
                  obsR := wrapM.machineResult, ext := wrapM.machineExt, extB := wrapM.machineExtB, src := wrapM.machineSource, gen := wrapM_gen },
                { decl := ``wrapM3, d := wrapM3.machineData, ρ := _, inh := wrapM3_inhab, inits := wrapM3.machineInits, body := wrapM3.machineBody,
@@ -129,17 +139,6 @@ theorem P_M_soundL_defeq (hgrp : TmGrp) :
       (Tools.ShippingMachineCausal.letObsB topshareM.machineData (fun _ : Unit => Sparkle.Core.Domain.defaultDomain) topshareM.machineInits
         topshareM.machineBody topshareM.machineExt topshareM.machineExtB) := rfl
 
-/-! ## leafP generator package (NEW here: no leafP_gen / leafP_inhab existed; built from leafP.machine_* exactly as leafM_gen, Srm4RunTest.lean:23-31) -/
-noncomputable instance leafP_inhab : Inhabited (HList (tys leafP.machineData.ss)) :=
-  ⟨Tools.ShippingSeqParentGenD2MSD.defaultHList _⟩
-
-theorem leafP_gen : GenFacts leafP.machineData (fun i : DomainConfig => i) leafP.machineInits leafP.machineBody leafP.machineResult
-    leafP.machineExt leafP.machineExtB leafP.machineSource :=
-  ⟨leafP.machine_ok, leafP.machine_body, leafP.machine_inits, leafP.machine_writes, leafP.machine_result, leafP.machine_source,
-   fun i bools bits S S' t h =>
-    leafP.machine_ext_causal i { B := bools, V := bits, S := S } { B := bools, V := bits, S := S' } t
-      (Tools.ShippingMachineCausal.CtxAgree.of_state bools bits S S' t h)⟩
-
 /-! ## P_Q  (TqGrp is a PREMISE of TqBnd, not a theorem: P_Q takes it as a hypothesis = the structural class assumption) -/
 noncomputable def P_Q (hgrp : TqGrp) : MemSharedLeafParent where
   top := { decl := ``topshareQ, d := topshareQ.machineData, ρ := _, inh := topshareQ_inhab, inits := topshareQ.machineInits,
@@ -155,8 +154,7 @@ noncomputable def P_Q (hgrp : TqGrp) : MemSharedLeafParent where
   insOf := tqIns
   cw := topshareQ_cw
   ca := topshareQ_ca
-  leaf := { decl := ``leafP, d := leafP.machineData, ρ := _, inh := leafP_inhab, inits := leafP.machineInits, body := leafP.machineBody,
-            obsR := leafP.machineResult, ext := leafP.machineExt, extB := leafP.machineExtB, src := leafP.machineSource, gen := leafP_gen }
+  leaf := { decl := ``leafP, d := leafP.machineData, src := leafP.machineSource }
   wrappers := [{ decl := ``wrapP, d := wrapP.machineData, ρ := _, inh := wrapP_inhab, inits := wrapP.machineInits, body := wrapP.machineBody,
                  obsR := wrapP.machineResult, ext := wrapP.machineExt, extB := wrapP.machineExtB, src := wrapP.machineSource, gen := wrapP_gen },
                { decl := ``wrapQ, d := wrapQ.machineData, ρ := _, inh := wrapQ_inhab, inits := wrapQ.machineInits, body := wrapQ.machineBody,
@@ -208,14 +206,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       unless ← isDefEq body (mkConst ``MemSharedLeafParent) do throwError "CDEF AUDIT FAILED: {n} is not a MemSharedLeafParent"
   -- the defeq audit theorems exist for both members and use only standard axioms
   let audits := [``P_M_group_defeq, ``P_M_ext_defeq, ``P_M_extB_defeq, ``P_M_lsrc_defeq, ``P_M_tables_defeq, ``P_M_soundL_defeq,
-                 ``P_Q_group_defeq, ``P_Q_ext_defeq, ``P_Q_extB_defeq, ``P_Q_lsrc_defeq, ``P_Q_tables_defeq, ``P_Q_soundL_defeq, ``leafP_gen,
+                 ``P_Q_group_defeq, ``P_Q_ext_defeq, ``P_Q_extB_defeq, ``P_Q_lsrc_defeq, ``P_Q_tables_defeq, ``P_Q_soundL_defeq,
                  ``P_M, ``P_Q]  -- the constructed members themselves (their stored GenFacts / wrapper / leaf packages)
-  -- literal coverage guard: exactly these 15 constants (P_M, P_Q, leafP_gen, 12 projection audits); deleting one fails here
-  let expected : List Name := [``P_M, ``P_Q, ``leafP_gen,
+  -- literal coverage guard: exactly these 14 constants (P_M, P_Q, 12 projection audits; leafP_gen dropped by AMENDMENT 2); deleting one fails here
+  let expected : List Name := [``P_M, ``P_Q,
     ``P_M_group_defeq, ``P_M_ext_defeq, ``P_M_extB_defeq, ``P_M_lsrc_defeq, ``P_M_tables_defeq, ``P_M_soundL_defeq,
     ``P_Q_group_defeq, ``P_Q_ext_defeq, ``P_Q_extB_defeq, ``P_Q_lsrc_defeq, ``P_Q_tables_defeq, ``P_Q_soundL_defeq]
-  unless expected.length == 15 do throwError "CDEF AUDIT FAILED: expected-name list has {expected.length} entries, not 15"
-  unless audits.length == 15 do throwError "CDEF AUDIT FAILED: audit list has {audits.length} entries, not 15"
+  unless expected.length == 14 do throwError "CDEF AUDIT FAILED: expected-name list has {expected.length} entries, not 14"
+  unless audits.length == 14 do throwError "CDEF AUDIT FAILED: audit list has {audits.length} entries, not 14"
   unless audits.Nodup do throwError "CDEF AUDIT FAILED: duplicate entries in the audit list"
   unless expected.Nodup do throwError "CDEF AUDIT FAILED: duplicate entries in the expected-name list"
   -- exact set equality (both directions), in addition to the length and Nodup guards
@@ -228,6 +226,6 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let axs ← Lean.collectAxioms a
     for x in axs do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains x do throwError "CDEF AUDIT FAILED: non-standard axiom {x} in {a}"
-  logInfo m!"CDEF|ok|P_M P_Q: one binder (TmGrp/TqGrp), type MemSharedLeafParent; {audits.length} constants (12 defeq audits, leafP_gen, P_M, P_Q) with standard axioms only"
+  logInfo m!"CDEF|ok|P_M P_Q: one binder (TmGrp/TqGrp), type MemSharedLeafParent; {audits.length} constants (12 defeq audits, P_M, P_Q) with standard axioms only"
 
 end Tests.Compiler.CDef
