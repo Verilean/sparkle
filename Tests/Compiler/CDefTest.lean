@@ -11,6 +11,7 @@ import Tools.ShippingSeqParentGenD2MSD
 -- unresolved name is an error, not a silent implicit binder. EXPECTED_CDEF is left as frozen.
 -- AMENDMENT 3 (2026-10-26, user decision, recorded in scripts/c3/C_CLASS.md): the class is narrowed to the M shape (every wrapper calls only
 -- the memory-bearing leaf); P_Q is NOT a member; leaf is a GenPkg again; per-leaf / per-wrapper certificate fields (DATA / GEN-SHAPE) added.
+-- AMENDMENT 5 (wArgsIn, DATA) is not yet built at this SHA.
 -- AMENDMENT 4 (G-CLOSES data: tieCs, leaf MemOnlyData/CloseData/cne, wrapper tags/agree/cne/notin, csNc/csCd; all DATA) BUILT:
 -- amend4-cdef-9daedb4a (issue-linked, runner 2a678c60) exit 0, 932/932, CDEF|ok.
 -- AMENDMENT 3 BUILT: amend3-cdef-50f8b26e (issue-linked, runner 2a678c60) exit 0, 932/932, CDEF|ok (P_M + 6 audits). History:
@@ -141,6 +142,15 @@ structure MemSharedLeafParent where
     Sparkle.IR.ModuleName.ofDecl leaf.decl :: lNames⟩ : NCal))                                            -- DATA (rfl)
   csNc : ∀ e ∈ cs, ∀ e' ∈ cs, (∀ k (hk : k < e.d.shape.insts.length), (e.d.shape.insts[k]).1 ≠ e'.c) ∧ e'.c ∉ e.Gs  -- DATA
   csCd : ∀ e ∈ cs, (∀ k (hk : k < e.d.shape.insts.length), (e.d.shape.insts[k]).1 ≠ top.decl) ∧ top.decl ∉ e.Gs    -- DATA
+  -- AMENDMENT 5 (G-HCALLS decoding data; scripts/c3/C_CLASS.md): each wrapper call passes, at every non-domain leaf port p, the
+  -- wrapper's own input term of that port (so the decoded call arguments ARE the wrapper's input families). DATA (decide).
+  wArgsIn : ∀ w ∈ wrappers, ∀ (k : Nat) (hk : k < w.d.shape.insts.length) (p : Nat) (b : Name × MixedGateBinder),
+    (leaf.d.bsIn.take nDecl)[p]? = some b → b.2 ≠ .domain →
+    ∃ a, (w.d.shape.insts[k]).2.1[Tools.ShippingMachineChild.portIdx (leaf.d.bsIn.take nDecl) p]? = some a ∧
+      (match b.2 with
+       | .bool => ∃ j, w.d.ls[a]? = some ⟨.bool, .boolInput j⟩ ∧ w.d.bpos j = p
+       | .bits n => ∃ j, w.d.ls[a]? = some ⟨.bits n, .bitsInput n j⟩ ∧ w.d.vpos j = p
+       | .domain => True)
 
 
 open Tests.Compiler.SharedLeafMemKidTest Tests.Compiler.SharedLeafMemKidIfaceTest Tests.Compiler.SharedLeafMemKidEntryTest
@@ -230,6 +240,7 @@ noncomputable def P_M (hgrp : TmGrp) : MemSharedLeafParent where
   tieCs := rfl
   csNc := csM_nc
   csCd := csM_cd
+  wArgsIn := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | decide | decide +kernel
 
 /-! ## defeq audits (M): the class projections ARE the terms of TmGrp / topshareM_soundLA / tmOuts / tmIns / tmBsC -/
 theorem P_M_group_defeq (hgrp : TmGrp) :
