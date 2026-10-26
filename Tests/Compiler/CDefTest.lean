@@ -3,9 +3,12 @@ import Tests.Compiler.SharedLeafMemKidEntryTest
 import Tools.ShippingSeqParentGenD2MSD
 -- C-DEF (issue sparkle-gen-c4-cdef): GenPkg / MemSharedLeafParent exactly as scripts/c3/EXPECTED_CDEF.lean.txt (+ members and defeq audits below). Test-only; no production edit.
 -- NOT proved here: G-KID, G-HCALLS (unresolved dependencies). C4 and G3 stay OPEN.
+-- DEVIATION (2026-10-26, first build cdef-focused-addc3543-r2a6): EXPECTED_CDEF line 8 `open A B C (x y)` is not valid Lean (parse error at
+-- 8:88); here it is split into `open A B` + `open C (x y)` with the same names. No definition text changed; EXPECTED_CDEF is left as frozen.
 namespace Tests.Compiler.CDef
 open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.IR.Machine
-open Tools.ShippingMachineSource Tools.ShippingMachineDenote Tools.ShippingQuadComposed (GenFacts QuadGroupFacts)
+open Tools.ShippingMachineSource Tools.ShippingMachineDenote
+open Tools.ShippingQuadComposed (GenFacts QuadGroupFacts)
 open Tools.ShippingCallsChildPorts (argWidths)
 
 structure GenPkg (ι : Type) (dom : ι → DomainConfig) where
