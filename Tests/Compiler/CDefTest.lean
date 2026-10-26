@@ -5,15 +5,20 @@ import Tools.ShippingSeqParentGenD2MSD
 -- NOT proved here: G-KID, G-HCALLS (unresolved dependencies). C4 and G3 stay OPEN.
 -- DEVIATION (2026-10-26, first build cdef-focused-addc3543-r2a6): EXPECTED_CDEF line 8 `open A B C (x y)` is not valid Lean (parse error at
 -- 8:88); here it is split into `open A B` + `open C (x y)` with the same names, and `open Tools.ShippingMachineAuto (MachineData)` is added
--- (EXPECTED never opened it: every `d.ss` failed). EXPECTED_CDEF is left as frozen.
+-- (EXPECTED never opened it: every `d.ss` failed), likewise NmParentData / NCal / MixedGateBinder; autoImplicit is turned off so an
+-- unresolved name is an error, not a silent implicit binder. EXPECTED_CDEF is left as frozen.
 -- AMENDMENT 2 (PROPOSED, for review): `leaf` is a LeafPkg (decl, d, src), not a GenPkg. leafP has no instances, so the generator emits no
 -- leafP.machineExt / machineExtB / machine_ext_causal and the drafted leafP_gen cannot exist; the class only ever reads leaf.decl, leaf.d,
 -- leaf.src (memLeafBsC / memLeafOutsC / memLeafSrcC / memLeafPC in the G-HCALLS row). Fewer requirements, not more.
+set_option autoImplicit false
 namespace Tests.Compiler.CDef
 open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.IR.Machine
 open Tools.ShippingMachineSource Tools.ShippingMachineDenote
 open Tools.ShippingQuadComposed (GenFacts QuadGroupFacts)
 open Tools.ShippingMachineAuto (MachineData)
+open Tools.ShippingNmEntry (NmParentData)
+open Tools.ShippingNmGroup (NCal)
+open Sparkle.Compiler.Elab (MixedGateBinder)
 open Tools.ShippingCallsChildPorts (argWidths)
 
 structure GenPkg (ι : Type) (dom : ι → DomainConfig) where
