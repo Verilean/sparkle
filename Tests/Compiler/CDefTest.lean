@@ -143,6 +143,7 @@ structure MemSharedLeafParent where
 
 
 open Tests.Compiler.SharedLeafMemKidTest Tests.Compiler.SharedLeafMemKidIfaceTest Tests.Compiler.SharedLeafMemKidEntryTest
+open Tests.Compiler.SharedLeafMemKidRunTest
 open Tests.Compiler.Srm9ComposedTest
 variable {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
 
