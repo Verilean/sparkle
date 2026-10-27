@@ -11,6 +11,7 @@ import Tools.ShippingSeqParentGenD2MSD
 -- unresolved name is an error, not a silent implicit binder. EXPECTED_CDEF is left as frozen.
 -- AMENDMENT 3 (2026-10-26, user decision, recorded in scripts/c3/C_CLASS.md): the class is narrowed to the M shape (every wrapper calls only
 -- the memory-bearing leaf); P_Q is NOT a member; leaf is a GenPkg again; per-leaf / per-wrapper certificate fields (DATA / GEN-SHAPE) added.
+-- AMENDMENT 6 (wCallOut, GEN-SHAPE) is not yet built at this SHA.
 -- AMENDMENT 5 (wArgsIn via argInOk, DATA) BUILT: amend5-cdef-3868973c (issue-linked, runner 2a678c60) exit 0, 932/932, CDEF|ok.
 -- AMENDMENT 4 (G-CLOSES data: tieCs, leaf MemOnlyData/CloseData/cne, wrapper tags/agree/cne/notin, csNc/csCd; all DATA) BUILT:
 -- amend4-cdef-9daedb4a (issue-linked, runner 2a678c60) exit 0, 932/932, CDEF|ok.
@@ -170,12 +171,132 @@ structure MemSharedLeafParent where
   -- wrapper's own input term of that port (so the decoded call arguments ARE the wrapper's input families). DATA (decide).
   wArgsIn : ∀ w ∈ wrappers, ∀ (k : Nat) (hk : k < w.d.shape.insts.length) (p : Nat),
     p < (leaf.d.bsIn.take nDecl).length → argInOk w.d (leaf.d.bsIn.take nDecl) (w.d.shape.insts[k]).2.1 p = true
+  -- AMENDMENT 6 (G-HCALLS call output; user decision 2026-10-26: GEN-SHAPE class field, filled per member by the uniform unfolding of
+  -- the generated ext / extB / machineSource, as wHext): at every wrapper call k, the generated ext / extB at the call-output position
+  -- nDecl + k IS the leaf source's output k' (named like the call's field) on any families agreeing with the inputs at the leaf ports.
+  wCallOut : ∀ w ∈ wrappers, ∀ (k : Nat) (_ : k < w.d.shape.insts.length) (i : DomainConfig) (bools : Nat → Signal i Bool)
+    (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)),
+    ∃ (k' : Nat) (o : OutField), leaf.d.shape.layout.outs[k']? = some o ∧ o.name = w.d.shape.instFields.getD k "" ∧
+      ∀ (bools' : Nat → Signal i Bool) (bits' : (j : Nat) → (n : Nat) → Signal i (BitVec n)),
+        (∀ p, (leaf.d.bsIn.take nDecl)[p]?.map (·.2) = some MixedGateBinder.bool → bools' p = bools p) →
+        (∀ p n, (leaf.d.bsIn.take nDecl)[p]?.map (·.2) = some (MixedGateBinder.bits n) → bits' p n = bits p n) →
+        ∃ f : Nat → Nat, (leaf.src i bools' bits')[k']? = some f ∧
+          ∀ τ, Tools.ShippingMachineEntry.posEnc (fun p => (w.extBS i bools bits p).val τ) (fun p n => (w.extS i bools bits p n).val τ)
+            (nDecl + k) (((w.d.bsIn.drop nDecl)[k]?.map (·.2)).getD .domain) = f τ          -- GEN-SHAPE
 
 
 open Tests.Compiler.SharedLeafMemKidTest Tests.Compiler.SharedLeafMemKidIfaceTest Tests.Compiler.SharedLeafMemKidEntryTest
 open Tests.Compiler.SharedLeafMemKidRunTest
 open Tests.Compiler.Srm9ComposedTest
 variable {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+
+/-! ## AMENDMENT 6: the member's call-output facts (moved from Tests/Compiler/C4HCallsTest.lean, c4-hcalls3 19192bdd) -/
+open Tools.ShippingMachineEntry (posEnc)
+
+theorem wrapM_len2 : wrapM.machineData.shape.insts.length = 2 := by decide
+theorem wrapM3_len2 : wrapM3.machineData.shape.insts.length = 2 := by decide
+
+theorem wrapM_callOut (k : Nat) (hk : k < wrapM.machineData.shape.insts.length) (i : DomainConfig) (bools : Nat → Signal i Bool)
+    (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)) :
+    ∃ (k' : Nat) (o : OutField), leafM.machineData.shape.layout.outs[k']? = some o ∧
+      o.name = wrapM.machineData.shape.instFields.getD k "" ∧
+      ∀ (bools' : Nat → Signal i Bool) (bits' : (j : Nat) → (n : Nat) → Signal i (BitVec n)),
+        (∀ p, (leafM.machineData.bsIn.take 4)[p]?.map (·.2) = some MixedGateBinder.bool → bools' p = bools p) →
+        (∀ p n, (leafM.machineData.bsIn.take 4)[p]?.map (·.2) = some (MixedGateBinder.bits n) → bits' p n = bits p n) →
+        ∃ f : Nat → Nat, (leafM.machineSource i bools' bits')[k']? = some f ∧
+          ∀ τ, posEnc (fun p => ((wrapM.machineExtB i bools bits (stateLoop wrapM.machineInits (wrapM.machineBody i bools bits))) p).val τ)
+            (fun p n => ((wrapM.machineExt i bools bits (stateLoop wrapM.machineInits (wrapM.machineBody i bools bits))) p n).val τ)
+            (4 + k) (((wrapM.machineData.bsIn.drop 4)[k]?.map (·.2)).getD .domain) = f τ := by
+  have hk2 : k = 0 ∨ k = 1 := by have := wrapM_len2; omega
+  rcases hk2 with rfl | rfl
+  · refine ⟨0, leafM.machineData.shape.layout.outs[0]'(by decide), List.getElem?_eq_getElem (by decide), by decide +kernel, ?_⟩
+    intro bools' bits' hb hb'
+    have hA : bools' 1 = bools 1 := hb 1 (by first | decide +kernel | rfl)
+    have hB2 : bits' 2 4 = bits 2 4 := hb' 2 4 (by first | decide +kernel | rfl)
+    have hB3 : bits' 3 8 = bits 3 8 := hb' 3 8 (by first | decide +kernel | rfl)
+    obtain ⟨f, hf⟩ : ∃ f, (leafM.machineSource i bools' bits')[0]? = some f := by
+      unfold leafM.machineSource; exact ⟨_, rfl⟩
+    refine ⟨f, hf, ?_⟩
+    unfold leafM.machineSource at hf
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at hf
+    subst hf
+    intro τ
+    unfold posEnc
+    unfold wrapM.machineExt wrapM.machineExtB
+    simp only [Tools.ShippingMachineAuto.extendBits, Tools.ShippingMachineCausal.extendBools]
+    have hk : ((wrapM.machineData.bsIn.drop 4)[0]?.map (·.2)).getD .domain = .bits 8 := by decide +kernel
+    rw [hk, hA, hB2, hB3]
+    simp
+  · refine ⟨1, leafM.machineData.shape.layout.outs[1]'(by decide), List.getElem?_eq_getElem (by decide), by decide +kernel, ?_⟩
+    intro bools' bits' hb hb'
+    have hA : bools' 1 = bools 1 := hb 1 (by first | decide +kernel | rfl)
+    have hB2 : bits' 2 4 = bits 2 4 := hb' 2 4 (by first | decide +kernel | rfl)
+    have hB3 : bits' 3 8 = bits 3 8 := hb' 3 8 (by first | decide +kernel | rfl)
+    obtain ⟨f, hf⟩ : ∃ f, (leafM.machineSource i bools' bits')[1]? = some f := by
+      unfold leafM.machineSource; exact ⟨_, rfl⟩
+    refine ⟨f, hf, ?_⟩
+    unfold leafM.machineSource at hf
+    simp only [List.getElem?_cons_succ, List.getElem?_cons_zero, Option.some.injEq] at hf
+    subst hf
+    intro τ
+    unfold posEnc
+    unfold wrapM.machineExt wrapM.machineExtB
+    simp only [Tools.ShippingMachineAuto.extendBits, Tools.ShippingMachineCausal.extendBools]
+    have hk : ((wrapM.machineData.bsIn.drop 4)[1]?.map (·.2)).getD .domain = .bool := by decide +kernel
+    rw [hk, hA, hB2, hB3]
+    simp
+
+theorem wrapM3_callOut (k : Nat) (hk : k < wrapM3.machineData.shape.insts.length) (i : DomainConfig) (bools : Nat → Signal i Bool)
+    (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)) :
+    ∃ (k' : Nat) (o : OutField), leafM.machineData.shape.layout.outs[k']? = some o ∧
+      o.name = wrapM3.machineData.shape.instFields.getD k "" ∧
+      ∀ (bools' : Nat → Signal i Bool) (bits' : (j : Nat) → (n : Nat) → Signal i (BitVec n)),
+        (∀ p, (leafM.machineData.bsIn.take 4)[p]?.map (·.2) = some MixedGateBinder.bool → bools' p = bools p) →
+        (∀ p n, (leafM.machineData.bsIn.take 4)[p]?.map (·.2) = some (MixedGateBinder.bits n) → bits' p n = bits p n) →
+        ∃ f : Nat → Nat, (leafM.machineSource i bools' bits')[k']? = some f ∧
+          ∀ τ, posEnc (fun p => ((wrapM3.machineExtB i bools bits (stateLoop wrapM3.machineInits (wrapM3.machineBody i bools bits))) p).val τ)
+            (fun p n => ((wrapM3.machineExt i bools bits (stateLoop wrapM3.machineInits (wrapM3.machineBody i bools bits))) p n).val τ)
+            (4 + k) (((wrapM3.machineData.bsIn.drop 4)[k]?.map (·.2)).getD .domain) = f τ := by
+  have hk2 : k = 0 ∨ k = 1 := by have := wrapM3_len2; omega
+  rcases hk2 with rfl | rfl
+  · refine ⟨0, leafM.machineData.shape.layout.outs[0]'(by decide), List.getElem?_eq_getElem (by decide), by decide +kernel, ?_⟩
+    intro bools' bits' hb hb'
+    have hA : bools' 1 = bools 1 := hb 1 (by first | decide +kernel | rfl)
+    have hB2 : bits' 2 4 = bits 2 4 := hb' 2 4 (by first | decide +kernel | rfl)
+    have hB3 : bits' 3 8 = bits 3 8 := hb' 3 8 (by first | decide +kernel | rfl)
+    obtain ⟨f, hf⟩ : ∃ f, (leafM.machineSource i bools' bits')[0]? = some f := by
+      unfold leafM.machineSource; exact ⟨_, rfl⟩
+    refine ⟨f, hf, ?_⟩
+    unfold leafM.machineSource at hf
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at hf
+    subst hf
+    intro τ
+    unfold posEnc
+    unfold wrapM3.machineExt wrapM3.machineExtB
+    simp only [Tools.ShippingMachineAuto.extendBits, Tools.ShippingMachineCausal.extendBools]
+    have hk : ((wrapM3.machineData.bsIn.drop 4)[0]?.map (·.2)).getD .domain = .bits 8 := by decide +kernel
+    rw [hk, hA, hB2, hB3]
+    simp
+  · refine ⟨1, leafM.machineData.shape.layout.outs[1]'(by decide), List.getElem?_eq_getElem (by decide), by decide +kernel, ?_⟩
+    intro bools' bits' hb hb'
+    have hA : bools' 1 = bools 1 := hb 1 (by first | decide +kernel | rfl)
+    have hB2 : bits' 2 4 = bits 2 4 := hb' 2 4 (by first | decide +kernel | rfl)
+    have hB3 : bits' 3 8 = bits 3 8 := hb' 3 8 (by first | decide +kernel | rfl)
+    obtain ⟨f, hf⟩ : ∃ f, (leafM.machineSource i bools' bits')[1]? = some f := by
+      unfold leafM.machineSource; exact ⟨_, rfl⟩
+    refine ⟨f, hf, ?_⟩
+    unfold leafM.machineSource at hf
+    simp only [List.getElem?_cons_succ, List.getElem?_cons_zero, Option.some.injEq] at hf
+    subst hf
+    intro τ
+    unfold posEnc
+    unfold wrapM3.machineExt wrapM3.machineExtB
+    simp only [Tools.ShippingMachineAuto.extendBits, Tools.ShippingMachineCausal.extendBools]
+    have hk : ((wrapM3.machineData.bsIn.drop 4)[1]?.map (·.2)).getD .domain = .bool := by decide +kernel
+    rw [hk, hA, hB2, hB3]
+    simp
+
+
 
 /-! ## P_M  (TmGrp is a PREMISE of TmBnd, not a theorem: P_M takes it as a hypothesis = the structural class assumption) -/
 noncomputable def P_M (hgrp : TmGrp) : MemSharedLeafParent where
@@ -260,6 +381,12 @@ noncomputable def P_M (hgrp : TmGrp) : MemSharedLeafParent where
   csNc := csM_nc
   csCd := csM_cd
   wArgsIn := by intro w hw; simp only [List.mem_cons, List.not_mem_nil, or_false] at hw; rcases hw with rfl | rfl <;> first | decide | decide +kernel
+  wCallOut := by
+    intro w hw k hk i bools bits
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hw
+    rcases hw with rfl | rfl
+    · exact wrapM_callOut k hk i bools bits
+    · exact wrapM3_callOut k hk i bools bits
 
 /-! ## defeq audits (M): the class projections ARE the terms of TmGrp / topshareM_soundLA / tmOuts / tmIns / tmBsC -/
 theorem P_M_group_defeq (hgrp : TmGrp) :

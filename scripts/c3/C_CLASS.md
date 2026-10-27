@@ -144,3 +144,11 @@ Added one DATA field (decide for P_M), exact text in CDefTest.lean, block "AMEND
   wrapper's own input term (`boolInput j` with `bpos j = p`, or `bitsInput n j` with `vpos j = p`).
 
 The per-call OUTPUT fact (`wCallOut`, GEN-SHAPE, user decision 2026-10-26) is still to be stated; it is not part of this amendment.
+
+## AMENDMENT 6 (C4, wCallOut; user decision 2026-10-26 "GEN-SHAPE class field"; G-HCALLS worker c4-hcalls3 19192bdd)
+CallFactF part (4) needs, per wrapper call, the OUTPUT fact: the generated ext / extB at the call-output position nDecl + k is the leaf
+source's output k' (named like the call's field) on any input families agreeing with the call's inputs at the leaf's ports. This needs
+generator knowledge (research sparkle-gen-c4-callfact), and is supplied as the GEN-SHAPE field `wCallOut`. Exact text is in the
+CDefTest.lean block "AMENDMENT 6". It contains no decoding, no valsOf, no CallFactF / HCallsOf. P_M fills it by the uniform unfolding of
+wrapM / wrapM3 machineExt / machineExtB and leafM.machineSource (wrapM_callOut / wrapM3_callOut, moved from C4HCallsTest). The decoding
+step is generic (decode_bool / decode_bits from wArgsIn, Tests/Compiler/C4HCallsTest.lean).
