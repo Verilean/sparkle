@@ -4430,3 +4430,6 @@ lean_lib «Tests.Compiler.C4ComposedTest» where
 
 lean_lib «Tests.Compiler.C4FinalTest» where
   roots := #[`Tests.Compiler.C4FinalTest]
+
+lean_lib «Tests.Compiler.QDefTest» where
+  roots := #[`Tests.Compiler.QDefTest]
