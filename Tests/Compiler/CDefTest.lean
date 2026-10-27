@@ -11,7 +11,7 @@ import Tools.ShippingSeqParentGenD2MSD
 -- unresolved name is an error, not a silent implicit binder. EXPECTED_CDEF is left as frozen.
 -- AMENDMENT 3 (2026-10-26, user decision, recorded in scripts/c3/C_CLASS.md): the class is narrowed to the M shape (every wrapper calls only
 -- the memory-bearing leaf); P_Q is NOT a member; leaf is a GenPkg again; per-leaf / per-wrapper certificate fields (DATA / GEN-SHAPE) added.
--- AMENDMENT 6 (wCallOut, GEN-SHAPE) is not yet built at this SHA.
+-- AMENDMENT 6 (wCallOut, GEN-SHAPE) BUILT: int-a6-4eb89d72 (kjob/c4-int, issue-linked, runner 2a678c60) exit 0, 939/939, CDEF|ok.
 -- AMENDMENT 5 (wArgsIn via argInOk, DATA) BUILT: amend5-cdef-3868973c (issue-linked, runner 2a678c60) exit 0, 932/932, CDEF|ok.
 -- AMENDMENT 4 (G-CLOSES data: tieCs, leaf MemOnlyData/CloseData/cne, wrapper tags/agree/cne/notin, csNc/csCd; all DATA) BUILT:
 -- amend4-cdef-9daedb4a (issue-linked, runner 2a678c60) exit 0, 932/932, CDEF|ok.

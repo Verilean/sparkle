@@ -4424,3 +4424,6 @@ lean_lib «Tools.ShippingC4InitW» where
 
 lean_lib «Tests.Compiler.C4HCallsTest» where
   roots := #[`Tests.Compiler.C4HCallsTest]
+
+lean_lib «Tests.Compiler.C4ComposedTest» where
+  roots := #[`Tests.Compiler.C4ComposedTest]
