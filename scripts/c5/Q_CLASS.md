@@ -185,3 +185,12 @@ abbrev QSharedLeafParent.wArity (P : QSharedLeafParent) : List Nat := P.wrappers
 
 ## Member
 `P_Q (hgrp : TqGrp) : QSharedLeafParent` (QDefTest): decide + generated theorems (leafP_run etc.) + the existing instance lemmas; defeq audits `P_Q_group_defeq … P_Q_soundL_defeq`, `P_Q_cs_defeq` (arity [3,5]), `P_Q_hcl` (hcl derived), `FrozenC5` (19 binders, no hcl).
+
+## Q-A1 (issue sparkle-gen-c5-a1; found by Q-DECODE worker c5-hcalls on 2888c661, 2026-10-27)
+Q-DECODE needs, for every ordinary call k and leaf port p, that the wrapper input position argPos k p is a DECLARED input (< arity).
+Below the arity, hextB / hext give extBS = bools / extS = bits; above it, ext holds call-output or state values. argsIn (argInOkQ)
+gives only bpos j = argPos k p, with no bound. MachineData.ok / callsOk do not bound it either, since posOk admits call-output and let
+positions. C4 got the bound for free, because there the position was the port index p < nDecl.
+Added one DATA field to QWrapData (decide for wrapPDat, argPos = id, bsIn length 2 ≤ 3, and for wrapQDat, argPos 1 = 3 < 5):
+`argLt : ∀ k (hk : k < w.d.shape.insts.length), (originAt w.d.shape k).child? = none → ∀ p, p < L.d.bsIn.length → argPos k p < arity`.
+It is not a target Prop.

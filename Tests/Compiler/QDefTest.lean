@@ -105,6 +105,10 @@ structure QWrapData (L : QLeafPkg) (w : GenPkg DomainConfig (fun i => i)) where
   argPos : Nat → Nat → Nat                                       -- DATA: call k, leaf port p ↦ the wrapper input position passed at that port
   argsIn : ∀ (k : Nat) (hk : k < w.d.shape.insts.length), (originAt w.d.shape k).child? = none →
     ∀ p, p < L.d.bsIn.length → argInOkQ w.d L.d.bsIn (w.d.shape.insts[k]).2.1 (argPos k) p = true                         -- DATA
+  -- Q-A1 (Q-DECODE, worker c5-hcalls 2026-10-27): the passed input position is a DECLARED input of the wrapper (below its arity), so
+  -- its extension is the input family itself (hextB / hext). C4 got this bound for free (position = port < nDecl).  DATA (decide)
+  argLt : ∀ (k : Nat) (hk : k < w.d.shape.insts.length), (originAt w.d.shape k).child? = none →
+    ∀ p, p < L.d.bsIn.length → argPos k p < arity
   callOut : ∀ (k : Nat) (_ : k < w.d.shape.insts.length), (originAt w.d.shape k).child? = none →
     ∀ (i : DomainConfig) (bools : Nat → Signal i Bool) (bits : (j : Nat) → (n : Nat) → Signal i (BitVec n)),
     ∃ (k' : Nat) (o : OutField), L.d.shape.layout.outs[k']? = some o ∧ o.name = w.d.shape.instFields.getD k "" ∧
@@ -238,6 +242,7 @@ noncomputable def wrapPDat : QWrapData qLeafP wrapPPkg where
     absurd (wrapP_allOrd k (by have := (List.getElem?_eq_some_iff.mp hc).1; simpa using this)) hch
   argPos := fun _ p => p
   argsIn := by first | decide | decide +kernel
+  argLt := by first | decide | decide +kernel
   callOut := by
     intro k hk hn i bools bits
     have hk2 : k = 0 ∨ k = 1 := by have hk3 : k < wrapP.machineData.shape.insts.length := hk; have := wrapP_len; omega
@@ -325,6 +330,7 @@ noncomputable def wrapQDat : QWrapData qLeafP wrapQPkg where
   memCalls := fun i bools bits k c hc hch => wrapQ_memcalls i bools bits k c hc hch
   argPos := fun _ p => if p = 1 then 3 else p
   argsIn := by first | decide | decide +kernel
+  argLt := by first | decide | decide +kernel
   callOut := by
     intro k hk hn i bools bits
     have hk2 : k = 0 ∨ k = 1 := by have h2 := (wrapQ_ord k (by exact hk) hn).1; omega
