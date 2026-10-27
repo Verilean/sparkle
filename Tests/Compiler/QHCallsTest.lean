@@ -306,6 +306,29 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       throwError "QHCALLS AUDIT FAILED: TqFQ_of_class's binder is not TqGrp"
     unless ← isDefEq body (mkConst ``Tests.Compiler.SharedLeafMemKidIfaceTest.TqFQ) do
       throwError "QHCALLS AUDIT FAILED: TqFQ_of_class does not conclude TqFQ"
+  -- wrapQ_hcalls_of_class: exactly 3 binders (hgrp : TqGrp, m, design) and the conclusion of the instance theorem
+  -- SharedLeafMemKidIfaceTest.wrapQ_hcalls (whose first binder is the text-supplied hF : CallFactFO …, not used by its conclusion)
+  let c5 ← getConstInfo ``wrapQ_hcalls_of_class
+  let inst ← getConstInfo ``Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_hcalls
+  forallTelescope c5.type fun xs body => do
+    let mut s := #[]
+    for x in xs do s := s.push s!"{← x.fvarId!.getUserName}:{repr (← x.fvarId!.getBinderInfo)}"
+    unless xs.size == 3 do throwError "QHCALLS AUDIT FAILED: wrapQ_hcalls_of_class has {xs.size} binders, expected 3 (hgrp m design)"
+    unless ← isDefEq (← inferType xs[0]!) (mkConst ``Tests.Compiler.SharedLeafMemKidIfaceTest.TqGrp) do
+      throwError "QHCALLS AUDIT FAILED: wrapQ_hcalls_of_class's first binder is not TqGrp"
+    unless ← isDefEq (← inferType xs[1]!) (mkConst ``Sparkle.IR.AST.Module) do
+      throwError "QHCALLS AUDIT FAILED: wrapQ_hcalls_of_class's second binder is not a Module"
+    unless ← isDefEq (← inferType xs[2]!) (mkConst ``Sparkle.IR.AST.Design) do
+      throwError "QHCALLS AUDIT FAILED: wrapQ_hcalls_of_class's third binder is not a Design"
+    let instRest := inst.type.bindingBody!
+    if instRest.hasLooseBVars then
+      -- the instance's conclusion must not depend on its hF binder
+      unless (instRest.bindingBody!.bindingBody!).looseBVarRange ≤ 2 do
+        throwError "QHCALLS AUDIT FAILED: wrapQ_hcalls's conclusion depends on hF"
+    let expected ← instantiateForall (instRest.instantiate1 (mkConst ``True.intro)) #[xs[1]!, xs[2]!]
+    unless ← isDefEq body expected do
+      throwError "QHCALLS AUDIT FAILED: wrapQ_hcalls_of_class does not conclude wrapQ_hcalls's HCallsOf"
+    logInfo m!"QHCALLS|corollary wrapQ_hcalls_of_class binders {s}: TqGrp → ∀ m design, the conclusion of wrapQ_hcalls (isDefEq)"
   for n in [``hcalls_of_classQ, ``callFactFO_of_class, ``decode_boolQ, ``decode_bitsQ, ``TqHcallsP_of_class, ``TqFQ_of_class,
       ``wrapQ_hcalls_of_class, ``leafPC_eq_genPC] do
     let axs ← Lean.collectAxioms n
