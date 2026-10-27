@@ -4409,3 +4409,12 @@ lean_lib «Tests.Compiler.Srm33AuditTest» where
 
 lean_lib «Tests.Compiler.CDefTest» where
   roots := #[`Tests.Compiler.CDefTest]
+
+lean_lib «Tests.Compiler.C4KidTest» where
+  roots := #[`Tests.Compiler.C4KidTest]
+
+lean_lib «Tests.Compiler.C4ClosesTest» where
+  roots := #[`Tests.Compiler.C4ClosesTest]
+
+lean_lib «Tests.Compiler.C4ShipsTest» where
+  roots := #[`Tests.Compiler.C4ShipsTest]
