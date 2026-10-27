@@ -328,6 +328,78 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let cdef := reached.filter (fun c => (c.toString.splitOn "Tests.Compiler.CDef.").length > 1)
   logInfo m!"C4HCALLS|closure ok: {reached.size} Tests constants reached; class constants {cdef.toList}; no member value, no instance file"
 
+/-! review request: audit the FINAL no-premise root `hcalls_of_classF` (type, binders, closure) and the member corollaries TmH1 / TmH2 -/
+open Lean Meta Elab Term in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let ci ← getConstInfo ``hcalls_of_classF
+  let expected ← elabTerm (← `(∀ {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+      (P : MemSharedLeafParent) (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref),
+      ∀ w ∈ P.wrappers, ∀ (m : Sparkle.IR.AST.Module) (design : Sparkle.IR.AST.Design),
+        HCallsOf 1 w.d design m (dom := fun i : DomainConfig => i) w.lsrc w.extS w.extBS P.nDecl
+          (memLeafBsC P.leaf.decl P.leaf.d P.nDecl) (memLeafOutsC P.leaf.decl P.leaf.d)
+          (memLeafSrcC P.leaf.decl P.leaf.d P.nDecl P.leaf.src) (memLeafPC O P.leaf.decl P.leaf.d design))) none
+  synthesizeSyntheticMVarsNoPostponing
+  unless ← isDefEq ci.type (← instantiateMVars expected) do throwError "C4HCALLS AUDIT FAILED: hcalls_of_classF type differs from the stated theorem"
+  forallTelescope ci.type fun xs _ => do
+    let mut s := #[]
+    for x in xs do
+      s := s.push s!"{← x.fvarId!.getUserName}:{repr (← x.fvarId!.getBinderInfo)}"
+      -- no WCallOut-typed binder: the field is read from P
+      if (← inferType x).isAppOf ``WCallOut then throwError "C4HCALLS AUDIT FAILED: hcalls_of_classF takes a WCallOut binder"
+    unless xs.size == 9 do throwError "C4HCALLS AUDIT FAILED: hcalls_of_classF has {xs.size} binders, expected 9 (mref cref P O T w hw m design)"
+    logInfo m!"C4HCALLS|F binders: {s}"
+  -- member corollaries: exactly TmH1 O / TmH2 O of Srm9ComposedTest, with the one class assumption TmGrp
+  for (n, t) in [(``TmH1_of_class, ``Tests.Compiler.Srm9ComposedTest.TmH1), (``TmH2_of_class, ``Tests.Compiler.Srm9ComposedTest.TmH2)] do
+    let c ← getConstInfo n
+    forallTelescope c.type fun xs body => do
+      unless xs.size == 5 do throwError "C4HCALLS AUDIT FAILED: {n} has {xs.size} binders, expected 5 (mref cref hgrp O T)"
+      unless ← isDefEq (← inferType xs[2]!) (mkConst ``Tests.Compiler.Srm9ComposedTest.TmGrp) do
+        throwError "C4HCALLS AUDIT FAILED: {n}'s third binder is not TmGrp"
+      unless ← isDefEq body (mkAppN (mkConst t) #[xs[0]!, xs[1]!, xs[3]!]) do
+        throwError "C4HCALLS AUDIT FAILED: {n} does not conclude {t} O"
+      logInfo m!"C4HCALLS|corollary {n} : TmGrp → {t} O (isDefEq)"
+
+open Lean Meta in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let env ← getEnv
+  let mut seen : NameSet := {}
+  let mut work : List Name := [``hcalls_of_classF]
+  let mut reached : Array Name := #[]
+  while !work.isEmpty do
+    let n := work.head!
+    work := work.tail!
+    if seen.contains n then continue
+    seen := seen.insert n
+    let some ci := env.find? n | throwError "C4HCALLS CLOSURE(F) FAILED: {n} not found"
+    let body? : Option Lean.Expr := match ci with
+      | .thmInfo t => some t.value
+      | .defnInfo v => some v.value
+      | .opaqueInfo v => some v.value
+      | _ => none
+    let cs := ci.type.getUsedConstants ++ (body?.map Lean.Expr.getUsedConstants).getD #[]
+    for c in cs do
+      if (c.toString.splitOn "Tests.").length > 1 && !seen.contains c then
+        reached := reached.push c
+        work := c :: work
+  for c in reached do
+    unless (c.toString.splitOn "Tests.Compiler.CDef.").length > 1 || (c.toString.splitOn "Tests.Compiler.C4HCalls.").length > 1 do
+      throwError "C4HCALLS CLOSURE(F) FAILED: hcalls_of_classF reaches {c} (outside the class definition and this file)"
+    for comp in c.components.map (·.toString) do
+      if ["P_M", "P_Q", "wrapM", "wrapM3", "leafM", "leafP", "wrapP", "wrapQ", "TmGrp", "TmH1", "TmH2"].contains comp
+          || comp.startsWith "topshare" || comp.startsWith "wrapM" || comp.startsWith "P_M" then
+        throwError "C4HCALLS CLOSURE(F) FAILED: hcalls_of_classF reaches {c} (instance component {comp})"
+  let helpers : List Name := [``hcalls_of_class, ``callFactF_of_class, ``decode_bool, ``decode_bits, ``argInOk_bool, ``argInOk_bits,
+    ``letVal_lt, ``typedVal_in, ``tvOf, ``nDecl_le_nIn, ``lsrc_bool_val, ``lsrc_bits_val, ``signal_ext, ``WCallOut]
+  for c in reached do
+    if (c.toString.splitOn "Tests.Compiler.C4HCalls.").length > 1 then
+      unless helpers.any (fun h => (c.toString.splitOn h.toString).length > 1) do
+        throwError "C4HCALLS CLOSURE(F) FAILED: unexpected own constant {c} in the closure"
+  for h in [``hcalls_of_class, ``callFactF_of_class, ``decode_bool, ``decode_bits, ``MemSharedLeafParent.wCallOut] do
+    unless reached.contains h do throwError "C4HCALLS CLOSURE(F) FAILED: expected constant {h} not reached"
+  for h in [``P_M_wCallOut, ``TmH1_of_class, ``TmH2_of_class, ``Tests.Compiler.CDef.wrapM_callOut, ``Tests.Compiler.CDef.wrapM3_callOut] do
+    if reached.contains h then throwError "C4HCALLS CLOSURE(F) FAILED: member constant {h} reached"
+  logInfo m!"C4HCALLS|closure(F) ok: {reached.size} Tests constants reached from hcalls_of_classF (reads the class field wCallOut); no member value, no instance file"
+
 #print axioms callFactF_of_class
 #print axioms hcalls_of_class
 #print axioms hcalls_of_classF
