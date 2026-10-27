@@ -26,7 +26,7 @@ theorem topshareQ_hierC_of_class : type_of% @Tests.Compiler.Srm33EndpointTest.to
   exact qSharedLeaf_ships (P_Q hgrp) O T hA hR0 (Tests.Compiler.QCloses.P_Q_entryW hgrp entry₁ entry₂) entry hw hcore hpost
 
 /-- G-MASK projection: the instance's kidsMaskedN theorem with its exact type (plus TqGrp to form P_Q), from the generic one -/
-theorem topshareQ_kidsMasked_of_class (hgrp : TqGrp) : type_of% @Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_kidsMasked := by
+theorem topshareQ_kidsMasked_of_class (hgrp : Tests.Compiler.SharedLeafMemKidIfaceTest.TqGrp) : type_of% @Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_kidsMasked := by
   intro mctx mref cctx cref O T hA hR0 _ entry₁ entry₂ entry w w1 raw b D hcore hpost hw
   exact Tests.Compiler.QShips.kidsMasked_of_class (P_Q hgrp) O T hA hR0
     (Tests.Compiler.QCloses.P_Q_entryW hgrp entry₁ entry₂) entry hcore hpost hw
