@@ -4433,3 +4433,18 @@ lean_lib «Tests.Compiler.C4FinalTest» where
 
 lean_lib «Tests.Compiler.QDefTest» where
   roots := #[`Tests.Compiler.QDefTest]
+
+lean_lib «Tests.Compiler.QClosesTest» where
+  roots := #[`Tests.Compiler.QClosesTest]
+
+lean_lib «Tests.Compiler.QShipsTest» where
+  roots := #[`Tests.Compiler.QShipsTest]
+
+lean_lib «Tests.Compiler.QHCallsTest» where
+  roots := #[`Tests.Compiler.QHCallsTest]
+
+lean_lib «Tests.Compiler.QComposedTest» where
+  roots := #[`Tests.Compiler.QComposedTest]
+
+lean_lib «Tests.Compiler.QFinalTest» where
+  roots := #[`Tests.Compiler.QFinalTest]
