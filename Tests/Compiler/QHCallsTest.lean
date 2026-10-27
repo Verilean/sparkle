@@ -314,6 +314,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let mut s := #[]
     for x in xs do s := s.push s!"{← x.fvarId!.getUserName}:{repr (← x.fvarId!.getBinderInfo)}"
     unless xs.size == 3 do throwError "QHCALLS AUDIT FAILED: wrapQ_hcalls_of_class has {xs.size} binders, expected 3 (hgrp m design)"
+    unless s.toList == ["hgrp:Lean.BinderInfo.default", "m:Lean.BinderInfo.default", "design:Lean.BinderInfo.default"] do
+      throwError "QHCALLS AUDIT FAILED: wrapQ_hcalls_of_class binders {s}, expected [hgrp, m, design] all explicit"
     unless ← isDefEq (← inferType xs[0]!) (mkConst ``Tests.Compiler.SharedLeafMemKidIfaceTest.TqGrp) do
       throwError "QHCALLS AUDIT FAILED: wrapQ_hcalls_of_class's first binder is not TqGrp"
     unless ← isDefEq (← inferType xs[1]!) (mkConst ``Sparkle.IR.AST.Module) do
