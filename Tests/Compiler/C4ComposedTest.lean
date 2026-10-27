@@ -434,10 +434,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       unless u == nm do throwError "C4COMPOSED AUDIT FAILED: binder {u}, frozen {nm}"
       let bi ← x.fvarId!.getBinderInfo
       unless (bi == .implicit) == frozenImplicit.contains nm do throwError "C4COMPOSED AUDIT FAILED: binder {nm} info {repr bi}"
-    -- and the binder TYPES agree pairwise with the frozen statement's
-    forallTelescope fv fun ys _ => do
-      for (x, y) in xs.toList.zip ys.toList do
-        unless ← isDefEq (← inferType x) (← inferType y) do throwError "C4COMPOSED AUDIT FAILED: binder type of {← x.fvarId!.getUserName} differs"
+    -- and the binder TYPES agree pairwise with the frozen statement's, instantiated with the SAME fvars
+    let mut e := fv
+    for x in xs do
+      match e with
+      | .forallE _ d b _ =>
+        unless ← isDefEq (← inferType x) d do throwError "C4COMPOSED AUDIT FAILED: binder type of {← x.fvarId!.getUserName} differs"
+        e := b.instantiate1 x
+      | _ => throwError "C4COMPOSED AUDIT FAILED: frozen statement has fewer binders"
   logInfo m!"C4COMPOSED|binders ok: all {n1} binders equal the frozen list (names, binder info, types)"
   for n in [``hcomposed_of_class, ``memSharedLeaf_ships, ``topshareM_ships] do
     let axs ← Lean.collectAxioms n
