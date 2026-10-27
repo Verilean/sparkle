@@ -363,7 +363,7 @@ theorem topshareM_ships (hgrp : Tests.Compiler.Srm9ComposedTest.TmGrp) : type_of
 #print axioms topshareM_ships
 
 def FrozenC4 : Prop := ∀ (P : MemSharedLeafParent)
-    
+
     {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} {w w1 : Void IO.RealWorld}
     (O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref)
@@ -373,7 +373,7 @@ def FrozenC4 : Prop := ∀ (P : MemSharedLeafParent)
     (entryW : ∀ wp ∈ P.wrappers, MachineDefines mctx mref cctx cref wp.decl wp.d.shape)
     (entry : MachineDefines mctx mref cctx cref P.top.decl P.top.d.shape)
     (hw : JQC O 0 w)
-    
+
     {b raw : Sparkle.IR.AST.Module} {D : Design}
     (hcore : RunsTo (synthesizeCombinationalCore P.top.decl [] false) mctx mref cctx cref w (raw, D) w1)
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
@@ -385,7 +385,7 @@ def FrozenC4 : Prop := ∀ (P : MemSharedLeafParent)
         (bits : (j : Nat) → (n : Nat) → Signal defaultDomain (BitVec n))
         (T' : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv)
         (kids : String → KT 2),
-        
+
         (∀ t st, t < T' → SourceInputs P.top.decl (P.top.d.bsIn.take P.nDecl) ids cache
           (fun j => (P.top.extBS i bools bits j).val (T' - 1 - t))
           (fun j n => (P.top.extS i bools bits j n).val (T' - 1 - t)) (seedIn b ins t st)) →
@@ -419,8 +419,26 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     return s!"{← x.fvarId!.getUserName}:{repr (← x.fvarId!.getBinderInfo)}"
   let n1 := names.size; let n2 := names2.size
   logInfo m!"C4COMPOSED|binders: {names}"
-  unless names.toList.take 15 == names2.toList.take 15 do throwError "C4COMPOSED AUDIT FAILED: binder lists differ"
-  unless n1 ≥ 15 do throwError "C4COMPOSED AUDIT FAILED: too few binders"
+  -- the FULL binder arrays (names and binder infos) must agree, with the same count
+  unless n1 == n2 do throwError "C4COMPOSED AUDIT FAILED: {n1} binders vs {n2} in the frozen statement"
+  unless names == names2 do throwError "C4COMPOSED AUDIT FAILED: binder lists differ"
+  -- and equal the frozen binder list of scripts/c3/C4_STATEMENT.lean.txt
+  -- ("P; implicit mctx mref cctx cref w w1; O T hA entryL entryW entry hw; implicit b raw D; hcore hpost")
+  let frozenNames : List String := ["P", "mctx", "mref", "cctx", "cref", "w", "w1", "O", "T", "hA", "entryL", "entryW", "entry", "hw",
+    "b", "raw", "D", "hcore", "hpost"]
+  let frozenImplicit : List String := ["mctx", "mref", "cctx", "cref", "w", "w1", "b", "raw", "D"]
+  unless n1 == frozenNames.length do throwError "C4COMPOSED AUDIT FAILED: {n1} binders, frozen list has {frozenNames.length}"
+  forallTelescope ci.type fun xs _ => do
+    for (x, nm) in xs.toList.zip frozenNames do
+      let u := (← x.fvarId!.getUserName).toString
+      unless u == nm do throwError "C4COMPOSED AUDIT FAILED: binder {u}, frozen {nm}"
+      let bi ← x.fvarId!.getBinderInfo
+      unless (bi == .implicit) == frozenImplicit.contains nm do throwError "C4COMPOSED AUDIT FAILED: binder {nm} info {repr bi}"
+    -- and the binder TYPES agree pairwise with the frozen statement's
+    forallTelescope fv fun ys _ => do
+      for (x, y) in xs.toList.zip ys.toList do
+        unless ← isDefEq (← inferType x) (← inferType y) do throwError "C4COMPOSED AUDIT FAILED: binder type of {← x.fvarId!.getUserName} differs"
+  logInfo m!"C4COMPOSED|binders ok: all {n1} binders equal the frozen list (names, binder info, types)"
   for n in [``hcomposed_of_class, ``memSharedLeaf_ships, ``topshareM_ships] do
     let axs ← Lean.collectAxioms n
     for x in axs do
