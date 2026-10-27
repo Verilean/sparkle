@@ -25,6 +25,7 @@ open Tools.ShippingMachineAuto Tools.ShippingMachineDepth
 open Tools.ShippingHierOpen Tools.ShippingHierState Tools.ShippingHierStateG Tools.ShippingHierOptRun
 open Tools.ShippingMachineShipsHier Tools.ShippingMachineShipsDepth
 open Tools.ShippingSeqOptSoundness (seedIn)
+open Tools.ShippingMixedSourceBridge
 open Tools.ShippingDesignSV Tools.ShippingDesignSVBounds
 open Tests.Compiler.CDef
 
