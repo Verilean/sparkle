@@ -80,3 +80,51 @@ Command shape:
 - G3 remains an exact-gap settlement (bridges OPEN).
 - No new theorem, no CI, no production change.
 - No merge into poc without explicit user approval after review.
+
+## Build evidence (source head 7c70632c; recorded in a later docs-only commit)
+All builds below ran at source head 7c70632caa90ec74f065eb841c661b06dccb3ba7. For each job, `kjob result` reports:
+- head = base_head = source_head = end_head = 7c70632c;
+- dirty false, ancestry_verified true, candidate_commits [];
+- issue sparkle-int-c45-poc, runner da50a69b.
+
+This evidence section is a later docs-only commit. Its SHA is not the build head.
+
+| job | node | exit | lake jobs | failing target |
+|---|---|---|---|---|
+| c45-all-7c70632c | mkvs-dell | 0 | 1687 | - |
+| c45-x00-7c70632c | mkvs-macpro | 0 | 1880 | - |
+| c45-x01-7c70632c | hayabusa | 1 | (1009) | `Tests.Compiler.KeccakSpongeStepProbe` only |
+| c45-x02-7c70632c | mkvs-dell | 0 | 1103 | - |
+| c45-x03-7c70632c | mkvs-macpro | 1 | (1768) | `Tests.Compiler.SingleOutStaleProbe` only |
+| c45-x04-7c70632c | hayabusa | 0 | 996 | - |
+| c45-x05-7c70632c | mkvs-dell | 0 | 1002 | - |
+| c45-x06-7c70632c | mkvs-macpro | 0 | 1025 | - |
+| c45-x07-7c70632c | hayabusa | 0 | 611 | - |
+| c45-x08-7c70632c | mkvs-dell | 0 | 712 | - |
+| c45-x09-7c70632c | mkvs-macpro | 0 | 963 | - |
+
+`Tests.AllTests` and 392 of the 394 extra targets pass. Each of the two failing jobs has exactly one `✖` line, for the
+target named above.
+
+### Failure classification (base comparison at 0054b6b2)
+Both base builds ran at 0054b6b2 in the detached worktree ~/git/.kjob/c45-base, with head = base = end = 0054b6b2, dirty
+false and runner da50a69b. Both probe files are byte-unchanged between 0054b6b2 and 7c70632c.
+- **`Tests.Compiler.KeccakSpongeStepProbe`:** `c45-base-keccak-0054b6b2` exits 1 with the same error lines as x01:
+  - a Type mismatch at 632:2;
+  - unexpected token 'needs' at 632:85;
+  - elaboration functions not implemented at 719/725.
+  
+  It is a baseline non-pass.
+- **`Tests.Compiler.SingleOutStaleProbe`:** `c45-base-sostale-0054b6b2` exits 1 with the same error as x03:
+  `107:0: SINGLEOUT: the two modules are EQUAL — the prediction is wrong (DetN is not refuted by this mechanism)`.
+  It is a baseline non-pass.
+
+Neither failure is introduced by the integration. Both are counted as non-passes, not passes.
+
+### Whitespace note (not a target failure)
+`git diff --check 0054b6b2 7c70632c` reports trailing-whitespace lines. All of them are inherited from the accepted
+a942e6ac: `git diff --check a942e6ac 7c70632c` is empty. This is a hygiene note only and is unrelated to the two
+probe failures above.
+
+### Status
+Ready for review. No merge into poc and no push without explicit user approval. No CI claim.
