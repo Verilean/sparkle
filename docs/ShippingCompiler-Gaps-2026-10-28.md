@@ -19,6 +19,7 @@ This refreshes the status of docs/ShippingCompiler-GeneralTheorem-Audit.md §0/�
 | TRUSTED | trusted by design |
 | CONTRACT | premise by design |
 | MEASURED | observed on named declarations, not proved |
+| UNMEASURED | no measurement exists |
 
 The baseline column uses only declarations in db931dd4. Accepted work outside poc is listed in its own column and does
 not change the baseline status.
@@ -60,22 +61,44 @@ stream, every `T'` and every start state satisfying the input conditions, `runMo
 children from `D.modules` produces `T'` environments whose outputs equal the source. This is an IR-level conclusion. It is
 not `DesignSV` and not text.
 
-| binder / antecedent | kind | gap(s) | baseline status | evidence |
-|---|---|---|---|---|
-| `P` | CLASS-SCOPE | G8, G6 | CONTRACT (class member). Membership of a source is shown only for `P_M`/`P_Q`, each taking `hgrp` | `P_M` (Tests/Compiler/CDefTest.lean, DECL), `P_Q` (Tests/Compiler/QDefTest.lean, DECL); scripts/c3/C_CLASS.md:50-55 (TEXT, `group` = structural class assumption) |
-| `O : RefLawsAOps MkRefd mref cref` | CONTRACT-runtime | G5 | CONTRACT; runtime fit and satisfiability OPEN | `RefLawsAOps` (Tools/ShippingChildInvA.lean, DECL), `MkRefd` (Tools/ShippingChildFresh.lean, DECL); docs/parallel/open-items-by-kind.md:30-39 (TEXT) |
-| `T : RefLawsATele O.quiet mref cref` | CONTRACT-runtime | G5 | CONTRACT; an added boundary, unproved | `RefLawsATele` (Tools/ShippingChildInvA.lean, DECL); docs/parallel/main-theorem-connection.md:39 (TEXT) |
-| `hA : AdmCtx O.quiet mctx cctx` | CONTRACT-runtime | G5 | CONTRACT. The command start is PROVED only for the plain meta context; the link to the actual entry is "a reading, not a theorem" | `AdmCtx` (Tools/ShippingChildInvA.lean, DECL), `mkMetaContext_canUnfold` (Tools/ShippingStartWorldA.lean, DECL); main-theorem-connection.md:40 (TEXT) |
-| `entryL`, `entryW`, `entry : MachineDefines …` | CONTRACT-reflection | G3 | CONTRACT; checked per declaration by generated `rfl`s, not proved for all declarations | `MachineDefines` (Tools/ShippingMachineEntry.lean, DECL); open-items-by-kind.md §2 (TEXT); TrustBase.md:1662-1677 (TEXT) |
-| `hw : JQC O 0 w` | CONTRACT-runtime | G5 | CONTRACT (start-world invariant) | `JQC` (Tools/ShippingChildCacheA.lean, DECL) |
-| `hcore : RunsTo (synthesizeCombinationalCore …)` | RUN | no G row | CONTRACT. The theorem is about a successful run; no theorem claims one exists. *Rationale:* a correctness statement of the form "if the compiler returns, the output is right" (Audit §1; open-items-by-kind §5; main-theorem-connection.md:44) | open-items-by-kind.md §5 (TEXT) |
-| `hpost` (zero-width drop, optional `mergeChecked`) | RUN | no G row | CONTRACT. It names the two post-processing results the compiler can return. *Rationale:* it describes what the compiler did; it is not an assumption about the input | scripts/c3/C4_STATEMENT.lean.txt (TEXT, binder list) |
-| inner `SourceInputs …` | INPUT-CONDITION | G3 | CONTRACT. It relates the streams to the source's inputs through the reflected binders | C4_STATEMENT.lean.txt "input conditions (premises by design)" (TEXT) |
-| inner regs-pass, `hinit` (start = slot inits), `hstX` | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* they state the environment's start state (registers at their declared init, unconstrained wires fitting their widths), as recorded in the C4_STATEMENT comment and the GAP_MAP hstR row | C4_STATEMENT.lean.txt; scripts/c3/GAP_MAP.md hstR row (TEXT) |
-| inner `rst = 0`, `clk = 0` | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* a clock/reset convention of the IR semantics (SRM29B, clk/rst-aware input fit) | scripts/c3/GAP_MAP.md "input conditions" row (TEXT) |
-| inner `ResetNk 2 raw D kids` | INPUT-CONDITION | G4 (depth fixed at 2), G8 | CONTRACT. It is the start state of a two-level instance tree. The depth 2 is part of the class (C4/C5 fix `KSn 2`) | scripts/c3/GAP_MAP.md "ResetNk 2" (TEXT) |
-| inner `hinsFit` (inputs fit their widths) | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* an environment assumption on input values, as in the GAP_MAP input-conditions row | scripts/c3/GAP_MAP.md (TEXT) |
-| conclusion level: IR `runModuleTG` on `checkedOptimize b` | (scope of the conclusion) | G7, G1 | Below the conclusion, the steps to the design objects and then to the printed text are not part of C4/C5 | scripts/c3/GAP_MAP.md "Not in C4's endpoint scope" (TEXT) |
+One row per binder or antecedent of the frozen telescope (scripts/c3/C4_STATEMENT.lean.txt; scripts/c5/C5_STATEMENT.lean.txt,
+whose binder list is "IDENTICAL to C4's"). The C4 / C5 column gives the type where the two differ. Existential witnesses of the
+conclusion (`ids`, `cache`, `regs`) are outputs, not binders, and are not listed.
+
+| # | binder / antecedent | C4 type / C5 type | kind | gap(s) | baseline status | evidence |
+|---|---|---|---|---|---|---|
+| 1 | `P` | `MemSharedLeafParent` / `QSharedLeafParent` | CLASS-SCOPE | G8, G6 | CONTRACT (class member); members shown: `P_M`, `P_Q`, each CONDITIONAL on `hgrp` (G8 row) | `Tests.Compiler.CDef.P_M`, `Tests.Compiler.QDef.P_Q` (DECL); scripts/c3/C_CLASS.md:50-55 (TEXT) |
+| 2 | `{mctx : Meta.Context}` | same | CONTRACT-runtime | G5 | universally quantified; constrained only by `hA` (#10) | C4_STATEMENT.lean.txt binder list (TEXT) |
+| 3 | `{mref : ST.Ref … Meta.State}` | same | CONTRACT-runtime | G5 | universally quantified; constrained by `O`, `T` (#8, #9) | as #2 |
+| 4 | `{cctx : Core.Context}` | same | CONTRACT-runtime | G5 | universally quantified; constrained by `hA` | as #2 |
+| 5 | `{cref : ST.Ref … Core.State}` | same | CONTRACT-runtime | G5 | universally quantified; constrained by `O`, `T` | as #2 |
+| 6 | `{w : Void IO.RealWorld}` | same | CONTRACT-runtime | G5 | start world; constrained by `hw` (#14) | as #2 |
+| 7 | `{w1 : Void IO.RealWorld}` | same | RUN | no G row | end world of the run `hcore`. *Rationale:* an output of the run, not an assumption; it appears only in `hcore` | as #2 |
+| 8 | `O : RefLawsAOps MkRefd mref cref` | same | CONTRACT-runtime | G5 | CONTRACT; runtime fit and joint satisfiability OPEN | `Tools.ShippingChildInvA.RefLawsAOps`, `Tools.ShippingChildFresh.MkRefd` (DECL); docs/parallel/open-items-by-kind.md:30-39, main-theorem-connection.md:38 (TEXT) |
+| 9 | `T : RefLawsATele O.quiet mref cref` | same | CONTRACT-runtime | G5 | CONTRACT; an added boundary, unproved | `Tools.ShippingChildInvA.RefLawsATele` (DECL); main-theorem-connection.md:39 (TEXT) |
+| 10 | `hA : AdmCtx O.quiet mctx cctx` | same | CONTRACT-runtime | G5 | CONTRACT. PROVED for `Command.mkMetaContext` only; "entry runs there" is a reading, not a theorem | `Tools.ShippingChildInvA.AdmCtx`, `Tools.ShippingStartWorldA.mkMetaContext_canUnfold` (DECL); main-theorem-connection.md:40 (TEXT) |
+| 11 | `entryL : MachineDefines … P.leaf.decl P.leaf.d.shape` | memory-bearing leaf (`LeafPkg`) / PLAIN leaf (`QLeafPkg`) | CONTRACT-reflection | G3 | CONTRACT; validated per declaration by generated `rfl`s, not proved for all declarations. C5 additionally DERIVES the leaf's `MachineCloses` (`hcl_of_class`), so there is no `hcl` binder | `Tools.ShippingMachineEntry.MachineDefines`, `Tests.Compiler.QCloses.hcl_of_class` (DECL); open-items-by-kind.md §2; TrustBase.md:1662-1677; C5_STATEMENT.lean.txt:6-9 (TEXT) |
+| 12 | `entryW : ∀ wp ∈ P.wrappers, MachineDefines … wp.decl wp.d.shape` | wrappers of the M class / `QWrapper P.leaf` (`.decl`/`.d` abbrevs of `pkg`) | CONTRACT-reflection | G3 | as #11 (no `MachineCloses` part) | as #11; C5_STATEMENT.lean.txt:8 (TEXT) |
+| 13 | `entry : MachineDefines … P.top.decl P.top.d.shape` | same | CONTRACT-reflection | G3 | as #11 | as #11 |
+| 14 | `hw : JQC O 0 w` | same | CONTRACT-runtime | G5 | CONTRACT (start-world invariant at depth 0) | `Tools.ShippingChildCacheA.JQC` (DECL); main-theorem-connection.md:41 (TEXT) |
+| 15 | `{b : Module}` | same | RUN | no G row | the shipped module, fixed by `hpost` (#19). *Rationale:* named output of the run | C4_STATEMENT.lean.txt (TEXT) |
+| 16 | `{raw : Module}` | same | RUN | no G row | the core result, fixed by `hcore` | as #15 |
+| 17 | `{D : Design}` | same | RUN | no G row | the children's design, fixed by `hcore` | as #15 |
+| 18 | `hcore : RunsTo (synthesizeCombinationalCore P.top.decl [] false) … w (raw, D) w1` | same | RUN | no G row | CONTRACT. *Rationale:* a correctness statement of the form "if the compiler returns, the output is right"; no theorem claims a successful run exists | Audit §1; open-items-by-kind.md §5; main-theorem-connection.md:44; scripts/c3/GAP_MAP.md:16 "hcore, hpost, entry \| the run \| CONTRACT (the one actual run)" (TEXT) |
+| 19 | `hpost : b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw)` | same | RUN (post-processing) | no G row | CONTRACT. *Rationale:* this is the boundary between the theorem's run and what is shipped. The compiler's entries post-process the core result by `dropZeroWidthModule` and, in the full entry, `mergeChecked` (Sparkle/Compiler/Elab.lean:5600-5606, which is kept only if `refineCheck` accepts it). `hpost` names which of those two returned modules is `b`; it assumes nothing about the input | design record: C4_STATEMENT.lean.txt comment "the ONE actual compiler run and its post-processing"; scripts/c3/GAP_MAP.md:16; TrustBase.md:1029-1032 (`mergeChecked` checked by `refineCheck`) (TEXT) |
+| 20 | `∀ i : Unit` | same | INPUT-CONDITION | no G row | the domain index (`dom := fun _ => defaultDomain`). *Rationale:* a quantified variable, not an assumption | C4_STATEMENT.lean.txt header (TEXT) |
+| 21 | `∀ bools bits` (typed input streams) | same | INPUT-CONDITION | no G row | universally quantified. *Rationale:* every input stream | as #20 |
+| 22 | `∀ T'` | same | INPUT-CONDITION | no G row | universally quantified length | as #20 |
+| 23 | `∀ ins st0 mems kids` | same | INPUT-CONDITION | no G row | universally quantified IR environment; constrained by #24-#31 | as #20 |
+| 24 | `SourceInputs P.top.decl (P.top.d.bsIn.take P.nDecl) ids cache …` | same | INPUT-CONDITION | G3 | CONTRACT. It relates the streams to the reflected binders `ids` | C4_STATEMENT.lean.txt "input conditions (premises by design)" (TEXT) |
+| 25 | regs pass: `∀ t st r, r ∈ regs → seedIn b ins t st r = st r` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* the environment carries register state through `seedIn` (start-state convention) | C4_STATEMENT.lean.txt; scripts/c3/GAP_MAP.md:16-19 "input conditions" (TEXT) |
+| 26 | `∀ t, ins t "rst" = 0` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* reset held low, a clock/reset convention of the IR semantics (clk/rst-aware input fit, SRM29B) | scripts/c3/GAP_MAP.md "input conditions" row (TEXT) |
+| 27 | `∀ t st, seedIn b ins t st "clk" = 0` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* the clock wire convention, as #26 | as #26 |
+| 28 | `hinit`: `regs[k]? = some r → slots[k]? = some f → st0 r = f.init` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* registers start at their declared init. This replaced the removed `hstR` (C2) | scripts/c3/GAP_MAP.md hstR row (TEXT) |
+| 29 | `ResetNk 2 raw D kids` | same | INPUT-CONDITION | G4, G8 | CONTRACT. The start state of a two-level instance tree; depth 2 is fixed by the class (`KSn 2`) | scripts/c3/GAP_MAP.md "ResetNk 2" (TEXT) |
+| 30 | `hinsFit`: `x ∈ b.inputs → ins t x < 2 ^ declWidth b x` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* input values fit their declared widths, an environment assumption | scripts/c3/GAP_MAP.md "hinsFit clk/rst-aware (SRM29B)" (TEXT) |
+| 31 | `hstX`: open inputs not driven by an instance fit their widths at start | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* start values of undriven wires fit their widths | C4_STATEMENT.lean.txt inner antecedent list (TEXT) |
+| — | conclusion level: IR `runModuleTG` on `checkedOptimize b` | same | (scope of the conclusion) | G7, G1 | below the conclusion; the steps to `DesignSV` objects and then to the printed text are not part of C4/C5 | scripts/c3/GAP_MAP.md:35 "Not in C4's endpoint scope" (TEXT) |
 
 **Not binders any more, derived inside C4/C5 (PROVED within the class):**
 - `hierGate`, through `core_hierGate_anyAM` (Tools/ShippingSrm4Core2.lean, DECL).
@@ -96,7 +119,7 @@ not `DesignSV` and not text.
 | **G6** final statement shape | no quantified Lean statement | **CLASS-generic statements PROVED** (C4, C5: ∀ P in the class, ∀ inputs/T'); **OPEN as a statement over every source.** No Lean def quantifies over every accepted source | `memSharedLeaf_ships`, `FrozenC4` (C4ComposedTest.lean, DECL); `qSharedLeaf_ships` (QFinalTest.lean, DECL), `FrozenC5` (QDefTest.lean, DECL); main-theorem-connection.md:44 (TEXT) | — | an every-source statement; a unified M+Q class (reviewer note on sparkle-gen 2026-10-28: a separate, unsatisfied scope) | they ARE the current form |
 | **G7** printer | trusted by design | **TRUSTED:** forward simulation to the emitted design objects is PROVED for the `_sat` endpoints; the printed bytes are trusted; parse-back is validation only | `writer_prints_endpoint_artifact` (Tools/ShippingDesignWriterRun.lean, DECL); TrustBase.md:1635-1659 (TEXT); open-items-by-kind.md §4 (TEXT) | — | the printer; **for C4/C5 additionally** the step from the IR conclusion (`runModuleTG`) to `DesignSV` objects | yes, below their conclusion |
 | **N1** name separation | done for generated closings; open in general (`Name.toString` not injective) | **PROVED for compiler module names** (an injective `ofDecl` encoding used by the compiler). **OPEN:** output port vs `inst{k}_…` names (`hfresh` stays), arbitrary strings, shared descendants | `ofDecl_injective`, `decode_encode` (Tools/ShippingModuleName.lean, DECL); `ofDecl` (Sparkle/IR/ModuleName.lean, DECL); docs/parallel/B-name-discharge.md:62, rows 11/13 (TEXT) | — | `hfresh`; shared descendants (`mixDeep`) | no name binder in C4/C5 |
-| **G8 (new)** class coverage | — | **MEASURED, for two instances:** `P_M` (topshareM) and `P_Q` (topshareQ), each CONDITIONAL on `hgrp : TmGrp`/`TqGrp` (`group` is a structural class assumption; no proof of `TmGrp`/`TqGrp` in poc). No measurement of how many compiler-accepted sources are members. `P_Q` is not an M member | `P_M`, `MemSharedLeafParent` (CDefTest.lean, DECL); `P_Q`, `QSharedLeafParent` (QDefTest.lean, DECL); `TmGrp` (Tests/Compiler/Srm9ComposedTest.lean, DECL); `TqGrp` (Tests/Compiler/Srm4ComposedQTest.lean, DECL); scripts/c3/C_CLASS.md:50-55, :99-104 (TEXT) | — | deriving `group` (G-GRP-DERIVE, optional); a corpus membership measurement; classes for other shapes (main-theorem-connection.md:48 "class generalisation … OPEN (L8s)", TEXT); one unified class | **yes:** `P` |
+| **G8 (new)** class coverage | — | **Two instances: membership CONDITIONAL, by proof.** `P_M` (topshareM) and `P_Q` (topshareQ) are constructed as class members under `hgrp : TmGrp` / `TqGrp`. `group` is a structural class assumption, and no proof of `TmGrp`/`TqGrp` is in poc. **Corpus coverage: UNMEASURED.** No record measures how many compiler-accepted sources are members (corpus "not re-measured", open-items-by-kind.md:58). `P_Q` is not an M member, so there is no unified class | `Tests.Compiler.CDef.P_M`, `Tests.Compiler.CDef.MemSharedLeafParent`, `Tests.Compiler.QDef.P_Q`, `Tests.Compiler.QDef.QSharedLeafParent`, `Tests.Compiler.Srm9ComposedTest.TmGrp`, `Tests.Compiler.SharedLeafMemKidIfaceTest.TqGrp` (DECL); scripts/c3/C_CLASS.md:50-55, :99-104 (TEXT) | — | proofs of `TmGrp`/`TqGrp` or deriving `group` (G-GRP-DERIVE, optional); a corpus membership measurement; classes for other shapes (main-theorem-connection.md:48 "class generalisation … OPEN (L8s)", TEXT); one unified class | **yes:** `P` |
 
 ### Corrections (sources that disagree; the later reviewed record wins)
 1. **The freeze "Why" (scripts/gaps/GAP_TABLE_FREEZE.md:14) says the G3 exact-gap settlement has landed in poc. It has
@@ -136,8 +159,73 @@ not `DesignSV` and not text.
 - scripts/int/C45_POC_MANIFEST.md;
 - manager notes of sparkle-gen, sparkle-gen-c4, sparkle-gen-c5-qshape and sparkle-g3.
 
-**Evidence check:** a declaration-aware check (freeze Amendment 3) ran over every DECL above:
-- **Source:** `git show db931dd4:<path>` for each cited file.
-- **Comment stripping:** block comments and docstrings were removed, then line comments.
-- **Header match:** a declaration header regex with optional namespace prefix.
-- **Result:** 53 DECL pairs, 53 found, 0 missing (0 GENERATED cited). TEXT citations were each opened at the cited line(s) at db931dd4 by the author. Command: `declcheck.py REPO db931dd4 pairs.tsv` (script and pair list in the review note, not committed).
+**Evidence check (rev2, namespace-aware):** the declaration-aware check of freeze Amendment 3 ran over every DECL cited above.
+- **Source:** `git show db931dd4:<path>`, with block comments and docstrings removed, then line comments.
+- **Scope tracking:** `namespace N`, `section` and `mutual` push onto a scope stack, and `end` pops one entry.
+- **Qualified names:** each declaration header's identifier is qualified with the open namespaces, or taken verbatim after
+  `_root_.`.
+- **Match rule:** a pair passes only if its EXACT fully-qualified name is declared in the cited file. Short names and other
+  namespaces do not match. Negative test: `memSharedLeaf_ships` and `Tests.Compiler.QDef.memSharedLeaf_ships` at
+  C4ComposedTest.lean both report MISSING.
+- **Result:** 53 DECL pairs, 53 found, 0 missing, and 0 GENERATED cited. Each short name in §1/§2 resolved to exactly one
+  declaration in its file.
+- **TEXT citations:** each was opened at the cited line(s) at db931dd4.
+- The script and pair list are in the review note and are not committed.
+
+The table below is the exact pair list. A short name in §1/§2 refers to the entry below with the same last component and file.
+
+| # | fully-qualified declaration | file |
+|---|---|---|
+| 1 | `Tests.Compiler.C4Composed.memSharedLeaf_ships` | Tests/Compiler/C4ComposedTest.lean |
+| 2 | `Tests.Compiler.C4Composed.FrozenC4` | Tests/Compiler/C4ComposedTest.lean |
+| 3 | `Tests.Compiler.CDef.MemSharedLeafParent` | Tests/Compiler/CDefTest.lean |
+| 4 | `Tests.Compiler.C4Final.topshareM_hierC_of_class` | Tests/Compiler/C4FinalTest.lean |
+| 5 | `Tests.Compiler.QFinal.qSharedLeaf_ships` | Tests/Compiler/QFinalTest.lean |
+| 6 | `Tests.Compiler.QDef.FrozenC5` | Tests/Compiler/QDefTest.lean |
+| 7 | `Tests.Compiler.QDef.QSharedLeafParent` | Tests/Compiler/QDefTest.lean |
+| 8 | `Tests.Compiler.QFinal.topshareQ_hierC_of_class` | Tests/Compiler/QFinalTest.lean |
+| 9 | `Tests.Compiler.QCloses.hcl_of_class` | Tests/Compiler/QClosesTest.lean |
+| 10 | `Tools.ShippingMachineClosesData.closes_of_data` | Tools/ShippingMachineClosesData.lean |
+| 11 | `Tools.ShippingSrm33.machine_ships_hierC_noHstR` | Tools/ShippingSrm33Core.lean |
+| 12 | `Tests.Compiler.CDef.P_M` | Tests/Compiler/CDefTest.lean |
+| 13 | `Tests.Compiler.QDef.P_Q` | Tests/Compiler/QDefTest.lean |
+| 14 | `Tools.ShippingChildInvA.RefLawsAOps` | Tools/ShippingChildInvA.lean |
+| 15 | `Tools.ShippingChildFresh.MkRefd` | Tools/ShippingChildFresh.lean |
+| 16 | `Tools.ShippingChildInvA.RefLawsATele` | Tools/ShippingChildInvA.lean |
+| 17 | `Tools.ShippingChildInvA.AdmCtx` | Tools/ShippingChildInvA.lean |
+| 18 | `Tools.ShippingStartWorldA.mkMetaContext_canUnfold` | Tools/ShippingStartWorldA.lean |
+| 19 | `Tools.ShippingMachineEntry.MachineDefines` | Tools/ShippingMachineEntry.lean |
+| 20 | `Tools.ShippingChildCacheA.JQC` | Tools/ShippingChildCacheA.lean |
+| 21 | `Tools.ShippingSrm4Core2.core_hierGate_anyAM` | Tools/ShippingSrm4Core2.lean |
+| 22 | `Tests.Compiler.C4Ships.kidsMasked_of_class` | Tests/Compiler/C4ShipsTest.lean |
+| 23 | `Tests.Compiler.QShips.kidsMasked_of_class` | Tests/Compiler/QShipsTest.lean |
+| 24 | `Tools.ShippingSrm4Parent.kidsNC_maskedN` | Tools/ShippingSrm4Parent.lean |
+| 25 | `Tools.ShippingSrm4Parent.kidsNC_runFacts` | Tools/ShippingSrm4Parent.lean |
+| 26 | `Tools.ShippingSrm4Parent.kidsNC_designCheck_of_kidsPass` | Tools/ShippingSrm4Parent.lean |
+| 27 | `Tools.ShippingChecksDerived.leaf_run_outsCheck` | Tools/ShippingChecksDerived.lean |
+| 28 | `Tools.ShippingChecksDerived.leaf_run_kids` | Tools/ShippingChecksDerived.lean |
+| 29 | `Tools.ShippingLegacySem.legacy_translate_contract` | Tools/ShippingLegacySemContract.lean |
+| 30 | `Tools.ShippingLegacySem.proj_entry_output` | Tools/ShippingLegacySemProj.lean |
+| 31 | `Tools.ShippingLegacySem.tuple_entry_output` | Tools/ShippingLegacySemTupleEntry.lean |
+| 32 | `Tools.ShippingChildLegacyTailA.legacyTailA_generic` | Tools/ShippingChildLegacyTailA.lean |
+| 33 | `Tools.ShippingReaderTerm.readTerm_sound` | Tools/ShippingReaderTerm.lean |
+| 34 | `Tools.ShippingReaderNodes2.readTerm2_sound` | Tools/ShippingReaderNodes2.lean |
+| 35 | `Tools.ShippingReaderComplete.readTerm_quote` | Tools/ShippingReaderComplete.lean |
+| 36 | `Tools.ShippingReaderFuel.eval_iff` | Tools/ShippingReaderFuelEval.lean |
+| 37 | `Tools.ShippingReaderFuel.driveShape_complete` | Tools/ShippingReaderFuelDriverComplete.lean |
+| 38 | `Tools.ReaderFuelGeneric.fixpoint_not_complete` | Tools/ReaderFuelGeneric.lean |
+| 39 | `Tools.ShippingSrm22Width.SourceRegsKept` | Tools/ShippingSrm22Width.lean |
+| 40 | `Tools.ShippingChildTranslateA.fuelFix_of` | Tools/ShippingChildTranslateA.lean |
+| 41 | `Tools.ShippingReaderFuel.fuel_mono` | Tools/ShippingReaderFuelKleene.lean |
+| 42 | `Tools.ShippingChildInvA.InertUnfold` | Tools/ShippingChildInvA.lean |
+| 43 | `Tools.ShippingChildInvA.FramedA` | Tools/ShippingChildInvA.lean |
+| 44 | `Tools.ShippingChildInvA.RefLawsCore.toAOps` | Tools/ShippingChildInvA.lean |
+| 45 | `Tools.ShippingOkMsgGoal.not_okMsg_of_hasGoal` | Tools/ShippingOkMsgGoal.lean |
+| 46 | `Tools.ShippingHeapModel.heapLaws_sat` | Tools/ShippingHeapModel.lean |
+| 47 | `Tools.ShippingHeapProvenance.allocIn_ne_valid` | Tools/ShippingHeapProvenance.lean |
+| 48 | `Tools.ShippingDesignWriterRun.writer_prints_endpoint_artifact` | Tools/ShippingDesignWriterRun.lean |
+| 49 | `Tools.ShippingModuleName.ofDecl_injective` | Tools/ShippingModuleName.lean |
+| 50 | `Tools.ShippingModuleName.decode_encode` | Tools/ShippingModuleName.lean |
+| 51 | `Sparkle.IR.ModuleName.ofDecl` | Sparkle/IR/ModuleName.lean |
+| 52 | `Tests.Compiler.Srm9ComposedTest.TmGrp` | Tests/Compiler/Srm9ComposedTest.lean |
+| 53 | `Tests.Compiler.SharedLeafMemKidIfaceTest.TqGrp` | Tests/Compiler/Srm4ComposedQTest.lean |
