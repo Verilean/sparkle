@@ -82,10 +82,13 @@ Command shape:
 - No merge into poc without explicit user approval after review.
 
 ## Build evidence (source head 7c70632c; recorded in a later docs-only commit)
-All builds below ran at source head 7c70632caa90ec74f065eb841c661b06dccb3ba7. For each job, `kjob result` reports:
-- head = base_head = source_head = end_head = 7c70632c;
-- dirty false, ancestry_verified true, candidate_commits [];
-- issue sparkle-int-c45-poc, runner da50a69b.
+All builds below used the snapshot of source head 7c70632caa90ec74f065eb841c661b06dccb3ba7.
+- **Immutable job metadata (`kjob result`):** head = base_head = source_head = 7c70632c, dirty false, issue
+  sparkle-int-c45-poc, runner da50a69b.
+- **Observed when the runs finished, before this docs commit:** end_head = 7c70632c and candidate_commits [].
+- **After this docs commit:** a fresh `kjob result` reports the branch's current end. It shows end_head = the docs commit
+  and lists the docs commit in candidate_commits. That is the post-run branch state, not a build input. The immutable
+  head/base/source_head stay 7c70632c, and dirty stays false.
 
 This evidence section is a later docs-only commit. Its SHA is not the build head.
 
@@ -113,7 +116,7 @@ false and runner da50a69b. Both probe files are byte-unchanged between 0054b6b2 
   - a Type mismatch at 632:2;
   - unexpected token 'needs' at 632:85;
   - elaboration functions not implemented at 719/725.
-  
+
   It is a baseline non-pass.
 - **`Tests.Compiler.SingleOutStaleProbe`:** `c45-base-sostale-0054b6b2` exits 1 with the same error as x03:
   `107:0: SINGLEOUT: the two modules are EQUAL — the prediction is wrong (DetN is not refuted by this mechanism)`.
