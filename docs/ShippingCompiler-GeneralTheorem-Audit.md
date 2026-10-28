@@ -8,6 +8,8 @@ here as G-items.
 
 ## 0. Current status (2026-10-12)
 
+**Current status (2026-10-28, poc db931dd4): see `docs/ShippingCompiler-Gaps-2026-10-28.md`.** This section is kept as the 2026-10-12 history.
+
 Verification record: snapshot `32c10fda`, `Tests.AllTests` green (every Lean / lake
 run under the cgroup runner, 3 GiB cap, one job; the closing test module
 peaks at 2.18 GiB since the name-separation checks are kernel-decided).
