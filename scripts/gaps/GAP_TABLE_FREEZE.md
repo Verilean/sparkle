@@ -23,14 +23,27 @@ unconditional "every accepted source compiles correctly" statement.
      (scripts/c3/C4_STATEMENT.lean.txt, scripts/c5/C5_STATEMENT.lean.txt). The columns are:
      - binder;
      - kind (CONTRACT-runtime / CONTRACT-reflection / RUN / INPUT-CONDITION / CLASS-SCOPE);
-     - the gap ID it rests on;
-     - whether it is proved, discharged or open in poc, with evidence.
+     - gap ID(s);
+     - baseline status at db931dd4;
+     - evidence.
+
+     **Amendment 1 (review 71b1dbc9): the mapping is many-to-many.**
+     - A binder may rest on several gaps. For example, `O`/`T`/`hA` rest on G5, and `O` also rests on the
+       runtime-fit part of G5 and on G6.
+     - A gap may be cited by several binders.
+     - A binder may have NO G row: an explicit boundary or input premise kept by design. Examples are the input
+       conditions `rst = 0`, `clk = 0`, `hinsFit` and `ResetNk 2`, and `hpost`.
+     - Such a row reads "no G row" and gives a one-line rationale: why it is a premise of the statement's form
+       (an environment assumption) rather than a gap, and where that design choice is recorded (C_CLASS/C4_STATEMENT
+       comment, TrustBase or Audit §1).
+     - A row is never left blank.
    - §2 The gap table: one row per gap G1–G7 and N1, plus one new row G8 = class coverage (see the ID rules). The columns
      are:
      - gap;
      - the 2026-10-12 status, quoted from Audit §0/§7;
-     - the status at db931dd4;
-     - evidence (theorem name + file + accepted SHA/job);
+     - the baseline status at db931dd4;
+     - evidence in poc (theorem name + file + accepted SHA/job);
+     - accepted work outside poc (branch + SHA + review record), in a separate column;
      - what remains open, stated as a Prop or a named premise;
      - whether C4/C5 depend on it.
    - §3 Not claimed: no CI, no production, no completion of any G row unless the row says PROVED with evidence; the `_sat`
@@ -59,9 +72,28 @@ unconditional "every accepted source compiles correctly" statement.
     needed for this route").
 
 ## Evidence rules
-- Every name cited as PROVED must exist at db931dd4. It is checked mechanically: the declaration name is grepped at the
-  cited file at db931dd4, and the check is recorded in §4 as a command and its output count. An accepted unit not in poc is
-  cited by its branch and SHA and marked "not in poc".
+- **Amendment 2 (review 71b1dbc9): baseline vs outside-poc.**
+  - The baseline status column is decided only from declarations present in db931dd4.
+  - Accepted work outside poc goes only in the separate "accepted outside poc" column, with branch, SHA and review
+    record. That includes the kjob/* and par/* branches not merged into db931dd4.
+  - Such work never upgrades the baseline status. A row whose only proof is outside poc reads OPEN (or CONDITIONAL)
+    at baseline, with the external work noted beside it.
+- **Amendment 3 (review 71b1dbc9): declaration-aware name check.** Every name cited as PROVED or CONDITIONAL at baseline
+  is checked at db931dd4 on the cited source path, as a DECLARATION, not as free text:
+  - The source is `git show db931dd4:<path>`.
+  - Block comments `/- … -/` (docstrings included) and line comments `-- …` are stripped first.
+  - The name must then appear as the declared identifier on a header matching
+    `^\s*(@\[[^\]]*\]\s*)*((private|protected|noncomputable|partial|unsafe|nonrec)\s+)*(theorem|lemma|def|abbrev|instance|structure|class|inductive|opaque|axiom)\s+<name>\b`.
+    The last component of the name is matched inside the file's `namespace` blocks; a fully qualified header is also
+    accepted.
+  - **Generated declarations** have no textual header in the file, for example those produced by `#machine_endpoint`,
+    `#machine_linked` and similar commands. They are labelled GENERATED. They are paired with the command line at the
+    cited path (checked the same way, comment-stripped) and with a build job at an accepted SHA whose elaboration of
+    that file succeeded. They are not reported as textually checked declarations.
+  - Each §2/§1 evidence cell states which check applies: DECL (header found), GENERATED (command + job), or TEXT. TEXT is
+    only for non-Lean records, such as a docs record or a review note, and is paired with the reviewed record's
+    location.
+  - §4 records the script command and the counts per class. The required result is 0 missing among DECL and GENERATED.
 - **Status words:** PROVED (kernel theorem, standard axioms, built), CONDITIONAL (proved relative to named premises,
   which are listed), OPEN, REFUTED (counterexample reproduced, with probe and job), TRUSTED (by design, in the TrustBase
   section), CONTRACT (premise by design).
@@ -80,8 +112,9 @@ unconditional "every accepted source compiles correctly" statement.
   Nothing is claimed from memory or from job names alone.
 
 ## Verification of the docs commit
-- **Evidence grep:** a script lists every `name @ file` pair cited as PROVED/CONDITIONAL and greps it at db931dd4; the
-  result must be 0 missing. The script lives in the review note and is not committed.
+- **Evidence check:** the declaration-aware check of Amendment 3 runs over every `name @ file` pair cited as PROVED or
+  CONDITIONAL at baseline. The required result is 0 missing among DECL and GENERATED. The script lives in the review note
+  and is not committed. Its output counts go into §4.
 - `git diff --check db931dd4..HEAD` is clean.
 - The diff touches only `docs/ShippingCompiler-Gaps-2026-10-28.md`, the one-line Audit pointer and this freeze file.
 - No Lean build is needed (no `.lean` change). If the reviewer asks for one, it is an exact-head issue-linked kjob.
