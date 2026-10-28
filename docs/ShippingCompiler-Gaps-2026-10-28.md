@@ -61,7 +61,7 @@ stream, every `T'` and every start state satisfying the input conditions, `runMo
 children from `D.modules` produces `T'` environments whose outputs equal the source. This is an IR-level conclusion. It is
 not `DesignSV` and not text.
 
-One row per binder or antecedent of the frozen telescope (scripts/c3/C4_STATEMENT.lean.txt; scripts/c5/C5_STATEMENT.lean.txt,
+One row per binder or antecedent of the frozen telescope (35 rows) (scripts/c3/C4_STATEMENT.lean.txt; scripts/c5/C5_STATEMENT.lean.txt,
 whose binder list is "IDENTICAL to C4's"). The C4 / C5 column gives the type where the two differ. Existential witnesses of the
 conclusion (`ids`, `cache`, `regs`) are outputs, not binders, and are not listed.
 
@@ -87,17 +87,21 @@ conclusion (`ids`, `cache`, `regs`) are outputs, not binders, and are not listed
 | 18 | `hcore : RunsTo (synthesizeCombinationalCore P.top.decl [] false) … w (raw, D) w1` | same | RUN | no G row | CONTRACT. *Rationale:* a correctness statement of the form "if the compiler returns, the output is right"; no theorem claims a successful run exists | Audit §1; open-items-by-kind.md §5; main-theorem-connection.md:44; scripts/c3/GAP_MAP.md:16 "hcore, hpost, entry \| the run \| CONTRACT (the one actual run)" (TEXT) |
 | 19 | `hpost : b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw)` | same | RUN (post-processing) | no G row | CONTRACT. *Rationale:* this is the boundary between the theorem's run and what is shipped. The compiler's entries post-process the core result by `dropZeroWidthModule` and, in the full entry, `mergeChecked` (Sparkle/Compiler/Elab.lean:5600-5606, which is kept only if `refineCheck` accepts it). `hpost` names which of those two returned modules is `b`; it assumes nothing about the input | design record: C4_STATEMENT.lean.txt comment "the ONE actual compiler run and its post-processing"; scripts/c3/GAP_MAP.md:16; TrustBase.md:1029-1032 (`mergeChecked` checked by `refineCheck`) (TEXT) |
 | 20 | `∀ i : Unit` | same | INPUT-CONDITION | no G row | the domain index (`dom := fun _ => defaultDomain`). *Rationale:* a quantified variable, not an assumption | C4_STATEMENT.lean.txt header (TEXT) |
-| 21 | `∀ bools bits` (typed input streams) | same | INPUT-CONDITION | no G row | universally quantified. *Rationale:* every input stream | as #20 |
-| 22 | `∀ T'` | same | INPUT-CONDITION | no G row | universally quantified length | as #20 |
-| 23 | `∀ ins st0 mems kids` | same | INPUT-CONDITION | no G row | universally quantified IR environment; constrained by #24-#31 | as #20 |
-| 24 | `SourceInputs P.top.decl (P.top.d.bsIn.take P.nDecl) ids cache …` | same | INPUT-CONDITION | G3 | CONTRACT. It relates the streams to the reflected binders `ids` | C4_STATEMENT.lean.txt "input conditions (premises by design)" (TEXT) |
-| 25 | regs pass: `∀ t st r, r ∈ regs → seedIn b ins t st r = st r` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* the environment carries register state through `seedIn` (start-state convention) | C4_STATEMENT.lean.txt; scripts/c3/GAP_MAP.md:16-19 "input conditions" (TEXT) |
-| 26 | `∀ t, ins t "rst" = 0` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* reset held low, a clock/reset convention of the IR semantics (clk/rst-aware input fit, SRM29B) | scripts/c3/GAP_MAP.md "input conditions" row (TEXT) |
-| 27 | `∀ t st, seedIn b ins t st "clk" = 0` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* the clock wire convention, as #26 | as #26 |
-| 28 | `hinit`: `regs[k]? = some r → slots[k]? = some f → st0 r = f.init` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* registers start at their declared init. This replaced the removed `hstR` (C2) | scripts/c3/GAP_MAP.md hstR row (TEXT) |
-| 29 | `ResetNk 2 raw D kids` | same | INPUT-CONDITION | G4, G8 | CONTRACT. The start state of a two-level instance tree; depth 2 is fixed by the class (`KSn 2`) | scripts/c3/GAP_MAP.md "ResetNk 2" (TEXT) |
-| 30 | `hinsFit`: `x ∈ b.inputs → ins t x < 2 ^ declWidth b x` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* input values fit their declared widths, an environment assumption | scripts/c3/GAP_MAP.md "hinsFit clk/rst-aware (SRM29B)" (TEXT) |
-| 31 | `hstX`: open inputs not driven by an instance fit their widths at start | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* start values of undriven wires fit their widths | C4_STATEMENT.lean.txt inner antecedent list (TEXT) |
+| 21 | `∀ bools : Nat → Signal defaultDomain Bool` | same | INPUT-CONDITION | no G row | universally quantified. *Rationale:* every Bool input stream | as #20 |
+| 22 | `∀ bits : (j : Nat) → (n : Nat) → Signal defaultDomain (BitVec n)` | same | INPUT-CONDITION | no G row | universally quantified. *Rationale:* every bit-vector input stream | as #20 |
+| 23 | `∀ T' : Nat` | same | INPUT-CONDITION | no G row | universally quantified length | as #20 |
+| 24 | `∀ ins : Nat → String → Nat` | same | INPUT-CONDITION | no G row | universally quantified: the IR input values per cycle; constrained by #28-#35 | as #20 |
+| 25 | `∀ st0 : String → Nat` | same | INPUT-CONDITION | no G row | universally quantified: the IR start state; constrained by #28-#35 | as #20 |
+| 26 | `∀ mems : MEnv` | same | INPUT-CONDITION | no G row | universally quantified: the start memory contents; constrained by #28-#35 | as #20 |
+| 27 | `∀ kids : String → KT 2` | same | INPUT-CONDITION | no G row | universally quantified: the children's start states; constrained by #28-#35 | as #20 |
+| 28 | `SourceInputs P.top.decl (P.top.d.bsIn.take P.nDecl) ids cache …` | same | INPUT-CONDITION | G3 | CONTRACT. It relates the streams to the reflected binders `ids` | C4_STATEMENT.lean.txt "input conditions (premises by design)" (TEXT) |
+| 29 | regs pass: `∀ t st r, r ∈ regs → seedIn b ins t st r = st r` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* the environment carries register state through `seedIn` (start-state convention) | C4_STATEMENT.lean.txt; scripts/c3/GAP_MAP.md:16-19 "input conditions" (TEXT) |
+| 30 | `∀ t, ins t "rst" = 0` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* reset held low, a clock/reset convention of the IR semantics (clk/rst-aware input fit, SRM29B) | scripts/c3/GAP_MAP.md "input conditions" row (TEXT) |
+| 31 | `∀ t st, seedIn b ins t st "clk" = 0` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* the clock wire convention, as #30 | as #30 |
+| 32 | `hinit`: `regs[k]? = some r → slots[k]? = some f → st0 r = f.init` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* registers start at their declared init. This replaced the removed `hstR` (C2) | scripts/c3/GAP_MAP.md hstR row (TEXT) |
+| 33 | `ResetNk 2 raw D kids` | same | INPUT-CONDITION | G4, G8 | CONTRACT. The start state of a two-level instance tree; depth 2 is fixed by the class (`KSn 2`) | scripts/c3/GAP_MAP.md "ResetNk 2" (TEXT) |
+| 34 | `hinsFit`: `x ∈ b.inputs → ins t x < 2 ^ declWidth b x` | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* input values fit their declared widths, an environment assumption | scripts/c3/GAP_MAP.md "hinsFit clk/rst-aware (SRM29B)" (TEXT) |
+| 35 | `hstX`: open inputs not driven by an instance fit their widths at start | same | INPUT-CONDITION | no G row | CONTRACT. *Rationale:* start values of undriven wires fit their widths | C4_STATEMENT.lean.txt inner antecedent list (TEXT) |
 | — | conclusion level: IR `runModuleTG` on `checkedOptimize b` | same | (scope of the conclusion) | G7, G1 | below the conclusion; the steps to `DesignSV` objects and then to the printed text are not part of C4/C5 | scripts/c3/GAP_MAP.md:35 "Not in C4's endpoint scope" (TEXT) |
 
 **Not binders any more, derived inside C4/C5 (PROVED within the class):**
