@@ -4448,3 +4448,9 @@ lean_lib «Tests.Compiler.QComposedTest» where
 
 lean_lib «Tests.Compiler.QFinalTest» where
   roots := #[`Tests.Compiler.QFinalTest]
+
+lean_lib «Tools.ShippingSharedLeafCensus» where
+  roots := #[`Tools.ShippingSharedLeafCensus]
+
+lean_lib «Tests.Compiler.SharedLeafCensusControlTest» where
+  roots := #[`Tests.Compiler.SharedLeafCensusControlTest]
