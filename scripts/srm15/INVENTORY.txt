@@ -1,0 +1,41 @@
+## (a) binders hgraph/hname/hnameK in the SRM12 generic theorems
+Tools/ShippingSrm12Corr.lean:154: (hname : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res), (originAt d.shape k).child? = none →
+Tools/ShippingSrm12Corr.lean:170: (hname : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res), (originAt d.shape k).child? = none →
+Tools/ShippingSrm12Corr.lean:197: (hgraph : callees g c = some ks) (hf : InstFwd ks m.body) (hb : InstBwd ks m.body) : ModCorr g m := by
+Tools/ShippingSrm12Corr.lean:223: (hgraph : callees g c = some d.shape.instTagged)
+Tools/ShippingSrm12Corr.lean:224: (hname : ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Res), (originAt d.shape k).child? = none →
+Tools/ShippingSrm12Corr.lean:268: (hnameK : ∀ (k : Nat) (hk : k < d.shape.insts.length), (originAt d.shape k).child? = none →
+Tools/ShippingSrm12Corr.lean:271: (hgraph : callees g C = some d.shape.instTagged)
+Tools/ShippingSrm12Corr.lean:294: (hgraph : callees g c = some [])
+
+## (b) where SRM12 instances supply them
+Tests/Compiler/Srm12CorrTest.lean:6: -- The generic part is `ran_designCorr`/`memCallee_childCorr`/`childCorr_noInst`; the per-design part is the instantiation below (callee tables: `wrap
+Tests/Compiler/Srm12CorrTest.lean:29: theorem gM_top_callees : callees gM ``topshareM = some topshareM.machineData.shape.instTagged := by
+Tests/Compiler/Srm12CorrTest.lean:37: theorem gQ_top_callees : callees gQ ``topshareQ = some topshareQ.machineData.shape.instTagged := by
+Tests/Compiler/Srm12CorrTest.lean:84: ran_designCorr O gM topshareM.machineData topshareM_parentData.ok topshareM_parentData.body (nDecl := 4)
+Tests/Compiler/Srm12CorrTest.lean:86: hpost (topshareM_ranA O T hA entryL entry₁ entry₂ entry hcore hw) gM_top_callees
+Tests/Compiler/Srm12CorrTest.lean:90: exact (wrapM_ifaceP O T entryL entry₁ hre).name
+Tests/Compiler/Srm12CorrTest.lean:92: exact (wrapM3_ifaceP O T entryL entry₂ hre).name)
+Tests/Compiler/Srm12CorrTest.lean:149: ran_designCorr O gQ topshareQ.machineData topshareQ_parentData.ok topshareQ_parentData.body (nDecl := 4)
+Tests/Compiler/Srm12CorrTest.lean:151: hpost (topshareQ_ranA O T hA hR0 hcl entry₁ entry₂ entry hcore hw) gQ_top_callees
+Tests/Compiler/Srm12CorrTest.lean:155: exact (wrapP_ifaceP O T hR0 hcl entry₁ hre).name
+Tests/Compiler/Srm12CorrTest.lean:157: exact (wrapQ_ifaceP O T hR0 hcl entry₂ hre).name)
+
+## (c) gM / gQ construction
+Tests/Compiler/Srm7RankTest.lean:22: noncomputable def gM : CallGraph :=
+Tests/Compiler/Srm7RankTest.lean:34: noncomputable def gQ : CallGraph :=
+
+## (d) source facts
+Tools/ShippingSrm7Rank.lean:24: abbrev Kid := Name × InstOrigin
+Tools/ShippingSrm7Rank.lean:27: abbrev CallGraph := List (Name × List Kid)
+Tools/ShippingSrm7Rank.lean:30: def callees : CallGraph → Name → Option (List Kid)
+Tools/ShippingMemClosesKids.lean:167: structure ChildIfaceP (nm : String) (nArgs : Nat) (outs names : List String)
+Tools/ShippingMemClosesKids.lean:169: name : b.name = nm
+Tools/ShippingSrm12Corr.lean:96: theorem kidTA_name {O : RefLawsAOps MkRefd mref cref} {o : InstOrigin} {c : Name} {y : Res}
+Tools/ShippingSrm12Corr.lean:115: theorem instTagged_mem_idx (shape : MachineShape) {k : Nat} (hk : k < shape.insts.length) :
+Tools/ShippingMachineEntry.lean:2275: def MachineDefines (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+Tools/ShippingMachineAuto.lean:172: structure MachineData where
+
+## (e) duplicate check: SRM13/SRM14 branches touch (git diff --stat names only)
+par/u-srm13 : graphOf/hgraph/hname occurrences in changed Lean files: 0
+par/u-srm14 : graphOf/hgraph/hname occurrences in changed Lean files: 0

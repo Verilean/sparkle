@@ -163,7 +163,7 @@ theorem seqChildRunN_of_composed (n : Nat) {c : Name} {d : MachineData} {kD : Na
   obtain ⟨ids, nd, len, cache, regs, _, _, lets, _, wired, H⟩ := composed hcore entry closes hB
   obtain ⟨hnd_in, hclk, hrst, hdisj, hargs, hslotNI⟩ :=
     calls_ports wired len hsl houtOk kD hkD hIlen hSL hSlen hLlen hNIn
-  obtain ⟨-, -, regsIn, -, calls1, -, -, houts, -, -, -, -, gCalls, -, -, hcleanG, -, hW1⟩ := wired
+  obtain ⟨-, -, regsIn, -, calls1, -, -, houts, -, -, -, -, gCalls, -, -, hcleanG, -, hW1, -⟩ := wired
   obtain ⟨hb, hw, hi, ho⟩ := hcleanG houtTy
   -- the core module has an instance, so the full entry kept it
   have hInst : Tools.ShippingMachineShipsHier.hasInst (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw) := by

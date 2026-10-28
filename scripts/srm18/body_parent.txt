@@ -1,0 +1,26 @@
+
+/-- **`hsk` is not forced by the instance theorems' run proposition (`topshareM` shape, depth 2).**  For every `s` with `hrun` there is an explicit `s'` (`bumpedStart`) with the same registers/memories and the same run result,
+`ResetNk` kids whenever `s` has, and kids different from `resetKids D 2 raw`.  Generic in `raw b D`: no machine premise is used. -/
+theorem topshareM_hsk_not_forced {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 2)) (envs : List Sparkle.IR.Semantics.Env)
+    (hrun : runModuleTG (KSn (childMap D.modules) 2) (declWidth (checkedOptimize b)) (childMap D.modules)
+      (checkedOptimize b).body (seedIn b ins) T' s = some envs) :
+    ∃ s' : KState (KT 2),
+      runModuleTG (KSn (childMap D.modules) 2) (declWidth (checkedOptimize b)) (childMap D.modules)
+        (checkedOptimize b).body (seedIn b ins) T' s' = some envs ∧
+      s'.st = s.st ∧ s'.mems = s.mems ∧ s'.kids ≠ Tools.ShippingSrm16Reset.resetKids D 2 raw ∧
+      (Tools.ShippingMachineShipsDepth.ResetNk 2 raw D s.kids → Tools.ShippingMachineShipsDepth.ResetNk 2 raw D s'.kids) :=
+  ⟨_, Tools.ShippingSrm18Start.bumpedStart_spec raw D _ _ _ _ _ _ s envs hrun⟩
+
+/-- the same at depth 1 (`topshareQ` shape) -/
+theorem topshareQ_hsk_not_forced {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 1)) (envs : List Sparkle.IR.Semantics.Env)
+    (hrun : runModuleTG (KSn (childMap D.modules) 1) (declWidth (checkedOptimize b)) (childMap D.modules)
+      (checkedOptimize b).body (seedIn b ins) T' s = some envs) :
+    ∃ s' : KState (KT 1),
+      runModuleTG (KSn (childMap D.modules) 1) (declWidth (checkedOptimize b)) (childMap D.modules)
+        (checkedOptimize b).body (seedIn b ins) T' s' = some envs ∧
+      s'.st = s.st ∧ s'.mems = s.mems ∧ s'.kids ≠ Tools.ShippingSrm16Reset.resetKids D 1 raw ∧
+      (Tools.ShippingMachineShipsDepth.ResetNk 1 raw D s.kids → Tools.ShippingMachineShipsDepth.ResetNk 1 raw D s'.kids) :=
+  ⟨_, Tools.ShippingSrm18Start.bumpedStart_spec raw D _ _ _ _ _ _ s envs hrun⟩
+

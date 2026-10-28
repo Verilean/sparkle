@@ -1,0 +1,63 @@
+import Tools.ShippingChildFrontCP
+import Tools.ShippingChildLegacyImplA
+import Tools.ShippingChildLegacyCachedA
+import Tools.ShippingChildCanonKeyA
+import Tools.ShippingChildProjFieldA
+-- BUILT (e7 exit 0, unit E2 added `open Tools.ShippingChildFresh` for the MkRefd ambiguity); originally UNBUILT (integrator, par/int-r2). No `sorry`, no `axiom`, no `native_decide`, no new law.
+-- What this does NOT show: the laws (`RefLawsAOps` fields, `RefLawsATele`) describe a NON-TRIVIAL
+-- runtime model of MetaM/IO; that the real runtime satisfies them (runtime fit) is NOT PROVEN, and
+-- their joint satisfiability is NOT PROVEN (only the degenerate `quiet = False` model is exhibited).
+-- The child-cache invariant (JQC) and the semantic-preservation endpoint are SEPARATE (not here).
+-- This file keeps only the per-depth STEP `bodyKeepsA_of_tele` (with the tail as an argument); the
+-- induction and the core triple with the tail built from `hC` (B3 `legacyTailA_of_step`) are in
+-- Tools/ShippingChildMainA.lean. The earlier `bodyStepA_of_tele`/`childKeepsA_all_of_tele`/
+-- `core_tripleA_of_tele` (tail as `∀ D` premise) were removed as superseded.
+-- Boundary: `O : RefLawsAOps MkRefd mref cref`, `hA : AdmCtx O.quiet mctx cctx`, and the ADDED,
+-- unproved telescope family `T : RefLawsATele O.quiet mref cref` (logical inconsistency NOT PROVEN).
+
+/-! # The JQ depth induction with the handler premises discharged inside each depth step
+
+`bodyStepA_of_handlers` (FrontCP) asks `∀ D, LegacyImplA O (JQ O.quiet D)` up front — but the
+legacy body's proof (`legacyImplA_of_tele`, unit B) needs `ChildEntryA O (JQ O.quiet D)`, which
+holds only under the step's own hypothesis `ChildKeepsA O D`. So the handlers are NOT assumed at
+every depth here: inside the step at `D`, from `hC : ChildKeepsA O D`,
+
+    hC ─(D2 bridge childEntryA_JQ_of_childSynthA)→ ChildEntryA O (JQ D)
+       ─(B legacyImplA_of_tele, with A canonKeyA, T)→ LegacyImplA O (JQ D)
+       ─(A legacyCachedA_of_impl)→ LegacyCachedA O (JQ D);  C projFieldNameA T → ProjFieldNameA
+       ─(D bodyKeepsA_frontends, with LegacyTailA)→ BodyKeepsA O D.
+
+This file states only that STEP, with `LegacyTailA O D` as an argument. The induction
+(`childKeepsA_all`, DepthA) and the tail itself (built from the same `hC` by B3
+`legacyTailA_of_step`) are in Tools/ShippingChildMainA.lean, whose `core_tripleA_main` has no tail
+premise. NOT here: the child-cache invariant (`JQC`, unit E), runtime fit of the laws, the model→ST
+correspondence (open). -/
+
+namespace Tools.ShippingChildComposeA
+open Lean Meta
+open Tools.ShippingEntrySoundness
+open Sparkle.Compiler.Elab
+open Tools.ShippingChildInv
+open Tools.ShippingChildInvA
+open Tools.ShippingChildFresh
+open Tools.ShippingChildVCA
+open Tools.ShippingChildFallbackA
+open Tools.ShippingChildFrontCP
+open Tools.ShippingChildDepthA
+
+variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+  {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+
+/-- **One depth step with the handlers discharged locally** (from `ChildKeepsA O D`). -/
+theorem bodyKeepsA_of_tele (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (D : Nat) (hC : ChildKeepsA O D) (hlegacy : LegacyTailA O D) : BodyKeepsA O D :=
+  have hS := stableA_JQ O.quiet D
+  have hchild : ChildEntryA O (JQ O.quiet D) := childEntryA_JQ_of_childSynthA O D hC
+  have hcanon : CanonKeyA O (JQ O.quiet D) := Tools.ShippingChildCanonKeyA.canonKeyA O hS
+  have hImpl : LegacyImplA O (JQ O.quiet D) :=
+    Tools.ShippingChildLegacyImplA.legacyImplA_of_tele O hS T hcanon hchild
+  bodyKeepsA_frontends O D hImpl
+    (Tools.ShippingChildLegacyCachedA.legacyCachedA_of_impl O hS hImpl) hcanon
+    (Tools.ShippingChildProjFieldA.projFieldNameA O T hS) hC hlegacy
+
+end Tools.ShippingChildComposeA

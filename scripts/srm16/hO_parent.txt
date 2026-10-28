@@ -1,0 +1,50 @@
+
+/-- **`hO` for `topshareM`**: the instance statements of the shipped module are statements of `raw`. -/
+theorem topshareM_hO (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (entryL : MachineDefines mctx mref cctx cref ``leafM leafM.machineData.shape)
+    (entry₁ : MachineDefines mctx mref cctx cref ``wrapM wrapM.machineData.shape)
+    (entry₂ : MachineDefines mctx mref cctx cref ``wrapM3 wrapM3.machineData.shape)
+    (entry : MachineDefines mctx mref cctx cref ``topshareM topshareM.machineData.shape)
+    {w w1 : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareM [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (hw : JQC O 0 w) :
+    ∀ mn iname conns, Stmt.inst mn iname conns ∈ (checkedOptimize b).body → Stmt.inst mn iname conns ∈ raw.body := by
+  have ran := topshareM_ranA O T hA entryL entry₁ entry₂ entry hcore hw
+  have hgate : Sparkle.IR.RefineCheck.hierGate b = true :=
+    Tools.ShippingSrm4Core2.core_hierGate_anyAM O topshareM.machineData topshareM_parentData.ok topshareM_parentData.body
+      (nDecl := 4) topshareM_parentData.callsOk topshareM_parentData.slots topshareM_parentData.domB topshareM_insts_ne topshareM_fne
+      topshareM_outTy hpost ran
+  have hbb : b.body = raw.body :=
+    (Tools.ShippingParentTailsA.core_kids_facts_ranA O topshareM.machineData topshareM_parentData.ok topshareM_parentData.body
+      (nDecl := 4) topshareM_parentData.callsOk topshareM_parentData.slots topshareM_parentData.domB topshareM_insts_ne topshareM_outTy
+      topshareM_nomem hpost ran).2.1
+  intro mn iname conns h
+  rw [← hbb]
+  exact Tools.ShippingKidsResetSat.inst_checkedOptimize_sub hgate mn iname conns h
+
+/-- **`hO` for `topshareQ`**. -/
+theorem topshareQ_hO (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (hR0 : MachineDefines mctx mref cctx cref ``leafP leafP.machineData.shape)
+    (hcl : ∀ (mc : Lean.Meta.Context) (cc : Lean.Core.Context), MachineCloses mc mref cc cref ``leafP leafP.machineData.shape)
+    (entry₁ : MachineDefines mctx mref cctx cref ``wrapP wrapP.machineData.shape)
+    (entry₂ : MachineDefines mctx mref cctx cref ``wrapQ wrapQ.machineData.shape)
+    (entry : MachineDefines mctx mref cctx cref ``topshareQ topshareQ.machineData.shape)
+    {w w1 : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareQ [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (hw : JQC O 0 w) :
+    ∀ mn iname conns, Stmt.inst mn iname conns ∈ (checkedOptimize b).body → Stmt.inst mn iname conns ∈ raw.body := by
+  have ran := topshareQ_ranA O T hA hR0 hcl entry₁ entry₂ entry hcore hw
+  have hgate : Sparkle.IR.RefineCheck.hierGate b = true :=
+    Tools.ShippingSrm4Core2.core_hierGate_anyAM O topshareQ.machineData topshareQ_parentData.ok topshareQ_parentData.body
+      (nDecl := 4) topshareQ_parentData.callsOk topshareQ_parentData.slots topshareQ_parentData.domB topshareQ_insts_ne topshareQ_fne
+      topshareQ_outTy hpost ran
+  have hbb : b.body = raw.body :=
+    (Tools.ShippingParentTailsA.core_kids_facts_ranA O topshareQ.machineData topshareQ_parentData.ok topshareQ_parentData.body
+      (nDecl := 4) topshareQ_parentData.callsOk topshareQ_parentData.slots topshareQ_parentData.domB topshareQ_insts_ne topshareQ_outTy
+      topshareQ_nomem hpost ran).2.1
+  intro mn iname conns h
+  rw [← hbb]
+  exact Tools.ShippingKidsResetSat.inst_checkedOptimize_sub hgate mn iname conns h
+

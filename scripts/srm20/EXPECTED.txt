@@ -1,0 +1,82 @@
+-- SRM20 EXPECTED FULL STATEMENTS (Lean text, FIXED before any proof file; committed in the G1 commit).
+-- Namespace/opens as in Tests/Compiler/Srm19EndToEndTest.lean plus Tests.Compiler.Srm9ComposedTest (TmBnd, TqBnd) and Tools.ShippingMachineShipsDepth (ResetNk, kidsMaskedN).
+-- Names below are the PLANNED names of the new theorems (Tests/Compiler/Srm20BridgeTest.lean).  Binder names are those of SRM9 `topshare*_hierC_at_free` and SRM19 `topshare*_svBoundsH_endToEnd`.
+--
+-- READING (binding wording): the ComposedG statement is consumed through `machine_ships_hierC_at_free` (its `composed` binder is SRM9's `topshare*_composed_binder`, a ComposedG at KS = KSn 2, Reset = ResetNk 2).
+-- The hypothesis `hRK : ResetNk 2 raw D kids` is the Reset hypothesis INSIDE that ComposedG statement, taken for the state `kids` the statement quantifies over; it is NOT supplied by ComposedG.
+-- `hrun` is NOT a hypothesis any more: the run (`∃ envs, runModuleTG … = some envs`) is the one the ComposedG statement + optimizer transport produce, and `envs` is the SAME list in the SVBoundsH conclusion.
+-- Residuals kept explicit: hBnd (TmBnd/TqBnd bundle), hBd (kidsMaskedN), the ComposedG antecedents (hsrc hpass hrst hclk hinit), hinsFit/hstX/hstR (machine_ships_hierC_at_free's width antecedents, in declWidth b form),
+-- SRM19's hin/hst₁/hst₂/hst₃ (weS (checkedOptimize b) form) and hfit.
+
+-- ===== topshareM (depth 2: SRM9 binder and SRM19 are both KSn 2 / KT 2 / ResetNk 2 ; bridge CLOSES) =====
+theorem topshareM_svBoundsH_underComposedG
+    {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} {w w1 : Void IO.RealWorld}
+    {b raw : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareM [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : MachineDefines mctx mref cctx cref ``topshareM topshareM.machineData.shape)
+    (hBnd : Tests.Compiler.Srm9ComposedTest.TmBnd mctx mref cctx cref w raw D)
+    (hBd : Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body = true) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = topshareM.machineData.shape.binders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+      regs.Nodup ∧ regs.length = topshareM.machineData.ss.length ∧
+      ∀ (i : Unit) (bools : Nat → Signal defaultDomain Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal defaultDomain (BitVec n))
+        (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv) (kids : String → KT 2),
+        (∀ t st, t < T → SourceInputs ``topshareM (topshareM.machineData.bsIn.take 4) ids cache
+          (fun j => (tmExtB i bools bits j).val (T - 1 - t)) (fun j n => (tmExt i bools bits j n).val (T - 1 - t)) (seedIn b ins t st)) →
+        (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
+        (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
+        (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → topshareM.machineData.shape.layout.slots[k]? = some f → st0 r = f.init) →
+        ResetNk 2 raw D kids →
+        (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) →
+        (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (childMap D.modules) b.body → st0 x < 2 ^ declWidth b x) →
+        (∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1) →
+        (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ Tools.ShippingDesignSV.weS (checkedOptimize b) x) →
+        RegsAtInit (checkedOptimize b) st0 → RegsFit (checkedOptimize b) → NonRegBounded (checkedOptimize b) st0 →
+        (∀ mn iname conns gc gcwe, Stmt.inst mn iname conns ∈ (checkedOptimize b).body →
+          childMap D.modules mn = some (gc, gcwe) → FitTree (childMap D.modules) 2 gc (kids iname)) →
+        ∃ envs, runModuleTG (KSn (childMap D.modules) 2) (declWidth (checkedOptimize b)) (childMap D.modules)
+            (checkedOptimize b).body (seedIn b ins) T (⟨st0, mems, kids⟩ : KState (KT 2)) = some envs ∧
+          envs.length = T ∧
+          (∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+            topshareM.machineData.shape.layout.outs[k]? = some o → (topshareM.machineSource i bools bits)[k]? = some f → (envs[j]'hj) o.name = f j) ∧
+          SVBoundsH (childMap D.modules) (rkOf gM 4) 2 (checkedOptimize b) (seedIn b ins) T (⟨st0, mems, kids⟩ : KState (KT 2)) envs
+
+-- ===== topshareQ (SRM9 binder: ComposedG at KSn 2 / KT 2 / ResetNk 2 ; SRM19: KSn 1 / KT 1 / ResetNk 1  => TYPE MISMATCH, bridge closes only under the missing Prop QDepthLift) =====
+-- MINIMAL MISSING PROP (not defeq to any existing premise: no existing definition quantifies a KT 1 Reset state and returns a KT 2 Reset state with a run-transport):
+def QDepthLift (raw : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (b : Sparkle.IR.AST.Module) : Prop :=
+  ∀ kids1 : String → KT 1, ResetNk 1 raw D kids1 →
+    ∃ kids2 : String → KT 2, ResetNk 2 raw D kids2 ∧
+      ∀ (seed : Nat → (String → Nat) → Env) (T : Nat) (st0 : String → Nat) (mems : MEnv) (envs : List Env),
+        runModuleTG (KSn (childMap D.modules) 2) (declWidth (checkedOptimize b)) (childMap D.modules) (checkedOptimize b).body seed T
+          (⟨st0, mems, kids2⟩ : KState (KT 2)) = some envs →
+        runModuleTG (KSn (childMap D.modules) 1) (declWidth (checkedOptimize b)) (childMap D.modules) (checkedOptimize b).body seed T
+          (⟨st0, mems, kids1⟩ : KState (KT 1)) = some envs
+
+theorem topshareQ_svBoundsH_underComposedG
+    {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} {w w1 : Void IO.RealWorld}
+    {b raw : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareQ [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (entry : MachineDefines mctx mref cctx cref ``topshareQ topshareQ.machineData.shape)
+    (hBnd : Tests.Compiler.Srm9ComposedTest.TqBnd mctx mref cctx cref w raw D)
+    (hBd : Tools.ShippingMachineShipsDepth.kidsMaskedN D.modules b.body = true)
+    (hlift : QDepthLift raw D b) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = topshareQ.machineData.shape.binders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+      regs.Nodup ∧ regs.length = topshareQ.machineData.ss.length ∧
+      ∀ (i : Unit) (bools : Nat → Signal defaultDomain Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal defaultDomain (BitVec n))
+        (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv) (kids : String → KT 1),
+        (SourceInputs … seedIn b ins …) → (regs pass) → (rst) → (clk) → (init) →      -- exactly as M with topshareQ/tqExt/tqExtB
+        ResetNk 1 raw D kids →                                                           -- the Reset hypothesis at the SRM19 depth; the ComposedG one is ResetNk 2 on the lifted `kids2`
+        hinsFit → hstX → hstR → hin → hst₁ → hst₂ → hst₃ →
+        (∀ mn iname conns gc gcwe, Stmt.inst mn iname conns ∈ (checkedOptimize b).body →
+          childMap D.modules mn = some (gc, gcwe) → FitTree (childMap D.modules) 1 gc (kids iname)) →
+        ∃ envs, runModuleTG (KSn (childMap D.modules) 1) (declWidth (checkedOptimize b)) (childMap D.modules)
+            (checkedOptimize b).body (seedIn b ins) T (⟨st0, mems, kids⟩ : KState (KT 1)) = some envs ∧
+          envs.length = T ∧ (outputs agree with topshareQ.machineSource) ∧
+          SVBoundsH (childMap D.modules) (rkOf gQ 3) 1 (checkedOptimize b) (seedIn b ins) T (⟨st0, mems, kids⟩ : KState (KT 1)) envs

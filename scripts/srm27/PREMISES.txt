@@ -1,0 +1,3 @@
+PREMISES (SRM27): no theorem produced; no Lean file touched; audit (Task 5), one-witness/closure checks and final rebuild (Task 6) NOT APPLICABLE.
+OPEN: K0N for the actual topshare{M,Q} ComposedGW/NW witness (hK0 of SRM26's sourceRegsAreSlots_of_wired / shippedRegsAreSlots_of_wired) — exact required return predicate in scripts/srm27/EXPECTED.txt (3).
+Explicit and untouched: K1 equation, G1, G3, hsk, FitTree, hRK, hst facts, hW width premise.

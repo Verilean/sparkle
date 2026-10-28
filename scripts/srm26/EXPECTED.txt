@@ -1,0 +1,34 @@
+SRM26 EXPECTED (fixed BEFORE any proof file).  Unit question: K1 (regs = ps.map Port.name order) for actual topshare{M,Q} exported from existing facts?
+ANSWER PLANNED (see K1_INVENTORY.txt §2-5): K1 AS EQUATION is NOT derivable from the exported facts and needs a producer-API change (required return predicate in K1_INVENTORY.txt §5; no producer file edited).
+WHAT IS PLANNED TO BE PROVED (generic, new file Tools/ShippingSrm26Order.lean, namespace Tools.ShippingSrm26; no instance for topshare{M,Q}): the order-free counting corollary: SRM25's source fact for the `regs` witness
+follows from the EXPORTED facts of MachineWired plus K0N (the K0 fact stated for the slot-port names psN, kept an explicit PREMISE) — no equation regs = psN.
+Notation: SRA = Tools.ShippingSrm25Init.SourceRegsAreSlots (SRM25), names := (machPorts declName ids cache shape.binders).map (·.name), n := shape.layout.slots.length,
+psN := (names.drop (names.length - shape.layout.lets - n)).take n.
+
+theorem subset_of_length_le {α : Type} [DecidableEq α] (l1 l2 : List α) (hnd : l1.Nodup) (hsub : ∀ x ∈ l1, x ∈ l2)
+    (hlen : l2.length ≤ l1.length) : ∀ x ∈ l2, x ∈ l1
+
+theorem sourceRegsAreSlots_regs_of_ports (b : Module) (psN regs : List String) (slots : List SlotField)
+    (hpsNd : psN.Nodup) (hregsNd : regs.Nodup) (hlen : regs.length = slots.length) (hpl : psN.length ≤ slots.length)
+    (hslot : ∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → slots[k]? = some f →
+      ∃ (rk : Sparkle.IR.Type.ResetKind) (inp : Expr), Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ b.body)
+    (hK0 : SRA b psN slots) :
+    SRA b regs slots
+-- hslot = the exported slot→register conjunct of MachineWired (Tools/ShippingMachineEntry.lean:752-754); hK0 = K0N, the ONLY residual Prop (PREMISE).
+
+theorem sourceRegsAreSlots_of_wired {declName : Name} {shape : MachineShape} {ids : List FVarId}
+    {cache : IO.Ref (ExprStructMap String)} {m : Module} {dsn : Design} {regs lets : List String}
+    (hW : MachineWired declName shape ids cache m dsn regs lets)
+    (hregsNd : regs.Nodup) (hlen : regs.length = shape.layout.slots.length)
+    (hK0 : SRA m
+      ((((machPorts declName ids cache shape.binders).map (·.name)).drop
+          (((machPorts declName ids cache shape.binders).map (·.name)).length - shape.layout.lets - shape.layout.slots.length)).take
+        shape.layout.slots.length) shape.layout.slots) :
+    SRA m regs shape.layout.slots
+
+theorem shippedRegsAreSlots_of_wired {declName ids cache m dsn regs lets shape} (hgate : hierGate m = true)
+    (hW : MachineWired declName shape ids cache m dsn regs lets) (hregsNd) (hlen) (hK0 : same as above) :
+    ShippedRegsAreSlots m regs shape.layout.slots
+
+Residual Props: hK0 (K0N) in the last two theorems — NOT defeq to SRA m regs slots and not an equation regs = psN.  NOT planned: K1 equation; K0N; topshare{M,Q} instances; G1, G3, hsk, FitTree, hRK, hst facts untouched (explicit).
+Audit target (Tests/Compiler/Srm26AuditTest.lean): binder tables vs these statements; wrong-expected mutations rejected; residual Props only hK0 (control: a relabel wrapper detected); the three semantic negative fixtures on the binder-table comparator; standard axioms.

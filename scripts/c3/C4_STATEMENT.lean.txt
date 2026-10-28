@@ -1,0 +1,56 @@
+-- C3 FROZEN C4 STATEMENT (SPECIFICATION ONLY — NOT PROVED, NOT ELABORATED). Base par/c3-spec @ 99dcc086.
+-- Opens/namespaces as in Tools/ShippingSrm33Core.lean (99dcc086) plus Tools.ShippingSrm4Callee (memLeafPC) and Tools.ShippingQuadComposed.
+-- `MemSharedLeafParent`, `GenPkg`, `GenPkg.extS/extBS/lsrc` = the exact NEW definitions in scripts/c3/C_CLASS.md. dom := fun _ : Unit => defaultDomain.
+-- P.top.src / P.top.extS / P.top.extBS are the generated machineSource / state-applied ext / extB (cf. topshareM_soundLA, Srm4ParentTest.lean:201).
+-- The conclusion is VERBATIM the conclusion of Tools.ShippingSrm33.machine_ships_hierC_noHstR with n := 2, d := P.d, kD := P.nDecl,
+-- Bnd/Bd instantiated as below; NO soundL / composed / houtTy / hinitW / facts / Bd / hBd / Inv / hRI / Bnd binder remains.
+
+theorem memSharedLeaf_ships (P : MemSharedLeafParent)
+    -- boundary of the contract (premises by design)
+    {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State} {w w1 : Void IO.RealWorld}
+    (O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref)
+    (T : Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref)
+    (hA : AdmCtx O.quiet mctx cctx)
+    (entryL : MachineDefines mctx mref cctx cref P.leaf.decl P.leaf.d.shape)
+    (entryW : ∀ wp ∈ P.wrappers, MachineDefines mctx mref cctx cref wp.decl wp.d.shape)
+    (entry : MachineDefines mctx mref cctx cref P.top.decl P.top.d.shape)
+    (hw : JQC O 0 w)
+    -- the ONE actual compiler run and its post-processing
+    {b raw : Sparkle.IR.AST.Module} {D : Design}
+    (hcore : RunsTo (synthesizeCombinationalCore P.top.decl [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) :
+    ∃ ids : List FVarId, ids.Nodup ∧ ids.length = P.top.d.shape.binders.length ∧
+    ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+      regs.Nodup ∧ regs.length = P.top.d.ss.length ∧
+      ∀ (i : Unit) (bools : Nat → Signal defaultDomain Bool)
+        (bits : (j : Nat) → (n : Nat) → Signal defaultDomain (BitVec n))
+        (T' : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv)
+        (kids : String → KT 2),
+        -- input conditions (premises by design; clk/rst-aware — G1 refuted for actual M/Q)
+        (∀ t st, t < T' → SourceInputs P.top.decl (P.top.d.bsIn.take P.nDecl) ids cache
+          (fun j => (P.top.extBS i bools bits j).val (T' - 1 - t))
+          (fun j n => (P.top.extS i bools bits j n).val (T' - 1 - t)) (seedIn b ins t st)) →
+        (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
+        (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
+        (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+          P.top.d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+        ResetNk 2 raw D kids →
+        (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) →
+        (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (childMap D.modules) b.body →
+          st0 x < 2 ^ declWidth b x) →
+        ∃ envsO, runModuleTG (KSn (childMap D.modules) 2) (declWidth (checkedOptimize b))
+            (childMap D.modules) (checkedOptimize b).body (seedIn b ins) T'
+            ⟨st0, mems, kids⟩ = some envsO ∧
+          envsO.length = T' ∧
+          ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+            P.top.d.shape.layout.outs[k]? = some o → (P.top.src i bools bits)[k]? = some f →
+            (envsO[j]'hj) o.name = f j
+
+-- Binder list (frozen): P; implicit mctx mref cctx cref w w1; O T hA entryL entryW entry hw; implicit b raw D; hcore hpost.
+-- Inner ∀-telescope antecedents (input conditions, kept): SourceInputs, regs pass, rst=0, clk=0, hinit, ResetNk 2, hinsFit, hstX. NO hstR, NO hWd.
+-- vs the C2 instance endpoint: the instance's conclusion antecedents `TmBnd … → kidsMaskedN … →` are GONE: their parts are either contract boundary
+-- (O, T, hA, MachineDefines, JQC — now explicit binders) or must be DISCHARGED from P (TmH1/TmH2 ↦ G-HCALLS, TmGrp ↦ P.group, kidsMaskedN ↦ G-MASK).
+-- Acceptance audit (C4): binder list exactly as above; no per-design supply binder; instance corollaries topshare{M,Q}_hierC_noHstR recovered from
+-- memSharedLeaf_ships P_M / P_Q (with the instance antecedents TmBnd/kidsMaskedN then becoming unused); closure/axiom audit; clean final build.

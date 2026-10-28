@@ -536,6 +536,58 @@ def readMachine (declName : Name) (allowGate : Bool := false) : MetaM Read := do
            outNames := outKinds.map (·.1), nDecl, rootLets := rootLets.length,
            hasOuter := run?.isSome, tuple := tup? }
 
+/-! ### `dataE`'s pure per-field builders (CANDIDATE for review: extracted so that the read-back lemmas of
+`Tools/Prototype/DGenStored2.lean` are about the builders `dataE` itself uses; `dataE_unchanged` there is the kernel check that
+`dataE` is unchanged as a function) -/
+
+def dataNatPairT : Lean.Expr :=
+  mkApp2 (mkConst ``Prod [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat)
+
+/-- A list of `(Nat × Nat)` pairs (`shape.runs`, `shape.loops`). -/
+def dataPairsE (xs : List (Nat × Nat)) : Lean.Expr :=
+  listE dataNatPairT (xs.map fun (a, b) =>
+    mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat) (natL a) (natL b))
+
+def dataInstT : Lean.Expr :=
+  mkApp2 (mkConst ``Prod [.zero, .zero]) (mkConst ``Lean.Name)
+    (mkApp2 (mkConst ``Prod [.zero, .zero]) (mkApp (mkConst ``List [.zero]) (mkConst ``Nat))
+      (mkConst ``MixedGateBinder))
+
+/-- `shape.insts`. -/
+def dataInstsE (xs : List (Name × List Nat × MixedGateBinder)) : Lean.Expr :=
+  listE dataInstT (xs.map fun (c, js, k) =>
+    mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Lean.Name)
+      (mkApp2 (mkConst ``Prod [.zero, .zero]) (mkApp (mkConst ``List [.zero]) (mkConst ``Nat))
+        (mkConst ``MixedGateBinder))
+      (toExpr c)
+      (mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkApp (mkConst ``List [.zero]) (mkConst ``Nat))
+        (mkConst ``MixedGateBinder) (natListE js) (binderKindE k)))
+
+def dataOriginT : Lean.Expr := mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin
+
+-- origin dispatch (patched compiler): `MachineShape` has an 8th field, the
+-- entries' origins; the data carries them (the closing reads them)
+def dataOriginE : Sparkle.Compiler.MachInstOrigin.InstOrigin → Lean.Expr
+  | .ord => mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.ord
+  | .field i => mkApp (mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.field) (natL i)
+  | .mem cb aw dw => mkApp3 (mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.mem)
+      (toExpr cb) (natL aw) (natL dw)
+
+/-- The `MachineShape` constructor application, given the two reflected pieces (`body` through `reflExpr`, `layout` through
+`layoutE`). -/
+def dataShapeE (s : MachineShape) (body layout : Lean.Expr) : Lean.Expr :=
+  mkAppN (mkConst ``MachineShape.mk) #[listE binderT (s.binders.map binderE),
+    body, layout, dataPairsE s.runs, dataInstsE s.insts, dataPairsE s.loops,
+    listE (mkConst ``String) (s.instFields.map toExpr),
+    listE dataOriginT (s.instOrigins.map dataOriginE)]
+
+/-- The `MachineData` constructor application, given the three effectful pieces. -/
+def dataPure (r : Read) (body dom layout : Lean.Expr) : Lean.Expr :=
+  mkAppN (mkConst ``MachineData.mk)
+    #[dataShapeE r.shape body layout, natL r.nIn, dom, natListE r.bposL, natListE r.vposL, natListE r.vwL,
+      listE stypeT (r.nexts.map fun t => stypeE t.1), listE anyTermT (r.ls.map anyTermE),
+      listE anyTermT (r.outs.map anyTermE), termsE r.nexts]
+
 def dataE (r : Read) : MetaM Lean.Expr := do
   let body ← match reflExpr r.shape.body with
     | .ok b => pure b
@@ -544,36 +596,7 @@ def dataE (r : Read) : MetaM Lean.Expr := do
     | .ok b => pure b
     | .error msg => throwError msg
   let some layout := layoutE r.shape.layout | throwError "an output type is not a bit vector"
-  let natPairT := mkApp2 (mkConst ``Prod [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat)
-  let runs := listE natPairT (r.shape.runs.map fun (a, b) =>
-    mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat) (natL a) (natL b))
-  let instT := mkApp2 (mkConst ``Prod [.zero, .zero]) (mkConst ``Lean.Name)
-    (mkApp2 (mkConst ``Prod [.zero, .zero]) (mkApp (mkConst ``List [.zero]) (mkConst ``Nat))
-      (mkConst ``MixedGateBinder))
-  let insts := listE instT (r.shape.insts.map fun (c, js, k) =>
-    mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Lean.Name)
-      (mkApp2 (mkConst ``Prod [.zero, .zero]) (mkApp (mkConst ``List [.zero]) (mkConst ``Nat))
-        (mkConst ``MixedGateBinder))
-      (toExpr c)
-      (mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkApp (mkConst ``List [.zero]) (mkConst ``Nat))
-        (mkConst ``MixedGateBinder) (natListE js) (binderKindE k)))
-  let loops := listE natPairT (r.shape.loops.map fun (a, b) =>
-    mkApp4 (mkConst ``Prod.mk [.zero, .zero]) (mkConst ``Nat) (mkConst ``Nat) (natL a) (natL b))
-  -- origin dispatch (patched compiler): `MachineShape` has an 8th field, the
-  -- entries' origins; the data carries them (the closing reads them)
-  let originT := mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin
-  let originE : Sparkle.Compiler.MachInstOrigin.InstOrigin → Lean.Expr
-    | .ord => mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.ord
-    | .field i => mkApp (mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.field) (natL i)
-    | .mem cb aw dw => mkApp3 (mkConst ``Sparkle.Compiler.MachInstOrigin.InstOrigin.mem)
-        (toExpr cb) (natL aw) (natL dw)
-  let shape := mkAppN (mkConst ``MachineShape.mk) #[listE binderT (r.shape.binders.map binderE),
-    body, layout, runs, insts, loops, listE (mkConst ``String) (r.shape.instFields.map toExpr),
-    listE originT (r.shape.instOrigins.map originE)]
-  return mkAppN (mkConst ``MachineData.mk)
-    #[shape, natL r.nIn, dom, natListE r.bposL, natListE r.vposL, natListE r.vwL,
-      listE stypeT (r.nexts.map fun t => stypeE t.1), listE anyTermT (r.ls.map anyTermE),
-      listE anyTermT (r.outs.map anyTermE), termsE r.nexts]
+  return dataPure r body dom layout
 
 /-- Progress lines, to the file `SPARKLE_MACHINE_PROGRESS` names (a command's
 own output is shown only when it ends). -/

@@ -1,0 +1,74 @@
+EXPECTED (SRM28) — frozen BEFORE any Lean edit.  Wording: PROVED / PREMISE / OPEN.  No impossibility claim.  Status of every item below at freeze time: NOT YET PROVED.
+
+== (1) MachineWired: ONE new LAST conjunct (the 19th), Tools/ShippingMachineEntry.lean, after the current last conjunct (:693-696 area, "each slot's register is a register statement").
+   Placement = last, so a pattern ⟨c1,…,c17,c18,-⟩ is the only change needed where c18 is named; every pattern that ends in `-`/`_` or has < 18 components is unchanged
+   (the tail is absorbed by its last component today already).  Exact text appended after the existing last conjunct (joined by ∧):
+
+  ∧
+  -- and, with or without calls, every register statement of the module is a slot's (`regs[k]` with the slot's reset value)
+  (∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Sparkle.IR.AST.Expr) (init : Int),
+    Stmt.register r c rs inp init ∈ m.body →
+    ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ shape.layout.slots[k]? = some f ∧ init = Int.ofNat f.init)
+
+   (= unfolding of SRM25's `SourceRegsAreSlots m regs shape.layout.slots`, Tools/ShippingSrm25Init.lean:67, but stated for the SAME `m`, `regs` of MachineWired and UNCONDITIONALLY, also for shape.insts ≠ [].)
+   Statements of MachinePreserves / MachinePreservesX / MachineTraceLB(X) / ComposedG(W) / ComposedNW are NOT edited: they mention `MachineWired …` by name, so they carry the new clause automatically.
+
+== (2) Producer lemma for the call case.  PROVED by the 19th `?_` of `have wired` (Tools/ShippingMachineEntry.lean:1448-…); no separate theorem unless the inline proof needs one.
+   Data (from the producer context): regs = ps.map Port.name; m = the closed module; hmt : m = closeMachine… ∨ closeInsts/closeInstsG result.
+   Facts used: Tools.ShippingMachineInst.closeInsts_some / closeInstsG_some  (m₀.body ++ L).Perm m.body with L.all isInst; (closeMachine shape.layout t').body =
+   t'.body.dropLast ++ nextAssigns coreW ps slots ++ registers rk ps slots ++ outAssigns coreW outs (as in :1612-1616); registers_mem (ShippingMachineCleanup.lean:323); typed'.isAssign;
+   nextAssigns_assigns.  Statement of the used step (register stmt of the closed module with calls is in closeMachine's body):
+     ∀ r c rs inp init, Stmt.register r c rs inp init ∈ m.body → Stmt.register r c rs inp init ∈ (closeMachine shape.layout t').body
+
+== (3) New generic file Tools/ShippingSrm28Regs.lean, namespace Tools.ShippingSrm28  (statements to be audited):
+
+theorem sourceRegsAreSlots_of_wired_all {declName : Name} {shape : MachineShape} {ids : List FVarId}
+    {cache : IO.Ref (ExprStructMap String)} {m : Module} {dsn : Design} {regs lets : List String}
+    (hW : MachineWired declName shape ids cache m dsn regs lets) :
+    SourceRegsAreSlots m regs shape.layout.slots
+
+theorem shippedRegsAreSlots_of_wired_all {declName : Name} {shape : MachineShape} {ids : List FVarId}
+    {cache : IO.Ref (ExprStructMap String)} {m b : Module} {dsn : Design} {regs lets : List String}
+    (hgate : hierGate b = true) (hb : b.body = m.body)
+    (hW : MachineWired declName shape ids cache m dsn regs lets) :
+    ShippedRegsAreSlots b regs shape.layout.slots
+-- (no hK0, no hregsNd, no hlen: neither K0N nor K1 is used; compare SRM26 shippedRegsAreSlots_of_wired which keeps them.)
+
+/-- ComposedNW with ONE extra conjunct `P regs` right after `regs.length = d.ss.length` (the same witness); everything else character-for-character ComposedNW (Tools/ShippingMachineDepthRun.lean:34). -/
+def ComposedNWRegs (n : Nat) (declName : Name) (d : MachineData) (kD : Nat) (m : Module) (dsn : Design) {ι : Type} (dom : ι → DomainConfig) (src …) (ext …) (extB …)
+    (P : List String → Prop) : Prop :=
+  ∃ ids : List FVarId, ids.Nodup ∧ ids.length = d.shape.binders.length ∧
+  ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+    regs.Nodup ∧ regs.length = d.ss.length ∧ P regs ∧
+    ∃ lets : List String, lets.length = d.letBs.length ∧ MachineWired declName d.shape ids cache m dsn regs lets ∧ <ComposedNW tail verbatim>
+
+theorem composedNWRegs_of_composedNW {…same implicit/explicit binders as ComposedNW…} (P : List String → Prop)
+    (h : ComposedNW n declName d kD m dsn dom src ext extB)
+    (hP : ∀ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) (regs lets : List String),
+        regs.Nodup → regs.length = d.ss.length → MachineWired declName d.shape ids cache m dsn regs lets → P regs) :
+    ComposedNWRegs n declName d kD m dsn dom src ext extB P
+theorem ComposedNWRegs.toNW (h : ComposedNWRegs … P) : ComposedNW …        -- forgetting P
+
+== (4) Actual topshareM / topshareQ, Tests/Compiler/Srm28InstTest.lean (hypotheses exactly those of SRM24's topshare{M,Q}_shippedRegWidthLe:
+   hcore, hpost : b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw), entry, hBnd : TmBnd/TqBnd; b related to raw ONLY through hpost → b.body = raw.body (core_kids_facts_ranAM .2.1)).
+   M (Q is symmetric: topshareQ, TqBnd, topshareQ_composedNW O T0 hA hR0 hcl entry₁ entry₂ entry hc1 hF hgrp hw hcore):
+
+theorem topshareM_composedNW_g5 {mctx mref cctx cref w w1} {b raw : Module} {D : Design}
+    (hcore : RunsTo (synthesizeCombinationalCore ``topshareM [] false) mctx mref cctx cref w (raw, D) w1)
+    (hpost : b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw))
+    (entry : MachineDefines mctx mref cctx cref ``topshareM topshareM.machineData.shape)
+    (hBnd : TmBnd mctx mref cctx cref w raw D) :
+    ComposedNWRegs 2 ``topshareM topshareM.machineData 4 raw D (fun _ : Unit => defaultDomain) topshareM.machineSource tmExt tmExtB
+      (fun regs => ShippedRegsAreSlots b regs topshareM.machineData.shape.layout.slots)
+-- G5 for the SAME regs witness that ComposedNW exports; the ComposedNW witness is used ONCE (from topshareM_composedNW); the module/run/design are raw/D of hcore.
+
+theorem topshareM_composedNW_regsAtInit_noG5 (same binders)
+    ComposedNWRegs 2 … tmExt tmExtB
+      (fun regs => ∀ st0 : String → Nat,
+         (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → topshareM.machineData.shape.layout.slots[k]? = some f → st0 r = f.init) →
+         RegsAtInit (checkedOptimize b) st0)
+-- the SRM22 `regsAtInit_of_hinit` (Tools/ShippingSrm22Width.lean:166) CALLED UNCHANGED with ONLY its binder `hG : ShippedRegsAreSlots b regs slots` removed; `hinit` stays an explicit hypothesis of the P-implication.
+
+== (5) NOT touched / EXPLICIT: K1 (regs = psN), K0N, G1 InputsAreWires, G3 SourceRegsKept, hsk, FitTree, hRK, hst1/hst2/hst3, hW (ShippedRegWidthLe), rank/range premises, TmBnd/TqBnd binder contents, every ComposedNW tail hypothesis (hinit etc.).
+   No reset-start assumption (st0, seed, kids stay universally quantified in the ComposedNW tail).  No endpoint / production / general-design claim.
+== (6) Other existing-theorem types: only the type of `MachineWired` changes (one conjunct appended).  Theorems whose STATEMENT mentions MachineWired keep their text.

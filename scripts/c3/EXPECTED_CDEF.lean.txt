@@ -1,0 +1,75 @@
+-- C-DEF EXPECTED (FROZEN before any elaboration/proof). Base 42f1db69. Issue sparkle-gen-c4-cdef. C4 and G3 stay OPEN.
+-- File to be created by this unit: Tests/Compiler/CDefTest.lean (test-only; no production edit). Imports: Tests.Compiler.Srm9ComposedTest (transitively M and Q material).
+-- Names resolve as in C_CLASS.md; GenPkg / MemSharedLeafParent are exactly the C_CLASS.md text PLUS the Amendment-1 tie fields below.
+-- G-KID / G-HCALLS are NOT assumed or proved here; they remain unresolved dependencies (see C_CLASS.md Amendment 1).
+
+namespace Tests.Compiler.CDef
+open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.IR.Machine
+open Tools.ShippingMachineSource Tools.ShippingMachineDenote Tools.ShippingQuadComposed (GenFacts QuadGroupFacts)
+open Tools.ShippingCallsChildPorts (argWidths)
+
+structure GenPkg (ι : Type) (dom : ι → DomainConfig) where
+  decl : Lean.Name
+  d : MachineData
+  ρ : ι → Type
+  inh : Inhabited (HList (tys d.ss))
+  inits : HList (tys d.ss)
+  body : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+    RegList (dom i) (HList (tys d.ss)) (Circuit.SigList (dom i) (tys d.ss)) (tys d.ss) →
+    Circuit (dom i) (Circuit.SigList (dom i) (tys d.ss)) (ρ i)
+  obsR : (i : ι) → ρ i → List (Nat → Nat)
+  ext : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+    Signal (dom i) (HList (tys d.ss)) → (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)
+  extB : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+    Signal (dom i) (HList (tys d.ss)) → Nat → Signal (dom i) Bool
+  src : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)
+  gen : @GenFacts d ι dom ρ inh inits body obsR ext extB src
+
+noncomputable def GenPkg.extS {ι} {dom} (p : GenPkg ι dom) := fun i bools bits =>
+  p.ext i bools bits (@stateLoop _ _ _ p.inh p.inits (p.body i bools bits))
+noncomputable def GenPkg.extBS {ι} {dom} (p : GenPkg ι dom) := fun i bools bits =>
+  p.extB i bools bits (@stateLoop _ _ _ p.inh p.inits (p.body i bools bits))
+noncomputable def GenPkg.lsrc {ι} {dom} (p : GenPkg ι dom) :=
+  @Tools.ShippingMachineCausal.letObsB p.d ι dom p.inh p.ρ p.inits p.body p.ext p.extB
+
+structure MemSharedLeafParent where
+  top : GenPkg Unit (fun _ => defaultDomain)
+  nDecl : Nat
+  cs : List NCal
+  pdata : NmParentData top.d cs top.decl nDecl
+  outTy : ∀ o ∈ top.d.shape.layout.outs, o.ty.bitWidth = o.width
+  noMem : ∀ x ∈ top.d.shape.instTagged, x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true
+  slotsNe : top.d.shape.layout.slots ≠ []
+  outsOf : Nat → List OutField
+  insOf : Nat → List Nat
+  cw : Tools.ShippingCallWidths.callWidthsOk top.d nDecl outsOf = true
+  ca : Tools.ShippingPortsMatchRaw.callArgsOk top.d nDecl insOf = true
+  leaf : GenPkg DomainConfig (fun i => i)
+  wrappers : List (GenPkg DomainConfig (fun i => i))
+  bsC : Lean.Name → List (Name × MixedGateBinder)
+  outsC : Lean.Name → List OutField
+  srcC : Unit → Lean.Name → (Nat → List Nat) → List (Nat → Nat)
+  group : QuadGroupFacts top.d nDecl top.lsrc top.extS top.extBS bsC outsC srcC
+  -- AMENDMENT 1 (wrapper / leaf / callee ties; all decidable data except tieSrcC = structural defeq):
+  wArity : List Nat                                   -- DATA: declared-input count of each wrapper (M: [4,4]; Q: [3,5])
+  wOf : Nat → Nat                                     -- DATA: call index k ↦ index of the wrapper called at k
+  wlen : wrappers.length = wArity.length              -- DATA CHECK
+  tieCallee : ∀ k, k < top.d.shape.insts.length →
+    wOf k < wrappers.length ∧ (top.d.shape.insts.map (·.1))[k]? = (wrappers.map (·.decl))[wOf k]?   -- DATA CHECK (decide)
+  tieOuts : ∀ k, k < top.d.shape.insts.length → outsOf k = (wrappers.map (·.d.shape.layout.outs)).getD (wOf k) []   -- DATA CHECK
+  tieIns : ∀ k, k < top.d.shape.insts.length →
+    insOf k = ((wrappers.zip wArity).map (fun p => argWidths p.1.d p.2)).getD (wOf k) []                  -- DATA CHECK
+  tieLeaf : ∀ w ∈ wrappers, leaf.decl ∈ w.d.shape.insts.map (·.1)                                    -- DATA CHECK (leaf is a callee of every wrapper)
+  tieBsC : ∀ p ∈ wrappers.zip wArity, bsC p.1.decl = p.1.d.bsIn.take p.2                              -- DATA CHECK
+  tieOutsC : ∀ p ∈ wrappers.zip wArity, outsC p.1.decl = p.1.d.shape.layout.outs                      -- DATA CHECK
+  tieSrcC : ∀ p ∈ wrappers.zip wArity, srcC () p.1.decl = fun vals => p.1.src defaultDomain
+    (Tools.ShippingMachineChild.boolsOf (p.1.d.bsIn.take p.2) vals) (Tools.ShippingMachineChild.bitsOf (p.1.d.bsIn.take p.2) vals)   -- STRUCTURAL (rfl-style)
+
+-- Members (to construct; names fixed): P_M : MemSharedLeafParent (topshareM; wrappers [wrapM, wrapM3]; leaf leafM; arity [4,4]; wOf k = if k<2 then 0 else 1; cs csM; bsC/outsC/srcC = tmBsC/tmOutsC/tmSrcC; outsOf/insOf = tmOuts/tmIns; group = topshareM TmGrp)
+--                P_Q : MemSharedLeafParent (topshareQ; wrappers [wrapP, wrapQ]; leaf leafP; arity [3,5]; cs csQ; tq* tables; group = TqGrp)
+-- Audit theorems (all must be `rfl`/`Iff.rfl`-style defeq unless reported as a gap; M side):
+--   P_M_group_defeq : P_M.group = (TmGrp-proof-term type)      i.e.  (QuadGroupFacts P_M.top.d P_M.nDecl P_M.top.lsrc P_M.top.extS P_M.top.extBS P_M.bsC P_M.outsC P_M.srcC) = TmGrp  by rfl
+--   P_M_soundL_defeq: the MachineTraceLB statement of topshareM_soundLA with (ext, extB, letObsB) replaced by P_M.top.(extS, extBS, lsrc) is defeq to the original (by rfl on the types)
+--   P_M_tie_defeq   : P_M.outsOf = tmOuts, P_M.insOf = tmIns, P_M.bsC = tmBsC (rfl)
+-- Q-side analogue for TqGrp. If any `rfl` fails the failing item is reported as an exact gap (no weakening of the statement).
+end Tests.Compiler.CDef

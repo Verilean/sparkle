@@ -1,0 +1,24 @@
+SRM22 PAIR TABLE (written BEFORE any proof file; see EXPECTED.txt for the exact types).  Facts used: o := checkedOptimize b.
+ declWidth b x  = width of the FIRST wire of b named x (0 if none; Sparkle/IR/RegDedup.lean:170).
+ weS o x        = width of the first of (o.wires ++ o.inputs ++ o.outputs) whose SANITIZED name is x (0 if none; ShippingDesignSVLeaf:22, RoundtripProof:3311).
+ Existing lemmas (INVENTORY.txt, S22LOC): checkedOptimize_ports (inputs/outputs kept, ShippingOptimizePorts:53), checkedOptimize_wires_subset (ShippingOptSoundness:375), checkedOptimize_ports_wires (hierGate; :212),
+ declWidth_le_weS_input (LeafInputWidths:64), weS_input (SatInputs:533), declWidth_of_wire (SatInputs:521), weS_checkedOptimize_le (NoPortsTypedI:238), declWidth_mergeChecked (LeafSat:117), mergeChecked_ports (RefineCheck:290), dropZW_inputs/dropZW_wires (OutsExtractedParts:175/181).
+ DUPLICATE CHECK: no existing lemma relates hinsFit/hstX/hstR to hin/hst₁₋₃ (grep hinsFit: only consumers in PipelineSoundness, NoPortsTypedBS, HierOptRun, ... and the SRM9/20/21 statements); no checkedOptimize register-correspondence lemma exists (seqRegs_openFlat is b-internal).
+ There is NO existing lemma "registers of checkedOptimize b ⊆ / = registers of b" (only ports/wires/name).
+
+PAIR A: (hinsFit, hin)   inputs < 2^declWidth b  vs  inputs < 2^weS o
+  CG ⇒ S19 : PROVED hin_of_hinsFit  (needs declWidth b x ≤ weS o x on inputs: declWidth_le_weS_input at checkedOptimize_ports_wires; premises hgate hnd hs hoi hIW)
+  S19 ⇒ CG : PROVED hinsFit_of_hin UNDER the gap Prop InputsAreWires b (+ hgate hnd hs hoi huniq hty): then weS o p.name = tyW = declWidth b p.name (weS_input, declWidth_of_wire).
+             COUNTEREXAMPLE hin_not_hinsFit without it: b = {inputs=[x:bv8], wires=[], body=[]}: declWidth b x = 0, weS o x = 8, ins = 5.
+             GAP for topshare: InputsAreWires b is NOT derived (inputWires_runMT proves only the restriction "non-clk/rst, width ≠ 0" and only for the MT route).
+PAIR B: (hstX, hst₃)   hstX: names of openIns b (wires driven by instances) < 2^declWidth b ;  hst₃: ALL non-register names of o < 2^weS o
+  CG ⇒ S19 : COUNTEREXAMPLE hstX_hstR_not_hst3 (empty module; hst₃ speaks about every name, weS = 0 off the declared names; hstX/hstR speak about openIns/registers only).  No repair.
+  S19 ⇒ CG : PROVED hstX_of_hst3 under gap ShippedRegsFromSource b (+ hgate hnd hs how): x ∈ openIns is not a register of b (not driven), hence not of o; hst₃ x; weS o x ≤ declWidth b x (weS_checkedOptimize_le).
+PAIR C: (hstR, hst₁)   hstR: registers of b < 2^declWidth ;  hst₁ = RegsAtInit: st0 r = init for the registers of o
+  CG ⇒ S19 : NOT PROVED. hstR is an upper bound, hst₁ an equality.  GAP: ShippedRegsAreSlots b regs slots + the machine fact hinit give hst₁ (PROVED regsAtInit_of_hinit) — hstR is not used.  No counterexample term (cO of a module with a register is not reducible by `decide`: refineCheck/optimizeModule stuck, experiment x3).
+  S19 ⇒ CG : PROVED hstR_of_hst1_hst2 (jointly with hst₂) under gap SourceRegsKept b (+ hgate hnd hs hrio): st0 r = init.toNat < 2^weS o r ≤ declWidth b r.
+PAIR D: (hstR, hst₂)   hst₂ = RegsFit: init < 2^weS o r  (a fact about the module's inits; st0-free)
+  CG ⇒ S19 : PROVED regsFit_of_hstR_hst1 (with hst₁ as an additional premise) under gaps ShippedRegsFromSource b, ShippedRegWidthLe b.   hstR ALONE does not mention inits: no direction without hst₁.
+  S19 ⇒ CG : jointly with hst₁ (see C).
+NOT ANALYSED (disjoint subjects, no relating lemma sought): (hinsFit, hst₁₋₃), (hstX, hst₁), (hstX, hst₂), (hstR, hst₃), (hstX,hst₃ combined with hstR is in B).
+Corollaries: ONLY hin (A, CG ⇒ S19): its premises hgate, wn, ostable, oi are derivable for topshareM/Q from hBnd; hnd, hsI, hIW are NOT derived, so hin is REPLACED by those three explicit premises (not discharged).  No other binder can be supplied.

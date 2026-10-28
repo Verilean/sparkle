@@ -1,0 +1,23 @@
+namespace Tests.Compiler.SharedLeafMemKidIfaceTest
+open Lean Meta
+open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry Tools.ShippingChildInvA Tools.ShippingChildFresh
+open Tools.ShippingChildCacheA Tools.ShippingChildRunAKids Tools.ShippingChildInv Sparkle.IR.AST Sparkle.IR.Machine
+open Sparkle.Compiler.Elab Tools.ShippingChildBndCore Tools.ShippingChildVCA
+open Tools.ShippingSrm3Callee Tools.ShippingSrm4Kid Tools.ShippingSrm4Core6 Tools.ShippingSrm4Parent
+open Sparkle.Compiler.MachMemory (memModule)
+open Sparkle.IR.OptCheck (checkedOptimize)
+open Sparkle.IR.RefineCheck (mergeChecked)
+open Tools.ShippingMachineLinked (childMap)
+open Tests.Compiler.SharedLeafMemKidTest Tests.Compiler.SharedLeafMemKidRunTest Tests.Compiler.SharedLeafMemKidEntryTest
+open Tools.ShippingSrm5Height Tools.ShippingSrm6Sem Tools.ShippingSrm11Bounds
+open Tools.ShippingSrm5Deep (post_name)
+open Tools.ShippingHierStateG (KT KSn KState runModuleTG)
+open Sparkle.IR.RegDedup (declWidth)
+open Tools.ShippingDesignSV (envAt)
+open Tools.ShippingDesignSVBounds (InvN)
+open Sparkle.IR.Semantics (Bounded)
+open Tools.ShippingSrm13Supply
+open Tools.ShippingSeqOptSoundness (seedIn)
+
+variable {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+  {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}

@@ -1,0 +1,35 @@
+SRM33 EXPECTED (written before any Lean edit).
+
+== T1 (Tools/ShippingSrm33Core.lean, namespace Tools.ShippingSrm33) ==
+theorem machine_ships_hierC_noHstR {n : Nat}
+    <binders hloc … soundL EXACTLY as Tools.ShippingSrm31.machine_ships_hierC_at_nw, unchanged>
+    (composed : ∀ {mctx mref cctx cref w w' m design} {b : Sparkle.IR.AST.Module},
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, design) w' →
+      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule m ∨ b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule m)) →
+      MachineDefines mctx mref cctx cref declName d.shape → C mctx mref cctx cref →
+      Bnd mctx mref cctx cref w m design → Tools.ConeFold.memFree m.body →
+      Tools.ShippingSrm28.ComposedNWRegs n declName d kD m design dom src ext extB
+        (fun regs => ∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+          d.shape.layout.slots[k]? = some f → f.width ≤ declWidth b r))
+    (houtTy) (hinitW : ∀ f ∈ d.shape.layout.slots, f.init < 2 ^ f.width)
+    {mctx … b raw D} (hcore) (hpost) (entry) (closes) (facts)  -- as SRM31
+    : Bnd … raw D → Bd b D →
+      ∃ ids … ∃ cache regs, regs.Nodup ∧ regs.length = d.ss.length ∧
+        ∀ i bools bits T ins st0 mems kids,
+          SourceInputs → regs pass → rst → clk → hinit → ResetNk n raw D kids → hinsFit → hstX →
+          <output ∃ envsO …>
+  i.e. machine_ships_hierC_at_free's conclusion with its LAST antecedent hstR REMOVED; NO hWd antecedent, NO hstR.
+  The ONE joint witness is `ComposedNWRegs` (the P conjunct is on the SAME regs as MachineWired/H); the conclusion's ∃ regs is that regs.
+  Choice of P: P is literally the width link for b (b universally quantified in `composed` with the hpost tie, as topshare*_composedNW_hWd takes hpost); so no separate "P → link" hypothesis is needed.
+  Proof: destructure the single composed witness; hstR := Tools.ShippingSrm31.hstR_of_wired_slots hbB (sourceRegsAreSlots_of_wired_all wired) hinit hinitW (hP) ; rest as SRM31.
+
+== T2 (Tests/Compiler/Srm33EndpointTest.lean, namespace Tests.Compiler.Srm33EndpointTest) ==
+theorem topshare{M,Q}_hierC_noHstR
+  binders: EXACTLY those of Tests.Compiler.Srm9ComposedTest.topshare{M,Q}_hierC_at_free (implicits mctx mref cctx cref w w1 b raw D, hcore, hpost, entry, closes)
+  conclusion: EXACTLY that of topshare{M,Q}_hierC_at_free with the last antecedent
+     (∀ r ∈ seqRegs (openFlat b (openIns b) (openOuts b)), st0 r.1 < 2 ^ declWidth b r.1)
+  DELETED (nothing replaces it).  Binder list = original minus hstR (the hstR antecedent is the last Prop of the ∀-telescope of the
+  conclusion's ∃regs ∀i…; there is no new binder, no hWd).
+  Supplied by T1 with composed := fun hrun hpost' hentry _ hB _ => topshare{M,Q}_composedNW_hWd hrun hpost' hentry hB (hBnd destructured only inside the instance), hinitW := by decide.
+
+STATUS WORDS: if proved, the hstR antecedent of the original endpoint is DISCHARGED for actual topshareM/Q (scoped); remaining PREMISES: TmBnd/TqBnd, Bd, SourceInputs, rst/clk, hinit, ResetNk 2, hinsFit, hstX.

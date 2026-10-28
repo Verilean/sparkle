@@ -1,0 +1,10 @@
+PREMISES (SRM28).  PROVED / PREMISE / OPEN kept apart.
+New theorems (Tools/ShippingSrm28Regs.lean, Tests/Compiler/Srm28InstTest.lean) and their binders:
+* sourceRegsAreSlots_of_wired_all (hW : MachineWired …) — PROVED; premise = the wiring itself (a hypothesis of the form every producer run exports).
+* shippedRegsAreSlots_of_wired_all (hgate : hierGate b = true) (hb : b.body = m.body) (hW : MachineWired …) — PROVED; premises hgate, hb, hW.  NO hK0 (K0N), NO K1, NO hregsNd, NO hlen.
+* composedNWRegs_of_composedNW (P) (h : ComposedNW …) (hP : ∀ ids cache regs lets, regs.Nodup → regs.length = d.ss.length → MachineWired … → P regs) — PROVED generic lifting; hP is a binder supplied by the caller (not a trusted law).
+* ComposedNWRegs.toNW — PROVED.
+* topshare{M,Q}_composedNW_g5 (hcore) (hpost) (entry) (hBnd : TmBnd/TqBnd) — PROVED; premises = exactly SRM24's: hcore, hpost, entry, hBnd (TmBnd/TqBnd are PREMISE boundaries of the existing instance supplier).
+* topshare{M,Q}_composedNW_regsAtInit_noG5 — PROVED; same premises; `hinit` is an explicit hypothesis inside the exported P-implication (NOT assumed at a reset start).
+Existing statement changed: MachineWired gained a 19th conjunct (theorem-backed at the producer).  No other theorem type changed.
+Still PREMISE / OPEN (explicit, untouched): K1 equation (regs = psN), K0N, G1 InputsAreWires, G3 SourceRegsKept, hsk, FitTree, hRK, hst1/hst2/hst3, hW (ShippedRegWidthLe) for whatever result uses it, rank/range premises, TmBnd/TqBnd contents, ComposedNW tail hypotheses.  OPEN: any general design, designSVH, endpoint, production, concrete-run satisfaction.

@@ -50,8 +50,8 @@ EVERY handler it reaches, and what this file does with it:
 | `sliceF` | `translateSliceFUncachedWith` | PROVED |
 | `other` | `translateInstanceOrFallback env rec` | dispatch PROVED (`translateInstanceOrFallbackA`) with: |
 | | — single-output child call: `childSynthEntry` + `translateInstanceUncachedWith` | `translateInstanceUncachedWithA` PROVED (module registration, clk/rst plumbing, arity check, operand translations, the single-out instance cache `FramedA.sideGet/sideModify .singleOut`, link check, instance statement); the child synthesis is premise `ChildEntryA` (from `ChildKeepsA O D` at `JQ`, `childEntryA_of_childKeeps`) |
-| | — projection of a multi-output child: `projFieldName?`, `childSynthEntry`, `translateProjInstanceUncachedWith` | `translateProjInstanceUncachedWithA` PROVED given premise `CanonKeyA` (the call key `canonHardwareKey`, a fuel fixpoint of `whnf`/`instantiateMVars`/… steps, not migrated); `projFieldName?` is premise `ProjFieldNameA` (it runs `forallTelescopeReducing`: needs `RefLawsATele.telescope`, plus `getConstInfoInduct`/`Ctor` and `getUserName` walks — not attempted) |
-| | — everything else | `Rec.translateExprToWireCached` — premise `LegacyCachedA` |
+| | — projection of a multi-output child: `projFieldName?`, `childSynthEntry`, `translateProjInstanceUncachedWith` | `translateProjInstanceUncachedWithA` PROVED; its call key `canonHardwareKey` (a fuel fixpoint of `canonHardwareExprStep`: side-ref reads, `lookupVar`, `findDecl?`, loops, the recursive call; no `whnf`) is PROVED with no premise, `canonKeyA` (Tools/ShippingChildCanonKeyA.lean, unit A); `projFieldName?` is premise `ProjFieldNameA` (it runs `forallTelescopeReducing`: needs `RefLawsATele.telescope`, plus `getConstInfoInduct`/`Ctor` and `getUserName` walks — not attempted) |
+| | — everything else | `Rec.translateExprToWireCached` — PROVED from `LegacyImplA` (`legacyCachedA_of_impl`, Tools/ShippingChildLegacyCachedA.lean, unit A); `LegacyCachedA` stays a defined statement, discharged there |
 
 Every arm is wrapped in `translateControlCachedWith` (`translateControlCachedWithA`,
 PROVED: `cacheLookupValidatedA`, `recordTranslationA`).
@@ -61,12 +61,12 @@ The premises, one per handler NOT migrated (each named after it):
   `handleApplicative`, `handleBitVecOps`, `handleRegister`, `handleMux`, `handleMemory`,
   `handleLoop`, `handleCircuitMonad`, `handleDefinitionUnfold`, … — telescopes and
   `whnf`-driven helpers; NOT decomposed here);
-* `LegacyCachedA` — `Rec.translateExprToWireCached` (its cache wrapper around the same);
-* `CanonKeyA`     — `canonHardwareKey`;
+* `LegacyCachedA` — `Rec.translateExprToWireCached` (its cache wrapper around the same) — now PROVED from `LegacyImplA` (`legacyCachedA_of_impl`, unit A);
+* `CanonKeyA`     — `canonHardwareKey` — now PROVED with no premise (`canonKeyA`, unit A);
 * `ProjFieldNameA` — `projFieldName?` (needs `RefLawsATele`);
 * `ChildEntryA`   — `childSynthEntry` (the child recursion; `ChildKeepsA` at `JQ`).
 
-`translate_keepsA`: the shipping translator keeps `I` given exactly these five. -/
+`translate_keepsA`: the shipping translator keeps `I` given exactly these five. Unit A then proved two of them: `translate_keepsA_of_impl` (Tools/ShippingChildImplCorA.lean) keeps `I` given `LegacyImplA`, `ProjFieldNameA`, `ChildEntryA` only. -/
 
 namespace Tools.ShippingChildFallbackA
 open Lean Meta

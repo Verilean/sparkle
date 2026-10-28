@@ -1,0 +1,6 @@
+PREMISES (SRM33).  PROVED / PREMISE / OPEN kept apart.  SCOPE: actual topshareM / topshareQ only.
+PROVED: Tools.ShippingSrm33.machine_ships_hierC_noHstR (generic; composed = joint ComposedNWRegs with the width link as P on the same regs); Tests.Compiler.Srm33EndpointTest.topshare{M,Q}_hierC_noHstR.
+Binders of the instances = those of Srm9ComposedTest.topshare{M,Q}_hierC_at_free minus the last antecedent hstR (audited: exactly one row deleted, nothing added).
+PREMISES that remain explicit: TmBnd/TqBnd (RefLawsAOps/RefLawsATele, AdmCtx, MachineDefines of children, TmH1/TmH2/TmGrp, JQC), hpost, hcore, entry, Bd (kidsMaskedN), SourceInputs, regs pass, rst = 0, clk = 0, hinit, ResetNk 2, hinsFit, hstX.
+hinitW is decided (by decide) on the concrete layout, not a binder. The width link is DERIVED (SRM32 20th MachineWired clause), not a binder.
+OPEN: general designs; production; CI; the remaining premises above.

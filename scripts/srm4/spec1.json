@@ -1,0 +1,70 @@
+{
+ "out": "Tools/ShippingSrm4Core1.lean",
+ "imports": [
+  "Tools.ShippingParentTailsA",
+  "Tools.ShippingSrm3Iface"
+ ],
+ "header": "-- GENERATED",
+ "namespace": "Tools.ShippingSrm4Core1",
+ "extra_opens": [
+  "open Tools.ShippingSrm3Iface Tools.ShippingCallsMemA",
+  "open Tools.ShippingInstTagged (originAt)",
+  "open Tools.ShippingParentTailsA"
+ ],
+ "sources": [
+  {
+   "file": "Tools/ShippingParentTailsA.lean",
+   "names": [
+    "core_linkedWF_ranA",
+    "core_instOuts_not_assigned_ranA",
+    "core_closed_typedIn_ranA"
+   ]
+  }
+ ],
+ "all": [
+  {
+   "name": "core_kids_facts_ranA",
+   "new": "core_kids_facts_ranAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm3Iface"
+  },
+  {
+   "name": "core_outsIn_ranA",
+   "new": "core_outsIn_ranAM",
+   "lacks": true,
+   "done": true,
+   "ns": "Tools.ShippingSrm3Iface"
+  },
+  {
+   "name": "core_calls_portsG_ranA",
+   "new": "core_calls_portsG_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm3Iface"
+  },
+  {
+   "name": "core_inPorts_ranA",
+   "new": "core_inPorts_ranAM",
+   "lacks": false,
+   "done": true,
+   "ns": "Tools.ShippingSrm3Iface"
+  },
+  {
+   "name": "core_linkedWF_ranA",
+   "file": "Tools/ShippingParentTailsA.lean",
+   "ns": "Tools.ShippingSrm4Core1"
+  },
+  {
+   "name": "core_instOuts_not_assigned_ranA",
+   "file": "Tools/ShippingParentTailsA.lean",
+   "ns": "Tools.ShippingSrm4Core1"
+  },
+  {
+   "name": "core_closed_typedIn_ranA",
+   "file": "Tools/ShippingParentTailsA.lean",
+   "ns": "Tools.ShippingSrm4Core1"
+  }
+ ],
+ "prelude": "\n/-- **A child of the general closing's run is the tag-based kid of its entry** (A-form of `kidT_ofO`; no name condition). -/\ntheorem kidTA_ofO {O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref} {shape : MachineShape} {children : List Res} {k : Nat}\n    (hk : k < shape.insts.length) (hMC : MemChildren shape children) {y : Res}\n    (hy : children[k]? = some y)\n    (hor : (shape.instOrigins.getD k .ord).child? = some y \u2228\n      Tools.ShippingChildCacheA.RealChildA O (shape.insts[k]).1 y) :\n    KidTA O (Tools.ShippingInstTagged.originAt shape k) (shape.insts[k]).1 y := by\n  rcases hor with h | h\n  \u00b7 exact Or.inl h\n  \u00b7 cases hm : (shape.instOrigins.getD k .ord).child? with\n    | none => exact Or.inr \u27e8hm, h\u27e9\n    | some md =>\n      have h1 : children[k]? = some md := hMC k hk md hm\n      rw [hy] at h1\n      rw [Option.some.inj h1]\n      exact Or.inl hm\n"
+}

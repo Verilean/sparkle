@@ -1,0 +1,11 @@
+files with hits: 91; declarations: 184
+  CONSUMER A: 6
+  CONSUMER B: 31
+  CONSUMER C: 14
+  DEF A: 1
+  DEF B: 10
+  DEF C: 38
+  PRODUCER P: 28
+  TRANSFORMER A: 11
+  TRANSFORMER B: 2
+  TRANSFORMER C: 43

@@ -1,0 +1,134 @@
+import Tests.Compiler.SeqDeepGenDiffTest
+import Tests.Compiler.SeqDeepGenKeyTest
+-- BUILT (unit SR3w): g1/r3/f1 exit 0.  UNIT SR3x: refusal regressions of the reader on SYNTHETIC chains (see the end of this file; run names in the report).
+-- SCOPE (binding; per the review of par/int-r44 on SR3v): DIRECT tests of the group-numbering helpers of the depth-2 generators.
+--   * `groupPartition` (PURE, `Tools/ShippingSeqParentGenD2.lean`): same argument list but DIFFERENT Signals gives different groups; a different
+--     CALLEE gives a different group; the same group COUNT can come with a DIFFERENT partition (so a count check alone does not detect a
+--     different partition); interleaved groups.
+--   * `groupKeysOf` (PURE): the key of each group of a given partition; the numbering is kept as given; disagreeing members / gaps / length mismatches
+--     are rejected.
+--   * `oldInstGroups` (reads the partition from the old generated term, structural: the chain `forall_getElem?_cons`, the `gf*` binder names), which the
+--     generators now USE as their numbering: its result equals the recomputed call-argument approximation (a diagnostic only) on every example below (`oldGroupKeys` / `oldGroupKeysM`); its error branches
+--     (a name that is no theorem; a theorem without `machine_linkedT_callsRN`) are exercised.
+-- A case with EQUAL argument-let lists but DIFFERENT call Signals could NOT be built from the surface language (an expression or a constant
+-- argument becomes its own let), so the "same argument list, different Signals" case is a test of the PURE helper on synthetic keys, not of real code.
+-- What is NOT tested: a real old term whose partition differs from the approximation (none was found), the refusal text of `analyse` on such a
+-- mismatch (the comparison is inline), and the reading of an old term of a different shape.
+namespace Tests.Compiler.SeqDeepGenGroupTest
+open Tools.ShippingSeqParentGenD2 (groupPartition groupKeysOf oldInstGroups oldInstGroupsOfHcalls oldGroupKeys)
+
+/-- A stand-in key: (callee, argument lets, the call's argument Signals as strings). -/
+abbrev K := String × List Nat × List String
+
+-- same argument list, DIFFERENT Signals: two groups (the argument list alone would give one)
+theorem sig_differs : (groupPartition ([("w", [0, 1], ["a", "b"]), ("w", [0, 1], ["a", "c"])] : List K)).1 = [0, 1] := by decide
+theorem sig_same : (groupPartition ([("w", [0, 1], ["a", "b"]), ("w", [0, 1], ["a", "b"])] : List K)).1 = [0, 0] := by decide
+-- a different CALLEE with the same arguments: two groups
+theorem callee_differs : (groupPartition ([("w", [0, 1], ["a"]), ("w2", [0, 1], ["a"])] : List K)).1 = [0, 1] := by decide
+-- the same COUNT, a DIFFERENT partition
+theorem same_count : (groupPartition [1, 1, 2]).2.length = (groupPartition [1, 2, 2]).2.length := by decide
+theorem diff_partition : (groupPartition [1, 1, 2]).1 ≠ (groupPartition [1, 2, 2]).1 := by decide
+theorem part_a : (groupPartition [1, 1, 2]).1 = [0, 0, 1] := by decide
+theorem part_b : (groupPartition [1, 2, 2]).1 = [0, 1, 1] := by decide
+-- interleaved groups, and the distinct keys in order of first occurrence
+theorem interleaved : groupPartition [7, 8, 7, 8, 9] = ([0, 1, 0, 1, 2], [7, 8, 9]) := by decide
+theorem empty_case : groupPartition ([] : List Nat) = ([], []) := by decide
+
+-- `groupKeysOf`: the key of each group of a GIVEN partition (the generators now take the partition from the old term)
+theorem gk_basic : groupKeysOf [0, 0, 1] [[0, 1], [0, 1], [1, 0]] = some [[0, 1], [1, 0]] := by decide
+-- the numbering of the given partition is kept AS IS (here NOT first-occurrence order)
+theorem gk_kept : groupKeysOf [1, 0, 1] [[5], [7], [5]] = some [[7], [5]] := by decide
+-- members of one group with different keys: rejected
+theorem gk_disagree : groupKeysOf [0, 0] [[0, 1], [1, 0]] = (none : Option (List (List Nat))) := by decide
+-- an unused group index below the maximum: rejected
+theorem gk_gap : groupKeysOf [0, 2] [[1], [2]] = (none : Option (List (List Nat))) := by decide
+-- length mismatch: rejected
+theorem gk_len : groupKeysOf [0] [[1], [2]] = (none : Option (List (List Nat))) := by decide
+
+open Lean Meta Elab Command in
+run_cmd liftTermElabM do
+  -- the partition READ from the old generated term equals the recomputed call-argument approximation, example by example
+  let wrapN := ``Tests.Compiler.SeqDeepGenInstTest.wrap
+  for (fn, C, kP, al, expected) in [
+      (``Tests.Compiler.SeqDeepGenInstTest.topw, wrapN, 3, [[0,1],[0,1]], [0,0]),
+      (``Tests.Compiler.SeqDeepGenArgsTest.topargs, wrapN, 3, [[0,1],[0,1],[1,0],[1,0]], [0,0,1,1]),
+      (``Tests.Compiler.SeqDeepGenArgsTest.toptwo, wrapN, 3, [[0,1],[0,1],[1,0],[1,0],[0,0],[0,0]], [0,0,1,1,2,2]),
+      (``Tests.Compiler.SeqDeepGenKeyTest.tf1, wrapN, 3, [[0,1],[0,1],[2,1],[2,1]], [0,0,1,1]),
+      (``Tests.Compiler.SeqDeepGenKeyTest.tf2, wrapN, 3, [[0,1],[0,1],[0,2],[0,2]], [0,0,1,1])] do
+    let .ok og ← oldInstGroups (fn ++ `machine_composedNR2) | throwError "SR3w AUDIT FAILED: {fn}: the old partition cannot be read"
+    let .ok (inst, _) ← oldGroupKeys fn C kP al | throwError "SR3w AUDIT FAILED: {fn}: the key cannot be computed"
+    unless og == expected && inst == expected do
+      throwError "SR3w AUDIT FAILED: {fn}: old partition {og}, recomputed {inst}, expected {expected}"
+  -- the several-callees keys of `topdiff2` / `topdiff3`
+  let cs3 := [``Tests.Compiler.SeqDeepGenInstTest.wrap, ``Tests.Compiler.SeqDeepGenInstTest.wrap, ``Tests.Compiler.SeqDeepGenDiffTest.wrap2,
+    ``Tests.Compiler.SeqDeepGenDiffTest.wrap2, ``Tests.Compiler.SeqDeepGenInstTest.wrap, ``Tests.Compiler.SeqDeepGenInstTest.wrap,
+    ``Tests.Compiler.SeqDeepGenDiffTest.wrap2, ``Tests.Compiler.SeqDeepGenDiffTest.wrap2]
+  let al3 := [[0,1],[0,1],[1,0],[1,0],[0,0],[0,0],[0,1],[0,1]]
+  let fn3 := ``Tests.Compiler.SeqDeepGenDiffTest.topdiff3
+  let .ok og3 ← oldInstGroups (fn3 ++ `machine_composedNR2) | throwError "SR3w AUDIT FAILED: topdiff3: the old partition cannot be read"
+  let .ok (inst3, grp3) ← Tools.ShippingSeqParentGenD2M.oldGroupKeysM fn3 cs3 3 al3 | throwError "SR3w AUDIT FAILED: topdiff3: the key cannot be computed"
+  unless og3 == [0,0,1,1,2,2,3,3] && inst3 == og3 && grp3.length == 4 do
+    throwError "SR3w AUDIT FAILED: topdiff3: old {og3}, recomputed {inst3} {grp3}"
+  -- the error branches of the reader
+  match ← oldInstGroups ``Nat.add_comm with
+  | .error _ => pure ()
+  | .ok r => throwError "SR3w AUDIT FAILED: a theorem without the consumer head was read: {r}"
+  match ← oldInstGroups ``Nat.zero_add with
+  | .error _ => pure ()
+  | .ok r => throwError "SR3w AUDIT FAILED: a theorem without the consumer head was read: {r}"
+  match ← oldInstGroups ``Nat.succ with
+  | .error _ => pure ()
+  | .ok r => throwError "SR3w AUDIT FAILED: a non-theorem was read: {r}"
+  logInfo m!"SR3w: the partition read from the old term equals the recomputed one on topw/topargs/toptwo/tf1/tf2/topdiff3; the reader's error branches are exercised; the pure helper separates different Signals / callees and keeps same-count partitions apart"
+
+
+-- UNIT SR3x: REFUSAL regressions of the chain reader `oldInstGroupsOfHcalls` on SYNTHETIC `hcalls` expressions shaped like the old chain
+-- `fun i => (fun gf0 gf1 … => cons _ _ _ _ (proof using gf*) (cons … nil)) args`.  They are untyped Exprs (the reader is structural), so they test the
+-- reader's refusals, NOT that the real generated terms are refused.  Each refusal message is asserted (by a substring).
+open Lean Meta Elab Command in
+run_cmd liftTermElabM do
+  let nat := mkConst ``Nat
+  let consC := mkConst ``Tools.ShippingMachineChild.forall_getElem?_cons
+  let nilC := mkConst ``Tools.ShippingMachineChild.forall_getElem?_nil
+  -- binders `bs`, entries = the binder indices each entry's proof uses, `tl` = the end of the chain, `nargs` = arguments given to `cons`
+  let mk (bs : List String) (entries : List (List Nat)) (tl : Expr) (nargs : Nat := 6) (redex : Bool := true) : MetaM Expr := do
+    withLocalDeclsD (bs.toArray.map fun n => (Name.mkSimple n, fun _ => pure nat)) fun gs => do
+      let chain := entries.foldr (fun us rest =>
+        let proof := mkAppN nat (us.toArray.map fun u => gs[u]!)
+        mkAppN consC ((#[nat, nat, nat, nat, proof, rest] : Array Expr).extract 0 nargs)) tl
+      let body ← if redex then pure (mkAppN (← mkLambdaFVars gs chain) (gs.map fun _ => mkNatLit 0)) else pure chain
+      withLocalDeclD `i nat fun i => mkLambdaFVars #[i] body
+  let has (r : Except String (List Nat)) (sub : String) : Bool :=
+    match r with | .error m => (m.splitOn sub).length > 1 | .ok _ => false
+  let thm := `Synthetic.thm
+  -- positive control: a well-formed chain
+  match ← oldInstGroupsOfHcalls thm (← mk ["gfB0", "gfB1"] [[0], [0], [1]] nilC) with
+  | .ok [0, 0, 1] => pure ()
+  | r => throwError "SR3x AUDIT FAILED: the well-formed synthetic chain was not read as [0,0,1]: {repr (r.toOption)}"
+  -- wrong head: the chain ends in something that is neither `cons` nor `nil`
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0"] [[0]] nat)
+  unless has r "unexpected term in the chain" do throwError "SR3x AUDIT FAILED: wrong chain end not refused with its reason: {repr r.toOption}"
+  -- wrong head at the first link
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0"] [] nat)
+  unless has r "unexpected term in the chain" do throwError "SR3x AUDIT FAILED: wrong first link not refused: {repr r.toOption}"
+  -- missing link: `cons` applied to fewer than 6 arguments
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0"] [[0]] nilC (nargs := 5))
+  unless has r "unexpected term in the chain" do throwError "SR3x AUDIT FAILED: a `cons` without its tail not refused: {repr r.toOption}"
+  -- unexpected binder name
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0", "hx"] [[0]] nilC)
+  unless has r "unexpected binder hx" do throwError "SR3x AUDIT FAILED: unexpected binder not refused: {repr r.toOption}"
+  -- a `gf` binder without a group index
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfL"] [[0]] nilC)
+  unless has r "cannot read the group index of gfL" do throwError "SR3x AUDIT FAILED: binder without index not refused: {repr r.toOption}"
+  -- an instance referring to SEVERAL groups
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0", "gfL1"] [[0], [0, 1]] nilC)
+  unless has r "uses the group facts of 2 groups (expected exactly one)" do throwError "SR3x AUDIT FAILED: an entry using two groups not refused: {repr r.toOption}"
+  -- an instance referring to NO group
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0"] [[]] nilC)
+  unless has r "uses the group facts of 0 groups (expected exactly one)" do throwError "SR3x AUDIT FAILED: an entry using no group not refused: {repr r.toOption}"
+  -- not the beta-redex shape
+  let r ← oldInstGroupsOfHcalls thm (← mk ["gfB0"] [[0]] nilC (redex := false))
+  unless has r "is not a beta-redex" do throwError "SR3x AUDIT FAILED: a non-redex body not refused: {repr r.toOption}"
+  logInfo m!"SR3x: the chain reader refuses synthetic chains with a wrong head, a missing link, an unexpected / index-less binder, an entry using several (or no) groups, and a non-redex body; messages asserted"
+
+end Tests.Compiler.SeqDeepGenGroupTest

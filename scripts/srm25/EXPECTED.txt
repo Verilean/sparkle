@@ -1,0 +1,27 @@
+SRM25 EXPECTED (fixed BEFORE any proof file).  Gap: G5 `ShippedRegsAreSlots b regs slots` (Tools/ShippingSrm22Width.lean:43).
+Outcome planned (see G5_INVENTORY.txt §4-5): G5 for the ComposedG witness `regs` of the actual topshare{M,Q} is NOT closed in this unit (missing K1, needs edits of existing files).
+What IS planned: the generic reduction G5 ⇐ (hierGate b) + source fact, with the reset-value gap of SRM23's G2 closed.  No instance, no corollary removing the G5 binder (none is derivable).
+Notation: cO = Sparkle.IR.OptCheck.checkedOptimize, hierGate = Sparkle.IR.RefineCheck.hierGate.
+Generic file Tools/ShippingSrm25Init.lean, namespace Tools.ShippingSrm25Init.
+
+theorem refineCheck_regInit {m o : Module} (h : refineCheck m o = true) :
+    ∀ ro ∈ seqRegs o, ∃ rm ∈ seqRegs m, rm.1 = ro.1 ∧ rm.2.2.2.2 = ro.2.2.2.2
+
+theorem shippedRegInit_of_hierGate {b : Module} (hgate : hierGate b = true)
+    (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int) :
+    Stmt.register r c rs inp init ∈ (cO b).body →
+      ∃ (c' : String) (rs' : String × Sparkle.IR.Type.ResetKind) (inp' : Expr), Stmt.register r c' rs' inp' init ∈ b.body
+
+/-- the SOURCE fact (K): a PREMISE of the next theorem, NOT proved for the witness regs of topshare{M,Q}. -/
+def SourceRegsAreSlots (b : Module) (regs : List String) (slots : List SlotField) : Prop :=
+  ∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+    Stmt.register r c rs inp init ∈ b.body →
+      ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ slots[k]? = some f ∧ init = Int.ofNat f.init
+
+theorem shippedRegsAreSlots_of_source {b : Module} (hgate : hierGate b = true) (regs : List String) (slots : List SlotField)
+    (hS : SourceRegsAreSlots b regs slots) : Tools.ShippingSrm22Width.ShippedRegsAreSlots b regs slots
+-- reduction of an `cO b`-statement to a `b.body`-statement through hierGate; the premise hS is a different Prop (source side), the reduction uses refineCheck_regInit.
+
+Audit target (Tests/Compiler/Srm25AuditTest.lean): the three theorems' binder tuples isDefEq to the statements above; wrong-expected mutations rejected; axioms standard only.
+NOT planned / OPEN: topshare{M,Q} instances of G5; corollaries of SRM22/23/24 with the G5 binder removed; K1 (export of regs = ps.map Port.name); K0 (registers of M.body for calls).
+G1 InputsAreWires, G3 SourceRegsKept, hsk, FitTree, hRK, hst1/hst2/hst3 untouched.

@@ -1,0 +1,52 @@
+S25THM|Tools.ShippingSrm25Init.refineCheck_regInit
+S25PREM|Tools.ShippingSrm25Init.refineCheck_regInit|0|Lean.BinderInfo.implicit|m|false|Sparkle.IR.AST.Module
+S25PREM|Tools.ShippingSrm25Init.refineCheck_regInit|1|Lean.BinderInfo.implicit|o|false|Sparkle.IR.AST.Module
+S25PREM|Tools.ShippingSrm25Init.refineCheck_regInit|2|Lean.BinderInfo.default|h|true|Sparkle.IR.RefineCheck.refineCheck
+    m o =
+  true
+S25PREM|Tools.ShippingSrm25Init.refineCheck_regInit|3|Lean.BinderInfo.default|ro|false|String ×
+  String × (String × Sparkle.IR.Type.ResetKind) × Sparkle.IR.AST.Expr × Int
+S25PREM|Tools.ShippingSrm25Init.refineCheck_regInit|4|Lean.BinderInfo.default|a._@._internal._hyg.0|true|ro ∈
+  Sparkle.IR.OptCheck.seqRegs o
+S25CONC|Tools.ShippingSrm25Init.refineCheck_regInit|∃ rm,
+  rm ∈ Sparkle.IR.OptCheck.seqRegs m ∧ rm.fst = ro.fst ∧ rm.snd.snd.snd.snd = ro.snd.snd.snd.snd
+S25THM|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate
+S25PREM|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|0|Lean.BinderInfo.implicit|b|false|Sparkle.IR.AST.Module
+S25PREM|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|1|Lean.BinderInfo.default|hgate|true|Sparkle.IR.RefineCheck.hierGate
+    b =
+  true
+S25PREM|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|2|Lean.BinderInfo.default|r|false|String
+S25PREM|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|3|Lean.BinderInfo.default|c|false|String
+S25PREM|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|4|Lean.BinderInfo.default|rs|false|String ×
+  Sparkle.IR.Type.ResetKind
+S25PREM|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|5|Lean.BinderInfo.default|inp|false|Sparkle.IR.AST.Expr
+S25PREM|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|6|Lean.BinderInfo.default|init|false|Int
+S25PREM|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|7|Lean.BinderInfo.default|a._@._internal._hyg.0|true|Sparkle.IR.AST.Stmt.register
+    r c rs inp init ∈
+  (Sparkle.IR.OptCheck.checkedOptimize b).body
+S25CONC|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|∃ c' rs' inp',
+  Sparkle.IR.AST.Stmt.register r c' rs' inp' init ∈ b.body
+S25THM|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source
+S25PREM|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|0|Lean.BinderInfo.implicit|b|false|Sparkle.IR.AST.Module
+S25PREM|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|1|Lean.BinderInfo.default|hgate|true|Sparkle.IR.RefineCheck.hierGate
+    b =
+  true
+S25PREM|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|2|Lean.BinderInfo.default|regs|false|List String
+S25PREM|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|3|Lean.BinderInfo.default|slots|false|List
+  Sparkle.IR.Machine.SlotField
+S25PREM|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|4|Lean.BinderInfo.default|hS|true|Tools.ShippingSrm25Init.SourceRegsAreSlots
+  b regs slots
+S25CONC|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|Tools.ShippingSrm22Width.ShippedRegsAreSlots b regs slots
+S25EXPDEFEQ|Tools.ShippingSrm25Init.refineCheck_regInit|Tests.Compiler.Srm25ExpStmt.Exp_regInit|isDefEq
+S25EXPDEFEQ|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|Tests.Compiler.Srm25ExpStmt.Exp_shippedInit|isDefEq
+S25EXPDEFEQ|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|Tests.Compiler.Srm25ExpStmt.Exp_reduction|isDefEq
+S25MUTREJECT|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|Tests.Compiler.Srm25ExpStmt.Exp_mut_initDropped
+S25MUTREJECT|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|Tests.Compiler.Srm25ExpStmt.Exp_mut_noGate
+S25MUTREJECT|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|Tests.Compiler.Srm25ExpStmt.Exp_mut_withTrue
+S25MUTREJECT|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|Tests.Compiler.Srm25ExpStmt.Exp_mut_addedBinder
+S25MUTREJECT|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|Tests.Compiler.Srm25ExpStmt.Exp_mut_reordered
+S25NORELABEL|hS vs G5|distinct
+S25AXIOMS|Tools.ShippingSrm25Init.refineCheck_regInit|[propext, Quot.sound]
+S25AXIOMS|Tools.ShippingSrm25Init.shippedRegInit_of_hierGate|[propext, Classical.choice, Quot.sound]
+S25AXIOMS|Tools.ShippingSrm25Init.shippedRegsAreSlots_of_source|[propext, Classical.choice, Quot.sound]
+S25AUDIT|ok

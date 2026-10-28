@@ -1,0 +1,165 @@
+S10THM|Tools.ShippingSrm10Outs.outsLeaf_of_outsAssigned|2
+S10DATA|Tools.ShippingSrm10Outs.outsLeaf_of_outsAssigned|0|implicit|m|Sparkle.IR.AST.Module
+S10PREM|Tools.ShippingSrm10Outs.outsLeaf_of_outsAssigned|1|explicit|h|Tools.ShippingDesignSVBack.outsAssigned m = true
+S10THM|Tools.ShippingSrm10Outs.houtsMod_rank0|6
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_rank0|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_rank0|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_rank0|2|implicit|o|Sparkle.IR.AST.Module
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_rank0|3|explicit|hr|rk o.name = some 0
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_rank0|4|explicit|hl|Tools.ShippingDesignSV.outsLeaf o = true
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_rank0|5|explicit|f|Nat
+S10THM|Tools.ShippingSrm10Outs.houtsMod_succ_iff|6
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_succ_iff|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_succ_iff|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_succ_iff|2|implicit|o|Sparkle.IR.AST.Module
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_succ_iff|3|implicit|h|Nat
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_succ_iff|4|explicit|hr|rk o.name = some (h + 1)
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_succ_iff|5|explicit|f|Nat
+S10THM|Tools.ShippingSrm10Outs.houtsMod_pos|7
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_pos|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_pos|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_pos|2|implicit|o|Sparkle.IR.AST.Module
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_pos|3|implicit|h|Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_pos|4|implicit|f|Nat
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_pos|5|explicit|hr|rk o.name = some (h + 1)
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_pos|6|explicit|hc|Tools.ShippingSrm10Outs.houtsMod C rk f o = true
+S10THM|Tools.ShippingSrm10Outs.houtsMod_outs|5
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_outs|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_outs|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_outs|2|implicit|o|Sparkle.IR.AST.Module
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_outs|3|implicit|f|Nat
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_outs|4|explicit|hc|Tools.ShippingSrm10Outs.houtsMod C rk f o = true
+S10THM|Tools.ShippingSrm10Outs.houtsCheck_at|10
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_at|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_at|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_at|2|implicit|f|Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_at|3|implicit|h|Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_at|4|implicit|o|Sparkle.IR.AST.Module
+S10PREM|Tools.ShippingSrm10Outs.houtsCheck_at|5|explicit|hc|Tools.ShippingSrm10Outs.houtsCheck C rk f h o = true
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_at|6|implicit|mn|String
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_at|7|implicit|iname|String
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_at|8|implicit|conns|List (String × Sparkle.IR.AST.Expr)
+S10PREM|Tools.ShippingSrm10Outs.houtsCheck_at|9|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
+S10THM|Tools.ShippingSrm10Outs.kidsPass_of_resolved|4
+S10DATA|Tools.ShippingSrm10Outs.kidsPass_of_resolved|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.kidsPass_of_resolved|1|implicit|F|Sparkle.IR.AST.Module → Bool
+S10DATA|Tools.ShippingSrm10Outs.kidsPass_of_resolved|2|implicit|body|List Sparkle.IR.AST.Stmt
+S10PREM|Tools.ShippingSrm10Outs.kidsPass_of_resolved|3|explicit|h|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ body → ∃ child cwe, C mn = some (child, cwe) ∧ F child = true
+S10THM|Tools.ShippingSrm10Outs.outsCheck_succ_at|11
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_succ_at|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_succ_at|1|implicit|n|Nat
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_succ_at|2|implicit|o|Sparkle.IR.AST.Module
+S10PREM|Tools.ShippingSrm10Outs.outsCheck_succ_at|3|explicit|h|Tools.ShippingDesignSVBack.outsCheck C (n + 1) o = true
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_succ_at|4|implicit|mn|String
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_succ_at|5|implicit|iname|String
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_succ_at|6|implicit|conns|List (String × Sparkle.IR.AST.Expr)
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_succ_at|7|implicit|child|Sparkle.IR.AST.Module
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_succ_at|8|implicit|cwe|Sparkle.IR.Semantics.WEnv
+S10PREM|Tools.ShippingSrm10Outs.outsCheck_succ_at|9|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
+S10PREM|Tools.ShippingSrm10Outs.outsCheck_succ_at|10|explicit|hc|C mn = some (child, cwe)
+S10THM|Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni|8
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni|2|explicit|n|Nat
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni|3|explicit|o|Sparkle.IR.AST.Module
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni|4|explicit|f|Nat
+S10DATA|Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni|5|explicit|h|Nat
+S10PREM|Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni|6|explicit|_anon|Tools.ShippingSrm10Outs.houtsCheck C rk f h o = true
+S10PREM|Tools.ShippingSrm10Outs.outsCheck_of_houtsCheck_uni|7|explicit|_anon|Tools.ShippingSrm10Outs.UniRank C rk n o
+S10THM|Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck|7
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck|2|explicit|f|Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck|3|explicit|k|Sparkle.IR.AST.Module
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck|4|explicit|_anon|Tools.ShippingSrm5Height.hcheck C rk f k = true
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck|5|explicit|_anon|Tools.ShippingDesignSVBack.outsAssigned k = true
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_of_outsCheck_hcheck|6|explicit|_anon|∀ (m : Nat), Tools.ShippingDesignSVBack.outsCheck C (m + 1) k = true
+S10THM|Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck|8
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck|2|implicit|o|Sparkle.IR.AST.Module
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck|3|implicit|h|Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck|4|implicit|f|Nat
+S10PREM|Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck|5|explicit|hr|rk o.name = some (h + 1)
+S10PREM|Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck|6|explicit|hc|Tools.ShippingSrm5Height.hcheck C rk (f + 1) o = true
+S10PREM|Tools.ShippingSrm10Outs.houtsCheck_of_outsCheck_hcheck|7|explicit|hoc|∀ (m : Nat), Tools.ShippingDesignSVBack.outsCheck C (m + 1) o = true
+S10THM|Tools.ShippingSrm10Outs.houtsMod_norank|5
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_norank|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_norank|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_norank|2|implicit|o|Sparkle.IR.AST.Module
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_norank|3|implicit|f|Nat
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_norank|4|explicit|hr|rk o.name = none
+S10THM|Tools.ShippingSrm10Outs.houtsCheck_unresolved|10
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_unresolved|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_unresolved|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_unresolved|2|implicit|f|Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_unresolved|3|implicit|h|Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_unresolved|4|implicit|o|Sparkle.IR.AST.Module
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_unresolved|5|implicit|mn|String
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_unresolved|6|implicit|iname|String
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_unresolved|7|implicit|conns|List (String × Sparkle.IR.AST.Expr)
+S10PREM|Tools.ShippingSrm10Outs.houtsCheck_unresolved|8|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
+S10PREM|Tools.ShippingSrm10Outs.houtsCheck_unresolved|9|explicit|hu|C mn = none
+S10THM|Tools.ShippingSrm10Outs.houtsCheck_notBelow|12
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_notBelow|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_notBelow|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_notBelow|2|implicit|f|Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_notBelow|3|implicit|h|Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_notBelow|4|implicit|o|Sparkle.IR.AST.Module
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_notBelow|5|implicit|mn|String
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_notBelow|6|implicit|iname|String
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_notBelow|7|implicit|conns|List (String × Sparkle.IR.AST.Expr)
+S10PREM|Tools.ShippingSrm10Outs.houtsCheck_notBelow|8|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
+S10DATA|Tools.ShippingSrm10Outs.houtsCheck_notBelow|9|implicit|r|Nat
+S10PREM|Tools.ShippingSrm10Outs.houtsCheck_notBelow|10|explicit|hrm|rk mn = some r
+S10PREM|Tools.ShippingSrm10Outs.houtsCheck_notBelow|11|explicit|hge|h < r
+S10THM|Tools.ShippingSrm10Outs.houtsMod_rank0_refused|6
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_rank0_refused|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_rank0_refused|1|implicit|rk|String → Option Nat
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_rank0_refused|2|implicit|o|Sparkle.IR.AST.Module
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_rank0_refused|3|explicit|hr|rk o.name = some 0
+S10PREM|Tools.ShippingSrm10Outs.houtsMod_rank0_refused|4|explicit|hl|Tools.ShippingDesignSV.outsLeaf o = false
+S10DATA|Tools.ShippingSrm10Outs.houtsMod_rank0_refused|5|explicit|f|Nat
+S10THM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|20
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|0|implicit|mctx|Meta.Context
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|2|implicit|cctx|Core.Context
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|7|explicit|f|Nat
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|8|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|9|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM Tests.Compiler.SharedLeafMemKidTest.wrapM.machineData.shape
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|10|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM3 Tests.Compiler.SharedLeafMemKidTest.wrapM3.machineData.shape
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|12|implicit|w|Void IO.RealWorld
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|13|implicit|w1|Void IO.RealWorld
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|14|implicit|raw|Sparkle.IR.AST.Module
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|15|implicit|b|Sparkle.IR.AST.Module
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|16|implicit|D|Sparkle.IR.AST.Design
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|17|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|18|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_houts|19|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S10THM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|21
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|0|implicit|mctx|Meta.Context
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|2|implicit|cctx|Core.Context
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|7|explicit|f|Nat
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|8|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|9|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|10|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|11|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|12|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|13|implicit|w|Void IO.RealWorld
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|14|implicit|w1|Void IO.RealWorld
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|15|implicit|raw|Sparkle.IR.AST.Module
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|16|implicit|b|Sparkle.IR.AST.Module
+S10DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|17|implicit|D|Sparkle.IR.AST.Design
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|18|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|19|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S10PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_houts|20|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w

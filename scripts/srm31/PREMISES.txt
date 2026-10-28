@@ -1,0 +1,8 @@
+PREMISES (SRM31).  PROVED / PREMISE / OPEN kept apart.  hstR is NOT discharged.
+New theorems (Tools/ShippingSrm31Core.lean, Tests/Compiler/Srm31EndpointTest.lean):
+* hstR_of_wired_slots (hb : b.body = m.body) (hS : SourceRegsAreSlots m regs slots) (hinit) (hinitW : ∀ f ∈ slots, f.init < 2^f.width) (hWd : slot width ≤ declWidth b r) — PROVED: the FULL hstR.  Premises = its binders.
+* machine_ships_hierC_at_nw — PROVED: copy of machine_ships_hierC_at_free at KSn n / ResetNk n, composed binder = ComposedNW (wiring kept), extra binder hinitW, LAST antecedent hstR REPLACED by hWd.
+* topshare{M,Q}_hierC_at_nw — PROVED: same binders and conclusion as topshare{M,Q}_hierC_at_free except hstR -> hWd (PREMISE: the width link  ∀ k r f, regs[k]? = some r → slots[k]? = some f → f.width ≤ declWidth b r).
+  hinitW is decided on the concrete layout (not a premise of the instances).  TmBnd/TqBnd, Bd (kidsMaskedN), SourceInputs, regs pass, rst, clk, hinit, ResetNk 2, hinsFit, hstX and hcore/hpost/entry/closes unchanged.
+PREMISE (the replacement, named): hWd — MachineWired exports `weOf m r = f.width` only for shape.insts = [] (Tools/ShippingMachineEntry.lean:690); the call-case proof exists only inside closeMachine_regs / slotRegs_runMT (old-form MachineClosesAt/ChildBnd).
+OPEN: discharge of hWd (needs a producer export or an A-form slotRegs); hstR for the actual M/Q remains a premise-by-replacement.  Not claimed: general design, designSVH, production, concrete-run satisfaction, CI.

@@ -1,0 +1,101 @@
+SRM18 inventory: start-state candidates (generated 143d253c, grep of definition lines)
+== definitions (file:line:text) ==
+Tools/ShippingHierStateG.lean:67:def runModuleTG {σ : Type} (KS : KStep σ) (we : WEnv)
+Tools/ShippingHierStateG.lean:20:structure KState (σ : Type) where
+Tools/ShippingHierState.lean:25:structure KidState where
+Tools/ShippingHierStateG.lean:623:def KT : Nat → Type
+Tools/ShippingHierStateG.lean:628:def KSn (children : String → Option (Module × WEnv)) : (n : Nat) → KStep (KT n)
+Tools/ShippingHierStateG.lean:58:def stepModuleTG {σ : Type} (KS : KStep σ) (we : WEnv)
+Tools/ShippingMachineDepth.lean:52:def ResetN (dsn : Design) : (n : Nat) → Module → KT n → Prop
+Tools/ShippingMachineShipsDepth.lean:245:def ResetNk (n : Nat) (m : Module) (D : Design) (kids : String → KT n) : Prop :=
+Tools/ShippingMachineShipsHier.lean:474:def Reset1 (m : Sparkle.IR.AST.Module) (dsn : Design) (kids : String → KidState) : Prop :=
+Tools/ShippingMachineShipsHier.lean:529:def ResetM (_m : Sparkle.IR.AST.Module) (_dsn : Design) (kids : String → KidState) : Prop :=
+Tools/ShippingKidsResetSat.lean:350:def kidsInit (raw : Module) (D : Design) : String → KidState :=
+Tools/ShippingKidsResetSat.lean:445:def kidsZero : String → KidState := fun _ => ⟨fun _ => 0, fun _ _ => 0⟩
+Tools/ShippingSrm16Reset.lean:16:def resetKT (D : Design) : (n : Nat) → Module → KT n
+Tools/ShippingSrm16Reset.lean:21:def resetKids (D : Design) (n : Nat) (raw : Module) : String → KT n :=
+Tools/ShippingMachineShipsHier.lean:115:def ComposedG {σ : Type} (KS : Design → KStep σ)
+Tools/ShippingComposedGW.lean:181:def ComposedGW {σ : Type} (KS : Design → KStep σ)
+Tools/ShippingMachineDepthRun.lean:34:def ComposedNW (n : Nat) (declName : Name) (d : MachineData) (kD : Nat) (m : Module) (dsn : Design)
+Tools/ShippingMachineDepth.lean:64:def SeqChildRunN (dsn : Design) (n : Nat) (mc : Module)
+Tools/ShippingMachineDepth.lean:27:def RunOn : (n : Nat) → Module → (Nat → (String → Nat) → Env) → Nat → KT n → Option (List Env)
+Tools/ShippingMachineRan.lean:81:def Start0 (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State)
+Tools/ShippingCacheCoherent.lean:153:def StartVC {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+== instance theorems quantifying s (hrun) over universally quantified start states ==
+Tests/Compiler/Srm11ParentTest.lean:114:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 2)) (envs : 
+Tests/Compiler/Srm11ParentTest.lean:143:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 1)) (envs : 
+Tests/Compiler/Srm11ParentTest.lean:47:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 2)) (envs : L
+Tests/Compiler/Srm11ParentTest.lean:81:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 1)) (envs : L
+Tests/Compiler/Srm13ParentTest.lean:104:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 2)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm13ParentTest.lean:133:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 1)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm13ParentTest.lean:47:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 2)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm13ParentTest.lean:76:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 1)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm14AuditTest.lean:200:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 2)) (envs : L
+Tests/Compiler/Srm14AuditTest.lean:220:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 2)) (envs : L
+Tests/Compiler/Srm14AuditTest.lean:241:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 1)) (envs : L
+Tests/Compiler/Srm14AuditTest.lean:262:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 1)) (envs : L
+Tests/Compiler/Srm14RankTest.lean:113:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 1)) (envs : Li
+Tests/Compiler/Srm14RankTest.lean:42:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 2)) (envs : Lis
+Tests/Compiler/Srm14RankTest.lean:66:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 1)) (envs : Lis
+Tests/Compiler/Srm14RankTest.lean:89:    (seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env) (T' : Nat) (s : KState (KT 2)) (envs : Lis
+Tests/Compiler/Srm16ParentTest.lean:125:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 2)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm16ParentTest.lean:164:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 1)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm16ParentTest.lean:192:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 1)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm16ParentTest.lean:230:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 2)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm16ParentTest.lean:257:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 2)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm16ParentTest.lean:296:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 1)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm16ParentTest.lean:324:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 1)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm16ParentTest.lean:98:    (ins : Nat → String → Nat) (T' : Nat) (s : KState (KT 2)) (envs : List Sparkle.IR.Semantics.Env)
+Tests/Compiler/Srm17ParentTest.lean:155:    (s : KState (KT 2))
+Tests/Compiler/Srm17ParentTest.lean:225:    (s : KState (KT 1))
+Tests/Compiler/Srm17ParentTest.lean:260:    (s : KState (KT 2))
+Tests/Compiler/Srm17ParentTest.lean:296:    (s : KState (KT 1))
+== uses of the Reset parameter in composed statements (count of 'ComposedG .* (ResetNk') ==
+Tools/ShippingQuadReturned.lean:3
+Tools/ShippingKaryReturned.lean:3
+Tools/ShippingSeqParentAt.lean:1
+Tools/ShippingSeqParentGenD2M.lean:1
+Tools/ShippingQuadComposed.lean:1
+Tools/ShippingSeqParentGenD2.lean:1
+Tools/ShippingKaryCalls.lean:1
+Tools/ShippingSeqParentLemmas.lean:1
+Tools/ShippingQuadCalls.lean:1
+Tools/ShippingSeqParentGen.lean:1
+Tests/Compiler/TopShareReturnedTest.lean:1
+Tests/Compiler/SeqDeepGrandEndpointTest.lean:1
+Tests/Compiler/ParentEndpointFactsATest.lean:1
+Tests/Compiler/TopShareComposedTest.lean:2
+Tests/Compiler/ParentHoutTyHTest.lean:1
+Tests/Compiler/ParentEndpointMaskedATest.lean:1
+Tests/Compiler/KaryThreeReturnedTest.lean:2
+Tests/Compiler/SharedLeafGenReturnedTest.lean:2
+Tests/Compiler/Srm9ComposedTest.lean:2
+Tests/Compiler/ParentSeqComposedATest.lean:1
+Tests/Compiler/ParentDesignCheckFATest.lean:1
+== equalities 'kids = ' of start state to a constructed state in Tools/Tests (excluding SRM16/17 corollaries) ==
+== (none above => no equality-form start-state proposition exists outside SRM16/17) ==
+
+== APPLICABILITY TABLE (hand-written from the definitions above; files actually read: ShippingHierStateG 15-110,615-640; ShippingHierState 20-40; ShippingMachineDepth 40-80;
+   ShippingMachineShipsDepth 235-275; ShippingMachineShipsHier 100-160,465-535; ShippingComposedGW 170-215; ShippingKidsResetSat 345-380; ShippingSrm16Reset 1-90; ShippingSrm13Supply 120-160;
+   Tests/Compiler/Srm16ParentTest, Srm17ParentTest) ==
+Columns: kind of `s`/kids there | gives `s.kids = resetKids D n raw` exactly? | instance-name-restricted equality? | only Prop ResetNk/ResetN? | nothing
+ (M = topshareM, depth 2, KT 2; Q = topshareQ, depth 1, KT 1; the answer is the same for M and Q since each row is about a definition generic in n)
+
+C1  runModuleTG KS we ch body seed T s  (HierStateG:67)        s : KState σ  UNIVERSALLY QUANTIFIED, no constraint (it is a function of s; `= some envs` is the only link) | NO | NO | NO | NOTHING (M,Q)
+C2  KState / KidState / KT n / KSn constructors (HierStateG:20, HierState:25, HierStateG:623/628)   data types and steppers; no initial state | NO | NO | NO | NOTHING
+C3  RunOn children n mc seed T s (MachineDepth:27)               s : KT n quantified; used with `ResetN dsn n mc s` as hypothesis in SeqChildRunN (MachineDepth:64) | NO | NO | ResetN Prop (a Prop on registers/mems/instances of mc) | not equality
+C4  ResetN dsn n mc s (MachineDepth:52)                           Prop: registers named r in mc.body are init.toNat, mems 0, read-latch 0, instances' kids ResetN; says NOTHING about st at names not registers of mc, nor kids at non-instance names | NO | NO | YES (Prop) | not equality
+C5  ResetNk n m D kids (ShipsDepth:245)                          Prop over `kids` for instance statements of m.body only (mc.name = module name) | NO | NO (a Prop: pointwise ResetN at instance names, not an equation) | YES | not equality
+C6  ComposedG / ComposedGW / ComposedNW `Reset m dsn kids → ∃ envs, runModuleTG (KS dsn) … ⟨st0, mems, kids⟩ = some envs ∧ …` (ShipsHier:115, ComposedGW:181; Reset := ResetNk n at every topshare/shipping instance: TopShareComposedTest, Srm9ComposedTest, SeqParentGen*, …)
+                                                                  THE ACTUAL initial-state proposition of the shipping chain: start state ⟨st0, mems, kids⟩ with kids UNIVERSALLY QUANTIFIED, constrained by `ResetNk n m dsn kids` (Prop) only; st0 constrained on slot registers only (st0 r = f.init), mems unconstrained | NO | NO | YES: exactly `ResetNk n raw D kids` | not equality
+C7  Reset1 (ShipsHier:474) / ResetM (ShipsHier:529)               Props on `String → KidState` (depth 0): depth-0 shape only | NO (depth 0 ≠ KT 1/KT 2) | NO | ResetM/Reset1 Props; not ResetNk | not applicable to M,Q
+C8  kidsInit raw D (KidsResetSat:350) / kidsInit_sat (:369)       CONSTRUCTED String → KidState (depth 0), other names 0 (NOT raw's reset like resetKids) | NO (depth, and fallback differs) | NO | Reset1∧InvN depth 0 | not applicable to M,Q
+C9  kidsZero (KidsResetSat:445)                                   CONSTRUCTED all-zero depth-0 kids | NO | NO | NoRegs only | not applicable
+C10 resetKids D n raw (Srm16Reset:21) / resetKT (:16)             CONSTRUCTED depth-n state (the hsk RHS); `resetNk_resetKids` : ResetNk under hIUraw hIU hAg hRd | (this IS the RHS) | — | — | the RHS; hsk is a PREMISE of SRM16/17 corollaries
+C11 SRM11/13/16/17 instance theorems (Srm13ParentTest:47,76,104,133; Srm16ParentTest; Srm17ParentTest:155,225,260,296)
+                                                                  s : KState (KT n) UNIVERSALLY QUANTIFIED; linked to anything only by `hrun`; SRM13/_viaResetO take `hrk : ResetNk n raw D s.kids`; SRM16/17 `_viaResetState/_viaResetSrc` take `hsk : s.kids = resetKids D n raw` | hsk is a PREMISE there | NO | hrk (SRM13, _viaResetO) is exactly C5 on s.kids | —
+C12 machine_ships_* / ShippingMachineShips* top-level start state built from the source: `Reset`, `ResetN`, `Reset1` appear ONLY as the Reset PARAMETER of ComposedG (C6) | NO constructor of the start state from the source exists in the chain; "start from reset" is the HYPOTHESIS `Reset m dsn kids` | NO | YES | —
+C13 Srm8 bridge (ShippingSrm8Bridge: HeightPass, HeightBridge, design_at_free_h) : height/rank bookkeeping, no start state | NO | NO | NO | NOTHING
+C14 ShippingSrm13Supply kidReset_of_resetNk / kidInvN_of_resetNk (:130,:143)  consumes ResetNk n raw D kids (+hO, FitTree) | consumer | NO | needs only ResetNk | —
+
+READING: no row gives hsk.  The only actual start-state proposition (C6) is the Prop `ResetNk n raw D kids`; the consumers of the topshare chain (C14, SRM13 `hrk`) need exactly that Prop, which is also the pre-SRM16 binder `hrk` of `_viaResetO` (SRM16).

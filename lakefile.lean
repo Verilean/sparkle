@@ -2642,6 +2642,7 @@ lean_lib «Tools.ShippingLeafEntryBnd» where
 
 lean_lib «Tools.ShippingNoPortsMemCommand» where
   roots := #[`Tools.ShippingNoPortsMemCommand]
+
 lean_lib «Tools.ShippingGuardsLeaf» where
   roots := #[`Tools.ShippingGuardsLeaf]
 
@@ -3006,6 +3007,7 @@ lean_lib «Tools.ShippingHierOptRunHNoRst» where
 
 lean_lib «Tools.ShippingGateOptComb» where
   roots := #[`Tools.ShippingGateOptComb]
+
 lean_lib «Tools.ShippingGateDesignWalk» where
   roots := #[`Tools.ShippingGateDesignWalk]
 
@@ -3047,11 +3049,13 @@ lean_lib «Tools.ShippingGateTypedFinal» where
 
 lean_lib «Tools.ShippingGateDesignAll» where
   roots := #[`Tools.ShippingGateDesignAll]
+
 lean_lib «Tools.ShippingReaderOutsInv» where
   roots := #[`Tools.ShippingReaderOutsInv]
 
 lean_lib «Tools.ShippingReaderOutsMemOnly» where
   roots := #[`Tools.ShippingReaderOutsMemOnly]
+
 lean_lib «Tools.ShippingInstanceMeaningP» where
   roots := #[`Tools.ShippingInstanceMeaningP]
 
@@ -3060,6 +3064,7 @@ lean_lib «Tools.ShippingReaderMemOnlyCloses» where
 
 lean_lib «Tools.ShippingReaderOutNames» where
   roots := #[`Tools.ShippingReaderOutNames]
+
 lean_lib «Tools.ShippingGateConeLeafContractE» where
   roots := #[`Tools.ShippingGateConeLeafContractE]
 
@@ -3068,6 +3073,7 @@ lean_lib «Tools.ShippingGateKid» where
 
 lean_lib «Tools.ShippingGateCoverage» where
   roots := #[`Tools.ShippingGateCoverage]
+
 lean_lib «Tools.ShippingGateWalkE» where
   roots := #[`Tools.ShippingGateWalkE]
 
@@ -3076,6 +3082,7 @@ lean_lib «Tools.ShippingGateTypedFinalI» where
 
 lean_lib «Tools.ReaderFuelGeneric» where
   roots := #[`Tools.ReaderFuelGeneric]
+
 lean_lib «Tools.ShippingReaderFuelDefs» where
   roots := #[`Tools.ShippingReaderFuelDefs]
 
@@ -3084,11 +3091,13 @@ lean_lib «Tools.ShippingReaderFuelKleene» where
 
 lean_lib «Tools.ShippingReaderFuelEval» where
   roots := #[`Tools.ShippingReaderFuelEval]
+
 lean_lib «Tools.ShippingReaderFuelShape» where
   roots := #[`Tools.ShippingReaderFuelShape]
 
 lean_lib «Tools.ShippingReaderFuelDriver» where
   roots := #[`Tools.ShippingReaderFuelDriver]
+
 lean_lib «Tools.ShippingReaderFuelRun» where
   roots := #[`Tools.ShippingReaderFuelRun]
 
@@ -3103,6 +3112,7 @@ lean_lib «Tools.ShippingReaderFuelVerbatim» where
 
 lean_lib «Tools.ShippingReaderFuelDriverComplete» where
   roots := #[`Tools.ShippingReaderFuelDriverComplete]
+
 lean_lib «Tools.ShippingReaderFuelShapeR5» where
   roots := #[`Tools.ShippingReaderFuelShapeR5]
 
@@ -3111,8 +3121,10 @@ lean_lib «Tools.ShippingCallWidthsEntryF» where
 
 lean_lib «Tools.ShippingReaderFuelShapeEval» where
   roots := #[`Tools.ShippingReaderFuelShapeEval]
+
 lean_lib «Tools.ShippingReaderFuelDriverResume» where
   roots := #[`Tools.ShippingReaderFuelDriverResume]
+
 lean_lib «Tools.ShippingCallWidthsEntryFH» where
   roots := #[`Tools.ShippingCallWidthsEntryFH]
 
@@ -3139,6 +3151,7 @@ lean_lib «Tools.ShippingReaderFuelResumeEval» where
 
 lean_lib «Tools.ShippingMemDispatch» where
   roots := #[`Tools.ShippingMemDispatch]
+
 lean_lib «Tools.ShippingCallWidthsChildReal» where
   roots := #[`Tools.ShippingCallWidthsChildReal]
 
@@ -3318,8 +3331,16 @@ lean_lib «Tools.ShippingChildCacheA» where
 
 lean_lib «Tools.ShippingChildCoreC» where
   roots := #[`Tools.ShippingChildCoreC]
+
 lean_lib «Tools.ShippingChildFrontA» where
   roots := #[`Tools.ShippingChildFrontA]
+
+lean_lib «Tools.ShippingChildTeleCP» where
+  roots := #[`Tools.ShippingChildTeleCP]
+
+lean_lib «Tools.ShippingChildProjFieldA» where
+  roots := #[`Tools.ShippingChildProjFieldA]
+
 lean_lib «Tools.ShippingChildTranslateA» where
   roots := #[`Tools.ShippingChildTranslateA]
 
@@ -3329,14 +3350,1101 @@ lean_lib «Tools.ShippingChildKWalk» where
 lean_lib «Tools.ShippingChildFallbackA» where
   roots := #[`Tools.ShippingChildFallbackA]
 
+lean_lib «Tools.ShippingChildLoopsCP» where
+  roots := #[`Tools.ShippingChildLoopsCP]
+
+lean_lib «Tools.ShippingChildCanonKeyA» where
+  roots := #[`Tools.ShippingChildCanonKeyA]
+
+lean_lib «Tools.ShippingChildLegacyCachedA» where
+  roots := #[`Tools.ShippingChildLegacyCachedA]
+
+lean_lib «Tools.ShippingChildImplCorA» where
+  roots := #[`Tools.ShippingChildImplCorA]
+
 lean_lib «Tools.ShippingChildTranslatePathA» where
   roots := #[`Tools.ShippingChildTranslatePathA]
 
 lean_lib «Tools.ShippingChildDepthA» where
   roots := #[`Tools.ShippingChildDepthA]
 
+lean_lib «Tools.ShippingChildFrontCP» where
+  roots := #[`Tools.ShippingChildFrontCP]
+
+lean_lib «Tools.ShippingChildWalkA» where
+  roots := #[`Tools.ShippingChildWalkA]
+
+lean_lib «Tools.ShippingChildLegacyHelpersA» where
+  roots := #[`Tools.ShippingChildLegacyHelpersA]
+
+lean_lib «Tools.ShippingChildLegacyHandlersA» where
+  roots := #[`Tools.ShippingChildLegacyHandlersA]
+
+lean_lib «Tools.ShippingChildLegacyImplA» where
+  roots := #[`Tools.ShippingChildLegacyImplA]
+
+lean_lib «Tools.ShippingChildMainA» where
+  roots := #[`Tools.ShippingChildMainA]
+
 lean_lib «Tools.ShippingLeafInputWidths» where
   roots := #[`Tools.ShippingLeafInputWidths]
 
 lean_lib «Tools.ShippingLeafDesignClosedCommand» where
   roots := #[`Tools.ShippingLeafDesignClosedCommand]
+
+lean_lib «Tools.ShippingChildTeleProbe» where
+  roots := #[`Tools.ShippingChildTeleProbe]
+
+lean_lib «Tools.ShippingChildComposeA» where
+  roots := #[`Tools.ShippingChildComposeA]
+
+lean_lib «Tools.ShippingChildDepthC» where
+  roots := #[`Tools.ShippingChildDepthC]
+
+lean_lib «Tools.ShippingChildComposeC» where
+  roots := #[`Tools.ShippingChildComposeC]
+
+lean_lib «Tools.ShippingChildLegacyTailA» where
+  roots := #[`Tools.ShippingChildLegacyTailA]
+
+lean_lib «Tools.ShippingChildRunA» where
+  roots := #[`Tools.ShippingChildRunA]
+
+lean_lib «Tools.ShippingChildRunAKids» where
+  roots := #[`Tools.ShippingChildRunAKids]
+
+lean_lib «Tools.ShippingChildRunAMain» where
+  roots := #[`Tools.ShippingChildRunAMain]
+
+lean_lib «Tools.ShippingMachineOutcomeA» where
+  roots := #[`Tools.ShippingMachineOutcomeA]
+
+lean_lib «Tools.ShippingMachineOutcomeA3» where
+  roots := #[`Tools.ShippingMachineOutcomeA3]
+
+lean_lib «Tools.ShippingChildLinkA» where
+  roots := #[`Tools.ShippingChildLinkA]
+
+lean_lib «Tools.ShippingCallWidthsChildRealA» where
+  roots := #[`Tools.ShippingCallWidthsChildRealA]
+
+lean_lib «Tools.ShippingChildTeleLocalA» where
+  roots := #[`Tools.ShippingChildTeleLocalA]
+
+lean_lib «Tools.ShippingChildTeleMainA» where
+  roots := #[`Tools.ShippingChildTeleMainA]
+
+lean_lib «Tools.ShippingCallWidthsChildRealAMain» where
+  roots := #[`Tools.ShippingCallWidthsChildRealAMain]
+
+lean_lib «Tools.ShippingCallWidthsChildRealATl» where
+  roots := #[`Tools.ShippingCallWidthsChildRealATl]
+
+lean_lib «Tools.ShippingLeafInputWidthsA» where
+  roots := #[`Tools.ShippingLeafInputWidthsA]
+
+lean_lib «Tools.ShippingCallsCloseA» where
+  roots := #[`Tools.ShippingCallsCloseA]
+
+lean_lib «Tools.ShippingCallsGateA» where
+  roots := #[`Tools.ShippingCallsGateA]
+
+lean_lib «Tools.ShippingChildPinC» where
+  roots := #[`Tools.ShippingChildPinC]
+
+lean_lib «Tools.ShippingCallsGatePin» where
+  roots := #[`Tools.ShippingCallsGatePin]
+
+lean_lib «Tools.ShippingCallsGatePinned» where
+  roots := #[`Tools.ShippingCallsGatePinned]
+
+lean_lib «Tools.ShippingCallsMemA» where
+  roots := #[`Tools.ShippingCallsMemA]
+
+lean_lib «Tools.ShippingCallsMemPinned» where
+  roots := #[`Tools.ShippingCallsMemPinned]
+
+lean_lib «Tools.ShippingMachineOutcomeA4» where
+  roots := #[`Tools.ShippingMachineOutcomeA4]
+
+lean_lib «Tools.ShippingLetsCloseRoute» where
+  roots := #[`Tools.ShippingLetsCloseRoute]
+
+lean_lib «Tools.ShippingLetsAliasInv» where
+  roots := #[`Tools.ShippingLetsAliasInv]
+
+lean_lib «Tools.ShippingLetsReaderInvBase» where
+  roots := #[`Tools.ShippingLetsReaderInvBase]
+
+lean_lib «Tools.ShippingLetsReaderInv» where
+  roots := #[`Tools.ShippingLetsReaderInv]
+
+lean_lib «Tools.ShippingLetsReaderInvPure» where
+  roots := #[`Tools.ShippingLetsReaderInvPure]
+
+lean_lib «Tools.ShippingLetsReaderInvPure2» where
+  roots := #[`Tools.ShippingLetsReaderInvPure2]
+
+lean_lib «Tools.ShippingLetsReaderInvMain» where
+  roots := #[`Tools.ShippingLetsReaderInvMain]
+
+lean_lib «Tools.ShippingLetsSigTy» where
+  roots := #[`Tools.ShippingLetsSigTy]
+
+lean_lib «Tools.ShippingBundleIotaRange» where
+  roots := #[`Tools.ShippingBundleIotaRange]
+
+lean_lib «Tools.ShippingSeqChildIfaceA» where
+  roots := #[`Tools.ShippingSeqChildIfaceA]
+
+lean_lib «Tools.ShippingServedRealA» where
+  roots := #[`Tools.ShippingServedRealA]
+
+lean_lib «Tools.ShippingServedRealATrace» where
+  roots := #[`Tools.ShippingServedRealATrace]
+
+lean_lib «Tools.ShippingStartWorldA» where
+  roots := #[`Tools.ShippingStartWorldA]
+
+lean_lib «Tools.ShippingParentRanA» where
+  roots := #[`Tools.ShippingParentRanA]
+
+lean_lib «Tools.ShippingParentTailsA» where
+  roots := #[`Tools.ShippingParentTailsA]
+
+lean_lib «Tools.ShippingParentDesignA» where
+  roots := #[`Tools.ShippingParentDesignA]
+
+lean_lib «Tools.ShippingParentPortsA» where
+  roots := #[`Tools.ShippingParentPortsA]
+
+lean_lib «Tools.ShippingParentGateA» where
+  roots := #[`Tools.ShippingParentGateA]
+
+lean_lib «Tools.ShippingKidsSelfA» where
+  roots := #[`Tools.ShippingKidsSelfA]
+
+lean_lib «Tools.ShippingParentRunFactsA» where
+  roots := #[`Tools.ShippingParentRunFactsA]
+
+lean_lib «Tools.ShippingParentDesignFA» where
+  roots := #[`Tools.ShippingParentDesignFA]
+
+lean_lib «Tools.ShippingRanABridge» where
+  roots := #[`Tools.ShippingRanABridge]
+
+lean_lib «Tools.ShippingStartWorldA2» where
+  roots := #[`Tools.ShippingStartWorldA2]
+
+lean_lib «Tools.ShippingStartAtLoad» where
+  roots := #[`Tools.ShippingStartAtLoad]
+
+lean_lib «Tools.ShippingInitFrame» where
+  roots := #[`Tools.ShippingInitFrame]
+
+lean_lib «Tools.ShippingMachineDepthRunRA» where
+  roots := #[`Tools.ShippingMachineDepthRunRA]
+
+lean_lib «Tools.ShippingMachineComposeRA» where
+  roots := #[`Tools.ShippingMachineComposeRA]
+
+lean_lib «Tools.ShippingMachineComposeRACommand» where
+  roots := #[`Tools.ShippingMachineComposeRACommand]
+
+lean_lib «Tools.ShippingChecksMaskedLeafA» where
+  roots := #[`Tools.ShippingChecksMaskedLeafA]
+
+lean_lib «Tools.ShippingMachineComposeRM» where
+  roots := #[`Tools.ShippingMachineComposeRM]
+
+lean_lib «Tools.ShippingMachineComposeRMCommand» where
+  roots := #[`Tools.ShippingMachineComposeRMCommand]
+
+lean_lib «Tools.ShippingLetsExternSpec» where
+  roots := #[`Tools.ShippingLetsExternSpec]
+
+lean_lib «Tools.ShippingEntryDefinesRun» where
+  roots := #[`Tools.ShippingEntryDefinesRun]
+
+lean_lib «Tools.ShippingMachineComposeRMLCommand» where
+  roots := #[`Tools.ShippingMachineComposeRMLCommand]
+
+lean_lib «Tools.ShippingEntryReadsLinked» where
+  roots := #[`Tools.ShippingEntryReadsLinked]
+
+lean_lib «Tools.ShippingMachineComposeRMGCommand» where
+  roots := #[`Tools.ShippingMachineComposeRMGCommand]
+
+lean_lib «Tools.ShippingParentSeqComposedA» where
+  roots := #[`Tools.ShippingParentSeqComposedA]
+
+lean_lib «Tools.Prototype.ReaderFixpoint» where
+  roots := #[`Tools.Prototype.ReaderFixpoint]
+
+lean_lib «Tools.Prototype.ReaderFixpointTwin» where
+  roots := #[`Tools.Prototype.ReaderFixpointTwin]
+
+lean_lib «Tools.Prototype.ReaderFixpointMutual» where
+  roots := #[`Tools.Prototype.ReaderFixpointMutual]
+
+lean_lib «Tools.Prototype.ReaderFixpointLfp» where
+  roots := #[`Tools.Prototype.ReaderFixpointLfp]
+
+lean_lib «Tools.ShippingEnvSnapshot» where
+  roots := #[`Tools.ShippingEnvSnapshot]
+
+lean_lib «Tools.Prototype.ReaderFixpointExec» where
+  roots := #[`Tools.Prototype.ReaderFixpointExec]
+
+lean_lib «Tools.ShippingSeqParentLemmas» where
+  roots := #[`Tools.ShippingSeqParentLemmas]
+
+lean_lib «Tools.ShippingSeqParentGen» where
+  roots := #[`Tools.ShippingSeqParentGen]
+
+lean_lib «Tools.ShippingSeqOldPieces» where
+  roots := #[`Tools.ShippingSeqOldPieces]
+
+lean_lib «Tools.ShippingSeqParentGenD2» where
+  roots := #[`Tools.ShippingSeqParentGenD2]
+
+lean_lib «Tools.ShippingSeqParentGenD2M» where
+  roots := #[`Tools.ShippingSeqParentGenD2M]
+
+lean_lib «Tools.ShippingStRefCorrespondence» where
+  roots := #[`Tools.ShippingStRefCorrespondence]
+
+lean_lib «Tools.Prototype.ReaderFixpointWrapper» where
+  roots := #[`Tools.Prototype.ReaderFixpointWrapper]
+
+lean_lib «Tools.Prototype.ReaderFixpointNorm» where
+  roots := #[`Tools.Prototype.ReaderFixpointNorm]
+
+lean_lib «Tools.Prototype.ReaderFixpointSpec» where
+  roots := #[`Tools.Prototype.ReaderFixpointSpec]
+
+lean_lib «Tools.Prototype.PreprocLetOk» where
+  roots := #[`Tools.Prototype.PreprocLetOk]
+
+lean_lib «Tools.Prototype.ReaderFixpointTyped» where
+  roots := #[`Tools.Prototype.ReaderFixpointTyped]
+
+lean_lib «Tools.ShippingCloBase» where
+  roots := #[`Tools.ShippingCloBase]
+
+lean_lib «Tools.ShippingCloBundle» where
+  roots := #[`Tools.ShippingCloBundle]
+
+lean_lib «Tools.ShippingCloInv» where
+  roots := #[`Tools.ShippingCloInv]
+
+lean_lib «Tools.Prototype.ReaderClosed» where
+  roots := #[`Tools.Prototype.ReaderClosed]
+
+lean_lib «Tools.ShippingSeqChildIfaceDeepA» where
+  roots := #[`Tools.ShippingSeqChildIfaceDeepA]
+
+lean_lib «Tools.Prototype.StartDomOk» where
+  roots := #[`Tools.Prototype.StartDomOk]
+
+lean_lib «Tools.Prototype.StartDomOk2» where
+  roots := #[`Tools.Prototype.StartDomOk2]
+
+lean_lib «Tools.ShippingSeqChildDeepConsumerA» where
+  roots := #[`Tools.ShippingSeqChildDeepConsumerA]
+
+lean_lib «Tools.ShippingSeqChildDeepMaskedA» where
+  roots := #[`Tools.ShippingSeqChildDeepMaskedA]
+
+lean_lib «Tools.ShippingSeqChildDeepFactsA» where
+  roots := #[`Tools.ShippingSeqChildDeepFactsA]
+
+lean_lib «Tools.ShippingSeqChildDeepKidCheckA» where
+  roots := #[`Tools.ShippingSeqChildDeepKidCheckA]
+
+lean_lib «Tools.ShippingSeqChildDeepKidFactsA» where
+  roots := #[`Tools.ShippingSeqChildDeepKidFactsA]
+
+lean_lib «Tools.ShippingSeqParentKidFactsA» where
+  roots := #[`Tools.ShippingSeqParentKidFactsA]
+
+lean_lib «Tools.ShippingSeqChildDeepIfacePA» where
+  roots := #[`Tools.ShippingSeqChildDeepIfacePA]
+
+lean_lib «Tools.ShippingSrm3Iface» where
+  roots := #[`Tools.ShippingSrm3Iface]
+
+lean_lib «Tools.ShippingSrm3Callee» where
+  roots := #[`Tools.ShippingSrm3Callee]
+
+lean_lib «Tools.Prototype.NormRangeLetOk» where
+  roots := #[`Tools.Prototype.NormRangeLetOk]
+
+lean_lib «Tools.Prototype.ReaderComposed» where
+  roots := #[`Tools.Prototype.ReaderComposed]
+
+lean_lib «Tools.Prototype.NormNodeRangeLetOk» where
+  roots := #[`Tools.Prototype.NormNodeRangeLetOk]
+
+lean_lib «Tools.Prototype.BoolMapModelLetOk» where
+  roots := #[`Tools.Prototype.BoolMapModelLetOk]
+
+lean_lib «Tests.Compiler.BoolMapModelAgreeTest» where
+  roots := #[`Tests.Compiler.BoolMapModelAgreeTest]
+
+lean_lib «Tools.ShippingSeqChildDeepRunA» where
+  roots := #[`Tools.ShippingSeqChildDeepRunA]
+
+lean_lib «Tools.Prototype.LiftScalarModelLetOk» where
+  roots := #[`Tools.Prototype.LiftScalarModelLetOk]
+
+lean_lib «Tests.Compiler.LiftScalarModelAgreeTest» where
+  roots := #[`Tests.Compiler.LiftScalarModelAgreeTest]
+
+lean_lib «Tools.Prototype.RawNodeRangeLetOk» where
+  roots := #[`Tools.Prototype.RawNodeRangeLetOk]
+
+lean_lib «Tools.Prototype.RawNodeRangeLetOk2» where
+  roots := #[`Tools.Prototype.RawNodeRangeLetOk2]
+
+lean_lib «Tools.Prototype.LiftExecLetOk» where
+  roots := #[`Tools.Prototype.LiftExecLetOk]
+
+lean_lib «Tools.Prototype.NormNodeModelLetOk» where
+  roots := #[`Tools.Prototype.NormNodeModelLetOk]
+
+lean_lib «Tests.Compiler.LiftExecAgreeTest» where
+  roots := #[`Tests.Compiler.LiftExecAgreeTest]
+
+lean_lib «Tools.Prototype.DGenConnect» where
+  roots := #[`Tools.Prototype.DGenConnect]
+
+lean_lib «Tests.Compiler.DGenToggleTest» where
+  roots := #[`Tests.Compiler.DGenToggleTest]
+
+lean_lib «Tools.Prototype.NormStepModel» where
+  roots := #[`Tools.Prototype.NormStepModel]
+
+lean_lib «Tests.Compiler.NormStepModelAgreeTest» where
+  roots := #[`Tests.Compiler.NormStepModelAgreeTest]
+
+lean_lib «Tests.Compiler.NormStepModelWholeAgreeTest» where
+  roots := #[`Tests.Compiler.NormStepModelWholeAgreeTest]
+
+lean_lib «Tools.Prototype.DGenConnectNM» where
+  roots := #[`Tools.Prototype.DGenConnectNM]
+
+lean_lib «Tools.ShippingInitSession» where
+  roots := #[`Tools.ShippingInitSession]
+
+
+lean_lib «Tools.Prototype.ExtModelLetOk» where
+  roots := #[`Tools.Prototype.ExtModelLetOk]
+
+lean_lib «Tests.Compiler.ExtModelAgreeTest» where
+  roots := #[`Tests.Compiler.ExtModelAgreeTest]
+
+lean_lib «Tools.Prototype.DGenProv» where
+  roots := #[`Tools.Prototype.DGenProv]
+
+lean_lib «Tools.ShippingInitAlloc» where
+  roots := #[`Tools.ShippingInitAlloc]
+
+lean_lib «Tools.Prototype.DGenStored» where
+  roots := #[`Tools.Prototype.DGenStored]
+
+lean_lib «Tools.Prototype.DGenStored2» where
+  roots := #[`Tools.Prototype.DGenStored2]
+
+lean_lib «Tests.Compiler.DGenToggleStoredTest» where
+  roots := #[`Tests.Compiler.DGenToggleStoredTest]
+
+lean_lib «Tools.Prototype.ExtReaderDefs» where
+  roots := #[`Tools.Prototype.ExtReaderDefs]
+
+lean_lib «Tools.Prototype.ExtReaderShipped» where
+  roots := #[`Tools.Prototype.ExtReaderShipped]
+
+lean_lib «Tools.Prototype.ExtRootFloat» where
+  roots := #[`Tools.Prototype.ExtRootFloat]
+
+lean_lib «Tools.Prototype.ExtReaderLetOk» where
+  roots := #[`Tools.Prototype.ExtReaderLetOk]
+
+lean_lib «Tools.Prototype.ExtReaderClo» where
+  roots := #[`Tools.Prototype.ExtReaderClo]
+
+lean_lib «Tools.Prototype.ExtReaderTab» where
+  roots := #[`Tools.Prototype.ExtReaderTab]
+
+lean_lib «Tools.Prototype.ExtReaderDom» where
+  roots := #[`Tools.Prototype.ExtReaderDom]
+
+lean_lib «Tools.Prototype.ExtReaderRaw» where
+  roots := #[`Tools.Prototype.ExtReaderRaw]
+
+lean_lib «Tools.Prototype.ExtReaderGlue» where
+  roots := #[`Tools.Prototype.ExtReaderGlue]
+
+lean_lib «Tests.Compiler.ExtReaderWholeAgreeTest» where
+  roots := #[`Tests.Compiler.ExtReaderWholeAgreeTest]
+
+lean_lib «Tests.Compiler.ExtReaderOpsAgreeTest» where
+  roots := #[`Tests.Compiler.ExtReaderOpsAgreeTest]
+
+lean_lib «Tools.Prototype.ExtReaderFinal» where
+  roots := #[`Tools.Prototype.ExtReaderFinal]
+
+lean_lib «Tools.ShippingSharedLeafCoh» where
+  roots := #[`Tools.ShippingSharedLeafCoh]
+
+lean_lib «Tools.ShippingLeafMissCoh» where
+  roots := #[`Tools.ShippingLeafMissCoh]
+
+lean_lib «Tools.ShippingLeafKeepCache» where
+  roots := #[`Tools.ShippingLeafKeepCache]
+
+lean_lib «Tools.ShippingLeafBodyCi» where
+  roots := #[`Tools.ShippingLeafBodyCi]
+
+lean_lib «Tools.ShippingLeafTermKeeps» where
+  roots := #[`Tools.ShippingLeafTermKeeps]
+
+lean_lib «Tools.ShippingLeafCtxQ» where
+  roots := #[`Tools.ShippingLeafCtxQ]
+
+lean_lib «Tools.ShippingSharedLeafHit» where
+  roots := #[`Tools.ShippingSharedLeafHit]
+
+lean_lib «Tools.ShippingSharedLeafExt» where
+  roots := #[`Tools.ShippingSharedLeafExt]
+
+lean_lib «Tools.ShippingSharedLeafNL» where
+  roots := #[`Tools.ShippingSharedLeafNL]
+
+lean_lib «Tools.ShippingTopShareRun» where
+  roots := #[`Tools.ShippingTopShareRun]
+
+lean_lib «Tests.Compiler.TopShareInstTest» where
+  roots := #[`Tests.Compiler.TopShareInstTest]
+
+lean_lib «Tools.ShippingTopShareRet» where
+  roots := #[`Tools.ShippingTopShareRet]
+
+lean_lib «Tests.Compiler.TopShareRetInstTest» where
+  roots := #[`Tests.Compiler.TopShareRetInstTest]
+
+lean_lib «Tests.Compiler.TopShareTraceTest» where
+  roots := #[`Tests.Compiler.TopShareTraceTest]
+
+lean_lib «Tools.ShippingTopShareRan» where
+  roots := #[`Tools.ShippingTopShareRan]
+
+lean_lib «Tests.Compiler.TopShareComposedTest» where
+  roots := #[`Tests.Compiler.TopShareComposedTest]
+
+lean_lib «Tools.ShippingTopShareNoParent» where
+  roots := #[`Tools.ShippingTopShareNoParent]
+
+lean_lib «Tests.Compiler.TopShareReturnedTest» where
+  roots := #[`Tests.Compiler.TopShareReturnedTest]
+
+lean_lib «Tools.ShippingSeqParentAt» where
+  roots := #[`Tools.ShippingSeqParentAt]
+
+lean_lib «Tools.ShippingQuadLeafGeneric» where
+  roots := #[`Tools.ShippingQuadLeafGeneric]
+
+lean_lib «Tests.Compiler.QuadLeafGenericTest» where
+  roots := #[`Tests.Compiler.QuadLeafGenericTest]
+
+lean_lib «Tools.ShippingSeqParentGenD2MS» where
+  roots := #[`Tools.ShippingSeqParentGenD2MS]
+
+lean_lib «Tests.Compiler.SharedLeafGenTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenTest]
+
+lean_lib «Tests.Compiler.SharedLeafGenTopshareTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenTopshareTest]
+
+lean_lib «Tests.Compiler.SharedLeafGenDefaultHbTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenDefaultHbTest]
+
+lean_lib «Tests.Compiler.SharedLeafGenFallbackTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenFallbackTest]
+
+lean_lib «Tools.ShippingQuadReturned» where
+  roots := #[`Tools.ShippingQuadReturned]
+
+lean_lib «Tests.Compiler.QuadReturnedTest» where
+  roots := #[`Tests.Compiler.QuadReturnedTest]
+
+lean_lib «Tests.Compiler.SharedLeafGenReturnedTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenReturnedTest]
+
+lean_lib «Tools.ShippingQuadComposed» where
+  roots := #[`Tools.ShippingQuadComposed]
+
+lean_lib «Tests.Compiler.QuadComposedTest» where
+  roots := #[`Tests.Compiler.QuadComposedTest]
+
+lean_lib «Tools.ShippingQuadCalls» where
+  roots := #[`Tools.ShippingQuadCalls]
+
+lean_lib «Tests.Compiler.QuadCallsTest» where
+  roots := #[`Tests.Compiler.QuadCallsTest]
+
+lean_lib «Tools.ShippingQuadCallFacts» where
+  roots := #[`Tools.ShippingQuadCallFacts]
+
+lean_lib «Tests.Compiler.QuadCallFactsTest» where
+  roots := #[`Tests.Compiler.QuadCallFactsTest]
+
+lean_lib «Tools.ShippingQuadHPoint» where
+  roots := #[`Tools.ShippingQuadHPoint]
+
+lean_lib «Tools.ShippingSeqParentGenD2MSG» where
+  roots := #[`Tools.ShippingSeqParentGenD2MSG]
+
+lean_lib «Tools.ShippingSeqParentGenD2MSD» where
+  roots := #[`Tools.ShippingSeqParentGenD2MSD]
+
+lean_lib «Tests.Compiler.SharedLeafGenFactsTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenFactsTest]
+
+lean_lib «Tests.Compiler.SharedLeafGenNoOldChainTest» where
+  roots := #[`Tests.Compiler.SharedLeafGenNoOldChainTest]
+
+lean_lib «Tools.ShippingKaryRun» where
+  roots := #[`Tools.ShippingKaryRun]
+
+lean_lib «Tools.ShippingKaryEntry» where
+  roots := #[`Tools.ShippingKaryEntry]
+
+lean_lib «Tools.ShippingKaryLeafGeneric» where
+  roots := #[`Tools.ShippingKaryLeafGeneric]
+
+lean_lib «Tools.ShippingKaryComposed» where
+  roots := #[`Tools.ShippingKaryComposed]
+
+lean_lib «Tools.ShippingKaryCalls» where
+  roots := #[`Tools.ShippingKaryCalls]
+
+lean_lib «Tools.ShippingKaryBridge» where
+  roots := #[`Tools.ShippingKaryBridge]
+
+lean_lib «Tests.Compiler.KaryQuadAuditTest» where
+  roots := #[`Tests.Compiler.KaryQuadAuditTest]
+
+lean_lib «Tools.ShippingKaryFacts» where
+  roots := #[`Tools.ShippingKaryFacts]
+
+lean_lib «Tests.Compiler.KaryThreeTest» where
+  roots := #[`Tests.Compiler.KaryThreeTest]
+
+lean_lib «Tools.ShippingKaryReturned» where
+  roots := #[`Tools.ShippingKaryReturned]
+
+lean_lib «Tests.Compiler.KaryReturnedAuditTest» where
+  roots := #[`Tests.Compiler.KaryReturnedAuditTest]
+
+lean_lib «Tools.ShippingSeqParentGenD2MSK» where
+  roots := #[`Tools.ShippingSeqParentGenD2MSK]
+
+lean_lib «Tests.Compiler.KaryThreeReturnedTest» where
+  roots := #[`Tests.Compiler.KaryThreeReturnedTest]
+
+lean_lib «Tests.Compiler.KaryGenTest» where
+  roots := #[`Tests.Compiler.KaryGenTest]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidTest]
+
+lean_lib «Tools.ShippingMemLeafCache» where
+  roots := #[`Tools.ShippingMemLeafCache]
+
+lean_lib «Tools.ShippingMemLeafRun» where
+  roots := #[`Tools.ShippingMemLeafRun]
+
+lean_lib «Tools.ShippingNmGroup» where
+  roots := #[`Tools.ShippingNmGroup]
+
+lean_lib «Tools.ShippingNmEntry» where
+  roots := #[`Tools.ShippingNmEntry]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidRunTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidRunTest]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidEntryTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidEntryTest]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidEntryAuditTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidEntryAuditTest]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidIfaceTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidIfaceTest]
+
+lean_lib «Tests.Compiler.SharedLeafMemKidIfaceAuditTest» where
+  roots := #[`Tests.Compiler.SharedLeafMemKidIfaceAuditTest]
+
+lean_lib «Tools.ShippingSrm4Run» where
+  roots := #[`Tools.ShippingSrm4Run]
+
+lean_lib «Tests.Compiler.Srm4RunTest» where
+  roots := #[`Tests.Compiler.Srm4RunTest]
+
+lean_lib «Tools.ShippingSrm4Core1» where
+  roots := #[`Tools.ShippingSrm4Core1]
+
+lean_lib «Tools.ShippingSrm4Core2» where
+  roots := #[`Tools.ShippingSrm4Core2]
+
+lean_lib «Tools.ShippingSrm4Core3» where
+  roots := #[`Tools.ShippingSrm4Core3]
+
+lean_lib «Tools.ShippingSrm4Core4» where
+  roots := #[`Tools.ShippingSrm4Core4]
+
+lean_lib «Tools.ShippingSrm4Core5» where
+  roots := #[`Tools.ShippingSrm4Core5]
+
+lean_lib «Tools.ShippingSrm4Core6» where
+  roots := #[`Tools.ShippingSrm4Core6]
+
+lean_lib «Tools.ShippingSrm4Check» where
+  roots := #[`Tools.ShippingSrm4Check]
+
+lean_lib «Tools.ShippingSrm4Kid» where
+  roots := #[`Tools.ShippingSrm4Kid]
+
+lean_lib «Tests.Compiler.Srm4KidTest» where
+  roots := #[`Tests.Compiler.Srm4KidTest]
+
+lean_lib «Tools.ShippingSrm4Callee» where
+  roots := #[`Tools.ShippingSrm4Callee]
+
+lean_lib «Tests.Compiler.Srm4CalleeTest» where
+  roots := #[`Tests.Compiler.Srm4CalleeTest]
+
+lean_lib «Tools.ShippingSrm4Parent» where
+  roots := #[`Tools.ShippingSrm4Parent]
+
+lean_lib «Tests.Compiler.Srm4ParentTest» where
+  roots := #[`Tests.Compiler.Srm4ParentTest]
+
+lean_lib «Tests.Compiler.Srm4ComposedTest» where
+  roots := #[`Tests.Compiler.Srm4ComposedTest]
+
+lean_lib «Tests.Compiler.Srm4ParentQTest» where
+  roots := #[`Tests.Compiler.Srm4ParentQTest]
+
+lean_lib «Tests.Compiler.Srm4AuditTest» where
+  roots := #[`Tests.Compiler.Srm4AuditTest]
+
+lean_lib «Tools.ShippingSrm4Mixed» where
+  roots := #[`Tools.ShippingSrm4Mixed]
+
+lean_lib «Tests.Compiler.Srm4MixedTest» where
+  roots := #[`Tests.Compiler.Srm4MixedTest]
+
+lean_lib «Tests.Compiler.Srm4ComposedQTest» where
+  roots := #[`Tests.Compiler.Srm4ComposedQTest]
+
+lean_lib «Tools.ShippingSrm5Height» where
+  roots := #[`Tools.ShippingSrm5Height]
+
+lean_lib «Tests.Compiler.Srm5HeightTest» where
+  roots := #[`Tests.Compiler.Srm5HeightTest]
+
+lean_lib «Tools.ShippingSrm5Ident» where
+  roots := #[`Tools.ShippingSrm5Ident]
+
+lean_lib «Tools.ShippingSrm5Transfer» where
+  roots := #[`Tools.ShippingSrm5Transfer]
+
+lean_lib «Tools.ShippingSrm5TransferM» where
+  roots := #[`Tools.ShippingSrm5TransferM]
+
+lean_lib «Tools.ShippingSrm5Deep» where
+  roots := #[`Tools.ShippingSrm5Deep]
+
+lean_lib «Tests.Compiler.Srm5ParentTest» where
+  roots := #[`Tests.Compiler.Srm5ParentTest]
+
+lean_lib «Tests.Compiler.Srm5ParentQTest» where
+  roots := #[`Tests.Compiler.Srm5ParentQTest]
+
+lean_lib «Tests.Compiler.Srm5AuditTest» where
+  roots := #[`Tests.Compiler.Srm5AuditTest]
+
+lean_lib «Tests.Compiler.Srm5AuditExpected» where
+  roots := #[`Tests.Compiler.Srm5AuditExpected]
+
+lean_lib «Tools.ShippingSrm6Sem» where
+  roots := #[`Tools.ShippingSrm6Sem]
+
+lean_lib «Tests.Compiler.Srm6ParentTest» where
+  roots := #[`Tests.Compiler.Srm6ParentTest]
+
+lean_lib «Tests.Compiler.Srm6AuditExpected» where
+  roots := #[`Tests.Compiler.Srm6AuditExpected]
+
+lean_lib «Tests.Compiler.Srm6AuditTest» where
+  roots := #[`Tests.Compiler.Srm6AuditTest]
+
+lean_lib «Tools.ShippingSrm7Rank» where
+  roots := #[`Tools.ShippingSrm7Rank]
+
+lean_lib «Tests.Compiler.Srm7RankTest» where
+  roots := #[`Tests.Compiler.Srm7RankTest]
+
+lean_lib «Tests.Compiler.Srm7AuditExpected» where
+  roots := #[`Tests.Compiler.Srm7AuditExpected]
+
+lean_lib «Tests.Compiler.Srm7AuditTest» where
+  roots := #[`Tests.Compiler.Srm7AuditTest]
+
+lean_lib «Tools.ShippingSrm8Bridge» where
+  roots := #[`Tools.ShippingSrm8Bridge]
+
+lean_lib «Tests.Compiler.Srm8ChainTest» where
+  roots := #[`Tests.Compiler.Srm8ChainTest]
+
+lean_lib «Tests.Compiler.Srm8AuditExpected» where
+  roots := #[`Tests.Compiler.Srm8AuditExpected]
+
+lean_lib «Tests.Compiler.Srm8AuditTest» where
+  roots := #[`Tests.Compiler.Srm8AuditTest]
+
+lean_lib «Tests.Compiler.Srm9ComposedTest» where
+  roots := #[`Tests.Compiler.Srm9ComposedTest]
+
+lean_lib «Tests.Compiler.Srm9AuditTest» where
+  roots := #[`Tests.Compiler.Srm9AuditTest]
+
+lean_lib «Tests.Compiler.Srm9AuditExpected» where
+  roots := #[`Tests.Compiler.Srm9AuditExpected]
+
+lean_lib «Tools.ShippingSrm10Outs» where
+  roots := #[`Tools.ShippingSrm10Outs]
+
+lean_lib «Tests.Compiler.Srm10OutsTest» where
+  roots := #[`Tests.Compiler.Srm10OutsTest]
+
+lean_lib «Tests.Compiler.Srm10AuditExpected» where
+  roots := #[`Tests.Compiler.Srm10AuditExpected]
+
+lean_lib «Tests.Compiler.Srm10AuditTest» where
+  roots := #[`Tests.Compiler.Srm10AuditTest]
+
+lean_lib «Tools.ShippingSrm11Bounds» where
+  roots := #[`Tools.ShippingSrm11Bounds]
+
+lean_lib «Tests.Compiler.Srm11ParentTest» where
+  roots := #[`Tests.Compiler.Srm11ParentTest]
+
+lean_lib «Tests.Compiler.Srm11AuditExpected» where
+  roots := #[`Tests.Compiler.Srm11AuditExpected]
+
+lean_lib «Tests.Compiler.Srm11AuditTest» where
+  roots := #[`Tests.Compiler.Srm11AuditTest]
+
+lean_lib «Tools.ShippingSrm12Corr» where
+  roots := #[`Tools.ShippingSrm12Corr]
+
+lean_lib «Tests.Compiler.Srm12CorrTest» where
+  roots := #[`Tests.Compiler.Srm12CorrTest]
+
+lean_lib «Tests.Compiler.Srm12AuditExpected» where
+  roots := #[`Tests.Compiler.Srm12AuditExpected]
+
+lean_lib «Tests.Compiler.Srm12AuditTest» where
+  roots := #[`Tests.Compiler.Srm12AuditTest]
+
+lean_lib «Tools.ShippingSrm13Supply» where
+  roots := #[`Tools.ShippingSrm13Supply]
+
+lean_lib «Tests.Compiler.Srm13ParentTest» where
+  roots := #[`Tests.Compiler.Srm13ParentTest]
+
+lean_lib «Tests.Compiler.Srm13AuditExpected» where
+  roots := #[`Tests.Compiler.Srm13AuditExpected]
+
+lean_lib «Tests.Compiler.Srm13AuditTest» where
+  roots := #[`Tests.Compiler.Srm13AuditTest]
+
+lean_lib «Tests.Compiler.Srm14RankTest» where
+  roots := #[`Tests.Compiler.Srm14RankTest]
+
+lean_lib «Tests.Compiler.Srm14AuditExpected» where
+  roots := #[`Tests.Compiler.Srm14AuditExpected]
+
+lean_lib «Tests.Compiler.Srm14AuditTest» where
+  roots := #[`Tests.Compiler.Srm14AuditTest]
+
+lean_lib «Tools.ShippingSrm15Graph» where
+  roots := #[`Tools.ShippingSrm15Graph]
+
+lean_lib «Tests.Compiler.Srm15GraphTest» where
+  roots := #[`Tests.Compiler.Srm15GraphTest]
+
+lean_lib «Tests.Compiler.Srm15ExpStmt» where
+  roots := #[`Tests.Compiler.Srm15ExpStmt]
+
+lean_lib «Tests.Compiler.Srm15AuditExpected» where
+  roots := #[`Tests.Compiler.Srm15AuditExpected]
+
+lean_lib «Tests.Compiler.Srm15AuditTest» where
+  roots := #[`Tests.Compiler.Srm15AuditTest]
+
+lean_lib «Tools.ShippingSrm16Reset» where
+  roots := #[`Tools.ShippingSrm16Reset]
+
+lean_lib «Tests.Compiler.Srm16ParentTest» where
+  roots := #[`Tests.Compiler.Srm16ParentTest]
+
+lean_lib «Tests.Compiler.Srm16ExpStmt» where
+  roots := #[`Tests.Compiler.Srm16ExpStmt]
+
+lean_lib «Tests.Compiler.Srm16AuditExpected» where
+  roots := #[`Tests.Compiler.Srm16AuditExpected]
+
+lean_lib «Tests.Compiler.Srm16AuditTest» where
+  roots := #[`Tests.Compiler.Srm16AuditTest]
+
+lean_lib «Tools.ShippingSrm17Body» where
+  roots := #[`Tools.ShippingSrm17Body]
+
+lean_lib «Tools.ShippingSrm17Ran» where
+  roots := #[`Tools.ShippingSrm17Ran]
+
+lean_lib «Tools.ShippingSrm17Corr» where
+  roots := #[`Tools.ShippingSrm17Corr]
+
+lean_lib «Tests.Compiler.Srm17ParentTest» where
+  roots := #[`Tests.Compiler.Srm17ParentTest]
+
+lean_lib «Tests.Compiler.Srm17ExpStmt» where
+  roots := #[`Tests.Compiler.Srm17ExpStmt]
+
+lean_lib «Tests.Compiler.Srm17AuditExpected» where
+  roots := #[`Tests.Compiler.Srm17AuditExpected]
+
+lean_lib «Tests.Compiler.Srm17AuditTest» where
+  roots := #[`Tests.Compiler.Srm17AuditTest]
+
+lean_lib «Tools.ShippingSrm18Start» where
+  roots := #[`Tools.ShippingSrm18Start]
+
+lean_lib «Tests.Compiler.Srm18ParentTest» where
+  roots := #[`Tests.Compiler.Srm18ParentTest]
+
+lean_lib «Tests.Compiler.Srm18AuditExpected» where
+  roots := #[`Tests.Compiler.Srm18AuditExpected]
+
+lean_lib «Tests.Compiler.Srm18ExpStmt» where
+  roots := #[`Tests.Compiler.Srm18ExpStmt]
+
+lean_lib «Tests.Compiler.Srm18AuditTest» where
+  roots := #[`Tests.Compiler.Srm18AuditTest]
+
+lean_lib «Tests.Compiler.Srm19EndToEndTest» where
+  roots := #[`Tests.Compiler.Srm19EndToEndTest]
+
+lean_lib «Tests.Compiler.Srm19ExpStmt» where
+  roots := #[`Tests.Compiler.Srm19ExpStmt]
+
+lean_lib «Tests.Compiler.Srm19AuditExpected» where
+  roots := #[`Tests.Compiler.Srm19AuditExpected]
+
+lean_lib «Tests.Compiler.Srm19AuditTest» where
+  roots := #[`Tests.Compiler.Srm19AuditTest]
+
+lean_lib «Tests.Compiler.Srm20InventoryTest» where
+  roots := #[`Tests.Compiler.Srm20InventoryTest]
+
+lean_lib «Tests.Compiler.Srm20BridgeTest» where
+  roots := #[`Tests.Compiler.Srm20BridgeTest]
+
+lean_lib «Tests.Compiler.Srm20ExpStmt» where
+  roots := #[`Tests.Compiler.Srm20ExpStmt]
+
+lean_lib «Tests.Compiler.Srm20AuditExpected» where
+  roots := #[`Tests.Compiler.Srm20AuditExpected]
+
+lean_lib «Tests.Compiler.Srm20AuditTest» where
+  roots := #[`Tests.Compiler.Srm20AuditTest]
+
+lean_lib «Tests.Compiler.Srm21InventoryTest» where
+  roots := #[`Tests.Compiler.Srm21InventoryTest]
+
+lean_lib «Tools.ShippingSrm21Lift» where
+  roots := #[`Tools.ShippingSrm21Lift]
+
+lean_lib «Tests.Compiler.Srm21LiftTest» where
+  roots := #[`Tests.Compiler.Srm21LiftTest]
+
+lean_lib «Tests.Compiler.Srm21ExpStmt» where
+  roots := #[`Tests.Compiler.Srm21ExpStmt]
+
+lean_lib «Tests.Compiler.Srm21AuditExpected» where
+  roots := #[`Tests.Compiler.Srm21AuditExpected]
+
+lean_lib «Tests.Compiler.Srm21AuditTest» where
+  roots := #[`Tests.Compiler.Srm21AuditTest]
+
+lean_lib «Tests.Compiler.Srm22InventoryTest» where
+  roots := #[`Tests.Compiler.Srm22InventoryTest]
+
+lean_lib «Tools.ShippingSrm22Width» where
+  roots := #[`Tools.ShippingSrm22Width]
+
+lean_lib «Tests.Compiler.Srm22PairsTest» where
+  roots := #[`Tests.Compiler.Srm22PairsTest]
+
+lean_lib «Tests.Compiler.Srm22ExpStmt» where
+  roots := #[`Tests.Compiler.Srm22ExpStmt]
+
+lean_lib «Tests.Compiler.Srm22AuditExpected» where
+  roots := #[`Tests.Compiler.Srm22AuditExpected]
+
+lean_lib «Tests.Compiler.Srm22AuditTest» where
+  roots := #[`Tests.Compiler.Srm22AuditTest]
+
+lean_lib «Tools.ShippingSrm23Regs» where
+  roots := #[`Tools.ShippingSrm23Regs]
+
+lean_lib «Tests.Compiler.Srm23RegsTest» where
+  roots := #[`Tests.Compiler.Srm23RegsTest]
+
+lean_lib «Tests.Compiler.Srm23ExpStmt» where
+  roots := #[`Tests.Compiler.Srm23ExpStmt]
+
+lean_lib «Tests.Compiler.Srm23AuditExpected» where
+  roots := #[`Tests.Compiler.Srm23AuditExpected]
+
+lean_lib «Tests.Compiler.Srm23AuditTest» where
+  roots := #[`Tests.Compiler.Srm23AuditTest]
+
+lean_lib «Tools.ShippingSrm24Width» where
+  roots := #[`Tools.ShippingSrm24Width]
+
+lean_lib «Tests.Compiler.Srm24WidthTest» where
+  roots := #[`Tests.Compiler.Srm24WidthTest]
+
+lean_lib «Tests.Compiler.Srm24ExpStmt» where
+  roots := #[`Tests.Compiler.Srm24ExpStmt]
+
+lean_lib «Tests.Compiler.Srm24AuditExpected» where
+  roots := #[`Tests.Compiler.Srm24AuditExpected]
+
+lean_lib «Tests.Compiler.Srm24AuditTest» where
+  roots := #[`Tests.Compiler.Srm24AuditTest]
+
+lean_lib «Tools.ShippingSrm25Init» where
+  roots := #[`Tools.ShippingSrm25Init]
+
+lean_lib «Tests.Compiler.Srm25ExpStmt» where
+  roots := #[`Tests.Compiler.Srm25ExpStmt]
+
+lean_lib «Tests.Compiler.Srm25AuditTest» where
+  roots := #[`Tests.Compiler.Srm25AuditTest]
+
+lean_lib «Tools.ShippingSrm26Order» where
+  roots := #[`Tools.ShippingSrm26Order]
+
+lean_lib «Tests.Compiler.Srm26AuditExpected» where
+  roots := #[`Tests.Compiler.Srm26AuditExpected]
+
+lean_lib «Tests.Compiler.Srm26AuditTest» where
+  roots := #[`Tests.Compiler.Srm26AuditTest]
+
+lean_lib «Tools.ShippingSrm28Regs» where
+  roots := #[`Tools.ShippingSrm28Regs]
+
+lean_lib «Tests.Compiler.Srm28InstTest» where
+  roots := #[`Tests.Compiler.Srm28InstTest]
+
+lean_lib «Tests.Compiler.Srm28ExpStmt» where
+  roots := #[`Tests.Compiler.Srm28ExpStmt]
+
+lean_lib «Tests.Compiler.Srm28AuditTest» where
+  roots := #[`Tests.Compiler.Srm28AuditTest]
+
+lean_lib «Tools.ShippingSrm31Core» where
+  roots := #[`Tools.ShippingSrm31Core]
+
+lean_lib «Tests.Compiler.Srm31EndpointTest» where
+  roots := #[`Tests.Compiler.Srm31EndpointTest]
+
+lean_lib «Tests.Compiler.Srm31AuditExpected» where
+  roots := #[`Tests.Compiler.Srm31AuditExpected]
+
+lean_lib «Tests.Compiler.Srm31AuditTest» where
+  roots := #[`Tests.Compiler.Srm31AuditTest]
+
+lean_lib «Tools.ShippingSrm32Width» where
+  roots := #[`Tools.ShippingSrm32Width]
+
+lean_lib «Tests.Compiler.Srm32InstTest» where
+  roots := #[`Tests.Compiler.Srm32InstTest]
+
+lean_lib «Tests.Compiler.Srm32AuditExpected» where
+  roots := #[`Tests.Compiler.Srm32AuditExpected]
+
+lean_lib «Tests.Compiler.Srm32AuditTest» where
+  roots := #[`Tests.Compiler.Srm32AuditTest]
+
+lean_lib «Tools.ShippingSrm33Core» where
+  roots := #[`Tools.ShippingSrm33Core]
+
+lean_lib «Tests.Compiler.Srm33EndpointTest» where
+  roots := #[`Tests.Compiler.Srm33EndpointTest]
+
+lean_lib «Tests.Compiler.Srm33AuditExpected» where
+  roots := #[`Tests.Compiler.Srm33AuditExpected]
+
+lean_lib «Tests.Compiler.Srm33AuditTest» where
+  roots := #[`Tests.Compiler.Srm33AuditTest]
+
+lean_lib «Tests.Compiler.CDefTest» where
+  roots := #[`Tests.Compiler.CDefTest]
+
+lean_lib «Tests.Compiler.C4KidTest» where
+  roots := #[`Tests.Compiler.C4KidTest]
+
+lean_lib «Tests.Compiler.C4ClosesTest» where
+  roots := #[`Tests.Compiler.C4ClosesTest]
+
+lean_lib «Tests.Compiler.C4ShipsTest» where
+  roots := #[`Tests.Compiler.C4ShipsTest]
+
+lean_lib «Tools.ShippingC4InitW» where
+  roots := #[`Tools.ShippingC4InitW]
+
+lean_lib «Tests.Compiler.C4HCallsTest» where
+  roots := #[`Tests.Compiler.C4HCallsTest]
+
+lean_lib «Tests.Compiler.C4ComposedTest» where
+  roots := #[`Tests.Compiler.C4ComposedTest]
+
+lean_lib «Tests.Compiler.C4FinalTest» where
+  roots := #[`Tests.Compiler.C4FinalTest]
+
+lean_lib «Tests.Compiler.QDefTest» where
+  roots := #[`Tests.Compiler.QDefTest]
+
+lean_lib «Tests.Compiler.QClosesTest» where
+  roots := #[`Tests.Compiler.QClosesTest]
+
+lean_lib «Tests.Compiler.QShipsTest» where
+  roots := #[`Tests.Compiler.QShipsTest]
+
+lean_lib «Tests.Compiler.QHCallsTest» where
+  roots := #[`Tests.Compiler.QHCallsTest]
+
+lean_lib «Tests.Compiler.QComposedTest» where
+  roots := #[`Tests.Compiler.QComposedTest]
+
+lean_lib «Tests.Compiler.QFinalTest» where
+  roots := #[`Tests.Compiler.QFinalTest]

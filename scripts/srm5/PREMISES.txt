@@ -1,0 +1,655 @@
+S5THM|Tools.ShippingSrm5Height.hcheck_memKids|8
+S5DATA|Tools.ShippingSrm5Height.hcheck_memKids|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Height.hcheck_memKids|1|implicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_memKids|2|implicit|o|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Height.hcheck_memKids|3|implicit|h|Nat
+S5PREM|Tools.ShippingSrm5Height.hcheck_memKids|4|explicit|hr|rk o.name = some (h + 1)
+S5PREM|Tools.ShippingSrm5Height.hcheck_memKids|5|explicit|ht|Tools.ShippingDesignSV.textCheckI C o = true
+S5PREM|Tools.ShippingSrm5Height.hcheck_memKids|6|explicit|hk|Tools.ShippingSrm5Height.MemKidsH C rk o.body
+S5DATA|Tools.ShippingSrm5Height.hcheck_memKids|7|explicit|f|Nat
+S5THM|Tools.ShippingSrm5Height.hcheck_memModule|7
+S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|1|implicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|2|explicit|cb|Bool
+S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|3|explicit|aw|Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|4|explicit|dw|Nat
+S5PREM|Tools.ShippingSrm5Height.hcheck_memModule|5|explicit|hr|rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5DATA|Tools.ShippingSrm5Height.hcheck_memModule|6|explicit|f|Nat
+S5THM|Tools.ShippingSrm5Height.hcheck_ord|8
+S5DATA|Tools.ShippingSrm5Height.hcheck_ord|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Height.hcheck_ord|1|implicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_ord|2|implicit|f|Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_ord|3|implicit|o|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Height.hcheck_ord|4|implicit|h|Nat
+S5PREM|Tools.ShippingSrm5Height.hcheck_ord|5|explicit|hr|rk o.name = some (h + 1)
+S5PREM|Tools.ShippingSrm5Height.hcheck_ord|6|explicit|ht|Tools.ShippingDesignSV.textCheckI C o = true
+S5PREM|Tools.ShippingSrm5Height.hcheck_ord|7|explicit|hk|∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)), Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body → ∃ child cwe r, C mn = some (child, cwe) ∧ rk mn = some r ∧ r ≤ h ∧ child.name = mn ∧ Tools.ShippingSrm5Height.hcheck C rk f child = true
+S5THM|Tools.ShippingSrm5Height.hcheck_edge|11
+S5DATA|Tools.ShippingSrm5Height.hcheck_edge|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Height.hcheck_edge|1|implicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_edge|2|implicit|o|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Height.hcheck_edge|3|implicit|h|Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_edge|4|implicit|f|Nat
+S5PREM|Tools.ShippingSrm5Height.hcheck_edge|5|explicit|hr|rk o.name = some (h + 1)
+S5PREM|Tools.ShippingSrm5Height.hcheck_edge|6|explicit|hc|Tools.ShippingSrm5Height.hcheck C rk (f + 1) o = true
+S5DATA|Tools.ShippingSrm5Height.hcheck_edge|7|implicit|mn|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_edge|8|implicit|iname|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_edge|9|implicit|conns|List (String × Sparkle.IR.AST.Expr)
+S5PREM|Tools.ShippingSrm5Height.hcheck_edge|10|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
+S5THM|Tools.ShippingSrm5Height.hcheck_unresolved|11
+S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|1|implicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|2|implicit|o|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|3|implicit|h|Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|4|implicit|f|Nat
+S5PREM|Tools.ShippingSrm5Height.hcheck_unresolved|5|explicit|hr|rk o.name = some (h + 1)
+S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|6|implicit|mn|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|7|implicit|iname|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_unresolved|8|implicit|conns|List (String × Sparkle.IR.AST.Expr)
+S5PREM|Tools.ShippingSrm5Height.hcheck_unresolved|9|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
+S5PREM|Tools.ShippingSrm5Height.hcheck_unresolved|10|explicit|hu|C mn = none
+S5THM|Tools.ShippingSrm5Height.hcheck_norank|11
+S5DATA|Tools.ShippingSrm5Height.hcheck_norank|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Height.hcheck_norank|1|implicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_norank|2|implicit|o|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Height.hcheck_norank|3|implicit|h|Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_norank|4|implicit|f|Nat
+S5PREM|Tools.ShippingSrm5Height.hcheck_norank|5|explicit|hr|rk o.name = some (h + 1)
+S5DATA|Tools.ShippingSrm5Height.hcheck_norank|6|implicit|mn|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_norank|7|implicit|iname|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_norank|8|implicit|conns|List (String × Sparkle.IR.AST.Expr)
+S5PREM|Tools.ShippingSrm5Height.hcheck_norank|9|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
+S5PREM|Tools.ShippingSrm5Height.hcheck_norank|10|explicit|hu|rk mn = none
+S5THM|Tools.ShippingSrm5Height.hcheck_notBelow|13
+S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|1|implicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|2|implicit|o|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|3|implicit|h|Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|4|implicit|f|Nat
+S5PREM|Tools.ShippingSrm5Height.hcheck_notBelow|5|explicit|hr|rk o.name = some (h + 1)
+S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|6|implicit|mn|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|7|implicit|iname|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|8|implicit|conns|List (String × Sparkle.IR.AST.Expr)
+S5PREM|Tools.ShippingSrm5Height.hcheck_notBelow|9|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
+S5DATA|Tools.ShippingSrm5Height.hcheck_notBelow|10|implicit|r|Nat
+S5PREM|Tools.ShippingSrm5Height.hcheck_notBelow|11|explicit|hrm|rk mn = some r
+S5PREM|Tools.ShippingSrm5Height.hcheck_notBelow|12|explicit|hge|h + 1 ≤ r
+S5THM|Tools.ShippingSrm5Height.hcheck_selfInst|9
+S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|1|implicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|2|implicit|o|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|3|implicit|h|Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|4|implicit|f|Nat
+S5PREM|Tools.ShippingSrm5Height.hcheck_selfInst|5|explicit|hr|rk o.name = some (h + 1)
+S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|6|implicit|iname|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_selfInst|7|implicit|conns|List (String × Sparkle.IR.AST.Expr)
+S5PREM|Tools.ShippingSrm5Height.hcheck_selfInst|8|explicit|hm|Sparkle.IR.AST.Stmt.inst o.name iname conns ∈ o.body
+S5THM|Tools.ShippingSrm5Height.hcheck_misnamed|14
+S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|1|implicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|2|implicit|o|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|3|implicit|h|Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|4|implicit|f|Nat
+S5PREM|Tools.ShippingSrm5Height.hcheck_misnamed|5|explicit|hr|rk o.name = some (h + 1)
+S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|6|implicit|mn|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|7|implicit|iname|String
+S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|8|implicit|conns|List (String × Sparkle.IR.AST.Expr)
+S5PREM|Tools.ShippingSrm5Height.hcheck_misnamed|9|explicit|hm|Sparkle.IR.AST.Stmt.inst mn iname conns ∈ o.body
+S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|10|implicit|child|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Height.hcheck_misnamed|11|implicit|cwe|Sparkle.IR.Semantics.WEnv
+S5PREM|Tools.ShippingSrm5Height.hcheck_misnamed|12|explicit|hc|C mn = some (child, cwe)
+S5PREM|Tools.ShippingSrm5Height.hcheck_misnamed|13|explicit|hne|child.name ≠ mn
+S5THM|Tools.ShippingSrm5Height.hcheck_eq_designCheck|5
+S5DATA|Tools.ShippingSrm5Height.hcheck_eq_designCheck|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Height.hcheck_eq_designCheck|1|implicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_eq_designCheck|2|explicit|n|Nat
+S5DATA|Tools.ShippingSrm5Height.hcheck_eq_designCheck|3|explicit|o|Sparkle.IR.AST.Module
+S5PREM|Tools.ShippingSrm5Height.hcheck_eq_designCheck|4|explicit|_anon|Tools.ShippingSrm5Height.Uni C rk n o
+S5THM|Tools.ShippingSrm5Ident.inst_target_ranA|20
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|5|implicit|c|Name
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|6|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ranA|7|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ranA|8|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|9|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ranA|10|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ranA|11|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ranA|12|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|13|implicit|M|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|14|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ranA|15|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|16|explicit|mn|String
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|17|explicit|i|String
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ranA|18|explicit|conns|List (String × Sparkle.IR.AST.Expr)
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ranA|19|explicit|_anon|Sparkle.IR.AST.Stmt.inst mn i conns ∈ M.body
+S5THM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|21
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|5|implicit|c|Name
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|6|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|7|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|8|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|9|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|10|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|11|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|12|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|13|explicit|hnomem|∀ (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin), x ∈ d.shape.instTagged → x.snd.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.fst).isNone = true
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|14|implicit|M|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|15|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|16|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|17|explicit|mn|String
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|18|explicit|i|String
+S5DATA|Tools.ShippingSrm5Ident.inst_target_ord_ranA|19|explicit|conns|List (String × Sparkle.IR.AST.Expr)
+S5PREM|Tools.ShippingSrm5Ident.inst_target_ord_ranA|20|explicit|_anon|Sparkle.IR.AST.Stmt.inst mn i conns ∈ M.body
+S5THM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|34
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|5|implicit|c|Name
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|6|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|7|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|8|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|9|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|10|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|11|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|12|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|13|explicit|hins|d.shape.insts ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|14|explicit|hsl|d.shape.layout.slots ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|15|explicit|hfne|d.shape.instFields ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|16|explicit|outTy|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → o.ty.bitWidth = o.width
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|17|explicit|hnomem|∀ (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin), x ∈ d.shape.instTagged → x.snd.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.fst).isNone = true
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|18|explicit|hkidP|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (p : Sparkle.IR.AST.Port), p ∈ y'.fst.outputs → (∀ (q : Sparkle.IR.AST.Port), q ∈ Tools.ShippingInstStmtG.inPortsOf y'.fst → q.name ≠ p.name) ∧ p.name ≠ "clk" ∧ p.name ≠ "rst"
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|19|explicit|hkidW|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (p : Sparkle.IR.AST.Port), p ∈ y'.fst.outputs → p.name = d.shape.instFields.getD k "" → Option.map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.snd).bitWidth) d.shape.binders[nDecl + k]? = some p.ty.bitWidth
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|20|explicit|hkidT|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → Tools.ShippingLeafTyped.PortsIn y'.fst
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|21|implicit|kidIns|Nat → List Nat
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|22|explicit|hargs|Tools.ShippingPortsMatchRaw.callArgsOk d nDecl kidIns = true
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|23|explicit|hkidIn|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (j : Nat) (q : Sparkle.IR.AST.Port), (Tools.ShippingInstStmtG.inPortsOf y'.fst)[j]? = some q → ∃ wd, (kidIns k)[j]? = some wd ∧ Tools.ShippingDesignSV.weS y'.fst q.name = wd
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|24|explicit|hkidClk|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → Tools.ShippingInstStmtG.isSeqChild y'.fst = true → Tools.ShippingDesignSV.weS y'.fst "clk" = 1 ∧ Tools.ShippingDesignSV.weS y'.fst "rst" = 1
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|25|implicit|M|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|26|implicit|b|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|27|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|28|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|29|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|30|explicit|hon|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Sparkle.Backend.Verilog.sanitizeName o.name = o.name
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|31|explicit|hoty|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Tools.ShippingTextTyped.scalarTy o.ty = true
+S5DATA|Tools.ShippingSrm5Transfer.kids_textCheck_inA|32|explicit|ms|List Sparkle.IR.AST.Module
+S5PREM|Tools.ShippingSrm5Transfer.kids_textCheck_inA|33|explicit|hms|∀ (g : Sparkle.IR.AST.Module), g ∈ D.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g
+S5THM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|28
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|5|implicit|c|Name
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|6|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|7|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|8|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|9|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|10|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|11|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|12|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|13|explicit|hins|d.shape.insts ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|14|explicit|outTy|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → o.ty.bitWidth = o.width
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|15|explicit|hnomem|∀ (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin), x ∈ d.shape.instTagged → x.snd.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.fst).isNone = true
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|16|implicit|M|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|17|implicit|b|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|18|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|19|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|20|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|21|explicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|22|explicit|h|Nat
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|23|explicit|f|Nat
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|24|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|25|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_body_ranA|26|explicit|ms|List Sparkle.IR.AST.Module
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_body_ranA|27|explicit|hmsD|∀ (g : Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName D.modules g.name = some g → Sparkle.IR.Machine.moduleByName ms g.name = some g
+S5THM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|40
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|5|implicit|c|Name
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|6|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|7|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|8|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|9|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|10|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|11|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|12|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|13|explicit|hins|d.shape.insts ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|14|explicit|hsl|d.shape.layout.slots ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|15|explicit|hfne|d.shape.instFields ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|16|explicit|outTy|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → o.ty.bitWidth = o.width
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|17|explicit|hnomem|∀ (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin), x ∈ d.shape.instTagged → x.snd.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.fst).isNone = true
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|18|explicit|hkidP|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (p : Sparkle.IR.AST.Port), p ∈ y'.fst.outputs → (∀ (q : Sparkle.IR.AST.Port), q ∈ Tools.ShippingInstStmtG.inPortsOf y'.fst → q.name ≠ p.name) ∧ p.name ≠ "clk" ∧ p.name ≠ "rst"
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|19|explicit|hkidW|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (p : Sparkle.IR.AST.Port), p ∈ y'.fst.outputs → p.name = d.shape.instFields.getD k "" → Option.map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.snd).bitWidth) d.shape.binders[nDecl + k]? = some p.ty.bitWidth
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|20|explicit|hkidT|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → Tools.ShippingLeafTyped.PortsIn y'.fst
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|21|implicit|kidIns|Nat → List Nat
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|22|explicit|hargs|Tools.ShippingPortsMatchRaw.callArgsOk d nDecl kidIns = true
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|23|explicit|hkidIn|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (j : Nat) (q : Sparkle.IR.AST.Port), (Tools.ShippingInstStmtG.inPortsOf y'.fst)[j]? = some q → ∃ wd, (kidIns k)[j]? = some wd ∧ Tools.ShippingDesignSV.weS y'.fst q.name = wd
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|24|explicit|hkidClk|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → Tools.ShippingInstStmtG.isSeqChild y'.fst = true → Tools.ShippingDesignSV.weS y'.fst "clk" = 1 ∧ Tools.ShippingDesignSV.weS y'.fst "rst" = 1
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|25|implicit|M|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|26|implicit|b|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|27|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|28|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|29|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|30|explicit|hon|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Sparkle.Backend.Verilog.sanitizeName o.name = o.name
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|31|explicit|hoty|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Tools.ShippingTextTyped.scalarTy o.ty = true
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|32|explicit|ms|List Sparkle.IR.AST.Module
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|33|explicit|hms|∀ (g : Sparkle.IR.AST.Module), g ∈ D.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|34|explicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|35|explicit|h|Nat
+S5DATA|Tools.ShippingSrm5Transfer.kids_hcheck_inA|36|explicit|f|Nat
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|37|explicit|hrb|rk b.name = some (h + 1)
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|38|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
+S5PREM|Tools.ShippingSrm5Transfer.kids_hcheck_inA|39|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5THM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|26
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|5|implicit|c|Name
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|6|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|7|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|8|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|9|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|10|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|11|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|12|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|13|explicit|hins|d.shape.insts ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|14|explicit|outTy|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → o.ty.bitWidth = o.width
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|15|explicit|hnomem|∀ (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin), x ∈ d.shape.instTagged → x.snd.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.fst).isNone = true
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|16|implicit|M|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|17|implicit|b|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|18|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|19|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|20|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|21|explicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|22|explicit|h|Nat
+S5DATA|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|23|explicit|f|Nat
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|24|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
+S5PREM|Tools.ShippingSrm5Transfer.kidsH_pass_ranA|25|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5THM|Tools.ShippingSrm5Transfer.textCheckI_shipped|5
+S5DATA|Tools.ShippingSrm5Transfer.textCheckI_shipped|0|implicit|C|String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)
+S5DATA|Tools.ShippingSrm5Transfer.textCheckI_shipped|1|implicit|b|Sparkle.IR.AST.Module
+S5PREM|Tools.ShippingSrm5Transfer.textCheckI_shipped|2|explicit|h|Tools.ShippingGuardsSound.RunFacts C b
+S5PREM|Tools.ShippingSrm5Transfer.textCheckI_shipped|3|explicit|ht|Tools.ShippingTextTyped.TypedIn b
+S5PREM|Tools.ShippingSrm5Transfer.textCheckI_shipped|4|explicit|hports|Tools.ShippingDesignSV.portsMatchB C (Sparkle.IR.OptCheck.checkedOptimize b) = true
+S5THM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|36
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|5|implicit|c|Name
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|6|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|7|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|8|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|9|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|10|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|11|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|12|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|13|explicit|hins|d.shape.insts ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|14|explicit|hsl|d.shape.layout.slots ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|15|explicit|hfne|d.shape.instFields ≠ []
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|16|explicit|outTy|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → o.ty.bitWidth = o.width
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|17|explicit|hnomem|∀ (x : Name × Sparkle.Compiler.MachInstOrigin.InstOrigin), x ∈ d.shape.instTagged → x.snd.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.fst).isNone = true
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|18|explicit|kidOuts|Nat → List Sparkle.IR.Machine.OutField
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|19|explicit|kidIns|Nat → List Nat
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|20|explicit|hkid|∀ (k : Nat) (hk : k < d.shape.insts.length), Tools.ShippingSrm4Core6.KidFactsNC O d.shape.insts[k].fst (kidOuts k) (kidIns k)
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|21|explicit|hcw|Tools.ShippingCallWidths.callWidthsOk d nDecl kidOuts = true
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|22|explicit|hargs|Tools.ShippingPortsMatchRaw.callArgsOk d nDecl kidIns = true
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|23|implicit|M|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|24|implicit|b|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|25|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|26|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|27|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|28|explicit|hon|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Sparkle.Backend.Verilog.sanitizeName o.name = o.name
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|29|explicit|hoty|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Tools.ShippingTextTyped.scalarTy o.ty = true
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|30|explicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|31|explicit|h|Nat
+S5DATA|Tools.ShippingSrm5Transfer.kidsNC_hcheck|32|explicit|f|Nat
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|33|explicit|hrb|rk (Sparkle.IR.OptCheck.checkedOptimize b).name = some (h + 1)
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|34|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
+S5PREM|Tools.ShippingSrm5Transfer.kidsNC_hcheck|35|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5THM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|33
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|5|implicit|c|Name
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|6|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|7|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|8|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|9|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|10|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|11|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|12|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|13|explicit|hins|d.shape.insts ≠ []
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|14|explicit|hsl|d.shape.layout.slots ≠ []
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|15|explicit|hfne|d.shape.instFields ≠ []
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|16|explicit|outTy|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → o.ty.bitWidth = o.width
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|17|explicit|hkidP|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → ∀ (p : Sparkle.IR.AST.Port), p ∈ y'.fst.outputs → (∀ (q : Sparkle.IR.AST.Port), q ∈ Tools.ShippingInstStmtG.inPortsOf y'.fst → q.name ≠ p.name) ∧ p.name ≠ "clk" ∧ p.name ≠ "rst"
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|18|explicit|hkidW|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → ∀ (p : Sparkle.IR.AST.Port), p ∈ y'.fst.outputs → p.name = d.shape.instFields.getD k "" → Option.map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.snd).bitWidth) d.shape.binders[nDecl + k]? = some p.ty.bitWidth
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|19|explicit|hkidT|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → Tools.ShippingLeafTyped.PortsIn y'.fst
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|20|implicit|kidIns|Nat → List Nat
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|21|explicit|hargs|Tools.ShippingPortsMatchRaw.callArgsOk d nDecl kidIns = true
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|22|explicit|hkidIn|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → ∀ (j : Nat) (q : Sparkle.IR.AST.Port), (Tools.ShippingInstStmtG.inPortsOf y'.fst)[j]? = some q → ∃ wd, (kidIns k)[j]? = some wd ∧ Tools.ShippingDesignSV.weS y'.fst q.name = wd
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|23|explicit|hkidClk|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → Tools.ShippingInstStmtG.isSeqChild y'.fst = true → Tools.ShippingDesignSV.weS y'.fst "clk" = 1 ∧ Tools.ShippingDesignSV.weS y'.fst "rst" = 1
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|24|implicit|M|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|25|implicit|b|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|26|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|27|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|28|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|29|explicit|hon|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Sparkle.Backend.Verilog.sanitizeName o.name = o.name
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|30|explicit|hoty|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Tools.ShippingTextTyped.scalarTy o.ty = true
+S5DATA|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|31|explicit|ms|List Sparkle.IR.AST.Module
+S5PREM|Tools.ShippingSrm5TransferM.kids_textCheck_inAM|32|explicit|hms|∀ (g : Sparkle.IR.AST.Module), g ∈ D.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g
+S5THM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|29
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|5|implicit|c|Name
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|6|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|7|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|8|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|9|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|10|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|11|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|12|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|13|explicit|hins|d.shape.insts ≠ []
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|14|explicit|hfne|d.shape.instFields ≠ []
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|15|explicit|outTy|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → o.ty.bitWidth = o.width
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|16|implicit|M|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|17|implicit|b|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|18|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|19|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|20|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|21|explicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|22|explicit|h|Nat
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|23|explicit|f|Nat
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|24|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|25|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|26|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5DATA|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|27|explicit|ms|List Sparkle.IR.AST.Module
+S5PREM|Tools.ShippingSrm5TransferM.kidsH_body_ranAM|28|explicit|hmsD|∀ (g : Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName D.modules g.name = some g → Sparkle.IR.Machine.moduleByName ms g.name = some g
+S5THM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|40
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|5|implicit|c|Name
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|6|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|7|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|8|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|9|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|10|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|11|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|12|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|13|explicit|hins|d.shape.insts ≠ []
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|14|explicit|hsl|d.shape.layout.slots ≠ []
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|15|explicit|hfne|d.shape.instFields ≠ []
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|16|explicit|outTy|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → o.ty.bitWidth = o.width
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|17|explicit|hkidP|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → ∀ (p : Sparkle.IR.AST.Port), p ∈ y'.fst.outputs → (∀ (q : Sparkle.IR.AST.Port), q ∈ Tools.ShippingInstStmtG.inPortsOf y'.fst → q.name ≠ p.name) ∧ p.name ≠ "clk" ∧ p.name ≠ "rst"
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|18|explicit|hkidW|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → ∀ (p : Sparkle.IR.AST.Port), p ∈ y'.fst.outputs → p.name = d.shape.instFields.getD k "" → Option.map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.snd).bitWidth) d.shape.binders[nDecl + k]? = some p.ty.bitWidth
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|19|explicit|hkidT|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → Tools.ShippingLeafTyped.PortsIn y'.fst
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|20|implicit|kidIns|Nat → List Nat
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|21|explicit|hargs|Tools.ShippingPortsMatchRaw.callArgsOk d nDecl kidIns = true
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|22|explicit|hkidIn|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → ∀ (j : Nat) (q : Sparkle.IR.AST.Port), (Tools.ShippingInstStmtG.inPortsOf y'.fst)[j]? = some q → ∃ wd, (kidIns k)[j]? = some wd ∧ Tools.ShippingDesignSV.weS y'.fst q.name = wd
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|23|explicit|hkidClk|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → Tools.ShippingInstStmtG.isSeqChild y'.fst = true → Tools.ShippingDesignSV.weS y'.fst "clk" = 1 ∧ Tools.ShippingDesignSV.weS y'.fst "rst" = 1
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|24|implicit|M|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|25|implicit|b|Sparkle.IR.AST.Module
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|26|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|27|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|28|explicit|ran|Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|29|explicit|hon|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Sparkle.Backend.Verilog.sanitizeName o.name = o.name
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|30|explicit|hoty|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Tools.ShippingTextTyped.scalarTy o.ty = true
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|31|explicit|ms|List Sparkle.IR.AST.Module
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|32|explicit|hms|∀ (g : Sparkle.IR.AST.Module), g ∈ D.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|33|explicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|34|explicit|h|Nat
+S5DATA|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|35|explicit|f|Nat
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|36|explicit|hrb|rk b.name = some (h + 1)
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|37|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|38|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
+S5PREM|Tools.ShippingSrm5TransferM.kids_hcheck_inAM|39|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5THM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|35
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|6|implicit|c|Name
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|7|explicit|d|Tools.ShippingMachineAuto.MachineData
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|8|explicit|ok|d.ok = true
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|9|explicit|hbody|d.shape.body = Tools.ShippingUnifiedSource.quote d.dom (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j)) (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|10|implicit|nDecl|Nat
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|11|explicit|hC|d.callsOk nDecl = true
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|12|explicit|hslots|d.ss.length = d.shape.layout.slots.length
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|13|explicit|hdomB|∀ (b : Name × Sparkle.Compiler.Elab.MixedGateBinder), b ∈ List.drop nDecl d.shape.binders → b.snd ≠ Sparkle.Compiler.Elab.MixedGateBinder.domain
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|14|explicit|hins|d.shape.insts ≠ []
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|15|explicit|hsl|d.shape.layout.slots ≠ []
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|16|explicit|hfne|d.shape.instFields ≠ []
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|17|explicit|outTy|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → o.ty.bitWidth = o.width
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|18|explicit|kidOuts|Nat → List Sparkle.IR.Machine.OutField
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|19|explicit|kidIns|Nat → List Nat
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|20|explicit|hlo|∀ (k : Nat) (hk : k < d.shape.insts.length), Tools.ShippingSrm4Core6.KidFactsTNC O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst (kidOuts k) (kidIns k)
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|21|explicit|hcw|Tools.ShippingCallWidths.callWidthsOk d nDecl kidOuts = true
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|22|explicit|hargs|Tools.ShippingPortsMatchRaw.callArgsOk d nDecl kidIns = true
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|23|explicit|hon|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Sparkle.Backend.Verilog.sanitizeName o.name = o.name
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|24|explicit|hoty|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Tools.ShippingTextTyped.scalarTy o.ty = true
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|25|explicit|hsep|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), Tools.ShippingCallsMemA.KidTA O (Tools.ShippingInstTagged.originAt d.shape k) d.shape.insts[k].fst y' → ∀ (g : Sparkle.IR.AST.Module), g ∈ y'.fst :: y'.snd.modules → g.name ≠ Sparkle.IR.ModuleName.ofDecl c
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|26|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref c d.shape
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|27|explicit|closes|∀ (mctx' : Meta.Context) (cctx' : Core.Context), Tools.ShippingChildInvA.AdmCtx O.quiet mctx' cctx' → Tools.ShippingChildRunAKids.MachineClosesAtA O mctx' cctx' c d.shape
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|28|explicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|29|explicit|h|Nat
+S5DATA|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|30|explicit|f|Nat
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|31|explicit|hrb|rk (Sparkle.IR.ModuleName.ofDecl c) = some (h + 1)
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|32|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|33|explicit|hrank|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∃ r, rk y'.fst.name = some r ∧ r ≤ h
+S5PREM|Tools.ShippingSrm5Deep.deepChild_kidHeightAM|34|explicit|hkidH|∀ (k : Nat) (hk : k < d.shape.insts.length) (y' : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y' → ∀ (ms : List Sparkle.IR.AST.Module), Sparkle.IR.Machine.moduleByName ms y'.fst.name = some y'.fst → (∀ (g : Sparkle.IR.AST.Module), g ∈ y'.snd.modules → Sparkle.IR.Machine.moduleByName ms g.name = some g) → Tools.ShippingSrm5Height.hcheck (Tools.ShippingMachineLinked.childMap ms) rk f y'.fst = true
+S5THM|Tools.ShippingSrm5Deep.memCallee_kidHeight|32
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|0|implicit|mctx|Meta.Context
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|2|implicit|cctx|Core.Context
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|6|implicit|d|Tools.ShippingMachineAuto.MachineData
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|7|implicit|C|Name
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|8|implicit|n|Nat
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|9|implicit|nameK|Nat → String
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|10|implicit|nk|Nat → Nat
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|11|implicit|outsK|Nat → List String
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|12|implicit|namesK|Nat → List String
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|13|implicit|names|List String
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|14|explicit|hC|Tools.ShippingSrm3Callee.MemCalleeData d C n nameK nk outsK namesK names
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|15|explicit|hord|∀ (mctx' : Meta.Context) (cctx' : Core.Context), Tools.ShippingChildInvA.AdmCtx O.quiet mctx' cctx' → ∀ (k : Nat) (hk : k < d.shape.insts.length) (y : Tools.ShippingChildInv.Res), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingChildCacheA.RealChildA O d.shape.insts[k].fst y → Tools.ShippingMemCloses.ChildIfaceP (nameK k) (nk k) (outsK k) (namesK k) y.fst y.snd
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|16|explicit|kidOuts|Nat → List Sparkle.IR.Machine.OutField
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|17|explicit|kidIns|Nat → List Nat
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|18|explicit|hmemT|∀ (k : Nat), k < d.shape.insts.length → ∀ (cb : Bool) (aw dw : Nat), (Tools.ShippingInstTagged.originAt d.shape k).child? = some (Sparkle.Compiler.MachMemory.memModule cb aw dw) → kidOuts k = Tools.ShippingMemKid.memOuts dw ∧ kidIns k = Tools.ShippingMemKid.memIns aw dw
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|19|explicit|hKid|∀ (k : Nat) (hk : k < d.shape.insts.length), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingSrm4Core6.KidFactsNC O d.shape.insts[k].fst (kidOuts k) (kidIns k)
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|20|explicit|hcw|Tools.ShippingCallWidths.callWidthsOk d n kidOuts = true
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|21|explicit|hargs|Tools.ShippingPortsMatchRaw.callArgsOk d n kidIns = true
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|22|explicit|hon|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Sparkle.Backend.Verilog.sanitizeName o.name = o.name
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|23|explicit|hoty|∀ (o : Sparkle.IR.Machine.OutField), o ∈ d.shape.layout.outs → Tools.ShippingTextTyped.scalarTy o.ty = true
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|24|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref C d.shape
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|25|explicit|rk|String → Option Nat
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|26|explicit|h|Nat
+S5DATA|Tools.ShippingSrm5Deep.memCallee_kidHeight|27|explicit|f|Nat
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|28|explicit|hrb|rk (Sparkle.IR.ModuleName.ofDecl C) = some (h + 1)
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|29|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|30|explicit|hrk|∀ (k : Nat), k < d.shape.insts.length → (Tools.ShippingInstTagged.originAt d.shape k).child? = none → ∃ r, rk (nameK k) = some r ∧ r ≤ h
+S5PREM|Tools.ShippingSrm5Deep.memCallee_kidHeight|31|explicit|hKidH|∀ (k : Nat) (hk : k < d.shape.insts.length), (Tools.ShippingInstTagged.originAt d.shape k).child? = none → Tools.ShippingSrm5Deep.KidHeight O d.shape.insts[k].fst rk f
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|11
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|0|implicit|mctx|Meta.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|2|implicit|cctx|Core.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|6|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|7|explicit|rk|String → Option Nat
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|8|explicit|f|Nat
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|9|explicit|hrb|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafM) = some (0 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafM_kidHeight|10|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|14
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|0|implicit|mctx|Meta.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|2|implicit|cctx|Core.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|6|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|7|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM Tests.Compiler.SharedLeafMemKidTest.wrapM.machineData.shape
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|8|explicit|rk|String → Option Nat
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|9|explicit|f|Nat
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|10|explicit|hrb|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapM) = some (1 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|11|explicit|hl|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafM) = some 1
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|12|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM_kidHeight|13|explicit|hleaf|Tools.ShippingSrm5Deep.KidHeight O `Tests.Compiler.SharedLeafMemKidTest.leafM rk f
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|14
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|0|implicit|mctx|Meta.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|2|implicit|cctx|Core.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|6|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|7|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM3 Tests.Compiler.SharedLeafMemKidTest.wrapM3.machineData.shape
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|8|explicit|rk|String → Option Nat
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|9|explicit|f|Nat
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|10|explicit|hrb|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapM3) = some (1 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|11|explicit|hl|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafM) = some 1
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|12|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapM3_kidHeight|13|explicit|hleaf|Tools.ShippingSrm5Deep.KidHeight O `Tests.Compiler.SharedLeafMemKidTest.leafM rk f
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|26
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|0|implicit|mctx|Meta.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|2|implicit|cctx|Core.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|7|explicit|f|Nat
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|8|explicit|entryL|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafM Tests.Compiler.SharedLeafMemKidTest.leafM.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|9|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM Tests.Compiler.SharedLeafMemKidTest.wrapM.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|10|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapM3 Tests.Compiler.SharedLeafMemKidTest.wrapM3.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|11|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareM Tests.Compiler.SharedLeafMemKidTest.topshareM.machineData.shape
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|12|implicit|w|Void IO.RealWorld
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|13|implicit|w1|Void IO.RealWorld
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|14|implicit|raw|Sparkle.IR.AST.Module
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|15|implicit|b|Sparkle.IR.AST.Module
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|16|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|17|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareM [] false) mctx mref cctx cref w (raw, D) w1
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|18|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|19|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|20|explicit|rk|String → Option Nat
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|21|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|22|explicit|hrT|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.topshareM) = some (2 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|23|explicit|hrW|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapM) = some (1 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|24|explicit|hrW3|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapM3) = some (1 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareM_hcheck|25|explicit|hrL|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafM) = some 1
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|10
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|0|implicit|mctx|Meta.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|2|implicit|cctx|Core.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|5|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|6|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|7|explicit|rk|String → Option Nat
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|8|explicit|f|Nat
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.leafP_kidHeight|9|explicit|hr|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafP) = some 0
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|15
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|0|implicit|mctx|Meta.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|2|implicit|cctx|Core.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|6|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|7|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|8|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|9|explicit|rk|String → Option Nat
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|10|explicit|f|Nat
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|11|explicit|hrb|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapP) = some (0 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|12|explicit|hl|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafP) = some 0
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|13|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapP_kidHeight|14|explicit|hleaf|Tools.ShippingSrm5Deep.KidHeight O `Tests.Compiler.SharedLeafMemKidTest.leafP rk f
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|15
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|0|implicit|mctx|Meta.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|2|implicit|cctx|Core.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|6|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|7|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|8|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|9|explicit|rk|String → Option Nat
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|10|explicit|f|Nat
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|11|explicit|hrb|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapQ) = some (0 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|12|explicit|hl|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafP) = some 0
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|13|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.wrapQ_kidHeight|14|explicit|hleaf|Tools.ShippingSrm5Deep.KidHeight O `Tests.Compiler.SharedLeafMemKidTest.leafP rk f
+S5THM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|27
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|0|implicit|mctx|Meta.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|1|implicit|mref|ST.Ref IO.RealWorld Meta.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|2|implicit|cctx|Core.Context
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|3|implicit|cref|ST.Ref IO.RealWorld Core.State
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|4|explicit|O|Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|5|explicit|T|Tools.ShippingChildInvA.RefLawsATele O.quiet mref cref
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|6|explicit|hA|Tools.ShippingChildInvA.AdmCtx O.quiet mctx cctx
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|7|explicit|f|Nat
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|8|explicit|hR0|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|9|explicit|hcl|∀ (mc : Meta.Context) (cc : Core.Context), Tools.ShippingMachineEntry.MachineCloses mc mref cc cref `Tests.Compiler.SharedLeafMemKidTest.leafP Tests.Compiler.SharedLeafMemKidTest.leafP.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|10|explicit|entry₁|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapP Tests.Compiler.SharedLeafMemKidTest.wrapP.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|11|explicit|entry₂|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.wrapQ Tests.Compiler.SharedLeafMemKidTest.wrapQ.machineData.shape
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|12|explicit|entry|Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref `Tests.Compiler.SharedLeafMemKidTest.topshareQ Tests.Compiler.SharedLeafMemKidTest.topshareQ.machineData.shape
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|13|implicit|w|Void IO.RealWorld
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|14|implicit|w1|Void IO.RealWorld
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|15|implicit|raw|Sparkle.IR.AST.Module
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|16|implicit|b|Sparkle.IR.AST.Module
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|17|implicit|D|Sparkle.IR.AST.Design
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|18|explicit|hcore|Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore `Tests.Compiler.SharedLeafMemKidTest.topshareQ [] false) mctx mref cctx cref w (raw, D) w1
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|19|explicit|hpost|b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|20|explicit|hw|Tools.ShippingChildCacheA.JQC O 0 w
+S5DATA|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|21|explicit|rk|String → Option Nat
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|22|explicit|hrkmem|∀ (cb : Bool) (aw dw : Nat), rk (Sparkle.Compiler.MachMemory.memModule cb aw dw).fst.name = some 0
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|23|explicit|hrT|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.topshareQ) = some (1 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|24|explicit|hrP|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapP) = some (0 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|25|explicit|hrQ|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.wrapQ) = some (0 + 1)
+S5PREM|Tests.Compiler.SharedLeafMemKidIfaceTest.topshareQ_hcheck|26|explicit|hrL|rk (Sparkle.IR.ModuleName.ofDecl `Tests.Compiler.SharedLeafMemKidTest.leafP) = some 0
+S5THM|Tests.Compiler.Srm5HeightTest.unbalanced_height_ok|2
+S5PREM|Tests.Compiler.Srm5HeightTest.unbalanced_height_ok|0|explicit|hRt|Tools.ShippingDesignSV.textCheckI Tests.Compiler.Srm5HeightTest.C Tests.Compiler.Srm5HeightTest.Rm = true
+S5PREM|Tests.Compiler.Srm5HeightTest.unbalanced_height_ok|1|explicit|hAt|Tools.ShippingDesignSV.textCheckI Tests.Compiler.Srm5HeightTest.C Tests.Compiler.Srm5HeightTest.Am = true
+S5THM|Tests.Compiler.Srm5HeightTest.uniform_fails|1
+S5DATA|Tests.Compiler.Srm5HeightTest.uniform_fails|0|explicit|n|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.mut_self|1
+S5DATA|Tests.Compiler.Srm5HeightTest.mut_self|0|explicit|f|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.mut_backEdge|1
+S5DATA|Tests.Compiler.Srm5HeightTest.mut_backEdge|0|explicit|f|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.mut_unresolved|1
+S5DATA|Tests.Compiler.Srm5HeightTest.mut_unresolved|0|explicit|f|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.mut_norank|1
+S5DATA|Tests.Compiler.Srm5HeightTest.mut_norank|0|explicit|f|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.mut_misnamed|1
+S5DATA|Tests.Compiler.Srm5HeightTest.mut_misnamed|0|explicit|f|Nat
+S5THM|Tests.Compiler.Srm5HeightTest.balanced_reproduces|0
