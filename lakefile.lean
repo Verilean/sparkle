@@ -4511,3 +4511,6 @@ lean_lib «Tools.ShippingGen2MemShips» where
 
 lean_lib «Tests.Gen2.MemParentInstance» where
   roots := #[`Tests.Gen2.MemParentInstance]
+
+lean_lib «Tests.Gen2.QuantEndpoint» where
+  roots := #[`Tests.Gen2.QuantEndpoint]
