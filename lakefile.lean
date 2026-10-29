@@ -4703,3 +4703,9 @@ lean_lib «Tools.ShippingGen3GroupPortWidths» where
 
 lean_lib «Tests.Gen3.PortWidthsPrepCheck» where
   roots := #[`Tests.Gen3.PortWidthsPrepCheck]
+
+lean_lib «Tools.ShippingGen3SlotlessPortWidths» where
+  roots := #[`Tools.ShippingGen3SlotlessPortWidths]
+
+lean_lib «Tests.Gen3.SlotlessPortWidthsCheck» where
+  roots := #[`Tests.Gen3.SlotlessPortWidthsCheck]
