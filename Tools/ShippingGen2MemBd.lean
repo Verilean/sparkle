@@ -89,7 +89,8 @@ theorem resetNk_memInvN (n : Nat) : ResetImpliesInv (ResetNk n) (memInvN n) := b
   subst hcx
   have hn : child.name = mn := Tools.ShippingMachineInst.moduleByName_name hx
   have hRN := hR iname child ⟨conns, by rw [hn]; exact hmem⟩ (by rw [hn]; exact hx)
-  have h3 := hRN.2.2.1
+  unfold ResetN at hRN
+  obtain ⟨-, -, h3, -⟩ := hRN
   subst hch
   have h0 := h3 "mem" aw dw "clk" (.ref "wa") (.ref "wd") (.ref "we") (.ref "ra") "out_rdata" cb [] []
     (by simp [memModule])
