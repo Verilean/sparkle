@@ -13,6 +13,10 @@ Issue `sparkle-gen2-calldec`.
 | `g2cd-b09a2c0b` | b09a2c0b | **exit 0, 923 jobs**: `Tests.Gen2.CallDecInstance` (steps 2b-2c, axioms). Log SHA-256 prefix `9d5608e1b4cb4eba` |
 | `g2cd-2c71c114`, `g2cd-81a6cad6` | — | failed diagnostics, instance file only: `SrcPkg.S` unfolding, the `kindTy` namespace, rewrites through `tm2Pkg.d` |
 
+**Elaboration setting:** Tests/Gen2/CallDecInstance.lean sets `set_option maxHeartbeats 4000000` at file scope. That
+is the same budget as the QuadCallsTest it imports. It is there for the `decide` of the three `DataOkB` checks and the
+`simp` over the concrete `MachineData`. It is an elaboration budget only; the kernel checks the proofs as usual.
+
 **Axioms** (`#print axioms`, `g2cd-b09a2c0b`): `callDec_of_callFactF`, `callFactF_of_hPointAt_pkg`, `genFacts_restrict`,
 `tm2_callDec` and `tm2_dataOk` each depend only on `[propext, Classical.choice, Quot.sound]`. No `sorry`.
 
@@ -112,8 +116,15 @@ ordinary call `k` to `c` with package `q = P c`, `HPointAt p.d p.kD dom p.lsrc p
 - **Deliverable:** a generic lemma from the generator's call-term reading (over `MachineShape` and `body_eq`) to
   `HPointAt` of the generated package, with the C4/C5/topshare2 instances as checks.
 - **Failure route:** if (t2) cannot be stated generically from `body_eq`, the alternative is a generator export: a
-  generic theorem the generator emits per declaration with a uniform statement. That would keep a per-declaration
-  premise in FG, which is a guarantee change and goes to the user with impact, cost and a recommendation.
+  kernel-checked theorem with a uniform statement, emitted for every declaration. Whether this changes the guarantee
+  depends on what is proved. The cases are evaluated separately before any user decision:
+  - (a) Every successful compilation provably produces that certificate, and its connection to the same source and
+    result is proved. Then it is existential evidence eliminated inside FG, and the guarantee does not change.
+  - (b) The certificate's availability is an unproved premise. That is a guarantee change.
+  - (c) The accepted sources are restricted to those with a certificate, or the compiler's successful-source domain
+    changes. That is a scope change.
+
+  Neither generic coverage nor any certificate route is proved here.
 - **Effect on M2:** `StepStmt` keeps `CallDec` as a premise (unchanged). M2's acceptance text on G-CALLDEC would read
   "supplied by `callDec_of_callFactF` + `callFactF_of_hPointAt_pkg` from `HPointAt` + D rows; generic `HPointAt` = M5
   G3-GEN-CALL".
