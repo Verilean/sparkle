@@ -5,7 +5,7 @@ edited; no Lean was run. Every statement below is TEXT ONLY.
 
 Issue `sparkle-gen3-src-argw`. Base: `par/gen2-spec` at **2b79ba09**. `git diff --stat a5998484 2b79ba09` changes no
 file cited here except this one and lakefile.lean (the rest are NEW Tools/Tests files), so rev0's `file:line`s still
-hold; lakefile lines are re-read at 2b79ba09. `[T]` = `~/git/.kjob/gen5-t2` worktree (3be26aee). Route:
+hold; lakefile lines are re-read at 2b79ba09. `[T]` = `~/git/.kjob/gen5-t2` worktree at **c398021c** (par/gen5-t2, DGEN_FREEZE.md rev2; the first commit that contains `adapterOf` and DC-FORM — verified by `git show c398021c:scripts/gen5/DGEN_FREEZE.md | grep -n "adapterOf\|DC-FORM"`; 3be26aee (rev1) has neither). Every `DGEN:` line below is a line of c398021c; M5_INDEP_STUDIES.md is unchanged between 3be26aee and c398021c. Route:
 scripts/gen2/DPORT_ROUTE_REPORT.md rev1 §1 rows L6w/L6', §3 item 4 (:116-120). Reuses UARITY_FREEZE.md (witnesses),
 UARGW_PARENT_SURVEY.md (L2), UCHILD_PORTTYS_TABLE.md (L5), scripts/gen2/S4_WID_SUPPLY.md, [T] scripts/gen5/DGEN_FREEZE.md,
 [T] scripts/gen5/M5_INDEP_STUDIES.md. Companion: scripts/gen3/SRC_ARGW_AUDIT.md (machConv audit, gen5 overlap,
@@ -86,7 +86,7 @@ G-E made concrete, summary for the next review).
     defeq, not syntactically equal).
   - **P5-arg**: `inl` keeps the binder kinds, and `packTupleInputs` is the identity on a callable callee.
   - **ENV**: the callee run's `getConstInfo c` agrees with `envR'.find? c` of the parent run ([T] DG-ENV, C0,
-    DGEN_FREEZE.md:314-328).
+    DGEN_FREEZE.md:315-328).
 
 ### 1.4 What the run checks (none compares argument widths)
 - `instStmt` / `instStmtG` check counts and names only (Sparkle/IR/Machine.lean:272-287;
@@ -281,14 +281,20 @@ theorem argWidthAt_iff_rowP (P : Tools.ShippingGen2.Pkgs ι dom) (p : Tools.Ship
 | SA3' (only after a later decision) | halves from VT / P5-arg / ENV | ShapeDecomp, P1 | 200-400 l | not started |
 | SA4 (optional) | `ArgProv` / `LetKindOk` on `machineShapeF` | FuelProv skeleton | 300-500 l | not started |
 
+**After SA0/SA1:** the plan is to connect the SA0 premises to the SHARED gen5 suppliers of §3.2 (DG-ENV,
+DG-DECLCONNECT / `adapterOf`, DG-READKINDS, DG-COVER), not to finish by adding declared (per-declaration decided) rows.
+The G-T/G-E cost comparison (SRC_ARGW_AUDIT.md §C/§D) covers only the local input-width work; for FG overall the
+DG-FALLBACK and source-connection proof costs remain on every route. The (Z)/(M)/(U)/(D) conditions there are
+candidate SUFFICIENT conditions for the agreement proof, not necessary conditions.
+
 ### 3.2 Obligations shared with gen5 ([T] DGEN_FREEZE.md; details in SRC_ARGW_AUDIT.md §B)
 | SRC-ARGW obligation | gen5 item | same obligation? |
 |---|---|---|
-| ENV (§1.3) | DG-ENV, C0 `ReadsAt env₀` (DGEN:314-328, :630) | yes. Route it there; no parallel premise |
-| VT (callee peel kinds vs `telescopeKinds ci.type`) | DG-DECLCONNECT, the `args` component of `adapterOf` (DGEN:454-458, :474) | overlapping. `adapterOf` maps the actual binders of `ci.type` to `p.d.bsIn.take p.kD`; VT is its width projection |
-| P5-arg (`packTupleInputs` identity); R1 through `rootFloat` | DG-READKINDS: total replacements for `rootFloat`/`zetaAll`/`packTupleInputs` (DGEN:302-308, :622) | same objects. DG-READKINDS replaces them; SRC-ARGW needs a property of them |
+| ENV (§1.3) | DG-ENV, C0 `ReadsAt env₀` (DGEN:315-328, row :654) | yes. Route it there; no parallel premise |
+| VT (callee peel kinds vs `telescopeKinds ci.type`) | DG-DECLCONNECT, the `args` component of `adapterOf` (DGEN:454-458, :467, :475) | overlapping. `adapterOf` maps the actual binders of `ci.type` to `p.d.bsIn.take p.kD`; VT is its width projection |
+| P5-arg (`packTupleInputs` identity); R1 through `rootFloat` | DG-READKINDS: total replacements for `rootFloat`/`zetaAll`/`packTupleInputs` (DGEN:303-309, row :646) | same objects. DG-READKINDS replaces them; SRC-ARGW needs a property of them |
 | (ii-I) Expr typing/denotation carrier | DC-FORM `ExprDenotes`/`ConstValue` (DGEN:444-450, :487-493) | candidate shared carrier |
-| reader provenance (`hsig`, `instOrigins` length), `ArgProv` | DG-COVER on the fuel model (DGEN:635; D2(b) :651-659) | same reader model and the same O1/O2 boundary |
+| reader provenance (`hsig`, `instOrigins` length), `ArgProv` | DG-COVER on the fuel model (DGEN row :659; D2(b) :681-683) | same reader model and the same O1/O2 boundary |
 
 ## 4. Stops and decision items
 - **D-ARGW is HELD.** It is not sent to the user (review of f19fc07d). Its options are (a) a final typing assumption,

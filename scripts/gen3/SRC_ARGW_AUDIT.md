@@ -2,7 +2,7 @@
 
 **Research notes, TEXT ONLY.** Nothing was built, elaborated or run. No `.lean` file, lakefile or shared definition was
 edited. Base `par/gen2-spec` 2b79ba09 (Sparkle/ and the cited Tools/ files are unchanged since a5998484).
-`[T]` = `~/git/.kjob/gen5-t2` (3be26aee). Companion of scripts/gen3/SRC_ARGW_FREEZE.md rev1 (cited as FREEZE).
+`[T]` = `~/git/.kjob/gen5-t2` at **c398021c** (par/gen5-t2, DGEN_FREEZE.md rev2; the first commit that contains `adapterOf` and DC-FORM — verified by `git show c398021c:scripts/gen5/DGEN_FREEZE.md | grep -n "adapterOf\|DC-FORM"`; 3be26aee (rev1) has neither). Every `DGEN:` line below is a line of c398021c; M5_INDEP_STUDIES.md is unchanged between 3be26aee and c398021c. Companion of scripts/gen3/SRC_ARGW_FREEZE.md rev1 (cited as FREEZE).
 "Not found" / "not supplied" below are survey findings, not impossibility claims.
 
 ## A. machConv audit: from the pre-normalisation source type to the let kind
@@ -39,11 +39,11 @@ let gets its kind, the kind equals the width of the source type before normalisa
 ## B. Connection to the gen5 reader / DG-DECL work
 | SRC-ARGW obligation (FREEZE) | gen5 item ([T]) | relation |
 |---|---|---|
-| ENV: the callee run's `getConstInfo c` = the parent run's `envR'.find? c` (FREEZE §1.3) | DG-ENV / C0 `ReadsAt env₀` (DGEN_FREEZE.md:314-328, :630). `envR' = envR` is not in `Laws` (M5_INDEP_STUDIES.md:255) | **same obligation.** SRC-ARGW needs it at a second name (the callee), which C0's `∀ X` covers |
-| VT: the callee's peel kinds of `value` = `telescopeKinds ci.type` | DG-DECLCONNECT: `adapterOf ci.type (structEnv env₀) p.d` with its `args` component "order/kind/width map from the actual binders to `p.d.bsIn.take p.kD`" (DGEN:454-458, :474) | **same content, different direction.** If `adapterOf` is required to succeed on the actual type and to agree with `bsIn`, then VT (width projection) follows. DeclConnect's existence conjunct is a coverage obligation (DGEN:484-486) |
-| P5-arg: `packTupleInputs` identity on a callable callee; R1 read through `rootFloat` | DG-READKINDS: total replacements for `rootFloat`/`zetaAll`/`packTupleInputs` (DGEN:307-308, :622; M5:174-182) | **same objects.** A total replacement plus its agreement with production would carry the property SRC-ARGW needs. DG-READKINDS does not state that property |
-| per-argument typing / `LetKindOk` (FREEZE §3 (i), (ii-I)) | DC-FORM `ExprDenotes` / `ConstValue` (DGEN:444-450, :487-493); row 2 `dataOf_sound` via `readTerm_sound` / `readN_expr_sound` (DGEN:503-504) | **candidate shared carrier.** `readTerm2`/`readN` (M5:137-138) read `shape.body` (the PACKED Term), not the reader's let kinds, so they supply nothing on argument kinds as they stand |
-| reader provenance: `hsig`, `instOrigins.length`, `ArgProv` on `machineShapeF` | DG-COVER (DGEN:635; D2(b) :651-659), the fuel model with the O1/O2 boundary (M5:184-190) | **same model and boundary.** `ArgProv` would be a new invariant beside `InstProv` (Tools/ShippingReaderFuelProv.lean:167) |
+| ENV: the callee run's `getConstInfo c` = the parent run's `envR'.find? c` (FREEZE §1.3) | DG-ENV / C0 `ReadsAt env₀` (DGEN_FREEZE.md:315-328, row :654). `envR' = envR` is not in `Laws` (M5_INDEP_STUDIES.md:255) | **same obligation.** SRC-ARGW needs it at a second name (the callee), which C0's `∀ X` covers |
+| VT: the callee's peel kinds of `value` = `telescopeKinds ci.type` | DG-DECLCONNECT: `adapterOf ci.type (structEnv env₀) p.d` with its `args` component "order/kind/width map from the actual binders to `p.d.bsIn.take p.kD`" (DGEN:454-458, :467, :475) | **same content, different direction.** If `adapterOf` is required to succeed on the actual type and to agree with `bsIn`, then VT (width projection) follows. DeclConnect's existence conjunct is a coverage obligation (DGEN:484-486) |
+| P5-arg: `packTupleInputs` identity on a callable callee; R1 read through `rootFloat` | DG-READKINDS: total replacements for `rootFloat`/`zetaAll`/`packTupleInputs` (DGEN:308-309, row :646; M5:174-182) | **same objects.** A total replacement plus its agreement with production would carry the property SRC-ARGW needs. DG-READKINDS does not state that property |
+| per-argument typing / `LetKindOk` (FREEZE §3 (i), (ii-I)) | DC-FORM `ExprDenotes` / `ConstValue` (DGEN:444-450, :487-493); row 2 `dataOf_sound` via `readTerm_sound` / `readN_expr_sound` (DGEN:508-509) | **candidate shared carrier.** `readTerm2`/`readN` (M5:137-138) read `shape.body` (the PACKED Term), not the reader's let kinds, so they supply nothing on argument kinds as they stand |
+| reader provenance: `hsig`, `instOrigins.length`, `ArgProv` on `machineShapeF` | DG-COVER (DGEN row :659; D2(b) :681-683), the fuel model with the O1/O2 boundary (M5:184-190) | **same model and boundary.** `ArgProv` would be a new invariant beside `InstProv` (Tools/ShippingReaderFuelProv.lean:167) |
 | `readTerm2` / `readN` completeness on the lifts (M5:159) | DG-READKINDS | not an SRC-ARGW obligation (body Terms, not argument kinds) |
 
 ## C. G-E (compiler input-width guard) made concrete, for comparison only (NOT proposed for application)
@@ -62,7 +62,8 @@ did the declined output analogue (scripts/gen2/S4_WID_SUPPLY.md:74).
   :426; MachineInstG.lean:123-125, :144).
 - `b` is `dropZeroWidthModule M` or `mergeChecked (dropZeroWidthModule M)` (UARGW_PARENT_SURVEY.md:100). `declWidth`
   (Sparkle/IR/RegDedup.lean:172-176) has the same body as `wireWidth`, on `b.wires`.
-- So the two values agree when:
+- Candidate SUFFICIENT conditions under which the two values agree (each one is enough for the proof step it is
+  used in; they are NOT claimed to be necessary, and agreement may hold without some of them):
   - (Z) zero-width removal keeps `w`'s entry. `dropZeroWidthModule` filters `bitWidth != 0` (Sparkle/IR/ZeroWidth.lean:118),
     and is the identity when not `allConcrete` (:114). Let kinds have width > 0 (Elab:2342).
   - (M) cleanup/merge keeps `w` (UARGW o2, :40: `dropZW_wires`, `mergeChecked_ports`; `mergeChecked_cases`,
@@ -78,7 +79,7 @@ did the declined output analogue (scripts/gen2/S4_WID_SUPPLY.md:74).
 **After a guard failure.**
 - `instStmt` → `none` → `closeInsts` → `none` (Machine.lean:400-405), and the same for G (`stmtsG`, MachineInstG.lean:56-68).
   `synthesizeMachineCertified` returns `none` (Elab:5262-5263), and the caller takes the legacy route (doc Elab:5249-5251).
-- A legacy SUCCESS is still in FG's scope. It is [T] DG-FALLBACK's producer (DGEN:638; also :659, :665). The guard
+- A legacy SUCCESS is still in FG's scope. It is [T] DG-FALLBACK's producer (DGEN row :662; also :604 and D2 :684-693). The guard
   therefore does not remove those runs from FG; it moves them from the machine route to DG-FALLBACK.
 
 **Change range (counts by grep at 2b79ba09; not a proof plan).**
@@ -131,10 +132,18 @@ an area/speed measurement and a record):
 lemmas: `instStmt_argW`, `instStmtG_argW`, `closeInsts_argW`, `closeInstsG_argW`, the L2 bridge
 `declWidth b w = wireWidth M.wires w`, then SA3 `argWidth_of_portTie` (L2 + G-E + L5 + U-ARITY ⇒ row).
 
-**Cost comparison (ESTIMATES, unmeasured).**
+**Cost comparison (ESTIMATES, unmeasured).** Scope: this table compares only the LOCAL input-width work (the
+`callArgsOkAt` row). For FG as a whole, both routes still carry the DG-FALLBACK producer cost ([T] DGEN row :662) and
+the source-connection proof cost (DG-DECLCONNECT / DC-FORM / DG-ENV, [T] DGEN rows :654, :663, :665); neither route
+removes them, and the guard route adds refused successes to DG-FALLBACK.
 | route | new proof | shared with gen5 | other cost | closes |
 |---|---|---|---|---|
-| source | SA0 100-160 l; `ArgProv` + `LetKindOk` on the fuel model 300-500 l + O1/O2 link; typing/denotation carrier + normaliser preservation: unknown, likely ≥ 1000 l; VT/P5-arg 200-400 l | ENV = DG-ENV (200-600, DGEN:630); carrier = DC-FORM; P5-arg via DG-READKINDS (500-1200, DGEN:622) | none on the compiler | input widths, if every item is supplied; no new route |
+| source | SA0 100-160 l; `ArgProv` + `LetKindOk` on the fuel model 300-500 l + O1/O2 link; typing/denotation carrier + normaliser preservation: unknown, likely ≥ 1000 l; VT/P5-arg 200-400 l | ENV = DG-ENV (200-600, DGEN row :654); carrier = DC-FORM; P5-arg via DG-READKINDS (500-1200, DGEN row :646) | none on the compiler | input widths, if every item is supplied; no new route |
 | guard (G-E, Option 2) | 2 compiler `if`s; 31 unfold sites re-proved (est. 5-40 l each); 3 existence lemmas + premise; 4 supply lemmas + L2 bridge 200-350 l; SA3 150-250 l | none needed for inputs | function check, corpus refusal measurement, area/speed, record; DG-FALLBACK carries every refused success | input widths only; outputs stay open (G-ONEOUT-WID) |
 
 D-ARGW stays HELD (FREEZE §4). This table is comparison material for the reviewer, not a recommendation to the user.
+
+**Plan after SA0/SA1.** SA0/SA1 are pure bridges and a decided-row transport only. The next step is to CONNECT their
+premises (`hsig`/`hsigS`, `ArgKindsAt…`, `CalleeTeleAt…`) to the shared gen5 suppliers (DG-ENV, DG-DECLCONNECT /
+`adapterOf`, DG-READKINDS, DG-COVER on the fuel model; FREEZE §3.2), not to finish the unit by adding per-declaration
+decided rows (a decided row is supply only at the concrete `P` it is decided for).

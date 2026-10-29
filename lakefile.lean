@@ -4652,3 +4652,9 @@ lean_lib «Tests.Gen3.ArgWidthCheck» where
 
 lean_lib «Tests.Gen3.ChildPortWidthsCheck» where
   roots := #[`Tests.Gen3.ChildPortWidthsCheck]
+
+lean_lib «Tools.ShippingGen3ArgWidthSrc» where
+  roots := #[`Tools.ShippingGen3ArgWidthSrc]
+
+lean_lib «Tests.Gen3.ArgWidthSrcCheck» where
+  roots := #[`Tests.Gen3.ArgWidthSrcCheck]
