@@ -1,7 +1,7 @@
 import Tools.ShippingGen5T2Conn
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Built in g5tc-f72cedf6 (clean, exit 0, 740 jobs; TYPE 4, MUTANT 9 signature/defeq rejections, AXIOMS 4 standard).
+-- §7.7 part built in g5tc-f72cedf6 (clean, exit 0, 740 jobs; TYPE 4, MUTANT 9, AXIOMS 4); §7.8 additions NOT BUILT.
 -- No sorry / axiom / native_decide.
 
 /-! # T2-TIE connection checks (Tools/ShippingGen5T2Conn.lean; DGEN_FREEZE.md §7.7)
@@ -210,11 +210,134 @@ def MutServedKidWNoHG : Prop :=
           some pt.ty.bitWidth),
     CallTie p q k hk
 
+/-- §7.8 group range row from the closing witness -/
+def ExpectedClosingKidWRange : Prop :=
+  ∀ {ι : Type} {dom : ι → DomainConfig} {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : Pkg ι dom)
+    (k : Nat) (hk : k < p.d.shape.insts.length)
+    (hDG_GENP : P (p.d.shape.insts[k]'hk).1 = some q)
+    (hDG_CLOSINGRUN : ∃ (r : Tools.ShippingChildInv.Res) (dsn : Sparkle.IR.AST.Design),
+      ShipsRes L P (p.d.shape.insts[k]'hk).1 r ∧
+      (∀ g ∈ r.2.modules, Sparkle.IR.Machine.moduleByName dsn.modules g.name = some g) ∧
+      Sparkle.IR.Machine.moduleByName dsn.modules r.1.name = some r.1 ∧ FieldRowAt p k r.1)
+    (houtTy : ∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hG : p.d.shape.instFields ≠ [])
+    (hkidW : ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
+      ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
+        (p.d.shape.binders[p.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) =
+          some pt.ty.bitWidth),
+    CallOutRange p q k hk
+
+/-- Mutant: without `houtTy`. -/
+def MutClosingKidWRangeNoOutTy : Prop :=
+  ∀ {ι : Type} {dom : ι → DomainConfig} {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : Pkg ι dom)
+    (k : Nat) (hk : k < p.d.shape.insts.length)
+    (hDG_GENP : P (p.d.shape.insts[k]'hk).1 = some q)
+    (hDG_CLOSINGRUN : ∃ (r : Tools.ShippingChildInv.Res) (dsn : Sparkle.IR.AST.Design),
+      ShipsRes L P (p.d.shape.insts[k]'hk).1 r ∧
+      (∀ g ∈ r.2.modules, Sparkle.IR.Machine.moduleByName dsn.modules g.name = some g) ∧
+      Sparkle.IR.Machine.moduleByName dsn.modules r.1.name = some r.1 ∧ FieldRowAt p k r.1)
+    (hG : p.d.shape.instFields ≠ [])
+    (hkidW : ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
+      ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
+        (p.d.shape.binders[p.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) =
+          some pt.ty.bitWidth),
+    CallOutRange p q k hk
+
+/-- Mutant: without `instFields ≠ []`. -/
+def MutClosingKidWRangeNoHG : Prop :=
+  ∀ {ι : Type} {dom : ι → DomainConfig} {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : Pkg ι dom)
+    (k : Nat) (hk : k < p.d.shape.insts.length)
+    (hDG_GENP : P (p.d.shape.insts[k]'hk).1 = some q)
+    (hDG_CLOSINGRUN : ∃ (r : Tools.ShippingChildInv.Res) (dsn : Sparkle.IR.AST.Design),
+      ShipsRes L P (p.d.shape.insts[k]'hk).1 r ∧
+      (∀ g ∈ r.2.modules, Sparkle.IR.Machine.moduleByName dsn.modules g.name = some g) ∧
+      Sparkle.IR.Machine.moduleByName dsn.modules r.1.name = some r.1 ∧ FieldRowAt p k r.1)
+    (houtTy : ∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hkidW : ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
+      ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
+        (p.d.shape.binders[p.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) =
+          some pt.ty.bitWidth),
+    CallOutRange p q k hk
+
+/-- Mutant: `hkidW` with a trivial conclusion. -/
+def MutClosingKidWRangeTrivKidW : Prop :=
+  ∀ {ι : Type} {dom : ι → DomainConfig} {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : Pkg ι dom)
+    (k : Nat) (hk : k < p.d.shape.insts.length)
+    (hDG_GENP : P (p.d.shape.insts[k]'hk).1 = some q)
+    (hDG_CLOSINGRUN : ∃ (r : Tools.ShippingChildInv.Res) (dsn : Sparkle.IR.AST.Design),
+      ShipsRes L P (p.d.shape.insts[k]'hk).1 r ∧
+      (∀ g ∈ r.2.modules, Sparkle.IR.Machine.moduleByName dsn.modules g.name = some g) ∧
+      Sparkle.IR.Machine.moduleByName dsn.modules r.1.name = some r.1 ∧ FieldRowAt p k r.1)
+    (houtTy : ∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hG : p.d.shape.instFields ≠ [])
+    (hkidW : ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
+      ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
+        True),
+    CallOutRange p q k hk
+
+/-- §7.8 group CallTie, closing form -/
+def ExpectedServedKidWClosing : Prop :=
+  ∀ {ι : Type} {dom : ι → DomainConfig} {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : Pkg ι dom)
+    (k : Nat) (hk : k < p.d.shape.insts.length)
+    (hDG_GENP : P (p.d.shape.insts[k]'hk).1 = some q)
+    (hDG_CLOSINGRUN : ∃ (r : Tools.ShippingChildInv.Res) (dsn : Sparkle.IR.AST.Design),
+      ShipsRes L P (p.d.shape.insts[k]'hk).1 r ∧
+      (∀ g ∈ r.2.modules, Sparkle.IR.Machine.moduleByName dsn.modules g.name = some g) ∧
+      Sparkle.IR.Machine.moduleByName dsn.modules r.1.name = some r.1 ∧ FieldRowAt p k r.1)
+    (hDG_SEM : GenExtAtCall p q k hk)
+    (houtTy : ∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hG : p.d.shape.instFields ≠ [])
+    (hkidW : ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
+      ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
+        (p.d.shape.binders[p.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) =
+          some pt.ty.bitWidth),
+    CallTie p q k hk
+
+/-- Mutant: without DG-SEM's `GenExtAtCall`. -/
+def MutServedKidWClosingNoSem : Prop :=
+  ∀ {ι : Type} {dom : ι → DomainConfig} {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : Pkg ι dom)
+    (k : Nat) (hk : k < p.d.shape.insts.length)
+    (hDG_GENP : P (p.d.shape.insts[k]'hk).1 = some q)
+    (hDG_CLOSINGRUN : ∃ (r : Tools.ShippingChildInv.Res) (dsn : Sparkle.IR.AST.Design),
+      ShipsRes L P (p.d.shape.insts[k]'hk).1 r ∧
+      (∀ g ∈ r.2.modules, Sparkle.IR.Machine.moduleByName dsn.modules g.name = some g) ∧
+      Sparkle.IR.Machine.moduleByName dsn.modules r.1.name = some r.1 ∧ FieldRowAt p k r.1)
+    (houtTy : ∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hG : p.d.shape.instFields ≠ [])
+    (hkidW : ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
+      ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
+        (p.d.shape.binders[p.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) =
+          some pt.ty.bitWidth),
+    CallTie p q k hk
+
+/-- Mutant: without `hDG_CLOSINGRUN`. -/
+def MutServedKidWClosingNoClosing : Prop :=
+  ∀ {ι : Type} {dom : ι → DomainConfig} {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : Pkg ι dom)
+    (k : Nat) (hk : k < p.d.shape.insts.length)
+    (hDG_GENP : P (p.d.shape.insts[k]'hk).1 = some q)
+    (hDG_SEM : GenExtAtCall p q k hk)
+    (houtTy : ∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hG : p.d.shape.instFields ≠ [])
+    (hkidW : ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
+      ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
+        (p.d.shape.binders[p.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) =
+          some pt.ty.bitWidth),
+    CallTie p q k hk
+
 run_cmd Lean.Elab.Command.liftTermElabM do
   checkExpected ``callTie_of_dgen_widths ``ExpectedDgenWidths
   checkExpected ``callTie_of_served_widths ``ExpectedServedWidths
   checkExpected ``callTie_of_served_oneOut ``ExpectedServedOneOut
   checkExpected ``callTie_of_served_kidW ``ExpectedServedKidW
+  checkExpected ``callOutRange_of_closing_kidW ``ExpectedClosingKidWRange
+  checkExpected ``callTie_of_served_kidW_closing ``ExpectedServedKidWClosing
   checkMutant ``callTie_of_dgen_widths ``MutDgenWidthsNoOutTy
   checkMutant ``callTie_of_dgen_widths ``MutDgenWidthsLeOutTy
   checkMutant ``callTie_of_dgen_widths ``MutDgenWidthsNoSem
@@ -224,11 +347,17 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   checkMutant ``callTie_of_served_kidW ``MutServedKidWNoHout
   checkMutant ``callTie_of_served_kidW ``MutServedKidWNoHy
   checkMutant ``callTie_of_served_kidW ``MutServedKidWNoHG
+  checkMutant ``callOutRange_of_closing_kidW ``MutClosingKidWRangeNoOutTy
+  checkMutant ``callOutRange_of_closing_kidW ``MutClosingKidWRangeNoHG
+  checkMutant ``callOutRange_of_closing_kidW ``MutClosingKidWRangeTrivKidW
+  checkMutant ``callTie_of_served_kidW_closing ``MutServedKidWClosingNoSem
+  checkMutant ``callTie_of_served_kidW_closing ``MutServedKidWClosingNoClosing
 
 /-! ## Axioms -/
 
 run_cmd Lean.Elab.Command.liftTermElabM do
-  for n in [``callTie_of_dgen_widths, ``callTie_of_served_widths, ``callTie_of_served_oneOut, ``callTie_of_served_kidW] do
+  for n in [``callTie_of_dgen_widths, ``callTie_of_served_widths, ``callTie_of_served_oneOut, ``callTie_of_served_kidW, ``callOutRange_of_closing_kidW,
+      ``callTie_of_served_kidW_closing] do
     checkAxioms n
 
 end Tests.Gen5.T2ConnCheck

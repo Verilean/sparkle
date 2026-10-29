@@ -1,6 +1,6 @@
 import Tools.ShippingGen5T2Range
 set_option autoImplicit false
--- Built in g5tc-f72cedf6 (clean, exit 0, 740 jobs). No sorry / axiom / native_decide.
+-- §7.7 part built in g5tc-f72cedf6 (clean, exit 0, 740 jobs); §7.8 additions NOT BUILT. No sorry / axiom / native_decide.
 
 /-! # T2-TIE connection to the range supplier (DGEN_FREEZE.md §7.3 / §7.7)
 
@@ -83,5 +83,57 @@ theorem callTie_of_served_kidW {mref cref} (L : Laws mref cref)
     CallTie p q k hk :=
   callTie_of_served_widths L P p q k hk hDG_GENP hDG_CLOSINGRUN hDG_SEM houtTy
     (callOutWidthAt_of_kidW O p q k hk hG hy hout hkidW)
+
+/-! ## Group parents: `hy` / `hout` from the closing witness `r` (DGEN §7.8)
+
+`hDG_CLOSINGRUN` gives `ShipsRes L P c r` (so `RealChildA L.O c r`, and `ChildShips q n r.1 r.2` after `P c = some q`
+identifies the package) and a design `dsn` containing `r`'s modules. At each `i`, `ChildShips` at that `dsn` gives
+`r.1.outputs = q.d.shape.layout.outs.map …` (`childRunN_outputs`). So the group range row needs only `houtTy` and
+`hkidW` (at `O := L.O`): `hy`/`hout` are taken for `y := r`, the SAME closing witness, inside `∀ i`. No `Nonempty ι`. -/
+
+/-- The group range row from the closing witness (`hy`, `hout` derived per `i`). -/
+theorem callOutRange_of_closing_kidW {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : Pkg ι dom) (k : Nat)
+    (hk : k < p.d.shape.insts.length)
+    (hDG_GENP : P (p.d.shape.insts[k]'hk).1 = some q)
+    (hDG_CLOSINGRUN : ∃ (r : Tools.ShippingChildInv.Res) (dsn : Sparkle.IR.AST.Design),
+      ShipsRes L P (p.d.shape.insts[k]'hk).1 r ∧
+      (∀ g ∈ r.2.modules, Sparkle.IR.Machine.moduleByName dsn.modules g.name = some g) ∧
+      Sparkle.IR.Machine.moduleByName dsn.modules r.1.name = some r.1 ∧ FieldRowAt p k r.1)
+    (houtTy : ∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hG : p.d.shape.instFields ≠ [])
+    (hkidW : ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
+      ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
+        (p.d.shape.binders[p.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) =
+          some pt.ty.bitWidth) :
+    CallOutRange p q k hk := by
+  intro i
+  obtain ⟨r, dsn, hS, hDc, hmc, -⟩ := hDG_CLOSINGRUN
+  have hy : Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 r := hS.1
+  obtain ⟨-, q0, n, hq0, -, hCS⟩ := hS
+  rw [hDG_GENP] at hq0
+  obtain rfl : q = q0 := Option.some.inj hq0
+  have hout := childRunN_outputs (hCS dsn hDc hmc i)
+  exact callOutRange_of_widths p q k hk houtTy (callOutWidthAt_of_kidW L.O p q k hk hG hy hout hkidW) i
+
+/-- **Group parents, closing form**: `callTie_of_served_kidW` with `hy`/`hout` taken from the closing witness. -/
+theorem callTie_of_served_kidW_closing {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : Pkg ι dom)
+    (k : Nat) (hk : k < p.d.shape.insts.length)
+    (hDG_GENP : P (p.d.shape.insts[k]'hk).1 = some q)
+    (hDG_CLOSINGRUN : ∃ (r : Tools.ShippingChildInv.Res) (dsn : Sparkle.IR.AST.Design),
+      ShipsRes L P (p.d.shape.insts[k]'hk).1 r ∧
+      (∀ g ∈ r.2.modules, Sparkle.IR.Machine.moduleByName dsn.modules g.name = some g) ∧
+      Sparkle.IR.Machine.moduleByName dsn.modules r.1.name = some r.1 ∧ FieldRowAt p k r.1)
+    (hDG_SEM : GenExtAtCall p q k hk)
+    (houtTy : ∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hG : p.d.shape.instFields ≠ [])
+    (hkidW : ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
+      Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
+      ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
+        (p.d.shape.binders[p.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) =
+          some pt.ty.bitWidth) :
+    CallTie p q k hk :=
+  callTie_of_served L P p q k hk hDG_GENP hDG_CLOSINGRUN hDG_SEM
+    (callOutRange_of_closing_kidW L P p q k hk hDG_GENP hDG_CLOSINGRUN houtTy hG hkidW)
 
 end Tools.ShippingGen2
