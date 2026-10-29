@@ -1,7 +1,38 @@
-# SRC-ARGW supply freeze rev1: connecting SA0's premises to ONE run and to the shared gen5 suppliers
+# SRC-ARGW supply freeze rev2: connecting SA0's premises to ONE run and to the shared gen5 suppliers
 
 **FOR REVIEW — design only, nothing built or proved.** No `.lean` file, lakefile or shared definition was written or
 edited; no Lean was run. Every Lean block below is UNELABORATED text. Sizes are estimates.
+
+## rev2 changelog (reviewer changes_requested on rev1 = d795c916; written at 4c770207, re-checked at f7e42988)
+Sources re-read at 4c770207: `git diff --stat 168e0c95..f7e42988 -- Sparkle/Compiler/ Tools/ShippingReaderFuel*.lean
+Tools/ShippingGen3ArgWidthSrc.lean` is empty, so every rev1 line citation into those files still holds.
+- **V1 (MAIN, CallPreK keeps the call site).** rev1's `.inst`/`.instS` rows of `CallPreK` kept only "each arg is
+  `ReadSub`"; since `GoodK` quantifies over ARBITRARY `CallPreK` calls, `instStep`'s let pushes could not be tied back to
+  `CallSrcKinds`/`MemSrcKinds` (those are stated at the call EXPRESSION `e` and the recogniser's success). rev2's
+  `CallPreK` (§3.4) carries, for `.nested`/`.inst`/`.instS`, an existential call expression `e` with `ReadSub r Δ e`, the
+  SAME `Δ`/`env`/`st` as `EnvKindOk`, and the recogniser equation (`machRunApp?`, `machInstCall?`, `memCall?` with the
+  hard-coded kinds, `machInstCallS?`), via the new `InstSite`. Argument lengths come from the recogniser
+  (E:3727, :3738; `memCall?` returns 4 ops, Sparkle/Compiler/MachMemory.lean:38). The alternative (SK facts directly in
+  `CallPreK`) is given as a full type too (§3.4, `CallPreK'`), not chosen.
+- **V2 (ReadInv / EnvKindOk are not reachability).** `ConvKind` is a conditional claim over EVERY configuration satisfying
+  `ReadInv ∧ EnvKindOk ∧ ReadSub` — a superset of the reached configurations. rev1's "from a REACHED configuration
+  only" and "consumed only at reached configurations" are withdrawn (§3.3). A reachability-indexed variant is given
+  as an optional candidate (`SubCallK`/`ReachedK`, §3.4), not chosen.
+- **V3 (whole GoodK obligation).** New §3.4 table lists every arm of `step` (FD:597-604) with its GoodK obligation and
+  status; the loop-root row and the arms not audited by §3.2 (bare register, slot reads, nested/`machReserve`, loop
+  root kinds, generic-app rebuild, default arm, `instSParam`, named/alias pushes) are explicitly OPEN there.
+- **V4 (ReadSub closure re-checked at every recursive call site).** Finding: in BOTH let arms the non-let branch
+  `| v =>` re-binds `v := rootFloat v` (E:3990-3994, :4155-4159; FD:363-367, :512-516), and `rootFloat` is `partial`
+  (Sparkle/Compiler/MachRawSurface.lean:198) hence opaque in the fuel model (FD:66-68). rev1's `ReadSub` had no
+  constructor for that input. rev2 adds `floatV`, `sparam` (instSStep's params come from the CONSTRUCTED
+  `instRes ty args`, FD:266-269, :474) and generalises `SrcKindingLaws.lift` to an arbitrary insertion depth (the float
+  lifts `b` at depth 1). Closure table §3.1 covers every call site of FD:301-590 and the start calls FS:207-241
+  (checked / open).
+- **V5 (L-FG).** The uniform `∀ E senv sp, machineShape? … = some sp → ReadTypedAt …` is now labelled a STRONGER
+  candidate sufficient condition (L-FG+), not a requirement. Completion needs TY only at the actual runs FG ranges over
+  (CR's `TY` premise, discharged for every `ClosingRun`); `HK`/`SK` may even be chosen per run, since CR's conclusion
+  does not mention them (§1.3, §5 TY row, §6 Q1).
+- New decision item D5 (`rootFloat` opacity, §5). §6 Q1 wording aligned with V4/V5; no other §6 change.
 
 ## rev1 changelog (reviewer changes_requested on rev0 = be4e0b9b)
 - **R1 (CR / ReadTyped telescopes).** `argWidthAt_of_closingRun` now binds `HK` and `SK` explicitly and takes
@@ -30,8 +61,8 @@ edited; no Lean was run. Every Lean block below is UNELABORATED text. Sizes are 
   "argument is a subterm of the body" is false as stated; `ReadSub` (§3.1) includes that step and `SK` needs a lift law.
 
 Issue `sparkle-gen3-src-argw` (child of `sparkle-gen3-data-supply`). Base `par/gen2-spec` **168e0c95** (SA0/SA1 =
-Tools/ShippingGen3ArgWidthSrc.lean, built at g3sb-7813bf32, header :3); rev1 written at be4e0b9b (Elab.lean and
-ArgWidthSrc unchanged 168e0c95..be4e0b9b, `git diff --stat` empty). `[T]` = `~/git/.kjob/gen5-t2` at **c398021c**
+Tools/ShippingGen3ArgWidthSrc.lean, built at g3sb-7813bf32, header :3); rev1 written at be4e0b9b, rev2 at 4c770207 (Elab.lean and
+ArgWidthSrc unchanged 168e0c95..4c770207, `git diff --stat` empty). `[T]` = `~/git/.kjob/gen5-t2` at **c398021c**
 (par/gen5-t2): `DGEN:` = scripts/gen5/DGEN_FREEZE.md, `M5:` = scripts/gen5/M5_INDEP_STUDIES.md, `T2C:` =
 scripts/gen5/T2COVER_FREEZE.md, all at c398021c. `E:` = Sparkle/Compiler/Elab.lean. `FD:` =
 Tools/ShippingReaderFuelDefs.lean, `FS:` = Tools/ShippingReaderFuelShape.lean, `FP:` = Tools/ShippingReaderFuelProv.lean.
@@ -121,13 +152,16 @@ def CalleeTeleAll (senv : StructEnv) (c : Name) (q : Pkg ι dom) : Prop :=
 ```
 `closingNDecl` is Tools/ShippingCallWidthsEntry.lean:62-63 (= E:5216's `nDecl`). rev0's `ShapeArgKinds` is withdrawn.
 
-### 1.3 Three levels (kept distinct)
+### 1.3 Levels (kept distinct; rev2 V5)
 | level | what is fixed | form | counts as |
 |---|---|---|---|
 | L-THM (this freeze) | the TYPES of SC0, SC1, LK1, LK2, CR (§1.1, §1.2, §3.4) | conditional theorems; `HK`, `SK`, OSH, TY, ENV, TEL, KD are explicit premises | design; once proved, a conditional theorem only |
-| L-RUN (actual-run supply) | TY / ENV / OSH discharged for the witnesses of ONE `ClosingRun` (e.g. one corpus declaration) | `RunReadsAt … → ReadTypedAt HK SK E_run senv_run` proved for that run | INTERMEDIATE evidence (like a decided row); not supply for FG |
-| L-FG (completion) | ONE fixed `HK`, `SK`; uniform suppliers over every successful compilation under `genP env₀` | `∀ E senv sp, machineShape? false [] E senv = some sp → ReadTypedAt HK SK E senv` (restricted to successful reads, NOT rev0's unrestricted `∀ E senv`), plus OSH/ENV/TEL/KD from gen5 | the only level that counts toward SRC-ARGW completion |
-CR at L-THM is not completion; an L-RUN discharge is not completion; L-FG needs all of §6's requests answered.
+| L-RUN1 (one concrete run) | TY / ENV / OSH discharged for the witnesses of ONE concrete `ClosingRun` (e.g. one corpus declaration) | `RunReadsAt … → ReadTypedAt HK SK E_run senv_run` proved for that run | INTERMEDIATE evidence (like a decided row); not supply for FG |
+| L-FG (completion) | suppliers for EVERY run FG quantifies over: for each `cr : ClosingRun L (genP env₀) …`, some `HK`, `SK` with `PhKindingLaws HK`, `EqvSound HK`, `SrcKindingLaws SK` and CR's `TY` at that run's own `RunReadsAt` witnesses; plus OSH/ENV/TEL/KD from gen5 | a theorem `∀ … (cr : ClosingRun …), ∃ HK SK, (laws) ∧ TY-at-cr` (or one fixed `HK`/`SK`, e.g. LK3's mirror, if that is what the proof gives); the supplier MAY use any fact of the actual run (its `RunReadsAt`, `shapeEq`, the trace) | the level that counts toward SRC-ARGW completion |
+| L-FG+ (stronger candidate, optional) | one fixed `HK`, `SK`; uniform over every successful fuel/production read | `∀ E senv sp, machineShape? false [] E senv = some sp → ReadTypedAt HK SK E senv` | a SUFFICIENT condition for L-FG (it implies TY at every run through `shapeEq`), not a required one; a failure to prove L-FG+ does not block completion |
+CR at L-THM is not completion; an L-RUN1 discharge is not completion. L-FG does not require L-FG+: the existential
+`∃ HK SK` per run is allowed because `argWidthAt_of_closingRun`'s conclusion (`∀ k, ArgWidthAt (genP env₀) p k`) does
+not mention `HK`/`SK` (§1.2). Whatever is not answered among §6's requests stays an explicit premise of L-FG.
 
 ## 2. SIG: provenance route
 - **Existing (fuel model, kernel-closed):** `machineShapeF_final_instProv` (Tools/ShippingReaderFuelShapeProv.lean:226-233)
@@ -203,25 +237,75 @@ def midExpr (en : Lean.Expr) : Lean.Expr :=
   machLoopAsLet (Sparkle.Compiler.MachRawSurface.rootFloat
     (Sparkle.Compiler.MachRawSurface.zeroLit inlNatLit canonicalNatLitValue? (inlFoldNat en)))
 /-- Reader inputs of ONE run (R1: replaces "every expression"): subterms of `midExpr en` with their source binder
-context, CLOSED under the let-floating the reader performs on constructed terms (FD:363-366, :512-515). -/
-inductive ReadSub (r : Lean.Expr) : SrcCtx → Lean.Expr → Prop
-  | root : ReadSub r [] r
-  | appF  {Δ f a}       : ReadSub r Δ (.app f a) → ReadSub r Δ f
-  | appA  {Δ f a}       : ReadSub r Δ (.app f a) → ReadSub r Δ a
-  | lamT  {Δ n t b bi}  : ReadSub r Δ (.lam n t b bi) → ReadSub r Δ t
-  | lamB  {Δ n t b bi}  : ReadSub r Δ (.lam n t b bi) → ReadSub r (mixedGateBinderKind? t :: Δ) b
-  | allT  {Δ n t b bi}  : ReadSub r Δ (.forallE n t b bi) → ReadSub r Δ t
-  | allB  {Δ n t b bi}  : ReadSub r Δ (.forallE n t b bi) → ReadSub r (mixedGateBinderKind? t :: Δ) b
-  | letV  {Δ n t v b nd} : ReadSub r Δ (.letE n t v b nd) → ReadSub r Δ v
-  | letB  {Δ n t v b nd} : ReadSub r Δ (.letE n t v b nd) → ReadSub r (mixedGateBinderKind? t :: Δ) b
-  | float {Δ nm ty v b nd n2 t2 v2 w nd2} : ReadSub r Δ (.letE nm ty v b nd) →
+context, CLOSED under the terms the reader CONSTRUCTS and then reads (rev2 V4: `float`, `floatV`, `sparam`).
+rev2: indexed by `senv` because `sparam` mentions `machInstCallS? senv`. -/
+inductive ReadSub (senv : StructEnv) (r : Lean.Expr) : SrcCtx → Lean.Expr → Prop
+  | root : ReadSub senv r [] r
+  | appF  {Δ f a}       : ReadSub senv r Δ (.app f a) → ReadSub senv r Δ f
+  | appA  {Δ f a}       : ReadSub senv r Δ (.app f a) → ReadSub senv r Δ a
+  | lamT  {Δ n t b bi}  : ReadSub senv r Δ (.lam n t b bi) → ReadSub senv r Δ t
+  | lamB  {Δ n t b bi}  : ReadSub senv r Δ (.lam n t b bi) → ReadSub senv r (mixedGateBinderKind? t :: Δ) b
+  | allT  {Δ n t b bi}  : ReadSub senv r Δ (.forallE n t b bi) → ReadSub senv r Δ t
+  | allB  {Δ n t b bi}  : ReadSub senv r Δ (.forallE n t b bi) → ReadSub senv r (mixedGateBinderKind? t :: Δ) b
+  | letV  {Δ n t v b nd} : ReadSub senv r Δ (.letE n t v b nd) → ReadSub senv r Δ v
+  | letB  {Δ n t v b nd} : ReadSub senv r Δ (.letE n t v b nd) → ReadSub senv r (mixedGateBinderKind? t :: Δ) b
+  /-- let arm, `rootFloat v` is a `let` (FD:363-366, :512-515; E:3990-3993, :4155-4158). -/
+  | float {Δ nm ty v b nd n2 t2 v2 w nd2} : ReadSub senv r Δ (.letE nm ty v b nd) →
       Sparkle.Compiler.MachRawSurface.rootFloat v = .letE n2 t2 v2 w nd2 →
-      ReadSub r Δ (.letE n2 t2 v2 (.letE nm (ty.liftLooseBVars 0 1) w (b.liftLooseBVars 1 1) nd) nd2)
+      ReadSub senv r Δ (.letE n2 t2 v2 (.letE nm (ty.liftLooseBVars 0 1) w (b.liftLooseBVars 1 1) nd) nd2)
+  /-- rev2 V4: let arm, non-let branch: `| v =>` RE-BINDS `v := rootFloat v` (FD:367, :516; E:3994, :4159); the
+  loop root, `machTailV`/`machHandleV` tests and `cConv env 0 v` all see `rootFloat v`, not the source value.
+  `rootFloat` is `partial` (MachRawSurface.lean:198) = opaque here (FD:66-68), so `rootFloat v = v` for a non-let
+  result is NOT derivable (by reading MachRawSurface.lean:199-207 every changing arm returns a `.letE`, but that is
+  a meta reading). The constructor is stated for any result shape (over-approximation; it only adds obligations). -/
+  | floatV {Δ nm ty v b nd} : ReadSub senv r Δ (.letE nm ty v b nd) →
+      ReadSub senv r Δ (Sparkle.Compiler.MachRawSurface.rootFloat v)
+  /-- rev2 V4: `instSStep` converts the parameters of the CONSTRUCTED result type `instRes ty args`
+  (FD:266-269, :472-474; `ty` from `senv.instS c`, instantiated with the call's arguments). -/
+  | sparam {Δ e c ks ty args resTy q} : ReadSub senv r Δ e →
+      machInstCallS? senv e = some (c, ks, ty, args) → instRes ty args = some resTy →
+      q ∈ resTy.getAppArgs.toList → ReadSub senv r Δ q
 ```
-`ReadSub`'s closure is an LK1 obligation per reader arm (each arm's recursive inputs must be `ReadSub` of its input):
-checked here for `convStep`'s app/lam/forallE/letE arms (FD:301-380; lam :353-356, let :361-380) and `chainStep`'s let arm (FD:511-528); NOT checked
-in this survey for `regView?`, `loopView?`, `memCall?`, `machRunApp?`/`machRoot` and the `nestedProbe`/loop arms — any
-of them that converts a constructed term must get its own constructor.
+**Closure table (rev2 V4): every recursive call site of the block (FD:301-590) and every start call of the wrapper
+(FS:207-241).** "checked" = the call's input is `ReadSub senv (midExpr en) Δ' _` for the context `Δ'` the call
+needs, by the listed constructors and the recogniser text cited (each such step is a small LK1 lemma, e.g.
+`inlSpine` arguments are iterated `appF`/`appA` subterms, E:3081-3083). "open" = an obligation outside `ReadSub`
+(listed again in §3.4's GoodK table). Context: a new env entry `.regs`/`.handle`/`.unit` makes `convBvar` fail
+(FD:254, `some _ => none`), so its `Δ` entry carries no `EnvKindOk` obligation; `.val x` is the user-let row
+(§3.2); `.state b 1` is the loop-root row.
+| # | site | input converted | derivation | status |
+|---|---|---|---|---|
+| S1 | `shapeStart` FS:207-211 (conv :210) | `dom` of `m.run?` | `machRoot` peels root lets (`letB`*, E:4416) and optionally one projection with its inner lets (`appA` then `letB`*, E:4419-4427); then `machRunApp?` = `inlSpine` args (E:3675-3679); wrap case: `getAppArgs.back?` = `appA` (FS:146-148) | checked |
+| S2 | `shapeRootLet` FS:215-228 (:220, :224) | root-let value `v` (no `rootFloat` here) to `wLoopRoot`/`wConv` | `letV` along S1's `letB` chain | checked |
+| S3 | `shapeBody` FS:235 | run body, env `.regs 0 :: env` | `lamB` of `machRunApp?`'s last arg (E:3677) | checked |
+| S4 | `shapeBody` FS:240-241 | `m.root` | S1's chain end | checked |
+| C1 | `convStep` bare register FD:305-320 (:313, :320) | `dom`, `x` | `regView?` args (FD:259-262) = `appF`*/`appA` | checked (kind of the pushed slot: open, §3.4 G2) |
+| C2 | `convStep` → `cNested` FD:326-328 | call `(.app f a)` | `CallPreK` keeps `e` + `machRunApp?` witness (§3.4) | checked |
+| C3 | `convStep` → `cInst .ord` FD:330-332 | call `(.app f a)` | witness `machInstCall?` (E:3721-3730) in `InstSite` | checked |
+| C4 | `convStep` → `cInstS` FD:334-336 | call `(.app f a)` | witness `machInstCallS?` (E:3732-3741) | checked |
+| C5 | `convStep` → `cInst .mem` FD:338-345 | `dom :: ops` | witness `memCall?` (MachMemory.lean:25-39: `a[0]!`, `a[3..6]!` under `isAppOfArity _ 7`) | checked |
+| C6 | `convStep` generic app FD:350-352 | `f`, `a` | `appF`, `appA` | checked (rebuilt output `bundleIota (machProjIota …)`: §3.4 G6) |
+| C7 | `convStep` lam / forallE FD:354-355, :358-359 | `t` (depth `d`), `b` (depth `d+1`) | `lamT`/`lamB`, `allT`/`allB` | checked |
+| C8 | `convStep` let, float FD:363-366 (:365) | constructed let | `float` | checked |
+| C9 | `convStep` let, non-let FD:367-377 (:369, :377) | `rootFloat v` to `cLoopRoot` / `cConv env 0` | `floatV` (NEW in rev2) | checked by `floatV`; supply of `SK` at `rootFloat v` is D5 |
+| C10 | `convStep` let, body FD:369, :372, :375, :379 | `b` with `mv`/`.regs`/`.handle`/`.val x` | `letB` (context `mixedGateBinderKind? ty`) | checked (`.state b 1` entry: loop-root row, open) |
+| N1 | `nestedStep` FD:400 | `dom` | `appA` from C2's witness | checked |
+| N2 | `nestedProbe`/`nestedStep` FD:390, :407 | `body`, env `.regs base :: env` | `lamB` from C2's witness | checked |
+| N3 | `nestedStep` → `machReserve` FD:405 (and FS:211) | `αs`, `initsE` (NOT converted; `zetaAll`, opaque) | — | no ReadSub needed; slot kinds open (§3.4 G3) |
+| I1 | `instArg` FD:412-415, folded at :433 | each `arg ∈ args` of `kinds.zip args` | from `InstSite` (C3/C5) | checked |
+| I2 | `instSArg` FD:442-445 | each `arg` | from C4's witness | checked |
+| I3 | `instSParam` FD:457-460, :474 | params of `instRes ty args` (constructed) | `sparam` (NEW in rev2) | checked by `sparam`; supply open (§3.4 G7) |
+| H1 | `chainStep` `pure'` FD:498-499 | `v` | `appA` | checked |
+| H2 | `chainStep` `bind (next h rhs)` FD:500-510 (:504, :508) | `rhs`; `rest` with `.unit :: env` | `appA`…; `lamB` | checked |
+| H3 | `chainStep` let FD:511-528 (:514, :518, :521, :524, :526, :528) | as C8-C10 | `float`, `floatV`, `letB` | checked (as C8-C10) |
+| B1 | `loopBodyStep` let FD:540-545 (:541, :545) | `v`; `b` with `.val x` | `letV`, `letB` (no `rootFloat` here) | checked |
+| B2 | `loopNext` FD:532-536, folded at :548 | `nx` of `machLoopRegs tail` | `appA` under `bundle2`/`register` (E:3783-3795) | checked |
+| R1 | `loopRootStep` FD:571 | `dom` of `loopView?` | `inlSpine` arg (FD:280-283) | checked |
+| R2 | `loopRootStep`/`loopProbe` FD:556, :590 | loop `body`, env `.state b n :: env` | `lamB` of the 4th arg | checked; `EnvKindOk` at `.state b 1` OPEN (loop-root row) |
+| R3 | `loopRootStep` FD:565-569 | `machLoopRegs (machLetTail body)` (not converted) | — | no ReadSub needed; slot kinds open (§3.4 G4) |
+A `ReadSub` derivation never needs `rootFloat` to be unfolded: `float`/`floatV` take its result as given. What the
+reader reads at C8/C9/H3 is therefore covered; what the SUPPLIERS (`LetSrcKinds`, `CallSrcKinds`, `MemSrcKinds`,
+`ConvKind`) must say about `rootFloat`'s output is D5.
 
 ### 3.2 Induction over the reader's let construction (on `machineShapeF`, like `InstProv`, ShapeProv:229-233)
 Push sites are exactly E:3627, :3647, :3671, :3750 (fuel: FD:378, :527, :544, FS:225-226, `machLetIndex` in
@@ -229,18 +313,19 @@ FD:422, :452); lets are never removed or rewritten. All other state growth is by
 extends (→ `mono`).
 | case | site | ReadInv preserved from | at a call: `lets[a].kind = kinds_j` (InstArgKinds) from |
 |---|---|---|---|
-| F fresh push | E:3750 (fuel FD:422/:452) | `ConvKind` at `arg` with `SK` from `CallSrcKinds` (§3.3) | the push itself (kind := `kinds_j`) |
+| F fresh push | E:3750 (fuel FD:422/:452) | `ConvKind` at `arg` with `SK` from `CallSrcKinds`/`MemSrcKinds` (§3.3), reached through the call site kept in `CallPreK` (`instSite_args`, §3.4, rev2 V1) | the push itself (kind := `kinds_j`) |
 | R1 `_machLet j` | E:3746 | no push | `ConvKind` at `v' = _machLet j` + `var` ⇒ `lets[j].kind = kinds_j` |
 | R2 value dedup | E:3748-3749 | no push | `LetKindOk` at `j` + `ConvKind` at `v'` + `EqvSound` (`lets[j].v == v'`) + `uniq` |
 | user let push | E:3627/:3647 (kind `mixedGateBinderKind? ty`, E:3620/:3641); fuel FD:378, :527, FS:225-226 | `ConvKind` with `SK` from `LetSrcKinds`; env grows by `.val x` (EnvKindOk) | — |
 | user let dedup | E:3625/:3645 (returns `_machLet j` for annotation kind `k`) | no push; EnvKindOk for `.val (machLet j)` needs `lets[j].kind = k`: `LetKindOk` + `ConvKind` + `EqvSound` + `uniq` | — |
 | alias push | E:3654-3671 (stores RESOLVED `val`, kind of `y`) | `ConvKind` at `v'` + `var` along `resolve` + `LetKindOk` of the resolved lets | — |
 | memory-op push | E:3956-3958 hard-coded `[.domain, .bits aw, .bits dw, .bool, .bits aw]` | `ConvKind` with `SK` from `MemSrcKinds` | not a target (`SigKindsSt … .mem = False`), but a source of R2 kinds (AUD A6) |
-| loop-root state | FD:368-369 / :517-518 (`cLoopRoot`, env grows by `.state b n`) | EnvKindOk at a `.state b 1` entry needs slot kind = annotation kind: NOT in §3.3, listed as LK1-open | — |
+| loop-root state | FD:368-369 / :517-518 (`cLoopRoot`, env grows by `.state b n`) | EnvKindOk at a `.state b 1` entry needs slot kind = annotation kind: NOT in §3.3; LK1-OPEN (§3.4 G12/G20; candidate `LoopSrcKinds`) | — |
 | domain arg | E:4065-4068 / :4104-4107 | no push, no index | no obligation (`Pkg.ports` drops `.domain`, Tools/ShippingGen2Pkg.lean:80-81) |
 **Provable from existing facts:** the R1 and domain cases, the push/no-push bookkeeping, `mono`-transport, the alias
 `resolve` induction, the `InstProv` conjunct (existing, ShapeProv:226-233). **Not:** every case that uses `ConvKind`,
-`*SrcKinds` or `EqvSound`; the loop-root row.
+`*SrcKinds` or `EqvSound`; the loop-root row. rev2: the whole per-arm obligation, including arms this table does
+not cover, is §3.4's G-table.
 
 ### 3.3 What remains (exact Props; R1 full telescopes)
 ```lean
@@ -249,73 +334,200 @@ abbrev SrcKinding := SrcCtx → Lean.Expr → MixedGateBinder → Prop
 structure SrcKindingLaws (SK : SrcKinding) : Prop where
   bvar : ∀ Γ j k, SK Γ (.bvar j) k → Γ[j]? = some (some k)
   uniq : ∀ Γ e k k', SK Γ e k → SK Γ e k' → k = k'
-  lift : ∀ Γ e k o, SK Γ e k → SK (o :: Γ) (e.liftLooseBVars 0 1) k      -- needed by ReadSub.float
-/-- (TY-1, replaces rev0 ArgTyped) conversion keeps the kind, from a REACHED configuration only. -/
+  /-- rev2 V4: insertion at any depth `Γ₁.length` (the float lifts `ty` at 0 and `b` at 1, FD:366). Only a supplier
+  that derives `SK` at a floated term from the source term uses it; LK1 itself does not. -/
+  lift : ∀ Γ₁ Γ₂ e k o, SK (Γ₁ ++ Γ₂) e k → SK (Γ₁ ++ o :: Γ₂) (e.liftLooseBVars Γ₁.length 1) k
+/-- (TY-1, replaces rev0 ArgTyped) conversion keeps the kind. rev2 V2: a CONDITIONAL claim over EVERY configuration
+`(Δ, env, d, e, st)` satisfying `ReadInv ∧ EnvKindOk ∧ ReadSub` — an invariant-closed set that contains the
+reached configurations but is in general larger; it is NOT restricted to configurations the reader reaches. -/
 def ConvKind (HK : PhKinding) (SK : SrcKinding) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Prop :=
   ∀ (n : Nat) (Δ : SrcCtx) (env : List MachVal) (d : Nat) (e : Lean.Expr) (st : MachRead)
     (k : MixedGateBinder) (v' : Lean.Expr) (st' : MachRead),
-    ReadInv HK senv p st → EnvKindOk HK p st Δ env d → ReadSub (midExpr en) Δ e →
+    ReadInv HK senv p st → EnvKindOk HK p st Δ env d → ReadSub senv (midExpr en) Δ e →
     k ≠ .domain → SK (Δ ++ inCtx p) e k →
     readF senv n (.conv env d e st) = some (some (v', st')) → HK (phKind p.bs st') v' k
 /-- (TY-2, replaces rev0 LetTyped's source half) annotated lets of the run's body have their annotation kind. -/
-def LetSrcKinds (SK : SrcKinding) (p : ShapePre) (en : Lean.Expr) : Prop :=
+def LetSrcKinds (SK : SrcKinding) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Prop :=
   ∀ (Δ : SrcCtx) (nm : Name) (ty v b : Lean.Expr) (nd : Bool) (k : MixedGateBinder),
-    ReadSub (midExpr en) Δ (.letE nm ty v b nd) → mixedGateBinderKind? ty = some k → k ≠ .domain →
+    ReadSub senv (midExpr en) Δ (.letE nm ty v b nd) → mixedGateBinderKind? ty = some k → k ≠ .domain →
     SK (Δ ++ inCtx p) v k
 /-- (TY-3) at every call node of the run's body, each non-domain argument has the callee's kind (E:3721-3740). -/
 def CallSrcKinds (SK : SrcKinding) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Prop :=
   (∀ (Δ : SrcCtx) (e : Lean.Expr) (c : Name) (kinds : List MixedGateBinder) (res : MixedGateBinder)
       (args : List Lean.Expr) (kind : MixedGateBinder) (arg : Lean.Expr),
-    ReadSub (midExpr en) Δ e → machInstCall? senv e = some (c, kinds, res, args) →
+    ReadSub senv (midExpr en) Δ e → machInstCall? senv e = some (c, kinds, res, args) →
     (kind, arg) ∈ kinds.zip args → kind ≠ .domain → SK (Δ ++ inCtx p) arg kind) ∧
   (∀ (Δ : SrcCtx) (e : Lean.Expr) (c : Name) (kinds : List MixedGateBinder) (ty : Lean.Expr)
       (args : List Lean.Expr) (kind : MixedGateBinder) (arg : Lean.Expr),
-    ReadSub (midExpr en) Δ e → machInstCallS? senv e = some (c, kinds, ty, args) →
+    ReadSub senv (midExpr en) Δ e → machInstCallS? senv e = some (c, kinds, ty, args) →
     (kind, arg) ∈ kinds.zip args → kind ≠ .domain → SK (Δ ++ inCtx p) arg kind)
 /-- (TY-4, replaces rev0 MemArgTyped) memory operands have the hard-coded kinds at the `aw`/`dw` the recogniser
 returned (E:3953-3958); `natOf`/`kernelNat` correctness is folded into this one obligation. -/
 def MemSrcKinds (SK : SrcKinding) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Prop :=
   ∀ (Δ : SrcCtx) (e : Lean.Expr) (combo : Bool) (aw dw : Nat) (dom : Lean.Expr) (ops : List Lean.Expr)
     (kind : MixedGateBinder) (arg : Lean.Expr),
-    ReadSub (midExpr en) Δ e →
+    ReadSub senv (midExpr en) Δ e →
     Sparkle.Compiler.MachMemory.memCall? (fun e => canonicalNatLitValue? e <|> senv.natOf e) e =
       some (combo, aw, dw, dom, ops) →
     (kind, arg) ∈ [MixedGateBinder.bits aw, .bits dw, .bool, .bits aw].zip ops → SK (Δ ++ inCtx p) arg kind
 def ReadTyped (HK : PhKinding) (SK : SrcKinding) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Prop :=
-  ConvKind HK SK senv p en ∧ LetSrcKinds SK p en ∧ CallSrcKinds SK senv p en ∧ MemSrcKinds SK senv p en
+  ConvKind HK SK senv p en ∧ LetSrcKinds SK senv p en ∧ CallSrcKinds SK senv p en ∧ MemSrcKinds SK senv p en
 /-- §5 D1; a SEPARATE premise of LK1/LK2/CR (R1), not part of ReadTyped. -/
 def EqvSound (HK : PhKinding) : Prop :=
   ∀ a b : Lean.Expr, (a == b) = true → ∀ Γ k, HK Γ a k ↔ HK Γ b k
 ```
-- Every obligation is indexed by the run's own `(senv, p, en)` (via `ReadTypedAt`, §1.2), its states by `ReadInv`, its
-  environments by `EnvKindOk`, its expressions by `ReadSub (midExpr en)`. LK1 (§3.4) proves that every configuration
-  the reader issues from the run's start satisfies these (GoodP pattern, FP:471-479), so the obligations are consumed
-  only at reached configurations; a supplier never has to cover an arbitrary `st`/`env`/`bs`.
+- Every obligation is indexed by the run's own `(senv, p, en)` (via `ReadTypedAt`, §1.2), its inputs `bs` are the
+  run's own `p.bs`, its expressions range over `ReadSub senv (midExpr en)`. Its states and environments are NOT
+  reachability-restricted (rev2 V2): `ReadInv` and `EnvKindOk` are invariants, and `ConvKind` must hold for EVERY
+  `st`/`env`/`Δ`/`d` satisfying them, including ones no run reaches. LK1 (§3.4) proves the converse direction only:
+  every configuration the reader issues satisfies the invariants (GoodP pattern, FP:470-474). So a supplier of
+  `ConvKind` covers the invariant-closed set, which is stronger than covering the reached configurations; it is not
+  asked to cover an arbitrary `st`/`env` outside the invariants, nor a `bs` other than `p.bs`.
+- If the invariant-closed obligation turns out too strong to supply, the reachability-indexed variant
+  (`ReachedK`, §3.4, optional candidate) weakens `ConvKind` to reached configurations at the cost of a per-arm
+  "issued calls" lemma; rev2 does not adopt it.
 - `ConvKind` is the ONLY place where the callee kind meets the converted value (rows F/R1/R2); `*SrcKinds` are pure
   source facts about the run's body.
 - Through normalisation (`machNorm`/`inlFoldNat`/`zeroLit`/`rootFloat`, E:5088-5090) source kinding must hold of the
   NORMALISED body (`midExpr en`); relating it to `ci.value` is the carrier's job (§6 Q1; FRZ:236 item 2; `natOf`
   literal injectivity FRZ:237-238).
+- rev2 V4: because `ReadSub` contains `float`/`floatV`/`sparam` terms, `LetSrcKinds`/`CallSrcKinds`/`MemSrcKinds`/
+  `ConvKind` are also obligations at `rootFloat v` (opaque, D5) and at the parameters of `instRes ty args`
+  (§3.4 G7). These are part of TY's statement as written; the supplier cannot discharge them by unfolding.
 
-### 3.4 Revised full types of LK1 / LK2 (fixed first, R1/R2)
+### 3.4 Revised full types of LK1 / LK2 (fixed first, R1/R2; rev2 V1-V3)
 ```lean
-/-- The call precondition carried through the table (fuel model): each Call's expression components are reader
-inputs of THIS run with a matching environment. -/
+/-- The `natOf` of `convStep`'s memory arm (FD:338). -/
+def memNatOf (senv : StructEnv) : Lean.Expr → Option Nat := fun e => canonicalNatLitValue? e <|> senv.natOf e
+/-- rev2 V1: the recogniser success that dispatched an `.inst` call, per origin (FD:330-345). -/
+def InstSite (senv : StructEnv) (e : Lean.Expr) :
+    Sparkle.Compiler.MachInstOrigin.InstOrigin → Name → List MixedGateBinder → MixedGateBinder →
+      List Lean.Expr → Prop
+  | .ord, c, ks, res, args => machInstCall? senv e = some (c, ks, res, args)              -- FD:330-332
+  | .mem combo aw dw, c, ks, res, args => ∃ dom ops,                                    -- FD:338-345
+      Sparkle.Compiler.MachMemory.memCall? (memNatOf senv) e = some (combo, aw, dw, dom, ops) ∧
+      c = Sparkle.Compiler.MachMemory.memChildName combo aw dw ∧
+      ks = [.domain, .bits aw, .bits dw, .bool, .bits aw] ∧ res = .bits dw ∧ args = dom :: ops
+  | .field _, _, _, _, _ => False              -- `convStep` issues `.inst` only with `.ord`/`.mem` (FD:332, :340-341)
+/-- rev2 V1: the call precondition keeps the CALL SITE. For `.nested`/`.inst`/`.instS` it carries the call expression
+`e` the dispatching `convStep` arm matched, `ReadSub` of `e` and `EnvKindOk` at the SAME `Δ`, `env`, `st` (the
+dispatch is at `d = 0`: every such arm fails on `d != 0`, FD:328, :332, :336, :342), and the recogniser equation. -/
 def CallPreK (HK : PhKinding) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Call → Prop
-  | .conv env d e st          => ∃ Δ, EnvKindOk HK p st Δ env d ∧ ReadSub (midExpr en) Δ e
-  | .nested env dom αs is b st => ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ReadSub (midExpr en) Δ dom ∧
-                                   ReadSub (midExpr en) Δ is ∧ ReadSub (midExpr en) (none :: Δ) b
-  | .inst env c org ks r args st => CallPreP senv (.inst env c org ks r args st) ∧
-                                   ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ∀ a ∈ args, ReadSub (midExpr en) Δ a
+  | .conv env d e st => ∃ Δ, EnvKindOk HK p st Δ env d ∧ ReadSub senv (midExpr en) Δ e
+  | .nested env dom αs is body st => ∃ Δ e, EnvKindOk HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e ∧
+      machRunApp? e = some (dom, αs, is, body)                                            -- E:3675-3679
+  | .inst env c org ks res args st => CallPreP senv (.inst env c org ks res args st) ∧    -- FP:432-439
+      ∃ Δ e, EnvKindOk HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e ∧ InstSite senv e org c ks res args
   | .instS env c ks ty args st => senv.instS c = some (ks, ty) ∧
-                                   ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ∀ a ∈ args, ReadSub (midExpr en) Δ a
-  | .chain env e st           => ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ReadSub (midExpr en) Δ e
-  | .loopBody _ env e st      => ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ReadSub (midExpr en) Δ e
-  | .loopRoot env e st        => ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ReadSub (midExpr en) Δ e
+      ∃ Δ e, EnvKindOk HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e ∧
+        machInstCallS? senv e = some (c, ks, ty, args)                                    -- E:3732-3741
+  | .chain env e st         => ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e
+  | .loopBody _ env e st    => ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e
+  | .loopRoot env e st      => ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e
 def GoodK (HK : PhKinding) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) (h : Hs) : Prop :=
   ∀ c, CallPreK HK senv p en c → ReadInv HK senv p (Call.inSt c) → ∀ v, h c = some (some v) →
     ReadInv HK senv p (Call.outSt c v)
 
+/-- rev2 V1, consumption at `instStep`: from the kept call site, every argument is a reader input at the same `Δ`
+and every non-domain argument has its callee kind; lengths agree (E:3727 `args.length == kinds.length`;
+`.mem`: 5 kinds, `dom :: 4 ops`, MachMemory.lean:38). -/
+theorem instSite_args {SK : SrcKinding} {senv p en Δ e org c ks res args}
+    (hC : CallSrcKinds SK senv p en) (hM : MemSrcKinds SK senv p en)
+    (hR : ReadSub senv (midExpr en) Δ e) (hS : InstSite senv e org c ks res args) :
+    ks.length = args.length ∧
+    ∀ kind arg, (kind, arg) ∈ ks.zip args →
+      ReadSub senv (midExpr en) Δ arg ∧ (kind ≠ .domain → SK (Δ ++ inCtx p) arg kind)
+-- `.ord`: hC.1 at (Δ, e) + `inlSpine` args are `appF`*/`appA` subterms. `.mem`: the head pair is `(.domain, dom)`;
+-- the tail is `[.bits aw, .bits dw, .bool, .bits aw].zip ops`, exactly hM's list.
+/-- rev2 V1, consumption at `instSStep` (args as above with hC.2; params by `sparam`). -/
+theorem instSiteS_args {SK : SrcKinding} {senv p en Δ e c ks ty args}
+    (hC : CallSrcKinds SK senv p en) (hR : ReadSub senv (midExpr en) Δ e)
+    (hS : machInstCallS? senv e = some (c, ks, ty, args)) :
+    ks.length = args.length ∧
+    (∀ kind arg, (kind, arg) ∈ ks.zip args →
+      ReadSub senv (midExpr en) Δ arg ∧ (kind ≠ .domain → SK (Δ ++ inCtx p) arg kind)) ∧
+    (∀ resTy q, instRes ty args = some resTy → q ∈ resTy.getAppArgs.toList → ReadSub senv (midExpr en) Δ q)
+```
+Dispatch side: `convStep`'s arms C2-C5 issue the call with `e := .app f a`, their own `Δ`/`env`/`st` and `d = 0`, so
+`CallPreK` of the issued call is `CallPreK (.conv env 0 (.app f a) st)` plus the recogniser equation the arm matched;
+`CallPreP` follows from `pre_of_instCallP`/`pre_of_memP` (FP:441, :457). The body context of `.nested` is no longer
+rev1's ad-hoc `none :: Δ`: it is `lamB`'s `mixedGateBinderKind? t :: Δ` of the kept `e`.
+
+Alternative (NOT chosen; full type for comparison): SK facts directly in the precondition, supplied at dispatch by
+`instSite_args`/`instSiteS_args`. It makes the table invariant depend on `SK`; rev2 keeps `CallPreK` `SK`-free and
+consumes `CallSrcKinds`/`MemSrcKinds` only inside the `.inst`/`.instS` arms of LK1.
+```lean
+def ArgsK (SK : SrcKinding) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) (Δ : SrcCtx)
+    (ks : List MixedGateBinder) (args : List Lean.Expr) : Prop :=
+  ks.length = args.length ∧ ∀ kind arg, (kind, arg) ∈ ks.zip args →
+    ReadSub senv (midExpr en) Δ arg ∧ (kind ≠ .domain → SK (Δ ++ inCtx p) arg kind)
+def CallPreK' (HK : PhKinding) (SK : SrcKinding) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Call → Prop
+  | .inst env c org ks res args st => CallPreP senv (.inst env c org ks res args st) ∧
+      ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ArgsK SK senv p en Δ ks args
+  | .instS env c ks ty args st => senv.instS c = some (ks, ty) ∧
+      ∃ Δ, EnvKindOk HK p st Δ env 0 ∧ ArgsK SK senv p en Δ ks args ∧
+        ∀ resTy q, instRes ty args = some resTy → q ∈ resTy.getAppArgs.toList → ReadSub senv (midExpr en) Δ q
+  | .nested env dom αs is body st => ∃ Δ t, EnvKindOk HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ dom ∧
+      ReadSub senv (midExpr en) (mixedGateBinderKind? t :: Δ) body
+  | c => CallPreK HK senv p en c                                    -- other arms as in CallPreK
+```
+Optional reachability-indexed variant (rev2 V2; candidate only, not adopted):
+```lean
+/-- The calls ONE step of `c` issues against table `h`: one constructor per call-site row of §3.1 (C1-C10, N1-N2,
+I1-I3, H1-H3, B1-B2, R1-R2), each stating the issued `Call` from `c`'s data and the answers `h` gave before it. -/
+inductive SubCallK (senv : StructEnv) (h : Hs) : Call → Call → Prop
+/-- The wrapper's start calls S1-S4 at this run (FS:207-241). -/
+inductive StartCallK (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) (h : Hs) : Call → Prop
+inductive ReachedK (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) (h : Hs) : Call → Prop
+  | start {c} : StartCallK senv p en h c → ReachedK senv p en h c
+  | sub {c c'} : ReachedK senv p en h c → SubCallK senv h c c' → ReachedK senv p en h c'
+-- ConvKindR n := ConvKind with `ReadInv ∧ EnvKindOk ∧ ReadSub` replaced by `ReachedK senv p en (readF senv n)
+-- (.conv env d e st)`. Extra cost: per arm, `(step senv c).run h` reads only `SubCallK`-related calls — `FM` is a
+-- run function with monotonicity (FD:86-89), so the queried calls are not observable and need this lemma per arm.
+```
+
+**GoodK's whole proof obligation (rev2 V3).** One row per arm of `step` (FD:597-604) and per sub-case. "LK1"
+= what `goodK_readF` must prove at that arm given `ReadTyped`, `PhKindingLaws`, `SrcKindingLaws`, `EqvSound`:
+`CallPreK` of every issued call (closure table §3.1 + `EnvKindOk` of each new env entry) and `ReadInv` of the output.
+"TY supply" = what `ConvKind` (a premise of LK1) asserts at that arm, i.e. what its supplier must establish there.
+| # | arm (FD) | LK1 obligation | LK1 status | TY supply (`ConvKind` at this arm's output) |
+|---|---|---|---|---|
+| G1 | conv `.bvar` (:303, `convBvar` :240-255) | none (state unchanged) | closed | `EnvKindOk` gives it for env entries; `j < d` returns `.bvar j` (needs `HK` on bound `.bvar`): open |
+| G2 | conv bare register (:305-320) | issued calls C1; pushes a SLOT kind `machSlotKind? α` (:311-317), no let: `mono` | closed (by `mono`) | NOT AUDITED: result `machSlot base` has kind `machSlotKind? α`; supplier needs `SK e k → k = machSlotKind? α`; the `bareRegs` hit (:309, `·.1 == e`) needs a SOURCE-side `==` law (`SK` respects `Expr.eqv`, cf. D1) |
+| G3 | conv slot reads `machLoopRead?` (:323-324), `machReadV` (:347-348) | none | closed | NOT AUDITED: `HK (machSlot i) k` iff `st.kinds[i] = k`; kinds come from `machReserve` (`zetaAll`, opaque, E:3703-3707) or loop regs (`machSlotKind?`, FD:567-569) |
+| G4 | conv → nested (:326-328), `nestedStep` (:397-410) | C2/N1/N2 via kept witness; `machReserve` pushes slot kinds (`mono`); shared probe returns the probe's state (:385-393) | closed modulo sub-calls (table IH) | NOT AUDITED: nested result `v` (chain value) kind |
+| G5 | conv → inst `.ord`/`.mem` (:330-345), `instStep` (:427-439) | `instSite_args`; pushes F/R1/R2 (§3.2); new entry's `InstArgKinds` | closes modulo `ConvKind` at each arg, `EqvSound`, `uniq` (§3.2) | result `machInstOut k`: kind `res` (`phKind` of `_machInst`): follows from the push (`.ord`/`.mem` both store `res`) |
+| G6 | conv → instS (:334-336), `instSStep` (:464-493) | `instSiteS_args`; args as G5; field entries share `js` and `instS c` (§3.2 F row) | closes modulo as G5 | output is a constructor application (not a placeholder): NOT AUDITED |
+| G7 | `instSParam` (:457-460, :474) | issued calls I3 by `sparam` | closed (ReadSub); its `ConvKind`/`*SrcKinds` uses are at CONSTRUCTED terms | open: supplier must cover params of `instRes ty args` |
+| G8 | conv generic app (:350-352) | C6; no push | closed | NOT AUDITED: rebuilt `bundleIota (machProjIota senv.proj (.app f' a'))` (MachRawSurface `bundleIota`; `machProjIota`) |
+| G9 | conv lam / forallE (:353-360) | C7 (`EnvKindOk` at `d+1`: new index `< d+1` is bound, `convBvar` :241) | closed | rebuilt binder: expected vacuous (no `MixedGateBinder` kind for a lam), unchecked |
+| G10 | conv let, float (:363-366) | C8 by `float` | closed | — (delegates) |
+| G11 | conv let, user value (:376-379, `machBindLet` E:3619-3628) | C9 `floatV`; push / dedup / bare-var rows of §3.2; new entry `.val x`: `EnvKindOk` with Δ entry `mixedGateBinderKind? ty` (same function `machBindLet` keys on, E:3620) | closes modulo `ConvKind` at `rootFloat v`, `LetSrcKinds` at the ORIGINAL `.letE` (its `v` ≠ `rootFloat v`: D5), `EqvSound`, `uniq` | — |
+| G12 | conv let, loop (:368-369) and chain let, loop (:517-518) | new entry `mv = .state b n`: `EnvKindOk` at Δ entry `mixedGateBinderKind? ty` | **OPEN (loop-root row)**: `n = 1` needs `st.kinds[b] = k`; `n > 1` vacuous only if `mixedGateBinderKind? ty = none` for the tuple Signal type (E:2337-2343 accepts only `Bool`/`BitVec`) | — |
+| G13 | conv/chain let, `.regs`/`.handle` (:371-375, :520-524) | new entry: `convBvar` fails on it (:254) | closed (vacuous) | — |
+| G14 | conv default arm (:382, `okO (e, st)`) | none | closed | NOT AUDITED: `HK Γ e k` for an unchanged const/lit/fvar/sort `e` from `SK … e k` |
+| G15 | conv `.mdata`/`.proj` (:380-381) | FAIL | closed | — |
+| G16 | chain `pure'`/`next` (:498-510) | H1/H2; `.unit` entry vacuous | closed | `next` index check `i < st.kinds.size` (:507): no kind fact |
+| G17 | chain let (:511-528) | as G10-G13 | as G10-G13 (loop: OPEN) | — |
+| G18 | loopBody let (:540-545; `machBindLetNamed` E:3640-3647, `machBindLetAlias` E:3654-3671) | B1; named/alias/plain push rows of §3.2 (alias: `resolve` induction) | closes modulo as G11 | — |
+| G19 | loopBody tail (:546-549) | B2; `ws` append (not in `ReadInv`) | closed | — |
+| G20 | loopRoot (:562-594) | R1/R2; pushes slot kinds `machSlotKind?` (:569, :581), no lets (`mono`); issued `loopBody` call's env entry `.state base n` and the probe's `.state b0 n` (:556) | **OPEN (loop-root row)**: `EnvKindOk` at that entry, see G12; the probe (:552-559) compares `n` and `ws`, NOT kinds, so `st.kinds[b0]` for a shared loop needs `ws`-equality ⇒ kind equality (`EqvSound` + `uniq` + `ConvKind` at `nx`) | NOT AUDITED: result `.state` kind |
+| G21 | wrapper start S1-S4 (FS:207-241) and root-let pushes (FS:224-226, `machBindLetNamed`/`machBindLet`) | closure rows S1-S4; push rows of §3.2; start state `{}` or `machReserve`'s (no lets: `LetKindOk`/`InstArgKinds` vacuous) | closes modulo as G11 | — |
+Candidate source fact for G12/G20 (TY-5, NOT added to `ReadTyped` in rev2; full type for review):
+```lean
+def LoopSrcKinds (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Prop :=
+  ∀ (Δ : SrcCtx) (e : Lean.Expr) (ls : List Level) (dom a₁ a₂ t body : Lean.Expr) (nm : Name) (bi : BinderInfo)
+    (regs : List (Lean.Expr × Lean.Expr × Lean.Expr)) (kinds : List MixedGateBinder) (k : MixedGateBinder),
+    ReadSub senv (midExpr en) Δ e →
+    inlSpine e [] = (.const ``Sparkle.Core.Signal.Signal.loop ls, [dom, a₁, a₂, .lam nm t body bi]) →  -- FD:280-283
+    machLoopRegs (machLetTail body) = some regs → regs.mapM loopRegKind = some kinds →            -- FD:567-569
+    mixedGateBinderKind? t = some k → k ≠ .domain → kinds = [k]
+```
+With it, G12/G20's `n = 1` case closes for a FRESH loop (kinds pushed at `base`); the shared-probe case additionally
+needs the `ws`-equality argument above. Whether it is an `SK`-carrier fact or a separate source fact is for §6 Q1.
+
+LK1 / LK2 types (unchanged from rev1 except that `CallPreK` and `ReadTyped` are the rev2 ones):
+```lean
 /-- LK1 (table form). -/
 theorem goodK_readF {HK SK} (HKL : PhKindingLaws HK) (SKL : SrcKindingLaws SK) (EQ : EqvSound HK)
     {senv p en} (TY : ReadTyped HK SK senv p en) : ∀ n, GoodK HK senv p en (readF senv n)
@@ -387,10 +599,10 @@ callee's own run, so ENV is needed only for the parent's `structEnv envR'`.
 | SC0 | defs §1 + `argWidthAt_of_read` (G form) + optional `argKinds_both_of_G` | SA0 (ArgWidthSrc:91,124,134-143), `sigDisj_structEnv` | 100-180 l | — | src-argw child |
 | SC1 | `shapeSigProv_of_fuel` | ShapeProv:226-249, FP:89-172 | 60-120 l | — | src-argw child |
 | LK0 | §3.1 defs (`phKind`, laws, `LetKindOk`, `InstArgKinds`, `ReadInv`, `EnvKindOk`, `ReadSub`) + init/extension lemmas | MachRead E:3563-3600, FD:240-255 | 150-250 l | — | src-argw child |
-| LK1 | `goodK_readF` + `machineShapeF_final_readInv` (§3.4), incl. `ReadSub` closure per arm | FD:301-607, FP:471-479 pattern | 400-800 l | LK0 | src-argw child |
+| LK1 | `goodK_readF` + `machineShapeF_final_readInv` (§3.4), incl. `ReadSub` closure (§3.1 table), `instSite_args`/`instSiteS_args`, every G-row of §3.4 (G12/G20 OPEN) | FD:301-604, FP:470-474 pattern | 500-900 l | LK0 | src-argw child |
 | LK2 | `shapePost_binders` + `argKindsG_of_machineShapeF` | FS:153-205, ShapeR5:318-363 | 150-300 l | LK1 | src-argw child |
 | LK3 | §3.6 controls first; then `HK` instantiation (mirror of `unifiedGate*Body`) + `PhKindingLaws` | E:2521-2633 | 200-400 l | LK0 | src-argw child |
-| TY | `ReadTypedAt HK SK` for every successful read (L-FG, §1.3); `SrcKindingLaws SK` | carrier (§6 Q1) | unknown, likely ≥ 1000 l | §6 Q1 | src-argw child; carrier = decl-bridge |
+| TY | CR's `TY` at every actual `ClosingRun` (L-FG, §1.3), with laws for the `HK`/`SK` used; the uniform form over every successful read (L-FG+) is an optional stronger route, not required. Includes the D5 and G7 obligations at constructed terms; NOT-AUDITED G-rows are part of `ConvKind` | carrier (§6 Q1) | unknown, likely ≥ 1000 l | §6 Q1 | src-argw child; carrier = decl-bridge |
 | CR | `argWidthAt_of_closingRun` (§1.2) | `ClosingRun` (DG-CLOSINGRUN), SC0-LK3 | 100-200 l | DG-CLOSINGRUN | src-argw child |
 | (consumed) | OSH, ENV, VT, P5, q-shape, KD | §2, §4 | — | — | package-coverage / reader-bridge / decl-bridge |
 **Order:** SC0 → SC1 ∥ LK0 → LK3 (controls first) ∥ LK1 → LK2 → CR (CR conditional on consumed Props, explicit as
@@ -413,6 +625,13 @@ comparison and meaning-changing mutants for SC0/SC1/LK2; decided rows on a corpu
   agreement `mixedGatePeel` (E:2345-2350) vs `telescopeKinds` (E:4367-4369) (count and literal widths) is a fact of
   elaboration. If `adapterOf` (§6 Q2) does not supply it, options: a reader-tail check (G-T, FRZ:268-270; compiler
   change) or a law. Not adopted.
+- **D5 `rootFloat` opacity (rev2 V4).** `rootFloat` is `partial` (MachRawSurface.lean:198), opaque to proofs (FD:66-68),
+  and the reader converts `rootFloat v` (C9/H3) and floated lets (C8). `ReadSub` covers these without unfolding
+  (`float`/`floatV`), but every supplier statement at them (`LetSrcKinds` on a floated `.letE`, `ConvKind`/`*SrcKinds`
+  at `rootFloat v`) needs a fact about `rootFloat`'s output that no proof can read off its definition. Options seen
+  (none adopted): (a) a total/fuelled `rootFloat` (compiler refactor; output policy applies); (b) a law on it =
+  new TRUSTED boundary (user item); (c) leave the obligation in TY for the carrier, which then faces the same
+  opacity. Without one of these, L-FG's TY at runs that float a let is unsupplied.
 - D-ARGW stays HELD (FRZ:300-302); G-E/G-T remain comparison material (AUD §C/§D).
 
 ## 6. Interface requests to gen5 (R1-R3) — REQUESTS FOR CONSULTATION
@@ -420,9 +639,11 @@ None of these approves a new TRUSTED boundary, a guarantee change, or a producti
 owner issues (DGEN:722-725) whether the stated Prop can be part of their deliverable; the answer may be "no".
 - **Q1 → `sparkle-gen5-decl-bridge` (DC-FORM carrier; R1/R3).** Is a kind-indexed carrier (`ExprDenotesK env Γ e k v`,
   or a lemma family from `ExprDenotes`, DGEN:448-450) in DC-FORM's scope, such that `SK Γ e k := ∃ v, ExprDenotesK …`
-  satisfies `SrcKindingLaws` (§3.3: `bvar`, `uniq` incl. Bool ≠ `.bits 1`, `lift`) and yields `LetSrcKinds`,
-  `CallSrcKinds`, `MemSrcKinds` on the NORMALISED body `midExpr en` of every successful read? If DC-FORM keeps the
-  `Sort` index, which agreement supplier (if any) does it plan? (D3.)
+  satisfies `SrcKindingLaws` (§3.3: `bvar`, `uniq` incl. Bool ≠ `.bits 1`, `lift` at any depth) and yields `LetSrcKinds`,
+  `CallSrcKinds`, `MemSrcKinds` on the `ReadSub` terms of the NORMALISED body `midExpr en` (incl. `float`/`floatV`/
+  `sparam` terms, D5) of every actual run (L-FG; every successful read would be the stronger L-FG+, not required)?
+  Is `LoopSrcKinds` (§3.4, TY-5 candidate) in its scope? If DC-FORM keeps the `Sort` index, which agreement
+  supplier (if any) does it plan? (D3.)
 - **Q2 → `sparkle-gen5-decl-bridge` (VT).** The exact text of
   `adapterOf_portWidths : adapterOf ci.type senv q.d = some _ → telescopeKinds ci.type = some ks →
    (ks.filter (· != .domain)).map (fun b => (kindTy b).bitWidth) = q.portWidths`
@@ -441,6 +662,9 @@ owner issues (DGEN:722-725) whether the stated Prop can be part of their deliver
   provable, or are unprovable; "not supplied" means only that this survey found no supplier.
 - No claim that `HK`'s `uniq` holds for the mirror of `unifiedGate*Body` (§3.6 is the planned check), nor that
   `unifiedGateRoot` supplies `LetKindOk`.
-- `ReadSub` closure is checked only for the arms listed in §3.1; the loop-root row of §3.2 is open.
+- `ReadSub` closure: checked for every call site in §3.1's table by reading the code (no lemma proved). GoodK's
+  G12/G20 (loop root) are open, and the G-rows marked NOT AUDITED are unchecked `ConvKind` obligations.
+- No claim that `ConvKind` (invariant-indexed) is suppliable; `ReachedK` and `CallPreK'` are unadopted alternatives.
+- No claim that `rootFloat`'s non-let output equals its input in any kernel-checked sense (D5).
 - No width-mismatched successful run is exhibited or excluded. No change to `T1Hyp`, `ChildShips`, `DataOkB`, FG,
   the compiler, or any gen5 freeze; owners/requests above are proposals for review.
