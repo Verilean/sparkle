@@ -26,6 +26,6 @@ run_cmd do
       | .defnInfo _ => "def" | .thmInfo _ => "theorem" | .opaqueInfo _ => "opaque" | _ => "other"
     let ty ← liftTermElabM <| Meta.ppExpr ci.type
     let tyS := toString ty
-    logInfo m!"QUANT GEN {kind} {n} : {if tyS.length > 600 then tyS.take 600 ++ " …" else tyS}"
+    logInfo m!"QUANT GEN {kind} {n} : {if tyS.length > 600 then (String.ofList (tyS.toList.take 600)) ++ " …" else tyS}"
 
 #print axioms Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_sound
