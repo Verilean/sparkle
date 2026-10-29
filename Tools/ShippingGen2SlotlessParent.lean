@@ -1,8 +1,7 @@
 import Tools.ShippingGen2C6
 import Tools.ShippingGen2Defs
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (2026-10-29). To be confirmed by
--- `kjob lake build Tools.ShippingGen2SlotlessParent` (scripts/gen2/S5_SLOTLESS_FREEZE.md §9).
+-- Built: g2s5-f7e42988 (clean snapshot, exit 0, standard axioms).
 -- Case (S) of A3 is C6 (Tools/ShippingGen2C6.lean:59-137) verbatim: MARKED FOR BUILD CONFIRMATION.
 
 /-! # S5 stage A: slotless parents, pure lemmas (scripts/gen2/S5_SLOTLESS_FREEZE.md rev0 §3)

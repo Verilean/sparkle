@@ -13,17 +13,26 @@ Fixtures (plain `def`s, no `Signal.reg` in the parent):
 * (c) `s5engineOnce`: a copy of `engineOnce` (Tests/Compiler/MultiInstanceTest.lean:58): one call of a REGISTERED
   record-output child (`s5pe`, a copy of `pe`), several projections; expected case S (clk/rst inputs without slots).
 
-For each, logged as `S5P2 …` lines (each step in its own `try`; environment and messages put back after the compile
-and the arm):
-1. GATES on the entry constant: certified / mixed gate, `machineShape?`: slots, call entries, `instFields`.
+For each, logged as `S5P2 …` lines (each step in its own `try`). The diagnostics are COLLECTED into a list; the
+environment and the messages are put back after the compile, the arm and the endpoint (so their own logs do not
+leak), and the collected diagnostics are logged at the end, so they all appear in the build log:
+1. GATES on the entry constant (`entryConst true false [] …`, as `synthesizeCombinationalCoreWith` builds it):
+   certified / mixed gate, `machineShape?`: slots, call entries, `instFields`.
 2. THE REAL COMPILE `synthesizeCombinational f`: the parent's input names and whether `"clk"`/`"rst"` are among
    them (case S / case C), each instance with its connection keys and its module's inputs (child clk/rst).
-3. THE MACHINE ARM alone (`synthesizeMachineCertified`, reset refs, depth 1): `some`/`none`, equal to the real
-   module (route TAKEN by the real entry) or not.
-4. PACKAGE DATA: `#machine_endpoint f` is elaborated (errors captured and logged, messages put back) and the
+3. THE MACHINE ARM alone (`synthesizeMachineCertified`, reset refs, depth 1): `some`/`none`; whether its MODULE
+   and its DESIGN equal the real compile's. Equality is NOT an observation of the route: the real entry
+   post-processes the top module (`synthesizeCombinationalWith`: register dedup, `mergeChecked`) and runs the arm
+   at depth 0, so a difference does not refute the route either.
+4. ROUTE EVIDENCE: the dispatch of `synthesizeFromConst` (Sparkle/Compiler/Elab.lean) re-evaluated in the same
+   order on the same entry constant: certified gate, then mixed gate, then `machineShape?` + the arm's `some`,
+   else the legacy route. The first guard that fires is logged with the guard values. The arm's `some` is the
+   probe's evaluation (depth 1, reset refs), not an observation inside the real run.
+5. PACKAGE DATA: `#machine_endpoint f` is elaborated (errors captured and logged, messages put back) and the
    constants `f.machineData`, `f.machineSource`, `f.machine_next`, `f.machine_result` are looked up. A `Pkg` needs
    them (`Pkg.comb`, CombPkg:8-12, is call-free step 1); their absence is a coverage finding (D4), not an S5 failure.
-5. `RESULT`: route, slots, `instFields`, case S/C, package data present. -/
+   Their PRESENCE is not a `Pkg` / `ChildShips` application.
+6. `RESULT`: module vs machine arm, route evidence, slots, `instFields`, case S/C, package data present. -/
 namespace Tests.Gen2.S5SlotlessProbe
 open Lean Meta Elab Command
 open Sparkle.Compiler.Elab
@@ -127,8 +136,10 @@ elab "#s5_p2_probe " d:ident : command => do
   let f ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
   let env ← getEnv
   let savedMsgs := (← get).messages
-  -- 1. gates
-  let gates : String × Option MachineShape ← try
+  -- the diagnostics, logged at the end (after the messages are put back)
+  let mut diags : Array MessageData := #[]
+  -- 1. gates: (text, certified gate, mixed gate, machine shape, gates evaluated without error)
+  let gates : String × Bool × Bool × Option MachineShape × Bool ← try
       liftTermElabM do
         let ci ← getConstInfo f
         let ec := entryConst true false [] ci (instancePredicate env) (userInliner env) (structEnv env)
@@ -138,57 +149,70 @@ elab "#s5_p2_probe " d:ident : command => do
         let s := match sh with
           | none => "no machine shape"
           | some shape => s!"machine shape: slots {shape.layout.slots.length}, call entries {shape.insts.map Prod.fst}, instFields {shape.instFields}"
-        pure (s!"certified gate {g}, mixed gate {mx}; {s}", sh)
+        pure (s!"certified gate {g}, mixed gate {mx}; {s}", g, mx, sh, true)
     catch ex => do
       let msg ← ex.toMessageData.toString
-      pure (s!"ERROR {short msg}", none)
-  logInfo m!"S5P2 {f} GATES: {gates.1}"
+      pure (s!"ERROR {short msg}", false, false, none, false)
+  let (gatesTxt, gCert, gMixed, gShape, gOk) := gates
+  diags := diags.push m!"S5P2 {f} GATES: {gatesTxt}"
   -- 2. the real compile
-  let real : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) ← try
+  let real : Except String (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) ← try
       let r ← liftTermElabM (synthesizeCombinational f)
-      pure (some r)
+      pure (.ok r)
     catch ex => do
       let msg ← ex.toMessageData.toString
-      logInfo m!"S5P2 {f} COMPILE: ERROR {short msg}"
-      pure none
+      pure (.error (short msg))
   setEnv env
   modify fun st => { st with messages := savedMsgs }
   let mut caseS := false
   let mut kidClk := false
   match real with
-  | none => pure ()
-  | some (m, D) =>
+  | .error msg => diags := diags.push m!"S5P2 {f} COMPILE: ERROR {msg}"
+  | .ok (m, D) =>
     let pins := m.inputs.map (·.name)
     caseS := pins.contains "clk" || pins.contains "rst"
-    logInfo m!"S5P2 {f} COMPILE: module {m.name}, inputs {pins} (parent clk {pins.contains "clk"}, rst {pins.contains "rst"}: case {if caseS then "S" else "C"}), {m.body.length} statements, design modules {D.modules.map (·.name)}"
+    diags := diags.push m!"S5P2 {f} COMPILE: module {m.name}, inputs {pins} (parent clk {pins.contains "clk"}, rst {pins.contains "rst"}: case {if caseS then "S" else "C"}), {m.body.length} statements, design modules {D.modules.map (·.name)}"
     for (mn, iname, keys) in instsOf m do
       match D.modules.find? (·.name == mn) with
-      | none => logInfo m!"S5P2 {f} INSTANCE {iname} of {mn}: module NOT in the design; connection keys {keys}"
+      | none => diags := diags.push m!"S5P2 {f} INSTANCE {iname} of {mn}: module NOT in the design; connection keys {keys}"
       | some mc =>
         let ins := mc.inputs.map (·.name)
         let clkrst := ins.contains "clk" || ins.contains "rst"
         if clkrst then kidClk := true
-        logInfo m!"S5P2 {f} INSTANCE {iname} of {mn}: child inputs {ins} (child clk/rst: {clkrst}); connection keys {keys} (clk/rst connected: {keys.contains "clk" || keys.contains "rst"})"
-  -- 3. the machine arm alone
-  let arm : String × Bool ← match gates.2 with
-    | none => pure ("not run (no machine shape)", false)
+        diags := diags.push m!"S5P2 {f} INSTANCE {iname} of {mn}: child inputs {ins} (child clk/rst: {clkrst}); connection keys {keys} (clk/rst connected: {keys.contains "clk" || keys.contains "rst"})"
+  -- 3. the machine arm alone: (text, arm ran without error, arm some, module equal, design equal)
+  let arm : String × Bool × Bool × Bool × Bool ← match gShape with
+    | none => pure ("not run (no machine shape)", true, false, false, false)
     | some shape =>
       try
         let r ← liftTermElabM (machineArm f shape)
         match r with
-        | none => pure ("NONE: the arm falls through to the legacy route", false)
-        | some (am, _) =>
-          let same := match real with
-            | some (m, _) => am == m
-            | none => false
-          pure (s!"SOME: the arm closes ({if shape.instFields.isEmpty then "closeInstsM" else "closeInstsGM"}); equal to the real compile's module: {same}", same)
+        | none => pure ("NONE: the arm falls through to the legacy route", true, false, false, false)
+        | some (am, aD) =>
+          let (sameM, sameD) := match real with
+            | .ok (m, D) => (am == m, aD == D)
+            | .error _ => (false, false)
+          pure (s!"SOME: the arm closes ({if shape.instFields.isEmpty then "closeInstsM" else "closeInstsGM"}); module equal to the real compile's: {sameM}; design equal to the real compile's: {sameD} (equality is not route evidence: the real top module is post-processed)", true, true, sameM, sameD)
       catch ex => do
         let msg ← ex.toMessageData.toString
-        pure (s!"ERROR {short msg}", false)
+        pure (s!"ERROR {short msg}", false, false, false, false)
+  let (armTxt, armOk, armSome, armSameM, armSameD) := arm
   setEnv env
   modify fun st => { st with messages := savedMsgs }
-  logInfo m!"S5P2 {f} MACHINE ARM: {arm.1}"
-  -- 4. package data: `#machine_endpoint f` (errors captured), then the generated constants
+  diags := diags.push m!"S5P2 {f} MACHINE ARM: {armTxt}"
+  -- 4. route evidence: the dispatch order of `synthesizeFromConst`, first guard that fires
+  let (route, machineRoute) :=
+    if !gOk then ("ROUTE: UNDETERMINED (gates raised)", false)
+    else if gCert then ("ROUTE: certified gate (certifiedShape? some; fires first)", false)
+    else if gMixed then ("ROUTE: mixed gate (certified none, mixedCertifiedShape? some)", false)
+    else match gShape with
+      | none => ("ROUTE: legacy (certified none, mixed none, machineShape? none)", false)
+      | some _ =>
+        if !armOk then ("ROUTE: UNDETERMINED (gates none, machine shape some, the probe's arm raised)", false)
+        else if armSome then ("ROUTE: machine arm (certified none, mixed none, machineShape? some, the probe's arm some at depth 1 from reset refs; not observed inside the real run)", true)
+        else ("ROUTE: legacy (certified none, mixed none, machineShape? some, the probe's arm none)", false)
+  diags := diags.push m!"S5P2 {f} {route}"
+  -- 5. package data: `#machine_endpoint f` (errors captured), then the generated constants
   let before := (← get).messages
   let epErr : String ← try
       elabCommand (← `(command| #machine_endpoint $(mkIdent f)))
@@ -207,13 +231,22 @@ elab "#s5_p2_probe " d:ident : command => do
   let env2 ← getEnv
   let hasC (s : Name) : Bool := env2.contains (f ++ s)
   let pkgData := hasC `machineData && hasC `machineSource && hasC `machine_next && hasC `machine_result
-  logInfo m!"S5P2 {f} PACKAGE DATA: #machine_endpoint {epErr}; machineData {hasC `machineData}, machineSource {hasC `machineSource}, machine_next {hasC `machine_next}, machine_result {hasC `machine_result}"
-  -- 5. result
-  let (slots, fields, insts) := match gates.2 with
+  diags := diags.push m!"S5P2 {f} PACKAGE DATA: #machine_endpoint {epErr}; machineData {hasC `machineData}, machineSource {hasC `machineSource}, machine_next {hasC `machine_next}, machine_result {hasC `machine_result}"
+  -- 6. result
+  let (slots, fields, insts) := match gShape with
     | some shape => (shape.layout.slots.length, shape.instFields, shape.insts.length)
     | none => (0, [], 0)
-  let route := if arm.2 then "MACHINE ROUTE TAKEN" else "machine route NOT taken (or not comparable)"
-  logInfo m!"S5P2 RESULT {f}: {route}; slots {slots}, call entries {insts}, instFields {fields}; case {if caseS then "S (parent has clk/rst)" else "C (parent has neither)"}; a child with clk/rst {kidClk}; package data {pkgData}. {if arm.2 && slots == 0 && insts > 0 && pkgData then "POSITIVE slotless parent with package data" else "NO POSITIVE (coverage finding, D4; not an S5 failure)"}"
+  let modTxt :=
+    if !armSome then "MODULE vs MACHINE ARM: not comparable (no arm result)"
+    else if armSameM then s!"MODULE MATCHES MACHINE ARM (design equal {armSameD})"
+    else s!"MODULE DIFFERS FROM MACHINE ARM (design equal {armSameD})"
+  let verdict :=
+    if machineRoute && slots == 0 && insts > 0 && pkgData then
+      "POSITIVE slotless parent (machine route by guard evidence) with package data present"
+    else "NO POSITIVE (coverage finding, D4; not an S5 failure)"
+  diags := diags.push m!"S5P2 RESULT {f}: {modTxt}; {route}; slots {slots}, call entries {insts}, instFields {fields}; case {if caseS then "S (parent has clk/rst)" else "C (parent has neither)"}; a child with clk/rst {kidClk}; package data {pkgData} (package data exists is NOT a Pkg / ChildShips application). {verdict}"
+  for msg in diags do
+    logInfo msg
 
 end Tests.Gen2.S5SlotlessProbe
 

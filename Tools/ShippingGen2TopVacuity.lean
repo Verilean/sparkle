@@ -4,7 +4,10 @@ set_option autoImplicit false
 
 /-! # S5 D1: where `TopShips` is vacuous (scripts/gen2/S5_SLOTLESS_FREEZE.md §2.4, D1)
 
-WRITTEN, NOT BUILT (2026-10-29; to be confirmed by `kjob lake build Tools.ShippingGen2TopVacuity`).
+Built: g2s5-f7e42988 (clean snapshot, exit 0, standard axioms).
+
+This file documents the PRE-R-G `TopShips` contract; after the R-G change it must be pinned to a frozen
+copy of the old definition.
 
 `TopShips` (Tools/ShippingGen2Defs.lean:273-295) has two parts:
 - the OUTER existence: `∃ ids, ids.Nodup ∧ ids.length = … ∧ ∃ cache regs, regs.Nodup ∧ regs.length = …`;

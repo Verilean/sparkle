@@ -6,9 +6,7 @@ import Tools.ShippingPortWidthsPure
 import Tools.ShippingTransitionPortTys
 import Tools.ShippingCallsAssemblyG
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (2026-10-29). To be confirmed by
--- `kjob lake build Tools.ShippingGen2SlotlessParentRun` (scripts/gen2/S5_SLOTLESS_FREEZE.md §9), after
--- `Tools.ShippingGen2SlotlessParent`.
+-- Built: g2s5-f7e42988 (clean snapshot, exit 0, standard axioms).
 
 /-! # S5 stage B: the run-level supplier and `ChildShips` of slotless parents (S5_SLOTLESS_FREEZE.md rev0 §4)
 

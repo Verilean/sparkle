@@ -4,7 +4,7 @@ import Tools.ShippingSlotlessClk
 import Tools.ShippingSlotlessKidFacts
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (2026-10-29). To be confirmed by `kjob lake build Tests.Gen2.S5Check`.
+-- Built: g2s5-f7e42988 (clean snapshot, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # S5 stage A/B checks and the D1 vacuity lemma (scripts/gen2/S5_SLOTLESS_FREEZE.md rev0 §7, §8)
