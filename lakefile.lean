@@ -4472,3 +4472,6 @@ lean_lib «Tools.ShippingGen2Data» where
 
 lean_lib «Tests.Gen2.U0Check» where
   roots := #[`Tests.Gen2.U0Check]
+
+lean_lib «Tools.ShippingGen2CallDec» where
+  roots := #[`Tools.ShippingGen2CallDec]
