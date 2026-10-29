@@ -1,8 +1,8 @@
 import Tools.ShippingGen5T2Dec
 import Tools.ShippingMachineCausal
 set_option autoImplicit false
--- NOT BUILT: written without running lake/lean (issue `sparkle-gen5-t2-tie`, M5 round after T2-DEC). Every
--- statement below is unverified until the coordinator's build. No sorry / axiom / native_decide.
+-- Built: g5tt-36beb7dc (clean snapshot, exit 0, standard axioms); issue `sparkle-gen5-t2-tie`. No sorry / axiom /
+-- native_decide.
 
 /-! # T2-POSENC, T2-FIELD (standalone) and T2-TIE / T2-STEP (CONDITIONAL on named D-GEN units)
 

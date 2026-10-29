@@ -2,8 +2,8 @@ import Tools.ShippingGen5T2Tie
 import Tests.Gen3.ExpectedType
 import Tests.Compiler.ShippingMachineLinkedTest
 set_option autoImplicit false
--- NOT BUILT: written without running lake/lean (issue `sparkle-gen5-t2-tie`). Unverified until the coordinator's
--- build. No sorry / axiom / native_decide.
+-- Built: g5tt-36beb7dc (clean snapshot, exit 0, standard axioms); issue `sparkle-gen5-t2-tie`. No sorry / axiom /
+-- native_decide.
 
 /-! # T2-POSENC / T2-FIELD / T2-TIE / T2-STEP checks (issue `sparkle-gen5-t2-tie`; Tools/ShippingGen5T2Tie.lean)
 
