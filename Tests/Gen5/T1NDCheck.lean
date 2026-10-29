@@ -75,7 +75,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let ps := xs[:i1.numParams].toArray
     let t2 ← instantiateForall c2.type ps
     let mut t2 := t2
-    let mut j := 0
+    let mut j : Nat := 0
     for x in xs[i1.numParams:].toArray do
       let ld ← x.fvarId!.getDecl
       if ld.userName.toString == "dec" then continue
@@ -354,7 +354,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   unless badProj adapterRule (.proj ``T1Hyp 3 (.bvar 0)) do throwError "T1ND AUDIT FAILED: adapter dec raw proj missed"
   if badProj adapterRule (.proj ``T1Hyp 4 (.bvar 0)) then throwError "T1ND AUDIT FAILED: adapter closed raw proj flagged"
   logInfo "T1ND CONTROL rawProj: old T1Hyp idx1 / ND idx0 flagged under ND[defines]; ND idx1 not; adapter: idx3 flagged, idx4 not"
-  let F := ``Tests.Gen5.T1NDFixture
+  let F := `Tests.Gen5.T1NDFixture
   for (c, rule, lbl, bad) in [(F ++ `oldProj, ndRule ["defines", "closed"], "ND", true),
       (F ++ `oldCases, ndRule ["defines", "closed"], "ND", true),
       (F ++ `adapterUse, ndRule ["defines", "closed"], "ND", true),
