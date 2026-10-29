@@ -786,8 +786,7 @@ theorem p3_reset : Tools.ShippingMachineShipsDepth.ResetNk 1 m0 d0 kids0 := by
   obtain ⟨conns, hm⟩ := hex
   have hname : mc.name = "c0" := by
     rcases List.mem_cons.mp hm with h | h
-    · injection h with h1
-      exact h1
+    · injection h with h1 <;> (try exact h1)
     · rw [List.mem_singleton] at h
       cases h
   rw [hname] at hf
