@@ -3,7 +3,7 @@ set_option autoImplicit false
 
 /-! # S4 stage B: axiom audit (scripts/gen2/S4_STAGEB_FREEZE.md rev1)
 
-UNBUILT at the time of writing (lakefile entry not added).
+BUILT: g2sb-93e9994c at 93e9994c (exit 0; six roots standard axioms).
 
 Axiom audit of every stage-B declaration: the two names lemmas (Tools/ShippingGen2OneOutNames.lean) and the four of
 Tools/ShippingGen2OneOutTop.lean. Expected: no `sorryAx`, no extra axiom (only the standard `propext` /

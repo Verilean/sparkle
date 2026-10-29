@@ -1,7 +1,7 @@
 import Tools.ShippingMachineEntry
 import Tools.ShippingMachineAuto
 set_option autoImplicit false
--- UNBUILT at the time of writing (written without a build; the lakefile entry is not added).
+-- BUILT: g2nm-eb60056f at eb60056f (exit 0); audited in g2sb-93e9994c.
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # S4 stage B: the two names lemmas behind `NamesEq`
