@@ -6,7 +6,7 @@ Issue `sparkle-gen2-loop-pkg` (milestone `sparkle-gen2`). Base `par/gen2-spec` (
 - **The obstacle:** loop-form declarations (hand-written `Signal.loop`) do not fit the circuit-do `SrcPkg`/`GenFacts`.
 - **Scope:** loop-form machine declarations stay in FG (route 3). Nothing is excluded.
 
-## 1. What the sources show (read-only probe; file:line at ea5f5cda)
+## 1. What the sources show (read-only probe; file:line at ea5f5cda). SUPERSEDED in part by §5.1 (the generator WAS run; `hcausal` is not a refl field)
 - **Loop heads:**
   - `machine_trace_of_loop` (Tools/ShippingMachineLoop.lean:55), for no calls.
   - `machine_trace_of_loop_causal` (Tools/ShippingMachineCausalCtx.lean:412), with calls and memory reads.
@@ -79,8 +79,8 @@ inductive Pkg (ι : Type) (dom : ι → DomainConfig) where
 ```
 
 **`LoopFacts`** is EXACTLY the premise list of `machine_trace_of_loop_causal` (CausalCtx:412-463): `ok`, `hbody`,
-`hinit`, `h0`, `writes`, `hres`, `hsrc` and `hcausal`. It is the loop analogue of `GenFacts`. Each field is a generated
-refl-checked fact of the declaration, and none of them is a run-level or semantic conclusion.
+`hinit`, `h0`, `writes`, `hres`, `hsrc` and `hcausal`. It is the loop analogue of `GenFacts`. [SUPERSEDED by §5.2: the
+first seven are refl-checked generated facts; `hcausal` is a source-level causality obligation.]
 
 **Accessors**, defined by cases:
 - `Pkg.decl`, `.d`, `.kD`, `.src`;
@@ -238,3 +238,66 @@ re-proves them with the generator's `memTactic`/`callsTactic` steps (`rfl`/`deci
 - No full rebuild.
 - `SrcPkg`-specific lemmas (`genFacts_restrict`, `letObsB_hl`, U0's `DataOkB`) stay on `SrcPkg`. Their boundary is the
   `Pkg.gen` wrapper.
+
+
+## 6. Rev2 (review 752b0084): exact interface, compatibility rules, supersession
+**Supersession.** §1's "nothing was run" and §2's "each field is refl-checked" are superseded by §5.1/§5.2.
+`machine_source` is the equation between the GENERATED `src` and the loop. The tie to the original `quantModule` is
+G3-DECL by construction. It is not counted as derived by the kernel.
+
+**Step 1 is done.** `Tools/ShippingGen2Loop.lean` was built by `g2lp-84865a42` (exit 0, head = base). It contains:
+- `machine_traceL_of_loop_causalRA_ranA` (A-boundary; `MachineRunJQC`, `bodyStepC_of_tele`/`htr_of_tele` through
+  `genTraceL`; never `MachineRan`/`ServedReal`);
+- `LoopFacts` (verbatim premise list);
+- `SrcPkgL` (with `inh : ∀ i, Inhabited (α i)`, applied by `@`/`letI`);
+- `genTraceL`, `letObsLoop_hl`.
+
+Failed diagnostics:
+- `g2lp-97db82ab`: INVALID. It was submitted after a failed generator script, with the target file missing.
+- `g2lp-c3a564e1`: `Inhabited` for the `p.facts` projections.
+
+**The exact step-2 interface is elaborated** as `Tools/ShippingGen2Pkg.lean` (ADDITIVE; nothing existing is changed).
+Diagnostic `g2lp-cc71fc33`: exit 0, head = base; failed diagnostic `g2lp-ad1a6492`. Contents:
+- `inductive Pkg (ι) (dom) | gen (p : SrcPkg ι dom) | loop (p : SrcPkgL ι dom)`.
+- Accessors by cases, with exact types in the file: `Pkg.decl`, `d`, `kD`, `src`, `extS`, `extBS`, `lsrc`. Also
+  `Pkg.ports` and `Pkg.S`, defined exactly as `SrcPkg.ports`/`S`.
+- Theorems by cases, not fields:
+  - `Pkg.ok : p.d.ok = true`;
+  - `Pkg.body_eq`;
+  - `Pkg.lsrc_hl` (the statement of `letObsB_hl` over `Pkg.lsrc`);
+  - `Pkg.trace (O) (T) (hA) (p) (ran : MachineRunJQC O mctx cctx (D₀+1) p.decl p.d.shape m design) :
+    MachineTraceLBX (ServedRealA O p.decl p.d.shape m design) p.decl p.d m design dom p.src p.extS p.extBS p.lsrc`.
+- `Pkgs.lift P := fun c => (P c).map Pkg.gen`.
+- `DataOkLiftCompat DataOk : Pkg → Prop`: the old `DataOk` on `.gen`, `False` on `.loop`. It is used ONLY by the
+  compatibility tests and never restricts a real theorem.
+- `rfl` checks: `(Pkg.gen p).extS/extBS/lsrc/ports/S = p.extS/extBS/lsrc/ports/S`.
+
+**Refactor rule** (mechanical, file by file, per the §5.3 importer table):
+- `SrcPkg ι dom` → `Pkg ι dom` in the generic definitions and theorems;
+- `Pkgs` := `Name → Option (Pkg ι dom)`;
+- `p.gen.ok` → `Pkg.ok p`, `p.gen.body_eq` → `Pkg.body_eq p`;
+- `genTrace … p.gen ran` → `Pkg.trace … p ran`;
+- `letObsB_hl` at a package → `Pkg.lsrc_hl p`;
+- `letI := p.inh` is dropped where it only served those.
+
+No new premise is added anywhere. If a proof needs one, it stops for review.
+
+**Compatibility tests (rules, not one blanket claim).** `Tests/Gen2/PkgCompat.lean` uses the OLD texts copied from
+f1a4367f under `namespace Old`.
+- **Pointwise definitions** (`ChildShips`, `CallDec`, `MemDec`, `TopShips`, `MemOrigin`, `ExtInS`, `MemParentDataOk`, and
+  `ShipsAt` at a lifted `P`): `X (.gen p) … = Old.X p …` by `rfl`. For `P`-taking definitions, `X (Pkgs.lift P) … ↔
+  Old.X P …`.
+- **Statements that quantify over all packages** (`MemParentStmt'`, `LeafStmt`, `StepStmt`, `T1Stmt`, `ServedShipsStmt`,
+  `KeepBodyStmt`, `KeepChildStmt`):
+  - the NEW statement implies the OLD one (`new → old`), by instantiating the package quantifier at `.gen p`;
+  - or the NEW statement's body restricted to `.gen p` is equivalent to the old body.
+
+  `old → new` is NOT claimed, because the new statements include the loop case.
+- **`DataOk`-parameterised statements** (`StepStmt`, `LeafStmt`, `T1Hyp`): compared with `DataOkLiftCompat DataOk`.
+
+**Focused verification** after the refactor:
+- `Tests/Gen2/PkgCompat`;
+- re-builds of U0Check, CallDecInstance, AdaptInstance and MemParentInstance through `Pkg.gen`;
+- then step 3 (quantModule).
+
+No full rebuild.
