@@ -1,7 +1,12 @@
-# S3 group parents (`instFields ≠ []`, `closeInstsG`): the general comb child — freeze DRAFT rev0, FOR REVIEW (nothing built or proved)
+# S3 group parents (`instFields ≠ []`, `closeInstsG`): the general comb child — freeze rev1 (rev0 approved D1(a)-D5; rev1 = mechanical telescope expansion, §3.1)
 
 - **Issue:** `sparkle-gen2-step` (S3 of STEP_IFACE_FREEZE.md rev3 §4, lines 145-152; order §5 item 4).
 - **Branch:** `par/gen2-spec`. Frozen source SHA **649a6bf5**; every `file:line` below is at 649a6bf5, from a read-only survey.
+- **rev1 (2026-10-29):** rev0 approved by review (D1(a)-D5; split on the actual `mc`'s clk; `SeqFactsRN (seqPC PC)` and
+  `CombFactsRN (combPC PC)` both from `CallDec`; `hrstP`/`hclkP` deleted from `comb_inst_runN`; `rst`-absence only from
+  `CombChildRunN`'s own conjunct; scope parent slots nonempty / `ChildShips` only / fixed `n`). rev1 ONLY expands the
+  binder lists written as "as in"/"…"/"verbatim copy" (A4, A6, A7, B3) into complete Lean telescopes, each binder cited
+  `file:line` at 649a6bf5 (§3.1, §4.1). No type changes. Implementation notes: §3.2.
 - **What this is:** exact types for S3 (new files only), stages, controls, audit. No Lean is changed by this document;
   nothing in it is built or proved. Compiler/Elab and shared definitions (`Tools/ShippingGen2Defs.lean`, `MachineDepth`,
   `CallsLinkedTNR`, `Consumer`, `Connect`) are untouched. FG/T1Stmt/StepStmt unchanged; no new semantic premise.
@@ -108,16 +113,20 @@ theorem comb_inst_runN (dsn : Design) (n : Nat) {mc : Module} {bsC : List (Name 
         (connsG mc argWs outs outWs).lookup p.name = some (.ref w) →
         (cenvs[j]?).map (· p.name) = some (Pw (T - 1 - j) w)
 ```
-**A4 branch predicates and `isSeqChild` agreement** (new; D2):
+**A4 branch predicates and `isSeqChild` agreement** (new; D2). rev1: complete telescopes (§3.1 for the sources):
 ```lean
 def seqPC (PC : Name → Module → Prop) : Name → Module → Prop := fun c mc => PC c mc ∧ "clk" ∈ mc.inputs.map (·.name)
 def combPC (PC : Name → Module → Prop) : Name → Module → Prop := fun c mc => PC c mc ∧ "clk" ∉ mc.inputs.map (·.name)
-theorem isSeqChild_of_seqRunN {dsn n mc bsC outsC S} (h : SeqChildRunN children dsn n mc bsC outsC S) :
+-- `children` is the file's `variable (children : String → Option (Module × WEnv))` (explicit, first; Depth:24)
+theorem isSeqChild_of_seqRunN (children : String → Option (Module × WEnv)) {dsn : Design} {n : Nat} {mc : Module}
+    {bsC : List (Name × MixedGateBinder)} {outsC : List OutField} {S : (Nat → List Nat) → List (Nat → Nat)}
+    (h : SeqChildRunN children dsn n mc bsC outsC S) :
     Tools.ShippingInstStmtG.isSeqChild mc = true
-theorem isSeqChild_of_combRunN {dsn n mc bsC outsC S} (h : CombChildRunN children dsn n mc bsC outsC S) :
+theorem isSeqChild_of_combRunN (children : String → Option (Module × WEnv)) {dsn : Design} {n : Nat} {mc : Module}
+    {bsC : List (Name × MixedGateBinder)} {outsC : List OutField} {S : (Nat → List Nat) → List (Nat → Nat)}
+    (h : CombChildRunN children dsn n mc bsC outsC S) :
     Tools.ShippingInstStmtG.isSeqChild mc = false
 ```
-(implicit binders typed as in A3.)
 **A5 `CombFactsRN`** — verbatim copy of `SeqFactsRN` (TNR:23-41); rule: `SeqChildRunN children dsn n mc` (:34) →
 `CombChildRunN children dsn n mc`. Same binders, order, conclusion otherwise.
 ```lean
@@ -139,6 +148,7 @@ def CombFactsRN (children : String → Option (Module × WEnv)) (n : Nat) {D : D
         (kD + k) ((bsI[k]?.map (·.2)).getD .domain) = f τ
 ```
 **A6 `calls_hchildRNC`** — verbatim copy of `calls_hchildRN` (TNR:46-91); rule: ONLY `hcalls` (:62-64) changes to
+(complete telescope: §3.1)
 ```lean
     (hcalls : ∀ k c, (shape.insts.map (·.1))[k]? = some c →
       MemFacts shape lsrc nL bsI kD ext k c ∨
@@ -152,9 +162,16 @@ fit `machine_linkedTG_of`'s callback, LinkedTG:84-110). Proof plan: TNR:92-146 (
 instance uses its own `.1` conjunct with the SAME `hclk`. `neg`: `hrun.2.2.1`-style `"rst" ∉` from `CombChildRunN`,
 `comb_inst_runN` with each entry's `.2` conjunct and `⟨PC, hclk⟩ : combPC PC c mc`. One instance = one `mc`, so entries
 cannot disagree on the branch.
-**A7 compatibility (old premise ⇒ new premise; embedding check)**
+**A7 compatibility (old premise ⇒ new premise; embedding check)** (rev1: the binders of `SeqFactsRN` before `PC`,
+TNR:23-28, made implicit, in the same order and with the same types; complete in §3.1)
 ```lean
-theorem hcallsC_of_seq {…same binders as SeqFactsRN…} (PC : Name → Module → Prop) (k : Nat) (c : Name) :
+theorem hcallsC_of_seq {children : String → Option (Module × WEnv)} {n : Nat} {D : DomainConfig}
+    {shape : Sparkle.Compiler.Elab.MachineShape} {dsn : Design} {body : List Stmt} {lsrc : List (Nat → Nat)}
+    {nL : Nat} {bsI : List (Name × Sparkle.Compiler.Elab.MixedGateBinder)} {kD : Nat}
+    {extB : Nat → Signal D Bool} {ext : (j : Nat) → (n : Nat) → Signal D (BitVec n)}
+    {bsC : Name → List (Name × Sparkle.Compiler.Elab.MixedGateBinder)}
+    {outsC : Name → List OutField} {S : Name → (Nat → List Nat) → List (Nat → Nat)}
+    (PC : Name → Module → Prop) (k : Nat) (c : Name) :
     MemFacts shape lsrc nL bsI kD ext k c ∨ SeqFactsRN children n shape dsn body lsrc nL bsI kD extB ext bsC outsC S PC k c →
     MemFacts shape lsrc nL bsI kD ext k c ∨
       (SeqFactsRN children n shape dsn body lsrc nL bsI kD extB ext bsC outsC S (seqPC PC) k c ∧
@@ -163,6 +180,60 @@ theorem hcallsC_of_seq {…same binders as SeqFactsRN…} (PC : Name → Module 
 (Seq part: `seqPC PC ⊆ PC`; comb part: `SeqChildRunN`'s `"clk" ∈` against `combPC`'s `∉`, ex falso.) Plus
 `calls_hchildRN_viaC`: the accepted `calls_hchildRN` statement restated VERBATIM, proved by A6 ∘ A7 (shows A6 is no
 stronger than the accepted consumer on sequential-only data).
+
+### 3.1 rev1: complete telescopes (mechanical expansion; sources at 649a6bf5)
+**A6 `calls_hchildRNC`** (namespace `Tools.ShippingGen2`). Every binder is TNR's, same name/order/info/type, except `hcalls`:
+```lean
+theorem calls_hchildRNC
+    (children : String → Option (Module × WEnv))                               -- TNR:46
+    (n : Nat)                                                                   -- TNR:46
+    {D : DomainConfig}                                                          -- TNR:46
+    (shape : Sparkle.Compiler.Elab.MachineShape)                                -- TNR:46
+    (dsn : Design) (body : List Stmt) (lsrc : List (Nat → Nat)) (nL : Nat)      -- TNR:47
+    (bsI : List (Name × Sparkle.Compiler.Elab.MixedGateBinder)) (kD : Nat)     -- TNR:48
+    (extB : Nat → Signal D Bool) (ext : (j : Nat) → (n : Nat) → Signal D (BitVec n))   -- TNR:49
+    (bsC : Name → List (Name × Sparkle.Compiler.Elab.MixedGateBinder))         -- TNR:50
+    (outsC : Name → List OutField) (S : Name → (Nat → List Nat) → List (Nat → Nat))    -- TNR:51
+    (names : List String) (offA offO : Nat) (T : Nat) (kids : String → KT n)  -- TNR:52
+    (hreset : ∀ (iname : String) (mc : Module), (∃ conns, Stmt.inst mc.name iname conns ∈ body) →
+      moduleByName dsn.modules mc.name = some mc → ResetN dsn n mc (kids iname))      -- TNR:53-54
+    (PC : Name → Module → Prop)                                                 -- TNR:55
+    (hsv : ∀ k c (mc : Module) (iname : String) (argWs : List String) (outs : List (Nat × String))
+      (outWs : List String), (shape.insts.map (·.1))[k]? = some c →
+      (shape.instOrigins.getD k .ord).child? = none →
+      Stmt.inst mc.name iname (connsG mc argWs outs outWs) ∈ body →
+      outs.mapM (fun (k, _) => names[offO + k]?) = some outWs → (∃ e ∈ outs, e.1 = k) →
+      moduleByName dsn.modules mc.name = some mc → PC c mc)                    -- TNR:56-61
+    (hcalls : ∀ k c, (shape.insts.map (·.1))[k]? = some c →
+      MemFacts shape lsrc nL bsI kD ext k c ∨
+      (SeqFactsRN children n shape dsn body lsrc nL bsI kD extB ext bsC outsC S (seqPC PC) k c ∧
+       CombFactsRN children n shape dsn body lsrc nL bsI kD extB ext bsC outsC S (combPC PC) k c))
+                                                                                -- CHANGED (TNR:62-64, D1(a))
+    : <TNR:65-91 verbatim>
+```
+The conclusion TNR:65-91 (`∀ args outs mc iname argWs outWs, … → ∀ Pw, (∀ t, Pw t "rst" = 0) → (∀ t, Pw t "clk" = 0) → … →
+∃ cenvs, runKS … ∧ …`) is unchanged (`hrstP`/`hclkP` stay: the callback shape of `machine_linkedTG_of`,
+LinkedTG:84-110). As written: Tools/ShippingGen2GroupComb.lean.
+
+**A7 `calls_hchildRN_viaC`**: the telescope and conclusion of `calls_hchildRN`, TNR:46-91, character for character
+(binders as listed above with TNR:62-64's `hcalls : … → MemFacts … ∨ SeqFactsRN children n shape dsn body lsrc nL bsI kD
+extB ext bsC outsC S PC k c`). **A7 `hcallsC_of_seq`**: the 15 binders `children n D shape dsn body lsrc nL bsI kD extB
+ext bsC outsC S` of `SeqFactsRN` (TNR:23-28; types verbatim) as IMPLICIT binders, then `(PC) (k) (c)` (TNR:29-30) explicit;
+the statement in §3.
+
+**A4**: `children` = Depth:24 (`variable (children : String → Option (Module × WEnv))`); `dsn n mc bsC outsC S` = the
+binders of `seq_inst_runN`, Depth:98-99 (`(dsn : Design) (n : Nat) {mc : Module} {bsC : List (Name × MixedGateBinder)}
+{outsC : List OutField} {S : (Nat → List Nat) → List (Nat → Nat)}`), here all implicit; `isSeqChild` = InstStmtG:20-21.
+
+### 3.2 rev1 implementation notes (no type change)
+- New pure helper `any_clkrst_false` (`"clk" ∉`, `"rst" ∉` ⇒ `mc.inputs.any (clk ∨ rst) = false`), used by A1, A2, A4.
+- Opens beyond §3's list: `open Sparkle.Compiler.Elab (MixedGateBinder)` and
+  `open Tools.ShippingMachineCallsLinkedTNR (SeqFactsRN calls_hchildRN)` (names written unqualified in the frozen texts);
+  stage B adds `open Tools.ShippingChildBndCore (cv dv)` for `dv` in B5 (as MemShips:32).
+- `seqPC`/`combPC` are `def`s (not reducible); the proofs build/destructure them with `And.intro`/`And.left`/`And.right`.
+- A6's combinational branch does not read `"rst" ∉` itself: `comb_inst_runN` takes it from `hrun`'s own conjunct
+  (`CombChildRunN`, Defs:66). No new premise anywhere.
+- B4's `hI` from `Tools.ShippingQuadComposed.bsIn_drop_nodomain` (QuadComposed:89) on `MemParentDataOk`'s `domB` row.
 
 ## 4. Stage B — served consumer, `ComposedNW`, the parent's `ChildShips` (new file `Tools/ShippingGen2GroupServed.lean`)
 Ambient: `import Tools.ShippingGen2GroupComb`, `import Tools.ShippingGen2Connect`; `namespace Tools.ShippingGen2`; `open`s of
@@ -201,7 +272,7 @@ theorem groupHcalls_of_dec {L : Laws mref cref} {P : Pkgs ι dom} {p : Pkg ι do
           (pkgBsC P) (pkgOutsC P) (pkgS P i) (combPC (ServedPC (ShipsAt L P n) dsn)) k c)
 ```
 (`MemDec` = `MemFacts` by `memFacts_of_memDec`, Connect:93; ordinary entries by B1.)
-**B3 `machine_linkedT_callsServedC`** — verbatim copy of `machine_linkedT_callsServed` (Consumer:30-105, in namespace
+**B3 `machine_linkedT_callsServedC`** (complete telescope: §4.1) — verbatim copy of `machine_linkedT_callsServed` (Consumer:30-105, in namespace
 `Tools.ShippingGen2Consumer` reopened with Consumer:12-28 `open`s); rule: `hcalls` (:55-60) becomes the A6 form at
 `PC := ServedPC Q dsn`; `calls_hchildRN` (:93) → `calls_hchildRNC`; `hsv` discharge (:96-104) verbatim. Conclusion unchanged
 (the `ComposedNW` body).
@@ -239,6 +310,49 @@ theorem group_childShips (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι dom)
 (`Or.inl` of C6, as MemShips:83-84; `acyc` from `closeInstsG_acyclic`, ChildServe:223, via `machineRanA_of_runJQC`,
 RanABridge:38. The parent has slots, so its own branch is sequential; slotless group parents are S5.)
 
+### 4.1 rev1: B3 complete telescope (namespace `Tools.ShippingGen2Consumer`, Consumer:12-28 opens)
+Every binder is Consumer's, same name/order/info/type, except `hcalls`:
+```lean
+theorem machine_linkedT_callsServedC
+    (Q : Name → Res → Prop) (n : Nat) {declName : Name} {d : MachineData} {m : Module} {dsn : Design}   -- Consumer:30
+    {ι : Type} {dom : ι → DomainConfig}                                                                  -- Consumer:31
+    {src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}                           -- Consumer:32-33
+    {ext : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)}                                                -- Consumer:34-36
+    {extB : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool}                 -- Consumer:37-38
+    {lsrc : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)}                           -- Consumer:39-40
+    {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}                      -- Consumer:41
+    (h : Tools.ShippingMachineTraceX.MachineTraceLBX
+      (Tools.ShippingGen2.ServedP Q declName d.shape m dsn)
+      declName d m dsn dom src ext extB lsrc)                                                            -- Consumer:42-44
+    (hfe : d.shape.instFields ≠ [])                                                                      -- Consumer:45
+    (kD : Nat) (hkD : kD ≤ d.bsIn.length)                                                                -- Consumer:46
+    (hI : ∀ b ∈ d.bsIn.drop kD, b.2 ≠ .domain)                                                          -- Consumer:47
+    (hIlen : (d.bsIn.drop kD).length = d.shape.insts.length)                                             -- Consumer:48
+    (hSL : ∀ b ∈ d.slotBs ++ d.letBs, b.2 ≠ .domain)                                                    -- Consumer:49
+    (hSlen : d.slotBs.length = d.shape.layout.slots.length)                                              -- Consumer:50
+    (hLlen : d.letBs.length = d.shape.layout.lets)                                                       -- Consumer:51
+    (hNIn : machNIn d.shape = ((d.bsIn.take kD).filter (fun b => b.2 != .domain)).length)                -- Consumer:52
+    (bsC : Name → List (Name × MixedGateBinder)) (outsC : Name → List OutField)                          -- Consumer:53
+    (S : ι → Name → (Nat → List Nat) → List (Nat → Nat))                                                 -- Consumer:54
+    (hcalls : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) k c,
+      (d.shape.insts.map (·.1))[k]? = some c →
+      MemFacts d.shape (lsrc i bools bits) d.ls.length (d.bsIn.drop kD) kD (ext i bools bits) k c ∨
+      (SeqFactsRN (childMap dsn.modules) n d.shape dsn m.body (lsrc i bools bits) d.ls.length
+        (d.bsIn.drop kD) kD (extB i bools bits) (ext i bools bits) bsC outsC (S i)
+        (Tools.ShippingGen2.seqPC (Tools.ShippingGen2.ServedPC Q dsn)) k c ∧
+       Tools.ShippingGen2.CombFactsRN (childMap dsn.modules) n d.shape dsn m.body (lsrc i bools bits) d.ls.length
+        (d.bsIn.drop kD) kD (extB i bools bits) (ext i bools bits) bsC outsC (S i)
+        (Tools.ShippingGen2.combPC (Tools.ShippingGen2.ServedPC Q dsn)) k c))     -- CHANGED (Consumer:55-60)
+    : <Consumer:62-86 verbatim (the `ComposedNW` body)>
+```
+As written: Tools/ShippingGen2GroupServed.lean. B1, B2, B4, B5 were complete in rev0 and are used as written.
+
 **Residues of stages A/B (premises, not supplied):** `h` over `ServedP (ShipsAt L P n)` = G-SERVED (`ServedShipsStmt`,
 Defs:251) + G-LIFT (`ShipsRes` → `ShipsAt n`); data rows `MemParentDataOk p`, `ExtInS p` (DataOk, as M2-a/S4); case
 `hins`/`hfe`/`hsl` (this unit's scope, not an FG restriction).
@@ -263,6 +377,8 @@ Defs:251) + G-LIFT (`ShipsRes` → `ShipsAt n`); data rows `MemParentDataOk p`, 
   or falls back, report it as a coverage finding (no positive real instance), not as an S3 failure.
 - **N1 negative.** `¬ CombChildRunN … mc …` for a module with a `"clk"` input; `seqPC PC c mc → ¬ combPC PC c mc`.
 - **N2 compat.** `calls_hchildRN_viaC` (A7) type-checks against the accepted text.
+- **rev1 realisation:** P1, N1, N2, expected types (A3, A5, A6, viaC, B1, B3), audit items 3-5 and C-1 in
+  Tests/Gen2/S3GroupCheck.lean; P2 in Tests/Gen2/S3P2Probe.lean (separate target, logs only). V1 is NOT in this round.
 - **V1 vacuity.** `MemParentDataOk` decided on an existing group parent package (as MemParentInstance); `hdec`'s
   ordinary disjunct exercised by CallDecInstance's `CallDec`.
 

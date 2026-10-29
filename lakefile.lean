@@ -4619,3 +4619,15 @@ lean_lib «Tools.ShippingGen2OneOutTopO» where
 
 lean_lib «Tests.Gen2.PMem4Check» where
   roots := #[`Tests.Gen2.PMem4Check]
+
+lean_lib «Tools.ShippingGen2GroupComb» where
+  roots := #[`Tools.ShippingGen2GroupComb]
+
+lean_lib «Tools.ShippingGen2GroupServed» where
+  roots := #[`Tools.ShippingGen2GroupServed]
+
+lean_lib «Tests.Gen2.S3GroupCheck» where
+  roots := #[`Tests.Gen2.S3GroupCheck]
+
+lean_lib «Tests.Gen2.S3P2Probe» where
+  roots := #[`Tests.Gen2.S3P2Probe]
