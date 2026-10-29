@@ -1,7 +1,8 @@
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen2SlotlessLeaf
 set_option autoImplicit false
--- WRITTEN, NOT BUILT. No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g2nc3-ba4334f8 (clean snapshot, exit 0, standard axioms).
+-- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # The no-clock top contract `TopShipsNC`, the proposed R-G contract, L1-L4 and U-TOP-S2
 

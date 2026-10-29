@@ -1,8 +1,12 @@
 import Tools.ShippingGen2SlotlessTop
 import Tools.ShippingGen2TopVacuity
+import Tools.ShippingSlotlessClk
+import Tools.ShippingSlotlessKidFacts
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- WRITTEN, NOT BUILT. No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g2nc3-ba4334f8 (clean snapshot, exit 0, standard axioms).
+-- R1/R2 additions (§2b PAIR checks, §2c second closure audit, their fixtures): written after that build, NOT BUILT.
+-- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # Checks for the NC suppliers, L1-L4 and S5 stage C (S5_SLOTLESS_FREEZE.md rev1 §5, §7, §8 + rev1.1;
 TOP_CONTRACT_REVISION.md §3 + rev1.1)
@@ -23,7 +27,18 @@ TOP_CONTRACT_REVISION.md §3 + rev1.1)
    (ii) `NoTouchZ ["rst","clk"] m0.body` is proved, the run at `slSeedZ` is computed, A2 gives the run at `seedIn`, and
    its conclusion yields the outputs `[4, 3]` at `"o"`, cross-checked by direct evaluation of the `seedIn` run;
    (iii) the OLD clk binder (Defs:283) is refuted at `m0`, while every premise in (i) holds.
-4. Axioms: `checkAxioms` and `#print axioms`. -/
+4. Axioms: `checkAxioms` and `#print axioms`.
+5. **PAIR checks against the ORIGINAL declarations** (§2b; S5 freeze §8 item 1; `s5CheckPair`, S5Check:380-413,
+   extended by deletions and by a second level inside the conclusion): C1 vs `hierRefineCheck_linked`
+   (HierOptRun:532-655), C2 vs `TopShips` (definition values; only the rst and clk premises deleted), C4 vs
+   `machine_ships_hierC_run` (FitChain:1073-1232, namespace `Tools.ShippingSrm33`), C5a vs `oneOut_topShipsO`
+   (OneOutTopO:334-415), U-TOP-S2 pure vs `slotlessLeaf_topShips_of_LB` (SlotlessLeaf:180-191). Exactly the binder
+   changes the freeze lists are allowed; anything else fails. U-TOP-S2 run level vs `slotlessLeaf_ships`
+   (SlotlessLeaf:425-448) by a binder CORRESPONDENCE TABLE (§2b, in the comment there).
+6. **Second closure audit** (§2c; S5 freeze §8 item 2, as `s5Reach`): C1, C4, C5a and the U-TOP-S2 producers do not
+   reach `Tools.ShippingSlotlessClk.SeqKid`, any `Tools.ShippingSlotlessClk.*` or any
+   `Tools.ShippingSlotlessKidFacts.*` constant. Same BFS; detector controls: direct `SeqKid`, `SeqKid` through two
+   helpers in other namespaces, direct `core_runFactsS` found; an unrelated theorem not found. -/
 
 /-! ## 0. Detector fixtures for the closure audit -/
 namespace Tests.Gen2.TopNCReachHelperA
@@ -46,6 +61,28 @@ theorem badNC : True := (fun _ => trivial) @Tools.ShippingGen2.topShips_of_NC
 /-- closure-detector control: unrelated (must NOT be flagged) -/
 theorem goodUnrelated : True := trivial
 end Tests.Gen2.TopNCReachFixture
+
+/-! Fixtures of the SECOND audit (old-boundary slotless facts; as S5Check's `S5ReachFixture`) -/
+namespace Tests.Gen2.TopNCSlReachHelperA
+/-- helper 1 (uses `SeqKid`) -/
+theorem helperA : True := (fun _ => trivial) @Tools.ShippingSlotlessClk.SeqKid
+end Tests.Gen2.TopNCSlReachHelperA
+
+namespace Tests.Gen2.TopNCSlReachHelperB
+/-- helper 2 (uses helper 1) -/
+theorem helperB : True := Tests.Gen2.TopNCSlReachHelperA.helperA
+end Tests.Gen2.TopNCSlReachHelperB
+
+namespace Tests.Gen2.TopNCSlReachFixture
+/-- second-audit control: direct use of `SeqKid` -/
+theorem badDirect : True := (fun _ => trivial) @Tools.ShippingSlotlessClk.SeqKid
+/-- second-audit control: use of `SeqKid` through two helpers in other namespaces -/
+theorem badIndirect : True := Tests.Gen2.TopNCSlReachHelperB.helperB
+/-- second-audit control: direct use of a `SlotlessKidFacts` theorem -/
+theorem badKidFacts : True := (fun _ => trivial) @Tools.ShippingSlotlessKidFacts.core_runFactsS
+/-- second-audit control: unrelated (must NOT be flagged) -/
+theorem goodUnrelated : True := trivial
+end Tests.Gen2.TopNCSlReachFixture
 
 namespace Tests.Gen2.TopNCCheck
 
@@ -682,8 +719,9 @@ structure NCReach where
   opaques : Array Name := #[]
   deriving Inhabited
 
-/-- Breadth-first search of the FULL dependency closure of `root` (as `s5Reach`) for a forbidden constant. -/
-def ncReach (root : Name) (cap : Nat := 3000000) : MetaM NCReach := do
+/-- Breadth-first search of the FULL dependency closure of `root` (as `s5Reach`) for a constant `forb` flags
+(default: `ncForbidden`; §2c passes `ncSlForbidden`). -/
+def ncReach (root : Name) (cap : Nat := 3000000) (forb : Name → Bool := ncForbidden) : MetaM NCReach := do
   let env ← getEnv
   let mut out : NCReach := {}
   let mut seen : NameSet := ({} : NameSet).insert root
@@ -701,7 +739,7 @@ def ncReach (root : Name) (cap : Nat := 3000000) : MetaM NCReach := do
     if ci matches .opaqueInfo _ then out := { out with opaques := out.opaques.push c }
     let used := ci.type.getUsedConstants ++ (body.map (·.getUsedConstants)).getD #[]
     for u in used do
-      if ncForbidden u then
+      if forb u then
         return { out with hit := some (path ++ [u]) }
       unless seen.contains u do
         seen := seen.insert u
@@ -729,6 +767,305 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     if let some p := r.hit then
       throwError "NC AUDIT FAILED {c}: reaches TopShips / topShips_of_NC via {p}"
     logInfo m!"NC REACH {c}: neither Tools.ShippingGen2.TopShips nor Tools.ShippingGen2.topShips_of_NC in the closure (visited {r.visited}, no-body {r.noBody}, opaque {r.opaques.size}: implementations of opaque/partial constants are not kernel terms and are not followed)"
+
+/-! ## 2b. PAIR checks against the ORIGINAL declarations (S5 freeze §8 item 1; reviewer R1)
+
+Comparator: `s5CheckPair` (Tests/Gen2/S5Check.lean:380-413) extended by DELETIONS and by LEVELS (a binder change
+inside the conclusion, i.e. a deleted premise of the inner `∀ i …` telescope). At each level every binder of the
+ORIGINAL is matched, in order, by the copy's binder of the same name (or its `renamed` image), with the same binder
+info and the SAME type (`cmpEq`), except:
+* `deleted`: original binders the copy drops, selected by name, or by position (0-based, in that level's telescope)
+  for anonymous `→` premises; an optional string literal the deleted binder's type must mention pins WHICH premise;
+* `added`: copy binders the original lacks — exactly this list, in this order;
+* `renamed`: original name ↦ copy name, type NOT compared (the changed binder; as `s5CheckPair`);
+* `retyped`: same name, type compared after replacing one constant by another.
+Anything else (an extra, missing or reordered binder, a changed type, a listed deletion/addition that does not occur)
+FAILS. After the last level the conclusion is compared exactly (`same`) or after one constant replacement (`repl`).
+A level after the first is reached by a structural walk (`app`/`lam` compared part by part, every leaf by `cmpEq`)
+that must meet EXACTLY ONE `∀` telescope. -/
+
+inductive NCSel where
+  | name (n : Name)
+  | idx (k : Nat)
+  deriving Inhabited
+
+structure NCLevel where
+  deleted : List (NCSel × Option String) := []
+  added : List Name := []
+  renamed : List (Name × Name) := []
+  retyped : List (Name × Name × Name) := []
+  deriving Inhabited
+
+inductive NCConcl where
+  | same
+  | repl (a b : Name)
+  deriving Inhabited
+
+/-- Replace every occurrence of the constant `a` by `b` (same universe levels). -/
+def ncReplConst (a b : Name) (e : Lean.Expr) : Lean.Expr :=
+  e.replace fun s => match s with
+    | .const n us => if n == a then some (.const b us) else none
+    | _ => none
+
+def ncMentionsStr (e : Lean.Expr) (s : String) : Bool :=
+  (e.find? fun t => t == .lit (.strVal s)).isSome
+
+def ncSelHit (i : Nat) (n : Name) : NCSel → Bool
+  | .name m => m == n
+  | .idx k => k == i
+
+/-- A matched binder's type: not compared if renamed; compared after the constant replacement if retyped; else
+compared as is. -/
+def ncCmpBinder (what : String) (lv : NCLevel) (i : Nat) (nO : Name) (tC tO : Lean.Expr) : MetaM Unit := do
+  if (lv.renamed.lookup nO).isSome then return
+  if let some (_, a, b) := lv.retyped.find? (·.1 == nO) then
+    cmpEq s!"{what} binder {nO} (retyped {a} ↦ {b})" tC (ncReplConst a b tO)
+  else
+    cmpEq s!"{what} binder {i} ({nO})" tC tO
+
+/-- The conclusion after the last level. -/
+def ncCmpConcl (what : String) (concl : NCConcl) (eO eC : Lean.Expr) : MetaM Unit := do
+  if let .repl a b := concl then
+    cmpEq s!"{what} conclusion ({a} ↦ {b})" eC (ncReplConst a b eO)
+  else
+    cmpEq s!"{what} conclusion" eC eO
+
+mutual
+/-- One level: the binder-by-binder comparison with the allowed changes `lv`. -/
+partial def ncPairTele (what : String) (lv : NCLevel) (rest : List NCLevel) (concl : NCConcl)
+    (eO eC : Lean.Expr) (i : Nat) (dels : List Nat) (adds : List Name) : MetaM Unit := do
+  let eO := eO.consumeMData
+  let eC := eC.consumeMData
+  -- a deleted binder of the original
+  if let .forallE nO tO bO biO := eO then
+    let nO' := nO.eraseMacroScopes
+    if let some k := lv.deleted.findIdx? (fun sl => ncSelHit i nO' sl.1) then
+      if dels.contains k then
+        throwError "NC PAIR FAILED {what}: deletion {k} selected twice (at original binder {i}, {nO'})"
+      if let some lit := (lv.deleted[k]!).2 then
+        unless ncMentionsStr tO lit do
+          throwError "NC PAIR FAILED {what}: deleted binder {i} ({nO'}) does not mention {lit}:{indentExpr tO}"
+      logInfo m!"NC PAIR {what}: original binder {i} ({nO'}) DELETED:{indentExpr tO}"
+      return ← withLocalDecl nO biO tO fun x =>
+        ncPairTele what lv rest concl (bO.instantiate1 x) eC (i + 1) (dels ++ [k]) adds
+  -- an added binder of the copy
+  if let .forallE nC tC bC biC := eC then
+    let nC' := nC.eraseMacroScopes
+    let expected? : Option Name := match eO with
+      | .forallE nO .. => some ((lv.renamed.lookup nO.eraseMacroScopes).getD nO.eraseMacroScopes)
+      | _ => none
+    if lv.added.contains nC' && expected? != some nC' then
+      return ← withLocalDecl nC biC tC fun y =>
+        ncPairTele what lv rest concl eO (bC.instantiate1 y) i dels (adds ++ [nC'])
+  match eO, eC with
+  | .forallE nO tO bO biO, .forallE nC tC bC biC =>
+    let nO' := nO.eraseMacroScopes
+    let ren := lv.renamed.lookup nO'
+    let expName := ren.getD nO'
+    unless nC.eraseMacroScopes == expName do
+      throwError "NC PAIR FAILED {what}: binder {i} is {nC.eraseMacroScopes}, expected {expName} (original {nO'})"
+    unless biC == biO do
+      throwError "NC PAIR FAILED {what}: binder {expName} has a different binder info"
+    ncCmpBinder what lv i nO' tC tO
+    withLocalDecl nO biO tO fun x =>
+      ncPairTele what lv rest concl (bO.instantiate1 x) (bC.instantiate1 x) (i + 1) dels adds
+  | .forallE nO .., _ =>
+    throwError "NC PAIR FAILED {what}: the copy lacks original binder {i} ({nO.eraseMacroScopes}), not listed as deleted"
+  | _, .forallE nC .. =>
+    throwError "NC PAIR FAILED {what}: extra copy binder {nC.eraseMacroScopes}, not listed as added (here)"
+  | _, _ =>
+    unless dels.length == lv.deleted.length do
+      throwError "NC PAIR FAILED {what}: {dels.length} of the {lv.deleted.length} listed deletions occur"
+    unless adds == lv.added do
+      throwError "NC PAIR FAILED {what}: added binders {adds}, expected exactly {lv.added}"
+    if rest.isEmpty then
+      ncCmpConcl what concl eO eC
+    else
+      let k ← ncPairWalk what rest concl eO eC
+      unless k == 1 do
+        throwError "NC PAIR FAILED {what}: the next level met {k} ∀-telescopes, expected exactly 1"
+
+/-- The structural walk to the next level's `∀` telescope; returns how many telescopes it met. -/
+partial def ncPairWalk (what : String) (lvs : List NCLevel) (concl : NCConcl) (eO eC : Lean.Expr) :
+    MetaM Nat := do
+  match eO.consumeMData, eC.consumeMData, lvs with
+  | o@(.forallE ..), c@(.forallE ..), lv :: rest =>
+    ncPairTele what lv rest concl o c 0 [] []
+    return 1
+  | .app fO aO, .app fC aC, _ =>
+    let k₁ ← ncPairWalk what lvs concl fO fC
+    let k₂ ← ncPairWalk what lvs concl aO aC
+    return k₁ + k₂
+  | .lam nO tO bO biO, .lam nC tC bC biC, _ =>
+    unless nO.eraseMacroScopes == nC.eraseMacroScopes && biO == biC do
+      throwError "NC PAIR FAILED {what}: λ-binder {nC.eraseMacroScopes} vs original {nO.eraseMacroScopes}"
+    cmpEq s!"{what} λ-binder {nO.eraseMacroScopes}" tC tO
+    withLocalDecl nO biO tO fun x => ncPairWalk what lvs concl (bO.instantiate1 x) (bC.instantiate1 x)
+  | o, c, _ =>
+    cmpEq s!"{what} (walk)" c o
+    return 0
+end
+
+/-- The PAIR check of `copy` against `orig` (types, or definition values with `useValue`). -/
+def ncCheckPair (orig copy : Name) (lvs : List NCLevel) (concl : NCConcl) (useValue : Bool := false) :
+    MetaM Unit := do
+  let ciO ← getConstInfo orig
+  let ciC ← getConstInfo copy
+  unless ciO.levelParams.length == ciC.levelParams.length do
+    throwError "NC PAIR FAILED {copy}: universe parameters {ciC.levelParams} vs {ciO.levelParams}"
+  let mut eO := ciO.type
+  let mut eC := ciC.type
+  if useValue then
+    let some vO := ciO.value? | throwError "NC PAIR FAILED {copy}: {orig} has no definition value"
+    let some vC := ciC.value? | throwError "NC PAIR FAILED {copy}: {copy} has no definition value"
+    eO := vO
+    eC := vC
+  let what := s!"{copy} vs {orig}"
+  let k ← ncPairWalk what lvs concl eO eC
+  unless k == 1 do
+    throwError "NC PAIR FAILED {what}: met {k} top ∀-telescopes, expected exactly 1"
+  logInfo m!"NC PAIR OK {copy} against {orig}: only the listed binder changes ({lvs.length} level(s))"
+
+/-! ### U-TOP-S2 (run level): correspondence table
+
+`slotlessLeaf_ships` (SlotlessLeaf:438) : `SlotlessLeafStmt L` (SlotlessLeaf:425-435, unfolded) versus
+`slotlessLeaf_topShipsNC` (Tools/ShippingGen2TopNC.lean:305). Its conclusion is the FIRST conjunct of the original's
+(`TopShips ↦ TopShipsNC`). Binder infos are not compared (the `Stmt` binds everything explicitly).
+
+| # | original binder (`SlotlessLeafStmt`)                     | copy        | why dropped                                   |
+|---|----------------------------------------------------------|-------------|-----------------------------------------------|
+| 0-4 | `ι`, `dom`, `mref`, `cref`, `L`                         | same names  |                                               |
+| 5-8 | `p`, `mctx`, `cctx`, `w`                                | same names  |                                               |
+| 9 | `w1 : Void IO.RealWorld`                                 | DROPPED     | occurs only in the dropped `RunsTo` (19)      |
+| 10-12 | `raw`, `b`, `D`                                       | same names  |                                               |
+| 13 | `LeafDataOk p`                                          | `hdata`     |                                               |
+| 14 | `ExtInS p`                                              | DROPPED     | used only for the `ChildShips` conjunct, which the copy does not conclude |
+| 15 | `p.d.shape.insts = []`                                  | `hnoI`      |                                               |
+| 16 | `p.d.shape.layout.slots = []`                           | `hsl0`      |                                               |
+| 17 | `AdmCtx L.O.quiet mctx cctx`                            | `hA`        |                                               |
+| 18 | `JQC L.O (dv w) w`                                      | DROPPED     | unused (`_` in `slotlessLeaf_ships`)          |
+| 19 | `RunsTo (synthesizeCombinationalCore …) … w (raw, D) w1`| DROPPED     | unused (`_`)                                  |
+| 20 | `b = dropZeroWidthModule raw ∨ b = mergeChecked …`      | `hpost`     |                                               |
+| 21 | `MachineDefines … p.decl p.d.shape`                     | DROPPED     | unused (`_`)                                  |
+| 22 | `MachineTaken L mctx cctx (dv w + 1) …`                 | `ran`       |                                               |
+| 23 | `n`                                                     | `n`         |                                               |
+
+So the copy's binders are the original's minus exactly JQC / RunsTo / MachineDefines (the unused ones) PLUS `w1`
+(only in `RunsTo`) and `ExtInS` (only for `ChildShips`). The check pins each dropped binder by its type's head
+constant (`w1` by having `w`'s type) and every kept binder by name and type. -/
+
+inductive NCCorr where
+  | keep (copyName : Name)
+  | drop (head : Name)
+  | dropSameTypeAs (k : Nat)
+  deriving Inhabited
+
+def ncCheckCorr (orig copy : Name) (table : List (String × NCCorr)) (conclA conclB : Name) : MetaM Unit := do
+  let ciO ← getConstInfo orig
+  let ciC ← getConstInfo copy
+  forallTelescopeReducing ciO.type fun xs bodyO => do
+    forallTelescope ciC.type fun ys bodyC => do
+      unless xs.size == table.length do
+        throwError "NC CORR FAILED {copy}: {orig} has {xs.size} binders, the table lists {table.length}"
+      let mut kept : Array Lean.Expr := #[]
+      let mut names : Array Name := #[]
+      for k in [0:xs.size] do
+        let x := xs[k]!
+        let (lbl, c) := table[k]!
+        let ty ← inferType x
+        match c with
+        | .keep n =>
+          kept := kept.push x
+          names := names.push n
+        | .drop hd =>
+          unless ty.getAppFn.isConstOf hd do
+            throwError "NC CORR FAILED {copy}: dropped binder {k} ({lbl}) has type{indentExpr ty}\nexpected head {hd}"
+          logInfo m!"NC CORR {copy}: original binder {k} ({lbl}) DROPPED:{indentExpr ty}"
+        | .dropSameTypeAs j =>
+          unless ty == (← inferType xs[j]!) do
+            throwError "NC CORR FAILED {copy}: dropped binder {k} ({lbl}) does not have binder {j}'s type"
+          logInfo m!"NC CORR {copy}: original binder {k} ({lbl}) DROPPED:{indentExpr ty}"
+      unless kept.size == ys.size do
+        throwError "NC CORR FAILED {copy}: {ys.size} binders, the table keeps {kept.size}"
+      for k in [0:ys.size] do
+        let yd ← ys[k]!.fvarId!.getDecl
+        unless yd.userName.eraseMacroScopes == names[k]! do
+          throwError "NC CORR FAILED {copy}: binder {k} is {yd.userName.eraseMacroScopes}, expected {names[k]!}"
+        cmpEq s!"{copy} binder {names[k]!} vs {orig}" yd.type ((← inferType kept[k]!).replaceFVars kept ys)
+      unless bodyO.isAppOfArity ``And 2 do
+        throwError "NC CORR FAILED {copy}: {orig}'s conclusion is not a conjunction:{indentExpr bodyO}"
+      cmpEq s!"{copy} conclusion vs {orig}'s first conjunct ({conclA} ↦ {conclB})" bodyC
+        (ncReplConst conclA conclB (bodyO.appFn!.appArg!.replaceFVars kept ys))
+  logInfo m!"NC CORR OK {copy} against {orig}: kept/dropped exactly as the table"
+
+set_option maxHeartbeats 0 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  -- C1 (freeze §5 C1): `hrstIn`, `hrstZ`, `hfitR` deleted; `hnoR` added last; conclusion unchanged.
+  ncCheckPair ``Tools.ShippingHierOptRun.hierRefineCheck_linked
+    ``Tools.ShippingGen2SlotlessTop.hierRefineCheck_linked_noRst
+    [{ deleted := [(.name `hrstIn, some "rst"), (.name `hrstZ, some "rst"), (.name `hfitR, none)],
+       added := [`hnoR] }] .same
+  -- C2 (freeze §5 C2): definition values; in the inner `∀ i …` telescope the premises 10 (`∀ t, ins t "rst" = 0`)
+  -- and 11 (`∀ t st, seedIn b ins t st "clk" = 0`) deleted (Defs:283); nothing else.
+  ncCheckPair ``Tools.ShippingGen2.TopShips ``Tools.ShippingGen2.TopShipsNC
+    [{ deleted := [(.idx 10, some "rst"), (.idx 11, some "clk")] }] .same (useValue := true)
+  -- C4 (freeze §5 C4): `hinitW` deleted; `hslots`, `hsl0`, `hnR`, `hnC`, `hZ` added; `facts` retyped
+  -- `RunFacts ↦ RunFactsNR`; in the conclusion's inner telescope the premises 10 (rst) and 11 (clk) deleted (:1145).
+  ncCheckPair ``Tools.ShippingSrm33.machine_ships_hierC_run ``Tools.ShippingGen2SlotlessTop.machine_ships_hierC_runNR
+    [{ deleted := [(.name `hinitW, none)], added := [`hslots, `hsl0, `hnR, `hnC, `hZ],
+       retyped := [(`facts, ``Tools.ShippingGuardsSound.RunFacts, ``Tools.ShippingGen2SlotlessTop.RunFactsNR)] },
+     { deleted := [(.idx 10, some "rst"), (.idx 11, some "clk")] }] .same
+  -- C5a (freeze §5 C5a): `hsl` ↦ `hsl0`, `hrst` added; conclusion `TopShips ↦ TopShipsNC`.
+  ncCheckPair ``Tools.ShippingGen2.oneOut_topShipsO ``Tools.ShippingGen2.oneOutSl_topShipsNC
+    [{ renamed := [(`hsl, `hsl0)], added := [`hrst] }] (.repl ``Tools.ShippingGen2.TopShips ``Tools.ShippingGen2.TopShipsNC)
+  -- U-TOP-S2 pure: `hinA` added; conclusion `TopShips ↦ TopShipsNC`.
+  ncCheckPair ``Tools.ShippingGen2.slotlessLeaf_topShips_of_LB ``Tools.ShippingGen2.slotlessLeaf_topShipsNC_of_LB
+    [{ added := [`hinA] }] (.repl ``Tools.ShippingGen2.TopShips ``Tools.ShippingGen2.TopShipsNC)
+  -- U-TOP-S2 run level: the correspondence table above.
+  ncCheckCorr ``Tools.ShippingGen2.slotlessLeaf_ships ``Tools.ShippingGen2.slotlessLeaf_topShipsNC
+    [("ι", .keep `ι), ("dom", .keep `dom), ("mref", .keep `mref), ("cref", .keep `cref), ("L", .keep `L),
+     ("p", .keep `p), ("mctx", .keep `mctx), ("cctx", .keep `cctx), ("w", .keep `w), ("w1", .dropSameTypeAs 8),
+     ("raw", .keep `raw), ("b", .keep `b), ("D", .keep `D), ("LeafDataOk", .keep `hdata),
+     ("ExtInS", .drop ``Tools.ShippingGen2.ExtInS), ("insts = []", .keep `hnoI), ("slots = []", .keep `hsl0),
+     ("AdmCtx", .keep `hA), ("JQC", .drop ``Tools.ShippingChildCacheA.JQC),
+     ("RunsTo", .drop ``Tools.ShippingEntrySoundness.RunsTo), ("hpost", .keep `hpost),
+     ("MachineDefines", .drop ``Tools.ShippingMachineEntry.MachineDefines), ("MachineTaken", .keep `ran),
+     ("n", .keep `n)]
+    ``Tools.ShippingGen2.TopShips ``Tools.ShippingGen2.TopShipsNC
+
+/-! ## 2c. Second audit: no old-boundary slotless fact in the closure (S5 freeze §8 item 2; reviewer R2)
+
+The SAME BFS (`ncReach`, full reachable closure: type and explicit body of every reached constant, every namespace)
+with the forbidden set of S5Check's `s5Forbidden`: `Tools.ShippingSlotlessClk.SeqKid` and every constant with prefix
+`Tools.ShippingSlotlessClk.` or `Tools.ShippingSlotlessKidFacts.`. Every hit is a FAILURE (no whitelist).
+Limitation (as §2): implementations of opaque/partial constants are not kernel terms and are not followed. -/
+
+/-- The forbidden constants of the second audit (= `s5Forbidden`, S5Check:466-467; `SeqKid` is in the first prefix). -/
+def ncSlForbidden (n : Name) : Bool :=
+  n == ``Tools.ShippingSlotlessClk.SeqKid ||
+  (`Tools.ShippingSlotlessClk).isPrefixOf n || (`Tools.ShippingSlotlessKidFacts).isPrefixOf n
+
+/-- The audited roots of the second audit: C1, C4, C5a and the U-TOP-S2 producers. -/
+def ncSlAudited : List Name :=
+  [``Tools.ShippingGen2SlotlessTop.hierRefineCheck_linked_noRst,
+   ``Tools.ShippingGen2SlotlessTop.machine_ships_hierC_runNR, ``Tools.ShippingGen2.oneOutSl_topShipsNC,
+   ``Tools.ShippingGen2.slotlessLeaf_topShipsNC_of_LB, ``Tools.ShippingGen2.slotlessLeaf_topShipsNC]
+
+set_option maxHeartbeats 0 in
+run_cmd Lean.Elab.Command.liftTermElabM do
+  -- detector controls with the SAME search and the SAME forbidden set
+  for (c, bad) in [(``Tests.Gen2.TopNCSlReachFixture.badDirect, true),
+      (``Tests.Gen2.TopNCSlReachFixture.badIndirect, true), (``Tests.Gen2.TopNCSlReachFixture.badKidFacts, true),
+      (``Tests.Gen2.TopNCSlReachFixture.goodUnrelated, false)] do
+    let r ← ncReach c (forb := ncSlForbidden)
+    if bad && r.hit.isNone then throwError "NC SL AUDIT FAILED: the closure detector misses {c}"
+    if !bad && r.hit.isSome then throwError "NC SL AUDIT FAILED: the closure detector flags {c}"
+    logInfo m!"NC SL REACH CONTROL {c}: {toString r.hit}"
+  for c in ncSlAudited do
+    let r ← ncReach c (forb := ncSlForbidden)
+    if let some p := r.hit then
+      throwError "NC SL AUDIT FAILED {c}: reaches an old-boundary slotless constant via {p}"
+    logInfo m!"NC SL REACH {c}: no Tools.ShippingSlotlessClk.* (incl. SeqKid) / Tools.ShippingSlotlessKidFacts.* in the closure (visited {r.visited}, no-body {r.noBody}, opaque {r.opaques.size}: implementations of opaque/partial constants are not kernel terms and are not followed)"
 
 end Tests.Gen2.TopNCCheck
 

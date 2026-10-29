@@ -5,7 +5,8 @@ import Tools.ShippingHierOptRunHNoRst
 import Tools.ShippingRefineNoRst
 import Tools.ShippingReaderOutNames
 set_option autoImplicit false
--- WRITTEN, NOT BUILT. No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g2nc3-ba4334f8 (clean snapshot, exit 0, standard axioms).
+-- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # S5 stage C: the slotless one-output TOP without clock/reset premises (S5_SLOTLESS_FREEZE.md rev1 §5 + rev1.1)
 
