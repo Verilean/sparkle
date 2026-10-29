@@ -1,4 +1,9 @@
-# D-PORT: the module-port / source-package width correspondence, a ROUTE REPORT (read-only; nothing supplied)
+# D-PORT: the module-port / source-package width correspondence, a ROUTE REPORT (read-only; nothing supplied) — rev1
+
+rev1 (review a9d0d603, changes_requested): R1 L6 is UNSUPPLIED / no derivation route found in this survey (not
+refuted); R2 width equality (what `callArgsOkAt` states) separated from the stronger kind/typing candidate, `PortTie`
+and its relation to the row marked as a sketch to be proved later with fixed witnesses; R3 group L1' CONDITIONAL with its
+witnesses; D-ARGW is not a user decision yet (§3); supply child issues go under `sparkle-gen3-data-supply`.
 
 Issue `sparkle-gen3-dport`. Plan: scripts/gen2/G3GEN_CALL_PLAN.md rev1 §2.1 (`PortTie`, :65-70), §2.2 (G-DATA-CALL,
 :83-90), §2.3 (:92-96). Base: `par/gen2-spec` at 649a6bf5 (all citations are this branch unless marked `[M3]` =
@@ -43,17 +48,18 @@ Index note: `callArgsOkAt` reads `binders[nDecl + (kI + (n + a))]` (Adapt.lean:7
 |---|---|---|
 | L0 instance stmt of call k exists, in trace names | DONE: MachineEntry:664-667 + NamesEq (OneOutNames:29, :83; used at OneOutTop:112-116) | DONE: MachineEntry:720-724 (`(k, field) ∈ outs`, `args`) |
 | L1 `argWs[j] = names[nIn+kI+n+args[j]]` (a let port) | DONE: `CallStmt` (MachineInst:192-193) | DONE: `CallStmtG` (MachineInstG:23) |
-| L1' served module = callee's shipped result | CONDITIONAL on `MachineTraceLBX (ServedP (ShipsRes L P) …)`: `hx.2` gives `ShipsRes` (FitChain:930-943) | DONE via `core_callPorts_ranA` (`RealChildA`, `mc = y.1`, RunFactsA:432-433) plus `ServedP` |
+| L1' served module = callee's shipped result | CONDITIONAL on `MachineTraceLBX (ServedP (ShipsRes L P) …)`: `hx.2` gives `ShipsRes` (FitChain:930-943) | CONDITIONAL: `core_callPorts_ranA` (RunFactsA:428-436) gives, per output conn, some `k`, `y` with `RealChildA O (insts[k]).1 y ∧ mc = y.1`; that this `y` is the `ShipsRes`/package `q` that `ServedP` selects for the same call (same `k`, same `mc`, `P (insts[k]).1 = some q`) is a SEPARATE supply, not given by the table entry; witnesses to fix: the instance stmt, `k`, `mc`, `y`, `q`, the single `MachineTraceLBX` |
 | L2 `declWidth b argWs[j] = kindTy(binders[nDecl+kI+n+a]).bitWidth` | MISSING; composable (§0 "run port facts"): same steps as OneOutTop:142-190 at P2 index `kI+n+a` instead of `k`; `hinW` (ClosedPorts:221) gives width ≠ 0, so the wire survives `dropZeroWidthModule`/`mergeChecked` (OneOutTop:82-95). Premises those of `core_callPorts_oneA` | MISSING; same, under the premises of `core_callPorts_ranA` |
 | L3 binder ↔ source binders | DONE (definitional: the shape's binder list IS `p.d.shape.binders`, Elab:5183-5185) | DONE |
 | L4 arity `args.length = q.ports.length` | MISSING only as a composition; every piece exported: `args.mapM … = some argWs` (length), `inPorts.length = argWs.length` (CallStmt), `(argPorts mc).length = q.ports.length` (Defs:65 / Depth:70 with `bsC = q.d.bsIn.take q.kD`, Defs:90; `Pkg.ports` Pkg.lean:80) | same via CallStmtG + `ChildRunN` (both branches) |
 | L5 child: `(argPorts mc).map (·.ty.bitWidth) = q.portWidths` | MISSING EXPORT. Derivable at each producer (`calls_ports`-style `hargs` + `machPorts_tys` + `argPorts` kept by the cleanup, C6:79) but `ChildShips`/`ChildRunN` export only the length | same |
-| L6 emitted tie `declWidth b argWs[j] = (argPorts mc)[j].ty.bitWidth` | **REFUTED as a run/closing consequence**: no check in `instStmt` (Machine.lean:272-288), `closeInsts` (:409-427), `linkedOk`, `kidsCombB`, `hierGate`, `instOutWidthsOk` (outputs only) mentions an input width. A width-mismatched (M, D) passes every listed check; so `PortTie` is NOT implied by the closing (as the plan anticipated, :69-70). This is a statement about the exported checks, not a claim that such a run exists | same (`instStmtG`, MachineInstG:30-54) |
-| L6' source tie `kind(binders[nDecl+kI+n+a]) = kind(q.ports[j])` (what `callArgsOkAt` actually states) | UNPROVED; source reading: a FRESH argument let is pushed with the callee SIGNATURE kind `kinds[j]` (Elab:4070; `kinds` = `telescopeKinds` of c's declared type, Elab:4366-4383). Two reuse branches keep an EARLIER kind: `_machLet j` fvar (Elab:3746) and same-value dedup (Elab:3748-3749); equality there needs Lean typing of `c args` + canonical literal reading (Elab:2342). Callee side: `q.d.bsIn` comes from `machineShape?` on `entryConst … ci` (value-lambda binders, possibly `userInliner`-rewritten), not from `telescopeKinds ci.type`; equal only via Lean typing (+ P5-like inliner fact) and env identity between the parent's `envR'` and the callee read (same gaps as S4_WID §1). Not refuted; no counterexample known | same reader path (`machInstanceS`, Elab:4085-) — not separately audited for arg kinds |
+| L6 emitted tie `declWidth b argWs[j] = (argPorts mc)[j].ty.bitWidth` | **UNSUPPLIED; no derivation route found in this survey.** None of the checks read here (`instStmt`, Machine.lean:272-288; `closeInsts`, :409-427; `linkedOk`; `kidsCombB`; `hierGate`; `instOutWidthsOk`, outputs only) compares an input width directly. That alone does NOT show non-implication: other premises of the run (typing of the source, the reader, the cache) may still entail the tie in combination. No counterexample with fixed premises is exhibited; refuting it would need one | same (`instStmtG`, MachineInstG:30-54) |
+| L6w width equality (what `callArgsOkAt` states, Adapt:73-77): for each `j < ws.length`, the Option lookup `insts[k]? >>= (·.2.1[j]?) >>= (a ↦ binders[nDecl+(kI+(n+a))]?)`, mapped to `(kindTy bn.2).bitWidth`, equals `ws[j]?` | UNSUPPLIED (needed for the row) | same |
+| L6' kind/typing equality `kind(binders[nDecl+kI+n+a]) = kind(q.ports[j])` — a STRONGER SUFFICIENT candidate for L6w (kind equality ⇒ bitWidth equality), not what `callArgsOkAt` states | UNPROVED; source reading: a FRESH argument let is pushed with the callee SIGNATURE kind `kinds[j]` (Elab:4070; `kinds` = `telescopeKinds` of c's declared type, Elab:4366-4383). Two reuse branches keep an EARLIER kind: `_machLet j` fvar (Elab:3746) and same-value dedup (Elab:3748-3749); equality there needs Lean typing of `c args` + canonical literal reading (Elab:2342). Callee side: `q.d.bsIn` comes from `machineShape?` on `entryConst … ci` (value-lambda binders, possibly `userInliner`-rewritten), not from `telescopeKinds ci.type`; along this reading the equality would need Lean typing (+ P5-like inliner fact) and env identity between the parent's `envR'` and the callee read (same gaps as S4_WID §1). Not refuted; no counterexample known | same reader path (`machInstanceS`, Elab:4085-) — not separately audited for arg kinds |
 
-Consequence: with L2 and L5 proved, L6 is still needed and is exactly the source equality L6'; the emitted modules carry
-two independent copies of source widths. So the route "closing ⇒ PortTie ⇒ callArgsOkAt" cannot close from exports
-alone; only the ARITY half (L4) is run-derivable today.
+Consequence: with L2 and L5 proved, L6 (equivalently L6w at the source) is still needed; a supply candidate is L6'
+(stronger). In this survey no route "closing ⇒ PortTie ⇒ callArgsOkAt" from the exports was found; only the ARITY
+half (L4) was found run-derivable. This is a finding of the survey, not a proof that no such route exists.
 
 ## 2. Proposed statements (text only, for review)
 ```lean
@@ -70,7 +76,8 @@ theorem core_callArgPorts_oneA … (same premises as core_callPorts_oneA, OneOut
 def ChildPortTys (q : Pkg ι dom) (mc : Module) : Prop :=
   (argPorts mc).map (·.ty) = q.ports.map (fun b => kindTy b.2)
 
-/-- PortTie (plan :65-68), made precise: the emitted widths of call k's argument wires equal the child's port widths. -/
+/-- PortTie (plan :65-68), SKETCH ONLY: `names`, `nIn`, `kI`, `n` are unbound here; a real statement must fix `hk`, the
+successful `mapM`, the same instance stmt / child module / package, the arity, and the existence of the parent binders. -/
 def PortTie (p : Pkg ι dom) (b : Module) (k : Nat) (mc : Module) : Prop :=
   ∀ args argWs, (p.d.shape.insts.map (·.2.1))[k]? = some args →
     (args.mapM fun j => names[nIn + kI + n + j]?) = some argWs →
@@ -82,11 +89,14 @@ def ArgDeclAt (c : Name) (kinds : List MixedGateBinder) : Prop := -- for every r
 -- + "R1-arg": the parent's let kind at args[j] is kinds[j] (fresh pushes: by construction of the partial machInstance;
 --   reuse branches: a typing premise), + "callee ports = telescope": (q.d.bsIn.take q.kD) kinds = kinds (P5-like).
 ```
-Composition: L0+L1+L2 (parent) and L1'+L5 (child) give `PortTie ⇔ callArgsOkAt p.d p.kD k q.portWidths` (given L4);
-i.e. `PortTie` is a RE-STATEMENT of the row on emitted modules, not a supplier. The supplier is L6' (ArgDeclAt +
-R1-arg + callee-ports-telescope + env identity), or a per-declaration `decide` row, or a compiler guard
-(`wireWidth m.wires w == p.ty.bitWidth` per input in `instStmt`/`instStmtG`; would make L6 a run fact; compiler change,
-user decision — the reviewer declined the OUTPUT analogue, S4_WID_SUPPLY.md:74).
+Composition (PROPOSED, to be proved later; not an established equivalence): with `hk`, the successful `mapM`, the same
+instance stmt / child / package fixed, L4 (arity) and the parent binders' existence, L0+L1+L2 (parent) and L1'+L5
+(child) are expected to relate `PortTie` to `callArgsOkAt p.d p.kD k q.portWidths`. If so, `PortTie` re-states the row
+on emitted modules rather than supplying it. Candidate suppliers of L6w: source-side derivation of the widths (L6' kind
+equality is one stronger candidate; it needs ArgDeclAt-like facts, R1-arg, callee-ports-telescope, env identity), a
+per-declaration `decide` row (an intermediate, supplier-local result, not general coverage), or a compiler guard
+(`wireWidth m.wires w == p.ty.bitWidth` per input in `instStmt`/`instStmtG`; compiler change — only proposed for a user
+decision if the source-side derivation is shown to need it; the reviewer declined the OUTPUT analogue, S4_WID_SUPPLY.md:74).
 
 Unsupplied (named): G-ONEOUT-WID / `hW` (result side, S4_WID); the new ARG analogue (call it G-ARG-WID);
 `MachineDefines.shape_eq` with conditions (i)-(iii) (S4_WID_SUPPLY.md:128) — needed if L5 is taken from a generator
@@ -96,23 +106,26 @@ table instead of the served child; `ResDeclAt`/`P5At` and their ARG analogues; e
 ## 3. Recommended next units (route only)
 1. **U-ARITY** (small, proof): `args.length = q.ports.length` from `MachineTraceLBX (ServedP (ShipsRes …))` +
    `CallStmt`/`CallStmtG` + `ChildRunN` length conjunct. Discharges `hlenK` run-locally. No interface change.
-   SUPPLY unit → dependency of `sparkle-fg-final`.
-2. **U-ARGW-PARENT** (proof): `core_callArgPorts_oneA` / `_ranA` (§2), template OneOutTop:51-196. No interface change.
-   Only useful together with 3 and 4 (alone it supplies nothing).
-3. **U-CHILD-PORTTYS** (design + revision table first): export `ChildPortTys` from `ChildShips` (or `ChildRunN`
+   SUPPLY unit: full-type freeze first; child issue under `sparkle-gen3-data-supply` (which reaches FG).
+2. **U-ARGW-PARENT** (survey, then proof): `core_callArgPorts_oneA` / `_ranA` (§2), template OneOutTop:51-196. No
+   interface change. Only useful together with 3 and 4 (alone it supplies nothing).
+3. **U-CHILD-PORTTYS** (change-site table first; the shared interface is NOT changed yet): export `ChildPortTys` from `ChildShips` (or `ChildRunN`
    both branches). Shared-interface strengthening: needs an S4_WID §4.1-style table (every producer in §0's grep list,
    memory producers Srm4Run:96 / Srm4Mixed:244, `childRunN_of_seq` AComb:18, PkgCompat copies, GEN2_DEFS.lean.txt).
-4. **D-ARGW** (decision unit, user): pick the supplier of L6': (a) ArgDeclAt + R1-arg + callee-telescope premises
-   (moves the gap, like route (a) of S4_WID), (b) per-declaration decided `callArgsOkAt` row with a `kidInsP`
-   table tie (analogue of `kidOutsP`, DataBridge:66-77; supplier-local), or (c) compiler input-width guard. Until
-   decided, G-ARG-WID stays a named open gap row next to G-ONEOUT-WID.
-5. **G-DATA-CALL** (M3) = 1 + (2+3+chosen 4, or 4(b) alone). Whichever of 2/3/4 is chosen is a SUPPLY unit and must be
-   added as a dependency of `sparkle-fg-final`; units 1 and the chosen L6' supplier are mandatory for it.
+4. **SRC-ARGW** (design, then supply; NOT a user decision now): make the source-side derivation of L6w concrete as full
+   types and a supplier from the existing plan (reader / let-index facts, Elab:4070 fresh pushes vs the reuse branches
+   :3746, :3748-3749; callee `bsIn` vs `telescopeKinds`). Adding unsupplied Props (ArgDeclAt-like premises) or a
+   per-declaration decided row (with a `kidInsP` tie, analogue of `kidOutsP`, DataBridge:66-77) are only intermediate
+   results: they leave general coverage open and cannot complete FG. A compiler change or a final-guarantee change is
+   brought to the user (impact, cost, recommendation) only if this derivation shows it is actually needed. Until then
+   G-ARG-WID stays a named open gap row next to G-ONEOUT-WID.
+5. **G-DATA-CALL** (M3) = 1 + 2 + 3 + the supplier from 4. Supply units go as child issues under
+   `sparkle-gen3-data-supply` (its FG dependency already exists; no duplicate FG-direct dependency).
 
 ## 4. Not claimed
 - No lemma above is written or built; "composable" means the cited ingredients exist, not that the proof goes through.
-- L6 "refuted" is about the exported closing checks only; no successful width-mismatched run is exhibited, and the
-  source reading (L6') suggests none exists, but this is neither proved nor measured.
+- L6 is not refuted: only the absence of a direct input-width check was observed, and no derivation route was found in
+  this survey; no width-mismatched successful run is exhibited, and none is claimed to exist or not to exist.
 - The group reader path (`machInstanceS`) and memory-origin calls (handled by `MemDec`, never by the adapter) were not
   audited for argument kinds. The producer grep list in §0 is not a completeness audit.
 - No change to `T1Hyp`, `ChildShips`, `ChildRunN`, `DataOkB`, FG or the compiler is proposed as applied.
