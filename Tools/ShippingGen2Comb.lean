@@ -17,9 +17,11 @@ open Tools.ShippingMachineShipsComb (regNexts_assigns memNexts_assigns applyNext
 theorem memFree_of_assigns : ∀ {body : List Stmt}, body.all isAssign = true → Tools.ConeFold.memFree body
   | [], _ => trivial
   | st :: rest, h => by
-    simp only [List.all_cons, Bool.and_eq_true] at h
+    have h2 : rest.all isAssign = true := by
+      simp only [List.all_cons, Bool.and_eq_true] at h; exact h.2
+    have ih := memFree_of_assigns (body := rest) h2
     cases st with
-    | assign l e => exact memFree_of_assigns h.2
+    | assign l e => exact ih
     | _ => simp [isAssign] at h
 
 /-- **S1** (frozen type, §4 S1). -/
