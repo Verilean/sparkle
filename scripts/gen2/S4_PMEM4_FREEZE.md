@@ -203,3 +203,16 @@ lines by a script (verbatim except the listed changes; the per-file diff against
 `core_bodyEq_ranO` keeps the proof of `core_kids_facts_ranA` up to `hbout` (TailsA:68-148) and ends with `exact hbody'`.
 The test imports Tests.Compiler.MemNameCollisionPlainCertTest (for `collPlainCD_D`); `memShape0` is restated as
 `memShape0P` (Tests/Gen2/DataBridgeCheck.lean is not imported).
+
+### 7.1 Result (accepted, limited: enumerated premise removal/replacement + partial dependency audit)
+- `g2pm4-0efea824`: copies built, 14 TYPE OK, 17 `#print axioms` standard.
+- `g2pm4b-d0ef6371` (audit rev3; proofs unchanged): fixtures detected as intended (hidden 4-level LOGICAL, direct LOGICAL,
+  `fxCompRoot`/`fxComp2Root` BOOLCHECK, `fxNatRoot` UNCLASSIFIED, `FxOp` UNCHECKED, original `oneOutWidthAt` LOGICAL);
+  14 copies: LOGICAL 0, BOOLCHECK 0, UNCLASSIFIED 0. In this run there was no depth cut (the code keeps a depth cap of
+  1000000) and the fuel (400000) was not exhausted; UNEXPLORED per root (146-163) are opaque/partial constants inside
+  computational bodies (e.g. partial compiler functions `machChain`, `machConv`, `machNorm`, `passM`, `zetaAll`, Elab
+  IO.Ref caches); 52 UNCHECKED and up to 12 SKIPPED per root are printed with reason and path. Superseded:
+  `g2pm4a-f1a707e6` (depth cap 3).
+- Limits: the audit is a dependency search. BOOLCHECK is a conservative detection class, not a proof that the condition
+  is semantically required. No absence is claimed beyond UNCHECKED / UNEXPLORED / SKIPPED. hW, coverage, G-SERVED, S3,
+  S5, StepStmt stay open; this is not M2/FG completion.
