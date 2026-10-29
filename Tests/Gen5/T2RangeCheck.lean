@@ -1,7 +1,7 @@
 import Tools.ShippingGen5T2Range
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: written without running Lean (unit rule: no lake/lean in this worker). No sorry / axiom / native_decide.
+-- Built in g5tr2-e57eb431 (clean, exit 0, 739 jobs; TYPE 9, MUTANT 13, AXIOMS 11 standard). No sorry / axiom / native_decide.
 
 /-! # T2-SRCRANGE / T2-RANGE / T2-UNIQ checks (Tools/ShippingGen5T2Range.lean)
 
@@ -9,7 +9,8 @@ Design source: scripts/gen5/DGEN_FREEZE.md §7 (rev2.1 at `par/gen5-t2` 59889446
 statements below are the §7 texts (§7.1 `Pkg.src_range`, §7.2 `CallOutWidthAt` and the two bridges, §7.3
 `outRange_of_bitWidth` / `callOutRange_of_widths`, §7.4 `callField_unique_of_ok`) and the two collapse lemmas of §7.4,
 written independently and compared mechanically (`Tests.Gen3.ExpectedType.checkExpected`); each has at least one
-meaning-changing mutant that must be rejected (`checkMutant`; signature / defeq rejections). Then axioms.
+mutant written to change its meaning that must be rejected (`checkMutant`). A rejection is a signature / defeq
+rejection, not a semantic counterexample. Then axioms.
 
 `callOutRange_of_widths` is CONDITIONAL on `houtTy` and `CallOutWidthAt` (explicit inputs); nothing here supplies
 them. -/

@@ -1,7 +1,8 @@
 import Tools.ShippingGen5T2Tie
 import Tools.ShippingGen2FitChain
 set_option autoImplicit false
--- NOT BUILT: written without running Lean (unit rule: no lake/lean in this worker). No sorry / axiom / native_decide.
+-- Built in g5tr2-e57eb431 (clean, exit 0, 739 jobs; g5tr-0ab30f0f failed on the missing `letI := p.inh`, fixed in e57eb431).
+-- No sorry / axiom / native_decide.
 
 /-! # T2-SRCRANGE, T2-RANGE, T2-UNIQ (DGEN_FREEZE.md §7, rev2.1 at `par/gen5-t2` 59889446, + rev2.2 review notes)
 
