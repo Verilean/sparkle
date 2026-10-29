@@ -285,7 +285,7 @@ theorem group_composedNW (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι dom)
   have hLlen := data_hLlen p.d hok
   have hNIn := data_hNIn p.d p.kD hok hco hslots
   -- AUDIT 1: the ONE `h`, whole; AUDIT 2: `hcalls` at the lambda's `i bools bits`
-  exact Tools.ShippingGen2Consumer.machine_linkedT_callsServedC (ShipsAt L P n) n h hfe p.kD hkD hI hIlen hSL
+  exact Tools.ShippingGen2Consumer.machine_linkedT_callsServedC (mref := mref) (cref := cref) (ShipsAt L P n) n h hfe p.kD hkD hI hIlen hSL
     hSlen hLlen hNIn (pkgBsC P) (pkgOutsC P) (pkgS P)
     (fun i bools bits k c hc => groupHcalls_of_dec (L := L) n D raw.body hfe hdec i bools bits k c hc)
 
