@@ -1,7 +1,7 @@
 -- scripts/gen2/GEN2_DEFS.lean.txt — exact text of the gen2 definitions and statements (GENERAL_SPEC.md rev1 §1, §3, §8).
--- Status: FROZEN TEXT, NOT YET ELABORATED. Unit U0 (GENERAL_SPEC.md §8.1) elaborates it verbatim, as
--- Tools/ShippingGen2Defs.lean. Every `…Stmt` is a `def … : Prop` (a statement, no proof, no sorry).
--- Any correction U0 needs (a name, an argument order) is recorded as a deviation and re-reviewed.
+-- Status: elaborated verbatim as Tools/ShippingGen2Defs.lean (cmp-identical; GENERAL_SPEC.md §8.1 lists the builds).
+-- Every `…Stmt` is a `def … : Prop` (a statement, no proof, no sorry). Non-semantic corrections (names, opens,
+-- annotations) are made in U0 and collected for the result review; semantic changes are listed in GENERAL_SPEC §0.
 
 import Tools.ShippingSrm33Core
 import Tools.ShippingMachineDepthRunRA
@@ -137,10 +137,58 @@ abbrev MachineTaken {mref cref} (L : Laws mref cref) (mctx : Meta.Context) (cctx
 def ShipsRes {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (c : Name) (r : Res) : Prop :=
   RealChildA L.O c r ∧ ∃ q n, P c = some q ∧ q.decl = c ∧ ChildShips q n r.1 r.2
 
-/-- The child-cache invariant: every `sparkleChildCache` entry ships. `sparkleSubModuleCache` (the memo of route 5)
-is a different map and is NOT covered (gap G-MEMO). -/
-def CacheShips {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (m : Std.HashMap Name Res) : Prop :=
-  ∀ c r, m.get? c = some r → ShipsRes L P c r
+/-- The child-cache invariant, ON THE REACHED declarations: every `sparkleChildCache` entry of a reached name ships.
+Entries of other names (children the translator synthesises on other routes) are unconstrained, so their insertion
+keeps it. `sparkleSubModuleCache` (the memo of route 5) is a different map and is NOT covered (gap G-MEMO). -/
+def CacheShips {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    (m : Std.HashMap Name Res) : Prop :=
+  ∀ c r, Reach c → m.get? c = some r → ShipsRes L P c r
+
+/-- `ShipsRes` at a FIXED height `n` (what consumer 2 needs at its `n`; `ShipsRes` gives some height, G-LIFT
+bridges). -/
+def ShipsAt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (n : Nat) (c : Name) (r : Res) : Prop :=
+  RealChildA L.O c r ∧ ∃ q, P c = some q ∧ q.decl = c ∧ ChildShips q n r.1 r.2
+
+/-- **The cache/child invariant at depth `D`**: `JQC` and `CacheShips` on the reached names. -/
+def InvAt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (D : Nat) :
+    Void IO.RealWorld → Prop :=
+  fun w => JQC L.O D w ∧ CacheShips L P Reach (cv w)
+
+/-- **The success half of the induction hypothesis at depth `D`**: every SUCCESSFUL run of a REACHED declaration's
+entry from an `InvAt D` world, in an admissible context, ships. (The all-outcome cache half is `ChildKeepsInv` /
+`BodyKeepsInv`; `IHAt` alone says nothing about throwing runs.) -/
+def IHAt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (D : Nat) : Prop :=
+  ∀ c, Reach c → ∀ (mctx : Meta.Context) (cctx : Core.Context) (u u' : Void IO.RealWorld) (r : Res),
+    AdmCtx L.O.quiet mctx cctx → InvAt L P Reach D u →
+    RunsTo (synthesizeCombinational c) mctx mref cctx cref u r u' →
+    ShipsRes L P c r
+
+/-- **All-outcome keep of the body at depth `D`** (the `BodyKeepsP` shape, ChildPinC.lean:305, with `JQP` replaced by
+`InvAt`): the synthesis body of EVERY declaration, on every route, keeps `InvAt` — returning or throwing (`Keeps`
+constrains `endW` of every outcome and asks `ErrOk`, ChildInv.lean:306-316). -/
+def BodyKeepsInv {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (D : Nat) : Prop :=
+  ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx L.O.quiet mctx cctx →
+    ∀ (declName : Name) (tenv : Lean.Environment) (b : Bool) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+      Keeps mctx mref cctx cref (InvAt L P Reach D)
+        (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
+          declName [] false true ci isInst)
+
+/-- **All-outcome keep of the child entry at depth `D`**, for EVERY name (`ChildSynthA`, ChildFrontCP.lean:240). -/
+def ChildKeepsInv {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (D : Nat) : Prop :=
+  Tools.ShippingChildFrontCP.ChildSynthA L.O (InvAt L P Reach D)
+
+/-- **G-KEEP-BODY** (generalises `bodyKeepsP_of_tele`, ChildPinC.lean:329, whose components take a `StableA`
+invariant): the child hook at `D` gives the body's all-outcome keep at `D`. -/
+def KeepBodyStmt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) : Prop :=
+  ∀ D, ChildKeepsInv L P Reach D → BodyKeepsInv L P Reach D
+
+/-- **G-KEEP-CHILD** (generalises `childKeepsP_of_body`, ChildPinC.lean:346): the child entry at `D` keeps `InvAt D`
+on every outcome, from the body's keep one level deeper (the nested run, including a child that throws after
+partially synthesising its own children) and, for the insertion of a REACHED name's result, the SUCCESS semantics
+`IHAt` of that run. -/
+def KeepChildStmt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) : Prop :=
+  ∀ D, 1 ≤ D → (D < sparkleSynthDepthLimit → BodyKeepsInv L P Reach (D + 1)) →
+    IHAt L P Reach D → ChildKeepsInv L P Reach D
 
 /-- **The hypotheses of T1 on the reached declarations.** `DataOk` is a PLACEHOLDER Prop parameter: U0 fixes it to
 a concrete conjunction of Bool checks over `q.d` (GENERAL_SPEC §4.4); no unit may instantiate it so that a statement
@@ -164,14 +212,6 @@ structure T1Hyp {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name
   /-- Static call closure of `Reach` (its match with the translator's actual child calls is G-REACH). -/
   closed : ∀ c, Reach c → ∀ q, P c = some q → ∀ k (hk : k < q.d.shape.insts.length),
     (q.d.shape.instOrigins.getD k .ord).child? = none → Reach (q.d.shape.insts[k]).1
-
-/-- **The induction hypothesis at depth `D`**: every run of a REACHED declaration's entry from a depth-`D` world, in
-an admissible context, with the cache invariant, ships and keeps the invariant. -/
-def IHAt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (D : Nat) : Prop :=
-  ∀ c, Reach c → ∀ (mctx : Meta.Context) (cctx : Core.Context) (u u' : Void IO.RealWorld) (r : Res),
-    AdmCtx L.O.quiet mctx cctx → JQC L.O D u → CacheShips L P (cv u) →
-    RunsTo (synthesizeCombinational c) mctx mref cctx cref u r u' →
-    ShipsRes L P c r ∧ CacheShips L P (cv u')
 
 /-- `ServedRealGA` (ServedRealA.lean:45-58) with `RealChildA O` replaced by `Q`; every other part VERBATIM (the
 `connsG` instance, the `machPorts` map of `outs`, `∃ e ∈ outs, e.1 = k`, the same `ids`/`cache`). -/
@@ -207,39 +247,25 @@ def ServedP (Q : Name → Res → Prop) (declName : Name) (shape : MachineShape)
 
 /-- **G-SERVED**: the existing producer of `MachineTraceLBX (ServedRealA O …)` (`genTrace` on the run,
 QuadComposed.lean:156, through `synthesizeCombinationalCore_machine_soundRA_A`) generalised to
-`X := ServedP (ShipsRes L P)`: in a run of a reached declaration from a `CacheShips` world, under the IH one level
+`X := ServedP (ShipsRes L P)`: in a run of a reached declaration from a `CacheShips` world, under both halves of the IH one level
 deeper, the trace holds with every served non-memory instance shipping — THE `(mc, Dc)` of call `k`, with the same
-`ids`/`cache` witness as the trace — and `CacheShips` holds at the end. -/
+`ids`/`cache` witness as the trace. (`CacheShips` at the end is `BodyKeepsInv`'s, not this statement's.) -/
 def ServedShipsStmt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) : Prop :=
   T1Hyp L P Reach DataOk →
   ∀ (p : SrcPkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld)
     (raw : Sparkle.IR.AST.Module) (D : Design),
-    Reach p.decl → P p.decl = some p → AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w →
-    CacheShips L P (cv w) → IHAt L P Reach (dv w + 1) →
+    Reach p.decl → P p.decl = some p → AdmCtx L.O.quiet mctx cctx → InvAt L P Reach (dv w) w →
+    IHAt L P Reach (dv w + 1) → ChildKeepsInv L P Reach (dv w + 1) →
     RunsTo (synthesizeCombinationalCore p.decl [] false) mctx mref cctx cref w (raw, D) w' →
     Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsRes L P) p.decl p.d.shape raw D)
-        p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc ∧
-      CacheShips L P (cv w')
+        p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc
 
-/-- The child-entry hook restricted to a set of names (`ChildSynthA`, Tools/ShippingChildFrontCP.lean:240, asks it
-of EVERY name, which the IH cannot give). -/
-def ChildSynthOn {mref cref} (L : Laws mref cref) (R : Name → Prop) (I : Void IO.RealWorld → Prop) : Prop :=
-  ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx L.O.quiet mctx cctx →
-    ∀ c, R c → Keeps mctx mref cctx cref I (synthesizeChild c)
-
-/-- **G-REACH**: the machine synthesis of `p` keeps every invariant that the child entry keeps ON `p`'s ordinary
-callees. (`Keeps` constrains the end world of every outcome, `endW`, ChildInv.lean:315, so caught exceptions are
-covered: G-EXC reduces to this.) If the translator can call the child entry on other names, `R` must be widened to
-them and `T1Hyp.closed` with it; that mismatch is the risk this statement isolates. -/
-def ReachStmt {mref cref} (L : Laws mref cref) : Prop :=
-  ∀ (p : SrcPkg ι dom) (I : Void IO.RealWorld → Prop) (mctx : Meta.Context) (cctx : Core.Context),
-    AdmCtx L.O.quiet mctx cctx →
-    ChildSynthOn L (fun c => ∃ k, ∃ hk : k < p.d.shape.insts.length, (p.d.shape.insts[k]).1 = c ∧
-      (p.d.shape.instOrigins.getD k .ord).child? = none) I →
-    ∀ (tenv : Lean.Environment) (b : Bool),
-      Keeps mctx mref cctx cref I (synthesizeMachineCertified
-        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) p.decl p.d.shape)
+/-- `PC` for consumer 2 from the served evidence (the right disjunct of `ServedGP`): the module is in the design and is
+served to call `k`'s callee by a `Q` result whose modules are in the design. -/
+def ServedPC (Q : Name → Res → Prop) (dsn : Design) : Name → Sparkle.IR.AST.Module → Prop :=
+  fun c mc => moduleByName dsn.modules mc.name = some mc ∧
+    ∃ Dc, Q c (mc, Dc) ∧ ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g
 
 /-! ## 5. The one-level rule and the first theorems (statements) -/
 

@@ -4457,3 +4457,9 @@ lean_lib «Tests.Compiler.SharedLeafCensusControlTest» where
 
 lean_lib «Tools.ShippingGen2Defs» where
   roots := #[`Tools.ShippingGen2Defs]
+
+lean_lib «Tools.ShippingGen2Consumer» where
+  roots := #[`Tools.ShippingGen2Consumer]
+
+lean_lib «Tools.ShippingGen2Connect» where
+  roots := #[`Tools.ShippingGen2Connect]
