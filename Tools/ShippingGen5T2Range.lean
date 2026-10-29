@@ -86,6 +86,7 @@ theorem t2r_srcRange_gen (p : SrcPkg ι dom) : ∀ (i : ι) (bools : Nat → Sig
     p.d.shape.layout.outs[k']? = some o → (p.src i bools bits)[k']? = some f →
     ∀ τ, f τ < 2 ^ o.width := by
   intro i bools bits k' o f ho hf τ
+  letI := p.inh
   rw [p.gen.source i bools bits] at hf
   obtain ⟨t, ht, hlt⟩ := t2r_lt_of_map_eq (p.gen.result i bools bits _ τ)
     (fun o => Tools.ShippingQuadCalls.enc_lt o.1 _) hf
@@ -98,6 +99,7 @@ theorem t2r_srcRange_loop (p : Tools.ShippingGen2Loop.SrcPkgL ι dom) : ∀ (i :
     p.d.shape.layout.outs[k']? = some o → (p.src i bools bits)[k']? = some f →
     ∀ τ, f τ < 2 ^ o.width := by
   intro i bools bits k' o f ho hf τ
+  letI := p.inh
   rw [p.facts.hsrc i bools bits] at hf
   obtain ⟨t, ht, hlt⟩ := t2r_lt_of_map_eq (p.facts.hres i bools bits _ τ)
     (fun o => Tools.ShippingQuadCalls.enc_lt o.1 _) hf
