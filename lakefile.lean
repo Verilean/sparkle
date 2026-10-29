@@ -4550,3 +4550,6 @@ lean_lib «Tools.ShippingGen2AComb» where
 
 lean_lib «Tools.ShippingGen2CombKid» where
   roots := #[`Tools.ShippingGen2CombKid]
+
+lean_lib «Tools.ShippingGen2SlotlessClosed» where
+  roots := #[`Tools.ShippingGen2SlotlessClosed]
