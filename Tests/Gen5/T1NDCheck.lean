@@ -2,15 +2,17 @@ import Tools.ShippingGen5T1ND
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.T2OutTyCheck
 set_option autoImplicit false
--- Built in g5nd2-b1e4bdbf (clean, exit 0, 743 jobs; field pair 1, root pair 5, TYPE 5, MUTANT 8 signature/defeq
--- rejections, SIG 5 + control, closure controls 12, REACH 6, AXIOMS 6). No sorry / axiom / native_decide.
+-- g5nd2-b1e4bdbf (clean, exit 0) built the version before the field-pair negatives; the negatives (review of
+-- b1e4bdbf) are NOT BUILT yet. No sorry / axiom / native_decide.
 
 /-! # T1HypND / dec-free T2-OUTTY checks (Tools/ShippingGen5T1ND.lean; DGEN_FREEZE.md §7.10, par/gen5-t2 5f0b2a69)
 
 Acceptance conditions against circularity (review of 5f0b2a69):
 1. **Field pair**: `T1HypND.mk`'s telescope vs `T1Hyp.mk`'s with `dec` removed, on the SAME parameter fvars: field
    names, order, `binderInfo`, types (`isDefEq`), the same number of parameters, and NO extra field; plus the
-   structure-field lists (`getStructureFields`) against the declared index tables `t1Fields` / `ndFields`.
+   structure-field lists (`getStructureFields`) against the declared index tables `t1Fields` / `ndFields`. The same
+   function `fieldPair` must REJECT two negative fixtures (`T1HypWithDec`: `dec` kept; `T1HypNoClosed`: `closed`
+   missing): the field-table half and the telescope half must EACH reject each fixture, with its own marker.
 2. **Root pair at `H.toND`**: for each §7.9 root `old` and ND root `nd`, on `old`'s telescope `xs` (with `H : T1Hyp …`
    at position `iH`), the PROPOSITION `nd xs[0..iH) (T1Hyp.toND H) xs(iH..]` has type `isDefEq` to `old`'s body, and
    `nd`'s telescope agrees with `old`'s binder by binder (names, `binderInfo`; types `isDefEq`, except at `iH` where it
@@ -48,6 +50,69 @@ theorem sigGood {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig} {mre
   trivial
 end Tests.Gen5.T1NDFixture
 
+
+/-! Field-pair NEGATIVE fixtures (§7.10): copies of `T1Hyp`'s field text, one keeping `dec`, one without `dec` AND
+without `closed`. Both must be REJECTED by the same field comparison as `T1HypND`. -/
+namespace Tests.Gen5.T1NDFieldFixture
+open Tools.ShippingGen2
+open Lean Meta Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
+open Sparkle.IR.AST (Module)
+open Sparkle.IR.OptCheck Sparkle.IR.RefineCheck Sparkle.IR.HierCheck
+open Sparkle.IR.RegDedup (declWidth isAssign)
+open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.ShippingHierOpen Tools.ShippingHierState Tools.ShippingHierStateG
+open Tools.ShippingEntrySoundness Tools.ShippingMixedSourceBridge
+open Tools.ShippingMachineEntry Tools.ShippingMachineAuto
+open Tools.ShippingMachineLinked Tools.ShippingMachineDepth
+open Tools.ShippingSeqOptSoundness (seedIn)
+open Tools.ShippingMachineSource Tools.ShippingMachineDenote
+open Tools.ShippingQuadComposed (GenFacts)
+open Tools.ShippingMachineShipsDepth (ResetNk)
+open Tools.ShippingMachineCallsLinkedT (valsOf MemFacts)
+open Tools.ShippingMachineChild (InRange boolsOf bitsOf)
+open Tools.ShippingChildInvA (RefLawsAOps RefLawsATele AdmCtx)
+open Tools.ShippingChildCacheA (RealChildA JQC)
+open Tools.ShippingChildRunAKids Tools.ShippingChildRunAMain
+variable {ι : Type} {dom : ι → DomainConfig}
+
+/-- negative: `dec` kept -/
+structure T1HypWithDec {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    (DataOk : Pkg ι dom → Prop) : Prop where
+  /-- G3-GEN: a package for every reached declaration. -/
+  pkg : ∀ c, Reach c → ∃ q, P c = some q ∧ q.decl = c ∧ DataOk q
+  /-- G3-SHAPE: its shape reflection, in every admissible context. -/
+  defines : ∀ c, Reach c → ∀ q, P c = some q → ∀ mctx cctx, AdmCtx L.O.quiet mctx cctx →
+    MachineDefines mctx mref cctx cref c q.d.shape
+  /-- **T1 scope (route 3)**: the machine synthesis of every reached declaration returns (it does not fall back).
+  Coverage obligation G-CLOSES: derive from the data (`memCallee_closesA`, Srm3Callee.lean:91, for memory callees;
+  `closes_of_data`, Tools/ShippingMachineClosesData.lean, in general); declarations where it fails are route 4 (M4),
+  not removed from FG. -/
+  closes : ∀ c, Reach c → ∀ q, P c = some q → ∀ mctx cctx, AdmCtx L.O.quiet mctx cctx →
+    MachineClosesAtA L.O mctx cctx c q.d.shape
+  /-- G-CALLDEC / G-MEMCALLS: the decodings (to be derived; GENERAL_SPEC §4.2). -/
+  dec : ∀ c, Reach c → ∀ q, P c = some q → ∀ k (hk : k < q.d.shape.insts.length),
+    MemDec q k (q.d.shape.insts[k]).1 ∨ ∃ q', P (q.d.shape.insts[k]).1 = some q' ∧ CallDec q q' k
+  /-- Static call closure of `Reach` (its match with the translator's actual child calls is G-REACH). -/
+  closed : ∀ c, Reach c → ∀ q, P c = some q → ∀ k (hk : k < q.d.shape.insts.length),
+    (q.d.shape.instOrigins.getD k .ord).child? = none → Reach (q.d.shape.insts[k]).1
+
+/-- negative: `dec` removed and `closed` missing -/
+structure T1HypNoClosed {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    (DataOk : Pkg ι dom → Prop) : Prop where
+  /-- G3-GEN: a package for every reached declaration. -/
+  pkg : ∀ c, Reach c → ∃ q, P c = some q ∧ q.decl = c ∧ DataOk q
+  /-- G3-SHAPE: its shape reflection, in every admissible context. -/
+  defines : ∀ c, Reach c → ∀ q, P c = some q → ∀ mctx cctx, AdmCtx L.O.quiet mctx cctx →
+    MachineDefines mctx mref cctx cref c q.d.shape
+  /-- **T1 scope (route 3)**: the machine synthesis of every reached declaration returns (it does not fall back).
+  Coverage obligation G-CLOSES: derive from the data (`memCallee_closesA`, Srm3Callee.lean:91, for memory callees;
+  `closes_of_data`, Tools/ShippingMachineClosesData.lean, in general); declarations where it fails are route 4 (M4),
+  not removed from FG. -/
+  closes : ∀ c, Reach c → ∀ q, P c = some q → ∀ mctx cctx, AdmCtx L.O.quiet mctx cctx →
+    MachineClosesAtA L.O mctx cctx c q.d.shape
+
+end Tests.Gen5.T1NDFieldFixture
+
 namespace Tests.Gen5.T1NDCheck
 open Lean Meta
 open Tools.ShippingGen2
@@ -60,22 +125,28 @@ open Sparkle.Core Sparkle.Core.Signal
 def t1Fields : List String := ["pkg", "defines", "closes", "dec", "closed"]
 def ndFields : List String := ["pkg", "defines", "closes", "closed"]
 
-run_cmd Lean.Elab.Command.liftTermElabM do
+/-- The field comparison (§7.10 item 1): `nd`'s structure fields = `T1Hyp`'s minus `dec` (`getStructureFields`), the
+same number of parameters, and `nd.mk`'s telescope = `T1Hyp.mk`'s with `dec` removed on the SAME parameter fvars
+(names, order, `binderInfo`, types by `isDefEq`, no extra field). Throws on any difference; returns the field count. -/
+def fieldTable (nd : Name) : MetaM Unit := do
   let env ← getEnv
   let f1 := (getStructureFields env ``T1Hyp).toList.map (·.toString)
-  let f2 := (getStructureFields env ``T1HypND).toList.map (·.toString)
+  let f2 := (getStructureFields env nd).toList.map (·.toString)
   unless f1 == t1Fields do throwError "T1ND FIELD TABLE FAILED: T1Hyp fields {f1} ≠ table {t1Fields}"
-  unless f2 == ndFields do throwError "T1ND FIELD TABLE FAILED: T1HypND fields {f2} ≠ table {ndFields}"
-  unless t1Fields.filter (· != "dec") == ndFields do throwError "T1ND FIELD TABLE FAILED: ND ≠ T1Hyp minus dec"
+  unless f2 == t1Fields.filter (· != "dec") do
+    throwError "T1ND FIELD TABLE FAILED: {nd} fields {f2} ≠ T1Hyp minus dec"
+
+/-- The telescope half of the field comparison. -/
+def fieldTele (nd : Name) : MetaM Nat := do
+  let env ← getEnv
   let some (.inductInfo i1) := env.find? ``T1Hyp | throwError "no T1Hyp"
-  let some (.inductInfo i2) := env.find? ``T1HypND | throwError "no T1HypND"
+  let some (.inductInfo i2) := env.find? nd | throwError "no {nd}"
   unless i1.numParams == i2.numParams do throwError "T1ND PAIR FAILED: numParams {i1.numParams} ≠ {i2.numParams}"
   let c1 ← getConstInfo ``T1Hyp.mk
-  let c2 ← getConstInfo ``T1HypND.mk
+  let c2 ← getConstInfo (nd ++ `mk)
   forallTelescope c1.type fun xs _ => do
     let ps := xs[:i1.numParams].toArray
-    let t2 ← instantiateForall c2.type ps
-    let mut t2 := t2
+    let mut t2 ← instantiateForall c2.type ps
     let mut j : Nat := 0
     for x in xs[i1.numParams:].toArray do
       let ld ← x.fvarId!.getDecl
@@ -87,9 +158,36 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         unless ← isDefEq ty ld.type do throwError "T1ND PAIR FAILED: type of {n}"
         t2 := b.instantiate1 x
         j := j + 1
-      | _ => throwError "T1ND PAIR FAILED: T1HypND.mk has fewer fields than T1Hyp minus dec (at {ld.userName})"
-    if t2.isForall then throwError "T1ND PAIR FAILED: T1HypND.mk has an EXTRA field"
-    logInfo m!"T1ND FIELD PAIR OK: {j} fields = T1Hyp minus dec (names, order, binderInfo, types), no extra field; tables match getStructureFields"
+      | _ => throwError "T1ND PAIR FAILED: {nd}.mk has fewer fields than T1Hyp minus dec (at {ld.userName})"
+    if t2.isForall then throwError "T1ND PAIR FAILED: {nd}.mk has an EXTRA field"
+    return j
+
+def fieldPair (nd : Name) : MetaM Nat := do
+  fieldTable nd
+  fieldTele nd
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let env ← getEnv
+  let f2 := (getStructureFields env ``T1HypND).toList.map (·.toString)
+  unless f2 == ndFields do throwError "T1ND FIELD TABLE FAILED: T1HypND fields {f2} ≠ table {ndFields}"
+  let j ← fieldPair ``T1HypND
+  logInfo m!"T1ND FIELD PAIR OK: {j} fields = T1Hyp minus dec (names, order, binderInfo, types), no extra field; tables match getStructureFields"
+  for neg in [``Tests.Gen5.T1NDFieldFixture.T1HypWithDec, ``Tests.Gen5.T1NDFieldFixture.T1HypNoClosed] do
+    -- each half must reject the negative on its own
+    let accT ← try
+        fieldTable neg
+        pure true
+      catch e => do
+        logInfo m!"T1ND FIELD TABLE NEGATIVE REJECTED {neg}: {e.toMessageData}"
+        pure false
+    if accT then throwError "T1ND FIELD TABLE NEGATIVE ACCEPTED: {neg}"
+    let accM ← try
+        let _ ← fieldTele neg
+        pure true
+      catch e => do
+        logInfo m!"T1ND FIELD TELESCOPE NEGATIVE REJECTED {neg}: {e.toMessageData}"
+        pure false
+    if accM then throwError "T1ND FIELD TELESCOPE NEGATIVE ACCEPTED: {neg}"
 
 /-! ## 2. Root pair at `H.toND` -/
 
