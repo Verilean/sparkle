@@ -33,3 +33,8 @@
 - **G-MEMO:** recorded as a dispatch exclusion under `T1Hyp.defines`/`closes`. This is NOT a cache invariant.
 - **The route-indexed `T1Hyp`** (ROUTE_CENSUS rev2) is not applied. The skeleton covers machine-route trees under the current `T1Hyp`.
 - **Not claimed:** M2, M3 or FG completion. The result is conditional.
+
+## Status update (2026-10-29, GPOST stage 1, 28476add)
+This document is HISTORY for the `NoTopStmt`-based skeleton (b6625408 / c6516331).
+- **Why it was replaced.** After `InstClosed` became the third `ShipsRes` conjunct, `NoTopStmt`, `ihAt_step`, `ih_all`, `t1_of_step(')` and `t1_of_step_kc` were RETIRED. `NoTopStmt` alone cannot give the result's own `InstClosed`.
+- **The current skeleton** is `t1_of_stepPF(')`/`t1_of_stepPF_kc`, CONDITIONAL on `PostFactsStmt`, `StepStmt` and `ServedShips0Stmt` (scripts/gen2/GPOST_STAGE1_RESULT.md).
