@@ -131,10 +131,11 @@ M2-b's statement review.
 3. C5 (`hkidW_of_memDec`) and the RunFacts assembly.
 4. C8 (generic `composed`) and consumer 1 → `TopShips`.
 5. C6 → `ChildShips`.
-6. `memParent_ships : MemParentStmt' L DataOk`.
+6. `memParent_ships : MemParentStmt' L`.
 7. **Non-vacuity on `leafM`** (circuit-do, memory-only, slots ≠ []):
    - a `SrcPkg` from `leafM_gen` (restricted to `Unit` by `genFacts_restrict`), `leafM_memcalls` → `MemDec`,
-     `leafM_hext`/`hextB` → `ExtIn`, `DataOk` by `decide`;
+     `leafM_hext`/`hextB` → `ExtInS`, `MemParentDataOk` by `decide`, and the case premises `insts ≠ []`,
+     `instFields ≠ []`, `slots ≠ []` checked (`leafM_insts_ne`, `leafM_fne`, `leafM_slotsNe`);
    - the instance of `memParent_ships`, with the run, `MachineDefines` and `MachineTaken` as hypotheses (they concern
      the compiler run and are not constructible in a test);
    - axioms.

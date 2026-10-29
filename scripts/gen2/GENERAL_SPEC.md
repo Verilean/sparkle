@@ -175,6 +175,7 @@ Source: `synthesizeFromConst` (Elab.lean:5288-5345), `synthesizeChild` (:8929).
 |---|---|---|---|
 | ordinary leaf (`insts = []`) | `leafP` | `seqChildRunN_of_flat` (Tools/ShippingMachineDepth.lean:83, any n), `genTrace` (Tools/ShippingQuadComposed.lean:156) | `LeafStmt`, a separate unit (M2-a') |
 | memory-only parent, `slots ≠ []` | `leafM`; the 12 H.264/RV32 IP tops | `memCallee_composedNW` (Tools/ShippingSrm4Run.lean:75), `memCallee_closesA` (Tools/ShippingSrm3Callee.lean:91), `memCallee_kidFactsNC` (Tools/ShippingSrm4Kid.lean:60), `core_runFacts_ranAM` (Tools/ShippingSrm4Core2.lean:601) | `MemParentStmt` (M2-a). Needs G-BD, G-RUNFACTS, G-MEMCALLS, G-TOPSTART and the §4.4 data |
+| loop-form machine declarations (hand-written `Signal.loop`; generator head `machine_trace_of_loop_causal`, Tools/ShippingMachineCommand.lean:2214) | the 12 H.264/RV32 IP tops (`quantModule`) | none: `SrcPkg`/`GenFacts` have the circuit-do form only | `sparkle-gen2-loop-pkg` (M2); in FG scope (route 3), not excluded |
 | slotless | YOLOv8 top | none: `slotsNe`/`hsl` everywhere | M2-c (G-SLOTLESS) |
 | ordinary children | C4 wrappers | consumer 2 + `CallDec` + `ChildShips` | `StepStmt` (M2-b) |
 | mixed memory + ordinary | `wrapQ` | consumer 2, per entry | `StepStmt` (M2-b); G-BD for mixed kids |
@@ -367,6 +368,7 @@ Tests/Compiler/C4ShipsTest.lean, C4ComposedTest.lean and C4ClosesTest.lean.
 | G-START | depth-0 cache reset ⇒ `InvAt 0` | M3 |
 | G-MEMO | `sparkleSubModuleCache` invariant | M3 |
 | (G-REACH) | removed in rev3; `CacheShips` restricted to `Reach` | — |
+| G-CLOSES-FRESH | `outHead` / `hfresh` (an output port name is not an instance wire `inst{gi}_…`), used only by the closing proofs (`instName_ne_of_head`, Tools/ShippingCallsGate.lean:60). No N1 lemma covers it (the N1 lemmas separate MODULE names) | M3/M4 with `T1Hyp.closes` (G-CLOSES); OPEN |
 | G-DATA | coverage: every successful machine-route run ⇒ each DATA check is true (§4.4) | M2 (per check) |
 | G3-GEN, G3-DECL | the package exists, and is the declaration's (§6) | M5 |
 
