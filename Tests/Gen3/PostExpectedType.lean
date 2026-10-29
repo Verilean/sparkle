@@ -1,6 +1,6 @@
 import Lean
 set_option autoImplicit false
--- NOT BUILT (written at 35588c38). LOCAL COPY of Tests/Gen3/ServedExpectedType.lean (built g3sv-b5be62e6), itself a
+-- Built: g3pf3-a9c42458 (clean snapshot, exit 0, standard axioms); written at 35588c38. LOCAL COPY of Tests/Gen3/ServedExpectedType.lean (built g3sv-b5be62e6), itself a
 -- copy of `par/gen2-spec` Tests/Gen3/ExpectedType.lean (read at e134c63a). The text below the namespace line is
 -- identical to the source except the namespace name (`Tests.Gen3.PostExpectedType`, so that the three copies can be
 -- imported together). At integration the copies are deleted and the check files import `Tests.Gen3.ExpectedType`.

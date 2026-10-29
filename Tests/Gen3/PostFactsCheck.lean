@@ -1,7 +1,7 @@
 import Tools.ShippingGen2PostFactsProof
 import Tests.Gen3.PostExpectedType
 set_option autoImplicit false
--- NOT BUILT (written by reading at 35588c38). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3pf3-a9c42458 (clean snapshot, exit 0, standard axioms); written by reading at 35588c38. No `sorry`, no `axiom`, no `native_decide`.
 -- REMAINING PREMISES of the G-POST producer (scripts/gen2/GPOST_ASSEMBLY_NOTE.md):
 --   * `hrows : ∀ q, DataOk q → DataRows q`                         (GPOST_FREEZE §11 S1; UNSUPPLIED)
 --   * `hrow  : ∀ q, DataOk q → OneOutNoMemRow q = true`             (U1 G-ONEOUT-REACH, R-ROW; UNSUPPLIED)

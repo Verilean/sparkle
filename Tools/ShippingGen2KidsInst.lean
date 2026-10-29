@@ -1,6 +1,6 @@
 import Tools.ShippingMachineInstG
 set_option autoImplicit false
--- NOT BUILT (drafted without lake/lean; scripts/gen2/GPOST_FREEZE.md item P7).
+-- Built: g3p7-b4ee77eb and again in g3pf3-a9c42458 (clean, exit 0); scripts/gen2/GPOST_FREEZE.md item P7.
 -- SCOPE: PURE facts about the two closings. From a successful closing, every child's module is
 -- instantiated in the closed body. This is NOT a check of either closing: it follows from how the
 -- instance statements are built (`closeInsts_calls`, `closeInstsG_calls`), and from the closings'

@@ -1,14 +1,15 @@
 # G-POST assembly note (issue `sparkle-gen3-post`)
 
 - **Base:** `par/gen3-induct` 35588c38. Freeze: GPOST_FREEZE rev1 + §11; F1 from SERVED_FREEZE rev1 (accepted b5be62e6).
-- **Status:** WRITTEN BY READING ONLY. Nothing elaborated (no lake/lean). Not committed.
+- **Status:** committed 23896e06, fixed a9c42458 (implicit tenv); built clean in g3pf3-a9c42458 (716 jobs, TYPE 4, MUTANT 5,
+  AXIOMS 9); approved as a CONDITIONAL producer (hrows, hrow). U2 supplied locally, not G-REACH coverage.
 
 ## Files (new only; no existing `.lean` edited)
 - `Tools/ShippingGen2PostFactsProof.lean`: the producer. `Tools/ShippingGen2PostFacts.lean` already holds the
   statements (built at 28476add), so the producer goes in a new file and that file is not edited.
 - `Tests/Gen3/PostFactsCheck.lean`: expected types, mutants, terms and axioms.
 - `Tests/Gen3/PostExpectedType.lean`: a namespaced copy of `Tests/Gen3/ServedExpectedType.lean`.
-- lakefile entries, to be added by the integrator:
+- lakefile entries (added at 23896e06):
   - `Tools.ShippingGen2PostFactsProof`
   - `Tests.Gen3.PostExpectedType`
   - `Tests.Gen3.PostFactsCheck`
