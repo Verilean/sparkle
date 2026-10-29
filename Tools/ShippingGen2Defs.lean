@@ -12,19 +12,24 @@ import Tools.ShippingServedRealA
 set_option autoImplicit false
 
 namespace Tools.ShippingGen2
-open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
+open Lean Meta Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
+open Sparkle.IR.AST (Module)
+open Sparkle.IR.OptCheck Sparkle.IR.RefineCheck Sparkle.IR.HierCheck
+open Sparkle.IR.RegDedup (declWidth isAssign)
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
-open Tools.ShippingEntrySoundness (RunsTo)
-open Tools.ShippingMachineEntry (MachineDefines posEnc)
-open Tools.ShippingMachineAuto (MachineData)
+open Tools.ShippingHierOpen Tools.ShippingHierState Tools.ShippingHierStateG
+open Tools.ShippingEntrySoundness Tools.ShippingMixedSourceBridge
+open Tools.ShippingMachineEntry Tools.ShippingMachineAuto
+open Tools.ShippingMachineLinked Tools.ShippingMachineDepth
+open Tools.ShippingSeqOptSoundness (seedIn)
+open Tools.ShippingMachineSource Tools.ShippingMachineDenote
 open Tools.ShippingQuadComposed (GenFacts)
-open Tools.ShippingMachineDepth (SeqChildRunN ResetN)
 open Tools.ShippingMachineShipsDepth (ResetNk)
 open Tools.ShippingMachineCallsLinkedT (valsOf MemFacts)
 open Tools.ShippingMachineChild (InRange boolsOf bitsOf)
 open Tools.ShippingChildInvA (RefLawsAOps RefLawsATele AdmCtx)
 open Tools.ShippingChildCacheA (RealChildA JQC)
-open Tools.ShippingHierStateG (KT KSn)
+open Tools.ShippingChildRunAKids Tools.ShippingChildRunAMain
 
 /-! ## 1. The source package of one declaration (G3, per declaration; §6 inventory G3-GEN) -/
 
@@ -68,7 +73,7 @@ noncomputable def SrcPkg.S (p : SrcPkg ι dom) (i : ι) : (Nat → List Nat) →
 
 /-- A package assignment: the package of every declaration a run reaches, or `none`. The G3 premise is that it is
 correct where it is `some` (`PkgOk`). -/
-abbrev Pkgs (ι : Type) (dom : ι → DomainConfig) : Type := Name → Option (SrcPkg ι dom)
+abbrev Pkgs (ι : Type) (dom : ι → DomainConfig) := Name → Option (SrcPkg ι dom)
 
 /-! ## 2. Runtime laws (G5) — kept apart from the start conditions -/
 
@@ -230,7 +235,7 @@ them and `T1Hyp.closed` with it; that mismatch is the risk this statement isolat
 def ReachStmt {mref cref} (L : Laws mref cref) : Prop :=
   ∀ (p : SrcPkg ι dom) (I : Void IO.RealWorld → Prop) (mctx : Meta.Context) (cctx : Core.Context),
     AdmCtx L.O.quiet mctx cctx →
-    ChildSynthOn L (fun c => ∃ k (hk : k < p.d.shape.insts.length), (p.d.shape.insts[k]).1 = c ∧
+    ChildSynthOn L (fun c => ∃ k, ∃ hk : k < p.d.shape.insts.length, (p.d.shape.insts[k]).1 = c ∧
       (p.d.shape.instOrigins.getD k .ord).child? = none) I →
     ∀ (tenv : Lean.Environment) (b : Bool),
       Keeps mctx mref cctx cref I (synthesizeMachineCertified

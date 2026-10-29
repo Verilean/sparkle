@@ -25,6 +25,19 @@ Every file:line below is at fea429da.
 - an inventory of the data conditions with coverage obligations (§4.4);
 - a type-connection unit U0 placed before M2 (§5, §8).
 
+**Rev2** answers review 27644250:
+1. The call index ↔ instance correspondence is kept. `ServedGP`/`Served1P`/`ServedP` copy `ServedRealGA`/`ServedReal1A`
+   verbatim, with `RealChildA` replaced by a predicate `Q`. G-SERVED is the trace producer generalised to
+   `X := ServedP (ShipsRes L P)`, with the same `ids`/`cache`.
+2. **Route evidence.** It is `MachineTaken` (= `MachineRunJQC`, the machine synthesis returned the run's result) in
+   every statement. The T1 scope is the field `T1Hyp.closes`, with a coverage obligation (G-CLOSES).
+   - The IH `IHAt` is restricted to reached declarations.
+   - The child-entry hook is restricted to the parent's callees, through `ChildSynthOn` and `ReachStmt` (G-REACH).
+3. **Acceptance.** Recording a counterexample or a remaining per-declaration premise no longer completes a milestone
+   (§5, §7, §9).
+4. **U0 diagnostic.** GEN2_DEFS is now elaborated as `Tools/ShippingGen2Defs.lean` (`autoImplicit false`). Its
+   deviations are listed in §8.1.
+
 ## 0. Where this plan stands relative to existing results
 - **C4/C5 are general theorems over limited classes.** `memSharedLeaf_ships` and `qSharedLeaf_ships` are ∀-class
   theorems; their classes fix top → paired wrappers → one shared leaf, at `n = 2`.
@@ -81,8 +94,29 @@ FG : ∀ (L : Laws mref cref) declName (parameters : List (String × Nat)) mctx 
 - **`CallDec p q k`** (G-CALLDEC) and **`MemDec p k c`** (G-MEMCALLS): facts of the PARENT's package (§4.2).
 - **`ShipsRes L P c r`** := `RealChildA L.O c r ∧ ∃ q n, P c = some q ∧ q.decl = c ∧ ChildShips q n r.1 r.2`, and
   **`CacheShips L P m`** := every `sparkleChildCache` entry satisfies `ShipsRes`.
-- **`ServedShipsStmt`** (G-SERVED), **`StepStmt`** (the one-level rule), **`MemParentStmt`** (first proof unit),
-  **`LeafStmt`** (base case, a separate unit) and **`T1Stmt`** (M3): all are `def … : Prop`, with no proof.
+- **`MachineTaken L mctx cctx n c shape raw D`:** `MachineRunJQC`, ServedRealA.lean:86. It is the route evidence of
+  THIS run: the machine synthesis returned the run's result. `MachineDefines` alone (`machineShape? = some`) does not
+  exclude the fall-back to legacy.
+- **`T1Hyp L P Reach DataOk`** (structure): `pkg` (G3-GEN), `defines` (G3-SHAPE), `closes` (the route-3 scope, with
+  G-CLOSES), `dec` (the decodings) and `closed` (static call closure).
+- **`IHAt L P Reach D`:** every run of a REACHED declaration from a depth-`D` world ships and keeps `CacheShips`.
+- **`ServedGP`/`Served1P`/`ServedP Q`:** `ServedRealGA`/`ServedReal1A` (ServedRealA.lean:45-72) verbatim, with
+  `RealChildA` replaced by `Q`.
+- **`ChildSynthOn`, `ReachStmt`:** the child-entry hook restricted to the parent's ordinary callees (G-REACH).
+- **The statements:**
+  - **`ServedShipsStmt`** (G-SERVED);
+  - **`StepStmt`** (the one-level rule; its premise is the `ServedP (ShipsRes)` trace);
+  - **`MemParentStmt`** (the first proof unit);
+  - **`LeafStmt`** (the base case, a separate unit);
+  - **`T1Stmt`** (M3).
+
+  All are `def … : Prop`, with no proof.
+- **`DataOk`** is a PLACEHOLDER Prop parameter. U0 fixes it to a concrete conjunction of Bool checks.
+  - A statement made vacuous by `DataOk` (for example `DataOk := fun _ => False`) never counts as proved.
+  - Each unit's acceptance audits, separately:
+    - the concrete Bool conditions;
+    - their G-DATA coverage;
+    - a real-IP instance that satisfies them.
 
 ### 1.4 T1 (M3 deliverable; explicitly NOT FG)
 `T1Stmt L P Reach DataOk`: every successful outermost machine-route compilation of a reached declaration ships at some
@@ -145,7 +179,9 @@ Source: `synthesizeFromConst` (Elab.lean:5288-5345), `synthesizeChild` (:8929).
      path 1. It is gap **G-CACHE**.
 3. **Into the parent's design.** The served `(mc, Dc)` becomes an instance of `raw` in `D`. `ChildShips` is stated for
    every `dsn ⊇ Dc ∪ {mc}`, so it applies at `D`, given `Dc ⊆ D`.
-   - `Dc ⊆ D` is today `hcons` from `realChildA_inv` (ServedRealA.lean, used at DepthRunRA:189-190).
+   - `Dc ⊆ D` comes from the SERVED-RESULT evidence, the last conjunct of `ServedRealGA`/`ServedReal1A`
+     (`∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g`, ServedRealA.lean:58, :72), and so of `ServedP`.
+     `realChildA_inv` only returns the past run, its contexts and its cache.
    - Proving `ChildShips` for every extending `dsn`, in the producer, is gap **G-TRANSPORT**. A candidate base is
      `ExtendsAway` / `StepExtendsAway` (Tools/ShippingHierMono.lean:123, :128).
 
@@ -155,19 +191,33 @@ Source: `synthesizeFromConst` (Elab.lean:5288-5345), `synthesizeChild` (:8929).
 - It says nothing about `ShipsRes`, and it does not say that the run was deeper than the current one.
 
 The chosen option is to STRENGTHEN the served-child evidence:
-- **G-SERVED:** `ServedShipsStmt` (GEN2_DEFS §4). In a machine-route run from a `CacheShips` world, whose nested fresh
-  runs ship (that hypothesis is the IH), every non-memory instance is served by THE result `(mc, Dc)` with `ShipsRes`,
-  and `CacheShips` holds at the end.
-- **How it is proved:** by re-proving the `ServedRealA` chain (ServedRealA.lean:45-74 and its producers) with the cache
-  invariant `CacheInvA` generalised from `RealChildA` to `ShipsRes`.
+- **G-SERVED:** `ServedShipsStmt` (GEN2_DEFS §4). It is the existing producer of
+  `MachineTraceLBX (ServedRealA O …)` (`genTrace` on the run, through
+  `synthesizeCombinationalCore_machine_soundRA_A`) generalised to `X := ServedP (ShipsRes L P)`.
+  - **Premises:** `T1Hyp`, a reached `p.decl`, `CacheShips` at the start, and `IHAt L P Reach (dv w + 1)`.
+  - **Conclusion:** the trace, with every served non-memory instance shipping, and `CacheShips` at the end.
+  - The k ↔ instance correspondence is that of `ServedRealGA`: the `connsG` instance, the `machPorts` map of `outs`
+    and `∃ e ∈ outs, e.1 = k`. For `ServedReal1A` it is `CallStmt … k args mc st`. Both are copied VERBATIM, with the
+    same `ids`/`cache` as the trace. So for distinct callees A and B, B's instance is never required to satisfy A's
+    package.
+- **How it is proved:** by re-proving the `ServedRealA` chain with `CacheInvA` generalised from `RealChildA` to
+  `ShipsRes`.
+  - The child-entry invariant `I := JQC ∧ CacheShips` at depth `dv w + 1` is needed as a hook ON THE CALLEES ONLY,
+    `ChildSynthOn L R I`. The existing hook `ChildSynthA` (Tools/ShippingChildFrontCP.lean:240) asks it of EVERY name,
+    which the IH cannot give: `IHAt` holds only on `Reach`, because `P` is an `Option` map and packages exist only
+    there.
+  - **G-REACH** (`ReachStmt`) is the statement that the machine synthesis of `p` keeps every invariant that the child
+    entry keeps on `p`'s ordinary callees. Its risk: the translator may call the child entry on names outside the
+    static `insts` (the static call closure `T1Hyp.closed` versus the call set the translator actually reaches). If
+    so, `R` and `T1Hyp.closed` are widened to that set. Arbitrary nested runs are NEVER assumed to be machine-route.
 - **The rejected alternative:** a separate history induction over `RealChildA` derivations. It does not reach the
   nested fresh runs, which are not sub-derivations, so it would still need the depth measure.
 
 **The remaining invariants and premises:**
-- **G-EXC:** `CacheShips` must also be kept on the exception and refusal paths that the parent's run catches. One
-  example is the machine route returning `none` and falling back. A partially run child must not leave a non-shipping
-  entry; the earlier cache-rollback fix (b7971f83) is relevant. Whether `KeepsCP` covers caught exceptions is checked in
-  U0.
+- **G-EXC, reduced.** `Keeps I m` (Tools/ShippingChildInv.lean:315) is `∀ w, I w → I (endW … m w) ∧ ErrOk …`, which
+  constrains the end world of EVERY outcome. A keep-invariant proof of `CacheShips` therefore covers caught exceptions
+  and refusals, including a partially run child. G-EXC is part of G-CACHE/G-REACH, with no separate statement. This
+  was read from the source, not proved.
 - **G-MEMO:** `sparkleSubModuleCache` (the memo of route 5) is a different map. `CacheShips` does NOT cover it. It
   needs its own invariant, or a proof that machine-route parents never read it for their children.
 - **`hrunN`** of consumer 2 quantifies over ARBITRARY runs of the child in any admissible context. In `StepStmt` it is
@@ -176,6 +226,11 @@ The chosen option is to STRENGTHEN the served-child evidence:
   ChildShips q n mc Dc` and an `hrunN` derived from G-SERVED, or needs a variant that takes the served fact directly, is
   decided in U0. If a variant is needed, it is a NEW consumer lemma with the same proof, which re-routes the final
   `exact hrunN …`.
+
+- **Route evidence of nested runs.** A nested child run's route is not assumed. `IHAt` quantifies over the runs of
+  reached declarations. Their route evidence comes from `T1Hyp.defines` + `T1Hyp.closes` through
+  `machineRunJQC_of_closesA` (ServedRealA.lean:97). Declarations that do not close are route 4 (M4), never silently
+  machine-route.
 
 ### 3.3 The one-level rule
 `StepStmt` (GEN2_DEFS §5) has these premises:
@@ -275,7 +330,13 @@ classified:
   and the reader. Each derivation is a G-DATA lemma.
 - **CASE:** a case split of the plan, not a data obligation.
 - **D:** decidable only. A DATA field of `DataOk`. It needs a G-DATA coverage lemma ("every successful run ⇒ check =
-  true"), or a recorded counterexample that shrinks the case. A counterexample is a scope change and must be reported.
+  true").
+  - A counterexample shows the limit of THAT consumer or lemma. It does not narrow FG, and it does not complete a
+    unit.
+  - The response is to plan another general consumer or case split that covers the failing designs, and to keep the
+    acceptance over the whole case.
+  - Only if no such plan exists is a scope change proposed to the user, with its impact, cost and recommendation,
+    BEFORE anything is accepted.
 
 | condition | where | class |
 |---|---|---|
@@ -331,9 +392,16 @@ Units in dependency order:
      semantics change, and a user decision.
 6. **M2-c G-SLOTLESS and M2-d G-ONEOUT [proof].**
 
-**Acceptance of M2:** `StepStmt` is proved. Its premises are G3/G5 Props, `DataOk` (only `D` rows remaining, each with
-a coverage lemma or a reported counterexample), and the IH-type child facts. At least one IP top is shown as an instance
-of `MemParentStmt`.
+**Acceptance of M2:** `StepStmt` is proved. Its premises are:
+- G3/G5 Props;
+- `MachineTaken`;
+- `DataOk`, a concrete Bool conjunction. EVERY row is either derived from the successful run or has its G-DATA coverage
+  lemma. A row with a counterexample blocks acceptance until a covering consumer or case exists, or until the user
+  decides on a scope change;
+- the `ServedP (ShipsRes)` trace.
+
+At least one IP top must be shown as an instance of `MemParentStmt`, satisfying `DataOk` concretely (the vacuity
+audit).
 
 **Residue after M2:** G-CALLDEC (if it took the certificate route), G-SERVED/CACHE/EXC/MEMO/REACH, and G3/G5.
 
@@ -369,8 +437,14 @@ of `MemParentStmt`.
 - **G5:** a model of `Laws`, or an explicit TRUSTED status.
 - **G7 and N1:** IR → `DesignSV`, and `hfresh`.
 - **The final audit:** statement text, binder table, axioms, no per-design binder.
-- **Accept:** FG's premises are only uniform laws, plus whatever G3 items are recorded as irreducibly per declaration,
-  stated as such.
+- **Accept (M5 completion):** FG proved with uniform premises only: `Laws`, `Start` and the uniform reader/generator
+  soundness. G7 is TRUSTED and stated.
+- **Results that are NOT M5 completion.** Each is a separate state with its own artifact:
+  - (i) a CONDITIONAL result, where FG is proved with per-declaration premises remaining (for example G3-DECL). It is
+    recorded and reported as conditional, row by row;
+  - (ii) a GAP SETTLEMENT, which only records the gaps.
+- Moving the milestone goal from completion to (i) or (ii) is a guarantee change. It is proposed to the user with its
+  impact, cost and recommendation first.
 - **Risk:** G3-SHAPE for the `partial` production reader may need the fuel-total reader in production. That is a user
   decision.
 
@@ -408,8 +482,9 @@ of `MemParentStmt`.
 - **`sparkle-gen2`:** "U0 type connection, the G-CALLDEC probe, and the one-level rule `StepStmt`
   (GEN2_DEFS.lean.txt) for machine-route parents with memory, ordinary and mixed children, slotless parents and
   one-output children (M2 units)".
-  - Child behaviour is a `ChildShips` premise, G3/G5 are exact Props, and the remaining `DataOk` checks each carry a
-    coverage lemma or a reported counterexample.
+  - Child behaviour is the `ServedP (ShipsRes)` premise, G3/G5 are exact Props, route evidence is `MachineTaken`, and
+    every `DataOk` row is derived or has its coverage lemma. A counterexample blocks acceptance; it is not recorded
+    as a pass.
   - Reviewer-accepted, with an IP top as an instance of `MemParentStmt`.
   - FG is not complete at this milestone.
 - **New milestones:** `sparkle-gen3` (M3, T1), `sparkle-gen4` (M4, routes), `sparkle-gen5` (M5, boundary + audit),
@@ -420,16 +495,24 @@ of `MemParentStmt`.
 ### 8.1 U0 `sparkle-gen2-u0-types`
 - **Files:** `Tools/ShippingGen2Defs.lean` (GEN2_DEFS verbatim) and `Tools/ShippingGen2Connect.lean`.
 - **Theorems in `Tools/ShippingGen2Connect.lean`:**
-  - `seqFactsRN_of_callDec`:
+  - `seqFactsRN_of_callDec`. Every `mc` condition is inside the scope of `∀ mc, PC c mc`, and the package
+    correspondence is explicit:
     ```
-    CallDec p q k → (∀ mc, PC c mc → ∃ Dc, ChildShips q n mc Dc ∧ ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g)
-      → moduleByName dsn.modules mc.name = some mc → SeqFactsRN (childMap dsn.modules) n p.d.shape dsn body (p.lsrc i bools bits)
-        p.d.ls.length (p.d.bsIn.drop p.kD) p.kD (p.extBS i bools bits) (p.extS i bools bits) bsC outsC (S i) PC k c
+    P c = some q → CallDec p q k →
+    (∀ mc, PC c mc → moduleByName dsn.modules mc.name = some mc ∧
+       ∃ Dc, ChildShips q n mc Dc ∧ ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g) →
+    SeqFactsRN (childMap dsn.modules) n p.d.shape dsn body (p.lsrc i bools bits) p.d.ls.length
+      (p.d.bsIn.drop p.kD) p.kD (p.extBS i bools bits) (p.extS i bools bits)
+      (fun c => ((P c).map fun q => q.d.bsIn.take q.kD).getD []) (fun c => ((P c).map (·.d.shape.layout.outs)).getD [])
+      (fun c => ((P c).map (·.S i)).getD (fun _ => [])) PC k c
     ```
-    with `bsC`/`outsC`/`S` from `P` as in §4.2. The exact `PC` (which must contain `mc ∈ dsn`) is fixed in U0's freeze.
+    with `c = (p.d.shape.insts[k]).1`. Any change U0 needs here is recorded as a deviation.
   - `memFacts_of_memDec`.
   - `hrunN`: either a proof that consumer 2 applies, or the variant's statement.
-- **Report:** the classification of §4.4's R? rows, and the G-EXC finding.
+- **Report:** the classification of §4.4's R? rows; the G-EXC finding (§3.2: reduced to `Keeps`); the concrete
+  `DataOk` and its vacuity audit.
+- **Diagnostic already run** (allowed by the review of 27644250): `Tools/ShippingGen2Defs.lean` = GEN2_DEFS verbatim,
+  job `g2u0-defs-30ac1786`. Its result and every name or type deviation are listed here before the next review.
 - **Accept:**
   - an exact-head build of `Tools.ShippingGen2Connect`;
   - axioms standard;
@@ -453,7 +536,8 @@ These would change the goal, the guarantee or the cost:
 - a height-heterogeneous semantics for G-LIFT;
 - a legacy contract in FG;
 - the production reader switch for G3-SHAPE;
-- any DATA counterexample that shrinks a case.
+- any DATA counterexample with no covering plan (proposed as a scope change, never adopted automatically);
+- moving M5 from completion to a conditional result or a settlement.
 
 Everything else is coder/reviewer work inside this plan.
 
