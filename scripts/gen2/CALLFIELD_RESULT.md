@@ -33,7 +33,7 @@
   - controls: the OLD name conjunct fails (`oneout_old_name_fails`, `callerL_old_conjunct_fails`).
 
 ## Limits (not claimed)
-- **No `callerL` package.** It has a register, and no `GenFacts` bundle of it exists. `callerL_callField` takes `hp : p.d = callerL.machineData`, which is NOT shown satisfiable.
+- **No `callerL` package is CONSTRUCTED in this unit.** Whether one can be built is not decided. `callerL_callField` takes `hp : p.d = callerL.machineData`, whose satisfiability is NOT CHECKED.
 - **`CallField` satisfiability is not the whole `CallDec`** (the argument, range and output-equation conjuncts), and not run existence.
 - **The comb choice is not selected here.** The S4 consumer must get the comb branch from `instStmt`'s successful no-clk/rst check plus C3 (`not_seq_and_comb`); `oneOut_outputs` does not select it.
 - **Integration.** With M3 `InstClosed` (par/gen3-induct) and M5 t2 (par/gen5-t2), the `CallDec`/`HPointAt` uses and a combined-SHA regression must be checked.

@@ -8,9 +8,8 @@ The one-output parent `callerL` (Tests/Compiler/ShippingMachineLinkedTest.lean:3
 `pickByteH`, closed by `closeInsts`) and its callee `pickByteH` (the `.comb` package over the comb endpoint's
 generated facts, the `pbhC` pattern of Tests/Gen2/SlotlessLeafInstance.lean).
 
-Parent side, Pkg-free: `callerL` has a register (so no `.comb`), and no `GenFacts` bundle of it exists in the tree
-(its endpoint for a combinational call is the `_ext` form; nothing uses a `callerL.machineExtB` or
-`callerL.machine_ext_causal`), so no `SrcPkg` is built from its generated facts here. The `CallField` check is therefore stated (a) directly on
+Parent side, Pkg-free: this unit does NOT construct a `callerL` package (whether one can be built from its generated
+facts is not decided here; no existing `GenFacts` bundle of it was found in the tree). The `CallField` check is therefore stated (a) directly on
 `callerL.machineData` (`callerL_callField_data`, the `CallField` body with `p.d := callerL.machineData`), and (b) for
 EVERY parent package whose data is `callerL.machineData` (`callerL_callField`; a premise `p.d = callerL.machineData`,
 for which no package is exhibited here).
