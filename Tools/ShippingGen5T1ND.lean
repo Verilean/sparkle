@@ -1,6 +1,6 @@
 import Tools.ShippingGen5T2OutTy
 set_option autoImplicit false
--- NOT BUILT: written without running Lean. No sorry / axiom / native_decide.
+-- Built in g5nd2-b1e4bdbf (clean, exit 0, 743 jobs). No sorry / axiom / native_decide.
 
 /-! # `T1HypND` and the dec-free T2-OUTTY roots (scripts/gen5/DGEN_FREEZE.md §7.10, rev2.6, par/gen5-t2 5f0b2a69)
 
