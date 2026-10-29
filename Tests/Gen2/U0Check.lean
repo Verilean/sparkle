@@ -23,8 +23,8 @@ noncomputable def tmPkg : SrcPkg Unit (fun _ => Sparkle.Core.Domain.defaultDomai
 theorem tmPkg_dataOk : DataOk tmPkg := by
   have h := Tests.Compiler.SharedLeafMemKidEntryTest.topshareM_parentData
   unfold DataOk DataOkB
-  simp only [tmPkg, h.alias, h.callsOk, Bool.true_and, Bool.and_eq_true, decide_eq_true_eq]
-  exact ⟨⟨h.slots, topshareM_outTy⟩, h.outHead⟩
+  simp only [tmPkg, Bool.and_eq_true, decide_eq_true_eq]
+  exact ⟨⟨⟨⟨⟨h.ok, h.alias⟩, h.callsOk⟩, h.slots⟩, topshareM_outTy⟩, h.outHead⟩
 
 #print axioms Tools.ShippingGen2Consumer.machine_linkedT_callsServed
 #print axioms Tools.ShippingGen2.seqFactsRN_of_callDec
