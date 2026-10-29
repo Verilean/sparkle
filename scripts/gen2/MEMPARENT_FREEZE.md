@@ -190,3 +190,23 @@ def MemOrigin (p : SrcPkg ι dom) : Prop :=
 
 Until this is reviewed, the helpers take `MemOrigin`-shaped hypotheses in their own signatures, and the final
 assembly does not use them.
+
+### 7.1 Decision on A4 (reviewer, 3535fa85): option (a) APPROVED for implementation
+- `MemOrigin p` is added to `MemParentStmt'` at a fixed position: right after `MemParentDataOk p → ExtInS p →`. It is
+  recorded in the final premise/supplier inventory.
+- **Supplier for `Unit` instances:** `memOrigin_of_memDec [Nonempty ι]`. It extracts both conjuncts from the SAME
+  `MemFacts` witness (one `obtain`, same `cb`/`aw`/`dw`), at an actual index with inhabited signal families.
+- `MemDec` and every source/output equation are unchanged.
+
+**Qualifications (recorded):**
+1. `MemOrigin` asserts BOTH a memory origin AND that the declared result binder has the matching width. Its negation
+   may be a memory-origin/declared-type mismatch, not a non-memory entry. So:
+   - the ordinary/mixed case is covered by `StepStmt`;
+   - the static width-consistency corner and the empty-index corner remain a COVERAGE OBLIGATION until they are
+     derived, classified or handled.
+   - For `Nonempty ι` together with the all-call `MemDec`, `memOrigin_of_memDec` shows the premise is redundant.
+2. No decidability or executable classification of `MemOrigin` is claimed. The §7 word "decidable" is withdrawn. A
+   finite checker plus an equivalence would be needed for such a claim.
+
+This is not approval of generic `MemOrigin` coverage, of FG completion, or of a theorem that empty-index packages
+satisfy it.
