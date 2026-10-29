@@ -10,8 +10,8 @@ N-C, etc.) can proceed; the shared edits wait.
 ## What to merge
 | | branch | SHA |
 |---|---|---|
-| base | `par/gen2-spec` | 695c12f336b2571e4c3d6bd774fd50ddd09fb887 |
-| merged in | `par/gen3-induct` | b5be62e6dd2c2bc79b201613b8c89e741e53f6b7 |
+| base | `par/gen2-spec` | its current tip (merge the branch tips; 695c12f3 was the tip when this was written) |
+| merged in | `par/gen3-induct` | its current tip (26f5d72a as of the G-POST producer approval; was b5be62e6) |
 | merge-base | — | 1fdbc18d00a89b16b964a76787095e092d1b369e |
 
 Trial `git merge-tree --write-tree` (2026-10-30): `Tools/ShippingGen2Defs.lean` and `Tests/Gen2/PkgCompat.lean`
