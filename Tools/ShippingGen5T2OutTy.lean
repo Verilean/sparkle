@@ -2,7 +2,7 @@ import Tools.ShippingGen5T2Conn
 import Tools.ShippingReaderOutsInv
 import Tools.ShippingPostSoundness
 set_option autoImplicit false
--- NOT BUILT: written without running Lean. No sorry / axiom / native_decide.
+-- Built in g5to2-20d6dfd3 (clean, exit 0, 741 jobs). No sorry / axiom / native_decide.
 
 /-! # T2-OUTTY: the callee's `houtTy` row (scripts/gen5/DGEN_FREEZE.md §7.9, rev2.5, par/gen5-t2 505f3392)
 
