@@ -46,12 +46,9 @@ def s5oneP (w : Signal defaultDomain (BitVec 16)) (sel : Signal defaultDomain (B
   let y := s5pickH w sel
   y + y
 
-/-- (a') the same call in a `circuit do` without a register. -/
-def s5onePC (w : Signal defaultDomain (BitVec 16)) (sel : Signal defaultDomain (BitVec 2)) :
-    Signal defaultDomain (BitVec 8) :=
-  circuit do
-    let y := s5pickH w sel
-    return y + y
+/- (a') removed after g2s5p-h-f7e42988: the same call in a `circuit do` without a register is REFUSED by the
+front end ("circuit do: at least one `let r ← Signal.reg …` is required"). Coverage finding: a register-less
+`circuit do` one-output parent is not a compilable source form. -/
 
 /-- A `Bool` child with shared `let`s (as `s3parityH`). -/
 @[hardware_module]
@@ -221,6 +218,5 @@ elab "#s5_p2_probe " d:ident : command => do
 end Tests.Gen2.S5SlotlessProbe
 
 #s5_p2_probe Tests.Gen2.S5SlotlessProbe.s5oneP
-#s5_p2_probe Tests.Gen2.S5SlotlessProbe.s5onePC
 #s5_p2_probe Tests.Gen2.S5SlotlessProbe.s5grpP
 #s5_p2_probe Tests.Gen2.S5SlotlessProbe.s5engineOnce
