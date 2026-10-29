@@ -180,9 +180,22 @@ The structure `Tools.ShippingSeqParentGenD2MSD.CallDec` (:17, used in KaryThreeT
 - **`StepStmt`:** it is already MIXED/withdrawn since A-COMB (PkgCompat:263-266). No new claim.
 
 ## 5. Acceptance (for the implementing unit)
-The build is one scoped `kjob lake build` of `Tools.ShippingGen2CallField`, `Tests.Gen2.CallDecInstance`, `Tests.Gen2.AdaptInstance`, `Tests.Gen2.PkgCompat`, `Tests.Gen2.U0Check`. Lakefile entries are needed for the new file and the new test. `#print axioms` on every new theorem must show at most `[propext, Classical.choice, Quot.sound]`.
+The build is one scoped `kjob lake build` of `Tools.ShippingGen2CallField`, `Tests.Gen2.OneOutCallField`, `Tests.Gen2.CallDecInstance`, `Tests.Gen2.AdaptInstance`, `Tests.Gen2.PkgCompat`, `Tests.Gen2.U0Check`. Lakefile entries are needed for the new file and the new test. `#print axioms` on every new theorem must show at most `[propext, Classical.choice, Quot.sound]`.
 
-Add a kernel test `Tests/Gen2/OneOutCallField.lean`: for the gen4 `callerL`/`pickByteH` data, `CallField`'s one-output branch is satisfiable, i.e. `pickByteH.machineData.shape.layout.outs = [o]` for its `o`, by `decide`. This is the non-vacuity of the new conjunct. A `Pkg.comb` for `pickByteH` and the S4 consumer remain separate obligations.
+Add a kernel test `Tests/Gen2/OneOutCallField.lean` on the real data:
+- `callerL.machineData.shape.instFields = []`, decided;
+- `pickByteH.machineData.shape.layout.outs` is a singleton `[o]`, and `CallField (.gen-or-.comb callerL-pkg) (.comb pbhC) 0 o` holds;
+- control: the OLD name conjunct fails for the same pair (`o.name ≠ instFields.getD 0 ""`, as in gen4's `oneout_name_mismatch`).
+
+This shows only that the new conjunct is satisfiable. It does NOT show the whole `CallDec` (argument/range/output-equation conjuncts), nor that a run exists.
+
+**Notes recorded from the review of d9e29568:**
+- **`GroupOnly`** is used ONLY by the old-version compatibility tests (`t1Hyp_iff`, `t1Stmt_compat`). It is never a T1/FG restriction.
+- **A one-output application of `HPointG`/`CallOutG` keeps `hP`** (tying `q` to the real callee).
+- **`o` stays inside `∀ i`;** no `Nonempty ι` is added.
+- **`oneOut_outputs` gives the OUTPUT SHAPE only;** it does not select seq vs comb. The S4 consumer gets the comb branch from `instStmt`'s successful no-clk/rst check plus the exclusivity C3 (`not_seq_and_comb`).
+- **`pickByteH`'s `Pkg.comb`** is already accepted (22417406); only the S4 consumer remains.
+- **At integration** with M3 `InstClosed` (par/gen3-induct) and M5 t2 (par/gen5-t2), the uses of `CallDec`/`HPointAt` and a combined-SHA regression are to be checked.
 
 **Stop conditions:**
 - If `if_neg`/`if_pos` do not rewrite (Decidable instance mismatch), switch to `match p.d.shape.instFields with | [] => … | _ => …` and report it. Do not use `instFields.isEmpty`.
