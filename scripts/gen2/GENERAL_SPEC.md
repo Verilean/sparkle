@@ -511,8 +511,22 @@ audit).
   - `hrunN`: either a proof that consumer 2 applies, or the variant's statement.
 - **Report:** the classification of §4.4's R? rows; the G-EXC finding (§3.2: reduced to `Keeps`); the concrete
   `DataOk` and its vacuity audit.
-- **Diagnostic already run** (allowed by the review of 27644250): `Tools/ShippingGen2Defs.lean` = GEN2_DEFS verbatim,
-  job `g2u0-defs-30ac1786`. Its result and every name or type deviation are listed here before the next review.
+- **Diagnostic already run** (allowed by the review of 27644250): `Tools/ShippingGen2Defs.lean`, byte-identical to
+  GEN2_DEFS.lean.txt (cmp).
+  - **Result:** `g2u0-defs-3d16ecb8`, exit 0, 695 lake jobs, head = base = 3d16ecb8, mkvs-dell, log SHA-256 prefix
+    `4c24dc41cb23b15c`. Every definition and `…Stmt` of GEN2_DEFS elaborates; it contains no theorem.
+  - **Failed diagnostics:**
+    - `g2u0-defs-30ac1786`: 72 errors, all name resolution;
+    - `g2u0-defs-d3c1181b`: 21 errors, names and types.
+  - **Deviations, all non-semantic:**
+    - the `open` list was copied from Srm33Core/ServedRealA, plus `Tools.ShippingMachineSource`/`MachineDenote` (`tys`,
+      `stateLoop`), `Tools.ShippingChildInv.profLogIO` and `Tools.ShippingChildRunAKids` (`MachineClosesAtA`);
+    - `Module` is written `Sparkle.IR.AST.Module` (ambiguous with `Lean.Module`);
+    - `Pkgs` has no `: Type` annotation (it lives in `Type 1`, because `SrcPkg.ρ : ι → Type`);
+    - `∃ k (hk : …)` became `∃ k, ∃ hk : …` in `ReachStmt`;
+    - `CallDec`'s witnesses are annotated `(k' : Nat) (o : OutField) (f : Nat → Nat)`.
+  - **No meaning changed.** The rev2 semantic changes (§0 "Rev2") were made before the build and are part of what it
+    checked.
 - **Accept:**
   - an exact-head build of `Tools.ShippingGen2Connect`;
   - axioms standard;
