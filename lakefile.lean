@@ -4517,3 +4517,6 @@ lean_lib «Tests.Gen2.QuantEndpoint» where
 
 lean_lib «Tools.ShippingGen2Loop» where
   roots := #[`Tools.ShippingGen2Loop]
+
+lean_lib «Tools.ShippingGen2Pkg» where
+  roots := #[`Tools.ShippingGen2Pkg]
