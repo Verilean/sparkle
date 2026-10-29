@@ -64,7 +64,8 @@ open Tools.ShippingMachineCallsLinkedT
 open Tools.ShippingMachineClose (Zip₂)
 open Tools.ShippingPortWidthsPure (nonDom declWidths declN)
 open Tools.ShippingQuadComposed
-open Tools.ShippingQuadCalls Tools.ShippingQuadHPoint (HPointAt)
+open Tools.ShippingQuadCalls
+open Tools.ShippingQuadHPoint (HPointAt)
 
 variable {ι : Type} {dom : ι → DomainConfig}
 
@@ -144,9 +145,10 @@ theorem call_inRange_at (p q : SrcPkg ι dom) (k : Nat) (hk : k < p.d.shape.inst
     have hw1 := sortOf_width hsort
     have hb1 : (kindTy b.2).bitWidth = l.1.width := hwd.symm.trans hw1
     have hvlt : v < 2 ^ l.1.width := by
-      rw [← hva]; simp [hvv]; exact hlt τ
+      rw [← hva, show (p.lsrc i bools bits)[a]? = some vv from hvv]; exact hlt τ
     have hbnd : b.2 ≠ .domain := by
       have := List.mem_of_getElem? hb
+      unfold SrcPkg.ports at this
       have := (List.mem_filter.mp this).2
       simpa using this
     cases hbb : b.2 with
