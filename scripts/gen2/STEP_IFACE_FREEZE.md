@@ -1,4 +1,4 @@
-# M2-step part 1: the child interface for combinational children (G-SLOTLESS) — freeze rev2, FOR RE-REVIEW (rev1 b60e3980: A-COMB direction approved; fixes 1-4 applied)
+# M2-step part 1: the child interface for combinational children (G-SLOTLESS) — freeze rev3, FOR RE-REVIEW (rev1 b60e3980: A-COMB approved; rev2 b7f85204: plan approved, R1 source-output supplier and R2 .gen-restricted compat fixed here)
 
 Issue `sparkle-gen2-step`.
 - **Branch:** `par/gen2-spec`; base 5b93aa2f.
@@ -83,9 +83,32 @@ def ChildShips (q : Pkg ι dom) (n : Nat) (mc : Module) (Dc : Design) : Prop :=
 | `iHAt_eq` (299) | mixed: negative in `InvAt`, positive in `ShipsRes` | no implication in either direction; recorded as "changed, mixed", with a comment naming both positions |
 | `bodyKeepsInv_eq`/`childKeepsInv_eq` (305/311) | mixed: `Keeps` has `InvAt` as pre- and post-condition | "changed, mixed" |
 | `keepBody_eq`/`keepChild_eq` (317/322) | mixed (`ChildKeepsInv → BodyKeepsInv`; `IHAt` premise) | "changed, mixed" |
-| `memParentStmt'_compat`/`memParentStmt_compat`/`leafStmt_compat` (366/370/374) | positive only (conclusion) | direction flips: `Old.… → new` |
+| `memParentStmt'_compat`/`memParentStmt_compat`/`leafStmt_compat` (366/370/374) | positive only (conclusion) | NOT a simple flip: `Old.*` quantifies over every `SrcPkg`, the new statement over every `Pkg` (`.loop` included), so `Old` gives nothing for `.loop`. Replaced by the `.gen`-restricted forms below (R2 on b7f85204) |
 | `stepStmt_compat` (378) | mixed: `ServedP (ShipsRes …)` in premise, `ChildShips` in conclusion | "changed, mixed" |
 | `servedShips_compat` (396) | mixed | "changed, mixed" |
+
+**The `.gen`-restricted compat forms, exact types** (in `Tests/Gen2/PkgCompat.lean`):
+```lean
+theorem memParentStmt'_gen (L : Laws mref cref) : Old.MemParentStmt' (ι := ι) (dom := dom) L →
+    ∀ (q : SrcPkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
+      (raw b : Sparkle.IR.AST.Module) (D : Design),
+      MemParentDataOk (.gen q) → ExtInS (.gen q) → MemOrigin (.gen q) →
+      q.d.shape.insts ≠ [] → q.d.shape.instFields ≠ [] → q.d.shape.layout.slots ≠ [] →
+      AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w →
+      RunsTo (synthesizeCombinationalCore q.decl [] false) mctx mref cctx cref w (raw, D) w1 →
+      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+        b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
+      MachineDefines mctx mref cctx cref q.decl q.d.shape →
+      MachineTaken L mctx cctx (dv w + 1) q.decl q.d.shape raw D →
+      (∀ k (hk : k < q.d.shape.insts.length), MemDec (.gen q) k (q.d.shape.insts[k]).1) →
+      ∀ n, TopShips (.gen q) (n + 1) q.decl b raw D ∧ ChildShips (.gen q) (n + 1) b D
+```
+- **`memParentStmt_gen` and `leafStmt_gen`:** the same pattern. Each is the body of the new statement at `p := .gen q`, with `DataOk := DataOkLiftCompat DataOk` as in the existing tests, obtained from the corresponding `Old.*`.
+- **How each is proved:** apply `Old.* q`, then the pointwise `Old.ChildShips q … → ChildShips (.gen q) …` on the conclusion. `Old.TopShips` and `TopShips (.gen q)` are `rfl` (PkgCompat:251).
+- **What they are kept separate from:**
+  - the pointwise `ChildShips` embedding;
+  - the positive transports `Old.ShipsRes L P c r → ShipsRes L (Pkgs.lift P) c r` and `Old.CacheShips … → CacheShips L (Pkgs.lift P) …` over the lift, which are statements about `Pkgs.lift P`, not about `.gen q`.
+- **What stays as planned:** `t1Hyp_iff` and `t1Stmt_compat`.
 
 For every "changed, mixed" row, the test keeps the old statement text under `Old` and adds a comment. No theorem claims a relation the proof does not give.
 
@@ -144,7 +167,8 @@ theorem evalAssigns_mems_irrel {we : WEnv} {body : List Stmt} (hA : body.all isA
 theorem childFn_of_combRun {dsn : Design} {n : Nat} {mc : Module} {bsC} {o : OutField} {outP : Port}
     {S : (Nat → List Nat) → List (Nat → Nat)}
     (h : CombChildRunN (childMap dsn.modules) dsn n mc bsC [o] S)
-    (hA : mc.body.all isAssign = true) (hout : mc.outputs = [outP]) :
+    (hA : mc.body.all isAssign = true) (hout : mc.outputs = [outP])
+    (hS : ∀ v, InRange v (bsC.filter fun b => b.2 != .domain) → ∃ f, (S (fun _ => v))[0]? = some f) :
     ChildFn mc (fun v => InRange v (bsC.filter fun b => b.2 != .domain))
       (fun v => ((S (fun _ => v))[0]?.map (· 0)).getD 0)
 
@@ -156,6 +180,18 @@ theorem combS_pointwise {dsn : Design} {n : Nat} {mc : Module} {bsC} {outsC : Li
       (∀ τ', τ' ≤ τ → InRange (vals τ') (bsC.filter fun b => b.2 != .domain)) →
       outsC[k]? = some o → (S vals)[k]? = some f → (S (fun _ => vals τ))[k]? = some g → f τ = g 0
 ```
+- **The source-output existence (review R1 on b7f85204).** `CombChildRunN` only constrains outputs `f` with `(S vals)[k]? = some f`, so a `S` with too few entries satisfies it vacuously. Example: `S := fun _ => []` with a constant-1 module; without `hS`, S4-b's `getD 0` function would be 0. Hence the explicit premise `hS` in S4-b; S4-c takes `f` and `g` as given witnesses.
+- **The supplier of `hS` and of S4-c's `g`, for `S := q.S i` of the callee's actual package `q`:**
+  ```lean
+  theorem Pkg.src_get (q : Pkg ι dom) : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) (k : Nat) (o : OutField),
+      q.d.shape.layout.outs[k]? = some o → ∃ f, (q.src i bools bits)[k]? = some f
+  ```
+  It is proved by cases on `q`:
+  - `.gen`: `GenFacts.source` + `GenFacts.result` (QuadComposed.lean:135-150) give `(q.src i bools bits).length = q.d.outs.length`, by the length of the mapped equation. `outsFitB` in `q.d.ok` (MachineAuto.lean:136-143) gives `layout.outs.length ≤ q.d.outs.length`.
+  - `.loop`: the same from `SrcPkgL`'s `hres`/`hsrc` (Gen2Loop.lean:161-170).
+
+  `q.S i v = q.src i (boolsOf …) (bitsOf …)` (Pkg.lean:75), so `hS` and `g` follow from `Pkg.src_get` at `k = 0`, with `q.d.shape.layout.outs = [o]` (the `outsC` of `ChildShips`). This supplier is a lemma of the package facts the parent's `ShipsRes`/`P` already carries, not a new premise. **If either case cannot be proved from those facts, the work stops there and is reported; no new residual is added silently.**
 - **Proof ingredients.**
   - `RunOn_instFree`, from (a) via `instFree_of_seqOk`-style lemmas.
   - S4-a, to pass from the zero memories of `ResetN` to `ChildFn`'s arbitrary `mems`.
