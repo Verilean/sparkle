@@ -1,6 +1,6 @@
 import Tools.ShippingGen2Adapt   -- callArgsOkAt (:73-77), Pkg.portWidths (:80); Pkg/Pkgs, kindTy, StructEnv
 set_option autoImplicit false
--- NOT BUILT (written without running Lean; the integrator builds it).
+-- Built: g3sb-7813bf32 (clean snapshot, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # SRC-ARGW SA0 / SA1 (scripts/gen3/SRC_ARGW_FREEZE.md rev1 §2.1-§2.3, §3 (iii-b))
