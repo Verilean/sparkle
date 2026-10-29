@@ -37,7 +37,7 @@ theorem badDecDirect : True := (fun _ => trivial) @Tools.ShippingGen2.T1Hyp.dec
 /-- control: `T1Hyp.dec` through two helpers in other namespaces -/
 theorem badDecIndirect : True := Tests.Gen5.T2OutTyHelperB.helperB
 /-- control: whole destructuring -/
-theorem badCases : True := (fun _ => trivial) @Tools.ShippingGen2.T1Hyp.casesOn
+theorem badCases : True := (fun _ => trivial) @Tools.ShippingGen2.T1Hyp.casesOn.{0}
 /-- control: uses `T1Hyp.defines` (allowed for H1, forbidden for H2) -/
 theorem usesDefines : True := (fun _ => trivial) @Tools.ShippingGen2.T1Hyp.defines
 /-- control: unrelated -/
