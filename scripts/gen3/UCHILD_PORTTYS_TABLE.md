@@ -182,3 +182,139 @@ them, supplies the row alone.
 2. Only after review of 1: U-CHILD-PORTW-DEF + C (the shared edit). Defs + GEN2_DEFS copy + P1-P4 `refine ⟨_, ?_⟩`
    (about 4 lines each) + C1-C5 `.2` (1 line each) + PkgCompat C6/C6'. About 40 changed lines plus the PkgCompat
    reclassification. Sequence it with [M3] G-POST.
+
+## Shared-edit plan (rev2)
+**Design only; nothing applied, built or merged.** Read-only survey on 2026-10-29. Branches: `par/gen2-spec` at
+**8ee219c3** (the standalone part is accepted at 1b840215), `par/gen3-induct` at **96cbd548** ([M3]), and
+`par/gen4-gate` at b3a72c91 ([M4]). Merge-base of 8ee219c3 and 96cbd548 is **1fdbc18d** (S6 A-COMB). `par/gen4-gate`
+and `par/gen5-t2` also fork at 1fdbc18d, with Defs unchanged since. A trial `git merge-tree --write-tree 8ee219c3
+par/gen3-induct` gave tree 09b6bea8. No ref or worktree was changed.
+
+### a. Defs diff and conflict analysis
+`git diff 8ee219c3 par/gen3-induct -- Tools/ShippingGen2Defs.lean scripts/gen2/GEN2_DEFS.lean.txt` shows two
+independent hunks, each one-sided since 1fdbc18d:
+| change | branch, commit | Defs lines | GEN2_DEFS copy |
+|---|---|---|---|
+| CallField: `def CallField` (8ee219c3 Defs:91-97); `CallDec` uses `CallField p q k o` (:109) instead of `o.name = instFields.getD k ""` | gen2-spec b213b3b4 | :91-109 | updated (cmp-identical at 8ee219c3) |
+| G-POST: `def InstClosed` ([M3] Defs:127-131); `ShipsRes := RealChildA ∧ (∃ q n, … ChildShips …) ∧ InstClosed r` ([M3] Defs:135-136) | gen3-induct 28476add | :127-136 | **NOT updated** on gen3-induct (cmp differs at line 127) |
+| ChildShips + `ChildPortWidths` (this unit) | not applied | 8ee219c3 Defs:82-90 | — |
+
+- **Textual:** Defs, PkgCompat (A-COMB section: CallField `t1Hyp_iff` vs G-POST `hic` lifts) and GEN2_DEFS auto-merge.
+  The only textual conflict is `lakefile.lean`: both branches append `lean_lib` blocks after :4549 (09b6bea8:4551-4677).
+  Resolve it as the union.
+- **Copy:** at the merged SHA, `GEN2_DEFS.lean.txt` lacks `InstClosed`. Sync it to Defs (`cmp` exit 0) in the
+  integration commit.
+- **Semantic conflicts at integration (they break the build; git does not report them).** Five sites exist only on
+  gen2-spec and destructure `ShipsRes` with the 2-conjunct pattern `⟨_, q', n', hq', _, hcs'⟩`. Each must become
+  `⟨_, ⟨q', n', hq', _, hcs'⟩, _⟩`:
+  - Tools/ShippingGen2FitChain.lean:946;
+  - Tools/ShippingGen2OneOut.lean:200;
+  - Tools/ShippingGen2OneOutTop.lean:310;
+  - Tools/ShippingGen2OneOutTopO.lean:303;
+  - Tools/ShippingGen3Arity.lean:83 (`argLen_of_shipsRes`).
+
+  `ShipsAt` (8ee219c3 Defs:147-148) has no `InstClosed`, so Connect:137 and GroupServed:80/:94 are unaffected.
+  GPOST_STAGE1_RESULT.md lists `leaf_ships`, `slotlessLeaf_ships` and `Pkg.comb` as "must be re-verified on integration".
+- **InstClosed vs ChildShips.** InstClosed touches `ShipsRes`'s top-level shape, i.e. how `ShipsRes` is consumed.
+  ChildShips touches the body of `ChildShips`, i.e. how ChildShips is produced and how its run part is applied
+  (`hcs dsn …` becomes `hcs.2 dsn …`). The two edits touch different definitions and are orthogonal, but they share 4
+  consumer sites: FitChain:946, OneOut:200, OneOutTop:310 and Arity:83 are touched by both. OneOutTopO:303 is also
+  touched by both.
+
+### b. Order, host, owner, re-verification
+**Recommended: InstClosed first, ChildShips on top, in ONE combined branch.**
+1. Create `par/gen3-combined` from 8ee219c3 and merge 96cbd548 into it:
+   - lakefile union;
+   - GEN2_DEFS sync;
+   - the 5 `ShipsRes` pattern fixes above, and nothing else.
+
+   Build and record this as the integration SHA S1.
+2. On top of S1, make the ChildShips edit (§3 rows and c. below) as one commit, S2.
+
+Reasons:
+- InstClosed is already built (g3pf-28476add, exit 0). Its consumers on gen3-induct (`childShips_congr` T1:142-145,
+  PostFacts `ShipsResOld`/`shipsRes_old` :68-99, `ihAt_stepPF` :194, KeepChild, PkgCompat `hic` lifts) only become
+  visible to the ChildShips edit in a tree that contains them.
+- The reverse order would have gen3-induct re-patch `childShips_congr` and the same 5 sites after its own merge. That
+  means two interface migrations of the same lines on two branches.
+- S1 alone separates "integration regressions" from "ChildShips regressions".
+
+**Host:** `par/gen3-combined`, a new branch. It becomes the base for gen2-spec, gen3-induct, S3 and S5 follow-ups.
+gen2-spec and gen3-induct stop editing Defs, PkgCompat and the 5 sites until S2 is accepted.
+
+**Single owner:** the coder of `sparkle-gen3-uchild-porttys` owns S1 and S2. This is one worker, serial. The other
+agents are frozen on the listed files:
+- the SRC-ARGW agent does not touch Defs;
+- the gen3-post (M3) agent continues only after S2.
+
+The S1 merge needs a recorded go-ahead from the gen3-post (M3) issue owner (managerctl note), because it moves M3's
+branch base.
+
+**Re-verification.** Use `kjob run --issue sparkle-gen3-uchild-porttys` with `kjob lake build`, serially, at S1 and
+then at S2. Do not reuse 28476add or 1b840215 results.
+- Tools:
+  - `Tools.ShippingGen2{Defs,Connect,FitChain,OneOut,OneOutTop,OneOutTopO,Leaf,SlotlessLeaf,MemParent,MemShips,GroupComb,GroupServed,C6,AComb,CallField,PostFacts,T1,KeepChild,InstKeep,KidsInst}`;
+  - `Tools.ShippingGen3{Arity,ChildPortWidths,ArgWidthSrc}` (ArgWidthSrc only if committed by then).
+- Tests:
+  - `Tests.Gen2.{PkgCompat,LeafInstance,SlotlessLeafInstance,MemParentInstance,QuantInstance,QuantEndpoint,S3GroupCheck,S4StageACheck,SlotlessCheck,CallDecInstance,AdaptInstance}`;
+  - `Tests.Gen3.{T1Check,InstKeepCheck,ArityCheck,ChildPortWidthsCheck}`.
+- Each step also needs:
+  - a `#print axioms` audit (roots ⊆ propext/Classical.choice/Quot.sound, no sorryAx);
+  - GEN2_DEFS `cmp`.
+
+Finally, run `Tests.AllTests` at S2 before any poc integration request. The focused list is a plan; derive the exact
+closure from `lake` at S1 (UNCHECKED that it is complete).
+
+### c. ChildShips producers and consumers after the change (both branches + [M4])
+Producers (conclusion `ChildShips`; each must prove `ChildPortWidths q mc` as the new first conjunct):
+| producer | file:line @ branch | width source | status |
+|---|---|---|---|
+| `leaf_childShips_of_LB` | Leaf.lean:241-266 @ both (from mb) | P1 `leaf_childPortWidths` (Gen3ChildPortWidths:198) — same premises (`hL hnoI hsl hok hSS houtTy htake hpost`) | covered by P1 |
+| `slotlessLeaf_childShips_of_LB` | SlotlessLeaf.lean:283-296- @ gen2-spec | P2 (:211), same premises | covered by P2 |
+| `memParent_childShips` | MemShips.lean:39-49- @ both | P3 (:223); `hNW` already in the proof → N-B directly | covered by P3 |
+| `oneOut_childShips` | OneOut.lean:288-332 @ gen2-spec | P4 (:251); `hNW` in hand → N-B | covered by P4 |
+| `group_childShips` (S3 B5) | GroupServed.lean:294-352 @ gen2-spec | NOT covered by P1-P4. **New lemma `group_childPortWidths`**: under `group_childShips`' binders, `ChildPortWidths p b`, proof = `childPortWidths_of_composedNW n houtTy (ok_outNameOk p.d hok) hsl hI0 hkD hIlen hSL hSlen hLlen hNIn (group_composedNW L P p hdata hfe hdec n h) hpost` (all terms already built at GroupServed:308-331) | needs new lemma (N-B instance) |
+| `leaf_ships`, `slotlessLeaf_ships`, `memParent_ships` (+ `.loop`: QuantInstance:136) | Leaf:271, SlotlessLeaf:438, MemShips:87 | via the row-level producers above | follow from P1-P3 |
+| `childShips_congr` [M3] | T1.lean:142-145 @ gen3-induct | `intro dsn hg hmc i` breaks; becomes `⟨hc.1, fun dsn hg hmc i => hc.2 dsn (h ▸ hg) hmc i⟩` (width conjunct independent of `Dc`) | needs edit, no new lemma |
+| `ihAt_stepPF` [M3] | T1.lean:194 | takes `ChildShips` from `hStep` via `childShips_congr` | unchanged text |
+| `StepStmt` proof (M2-b) | unbuilt | must prove the conjunct; route: dispatch to P1-P4/group by parent kind | UNCHECKED (no proof exists) |
+| S5 slotless parents | design only (fd55bcfc) @ gen2-spec | N-B if via C6/ComposedNW, else N-A | UNCHECKED |
+| `PostFacts` `ShipsResOld`/`StepStmtOld` [M3] | PostFacts:68-95 | they reference CURRENT `ChildShips`, so "verbatim old" now means old-InstClosed only; `shipsRes_old` `⟨h.1, h.2.1⟩` unchanged | re-elaborate; doc note |
+| KeepChild / InstKeep / KidsInst [M3] | KeepChild:77-152, :257-347 | generic in `ShipsRes`/`InvAt` (no `ChildShips` destructuring found) | re-elaborate only (UNCHECKED until S2 build) |
+| [M4] gate route | par/gen4-gate b3a72c91: GateLeaf.lean:34-35 states `ChildShips`/`ShipsRes` for gate names NOT covered | none exists | no producer; UNCHECKED for future |
+| PkgCompat `childShips_gen` | PkgCompat:300-302 @ both | Old ⇒ new unproved | see d. |
+
+Import constraint: producers (Leaf, SlotlessLeaf, MemShips, OneOut, GroupServed) are UPSTREAM of
+`Tools/ShippingGen3ChildPortWidths.lean` (imports OneOut). They cannot call P1-P4. Plan: in S2, move
+`ChildPortWidths` into Defs (argPorts is reachable from Defs: Arity uses it importing only Defs), and split the
+lemmas (`argPortWidths_of_eq`, `childPortWidths_of_tys`, N-A, N-B, `noCalls_childPortWidths`) into a new file
+`Tools/ShippingGen3PortWidthsCore.lean` importing only C6 + PortWidthsPure + MemData. MemShips/Leaf/SlotlessLeaf/
+OneOut/GroupServed then import it. P1-P4 remain as thin corollaries. ChildPortWidthsCheck's expected type follows
+the moved name. The absence of an import cycle is to be confirmed at the S2 build.
+
+Consumers that destructure or apply `ChildShips` (shift: `hcs …` → `hcs.2 …`, or pattern `⟨-, hcs⟩`):
+- 8ee219c3 @ gen2-spec:
+  - Connect:140 (`hcs dsn hcons hmod i`);
+  - GroupServed:80, :94 (obtain over `ShipsAt`, then applied);
+  - FitChain:949;
+  - OneOut:203;
+  - OneOutTop:313;
+  - OneOutTopO:306;
+  - Arity:86 (`childRunN_argLen (hCS D hDc hmod i)`).
+- [M3]: `childShips_congr` T1:144-145.
+- PkgCompat: `shipsRes_lift`/`shipsAt_lift` :312-320 and `memParentStmt'_gen`/`memParentStmt_gen`/`leafStmt_gen`
+  :386-426 (`childShips_gen … this.2`).
+
+No other `ChildShips`/`ShipsRes` destructuring was found by grep for these patterns in `Tools/ShippingGen2*`,
+`Tools/ShippingGen3*`, `Tests/Gen2`, `Tests/Gen3` on either branch. Grep is not a proof, so the S2 build is the check.
+
+### d. Interface claims
+- **No new T1/FG premise.** `T1Hyp`/`T1Stmt` and FG's conclusion are unchanged. `PostFactsStmt` [M3] is unchanged.
+  The conjunct is supplied run-locally by the producers in c.
+- New ⇒ old by projection: `ChildShips` `.2`, lifted to `ShipsRes`/`ShipsAt`/`CacheShips`/`InvAt`, and composing
+  with M3's `shipsRes_old` (`⟨h.1, h.2.1⟩`, which then carries the new `ChildShips`). Old ⇒ new: UNPROVED/UNSUPPLIED
+  (§2).
+- **PkgCompat.** `childShips_gen` (Old ⇒ new) is either WITHDRAWN or takes an explicit `ChildPortWidths (.gen q) mc`
+  premise. Recommended: width-premised, mirroring G-POST's explicit `hic`. Its dependents `shipsRes_lift`,
+  `shipsAt_lift`, `cacheShips_lift`, `invAt_lift` and the `.gen` stmt forms (:372-426) then take the premise, or are
+  re-derived from the NEW producers. This is a compat-test change, not an FG change.
