@@ -1,7 +1,7 @@
 import Tools.ShippingGen2CallField
 import Tools.ShippingGen2T2Probe
 set_option autoImplicit false
--- NOT BUILT: written without running lake/lean (design-to-code unit). Intended: no sorry / axiom / native_decide.
+-- Built: g5td-ca10ee64 (clean snapshot, exit 0, standard axioms). No sorry / axiom / native_decide.
 
 /-! # T2-DEC: `HPointG` ⇔ `CallOutG`, and ⇔ `CallOutF` on the decoded argument families
 

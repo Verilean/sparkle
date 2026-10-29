@@ -2,7 +2,7 @@ import Tools.ShippingGen5T2Dec
 import Tests.Gen3.ExpectedType
 import Tests.Compiler.ShippingMachineLinkedTest
 set_option autoImplicit false
--- NOT BUILT: written without running lake/lean (design-to-code unit). Intended: no sorry / axiom / native_decide.
+-- Built: g5td-ca10ee64 (clean snapshot, exit 0, standard axioms). No sorry / axiom / native_decide.
 
 /-! # T2-DEC checks (issue `sparkle-gen5-t2-tie`, T2-DEC part; Tools/ShippingGen5T2Dec.lean)
 
@@ -29,7 +29,12 @@ open Tests.Gen3.ExpectedType
 open Sparkle.Tests.Compiler.ShippingMachineLinkedTest
 open Sparkle.Core.Domain
 
-/-! ## 1. Expected statements and mutants -/
+/-! ## 1. Expected statements and mutants
+
+Scope note (review of ca10ee64): the 13 rejections are signature / defeq rejections, NOT all semantic
+counterexamples (e.g. a one-directional weakening is also provable from the original equivalence). The `callerL`
+control is an application on an arbitrary parent package with `hp`; it is not package existence, CallOut or run
+supply. -/
 
 section Expected
 open Sparkle.Core Sparkle.Core.Signal
