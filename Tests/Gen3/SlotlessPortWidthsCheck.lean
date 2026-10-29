@@ -1,8 +1,7 @@
 import Tools.ShippingGen3SlotlessPortWidths
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (2026-10-29). To be confirmed by `kjob lake build Tests.Gen3.SlotlessPortWidthsCheck`
--- (after `Tools.ShippingGen3SlotlessPortWidths`). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3nc-ce4c32a4 (clean snapshot, exit 0, standard axioms). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # U-CHILD-PORTTYS N-C checks (scripts/gen3/UCHILD_PORTTYS_TABLE.md rev3 §R3.1)
 

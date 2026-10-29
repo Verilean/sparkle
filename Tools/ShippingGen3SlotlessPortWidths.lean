@@ -3,9 +3,7 @@ import Tools.ShippingGen3PortWidthsCore
 import Tools.ShippingGen2GroupServed
 import Tools.ShippingGen3ChildPortWidths
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (2026-10-29). To be confirmed by
--- `kjob lake build Tools.ShippingGen3SlotlessPortWidths` (after `Tools.ShippingGen2SlotlessParent` and
--- `Tools.ShippingGen3PortWidthsCore`). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3nc-ce4c32a4 (clean snapshot, exit 0, standard axioms). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # U-CHILD-PORTTYS N-C: the S5 slotless parents' port widths (scripts/gen3/UCHILD_PORTTYS_TABLE.md rev3 §R3.1)
 
