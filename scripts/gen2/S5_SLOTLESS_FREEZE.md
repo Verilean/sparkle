@@ -660,3 +660,13 @@ meaningful guarantee reaches the final root only through `sparkle-gen2-top-contr
 - that the shared `TopShips` (Defs:273-295) or any statement over it (StepStmt/LeafStmt/MemParentStmt/T1Stmt) now
   carries the slotless guarantee. That is `sparkle-gen2-top-contract`.
 - Not M2 done.
+
+## rev1.1 — review notes on a966486b (binding; supersede conflicting text above)
+1. **P3-core is an execution control of A2 only.** It does NOT check `SourceInputs`, the outer ids/cache/regs witness,
+   C4 or C5a; the text above must not be read as such. A separate control at package level (P-TOP of
+   TOP_CONTRACT_REVISION.md) checks the NC/R-G root.
+2. **`outNameOk` supply for C4's `outName_ne_clk`** (CallsAssemblyG:59-61): `houtTy` alone does not give it. C4/C5a must
+   take it from the run (`outsExtracted` + `NoTouchZ`, or an equivalent named lemma), stated as a supplier with its
+   full type before the C4 proof; it is not an extra premise.
+3. Instances that ASSUME a real run (run premises as hypotheses) are kept distinct from controls whose premises are
+   all supplied.

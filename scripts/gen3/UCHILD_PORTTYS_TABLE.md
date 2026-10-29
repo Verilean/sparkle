@@ -318,3 +318,6 @@ No other `ChildShips`/`ShipsRes` destructuring was found by grep for these patte
   premise. Recommended: width-premised, mirroring G-POST's explicit `hic`. Its dependents `shipsRes_lift`,
   `shipsAt_lift`, `cacheShips_lift`, `invAt_lift` and the `.gen` stmt forms (:372-426) then take the premise, or are
   re-derived from the NEW producers. This is a compat-test change, not an FG change.
+
+**Note (review of a966486b):** for slotless parents with calls (`slots = []`, `insts ≠ []`), neither existing N-A nor
+N-B applies directly; an independent `ChildPortWidths` supplier for that case remains to be provided (S5 producers).

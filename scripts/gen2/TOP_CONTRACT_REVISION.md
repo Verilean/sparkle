@@ -144,3 +144,16 @@ Write `TopShipsR` for R-G during the transition. `TopShipsNC` is S5 rev1 C2.
 - That any real slotless parent package exists.
 - That the group slotless top is covered.
 - Nothing here is built. Shared definitions are unchanged.
+
+## rev1.1 — review notes on a966486b (binding; supersede conflicting text above)
+1. **P-TOP** is a control separate from S5's P3-core (which checks A2 only): a FIXED package, with the SAME
+   ids/cache/regs as the root's outer witness, every execution premise satisfied, and the output of the NC / R-G root
+   used. Instances that assume a real run are distinct from controls whose premises are all supplied.
+2. **Order fixed (dependency inversion removed):** first the NC suppliers (U-TOP-S2 for the slotless leaf, S5 C5a) and
+   the lemmas L1-L4 in new files; then, serially and each at a buildable point: U-TOP-DEF (Defs switch to R-G) →
+   U-TOP-CLKIN/U-TOP-PROD (all producers) → U-TOP-COMPAT → U-TOP-CTRL (P-TOP and the history pin). U-TOP-CTRL is not
+   before U-TOP-S2.
+3. **R-G vs TopShipsNC:** R-G coincides with `TopShipsNC` only when NEITHER "rst" nor "clk" is an input, or under a
+   proof tying the premises to the actual inputs; "no clk" alone is not claimed sufficient.
+4. Shared changes are serial and single-owner: InstClosed → TopShips (R-G) → ChildPortWidths. Approval of this plan is
+   not approval of the merge operation itself. No compiler change, no new TRUSTED boundary, no scope narrowing.
