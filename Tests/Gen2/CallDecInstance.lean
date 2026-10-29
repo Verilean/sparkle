@@ -67,9 +67,9 @@ theorem P2_S : (fun i => pkgS P2 i) =
   funext i c
   unfold pkgS P2 quadSrcF
   by_cases h1 : c = ``wrapQ
-  · subst h1; simp [wQPkg, SrcPkg.S]
+  · subst h1; (simp [wQPkg]) <;> rfl
   · by_cases h2 : c = ``wrapP
-    · subst h2; simp [hne.symm, wPPkg, SrcPkg.S]
+    · subst h2; (simp [hne.symm, wPPkg]) <;> rfl
     · simp [h1, h2]
 
 /-- `CallFactF` of the package, from the existing generated-fact theorem. -/
@@ -84,19 +84,19 @@ theorem tm2_callDec : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
   intro k hk
   have Q := b_quadAll
   have hwid : ∀ (d : Tools.ShippingMachineAuto.MachineData) (n : Nat), Tools.ShippingCallsChildPorts.argWidths d n =
-      ((d.bsIn.take n).filter fun b => b.2 != .domain).map fun b => (Sparkle.Compiler.Elab.kindTy b.2).bitWidth := by
+      ((d.bsIn.take n).filter fun b => b.2 != .domain).map fun b => (Tools.ShippingMachineEntry.kindTy b.2).bitWidth := by
     intro d n
     unfold Tools.ShippingCallsChildPorts.argWidths
     rw [List.map_map]; rfl
   have hw : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
       quadWidthsOf ``wrapQ ``wrapP wrapQ.machineData wrapP.machineData 3 3 (quadCalleeAt tm2Pkg.d k) =
       ((pkgBsC P2 (tm2Pkg.d.shape.insts[k]).1).filter fun b => b.2 != .domain).map
-        fun b => (Sparkle.Compiler.Elab.kindTy b.2).bitWidth := by
+        fun b => (Tools.ShippingMachineEntry.kindTy b.2).bitWidth := by
     intro k hk
     rw [P2_bs, quadCalleeAt_eq _ k hk]
     rcases quad_insts_mem Q.hP k hk with hn | hn
-    · rw [hn]; unfold quadWidthsOf quadBsF; rw [if_pos rfl, if_pos rfl]; exact hwid _ 3
-    · rw [hn]; unfold quadWidthsOf quadBsF
+    · rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; unfold quadWidthsOf quadBsF; rw [if_pos rfl, if_pos rfl]; exact hwid _ 3
+    · rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; unfold quadWidthsOf quadBsF
       rw [if_neg (Ne.symm Q.hP.c12), if_neg (Ne.symm Q.hP.c12), if_pos rfl, if_pos rfl]; exact hwid _ 3
   have hlen : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length), (tm2Pkg.d.shape.insts[k]).2.1.length =
       ((pkgBsC P2 (tm2Pkg.d.shape.insts[k]).1).filter fun b => b.2 != .domain).length := by
@@ -104,10 +104,10 @@ theorem tm2_callDec : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
     rw [P2_bs]
     have hnk := Q.hP.argsN k hk
     rcases quad_callee_at Q.hP k hk with ⟨hn, hk2⟩ | ⟨hn, hk2⟩
-    · rw [hn]; unfold quadBsF; rw [if_pos rfl]
+    · rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; unfold quadBsF; rw [if_pos rfl]
       simp only [quadNk, hk2, if_true] at hnk
       rw [← hnk, Q.hC₁.hNIn]
-    · rw [hn]; unfold quadBsF; rw [if_neg (Ne.symm Q.hP.c12), if_pos rfl]
+    · rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; unfold quadBsF; rw [if_neg (Ne.symm Q.hP.c12), if_pos rfl]
       simp only [quadNk, hk2, if_false] at hnk
       rw [← hnk, Q.hC₂.hNIn]
   have hnone : (tm2Pkg.d.shape.instOrigins.getD k .ord).child? = none := by
@@ -117,11 +117,11 @@ theorem tm2_callDec : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
     rw [Tools.ShippingInstTagged.instTagged_getElem_snd] at h
     simpa [Tools.ShippingInstTagged.originAt] using h
   rcases quad_insts_mem Q.hP k hk with hn | hn
-  · refine ⟨wQPkg, by show P2 _ = _; rw [hn]; simp [P2], ?_⟩
-    exact callDec_of_callFactF P2 tm2Pkg wQPkg k hk (by show P2 _ = _; rw [hn]; simp [P2]) hnone tm2_hF
+  · refine ⟨wQPkg, by rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2], ?_⟩
+    exact callDec_of_callFactF P2 tm2Pkg wQPkg k hk (by rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2]) hnone tm2_hF
       Q.hP.ok Q.hP.callsOk Q.hP.slots _ Q.hPX.callArgs hw hlen
-  · refine ⟨wPPkg, by show P2 _ = _; rw [hn]; simp [P2, hne.symm], ?_⟩
-    exact callDec_of_callFactF P2 tm2Pkg wPPkg k hk (by show P2 _ = _; rw [hn]; simp [P2, hne.symm]) hnone tm2_hF
+  · refine ⟨wPPkg, by rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2, hne.symm], ?_⟩
+    exact callDec_of_callFactF P2 tm2Pkg wPPkg k hk (by rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2, hne.symm]) hnone tm2_hF
       Q.hP.ok Q.hP.callsOk Q.hP.slots _ Q.hPX.callArgs hw hlen
 
 /-- `DataOk` of the three packages (non-vacuity on this instance). -/
