@@ -1,6 +1,6 @@
 # S4 P-MEM-4 freeze: where does the one-output consumer chain consume `hnomem`'s NAME half? (design only)
 
-**Status: rev2 — design approved; implementation written, UNBUILT, nothing proved.** Research at par/gen2-spec 48775f38
+**Status: rev3 — §2 accepted (limited) at 0efea824 (g2pm4-0efea824 exit 0); audit revised after review R1/R2.** Research at par/gen2-spec 48775f38
 (grep/read only; no lake/lean run); implementation files written on cd026658 (see §7), not built or elaborated. Line
 numbers are at 48775f38 (the originals are unchanged since then). Obligation: scripts/gen2/S4_PMEM_FREEZE.md §4.2 (P-MEM-4).
 
@@ -155,33 +155,39 @@ c. **Audit (transitive; replaces the direct `getUsedConstants` check of rev1).**
    inductive reached — Prop structures (their fields' types via the constructor type, with the parameters), Prop
    inductives (constructor types), and data structures/inductives too (conservative); constructors → their inductive.
    Boundaries: a definition whose type ends in neither a sort nor a class is COMPUTATIONAL — not unfolded logically; its
-   body is scanned depth-bounded for reporting and a forbidden name found there is listed as a computational hit, never as
-   a logical assumption. `opaque` / `partial` / `axiom` / missing / Prop-level `extern`/`implemented_by` constants on
-   the logical path are UNCHECKED boundaries, printed, never counted as absence. Theorems/recursors met in a type are
-   skipped with a note. Output per root: logical hits (must be EMPTY for the 14 copies, else `throwError "STOP: …"`),
-   computational hits, unchecked boundaries, the count of logical constants unfolded. A visit cap aborts with "absence
-   NOT established" rather than passing.
+   body is scanned depth/fuel-bounded. A forbidden name found there is classified by the boundary definition reached on
+   the logical path (rev3, review R1): Bool-valued ⇒ BOOLCHECK (a Bool check the premise requires: `f x = true`,
+   `decide`, a data row) — counted like a logical hit, a `STOP` for the copies; any other result type ⇒ UNCLASSIFIED
+   (needs review; neither pure computation nor absence). Not scanned (depth cut, fuel exhausted, opaque inside a body) ⇒
+   UNEXPLORED, printed with path. `opaque` / `partial` / `axiom` / missing / Prop-level `extern`/`implemented_by`
+   constants on the logical path are UNCHECKED boundaries, printed, never counted as absence. Theorems (proof terms),
+   quotient primitives and recursors met in a type are SKIPPED, every one printed with reason and path (review R2).
+   Output per root: LOGICAL and BOOLCHECK hits (must be EMPTY for the 14 copies, else `throwError "STOP: …"`),
+   UNCLASSIFIED hits, UNCHECKED, UNEXPLORED, SKIPPED, the count of logical constants unfolded. A visit cap aborts with
+   "absence NOT established" rather than passing. LOGICAL 0 / BOOLCHECK 0 is not used to mean that the premises carry no
+   name condition.
    Fixtures (the check fails if one is not detected): a hidden ≥2-level fixture `fxRoot (h : Fx3)` with
    `structure Fx3 : Prop where h : Fx2`, `def Fx2 : Prop := Fx1`, `def Fx1 : Prop := ∀ c, memChild? c = none` — detected
-   with path fxRoot → Fx3 → Fx2 → Fx1 → memChild?; a direct one-level fixture; a computational-only fixture (`memChild?`
-   inside a `Bool` function: no logical hit, a computational hit); an opaque Prop (an unchecked boundary). Positive
-   control: the ORIGINAL `oneOutWidthAt` has a logical hit via `hnomem`.
+   with path fxRoot → Fx3 → Fx2 → Fx1 → memChild?; a direct one-level fixture; NEGATIVE Bool-check fixtures
+   `fxCompRoot (h : fxComp a = true)` and `fxComp2Root` (one Bool wrapper deeper), both detected as BOOLCHECK; a non-Bool
+   computational fixture `fxNatRoot (h : fxNat a ≤ 7)` reported as UNCLASSIFIED; an opaque Prop (an unchecked
+   boundary). Positive control: the ORIGINAL `oneOutWidthAt` has a logical hit via `hnomem`.
    (ii) only `oneOutWidthAtO`/`oneOut_topShipsO` mention `InstOrigin.child?` in a binder (`hord`);
    (iii) `#print axioms` of the 14 copies and the controls = [propext, Classical.choice, Quot.sound]. (Pattern:
    Tests/Compiler/Srm20AuditTest.lean, Tests/Compiler/ChildVertAuditTest.lean.)
 
 ## 6 Not claimed
 
-- Nothing is built or proved; all line counts are estimates.
+- Accepted (limited) only as removal/replacement of the enumerated premise in the 14 theorems; no claim of overall strictness or minimality.
 - Not claimed: that the row (G-DATA, P-MEM-1) holds for every successful compilation; coverage stays open.
 - Not claimed: an end-to-end shipping result for `collPlainCD` or any other collision parent.
 - Not claimed: anything about memory parents (`instFields ≠ []`), the group closing, or `core_*` theorems outside the
   OneOutTop chain (e.g. `core_closed_typedIn_ranA`, `core_designCheckHA`, the `Kid`-based `core_*M` chains).
 - The transitive unfolding of premises other than `hnomem` was not done by reading; §5 c is the planned check.
 
-## 7 Implementation (UNBUILT)
+## 7 Implementation (built at 0efea824, g2pm4-0efea824; audit revised in rev3)
 
-Written on par/gen2-spec cd026658 (not built, not elaborated, not committed). Copies generated from the originals'
+Written on par/gen2-spec cd026658, committed and built at 0efea824 (exit 0, 14 TYPE OK, standard axioms). Copies generated from the originals'
 lines by a script (verbatim except the listed changes; the per-file diff against the original shows only those).
 
 | file | declarations |

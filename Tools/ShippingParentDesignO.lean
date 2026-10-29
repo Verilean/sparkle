@@ -4,7 +4,7 @@ import Tools.ShippingOneOutFacts
 import Tools.ShippingHierGateAny
 import Tools.ShippingParentDesignA
 import Tools.ShippingParentTailsO
--- UNBUILT when written (P-MEM-4 implementation, par/gen2-spec on cd026658). Not built, not elaborated.
+-- Written on cd026658; built at 0efea824 (kjob g2pm4-0efea824: exit 0, standard axioms only).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # P-MEM-4: `hnomem`-free copies of the DesignA run facts used by the one-output chain
@@ -16,7 +16,7 @@ COPIED from `Tools/ShippingParentDesignA.lean` at SHA 48775f38 (scripts/gen2/S4_
 
 Change rule: the `hnomem` binder is deleted (every other binder in the same order, same conclusion text);
 `(core_kids_facts_ranA … hnomem …).2.1` becomes `Tools.ShippingParentTailsO.core_bodyEq_ranO …`; callees are the `O`
-copies. Proofs otherwise verbatim. Copies do not follow later changes of their originals. UNBUILT when written. -/
+copies. Proofs otherwise verbatim. Copies do not follow later changes of their originals. Built: g2pm4-0efea824. -/
 
 variable {tenv : Lean.Environment}
 

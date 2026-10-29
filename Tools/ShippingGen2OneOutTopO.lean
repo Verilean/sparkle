@@ -4,7 +4,7 @@ import Tools.ShippingGen2OneOutTop
 import Tools.ShippingParentTailsO
 import Tools.ShippingParentDesignO
 set_option autoImplicit false
--- UNBUILT when written (P-MEM-4 implementation, par/gen2-spec on cd026658). Not built, not elaborated.
+-- Written on cd026658; built at 0efea824 (kjob g2pm4-0efea824: exit 0, standard axioms only).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # P-MEM-4: the one-output top without the NAME half of `hnomem`
@@ -21,7 +21,7 @@ originals' namespace `Tools.ShippingGen2` with the originals' two ambient blocks
   `core_instOutWidthsOk_oneO`, `oneOutWidthAtO`); `core_closeInstsA` (no memory premise) is used unchanged.
 
 Every other binder in the same order, same conclusion text; proofs otherwise verbatim. Copies do not follow later
-changes of their originals. UNBUILT when written. -/
+changes of their originals. Built: g2pm4-0efea824. -/
 
 /-! ## The two run-level lemmas (ambient: as OneOutTop:26-45) -/
 namespace Tools.ShippingGen2

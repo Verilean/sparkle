@@ -2,7 +2,7 @@ import Tools.ShippingParentRanA
 import Tools.ShippingChecksCore
 import Tools.ShippingLinkedFresh
 import Tools.ShippingClosedTyped
--- UNBUILT when written (P-MEM-4 implementation, par/gen2-spec on cd026658). Not built, not elaborated.
+-- Written on cd026658; built at 0efea824 (kjob g2pm4-0efea824: exit 0, standard axioms only).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # P-MEM-4: `hnomem`-free copies of the TailsA tails used by the one-output chain
@@ -15,7 +15,7 @@ COPIED from `Tools/ShippingParentTailsA.lean` at SHA 48775f38 (scripts/gen2/S4_P
 
 Change rule: the `hnomem` binder is deleted (every other binder in the same order, same conclusion text); the call
 `(core_kids_facts_ranA … hnomem …).2.1` becomes `core_bodyEq_ranO …`; callees are the `O` copies. Proofs otherwise
-verbatim. Copies do not follow later changes of their originals. UNBUILT when written. -/
+verbatim. Copies do not follow later changes of their originals. Built: g2pm4-0efea824. -/
 
 variable {tenv : Lean.Environment}
 
