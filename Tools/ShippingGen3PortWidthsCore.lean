@@ -2,7 +2,7 @@ import Tools.ShippingGen2C6
 import Tools.ShippingGen2MemData
 import Tools.ShippingPortWidthsPure
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (2026-10-29). To be confirmed by `kjob lake build Tools.ShippingGen3PortWidthsCore`.
+-- Built: g3pw-ba9b9c82 (clean snapshot, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # U-CHILD-PORTTYS core split (scripts/gen3/UCHILD_PORTTYS_TABLE.md rev3 §R3.4): move-ready copy of N-A/N-B

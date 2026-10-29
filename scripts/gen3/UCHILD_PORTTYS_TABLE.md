@@ -360,7 +360,7 @@ PkgCompat citations still hold.
   only as the argument of `calls_ports` (MachineDepthChild:41-56). The other steps (`hInst` from `calls1`/`gCalls`,
   `hmc`, `hargsMc`, `hlenIn`) do not mention `hsl` (read, not built).
 
-**Producers that need a supplier** (committed, WRITTEN NOT BUILT at f7e42988):
+**Producers that need a supplier** (built clean in g2s5-f7e42988):
 - `oneOutSl_childShips` (Tools/ShippingGen2SlotlessParentRun.lean:291-337, S5 B2);
 - `groupSl_childShips` (:340-389, S5 B3).
 
@@ -434,10 +434,10 @@ theorem groupSl_childPortWidths (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg 
   imports only C6 + Defs; to be confirmed at build).
 - **Owner:** the S5 stage-B owner (issue `sparkle-gen2-step`), as a sub-item of S5 stage B. It is not part of
   `sparkle-gen3-uchild-porttys`.
-- **Status: OPEN.** Not written, not built. It is blocked on the S5 stage-A build: SlotlessParent and
-  SlotlessParentRun are "WRITTEN, NOT BUILT" (headers :4, :9).
-- **S3 gate:** S3 must not start while B2/B3 are in a build target without N-C. Either N-C is built first, or S3
-  explicitly leaves B2/B3 broken and records them as open producers. The latter is not recommended.
+- **Status: OPEN.** Not written, not built. Its prerequisite S5 stage A/B (SlotlessParent, SlotlessParentRun) is
+  built clean (g2s5-f7e42988).
+- **S3 gate (required, review of ba9b9c82):** N-C must be supplied for the existing producers B2/B3 BEFORE S3. The
+  alternative of starting S3 with B2/B3 broken is withdrawn.
 
 **Producer coverage of `ChildPortWidths` after rev3:**
 
@@ -447,7 +447,7 @@ theorem groupSl_childPortWidths (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg 
 | slotless leaf | `slotlessLeaf_childShips_of_LB` | P2 (N-A) | built 1b840215 |
 | memory parent (and `.loop`) | `memParent_childShips` | P3 (N-B) | built 1b840215 |
 | one-output parent with slots | `oneOut_childShips` | P4 (N-B) | built 1b840215 |
-| group parent with slots | `group_childShips` | `group_childPortWidths` (N-B) | written, not built (§R3.4) |
+| group parent with slots | `group_childShips` | `group_childPortWidths` (N-B) | built g3pw-ba9b9c82 (§R3.4) |
 | one-output slotless parent | `oneOutSl_childShips` (B2) | `oneOutSl_childPortWidths` (N-C) | **OPEN** |
 | group slotless parent | `groupSl_childShips` (B3) | `groupSl_childPortWidths` (N-C) | **OPEN** |
 | `childShips_congr` [M3] | transport | `hc.1` (no new lemma) | text plan (rev2 c) |
@@ -634,8 +634,8 @@ the bases are re-recorded and the trial is repeated.
   - mutants (each rejected): N-B with `hsl0`, Core no-calls over unfiltered `bsIn`, group without `hsl`, group TYPE
     form;
   - `checkAxioms` + `#print axioms`.
-- **lakefile entries needed** (not added here): `lean_lib` for `Tools.ShippingGen3PortWidthsCore`,
-  `Tools.ShippingGen3GroupPortWidths` and `Tests.Gen3.PortWidthsPrepCheck`.
+- **lakefile entries:** added at ba9b9c82 for `Tools.ShippingGen3PortWidthsCore`,
+  `Tools.ShippingGen3GroupPortWidths` and `Tests.Gen3.PortWidthsPrepCheck`; built clean in g3pw-ba9b9c82.
 - **Not written:** `Tests/Gen3/PkgCompatWidthTypes.lean` (§R3.2 b, it needs the shared change) and N-C (§R3.1, OPEN).
 
 ### R3.5 Verification plan (after the shared change; nothing here is run now)
@@ -660,3 +660,6 @@ the bases are re-recorded and the trial is repeated.
 - Old ⇒ new for `ChildShips`, or any relation at mixed positions.
 - That the three new files build. Nothing in rev3 is built.
 - That the import-cycle freedom of the core split holds beyond the script check.
+
+**Review note (ba9b9c82, binding):** at the final S2 SHA (after R-G) the full PkgCompat text is re-checked against the
+§R3.2 types; `hpw` is a compat-lemma premise only and must NOT be reused as an added premise of production producers.

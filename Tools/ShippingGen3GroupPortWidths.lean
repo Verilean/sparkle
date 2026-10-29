@@ -2,7 +2,7 @@ import Tools.ShippingGen2GroupServed
 import Tools.ShippingGen3PortWidthsCore
 import Tools.ShippingGen3ChildPortWidths
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (2026-10-29). To be confirmed by `kjob lake build Tools.ShippingGen3GroupPortWidths`
+-- Built: g3pw-ba9b9c82 (clean snapshot, exit 0, standard axioms).
 -- (after `Tools.ShippingGen3PortWidthsCore`). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # U-CHILD-PORTTYS: the S3 group producer's width fact (scripts/gen3/UCHILD_PORTTYS_TABLE.md rev3 §R3.4)

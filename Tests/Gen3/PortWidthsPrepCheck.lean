@@ -1,7 +1,7 @@
 import Tools.ShippingGen3GroupPortWidths
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (2026-10-29). To be confirmed by `kjob lake build Tests.Gen3.PortWidthsPrepCheck`.
+-- Built: g3pw-ba9b9c82 (clean snapshot, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # U-CHILD-PORTTYS shared-edit preparation checks (scripts/gen3/UCHILD_PORTTYS_TABLE.md rev3 §R3.4)
