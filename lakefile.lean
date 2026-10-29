@@ -4493,3 +4493,6 @@ lean_lib «Tools.ShippingGen2MemKids» where
 
 lean_lib «Tools.ShippingGen2MemFacts» where
   roots := #[`Tools.ShippingGen2MemFacts]
+
+lean_lib «Tools.ShippingGen2MemParent» where
+  roots := #[`Tools.ShippingGen2MemParent]
