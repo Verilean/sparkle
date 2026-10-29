@@ -2,7 +2,7 @@ import Tools.ShippingGen3ArgWidthSrc        -- SA0/SA1: ArgKindsAt(S), CalleeTel
 import Tools.ShippingCallWidthsEntry        -- closingNDecl (:62-63)
 import Tools.ShippingReaderFuelShapeProv    -- machineShapeF_instOrigins_length, instOrigins_getD_eq, machineShapeF_originT
 set_option autoImplicit false
--- NOT BUILT: written without running Lean (agent rule). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3sd-a67b77d0 (clean snapshot, exit 0, standard axioms). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # SRC-ARGW SC0 / SC1 / LK0 (scripts/gen3/SRC_ARGW_SUPPLY_FREEZE.md rev0 at be4e0b9b, §1, §2, §3.1, §5)
 

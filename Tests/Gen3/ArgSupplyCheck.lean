@@ -2,7 +2,7 @@ import Tools.ShippingGen3ArgSupply
 import Tests.Gen3.ExpectedType        -- checkExpected / checkMutant / checkAxioms / cmpTele / stmtOf
 import Tests.Gen3.ArgWidthSrcCheck    -- SA0/SA1 synthetic fixtures: shSyn, senvI, senvS, senvBad
 set_option autoImplicit false
--- NOT BUILT: written without running Lean (agent rule). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3sd-a67b77d0 (clean snapshot, exit 0, standard axioms). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # Checks for Tools/ShippingGen3ArgSupply.lean (SRC-ARGW SC0 / SC1 / LK0; SRC_ARGW_SUPPLY_FREEZE.md rev0)
 
@@ -115,7 +115,9 @@ def Mut_CalleeTeleAll_noS {ι : Type} {dom : ι → DomainConfig} (senv : Struct
     Prop :=
   CalleeTeleAt senv c q
 
-/-- the callee half read at the PARENT's table `senv` instead of `senv₀` -/
+/-- the callee half read at the PARENT's table `senv` instead of `senv₀`. SIGNATURE-ONLY mutant (review of a67b77d0):
+with `hENV` the callee half transports between `senv` and `senv₀`, so this changes the signature, not the meaning;
+it is not counted among the meaning-changing mutants (12 of the 13 rejections are meaning-changing). -/
 def Mut_argWidthAt_of_read_telSenv : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (P : Pkgs ι dom) (p : Pkg ι dom) {senv senv₀ : StructEnv}
     (hKD  : p.kD = closingNDecl p.d.shape)
