@@ -54,9 +54,10 @@ theorem callsOk_argsLets (d : MachineData) (n : Nat) (h : d.callsOk n = true) (k
   obtain ⟨⟨⟨-, h2⟩, -⟩, -⟩ := h
   exact h2 _ (List.getElem_mem hk) _ (List.getElem_mem hr)
 
-/-- **The generic reduction** (freeze §2, exact signature). -/
+/-- **The generic reduction** (freeze §2, exact signature; `hG` added by CALLFIELD_FREEZE.md §3: `CallFactF` is the
+group-parent name conjunct, QuadCalls:236). -/
 theorem callDec_of_callFactF (P : Pkgs ι dom) (p q : Pkg ι dom) (k : Nat)
-    (hk : k < p.d.shape.insts.length)
+    (hk : k < p.d.shape.insts.length) (hG : p.d.shape.instFields ≠ [])
     (hP : P (p.d.shape.insts[k]).1 = some q)
     (hnone : (p.d.shape.instOrigins.getD k .ord).child? = none)
     (hF : CallFactF p.d p.kD p.lsrc p.extS p.extBS (pkgOutsC P) (fun i => pkgS P i))
@@ -90,7 +91,7 @@ theorem callDec_of_callFactF (P : Pkgs ι dom) (p q : Pkg ι dom) (k : Nat)
       rw [hB] at h
       exact h
     · obtain ⟨k', o, f, ho, hon, hf, hpos⟩ := hF i bools bits k hk
-      refine ⟨k', o, f, ?_, hon, ?_, hpos⟩
+      refine ⟨k', o, f, ?_, (callField_group (q := q) (k := k) (o := o) hG).mpr hon, ?_, hpos⟩
       · simpa [pkgOutsC, hP] using ho
       · simpa [pkgS, hP] using hf
 

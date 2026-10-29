@@ -124,10 +124,10 @@ theorem tm2_callDec : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
     simpa [Tools.ShippingInstTagged.originAt] using h
   rcases quad_insts_mem Q.hP k hk with hn | hn
   · refine ⟨wQPkg, by rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2], ?_⟩
-    exact callDec_of_callFactF P2 tm2Pkg wQPkg k hk (by rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2]) hnone tm2_hF
+    exact callDec_of_callFactF P2 tm2Pkg wQPkg k hk (by first | decide | decide +kernel) (by rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2]) hnone tm2_hF
       Q.hP.ok Q.hP.callsOk Q.hP.slots _ Q.hPX.callArgs hw hlen
   · refine ⟨wPPkg, by rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2, hne.symm], ?_⟩
-    exact callDec_of_callFactF P2 tm2Pkg wPPkg k hk (by rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2, hne.symm]) hnone tm2_hF
+    exact callDec_of_callFactF P2 tm2Pkg wPPkg k hk (by first | decide | decide +kernel) (by rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2, hne.symm]) hnone tm2_hF
       Q.hP.ok Q.hP.callsOk Q.hP.slots _ Q.hPX.callArgs hw hlen
 
 /-- `DataOk` of the three packages (non-vacuity on this instance). -/

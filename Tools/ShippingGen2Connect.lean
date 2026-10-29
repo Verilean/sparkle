@@ -95,6 +95,16 @@ theorem memFacts_of_memDec {p : Pkg ι dom} {k : Nat} {c : Name} (h : MemDec p k
     MemFacts p.d.shape (p.lsrc i bools bits) p.d.ls.length (p.d.bsIn.drop p.kD) p.kD (p.extS i bools bits) k c :=
   h i bools bits
 
+/-- `CallField` at a group parent (`instFields ≠ []`) is the old name conjunct (CALLFIELD_FREEZE.md §2.1). -/
+theorem callField_group {p q : Pkg ι dom} {k : Nat} {o : OutField} (hG : p.d.shape.instFields ≠ []) :
+    CallField p q k o ↔ o.name = p.d.shape.instFields.getD k "" := by
+  unfold CallField; rw [if_neg hG]
+
+/-- `CallField` at a one-output parent (`instFields = []`): the callee has exactly the one layout output `o`. -/
+theorem callField_one {p q : Pkg ι dom} {k : Nat} {o : OutField} (h1 : p.d.shape.instFields = []) :
+    CallField p q k o ↔ q.d.shape.layout.outs = [o] := by
+  unfold CallField; rw [if_pos h1]
+
 /-- The child-interface data of a package assignment. -/
 def pkgBsC (P : Pkgs ι dom) : Name → List (Name × MixedGateBinder) :=
   fun c => ((P c).map fun q => q.d.bsIn.take q.kD).getD []
@@ -105,10 +115,12 @@ noncomputable def pkgS (P : Pkgs ι dom) (i : ι) : Name → (Nat → List Nat) 
 
 /-- **`CallDec` + the served child fact at height `n` ⇒ `SeqFactsRN`** (every conjunct; GENERAL_SPEC §4.2 table).
 A-COMB: the served child must be sequential (`hseq`, a clock input); its `ChildRunN` is then `SeqChildRunN` (C2).
-The combinational branch is S3's `CombFactsRN`. -/
+The combinational branch is S3's `CombFactsRN`. Group parents only (`hG`, CALLFIELD_FREEZE.md §2.3): `SeqFactsRN` asks
+for the old name conjunct, which `CallField` gives only under `instFields ≠ []`. -/
 theorem seqFactsRN_of_callDec {L : Laws mref cref} {P : Pkgs ι dom} {p q : Pkg ι dom} {k n : Nat} {c : Name}
     (dsn : Design) (body : List Stmt) (i : ι) (bools : Nat → Signal (dom i) Bool)
     (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (hG : p.d.shape.instFields ≠ [])
     (hP : P c = some q) (hdec : CallDec p q k)
     (hseq : ∀ mc, ServedPC (ShipsAt L P n) dsn c mc → "clk" ∈ mc.inputs.map (·.name)) :
     Tools.ShippingMachineCallsLinkedTNR.SeqFactsRN (childMap dsn.modules) n p.d.shape dsn body
@@ -119,7 +131,7 @@ theorem seqFactsRN_of_callDec {L : Laws mref cref} {P : Pkgs ι dom} {p q : Pkg 
   have hB : pkgBsC P c = q.d.bsIn.take q.kD := by simp [pkgBsC, hP]
   have hO : pkgOutsC P c = q.d.shape.layout.outs := by simp [pkgOutsC, hP]
   have hS : pkgS P i c = q.S i := by simp [pkgS, hP]
-  refine ⟨hnone, args, hargs, ?_, h4, ?_, k', o, f, ?_, hon, ?_, hpos⟩
+  refine ⟨hnone, args, hargs, ?_, h4, ?_, k', o, f, ?_, (callField_group hG).mp hon, ?_, hpos⟩
   · intro mc hmc
     have hclk := hseq mc hmc
     obtain ⟨hmod, Dc, ⟨_, q', hq', _, hcs⟩, hcons⟩ := hmc

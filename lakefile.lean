@@ -4565,3 +4565,9 @@ lean_lib «Tests.Gen2.SlotlessLeafInstance» where
 
 lean_lib «Tools.ShippingGen2CombPkg» where
   roots := #[`Tools.ShippingGen2CombPkg]
+
+lean_lib «Tools.ShippingGen2CallField» where
+  roots := #[`Tools.ShippingGen2CallField]
+
+lean_lib «Tests.Gen2.OneOutCallField» where
+  roots := #[`Tests.Gen2.OneOutCallField]

@@ -89,9 +89,16 @@ def ChildShips (q : Pkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Des
     moduleByName dsn.modules mc.name = some mc →
     ∀ (i : ι), ChildRunN (childMap dsn.modules) dsn n mc (q.d.bsIn.take q.kD) q.d.shape.layout.outs (q.S i)
 
+/-- Which callee output the parent's call `k` reads. Group parents read the field named by `instFields`; one-output
+parents (`instFields = []`, `closeInsts`/`instStmt`, Machine.lean:280) read the callee's ONLY layout output. -/
+def CallField (p q : Pkg ι dom) (k : Nat) (o : OutField) : Prop :=
+  if p.d.shape.instFields = [] then q.d.shape.layout.outs = [o]
+  else o.name = p.d.shape.instFields.getD k ""
+
 /-- **CallDec** (gap G-CALLDEC; the non-run conjuncts of `SeqFactsRN`, CallsLinkedTNR.lean:23): the parent `p`'s
 ordinary call `k` to `c` (package `q`) has its arguments among `p`'s lets, in range for `q`'s ports, and the
-parent's call-result signal at position `p.kD + k` equals `q`'s source output named by the call's field. -/
+parent's call-result signal at position `p.kD + k` equals `q`'s source output selected by `CallField`
+(scripts/gen2/CALLFIELD_FREEZE.md §1: the call's field for a group parent, the only output for a one-output parent). -/
 def CallDec (p q : Pkg ι dom) (k : Nat) : Prop :=
   (p.d.shape.instOrigins.getD k .ord).child? = none ∧
   ∃ args, (p.d.shape.insts.map (·.2.1))[k]? = some args ∧
@@ -99,7 +106,7 @@ def CallDec (p q : Pkg ι dom) (k : Nat) : Prop :=
     ∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
       (∀ r (hr : r < args.length), args[r] < p.d.ls.length ∧ ∃ g, (p.lsrc i bools bits)[args[r]]? = some g) ∧
       (∀ τ, InRange (valsOf (p.lsrc i bools bits) args τ) q.ports) ∧
-      ∃ (k' : Nat) (o : OutField) (f : Nat → Nat), q.d.shape.layout.outs[k']? = some o ∧ o.name = p.d.shape.instFields.getD k "" ∧
+      ∃ (k' : Nat) (o : OutField) (f : Nat → Nat), q.d.shape.layout.outs[k']? = some o ∧ CallField p q k o ∧
         (q.S i (valsOf (p.lsrc i bools bits) args))[k']? = some f ∧
         ∀ τ, posEnc (fun r => (p.extBS i bools bits r).val τ) (fun r n => (p.extS i bools bits r n).val τ)
           (p.kD + k) (((p.d.bsIn.drop p.kD)[k]?.map (·.2)).getD .domain) = f τ

@@ -1,4 +1,5 @@
 import Tools.ShippingGen2MemShips
+import Tools.ShippingGen2CallField
 set_option autoImplicit false
 
 /-! # loop-pkg step 2: compatibility of the `Pkg` refactor (LOOPPKG_FREEZE.md §6 rules)
@@ -9,7 +10,9 @@ definitions — `Laws`, `MachineTaken`, `ServedP`, … — are the current ones)
 * definitions taking a package assignment: equal at `Pkgs.lift P` (functions, by `funext`/`propext`);
 * `T1Hyp`: iff, with `DataOkLiftCompat` (compatibility tests only);
 * statements quantifying over all packages: NEW → OLD only (the new ones include the loop case).
-A-COMB (STEP_IFACE_FREEZE.md rev3) changed `ChildShips`; the affected checks are classified in the A-COMB section. -/
+A-COMB (STEP_IFACE_FREEZE.md rev3) changed `ChildShips`; the affected checks are classified in the A-COMB section.
+CALLFIELD (scripts/gen2/CALLFIELD_FREEZE.md §4) changed `CallDec`; the affected checks are classified in the CALLFIELD
+section. -/
 namespace Tools.ShippingGen2.Old
 open Lean hiding Module Expr
 open Meta Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
@@ -244,14 +247,39 @@ open Sparkle.Core.Domain
 variable {ι : Type} {dom : ι → DomainConfig}
 variable {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cref : ST.Ref IO.RealWorld Lean.Core.State}
 
-/-! ## pointwise: `rfl` at `.gen` (definitions not touched by A-COMB) -/
-example (p q : SrcPkg ι dom) (k : Nat) : CallDec (.gen p) (.gen q) k = Old.CallDec p q k := rfl
+/-! ## pointwise: `rfl` at `.gen` (definitions not touched by A-COMB or CALLFIELD) -/
 example (p : SrcPkg ι dom) (k : Nat) (c : Lean.Name) : MemDec (.gen p) k c = Old.MemDec p k c := rfl
 example (p : SrcPkg ι dom) (n : Nat) (c : Lean.Name) (b raw : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) :
     TopShips (.gen p) n c b raw D = Old.TopShips p n c b raw D := rfl
 example (p : SrcPkg ι dom) : MemParentDataOk (.gen p) = Old.MemParentDataOk p := rfl
 example (p : SrcPkg ι dom) : ExtInS (.gen p) = Old.ExtInS p := rfl
 example (p : SrcPkg ι dom) : MemOrigin (.gen p) = Old.MemOrigin p := rfl
+
+/-! ## CALLFIELD (scripts/gen2/CALLFIELD_FREEZE.md §4): pointwise `CallDec` CHANGED, conditional
+
+The former `CallDec (.gen p) (.gen q) k = Old.CallDec p q k := rfl` is withdrawn. For a group parent
+(`instFields ≠ []`) the two texts are equivalent (`callDec_gen_group`); for a one-output parent (`instFields = []`)
+they are INCOMPARABLE (old: `o.name = ""`; new: `outs = [o]`) and no relation is claimed. `CallDec` is positive in
+`T1Hyp.dec` and negative in `StepStmt` (premise) and in `T1Stmt`/`ServedShipsStmt` (through `T1Hyp`). `t1Hyp_iff` and
+`t1Stmt_compat` now hold under `GroupOnly` (used ONLY by these old-version compatibility tests; never a T1/FG
+restriction). `StepStmt` is already MIXED/withdrawn (A-COMB below); no new claim. -/
+
+/-- The frozen old text is `CallDecOld` at `.gen` (definitional). -/
+example (p q : SrcPkg ι dom) (k : Nat) : Old.CallDec p q k = CallDecOld (.gen p) (.gen q) k := rfl
+
+theorem callDec_gen_group (p q : SrcPkg ι dom) (k : Nat) (hG : p.d.shape.instFields ≠ []) :
+    CallDec (.gen p) (.gen q) k ↔ Old.CallDec p q k :=
+  ⟨fun h => callDec_group_old (p := .gen p) (q := .gen q) (k := k) hG h,
+   fun h => callDecOld_group (p := .gen p) (q := .gen q) (k := k) hG h⟩
+
+/-- Every reached package is a group parent or has no calls (compatibility tests ONLY). -/
+def GroupOnly (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop) : Prop :=
+  ∀ c, Reach c → ∀ q, P c = some q → q.d.shape.instFields ≠ [] ∨ q.d.shape.insts = []
+
+theorem groupOnly_fields {P : Lean.Name → Option (SrcPkg ι dom)} {Reach : Lean.Name → Prop}
+    (hGO : GroupOnly P Reach) {c : Lean.Name} (hc : Reach c) {q : SrcPkg ι dom} (hq : P c = some q) {k : Nat}
+    (hk : k < q.d.shape.insts.length) : q.d.shape.instFields ≠ [] :=
+  (hGO c hc q hq).resolve_right (fun he => absurd hk (by simp [he]))
 
 /-! ## A-COMB (STEP_IFACE_FREEZE.md rev3 §3): `ChildShips` and its positive positions, `Old → new` only
 
@@ -266,7 +294,8 @@ changes:
   are withdrawn; their acceptance at earlier SHAs stays valid as history);
 * statements over all packages with `ChildShips` only in the conclusion (`MemParentStmt'`, `MemParentStmt`,
   `LeafStmt`): the `.gen`-restricted forms below (`Old` quantifies over `SrcPkg`, so it gives nothing for `.loop`);
-* `T1Hyp`, `T1Stmt`: unaffected (no `ChildShips`), `t1Hyp_iff`/`t1Stmt_compat` unchanged. -/
+* `T1Hyp`, `T1Stmt`: unaffected by A-COMB (no `ChildShips`); CALLFIELD makes `t1Hyp_iff` conditional on `GroupOnly`
+  and `t1Stmt_compat` NEW → OLD under `GroupOnly` (section above). -/
 
 theorem childShips_gen (q : SrcPkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Sparkle.IR.AST.Design) :
     Old.ChildShips q n mc Dc → ChildShips (.gen q) n mc Dc :=
@@ -300,7 +329,7 @@ theorem invAt_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom
   fun h => ⟨h.1, cacheShips_lift L P Reach _ h.2⟩
 
 theorem t1Hyp_iff (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
-    (DataOk : SrcPkg ι dom → Prop) :
+    (DataOk : SrcPkg ι dom → Prop) (hGO : GroupOnly P Reach) :
     T1Hyp L (Pkgs.lift P) Reach (DataOkLiftCompat DataOk) ↔ Old.T1Hyp L P Reach DataOk := by
   constructor
   · intro h
@@ -312,10 +341,11 @@ theorem t1Hyp_iff (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)
     · intro c hc q hq; exact h.defines c hc (.gen q) (lift_some.mpr ⟨q, hq, rfl⟩)
     · intro c hc q hq; exact h.closes c hc (.gen q) (lift_some.mpr ⟨q, hq, rfl⟩)
     · intro c hc q hq k hk
+      have hGq := groupOnly_fields hGO hc hq hk
       rcases h.dec c hc (.gen q) (lift_some.mpr ⟨q, hq, rfl⟩) k hk with hm | ⟨q2', hq2', hcd⟩
       · exact Or.inl hm
       · obtain ⟨q2, hq2, rfl⟩ := lift_some.mp hq2'
-        exact Or.inr ⟨q2, hq2, hcd⟩
+        exact Or.inr ⟨q2, hq2, (callDec_gen_group q q2 k hGq).mp hcd⟩
     · intro c hc q hq k hk hn; exact h.closed c hc (.gen q) (lift_some.mpr ⟨q, hq, rfl⟩) k hk hn
   · intro h
     refine ⟨?_, ?_, ?_, ?_, ?_⟩
@@ -330,9 +360,10 @@ theorem t1Hyp_iff (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)
       exact h.closes c hc q hq
     · intro c hc q' hq' k hk
       obtain ⟨q, hq, rfl⟩ := lift_some.mp hq'
+      have hGq := groupOnly_fields hGO hc hq hk
       rcases h.dec c hc q hq k hk with hm | ⟨q2, hq2, hcd⟩
       · exact Or.inl hm
-      · exact Or.inr ⟨.gen q2, lift_some.mpr ⟨q2, hq2, rfl⟩, hcd⟩
+      · exact Or.inr ⟨.gen q2, lift_some.mpr ⟨q2, hq2, rfl⟩, (callDec_gen_group q q2 k hGq).mpr hcd⟩
     · intro c hc q' hq' k hk hn
       obtain ⟨q, hq, rfl⟩ := lift_some.mp hq'
       exact h.closed c hc q hq k hk hn
@@ -395,13 +426,15 @@ theorem leafStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
   exact ⟨this.1, childShips_gen q _ _ _ this.2⟩
 
 theorem t1Stmt_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
-    (DataOk : SrcPkg ι dom → Prop) :
+    (DataOk : SrcPkg ι dom → Prop) (hGO : GroupOnly P Reach) :
     T1Stmt L (Pkgs.lift P) Reach (DataOkLiftCompat DataOk) → Old.T1Stmt L P Reach DataOk := by
   intro h hT c mctx cctx w w1 raw b D hR hS hcore hpost
-  obtain ⟨q', n, hq', hts⟩ := h ((t1Hyp_iff L P Reach DataOk).mpr hT) c mctx cctx w w1 raw b D hR hS hcore hpost
+  obtain ⟨q', n, hq', hts⟩ := h ((t1Hyp_iff L P Reach DataOk hGO).mpr hT) c mctx cctx w w1 raw b D hR hS hcore hpost
   obtain ⟨q, hq, rfl⟩ := lift_some.mp hq'
   exact ⟨q, n, hq, hts⟩
 
+#print axioms callDec_gen_group
+#print axioms groupOnly_fields
 #print axioms childShips_gen
 #print axioms shipsRes_lift
 #print axioms invAt_lift

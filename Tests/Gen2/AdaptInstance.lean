@@ -28,7 +28,8 @@ theorem tm2_callDec_at : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
   rcases quad_insts_mem Q.hP k hk with hn | hn
   · have hP : P2 (tm2Pkg.d.shape.insts[k]).1 = some wQPkg := by
       rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2]
-    refine ⟨wQPkg, hP, callDec_of_hPointAt_at P2 tm2Pkg wQPkg k hk hP hnone hH Q.hP.ok Q.hP.callsOk Q.hP.slots
+    refine ⟨wQPkg, hP, callDec_of_hPointAt_at P2 tm2Pkg wQPkg k hk
+      (by first | decide | decide +kernel) hP hnone hH Q.hP.ok Q.hP.callsOk Q.hP.slots
       ?_ ?_⟩
     · have : k < 4 := hl4 ▸ hk
       rcases k with _ | _ | _ | _ | k
@@ -40,7 +41,8 @@ theorem tm2_callDec_at : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
       · exact absurd ((show (tm2Pkg.d.shape.insts[k]).1 = _ from hn).symm.trans hn2) hne
   · have hP : P2 (tm2Pkg.d.shape.insts[k]).1 = some wPPkg := by
       rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2, hne.symm]
-    refine ⟨wPPkg, hP, callDec_of_hPointAt_at P2 tm2Pkg wPPkg k hk hP hnone hH Q.hP.ok Q.hP.callsOk Q.hP.slots
+    refine ⟨wPPkg, hP, callDec_of_hPointAt_at P2 tm2Pkg wPPkg k hk
+      (by first | decide | decide +kernel) hP hnone hH Q.hP.ok Q.hP.callsOk Q.hP.slots
       ?_ ?_⟩
     · have : k < 4 := hl4 ▸ hk
       rcases k with _ | _ | _ | _ | k

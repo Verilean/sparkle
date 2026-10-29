@@ -162,9 +162,10 @@ theorem call_inRange_at (p q : Pkg ι dom) (k : Nat) (hk : k < p.d.shape.insts.l
       simp only [kindTy, Sparkle.IR.Type.HWType.bitWidth] at hb1
       rw [← hb1] at hvlt; simpa using hvlt
 
-/-- **The pointwise adapter** (frozen interface). -/
+/-- **The pointwise adapter** (frozen interface; `hG` added by CALLFIELD_FREEZE.md §3: `HPointAt` carries the
+group-parent name conjunct. The route-aware form is `callDec_of_hPointG_at`, Tools/ShippingGen2CallField.lean). -/
 theorem callDec_of_hPointAt_at (P : Pkgs ι dom) (p q : Pkg ι dom) (k : Nat)
-    (hk : k < p.d.shape.insts.length) (hP : P (p.d.shape.insts[k]).1 = some q)
+    (hk : k < p.d.shape.insts.length) (hG : p.d.shape.instFields ≠ []) (hP : P (p.d.shape.insts[k]).1 = some q)
     (hnone : (p.d.shape.instOrigins.getD k .ord).child? = none)
     (hH : HPointAt p.d p.kD dom p.lsrc p.extS p.extBS (pkgOutsC P) (pkgBsC P) (pkgSrc P) k)
     (hok : p.d.ok = true) (hco : p.d.callsOk p.kD = true)
@@ -182,7 +183,7 @@ theorem callDec_of_hPointAt_at (P : Pkgs ι dom) (p q : Pkg ι dom) (k : Nat)
     obtain ⟨v, hv, -⟩ := hl _ _ (List.getElem?_eq_getElem hlt)
     exact ⟨v, hv⟩
   · obtain ⟨A, B, hA, hB, k', o, f, ho, hon, hf, hpos⟩ := hH i bools bits hk
-    refine ⟨k', o, f, ?_, hon, ?_, hpos⟩
+    refine ⟨k', o, f, ?_, (callField_group (q := q) (k := k) (o := o) hG).mpr hon, ?_, hpos⟩
     · simpa [pkgOutsC, hP] using ho
     · have hS := pkgS_dispatch P i (p.d.shape.insts[k]).1 (valsOf (p.lsrc i bools bits) (p.d.shape.insts[k]).2.1)
       rw [hA, hB] at hS
