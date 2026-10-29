@@ -12,7 +12,7 @@ namespace Tools.ShippingGen2
 open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.IR.RegDedup (isAssign)
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
-open Tools.ShippingMachineAuto
+open Tools.ShippingMachineAuto Tools.ShippingMachineSource
 
 variable {ι : Type} {dom : ι → DomainConfig}
 
@@ -23,7 +23,7 @@ theorem evalAssigns_mems_irrel {we : WEnv} : ∀ {body : List Stmt}, body.all is
   | st :: rest, h, mems, mems', env => by
     have h2 : rest.all isAssign = true := by
       simp only [List.all_cons, Bool.and_eq_true] at h; exact h.2
-    have ih := evalAssigns_mems_irrel (body := rest) h2
+    have ih := evalAssigns_mems_irrel (we := we) (body := rest) h2
     cases st with
     | assign l e =>
       simp only [evalAssigns]
