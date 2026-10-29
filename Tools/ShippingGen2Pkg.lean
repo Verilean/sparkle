@@ -78,19 +78,19 @@ noncomputable def Pkg.S (p : Pkg ι dom) (i : ι) : (Nat → List Nat) → List 
 
 theorem Pkg.ok (p : Pkg ι dom) : p.d.ok = true := by
   cases p with
-  | gen p => exact p.gen.ok
-  | loop p => exact p.facts.ok
+  | gen p => letI := p.inh; exact p.gen.ok
+  | loop p => letI := p.inh; exact p.facts.ok
 
-theorem Pkg.body_eq (p : Pkg ι dom) : p.d.shape.body = quote p.d.dom
+theorem Pkg.body_eq (p : Pkg ι dom) : p.d.shape.body = Tools.ShippingUnifiedSource.quote p.d.dom
     (fun j => inputExpr p.d.shape.binders.length (p.d.bpos j))
     (fun j => inputExpr p.d.shape.binders.length (p.d.vpos j)) p.d.packed := by
   cases p with
-  | gen p => exact p.gen.body_eq
-  | loop p => exact p.facts.hbody
+  | gen p => letI := p.inh; exact p.gen.body_eq
+  | loop p => letI := p.inh; exact p.facts.hbody
 
 theorem Pkg.lsrc_hl (p : Pkg ι dom) (i : ι) (bools : Nat → Signal (dom i) Bool)
     (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) :
-    ∀ (a : Nat) (l : Σ s : SType, Term s), p.d.ls[a]? = some l →
+    ∀ (a : Nat) (l : Σ s : Tools.ShippingUnifiedSource.SType, Tools.ShippingUnifiedSource.Term s), p.d.ls[a]? = some l →
       ∃ v, (p.lsrc i bools bits)[a]? = some v ∧ ∀ τ, v τ < 2 ^ l.1.width := by
   cases p with
   | gen p => exact @Tools.ShippingQuadCalls.letObsB_hl p.d ι dom p.inh p.ρ p.inits p.body p.ext p.extB i bools bits
