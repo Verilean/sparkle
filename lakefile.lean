@@ -4694,3 +4694,12 @@ lean_lib «Tools.ShippingGen5T2Dec» where
 
 lean_lib «Tests.Gen5.T2DecCheck» where
   roots := #[`Tests.Gen5.T2DecCheck]
+
+lean_lib «Tools.ShippingGen3PortWidthsCore» where
+  roots := #[`Tools.ShippingGen3PortWidthsCore]
+
+lean_lib «Tools.ShippingGen3GroupPortWidths» where
+  roots := #[`Tools.ShippingGen3GroupPortWidths]
+
+lean_lib «Tests.Gen3.PortWidthsPrepCheck» where
+  roots := #[`Tests.Gen3.PortWidthsPrepCheck]
