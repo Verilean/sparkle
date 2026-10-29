@@ -164,7 +164,7 @@ theorem map_lookup_zip : ∀ (xs : List String) (vs : List Nat), xs.Nodup → xs
       apply List.map_congr_left
       intro y hy
       have hne : y ≠ x := fun h => hnd.1 (h ▸ hy)
-      simp [List.lookup, hne]
+      simp only [List.lookup, beq_false_of_ne hne]
 
 theorem seedIn_self (mc : Module) (env : Env) : seedIn mc (fun _ => env) 0 env = env := by
   funext x; simp only [seedIn]; split <;> rfl
