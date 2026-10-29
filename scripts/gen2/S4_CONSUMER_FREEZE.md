@@ -643,7 +643,7 @@ variant taking the per-`k` disjunction, and `hord` has a supplier only from the 
 `machine_linked_callsServed1`; `oneOut_composedNW`, `oneOut_childShips` — under the residues of stage A (§3). Also small and
 independent: `closingNDecl_eq_kD`, `oneOutWidth_of_strict`, `memDec_vacuous_of_ord`.
 
-**NOT provable from existing facts (removed from rev1's list):** `oneOut_topShips` without `hW`/`hBd` (stage B; also needs the new
+**No supply route or proof AT PRESENT (removed from rev1's list; not a claim of underivability):** `oneOut_topShips` without `hW`/`hBd` (stage B; also needs the new
 `core_instOutWidthsOk_oneA`), `oneOut_step : OneOutStepStmt L P DataOk` (needs stage B), and `StepStmt` coverage (stage C).
 
 **Stop conditions (a needed fact with no supplier; reported, not added silently):**
