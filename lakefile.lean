@@ -4475,3 +4475,6 @@ lean_lib «Tests.Gen2.U0Check» where
 
 lean_lib «Tools.ShippingGen2CallDec» where
   roots := #[`Tools.ShippingGen2CallDec]
+
+lean_lib «Tests.Gen2.CallDecInstance» where
+  roots := #[`Tests.Gen2.CallDecInstance]
