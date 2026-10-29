@@ -17,8 +17,8 @@ projection is `.2.2.2.2.2.1` in both branches; Connect.lean:143 already uses it 
 ## 0. What the lemma discharges
 `hlenK : (p.d.shape.insts[k]).2.1.length = q.ports.length` is a premise of `call_inRange_at`
 (Tools/ShippingGen2Adapt.lean:106-112) and `callDec_of_hPointAt_at` (Adapt:167-176). It is also the arity conjunct
-`args.length = q.ports.length` of `CallDec` (Defs:105). U-ARITY derives it from the run, so it is no longer a
-premise. A second consumer is `SeqFactsRN`'s `(argPorts mc).length = args.length`
+`args.length = q.ports.length` of `CallDec` (Defs:105). U-ARITY derives it from the run (given an inhabitant `i : ι`, §4), so at that consumer it is no longer a
+premise. This does not by itself supply `CallDec` (its arity conjunct is outside `∀ i`, §4). A second consumer is `SeqFactsRN`'s `(argPorts mc).length = args.length`
 (Tools/ShippingMachineCallsLinkedTNR.lean:34). Today Connect.lean:143 gets it from `CallDec`'s `hlen`.
 
 ## 1. Ingredients (all exist at 10377764)
@@ -213,13 +213,16 @@ Defs:67). The pattern is already used at Connect:143.
   identification gap (RunFactsA:432-433's `y` vs ServedP's `q`) therefore does not arise for arity. It reappears only
   if a later composition takes `mc` from `core_callPorts_ranA` rather than from this witness (see UARGW §4).
 - **CONDITIONAL on an inhabitant `i : ι`** (named premise `i`). `ChildShips` gives `ChildRunN` only under `∀ (i : ι)`
-  (Defs:90), and arity does not depend on `i`. With `ι` empty, `ChildShips` is vacuous and the trace yields no arity.
-  `CallDec`'s arity conjunct (Defs:105) is outside its `∀ i` (:106), so a consumer that builds `CallDec` for an
-  arbitrary `ι` must split on `Nonempty ι`, as `oneOut_topShips` does (OneOutTop:17-19, `Classical.em (Nonempty ι)`).
-  For the empty case there are two options: a per-declaration decided row `(insts[k]).2.1.length = q.ports.length`
-  through a concrete `P` (DataBridge b1 style, supplier-local, not general coverage), or the observation that the
-  empty-`ι` FG instance is vacuous in its `∀ i` parts. Which one is used is a consumer decision and is not taken
-  here.
+  (Defs:90), and arity does not depend on `i`. With empty `ι`, the length cannot be extracted from the existing
+  `ChildShips` along this route. No general non-derivability theorem is shown (this is a statement about this route
+  only). `CallDec`'s arity conjunct (Defs:105) is OUTSIDE its `∀ i` (:106), so `CallDec` is NOT claimed supplied
+  merely because FG's `∀ i` parts are vacuous for empty `ι`: the arity conjunct still has to be supplied there. A
+  consumer that builds `CallDec` for an arbitrary `ι` must split on `Nonempty ι`, as `oneOut_topShips` does
+  (OneOutTop:17-19, `Classical.em (Nonempty ι)`). For the empty case: a per-declaration decided row
+  `(insts[k]).2.1.length = q.ports.length` through a concrete `P` (DataBridge b1 style, supplier-local, not general
+  coverage), or, later, a `ChildPortWidths` conjunct supplied OUTSIDE `∀ i` (UCHILD_PORTTYS_TABLE.md §1), whose
+  `List.length_map` gives a static length and would lift this restriction. Which one is used is a consumer decision and
+  is not taken here. A7 is implemented now, with the premise `i`, without waiting for either.
 - **`hnone` (ordinary origin)** is a premise. It is `CallDec.1` (Defs:103) and `callDec_of_hPointAt_at`'s `hnone`
   (Adapt:169), so it is already in hand at the consumer.
 - **Not claimed:** nothing about widths (that is L2/L5/L6, UARGW_PARENT_SURVEY.md / UCHILD_PORTTYS_TABLE.md).
@@ -237,7 +240,7 @@ and `callerL` is Tests/Compiler/ShippingMachineLinkedTest.lean:31 (one call of `
 - **P2 (conditional instance, one-output):** `callerL_arity (L) (p : Pkg Unit U) (hp : p.d = callerL.machineData) {raw D}
   (h : MachineTraceLBX (ServedP (ShipsRes L PL) p.decl p.d.shape raw D) …) : (p.d.shape.insts[0]'_).2.1.length =
   pbhPkg.ports.length := callArity_of_trace L PL p h () _ (hp ▸ callerL_hnone) (hp ▸ callerL_hP)`. This exercises the
-  application path, not a run: no `callerL` package and no run exists (DataBridgeCheck:10-15).
+  application path only: this unit exhibits no package/run witness for `callerL` (DataBridgeCheck:10-15).
 - **P3 (group, real data):** `parent` (Tests/Compiler/ShippingMachineSeqTest.lean:28; structure result of the
   sequential `cnt`, :20; `instFields ≠ []`; ordinary origin). Decide `parent.machineData.shape.instFields ≠ []`, `hnone`
   at k = 0, and `(parent.machineData.shape.insts[0]'_).2.1.length = ((cnt.machineData.bsIn.take
@@ -252,11 +255,14 @@ and `callerL` is Tests/Compiler/ShippingMachineLinkedTest.lean:31 (one call of `
   The proof is A7 plus the decided row. A concrete `q2` with a decided `q2.ports.length ≠ 2` is the existing `lmPkg`
   (Tests/Gen2/MemParentInstance.lean:28) or `leaf16Pkg` (Tests/Gen2/LeafInstance.lean); decide first, and report if
   the count happens to be 2.
-- **V (vacuity):** the A5/A6/A7 premise sets are jointly satisfiable at the data level (P1/P3). A run-level positive
+- **V (vacuity):** restricted to the DATA part: the data premises of A5/A6/A7 (`hk`, `hnone`, `hP`, `instFields`)
+  are jointly satisfiable on real data (P1/P3). P1/P3 are data controls only; they say nothing about the run premises. A run-level positive
   instance has the same status as in S4/S3 (none in Tests/, S3_GROUP_FREEZE.md:59-63).
 
 ## 6. Audit (stated in the file headers when built)
-1. Expected types: `#check @callArity_of_trace` etc. match §2 verbatim.
+1. Expected types: each statement of §2 is compared MECHANICALLY (`==` after `instantiateMVars`, else `isDefEq`) with an
+   independent `Expected…` Prop written in the check file, and meaning-changing mutants must FAIL that comparison. A
+   `#check` display is not a substitute for this frozen-type comparison.
 2. `#print axioms` of `childRunN_argLen`, `callStmt_argLen`, `callStmtG_argLen`, `argLen_of_shipsRes`,
    `callArity_one`, `callArity_group`, `callArity_of_trace` and every control: standard axioms
    (`propext`, `Classical.choice`, `Quot.sound`) or a subset. No `sorry`/`axiom`/`native_decide`.
@@ -265,13 +271,26 @@ and `callerL` is Tests/Compiler/ShippingMachineLinkedTest.lean:31 (one call of `
    `Option.some.inj` on `P`.
 5. No shared definition changed: `git diff --stat` touches only the two new files plus the lakefile registration.
 
+## Result dependencies (shared by UARITY_FREEZE.md, UARGW_PARENT_SURVEY.md, UCHILD_PORTTYS_TABLE.md)
+| unit | supplies | side | alone reaches `callArgsOkAt`? |
+|---|---|---|---|
+| U-ARGW-PARENT (`core_inputWidth_A`, `core_callArgPorts_oneA`/`_ranA`) | `declWidth b argWs[j] = (kindTy binders[nDecl+(kI+(n+a))].2).bitWidth` | PARENT (let wire) | no |
+| U-CHILD-PORTTYS (`ChildPortWidths`, N-A/N-B, P1-P4) | `(argPorts mc).map (·.ty.bitWidth) = q.ports.map (kindTy ·.2).bitWidth` | CHILD (served module) | no |
+| U-ARITY (`callArity_of_trace`) | `(insts[k]).2.1.length = q.ports.length` | the matching INDEX RANGE | no |
+| SRC-ARGW (scripts/gen3/SRC_ARGW_FREEZE.md, separate unit) | the width equality L6/L6w for the same call | source | — |
+
+The three results above reach `callArgsOkAt p.d p.kD k q.portWidths` only when composed with SRC-ARGW's width equality
+for the SAME call (same `k`, statement, `mc`, `q`, and one `MachineTraceLBX` witness). None of them, nor any pair of
+them, supplies the row alone.
+
 ## 7. Size, files, build
 - `Tools/ShippingGen3Arity.lean`: about 110-140 lines (A0-A4 about 40, A5/A6 about 30 each, A7 about 25).
 - `Tests/Gen3/ArityCheck.lean`: about 80-100 lines.
 - lakefile: one `lean_lib` per new root (pattern lakefile.lean:4458-4468). It is edited only at build time and
   serialized with the other agent's concurrent lakefile edit.
 - Build through `kjob … run --issue sparkle-gen3-uarity -- kjob lake build Tools.ShippingGen3Arity
-  Tests.Gen3.ArityCheck`. A new target is a cold build (memory note: 13-22 min).
+  Tests.Gen3.ArityCheck` at the exact head, linked to the issue; incremental. Build time is an unmeasured estimate (no
+  fixed duration, and no mandatory cold rebuild).
 - **Interface drift note:** `par/gen3-induct` (96cbd548, Defs:136) makes `ShipsRes` a 3-conjunct
   `RealChildA ∧ (∃ q n, …) ∧ InstClosed r` (G-POST). If U-ARITY is built on that base, A4's obtain becomes
   `obtain ⟨_, ⟨q', n', hq', _, hCS⟩, _⟩ := hship`. This is a one-line change and the statements are unaffected.

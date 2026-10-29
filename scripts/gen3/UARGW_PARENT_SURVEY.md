@@ -22,6 +22,12 @@ An argument wire `argWs[j] = names[nIn + kI + n + args[j]]` (CallStmt MachineIns
 such a transition input, at index `e := kI + n + a`. The arg-side lemma is therefore one parent-kind-independent core
 `core_inputWidth_A` plus two thin corollaries. Its premise set is strictly smaller than either template's.
 
+**Scope of this finding.** The core is CONDITIONAL on `hins`, `ok`, `hbody`, `hC`, `hslots`, `hdomB`, `hpost` and `ran`
+(the run). "Does not depend on the instance" / "no instance" means only that no individual call witness (statement,
+child, output port, `RealChildA`) is used; it is not a claim that the result holds without a run. The two corollaries
+are thin consequences of ONE shared `mapM` lemma (`argWidth_of_mapM`: every element of a successful argument
+`mapM` over trace names is such a transition input) applied to `core_inputWidth_A`.
+
 ## 1. Step map
 Columns: template lines; what the step does; the argument-side analogue. Verdicts: **V** (reusable verbatim), **I**
 (verbatim after the index change `k`/`e.1` ↦ `e`), **D** (dropped, not needed), **N** (needs a new small step or lemma,
@@ -147,8 +153,8 @@ theorem core_callArgPorts_ranA {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld
           ∃ bn, d.shape.binders[nDecl + (d.shape.insts.length + (d.shape.layout.slots.length + a))]? = some bn ∧
             Sparkle.IR.RegDedup.declWidth b w = (kindTy bn.2).bitWidth
 ```
-The `CallStmt`/`CallStmtG` premise of the two corollaries is carried for the consumer's convenience and is not used
-by the proof (only the `mapM` is). It ties the `argWs` to a statement for the later PortTie composition; if review
+The `CallStmt`/`CallStmtG` premise of the two corollaries is carried for the consumer's convenience and is NOT used
+by the proof (only the `mapM` is); this stays stated in the built file's header. It ties the `argWs` to a statement for the later PortTie composition; if review
 prefers, it can be dropped. No `hf0`/`hfne` is needed: the corollaries are the same statement with different
 witnesses. The names `_oneA`/`_ranA` follow DPORT §2.
 
@@ -192,6 +198,18 @@ core at `e := kI + n + a`, and rewrite `nDecl + (kI + n + a) = nDecl + (kI + (n 
 - `ran : MachineRanA … M D` and the trace must be about the same `(raw, D)` (`M := raw`). At the consumers both come
   from one `MachineTaken` (`machineRanA_of_runJQC`, used e.g. MemShips:58, OneOut:309), and the trace from the same run.
 
+## Result dependencies (shared by UARITY_FREEZE.md, UARGW_PARENT_SURVEY.md, UCHILD_PORTTYS_TABLE.md)
+| unit | supplies | side | alone reaches `callArgsOkAt`? |
+|---|---|---|---|
+| U-ARGW-PARENT (`core_inputWidth_A`, `core_callArgPorts_oneA`/`_ranA`) | `declWidth b argWs[j] = (kindTy binders[nDecl+(kI+(n+a))].2).bitWidth` | PARENT (let wire) | no |
+| U-CHILD-PORTTYS (`ChildPortWidths`, N-A/N-B, P1-P4) | `(argPorts mc).map (·.ty.bitWidth) = q.ports.map (kindTy ·.2).bitWidth` | CHILD (served module) | no |
+| U-ARITY (`callArity_of_trace`) | `(insts[k]).2.1.length = q.ports.length` | the matching INDEX RANGE | no |
+| SRC-ARGW (scripts/gen3/SRC_ARGW_FREEZE.md, separate unit) | the width equality L6/L6w for the same call | source | — |
+
+The three results above reach `callArgsOkAt p.d p.kD k q.portWidths` only when composed with SRC-ARGW's width equality
+for the SAME call (same `k`, statement, `mc`, `q`, and one `MachineTraceLBX` witness). None of them, nor any pair of
+them, supplies the row alone.
+
 ## 5. Controls, audit, size
 - Controls (`Tests/Gen3/ArgWidthCheck.lean`): **P1** `#check` that `core_callArgPorts_oneA` instantiates with the
   premise set of an existing consumer. `oneOut_topShips` (OneOutTop:340-) has `ok`, `hbody` (`Pkg.body_eq`), `hC`,
@@ -204,6 +222,8 @@ core at `e := kI + n + a`, and rewrite `nDecl + (kI + n + a) = nDecl + (kI + (n 
   This shows why o18 `huniq` is needed. If the lookup is not order-dependent in that way, drop N1.
 - Audit: `#print axioms` of the four roots (standard or a subset); no `sorry`/`native_decide`; no reference to
   `RealChildA`, `core_callPorts_ranA` or `closeInsts_insts` in the core (grep); expected types as §2.
+- Build: through the issue, at the exact head, incremental. Build time is an unmeasured estimate (no fixed duration,
+  no mandatory cold rebuild).
 - Size: core about 100-110 lines (o2-o4, o7-o10, o15-o19 copied, minus o1/o5/o6/o11-o14). Each corollary is
   about 20-25 lines. L-AW and its G sibling are about 65 lines, optional. Controls are about 60 lines. Total about
   160 lines (without L-AW) to 225 lines (with). No interface change; new files only, plus lakefile registration at

@@ -30,8 +30,8 @@ compares port TYPES.
 `childPortWidths_of_tys`. The converse is not claimed.
 
 **Recommendation: W**, the weaker sufficient one. It is robust if an emitted port's type differs from `kindTy` while
-the width agrees. For example, `.bit` vs `.bitVector 1`: no such case is known, and none is claimed. W also keeps the
-final-FG obligation (§4) minimal. Producers prove T anyway (`machPorts_tys`, PortWidthsPure:142-147) and project to W,
+the width agrees. For example, `.bit` vs `.bitVector 1`: no such case is known, and none is claimed. W is the sufficient
+width guarantee used here for the final-FG obligation (§4); its minimality is not proved. Producers prove T anyway (`machPorts_tys`, PortWidthsPure:142-147) and project to W,
 so W costs nothing extra.
 
 **Where to place it (recommendation): as a conjunct of `ChildShips`, OUTSIDE `∀ dsn … ∀ i`.** It is a static fact
@@ -96,7 +96,21 @@ depend on it.
 | *alt-R only*: `SeqChildRunN` producers | unaffected under the recommended placement | Tools/ShippingMachineDepthRun.lean:160 (source `calls_ports` :165, `hargsMc` :185, length :191); DepthRunR:145 (:150, :170, :176); SeqChildDeepRunA:61 (:66, :86, :92; used by Srm4Run:112 (doc :94-96), Srm4Mixed:276 (doc :244), Srm4Callee:87/:194-198, QuadComposed:351-355); C6:55 (:59, :79, :85); QuadCalls:323; MachineDepth:86 (`seqChildRunN_of_flat`), :113; generator templates SeqParentGenD2.lean:585, SeqParentGenD2M.lean:340 (emitted per parent: every generated endpoint re-checks); MachineChild.lean:196/217, MachineSeqChild.lean:128/319, GateChild.lean:142/167, FirstGateChild.lean:603/628 (DPORT §0 grep list) | under alt-R each must prove the new conjunct; the source is the listed `hargs` line + `machPorts_tys` | — | not proposed |
 | *alt-R only*: `CombChildRunN` / `ChildRunN` users | unaffected | Tools/ShippingGen2AComb.lean:18-29 (`childRunN_of_seq` is `Or.inl`; the exclusion/iff lemmas project conjuncts by position: `.2.2.1`), OneOut:77-82, CallField:195-200, CombKid:177/208, CallsLinkedTN:38, CallsLinkedTNR:34 | under alt-R, positional projections `.2.2.2.2.2.1` (Connect:143) shift if the conjunct is not appended LAST | — | not proposed |
 
-**New small lemmas (text; new file `Tools/ShippingGen3ChildPortW.lean`, no shared edit):**
+**Additional impact rows (UNCHECKED: listed, not audited line by line):**
+| site | kind | where | note |
+|---|---|---|---|
+| [M3] `childShips_congr` | lemma on `ChildShips` | `par/gen3-induct` | must ALSO transport the new static conjunct (`ChildPortWidths` of the transported `q`/`mc`) |
+| [M3] old projections of `ChildShips` | consumers | `par/gen3-induct` | positional projections shift (`.2`) |
+| [M3] skeleton | StepStmt/IH skeleton | `par/gen3-induct` | must carry the conjunct through the induction |
+| in-progress S3 `group_childShips` | producer | Tools/ShippingGen2GroupServed.lean (another agent, uncommitted) | must prove the conjunct (N-B pattern if it goes through C6) |
+| M4 gate / future-route producers | producers | not built | must prove the conjunct; UNCHECKED |
+
+P1-P4 alone do NOT complete the FG supply: the M3/S3/M4 producers above must also prove the conjunct. Mixed sites are
+NOT guaranteed to need only re-elaboration (the "re-elaborate only" entry above is an expectation, to be checked at
+build). PkgCompat old→new (C6/C6') is limited to a version with a `ChildPortWidths` premise, or withdrawn. The
+consumer's L6/source width equality is not part of this unit; it stays in SRC-ARGW.
+
+**New small lemmas (text; new file `Tools/ShippingGen3ChildPortWidths.lean`, no shared edit):**
 ```lean
 /-- N-A: the argument ports of a call-free machine module are its declaration's ports (LeafSeq:58-67, factored). -/
 theorem argPorts_noCalls_of_wired {declName : Name} {d : MachineData} {ids : List FVarId}
@@ -134,6 +148,18 @@ what only the run part uses (`hextB`, `hext` :47-48, `i` :49, `dsn`, `hEA` :53, 
 C6:63-77 uses it to collapse `mergeChecked` (`mc = dropZW raw`). Ambient opens are C6:11-19 (`ComposedNW` resolves
 through them). Bridging `nonDom` (PortWidthsPure:46) and the lambda `fun b => b.2 != .domain` is `rfl`. Sizes: N-A about 20 lines, N-B about 40 lines, `childPortWidths_of_tys` about
 5 lines.
+
+## Result dependencies (shared by UARITY_FREEZE.md, UARGW_PARENT_SURVEY.md, UCHILD_PORTTYS_TABLE.md)
+| unit | supplies | side | alone reaches `callArgsOkAt`? |
+|---|---|---|---|
+| U-ARGW-PARENT (`core_inputWidth_A`, `core_callArgPorts_oneA`/`_ranA`) | `declWidth b argWs[j] = (kindTy binders[nDecl+(kI+(n+a))].2).bitWidth` | PARENT (let wire) | no |
+| U-CHILD-PORTTYS (`ChildPortWidths`, N-A/N-B, P1-P4) | `(argPorts mc).map (·.ty.bitWidth) = q.ports.map (kindTy ·.2).bitWidth` | CHILD (served module) | no |
+| U-ARITY (`callArity_of_trace`) | `(insts[k]).2.1.length = q.ports.length` | the matching INDEX RANGE | no |
+| SRC-ARGW (scripts/gen3/SRC_ARGW_FREEZE.md, separate unit) | the width equality L6/L6w for the same call | source | — |
+
+The three results above reach `callArgsOkAt p.d p.kD k q.portWidths` only when composed with SRC-ARGW's width equality
+for the SAME call (same `k`, statement, `mc`, `q`, and one `MachineTraceLBX` witness). None of them, nor any pair of
+them, supplies the row alone.
 
 ## 4. Final-FG obligation
 - The new conjunct lives in `ChildShips`, i.e. in the IH, the cache invariant and the `StepStmt` conclusion. It is

@@ -4631,3 +4631,24 @@ lean_lib «Tests.Gen2.S3GroupCheck» where
 
 lean_lib «Tests.Gen2.S3P2Probe» where
   roots := #[`Tests.Gen2.S3P2Probe]
+
+lean_lib «Tools.ShippingGen3Arity» where
+  roots := #[`Tools.ShippingGen3Arity]
+
+lean_lib «Tools.ShippingGen3ArgWidth» where
+  roots := #[`Tools.ShippingGen3ArgWidth]
+
+lean_lib «Tools.ShippingGen3ChildPortWidths» where
+  roots := #[`Tools.ShippingGen3ChildPortWidths]
+
+lean_lib «Tests.Gen3.ExpectedType» where
+  roots := #[`Tests.Gen3.ExpectedType]
+
+lean_lib «Tests.Gen3.ArityCheck» where
+  roots := #[`Tests.Gen3.ArityCheck]
+
+lean_lib «Tests.Gen3.ArgWidthCheck» where
+  roots := #[`Tests.Gen3.ArgWidthCheck]
+
+lean_lib «Tests.Gen3.ChildPortWidthsCheck» where
+  roots := #[`Tests.Gen3.ChildPortWidthsCheck]
