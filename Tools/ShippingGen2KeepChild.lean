@@ -1,7 +1,7 @@
 import Tools.ShippingGen2T1
 import Tools.ShippingChildPinC
 set_option autoImplicit false
--- NOT BUILT (written without a build; scripts/gen2/KEEPCHILD_POST_FREEZE.md §B, approved).
+-- BUILT: g3kc-9b79bf3a at 9b79bf3a (old ShipsRes); re-verified at the InstClosed ShipsRes by g3pf-28476add at 28476add (exit 0; KEEPCHILD_POST_FREEZE.md §B).
 -- No `sorry`, no `axiom`, no `native_decide`. The text is generic in `ShipsRes`; after G-POST (GPOST_FREEZE.md §2,
 -- `InstClosed` as the third conjunct of `ShipsRes`) it must be RE-ELABORATED (no edit needed except §5's corollary).
 

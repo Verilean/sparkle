@@ -25,7 +25,7 @@ the machine branch returns) — no cache invariant about the memo map is stated 
 Scope: `T1Hyp` as frozen, so the skeleton covers machine-route trees only (freeze §5.2).
 
 BUILT (former `NoTopStmt` text, history): g3in-b6625408 at b6625408 (exit 0); axiom audit g3in-ax-c6516331 at
-c6516331 (exit 0, standard axioms only). The PF text (GPOST_FREEZE §3) is NOT BUILT yet. -/
+c6516331 (exit 0, standard axioms only). The PF text (GPOST_FREEZE §3) is BUILT: g3pf-28476add at 28476add (exit 0, standard axioms). -/
 
 namespace Tools.ShippingGen2
 

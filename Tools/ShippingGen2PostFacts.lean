@@ -2,7 +2,7 @@ import Tools.ShippingGen2Defs
 import Tools.ShippingGen2Connect
 import Tools.ShippingCallsShape
 set_option autoImplicit false
--- NOT BUILT (written without a build; scripts/gen2/GPOST_FREEZE.md §2, §4, §11, approved for staged implementation).
+-- BUILT: g3pf-28476add at 28476add (exit 0; scripts/gen2/GPOST_FREEZE.md §2, §4, §11).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # G-POST statements (scripts/gen2/GPOST_FREEZE.md)
