@@ -11,8 +11,8 @@ set_option autoImplicit false
    field names, order, `binderInfo`, types by `isDefEq`, no extra field); the negative structure
    `MutRunReadsAtEnvR` (translator env `envR'` in `chain`) must be rejected by the same comparison.
 2. Expected types of RR1-RR3: the freeze §1 statements (fully bound). Mutants (signature / defeq rejections, not
-   semantic counterexamples): RR3 without `closes`; RR3 with `JQC` at the chain world `w3` (bound inside the
-   conclusion by its `getEnv` link to `w5`); RR2 with `JQC O n w₂` after the machine run (the `htr`-requiring claim);
+   semantic counterexamples): RR3 without `closes`; RR3 with `JQC` at a SEPARATELY quantified `w3` joined to `w5`
+   by its own `getEnv` run (not the chain's witness itself; a signature rejection only); RR2 with `JQC O n w₂` after the machine run (the `htr`-requiring claim);
    RR1 with `JQ` (no cache half).
 3. Closure audit (full reachable closure, explicit bodies): RR1-RR3 reach none of `synthesizeFromConst_machine_split2A`,
    `BodyStepC`, `MachineRunJQC`, any `T1Hyp`/`T1HypND` field (named projection, raw `.proj`, recursor). Positive reach:
