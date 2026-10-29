@@ -4664,3 +4664,18 @@ lean_lib «Tools.ShippingGen3ArgSupply» where
 
 lean_lib «Tests.Gen3.ArgSupplyCheck» where
   roots := #[`Tests.Gen3.ArgSupplyCheck]
+
+lean_lib «Tools.ShippingGen2TopVacuity» where
+  roots := #[`Tools.ShippingGen2TopVacuity]
+
+lean_lib «Tools.ShippingGen2SlotlessParent» where
+  roots := #[`Tools.ShippingGen2SlotlessParent]
+
+lean_lib «Tools.ShippingGen2SlotlessParentRun» where
+  roots := #[`Tools.ShippingGen2SlotlessParentRun]
+
+lean_lib «Tests.Gen2.S5Check» where
+  roots := #[`Tests.Gen2.S5Check]
+
+lean_lib «Tests.Gen2.S5SlotlessProbe» where
+  roots := #[`Tests.Gen2.S5SlotlessProbe]
