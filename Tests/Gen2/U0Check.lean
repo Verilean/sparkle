@@ -10,7 +10,7 @@ set_option autoImplicit false
 * the axioms of the new roots. -/
 namespace Tests.Gen2.U0Check
 open Tools.ShippingGen2
-open Tests.Compiler.SharedLeafMemKidIfaceTest
+open Tests.Compiler.SharedLeafMemKidIfaceTest Tests.Compiler.SharedLeafMemKidTest
 
 /-- `topshareM`'s generated package (its `GenFacts` from the declaration's own `machine_*` theorems). -/
 noncomputable def tmPkg : SrcPkg Unit (fun _ => Sparkle.Core.Domain.defaultDomain) :=
@@ -23,7 +23,7 @@ noncomputable def tmPkg : SrcPkg Unit (fun _ => Sparkle.Core.Domain.defaultDomai
 theorem tmPkg_dataOk : DataOk tmPkg := by
   have h := Tests.Compiler.SharedLeafMemKidEntryTest.topshareM_parentData
   unfold DataOk DataOkB
-  simp only [tmPkg, h.ok, h.alias, h.callsOk, Bool.true_and, Bool.and_eq_true, decide_eq_true_eq]
+  simp only [tmPkg, h.alias, h.callsOk, Bool.true_and, Bool.and_eq_true, decide_eq_true_eq]
   exact ⟨⟨h.slots, topshareM_outTy⟩, h.outHead⟩
 
 #print axioms Tools.ShippingGen2Consumer.machine_linkedT_callsServed
