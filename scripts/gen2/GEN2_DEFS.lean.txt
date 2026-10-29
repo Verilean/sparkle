@@ -93,7 +93,7 @@ def Start {mref cref} (L : Laws mref cref) (mctx : Meta.Context) (cctx : Core.Co
 that contains `Dc`'s modules and `mc`, the child run interface at height `n`, with the interface data taken from
 `c`'s own package `q`. Built-in transport: it is stated for every extending `dsn`, so the producer proves the
 transport once (gap G-TRANSPORT). -/
-def ChildShips (q : SrcPkg ι dom) (n : Nat) (mc : Module) (Dc : Design) : Prop :=
+def ChildShips (q : SrcPkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Design) : Prop :=
   ∀ (dsn : Design), (∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g) →
     moduleByName dsn.modules mc.name = some mc →
     ∀ (i : ι), SeqChildRunN (childMap dsn.modules) dsn n mc (q.d.bsIn.take q.kD) q.d.shape.layout.outs (q.S i)
@@ -108,7 +108,7 @@ def CallDec (p q : SrcPkg ι dom) (k : Nat) : Prop :=
     ∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
       (∀ r (hr : r < args.length), args[r] < p.d.ls.length ∧ ∃ g, (p.lsrc i bools bits)[args[r]]? = some g) ∧
       (∀ τ, InRange (valsOf (p.lsrc i bools bits) args τ) q.ports) ∧
-      ∃ k' o f, q.d.shape.layout.outs[k']? = some o ∧ o.name = p.d.shape.instFields.getD k "" ∧
+      ∃ (k' : Nat) (o : OutField) (f : Nat → Nat), q.d.shape.layout.outs[k']? = some o ∧ o.name = p.d.shape.instFields.getD k "" ∧
         (q.S i (valsOf (p.lsrc i bools bits) args))[k']? = some f ∧
         ∀ τ, posEnc (fun r => (p.extBS i bools bits r).val τ) (fun r n => (p.extS i bools bits r n).val τ)
           (p.kD + k) (((p.d.bsIn.drop p.kD)[k]?.map (·.2)).getD .domain) = f τ
@@ -122,7 +122,7 @@ def MemDec (p : SrcPkg ι dom) (k : Nat) (c : Name) : Prop :=
 /-! ## 4. Route evidence, T1 hypotheses, the IH, and the served-child evidence -/
 
 open Tools.ShippingChildBndCore (cv dv)
-open Tools.ShippingChildInv (Res Keeps)
+open Tools.ShippingChildInv (Res Keeps profLogIO)
 open Tools.ShippingChildRunAKids (MachineClosesAtA)
 open Tools.ShippingServedRealA (MachineRunJQC)
 
@@ -130,7 +130,7 @@ open Tools.ShippingServedRealA (MachineRunJQC)
 (`MachineRunJQC`, ServedRealA.lean:86) — the machine route was TAKEN, not only read (`MachineDefines` alone says
 `machineShape? = some`; it does not exclude the fall-back to the legacy route). -/
 abbrev MachineTaken {mref cref} (L : Laws mref cref) (mctx : Meta.Context) (cctx : Core.Context) (n : Nat)
-    (c : Name) (shape : MachineShape) (raw : Module) (D : Design) : Prop :=
+    (c : Name) (shape : MachineShape) (raw : Sparkle.IR.AST.Module) (D : Design) : Prop :=
   MachineRunJQC L.O mctx cctx n c shape raw D
 
 /-- A result `r` of `c` with the package and height it ships at. -/
@@ -175,10 +175,10 @@ def IHAt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Pr
 
 /-- `ServedRealGA` (ServedRealA.lean:45-58) with `RealChildA O` replaced by `Q`; every other part VERBATIM (the
 `connsG` instance, the `machPorts` map of `outs`, `∃ e ∈ outs, e.1 = k`, the same `ids`/`cache`). -/
-def ServedGP (Q : Name → Res → Prop) (declName : Name) (shape : MachineShape) (m : Module) (dsn : Design)
+def ServedGP (Q : Name → Res → Prop) (declName : Name) (shape : MachineShape) (m : Sparkle.IR.AST.Module) (dsn : Design)
     (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) : Prop :=
   shape.instFields ≠ [] →
-  ∀ k (hk : k < shape.insts.length) (mc : Module) (iname : String)
+  ∀ k (hk : k < shape.insts.length) (mc : Sparkle.IR.AST.Module) (iname : String)
     (argWs : List String) (outs : List (Nat × String)) (outWs : List String),
     Stmt.inst mc.name iname (Tools.ShippingMachineLinkedT.connsG mc argWs outs outWs) ∈ m.body →
     outs.mapM (fun (j, _) =>
@@ -190,10 +190,10 @@ def ServedGP (Q : Name → Res → Prop) (declName : Name) (shape : MachineShape
 
 /-- `ServedReal1A` (ServedRealA.lean:60-72) with `RealChildA O` replaced by `Q`; every other part VERBATIM
 (`CallStmt … k args mc st`). -/
-def Served1P (Q : Name → Res → Prop) (declName : Name) (shape : MachineShape) (m : Module) (dsn : Design)
+def Served1P (Q : Name → Res → Prop) (declName : Name) (shape : MachineShape) (m : Sparkle.IR.AST.Module) (dsn : Design)
     (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) : Prop :=
   shape.instFields = [] →
-  ∀ k (hk : k < shape.insts.length) (args : List Nat) (mc : Module) (st : Stmt),
+  ∀ k (hk : k < shape.insts.length) (args : List Nat) (mc : Sparkle.IR.AST.Module) (st : Stmt),
     (shape.insts.map (·.2.1))[k]? = some args → st ∈ m.body →
     Tools.ShippingMachineInst.CallStmt (machNIn shape) shape.insts.length shape.layout.slots.length
       ((machPorts declName ids cache shape.binders).map (·.name)) k args mc st →
@@ -201,7 +201,7 @@ def Served1P (Q : Name → Res → Prop) (declName : Name) (shape : MachineShape
     (∃ md, (shape.instOrigins.getD k .ord).child? = some md ∧ mc = md.1) ∨
       ∃ Dc, Q (shape.insts[k]).1 (mc, Dc) ∧ ∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g
 
-def ServedP (Q : Name → Res → Prop) (declName : Name) (shape : MachineShape) (m : Module) (dsn : Design)
+def ServedP (Q : Name → Res → Prop) (declName : Name) (shape : MachineShape) (m : Sparkle.IR.AST.Module) (dsn : Design)
     (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) : Prop :=
   ServedGP Q declName shape m dsn ids cache ∧ Served1P Q declName shape m dsn ids cache
 
@@ -214,7 +214,7 @@ def ServedShipsStmt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : 
     (DataOk : SrcPkg ι dom → Prop) : Prop :=
   T1Hyp L P Reach DataOk →
   ∀ (p : SrcPkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld)
-    (raw : Module) (D : Design),
+    (raw : Sparkle.IR.AST.Module) (D : Design),
     Reach p.decl → P p.decl = some p → AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w →
     CacheShips L P (cv w) → IHAt L P Reach (dv w + 1) →
     RunsTo (synthesizeCombinationalCore p.decl [] false) mctx mref cctx cref w (raw, D) w' →
@@ -246,7 +246,7 @@ def ReachStmt {mref cref} (L : Laws mref cref) : Prop :=
 /-- The top-level conclusion for package `p` at height `n`: exactly the conclusion of
 `machine_ships_hierC_noHstR` (Srm33Core.lean:85-114) with `d := p.d`, `src := p.src`, `ext := p.extS`,
 `extB := p.extBS`, `kD := p.kD`. -/
-def TopShips (p : SrcPkg ι dom) (n : Nat) (declName : Name) (b raw : Module) (D : Design) : Prop :=
+def TopShips (p : SrcPkg ι dom) (n : Nat) (declName : Name) (b raw : Sparkle.IR.AST.Module) (D : Design) : Prop :=
   ∃ ids : List FVarId, ids.Nodup ∧ ids.length = p.d.shape.binders.length ∧
   ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
     regs.Nodup ∧ regs.length = p.d.ss.length ∧
@@ -275,7 +275,7 @@ instance shipping (`ServedP (ShipsRes L P)`, the output of G-SERVED, k ↔ insta
 child at some height (one more than the children's, after G-LIFT). -/
 def StepStmt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (DataOk : SrcPkg ι dom → Prop) : Prop :=
   ∀ (p : SrcPkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
-    (raw b : Module) (D : Design),
+    (raw b : Sparkle.IR.AST.Module) (D : Design),
     P p.decl = some p → DataOk p → AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w →
     RunsTo (synthesizeCombinationalCore p.decl [] false) mctx mref cctx cref w (raw, D) w1 →
     (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
@@ -294,7 +294,7 @@ it is also derivable from `memCallee_closesA` (Srm3Callee.lean:91) + `machineRun
 when `DataOk` contains `MemCalleeData`'s rows — a corollary, recorded, not a replacement of the premise. -/
 def MemParentStmt {mref cref} (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) : Prop :=
   ∀ (p : SrcPkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
-    (raw b : Module) (D : Design),
+    (raw b : Sparkle.IR.AST.Module) (D : Design),
     DataOk p → p.d.shape.layout.slots ≠ [] → AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w →
     RunsTo (synthesizeCombinationalCore p.decl [] false) mctx mref cctx cref w (raw, D) w1 →
     (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
@@ -307,7 +307,7 @@ def MemParentStmt {mref cref} (L : Laws mref cref) (DataOk : SrcPkg ι dom → P
 /-- **Base case** (M2-a', a separate unit): an ordinary leaf (`insts = []`) ships at every height. -/
 def LeafStmt {mref cref} (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) : Prop :=
   ∀ (p : SrcPkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
-    (raw b : Module) (D : Design),
+    (raw b : Sparkle.IR.AST.Module) (D : Design),
     DataOk p → p.d.shape.insts = [] → AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w →
     RunsTo (synthesizeCombinationalCore p.decl [] false) mctx mref cctx cref w (raw, D) w1 →
     (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
@@ -323,7 +323,7 @@ G-MEMO are lemmas of its proof. -/
 def T1Stmt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) : Prop :=
   T1Hyp L P Reach DataOk →
-  ∀ (c : Name) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld) (raw b : Module) (D : Design),
+  ∀ (c : Name) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld) (raw b : Sparkle.IR.AST.Module) (D : Design),
     Reach c → Start L mctx cctx w →
     RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (raw, D) w1 →
     (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
