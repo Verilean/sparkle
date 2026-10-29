@@ -20,9 +20,10 @@
    `composedNWRegsF_of_composedNWF`.
    - Only `machine_linked_ofBV` exposes the VALUE conjunct (c3). From `machine_linked_callsServed1F` on, the chain carries the FIT
      (`KSBoundedRun`) itself.
-   - Reason: the width fact (d2) needs the served child of call `k`. That child is available only inside
-     `machine_linked_callsServed1`'s proof, on `h`'s witness, after `intro i` (`hserve`, OneOut:179-201). `ChildShips` is stated
-     `∀ i`, so outside the `∀ i` there is no `i` to instantiate it with.
+   - Reason: the width fact (d2) needs the semantic guarantee of call `k`'s served child, i.e. its `ChildShips`, which is stated
+     `∀ i`. The place where that guarantee is APPLIED at an `i` is inside `machine_linked_callsServed1`'s proof, on `h`'s
+     witness, after `intro i` (`hserve`, OneOut:179-201). (Wording corrected after review of bbca065d: the child itself is not
+     "created" after `i`; its guarantee is applied there.)
    - `KSBoundedRun` mentions neither `KS`, nor the seed, nor `ext`/`extB`. So it passes through `composedNWn_of_HBF` unchanged.
 
 ## 1. What `hKSb` is, and the run-local fit
