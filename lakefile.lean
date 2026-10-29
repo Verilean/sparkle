@@ -4574,3 +4574,9 @@ lean_lib «Tests.Gen2.OneOutCallField» where
 
 lean_lib «Tests.Gen2.S4BdProbe» where
   roots := #[`Tests.Gen2.S4BdProbe]
+
+lean_lib «Tools.ShippingMachineExtB» where
+  roots := #[`Tools.ShippingMachineExtB]
+
+lean_lib «Tools.ShippingGen2OneOut» where
+  roots := #[`Tools.ShippingGen2OneOut]
