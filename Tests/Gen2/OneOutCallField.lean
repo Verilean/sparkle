@@ -82,7 +82,7 @@ theorem oneout_old_name_fails :
   decide
 
 /-- The control at the package level: for the output `CallField` selects, the old conjunct (`CallDecOld`'s) is false. -/
-theorem callerL_old_conjunct_fails (p : Pkg Unit U) (hp : p.d = callerL.machineData) (o : OutField)
+theorem callerL_old_conjunct_fails (p : Pkg Unit U) (hp : p.d = callerL.machineData) (o : Sparkle.IR.Machine.OutField)
     (ho : pbhPkg.d.shape.layout.outs = [o]) : ¬ (o.name = p.d.shape.instFields.getD 0 "") := by
   have ho' : pickByteH.machineData.shape.layout.outs = [o] := ho
   have hm : o ∈ pickByteH.machineData.shape.layout.outs := by
