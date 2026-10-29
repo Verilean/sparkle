@@ -4538,3 +4538,6 @@ lean_lib «Tools.ShippingGen2LeafSeq» where
 
 lean_lib «Tools.ShippingGen2Leaf» where
   roots := #[`Tools.ShippingGen2Leaf]
+
+lean_lib «Tests.Gen2.LeafInstance» where
+  roots := #[`Tests.Gen2.LeafInstance]
