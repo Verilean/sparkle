@@ -4658,3 +4658,9 @@ lean_lib «Tools.ShippingGen3ArgWidthSrc» where
 
 lean_lib «Tests.Gen3.ArgWidthSrcCheck» where
   roots := #[`Tests.Gen3.ArgWidthSrcCheck]
+
+lean_lib «Tools.ShippingGen3ArgSupply» where
+  roots := #[`Tools.ShippingGen3ArgSupply]
+
+lean_lib «Tests.Gen3.ArgSupplyCheck» where
+  roots := #[`Tests.Gen3.ArgSupplyCheck]
