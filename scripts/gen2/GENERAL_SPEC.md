@@ -247,10 +247,10 @@ The chosen option is to STRENGTHEN the served-child evidence:
   needs its own invariant, or a proof that machine-route parents never read it for their children.
 - **`hrunN`** of consumer 2 quantifies over ARBITRARY runs of the child in any admissible context. In `StepStmt` it is
   not supplied from the IH. Instead, `PC c mc` is instantiated to the served-result fact itself, and consumer 2's use
-  of `hrunN` (DepthRunRA:189-190) is replaced. Whether consumer 2 can be applied with `PC := fun c mc => ∃ q Dc, …
-  ChildShips q n mc Dc` and an `hrunN` derived from G-SERVED, or needs a variant that takes the served fact directly, is
-  decided in U0. If a variant is needed, it is a NEW consumer lemma with the same proof, which re-routes the final
-  `exact hrunN …`.
+  of `hrunN` (DepthRunRA:189-190) is replaced. It is settled by a variant: the PROVED consumer
+  `Tools.ShippingGen2Consumer.machine_linkedT_callsServed`. It takes the trace over `ServedP Q`, uses
+  `PC := ServedPC Q dsn`, and has no `hrunN`. Its proof is consumer 2's, with the final `hrunN` step replaced by the
+  served evidence (§8.1).
 
 - **Route evidence of nested runs.** A nested child run's route is not assumed. `IHAt` quantifies over the runs of
   reached declarations. Their route evidence comes from `T1Hyp.defines` + `T1Hyp.closes` through
@@ -320,7 +320,7 @@ Tests/Compiler/C4ShipsTest.lean, C4ComposedTest.lean and C4ClosesTest.lean.
 | `hfe`, `kD`, `hkD`, `hI`, `hIlen`, `hSL`, `hSlen`, `hLlen`, `hNIn` | the §4.4 inventory; `hfe` false means case G-ONEOUT | DATA |
 | `bsC`, `outsC`, `S` | `fun c => (P c).map (·.d.bsIn.take ·.kD)`, `….d.shape.layout.outs` and `(P c).S i`, from the CHILD's package | IH (package) |
 | `PC` | the served-result fact (§3.2 `hrunN` paragraph) | IH via G-SERVED |
-| `hrunN` | from G-SERVED, or a consumer variant (decided in U0) | IH |
+| `hrunN` | removed: the variant `machine_linkedT_callsServed` (PROVED) takes the served evidence | IH via G-SERVED |
 | `hcalls`, memory entry | `MemFacts`, from `MemDec` (G-MEMCALLS) | NEW |
 | `hcalls`, ordinary entry | `SeqFactsRN` (Tools/ShippingMachineCallsLinkedTNR.lean:23), conjunct by conjunct below | see below |
 
@@ -627,6 +627,9 @@ These would change the goal, the guarantee or the cost:
 Everything else is coder/reviewer work inside this plan.
 
 ## 10. Not claimed
-- No theorem, no build, no production change. FG and T1 are unproved.
-- GEN2_DEFS.lean.txt is frozen text that has not been elaborated. U0 elaborates it and records the deviations.
+- No production change.
+- FG, T1, every `…Stmt` and the named gaps of §4.3 remain unproved.
+- The U0 definitions (`Tools/ShippingGen2Defs.lean`, cmp-identical to GEN2_DEFS.lean.txt) and the connection lemmas
+  (`Tools/ShippingGen2Consumer.lean`, `Tools/ShippingGen2Connect.lean`) have the build recorded in §8.1. U0's acceptance
+  (axioms, binder checks, R? classification, a concrete `DataOk`) is Issue `sparkle-gen2-u0-types`.
 - The order of §5 is a plan corrected against the cited sources. It is not a feasibility result.
