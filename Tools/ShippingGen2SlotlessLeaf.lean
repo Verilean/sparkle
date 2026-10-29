@@ -39,7 +39,7 @@ set_option autoImplicit false
   `leaf_run_portsA` does), so `slotlessLeaf_ships` has no premise beyond `SlotlessLeafStmt`'s.
 * `slotlessLeaf_ships : SlotlessLeafStmt L`.
 
-WRITTEN, NOT BUILT. -/
+BUILT: g2st-s2-4632dfb6 at 4632dfb6; audit g2st-ax-0464c3cd; re-verified with `Pkg.comb` by g2cp2-698be477 (scoped-accepted at 22417406). -/
 namespace Tools.ShippingGen2
 open Lean hiding Module Expr
 open Meta Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine

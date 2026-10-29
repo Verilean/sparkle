@@ -3,7 +3,7 @@ import Tools.ShippingGen2SrcPkg
 import Tools.ShippingGen2CombPkg
 set_option autoImplicit false
 
-/-! # loop-pkg step 2 interface: `Pkg` = circuit-do or loop package (LOOPPKG_FREEZE.md §6, for review)
+/-! # `Pkg` = circuit-do, loop or comb package (LOOPPKG_FREEZE.md §6; `.comb` added by PKG_COMB_FREEZE.md rev1, accepted at 22417406)
 
 The exact interface the step-2 refactor uses. ADDITIVE: nothing existing is changed by this file. Accessors are by cases;
 `Pkg.trace`, `Pkg.ok`, `Pkg.body_eq`, `Pkg.lsrc_hl` are THEOREMS by cases (no semantic field). -/

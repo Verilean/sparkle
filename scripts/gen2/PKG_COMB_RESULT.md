@@ -34,7 +34,7 @@
   - The run/reflection/route premises (`AdmCtx`, `JQC`, the core run, `hpost`, `MachineDefines`, `MachineTaken`) remain HYPOTHESES. No run existence is claimed.
 
 ## Not claimed / open
-- **S2's slotless lemmas** (`slotlessLeaf_ships` etc.) themselves are not yet accepted. This unit only gives them a real package.
+- **S2/S2-c's slotless lemmas** (`slotless_closed_*`, `slotlessLeaf_ships`) and `Pkg.comb` steps 1-3 were accepted in scope at 22417406 (review of db95ef9d). The pending mkvs-dell job `g2cp-682dbb1c` is not counted as evidence.
 - **`CombFacts` does not imply slots = [] / insts = [].** `pbh_ships` checks those as data.
 - **Sign-normalised comb declarations** (`machineSourceDecl`) are an OPEN coverage gap, not an FG exclusion.
 - **Open obligations:** the parents' consumers of comb children (S3/S5), G-SLOTLESS completion, `MachineClosesAtA` for comb names, and the closing/reflection premises.
