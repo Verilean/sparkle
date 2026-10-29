@@ -3,6 +3,20 @@
 **FOR REVIEW — design only, nothing built or proved.** No `.lean` file, lakefile or shared definition was written or
 edited; no Lean was run. Every Lean block below is UNELABORATED text. Sizes are estimates.
 
+## rev3 changelog (batch 2 STOP; written at e134c63a, FOR REVIEW, nothing adopted)
+- **New §3.7 (EnvKindOk / CallPreK / GoodK revision proposal).** Batch 2 (Tools/ShippingGen3ArgSupply2.lean, built
+  clean in g3se-e134c63a) stopped at every arm that issues a second sub-call at the state `st₁` returned by a first
+  one (ArgSupply2:42-53): rev2's `EnvKindOk` is read through `convBvar … st`, whose `.state b n` (n ≠ 1) arm reads
+  `st.dom`/`st.kinds` (FD:245-253), so (i) `st.dom = none` → `st₁.dom = some _` creates an obligation and (ii) `dom`
+  can be replaced by an `==`-equal but different term (`domGuard` FD:314 then `dom := some dom'` FD:318; also
+  FD:572/:585, E:3708-3716 via FD:405). §3.7 gives three options with full types and recommends (b): an
+  entry-indexed, `dom`-free `EnvKindOkE` plus an unconditional table invariant `GoodE` (state extension). No new
+  premise of CR; no use of `EqvSound` for `dom`; G12/G20 stay the (unchanged) open loop-root row.
+- **LK3 control results recorded (§3.7.5).** P1 and P2 PASS, N1 detects non-uniqueness; N2 came out
+  `accepted = false` (rev2 §3.6 expected "accepted": that expectation was wrong). rev2's P1 case
+  `sixArgShape? = some (r, none, none)` does not exist (E:1538-1548); P1 ran on the three one-`none` arms.
+  rev2 §3.6 text is left as written; §3.7.5 supersedes its N2 expectation and P1 case.
+
 ## rev2 changelog (reviewer changes_requested on rev1 = d795c916; written at 4c770207, re-checked at f7e42988)
 Sources re-read at 4c770207: `git diff --stat 168e0c95..f7e42988 -- Sparkle/Compiler/ Tools/ShippingReaderFuel*.lean
 Tools/ShippingGen3ArgWidthSrc.lean` is empty, so every rev1 line citation into those files still holds.
@@ -580,6 +594,180 @@ Planned as small Lean tests (like Tests/Gen3/ArityCheck.lean), run before the mi
   the mirror accepts it (expected: accepted), documenting that the mirror does NOT supply `LetKindOk` for operands
   under that branch (consistent with §3.5).
 Outcome rule: if P1 or P2 fails, `uniq` does not hold for the mirror and LK3 stops with a report (no `HK` adopted).
+
+### 3.7 rev3: EnvKindOk / CallPreK / GoodK revision proposal (for review)
+Written at e134c63a. Nothing here is built; Lean blocks are UNELABORATED. `A2:` = Tools/ShippingGen3ArgSupply2.lean
+(batch 2, built clean in g3se-e134c63a), `T2:` = Tests/Gen3/ArgSupply2Check.lean.
+
+#### 3.7.1 The problem (batch-2 STOP, A2:42-53)
+Every arm that issues a SECOND sub-call at the state `st₁` returned by the first needs `CallPreK` of that call, i.e.
+`EnvKindOk HK p st₁ Δ env d` (rev2 §3.4, A2:283-295), but only `EnvKindOk … st …` is known. rev2's `EnvKindOk`
+(§3.1, A2:201-206) is stated through `convBvar env d j st` (FD:240-255):
+- `.val v` (FD:243): result `v`, obligation `HK (phKind p.bs st) v k` — transports to `st₁` by `mono` + `phKind_ext`
+  (A2:600) IF `PhExt st st₁` (A2:587-590) is known; `GoodK` (A2:297-299) gives no relation between input and output
+  states, so this "state-extension table invariant" is missing (provable, not written).
+- `.state b 1` (FD:244): `machSlot b`; needs `st₁.kinds[b]? = some k`; same missing `PhExt`.
+- `.state b n`, `n ≠ 1` (FD:245-253): `let dom ← st.dom`, kinds `b … b+n-1`, `bundleSlots dom …`. (i) `st.dom = none`
+  ⇒ `convBvar` fails ⇒ no obligation at `st`, while `st₁.dom = some _` (set at FD:318, :420, :450, :585, E:3716 via
+  FD:405) creates one; (ii) at FD:314/:318, FD:572/:585, E:3708-3716 a `some d` is replaced by `some dom'` with only
+  `(d == dom') = true` (extern `Expr.eqv`, D1), so the bundle term at `st₁` differs from the one at `st`. Neither
+  follows from rev2's types. (`n = 0`: `bundleSlots dom [] []` = none, FD:232-237, so no obligation.)
+- `.regs`/`.handle`/`.unit` (FD:254) and `machIn` (FD:255, outside `j < d + env.length`): no obligation.
+Blocked arms (§3.4 numbering): G7 (`instSParam` fold, FD:474/:460), G9 (lam/forallE, FD:354-355/:358-359), G16 `next`
+(FD:504/:508), G17 user-let (FD:526/:528), G19 (`loopNext` fold, FD:548/:532-536); also the second-call PART of
+G2 (FD:313/:320), G4 (FD:400/:407), G5/G6 argument folds (FD:433, :473), G8 (FD:350-351), G11/G18 (FD:377/:379,
+:541/:545), G20 (FD:571/:590) — their other open items are unchanged.
+
+#### 3.7.2 Option (a): `EnvKindOk` unchanged, relative to a state-extension relation `StExt`
+```lean
+/-- Reflexive-transitive closure of the extern `==` (transitivity of `Expr.eqv` itself is not available, D1). -/
+def EqvChain : Lean.Expr → Lean.Expr → Prop := Relation.ReflTransGen (fun a b => (a == b) = true)
+def DomExt (o o' : Option Lean.Expr) : Prop :=
+  o = none ∨ ∃ d d', o = some d ∧ o' = some d' ∧ EqvChain d d'
+def StExt (st st' : MachRead) : Prop := PhExt st st' ∧ DomExt st.dom st'.dom          -- PhExt: A2:587-590
+/-- Every non-singleton loop entry of `env` already has its domain and slots in `st` (excludes case (i)). -/
+def EnvDom (st : MachRead) (env : List MachVal) : Prop :=
+  ∀ b n, MachVal.state b n ∈ env → n ≠ 1 → st.dom.isSome ∧ b + n ≤ st.kinds.size
+/-- NEW law on the HK parameter (case (ii)): the bundle's kind ignores an `EqvChain`-related domain term. -/
+def DomCongr (HK : PhKinding) : Prop :=
+  ∀ Γ d d' is tys x x' t t' k, EqvChain d d' →
+    bundleSlots d is tys = some (x, t) → bundleSlots d' is tys = some (x', t') → HK Γ x k → HK Γ x' k
+def CallPreKa (HK) (senv) (p) (en) (c : Call) : Prop := CallPreK HK senv p en c ∧ EnvDom (Call.inSt c) (Call.env c)
+def GoodKa (HK) (senv) (p) (en) (h : Hs) : Prop :=
+  ∀ c, CallPreKa HK senv p en c → ReadInv HK senv p (Call.inSt c) → ∀ v, h c = some (some v) →
+    ReadInv HK senv p (Call.outSt c v) ∧ StExt (Call.inSt c) (Call.outSt c v)
+theorem envKindOk_stExt {HK p st st₁ Δ env d} (HKL : PhKindingLaws HK) (DC : DomCongr HK)
+    (h : EnvKindOk HK p st Δ env d) (hD : EnvDom st env) (hx : StExt st st₁) : EnvKindOk HK p st₁ Δ env d
+```
+(`Call.env` = the env field of each constructor; a 7-line projection, not yet written.) New invariants: `StExt` per
+arm (pushes/appends only, §3.2; `dom` transitions FD:318/:420/:450/:585, E:3716); `EnvDom` at every issued call —
+from `.state` entries being created only at FD:590 after `dom := some` (FD:585) or at the probe FD:556, which needs a
+further invariant `st.loopWs ≠ #[] → st.dom.isSome` (loopWs pushed only at FD:592). **Premise cost:** `DomCongr HK`
+is a NEW law premise of LK1/LK2/CR (an extra `PhKindingLaws` field LK3 would have to prove for the mirror; unchecked
+whether the mirror's `bundle2` arm reads the domain argument), or, if stated on `Expr.eqv` congruence instead, a
+TRUSTED boundary (D1 extension) = **decision item**. Unblocks: all arms of §3.7.1.
+
+#### 3.7.3 Option (b) (RECOMMENDED): entry-indexed, `dom`-free `EnvKindOkE` + unconditional `GoodE`
+The obligation is indexed by the ENV ENTRY (the source binder's reader value), not by `convBvar`'s output; for a
+loop entry it demands the singleton slot itself, so neither `st.dom` nor a bundle term occurs.
+```lean
+/-- What a reader value owes the source kind `k` of its binder. -/
+def EntryKindOk (HK : PhKinding) (p : ShapePre) (st : MachRead) (k : MixedGateBinder) : MachVal → Prop
+  | .val v     => HK (phKind p.bs st) v k
+  | .state b n => n = 1 ∧ st.kinds[b]? = some k
+  | .regs _    => True                                   -- convBvar fails (FD:254)
+  | .handle _  => True
+  | .unit      => True
+def EnvKindOkE (HK : PhKinding) (p : ShapePre) (st : MachRead) (Δ : SrcCtx) (env : List MachVal) (d : Nat) :
+    Prop :=
+  Δ.length = d + env.length ∧
+  ∀ (j : Nat) (k : MixedGateBinder) (m : MachVal), d ≤ j → Δ[j]? = some (some k) → k ≠ .domain →
+    env[j - d]? = some m → EntryKindOk HK p st k m
+/-- rev3 CallPreK: rev2's text (§3.4, A2:283-295) with `EnvKindOk` replaced by `EnvKindOkE` in all seven rows. -/
+def CallPreKE (HK : PhKinding) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Call → Prop
+  | .conv env d e st => ∃ Δ, EnvKindOkE HK p st Δ env d ∧ ReadSub senv (midExpr en) Δ e
+  | .nested env dom αs is body st => ∃ Δ e, EnvKindOkE HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e ∧
+      machRunApp? e = some (dom, αs, is, body)
+  | .inst env c org ks res args st => CallPreP senv (.inst env c org ks res args st) ∧
+      ∃ Δ e, EnvKindOkE HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e ∧ InstSite senv e org c ks res args
+  | .instS env c ks ty args st => senv.instS c = some (ks, ty) ∧
+      ∃ Δ e, EnvKindOkE HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e ∧
+        machInstCallS? senv e = some (c, ks, ty, args)
+  | .chain env e st      => ∃ Δ, EnvKindOkE HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e
+  | .loopBody _ env e st => ∃ Δ, EnvKindOkE HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e
+  | .loopRoot env e st   => ∃ Δ, EnvKindOkE HK p st Δ env 0 ∧ ReadSub senv (midExpr en) Δ e
+/-- GoodK keeps its rev2 shape (A2:297-299) over CallPreKE. -/
+def GoodKE (HK) (senv) (p) (en) (h : Hs) : Prop :=
+  ∀ c, CallPreKE HK senv p en c → ReadInv HK senv p (Call.inSt c) → ∀ v, h c = some (some v) →
+    ReadInv HK senv p (Call.outSt c v)
+/-- NEW, UNCONDITIONAL table invariant (no precondition; pattern of `GoodH`, Tools/ShippingReaderFuelR5.lean:71-72). -/
+def GoodE (h : Hs) : Prop := ∀ c v, h c = some (some v) → PhExt (Call.inSt c) (Call.outSt c v)
+theorem goodE_readF (senv : StructEnv) : ∀ n, GoodE (readF senv n)
+theorem envKindOk_of_E {HK p st Δ env d} (HKL : PhKindingLaws HK) :
+    EnvKindOkE HK p st Δ env d → EnvKindOk HK p st Δ env d          -- `.state b 1`: HKL.var (fvar) + phKind_slot (A2:574)
+theorem envKindOkE_ext {HK p st st₁ Δ env d} (HKL : PhKindingLaws HK) :
+    EnvKindOkE HK p st Δ env d → PhExt st st₁ → EnvKindOkE HK p st₁ Δ env d   -- HKL.mono + phKind_ext; PhExt.1
+theorem envKindOkE_lift {HK p st Δ env d} (o : Option MixedGateBinder) :
+    EnvKindOkE HK p st Δ env d → EnvKindOkE HK p st (o :: Δ) env (d + 1)   -- G9 body at depth d+1
+theorem envKindOkE_cons {HK p st Δ env} (o : Option MixedGateBinder) (m : MachVal)
+    (hm : ∀ k, o = some k → k ≠ .domain → EntryKindOk HK p st k m) :
+    EnvKindOkE HK p st Δ env 0 → EnvKindOkE HK p st (o :: Δ) (m :: env) 0
+/-- Hoare combinator for a second call (replaces `satK_bindO`, A2:845, where the continuation needs `st₁`). -/
+theorem satK_bindOE [HasSt β] {x : BM (Option β)} {f : β → BM (Option α)} {st : MachRead} (hE : GoodE h)
+    (hx : SatK HK senv p h x) (hxE : ∀ b, x.run h = some (some b) → PhExt st (HasSt.st b))
+    (hf : ∀ b, StK HK senv p b → PhExt st (HasSt.st b) → SatK HK senv p h (f b)) : SatK HK senv p h (bindO x f)
+```
+- `ConvKind` (§3.3) keeps its text with `EnvKindOk` replaced by `EnvKindOkE` (a STRONGER hypothesis, so a WEAKER
+  obligation for the supplier, by `envKindOk_of_E`); keeping rev2's premise also works via that lemma.
+- **New invariant:** only `GoodE`, proved by the fuel induction with no premise: every arm only pushes/appends
+  `kinds`/`lets`/`insts` (§3.2: push sites; `machBindLet`/`machLetIndex` push or return the old array, E:3619-3628,
+  E:3746-3750; `machReserve` appends, E:3712-3716; probes return a table state or `{ st' with ws := … }`, FD:390-393,
+  :556-559). `phExt_refl`/`phExt_trans` exist (A2:592-598). LK1's induction carries `GoodKE ∧ GoodE`.
+- **`==`-equal `dom` (case ii):** irrelevant — `EntryKindOk`, `phKind`, `LetKindOk`, `InstArgKinds` and `InstProv`
+  (FP:167) do not read `st.dom`; `EqvSound`/`DomCongr` are not used for it; D1 is unchanged.
+- **Case (i):** irrelevant — no obligation mentions `dom`.
+- **Creation-site obligations** (where LK1 pushes an entry): `.val x` (G11/G17/G18/G21) — unchanged from rev2 (open,
+  `ConvKind`/D5/`EqvSound`/`uniq`); `.state b n` at G12 (FD:369, :518), G20 (FD:590) and the probe (FD:556) — now
+  `n = 1 ∧ st.kinds[b]? = some k` instead of `HK (phKind …) (convBvar output) k`. This is the SAME open loop-root row:
+  for a fresh loop `kinds` are pushed at `base` (FD:581) so `LoopSrcKinds` (§3.4, `kinds = [k]`) gives it for the
+  `lamB` entry; the let-annotation entry of G12 needs the let-indexed form below plus a `loopRoot` result fact
+  (`.state b n` returned with `kinds[b..b+n) = ` the regs' kinds); the shared probe still needs the `ws`-equality
+  argument (G20). For `n ≥ 2` with a Bool/BitVec `k`, rev2 asked `HK` to accept a `bundle2` tuple at a single kind,
+  which a kind-exact `HK` is expected to reject (LK3 has NOT checked `bundle2`), so (b) is expected not to lose any
+  suppliable case; if the mirror does accept such a term, (b) is strictly stronger there (record as a review point).
+```lean
+/-- TY-5' candidate (NOT added to ReadTyped; extends §3.4's LoopSrcKinds to the let annotation of G12). -/
+def LoopLetSrcKinds (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Prop :=
+  ∀ (Δ : SrcCtx) (nm : Name) (ty v b : Lean.Expr) (nd : Bool) (ls : List Level) (dom a₁ a₂ t body : Lean.Expr)
+    (nm' : Name) (bi : BinderInfo) (regs : List (Lean.Expr × Lean.Expr × Lean.Expr))
+    (kinds : List MixedGateBinder) (k : MixedGateBinder),
+    ReadSub senv (midExpr en) Δ (.letE nm ty v b nd) →
+    inlSpine (Sparkle.Compiler.MachRawSurface.rootFloat v) [] =
+      (.const ``Sparkle.Core.Signal.Signal.loop ls, [dom, a₁, a₂, .lam nm' t body bi]) →         -- FD:280-283
+    machLoopRegs (machLetTail body) = some regs → regs.mapM loopRegKind = some kinds →           -- FD:567-569
+    mixedGateBinderKind? ty = some k → k ≠ .domain → kinds = [k]
+```
+- **Premise cost:** NONE added to CR (§1.2): `PhKindingLaws` uses only `var`/`mono`, `EqvSound` unchanged, no new law.
+  `LoopSrcKinds`/`LoopLetSrcKinds` are TY components for the ALREADY-OPEN G12/G20 row (rev2 also needed a source
+  fact there: "vacuous only if `mixedGateBinderKind? ty = none`", §3.4 G12); whether they enter `ReadTyped` stays the
+  existing §6 Q1 item, not a new decision. No semantic premise beyond rev2's.
+- **Re-work:** batch-2 lemmas stated with `EnvKindOk` (`envKindOk_cons_vac` A2:735, `callPreK_conv_float`/`_letVac`/
+  `chain_*` A2:767-814, arm lemmas A2:879-1143) are restated over `EnvKindOkE`/`CallPreKE` (same proofs; the vacuous
+  entries are `True` rows of `EntryKindOk`).
+
+#### 3.7.4 Option (c): carry the obligation at the `dom`-setting site in GoodK's post-condition
+```lean
+def GoodKc (HK) (senv) (p) (en) (h : Hs) : Prop :=
+  ∀ c, CallPreK HK senv p en c → ReadInv HK senv p (Call.inSt c) → ∀ v, h c = some (some v) →
+    ReadInv HK senv p (Call.outSt c v) ∧
+    ∀ (Δ' : SrcCtx) (env' : List MachVal) (d' : Nat), EnvDom (Call.inSt c) env' →
+      EnvKindOk HK p (Call.inSt c) Δ' env' d' → EnvKindOk HK p (Call.outSt c v) Δ' env' d'
+```
+Each arm must prove preservation for an ARBITRARY caller env `env'`; at FD:318/:420/:450/:585/E:3716 case (i) is
+excluded only by `EnvDom` (as in (a)), and case (ii) at FD:318/:585/E:3716 needs `DomCongr` again. Same new law/
+decision item as (a), with the burden moved into every arm and a universally quantified outer env. Unblocks the same
+arms. Not recommended.
+(Variant (b′), "quantify `.state b n` over every future `dom`": `∀ dom x t, bundleSlots dom … = some (x, t) → HK … x k`
+is `dom`-independent but makes every creation site prove `HK` of a tuple bundle at a single kind for ALL domain
+terms — not suppliable except vacuously; (b)'s `n = 1` states that vacuity directly. Rejected.)
+
+#### 3.7.5 LK3 control results (T2:454-520, build g3se-e134c63a log)
+| control | cases (T2 line) | result | note |
+|---|---|---|---|
+| P1 | literal-high concat :474, literal-low concat :475, slice :476 | PASS (all three) | rev2 §3.6's `sixArgShape? = some (r, none, none)` case does NOT exist: no arm of `sixArgShape?` returns two `none`s (E:1538-1548); P1 was run on the three one-`none` arms (T2:18-20) |
+| P2 | `.bits 1` binder :486, Bool binder :487, 1-bit slice :488, `Signal.pure true` :489 | PASS (all four) | Bool ≠ `.bits 1` on the checker |
+| N1 | broken checker (no `w == r`), literal-high :497, slice :498 | P1 FAILS on it (both) | the control detects a non-unique checker |
+| N2 | wrong-kind binder in the literal position :504 / slice-function position :505 | `accepted = false` (both) | rev2 §3.6 expected "accepted": WRONG — the recognisers (`canonicalConcatLit?`, `canonicalSliceF?`, E:1543-1547) force a literal / the slice lambda in that position, so a binder there is not recognised at all |
+Consequence: LK3's stop rule did not fire (`uniq` survives on the permissive arms for these cases); the N2 finding
+weakens §3.5's "operands under `none => true` are unchecked" only for these two positions (they cannot hold a
+binder); it supplies no `LetKindOk`. No `HK` adopted yet.
+
+#### 3.7.6 Recommendation
+Adopt (b): `EntryKindOk`/`EnvKindOkE`/`CallPreKE`/`GoodKE` + unconditional `GoodE` (`goodE_readF`), with
+`envKindOk_of_E`, `envKindOkE_ext`/`_lift`/`_cons`, `satK_bindOE`. It closes the STOP for G7, G9, G16 `next`, G19
+fully (LK1 side) and the second-call part of G17/G2/G4/G5/G6/G8/G11/G18/G20, adds no premise to CR, does not touch
+D1, and leaves G12/G20 as the one open loop-root row (now `n = 1 ∧ kinds[b] = k`). Sizes (est.): defs + LK0 lemmas
+80-150 l, `goodE_readF` 150-250 l, restating batch-2 arms 100-200 l.
 
 ## 4. VT / P5 / ENV / KD: consumed from gen5, not duplicated
 | SRC-ARGW need | exact Prop consumed | gen5 unit (owner issue) | what is still to request |
