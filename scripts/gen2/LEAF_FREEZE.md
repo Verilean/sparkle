@@ -1,4 +1,4 @@
-# M2-a2 LeafStmt: freeze rev1
+# M2-a2 LeafStmt: freeze rev2 (rev1 1ddb25c6 reviewed: §3 approved, R1/R2 fixed)
 
 Issue `sparkle-gen2-leaf`.
 - **Branch:** `par/gen2-spec`; base ac91f8e3.
@@ -49,8 +49,9 @@ The proof copies `machine_ships_wired` (ShipsW.lean:72-109) and `machine_ships` 
 ### Step 3: assembly
 `leaf_ships : LeafStmt' L`, from Step 1 and Step 2 on the trace above.
 
-## 3. Premise amendment (FOR REVIEW before use)
-The frozen `LeafStmt L DataOk` takes `DataOk` as a parameter. The proof needs a concrete `DataOk` and two more premises. Following the M2-a precedent (`MemParentStmt'`), the proposal is:
+## 3. Premise amendment (APPROVED 1ddb25c6; full type fixed in rev2)
+`LeafStmt'` is the REGISTER-leaf lemma. It does not discharge the old all-leaf `LeafStmt`: the slotless case stays a
+mandatory obligation (G-SLOTLESS in `sparkle-gen2-step`).
 
 ```
 def LeafDataOkB (p : Pkg ι dom) : Bool :=
@@ -60,34 +61,56 @@ def LeafDataOkB (p : Pkg ι dom) : Bool :=
 def LeafDataOk (p : Pkg ι dom) : Prop := LeafDataOkB p = true
 
 def LeafStmt' {mref cref} (L : Laws mref cref) : Prop :=
-  ∀ p mctx cctx w w1 raw b D,
+  ∀ (p : Pkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
+    (raw b : Sparkle.IR.AST.Module) (D : Design),
     LeafDataOk p → ExtInS p → p.d.shape.insts = [] → p.d.shape.layout.slots ≠ [] →
-    AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w → RunsTo … (raw, D) w1 → hpost →
-    MachineDefines … → MachineTaken L mctx cctx (dv w + 1) p.decl p.d.shape raw D →
+    AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w →
+    RunsTo (synthesizeCombinationalCore p.decl [] false) mctx mref cctx cref w (raw, D) w1 →
+    (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
+    MachineDefines mctx mref cctx cref p.decl p.d.shape →
+    MachineTaken L mctx cctx (dv w + 1) p.decl p.d.shape raw D →
     ∀ n, TopShips p n p.decl b raw D ∧ ChildShips p n b D
 ```
+
+**Diff against the frozen `LeafStmt L DataOk`** (Defs.lean:299). Everything else is identical, binder order included:
+1. the parameter `DataOk` is instantiated to `LeafDataOk` (decidable);
+2. the premise `ExtInS p` is inserted after `LeafDataOk p` (the same definition as in `MemParentStmt'`);
+3. the premise `p.d.shape.layout.slots ≠ []` is inserted after `p.d.shape.insts = []` (a case split; the slotless case is G-SLOTLESS).
 
 | added premise | kind | why it is needed | supplier / open gap |
 |---|---|---|---|
 | `LeafDataOk p` | D (decidable) | `htake`: with `insts = []`, `callsOk_nIn` + `data_hIlen` give `bsIn.drop kD = []`. Also `hSlen`, `houtTy` and `ok` | generator `decide` per declaration; generic coverage is G-DATA (M5) |
-| `ExtInS p` | semantic, as in `MemParentStmt'` | ChildShips only: `p.S` decodes `vals` directly, while the trace speaks about `extBS`/`extS`. TopShips does not need it | per declaration `rfl`/unfold (generator: "without instances the extension is the inputs themselves", MachineCommand.lean:2680); generic supply is the existing open gap "ExtInS generic supply" (M5 G3-GEN) |
-| `slots ≠ []` | case split, NOT a scope cut | for `slots = []`, `closeMachine` adds no clk/rst port (Machine.lean:107-109), so `seedIn b ins t st "rst" = st "rst"`. The trace's rst hypothesis then fails for an arbitrary `st0` | the `slots = []` case goes to **G-SLOTLESS** (already in `sparkle-gen2-step`); see §4 |
+| `ExtInS p` | semantic, as in `MemParentStmt'` | ChildShips only: `p.S` decodes `vals` directly, while the trace speaks about `extBS`/`extS`. TopShips does not need it | per declaration (generated `hextB`/`hext`); generic supply is the existing open gap "ExtInS generic supply" (M5 G3-GEN) |
+| `slots ≠ []` | case split, NOT a scope cut | the trace's rst hypothesis is about `seedIn b ins t st "rst"`; with `"rst"` not an input it reads `st "rst"` (§4) | the `slots = []` case is **G-SLOTLESS** (mandatory, `sparkle-gen2-step`) |
 
-## 4. Counterexample-type finding for G-SLOTLESS (recorded; FG unchanged)
-- **The finding.** `ChildShips` as defined is unsatisfiable for a slotless (comb) leaf. `SeqChildRun` needs `"clk"`/`"rst"` ∈ inputs, and a comb module has neither.
-- **What it does not affect.** FG and T1 conclude `TopShips` only, so FG is not narrowed. `TopShips` for a comb leaf is plausible: its body never reads `"rst"`, and the comb optimizer branch is covered by `checkedOptimize_sound`, `runModule_assigns` and `mergeDuplicates_sound`.
-- **What it blocks.** The child interface that a parent of a comb child consumes. That is G-SLOTLESS / G-ONEOUT work: a comb child interface, as the gate-route children (`GateRun`) in the old composition.
-- **What the M2-step freeze must decide.** It must propose a `ChildShips` amendment (a disjunction with a comb child run) or a separate comb consumer. Neither is done here.
-- **Why `slots = []` is not covered here.** This unit proves `LeafStmt'` for `slots ≠ []` only. The `slots = []` leaf is NOT dropped from FG; it is an obligation of G-SLOTLESS.
+## 4. Observation for G-SLOTLESS (read-only; NOT a kernel-proved counterexample; FG unchanged)
+- **The fact.** `SeqChildRunN` (MachineDepth.lean:64-69) contains the conjuncts `"clk" ∈ mc.inputs.map (·.name)` and `"rst" ∈ …`. So it is false for any module without them.
+- **What is NOT established.**
+  - For `slots = []`, `closeMachine` does not add clk/rst (Machine.lean:107-109). That alone does not show the generated module lacks those names. A name guarantee that the original `t.inputs` contains no `"clk"`/`"rst"` would also be needed, and it is not proved.
+  - `ChildShips` quantifies over extending designs `dsn` and over `i : ι`. It can therefore be vacuously true, for empty `ι` or when no such `dsn` exists. A claim that `ChildShips` itself is unsatisfiable would need a stated existence condition (some `i`, and some `dsn` containing `Dc` and `mc`, e.g. `dsn := ⟨mc :: Dc.modules, …⟩`).
+- **What is recorded.** The existing sequential child interface cannot be applied to a generated comb module with no clock or reset input.
+- **What M2-step has to decide** (recorded on `sparkle-gen2-step` by the reviewer):
+  - a comb child interface and consumer, or a `ChildShips` revision;
+  - compatibility with the existing sequential case;
+  - the connection to ShipsRes/CacheShips/ServedP/StepStmt/T1.
 
-## 5. Non-vacuity instance
-A test `Tests/Gen2/LeafInstance.lean`: one generated register leaf from the existing corpus tests. The candidate is a `.machine_*` leaf already used by `leaf_entry_ships` tests; the build picks one with `insts = []` and `slots ≠ []`. Its parts:
-- the `Pkg.gen` package with `kD = bsIn.length`;
-- `LeafDataOk` by `decide`;
-- `ExtInS` by unfold;
-- `leaf_ships L` applied, with `#print axioms`.
+  Proving slotless `TopShips` alone does not close parent use.
 
-As in M2-a, this is a conditional instance; it does not prove that a successful run exists.
+## 5. Non-vacuity instance (fixed)
+- **The leaf.** `Tests.Compiler.SharedLeafGenTest.leaf16`, from the existing generated corpus test (SharedLeafGenTest.lean:35). It is one 16-bit register `a` (init 0, `a <~ a + x`), one bits input `x`, two outputs `s`, `odd`, and no calls.
+- **Package.** `leaf16Pkg : Pkg Unit U := .gen leaf16Src`, with `ι = Unit`, `dom = fun _ => defaultDomain`, `decl := ``leaf16`, `d := leaf16.machineData` and `kD := leaf16.machineData.bsIn.length`.
+- **Fields:**
+  - `inits`/`body`/`obsR`/`ext`/`extB`/`src` are `leaf16.machine{Inits,Body,Result,Ext,ExtB,Source} defaultDomain`;
+  - `gen` is assembled from `leaf16.machine_ok`, `machine_body`, `machine_inits`, `machine_writes`, `machine_result`, `machine_source` and `machine_ext_causal`, in the `b_wrapQ_gen` pattern (QuadCallsTest.lean:297). It is restricted to `Unit` by `genFacts_restrict`.
+- **Data.** `LeafDataOk leaf16Pkg` by `decide`.
+- **ExtInS.** By unfolding `leaf16.machineExt`/`machineExtB`, in the `b_wrapQ_hextB` pattern (QuadCallsTest.lean:313). With no calls, the extension at `j < kD` is the input itself.
+- **Case.** `insts = []` and `slots ≠ []`, by `decide`/`rfl` on `leaf16.machineData`.
+- **Result.** `leaf16_ships`, which is `leaf_ships L` applied to these, with `#print axioms`.
+
+If a named generated theorem above does not exist for `leaf16`, the mechanical fallback is the same theorem from the generator's per-declaration output. A NAME change is recorded. If supplying any of these needs a new semantic premise, the work stops and goes back to review.
+
+This remains a conditional instance (run hypotheses universally quantified); it does not prove that a successful run exists.
 
 ## 6. Builds and acceptance
 - **Builds:** focused, issue-linked, exact-head: `kjob -N sparkle-dev run --issue sparkle-gen2-leaf -- kjob lake build sparkle_barrier sparkle_jit Tools.ShippingGen2Leaf Tests.Gen2.LeafInstance`.
