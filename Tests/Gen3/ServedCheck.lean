@@ -2,7 +2,7 @@ import Tools.ShippingGen2Served
 import Tests.Gen3.ServedExpectedType
 import Tests.Gen2.LeafInstance
 set_option autoImplicit false
--- NOT BUILT (written by reading at 96cbd548). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3sv-b5be62e6 (clean snapshot, exit 0, standard axioms); written by reading at 96cbd548. No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # G-SERVED checks (scripts/gen2/SERVED_FREEZE.md rev1 §4.2)
 

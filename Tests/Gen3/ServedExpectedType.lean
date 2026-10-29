@@ -1,6 +1,6 @@
 import Lean
 set_option autoImplicit false
--- NOT BUILT here. LOCAL COPY (scripts/gen2/SERVED_FREEZE.md rev1 §4.2) of `par/gen2-spec`
+-- Built here: g3sv-b5be62e6. LOCAL COPY (scripts/gen2/SERVED_FREEZE.md rev1 §4.2) of `par/gen2-spec`
 -- Tests/Gen3/ExpectedType.lean (read at e134c63a; built there as g3dsc-1b840215). The text below the namespace
 -- line is identical to the source except the namespace name (`Tests.Gen3.ServedExpectedType`, so that both files
 -- can be imported together after integration). At integration this copy is deleted and the check file imports

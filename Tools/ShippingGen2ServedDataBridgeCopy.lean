@@ -1,7 +1,7 @@
 import Tools.ShippingGen2Pkg      -- Tools.ShippingGen2.Pkg
 import Tools.ShippingChildInv     -- notag_at
 set_option autoImplicit false
--- NOT BUILT (written by reading at 96cbd548). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3sv-b5be62e6 (clean snapshot, exit 0, standard axioms); written by reading at 96cbd548. No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # LOCAL COPY (scripts/gen2/SERVED_FREEZE.md rev1 D2) of 4 declarations of `par/gen2-spec`
 Tools/ShippingGen2DataBridge.lean

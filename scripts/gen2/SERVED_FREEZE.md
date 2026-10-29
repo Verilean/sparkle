@@ -1,4 +1,4 @@
-# G-SERVED / G-START freeze rev1: `ServedShips0Stmt` producer (FOR REVIEW; F1 + conditional F2 written, NOT built)
+# G-SERVED / G-START freeze rev1: `ServedShips0Stmt` producer (F1 + conditional F2 built clean in g3sv-b5be62e6 and accepted in scope at b5be62e6)
 
 ## Changelog
 - **rev1** (review of rev0 96cbd548, changes_requested). Decisions recorded:
@@ -273,8 +273,7 @@ The row is used through local copies of `noMemRowS`/`OneOutNoMemRow`/`hord_of_ro
 - S0: rev1 reviewed.
 - S1: F1 (this revision).
 - S2: F2 (this revision, conditional).
-- S3: `Tests/Gen3/ServedCheck.lean`, lakefile entries (listed in §6; the lakefile is NOT edited by the coder of this
-  revision), and `SERVED_RESULT.md` after the build.
+- S3: `Tests/Gen3/ServedCheck.lean`, lakefile entries (added at b5be62e6), and `SERVED_RESULT.md` after the build.
 
 ### 4.2 Controls (`Tests/Gen3/ServedCheck.lean`)
 - **C1 expected types.** Mechanical binder-by-binder comparison (`checkExpected`, local copy of `[g2s]`
@@ -355,7 +354,7 @@ At the combined SHA (this branch + `sparkle-gen3-post` + `[g2s]` Pkg.comb/DataBr
   - G-POST assembly (P3, DataRows, U1/U2);
   - `StepStmt`/M2, G-LIFT, route-indexed `T1Hyp`, FG.
 - `RealChildA` is history, not freshness or runtime fit. No T1/M3/G-SERVED completion is claimed.
-- lakefile entries needed (NOT added here):
+- lakefile entries (added at b5be62e6, built in g3sv-b5be62e6):
   - `Tools.ShippingGen2ServedDataBridgeCopy`
   - `Tools.ShippingGen2ServedRun`
   - `Tools.ShippingGen2Served`

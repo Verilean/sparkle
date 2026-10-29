@@ -2,7 +2,7 @@ import Tools.ShippingGen2ServedRun
 import Tools.ShippingGen2ServedDataBridgeCopy
 import Tools.ShippingGen2Pkg
 set_option autoImplicit false
--- NOT BUILT (written by reading at 96cbd548; scripts/gen2/SERVED_FREEZE.md rev1 §1.3-§1.6). Every proof is a
+-- Built: g3sv-b5be62e6 (clean snapshot, exit 0, standard axioms) (written by reading at 96cbd548; scripts/gen2/SERVED_FREEZE.md rev1 §1.3-§1.6). Every proof is a
 -- substitution copy of a BUILT source, named at each declaration. No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # G-SERVED F2: the served trace at `ServedP (ShipsRes L P)`; producer CONDITIONAL on `hrow`
