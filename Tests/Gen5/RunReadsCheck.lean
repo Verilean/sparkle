@@ -114,7 +114,9 @@ structure MutRunReadsAtEnvR (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Me
       (structEnv envR)) (structEnv envR') = some shape
 
 
-/-- Constructor telescope comparison of two structures on the same parameter fvars. -/
+/-- Constructor telescope comparison of two structures on the same parameter fvars. Field types are compared at
+REDUCIBLE transparency (stricter than default; default `isDefEq` on the negative unfolds `translateExprToWire` and
+exceeds the recursion limit, a runtime exception that `try`/`catch` does not intercept, g5rr2-5dc225d9). -/
 def structPair (a b : Name) : MetaM Nat := do
   let env ← getEnv
   let some (.inductInfo i1) := env.find? a | throwError "no {a}"
@@ -132,7 +134,7 @@ def structPair (a b : Name) : MetaM Nat := do
       | .forallE n ty bd bi =>
         unless n == ld.userName do throwError "RR STRUCT FAILED: field {j}: {n} ≠ {ld.userName}"
         unless bi == ld.binderInfo do throwError "RR STRUCT FAILED: binderInfo of {n}"
-        unless ← isDefEq ty ld.type do throwError "RR STRUCT FAILED: type of {n}"
+        unless ← withReducible (isDefEq ty ld.type) do throwError "RR STRUCT FAILED: type of {n}"
         t2 := bd.instantiate1 x
         j := j + 1
       | _ => throwError "RR STRUCT FAILED: {b}.mk has fewer fields (at {ld.userName})"
