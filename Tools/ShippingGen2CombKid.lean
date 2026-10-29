@@ -13,6 +13,10 @@ open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.IR.RegDedup (isAssign)
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingMachineAuto Tools.ShippingMachineSource
+open Tools.ShippingHierState Tools.ShippingHierStateG Tools.ShippingMachineDepth Tools.ShippingMachineLinked
+open Tools.ShippingMachineChild (InRange)
+open Tools.ShippingSeqOptSoundness (seedIn)
+open Tools.ShippingMachineShipsComb (regNexts_assigns memNexts_assigns applyNexts_nil)
 
 variable {ι : Type} {dom : ι → DomainConfig}
 
@@ -79,5 +83,160 @@ theorem Pkg.src_get (q : Pkg ι dom) : ∀ (i : ι) (bools : Nat → Signal (dom
   have h1 := ok_outs_length q.d q.ok
   have h2 := q.src_length i bools bits
   exact ⟨_, List.getElem?_eq_getElem (by omega)⟩
+
+/-! ## S4-b / S4-c: a flat combinational child run, per cycle -/
+
+/-- A depth-`n` state with the given flat state, zero memories and every kid at the zero state. -/
+def kstAt : (n : Nat) → (String → Nat) → KT n
+  | 0, st => show KidState from { st := st, mems := fun _ _ => 0 }
+  | n + 1, st => show KState (KT n) from { st := st, mems := fun _ _ => 0, kids := fun _ => kstAt n (fun _ => 0) }
+
+theorem stOf_kstAt : ∀ (n : Nat) (st : String → Nat), stOf n (kstAt n st) = st
+  | 0, _ => rfl
+  | _ + 1, _ => rfl
+
+theorem memsOf_kstAt : ∀ (n : Nat) (st : String → Nat), memsOf n (kstAt n st) = fun _ _ => 0
+  | 0, _ => rfl
+  | _ + 1, _ => rfl
+
+theorem instFree_of_assigns {body : List Stmt} (hA : body.all isAssign = true) : instFree body := by
+  intro st hst
+  have := List.all_eq_true.mp hA st hst
+  cases st <;> simp_all [isAssign, Sparkle.IR.Machine.isInst]
+
+/-- An assignment-only module is at reset in every `kstAt` state. -/
+theorem resetN_kstAt (dsn : Design) {mc : Module} (hA : mc.body.all isAssign = true) :
+    ∀ (n : Nat) (st : String → Nat), ResetN dsn n mc (kstAt n st) := by
+  have hno : ∀ s ∈ mc.body, isAssign s = true := fun s hs => List.all_eq_true.mp hA s hs
+  intro n st
+  unfold ResetN
+  refine ⟨fun r c rs inp init hm => absurd (hno _ hm) (by simp [isAssign]),
+    fun nm i => by rw [memsOf_kstAt],
+    fun nm aw dw c wa wd we ra rd cr ew er hm => absurd (hno _ hm) (by simp [isAssign]), ?_⟩
+  cases n with
+  | zero => trivial
+  | succ k => exact fun mn iname conns mc' hm => absurd (hno _ hm) (by simp [isAssign])
+
+/-- Every cycle of an assignment-only run is one evaluation of the body on that cycle's seed. -/
+theorem runModule_assigns_get {we : WEnv} {body : List Stmt} {seed : Nat → (String → Nat) → Env}
+    (hA : body.all isAssign = true) :
+    ∀ (T : Nat) (st : String → Nat) (mems : MEnv) (envs : List Env),
+      runModule we body seed T st mems = some envs →
+      envs.length = T ∧ ∀ j (hj : j < envs.length),
+        evalAssigns we mems body (seed (T - 1 - j) st) = some (envs[j]'hj)
+  | 0, _, _, envs, h => by
+    simp only [runModule, Option.some.injEq] at h
+    subst h
+    exact ⟨rfl, fun j hj => by simp at hj⟩
+  | k + 1, st, mems, envs, h => by
+    simp only [runModule, stepModule] at h
+    cases he : evalAssigns we mems body (seed k st) with
+    | none => simp [he] at h
+    | some e =>
+      simp only [he, regNexts_assigns hA, memNexts_assigns hA, Option.bind_eq_bind, Option.bind_some,
+        applyNexts_nil] at h
+      cases hr : runModule we body seed k st mems with
+      | none => simp [hr] at h
+      | some rest =>
+        simp only [hr, Option.bind_some, Option.some.injEq] at h
+        subst h
+        obtain ⟨hl, hg⟩ := runModule_assigns_get hA k st mems rest hr
+        refine ⟨by simp [hl], fun j hj => ?_⟩
+        cases j with
+        | zero => simpa using he
+        | succ j =>
+          have := hg j (by simpa using hj)
+          rw [show k + 1 - 1 - (j + 1) = k - 1 - j by omega]
+          simpa using this
+
+/-- Looking up each name of a distinct list in its zip with values gives the values. -/
+theorem map_lookup_zip : ∀ (xs : List String) (vs : List Nat), xs.Nodup → xs.length = vs.length →
+    xs.map (fun x => ((xs.zip vs).lookup x).getD 0) = vs
+  | [], [], _, _ => rfl
+  | [], _ :: _, _, h => by cases h
+  | _ :: _, [], _, h => by cases h
+  | x :: xs, v :: vs, hnd, hl => by
+    rw [List.nodup_cons] at hnd
+    simp only [List.map_cons, List.zip_cons_cons]
+    congr 1
+    · simp [List.lookup]
+    · conv => rhs; rw [← map_lookup_zip xs vs hnd.2 (by simpa using hl)]
+      apply List.map_congr_left
+      intro y hy
+      have hne : y ≠ x := fun h => hnd.1 (h ▸ hy)
+      simp [List.lookup, hne]
+
+theorem seedIn_self (mc : Module) (env : Env) : seedIn mc (fun _ => env) 0 env = env := by
+  funext x; simp only [seedIn]; split <;> rfl
+
+/-- **S4-b** (frozen type, STEP_IFACE_FREEZE.md rev3 §4 S4, with R1's `hS`). -/
+theorem childFn_of_combRun {dsn : Design} {n : Nat} {mc : Module}
+    {bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)} {o : OutField} {outP : Port}
+    {S : (Nat → List Nat) → List (Nat → Nat)}
+    (h : CombChildRunN (childMap dsn.modules) dsn n mc bsC [o] S)
+    (hA : mc.body.all isAssign = true) (hout : mc.outputs = [outP])
+    (hS : ∀ v, InRange v (bsC.filter fun b => b.2 != .domain) → ∃ f, (S (fun _ => v))[0]? = some f) :
+    Tools.ShippingMachineCompose.ChildFn mc (fun v => InRange v (bsC.filter fun b => b.2 != .domain))
+      (fun v => ((S (fun _ => v))[0]?.map (· 0)).getD 0) := by
+  obtain ⟨houts, _, _, _, _, _, hrun⟩ := h
+  refine ⟨outP, hout, ?_⟩
+  intro mems env _ hP
+  let v := (Tools.ShippingMachineCompose.argPorts mc).map fun p => env p.name
+  obtain ⟨f, hf⟩ := hS v hP
+  obtain ⟨envs, hrunE, hlen, hobs⟩ := hrun 1 (fun _ => env) (kstAt n env) (fun _ => v)
+    (fun _ _ => hP) (fun _ _ => rfl) (resetN_kstAt dsn hA n env)
+  rw [RunOn_instFree (childMap dsn.modules) mc (instFree_of_assigns hA), stOf_kstAt, memsOf_kstAt] at hrunE
+  obtain ⟨hl, hg⟩ := runModule_assigns_get hA 1 env _ envs hrunE
+  have h0 : 0 < envs.length := by omega
+  have he := hg 0 h0
+  rw [show 1 - 1 - 0 = 0 from rfl, seedIn_self, evalAssigns_mems_irrel hA _ mems] at he
+  refine ⟨envs[0], he, ?_⟩
+  have hon : outP.name = o.name := by
+    rw [hout] at houts
+    simp only [List.map_cons, List.map_nil, List.cons.injEq] at houts
+    rw [houts.1]
+  rw [hon, hobs 0 h0 0 o f rfl hf]
+  show f 0 = ((S (fun _ => v))[0]?.map (· 0)).getD 0
+  rw [hf]; rfl
+
+/-- **S4-c** (frozen type): the source stream of a flat combinational child is pointwise in its argument
+stream. -/
+theorem combS_pointwise {dsn : Design} {n : Nat} {mc : Module}
+    {bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)} {outsC : List OutField}
+    {S : (Nat → List Nat) → List (Nat → Nat)}
+    (h : CombChildRunN (childMap dsn.modules) dsn n mc bsC outsC S) (hA : mc.body.all isAssign = true) :
+    ∀ (vals : Nat → List Nat) (τ : Nat) (k : Nat) (o : OutField) (f g : Nat → Nat),
+      (∀ τ', τ' ≤ τ → InRange (vals τ') (bsC.filter fun b => b.2 != .domain)) →
+      outsC[k]? = some o → (S vals)[k]? = some f → (S (fun _ => vals τ))[k]? = some g → f τ = g 0 := by
+  obtain ⟨_, hnd, _, _, _, hlenP, hrun⟩ := h
+  intro vals τ k o f g hrange ho hf hg
+  let names := (Tools.ShippingMachineCompose.argPorts mc).map (·.name)
+  have hndN : names.Nodup :=
+    List.Nodup.sublist (List.Sublist.map _ (List.filter_sublist)) hnd
+  let insA : Nat → String → Nat := fun t x => ((names.zip (vals (τ + 1 - 1 - t))).lookup x).getD 0
+  have hportsA : ∀ t, t < τ + 1 →
+      (Tools.ShippingMachineCompose.argPorts mc).map (fun p => insA t p.name) = vals (τ + 1 - 1 - t) := by
+    intro t ht
+    have hlv : names.length = (vals (τ + 1 - 1 - t)).length := by
+      have := (hrange (τ + 1 - 1 - t) (by omega)).length_eq
+      simp only [names, List.length_map]; omega
+    have := map_lookup_zip names (vals (τ + 1 - 1 - t)) hndN hlv
+    simpa only [names, List.map_map, Function.comp_def] using this
+  have hreset := resetN_kstAt dsn hA n (fun _ => 0)
+  obtain ⟨envsA, hrunA, hlenA, hobsA⟩ := hrun (τ + 1) insA (kstAt n (fun _ => 0)) vals
+    (fun τ' h' => hrange τ' (by omega)) hportsA hreset
+  obtain ⟨envsB, hrunB, hlenB, hobsB⟩ := hrun 1 (fun _ => insA 0) (kstAt n (fun _ => 0)) (fun _ => vals τ)
+    (fun _ _ => hrange τ (Nat.le_refl _)) (fun t ht => by
+      have := hportsA 0 (by omega)
+      rw [show τ + 1 - 1 - 0 = τ by omega] at this
+      exact this) hreset
+  rw [RunOn_instFree (childMap dsn.modules) mc (instFree_of_assigns hA), stOf_kstAt, memsOf_kstAt] at hrunA hrunB
+  obtain ⟨_, hgA⟩ := runModule_assigns_get hA _ _ _ envsA hrunA
+  obtain ⟨_, hgB⟩ := runModule_assigns_get hA _ _ _ envsB hrunB
+  have hA' := hgA τ (by omega)
+  have hB' := hgB 0 (by omega)
+  rw [show τ + 1 - 1 - τ = 0 by omega] at hA'
+  have heq : envsA[τ]'(by omega) = envsB[0]'(by omega) := Option.some.inj (hA'.symm.trans hB')
+  rw [← hobsA τ (by omega) k o f ho hf, ← hobsB 0 (by omega) k o g ho hg, heq]
 
 end Tools.ShippingGen2
