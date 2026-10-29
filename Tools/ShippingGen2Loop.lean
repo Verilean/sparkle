@@ -213,8 +213,9 @@ def SrcPkgL.lsrc (p : SrcPkgL ι dom) :=
 theorem genTraceL (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
     (p : SrcPkgL ι dom) {D₀ : Nat} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
     (ran : MachineRunJQC O mctx cctx (D₀ + 1) p.decl p.d.shape m design) :
-    MachineTraceLBX (ServedRealA O p.decl p.d.shape m design) p.decl p.d m design dom p.src p.extS p.extBS p.lsrc :=
-  @machine_traceL_of_loop_causalRA_ranA mctx mref cctx cref p.decl p.d ι dom p.α p.inh p.ρ p.σ p.inits p.f p.res p.obsR
+    MachineTraceLBX (ServedRealA O p.decl p.d.shape m design) p.decl p.d m design dom p.src p.extS p.extBS p.lsrc := by
+  letI := p.inh
+  exact @machine_traceL_of_loop_causalRA_ranA mctx mref cctx cref p.decl p.d ι dom p.α p.inh p.ρ p.σ p.inits p.f p.res p.obsR
     p.ext p.extB p.src p.facts.ok p.facts.hbody p.facts.hinit p.facts.h0 p.facts.writes p.facts.hres p.facts.hsrc
     p.facts.hcausal O (bodyStepC_of_tele O T) hA (D₀ + 1) (htr_of_tele O hA T D₀) m design ran
 
