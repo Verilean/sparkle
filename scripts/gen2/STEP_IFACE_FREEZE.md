@@ -9,7 +9,7 @@ All file:line references are at 5b93aa2f, from a read-only survey that I spot-ch
 
 ## 1. The obstruction
 - **The current child interface is sequential only.** `ChildShips q n mc Dc` (Defs.lean:61-64) is `SeqChildRunN … (q.d.bsIn.take q.kD) q.d.shape.layout.outs (q.S i)` for every extending `dsn` and every `i`. `SeqChildRunN` (MachineDepth.lean:64-79) requires `"clk" ∈ inputs` and `"rst" ∈ inputs`.
-- **A combinational module has neither port.** A slotless machine module gets no clk/rst port from `closeMachine` (Machine.lean:107-109). Its other ports are allocated names, and `nAlloc_clk`/`nAlloc_rst` (FirstGateChild.lean:517, 523) show no allocated name is `"clk"`/`"rst"`. This closes the name question left open in LEAF_FREEZE §4: the module's inputs contain neither name, once this is connected through `MachineWired`'s `Allocated` conjunct (MachineEntry.lean:660).
+- **A combinational module has neither port.** A slotless machine module gets no clk/rst port from `closeMachine` (Machine.lean:107-109). Its other ports are allocated names, and `nAlloc_clk`/`nAlloc_rst` (FirstGateChild.lean:517, 523) show no allocated name is `"clk"`/`"rst"`. This closes the name question left open in LEAF_FREEZE §4: the module's inputs contain neither name, once this is connected through `MachineWired`'s `Allocated` conjunct (MachineEntry.lean:661).
 - **The consequence.** No `ChildShips` value exists for a combinational child at an extending design and an index. So no parent of a combinational child can obtain its child facts from `ShipsRes`.
 - **No existing A-boundary consumer has a combinational branch at depth n:**
   - group parents: `calls_hchildRN` (CallsLinkedTNR.lean:46), `machine_linkedT_callsRNA` (DepthRunRA.lean:142) and the gen2 copy `machine_linkedT_callsServed` (Gen2Consumer) all take `MemFacts ∨ SeqFactsRN`;
@@ -114,8 +114,8 @@ Pieces: `evalAssigns_local` (HierOptRunH:36), `regNexts_assigns`/`applyNexts_nil
 
   Route: `traceL_of_LB` (Gen2Leaf.lean), the trace at a seed with rst = 0, then S1 (rst ∉ inputs), the merge, `RunOn_instFree`.
 - **Its input facts, from `MachineWired`:**
-  - `"clk"`/`"rst"` ∉ inputs, from `Allocated` (MachineEntry.lean:660) + `nAlloc_clk`/`nAlloc_rst`;
-  - assign-only, from the `insts = [] → slots = [] → body.all isAssign` conjunct (MachineEntry.lean:676);
+  - `"clk"`/`"rst"` ∉ inputs, from `Allocated` (MachineEntry.lean:661) + `nAlloc_clk`/`nAlloc_rst`;
+  - assign-only, from the `insts = [] → slots = [] → body.all isAssign` conjunct (MachineEntry.lean:678);
   - `readsClosedB` over the inputs: to be derived from the generated body; if it is not derivable from `MachineWired`, stop and report.
 - The slotless leaf `TopShips` via `seedR`-style seeding + S1 + `runModule_assigns` + `mergeDuplicates_sound` + `checkedOptimize_sound`.
 
