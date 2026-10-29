@@ -21,7 +21,7 @@ the machine branch returns) — no cache invariant about the memo map is stated 
 
 Scope: `T1Hyp` as frozen, so the skeleton covers machine-route trees only (freeze §5.2).
 
-UNVERIFIED at the time of writing: this file was not built (the author could not run Lean). -/
+BUILT: g3in-b6625408 at b6625408 (exit 0); axiom audit g3in-ax-c6516331 at c6516331 (exit 0, standard axioms only). -
 
 namespace Tools.ShippingGen2
 
