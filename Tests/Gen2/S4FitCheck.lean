@@ -3,7 +3,7 @@ set_option autoImplicit false
 
 /-! # S4-BD fit chain: axiom audit and projection checks (scripts/gen2/S4_FIT_FREEZE.md rev2, approved at bbca065d)
 
-UNVERIFIED: written, not built (no lakefile `lean_lib` entry yet).
+BUILT: g2fc-c6951eb8 at c6951eb8 (exit 0; standard axioms).
 
 * Axiom audit of the basics in Tools/ShippingGen2Fit.lean (`KSBoundedRun` is a `def`, so its consumers are audited) and of
   every new declaration of Tools/ShippingGen2FitChain.lean. Expected: no `sorryAx`, no extra axiom (only the standard

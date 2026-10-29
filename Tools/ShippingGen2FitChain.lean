@@ -6,7 +6,7 @@ set_option autoImplicit false
 /-! # S4-BD chain: the run-local fit along the one-output route (scripts/gen2/S4_FIT_FREEZE.md rev2, approved at
 bbca065d, §2-§4)
 
-UNVERIFIED: written, not built (no lakefile `lean_lib` entry yet).
+BUILT: g2fc-c6951eb8 at c6951eb8 (exit 0; standard axioms).
 
 Every type below is the frozen text of the freeze. The file has four blocks:
 * Block 0 (`namespace Tools.ShippingGen2Fit`, the ambient of Tools/ShippingGen2Fit.lean, freeze §1.6):

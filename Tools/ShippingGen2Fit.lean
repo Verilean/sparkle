@@ -4,7 +4,7 @@ set_option autoImplicit false
 
 /-! # S4-BD basics: the run-local fit (scripts/gen2/S4_FIT_FREEZE.md rev2 §1, §2 c4)
 
-UNVERIFIED: written, not built (no lakefile `lean_lib` entry yet).
+BUILT: g2fit-bbca065d at bbca065d and g2fc-c6951eb8 at c6951eb8 (exit 0; standard axioms).
 
 * `KSBoundedRun`: on ONE run `envs`, every wire an instance's output port drives fits that port's width.
   No child invariant, no quantification over environments (contrast `KSBoundedIn`, HierOptRun.lean:658).
