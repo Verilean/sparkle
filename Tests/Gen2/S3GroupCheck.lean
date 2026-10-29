@@ -1,6 +1,7 @@
 import Tools.ShippingGen2GroupServed
 set_option autoImplicit false
--- WRITTEN, NOT BUILT. No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g2s3b-2a22b7ec (exit 0); closure audit revised after review (full reachable closure, explicit bodies,
+-- direct and two-helper negative controls). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # S3 checks (scripts/gen2/S3_GROUP_FREEZE.md rev1 §6-§7)
 
@@ -30,6 +31,23 @@ set_option autoImplicit false
    at list index 0 is 7. **N1**: no module with a `"clk"` input is `CombChildRunN`; `seqPC` excludes `combPC`.
    **C-1/B5**: `group_childShips` from `StepStmt`'s binders (unchanged `hdec`) plus the residues.
 4. `#print axioms` of every new declaration. -/
+
+namespace Tests.Gen2.S3ReachHelperA
+/-- fixture: uses the `hseq` producer directly -/
+theorem helperA : True := (fun _ => trivial) @Tools.ShippingGen2.seqFactsRN_of_callDec
+end Tests.Gen2.S3ReachHelperA
+namespace Tests.Gen2.S3ReachHelperB
+/-- fixture: a second helper, in another namespace, through `helperA` -/
+theorem helperB : True := Tests.Gen2.S3ReachHelperA.helperA
+end Tests.Gen2.S3ReachHelperB
+namespace Tests.Gen2.S3ReachFixture
+/-- closure-detector control: direct use -/
+theorem badDirect : True := (fun _ => trivial) @Tools.ShippingGen2.seqFactsRN_of_callDec
+/-- closure-detector control: use through two helpers in other namespaces -/
+theorem badIndirect : True := Tests.Gen2.S3ReachHelperB.helperB
+/-- closure-detector control: unrelated (must NOT be flagged) -/
+theorem goodUnrelated : True := trivial
+end Tests.Gen2.S3ReachFixture
 
 namespace Tests.Gen2.S3GroupCheck
 open Lean Meta Elab Command
@@ -194,17 +212,53 @@ def s3HseqBinders (c : Name) : MetaM (List Name) := do
         r := r ++ [d.userName.eraseMacroScopes]
     return r
 
-/-- `target` is referenced by `c`'s type or value, or by an auxiliary constant under `root`, transitively. -/
-partial def s3Mentions (target root c : Name) (seen : IO.Ref NameSet) : MetaM Bool := do
-  if (← seen.get).contains c then return false
-  seen.modify (·.insert c)
-  let some ci := (← getEnv).find? c | return false
-  let used := ci.type.getUsedConstants ++ (ci.value?.map (·.getUsedConstants)).getD #[]
-  if used.contains target then return true
-  for u in used do
-    if root.isPrefixOf u && u != c then
-      if (← s3Mentions target root u seen) then return true
-  return false
+/-- The body of a constant, read EXPLICITLY per kind (C4KidTest:132-134: `value?` is not trusted for theorems here):
+theorem / definition / opaque value; `none` for axioms, inductives, constructors, recursors, quotients. -/
+def s3Body? : ConstantInfo → Option Expr
+  | .thmInfo t => some t.value
+  | .defnInfo d => some d.value
+  | .opaqueInfo o => some o.value
+  | _ => none
+
+/-- Result of the reachable-closure search from one root. -/
+structure S3Reach where
+  /-- a path root → … → target, if `target` is reached -/
+  hit : Option (List Name) := none
+  /-- constants visited -/
+  visited : Nat := 0
+  /-- reached constants without a body (axioms / inductives / ctors / recursors / quot): types followed, no body -/
+  noBody : Nat := 0
+  /-- reached `opaque` constants (incl. `partial` wrappers): their stored value is followed, but an `implemented_by`
+  / `_unsafe_rec` implementation is not part of the kernel term and is not followed -/
+  opaques : Array Name := #[]
+  deriving Inhabited
+
+/-- Breadth-first search of the FULL dependency closure of `root` (type and explicit body of every reached constant,
+in every namespace), for `target`. Throws if the visit cap is exceeded (then non-reference is NOT established). -/
+def s3Reach (target root : Name) (cap : Nat := 3000000) : MetaM S3Reach := do
+  let env ← getEnv
+  let mut out : S3Reach := {}
+  let mut seen : NameSet := ({} : NameSet).insert root
+  let mut queue : Array (Name × List Name) := #[(root, [root])]
+  let mut i := 0
+  while i < queue.size do
+    let (c, path) := queue[i]!
+    i := i + 1
+    out := { out with visited := out.visited + 1 }
+    if out.visited > cap then
+      throwError "S3 AUDIT INCOMPLETE at {root}: more than {cap} constants; non-reference NOT established"
+    let some ci := env.find? c | continue
+    let body := s3Body? ci
+    if body.isNone then out := { out with noBody := out.noBody + 1 }
+    if ci matches .opaqueInfo _ then out := { out with opaques := out.opaques.push c }
+    let used := ci.type.getUsedConstants ++ (body.map (·.getUsedConstants)).getD #[]
+    for u in used do
+      if u == target then
+        return { out with hit := some (path ++ [u]) }
+      unless seen.contains u do
+        seen := seen.insert u
+        queue := queue.push (u, path ++ [u])
+  return out
 
 /-- The number of binders of `c`'s type whose type is an application of `head`. -/
 def s3CountBinders (c head : Name) : MetaM Nat := do
@@ -224,11 +278,24 @@ run_cmd liftTermElabM do
   for c in s3New do
     let r ← s3HseqBinders c
     unless r.isEmpty do throwError "S3 AUDIT FAILED {c}: hseq-shaped binders {r}"
-  -- (b) no reference to the `hseq` producer
+  -- (b) no reference to the `hseq` producer: full reachable closure (every namespace), explicit bodies.
+  -- Detector controls with the SAME search: a direct use and a use through two helpers in other namespaces are
+  -- found; an unrelated theorem is not.
+  let tgt := ``Tools.ShippingGen2.seqFactsRN_of_callDec
+  let r ← s3Reach tgt ``Tests.Gen2.S3ReachFixture.badDirect
+  unless r.hit.isSome do throwError "S3 AUDIT FAILED: the closure detector misses a direct use (badDirect)"
+  logInfo m!"S3 REACH CONTROL badDirect: found via {r.hit.getD []}"
+  let r ← s3Reach tgt ``Tests.Gen2.S3ReachFixture.badIndirect
+  unless r.hit.isSome do throwError "S3 AUDIT FAILED: the closure detector misses a use through two helpers (badIndirect)"
+  logInfo m!"S3 REACH CONTROL badIndirect: found via {r.hit.getD []}"
+  let r ← s3Reach tgt ``Tests.Gen2.S3ReachFixture.goodUnrelated
+  if r.hit.isSome then throwError "S3 AUDIT FAILED: the closure detector flags an unrelated theorem (goodUnrelated)"
+  logInfo m!"S3 REACH CONTROL goodUnrelated: not found (visited {r.visited})"
   for c in s3New do
-    let seen ← IO.mkRef ({} : NameSet)
-    if (← s3Mentions ``Tools.ShippingGen2.seqFactsRN_of_callDec c c seen) then
-      throwError "S3 AUDIT FAILED {c}: references seqFactsRN_of_callDec"
+    let r ← s3Reach tgt c
+    if let some p := r.hit then
+      throwError "S3 AUDIT FAILED {c}: references seqFactsRN_of_callDec via {p}"
+    logInfo m!"S3 REACH {c}: seqFactsRN_of_callDec not in the closure (visited {r.visited}, no-body {r.noBody}, opaque {r.opaques.size}: implementations of opaque/partial constants are not kernel terms and are not followed)"
   -- (c) B1
   let ns ← s3BinderNames ``Tools.ShippingGen2.ordFactsRN_of_callDec
   if ns.contains `hseq then throwError "S3 AUDIT FAILED: ordFactsRN_of_callDec has a binder hseq"

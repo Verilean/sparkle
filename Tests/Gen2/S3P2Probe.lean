@@ -1,6 +1,6 @@
 import Sparkle
 set_option autoImplicit false
--- WRITTEN, NOT BUILT. A PROBE (logs only; it asserts nothing about the result and is an error in no case).
+-- Built: g2s3p2b-2b79ba09 exit 0 (both parents POSITIVE). A PROBE (logs only; it asserts nothing about the result and is an error in no case).
 
 /-! # S3 control P2 (scripts/gen2/S3_GROUP_FREEZE.md rev1 §6): a real group parent with a combinational child?
 

@@ -1,7 +1,7 @@
 import Tools.ShippingGen2GroupComb
 import Tools.ShippingGen2Connect
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (S3 stage B, scripts/gen2/S3_GROUP_FREEZE.md rev1 §4).
+-- Built: g2s3b-2a22b7ec exit 0 (S3 stage B, scripts/gen2/S3_GROUP_FREEZE.md rev1 §4).
 
 /-! # S3 stage B: the served consumer, `ComposedNW` and the parent's `ChildShips` for group parents
 (scripts/gen2/S3_GROUP_FREEZE.md rev1 §4, approved D1(a)-D5)

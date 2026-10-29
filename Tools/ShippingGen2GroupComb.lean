@@ -2,7 +2,7 @@ import Tools.ShippingGen2OneOut
 import Tools.ShippingMachineCallsLinkedTNR
 import Tools.ShippingInstStmtG
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (S3 stage A, scripts/gen2/S3_GROUP_FREEZE.md rev1 §3).
+-- Built: g2s3b-2a22b7ec exit 0 (S3 stage A, scripts/gen2/S3_GROUP_FREEZE.md rev1 §3).
 
 /-! # S3 stage A: the general combinational child of a group parent (`instFields ≠ []`, `closeInstsG`)
 (scripts/gen2/S3_GROUP_FREEZE.md rev1 §3, approved D1(a)-D5)
