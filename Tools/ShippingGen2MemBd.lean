@@ -13,7 +13,8 @@ set_option autoImplicit false
 * `resetNk_memInvN`: `ResetNk n` implies it (`ResetN`'s third conjunct: the read latch is 0).
 * `memModule_instFree`, `kidsMem_child`: named helpers. -/
 namespace Tools.ShippingGen2
-open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
+open Lean hiding Module Expr
+open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.IR.AST (Module)
 open Tools.ShippingHierOpen Tools.ShippingHierState Tools.ShippingHierStateG
 open Tools.ShippingHierOptRun
@@ -58,7 +59,7 @@ theorem memKSn_boundedIn (ms : List Module) (body : List Stmt) (hok : kidsMem (c
   cases n with
   | zero =>
     have h := hflat s cres s' (hinv ⟨cb, aw, dw, hch⟩) hk
-    exact ⟨h.1, fun _ => h.2⟩
+    exact ⟨h.1, by unfold memInvN; intro _; exact h.2⟩
   | succ n =>
     have hf : instFree child.body := hch ▸ memModule_instFree cb aw dw
     have hk' := hk
@@ -75,11 +76,13 @@ theorem memKSn_boundedIn (ms : List Module) (body : List Stmt) (hok : kidsMem (c
           some (r.1, ⟨applyNexts s.st r.2.1, r.2.2⟩) := by
         simp only [flatKS, hst, Option.map_some]
       have h := hflat ⟨s.st, s.mems⟩ _ _ (hinv ⟨cb, aw, dw, hch⟩) hkf
-      exact ⟨h.1, fun _ => h.2⟩
+      exact ⟨h.1, by unfold memInvN; intro _; exact h.2⟩
 
 /-- **C3**: the reset state satisfies the memory-kid invariant at every height. -/
 theorem resetNk_memInvN (n : Nat) : ResetImpliesInv (ResetNk n) (memInvN n) := by
-  intro m D kids hR mn iname conns hmem child cwe hc hg
+  intro m D kids hR mn iname conns hmem child cwe hc
+  unfold memInvN
+  intro hg
   obtain ⟨cb, aw, dw, hch⟩ := hg
   obtain ⟨x, hx, hr⟩ := childMap_some.mp hc
   have hcx : child = x := (Prod.mk.inj hr).1
@@ -90,6 +93,7 @@ theorem resetNk_memInvN (n : Nat) : ResetImpliesInv (ResetNk n) (memInvN n) := b
   subst hch
   have h0 := h3 "mem" aw dw "clk" (.ref "wa") (.ref "wd") (.ref "we") (.ref "ra") "out_rdata" cb [] []
     (by simp [memModule])
+  unfold memInv
   intro p _
   show stOf n (kids iname) "out_rdata" < 2 ^ p.ty.bitWidth
   rw [h0]; exact Nat.two_pow_pos _
