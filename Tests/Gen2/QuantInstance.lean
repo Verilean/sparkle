@@ -1,5 +1,6 @@
 import Tests.Gen2.QuantEndpoint
 import Tools.ShippingGen2MemShips
+import Tools.ShippingGen2LoopRestrict
 set_option autoImplicit false
 
 /-! # loop-pkg step 3: the REAL IP top `quantModule` as a `memParent_ships` instance (LOOPPKG_FREEZE.md §3, §5.2, §6)
@@ -19,8 +20,6 @@ namespace Tests.Gen2.QuantInstance
 open Tools.ShippingGen2 Tools.ShippingGen2Loop
 open Sparkle.Core.Domain
 
-abbrev Q := Sparkle.IP.Video.H264.QuantSynth.quantModule
-
 /-- **`quant_hcausal`**: the loop head's causality premise, assembled as `loopCalls`. -/
 theorem quant_hcausal : ∀ (i : DomainConfig) (bools : Nat → Sparkle.Core.Signal.Signal i Bool)
     (bits : (j : Nat) → (n : Nat) → Sparkle.Core.Signal.Signal i (BitVec n))
@@ -37,6 +36,20 @@ theorem quant_hcausal : ∀ (i : DomainConfig) (bools : Nat → Sparkle.Core.Sig
   delta Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExt Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExtB
   exact ⟨Tools.ShippingMachineAuto.extendBits_val (Tools.ShippingMachineAuto.extendBits_val (fun _ _ => rfl) f0) f1,
     fun _ => rfl⟩
+
+/-- The loop head's premises for `quantModule`, at the generated index `(DomainConfig, id)`. -/
+theorem quant_facts : LoopFacts Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData (fun i : DomainConfig => i)
+    Sparkle.IP.Video.H264.QuantSynth.quantModule.machineSigma Sparkle.IP.Video.H264.QuantSynth.quantModule.machineInits
+    Sparkle.IP.Video.H264.QuantSynth.quantModule.machineBody Sparkle.IP.Video.H264.QuantSynth.quantModule.machineRes
+    Sparkle.IP.Video.H264.QuantSynth.quantModule.machineResult Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExt
+    Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExtB Sparkle.IP.Video.H264.QuantSynth.quantModule.machineSource :=
+  ⟨Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_ok, Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_body,
+   Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_inits, Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_reset,
+   Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_writes, Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_result,
+   Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_source, quant_hcausal⟩
+
+#eval (Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.nIn,
+  Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.shape.insts.length)
 
 abbrev U := fun _ : Unit => defaultDomain
 
@@ -55,14 +68,7 @@ noncomputable def qL : SrcPkgL Unit U :=
     ext := fun _ => Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExt defaultDomain,
     extB := fun _ => Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExtB defaultDomain,
     src := fun _ => Sparkle.IP.Video.H264.QuantSynth.quantModule.machineSource defaultDomain,
-    facts := ⟨Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_ok,
-      Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_body,
-      Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_inits,
-      fun _ => Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_reset defaultDomain,
-      fun _ => Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_writes defaultDomain,
-      fun _ => Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_result defaultDomain,
-      fun _ => Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_source defaultDomain,
-      fun _ => quant_hcausal defaultDomain⟩ }
+    facts := loopFacts_restrict _ defaultDomain quant_facts }
 
 noncomputable abbrev qPkg : Pkg Unit U := .loop qL
 
@@ -72,9 +78,15 @@ theorem q_dataOk : MemParentDataOk qPkg := by
   refine ⟨⟨⟨⟨Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_ok, ?_⟩, ?_⟩, ?_⟩, ?_⟩ <;>
     first | decide | decide +kernel
 
-theorem q_insts_ne : qPkg.d.shape.insts ≠ [] := by first | decide | decide +kernel
-theorem q_fne : qPkg.d.shape.instFields ≠ [] := by first | decide | decide +kernel
-theorem q_slotsNe : qPkg.d.shape.layout.slots ≠ [] := by first | decide | decide +kernel
+theorem q_insts_ne : qPkg.d.shape.insts ≠ [] := by
+  show Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.shape.insts ≠ []
+  first | decide | decide +kernel
+theorem q_fne : qPkg.d.shape.instFields ≠ [] := by
+  show Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.shape.instFields ≠ []
+  first | decide | decide +kernel
+theorem q_slotsNe : qPkg.d.shape.layout.slots ≠ [] := by
+  show Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.shape.layout.slots ≠ []
+  first | decide | decide +kernel
 
 theorem q_extInS : ExtInS qPkg := by
   refine ⟨fun _ bools bits j hj => ?_, fun _ bools bits j n' hj => ?_⟩
@@ -91,7 +103,9 @@ theorem q_extInS : ExtInS qPkg := by
 
 theorem q_memDec : ∀ (k : Nat) (hk : k < qPkg.d.shape.insts.length), MemDec qPkg k (qPkg.d.shape.insts[k]).1 := by
   intro k hk _ bools bits
-  have hl : qPkg.d.shape.insts.length = 2 := by first | decide | decide +kernel
+  have hl : qPkg.d.shape.insts.length = 2 := by
+    show Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.shape.insts.length = 2
+    first | decide | decide +kernel
   have hk2 : k < 2 := hl ▸ hk
   rcases k with _ | _ | k
   · refine ⟨true, 4, 16, ?A, ?D, ?E, ?R, ?l0, ?l1, ?l2, ?l3, rfl, rfl, ?h0, by decide, ?h1, by decide, ?h2,
