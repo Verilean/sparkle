@@ -5,7 +5,7 @@ import Tools.ShippingSlotlessKidFacts
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 -- Built: g2nc3-ba4334f8 (clean snapshot, exit 0, standard axioms).
--- R1/R2 additions (§2b PAIR checks, §2c second closure audit, their fixtures): written after that build, NOT BUILT.
+-- R1/R2 additions (§2b PAIR checks, §2c second closure audit, their fixtures): built in g2nc4-36342cb8 (clean, exit 0).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # Checks for the NC suppliers, L1-L4 and S5 stage C (S5_SLOTLESS_FREEZE.md rev1 §5, §7, §8 + rev1.1;
