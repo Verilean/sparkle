@@ -187,3 +187,19 @@ this and are superseded here.
 
 `PostFactsStmt` uses only `IHAt'`/`ChildKeepsInv'` at `dv u + 1`, as binders, which `ih_allPF`'s hypothesis at
 `D + 1` supplies. `keepChild_proved` does not use it. So there is no cycle.
+
+## 11. Review of fd893323 (approved for staged implementation): recorded decisions
+- **S1, decided: keep `DataOkB` unchanged.** The producer takes an explicit premise `DataRows`. It is an UNSUPPLIED sufficient condition. It does not resolve G-POST and does not narrow FG.
+  ```lean
+  def DataRows (q : Pkg ι dom) : Prop :=
+    q.d.callsOk q.kD = true ∧ q.d.ss.length = q.d.shape.layout.slots.length ∧
+    (∀ b ∈ q.d.shape.binders.drop q.kD, b.2 ≠ .domain)
+  -- `ok` is `Pkg.ok q` (not a field)
+  ```
+  - **What is already given.** `ok` gives the non-domain property of the slot and let binders (`ok_slotLet`, Gen2MemData). `callsOk` gives `nIn = kD + insts.length` (`callsOk_nIn`, Gen2CallDec:42).
+  - **What remains** of the third conjunct: the call-output segment `binders[kD .. kD + insts.length)` is non-domain. To be TRIED from the successful closing / generated data. If `insts = []`, then `nIn = kD` and the segment is empty.
+  - Whether it follows from `ok` alone is NOT claimed either way.
+- **`ih_allPF`.** The type is written out in full, with the existing `hT : T1Hyp L P Reach DataOk` as an explicit binder (no abbreviation).
+- **Conclusion (ii), memory branch.** For `g` a memory child's top: `g` is a child top, so P7/P10 (it is instantiated in the parent's body). The memory module's own `InstClosed` is NOT used.
+- **Not supplied:** P7, U1 (G-ONEOUT-REACH) and U2 (G-REACH). `postFacts_proved` is NOT claimed unconditionally while U1 is open. It is stated with its open premises explicit.
+- **Re-verification.** After the `ShipsRes` change, `keepChild_proved`, the served-ships statements and the related M2 proofs on this branch are rebuilt. Their new evidence is recorded separately from the old (pre-`InstClosed`) evidence.
