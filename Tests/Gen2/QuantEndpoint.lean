@@ -19,8 +19,8 @@ run_cmd do
   let mut names : Array Name := #[]
   for (n, _) in env.constants.map₂.toList do
     if pre.isPrefixOf n && n != pre then names := names.push n
-  let names := names.qsort (fun a b => a.toString < b.toString)
-  for n in names do
+  let sorted := names.qsort (fun a b => a.toString < b.toString)
+  for n in sorted do
     let some ci := env.find? n | continue
     let kind := match ci with
       | .defnInfo _ => "def" | .thmInfo _ => "theorem" | .opaqueInfo _ => "opaque" | _ => "other"
