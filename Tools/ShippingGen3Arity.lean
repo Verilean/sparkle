@@ -141,7 +141,7 @@ theorem callArity_group {ι : Type} {dom : ι → DomainConfig}
       argWs.length = q.ports.length := by
   -- A3 on the un-destructured statement
   have hB : args.length = (argPorts mc).length := callStmtG_argLen hcs
-  obtain ⟨outWs, argWs0, iname, hout, -, -, -, -, -, -, -, -, -, -, -, heq⟩ := hcs
+  obtain ⟨outWs, argWs0, iname, hout, -, -, -, -, -, -, -, -, -, -, heq⟩ := hcs
   subst heq
   -- `ServedGP` at the SAME statement (`connsG` is verbatim CallStmtG's connection list). Build risk B1: the two
   -- pattern lambdas `fun (k, _) => …` / `fun (j, _) => …` are different auxiliary matchers; the fallbacks compare
