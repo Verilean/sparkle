@@ -1,7 +1,12 @@
 # S4 P-MEM-4 freeze: where does the one-output consumer chain consume `hnomem`'s NAME half? (design only)
 
-**Status: DESIGN FREEZE DRAFT. UNBUILT, nothing proved.** Read-only research at par/gen2-spec 48775f38 (grep/read only; no
-lake/lean run). Line numbers are at that SHA. Obligation: scripts/gen2/S4_PMEM_FREEZE.md §4.2 (P-MEM-4).
+**Status: rev2 — design approved; implementation written, UNBUILT, nothing proved.** Research at par/gen2-spec 48775f38
+(grep/read only; no lake/lean run); implementation files written on cd026658 (see §7), not built or elaborated. Line
+numbers are at 48775f38 (the originals are unchanged since then). Obligation: scripts/gen2/S4_PMEM_FREEZE.md §4.2 (P-MEM-4).
+
+rev2 changes (review): §5 c is now a TRANSITIVE premise audit (was a direct `getUsedConstants` check of the types); §3
+records that the transitive check is that audit; wording: no minimality / strictness claim (§2, §4); §4 build is a normal
+incremental build; §7 lists the implementation.
 
 ## 0 Question
 
@@ -10,7 +15,7 @@ and a NAME half (`.2`). `Tools/ShippingGen2DataBridge.lean` `hord_of_row` suppli
 (`∀ k < insts.length, (instOrigins.getD k .ord).child? = none`) for one-output parents. The name half is FALSE on a legitimate
 one-output parent whose ordinary callee has a memory-placeholder name (`collPlainCD_nomem_false`,
 Tests/Compiler/MemNameCollisionPlainCertTest.lean:177-180). Which theorems reached from `Tools/ShippingGen2OneOutTop.lean`
-consume which half, and what is the smallest copy set whose types carry no name half?
+consume which half, and which copy range gives types that carry no name half?
 
 ## 1 Trace table
 
@@ -56,7 +61,7 @@ really used, take the index form that `hord_of_row` already produces:
 `hord : ∀ k < p.d.shape.insts.length, (p.d.shape.instOrigins.getD k .ord).child? = none`.
 (The list form `∀ o ∈ instTagged, o.2.child?.isNone = true` converts to it by `notag_at`, ChildInv.lean:544-551.)
 
-Minimal copy set (suffix `O` = origin-keyed or premise-free; names illustrative):
+Proposed copy range (suffix `O` = origin-keyed or premise-free; no minimality is claimed or proved):
 
 | new theorem | copied from | premise | replacement |
 |---|---|---|---|
@@ -95,8 +100,11 @@ origin fact at `oneOutWidthAtO`.
 None found. No site in the chain needs the name; no shared definition used by the chain states its fact by `memChild?`
 (checked: `MachineRanA`, `ChildrenRealA`, `MemChildren`, `Served1P`, `ServedP` :242-244). The premises of
 `oneOut_topShips` other than `hnomem` (`MemParentDataOk`, `MachineTaken`, `CallDec`, `MachineTraceLBX`, `OneOutWidth`, `Laws`)
-were not unfolded transitively; the audit control (§5 c) is the check that their TYPES as they appear in the new theorems
-contain no `memChild?` constant. If that audit finds a `memChild?` under one of them, that is a STOP to report, not to patch.
+were not unfolded by reading. The transitive check is done by the premise audit of §5 c (`pmAuditRoot` in
+Tests/Gen2/PMem4Check.lean): from each new theorem's type it unfolds every Prop-level definition, Prop structure field
+and Prop inductive constructor reached (and type formers, class instances, every inductive's constructor types). A
+forbidden name (`memChild?`, `Kid`) reached on that LOGICAL path is a STOP to report, not to patch. Opaque / `partial` /
+axiom / extern boundaries on the logical path are printed as UNCHECKED: the audit never claims absence through them.
 
 ## 4 Plan & size
 
@@ -114,11 +122,14 @@ Total ~1000 lines, of which ~940 copied. Rules check:
 - The only touch of an existing file is the established append-only `lean_lib` entry per new module in `lakefile.lean`
   (as for `Tools.ShippingGen2DataBridge`, lakefile.lean:4605-4606). If that counts as a shared-file edit, it needs the
   user's OK first.
-- FG not narrowed (no definition changed); no new semantic premise: the copies take strictly FEWER premises (name half
-  gone everywhere; origin half only in `oneOutWidthAtO`/`oneOut_topShipsO`, in the form `hord_of_row` already supplies).
+- FG not narrowed (no definition changed). The enumerated premise (`hnomem`) is removed; no premise is added except
+  `hord` in the two top theorems (`oneOutWidthAtO`, `oneOut_topShipsO`), in the form `hord_of_row` already supplies.
+  No minimality or overall strictness of the premise set is claimed or proved.
 - Originals stay; existing signature audits (Tests/Compiler/Srm5AuditExpected.lean:150 etc., RanThreadingStatementsTest:89)
   are unaffected. A copy does not follow later changes of its original (same caveat as TailsA:265-268).
-- Build: one scoped `kjob lake build` of the three new modules + the test (new lakefile entries → cold cache, 13-22 min).
+- The `lakefile.lean` append (four `lean_lib` entries at the end) is authorised for this work.
+- Build: a normal issue-linked, incremental, focused `kjob lake build` of the three new modules and the test (no forced
+  cold build; whatever the cache gives).
 
 ## 5 Controls
 
@@ -132,11 +143,32 @@ a. **Positive (name collides, origin ord):** `collPlainCD_D` (Tests/Compiler/Mem
 b. **Negative:** `memShape0` (DataBridgeCheck.lean:151-158, memory origin, no fields): `¬ ∀ k < insts.length, (… ).child? = none`
    by `decide`, so the new theorems cannot be applied to a memory-origin one-output entry. Out of range (`memShapeX`, :167-175)
    stays excluded by the `k < insts.length` form.
-c. **Audit:** a `run_cmd` over the 14 new theorem names: (i) the type's constants (`Expr.getUsedConstants`) contain no
-   `Sparkle.Compiler.MachMemory.memChild?`, and no `Tools.ShippingMemKid.Kid`; (ii) only `oneOutWidthAtO`/`oneOut_topShipsO`
-   mention `InstOrigin.child?` in a hypothesis; (iii) `#print axioms` = [propext, Classical.choice, Quot.sound]. (Pattern:
-   Tests/Compiler/Srm20AuditTest.lean.) Optionally a shallow one-level delta of the premise heads of `oneOut_topShipsO`
-   for `memChild?` (see §3).
+c. **Audit (transitive; replaces the direct `getUsedConstants` check of rev1).** In Tests/Gen2/PMem4Check.lean:
+   (o) expected types: for each of the 14 (original, copy) pairs, the copy's binders are the original's (names, binder
+   infos, types compared after instantiating the copy with the original's fvars) with `hnomem` deleted, or replaced at
+   the same position by `hord` whose type is `hord_of_row`'s conclusion; equal conclusions (`core_bodyEq_ranO`: the
+   original's second conjunct); `==`, with a logged `isDefEq` fallback.
+   (i) `pmAuditRoot` over the 14 copies, forbidden names `Sparkle.Compiler.MachMemory.memChild?`,
+   `Tools.ShippingMemKid.Kid`. A breadth-first walk from the root's TYPE with a visited set, recording for every hit the
+   full path root → … → name. Unfolding targets (LOGICAL): definitions whose type ends in `Prop` (predicates) or in a
+   sort (type formers, e.g. `abbrev Pkgs`); definitions whose type ends in a class (instances, e.g. behind `∈`); every
+   inductive reached — Prop structures (their fields' types via the constructor type, with the parameters), Prop
+   inductives (constructor types), and data structures/inductives too (conservative); constructors → their inductive.
+   Boundaries: a definition whose type ends in neither a sort nor a class is COMPUTATIONAL — not unfolded logically; its
+   body is scanned depth-bounded for reporting and a forbidden name found there is listed as a computational hit, never as
+   a logical assumption. `opaque` / `partial` / `axiom` / missing / Prop-level `extern`/`implemented_by` constants on
+   the logical path are UNCHECKED boundaries, printed, never counted as absence. Theorems/recursors met in a type are
+   skipped with a note. Output per root: logical hits (must be EMPTY for the 14 copies, else `throwError "STOP: …"`),
+   computational hits, unchecked boundaries, the count of logical constants unfolded. A visit cap aborts with "absence
+   NOT established" rather than passing.
+   Fixtures (the check fails if one is not detected): a hidden ≥2-level fixture `fxRoot (h : Fx3)` with
+   `structure Fx3 : Prop where h : Fx2`, `def Fx2 : Prop := Fx1`, `def Fx1 : Prop := ∀ c, memChild? c = none` — detected
+   with path fxRoot → Fx3 → Fx2 → Fx1 → memChild?; a direct one-level fixture; a computational-only fixture (`memChild?`
+   inside a `Bool` function: no logical hit, a computational hit); an opaque Prop (an unchecked boundary). Positive
+   control: the ORIGINAL `oneOutWidthAt` has a logical hit via `hnomem`.
+   (ii) only `oneOutWidthAtO`/`oneOut_topShipsO` mention `InstOrigin.child?` in a binder (`hord`);
+   (iii) `#print axioms` of the 14 copies and the controls = [propext, Classical.choice, Quot.sound]. (Pattern:
+   Tests/Compiler/Srm20AuditTest.lean, Tests/Compiler/ChildVertAuditTest.lean.)
 
 ## 6 Not claimed
 
@@ -146,3 +178,22 @@ c. **Audit:** a `run_cmd` over the 14 new theorem names: (i) the type's constant
 - Not claimed: anything about memory parents (`instFields ≠ []`), the group closing, or `core_*` theorems outside the
   OneOutTop chain (e.g. `core_closed_typedIn_ranA`, `core_designCheckHA`, the `Kid`-based `core_*M` chains).
 - The transitive unfolding of premises other than `hnomem` was not done by reading; §5 c is the planned check.
+
+## 7 Implementation (UNBUILT)
+
+Written on par/gen2-spec cd026658 (not built, not elaborated, not committed). Copies generated from the originals'
+lines by a script (verbatim except the listed changes; the per-file diff against the original shows only those).
+
+| file | declarations |
+|---|---|
+| `Tools/ShippingParentTailsO.lean` (ns `Tools.ShippingParentTailsO`) | `core_bodyEq_ranO`, `core_linkedWF_ranO`, `core_instOuts_not_assigned_ranO` |
+| `Tools/ShippingParentDesignO.lean` (ns `Tools.ShippingParentDesignO`) | `core_hierGate_anyO`, `core_kidsComb_raw₁O`, `core_instNames₁O`, `core_noSelfRead₁O`, `core_outsExtracted₁O`, `core_rst_anyO`, `core_runFactsHO` |
+| `Tools/ShippingGen2OneOutTopO.lean` (ns `Tools.ShippingGen2`, as the originals) | `core_callPorts_oneO`, `core_instOutWidthsOk_oneO`, `oneOutWidthAtO`, `oneOut_topShipsO` |
+| `Tests/Gen2/PMem4Check.lean` (ns `Tests.Gen2.PMem4Check`) | expected-type check (14 pairs), `pmAuditRoot` + fixtures `Fx1`/`Fx2`/`Fx3`/`fxRoot`/`fxDirect`/`fxComp`/`fxCompRoot`/`FxOp`/`fxOpRoot`, controls `collPlainCD_hord`, `memShape0P`/`memShape0P_hord_false`, `oneOut_topShipsO_of_row`, `#print axioms` |
+| `lakefile.lean` | four `lean_lib` entries appended at the end |
+
+`hord` (both top copies, at the position of `hnomem`):
+`∀ (k : Nat) (hk : k < p.d.shape.insts.length), (p.d.shape.instOrigins.getD k Sparkle.Compiler.MachInstOrigin.InstOrigin.ord).child? = none`.
+`core_bodyEq_ranO` keeps the proof of `core_kids_facts_ranA` up to `hbout` (TailsA:68-148) and ends with `exact hbody'`.
+The test imports Tests.Compiler.MemNameCollisionPlainCertTest (for `collPlainCD_D`); `memShape0` is restated as
+`memShape0P` (Tests/Gen2/DataBridgeCheck.lean is not imported).

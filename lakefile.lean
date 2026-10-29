@@ -4607,3 +4607,15 @@ lean_lib «Tools.ShippingGen2DataBridge» where
 
 lean_lib «Tests.Gen2.DataBridgeCheck» where
   roots := #[`Tests.Gen2.DataBridgeCheck]
+
+lean_lib «Tools.ShippingParentTailsO» where
+  roots := #[`Tools.ShippingParentTailsO]
+
+lean_lib «Tools.ShippingParentDesignO» where
+  roots := #[`Tools.ShippingParentDesignO]
+
+lean_lib «Tools.ShippingGen2OneOutTopO» where
+  roots := #[`Tools.ShippingGen2OneOutTopO]
+
+lean_lib «Tests.Gen2.PMem4Check» where
+  roots := #[`Tests.Gen2.PMem4Check]
