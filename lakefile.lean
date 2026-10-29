@@ -4709,3 +4709,9 @@ lean_lib «Tools.ShippingGen3SlotlessPortWidths» where
 
 lean_lib «Tests.Gen3.SlotlessPortWidthsCheck» where
   roots := #[`Tests.Gen3.SlotlessPortWidthsCheck]
+
+lean_lib «Tools.ShippingGen5T2Tie» where
+  roots := #[`Tools.ShippingGen5T2Tie]
+
+lean_lib «Tests.Gen5.T2TieCheck» where
+  roots := #[`Tests.Gen5.T2TieCheck]
