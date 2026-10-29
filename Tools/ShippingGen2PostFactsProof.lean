@@ -164,10 +164,9 @@ theorem postFacts_of_hord {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainCo
     PostFactsStmt L P Reach DataOk := by
   intro hT q mctx cctx u u' w1 M' raw Dg' Dg hR hPq hDq hA hu hIH hKI _hfull hcore hb _htop hmods _htaken
   have entry := hT.defines q.decl hR q hPq mctx cctx hA
-  have closes := hT.closes q.decl hR q hPq mctx cctx hA
   -- P1 (F1 canonical): the machine synthesis inside the core run, from an `InvAt (dv u + 1)` world
   obtain ⟨tenv, b, r, w9, w10, hrun, hw9, hres⟩ := machineRunInv_of_coreA L P Reach hA hcore entry hu
-  have hne := closes b (dv u + 1) w9 r w10 hw9.1 (by omega) hrun
+  have hne := hT.closes q.decl hR q hPq mctx cctx hA (tenv := tenv) b (dv u + 1) w9 r w10 hw9.1 (by omega) hrun
   cases r with
   | none => exact absurd rfl hne
   | some res =>
