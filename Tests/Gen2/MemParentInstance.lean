@@ -18,12 +18,14 @@ open Sparkle.Core.Domain
 abbrev U := fun _ : Unit => defaultDomain
 
 /-- `leafM`'s package at `Unit`, its `GenFacts` restricted from `(DomainConfig, id)`. -/
-noncomputable def lmPkg : SrcPkg Unit U :=
+noncomputable def lmSrc : SrcPkg Unit U :=
   { decl := ``leafM, d := leafM.machineData, kD := 4, ρ := _, inh := inferInstance,
     inits := leafM.machineInits, body := fun _ => leafM.machineBody defaultDomain,
     obsR := fun _ => leafM.machineResult defaultDomain, ext := fun _ => leafM.machineExt defaultDomain,
     extB := fun _ => leafM.machineExtB defaultDomain, src := fun _ => leafM.machineSource defaultDomain,
     gen := genFacts_restrict leafM.machineData defaultDomain leafM_gen }
+
+noncomputable abbrev lmPkg : Pkg Unit U := .gen lmSrc
 
 theorem lm_dataOk : MemParentDataOk lmPkg := by
   unfold MemParentDataOk MemParentDataOkB; first | decide | decide +kernel

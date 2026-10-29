@@ -19,24 +19,30 @@ open Sparkle.Core.Domain
 
 abbrev U := fun _ : Unit => defaultDomain
 
-noncomputable def tm2Pkg : SrcPkg Unit U :=
+noncomputable def tm2Src : SrcPkg Unit U :=
   { decl := ``topshare2, d := topshare2.machineData, kD := 3, ρ := _, inh := inferInstance,
     inits := topshare2.machineInits, body := topshare2.machineBody, obsR := topshare2.machineResult,
     ext := topshare2.machineExt, extB := topshare2.machineExtB, src := topshare2.machineSource, gen := b_gen }
 
-noncomputable def wQPkg : SrcPkg Unit U :=
+noncomputable abbrev tm2Pkg : Pkg Unit U := .gen tm2Src
+
+noncomputable def wQSrc : SrcPkg Unit U :=
   { decl := ``wrapQ, d := wrapQ.machineData, kD := 3, ρ := _, inh := inferInstance,
     inits := wrapQ.machineInits, body := fun _ => wrapQ.machineBody defaultDomain,
     obsR := fun _ => wrapQ.machineResult defaultDomain, ext := fun _ => wrapQ.machineExt defaultDomain,
     extB := fun _ => wrapQ.machineExtB defaultDomain, src := fun _ => wrapQ.machineSource defaultDomain,
     gen := genFacts_restrict wrapQ.machineData defaultDomain b_wrapQ_gen }
 
-noncomputable def wPPkg : SrcPkg Unit U :=
+noncomputable abbrev wQPkg : Pkg Unit U := .gen wQSrc
+
+noncomputable def wPSrc : SrcPkg Unit U :=
   { decl := ``wrapP, d := wrapP.machineData, kD := 3, ρ := _, inh := inferInstance,
     inits := wrapP.machineInits, body := fun _ => wrapP.machineBody defaultDomain,
     obsR := fun _ => wrapP.machineResult defaultDomain, ext := fun _ => wrapP.machineExt defaultDomain,
     extB := fun _ => wrapP.machineExtB defaultDomain, src := fun _ => wrapP.machineSource defaultDomain,
     gen := genFacts_restrict wrapP.machineData defaultDomain b_wrapP_gen }
+
+noncomputable abbrev wPPkg : Pkg Unit U := .gen wPSrc
 
 /-- The package assignment of the probe. -/
 noncomputable def P2 : Pkgs Unit U :=
@@ -48,18 +54,18 @@ theorem P2_outs : pkgOutsC P2 = quadOutsOf ``wrapQ ``wrapP wrapQ.machineData wra
   funext c
   unfold pkgOutsC P2 quadOutsOf
   by_cases h1 : c = ``wrapQ
-  · subst h1; simp [wQPkg]
+  · subst h1; simp [wQPkg, wQSrc, Pkg.d, Pkg.kD, Pkg.S, Pkg.src]
   · by_cases h2 : c = ``wrapP
-    · subst h2; simp [hne.symm, wPPkg]
+    · subst h2; simp [hne.symm, wPPkg, wPSrc, Pkg.d, Pkg.kD, Pkg.S, Pkg.src]
     · simp [h1, h2]
 
 theorem P2_bs : pkgBsC P2 = quadBsF ``wrapQ ``wrapP wrapQ.machineData wrapP.machineData 3 3 := by
   funext c
   unfold pkgBsC P2 quadBsF
   by_cases h1 : c = ``wrapQ
-  · subst h1; simp [wQPkg]
+  · subst h1; simp [wQPkg, wQSrc, Pkg.d, Pkg.kD, Pkg.S, Pkg.src]
   · by_cases h2 : c = ``wrapP
-    · subst h2; simp [hne.symm, wPPkg]
+    · subst h2; simp [hne.symm, wPPkg, wPSrc, Pkg.d, Pkg.kD, Pkg.S, Pkg.src]
     · simp [h1, h2]
 
 theorem P2_S : (fun i => pkgS P2 i) =
@@ -67,9 +73,9 @@ theorem P2_S : (fun i => pkgS P2 i) =
   funext i c
   unfold pkgS P2 quadSrcF
   by_cases h1 : c = ``wrapQ
-  · subst h1; (simp [wQPkg]) <;> rfl
+  · subst h1; (simp [wQPkg, wQSrc, Pkg.d, Pkg.kD, Pkg.S, Pkg.src]) <;> rfl
   · by_cases h2 : c = ``wrapP
-    · subst h2; (simp [hne.symm, wPPkg]) <;> rfl
+    · subst h2; (simp [hne.symm, wPPkg, wPSrc, Pkg.d, Pkg.kD, Pkg.S, Pkg.src]) <;> rfl
     · simp [h1, h2]
 
 /-- `CallFactF` of the package, from the existing generated-fact theorem. -/
@@ -125,7 +131,7 @@ theorem tm2_callDec : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
       Q.hP.ok Q.hP.callsOk Q.hP.slots _ Q.hPX.callArgs hw hlen
 
 /-- `DataOk` of the three packages (non-vacuity on this instance). -/
-theorem tm2_dataOk : DataOk tm2Pkg ∧ DataOk wQPkg ∧ DataOk wPPkg := by
+theorem tm2_dataOk : DataOk tm2Src ∧ DataOk wQSrc ∧ DataOk wPSrc := by
   refine ⟨?_, ?_, ?_⟩ <;> (unfold DataOk DataOkB; first | decide | decide +kernel)
 
 #print axioms Tools.ShippingGen2.callDec_of_callFactF
