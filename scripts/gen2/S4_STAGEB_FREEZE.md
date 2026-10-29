@@ -18,9 +18,10 @@
 **Identifying call `k`.** This is a separate obligation from identifying `mc`.
 - **The plan:** `core_callPorts_oneA` states the `ran`-side `CallStmt` in the TRACE's port names. `Served1P` holds for EVERY `k` with `CallStmt … names k args mc st` (Defs:233-236). So the `k` the `ran` side produces is passed directly to `Served1P`, for the same `st` and the same `mc`. There is no second index to match.
 - **What remains to prove:** the names equality `NamesEq : t.inputs.map (·.name) = (machPorts p.decl ids cache p.d.shape.binders).map (·.name)` for the `ran` witness's `t` and the trace's `ids`/`cache`.
-- **How it is obtained (two MISSING lemmas):**
-  - `ranA_inputs_machPorts`: on `ran`'s own `run` (the `MReturns synthesizeMixedCertified … (t, d₀)` inside `MachineRanA`), `synthesizeMixedCertified_returns` + `transition_facts` (Entry:1077-1081; the same step as Entry:1449) give `∃ ids₀ cache₀, ids₀.length = binders.length ∧ machPorts c ids₀ cache₀ binders = t.inputs`. The WF premises come from `ok`, as at ParentPortsA:162-190.
-  - `machPorts_names_indep`: `ids.length = bs.length → ids'.length = bs.length → (machPorts c ids cache bs).map (·.name) = (machPorts c ids' cache' bs).map (·.name)`. A port name is `inputWire a.state …` (MixedInputSoundness:12). `extend` changes `state` using only the binder's name and kind (MixedEntrySoundness:25-38), and `start` sets it to `CircuitM.init` (:456-457). The cache and `ids` reach only `context`, `bools` and `bits`. The comment at Entry:641-642 says the same thing ("names depend on the allocator only").
+- **How it is obtained (two lemmas, full types in §4; written in `Tools/ShippingGen2OneOutNames.lean`, unbuilt):**
+  - `ranA_inputs_machPorts`: on `ran`'s own `run` (the `MReturns synthesizeMixedCertified … (t, d₀)` inside `MachineRanA`), `synthesizeMixedCertified_returns` (MixedEntrySoundness:434-442) + `transition_facts` (Entry:303; third conjunct, as at Entry:1077-1081 and the same step as Entry:1449) give `∃ ids₀ cache₀, ids₀.length = binders.length ∧ machPorts c ids₀ cache₀ binders = t.inputs`. `ids₀`/`cache₀` are the run's own (existential), NOT the trace's. The WF premises come from `ok`, as at ParentPortsA:162-190 / TransitionTyped:66-97. Premises: `ok`, `hbody`, the run. Nothing else.
+  - `machPorts_names_indep`: `ids.length = bs.length → ids'.length = bs.length → (machPorts c ids cache bs).map (·.name) = (machPorts c ids' cache' bs).map (·.name)`. A port name is `inputWire a.state …` (MixedInputSoundness:12). `extend` changes `state` using only the binder's name and kind (MixedEntrySoundness:25-38), and `start` sets it to `CircuitM.init` (:456-457). The cache and `ids` reach only `context`, `bools` and `bits`. The comment at Entry:641-642 says the same thing ("names depend on the allocator only"). The proof is an induction on `bs` over two zips (the analogue of `inputPorts_congr`, Entry:96, which fixes ONE list); it shows the whole walk is equal, names and types.
+  - **`NamesEq` from the two:** destructure `ran` to get `run`; `obtain ⟨ids₀, cache₀, hl₀, hmp⟩ := ranA_inputs_machPorts d ok hbody run`; then `NamesEq := by rw [← hmp]; exact machPorts_names_indep c cache₀ cache hl₀ hlen`. It uses `hlen` (already a premise of `core_callPorts_oneA`) and no new premise.
 - **The instance name is NOT used.** `instStmt` builds `inst{k}_{mc.name}` (Machine:283), and `closeInsts_stmts` (OneOutClose:67) exposes it on the `ran` side. But `CallStmt`'s `iname` is existential (Inst:192, 201), and `MachineWired` does not fix it (Entry:664-669). So the name cannot fix `k` on the trace side.
 
 ## 2. The local width fact (constraint 2)
@@ -89,20 +90,67 @@ theorem core_callPorts_oneA (O : RefLawsAOps MkRefd mref cref) {c : Name} (d : M
             ∃ bn, d.shape.binders[nDecl + k]? = some bn ∧
               Sparkle.IR.RegDedup.declWidth b x = (kindTy bn.2).bitWidth
 
-theorem core_instOutWidthsOk_oneA (O) … (same premises as core_callPorts_oneA through `cache`)
-    (hkidW1 : ∀ (k : Nat) (hk : k < d.shape.insts.length) (args : List Nat) (mc : Sparkle.IR.AST.Module) (st : Stmt),
+theorem core_instOutWidthsOk_oneA
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    (O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref)
+    {c : Name} (d : Tools.ShippingMachineAuto.MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = Tools.ShippingUnifiedSource.quote d.dom
+      (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hC : d.callsOk nDecl = true)
+    (hslots : d.ss.length = d.shape.layout.slots.length)
+    (hdomB : ∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain)
+    (hins : d.shape.insts ≠ [])
+    (hf0 : d.shape.instFields = [])
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hnomem : ∀ x ∈ d.shape.instTagged,
+      x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true)
+    {M b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M))
+    (ran : Tools.ShippingParentRanA.MachineRanA O mctx cctx c d.shape M D)
+    {ids : List FVarId} (hlen : ids.length = d.shape.binders.length)
+    (cache : IO.Ref (ExprStructMap String))
+    (hkidW1 : ∀ (k : Nat) (hk : k < d.shape.insts.length) (args : List Nat) (mc : Sparkle.IR.AST.Module)
+        (st : Sparkle.IR.AST.Stmt),
       (d.shape.insts.map (·.2.1))[k]? = some args → st ∈ M.body →
-      Tools.ShippingMachineInst.CallStmt (machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
-        ((machPorts c ids cache d.shape.binders).map (·.name)) k args mc st →
-      moduleByName D.modules mc.name = some mc →
-      ∀ outP ∈ mc.outputs, (d.shape.binders[nDecl + k]?).map (fun bn => (kindTy bn.2).bitWidth) = some outP.ty.bitWidth) :
-    Tools.ShippingHierOpen.instOutWidthsOk (childMap D.modules) (Sparkle.IR.RegDedup.declWidth b) b.body = true
+      Tools.ShippingMachineInst.CallStmt (Tools.ShippingMachineEntry.machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
+        ((Tools.ShippingMachineEntry.machPorts c ids cache d.shape.binders).map (·.name)) k args mc st →
+      Sparkle.IR.Machine.moduleByName D.modules mc.name = some mc →
+      ∀ outP ∈ mc.outputs, (d.shape.binders[nDecl + k]?).map
+        (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) = some outP.ty.bitWidth) :
+    Tools.ShippingHierOpen.instOutWidthsOk (Tools.ShippingMachineLinked.childMap D.modules)
+      (Sparkle.IR.RegDedup.declWidth b) b.body = true
+
+-- the two names lemmas (Tools/ShippingGen2OneOutNames.lean, namespace Tools.ShippingGen2)
+theorem machPorts_names_indep (c : Name) {bs : List (Name × Sparkle.Compiler.Elab.MixedGateBinder)}
+    {ids ids' : List FVarId} (cache cache' : IO.Ref (ExprStructMap String))
+    (hl : ids.length = bs.length) (hl' : ids'.length = bs.length) :
+    (Tools.ShippingMachineEntry.machPorts c ids cache bs).map (·.name) =
+      (Tools.ShippingMachineEntry.machPorts c ids' cache' bs).map (·.name)
+
+theorem ranA_inputs_machPorts {tenv : Lean.Environment} {c : Name}
+    (d : Tools.ShippingMachineAuto.MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = Tools.ShippingUnifiedSource.quote d.dom
+      (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => Tools.ShippingMixedSourceBridge.inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {logProf : String → IO Unit} {t : Sparkle.IR.AST.Module} {d₀ : Sparkle.IR.AST.Design}
+    -- the inner harness run of `MachineRanA` (ParentRanA:47-60): there `logProf := profLogIO b`
+    -- and `tenv`, `t`, `d₀` are `ran`'s existentials; `t` is the transition module `CloseCalls` reads
+    (run : Tools.ShippingEntrySoundness.MReturns (Sparkle.Compiler.Elab.synthesizeMixedCertified
+      (fun e hint top named => Sparkle.Compiler.Elab.translateExprToWire tenv e hint top named) logProf c
+      d.shape.binders d.shape.body) (t, d₀)) :
+    ∃ (ids₀ : List FVarId) (cache₀ : IO.Ref (ExprStructMap String)),
+      ids₀.length = d.shape.binders.length ∧
+      Tools.ShippingMachineEntry.machPorts c ids₀ cache₀ d.shape.binders = t.inputs
 ```
+(`ExprStructMap` is `Lean.ExprStructMap`. `core_instOutWidthsOk_oneA`'s binders are `core_callPorts_oneA`'s, in the same order, then `hkidW1`; `core_callPorts_oneA` above is written with the `opens` of ParentRunFactsA:28-46 and means the same names.)
 **How each proof is assembled.**
 - **`core_callPorts_oneA`:** the proof of ParentRunFactsA:437-561, with these changes:
   - It takes the `hf0` branch of `CloseCalls` (the reverse of :460).
   - It uses `closeInsts_insts` instead of `closeInstsG_insts` (:471), and `callStmt_parts` instead of `callStmtG_outWireF` (:513).
-  - It rewrites `CallStmt`'s port list with `NamesEq` (§1).
+  - It rewrites `CallStmt`'s port list with `NamesEq` (§1), obtained from `ran`'s own `run` by `ranA_inputs_machPorts` and then `machPorts_names_indep … hl₀ hlen`.
   - The `declWidth` part (:519-561) is unchanged: it is about `t` and does not depend on the closing. `hMw` comes from `CloseCalls.some` (Entry:957).
 - **`core_instOutWidthsOk_oneA`:** the proof of :585-609, with `hkidW1` in place of `hkidW`, and `st ∈ M.body` obtained through `b.body = M.body`.
 
@@ -123,7 +171,7 @@ theorem core_instOutWidthsOk_oneA (O) … (same premises as core_callPorts_oneA 
 | `closedPorts_of_run`, `transitionPortTys_of_run`, `declWidth_of_unique`, `instOutWidthsOk_of` (InstWidthsParts:25), `core_kids_facts_ranA` | EXISTING (used at ParentRunFactsA:438-561, 593) |
 | `synthesizeMixedCertified_returns`, `transition_facts` Entry:303 | EXISTING |
 | `machineRanA_of_runJQC` RanABridge:38; `core_runFactsHA` ParentDesignA:494; `core_linkedWF_ranA` ParentTailsA:197 | EXISTING |
-| `machPorts_names_indep`, `ranA_inputs_machPorts` (so `NamesEq`) | MISSING |
+| `machPorts_names_indep`, `ranA_inputs_machPorts` (so `NamesEq`) | WRITTEN, UNBUILT: `Tools/ShippingGen2OneOutNames.lean` (no lakefile entry yet). Uses `synthesizeMixedCertified_returns` MixedEntrySoundness:434, `transition_facts` Entry:303, `List.zip_cons_cons`, `extend`/`start`/`inputPorts`/`machPorts` by definition |
 | `core_callPorts_oneA`, `oneOutWidthAt`, `core_instOutWidthsOk_oneA`, `oneOut_topShips` | MISSING (types above) |
 | `hW` (G-ONEOUT-WID), `h` (G-SERVED) | premises without a supplier, unchanged (CONSUMER §5). `hBd` is NOT a stage-B premise: the run-local fit chain (S4_FIT_RESULT, c6951eb8) replaced it |
 
