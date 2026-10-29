@@ -106,10 +106,10 @@ theorem tm2_callDec : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
     rcases quad_callee_at Q.hP k hk with ⟨hn, hk2⟩ | ⟨hn, hk2⟩
     · rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; unfold quadBsF; rw [if_pos rfl]
       simp only [quadNk, hk2, if_true] at hnk
-      rw [← hnk, Q.hC₁.hNIn]
+      exact (show (tm2Pkg.d.shape.insts[k]).2.1.length = _ from hnk.symm).trans Q.hC₁.hNIn
     · rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; unfold quadBsF; rw [if_neg (Ne.symm Q.hP.c12), if_pos rfl]
       simp only [quadNk, hk2, if_false] at hnk
-      rw [← hnk, Q.hC₂.hNIn]
+      exact (show (tm2Pkg.d.shape.insts[k]).2.1.length = _ from hnk.symm).trans Q.hC₂.hNIn
   have hnone : (tm2Pkg.d.shape.instOrigins.getD k .ord).child? = none := by
     have hlt : k < tm2Pkg.d.shape.instTagged.length := by
       rw [Tools.ShippingInstTagged.instTagged_length]; exact hk
