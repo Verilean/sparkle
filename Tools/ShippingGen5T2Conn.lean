@@ -1,6 +1,6 @@
 import Tools.ShippingGen5T2Range
 set_option autoImplicit false
--- §7.7 part built in g5tc-f72cedf6 (clean, exit 0, 740 jobs); §7.8 additions NOT BUILT. No sorry / axiom / native_decide.
+-- Built in g5tc2-8b445072 (clean, exit 0, 740 jobs; §7.7 part first in g5tc-f72cedf6). No sorry / axiom / native_decide.
 
 /-! # T2-TIE connection to the range supplier (DGEN_FREEZE.md §7.3 / §7.7)
 

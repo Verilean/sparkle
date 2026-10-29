@@ -1,7 +1,7 @@
 import Tools.ShippingGen5T2Conn
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- §7.7 part built in g5tc-f72cedf6 (clean, exit 0, 740 jobs; TYPE 4, MUTANT 9, AXIOMS 4); §7.8 additions NOT BUILT.
+-- Built in g5tc2-8b445072 (clean, exit 0, 740 jobs; TYPE 6, MUTANT 14 signature/defeq rejections, AXIOMS 6 standard).
 -- No sorry / axiom / native_decide.
 
 /-! # T2-TIE connection checks (Tools/ShippingGen5T2Conn.lean; DGEN_FREEZE.md §7.7)
