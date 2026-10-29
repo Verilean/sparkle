@@ -1,5 +1,6 @@
 import Tools.ShippingGen2Loop
 import Tools.ShippingGen2SrcPkg
+import Tools.ShippingGen2CombPkg
 set_option autoImplicit false
 
 /-! # loop-pkg step 2 interface: `Pkg` = circuit-do or loop package (LOOPPKG_FREEZE.md §6, for review)
@@ -32,40 +33,48 @@ open Tools.ShippingGen2Loop (SrcPkgL genTraceL letObsLoop_hl)
 inductive Pkg (ι : Type) (dom : ι → DomainConfig) where
   | gen (p : SrcPkg ι dom)
   | loop (p : SrcPkgL ι dom)
+  | comb (p : CombPkg ι dom)
 
 variable {ι : Type} {dom : ι → DomainConfig}
 
 def Pkg.decl : Pkg ι dom → Name
   | .gen p => p.decl
   | .loop p => p.decl
+  | .comb p => p.decl
 
 def Pkg.d : Pkg ι dom → MachineData
   | .gen p => p.d
   | .loop p => p.d
+  | .comb p => p.d
 
 def Pkg.kD : Pkg ι dom → Nat
   | .gen p => p.kD
   | .loop p => p.kD
+  | .comb p => p.kD
 
 def Pkg.src : (p : Pkg ι dom) → (i : ι) → (Nat → Signal (dom i) Bool) →
     ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)
   | .gen p => p.src
   | .loop p => p.src
+  | .comb p => p.src
 
 noncomputable def Pkg.extS : (p : Pkg ι dom) → (i : ι) → (Nat → Signal (dom i) Bool) →
     ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)
   | .gen p => p.extS
   | .loop p => p.extS
+  | .comb p => p.extS
 
 noncomputable def Pkg.extBS : (p : Pkg ι dom) → (i : ι) → (Nat → Signal (dom i) Bool) →
     ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → Nat → Signal (dom i) Bool
   | .gen p => p.extBS
   | .loop p => p.extBS
+  | .comb p => p.extBS
 
 noncomputable def Pkg.lsrc : (p : Pkg ι dom) → (i : ι) → (Nat → Signal (dom i) Bool) →
     ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat)
   | .gen p => p.lsrc
   | .loop p => p.lsrc
+  | .comb p => p.lsrc
 
 /-- The declared, non-domain ports (as `SrcPkg.ports`). -/
 def Pkg.ports (p : Pkg ι dom) : List (Name × MixedGateBinder) :=
@@ -80,6 +89,7 @@ theorem Pkg.ok (p : Pkg ι dom) : p.d.ok = true := by
   cases p with
   | gen p => letI := p.inh; exact p.gen.ok
   | loop p => letI := p.inh; exact p.facts.ok
+  | comb p => exact p.facts.ok
 
 theorem Pkg.body_eq (p : Pkg ι dom) : p.d.shape.body = Tools.ShippingUnifiedSource.quote p.d.dom
     (fun j => inputExpr p.d.shape.binders.length (p.d.bpos j))
@@ -87,6 +97,7 @@ theorem Pkg.body_eq (p : Pkg ι dom) : p.d.shape.body = Tools.ShippingUnifiedSou
   cases p with
   | gen p => letI := p.inh; exact p.gen.body_eq
   | loop p => letI := p.inh; exact p.facts.hbody
+  | comb p => exact p.facts.hbody
 
 theorem Pkg.lsrc_hl (p : Pkg ι dom) (i : ι) (bools : Nat → Signal (dom i) Bool)
     (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) :
@@ -95,11 +106,12 @@ theorem Pkg.lsrc_hl (p : Pkg ι dom) (i : ι) (bools : Nat → Signal (dom i) Bo
   cases p with
   | gen p => exact @Tools.ShippingQuadCalls.letObsB_hl p.d ι dom p.inh p.ρ p.inits p.body p.ext p.extB i bools bits
   | loop p => exact letObsLoop_hl p i bools bits
+  | comb p => exact p.lsrc_hl i bools bits
 
 variable {mctx : Meta.Context} {cctx : Core.Context}
 variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-- **`Pkg.trace`** (a theorem by cases: `genTrace` / `genTraceL`). -/
+/-- **`Pkg.trace`** (a theorem by cases: `genTrace` / `genTraceL` / `combTrace`). -/
 theorem Pkg.trace (O : RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
     (hA : AdmCtx O.quiet mctx cctx) (p : Pkg ι dom) {D₀ : Nat} {m : Sparkle.IR.AST.Module} {design : Design}
     (ran : Tools.ShippingServedRealA.MachineRunJQC O mctx cctx (D₀ + 1) p.decl p.d.shape m design) :
@@ -110,16 +122,18 @@ theorem Pkg.trace (O : RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) (T
     letI := p.inh
     exact Tools.ShippingQuadComposed.genTrace O T hA (declName := p.decl) p.d dom p.gen ran
   | loop p => exact genTraceL O T hA p ran
+  | comb p => exact combTrace O T hA p ran
 
 /-- The lift of a `SrcPkg` assignment (for the compatibility tests). -/
 def Pkgs.lift (P : Name → Option (SrcPkg ι dom)) : Name → Option (Pkg ι dom) :=
   fun c => (P c).map Pkg.gen
 
-/-- The DataOk lift used ONLY by the compatibility tests: the old `DataOk` on `.gen`, `False` on `.loop`. It never
+/-- The DataOk lift used ONLY by the compatibility tests: the old `DataOk` on `.gen`, `False` on `.loop` and `.comb`. It never
 restricts a real theorem. -/
 def DataOkLiftCompat (DataOk : SrcPkg ι dom → Prop) : Pkg ι dom → Prop
   | .gen p => DataOk p
   | .loop _ => False
+  | .comb _ => False
 
 /-- Specialisation checks of the accessors (definitional). -/
 example (p : SrcPkg ι dom) : (Pkg.gen p).extS = p.extS := rfl

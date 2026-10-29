@@ -73,6 +73,7 @@ theorem Pkg.src_length (q : Pkg ι dom) (i : ι) (bools : Nat → Signal (dom i)
     show (p.src i bools bits).length = p.d.outs.length
     rw [p.facts.hsrc i bools bits]
     exact hr
+  | comb p => exact p.src_length i bools bits
 
 /-- **The supplier of `hS` / `g`** (STEP_IFACE_FREEZE.md rev3 §4 S4, frozen type). -/
 theorem Pkg.src_get (q : Pkg ι dom) : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool)
