@@ -132,3 +132,109 @@ The statement-surface change is a reviewed amendment. It does not narrow FG, so 
 
 ## 4. Not claimed
 No proof yet. The generator assessment is structural. M2/FG are not complete.
+
+## 5. Rev1 (review 500bc675): step-0 inventory, the supply path (R1), and compatibility (R2)
+
+### 5.1 Step 0 result (generator probe, APPROVED step)
+- **Probe:** `Tests/Gen2/QuantEndpoint.lean` runs `#machine_endpoint` and `#machine_composedT` on
+  `Sparkle.IP.Video.H264.QuantSynth.quantModule`.
+- **Builds:**
+  - `g2lp-1ff48ce9`: exit 0, head = base = 1ff48ce9, log SHA-256 prefix `74658400d0ba4b62`.
+  - Failed diagnostics: `g2lp-6619ad15` and `g2lp-f1bde40d`. Only the inventory `run_cmd` failed (a shadowed variable;
+    `String.take` returns a `Slice`). Both generator commands had already succeeded in them.
+- **Axioms:** `machine_sound` depends only on `[propext, Classical.choice, Quot.sound]`.
+- **Generated constants** (prefix `…quantModule.`):
+  - **defs:** `machineData`, `machineSigma`, `machineInits`, `machineBody` (the loop body `f`), `machineRes`,
+    `machineResult` (`obsR`), `machineExt`, `machineExtB`, `machineSource`.
+  - **theorems:**
+    - `machine_ok`, `machine_body`, `machine_inits`, `machine_reset` (= `h0`), `machine_writes`, `machine_result`,
+      `machine_source` (refl-checked);
+    - `machine_causal_0`, `machine_causal_1` (per-call context agreement, over `Ctx i (BitVec 2 × BitVec 5 × Bool ×
+      BitVec 16)`);
+    - `machine_sound`, `machine_composedT`.
+- **Source tie:** `machine_source : machineSource i bools bits = machineResult i (machineRes i bools bits (Signal.loop
+  (machineBody i bools bits)))`.
+  - No `machineSourceDecl` was emitted, so no normalisation/transport happened and none is needed.
+  - That `machineBody` is `quantModule`'s own loop is the generator's construction (G3-DECL, by construction; not proved
+    here).
+- **NOT available by name:**
+  - the loop head's `hcausal` (assembled inline, Tools/ShippingMachineCommand.lean:2243-2268, :2288-2356, :2603-2605);
+  - the per-call `MemFacts` (proved inside `#machine_composedT` by `callsTactic`, Tools/ShippingMachineMemCommand.lean:59,
+    :119; not exported).
+
+### 5.2 R1: supply path, with fields classified honestly
+**`LoopFacts`** = the premises of `machine_trace_of_loop_causal` (Tools/ShippingMachineCausalCtx.lean:412-463), with
+their kinds:
+
+| field | kind | quantModule supplier |
+|---|---|---|
+| `ok`, `hbody`, `hinit`, `h0`, `writes`, `hres`, `hsrc` | generated, refl-checked | `machine_ok`, `machine_body`, `machine_inits`, `machine_reset`, `machine_writes`, `machine_result`, `machine_source` |
+| `hcausal` | **source-level causality obligation** (not DATA, not refl) | a NAMED lemma `quant_hcausal` in the instance file, assembled exactly as `loopCalls` does: unfold `machineExt`/`machineExtB` (`extendBits`/`extendBools` chains), `extendBits_val`/`extendBools_val` case splits, and `machine_causal_0`/`_1` via `CtxAgree.of_state`. Its type is checked against `LoopFacts.causal` by the kernel. Nothing is extracted from proof terms |
+
+**`genTraceL`** (exact signature, A-boundary):
+```lean
+theorem genTraceL (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    {declName : Name} (p : SrcPkgL ι dom) (h : p.decl = declName) {D₀ : Nat} {m : Module} {design : Design}
+    (ran : Tools.ShippingServedRealA.MachineRunJQC O mctx cctx (D₀ + 1) declName p.d.shape m design) :
+    Tools.ShippingMachineTraceX.MachineTraceLBX (ServedRealA O declName p.d.shape m design) declName p.d m design dom p.src
+      (fun i b v => p.ext i b v (Signal.loop (p.f i b v))) (fun i b v => p.extB i b v (Signal.loop (p.f i b v)))
+      (Tools.ShippingMachineSeqLinked.letObsLoop p.d dom p.σ p.f p.ext p.extB)
+```
+It is proved like `genTrace` (QuadComposed:156-180):
+- the A-form loop proof `machine_traceL_of_loop_causalRA_ranA` is SeqLinkedR:90-117, with
+  `machine_trace_lets_of_streamBRA_ranA O (bodyStepC_of_tele O T) hA (htr_of_tele O hA T D₀)` (ServedRealATrace:36) in
+  place of `_streamBRA_ran`;
+- `ran : MachineRunJQC … (D₀ + 1)`, exactly as `genTrace`.
+
+It NEVER uses `MachineRan`/`ServedReal`.
+
+**MemDec for the loop package:** stated over `Pkg.lsrc (.loop p) = letObsLoop …` and `Pkg.extS (.loop p) = p.ext …
+(Signal.loop (p.f …))`. That is exactly the form in which `#machine_composedT` proves its `MemFacts`. The instance
+re-proves them with the generator's `memTactic`/`callsTactic` steps (`rfl`/`decide` per entry) as a named
+`quant_memDec`. It is not extracted.
+
+**Step-0 completion criterion (R1).** The package counts as complete only when `quant_hcausal`, `quant_memDec` and
+`ExtInS` (`rfl` through `extendBits`) are proved for `quantModule`. Otherwise it is a blocker.
+
+### 5.3 R2: compatibility and verification scope
+**Change surface.** The whole of `Tools/ShippingGen2Defs.lean` moves from `SrcPkg` to `Pkg`:
+- `SrcPkg.ports`/`S` become `Pkg.ports`/`S`;
+- `Pkgs` becomes `Name → Option (Pkg ι dom)`;
+- `ChildShips`, `CallDec`, `MemDec`, `ShipsRes`, `CacheShips`, `ShipsAt`, `InvAt`, `IHAt`, `BodyKeepsInv`,
+  `ChildKeepsInv`, `KeepBodyStmt`, `KeepChildStmt`, `T1Hyp`, `ServedGP`/`Served1P`/`ServedP` (unchanged: no package),
+  `ServedShipsStmt`, `ServedPC`, `TopShips`, `StepStmt`, `MemParentStmt`, `LeafStmt` and `T1Stmt` switch to `Pkg`;
+- `MemParentDataOk`, `ExtInS`, `MemOrigin` and `MemParentStmt'` in Tools/ShippingGen2MemParent.lean switch too.
+
+**Importer table:**
+
+| file | change |
+|---|---|
+| Tools/ShippingGen2Connect.lean | `SrcPkg` → `Pkg`; `stableA_invAt` is unchanged in substance |
+| Tools/ShippingGen2Keep.lean | none beyond the types |
+| Tools/ShippingGen2Data.lean (U0 `DataOkB`) | stays on `SrcPkg` (U0 artefact). `DataOk` for `Pkg` via `Pkg.gen` |
+| Tools/ShippingGen2CallDec.lean, Tools/ShippingGen2Adapt.lean | `letObsB_hl` → `Pkg.lsrc_hl`; types |
+| Tools/ShippingGen2MemFacts/MemParent/MemData/MemTop/MemShips/C6 | `genTrace` → `Pkg.trace`, `p.gen.body_eq` → `Pkg.body_eq`, `p.inh` → per-form; types |
+| Tests/Gen2/U0Check, CallDecInstance, AdaptInstance, MemParentInstance | packages wrapped with `Pkg.gen` |
+
+**Exact types of the accessors/theorems** (`namespace Tools.ShippingGen2`):
+- `Pkg.decl : Pkg ι dom → Name`, `Pkg.d`, `Pkg.kD`;
+- `Pkg.src : (p : Pkg ι dom) → (i : ι) → (Nat → Signal (dom i) Bool) → (…) → List (Nat → Nat)`;
+- `Pkg.extS`/`extBS`/`lsrc` with the same types as `SrcPkg.extS`/`extBS`/`lsrc`, by cases;
+- `Pkg.ports`, `Pkg.S`;
+- `Pkg.trace : … MachineRunJQC O mctx cctx (D₀+1) p.decl p.d.shape m design → MachineTraceLBX (ServedRealA O p.decl
+  p.d.shape m design) p.decl p.d m design dom p.src p.extS p.extBS p.lsrc` (a theorem, by cases);
+- `Pkg.ok : p.d.ok = true`, `Pkg.body_eq`, `Pkg.lsrc_hl` (the statement of `letObsB_hl` over `Pkg.lsrc`).
+
+**Specialization tests (acceptance).** `Tests/Gen2/PkgCompat.lean` copies the OLD texts of every changed definition
+(from f1a4367f, under `namespace Old`) and proves, for every `p : SrcPkg ι dom`:
+- `TopShips (.gen p) … = Old.TopShips p …` by `rfl`, and the same for each changed def;
+- for `Pkgs`: `Old.X P … ↔ X (fun c => (P c).map Pkg.gen) …`, by `Iff.rfl` or a short proof.
+
+**No new semantic premise anywhere.**
+
+**Focused verification.**
+- Re-build U0Check, CallDecInstance, AdaptInstance and MemParentInstance through `Pkg.gen`.
+- Add the quantModule instance.
+- No full rebuild.
+- `SrcPkg`-specific lemmas (`genFacts_restrict`, `letObsB_hl`, U0's `DataOkB`) stay on `SrcPkg`. Their boundary is the
+  `Pkg.gen` wrapper.
