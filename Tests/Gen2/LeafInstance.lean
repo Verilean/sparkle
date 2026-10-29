@@ -18,6 +18,10 @@ open Sparkle.Core.Domain
 
 abbrev U := fun _ : Unit => defaultDomain
 
+/-- The state type is inhabited by the reset values (the generator registers no instance for a callless leaf). -/
+noncomputable instance leaf16_inh : Inhabited (Sparkle.Core.HList (Tools.ShippingMachineDenote.tys leaf16.machineData.ss)) :=
+  ⟨leaf16.machineInits⟩
+
 /-- `leaf16`'s `GenFacts` at `(DomainConfig, id)` with the identity extension, from its generated `machine_*`
 theorems. -/
 theorem leaf16_gen : Tools.ShippingQuadComposed.GenFacts leaf16.machineData (fun i : DomainConfig => i)
