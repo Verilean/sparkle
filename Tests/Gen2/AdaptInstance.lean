@@ -31,17 +31,21 @@ theorem tm2_callDec_at : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
     refine ⟨wQPkg, hP, callDec_of_hPointAt_at P2 tm2Pkg wQPkg k hk hP hnone hH Q.hP.ok Q.hP.callsOk Q.hP.slots
       ?_ ?_⟩
     · have : k < 4 := hl4 ▸ hk
-      interval_cases k <;> first | decide | decide +kernel
+      rcases k with _ | _ | _ | _ | k
+      all_goals first | decide | decide +kernel | exact absurd hn (by decide) | omega
     · have : k < 4 := hl4 ▸ hk
-      interval_cases k <;> first | decide | decide +kernel
+      rcases k with _ | _ | _ | _ | k
+      all_goals first | decide | decide +kernel | exact absurd hn (by decide) | omega
   · have hP : P2 (tm2Pkg.d.shape.insts[k]).1 = some wPPkg := by
       rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2, hne.symm]
     refine ⟨wPPkg, hP, callDec_of_hPointAt_at P2 tm2Pkg wPPkg k hk hP hnone hH Q.hP.ok Q.hP.callsOk Q.hP.slots
       ?_ ?_⟩
     · have : k < 4 := hl4 ▸ hk
-      interval_cases k <;> first | decide | decide +kernel
+      rcases k with _ | _ | _ | _ | k
+      all_goals first | decide | decide +kernel | exact absurd hn (by decide) | omega
     · have : k < 4 := hl4 ▸ hk
-      interval_cases k <;> first | decide | decide +kernel
+      rcases k with _ | _ | _ | _ | k
+      all_goals first | decide | decide +kernel | exact absurd hn (by decide) | omega
 
 #print axioms Tools.ShippingGen2.callArgsOkAt_width
 #print axioms Tools.ShippingGen2.call_inRange_at
