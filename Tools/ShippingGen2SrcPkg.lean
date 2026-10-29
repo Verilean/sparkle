@@ -73,7 +73,4 @@ noncomputable def SrcPkg.S (p : SrcPkg ι dom) (i : ι) : (Nat → List Nat) →
   fun vals => p.src i (boolsOf (D := dom i) (p.d.bsIn.take p.kD) vals)
     (bitsOf (D := dom i) (p.d.bsIn.take p.kD) vals)
 
-/-- A package assignment: the package of every declaration a run reaches, or `none`. The G3 premise is that it is
-correct where it is `some` (`PkgOk`). -/
-
 end Tools.ShippingGen2

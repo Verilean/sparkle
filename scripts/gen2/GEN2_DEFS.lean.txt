@@ -36,6 +36,8 @@ open Tools.ShippingChildRunAKids Tools.ShippingChildRunAMain
 
 variable {ι : Type} {dom : ι → DomainConfig}
 
+/-- A package assignment: the package of every declaration a run reaches, or `none`. The G3 premise is that it is
+correct where it is `some` (`PkgOk`). -/
 abbrev Pkgs (ι : Type) (dom : ι → DomainConfig) := Name → Option (Pkg ι dom)
 
 /-! ## 2. Runtime laws (G5) — kept apart from the start conditions -/
