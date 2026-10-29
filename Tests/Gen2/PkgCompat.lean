@@ -255,14 +255,14 @@ example (p : SrcPkg ι dom) : ExtInS (.gen p) = Old.ExtInS p := rfl
 example (p : SrcPkg ι dom) : MemOrigin (.gen p) = Old.MemOrigin p := rfl
 
 /-! ## package assignments: equal at the lift -/
-theorem lift_some {P : Name → Option (SrcPkg ι dom)} {c : Lean.Name} {q' : Pkg ι dom} :
+theorem lift_some {P : Lean.Name → Option (SrcPkg ι dom)} {c : Lean.Name} {q' : Pkg ι dom} :
     Pkgs.lift P c = some q' ↔ ∃ q, P c = some q ∧ q' = .gen q := by
   simp only [Pkgs.lift, Option.map_eq_some_iff]
   constructor
   · rintro ⟨q, hq, rfl⟩; exact ⟨q, hq, rfl⟩
   · rintro ⟨q, hq, rfl⟩; exact ⟨q, hq, rfl⟩
 
-theorem shipsRes_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) :
+theorem shipsRes_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
     ShipsRes L (Pkgs.lift P) = Old.ShipsRes L P := by
   funext c r
   apply propext
@@ -273,7 +273,7 @@ theorem shipsRes_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) :
   · rintro ⟨h1, q, n, hq, hd, hc⟩
     exact ⟨h1, .gen q, n, lift_some.mpr ⟨q, hq, rfl⟩, hd, hc⟩
 
-theorem shipsAt_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) :
+theorem shipsAt_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
     ShipsAt L (Pkgs.lift P) = Old.ShipsAt L P := by
   funext n c r
   apply propext
@@ -284,47 +284,47 @@ theorem shipsAt_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) :
   · rintro ⟨h1, q, hq, hd, hc⟩
     exact ⟨h1, .gen q, lift_some.mpr ⟨q, hq, rfl⟩, hd, hc⟩
 
-theorem cacheShips_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) :
+theorem cacheShips_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
     CacheShips L (Pkgs.lift P) = Old.CacheShips L P := by
   funext Reach m
   unfold CacheShips Old.CacheShips
   rw [shipsRes_eq]
 
-theorem invAt_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) :
+theorem invAt_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
     InvAt L (Pkgs.lift P) = Old.InvAt L P := by
   funext Reach D
   unfold InvAt Old.InvAt
   rw [cacheShips_eq]
 
-theorem iHAt_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) :
+theorem iHAt_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
     IHAt L (Pkgs.lift P) = Old.IHAt L P := by
   funext Reach D
   unfold IHAt Old.IHAt
   rw [invAt_eq, shipsRes_eq]
 
-theorem bodyKeepsInv_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) :
+theorem bodyKeepsInv_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
     BodyKeepsInv L (Pkgs.lift P) = Old.BodyKeepsInv L P := by
   funext Reach D
   unfold BodyKeepsInv Old.BodyKeepsInv
   rw [invAt_eq]
 
-theorem childKeepsInv_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) :
+theorem childKeepsInv_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
     ChildKeepsInv L (Pkgs.lift P) = Old.ChildKeepsInv L P := by
   funext Reach D
   unfold ChildKeepsInv Old.ChildKeepsInv
   rw [invAt_eq]
 
-theorem keepBody_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop) :
+theorem keepBody_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop) :
     KeepBodyStmt L (Pkgs.lift P) Reach = Old.KeepBodyStmt L P Reach := by
   unfold KeepBodyStmt Old.KeepBodyStmt
   rw [childKeepsInv_eq, bodyKeepsInv_eq]
 
-theorem keepChild_eq (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop) :
+theorem keepChild_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop) :
     KeepChildStmt L (Pkgs.lift P) Reach = Old.KeepChildStmt L P Reach := by
   unfold KeepChildStmt Old.KeepChildStmt
   rw [bodyKeepsInv_eq, iHAt_eq, childKeepsInv_eq]
 
-theorem t1Hyp_iff (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
+theorem t1Hyp_iff (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) :
     T1Hyp L (Pkgs.lift P) Reach (DataOkLiftCompat DataOk) ↔ Old.T1Hyp L P Reach DataOk := by
   constructor
@@ -375,7 +375,7 @@ theorem leafStmt_compat (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
     LeafStmt L (DataOkLiftCompat DataOk) → Old.LeafStmt L DataOk :=
   fun h p => h (.gen p)
 
-theorem stepStmt_compat (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) (DataOk : SrcPkg ι dom → Prop) :
+theorem stepStmt_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (DataOk : SrcPkg ι dom → Prop) :
     StepStmt L (Pkgs.lift P) (DataOkLiftCompat DataOk) → Old.StepStmt L P DataOk := by
   intro h p mctx cctx w w1 raw b D hP hd hA hjqc hcore hpost hdef ht hdec htr
   refine h (.gen p) mctx cctx w w1 raw b D (lift_some.mpr ⟨p, hP, rfl⟩) hd hA hjqc hcore hpost hdef ht ?_ ?_
@@ -385,7 +385,7 @@ theorem stepStmt_compat (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom
     · exact Or.inr ⟨.gen q, lift_some.mpr ⟨q, hq, rfl⟩, hc⟩
   · rw [shipsRes_eq]; exact htr
 
-theorem t1Stmt_compat (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
+theorem t1Stmt_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) :
     T1Stmt L (Pkgs.lift P) Reach (DataOkLiftCompat DataOk) → Old.T1Stmt L P Reach DataOk := by
   intro h hT c mctx cctx w w1 raw b D hR hS hcore hpost
@@ -393,7 +393,7 @@ theorem t1Stmt_compat (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom))
   obtain ⟨q, hq, rfl⟩ := lift_some.mp hq'
   exact ⟨q, n, hq, hts⟩
 
-theorem servedShips_compat (L : Laws mref cref) (P : Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
+theorem servedShips_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) :
     ServedShipsStmt L (Pkgs.lift P) Reach (DataOkLiftCompat DataOk) → Old.ServedShipsStmt L P Reach DataOk := by
   intro h hT p mctx cctx w w' raw D hR hP hA hinv hih hck hcore
