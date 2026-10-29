@@ -4487,3 +4487,6 @@ lean_lib «Tests.Gen2.AdaptInstance» where
 
 lean_lib «Tools.ShippingGen2MemBd» where
   roots := #[`Tools.ShippingGen2MemBd]
+
+lean_lib «Tools.ShippingGen2MemKids» where
+  roots := #[`Tools.ShippingGen2MemKids]
