@@ -4730,3 +4730,9 @@ lean_lib «Tools.ShippingGen2SlotlessTop» where
 
 lean_lib «Tests.Gen2.TopNCCheck» where
   roots := #[`Tests.Gen2.TopNCCheck]
+
+lean_lib «Tools.ShippingGen5T2Range» where
+  roots := #[`Tools.ShippingGen5T2Range]
+
+lean_lib «Tests.Gen5.T2RangeCheck» where
+  roots := #[`Tests.Gen5.T2RangeCheck]

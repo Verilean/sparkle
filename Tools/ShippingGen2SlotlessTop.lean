@@ -43,7 +43,8 @@ the slotless shape). No `SeqKid`, no compiler change, no Defs edit. C4/C5a must 
 /-! ## C1, C3, supplier, C4 (ambient: FitChain Block C, Tools/ShippingGen2FitChain.lean:1054-1068) -/
 namespace Tools.ShippingGen2SlotlessTop
 open Tools.ShippingShipsDesignSV Tools.ShippingMachineShipsHier Tools.ShippingMachineShipsDepth
-open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
+open Lean hiding Module Expr
+open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.IR.AST (Module)
 open Sparkle.IR.OptCheck Sparkle.IR.RefineCheck Sparkle.IR.HierCheck
 open Sparkle.IR.RegDedup (declWidth isAssign)

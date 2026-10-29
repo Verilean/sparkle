@@ -53,7 +53,8 @@ namespace Tests.Gen2.TopNCCheck
 
 section ExpContracts
 -- the opens of Tools/ShippingGen2TopNC.lean §1 (= Tools/ShippingGen2Defs.lean)
-open Lean Meta Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
+open Lean hiding Module
+open Meta Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.IR.AST (Module)
 open Sparkle.IR.OptCheck Sparkle.IR.RefineCheck Sparkle.IR.HierCheck
 open Sparkle.IR.RegDedup (declWidth isAssign)
@@ -282,7 +283,8 @@ end ExpS2
 section ExpC
 -- the opens of Tools/ShippingGen2SlotlessTop.lean §C1-C4 (= FitChain Block C)
 open Tools.ShippingShipsDesignSV Tools.ShippingMachineShipsHier Tools.ShippingMachineShipsDepth
-open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
+open Lean hiding Module Expr
+open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.IR.AST (Module)
 open Sparkle.IR.OptCheck Sparkle.IR.RefineCheck Sparkle.IR.HierCheck
 open Sparkle.IR.RegDedup (declWidth isAssign)
