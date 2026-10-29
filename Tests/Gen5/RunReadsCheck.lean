@@ -54,6 +54,7 @@ open Tools.ShippingChildRunA
 open Tools.ShippingChildRunAMain
 open Tools.ShippingChildComposeC
 open Tools.ShippingChildRunAKids (MachineClosesAtA)
+open Tools.ShippingMachineOutcomeA (legacyTail)
 
 open Sparkle.IR.AST (Design)
 open Tools.ShippingGen5RunReads

@@ -33,6 +33,7 @@ open Tools.ShippingChildRunA
 open Tools.ShippingChildRunAMain
 open Tools.ShippingChildComposeC
 open Tools.ShippingChildRunAKids (MachineClosesAtA)
+open Tools.ShippingMachineOutcomeA (legacyTail)
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
