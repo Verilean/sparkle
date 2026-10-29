@@ -113,9 +113,9 @@ theorem q_memDec : ∀ (k : Nat) (hk : k < qPkg.d.shape.insts.length), MemDec qP
       by decide, ?h3, by decide, rfl, ?hx⟩
     case hx => intro j; rfl
     all_goals rfl
-  · refine ⟨false, 4, 16, ?A, ?D, ?E, ?R, 6, 28, 3, 29, rfl, rfl, ?h0, by decide, ?h1, by decide, ?h2,
-      by decide, ?h3, by decide, rfl, ?hx⟩
-    case hx => intro j; rfl
+  · refine ⟨false, 4, 16, ?A2, ?D2, ?E2, ?R2, 6, 28, 3, 29, rfl, rfl, ?g0, by decide, ?g1, by decide, ?g2,
+      by decide, ?g3, by decide, rfl, ?gx⟩
+    case gx => intro j; rfl
     all_goals rfl
   · omega
 
