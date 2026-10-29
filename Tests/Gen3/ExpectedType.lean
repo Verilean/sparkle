@@ -74,20 +74,20 @@ def checkExpected (thm exp : Name) : MetaM Unit := do
   cmpTele s!"{thm}" a e
   logInfo m!"GEN3 TYPE OK {thm} against {exp}"
 
-/-- The mutant `mut` must NOT be accepted as `thm`'s statement. -/
-def checkMutant (thm mut : Name) : MetaM Unit := do
+/-- The mutant `mt` must NOT be accepted as `thm`'s statement. -/
+def checkMutant (thm mt : Name) : MetaM Unit := do
   let a ← stmtOf thm
-  let e ← stmtOf mut
+  let e ← stmtOf mt
   let accepted ← withoutModifyingState do
     try
-      cmpTele s!"{thm} vs mutant {mut}" a e
+      cmpTele s!"{thm} vs mutant {mt}" a e
       pure true
     catch _ => pure false
   if accepted then
-    throwError "GEN3 MUTANT ACCEPTED: {mut} matches {thm}"
+    throwError "GEN3 MUTANT ACCEPTED: {mt} matches {thm}"
   if (← withoutModifyingState (isDefEq a e)) then
-    throwError "GEN3 MUTANT ACCEPTED (isDefEq of the whole statements): {mut} vs {thm}"
-  logInfo m!"GEN3 MUTANT REJECTED {mut} (against {thm})"
+    throwError "GEN3 MUTANT ACCEPTED (isDefEq of the whole statements): {mt} vs {thm}"
+  logInfo m!"GEN3 MUTANT REJECTED {mt} (against {thm})"
 
 /-- Only the standard axioms. -/
 def checkAxioms (n : Name) : MetaM Unit := do

@@ -28,7 +28,8 @@ SRC-ARGW's width equality for the same call do they reach `callArgsOkAt`).
 Header correction (non-semantic): `open Sparkle.Core.Domain` is added to the §2 header (`DomainConfig`). -/
 
 namespace Tools.ShippingGen3Arity
-open Lean Meta
+open Lean hiding Module
+open Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
 open Sparkle.IR.AST (Module)
 open Sparkle.Core.Domain

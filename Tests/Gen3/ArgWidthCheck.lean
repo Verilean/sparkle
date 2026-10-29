@@ -26,7 +26,8 @@ open Tests.Gen3.ExpectedType
 
 section Expected
 -- the opens of Tools/ShippingGen3ArgWidth.lean (= OneOutTop:26-45)
-open Lean Meta
+open Lean hiding Module
+open Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
 open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
 open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge

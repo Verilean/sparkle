@@ -34,7 +34,8 @@ open Sparkle.Core.Domain
 /-! ## 1. Expected statements (freeze §2 text; the §2 header opens) -/
 
 section Expected
-open Lean Meta
+open Lean hiding Module
+open Meta
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
 open Sparkle.IR.AST (Module)
 open Tools.ShippingMachineEntry Tools.ShippingMachineLinked
