@@ -1,4 +1,4 @@
-# M2-a `MemParentStmt`: frozen plan
+# M2-a `MemParentStmt`: frozen plan (rev1)
 
 Issue `sparkle-gen2-step-mem` (milestone `sparkle-gen2`).
 - **Base:** `par/gen2-spec`. Spec d622ad71, U0, CallDec probe and G3-GEN-CALL plan are all approved.
@@ -45,28 +45,75 @@ Issue `sparkle-gen2-step-mem` (milestone `sparkle-gen2`).
 | `hext`/`hextB` (the generated `ext` is the input family at declared positions `j < kD`) | **C7**: not in `GenFacts`/`SrcPkg`/`DataOk`; per declaration by `rfl` in tests (Tests/Compiler/Srm4RunTest.lean:44, :49) | see §2 |
 | MemDec | the premise of `MemParentStmt` (G-MEMCALLS: per declaration today, the generator's `memTactic`) | premise (unchanged) |
 
-## 2. Amendments to the frozen statements (for review; applied only after approval)
-- **A1, `DataOkB` rows.** Add the rows the consumers need: `fne`, `domB`, `kD ≤ bsIn.length`, `hIlen`, `hSL`, `hSlen`,
-  `hLlen`, `hNIn`, as Bool checks over `p.d`/`p.kD`.
-  - The `c_parent_*` lemmas derive most of them from `ok`/`callsOk`/`slots`. Those are proved and NOT added.
-  - Only the underived ones (`fne`, `domB` if not derived) are added.
-  - Each is a D row with coverage open.
-- **A2, `hext`/`hextB` (C7).** A new Prop on packages:
-  `ExtIn p := ∀ i bools bits S j, j < p.kD → p.extB i bools bits S j = bools j ∧ ∀ n, p.ext i bools bits S j n = bits j n`.
-  It is added as a premise of `MemParentStmt` (and `StepStmt`/`LeafStmt` where used).
-  - It is a property of the generator's construction of `ext`, the same kind as t1 in G3-GEN-CALL. Its generic supply
-    goes to D-GEN/G3-GEN (M5).
-  - In instances it is `rfl`.
-  - It is NOT a semantic conclusion. It concerns only how the declared inputs enter `ext`.
-- **A3, `outHead`.** Removed from `DataOkB` for `MemParentStmt`'s use, and re-homed to G-CLOSES (§0.1). `DataOkB` keeps
-  it only if another consumer needs it.
+## 2. Amendments (rev1, review b71e6810; applied only after approval)
+U0's `DataOkB`, `CallDec`, `StepStmt` and `LeafStmt` are NOT changed. This unit adds its OWN predicates.
 
-## 3. Statement after A1-A2 (Lean, exact; `MemParentStmt'` replaces `MemParentStmt` after approval)
+### 2.1 `MemParentDataOk` (R1): the concrete data predicate of this consumer
 ```lean
-def MemParentStmt' {mref cref} (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) : Prop :=
+def MemParentDataOkB (p : SrcPkg ι dom) : Bool :=
+  p.d.ok && p.d.callsOk p.kD &&
+  decide (p.d.ss.length = p.d.shape.layout.slots.length) &&
+  decide (∀ o ∈ p.d.shape.layout.outs, o.ty.bitWidth = o.width) &&
+  decide (∀ b ∈ p.d.shape.binders.drop p.kD, b.2 ≠ .domain)
+def MemParentDataOk (p : SrcPkg ι dom) : Prop := MemParentDataOkB p = true
+```
+
+| consumer premise | row / supplier | status |
+|---|---|---|
+| `ok`, `hbody` (`core_runFacts_ranAM`); `hinitW` (consumer 1) | `p.gen.ok`, `p.gen.body_eq`; `hinitW_of_ok` | E (package) / proved |
+| `hC` (`callsOk kD`) | row 2 | D, coverage open (G-DATA) |
+| `hslots` | row 3 | D, coverage open |
+| `outTy` / `houtTy` | row 4 | D, coverage open |
+| `hdomB`, consumer 2's `hI` (via `bsIn_drop_nodomain`, QuadComposed:89) | row 5 | D, coverage open |
+| `hkD`, `hIlen` | from rows 1-2 (`ok_bsIn_length`, `callsOk_nIn`) | proved (CallDec unit) |
+| `hSL`, `hSlen`, `hLlen`, `hNIn` | from `ok` (+ row 3 for `hSlen`): the generic bodies of `c_ok_slotLet`, `ok_len`, `c_parent_hLlen`, `c_parent_hNIn` (Tests/Compiler/C4ComposedTest.lean:130-170) | to be restated generically and proved in this unit. If one does not follow, it becomes a row of `MemParentDataOkB` and is reported (no silent addition) |
+| `houtOk` (`outNameOk`, `seqChildRunN_of_composedCA`) | from `ok` (its `outs` conjunct, ShippingMachineAuto.lean:217) | proved in this unit |
+| `letsAliasOk`, `outHead` | not used by this consumer | not rows. `outHead` stays an OPEN G-CLOSES obligation |
+
+### 2.2 Case premises (not data): each has a covering route
+| premise | excluded case | covering unit |
+|---|---|---|
+| `p.d.shape.insts ≠ []` (`hins`, and C6's `hI0`) | no call entries: an ordinary leaf | `LeafStmt` (`sparkle-gen2-leaf`) |
+| `p.d.shape.instFields ≠ []` (`hfne`/`hfe`) | calls through `closeInsts` (one-output combinational children) | G-ONEOUT (M2-d, `sparkle-gen2-step`). For the surveyed memory parents `fields = insts` (SURVEY_RESULT.md); that is an observation, not a derivation |
+| `p.d.shape.layout.slots ≠ []` | slotless (YOLOv8) | G-SLOTLESS (M2-c) |
+
+These are recorded as case restrictions of THIS theorem. FG coverage of the excluded cases is the listed units'
+obligation.
+
+### 2.3 `ExtInS` (R2): minimal, typed, on `extS`/`extBS` only
+`seqChildRunN_of_composedCA` (Tools/ShippingSeqChildDeepRunA.lean:58-59) needs exactly these, after the state loop:
+```lean
+def ExtInS (p : SrcPkg ι dom) : Prop :=
+  (∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (j : Nat), j < p.kD → p.extBS i bools bits j = bools j) ∧
+  (∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (j n' : Nat), j < p.kD → p.extS i bools bits j n' = bits j n')
+```
+- **Kind.** A functional equality about the generator's output. It is not DATA.
+- **Instance supplier.** `leafM_hextB`/`leafM_hext` (Tests/Compiler/Srm4RunTest.lean:44, :49), by `rfl`, or by `delta` +
+  `extendBits`/`extendBools` case splits. They are restricted to `Unit` like `genFacts_restrict`.
+- **Generic obligation.** Recorded in D-GEN/M5: the generated `machineExt`/`machineExtB` are the
+  `extendBits`/`extendBools` extensions of the input families at positions `≥ nDecl`. That is t1's construction. It is
+  NOT proved, and it is not claimed true merely because it describes "input plumbing".
+- **Scope.** It is added to `MemParentStmt'` only. `StepStmt`/`LeafStmt` are changed only after their own consumers are
+  checked, in their own freezes.
+
+### 2.4 `ChildShips` (C6)
+`ChildShips` is NOT changed. C6 must derive, for every extending `dsn`:
+- `ExtendsAway raw.name (childMap D.modules) (childMap dsn.modules)`. Its first half comes from `ChildShips`' own
+  hypotheses (`Dc ⊆ dsn`, `mc ∈ dsn`). Its second half, and `NoInstOf raw.name raw.body`, come from
+  `closeInstsG_acyclic` on `MachineRanA`'s `CloseCalls`.
+
+If C6 needs anything more, the proof stops and a reviewed amendment is proposed. It is not absorbed silently.
+
+## 3. Statement after the amendments (exact; `MemParentStmt'`)
+```lean
+def MemParentStmt' {mref cref} (L : Laws mref cref) : Prop :=
   ∀ (p : SrcPkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
     (raw b : Sparkle.IR.AST.Module) (D : Design),
-    DataOk p → ExtIn p → p.d.shape.layout.slots ≠ [] → AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w →
+    MemParentDataOk p → ExtInS p →
+    p.d.shape.insts ≠ [] → p.d.shape.instFields ≠ [] → p.d.shape.layout.slots ≠ [] →
+    AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w →
     RunsTo (synthesizeCombinationalCore p.decl [] false) mctx mref cctx cref w (raw, D) w1 →
     (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
@@ -75,9 +122,8 @@ def MemParentStmt' {mref cref} (L : Laws mref cref) (DataOk : SrcPkg ι dom → 
     (∀ k (hk : k < p.d.shape.insts.length), MemDec p k (p.d.shape.insts[k]).1) →
     ∀ n, TopShips p (n + 1) p.decl b raw D ∧ ChildShips p (n + 1) b D
 ```
-- `n + 1` is kept. C2 covers every `n`.
-- Whether `ChildShips` needs `ExtendsAway` beyond `Dc ⊆ dsn` is checked when C6 is written. If an extra hypothesis
-  is needed, it is reported as a deviation.
+It replaces the frozen `MemParentStmt` (Defs:321) for this unit's theorem. The old def stays for reference until
+M2-b's statement review.
 
 ## 4. Units of this Issue, in order (each with an exact-head build)
 1. C1-C3 + named `instFree` (G-BD, memory, every `n`).
@@ -95,7 +141,9 @@ def MemParentStmt' {mref cref} (L : Laws mref cref) (DataOk : SrcPkg ι dom → 
 
 **Acceptance of this Issue:**
 - units 1-7 proved;
-- A1-A3 reviewed;
+- §2 reviewed;
+- the leafM application is a CONDITIONAL instance: package/data satisfiability with abstract run hypotheses. It is
+  not evidence that an actual successful compiler run exists;
 - the IP-top instance is NOT part of this Issue. It moves to `sparkle-gen2-loop-pkg`, and M2's acceptance item keeps
   it (§0.2).
 

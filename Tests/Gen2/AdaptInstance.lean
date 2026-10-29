@@ -11,7 +11,7 @@ set_option maxHeartbeats 4000000
 
 namespace Tests.Gen2.AdaptInstance
 open Tools.ShippingGen2 Tests.Gen2.CallDecInstance
-open Tools.ShippingQuadComposed Tests.Compiler.QuadCallsTest Tests.Compiler.SharedLeafGenTest
+open Tools.ShippingQuadComposed Tools.ShippingQuadLeafGeneric Tests.Compiler.QuadCallsTest Tests.Compiler.SharedLeafGenTest
 
 theorem tm2_callDec_at : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
     ∃ q, P2 (tm2Pkg.d.shape.insts[k]).1 = some q ∧ CallDec tm2Pkg q k := by
