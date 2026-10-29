@@ -4532,3 +4532,9 @@ lean_lib «Tests.Gen2.QuantInstance» where
 
 lean_lib «Tools.ShippingGen2LoopRestrict» where
   roots := #[`Tools.ShippingGen2LoopRestrict]
+
+lean_lib «Tools.ShippingGen2LeafSeq» where
+  roots := #[`Tools.ShippingGen2LeafSeq]
+
+lean_lib «Tools.ShippingGen2Leaf» where
+  roots := #[`Tools.ShippingGen2Leaf]
