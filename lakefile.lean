@@ -4721,3 +4721,12 @@ lean_lib «Tools.ShippingGen3ArgSupply3» where
 
 lean_lib «Tests.Gen3.ArgSupply3Check» where
   roots := #[`Tests.Gen3.ArgSupply3Check]
+
+lean_lib «Tools.ShippingGen2TopNC» where
+  roots := #[`Tools.ShippingGen2TopNC]
+
+lean_lib «Tools.ShippingGen2SlotlessTop» where
+  roots := #[`Tools.ShippingGen2SlotlessTop]
+
+lean_lib «Tests.Gen2.TopNCCheck» where
+  roots := #[`Tests.Gen2.TopNCCheck]
