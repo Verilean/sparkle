@@ -2,7 +2,8 @@ import Tools.ShippingGen5RunReads
 import Tools.ShippingGen5T1ND
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: written without running Lean. No sorry / axiom / native_decide.
+-- Built in g5rr3-88771739 (clean, exit 0, 745 jobs; STRUCT pair OK + EnvR negative rejected (type of chain), TYPE 3,
+-- MUTANT 4 signature/defeq rejections, controls 6, REACH 3, AXIOMS 3). No sorry / axiom / native_decide.
 
 /-! # DG-RUNREADS checks (Tools/ShippingGen5RunReads.lean; scripts/gen5/DG_RUNREADS_FREEZE.md b8f9cd7a + notes ce3f7e2c)
 

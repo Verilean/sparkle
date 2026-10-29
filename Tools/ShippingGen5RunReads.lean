@@ -1,7 +1,7 @@
 import Tools.ShippingMachineOutcomeA
 import Tools.ShippingEntryReadsLinked
 set_option autoImplicit false
--- NOT BUILT: written without running Lean. No sorry / axiom / native_decide.
+-- Built in g5rr3-88771739 (clean, exit 0, 745 jobs). No sorry / axiom / native_decide.
 
 /-! # DG-RUNREADS (scripts/gen5/DG_RUNREADS_FREEZE.md, par/gen5-t2 b8f9cd7a, scoped approved; notes ce3f7e2c)
 
