@@ -4679,3 +4679,9 @@ lean_lib «Tests.Gen2.S5Check» where
 
 lean_lib «Tests.Gen2.S5SlotlessProbe» where
   roots := #[`Tests.Gen2.S5SlotlessProbe]
+
+lean_lib «Tools.ShippingGen3ArgSupply2» where
+  roots := #[`Tools.ShippingGen3ArgSupply2]
+
+lean_lib «Tests.Gen3.ArgSupply2Check» where
+  roots := #[`Tests.Gen3.ArgSupply2Check]
