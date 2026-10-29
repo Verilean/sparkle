@@ -90,7 +90,7 @@ theorem shipsAt_real {L : Laws mref cref} {P : Pkgs ι dom} {n : Nat} {c : Name}
     (h : ShipsAt L P n c r) : RealChildA L.O c r := h.1
 
 /-- `MemDec` is `MemFacts` of the parent's package (by definition). -/
-theorem memFacts_of_memDec {p : SrcPkg ι dom} {k : Nat} {c : Name} (h : MemDec p k c) (i : ι)
+theorem memFacts_of_memDec {p : Pkg ι dom} {k : Nat} {c : Name} (h : MemDec p k c) (i : ι)
     (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) :
     MemFacts p.d.shape (p.lsrc i bools bits) p.d.ls.length (p.d.bsIn.drop p.kD) p.kD (p.extS i bools bits) k c :=
   h i bools bits
@@ -104,7 +104,7 @@ noncomputable def pkgS (P : Pkgs ι dom) (i : ι) : Name → (Nat → List Nat) 
   fun c => ((P c).map fun q => q.S i).getD (fun _ => [])
 
 /-- **`CallDec` + the served child fact at height `n` ⇒ `SeqFactsRN`** (every conjunct; GENERAL_SPEC §4.2 table). -/
-theorem seqFactsRN_of_callDec {L : Laws mref cref} {P : Pkgs ι dom} {p q : SrcPkg ι dom} {k n : Nat} {c : Name}
+theorem seqFactsRN_of_callDec {L : Laws mref cref} {P : Pkgs ι dom} {p q : Pkg ι dom} {k n : Nat} {c : Name}
     (dsn : Design) (body : List Stmt) (i : ι) (bools : Nat → Signal (dom i) Bool)
     (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
     (hP : P c = some q) (hdec : CallDec p q k) :

@@ -36,7 +36,7 @@ open Sparkle.Compiler.MachMemory (memModule)
 variable {ι : Type} {dom : ι → DomainConfig}
 variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
 
-theorem memParent_childShips (L : Laws mref cref) (p : SrcPkg ι dom)
+theorem memParent_childShips (L : Laws mref cref) (p : Pkg ι dom)
     {mctx : Meta.Context} {cctx : Core.Context} {w : Void IO.RealWorld}
     {raw b : Sparkle.IR.AST.Module} {D : Design}
     (hdata : MemParentDataOk p) (hext : ExtInS p) (hmo : MemOrigin p)

@@ -4520,3 +4520,6 @@ lean_lib «Tools.ShippingGen2Loop» where
 
 lean_lib «Tools.ShippingGen2Pkg» where
   roots := #[`Tools.ShippingGen2Pkg]
+
+lean_lib «Tools.ShippingGen2SrcPkg» where
+  roots := #[`Tools.ShippingGen2SrcPkg]

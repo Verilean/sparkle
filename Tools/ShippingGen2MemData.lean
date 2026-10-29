@@ -13,7 +13,7 @@ open Tools.ShippingMachineEntry (machNIn)
 
 variable {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
 
-theorem MemParentDataOk.rows {p : SrcPkg ι dom} (h : MemParentDataOk p) :
+theorem MemParentDataOk.rows {p : Pkg ι dom} (h : MemParentDataOk p) :
     p.d.ok = true ∧ p.d.callsOk p.kD = true ∧ p.d.ss.length = p.d.shape.layout.slots.length ∧
     (∀ o ∈ p.d.shape.layout.outs, o.ty.bitWidth = o.width) ∧
     (∀ b ∈ p.d.shape.binders.drop p.kD, b.2 ≠ .domain) := by

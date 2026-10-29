@@ -77,7 +77,7 @@ def callArgsOkAt (d : MachineData) (nDecl k : Nat) (ws : List Nat) : Bool :=
         fun bn => (kindTy bn.2).bitWidth) = ws[j]?)
 
 /-- A callee package's declared non-domain port widths. -/
-def SrcPkg.portWidths (q : SrcPkg ι dom) : List Nat := q.ports.map fun b => (kindTy b.2).bitWidth
+def Pkg.portWidths (q : Pkg ι dom) : List Nat := q.ports.map fun b => (kindTy b.2).bitWidth
 
 /-- What `callArgsOkAt` gives at an argument position (as `callArgs_width`, PortsMatchRaw.lean:208). -/
 theorem callArgsOkAt_width {d : MachineData} {nDecl k : Nat} {ws : List Nat}
@@ -103,7 +103,7 @@ theorem callArgsOkAt_width {d : MachineData} {nDecl k : Nat} {ws : List Nat}
   exact Option.some.inj h5
 
 /-- **Local `InRange`** (the per-k body of `call_inRange`, QuadCalls.lean:112-176, with local tables). -/
-theorem call_inRange_at (p q : SrcPkg ι dom) (k : Nat) (hk : k < p.d.shape.insts.length)
+theorem call_inRange_at (p q : Pkg ι dom) (k : Nat) (hk : k < p.d.shape.insts.length)
     (hok : p.d.ok = true) (hco : p.d.callsOk p.kD = true)
     (hslots : p.d.ss.length = p.d.shape.layout.slots.length)
     (hargsK : callArgsOkAt p.d p.kD k q.portWidths = true)
@@ -111,7 +111,7 @@ theorem call_inRange_at (p q : SrcPkg ι dom) (k : Nat) (hk : k < p.d.shape.inst
     (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) :
     ∀ τ, Tools.ShippingMachineChild.InRange (valsOf (p.lsrc i bools bits) (p.d.shape.insts[k]).2.1 τ) q.ports := by
   intro τ
-  have hl := @letObsB_hl p.d ι dom p.inh p.ρ p.inits p.body p.ext p.extB i bools bits
+  have hl := Pkg.lsrc_hl p i bools bits
   have hnIn : p.d.nIn = p.kD + p.d.shape.insts.length := (callsOk_nIn p.d p.kD hco).symm
   have hLT := ok_letsTyped p.d hok
   apply Zip₂.of_get
@@ -140,7 +140,7 @@ theorem call_inRange_at (p q : SrcPkg ι dom) (k : Nat) (hk : k < p.d.shape.inst
       rw [show p.kD + (p.d.shape.insts.length + (p.d.shape.layout.slots.length + a)) =
         p.d.nIn + p.d.ss.length + a by omega]; exact hbn
     have hwr : q.portWidths[r]? = some ((kindTy b.2).bitWidth) := by
-      simp [SrcPkg.portWidths, List.getElem?_map, hb]
+      simp [Pkg.portWidths, List.getElem?_map, hb]
     have hwd := callArgsOkAt_width hargsK hk har hbn' hwr
     have hw1 := sortOf_width hsort
     have hb1 : (kindTy b.2).bitWidth = l.1.width := hwd.symm.trans hw1
@@ -148,7 +148,7 @@ theorem call_inRange_at (p q : SrcPkg ι dom) (k : Nat) (hk : k < p.d.shape.inst
       rw [← hva, show (p.lsrc i bools bits)[a]? = some vv from hvv]; exact hlt τ
     have hbnd : b.2 ≠ .domain := by
       have := List.mem_of_getElem? hb
-      unfold SrcPkg.ports at this
+      unfold Pkg.ports at this
       have := (List.mem_filter.mp this).2
       simpa using this
     cases hbb : b.2 with
@@ -163,7 +163,7 @@ theorem call_inRange_at (p q : SrcPkg ι dom) (k : Nat) (hk : k < p.d.shape.inst
       rw [← hb1] at hvlt; simpa using hvlt
 
 /-- **The pointwise adapter** (frozen interface). -/
-theorem callDec_of_hPointAt_at (P : Pkgs ι dom) (p q : SrcPkg ι dom) (k : Nat)
+theorem callDec_of_hPointAt_at (P : Pkgs ι dom) (p q : Pkg ι dom) (k : Nat)
     (hk : k < p.d.shape.insts.length) (hP : P (p.d.shape.insts[k]).1 = some q)
     (hnone : (p.d.shape.instOrigins.getD k .ord).child? = none)
     (hH : HPointAt p.d p.kD dom p.lsrc p.extS p.extBS (pkgOutsC P) (pkgBsC P) (pkgSrc P) k)
@@ -174,7 +174,7 @@ theorem callDec_of_hPointAt_at (P : Pkgs ι dom) (p q : SrcPkg ι dom) (k : Nat)
     CallDec p q k := by
   refine ⟨hnone, (p.d.shape.insts[k]).2.1, by simp [hk], hlenK, ?_⟩
   intro i bools bits
-  have hl := @letObsB_hl p.d ι dom p.inh p.ρ p.inits p.body p.ext p.extB i bools bits
+  have hl := Pkg.lsrc_hl p i bools bits
   refine ⟨?_, call_inRange_at p q k hk hok hco hslots hargsK hlenK i bools bits, ?_⟩
   · intro r hr
     have hlt := callsOk_argsLets p.d p.kD hco k hk r hr
@@ -193,7 +193,7 @@ theorem callDec_of_hPointAt_at (P : Pkgs ι dom) (p q : SrcPkg ι dom) (k : Nat)
 
 /-- One call's `HPointAt` from the per-call content of `CallFactF` at that call (witnesses: the decoded families;
 the output relation comes through the proved dispatch `pkgS_dispatch`). Only call `k`'s body of `hF` is used. -/
-theorem hPointAt_of_callFactF_at (P : Pkgs ι dom) (p : SrcPkg ι dom) (k : Nat)
+theorem hPointAt_of_callFactF_at (P : Pkgs ι dom) (p : Pkg ι dom) (k : Nat)
     (hFk : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
       (hk : k < p.d.shape.insts.length),
       ∃ (k' : Nat) (o : OutField) (f : Nat → Nat),

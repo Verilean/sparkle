@@ -49,7 +49,7 @@ theorem hkidW_of_memOrigin (O : Tools.ShippingChildInvA.RefLawsAOps Tools.Shippi
 
 /-- `MemOrigin` from `MemDec` when the index type is inhabited (for `ι = Unit` the case premise is redundant). -/
 theorem memOrigin_of_memDec {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig} [Nonempty ι]
-    (p : SrcPkg ι dom) (h : ∀ (k : Nat) (hk : k < p.d.shape.insts.length), MemDec p k (p.d.shape.insts[k]).1) :
+    (p : Pkg ι dom) (h : ∀ (k : Nat) (hk : k < p.d.shape.insts.length), MemDec p k (p.d.shape.insts[k]).1) :
     ∀ (k : Nat) (hk : k < p.d.shape.insts.length), ∃ (cb : Bool) (aw dw : Nat),
       (originAt p.d.shape k).child? = some (memModule cb aw dw) ∧
       ((p.d.bsIn.drop p.kD)[k]?.map (·.2)) = some (.bits dw) := by

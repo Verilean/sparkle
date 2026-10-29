@@ -42,7 +42,7 @@ open Sparkle.Compiler.MachMemory (memModule)
 variable {ι : Type} {dom : ι → DomainConfig}
 variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
 
-theorem memParent_topShips (L : Laws mref cref) (p : SrcPkg ι dom)
+theorem memParent_topShips (L : Laws mref cref) (p : Pkg ι dom)
     {mctx : Meta.Context} {cctx : Core.Context} {w w1 : Void IO.RealWorld}
     {raw b : Sparkle.IR.AST.Module} {D : Design}
     (hdata : MemParentDataOk p) (hmo : MemOrigin p)
@@ -56,7 +56,6 @@ theorem memParent_topShips (L : Laws mref cref) (p : SrcPkg ι dom)
     (hmd : ∀ k (hk : k < p.d.shape.insts.length), MemDec p k (p.d.shape.insts[k]).1) (n : Nat) :
     TopShips p (n + 1) p.decl b raw D := by
   obtain ⟨hok, hco, hslots, houtTy, hdomB⟩ := hdata.rows
-  letI := p.inh
   have hkD := data_hkD p.d p.kD hok hco
   have hIlen := data_hIlen p.d p.kD hok hco
   have hSL := data_hSL p.d hok
@@ -78,7 +77,7 @@ theorem memParent_topShips (L : Laws mref cref) (p : SrcPkg ι dom)
   have factsB : ∀ {b' : Sparkle.IR.AST.Module}, (b' = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
       b' = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
       Tools.ShippingGuardsSound.RunFacts (childMap D.modules) b' := fun hpb =>
-    Tools.ShippingSrm4Core2.core_runFacts_ranAM L.O p.d hok p.gen.body_eq hco hslots hdomB hins hsl hfe houtTy
+    Tools.ShippingSrm4Core2.core_runFacts_ranAM L.O p.d hok (Pkg.body_eq p) hco hslots hdomB hins hsl hfe houtTy
       hkidP hkidW hpb ranA
   let Bnd : Tools.ShippingMachineShipsHier.CtxBnd := fun mctx' mref' cctx' cref' w' m' D' =>
     mctx' = mctx ∧ mref' = mref ∧ cctx' = cctx ∧ cref' = cref ∧ w' = w ∧ m' = raw ∧ D' = D
@@ -90,7 +89,7 @@ theorem memParent_topShips (L : Laws mref cref) (p : SrcPkg ι dom)
     (lsrc := p.lsrc) (srcL := p.src) (extL := p.extS) (extBL := p.extBS)
     (fun {mctx'} {mref'} {cctx'} {cref'} {w'} {w''} {m'} {design'} _ _ _ hB => by
       obtain ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ := hB
-      exact (Tools.ShippingQuadComposed.genTrace L.O L.T hA (declName := p.decl) p.d dom p.gen ran).toLB)
+      exact (Pkg.trace L.O L.T hA p ran).toLB)
     (fun {mctx'} {mref'} {cctx'} {cref'} {w'} {w''} {m'} {design'} {b'} _ hpb _ _ hB _ => by
       obtain ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ := hB
       have hNW := pkg_memComposedNW L p hA hfe hkD hdomB hIlen hSL hSlen hLlen hNIn hmd hmo (n + 1) ran
@@ -99,6 +98,6 @@ theorem memParent_topShips (L : Laws mref cref) (p : SrcPkg ι dom)
       exact Tools.ShippingSrm32.hWd_of_wired hpb (factsB hpb).gate houtTy hW)
     houtTy (Tools.ShippingC4InitW.hinitW_of_ok p.d hok) hcore hpost entry trivial (fun _ => factsB hpost)
   exact key ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
-    (core_kidsMem_ranAM L.O p.d hok p.gen.body_eq hco hslots hdomB hins hfe hmemO hpost houtTy ranA)
+    (core_kidsMem_ranAM L.O p.d hok (Pkg.body_eq p) hco hslots hdomB hins hfe hmemO hpost houtTy ranA)
 
 end Tools.ShippingGen2

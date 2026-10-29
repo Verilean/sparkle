@@ -35,27 +35,27 @@ open Sparkle.Compiler.MachMemory (memModule)
 
 variable {ι : Type} {dom : ι → DomainConfig}
 
-def MemParentDataOkB (p : SrcPkg ι dom) : Bool :=
+def MemParentDataOkB (p : Pkg ι dom) : Bool :=
   p.d.ok && p.d.callsOk p.kD &&
   decide (p.d.ss.length = p.d.shape.layout.slots.length) &&
   decide (∀ o ∈ p.d.shape.layout.outs, o.ty.bitWidth = o.width) &&
   decide (∀ b ∈ p.d.shape.binders.drop p.kD, b.2 ≠ .domain)
 
-def MemParentDataOk (p : SrcPkg ι dom) : Prop := MemParentDataOkB p = true
+def MemParentDataOk (p : Pkg ι dom) : Prop := MemParentDataOkB p = true
 
-def ExtInS (p : SrcPkg ι dom) : Prop :=
+def ExtInS (p : Pkg ι dom) : Prop :=
   (∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
       (j : Nat), j < p.kD → p.extBS i bools bits j = bools j) ∧
   (∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
       (j n' : Nat), j < p.kD → p.extS i bools bits j n' = bits j n')
 
-def MemOrigin (p : SrcPkg ι dom) : Prop :=
+def MemOrigin (p : Pkg ι dom) : Prop :=
   ∀ (k : Nat) (hk : k < p.d.shape.insts.length), ∃ (cb : Bool) (aw dw : Nat),
     (originAt p.d.shape k).child? = some (memModule cb aw dw) ∧
     ((p.d.bsIn.drop p.kD)[k]?.map (·.2)) = some (.bits dw)
 
 def MemParentStmt' {mref cref} (L : Laws mref cref) : Prop :=
-  ∀ (p : SrcPkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
+  ∀ (p : Pkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
     (raw b : Sparkle.IR.AST.Module) (D : Design),
     MemParentDataOk p → ExtInS p → MemOrigin p →
     p.d.shape.insts ≠ [] → p.d.shape.instFields ≠ [] → p.d.shape.layout.slots ≠ [] →
@@ -72,7 +72,7 @@ variable {mctx : Meta.Context} {cctx : Core.Context}
 variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
 
 /-- **C8**: the composed run of a memory-only package at every depth, from the run itself. -/
-theorem pkg_memComposedNW (L : Laws mref cref) (p : SrcPkg ι dom) (hA : AdmCtx L.O.quiet mctx cctx)
+theorem pkg_memComposedNW (L : Laws mref cref) (p : Pkg ι dom) (hA : AdmCtx L.O.quiet mctx cctx)
     (hfe : p.d.shape.instFields ≠ []) (hkD : p.kD ≤ p.d.bsIn.length)
     (hdomB : ∀ b ∈ p.d.shape.binders.drop p.kD, b.2 ≠ .domain)
     (hIlen : (p.d.bsIn.drop p.kD).length = p.d.shape.insts.length)
@@ -84,8 +84,7 @@ theorem pkg_memComposedNW (L : Laws mref cref) (p : SrcPkg ι dom) (hA : AdmCtx 
     (hmo : MemOrigin p) (depth : Nat) {D₀ : Nat} {m : Sparkle.IR.AST.Module} {design : Design}
     (ran : Tools.ShippingServedRealA.MachineRunJQC L.O mctx cctx (D₀ + 1) p.decl p.d.shape m design) :
     Tools.ShippingMachineDepthRun.ComposedNW depth p.decl p.d p.kD m design dom p.src p.extS p.extBS := by
-  letI := p.inh
-  have h := Tools.ShippingQuadComposed.genTrace L.O L.T hA (declName := p.decl) p.d dom p.gen ran
+  have h := Pkg.trace L.O L.T hA p ran
   refine Tools.ShippingMachineDepthRunRA.machine_linkedT_callsRNA depth L.O h hfe p.kD hkD
     (Tools.ShippingQuadComposed.bsIn_drop_nodomain p.d p.kD hdomB) hIlen hSL hSlen hLlen hNIn
     (fun _ => []) (fun _ => []) (fun _ _ _ => []) (fun _ _ => True) ?_ ?_

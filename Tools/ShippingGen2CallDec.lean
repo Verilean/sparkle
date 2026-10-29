@@ -55,7 +55,7 @@ theorem callsOk_argsLets (d : MachineData) (n : Nat) (h : d.callsOk n = true) (k
   exact h2 _ (List.getElem_mem hk) _ (List.getElem_mem hr)
 
 /-- **The generic reduction** (freeze §2, exact signature). -/
-theorem callDec_of_callFactF (P : Pkgs ι dom) (p q : SrcPkg ι dom) (k : Nat)
+theorem callDec_of_callFactF (P : Pkgs ι dom) (p q : Pkg ι dom) (k : Nat)
     (hk : k < p.d.shape.insts.length)
     (hP : P (p.d.shape.insts[k]).1 = some q)
     (hnone : (p.d.shape.instOrigins.getD k .ord).child? = none)
@@ -77,7 +77,7 @@ theorem callDec_of_callFactF (P : Pkgs ι dom) (p q : SrcPkg ι dom) (k : Nat)
   refine ⟨hnone, (p.d.shape.insts[k]).2.1, by simp [hk], ?_, ?_⟩
   · rw [hlen k hk, hB]; rfl
   · intro i bools bits
-    have hl := @letObsB_hl p.d ι dom p.inh p.ρ p.inits p.body p.ext p.extB i bools bits
+    have hl := Pkg.lsrc_hl p i bools bits
     refine ⟨?_, ?_, ?_⟩
     · intro r hr
       have hlt := callsOk_argsLets p.d p.kD hco k hk r hr
@@ -109,7 +109,7 @@ theorem pkgS_dispatch (P : Pkgs ι dom) (i : ι) (c : Name) (vals : Nat → List
 
 /-- **The conditional package bridge** (freeze §4 (ii)): `CallFactF` of `p` from the COMPLETE `HPointAt` of every call
 (decoded families, output field, source relation and output equation) and the proved dispatch equation. -/
-theorem callFactF_of_hPointAt_pkg (P : Pkgs ι dom) (p : SrcPkg ι dom)
+theorem callFactF_of_hPointAt_pkg (P : Pkgs ι dom) (p : Pkg ι dom)
     (hH : ∀ k, k < p.d.shape.insts.length →
       HPointAt p.d p.kD dom p.lsrc p.extS p.extBS (pkgOutsC P) (pkgBsC P) (pkgSrc P) k) :
     CallFactF p.d p.kD p.lsrc p.extS p.extBS (pkgOutsC P) (fun i => pkgS P i) :=

@@ -1,5 +1,5 @@
 import Tools.ShippingGen2Loop
-import Tools.ShippingGen2Connect
+import Tools.ShippingGen2SrcPkg
 set_option autoImplicit false
 
 /-! # loop-pkg step 2 interface: `Pkg` = circuit-do or loop package (LOOPPKG_FREEZE.md §6, for review)
