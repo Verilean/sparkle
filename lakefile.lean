@@ -4586,3 +4586,9 @@ lean_lib «Tests.Gen2.S4StageACheck» where
 
 lean_lib «Tools.ShippingGen2Fit» where
   roots := #[`Tools.ShippingGen2Fit]
+
+lean_lib «Tools.ShippingGen2FitChain» where
+  roots := #[`Tools.ShippingGen2FitChain]
+
+lean_lib «Tests.Gen2.S4FitCheck» where
+  roots := #[`Tests.Gen2.S4FitCheck]

@@ -132,7 +132,7 @@ set_option autoImplicit false
 namespace Tools.ShippingGen2Fit
 open Lean hiding Module Expr
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics
-open Sparkle.IR.Machine (OutField SlotField MachineShape moduleByName)
+open Sparkle.IR.Machine (OutField SlotField moduleByName)  -- MachineShape is Sparkle.Compiler.Elab.MachineShape (opened via Sparkle.Compiler.Elab)
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingHierOpen Tools.ShippingHierState Tools.ShippingHierStateG
 open Tools.ShippingEntrySoundness (weOf)
@@ -894,3 +894,8 @@ Nothing in this section is supplied, typed or checked. It only records where a g
 - `KSBoundedIn` is neither refuted nor proved for any real child.
 - No minimality of `KSBoundedRun` is claimed: it bounds every connected output wire, while `hfitX` needs only the `openIns` wires.
 - Nothing about group parents (§6) is claimed.
+
+
+## Implementation notes (after approval at bbca065d)
+- **Block A opens:** `MachineShape` was removed from `open Sparkle.IR.Machine (…)`. It lives in `Sparkle.Compiler.Elab` (Elab.lean:5028), which Block A already opens; no type changes.
+- **`ksBoundedRun_of_In` placement:** it sits in `Tools/ShippingGen2FitChain.lean` (Block 0, namespace `Tools.ShippingGen2Fit`, so its full name is the frozen one), not appended to `Tools/ShippingGen2Fit.lean`. Existing files were not edited.
