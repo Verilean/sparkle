@@ -34,7 +34,7 @@ theorem lm_extInS : ExtInS lmPkg :=
 
 theorem lm_memDec : ∀ (k : Nat) (hk : k < lmPkg.d.shape.insts.length), MemDec lmPkg k (lmPkg.d.shape.insts[k]).1 := by
   intro k hk _ bools bits
-  exact leafM_memcalls defaultDomain bools bits k _ (by simp [lmPkg, List.getElem?_map, List.getElem?_eq_getElem hk])
+  exact leafM_memcalls defaultDomain bools bits k _ (by rw [List.getElem?_map, List.getElem?_eq_getElem (show k < leafM.machineData.shape.insts.length from hk)]; rfl)
 
 theorem lm_memOrigin : MemOrigin lmPkg := memOrigin_of_memDec lmPkg lm_memDec
 
