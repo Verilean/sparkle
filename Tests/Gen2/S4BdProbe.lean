@@ -60,7 +60,7 @@ def pbhStub : Module :=
     wires := [{ name := "_core", ty := .bitVector 8 }], body := [.assign "out" (.ref "_core")] }
 
 /-- The closing's contribution on the real layout. -/
-def pbhSkeleton : Module := closeMachine pickByteH.machineData.shape.layout pbhStub
+noncomputable def pbhSkeleton : Module := closeMachine pickByteH.machineData.shape.layout pbhStub
 
 /-- **Expected `true`.** The only output is driven once by a `.slice` of width `o.width = o.ty.bitWidth`; no memory,
 no instance. So the closing ITSELF yields a module the syntactic supplier accepts. What this does NOT cover: the
@@ -181,7 +181,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   probeParent ``Sparkle.Tests.Compiler.ShippingMachineInstTest.caller
   -- the compiled identity: the route may refuse it; record what happens instead of failing the file
   try probeParent ``callerIdH
-  catch e => logInfo m!"S4-BD REAL [callerIdH]: the entry threw: {e.toMessageData}"
+  catch e => Lean.logInfo m!"S4-BD REAL [callerIdH]: the entry threw: {e.toMessageData}"
 
 #print axioms pbh_skeleton_masked
 #print axioms pick_skeleton_ref_masked
