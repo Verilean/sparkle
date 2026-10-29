@@ -4562,3 +4562,6 @@ lean_lib «Tests.Gen2.SlotlessCheck» where
 
 lean_lib «Tests.Gen2.SlotlessLeafInstance» where
   roots := #[`Tests.Gen2.SlotlessLeafInstance]
+
+lean_lib «Tools.ShippingGen2CombPkg» where
+  roots := #[`Tools.ShippingGen2CombPkg]
