@@ -35,10 +35,10 @@ open Tools.ShippingPortsMatchRaw
 open Tools.ShippingChecksDerived (ff_absurd)
 open Tools.ShippingChecksDepth (and_true_intro)
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+  {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 open Tools.ShippingSrm3Iface Tools.ShippingCallsMemA Tools.ShippingSrm4Core1 Tools.ShippingSrm4Core2
 open Tools.ShippingInstTagged (originAt)
 
-/-- `core_callConns_ran` over `MachineRanA O` (children `RealChildA O`, `instFields ≠ []`). -/
 open Tools.ShippingSrm4Core4 Tools.ShippingSrm4Core6
 open Sparkle.Compiler.MachMemory (memModule)
 
@@ -103,6 +103,6 @@ theorem core_kidsMem_ranAM (O : Tools.ShippingChildInvA.RefLawsAOps Tools.Shippi
     congrArg (fun o : Option Sparkle.IR.AST.Module =>
       o.map fun g => (g, Sparkle.IR.RegDedup.declWidth g)) hfind'
   rw [hmcm] at hcs hCm
-  exact Tools.ShippingMemKidFacts.kidsMem_one hCm (Tools.ShippingMemKidFacts.mem_conns_noRdata hcs)
+  exact Tools.ShippingMemKid.kidsMem_one hCm (Tools.ShippingMemKid.mem_conns_noRdata hcs)
 
 end Tools.ShippingGen2
