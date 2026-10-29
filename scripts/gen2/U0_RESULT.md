@@ -3,7 +3,8 @@
 Issue `sparkle-gen2-u0-types` (milestone `sparkle-gen2`).
 - **Plan:** scripts/gen2/GENERAL_SPEC.md §8.1, approved at d622ad71.
 - **Branch:** `par/gen2-spec`.
-- **Changes:** new Tools/Tests files only. No production or existing-file change.
+- **Changes:** new proof and test files (Tools/ShippingGen2*.lean, Tests/Gen2/U0Check.lean) plus their lakefile
+  registrations. No production change.
 
 ## Builds
 | job | head = base | result |

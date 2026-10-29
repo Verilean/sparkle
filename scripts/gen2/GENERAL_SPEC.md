@@ -362,7 +362,7 @@ Tests/Compiler/C4ShipsTest.lean, C4ComposedTest.lean and C4ClosesTest.lean.
 | G-SERVED | `ServedShipsStmt` | M3 |
 | G-CACHE | `CacheShips` kept by every step of a run | M3 |
 | G-EXC | all-outcome cache keep (= G-KEEP-CHILD/BODY) | M3 |
-| G-KEEP-BODY | `KeepBodyStmt` (§3.4) | M3 |
+| G-KEEP-BODY | `KeepBodyStmt` (§3.4) | **PROVED in U0**: `Tools.ShippingGen2.keepBody` (U0_RESULT.md, approved). It discharges only `ChildKeepsInv D → BodyKeepsInv D` |
 | G-KEEP-CHILD | `KeepChildStmt` (§3.4) | M3 |
 | G-START | depth-0 cache reset ⇒ `InvAt 0` | M3 |
 | G-MEMO | `sparkleSubModuleCache` invariant | M3 |
