@@ -70,7 +70,7 @@ theorem memParent_topShips (L : Laws mref cref) (p : SrcPkg ι dom)
     exact ⟨cb, aw, dw, ho⟩
   have hkidP : ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
       Tools.ShippingCallsMemA.KidTA L.O (originAt p.d.shape k) (p.d.shape.insts[k]).1 y →
-      ∀ q ∈ y.1.outputs, (∀ q' ∈ inPortsOf y.1, q'.name ≠ q.name) ∧ q.name ≠ "clk" ∧ q.name ≠ "rst" := by
+      ∀ q ∈ y.1.outputs, (∀ q' ∈ Tools.ShippingInstStmtG.inPortsOf y.1, q'.name ≠ q.name) ∧ q.name ≠ "clk" ∧ q.name ≠ "rst" := by
     intro k hk y hy
     obtain ⟨cb, aw, dw, ho⟩ := hmemO k hk
     exact (Tools.ShippingSrm4Core6.memKidTNC_facts (O := L.O) (c := (p.d.shape.insts[k]).1) ho).outsIn y hy
