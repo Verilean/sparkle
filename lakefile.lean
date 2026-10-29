@@ -4595,3 +4595,9 @@ lean_lib «Tests.Gen2.S4FitCheck» where
 
 lean_lib «Tools.ShippingGen2OneOutNames» where
   roots := #[`Tools.ShippingGen2OneOutNames]
+
+lean_lib «Tools.ShippingGen2OneOutTop» where
+  roots := #[`Tools.ShippingGen2OneOutTop]
+
+lean_lib «Tests.Gen2.S4StageBCheck» where
+  roots := #[`Tests.Gen2.S4StageBCheck]
