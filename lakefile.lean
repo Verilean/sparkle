@@ -4463,3 +4463,12 @@ lean_lib «Tools.ShippingGen2Consumer» where
 
 lean_lib «Tools.ShippingGen2Connect» where
   roots := #[`Tools.ShippingGen2Connect]
+
+lean_lib «Tools.ShippingGen2Keep» where
+  roots := #[`Tools.ShippingGen2Keep]
+
+lean_lib «Tools.ShippingGen2Data» where
+  roots := #[`Tools.ShippingGen2Data]
+
+lean_lib «Tests.Gen2.U0Check» where
+  roots := #[`Tests.Gen2.U0Check]
