@@ -1,7 +1,7 @@
 import Sparkle.IR.ZeroWidth
 import Tools.ShippingMergeKeepsBridge
 set_option autoImplicit false
--- NOT BUILT (written without a build; G-POST step 7 of scripts/gen2/KEEPCHILD_POST_FREEZE.md §A).
+-- BUILT: g3ik-5285f884 at 5285f884 (exit 0); axiom audit g3ik-ax-dcda5033 at dcda5033 (G-POST step 7 of scripts/gen2/KEEPCHILD_POST_FREEZE.md §A).
 -- SCOPE: PURE statement-list facts, independent of Tools.ShippingGen2Defs: an instance statement whose
 -- TARGET module is `n` survives the two post-passes of the full entry (`dropZeroWidthModule`,
 -- `mergeChecked`). Only the target occurrence is kept: the instance name is kept too, the
