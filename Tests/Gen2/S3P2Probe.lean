@@ -108,7 +108,7 @@ elab "#s3_p2_probe " d:ident : command => do
         let sh := machineShape? false [] ec (structEnv env)
         let s := match sh with
           | none => "no machine shape"
-          | some shape => s!"machine shape: slots {shape.layout.slots.length}, call entries {shape.insts.map (·.1)}, instFields {shape.instFields}"
+          | some shape => s!"machine shape: slots {shape.layout.slots.length}, call entries {shape.insts.map Prod.fst}, instFields {shape.instFields}"
         pure (s!"certified gate {g}, mixed gate {mx}; {s}", sh)
     catch ex => do
       let msg ← ex.toMessageData.toString
