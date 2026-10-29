@@ -33,9 +33,11 @@ theorem tm2_callDec_at : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
     · have : k < 4 := hl4 ▸ hk
       rcases k with _ | _ | _ | _ | k
       all_goals first | decide | decide +kernel | exact absurd hn (by decide) | omega
-    · have : k < 4 := hl4 ▸ hk
-      rcases k with _ | _ | _ | _ | k
-      all_goals first | decide | decide +kernel | exact absurd hn (by decide) | omega
+    · have hnk := Q.hP.argsN k hk
+      rcases quad_callee_at Q.hP k hk with ⟨_, hk2⟩ | ⟨hn2, _⟩
+      · simp only [quadNk, hk2, if_true] at hnk
+        exact (show (tm2Pkg.d.shape.insts[k]).2.1.length = _ from hnk.symm).trans Q.hC₁.hNIn
+      · exact absurd ((show (tm2Pkg.d.shape.insts[k]).1 = _ from hn).symm.trans hn2) hne
   · have hP : P2 (tm2Pkg.d.shape.insts[k]).1 = some wPPkg := by
       rw [show (tm2Pkg.d.shape.insts[k]).1 = _ from hn]; simp [P2, hne.symm]
     refine ⟨wPPkg, hP, callDec_of_hPointAt_at P2 tm2Pkg wPPkg k hk hP hnone hH Q.hP.ok Q.hP.callsOk Q.hP.slots
@@ -43,9 +45,11 @@ theorem tm2_callDec_at : ∀ (k : Nat) (hk : k < tm2Pkg.d.shape.insts.length),
     · have : k < 4 := hl4 ▸ hk
       rcases k with _ | _ | _ | _ | k
       all_goals first | decide | decide +kernel | exact absurd hn (by decide) | omega
-    · have : k < 4 := hl4 ▸ hk
-      rcases k with _ | _ | _ | _ | k
-      all_goals first | decide | decide +kernel | exact absurd hn (by decide) | omega
+    · have hnk := Q.hP.argsN k hk
+      rcases quad_callee_at Q.hP k hk with ⟨hn1, _⟩ | ⟨_, hk2⟩
+      · exact absurd (hn1.symm.trans (show (tm2Pkg.d.shape.insts[k]).1 = _ from hn)) hne
+      · simp only [quadNk, hk2, if_false] at hnk
+        exact (show (tm2Pkg.d.shape.insts[k]).2.1.length = _ from hnk.symm).trans Q.hC₂.hNIn
 
 #print axioms Tools.ShippingGen2.callArgsOkAt_width
 #print axioms Tools.ShippingGen2.call_inRange_at
