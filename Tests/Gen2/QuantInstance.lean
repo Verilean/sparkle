@@ -48,8 +48,10 @@ theorem quant_facts : LoopFacts Sparkle.IP.Video.H264.QuantSynth.quantModule.mac
    Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_writes, Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_result,
    Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_source, quant_hcausal⟩
 
-#eval (Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.nIn,
-  Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.shape.insts.length)
+#reduce Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.nIn
+#reduce Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.shape.insts.length
+#reduce Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.shape.insts.map (·.2.1)
+#reduce Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.ls.length
 
 abbrev U := fun _ : Unit => defaultDomain
 
