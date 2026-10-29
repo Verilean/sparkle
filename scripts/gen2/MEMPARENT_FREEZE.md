@@ -165,3 +165,28 @@ M2-b's statement review.
 - No proof yet. FG/T1/M2 are not complete.
 - G-MEMCALLS stays a premise (per declaration today).
 - `outHead` is not discharged, only re-homed.
+
+## 7. Proposed amendment A4 (review requested BEFORE use in the final contract)
+**Finding (during C4/C5).** The facts "entry k has a memory origin" and "its declared result binder is `.bits dw`" are
+available today only through `MemDec p k c`, which is `∀ (i : ι) bools bits, MemFacts …`. For an EMPTY `ι` it yields
+nothing. C4 (`core_kidsMem_ranAM`, its `hmemO`) and C5 (`hkidW`) need these facts with no `i`.
+
+**Proposal.** Make the case definition explicit, as a decidable case premise over `p.d`:
+```lean
+def MemOrigin (p : SrcPkg ι dom) : Prop :=
+  ∀ (k : Nat) (hk : k < p.d.shape.insts.length), ∃ (cb : Bool) (aw dw : Nat),
+    (Tools.ShippingInstTagged.originAt p.d.shape k).child? = some (memModule cb aw dw) ∧
+    ((p.d.bsIn.drop p.kD)[k]?.map (·.2)) = some (.bits dw)
+```
+- `MemParentStmt'` takes `MemOrigin p` in addition to `MemDec`.
+- **Coverage.** Parents with a non-memory entry are `StepStmt` (M2-b).
+- **No loss of generality for non-empty `ι`.** A lemma `memOrigin_of_memDec [Nonempty ι]` derives `MemOrigin` from
+  `MemDec`, so for `ι = Unit` (every real package so far) the premise is redundant.
+- **Alternatives:**
+  - (b) add `[Nonempty ι]` to `MemParentStmt'`, and derive `MemOrigin` from `MemDec`;
+  - (c) keep only `MemDec`, and restrict the theorem to `ι` with an element.
+- **Recommendation: (a), the explicit `MemOrigin`.** It is a case definition, checkable per declaration, and it does
+  not change `ι`'s generality.
+
+Until this is reviewed, the helpers take `MemOrigin`-shaped hypotheses in their own signatures, and the final
+assembly does not use them.
