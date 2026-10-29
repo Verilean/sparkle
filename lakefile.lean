@@ -4523,3 +4523,6 @@ lean_lib «Tools.ShippingGen2Pkg» where
 
 lean_lib «Tools.ShippingGen2SrcPkg» where
   roots := #[`Tools.ShippingGen2SrcPkg]
+
+lean_lib «Tests.Gen2.PkgCompat» where
+  roots := #[`Tests.Gen2.PkgCompat]
