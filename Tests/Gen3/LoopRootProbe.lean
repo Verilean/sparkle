@@ -3,7 +3,10 @@ import Tests.Compiler.ShippingMachineLoopTest     -- counterLoop, accLoop, whole
 import Tests.Compiler.ShippingMachineSeqLoopTest  -- toggleL (imports ShippingMachineFuseTest: outer, siblings, withMemory)
 import IP.Video.H264.QuantSynth                   -- quantModule (Tests/Gen2/QuantEndpoint.lean)
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (batch 4; no lake/lean run by the author). No theorem, no `sorry`, no `axiom`.
+-- Built in g3lp-5f18f978 (clean, exit 0, 438 jobs). RESULT (unsafe fuel-model measurement, evidence only):
+-- 13 decls, 34 deduplicated LOOPROOT lines: 18 typed singletons with kinds[b]=k, 16 untyped (untyped tuples with
+-- n = 2/4/6/8 DO occur), 0 MISMATCH, 0 FINDING (typed non-domain binder with n != 1). Not production agreement, not
+-- coverage, not LoopSrcKinds supply. No theorem, no `sorry`, no `axiom`.
 
 /-! # Loop-root probe on ACTUAL entries (EVIDENCE ONLY, logs only)
 

@@ -1,7 +1,7 @@
 import Tools.ShippingGen3ArgSupply3   -- batch 3: GoodE/goodE_readF, EntryKindOk/EnvKindOkE/CallPreKE/GoodKE, closed arms
 import Tools.ShippingSparseCasesTac   -- unfold_matchers_aux / dsimp_sparse_aux (the `regView?` matcher, as LetsReaderInvPure2)
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (batch 4; no lake/lean run by the author). No `sorry`, no `axiom`, no `native_decide`.
+-- Built in g3sg-5f18f978 (clean, exit 0, 730 jobs). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # SRC-ARGW batch 4: G2 / G4 argument lemmas and E arms, G3 / G14 / G21 audit, LK1 induction SKELETON
 

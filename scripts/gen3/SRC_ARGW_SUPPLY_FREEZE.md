@@ -902,3 +902,15 @@ These notes correct/qualify §3.7's wording; where they conflict with §3.7.3/§
 - If an actual entry needs `n ≠ 1`, that is reported as a finding at once; it is not excluded from FG.
 - Open: remaining arms and LK1 induction, loop-root (`LoopSrcKinds`/`LoopLetSrcKinds`) and the shared probe on actual
   entries, EqvSound, D5 (`rootFloat`), the gen5 joint suppliers; L-RUN / L-FG not accepted.
+
+## rev3.3 status (review of 5f18f978, batch 4 approved in scope)
+- Built: batch 4 in g3sg-5f18f978 (clean, exit 0, 730 jobs; TYPE 11 / MUTANT 8 / AXIOMS 33 standard); the loop-root
+  probe in g3lp-5f18f978 (clean, exit 0, 438 jobs).
+- Mutants: the 8 rejections (7 distinct mutants + 1 checker re-check) are signature/defeq rejections, not semantic
+  refutations or kernel proofs of non-equivalence.
+- Probe (unsafe fuel-model measurement, evidence only): 13 declarations, 34 deduplicated lines, 18 typed singletons
+  with `kinds[b] = k`, 16 untyped, 0 mismatch, 0 typed non-domain `n ≠ 1` finding. Untyped tuples with n = 2/4/6/8 DO
+  occur. (An earlier Issue note "14 typed / 13 untyped" is replaced by these counts.) Not production agreement, not
+  coverage, not a `LoopSrcKinds` supply.
+- Open: `LK1Open` (8 fields) is unsupplied; G3/G14 only preserve state (TY side unresolved); G21, loop tuples, handles,
+  atoms, register kinds and the actual-run connection are OPEN. No Issue or FG is done.

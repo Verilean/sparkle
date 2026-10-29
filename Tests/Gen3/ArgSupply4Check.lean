@@ -1,7 +1,7 @@
 import Tools.ShippingGen3ArgSupply4
 import Tests.Gen3.ExpectedType        -- checkExpected / checkMutant / checkAxioms / cmpTele / stmtOf
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (batch 4; no lake/lean run by the author). No `sorry`, no `axiom`, no `native_decide`.
+-- Built in g3sg-5f18f978 (clean, exit 0, 730 jobs; TYPE 11 / MUTANT 8 / AXIOMS 33 standard). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # Checks for Tools/ShippingGen3ArgSupply4.lean (SRC-ARGW batch 4)
 
@@ -11,8 +11,10 @@ SKELETON whose open arms are explicit premises (`LK1Open`).
 1. **Expected types** (Tests/Gen3/ExpectedType.lean) against INDEPENDENT `Exp_…` restatements: the G2/G4 argument
    lemmas, the G2/G3/G4 arms, three of the open-arm premises, the `LK1Open` constructor (its exact field list), and
    the skeleton (`step_goodKE`, `goodKE_readF_of_open`).
-2. **Mutants** `Mut_…` that must be REJECTED; every one is MEANING-CHANGING (a premise, conclusion, binder context
-   or field changes).
+2. **Mutants** `Mut_…` that must be REJECTED: 8 rejections (7 distinct mutants + 1 re-check of `Mut_ArmG20_noInv`
+   for the checker). A rejection is a SIGNATURE / defeq rejection (`cmpTele` fails and the whole statements are not
+   `isDefEq`); it is NOT a semantic refutation and NOT a kernel proof of non-equivalence. Each mutant was written to
+   change a premise, conclusion, binder context or field.
 3. **Axioms**: only `propext`, `Classical.choice`, `Quot.sound`. -/
 set_option maxHeartbeats 4000000
 
@@ -106,7 +108,7 @@ def Exp_goodKE_readF_of_open : Prop :=
   ∀ {HK : PhKinding} {senv : StructEnv} {p : ShapePre} {en : Lean.Expr}
     (HKL : PhKindingLaws HK) (O : LK1Open HK senv p en), ∀ n, GoodKE HK senv p en (readF senv n)
 
-/-! ## 2. Mutants (each MEANING-CHANGING) -/
+/-! ## 2. Mutants (signature / defeq rejections; written to change meaning, not proved non-equivalent) -/
 
 /-- the body WITHOUT its binder (wrong source context) -/
 def Mut_machRunApp?_readSub_noBinder : Prop :=
@@ -196,7 +198,7 @@ run_cmd liftTermElabM do
   -- the checker itself: an expected statement against its own mutant must fail too
   checkMutant ``Exp_ArmG20 ``Mut_ArmG20_noInv
 
-run_cmd logInfo "GEN3 MUTANTS: all 8 rejections above are MEANING-CHANGING (no signature-only mutant in this file)."
+run_cmd logInfo "GEN3 MUTANTS: 8 rejections above (7 distinct mutants + 1 checker re-check) are signature/defeq rejections, not semantic refutations or kernel non-equivalence proofs."
 run_cmd logInfo "GEN3 CONDITIONAL: goodKE_readF_of_open is a SKELETON — GoodKE (readF) FROM LK1Open (G5, G6, G11, G12 conv/chain, G17 user-let, G18, G20 as named premises); not L-RUN1, not L-FG supply, not FG completion; G21 / the run form are outside it."
 run_cmd logInfo "GEN3 AUDIT: G3 (loopRead/readV) and G14 (atoms) close on the LK1 side only; their ConvKind (TY) supply needs NEW invariants/laws (tuple-aware loop-state kinds; runCircuitH slot kinds; SK->HK at atoms). G21: start state closed (readInv_empty / readInv_reserve); S1 ReadSub through machRoot and root-let pushes (as G11/G12) open."
 
