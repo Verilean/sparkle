@@ -17,7 +17,7 @@ registrations. No production change.
   `[propext, Classical.choice, Quot.sound]`.
 
 No `sorry` in the two files. `Tests/Gen2/AdaptInstance.lean` sets `maxHeartbeats 4000000` at file scope, as
-CallDecInstance does. It is an elaboration budget for the per-call `decide` only.
+CallDecInstance does. It was introduced for the per-call `decide` elaboration, but it is file-scoped and applies to every later declaration in that file.
 
 ## Proved (exact frozen interfaces)
 - `callArgsOkAt`, `SrcPkg.portWidths`;
