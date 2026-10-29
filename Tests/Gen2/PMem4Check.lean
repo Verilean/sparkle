@@ -232,8 +232,8 @@ def pmResultIsBool (ty : Expr) : MetaM Bool := do
 def pmPath (p : List Name) : String := " → ".intercalate (p.map toString)
 
 /-- The transitive audit of one root (see the module doc, item 2). -/
-def pmAuditRoot (forb : List Name) (root : Name) (maxVisit : Nat := 400000) (compDepth : Nat := 3)
-    (compFuel : Nat := 40000) : MetaM PAudit := do
+def pmAuditRoot (forb : List Name) (root : Name) (maxVisit : Nat := 400000) (compDepth : Nat := 1000000)
+    (compFuel : Nat := 400000) : MetaM PAudit := do
   let env ← getEnv
   let some rci := env.find? root | throwError "PMEM4 AUDIT FAILED: root {root} not found"
   let mut out : PAudit := {}
