@@ -1,0 +1,247 @@
+-- scripts/gen2/GEN2_DEFS.lean.txt — exact text of the gen2 definitions and statements (GENERAL_SPEC.md rev1 §1, §3, §8).
+-- Status: FROZEN TEXT, NOT YET ELABORATED. Unit U0 (GENERAL_SPEC.md §8.1) elaborates it verbatim, as
+-- Tools/ShippingGen2Defs.lean. Every `…Stmt` is a `def … : Prop` (a statement, no proof, no sorry).
+-- Any correction U0 needs (a name, an argument order) is recorded as a deviation and re-reviewed.
+
+import Tools.ShippingSrm33Core
+import Tools.ShippingMachineDepthRunRA
+import Tools.ShippingMachineCallsLinkedTNR
+import Tools.ShippingQuadComposed
+import Tools.ShippingServedRealA
+
+namespace Tools.ShippingGen2
+open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
+open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.ShippingEntrySoundness (RunsTo)
+open Tools.ShippingMachineEntry (MachineDefines posEnc)
+open Tools.ShippingMachineAuto (MachineData)
+open Tools.ShippingQuadComposed (GenFacts)
+open Tools.ShippingMachineDepth (SeqChildRunN ResetN)
+open Tools.ShippingMachineShipsDepth (ResetNk)
+open Tools.ShippingMachineCallsLinkedT (valsOf MemFacts)
+open Tools.ShippingMachineChild (InRange boolsOf bitsOf)
+open Tools.ShippingChildInvA (RefLawsAOps RefLawsATele AdmCtx)
+open Tools.ShippingChildCacheA (RealChildA JQC)
+open Tools.ShippingHierStateG (KT KSn)
+
+/-! ## 1. The source package of one declaration (G3, per declaration; §6 inventory G3-GEN) -/
+
+/-- The generated facts of one declaration as one package: `Tests.Compiler.CDef.GenPkg` (CDefTest.lean:33) moved
+to `Tools` unchanged, plus `kD`, the number of declared (non-call-result) binders. -/
+structure SrcPkg (ι : Type) (dom : ι → DomainConfig) where
+  decl : Name
+  d : MachineData
+  kD : Nat
+  ρ : ι → Type
+  inh : Inhabited (HList (tys d.ss))
+  inits : HList (tys d.ss)
+  body : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+    RegList (dom i) (HList (tys d.ss)) (Circuit.SigList (dom i) (tys d.ss)) (tys d.ss) →
+    Circuit (dom i) (Circuit.SigList (dom i) (tys d.ss)) (ρ i)
+  obsR : (i : ι) → ρ i → List (Nat → Nat)
+  ext : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+    Signal (dom i) (HList (tys d.ss)) → (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)
+  extB : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+    Signal (dom i) (HList (tys d.ss)) → Nat → Signal (dom i) Bool
+  src : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+    List (Nat → Nat)
+  gen : @GenFacts d ι dom ρ inh inits body obsR ext extB src
+
+variable {ι : Type} {dom : ι → DomainConfig}
+
+noncomputable def SrcPkg.extS (p : SrcPkg ι dom) := fun i bools bits =>
+  p.ext i bools bits (@stateLoop _ _ _ p.inh p.inits (p.body i bools bits))
+noncomputable def SrcPkg.extBS (p : SrcPkg ι dom) := fun i bools bits =>
+  p.extB i bools bits (@stateLoop _ _ _ p.inh p.inits (p.body i bools bits))
+noncomputable def SrcPkg.lsrc (p : SrcPkg ι dom) :=
+  @Tools.ShippingMachineCausal.letObsB p.d ι dom p.inh p.ρ p.inits p.body p.ext p.extB
+/-- The declared, non-domain ports of `p` (the child interface's binder list). -/
+def SrcPkg.ports (p : SrcPkg ι dom) : List (Name × MixedGateBinder) :=
+  (p.d.bsIn.take p.kD).filter fun b => b.2 != .domain
+/-- The child-interface source function: `p.src` on the boolean/bit-vector signals decoded from port values
+(the shape of C4's `tieSrcC`, CDefTest.lean:111). -/
+noncomputable def SrcPkg.S (p : SrcPkg ι dom) (i : ι) : (Nat → List Nat) → List (Nat → Nat) :=
+  fun vals => p.src i (boolsOf (D := dom i) (p.d.bsIn.take p.kD) vals)
+    (bitsOf (D := dom i) (p.d.bsIn.take p.kD) vals)
+
+/-- A package assignment: the package of every declaration a run reaches, or `none`. The G3 premise is that it is
+correct where it is `some` (`PkgOk`). -/
+abbrev Pkgs (ι : Type) (dom : ι → DomainConfig) := Name → Option (SrcPkg ι dom)
+
+/-! ## 2. Runtime laws (G5) — kept apart from the start conditions -/
+
+/-- The uniform runtime laws (G5): the same for every declaration. -/
+structure Laws (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State) where
+  O : RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
+  T : RefLawsATele O.quiet mref cref
+
+/-- The start conditions of an OUTERMOST compilation: admissible contexts and the depth-0 world with its cache
+invariant. They are conditions on the start, not laws. -/
+def Start {mref cref} (L : Laws mref cref) (mctx : Meta.Context) (cctx : Core.Context) (w : Void IO.RealWorld) : Prop :=
+  AdmCtx L.O.quiet mctx cctx ∧ JQC L.O 0 w
+
+/-! ## 3. The child interface (what a parent consumes) and the call decoding (what the parent's package provides) -/
+
+/-- **ChildShips** (the IH content of `c`, for THE result `(mc, Dc)` a parent was served): for every design `dsn`
+that contains `Dc`'s modules and `mc`, the child run interface at height `n`, with the interface data taken from
+`c`'s own package `q`. Built-in transport: it is stated for every extending `dsn`, so the producer proves the
+transport once (gap G-TRANSPORT). -/
+def ChildShips (q : SrcPkg ι dom) (n : Nat) (mc : Module) (Dc : Design) : Prop :=
+  ∀ (dsn : Design), (∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g) →
+    moduleByName dsn.modules mc.name = some mc →
+    ∀ (i : ι), SeqChildRunN (childMap dsn.modules) dsn n mc (q.d.bsIn.take q.kD) q.d.shape.layout.outs (q.S i)
+
+/-- **CallDec** (gap G-CALLDEC; the non-run conjuncts of `SeqFactsRN`, CallsLinkedTNR.lean:23): the parent `p`'s
+ordinary call `k` to `c` (package `q`) has its arguments among `p`'s lets, in range for `q`'s ports, and the
+parent's call-result signal at position `p.kD + k` equals `q`'s source output named by the call's field. -/
+def CallDec (p q : SrcPkg ι dom) (k : Nat) : Prop :=
+  (p.d.shape.instOrigins.getD k .ord).child? = none ∧
+  ∃ args, (p.d.shape.insts.map (·.2.1))[k]? = some args ∧
+    args.length = q.ports.length ∧
+    ∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
+      (∀ r (hr : r < args.length), args[r] < p.d.ls.length ∧ ∃ g, (p.lsrc i bools bits)[args[r]]? = some g) ∧
+      (∀ τ, InRange (valsOf (p.lsrc i bools bits) args τ) q.ports) ∧
+      ∃ k' o f, q.d.shape.layout.outs[k']? = some o ∧ o.name = p.d.shape.instFields.getD k "" ∧
+        (q.S i (valsOf (p.lsrc i bools bits) args))[k']? = some f ∧
+        ∀ τ, posEnc (fun r => (p.extBS i bools bits r).val τ) (fun r n => (p.extS i bools bits r n).val τ)
+          (p.kD + k) (((p.d.bsIn.drop p.kD)[k]?.map (·.2)).getD .domain) = f τ
+
+/-- The memory side of one entry: `MemFacts` of the parent's own package (it mentions the parent's call arguments,
+so it is a fact of the PARENT, not a child interface; gap G-MEMCALLS supplies it). -/
+def MemDec (p : SrcPkg ι dom) (k : Nat) (c : Name) : Prop :=
+  ∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)),
+    MemFacts p.d.shape (p.lsrc i bools bits) p.d.ls.length (p.d.bsIn.drop p.kD) p.kD (p.extS i bools bits) k c
+
+/-! ## 4. The served-child evidence the induction needs (gap G-SERVED) and the cache invariant -/
+
+/-- A result `r` of `c` together with the package and height it ships at. -/
+def ShipsRes {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (c : Name) (r : Module × Design) : Prop :=
+  RealChildA L.O c r ∧ ∃ q n, P c = some q ∧ q.decl = c ∧ ChildShips q n r.1 r.2
+
+/-- The child-cache invariant: every `sparkleChildCache` entry ships. `sparkleSubModuleCache` (memo) is NOT
+covered; it gets its own invariant (gap G-MEMO). -/
+def CacheShips {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (m : Std.HashMap Name (Module × Design)) : Prop :=
+  ∀ c r, m.get? c = some r → ShipsRes L P c r
+
+/-- **G-SERVED** (the strengthened served-child evidence; the statement U0 fixes, proved in M3): in a run of a
+machine-route parent from a world whose child cache satisfies `CacheShips` and whose nested child runs ship
+(`hfresh`), every non-memory instance of the emitted module is served by a `ShipsRes` result (THE `(mc, Dc)` of
+that instance, and `Dc ⊆ dsn`). This replaces `ServedRealA`'s bare `RealChildA` (ServedRealA.lean:45-74). -/
+def ServedShipsStmt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) : Prop :=
+  ∀ (c : Name) (shape : MachineShape) (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld)
+    (raw : Module) (D : Design) (Dp : Nat),
+    AdmCtx L.O.quiet mctx cctx → JQC L.O Dp w → CacheShips L P (Tools.ShippingChildBndCore.cv w) →
+    -- every nested fresh child run (one level deeper) ships and keeps the invariant
+    (∀ c' mctx' cctx' u r u', AdmCtx L.O.quiet mctx' cctx' → JQC L.O (Dp + 1) u →
+      CacheShips L P (Tools.ShippingChildBndCore.cv u) →
+      RunsTo (synthesizeCombinational c') mctx' mref cctx' cref u r u' →
+      ShipsRes L P c' r ∧ CacheShips L P (Tools.ShippingChildBndCore.cv u')) →
+    RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (raw, D) w' →
+    MachineDefines mctx mref cctx cref c shape →
+    CacheShips L P (Tools.ShippingChildBndCore.cv w') ∧
+    ∀ (k : Nat) (mc : Module) (iname : String) (conns : List (String × String)),
+      k < shape.insts.length → (shape.instOrigins.getD k .ord).child? = none →
+      Stmt.inst mc.name iname conns ∈ raw.body → moduleByName D.modules mc.name = some mc →
+      ∃ Dc, ShipsRes L P (shape.insts[k]!).1 (mc, Dc) ∧ ∀ g ∈ Dc.modules, moduleByName D.modules g.name = some g
+
+/-! ## 5. The one-level rule and the first theorems (statements) -/
+
+/-- The top-level conclusion for package `p` at height `n`: exactly the conclusion of
+`machine_ships_hierC_noHstR` (Srm33Core.lean:85-114) with `d := p.d`, `src := p.src`, `ext := p.extS`,
+`extB := p.extBS`, `kD := p.kD`. -/
+def TopShips (p : SrcPkg ι dom) (n : Nat) (declName : Name) (b raw : Module) (D : Design) : Prop :=
+  ∃ ids : List FVarId, ids.Nodup ∧ ids.length = p.d.shape.binders.length ∧
+  ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+    regs.Nodup ∧ regs.length = p.d.ss.length ∧
+    ∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv) (kids : String → KT n),
+      (∀ t st, t < T → SourceInputs declName (p.d.bsIn.take p.kD) ids cache
+        (fun j => (p.extBS i bools bits j).val (T - 1 - t))
+        (fun j n => (p.extS i bools bits j n).val (T - 1 - t)) (seedIn b ins t st)) →
+      (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
+      (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
+      (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+        p.d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+      ResetNk n raw D kids →
+      (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) →
+      (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (childMap D.modules) b.body →
+        st0 x < 2 ^ declWidth b x) →
+      ∃ envsO, runModuleTG (KSn (childMap D.modules) n) (declWidth (checkedOptimize b))
+          (childMap D.modules) (checkedOptimize b).body (seedIn b ins) T ⟨st0, mems, kids⟩ = some envsO ∧
+        envsO.length = T ∧
+        ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+          p.d.shape.layout.outs[k]? = some o → (p.src i bools bits)[k]? = some f → (envsO[j]'hj) o.name = f j
+
+/-- **The one-level rule** (M2-b; the common lemma): a machine-route run of `p.decl` whose every entry is a memory
+call with `MemDec`, or an ordinary call with `CallDec` to a child that ships at height `≤ n` (`ShipsRes` of THE
+served result, from `ServedShipsStmt`), ships at the top (`TopShips` at `n + 1`) and as a child (`ChildShips` at
+`n + 1`). Data premises: `DataOk` (§6 R4 inventory). -/
+def StepStmt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (DataOk : SrcPkg ι dom → Prop) : Prop :=
+  ∀ (p : SrcPkg ι dom) (n : Nat) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
+    (raw b : Module) (D : Design),
+    P p.decl = some p → DataOk p → AdmCtx L.O.quiet mctx cctx → JQC L.O (Tools.ShippingChildBndCore.dv w) w →
+    CacheShips L P (Tools.ShippingChildBndCore.cv w) →
+    RunsTo (synthesizeCombinationalCore p.decl [] false) mctx mref cctx cref w (raw, D) w1 →
+    (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
+    MachineDefines mctx mref cctx cref p.decl p.d.shape →
+    (∀ k (hk : k < p.d.shape.insts.length),
+      MemDec p k (p.d.shape.insts[k]).1 ∨
+      ∃ q, P (p.d.shape.insts[k]).1 = some q ∧ CallDec p q k) →
+    -- the children served in THIS run ship at heights ≤ n (from ServedShipsStmt + G-LIFT)
+    (∀ k (hk : k < p.d.shape.insts.length) (mc : Module) (iname : String) conns,
+      (p.d.shape.instOrigins.getD k .ord).child? = none →
+      Stmt.inst mc.name iname conns ∈ raw.body → moduleByName D.modules mc.name = some mc →
+      ∃ q Dc, P (p.d.shape.insts[k]).1 = some q ∧ ChildShips q n mc Dc ∧
+        ∀ g ∈ Dc.modules, moduleByName D.modules g.name = some g) →
+    TopShips p (n + 1) p.decl b raw D ∧ ChildShips p (n + 1) b D
+
+/-- **First unit's theorem** (M2-a, `memParent_ships`): `StepStmt` restricted to parents whose every entry is a
+memory call — the ordinary-call premise and the served-children premise are then vacuous, so they are absent. -/
+def MemParentStmt {mref cref} (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) : Prop :=
+  ∀ (p : SrcPkg ι dom) (n : Nat) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
+    (raw b : Module) (D : Design),
+    DataOk p → p.d.shape.layout.slots ≠ [] → AdmCtx L.O.quiet mctx cctx →
+    JQC L.O (Tools.ShippingChildBndCore.dv w) w →
+    RunsTo (synthesizeCombinationalCore p.decl [] false) mctx mref cctx cref w (raw, D) w1 →
+    (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
+    MachineDefines mctx mref cctx cref p.decl p.d.shape →
+    (∀ k (hk : k < p.d.shape.insts.length), MemDec p k (p.d.shape.insts[k]).1) →
+    TopShips p (n + 1) p.decl b raw D ∧ ChildShips p (n + 1) b D
+
+/-- **Base case** (M2-a', a separate unit): an ordinary leaf (`insts = []`) ships at every height. -/
+def LeafStmt {mref cref} (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) : Prop :=
+  ∀ (p : SrcPkg ι dom) (n : Nat) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
+    (raw b : Module) (D : Design),
+    DataOk p → p.d.shape.insts = [] → AdmCtx L.O.quiet mctx cctx →
+    JQC L.O (Tools.ShippingChildBndCore.dv w) w →
+    RunsTo (synthesizeCombinationalCore p.decl [] false) mctx mref cctx cref w (raw, D) w1 →
+    (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
+    MachineDefines mctx mref cctx cref p.decl p.d.shape →
+    TopShips p n p.decl b raw D ∧ ChildShips p n b D
+
+/-- **T1** (M3; schema): every successful outermost compilation of a machine-route tree ships, given the package
+assignment `P` correct on every reached declaration (`Reach`, G3) and the per-entry decodings (G-CALLDEC,
+G-MEMCALLS) — the latter two are to be DERIVED from `P` in M2/M5, and stay named premises until then. -/
+def T1Stmt {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : SrcPkg ι dom → Prop) :
+    Prop :=
+  ∀ (c : Name) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld) (raw b : Module) (D : Design),
+    Start L mctx cctx w →
+    RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (raw, D) w1 →
+    (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
+    -- G3, per reached declaration: its package, its shape reflection in every admissible context, its data
+    (∀ c', Reach c' → ∃ q, P c' = some q ∧ q.decl = c' ∧ DataOk q ∧
+      ∀ mctx' cctx', AdmCtx L.O.quiet mctx' cctx' → MachineDefines mctx' mref cctx' cref c' q.d.shape) →
+    -- the per-entry decodings of every reached declaration (G-CALLDEC / G-MEMCALLS; to be derived)
+    (∀ c', Reach c' → ∀ q, P c' = some q → ∀ k (hk : k < q.d.shape.insts.length),
+      MemDec q k (q.d.shape.insts[k]).1 ∨ ∃ q', P (q.d.shape.insts[k]).1 = some q' ∧ CallDec q q' k) →
+    Reach c →
+    -- the reached set is closed under the calls of the run (to be derived from the run: gap G-REACH)
+    (∀ c', Reach c' → ∀ q, P c' = some q → ∀ k (hk : k < q.d.shape.insts.length),
+      (q.d.shape.instOrigins.getD k .ord).child? = none → Reach (q.d.shape.insts[k]).1) →
+    ∃ q n, P c = some q ∧ TopShips q n c b raw D
+
+end Tools.ShippingGen2
