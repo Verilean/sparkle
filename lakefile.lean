@@ -4544,3 +4544,6 @@ lean_lib «Tests.Gen2.LeafInstance» where
 
 lean_lib «Tools.ShippingGen2Comb» where
   roots := #[`Tools.ShippingGen2Comb]
+
+lean_lib «Tools.ShippingGen2AComb» where
+  roots := #[`Tools.ShippingGen2AComb]

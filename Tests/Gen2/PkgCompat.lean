@@ -8,7 +8,8 @@ definitions — `Laws`, `MachineTaken`, `ServedP`, … — are the current ones)
 * pointwise definitions: `X (.gen p) … = Old.X p …` by `rfl`;
 * definitions taking a package assignment: equal at `Pkgs.lift P` (functions, by `funext`/`propext`);
 * `T1Hyp`: iff, with `DataOkLiftCompat` (compatibility tests only);
-* statements quantifying over all packages: NEW → OLD only (the new ones include the loop case). -/
+* statements quantifying over all packages: NEW → OLD only (the new ones include the loop case).
+A-COMB (STEP_IFACE_FREEZE.md rev3) changed `ChildShips`; the affected checks are classified in the A-COMB section. -/
 namespace Tools.ShippingGen2.Old
 open Lean hiding Module Expr
 open Meta Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
@@ -243,9 +244,7 @@ open Sparkle.Core.Domain
 variable {ι : Type} {dom : ι → DomainConfig}
 variable {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cref : ST.Ref IO.RealWorld Lean.Core.State}
 
-/-! ## pointwise: `rfl` at `.gen` -/
-example (q : SrcPkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Sparkle.IR.AST.Design) :
-    ChildShips (.gen q) n mc Dc = Old.ChildShips q n mc Dc := rfl
+/-! ## pointwise: `rfl` at `.gen` (definitions not touched by A-COMB) -/
 example (p q : SrcPkg ι dom) (k : Nat) : CallDec (.gen p) (.gen q) k = Old.CallDec p q k := rfl
 example (p : SrcPkg ι dom) (k : Nat) (c : Lean.Name) : MemDec (.gen p) k c = Old.MemDec p k c := rfl
 example (p : SrcPkg ι dom) (n : Nat) (c : Lean.Name) (b raw : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) :
@@ -254,7 +253,26 @@ example (p : SrcPkg ι dom) : MemParentDataOk (.gen p) = Old.MemParentDataOk p :
 example (p : SrcPkg ι dom) : ExtInS (.gen p) = Old.ExtInS p := rfl
 example (p : SrcPkg ι dom) : MemOrigin (.gen p) = Old.MemOrigin p := rfl
 
-/-! ## package assignments: equal at the lift -/
+/-! ## A-COMB (STEP_IFACE_FREEZE.md rev3 §3): `ChildShips` and its positive positions, `Old → new` only
+
+`ChildShips` now takes `ChildRunN = SeqChildRunN ∨ CombChildRunN`, a weaker child guarantee. The frozen `Old.*` texts
+are kept; the equalities they had are not re-established by a re-baseline. Classification of the checks this
+changes:
+* positive positions (`ChildShips`, `ShipsRes`, `ShipsAt`, `CacheShips`, `InvAt`): `Old → new` below;
+* mixed positions — `IHAt` (`InvAt` premise, `ShipsRes` conclusion), `BodyKeepsInv`/`ChildKeepsInv` (`InvAt` pre and
+  post), `KeepBodyStmt`/`KeepChildStmt`, `StepStmt` (`ServedP (ShipsRes …)` premise, `ChildShips` conclusion),
+  `ServedShipsStmt`: CHANGED, MIXED — no relation is claimed in either direction (the former `iHAt_eq`,
+  `bodyKeepsInv_eq`, `childKeepsInv_eq`, `keepBody_eq`, `keepChild_eq`, `stepStmt_compat`, `servedShips_compat`
+  are withdrawn; their acceptance at earlier SHAs stays valid as history);
+* statements over all packages with `ChildShips` only in the conclusion (`MemParentStmt'`, `MemParentStmt`,
+  `LeafStmt`): the `.gen`-restricted forms below (`Old` quantifies over `SrcPkg`, so it gives nothing for `.loop`);
+* `T1Hyp`, `T1Stmt`: unaffected (no `ChildShips`), `t1Hyp_iff`/`t1Stmt_compat` unchanged. -/
+
+theorem childShips_gen (q : SrcPkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Sparkle.IR.AST.Design) :
+    Old.ChildShips q n mc Dc → ChildShips (.gen q) n mc Dc :=
+  fun h dsn h1 h2 i => Or.inl (h dsn h1 h2 i)
+
+/-! ## package assignments: positive transport at the lift -/
 theorem lift_some {P : Lean.Name → Option (SrcPkg ι dom)} {c : Lean.Name} {q' : Pkg ι dom} :
     Pkgs.lift P c = some q' ↔ ∃ q, P c = some q ∧ q' = .gen q := by
   simp only [Pkgs.lift, Option.map_eq_some_iff]
@@ -262,67 +280,24 @@ theorem lift_some {P : Lean.Name → Option (SrcPkg ι dom)} {c : Lean.Name} {q'
   · rintro ⟨q, hq, rfl⟩; exact ⟨q, hq, rfl⟩
   · rintro ⟨q, hq, rfl⟩; exact ⟨q, hq, rfl⟩
 
-theorem shipsRes_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
-    ShipsRes L (Pkgs.lift P) = Old.ShipsRes L P := by
-  funext c r
-  apply propext
-  constructor
-  · rintro ⟨h1, q', n, hq', hd, hc⟩
-    obtain ⟨q, hq, rfl⟩ := lift_some.mp hq'
-    exact ⟨h1, q, n, hq, hd, hc⟩
-  · rintro ⟨h1, q, n, hq, hd, hc⟩
-    exact ⟨h1, .gen q, n, lift_some.mpr ⟨q, hq, rfl⟩, hd, hc⟩
+theorem shipsRes_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (c : Lean.Name)
+    (r : Tools.ShippingChildInv.Res) : Old.ShipsRes L P c r → ShipsRes L (Pkgs.lift P) c r := by
+  rintro ⟨h1, q, n, hq, hd, hc⟩
+  exact ⟨h1, .gen q, n, lift_some.mpr ⟨q, hq, rfl⟩, hd, childShips_gen q n _ _ hc⟩
 
-theorem shipsAt_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
-    ShipsAt L (Pkgs.lift P) = Old.ShipsAt L P := by
-  funext n c r
-  apply propext
-  constructor
-  · rintro ⟨h1, q', hq', hd, hc⟩
-    obtain ⟨q, hq, rfl⟩ := lift_some.mp hq'
-    exact ⟨h1, q, hq, hd, hc⟩
-  · rintro ⟨h1, q, hq, hd, hc⟩
-    exact ⟨h1, .gen q, lift_some.mpr ⟨q, hq, rfl⟩, hd, hc⟩
+theorem shipsAt_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (n : Nat) (c : Lean.Name)
+    (r : Tools.ShippingChildInv.Res) : Old.ShipsAt L P n c r → ShipsAt L (Pkgs.lift P) n c r := by
+  rintro ⟨h1, q, hq, hd, hc⟩
+  exact ⟨h1, .gen q, lift_some.mpr ⟨q, hq, rfl⟩, hd, childShips_gen q n _ _ hc⟩
 
-theorem cacheShips_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
-    CacheShips L (Pkgs.lift P) = Old.CacheShips L P := by
-  funext Reach m
-  unfold CacheShips Old.CacheShips
-  rw [shipsRes_eq]
+theorem cacheShips_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
+    (m : Std.HashMap Lean.Name Tools.ShippingChildInv.Res) :
+    Old.CacheShips L P Reach m → CacheShips L (Pkgs.lift P) Reach m :=
+  fun h c r hR hm => shipsRes_lift L P c r (h c r hR hm)
 
-theorem invAt_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
-    InvAt L (Pkgs.lift P) = Old.InvAt L P := by
-  funext Reach D
-  unfold InvAt Old.InvAt
-  rw [cacheShips_eq]
-
-theorem iHAt_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
-    IHAt L (Pkgs.lift P) = Old.IHAt L P := by
-  funext Reach D
-  unfold IHAt Old.IHAt
-  rw [invAt_eq, shipsRes_eq]
-
-theorem bodyKeepsInv_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
-    BodyKeepsInv L (Pkgs.lift P) = Old.BodyKeepsInv L P := by
-  funext Reach D
-  unfold BodyKeepsInv Old.BodyKeepsInv
-  rw [invAt_eq]
-
-theorem childKeepsInv_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) :
-    ChildKeepsInv L (Pkgs.lift P) = Old.ChildKeepsInv L P := by
-  funext Reach D
-  unfold ChildKeepsInv Old.ChildKeepsInv
-  rw [invAt_eq]
-
-theorem keepBody_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop) :
-    KeepBodyStmt L (Pkgs.lift P) Reach = Old.KeepBodyStmt L P Reach := by
-  unfold KeepBodyStmt Old.KeepBodyStmt
-  rw [childKeepsInv_eq, bodyKeepsInv_eq]
-
-theorem keepChild_eq (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop) :
-    KeepChildStmt L (Pkgs.lift P) Reach = Old.KeepChildStmt L P Reach := by
-  unfold KeepChildStmt Old.KeepChildStmt
-  rw [bodyKeepsInv_eq, iHAt_eq, childKeepsInv_eq]
+theorem invAt_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
+    (D : Nat) (w : Void IO.RealWorld) : Old.InvAt L P Reach D w → InvAt L (Pkgs.lift P) Reach D w :=
+  fun h => ⟨h.1, cacheShips_lift L P Reach _ h.2⟩
 
 theorem t1Hyp_iff (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) :
@@ -362,28 +337,62 @@ theorem t1Hyp_iff (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)
       obtain ⟨q, hq, rfl⟩ := lift_some.mp hq'
       exact h.closed c hc q hq k hk hn
 
-/-! ## statements over all packages: NEW → OLD -/
-theorem memParentStmt'_compat (L : Laws mref cref) :
-    MemParentStmt' (ι := ι) (dom := dom) L → Old.MemParentStmt' (ι := ι) (dom := dom) L :=
-  fun h p => h (.gen p)
+/-! ## statements over all packages: `.gen`-restricted forms (A-COMB; STEP_IFACE_FREEZE.md rev3 §3, R2) -/
+theorem memParentStmt'_gen (L : Laws mref cref) : Old.MemParentStmt' (ι := ι) (dom := dom) L →
+    ∀ (q : SrcPkg ι dom) (mctx : Lean.Meta.Context) (cctx : Lean.Core.Context) (w w1 : Void IO.RealWorld)
+      (raw b : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design),
+      MemParentDataOk (.gen q) → ExtInS (.gen q) → MemOrigin (.gen q) →
+      q.d.shape.insts ≠ [] → q.d.shape.instFields ≠ [] → q.d.shape.layout.slots ≠ [] →
+      Tools.ShippingChildInvA.AdmCtx L.O.quiet mctx cctx →
+      Tools.ShippingChildCacheA.JQC L.O (Tools.ShippingChildBndCore.dv w) w →
+      Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore q.decl [] false)
+        mctx mref cctx cref w (raw, D) w1 →
+      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+        b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
+      Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref q.decl q.d.shape →
+      MachineTaken L mctx cctx (Tools.ShippingChildBndCore.dv w + 1) q.decl q.d.shape raw D →
+      (∀ k (hk : k < q.d.shape.insts.length), MemDec (.gen q) k (q.d.shape.insts[k]).1) →
+      ∀ n, TopShips (.gen q) (n + 1) q.decl b raw D ∧ ChildShips (.gen q) (n + 1) b D := by
+  intro h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 n
+  have := h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 n
+  exact ⟨this.1, childShips_gen q _ _ _ this.2⟩
 
-theorem memParentStmt_compat (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
-    MemParentStmt L (DataOkLiftCompat DataOk) → Old.MemParentStmt L DataOk :=
-  fun h p => h (.gen p)
+theorem memParentStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
+    Old.MemParentStmt L DataOk →
+    ∀ (q : SrcPkg ι dom) (mctx : Lean.Meta.Context) (cctx : Lean.Core.Context) (w w1 : Void IO.RealWorld)
+      (raw b : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design),
+      DataOkLiftCompat DataOk (.gen q) → q.d.shape.layout.slots ≠ [] →
+      Tools.ShippingChildInvA.AdmCtx L.O.quiet mctx cctx →
+      Tools.ShippingChildCacheA.JQC L.O (Tools.ShippingChildBndCore.dv w) w →
+      Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore q.decl [] false)
+        mctx mref cctx cref w (raw, D) w1 →
+      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+        b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
+      Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref q.decl q.d.shape →
+      MachineTaken L mctx cctx (Tools.ShippingChildBndCore.dv w + 1) q.decl q.d.shape raw D →
+      (∀ k (hk : k < q.d.shape.insts.length), MemDec (.gen q) k (q.d.shape.insts[k]).1) →
+      ∀ n, TopShips (.gen q) (n + 1) q.decl b raw D ∧ ChildShips (.gen q) (n + 1) b D := by
+  intro h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 n
+  have := h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 n
+  exact ⟨this.1, childShips_gen q _ _ _ this.2⟩
 
-theorem leafStmt_compat (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
-    LeafStmt L (DataOkLiftCompat DataOk) → Old.LeafStmt L DataOk :=
-  fun h p => h (.gen p)
-
-theorem stepStmt_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (DataOk : SrcPkg ι dom → Prop) :
-    StepStmt L (Pkgs.lift P) (DataOkLiftCompat DataOk) → Old.StepStmt L P DataOk := by
-  intro h p mctx cctx w w1 raw b D hP hd hA hjqc hcore hpost hdef ht hdec htr
-  refine h (.gen p) mctx cctx w w1 raw b D (lift_some.mpr ⟨p, hP, rfl⟩) hd hA hjqc hcore hpost hdef ht ?_ ?_
-  · intro k hk
-    rcases hdec k hk with hm | ⟨q, hq, hc⟩
-    · exact Or.inl hm
-    · exact Or.inr ⟨.gen q, lift_some.mpr ⟨q, hq, rfl⟩, hc⟩
-  · rw [shipsRes_eq]; exact htr
+theorem leafStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
+    Old.LeafStmt L DataOk →
+    ∀ (q : SrcPkg ι dom) (mctx : Lean.Meta.Context) (cctx : Lean.Core.Context) (w w1 : Void IO.RealWorld)
+      (raw b : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design),
+      DataOkLiftCompat DataOk (.gen q) → q.d.shape.insts = [] →
+      Tools.ShippingChildInvA.AdmCtx L.O.quiet mctx cctx →
+      Tools.ShippingChildCacheA.JQC L.O (Tools.ShippingChildBndCore.dv w) w →
+      Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore q.decl [] false)
+        mctx mref cctx cref w (raw, D) w1 →
+      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+        b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
+      Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref q.decl q.d.shape →
+      MachineTaken L mctx cctx (Tools.ShippingChildBndCore.dv w + 1) q.decl q.d.shape raw D →
+      ∀ n, TopShips (.gen q) n q.decl b raw D ∧ ChildShips (.gen q) n b D := by
+  intro h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 n
+  have := h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 n
+  exact ⟨this.1, childShips_gen q _ _ _ this.2⟩
 
 theorem t1Stmt_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) :
@@ -393,20 +402,13 @@ theorem t1Stmt_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι 
   obtain ⟨q, hq, rfl⟩ := lift_some.mp hq'
   exact ⟨q, n, hq, hts⟩
 
-theorem servedShips_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
-    (DataOk : SrcPkg ι dom → Prop) :
-    ServedShipsStmt L (Pkgs.lift P) Reach (DataOkLiftCompat DataOk) → Old.ServedShipsStmt L P Reach DataOk := by
-  intro h hT p mctx cctx w w' raw D hR hP hA hinv hih hck hcore
-  have := h ((t1Hyp_iff L P Reach DataOk).mpr hT) (.gen p) mctx cctx w w' raw D hR (lift_some.mpr ⟨p, hP, rfl⟩) hA
-    (by rw [invAt_eq]; exact hinv) (by rw [iHAt_eq]; exact hih) (by rw [childKeepsInv_eq]; exact hck) hcore
-  rw [shipsRes_eq] at this
-  exact this
-
-#print axioms shipsRes_eq
+#print axioms childShips_gen
+#print axioms shipsRes_lift
+#print axioms invAt_lift
+#print axioms memParentStmt'_gen
+#print axioms memParentStmt_gen
+#print axioms leafStmt_gen
 #print axioms t1Hyp_iff
-#print axioms stepStmt_compat
 #print axioms t1Stmt_compat
-#print axioms servedShips_compat
-#print axioms keepChild_eq
 
 end Tests.Gen2.PkgCompat

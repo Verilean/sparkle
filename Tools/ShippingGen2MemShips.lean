@@ -80,7 +80,7 @@ theorem memParent_childShips (L : Laws mref cref) (p : Pkg ι dom)
     · intro x r hD
       obtain ⟨g, hg, rfl⟩ := Tools.ShippingMachineDepthRun.childMap_some.mp hD
       exact acyc.2 g (Tools.ShippingHierPremisesBase.moduleByName_mem hg).1
-  exact Tools.ShippingGen2C6.seqChildRunN_of_composedNW_run n houtTy (ok_outNameOk p.d hok) hsl hI0 hkD hIlen hSL
+  exact Or.inl <| Tools.ShippingGen2C6.seqChildRunN_of_composedNW_run n houtTy (ok_outNameOk p.d hok) hsl hI0 hkD hIlen hSL
     hSlen hLlen hNIn hext.1 hext.2 i hNW hpost hEA acyc.1
 
 /-- **M2-a: the memory-only parent ships** (`MemParentStmt'`, approved freeze rev1 §3 + A4 §7.1). -/

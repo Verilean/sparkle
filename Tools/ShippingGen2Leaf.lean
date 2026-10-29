@@ -260,7 +260,7 @@ theorem leaf_childShips_of_LB (p : Pkg ι dom) {raw b : Module} {D : Design}
     intro i; funext vals; simp only [Pkg.S, htake]
   intro dsn _ _ i
   rw [hS i, htake]
-  exact seqChildRunN_of_flat (childMap dsn.modules) dsn
+  exact Or.inl <| seqChildRunN_of_flat (childMap dsn.modules) dsn
     (Tools.ShippingMachineDepthRun.instFree_of_seqOk hbok)
     (Tools.ShippingGen2LeafSeq.seqChildRun_of_L hLid hpost hnoI hsl (data_hSlen p.d hok hSS) hSS
       (data_hLlen p.d hok) houtTy (Tools.ShippingC4InitW.hinitW_of_ok p.d hok) i) n

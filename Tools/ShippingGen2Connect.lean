@@ -1,4 +1,4 @@
-import Tools.ShippingGen2Defs
+import Tools.ShippingGen2AComb
 import Tools.ShippingGen2Consumer
 import Tools.ShippingChildPinC
 set_option autoImplicit false
@@ -103,11 +103,14 @@ def pkgOutsC (P : Pkgs ι dom) : Name → List OutField :=
 noncomputable def pkgS (P : Pkgs ι dom) (i : ι) : Name → (Nat → List Nat) → List (Nat → Nat) :=
   fun c => ((P c).map fun q => q.S i).getD (fun _ => [])
 
-/-- **`CallDec` + the served child fact at height `n` ⇒ `SeqFactsRN`** (every conjunct; GENERAL_SPEC §4.2 table). -/
+/-- **`CallDec` + the served child fact at height `n` ⇒ `SeqFactsRN`** (every conjunct; GENERAL_SPEC §4.2 table).
+A-COMB: the served child must be sequential (`hseq`, a clock input); its `ChildRunN` is then `SeqChildRunN` (C2).
+The combinational branch is S3's `CombFactsRN`. -/
 theorem seqFactsRN_of_callDec {L : Laws mref cref} {P : Pkgs ι dom} {p q : Pkg ι dom} {k n : Nat} {c : Name}
     (dsn : Design) (body : List Stmt) (i : ι) (bools : Nat → Signal (dom i) Bool)
     (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
-    (hP : P c = some q) (hdec : CallDec p q k) :
+    (hP : P c = some q) (hdec : CallDec p q k)
+    (hseq : ∀ mc, ServedPC (ShipsAt L P n) dsn c mc → "clk" ∈ mc.inputs.map (·.name)) :
     Tools.ShippingMachineCallsLinkedTNR.SeqFactsRN (childMap dsn.modules) n p.d.shape dsn body
       (p.lsrc i bools bits) p.d.ls.length (p.d.bsIn.drop p.kD) p.kD (p.extBS i bools bits) (p.extS i bools bits)
       (pkgBsC P) (pkgOutsC P) (pkgS P i) (ServedPC (ShipsAt L P n) dsn) k c := by
@@ -118,10 +121,11 @@ theorem seqFactsRN_of_callDec {L : Laws mref cref} {P : Pkgs ι dom} {p q : Pkg 
   have hS : pkgS P i c = q.S i := by simp [pkgS, hP]
   refine ⟨hnone, args, hargs, ?_, h4, ?_, k', o, f, ?_, hon, ?_, hpos⟩
   · intro mc hmc
+    have hclk := hseq mc hmc
     obtain ⟨hmod, Dc, ⟨_, q', hq', _, hcs⟩, hcons⟩ := hmc
     rw [hP] at hq'
     cases hq'
-    have h := hcs dsn hcons hmod i
+    have h := (childRunN_iff_seq hclk).mp (hcs dsn hcons hmod i)
     rw [hB, hO, hS]
     refine ⟨h, ?_⟩
     rw [h.2.2.2.2.2.1, hlen]

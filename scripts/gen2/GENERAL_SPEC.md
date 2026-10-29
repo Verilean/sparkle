@@ -72,6 +72,14 @@ Every file:line below is at fea429da.
   - The C4/C5 work is reused where it is generic in `n` (§4).
   - Its shared-leaf, depth-2 glue is not reused.
   - None of this denies the existing results. They are complete for their classes, and not FG.
+- **Semantic amendment A-COMB (2026-10-29; STEP_IFACE_FREEZE.md rev3, approved 02b0918f).**
+  - **The change:** `ChildShips` takes `ChildRunN := SeqChildRunN ∨ CombChildRunN`, so that combinational
+    (clock/reset-less) children have a child interface. This WEAKENS the child guarantee.
+  - **What stays open:** preservation of the final guarantee holds only once every parent consumer proves the
+    unchanged `TopShips` from both branches (S3-S5). FG/T1 and the M2 acceptance conditions are unchanged.
+  - **The compatibility tests:** `Tests/Gen2/PkgCompat.lean` keeps the frozen `Old.*` texts and classifies the
+    changed checks there.
+  - **Existing evidence:** acceptance evidence at earlier SHAs stays valid as history.
 
 ## 1. Final goal (FG, schema) and the first theorems (exact text)
 

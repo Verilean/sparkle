@@ -54,14 +54,40 @@ def Start {mref cref} (L : Laws mref cref) (mctx : Meta.Context) (cctx : Core.Co
 
 /-! ## 3. The child interface (what a parent consumes) and the call decoding (what the parent's package provides) -/
 
+/-- **A combinational child run at depth `n`** (A-COMB, scripts/gen2/STEP_IFACE_FREEZE.md rev3 §2): `SeqChildRunN`
+(MachineDepth.lean:64) without its clock/reset part — no input named `"clk"`/`"rst"`, no clock/reset premise on the
+input stream. The same interface data (`bsC`, `outsC`, `S`) and the same `ResetN` start. -/
+def CombChildRunN (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (dsn : Design) (n : Nat)
+    (mc : Sparkle.IR.AST.Module) (bsC : List (Name × MixedGateBinder)) (outsC : List OutField)
+    (S : (Nat → List Nat) → List (Nat → Nat)) : Prop :=
+  mc.outputs = outsC.map (fun o => ({ name := o.name, ty := o.ty } : Port)) ∧
+  (mc.inputs.map (·.name)).Nodup ∧
+  "clk" ∉ mc.inputs.map (·.name) ∧ "rst" ∉ mc.inputs.map (·.name) ∧
+  (∀ x ∈ mc.outputs.map (·.name), x ∉ mc.inputs.map (·.name)) ∧
+  (Tools.ShippingMachineCompose.argPorts mc).length = (bsC.filter fun b => b.2 != .domain).length ∧
+  ∀ (T : Nat) (ins : Nat → String → Nat) (s : KT n) (vals : Nat → List Nat),
+    (∀ τ, τ < T → InRange (vals τ) (bsC.filter fun b => b.2 != .domain)) →
+    (∀ t, t < T → (Tools.ShippingMachineCompose.argPorts mc).map (fun p => ins t p.name) = vals (T - 1 - t)) →
+    ResetN dsn n mc s →
+    ∃ envs, RunOn children n mc (seedIn mc ins) T s = some envs ∧ envs.length = T ∧
+      ∀ j (hj : j < envs.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+        outsC[k]? = some o → (S vals)[k]? = some f → (envs[j]'hj) o.name = f j
+
+/-- The child run: sequential or combinational (A-COMB). The two disjuncts exclude each other (`"clk"`). -/
+def ChildRunN (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (dsn : Design) (n : Nat)
+    (mc : Sparkle.IR.AST.Module) (bsC : List (Name × MixedGateBinder)) (outsC : List OutField)
+    (S : (Nat → List Nat) → List (Nat → Nat)) : Prop :=
+  SeqChildRunN children dsn n mc bsC outsC S ∨ CombChildRunN children dsn n mc bsC outsC S
+
 /-- **ChildShips** (the IH content of `c`, for THE result `(mc, Dc)` a parent was served): for every design `dsn`
 that contains `Dc`'s modules and `mc`, the child run interface at height `n`, with the interface data taken from
 `c`'s own package `q`. Built-in transport: it is stated for every extending `dsn`, so the producer proves the
-transport once (gap G-TRANSPORT). -/
+transport once (gap G-TRANSPORT). A-COMB: the run is `ChildRunN` (sequential or combinational); this WEAKENS the
+child guarantee, and the final guarantee is preserved only once every parent consumer handles both branches. -/
 def ChildShips (q : Pkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Design) : Prop :=
   ∀ (dsn : Design), (∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g) →
     moduleByName dsn.modules mc.name = some mc →
-    ∀ (i : ι), SeqChildRunN (childMap dsn.modules) dsn n mc (q.d.bsIn.take q.kD) q.d.shape.layout.outs (q.S i)
+    ∀ (i : ι), ChildRunN (childMap dsn.modules) dsn n mc (q.d.bsIn.take q.kD) q.d.shape.layout.outs (q.S i)
 
 /-- **CallDec** (gap G-CALLDEC; the non-run conjuncts of `SeqFactsRN`, CallsLinkedTNR.lean:23): the parent `p`'s
 ordinary call `k` to `c` (package `q`) has its arguments among `p`'s lets, in range for `q`'s ports, and the
