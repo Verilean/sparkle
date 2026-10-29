@@ -99,19 +99,19 @@ def checkExpected (thm exp : Name) : MetaM Unit := do
   cmpTele s!"{thm}" (← stmtOf thm) (← stmtOf exp)
   logInfo m!"SRCARGW TYPE OK {thm} against {exp}"
 
-def checkMutant (thm mut : Name) : MetaM Unit := do
+def checkMutant (thm mt : Name) : MetaM Unit := do
   let a ← stmtOf thm
-  let e ← stmtOf mut
+  let e ← stmtOf mt
   let accepted ← withoutModifyingState do
     try
-      cmpTele s!"{thm} vs mutant {mut}" a e
+      cmpTele s!"{thm} vs mutant {mt}" a e
       pure true
     catch _ => pure false
   if accepted then
-    throwError "SRCARGW MUTANT ACCEPTED: {mut} matches {thm}"
+    throwError "SRCARGW MUTANT ACCEPTED: {mt} matches {thm}"
   if (← withoutModifyingState (isDefEq a e)) then
-    throwError "SRCARGW MUTANT ACCEPTED (isDefEq of the whole statements): {mut} vs {thm}"
-  logInfo m!"SRCARGW MUTANT REJECTED {mut} (against {thm})"
+    throwError "SRCARGW MUTANT ACCEPTED (isDefEq of the whole statements): {mt} vs {thm}"
+  logInfo m!"SRCARGW MUTANT REJECTED {mt} (against {thm})"
 
 /-- Only the standard axioms. -/
 def checkAxioms (n : Name) : MetaM Unit := do
