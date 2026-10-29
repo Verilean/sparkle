@@ -11,6 +11,7 @@ Issue `sparkle-gen2-leaf`.
 | `g2lf-b60fef2d` | b60fef2d | exit 0, 725 jobs: `Tools.ShippingGen2LeafSeq`, `Tools.ShippingGen2Leaf` |
 | `g2lf-6571cd1d` | 6571cd1d | failed diagnostic, instance file only: no `Inhabited (HList (tys leaf16.machineData.ss))`. The same log shows standard axioms for every proof lemma |
 | `g2lf-d9fac18c` | d9fac18c | **exit 0, 927 jobs**: `Tests.Gen2.LeafInstance`. Output log SHA-256 prefix `34ee2eef7be4aa0c`; no `sorry` |
+| `g2lf-reg-be7ef8fb` | be7ef8fb | **exit 0, 956 jobs**: regression set `Tests.Gen2.{LeafInstance,MemParentInstance,QuantInstance,PkgCompat}`. Log prefix `963e36fd993ba6b8`; no `sorryAx`; `lm_ships`, `q_ships` and the PkgCompat theorems still have standard axioms |
 
 **Axioms** (`g2lf-d9fac18c`): `leaf_ships`, `leaf_topShips_of_LB`, `leaf_childShips_of_LB`, `traceL_of_LB`, `seqStream_of_L`, `seqChildRun_of_L` and `leaf16_ships` each depend only on `[propext, Classical.choice, Quot.sound]`.
 
