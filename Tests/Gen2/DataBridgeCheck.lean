@@ -4,7 +4,8 @@ set_option autoImplicit false
 
 /-! # Controls for Tools/ShippingGen2DataBridge.lean (P-MEM row, WID strict row)
 
-UNBUILT when written (the author could not build; the caller builds).
+Built at 5d6ca626 (kjob g2db-5d6ca626: exit 0, standard axioms only). `callerL` is a data-level positive (no parent
+package is exhibited); the memory shapes are synthetic.
 
 Parent `callerL` (Tests/Compiler/ShippingMachineLinkedTest.lean:31; one call of `pickByteH`, `instFields = []`), callee
 `pickByteH` as the `.comb` package (`pbhC` pattern of Tests/Gen2/SlotlessLeafInstance.lean). NO `callerL` package exists

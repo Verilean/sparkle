@@ -4,7 +4,7 @@ Branch `par/gen2-spec` at e1fd0d0e. Read-only research. Line numbers are at e1fd
 rev2 (reviewer decisions applied): `hord_of_row` restricted to `k < insts.length`; the name half of `hnomem` recorded as a
 separate supplier obligation (§4.2); `MemFlag` marked an UNPROVED plan; route (3) recorded as an insufficient-evidence
 finding (not a formal refutation); the row is an extra premise, not "no new semantic premise". The row and `hord_of_row`
-are now written (UNBUILT) in Tools/ShippingGen2DataBridge.lean with controls in Tests/Gen2/DataBridgeCheck.lean (§4.1).
+are now written and BUILT at 5d6ca626 (kjob g2db-5d6ca626: exit 0, 749 jobs, head=base=source=end, no sorry, all 22 roots standard axioms; reviewer accepted the Lean as supplier-local) in Tools/ShippingGen2DataBridge.lean with controls in Tests/Gen2/DataBridgeCheck.lean (§4.1).
 Question (S4_CONSUMER_FREEZE.md §7, probe P-MEM, :591-617):
 ```lean
 oneOut_noMem : shape.instFields = [] → ∀ k, (shape.instOrigins.getD k .ord).child? = none
@@ -12,7 +12,7 @@ oneOut_noMem : shape.instFields = [] → ∀ k, (shape.instOrigins.getD k .ord).
 
 ## 1. Answer
 - **By the source text: yes.** The reader excludes memory-origin entries when `instFields = []`. The closing does not.
-- **In the kernel, from the run (`MachineDefines`): no route without a new premise.** The general statement STOPS at O1/O2 (§3).
+- **In the kernel, from the run (`MachineDefines`): not supplied today.** The fuel route proposed in this survey (§3) needs O1/O2, which are currently unsupplied; the general statement STOPS there. This is a limit of that route as surveyed, not an impossibility claim for every route.
 - **Supplier-local route:** a decided per-declaration data row (§4). The row is still an EXTRA premise of whoever uses
   it (under an abstract package nothing decides it); a fuel-candidate plan (§3.2, UNPROVED) would be its G-DATA coverage
   argument, modulo O1/O2. Coverage is tracked separately; FG is not narrowed.
@@ -100,8 +100,8 @@ Proof sketch of the last theorem:
 - The needed direction, old success ⇒ some fuel, is O1. That the compiled partials satisfy `OldEqV`
   (Tools/ShippingReaderFuelVerbatim.lean:490) is O2. Both are outside the kernel (docs/parallel/R-reader-fuel.md:37-43,
   :448-449, :552-555).
-- A kernel proof of `oneOut_noMem` from `MachineDefines` alone is therefore unavailable. Adding O1/O2 would be a new
-  semantic premise.
+- Along this fuel route, a kernel proof of `oneOut_noMem` from `MachineDefines` alone is therefore not available today
+  (O1/O2 unsupplied). Adding O1/O2 would be a new semantic premise. Other routes are not ruled out.
 
 ## 4. Route (2): a decided per-declaration data row (recommended)
 - `p.d` is the literal `<f>.machineData` that the generator emits from the meta-time reader run
@@ -141,12 +141,13 @@ theorem hord_of_row (h : OneOutNoMemRow p = true) (hf : p.d.shape.instFields = [
     S4_WID_SUPPLY.md §4.1 applies: old ↔ new implications, every downstream user, supply unit, final-FG obligation);
   - the generator's `decide` per declaration (and `caller`'s instance).
 
-### 4.1 Implementation (rev2, UNBUILT)
+### 4.1 Implementation (rev2, BUILT at 5d6ca626, g2db-5d6ca626)
 - Tools/ShippingGen2DataBridge.lean: `noMemRowS` (:33), `OneOutNoMemRow` (:37, standalone, the Bool form above),
   `OneOutNoMemRow_eq` (:40), `hord_of_rowS` (:43), `hord_of_row` (:57). No shared definition is edited.
 - Tests/Gen2/DataBridgeCheck.lean: `callerL_row` (decided), `callerL_hord` (every package with `callerL`'s data;
   no `callerL` package exists), negative `memShape0_row` (memory origin, no fields: row false), implication-form
-  `memShape1_row` (memory parent passes), out-of-range `memShapeX_row` + `memShapeX_outOfRange`.
+  `memShape1_row` (memory parent passes), out-of-range `memShapeX_row` + `memShapeX_outOfRange`. The memory controls are
+  SYNTHETIC shapes (not compiled declarations); `callerL` is a data-level positive with no parent package exhibited.
 - Supplier-local result: FG is not narrowed; coverage is tracked separately (§4.3).
 - Then `memDec_vacuous_of_ord` (S4_CONSUMER_FREEZE.md:610-613, a candidate) applies per `k`. That removes `hnomem`'s origin
   half as a case restriction for one-output parents.
@@ -168,11 +169,11 @@ coverage obligation in the class-D sense, not a premise of FG, and it is tracked
 (or generator emission) is evidence for the declarations decided, not an all-source success guarantee.
 
 ## 5. Stops
-- **P-MEM-1 (general, kernel):** `MachineDefines` ⇒ `oneOut_noMem` needs O1+O2. There is no kernel route, so the general
-  statement is not claimed.
+- **P-MEM-1 (general, kernel):** along the fuel route proposed here, `MachineDefines` ⇒ `oneOut_noMem` needs O1+O2, which
+  are currently unsupplied; so the general statement is not claimed. Not an impossibility claim for all routes.
 - **P-MEM-2 (fuel candidate):** `MemFlag` / `GoodPM` / `machineShapeF_oneOut_noMem` are an UNPROVED plan (missing; the
   intended proof copies the Prov induction with a per-call post). Not built, not elaborated.
-- **P-MEM-3 (data row):** the row and `hord_of_row` are written (UNBUILT) in Tools/ShippingGen2DataBridge.lean
+- **P-MEM-3 (data row):** the row and `hord_of_row` are written and built (g2db-5d6ca626) in Tools/ShippingGen2DataBridge.lean
   (`OneOutNoMemRow`, `hord_of_row` with `hk : k < insts.length`). Missing: the `DataOkB` conjunct (not added; shared
   definitions unchanged), the generator's emission, `caller`'s decided instance. G-DATA coverage stays open (P-MEM-1).
 - **P-MEM-4 (name half):** removing the existing `core_*` name condition (`memChild? x.1 = none`) is a separate supplier

@@ -5,7 +5,7 @@ set_option autoImplicit false
 
 /-! # Supplier-local data bridges for one-output parents (scripts/gen2/S4_PMEM_FREEZE.md §4, S4_WID_SUPPLY.md §3 (b))
 
-UNBUILT when written (no build was run by the author; the caller builds). Standalone: nothing here edits or strengthens a
+Built at 5d6ca626 (kjob g2db-5d6ca626: exit 0, standard axioms only). Standalone: nothing here edits or strengthens a
 shared definition (`DataOkB`, `T1Hyp`, `OneOutWidth` are unchanged). Both results are SUPPLIER-LOCAL: each turns a
 decided per-declaration Bool row into the property a consumer needs. They are NOT a coverage guarantee: a row is still an
 extra premise under an abstract `P` (or an abstract package), and whether every successful compilation's row is true is
