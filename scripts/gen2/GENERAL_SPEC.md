@@ -32,11 +32,34 @@ Every file:line below is at fea429da.
 2. **Route evidence.** It is `MachineTaken` (= `MachineRunJQC`, the machine synthesis returned the run's result) in
    every statement. The T1 scope is the field `T1Hyp.closes`, with a coverage obligation (G-CLOSES).
    - The IH `IHAt` is restricted to reached declarations.
-   - The child-entry hook is restricted to the parent's callees, through `ChildSynthOn` and `ReachStmt` (G-REACH).
+   - (Rev3 replaces the rev2 `ChildSynthOn`/`ReachStmt`; see below.)
 3. **Acceptance.** Recording a counterexample or a remaining per-declaration premise no longer completes a milestone
    (§5, §7, §9).
 4. **U0 diagnostic.** GEN2_DEFS is now elaborated as `Tools/ShippingGen2Defs.lean` (`autoImplicit false`). Its
    deviations are listed in §8.1.
+
+**Rev3** answers review 4d5e5b34 (the invariant interface):
+- **A.** The arbitrary-`I` `ReachStmt` and `ChildSynthOn` are REMOVED. The invariant is the concrete
+  `InvAt L P Reach D := JQC L.O D ∧ CacheShips L P Reach (cv ·)`, with `CacheShips` restricted to REACHED names.
+  - Its `StableA` property (I → quiet, framed by `cv`/`sv`/`dv`/quiet) is PROVED in U0 (`stableA_invAt`). That property
+    is the premise `RefLawsATele`'s fields and the keep-chain components ask of an invariant.
+  - Because `CacheShips` constrains reached names only, the child hook can be required of EVERY name, which is the
+    existing `ChildSynthA` shape. The insertion of a non-reached name's result keeps `InvAt` trivially. So no
+    restriction of the hook to the callees is needed, and G-REACH as a statement disappears.
+  - What remains is the static closure `T1Hyp.closed`, used for the SERVED instances. They are callees of the static
+    `insts` by `ServedP`'s k ↔ instance correspondence.
+- **B.** The IH has two halves:
+  - `IHAt D`: SUCCESS semantics, from an `InvAt D` world;
+  - `ChildKeepsInv D` / `BodyKeepsInv D`: an ALL-OUTCOME keep of `InvAt` (`Keeps`: `endW` and `ErrOk`).
+
+  They are connected by two statements whose types are fixed now, in GEN2_DEFS §4:
+  - **G-KEEP-BODY** `KeepBodyStmt`: `ChildKeepsInv D → BodyKeepsInv D`.
+  - **G-KEEP-CHILD** `KeepChildStmt`: `1 ≤ D → (D < limit → BodyKeepsInv (D+1)) → IHAt D → ChildKeepsInv D`. The
+    nested run, including a child that throws after partially synthesising its own children, is covered by
+    `BodyKeepsInv (D+1)`. The insertion of a reached name's result is covered by `IHAt D`.
+
+  Until these are proved, G-EXC is an unsupplied obligation. The table in §3.4 maps each part of the two statements
+  to the existing lemma it generalises.
 
 ## 0. Where this plan stands relative to existing results
 - **C4/C5 are general theorems over limited classes.** `memSharedLeaf_ships` and `qSharedLeaf_ships` are ∀-class
@@ -99,10 +122,11 @@ FG : ∀ (L : Laws mref cref) declName (parameters : List (String × Nat)) mctx 
   exclude the fall-back to legacy.
 - **`T1Hyp L P Reach DataOk`** (structure): `pkg` (G3-GEN), `defines` (G3-SHAPE), `closes` (the route-3 scope, with
   G-CLOSES), `dec` (the decodings) and `closed` (static call closure).
-- **`IHAt L P Reach D`:** every run of a REACHED declaration from a depth-`D` world ships and keeps `CacheShips`.
+- **`IHAt L P Reach D`:** every SUCCESSFUL run of a REACHED declaration from an `InvAt D` world ships (the success half of the IH; the all-outcome half is `BodyKeepsInv`/`ChildKeepsInv`).
 - **`ServedGP`/`Served1P`/`ServedP Q`:** `ServedRealGA`/`ServedReal1A` (ServedRealA.lean:45-72) verbatim, with
   `RealChildA` replaced by `Q`.
-- **`ChildSynthOn`, `ReachStmt`:** the child-entry hook restricted to the parent's ordinary callees (G-REACH).
+- **`InvAt`, `IHAt` (success half), `BodyKeepsInv`/`ChildKeepsInv` (all-outcome half), `KeepBodyStmt`,
+  `KeepChildStmt`, `ShipsAt` (fixed height) and `ServedPC`** (rev3).
 - **The statements:**
   - **`ServedShipsStmt`** (G-SERVED);
   - **`StepStmt`** (the one-level rule; its premise is the `ServedP (ShipsRes)` trace);
@@ -124,9 +148,9 @@ height. It is conditional on four named premises:
 - G3: the package of every reached declaration, with its `MachineDefines` in every admissible context;
 - `DataOk` (§4.4);
 - the decodings G-CALLDEC and G-MEMCALLS;
-- closure of `Reach` under calls (G-REACH).
+- closure of `Reach` under calls (`T1Hyp.closed`, static; it is used for the served instances).
 
-The last three are to be DERIVED: in M2 for the data and the decodings, and in M3 for G-REACH, from the run. Until then
+The data and the decodings are to be DERIVED in M2. Until then
 they stay named premises, and T1 must be reported as conditional on them.
 
 ## 2. Dispatch coverage (every way a successful run is produced)
@@ -202,22 +226,23 @@ The chosen option is to STRENGTHEN the served-child evidence:
     package.
 - **How it is proved:** by re-proving the `ServedRealA` chain with `CacheInvA` generalised from `RealChildA` to
   `ShipsRes`.
-  - The child-entry invariant `I := JQC ∧ CacheShips` at depth `dv w + 1` is needed as a hook ON THE CALLEES ONLY,
-    `ChildSynthOn L R I`. The existing hook `ChildSynthA` (Tools/ShippingChildFrontCP.lean:240) asks it of EVERY name,
-    which the IH cannot give: `IHAt` holds only on `Reach`, because `P` is an `Option` map and packages exist only
-    there.
-  - **G-REACH** (`ReachStmt`) is the statement that the machine synthesis of `p` keeps every invariant that the child
-    entry keeps on `p`'s ordinary callees. Its risk: the translator may call the child entry on names outside the
-    static `insts` (the static call closure `T1Hyp.closed` versus the call set the translator actually reaches). If
-    so, `R` and `T1Hyp.closed` are widened to that set. Arbitrary nested runs are NEVER assumed to be machine-route.
+  - It uses both halves of the IH one level deeper: `IHAt (dv w + 1)` and `ChildKeepsInv (dv w + 1)`
+    (`ServedShipsStmt`'s premises).
+  - The child hook is `ChildKeepsInv`, for EVERY name. That is possible because `CacheShips` constrains reached names
+    only (rev3 A).
+  - A child the translator synthesises on a name outside `Reach` puts an unconstrained entry in the cache. That entry
+    breaks nothing, and no route is assumed for it.
 - **The rejected alternative:** a separate history induction over `RealChildA` derivations. It does not reach the
   nested fresh runs, which are not sub-derivations, so it would still need the depth measure.
 
 **The remaining invariants and premises:**
-- **G-EXC, reduced.** `Keeps I m` (Tools/ShippingChildInv.lean:315) is `∀ w, I w → I (endW … m w) ∧ ErrOk …`, which
-  constrains the end world of EVERY outcome. A keep-invariant proof of `CacheShips` therefore covers caught exceptions
-  and refusals, including a partially run child. G-EXC is part of G-CACHE/G-REACH, with no separate statement. This
-  was read from the source, not proved.
+- **G-EXC (unsupplied until G-KEEP-CHILD/BODY are proved).** `Keeps I m` (Tools/ShippingChildInv.lean:315) asks `I` at
+  `endW` of every outcome, plus `ErrOk`. The success-only `IHAt` cannot give it. It comes from `BodyKeepsInv (D+1)` for
+  the nested run, which covers a child that throws after partially synthesising its own children, while the parent
+  catches. That is the content of `KeepChildStmt`.
+- **G-START (an obligation of the T1 proof):** at depth 0 the core clears `sparkleChildCache` (Elab.lean:5536-5541)
+  before any child call. So `InvAt 0` holds where the first child is synthesised, although `Start` gives only
+  `JQC L.O 0 w`.
 - **G-MEMO:** `sparkleSubModuleCache` (the memo of route 5) is a different map. `CacheShips` does NOT cover it. It
   needs its own invariant, or a proof that machine-route parents never read it for their children.
 - **`hrunN`** of consumer 2 quantifies over ARBITRARY runs of the child in any admissible context. In `StepStmt` it is
@@ -231,6 +256,26 @@ The chosen option is to STRENGTHEN the served-child evidence:
   reached declarations. Their route evidence comes from `T1Hyp.defines` + `T1Hyp.closes` through
   `machineRunJQC_of_closesA` (ServedRealA.lean:97). Declarations that do not close are route 4 (M4), never silently
   machine-route.
+
+### 3.4 The invariant interface: what keeps `InvAt`, by existing lemma
+The keep chain of the pin invariant `JQP` (`bodyKeepsP_of_tele`, Tools/ShippingChildPinC.lean:329;
+`childKeepsP_of_body`, :346; `childKeepsP_all_of_tele`, :357) is the template.
+
+| operation | existing lemma (JQP chain) | needs of the invariant | for `InvAt` |
+|---|---|---|---|
+| telescopes, local/let decls | `RefLawsATele` fields (Tools/ShippingChildInvA.lean:301-333) | `I → quiet` and the cv/sv/dv/quiet frame | `stableA_invAt` (U0, PROVED) |
+| framed ref reads/sets of other per-synthesis refs | `keepsA_framed` + `FramedA.*` (`psset`, ChildPinC:62) | `StableA` | `stableA_invAt` |
+| child entry from the child hook | `childEntryA_of_childSynthA` (ChildFrontCP:248) | `StableA` + `sv` from `I` (`h.1.1.2.1`) | the same projection; `ChildKeepsInv` |
+| canonical key | `Tools.ShippingChildCanonKeyA.canonKeyA` | `StableA` | generic |
+| legacy implementation / cached / tail | `legacyImplA_of_tele`, `legacyCachedA_of_impl`, `legacyTailA_generic` | `StableA`, `T`, hook | generic in `I` (to verify) |
+| projections | `projFieldNameA` | `StableA` | generic (to verify) |
+| front ends | `fromConst_frontends_of_handlers` | the handlers above | generic (to verify) |
+| translator | `translate_keepsP_of_tele` (JQP-specific) | — | **NEW: `translate_keepsInv_of_tele`** (part of G-KEEP-BODY) |
+| child insertion | `synthesizeChild_tripleP`, `hentryT_of_bodyP` (JQP-specific: pin kept) | — | **NEW: insertion keeps `CacheShips`**; reached name via `IHAt D` (part of G-KEEP-CHILD) |
+| depth-limit branch | `childKeepsP_of_body … (absurd …)` (:367) | — | the same overflow argument |
+
+"Generic (to verify)" rows take an arbitrary `StableA` invariant in their statement as cited. U0's result review lists
+the exact binder of each, without a proof.
 
 ### 3.3 The one-level rule
 `StepStmt` (GEN2_DEFS §5) has these premises:
@@ -316,9 +361,12 @@ Tests/Compiler/C4ShipsTest.lean, C4ComposedTest.lean and C4ClosesTest.lean.
 | G-ONEOUT | `instFields = []` children | M2-d |
 | G-SERVED | `ServedShipsStmt` | M3 |
 | G-CACHE | `CacheShips` kept by every step of a run | M3 |
-| G-EXC | `CacheShips` on caught exception / refusal paths | M3 |
+| G-EXC | all-outcome cache keep (= G-KEEP-CHILD/BODY) | M3 |
+| G-KEEP-BODY | `KeepBodyStmt` (§3.4) | M3 |
+| G-KEEP-CHILD | `KeepChildStmt` (§3.4) | M3 |
+| G-START | depth-0 cache reset ⇒ `InvAt 0` | M3 |
 | G-MEMO | `sparkleSubModuleCache` invariant | M3 |
-| G-REACH | the reached set, from the run | M3 |
+| (G-REACH) | removed in rev3; `CacheShips` restricted to `Reach` | — |
 | G-DATA | coverage: every successful machine-route run ⇒ each DATA check is true (§4.4) | M2 (per check) |
 | G3-GEN, G3-DECL | the package exists, and is the declaration's (§6) | M5 |
 
@@ -369,7 +417,7 @@ Units in dependency order:
      fact. This proves the §4.2 conjunct table is complete.
    - `memFacts_of_memDec`: by definition.
    - Decide `hrunN`: whether consumer 2 applies with PC as stated, or a consumer variant is needed.
-   - Check whether `KeepsCP` covers caught exceptions (G-EXC).
+   - The invariant interface (§3.4): `stableA_invAt`, and the exact binder of each "generic (to verify)" row.
    - Classify every `R?` row of §4.4 by reading the sources, with no proof.
    - **Accept:** a build; `#print axioms`; the deviation list.
    - **If it fails:** a mismatch in the interface types changes GEN2_DEFS before any M2 proof. A missing `hrunN` route
@@ -406,7 +454,8 @@ audit).
 **Residue after M2:** G-CALLDEC (if it took the certificate route), G-SERVED/CACHE/EXC/MEMO/REACH, and G3/G5.
 
 ### M3 Hierarchy induction: T1 (proposal `sparkle-gen3`) [proof]
-- **Deliverable:** G-SERVED (re-proving the served chain over `ShipsRes`), G-CACHE, G-EXC, G-MEMO and G-REACH, then
+- **Deliverable:** G-SERVED (re-proving the served chain over `ShipsRes`), G-KEEP-BODY, G-KEEP-CHILD (= G-CACHE,
+  G-EXC), G-START and G-MEMO, then
   T1 by the §3.2 induction.
 - **Accept:** `T1Stmt` is proved with premises exactly G3 (`P` correct on the reached declarations), `Laws`, `Start`,
   and the decodings (unless M2 derived them).
@@ -509,7 +558,7 @@ audit).
     with `c = (p.d.shape.insts[k]).1`. Any change U0 needs here is recorded as a deviation.
   - `memFacts_of_memDec`.
   - `hrunN`: either a proof that consumer 2 applies, or the variant's statement.
-- **Report:** the classification of §4.4's R? rows; the G-EXC finding (§3.2: reduced to `Keeps`); the concrete
+- **Report:** the classification of §4.4's R? rows; the §3.4 binder check; the concrete
   `DataOk` and its vacuity audit.
 - **Diagnostic already run** (allowed by the review of 27644250): `Tools/ShippingGen2Defs.lean`, byte-identical to
   GEN2_DEFS.lean.txt (cmp).
@@ -523,7 +572,7 @@ audit).
       `stateLoop`), `Tools.ShippingChildInv.profLogIO` and `Tools.ShippingChildRunAKids` (`MachineClosesAtA`);
     - `Module` is written `Sparkle.IR.AST.Module` (ambiguous with `Lean.Module`);
     - `Pkgs` has no `: Type` annotation (it lives in `Type 1`, because `SrcPkg.ρ : ι → Type`);
-    - `∃ k (hk : …)` became `∃ k, ∃ hk : …` in `ReachStmt`;
+    - `∃ k (hk : …)` became `∃ k, ∃ hk : …` in `ReachStmt` (removed in rev3);
     - `CallDec`'s witnesses are annotated `(k' : Nat) (o : OutField) (f : Nat → Nat)`.
   - **No meaning changed.** The rev2 semantic changes (§0 "Rev2") were made before the build and are part of what it
     checked.

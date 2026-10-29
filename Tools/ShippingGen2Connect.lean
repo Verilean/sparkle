@@ -31,6 +31,7 @@ open Tools.ShippingChildCacheA (RealChildA JQC)
 open Tools.ShippingChildRunAKids Tools.ShippingChildRunAMain
 
 open Tools.ShippingMachineCompose (argPorts)
+open Tools.ShippingChildInv (Res)
 
 variable {ι : Type} {dom : ι → DomainConfig}
 variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
