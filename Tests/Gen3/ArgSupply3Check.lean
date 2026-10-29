@@ -1,7 +1,7 @@
 import Tools.ShippingGen3ArgSupply3
 import Tests.Gen3.ExpectedType        -- checkExpected / checkMutant / checkAxioms / cmpTele / stmtOf
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (no lake/lean run by the author). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3sf-88858249 (clean snapshot, exit 0, standard axioms). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # Checks for Tools/ShippingGen3ArgSupply3.lean (SRC-ARGW batch 3; SRC_ARGW_SUPPLY_FREEZE.md §3.7 option (b))
 

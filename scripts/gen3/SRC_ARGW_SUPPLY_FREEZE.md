@@ -893,3 +893,12 @@ These notes correct/qualify §3.7's wording; where they conflict with §3.7.3/§
 - **rev3 is not build evidence.** §3.7 and these notes are text; the only build cited in §3.7 (g3se-e134c63a) is
   for batch 2 (Tools/ShippingGen3ArgSupply2.lean, Tests/Gen3/ArgSupply2Check.lean), not for anything in §3.7 or
   batch 3.
+
+## rev3.2 status (review of 88858249, scope-accepted as a local implementation)
+- Built: batch 2 in g3se-e134c63a, option (b) in g3sf-88858249 (clean, standard axioms).
+- `GoodE` is preservation of three lookups in the FUEL model; it is NOT a supply of `GoodKE(readF)`, of result kinds,
+  or of production coverage. In `satK_bindOE` the transport is carried by `hxE` (`hE` unused); `GoodE` alone does not
+  extend an arbitrary `x`.
+- If an actual entry needs `n ≠ 1`, that is reported as a finding at once; it is not excluded from FG.
+- Open: remaining arms and LK1 induction, loop-root (`LoopSrcKinds`/`LoopLetSrcKinds`) and the shared probe on actual
+  entries, EqvSound, D5 (`rootFloat`), the gen5 joint suppliers; L-RUN / L-FG not accepted.

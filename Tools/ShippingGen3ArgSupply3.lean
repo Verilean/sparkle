@@ -1,6 +1,6 @@
 import Tools.ShippingGen3ArgSupply2   -- batch 2: ReadInv, EnvKindOk, ReadSub, CallPreK, GoodK, PhExt, SatK, closed arms
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (no lake/lean run by the author). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3sf-88858249 (clean snapshot, exit 0, standard axioms). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # SRC-ARGW batch 3: option (b) of scripts/gen3/SRC_ARGW_SUPPLY_FREEZE.md §3.7 (rev3 at e8a41c70)
 
@@ -888,7 +888,9 @@ theorem envKindOkE_cons {HK : PhKinding} {p : ShapePre} {st : MachRead} {Δ : Sr
       have hm'' : env[j - 0]? = some m' := by simpa using hm'
       exact hk j k m' (Nat.zero_le j) hΔ' hk0 hm''
 
-/-- Hoare combinator for a second call (replaces `satK_bindO` where the continuation needs `st₁`). -/
+/-- Hoare combinator for a second call (replaces `satK_bindO` where the continuation needs `st₁`). Note (review of
+88858249): the environment transport is carried by `hxE`; `hE` is currently unused in the proof, so this does NOT say
+that `GoodE` alone extends an arbitrary `x`. -/
 theorem satK_bindOE {HK : PhKinding} {senv : StructEnv} {p : ShapePre} {h : Hs} {α β : Type} [HasSt α]
     [HasSt β] {x : BM (Option β)} {f : β → BM (Option α)} {st : MachRead} (hE : GoodE h)
     (hx : SatK HK senv p h x) (hxE : ∀ b, x.run h = some (some b) → PhExt st (HasSt.st b))

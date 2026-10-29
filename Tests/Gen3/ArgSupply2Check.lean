@@ -2,7 +2,7 @@ import Tools.ShippingGen3ArgSupply2
 import Tests.Gen3.ExpectedType        -- checkExpected / checkMutant / checkAxioms / cmpTele / stmtOf
 import Tools.ShippingUnifiedSource    -- concatLitHiE / concatLitLoE / sliceFE (LK3 control expressions)
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (no lake/lean run by the author). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3se-e134c63a (clean snapshot, exit 0, standard axioms). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # Checks for Tools/ShippingGen3ArgSupply2.lean (SRC-ARGW batch 2; SRC_ARGW_SUPPLY_FREEZE.md rev2 cbddde96)
 

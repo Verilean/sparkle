@@ -4,7 +4,7 @@ import Tools.ShippingReaderFuelProv       -- InstProv, CallPreP, instProv_init; 
 import Tools.ShippingReaderFuelR1         -- SigDisj
 import Tools.ShippingReaderMatcherArityArray  -- getAppArgs_eq, argsT_app (argsT / argsAcc: ShippingReaderMatcherArity)
 set_option autoImplicit false
--- WRITTEN, NOT BUILT (no lake/lean run by the author). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: g3se-e134c63a (clean snapshot, exit 0, standard axioms). No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # SRC-ARGW batch 2: SC0 G-form, InstSite, `shapePost_binders`, LK0 lemmas, closable LK1 arms
 (scripts/gen3/SRC_ARGW_SUPPLY_FREEZE.md rev2 at cbddde96: §1.1, §3.1, §3.3, §3.4)
