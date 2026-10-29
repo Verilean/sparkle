@@ -194,7 +194,7 @@ theorem machine_linked_callsServed1 (L : Laws mref cref) (P : Pkgs ι dom) (p : 
     rcases hx.2 hsimple k hk args mc st hargs hst hcs hmod with ⟨md, hmd, _⟩ | ⟨Dc, hship, hDc⟩
     · -- a memory-origin instance: excluded by `CallDec`'s ordinary origin
       have h1 := hcd.1
-      rw [List.getD_eq_getElem?_getD] at h1
+      simp only [List.getD_eq_getElem?_getD] at h1 hmd
       rw [h1] at hmd
       cases hmd
     · obtain ⟨_, q', n', hq', _, hcs'⟩ := hship
