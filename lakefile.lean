@@ -4556,3 +4556,6 @@ lean_lib «Tests.Gen3.T1Check» where
 
 lean_lib «Tools.ShippingGen2KeepChild» where
   roots := #[`Tools.ShippingGen2KeepChild]
+
+lean_lib «Tools.ShippingGen2InstKeep» where
+  roots := #[`Tools.ShippingGen2InstKeep]
