@@ -1,6 +1,12 @@
 # S4-WID: supplying `hW : ∀ k, OneOutWidth P p k` (coverage obligation G-ONEOUT-WID), read-only plan
 
-Base: `par/gen2-spec` at e1fd0d0e. Nothing was built or changed. Every proposed lemma below is UNBUILT.
+Base: `par/gen2-spec` at e1fd0d0e. Every lemma below is UNBUILT.
+rev2 (reviewer decisions applied): (b)'s `oneOutWidth_of_strict` and the b1 `kidOutsP` agreement lemma are now WRITTEN
+(UNBUILT) in Tools/ShippingGen2DataBridge.lean, controls in Tests/Gen2/DataBridgeCheck.lean (§3 (b), "Implementation");
+(c) reworded (not supplied by existing exports; bridges unproved; no compiler guard now); b2's `MachineDefines.shape_eq`
+conditions made explicit; generalisation claims withdrawn; §4 gives the REVISION TABLE required before any shared
+`T1Hyp`/`DataOkB` strengthening. FG is NOT narrowed; the data bridge is a supplier-local result; coverage is tracked
+separately.
 
 ## 0. The premise and its two consumers
 `OneOutWidth` (Tools/ShippingGen2FitChain.lean:893-896):
@@ -54,16 +60,18 @@ Every existing supply is a **per-declaration `decide`**. None of them is derived
 
 ## 3. Options
 
-### (c) Run-local: not available without a compiler change
+### (c) Run-local: not supplied by existing exports
 `instStmt` (Sparkle/IR/Machine.lean:272-288) checks only that `outW` is a wire by NAME (:283). `closeInsts` (:396-427) has no width conjunct. `instOutWidthsOk` does not occur under `Sparkle/` (grep).
 
-The run gives two facts that nothing links:
+No existing export links the two widths; the bridges that would (`ResDeclAt`, `P5At`, R1 for `machInstance`, env
+identity; §1, route (a)) are UNPROVED. This is a statement about what is exported today, not an impossibility claim.
+The run gives two facts that nothing exported links:
 - `declWidth b outW` equals the binder width (`core_callPorts_oneA`, OneOutTop:47-).
 - `mc.outputs = q.layout.outs` as ports (from `ChildShips`, OneOutTop:328-331).
 
 `CallDec`'s equation (Defs:102-114) is value-level: `posEnc` of the binder equals `f τ`. A callee whose output is constantly 0 satisfies it at any parent width, so it cannot force widths. `HPointAt` (Tools/ShippingQuadHPoint.lean:27-38) is the same.
 
-A guard `wireWidth m.wires outW == outP.ty.bitWidth` in `instStmt` would make this a run fact (`wireWidth` is already used at Machine.lean:190). That is a compiler change. Under the compiler-output policy it needs a user decision, a corpus measurement, and re-proofs of `CallStmt`/`closeInsts_insts`. **Not recommended now.**
+A guard `wireWidth m.wires outW == outP.ty.bitWidth` in `instStmt` would make this a run fact (`wireWidth` is already used at Machine.lean:190). That would be a compiler change (user decision, corpus measurement, re-proofs of `CallStmt`/`closeInsts_insts`). **Reviewer decision: no compiler guard now.**
 
 ### (a) Generic, from both reflections: possible as a run-local lemma, but it moves the gap rather than closing it
 Proposed lemma (missing; every ingredient exists):
@@ -92,10 +100,14 @@ Supply status of each premise:
 - `hy` is in hand at both consumers.
 - `ResD` and `P5` are left: an env-stability/reflection premise per callee, and the opaque inliner. Neither is decidable, and P5 is candidate-only.
 
-Using this lemma also means re-threading FitChain:944 and OneOutTop:326 so that they keep the `RealChildA` conjunct. **Recorded as the generic route. It is not a supply today.**
+Using this lemma also means re-threading FitChain:944 and OneOutTop:326 so that they keep the `RealChildA` conjunct. **Recorded as the generic route. It is not a supply today: `ResDeclAt`, `P5At` (and the R1/env-identity content they fold in) are unproved bridges.**
 
-### (b) Per-declaration decidable cross-package row (RECOMMENDED)
-Bridge lemma (missing, small; the proof is `callWidthsStrict_at` with a vacuous name side):
+### (b) Per-declaration decidable cross-package row (recommended as a SUPPLIER-LOCAL bridge)
+Generalisation limit: the row is decidable only on concrete data and a concrete `P`. Under an abstract `P` (as in FG)
+it is still an EXTRA premise; this route does not avoid a new premise and gives no all-source coverage. Per-declaration
+`decide` or generator emission is evidence for the declarations decided, not an all-source success guarantee.
+
+Bridge lemma (the proof is `callWidthsStrict_at` with a vacuous name side):
 ```lean
 def kidOutsP (P : Pkgs ι dom) (p : Pkg ι dom) (k : Nat) : List OutField :=
   match (p.d.shape.insts.map (·.1))[k]? with
@@ -112,8 +124,10 @@ theorem oneOutWidth_of_strict (P : Pkgs ι dom) (p : Pkg ι dom) (kidOuts : Nat 
 Proof: `intro k hk q hq o ho`. Then `o ∈ kidOuts k` follows from `hkid` and `ho`. Apply `callWidthsStrict_at hcw hk _ (fun f hf => by simp [hsimple] at hf)`. Note that `nDecl = p.kD` directly, so `closingNDecl_eq_kD` (S4_CONSUMER_FREEZE.md:510-512) is not needed.
 
 There are two ways to discharge `hkid`:
-- **(b1)** `kidOuts := kidOutsP P p`. Then `hkid` holds by `simp [kidOutsP, hk, hq]`, and `hcw` is one `decide` against a concrete `P`. Risk: the kernel has to reduce `P c` to a `Pkg` value.
-- **(b2)** `kidOuts := fun k => [C₀.machineData.shape.layout.outs, …].getD k []`. This is the form of `callerL_strict`. Here `hkid` needs `q.d.shape = Cₖ.machineData.shape`. It comes from D-GEN `Generated` (G3GEN_CALL_PLAN.md:55-60), or from a missing one-line lemma `MachineDefines.shape_eq`: two `MachineDefines` of the same declaration agree, given one read (`Option.some.inj`). The read comes from `RealChildA` via `synthesizeCombinationalCore_reads`, as in ChildLinkA:53-56.
+- **(b1)** `kidOuts := kidOutsP P p`. Then `hkid` is `kidOutsP_eq`, and `hcw` is one `decide` against a concrete `P`. Risk: the kernel has to reduce `P c` to a `Pkg` value (control `callerL_strictPL`, untested until built).
+- **(b2)** `kidOuts := fun k => [C₀.machineData.shape.layout.outs, …].getD k []`. This is the form of `callerL_strict`. Here `hkid` needs `q.d.shape = Cₖ.machineData.shape`. It comes from D-GEN `Generated` (G3GEN_CALL_PLAN.md:55-60), or from a missing lemma `MachineDefines.shape_eq`. **Name equality alone is insufficient** for that lemma: `MachineDefines` (Tools/ShippingMachineEntry.lean:2345-2357) quantifies over the run's reads, so two shapes agree only when (i) both are stated in the SAME context (`mctx`/`mref`/`cctx`/`cref`), (ii) one read exists (`getConstInfo c` and both `getEnv` runs return; from `RealChildA` via `synthesizeCombinationalCore_reads`, as in ChildLinkA:53-56), and (iii) for comparing with the generator's `Cₖ.machineData`, the meta-time environment, `ci`, `entryConst` arguments (`instancePredicate envR`, `userInliner envR`, `structEnv envR`) and the reader's `structEnv envR'` agree with the run's. (iii) is an environment/read/entryConst condition, not decided by the data, and is unproved.
+
+**Implementation (rev2, UNBUILT; Tools/ShippingGen2DataBridge.lean):** `kidOutsP` (:66, written with `Option.bind`/`getD`, same meaning as the `match` above), `insts_map_fst_getElem?` (:70), the agreement lemma `kidOutsP_eq` (:77), the vacuous case `kidOutsP_none` (:90) and `kidOutsP_allNone` (:103), `callWidthsStrict_empty` (:116), `oneOutWidth_of_strict` (:123, `nDecl = p.kD`) and the b1 instance `oneOutWidth_of_strictP` (:142). Controls (Tests/Gen2/DataBridgeCheck.lean; no `callerL` package exists, so parent controls take `p.d = callerL.machineData`, `p.kD = 1` as premises): positive `callerL_oneOutWidth` (table form) and `callerL_oneOutWidthP` (b1, via `callerL_strictPL`); negative `callerL_strict_bad` + `callerL_bad_width` (16-bit table, row false); vacuous `empty_table_passes` / `oneOutWidth_PN` (`P c = none` ⇒ empty table passes). **Call existence is not given by the row**: with `P c = none` the row is vacuously true; existence is supplied by `hdec`/the supplier (`T1Hyp.dec`).
 
 **Generator work:**
 - Emit `@P@.epD2_callWidthsStrict` next to the vacuous row (SeqParentGenD2:261-263), with a per-k table.
@@ -122,17 +136,31 @@ There are two ways to discharge `hkid`:
 ## 4. What remains a coverage obligation (no new FG premise added silently)
 G-ONEOUT-WID stays a **named, static, relational premise**. It cannot be a `DataOk q` conjunct, because it mentions `P`.
 
-Proposed T1Hyp amendment, for review only (not applied):
+A CONDITIONAL intermediate theorem that takes a `T1Hyp.wid`-style premise is acceptable as a plan. Proposed field, for
+review only (NOT applied; shared definitions unchanged):
 ```lean
   /-- G-ONEOUT-WID: one-output result widths (supplied per declaration by `oneOutWidth_of_strict` + a decided
   `callWidthsStrict` row). -/
   wid : ∀ c, Reach c → ∀ q, P c = some q → q.d.shape.instFields = [] → ∀ k, OneOutWidth P q k
 ```
-**Coverage:** every reached one-output declaration must have the row decided. That is a generator-emission obligation, in the same class as G-DATA, plus `hkid` (D-GEN identity). Declarations whose row fails would be width-mismatched parents. None is expected, because both widths are read from the same constant type (§1). The count is not measured.
+**Coverage (tracked separately):** every reached one-output declaration would need the row decided plus `hkid`
+(D-GEN identity). That is a generator-emission obligation in the same class as G-DATA. Generator emission or a
+per-declaration `decide` is NOT an all-source success guarantee. Declarations whose row fails would be width-mismatched
+parents; the source reading (§1) suggests none, but this is neither proved nor measured.
+
+### 4.1 REVISION TABLE (required before strengthening shared `T1Hyp` / `DataOkB`; nothing applied)
+| change | old ↔ new | downstream users (every one) | supply unit | final-FG obligation |
+|---|---|---|---|---|
+| add `T1Hyp.wid` (above) | new `T1Hyp` ⇒ old (forget `wid`); old ⇏ new (`wid` is not derivable from `pkg`/`defines`/`closes`/`dec`/`closed` by any exported lemma, §3 (a)/(c)). So every statement with `T1Hyp` as antecedent gets WEAKER: old `T1Stmt`/`ServedShipsStmt` ⇒ new, not conversely | Tools/ShippingGen2Defs.lean: `T1Hyp` (:194-212), `ServedShipsStmt` (:251-253), `T1Stmt` (:347-349) and its doc (:343-345); scripts/gen2/GEN2_DEFS.lean.txt (cmp-identical copy, must change with it); Tests/Gen2/PkgCompat.lean: `Old.T1Hyp` (:106-109), `T1Stmt`/`ServedShipsStmt` copies (:127-128, :199-200), `t1Hyp_iff` (:332-333: the iff breaks unless `Old.T1Hyp` gets the same field or it becomes one direction), notes :263, :297; docs: GENERAL_SPEC.md, T1_CONNECT_FREEZE.md, STEP_IFACE_FREEZE.md, CALLFIELD_FREEZE.md (they quote `T1Hyp`). No Lean file constructs a `T1Hyp` value today (grep) | the consumers `oneOutWidthAt` (OneOutTop:289-345) / `machine_linked_callsServed1F` (FitChain:903-918) take `hW` from `wid`; per declaration `wid` is supplied by `oneOutWidth_of_strictP` + a decided row (this file) | `wid` MUST NOT remain in the final FG: it has to be discharged from the run (route (a) bridges `ResDeclAt`/`P5At`/R1/env identity, or a later user-decided compiler guard, route (c)) and then removed, restoring old `T1Hyp`. Until then it is listed as an open gap row (G-ONEOUT-WID) |
+| add the P-MEM row (S4_PMEM_FREEZE.md §4) to `DataOkB` | new `DataOkB p` ⇒ old (one more `&&` conjunct); old ⇏ new (fails on e.g. `memShape0`-like data). Every `DataOk`-antecedent statement gets weaker | Tools/ShippingGen2Data.lean (:17-23); Tools/ShippingGen2MemData.lean (:20), MemParent.lean (:7, :38, :44), Leaf.lean (:44, :49, :68); every decided instance must re-decide: Tests/Gen2/U0Check.lean:25, LeafInstance.lean:44, SlotlessLeafInstance.lean:36, MemParentInstance.lean:31, CallDecInstance.lean:135, QuantInstance.lean:75; PkgCompat.lean (:208-214 `MemParentDataOkB` copy and the lift lemmas) | `OneOutNoMemRow` / `hord_of_row` (Tools/ShippingGen2DataBridge.lean) | the row's coverage (G-DATA via the UNPROVED `MemFlag` plan + O1/O2) must be discharged, or the conjunct removed, before the final FG; and the name half of `hnomem` is a separate supplier obligation (S4_PMEM_FREEZE.md §4.2) |
+
+Neither change is applied in this round. Both data bridges are kept supplier-local (Tools/ShippingGen2DataBridge.lean),
+independent of the shared definitions.
 
 **Stops / open items:**
-- Nothing is built.
-- (b1) `decide` through `P` is untested.
-- `MachineDefines.shape_eq`, `kidOutsP`, `oneOutWidth_of_strict` and `oneOutWidth_of_realA` are all missing.
-- Route (a) still needs `ResDeclAt` and `P5At`, which nothing supplies.
-- Route (c) needs a user decision on a compiler change.
+- Written but UNBUILT: `kidOutsP`, `kidOutsP_eq`, `oneOutWidth_of_strict`, `oneOutWidth_of_strictP` and the controls.
+- (b1) `decide` through `P` is untested until the build (`callerL_strictPL`).
+- `MachineDefines.shape_eq` (with conditions (i)-(iii) of (b2)) and `oneOutWidth_of_realA` are missing.
+- Route (a) still needs `ResDeclAt` and `P5At`, which nothing supplies (unproved bridges).
+- Route (c): no compiler guard now (reviewer decision).
+- Shared `T1Hyp`/`DataOkB` unchanged; any strengthening goes through §4.1 first.

@@ -4601,3 +4601,9 @@ lean_lib «Tools.ShippingGen2OneOutTop» where
 
 lean_lib «Tests.Gen2.S4StageBCheck» where
   roots := #[`Tests.Gen2.S4StageBCheck]
+
+lean_lib «Tools.ShippingGen2DataBridge» where
+  roots := #[`Tools.ShippingGen2DataBridge]
+
+lean_lib «Tests.Gen2.DataBridgeCheck» where
+  roots := #[`Tests.Gen2.DataBridgeCheck]
