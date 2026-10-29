@@ -26,7 +26,7 @@ port, and no instance connection naming the port.
   (`synthesizeCombinational`, as Tests/Compiler/ShippingMachineInstTest.lean:115-145 does) and LOGS the result —
   a log, not a theorem. No `#eval` on `machineData` (it panics).
 
-DRAFT: not built at the time of writing; expected results are stated at each check. -/
+BUILT: g2bd-323d0501 at 323d0501 (exit 0); decided theorems kernel-checked ([propext]); real-entry results are logged observations. -
 set_option maxHeartbeats 4000000
 
 namespace Tests.Gen2.S4BdProbe
