@@ -424,7 +424,7 @@ The derived ones are removed from it once their G-DATA lemma exists.
 Units in dependency order:
 1. **U0 Type connection [proof, small]** (§8.1). Elaborate GEN2_DEFS verbatim, then prove the connection lemmas below.
    - `seqFactsRN_of_callDec`: `CallDec p q k ∧ ChildShips q n mc Dc ∧ Dc ⊆ dsn ⇒ SeqFactsRN …` with `PC :=` the served
-     fact. This proves the §4.2 conjunct table is complete.
+     fact. This proves the §4.2 conjunct table is complete. *(Historical, pre-A-COMB text. Since 1fdbc18d the lemma also takes `hseq : ∀ mc, ServedPC (ShipsAt L P n) dsn c mc → "clk" ∈ mc.inputs.map (·.name)`; it is a sequential-only lemma. `hseq` is not generally supplied and is NOT a T1/FG premise. S3 must branch per actual served `mc`, or with a `PC` restricted by the branch; a case split on one `mc` does not give the universal `hseq`.)*
    - `memFacts_of_memDec`: by definition.
    - Decide `hrunN`: whether consumer 2 applies with PC as stated, or a consumer variant is needed.
    - The invariant interface (§3.4): `stableA_invAt`, and the exact binder of each "generic (to verify)" row.
@@ -554,7 +554,7 @@ audit).
 ### 8.1 U0 `sparkle-gen2-u0-types`
 - **Files:** `Tools/ShippingGen2Defs.lean` (GEN2_DEFS verbatim) and `Tools/ShippingGen2Connect.lean`.
 - **Theorems in `Tools/ShippingGen2Connect.lean`:**
-  - `seqFactsRN_of_callDec`. Every `mc` condition is inside the scope of `∀ mc, PC c mc`, and the package
+  - `seqFactsRN_of_callDec` *(Historical, pre-A-COMB text. Since 1fdbc18d the lemma also takes `hseq : ∀ mc, ServedPC (ShipsAt L P n) dsn c mc → "clk" ∈ mc.inputs.map (·.name)`; it is a sequential-only lemma. `hseq` is not generally supplied and is NOT a T1/FG premise. S3 must branch per actual served `mc`, or with a `PC` restricted by the branch; a case split on one `mc` does not give the universal `hseq`.)*. Every `mc` condition is inside the scope of `∀ mc, PC c mc`, and the package
     correspondence is explicit:
     ```
     P c = some q → CallDec p q k →
@@ -603,7 +603,7 @@ audit).
     - `memFacts_of_memDec`;
     - **`seqFactsRN_of_callDec`:** `P c = some q → CallDec p q k → SeqFactsRN … (pkgBsC P) (pkgOutsC P) (pkgS P i)
       (ServedPC (ShipsAt L P n) dsn) k c`. Every conjunct of the §4.2 table is supplied from `CallDec` plus the served
-      `ShipsAt` fact. Conjunct 3b uses `SeqChildRunN`'s argPorts conjunct and `CallDec`'s arity.
+      `ShipsAt` fact. Conjunct 3b uses `SeqChildRunN`'s argPorts conjunct and `CallDec`'s arity. *(Historical, pre-A-COMB text. Since 1fdbc18d the lemma also takes `hseq : ∀ mc, ServedPC (ShipsAt L P n) dsn c mc → "clk" ∈ mc.inputs.map (·.name)`; it is a sequential-only lemma. `hseq` is not generally supplied and is NOT a T1/FG premise. S3 must branch per actual served `mc`, or with a `PC` restricted by the branch; a case split on one `mc` does not give the universal `hseq`.)*
   - **Failed diagnostic:** `g2u0-conn-0a8b55b8`. Defs and Consumer built; Connect failed on an unopened `Res`.
   - **Not proved:** `ServedShipsStmt`, `KeepBodyStmt`, `KeepChildStmt`, `StepStmt`, `MemParentStmt`, `LeafStmt`,
     `T1Stmt`, G-CALLDEC, G-LIFT and the §3.4 "to verify" binders. They stay the named gaps.

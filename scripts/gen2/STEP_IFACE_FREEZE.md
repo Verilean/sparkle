@@ -149,6 +149,7 @@ Pieces: `evalAssigns_local` (HierOptRunH:36), `regNexts_assigns`/`applyNexts_nil
 - **Exact types are frozen in S3's own freeze.** They are the `seq_inst_runN`/`calls_hchildRN` types with that one predicate replaced.
 - **The consumer:** `calls_hchildRNC` and `machine_linkedT_callsServedC` with a three-way per-instance premise `MemFacts ∨ SeqFactsRN ∨ CombFactsRN`, chosen per instance by `isSeqChild`.
 - **Hierarchical comb children are an explicit obligation of S3** (the `runKS_RunOn` route), not excluded.
+- **`hseq` obligation (from S6, 1fdbc18d).** `seqFactsRN_of_callDec` is sequential-only (`hseq : ∀ mc, ServedPC … c mc → "clk" ∈ …`). S3 branches per actual served `mc`, or uses a `PC` restricted by the branch, e.g. `ServedPC … ∧ "clk" ∈ …` for the sequential part. It does not obtain the universal `hseq` from a case split on one `mc`. `hseq` never becomes a T1/FG premise.
 
 ### S4 one-output parents (`instFields = []`, `closeInsts`; G-ONEOUT)
 **Facts of the PARENT's run, not restrictions of the child.** A successful `closeInsts` (Machine.lean:396-426) makes every instance module `mc`:
