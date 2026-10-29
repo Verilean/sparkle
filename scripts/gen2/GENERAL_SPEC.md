@@ -576,6 +576,28 @@ audit).
     - `CallDec`'s witnesses are annotated `(k' : Nat) (o : OutField) (f : Nat → Nat)`.
   - **No meaning changed.** The rev2 semantic changes (§0 "Rev2") were made before the build and are part of what it
     checked.
+- **U0 connection result (rev3):** `g2u0-conn-aea8b76d`, exit 0, 697 lake jobs, head = base = aea8b76d, mkvs-dell, log
+  SHA-256 prefix `cea43298af3f08f7`. No `sorry` in the new files. `#print axioms` was NOT run in this job; it is part
+  of U0's acceptance build.
+  - **Built:**
+    - `Tools/ShippingGen2Defs.lean` (cmp-identical to GEN2_DEFS.lean.txt);
+    - `Tools/ShippingGen2Consumer.lean`;
+    - `Tools/ShippingGen2Connect.lean`.
+  - **`Tools.ShippingGen2Consumer.machine_linkedT_callsServed` (PROVED):** consumer 2 with the trace over
+    `ServedP Q`, `PC := ServedPC Q dsn`, and NO `hrunN`. The child fact of THE instance serving call `k` comes from
+    the served evidence. The proof is consumer 2's, with only the `hrunN` step replaced. This settles the §3.2
+    `hrunN` question: a variant, not consumer 2 itself.
+  - **Proved in `Tools/ShippingGen2Connect.lean`:**
+    - `stableA_invAt` (the `StableA` premise for `InvAt`, rev3 A);
+    - `machineTraceLBX_mono`, `servedP_mono`, `servedRealA_of_servedP`, `shipsRes_real`, `shipsAt_real`;
+    - `memFacts_of_memDec`;
+    - **`seqFactsRN_of_callDec`:** `P c = some q → CallDec p q k → SeqFactsRN … (pkgBsC P) (pkgOutsC P) (pkgS P i)
+      (ServedPC (ShipsAt L P n) dsn) k c`. Every conjunct of the §4.2 table is supplied from `CallDec` plus the served
+      `ShipsAt` fact. Conjunct 3b uses `SeqChildRunN`'s argPorts conjunct and `CallDec`'s arity.
+  - **Failed diagnostic:** `g2u0-conn-0a8b55b8`. Defs and Consumer built; Connect failed on an unopened `Res`.
+  - **Not proved:** `ServedShipsStmt`, `KeepBodyStmt`, `KeepChildStmt`, `StepStmt`, `MemParentStmt`, `LeafStmt`,
+    `T1Stmt`, G-CALLDEC, G-LIFT and the §3.4 "to verify" binders. They stay the named gaps.
+  - **Warnings:** only unused `mref`/`cref` section variables in Consumer:41.
 - **Accept:**
   - an exact-head build of `Tools.ShippingGen2Connect`;
   - axioms standard;
