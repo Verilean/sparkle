@@ -4559,3 +4559,6 @@ lean_lib «Tools.ShippingGen2SlotlessLeaf» where
 
 lean_lib «Tests.Gen2.SlotlessCheck» where
   roots := #[`Tests.Gen2.SlotlessCheck]
+
+lean_lib «Tests.Gen2.SlotlessLeafInstance» where
+  roots := #[`Tests.Gen2.SlotlessLeafInstance]
