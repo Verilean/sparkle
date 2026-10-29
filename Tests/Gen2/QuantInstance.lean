@@ -48,10 +48,7 @@ theorem quant_facts : LoopFacts Sparkle.IP.Video.H264.QuantSynth.quantModule.mac
    Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_writes, Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_result,
    Sparkle.IP.Video.H264.QuantSynth.quantModule.machine_source, quant_hcausal⟩
 
-#reduce Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.nIn
-#reduce Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.shape.insts.length
-#reduce Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.shape.insts.map (·.2.1)
-#reduce Sparkle.IP.Video.H264.QuantSynth.quantModule.machineData.ls.length
+
 
 abbrev U := fun _ : Unit => defaultDomain
 
@@ -92,11 +89,13 @@ theorem q_slotsNe : qPkg.d.shape.layout.slots ≠ [] := by
 
 theorem q_extInS : ExtInS qPkg := by
   refine ⟨fun _ bools bits j hj => ?_, fun _ bools bits j n' hj => ?_⟩
-  · show Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExtB defaultDomain bools bits _ j = bools j
+  · show Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExtB defaultDomain bools bits
+        (Sparkle.Core.Signal.Signal.loop (Sparkle.IP.Video.H264.QuantSynth.quantModule.machineBody defaultDomain bools bits)) j = bools j
     delta Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExtB
     rfl
-  · show Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExt defaultDomain bools bits _ j n' = bits j n'
-    have hkD : qL.kD = 55 := by first | decide | decide +kernel
+  · show Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExt defaultDomain bools bits
+        (Sparkle.Core.Signal.Signal.loop (Sparkle.IP.Video.H264.QuantSynth.quantModule.machineBody defaultDomain bools bits)) j n' = bits j n'
+    have hkD : qL.kD = 10 := by first | decide | decide +kernel
     change j < qL.kD at hj
     rw [hkD] at hj
     delta Sparkle.IP.Video.H264.QuantSynth.quantModule.machineExt
@@ -110,11 +109,11 @@ theorem q_memDec : ∀ (k : Nat) (hk : k < qPkg.d.shape.insts.length), MemDec qP
     first | decide | decide +kernel
   have hk2 : k < 2 := hl ▸ hk
   rcases k with _ | _ | k
-  · refine ⟨true, 4, 16, ?A, ?D, ?E, ?R, ?l0, ?l1, ?l2, ?l3, rfl, rfl, ?h0, by decide, ?h1, by decide, ?h2,
+  · refine ⟨true, 4, 16, ?A, ?D, ?E, ?R, 7, 8, 9, 6, rfl, rfl, ?h0, by decide, ?h1, by decide, ?h2,
       by decide, ?h3, by decide, rfl, ?hx⟩
     case hx => intro j; rfl
     all_goals rfl
-  · refine ⟨false, 4, 16, ?A, ?D, ?E, ?R, ?l0, ?l1, ?l2, ?l3, rfl, rfl, ?h0, by decide, ?h1, by decide, ?h2,
+  · refine ⟨false, 4, 16, ?A, ?D, ?E, ?R, 6, 28, 3, 29, rfl, rfl, ?h0, by decide, ?h1, by decide, ?h2,
       by decide, ?h3, by decide, rfl, ?hx⟩
     case hx => intro j; rfl
     all_goals rfl
