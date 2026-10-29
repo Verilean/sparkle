@@ -57,7 +57,8 @@ Index note: `callArgsOkAt` reads `binders[nDecl + (kI + (n + a))]` (Adapt.lean:7
 | L6w width equality (what `callArgsOkAt` states, Adapt:73-77): for each `j < ws.length`, the Option lookup `insts[k]? >>= (·.2.1[j]?) >>= (a ↦ binders[nDecl+(kI+(n+a))]?)`, mapped to `(kindTy bn.2).bitWidth`, equals `ws[j]?` | UNSUPPLIED (needed for the row) | same |
 | L6' kind/typing equality `kind(binders[nDecl+kI+n+a]) = kind(q.ports[j])` — a STRONGER SUFFICIENT candidate for L6w (kind equality ⇒ bitWidth equality), not what `callArgsOkAt` states | UNPROVED; source reading: a FRESH argument let is pushed with the callee SIGNATURE kind `kinds[j]` (Elab:4070; `kinds` = `telescopeKinds` of c's declared type, Elab:4366-4383). Two reuse branches keep an EARLIER kind: `_machLet j` fvar (Elab:3746) and same-value dedup (Elab:3748-3749); equality there needs Lean typing of `c args` + canonical literal reading (Elab:2342). Callee side: `q.d.bsIn` comes from `machineShape?` on `entryConst … ci` (value-lambda binders, possibly `userInliner`-rewritten), not from `telescopeKinds ci.type`; along this reading the equality would need Lean typing (+ P5-like inliner fact) and env identity between the parent's `envR'` and the callee read (same gaps as S4_WID §1). Not refuted; no counterexample known | same reader path (`machInstanceS`, Elab:4085-) — not separately audited for arg kinds |
 
-Consequence: with L2 and L5 proved, L6 (equivalently L6w at the source) is still needed; a supply candidate is L6'
+Consequence: with L2 and L5 proved, L6 is still needed; its correspondence with L6w at the source is a candidate to be
+proved later under fixed witnesses and L2/L5 (as §2); a supply candidate is L6'
 (stronger). In this survey no route "closing ⇒ PortTie ⇒ callArgsOkAt" from the exports was found; only the ARITY
 half (L4) was found run-derivable. This is a finding of the survey, not a proof that no such route exists.
 
