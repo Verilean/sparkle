@@ -4568,3 +4568,18 @@ lean_lib «Tools.ShippingGen2PostFacts» where
 
 lean_lib «Tools.ShippingGen2KidsInst» where
   roots := #[`Tools.ShippingGen2KidsInst]
+
+lean_lib «Tools.ShippingGen2ServedDataBridgeCopy» where
+  roots := #[`Tools.ShippingGen2ServedDataBridgeCopy]
+
+lean_lib «Tools.ShippingGen2ServedRun» where
+  roots := #[`Tools.ShippingGen2ServedRun]
+
+lean_lib «Tools.ShippingGen2Served» where
+  roots := #[`Tools.ShippingGen2Served]
+
+lean_lib «Tests.Gen3.ServedExpectedType» where
+  roots := #[`Tests.Gen3.ServedExpectedType]
+
+lean_lib «Tests.Gen3.ServedCheck» where
+  roots := #[`Tests.Gen3.ServedCheck]
