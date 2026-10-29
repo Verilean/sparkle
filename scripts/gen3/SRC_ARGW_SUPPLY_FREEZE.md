@@ -856,3 +856,40 @@ owner issues (DGEN:722-725) whether the stated Prop can be part of their deliver
 - No claim that `rootFloat`'s non-let output equals its input in any kernel-checked sense (D5).
 - No width-mismatched successful run is exhibited or excluded. No change to `T1Hyp`, `ChildShips`, `DataOkB`, FG,
   the compiler, or any gen5 freeze; owners/requests above are proposals for review.
+
+## rev3.1 review notes (appended after reviewer approval of §3.7 option (b) at e8a41c70; §3.7 text NOT rewritten)
+These notes correct/qualify §3.7's wording; where they conflict with §3.7.3/§3.7.6, these notes win.
+- **E ⇒ old is ONE-directional.** `envKindOk_of_E : EnvKindOkE … → EnvKindOk …` only. The converse is false:
+  a typed non-domain (`k ≠ .domain`) binder whose env entry is `.state b n` with `n = 0` or `n ≥ 2` satisfies rev2's
+  `EnvKindOk` vacuously at a state with `st.dom = none` (and at `n = 0` for every state, `bundleSlots dom [] []` =
+  none), but is EXCLUDED by `EnvKindOkE` (`EntryKindOk` demands `n = 1`). Controls: Tests/Gen3/ArgSupply3Check.lean
+  `ctl_old_not_E_state0`, `ctl_old_not_E_state2`, `ctl_E_state0_excluded`, `ctl_E_stateN_excluded`.
+- **Therefore NOT established:** §3.7.3's "no semantic premise beyond rev2's" and §3.7.3's "(b) is expected not to
+  lose any suppliable case". (b) makes the obligation STRONGER at those entries; whether any actual run creates such
+  an entry at a typed binder (so that `TY`/LK1 would have to supply it) is not shown either way.
+- **CR's surface is unchanged, its content is not.** `argWidthAt_of_closingRun`'s binder list (§1.2) is unchanged,
+  but `ReadTyped`/`TY` and `ConvKind` are now read over `EnvKindOkE`/`CallPreKE` (§3.7.3 first bullet), so the
+  Props CR consumes change meaning; "no premise added to CR" refers to the binder list only.
+- **Explicitly OPEN:** `LoopSrcKinds`, `LoopLetSrcKinds` (§3.4, §3.7.3: candidates, NOT added to `ReadTyped`), and the
+  shared loop-probe supply (G20's `ws`-equality argument, the probe's `.state b0 n` entry, FD:556). The loop-root
+  row (G12/G20: `n = 1 ∧ kinds[b] = k` at every CREATED `.state` entry) is open.
+- **bundle2 mirror check is SEPARATE from actual-run E supply.** Running the compiler checker
+  (`unifiedGate*Body`) on a 2-tuple is a record about the mirror only; a mirror rejecting tuples does not prove that
+  actual runs never pair a typed binder with a non-singleton `.state` entry (coverage), and a mirror accepting them
+  does not make those entries suppliable under (b).
+- **(a)'s `DomCongr HK` is an UNINVESTIGATED candidate,** not a necessary TRUSTED boundary: whether it is provable
+  for the target `HK` (e.g. LK3's mirror, if its `bundle2` arm ignores the domain argument) has not been examined.
+  §3.7.2's "or … a TRUSTED boundary (D1 extension)" describes one way of stating it, not a requirement.
+- **The existing dedup `EqvSound` remains** (§3.3, D1: `machBindLet`/`machLetIndex` dedup by `==`). (b) removes only
+  the `dom`-replacement use (case ii of §3.7.1); it does not remove `EqvSound` from CR.
+- **Arms are closed only by new proofs.** Status after batch 3 (Tools/ShippingGen3ArgSupply3.lean, WRITTEN, NOT
+  BUILT at the time of writing): proof written for `goodE_readF` (unconditional), G9 (`satKE_conv_lam`/`_forallE`),
+  G16 `next` (`satKE_chain_next`), G7 (`satKE_instSParamFold`), G19 (`satKE_loopBody_tail`), G8
+  (`satKE_conv_app_generic`; result-kind item still NOT AUDITED), and the E versions of the batch-2 arms (G1, G10,
+  G13, G15, G16-pure, G17 float/regs/handle). Every arm is conditional on `GoodKE` of the table (LK1's induction
+  is not written). STILL OPEN: G2, G4, G5, G6, G11, G12, G17 user-let, G18, G20 (and not-audited G3/G14/G21); their
+  second-call parts are dischargeable with `envKindOkE_ext`/`_cons` + `goodE_readF` but NO proof is written, so they
+  are not counted as closed. Any arm counts as closed only once its file builds.
+- **rev3 is not build evidence.** §3.7 and these notes are text; the only build cited in §3.7 (g3se-e134c63a) is
+  for batch 2 (Tools/ShippingGen3ArgSupply2.lean, Tests/Gen3/ArgSupply2Check.lean), not for anything in §3.7 or
+  batch 3.
