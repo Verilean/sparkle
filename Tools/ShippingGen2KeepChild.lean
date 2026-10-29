@@ -2,7 +2,8 @@ import Tools.ShippingGen2T1
 import Tools.ShippingChildPinC
 set_option autoImplicit false
 -- NOT BUILT (written without a build; scripts/gen2/KEEPCHILD_POST_FREEZE.md §B, approved).
--- No `sorry`, no `axiom`, no `native_decide`. No change to Tools/ShippingGen2Defs.lean (current `ShipsRes`/`InvAt`).
+-- No `sorry`, no `axiom`, no `native_decide`. The text is generic in `ShipsRes`; after G-POST (GPOST_FREEZE.md §2,
+-- `InstClosed` as the third conjunct of `ShipsRes`) it must be RE-ELABORATED (no edit needed except §5's corollary).
 
 /-! # Gen2 M3: G-KEEP-CHILD at `InvAt` (freeze §B, lemmas 1-13)
 
@@ -17,7 +18,8 @@ The insertion of a REACHED name's result needs `ShipsRes` of that result: it is 
 entry's run, from its START world (the world after the framed cache read, which is still `InvAt D`).
 
 PROVED here: `keepChild_proved : KeepChildStmt L P Reach`, `synthesizeChild_shipsRes` (returning-run form), and
-`t1_of_step_kc` (`t1_of_step` with `hKC` discharged; still conditional on the other premises). -/
+`t1_of_stepPF_kc` (`t1_of_stepPF` with `hKC` discharged; still conditional on the other premises). The former
+`t1_of_step_kc` (over `NoTopStmt`) is RETIRED (GPOST_FREEZE §7, §10). -/
 
 namespace Tools.ShippingGen2
 open Lean Meta
@@ -366,17 +368,20 @@ theorem keepChild_proved (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name �
   intro tenv hl b ci isInst
   exact hB hl mctx cctx hA c tenv b ci isInst
 
-/-- **`t1_of_step` with `hKC` discharged** by `keepChild_proved`. Still CONDITIONAL on `StepStmt`,
-`ServedShips0Stmt`, `NoTopStmt` (and `hLim`, which `limitStmt_proved` discharges). -/
-theorem t1_of_step_kc (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+/- RETIRED (GPOST_FREEZE.md §7, §10): `t1_of_step_kc` (`t1_of_step` over `NoTopStmt`); replaced by
+`t1_of_stepPF_kc` below. -/
+
+/-- **`t1_of_stepPF` with `hKC` discharged** by `keepChild_proved`. Still CONDITIONAL on `StepStmt`,
+`ServedShips0Stmt`, `PostFactsStmt` (and `hLim`, which `limitStmt_proved` discharges). -/
+theorem t1_of_stepPF_kc (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
     (DataOk : Pkg ι dom → Prop)
     (hStep : StepStmt L P DataOk)
-    (hSS : ServedShips0Stmt L P Reach DataOk) (hNT : NoTopStmt L Reach) (hLim : LimitStmt L) :
+    (hSS : ServedShips0Stmt L P Reach DataOk) (hPF : PostFactsStmt L P Reach DataOk) (hLim : LimitStmt L) :
     T1Stmt L P Reach DataOk :=
-  t1_of_step L P Reach DataOk hStep (keepChild_proved L P Reach) hSS hNT hLim
+  t1_of_stepPF L P Reach DataOk hStep (keepChild_proved L P Reach) hSS hPF hLim
 
 end Tools.ShippingGen2
 
 #print axioms Tools.ShippingGen2.keepChild_proved
 #print axioms Tools.ShippingGen2.synthesizeChild_shipsRes
-#print axioms Tools.ShippingGen2.t1_of_step_kc
+#print axioms Tools.ShippingGen2.t1_of_stepPF_kc

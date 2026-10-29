@@ -4562,3 +4562,6 @@ lean_lib «Tools.ShippingGen2InstKeep» where
 
 lean_lib «Tests.Gen3.InstKeepCheck» where
   roots := #[`Tests.Gen3.InstKeepCheck]
+
+lean_lib «Tools.ShippingGen2PostFacts» where
+  roots := #[`Tools.ShippingGen2PostFacts]

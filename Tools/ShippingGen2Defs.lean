@@ -124,9 +124,16 @@ abbrev MachineTaken {mref cref} (L : Laws mref cref) (mctx : Meta.Context) (cctx
     (c : Name) (shape : MachineShape) (raw : Sparkle.IR.AST.Module) (D : Design) : Prop :=
   MachineRunJQC L.O mctx cctx n c shape raw D
 
-/-- A result `r` of `c` with the package and height it ships at. -/
+/-- **Incoming-edge instance closure of a result** (G-POST, scripts/gen2/GPOST_FREEZE.md §2): every module of the
+result's design is instantiated (by name) in the body of the result's top or of some module of its design. -/
+def InstClosed (r : Res) : Prop :=
+  ∀ g ∈ r.2.modules, ∃ h ∈ r.1 :: r.2.modules, ∃ (i : String) (cs : List (String × Sparkle.IR.AST.Expr)),
+    Sparkle.IR.AST.Stmt.inst g.name i cs ∈ h.body
+
+/-- A result `r` of `c` with the package and height it ships at, and instance-closed (GPOST_FREEZE §2: `InstClosed`
+is the THIRD conjunct, so `h.1` and `h.2.1` keep the former two parts). -/
 def ShipsRes {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (c : Name) (r : Res) : Prop :=
-  RealChildA L.O c r ∧ ∃ q n, P c = some q ∧ q.decl = c ∧ ChildShips q n r.1 r.2
+  RealChildA L.O c r ∧ (∃ q n, P c = some q ∧ q.decl = c ∧ ChildShips q n r.1 r.2) ∧ InstClosed r
 
 /-- The child-cache invariant, ON THE REACHED declarations: every `sparkleChildCache` entry of a reached name ships.
 Entries of other names (children the translator synthesises on other routes) are unconstrained, so their insertion

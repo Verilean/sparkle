@@ -1,5 +1,6 @@
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen2Keep
+import Tools.ShippingGen2PostFacts
 import Tools.ShippingChildCoreC
 import Tools.ShippingDesignWriterRun
 
@@ -7,21 +8,24 @@ set_option autoImplicit false
 
 /-! # Gen2 M3 lead: the T1 induction-step connection (scripts/gen2/T1_CONNECT_FREEZE.md, approved eae85955)
 
-**CONDITIONAL skeleton.** `t1_of_step` is conditional on `StepStmt` (M2-b), `KeepChildStmt` (G-KEEP-CHILD),
-`ServedShips0Stmt` (G-SERVED + G-START) and `NoTopStmt` (G-POST). It is NOT M2 or M3 completion and is not counted
-as progress toward `done` for either.
+**CONDITIONAL skeleton.** `t1_of_stepPF` is conditional on `StepStmt` (M2-b), `KeepChildStmt` (G-KEEP-CHILD),
+`ServedShips0Stmt` (G-SERVED + G-START) and `PostFactsStmt` (G-POST, scripts/gen2/GPOST_FREEZE.md §2-§3; no producer
+yet). It is NOT M2 or M3 completion and is not counted as progress toward `done` for either. The former `NoTopStmt`
+version (`ihAt_step`/`ih_all`/`t1_of_step`/`t1_of_step'`) is RETIRED (GPOST_FREEZE §10) since `ShipsRes` gained the
+`InstClosed` conjunct.
 
 PROVED here (no premise beyond what `L` gives): `LimitStmt` (`limitStmt_proved`, the limit-branch prefix of
 `core_tripleAC`, Tools/ShippingChildCoreC.lean:128-133, at `JQ` instead of `JQC`); `servedShipsStmt_of_0`
 (`ServedShips0Stmt → ServedShipsStmt`, by `Or.inr`; no strictness claim); `childShips_congr`.
 
-Reviewer corrections applied: `ih_all` takes `T1Hyp` explicitly; `LimitStmt` is proved; `servedShipsStmt_of_0`;
+Reviewer corrections applied: `ih_all` (now `ih_allPF`) takes `T1Hyp` explicitly; `LimitStmt` is proved; `servedShipsStmt_of_0`;
 G-MEMO is only a DISPATCH exclusion for reached names under `T1Hyp.defines`/`closes` (the memo branch comes after
 the machine branch returns) — no cache invariant about the memo map is stated or used here.
 
 Scope: `T1Hyp` as frozen, so the skeleton covers machine-route trees only (freeze §5.2).
 
-BUILT: g3in-b6625408 at b6625408 (exit 0); axiom audit g3in-ax-c6516331 at c6516331 (exit 0, standard axioms only). -/
+BUILT (former `NoTopStmt` text, history): g3in-b6625408 at b6625408 (exit 0); axiom audit g3in-ax-c6516331 at
+c6516331 (exit 0, standard axioms only). The PF text (GPOST_FREEZE §3) is NOT BUILT yet. -/
 
 namespace Tools.ShippingGen2
 
@@ -98,13 +102,9 @@ def LimitStmt {mref cref} (L : Laws mref cref) : Prop :=
     AdmCtx L.O.quiet mctx cctx → JQ L.O.quiet D w → sparkleSynthDepthLimit ≤ D →
     ¬ RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w r w'
 
-/-- **G-POST** (premise): no module of a reached declaration's core design is named as its core module. -/
-def NoTopStmt {mref cref} (L : Laws mref cref) (Reach : Name → Prop) : Prop :=
-  ∀ (c : Name) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
-    (raw : Sparkle.IR.AST.Module) (Dg : Design),
-    Reach c → AdmCtx L.O.quiet mctx cctx → JQC L.O (dv w) w →
-    RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (raw, Dg) w1 →
-    ∀ x ∈ Dg.modules, x.name ≠ raw.name
+/- RETIRED (scripts/gen2/GPOST_FREEZE.md §4, §10): `NoTopStmt` (G-POST (i) alone, premise `JQC` only). With
+`InstClosed` as the third conjunct of `ShipsRes`, the step also needs `InstClosed` of its own result, which (i) does
+not give; both facts are now ONE statement on the same run, `PostFactsStmt` (Tools/ShippingGen2PostFacts.lean). -/
 
 /-- **G-SERVED + G-START** (premise): `ServedShipsStmt` with `InvAt (dv w) w` replaced by `JQC (dv w) w` and
 the cache half `dv w = 0 ∨ CacheShips …` (the outermost start gives only `JQC 0 w`). A NEW statement next to the
@@ -154,17 +154,24 @@ theorem ihAt_limit {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : N
     Tools.ShippingDesignWriterRun.synthesizeCombinational_designTop hr
   exact (hL c mctx cctx u w1 (M, Dg) D hA hu.1.1 hD hcore).elim
 
-/-- **Step**: `IHAt (D + 1)` and `ChildKeepsInv (D + 1)` give `IHAt D`, under the four conditional premises
-(`StepStmt`, `ServedShips0Stmt`, `NoTopStmt`) and `T1Hyp`. -/
-theorem ihAt_step {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+/- RETIRED (GPOST_FREEZE.md §10): `ihAt_step`, `ih_all`, `t1_of_step`, `t1_of_step'` (and `t1_of_step_kc` in
+Tools/ShippingGen2KeepChild.lean). They took `NoTopStmt`; with the new `ShipsRes` (third conjunct `InstClosed`) the
+constructor at the end of `ihAt_step` no longer elaborates and `NoTopStmt` does not supply the missing conjunct.
+Replaced by the PF versions below (`ihAt_stepPF`, `ih_allPF`, `t1_of_stepPF`, `t1_of_stepPF'`, `t1_of_stepPF_kc`),
+CONDITIONAL on `PostFactsStmt` (no producer yet). Their acceptance at earlier SHAs stays valid as history. -/
+
+/-- **Step (PF)**: `IHAt (D + 1)` and `ChildKeepsInv (D + 1)` give `IHAt D`, under `StepStmt`, `ServedShips0Stmt`,
+`PostFactsStmt` and `T1Hyp` (GPOST_FREEZE §3: the former `ihAt_step` body with the topModule conjunct kept). -/
+theorem ihAt_stepPF {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
     (DataOk : Pkg ι dom → Prop) (hT : T1Hyp L P Reach DataOk)
-    (hStep : StepStmt L P DataOk) (hSS : ServedShips0Stmt L P Reach DataOk) (hNT : NoTopStmt L Reach)
+    (hStep : StepStmt L P DataOk) (hSS : ServedShips0Stmt L P Reach DataOk)
+    (hPF : PostFactsStmt L P Reach DataOk)
     (D : Nat) (hIH : IHAt L P Reach (D + 1)) (hKI : ChildKeepsInv L P Reach (D + 1)) :
     IHAt L P Reach D := by
   intro c hc mctx cctx u u' r hA hu hr
   have hreal : RealChildA L.O c r := RealChildA.of_jqc L.O hA hu.1 hr
   obtain ⟨M', Dg'⟩ := r
-  obtain ⟨M, Dg, w1, hcore, hb, -, hmods⟩ :=
+  obtain ⟨M, Dg, w1, hcore, hb, htop, hmods⟩ :=
     Tools.ShippingDesignWriterRun.synthesizeCombinational_designTop hr
   obtain ⟨q, hPq, hqd, hDq⟩ := hT.pkg c hc
   subst hqd
@@ -181,16 +188,17 @@ theorem ihAt_step {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Na
     Tools.ShippingServedRealA.machineRunJQC_of_closesA L.O hA hcore hdef hcl hjqc.1 (Or.inr hu.1.2)
   obtain ⟨n, -, hCS⟩ :=
     hStep q mctx cctx u w1 M M' Dg hPq hDq hA hjqc hcore hb hdef htaken (hT.dec q.decl hc q hPq) hsrv
-  -- G-POST: the full entry's design has the core design's modules
-  have hmodsEq : Dg'.modules = Dg.modules := hmods (hNT q.decl mctx cctx u w1 M Dg hc hA hjqc hcore)
-  exact ⟨hreal, q, n, hPq, rfl, childShips_congr q n M' hmodsEq.symm hCS⟩
+  -- G-POST: no top-named module (so the full entry keeps the core design's modules) and `InstClosed`
+  obtain ⟨hnt, hic⟩ := hPF hT q mctx cctx u u' w1 M' M Dg' Dg hc hPq hDq hA (by rw [hdv]; exact hu)
+    hIH' hKI' hr hcore hb htop hmods htaken
+  exact ⟨hreal, ⟨q, n, hPq, rfl, childShips_congr q n M' (hmods hnt).symm hCS⟩, hic⟩
 
-/-- **The depth induction** (on `sparkleSynthDepthLimit - D`, the shape of `childKeepsC_all`,
+/-- **The depth induction (PF)** (on `sparkleSynthDepthLimit - D`, the shape of `childKeepsC_all`,
 ChildDepthC.lean:94): both halves of the IH at every depth `≥ 1`. -/
-theorem ih_all {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+theorem ih_allPF {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
     (DataOk : Pkg ι dom → Prop) (hT : T1Hyp L P Reach DataOk)
     (hStep : StepStmt L P DataOk) (hKC : KeepChildStmt L P Reach)
-    (hSS : ServedShips0Stmt L P Reach DataOk) (hNT : NoTopStmt L Reach) (hLim : LimitStmt L) :
+    (hSS : ServedShips0Stmt L P Reach DataOk) (hPF : PostFactsStmt L P Reach DataOk) (hLim : LimitStmt L) :
     ∀ D, 1 ≤ D → IHAt L P Reach D ∧ ChildKeepsInv L P Reach D := by
   have key : ∀ k D, sparkleSynthDepthLimit - D = k → 1 ≤ D →
       IHAt L P Reach D ∧ ChildKeepsInv L P Reach D := by
@@ -204,26 +212,27 @@ theorem ih_all {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name 
     | succ k ih =>
       intro D hk hD1
       have hN := ih (D + 1) (by omega) (by omega)
-      have hI : IHAt L P Reach D := ihAt_step L P Reach DataOk hT hStep hSS hNT D hN.1 hN.2
+      have hI : IHAt L P Reach D := ihAt_stepPF L P Reach DataOk hT hStep hSS hPF D hN.1 hN.2
       exact ⟨hI, hKC D hD1 (fun _ => keepBody L P Reach (D + 1) hN.2) hI⟩
   intro D hD1
   exact key _ D rfl hD1
 
-/-! ## 4. The conditional skeleton (freeze §3) -/
+/-! ## 4. The conditional skeleton (freeze §3; GPOST_FREEZE §3) -/
 
-/-- **T1 from the one-level rule — CONDITIONAL** on `StepStmt`, `KeepChildStmt`, `ServedShips0Stmt`, `NoTopStmt`
-(`hLim` is kept as in the freeze; `limitStmt_proved` discharges it, see `t1_of_step'`). Not M2/M3 completion. -/
-theorem t1_of_step {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+/-- **T1 from the one-level rule — CONDITIONAL** on `StepStmt`, `KeepChildStmt`, `ServedShips0Stmt`,
+`PostFactsStmt` (`hLim`: `limitStmt_proved` discharges it, see `t1_of_stepPF'`). Not M2/M3 completion. The
+top-level part does not build a `ShipsRes`; its text is the former `t1_of_step`'s with `ih_allPF`. -/
+theorem t1_of_stepPF {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
     (DataOk : Pkg ι dom → Prop)
     (hStep : StepStmt L P DataOk) (hKC : KeepChildStmt L P Reach)
-    (hSS : ServedShips0Stmt L P Reach DataOk) (hNT : NoTopStmt L Reach) (hLim : LimitStmt L) :
+    (hSS : ServedShips0Stmt L P Reach DataOk) (hPF : PostFactsStmt L P Reach DataOk) (hLim : LimitStmt L) :
     T1Stmt L P Reach DataOk := by
   intro hT c mctx cctx w w1 raw b Dg hc hS hr hb
   obtain ⟨hA, hj0⟩ := hS
   obtain ⟨q, hPq, hqd, hDq⟩ := hT.pkg c hc
   subst hqd
   have hdv : dv w = 0 := hj0.1.2.2
-  obtain ⟨hI1, hK1⟩ := ih_all L P Reach DataOk hT hStep hKC hSS hNT hLim 1 (Nat.le_refl 1)
+  obtain ⟨hI1, hK1⟩ := ih_allPF L P Reach DataOk hT hStep hKC hSS hPF hLim 1 (Nat.le_refl 1)
   have hjqc : JQC L.O (dv w) w := by rw [hdv]; exact hj0
   have hI1' : IHAt L P Reach (dv w + 1) := by rw [hdv]; exact hI1
   have hK1' : ChildKeepsInv L P Reach (dv w + 1) := by rw [hdv]; exact hK1
@@ -236,12 +245,12 @@ theorem t1_of_step {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : N
     hStep q mctx cctx w w1 raw b Dg hPq hDq hA hjqc hr hb hdef htaken (hT.dec q.decl hc q hPq) hsrv
   exact ⟨q, n, hPq, hTop⟩
 
-/-- `t1_of_step` with `hLim` discharged by `limitStmt_proved`. Still CONDITIONAL on the other four premises. -/
-theorem t1_of_step' {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+/-- `t1_of_stepPF` with `hLim` discharged by `limitStmt_proved`. Still CONDITIONAL on the other four premises. -/
+theorem t1_of_stepPF' {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
     (DataOk : Pkg ι dom → Prop)
     (hStep : StepStmt L P DataOk) (hKC : KeepChildStmt L P Reach)
-    (hSS : ServedShips0Stmt L P Reach DataOk) (hNT : NoTopStmt L Reach) :
+    (hSS : ServedShips0Stmt L P Reach DataOk) (hPF : PostFactsStmt L P Reach DataOk) :
     T1Stmt L P Reach DataOk :=
-  t1_of_step L P Reach DataOk hStep hKC hSS hNT (limitStmt_proved L)
+  t1_of_stepPF L P Reach DataOk hStep hKC hSS hPF (limitStmt_proved L)
 
 end Tools.ShippingGen2

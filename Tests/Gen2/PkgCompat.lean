@@ -258,7 +258,8 @@ example (p : SrcPkg ι dom) : MemOrigin (.gen p) = Old.MemOrigin p := rfl
 `ChildShips` now takes `ChildRunN = SeqChildRunN ∨ CombChildRunN`, a weaker child guarantee. The frozen `Old.*` texts
 are kept; the equalities they had are not re-established by a re-baseline. Classification of the checks this
 changes:
-* positive positions (`ChildShips`, `ShipsRes`, `ShipsAt`, `CacheShips`, `InvAt`): `Old → new` below;
+* positive positions (`ChildShips`, `ShipsRes`, `ShipsAt`, `CacheShips`, `InvAt`): `Old → new` below (since G-POST,
+  `ShipsRes`/`CacheShips`/`InvAt` with the new `InstClosed` conjunct as an explicit premise);
 * mixed positions — `IHAt` (`InvAt` premise, `ShipsRes` conclusion), `BodyKeepsInv`/`ChildKeepsInv` (`InvAt` pre and
   post), `KeepBodyStmt`/`KeepChildStmt`, `StepStmt` (`ServedP (ShipsRes …)` premise, `ChildShips` conclusion),
   `ServedShipsStmt`: CHANGED, MIXED — no relation is claimed in either direction (the former `iHAt_eq`,
@@ -280,10 +281,15 @@ theorem lift_some {P : Lean.Name → Option (SrcPkg ι dom)} {c : Lean.Name} {q'
   · rintro ⟨q, hq, rfl⟩; exact ⟨q, hq, rfl⟩
   · rintro ⟨q, hq, rfl⟩; exact ⟨q, hq, rfl⟩
 
+/- G-POST (scripts/gen2/GPOST_FREEZE.md §2): `ShipsRes` gained a third conjunct `InstClosed r`, which the frozen
+`Old.ShipsRes` (git f1a4367f text) does not give. CHANGED: `shipsRes_lift`, `cacheShips_lift`, `invAt_lift` now take
+that conjunct as an EXPLICIT premise (`hic`); `InstClosed` is not derived from `Old`. `shipsAt_lift` is unchanged
+(`ShipsAt` has no `InstClosed`). -/
 theorem shipsRes_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (c : Lean.Name)
-    (r : Tools.ShippingChildInv.Res) : Old.ShipsRes L P c r → ShipsRes L (Pkgs.lift P) c r := by
+    (r : Tools.ShippingChildInv.Res) (hic : InstClosed r) :
+    Old.ShipsRes L P c r → ShipsRes L (Pkgs.lift P) c r := by
   rintro ⟨h1, q, n, hq, hd, hc⟩
-  exact ⟨h1, .gen q, n, lift_some.mpr ⟨q, hq, rfl⟩, hd, childShips_gen q n _ _ hc⟩
+  exact ⟨h1, ⟨.gen q, n, lift_some.mpr ⟨q, hq, rfl⟩, hd, childShips_gen q n _ _ hc⟩, hic⟩
 
 theorem shipsAt_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (n : Nat) (c : Lean.Name)
     (r : Tools.ShippingChildInv.Res) : Old.ShipsAt L P n c r → ShipsAt L (Pkgs.lift P) n c r := by
@@ -291,13 +297,16 @@ theorem shipsAt_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι d
   exact ⟨h1, .gen q, lift_some.mpr ⟨q, hq, rfl⟩, hd, childShips_gen q n _ _ hc⟩
 
 theorem cacheShips_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
-    (m : Std.HashMap Lean.Name Tools.ShippingChildInv.Res) :
+    (m : Std.HashMap Lean.Name Tools.ShippingChildInv.Res)
+    (hic : ∀ c r, Reach c → m.get? c = some r → InstClosed r) :
     Old.CacheShips L P Reach m → CacheShips L (Pkgs.lift P) Reach m :=
-  fun h c r hR hm => shipsRes_lift L P c r (h c r hR hm)
+  fun h c r hR hm => shipsRes_lift L P c r (hic c r hR hm) (h c r hR hm)
 
 theorem invAt_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
-    (D : Nat) (w : Void IO.RealWorld) : Old.InvAt L P Reach D w → InvAt L (Pkgs.lift P) Reach D w :=
-  fun h => ⟨h.1, cacheShips_lift L P Reach _ h.2⟩
+    (D : Nat) (w : Void IO.RealWorld)
+    (hic : ∀ c r, Reach c → (Tools.ShippingChildBndCore.cv w).get? c = some r → InstClosed r) :
+    Old.InvAt L P Reach D w → InvAt L (Pkgs.lift P) Reach D w :=
+  fun h => ⟨h.1, cacheShips_lift L P Reach (Tools.ShippingChildBndCore.cv w) hic h.2⟩
 
 theorem t1Hyp_iff (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) :
