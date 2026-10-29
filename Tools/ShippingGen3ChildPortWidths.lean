@@ -1,7 +1,7 @@
 import Tools.ShippingGen2OneOut
 import Tools.ShippingPortWidthsPure
 set_option autoImplicit false
--- NOT BUILT (written without running Lean; the integrator builds it on the cluster).
+-- Built: g3dsc-1b840215 (clean snapshot, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # U-CHILD-PORTTYS (step 1, U-CHILD-PORTW-P): the served child's argument-port widths, as standalone facts

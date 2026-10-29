@@ -1,6 +1,6 @@
 import Lean
 set_option autoImplicit false
--- NOT BUILT (written without running Lean; the integrator builds it).
+-- Built: g3dsc-1b840215 (clean snapshot, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # Mechanical expected-type comparison for the gen3 data-supply units

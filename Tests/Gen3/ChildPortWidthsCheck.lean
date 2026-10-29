@@ -2,7 +2,7 @@ import Tools.ShippingGen3ChildPortWidths
 import Tests.Gen3.ExpectedType
 import Tests.Compiler.ShippingMachineLinkedTest
 set_option autoImplicit false
--- NOT BUILT (written without running Lean; the integrator builds it on the cluster).
+-- Built: g3dsc-1b840215 (clean snapshot, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # U-CHILD-PORTTYS (U-CHILD-PORTW-P) checks (scripts/gen3/UCHILD_PORTTYS_TABLE.md §1, §3, §5)
