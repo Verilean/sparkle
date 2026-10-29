@@ -277,9 +277,10 @@ theorem ctl_read_positive {ι : Type} {dom : ι → DomainConfig} (P : Pkgs ι d
 theorem ctl_sig_missing : ¬ ShapeSigProv senvS shSyn2 := by
   intro h
   obtain ⟨kinds, hs⟩ := h.2 0 (by decide) rfl
-  obtain ⟨res, h2⟩ := (hs : ∃ res, senvS.inst `f = some (kinds, res))
+  obtain ⟨res, h2⟩ := hs
   have e : senvS.inst `f = none := rfl
-  rw [e] at h2
+  have hn : (shSyn2.insts[0]'(by decide)).1 = `f := rfl
+  simp only [hn, e] at h2
   cases h2
 
 /-- **NEGATIVE (LK)**: a 16-bit callee kind fails `ShapeArgKinds` (so SC0 cannot be applied). -/
