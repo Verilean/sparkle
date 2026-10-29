@@ -1,6 +1,6 @@
 import Tools.ShippingGen5T2Range
 set_option autoImplicit false
--- NOT BUILT: written without running Lean. No sorry / axiom / native_decide.
+-- Built in g5tc-f72cedf6 (clean, exit 0, 740 jobs). No sorry / axiom / native_decide.
 
 /-! # T2-TIE connection to the range supplier (DGEN_FREEZE.md §7.3 / §7.7)
 
