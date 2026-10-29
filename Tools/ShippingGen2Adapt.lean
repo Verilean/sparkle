@@ -191,4 +191,20 @@ theorem callDec_of_hPointAt_at (P : Pkgs ι dom) (p q : SrcPkg ι dom) (k : Nat)
         rw [← hS]; simp [pkgS, hP]
       rw [hS']; exact hf
 
+/-- One call's `HPointAt` from the per-call content of `CallFactF` at that call (witnesses: the decoded families;
+the output relation comes through the proved dispatch `pkgS_dispatch`). Only call `k`'s body of `hF` is used. -/
+theorem hPointAt_of_callFactF_at (P : Pkgs ι dom) (p : SrcPkg ι dom) (k : Nat)
+    (hFk : ∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (hk : k < p.d.shape.insts.length),
+      ∃ (k' : Nat) (o : OutField) (f : Nat → Nat),
+        (pkgOutsC P (p.d.shape.insts[k]).1)[k']? = some o ∧ o.name = p.d.shape.instFields.getD k "" ∧
+        (pkgS P i (p.d.shape.insts[k]).1 (valsOf (p.lsrc i bools bits) (p.d.shape.insts[k]).2.1))[k']? = some f ∧
+        ∀ τ, posEnc (fun r => ((p.extBS i bools bits) r).val τ) (fun r n => ((p.extS i bools bits) r n).val τ)
+          (p.kD + k) (((p.d.bsIn.drop p.kD)[k]?.map (·.2)).getD .domain) = f τ) :
+    HPointAt p.d p.kD dom p.lsrc p.extS p.extBS (pkgOutsC P) (pkgBsC P) (pkgSrc P) k := by
+  intro i bools bits hk
+  obtain ⟨k', o, f, ho, hon, hf, hpos⟩ := hFk i bools bits hk
+  refine ⟨_, _, rfl, rfl, k', o, f, ho, hon, ?_, hpos⟩
+  rw [← pkgS_dispatch]; exact hf
+
 end Tools.ShippingGen2
