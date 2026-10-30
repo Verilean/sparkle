@@ -1,7 +1,8 @@
 import Tools.ShippingGen5EnvR
 import Tests.Gen5.EnvCheck
 set_option autoImplicit false
--- NOT BUILT yet.
+-- Built in g5envr-8ebda2f3 (clean, exit 0, 749 jobs): TYPE 3, MUTANT 3 signature/defeq rejections, controls 2 (each also
+-- hits its intended constant alone), REACH 2, AXIOMS 2. No sorry / axiom / native_decide.
 
 /-! # DG-ENV unit (a) checks (Tools/ShippingGen5EnvR.lean; scripts/gen5/DG_ENV_FREEZE.md rev2.1 §4.4.3)
 

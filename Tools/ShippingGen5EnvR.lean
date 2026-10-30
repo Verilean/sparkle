@@ -1,6 +1,6 @@
 import Tools.ShippingGen5Env
 set_option autoImplicit false
--- NOT BUILT yet.
+-- Built in g5envr-8ebda2f3 (clean, exit 0, 749 jobs). No sorry / axiom / native_decide.
 
 /-! # DG-ENV unit (a): the relative `defines` candidate D2 (scripts/gen5/DG_ENV_FREEZE.md rev2.1 §4.4.3, par/gen5-t2 f5169a75)
 
