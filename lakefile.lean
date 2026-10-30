@@ -4831,3 +4831,9 @@ lean_lib «Tools.ShippingGen2TopClkIn» where
 
 lean_lib «Tools.ShippingGen2TopContract» where
   roots := #[`Tools.ShippingGen2TopContract]
+
+lean_lib «Tools.ShippingGen5ClosingRun» where
+  roots := #[`Tools.ShippingGen5ClosingRun]
+
+lean_lib «Tests.Gen5.ClosingRunCheck» where
+  roots := #[`Tests.Gen5.ClosingRunCheck]
