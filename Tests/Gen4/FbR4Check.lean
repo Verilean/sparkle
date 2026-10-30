@@ -1,6 +1,6 @@
 import Tools.ShippingGen4FbR4
 import Tests.Gen3.ExpectedType
-set_option autoImplicit false
+-- BUILT (unit FB-2) at 15ab049b: TYPE OK x3 (lemma conclusion accepted via logged isDefEq vs the Expected, not syntactic), 7 MUTANT signature/defeq REJECTED (not semantic counterexamples), AXIOMS OK [propext, Classical.choice, Quot.sound].
 -- NOT BUILT (unit FB-2).
 /-! # Checks for `R4Run`, `A4MachineSideA`, `a4_machine_or_R4Run` (FALLBACK_SUPPLY_FREEZE.md rev5 §9.2.2, §9.5)
 1. TYPE against independent `Expected…` copies written out again below. 2. MUTANT: signature/defeq rejections of

@@ -1,6 +1,6 @@
 import Tools.ShippingMachineOutcomeA4
 set_option autoImplicit false
--- NOT BUILT (unit FB-2): R4Run / A4MachineSideA / a4_machine_or_R4Run. Not a supply result.
+-- BUILT (unit FB-2) at 15ab049b: kjob lake build Tests.Gen4.FbR4Check exit 0. Intermediate definitions + a repackaging lemma, not a supply result.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §9.2.2 (rev5).
 
 namespace Tools.ShippingGen4FbR4
