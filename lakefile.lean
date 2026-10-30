@@ -4826,3 +4826,9 @@ lean_lib «Tools.ShippingGen2PostFactsProof» where
 lean_lib «Tests.Gen3.PostFactsCheck» where
   roots := #[`Tests.Gen3.PostFactsCheck]
 
+
+lean_lib «Tools.ShippingGen5DeclConnectAbs» where
+  roots := #[`Tools.ShippingGen5DeclConnectAbs]
+
+lean_lib «Tests.Gen5.DeclConnectAbsCheck» where
+  roots := #[`Tests.Gen5.DeclConnectAbsCheck]
