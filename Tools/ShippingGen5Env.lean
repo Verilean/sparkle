@@ -1,7 +1,7 @@
 import Tools.ShippingEnvSnapshot
 import Tools.ShippingMachineEntry
 set_option autoImplicit false
--- NOT BUILT yet.
+-- Built in g5env2-6f966746 (clean, exit 0, 747 jobs; first build g5env-c62ffd50). No sorry / axiom / native_decide.
 
 /-! # DG-ENV law-free lemmas E1-E6 (scripts/gen5/DG_ENV_FREEZE.md rev1 §2, par/gen5-t2 2d8c6498)
 

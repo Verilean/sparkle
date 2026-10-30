@@ -3,7 +3,8 @@ import Tools.ShippingGen5T1ND
 import Tools.ShippingStRefCorrespondence
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT yet.
+-- Built in g5env2-6f966746 (clean, exit 0, 747 jobs): TYPE 7, MUTANT 4 signature/defeq rejections, ENV SCAN 16 fields,
+-- controls 10 (each also hits its intended constant alone) + rawProj, REACH 6, AXIOMS 6. No sorry / axiom / native_decide.
 
 /-! # DG-ENV checks (Tools/ShippingGen5Env.lean; scripts/gen5/DG_ENV_FREEZE.md rev1 §3, par/gen5-t2 2d8c6498)
 
