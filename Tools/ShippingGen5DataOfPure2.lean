@@ -1,7 +1,7 @@
 import Tools.ShippingMachineCommand
 import Tools.ShippingReaderInputs
 set_option autoImplicit false
--- NOT BUILT by an issue-linked clean build (DG-DATAOF pure units U-D, U-E; scripts/gen5/DG_DATAOF_FREEZE.md rev2). No sorry / axiom / native_decide.
+-- BUILT: clean issue-linked build do3v-62ea2479 exit 0 (758 jobs), scoped approved at 62ea2479 (no claim beyond U-D/U-E) (DG-DATAOF pure units U-D, U-E; scripts/gen5/DG_DATAOF_FREEZE.md rev2). No sorry / axiom / native_decide.
 
 /-! # DG-DATAOF pure units, second file (no READKINDS, no `Laws`, no `T1Hyp*`)
 

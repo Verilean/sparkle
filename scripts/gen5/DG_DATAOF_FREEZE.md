@@ -9,7 +9,7 @@ Design sources: `par/gen5-t2:scripts/gen5/` `DGEN_FREEZE.md` (rev2 c398021c; §2
 `kjob/g5rk-d0ddc50b:scripts/gen5/DG_READKINDS_FREEZE.md` rev2 (3f79600f). Line numbers were re-read on this branch
 (base 9d26005c); `[B]` = this tree.
 
-**Status [rev2]:** besides U-A/U-B/U-C (below), the pure units **U-D and the corrected U-E** are written: `Tools/ShippingGen5DataOfPure2.lean`, check `Tests/Gen5/DataOfCheck2.lean` (§5b). They were elaborated by `kjob lake build` in the author's Pod (dev loop, no issue-linked clean build, no SHA recorded in a BUILT header); the evidence build is the coder's. `dataOfFrom`, `dataOfAt`, `dataOf`, the `*_sound` theorems are still design only (§2.2-2.4a).
+**Status [rev2]:** besides U-A/U-B/U-C (below), the pure units **U-D and the corrected U-E** are written: `Tools/ShippingGen5DataOfPure2.lean`, check `Tests/Gen5/DataOfCheck2.lean` (§5b). They passed the clean issue-linked build do3v-62ea2479 (exit 0, 758 jobs) and were scoped-approved at 62ea2479. `dataOfFrom`, `dataOfAt`, `dataOf`, the `*_sound` theorems are still design only (§2.2-2.4a).
 
 **Status [rev1] (kept):** the pure units U-A, U-B, U-C (§5a) are written (`Tools/ShippingGen5DataOfPure.lean`, check
 `Tests/Gen5/DataOfCheck.lean`, commit 462ea73d). They were elaborated by plain `lean` on the oleans of an earlier `kjob lake build`
@@ -389,7 +389,7 @@ Original questions (rev0):
 
 ## 9. Not claimed
 
-* **[rev2]** Lean exists for §5a (built, doc-bc9a300d) and for §5b U-D/U-E (`Tools/ShippingGen5DataOfPure2.lean`, `Tests/Gen5/DataOfCheck2.lean`: elaborated in the author's Pod dev loop only; clean build is the coder's; not recorded as built). The rev1 sentence follows for the older parts: Only §5a and the first check file exist as Lean (rev1); everything else here is design, line counts are estimates. No claim that every `dataOfAt` execution terminates (§2.4a T-X).
+* **[rev2]** Lean exists for §5a (built, doc-bc9a300d) and for §5b U-D/U-E (`Tools/ShippingGen5DataOfPure2.lean`, `Tests/Gen5/DataOfCheck2.lean`: clean issue-linked build do3v-62ea2479 exit 0, 758 jobs, scoped approved at 62ea2479). The rev1 sentence follows for the older parts: Only §5a and the first check file exist as Lean (rev1); everything else here is design, line counts are estimates. No claim that every `dataOfAt` execution terminates (§2.4a T-X).
 * No claim that `dataOfAt` returns `some` on any successful run (coverage, DG-COVER); no claim that it does not.
 * `initOk_of_ok` is written and passed plain `lean` elaboration on the oleans of an earlier build; its `kjob lake build` result is in the Issue note, not claimed here. No claim that `ok` is implied by anything in the run.
 * **[rev2]** No claim that a successful production run satisfies C-CMP or C-QWIT, and no claim that the auxiliary `readMachine` is (or is not) the compiler's reader beyond the READKINDS provenance note; no claim that `dataOfFrom`'s output equals `readMachine`'s for the real values of the partial helpers (S-COV-FLOAT, DG-COVER).
