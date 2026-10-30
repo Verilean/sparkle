@@ -201,7 +201,8 @@ open Tools.ShippingGen4ParamIface Tools.ShippingGen4ParamKeeps
         ∃ n b', D'.findModule b.name = some b' ∧ CombTopRunN D' n b' (src θ)
 #value_defeq SpecSuccessAllPositive :
   fun (b : Sparkle.IR.AST.Module) (D : Design) =>
-    ∀ θ, LegalBinding (D.addModule b) θ → SpecOk (D.addModule b) θ
+    ((D.addModule b).findModule (D.addModule b).topModule).isSome = true →
+      ∀ θ, LegalBinding (D.addModule b) θ → SpecOk (D.addModule b) θ
 #value_defeq PostTransfer :
   fun (raw b : Sparkle.IR.AST.Module) (Dr D : Design) (I : TopIface) =>
     ∀ (θ : List (String × Nat)) (Dr' D' : Design),

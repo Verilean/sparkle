@@ -101,9 +101,11 @@ def ParamTopShips (b : Sparkle.IR.AST.Module) (D : Design) (src : SrcAt) : Prop 
       ∃ n b', D'.findModule b.name = some b' ∧ CombTopRunN D' n b' (src θ)
 
 /-- Separate supply obligation (target kept, not narrowed; see PARAMETRIC_SPECSUCCESS_DECISION.md): every legal
-binding specializes. Not claimed for any declaration here. -/
+binding specializes, GIVEN that the design's top module is present (`specializeDesign` checks that before
+`validateBindings`, so legality alone cannot imply success). Not claimed for any declaration here. -/
 def SpecSuccessAllPositive (b : Sparkle.IR.AST.Module) (D : Design) : Prop :=
-  ∀ θ, LegalBinding (D.addModule b) θ → SpecOk (D.addModule b) θ
+  ((D.addModule b).findModule (D.addModule b).topModule).isSome = true →
+    ∀ θ, LegalBinding (D.addModule b) θ → SpecOk (D.addModule b) θ
 
 /-- The interface-level transfer from the raw translator module to the post-processed one (UNSUPPLIED: a
 proposition to be proved per post-processing outcome, never assumed). -/
