@@ -8,7 +8,9 @@ set_option autoImplicit false
 2. MUTANT: signature/defeq REJECTIONS only. A mutant type that is not defeq to the theorem's type is rejected; this is
    NOT a semantic counterexample and says nothing about whether the mutated statement is true.
 3. AXIOMS: only propext / Classical.choice / Quot.sound; no sorryAx, no `ofReduceBool` (native_decide).
-4. CLOSURE: the transitive constant closure of each theorem has no `Laws`, `T1Hyp`, `T1HypND` constant.
+4. CLOSURE: the transitive constant closure of each theorem (types plus `thmInfo.value`/`defnInfo.value`; `opaque`
+   bodies are not tracked and are logged) has no `Laws`, `T1Hyp`, `T1HypND` constant. Section 5 runs proof-only
+   negative (direct, via other-namespace helper) and positive fixtures through the same detector.
 Scope limits are those of the module docstring: I3b is a non-linked existence peel; I5a is a name-only map. -/
 
 open Lean Elab Command Meta
@@ -35,27 +37,61 @@ elab "#audit_axioms " c:ident : command => liftTermElabM do
   let bad := axs.filter fun a => !([``propext, ``Classical.choice, ``Quot.sound].contains a)
   unless bad.isEmpty do throwError "{n}: axioms {bad}"
 
-private partial def closure (env : Environment) (todo : List Name) (seen : NameSet) : NameSet :=
+/-- Transitive constant closure. The body is fetched explicitly per `ConstantInfo` kind:
+`thmInfo.value` and `defnInfo.value` are traversed; `opaqueInfo` bodies are NOT tracked (only the type is), and the
+opaque constants reached are returned so the log can state it. Other kinds (axiom, inductive, ctor, rec, quot) have
+no body, only a type. Returns (seen, opaque constants reached). -/
+private partial def closure (env : Environment) (todo : List Name) (seen : NameSet) (opq : NameSet) :
+    NameSet × NameSet :=
   match todo with
-  | [] => seen
+  | [] => (seen, opq)
   | n :: rest =>
-    if seen.contains n then closure env rest seen else
+    if seen.contains n then closure env rest seen opq else
     let seen := seen.insert n
     match env.find? n with
-    | none => closure env rest seen
+    | none => closure env rest seen opq
     | some ci =>
-      let cs := ci.type.getUsedConstants.toList ++ (match ci.value? with
-        | some v => v.getUsedConstants.toList
-        | none => [])
-      closure env (cs ++ rest) seen
+      let (body, opq) : List Name × NameSet := match ci with
+        | .thmInfo v => (v.value.getUsedConstants.toList, opq)
+        | .defnInfo v => (v.value.getUsedConstants.toList, opq)
+        | .opaqueInfo _ => ([], opq.insert n)
+        | _ => ([], opq)
+      closure env (ci.type.getUsedConstants.toList ++ body ++ rest) seen opq
+
+/-- The one detector, used by production checks and by the fixtures. -/
+private def closureReport (forbidden : List Name) (n : Name) : CoreM (List Name × List Name) := do
+  let env ← getEnv
+  let (seen, opq) := closure env [n] {} {}
+  return (seen.toList.filter fun m => forbidden.any fun f => f.isPrefixOf m, opq.toList)
+
+private def prodForbidden : List Name :=
+  [`Tools.ShippingGen2.Laws, `Tools.ShippingGen2.T1Hyp, `Tools.ShippingGen2.T1HypND]
+
+private def fixtureForbidden : List Name := [`Tests.Gen4.ParamEntryCheck.Fixture.Bad]
 
 elab "#audit_closure " c:ident : command => liftTermElabM do
   let n ← realizeGlobalConstNoOverloadWithInfo c
-  let env ← getEnv
-  let seen := closure env [n] {}
-  let forbidden := [`Tools.ShippingGen2.Laws, `Tools.ShippingGen2.T1Hyp, `Tools.ShippingGen2.T1HypND]
-  let bad := seen.toList.filter fun m => forbidden.any fun f => f.isPrefixOf m
+  let (bad, opq) ← closureReport prodForbidden n
+  unless opq.isEmpty do logInfo m!"CLOSURE {n}: opaque bodies NOT tracked (type only): {opq}"
   unless bad.isEmpty do throwError "{n}: forbidden constants {bad}"
+
+/-- Fixture must be flagged by the same detector (fixture-only forbidden name). -/
+elab "#closure_detects " c:ident : command => liftTermElabM do
+  let n ← realizeGlobalConstNoOverloadWithInfo c
+  let (bad, _) ← closureReport fixtureForbidden n
+  if bad.isEmpty then throwError "{n}: detector MISSED the forbidden constant"
+
+/-- Fixture must not be flagged by the same detector. -/
+elab "#closure_clean " c:ident : command => liftTermElabM do
+  let n ← realizeGlobalConstNoOverloadWithInfo c
+  let (bad, _) ← closureReport fixtureForbidden n
+  unless bad.isEmpty do throwError "{n}: detector flagged a clean fixture: {bad}"
+
+/-- The fixture's signature must not itself mention the forbidden name (only the proof may). -/
+elab "#sig_clean " c:ident : command => liftTermElabM do
+  let n ← realizeGlobalConstNoOverloadWithInfo c
+  let ci ← getConstInfo n
+  if ci.type.getUsedConstants.any (fixtureForbidden.contains ·) then throwError "{n}: signature mentions forbidden name"
 
 namespace Tests.Gen4.ParamEntryCheck
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Builder
@@ -191,5 +227,32 @@ open Tools.ShippingEntrySoundness Tools.ShippingGen4ParamEntry
 #audit_closure core_symbolic_prologue_throws
 #audit_closure core_symbolic_reads
 #audit_closure specializeDesign_ok_facts
+
+/-! ## 5. CLOSURE detector fixtures (Check-only namespace; same detector as production, fixture forbidden name) -/
+namespace Fixture
+def Bad : Nat := 0
+theorem negDirect : True := by
+  have _h : Bad = Bad := rfl
+  exact True.intro
+theorem posOk : True := by
+  have _h : (0 : Nat) = 0 := rfl
+  exact True.intro
+end Fixture
+namespace FixtureHelper
+theorem helperBad : True := by
+  have _h : Fixture.Bad = Fixture.Bad := rfl
+  exact True.intro
+theorem helperOk : True := by
+  have _h : (1 : Nat) = 1 := rfl
+  exact True.intro
+end FixtureHelper
+theorem negViaHelper : True := FixtureHelper.helperBad
+theorem posViaHelper : True := FixtureHelper.helperOk
+#sig_clean Fixture.negDirect
+#sig_clean negViaHelper
+#closure_detects Fixture.negDirect
+#closure_detects negViaHelper
+#closure_clean Fixture.posOk
+#closure_clean posViaHelper
 
 end Tests.Gen4.ParamEntryCheck
