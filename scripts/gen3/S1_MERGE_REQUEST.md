@@ -1,6 +1,10 @@
 # S1 merge request: integrate M3 (`par/gen3-induct`) with M2 (`par/gen2-spec`) on a new branch
 
-**Who:** the user. Merging is a user operation; the coder does not run `git merge`.
+**Status (2026-10-30): DONE LOCALLY by the coder** on the user's instruction ("ローカルでマージしてすすめるようにして").
+Branch `par/gen3-combined` (worktree `~/git/.kjob/gen3-combined`) = `par/gen2-spec` d0ddc50b + `--no-ff` merge of
+`par/gen3-induct` 26f5d72a (merge commit 31a3fdfa; lakefile union 1192 + 1127 − 1112 = 1207 `lean_lib`). Source
+branches untouched; nothing merged into poc/main, nothing pushed. Tracking Issue: `sparkle-gen3-s1-combined`; the
+Issues below now depend on it (a dependency, not a user wait). The rest of this file is the original request text.
 **Why now:** the agreed serial order of the shared edits is InstClosed (S1) → TopShips R-G (S2) → ChildPortWidths (S3)
 (scripts/gen3/UCHILD_PORTTYS_TABLE.md rev3 §R3.3; scripts/gen2/TOP_CONTRACT_REVISION.md rev1.1). S2 and S3 change
 `Tools/ShippingGen2Defs.lean`; they must be made on top of a branch that already has M3's `InstClosed`
@@ -17,7 +21,7 @@ N-C, etc.) can proceed; the shared edits wait.
 Trial `git merge-tree --write-tree` (2026-10-30): `Tools/ShippingGen2Defs.lean` and `Tests/Gen2/PkgCompat.lean`
 auto-merge; the only textual conflict is `lakefile.lean` (both sides append `lean_lib` blocks at the end).
 
-## Suggested commands (run by the user)
+## Commands (as originally suggested; run locally by the coder)
 ```sh
 cd ~/git/.kjob/gen2-spec            # or any clean checkout of the repo
 git switch -c par/gen3-combined par/gen2-spec
@@ -46,6 +50,7 @@ Each has its new-file work accepted and waits only for the combined branch:
 - `sparkle-gen5-t2-tie` (callTie_of_closingRun waits for DG-CLOSINGRUN),
 - `sparkle-gen2-step` (TopShips R-G Defs switch / final-root connection = S2).
 Without S1 these cannot reach acceptance; M2/M3/M5 and FG (`sparkle-fg-final`) stay open. No data is lost either way.
+(2026-10-30: no longer waiting for the user; they depend on `sparkle-gen3-s1-combined`.)
 
 ## Options
 - **(A) Merge now as above (recommended).** Unblocks S2/S3; cost: the coder's S1 fix-up and a full re-verification.
