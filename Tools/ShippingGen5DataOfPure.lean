@@ -1,6 +1,6 @@
 import Tools.ShippingMachineAuto
 set_option autoImplicit false
--- NOT BUILT (DG-DATAOF pure units; scripts/gen5/DG_DATAOF_FREEZE.md rev1). No sorry / axiom / native_decide.
+-- Built in doc-bc9a300d (clean issue-linked, exit 0, 743 jobs; source=end=bc9a300d on par/gen3-combined 43977202) (DG-DATAOF pure units; scripts/gen5/DG_DATAOF_FREEZE.md rev1). No sorry / axiom / native_decide.
 
 /-! # DG-DATAOF pure units (no READKINDS, no `Laws`, no `T1Hyp*`)
 
