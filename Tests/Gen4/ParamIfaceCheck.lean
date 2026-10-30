@@ -1,7 +1,7 @@
 import Tools.ShippingGen4ParamIface
 import Tools.ShippingGen4ParamKeeps
 set_option autoImplicit false
--- NOT BUILT (clean issue-linked build pending, coder). Pod build exit 0 for Tests.Gen4.ParamIfaceCheck before commit.
+-- BUILT: clean issue-linked build par6v-41ad0be7 (Tests.Gen4.ParamIfaceCheck) exit 0, 705 jobs, at 41ad0be7. Comment-only update.
 
 /-! # Audit of Tools/ShippingGen4ParamIface.lean and Tools/ShippingGen4ParamKeeps.lean (PARAMETRIC_FREEZE.md rev4 §11.2, §11.3, §11.5)
 
