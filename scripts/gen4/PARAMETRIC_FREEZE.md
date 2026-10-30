@@ -1,8 +1,9 @@
-# M4 parametric / symbolic entry: investigation and freeze (rev3; rev2 answered R1-R3 on 7c297d5f, rev3 answers the remaining R3 on 2030997a)
+# M4 parametric / symbolic entry: investigation and freeze (rev4; rev2 answered R1-R3 on 7c297d5f, rev3 answers the remaining R3 on 2030997a, rev4 adds §11 on top of the approved 8acc71dd)
 
 - **Issue:** `sparkle-gen4-parametric-supply`.
 - **Status:** investigation + freeze of types and plan. No Lean, no build, no production edit. rev2 changes: §1.5, §3.2, §4 (I2, I5, new I5a/I5b), new §8 (response to R1-R3), new §9 (complete telescope and suppliers). rev1 text that was withdrawn is listed in §8, not silently removed.
 - **rev3 changes:** only §9.1 (complete signatures, no ellipsis/etc./copy-later), §9.3 U5, §10, new §8 R3-rev3. §4 rows I1, I3, I4 are superseded where §9.1 differs (I1 is pure gate facts, I4 is out of the unit).
+- **rev4 changes:** only the new §11 (P4 survey, I3c, I4, §9.2 complete types and suppliers) and §12 (what the reviewer is asked to approve). §1-§10 are unchanged; where §11 replaces a §9.2/§9.3 entry it says so. Docs only; no Lean, no build. rev4 `file:line` are at 8acc71dd (branch `kjob/g4par-r4`) unless a SHA/branch is named.
 - **Base:** HEAD d0ddc50b (branch `kjob/g4par-d0ddc50b`). All `file:line` below are at d0ddc50b unless a SHA/branch is named.
 - **What this document is not:** it proves nothing and does not complete the parametric part of FG.
   Statements marked PROPOSED are types for the reviewer to accept; none is accepted yet.
@@ -302,3 +303,252 @@ The last two conjuncts compare `moduleByName`/`childMap` of the specialized modu
 
 ## 10. Revised decisions for the reviewer
 Replaces §6 items 1-3: (1) approve §9.1 as the only implementable unit now (I1, I2-restricted, I3a, I3b, I5a; I4 is moved out, I3c is not frozen); (2) §9.2/§9.3 stay unapproved, designed next after P3/P4; (3) U1 visibility: approve a local copy or request the edit.
+
+## 11. rev4: P4 survey, I3c, I4, and the semantic interface (§9.2)
+
+Base for this section: 8acc71dd. I1/I2/I3a/I3b/I5a are built and approved at that SHA (scoped approval; not the Issue). Everything below is PROPOSED. Words: "this survey did not find X" means the listed sources were read and X was not there; it never says X is impossible or not derivable. A "mutant" in this repository is a rejection by signature/defeq of the checked statement, not a semantic counterexample.
+
+### 11.1 P4: which `DimExpr` forms a symbolic run can hand to `specializeDesign`, and what `.ok` needs
+
+**Sources read.** `DimExpr` constructors, `mk*` smart constructors and `evaluate` (Sparkle/IR/Type.lean:20-32, 43-62, 68-93, `hwTypeFromDim` :200-203); the only producer, `extractDimExprStep` (Sparkle/Compiler/Elab.lean:632-687); the other places that build a `DimExpr` (Elab:709, :858 `makeSliceFromStartLength`, :864-880 `lowerZeroExtendWire`; callers of `extractDimExpr` at :5889-5890, :5901, :7222-7233, :7578-7591); the consumers of a `DimExpr` in `specializeDesign` (Sparkle/IR/Specialize.lean:56-64 `specializeType`, :73-91 `specializeExpr` `sliceDim`, :111-130, :145-150). `grep` over `Sparkle/` and `Tools/` for `DimExpr`, `bitVectorDim`, `clog2`, `log2` outside Elab/Type/Specialize found uses only in the backends (Verilog.lean:53 emits `$clog2`; CSim.lean:102,112 reject), the optimizer passes (which pass `sliceDim` through unchanged) and ReorderInvariance/RegDedup (structural).
+
+**Constructors the translator can emit (file:line).**
+| constructor | emitted by | how |
+|---|---|---|
+| `literal` | `extractDimExprStep` :636 (`.lit (.natVal v)`); `mkAdd/mkSub/mkMul` constant folding Type.lean:43-62; `makeSliceFromStartLength` :858 (`.literal 1`) | closed constants |
+| `parameter` | `extractDimExprStep` :637-645 via `dimVarMap`, filled by `bindInputsLegacy` :2115-2128 (`.parameter binderName`) | a retained `Nat` binder; an `fvar` not in the map throws (:641-645) |
+| `add` | `mkAdd` through `Nat.add`, `Nat.succ`, `HAdd` (:657, :665-666, :674); Prod width :709; `makeSliceFromStartLength` :858 | |
+| `sub` | `mkSub` through `Nat.sub`, `HSub` (:658, :675); `makeSliceFromStartLength` :858 (`(start+len) - 1`) | both user-written subtraction AND the translator's own slice bound |
+| `mul` | `mkMul` through `Nat.mul`, `HMul` (:659, :676) | |
+| `div`, `mod`, `pow`, `min`, `max` | `extractDimExprStep` :660-664, :677-679 (raw constructors, no smart folding) | user-written `/ % ^ min max` in a width |
+| `clog2` | **this survey did not find a translator path that emits it.** Only Type.lean (definition, `evaluate`, `toString`) and the Verilog backend mention it. Source forms outside the list (e.g. `Nat.log2`) hit the `Unsupported symbolic hardware dimension` `throwError` (:683-687), i.e. the symbolic run FAILS; it is outside the success scope | |
+
+Where a `DimExpr` reaches the specializer: (a) a port/wire type `.bitVectorDim d` (made by `hwTypeFromDim`, Type.lean:200-203, only when `d` is not a `.literal`) → `specializeType` :60-62; (b) a `sliceDim` bound pair → `specializeExpr` :84-89. A `.literal` width is concrete (`hwTypeFromWidth`) and is never evaluated, so a literal 0 is not rejected by `requirePositive`.
+
+**The checks that can make `specializeDesign` return `.error` after `validateBindings` passed** (Specialize.lean + Type.lean:68-93): (E1) `.sub` underflow, (E2) `.div`/`.mod` with divisor evaluating to 0, (E3) `.clog2 0`, (E4) `requirePositive`: a `.bitVectorDim` evaluating to 0 (:49-51, :62), (E5) `sliceDim` with `hi < lo` after evaluation (:87-88). `pow`, `add`, `mul`, `min`, `max` have no error branch in `evaluate` (:77-90).
+
+**Partition.** Let `θ` be a legal binding with every value `≥ 1` and `e` a `DimExpr` the translator produced.
+1. **Provable for all-positive θ (no declaration premise), by structural induction on `e`** — class `Pos⁺`: `e` is built only from `parameter`, `literal c` with `c ≥ 1`, `add`, `mul`, `pow`, `min`, `max`, where every leaf evaluates `≥ 1`. Then `evaluate θ e` is `.ok v` with `v ≥ 1` (no error branch is reachable: E1-E3 need `sub/div/mod/clog2`; E4 needs `v = 0`, but `add/mul/min/max/pow` of `≥ 1` values are `≥ 1`). For a slice from `extractLsb' start len` whose `start ∈ Pos⁺ ∪ {literal 0}` and `len ∈ Pos⁺`: the translator's bound is `hi = (start + len) - 1` (:858): `start + len ≥ 1`, so no underflow (E1), and `hi ≥ lo = start`, so E5 does not fire. (This is a statement about the `DimExpr` values; the induction is not designed or proved here.)
+2. **Needs a premise on the declaration (CONDITIONAL):** any width containing a user-written `sub`, `div` or `mod` (or a `min/max/pow/add/mul` that has one inside): the translator keeps them as `.sub/.div/.mod` nodes, and the specializer's behavior depends on θ. Code-reading example (not run): `BitVec (n - 1)` with retained `n` gives a wire of type `.bitVectorDim (.sub (.parameter "n") (.literal 1))`; the legal binding `n ↦ 1` evaluates it to 0 and `specializeType` throws via `requirePositive` (E4). Likewise `n - 5` at `n ↦ 1` throws underflow (E1), where the source `Nat` subtraction would truncate to 0. In both the specializer fails closed. So for such a declaration `SpecSuccessAllPositive` (§3.2) is FALSE as stated, by reading; the true form is `∀ θ in a region R_decl, ok`, with R_decl a premise (for `n - 1` as a width: `n ≥ 2`). This is a statement about which θ succeed, not a counterexample to `ParamTopShips` (which takes success as a hypothesis, §3.2).
+3. **Not found:** a supply path for (a) the symbolic run's `D.modules` carrying parameter-bearing child modules with their own widths (probe P1, still not read); (b) a derivation that a `Pos⁺` width stays `Pos⁺` after the zero-width/merge post-processing (§11.3); (c) `clog2` (not emitted, so no case).
+
+**Consequence for FG; nothing is dropped.** The target "all-positive θ ⇒ specialization succeeds" is KEPT in §3.2 as `SpecSuccessAllPositive`. rev4 refines the status of I5b into two obligations:
+- **I5b-pos (supplied class):** for a declaration whose emitted widths and slice bounds are all in `Pos⁺`, `SpecSuccessAllPositive` holds. Statement shape (types in §11.5): `PosPlus b D → SpecSuccessAllPositive b D`, where `PosPlus` is a decidable predicate on the module/design (every `.bitVectorDim d` and `.sliceDim _ hi lo` has `d` / `hi` / `lo` in the shapes above).
+- **I5b-cond (conditional class):** for any other declaration the success region is a premise `Region b D R` and the claim is `∀ θ legal, R θ → ok`. This is a CONDITIONAL guarantee and every report that cites it must say so.
+Whether I5b-cond is a reduction of the guarantee the user approved depends on reading FG (GENERAL_SPEC.md:88-100, :478-483 says only "the parametric quantification" is fixed in M4); the decision material is `scripts/gen4/PARAMETRIC_SPECSUCCESS_DECISION.md`. The freeze does NOT choose; no implementation of I5b-cond starts before the decision.
+
+### 11.2 I3c: depth balance and nested-cache restoration (full types)
+
+**What the wrapper does (Elab:5464-5586).** Read `depth` (:5464); if `depth ≥ sparkleSynthDepthLimit` throw (:5465-5466); save 7 side maps (depth `0`: `{}`; else the ref contents) (:5479-5535); depth `0` clears the type/sub-module/child/side caches, else resets only the side maps (:5536-5560); `sparkleSynthDepth.set (depth+1)` (:5561); `try doSynth finally { depth.modify (·-1); if depth ≠ 0 then restore the 7 side maps }` (:5574-5586). In symbolic mode the prologue (`throwError` on duplicate/zero) runs BEFORE all of this (:5427-5435, I3a).
+
+**What the existing development gives, and for which flags.** Every lemma below is stated for the DEFAULT flags `[] false` (verified by reading the statements); none is stated for `parameters`/`true`.
+| need | existing statement (file:line) | usable for symbolic? |
+|---|---|---|
+| finally: depth back to `D`, 7 maps set | `fin_triple`, Tools/ShippingChildKeeps.lean:344-372 — a `Triple` from `J L (D+1)` to `J L D` for the `finally` text; it does not mention `parameters`/`symbolicMode` | **yes, as is** (the `finally` block is the same text) |
+| core keeps `J L D` given the body keeps `J L (D+1)` | `core_keeps`, ShippingChildKeeps.lean:385 (`synthesizeCombinationalCore declName [] false`) | pattern only: the `unfold … simp only [Bool.false_eq_true, ↓reduceIte]` step removes the `if symbolicMode` prologue, which for `true` is a real prefix (I3a) |
+| the body at depth `D` for the default flags | `body_keeps`, Tools/ShippingChildBody.lean:142-150 (`synthesizeFromConst … declName [] false true ci isInst`); uses `bindInputsLegacy_keepsC` which is stated for `bindInputsLegacy [] false` (:76-84) | **no**: needs a symbolic copy. This survey found keeps lemmas for `extractDimExpr` (Tools/ShippingChildHelpers.lean:102-103; ShippingChildLegacyHelpersA.lean:121-122) but did not find one for `CompilerM.addParameter` or `withDimVarMapping` (`grep` over Tools/: no hit); they are `CompilerM` state operations with no `IO.Ref` write (Elab:119-126, :298-306), so a keeps lemma for them would be a state-only proof, not a new law |
+| outermost balance for every outcome | `core_triple0`/`core_balance`, Tools/ShippingChildBalance.lean:211, :315 (`Out0 L` → `Out0 L`, also on exceptions; `Out0` :103) | pattern + the symbolic body lemma; the proof walks the same prefix |
+| outermost core from `JQ O.quiet 0` to `JQC O 0` | `core0_tripleAC`, Tools/ShippingChildDepthC.lean:218 (premise `hbodyC`) | same: needs `hbodyC` for the symbolic body |
+| LimitStmt (depth limit throws, no run) | scripts/gen2/T1_CONNECT_FREEZE.md:38-43 (`LimitStmt`, discharged by the prefix of `core_tripleAC`) | statement is for `[] false`; the symbolic analogue is needed only if a symbolic run can be started at depth ≥ limit, which this survey did not find (no caller below the outermost, §11.3) |
+| equality of the 7 side maps' CONTENTS between `w` and `w'` | **this survey did not find a lemma.** `RefLaws` (Tools/ShippingChildInv.lean:333-420) tracks only three values (child cache `val`, synthesis ref `sval`, depth `dval`); the seven maps are written through `Framed.sideSet` and appear in `J` only through the three values (`fin_triple` :344 states nothing about their contents) | not needed for the outermost symbolic run (below) |
+
+**Scope decision (a proposal, reviewer may reject).** A symbolic run is started only by commands (Elab:9056, :9127) and tests (Tests/VerilogTests.lean:45,52; Tests/TestCppSim.lean:146), i.e. OUTERMOST (depth 0); its children use the default entry (§1.4). At depth 0 the `finally`'s `if depth != 0` (:5579) is false, so no restoration of the 7 maps happens for the top run, and the nested-restoration equality (last row) is not a premise of any parametric statement. It stays needed ONLY for the default entry's nested runs, which are M3's. So I3c freezes depth `D = 0` for the world facts and `D` general for the `J`-keeping statement.
+
+**Frozen types (names new, in `Tools/ShippingGen4ParamEntry.lean`'s successor file, see §12).** `Tsyn`, `profLogIO`, `J`, `ChildKeeps`, `Keeps`, `Out0`, `StartV`, `RefLaws` as in Tools/ShippingChildInv.lean and ShippingChildBalance.lean. Variables: `mctx mref cctx cref` as in those files.
+```lean
+-- (I3c-body) the symbolic body keeps the invariant, given the child entry does.  Supplier: a copy of body_keeps
+-- (ShippingChildBody:142) with bindInputsLegacy_keepsC generalised to (parameters, symbolicMode); STOP rule: if a
+-- primitive needs a new RefLaws field, report and do not add a law.
+theorem body_symbolic_keeps (L : RefLaws mref cref) (D : Nat) (hC : ChildKeeps L D)
+    (b : Bool) (declName : Name) (parameters : List (String × Nat))
+    (ci : ConstantInfo) (isInst : Lean.Expr → Bool) {tenv : Lean.Environment} :
+    Keeps mctx mref cctx cref (J L D)
+      (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
+        declName parameters true true ci isInst)
+
+-- (I3c-keeps) the core wrapper keeps J at depth D given the body keeps it at D+1 (core_keeps, ShippingChildKeeps:385)
+theorem core_symbolic_keeps (L : RefLaws mref cref) (D : Nat) (declName : Name)
+    (parameters : List (String × Nat)) (hA0 : D = 0 → L.aux {})
+    (hbody : ∀ {tenv : Lean.Environment}, D < sparkleSynthDepthLimit → ∀ (b : Bool) ci isInst,
+      Keeps mctx mref cctx cref (J L (D + 1))
+        (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
+          declName parameters true true ci isInst)) :
+    Keeps mctx mref cctx cref (J L D)
+      (synthesizeCombinationalCoreWith Tsyn declName parameters true true)
+
+-- (I3c-worlds) connection to I3b at depth 0: the worlds w3 (body start) and w4 (body end) of core_symbolic_reads
+-- have the invariant at depth 1, and the end world has it at depth 0.
+theorem core_symbolic_worlds (L : RefLaws mref cref) (hA : L.aux {}) {declName : Name}
+    {parameters : List (String × Nat)} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Design}
+    (hw : Out0 L w)
+    (hbody : ∀ {tenv : Lean.Environment} (b : Bool) ci isInst,
+      Keeps mctx mref cctx cref (J L 1)
+        (synthesizeFromConst (fun e h t n => translateExprToWire tenv e h t n) (profLogIO b)
+          declName parameters true true ci isInst))
+    (h : RunsTo (synthesizeCombinationalCoreWith Tsyn declName parameters true true)
+      mctx mref cctx cref w (M, D) w') :
+    ∃ (logProf : String → IO Unit) (envR : Environment) (ci : ConstantInfo)
+      (w1 w2 w3 w4 w5 w6 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
+      RunsTo (synthesizeFromConst (Tsyn envR) logProf declName parameters true true ci
+        (instancePredicate envR)) mctx mref cctx cref w3 (M, D) w4 ∧
+      J L 1 w3 ∧ J L 1 w4 ∧ J L 0 w'
+
+-- (I3c-balance) outermost balance on every outcome, for any witness (core_balance, ShippingChildBalance:315)
+theorem core_symbolic_balance (L : RefLaws mref cref) (declName : Name)
+    (parameters : List (String × Nat)) {w : Void IO.RealWorld}
+    (hs : StartV L w) (hq : L.quiet w) (hd : L.dval w = 0) :
+    Out0 L (endW mctx mref cctx cref
+      (synthesizeCombinationalCoreWith Tsyn declName parameters true true) w) ∧
+    ErrOk mctx mref cctx cref
+      (synthesizeCombinationalCoreWith Tsyn declName parameters true true) w
+```
+(`core_symbolic_worlds` states `J L 1 w3`: `J` also needs `CacheInv` of the CLEARED cache, which the clear establishes (`tripleO_clear`, ShippingChildBalance:182); `w1,w2,w5,w6` are existential as in I3b because I3b's conclusion does not constrain them. The prologue's `throwError`s are exceptions in the class `OkExc`: that is the `.str`/`.fmt` message form `tripleO_throwErr` already handles.)
+
+**Not frozen / not claimed:** the 7-map content equality `w → w'` for a NESTED symbolic run; a symbolic run at depth ≥ 1; `LimitStmt` for symbolic flags.
+
+### 11.3 I4: post-processing, restated as a semantic interface
+
+**Why rev3 moved I4 out.** A text equality between the two entries' post-processing (§1.1) is a fact about two programs, not an equivalence proof of the produced module (the reviewer's point). rev4 therefore splits I4 into a STRUCTURE part and a SEMANTIC part and says what each does and does not give.
+
+**I4-struct (decomposition; the analogue of an existing theorem).** For the default entry, Tools/ShippingDesignWriterRun.lean:69-100 (`synthesizeCombinational_designTop`) already states: a returning run of the full entry is a returning run of the core followed by `M' = dropZeroWidthModule M ∨ M' = mergeChecked (dropZeroWidthModule M)`, `D'.topModule = D.topModule`, and `D'.modules = D.modules` when no module of `D` is named `M.name`. The parametric entry has the same post-processing text (Elab:8940-8953 vs :5592-5606), so the same statement is proposed, with the symbolic core:
+```lean
+theorem synthesizeCombinationalWithParameters_designTop {declName : Name}
+    {parameters : List (String × Nat)} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M' : Sparkle.IR.AST.Module} {D' : Design}
+    (h : RunsTo (synthesizeCombinationalWithParameters declName parameters)
+      mctx mref cctx cref w (M', D') w') :
+    ∃ (M : Sparkle.IR.AST.Module) (D : Design) (w1 : Void IO.RealWorld),
+      RunsTo (synthesizeCombinationalCoreWith Tsyn declName parameters true true)
+        mctx mref cctx cref w (M, D) w1 ∧
+      (M' = Sparkle.IR.ZeroWidth.dropZeroWidthModule M ∨
+        M' = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule M)) ∧
+      D'.topModule = D.topModule ∧
+      ((∀ x ∈ D.modules, x.name ≠ M.name) → D'.modules = D.modules)
+```
+It says WHICH `b` can come out of WHICH `raw`. It does not say that `b` behaves like `raw`.
+
+**I4-sem (the interface-level transfer; this is what the consumer needs).** `ParamTopShips` (§3.2) is a statement about `b` and `D`, the post-processed pair. The translator contract S2 (§4) is about `raw`. The bridge must be an interface statement, not a text one:
+```lean
+-- TopIface, CombTopRunN: §11.5.  raw/b/Dr/D as in I4-struct.
+def PostTransfer (raw b : Sparkle.IR.AST.Module) (Dr D : Design) (I : TopIface) : Prop :=
+  ∀ (θ : List (String × Nat)) (Dr' D' : Design),
+    Sparkle.IR.Specialize.specializeDesign (Dr.addModule raw) θ = .ok Dr' →
+    Sparkle.IR.Specialize.specializeDesign (D.addModule b) θ = .ok D' →
+    ∀ (n : Nat) (raw' : Sparkle.IR.AST.Module), Dr'.findModule raw.name = some raw' →
+      CombTopRunN Dr' n raw' I →
+      ∃ b', D'.findModule b.name = some b' ∧ CombTopRunN D' n b' I
+```
+`PostTransfer` is a PROPOSITION to be proved per post-processing outcome, not an assumption: it follows from soundness of `dropZeroWidthModule` and `mergeChecked` for symbolic modules. Existing results: `dropZW_name` (Tools/ShippingMachineDepthRun.lean:98) and `dropZeroWidth_name` (ShippingGateChildComb.lean:131) give `b.name = raw.name`; soundness of the two passes is stated in Tools/ShippingPostSoundness.lean (`dropZeroWidth_entry` :519) and in the `mergeChecked_*` lemmas (e.g. Tools/ShippingCombKidText.lean:198, ShippingChecksDerived2.lean:243) for the module shapes of the default routes. **This survey did not find** a soundness statement of these passes for a module whose widths are `.bitVectorDim` or that contains `.sliceDim` (the optimizer passes carry `sliceDim` through, e.g. Sparkle/IR/Optimize.lean:235, :351, :629, but no theorem was found about it), and the specialize-then-run composition has no kernel definition (U4). Status: UNSUPPLIED; the reviewer's remark (text equality is not equivalence) is applied by making `PostTransfer` the only thing S4 may cite, never I4-struct alone.
+
+**I4-census (not a proof).** The claim "the translator does not call `synthesizeCombinationalWithParameters`" has two supports of different kinds, and neither is a Lean theorem about the translator:
+- *Census:* `grep -rn synthesizeCombinationalWithParameters` over the repository `*.lean` finds the definition (Elab:8940), command elaborators (Elab:9056, :9127), `Tests/VerilogTests.lean:45,52` and `Tests/TestCppSim.lean:146`; none is inside the translator block (which ends before :8917).
+- *Lean's declaration order:* a constant's body can only mention constants that already exist when it is added, and `translateExprToWire`/`synthesizeChild` (:8929) are defined before :8940. This is a metatheoretic argument, not checked by this repository. A kernel-level check (the constant-closure of `translateExprToWire`/`synthesizeChild` does not contain the name) would use the `Tests/Gen4/ParamEntryCheck.lean` closure detector, which does not follow `opaque`/`partial` bodies (logged as untracked at 8acc71dd); so even that check would be partial.
+Both are recorded as evidence, not as I4. The proof-relevant consequence is the §11.2 scope decision (outermost only).
+
+### 11.4 Status of I1-I5 after rev4
+| item | status |
+|---|---|
+| I1, I2, I3a, I3b, I5a | built and scoped-approved at 8acc71dd |
+| I3c (body, keeps, worlds, balance) | frozen by §11.2 for approval; implementation may need a symbolic copy of `bindInputsLegacy_keepsC` |
+| I4-struct | frozen by §11.3 for approval; analogue exists for the default entry |
+| I4-sem (`PostTransfer`) | statement frozen (§11.3, §11.5); UNSUPPLIED (soundness of the passes on symbolic modules, U4) |
+| I5b-pos / I5b-cond | statements in §11.5; supply of I5b-pos: structural induction over `DimExpr`, pure, independent; I5b-cond: waits on the decision document |
+
+### 11.5 §9.2 completed: the semantic interface (full types) and the supplier table
+
+**Design principles.** (1) Reuse the A-COMB interface instead of a new one (§3.2 preference). (2) `SrcAt` is a per-declaration premise of the same kind as G3 (`ReflectsAll`), reported as conditional. (3) The top-level conclusion for the second disjunct of FG is NOT the machine `TopShips` (it needs `p.d.ss`, `ResetNk`, `"clk"`/`"rst"` equations; §3.1). It is `ParamTopShips`, defined over `CombTopRunN`. (4) Nothing in FG, `T1Hyp`, `GenWF` or a shared definition changes; this is the "parametric quantification" that GENERAL_SPEC.md:478-483 assigns to M4.
+
+```lean
+-- Imports/opens: as §9.1 plus Tools.ShippingGen2Defs (CombChildRunN), Tools.ShippingMachineDepth (ResetN, RunOn).
+-- The interface DATA of A-COMB (GEN2_DEFS.lean.txt:60-74): the `seq` field of the rev1 sketch is dropped (unused).
+structure TopIface where
+  bsC   : List (Name × Sparkle.Compiler.Elab.MixedGateBinder)
+  outsC : List Sparkle.IR.Machine.OutField
+  S     : (Nat → List Nat) → List (Nat → Nat)
+
+/-- The source at a binding: per declaration.  A PREMISE of the same kind as G3, not a derived object. -/
+abbrev SrcAt := List (String × Nat) → TopIface
+
+/-- A parametric top at depth n, after specialization.  Reuse of the A-COMB combinational child run. -/
+def CombTopRunN (D' : Design) (n : Nat) (b' : Sparkle.IR.AST.Module) (I : TopIface) : Prop :=
+  CombChildRunN (Tools.ShippingMachineLinked.childMap D'.modules) D' n b' I.bsC I.outsC I.S
+
+/-- LegalBinding: §3.2, via validateBindings (private: §9.3 U1; the local specification is checked against the
+    function by kernel unfolding of the total definition, as I5a does for specializeModuleUnchecked). -/
+def LegalBinding (D : Design) (θ : List (String × Nat)) : Prop := …  -- text of §3.2, unchanged
+
+def SpecOk (D : Design) (θ : List (String × Nat)) : Prop :=
+  ∃ D', Sparkle.IR.Specialize.specializeDesign D θ = .ok D'
+
+/-- The guarantee for the parametric disjunct.  Success is a HYPOTHESIS here (§3.2), not an assumed consequence
+    of legality.  `n` is existential, as in `TopShips` (`∃ p n`). -/
+def ParamTopShips (b : Sparkle.IR.AST.Module) (D : Design) (SrcAt : SrcAt) : Prop :=
+  ∀ θ, LegalBinding (D.addModule b) θ →
+    ∀ D', Sparkle.IR.Specialize.specializeDesign (D.addModule b) θ = .ok D' →
+      ∃ n b', D'.findModule b.name = some b' ∧ CombTopRunN D' n b' (SrcAt θ)
+
+/-- Separate supply obligation, KEPT (not shrunk): §3.2 SpecSuccessAllPositive, with its class split of §11.1. -/
+def SpecSuccessAllPositive (b : Sparkle.IR.AST.Module) (D : Design) : Prop :=
+  ∀ θ, LegalBinding (D.addModule b) θ → SpecOk (D.addModule b) θ
+
+def PosPlus (b : Sparkle.IR.AST.Module) (D : Design) : Prop := …   -- decidable, §11.1 class 1; fixed at implementation
+                                                                    -- as a Bool function over ports/wires/sliceDim
+def Region (b : Sparkle.IR.AST.Module) (D : Design) (R : List (String × Nat) → Prop) : Prop :=
+  ∀ θ, LegalBinding (D.addModule b) θ → R θ → SpecOk (D.addModule b) θ      -- I5b-cond (decision pending)
+
+/-- FG for the two entries, as ONE statement with the parametric quantification (GENERAL_SPEC §M4 deliverable).
+    The first conjunct is FG's default part exactly as written (the T1Stmt conclusion); the second replaces the
+    conclusion of FG's second disjunct by ParamTopShips. -/
+def EntryShips (L : Laws mref cref) (SrcAtOf : Name → List (String × Nat) → SrcAt) : Prop :=
+  (∀ declName mctx cctx w b D w' (raw : Module),
+      <default-entry hypotheses of FG, GENERAL_SPEC.md:88-93> → ∃ p n, Pk declName = some p ∧ TopShips p n declName b raw D) ∧
+  (∀ declName parameters mctx cctx w b D w',
+      Start L mctx cctx w →
+      RunsTo (synthesizeCombinationalWithParameters declName parameters) mctx mref cctx cref w (b, D) w' →
+      ReflectsAll L declName parameters →
+      ParamTopShips b D (SrcAtOf declName parameters))
+```
+`EntryShips` above is the schema to be elaborated in the assembly unit (the `<…>` stands for GENERAL_SPEC.md:88-93 verbatim and is the only placeholder left in §9.2; it is not frozen for implementation here). The obligations S1-S5 become:
+| id | exact statement | premises | supplier |
+|---|---|---|---|
+| S1 | `SrcAtOf declName parameters : SrcAt` is defined for a reached declaration | per declaration (G3-like) | **unsupplied** (no definition of "the declaration instantiated at θ" found) |
+| S2 | translator contract: for the run's `raw` and the module after specialization, `evalDim θ` of the symbolic translation equals the translation of the instantiated term; type: `∀ θ …, specializeDesign (Dr.addModule raw) θ = .ok Dr' → ∃ n raw', Dr'.findModule raw.name = some raw' ∧ CombTopRunN Dr' n raw' (SrcAt θ)` | S1; legacy contract (gap G2, ROUTE_CENSUS.md:22); U4 | **dependency pending**: legacy route issue; and the specialize/evaluate kernel link (U4) |
+| S3 | the commutation: from S2 (at `raw`) and `PostTransfer raw b Dr D (SrcAt θ)` conclude the `b`-statement; type = `ParamTopShips b D SrcAt` from S2, `synthesizeCombinationalWithParameters_designTop` and `PostTransfer` | S2, I4-struct, I4-sem | pending (I4-sem unsupplied) |
+| S4 | assembly: `ParamTopShips` for every successful run | I1-I3c, I5a, S3, `Start` | pending S3 |
+| S5 | `EntryShips` | S4 and M3's first disjunct (T1) | pending M3 route producer and the gate/fallback producer |
+
+**Supplier table (existing / writable now / waiting / unsupplied).**
+| name | status | supplier / source |
+|---|---|---|
+| `CombChildRunN`, `ResetN`, `RunOn`, `childMap`, `moduleByName` | existing | GEN2_DEFS.lean.txt:60-74; Tools/ShippingMachineDepth.lean:27,52; ShippingMachineLinked.lean:341; Machine.lean:359 |
+| `TopShips` (default) | existing, being revised by S2 R-G | Tools/ShippingGen2Defs.lean:273; revision `kjob/g2tc-s2` fa84af5d (TOP_CONTRACT_REVISION.md, TOP_CTRL_FREEZE.md); see "Alignment" below |
+| `TopIface`, `SrcAt`, `CombTopRunN`, `SpecOk` | writable now (definitions only; no claim) | new file, depends on nothing unbuilt |
+| `LegalBinding` | writable now as a local specification, kernel-checked against `validateBindings`'s total definition (as I5a did) | §9.3 U1; no visibility edit |
+| `PosPlus`, I5b-pos | writable now (pure `DimExpr`/IR induction), independent of M3 | §11.1 |
+| `Region`, I5b-cond | waits for the decision document | PARAMETRIC_SPECSUCCESS_DECISION.md |
+| I3c-keeps/-worlds/-balance, `body_symbolic_keeps` | writable now, may stop at a missing keeps lemma (§11.2 STOP rule) | ShippingChildKeeps/Balance/Body patterns |
+| I4-struct | writable now | analogue ShippingDesignWriterRun.lean:69 |
+| I4-sem (`PostTransfer`) | unsupplied | post-processing soundness on symbolic modules not found (§11.3) |
+| `SrcAtOf` (S1) | unsupplied | no definition found |
+| S2 | waits on the legacy-route (G2) work and on U4 | ROUTE_CENSUS.md:22 |
+| S3, S4 | wait on S2/I4-sem | |
+| `EntryShips`, S5 | wait on the M3 route producer, the M4 gate/fallback producer (routes 1, 2, 4, 5 in ROUTE_CENSUS.md) | the gate/fallback producers are the sibling M4 issues; parametric is route 7 and routes there only to the legacy tail (§2) |
+
+**Alignment with S2 R-G (`sparkle-gen2-top-contract`, review; `kjob/g2tc-s2` fa84af5d).** R-G changes only the machine `TopShips` antecedents: `("rst" ∈ b.inputs.map (·.name) → ∀ t, ins t "rst" = 0)` and the same for `"clk"` (TOP_CONTRACT_REVISION.md §2; `kjob/g2tc-s2:scripts/gen2/GEN2_DEFS.lean.txt:292-293`), making the top contract informative for clock-free modules. Consequences for this freeze: (1) `ParamTopShips` is not built on machine `TopShips` and so is unaffected by R-G, which is why §11.5 does not depend on whether R-G lands; (2) the clock-free half of FG's FIRST disjunct is where R-G matters, and a symbolic top, being clock-free-or-not undecided (probe P3, I2b), is deliberately NOT forced into `TopShips`; (3) `CombChildRunN` requires `"clk" ∉ inputs ∧ "rst" ∉ inputs` (GEN2_DEFS.lean.txt:66-67), which for a symbolic top is exactly the unsupplied I2b: if probe P3 finds a symbolic top that can have a `clk`/`rst` input, `CombTopRunN` would not hold for it and the right conclusion would be an R-G-style guarded variant of the run; this is recorded as an open design branch (U3), not decided; (4) if R-G or a later shared revision changes `CombChildRunN`, `CombTopRunN` follows by definition (it is `CombChildRunN`), and S2/S3 must be re-read.
+
+### 11.6 Not claimed in rev4
+- No statement of §11 has been elaborated by Lean; signatures were written from the cited sources by reading (any elaboration error found at implementation time is returned as a text correction).
+- The P4 partition is a reading of the code; the `BitVec (n - 1)` failure at `n ↦ 1` is a code-reading example, not a run.
+- That the DimExpr induction (class `Pos⁺`) is provable is a plan, not a result.
+- Nothing here shows that `SrcAt` is satisfiable for any declaration, that S2 is provable, or that `PostTransfer` holds.
+- Not changed: FG, `Laws`, `T1Hyp`, `GenWF`, any TRUSTED boundary, any shared or production file.
+
+## 12. What the reviewer is asked to decide on rev4
+1. Approve for implementation (new files only, with a Check): §11.2 (I3c body/keeps/worlds/balance), §11.3 I4-struct, and the pure definitions of §11.5 (`TopIface`, `SrcAt`, `CombTopRunN`, `SpecOk`, `LegalBinding` as a kernel-checked local specification), plus I5b-pos (`PosPlus` and `PosPlus → SpecSuccessAllPositive`).
+2. The outermost-only scope of I3c (§11.2) and the definition of `EntryShips` as a two-conjunct statement (§11.5).
+3. Note, no approval requested: I5b-cond and the choice of `Region` are with the user (decision document); I4-sem, S1-S5 are not frozen for implementation.
