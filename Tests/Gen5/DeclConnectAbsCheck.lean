@@ -2,15 +2,16 @@ import Lean
 import Tools.ShippingGen5DeclConnectAbs
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Built at 5e3ebf90bf3807120dd58f86b3b4f8714fe7835a (exit 0): TYPE 4 (U2,U3b,U4a,U5 vs independent Prop), MUTANT 1 refutation example (U4b without existence premise, via the empty relation; MutU2Rev/MutU6NoClosed are definitions only, not checked rejections), AXIOMS 8, CLOSURE 8. Signature/defeq checks, NOT semantic counterexamples.
+-- NOT BUILT (rev3 audit, kjob/g5dc-r3). Previous agent build 5e3ebf90 ran only 4 TYPE examples + 1 refutation example; MutU2Rev/MutU6NoClosed there were definitions, never run.
+-- rev3 runs: TYPE (8 independent Expected, defeq), MUTANT (8 one-change well-typed mutants, each must NOT be defeq), AXIOMS 8, CLOSURE (transitive ConstantInfo walk + 4 negative controls). Signature/defeq checks, NOT semantic counterexamples.
 
-/-! # DC-CONNECT abstract units: checks (scripts/gen5/DC_CONNECT_FREEZE.md rev2 §4)
+/-! # DC-CONNECT abstract units: checks (scripts/gen5/DC_CONNECT_FREEZE.md rev3 §4.1)
 
-1. TYPE: each unit's statement against an independently written expected `Prop` (fully bound, `example : Exp := @unit`).
-2. MUTANT (signature/defeq rejections, NOT semantic counterexamples): U4a without `Functional` is not the same type; U2 with the
-   inclusion reversed; U6 without `hclosed`; U4b without the existence premise. Each is `fun h => ...` checked to NOT unify.
-3. AXIOMS: no `sorryAx`, no `Classical.choice` beyond the listed, no `Lean.ofReduceBool`.
-4. CLOSURE: the units reach no declaration outside this file's namespace besides core logic (scan of `usedConstants`). -/
+1. TYPE: each theorem's type is compared (`isDefEq`) with an independently written, fully unfolded `Prop` (`ExpU*`). Positive control of the MUTANT step.
+2. MUTANT (signature/defeq rejections, NOT semantic counterexamples): per theorem one well-typed `MutU*` differing from `ExpU*` in one place; the same comparison must fail.
+   U6's `_hclosed` is unused in the proof; nothing here claims its removal is unprovable.
+3. AXIOMS: `checkAxioms` on each theorem.
+4. CLOSURE: transitive walk over the `ConstantInfo` bodies (thm/defn value + types; opaque/axiom are untracked boundaries) with negative controls. -/
 open Lean Tools.ShippingGen5DeclConnectAbs
 
 namespace Tests.Gen5.DeclConnectAbsCheck
@@ -26,6 +27,15 @@ def ExpU2 : Prop := ∀ (find : E → N → Option CI) (CV : E → N → (α : T
       find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v)
 example : @ExpU2 E N CI Pk Shape Ty := fun find CV shapeOf Match Obs P env _ _ h =>
   @dcGen_mono E N CI Pk Shape Ty find CV shapeOf Match Obs P env _ _ h
+
+/-- one change: the inclusion is reversed (`Tgt X → Tgt' X`). -/
+def MutU2 : Prop := ∀ (find : E → N → Option CI) (CV : E → N → (α : Type) → α → Prop) (shapeOf : CI → Option Shape)
+    (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) {Tgt Tgt' : N → Prop},
+    (∀ X, Tgt X → Tgt' X) →
+    (∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v) →
+    (∀ X, Tgt' X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v)
 
 def ExpU3b : Prop := ∀ (find : E → N → Option CI) (shapeOf : CI → Option Shape)
     (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop)
@@ -49,14 +59,85 @@ def ExpU5 : Prop := ∀ {α : Sort u} {R : α → α → Prop} {Ready : α → P
     (∀ X, (∀ c, R c X → Ready c) → Ready X) → ∀ X, Acc R X → Ready X
 example : ExpU5.{u} := @acc_ready
 
--- MUTANTS: each is a statement that must NOT be the type of the unit (checked by failing to unify).
-def MutU2Rev : Prop := ∀ (Tgt Tgt' : N → Prop), (∀ X, Tgt X → Tgt' X) → True
-def MutU6NoClosed : Prop := ∀ (R : N → N → Prop) (Tgt : N → Prop), (∀ X, Tgt X → Acc R X) → True
-/-- U4b without the existence premise would assert `DCGen` from `DCImp` alone; that is the rev1 vacuity (U3a/U3b). -/
-def MutU4bNoEx : Prop := ∀ (find : E → N → Option CI) (CV : E → N → (α : Type) → α → Prop) (shapeOf : CI → Option Shape)
+/-! ## Independent Expected statements (TYPE) and one-change mutants (MUTANT)
+Each mentions all six section variables `E N CI Pk Shape Ty`, so `ExpU* ` takes them as its leading binders. -/
+
+def ExpU1 : Prop := ∀ (find : E → N → Option CI) (CV : E → N → (α : Type) → α → Prop) (shapeOf : CI → Option Shape)
     (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop),
-    DCImp find CV shapeOf Match Obs P env Tgt → DCGen find CV shapeOf Match Obs P env Tgt
--- the mutant is refuted by the empty relation when a target with a package exists:
+    (∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v) ↔ (∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v)
+/-- one change: `∀ X` on the right becomes `∃ X, … ∧`. -/
+def MutU1 : Prop := ∀ (find : E → N → Option CI) (CV : E → N → (α : Type) → α → Prop) (shapeOf : CI → Option Shape)
+    (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop),
+    (∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v) ↔ (∃ X, Tgt X ∧ (∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v))
+
+def ExpU3a : Prop := ∀ (find : E → N → Option CI) (shapeOf : CI → Option Shape)
+    (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop),
+    ∀ X, Tgt X → ∀ p, P X = some p → ∀ ci, find env X = some ci → ∀ sh, shapeOf ci = some sh → Match sh p →
+      ∀ v : Ty sh, False → Obs p sh v
+/-- one change: the conclusion is the existence (`DCGen`) shape instead of the implication shape. -/
+def MutU3a : Prop := ∀ (find : E → N → Option CI) (shapeOf : CI → Option Shape)
+    (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop),
+    ∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ False ∧ Obs p sh v
+
+/-- one change: `¬` dropped. -/
+def MutU3b : Prop := ∀ (find : E → N → Option CI) (shapeOf : CI → Option Shape)
+    (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop)
+    {X : N} {p : Pk}, Tgt X → P X = some p →
+    (∀ Y, Tgt Y → ∀ q, P Y = some q → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env Y = some ci ∧ shapeOf ci = some sh ∧ Match sh q ∧ False ∧ Obs q sh v)
+
+/-- one change: the `Functional` premise dropped. -/
+def MutU4a : Prop := ∀ (find : E → N → Option CI) (CV : E → N → (α : Type) → α → Prop) (shapeOf : CI → Option Shape)
+    (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop),
+    (∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v) →
+    ∀ X, Tgt X → ∀ p, P X = some p → ∀ ci, find env X = some ci → ∀ sh, shapeOf ci = some sh → Match sh p →
+      ∀ v : Ty sh, CV env X (Ty sh) v → Obs p sh v
+
+def ExpU4b : Prop := ∀ (find : E → N → Option CI) (CV : E → N → (α : Type) → α → Prop) (shapeOf : CI → Option Shape)
+    (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop),
+    (∀ X, Tgt X → ∀ p, P X = some p → ∀ ci, find env X = some ci → ∀ sh, shapeOf ci = some sh → Match sh p →
+      ∀ v : Ty sh, CV env X (Ty sh) v → Obs p sh v) →
+    (∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v) →
+    (∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v)
+/-- one change: the existence premise dropped. -/
+def MutU4b : Prop := ∀ (find : E → N → Option CI) (CV : E → N → (α : Type) → α → Prop) (shapeOf : CI → Option Shape)
+    (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop),
+    (∀ X, Tgt X → ∀ p, P X = some p → ∀ ci, find env X = some ci → ∀ sh, shapeOf ci = some sh → Match sh p →
+      ∀ v : Ty sh, CV env X (Ty sh) v → Obs p sh v) →
+    (∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v)
+
+/-- one change: `R c X` reversed to `R X c` in the step premise. -/
+def MutU5 : Prop := ∀ {α : Sort u} {R : α → α → Prop} {Ready : α → Prop},
+    (∀ X, (∀ c, R X c → Ready c) → Ready X) → ∀ X, Acc R X → Ready X
+
+def ExpU6 : Prop := ∀ (find : E → N → Option CI) (CV : E → N → (α : Type) → α → Prop) (shapeOf : CI → Option Shape)
+    (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop) {R : N → N → Prop},
+    (∀ X, Tgt X → Acc R X) → (∀ X c, Tgt X → R c X → Tgt c) →
+    (∀ X, Tgt X → (∀ c, R c X → Tgt c → (∀ p, P c = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env c = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env c (Ty sh) v ∧ Obs p sh v)) → (∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v)) →
+    (∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v)
+/-- one change: `hAcc` dropped. -/
+def MutU6 : Prop := ∀ (find : E → N → Option CI) (CV : E → N → (α : Type) → α → Prop) (shapeOf : CI → Option Shape)
+    (Match : Shape → Pk → Prop) (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop) {R : N → N → Prop},
+    (∀ X c, Tgt X → R c X → Tgt c) →
+    (∀ X, Tgt X → (∀ c, R c X → Tgt c → (∀ p, P c = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env c = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env c (Ty sh) v ∧ Obs p sh v)) → (∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v)) →
+    (∀ X, Tgt X → ∀ p, P X = some p → ∃ (ci : CI) (sh : Shape) (v : Ty sh),
+      find env X = some ci ∧ shapeOf ci = some sh ∧ Match sh p ∧ CV env X (Ty sh) v ∧ Obs p sh v)
+
+/-- U4b without the existence premise would assert `DCGen` from `DCImp` alone (the rev1 vacuity); refuted by the empty relation: -/
 example (find : E → N → Option CI) (shapeOf : CI → Option Shape) (Match : Shape → Pk → Prop)
     (Obs : Pk → (sh : Shape) → Ty sh → Prop) (P : N → Option Pk) (env : E) (Tgt : N → Prop) {X : N} {p : Pk}
     (hT : Tgt X) (hP : P X = some p) :
@@ -64,22 +145,112 @@ example (find : E → N → Option CI) (shapeOf : CI → Option Shape) (Match : 
         DCGen find (fun _ _ _ _ => False) shapeOf Match Obs P env Tgt) :=
   fun h => not_dcGen_of_empty find shapeOf Match Obs P env Tgt hT hP (h (dcImp_of_empty find shapeOf Match Obs P env Tgt))
 
-/-! ## AXIOMS and CLOSURE -/
+/-! ## Meta-level checks -/
+open Meta in
+/-- the theorem's type after its first `n` (implicit type) binders, versus `exp` applied to those binders. -/
+def sameType (thm exp : Name) (n : Nat) : MetaM Bool := do
+  let T ← inferType (← mkConstWithFreshMVarLevels thm)
+  forallBoundedTelescope T (some n) fun xs body => do
+    isDefEq body (mkAppN (← mkConstWithFreshMVarLevels exp) xs)
+
+/-- reachability over ConstantInfo bodies. `opaqueInfo`/`axiomInfo` bodies are NOT followed (untracked boundary). -/
+structure Reach where
+  seen : NameSet := {}
+  opaques : Array Name := #[]
+  axioms : Array Name := #[]
+
+partial def walk (env : Environment) (n : Name) : StateM Reach Unit := do
+  if (← get).seen.contains n then return
+  modify fun s => { s with seen := s.seen.insert n }
+  let some ci := env.find? n | return
+  let refs : Array Name := match ci with
+    | .thmInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
+    | .defnInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
+    | .opaqueInfo v => v.type.getUsedConstants
+    | .axiomInfo v => v.type.getUsedConstants
+    | .inductInfo v => v.type.getUsedConstants ++ v.ctors.toArray
+    | .ctorInfo v => v.type.getUsedConstants
+    | .recInfo v => v.type.getUsedConstants
+    | .quotInfo v => v.type.getUsedConstants
+  match ci with
+  | .opaqueInfo _ => modify fun s => { s with opaques := s.opaques.push n }
+  | .axiomInfo _ => modify fun s => { s with axioms := s.axioms.push n }
+  | _ => pure ()
+  for r in refs do walk env r
+
+def reach (env : Environment) (n : Name) : Reach := ((walk env n).run {}).2
+
+def moduleOf (env : Environment) (n : Name) : Option Name :=
+  (env.getModuleIdxFor? n).map fun i => env.header.moduleNames[i.toNat]!
+
+def isCoreMod (m : Name) : Bool := [`Init, `Std, `Lean].any (·.isPrefixOf m)
+
+def forbiddenFragments : List String :=
+  ["Pkg", "MachineData", "sigShape", "ConstantInfo", "GenPInv", "DataSoundAt", "dataOf", "genP", "Laws", "T1Hyp"]
+
+/-- Reached constants outside the allowed set. `allowCurrent` lets the Check file's own helpers pass the module test
+(used only for the negative controls, so that the name test must find them through the walk). -/
+def violations (env : Environment) (r : Reach) (allowCurrent : Bool) : Array Name :=
+  r.seen.fold (init := #[]) fun acc n =>
+    let nonCore := match moduleOf env n with
+      | some m => !isCoreMod m
+      | none => true
+    let badMod := match moduleOf env n with
+      | some m => !isCoreMod m && m != `Tools.ShippingGen5DeclConnectAbs
+      | none => !allowCurrent
+    let s := n.toString
+    let badName := nonCore && forbiddenFragments.any fun f => (s.splitOn f).length > 1
+    if badMod || badName then acc.push n else acc
+
+-- Negative-control declarations (they live in this file, hence "current module").
+def Foreign.PkgInner : Prop := True
+def Foreign.wrapA : Prop := Foreign.PkgInner
+theorem Foreign.lemmaA : Foreign.PkgInner := trivial
+opaque Foreign.opq : Nat
+theorem negDirect : Foreign.PkgInner := trivial
+theorem negViaDef : Foreign.wrapA := trivial
+theorem negViaThm : True := by
+  have _h := Foreign.lemmaA
+  trivial
+theorem negOpaque : Foreign.opq = Foreign.opq := rfl
+
+/-! ## Run -/
 open Tests.Gen3.ExpectedType in
 run_cmd Lean.Elab.Command.liftTermElabM do
-  let all := [``dcGen_iff, ``dcGen_mono, ``dcImp_of_empty, ``not_dcGen_of_empty, ``dcImp_of_dcGen, ``dcGen_of_imp_exists,
-    ``acc_ready, ``dcGen_of_rows]
+  let env ← getEnv
+  -- TYPE and MUTANT: (theorem, Exp, Mut, number of leading implicit type binders)
+  let table : List (Name × Name × Name × Nat) :=
+    [(``dcGen_iff, ``ExpU1, ``MutU1, 6), (``dcGen_mono, ``ExpU2, ``MutU2, 6), (``dcImp_of_empty, ``ExpU3a, ``MutU3a, 6),
+     (``not_dcGen_of_empty, ``ExpU3b, ``MutU3b, 6), (``dcImp_of_dcGen, ``ExpU4a, ``MutU4a, 6),
+     (``dcGen_of_imp_exists, ``ExpU4b, ``MutU4b, 6), (``acc_ready, ``ExpU5, ``MutU5, 0), (``dcGen_of_rows, ``ExpU6, ``MutU6, 6)]
+  for (thm, e, m, k) in table do
+    unless ← sameType thm e k do throwError "TYPE FAILED {thm} vs {e}"
+    logInfo m!"TYPE OK {thm}"
+    if ← sameType thm m k then throwError "MUTANT NOT REJECTED {m} (same type as {thm})"
+    logInfo m!"MUTANT REJECTED {m} (signature/defeq, not a semantic counterexample)"
+  -- AXIOMS
+  let all := table.map (·.1)
   for n in all do
     checkAxioms n
-  -- CLOSURE: no unit mentions Pkg / MachineData / sigShape / ConstantInfo / a dependency (DG-SEM/DATAOF/ACC) name
+  -- CLOSURE, positive
   for n in all do
-    let some ci := (← getEnv).find? n | throwError "{n} not found"
-    let used := ci.type.getUsedConstants ++ (ci.value?.map (·.getUsedConstants) |>.getD #[])
-    let forbidden := used.filter fun c =>
-      let s := c.toString
-      ["Pkg", "MachineData", "sigShape", "ConstantInfo", "GenPInv", "DataSoundAt", "dataOf", "genP", "Laws", "T1Hyp"].any
-        fun f => (s.splitOn f).length > 1
-    unless forbidden.isEmpty do throwError "CLOSURE FAILED {n}: mentions {forbidden}"
-    logInfo m!"CLOSURE OK {n}"
+    let r := reach env n
+    let v := violations env r false
+    unless v.isEmpty do throwError "CLOSURE FAILED {n}: {v}"
+    logInfo m!"CLOSURE OK {n}: reached {r.seen.size} constants, untracked opaque {r.opaques}, axioms {r.axioms}"
+  -- the walk descends into definition bodies (DCAt is reached from dcGen_mono only through DCGen's body)
+  unless (reach env ``dcGen_mono).seen.contains ``DCAt do throwError "WALK does not enter defn bodies"
+  logInfo m!"CLOSURE WALK-DEPTH OK (DCAt reached from dcGen_mono through DCGen)"
+  -- CLOSURE, negative controls: direct; through a helper definition body; through a helper theorem body
+  for (c, why) in [(``negDirect, "direct"), (``negViaDef, "through a helper definition's body"),
+                   (``negViaThm, "through a helper theorem's body")] do
+    let v := violations env (reach env c) true
+    if v.isEmpty then throwError "CLOSURE CONTROL NOT DETECTED {c} ({why})"
+    logInfo m!"CLOSURE CONTROL DETECTED {c} ({why}): {v}"
+  -- `Foreign.wrapA` has no forbidden fragment in its name: it is found only because the walk follows its body
+  unless (violations env (reach env ``negViaDef) true).contains ``Foreign.PkgInner do throwError "negViaDef not found via PkgInner"
+  let ro := reach env ``negOpaque
+  unless ro.opaques.contains ``Foreign.opq do throwError "CLOSURE opaque boundary not reported"
+  logInfo m!"CLOSURE CONTROL DETECTED negOpaque as untracked boundary: {ro.opaques}"
 
 end Tests.Gen5.DeclConnectAbsCheck
