@@ -3,7 +3,7 @@
 - **Issue:** `sparkle-gen4-fallback-supply` (milestone `sparkle-gen4`; depends on `sparkle-gen4-routes`, done).
 - **Base:** branch `kjob/g4fb-d0ddc50b` at d0ddc50b (rev3 is written on `kjob/g4fb-r3`, branched from a7f9753b). All `file:line` below are at that SHA. `Sparkle/Compiler/Elab.lean`
   is identical to `par/gen2-spec` there, so the lines in `scripts/gen2/ROUTE_CENSUS.md` still apply.
-- **Status:** docs only. No Lean, no build, no production edit. This freeze has to be approved before any Lean is written.
+- **Status (synced after FB-2 approval at e7181279):** this document is docs. Lean exists only for the approved units: FB-1 (existence predicate, built g4fbv-79e6d672) and FB-2 (`R4Run`, `A4MachineSideA`, `a4_machine_or_R4Run`; built g4fb2v-e7181279; approved as a repackaging of the same A4 witness, not as a semantic guarantee of R4 and not as a T-INV supply). No production edit. Any further Lean needs its types frozen here and approved first.
 - **Sources read:** `scripts/gen2/GENERAL_SPEC.md`, `GEN2_DEFS.lean.txt`, `ROUTE_CENSUS.md`; `Tools/ShippingGen2Defs.lean`;
   `Tools/ShippingLegacySemContract.lean`, `…EntryWalk.lean`, `…Memo.lean`, `…Instance.lean`; `Tools/ShippingMemoInv.lean`,
   `…MemoLaws.lean`, `…ChildCacheA.lean`, `…MachineOutcomeA.lean`, `…ServedRealA.lean`, `…ChildLegacyTailA.lean`,
@@ -326,10 +326,10 @@ If this freeze is approved, the first Lean unit is §5.7 (new file; one existenc
 
 ## 9. Producer research (rev3 addendum): same-core-run tail decomposition and source tie — complete type and supplier survey
 
-- **Status:** docs only, research. No Lean is written for anything in this section and nothing here is a supply. It is the "main work" asked for after the rev3 approval (target SHA of the approval: 6eb58bf2). It is not a re-freeze of §0-§8; it adds a section. Whatever it proposes as a Lean type needs its own review before implementation.
+- **Status (synced):** research plus frozen types. §9.2's `R4Run`/`A4MachineSideA`/extraction lemma are implemented as FB-2 (built, approved; a repackaging of A4's witness). `R4TailStmt`, the producers and every obligation in §9.3 are NOT supplied; the memo obligation (T-MEMO/K4) is an obligation of R4 as a whole and is kept. Nothing in §9.1-§9.8 is a supply of T-INV. Origin: it is the "main work" asked for after the rev3 approval (target SHA of the approval: 6eb58bf2). It is not a re-freeze of §0-§8; it adds a section. Whatever it proposes as a Lean type needs its own review before implementation.
 - **rev4 (review of 79e6d672, R1-R3):** §9.2 is rewritten with the exact A''' conclusion, a complete `R4Run`, the extraction lemma and `R4TailStmt` for R4 as a whole (memo obligation kept); §9.6 limits only the first unit; §9.7 adds T-INV research; build evidence is a reference (§9.6). Docs only.
 - **rev5 (review of 658d2b8d):** §9.2.1-§9.2.3 now carry the complete types: `R4Run` over `O` (no `⟨O,T,…⟩`), the (a) side as the separate definition `A4MachineSideA` in the new namespace `Tools.ShippingGen4FbR4` (not `Gen2.MachineTaken`), ambient `open`s stated, `mctx/mref/cctx/cref` of `StartReadsN`/`FinallyRestores` fixed to the original run; §9.5 replaced (independent Expected; the extraction is a theorem, not called defeq); §9.7 extended (T-INV). `R4TailStmt` is a target schema; no producer is supplied. The general semantic guarantee for R4 is NOT supplied by this document or by unit 1.
-- **Scope:** the R4 tail only (§1: `machineShape? = some shape`, `synthesizeMachineCertified = none`, then memo/legacy), for a NESTED run (§5.4 right column). R6-direct, the memo-hit side and K4 are not in this section (§9.6).
+- **Scope:** the R4 tail only (§1: `machineShape? = some shape`, `synthesizeMachineCertified = none`, then memo/legacy), for a NESTED run (§5.4 right column). R6-direct is not in this section; the memo-hit side and K4 are not covered by any producer here but remain obligations of R4 as a whole (§9.2, §9.6).
 - **Wording rule:** "no supplier found" below means: the files named in the "Sources read" line and those cited here were read and no supplier of the item was found. It does not mean the item is impossible or underivable.
 
 ### 9.1 What already ties the tail to THE core run (found)
