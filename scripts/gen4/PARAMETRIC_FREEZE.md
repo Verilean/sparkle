@@ -1,7 +1,8 @@
-# M4 parametric / symbolic entry: investigation and freeze (rev2, answers reviewer changes_requested R1-R3 on 7c297d5f)
+# M4 parametric / symbolic entry: investigation and freeze (rev3; rev2 answered R1-R3 on 7c297d5f, rev3 answers the remaining R3 on 2030997a)
 
 - **Issue:** `sparkle-gen4-parametric-supply`.
 - **Status:** investigation + freeze of types and plan. No Lean, no build, no production edit. rev2 changes: §1.5, §3.2, §4 (I2, I5, new I5a/I5b), new §8 (response to R1-R3), new §9 (complete telescope and suppliers). rev1 text that was withdrawn is listed in §8, not silently removed.
+- **rev3 changes:** only §9.1 (complete signatures, no ellipsis/etc./copy-later), §9.3 U5, §10, new §8 R3-rev3. §4 rows I1, I3, I4 are superseded where §9.1 differs (I1 is pure gate facts, I4 is out of the unit).
 - **Base:** HEAD d0ddc50b (branch `kjob/g4par-d0ddc50b`). All `file:line` below are at d0ddc50b unless a SHA/branch is named.
 - **What this document is not:** it proves nothing and does not complete the parametric part of FG.
   Statements marked PROPOSED are types for the reviewer to accept; none is accepted yet.
@@ -159,12 +160,127 @@ No mutant is part of this freeze. When later units add mutants, they are rejecti
 
 **R3 (complete telescopes, undefined names).** Done in §9: every name used in §3.2 is listed with its definition site or marked UNDEFINED, with its supplier. Independent dispatch/shape part (I1, I3, I4, I5a, I2-restricted) is separated from the semantic interface (SrcAt, CombTopRunN, EntryShips, S1-S5), which is UNDESIGNED and not frozen. Partial evaluate/specialize kernel connection: no supplier (§9 U4).
 
+**R3 continued (rev3, on 2030997a).** Accepted: rev2 named the statements but left I1 as an ellipsis with copy-at-implementation, I2-I5a as prose. §9.1 now gives each of I1, I2, I3a, I3b, I5a as a Lean signature with all binders, the Run/Returns boundary (`RunsTo`), and the conclusion; I3 is split into prologue (I3a), body after prologue/depth/finally-peeling (I3b) and the unfrozen depth/cache balance (I3c); I5a states what `moduleByName`/`childMap` of `D'.modules` is compared with (those of `design.modules`, by module name). The first unit is narrowed (I4 moved out). Nothing here has been elaborated by Lean yet. §9.2 stays undesigned, as accepted.
+
 ## 9. Complete types and suppliers (R3)
 
 ### 9.1 Frozen (dispatch / shape; independent of M3; PROPOSED for approval)
-Statements over definitions that exist today, pure facts about the cited text, to go in new `Tools/ShippingGen4ParamEntry.lean`. Telescopes (all binders explicit):
-- I1: `(ci : ConstantInfo) (parameters : List (String × Nat)) …` the arguments of `synthesizeFromConst` as at Elab.lean:5290-5312 — the exact binder list is copied from the source at implementation time; it is not re-typed here (UNFIXED text: the reviewer should require the copy before Lean starts, §9 U5). Conclusion: the dispatch equation of §2 row 1.
-- I2 (restricted), I3 (prologue throws exactly on duplicate/zero default), I4 (post-processing text equal; the "no caller in translator" half is a grep census, labelled non-Lean), I5a: statements as in §4, each with `(declName : Name) (parameters : List (String × Nat)) (symbolicMode : Bool) (finalCircuitState : CircuitState) (r)` (I2) etc.
+Five statements (I1, I2, I3a, I3b, I5a), written as Lean signatures with every binder and the conclusion. All names resolve at d0ddc50b (checked by reading, not by build; the build of the signatures is the first implementation step and any elaboration error found then goes back to the reviewer as a text correction, not a silent change). They go in the new file `Tools/ShippingGen4ParamEntry.lean`, which starts with
+```lean
+import Tools.ShippingEntrySoundness   -- RunsTo (:937), RunsTo.bind/ite/try_finally
+import Tools.ShippingMachineLinked    -- childMap (:341); if not transitively available, add this import
+
+namespace Tools.ShippingGen4ParamEntry
+open Lean Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Builder
+open Tools.ShippingEntrySoundness
+```
+**Run/Returns boundary.** `RunsTo m mctx mref cctx cref w a w'` (ShippingEntrySoundness:937) means `m mctx mref cctx cref w = EST.Out.ok a w'`: the run RETURNS `a`. A throw is `EST.Out.error`, so no `RunsTo` holds. "Returns" is used only in that sense.
+
+**I1 — the gates and the entry constant under symbolic mode or non-empty parameters (pure functions; no run).** Four conclusions about `certifiedShape?` (Elab:2316), `mixedCertifiedShape?` (:2874), `machineShape?` (:5072), `entryConst` (:5272), each with the guard `symbolicMode || !parameters.isEmpty` that the source tests:
+```lean
+theorem certifiedShape_off (symbolicMode : Bool) (parameters : List (String × Nat))
+    (ci : ConstantInfo) (h : (symbolicMode || !parameters.isEmpty) = true) :
+    certifiedShape? symbolicMode parameters ci = none
+
+theorem mixedCertifiedShape_off (symbolicMode : Bool) (parameters : List (String × Nat))
+    (ci : ConstantInfo) (isInst : Lean.Expr → Bool)
+    (h : (symbolicMode || !parameters.isEmpty) = true) :
+    mixedCertifiedShape? symbolicMode parameters ci isInst = none
+
+theorem machineShape_off (symbolicMode : Bool) (parameters : List (String × Nat))
+    (ci : ConstantInfo) (senv : StructEnv) (allowInsts : Bool)
+    (h : (symbolicMode || !parameters.isEmpty) = true) :
+    machineShape? symbolicMode parameters ci senv allowInsts = none
+
+theorem entryConst_off (certifiedFrontEnd symbolicMode : Bool) (parameters : List (String × Nat))
+    (ci : ConstantInfo) (isInst : Lean.Expr → Bool) (inl : Lean.Expr → Lean.Expr)
+    (projs : StructEnv) (h : (symbolicMode || !parameters.isEmpty) = true) :
+    entryConst certifiedFrontEnd symbolicMode parameters ci isInst inl projs = ci
+```
+(`entryConst_off`: the source's `if` has `!symbolicMode && parameters.isEmpty` as a conjunct, so under `h` it takes the `else ci` branch.) The use of these in a run — "the `machine?` guard at :5312 is false and the memo read at :5334 is skipped" — is NOT a separate Lean statement in this freeze; it is read off the run in I3b by unfolding `synthesizeFromConst`. No equation "synthesizeFromConst = legacyTail" is frozen (that needs a local specification of the tail, §9.3 U1/U4).
+
+**I2 — `finishSynth` in symbolic mode (restricted to what the code guarantees, R1).** Argument list of `finishSynth` (Elab:2218): `(declName : Name) (parameters : List (String × Nat)) (symbolicMode : Bool) (finalCircuitState : CircuitState)`; `CircuitState` has fields `module`, `design` (Builder:21-24).
+```lean
+theorem finishSynth_symbolic {declName : Name} {parameters : List (String × Nat)}
+    {fcs : CircuitState} {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Design}
+    (h : RunsTo (finishSynth declName parameters true fcs) mctx mref cctx cref w (M, D) w') :
+    (fcs.module.body.any fun stmt => match stmt with
+        | .register .. | .memory .. | .inst .. => true
+        | _ => false) = false
+    ∧ (∀ p ∈ parameters, ∃ q ∈ fcs.module.parameters, q.name = p.1)
+    ∧ Sparkle.IR.ModuleNameCheck.check (fcs.module :: fcs.design.modules) = true
+    ∧ M = fcs.module.finalize
+    ∧ D = fcs.design
+```
+`M = fcs.module.finalize` follows because the first conjunct gives no `.register`/`.memory`, so `addClockResetIfSequential` (Elab:2200) is the identity. Not stated: any property of `M.inputs` about `clk`/`rst` (I2b, needs P3). `Sparkle.IR.Builder.CircuitState` is reachable through `open Sparkle.IR.Builder`.
+
+**I3 — the core wrapper, split into three parts.** The function is `synthesizeCombinationalCoreWith (translate : Lean.Environment → TranslateFn) (declName : Name) (parameters : List (String × Nat)) (symbolicMode : Bool) (certifiedFrontEnd : Bool := true) : MetaM (Module × Design)` (Elab:5423). Let
+```lean
+def Tsyn : Lean.Environment → TranslateFn := fun env e hn t n => translateExprToWire env e hn t n
+def dupParams (parameters : List (String × Nat)) : Bool :=
+  parameters.any fun (name, _) => (parameters.filter fun (other, _) => other == name).length > 1
+def zeroParam (parameters : List (String × Nat)) : Bool :=
+  parameters.any fun (_, v) => v == 0
+```
+(`dupParams` and `zeroParam` are the two tests of the prologue, Elab:5427-5433; they are new local `def`s stated in the same form as the source, and the equality with the source text is checked by the proof of I3a, not by `rfl` on a printed text.)
+
+*I3a — PROLOGUE only (before the depth check and before any state change):*
+```lean
+theorem core_symbolic_prologue {translate : Lean.Environment → TranslateFn} {declName : Name}
+    {parameters : List (String × Nat)} {cfe : Bool}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Design}
+    (h : RunsTo (synthesizeCombinationalCoreWith translate declName parameters true cfe)
+      mctx mref cctx cref w (M, D) w') :
+    dupParams parameters = false ∧ zeroParam parameters = false
+
+theorem core_symbolic_prologue_throws {translate : Lean.Environment → TranslateFn} {declName : Name}
+    {parameters : List (String × Nat)} {cfe : Bool}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    (h : (dupParams parameters || zeroParam parameters) = true)
+    (r : Sparkle.IR.AST.Module × Design) (w' : Void IO.RealWorld) :
+    ¬ RunsTo (synthesizeCombinationalCoreWith translate declName parameters true cfe)
+      mctx mref cctx cref w r w'
+```
+*I3b — BODY after the prologue and the depth check (symbolic):* a returning run reads `ci` with `getConstInfo declName` and the environment `envR`, then runs `synthesizeFromConst` on that same `ci` (the entry constant is `ci` by `entryConst_off`) with the symbolic flags. This is the analogue of `synthesizeCombinationalCore_reads` (ShippingEntrySoundness:1090) with `parameters` and `true`:
+```lean
+theorem core_symbolic_reads {declName : Name} {parameters : List (String × Nat)}
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Design}
+    (h : RunsTo (synthesizeCombinationalCoreWith Tsyn declName parameters true true)
+      mctx mref cctx cref w (M, D) w') :
+    ∃ (logProf : String → IO Unit) (envR : Environment) (ci : ConstantInfo)
+      (w1 w2 w3 w4 w5 w6 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 ∧
+      RunsTo (synthesizeFromConst (Tsyn envR) logProf declName parameters true true ci
+        (instancePredicate envR)) mctx mref cctx cref w3 (M, D) w4
+```
+(The existing theorem states `translateExprToWire envR e h t n` through a lambda; `Tsyn envR` unfolds to the same term.) The `finally` of the wrapper (`sparkleSynthDepth.modify (· - 1)` and the nested-cache restores, Elab:5577-5586) and the depth check (:5465) are inside the proof of I3b (peeled by `RunsTo.try_finally`); the balance of `sparkleSynthDepth` and the restoration of the caches are **I3c: NOT frozen**, no statement is fixed for them (they are statements about `IO.Ref` contents between `w` and `w'`, not designed here).
+
+**I5a — `specializeDesign`, facts that do not mention success of the width evaluation beyond `.ok`.** `specializeDesign (design : Design) (bindings : Bindings) : Except String Design` (Specialize:145), `Bindings = List (String × Nat)`, `moduleByName (ms : List Module) (mn : String) : Option Module = ms.find? (·.name == mn)` (Machine:359), `childMap (ms : List Module) : String → Option (Module × WEnv)` (ShippingMachineLinked:341). The comparison in the commutation conjuncts is between the INPUT design `design` and the OUTPUT design `D'`, by module name and with `parameters` cleared:
+```lean
+theorem specializeDesign_ok_facts {design D' : Design} {bindings : Sparkle.IR.Specialize.Bindings}
+    (h : Sparkle.IR.Specialize.specializeDesign design bindings = .ok D') :
+    (design.findModule design.topModule).isSome = true
+    ∧ D'.topModule = design.topModule
+    ∧ D'.modules.map (·.name) = design.modules.map (·.name)
+    ∧ (∀ m ∈ D'.modules, m.parameters = [])
+    ∧ (∀ mn : String,
+        (Sparkle.IR.Machine.moduleByName D'.modules mn).map (·.name)
+          = (Sparkle.IR.Machine.moduleByName design.modules mn).map (·.name))
+    ∧ (∀ mn : String,
+        (Tools.ShippingMachineLinked.childMap D'.modules mn).map (fun c => c.1.name)
+          = (Tools.ShippingMachineLinked.childMap design.modules mn).map (fun c => c.1.name))
+```
+The last two conjuncts compare `moduleByName`/`childMap` of the specialized module list `D'.modules` with those of the unspecialized `design.modules`, on the module NAME only (a specialized module's ports differ, and `childMap`'s second component `declWidth` of the specialized module is not compared). The proof uses that the module list is `design.modules.mapM (specializeModuleUnchecked · bindings)` and that `specializeModuleUnchecked` keeps `name` (record update `{ hardwareModule with … }`); `specializeModuleUnchecked` and `validateBindings` are `private`, so the proof destructs the `Except` bind and does not unfold them. Consequently NOT in I5a (they need `validateBindings`, §9.3 U1): "bindings are duplicate-free", "bindings are nonzero", "every declared name is bound".
+
+**Not in the approval unit:** I4 (post-processing equality; it is a text/defeq fact between two bodies, and the reviewer already noted that text equality is not an equivalence proof — it will be restated with the semantic interface), I5b, S1-S5.
 
 ### 9.2 Not defined (semantic interface; UNDESIGNED)
 | name | where used | status | supplier |
@@ -182,7 +298,7 @@ Statements over definitions that exist today, pure facts about the cited text, t
 - U2: design of `TopIface/CombTopRunN/SrcAt/EntryShips`. Not designed in this freeze; no implementation until designed and approved.
 - U3: which conclusion type a symbolic top gets (new definition vs `Pkg.comb`-based `TopShips`).
 - U4: partial evaluation / specialization kernel connection: this survey did not find a definition connecting `specializeDesign` output to `runModuleTG`/`RunOn` semantics or to the source-level instantiation. Unsupplied.
-- U5: exact binder lists for I1/I3 to be copied before Lean.
+- U5: RESOLVED in rev3 by §9.1 (full signatures). Remaining: elaboration of those signatures at the first build; if a name does not resolve, that is reported as a text correction.
 
 ## 10. Revised decisions for the reviewer
-Replaces §6 items 1-3: (1) approve §9.1 as the only implementable unit now (I1, I2-restricted, I3, I4, I5a); (2) §9.2/§9.3 stay unapproved, designed next after P3/P4; (3) U1 visibility: approve a local copy or request the edit.
+Replaces §6 items 1-3: (1) approve §9.1 as the only implementable unit now (I1, I2-restricted, I3a, I3b, I5a; I4 is moved out, I3c is not frozen); (2) §9.2/§9.3 stay unapproved, designed next after P3/P4; (3) U1 visibility: approve a local copy or request the edit.
