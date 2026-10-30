@@ -1,4 +1,4 @@
-# M4 parametric / symbolic entry: investigation and freeze (rev4; rev2 answered R1-R3 on 7c297d5f, rev3 answers the remaining R3 on 2030997a, rev4 adds §11 on top of the approved 8acc71dd)
+# M4 parametric / symbolic entry: investigation and freeze (rev4; rev2 answered R1-R3 on 7c297d5f, rev3 answers the remaining R3 on 2030997a, rev4 adds §11 on top of the approved 8acc71dd; rev5 (§13) corrects the I5b plan, fixes PosPlus and separates the open links, on top of 3682b80b)
 
 - **Issue:** `sparkle-gen4-parametric-supply`.
 - **Status:** investigation + freeze of types and plan. No Lean, no build, no production edit. rev2 changes: §1.5, §3.2, §4 (I2, I5, new I5a/I5b), new §8 (response to R1-R3), new §9 (complete telescope and suppliers). rev1 text that was withdrawn is listed in §8, not silently removed.
@@ -552,3 +552,86 @@ def EntryShips (L : Laws mref cref) (SrcAtOf : Name → List (String × Nat) →
 1. Approve for implementation (new files only, with a Check): §11.2 (I3c body/keeps/worlds/balance), §11.3 I4-struct, and the pure definitions of §11.5 (`TopIface`, `SrcAt`, `CombTopRunN`, `SpecOk`, `LegalBinding` as a kernel-checked local specification), plus I5b-pos (`PosPlus` and `PosPlus → SpecSuccessAllPositive`).
 2. The outermost-only scope of I3c (§11.2) and the definition of `EntryShips` as a two-conjunct statement (§11.5).
 3. Note, no approval requested: I5b-cond and the choice of `Region` are with the user (decision document); I4-sem, S1-S5 are not frozen for implementation.
+
+## 13. rev5: what was built, the corrected I5b plan, PosPlus in full, and the open links one per row
+
+Base: 3682b80b (kjob/g4par-r6; implementation of §11.2 / §11.3 / §11.5 pure definitions). Words: "this survey did not find X" means the listed sources were read and X was not there; it never says X is impossible or not derivable. A "mutant" here is a rejection by signature/defeq of the checked statement, not a semantic counterexample. Nothing in this section changes FG, `Laws`, `T1Hyp`, `T1HypND`, `GenWF`, a TRUSTED boundary, or a shared/production file.
+
+### 13.1 Built in a pod at 3682b80b (clean issue-linked build is the coder's; not yet done)
+Files: `Tools/ShippingGen4ParamIface.lean`, `Tools/ShippingGen4ParamKeeps.lean`, check `Tests/Gen4/ParamIfaceCheck.lean` (TYPE = isDefEq to an independent copy; MUTANT = signature/defeq rejections; AXIOMS; CLOSURE with explicit `thmInfo.value`/`defnInfo.value` fetch, opaque bodies logged as untracked, proof-only direct and other-namespace-helper negative fixtures and clean controls). Pod build `kjob lake build Tests.Gen4.ParamIfaceCheck` exit 0 before the commit (a pod build, not a clean issue-linked build).
+| item | statement | what it is NOT |
+|---|---|---|
+| I4-struct `synthesizeCombinationalWithParameters_designTop` | a returning run of the parametric entry is a returning run of `synthesizeCombinationalCoreWith Tsyn declName parameters true true` followed by `dropZeroWidthModule` (or `mergeChecked` of it); `D'.topModule = D.topModule`; `D'.modules = D.modules` when no module of `D` is named `M.name` | not an equivalence of `b` and `raw` (that is `PostTransfer`, unsupplied) |
+| I3c `body_symbolic_keeps` | the symbolic `synthesizeFromConst` keeps `J L D`, given `ChildKeeps L D`; proved by the same `vc` walk as `body_keeps` with `bindInputsLegacy_sym_keepsC` (parameters, symbolicMode general); no new `RefLaws` field was needed | for the `RefLaws` witness only |
+| I3c `core_symbolic_keeps` | the symbolic core keeps `J L D` given the body keeps `J L (D+1)`; the prologue (duplicate/zero throws, per-parameter loop) is handled by `Triple.forIn_list` and `throwErr` | |
+| I3c `core_symbolic_triple0`, `core_symbolic_balance` | from `Out0` / `StartV`+quiet+depth 0: every outcome ends in `Out0`, exception in the class | outermost only; `RefLaws` witness |
+| I3c `core_symbolic_worlds` | the peeled run of I3b, with `J L 1 w3`, `J L 1 w4`, `J L 0 w'` (proved by pushing the invariant through each `RunsTo` step: `RunsTo_bind_inv`) | premises `Out0 L w` and the depth-1 body keeps; not linked to a `Start` of FG (row F1) |
+| definitions `TopIface`, `SrcAt`, `CombTopRunN`, `LegalBinding`, `SpecOk`, `ParamTopShips`, `SpecSuccessAllPositive`, `PostTransfer` | as §11.5, with `LegalBinding D θ` literally `validateBindings D.modules θ = .ok ()` (the private function named by its mangled constant; checked by `specializeDesign_ok_legal`: a successful specialization is legal) | definitions only: no claim that `SrcAt` is satisfiable, `PostTransfer` holds, or any specialization succeeds |
+Correction found while writing the definitions: `specializeDesign` checks that the top module is present BEFORE `validateBindings` (Specialize.lean:146-148), so "every legal binding specializes" cannot be stated without a premise on the top module. `SpecSuccessAllPositive` now carries `((D.addModule b).findModule (D.addModule b).topModule).isSome = true →` (rev4 §11.5 omitted it; the definition is the only place affected, no theorem used it).
+Not claimed: nested symbolic run, depth ≥ 1, `LimitStmt` for symbolic flags, equality of the seven side-map contents between `w` and `w'`.
+
+### 13.2 I5b: the plan of rev4 was not sufficient; two layers, only the first is writable
+Facts (file:line): `DimExpr.evaluate` is `partial def` (Sparkle/IR/Type.lean:68); `specializeType` is `partial def` (Specialize.lean:56) and `specializeExpr` is `partial def` (:75). The Check log at 3682b80b lists `Sparkle.IR.Specialize.specializeExpr` and `Sparkle.IR.Specialize.specializeType` among the constants whose bodies are not visible to the closure detector (opaque, type only). `specializeStmt`, `specializeModuleUnchecked`, `specializeDesign` are total but call these. I5a worked because it only used the bind structure of the total functions and never inspected a result of a partial call.
+- **Layer A (model).** A total, structural model `evalM : List (String × Nat) → DimExpr → Except String Nat` (and models of `specializeType`, `specializeExpr` over `Expr`) copied from the source text. A structural induction on `DimExpr` can prove statements about the MODEL: for `PosDim e` and a binding with all values ≥ 1 that binds every parameter of `e`, `evalM θ e = .ok v` with `v ≥ 1`. This is a plan, not a result; nothing of Layer A is written.
+- **Layer B (bridge).** `DimExpr.evaluate θ e = evalM θ e` (and the same for `specializeType`/`specializeExpr`). **This survey did not find a supply path.** The only routes it can name need a decision that is not in the approved scope: a production edit that makes the three functions total/structural (production edit: not allowed in this work), or a new law/TRUSTED boundary stating the equation (not approved). Neither is proposed here.
+- **Consequence.** The rev4 statement `PosPlus b D → SpecSuccessAllPositive b D` about the PRODUCTION `specializeDesign` is withdrawn as an implementable unit. What can be implemented without a new assumption is only Layer A, a statement about the model, and it must be reported as such. I5b-pos, as a statement about `specializeDesign`, is UNSUPPLIED until Layer B has a supplier.
+
+### 13.3 `PosPlus`, in full (all positions the specializer visits), and the separate premises
+`PosPlus` is a `Prop` (not claimed decidable). Positions are exactly the ones `specializeModuleUnchecked` / `specializeStmt` / `specializeExpr` / `specializeType` visit (Specialize.lean:56-130).
+```lean
+-- value class of one dimension: evaluates, and to a value ≥ 1, for every binding with values ≥ 1 that binds its parameters
+def PosDim : DimExpr → Prop
+  | .literal c => 0 < c
+  | .parameter _ => True
+  | .add a b | .mul a b | .pow a b | .min a b | .max a b => PosDim a ∧ PosDim b
+  | .sub .. | .div .. | .mod .. | .clog2 _ => False        -- conservative: these are the E1-E3 sources (§11.1)
+def NonNegDim (e : DimExpr) : Prop := e = .literal 0 ∨ PosDim e
+-- the slice bound pair the translator builds (Elab:856-859, used at :5894, :7227, :7583): hi = (start + len) - 1, lo = start
+def SliceOK (hi lo : DimExpr) : Prop :=
+  ∃ s l, lo = s ∧ hi = DimExpr.mkSub (DimExpr.mkAdd s l) (.literal 1) ∧ NonNegDim s ∧ PosDim l
+def PosType : HWType → Prop
+  | .bit | .bitVector _ => True
+  | .bitVectorDim d => PosDim d
+  | .array _ e => PosType e                                   -- specializeType recurses into the element type
+def PosExpr : Expr → Prop
+  | .const .. | .ref _ => True
+  | .op _ args | .concat args => ∀ a ∈ args, PosExpr a
+  | .slice e .. => PosExpr e                                   -- concrete bounds are not evaluated
+  | .sliceDim e hi lo => PosExpr e ∧ SliceOK hi lo
+  | .index a i => PosExpr a ∧ PosExpr i
+def PosStmt : Stmt → Prop                                      -- the constructors specializeStmt visits
+  | .assign _ rhs => PosExpr rhs
+  | .register _ _ _ input _ => PosExpr input
+  | .memory (writeAddr := wa) (writeData := wd) (writeEnable := we) (readAddr := ra) .. =>
+      PosExpr wa ∧ PosExpr wd ∧ PosExpr we ∧ PosExpr ra       -- extraWrites / extraReads are NOT visited by specializeStmt (:94-108)
+  | .inst _ _ conns => ∀ c ∈ conns, PosExpr c.2
+def PosModule (m : Module) : Prop :=
+  (∀ p ∈ m.inputs ++ m.outputs ++ m.wires, PosType p.ty) ∧ (∀ s ∈ m.body, PosStmt s) ∧ (∀ a ∈ m.assertions, PosExpr a.2)
+def PosPlus (b : Module) (D : Design) : Prop := ∀ m ∈ (D.addModule b).modules, PosModule m
+```
+This is a CLASS, deliberately narrower than "all that succeed" (it excludes every width with `-`, `/`, `%` or `clog2` even when some θ succeed, and the exclusion of the translator's own `(start + len) - 1` is handled by the dedicated `SliceOK`). It does not claim the rest fail.
+Premises that `PosPlus` does NOT provide and that Layer A needs, each on its own line:
+1. **Parameter lookup exists.** Every `.parameter n` occurring in any dimension of any module of `D.addModule b` has `n` declared by some module of that design (`n ∈ modules.flatMap (·.parameters.map (·.name))`). `validateBindings` then requires every declared name to be bound (Specialize.lean:42-45), so `bindings.lookup n` is `some`. This survey did not establish that the translator only emits declared names in children's dimensions (the symbolic top declares them through `addParameter`; whether a child module can mention a parent's name was not read: probe P1).
+2. **Legal binding.** `LegalBinding` (all θ values ≠ 0, no duplicates, every θ name declared, every declared name bound); positivity of the values comes from here, not from `PosPlus`.
+3. **Top module present** in `D.addModule b` (§13.1 correction).
+4. **Every expression the specializer visits is inside `PosPlus`'s scope**, including all modules (children too), array element types, assertions, and all statement kinds; the `.memory` extra ports are not visited by the specializer, so a `.sliceDim` there would be left symbolic: this is a different defect and is excluded by a separate premise "no `.sliceDim`/`.bitVectorDim` in `extraWrites`/`extraReads`" (I2 gives no `.memory` for the symbolic top only, not for child modules).
+5. **`SliceOK` ties the bound pair to the translator's construction.** E5 (`hi < lo`) cannot fire for `lo = s`, `hi = (s + l) - 1` with `PosDim l`; for a slice not built by `makeSliceFromStartLength` no claim is made.
+
+### 13.4 Open links, one per row (none of these is discharged by §13.1)
+| id | link | what is missing | status |
+|---|---|---|---|
+| F1 | FG connection (outermost start) | `Start L mctx cctx w` is `AdmCtx L.O.quiet mctx cctx ∧ JQC L.O 0 w` over `Laws` (Tools/ShippingGen2Defs.lean:52-53); I3c is proved for a `RefLaws` witness and `Out0`/`StartV`. This survey did not find a lemma from `Start` to `Out0` of a `RefLaws` witness, nor a symbolic version of the A-framework walk (`core0_tripleAC`, ShippingChildDepthC.lean:218). Outermost depth 0 comes from `Start`; a symbolic run is FG-applicable only after this link | unsupplied |
+| F1b | `EntryShips` shape | first conjunct `<default-entry hypotheses of FG>` is still a placeholder; `ReflectsAll` (G3) for the parametric route is not defined; `CombTopRunN` is NOT approved as the final conclusion of every parametric FG case (only as the interface for the cases where it holds) | unsupplied / not approved |
+| F2 | clock/reset names | `CombChildRunN` needs `"clk" ∉ inputs ∧ "rst" ∉ inputs` (GEN2_DEFS:66-67). A Signal binder is turned into an input port named after the binder (`bindInputPort`, Elab:2104-2108), so a symbolic top may have an input named `clk`/`rst`; `addClockResetIfSequential` does not remove existing inputs. Probe P3 (I2b) was not run | unsupplied; if such a top is reachable the conclusion needs a guarded variant (open branch U3) |
+| F3 | real source | `SrcAt`/`SrcAtOf` (S1) has no definition linking `ci.value` of the run (the `ci` of I3b) with each retained `Nat` binder instantiated to θ and the `(bsC, outsC, S)` data; no satisfiability evidence for any declaration | unsupplied |
+| F4a | raw-side specialization success | `S2` is stated at `Dr.addModule raw`: the success `specializeDesign (Dr.addModule raw) θ = .ok Dr'` is a hypothesis of `PostTransfer`; its supply is the translator contract (G2, ROUTE_CENSUS.md:22) | pending legacy route |
+| F4b | post-side specialization success | `ParamTopShips` takes `specializeDesign (D.addModule b) θ = .ok D'` as a hypothesis. To use S2 (at `raw`) the proof needs the direction "post-side success ⇒ raw-side success" (and the dimension correspondence between `raw` and `dropZeroWidth`/`mergeChecked` output). This survey did not find such a lemma | unsupplied |
+| F5 | `DimExpr.evaluate`/`specializeType`/`specializeExpr` are `partial` | Layer B of §13.2 | unsupplied |
+| F6 | `PostTransfer` | soundness of `dropZeroWidthModule`/`mergeChecked` on modules with `.bitVectorDim`/`.sliceDim` (§11.3) | unsupplied |
+Dependencies on M3: F1b and S5 wait for the M3 route producer; F2-F6 and S1-S4 do not depend on M3 except through the legacy route (F4a).
+
+### 13.5 Decisions asked on rev5
+1. Approve for the record the built units of §13.1 (pod build; the clean build is the coder's), including the corrected `SpecSuccessAllPositive`.
+2. Confirm that I5b-pos about the production `specializeDesign` is withdrawn (§13.2) and that only Layer A (a statement about a total model, reported as such) may be implemented without a new boundary; or reject Layer A as not worth a model.
+3. Confirm the full `PosPlus` and its separate premises (§13.3).
+4. No approval requested: F1-F6 (each is a separate supply obligation), the choice between conditional/unconditional parametric success (user: `scripts/gen4/PARAMETRIC_SPECSUCCESS_DECISION.md`).
