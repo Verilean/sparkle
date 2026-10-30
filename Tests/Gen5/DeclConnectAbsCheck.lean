@@ -145,6 +145,9 @@ example (find : E → N → Option CI) (shapeOf : CI → Option Shape) (Match : 
         DCGen find (fun _ _ _ _ => False) shapeOf Match Obs P env Tgt) :=
   fun h => not_dcGen_of_empty find shapeOf Match Obs P env Tgt hT hP (h (dcImp_of_empty find shapeOf Match Obs P env Tgt))
 
+/-- U-UNIV: `Pk` may live in `Type 1` (`Pkg ι dom : Type 1`); instantiating it with `Type` must elaborate. -/
+def univProbe := @dcGen_mono Unit Unit Unit Type Unit (fun _ => Unit)
+
 /-! ## Meta-level checks -/
 open Meta in
 /-- the theorem's type after its first `n` (implicit type) binders, versus `exp` applied to those binders. -/
@@ -228,6 +231,10 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     logInfo m!"TYPE OK {thm}"
     if ← sameType thm m k then throwError "MUTANT NOT REJECTED {m} (same type as {thm})"
     logInfo m!"MUTANT REJECTED {m} (signature/defeq, not a semantic counterexample)"
+  -- U-UNIV: the six unit statements carrying `Pk` are universe-polymorphic in it
+  for n in [``dcGen_iff, ``dcGen_mono, ``dcImp_of_empty, ``not_dcGen_of_empty, ``dcImp_of_dcGen, ``dcGen_of_imp_exists, ``dcGen_of_rows] do
+    unless (← getConstInfo n).levelParams.length == 1 do throwError "U-UNIV: {n} is not universe-polymorphic in Pk"
+  logInfo m!"U-UNIV OK (7 statements with Pk : Type u; univProbe instantiates Pk := Type)"
   -- AXIOMS
   let all := table.map (·.1)
   for n in all do

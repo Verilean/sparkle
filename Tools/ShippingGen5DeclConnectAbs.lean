@@ -9,7 +9,7 @@ data are PARAMETERS (`Shape`, `Ty`, `shapeOf`, `Match`, `Obs`). Nothing here men
 namespace Tools.ShippingGen5DeclConnectAbs
 
 universe u
-variable {E N CI Pk : Type} {Shape : Type} {Ty : Shape → Type}
+variable {E N CI : Type} {Pk : Type u} {Shape : Type} {Ty : Shape → Type}
 
 /-- Functionality (V2) of an abstract constant-value relation. -/
 def Functional (CV : E → N → (α : Type) → α → Prop) : Prop :=
