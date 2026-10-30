@@ -12,6 +12,7 @@ open Tools.ShippingEntrySoundness (RunsTo)
 open Tools.ShippingChildInvA (RefLawsAOps)
 open Tools.ShippingChildFresh (MkRefd)
 open Tools.ShippingChildCacheA (JQC)
+open Tools.ShippingChildInv (profLogIO)
 open Tools.ShippingMachineOutcomeA (legacyTail)
 open Tools.ShippingGen4FbTail
 open Tests.Gen3.ExpectedType

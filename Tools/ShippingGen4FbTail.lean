@@ -17,6 +17,7 @@ open Tools.ShippingEntrySoundness (RunsTo)
 open Tools.ShippingChildInvA (RefLawsAOps)
 open Tools.ShippingChildFresh (MkRefd)
 open Tools.ShippingChildCacheA (JQC)
+open Tools.ShippingChildInv (profLogIO)
 open Tools.ShippingMachineOutcomeA (legacyTail)
 
 def LegacyTailRunExists {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
