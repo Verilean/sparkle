@@ -61,7 +61,6 @@ noncomputable def resultFnE (g : GenIn) (eb : ExtB ι dom g.d.ss) (ev : ExtV ι 
 noncomputable def refBodyE (g : GenIn) (eb : ExtB ι dom g.d.ss) (ev : ExtV ι dom g.d.ss) (i : ι)
     (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) :
     RegList (dom i) (HList (tys g.d.ss)) (Circuit.SigList (dom i) (tys g.d.ss)) (tys g.d.ss) →
-    Circuit.SigList (dom i) (tys g.d.ss) →
     Circuit (dom i) (Circuit.SigList (dom i) (tys g.d.ss)) (List (Nat → Nat)) :=
   fun _regs holds =>
     let S := reconState (tys g.d.ss) holds
@@ -75,10 +74,15 @@ noncomputable def genSemGenE (X : Name) (g : GenIn) (eb : ExtB ι dom g.d.ss) (e
         (mkRegList (@stateLoop _ _ _ ⟨g.inits⟩ g.inits (refBodyE g eb ev i bools bits)) (tys g.d.ss) (fun s => s) (fun f => f))
         (mkHolds (tys g.d.ss) (@stateLoop _ _ _ ⟨g.inits⟩ g.inits (refBodyE g eb ev i bools bits)))).fst }
 ```
-Checks against `[S]`: `refBodyE`'s type is the `body` field type of `SrcSem` `[B]` (`RegList … → Circuit …`; `Circuit.SigList … → Circuit … (ρ i)` is
-the unfolded form of the `Circuit` function type used by `GenFacts` `[S]` `ShippingQuadComposed.lean:106`, where the `holds` is the second
-argument of `body` as applied in `GenFacts.writes`: `body i bools bits (mkRegList …) (mkHolds …)`). `stateLoop` takes
-`[Inhabited (HList αs)]`; the Lean text uses `letI : Inhabited (HList (tys g.d.ss)) := ⟨g.inits⟩` (the `inh` field), written `@stateLoop _ _ _ ⟨g.inits⟩`
+Checks against `[S]`: `refBodyE`'s type is the `body` field type of `SrcSem` `[B]`:
+`RegList … → Circuit (dom i) (Circuit.SigList …) (ρ i)` with `ρ i := List (Nat → Nat)` (rev3 first text wrote
+`RegList → SigList → Circuit …`, which counted the state argument twice; **corrected here**). `Circuit dom W α := W → α × W`
+(`Sparkle/Core/CircuitMonad.lean:259`), so the fully unfolded type is
+`RegList … → SigList (tys g.d.ss) → (List (Nat → Nat) × SigList (tys g.d.ss))`; the body `fun _regs holds => (result, writes)` is a function of
+`regs` and of the pending-write state `holds` (the `W` argument of `Circuit`), returning the pair. This is the type used by
+`GenFacts.writes`/`result` (`body i bools bits (mkRegList …) (mkHolds …)` = `RegList`-application, then `holds`-application of the `Circuit`),
+by `SrcSem.body`, and by `stateLoop … (body i bools bits)` in `src`/`GenFacts.source` — all the same type; U3's `writes/result/source` use `refBodyE` only through these applications.
+`stateLoop` takes `[Inhabited (HList αs)]`; the Lean text uses `letI : Inhabited (HList (tys g.d.ss)) := ⟨g.inits⟩` (the `inh` field), written `@stateLoop _ _ _ ⟨g.inits⟩`
 above for definiteness — the elaborated text may use `letI` instead, which is the same term.
 
 ### 1.3 Theorems (the exact `GenFacts` instances; `letI` as above)
@@ -279,12 +283,12 @@ Rev2 §5.3 said `houtTy` "has no current supplier". Refined, with the time of ea
 - **At the base of this branch** (`Tools/ShippingGen5T2Range.lean`, `par/gen5-t2` e57eb431 / comment sync 314c2119, present in this worktree): `callOutRange_of_widths`
   takes `houtTy : ∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width` as an explicit hypothesis; the file header states `T1Hyp`'s `DataOk` is an abstract parameter,
   so *at that commit* no field gives `houtTy` for the callee (this study found no supplier there).
-- **Later suppliers (conditional, not available as built results here):** the T2-OUTTY and T2-ND work items are the intended later suppliers of the output-type/
-  width row (`houtTy`) and of the `Nodup`-of-output-names row used by `selIdx`/`callField_unique_of_ok`. This study did **not** inspect their definitions
+- **Later suppliers (conditional, not available as built results here):** the T2-OUTTY work item is the intended later supplier of the output-type/
+  width row (`houtTy`), through its own conditional route (`defines`/`closed`-style premises, not assumed here). T2-ND is **not** a supplier of a `Nodup` row: it is the `dec`-free `T1HypND` route (T1Hyp without `dec`), and the `Nodup` of output names used by `selIdx`/`callField_unique_of_ok` is a consequence of `Pkg.ok` (the elaborator-checked `ok` of the package), not of T2-ND. This study did **not** inspect their definitions
   or build state; whatever they provide will be conditional on their own premises. They are recorded here as *named future suppliers*, not as a supply:
   S3 (`CallOutRange`) and `houtTy` stay **UNSUPPLIED intermediate premises** of P4e, exactly as in rev2, until those items are accepted *and* their
   premises are themselves supplied. `CallOutWidthAt` stays G-ONEOUT-WID / `hkidW`.
-The sync is therefore: base time = abstract hypothesis; OUTTY/ND = later, conditional suppliers; neither is counted as supplied by U3.
+The sync is therefore: base time = abstract hypothesis; OUTTY = later, conditional supplier of `houtTy`; T2-ND = dec-free T1HypND route; output-name Nodup comes from Pkg.ok; neither is counted as supplied by U3.
 
 ## 4. ROADMAP — NOT FULL TYPES (separate from §1; approval of this revision does not freeze these)
 Sketches only; each will be re-frozen with a complete telescope before implementation (in the order U3 → P4a/P4d → P6 → …). Items referencing
