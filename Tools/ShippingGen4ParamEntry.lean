@@ -2,7 +2,7 @@ import Tools.ShippingEntrySoundness
 import Tools.ShippingMachineLinked
 import Sparkle.IR.Specialize
 set_option autoImplicit false
--- NOT BUILT (kjob/g4par-impl; the SHA is synced after `kjob lake build Tools.ShippingGen4ParamEntry`). No sorry / axiom /
+-- Built in g4par-impl e2d16d19 (clean, exit 0, 253 jobs, via Tests.Gen4.ParamEntryCheck). No sorry / axiom /
 -- native_decide; no production edit.
 
 /-! # M4 parametric entry: structure lemmas I1, I2, I3a, I3b, I5a (scripts/gen4/PARAMETRIC_FREEZE.md rev3 §9.1, f0a4698a)

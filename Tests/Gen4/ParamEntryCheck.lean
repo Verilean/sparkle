@@ -1,6 +1,6 @@
 import Tools.ShippingGen4ParamEntry
 set_option autoImplicit false
--- NOT BUILT (kjob/g4par-impl; synced after `kjob lake build Tests.Gen4.ParamEntryCheck`).
+-- Built in g4par-impl e2d16d19 (clean, exit 0, 253 jobs): TYPE 9, MUTANT 5 signature/defeq rejections, AXIOMS 9, CLOSURE 9.
 
 /-! # Audit of Tools/ShippingGen4ParamEntry.lean (scripts/gen4/PARAMETRIC_FREEZE.md rev3 §9.1)
 
