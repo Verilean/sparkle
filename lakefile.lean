@@ -4826,3 +4826,12 @@ lean_lib «Tools.ShippingGen2PostFactsProof» where
 lean_lib «Tests.Gen3.PostFactsCheck» where
   roots := #[`Tests.Gen3.PostFactsCheck]
 
+
+lean_lib «Tools.ShippingGen5SemRef» where
+  roots := #[`Tools.ShippingGen5SemRef]
+
+lean_lib «Tools.ShippingGen5SemPkg» where
+  roots := #[`Tools.ShippingGen5SemPkg]
+
+lean_lib «Tests.Gen5.SemUnitsCheck» where
+  roots := #[`Tests.Gen5.SemUnitsCheck]
