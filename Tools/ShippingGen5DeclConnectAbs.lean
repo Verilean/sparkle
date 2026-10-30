@@ -1,5 +1,5 @@
 set_option autoImplicit false
--- NOT BUILT (pending `kjob lake build Tests.Gen5.DeclConnectAbsCheck`).
+-- Built at 5e3ebf90bf3807120dd58f86b3b4f8714fe7835a (kjob lake build Tests.Gen5.DeclConnectAbsCheck, exit 0, 4 jobs): U1-U6 and checks. Axioms: none beyond core (all []). Abstract interface only; not DG-SEM/DATAOF/ACC results.
 
 /-! # DC-CONNECT abstract units U1-U6 (scripts/gen5/DC_CONNECT_FREEZE.md rev2 §4)
 
