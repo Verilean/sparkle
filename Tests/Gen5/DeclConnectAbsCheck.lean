@@ -191,7 +191,7 @@ def forbiddenFragments : List String :=
 /-- Reached constants outside the allowed set. `allowCurrent` lets the Check file's own helpers pass the module test
 (used only for the negative controls, so that the name test must find them through the walk). -/
 def violations (env : Environment) (r : Reach) (allowCurrent : Bool) : Array Name :=
-  r.seen.fold (init := #[]) fun acc n =>
+  r.seen.toList.foldl (init := #[]) fun acc n =>
     let nonCore := match moduleOf env n with
       | some m => !isCoreMod m
       | none => true
