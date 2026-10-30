@@ -231,13 +231,30 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   if badProj (.proj ``Prod 0 (.bvar 0)) then throwError "ENV AUDIT FAILED: unrelated raw proj flagged"
   logInfo "ENV CONTROL rawProj: all forbidden structures flagged, Prod not flagged"
   let F := `Tests.Gen5.EnvFixture
-  for (c, bad) in [(F ++ `badLaws, true), (F ++ `badOps, true), (F ++ `badTele2, true), (F ++ `badOpsRec, true),
-      (F ++ `badT1, true), (F ++ `badND, true), (F ++ `badGetEnvFrame, true), (F ++ `badReadKeeps, true),
-      (F ++ `badSnapshot, true), (F ++ `unrelated, false)] do
+  -- Each control also names its INTENDED constant: it must be in `forbid`, and a reach whose forbidden set is that
+  -- constant alone must hit it (the full-set hit may come first through another forbidden constant, e.g. the
+  -- `RefLawsAOps.quiet` in `T1Hyp.defines`' type, g5env-c62ffd50).
+  for (c, tgt) in [(F ++ `badLaws, some ``Tools.ShippingGen2.Laws.O),
+      (F ++ `badOps, some ``Tools.ShippingChildInvA.RefLawsAOps.frame),
+      (F ++ `badTele2, some ``Tools.ShippingChildInvA.RefLawsATele.telescope),
+      (F ++ `badOpsRec, some ``Tools.ShippingChildInvA.RefLawsAOps.casesOn),
+      (F ++ `badT1, some ``Tools.ShippingGen2.T1Hyp.defines),
+      (F ++ `badND, some ``Tools.ShippingGen2.T1HypND.defines),
+      (F ++ `badGetEnvFrame, some ``Tools.ShippingEnvSnapshot.GetEnvFrame),
+      (F ++ `badReadKeeps, some ``Tools.ShippingStRefCorrespondence.ReadKeeps),
+      (F ++ `badSnapshot, some ``Tools.ShippingEntryReadsLinked.EnvSnapshot), (F ++ `unrelated, none)] do
     let r ← reach forbid c
-    if bad && r.hit.isNone then throwError "ENV AUDIT FAILED: detector misses {c}"
-    if !bad && r.hit.isSome then throwError "ENV AUDIT FAILED: detector flags {c}"
-    logInfo m!"ENV CONTROL {c}: {toString r.hit}"
+    match tgt with
+    | some t =>
+      if r.hit.isNone then throwError "ENV AUDIT FAILED: detector misses {c}"
+      unless forbid.contains t do throwError "ENV AUDIT FAILED: intended {t} of {c} not in the forbidden set"
+      let rt ← reach [t] c
+      unless rt.hit.map (·.getLast? == some t) == some true do
+        throwError "ENV AUDIT FAILED: {c} does not reach its intended {t}"
+      logInfo m!"ENV CONTROL {c}: full set {toString r.hit}; intended {t} alone {toString rt.hit}"
+    | none =>
+      if r.hit.isSome then throwError "ENV AUDIT FAILED: detector flags {c}"
+      logInfo m!"ENV CONTROL {c}: {toString r.hit}"
   for (c, req) in [(``readsAt_self, [``ReadsAt]), (``ReadsAt.of_envEq, [``ReadsAt]),
       (``ReadsAt.of_frame, [``Tools.ShippingEnvSnapshot.EnvFrame, ``ReadsAt.of_envEq]),
       (``ci_of_readsAt, [``Tools.ShippingEntryReadsLinked.getConstInfo_value]),
