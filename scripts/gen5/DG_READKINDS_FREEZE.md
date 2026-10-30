@@ -551,3 +551,21 @@ prepared as a separate decision document if the reviewer agrees that the DG-READ
 * No claim that `RootFacts` is supplied by `RunReadsAt` (it is not on the present path, §2.5); no claim about agreement of any total version with the `partial` defs, either way.
 * No claim about `rootFloat` / `packTupleInputs` / `zetaAll` beyond their file:line and their treatment in
   `ShippingGen3ArgSupply3.lean`.
+
+---
+
+## 9. Q2 read-only note (added with the implementation; does not change §2 and is not a freeze change)
+
+Source read on this branch (no run, no build): `Tools/ShippingMachineCommand.lean:440-467` (`readMachine`) and
+`Sparkle/Compiler/Elab.lean:5072-5095` (`machineShape?`).
+
+* `readMachine` computes `mixedGatePeel (packTupleInputs entryV)` and then `rootFloat entryBody` on that peeled body,
+  **without** `machNorm` / `inlFoldNat` / `zeroLit` in between.
+* `machineShape?` computes `mixedGatePeel (packTupleInputs d.value)` (same `peel` half) and then
+  `machLoopAsLet (rootFloat (zeroLit … (inlFoldNat (machNorm senv e))))`, i.e. `rootFloat` is applied to the **normalised**
+  body, and `machLoopAsLet` follows. `shape.body` is read from that composition.
+* So the two compositions share the `packTupleInputs`/`mixedGatePeel` half and differ in the argument of `rootFloat`
+  (`entryBody` vs. `zeroLit … (inlFoldNat (machNorm senv e))`). This survey found no lemma relating them; the `float`
+  half of `RootFacts` at `readMachine`'s `entryBody` is therefore **not supplied** by `machineShape?` either.
+  This is a statement about this survey, not an impossibility claim. P1/P2/P3 stay not adopted; nothing in
+  `Tools/ShippingGen5ReadKinds.lean` depends on this note.
