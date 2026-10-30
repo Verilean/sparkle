@@ -952,3 +952,146 @@ New files only: `Tools/ShippingGen4FbFin.lean` (`tFin_stop`, `a4_inv_tail_fin`),
 ### 14.6 What this section does not claim
 - Not a T1 / FG / M5 / M4 completion, and not an acceptance of the ClosingRun lineage. `stop_of_run` is consumed as published by `6f3c8ee5`; its own review is that Issue's.
 - T-FIN depth 0 is unsupplied. T-LEG, T-MEMO, K4, `MemoInv`/`LM`, T-PP, K-TSPLIT, T-SHAPE/T-STATE/T-INST/T-REACH remain unsupplied (§13.4); §12.4–§12.6 remain a roadmap. No new law, scope change or guarantee change is made or assumed.
+
+---
+
+## 15. FB-7: addenda to §14 before any Lean — full K-RUNT telescope, the `h1` position, integration record, target manifest (rev9; text for review; NOT Lean, NOT implemented)
+
+- **Status.** Docs only, committed BEFORE the new Lean files. Base = `5b668ab7` (§14 scoped approved as a DESIGN; not an approval of production, of a new law or of a guarantee change). §14.1/§14.2/§14.4/§14.5 stand; this section only (a) expands the elided telescope, (b) fixes the position of `h1`, (c) records the integration that was performed and what it brought in, (d) fixes the target manifest for the coder's clean build. OPEN and NOT claimed: depth 0, T-LEG, T-MEMO, K4, T-PP, memo law, K-TSPLIT; Issue / M4 / FG are not complete.
+
+### 15.1 The companion `a4_inv_tail_fin`, with the telescope of §14.1 written out
+The `…` of §14.1 stood for the binders of `a4_inv_tail_machine_or_R4RunInvT` (K-RUNT, `Tools/ShippingGen4FbTailInv.lean`, `4a1c7bc4`/`f8470c1c`, §12.3). Full text (binders in K-RUNT order; `h1` is the ONE added binder, §15.2):
+```lean
+theorem a4_inv_tail_fin {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx L.O.quiet mctx cctx)
+    {declName : Name} {shape : MachineShape} {D : Nat}
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (h1 : 1 ≤ D)
+    (hI : InvAt L P Reach D w) (hC : ChildKeepsInv L P Reach (D + 1))
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w')
+    (entry : MachineDefines mctx mref cctx cref declName shape) :
+    (A4MachineSideA L.O mctx cctx D declName shape m d w w' ∨
+       R4RunInvT L P Reach mctx cctx D declName shape m d w w') ∧ InvAt L P Reach D w'
+```
+and `tFin_stop` of §14.1 keeps its binder order (`hA`, implicit `X D w w' raw dsg`, `h1`, `hC`, `hI`, `hr`). The `R4RunInvT` that occurs in the conclusion is the built definition, whose body (the K-RUNT conjunct list, copied from `Tools/ShippingGen4FbTailInv.lean` lines 96–139 at the base; this is the text the Expected of the new Check is typed against again, not imported from the built check) is:
+```lean
+def R4RunInvT (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    (mctx : Meta.Context) (cctx : Core.Context) (D : Nat)
+    (declName : Name) (shape : MachineShape) (m : Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design)
+    (w w' : Void IO.RealWorld) : Prop :=
+  ∃ (tenv : Lean.Environment) (pb : Bool) (ci : ConstantInfo) (envR' : Lean.Environment)
+    (w₁ w₂ w₃ w₄ w₅ w₆ : Void IO.RealWorld),
+    InvAt L P Reach (D + 1) w₄ ∧ InvAt L P Reach (D + 1) w₆ ∧ InvAt L P Reach (D + 1) w₅ ∧
+    RunsTo (getConstInfo declName) mctx mref cctx cref w₁ ci w₂ ∧
+    RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w₂ tenv w₃ ∧
+    JQC L.O (D + 1) w₃ ∧
+    RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w₃ envR' w₄ ∧
+    machineShape? false [] (entryConst true false [] ci (instancePredicate tenv)
+      (userInliner tenv) (structEnv tenv)) (structEnv envR') = some shape ∧
+    RunsTo (synthesizeMachineCertified
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO pb)
+      declName shape) mctx mref cctx cref w₄ none w₆ ∧
+    JQC L.O (D + 1) w₄ ∧ JQC L.O (D + 1) w₆ ∧
+    (∃ (sf : Std.HashMap Name Expr) (sw : Std.HashMap String Nat)
+      (sl sp sc : Std.HashMap String String) (ss : Std.HashMap (UInt64 × String) String)
+      (sg : Std.HashMap String String),
+      RunsTo (coreFinally D sf sw sl sp sc ss sg) mctx mref cctx cref w₅ () w' ∧
+      FinallyRestores (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref) D sf sw sl sp sc ss sg w₅ w' ∧
+      (D = 0 → sf = {} ∧ sw = {} ∧ sl = {} ∧ sp = {} ∧ sc = {} ∧ ss = {} ∧ sg = {}) ∧
+      (D ≠ 0 → StartReadsN (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref)
+        declName pb D w sf sw sl sp sc ss sg)) ∧
+    JQC L.O D w' ∧
+    RunsTo (legacyTail
+      (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO pb)
+      declName [] false
+      (entryConst true false [] ci (instancePredicate tenv) (userInliner tenv)
+        (structEnv tenv))) mctx mref cctx cref w₆ (m, d) w₅ ∧
+    ∃ (t : Sparkle.IR.AST.Module) (d₀ : Sparkle.IR.AST.Design) (w₇ : Void IO.RealWorld),
+      RunsTo (synthesizeMixedCertified
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO pb)
+        declName shape.binders shape.body) mctx mref cctx cref w₄ (t, d₀) w₇ ∧
+      JQC L.O (D + 1) w₇ ∧
+      ((Sparkle.IR.Machine.closeLets shape.layout.lets t = none ∧ w₆ = w₇) ∨
+       (∃ t', Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' ∧ shape.insts ≠ [] ∧
+         ((shape.instFields.isEmpty = true ∧
+            RunsTo (closeInstsM shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀)
+              mctx mref cctx cref w₇ none w₆) ∨
+          (shape.instFields.isEmpty = false ∧
+            RunsTo (closeInstsGM shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀)
+              mctx mref cctx cref w₇ none w₆))))
+```
+The companion's proof is `⟨a4_inv_tail_machine_or_R4RunInvT L P Reach hA hI hC hr entry, tFin_stop L P Reach hA h1 hC hI hr⟩`: both conjuncts are about the same `hr`, `w`, `w'`; no witness of the `R4RunInvT` package is identified with anything in `tFin_stop`.
+
+### 15.2 The position of `h1`
+`h1 : 1 ≤ D` is bound AFTER `D` (and after every implicit/instance binder that does not mention hypotheses) and BEFORE `hI` — in `tFin_stop` directly after the implicit block and before `hC`/`hI` (the §14.1 order), in `a4_inv_tail_fin` directly before `hI`. The reason: `D` is the depth read from `hI` (`InvAt … D w` contains `JQ … D w`, whose last conjunct is `dv w = D`; `InvAt = JQC ∧ CacheShips`, `JQC = JQ ∧ CacheInvA`, `JQ = quiet ∧ sv = some synthesizeChild ∧ dv w = D`, so `dv w = D` is `hI.1.1.2.2`), and `h1` is a statement about that `D`. The Check does not rely on a name or a comment for this: the `Expected…` declarations are typed independently with `h1` at that position and compared with `checkExpected` (telescope comparison, binder by binder), and a mutant with `h1` moved after `hI` (everything else equal) is compared by the same comparator and must be rejected. The mutant is a signature/defeq rejection, not a semantic counterexample (the two orders are logically equivalent).
+
+### 15.3 Integration performed (local; not pushed)
+- `git merge --no-ff 6f3c8ee5` (pin = `6f3c8ee5`, `DG-CLOSINGRUN: header counts (comment only)`, branch `kjob/g5cr-r2`) into `kjob/g4fb-fb7` (base `5b668ab7`); merge commit `b81f4f09`. The merge base is `d0ddc50b`; no history was rewritten.
+- **Conflict:** only `lakefile.lean`; both sides append `lean_lib` blocks at the end of the file. Resolution: keep all blocks of both sides (ours: `Tools/Tests ShippingGen4Fb{Tail,R4,Inv,TailInv}`; theirs: `Tools.ShippingGen2T1`, `Tests.Gen3.T1Check`, `Tools.ShippingGen5ClosingRun`, `Tests.Gen5.ClosingRunCheck` and the others of that lineage), conflict markers removed, nothing deleted or edited. Count check: merge base 1192 `lean_lib`, ours 1200 (+8), theirs 1208 (+16), result 1216 = 1192 + 8 + 16; no duplicated `lean_lib` name.
+- **What the merge brings in (48 files, `git diff --stat b81f4f09^1 b81f4f09`):**
+  1. `Tools/ShippingGen2Defs.lean` (shared definition file; modified by that lineage, not by this unit): `InstClosed (r : Res) : Prop` is NEW (every module of the result's design is instantiated by name in the body of the top or of some module of its design); **`ShipsRes` gains a third conjunct `InstClosed r`** (`RealChildA ∧ (∃ q n, …ChildShips…) ∧ InstClosed r`); **`TopShips`**' `rst` / `clk` premises become conditional (`"rst" ∈ b.inputs.map (·.name) → ∀ t, ins t "rst" = 0`, same for `clk`; R-G of `scripts/gen2/TOP_CONTRACT_REVISION.md` §2). Consumers changed with it: `ShippingGen2FitChain`, `Leaf`, `MemTop`, `OneOut`, `OneOutTop`, `OneOutTopO`, `SlotlessLeaf`, `TopNC`, `TopVacuity`, `ShippingGen3Arity`, `ShippingGen5T2Conn`, `ShippingGen5T2Tie`, `Tests/Gen2/{PkgCompat,S5Check,TopNCCheck}`.
+  2. New Lean (that lineage): `Tools/ShippingGen2{InstKeep,KeepChild,KidsInst,PostFacts,PostFactsProof,Served,ServedRun,T1,TopClkIn,TopContract}`, `Tools/ShippingGen5ClosingRun` (contains `stop_of_run`), `Tests/Gen3/{InstKeepCheck,PostFactsCheck,ServedCheck,T1Check}`, `Tests/Gen5/ClosingRunCheck`.
+  3. Documents (that lineage): `scripts/gen2/*` (GPOST_*, KEEPCHILD_*, SERVED_*, T1_CONNECT_RESULT, TOP_CTRL_FREEZE, TOP_CONTRACT_REVISION, GEN2_DEFS.lean.txt), `scripts/gen3/*`, `scripts/gen5/DG_CLOSINGRUN_FREEZE.md`.
+  - Of the FB-1…FB-4 Lean files none mentions `ShipsRes`, `InstClosed` or `TopShips` by name (grep); whether they still build is established only by the build. `Tools.ShippingGen4FbR4` does not have `ShippingGen2Defs` in its import closure.
+- This unit edits none of `Tools/ShippingGen2Defs.lean`, `T1Hyp*`, `Elab*.lean`, `Tools/ShippingGen2*` on this lineage; the merge is a local convenience and not an acceptance of that lineage (§14.3 items 3–4 stand). If `kjob/g5cr-r2` changes after review, this merge is redone.
+
+### 15.4 Plan for the new Check, positions fixed
+`Tests/Gen4/FbFinCheck.lean`: (1) TYPE: `ExpTFinStop`, `ExpA4InvTailFin` typed independently (full `∀`, `h1` at the §15.2 position, `R4RunInvT` written with its §15.1 body via a local `ExpR4RunInvT` copy typed again); (2) the §14.5 mutants plus `h1` after `hI` (rejected by the same comparator); (3) projection `a4_inv_tail_fin → K-RUNT statement` and `→ tFin_stop` as theorems; (4) AXIOMS standard three; (5) value closure per §14.4 with `missing` list: no `Tools.ShippingMemo.*`; `missing = 0` required (fails otherwise); `stop_of_run` reached; controls (a) absent root → failure caught as expected, (b) flagged fixtures (direct, two-helper, raw `Expr.proj`) flagged, (c) unrelated and FB-3 theorem not flagged with `missing = 0`; also a control that a theorem which RE-PROVES the keep without `stop_of_run` does not reach it. `missing` counts constants that `env.find?` does not resolve; these never silently pass. missing (`env.find?` absent) ⇒ fail, i.e. "not established", never "no reference".
+
+### 15.5 Target manifest (for the coder's clean issue-linked build at the exact integration SHA)
+The exact SHA to build is the commit that contains this section AND the Lean files of §15.4 (recorded in the Issue note; do not build an earlier SHA). One target per build, sequentially (Pod rule). Order: new → FB → ClosingRun → Defs-affected.
+1. `Tools.ShippingGen4FbFin`
+2. `Tests.Gen4.FbFinCheck`
+3. `Tests.Gen4.FbTailInvCheck` (existing FB checks on the merged tree; imports `ShippingGen2Defs`, whose `ShipsRes` changed)
+4. `Tests.Gen4.FbInvCheck`
+5. `Tests.Gen4.FbTailCheck`
+6. `Tests.Gen4.FbR4Check` (no `ShippingGen2Defs` in its closure; built as a regression control)
+7. `Tests.Gen5.ClosingRunCheck` (the consumed lineage on the merged tree)
+Tier B (affected by the `ShippingGen2Defs` / `ShipsRes` / `TopShips` change on the merged tree; these are that lineage's checks, listed so that a failure caused by the merge is separated from a failure of this unit; computed from the `import` graph: every `Tests.*` module whose import closure contains a modified module of §15.3 item 1):
+7. `Tests.Gen2.AdaptInstance`
+8. `Tests.Gen2.LeafInstance`
+9. `Tests.Gen2.CallDecInstance`
+10. `Tests.Gen2.TopNCCheck`
+11. `Tests.Gen2.SlotlessCheck`
+12. `Tests.Gen2.MemParentInstance`
+13. `Tests.Gen2.S4StageACheck`
+14. `Tests.Gen2.QuantInstance`
+15. `Tests.Gen2.PkgCompat`
+16. `Tests.Gen2.PMem4Check`
+17. `Tests.Gen2.DataBridgeCheck`
+18. `Tests.Gen2.S4StageBCheck`
+19. `Tests.Gen2.OneOutCallField`
+20. `Tests.Gen2.SlotlessLeafInstance`
+21. `Tests.Gen2.U0Check`
+22. `Tests.Gen2.S3GroupCheck`
+23. `Tests.Gen2.S4FitCheck`
+24. `Tests.Gen2.S5Check`
+25. `Tests.Gen3.ArgSupplyCheck`
+26. `Tests.Gen3.PortWidthsPrepCheck`
+27. `Tests.Gen3.PostFactsCheck`
+28. `Tests.Gen3.ServedCheck`
+29. `Tests.Gen3.ChildPortWidthsCheck`
+30. `Tests.Gen3.ArgSupply3Check`
+31. `Tests.Gen3.ArgWidthCheck`
+32. `Tests.Gen3.T1Check`
+33. `Tests.Gen3.ArgWidthSrcCheck`
+34. `Tests.Gen3.SlotlessPortWidthsCheck`
+35. `Tests.Gen3.ArgSupply2Check`
+36. `Tests.Gen3.ArityCheck`
+37. `Tests.Gen3.ArgSupply4Check`
+38. `Tests.Gen5.T2DecCheck`
+39. `Tests.Gen5.EnvQCheck`
+40. `Tests.Gen5.T1NDCheck`
+41. `Tests.Gen5.T2TieCheck`
+42. `Tests.Gen5.RunReadsCheck`
+43. `Tests.Gen5.T2OutTyCheck`
+44. `Tests.Gen5.T2ConnCheck`
+45. `Tests.Gen5.T2RangeCheck`
+46. `Tests.Gen5.EnvRCheck`
+47. `Tests.Gen5.EnvCheck`
+Not claimed by building these: no acceptance of any lineage, no Issue completion.
+
+### 15.6 What this section does not claim
+- Nothing here is Lean-checked. Depth 0, T-LEG, T-MEMO, K4, T-PP, memo law, K-TSPLIT remain unsupplied; §12.4–§12.6 remain a roadmap. T-FIN (D ≥ 1) is preservation only. Mutants are signature/defeq rejections, not semantic counterexamples. No new law, `Laws` field, shared-definition edit by this unit, FG or guarantee change.
