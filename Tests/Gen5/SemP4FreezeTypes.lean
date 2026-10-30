@@ -1,5 +1,6 @@
 import Tools.ShippingGen5SemGen
 set_option autoImplicit false
+-- Built in g5sm-p4r at 0f3e0966209275957ebc9b62a036c83c7d9c5dcd (Pod `kjob lake build Tests.Gen5.SemP4FreezeTypes`, exit 0). Types only, no proofs. Clean build is the coder's.
 -- SCRATCH type-elaboration of scripts/gen5/DG_SEM_FREEZE_P4.md (rev1). Definitions are the U4A text; every theorem is a `Prop` def (statement only, no proof, no sorry).
 namespace Tools.ShippingGen5Sem
 open Lean Sparkle.Compiler.Elab Sparkle.IR.Semantics Sparkle.IR.Machine
