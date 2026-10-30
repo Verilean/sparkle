@@ -4769,3 +4769,9 @@ lean_lib «Tests.Gen3.ArgSupply4Check» where
 
 lean_lib «Tests.Gen3.LoopRootProbe» where
   roots := #[`Tests.Gen3.LoopRootProbe]
+
+lean_lib «Tools.ShippingGen5Env» where
+  roots := #[`Tools.ShippingGen5Env]
+
+lean_lib «Tests.Gen5.EnvCheck» where
+  roots := #[`Tests.Gen5.EnvCheck]
