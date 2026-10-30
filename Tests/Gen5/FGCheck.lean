@@ -3,7 +3,7 @@ import Tools.ShippingGen5FG
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.DeclConnectCheck
 set_option autoImplicit false
--- NOT BUILT: agent build pending. Clean issue-linked build is the coder's.
+-- Built at ba85e637b523e1d880e1c2e1176ff64891fe9a6a (agent build `kjob lake build Tests.Gen5.FGCheck`, exit 0; clean issue-linked build is the coder's).
 
 /-! # DC-CONNECT U-FG: checks (scripts/gen5/DC_CONNECT_FREEZE.md rev5 §C.3, §C.8)
 
