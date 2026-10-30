@@ -1,14 +1,35 @@
-# DC-CONNECT: DeclConnect on the actual source — full-type freeze (rev2)
+# DC-CONNECT: DeclConnect on the actual source — abstract core (accepted scope) + concrete design (NOT frozen) (rev3)
 
 Issue `sparkle-gen5-dc-connect` (parent `sparkle-gen5-decl-bridge`; units DC-FORM / DC-SUPPLY / DG-DECLCONNECT).
 Base: `par/gen3-combined` 9d26005c (S1 integration). Design sources (read with `git show par/gen5-t2:...`, c398021c):
 `DGEN_FREEZE.md` rev2 §2.6 (cited `DGEN:§2.6`), `T2COVER_FREEZE.md` rev2 §2, `DG_ENV_FREEZE.md` rev2.2, and
 `scripts/gen2/GENERAL_SPEC.md` (FG §1.1, M5 §5 lines 489-507, §6 table line 535).
 
+**Revision rev3 (answers review R1-R3 on b99edb6b; changes are audit/doc only, the U1-U6 proofs are unchanged).** (R1) the Check now runs an independent Expected comparison (TYPE) for all eight theorems and one well-typed one-change mutant per theorem (§4.1). (R2) the CLOSURE check is a transitive walk over `ConstantInfo` bodies with negative controls (§4.1), replacing the direct string scan. (R3) this document is split into **Part A: accepted abstract core** and **Part C: concrete design, NOT frozen** (see "Acceptance scope" below); the earlier "full type" wording for the concrete design is withdrawn, and the `levelParams` condition is corrected (§C.1 remark).
+
 **Revision rev2 (answers review R1-R3 on rev1 08293159).** rev1 `adapterOf` (an opaque function into `Σ α, SigAdapter`) is replaced by a CONCRETE `sigShape?` + `SigShape.Ty/applyArgs/obsRes` (§1): the adapter is a function of the actual type, built so that arguments, domain and results are preserved BY CONSTRUCTION; unknown shapes are `none` (never `PUnit`). `DataSoundAt` and `FG_COMPLETE` are fully typed (§1.1, §3). The DCF study (§4a) is written before the pure units.
 
-**Status: design only. No Lean written, nothing elaborated or built.** Every Lean text below is a PROPOSAL; names,
-binders and elaboration are unverified. The Lean implementation does not start before the reviewer approves this freeze.
+## Acceptance scope (rev3)
+
+| part | content | status |
+|---|---|---|
+| **A. Accepted abstract core** | §4 U1-U6 in `Tools/ShippingGen5DeclConnectAbs.lean` (abstract: `E N CI Pk Shape Ty find CV shapeOf Match Obs P` are parameters) and the audit in `Tests/Gen5/DeclConnectAbsCheck.lean` | Lean written; elaborated (agent build exit 0 at 5e3ebf90; reviewer found no problem in the proof bodies). Clean issue-linked build of the rev3 audit: by the coder (not yet recorded here). These are abstract intermediate results; they say nothing about the actual source |
+| **C. Concrete design, NOT frozen** | §1.1-§1.3 (`ResShape`, `SigShape`, `sigShape?`, `ShapeMatches`, `DeclConnect`, `GenPInv`, `DataSoundAt`), §2 supplier table, §3 `FG_COMPLETE`, §4a DCF study | design text only. NOT complete types (list in §C.0). Not submitted for acceptance; no Lean. Nothing in Part A depends on it |
+
+### C.0 What is NOT yet frozen in the concrete design (do not read §1-§3 as a complete-type freeze)
+
+| item | gap |
+|---|---|
+| `FG_COMPLETE` (§3) | `b : Bool` is a placeholder for FG's own binder type; `D` is written `…FG's D type…`; `raw` is not bound by any binder in the statement (it occurs free in `TopShips p n declName b raw D`); `Start`, `RunsTo`, `Laws`, `envAt`, `ReflectsAll` argument lists are copied from FG text, not checked against Lean |
+| `DataSoundAt` (§1.3) | the third conjunct (`s.init = a` with `∃ a`) is a trivial PLACEHOLDER for DG-DATAOF's `initOk`; as written it is provable and says nothing about initial values |
+| `SigShape.applyArgs`, `ResShape.obs`, `SigShape.obs`, `sigShape?`, `ResShape.outPorts` (§1.1) | signature/comment only; no bodies; `outPorts` is not declared at all; `obs` for `.bool`/`.bits` is given as prose |
+| `genP`, `entry₀`, `genData₀`, `GenData`, `CallEdge`, `ordCallees`, `TopShips`, `Pkgs`/`Pkg` field access | named from DG-SEM / DGEN text; not defined here; argument lists unverified |
+| `ConstValue` / `CV` (§4a) | study only (Q4); no definition |
+| the connection of the abstract `Match`/`Obs`/`shapeOf` to these | only described in §4's last paragraph of the instance; no Lean |
+
+Reading rule: the abstract core (Part A) may be reviewed and accepted without any of Part C being decided. Part C needs a further freeze (complete types and suppliers) before any concrete Lean.
+
+**Status (rev3):** Part A is Lean-backed (see the table above for which build). Part C is design only: no Lean, nothing elaborated. Every Lean text in §1-§3 is a PROPOSAL; names, binders and elaboration are unverified. The concrete Lean implementation does not start before a reviewer approves a complete-type freeze of Part C.
 
 Wording rules used throughout:
 - "not supplied" / "this survey found no source or route" is a statement about THIS survey. It is not a claim that
@@ -24,10 +45,10 @@ Wording rules used throughout:
 
 | item | status |
 |---|---|
-| (1) full type of `DeclConnect` (and `ConstValueOk`, `SigShape`, `sigShape?`, `SigShape.obs`), dependencies as PREMISES | this freeze, §1 |
-| (2) table of what the actual source side supplies (declarations, environment, `ReadsAt`) | this freeze, §2 |
-| (3) insertion point in FG's schema, and the check that FG is not shrunk | this freeze, §3 |
-| (4) units of pure lemmas that do not depend on DG-SEM / DG-DATAOF / DG-ACC | this freeze, §4 (Lean after approval) |
+| (1) types of `DeclConnect` (and `ConstValueOk`, `SigShape`, `sigShape?`, `SigShape.obs`), dependencies as PREMISES | PROPOSAL in §1, incomplete (§C.0); not frozen |
+| (2) table of what the actual source side supplies (declarations, environment, `ReadsAt`) | survey in §2 (Part C) |
+| (3) insertion point in FG's schema, and the check that FG is not shrunk | proposal in §3 (Part C); `FG_COMPLETE` incomplete (§C.0) |
+| (4) units of pure lemmas that do not depend on DG-SEM / DG-DATAOF / DG-ACC | §4 (Part A; Lean written and built, abstract) |
 | final connection that USES the dependencies' results | an INTERMEDIATE result `declConnect_of_rows` (§4 U6, abstract), stated with the dependencies' types as explicit premises. NOT completion |
 | `ConstValue` formulation (DC-FORM) | study §4a (done in this revision as a study; Lean text only after Q4); possibly ends as a user decision (§6) |
 
@@ -35,7 +56,7 @@ Completion of this issue's goal is `FG-REF ∧ ConstValueOk ∧ DeclConnect env�
 defining `ConstValue`, nor `DeclConnectImp`, nor `ConstValueOk` alone, nor `DeclConnect` for a `Tgt` narrower than all
 successful targets completes it. This freeze completes none of those.
 
-## 1. Full types (rev2)
+## 1. Concrete types — PROPOSAL, NOT a complete-type freeze (see §C.0) (Part C)
 
 Namespace `Tools.ShippingGen5DeclConnect`. Imports (present at 9d26005c): `Tools.ShippingGen2Defs` (`Pkgs`, `Pkg`, `T1Hyp`),
 `Tools.ShippingGen5Env` (`ReadsAt`). Opens `Lean`, `Sparkle.Compiler.Elab (structEnv MixedGateBinder mixedGateBinderKind?)`,
@@ -98,7 +119,7 @@ def SigShape.obs (sh : SigShape) (v : sh.Ty) : (i : ι) → (Nat → Signal (dom
 /-- Total, computed from the actual type by the same walk as `telescopeKinds`/`machOuts?`: the FIRST binder must be
 `DomainConfig`, every later binder `Signal (bvar d) Bool` / `Signal (bvar d) (BitVec n)` where `bvar d` is exactly that first binder
 (de Bruijn index = depth - 1; a second domain binder, a different domain term, or a closed domain constant gives `none`), and the
-result a `Signal d Bool` / `Signal d (BitVec n)` / `Prod` of two such. Everything else is `none`. -/
+result a `Signal d Bool` / `Signal d (BitVec n)` / `Prod` of two such. Everything else is `none`. It sees `ci.type` only, not `ci.levelParams` (see the correction in the remarks). -/
 def sigShape? (ty : Lean.Expr) : Option SigShape
 /-- What the shape must match in the package (ties the adapter to THIS package, R1): the declared non-domain port kinds and the
 output port list. -/
@@ -107,14 +128,18 @@ def ShapeMatches (sh : SigShape) (d : MachineData) (kD : Nat) : Prop :=
   d.shape.layout.outs.map (fun o => (o.ty, o.width)) = sh.res.outPorts      -- outPorts: (bit,1) / (bitVector n, n), in order
 ```
 
-Remarks (all part of the freeze):
+Remarks (proposal text):
 - **What is preserved, by construction.** Arguments: `applyArgs` feeds `bools q`/`bits q n` at the binder's position `q`, the
   indexing the source stream uses; the kinds list is checked to equal `p.d.bsIn.take p.kD` by `ShapeMatches`. Domain: the
   leading binder receives `dom i`, and `sigShape?` rejects any type whose Signals use another domain term. Results:
   `ResShape.obs` produces the list in port order and `ShapeMatches` ties its length/types to `layout.outs`. State: §1.0, not
   the adapter's job. There is no free `toSig` and nothing a user can choose: an adapter is a function of `ci.type` alone.
-- **Unknown shapes.** `HWType.bitVectorDim`/`array`, user structures, packed tuple results, closed-domain declarations, `Type`-quantifying
-  declarations, and a declaration with `levelParams ≠ []` all give `sigShape? = none`. They are NOT mapped to `PUnit` and have no
+- **Unknown shapes.** `HWType.bitVectorDim`/`array`, user structures, packed tuple results, closed-domain declarations and `Type`-quantifying
+  declarations give `sigShape? = none` (a function of the type `Expr` alone). **Correction (rev3):** `sigShape?` takes only `ci.type`, so it cannot see
+  `ci.levelParams`; the rejection of a declaration with `levelParams ≠ []` is a condition on `ci`, not on the type. The proposal is
+  `shapeOf ci := if ci.levelParams.isEmpty then sigShape? ci.type else none`. (A type that mentions a level parameter, e.g. `Sort u`, is
+  rejected by `sigShape?` only when it falls outside the listed forms; whether a `levelParams ≠ []` declaration whose type is otherwise in
+  the fragment is excluded is decided by the `shapeOf` condition above, not by `sigShape?`.) Not yet defined in Lean. They are NOT mapped to `PUnit` and have no
   fake meaning. **Coverage is kept**: the existence conjunct of `DeclConnect` requires `sigShape? ci.type = some sh`, so a
   successful target outside the fragment makes `DeclConnect` false on it. The coverage obligation (DC-COVER, §2) is therefore
   "every name a successful FG run reaches has `sigShape? = some`", unsupplied (this survey found no route for it); if a corpus top
@@ -172,8 +197,8 @@ def DataSoundAt (p : Pkg ι dom) : Prop :=
                                                       -- statement is that issue's. Until it is fixed, U6 does not take this clause.
 ```
 `Pkg.ok` and `Pkg.body_eq` (Tools/ShippingGen2Pkg.lean) already give the first two conjuncts for every `Pkg` by cases; the third is
-DG-DATAOF's. rev1's `quote p.d.dom … p.d.packed` ellipsis is replaced by the full text of `Pkg.body_eq`. The `initOk` clause is marked
-PLACEHOLDER: this freeze does not invent DG-DATAOF's statement; `declConnect_of_rows` (U6) does NOT use `DataSoundAt` or `GenPInv`
+DG-DATAOF's. rev1's `quote p.d.dom … p.d.packed` ellipsis is replaced by the text of `Pkg.body_eq` (not re-checked against Lean). The `initOk` clause is marked
+PLACEHOLDER (a trivial `∃ a, s.init = a`, provable, NOT DG-DATAOF's statement): this freeze does not invent DG-DATAOF's statement; `declConnect_of_rows` (U6) does NOT use `DataSoundAt` or `GenPInv`
 as hypotheses (only `hstep`, §4), so nothing depends on the placeholder.
 
 ## 2. Supplier table: what the actual-source side gives
@@ -204,7 +229,7 @@ or for rows 1, 3, 4 uniformly.
 FG (GENERAL_SPEC.md:88-93), schema NOT edited:
 `FG : ∀ L declName parameters mctx cctx w b D w', Start L mctx cctx w → (RunsTo (synthesizeCombinational declName) … ∨ RunsTo (synthesizeCombinationalWithParameters declName parameters) …) → ReflectsAll L declName parameters → ∃ p n, Pk declName = some p ∧ TopShips p n declName b raw D`.
 
-**`FG_COMPLETE`, fully bound** (a statement in the new file; every variable of FG appears; nothing is a literal):
+**`FG_COMPLETE` (PROPOSAL, NOT fully bound — see §C.0: `b`'s type, `D`'s type and `raw` are open):**
 
 ```lean
 inductive TgtRun (P : Pkgs ι dom) (declName : Name) : Name → Prop     -- least predicate: declName, and ordinary callees of reached
@@ -223,7 +248,7 @@ def FG_COMPLETE {mref cref} (CV : ConstValueRel) (V3 : ConstValueRel → Prop) (
     ConstValueOk CV V3 ∧
     DeclConnect CV env₀ (genP env₀) (TgtRun (genP env₀) declName)
 ```
-(`D`'s type and `raw` are copied from FG's own text at implementation; this freeze only fixes that they are FG's binders, not
+(`b : Bool` is a placeholder, `D`'s type is a placeholder and `raw` is unbound in the display above (all three are to be copied from FG's own text at a later freeze); the intent is only that they are FG's binders, not
 new ones. `parameters` appears twice: in the route disjunct and in `ReflectsAll`, as in FG; with `parameters ≠ []` the machine
 `machineShape?` is `none` so the second route has no machine target by itself; `Tgt_run` is the set of names the run reaches, and
 for a parametric run whose package assignment has no machine entry, `genP env₀ X = none` makes `DeclConnect` vacuous at X only
@@ -280,13 +305,13 @@ Study conclusions (statements about this survey):
    if the user-visible choice becomes necessary (§6); the pure units do not depend on it.
 4. Not claimed: that `ConstValueE` is the true kernel semantics; that the table is complete; that `ExprDenotes` is a well-founded recursion.
 
-## 4. Units of pure lemmas (rev2: explicit shape parameters, R2)
+## 4. Units of pure lemmas — Part A, the accepted abstract core (explicit shape parameters, R2)
 
 Units U1-U5 and U6 are stated over an ABSTRACT interface so that they hold without `sigShape?`/`ShapeMatches` being defined (these
 are parameters, R2): `{E N CI Pk : Type}`, `find : E → N → Option CI`, `Shape : Type`, `Ty : Shape → Type`,
 `shapeOf : CI → Option Shape`, `Match : Shape → Pk → Prop`, `Obs : Pk → (sh : Shape) → Ty sh → Prop`,
 `CV : E → N → (α : Type) → α → Prop`, `P : N → Option Pk`. The concrete instance (`CI := ConstantInfo`, `Shape := SigShape`,
-`shapeOf := fun ci => sigShape? ci.type`, `Match sh p := ShapeMatches sh p.d p.kD`, `Obs p sh v := ∀ i bools bits, sh.obs v i bools bits = p.src i bools bits`)
+`shapeOf := fun ci => if ci.levelParams.isEmpty then sigShape? ci.type else none`, `Match sh p := ShapeMatches sh p.d p.kD`, `Obs p sh v := ∀ i bools bits, sh.obs v i bools bits = p.src i bools bits`)
 is the later file; the abstract file does not mention `Pkg`, `MachineData` or `sigShape?`.
 
 ```lean
@@ -308,6 +333,14 @@ instance, `rfl`.) `hstep` is the UNSUPPLIED content of rows 0-4; U6 is the Acc a
 unsupplied". The old "U7 = DCF" is now §4a; no Lean for it in this freeze.
 
 
+### 4.1 The audit in `Tests/Gen5/DeclConnectAbsCheck.lean` (rev3)
+
+Exactly what is checked, and its limits:
+- **TYPE.** For each of U1, U2, U3a, U3b, U4a, U4b, U5, U6 an independently written `Prop` (`ExpU*`, fully unfolded, not using `DCAt/DCGen/DCImp/Functional`) is compared with the theorem's type by `isDefEq` after instantiating the leading implicit type parameters. Positive control: the comparison must succeed.
+- **MUTANT.** Per theorem one well-typed statement (`MutU*`) that differs from `ExpU*` in one place is built, and the same comparison must FAIL: U1 `∀`→`∃` on the right; U2 inclusion reversed; U3a conclusion is the `DCGen`-shaped (existence) form; U3b negation dropped; U4a `Functional` premise dropped; U4b existence premise `hEx` dropped; U5 `R c X` reversed to `R X c`; U6 `hAcc` dropped. These are signature/defeq rejections, NOT semantic counterexamples. The unit U4b-without-`hEx` also has a refutation `example` (empty relation). U6's `_hclosed` is UNUSED in the proof; no claim is made that U6 without it is unprovable or that dropping it is rejected for a semantic reason, and it has no mutant here.
+- **AXIOMS.** `checkAxioms` on the eight theorems.
+- **CLOSURE (direct + transitive).** From each theorem, a walk over the environment reading ConstantInfo bodies explicitly: `thmInfo.value`, `defnInfo.value`, types of every kind, constructors of inductives. `opaqueInfo` and `axiomInfo` are BOUNDARIES: their bodies are not followed and they are reported as UNTRACKED. A reached constant must belong to a module under `Init`/`Std`/`Lean` or to `Tools.ShippingGen5DeclConnectAbs` (no constant of the Check file itself, and no name containing `Pkg`, `MachineData`, `sigShape`, `ConstantInfo`, `GenPInv`, `DataSoundAt`, `dataOf`, `genP`, `Laws`, `T1Hyp` outside core). Negative controls (must be detected): a direct mention, a mention through a helper definition, through a helper theorem body, and an opaque boundary. This is a statement about the Lean constants the eight theorems reach in the elaborated environment; it is not a claim about any other file.
+
 ## 5. Open questions (do not block the pure units)
 
 - **Q1** coverage of `sigShape?` on the successful targets (DC-COVER); extension of `ResShape` (struct, packedTuple) after DCF.
@@ -324,13 +357,14 @@ separate decision document with impact, options and cost, and the issue set to `
 
 - No claim that `ConstValue`, `sigShape?` coverage, `DeclConnect` or any row is supplied, or supplyable by a specific route.
 - No claim that FG, FG-REF or M5 is complete. `dcGen_of_rows` is an intermediate Acc assembly.
-- No claim about elaboration of the proposal Lean text (nothing but the abstract units U1-U6 is built; see the Check file).
+- No claim about elaboration of the proposal Lean text of Part C (nothing but the abstract units U1-U6 is built; see the Check file).
+- No claim that Part C is a complete-type freeze (§C.0), and none that the abstract core connects to the actual source.
 - DG-SEM, DG-DATAOF and DG-ACC are not done; their results enter only as premises.
 - No new law, TRUSTED boundary, FG or guarantee change; no edit of compiler/shared definitions.
 - A mutant in the check is a signature/defeq rejection, not a semantic counterexample.
 
 ## 8. Order
 
-1. (this revision) abstract U1-U6 in `Tools/ShippingGen5DeclConnectAbs.lean` + `Tests/Gen5/DeclConnectAbsCheck.lean` (TYPE/MUTANT/AXIOMS/closure).
-2. Concrete `SigShape`/`sigShape?` file after rev2 approval; DCF Lean only after the Q4 outcome.
+1. (Part A) abstract U1-U6 in `Tools/ShippingGen5DeclConnectAbs.lean` + `Tests/Gen5/DeclConnectAbsCheck.lean` (TYPE/MUTANT/AXIOMS/CLOSURE, §4.1).
+2. (Part C) first a complete-type freeze of the concrete design (§C.0 items) with suppliers; then the concrete `SigShape`/`sigShape?` file; DCF Lean only after the Q4 outcome.
 3. The final connection waits for DG-SEM / DG-DATAOF / DG-ACC.
