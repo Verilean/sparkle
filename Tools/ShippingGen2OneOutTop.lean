@@ -2,6 +2,7 @@ import Tools.ShippingGen2FitChain
 import Tools.ShippingGen2OneOutNames
 set_option autoImplicit false
 -- BUILT: g2sb-93e9994c at 93e9994c (exit 0; standard axioms).
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # S4 stage B: `RunFacts.wid` of a one-output parent and `oneOut_topShips`

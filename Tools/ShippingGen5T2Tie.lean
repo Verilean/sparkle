@@ -2,6 +2,7 @@ import Tools.ShippingGen5T2Dec
 import Tools.ShippingMachineCausal
 set_option autoImplicit false
 -- Built: g5tt-36beb7dc (clean snapshot, exit 0, standard axioms); issue `sparkle-gen5-t2-tie`. No sorry / axiom /
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 -- native_decide.
 
 /-! # T2-POSENC, T2-FIELD (standalone) and T2-TIE / T2-STEP (CONDITIONAL on named D-GEN units)
