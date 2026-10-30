@@ -307,7 +307,7 @@ theorem oneOutWidthAt (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι dom)
     rw [Tools.ShippingChildInv.nomem_tag hnomem hk] at hmd
     cases hmd
   · -- step 3: the served result ships with `c`'s package `q`
-    obtain ⟨_, q, n', hq, _, hCS⟩ := hship
+    obtain ⟨_, ⟨q, n', hq, _, hCS⟩, _⟩ := hship
     -- step 4: its child run at `dsn := D`, `i0`; both branches start with the outputs
     have hmo : mc.outputs = q.d.shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
       rcases hCS D hDc hmod i0 with hr | hr
