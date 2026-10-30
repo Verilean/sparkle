@@ -274,11 +274,12 @@ A nested R5/R6 under a parent is therefore never covered by a `Start`-based stat
 
 ### 5.6 Memo side: separated and undesigned
 Not typed in rev2: a memo law bundle for the `Laws` of Gen2Defs (`Laws` has `O`, `T`; `mval` is in `RefLawsM`, which `extends RefLaws`, while `O : RefLawsAOps`; whether one world interpretation can satisfy both by transport of existing laws, or only by a new assumption, is not established),
-`MemoInvShips`, `MemoHitShips`, the K4 invariant `memo-names ⊆ childCache-names ∪ {top}`. Whether such a bundle/mapping is only a re-packaging or conditional transport of existing laws (design work) or adopts a new real-environment guarantee (the only case needing a user decision) is OPEN (§0 R3, §7 D-MEMO-LAW). K4 remains a reading of the source, **not proved**. Until this part is designed, the memo-hit case of `TookLegacyTail` (§5.2) is uncovered by any conclusion.
+`MemoInvShips`, `MemoHitShips`, the K4 invariant `memo-names ⊆ childCache-names ∪ {top}`. Whether such a bundle/mapping is only a re-packaging or conditional transport of existing laws (design work) or adopts a new real-environment guarantee (the only case needing a user decision) is OPEN (§0 R3, §7 D-MEMO-LAW). K4 remains a reading of the source, **not proved**. Until this part is designed, the memo-hit case of `LegacyTailRunExists` (§5.2) is uncovered by any conclusion.
 
-### 5.7 First implementation unit (applies only after rev3 is approved AND gate U-G1 is built)
+### 5.7 First implementation unit (applies after rev3 is approved; the definition does not wait for gate U-G1)
+Sync (after approval of 6eb58bf2): `LegacyTailRunExists` does not reference `ChildIface` and needs no import of the gate's file, so the dependence on gate U-G1 being built is **not technical** for this definition. Only a later adapter that actually uses `ChildIface` must match the gate's built SHA. This definition is an intermediate definition, not a supply result.
 Contents (small, definitions only): the `LegacyTailRunExists` definition of §5.2, in a new file of this Issue (e.g. `Tools/ShippingGen4FbTail.lean` + `lean_lib` entry in lakefile.lean; imports `Tools.ShippingGen2Defs`, `Tools.ShippingMachineOutcomeA`), and a check file that records its type and `#print axioms`, plus signature-level mutants (e.g. dropping `JQC O n w9`; replacing `legacyTail … ci` by another term) rejected by signature/defeq — **not** semantic counterexamples.
-It contains: no interface record (gate U-G1), no `LegacyChildShips`, no memo definition, no claim about a run. If gate U-G1's built text differs from §0's table, the unit does not start until the table is re-frozen.
+It contains: no interface record (gate U-G1), no `LegacyChildShips`, no memo definition, no claim about a run. The §0 table is relevant only to later adapters, not to this unit.
 No sorry/axiom/native_decide. Not started. It claims no supply of any legacy or memo condition.
 
 ## 6. Supply paths for the unsupplied legacy contract / memo conditions, and where each stops
@@ -312,7 +313,7 @@ under a hypothesised `LegacyDom`. Paths L-2 (and any D-IFACE option that changes
 
 - **D-MEMO-LAW (conditional).** A memo law bundle usable with `Laws` (§5.6): if it is a re-packaging or conditional transport of existing laws, no user decision; if it adopts a new real-environment guarantee as an assumption, that part is the user's decision. Which holds is undesigned/OPEN. Memo-hit coverage waits for the design.
 
-If this freeze is approved, the first Lean unit is §5.7 (new file; one existence-predicate definition; no supply; after gate U-G1 is built). The memo side (§5.6), L1-L4 and M-1 remain read-only research until their own design is frozen.
+If this freeze is approved, the first Lean unit is §5.7 (new file; one existence-predicate definition; no supply; not blocked by gate U-G1). The memo side (§5.6), L1-L4 and M-1 remain read-only research until their own design is frozen.
 
 ## 8. What is NOT claimed
 - No statement that a fallback, legacy or memo-hit success is impossible, non-derivable or unreachable. K4 is a reading of the source, not a theorem.
