@@ -1,6 +1,6 @@
 import Tools.ShippingGen5Cover
 import Tests.Gen3.ExpectedType
-set_option autoImplicit false
+-- Built in g5cv-r2 at 7e2b90ac (Pod `kjob lake build`, exit 0; CoverCheck: TYPE 17, MUTANT 5, AXIOMS standard, CLOSURE OK with 3 negative / 2 clean controls; the controls add in-memory declarations that print "declaration uses sorry" warnings). Clean build is the coder's. No sorry / axiom / native_decide in source.
 -- NOT BUILT (written in g5cv-r2; the SHA of the first successful Pod build is recorded here by a comment-only commit). Clean build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-COVER pure core (U-C1 … U-C5) checks (Tools/ShippingGen5Cover.lean; scripts/gen5/DG_COVER_FREEZE.md §4, §10)
