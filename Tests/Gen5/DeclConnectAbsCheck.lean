@@ -2,7 +2,7 @@ import Lean
 import Tools.ShippingGen5DeclConnectAbs
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (rev3 audit, kjob/g5dc-r3). Previous agent build 5e3ebf90 ran only 4 TYPE examples + 1 refutation example; MutU2Rev/MutU6NoClosed there were definitions, never run.
+-- Built at b7e3ffcfd51128188d90f788b563aae4d5cbde02 (kjob lake build Tests.Gen5.DeclConnectAbsCheck, exit 0, agent build; clean issue-linked build is the coder's). rev3 audit: TYPE 8 + MUTANT 8 (one-change well-typed, each executed and rejected by defeq), AXIOMS 8, CLOSURE 8 (transitive ConstantInfo walk) + 4 controls. Previous 5e3ebf90 ran only 4 TYPE examples + 1 refutation; MutU2Rev/MutU6NoClosed there were never run (removed). Signature/defeq checks, NOT semantic counterexamples.
 -- rev3 runs: TYPE (8 independent Expected, defeq), MUTANT (8 one-change well-typed mutants, each must NOT be defeq), AXIOMS 8, CLOSURE (transitive ConstantInfo walk + 4 negative controls). Signature/defeq checks, NOT semantic counterexamples.
 
 /-! # DC-CONNECT abstract units: checks (scripts/gen5/DC_CONNECT_FREEZE.md rev3 §4.1)
