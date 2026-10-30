@@ -1,7 +1,7 @@
-# M4: fallback / legacy / memo-hit success routes — freeze (rev2, FOR REVIEW; rev1 = f92e2410)
+# M4: fallback / legacy / memo-hit success routes — freeze (rev3, FOR REVIEW; rev1 = f92e2410, rev2 = a7f9753b)
 
 - **Issue:** `sparkle-gen4-fallback-supply` (milestone `sparkle-gen4`; depends on `sparkle-gen4-routes`, done).
-- **Base:** branch `kjob/g4fb-d0ddc50b` at d0ddc50b. All `file:line` below are at that SHA. `Sparkle/Compiler/Elab.lean`
+- **Base:** branch `kjob/g4fb-d0ddc50b` at d0ddc50b (rev3 is written on `kjob/g4fb-r3`, branched from a7f9753b). All `file:line` below are at that SHA. `Sparkle/Compiler/Elab.lean`
   is identical to `par/gen2-spec` there, so the lines in `scripts/gen2/ROUTE_CENSUS.md` still apply.
 - **Status:** docs only. No Lean, no build, no production edit. This freeze has to be approved before any Lean is written.
 - **Sources read:** `scripts/gen2/GENERAL_SPEC.md`, `GEN2_DEFS.lean.txt`, `ROUTE_CENSUS.md`; `Tools/ShippingGen2Defs.lean`;
@@ -17,7 +17,47 @@ premise in a later check is a rejection by signature/defeq, never a semantic cou
 
 ---
 
-## 0. rev2: response to the review of f92e2410 (R1–R3)
+## 0. rev3: response to the review of a7f9753b (R1–R3) and unification with the gate Issue
+
+Nothing is withdrawn except what each item says. FG is not narrowed; no shared definition, law or compiler file is edited. The gate Issue's files are not edited.
+
+**U. Unification with the gate side (`sparkle-gen4-gate-supply`).**
+Read: `git show kjob/g4gate-r2:scripts/gen4/GATE_SUPPLY_FREEZE.md` at 3aab70fc (§3.0 and Q2). Its status in the Issue: U-G1 (child interface extraction) is **approved** for implementation, with `ChildIface` as the leading basis; the fallback side must not implement a parallel interface or a second file of the same name, and must present an import/adapter proposal.
+- **Owner / order.** The gate Issue owns `ChildIface` and `Tools/ShippingGen4Iface.lean` (U-G1, base `06b8ca92`, whose `Tools/ShippingGen2Defs.lean` is byte-identical to d0ddc50b's per the gate freeze). The fallback Issue is the second approved side, so by the gate rule (Q2) it supplies the bridge **in its own file only**. Order: (1) gate U-G1 lands; (2) fallback adds its adapter/bridge file importing it; (3) neither edits the other's files. **Until (1) is built, no fallback Lean is written.**
+- **Reference SHA for the common interface.** `ChildIface` = the text of gate freeze §3.0 at 3aab70fc, to be re-checked against the gate branch SHA that actually builds U-G1 (the unit's note records that SHA). `ChildShips` of Defs at d0ddc50b (Gen2Defs.lean:87-90) is the reference both sides are equal to.
+- **Decision.** rev1/rev2's `IfaceData`/`Pkg.iface`/`ChildShipsD`/`childShips_iff` (rev2 §5.1) are **not implemented** by this Issue. They are replaced by the gate's names (table below). No second interface record, no second `Tools/ShippingGen4Iface.lean`.
+
+| fallback rev2 | gate `ChildIface` (U-G1) | relation |
+|---|---|---|
+| `IfaceData.bsC : List (Name × MixedGateBinder)` | `ChildIface.bsC` | same type; both `q.d.bsIn.take q.kD` for a package |
+| `IfaceData.outsC : List OutField` | `ChildIface.outsC` | same type; both `q.d.shape.layout.outs` |
+| `IfaceData.S : ι → (Nat → List Nat) → List (Nat → Nat)` | `ChildIface.S` | same type; both `q.S` |
+| (none) | `ChildIface.decl : Name` | extra field in the gate record; fallback needs it for `q.decl = c` and it is `q.decl` for a package |
+| `Pkg.iface q` | `ChildIface.ofPkg q` | same definition up to the `decl` field: `Pkg.iface q` = `ofPkg q` with `decl` forgotten |
+| `ChildShipsD I n mc Dc` | `ChildShipsI I n mc Dc` | same body (Defs:87-90 with the three reads replaced); neither reads `decl` |
+| `childShips_iff q … : ChildShips q ↔ ChildShipsD q.iface` | `childShipsI_ofPkg q … : ChildShipsI (ofPkg q) ↔ ChildShips q` | gate's lemma is the same statement, `Iff.rfl` |
+| rev2 `∃ q n, P c = some q ∧ q.decl = c ∧ ChildShipsD q.iface n b D` | `ShipsResI` conjunct `∃ I n, Q c = some I ∧ I.decl = c ∧ ChildShipsI I n r.1 r.2`, with `Q = P.iface`, and `shipsResI_iface` | the fallback conclusion is stated with the gate's `ChildShipsI (ChildIface.ofPkg q)`; `shipsResI_iface` links it to `ShipsRes` |
+If a later change makes the correspondence non-trivial, the adapter (`IfaceData.toChildIface (decl) …` with a field-equality lemma, in the fallback file) is added then; with the table above no adapter definition is needed, and none is introduced now.
+
+**R1 — LegacyChildShips lacked a current-`c` package/route hypothesis (LegacyChildShips removed from the first unit).**
+The reviewer's finding is accepted: `InvAt` constrains cache entries and `IHAt` deep successful runs; neither provides a package for the *current* `c`, rev2 §5.3's sentence "`P c` from `T1Hyp.pkg`" had no hypothesis in the type, and the whole `T1Hyp` cannot be added because its `closes` excludes R4.
+rev3: `LegacyChildShips` is **not part of the first unit** and is not frozen as a Lean type here. §5.3 keeps only the *requirements* a later R4-local statement must state explicitly (listed there); it is not a type to implement.
+
+**R2 — `TookLegacyTail` is an existence predicate (renamed and limited).**
+It says: there exist an environment, constant and two worlds with a run of `legacyTail` returning `(raw, D)`. Those worlds are not linked to the core run, so it is **not** evidence about THIS run. It is renamed `LegacyTailRunExists` and described only so (§5.2). No connection to the core run's decomposition is typed in rev3 (that is a later lemma, §5.2).
+
+**R3 — "creating the bundle is necessarily a new law / user decision" is withdrawn.**
+A memo/law bundle splits into two different things (§5.6, §7):
+(a) **re-packaging or conditional transport of existing laws** (e.g. relating `RefLawsM` and `RefLawsAOps` instances by a lemma, or carrying `RefLawsM` as a hypothesis of a theorem): not shown to be a new law; whether it is enough is not established here. Design work, no user decision implied.
+(b) **adopting a new real-environment guarantee as an assumption** (a law about the runtime that no existing law states): only this needs a user decision.
+Which of (a)/(b) a given memo statement needs is OPEN; rev3 does not claim either.
+
+**Kept from rev2 (accepted by the reviewer):** memo vs raw vs post-processed separation, outer/nested start separation; the general supply of the fallback/legacy/memo successes is **OPEN**, K4 remains unproved.
+
+---
+
+## 0b. rev2 text (kept for reference; superseded where rev3 §0 says so)
+
 
 Nothing in rev1 is withdrawn except what each item below says. FG is not narrowed; no shared definition, law or compiler file is edited.
 
@@ -187,92 +227,58 @@ for ONE leaf `("out", leafOf ids)`, **provided the premise `LegacyDom … (leafO
 
 All new names, new file, additive. Nothing here edits `Pkg`, `ChildShips`, `TopShips`, `T1Hyp`, `Laws`, `Start` or any shared file.
 
-### 5.1 `IfaceData`, `Pkg.iface`, `ChildShipsD`, bridge (unit 1)
-```lean
-namespace Tools.ShippingGen2
-variable {ι : Type} {dom : ι → DomainConfig}
+### 5.1 Common interface: provided by the gate Issue (rev3: no fallback definition)
+rev2's `IfaceData`/`Pkg.iface`/`ChildShipsD`/`childShips_iff` are replaced by the gate's `ChildIface`/`ChildIface.ofPkg`/`ChildShipsI`/`childShipsI_ofPkg` (table in §0). This Issue adds nothing here; fallback statements that need an interface use `ChildShipsI (ChildIface.ofPkg q)`.
+Dependency: gate U-G1 must be built first. If the built U-G1 differs from gate freeze §3.0 (3aab70fc), the table of §0 is re-checked field by field and re-frozen before use.
 
-/-- Exactly the three things `ChildShips` reads from `q`. A projection of a package; NOT a supply. -/
-structure IfaceData (ι : Type) (dom : ι → DomainConfig) where
-  bsC  : List (Name × MixedGateBinder)
-  outsC : List OutField
-  S    : ι → (Nat → List Nat) → List (Nat → Nat)
-
-noncomputable def Pkg.iface (q : Pkg ι dom) : IfaceData ι dom :=
-  ⟨q.d.bsIn.take q.kD, q.d.shape.layout.outs, q.S⟩
-
-def ChildShipsD (I : IfaceData ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Design) : Prop :=
-  ∀ (dsn : Design), (∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g) →
-    moduleByName dsn.modules mc.name = some mc →
-    ∀ (i : ι), ChildRunN (childMap dsn.modules) dsn n mc I.bsC I.outsC (I.S i)
-
-theorem childShips_iff (q : Pkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Design) :
-    ChildShips q n mc Dc ↔ ChildShipsD q.iface n mc Dc := Iff.rfl   -- expected; if it is not defeq the unit stops and reports
-end Tools.ShippingGen2
-```
-(`Pkg.S` is `noncomputable`, hence `Pkg.iface` is too.) `ChildShipsD` does not by itself tie `I.S` to a source; §5.3 does.
-
-### 5.2 `TookLegacyTail` (unit 1) — route evidence of THIS run
+### 5.2 `LegacyTailRunExists` (renamed from `TookLegacyTail`) — an EXISTENCE predicate
 Pattern of `MachineRunJQC` (ShippingServedRealA.lean:90-95). `legacyTail` is the verbatim copy of the memo-read + legacy arm of `synthesizeFromConst` (ShippingMachineOutcomeA.lean:54; `TranslateFn` is its translator type).
 ```lean
-def TookLegacyTail {mref cref} (O : RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref)
+def LegacyTailRunExists {mref cref} (O : RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref)
     (mctx : Meta.Context) (cctx : Core.Context) (n : Nat) (c : Name)
     (raw : Sparkle.IR.AST.Module) (D : Design) : Prop :=
   ∃ (tenv : Lean.Environment) (b : Bool) (ci : ConstantInfo) (w9 w10 : Void IO.RealWorld),
     RunsTo (legacyTail (fun e hint top named => translateExprToWire tenv e hint top named)
       (profLogIO b) c [] false ci) mctx mref cctx cref w9 (raw, D) w10 ∧ JQC O n w9
-
-abbrev TookLegacyTailL {mref cref} (L : Laws mref cref) := TookLegacyTail L.O (mref := mref) (cref := cref)
 ```
-Facts about what this predicate is and is not:
-- It is satisfied by a run of the WHOLE tail, so it covers both the memo-hit step and the legacy build (R5 and R6 of §1) — `legacyTail` begins with the memo read. It cannot separate them: that needs `mval`, a memo law (§5.6).
-- The worlds `w9`/`w10` are existential and are not linked to the core run's start/end worlds. The link is a separate lemma, not part of unit 1: for R4, `synthesizeFromConst_machine_split2A` (OutcomeA:354, case `r = none`) gives `JQC O n w₂` and the tail run; for R6 direct (`machineShape? = none`) the analogous split has **no** existing theorem (`legacy_entry_walk`, EntryWalk:133, is the nearest and has the `hmach` premise, U8).
-  The same holds for `ci`: it is the constant `entryConst` produced (possibly the unfolded one). The lemma that the core run's tail constant is this `ci` is also part of that later lemma.
-- Unit 1 only states the predicate and type-checks it. No lemma "a core run that did not take R1-R3 satisfies it" is claimed.
+What it is, and the restriction that is fixed:
+- It says: some environment `tenv`, constant `ci` and worlds `w9 w10` admit a run of `legacyTail` that returns `(raw, D)`, with `JQC` at `w9`. It is an existence statement about a tail run. **It is not evidence that THIS core run took the tail**: `w9`/`w10`/`ci`/`tenv` are existential and not linked to the start/end worlds of any `synthesizeCombinationalCore` run.
+- It covers the whole tail (memo read and legacy build, R5 and R6 of §1); separating them needs `mval` (§5.6).
+- Connecting it to a core run (same worlds, same `ci` from `entryConst`) is a **separate, later lemma/type**, not defined in rev3: for R4, `synthesizeFromConst_machine_split2A` (OutcomeA:354, case `r = none`) gives `JQC O n w₂` and the tail run for the same run; for R6 direct (`machineShape? = none`) no analogous theorem exists (`legacy_entry_walk`, EntryWalk:133, has the `hmach` premise, U8). A later statement that wants run evidence will either use that split's decomposition or add a type that ties the same core run; this is OPEN.
+- If only the existence predicate is extracted (the case in rev3), nothing is claimed about which route a given run took.
 
-### 5.3 The source tie (R1) — shape of the producer statements
-```lean
-/-- R4-tail producer: a reached declaration whose machine attempt declined and whose run took the tail ships
-    AS ITS PACKAGE: the module is run against `q.S`, the source function of `P c`. -/
-def LegacyChildShips {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) : Prop :=
-  ∀ (c : Name) (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld)
-    (raw b : Sparkle.IR.AST.Module) (D : Design),
-    Reach c → AdmCtx L.O.quiet mctx cctx → InvAt L P Reach (dv w) w →
-    IHAt L P Reach (dv w + 1) → ChildKeepsInv L P Reach (dv w + 1) →
-    RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (raw, D) w' →
-    (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨ b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
-    TookLegacyTail L.O mctx cctx (dv w + 1) c raw D →
-    ∃ (q : Pkg ι dom) (n : Nat), P c = some q ∧ q.decl = c ∧ ChildShipsD q.iface n b D
-```
-- The `q` in the conclusion is the package of the REACHED name `c` (`T1Hyp.pkg`). The statement carries no free interface. `I.S` is `q.S`, built from `q.src`.
-- The obligation "implements the source" is `ChildRunN` inside `ChildShipsD`: for every input stream within range and every reset start, `RunOn` of `b` yields the values of `q.S`. It is the producer's to prove; it is not a premise.
-- `LegacyDom`/`Contract` (§4) would be one input to a proof of this; as of rev2 they cover the scalar combinational fragment under a hypothesised `LegacyDom` (U1-U8), so `LegacyChildShips` has no supplier found in this investigation.
-- Scope: this is the form for names that have a package, i.e. under the current `T1Hyp`, **R4 tails**. The R6-direct case (`machineShape? = none`) is **not typable** here without a source interface for packageless declarations (D-IFACE). It is not covered by this definition and not assumed.
-- The `T1Hyp.closes` field excludes R4. Using `LegacyChildShips` in FG means replacing that exclusion by a case split — an edit of `T1Hyp` (shared, not made here, user-approval item, §7).
+### 5.3 Requirements for a later R4-local producer statement (NOT a type; not in unit 1)
+rev2's `LegacyChildShips` is removed from this freeze as a Lean type (R1). A later unit may state an R4-local producer; before that, its freeze must give a **complete type** satisfying all of the following. Listed as requirements, not as a definition:
+1. It is R4-local: hypotheses say that `machineShape? = some shape` for the *current* `c` (after the environment/`entryConst` handling), that `synthesizeMachineCertified` returned `none` for it (N1 or N2), and the run is the nested one of §5.4. The whole `T1Hyp` is **not** added (`T1Hyp.closes` excludes R4; adding it would exclude the case).
+2. The current-`c` package is a **hypothesis of the statement itself**: `P c = some q`, `q.decl = c`, and the tie from `q` to the declaration actually run (`q.d.shape` equals the shape `machineShape?` returned for `c`; the source `q.src` is the one the module is to implement). `InvAt`/`IHAt`/`ChildKeepsInv` constrain cache entries and deeper runs and are not a source of this package.
+3. The conclusion is of the form `ChildShipsI (ChildIface.ofPkg q) n b D` (gate names), with `b` the post-processed result (§5.5); `ChildRunN` inside is the producer's obligation, never a premise.
+4. Run evidence for the tail (R2): either the decomposition of the same core run (`synthesizeFromConst_machine_split2A`) or a type tying the worlds; `LegacyTailRunExists` alone is not enough.
+5. R6-direct (`machineShape? = none`) has no `Pkg` under the current `T1Hyp`; it needs a source interface (D-IFACE, §7) and is not covered.
+Whether a producer meeting 1-4 is provable is OPEN: this investigation found no supplier of the legacy contract (§4, §6).
 
 ### 5.4 Two start conditions (R3)
 | | outer root | recursive (nested) producer |
 |---|---|---|
 | world | `Start L mctx cctx w` = `AdmCtx ∧ JQC L.O 0 w`; depth 0; `sparkleChildCache`/memo empty after E5 | `InvAt L P Reach (dv w) w`, `dv w` arbitrary < limit; `sparkleChildCache` holds earlier `ShipsRes`; memo may be non-empty |
 | extra hypotheses | none beyond `T1Hyp` | `IHAt (dv w + 1)`, `ChildKeepsInv (dv w + 1)` (Gen2Defs.lean:255-259 pattern) |
-| conclusion | top: `∃ q n, P c = some q ∧ TopShips q n c b raw D` (T1Stmt's form) | child: `ChildShips`/`ChildShipsD` for the post-processed `b` |
+| conclusion | top: `∃ q n, P c = some q ∧ TopShips q n c b raw D` (T1Stmt's form) | child: `ChildShips`/`ChildShipsI` for the post-processed `b` |
 | covers fallback / legacy / memo of a child? | no — a child run is not at depth 0 | yes |
-`LegacyChildShips` of §5.3 is the recursive form. The outer-root form (`LegacyTopShips`, conclusion `TopShips q n c b raw D` with `Start`) is not typed in rev2: `TopShips` reads machine fields (`p.d.ss`, `p.extS`, `p.src`, `p.kD`) whose meaning for a legacy module's registers/slots is part of D-IFACE.
+A statement of §5.3 would be the recursive form. The outer-root form (`LegacyTopShips`, conclusion `TopShips q n c b raw D` with `Start`) is not typed in rev2: `TopShips` reads machine fields (`p.d.ss`, `p.extS`, `p.src`, `p.kD`) whose meaning for a legacy module's registers/slots is part of D-IFACE.
 A nested R5/R6 under a parent is therefore never covered by a `Start`-based statement. Neither is the converse.
 
 ### 5.5 Raw memo vs post-processed child (R3)
 - `memo[n]` = `raw` core result (K2); `childCache[n]` = post-processed (`dropZeroWidthModule`, `mergeChecked` unless `SPARKLE_NO_REGDEDUP`).
 - A child `c` reached through `synthesizeChild` yields the post-processed result to the parent; `ShipsRes` (`IHAt`) is about it. A nested run that returns a memoised `raw` therefore returns through `synthesizeCombinationalWith`'s post-processing again, and `b` is that post-processed form.
-- Hence a memo-side invariant is of the form `MemoInv M (fun n r => Reach n → ∀ b, PP r.1 b → ∃ q n', P n = some q ∧ q.decl = n ∧ ChildShipsD q.iface n' b r.2)` with `PP raw b := b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw)`. This is a **shape**, not a definition of rev2 (needs `M`, §5.6).
+- Hence a memo-side invariant is of the form `MemoInv M (fun n r => Reach n → ∀ b, PP r.1 b → ∃ q n', P n = some q ∧ q.decl = n ∧ ChildShipsI (ChildIface.ofPkg q) n' b r.2)` with `PP raw b := b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw)`. This is a **shape**, not a definition of rev2 (needs `M`, §5.6).
 - The transport lemma "ChildShips of `raw` ⇒ of `PP raw`" (the post-processing steps preserve `ChildRunN`) is an obligation of the producer too (it is G-TRANSPORT/G-LIFT territory of Gen2Defs); not proved, not assumed.
 
 ### 5.6 Memo side: separated and undesigned
-Not typed in rev2: a memo law bundle for the `Laws` of Gen2Defs (`Laws` has `O`, `T`; `mval` is in `RefLawsM`, which `extends RefLaws`, while `O : RefLawsAOps`; whether one world interpretation can satisfy both without a **new law** is not established),
-`MemoInvShips`, `MemoHitShips`, the K4 invariant `memo-names ⊆ childCache-names ∪ {top}`. Any such bundle/mapping is a new law = a user decision (§7, D-MEMO-LAW). K4 remains a reading of the source, **not proved**. Until this part is designed, the memo-hit case of `TookLegacyTail` (§5.2) is uncovered by any conclusion.
+Not typed in rev2: a memo law bundle for the `Laws` of Gen2Defs (`Laws` has `O`, `T`; `mval` is in `RefLawsM`, which `extends RefLaws`, while `O : RefLawsAOps`; whether one world interpretation can satisfy both by transport of existing laws, or only by a new assumption, is not established),
+`MemoInvShips`, `MemoHitShips`, the K4 invariant `memo-names ⊆ childCache-names ∪ {top}`. Whether such a bundle/mapping is only a re-packaging or conditional transport of existing laws (design work) or adopts a new real-environment guarantee (the only case needing a user decision) is OPEN (§0 R3, §7 D-MEMO-LAW). K4 remains a reading of the source, **not proved**. Until this part is designed, the memo-hit case of `TookLegacyTail` (§5.2) is uncovered by any conclusion.
 
-### 5.7 First implementation unit (applies only after the freeze is approved)
-New file only (e.g. `Tools/ShippingGen4Iface.lean` + `lean_lib` entry in lakefile.lean; imports `Tools.ShippingGen2Defs`, `Tools.ShippingMachineOutcomeA`):
-`IfaceData`, `Pkg.iface`, `ChildShipsD`, `childShips_iff`, `TookLegacyTail`, and the **statement** `LegacyChildShips` of §5.3 (a `def … : Prop`; no proof). Plus an `EnvQCheck`-style check file: types of every definition, `childShips_iff` axioms, and signature-level mutants (e.g. replacing `q.iface` by a free `I`, dropping `P c = some q`, `Start` for the `InvAt` list) rejected by signature/defeq. Those mutants are rejections by type checking, **not** semantic counterexamples.
+### 5.7 First implementation unit (applies only after rev3 is approved AND gate U-G1 is built)
+Contents (small, definitions only): the `LegacyTailRunExists` definition of §5.2, in a new file of this Issue (e.g. `Tools/ShippingGen4FbTail.lean` + `lean_lib` entry in lakefile.lean; imports `Tools.ShippingGen2Defs`, `Tools.ShippingMachineOutcomeA`), and a check file that records its type and `#print axioms`, plus signature-level mutants (e.g. dropping `JQC O n w9`; replacing `legacyTail … ci` by another term) rejected by signature/defeq — **not** semantic counterexamples.
+It contains: no interface record (gate U-G1), no `LegacyChildShips`, no memo definition, no claim about a run. If gate U-G1's built text differs from §0's table, the unit does not start until the table is re-frozen.
 No sorry/axiom/native_decide. Not started. It claims no supply of any legacy or memo condition.
 
 ## 6. Supply paths for the unsupplied legacy contract / memo conditions, and where each stops
@@ -304,13 +310,13 @@ under a hypothesised `LegacyDom`. Paths L-2 (and any D-IFACE option that changes
   would be outside the proved guarantee, or covered by a stated contract. Accepting that is a user decision; scope reduction is not made here.
 - **D-GUARD.** Rejecting R4 at compile time (a compiler guard making machine declines an error) is a compiler change under the output policy; not proposed for approval here.
 
-- **D-MEMO-LAW.** A memo law bundle usable with `Laws` (§5.6) is a new law; undesigned. Memo-hit coverage waits for it.
+- **D-MEMO-LAW (conditional).** A memo law bundle usable with `Laws` (§5.6): if it is a re-packaging or conditional transport of existing laws, no user decision; if it adopts a new real-environment guarantee as an assumption, that part is the user's decision. Which holds is undesigned/OPEN. Memo-hit coverage waits for the design.
 
-If this freeze is approved, the first Lean unit is §5.7 (new file; definitions and one statement; no supply). The memo side (§5.6), L1-L4 and M-1 remain read-only research until their own design is frozen.
+If this freeze is approved, the first Lean unit is §5.7 (new file; one existence-predicate definition; no supply; after gate U-G1 is built). The memo side (§5.6), L1-L4 and M-1 remain read-only research until their own design is frozen.
 
 ## 8. What is NOT claimed
 - No statement that a fallback, legacy or memo-hit success is impossible, non-derivable or unreachable. K4 is a reading of the source, not a theorem.
 - No result about the corpus (which declarations fall back); N2/`kidsCombB` is read from code, not measured.
 - No change to FG, `T1Hyp`, `GenWF`, TRUSTED boundaries or any law. `T1Hyp.closes` is described, not edited.
 - Nothing here is conditional-on-new-hypothesis presented as done; §6 lists where each path stops.
-- rev2 does not claim that `LegacyChildShips` is provable, that R6-direct is coverable, or that any memo statement holds; K4 is unproved; no Lean was written or built.
+- rev3 does not claim that an R4-local producer is provable, that R6-direct is coverable, or that any memo statement holds; K4 is unproved; `LegacyTailRunExists` is an existence predicate and is not evidence about a given run; no Lean was written or built.
