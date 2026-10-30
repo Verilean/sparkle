@@ -591,6 +591,9 @@ the bases are re-recorded and the trial is repeated.
 - **The merge itself is a user operation.** Creating `par/gen3-combined` and merging 96cbd548 into it, and any later
   integration into poc, are done by the user or on the user's explicit instruction. Approval of this plan is not
   approval of the merge.
+  - 2026-10-30: the user gave that explicit instruction for S1 (local only). The coder created `par/gen3-combined`
+    from d0ddc50b and merged 26f5d72a (merge 31a3fdfa; scripts/gen3/S1_MERGE_REQUEST.md status, Issue
+    `sparkle-gen3-s1-combined`). Integration into poc/main and any push remain user operations.
 
 **Sequence (serial; each numbered step is one buildable SHA or a series of them):**
 0. **Now, no shared edit (new files only).**
