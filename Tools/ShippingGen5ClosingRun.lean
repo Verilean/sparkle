@@ -5,7 +5,7 @@ import Tools.ShippingGen2Keep
 import Tools.ShippingGen2KeepChild
 import Tools.ShippingGen2DataBridge
 set_option autoImplicit false
--- NOT BUILT: written at 25be9f8c (scripts/gen5/DG_CLOSINGRUN_FREEZE.md rev0, limited approval); the clean build is run by the coder.
+-- Built in the Pod (kjob lake build Tools.ShippingGen5ClosingRun, exit 0, standard axioms) on the tree of 0bdad261; NOT a clean issue-linked build (the coder runs that).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # DG-CLOSINGRUN (scripts/gen5/DG_CLOSINGRUN_FREEZE.md)
