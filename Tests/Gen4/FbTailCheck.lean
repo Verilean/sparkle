@@ -1,7 +1,7 @@
 import Tools.ShippingGen4FbTail
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (unit FB-1 check).
+-- BUILT (unit FB-1) at b9acd902: TYPE OK, 3 MUTANT signature/defeq REJECTED (not semantic counterexamples), AXIOMS OK [propext, Classical.choice, Quot.sound].
 /-! # Checks for `LegacyTailRunExists` (scripts/gen4/FALLBACK_SUPPLY_FREEZE.md rev3 §5.2)
 1. TYPE: against an independent copy of the frozen statement. 2. MUTANT: signature/defeq rejections, NOT semantic
 counterexamples. 3. AXIOMS. -/

@@ -1,7 +1,7 @@
 import Tools.ShippingGen2Defs
 import Tools.ShippingMachineOutcomeA
 set_option autoImplicit false
--- NOT BUILT (unit FB-1, scripts/gen4/FALLBACK_SUPPLY_FREEZE.md rev3 §5.2/§5.7).
+-- BUILT (unit FB-1) at b9acd902: kjob lake build Tests.Gen4.FbTailCheck exit 0 (703 jobs). Intermediate definition, not a supply result.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Definition only; not a supply result.
 
 /-! # `LegacyTailRunExists` (existence predicate)
