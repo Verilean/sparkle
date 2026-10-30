@@ -1,11 +1,26 @@
-# DC-CONNECT: DeclConnect on the actual source — abstract core (accepted scope) + Part C complete-type freeze for review (rev4)
+# DC-CONNECT: DeclConnect on the actual source — abstract core (accepted scope) + Part C complete-type freeze for review (rev5)
 
 Issue `sparkle-gen5-dc-connect` (parent `sparkle-gen5-decl-bridge`; units DC-FORM / DC-SUPPLY / DG-DECLCONNECT).
 Base: `kjob/g5dc-r3` 08e97dba (abstract U1-U6 and check rev3: scoped approved by the reviewer; Part C reported as unfrozen, which was correct).
 Design sources (read with `git show par/gen5-t2:...`, c398021c): `DGEN_FREEZE.md` rev2 §2.6 (cited `DGEN:§2.6`), `T2COVER_FREEZE.md` rev2 §2,
 `DG_ENV_FREEZE.md` rev2.2, and `scripts/gen2/GENERAL_SPEC.md` (FG §1.1 lines 88-93, M5 lines 488-507, §6 table line 535).
 
-**Revision rev4 (this revision; docs only, no Lean file is added or edited).** Part C is rewritten as a complete-type freeze PROPOSAL for review.
+**Revision rev5 (this revision; answers the reviewer's `changes_requested` on rev4 335817c3).** Docs part: R1-R3 below. Lean part (committed separately,
+agent build only, NOT a clean issue-linked build): U-UNIV (`Tools/ShippingGen5DeclConnectAbs.lean` `variable` line only), U-SHAPE1/U-SHAPE2/U-ROWS
+(`Tools/ShippingGen5DeclConnect.lean`, new file) and the audit `Tests/Gen5/DeclConnectCheck.lean` (§C.8, built SHA 68f1be34). `FG_COMPLETE` and `ConstValueE`
+are NOT in Lean: R1 changes the `FG_COMPLETE` statement and awaits approval of §C.3 rev5.
+- **R1** (§C.3): the rev4 `FG_COMPLETE` is a *conditional schema*. With `Post = False`, or `GP = none`, or `CV` empty the raw/package/DeclConnect parts hold vacuously, and a
+  functionality statement holds for an empty `CV`. rev5 separates the conditional schema (`FG_COND`) from the final connection (`FG_CONNECT`), which adds an explicit
+  obligation: for the SAME real entry witness there is a `raw` with `Post b raw` and a package `GP env₀ declName = some p`. While M4's `Post`/`ReflectsAll` are not defined in Lean
+  the whole is an INTERMEDIATE (parametrized) statement and is not called complete.
+- **R2** (§C.6): a prim table that is functional in `Name` does NOT by itself give `ConstValueFunctional` (a `const-unfold` derivation and a `const-prim` derivation for the same `Name`
+  may both exist). The rules, the exclusivity/consistency condition and the functionality proof are PLANNED, not claimed. It is not established that a new TRUSTED boundary is required;
+  the decision document is rewritten on that basis (no decision is asked at this stage).
+- **R3** (§C.3, §C.8): the R-G `TopShips` strengthens the no-clock/no-reset guarantee (its premises are weaker, so the conclusion covers more runs); rev4 said "weaker". An `inferType`
+  comparison cannot see a change of `TopShips`' body; the check pins the body/pair of the contract, or the contract is explicitly tied to the existing R-G audit (§C.3).
+- The Bool observation mutant of rev4 (an identity on a `Bool` result) was ill-typed against a `Nat` result; the audit uses well-typed changes (§C.8).
+
+**Revision rev4 (previous; docs only).** Part C is rewritten as a complete-type freeze PROPOSAL for review.
 The old §1.1-§1.3, §2, §3 and §4a of rev3 are replaced by §C.1-§C.8 below; Part A (§4, §4.1, the accepted abstract core) is kept verbatim.
 What rev4 does, against the six asks of the brief:
 1. `FG_COMPLETE` is bound from the Lean text: every binder type is copied from a named file:line, and the statement was elaborated against the real
@@ -28,11 +43,11 @@ Earlier revisions: rev3 answered review R1-R3 on b99edb6b (audit/doc only). rev2
 
 | part | content | status |
 |---|---|---|
-| **A. Accepted abstract core** | §4 U1-U6 in `Tools/ShippingGen5DeclConnectAbs.lean` and the audit `Tests/Gen5/DeclConnectAbsCheck.lean` | Lean written; clean issue-linked build dc3v-08e97dba exit 0; scoped approved at 08e97dba. Abstract; says nothing about the actual source. Change proposed by rev4: U-UNIV (§C.8), universe of `Pk` only, proofs unchanged |
-| **C. Concrete design: complete-type freeze PROPOSAL** | §C.1-§C.8 | design text; no Lean committed. Every Lean block was elaborated in a local scratch file (not evidence, not committed); the three agreement lemmas of §C.2 are statements with scratch proofs absent except `outPorts_eq`. Submitted for freeze review now |
+| **A. Accepted abstract core** | §4 U1-U6 in `Tools/ShippingGen5DeclConnectAbs.lean` and the audit `Tests/Gen5/DeclConnectAbsCheck.lean` | Lean written; clean issue-linked build dc3v-08e97dba exit 0; scoped approved at 08e97dba. Abstract; says nothing about the actual source. U-UNIV (universe of `Pk` only, proofs unchanged) is implemented at cef857c6 (agent build; the audit re-run passes: TYPE 8, MUTANT 8, U-UNIV, AXIOMS 8, CLOSURE 8 + controls); it is an edit of an accepted file and awaits the clean build and review |
+| **C. Concrete design: complete-type freeze PROPOSAL** | §C.1-§C.8 | §C.2 (shape vocabulary, recognizer, agreement lemmas, `DeclConnect` instance, conditional rows) is now Lean in `Tools/ShippingGen5DeclConnect.lean` + `Tests/Gen5/DeclConnectCheck.lean` (agent build 68f1be34, exit 0, no `sorry`, standard axioms only; clean issue-linked build is the coder's). §C.3 (`FG_COND`/`FG_CONNECT`), §C.4, §C.5, §C.6 stay design text; no Lean |
 
-Reading rule: Part A can stay accepted without Part C. Part C is the object of this review; concrete Lean (`Tools/ShippingGen5DeclConnect.lean`) starts only
-after the reviewer approves it.
+Reading rule: Part A can stay accepted without Part C. Part C §C.3-§C.6 are the object of the freeze review. The §C.2 Lean was written in parallel, as the brief of this revision
+allows (U-UNIV, §C.2 adapter/recognizer/agreement lemmas, conditional U-ROWS only); nothing of §C.3-§C.6 is in Lean.
 
 Wording rules used throughout:
 - "not supplied" / "this survey found no source or route" is a statement about THIS survey. It is not a claim that something is impossible or underivable.
@@ -257,7 +272,7 @@ This edits an accepted file; its rebuild and a re-run of the Part A audit are pa
 `CV env₀ X sh.Ty v` must carry that `ci.type` denotes `sh.Ty` (rule T of §C.6), otherwise a `v : sh.Ty` unrelated to `X`'s declared type could be offered.
 `DeclConnectImp` (the implication form, INTERMEDIATE, true for the empty relation) is `DCImp` of Part A and is not used for completion.
 
-## C.3 `FG_COMPLETE` (complete binders; owner-premises explicit)
+## C.3 `FG_COND` (conditional schema) and `FG_CONNECT` (final connection obligation); binders complete, owner-premises explicit
 
 FG (GENERAL_SPEC.md:88-93, the schema, not edited):
 `FG : ∀ (L : Laws mref cref) declName (parameters : List (String × Nat)) mctx cctx w b D w', Start L mctx cctx w → (RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (b, D) w' ∨ RunsTo (synthesizeCombinationalWithParameters declName parameters) mctx mref cctx cref w (b, D) w') → ReflectsAll L declName parameters → ∃ p n, Pk declName = some p ∧ TopShips p n declName b raw D`.
@@ -280,15 +295,38 @@ Binder sources (copied, then elaborated, §C.1):
 | `envAt cref w` | `Environment` | `Tools/ShippingEntryReadsLinked.lean:249` |
 | `ReadsAt env₀ cref w` (E1 `readsAt_self`) | `Prop`, 4 conjuncts | `Tools/ShippingGen5Env.lean:29,36` |
 
-**TopShips: S2 vs base.** `kjob/g2tc-s2` fa84af5d (R-G, in review) changes only the BODY of `TopShips` (the premises `∀ t, ins t "rst" = 0` and `∀ t st, seedIn b ins t st "clk" = 0` become `"rst" ∈ b.inputs.map (·.name) → ∀ t, ins t "rst" = 0` and `"clk" ∈ b.inputs.map (·.name) → ∀ t, ins t "clk" = 0`; diffed against the base text);
-its signature `(p n declName b raw D)` is unchanged (a `diff` of the base and S2 `Tools/ShippingGen2Defs.lean` over the `TopShips` block shows only the doc comment and those two premises). `FG_COMPLETE` mentions `TopShips` only as a constant and does not unfold it,
-so its text is the same under both versions; the meaning is the S2 one (weaker for modules without `clk`/`rst` inputs, equal for modules with both). This is S2's guarantee question, recorded here, not decided here.
-Any check that pins the text of `ShippingGen2Defs.lean` must be re-pinned when S2 merges; this unit adds none.
+**Why two statements (R1).** rev4's `FG_COMPLETE` was FG's schema with `Pk := GP env₀`, plus two conjuncts. Read as a final guarantee it is satisfied vacuously in three ways:
+(i) `Post b raw` is a hypothesis (`∀ raw, Post b raw → …`): with `Post := fun _ _ => False` the first conjunct holds for every run, and nothing says a `raw` exists;
+(ii) with `GP := fun _ _ => none`, `DeclConnect` is `∀ X, Tgt X → ∀ p, P X = some p → …` over an empty hypothesis, hence true: it says nothing at `declName` (the package-existence content of rev3/rev4 sat only in the first
+conjunct, which (i) already empties), and
+(iii) `ConstValueFunctional CV` holds for the empty relation (and for any relation with at most one value per name), so it carries no content without a separate non-emptiness fact.
+Hence `Post = False`, `GP = none`, `CV = empty` satisfy all three conjuncts at a run that does exist, in particular when the run has succeeded and the compiler produced `(b, D)`.
+A statement that is a true final guarantee must not be satisfiable by `Post = False`, `GP = fun _ _ => none` or `CV = fun _ _ _ _ => False` at a run that exists.
+rev5 therefore fixes two statements and says which is which:
+- `FG_COND` — the rev4 text, renamed: the **conditional schema**. It is FG with the package assignment as a parameter, plus V2 and `DeclConnect` as stated conjuncts. It is NOT reported as a final guarantee.
+- `FG_CONNECT` — `FG_COND` plus the **connection obligation for the same witness**: for every entry run witness `(declName, parameters, mctx, cctx, w, w', b, D)` that satisfies `Start`, the route disjunct and `ReflectsAll`,
+  (O1) `∃ raw, Post b raw` (the post-processing relation holds for this very `(b, D)`), (O2) `∃ p, GP (envAt cref w) declName = some p`, and (O3) the FG conclusion for every `raw` with `Post b raw`.
+  The conjunct `DeclConnect` is then taken at that same package assignment and the target `TgtRun`, whose `top` constructor contains `declName`, so `DeclConnect` has a package to be about at `declName`.
+M4 has not fixed `Post` or `ReflectsAll` in Lean (below). Until it does, `FG_CONNECT` is a statement PARAMETRIZED by two relations whose satisfiability on the actual entry is exactly (O1) and the premises of FG; it is an INTERMEDIATE,
+not a "complete" form, and the name `FG_COMPLETE` is withheld until `Post`/`ReflectsAll` are definitions and the instantiation is proved.
+
+**TopShips: S2 vs base (R3).** `kjob/g2tc-s2` fa84af5d (R-G; the brief records it as scoped accepted) changes only the BODY of `TopShips`: the premises `∀ t, ins t "rst" = 0` and `∀ t st, seedIn b ins t st "clk" = 0`
+become `"rst" ∈ b.inputs.map (·.name) → ∀ t, ins t "rst" = 0` and `"clk" ∈ b.inputs.map (·.name) → ∀ t, ins t "clk" = 0` (diffed against the base text). Its signature `(p n declName b raw D)` is unchanged.
+**Direction (corrects rev4, which wrote "weaker"):** `TopShips` is a conclusion that holds under input premises. Under R-G the premises are *weaker* (required only when the module has the input), so the conclusion is claimed for MORE executions:
+for a module without a `clk`/`rst` input it now covers all inputs streams instead of only those with `clk = 0`/`rst = 0` it never reads; for a module with both inputs it is the old contract. R-G is therefore a STRENGTHENING of the
+no-clock guarantee (TOP_CONTRACT_REVISION.md §2 R-G), which is S2's guarantee question — recorded here, not decided here.
+`FG_COND`/`FG_CONNECT` mention `TopShips` only as a constant and do not unfold it, so their text is identical under both versions; their MEANING differs. Consequences for the check (§C.8):
+- an `inferType` comparison of `TopShips` (signature) is satisfied by the base AND the S2 text, so it does NOT detect a change of the contract body. rev5 does not rely on it for that purpose;
+- while `TopShips` in this tree is the base version, `FG_CONNECT`'s meaning depends on S2: the dependency is stated explicitly and not hidden. Choice made here: **(a)** an explicit dependence on the existing R-G audit
+  (`Tests/Gen2/TopNCCheck.lean` and its re-pinned `TopShips` checks at `kjob/g2tc-s2` fa84af5d, commit 21342039 "Defs TopShips switched to R-G"): `FG_CONNECT` is reported "relative to the R-G contract as audited there",
+  and the final theorem's closure list names `TopShips` as an owner constant of S2; **(b)** once S2 is merged, `DeclConnectCheck` adds a BODY pin: `TopShips`' `defnInfo` value is compared (same comparator as the other definitions) with an independently written
+  expected body, plus one-change mutants (the `rst` premise restored unconditionally; the `clk` premise restored unconditionally). (b) cannot be written against this tree (it would pin the base text, which S2 replaces); it is listed as a unit, not done.
+Any check that pins the text of `Tools/ShippingGen2Defs.lean` must be re-pinned when S2 merges; this unit adds none now.
 
 **Owner-premises found by the binder audit (no Lean definition in this survey):**
 - `ReflectsAll`: `git grep ReflectsAll` over `par/gen5-t2`, `par/gen3-induct`, `par/gen2-spec`, `kjob/g2tc-s2`, `kjob/g5do-r2`, `kjob/g5sm-u3`, `kjob/g5ac-309a33a9` and this tree finds it only in `.md` text (GENERAL_SPEC.md:92,98,483; DG_ENV_FREEZE.md:217,272). GENERAL_SPEC.md:98 says it is "fixed in M4". Parameter: `ReflectsAll : Laws mref cref → Name → List (String × Nat) → Prop`.
 - `raw`: FG's text leaves `raw` free and says "(b, raw) related by the entry's post-processing" (:93, :100). The only Lean statements that bind `raw` take it from the CORE run and
-  relate `b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw)` (`T1Stmt`, `Tools/ShippingGen2Defs.lean:357-365`). For the ENTRY run `(b, D)` the relation is M4's deliverable. rev4 binds `raw` universally under a relation parameter `Post : Module → Module → Prop` (`∀ raw, Post b raw → …`).
+  relate `b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw)` (`T1Stmt`, `Tools/ShippingGen2Defs.lean:357-365`). For the ENTRY run `(b, D)` the relation is M4's deliverable. rev4/rev5 bind `raw` universally under a relation parameter `Post : Module → Module → Prop` (`∀ raw, Post b raw → …`), and rev5 adds the explicit existence obligation O1 `∃ raw, Post b raw`.
   Two other readings exist: `∃ raw` in the conclusion (adds an existence claim FG does not make) or a second `RunsTo (synthesizeCombinationalCore …)` premise (a different run). rev4 does not choose between a stronger `Post`; whichever M4 supplies must be satisfied by the actual entry, otherwise FG is shrunk. DeclConnect does not use `raw` at all (the two other conjuncts are independent of it).
 - `Pk`: FG's `Pk` is a schema variable. FG-REF is `Pk := genP env₀`.
 
@@ -302,27 +340,59 @@ inductive TgtRun (P : Pkgs ι dom) (declName : Name) : Name → Prop     -- leas
       (ord : (q.d.shape.instOrigins.getD k .ord).child? = none) : TgtRun P declName (q.d.shape.insts[k]'hk).1
 
 open Tools.ShippingEntrySoundness (RunsTo)
-def FG_COMPLETE {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+/-- The hypotheses of FG on one entry run (the witness): the start world, one of the two routes, `ReflectsAll`. Binders as in the table above. -/
+def EntryWitness {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (ReflectsAll : Laws mref cref → Name → List (String × Nat) → Prop) (L : Laws mref cref)
+    (declName : Name) (parameters : List (String × Nat)) (mctx : Meta.Context) (cctx : Core.Context)
+    (w w' : Void IO.RealWorld) (b : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) : Prop :=
+  Start L mctx cctx w ∧
+  (RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (b, D) w' ∨
+   RunsTo (synthesizeCombinationalWithParameters declName parameters) mctx mref cctx cref w (b, D) w') ∧
+  ReflectsAll L declName parameters
+
+/-- CONDITIONAL SCHEMA (rev4's `FG_COMPLETE`, renamed). Not a final guarantee: vacuous at `Post = False`, `GP = none`, `CV = ∅` (see the text above). -/
+def FG_COND {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (ReflectsAll : Laws mref cref → Name → List (String × Nat) → Prop)
     (Post : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module → Prop)
     (GP : Environment → Pkgs ι dom) (CV : ConstValueRel) (L : Laws mref cref) : Prop :=
   ∀ (declName : Name) (parameters : List (String × Nat)) (mctx : Meta.Context) (cctx : Core.Context)
     (w w' : Void IO.RealWorld) (b : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design),
-    Start L mctx cctx w →
-    (RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (b, D) w' ∨
-     RunsTo (synthesizeCombinationalWithParameters declName parameters) mctx mref cctx cref w (b, D) w') →
-    ReflectsAll L declName parameters →
+    EntryWitness ReflectsAll L declName parameters mctx cctx w w' b D →
     (∀ raw, Post b raw → ∃ (p : Pkg ι dom) (n : Nat), GP (envAt cref w) declName = some p ∧ TopShips p n declName b raw D) ∧   -- FG with Pk := GP env₀ (FG-REF)
     ConstValueFunctional CV ∧                                                                                                   -- V2
     DeclConnect CV (envAt cref w) (GP (envAt cref w)) (TgtRun (GP (envAt cref w)) declName)
+
+/-- FINAL CONNECTION (INTERMEDIATE while `Post`/`ReflectsAll` are parameters). For the SAME witness: a `raw` with `Post` exists (O1), a package exists (O2),
+the FG conclusion holds for every such `raw` (O3), and `DeclConnect` is about that package assignment and the closure `TgtRun` of the entry (which contains `declName`). -/
+def FG_CONNECT {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (ReflectsAll : Laws mref cref → Name → List (String × Nat) → Prop)
+    (Post : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module → Prop)
+    (GP : Environment → Pkgs ι dom) (CV : ConstValueRel) (L : Laws mref cref) : Prop :=
+  ConstValueFunctional CV ∧
+  ∀ (declName : Name) (parameters : List (String × Nat)) (mctx : Meta.Context) (cctx : Core.Context)
+    (w w' : Void IO.RealWorld) (b : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design),
+    EntryWitness ReflectsAll L declName parameters mctx cctx w w' b D →
+    (∃ raw, Post b raw) ∧                                                                                                       -- O1
+    (∃ p : Pkg ι dom, GP (envAt cref w) declName = some p) ∧                                                                    -- O2
+    (∀ raw, Post b raw → ∃ (p : Pkg ι dom) (n : Nat), GP (envAt cref w) declName = some p ∧ TopShips p n declName b raw D) ∧   -- O3 (FG-REF)
+    DeclConnect CV (envAt cref w) (GP (envAt cref w)) (TgtRun (GP (envAt cref w)) declName)
 ```
-(Elaborates in scratch with `envAt` copied locally.) Instantiation at integration, none of which is a quantifier of the final theorem: `GP := fun env₀ => genP (K env₀) (hF env₀)` with DG-ACC's `genP`
-(§C.5); `CV := ConstValueE PT₀` — the DCF unit's relation at the adopted table, so there is NO free `V3` (rev3's `ConstValueOk CV V3` is withdrawn: "any `V3`" is not the actual-source meaning);
-`ReflectsAll`, `Post`: M4. `ConstValueOk` is then `ConstValueFunctional (ConstValueE PT₀)`, proved by induction when the table is functional in the `Name`, which is a property of the table (§C.6).
+(`FG_COND` elaborated in scratch at rev4 with `envAt` copied locally; `EntryWitness` and `FG_CONNECT` are the same text with the binders factored and have NOT been elaborated; they are not in Lean.)
+
+Non-vacuity facts the Lean unit must prove about `FG_CONNECT` (planned lemmas, statements only; each is a consequence of the definition, to be checked, not assumed):
+- **NV-Post**: `FG_CONNECT ReflectsAll (fun _ _ => False) GP CV L → ¬ ∃ witness` (any witness gives `∃ raw, False`). So the carrier `Post` is not a way to weaken `FG_CONNECT`: the final instantiation must make the actual entry satisfy O1.
+- **NV-GP**: `FG_CONNECT ReflectsAll Post (fun _ _ => none) CV L → ¬ ∃ witness` (O2 fails). Likewise `GP` cannot be trivialised.
+- **NV-CV**: with `CV := fun _ _ _ _ => False`, `FG_CONNECT` and a witness with O2 give a contradiction (`not_declConnect_of_empty`, concrete form already in Lean, with `TgtRun.top`). So `CV` cannot be trivialised.
+- **NV-witness**: the statement is not vacuous because no witness exists: a successful run of the entry exists on the corpus declarations (this is outside the Lean unit and is the content of FG's premise, not proved here).
+Hence the final guarantee needs ALL of: `Post`/`ReflectsAll` as defined by M4 and satisfied by the actual entry (O1 and the premises of O3), `GP := genP …` (O2, supplied by DG-ACC/DG-SEM/DG-DATAOF/DC-COVER, unsupplied), `CV := ConstValueE …` (unsupplied, §C.6).
+
+Instantiation at integration, none of which is a quantifier of the final theorem: `GP := fun env₀ => genP (K env₀) (hF env₀)` with DG-ACC's `genP` (§C.5); `CV := ConstValueE …` — the DCF unit's relation, so there is NO free `V3`
+(rev3's `ConstValueOk CV V3` is withdrawn); `ReflectsAll`, `Post`: M4. `ConstValueFunctional (ConstValueE …)` is a PLANNED proof (§C.6): the relation's rules, the exclusivity/consistency condition between its
+unfold and prim rules, and the induction are not written and are not claimed.
 
 `env₀ := envAt cref w` is the START world's environment; `ReadsAt env₀ cref w` is E1 (`readsAt_self`). `parameters` appears twice, in the route disjunct and in `ReflectsAll`, as in FG. For a
-parametric run `machineShape?` is `none` (`Elab.lean:5072-5075`: `symbolicMode || !parameters.isEmpty`), so `GP env₀ declName` may be `none`; then the first conjunct is FG's own conclusion failing for that
-run, not a weakening of `DeclConnect`: `FG_COMPLETE` is FG's schema with `Pk := GP env₀` and is as strong as FG is there.
+parametric run `machineShape?` is `none` (`Elab.lean:5072-5075`: `symbolicMode || !parameters.isEmpty`), so `GP env₀ declName` may be `none`; FG's own conclusion then fails for that run unless `ReflectsAll`
+excludes it, so (O2) is the same strength as FG there, not a weakening: the obligation is stated, not hidden.
 
 `TgtRun` has the shape of `T1Hyp.closed`'s `Reach` (`Tools/ShippingGen2Defs.lean:218`); that `TgtRun ⊆ Reach` is G-REACH (unsupplied).
 
@@ -397,8 +467,20 @@ Goal: `CV := ConstValueE PT`, the least relation closed under the rules, so that
 
 Consequences (statements about this survey):
 1. Everything that is not a `Name ↦ Lean term` pair is a definition: rules lit/bvar/lam/app/let/const-unfold and the shape of the typed fragment. Their "correctness" is only that the relation models the kernel's evaluation of these node kinds; it introduces no Name-keyed stipulation.
-2. The functionality `ConstValueFunctional (ConstValueE PT)` follows by induction on the two derivations when `PT` is functional in the `Name` (one row per `Name`). So `ConstValueOk` is not a second assumption beyond the table.
-3. The table is the only place the semantics is stipulated rather than derived. If its rows are accepted as a stated list, GENERAL_SPEC.md:505-506 ("G3-DECL … is a meta-level fact") and the reporting rule make it a NEW TRUSTED boundary: a USER decision. It is NOT adopted here; `scripts/gen5/DC_CONNECT_PRIM_TABLE_DECISION.md` is the decision document (what the table is, options, cost, recommendation, reversibility, what happens if undecided).
+2. **Functionality is NOT derived from the table's uniqueness (R2).** rev4 wrote that `ConstValueFunctional (ConstValueE PT)` follows by induction when `PT` has one row per `Name`. That is not established. One row per `Name` says
+   the prim rule gives one value for a name; it does not say that the prim rule and the const-unfold rule give the SAME value for a name that has both a `defnInfo` value and a table row (the table deliberately covers constants that
+   are not unfolded, e.g. `Signal.register`, `BitVec.*`, which can be definitions), nor that the type-denotation relation `TypeDenotes` (used by `app`/`typeDenotes`) is itself functional. Two derivations for one `Name` with different values
+   would refute functionality. What is needed, and is PLANNED (not written, not claimed):
+   (a) the complete inductive rule list of `ConstValueE` (every rule with its premises and its `Dyn`/valuation typing), as the DCF unit's own freeze;
+   (b) an exclusivity or consistency condition for const-unfold vs const-prim — either a side condition on const-unfold (`c ∉ PT.dom`, which makes the rules disjoint and the induction a case split) or a per-name consistency
+       obligation (the prim's Lean term equals the denotation of the unfolded value), the latter being a fact about the table, not derivable from uniqueness;
+   (c) determinism of lit/bvar/lam/app/let and of `TypeDenotes` under the valuation;
+   (d) the functionality proof by induction on the two derivations, using (a)-(c).
+   Until (a)-(d) exist, `ConstValueFunctional CV` is a conjunct of `FG_COND`/`FG_CONNECT` for an unspecified `CV`, not a theorem about `ConstValueE`.
+3. The table is the place where the semantics is stipulated rather than derived. Whether that makes it a NEW TRUSTED boundary is NOT established: it depends on whether the rows can be written as ordinary definitions with their
+   correctness derived (e.g. the minimal-table option of the decision document) or must be stated as unproved facts. Neither alternative is shown impossible, and no trusted boundary is adopted or required here. If a stated list of
+   unproved rows turns out to be needed, GENERAL_SPEC.md:505-506 and the reporting rule would make it a USER decision; that point has not been reached. `scripts/gen5/DC_CONNECT_PRIM_TABLE_DECISION.md` (rev5) is written on this basis:
+   background and options only, no decision requested now.
 4. How small the table can be made is a survey item this survey did not run: how many distinct constants occur in the accepted `defnInfo` values of the corpus after maximal `const-unfold` is not measured. rev3's claim that "each prim entry corresponds to one reader node kind" is a hypothesis to check (TABLE-COVERAGE), not a result.
 5. Not claimed: that `ConstValueE` is the true kernel semantics; that any table is complete; that the recursion is well-founded (it is an inductive family, so no termination claim is needed).
 
@@ -415,7 +497,7 @@ Status columns: **Exists** = present in a Lean file; **Pure now** = a pure lemma
 | `sigShape?_telescope`, `sigShape?_machOuts`, `outPorts_eq` | structural induction on `Expr`; `cases` | **Pure now** | `outPorts_eq` proved in scratch |
 | `applyArgs_nil/cons`, `SigShape.obs` unfolding | `rfl` | **Pure now** | |
 | `DeclConnect := DCGen …` and its unfolding equation | §C.2 | **Pure now** (after U-UNIV) | `rfl` in scratch |
-| `FG_COMPLETE`, `TgtRun`, `ConstValueFunctional` | §C.3 | **Pure now** as definitions | statement only; the proof is the whole issue |
+| `FG_COND`, `FG_CONNECT`, `EntryWitness`, `TgtRun`, `ConstValueFunctional` | §C.3 | **Pure now** as definitions (not yet in Lean; awaits §C.3 rev5 approval) | statement only; NV-Post/GP/CV are lemmas of the same unit; the proof is the whole issue |
 | `env₀.find? X = some ci` | `entry₀`'s definition (DG-ACC §3) | **Waits** on the file that defines `entry₀` (A1) | pure once it exists; independent of C0 |
 | `ci_of_readsAt`, `envR_of_readsAt` (E4/E5) | `Tools/ShippingGen5Env.lean:52,58` | **Exists** | evidence side only (`MachineDefines`), not DeclConnect's statement; needs C0 |
 | `ReadsAt` at the run's worlds (C0) | DG-ENV | **Unsupplied** | DG_ENV_FREEZE §0 S1 |
@@ -431,8 +513,8 @@ Status columns: **Exists** = present in a Lean file; **Pure now** = a pure lemma
 | row 4 `src = obsR (stateLoop …)` | `X.machine_source` per declaration (`ShippingMachineCommand.lean:2599-2610`); `GenFacts.source` for a package | per declaration **Exists**; uniform **Unsupplied** | |
 | row 5 calls | `Acc` induction (Part A U5/U6) and E1 at the `ext` position (T2COVER §1) | skeleton **Exists**; per-call step = rows 3+4 at the callee | memory entries: DC-SUPPLY |
 | `Tgt X ⇒ P X = some p` | DG-PKGASSIGN (`genP_pkg`, DG-ACC §6) | **Waits** | |
-| `Post`, `ReflectsAll` | M4 | **Unsupplied** | §C.3 |
-| TopShips (R-G) | `kjob/g2tc-s2` | in review | not unfolded by DC |
+| `Post`, `ReflectsAll` (and O1: `∃ raw, Post b raw` on the actual entry) | M4 | **Unsupplied** | §C.3; until supplied `FG_CONNECT` is an intermediate parametrized statement |
+| TopShips (R-G) | `kjob/g2tc-s2` fa84af5d (`Tests/Gen2/TopNCCheck.lean`, brief: scoped accepted) | not merged into this tree | not unfolded by DC; `FG_CONNECT` is relative to the R-G contract as audited there (§C.3 R3); body pin after merge |
 
 ## C.8 Units for the Part C implementation, and the audit plan
 
@@ -440,22 +522,46 @@ Order, each unit in a NEW file or the named edit, built one target at a time in 
 
 | unit | content | needs | state |
 |---|---|---|---|
-| **U-UNIV** | `Tools/ShippingGen5DeclConnectAbs.lean`: `variable {E N CI : Type} {Pk : Type u} {Shape : Type} {Ty : Shape → Type}`; rebuild `Tests.Gen5.DeclConnectAbsCheck` and re-run its TYPE/MUTANT/AXIOMS/CLOSURE | Part A | edit of an accepted file, proofs unchanged; scratch copy elaborates |
-| **U-SHAPE1** | `Tools/ShippingGen5DeclConnect.lean`: `Scalar`, `ResShape`, `SigShape`, `ArgsTy`, `applyArgs`, `SigShape.obs`, `outPorts/ports/ctor?`, `domAt/scalar?/resShape?/sigGo/sigShape?`, `shapeOf`, `ShapeMatches`, `MatchC`, `ObsC`, `DeclConnect`, `ConstValueRel`, `ConstValueFunctional`, `TgtRun`, `FG_COMPLETE` | U-UNIV, `Tools.ShippingGen2Defs` | text of §C.2, §C.3 |
-| **U-SHAPE2** | `sigShape?_telescope`, `sigShape?_machOuts`, `outPorts_eq`, `applyArgs_nil/cons`, `ShapeMatches` decidability if needed | U-SHAPE1 | proofs; `outPorts_eq` has a scratch proof |
+| **U-UNIV** | `Tools/ShippingGen5DeclConnectAbs.lean`: `variable {E N CI : Type} {Pk : Type u} {Shape : Type} {Ty : Shape → Type}`; re-run of `Tests.Gen5.DeclConnectAbsCheck` (TYPE/MUTANT/AXIOMS/CLOSURE) plus a universe check (the seven `Pk`-carrying statements are universe-polymorphic; `Pk := Type` instantiates) | Part A | **implemented** cef857c6 (agent build exit 0; clean build is the coder's); edit of an accepted file, proofs unchanged |
+| **U-SHAPE1** | `Tools/ShippingGen5DeclConnect.lean`: `Scalar`, `ResShape`, `SigShape`, `ArgsTy`, `applyArgs`, `SigShape.obs`, `outPorts/ports/ctor?`, `domAt/scalar?/resShape?/sigGo/sigShape?`, `shapeOf`, `ShapeMatches` (+ `Decidable`), `MatchC`, `ObsC`, `DeclConnectAt`, `DeclConnect`, `ConstValueRel` | U-UNIV, `Tools.ShippingGen2Defs` | **implemented** 68f1be34 (agent build exit 0). NOT in this file: `ConstValueFunctional`, `TgtRun`, `EntryWitness`, `FG_COND`, `FG_CONNECT` (§C.3 rev5 awaits approval) |
+| **U-SHAPE2** | `sigShape?_telescope`, `sigShape?_machOuts`, `outPorts_eq`, `applyArgs_nil/cons`, helpers `scalar?_kind`, `scalar?_outs`, `resShape?_outs`, `sigGo_tele`, `sigGo_outs`, `declConnect_eq` (`rfl`), `declConnect_mono`, `not_declConnect_of_empty` | U-SHAPE1 | **implemented** 68f1be34; no `sorry`; axioms ⊆ {propext, Classical.choice, Quot.sound} |
 | **U-ENTRY** | `entry₀_find`: `entry₀ env₀ X = some E → ∃ ci, env₀.find? X = some ci ∧ E = entryConst …` | DG-ACC A1 (the file defining `entry₀`) | waits |
-| **U-ROWS** | instantiate `dcGen_of_rows` at the concrete `DeclConnect` with the row statements as explicit hypotheses (same as U6, concrete types) | U-SHAPE1 | |
-| DCF | `ConstValueE`, its freeze | decision on the table | after the decision document |
-| final connection | `FG_COMPLETE (…) L` | DG-SEM/DATAOF/ACC/COVER, DCF, M4 | not before |
+| **U-ROWS** (conditional) | `declConnect_of_rows`: `dcGen_of_rows` at the concrete `DeclConnect` with `hstep` as an explicit hypothesis; INTERMEDIATE Acc assembly, supplies none of the rows | U-SHAPE1 | **implemented** 68f1be34 (the step is NOT proved; no row is supplied) |
+| U-FG | `ConstValueFunctional`, `TgtRun`, `EntryWitness`, `FG_COND`, `FG_CONNECT` and the non-vacuity lemmas NV-Post/NV-GP/NV-CV | approval of §C.3 rev5 | not started |
+| DCF | `ConstValueE` (rules, exclusivity/consistency, functionality: §C.6 (a)-(d)) | its own freeze | planned |
+| final connection | `FG_CONNECT (…) L` at `GP := genP …`, `CV := ConstValueE …`, M4's `Post`/`ReflectsAll` | DG-SEM/DATAOF/ACC/COVER, DCF, M4 | not before |
 
-Audit plan for `Tests/Gen5/DeclConnectCheck.lean` (the same discipline as Part A §4.1):
-- **TYPE** (independent `Expected`, not by unfolding): `FG_COMPLETE` is compared against an independently written `∀`-statement with the binder types of the §C.3 table; `DeclConnect`'s unfolding equation by `rfl`; `sigShape?_telescope`, `sigShape?_machOuts`, `outPorts_eq`, `applyArgs_cons` against independent statements; the binder TYPES of `FG_COMPLETE` are also compared to the signatures of `Start`, `RunsTo`, `TopShips`, `synthesizeCombinational`, `synthesizeCombinationalWithParameters` by `inferType` (so a drift of a shared definition is caught, including after S2 merges).
-- **MUTANT** (well-typed, one change; rejection by signature/defeq, NOT a semantic counterexample): `sigShape?` accepting any domain term (drops `domAt`); `applyArgs` starting at `q = 0`; `Scalar.obs .bool` as `toNat`-less identity; `ShapeMatches` without the output conjunct; `ShapeMatches` without `.domain ::`; `FG_COMPLETE` with `Post` dropped (raw free); `FG_COMPLETE` with `TgtRun` replaced by `fun X => X = declName` (narrower `Tgt`); `DeclConnect` with `∃ v` replaced by `∀ v` (the implication form); `shapeOf` ignoring `levelParams`. Each must FAIL the comparison with its `Expected`; each is reported as a signature/defeq rejection.
-- **Behavioural controls** for the executable part (run with `#eval`/`run_cmd` in the check, output recorded): `sigShape?` on the seven declarations of §C.1 (two accepted, five rejected), and on one corpus declaration per `ResShape` constructor once the corpus is named by the reviewer.
-- **AXIOMS**: `checkAxioms` on every theorem; `sorryAx` count 0.
-- **CLOSURE**: the same explicit transitive walk over `ConstantInfo` bodies as Part A with the same negative controls (direct mention, helper def, helper theorem, opaque); the walk must reach no constant of DG-SEM/DG-DATAOF/DG-ACC from U-SHAPE1/U-SHAPE2 (these are pure), and must reach only `Tools.ShippingGen2Defs`/`Pkg` constants from `FG_COMPLETE`'s definition. No `V3`-like free relation parameter may remain in the final instantiation (`CV` is the constant `ConstValueE PT₀`): a CLOSURE negative control for that.
-- **Value closure for the final theorem** (when it exists): an explicit list of the owner constants it reaches (`genP`, `ConstValueE`, `primTable₀`, `ReflectsAll`, `Post`) with positive and negative controls, so a quiet substitution of a trivial `CV` or `GP` is detected.
-
+Audit of `Tests/Gen5/DeclConnectCheck.lean` (implemented at 68f1be34; agent build exit 0; the clean issue-linked build is the coder's). Same discipline as Part A §4.1; every "mutant" is a signature/defeq (or finite-battery) rejection, NOT a semantic counterexample.
+- **TYPE** (independent `Exp*`, compared by `Tests.Gen3.ExpectedType.checkExpected`: binder names, binder infos, types, then the conclusion; a non-syntactic match is logged as `GEN3 DEFEQ`): 14 targets — `declConnect_eq`, `declConnect_mono`, `not_declConnect_of_empty`,
+  `declConnect_of_rows`, `sigShape?_telescope`, `sigShape?_machOuts`, `outPorts_eq`, `applyArgs_cons`, `applyArgs_nil` (theorems) and the VALUES of `ShapeMatches`, `SigShape.obs`, `shapeOf`, `DeclConnect`, `ObsC` (non-recursive definitions).
+  Layering: `declConnect_eq` pins the unfolded `∀ … ∃ …` text; the value of `DeclConnect` is pinned as the `DCGen` instance; the theorems about `DeclConnect` use it as a constant. Not pinned by value: the recursive `sigShape?` family (behaviour battery instead).
+- **MUTANT** (well-typed, one change, rejected by the same comparator): 15 — `declConnect_eq` without the `ShapeMatches` conjunct; `mono` with the inclusion reversed; `not_declConnect_of_empty` without `¬`; `rows` without `hAcc`; `telescope` without the leading domain kind;
+  `machOuts` with the constructor forced to `none`; `outPorts_eq` with `slotsW + 1`; `applyArgs_cons` without `q + 1`; `ShapeMatches` without `.domain ::` and without the output conjunct; `SigShape.obs` starting at position 0; `shapeOf` ignoring `levelParams`;
+  `DeclConnect` as `DCImp` (the implication form); `ObsC` observing the package against itself. `applyArgs_nil` has NO mutant: `applyArgs … [] (q + 1) R f = f` is defeq to the statement, so a defeq comparator cannot reject a position change there.
+  The Bool-observation mutant of rev4 (an identity on a `Bool` result against a `Nat` result) was ill-typed and is dropped; the observation `Scalar.obs` is covered by the axioms/closure checks and by `SigShape.obs`'s value pin, not by an ill-typed variant. (A well-typed Bool change, e.g. `if s.val t then 0 else 1`, is a candidate for a later behavioural check; it is not claimed here.)
+- **AXIOMS**: `checkAxioms` on 26 constants (the 9 theorems above, the 5 helper lemmas, `sigShape?`, `shapeOf`, `ShapeMatches`, `SigShape.obs`, `DeclConnect`, `DeclConnectAt`, `MatchC`, `ObsC`, `Scalar.obs`, `ResShape.obs`, `ResShape.outPorts`, `applyArgs`): standard axioms only, no `sorryAx`.
+- **BEHAVIOUR, battery** (11 local declarations with independently written expected `Option SigShape` and expected `shapeOf`): `tA` (Bool, BitVec 8 → Bool) and `tB` (Bool → `Signal Bool × Signal (BitVec 4)`) accepted; `tC` second domain binder, `tD` closed `defaultDomain`, `tE` implicit `Type` binder,
+  `tF` three-way `Prod`, `tG` zero-width result, `tH` packed tuple `Signal D (BitVec 4 × BitVec 4)`, `tI` argument in a closed domain with an open result domain, `tJ` non-literal width: `none`; `tK` (explicit universe parameter that the type does not mention): `sigShape? = some`, `shapeOf = none`.
+  Two one-change copies of the recognizer (domain term not checked; zero width allowed) must differ from `sigShape?` on the battery: they do, on `tI` and on `tG` respectively (finite battery, not an equivalence proof). Where the type is accepted, `telescopeKinds` agrees with the expected kinds and `machOuts?` returns `some`.
+- **BEHAVIOUR, corpus controls** (chosen by the coder, as the brief allows; real declarations of the machine-route tests that are compiled with `#machine_endpoint`, imported from `Tests.Compiler.ShippingMachineCommandTest`):
+  | declaration | expected `shapeOf` | route / shape it represents |
+  |---|---|---|
+  | `ShippingMachineEntryTest.mThree` | `[bool, bits 4] → one (bits 4)` | machine route, three slots of two kinds, mixed Bool/BitVec arguments, one BitVec result |
+  | `ShippingMachineEntryTest.twoFlag` | `[bool] → one bool` | machine route, Bool result taken from a structure-returning callee |
+  | `ShippingMachineEntryTest.twoCnt` | `[bool] → one (bits 8)` | same callee, BitVec result |
+  | `ShippingMachineEntryTest.linChk` | `[bool, bits 8, bool] → one (bits 8)` | IP-library machine (LIN checksum), three arguments |
+  | `ShippingMachineCommandTest.plain` | `[bits 8, bits 8] → one (bits 8)` | combinational (non-machine) route |
+  | `ShippingMachineEntryTest.twoHW` | `none` | user-structure result `TwoOut`: outside the fragment (extension of `ResShape` needed, DC-COVER) |
+  | `ShippingMachineCommandTest.toggle`, `ShippingMachineEntryTest.linChkDefault` | `none` | closed `defaultDomain` declarations: no leading `DomainConfig` binder |
+  Survey result, for THIS survey only: no corpus declaration with an open domain and a `Prod`-of-Signals result was found (the `.pair` constructor is exercised by the local battery `tB` only), and the machine-route declarations at `defaultDomain` are outside `sigShape?`.
+  This is a coverage finding, not a claim about DC-COVER: whether such tops occur among the successful targets is unsupplied. Also: `ShapeMatches` holds for `mThree` against its generated `mThree.machineData` (`decide`), and fails for swapped argument order and for a wrong result shape.
+- **CLOSURE**: explicit transitive walk over `ConstantInfo` types and thm/defn values and inductive constructors, following `Expr.proj` structure names (the Part A walk uses `getUsedConstants`, which does not return them); `Init`/`Std`/`Lean` constants are leaves; opaque/axiom bodies are reported, not followed.
+  14 targets reach no constant whose name or module is `Tools.ShippingGen5{Sem,Acc,DataOf,Env,T2}*` or contains `ConstValueE`, `primTable`, `genP`, `genSem`, `dataOf`, `FG_COMPLETE`, and no axiom constant; the non-core modules reached are within a stated list of 29 (the `Pkg`/`MachineData`/`Signal` vocabulary of `Tools.ShippingGen2Defs`).
+  Exact sets: `sigShape?`, `shapeOf`, `sigShape?_telescope`, `sigShape?_machOuts` reach exactly `Sparkle.Compiler.Elab` besides this file. Walk-depth: `DeclConnect` reaches `Pkg.src`, `Pkg.kD`, `MachineData.bsIn`, `DCGen`.
+  Negative controls (all detected): a direct mention, a helper definition in another namespace, a helper theorem body, a projection through an alias (found via the alias and `FakeKit.x`), and a collector unit control on a raw `Expr.proj` (shows that `getUsedConstants` misses the structure name and `usedConsts` finds it). Clean controls (a definition and a theorem over `Nat`) report no violation.
+  Limit: the control for a raw `Expr.proj` is a unit test of the collector on a hand-built `Expr`; no elaborated declaration in the check contains a proj-only mention.
+- **Planned, not implemented** (waits on approval of §C.3 rev5 and on the owners): TYPE/MUTANT/CLOSURE for `FG_COND`/`FG_CONNECT` (binder table by `inferType` against `Start`, `RunsTo`, `TopShips`, `synthesizeCombinational*` as in rev4, now with NV-Post/NV-GP/NV-CV as `example`s, and a mutant with O1 dropped, one with O2 dropped);
+  the `TopShips` body pin after S2 merges (§C.3 R3); the value closure of the final theorem (an explicit list of owner constants `genP`, `ConstValueE`, the prim table if any, `ReflectsAll`, `Post`, `TopShips`, with positive and negative controls so that a quiet substitution of a trivial `CV` or `GP` is detected).
 
 ## 4. Units of pure lemmas — Part A, the accepted abstract core (explicit shape parameters, R2)
 
@@ -501,17 +607,21 @@ Exactly what is checked, and its limits:
 - **Q6** (closed by rev4) `DataSoundAt`'s `initOk` clause is `p.d.initOk (initsOf p.d) = true` (§C.4); whether DG-DATAOF's final `initsOf` keeps that name and namespace is its owner's.
 - **Q7** (narrowed by rev4) `D`/`b` types are fixed (§C.3). Open: the form of `Post` (`b ↔ raw`), which is M4's; the reviewer is asked whether `∀ raw, Post b raw → …` is the acceptable carrier until M4 fixes it.
 - **Q8** U-UNIV: is editing the `variable` line of the accepted `Tools/ShippingGen5DeclConnectAbs.lean` (and re-running its audit) acceptable, or should the concrete unit carry its own universe-polymorphic copy of U1-U6?
-- **Q9** `ReflectsAll` has no Lean definition (§C.3). Is it acceptable as a parameter of `FG_COMPLETE` until M4?
+- **Q9** `ReflectsAll` has no Lean definition (§C.3). Is it acceptable as a parameter of `FG_CONNECT` (an INTERMEDIATE statement) until M4?
+- **Q10** (new, R1) Is the split `FG_COND` (conditional schema) / `FG_CONNECT` (adds O1 `∃ raw, Post b raw`, O2 package existence, same witness) the acceptable carrier of the final connection, and are NV-Post/NV-GP/NV-CV the right non-vacuity facts?
+- **Q11** (new, R3) Is the explicit dependence on the R-G audit (a) acceptable until S2 merges, with the body pin (b) afterwards?
 
 ## 6. Decision items (not adopted; none is needed to approve this freeze)
 
-The prim table of §C.6 is a candidate NEW TRUSTED boundary. Decision document: `scripts/gen5/DC_CONNECT_PRIM_TABLE_DECISION.md`. Nothing in U-UNIV, U-SHAPE1/2, U-ENTRY, U-ROWS depends on the outcome.
+It is not established that the prim table of §C.6 is a NEW TRUSTED boundary (rev5; rev4 called it a candidate). Background and options: `scripts/gen5/DC_CONNECT_PRIM_TABLE_DECISION.md` (rev5). No decision is requested now. Nothing in U-UNIV, U-SHAPE1/2, U-ENTRY, U-ROWS depends on it.
 
 ## 7. Not claimed
 
 - No claim that `ConstValue`, `sigShape?` coverage, `DeclConnect` or any row is supplied, or supplyable by a specific route.
-- No claim that FG, FG-REF or M5 is complete. `dcGen_of_rows` is an intermediate Acc assembly.
-- No claim that the Lean of Part C is built: it was elaborated in a local scratch file only (not committed, not evidence); the agreement lemmas except `outPorts_eq` have no proof yet.
+- No claim that FG, FG-REF or M5 is complete. `dcGen_of_rows` / `declConnect_of_rows` are intermediate Acc assemblies; `FG_CONNECT` is an intermediate parametrized statement until M4 defines `Post`/`ReflectsAll`.
+- No claim that `ConstValueFunctional` follows from the prim table; no claim that a new TRUSTED boundary is, or is not, required (§C.6).
+- No claim about the R-G `TopShips` beyond the dependence recorded in §C.3: it strengthens the no-clock guarantee, and the audit is S2's.
+- Built (agent build, not a clean issue-linked build): U-UNIV, U-SHAPE1/2, U-ROWS and `DeclConnectCheck` at the SHAs of §C.8. Not Lean at all: `FG_COND`/`FG_CONNECT`, `EntryWitness`, `TgtRun`, `ConstValueFunctional`, `ConstValueE`, `DataSoundAt`.
 - No claim about `DataSoundAt`'s elaboration, `AssignKit`, `genP`, or `ShapeMatches` on a real corpus package.
 - DG-SEM, DG-DATAOF and DG-ACC are not done; their results enter only as premises named after their own freezes. S2 (`TopShips` R-G) is in review and is not decided here.
 - No new law, TRUSTED boundary, FG or guarantee change; no edit of compiler/shared definitions.
