@@ -569,3 +569,48 @@ Source read on this branch (no run, no build): `Tools/ShippingMachineCommand.lea
   half of `RootFacts` at `readMachine`'s `entryBody` is therefore **not supplied** by `machineShape?` either.
   This is a statement about this survey, not an impossibility claim. P1/P2/P3 stay not adopted; nothing in
   `Tools/ShippingGen5ReadKinds.lean` depends on this note.
+
+---
+
+## 10. Freeze → implementation differences (recorded with `Tests/Gen5/ReadKindsCheck.lean`)
+
+Statement of scope: U1-U4 are intermediate results (approval 3f79600f). `hq` (body-is-quotation), RootFacts supply,
+normalization/production coverage stay OPEN. The check below is signature/defeq comparison and a closure scan, not a semantic proof.
+
+**Names / types.** All U1-U4 public theorems of §2 exist in `Tools/ShippingGen5ReadKinds.lean` under the §2 names with the
+§2 types: `readN_quote`, `readAp_appBool_eval`, `readAp_appBool2_eval`, `readAp_appCompare_eval`, `readNode2_ap_none`,
+`liftDepth_le_exprSize`, `readN_expr_quote`, `quote_injective`, `readTot_quote`, `readN_mono_on_quotes`,
+`machine_body_of_readN`, `machine_wf_of_readN`, `kindsCfg_quote_args`, `packed_wf_cfg`, `readTot_of_quote_body`.
+Auxiliary (not in §2 as separate lemmas): `core2_of_liftDepth_zero`, `boolOp?_self`, `bool2Op?_self`, `cmpOp?_self`,
+`readN_succ_app3..6`, `rn3..rn6`, `rnAp`, `readNode2_app3..6`, `read*_head`. `liftDepth`, `exprSize`, `readTot` are definitions
+(`readTot cfg e := readN cfg (exprSize e) e`). `RootFacts` is a type only (U5), not a producer.
+
+**TYPE check.** Each Expected statement (`Exp…` in the check file) is written separately, using the implementation's binder
+names and binder infos, because the shared comparison (`Tests.Gen3.ExpectedType.cmpTele`) requires equal names. Result:
+all 15 comparisons accepted **syntactically** (no `GEN3 NOTE` / `GEN3 DEFEQ` lines were logged; `isDefEq` fallback never used).
+`RootFacts` is compared by constructor telescope (names, order, binder info, types at reducible transparency, no extra field).
+
+**MUTANTS (12 theorem-level + 1 structure).** Each keeps all binder names/infos and changes one point; all are rejected by
+signature/defeq comparison (not semantic counterexamples; an elaboration failure would not count and none occurred):
+`MutQuoteNoBound`, `MutQuoteStrict`, `MutQuoteTerm2` (readTerm2, level kept), `MutApNonePure` (head `Signal.pure`),
+`MutInjNoWf`, `MutMonoLower` (`k' < k`), `MutBodyReadTerm` (readTerm for readN), `MutReadTotNoHq` (hq := True),
+`MutReadTotNoHw` (hw := True), `MutPackedWfNoHw`, `MutReadTotSoundDom` (U3's hdom in U4), `MutWfNCompleteDom` (U4's hdom in U3),
+and `MutRootFactsArg` (`rootFloat entryV` instead of `entryBody₀`; rejected at field `float`).
+Differences from the §-plan: mutants of earlier plan with unnamed binders were redone with matching names so the rejection is
+at the changed point.
+
+**AXIOMS.** The 15 public theorems and 4 auxiliary table lemmas: only `propext`, `Classical.choice`, `Quot.sound` (subsets);
+no `sorryAx`, no `native_decide`.
+
+**CLOSURE.** The scan reads `thmInfo`/`defnInfo`/`opaqueInfo` values (and types), transitively, with raw `.proj` checks on
+`T1Hyp`/`T1HypND`/`Laws` and a forbidden-constant list (`T1Hyp`/`T1HypND` fields/recursors, `Laws`, `Lean.Expr.equal`,
+`Lean.Expr.eqv`). Constants without a value (inductives, constructors, recursors, axioms, quot) are counted and listed as
+type-only; opaque constants are listed (`String.Internal.append`, value read); unknown constants fail the check. Controls: three direct
+fixtures, two via a helper in ANOTHER namespace (`ReadKindsFixtureOther.viaHelper`, `viaHelper2`) are detected; the unrelated
+theorem and an other-namespace clean helper are not flagged. Positive reach: each root reaches its required lemmas
+(`readN_quote` → `readTerm2_quote`, `readAp_*_eval`, `readNode2_ap_none`; the U3 lemmas → `readN_sound`, `kindsCfg_sound`;
+`readTot_of_quote_body` → `kindsCfg_complete'`, `readTot_quote`, `packed_wf_cfg`, `kindsCfg_quote_args`).
+Not covered: the detector reads Lean kernel terms only; it says nothing about `Classical` use being semantically irrelevant.
+
+**Warning.** `boolOp?_self` (`:125`): unused simp arguments `Lean.mkApp6/5/3` removed; the proof is otherwise unchanged. The same linter
+still warns at other lines (130, 135, 168, 565-627); left as they are.

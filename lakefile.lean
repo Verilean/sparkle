@@ -4764,6 +4764,9 @@ lean_lib «Tests.Gen5.RunReadsCheck» where
 lean_lib «Tools.ShippingGen5ReadKinds» where
   roots := #[`Tools.ShippingGen5ReadKinds]
 
+lean_lib «Tests.Gen5.ReadKindsCheck» where
+  roots := #[`Tests.Gen5.ReadKindsCheck]
+
 lean_lib «Tools.ShippingGen3ArgSupply4» where
   roots := #[`Tools.ShippingGen3ArgSupply4]
 

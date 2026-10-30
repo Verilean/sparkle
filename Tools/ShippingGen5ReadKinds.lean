@@ -122,7 +122,7 @@ theorem core2_of_liftDepth_zero : ∀ {s : SType} (t : Term s), liftDepth t = 0 
 theorem boolOp?_self (dom : Lean.Expr) (op : SignalBoolBinKind) :
     boolOp? dom (mapHeadE dom (.const ``Bool []) (appBoolBodyE op)) = some op := by
   cases op <;>
-  simp [boolOp?, pickBy, eqE_true_iff, mapHeadE, appLamE, appBoolBodyE, Lean.mkAppB, Lean.mkApp6, Lean.mkApp5, Lean.mkApp4, Lean.mkApp3, Lean.mkApp2, Lean.mkApp]
+  simp [boolOp?, pickBy, eqE_true_iff, mapHeadE, appLamE, appBoolBodyE, Lean.mkAppB, Lean.mkApp4, Lean.mkApp2, Lean.mkApp]
 
 theorem bool2Op?_self (dom : Lean.Expr) (f : AppBool2) :
     bool2Op? dom (mapHeadE dom (.const ``Bool []) (appBool2BodyE f)) = some f := by
