@@ -891,3 +891,64 @@ New files only: `Tools/ShippingGen4FbTailInv.lean` (K-TAIL, `R4RunInvT`, K-RUNT)
 
 ### 13.4 Still unsupplied / unapproved
 T-LEG (miss arm meaning), T-MEMO hit and K4, `MemoInv`/`LM : RefLawsM` (new-law candidate D-MEMO-LAW, undecided), T-PP, K-TSPLIT, T-SHAPE/T-STATE/T-INST/T-REACH. No new law, no scope change, no FG/guarantee change was made or assumed. Whole-Issue status unchanged: fallback / legacy / memo success routes, M4 and FG are not complete.
+
+---
+
+## 14. FB-6: T-FIN for `D ≥ 1` by consuming the ClosingRun `stop_of_run` — complete types (rev8; text for review; NOT Lean, NOT implemented)
+
+- **Status.** Docs only, committed BEFORE any Lean. No new law, no `Laws` field, no shared-definition edit (this unit edits none of `Tools/ShippingGen2Defs.lean`, `ShippingGen2T1*`, `Elab*.lean`; the ClosingRun lineage changes `ShipsRes` in `ShippingGen2Defs.lean` itself, see §14.3), no change of FG or of a guarantee. T-FIN here is a **preservation** fact (P): the heap invariant `InvAt` holds again at the END `w'` of the whole core run. It says nothing about what `(m, d)` computes.
+- **What this section reads (not changed).** `kjob/g5cr-r2` at `6f3c8ee5` (Issue `sparkle-gen5-dg-closingrun`, another owner; clean build `crv-6f3c8ee5` exit 0, reviewer confirmation pending when this unit started). `Tools/ShippingGen5ClosingRun.lean` exports `Tools.ShippingGen5ClosingRun.stop_of_run` (quoted in §13.3). Depth 0 is NOT covered by it (`h1 : 1 ≤ dv w`).
+
+### 14.1 Row T-FIN (D ≥ 1) — complete type
+```lean
+theorem tFin_stop {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx L.O.quiet mctx cctx)
+    {X : Name} {D : Nat} {w w' : Void IO.RealWorld}
+    {raw : Sparkle.IR.AST.Module} {dsg : Sparkle.IR.AST.Design}
+    (h1 : 1 ≤ D) (hC : ChildKeepsInv L P Reach (D + 1)) (hI : InvAt L P Reach D w)
+    (hr : RunsTo (synthesizeCombinationalCore X [] false) mctx mref cctx cref w (raw, dsg) w') :
+    InvAt L P Reach D w'
+```
+Premises are exactly those of `R4OutStmt` (§12.4) / the K-RUNT extraction (`hA`, `hI`, `hC`, `hr`) plus `h1`. `D` is the `D` of `InvAt L P Reach D w`: `hI` contains `JQ … D w`, whose last conjunct is `dv w = D`, so no separate `dv w = D` premise is needed (this resolves open item (iii) of §13.3 for the matching of `dv w` against `R4OutStmt`'s `D`).
+
+Planned proof (consumption, no restatement): `obtain ⟨⟨⟨_, _, hD⟩, _⟩, _⟩ := hI`-style extraction of `hD : dv w = D` from `hI`, rewrite `D := dv w`, then `exact Tools.ShippingGen5ClosingRun.stop_of_run L P Reach hA h1 hC hI hr`. If the rewrite does not go through, the step is reported "not closed in this attempt".
+
+Companion (same run, no second existential):
+```lean
+theorem a4_inv_tail_fin  -- binders as K-RUNT (§12.3) plus (h1 : 1 ≤ D)
+    … (h1 : 1 ≤ D) (hA : AdmCtx L.O.quiet mctx cctx)
+    (hI : InvAt L P Reach D w) (hC : ChildKeepsInv L P Reach (D + 1))
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w')
+    (entry : MachineDefines mctx mref cctx cref declName shape) :
+    (A4MachineSideA L.O mctx cctx D declName shape m d w w' ∨
+       R4RunInvT L P Reach mctx cctx D declName shape m d w w') ∧ InvAt L P Reach D w'
+```
+Proof: `⟨a4_inv_tail_machine_or_R4RunInvT … hr entry, tFin_stop … hr⟩`. Both conjuncts are about the SAME `hr` and the SAME `w'`; `InvAt D w'` is NOT derived from the `w₅` fact (§12 "What must not be confused" stands) and the (a)/(b) split is not used by it.
+
+### 14.2 How `stop_of_run` is consumed
+- `import Tools.ShippingGen5ClosingRun` in the new file; the single use is the application `Tools.ShippingGen5ClosingRun.stop_of_run L P Reach hA h1 hC hI hr` (with `dv w` identified with `D` as above). **No definition, statement or proof of `stop_of_run`, `core_tripleAInv` or `keepBody` is copied or re-stated.** The check asserts that `stop_of_run` is in the value-closure of `tFin_stop` (consumed, not re-proved) — this is a check of what the term uses, not of semantics.
+- Depth 0 (`D = 0`) stays UNSUPPLIED: `h1 : 1 ≤ D` is a premise; no theorem here has a conclusion at `D = 0`, and no statement says depth 0 is impossible or underivable. The reason (cache clear at the depth-0 `coreFinally`) is the ClosingRun freeze's, not re-derived here.
+
+### 14.3 Integration (decision for this unit)
+Chosen: a LOCAL, non-pushed `git merge --no-ff kjob/g5cr-r2` (`6f3c8ee5`) into `kjob/g4fb-fb6`, committed after this section. Reason: the file needs `Tools/ShippingGen5ClosingRun.lean` and its imports (`ShippingGen5RunReads`, `ShippingGen5T1ND`, `ShippingGen2Served`, `ShippingGen2KeepChild`, …) in the tree; the alternative (waiting for the closingrun Issue's approval and an integration branch) would leave the T-FIN row unbuilt. Consequences recorded, not hidden:
+1. The only textual conflict is `lakefile.lean` (both sides only ADD `lean_lib` blocks); resolved by keeping both, no entry removed or changed.
+2. The merge brings the closingrun lineage's edit of the shared `Tools/ShippingGen2Defs.lean`: `ShipsRes` gains a third conjunct `InstClosed r` (and `TopShips`' `rst`/`clk` premises are conditional). Those are that lineage's changes under its own review; this unit makes no edit to the file. The FB-1…FB-4 files do not mention `ShipsRes` by name; whether they still build on the merged tree is established only by the build, not assumed.
+3. If the closingrun Issue is changed in review, this unit's merge commit must be redone on its new head; the merge is a local convenience, not an acceptance of that lineage.
+4. Pod build of the merged tree is not a clean issue-linked build; the coder runs that.
+
+### 14.4 Audit improvement (new Check; existing `FbTailInvCheck` unchanged)
+The value-closure detector of `FbTailInvCheck` does `let some ci := env.find? c | continue`: a reached constant missing from the environment is skipped silently, so "no `Tools.ShippingMemo.*` reached" could hold only because a branch was not followed. The new Check's detector instead records every reached constant that `env.find?` does not resolve in a `missing` list, prints its count, and **fails** if the count is non-zero for a declaration under audit (the result would be "not established", never "no reference"). Controls with the same detector: (a) a root that is not in the environment → `missing` non-empty → the assertion fails (caught and logged as the expected control outcome); (b) the existing flagged fixtures (direct, two-helper indirect, raw `Expr.proj`) are still flagged; (c) unrelated and built FB-3 theorems are not flagged and have `missing = 0`. Opaque constants and constants without a body keep being counted (`noBody`, `opaques`), as before.
+
+### 14.5 Checks planned (after approval; nothing run)
+New files only: `Tools/ShippingGen4FbFin.lean` (`tFin_stop`, `a4_inv_tail_fin`), `Tests/Gen4/FbFinCheck.lean`, `lean_lib` entries in `lakefile.lean`.
+1. TYPE: `tFin_stop`, `a4_inv_tail_fin` against `Expected…` typed again in the check file (`checkExpected`); `a4_inv_tail_fin` also projects (theorem) to the K-RUNT statement.
+2. MUTANTS (one well-typed change each, rejected by the SAME comparator; signature/defeq rejections, NOT semantic counterexamples): `tFin_stop` without `h1`; with `hC` at `D` instead of `D + 1`; with conclusion at `D + 1`; with conclusion at `w` instead of `w'`; `a4_inv_tail_fin` without the `InvAt D w'` conjunct; without `h1`.
+3. AXIOMS ⊆ {propext, Classical.choice, Quot.sound}; `sorry` 0; no `native_decide`.
+4. Value closure (§14.4): no `Tools.ShippingMemo.*`, `missing = 0`, `stop_of_run` reached, with the controls above.
+5. The clean issue-linked build is the coder's.
+
+### 14.6 What this section does not claim
+- Not a T1 / FG / M5 / M4 completion, and not an acceptance of the ClosingRun lineage. `stop_of_run` is consumed as published by `6f3c8ee5`; its own review is that Issue's.
+- T-FIN depth 0 is unsupplied. T-LEG, T-MEMO, K4, `MemoInv`/`LM`, T-PP, K-TSPLIT, T-SHAPE/T-STATE/T-INST/T-REACH remain unsupplied (§13.4); §12.4–§12.6 remain a roadmap. No new law, scope change or guarantee change is made or assumed.
