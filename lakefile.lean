@@ -4838,3 +4838,6 @@ lean_lib «Tools.ShippingGen5DeclConnect» where
 
 lean_lib «Tests.Gen5.DeclConnectCheck» where
   roots := #[`Tests.Gen5.DeclConnectCheck]
+
+lean_lib «Tools.ShippingGen5FG» where
+  roots := #[`Tools.ShippingGen5FG]
