@@ -258,7 +258,7 @@ theorem except_bind_ok {ε α β : Type} {x : Except ε α} {k : α → Except �
   | error e => cases h
   | ok a => exact ⟨a, h⟩
 
- except_bind_ok' {ε α β : Type} {x : Except ε α} {k : α → Except ε β} {b : β}
+theorem except_bind_ok' {ε α β : Type} {x : Except ε α} {k : α → Except ε β} {b : β}
     (h : (x >>= k) = .ok b) : ∃ a, x = .ok a ∧ k a = .ok b := by
   cases x with
   | error e => cases h
