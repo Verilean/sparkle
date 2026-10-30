@@ -1095,3 +1095,10 @@ Not claimed by building these: no acceptance of any lineage, no Issue completion
 
 ### 15.6 What this section does not claim
 - Nothing here is Lean-checked. Depth 0, T-LEG, T-MEMO, K4, T-PP, memo law, K-TSPLIT remain unsupplied; §12.4–§12.6 remain a roadmap. T-FIN (D ≥ 1) is preservation only. Mutants are signature/defeq rejections, not semantic counterexamples. No new law, `Laws` field, shared-definition edit by this unit, FG or guarantee change.
+
+---
+
+## 16. FB-7 implementation status (docs; Pod build only)
+- `Tools/ShippingGen4FbFin.lean` (`tFin_stop`, `a4_inv_tail_fin`) and `Tests/Gen4/FbFinCheck.lean` at `b103bd90` (header-sync commit follows, comments only), `lean_lib` entries appended to `lakefile.lean`. Types as §14.1 / §15.1 with `h1` at the §15.2 position. `tFin_stop` is `hI.1.1.2.2 : dv w = D`, `subst`, then the single application of `stop_of_run`; no definition or proof of `stop_of_run`/`core_tripleAInv`/`keepBody` is copied. No `sorry`/`axiom`/`native_decide`, no new law or field.
+- Pod builds (exit 0, each alone, NOT clean issue-linked builds): `Tools.ShippingGen4FbFin` (758 jobs), `Tests.Gen4.FbFinCheck` (764: TYPE OK ×2, the companion accepted by logged `isDefEq` against the independent `ExpR4RunInvT2` copy; MUTANT REJECTED ×8 incl. `h1` after `hI`, signature/defeq rejections not semantic counterexamples; REACH: no `Tools.ShippingMemo.*`, `missing = 0`, `stop_of_run` reached by `tFin_stop`; controls: absent root → missing 1 and assertion failed as expected, direct/indirect/raw-proj flagged, unrelated and FB-3 theorem not flagged with missing 0, consumer sees `stop_of_run` and the FB-3 theorem does not; AXIOMS standard three ×4), and on the merged tree `Tests.Gen4.FbTailInvCheck` (713), `FbInvCheck` (709), `FbTailCheck` (703), `FbR4Check` (353), `Tests.Gen5.ClosingRunCheck` (755). The Tier-B targets of §15.5 were NOT built by this unit.
+- Not supplied: depth 0, T-LEG, T-MEMO, K4, T-PP, memo law, K-TSPLIT. T-FIN (D ≥ 1) is a preservation fact. The clean issue-linked build at the exact SHA recorded in the Issue note is the coder's. Issue / M4 / FG are not complete.

@@ -2,7 +2,7 @@ import Tools.ShippingGen4FbFin
 import Tools.ShippingMemoInv
 import Tests.Gen4.FbTailInvCheck
 set_option autoImplicit false
--- NOT BUILT (unit FB-7): no Lean build of this file has been run yet. Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §14.4/§14.5/§15 (rev8/rev9).
+-- BUILT (unit FB-7) at b103bd90: kjob lake build Tests.Gen4.FbFinCheck exit 0 (764 jobs, Pod build; NOT a clean issue-linked build): TYPE OK x2 (companion via logged isDefEq), MUTANT REJECTED x8, REACH missing 0 + stop_of_run reached, AXIOMS OK x4. Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §14.4/§14.5/§15 (rev8/rev9).
 -- Checks: TYPE (independent Expected, `h1` at the §15.2 position), MUTANT (signature/defeq rejections, NOT semantic counterexamples),
 -- projections as theorems, AXIOMS, value-closure audit with a `missing` list that FAILS when non-zero, and controls.
 
