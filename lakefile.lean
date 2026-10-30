@@ -4838,3 +4838,9 @@ lean_lib «Tools.ShippingGen5DataOfPure2» where
 
 lean_lib «Tests.Gen5.DataOfCheck2» where
   roots := #[`Tests.Gen5.DataOfCheck2]
+
+lean_lib «Tools.ShippingGen5DataOf» where
+  roots := #[`Tools.ShippingGen5DataOf]
+
+lean_lib «Tests.Gen5.DataOfCheck3» where
+  roots := #[`Tests.Gen5.DataOfCheck3]
