@@ -1,8 +1,8 @@
 import Lean
 import Tools.ShippingGen5DeclConnectAbs
--- Built at 5e3ebf90bf3807120dd58f86b3b4f8714fe7835a (exit 0): TYPE 4 (U2,U3b,U4a,U5 vs independent Prop), MUTANT 1 refutation example (U4b without existence premise, via the empty relation; MutU2Rev/MutU6NoClosed are definitions only, not checked rejections), AXIOMS 8, CLOSURE 8. Signature/defeq checks, NOT semantic counterexamples.
+import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (pending `kjob lake build Tests.Gen5.DeclConnectAbsCheck`).
+-- Built at 5e3ebf90bf3807120dd58f86b3b4f8714fe7835a (exit 0): TYPE 4 (U2,U3b,U4a,U5 vs independent Prop), MUTANT 1 refutation example (U4b without existence premise, via the empty relation; MutU2Rev/MutU6NoClosed are definitions only, not checked rejections), AXIOMS 8, CLOSURE 8. Signature/defeq checks, NOT semantic counterexamples.
 
 /-! # DC-CONNECT abstract units: checks (scripts/gen5/DC_CONNECT_FREEZE.md rev2 §4)
 
