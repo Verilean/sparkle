@@ -1,4 +1,4 @@
-# M4: fallback / legacy / memo-hit success routes — freeze (rev3 + §9 rev5, FOR REVIEW; rev1 = f92e2410, rev2 = a7f9753b; §9 rev4 = 658d2b8d)
+# M4: fallback / legacy / memo-hit success routes — freeze (rev3 + §9 rev5 + §10 T-INV keep types, FOR REVIEW; rev1 = f92e2410, rev2 = a7f9753b; §9 rev4 = 658d2b8d)
 
 - **Issue:** `sparkle-gen4-fallback-supply` (milestone `sparkle-gen4`; depends on `sparkle-gen4-routes`, done).
 - **Base:** branch `kjob/g4fb-d0ddc50b` at d0ddc50b (rev3 is written on `kjob/g4fb-r3`, branched from a7f9753b). All `file:line` below are at that SHA. `Sparkle/Compiler/Elab.lean`
@@ -562,3 +562,134 @@ Done for the "independent next steps" of §9.7, by reading the cited files. Noth
 - **(ii) `KeepsCP … InvAt` for `translateExprToWire`.** `htr_of_tele` (ChildRunAMain.lean:37) gives it at `JQC O (D+1)` through `translate_keepsC_of_tele` (ChildComposeC.lean:53), whose body is built from `hS := stableA_JQC`, `childEntryA_JQC…`, `canonKeyA O hS`, `legacyImplA_of_tele O hS T hcanon hchild`, `legacyCachedA_of_impl`, `projFieldNameA O T hS`, `translate_keepsA O hS tenv …`. Of these the `hS`-parametric ones take `hS` as an argument; `childEntryA_of_childSynthA O hS hsv hC` (ChildFrontCP.lean:248) is the `I`-generic version of the child-entry keep and `ChildKeepsInv L P Reach (D+1)` is by definition `ChildSynthA L.O (InvAt …)` (Gen2Defs.lean:174-176). So an `I = InvAt` copy of `translate_keepsC_of_tele` is a candidate; I did not verify that each component is `I`-generic (only the signatures cited above were read), and it was not found stated.
 - **(iii) Tail end.** `legacyTailA_generic` (ChildLegacyTailA.lean:194) at `I = InvAt` would give `InvAt` at the tail's END `w₅` from `RecA O I translate` (= (ii)) and `StableA` (= `stableA_invAt`); not applied.
 - **Result.** This pass narrowed (1) to the missing `w → w₁` run and the unwritten depth-set lemma, and (2)/(3) to an unverified `I`-generic copy of an existing proof. T-INV is still NOT supplied; this does not say it is derivable or underivable.
+
+---
+
+## 10. T-INV: complete types of the `InvAt` prefix / depth / translate keeps (rev6; text for review; NOT Lean, NOT implemented)
+
+- **Status.** Docs only. Nothing in this section is built, and none of the statements below has been checked by Lean. It fixes types for a possible later unit "FB-3"; it does not supply T-INV, it does not supply any part of `R4TailStmt`, and it says nothing about derivability. FB-2 (`R4Run`, `A4MachineSideA`, `a4_machine_or_R4Run`) is unchanged and stays the approved repackaging of A4's witness. No new law, no new field of `Laws`, no shared-definition edit: every statement below is a THEOREM whose proof is planned from existing fields (`O.depthSet`, `O.cacheSet`, `O.frame`, …) and existing lemmas. "Planned proof" is a plan, not a result; if a step does not go through, that is reported as "not closed in this attempt", not as impossible.
+- **Why FB-2 alone cannot be used for T-INV.** `R4Run` carries `JQC` at `w₃, w₄, w₆`, but `InvAt = JQC ∧ CacheShips` and A4's conclusion has no run `w → w₁` (§9.2.1, §9.8 (i-b)). The `CacheShips` half has to be carried along the REAL prefix of the core run, so the prefix peel of `core_reads_link4A` (Tools/ShippingMachineOutcomeA4.lean:116) has to be redone with `InvAt` threaded. §10.2-§10.6 give the types.
+- **Ambient (new file `Tools/ShippingGen4FbInv.lean`, namespace `Tools.ShippingGen4FbInv`).** `import Tools.ShippingGen4FbR4` and `import Tools.ShippingGen2Keep` (which imports `ShippingGen2Connect`, `ShippingChildPinC`). `open`s: those of `Tools/ShippingGen4FbR4.lean` (copied verbatim) plus `open Tools.ShippingGen2 Tools.ShippingGen4FbR4`. `variable {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}`; `L : Laws mref cref`, `P : Pkgs ι dom`, `Reach : Name → Prop`, `mctx : Meta.Context`, `cctx : Core.Context` are binders where shown. New `lean_lib`s only (`Tools.ShippingGen4FbInv`, `Tests.Gen4.FbInvCheck`); no other file imports them.
+
+### 10.1 What already exists (reused as typed; nothing is re-proved)
+| id | item | location | what it says | note |
+|---|---|---|---|---|
+| E-STAB | `stableA_invAt L P Reach D : StableA L.O.quiet (InvAt L P Reach D)` | ShippingGen2Connect.lean:41 | `InvAt` depends on `cv`, `sv`, `dv`, quiet only | proved there |
+| E-SV | `invAt_sv L P Reach D : ∀ w, InvAt L P Reach D w → sv w = some synthesizeChild` | ShippingGen2Keep.lean (before `translate_keepsInv_of_tele`) | `hsv` for `machineCert_keepsAP` | proved there |
+| E-TRANS | `translate_keepsInv_of_tele L P Reach D (hC : ChildKeepsInv L P Reach D) tenv : RecA L.O (InvAt L P Reach D) (fun e h t n => translateExprToWire tenv e h t n)` | ShippingGen2Keep.lean (docstring "The translator keeps `InvAt D` from the child hook") | **the `InvAt`-level translate keep. §9.8 (ii) said an `I`-generic copy was "not found stated"; this one exists in the file** | the file has no BUILT header line; the lakefile has `lean_lib Tools.ShippingGen2Keep`; this investigation did not build it, so FB-3 must build the import before relying on it |
+| E-FRAMED | `keepsA_framed O hA (hS : StableA …) (hp : FramedA Fresh p) : Keeps … I p`; `keepsA_diag` (ShippingChildVCA.lean:85) | ShippingChildVCA.lean:71 | any framed or diag step keeps any `StableA` invariant | generic in `I` |
+| E-MACH | `machineCert_keepsAP` | ShippingChildFrontCP.lean:107 | `Keeps I (synthesizeMachineCertified translate (profLogIO b) declName shape)` from `htr : ∀ e hint top named, KeepsCP … I (translate e hint top named)`, `hchild : ∀ c, Keeps … I (synthesizeChild c)`, `hsv`, with `O`, `hA`, `hS` | generic in `I` |
+| E-CHILD | `ChildKeepsInv L P Reach D := ChildSynthA L.O (InvAt L P Reach D)` | ShippingGen2Defs.lean:175 | `∀ mctx cctx, AdmCtx → ∀ c, Keeps … (InvAt …) (synthesizeChild c)` | exactly `hchild` after instantiating `mctx cctx hA` |
+| E-KEEPS | `Keeps I m := ∀ w, I w → I (endW … m w) ∧ ErrOk … m w` | ShippingChildInv.lean:315 | constrains the end world of BOTH outcomes | answers the `none` question (§9.8 (i-a)) |
+| E-DSET | `tripleC_depthSet`, `tripleC_clear` | ShippingChildCacheA.lean:235, :218 | stated at `JQC` / `JQ` only | not at `InvAt` — hence K-DEPTH / K-CLEAR below |
+
+### 10.2 K-CLEAR (the depth-0 cache clear, at `InvAt`) — new theorem
+```lean
+theorem invAt_cacheClear (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx L.O.quiet mctx cctx) (D : Nat)
+    {R : Exception → Void IO.RealWorld → Prop} :
+    Triple mctx mref cctx cref (JQ L.O.quiet D)
+      (sparkleChildCache.set {} : MetaM Unit) (fun _ => InvAt L P Reach D) R
+```
+Planned proof: as `tripleC_clear` (ShippingChildCacheA.lean:218): `O.cacheSet`, `O.cacheSetQ`; the new cache value is `{}` (`hk.1`), so `JQC` by `cacheInvA_empty` and `CacheShips L P Reach {}` because `{}.get? c = none` (`Std.HashMap.get?_empty`). `Triple` is the one of `ShippingChildKeeps.lean:50`; its namespace is read from that file when FB-3 is written. Needed only for the `D = 0` branch of the prefix.
+
+### 10.3 K-DEPTH (the depth set `D → v`, at `InvAt`) — new theorem
+```lean
+theorem invAt_depthSet (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx L.O.quiet mctx cctx) (D v : Nat)
+    {R : Exception → Void IO.RealWorld → Prop} :
+    Triple mctx mref cctx cref (InvAt L P Reach D)
+      (ST.Ref.set sparkleSynthDepth v : MetaM Unit) (fun _ => InvAt L P Reach v) R
+```
+Planned proof: as `tripleC_depthSet` (ShippingChildCacheA.lean:235) for the `JQC` half; for `CacheShips`, that proof shows `cv` unchanged (`hk.1`), so rewrite it and reuse `h.2`. This is the lemma §9.8 (i-b) called "candidate, not found stated"; it is stated here, not proved. Used with `v = D + 1`.
+
+### 10.4 K-LINK: the core prefix with `InvAt` threaded — new theorem (`core_reads_link4A` plus one conjunct)
+```lean
+theorem core_reads_link4Inv (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx L.O.quiet mctx cctx)
+    {declName : Name} {D : Nat} {w w' : Void IO.RealWorld} {M : Sparkle.IR.AST.Module}
+    {Dg : Sparkle.IR.AST.Design}
+    (hI : InvAt L P Reach D w)
+    (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, Dg) w') :
+    ∃ (b : Bool) (envR : Environment) (ci : ConstantInfo) (w1 w2 w3 w4 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w2 envR w3 ∧
+      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) (profLogIO b)
+        declName [] false true
+        (entryConst true false [] ci (Sparkle.Compiler.Elab.instancePredicate envR)
+          (userInliner envR) (structEnv envR))
+        (Sparkle.Compiler.Elab.instancePredicate envR))
+        mctx mref cctx cref w3 (M, Dg) w4 ∧ JQC L.O (D + 1) w3 ∧
+      InvAt L P Reach (D + 1) w3 ∧
+      ∃ (sf : Std.HashMap Name Expr) (sw : Std.HashMap String Nat)
+        (sl sp sc : Std.HashMap String String) (ss : Std.HashMap (UInt64 × String) String)
+        (sg : Std.HashMap String String),
+        RunsTo (coreFinally D sf sw sl sp sc ss sg) mctx mref cctx cref w4 () w' ∧
+        (D = 0 → sf = {} ∧ sw = {} ∧ sl = {} ∧ sp = {} ∧ sc = {} ∧ ss = {} ∧ sg = {}) ∧
+        (D ≠ 0 → StartReadsN (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref)
+          declName b D w sf sw sl sp sc ss sg)
+```
+The conclusion is `core_reads_link4A`'s with ONE added conjunct, `InvAt L P Reach (D + 1) w3`. Premise `hI` replaces `hw : JQ O.quiet D w` and `hc` (they follow: `hw := hI.1.1`; `hc := Or.inr hI.1.2`, or `Or.inl` when `D = 0`; the proof case-splits on `D = 0` like the original). Planned proof: the original's two branches; each peel step applies `keepsA_framed`/`keepsA_diag`/`framed_runs` with `stableA_invAt` instead of `stableA_JQ/JQC` (E-FRAMED); the `D = 0` branch uses `invAt_cacheClear`; both use `invAt_depthSet D (D+1)`; `getConstInfo`/`getEnv` by `FramedA.constInfo`/`FramedA.env` at `stableA_invAt (D+1)`. This is the "stronger extraction" §9.8 (i-b) named as the open part. Not checked here: that each `peelK/peelF/peelP` use goes through at `InvAt` (the macros are written against `stableA_JQ`/`JQC`; FB-3 writes `InvAt` versions in the new file or inlines the steps).
+
+### 10.5 K-MACH: the machine attempt keeps `InvAt (D+1)` — new theorem (instance of E-MACH)
+```lean
+theorem machineAttempt_keepsInv (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (D : Nat)
+    (hC : ChildKeepsInv L P Reach (D + 1))
+    {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx L.O.quiet mctx cctx)
+    (tenv : Lean.Environment) (pb : Bool) (declName : Name) (shape : MachineShape) :
+    Keeps mctx mref cctx cref (InvAt L P Reach (D + 1))
+      (synthesizeMachineCertified
+        (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO pb) declName shape)
+```
+Planned proof: `machineCert_keepsAP` at `O := L.O`, `hA`, `hS := stableA_invAt L P Reach (D+1)`, `translate := fun e hint top named => translateExprToWire tenv e hint top named`, `htr := fun e hint top named => translate_keepsInv_of_tele L P Reach (D+1) hC tenv mctx cctx hA e hint top named` (E-TRANS; `RecA` is `∀ mctx cctx, AdmCtx → ∀ e hint top named, KeepsCP …`), `hchild := hC mctx cctx hA` (E-CHILD), `hsv := invAt_sv L P Reach (D+1)` (E-SV).
+
+### 10.6 K-RUN: the packaged type `R4RunInv` and the extraction — new definition and theorem
+`R4RunInv` is `R4Run` (§9.2.2, FB-2) with the same existential witnesses and two added conjuncts, `InvAt L P Reach (D + 1) w₄` and `InvAt L P Reach (D + 1) w₆`. It is a separate definition because the worlds are existentially bound in `R4Run`; the built `R4Run` is not edited.
+```lean
+def R4RunInv (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    (mctx : Meta.Context) (cctx : Core.Context) (D : Nat)
+    (declName : Name) (shape : MachineShape) (m : Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design)
+    (w w' : Void IO.RealWorld) : Prop :=
+  ∃ (tenv : Lean.Environment) (pb : Bool) (ci : ConstantInfo) (envR' : Lean.Environment)
+    (w₁ w₂ w₃ w₄ w₅ w₆ : Void IO.RealWorld),
+    InvAt L P Reach (D + 1) w₄ ∧ InvAt L P Reach (D + 1) w₆ ∧
+    -- followed by EXACTLY the conjuncts of the built `R4Run` body (Tools/ShippingGen4FbR4.lean, the part after
+    -- the `∃` binders), same order, same text, with `O := L.O`
+```
+The conjunct list is fixed by reference to the built text rather than copied here, to avoid a second copy that could drift; FB-3 writes it out in full and the Expected copy in the check file is typed separately (§9.5). The extraction:
+```lean
+theorem a4_inv_machine_or_R4RunInv (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx L.O.quiet mctx cctx)
+    {declName : Name} {shape : MachineShape} {D : Nat}
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hI : InvAt L P Reach D w) (hC : ChildKeepsInv L P Reach (D + 1))
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w')
+    (entry : MachineDefines mctx mref cctx cref declName shape) :
+    A4MachineSideA L.O mctx cctx D declName shape m d w w' ∨
+      R4RunInv L P Reach mctx cctx D declName shape m d w w'
+```
+Planned proof: the proof of `core_machine_outcomeA'''` (Tools/ShippingMachineOutcomeA4.lean:224-273) with `core_reads_link4A` replaced by `core_reads_link4Inv`; `T := L.T`; `hw`, `hc` from `hI`; `InvAt (D+1) w₃` from K-LINK; `InvAt (D+1) w₄` from `w₃` by `keepsA_framed` at `stableA_invAt (D+1)` with `FramedA.env`; `InvAt (D+1) w₆` from `machineAttempt_keepsInv` and `endW_of_runs` for the run `w₄ → w₆`; then the same `rcases` on item 10 as `a4_machine_or_R4Run`. The (a) side stays `A4MachineSideA` (no `InvAt` conjuncts there). Premises beyond A4's: `hI` (the statement's own `InvAt L P Reach D w`, stronger than `hw/hc`) and `hC` (already a premise of `R4TailStmt`, §9.2.4). `P q.decl = some q`, `Reach` as a hypothesis and `IHAt` are not used by this lemma.
+
+### 10.7 Supplier table (after this section nothing is supplied yet)
+| part | supplier | status |
+|---|---|---|
+| translate keep at `InvAt (D+1)` | E-TRANS `translate_keepsInv_of_tele` | exists; written as proved in its file; not built by this investigation |
+| machine attempt keep at `InvAt (D+1)` | K-MACH from E-MACH, E-TRANS, E-CHILD, E-SV | type fixed here; proof planned; not written |
+| framed prefix steps (`getConstInfo`, `getEnv`, saved-map `get`s, profile reads) | E-FRAMED at `stableA_invAt` | existing lemma, instantiated inside K-LINK |
+| depth set `D → D+1` | K-DEPTH | type fixed; no existing `InvAt`-level statement found |
+| depth-0 cache clear | K-CLEAR | type fixed; no existing `InvAt`-level statement found |
+| the missing run `w → w₁` (§9.2.1) | K-LINK carries `InvAt` along the REAL prefix | type fixed; proof planned; peel macros not checked at `InvAt` |
+| packaging for the R4 statement | `R4RunInv` + `a4_inv_machine_or_R4RunInv` (K-RUN) | type fixed; not written |
+| `InvAt` at the tail's END `w₅` (`legacyTailA_generic` at `I = InvAt (D+1)`) | E-TRANS gives `RecA`; but `legacyTailA_generic` is about `synthesizeFromConst … false false ci`, and the match with the `legacyTail` run in `R4Run` was not checked | NOT in FB-3; open |
+| `InvAt` at `w₇` (harness) | not looked at beyond `mixed_keepsAP` being used inside E-MACH | not in FB-3; not needed for the tail's start `w₆` |
+
+### 10.8 Checks planned for FB-3 (after this section is approved; nothing run)
+1. TYPE: each of `invAt_cacheClear`, `invAt_depthSet`, `core_reads_link4Inv`, `machineAttempt_keepsInv`, `R4RunInv` (definition value), `a4_inv_machine_or_R4RunInv` against an independent `Expected…` typed again in `Tests/Gen4/FbInvCheck.lean` (`checkExpected`, `==` first, logged `isDefEq` fallback).
+2. MUTANTS (rejections of mis-typed statements by signature/defeq, NOT semantic counterexamples): `invAt_depthSet` with `JQC` instead of `InvAt` in the post; `machineAttempt_keepsInv` at `InvAt L P Reach D` instead of `D+1`; `core_reads_link4Inv` with the `InvAt (D+1) w3` conjunct dropped; `R4RunInv` with the `w₆` conjunct dropped; `a4_inv_machine_or_R4RunInv` without `hC`; with `hI` replaced by `JQ`.
+3. AXIOMS `⊆ {propext, Classical.choice, Quot.sound}`; `sorry` 0; no `native_decide`.
+4. No edit of Tools/ShippingGen2Defs, Elab*, T1Hyp*; new files and new `lean_lib`s only.
+
+### 10.9 What this section does not claim
+- It does not claim T-INV is supplied, nor that `R4TailStmt` is closer to proved: T-INV is one obligation among T-MEMO, T-LEG, T-SHAPE, T-STATE, T-INST, T-SRC (beyond shape), T-PP, T-REACH, K4 — all still open.
+- The planned proofs are plans. Unchecked steps are named above (peel macros at `InvAt`; `Triple` namespace; `ShippingGen2Keep` not built here; `legacyTail` vs `synthesizeFromConst` at the tail end).
+- No user decision is raised: only existing fields/lemmas are used. If FB-3 finds a step that needs a new law field, that is a stop-and-decision point (not decided here).
