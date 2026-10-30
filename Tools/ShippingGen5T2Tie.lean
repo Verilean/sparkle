@@ -222,7 +222,7 @@ theorem callField_at {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : P
   obtain ⟨-, ⟨q0, n, hq0, -, hCS⟩, -⟩ := hS
   rw [hq] at hq0
   obtain rfl : q = q0 := Option.some.inj hq0
-  exact callField_of_outputs p q k r.1 (childRunN_outputs (hCS dsn hDc hmc i)) hrow
+  exact callField_of_outputs p q k r.1 (childRunN_outputs (hCS.2 dsn hDc hmc i)) hrow
 
 /-! ## T2-TIE (CONDITIONAL on DG-SEM / DG-GENP / DG-CLOSINGRUN) -/
 

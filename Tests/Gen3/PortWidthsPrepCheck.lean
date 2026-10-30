@@ -6,10 +6,9 @@ set_option autoImplicit false
 
 /-! # U-CHILD-PORTTYS shared-edit preparation checks (scripts/gen3/UCHILD_PORTTYS_TABLE.md rev3 §R3.4)
 
-1. **Move-ready copy = built copy.** Each lemma of Tools/ShippingGen3PortWidthsCore.lean whose statement is unchanged
-   (`argPortWidths_of_eq`, N-A `argPorts_noCalls_of_wired`, `argPorts_noCalls_post`, N-B
-   `childPortWidths_of_composedNW`) is compared MECHANICALLY with the built one in Tools/ShippingGen3ChildPortWidths.lean
-   (g3dsc-1b840215) by `checkExpected` (binder by binder).
+1. **(S3)** The former comparison of the Core lemmas with the Gen3ChildPortWidths copies is DELETED: the copies are gone
+   (a Core-vs-Core comparison would be vacuous and is not counted). The Core lemmas N-A/N-B/`argPortWidths_of_eq` are
+   checked against independent `Expected…` statements in Tests/Gen3/ChildPortWidthsCheck.lean.
 2. **Expected types.** The two lemmas whose conclusion became `ChildPortWidths`' body (`childPortWidths_of_tys`,
    `noCalls_childPortWidths`) and `group_childPortWidths` against independent `Expected…` statements.
 3. **Mutants (each must be REJECTED):** N-B with `hsl0 : slots = []` (the S5 case it does NOT cover); the core
@@ -60,7 +59,7 @@ def ExpectedGroup : Prop :=
     (n : Nat)
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsAt L P n) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc),
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b
+    Tools.ShippingGen2.ChildPortWidths p b
 
 /-! ### Mutants (each must be REJECTED) -/
 
@@ -114,7 +113,7 @@ def MutGroupNoHsl : Prop :=
     (n : Nat)
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsAt L P n) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc),
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b
+    Tools.ShippingGen2.ChildPortWidths p b
 
 /-- The group lemma concluding the TYPE form (candidate T; stronger, not what is proved). -/
 def MutGroupTys : Prop :=
@@ -136,15 +135,6 @@ end Expected
 
 set_option maxHeartbeats 0 in
 run_cmd Lean.Elab.Command.liftTermElabM do
-  -- 1. the move-ready copies against the built ones
-  checkExpected ``Tools.ShippingGen3PortWidthsCore.argPortWidths_of_eq
-    ``Tools.ShippingGen3ChildPortWidths.argPortWidths_of_eq
-  checkExpected ``Tools.ShippingGen3PortWidthsCore.argPorts_noCalls_of_wired
-    ``Tools.ShippingGen3ChildPortWidths.argPorts_noCalls_of_wired
-  checkExpected ``Tools.ShippingGen3PortWidthsCore.argPorts_noCalls_post
-    ``Tools.ShippingGen3ChildPortWidths.argPorts_noCalls_post
-  checkExpected ``Tools.ShippingGen3PortWidthsCore.childPortWidths_of_composedNW
-    ``Tools.ShippingGen3ChildPortWidths.childPortWidths_of_composedNW
   -- 2. expected types
   checkExpected ``Tools.ShippingGen3PortWidthsCore.childPortWidths_of_tys ``ExpectedOfTysCore
   checkExpected ``Tools.ShippingGen3PortWidthsCore.noCalls_childPortWidths ``ExpectedNoCallsCore

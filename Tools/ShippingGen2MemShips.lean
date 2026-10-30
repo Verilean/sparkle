@@ -1,3 +1,4 @@
+import Tools.ShippingGen3PortWidthsCore
 import Tools.ShippingGen2MemTop
 import Tools.ShippingGen2C6
 set_option autoImplicit false
@@ -70,6 +71,8 @@ theorem memParent_childShips (L : Laws mref cref) (p : Pkg ι dom)
     cases h : p.d.shape.insts with
     | nil => exact absurd h hins
     | cons _ _ => simp
+  refine ⟨Tools.ShippingGen3PortWidthsCore.childPortWidths_of_composedNW n houtTy (ok_outNameOk p.d hok) hsl hI0 hkD hIlen hSL hSlen hLlen hNIn
+    hNW hpost, ?_⟩
   intro dsn hcons _ i
   have hEA : Tools.ShippingHierMono.ExtendsAway raw.name (childMap D.modules) (childMap dsn.modules) := by
     refine ⟨?_, ?_⟩

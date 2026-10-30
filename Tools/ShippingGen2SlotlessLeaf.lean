@@ -1,3 +1,4 @@
+import Tools.ShippingGen3PortWidthsCore
 import Tools.ShippingGen2SlotlessClosed
 import Tools.ShippingGen2CombKid
 import Tools.ShippingGen2MemData
@@ -294,6 +295,7 @@ theorem slotlessLeaf_childShips_of_LB (p : Pkg ι dom) {raw b : Module} {D : Des
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) (n : Nat) :
     ChildShips p n b D := by
+  refine ⟨Tools.ShippingGen3PortWidthsCore.noCalls_childPortWidths p hL hnoI hok hSS houtTy htake hpost, ?_⟩
   have hkD : p.d.bsIn.length ≤ p.kD := by
     have h := congrArg List.length htake
     rw [List.length_take] at h

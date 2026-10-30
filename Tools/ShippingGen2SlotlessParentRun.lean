@@ -1,4 +1,5 @@
 import Tools.ShippingGen2SlotlessParent
+import Tools.ShippingGen3SlotlessPortWidths
 import Tools.ShippingGen2GroupServed
 import Tools.ShippingGen2SlotlessClosed
 import Tools.ShippingClosedTransitionTyped
@@ -319,6 +320,7 @@ theorem oneOutSl_childShips (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι d
     cases h : p.d.shape.insts with
     | nil => exact absurd h hins
     | cons _ _ => simp
+  refine ⟨Tools.ShippingGen2.SlotlessPortWidths.oneOutSl_childPortWidths L P p hdata hins hsimple hsl0 hA hpost ran hdec h n, ?_⟩
   intro dsn hcons _ i
   have hEA : Tools.ShippingHierMono.ExtendsAway raw.name (childMap D.modules) (childMap dsn.modules) := by
     refine ⟨?_, ?_⟩
@@ -372,6 +374,7 @@ theorem groupSl_childShips (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι do
     cases h : p.d.shape.insts with
     | nil => exact absurd h hins
     | cons _ _ => simp
+  refine ⟨Tools.ShippingGen2.SlotlessPortWidths.groupSl_childPortWidths L P p hdata hins hfe hsl0 hpost hdec n h, ?_⟩
   intro dsn hcons _ i
   have hEA : Tools.ShippingHierMono.ExtendsAway raw.name (childMap D.modules) (childMap dsn.modules) := by
     refine ⟨?_, ?_⟩

@@ -1,3 +1,4 @@
+import Tools.ShippingGen3PortWidthsCore
 import Tools.ShippingGen2GroupComb
 import Tools.ShippingGen2Connect
 set_option autoImplicit false
@@ -80,7 +81,7 @@ theorem ordFactsRN_of_callDec {L : Laws mref cref} {P : Pkgs ι dom} {p q : Pkg 
     obtain ⟨hmod, Dc, ⟨_, q', hq', _, hcs⟩, hcons⟩ := And.left hmc
     rw [hP] at hq'
     cases hq'
-    have h := (childRunN_iff_seq hclk).mp (hcs dsn hcons hmod i)
+    have h := (childRunN_iff_seq hclk).mp (hcs.2 dsn hcons hmod i)
     rw [hB, hO, hS]
     refine ⟨h, ?_⟩
     rw [h.2.2.2.2.2.1, hlen]
@@ -94,7 +95,7 @@ theorem ordFactsRN_of_callDec {L : Laws mref cref} {P : Pkgs ι dom} {p q : Pkg 
     obtain ⟨hmod, Dc, ⟨_, q', hq', _, hcs⟩, hcons⟩ := And.left hmc
     rw [hP] at hq'
     cases hq'
-    have h := combChildRunN_of_noClk hclk (hcs dsn hcons hmod i)
+    have h := combChildRunN_of_noClk hclk (hcs.2 dsn hcons hmod i)
     rw [hB, hO, hS]
     refine ⟨h, ?_⟩
     rw [h.2.2.2.2.2.1, hlen]
@@ -328,6 +329,8 @@ theorem group_childShips (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι dom)
     cases h : p.d.shape.insts with
     | nil => exact absurd h hins
     | cons _ _ => simp
+  refine ⟨Tools.ShippingGen3PortWidthsCore.childPortWidths_of_composedNW n houtTy (ok_outNameOk p.d hok) hsl hI0 hkD hIlen hSL hSlen hLlen hNIn
+    hNW hpost, ?_⟩
   intro dsn hcons _ i
   have hEA : Tools.ShippingHierMono.ExtendsAway raw.name (childMap D.modules) (childMap dsn.modules) := by
     refine ⟨?_, ?_⟩

@@ -114,7 +114,7 @@ theorem callOutRange_of_closing_kidW {mref cref} (L : Laws mref cref) (P : Pkgs 
   obtain ⟨-, ⟨q0, n, hq0, -, hCS⟩, -⟩ := hS
   rw [hDG_GENP] at hq0
   obtain rfl : q = q0 := Option.some.inj hq0
-  have hout := childRunN_outputs (hCS dsn hDc hmc i)
+  have hout := childRunN_outputs (hCS.2 dsn hDc hmc i)
   exact callOutRange_of_widths p q k hk houtTy (callOutWidthAt_of_kidW L.O p q k hk hG hy hout hkidW) i
 
 /-- **Group parents, closing form**: `callTie_of_served_kidW` with `hy`/`hout` taken from the closing witness. -/

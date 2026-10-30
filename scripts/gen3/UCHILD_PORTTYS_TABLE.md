@@ -847,3 +847,22 @@ The PkgCompat `Old ⇒ new` direction for widths therefore stays **UNPROVED** an
   final-FG obligation (§4) is therefore NOT complete: no `StepStmt` proof exists to dispatch to P1-P7.
 - Old ⇒ new `ChildShips`/`ChildPortWidths`: UNPROVED (compat premise `hpw`, R4.6).
 - Merge/push, poc/main integration, Co-Authored-By: out of scope.
+
+## rev5 — S3 applied (branch kjob/g3pt-s3b, base d5f25c0a)
+
+Done as in R4.1-R4.7: Defs `ChildPortWidths` + first conjunct of `ChildShips` (GEN2_DEFS copy `cmp`-identical); P1-P7 each insert
+`refine ⟨<supplier>, ?_⟩` with no added premise (P2 SlotlessLeaf: placed at the start of the proof, because `hpost` is
+rewritten later); C1-C10 use `.2`; Gen3 N-A/N-B copies deleted (P1-P4 are thin corollaries of Core); PkgCompat takes the
+explicit compat premise `hpw` (compat lemmas only). Core-vs-Core comparison in PortWidthsPrepCheck was deleted and not
+counted; Core lemmas are checked against independent Expected types in ChildPortWidthsCheck (mutants are signature/defeq
+rejections, not semantic counterexamples).
+
+Focused `kjob lake build` in the Pod, one target at a time, all exit 0: Defs, Core, MemShips, Leaf, SlotlessLeaf, OneOut,
+Connect, GroupServed, FitChain, OneOutTop(O), Gen3{Arity,ChildPortWidths,GroupPortWidths,SlotlessPortWidths},
+SlotlessParentRun, T1, Gen5T2{Conn,Tie}, Comb, KeepChild, MemParent, PostFacts(Proof), Served(Run), SlotlessTop,
+Gen3ArgSupply, ArgWidthSrc, Gen5{T1ND,T2OutTy,T2Range}, and the Tests ChildPortWidthsCheck, PortWidthsPrepCheck,
+SlotlessPortWidthsCheck, PkgCompat, LeafInstance, MemParentInstance, PMem4Check, QuantInstance, S3GroupCheck, S5Check,
+S5SlotlessProbe, SlotlessLeafInstance, TopNCCheck, ArityCheck, ServedCheck, T1NDCheck, T2{Conn,OutTy,Tie}Check, T1Check.
+NOT done here: full reverse-import closure of Defs and AllTests (coder's clean build).
+Not supplied: StepStmt proof, gate route [M4], general coverage. Old ⇒ new width: UNPROVED (compat premise).
+Mixed-position old/new equivalence: not claimed.
