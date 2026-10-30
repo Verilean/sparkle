@@ -6,17 +6,19 @@
 "`[S]`" = source read in this worktree, "`[N]`" = new in this document. No new TRUSTED boundary, law, FG/guarantee change, shared-definition
 or compiler edit; no `sorry`/`axiom`/`native_decide`; no `GenWF` strengthening; no FG shrinking.
 
+**rev1 (this revision; docs + one scratch check file, answers the `changes_requested` on 30efb522).** R1: instance entries are triples `(c, a, κ)` — `callOut_local`, `callOut_mem_val`, `ext_mem_final`, `memFacts_of_genSem` and the §0/§5 text now bind `κ` (`some (c, a, κ)`). R2: `calleeOut_of_none` is excluded (same statement as `calleeOut_none`); the common `variable` block is Lean text (§2.0); the types are elaborated in `Tests/Gen5/SemP4FreezeTypes.lean` (§2.0). ACC Q1 (`genSem_decl`, `genSem_d`) is supplied in §1/§3 below. U4E/U4F stay conditional on `d.ok`/`GenWF`; coverage, causality, `dataOf`, ACC, M5, FG remain unsupplied.
+
 ## 0. What is frozen with a complete telescope here, and what is not
 
 | unit | content | status in this document |
 |---|---|---|
-| **U4A** | definitions: `ordCallees`, `lsrcGet`, `lsrcAt`, `selIdx`, `calleeOut`, `withCall`, `memOut`, `callOut`, `ExtStage`, `extBOf`, `extOf`, `genSemGen`, `genSemComb`, `genSemI`, `genSemVia` | **full types** (§1) |
-| **U4B** | `genSemI_local` (+ `ExtStage_local`, `callOut_local`), `genSemI_decl`, `genSemI_d`, `genSemI_not_loop` | **full types** (§2) |
-| **U4C** | `callOut_none`, `callOut_frame`, `ExtStage_succ`, `ExtStage_agree` (P4d), `calleeOut_none`, `calleeOut_of_none` | **full types** (§3) |
-| **U4D** | memory-entry `ext` at its own stage: `callOut_mem_val` | **full type** (§4.1) |
-| **U4E** | `typedVal_let_congr`, `lsrcAt_congr` (P4a/P4b) | **full types** (§4.2); the proof is the hard part, class I |
-| **U4F** | `ext_mem_final`, `lsrcAt_genSemGen` (P4c), `memFacts_of_genSem` (P6) | **full types** (§4.3–4.4); depend on U4C, U4E |
-| not here | `GenFacts.causal` (P6'), `genFacts_gen`/`genFacts` (P11), `genExtAtCall_of_genSem` (P4e, needs S3), `GenData.toIn`/`dataOf` | roadmap (§7); P6' and P4e are not designed here |
+| **U4A** | definitions: `ordCallees`, `lsrcGet`, `lsrcAt`, `selIdx`, `calleeOut`, `withCall`, `memOut`, `callOut`, `ExtStage`, `extBOf`, `extOf`, `genSemGen`, `genSemComb`, `genSemI`, `genSemVia` | **full types** (§2) |
+| **U4B** | `genSemI_local` (+ `ExtStage_local`, `callOut_local`), `genSemI_decl`, `genSemI_d`, `genSemI_not_loop` | **full types** (§3) |
+| **U4C** | `callOut_none`, `callOut_frame`, `ExtStage_succ`, `ExtStage_agree` (P4d), `calleeOut_none` (rev0 also listed a name `calleeOut_of_none`; it is **excluded**: it would be the same statement as `calleeOut_none` — `insts[k]? = none → calleeOut … = fun _ => 0` — so one name is kept, see §4) | **full types** (§4) |
+| **U4D** | memory-entry `ext` at its own stage: `callOut_mem_val` | **full type** (§5.1) |
+| **U4E** | `typedVal_let_congr`, `lsrcAt_congr` (P4a/P4b) | **full types** (§5.2); the proof is the hard part, class I |
+| **U4F** | `ext_mem_final`, `lsrcAt_genSemGen` (P4c), `memFacts_of_genSem` (P6) | **full types** (§5.3); depend on U4C, U4E |
+| not here | `GenFacts.causal` (P6'), `genFacts_gen`/`genFacts` (P11), `genExtAtCall_of_genSem` (P4e, needs S3), `GenData.toIn`/`dataOf` | roadmap (§8); P6' and P4e are not designed here |
 
 Implementation order: U4A → U4B ∥ U4C → U4E → U4D → U4F. U4A/U4B/U4C do **not** need `d.ok`, `GenWF`, `dataOf` (class I, definitional / structural);
 U4E needs `d.ok`; U4F needs `GenWF` (rows RowC/A4/B2/B3, already built as `[B]` `GenWF` in `Tools/ShippingGen5SemGen.lean`).
@@ -34,15 +36,43 @@ arguments `i bools bits` and then `S` last.** `U3`'s `genSemGenE X g eb ev` keep
 | `ordCallees` | `(d : MachineData) → List (Fin d.shape.insts.length)` | `ordCallees` | `(List.finRange _).filter fun k => (d.shape.instOrigins.getD k .ord).child? = none` (DGEN §2.1 text) |
 | `genSemI` | `(Q : Name → Option (SemPkg ι dom)) → (X : Name) → (g : GenIn) → SemPkg ι dom` | the body of `genSem` | the real definition; over `GenIn` |
 | `genSemVia` | `(GD : ConstantInfo → Type) → (toIn : {E : ConstantInfo} → GD E → GenIn) → (Q : Name → Option (SemPkg ι dom)) → (X : Name) → {E : ConstantInfo} → GD E → SemPkg ι dom` | `genSem` (with `GD`, `toIn` instantiated) | `genSemVia GD toIn Q X gd := genSemI Q X (toIn gd)`; `toIn` is DG-DATAOF's `GenData.toIn` when built (premise, **not supplied here**) |
-| `genSemI_local` | §2 | `genSem_local` | the statement over `genSemI`; the kit field's statement follows by `congrArg` with `toIn` |
-| `genSemI_decl` | `∀ Q X g, (genSemI Q X g).decl = X` | `genSem_decl` | by cases on the arm test (§2) |
-| `genSemI_d` | `∀ Q X g, (genSemI Q X g).d = g.d` | `genSem_d` (`dOf g = g.d`) | by cases on the arm test |
+| `genSemI_local` | §3 | `genSem_local` | the statement over `genSemI` (§3); the kit field's statement follows by `congrArg` with `toIn` |
+| `genSemI_decl` | `∀ Q X g, (genSemI Q X g).decl = X` | `genSem_decl` | by cases on the arm test (§3) |
+| `genSemI_d` | `∀ Q X g, (genSemI Q X g).d = g.d` | `genSem_d` (`dOf g = g.d`) | by cases on the arm test (§3) |
 
 This answers DG-ACC freeze §9 Q1 (request for `genSem_decl`/`genSem_d`): both are in U4B. `mem_ordCallees` (DG-ACC Q2 default: proved in DG-ACC's A1) stays
 as DG-ACC has it; here it is `Iff.rfl`-level on the filter (`List.mem_filter`, `List.mem_finRange`) and is **not** part of these units. `GenData`/`dataOf`/`GenData.toIn` are not
 defined here.
 
 ## 2. U4A — definitions with complete telescopes
+
+### 2.0 Common declarations (Lean text, used by every statement of §2–§5)
+```lean
+set_option autoImplicit false
+namespace Tools.ShippingGen5Sem
+open Lean Sparkle.Compiler.Elab Sparkle.IR.Semantics Sparkle.IR.Machine
+open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.ShippingMachineDenote Tools.ShippingMachineAuto Tools.ShippingMachineSource
+open Tools.ShippingMachineRef (reads)
+open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge Sparkle.Compiler.MachInstOrigin
+
+variable {ι : Type} {dom : ι → DomainConfig}
+-- the next block is the binder context of the statements of §3–§5 (a statement mentions only the ones it uses)
+variable (Q Q' : Name → Option (SemPkg ι dom)) (X : Name) (g : GenIn) (i : ι)
+  (bools : Nat → Signal (dom i) Bool) (bits : (j n : Nat) → Signal (dom i) (BitVec n))
+  (S : Signal (dom i) (HList (tys g.d.ss))) (k : Nat)
+  (st : (Nat → Signal (dom i) Bool) × ((j n : Nat) → Signal (dom i) (BitVec n)))
+  (bs : Nat → Signal (dom i) Bool) (vs : (j n : Nat) → Signal (dom i) (BitVec n))
+```
+**Instance entries.** `g.d.shape.insts : List (Name × List Nat × MixedGateBinder)` `[S]` `Sparkle/Compiler/Elab.lean:5039` — an entry is `(callee name c, argument lets a, binder kind κ)`, a
+**triple** `(c, a, κ) = (c, (a, κ))`. Every `insts[k]? = some _` hypothesis below binds all three: `some (c, a, κ)` (rev0 wrote `some (c, a)` with `a : List Nat`, a type mismatch; fixed). Where `κ`
+is not used it is still bound in the statement (a binder, not a premise). `callArgs d k` is the `a` component and `callKind d k` reads `bsIn`, not `κ`; their relation to `κ` is not asserted here.
+
+**Elaboration check (rev1, new).** `Tests/Gen5/SemP4FreezeTypes.lean` (scratch, lean_lib `Tests.Gen5.SemP4FreezeTypes`) holds the §2 definitions and, for every statement of §3–§5, a
+`def S_<name> : Prop := …` with the same telescope and **no proof, no `sorry`**; Pod `kjob lake build Tests.Gen5.SemP4FreezeTypes` exit 0. This check found one error in rev0 beyond the reviewed
+ones: `boolsOf`/`bitsOf` live in `Tools.ShippingMachineChild` (`Tools/ShippingMachineSeqChild.lean:24,29`), not opened — the §2 text now qualifies them. Statements are checked in the
+`Prop`-def form (hypotheses as arrows, `∀` after the colon); the `theorem` form below has the same binder types, but a `theorem` header itself was not elaborated. `ordCallees` elaborates with the
+`child? = none` filter as written (decidability found), so the `isNone` fallback of the note below is not needed. That check shows the **types** elaborate; it proves nothing about any lemma.
 
 ```lean
 -- ordinary callees: entries whose origin builds no child (`.ord`, `.field _`); memory entries are excluded
@@ -76,13 +106,13 @@ noncomputable def calleeOut (Q : Name → Option (SemPkg ι dom)) (g : GenIn) (i
     (bs : Nat → Signal (dom i) Bool) (vs : (j n : Nat) → Signal (dom i) (BitVec n)) (k : Nat) : Nat → Nat :=
   match g.d.shape.insts[k]? with
   | none => fun _ => 0                                  -- D1a: k out of range; `Q` is NOT consulted
-  | some (c, _) =>
+  | some (c, _, _) =>                                   -- shape.insts entry = (callee name, argument lets, binder kind κ)
     match Q c with
     | none => fun _ => 0                                -- D1b
     | some q =>
       let vals : Nat → List Nat := ShippingMachineCallsLinkedT.valsOf (lsrcAt g.d bs vs S) (callArgs g.d k)
-      let A := boolsOf (D := dom i) (q.d.bsIn.take q.kD) vals
-      let B := bitsOf  (D := dom i) (q.d.bsIn.take q.kD) vals
+      let A := Tools.ShippingMachineChild.boolsOf (D := dom i) (q.d.bsIn.take q.kD) vals
+      let B := Tools.ShippingMachineChild.bitsOf (D := dom i) (q.d.bsIn.take q.kD) vals
       match selIdx g.d q k with
       | none => fun _ => 0                              -- D2a
       | some k' => ((q.src i A B)[k']?).getD (fun _ => 0)   -- D2b
@@ -173,7 +203,7 @@ Proof: `unfold genSemI; split <;> simp [SemPkg.decl/SemPkg.d, genSemComb, genSem
 theorem callOut_local (Q Q' : Name → Option (SemPkg ι dom)) (g : GenIn) (i : ι)
     (S : Signal (dom i) (HList (tys g.d.ss))) (k : Nat)
     (st : (Nat → Signal (dom i) Bool) × ((j n : Nat) → Signal (dom i) (BitVec n)))
-    (hQ : ∀ (c : Name) (a : List Nat), g.d.shape.insts[k]? = some (c, a) →
+    (hQ : ∀ (c : Name) (a : List Nat) (κ : MixedGateBinder), g.d.shape.insts[k]? = some (c, a, κ) →
             (originOf g.d k).child? = none → Q c = Q' c) :
     callOut Q g i S k st = callOut Q' g i S k st
 
@@ -216,7 +246,7 @@ theorem ExtStage_agree (Q) (g : GenIn) (i : ι) (bools) (bits) (S) {n m : Nat} (
       (ExtStage Q g i bools bits S m).1 p = (ExtStage Q g i bools bits S n).1 p ∧
       ∀ w, (ExtStage Q g i bools bits S m).2 p w = (ExtStage Q g i bools bits S n).2 p w
 ```
-(Variables `Q g i bools bits S st` are bound with the types shown in §2; every theorem of §4 has the full binder list written out as in its first line.)
+(Binders: every theorem of §3–§5 is stated under the common `variable` block of §2.0; where a theorem writes a binder explicitly it is the same type.)
 Proof of `ExtStage_agree`: `Nat.le_induction` on `m`; step `m ↦ m+1` uses `callOut_frame` with `p < kD + n ≤ kD + m` so `p ≠ kD + m`.
 `callOut_frame`: `unfold callOut`, `split` on the `insts[k]?`, `originOf`, `callArgs` matches; `withCall` by `split` on `κ`; the `if p = kD + k` branches rewrite by the hypothesis `p ≠ kD + k` (`if_neg`).
 The `h ▸` in the memory arm is eliminated by `split` on `dw = n` (`dite`) — the only place with a cast; both branches are `if_neg` at `p ≠ kD + k`.
@@ -226,8 +256,8 @@ The `h ▸` in the memory arm is eliminated by `split` on `dw = n` (`dite`) — 
 ### 5.1 U4D: the memory entry at its own stage
 ```lean
 theorem callOut_mem_val (Q) (g : GenIn) (i : ι) (S : Signal (dom i) (HList (tys g.d.ss))) (k : Nat) (st)
-    (cb : Bool) (aw dw l0 l1 l2 l3 : Nat) (c : Name) (a : List Nat)
-    (hk : g.d.shape.insts[k]? = some (c, a)) (ho : originOf g.d k = .mem cb aw dw)
+    (cb : Bool) (aw dw l0 l1 l2 l3 : Nat) (c : Name) (a : List Nat) (κ : MixedGateBinder)
+    (hk : g.d.shape.insts[k]? = some (c, a, κ)) (ho : originOf g.d k = .mem cb aw dw)
     (ha : callArgs g.d k = [l0, l1, l2, l3]) :
     (callOut Q g i S k st).2 (kDOf g.d + k) dw = memOut g cb aw dw l0 l1 l2 l3 i S st.1 st.2
 ```
@@ -263,8 +293,8 @@ This is the largest proof of the plan (class I, induction with an accumulator); 
 ### 5.3 U4F: final-stage equation and `MemFacts`
 ```lean
 theorem ext_mem_final (Q) (g : GenIn) (i : ι) (bools) (bits) (S : Signal (dom i) (HList (tys g.d.ss))) (k : Nat)
-    (cb : Bool) (aw dw l0 l1 l2 l3 : Nat) (c : Name) (a : List Nat)
-    (hk : g.d.shape.insts[k]? = some (c, a)) (ho : originOf g.d k = .mem cb aw dw)
+    (cb : Bool) (aw dw l0 l1 l2 l3 : Nat) (c : Name) (a : List Nat) (κ : MixedGateBinder)
+    (hk : g.d.shape.insts[k]? = some (c, a, κ)) (ho : originOf g.d k = .mem cb aw dw)
     (ha : callArgs g.d k = [l0, l1, l2, l3]) (hwf : GenWF g.d = true) (hok : g.d.ok = true) :
     extOf Q g i bools bits S (kDOf g.d + k) dw =
       Tools.ShippingMachineMemLinked.memRead (D := dom i) (aw := aw) (dw := dw) cb
@@ -286,7 +316,7 @@ theorem lsrcAt_genSemGen (Q) (X : Name) (g : GenIn) (i : ι) (bools) (bits) :
 
 ```lean
 theorem memFacts_of_genSem (Q) (X : Name) (g : GenIn) (hok : g.d.ok = true) (i : ι) (bools) (bits)
-    (k : Nat) (c : Name) (a : List Nat) (hk : g.d.shape.insts[k]? = some (c, a))
+    (k : Nat) (c : Name) (a : List Nat) (κ : MixedGateBinder) (hk : g.d.shape.insts[k]? = some (c, a, κ))
     (cb : Bool) (aw dw : Nat) (ho : originOf g.d k = .mem cb aw dw) :
     let Sst := @stateLoop _ _ _ ⟨g.inits⟩ g.inits ((genSemGen Q X g).body i bools bits)
     Tools.ShippingMachineCallsLinkedT.MemFacts (D := dom i) g.d.shape
