@@ -37,6 +37,16 @@ Nothing is pushed; `main` is not touched.
    then final importers of Defs and AllTests; axioms audit; record every SHA.
 Only after S1 is verified: S2 (R-G Defs switch, NC suppliers already in place), then S3 (ChildPortWidths).
 
+## Issues stopped until S1 (2026-10-30)
+Each has its new-file work accepted and waits only for the combined branch:
+- `sparkle-gen3-post` (G-POST producer a9c42458: integration and combined-SHA re-check),
+- `sparkle-gen3-served` (F1/F2 b5be62e6: DataBridge `rfl` unification, `.comb` case, post imports F1),
+- `sparkle-gen3-uchild-porttys` (N-C ce4c32a4: InstClosed → R-G → ChildPortWidths shared edits),
+- `sparkle-gen5-dg-closingrun` (ClosingRun assembly needs the [I] producers KeepBody/KeepChild, F1, GPOST P2),
+- `sparkle-gen5-t2-tie` (callTie_of_closingRun waits for DG-CLOSINGRUN),
+- `sparkle-gen2-step` (TopShips R-G Defs switch / final-root connection = S2).
+Without S1 these cannot reach acceptance; M2/M3/M5 and FG (`sparkle-fg-final`) stay open. No data is lost either way.
+
 ## Options
 - **(A) Merge now as above (recommended).** Unblocks S2/S3; cost: the coder's S1 fix-up and a full re-verification.
 - **(B) Defer.** New-file work continues, but `TopShips` R-G, `ChildPortWidths` and the T1 assembly stay blocked; the
