@@ -693,3 +693,10 @@ Planned proof: the proof of `core_machine_outcomeA'''` (Tools/ShippingMachineOut
 - It does not claim T-INV is supplied, nor that `R4TailStmt` is closer to proved: T-INV is one obligation among T-MEMO, T-LEG, T-SHAPE, T-STATE, T-INST, T-SRC (beyond shape), T-PP, T-REACH, K4 — all still open.
 - The planned proofs are plans. Unchecked steps are named above (peel macros at `InvAt`; `Triple` namespace; `ShippingGen2Keep` not built here; `legacyTail` vs `synthesizeFromConst` at the tail end).
 - No user decision is raised: only existing fields/lemmas are used. If FB-3 finds a step that needs a new law field, that is a stop-and-decision point (not decided here).
+
+## 11. FB-3 implementation status (docs sync; Pod build only)
+
+- Implemented per §10 in `Tools/ShippingGen4FbInv.lean` (`invAt_cacheClear`, `invAt_depthSet`, `core_reads_link4Inv`, `machineAttempt_keepsInv`, `R4RunInv`, `a4_inv_machine_or_R4RunInv`) and checked in `Tests/Gen4/FbInvCheck.lean`, at f172d4b7: `kjob lake build Tests.Gen4.FbInvCheck` exit 0 inside the Pod. A clean issue-linked build is the coder's and has not been done by this unit.
+- `R4RunInv` is the `R4Run` body of e7181279 with `O := L.O` and the two leading conjuncts `InvAt (D+1) w₄`, `InvAt (D+1) w₆`; the check compares it with an independently typed Expected and proves the projection `R4RunInv → R4Run` (`r4RunInv_to_R4Run`) and the projected extraction (`a4_inv_projects_to_a4_machine_or_R4Run`). K-LINK and K-RUN share the same prefix witness (`w₃ w₄ w₆` from one peel, one `getEnv`, one machine run); no separate existentials are identified.
+- Mutants are rejections by signature/defeq, not semantic counterexamples. The `a4_inv_machine_or_R4RunInv` conclusion is accepted by logged `isDefEq`, not syntactically.
+- **Not supplied.** Preserving `InvAt` up to the tail's START world `w₆` is a different thing from the semantic guarantee of the legacy route and of the memo hit. The latter two are NOT supplied (T-LEG, T-MEMO, tail end `w₅`, K4, post-processing remain open). No new law or shared-definition change was used.

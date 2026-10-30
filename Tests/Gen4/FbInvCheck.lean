@@ -1,7 +1,7 @@
 import Tools.ShippingGen4FbInv
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (unit FB-3). Checks: TYPE (independent Expected typed again from FALLBACK_SUPPLY_FREEZE.md §10 and the
+-- BUILT (unit FB-3) at f172d4b7: kjob lake build Tests.Gen4.FbInvCheck exit 0 (Pod build; clean build is the coder's): TYPE OK x6 (a4_inv_machine_or_R4RunInv via logged isDefEq), MUTANT REJECTED x7 (signature/defeq), AXIOMS OK x8. Checks: TYPE (independent Expected typed again from FALLBACK_SUPPLY_FREEZE.md §10 and the
 -- R4Run text of e7181279), MUTANT (signature/defeq rejections, NOT semantic counterexamples), AXIOMS, and projections.
 namespace Tests.Gen4.FbInvCheck
 open Lean Meta

@@ -1,7 +1,7 @@
 import Tools.ShippingGen4FbR4
 import Tools.ShippingGen2Keep
 set_option autoImplicit false
--- NOT BUILT (unit FB-3): text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §10 (rev6, approved at b18d3a5e).
+-- BUILT (unit FB-3) at f172d4b7: kjob lake build Tools.ShippingGen4FbInv exit 0 (Pod build; clean build is the coder's). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §10 (rev6, approved at b18d3a5e).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Theorems and one definition only.
 
 /-! # FB-3: `InvAt` kept along the core prefix and the machine attempt; the packaged `R4RunInv`
