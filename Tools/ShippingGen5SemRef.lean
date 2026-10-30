@@ -1,6 +1,6 @@
 import Tools.ShippingMachineSource
 set_option autoImplicit false
--- NOT BUILT (no clean build SHA recorded yet).
+-- Built in g5sm-r2 at d5492921 (Pod `kjob lake build`, exit 0; SemUnitsCheck: TYPE 6, MUTANT 5, AXIOMS standard). No sorry / axiom / native_decide.
 -- No sorry / axiom / native_decide.
 
 /-! # DG-SEM P1 / P2: the pending-write and live-state packing, for ANY slot list `αs`

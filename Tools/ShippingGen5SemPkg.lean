@@ -1,6 +1,6 @@
 import Tools.ShippingGen2Pkg
 set_option autoImplicit false
--- NOT BUILT (no clean build SHA recorded yet).
+-- Built in g5sm-r2 at d5492921 (Pod `kjob lake build`, exit 0; SemUnitsCheck: TYPE 6, MUTANT 5, AXIOMS standard). No sorry / axiom / native_decide.
 -- No sorry / axiom / native_decide.
 
 /-! # DG-SEM: `SemPkg` (a package minus its fact field), `Pkg.toSem`, `genPkg` (scripts/gen5/DG_SEM_FREEZE_REV2.md §2.2, P8)

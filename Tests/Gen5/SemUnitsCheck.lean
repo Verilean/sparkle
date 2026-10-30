@@ -2,7 +2,7 @@ import Tools.ShippingGen5SemRef
 import Tools.ShippingGen5SemPkg
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (no clean build SHA recorded yet). No sorry / axiom / native_decide.
+-- Built in g5sm-r2 at d5492921 (Pod `kjob lake build`, exit 0; SemUnitsCheck: TYPE 6, MUTANT 5, AXIOMS standard). No sorry / axiom / native_decide.
 
 /-! # DG-SEM units P1 / P2 / P8 checks (Tools/ShippingGen5SemRef.lean, Tools/ShippingGen5SemPkg.lean)
 
