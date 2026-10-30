@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemGen
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Built in g5sm-u3 at 4ebc4067 (Pod `kjob lake build`, exit 0; SemGenCheck: TYPE 5, MUTANT 3, AXIOMS standard, CLOSURE OK). Clean build is the coder's. No sorry / axiom / native_decide.
+-- Built in g5sm-aud at 3c2e14cb (Pod `kjob lake build Tests.Gen5.SemGenCheck`, exit 0; TYPE 5, MUTANT 3, AXIOMS standard, CLOSURE OK + CONTROLS OK + REACH OK). Clean build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-SEM unit U3 (P3) checks (Tools/ShippingGen5SemGen.lean; scripts/gen5/DG_SEM_FREEZE_REV3.md §1, §1.4)
 
