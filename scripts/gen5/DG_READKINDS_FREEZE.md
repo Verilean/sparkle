@@ -614,3 +614,5 @@ Not covered: the detector reads Lean kernel terms only; it says nothing about `C
 
 **Warning.** `boolOp?_self` (`:125`): unused simp arguments `Lean.mkApp6/5/3` removed; the proof is otherwise unchanged. The same linter
 still warns at other lines (130, 135, 168, 565-627); left as they are.
+
+**Build record (sync).** Clean issue-linked build `rkav-4d5b7874` (tree 4d5b7874) exit 0, 751 jobs. The R1/R2 audit-fix commits (single-constant forbid controls `RK CONTROL-SINGLE` for `badDec`→`T1Hyp.dec`, `badNDCases`→`T1HypND.casesOn`, `badEqual`→`Lean.Expr.equal`, each with raw-proj off and a one-element forbid set) were built in the pod (`kjob lake build Tests.Gen5.ReadKindsCheck` exit 0, 751 jobs, tree 40aa86f0); their clean build is the coder's. Signature/defeq rejections remain non-semantic.
