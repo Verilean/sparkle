@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemRef
 import Tools.ShippingGen5SemPkg
 set_option autoImplicit false
--- NOT BUILT (U3 implementation commit; clean build is the coder's). No sorry / axiom / native_decide.
+-- Built in g5sm-u3 at 4ebc4067 (Pod `kjob lake build`, exit 0; SemGenCheck: TYPE 5, MUTANT 3, AXIOMS standard, CLOSURE OK). Clean build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-SEM unit U3 (P3): the generated reference body `refBodyE`, `genSemGenE`, and the three `GenFacts` instances
 
