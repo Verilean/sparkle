@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReadKinds
 import Tools.ShippingGen5T1ND
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Built: kjob lake build Tests.Gen5.ReadKindsCheck exit 0 (751 jobs) on the tree of d38a8fa2 (pod build; clean build is the coder's).
+-- NOT BUILT after the R1 edit (single-constant forbid controls). Previous tree: clean build rkav-4d5b7874 exit 0 (751 jobs).
 
 /-! # DG-READKINDS checks (Tools/ShippingGen5ReadKinds.lean; scripts/gen5/DG_READKINDS_FREEZE.md rev2 3f79600f)
 
@@ -341,7 +341,8 @@ structure AReach where
   unknown : Array Name := #[]
   noBodyNames : Array Name := #[]
 
-def reach (root : Name) (cap : Nat := 3000000) : MetaM AReach := do
+def reach (root : Name) (cap : Nat := 3000000) (forbid : List Name := forbidConsts) (rawProj : Bool := true) :
+    MetaM AReach := do
   let env ← getEnv
   let mut out : AReach := { seen := ({} : NameSet).insert root }
   let mut queue : Array (Name × List Name) := #[(root, [root])]
@@ -357,10 +358,10 @@ def reach (root : Name) (cap : Nat := 3000000) : MetaM AReach := do
     let body := body? ci
     if body.isNone then out := { out with noBody := out.noBody + 1, noBodyNames := out.noBodyNames.push c }
     if ci matches .opaqueInfo _ then out := { out with opaques := out.opaques + 1, opaqueNames := out.opaqueNames.push c }
-    if badProj ci.type || (body.map badProj).getD false then
+    if rawProj && (badProj ci.type || (body.map badProj).getD false) then
       return { out with hit := some (path ++ [`rawProj]) }
     for u in ci.type.getUsedConstants ++ (body.map (·.getUsedConstants)).getD #[] do
-      if forbidConsts.contains u then return { out with hit := some (path ++ [u]) }
+      if forbid.contains u then return { out with hit := some (path ++ [u]) }
       unless out.seen.contains u do
         out := { out with seen := out.seen.insert u }
         queue := queue.push (u, path ++ [u])
@@ -381,6 +382,16 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     if bad && r.hit.isNone then throwError "RK AUDIT FAILED: detector misses {c}"
     if !bad && r.hit.isSome then throwError "RK AUDIT FAILED: detector flags {c}"
     logInfo m!"RK CONTROL {c}: {toString r.hit}"
+  -- R1: each fixture against ONLY its intended constant (raw-proj check off, forbid set = that one constant).
+  -- With the full list both fixtures are also hit via `Laws`; this isolates the intended detection path.
+  for (c, one) in [(F ++ `badDec, ``Tools.ShippingGen2.T1Hyp.dec),
+      (F ++ `badNDCases, ``Tools.ShippingGen2.T1HypND.casesOn), (F ++ `badEqual, ``Lean.Expr.equal)] do
+    let r ← reach c (forbid := [one]) (rawProj := false)
+    match r.hit with
+    | none => throwError "RK AUDIT FAILED: single-constant forbid {one} misses {c}"
+    | some p =>
+      unless p.getLast? == some one do throwError "RK AUDIT FAILED: {c} hit via {p}, not {one}"
+      logInfo m!"RK CONTROL-SINGLE {c} forbid only {one}: hit path {p}"
   -- must reach (positive controls of the audit: the proofs really go through these)
   for (c, req) in [(``readN_quote, [``readTerm2_quote, ``readAp_appBool_eval, ``readAp_appCompare_eval,
         ``readNode2_ap_none]),
