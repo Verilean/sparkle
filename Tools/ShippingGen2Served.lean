@@ -1,5 +1,5 @@
 import Tools.ShippingGen2ServedRun
-import Tools.ShippingGen2ServedDataBridgeCopy
+import Tools.ShippingGen2DataBridge
 import Tools.ShippingGen2Pkg
 set_option autoImplicit false
 -- Built: g3sv-b5be62e6 (clean snapshot, exit 0, standard axioms) (written by reading at 96cbd548; scripts/gen2/SERVED_FREEZE.md rev1 §1.3-§1.6). Every proof is a
@@ -593,7 +593,7 @@ This is an INTERMEDIATE: it does NOT complete G-SERVED, T1 or FG. -/
 theorem servedShips0_proved {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true) :
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true) :
     ServedShips0Stmt L P Reach DataOk := by
   intro hT p mctx cctx w w' raw D hR hP hA hjqc hc hIH hKI hr
   obtain ⟨q, hPq, -, hDq⟩ := hT.pkg p.decl hR
@@ -608,7 +608,7 @@ theorem servedShips0_proved {ι : Type} {dom : ι → DomainConfig}
   have hX : SoundXAt (ServedP (ShipsRes L P) p.decl p.d.shape raw D) p.decl p.d.shape raw D :=
     soundX_ships_ran L P Reach hA ran hIH hKI
       (fun k hk hn => hT.closed p.decl hR p hP k hk hn)
-      (fun hf k hk => Tools.ShippingGen2ServedDataBridgeCopy.hord_of_row (hrow p hDp) hf k hk)
+      (fun hf k hk => Tools.ShippingGen2DataBridge.hord_of_row (hrow p hDp) hf k hk)
   exact Pkg.traceX p hX
 
 /-- **T1 from the one-level rule — CONDITIONAL** on `hrow`, `StepStmt`, `PostFactsStmt`
@@ -617,7 +617,7 @@ theorem servedShips0_proved {ι : Type} {dom : ι → DomainConfig}
 theorem t1_of_stepPF_served {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true)
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true)
     (hStep : StepStmt L P DataOk) (hPF : PostFactsStmt L P Reach DataOk) :
     T1Stmt L P Reach DataOk :=
   t1_of_stepPF_kc L P Reach DataOk hStep (servedShips0_proved L P Reach DataOk hrow) hPF

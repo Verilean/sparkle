@@ -230,10 +230,10 @@ theorem postFacts_proved {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainCon
     {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cref : ST.Ref IO.RealWorld Lean.Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Lean.Name → Prop) (DataOk : Pkg ι dom → Prop)
     (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true) :
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true) :
     PostFactsStmt L P Reach DataOk :=
   postFacts_of_hord L P Reach DataOk hrows
-    (fun q hq hf k hk => Tools.ShippingGen2ServedDataBridgeCopy.hord_of_row (hrow q hq) hf k hk)
+    (fun q hq hf k hk => Tools.ShippingGen2DataBridge.hord_of_row (hrow q hq) hf k hk)
 
 /-- **T1 — CONDITIONAL** on `StepStmt` and the two unsupplied data premises `hrows`, `hrow`
 (`t1_of_stepPF_served` with `hPF := postFacts_proved …`). Not M2/M3/FG completion. -/
@@ -241,7 +241,7 @@ theorem t1_of_step_rows {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConf
     {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cref : ST.Ref IO.RealWorld Lean.Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Lean.Name → Prop) (DataOk : Pkg ι dom → Prop)
     (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true)
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true)
     (hStep : StepStmt L P DataOk) :
     T1Stmt L P Reach DataOk :=
   t1_of_stepPF_served L P Reach DataOk hrow hStep (postFacts_proved L P Reach DataOk hrows hrow)

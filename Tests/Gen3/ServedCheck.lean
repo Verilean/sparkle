@@ -187,7 +187,7 @@ def ExpectedServedShips0Proved : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true),
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true),
     ServedShips0Stmt L P Reach DataOk
 
 /-- MUTANT: the unconditional statement (no `hrow`), i.e. G-SERVED closed. -/
@@ -201,7 +201,7 @@ def ExpectedT1Served : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true)
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true)
     (hStep : StepStmt L P DataOk) (hPF : PostFactsStmt L P Reach DataOk),
     T1Stmt L P Reach DataOk
 
@@ -210,7 +210,7 @@ def MutT1_noPF : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true)
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true)
     (hStep : StepStmt L P DataOk),
     T1Stmt L P Reach DataOk
 
@@ -251,7 +251,7 @@ open Meta
 example {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true)
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true)
     (hStep : StepStmt L P DataOk) (hPF : PostFactsStmt L P Reach DataOk) :
     T1Stmt L P Reach DataOk :=
   t1_of_stepPF_served L P Reach DataOk hrow hStep hPF
@@ -260,7 +260,7 @@ example {ι : Type} {dom : ι → DomainConfig}
 example {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true) :
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true) :
     ServedShips0Stmt L P Reach DataOk :=
   servedShips0_proved L P Reach DataOk hrow
 
@@ -282,7 +282,7 @@ end Terms
 /-! ## 3. C4 row controls on shapes (data only; copies of the `par/gen2-spec` DataBridgeCheck shapes) -/
 
 section Rows
-open Tools.ShippingGen2ServedDataBridgeCopy
+open Tools.ShippingGen2DataBridge
 
 /-- Synthetic shape: one call entry with a MEMORY origin and no field list. -/
 def memShape0 : Sparkle.Compiler.Elab.MachineShape :=
@@ -329,7 +329,7 @@ end Rows
 /-! ## 4. C5: SINGLE-INSTANCE control for `hrow` (one package; NOT supply, NOT coverage, NOT universal non-vacuity) -/
 
 section Single
-open Tools.ShippingGen2ServedDataBridgeCopy
+open Tools.ShippingGen2DataBridge
 
 /-- The row of the ONE concrete package `leaf16Pkg` (a callless leaf: `instFields = []`, `insts = []`). -/
 theorem leaf16_row : OneOutNoMemRow Tests.Gen2.LeafInstance.leaf16Pkg = true := by
@@ -365,7 +365,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   checkAxioms ``Tools.ShippingGen2.Pkg.traceX
   checkAxioms ``Tools.ShippingGen2.servedShips0_proved
   checkAxioms ``Tools.ShippingGen2.t1_of_stepPF_served
-  checkAxioms ``Tools.ShippingGen2ServedDataBridgeCopy.hord_of_row
+  checkAxioms ``Tools.ShippingGen2DataBridge.hord_of_row
   checkAxioms ``ordShape1_hord
   checkAxioms ``hrow_single_instance
 

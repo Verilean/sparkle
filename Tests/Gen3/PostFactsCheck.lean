@@ -81,7 +81,7 @@ def ExpectedPostFactsProved : Prop :=
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
     (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true),
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true),
     PostFactsStmt L P Reach DataOk
 
 /-- MUTANT: `hrows` dropped. -/
@@ -89,7 +89,7 @@ def MutPostFacts_noRows : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true),
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true),
     PostFactsStmt L P Reach DataOk
 
 /-- MUTANT: `hrow` dropped (U1 claimed unconditionally). -/
@@ -124,7 +124,7 @@ def ExpectedT1Rows : Prop :=
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
     (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true)
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true)
     (hStep : StepStmt L P DataOk),
     T1Stmt L P Reach DataOk
 
@@ -134,7 +134,7 @@ def MutT1Rows_noStep : Prop :=
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
     (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true),
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true),
     T1Stmt L P Reach DataOk
 
 end Expected
@@ -162,7 +162,7 @@ example {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
     (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true) :
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true) :
     PostFactsStmt L P Reach DataOk :=
   postFacts_proved L P Reach DataOk hrows hrow
 
@@ -171,7 +171,7 @@ example {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (DataOk : Pkg ι dom → Prop)
     (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
-    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2ServedDataBridgeCopy.OneOutNoMemRow q = true)
+    (hrow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true)
     (hStep : StepStmt L P DataOk) :
     T1Stmt L P Reach DataOk :=
   t1_of_step_rows L P Reach DataOk hrows hrow hStep
