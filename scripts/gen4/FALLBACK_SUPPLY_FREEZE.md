@@ -700,3 +700,169 @@ Planned proof: the proof of `core_machine_outcomeA'''` (Tools/ShippingMachineOut
 - `R4RunInv` is the `R4Run` body of e7181279 with `O := L.O` and the two leading conjuncts `InvAt (D+1) w₄`, `InvAt (D+1) w₆`; the check compares it with an independently typed Expected and proves the projection `R4RunInv → R4Run` (`r4RunInv_to_R4Run`) and the projected extraction (`a4_inv_projects_to_a4_machine_or_R4Run`). K-LINK and K-RUN share the same prefix witness (`w₃ w₄ w₆` from one peel, one `getEnv`, one machine run); no separate existentials are identified.
 - Mutants are rejections by signature/defeq, not semantic counterexamples. The `a4_inv_machine_or_R4RunInv` conclusion is accepted by logged `isDefEq`, not syntactically.
 - **Not supplied.** Preserving `InvAt` up to the tail's START world `w₆` is a different thing from the semantic guarantee of the legacy route and of the memo hit. The latter two are NOT supplied (T-LEG, T-MEMO, tail end `w₅`, K4, post-processing remain open). No new law or shared-definition change was used.
+
+---
+
+## 12. FB-4: tail-end `InvAt` and the semantic obligations — complete types, supplier table (rev7; text for review; NOT Lean, NOT implemented)
+
+- **Status.** Docs only; nothing below is built or checked by Lean. Base = `f07f4bf2` (FB-3, limited approval: `InvAt` up to `w₄` and the tail START `w₆`; machine-none extraction). This section (a) fixes the types of ONE further preservation unit, "FB-4", and (b) fixes, as TARGET SCHEMAS (text only, no Lean, no proof), the statements that the meaning of the legacy tail, of the memo hit and of the post-processing would have to take. No new law, no new field of `Laws`, no shared-definition edit, no change of FG or of a guarantee. "Planned proof" is a plan, not a result; a step that does not go through is reported as "not closed in this attempt".
+- **Two different things are kept apart throughout.**
+  1. **Preservation (P)**: a heap invariant (`InvAt`) holds at a world. FB-3 gave it at `w₃`, `w₄`, `w₆`. FB-4 adds `w₅` (the END of the `legacyTail` run). It says nothing about what the module `(m, d)` computes.
+  2. **Semantic guarantee (S)**: `(m, d)`, after post-processing, ships (`ChildShipsI (ChildIface.ofPkg q) n out dsg`). This is T-LEG / T-MEMO / T-PP / T-SHAPE / T-STATE / T-INST (§9.3). **Nothing in §12.1–§12.3 is (S).** §12.4–§12.6 fix the TYPES of (S) and supply none of it.
+- **What must not be confused.** The `JQC …` conjuncts at the end of `R4Run` (`JQC (D+1) w₄/w₆/w₇`, `JQC D w'`) are heap-shape facts (`JQ ∧ CacheInvA`), not `InvAt` (no `CacheShips`) and not meaning. `JQC O D w'` is at the END of `coreFinally` (`w'`), after the tail end `w₅`; it is not `InvAt` at `w₅`. `InvAt (D+1) w₅` does not give `InvAt D w'` (see T-FIN below).
+
+### 12.1 What exists (reused; nothing re-proved)
+| id | item | where | note |
+|---|---|---|---|
+| E-TAILCORE | `legacyTail_core` / `legacyTailA_generic`: `Keeps … I (synthesizeFromConst translate (profLogIO b) declName [] false false ci isInst)` for any `StableA` `I`, `RecA O I translate`, `T : RefLawsATele` | Tools/ShippingChildLegacyTailA.lean:138 / :194 | stated about `synthesizeFromConst … false false ci isInst`, NOT about the named program `legacyTail`. That the two coincide was **not checked** (§10.7 row 7 stands). |
+| E-LTAIL | the named program `legacyTail translate logProf declName parameters symbolicMode constInfo` | Tools/ShippingMachineOutcomeA.lean:54 | verbatim copy of the memo-read + legacy arm; the `RunsTo` in `R4Run` is about this program with `parameters = []`, `symbolicMode = false`, `constInfo := entryConst true false [] ci (instancePredicate tenv) (userInliner tenv) (structEnv tenv)` |
+| E-TRANS | `translate_keepsInv_of_tele L P Reach D hC tenv : RecA L.O (InvAt L P Reach D) (fun e h t n => translateExprToWire tenv e h t n)` | Tools/ShippingGen2Keep.lean:~40 | used by FB-3 inside K-MACH (built, f07f4bf2) |
+| E-STABLE | `stableA_invAt L P Reach D : StableA L.O.quiet (InvAt L P Reach D)` | Tools/ShippingGen2Connect.lean:41 | |
+| E-RUN4 | `a4_inv_machine_or_R4RunInv` (FB-3), `R4RunInv` (FB-3) | Tools/ShippingGen4FbInv.lean | `InvAt (D+1)` at `w₄`, `w₆` with the same witnesses as the run data |
+
+### 12.2 K-TAIL: the `legacyTail` run keeps `InvAt (D+1)` — new theorem
+```lean
+theorem legacyTail_keepsInv (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) (D : Nat)
+    (hC : ChildKeepsInv L P Reach (D + 1))
+    {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx L.O.quiet mctx cctx)
+    (tenv : Lean.Environment) (pb : Bool) (declName : Name) (ci : ConstantInfo) :
+    Keeps mctx mref cctx cref (InvAt L P Reach (D + 1))
+      (legacyTail (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO pb)
+        declName [] false ci)
+```
+`ci` is arbitrary (it is instantiated with the `entryConst …` of `R4Run`). Premises: exactly `hC`, `hA` (as K-MACH). `L.T` is the telescope family inside `Laws`; no extra premise.
+Planned proof (two routes; the first that closes is used, and the document is synchronised to the one used):
+- **Route 1.** Show `legacyTail … ci` is (definitionally or by `rfl`/`show`) the part of `synthesizeFromConst translate (profLogIO pb) declName [] false false ci' isInst` that `legacyTail_core` reasons about, and apply `legacyTailA_generic L.O L.T (stableA_invAt L P Reach (D+1)) hA _ (translate_keepsInv_of_tele L P Reach (D+1) hC tenv) pb declName ci' isInst`. The `synthesizeFromConst` body has binds before the tail (environment/entry construction), so a plain `rfl` is not expected; if Route 1 needs a bridging lemma that is not a one-liner, Route 2 is used.
+- **Route 2 (replay).** `unfold legacyTail`, then replay the proof of `legacyTail_core` from its `Keeps.bind (by vca) fun memo => …` step on (`keepsA_lambdaTelescope`, `splitReturnLeaves_keeps`, `tripleA_mkExprCache`, `bindInputsLegacy_keepsCP`, `emitLeavesAP`, `finishSynthA`, `keepsA_framed … sideModify`), with `O := L.O`, `hS := stableA_invAt L P Reach (D+1)`, `TLam/TF := L.T`'s two telescope laws, `htr := translate_keepsInv_of_tele …`. The existing file is not edited; the replay lives in the new file. The `match constInfo with | .defnInfo … | _ => throwError` arm and the `if !symbolicMode` memo arm are the steps to re-check (`symbolicMode := false` is fixed).
+- If neither route closes, FB-4 stops at that point and reports "not closed in this attempt" with the failing step; this is not a claim that the keep is false.
+
+### 12.3 K-RUNT: `R4RunInvT` and the extraction — new definition and theorem
+`R4RunInvT` is `R4RunInv` (FB-3, `Tools/ShippingGen4FbInv.lean` at `f07f4bf2`) with ONE more leading conjunct `InvAt L P Reach (D + 1) w₅`:
+```lean
+def R4RunInvT (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    (mctx : Meta.Context) (cctx : Core.Context) (D : Nat)
+    (declName : Name) (shape : MachineShape) (m : Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design)
+    (w w' : Void IO.RealWorld) : Prop :=
+  ∃ (tenv : Lean.Environment) (pb : Bool) (ci : ConstantInfo) (envR' : Lean.Environment)
+    (w₁ w₂ w₃ w₄ w₅ w₆ : Void IO.RealWorld),
+    InvAt L P Reach (D + 1) w₄ ∧ InvAt L P Reach (D + 1) w₆ ∧ InvAt L P Reach (D + 1) w₅ ∧
+    -- followed by EXACTLY the conjuncts of the `R4RunInv` body after its two leading `InvAt` conjuncts
+    -- (Tools/ShippingGen4FbInv.lean at f07f4bf2), same order, same text
+```
+The conjunct list is fixed by reference to the built text (pinned at `f07f4bf2:Tools/ShippingGen4FbInv.lean`, which pins `e7181279:Tools/ShippingGen4FbR4.lean`), not copied here; FB-4 writes it out in full and the check file types an independent Expected (§12.7). The worlds are existentially bound, so this is a separate definition (the built `R4RunInv` is not edited).
+```lean
+theorem a4_inv_tail_machine_or_R4RunInvT (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop)
+    {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx L.O.quiet mctx cctx)
+    {declName : Name} {shape : MachineShape} {D : Nat}
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hI : InvAt L P Reach D w) (hC : ChildKeepsInv L P Reach (D + 1))
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w')
+    (entry : MachineDefines mctx mref cctx cref declName shape) :
+    A4MachineSideA L.O mctx cctx D declName shape m d w w' ∨
+      R4RunInvT L P Reach mctx cctx D declName shape m d w w'
+```
+Planned proof: `rcases a4_inv_machine_or_R4RunInv L P Reach hA hI hC hr entry` (FB-3). (a) side: unchanged. (b) side: destructure the ONE witness package it returns (`tenv pb ci envR' w₁…w₆`, `InvAt w₄`, `InvAt w₆`, the tail run `htail : RunsTo (legacyTail …) … w₆ (m, d) w₅`, the rest); obtain `InvAt (D+1) w₅` as `triple_runs (keeps_iff.mp (legacyTail_keepsInv L P Reach D hC hA tenv pb declName _)) hI6 htail`; re-pack with the same witnesses. **No second existential for `w₅`: it is the `w₅` of the same package, so `InvAt` at `w₅` is about the world the tail run ends in, which is the world `coreFinally` starts from.** (a) side stays `A4MachineSideA` (no `InvAt` conjuncts, as in FB-3).
+Projections (theorems in the check file, not defeq): `R4RunInvT → R4RunInv` (drop the `w₅` conjunct), and by FB-3's `r4RunInv_to_R4Run` `R4RunInvT → R4Run` (the old FB-2 type, `O := L.O`). The extraction projects to FB-3's `a4_inv_machine_or_R4RunInv` and, composed with `a4_inv_projects_to_a4_machine_or_R4Run`, to FB-2's `a4_machine_or_R4Run` (the check re-proves these two projected statements). Direction of consequence for the target statements: a statement with hypothesis `R4Run` (§9.2.4 `R4TailStmt`) implies the same statement with hypothesis `R4RunInvT` (stronger hypothesis); not conversely, and **a caller who only has `R4Run` cannot recover `InvAt` at `w₄/w₆/w₅`**, because `R4Run`'s worlds are existential and not linked to `w` (§9.2.1). That is why the pipeline hands the extraction's `R4RunInvT` to the output statement (§12.4), not a separately obtained `R4Run`.
+
+### 12.4 The output statement (target schema; NOT Lean in FB-4; nothing proves it)
+`R4OutStmt` is `R4TailStmt` (§9.2.4) with the hypothesis `R4Run` replaced by `R4RunInvT` and the post-processing written out in full (§12.6):
+```lean
+def R4OutStmt (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) : Prop :=
+  ∀ (q : Pkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (D : Nat) (w w' : Void IO.RealWorld)
+    (raw : Module) (dsg : Design) (out : Module) (dout : Design),
+    Reach q.decl → P q.decl = some q → AdmCtx L.O.quiet mctx cctx →
+    InvAt L P Reach D w → IHAt L P Reach (D + 1) → ChildKeepsInv L P Reach (D + 1) →
+    RunsTo (synthesizeCombinationalCore q.decl [] false) mctx mref cctx cref w (raw, dsg) w' →
+    PPRel raw dsg out dout →
+    MachineDefines mctx mref cctx cref q.decl q.d.shape →
+    R4RunInvT L P Reach mctx cctx D q.decl q.d.shape raw dsg w w' →
+    ∃ n, ChildShipsI (ChildIface.ofPkg q) n out dout
+```
+Pipeline: `hr` ⟶ (K-RUNT) `A4MachineSideA ∨ R4RunInvT` ⟶ the (b) side feeds `R4OutStmt`. The (a) side (machine returned `some`, the result is memoised) is outside this statement. `R4OutStmt` is the target for R4 AS A WHOLE, memo hit included; it is not narrowed. The decomposition below (T-LEG-miss, T-MEMO-hit, T-PP) is how a proof of it would be organised; each part is an obligation that is **not supplied**.
+
+`PPRel` differs from `R4TailStmt`'s `out = dropZeroWidthModule raw ∨ …` in one respect that this freeze records: the design is rewritten too (Elab.lean `synthesizeCombinationalWith`, 5598-5606: `top f d := { d with modules := d.modules.map fun x => if x.name == m.name then f x else x }`), so the conclusion is stated for `dout`, not for `dsg`. `ChildIface` needs `dout.modules = []` (ShippingCallsGate.lean:233); `dout.modules` is the `map` of `dsg.modules`, so it is empty iff `dsg.modules` is empty. Whether `dsg.modules = []` for the tail's output is **not** established here (a gate/legacy-route fact; see T-LEG).
+
+### 12.5 T-LEG / T-MEMO: the types of the two output-meaning statements (target schemas; not Lean; not supplied)
+Tail dichotomy at the tail start `w₆` (the memo read is the first action of `legacyTail`, with `symbolicMode = false`):
+```lean
+-- K-TSPLIT (type fixed; NOT in FB-4's implementation scope): the run of legacyTail returning (m,d) is a hit or a miss.
+def MemoGetAt (declName : Name) (memo : Std.HashMap Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design))
+    (mctx cctx) (w : Void IO.RealWorld) : Prop :=
+  ∃ w₁, RunsTo (sparkleSubModuleCache.get : MetaM _) mctx mref cctx cref w memo w₁
+theorem legacyTail_hit_or_miss {translate logProf declName ci mctx cctx w w₅ m d}
+    (h : RunsTo (legacyTail translate logProf declName [] false ci) mctx mref cctx cref w (m, d) w₅) :
+    (∃ memo, MemoGetAt declName memo mctx cctx w ∧ memo.get? declName = some (m, d)) ∨
+    (∃ memo, MemoGetAt declName memo mctx cctx w ∧ memo.get? declName = none)
+```
+The miss arm records only the miss at `w₆`; the build that follows is not given a name here (`legacyTail` has no named "rest" program). No claim is made about `w₅` vs `w₆` in the hit arm.
+
+**T-MEMO-hit (target).** For a hit the module is whatever an earlier run stored under the NAME `declName` (the key ignores parameters, translator, constant, `symbolicMode`: Tools/ShippingMemoInv.lean header). The statement would be
+```lean
+def MemoHitStmt (LM : RefLawsM mref cref) (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) : Prop :=
+  ∀ (q : Pkg ι dom) D (w₆ : Void IO.RealWorld) (raw : Module) (dsg : Design) (out : Module) (dout : Design),
+    Reach q.decl → P q.decl = some q → MemoInv LM (PhiPP L P Reach) w₆ →
+    (∃ memo, MemoGetAt q.decl memo … w₆ ∧ memo.get? q.decl = some (raw, dsg)) →
+    PPRel raw dsg out dout → ∃ n, ChildShipsI (ChildIface.ofPkg q) n out dout
+-- PhiPP L P Reach := fun n r => Reach n → ∀ b dd, PPRel r.1 r.2 b dd →
+--    ∃ q' n', P n = some q' ∧ q'.decl = n ∧ ChildShipsI (ChildIface.ofPkg q') n' b dd     (§5.5)
+```
+and would follow from `memoInv_hit` (Tools/ShippingMemoInv.lean:88) given `MemoInv LM (PhiPP …) w₆` and `P q.decl = some q`, `q'.decl = q.decl` (injectivity of `P` on names is part of the `Pkgs` structure and was not re-checked). **What is not supplied:** (i) `LM : RefLawsM mref cref` is NOT a field of `Laws` (`Laws` has `O : RefLawsAOps` and `T`; `RefLawsM extends RefLaws`); whether one world interpretation can satisfy both by transport of existing laws, or only by a new assumption, is the open D-MEMO-LAW (§5.6, §7) and is **not decided here**. If a proof needs `LM` as a new premise or law, that is a stop-and-decision point (user's), not something FB-4 introduces. (ii) `MemoInv LM (PhiPP) w₆` itself: the memo-content invariant at the tail start; `ArmObligations`/`MemoSound` (ShippingMemoInv.lean:152/:209) are statements only and unused in the repo; K4 (memo names ⊆ `childCache` names ∪ {top}) is a reading of the source, not proved. (iii) The miss arm WRITES the raw result (`sparkleSubModuleCache.modify (·.insert declName result)`), so keeping `MemoInv` across the tail also needs the miss arm's own T-LEG-miss below.
+
+**T-LEG-miss (target).** For a miss the module is `finishSynth declName [] false` of the final circuit state of the legacy build (`emitLeaves`/`bindInputsLegacy`). The statement would be
+```lean
+def LegMissStmt (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) : Prop :=
+  ∀ (q : Pkg ι dom) mctx cctx D (w w' : Void IO.RealWorld) (raw : Module) (dsg : Design),
+    Reach q.decl → P q.decl = some q → AdmCtx L.O.quiet mctx cctx → InvAt L P Reach D w →
+    IHAt L P Reach (D + 1) → ChildKeepsInv L P Reach (D + 1) →
+    RunsTo (synthesizeCombinationalCore q.decl [] false) mctx mref cctx cref w (raw, dsg) w' →
+    MachineDefines mctx mref cctx cref q.decl q.d.shape →
+    R4RunInvT L P Reach mctx cctx D q.decl q.d.shape raw dsg w w' →
+    (the tail's memo read at its start world w₆ missed) →
+    ∃ n, ChildShipsI (ChildIface.ofPkg q) n raw dsg     -- the RAW output, before PPRel
+```
+("the tail's memo read … missed" needs the same-witness `w₆` of the `R4RunInvT`; a statement that re-obtains a `w₆` would break the tie, so it is stated through the package's `w₆` — which is why `R4RunInvT`'s existential is destructured, not re-quantified.) **What is not supplied:** all of T-LEG, T-SHAPE, T-STATE, T-INST, T-REACH (§9.3 rows): no supplier was found for any of them in the files read. In particular `legacy_entry_walk` has the premise `hmach : machineShape? = none` (false in R4), `LegacyDom`/`Value` are scalar-combinational (U4), and the tail's world is `w₆` (after the machine attempt and the `closeInsts` / harness), not a fresh world (U8). `InvAt (D+1) w₅` (K-TAIL) is NOT such a supplier: it keeps the cache honest, it does not relate `(m, d)` to `q.S`.
+
+### 12.6 T-PP: the post-processing (complete type; target; not supplied)
+```lean
+def PPRel (raw : Module) (dsg : Design) (out : Module) (dout : Design) : Prop :=
+  let top : (Module → Module) → Design → Design := fun f d =>
+    { d with modules := d.modules.map fun x => if x.name == raw.name then f x else x }
+  let m' := Sparkle.IR.ZeroWidth.dropZeroWidthModule raw
+  let d₁ := top Sparkle.IR.ZeroWidth.dropZeroWidthModule dsg
+  (out = m' ∧ dout = d₁) ∨
+  (out = Sparkle.IR.RefineCheck.mergeChecked m' ∧ dout = top Sparkle.IR.RefineCheck.mergeChecked d₁)
+```
+(first disjunct = `SPARKLE_NO_REGDEDUP` set, Elab.lean 5603; second = the default). The transport obligation is
+```lean
+def PPTransportStmt : Prop :=
+  ∀ (I : ChildIface …) n raw dsg out dout, PPRel raw dsg out dout → ChildShipsI I n raw dsg → ChildShipsI I n out dout
+```
+(or its package-indexed form). Supplier survey: `G-TRANSPORT`/`G-LIFT` (Gen2Defs docs); `RefineCheck` / `ZeroWidth` correctness files were **not** read in this pass for a statement that preserves `ChildRunN`; "no supplier was found in the files read" is the only claim. `PPTransportStmt` is the same obligation as for the machine route (§9.3 T-PP). It is NOT claimed false or underivable.
+
+### 12.7 Supplier table (after this section only the (P) rows have a planned supplier; no (S) row has one)
+| part | supplier | status |
+|---|---|---|
+| `InvAt (D+1)` at `w₅` (tail end) — (P) | K-TAIL `legacyTail_keepsInv` from E-TAILCORE (Route 1) or the replay of its proof (Route 2), E-TRANS, E-STABLE | type fixed here; proof planned; whether `legacyTail` coincides with E-TAILCORE's subject unchecked (Route 1) |
+| same worlds as the run data — (P) | K-RUNT `a4_inv_tail_machine_or_R4RunInvT` re-packs FB-3's single witness package | type fixed here; not written |
+| projections to `R4RunInv`, `R4Run`, FB-3 extraction, FB-2 extraction | theorems in the check file | planned; not written |
+| `InvAt D` at `w'` after `coreFinally` (T-FIN) | none looked at: `FinallyRestores` restores the saved maps and the depth, `keepBody` (Gen2Keep:54) is about `synthesizeFromConst` bodies, not `synthesizeCombinationalCore` | NOT in FB-4; open; `JQC O D w'` is the only fact at `w'` |
+| `InvAt` at `w₇` (harness) | not needed for the tail's start/end | not in FB-4 |
+| T-LEG (miss arm module meaning), T-SHAPE, T-STATE, T-INST, T-REACH — (S) | none found | open; §9.4 P-1…P-4 unchanged; need a legacy contract beyond the scalar-combinational fragment (L-2, D-LEGACY-SCOPE; not decided) |
+| T-MEMO hit, K4 — (S) | `memoInv_hit` (generic) | needs `LM : RefLawsM` and `MemoInv … w₆`; D-MEMO-LAW undecided; no supplier of the invariant found |
+| T-PP | none found | open |
+| K-TSPLIT (hit-or-miss at `w₆`) | `unfold legacyTail` + `RunsTo.bind`/`ite` | type fixed (§12.5); not in FB-4's implementation scope |
+| (a) side: memo insert after `some` | `A4MachineSideA` carries the run | not an `InvAt`/meaning supply; outside this section |
+
+### 12.8 Checks planned for FB-4 (after this section is approved; nothing run)
+New files only: `Tools/ShippingGen4FbTailInv.lean` (K-TAIL, `R4RunInvT`, K-RUNT), `Tests/Gen4/FbTailInvCheck.lean`, `lean_lib` entries in lakefile.lean; imports `Tools.ShippingGen4FbInv`. No edit of the built FB-1/2/3 files or of shared definitions.
+1. TYPE: `legacyTail_keepsInv`, `R4RunInvT` (definition value), `a4_inv_tail_machine_or_R4RunInvT` against independent `Expected…` typed again in the check file (`checkExpected`, `==` first, logged `isDefEq` fallback). The `R4RunInvT` Expected is typed out in full from the `f07f4bf2` text of `R4RunInv` plus the one conjunct.
+2. MUTANTS (rejections of mis-typed statements by signature/defeq, NOT semantic counterexamples): `R4RunInvT` with the `w₅` conjunct dropped; with `InvAt (D+1) w₅` replaced by `JQC (D+1) w₅`; with the conjunct at depth `D` instead of `D+1`; with `w₅` replaced by `w₆` (i.e. the FB-3 fact restated); `legacyTail_keepsInv` at `InvAt … D`; without `hC`; `a4_inv_tail_machine_or_R4RunInvT` without `hC`, or with `hI` replaced by `JQ`.
+3. Projections proved as theorems: `R4RunInvT → R4RunInv`, `R4RunInvT → R4Run`, the extraction → FB-3 extraction, → FB-2 `a4_machine_or_R4Run`.
+4. AXIOMS `⊆ {propext, Classical.choice, Quot.sound}`; `sorry` 0; no `native_decide`.
+5. The clean issue-linked build is the coder's. A Pod build by this unit is not a clean build.
+
+### 12.9 What this section does not claim
+- It does not claim that any (S) statement is supplied, derivable or underivable. `InvAt` at `w₅` is a preservation fact; it is not the semantic guarantee of the legacy route or of the memo hit, and it does not discharge T-LEG, T-MEMO, K4, T-PP, T-FIN.
+- `R4OutStmt`, `MemoHitStmt`, `LegMissStmt`, `PPTransportStmt`, `K-TSPLIT` are TARGET TYPES (text). They are not Lean in FB-4 and are not proved anywhere.
+- A new law (`LM : RefLawsM` as a premise of `Laws`, a legacy contract for registers/instances) or a scope choice (D-LEGACY-SCOPE) is a user decision and is not taken here. If FB-4 finds a step that needs one, it stops and writes a decision document instead.
+- Whole-Issue status unchanged: fallback / legacy / memo success routes, M4 and FG are not complete.
