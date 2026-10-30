@@ -1,13 +1,17 @@
-# DG-DATAOF full-type freeze, rev1 (Issue sparkle-gen5-dg-dataof)
+# DG-DATAOF full-type freeze, rev2 (Issue sparkle-gen5-dg-dataof)
 
-rev1 answers the review of rev0 (1bb9a0a7: R1 fully bound types, R2 total-reader claim split, R3 namespaces/binders and the nature of `dataOf_agrees`) and records the first implemented pure units (§5a). Changes against rev0 are marked **[rev1]**.
+**rev2** answers the review of rev1 (bc9a300d): **R1** (the U-E statement `toField_unField` is false for `.bits n` binders; withdrawn, replaced; the declared width comes from `MachineData.ok` rows, not from the re-pack), **R2** (the comparison and the quotation witness are different run obligations; the auxiliary generator `readMachine` and the compiler's actual reader are different things), **Q5** (the complete type of `dataOfFrom`). Changes against rev1 are marked **[rev2]**.
+
+rev1 answered the review of rev0 (1bb9a0a7: R1 fully bound types, R2 total-reader claim split, R3 namespaces/binders and the nature of `dataOf_agrees`) and records the first implemented pure units (§5a). Changes against rev0 are marked **[rev1]**.
 
 Design sources: `par/gen5-t2:scripts/gen5/` `DGEN_FREEZE.md` (rev2 c398021c; §2.1 `dataOf`/`GenData`/`dataOf_sound`, §2.4 R5,
 §2.5 C1, unit rows DG-DATAOF / DG-COVER / DG-SEM), `T2COVER_FREEZE.md` rev2, `M5_INDEP_STUDIES.md` §B;
 `kjob/g5rk-d0ddc50b:scripts/gen5/DG_READKINDS_FREEZE.md` rev2 (3f79600f). Line numbers were re-read on this branch
 (base 9d26005c); `[B]` = this tree.
 
-**Status [rev1]:** the pure units U-A, U-B, U-C (§5a) are written (`Tools/ShippingGen5DataOfPure.lean`, check
+**Status [rev2]:** besides U-A/U-B/U-C (below), the pure units **U-D and the corrected U-E** are written: `Tools/ShippingGen5DataOfPure2.lean`, check `Tests/Gen5/DataOfCheck2.lean` (§5b). They were elaborated by `kjob lake build` in the author's Pod (dev loop, no issue-linked clean build, no SHA recorded in a BUILT header); the evidence build is the coder's. `dataOfFrom`, `dataOfAt`, `dataOf`, the `*_sound` theorems are still design only (§2.2-2.4a).
+
+**Status [rev1] (kept):** the pure units U-A, U-B, U-C (§5a) are written (`Tools/ShippingGen5DataOfPure.lean`, check
 `Tests/Gen5/DataOfCheck.lean`, commit 462ea73d). They were elaborated by plain `lean` on the oleans of an earlier `kjob lake build`
 (fast loop; this is NOT the evidence build). The `kjob lake build Tests.Gen5.DataOfCheck` result is recorded in the Issue note, not here.
 `dataOfAt`, `dataOf`, `dataOfAt_sound`, U-D, U-E, U-F, U-G are design only, no Lean. Nothing here is a completion of the Issue.
@@ -45,7 +49,7 @@ Step-by-step correspondence (all line numbers [B] `ShippingMachineCommand.lean`)
 | :515-522 `kinds, c, bposL, vposL, vwL` | same | |
 | :523 **`unq c shape.body`** (`partial`) | **`readN (kindsCfg dom (isExpr dom) kinds) (lvl body) body`**, `lvl` a parameter (§2) | the only reader replaced |
 | :524-531 `splitLets, splitFields, unField, typed` | same (they are total `def`s, :250/:257/:265) | |
-| :532-537 `packed`, `q := quote …`, **`q.equal shape.body`** (opaque `Expr.equal`) | **`Term`-level structural check `bitsBeq ⟨W, whole⟩ ⟨_, packed⟩ = true`** (§5a) → `none` on mismatch | the opaque test is dropped; its job is done by the reader's soundness (`quote … whole = body`) + this check. **[rev1]** `bitsBeq` compares the width `W` against `(packLets …).1` as well as the term (it is `Sigma` equality). The check is mandatory, not a formality: `unField .bool ⟨w, .mux c a b⟩ = some ⟨.bool, c⟩` for ANY width `w` and ANY branches `a b` (not only `1#1`/`0#1`), `unField (.bits _) ⟨w,t⟩` ignores the declared width, and `(ks.zip fs).mapM` truncates to the shorter list; the re-pack through `toField`/`packLets`/`packAll` and the comparison with `whole` is what rejects all three |
+| :532-537 `packed`, `q := quote …`, **`q.equal shape.body`** (opaque `Expr.equal`) | **`Term`-level structural check `bitsBeq ⟨W, whole⟩ ⟨_, packed⟩ = true`** (§5a) → `none` on mismatch | the opaque test is dropped; its job is done by the reader's soundness (`quote … whole = body`) + this check. **[rev1]** `bitsBeq` compares the width `W` against `(packLets …).1` as well as the term (it is `Sigma` equality). **[rev2, R1 correction]** What the re-pack comparison rejects and what it does not: `unField .bool ⟨w, .mux c a b⟩ = some ⟨.bool, c⟩` for ANY width `w` and ANY branches `a b` (not only `1#1`/`0#1`) — the re-pack `toField .bool c = ⟨1, mux c 1#1 0#1⟩` differs from such a field, so the comparison with `whole` rejects it (the packed-bool-field case). `(ks.zip fs).mapM` truncates to the shorter list — the lengths are fixed by `splitLets nLets` / `splitFields (nOuts + nSlots)` and the `ok` row `shape.layout.lets = letBs.length` etc., not by the re-pack. **`unField (.bits n) ⟨w,t⟩ = some ⟨.bits w, t⟩` ignores `n` and ALWAYS survives the re-pack (`unField_bits_toField`, §5b): the re-pack comparison does NOT check the declared width of a `.bits n` binder.** The rev1 text "the re-pack … rejects all three" is withdrawn for this item; the declared width comes from `ok` rows (§4 S-WIDTH) |
 | (no counterpart; the kernel checks `machine_ok` per declaration) | **`d.ok` guard → `none`** (§2.3) | the production reader does not run `MachineData.ok`; see §4 S-OK |
 
 ## 2. Full types (the freeze)
@@ -134,10 +138,10 @@ theorem dataOf_sound {E : Lean.ConstantInfo} {senv : StructEnv} {s : MachineShap
 Proof route (not tested), with the re-pack made explicit **[rev1]**:
 1. the reader returns `r = ⟨.bits W, whole⟩` with `readN (kindsCfg dom (isExpr dom) kinds) (lvl body) body = some r`;
 2. `readN_expr_sound` (`ShippingReaderApp.lean:356` [B]) at `dom := d.dom, ks := kinds`: `quote dom (fun j => inputExpr kinds.length ((posB 0 kinds).getD j 0)) (fun j => inputExpr kinds.length ((posV 0 kinds).getD j 0)) whole = body`;
-3. U-D turns `posB 0 kinds`/`posV 0 kinds` into `d.bposL`/`d.vposL` (and `d.bpos j = d.bposL.getD j 0`, `inputExpr` count `kinds.length = d.shape.binders.length` by `kindsOf_length`);
+3. U-D (**[rev2] written**: `bposL_eq`/`vposL_eq`/`vwL_eq`, §5b) turns `posB 0 kinds`/`posV 0 kinds` into `d.bposL`/`d.vposL` (and `d.bpos j = d.bposL.getD j 0`, `inputExpr` count `kinds.length = d.shape.binders.length` by `kindsOf_length`);
 4. the guard `bitsBeq ⟨W, whole⟩ ⟨_, d.packed⟩ = true` gives (`bitsBeq_eq`) `⟨W, whole⟩ = ⟨_, d.packed⟩` — widths AND terms — hence `whole` and `d.packed` agree after the width cast and `quote` of `d.packed` is `body`;
 5. `ok` by the guard; `initOk` by `initOk_of_ok`.
-No step uses `Expr.equal`/`Expr.eqv` soundness. Whether a sound `Expr.equal` could have replaced step 4 was not investigated here; this document does not say a new law is or is not required for that (§7 B1 is only the law that coverage would need to reuse production's own `q.equal`).
+No step uses `Expr.equal`/`Expr.eqv` soundness. **[rev2, R2]** This is a statement about SOUNDNESS of the returned `d` only: `dataOfAt` runs `readN` itself, so the quotation property of the output comes from `readN_expr_sound` and the structural comparison, and `Expr.equal` is not needed. It does NOT say that a successful run's body is a quotation (that is the coverage rows C-CMP / C-QWIT of §4). Whether a sound `Expr.equal` could have replaced step 4 was not investigated here; this document does not say a new law is or is not required for that (§7 B1 is only the law that coverage would need to reuse production's own `q.equal`).
 
 ### 2.4a Totality: what is and is not claimed **[rev1, R2]**
 
@@ -155,11 +159,36 @@ Two different statements were conflated in rev0. They are separated:
 
 Consequence for wording elsewhere: where DGEN says "total `dataOf`", read (T-K) only. "`dataOf = some _` on every successful run" is coverage (S-COV), also not claimed.
 
-Design option **[rev1, Q5, not implemented]** that makes (T-K) explicit and gives kernel-checkable instances: split
-`dataOfAt := dataOfFrom lvl E shape (packTupleInputs entryV) (rootFloat entryBody)` where `dataOfFrom` takes the *values* of the partial helper
-results as ordinary arguments (`Option`/`Expr` typed) and contains no call to a `partial` function; then `dataOfFrom_sound` is stated for all
-argument values and `dataOfAt_sound` is its instance. Kernel equalities of the kind `dataOfFrom lvl E shape lit₁ lit₂ = some X.machineData` for fixed
-literal helper results (§2.5 K-instances) become possible when `readN` etc. reduce in the kernel; no such instance is claimed.
+**[rev2] Q5 `dataOfFrom` split — complete types (reviewer agreed with the separation; design only, no Lean).** Namespace `Tools.ShippingGen5DataOf`, file `Tools/ShippingGen5DataOf.lean`, opens as in §2.4.
+
+```lean
+/-- `dataOfAt` with the results of the two `partial` helpers given as ordinary ARGUMENTS:
+`tin` is the value `Sparkle.Compiler.MachTupleIn.packTupleInputs entryV` and `fl` is the function value
+`Sparkle.Compiler.MachRawSurface.rootFloat`. Neither is unfolded, no `partial` function is called inside. -/
+def dataOfFrom (lvl : Lean.Expr → Nat) (E : Lean.ConstantInfo) (senv : Sparkle.Compiler.Elab.StructEnv)
+    (shape : Sparkle.Compiler.Elab.MachineShape) (tin : Lean.Expr) (fl : Lean.Expr → Lean.Expr) :
+    Option Tools.ShippingMachineAuto.MachineData
+
+/-- The frozen shape of §2.2: the two helper applications are the only place the `partial` constants occur. -/
+def dataOfAt (lvl : Lean.Expr → Nat) (E : Lean.ConstantInfo) (senv : Sparkle.Compiler.Elab.StructEnv)
+    (shape : Sparkle.Compiler.Elab.MachineShape) : Option Tools.ShippingMachineAuto.MachineData :=
+  match E.value? with
+  | none => none
+  | some entryV =>
+    dataOfFrom lvl E senv shape (Sparkle.Compiler.MachTupleIn.packTupleInputs entryV)
+      Sparkle.Compiler.MachRawSurface.rootFloat
+
+theorem dataOfFrom_sound (lvl : Lean.Expr → Nat) {E : Lean.ConstantInfo} {senv : StructEnv} {s : MachineShape}
+    {tin : Lean.Expr} {fl : Lean.Expr → Lean.Expr} {d : MachineData}
+    (h : dataOfFrom lvl E senv s tin fl = some d) :
+    d.shape = s ∧ d.ok = true ∧
+    d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed ∧
+    d.initOk (initsOf d) = true
+-- `dataOfAt_sound` (§2.4) is `dataOfFrom_sound` at `tin := packTupleInputs entryV`, `fl := rootFloat`; `dataOf_sound` is `dataOfAt_sound` at `exprSize`.
+```
+`dataOfFrom_sound` holds for EVERY `tin`, `fl` (the proof never looks at them), which is the precise form of (T-K). The **connection to the actual values** of `packTupleInputs entryV` / `rootFloat entryBody` — that they are what the compiler's shape layer used, and that the resulting `dataOfAt` is `some` — is **not** part of `dataOfFrom_sound`. It is kept as a coverage obligation, **DG-COVER (agent g5cv-r2)**, row S-COV-FLOAT of §4; this Issue does not discharge it. Kernel instances `dataOfFrom lvl E senv shape lit₁ lit₂ = some X.machineData` (§2.5 K) remain evidence-only, not claimed.
 
 ### 2.5 Agreement (validation) **[rev1, R3: two different things]**
 
@@ -208,12 +237,15 @@ run (DG-RUNREADS / DG-ENV / DG-COVER); U = not supplied by this survey (stated, 
 | id | obligation | status | where / source |
 |---|---|---|---|
 | S-SHAPE | `d.shape = s` | S (by construction) | `dataOfAt` body |
-| S-BODY | `body_eq` | S given `bitsBeq_eq` (§5a, implemented), U-D | `readN_expr_sound` (ShippingReaderApp.lean:356 [B]), `posB/posV/widV` (ShippingReaderInputs.lean) |
+| S-BODY | `body_eq` for the RETURNED `d` (soundness) | S given `bitsBeq_eq` (§5a, implemented), U-D (**[rev2] written**, §5b) | `readN_expr_sound` (ShippingReaderApp.lean:356 [B]), `posB/posV/widV` (ShippingReaderInputs.lean) |
 | S-INIT | `d.initOk (initsOf d)` | **[rev1] S: `initOk_of_ok` (§5a, written; kernel-checked by the evidence build only after it is recorded in the Issue note)** | `ShippingMachineAuto.lean:216-243`, `encState` (MachineDenote.lean:45) |
 | S-OKGUARD | `d.ok = true` in the conclusion | S (guard) | by construction |
 | S-OK | `d.ok = true` **for every successful machine-route run** | **U** | production does not run `ok` (the kernel does, per declaration: `machine_ok` by `Eq.refl`, DGEN §1). Pieces found: `outs_of_reader`/`outNames_of_reader` (ShippingReaderOutsInv.lean, ReaderOutNames.lean — their build status not checked by this survey), `ShapeDecomp.r5_of_lengths` (ShippingShapeDecomp.lean:143), `ShippingReaderLenOk.lean`; the term-level rows (`WF`, `LetsScoped`, `LetsTyped`, `slotsFitB`, `outsFitB`) have no run-level source found. This is DG-COVER / DG-WFCOVER work and is a **stop-condition item (DGEN D3)** if a successful source fails `ok`. |
-| S-COV-Q | body is a quotation of a `Term` for every successful run | **U** (READKINDS §3, B1-B4) | not delivered here |
-| S-COV-FLOAT | `rootFloat`/`packTupleInputs` values are consistent with what `machineShape?` used | **U** | READKINDS §2.5 `RootFacts`; this survey found no producer |
+| S-WIDTH **[rev2, R1]** | the declared width / sort of every `unField`-read field equals its binder's: lets (`.bits n` binder), nexts (`.bits n` slot binder), outs (`outKind o`) | **S inside `dataOfAt` (guard `d.ok`), U for a production run** | rows of `MachineData.ok` (`ShippingMachineAuto.lean:217-245`): **lets** conjunct `LetsTyped … d.K (nIn + ss.length) d.ls` (:242; `LetsTyped` row `K p = some l.1`, `ShippingMachineDenote.lean:366`, `K p = sortOf` of binder p, Auto:204) = `ok_letsTyped`; **nexts** conjunct `d.K (nIn + i) = d.ss[i]?` (:241; `ss` is the list of the nexts' own sorts) = `ok_K_nexts`, and also the `zipAllB` slot row `f.width = machWidth b.2` (:223-225) with `slotsFitB` `f.width = g.1` (:235, :113-120); **outs** conjunct `outsFitB` (:244; row `o.width = (toField t.1 t.2).1`, Auto:141) = `ok_outsFit`. Pure lemmas turning these into `sortOf (binder) = some t.1`: `unField_bits_sortOf_iff`, `unField_sortOf`, `unField_outKind_sort` (§5b). **Not from the re-pack** (`unField_bits_toField`: a `.bits n` field always survives it). In `readMachine` none of these rows is run (:520-527 `typed` only calls `unField`; the check at :533 is the opaque `q.equal`), so for a production run the width of a `.bits n` let/next field being `n` is part of S-OK (**U**), not of S-WIDTH-in-`dataOfAt` |
+| C-CMP **[rev2, R2]** | the production comparison `q.equal shape.body = true` (`ShippingMachineCommand.lean:533`) held | **U** | a fact about an execution of the auxiliary generator `Tools.ShippingMachineCommand.readMachine` (a `MetaM` command; READKINDS freeze §1.1 / its provenance note: callers found by grep are generator / test / sweep commands, none in the compiler core or in `RunReadsAt`). This survey found no run supplier for it. Even where it held, `Lean.Expr.equal` is opaque: turning `true` into `q = body` is §7 B1 (new law, not proposed). It is **not** `dataOfAt`'s check (that is the structural `bitsBeq`, §1) |
+| C-QWIT **[rev2, R2]** | for every successful machine-route run, `∃ t, shape.body = quote … t` with the `WF` facts (the premise `hq` of READKINDS U4 `readTot_of_quote_body`) | **U** | separate from C-CMP. What would be needed is the compiler's ACTUAL reader (the one the machine route runs, whose identity/location this Issue did not establish) producing a body that is a quotation; READKINDS `readN_quote` (U1; implemented on `kjob/g5rk-impl`, audited by agent g5rk-aud — status not claimed here) is the completeness side that consumes C-QWIT, it does not produce it. The auxiliary `readMachine` (`unq` + `q.equal`) is NOT the compiler's reader and its outcome is not evidence about the compiler's reader unless a link is stated (none found). §7 B1 alone does NOT supply C-QWIT: it would turn C-CMP into an equation but only on runs of `readMachine`, and says nothing about the compiler's reader |
+| S-COV-Q | (umbrella of C-CMP + C-QWIT, rev1 wording) | **U** (READKINDS §3, B1-B4) | not delivered here; read it as the two rows above |
+| S-COV-FLOAT | `rootFloat`/`packTupleInputs` values are consistent with what `machineShape?` used, and `dataOfFrom … (packTupleInputs entryV) rootFloat` is `some` | **U** | READKINDS §2.5 `RootFacts`; this survey found no producer. **[rev2]** this is the connection of the values of the partial functions to `dataOfFrom` (§2.4a Q5); held as a DG-COVER obligation (agent g5cv-r2) |
 | S-COV-GATE | the two gate refusals (:451-452) | R (DG-RUNREADS `gates`) | not a `dataOf` obligation |
 | S-ENV | `E` is `entry₀ env₀ X` for the run's env | R/U (DG-ENV) | DGEN §2.5 C0; not here |
 | S-GENWF | `GenWF d = true` | U | DG-WFCOVER; rows unchanged |
@@ -223,7 +255,7 @@ named and belong to DG-COVER / DG-WFCOVER / DG-ENV; this Issue does not count th
 
 ## 5. Units that need no dependency (pure lemma units) **[rev1: fully bound]**
 
-All in `Tools/ShippingGen5DataOfPure.lean` (§5a: written) or `Tools/ShippingGen5DataOfPure2.lean` (U-D…U-G, design only). Each is a separate
+All in `Tools/ShippingGen5DataOfPure.lean` (§5a: written) or `Tools/ShippingGen5DataOfPure2.lean` (U-D, U-E: **[rev2] written**, §5b; U-F, U-G: design only). Each is a separate
 lemma with a full type; none uses READKINDS, `Laws`, `T1Hyp*`. Open-lists as in §2.
 
 ### 5a. Written (commit 462ea73d), exact statements
@@ -250,42 +282,59 @@ abbrev, spelled out). `initsOf d = initsFrom d.shape.layout.slots d.ss`, `decIni
 `initOk_of_ok` uses of `ok` the rows: `nIn + ss.length ≤ binders.length`, the `zipAllB` slot row (`f.width = machWidth b.2`, `f.init < 2^f.width`), and
 `K (nIn + i) = ss[i]?`; it needs no other row. **U-C holds** (no guard added).
 
-### 5b. Designed, not written
+### 5b. U-D and U-E **[rev2: written]** (`Tools/ShippingGen5DataOfPure2.lean`, namespace `Tools.ShippingGen5DataOfPure2`)
 
-* **U-D position lists.** For `ks : List MixedGateBinder` (`posB posV widV`: `Tools.ShippingReaderInputs`):
-  ```lean
-  theorem bposL_eq (ks : List MixedGateBinder) :
-      (((List.range ks.length).zip ks).filterMap fun (pk : Nat × MixedGateBinder) => if pk.2 == .bool then some pk.1 else none) = posB 0 ks
-  theorem vposL_eq (ks : List MixedGateBinder) :
-      (((List.range ks.length).zip ks).filterMap fun (pk : Nat × MixedGateBinder) => match pk.2 with | .bits _ => some pk.1 | _ => none) = posV 0 ks
-  theorem vwL_eq (ks : List MixedGateBinder) :
-      (((List.range ks.length).zip ks).filterMap fun (pk : Nat × MixedGateBinder) => match pk.2 with | .bits w => some w | _ => none) = widV ks
-  ```
-  (proved through an offset generalization `List.range' o n`). These are `readMachine` :519-521 verbatim.
-* **U-E inversions** (`splitLets splitFields unField`: `Tools.ShippingMachineCommand`; `packLets`: `Tools.ShippingMachineEntry`; `packList packAll`: `Tools.ShippingMachineDenote`/`Auto`):
-  ```lean
-  theorem splitLets_some {n : Nat} {t : Σ w : Nat, Term (.bits w)} {fs : List (Σ w : Nat, Term (.bits w))} {core : Σ w : Nat, Term (.bits w)}
-      (h : splitLets n t = some (fs, core)) : fs.length = n ∧ t = packLets fs core.2
-  theorem splitFields_some {n : Nat} {t : Σ w : Nat, Term (.bits w)} {fs : List (Σ w : Nat, Term (.bits w))}
-      (h : splitFields n t = some fs) : 0 < n ∧ fs.length = n ∧ t = packAll fs
-  theorem unField_bool {f : Σ w : Nat, Term (.bits w)} {t : Σ s : SType, Term s} (h : unField .bool f = some t) :
-      ∃ (w : Nat) (c : Term .bool) (a b : Term (.bits w)), f = ⟨w, .mux c a b⟩ ∧ t = ⟨.bool, c⟩
-  theorem unField_bits {n w : Nat} {u : Term (.bits w)} {t : Σ s : SType, Term s} (h : unField (.bits n) ⟨w, u⟩ = some t) : t = ⟨.bits w, u⟩
-  theorem unField_domain {f : Σ w : Nat, Term (.bits w)} : unField .domain f = none
-  theorem toField_unField {k : MixedGateBinder} {f : Σ w : Nat, Term (.bits w)} {t : Σ s : SType, Term s}
-      (h : unField k f = some t) (hre : toField t.1 t.2 = f) : sortOf k = some t.1
-  ```
-  `unField_bool` is deliberately weak (branches and width are NOT `1#1`/`0#1`/`1`): this is why the `repack = whole` check can not be dropped (§1 table);
-  `toField_unField` is the pure statement that a field that survives the re-pack (`hre`) has the binder's sort. The first two `_some` lemmas are exact for the
-  right-nested `concat` shapes of `packLets`/`packAll` (the width index `m + n` is part of the Sigma, so they are statements about Sigma values, not about `Expr`).
+`import Tools.ShippingMachineCommand Tools.ShippingReaderInputs`; `open Tools.ShippingUnifiedSource Tools.ShippingMachineDenote Tools.ShippingMachineAuto Tools.ShippingMachineCommand Tools.ShippingMachineEntry Tools.ShippingReaderInputs Sparkle.Core Sparkle.IR.Machine Sparkle.Compiler.Elab`. Exact statements:
+
+```lean
+-- U-D  (readMachine :512-514 verbatim; MixedGateBinder: Sparkle.Compiler.Elab; posB/posV/widV: Tools.ShippingReaderInputs)
+theorem bposL_eq (ks : List MixedGateBinder) :
+    (((List.range ks.length).zip ks).filterMap fun (pk : Nat × MixedGateBinder) => if pk.2 == .bool then some pk.1 else none) = posB 0 ks
+theorem vposL_eq (ks : List MixedGateBinder) :
+    (((List.range ks.length).zip ks).filterMap fun (pk : Nat × MixedGateBinder) => match pk.2 with | .bits _ => some pk.1 | _ => none) = posV 0 ks
+theorem vwL_eq (ks : List MixedGateBinder) :
+    (((List.range ks.length).zip ks).filterMap fun (pk : Nat × MixedGateBinder) => match pk.2 with | .bits w => some w | _ => none) = widV ks
+-- (proved through the offset forms bposL_aux/vposL_aux/vwL_aux with List.range' o ks.length, for all o)
+
+-- U-E  splitLets/splitFields/unField: Tools.ShippingMachineCommand; packLets: Tools.ShippingMachineEntry; packAll: Tools.ShippingMachineAuto
+theorem splitLets_some {n : Nat} {t : Σ w : Nat, Term (.bits w)} {fs : List (Σ w : Nat, Term (.bits w))} {core : Σ w : Nat, Term (.bits w)} :
+    splitLets n t = some (fs, core) → fs.length = n ∧ t = packLets fs core.2
+theorem splitFields_some {n : Nat} {t : Σ w : Nat, Term (.bits w)} {fs : List (Σ w : Nat, Term (.bits w))}
+    (h : splitFields n t = some fs) : 0 < n ∧ fs.length = n ∧ t = packAll fs
+theorem unField_bool {f : Σ w : Nat, Term (.bits w)} {t : Σ s : SType, Term s} (h : unField .bool f = some t) :
+    ∃ (w : Nat) (c : Term .bool) (a b : Term (.bits w)), f = ⟨w, .mux c a b⟩ ∧ t = ⟨.bool, c⟩
+theorem unField_bits {n w : Nat} {u : Term (.bits w)} {t : Σ s : SType, Term s} (h : unField (.bits n) ⟨w, u⟩ = some t) : t = ⟨.bits w, u⟩
+theorem unField_domain {f : Σ w : Nat, Term (.bits w)} : unField .domain f = none
+-- what the re-pack does NOT give, and the corrected statements (replace the withdrawn `toField_unField`):
+theorem unField_bits_toField {n : Nat} {f : Σ w : Nat, Term (.bits w)} {t : Σ s : SType, Term s}
+    (h : unField (.bits n) f = some t) : toField t.1 t.2 = f                                    -- ALWAYS: no information about n
+theorem unField_bits_sortOf_iff {n : Nat} {f : Σ w : Nat, Term (.bits w)} {t : Σ s : SType, Term s}
+    (h : unField (.bits n) f = some t) : sortOf (.bits n) = some t.1 ↔ f.1 = n
+theorem unField_sortOf {k : MixedGateBinder} {f : Σ w : Nat, Term (.bits w)} {t : Σ s : SType, Term s}
+    (h : unField k f = some t) (hw : ∀ n, k = .bits n → f.1 = n) : sortOf k = some t.1
+theorem unField_width_of_sortOf {n : Nat} {f : Σ w : Nat, Term (.bits w)} {t : Σ s : SType, Term s}
+    (h : unField (.bits n) f = some t) (hs : sortOf (.bits n) = some t.1) : f.1 = n
+theorem unField_outKind_sort {o : OutField} {f : Σ w : Nat, Term (.bits w)} {t : Σ s : SType, Term s}
+    (h : unField (outKind o) f = some t) (hw : o.width = (toField t.1 t.2).1) : sortOf (outKind o) = some t.1
+-- the `ok` rows that supply sorts / widths (projections of `d.ok = true`, MachineData: Tools.ShippingMachineAuto)
+theorem ok_K_nexts {d : MachineData} (h : d.ok = true) : ∀ i, i < d.ss.length → d.K (d.nIn + i) = d.ss[i]?
+theorem ok_letsTyped {d : MachineData} (h : d.ok = true) : LetsTyped d.bpos d.vpos d.kb d.kv d.vw d.K (d.nIn + d.ss.length) d.ls
+theorem ok_outsFit {d : MachineData} (h : d.ok = true) : outsFitB d.kb d.kv d.vw d.fields d.shape.layout.outs d.outs = true
+```
+**Withdrawal (R1).** rev1's `toField_unField {k} {f} {t} (h : unField k f = some t) (hre : toField t.1 t.2 = f) : sortOf k = some t.1` is **false** in the present types: `unField (.bits n)` (`ShippingMachineCommand.lean:267`) ignores `n`. Counterexample (kernel `rfl`/`decide` in `Tests/Gen5/DataOfCheck2.lean` §3): `k = .bits 8`, `f = ⟨16, .bitsLit 16 0⟩`: `unField (.bits 8) f = some ⟨.bits 16, .bitsLit 16 0⟩`, `toField (.bits 16) (.bitsLit 16 0) = f`, but `sortOf (.bits 8) ≠ some (.bits 16)`. The check file also rejects the old statement as a MUTANT (signature/defeq rejection of the changed statement, not a semantic counterexample) next to the kernel counterexample. Nothing in this freeze depends on `toField_unField`; `dataOfAt_sound` does not use any `unField` lemma (its `ok` conjunct is the guard, §2.3).
+
+**Where the declared width/sort of a field comes from, by `file:line` [B]** (answer to R1): see the row S-WIDTH of §4. In short: lets from `ok` conjunct :242 (`LetsTyped`), nexts from :241 (and :223-225 + :235), outs from :244 (`outsFitB`); the `splitLets` / `splitFields` lengths from `splitLets_some` / `splitFields_some` and the `ok` rows `layout.lets = letBs.length` (:219), `nIn + ss.length ≤ binders.length` (:218); the re-pack comparison (`bitsBeq`) contributes the shape of `.bool` fields (`mux c 1#1 0#1`) and the whole term, not the `.bits n` width. `unField_bool` is deliberately weak (any width, any branches), which is why the comparison cannot be dropped.
+
 * **U-F shape preservation** (needs `dataOfAt`): `dataOfAt lvl E senv s = some d → d.shape = s` and
   `dataOfAt lvl E senv s = some d → d.shape.binders.length = d.nIn + d.ss.length + d.letBs.length`.
 * **U-G** closed instances of §2.5 (K), after the Q5 split, evidence only.
 
-Order after approval: U-D, U-E (step 1b); `dataOfAt` (or `dataOfFrom`) and its `_shape/_ok` (step 2); `dataOfAt_sound` (step 3); `dataOf` (step 4,
+Order **[rev2]**: U-D, U-E (step 1b) are written; then `dataOfAt` (or `dataOfFrom`) and its `_shape/_ok` (step 2); `dataOfAt_sound` (step 3); `dataOf` (step 4,
 needs READKINDS's `exprSize`; until it lands only `dataOfAt` is delivered). Estimate for the rest 400-700 lines (an estimate, not a result).
 
 ## 6. Expected-type / closure / axiom audit plan
+
+**[rev2]** `Tests/Gen5/DataOfCheck2.lean` (new Check, same form, imports `Tests.Gen5.DataOfCheck` for `reach`) covers §5b: TYPE for the 16 lemmas (independent `Exp…` statements with the same binder names), 8 MUTANT rejections (the withdrawn `toField_unField`, `unField_sortOf` without `hw`, the one-way iff, `unField_bool` with fixed branches, `splitLets_some` without the length, `splitFields_some` without `0 < n`, `bposL_eq` against `posV`, `ok_K_nexts` without `h`; rejections by signature / defeq of a changed statement, NOT semantic counterexamples), 12 kernel controls (the R1 counterexample `unField (.bits 8) ⟨16,…⟩` with the re-pack equal and the sorts different; `unField .bool` on a mux with any width/branches; refusals; the position lists on `[bool, bits 3, domain, bool]`), REACH (explicit walk through `DataOfCheck.reach`, with its four detector controls; body-less / opaque counts printed, e.g. `String.Internal.append` for the `ok_*` lemmas through `MachineData.ok`; bodies of opaque constants are not explored) and AXIOMS. **Value closure** is the explicit-body walk of REACH.
 
 **[rev1]** `Tests/Gen5/DataOfCheck.lean` (written, commit 462ea73d) in the form of `Tests/Gen5/RunReadsCheck.lean` (imports `Tests.Gen3.ExpectedType`
 and `Tools.ShippingGen5T1ND` for the `T1Hyp`/`T1HypND` fixtures). It currently covers §5a only: TYPE for the 9 lemmas and the 4 definitions' types, 7 MUTANT
@@ -312,7 +361,7 @@ The items below are the plan for the full file; those marked (§5a only) exist.
 
 | id | what | why it comes up | status |
 |---|---|---|---|
-| B1 | `Expr.equal a b = true → a = b` | would give S-COV-Q from production's `q.equal` | new law; **not proposed** (READKINDS B1) |
+| B1 | `Expr.equal a b = true → a = b` | would turn C-CMP (§4) into an equation on runs of the auxiliary `readMachine`; **it does not by itself supply C-QWIT** (§4: the compiler's reader, the quote witness) | new law; **not proposed** (READKINDS B1) |
 | B2 | agreement of `dataOf` (or of total fuel versions) with the `partial` `rootFloat`/`packTupleInputs`/`unq` | S-COV-FLOAT, general `dataOf_agrees` | not supplied: this survey found no route under the present boundary; not claimed impossible; classification undecided here (D2 not re-opened) |
 | B3 | coverage theorem takes `BodyQuoted`/`ok` as a premise | S-COV-Q, S-OK | conditional result, recorded as intermediate |
 | B4 | compiler change: `readMachine` returns the certificate / runs `ok` | S-OK, S-COV-Q | compiler edit; forbidden for this Issue |
@@ -340,9 +389,10 @@ Original questions (rev0):
 
 ## 9. Not claimed
 
-* Only §5a and the check file exist as Lean; everything else here is design, line counts are estimates. No claim that every `dataOfAt` execution terminates (§2.4a T-X).
+* **[rev2]** Lean exists for §5a (built, doc-bc9a300d) and for §5b U-D/U-E (`Tools/ShippingGen5DataOfPure2.lean`, `Tests/Gen5/DataOfCheck2.lean`: elaborated in the author's Pod dev loop only; clean build is the coder's; not recorded as built). The rev1 sentence follows for the older parts: Only §5a and the first check file exist as Lean (rev1); everything else here is design, line counts are estimates. No claim that every `dataOfAt` execution terminates (§2.4a T-X).
 * No claim that `dataOfAt` returns `some` on any successful run (coverage, DG-COVER); no claim that it does not.
 * `initOk_of_ok` is written and passed plain `lean` elaboration on the oleans of an earlier build; its `kjob lake build` result is in the Issue note, not claimed here. No claim that `ok` is implied by anything in the run.
+* **[rev2]** No claim that a successful production run satisfies C-CMP or C-QWIT, and no claim that the auxiliary `readMachine` is (or is not) the compiler's reader beyond the READKINDS provenance note; no claim that `dataOfFrom`'s output equals `readMachine`'s for the real values of the partial helpers (S-COV-FLOAT, DG-COVER).
 * No claim about `rootFloat` / `packTupleInputs` beyond using their values; no claim about `Expr.equal`.
 * No claim that DG-READKINDS U1-U4 are proved; this document uses only the already-existing `readN_expr_sound`.
 * The `dataOf` line (§2.2) is conditional on READKINDS exporting `exprSize`; until then only `dataOfAt` exists.
