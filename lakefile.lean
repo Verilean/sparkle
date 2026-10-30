@@ -4831,3 +4831,6 @@ lean_lib «Tests.Gen3.PostExpectedType» where
 
 lean_lib «Tests.Gen3.PostFactsCheck» where
   roots := #[`Tests.Gen3.PostFactsCheck]
+
+lean_lib «Tests.Gen3.DataBridgeUnifyCheck» where
+  roots := #[`Tests.Gen3.DataBridgeUnifyCheck]
