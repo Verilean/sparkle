@@ -2,7 +2,7 @@ import Tools.ShippingGen5ClosingRun2
 import Tests.Gen5.ClosingRunCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: awaiting a Pod build; clean issue-linked build is run by the coder.
+-- Built in the Pod (kjob lake build Tests.Gen5.ClosingRun2Check, exit 0: TYPE 12, MUTANT 28, STRUCT 3 + 10 mutants, controls 12, REACH 8, AXIOMS 11) on the tree of 018ff69a; clean issue-linked build is run by the coder (not yet done).
 -- No sorry / axiom / native_decide.
 
 /-! # DG-CLOSINGRUN2 checks (Tools/ShippingGen5ClosingRun2.lean; scripts/gen5/DG_CLOSINGRUN_FREEZE_R4.md)

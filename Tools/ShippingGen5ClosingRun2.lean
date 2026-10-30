@@ -1,6 +1,6 @@
 import Tools.ShippingGen5ClosingRun
 set_option autoImplicit false
--- NOT BUILT: implementation of freeze r4 (962626dd) awaiting a Pod build; clean issue-linked build is run by the coder.
+-- Built in the Pod (kjob lake build Tools.ShippingGen5ClosingRun2, exit 0, standard axioms) on the tree of 018ff69a; clean issue-linked build is run by the coder (not yet done).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # DG-CLOSINGRUN next unit (scripts/gen5/DG_CLOSINGRUN_FREEZE_R4.md)
