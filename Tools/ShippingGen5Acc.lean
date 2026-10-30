@@ -15,7 +15,7 @@ fields of `AssignKit`, each the type the owner's freeze states, and each theorem
   `genS_unfold` (locality: only the ordinary callees of the entry are read), `genS_some_inv`.
 * A2: `CacheAcc`, `cacheAcc_insert`, `cacheAcc_empty`, `ReachEdge`, `genS_isSome_of_cover`.
 
-Conditional on nothing but the kit's spec fields. `AccServedStmt`, `AccKeepChildStmt`, `GenSFacts`, `CoverAt` are NOT here. -/
+Conditional on nothing but the kit's spec fields. `AccServedStmt`, `AccKeepChildStmt`, `GenSFacts`, `ReachCover` are NOT here. -/
 namespace Tools.ShippingGen5Acc
 open Lean Sparkle.Compiler.Elab Sparkle.IR.Machine Tools.ShippingGen2 Tools.ShippingGen5Sem
 open Tools.ShippingMachineAuto (MachineData)
@@ -204,12 +204,12 @@ inductive ReachEdge (Top : Name → Prop) : Name → Prop
   | edge {X c : Name} : ReachEdge Top X → CallEdge K X c → ReachEdge Top c
 
 /-- COVERAGE premise (DG-COVER + DG-WFCOVER + DG-ENV): every name of `Reach` has an entry and reader data. -/
-def CoverAt (Reach : Name → Prop) : Prop :=
+def ReachCover (Reach : Name → Prop) : Prop :=
   ∀ c, Reach c → ∃ (E : ConstantInfo) (g : K.GD E), entry₀ env₀ c = some E ∧ K.genData₀ E = some g
 
 /-- Strictness closes: the ordinary callees of reached names are reached, so `genS` exists on all of `Reach`. -/
 theorem genS_isSome_of_cover {Reach : Name → Prop} (hcl : ∀ X c, Reach X → CallEdge K X c → Reach c)
-    (hacc : ∀ c, Reach c → Acc (CallRel K) c) (hcov : CoverAt K Reach) :
+    (hacc : ∀ c, Reach c → Acc (CallRel K) c) (hcov : ReachCover K Reach) :
     ∀ c, Reach c → ∃ s, genS K c = some s := by
   have key : ∀ c, Acc (CallRel K) c → Reach c → ∃ s, genS K c = some s := by
     intro c h

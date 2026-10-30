@@ -77,7 +77,7 @@ def ExpectedCacheAccEmpty : Prop :=
 def ExpectedGenSIsSomeOfCover : Prop :=
   ∀ {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig} {env₀ : Environment} (K : AssignKit ι dom env₀)
     {Reach : Name → Prop} (hcl : ∀ X c, Reach X → CallEdge K X c → Reach c)
-    (hacc : ∀ c, Reach c → Acc (CallRel K) c) (hcov : CoverAt K Reach), ∀ c, Reach c → ∃ s, genS K c = some s
+    (hacc : ∀ c, Reach c → Acc (CallRel K) c) (hcov : ReachCover K Reach), ∀ c, Reach c → ∃ s, genS K c = some s
 
 -- mutants (each well-typed, one place changed)
 /-- no strictness guard -/
@@ -129,7 +129,7 @@ def MutInsertNoPremise : Prop :=
 /-- strictness closes without `hcl` -/
 def MutCoverNoClosure : Prop :=
   ∀ {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig} {env₀ : Environment} (K : AssignKit ι dom env₀)
-    {Reach : Name → Prop} (hacc : ∀ c, Reach c → Acc (CallRel K) c) (hcov : CoverAt K Reach), ∀ c, Reach c → ∃ s, genS K c = some s
+    {Reach : Name → Prop} (hacc : ∀ c, Reach c → Acc (CallRel K) c) (hcov : ReachCover K Reach), ∀ c, Reach c → ∃ s, genS K c = some s
 end Expected
 
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -137,7 +137,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   checkExpected ``CallEdge ``ExpectedCallEdge
   checkExpected ``CallRel ``ExpectedCallRel
   checkExpected ``CacheAcc ``ExpectedCacheAcc
-  checkExpected ``CoverAt ``ExpectedCoverAt
+  checkExpected ``ReachCover ``ExpectedCoverAt
   checkExpected ``callEdge_of_ord ``ExpectedCallEdgeOfOrd
   checkExpected ``genS_unfold ``ExpectedGenSUnfold
   checkExpected ``genS_some_inv ``ExpectedGenSSomeInv
@@ -157,7 +157,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 run_cmd Lean.Elab.Command.liftTermElabM do
   for n in [``entry₀, ``dataOf₀, ``dataOf₀_of_genData₀, ``CallEdge, ``callEdge_of_ord, ``CallRel, ``genStep, ``genSAcc, ``genS,
       ``genSAcc_intro, ``genSAcc_irrel, ``genS_of_acc, ``genS_of_not_acc, ``genS_step, ``genS_unfold, ``genS_some_inv,
-      ``CacheAcc, ``cacheAcc_insert, ``cacheAcc_empty, ``ReachEdge, ``CoverAt, ``genS_isSome_of_cover] do
+      ``CacheAcc, ``cacheAcc_insert, ``cacheAcc_empty, ``ReachEdge, ``ReachCover, ``genS_isSome_of_cover] do
     checkAxioms n
 
 /-! ## CLOSURE walker -/
@@ -242,7 +242,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let env ← getEnv
   let roots := [``genS_unfold, ``genS_some_inv, ``callEdge_of_ord, ``genS_step, ``genS_of_acc, ``genS_of_not_acc,
     ``cacheAcc_insert, ``cacheAcc_empty, ``genS_isSome_of_cover, ``dataOf₀_of_genData₀, ``genSAcc_intro, ``genSAcc_irrel,
-    ``genS, ``genStep, ``CacheAcc, ``CoverAt, ``ReachEdge]
+    ``genS, ``genStep, ``CacheAcc, ``ReachCover, ``ReachEdge]
   let (seen, unk, hits) ← closureReport env roots
   unless hits.isEmpty do throwError "GEN5 CLOSURE FAILED: forbidden constants reached: {hits}"
   -- the unit uses the kit only as hypotheses: no supplier unit's constants are reached
