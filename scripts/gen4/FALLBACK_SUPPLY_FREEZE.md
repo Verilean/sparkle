@@ -327,6 +327,7 @@ If this freeze is approved, the first Lean unit is §5.7 (new file; one existenc
 ## 9. Producer research (rev3 addendum): same-core-run tail decomposition and source tie — complete type and supplier survey
 
 - **Status:** docs only, research. No Lean is written for anything in this section and nothing here is a supply. It is the "main work" asked for after the rev3 approval (target SHA of the approval: 6eb58bf2). It is not a re-freeze of §0-§8; it adds a section. Whatever it proposes as a Lean type needs its own review before implementation.
+- **rev4 (review of 79e6d672, R1-R3):** §9.2 is rewritten with the exact A''' conclusion, a complete `R4Run`, the extraction lemma and `R4TailStmt` for R4 as a whole (memo obligation kept); §9.6 limits only the first unit; §9.7 adds T-INV research; build evidence is a reference (§9.6). Docs only.
 - **Scope:** the R4 tail only (§1: `machineShape? = some shape`, `synthesizeMachineCertified = none`, then memo/legacy), for a NESTED run (§5.4 right column). R6-direct, the memo-hit side and K4 are not in this section (§9.6).
 - **Wording rule:** "no supplier found" below means: the files named in the "Sources read" line and those cited here were read and no supplier of the item was found. It does not mean the item is impossible or underivable.
 
@@ -341,33 +342,94 @@ Facts that matter for the producer:
 - Its extra premise `T : RefLawsATele` is `Laws.T` (Gen2Defs.lean:46-48), an existing field of `Laws`; the premise `D = 0 ∨ CacheInvA O (cv w)` and `JQ O.quiet D w` follow from `InvAt` (`InvAt L P Reach D w = JQC L.O D w ∧ …`). No new law.
 - Conclusion shape is a PRE-`finally` statement about `w₅`; the post-processing (`dropZeroWidthModule`, `mergeChecked`) is outside the core run (§5.5) and is not in this theorem.
 
-### 9.2 Proposed complete type of the R4-local producer (text for review; NOT Lean, NOT implemented)
-Names are proposals. Interface names are the gate's (`ChildIface`, `ChildShipsI`, §0); they are used only here, in text. `ι dom L P Reach` as in Gen2Defs. `dv`, `InvAt`, `IHAt`, `ChildKeepsInv`, `AdmCtx`, `MachineDefines`, `RunsTo` as in Gen2Defs.
+### 9.2 Complete type of the R4 producer (rev4; text for review; NOT Lean, NOT implemented)
+Names are proposals. Interface names are the gate's (`ChildIface`, `ChildShipsI`, §0), used only in text. `Laws`, `Pkgs`, `Pkg`, `InvAt`, `IHAt`, `ChildKeepsInv`, `dv` as in Tools/ShippingGen2Defs.lean:141-177; `AdmCtx` Tools/ShippingChildInvA.lean:77; `MachineDefines` Tools/ShippingMachineEntry.lean:2345; `JQC := JQ ∧ CacheInvA` Tools/ShippingChildCacheA.lean:120; `StartReadsN`/`FinallyRestores` Tools/ShippingMachineOutcomeA4.lean:53/79. `L.O`, `L.T` are the existing `Laws` fields (`T : RefLawsATele O.quiet mref cref`, Gen2Defs.lean:46-48).
+
+**9.2.0 The existing conclusion, quoted.** `core_machine_outcomeA'''` (Tools/ShippingMachineOutcomeA4.lean:224-273; statement) — premises `O : RefLawsAOps MkRefd mref cref`, `hA : AdmCtx O.quiet mctx cctx`, `T : RefLawsATele O.quiet mref cref`, `{declName shape D w w' m d}`, `hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w'`, `entry : MachineDefines mctx mref cctx cref declName shape`, `hw : JQ O.quiet D w`, `hc : D = 0 ∨ CacheInvA O (cv w)`. Conclusion: `∃ tenv b ci envR' w₁ w₂ w₃ w₄ w₅ w₆ r` with, in order (line):
+1. `RunsTo (getConstInfo declName) … w₁ ci w₂` (:233)
+2. `RunsTo (Lean.getEnv : MetaM Environment) … w₂ tenv w₃` (:234)
+3. `JQC O (D + 1) w₃` (:235)
+4. `RunsTo (Lean.getEnv : MetaM Environment) … w₃ envR' w₄` (:236)
+5. `machineShape? false [] (entryConst true false [] ci (instancePredicate tenv) (userInliner tenv) (structEnv tenv)) (structEnv envR') = some shape` (:237-238)
+6. `RunsTo (synthesizeMachineCertified (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName shape) … w₄ r w₆` (:239-241)
+7. `JQC O (D + 1) w₄ ∧ JQC O (D + 1) w₆` (:241)
+8. `∃ sf sw sl sp sc ss sg, RunsTo (coreFinally D sf sw sl sp sc ss sg) … w₅ () w' ∧ FinallyRestores D sf … sg w₅ w' ∧ (D = 0 → sf = {} ∧ … ∧ sg = {}) ∧ (D ≠ 0 → StartReadsN declName b D w sf … sg)` (:242-248)
+9. `JQC O D w'` (:248)
+10. the disjunction (:249-273): (a) `∃ res, r = some res ∧ res = (m, d) ∧ ∃ wl, RunsTo (profLogIO b "[profile] synthesizeCombinational … machine certified front end") … w₆ () wl ∧ RunsTo (sparkleSubModuleCache.modify (·.insert declName res)) … wl () w₅`; or (b) `r = none ∧ RunsTo (legacyTail (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO b) declName [] false (entryConst true false [] ci (instancePredicate tenv) (userInliner tenv) (structEnv tenv))) … w₆ (m, d) w₅ ∧ ∃ t d₀ w₇, RunsTo (synthesizeMixedCertified (…same translate…) (profLogIO b) declName shape.binders shape.body) … w₄ (t, d₀) w₇ ∧ JQC O (D + 1) w₇ ∧ ((closeLets shape.layout.lets t = none ∧ w₆ = w₇) ∨ (∃ t', closeLets shape.layout.lets t = some t' ∧ shape.insts ≠ [] ∧ ((shape.instFields.isEmpty = true ∧ RunsTo (closeInstsM shape t (closeMachine shape.layout t') d₀) … w₇ none w₆) ∨ (shape.instFields.isEmpty = false ∧ RunsTo (closeInstsGM shape t (closeMachine shape.layout t') d₀) … w₇ none w₆))))`.
+
+Here `t'` is quantified INSIDE the second disjunct of the closeLets case (`closeLets … = some t'`), not at the top; `t, d₀, w₇` are inside (b); `r` is `none` in (b).
+
+**9.2.1 What links which worlds (witness vs. run chain).** The explicit run chain in the conclusion is: `w₁ →(getConstInfo) w₂ →(getEnv) w₃ →(getEnv) w₄ →(machine attempt) w₆ →(legacyTail) w₅ →(coreFinally) w'`, and inside (b) the side run `w₄ → w₇ [→ w₆ via closeInsts]`. **The conclusion does not contain a run from the core's start `w` to `w₁`.** `w₁` is the world that the theorem itself obtains from the same `hr` (internally via `core_reads_link4A`, defined :116, used :275); the statement only guarantees that this `w₁` exists. The relation of `w` to `w₁` in the conclusion is limited to item 8's `StartReadsN … w` (for `D ≠ 0`, the entry's initial reads run FROM `w`, returning the saved maps) and `JQC O (D+1) w₃`; nothing states `w₁` is reachable from `w` by an explicit run, nor that the heap between them is related except through those facts. A producer must therefore treat `w₁` as "the world the theorem returned for this `hr`", not as a world it can chain to from `w`; any need to connect `w`'s `InvAt` to `w₄`'s (T-INV) is an additional obligation (§9.3, §9.7), not a consequence of the conclusion.
+
+**9.2.2 `R4Run` (complete; the (b) side with its prefix).**
 ```lean
-/-- The R4 data of THIS core run: exactly the (b)-disjunct of core_machine_outcomeA''' and its prefix, with r = none. -/
-def R4Run (L : Laws mref cref) (mctx : Meta.Context) (cctx : Core.Context) (D : Nat) (declName : Name)
-    (shape : MachineShape) (m : Module) (d : Design) (w w' : Void IO.RealWorld) : Prop :=
-  ∃ tenv b ci envR' w₁ w₂ w₃ w₄ w₅ w₆ w₇ t d₀ t', <the conjuncts of A''' (b) verbatim: reads, JQC, `machineShape?` = some shape,
-      harness run w₄→w₇ returning (t,d₀), closeLets/closeInsts none case, `legacyTail … (entryConst …)` run w₆→w₅ returning (m,d),
-      coreFinally/FinallyRestores/StartReadsN from w₅ to w'>
-def R4TailStmt (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) : Prop :=
-  ∀ (q : Pkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (w w' : Void IO.RealWorld)
-    (raw b : Module) (D : Design),
-    Reach q.decl → P q.decl = some q → AdmCtx L.O.quiet mctx cctx →
-    InvAt L P Reach (dv w) w → IHAt L P Reach (dv w + 1) → ChildKeepsInv L P Reach (dv w + 1) →
-    RunsTo (synthesizeCombinationalCore q.decl [] false) mctx mref cctx cref w (raw, D) w' →
-    (b = dropZeroWidthModule raw ∨ b = mergeChecked (dropZeroWidthModule raw)) →
-    MachineDefines mctx mref cctx cref q.decl q.d.shape →
-    R4Run L mctx cctx (dv w) q.decl q.d.shape raw D w w' →
-    ∃ n, ChildShipsI (ChildIface.ofPkg q) n b D
+/-- Everything `core_machine_outcomeA'''` says on its (b) side: prefix items 1-9 with r = none, and (b)'s tail
+and harness data.  `pb` is the profile Bool `b` of A'''. -/
+def R4Run (L : Laws mref cref) (mctx : Meta.Context) (cctx : Core.Context) (D : Nat)
+    (declName : Name) (shape : MachineShape) (m : Module) (d : Design) (w w' : Void IO.RealWorld) : Prop :=
+  ∃ (tenv : Lean.Environment) (pb : Bool) (ci : ConstantInfo) (envR' : Lean.Environment)
+    (w₁ w₂ w₃ w₄ w₅ w₆ : Void IO.RealWorld),
+    RunsTo (getConstInfo declName) mctx mref cctx cref w₁ ci w₂ ∧
+    RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w₂ tenv w₃ ∧
+    JQC L.O (D + 1) w₃ ∧
+    RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w₃ envR' w₄ ∧
+    machineShape? false [] (entryConst true false [] ci (instancePredicate tenv)
+      (userInliner tenv) (structEnv tenv)) (structEnv envR') = some shape ∧
+    RunsTo (synthesizeMachineCertified (fun e hint top named => translateExprToWire tenv e hint top named)
+      (profLogIO pb) declName shape) mctx mref cctx cref w₄ none w₆ ∧
+    JQC L.O (D + 1) w₄ ∧ JQC L.O (D + 1) w₆ ∧
+    (∃ sf sw sl sp sc ss sg, RunsTo (coreFinally D sf sw sl sp sc ss sg) mctx mref cctx cref w₅ () w' ∧
+      FinallyRestores D sf sw sl sp sc ss sg w₅ w' ∧
+      (D = 0 → sf = {} ∧ sw = {} ∧ sl = {} ∧ sp = {} ∧ sc = {} ∧ ss = {} ∧ sg = {}) ∧
+      (D ≠ 0 → StartReadsN declName pb D w sf sw sl sp sc ss sg)) ∧
+    JQC L.O D w' ∧
+    RunsTo (legacyTail (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO pb)
+      declName [] false (entryConst true false [] ci (instancePredicate tenv) (userInliner tenv)
+        (structEnv tenv))) mctx mref cctx cref w₆ (m, d) w₅ ∧
+    ∃ (t : Module) (d₀ : Design) (w₇ : Void IO.RealWorld),
+      RunsTo (synthesizeMixedCertified (fun e hint top named => translateExprToWire tenv e hint top named)
+        (profLogIO pb) declName shape.binders shape.body) mctx mref cctx cref w₄ (t, d₀) w₇ ∧
+      JQC L.O (D + 1) w₇ ∧
+      ((Sparkle.IR.Machine.closeLets shape.layout.lets t = none ∧ w₆ = w₇) ∨
+       (∃ t', Sparkle.IR.Machine.closeLets shape.layout.lets t = some t' ∧ shape.insts ≠ [] ∧
+         ((shape.instFields.isEmpty = true ∧
+            RunsTo (closeInstsM shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀)
+              mctx mref cctx cref w₇ none w₆) ∨
+          (shape.instFields.isEmpty = false ∧
+            RunsTo (closeInstsGM shape t (Sparkle.IR.Machine.closeMachine shape.layout t') d₀)
+              mctx mref cctx cref w₇ none w₆))))
 ```
-Why each premise is there:
-- `Reach q.decl`, `P q.decl = some q`, `q.decl` = the run's name: the package of THE current constant is a hypothesis of the statement (the reviewer's R1 requirement), not obtained from `InvAt`/`IHAt`. `T1Hyp` is NOT a premise (its `closes` excludes R4). `DataOk q` is a Prop parameter in `StepStmt`; whether the R4 statement carries it is open (the legacy output may not satisfy the rows `DataOk` asserts for the machine route).
-- `MachineDefines … q.d.shape` ties the package's shape to `machineShape?` of the entry constant (this is `T1Hyp.defines` for that one name); `R4Run`'s `machineShape? … = some shape` conjunct is at the unfolded constant, consistent by the same `MachineDefines` reading (§9.1).
-- `InvAt (dv w)`, `IHAt (dv w+1)`, `ChildKeepsInv (dv w+1)`: the nested start of §5.4 (not `Start`, which is depth 0).
-- `R4Run` replaces rev1/rev2's `LegacyTailRunExists`-style existence: all worlds are those of the core run (§9.1). `LegacyTailRunExists` (§5.2) would be a corollary: from `R4Run`, take `w9 := w₆`, `ci := entryConst …`. `JQC O n w₆` is given by A''' (`JQC O (D+1) w₆`).
-- Conclusion: the gate's `ChildShipsI`, for the post-processed `b`; `ChildRunN` inside it is the producer's obligation.
-Open points in the type itself (not decided here): (i) whether `n` is `∃` or given (for `ChildShips` in `ShipsRes` an `∃ n` is used; height lifting is G-LIFT); (ii) the `DataOk` question above; (iii) `R4Run` as a `def` of that size vs a direct hypothesis list; (iv) the `finally` part is not needed for the conclusion and may be dropped from `R4Run` (A''' proves it, so keeping it costs nothing).
+(`t'` is inside the second `closeLets` disjunct, as in A'''.) Checks planned for the first unit: the definition must be defeq-equal to the (b)-side projection of A''' (TYPE check, 9.5).
+
+**9.2.3 The extraction lemma (complete type; first implementation unit).**
+```lean
+theorem a4_machine_or_R4Run (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mctx cctx)
+    (T : RefLawsATele O.quiet mref cref) {declName : Name} {shape : MachineShape} {D : Nat}
+    {w w' : Void IO.RealWorld} {m : Module} {d : Design}
+    (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w')
+    (entry : MachineDefines mctx mref cctx cref declName shape)
+    (hw : JQ O.quiet D w) (hc : D = 0 ∨ CacheInvA O (cv w)) :
+    MachineTaken O mctx cctx D declName shape m d w w' ∨ R4Run ⟨O, T, …⟩ mctx cctx D declName shape m d w w'
+```
+where `MachineTaken` is the same prefix 1-9 with `r = some (m, d)` and disjunct (a)'s `wl` profile/memo-insert runs `w₆ → wl → w₅` — i.e. the (a) side, with the same prefix, stated in full in the same way as `R4Run` (to be written out in the unit; not an abbreviation of the theorem). The proof is `core_machine_outcomeA'''` followed by `Or`-splitting on item 10 and reassembling the same witnesses; no new law, no new premise. (Since `R4Run` takes `L : Laws`, only `L.O` is used; the unit may instead take `O` directly. This is a naming point for the review, not a semantic one.)
+
+**9.2.4 `R4TailStmt` (R4 as a whole; target statement).**
+```lean
+def R4TailStmt (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name → Prop) : Prop :=
+  ∀ (q : Pkg ι dom) (mctx : Meta.Context) (cctx : Core.Context) (D : Nat) (w w' : Void IO.RealWorld)
+    (raw : Module) (dsg : Design) (out : Module),
+    Reach q.decl → P q.decl = some q → AdmCtx L.O.quiet mctx cctx →
+    InvAt L P Reach D w → IHAt L P Reach (D + 1) → ChildKeepsInv L P Reach (D + 1) →
+    RunsTo (synthesizeCombinationalCore q.decl [] false) mctx mref cctx cref w (raw, dsg) w' →
+    (out = dropZeroWidthModule raw ∨ out = mergeChecked (dropZeroWidthModule raw)) →
+    MachineDefines mctx mref cctx cref q.decl q.d.shape →
+    (R4Run L mctx cctx D q.decl q.d.shape raw dsg w w') →
+    ∃ n, ChildShipsI (ChildIface.ofPkg q) n out dsg
+```
+- `D` is the depth of `InvAt` (= the `D` of A'''). The A''' premises come from the statement: `hw := h.1.1` and `hc := Or.inr h.1.2` from `InvAt L P Reach D w = JQC L.O D w ∧ CacheShips …` with `JQC = JQ ∧ CacheInvA` (ShippingChildCacheA.lean:120); `T := L.T`. (Earlier text used `dv w` for the depth; `InvAt`'s `D` is used instead so that no `dv w = D` fact is assumed.)
+- **R2 / scope.** The `R4Run` hypothesis is the whole (b) side of A''' including the `legacyTail` run, whose head contains the memo read (so memo hit and memo miss are both inside it; §3, §5.6). The conclusion `∃ n, ChildShipsI …` is therefore the target for R4 AS A WHOLE, memo hit included. Nothing in this revision narrows it: the memo obligation (T-MEMO, below) stays an obligation of `R4TailStmt`, and K4 is not discharged by anything here. The ONLY scoping is of the first implementation unit (§9.6), not of the statement.
+- `T1Hyp` is not a premise (its `closes` excludes R4). `P q.decl = some q`, `Reach q.decl`, `MachineDefines` are hypotheses of the statement and not derived from `InvAt`/`IHAt`. The package-source tie (T-SRC) and the legacy meaning (T-LEG) are not premises either; they are the obligations the producer has to meet and are unsupplied (§9.3). `DataOk q` is open (whether the legacy output satisfies the rows it asserts), as is whether `n` is `∃` or given and the post-processing relation (carried over from rev3 §9.2 / §5.5 unchanged; not re-verified here).
+- The proof of `R4TailStmt` is NOT proposed here; nothing in this section proves it or any part of its conclusion.
 
 ### 9.3 Obligations the producer must discharge, and the supplier survey
 Each row: the obligation, the closest existing item, and what this investigation did NOT find. "found" = an existing proved item supplies it as typed.
@@ -376,13 +438,13 @@ Each row: the obligation, the closest existing item, and what this investigation
 |---|---|---|---|
 | T-RUN | the tail ran in THIS core run, from the machine attempt's end world | `core_machine_outcomeA'''` (OutcomeA4:224) | **found** (needs `T`, `MachineDefines`, `JQ`, `hc`) |
 | T-HARN | what the machine attempt left in the heap: the harness `synthesizeMixedCertified` run `w₄ → w₇` and the closing run `w₇ → w₆` | A''' (b) gives the runs and `JQC (D+1)` at `w₇`, `w₆` | runs **found**; their effect on `InvAt` (the `CacheShips` half at `w₆`) — see T-INV |
-| T-INV | `InvAt (dv w + 1)` at `w₆` (the tail's start): every `childCache` entry of a reached name ships | `KeepBodyStmt` / `keepBody` (Tools/ShippingGen2Keep.lean:54, PROVED): `synthesizeFromConst` body keeps `InvAt` on every outcome; `legacyTailA_generic` (ChildLegacyTailA:194): the tail keeps any `StableA` invariant given `RecA O I translate` | no supplier found for `InvAt` at the INTERMEDIATE world `w₆`: `keepBody` is about the whole body (start → end), A''' does not give `InvAt` at `w₆`, and `machineCert_keepsAP` is used at `JQC` only. A partial-run keep for the machine attempt at `InvAt` is not in the files read |
+| T-INV | `InvAt (dv w + 1)` at `w₆` (the tail's start): every `childCache` entry of a reached name ships | `KeepBodyStmt` / `keepBody` (Tools/ShippingGen2Keep.lean:54, PROVED): `synthesizeFromConst` body keeps `InvAt` on every outcome; `legacyTailA_generic` (ChildLegacyTailA:194): the tail keeps any `StableA` invariant given `RecA O I translate` | no supplier found for `InvAt` at the INTERMEDIATE world `w₆` as typed: `keepBody` is about the whole body, A''' gives only `JQC` there. A candidate path through the generic `machineCert_keepsAP` at `I = InvAt` exists with three unverified gaps (§9.7); not a supply |
 | T-SRC | the entry constant's body (the unfolded `entryConst`) is the declaration whose Lean source `q.src` defines `q.S` | `MachineDefines` / `T1Hyp.defines` (shape of the entry constant); `Pkg.body_eq`/`Pkg.ok` (Pkg.lean) | the shape-level tie is **found**; a tie from the *legacy module's meaning* to `q.S` — none found (see T-LEG) |
 | T-LEG | the legacy module `m` = `finalize (addClockResetIfSequential st.module)` implements `q.S` at the interface of `ChildIface.ofPkg q`: `ChildRunN … m (bsIn.take kD) outs (q.S i)` | `legacy_entry_walk` (EntryWalk:133), `legacy_entry_output_walked` (:273), `LegacyDom` (Contract:264), `legacy_translate_contract` (:327) | no supplier found. `legacy_entry_walk` has premise `hmach : machineShape? = none` (U8), false in R4; `LegacyDom` / `Value` are scalar-combinational (U4); `LegacySem` is stated, not proved (U7); the unfolded constant and the heap after T-HARN are not in its premises |
 | T-SHAPE | `ChildRunN`'s non-trace conjuncts of the legacy module: `outputs = outs.map …`, inputs nodup, `"clk"`/`"rst"` presence (Seq) or absence (Comb), `argPorts` length = non-domain binder count | `addClockResetIfSequential` (Elab.lean:2233, :2218 `finishSynth`); `legacy_entry_walk` conclusion `m = (addClockResetIfSequential st.module).finalize ∧ legal` | no supplier found for the port/arity equations against `q.d.bsIn.take q.kD` and `q.d.shape.layout.outs`. Port naming of a multi-output legacy module is not stated in the files read |
 | T-STATE | for a machine shape with slots/registers (`layout.slots ≠ []`) the legacy module's state reset `ResetN dsn n mc s` and the per-cycle state/slot semantics equal the package's | none | no supplier found; `Value` is scalar (U4), `SeqChildRunN`'s trace is not mentioned by any legacy contract |
 | T-INST | instances (`shape.insts ≠ []`): the legacy module instantiates child modules whose `ChildRunN` at `n-1` is available (`IHAt`/`CacheShips`) | `IHAt` (Gen2Defs:~160) for reached children; `CallDec` for the package | no supplier found for the legacy translator's instances being the package's calls (`LegacyDom` has no `.inst`, U4); `closeInsts`-`none` (N2) is exactly the case where the machine route's own instance closure failed |
-| T-MEMO | the memo-read at the head of `legacyTail` misses (or its hit ships) | `outer_miss` (depth 0 only), `MemoInv` (generic, §3) | no supplier found for nested; this is K4 (§3) and the memo-law design (§5.6). Not covered by this section |
+| T-MEMO | the memo-read at the head of `legacyTail` misses (or its hit ships) | `outer_miss` (depth 0 only), `MemoInv` (generic, §3) | no supplier found for nested; this is K4 (§3) and the memo-law design (§5.6). **Remains an obligation of `R4TailStmt`** (the `legacyTail` run in `R4Run` includes the memo read, hit and miss); not discharged by this section or by the first unit (§9.6) |
 | T-PP | `b = dropZeroWidthModule raw ∨ b = mergeChecked (…)` preserves `ChildRunN` | G-TRANSPORT / G-LIFT territory (Gen2Defs docs) | no supplier found for legacy-shape modules; same obligation as for the machine route |
 | T-REACH | the tail's nested children are reached names, so `IHAt`/`CacheShips` apply (`Reach` closure) | `T1Hyp.closed` states the static closure for packages' instances | no supplier found for the translator's calls under the legacy tail (not packages); `Reach` for such calls is a G-REACH item |
 
@@ -399,5 +461,13 @@ No candidate here reaches a complete producer. This is a statement about what wa
 For a later Lean unit (after review): TYPE against an independent copy of `R4TailStmt`; signature/defeq rejections (not semantic counterexamples) for: dropping `P q.decl = some q`; replacing `InvAt (dv w)` by `Start` (depth-0 start); dropping the `MachineDefines` premise; replacing `ChildShipsI` by `∃ I n, ChildShipsI I n b D` (the retracted R1 form); stating `R4Run` with existential, unlinked worlds (i.e. `LegacyTailRunExists`); dropping the post-processing disjunct. AXIOMS: only the three standard axioms.
 
 ### 9.6 What §9 does not cover, and the next step
-- Not covered: R6-direct (`machineShape? = none`; no `Pkg`, D-IFACE); the memo-hit side and K4; any producer proof; `DataOk`; height lifting; `Reach` for translator calls. No FG, law, shared-definition or compiler change is proposed. No user decision item is raised by this section: P-1's L-2 and P-2's scope choice are already D-LEGACY-SCOPE / L-2 of §6-§7 and are not decided.
-- Next (reviewer's call): whether `R4TailStmt`/`R4Run` of §9.2 is an acceptable statement shape to freeze; if so, the first unit would be the `R4Run` definition plus the lemma `core_machine_outcomeA''' ⇒ (machine-taken ∨ R4Run)` (a repackaging of an existing built theorem, no new law). It would not by itself supply anything.
+- Not covered (as a PRODUCER; the statement `R4TailStmt` is not narrowed, §9.2.4): R6-direct (`machineShape? = none`; no `Pkg`, D-IFACE); the memo-hit side and K4; any producer proof; `DataOk`; height lifting; `Reach` for translator calls. No FG, law, shared-definition or compiler change is proposed. No user decision item is raised by this section: P-1's L-2 and P-2's scope choice are already D-LEGACY-SCOPE / L-2 of §6-§7 and are not decided.
+- Next (reviewer's call): whether `R4Run` (§9.2.2), the extraction lemma (§9.2.3) and `R4TailStmt` (§9.2.4) are an acceptable set of types to freeze. **Scope of the first implementation unit (limited; this is a unit boundary, not a scope reduction of R4):** the definitions `R4Run` and `MachineTaken` and the lemma `a4_machine_or_R4Run` (a repackaging of the built `core_machine_outcomeA'''`: no new law, no new premise, no new hypothesis about a package's meaning). It supplies nothing toward `R4TailStmt`'s conclusion, and the memo obligation (T-MEMO/K4), T-LEG, T-SHAPE, T-STATE, T-INST, T-SRC beyond the shape level, T-INV and T-PP all remain open obligations of R4. Later units are not scheduled by this document.
+- **Build evidence for FB-1 (R3):** build evidence: g4fbv-79e6d672 (clean issue-linked kjob run, clean detached worktree, SHA 79e6d672; log path and marker are recorded by the coder in the Issue note, not here).
+
+### 9.7 T-INV: further supplier research (rev4; no supply claimed)
+The question: is there a supplier of `InvAt L P Reach (D+1)` (in particular `CacheShips`, not only `JQC`) at the intermediate worlds `w₄` and `w₆` of `R4Run`?
+- **Found (as typed):** `stableA_invAt` (Tools/ShippingGen2Connect.lean:41): `InvAt` is `StableA`, i.e. it depends only on `cv`, `sv`, `dv`, quiet. `machineCert_keepsAP` (Tools/ShippingChildFrontCP.lean:107) is generic in the invariant `I`: from `hchild : ∀ c, Keeps I (synthesizeChild c)`, `hsv : ∀ w, I w → sv w = some synthesizeChild`, `htr : ∀ e hint top named, KeepsCP I (translate …)` and `hA, hS (StableA)`, it gives `Keeps I (synthesizeMachineCertified translate (profLogIO b) declName shape)` — a keep of the machine attempt for any such `I`, so potentially for `I := InvAt L P Reach (D+1)`. `ChildKeepsInv L P Reach (D+1)` is `ChildSynthA L.O (InvAt …)`, i.e. `∀ mctx cctx, AdmCtx → ∀ c, Keeps (InvAt …) (synthesizeChild c)`: exactly `hchild` at that `I`, and it is already a premise of `R4TailStmt`. `legacyTailA_generic` (Tools/ShippingChildLegacyTailA.lean:194) likewise keeps any `StableA` `I` given `RecA O I translate`.
+- **Candidate path (NOT verified; not a proof):** `InvAt (D+1)` at `w₄` + `machineCert_keepsAP` at `I = InvAt (D+1)` would give `InvAt (D+1)` at `w₆` (the machine attempt returned `none`; `Keeps` constrains every outcome's end world — to be confirmed against the `Keeps` definition for the `none` return). Remaining gaps on this path, each unverified: (1) `InvAt (D+1)` at `w₄` from `InvAt D` at `w`: A''' gives only `JQC (D+1)` at `w₃`/`w₄`; the entry prefix (reads, saved-map `get`s, the depth `set` to `D+1`, `getConstInfo`, two `getEnv`) must be shown not to change `cv` (CacheShips depends on `cv`) — framed reads are used in A''' for `JQC`, but a `CacheShips`-level statement for the depth set (`tripleC_depthSet`) was not checked; and `w` is not chained to `w₁` in A''' (§9.2.1); (2) `htr`: `KeepsCP InvAt (translateExprToWire tenv …)` for the specific `tenv` — the hypothesis shape `RecA O I translate` is what `legacyTailA_generic` asks; whether `KeepsCP` at `InvAt` for `translateExprToWire` follows from `ChildKeepsInv` was not found stated (the `translateRel`/`harnessRel_of` family in ShippingChildBody.lean:55-70 is at `J L D` = JQ-level, not `InvAt`); (3) `hsv` from `InvAt` (via its `JQ` part: `JQ` includes the synthesis ref; not checked in this pass).
+- **Result:** the earlier text said "no supplier found for `InvAt` at `w₆`". Refined: a candidate path through generic lemmas exists in the files read; gaps (1)-(3) above are what this investigation did not close. This does not supply T-INV and does not say it is derivable or underivable.
+- **Independent next steps** (research only; no Lean before approval): (i) read `Keeps` and `tripleC_depthSet` to settle gap (1) and the `none`-outcome question; (ii) look for an `InvAt`-level `KeepsCP` of `translateExprToWire` (gap (2)); (iii) for the legacy tail itself, T-INV at the TAIL'S END is `legacyTailA_generic` given (2) — the same `RecA O I translate` hypothesis.
