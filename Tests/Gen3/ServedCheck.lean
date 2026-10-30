@@ -1,13 +1,13 @@
 import Tools.ShippingGen2Served
-import Tests.Gen3.ServedExpectedType
+import Tests.Gen3.ExpectedType
 import Tests.Gen2.LeafInstance
 set_option autoImplicit false
 -- Built: g3sv-b5be62e6 (clean snapshot, exit 0, standard axioms); written by reading at 96cbd548. No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # G-SERVED checks (scripts/gen2/SERVED_FREEZE.md rev1 §4.2)
 
-1. **C1 expected types.** Each statement below is compared MECHANICALLY with `checkExpected` (local copy
-   `Tests.Gen3.ServedExpectedType`): binder by binder, with names, binder infos, types and the conclusion. The
+1. **C1 expected types.** Each statement below is compared MECHANICALLY with `checkExpected` (shared helper
+   `Tests.Gen3.ExpectedType`): binder by binder, with names, binder infos, types and the conclusion. The
    comparison is against an independent `Expected…` text written from rev1 §1.5. Meaning-changing MUTANTS must be
    REJECTED (`checkMutant`):
    - `SoundXAt` without `outsNodup`;
@@ -30,7 +30,7 @@ Every result here that takes `hrow` is CONDITIONAL. None completes G-SERVED, T1 
 
 namespace Tests.Gen3.ServedCheck
 open Tools.ShippingGen2
-open Tests.Gen3.ServedExpectedType
+open Tests.Gen3.ExpectedType
 open Sparkle.Core.Domain
 
 /-! ## 1. Expected statements (rev1 §1.5 text) -/
@@ -362,6 +362,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   checkAxioms ``Tools.ShippingGen2ServedTrace.machine_trace_lets_of_streamBRX
   checkAxioms ``Tools.ShippingGen2ServedTrace.genTraceX
   checkAxioms ``Tools.ShippingGen2ServedTrace.genTraceLX
+  checkAxioms ``Tools.ShippingGen2ServedTrace.machine_traceL_of_comb_callsX
   checkAxioms ``Tools.ShippingGen2.Pkg.traceX
   checkAxioms ``Tools.ShippingGen2.servedShips0_proved
   checkAxioms ``Tools.ShippingGen2.t1_of_stepPF_served

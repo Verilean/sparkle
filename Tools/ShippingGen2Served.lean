@@ -17,9 +17,8 @@ set_option autoImplicit false
   - `machine_trace_lets_of_streamBRX` (ServedRealATrace.lean:36);
   - `machine_traceL_of_data_causalX` (ParentSeqComposedA.lean:23);
   - `machine_traceL_of_loop_causalX` (Gen2Loop.lean:37);
-  - `genTraceX`, `genTraceLX`, `Pkg.traceX` (cases `gen`/`loop` of THIS base's `Pkg`). The `.comb` case of
-    `par/gen2-spec` is an integration obligation (rev1 §1.6): there this `cases` is no longer exhaustive and must
-    gain `machine_traceL_of_comb_callsX`.
+  - `genTraceX`, `genTraceLX`, `machine_traceL_of_comb_callsX`, `Pkg.traceX` (cases `gen`/`loop`/`comb` of the
+    combined `Pkg`; the `.comb` case was added at the S1 integration, rev1 §1.6).
 * `servedShips0_proved (hrow) : ServedShips0Stmt L P Reach DataOk`: CONDITIONAL on the unsupplied row premise `hrow`.
   `t1_of_stepPF_served`: CONDITIONAL on `hrow`, `StepStmt`, `PostFactsStmt`.
 
@@ -562,6 +561,48 @@ theorem genTraceLX {ι : Type} {dom : ι → DomainConfig} (p : SrcPkgL ι dom)
 
 end LoopX
 
+section CombX
+open Lean Sparkle.Compiler.Elab Sparkle.IR.Semantics Sparkle.IR.Machine
+open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.ShippingUnifiedSource Tools.ShippingUnifiedMeaning
+open Tools.ShippingMuxLoweringSoundness
+open Tools.ShippingMachineEntry Tools.ShippingMachineRef Tools.ShippingMachineSource
+open Tools.ShippingMachineDenote Tools.ShippingMachineAuto
+open Tools.ShippingMachineClose (Zip₂)
+open Tools.ShippingMixedEntrySoundness Tools.ShippingMixedSourceBridge
+open Tools.ShippingEntrySoundness Sparkle.IR.AST
+open Tools.ShippingChildInv Tools.ShippingChildInvA Tools.ShippingChildFresh Tools.ShippingChildVCA
+open Tools.ShippingChildCacheA Tools.ShippingChildDepthC Tools.ShippingChildRunA
+open Tools.ShippingChildComposeC
+open Tools.ShippingChildRunAKids Tools.ShippingChildRunAMain Tools.ShippingMachineTraceX Tools.ShippingServedRealA
+open Tools.ShippingChildBndInit Tools.ShippingChildBndCore Tools.ShippingChildTranslateA Tools.ShippingChildFrontCP
+open Tools.ShippingMachineCausal
+
+/-- **(m, comb)** `machine_traceL_of_comb_callsRA_ranA` (CombPkg.lean:63-83), X-generic (rev1 §1.6 (i)): `O hB hA htr
+ran` replaced by `hX`, and `machine_trace_lets_of_streamBRA_ranA` by `machine_trace_lets_of_streamBRX … hX`. The stream
+witness is verbatim. -/
+theorem machine_traceL_of_comb_callsX {declName : Name} (d : MachineData) {ι : Type} (dom : ι → DomainConfig)
+    (inits : HList (tys d.ss))
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (hF : Tools.ShippingGen2.CombFacts d dom inits src)
+    {X : List FVarId → IO.Ref (ExprStructMap String) → Prop}
+    {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hX : Tools.ShippingGen2.SoundXAt X declName d.shape m design) :
+    MachineTraceLBX X declName d m design dom src
+      (fun _ _ bits => bits) (fun _ bools _ => bools)
+      (Tools.ShippingGen2.letObsComb d dom inits (fun _ _ bits => bits) (fun _ bools _ => bools)) := by
+  refine machine_trace_lets_of_streamBRX d dom inits src
+    (Tools.ShippingGen2.letObsComb d dom inits (fun _ _ bits => bits) (fun _ bools _ => bools)) hF.ok hF.hbody
+    hF.hinit (fun _ _ bits => bits) (fun _ bools _ => bools) ?_ hX
+  intro i bools bits
+  refine ⟨fun _ => inits, rfl, fun t => hF.hnext i bools bits t, hF.hres i bools bits, ?_⟩
+  intro j q g l hg hl
+  simp only [Tools.ShippingGen2.letObsComb, List.getElem?_map, hl, Option.map_some, Option.some.injEq] at hg
+  rw [← hg]
+
+end CombX
+
 end Tools.ShippingGen2ServedTrace
 
 /-! ## The package wrapper, the producer and the T1 corollary -/
@@ -575,8 +616,8 @@ open Tools.ShippingChildCacheA (JQC)
 open Tools.ShippingChildBndCore (cv dv)
 open Tools.ShippingChildRunAKids (MachineClosesAtA)
 
-/-- **`Pkg.traceX`** (rev1 §1.5): `Pkg.trace` (Gen2Pkg.lean:103) X-generic, by cases on THIS base's `Pkg`
-(`gen`/`loop`). On `par/gen2-spec` the `.comb` case is added at integration (rev1 §1.6). -/
+/-- **`Pkg.traceX`** (rev1 §1.5): `Pkg.trace` (Gen2Pkg.lean:103) X-generic, by cases on the combined `Pkg`
+(`gen`/`loop`/`comb`; the `.comb` case added at the S1 integration, rev1 §1.6). -/
 theorem Pkg.traceX {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom)
     {X : List FVarId → IO.Ref (ExprStructMap String) → Prop} {m : Sparkle.IR.AST.Module} {design : Design}
     (hX : SoundXAt X p.decl p.d.shape m design) :
@@ -586,6 +627,8 @@ theorem Pkg.traceX {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom)
     letI := p.inh
     exact Tools.ShippingGen2ServedTrace.genTraceX (declName := p.decl) p.d dom p.gen hX
   | loop p => exact Tools.ShippingGen2ServedTrace.genTraceLX p hX
+  | comb p => exact Tools.ShippingGen2ServedTrace.machine_traceL_of_comb_callsX (declName := p.decl) p.d dom p.inits
+      p.src p.facts hX
 
 /-- **G-SERVED + G-START producer — CONDITIONAL on `hrow`** (rev1 §1.4, §2.3). `hrow` is the unsupplied
 G-ONEOUT-REACH row premise (D1, R-ROW). It is not part of `DataOk`/`T1Hyp` (that strengthening is not approved).
@@ -631,6 +674,7 @@ end Tools.ShippingGen2
 #print axioms Tools.ShippingGen2ServedTrace.genTraceX
 #print axioms Tools.ShippingGen2ServedTrace.machine_traceL_of_loop_causalX
 #print axioms Tools.ShippingGen2ServedTrace.genTraceLX
+#print axioms Tools.ShippingGen2ServedTrace.machine_traceL_of_comb_callsX
 #print axioms Tools.ShippingGen2.Pkg.traceX
 #print axioms Tools.ShippingGen2.servedShips0_proved
 #print axioms Tools.ShippingGen2.t1_of_stepPF_served

@@ -4815,8 +4815,6 @@ lean_lib «Tools.ShippingGen2ServedRun» where
 lean_lib «Tools.ShippingGen2Served» where
   roots := #[`Tools.ShippingGen2Served]
 
-lean_lib «Tests.Gen3.ServedExpectedType» where
-  roots := #[`Tests.Gen3.ServedExpectedType]
 
 lean_lib «Tests.Gen3.ServedCheck» where
   roots := #[`Tests.Gen3.ServedCheck]
@@ -4824,8 +4822,6 @@ lean_lib «Tests.Gen3.ServedCheck» where
 lean_lib «Tools.ShippingGen2PostFactsProof» where
   roots := #[`Tools.ShippingGen2PostFactsProof]
 
-lean_lib «Tests.Gen3.PostExpectedType» where
-  roots := #[`Tests.Gen3.PostExpectedType]
 
 lean_lib «Tests.Gen3.PostFactsCheck» where
   roots := #[`Tests.Gen3.PostFactsCheck]

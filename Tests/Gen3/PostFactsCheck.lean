@@ -1,5 +1,5 @@
 import Tools.ShippingGen2PostFactsProof
-import Tests.Gen3.PostExpectedType
+import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 -- Built: g3pf3-a9c42458 (clean snapshot, exit 0, standard axioms); written by reading at 35588c38. No `sorry`, no `axiom`, no `native_decide`.
 -- REMAINING PREMISES of the G-POST producer (scripts/gen2/GPOST_ASSEMBLY_NOTE.md):
@@ -10,7 +10,7 @@ set_option autoImplicit false
 
 /-! # G-POST assembly checks
 
-1. **Expected types** (`checkExpected`, local copy `Tests.Gen3.PostExpectedType`), binder by binder, against
+1. **Expected types** (`checkExpected`, shared helper `Tests.Gen3.ExpectedType`), binder by binder, against
    independent texts:
    - `PostFactsStmt` against the GPOST_FREEZE rev1 §2 text;
    - `postFacts_proved`, `postFacts_of_hord`, `t1_of_step_rows`.
@@ -25,7 +25,7 @@ set_option autoImplicit false
 
 namespace Tests.Gen3.PostFactsCheck
 open Tools.ShippingGen2
-open Tests.Gen3.PostExpectedType
+open Tests.Gen3.ExpectedType
 open Sparkle.Core.Domain
 
 section Expected
