@@ -110,7 +110,7 @@ theorem callOutRange_of_closing_kidW {mref cref} (L : Laws mref cref) (P : Pkgs 
   intro i
   obtain ⟨r, dsn, hS, hDc, hmc, -⟩ := hDG_CLOSINGRUN
   have hy : Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 r := hS.1
-  obtain ⟨-, q0, n, hq0, -, hCS⟩ := hS
+  obtain ⟨-, ⟨q0, n, hq0, -, hCS⟩, -⟩ := hS
   rw [hDG_GENP] at hq0
   obtain rfl : q = q0 := Option.some.inj hq0
   have hout := childRunN_outputs (hCS dsn hDc hmc i)

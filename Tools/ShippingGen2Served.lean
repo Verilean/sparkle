@@ -591,14 +591,14 @@ theorem machine_traceL_of_comb_callsX {declName : Name} (d : MachineData) {ι : 
     (hX : Tools.ShippingGen2.SoundXAt X declName d.shape m design) :
     MachineTraceLBX X declName d m design dom src
       (fun _ _ bits => bits) (fun _ bools _ => bools)
-      (Tools.ShippingGen2.letObsComb d dom inits (fun _ _ bits => bits) (fun _ bools _ => bools)) := by
+      (Tools.ShippingMachineCausal.letObsComb d dom inits (fun _ _ bits => bits) (fun _ bools _ => bools)) := by
   refine machine_trace_lets_of_streamBRX d dom inits src
-    (Tools.ShippingGen2.letObsComb d dom inits (fun _ _ bits => bits) (fun _ bools _ => bools)) hF.ok hF.hbody
+    (Tools.ShippingMachineCausal.letObsComb d dom inits (fun _ _ bits => bits) (fun _ bools _ => bools)) hF.ok hF.hbody
     hF.hinit (fun _ _ bits => bits) (fun _ bools _ => bools) ?_ hX
   intro i bools bits
   refine ⟨fun _ => inits, rfl, fun t => hF.hnext i bools bits t, hF.hres i bools bits, ?_⟩
   intro j q g l hg hl
-  simp only [Tools.ShippingGen2.letObsComb, List.getElem?_map, hl, Option.map_some, Option.some.injEq] at hg
+  simp only [Tools.ShippingMachineCausal.letObsComb, List.getElem?_map, hl, Option.map_some, Option.some.injEq] at hg
   rw [← hg]
 
 end CombX
@@ -627,7 +627,8 @@ theorem Pkg.traceX {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom)
     letI := p.inh
     exact Tools.ShippingGen2ServedTrace.genTraceX (declName := p.decl) p.d dom p.gen hX
   | loop p => exact Tools.ShippingGen2ServedTrace.genTraceLX p hX
-  | comb p => exact Tools.ShippingGen2ServedTrace.machine_traceL_of_comb_callsX (declName := p.decl) p.d dom p.inits
+  | comb p =>
+    exact Tools.ShippingGen2ServedTrace.machine_traceL_of_comb_callsX (declName := p.decl) p.d dom p.inits
       p.src p.facts hX
 
 /-- **G-SERVED + G-START producer — CONDITIONAL on `hrow`** (rev1 §1.4, §2.3). `hrow` is the unsupplied
