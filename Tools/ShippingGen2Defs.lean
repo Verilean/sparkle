@@ -131,9 +131,16 @@ abbrev MachineTaken {mref cref} (L : Laws mref cref) (mctx : Meta.Context) (cctx
     (c : Name) (shape : MachineShape) (raw : Sparkle.IR.AST.Module) (D : Design) : Prop :=
   MachineRunJQC L.O mctx cctx n c shape raw D
 
-/-- A result `r` of `c` with the package and height it ships at. -/
+/-- **Incoming-edge instance closure of a result** (G-POST, scripts/gen2/GPOST_FREEZE.md §2): every module of the
+result's design is instantiated (by name) in the body of the result's top or of some module of its design. -/
+def InstClosed (r : Res) : Prop :=
+  ∀ g ∈ r.2.modules, ∃ h ∈ r.1 :: r.2.modules, ∃ (i : String) (cs : List (String × Sparkle.IR.AST.Expr)),
+    Sparkle.IR.AST.Stmt.inst g.name i cs ∈ h.body
+
+/-- A result `r` of `c` with the package and height it ships at, and instance-closed (GPOST_FREEZE §2: `InstClosed`
+is the THIRD conjunct, so `h.1` and `h.2.1` keep the former two parts). -/
 def ShipsRes {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (c : Name) (r : Res) : Prop :=
-  RealChildA L.O c r ∧ ∃ q n, P c = some q ∧ q.decl = c ∧ ChildShips q n r.1 r.2
+  RealChildA L.O c r ∧ (∃ q n, P c = some q ∧ q.decl = c ∧ ChildShips q n r.1 r.2) ∧ InstClosed r
 
 /-- The child-cache invariant, ON THE REACHED declarations: every `sparkleChildCache` entry of a reached name ships.
 Entries of other names (children the translator synthesises on other routes) are unconstrained, so their insertion
@@ -267,9 +274,11 @@ def ServedPC (Q : Name → Res → Prop) (dsn : Design) : Name → Sparkle.IR.AS
 
 /-! ## 5. The one-level rule and the first theorems (statements) -/
 
-/-- The top-level conclusion for package `p` at height `n`: exactly the conclusion of
+/-- The top-level conclusion for package `p` at height `n`: the conclusion of
 `machine_ships_hierC_noHstR` (Srm33Core.lean:85-114) with `d := p.d`, `src := p.src`, `ext := p.extS`,
-`extB := p.extBS`, `kD := p.kD`. -/
+`extB := p.extBS`, `kD := p.kD`, and with the `rst` and `clk` premises required only when they are inputs of `b`
+(scripts/gen2/TOP_CONTRACT_REVISION.md §2 R-G): with both inputs it is the old contract (L2 there); with neither
+it is `TopShipsNC` (L3/L4 there). -/
 def TopShips (p : Pkg ι dom) (n : Nat) (declName : Name) (b raw : Sparkle.IR.AST.Module) (D : Design) : Prop :=
   ∃ ids : List FVarId, ids.Nodup ∧ ids.length = p.d.shape.binders.length ∧
   ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
@@ -280,7 +289,8 @@ def TopShips (p : Pkg ι dom) (n : Nat) (declName : Name) (b raw : Sparkle.IR.AS
         (fun j => (p.extBS i bools bits j).val (T - 1 - t))
         (fun j n => (p.extS i bools bits j n).val (T - 1 - t)) (seedIn b ins t st)) →
       (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
-      (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
+      ("rst" ∈ b.inputs.map (·.name) → ∀ t, ins t "rst" = 0) →
+      ("clk" ∈ b.inputs.map (·.name) → ∀ t, ins t "clk" = 0) →
       (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
         p.d.shape.layout.slots[k]? = some f → st0 r = f.init) →
       ResetNk n raw D kids →

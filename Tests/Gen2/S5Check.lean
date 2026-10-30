@@ -25,8 +25,9 @@ set_option autoImplicit false
 4. **Controls.** P1: a toy body (`o := a`, an instance reading `x`) is `NoTouchZ ["rst","clk"]` (proved) and A2
    applies to two seeds that differ only at `"rst"`. N1: `¬ NoTouchZ ["rst","clk"] [o := rst]` (proved); the
    comb-only mutant of A1 is rejected (MutA1comb).
-5. **D1 vacuity, used.** For a module without a `"clk"` input the clock binder of `TopShips` is refuted, so
-   `TopShips`'s INNER guarantee holds for every `ids`/`cache`/`regs` and `TopShips` is exactly its OUTER existence.
+5. **D1 vacuity, used.** (History pin since U-TOP-DEF: these statements are about the PRE-R-G text `TopShipsOld`, Tools/ShippingGen2TopContract.lean;
+   the Defs `TopShips` is R-G and not vacuous for a clock-free module.) For a module without a `"clk"` input the clock binder of
+   `TopShipsOld` is refuted, so its INNER guarantee holds for every `ids`/`cache`/`regs` and `TopShipsOld` is exactly its OUTER existence.
    This is NOT non-vacuity evidence for anything (no syntactic `False.elim` scan is used as such evidence).
 6. Axioms: `checkAxioms` (standard axioms only) and `#print axioms` of every new declaration. -/
 
@@ -353,20 +354,20 @@ def ExpV1 : Prop :=
     (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) (regs : List String),
     TopShipsInner p n declName b raw D ids cache regs
 
-/-- V2: `TopShips` is exactly its OUTER existence without a clock input. -/
+/-- V2: the PRE-R-G text `TopShipsOld` is exactly its OUTER existence without a clock input. -/
 def ExpV2 : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design) (h : "clk" ∉ b.inputs.map (·.name)),
-    TopShips p n declName b raw D ↔
+    TopShipsOld p n declName b raw D ↔
       ∃ ids : List FVarId, ids.Nodup ∧ ids.length = p.d.shape.binders.length ∧
       ∃ (_cache : IO.Ref (ExprStructMap String)) (regs : List String),
         regs.Nodup ∧ regs.length = p.d.ss.length
 
-/-- MUTANT of V2: the OUTER existence claimed vacuous as well (`TopShips ↔ True`). -/
+/-- MUTANT of V2: the OUTER existence claimed vacuous as well (`TopShipsOld ↔ True`). -/
 def MutV2 : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design) (h : "clk" ∉ b.inputs.map (·.name)),
-    TopShips p n declName b raw D ↔ True
+    TopShipsOld p n declName b raw D ↔ True
 
 end ExpectedB
 
@@ -425,7 +426,7 @@ run_cmd liftTermElabM do
   checkExpected ``Tools.ShippingGen2.groupSl_childShips ``ExpB3
   checkExpected ``Tools.ShippingGen2.not_seedIn_clk_zero ``ExpV0
   checkExpected ``Tools.ShippingGen2.topShipsInner_of_noClk ``ExpV1
-  checkExpected ``Tools.ShippingGen2.topShips_iff_outer_of_noClk ``ExpV2
+  checkExpected ``Tools.ShippingGen2.topShipsOld_iff_outer_of_noClk ``ExpV2
   checkMutant ``Tools.ShippingGen2SlotlessParent.calls_ports_sl ``MutA1comb
   checkMutant ``Tools.ShippingGen2SlotlessParent.NoTouchZ ``MutNoTouchZ
   checkMutant ``Tools.ShippingGen2SlotlessParent.runModuleTG_seed_offZ ``MutA2all
@@ -433,7 +434,7 @@ run_cmd liftTermElabM do
   checkMutant ``Tools.ShippingGen2SlotlessParent.childRunN_of_composedNW_runSl ``MutA3hZ
   checkMutant ``Tools.ShippingGen2.slotlessParent_noTouch_ofRun ``MutB1noRst
   checkMutant ``Tools.ShippingGen2.groupSl_childShips ``MutB3height
-  checkMutant ``Tools.ShippingGen2.topShips_iff_outer_of_noClk ``MutV2
+  checkMutant ``Tools.ShippingGen2.topShipsOld_iff_outer_of_noClk ``MutV2
   -- 2. pairs against the originals (only `hsl` ↦ `hsl0` changes; A3 adds `hZ`)
   s5CheckPair ``Tools.ShippingMachineDepthChild.calls_ports ``Tools.ShippingGen2SlotlessParent.calls_ports_sl
     [(`hsl, `hsl0)] [] false
@@ -459,8 +460,8 @@ def s5New : List Name :=
    ``Tools.ShippingGen2.slp_readsClosedB_mem, ``Tools.ShippingGen2.slp_mapM_mem', ``Tools.ShippingGen2.slp_mapM_mem,
    ``Tools.ShippingGen2.slotlessParent_noTouch_ofRun, ``Tools.ShippingGen2.oneOutSl_childShips,
    ``Tools.ShippingGen2.groupSl_childShips,
-   ``Tools.ShippingGen2.not_seedIn_clk_zero, ``Tools.ShippingGen2.TopShipsInner, ``Tools.ShippingGen2.topShips_iff_inner,
-   ``Tools.ShippingGen2.topShipsInner_of_noClk, ``Tools.ShippingGen2.topShips_iff_outer_of_noClk]
+   ``Tools.ShippingGen2.not_seedIn_clk_zero, ``Tools.ShippingGen2.TopShipsInner, ``Tools.ShippingGen2.topShipsOld_iff_inner,
+   ``Tools.ShippingGen2.topShipsInner_of_noClk, ``Tools.ShippingGen2.topShipsOld_iff_outer_of_noClk]
 
 /-- The forbidden constants: the old-boundary slotless facts (freeze §8.2). -/
 def s5Forbidden (n : Name) : Bool :=
@@ -603,7 +604,7 @@ end Tests.Gen2.S5CheckControls
 #print axioms Tools.ShippingGen2.groupSl_childShips
 #print axioms Tools.ShippingGen2.not_seedIn_clk_zero
 #print axioms Tools.ShippingGen2.topShipsInner_of_noClk
-#print axioms Tools.ShippingGen2.topShips_iff_outer_of_noClk
+#print axioms Tools.ShippingGen2.topShipsOld_iff_outer_of_noClk
 #print axioms Tests.Gen2.S5CheckControls.p1_noTouch
 #print axioms Tests.Gen2.S5CheckControls.p1_A2
 #print axioms Tests.Gen2.S5CheckControls.n1_reads_rst

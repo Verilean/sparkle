@@ -1,3 +1,4 @@
+import Tools.ShippingGen2TopContract
 import Tools.ShippingGen2FitChain
 import Tools.ShippingGen2OneOutNames
 import Tools.ShippingGen2OneOutTop
@@ -5,6 +6,7 @@ import Tools.ShippingParentTailsO
 import Tools.ShippingParentDesignO
 set_option autoImplicit false
 -- Written on cd026658; built at 0efea824 (kjob g2pm4-0efea824: exit 0, standard axioms only).
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # P-MEM-4: the one-output top without the NAME half of `hnomem`
@@ -300,7 +302,7 @@ theorem oneOutWidthAtO (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι dom)
     rw [hord k hk] at hmd
     cases hmd
   · -- step 3: the served result ships with `c`'s package `q`
-    obtain ⟨_, q, n', hq, _, hCS⟩ := hship
+    obtain ⟨_, ⟨q, n', hq, _, hCS⟩, _⟩ := hship
     -- step 4: its child run at `dsn := D`, `i0`; both branches start with the outputs
     have hmo : mc.outputs = q.d.shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
       rcases hCS D hDc hmod i0 with hr | hr
@@ -412,6 +414,8 @@ theorem oneOut_topShipsO (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι dom)
       intro _ _ _ _ _ _ hWr
       exact Tools.ShippingSrm32.hWd_of_wired hpb (factsB hpb).gate houtTy hWr)
     houtTy (Tools.ShippingC4InitW.hinitW_of_ok p.d hok) hcore hpost entry trivial (fun _ => factsB hpost)
-  exact key ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  -- R-G: `key` has the consumer-1 (old) premises; L2 with both memberships from the run (U-TOP-CLKIN)
+  obtain ⟨_, _, _, _, _, _, _, _, _, wired, _, _⟩ := id h
+  exact topShips_ofOld_wired p (n + 1) wired hsl hpost (key ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩)
 
 end Tools.ShippingGen2

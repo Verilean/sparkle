@@ -197,7 +197,7 @@ theorem machine_linked_callsServed1 (L : Laws mref cref) (P : Pkgs ι dom) (p : 
       simp only [List.getD_eq_getElem?_getD] at h1 hmd
       rw [h1] at hmd
       cases hmd
-    · obtain ⟨_, q', n', hq', _, hcs'⟩ := hship
+    · obtain ⟨_, ⟨q', n', hq', _, hcs'⟩, _⟩ := hship
       have hqq : q' = q := Option.some.inj (hq'.symm.trans hq)
       subst hqq
       exact ⟨n', combChildRunN_of_noClk (callStmt_noClk hcs).1 (hcs' D hDc hmod i)⟩

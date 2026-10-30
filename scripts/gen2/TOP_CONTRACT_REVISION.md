@@ -157,3 +157,38 @@ Write `TopShipsR` for R-G during the transition. `TopShipsNC` is S5 rev1 C2.
    proof tying the premises to the actual inputs; "no clk" alone is not claimed sufficient.
 4. Shared changes are serial and single-owner: InstClosed → TopShips (R-G) → ChildPortWidths. Approval of this plan is
    not approval of the merge operation itself. No compiler change, no new TRUSTED boundary, no scope narrowing.
+
+## rev2 — change table re-taken at par/gen3-combined 43977202 (S2; docs only; nothing applied here)
+Method: `grep -rnw TopShips Tools Tests scripts` at 43977202 (a branch with S1 merged: `InstClosed`/`ServedP` present),
+compared with the §4 table (made at gen2-spec db76dd89, [G3] 96cbd548, [G4] b3a72c91). Line numbers below are at 43977202.
+This section records differences only; it supersedes the line numbers of §4, not its content. The R-G text and L1-L4 are unchanged.
+
+**Moved lines.** Defs: `TopShips` is now `Tools/ShippingGen2Defs.lean:280` (was :273); the premise line is **:290**
+(was :283; the +7 is the `InstClosed`/`ShipsRes` third conjunct); users `StepStmt` :320, `MemParentStmt` :336, `LeafStmt` :348, `T1Stmt` :362.
+`scripts/gen2/GEN2_DEFS.lean.txt` is `cmp`-identical to Defs at 43977202 (checked, exit 0): the S1 drift of [G3] is gone.
+`PkgCompat`: `Old.TopShips` :137; the `rfl` pin :253 (was :252-253); lifts :395, :414, :432 (were :372-426 region).
+
+**New rows (not in §4):**
+| file:line | what | action in S2 |
+|---|---|---|
+| Tools/ShippingGen2TopNC.lean:14-176 (L1-L4, `TopShipsNC`, local `TopShipsRG`, `topShips_of_NC`) | built at 36342cb8 (g2nc4). They state L1-L4 against a LOCAL copy `TopShipsRG` and the OLD Defs `TopShips` | U-TOP-DEF: `TopShipsRG` replaced by Defs `TopShips`; L1 kept as a statement against a renamed local copy `TopShipsOld` of the old text; `topShips_of_NC` (NC ⇒ old) re-stated against `TopShipsOld` or removed from the closure of any root (§5 no back door) |
+| Tools/ShippingGen2TopNC.lean:~180-end (U-TOP-S2 `slotlessLeaf_topShipsNC(_of_LB)`, `slotlessLeaf_topShipsRG`) | conclusion `TopShipsNC` / RG | `slotlessLeaf_topShipsRG` becomes a `TopShips` theorem (L3) |
+| Tools/ShippingGen2SlotlessTop.lean (C1, C4, C5a `oneOutSl_topShipsNC` :447-468, C5S, C5): mention only in comments (:41); conclusions are `TopShipsNC` | no `TopShips` use in code | the case-C branch of C5 uses L3, not `topShips_of_NC` |
+| Tests/Gen2/TopNCCheck.lean (:106 open, :158 `ExpTopShipsRG`, :184 mutant, :213-253 L1-L4 Expected, :302-316, :594, :621-644 C5a mutant, :678-694 checkExpected/Mutant, :702-768 closure audit on `TopShips`/`topShips_of_NC`, :933-1034 pair checks `TopShips ↦ TopShipsNC`) | the frozen audits of the NC suppliers | They pin the OLD `TopShips` as the original side of C1/C4/C5a/U-TOP-S2 pair audits and as the forbidden closure target. After the switch, the pair-audit original side becomes `TopShipsOld`; the closure audit targets BOTH `TopShipsOld` and `topShips_of_NC`; `ExpTopShipsRG` is compared with Defs `TopShips` |
+| Tests/Gen2/S5Check.lean:28-29, :356-369 (V2 `TopShips ↔ outer`), :583-593 (`vacM`) | statements about the OLD text (D1 vacuity) | re-state over `TopShipsOld` (the history pin), by U-TOP-CTRL; the S5 vacuity facts are not lost |
+| Tools/ShippingGen2TopVacuity.lean:79, :98 (`topShips_iff_inner`, `topShips_iff_outer_of_noClk` are about `TopShips`) | `unfold TopShips` / `Iff` with the verbatim body | re-state over `TopShipsOld` (frozen copy, same body) |
+| Tools/ShippingGen2MemParent.lean:69 (`MemParentStmt'`), Tools/ShippingGen2PostFacts.lean:95 (`StepStmtOld`) | statements with `TopShips` in the conclusion | text unchanged; meaning strengthened; re-elaborate |
+| Tests/Gen3, Tools/ShippingGen3*: no `TopShips` text (grep) | — | re-elaborate only (reach `TopShips` through `StepStmt`/`T1Stmt`) |
+
+**Rows of §4 that no longer exist / changed:** the [G3] copy-drift row (GEN2_DEFS vs Defs) is gone at 43977202. `SlotlessLeafStmt` :435,
+`slotlessLeaf_topShips_of_LB` :191 (pure, `TopShips`) and `slotlessLeaf_ships` are now on this branch (§4 said "not on [G3]/[G4]"); they are
+producers of old `TopShips` that fall under U-TOP-S2/NC supply. Lines of the SlotlessLeaf/OneOut/MemTop/Leaf producers are listed by the grep
+of this section (Leaf.lean:158, MemTop.lean:57, OneOutTop.lean:358, OneOutTopO.lean:352, SlotlessLeaf.lean:191).
+
+**Theorems/definitions that `unfold TopShips` (break on a body change; checked by grep at 43977202):** Leaf.lean:158 (`leaf_topShips_of_LB`),
+MemTop.lean:57, OneOutTop.lean:358/363, OneOutTopO.lean:352/357, SlotlessLeaf.lean:191, TopNC.lean:113/130, TopVacuity.lean (`topShips_iff_inner`).
+All other files only carry `TopShips` as an opaque conclusion.
+
+**Build set.** `Tools.ShippingGen2Defs` has 95 transitive importers among the `lean_lib`s of lakefile.lean at 43977202 (computed from
+`import` lines). They are the `Tools.ShippingGen2*`, `Tools.ShippingGen3*`, `Tools.ShippingGen5*` and `Tests.Gen2/Gen3/Gen5.*` libs; each stage
+below is verified by building the affected subset one library at a time, and the final stage by all 95.

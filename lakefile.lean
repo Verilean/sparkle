@@ -4811,3 +4811,54 @@ lean_lib «Tools.ShippingGen4FbTailInv» where
 
 lean_lib «Tests.Gen4.FbTailInvCheck» where
   roots := #[`Tests.Gen4.FbTailInvCheck]
+
+lean_lib «Tools.ShippingGen2T1» where
+  roots := #[`Tools.ShippingGen2T1]
+
+lean_lib «Tests.Gen3.T1Check» where
+  roots := #[`Tests.Gen3.T1Check]
+
+lean_lib «Tools.ShippingGen2KeepChild» where
+  roots := #[`Tools.ShippingGen2KeepChild]
+
+lean_lib «Tools.ShippingGen2InstKeep» where
+  roots := #[`Tools.ShippingGen2InstKeep]
+
+lean_lib «Tests.Gen3.InstKeepCheck» where
+  roots := #[`Tests.Gen3.InstKeepCheck]
+
+lean_lib «Tools.ShippingGen2PostFacts» where
+  roots := #[`Tools.ShippingGen2PostFacts]
+
+lean_lib «Tools.ShippingGen2KidsInst» where
+  roots := #[`Tools.ShippingGen2KidsInst]
+
+
+lean_lib «Tools.ShippingGen2ServedRun» where
+  roots := #[`Tools.ShippingGen2ServedRun]
+
+lean_lib «Tools.ShippingGen2Served» where
+  roots := #[`Tools.ShippingGen2Served]
+
+
+lean_lib «Tests.Gen3.ServedCheck» where
+  roots := #[`Tests.Gen3.ServedCheck]
+
+lean_lib «Tools.ShippingGen2PostFactsProof» where
+  roots := #[`Tools.ShippingGen2PostFactsProof]
+
+
+lean_lib «Tests.Gen3.PostFactsCheck» where
+  roots := #[`Tests.Gen3.PostFactsCheck]
+
+lean_lib «Tools.ShippingGen2TopClkIn» where
+  roots := #[`Tools.ShippingGen2TopClkIn]
+
+lean_lib «Tools.ShippingGen2TopContract» where
+  roots := #[`Tools.ShippingGen2TopContract]
+
+lean_lib «Tools.ShippingGen5ClosingRun» where
+  roots := #[`Tools.ShippingGen5ClosingRun]
+
+lean_lib «Tests.Gen5.ClosingRunCheck» where
+  roots := #[`Tests.Gen5.ClosingRunCheck]

@@ -1,6 +1,7 @@
 import Tools.ShippingGen2Defs
 set_option autoImplicit false
 -- Built: g3dsc-1b840215 (clean snapshot, exit 0, standard axioms).
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # U-ARITY: call arity `(insts[k]).2.1.length = q.ports.length` from ONE trace witness
@@ -80,7 +81,7 @@ theorem argLen_of_shipsRes {ι : Type} {dom : ι → DomainConfig}
     (hDc : ∀ g ∈ Dc.modules, moduleByName D.modules g.name = some g)
     (hmod : moduleByName D.modules mc.name = some mc) :
     (argPorts mc).length = q.ports.length := by
-  obtain ⟨_, q', n', hq', _, hCS⟩ := hship
+  obtain ⟨_, ⟨q', n', hq', _, hCS⟩, _⟩ := hship
   have hqq : q' = q := Option.some.inj (hq'.symm.trans hP)
   subst hqq
   exact childRunN_argLen (hCS D hDc hmod i)
