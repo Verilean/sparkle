@@ -604,11 +604,11 @@ no `sorryAx`, no `native_decide`.
 
 **CLOSURE.** The scan reads `thmInfo`/`defnInfo`/`opaqueInfo` values (and types), transitively, with raw `.proj` checks on
 `T1Hyp`/`T1HypND`/`Laws` and a forbidden-constant list (`T1Hyp`/`T1HypND` fields/recursors, `Laws`, `Lean.Expr.equal`,
-`Lean.Expr.eqv`). Constants without a value (inductives, constructors, recursors, axioms, quot) are counted and listed as
-type-only; opaque constants are listed (`String.Internal.append`, value read); unknown constants fail the check. Controls: three direct
+`Lean.Expr.eqv`). Constants without a value (inductives, constructors, recursors, axioms, quot) are **only counted** (the log
+prints a count, not their names; the names are held in `noBodyNames` but not printed); opaque constants are listed (`String.Internal.append`, value read); unknown constants fail the check. Controls: three direct
 fixtures, two via a helper in ANOTHER namespace (`ReadKindsFixtureOther.viaHelper`, `viaHelper2`) are detected; the unrelated
 theorem and an other-namespace clean helper are not flagged. Positive reach: each root reaches its required lemmas
-(`readN_quote` → `readTerm2_quote`, `readAp_*_eval`, `readNode2_ap_none`; the U3 lemmas → `readN_sound`, `kindsCfg_sound`;
+(8 REACH roots in the check: `readN_quote`, `readN_expr_quote`, `quote_injective`, `readTot_quote`, `readN_mono_on_quotes`, `machine_body_of_readN`, `machine_wf_of_readN`, `readTot_of_quote_body`; an earlier note that said 18 was wrong. E.g. `readN_quote` → `readTerm2_quote`, `readAp_*_eval`, `readNode2_ap_none`; the U3 lemmas → `readN_sound`, `kindsCfg_sound`;
 `readTot_of_quote_body` → `kindsCfg_complete'`, `readTot_quote`, `packed_wf_cfg`, `kindsCfg_quote_args`).
 Not covered: the detector reads Lean kernel terms only; it says nothing about `Classical` use being semantically irrelevant.
 
