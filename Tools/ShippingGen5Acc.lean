@@ -1,5 +1,6 @@
 import Tools.ShippingGen5SemPkg
 import Tools.ShippingChildBndCore
+set_option autoImplicit false
 -- Built in g5ac-r2 at bfa8f81b (Pod `kjob lake build Tools.ShippingGen5Acc`, exit 0; AccCheck: exit 0, TYPE 11 (3 theorems + CallRel by isDefEq, logged), MUTANT 8, AXIOMS standard, CLOSURE OK). Clean build is the coder's.
 -- No sorry / axiom / native_decide.
 
