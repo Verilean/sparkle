@@ -1,4 +1,7 @@
-# DG-READKINDS full-type freeze (Issue sparkle-gen5-dg-readkinds)
+# DG-READKINDS full-type freeze, rev2 (Issue sparkle-gen5-dg-readkinds)
+
+rev2 answers the reviewer's changes_requested on rev1 (7bd14596): R1 (U4 full type), R2 (U5(a) provenance), R3 (partial-def
+agreement wording). See §0. Sections not named in §0 are unchanged from rev1 except where noted inline (`rev2`).
 
 Design sources: `par/gen5-t2:scripts/gen5/` `M5_INDEP_STUDIES.md` §B (reader inventory), `DGEN_FREEZE.md` (§2.4 R5 and its
 unit table, row DG-READKINDS / DG-DATAOF / DG-COVER), `T2COVER_FREEZE.md` rev2 (c398021c). Line numbers below were
@@ -12,6 +15,28 @@ edit. No new TRUSTED boundary, law, FG/guarantee change. Everything that would n
 Wording rule used throughout: "not supplied / this survey found no source or route" is a statement about this
 survey, not an impossibility claim. A "mutant" in §4 is a rejection by signature / defeq of a changed statement, not
 a semantic counterexample.
+
+---
+
+## 0. Response to changes_requested on rev1 (7bd14596)
+
+Reviewer verdict: reader core (U1-U3) may go ahead; fix U4's full type and U5's run provenance. FG is not reduced by this
+revision; nothing in §1-§3 is dropped. Q1 (new file, recursion/eval helper), Q3 (quotation-only monotonicity), Q4 (U1-U4
+intermediate; Issue-wide body quotation/normalization coverage stays OPEN) are taken as the reviewer answered; Q2 is
+not adopted (see R2).
+
+* **R1 (U4 ellipsis).** §2.4 now states `readTot_of_quote_body` with no `…`, plus two transport lemmas `kindsCfg_quote_args`
+  (U4a) and `packed_wf_cfg` (U4b). The width function: `d.vwL = widV (kindsOf d)` is the premise `hw` that moves
+  `d.packed.WF d.kb d.kv d.vw` to `WF` over `kindsCfg`'s `kb kv vw`. This `hw` is **U4's** statement; U3's `hw`
+  (`machine_wf_of_readN`) transports the other way (WF from the reader's `cfg` back to `d`). They are two different
+  propositions with the same hypothesis name; §2.4 says so and §4 compares both.
+* **R2 (U5(a) provenance).** The rev1 sentence "the run executed `readMachine`, so `RootFacts` is supplied" is
+  **withdrawn**. §2.5 now records what the survey read (`RunReadsAt` contains the compiler core's `machineShape?` /
+  translator run, not `MachineCommand.readMachine`), the fully bound `RootFacts`, and which execution a producer must
+  come from. **`RootFacts` is not supplied** by `RunReadsAt` on the present path. A value equation alone also does not
+  give semantic preservation or quotation (§2.5).
+* **R3 (partial agreement wording).** "Agreement with the `partial` defs is impossible / always TRUSTED" is replaced by
+  "this survey found no route under the present boundary; not supplied; not claimed impossible" in §2.5(b), §3, §6 B2 and §8.
 
 ---
 
@@ -298,44 +323,105 @@ Proof: copy of the two `readTerm` lemmas with `readN_reads` / `readN_sound` for 
 exported form exists is used). The `readTot` form (`k := exprSize d.shape.body`) is the same statement with
 `readTot` in place of `readN … k`.
 
-### 2.4 U4 — the converse (a quotation is read; this is the part DG-COVER consumes)
+### 2.4 U4 — the converse (a quotation is read; this is the part DG-COVER consumes) (rev2: full types)
+
+Setting: `d : MachineData`, `ks := kindsOf d` (`ShippingReaderMachine.lean:38`), `cfg := kindsCfg d.dom isDom ks`
+(`ShippingReaderInputs.lean:277`: `cfg.dom = d.dom`, `cfg.bools j = inputExpr ks.length ((posB 0 ks).getD j 0)`,
+`cfg.bits j = inputExpr ks.length ((posV 0 ks).getD j 0)`, `cfg.kb = (posB 0 ks).length`, `cfg.kv = (posV 0 ks).length`,
+`cfg.vw j = (widV ks).getD j 0`). `MachineData` projections: `d.kb = d.bposL.length`, `d.kv = d.vposL.length`,
+`d.bpos j = d.bposL.getD j 0`, `d.vpos j = d.vposL.getD j 0`, `d.vw j = d.vwL.getD j 0` (`ShippingMachineAuto.lean:198-202`).
 
 ```lean
+/-- U4a: the argument functions of `cfg` are the ones `machine_body_of_read` quotes with (a rewrite along `hb`, `hv`
+    and `kindsOf_length`; stated so the body equation can be turned into a statement about `cfg`). -/
+theorem kindsCfg_quote_args (d : MachineData) (isDom : Lean.Expr → Bool)
+    (hb : d.bposL = posB 0 (kindsOf d)) (hv : d.vposL = posV 0 (kindsOf d)) :
+    (kindsCfg d.dom isDom (kindsOf d)).bools = (fun j => inputExpr d.shape.binders.length (d.bpos j)) ∧
+    (kindsCfg d.dom isDom (kindsOf d)).bits  = (fun j => inputExpr d.shape.binders.length (d.vpos j))
+
+/-- U4b: the width / count transport (the widths function lives here: `hw`). -/
+theorem packed_wf_cfg (d : MachineData) (isDom : Lean.Expr → Bool)
+    (hb : d.bposL = posB 0 (kindsOf d)) (hv : d.vposL = posV 0 (kindsOf d))
+    (hw : d.vwL = widV (kindsOf d))
+    (hwf : d.packed.WF d.kb d.kv d.vw) :
+    d.packed.WF (kindsCfg d.dom isDom (kindsOf d)).kb (kindsCfg d.dom isDom (kindsOf d)).kv
+      (kindsCfg d.dom isDom (kindsOf d)).vw
+
+/-- U4: a body that IS the quotation of `d.packed` is read, at the level taken from the expression. -/
 theorem readTot_of_quote_body (d : MachineData) (isDom : Lean.Expr → Bool)
-    (hdom : isDom d.dom = true) (hq : d.shape.body = quote d.dom
+    (hdom : isDom d.dom = true)
+    (hq : d.shape.body = quote d.dom
       (fun j => inputExpr d.shape.binders.length (d.bpos j))
       (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
     (hb : d.bposL = posB 0 (kindsOf d)) (hv : d.vposL = posV 0 (kindsOf d))
-    (hw : d.packed.WF d.kb d.kv d.vw) … :
+    (hw : d.vwL = widV (kindsOf d))
+    (hwf : d.packed.WF d.kb d.kv d.vw) :
     readTot (kindsCfg d.dom isDom (kindsOf d)) d.shape.body = some (⟨_, d.packed⟩ : AnyTerm)
 ```
-This is the statement U1+U2 supply once the body **is** a quotation (premise `hq`). Exact premise list is the
-dual of U3 (the same `hb`, `hv`, `hw`, and `Complete (kindsCfg …)` from `kindsCfg_complete`); fixed when written.
-It says nothing about *why* a body produced by a run is a quotation: see §3.
+Proof route (not tested): `Complete cfg` from `kindsCfg_complete' d.dom isDom hdom (kindsOf d)`; `hq` rewritten with U4a to
+`d.shape.body = quote cfg.dom cfg.bools cfg.bits d.packed`; `hwf` to the `cfg` form with U4b; then `readTot_quote`.
 
-### 2.5 U5 — `rootFloat` / `packTupleInputs` / `zetaAll`
+* `hdom : isDom d.dom = true` (completeness: the test accepts the domain) is **a different premise** from U3's
+  `hdom : ∀ x, isDom x = true → x = d.dom` (soundness: the test accepts nothing else). Both appear, each in its lemma;
+  with `isDom := isExpr d.dom` both hold (`isExpr_self` for the first; the second is the existing soundness premise
+  discharge in `ShippingReaderApp.lean:360`'s neighbourhood; located when written).
+* **`hw` of U3 vs U4.** U3 `machine_wf_of_readN`: `hw : d.vwL = widV (kindsOf d)` takes `WF` over `cfg` (from the reader's
+  soundness) to `d.packed.WF d.kb d.kv d.vw`. U4/U4b: the same list equation takes `d.packed.WF d.kb d.kv d.vw`
+  (`hwf`) to `WF` over `cfg` (the premise of `readTot_quote`). Same equation, opposite directions, two lemmas: the
+  width function `d.vw` is moved to `cfg.vw = fun j => (widV (kindsOf d)).getD j 0` only through this `hw`.
+* `hq` is a premise. Nothing in §2 proves `hq` for a body produced by a run (§3).
+
+### 2.5 U5 — `rootFloat` / `packTupleInputs` / `zetaAll` (rev2: provenance corrected)
 
 No lemma planned that unfolds these `partial def`s (no equation lemma exists for a `partial def`; boundary O2,
-`docs/parallel/R-reader-fuel.md:43-48, :552-555` per the M5 study — not re-read here). Two options, **one to be
-chosen by the reviewer** (§7, Q2):
+`docs/parallel/R-reader-fuel.md:43-48, :552-555` per the M5 study — not re-read here).
 
-* **(a) take the values from the run (default, no new definitions).** `dataOf` receives `srcDom`, `depth`,
-  `entryBody`, `bsIn` as outputs of the production reads that the run already performed; they appear in the
-  `RunReadsAt` / `GeneratedAt` evidence as values, exactly as `Tools/ShippingGen3ArgSupply3.lean:1103-1346`
-  already treats `rootFloat v` (a premise about its value, never unfolded). Statement shape, if made a named
-  structure:
-  ```lean
-  structure RootFacts (entryV : Lean.Expr) (bsIn : List …) (entryBody : Lean.Expr) : Prop where
-    pack  : mixedGatePeel (Sparkle.Compiler.MachTupleIn.packTupleInputs entryV) = some (bsIn, entryBody₀)
-    float : entryBody = Sparkle.Compiler.MachRawSurface.rootFloat entryBody₀
-  ```
-  with **no** claim relating `entryBody₀`, `entryBody` to `entryV` beyond these two equations. Adopting (a) means
-  the coverage statement (DG-COVER) carries `RootFacts` as part of its evidence, supplied by the run
-  (`readMachine` computes them), not proved.
-* **(b) total fuel versions** `rootFloatT (fuel : Nat)`, `packTupleInputsT (fuel : Nat)` defined in the new file, with
-  validated agreement on fixed instances only (`Tests/Gen5` style `decide`/`rfl` on closed `Expr`s) — **no proof of
-  agreement with the `partial` versions for all inputs is possible without a new boundary** (§6, B2), so (b) is
-  only as strong as the instances tested. The default recommendation is (a).
+**What this survey read about where the values come from (read-only; "no source found" ≠ "none exists").**
+* `RunReadsAt` (`Tools/ShippingGen5RunReads.lean:42-73`) has: `run` (`synthesizeCombinationalCore X`), `chain`
+  (`coreHead`, `getConstInfo`, two `getEnv`, `synthesizeMachineCertified … shape`, profile log, cache modify,
+  `coreFinally`), `gates` and `shapeEq : machineShape? … = some shape`. It does **not** contain an execution of
+  `Tools.ShippingMachineCommand.readMachine` (`MetaM Read`, `ShippingMachineCommand.lean:440`). The callers of
+  `readMachine` found by grep are generator / test / sweep commands (e.g. `ShippingEntryOkCommand.lean:88`,
+  `ShippingGateChildCommand.lean:193`, `ShippingMachineComposeRCommand.lean:58`), none in the compiler core or in
+  `RunReadsAt`. So the rev1 sentence "the run already performed the production reads, `readMachine` computes
+  `RootFacts`" described the generated-command side and is **not established** for a `RunReadsAt` run; withdrawn.
+* The compiler core's `machineShape?` calls `packTupleInputs` (`Elab.lean:5078`) and `rootFloat` (`Elab.lean:5088`),
+  but the latter inside `machLoopAsLet (rootFloat (zeroLit … (inlFoldNat (machNorm senv e))))`, i.e. on a different
+  argument from `readMachine`'s `rootFloat entryBody` (`ShippingMachineCommand.lean:463-467`). `machineShape?_decomp`
+  (`Tools/ShippingShapeDecomp.lean`, field `peel`) yields from `shapeEq` the `packTupleInputs`/`mixedGatePeel` half
+  with its `(bs, e)` bound (build status of that file: not checked here); it does not yield `readMachine`'s `float`
+  equation. This survey found no lemma relating the two compositions.
+* A value equation (`entryBody = rootFloat entryBody₀`) is an equation of two `Expr` values. It does not say the
+  floated body is semantically the original, nor that it is a quotation (that is §3): meaning preservation and
+  quotation are **not supplied** by value equations.
+
+**`RootFacts`, every variable bound (rev2).**
+```lean
+structure RootFacts (entryV : Lean.Expr) (bsIn : List (Lean.Name × MixedGateBinder))
+    (entryBody₀ entryBody : Lean.Expr) : Prop where
+  pack  : mixedGatePeel (Sparkle.Compiler.MachTupleIn.packTupleInputs entryV) = some (bsIn, entryBody₀)
+  float : entryBody = Sparkle.Compiler.MachRawSurface.rootFloat entryBody₀
+```
+No claim relates `entryBody₀`, `entryBody` to `entryV` beyond these two equations; no `List …` placeholder remains.
+The `bsIn` type is that of `ShapeDecomp.bs` (`List (Name × MixedGateBinder)`).
+
+**Which producer would be needed.** For `RootFacts` at the `entryV`/`entryBody` that `readMachine` computes, the evidence
+must come from an *execution of `readMachine`* (a `RunsTo (readMachine X) …` on a world that is tied to the same
+`ci`/`envR` as the `RunReadsAt` run), or from a stated link between `readMachine`'s `entryBody` and the `entryBody`
+that the compiler core used inside `machineShape?`. Neither is supplied on the present path. Routes that this
+survey sees, none adopted and each outside this Issue's authority or still open:
+* P1 add a `readMachine` run to the evidence (an edit or extension of `RunReadsAt`, a DG-RUNREADS-approved shared def);
+* P2 `RootFacts` as a named premise of DG-COVER (conditional → recorded as intermediate);
+* P3 derive the `peel` half from `shapeEq` through `machineShape?_decomp`, and state the `float` half on the
+  compiler's own composition (a new fact about a `partial` composition, same position as R3 below).
+Q2 stays **not adopted** until the reviewer decides on a producer. DG-READKINDS U1-U4 do not depend on U5.
+
+**(b) total fuel versions** `rootFloatT (fuel : Nat)`, `packTupleInputsT (fuel : Nat)` defined in the new file, with
+validated agreement on fixed instances only (`decide`/`rfl` on closed `Expr`s). **For agreement on all inputs this
+survey found no route under the present boundary** (no equation lemma for the `partial` originals, no agreement lemma
+exported); it is **not supplied**, and this document does not claim it impossible or that it would necessarily be a
+new TRUSTED boundary — that classification is not decided here (see §6 B2). (b) as a checked artefact is as strong as the
+instances tested.
 
 ---
 
@@ -357,8 +443,8 @@ Consequences, stated without a conclusion about possibility:
   no run-linked `unq` equation since `unq` is `partial`). Possibilities to examine in the review, each of which would
   change something outside this Issue's authority: B1 a law linking `Expr.equal` to `=` (new TRUSTED/law), B3 making
   the evidence a premise of the coverage theorem (a conditional result, to be recorded as intermediate), B4 deriving
-  it from a total replacement of `unq` plus an agreement lemma (needs agreement with a `partial` def, the same
-  obstruction as O2). They are in §6, not adopted.
+  it from a total replacement of `unq` plus an agreement lemma (needs agreement with a `partial` def; this survey found
+  no route to that agreement under the present boundary — not supplied, not claimed impossible). They are in §6, not adopted.
 
 ---
 
@@ -372,13 +458,16 @@ New file `Tests/Gen5/ReadKindsCheck.lean`, in the form of `RunReadsCheck.lean` /
    compared with `isDefEq` on the fully bound, universe-instantiated type (`Tests.Gen3.ExpectedType` helpers as in
    `RunReadsCheck`). One `Exp` per: `readN_quote`, `readAp_appBool_eval`, `readAp_appBool2_eval`,
    `readAp_appCompare_eval`, `readN_expr_quote`, `quote_injective`, `readTot_quote`, `readN_mono_on_quotes`,
-   `machine_body_of_readN`, `machine_wf_of_readN`, `readTot_of_quote_body`.
+   `machine_body_of_readN`, `machine_wf_of_readN`, `kindsCfg_quote_args`, `packed_wf_cfg`, `readTot_of_quote_body`, and
+   `RootFacts` (its fields against an independently written structure).
 2. **MUTANT** (signature / defeq rejections, **not** semantic counterexamples), each a changed `Exp` that the same
    comparison must reject: `readN_quote` with `liftDepth t ≤ k` replaced by `True` (no level bound);
    with `liftDepth t < k`; `readN_quote` stated for `readTerm2` (level dropped); `quote_injective` without
    `hw'`; `readN_mono_on_quotes` with `readN cfg k` read at `k' < k`;
    `machine_body_of_readN` with `readTerm` in place of `readN`; `readTot_of_quote_body` without `hq`
-   (i.e. claiming the coverage statement, which §3 says is unsupplied).
+   (i.e. claiming the coverage statement, which §3 says is unsupplied); `readTot_of_quote_body` / `packed_wf_cfg` without `hw`
+   (width function not transported); `readTot_of_quote_body` with U3's `hdom` form in place of `isDom d.dom = true`;
+   `RootFacts` with `float : entryBody = rootFloat entryV` (wrong argument).
 3. **REACH** (full reachable closure over explicit bodies, `Rule`-based as in `T1NDCheck.lean` §5 `reach`/`badConst`/
    `badProj`):
    * must reach: `readN_reads` (via soundness for the U3 lemmas), `readTerm2_quote` (for `k = 0`) or the restated
@@ -430,7 +519,7 @@ brought back to the reviewer first.
 | id | what | why it comes up | stated status |
 |---|---|---|---|
 | B1 | `Expr.equal a b = true → a = b` (or a law on the extern) | body-is-quotation from `q.equal shape.body` (§3) | new TRUSTED/law; **not proposed**. `Tools/ShippingCacheSoundness.lean:26-101` records that nothing reduces `Expr.equal` |
-| B2 | agreement of total `rootFloatT`/`packTupleInputsT` (or a total `unqT`) with the `partial` originals | U5(b), §3 B4 | no equation lemma for a `partial def`; an agreement statement would be a TRUSTED boundary (the O1/O2 choice of `docs/parallel/R-reader-fuel.md`, the DGEN D2 decision, **not re-opened here**) |
+| B2 | agreement of total `rootFloatT`/`packTupleInputsT` (or a total `unqT`) with the `partial` originals | U5(b), §3 B4 | not supplied: this survey found no route to agreement with the `partial` defs under the present boundary (no equation lemma for a `partial def`). Whether a route needs a new TRUSTED boundary is **undecided here** (the O1/O2 choice of `docs/parallel/R-reader-fuel.md`, the DGEN D2 decision, **not re-opened**) |
 | B3 | coverage theorem takes `hq` (body-is-quotation) as a premise | §3 | conditional result; if chosen, recorded as an intermediate result, not as completion of DG-COVER |
 | B4 | compiler change: have `readMachine` return the evidence (a checked certificate `body = quote …` as a term) rather than an `Expr.equal` Boolean | removes the dependence on the extern | compiler edit (`Elab*.lean` / `ShippingMachineCommand.lean`), forbidden for this Issue |
 
@@ -444,7 +533,7 @@ prepared as a separate decision document if the reviewer agrees that the DG-READ
 
 * **Q1 (U1a').** Extract the eleven kinds' inline arms of `readTerm2_quote` into reader-generic lemmas (default), or
   redo the `readTerm2_quote` recursion for `readN` in the new file (same size, no change to built files)?
-* **Q2 (U5).** (a) values-from-the-run (default) or (b) fuel versions with instance validation only.
+* **Q2 (U5).** rev2: not adopted. Open: which producer for `RootFacts` (P1/P2/P3 in §2.5), or (b) fuel versions with instance validation only.
 * **Q3 (U2a).** Is the quotation-only monotonicity enough, or is the general `readN k e = some r → readN (k+1) e = some r`
   required? (default: quotation-only; the general form is U2b, not planned.)
 * **Q4 (acceptance).** The Issue goal reads "conditional results recorded as intermediate". With §3, U1-U4 are
@@ -459,5 +548,6 @@ prepared as a separate decision document if the reviewer agrees that the DG-READ
 * No claim that `readN` is complete on the lifts (U1 is a target), that `readNode2` is `none` on every `Signal.ap`
   node (U1b is a target), or that `liftDepth ≤ exprSize ∘ quote` (U2 is a target).
 * No claim that a body produced by an arbitrary successful run is a quotation (§3); no claim that it is not.
+* No claim that `RootFacts` is supplied by `RunReadsAt` (it is not on the present path, §2.5); no claim about agreement of any total version with the `partial` defs, either way.
 * No claim about `rootFloat` / `packTupleInputs` / `zetaAll` beyond their file:line and their treatment in
   `ShippingGen3ArgSupply3.lean`.
