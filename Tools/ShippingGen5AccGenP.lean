@@ -1,7 +1,7 @@
 import Tools.ShippingGen5Acc
 import Tools.ShippingGen2Defs
 set_option autoImplicit false
--- NOT BUILT (g5ac-r3, pending Pod build). No sorry / axiom / native_decide.
+-- Built in g5ac-r3 at 174b92b3 (Pod `kjob lake build`, exit 0; the build was of the identical uncommitted content; this header is the only later change). Clean build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A3: the package table `genP` built from `genS` (scripts/gen5/DG_ACC_FREEZE_REV1.md §B.2, REV2 §B)
 

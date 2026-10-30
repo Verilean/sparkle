@@ -1,7 +1,7 @@
 import Tools.ShippingGen5AccInd
 import Tests.Gen5.AccCheck
 set_option autoImplicit false
--- NOT BUILT (g5ac-r3, pending Pod build). No sorry / axiom / native_decide in this source.
+-- Built in g5ac-r3 at 174b92b3 (Pod `kjob lake build`, exit 0; the build was of the identical uncommitted content; this header is the only later change). Clean build is the coder's. No sorry / axiom / native_decide in this source.
 
 /-! # DG-ACC unit A4 checks (Tools/ShippingGen5AccInd.lean; scripts/gen5/DG_ACC_FREEZE_REV2.md §B)
 
