@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReadKinds
 import Tools.ShippingGen5T1ND
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT after the R1 edit (single-constant forbid controls). Previous tree: clean build rkav-4d5b7874 exit 0 (751 jobs).
+-- Built: kjob lake build Tests.Gen5.ReadKindsCheck exit 0 (751 jobs) in pod on 40aa86f0 (R1 single-constant forbid controls). Clean build of the previous tree: rkav-4d5b7874 exit 0; clean build of this one is the coder's.
 
 /-! # DG-READKINDS checks (Tools/ShippingGen5ReadKinds.lean; scripts/gen5/DG_READKINDS_FREEZE.md rev2 3f79600f)
 
