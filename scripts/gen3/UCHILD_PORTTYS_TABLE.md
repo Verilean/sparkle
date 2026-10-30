@@ -666,3 +666,184 @@ the bases are re-recorded and the trial is repeated.
 
 **Review note (ba9b9c82, binding):** at the final S2 SHA (after R-G) the full PkgCompat text is re-checked against the
 §R3.2 types; `hpw` is a compat-lemma premise only and must NOT be reused as an added premise of production producers.
+
+## rev4 — change-site table re-taken at fa84af5d (S3 `ChildPortWidths`, before any shared edit)
+
+**Design only. Nothing is applied, built or proved by this revision; no `.lean` file and no Defs/GEN2_DEFS text is
+edited.** rev4 supersedes the `file:line` citations of rev0-rev3 (they were taken at 10377764 / e8a41c70). The
+plan itself (rev3 §1 Candidate W, §R3.1-R3.3) is unchanged: the only shared-definition change is the new
+`ChildPortWidths` and one new FIRST conjunct of `ChildShips`. No change to `T1Hyp`, FG, `GenWF`, any law or any TRUSTED
+boundary.
+
+**Base.** `kjob/g3pt-s3` = `kjob/g2tc-s2` = **fa84af5d48edc11e75c3ed31dbb49f0a1e817b74** (S1 InstClosed merged, S2 R-G
+Defs switched; S2 CTRL freeze at fa84af5d is docs only). `cmp Tools/ShippingGen2Defs.lean scripts/gen2/GEN2_DEFS.lean.txt`
+exits 0 at fa84af5d (checked). All `file:line` below are at fa84af5d. Method: `grep` over `Tools/` and `Tests/` for
+`ChildShips`, `ChildPortWidths`, `childPortWidths`, the run-part applications (`hcs …`, `hCS …`) and the 3-conjunct
+`ShipsRes` patterns. Grep is not a proof; the S3 build is the check (§R4.8).
+
+### R4.1 The shared edit (Tools/ShippingGen2Defs.lean, one commit, with the GEN2_DEFS copy)
+Defs:87-90 (`ChildShips`) currently starts with `∀ (dsn : Design), …`. `argPorts` is already used in Defs (:67), so
+`ChildPortWidths` needs no new import. Insert before Defs:82 (the `ChildShips` doc comment):
+```lean
+/-- G-CHILD-PORTW: the served module's argument ports have the package's declared port widths. -/
+def ChildPortWidths (q : Pkg ι dom) (mc : Sparkle.IR.AST.Module) : Prop :=
+  (Tools.ShippingMachineCompose.argPorts mc).map (fun p => p.ty.bitWidth) =
+    q.ports.map (fun b => (kindTy b.2).bitWidth)
+```
+and change `ChildShips` to
+```lean
+def ChildShips (q : Pkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Design) : Prop :=
+  ChildPortWidths q mc ∧
+  ∀ (dsn : Design), (∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g) →
+    moduleByName dsn.modules mc.name = some mc →
+    ∀ (i : ι), ChildRunN (childMap dsn.modules) dsn n mc (q.d.bsIn.take q.kD) q.d.shape.layout.outs (q.S i)
+```
+This is the Candidate W text of rev3 §1 verbatim (the right-hand side is `Pkg.portWidths q` by `rfl`; written inline because Defs is
+upstream of Adapt). Existing `ChildShips` uses in Defs need no text edit: ShipsRes :143, ShipsAt :155, StepStmt :323,
+MemParentStmt' :339, MemParentStmt/LeafStmt :351 (grep list at fa84af5d: Defs:87, 143, 155, 323, 339, 351). Their MEANING
+changes: positive positions (`ShipsRes`, `ShipsAt`, `CacheShips`, `InvAt`) strengthen, conclusions of
+`MemParentStmt'`/`LeafStmt`/(`StepStmt` conclusion) strengthen, and `StepStmt`'s `ServedP (ShipsRes …)` premise
+strengthens (mixed). The ordering of the conjunct (FIRST) is chosen so that the existing run part keeps its
+position `.2`; positional projections *into* the run (`h.2.2.2.2.2.1`, Connect/GroupServed) are on `ChildRunN`, not on
+`ChildShips`, and are unaffected.
+
+### R4.2 Producers of `ChildShips` (each must prove the new conjunct from its own premises)
+"Supplier" = the lemma already built that gives the width fact; it is applied as `refine ⟨<term>, ?_⟩` placed
+immediately before the `intro dsn …` line (the run part is untouched). **No producer gets a new premise.**
+Core = `Tools.ShippingGen3PortWidthsCore` (built clean, g3pw-ba9b9c82), imports C6 + MemData + PortWidthsPure only.
+
+| # | producer | file:line (fa84af5d) | `intro dsn` line | supplier (built) | term inserted | producer-local `argPorts` identity (where it lives) | S3 import change |
+|---|---|---|---|---|---|---|---|
+| P1 | `leaf_childShips_of_LB` | Tools/ShippingGen2Leaf.lean:243-263 | :263 | Core `noCalls_childPortWidths` (N-A) | `noCalls_childPortWidths p hL hnoI hok hSS houtTy htake hpost` | not in this proof; inside Core N-A from `wired` of `hL` (LeafSeq `hargs`, MachineWired) | Leaf imports Core (Leaf→MemShips→C6; Core→C6: no cycle expected) |
+| P2 | `slotlessLeaf_childShips_of_LB` | Tools/ShippingGen2SlotlessLeaf.lean:283-296 (comb branch) | :345 | Core `noCalls_childPortWidths` | same term (its `hL hnoI hok hSS houtTy htake hpost` are binders of the producer) | Core N-A (the producer's own `hargs` is :325-ish in rev2 text; not reused) | SlotlessLeaf imports Core |
+| P3 | `memParent_childShips` | Tools/ShippingGen2MemShips.lean:39-73 | :73 | Core N-B `childPortWidths_of_composedNW` | `Core.childPortWidths_of_composedNW n houtTy (ok_outNameOk p.d hok) hsl hI0 hkD hIlen hSL hSlen hLlen hNIn hNW hpost` (`hNW` :54, `hI0` in scope as in P3) | `calls_ports` conjunct `argPorts m = machPorts … (d.bsIn.take kD)` inside N-B (MachineDepthChild) | MemShips imports Core |
+| P4 | `oneOut_childShips` | Tools/ShippingGen2OneOut.lean:288-321 | :321 | Core N-B | same shape; `hNW := oneOut_composedNW L P p hdata hins hsimple hA ran hdec h n` (already :308) | as P3 | OneOut gets Core transitively (MemShips) |
+| P5 | `group_childShips` | Tools/ShippingGen2GroupServed.lean:294-331 | :331 | Core N-B (the body of `Tools.ShippingGen2.GroupPortWidths.group_childPortWidths`, Tools/ShippingGen3GroupPortWidths.lean:38-65, built g3pw-ba9b9c82) | the same N-B application, with `hNW := group_composedNW L P p hdata hfe hdec n h` (already in the proof) | as P3 | GroupServed must import Core. `Tools/ShippingGen3GroupPortWidths.lean` imports GroupServed, so the lemma CANNOT stay there once `group_childShips` uses it (cycle): at S3 the term goes inline into `group_childShips`, and `group_childPortWidths` is either kept as a thin corollary in that file (conclusion `ChildPortWidths p b`, proof = the same N-B application) or deleted; the check file follows |
+| P6 | `oneOutSl_childShips` (S5 B2) | Tools/ShippingGen2SlotlessParentRun.lean:288-322 | :322 | N-C: `Tools.ShippingGen2.SlotlessPortWidths.oneOutSl_childPortWidths` (Tools/ShippingGen3SlotlessPortWidths.lean:119-149, built g3nc-ce4c32a4, exit 0) | `oneOutSl_childPortWidths L P p hdata hins hsimple hsl0 hA hpost ran hdec h n` — all arguments are B2's own binders | `calls_ports_sl` (A1) fourth conjunct, inside N-C | SlotlessParentRun imports `Tools.ShippingGen3SlotlessPortWidths` (no cycle: it imports SlotlessParent, Core, GroupServed, ChildPortWidths; not Run) |
+| P7 | `groupSl_childShips` (S5 B3) | Tools/ShippingGen2SlotlessParentRun.lean:340-375 | :375 | N-C `groupSl_childPortWidths` (SlotlessPortWidths.lean:152-181) | `groupSl_childPortWidths L P p hdata hins hfe hsl0 hpost hdec n h` (B3's binders) | as P6 | as P6 |
+
+**S5 slotless-parent producers: supplier present.** P6/P7 have a built supplier (N-C), which was the S3 gate of the
+rev3 review (ba9b9c82 / ce4c32a4). Their `hpost`, `hdec`, `h` are the producers' own binders, so no premise is added. The
+corollary signatures omit `hext`, `hA`/`ran` partly (see the Lean file); the call may need `hA ran` or not exactly as
+written above: the exact argument lists are the S3 implementer's to take from the built signatures, not claimed here.
+
+**Not covered (stated, not claimed):**
+- **StepStmt proof (M2-b):** not in the tree (`grep StepStmt` finds only statements and checks). Nothing to fix and
+  nothing supplied. It will have to dispatch to P1-P7 by parent kind.
+- **Gate route [M4]:** no `ChildShips` producer in the tree at fa84af5d (par/gen4-gate is a separate branch). This
+  investigation found no supplier and no producer; it does not show that none can exist.
+- **T2 / other future producers:** none found at fa84af5d.
+
+### R4.3 `ChildShips`-run consumers (rewrite `hcs …` → `hcs.2 …`)
+These apply the old `ChildShips` as a function (`∀ dsn …`). After S3 they must apply `.2`. Each is one token.
+
+| # | site | file:line | pattern / application | fix |
+|---|---|---|---|---|
+| C1 | `seqFactsRN_of_callDec` (sequential half) | Tools/ShippingGen2Connect.lean:137-140 | `obtain ⟨hmod, Dc, ⟨_, q', hq', _, hcs⟩, hcons⟩ := hmc` (ShipsAt); `hcs dsn hcons hmod i` | `hcs.2 dsn hcons hmod i` |
+| C2 | GroupServed sequential half | Tools/ShippingGen2GroupServed.lean:80, :83 | `⟨_, q', hq', _, hcs⟩`; `(hcs dsn hcons hmod i)` | `hcs.2 …` |
+| C3 | GroupServed combinational half | Tools/ShippingGen2GroupServed.lean:94, :97 | same | `hcs.2 …` |
+| C4 | `hserve` in OneOut | Tools/ShippingGen2OneOut.lean:200-203 | `⟨_, ⟨q', n', hq', _, hcs'⟩, _⟩`; `(hcs' D hDc hmod i)` | `(hcs'.2 D hDc hmod i)` (pattern unchanged) |
+| C5 | `hserve` in FitChain | Tools/ShippingGen2FitChain.lean:946, :949 | same shape | `(hcs'.2 D …)` |
+| C6a | `oneOutWidthAt` | Tools/ShippingGen2OneOutTop.lean:312, :315 | `⟨_, ⟨q, n', hq, _, hCS⟩, _⟩`; `hCS D hDc hmod i0` | `hCS.2 D …` |
+| C6b | `oneOutWidthAt` (O copy) | Tools/ShippingGen2OneOutTopO.lean:305, :308 | same | `hCS.2 D …` |
+| C7 | `argLen_of_shipsRes` (U-ARITY) | Tools/ShippingGen3Arity.lean:84, :87 | `childRunN_argLen (hCS D hDc hmod i)` | `hCS.2 D …` |
+| C8 | `callOutRange_of_closing` | Tools/ShippingGen5T2Conn.lean:112, :117 | `⟨-, ⟨q0, n, hq0, -, hCS⟩, -⟩ := hS`; `hCS dsn hDc hmc i` | `hCS.2 dsn …` |
+| C9 | `callField_at` | Tools/ShippingGen5T2Tie.lean:222, :225 | same | `hCS.2 dsn …` |
+| C10 | `childShips_congr` | Tools/ShippingGen2T1.lean:141-145 | `intro dsn hg hmc i; exact hc dsn …` | `exact ⟨hc.1, fun dsn hg hmc i => hc.2 dsn (by rw [h]; exact hg) hmc i⟩` (the width conjunct does not mention `Dc`) |
+
+C8 and C9 are NEW relative to rev0-rev3 (T2 files, `par/gen5-t2`, now in the tree). Tests that quote these sites
+(`Tests/Gen3/ArityCheck.lean`, `Tests/Gen3/T1Check.lean` `#print axioms childShips_congr`, `Tests/Gen2/S3GroupCheck.lean`
+C-1 :507-536, `Tests/Gen2/S5Check.lean` ExpB2/ExpB3 :296-350, `Tests/Gen5/T2TieCheck.lean`) state `ChildShips` by name only,
+or pin a producer whose TEXT conclusion `ChildShips p (n + 1) b D` is unchanged: they need re-elaboration, not an edit
+(expectation; the S3 build is the check). `S3GroupCheck.lean:320-322` pins `group_childShips`' conclusion by head
+`ChildShips` and arg index 3 (`n`): unchanged by the new first conjunct.
+
+### R4.4 Mixed / re-elaborate-only definitions and files (no text change expected)
+| site | file:line | note |
+|---|---|---|
+| `ShipsRes`, `ShipsAt`, `CacheShips`, `InvAt`, `IHAt`, `BodyKeepsInv`, `ChildKeepsInv`, `KeepBodyStmt`, `KeepChildStmt`, `ServedShipsStmt`, `StepStmt`, `MemParentStmt'`, `MemParentStmt`, `LeafStmt` | Tools/ShippingGen2Defs.lean:143, 155, 323, 339, 351 and neighbours | text unchanged; meaning per R4.1. No relation claimed at mixed positions (rev3 §R3.2 c stands) |
+| `ShipsResOld`, `CacheShipsOld`, `InvAtOld`, `StepStmtOld`, `shipsRes_old`… | Tools/ShippingGen2PostFacts.lean:68-123 (`ChildShips` at :69, :95) | pre-InstClosed copies, NOT pre-ChildPortWidths copies; they carry the width conjunct after S3 |
+| KeepChild / InstKeep / PostFactsProof / Served | Tools/ShippingGen2{KeepChild,InstKeep,PostFactsProof,Served}.lean | generic in `ShipsRes`; no `ChildShips` destructuring found by grep (`hw.1.1…` projections in KeepChild:77-152, :306 are on `InvAt`/`RealChildA`, not on the `ChildShips` conjunct) |
+| `MemParentStmt'` text copy | Tools/ShippingGen2MemParent.lean:57-69 | the `∀ n, TopShips … ∧ ChildShips …` conclusion; same meaning change as Defs :339 |
+| instances | Tests/Gen2/{LeafInstance:67, SlotlessLeafInstance:57, MemParentInstance:55, QuantInstance:136}.lean | state `ChildShips` through the theorems; re-elaborate |
+
+### R4.5 The new-file machinery after S3 (Gen3 files that currently define or use `Tools.ShippingGen3ChildPortWidths.ChildPortWidths`)
+The local definition `Tools.ShippingGen3ChildPortWidths.ChildPortWidths` moves to Defs as
+`Tools.ShippingGen2.ChildPortWidths`; the old one is deleted (no alias, so a stale reference is a compile error, not a silent
+second definition).
+
+| file | now | at S3 |
+|---|---|---|
+| Tools/ShippingGen3PortWidthsCore.lean | conclusions are the BODY of the width statement (built; imports C6, MemData, PortWidthsPure) | unchanged text; first consumer from Leaf/SlotlessLeaf/MemShips/GroupServed |
+| Tools/ShippingGen3ChildPortWidths.lean | defines `ChildPortWidths`; own N-A/N-B copies (imports OneOut, PortWidthsPure); P1-P4 | delete the local def and the N-A/N-B copies; P1-P4 remain as thin corollaries (proofs re-pointed to Core, conclusion `Tools.ShippingGen2.ChildPortWidths`); used by checks only |
+| Tools/ShippingGen3GroupPortWidths.lean | `group_childPortWidths` (imports GroupServed, Core, ChildPortWidths) | the term is moved into `group_childShips`; file becomes a thin corollary or is deleted (R4.2 P5) |
+| Tools/ShippingGen3SlotlessPortWidths.lean | N-C + `oneOutSl_`/`groupSl_childPortWidths`, conclusion `Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b`; imports ChildPortWidths | conclusion repointed to Defs' name; the import of Gen3ChildPortWidths is dropped (it is needed only for the name) |
+| Tests/Gen3/ChildPortWidthsCheck.lean | `checkExpected ``ChildPortWidths ``ExpectedCPW`, mutants, `pbh_cpw_*` examples (:50, :234, :245-246, :289-302) | `ChildPortWidths` now Defs' constant; expected types of P1-P4 follow the new name |
+| Tests/Gen3/PortWidthsPrepCheck.lean | :63, :117, :141-151 (compares Core with the Gen3ChildPortWidths copies) | the copy comparison (:141-147) must be deleted or reduced to Core vs Core (the copies are gone) |
+| Tests/Gen3/SlotlessPortWidthsCheck.lean | :79, :95, :162, :178-179, :212, :228, :244-245 | name repointed; the `hpw`-added mutants stay mutants |
+| lakefile.lean | entries :4635-4711 | no new `lean_lib` required; add none unless a new file is created |
+
+### R4.6 PkgCompat (Tests/Gen2/PkgCompat.lean) — C6 `childShips_gen` old ⇒ new is UNPROVED: premise form
+`Old.ChildShips` (PkgCompat:49) has no width conjunct, and this investigation found no lemma deriving
+`ChildPortWidths (.gen q) mc` from it (this is not a claim that none exists or that it fails). So the lifts take the
+width as an EXPLICIT compat premise `hpw`, as G-POST's `hic` does. `hpw` is a premise of these COMPAT lemmas only; it
+is NOT added to any production producer (review note at ba9b9c82, binding). Current text at fa84af5d:
+`childShips_gen` :317-319; `shipsRes_lift` :333-337 (already has `hic`); `shipsAt_lift` :339-342; `cacheShips_lift`
+:344-348; `invAt_lift` :350-354; `memParentStmt'_gen` ≈:395-417 (uses `topShips_ofOld_wired`, S2); `memParentStmt_gen` ≈:419-438;
+`leafStmt_gen` ≈:440-459; `#print axioms` :473-.
+
+Types after S3 (the rev3 §R3.2 types, re-checked against the fa84af5d text; `ChildPortWidths` = `Tools.ShippingGen2.ChildPortWidths`):
+```lean
+theorem childShips_gen (q : SrcPkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Sparkle.IR.AST.Design)
+    (hpw : ChildPortWidths (.gen q) mc) :
+    Old.ChildShips q n mc Dc → ChildShips (.gen q) n mc Dc :=
+  fun h => ⟨hpw, fun dsn h1 h2 i => Or.inl (h dsn h1 h2 i)⟩
+
+theorem shipsRes_lift … (r : Tools.ShippingChildInv.Res) (hic : InstClosed r)
+    (hpw : ∀ q, P c = some q → ChildPortWidths (.gen q) r.1) : Old.ShipsRes L P c r → ShipsRes L (Pkgs.lift P) c r
+theorem shipsAt_lift … (r : Tools.ShippingChildInv.Res)
+    (hpw : ∀ q, P c = some q → ChildPortWidths (.gen q) r.1) : Old.ShipsAt L P n c r → ShipsAt L (Pkgs.lift P) n c r
+theorem cacheShips_lift … (hic : ∀ c r, Reach c → m.get? c = some r → InstClosed r)
+    (hpw : ∀ c r, Reach c → m.get? c = some r → ∀ q, P c = some q → ChildPortWidths (.gen q) r.1) : …
+theorem invAt_lift … (hic : …)
+    (hpw : ∀ c r, Reach c → (Tools.ShippingChildBndCore.cv w).get? c = some r →
+      ∀ q, P c = some q → ChildPortWidths (.gen q) r.1) : Old.InvAt L P Reach D w → InvAt L (Pkgs.lift P) Reach D w
+```
+The three `.gen` statement forms (`memParentStmt'_gen`, `memParentStmt_gen`, `leafStmt_gen`) each gain ONE premise
+`ChildPortWidths (.gen q) b →` immediately before `∀ n`, and the proof changes `intro … h13 n` to `intro … h13 hpw n` and
+`childShips_gen q _ _ _ this.2` to `childShips_gen q _ _ _ hpw this.2` (:417, :438, :459). The `TopShips` conjunct stays
+as S2 left it (`topShips_ofOld_wired`). **These are the only added hypotheses of the whole change, and they live in
+compat theorems.** They do not count as supplied width facts.
+The PkgCompat `Old ⇒ new` direction for widths therefore stays **UNPROVED** and is documented as such in the PkgCompat header.
+
+### R4.7 Docs and the GEN2_DEFS copy
+- `scripts/gen2/GEN2_DEFS.lean.txt` is replaced by `cp Tools/ShippingGen2Defs.lean scripts/gen2/GEN2_DEFS.lean.txt` in
+  the S3 commit; `cmp` must exit 0 before and after.
+- `scripts/gen2/*.md` that quote `ChildShips` (grep list at fa84af5d: GENERAL_SPEC, STEP_IFACE_FREEZE, LEAF_*, MEMPARENT_*,
+  LOOPPKG_*, T1_CONNECT_*, CALLFIELD_FREEZE, S3_GROUP_FREEZE, S4_*, G3GEN_CALL_PLAN, LEAD_UNITS_PLAN, ROUTE_CENSUS,
+  STEP_S2_VACUITY_REPORT, STEP_S6_RESULT, GPOST_*, TOP_CONTRACT_REVISION, SERVED_*, S5_SLOTLESS_FREEZE, DPORT_ROUTE_REPORT):
+  add a one-line note in a result document; history entries stay unchanged.
+
+### R4.8 Verification plan for S3 (after approval; nothing here has been run)
+1. Edit in this order inside ONE commit: Defs + GEN2_DEFS copy; Core imports in Leaf/SlotlessLeaf/MemShips/GroupServed;
+   P1-P7 `refine ⟨…, ?_⟩`; C1-C10; Gen3 file repointing (R4.5); PkgCompat (R4.6).
+2. Serial builds in the Pod (`kjob lake build`), first the producers upstream-to-downstream:
+   `Tools.ShippingGen2Defs`, `Tools.ShippingGen3PortWidthsCore`, `…Gen2MemShips`, `…Leaf`, `…SlotlessLeaf`,
+   `…OneOut`, `…Connect`, `…GroupServed`, `…FitChain`, `…OneOutTop`, `…OneOutTopO`, `Tools.ShippingGen3{Arity,ChildPortWidths,GroupPortWidths,SlotlessPortWidths}`,
+   `…Gen2SlotlessParentRun`, `…Gen2T1`, `…Gen5T2{Conn,Tie}`, then the Tests listed in R3.5.
+3. The full reverse-import closure of `Tools.ShippingGen2Defs` is computed from `lake` (not grep) by the coder; every
+   lakefile target in it is built (the clean issue-linked build is the coder's, per the common rule for Lean commits).
+4. `cmp` on the GEN2_DEFS copy; `#print axioms` roots ⊆ {propext, Classical.choice, Quot.sound}, no `sorryAx`.
+5. Mutants in the check files are rejections by signature/defeq (`checkExpected` / `checkMutant`) of a changed
+   statement; they are **not semantic counterexamples**.
+
+### R4.9 Open items and what is NOT claimed (rev4)
+- NOT built: nothing in rev4 has been compiled; line numbers and "no cycle expected" claims are from reading and from
+  the import lists of the files (Leaf→MemShips→C6; Core→C6, MemData, PortWidthsPure; GroupServed→GroupComb, Connect; SlotlessParentRun→SlotlessParent, GroupServed, …). The
+  S3 build is the check.
+- The exact argument lists of the P6/P7 calls are to be taken from the built signatures (SlotlessPortWidths.lean:119-181);
+  rev4 does not claim they match as written.
+- Supply status: P1-P7 have a built supplier; StepStmt proof (M2-b) and the gate route [M4] have none in the tree. The
+  final-FG obligation (§4) is therefore NOT complete: no `StepStmt` proof exists to dispatch to P1-P7.
+- Old ⇒ new `ChildShips`/`ChildPortWidths`: UNPROVED (compat premise `hpw`, R4.6).
+- Merge/push, poc/main integration, Co-Authored-By: out of scope.
