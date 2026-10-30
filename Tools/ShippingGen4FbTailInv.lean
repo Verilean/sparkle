@@ -1,7 +1,7 @@
 import Tools.ShippingGen4FbInv
 import Tools.ShippingChildLegacyTailA
 set_option autoImplicit false
--- BUILT (unit FB-4) at f8470c1c: kjob lake build Tools.ShippingGen4FbTailInv and Tests.Gen4.FbTailInvCheck exit 0 (Pod build; clean build is the coder's). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §12.2/§12.3 (rev7, scoped approval at 6b41b373).
+-- BUILT (unit FB-4) at f8470c1c: kjob lake build Tools.ShippingGen4FbTailInv and Tests.Gen4.FbTailInvCheck exit 0 (Pod build); clean issue-linked build fb5v-f4ea75ce exit 0 (713 jobs), scoped approved at f4ea75ce. Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §12.2/§12.3 (rev7, scoped approval at 6b41b373).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Theorems and one definition only.
 
 /-! # FB-4: the `legacyTail` run keeps `InvAt (D+1)`; the packaged `R4RunInvT`

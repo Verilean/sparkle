@@ -3,7 +3,7 @@ import Tools.ShippingMemoInv
 import Tests.Gen4.FbInvCheck
 -- BUILT (unit FB-4) at f8470c1c: kjob lake build Tests.Gen4.FbTailInvCheck exit 0 (Pod build; clean build is the coder's): TYPE OK x3 (extraction via logged isDefEq), MUTANT REJECTED x8 (signature/defeq), AXIOMS OK x8, closure audit (no Tools.ShippingMemo.*) with 4 controls.
 set_option autoImplicit false
--- NOT BUILT (unit FB-4). Checks: TYPE (independent Expected typed again from FALLBACK_SUPPLY_FREEZE.md §12 and the
+-- Built in fb5v-f4ea75ce (clean issue-linked build, exit 0, 713 jobs; scoped approved at f4ea75ce). Checks: TYPE (independent Expected typed again from FALLBACK_SUPPLY_FREEZE.md §12 and the
 -- R4RunInv text of f07f4bf2), MUTANT (signature/defeq rejections, NOT semantic counterexamples), projections as
 -- theorems, AXIOMS, and an explicit value-closure audit (type and body of every reached constant) with controls.
 namespace Tests.Gen4.FbTailInvFixture
