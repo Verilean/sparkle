@@ -1,5 +1,6 @@
 import Tools.ShippingGen2MemShips
 import Tools.ShippingGen2CallField
+import Tools.ShippingGen2TopContract
 set_option autoImplicit false
 
 /-! # loop-pkg step 2: compatibility of the `Pkg` refactor (LOOPPKG_FREEZE.md §6 rules)
@@ -249,8 +250,23 @@ variable {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cref : ST.Ref IO.RealWorl
 
 /-! ## pointwise: `rfl` at `.gen` (definitions not touched by A-COMB or CALLFIELD) -/
 example (p : SrcPkg ι dom) (k : Nat) (c : Lean.Name) : MemDec (.gen p) k c = Old.MemDec p k c := rfl
+/- U-TOP-COMPAT (TOP_CONTRACT_REVISION rev1.1/rev2): `TopShips` is now the R-G text (Defs), so the former pin
+`TopShips (.gen p) … = Old.TopShips p … := rfl` BREAKS and is withdrawn. The frozen pre-R-G copy `TopShipsOld`
+(Tools/ShippingGen2TopContract.lean) is pinned to the frozen `Old.TopShips` instead, and the relation of the new `TopShips` to it
+is the two lemmas below: L1 (new → old, no hypothesis) and L2 (old → new, only with BOTH `"rst"` and `"clk"` inputs). -/
 example (p : SrcPkg ι dom) (n : Nat) (c : Lean.Name) (b raw : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) :
-    TopShips (.gen p) n c b raw D = Old.TopShips p n c b raw D := rfl
+    TopShipsOld (.gen p) n c b raw D = Old.TopShips p n c b raw D := rfl
+
+/-- L1 transported: the new `TopShips` implies the frozen `Old.TopShips` (no hypothesis). -/
+theorem topShips_gen_toOld (p : SrcPkg ι dom) (n : Nat) (c : Lean.Name) (b raw : Sparkle.IR.AST.Module)
+    (D : Sparkle.IR.AST.Design) : TopShips (.gen p) n c b raw D → Old.TopShips p n c b raw D :=
+  topShips_toOld (.gen p) n c b raw D
+
+/-- L2 transported: `Old.TopShips` implies the new `TopShips` under BOTH memberships. Not claimed without them. -/
+theorem topShips_gen_ofOld (p : SrcPkg ι dom) (n : Nat) (c : Lean.Name) (b raw : Sparkle.IR.AST.Module)
+    (D : Sparkle.IR.AST.Design) (hr : "rst" ∈ b.inputs.map (·.name)) (hc : "clk" ∈ b.inputs.map (·.name)) :
+    Old.TopShips p n c b raw D → TopShips (.gen p) n c b raw D :=
+  topShips_ofOld (.gen p) n c b raw D hr hc
 example (p : SrcPkg ι dom) : MemParentDataOk (.gen p) = Old.MemParentDataOk p := rfl
 example (p : SrcPkg ι dom) : ExtInS (.gen p) = Old.ExtInS p := rfl
 example (p : SrcPkg ι dom) : MemOrigin (.gen p) = Old.MemOrigin p := rfl
@@ -395,7 +411,10 @@ theorem memParentStmt'_gen (L : Laws mref cref) : Old.MemParentStmt' (ι := ι) 
       ∀ n, TopShips (.gen q) (n + 1) q.decl b raw D ∧ ChildShips (.gen q) (n + 1) b D := by
   intro h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 n
   have := h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 n
-  exact ⟨this.1, childShips_gen q _ _ _ this.2⟩
+  -- U-TOP-COMPAT: Old → new at the conclusion needs both memberships; they come from the run's `MachineWired`
+  -- (`slots ≠ []`, U-TOP-CLKIN), not from a new premise
+  obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id (Pkg.trace L.O L.T h7 (.gen q) h12).toLB
+  exact ⟨topShips_ofOld_wired (.gen q) (n + 1) wired h6 h10 this.1, childShips_gen q _ _ _ this.2⟩
 
 theorem memParentStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
     Old.MemParentStmt L DataOk →
@@ -414,13 +433,15 @@ theorem memParentStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop)
       ∀ n, TopShips (.gen q) (n + 1) q.decl b raw D ∧ ChildShips (.gen q) (n + 1) b D := by
   intro h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 n
   have := h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 n
-  exact ⟨this.1, childShips_gen q _ _ _ this.2⟩
+  -- U-TOP-COMPAT: both memberships from the run (`slots ≠ []`, U-TOP-CLKIN)
+  obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id (Pkg.trace L.O L.T h3 (.gen q) h8).toLB
+  exact ⟨topShips_ofOld_wired (.gen q) (n + 1) wired h2 h6 this.1, childShips_gen q _ _ _ this.2⟩
 
 theorem leafStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
     Old.LeafStmt L DataOk →
     ∀ (q : SrcPkg ι dom) (mctx : Lean.Meta.Context) (cctx : Lean.Core.Context) (w w1 : Void IO.RealWorld)
       (raw b : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design),
-      DataOkLiftCompat DataOk (.gen q) → q.d.shape.insts = [] →
+      DataOkLiftCompat DataOk (.gen q) → q.d.shape.insts = [] → q.d.shape.layout.slots ≠ [] →
       Tools.ShippingChildInvA.AdmCtx L.O.quiet mctx cctx →
       Tools.ShippingChildCacheA.JQC L.O (Tools.ShippingChildBndCore.dv w) w →
       Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore q.decl [] false)
@@ -430,9 +451,12 @@ theorem leafStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
       Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref q.decl q.d.shape →
       MachineTaken L mctx cctx (Tools.ShippingChildBndCore.dv w + 1) q.decl q.d.shape raw D →
       ∀ n, TopShips (.gen q) n q.decl b raw D ∧ ChildShips (.gen q) n b D := by
-  intro h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 n
+  intro h q mctx cctx w w1 raw b D h1 h2 hsl h3 h4 h5 h6 h7 h8 n
   have := h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 n
-  exact ⟨this.1, childShips_gen q _ _ _ this.2⟩
+  -- U-TOP-COMPAT: Old → new at the conclusion needs `"clk"` among the inputs, so this form is for leaves WITH slots
+  -- (`hsl`, added: a slotless leaf has no clock input and old → new is NOT claimed there; its R-G top is U-TOP-S2)
+  obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id (Pkg.trace L.O L.T h3 (.gen q) h8).toLB
+  exact ⟨topShips_ofOld_wired (.gen q) n wired hsl h6 this.1, childShips_gen q _ _ _ this.2⟩
 
 theorem t1Stmt_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) (hGO : GroupOnly P Reach) :
@@ -440,8 +464,10 @@ theorem t1Stmt_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι 
   intro h hT c mctx cctx w w1 raw b D hR hS hcore hpost
   obtain ⟨q', n, hq', hts⟩ := h ((t1Hyp_iff L P Reach DataOk hGO).mpr hT) c mctx cctx w w1 raw b D hR hS hcore hpost
   obtain ⟨q, hq, rfl⟩ := lift_some.mp hq'
-  exact ⟨q, n, hq, hts⟩
+  exact ⟨q, n, hq, topShips_gen_toOld q n c b raw D hts⟩
 
+#print axioms topShips_gen_toOld
+#print axioms topShips_gen_ofOld
 #print axioms callDec_gen_group
 #print axioms groupOnly_fields
 #print axioms childShips_gen

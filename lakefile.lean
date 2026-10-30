@@ -4828,3 +4828,6 @@ lean_lib «Tests.Gen3.PostFactsCheck» where
 
 lean_lib «Tools.ShippingGen2TopClkIn» where
   roots := #[`Tools.ShippingGen2TopClkIn]
+
+lean_lib «Tools.ShippingGen2TopContract» where
+  roots := #[`Tools.ShippingGen2TopContract]

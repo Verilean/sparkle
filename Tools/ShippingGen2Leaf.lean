@@ -162,7 +162,7 @@ theorem leaf_topShips_of_LB (p : Pkg ι dom) {raw b : Module} {D : Design}
   obtain ⟨⟨hb, hw, hi, ho⟩, hrstIn, hregs, hevery, _, _, _, _, _⟩ := hclean hnoI houtTy
   have hinitW := Tools.ShippingC4InitW.hinitW_of_ok p.d hok
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
-  intro i bools bits T ins st0 mems kids hinp hpass hrstZ _ hinit _ hinsB _
+  intro i bools bits T ins st0 mems kids hinp hpass hrstG _ hinit _ hinsB _
   generalize hr0 : Sparkle.IR.ZeroWidth.dropZeroWidthModule raw = r0 at hb hw hi ho hpost hmerge
   have hbIn : b.inputs = r0.inputs ∧ b.outputs = r0.outputs ∧ declWidth b = declWidth r0 := by
     rcases hpost with rfl | rfl
@@ -172,6 +172,8 @@ theorem leaf_topShips_of_LB (p : Pkg ι dom) {raw b : Module} {D : Design}
   obtain ⟨hbi, hbo, hbw⟩ := hbIn
   have hseed : seedIn b ins = seedIn r0 ins := Tools.ShippingPipelineSoundness.seedIn_of_inputs hbi ins
   have hrstR : "rst" ∈ r0.inputs.map (·.name) := by rw [hi]; exact hrstIn hsl
+  -- R-G: the reset premise is required exactly because `"rst"` is an input of `b`
+  have hrstZ : ∀ t, ins t "rst" = 0 := hrstG (by rw [hbi]; exact hrstR)
   -- the core module's run
   obtain ⟨envs, hrun, hlen, hobs, _⟩ := tr i bools bits T (seedIn r0 ins) st0 mems
     (fun t st ht => by have := hinp t st ht; rw [htake, hseed] at this; exact this)

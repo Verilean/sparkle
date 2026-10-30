@@ -1,3 +1,4 @@
+import Tools.ShippingGen2TopContract
 import Tools.ShippingGen2FitChain
 import Tools.ShippingGen2OneOutNames
 import Tools.ShippingGen2OneOutTop
@@ -413,6 +414,8 @@ theorem oneOut_topShipsO (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι dom)
       intro _ _ _ _ _ _ hWr
       exact Tools.ShippingSrm32.hWd_of_wired hpb (factsB hpb).gate houtTy hWr)
     houtTy (Tools.ShippingC4InitW.hinitW_of_ok p.d hok) hcore hpost entry trivial (fun _ => factsB hpost)
-  exact key ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  -- R-G: `key` has the consumer-1 (old) premises; L2 with both memberships from the run (U-TOP-CLKIN)
+  obtain ⟨_, _, _, _, _, _, _, _, _, wired, _, _⟩ := id h
+  exact topShips_ofOld_wired p (n + 1) wired hsl hpost (key ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩)
 
 end Tools.ShippingGen2
