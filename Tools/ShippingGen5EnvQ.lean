@@ -2,7 +2,8 @@ import Tools.ShippingGen5Env
 import Tools.ShippingGen5T1ND
 import Tools.ShippingGen5RunReads
 set_option autoImplicit false
--- NOT BUILT yet.
+-- Built in g5envq2-3db43dcb (clean, exit 0, 750 jobs; g5envq-609b8094 failed on a check-file parse error). No sorry /
+-- axiom / native_decide.
 
 /-! # DG-ENV unit (d): TQ connection lemmas, CONDITIONAL (scripts/gen5/DG_ENV_FREEZE.md rev2.2 §4.5, par/gen5-t2 4c841bba)
 

@@ -1,7 +1,8 @@
 import Tools.ShippingGen5EnvQ
 import Tests.Gen5.EnvCheck
 set_option autoImplicit false
--- NOT BUILT yet.
+-- Built in g5envq2-3db43dcb (clean, exit 0, 750 jobs): TYPE 12, MUTANT 5 signature/defeq rejections, rawProj controls,
+-- 16 rule controls (forbidden ones also hit their intended constant alone; 4 allowed not flagged), REACH 10, AXIOMS 10.
 
 /-! # DG-ENV unit (d) checks (Tools/ShippingGen5EnvQ.lean; scripts/gen5/DG_ENV_FREEZE.md rev2.2 §4.5)
 
