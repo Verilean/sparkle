@@ -4793,3 +4793,12 @@ lean_lib «Tools.ShippingGen4ParamEntry» where
 
 lean_lib «Tests.Gen4.ParamEntryCheck» where
   roots := #[`Tests.Gen4.ParamEntryCheck]
+
+lean_lib «Tools.ShippingGen4ParamIface» where
+  roots := #[`Tools.ShippingGen4ParamIface]
+
+lean_lib «Tools.ShippingGen4ParamKeeps» where
+  roots := #[`Tools.ShippingGen4ParamKeeps]
+
+lean_lib «Tests.Gen4.ParamIfaceCheck» where
+  roots := #[`Tests.Gen4.ParamIfaceCheck]
