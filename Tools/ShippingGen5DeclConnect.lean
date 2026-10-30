@@ -2,7 +2,7 @@ import Lean
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5DeclConnectAbs
 set_option autoImplicit false
--- NOT BUILT (header updated by a comment-only commit after a successful agent build; clean issue-linked build is the coder's).
+-- Built at 68f1be34d40e6754e38dd8fdb7055b2ec59bfd87 (agent build `kjob lake build Tests.Gen5.DeclConnectCheck`, exit 0, includes this file; no sorry; clean issue-linked build is the coder's). Axioms: standard only.
 
 /-! # DC-CONNECT concrete units U-SHAPE1 / U-SHAPE2 / U-ROWS (scripts/gen5/DC_CONNECT_FREEZE.md rev5 §C.2, §C.8)
 
