@@ -383,7 +383,8 @@ Non-vacuity facts the Lean unit must prove about `FG_CONNECT` (planned lemmas, s
 - **NV-Post**: `FG_CONNECT ReflectsAll (fun _ _ => False) GP CV L → ¬ ∃ witness` (any witness gives `∃ raw, False`). So the carrier `Post` is not a way to weaken `FG_CONNECT`: the final instantiation must make the actual entry satisfy O1.
 - **NV-GP**: `FG_CONNECT ReflectsAll Post (fun _ _ => none) CV L → ¬ ∃ witness` (O2 fails). Likewise `GP` cannot be trivialised.
 - **NV-CV**: with `CV := fun _ _ _ _ => False`, `FG_CONNECT` and a witness with O2 give a contradiction (`not_declConnect_of_empty`, concrete form already in Lean, with `TgtRun.top`). So `CV` cannot be trivialised.
-- **NV-witness**: the statement is not vacuous because no witness exists: a successful run of the entry exists on the corpus declarations (this is outside the Lean unit and is the content of FG's premise, not proved here).
+- **NV-witness**: UNSUPPLIED / execution evidence only. That an `EntryWitness` exists (a `Start` world, a `RunsTo` run of the entry, and `ReflectsAll` for it) is NOT shown by this unit. Successful corpus runs are execution evidence for the `Start`/`RunsTo` parts only; they do not give the logical existence of a triple `Start` + `RunsTo` + `ReflectsAll` (`ReflectsAll` has no Lean definition, and no run is supplied as a Lean term). The NV lemmas are therefore CONDITIONAL: they hold when an `EntryWitness` is given.
+- **O2 is not logically independent**: O2 follows from O1 and O3 (O3 at a `raw` given by O1 yields the package). O2 is kept as an explicit stated obligation; a mutant that drops O2 is rejected only by the signature/defeq comparator and this is NOT evidence that O2 is logically independent of O1+O3.
 Hence the final guarantee needs ALL of: `Post`/`ReflectsAll` as defined by M4 and satisfied by the actual entry (O1 and the premises of O3), `GP := genP …` (O2, supplied by DG-ACC/DG-SEM/DG-DATAOF/DC-COVER, unsupplied), `CV := ConstValueE …` (unsupplied, §C.6).
 
 Instantiation at integration, none of which is a quantifier of the final theorem: `GP := fun env₀ => genP (K env₀) (hF env₀)` with DG-ACC's `genP` (§C.5); `CV := ConstValueE …` — the DCF unit's relation, so there is NO free `V3`
@@ -484,7 +485,7 @@ Consequences (statements about this survey):
 4. How small the table can be made is a survey item this survey did not run: how many distinct constants occur in the accepted `defnInfo` values of the corpus after maximal `const-unfold` is not measured. rev3's claim that "each prim entry corresponds to one reader node kind" is a hypothesis to check (TABLE-COVERAGE), not a result.
 5. Not claimed: that `ConstValueE` is the true kernel semantics; that any table is complete; that the recursion is well-founded (it is an inductive family, so no termination claim is needed).
 
-The inductive `ConstValueE` is NOT written in rev4 and its complete Lean (the `Dyn` universe design for terms-and-types, the valuation, the dependent `app`) is the DCF unit's own freeze, after the decision. What §C.2/§C.3 need from it is only the type `ConstValueRel` and `ConstValueFunctional`.
+The inductive `ConstValueE` is NOT written in rev4 and its complete Lean (the `Dyn` universe design for terms-and-types, the valuation, the dependent `app`) is the DCF unit's own freeze. The rule design (rules, exclusivity/consistency between the unfold and prim rules, `TypeDenotes` determinism) and the minimal-table survey proceed now and do NOT wait on a decision; only what is proved is turned into Lean, and what is not proved is recorded as "unsupplied / no route found in this survey". A separate user decision is requested only if a stated, unproved list of rows (a new TRUSTED boundary) is concretely found to be needed; that is not requested now. What §C.2/§C.3 need from it is only the type `ConstValueRel` and `ConstValueFunctional`.
 
 ## C.7 Supplier table
 
@@ -506,7 +507,7 @@ Status columns: **Exists** = present in a Lean file; **Pure now** = a pure lemma
 | `DataSoundAt` | `Pkg.ok`/`Pkg.body_eq` [S]; `initOk_of_ok`, `dataOf_sound` DG-DATAOF | conj. 1-2 **Exists**; conj. 3 **Waits** | not used by U1-U6 or `FG_COMPLETE` |
 | `GenWF`, coverage of `dataOf` on real runs | DG-COVER / WFCOVER | **Unsupplied** | |
 | `sigShape? = some` on every successful target | DC-COVER | **Unsupplied** | if a corpus top is outside the fragment: extend `ResShape` with its meaning (struct, packed tuple, tuple input), never weaken the statement |
-| row 0: `∃ α v, CV env₀ X α v` | `ConstValueE` (DCF) | **Unsupplied** | needs the table decision |
+| row 0: `∃ α v, CV env₀ X α v` | `ConstValueE` (DCF) | **Unsupplied** | rule design and minimal-table survey proceed (no decision awaited); a new TRUSTED boundary only if concretely found necessary |
 | row 1: unfolding `ci.value ↦ entryConst …` preserves `CV` | `entryConst` (`Elab.lean:5272`) is definition unfolding; `EntryDefines` (`ShippingInlineSoundness.lean:48-57`), `entry_kept` (`ShippingEntrySoundness.lean:1132`) relate Exprs and RUNS | **Unsupplied** (depends on `CV`) | |
 | row 2 shape/body | `dataOf_sound` + `readTerm_sound` (`ShippingReaderTerm.lean:1129`), `readN_expr_sound` (`ShippingReaderApp.lean:356`) | **Waits** on DG-DATAOF / READKINDS | |
 | row 3 quote/eval agreement per node kind | `ConstValueE`'s rows vs the reader's table | **Unsupplied** | one row per node kind |
@@ -527,7 +528,7 @@ Order, each unit in a NEW file or the named edit, built one target at a time in 
 | **U-SHAPE2** | `sigShape?_telescope`, `sigShape?_machOuts`, `outPorts_eq`, `applyArgs_nil/cons`, helpers `scalar?_kind`, `scalar?_outs`, `resShape?_outs`, `sigGo_tele`, `sigGo_outs`, `declConnect_eq` (`rfl`), `declConnect_mono`, `not_declConnect_of_empty` | U-SHAPE1 | **implemented** 68f1be34; no `sorry`; axioms ⊆ {propext, Classical.choice, Quot.sound} |
 | **U-ENTRY** | `entry₀_find`: `entry₀ env₀ X = some E → ∃ ci, env₀.find? X = some ci ∧ E = entryConst …` | DG-ACC A1 (the file defining `entry₀`) | waits |
 | **U-ROWS** (conditional) | `declConnect_of_rows`: `dcGen_of_rows` at the concrete `DeclConnect` with `hstep` as an explicit hypothesis; INTERMEDIATE Acc assembly, supplies none of the rows | U-SHAPE1 | **implemented** 68f1be34 (the step is NOT proved; no row is supplied) |
-| U-FG | `ConstValueFunctional`, `TgtRun`, `EntryWitness`, `FG_COND`, `FG_CONNECT` and the non-vacuity lemmas NV-Post/NV-GP/NV-CV | approval of §C.3 rev5 | not started |
+| U-FG | `ConstValueFunctional`, `TgtRun`, `EntryWitness`, `FG_COND`, `FG_CONNECT` and the conditional non-vacuity lemmas NV-Post/NV-GP/NV-CV | §C.3 rev5 (scoped approved) | in progress (r6) |
 | DCF | `ConstValueE` (rules, exclusivity/consistency, functionality: §C.6 (a)-(d)) | its own freeze | planned |
 | final connection | `FG_CONNECT (…) L` at `GP := genP …`, `CV := ConstValueE …`, M4's `Post`/`ReflectsAll` | DG-SEM/DATAOF/ACC/COVER, DCF, M4 | not before |
 
@@ -632,4 +633,4 @@ It is not established that the prim table of §C.6 is a NEW TRUSTED boundary (re
 1. (Part A, done) abstract U1-U6 + check rev3.
 2. (Part C, this review) approve the complete-type freeze §C.2-§C.8, including Q8/Q9.
 3. U-UNIV, then U-SHAPE1/U-SHAPE2 (pure, in new files), then U-ROWS; the Lean commit stays `doing`, "clean build is the coder's".
-4. U-ENTRY after DG-ACC A1; DCF after the table decision; the final connection waits for DG-SEM / DG-DATAOF / DG-ACC / DG-COVER / M4.
+4. U-ENTRY after DG-ACC A1; DCF (rule design and minimal-table survey proceed now, no decision awaited; a separate decision only if a new TRUSTED boundary is concretely found necessary); the final connection waits for DG-SEM / DG-DATAOF / DG-ACC / DG-COVER / M4.
