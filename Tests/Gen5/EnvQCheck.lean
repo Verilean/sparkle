@@ -184,12 +184,12 @@ def mkRules : MetaM (Rule × Rule × Rule) := do
   let ndF ← fieldsOf nd
   let opsNoQuiet := opsF.filter (· != ops ++ `quiet)
   let common := teleF ++ recsOf tele ++ [laws ++ `T] ++ t1F ++ recsOf t1 ++ envBad
-  let ruleA : Rule := { name := "A", forbid := common ++ opsNoQuiet ++ recsOf ops ++ ndF ++ recsOf nd,
-    rawAllow := [(ops, [0]), (laws, [0]), (tele, []), (t1, []), (nd, [])] }
-  let ruleB : Rule := { name := "B", forbid := common ++ opsNoQuiet ++ recsOf ops,
-    rawAllow := [(ops, [0]), (laws, [0]), (tele, []), (t1, []), (nd, [0, 1, 2, 3])] }
-  let ruleC : Rule := { name := "C", forbid := common ++ ndF ++ recsOf nd,
-    rawAllow := [(ops, (List.range 64)), (laws, [0]), (tele, []), (t1, []), (nd, [])] }
+  let ruleA : Rule := Rule.mk "A" (common ++ opsNoQuiet ++ recsOf ops ++ ndF ++ recsOf nd)
+    [(ops, [0]), (laws, [0]), (tele, []), (t1, []), (nd, [])]
+  let ruleB : Rule := Rule.mk "B" (common ++ opsNoQuiet ++ recsOf ops)
+    [(ops, [0]), (laws, [0]), (tele, []), (t1, []), (nd, [0, 1, 2, 3])]
+  let ruleC : Rule := Rule.mk "C" (common ++ ndF ++ recsOf nd)
+    [(ops, (List.range 64)), (laws, [0]), (tele, []), (t1, []), (nd, [])]
   return (ruleA, ruleB, ruleC)
 
 def badProj (R : Rule) (e : Expr) : Bool :=
@@ -263,7 +263,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     | some t =>
       if r.hit.isNone then throwError "ENVQ AUDIT FAILED: rule {R.name} misses {c}"
       unless R.forbid.contains t do throwError "ENVQ AUDIT FAILED: intended {t} not in rule {R.name}"
-      let rt ← reach { R with forbid := [t], rawAllow := [] } c
+      let rt ← reach (Rule.mk R.name [t] []) c
       unless rt.hit.map (·.getLast? == some t) == some true do
         throwError "ENVQ AUDIT FAILED: {c} does not reach its intended {t}"
       logInfo m!"ENVQ CONTROL rule {R.name} {c}: flagged {toString r.hit}; intended {t} alone {toString rt.hit}"
