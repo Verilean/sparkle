@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReadKinds
 import Tools.ShippingGen5T1ND
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (the success SHA is entered in a separate comment-only commit).
+-- Built: kjob lake build Tests.Gen5.ReadKindsCheck exit 0 (751 jobs) on the tree of d38a8fa2 (pod build; clean build is the coder's).
 
 /-! # DG-READKINDS checks (Tools/ShippingGen5ReadKinds.lean; scripts/gen5/DG_READKINDS_FREEZE.md rev2 3f79600f)
 
