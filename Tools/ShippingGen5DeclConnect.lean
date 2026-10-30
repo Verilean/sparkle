@@ -120,6 +120,9 @@ def ShapeMatches (sh : SigShape) (d : MachineData) (kD : Nat) : Prop :=
   (d.bsIn.take kD).map (·.2) = MixedGateBinder.domain :: sh.args.map Scalar.binder ∧
   d.shape.layout.outs.map (fun o => (o.name, o.ty, o.width)) = sh.res.outPorts
 
+instance (sh : SigShape) (d : MachineData) (kD : Nat) : Decidable (ShapeMatches sh d kD) := by
+  unfold ShapeMatches; infer_instance
+
 /-! ## U-SHAPE2: unfolding equations and agreement with the compiler's own readers -/
 
 theorem applyArgs_nil {D : DomainConfig} (bools : Nat → Signal D Bool) (bits : (j : Nat) → (n : Nat) → Signal D (BitVec n))
