@@ -1,6 +1,6 @@
 import Tools.ShippingGen5Cover
 set_option autoImplicit false
--- NOT BUILT (written in g5cv-r3; the SHA of the first successful Pod build is recorded here by a comment-only commit). Clean build is the coder's. No sorry / axiom / native_decide.
+-- Built in g5cv-r3 at b7ba89f8 (Pod `kjob lake build Tests.Gen5.CoverNegCheck`, exit 0; all 10 theorems closed, axioms propext/Classical.choice/Quot.sound subsets). Clean build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-COVER freeze rev2: kernel negative examples for R1 and R2 (`scripts/gen5/DG_COVER_FREEZE_REV2.md`)
 
