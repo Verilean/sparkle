@@ -1,5 +1,5 @@
 import Tools.ShippingGen5AccHinv
--- NOT BUILT. skeleton draft (scripts/gen5/CKIT_FREEZE.md): types of the five roots with `sorry` bodies; not frozen until reviewer approval.
+-- NOT BUILT HERE (scripts/gen5/CKIT_FREEZE.md at 7c8fdff7, reviewer design-approved). proof-accept skeleton: frozen types of the five roots with `sorry` bodies; the candidate commit fills them. No axiom/native_decide.
 
 namespace Tools.ShippingGen5Acc
 open Lean Meta Sparkle.Compiler.Elab Tools.ShippingGen2 Tools.ShippingGen5Sem
