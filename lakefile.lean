@@ -4874,3 +4874,6 @@ lean_lib «Tools.ShippingGen5AccServed» where
 
 lean_lib «Tests.Gen5.AccKeepCheck» where
   roots := #[`Tests.Gen5.AccKeepCheck]
+
+lean_lib «Tests.Gen5.AccServedCheck» where
+  roots := #[`Tests.Gen5.AccServedCheck]
