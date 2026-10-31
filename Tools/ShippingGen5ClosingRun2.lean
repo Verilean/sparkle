@@ -1,6 +1,6 @@
 import Tools.ShippingGen5ClosingRun
 set_option autoImplicit false
--- Built in the Pod (kjob lake build Tools.ShippingGen5ClosingRun2, exit 0, standard axioms) on the tree of 018ff69a; clean issue-linked build is run by the coder (not yet done).
+-- Clean issue-linked build cr5v-f2e763d0 (exit 0, 757 jobs, standard axioms), scoped approved at f2e763d0.
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # DG-CLOSINGRUN next unit (scripts/gen5/DG_CLOSINGRUN_FREEZE_R4.md)

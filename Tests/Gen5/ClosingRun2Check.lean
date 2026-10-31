@@ -2,7 +2,7 @@ import Tools.ShippingGen5ClosingRun2
 import Tests.Gen5.ClosingRunCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Built in the Pod (kjob lake build Tests.Gen5.ClosingRun2Check, exit 0: TYPE 12, MUTANT 28, STRUCT 3 + 10 mutants, controls 12, REACH 8, AXIOMS 11) on the tree of 018ff69a; clean issue-linked build is run by the coder (not yet done).
+-- Clean issue-linked build cr5v-f2e763d0 (exit 0, 757 jobs; TYPE 12, MUTANT 28, STRUCT 3 + 10 mutants, controls 12, REACH 8, AXIOMS 11), scoped approved at f2e763d0. Later edits (closure walker fails on unresolved names) are not covered until rebuilt.
 -- No sorry / axiom / native_decide.
 
 /-! # DG-CLOSINGRUN2 checks (Tools/ShippingGen5ClosingRun2.lean; scripts/gen5/DG_CLOSINGRUN_FREEZE_R4.md)
@@ -926,9 +926,11 @@ structure AReach where
   visited : Nat := 0
   noBody : Nat := 0
   opaques : Nat := 0
+  /-- names reached that the resolver does not resolve: counted, and a failure (never skipped) -/
+  unknown : Nat := 0
+  unknownFirst : Option (List Name) := none
 
-def reach (root : Name) (cap : Nat := 3000000) : MetaM AReach := do
-  let env ← getEnv
+def reachWith (resolve : Name → Option ConstantInfo) (root : Name) (cap : Nat := 3000000) : MetaM AReach := do
   let mut out : AReach := { seen := ({} : NameSet).insert root }
   let mut queue : Array (Name × List Name) := #[(root, [root])]
   let mut i := 0
@@ -937,7 +939,9 @@ def reach (root : Name) (cap : Nat := 3000000) : MetaM AReach := do
     i := i + 1
     out := { out with visited := out.visited + 1 }
     if out.visited > cap then throwError "CR2 AUDIT INCOMPLETE at {root}"
-    let some ci := env.find? c | continue
+    let some ci := resolve c | do
+      out := { out with unknown := out.unknown + 1, unknownFirst := out.unknownFirst <|> some path }
+      continue
     let body := body? ci
     if body.isNone then out := { out with noBody := out.noBody + 1 }
     if ci matches .opaqueInfo _ then out := { out with opaques := out.opaques + 1 }
@@ -949,6 +953,10 @@ def reach (root : Name) (cap : Nat := 3000000) : MetaM AReach := do
         out := { out with seen := out.seen.insert u }
         queue := queue.push (u, path ++ [u])
   return out
+
+def reach (root : Name) (cap : Nat := 3000000) : MetaM AReach := do
+  let env ← getEnv
+  reachWith env.find? root cap
 
 set_option maxHeartbeats 0 in
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -963,7 +971,16 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let r ← reach c
     if bad && r.hit.isNone then throwError "CR2 AUDIT FAILED: detector misses {c}"
     if !bad && r.hit.isSome then throwError "CR2 AUDIT FAILED: detector flags {c}"
+    if r.unknown != 0 then throwError "CR2 AUDIT FAILED: control {c} has {r.unknown} unresolved name(s)"
     logInfo m!"CR2 CONTROL {c}: {toString r.hit}"
+  -- negative control: a closure walker that cannot resolve a reached name must FAIL (unknown counted), not skip it
+  let envU ← getEnv
+  let hideB := fun n => if n == `Tests.Gen5.ClosingRun2Helper.helperA then none else envU.find? n
+  let rU ← reachWith hideB (F ++ `unrelated)
+  if rU.unknown != 0 then throwError "CR2 AUDIT FAILED: unrelated has unresolved names under the full env"
+  let rU ← reachWith hideB (F ++ `badCoreReadsHelper)
+  if rU.unknown == 0 then throwError "CR2 AUDIT FAILED: unresolved name was skipped, not counted"
+  logInfo m!"CR2 CONTROL unresolved: unknown={rU.unknown} first={toString rU.unknownFirst} (counted, audit fails)"
   let base := [``Tools.ShippingChildVCA.keepsA_framed, ``Tools.ShippingGen5ClosingRun.coreHead_invAt0]
   let shared := base ++ [``invAt_w5_of_runReadsAt_JQC, ``Tools.ShippingGen5RunReads.runReads_of_run,
         ``Tools.ShippingGen2.synthesizeMachineCertified_runsS, ``Tools.ShippingGen5ClosingRun.soundX_ships_at,
@@ -976,6 +993,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       (``ClosingRun.closingShared, []), (``gen_of_closingShared, []), (``not_closingShared_false, [])] do
     let r ← reach c
     if let some p := r.hit then throwError "CR2 AUDIT FAILED {c}: forbidden use via {p}"
+    if r.unknown != 0 then throwError "CR2 AUDIT FAILED {c}: {r.unknown} unresolved name(s), first via {toString r.unknownFirst}"
     for t in req do
       unless r.seen.contains t do throwError "CR2 AUDIT FAILED {c}: {t} not reached"
     logInfo m!"CR2 REACH {c}: no BodyStepC / core_reads_invAt0 / soundX_ships_ran / servedShips0_proved / TopShips / ofReduceBool / T1Hyp field (named, raw proj, recursor); reaches {req} (visited {r.visited}, no-body {r.noBody}, opaque {r.opaques})"
