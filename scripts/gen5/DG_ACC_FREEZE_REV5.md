@@ -69,3 +69,11 @@ Build one target at a time in the Pod; the Check is built on the tree that is co
 
 ## 4. Not claimed
 DG-ACC, M5, FG are not complete. EnvQ agreement remains a source-text comparison until the integration SHA (rev4 §4). This lineage is before S1.
+
+## 5. Wording sync at implementation (A6b; no change of types)
+- `GateRunsAt` drops `wE' = w1`, so it is NOT identical in shape to the conclusion of `readMachine_gates`; it is a weaker sufficient interface that can be built from that conclusion.
+  At integration the obligation is to supply the linked witness of the SAME reader run (the `getEnv` run ending where the `getConstInfo` run starts), not an unlinked pair.
+- That the approved parts (`readMachine_gates`, Cover3-6, `dataOfFrom_sound`, reach, DG-ENV) are on branches that are not ancestors is a limit of the current un-integrated checkout, not a statement that they can never be imported.
+- Implemented as frozen: `Tools/ShippingGen5AccGates.lean` (definition 1, theorem 1), `Tests/Gen5/AccGatesCheck.lean`. Pod build at 5b542e30: Tools 722 jobs, Check 725 jobs, exit 0.
+  Check: TYPE 2 (syntactic) / MUTANT 4 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 2 standard three / CLOSURE 7808 constants, unknown 0 / sorry only in the intended walker-control negatives (6 warnings: 3 in `AccCheck.lean:238`, 3 in `AccGatesCheck.lean:96`).
+- Not a supply of: any reader run, `ReadsAt`, `ReachCover`, `ClosesOfShape`, `ReadsSupplyAt`, `DataOfShape`, off-route, `GenSFacts`. Not DG-ACC / M5 / FG completion.

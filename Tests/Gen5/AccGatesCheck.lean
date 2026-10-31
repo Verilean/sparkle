@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccGates
 import Tests.Gen5.AccCheck
--- Built in the Pod (g5ac-r10): not yet recorded; the build result is written into this header after the build (comment-only commit). Not a clean issue-linked build (the coder runs it). No sorry / axiom / native_decide in this source; the `sorry` warnings of the build are the intended walker-control negatives of Tests.Gen5.AccCheck (walkerControls line) and of this file.
+-- Built in the Pod (g5ac-r10) at 5b542e30 (the Check was built on the committed tree): `kjob lake build Tools.ShippingGen5AccGates` (722 jobs) and `kjob lake build Tests.Gen5.AccGatesCheck` (725 jobs), each exit 0. TYPE 2 (definition by body + theorem, both syntactic, no isDefEq fallback) / MUTANT 4 (signature/defeq rejection, not semantic: 3 on GateRunsAt, 1 on gatesNoneAt_of_gateRunsAt) / AXIOMS 2 standard three only / CLOSURE OK 7808 constants (unknown 0) / walker controls 4 negatives / unknown controls 3 negatives + 1 clean. Not yet a clean issue-linked build (the coder runs it). No sorry / axiom / native_decide in this source; the 6 `sorry` warnings of the build are the intended walker-control negatives: 3 at the walkerControls line of Tests/Gen5/AccCheck.lean (:238) and 3 at the walkerControls line of this file (:96).
 
 /-! # DG-ACC unit A6b checks (Tools/ShippingGen5AccGates.lean; scripts/gen5/DG_ACC_FREEZE_REV5.md §2)
 
