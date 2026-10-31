@@ -1,8 +1,8 @@
 import Tools.ShippingGen5NameKids3
 import Tools.ShippingGen2Defs
 import Tests.Gen5.NameKidsCheck
--- Pod incremental build on the tree of 25993694 (NOT a clean issue-linked build; coder runs that) (kjob lake build Tests.Gen5.NameKids3Check, exit 0, 722 jobs) observed: TYPE 11 (5 theorems + 4 definition bodies + 2 OrdPath constructor types), MUTANT 16 (12 single-point theorem mutants + 2 definition-body mutants + 2 cross-statement controls), use-site examples 2, closure controls negative 8 + clean 1, REACH 5, AXIOMS 5 (standard only).
--- NOT BUILT: counts are filled in only after the Check build on the committed tree (kjob lake build Tests.Gen5.NameKids3Check).
+-- Pod incremental build on the tree of 25993694 (incremental; superseded by the reviewed build below) (kjob lake build Tests.Gen5.NameKids3Check, exit 0, 722 jobs) observed: TYPE 11 (5 theorems + 4 definition bodies + 2 OrdPath constructor types), MUTANT 16 (12 single-point theorem mutants + 2 definition-body mutants + 2 cross-statement controls), use-site examples 2, closure controls negative 8 + clean 1, REACH 5, AXIOMS 5 (standard only).
+-- Reviewed build: ba7v-01a2afbb (exit 0, 722 jobs, approved at 01a2afbb; src=base=end, dirty=false; clean issue-linked build). TYPE 11 (theorems 5 + definition bodies 4 + OrdPath constructor types 2). Inputs InClass / GraphAgrees / ReachSpans / hmem are unsupplied; minimality was not derived from ReachClosed alone. Approval is per U3; the final N1/G5/G7/M5/FG audit is not complete.
 -- Count rule: each count is the number of `logInfo` lines of one class (TYPE = theorem, definition body or constructor type compared against its Expected; MUTANT = distinct mutant def or cross-statement control, each counted once; REACH/AXIOMS = one per theorem).
 -- No sorry / axiom / native_decide.
 
