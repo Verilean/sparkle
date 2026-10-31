@@ -4,7 +4,7 @@ import Tests.Gen5.T2TieCheck
 import Tests.Gen3.ExpectedType
 import Tools.ShippingGen5ClosingRun
 set_option autoImplicit false
--- NOT BUILT: new unit (freeze r1 95671524); stop_of_run audit added after review of 4d8e3528; clean build is run by the coder.
+-- Clean build: ttcr3-4d8e3528 / ttcr4-171fea73 (exit 0, 774 jobs; approved at 171fea73); includes the stop_of_run audit.
 -- No sorry / axiom / native_decide.
 
 /-! # T2-TIE x DG-CLOSINGRUN checks (Tools/ShippingGen5T2TieCR.lean; scripts/gen5/T2TIE_CR_FREEZE_R1.md)
