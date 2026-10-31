@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReadKindsU6
 import Tests.Gen5.ReadKindsCheck
 import Tests.Gen5.ReadKindsU5Check
 set_option autoImplicit false
--- NOT BUILT (freeze: scripts/gen5/DG_READKINDS_U6_FREEZE.md). No sorry / axiom / native_decide.
+-- Built: kjob lake build Tests.Gen5.ReadKindsU6Check exit 0 (816 jobs) in pod on dc880c86e4f840e8b0dc5f61ced3550714445f45 (not a clean issue-linked build; that is the coder's). Freeze: scripts/gen5/DG_READKINDS_U6_FREEZE.md. No sorry / axiom / native_decide.
 
 /-! # DG-READKINDS U6 checks (Tools/ShippingGen5ReadKindsU6.lean; freeze scripts/gen5/DG_READKINDS_U6_FREEZE.md)
 
