@@ -4805,3 +4805,9 @@ lean_lib «Tests.Gen4.ParamIfaceCheck» where
 
 lean_lib «Tests.Gen4.ParamReachProbe» where
   roots := #[`Tests.Gen4.ParamReachProbe]
+
+lean_lib «Tools.ShippingGen4ParamLayerA» where
+  roots := #[`Tools.ShippingGen4ParamLayerA]
+
+lean_lib «Tests.Gen4.ParamLayerACheck» where
+  roots := #[`Tests.Gen4.ParamLayerACheck]
