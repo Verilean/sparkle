@@ -1,7 +1,7 @@
 import Tools.ShippingGen5Acc
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Built in g5ac-r2 at fa4d6f1a (Pod `kjob lake build Tests.Gen5.AccCheck`, exit 0; TYPE 11, MUTANT 8, AXIOMS standard, walker controls + CLOSURE OK). Clean build is the coder's. No sorry / axiom / native_decide in this source.
+-- Clean issue-linked build ac4v-5aab73de: exit 0, 714 jobs, source=base=end, dirty=false, scoped approved at 5aab73de. Earlier Pod builds: g5ac-r2 at fa4d6f1a. No sorry / axiom / native_decide in this source.
 
 /-! # DG-ACC / DG-ASSIGN units A1-A2 checks (Tools/ShippingGen5Acc.lean; scripts/gen5/DG_ACC_FREEZE.md rev1 §A)
 
