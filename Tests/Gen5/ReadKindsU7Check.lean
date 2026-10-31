@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReadKindsU7
 import Tests.Gen5.ReadKindsCheck
 import Tests.Gen5.ReadKindsU5Check
 set_option autoImplicit false
--- Built: kjob lake build Tests.Gen5.ReadKindsU7Check exit 0 in pod on 31717003b3a3d933585ee1222fdbbeeaa331f9d4 (not a clean issue-linked build; that is the coder's). Freeze: scripts/gen5/DG_READKINDS_U7_FREEZE.md. No sorry / axiom / native_decide.
+-- Built: kjob lake build Tests.Gen5.ReadKindsU7Check exit 0 in pod on a9ef08a76572c8c0aa701e708b50ef5395c6fe37 (not a clean issue-linked build; that is the coder's). Freeze: scripts/gen5/DG_READKINDS_U7_FREEZE.md. No sorry / axiom / native_decide.
 
 /-! # DG-READKINDS U7 checks (Tools/ShippingGen5ReadKindsU7.lean)
 
