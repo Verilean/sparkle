@@ -2,7 +2,7 @@ import Tests.Gen5.EnvFrame2Check
 import Tools.ShippingGen5EnvFrame3
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT as a recorded clean build (freeze r9 scripts/gen5/DG_ENV_T2_U3_FREEZE.md). Pod build of this Lean: TYPE 27 (13 DRow ctors + 2 def bodies + 12 theorems), MUTANT 13, PARTITION 13/40/27, CLOSURE 4 law-free + 8 field roots, AXIOMS 15 standard.
+-- Pod build exit 0, 756 jobs, at 3261e98d (Lean content); clean issue-linked build is the coder's (freeze r9 scripts/gen5/DG_ENV_T2_U3_FREEZE.md). Pod build of this Lean: TYPE 27 (13 DRow ctors + 2 def bodies + 12 theorems), MUTANT 13, PARTITION 13/40/27, CLOSURE 4 law-free + 8 field roots, AXIOMS 15 standard.
 -- Counting rule: TYPE = Expected comparisons (DRow constructors + definition bodies + theorems); MUTANT = single well-typed changes rejected by the same comparator;
 -- CLOSURE = law-free roots + field roots; negatives are per mode (direct + helper); unresolved = throwing controls; self-root = forbidden constant as root; clean = not-flagged controls.
 

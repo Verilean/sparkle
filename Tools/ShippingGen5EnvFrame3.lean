@@ -2,7 +2,7 @@ import Tools.ShippingGen5EnvFrame2
 import Tools.ShippingGen5EnvQ
 import Tools.ShippingChildFresh
 set_option autoImplicit false
--- NOT BUILT (unit U3, freeze r9 scripts/gen5/DG_ENV_T2_U3_FREEZE.md): no clean build recorded yet. No sorry / axiom / native_decide.
+-- NOT BUILT as a recorded clean build (unit U3, freeze r9 scripts/gen5/DG_ENV_T2_U3_FREEZE.md). Pod build: kjob lake build Tests.Gen5.EnvFrame3Check exit 0, 756 jobs, at 3261e98d (Lean content). Clean issue-linked build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-ENV unit U3: per-field aggregation of the closed `FramedA` rows, CONDITIONAL
 
