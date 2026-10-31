@@ -2,7 +2,7 @@
 
 Issue: `sparkle-fg-final`（job `fg-ledger1`、ブランチ kjob/fg-ledger1）。base: par/gen2-spec d0ddc50b。
 状態: **段 1 文書のみ。Lean は書いていない。**（段 1 は承認済み: dd624a27。）段 2（全前提を明示仮説にした文の Lean 計画）は **§8**（文書のみ、Lean なし、再 review 待ち）。
-版の履歴: 段 1 基準件数 146 / 110（dd624a27）→ 段 2 計画（62aef763、approved）→ 型付け 7 仮説の文と Check（13c7d5a3、条件付き設計確認として approved）→ **本版（fgreg1、文書のみ）: 流れ 1 の前提解消（e6d8e55b）を反映して現在値 FG 106、registry 69 行の owner / 型の確認（§9.2）、T1 crosswalk 16 行の確認（§9.3）、次の候補の流れ（§9.4）。基準件数 146 / 110 は版の履歴として残し、現在値と区別する（§2）。**
+版の履歴: 段 1 基準件数 146 / 110（dd624a27）→ 段 2 計画（62aef763、approved）→ 型付け 7 仮説の文と Check（13c7d5a3、条件付き設計確認として approved）→ **本版（fgreg1、文書のみ）: 流れ 1 の前提解消（e6d8e55b）を反映して現在値 FG 107、registry 69 行の owner / 型の確認（§9.2）、T1 crosswalk 16 行の確認（§9.3）、次の候補の流れ（§9.4）。基準件数 146 / 110 は版の履歴として残し、現在値と区別する（§2）。**
 
 ## 0. 範囲・方法・読み方
 
@@ -30,7 +30,7 @@ ID は `<ファイル記号>.<部分ファイル内の見出しID>`（例: `C.RK
 - **重複整理前: 146 ブロック**（28 + 26 + 55 + 37）。
 - **重複整理後: 110 ブロック**（146 − 36）。整理の規則と一覧は §4。整理は「部分ファイルの別名欄または同じ型と明記されているもの」に限った保守的な統合で、型の同値は Lean では確認していない。
 - **基準件数と既知の差分は別**: 146 / 110 は段 1 の基準件数で書き換えない。基準日以降に承認済みの unit6 F3（parametric-supply, 50d22e3b）の差分は B.P-8 に別記した: `LegalBinding` を前提に B.P-1 `AllPos θ` と宣言 parameter coverage の 2 項目を条件付きで導出、`requirePositive` 実装/model 一致 1 項目を解消、追加前提 0、`LegalBinding` は入力として残る。この差分は 146 / 110 に反映していない。広い残余（B1-B3、T、FG）は未供給のまま。
-- **現在値（本版）**: FG 側のブロック数は **106**（110 − 4）。流れ 1 の U1 / U2（kjob/flow1-b e6d8e55b、reviewer 承認 seq 5756、clean build f1v-e6d8e55b exit 0）が C.RK-5、D.T-5、D.T-8、D.T-9 を前提解消とした。条件付き部品であり、FG の完了ではない。**基準件数 146 / 110 とは別の欄**で、146 / 110 は段 1・段 2 の版の記録として書き換えていない。詳細と数え方の注意（D.T-5 は §4 で除かれた行）は §9.1。
+- **現在値の定義（唯一の定義。他の箇所はこれを参照する）**: 現在値 = 「§8.2 の 110 行表のうち、未解消の行数」。元の 110 行表に含まれる解消印の行は C.RK-5、D.T-8、D.T-9 の **3 行だけ**なので、現在値は **FG 107**（110 − 3）。流れ 1 の U1 / U2（kjob/flow1-b e6d8e55b、reviewer 承認 seq 5756、clean build f1v-e6d8e55b exit 0）の解消対象 4 ID のうち D.T-5 は §4 で 110 表から除外済みの指し示し行なので、現在値からは引かない。条件付き部品であり、FG の完了ではない。**基準件数 146 / 110 とは別の欄**で、146 / 110 は段 1・段 2 の版の記録として書き換えていない。詳細は §9.1。
 - 分類の内訳は部分ファイルごとにある（A は §4 の集計に、他は各ブロックの分類欄）。この台帳全体での分類別の合算は、各ファイルの分類欄の書式が揃っていないので行っていない（数えていない値は書かない）。
 - TRUSTED 境界として**明示された**前提: 確定した TRUSTED 宣言はこの調査では見つからなかった。候補として挙がっているのは A.P-01（Laws。GENERAL_SPEC §5 は「model または明示 TRUSTED」）、D.E-10（Laws の 14 フィールド。boundary-audit は CONTRACT と分類）、D.E-13（G7-c 印字。boundary-audit §3 が「TRUSTED by design」）。C 群は「新 TRUSTED / 新 law なし」と記録し、DG_ENV_FREEZE §4 の A/B/C 判断へのユーザ決定の記録は見つからなかったと報告している。
 - 実run から払える根拠の補題名が履歴・freeze にあるもの（各行の「実runから払えそうか」が「はい」または「条件付きではい」）: A.P-07（条件付き、`machineRunJQC_of_closesA`）、A.P-13（`memOrigin_of_memDec`、`Nonempty ι` の下）、B.G-2（`RealChildA` は成功 run から）、C.RK-5（`runReads_of_run`）、C.SM-5（`srcCausal_of_acc_unfold`、`hunf` と `Acc` が前提）、D.P2（decoded 版 `letTie_dec`）、D.T-7（存在形 `calleePkg_of_t1ND`）、D.T-8, D.T-9（組み立て済み、末端は D.T-5/T-6）、D.D-2（default route のみ `synthesizeCombinational_postEntry`）、D.D-8（`postEntry_lookup_ne`）。これは各行を読んで拾った一覧で、いずれも前提つきである。
@@ -80,7 +80,7 @@ ID は `<ファイル記号>.<部分ファイル内の見出しID>`（例: `C.RK
 
 選び方: §2 の「実run から払える根拠の補題名がある」前提を含み、かつ同じ接続に属する複数の行を同時に動かせるもの。**消える予定の台帳 ID は、各行に書かれた補題が、その行の前提を満たすことを freeze で型として示せたときの候補であり、消えたとはまだ言えない。増える前提は、この段階では数えていない。各単位の freeze に「台帳の前提がいくつ消え、いくつ増えるか」を数えて書くことを必須にする**（ユーザー了承の条件）。
 
-- **流れ 1: 実 run の読み → ClosingRun（dg-runreads → dg-closingrun）。** 根拠: `runReads_of_run`（C.RK-5, C.RR-2, C.RR-3）、`closingRun0_of_run`/`closingShared_of_run`（D.T-5 が built と記載、kjob/g5cr-r6@f3a29dbb）。消す予定の ID: C.RK-5、D.T-8、D.T-9 の末端、D.T-5（指し示し行）。残る/増える候補（数えていない）: C.CR-1（`hrow`/`hord`、`DataOk` の具体化が先）、C.CR-2（`hGen`、供給の経路未発見）、非空虚性、depth0 stop。つまりこの流れだけでは `ClosingRun` の前提は全部は消えない。
+- **流れ 1: 実 run の読み → ClosingRun（dg-runreads → dg-closingrun）。** 根拠: `runReads_of_run`（C.RK-5, C.RR-2, C.RR-3）、`closingRun0_of_run`/`closingShared_of_run`（D.T-5 が built と記載、kjob/g5cr-r6@f3a29dbb）。消す予定の ID: C.RK-5、D.T-8、D.T-9 の末端（110 表の 3 行）。D.T-5 は §4 で 110 表から除外済みの指し示し行なので 110 表の数には入らない。残る/増える候補（数えていない）: C.CR-1（`hrow`/`hord`、`DataOk` の具体化が先）、C.CR-2（`hGen`、供給の経路未発見）、非空虚性、depth0 stop。つまりこの流れだけでは `ClosingRun` の前提は全部は消えない。
 - **流れ 2: DataOf の健全性（dg-sem → dg-acc の Acc 帰納）。** 根拠: `ordCallees₀_mem`（C.SM-2、kjob/g5ac-r26@cff12a48 で証明済み）、`srcCausal_of_acc_unfold` と `acc_top_of_run`/`hacc_of_top_runs`（C.SM-4, C.SM-5）、`dataOfAt_sound`。消す予定の ID: C.SM-2、C.SM-5、C.SM-4、およびそれらに束ねられる DataOfSound の統合行（C.DO-1/SM-1/AC-1）の一部。残る候補: C.SM-3（`hinv`/`hunf`）、C.AC-3, C.AC-4。dg-sem の実装 7af6c7cc は未 review。
 - **流れ 3: default route の post / entry 接続（dc-connect）。** 根拠: `synthesizeCombinational_postEntry`（D.D-2 の default route）、`postEntry_lookup_ne`（D.D-8）。消す予定の ID: D.D-8、D.D-2 の default route 部分。注意: D.D-2 の parametric route、D.D-1（ReflectsAll）、D.D-3（GP）、D.D-4（CV）、D.D-5（DeclConnect の rows）は未供給のまま。U-CORENR（74343ad8）は未 review なので、承認後でなければ「条件付き部品」止まり。
 
@@ -634,7 +634,7 @@ N4, N5 は新しい台帳行ではない（110 を変えない）。N1, N2, N3 �
 
 ## 9. 段 2 承認後の確認（agent `fgreg1`、branch `kjob/fgreg1`、base `kjob/fgstmt1` 13c7d5a3。文書のみ。Lean・build なし）
 
-reviewer が段 2 承認時（seq 5716, 5755）に残した確認を行った記録。**この節は前提の供給ではない。この節による台帳の前提差分は 解消 0 / 追加 0。** 解消 4 は §9.1 のとおり別の単位（流れ 1）の成果で、reviewer 承認済みのものを反映しただけである。
+reviewer が段 2 承認時（seq 5716, 5755）に残した確認を行った記録。**この節は前提の供給ではない。この節による台帳の前提差分は 解消 0 / 追加 0。** 流れ 1 の解消（110 表の 3 行 + 除外済みの指し示し行 D.T-5 の注記、§9.1）は別の単位の成果で、reviewer 承認済みのものを反映しただけである。
 
 ### 9.1 前提解消の反映（FG 側）
 
@@ -643,12 +643,12 @@ reviewer が段 2 承認時（seq 5716, 5755）に残した確認を行った記
 | C.RK-5 | **前提解消（e6d8e55b、reviewer 承認）** | U2 `readMachine_agrees_of_run`（`runReads_of_run` が R を置換）。kjob/flow1-b e6d8e55b |
 | D.T-8 | **前提解消（e6d8e55b、reviewer 承認）** | U1 `callTie_of_run_{one_ex,group_kidW}`（run 側の前提が `hsh` を置換）。kjob/flow1-b 29701f80 |
 | D.T-9 | **前提解消（e6d8e55b、reviewer 承認）** | 同上 U1 |
-| D.T-5 | **前提解消（e6d8e55b、reviewer 承認）** | 同上 U1。§4 で ClosingRun の行へ統合され、110 の表（§8.2）には現れない行（下の注意） |
+| D.T-5 | 指し示し行（110 表に含まれない。現在値に数えない） | 同上 U1 の解消対象 ID に挙がるが、§4 で ClosingRun の行へ統合され、110 の表（§8.2）には現れない行（下の注意） |
 
-- 承認記録: `managerctl plan history sparkle-gen5-dg-closingrun` seq 5756（approved、前提差分 FG -4 / +0、T1 0、「台帳 FG 110→106」）。clean build `f1v-e6d8e55b` exit 0、dirty=false、842 jobs、sorry 0、標準 axioms のみ。Check 集計は Tie: TYPE 2 / MUTANT 38 + NEGATIVE 3 / CONTROL 5 / REACH 2 / AXIOMS 2、Reads: TYPE 1 / MUTANT 23 + NEGATIVE 2 / CONTROL 4 / REACH 1 / AXIOMS 1（Issue の note による。この agent は再 build していない）。mutant は signature / defeq での棄却であって意味的反例ではない。
+- 承認記録: `managerctl plan history sparkle-gen5-dg-closingrun` seq 5756（approved、前提差分 FG -4 / +0、T1 0、「台帳 FG 110→106」。これは承認時点の記録の引用で、現在値は 107（§2 の定義）。-4 のうち 110 表の行は 3）。clean build `f1v-e6d8e55b` exit 0、dirty=false、842 jobs、sorry 0、標準 axioms のみ。Check 集計は Tie: TYPE 2 / MUTANT 38 + NEGATIVE 3 / CONTROL 5 / REACH 2 / AXIOMS 2、Reads: TYPE 1 / MUTANT 23 + NEGATIVE 2 / CONTROL 4 / REACH 1 / AXIOMS 1（Issue の note による。この agent は再 build していない）。mutant は signature / defeq での棄却であって意味的反例ではない。
 - **残る前提（承認 note の記録）**: `hord` / `hGen` / `hIH` / `hKI`、非空虚性、depth0 `stop`、`hk` / `hHead` / `h0s`、DG-ENV、served。**条件付き部品であり、ClosingRun や FG の完了ではない。**
-- **現在値と版の履歴**: 現在値 **FG 106**（本版）。段 1・段 2 の基準件数 **146 / 110** は書き換えていない（§2）。
-- **数え方の注意（reviewer の確認事項）**: reviewer の承認 note は「110 → 106」で 4 行（C.RK-5、D.T-5、D.T-8、D.T-9）を引いている。しかしこの台帳の §8.2 の 110 行の表に載っている行は C.RK-5、D.T-8、D.T-9 の **3 行**で、D.T-5 は §4 で除かれた 36 行の 1 つ（ClosingRun の指し示し行）である。したがって **§8.2 の表の行数で数えれば 110 − 3 = 107** で、記録値 106 とは 1 違う。どちらに揃えるか（D.T-5 を統合先の C.CR-1 / C.CR-2 の側で別に数えるか、除かれた行は引かないか）は、この agent は決めない。本版は記録値の 106 を現在値として使い、§8.2 / §7 の行数（110 / 146）と Check のリテラルは変えていない。§7 と §8.2 の該当 7 行（C.RK-5、D.T-5〈§7 のみ〉、D.T-8、D.T-9）に「前提解消」の印だけを足した。
+- **現在値と版の履歴**: 現在値 **FG 107**（定義は §2）。段 1・段 2 の基準件数 **146 / 110** は書き換えていない（§2）。
+- **数え方（確定）**: 流れ 1 の承認 note は「110 → 106」で 4 ID（C.RK-5、D.T-5、D.T-8、D.T-9）を引いたが、元の 110 行表に含まれる解消印の行は C.RK-5、D.T-8、D.T-9 の **3 行**で、D.T-5 は §4 で除かれた 36 行の 1 つ（ClosingRun の指し示し行）である。よって現在値は 110 − 3 = **107**（定義は §2）。106 を維持する根拠になる 110 表内の第 4 行は見つからなかった。§8.2 / §7 の行数（110 / 146）と Check のリテラルは変えていない。§7 と §8.2 の C.RK-5、D.T-8、D.T-9 の行には「前提解消」の印、D.T-5（§7 のみ）には指し示し行の注記を置いた。
 - **T1 側（この台帳では数えない）**: T1L-20 / T1L-22 / T1L-24 は kjob/flowa-b 82cb67a6（U18、reviewer 承認 seq 5748、clean build `fav-82cb67a6` exit 0）で前提解消（T1 62 → 59）。T1 台帳の話なので、FG 台帳の数には入れない。FG 台帳に関係するのは §9.3 の A.P-07 の行の注記だけ。
 
 ### 9.2 registry 69 行: 支払い予定の Issue（owner）と型の根拠
@@ -771,13 +771,13 @@ reviewer が段 2 承認時（seq 5716, 5755）に残した確認を行った記
 
 **集計（上の表を数えた値）**: 16 行のうち、名前と役割が T1 台帳の記載で一致したもの **11**（A.P-08, 09, 10, 11, 12, 16, 19, 23, 25, 26, C.CR-1）、親行・補集合にのみ対応し、リーフ単位は未特定のもの **4**（A.P-07, 14, 15, 22。うち A.P-22 は別の読みが T1 §6 にある）、**T1 側に行がないもの 1**（A.P-24）。多対一は A.P-10 / A.P-11 / A.P-12 → T1L-11、12（3 行が 2 行）、A.P-26 / C.CR-1 → T1L-04（2 行が 1 行）。
 
-- **合算していない。** FG の 106（現在値）と T1 の 59（現在値）は数え方が違う（FG はブロック、T1 はリーフ）。16 行を重複なしで足し引きするには、この表の多対一と A.P-24 の扱いを決める必要があり、その決定はこの agent は行わない。
+- **合算していない。** FG の 107（現在値）と T1 の 59（現在値）は数え方が違う（FG はブロック、T1 はリーフ）。16 行を重複なしで足し引きするには、この表の多対一と A.P-24 の扱いを決める必要があり、その決定はこの agent は行わない。
 - §8.1 の「T1 と同じとみなした 21 行」のうち、この 16 行の外の 5 行は A.P-01、A.P-02、A.P-04（文脈 / 前件）、A.P-28（監査）、C.CV-4（FG が型付けした `h_C_CV4`、T1L-43 と共有）。ここでは確認していない。C.CV-4 / T1L-43 の「どちらの文が持つか」は Q-F1 の未決事項のまま（推奨は FG が持つ）。
 - T1 §8 は FG 側の前提（`hDG_GENP`、`hDG_CLOSINGRUN`、`hDG_SEM`、`hkidW`、`KD` / `OSH` / `ENV` / `TEL` など）が T1 に効くと書く。逆向きの対応（T1L-06 / 07 / 42 / 43 / 48 / 49 が FG のどの行か）はこの確認の範囲外。
 
 ### 9.4 次に前提を減らせる候補の流れ（FG 側。2 つ）
 
-**これは候補であって実績ではない。** 消える予定の ID は、補題が行の前提を満たすことを freeze で型として示せたときの候補で、消えたとは言えない。増える前提は**数えていない**（推測の数は書かない）。着手は reviewer / ユーザーの判断で、各 freeze に「消える / 増える」を数えて書くことを必須にする（§5 と同じ）。選定の根拠は、§9.2 の表で「Lean（名と branch@SHA）」があり、かつ実 run（`Start` と `RunsTo (synthesizeCombinationalCore …)`）または成功した reader から前件が作られる補題が branch 上にあること。以下の署名は本確認で `git show` により読んだ。
+**これは候補であって実績ではない。2 候補とも、追加前提を含む純差分が確定するまで、着手可能な減算候補として扱わない。** 消える予定の ID は、補題が行の前提を満たすことを freeze で型として示せたときの候補で、消えたとは言えない。増える前提は**数えていない**（推測の数は書かない）。着手は reviewer / ユーザーの判断で、各 freeze に「消える / 増える」を数えて書くことを必須にする（§5 と同じ）。選定の根拠は、§9.2 の表で「Lean（名と branch@SHA）」があり、かつ実 run（`Start` と `RunsTo (synthesizeCombinationalCore …)`）または成功した reader から前件が作られる補題が branch 上にあること。以下の署名は本確認で `git show` により読んだ。
 
 **候補 A: DG-ACC / DG-SEM の Acc → 因果性の鎖（C.SM-4、C.SM-2。C.SM-5 の残りを減らす）**
 - 実 run から払える補題:
@@ -786,6 +786,7 @@ reviewer が段 2 承認時（seq 5716, 5755）に残した確認を行った記
   - `ordCallees₀_mem`（kjob/g5ac-r26、`Tools/ShippingGen5AccOrdCallees.lean:21`）: C.SM-2 の `hmem`（ordC の membership）を `ordCallees₀` で具体化。
 - 消える予定の ID: **C.SM-4**（`hacc`）、**C.SM-2**（`hmem`、`ordC := ordCallees₀` に限る）。C.SM-5 は既に PA で、C.SM-4 が消えれば残りは C.SM-3（`hinv` / `hunf`）だけになる。
 - 増える前提の見込み（名前のみ。数は未計数）: `hacc_of_top_runs` が取る `hLim : LimitStmt L`、`AccServed0Stmt K L (ReachEdge K Top)`、`AccKeepChildStmt K L (ReachEdge K Top)`。`LimitStmt` は T1 側で `limitStmt_proved`（T1 §6）。`AccServed0Stmt` と C.AC-8 の `hS` の関係、および FG 台帳が C.AC-8 を A.P-24 に統合した扱いとの整合は未確認。kit `K` の carrier の固定（§8.4 の「DG-SEM と DG-ACC を 1 本の木に置く」）が先に要る。
+- **純差分を確定するために数えるもの**: (a) 上の 3 件（`LimitStmt`、`AccServed0Stmt`、`AccKeepChildStmt`）が FG 側で新しい仮説になるか、既存の行（T1 側の `limitStmt_proved`、C.AC-8 / A.P-24 等）に帰着するかを行ごとに数える。型の根拠は各補題の署名（`Tools/ShippingGen5AccReads.lean:137` の `hacc_of_top_runs` の引数）。(b) `K` の carrier 固定で増える仮説（§8.4 の「DG-SEM と DG-ACC を 1 本の木に置く」）。(c) 局所統合で増える定義・仮説の有無。この調査では (a)–(c) の数は数えていない。消える C.SM-4 / C.SM-2 の 2 行と増える数の差を出すまでは「純減」と書かない。
 - 前置きの作業: kjob/g5ac-r26 と kjob/g5sm-u23 の局所統合（§8.6 の試行では `lakefile.lean` のみ衝突。連続した merge の build は未確認）。g5sm-u23 の最新実装 7af6c7cc は未 review、g5ac-r26 の A13 は freeze 止まり（C.AC-4, C.AC-9 は残る）。
 
 **候補 B: boundary-audit の名前の鎖を、型付き仮説 `h_C_CV4` に帰着させる（D.E-6、D.E-1）**
@@ -795,12 +796,13 @@ reviewer が段 2 承認時（seq 5716, 5755）に残した確認を行った記
   - `hself_of_rank`（`NameKids2.lean:80`）、`hn_kidNameAt`（`NameKids2.lean:58`）は D.E-2、D.E-3 の built 側。
 - 消える予定の ID: **D.E-6**（`hF`）、**D.E-1**（`hmemSame`）、D.E-5 の `hmem` の部分（ブロック全体ではない）。
 - 増える前提の見込み（名前のみ。数は未計数）: (1) `hF` を **文 §8.3 の `h_C_CV4`**（`machineShape? false [] E senv = some sp → ∃ n, machineShapeF n false [] E senv true = some (some sp)`）から作るには、`S c = some sp` と run の `machineShape? … = some sp` を結ぶ対応が要る（`S` の carrier は D.E の全行で未固定。reader-bridge の `machineDefines_of_readsAll` が候補だが partial）。(2) `hF` の量化する `sm ps ai` と `h_C_CV4` の固定値（`false [] true`）の一致は、本確認では Lean で確認していない。
-- **注意**: この流れで消える D.E-6 / D.E-1 は C.CV-4（既に台帳にある、実 run から払う補題が無い境界 = DG-COVER D2(b)）に**帰着する**。帰着先が増えないなら FG の数は減るが、新しい支払い元ができるわけではない。実 run から払える根拠の強さは候補 A より弱い。
+- **注意**: この流れで消える D.E-6 / D.E-1 は C.CV-4（既に台帳にある、実 run から払う補題が無い境界 = DG-COVER D2(b)）に帰着させる案である。C.CV-4 から `hF` を作る供給経路は未証明のままなので、現時点では前提の純減ではなく**移し替え**であり、新しい支払い元もできない。
+- **純差分を確定するために数えるもの**: (a) `S c = some sp` と run の `machineShape? … = some sp` を結ぶ対応（`machineDefines_of_readsAll` が候補。`Tools/ShippingGen5NameKids4.lean:33` の `hmem_of_machineShapeF` の `hF` の型が根拠）が新しい仮説になるか、既存行に帰着するかを数える。(b) `hF` の量化する `sm ps ai` と `h_C_CV4` の固定値（`false [] true`）の一致が、追加の仮説になるか。(c) `S` の carrier の固定で増える仮説。この調査では (a)–(c) の数は数えていない。消える D.E-6 / D.E-1（と D.E-5 の部分）と、増える数の差が確定するまで「純減」と書かない。実 run から払える根拠の強さは候補 A より弱い。
 
 候補にしなかったもの: 段 1 の流れ 3（default route の post / entry。`synthesizeCombinational_postEntry` と `postEntry_lookup_ne`）は、D.D-8 が既に PA、D.D-2 が A.P-05 に統合されていて、引ける独立の ID が §8.2 に残っていないため。流れ 2（DataOf の健全性）は候補 A に含めた。
 
 ### 9.5 前提差分と 4 段（本版）
 
-- この版の前提差分: **解消 0 / 追加 0**（文書の確認と反映のみ。流れ 1 の -4 は kjob/flow1-b の closingrun 側で計上済み）。
-- 現在値: **FG 106 / T1 59**。基準件数 FG 146 / 110 と T1 62 は版の履歴。
+- この版の前提差分: **解消 0 / 追加 0**（文書の確認と反映のみ。流れ 1 の解消は kjob/flow1-b の closingrun 側で計上済み。110 表の 3 行）。
+- 現在値: **FG 107 / T1 59**（FG の定義は §2）。基準件数 FG 146 / 110 と T1 62 は版の履歴。
 - 4 段（設計承認 / 条件付き部品 / 前提解消 / 最終受理）: 本版は設計（段 1）の記録の更新。FG の最終受理はまだ何も満たしていない。
