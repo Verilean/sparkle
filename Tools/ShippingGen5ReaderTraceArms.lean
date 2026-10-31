@@ -1,6 +1,6 @@
 import Tools.ShippingGen5ReaderTraceCtl
 set_option autoImplicit false
--- NOT BUILT yet (U-R3a, written against freeze rev3 `scripts/gen5/DG_READERTRACE_FREEZE_REV3.md`, approved at 730c8fa8). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceArms, exit 0, 723 jobs) on the tree of 17b992d4 (source content identical; this header is comment-only). Written against freeze rev3 `scripts/gen5/DG_READERTRACE_FREEZE_REV3.md` (approved at 730c8fa8). Clean issue-linked build: pending (coder). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R3a: atoms / `lam` / `forallE` / `bvar` arms of `convStep`, and the fuel reduction
 
