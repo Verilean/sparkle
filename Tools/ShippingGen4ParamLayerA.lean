@@ -1,6 +1,6 @@
 import Sparkle.IR.Type
 set_option autoImplicit false
--- NOT BUILT (clean issue-linked): new file. Pod build only: kjob lake build Tools.ShippingGen4ParamLayerA exit 0, 226 jobs (not clean issue-linked).
+-- BUILT: clean issue-linked build par10vb-0d932e22 (Tests.Gen4.ParamLayerACheck + ParamIfaceCheck, kjob lake incremental) exit 0, 707 jobs, approved at 0d932e22. Comment-only update.
 
 /-! # M4 parametric, Layer A: pure model of the DimExpr success condition (scripts/gen4/PARAMETRIC_LAYERA_FREEZE.md rev2)
 

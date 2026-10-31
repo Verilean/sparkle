@@ -1,7 +1,7 @@
 import Lean
 import Tools.ShippingGen4ParamLayerA
 set_option autoImplicit false
--- NOT BUILT (clean issue-linked): new file. Pod build only: kjob lake build Tests.Gen4.ParamLayerACheck exit 0, 227 jobs (not clean issue-linked).
+-- BUILT (clean issue-linked): par10vb-0d932e22 (Tests.Gen4.ParamLayerACheck + ParamIfaceCheck, kjob lake incremental) exit 0, 707 jobs, approved at 0d932e22. Comment-only update.
 -- Directive counts (rule: count of top-level `#...` directive lines per kind; each is one pass/fail assertion, silent on success;
 -- the unknown-name fixture is ONE directive running 4 internal cases): type_defeq 6, value_defeq 4, clause_defeq 33 (evalM 11, Bound 11, PosDim 11),
 -- mutant_rejected 13 (theorem types; per theorem: mkAdd 1, mkSub_of_le 2, pos 3, nonneg 2, sliceOK_order 3, sub_one 2),
