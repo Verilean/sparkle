@@ -2,8 +2,9 @@ import Tools.ShippingGen5T2TieCR
 import Tests.Gen5.ClosingRun2Check
 import Tests.Gen5.T2TieCheck
 import Tests.Gen3.ExpectedType
+import Tools.ShippingGen5ClosingRun
 set_option autoImplicit false
--- NOT BUILT: new unit (freeze r1 95671524); clean build is run by the coder.
+-- NOT BUILT: new unit (freeze r1 95671524); stop_of_run audit added after review of 4d8e3528; clean build is run by the coder.
 -- No sorry / axiom / native_decide.
 
 /-! # T2-TIE x DG-CLOSINGRUN checks (Tools/ShippingGen5T2TieCR.lean; scripts/gen5/T2TIE_CR_FREEZE_R1.md)
@@ -16,6 +17,15 @@ signature/defeq only, NOT a semantic counterexample. Then: closure walker (unkno
 
 Not checked / not claimed: `hDG_GENP`, `hDG_SEM`, `hDG_SEM_range`, the group field row, `hord`/`hrow`, `hGen`/`GeneratedAt`,
 non-vacuity of `ClosingShared`/`ClosingRun0`, depth-0 `stop`, T1/FG, Issue completion. -/
+
+namespace Tests.Gen5.T2TieCRStopHelper
+theorem helperStop : True := (fun _ => trivial) @Tools.ShippingGen5ClosingRun.stop_of_run
+end Tests.Gen5.T2TieCRStopHelper
+namespace Tests.Gen5.T2TieCRStopFixture
+theorem badStopDirect : True := (fun _ => trivial) @Tools.ShippingGen5ClosingRun.stop_of_run
+theorem badStopHelper : True := Tests.Gen5.T2TieCRStopHelper.helperStop
+theorem cleanStop : True := trivial
+end Tests.Gen5.T2TieCRStopFixture
 
 namespace Tests.Gen5.T2TieCRCheck
 open Lean Meta
@@ -345,6 +355,18 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let hideB := fun n => if n == `Tests.Gen5.ClosingRun2Helper.helperA then none else envU.find? n
   let rU ← reachWith hideB (F ++ `badCoreReadsHelper)
   if rU.unknown == 0 then throwError "CRT AUDIT FAILED: unresolved name was skipped, not counted"
+  -- freeze r1 §5: `Tools.ShippingGen5ClosingRun.stop_of_run` is not in the shared `forbidConsts`; it is checked here
+  -- on the full reachable set (the walker returns the whole `seen` set when no shared forbidden root is hit).
+  -- Controls: direct and via-helper fixtures must be detected; a clean fixture must not.
+  let stopN := ``Tools.ShippingGen5ClosingRun.stop_of_run
+  for (c, bad) in [(`Tests.Gen5.T2TieCRStopFixture.badStopDirect, true),
+      (`Tests.Gen5.T2TieCRStopFixture.badStopHelper, true),
+      (`Tests.Gen5.T2TieCRStopFixture.cleanStop, false)] do
+    let r ← reach c
+    if r.unknown != 0 then throwError "CRT STOP AUDIT FAILED: fixture {c} has unresolved names"
+    if bad && !r.seen.contains stopN then throwError "CRT STOP AUDIT FAILED: stop_of_run detector misses {c}"
+    if !bad && r.seen.contains stopN then throwError "CRT STOP AUDIT FAILED: stop_of_run detector flags {c}"
+  logInfo m!"CRT STOP controls OK: direct and helper fixtures detected, clean fixture not flagged"
   for (c, req) in [(``servedCall_of_closingShared_one,
         [``Tools.ShippingMachineInst.closeInsts_calls, ``Tools.ShippingChildServe.closeInsts_names,
          ``Tools.ShippingChildServe.closeInsts_acyclic, ``Tools.ShippingGen2.fieldRow_one_of_callStmt,
@@ -354,9 +376,10 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let r ← reach c
     if let some p := r.hit then throwError "CRT AUDIT FAILED {c}: forbidden use via {p}"
     if r.unknown != 0 then throwError "CRT AUDIT FAILED {c}: {r.unknown} unresolved name(s), first via {toString r.unknownFirst}"
+    if r.seen.contains stopN then throwError "CRT AUDIT FAILED {c}: stop_of_run reached (freeze r1 §5)"
     for t in req do
       unless r.seen.contains t do throwError "CRT AUDIT FAILED {c}: {t} not reached"
-    logInfo m!"CRT REACH {c}: no forbidden root (T1Hyp.dec / T1Hyp fields / raw proj / recursor / BodyStepC / core_reads_invAt0 / soundX_ships_ran / servedShips0_proved / TopShips / ofReduceBool); reaches {req} (visited {r.visited}, unknown 0)"
+    logInfo m!"CRT REACH {c}: no forbidden root (T1Hyp.dec / T1Hyp fields / raw proj / recursor / BodyStepC / core_reads_invAt0 / soundX_ships_ran / servedShips0_proved / TopShips / ofReduceBool); reaches {req} (visited {r.visited}, unknown 0); stop_of_run not reached"
 
 run_cmd Lean.Elab.Command.liftTermElabM do
   for n in [``servedCall_of_closingShared_one, ``callTie_of_closingShared_one, ``callTie_of_closingRun0_one] do
