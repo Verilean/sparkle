@@ -1,6 +1,6 @@
 import Tools.ShippingGen5SemGen
 set_option autoImplicit false
--- Built in g5sm-u4 at c28de8a1a7e26247d4b3082731cbcf6a820b640c (Pod kjob lake build, exit 0); U4A-U4D. Clean build is the coder's. No sorry/axiom/native_decide.
+-- Clean build smu4v-1258f07e (exit 0, 709 jobs, approved at 1258f07e; Lean content unchanged since c28de8a1). No sorry/axiom/native_decide.
 /-! # DG-SEM U4A-U4D (scripts/gen5/DG_SEM_FREEZE_P4.md rev1, approved 6d596308)
 
 U4A definitions, U4B `genSemI_local` & arm accessors, U4C structural lemmas on `callOut`/`ExtStage`, U4D `callOut_mem_val`.

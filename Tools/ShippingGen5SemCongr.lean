@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemCall
 import Tools.ShippingQuadCalls
 set_option autoImplicit false
--- Built in g5sm-u4 at c28de8a1a7e26247d4b3082731cbcf6a820b640c (Pod kjob lake build, exit 0). Clean build is the coder's. No sorry/axiom/native_decide.
+-- Clean build smu4v-1258f07e (exit 0, 709 jobs, approved at 1258f07e; Lean content unchanged since c28de8a1). No sorry/axiom/native_decide.
 /-! # DG-SEM U4E (scripts/gen5/DG_SEM_FREEZE_P4.md rev1 §5.2): stage preservation through the `let`s
 
 `lsrcAt_congr` is proved as frozen. `typedVal_let_congr` is NOT proved: as stated in the freeze its conclusion also compares the

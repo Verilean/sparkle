@@ -367,3 +367,8 @@ each will be re-frozen with a complete telescope before implementation. Ownershi
 
 ## 10. Implementation addendum (g5sm-u4)
 `typedVal_let_congr` (§5.2) was not provable as stated (its off-sort conjunct is not implied by `hb`/`hv`); see `scripts/gen5/DG_SEM_FREEZE_P4_U4E_ADDENDUM.md`. All other statements of §3–§5 are implemented as frozen (U4A–U4F); `lsrcAt_congr` is proved with the frozen statement via the internal sort-aware `typedVal_let_agree`.
+
+## 11. Sync after the U4A-F scoped approval (g5sm-u5; 1258f07e, clean build smu4v-1258f07e exit 0, 709 jobs)
+- **§5.2 U4E amendment (approved by the reviewer, no re-freeze):** `typedVal_let_congr` is removed from the required deliverables. The sort-aware `typedVal_let_agree` (`Tools/ShippingGen5SemCongr.lean`) is adopted as an *internal* lemma. The frozen types of `lsrcAt_congr`, `ext_mem_final`, `memFacts_of_genSem` are unchanged, so no existing consumer changes. Limit kept as is: a formal refutation of the old `typedVal_let_congr` statement has **not** been presented (the addendum is a reading-of-the-definitions argument; no concrete counterexample was constructed or machine-checked).
+- **Audit limits (SemCallCheck at 1258f07e):** the 15 definition checks compare *signatures only*; definition bodies were compared by the reviewer's read-through, not mechanically. The `unknown`-name negative control covers the *root* only (no helper-value / helper-type unknown).
+- **Audit improvement for units after U4:** a new Check also compares definition *bodies* against an independently written Expected, and uses three unknown-name negatives (root / helper value / helper type) plus a clean control. See §12 `Check`.
