@@ -166,7 +166,7 @@ def MutFieldsNIn : Prop :=
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
     (h : RunsTo (readMachine declName allowGate) mctx mref cctx cref w r w'),
     ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
-      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ MutReadFieldsNIn ci env r
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ ExpReadConcl ci env r ∧ MutReadFieldsNIn ci env r
 
 def MutFieldsTuple : Prop :=
   ∀ {declName : Lean.Name} {allowGate : Bool}
@@ -175,7 +175,7 @@ def MutFieldsTuple : Prop :=
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
     (h : RunsTo (readMachine declName allowGate) mctx mref cctx cref w r w'),
     ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
-      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ MutReadFieldsTuple ci env r
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ ExpReadConcl ci env r ∧ MutReadFieldsTuple ci env r
 
 def MutFieldsSwap : Prop :=
   ∀ {declName : Lean.Name} {allowGate : Bool}
@@ -184,7 +184,7 @@ def MutFieldsSwap : Prop :=
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
     (h : RunsTo (readMachine declName allowGate) mctx mref cctx cref w r w'),
     ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
-      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ MutReadFieldsSwap ci env r
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ ExpReadConcl ci env r ∧ MutReadFieldsSwap ci env r
 
 /-- ReadConcl dropped (the R1 weakening) -/
 def MutFieldsNoConcl : Prop :=
@@ -295,6 +295,43 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   checkMutant ``readMachine_agrees_runReads_of_readsAt ``MutAgreesNoHall
   checkMutant ``readMachine_agrees_runReads_of_readsAt ``MutAgreesNoShape
   logInfo "RK-U7 MUTANT REJECTED 10 (signature/defeq rejection, not semantic counterexamples)"
+
+/-! ### 2b. Conjunct-count auxiliary check
+Counts the leaves of the `∧` / `∃` / `∀` spine, unfolding the named `Exp…`/`Mut…` helper definitions.
+A field mutant must have the same count as `ExpFields` (a same-shape change, ReadConcl kept); the three
+deletion mutants must be smaller by the deleted conjuncts. A count is a necessary condition only, not a proof of single-field difference. -/
+
+partial def conjCount (env : Lean.Environment) (unfold : List Name) (e : Lean.Expr) : Nat :=
+  match e.getAppFnArgs with
+  | (``And, #[a, b]) => conjCount env unfold a + conjCount env unfold b
+  | (``Exists, #[_, f]) => conjCount env unfold f
+  | (n, _) =>
+    if e.isForall || e.isLambda then conjCount env unfold e.bindingBody!
+    else if unfold.contains n then
+      match env.find? n with
+      | some ci => match ci.value? with
+        | some v => conjCount env unfold v
+        | none => 1
+      | none => 1
+    else 1
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let env ← getEnv
+  let unf : List Name := [``ExpReadConcl, ``ExpReadFields, ``MutReadFieldsNIn, ``MutReadFieldsTuple, ``MutReadFieldsSwap]
+  let cnt (n : Name) : Lean.Elab.TermElabM Nat := do
+    let some ci := env.find? n | throwError "RK-U7 COUNT: {n} missing"
+    let some v := ci.value? | throwError "RK-U7 COUNT: {n} has no value"
+    return conjCount env unf v
+  let e ← cnt ``ExpFields
+  for n in [``MutFieldsNIn, ``MutFieldsTuple, ``MutFieldsSwap] do
+    let c ← cnt n
+    if c != e then throwError "RK-U7 COUNT FAILED: {n} has {c} conjuncts, Expected {e}"
+  let nc ← cnt ``MutFieldsNoConcl
+  let ns ← cnt ``MutFieldsNoShape
+  let ne ← cnt ``MutFieldsNoEntry
+  if nc + 2 != e || ns + 1 != e || ne + 1 != e then
+    throwError "RK-U7 COUNT FAILED: deletion mutants {nc}/{ns}/{ne} vs Expected {e}"
+  logInfo m!"RK-U7 COUNT OK: ExpFields {e} leaf conjuncts; field mutants NIn/Tuple/Swap equal ({e}); NoConcl {nc} (-2), NoShape {ns} (-1), NoEntry {ne} (-1)"
 
 /-! ## 3. Closure (Expr.equal / Expr.eqv reached only through the programs `readMachine` / `machineShape?`; logged as a fact) -/
 
