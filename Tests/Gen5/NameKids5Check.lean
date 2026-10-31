@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids5
 import Tools.ShippingGen2Defs
 import Tests.Gen5.NameKidsCheck
--- NOT BUILT (U5 check; build pending). TYPE 1 / MUTANT 4 / closure negatives 8 + clean 1 / REACH 1 / AXIOMS 1 ([propext, Quot.sound], a subset of the standard three).
+-- Reviewed build: ba11v-76ae2e8e (exit 0, 724 jobs, approved at 76ae2e8e; src=base=end, dirty=false). U5 check: TYPE 1 / MUTANT 4 (single-point, signature/defeq rejection, not semantic counterexamples) / closure negatives 8 + clean 1 / REACH 1 / AXIOMS 1 ([propext, Quot.sound], a subset of the standard three).
 -- Count rule: each count is the number of `logInfo` lines of one class (TYPE = theorem compared against its Expected; MUTANT = distinct mutant def, each counted once; REACH/AXIOMS = one per theorem). MUTANT 4 = single-point variants 4 (MutNoReach, MutSNone, MutForall, MutReverse); no block mutant, no cross-statement control.
 -- hfo is a sufficient condition, not equivalent to GraphAgrees, and not supplied. No sorry / axiom / native_decide.
 

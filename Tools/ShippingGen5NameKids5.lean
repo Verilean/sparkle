@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids3
 import Tools.ShippingSrm15Graph
 set_option autoImplicit false
--- NOT BUILT (U5 implementation; build pending). 1 theorem, 0 new definitions.
+-- Reviewed build: ba11v-76ae2e8e (exit 0, 724 jobs, approved at 76ae2e8e; src=base=end, dirty=false; clean issue-linked build). 1 theorem, 0 new definitions. TYPE 1 / MUTANT 4 (single-point; signature/defeq rejection, not semantic counterexamples) / AXIOMS 1 (standard only).
 -- `hfo` is a sufficient condition (a reached entry exists with FirstOcc and S c = some d.shape); it is NOT equivalent to GraphAgrees (which also allows none on both sides). Its supply from the production ds / Reach / S, InClass, ReachSpans, production bridge, N1 / G5 / G7 / M5 / FG are unsupplied.
 -- No sorry / axiom / native_decide.
 
