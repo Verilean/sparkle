@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccDataAgree
 import Tests.Gen5.AccCheck
--- NOT BUILT yet at this commit (g5ac-r18). Results of the Pod build are recorded here by a comment-only commit. No sorry / axiom / native_decide in this source; the sorry warnings of a build are the intended walker-control negatives (the `walkerControls` line).
+-- Pod build (g5ac-r18) at b6707234 (Check built on the committed tree), exit 0, 727 jobs: TYPE 3 (2 definitions by body + 1 theorem) / MUTANT 6 (signature/defeq rejection, not semantic): 5 single-change (2 DataSoundAt, 1 KitAgrees, 2 dataSound_of_agree) + 1 COMPOUND (MutCompoundShape: conclusion DataOfShape AND hf weakened) / AXIOMS 1 standard three only / CLOSURE OK 3783 constants (unknown 0, 3 expected suppliers reached, DataOf/SemGen units not reached) / walker controls 4 negatives / unknown controls 3 negatives + 1 clean. Sorry warnings (3 per run) are the walker-control negatives only. Clean issue-linked build is the coder's.
 
 /-! # DG-ACC unit A9 checks (Tools/ShippingGen5AccDataAgree.lean; scripts/gen5/DG_ACC_FREEZE_REV9.md §2)
 
