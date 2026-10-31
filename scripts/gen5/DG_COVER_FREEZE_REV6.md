@@ -18,7 +18,7 @@ It mixes two sides:
 
 **Fuel-model statement.** T1–T3 are theorems about `shapePost` and the fuel-model wrapper `Tools.ShippingReaderFuel.machineShapeF`. They say nothing about the production `machineShape?`
 (`partial`-reader, opaque). The only link is `ShapeFuelBridge`: `∀ E senv sp, machineShape? false [] E senv = some sp → ∃ n, machineShapeF n false [] E senv true = some (some sp)`
-(`SRC_ARGW_SUPPLY_FREEZE.md` §2, the O1/O2 boundary of this Issue, **assumed once, not proved here**). T5 states that connection with the bridge as an **explicit hypothesis**; the
+(`SRC_ARGW_SUPPLY_FREEZE.md` §2, the O1/O2 boundary of this Issue, **assumed once, not proved here**). T6 states that connection with the bridge as an **explicit hypothesis** (T5 is the fuel-model step it uses); the
 connection is therefore *conditional on the boundary and is not recorded as a supply of row 6a for production*. Row 6a stays "fuel model only; production only through `ShapeFuelBridge`".
 
 ## 1. Facts used (read in this tree)
@@ -124,3 +124,14 @@ T4 by `⟨hs.1 ▸ …⟩` after `subst hsp`; T5 = T3 + T4; T6 = `hbr` + T5.
 * Row 6b (`d.shape = sp`, `d.ss.length`, `d.ls.length`, `d.nIn`) is not implemented; T4–T6 take it as premises. `ShapeAgree` for any real run is not established.
 * Remaining unsupplied rows keep their rev5 status: R-trace/R-in/R-nl/R-dom/B3 (row 1–5, 7, 8: 未供給 / この調査で経路未発見), `LetQuoteEq`, `LetsNoLoose`, `FullInv`, `d.ok = true` for a run, real reader connection, `ShapeFuelBridge`. Not completion of the Issue or FG.
 * No new law, TRUSTED boundary, FG/guarantee change, compiler or shared-definition change; `GenWF` not strengthened.
+
+## 5. Implementation addendum (g5cv-r11; non-blocking wording fix + status)
+
+* §0 wording corrected: the production connection with `ShapeFuelBridge` is **T6** (not T5); T5 is the fuel-model step.
+* Implemented as `Tools/ShippingGen5Cover5.lean` (T1–T6, statements as §2, no added premise, no new `def`/`structure`/`axiom`) and `Tests/Gen5/Cover5Check.lean`; two `lean_lib` entries in `lakefile.lean`.
+* **Phase trace.** T3's witness (`p en st0 env st1 st v` with the six run equations and `shapePost … = some sp`, plus `st.LenOk` and the four facts of that `st`) together with T4 is the form later connections (R-trace etc.) must use.
+  T5/T6 conclude only `∃ st, st.LenOk ∧ ShapeAgree d st`, which forgets the phase trace; that `st` must **not** be identified with any other existential witness of a run.
+* Check counts (category and rule: one compared declaration = 1): TYPE 6 theorems; MUTANT 8 (T1 `max`, T2 drop `instOrigins` conjunct, T2 no `hL`, T3 `st1.lets.size`, T3 drop `shapePost` clause, T4 no `hsp`, T4 no `hn`, T6 no `hbr`; signature/defeq rejections, not semantic counterexamples);
+  AXIOMS 6 theorems, standard only (T4 none); CLOSURE 5040 constants with 3 negative / 2 clean controls and 3 negative / 1 clean unknown-name controls; 3 intended `sorry` negatives (3 warnings); no `sorry` in either source.
+* Closure check fix: the substring test for forbidden names now looks for `native_decide` (the earlier `native` substring matched `instAlternativeOption`); `Lean.ofReduceBool`/`trustCompiler`/`sorryAx` stay in the forbidden list.
+* Still not supplied: row 6b (premises `hsp hss hls hn`), `ShapeFuelBridge` (inline `hbr`, assumed), R-trace/R-in/R-nl/R-dom/B3, `LetQuoteEq`, `LetsNoLoose`, `FullInv`, `d.ok`; production/Issue/FG are not complete.
