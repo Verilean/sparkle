@@ -1,7 +1,7 @@
 import Tools.ShippingGen5AccReads
 import Tests.Gen5.AccCheck
 set_option autoImplicit false
--- NOT BUILT (new file; the coder's clean build is pending). No sorry / axiom / native_decide in this source.
+-- Built in g5ac-r5 at 0f120373 (Pod `kjob lake build Tests.Gen5.AccReadsCheck`, exit 0, 719 jobs; TYPE 12 (all syntactic, no isDefEq fallback), MUTANT 14 (signature/defeq rejection, not semantic), AXIOMS 15 (standard three), walker controls + unknown controls + CLOSURE OK 13358 constants). Clean build is the coder's. No sorry / axiom / native_decide in this source (the 3 `sorry` warnings come from the intended walker-control negatives).
 
 /-! # DG-ACC rev2 R1/R2 checks (Tools/ShippingGen5AccReads.lean; scripts/gen5/DG_ACC_FREEZE_REV2.md §B.2, §C.2)
 
