@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemAccStep
 import Tests.Gen5.SemFactsCheck
 set_option autoImplicit false
--- NOT BUILT (U6D check; clean build is run by the coder). No sorry/axiom/native_decide.
+-- NOT BUILT HERE (U6D check; built clean as smu15v-f7d72d28, exit 0, approved at f7d72d28; header/comment sync only). No sorry/axiom/native_decide.
 /-! # DG-SEM U6D check (Tools/ShippingGen5SemAccStep.lean; scripts/gen5/DG_SEM_FREEZE_P6F.md §3.1)
 
 * TYPE    — three theorems by statement against `Exp*` written here from the sentences of §3, same reducible comparer `checkExpected`/`cmpTele`.

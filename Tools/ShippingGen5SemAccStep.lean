@@ -1,6 +1,6 @@
 import Tools.ShippingGen5SemSrcCausal
 set_option autoImplicit false
--- NOT BUILT (U6D, scripts/gen5/DG_SEM_FREEZE_P6F.md; clean build is run by the coder). No sorry/axiom/native_decide.
+-- NOT BUILT HERE (U6D, scripts/gen5/DG_SEM_FREEZE_P6F.md; built clean as smu15v-f7d72d28, exit 0, approved at f7d72d28; header/comment sync only). No sorry/axiom/native_decide.
 /-! # DG-SEM U6D (scripts/gen5/DG_SEM_FREEZE_P6F.md §3): `srcCausal_of_acc_unfold`, `factsOf_of_acc_unfold`, `factsOf_all_of_acc_unfold`
 
 Abstract `Acc` induction over an arbitrary relation `R` and table `G`. `hunf` is a premise about the table (not a law); `R` is any
