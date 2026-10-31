@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids3
 import Tools.ShippingGen2Defs
 import Tests.Gen5.NameKidsCheck
--- NOT BUILT as committed (no clean issue-linked build yet). Pod incremental build of the working tree (kjob lake build Tests.Gen5.NameKids3Check, exit 0, 722 jobs) observed: TYPE 11 (5 theorems + 4 definition bodies + 2 OrdPath constructor types), MUTANT 16 (12 single-point theorem mutants + 2 definition-body mutants + 2 cross-statement controls), use-site examples 2, closure controls negative 8 + clean 1, REACH 5, AXIOMS 5 (standard only).
+-- Pod incremental build on the tree of 25993694 (NOT a clean issue-linked build; coder runs that) (kjob lake build Tests.Gen5.NameKids3Check, exit 0, 722 jobs) observed: TYPE 11 (5 theorems + 4 definition bodies + 2 OrdPath constructor types), MUTANT 16 (12 single-point theorem mutants + 2 definition-body mutants + 2 cross-statement controls), use-site examples 2, closure controls negative 8 + clean 1, REACH 5, AXIOMS 5 (standard only).
 -- NOT BUILT: counts are filled in only after the Check build on the committed tree (kjob lake build Tests.Gen5.NameKids3Check).
 -- Count rule: each count is the number of `logInfo` lines of one class (TYPE = theorem, definition body or constructor type compared against its Expected; MUTANT = distinct mutant def or cross-statement control, each counted once; REACH/AXIOMS = one per theorem).
 -- No sorry / axiom / native_decide.

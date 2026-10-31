@@ -1,6 +1,6 @@
 import Tools.ShippingGen5NameKids2
 set_option autoImplicit false
--- NOT BUILT: no build of this file has been recorded yet. Written against freeze BOUNDARY_AUDIT_FREEZE_U3.md §3 (+ §7 amendments). 5 theorems + 5 definitions.
+-- Pod incremental build on the tree of 25993694 (kjob lake build Tools.ShippingGen5NameKids3, exit 0, 686 jobs; Tests.Gen5.NameKids3Check exit 0, 722 jobs); NOT a clean issue-linked build (coder runs that). Written against freeze BOUNDARY_AUDIT_FREEZE_U3.md §3 + §7. 5 theorems + 5 definitions.
 -- No sorry / axiom / native_decide.
 
 /-! # BOUNDARY-AUDIT U3: rank propagation and `hself` / `sepK` / `parent` for all reached declarations
