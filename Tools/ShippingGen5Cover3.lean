@@ -1,7 +1,7 @@
 import Tools.ShippingGen5Cover2
 import Tools.ShippingGen5Cover
 set_option autoImplicit false
--- NOT BUILT (g5cv-r6 work in progress).
+-- Built in g5cv-r6 at 302525c0 (Pod `kjob lake build Tools.ShippingGen5Cover3`, exit 0, no warning from this file; Cover3Check: TYPE 27, MUTANT 6, AXIOMS standard, CLOSURE OK with 3 negative / 2 clean controls). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-COVER rev4 units U-D1 / U-D2 / U-D3, `scripts/gen5/DG_COVER_FREEZE_REV4.md` §1–§3
 
