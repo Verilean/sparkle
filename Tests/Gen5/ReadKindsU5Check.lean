@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReadKindsU5
 import Tests.Gen5.ReadKindsCheck
 set_option autoImplicit false
--- NOT BUILT (written against scripts/gen5/DG_READKINDS_U5_FREEZE_REV3_1.md; no sorry / axiom / native_decide).
+-- Built: kjob lake build Tests.Gen5.ReadKindsU5Check exit 0 (756 jobs) in pod on 6e343e997fdbf0ce8cff741ce57f7de45cc68790 (not a clean issue-linked build; that is the coder's). No sorry / axiom / native_decide.
 
 /-! # DG-READKINDS U5 checks (Tools/ShippingGen5ReadKindsU5.lean; freeze rev3.1)
 
