@@ -157,7 +157,7 @@ If it turns out that a stated field is unsatisfiable together with `Start`, the 
 
 ## 5. U2 checks (written from §3, not from the implementation)
 
-* **Expected TYPEs** (`Tests/Gen5/NameKids2Check.lean`): each of the eight theorems in §3 re-stated as an independent `def Exp… : Prop` from the §3 text; the Expected props may name the constants `kidNameAt`, `MemTagsNamed`,
+* **Expected TYPEs** (`Tests/Gen5/NameKids2Check.lean`): each of the 7 theorems and 2 definitions (bodies) in §3 re-stated as an independent `def Exp… : Prop` from the §3 text; the Expected props may name the constants `kidNameAt`, `MemTagsNamed`,
   `kidModName`, `memKey`, `originAt`, `callees`, `declRank` (their BODIES are checked separately, below). Comparator: the one reducible comparator of `Tests.Gen5.NameKidsCheck` (`cmpTeleR`,
   `checkExpectedR`, `checkMutantR`), imported, for positives and mutants.
 * **Definition bodies**: `kidNameAt` and `MemTagsNamed` are compared (the same reducible comparator) with independently written `ExpKidNameAt`, `ExpMemTagsNamed` bodies (from §3).
@@ -168,13 +168,28 @@ If it turns out that a stated field is unsatisfiable together with `Start`, the 
   Reported as MUTANT n, each distinct mutant def counted once; an accepted mutant fails the run.
 * **Use-site `example`s**: `sepK_parent_of_supply` applied at `d.shape` of a `MachineData d` yields propositions identical (by `exact`) to the types of `MemCalleeData.sepK` and `.parent` with `nameK := kidNameAt d.shape`
   (a type check, not a semantic claim).
-* **Closure** (reusing the U1 walker `reachWith`/`auditRoot` of `Tests.Gen5.NameKidsCheck`, as improved in R1/R2): roots are the eight theorems; root-self judgement (a forbidden constant as the root itself), unknown name fails,
+* **Closure** (reusing the U1 walker `reachWith`/`auditRoot` of `Tests.Gen5.NameKidsCheck`, as improved in R1/R2): roots are the 7 theorems; root-self judgement (a forbidden constant as the root itself), unknown name fails,
   and a synthesized root reaching an unknown name only through a helper's TYPE is checked with the intended path asserted; the same fixtures `Tests.Gen5.NameKidsFixture` are reused. Counts reported as controls: negative n, clean 1,
   REACH n (one per root), with the aggregation rule stated in the file header.
-* **AXIOMS**: `#print axioms` of each of the eight theorems ⊆ `[propext, Classical.choice, Quot.sound]`; no `sorry`, no `native_decide`, no `axiom`.
+* **AXIOMS**: `#print axioms` of each of the 7 theorems ⊆ `[propext, Classical.choice, Quot.sound]`; no `sorry`, no `native_decide`, no `axiom`.
 * Numbers in the report are actual counts per category with the rule next to them; no total is quoted without categories.
 * Build: `kjob lake build Tools.ShippingGen5NameKids2` then `kjob lake build Tests.Gen5.NameKids2Check`, one at a time. After the Lean commit the Issue stays `doing` (the coder runs the clean issue-linked build).
 
 ## 6. What this freeze does not do
 No change to any compiler, production or shared-definition file (`Tools/ShippingGen2Defs.lean`, T1Hyp, T1HypND, `Elab*.lean`) and no change to any built file. No new TRUSTED boundary/law, no FG/guarantee change, no GenWF
 strengthening, no `sorry`/`axiom`/`native_decide`. `nameK := kidNameAt shape` is a CHOICE a consumer may make; this unit does not change `MemCalleeData`. B3-B7 and the G5 joint satisfiability stay OPEN.
+
+## 7. Amendments after approval (wording only; no re-freeze; no theorem added)
+Recorded with the implementation commit. They add to or correct the wording above; no statement in §3 changes.
+1. **Count.** §3 states 7 theorems (`hn_kidNameAt`, `memTagsNamed_of_tagsAgree`, `hmemSame_of_memTagsNamed`, `hself_of_rank`, `kidNameAt_eq_memModule_name`,
+   `memModule_name_ne_ofDecl`, `sepK_parent_of_supply`) and 2 definitions (`kidNameAt`, `MemTagsNamed`). Every earlier "eight theorems" in §5 reads "7 theorems and 2 definitions".
+2. **`rkOf_edge` and fields.** `rkOf_edge` applies to every call entry of a ranked declaration, so `hself_of_rank` covers a kid with origin `.field i` as well as `.ord`
+   (`kidModName (c, .field i) = ofDecl c`). `hmemSame_of_memTagsNamed` still takes `MemTagsNamed` of the actual shape as a premise; its supply for the reader's shape is as in §1.1.
+3. **§2 distinguishes history from actual supply.** The "evidence" column of §2 is the history at the time each SHA was recorded in the Issue (the state when that SHA was approved or noted), not a
+   re-check of the present tree. The "state" column is the survey's reading of what is actually supplied. Where the two differ, the actual supply is the one in the state column; the SHAs
+   are not evidence that later work did not change a row. Row 13: the S1 `T2Tie` fix `7c06a80f` is recorded as approved (DG-SEM); the table text "build is pending (not approved)" is the history at the
+   earlier note. That approval is a scoped approval of that unit, not a supply of `hp`/`hq`/`GenIn` from a real run (still 未供給).
+4. **`T1Hyp.closed` (row 11).** Its Prop (GEN2_DEFS `T1Hyp.closed`): `∀ c, Reach c → ∀ q, P c = some q → ∀ k (hk : k < q.d.shape.insts.length), (q.d.shape.instOrigins.getD k .ord).child? = none → Reach (q.d.shape.insts[k]).1`.
+   Besides "no supplier Issue", the obligation is a CONNECTION: each non-memory kid of a reached declaration must be reached, from the static closure of `Reach` / the ACC route evidence
+   (sparkle-gen5-dg-acc `AccReads`, the call-closure side of `Reach`; the match of `Reach` with the translator's actual child calls is G-REACH). This survey did not find that connection stated as a theorem. It is 未供給, and
+   the same static closure is the place where G3 closed / no-owner rows would connect.

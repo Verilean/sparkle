@@ -4849,3 +4849,9 @@ lean_lib «Tools.ShippingGen5NameKids» where
 
 lean_lib «Tests.Gen5.NameKidsCheck» where
   roots := #[`Tests.Gen5.NameKidsCheck]
+
+lean_lib «Tools.ShippingGen5NameKids2» where
+  roots := #[`Tools.ShippingGen5NameKids2]
+
+lean_lib «Tests.Gen5.NameKids2Check» where
+  roots := #[`Tests.Gen5.NameKids2Check]
