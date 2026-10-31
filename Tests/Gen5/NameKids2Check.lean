@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids2
 import Tests.Gen5.NameKidsCheck
 set_option autoImplicit false
--- NOT BUILT (no build of this file has been run yet). Counts expected from the source (to be replaced by the observed run): see the logInfo lines.
+-- Pod build (kjob lake build Tests.Gen5.NameKids2Check, exit 0, 688 jobs) on the tree of b870656c; NOT a clean issue-linked build (coder runs that). Observed counts: TYPE 9 (7 theorems + 2 definition bodies), MUTANT 15 (11 single-point theorem mutants + 2 definition-body mutants + 2 cross-statement controls), use-site examples 2, closure controls negative 8 + clean 1, REACH 7, AXIOMS 7 (standard only).
 -- Count rule: each count is the number of `logInfo` lines of one class (TYPE = theorem or definition body compared against its Expected; MUTANT = distinct mutant def or cross-statement control, each counted once; REACH/AXIOMS = one per theorem).
 -- No sorry / axiom / native_decide.
 
