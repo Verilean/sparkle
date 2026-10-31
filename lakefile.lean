@@ -4859,3 +4859,9 @@ lean_lib «Tests.Gen5.AccGenPCheck» where
 
 lean_lib «Tests.Gen5.AccIndCheck» where
   roots := #[`Tests.Gen5.AccIndCheck]
+
+lean_lib «Tools.ShippingGen5AccReads» where
+  roots := #[`Tools.ShippingGen5AccReads]
+
+lean_lib «Tests.Gen5.AccReadsCheck» where
+  roots := #[`Tests.Gen5.AccReadsCheck]
