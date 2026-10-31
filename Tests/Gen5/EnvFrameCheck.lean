@@ -1,4 +1,5 @@
 import Tools.ShippingGen5EnvFrame
+import Tools.ShippingGen5EnvQ
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 -- NOT BUILT (unit U1 checks; scripts/gen5/DG_ENV_T2_FREEZE_R3.md rev3.1 §2.1).
@@ -58,7 +59,8 @@ open Tools.ShippingGen5Env (ReadsAt)
 open Tools.ShippingGen5EnvFrame
 open Tests.Gen3.ExpectedType
 
-/-! ## 1. Expected types (written from freeze §2) -/
+/-! ## 1. Expected types (written from freeze §2). `ExpEnvFrameEnd` fixes the body of the def; the theorem statements use
+the def itself, so the reducible comparator needs no unfolding. -/
 def ExpEnvFrameEnd {α : Type} (x : MetaM α) (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) : Prop :=
   ∀ w : Void IO.RealWorld, envAt cref (endW mctx mref cctx cref x w) = envAt cref w
@@ -70,85 +72,85 @@ def MutEnvFrameEnd {α : Type} (x : MetaM α) (mctx : Meta.Context) (mref : ST.R
 def Exp1 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {α : Type} (a : α),
-    ExpEnvFrameEnd (Pure.pure a : MetaM α) mctx mref cctx cref
+    EnvFrameEnd (Pure.pure a : MetaM α) mctx mref cctx cref
 
 def Exp2 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {α β : Type} {m : MetaM α} {f : α → MetaM β}
-    (hm : ExpEnvFrameEnd m mctx mref cctx cref) (hf : ∀ a, ExpEnvFrameEnd (f a) mctx mref cctx cref),
-    ExpEnvFrameEnd (m >>= f) mctx mref cctx cref
+    (hm : EnvFrameEnd m mctx mref cctx cref) (hf : ∀ a, EnvFrameEnd (f a) mctx mref cctx cref),
+    EnvFrameEnd (m >>= f) mctx mref cctx cref
 
 def MutM6 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {α β : Type} {m : MetaM α} {f : α → MetaM β}
-    (hm : ExpEnvFrameEnd m mctx mref cctx cref),
-    ExpEnvFrameEnd (m >>= f) mctx mref cctx cref
+    (hm : EnvFrameEnd m mctx mref cctx cref),
+    EnvFrameEnd (m >>= f) mctx mref cctx cref
 
 def Exp3 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {σ : Type} {r : IO.Ref σ} (hr : ReadWorld r),
-    ExpEnvFrameEnd (ST.Ref.get r : MetaM σ) mctx mref cctx cref
+    EnvFrameEnd (ST.Ref.get r : MetaM σ) mctx mref cctx cref
 
 def MutM2 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {σ : Type} {r : IO.Ref σ} (hr : ReadKeeps r),
-    ExpEnvFrameEnd (ST.Ref.get r : MetaM σ) mctx mref cctx cref
+    EnvFrameEnd (ST.Ref.get r : MetaM σ) mctx mref cctx cref
 
 def Exp4 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {σ : Type} {r : IO.Ref σ} (v : σ) (hne : r.ref ≠ cref.ref)
-    (hf : SetFrame r cref), ExpEnvFrameEnd (ST.Ref.set r v : MetaM Unit) mctx mref cctx cref
+    (hf : SetFrame r cref), EnvFrameEnd (ST.Ref.set r v : MetaM Unit) mctx mref cctx cref
 
 def MutM3 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {σ : Type} {r : IO.Ref σ} (v : σ)
-    (hf : SetFrame r cref), ExpEnvFrameEnd (ST.Ref.set r v : MetaM Unit) mctx mref cctx cref
+    (hf : SetFrame r cref), EnvFrameEnd (ST.Ref.set r v : MetaM Unit) mctx mref cctx cref
 
 def MutM4 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {σ : Type} {r : IO.Ref σ} (v : σ) (hne : r.ref ≠ cref.ref),
-    ExpEnvFrameEnd (ST.Ref.set r v : MetaM Unit) mctx mref cctx cref
+    EnvFrameEnd (ST.Ref.set r v : MetaM Unit) mctx mref cctx cref
 
 def Exp5 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {σ : Type} {r : IO.Ref σ} (f : σ → σ) (hr : ReadWorld r)
     (hne : r.ref ≠ cref.ref) (hf : SetFrame r cref),
-    ExpEnvFrameEnd (ST.Ref.modify r f : MetaM Unit) mctx mref cctx cref
+    EnvFrameEnd (ST.Ref.modify r f : MetaM Unit) mctx mref cctx cref
 
 def MutM5 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {σ : Type} {r : IO.Ref σ} (f : σ → σ)
     (hne : r.ref ≠ cref.ref) (hf : SetFrame r cref),
-    ExpEnvFrameEnd (ST.Ref.modify r f : MetaM Unit) mctx mref cctx cref
+    EnvFrameEnd (ST.Ref.modify r f : MetaM Unit) mctx mref cctx cref
 
 def Exp6 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {σ β : Type} {r : IO.Ref σ} (f : σ → β × σ) (hr : ReadWorld r)
     (hne : r.ref ≠ cref.ref) (hf : SetFrame r cref),
-    ExpEnvFrameEnd (ST.Ref.modifyGet r f : MetaM β) mctx mref cctx cref
+    EnvFrameEnd (ST.Ref.modifyGet r f : MetaM β) mctx mref cctx cref
 
 def Exp7 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} (hr : ReadWorld cref),
-    ExpEnvFrameEnd (Lean.getEnv : MetaM Environment) mctx mref cctx cref
+    EnvFrameEnd (Lean.getEnv : MetaM Environment) mctx mref cctx cref
 
 def Exp8 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {env₀ : Environment} {α : Type} {x : MetaM α}
-    (hx : ExpEnvFrameEnd x mctx mref cctx cref) {w : Void IO.RealWorld} (h : ReadsAt env₀ cref w),
+    (hx : EnvFrameEnd x mctx mref cctx cref) {w : Void IO.RealWorld} (h : ReadsAt env₀ cref w),
     ReadsAt env₀ cref (endW mctx mref cctx cref x w)
 
 def MutM7 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {env₀ : Environment} {α : Type} {x : MetaM α}
-    (hx : ExpEnvFrameEnd x mctx mref cctx cref) {w : Void IO.RealWorld},
+    (hx : EnvFrameEnd x mctx mref cctx cref) {w : Void IO.RealWorld},
     ReadsAt env₀ cref (endW mctx mref cctx cref x w)
 
 /-- M8: the conclusion keeps only the first conjunct of `ReadsAt` (three conjuncts dropped). -/
 def MutM8 : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {env₀ : Environment} {α : Type} {x : MetaM α}
-    (hx : ExpEnvFrameEnd x mctx mref cctx cref) {w : Void IO.RealWorld} (h : ReadsAt env₀ cref w),
+    (hx : EnvFrameEnd x mctx mref cctx cref) {w : Void IO.RealWorld} (h : ReadsAt env₀ cref w),
     ∀ X ci, (envAt cref (endW mctx mref cctx cref x w)).find? X = some ci → env₀.find? X = some ci
 
 /-- The one comparator: reducible transparency for every comparison, positive and negative alike. -/
@@ -256,7 +258,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let helper : List (Name × Name) :=
     [(F ++ `hOps, ops ++ `frame), (F ++ `hLemma, ``Tools.ShippingStRefCorrespondence.getEnvFrame_of_readKeeps),
      (F ++ `hT1, ``Tools.ShippingGen2.T1Hyp.defines)]
-  let mut nNeg := 0
+  let mut nNeg : Nat := 0
   for (c, t) in direct ++ helper do
     let r ← reach forbid c
     if r.hit.isNone then throwError "ENVFRAME AUDIT FAILED: misses {c}"
@@ -271,7 +273,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let unres : List (Name × Option Name × Name) :=
     [(missing, none, missing), (F ++ `hv, some (F ++ `helperClean), F ++ `helperClean),
      (F ++ `ht, some (F ++ `helperTy), F ++ `helperTy)]
-  let mut nUnres := 0
+  let mut nUnres : Nat := 0
   for (c, hid, nm) in unres do
     let ok ← try
         let _ ← reach forbid c hid
@@ -284,7 +286,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     logInfo m!"ENVFRAME CONTROL unresolved {nm} under {c}: throws"
   -- clean controls (and the carriers of the unresolved cases WITHOUT hiding)
   let clean : List Name := [F ++ `cUnrelated, F ++ `cBinders, F ++ `cBinders2, F ++ `cHelper, F ++ `hv, F ++ `ht]
-  let mut nClean := 0
+  let mut nClean : Nat := 0
   for c in clean do
     let r ← reach forbid c
     if let some p := r.hit then throwError "ENVFRAME AUDIT FAILED: clean control {c} flagged via {p}"
@@ -294,7 +296,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let roots : List Name :=
     [``envFrameEnd_pure, ``envFrameEnd_bind, ``envFrameEnd_get, ``envFrameEnd_set, ``envFrameEnd_modify,
      ``envFrameEnd_modifyGet, ``envFrameEnd_getEnv, ``readsAt_endW]
-  let mut nRoots := 0
+  let mut nRoots : Nat := 0
   for c in roots do
     let r ← reach forbid c
     if let some p := r.hit then throwError "ENVFRAME AUDIT FAILED {c}: forbidden use via {p}"
