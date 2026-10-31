@@ -2,7 +2,7 @@ import Tools.ShippingGen5AccGates
 import Tools.ShippingMachineCommand
 import Tools.ShippingEnvSnapshot
 set_option autoImplicit false
--- NOT BUILT yet (g5ac-r12, A6c): the build SHA is recorded here by a comment-only commit after the Pod build. No sorry / axiom / native_decide.
+-- Built in the Pod (g5ac-r12) at 46600383: `kjob lake build Tools.ShippingGen5AccReader` (734 jobs) and `kjob lake build Tests.Gen5.AccReaderCheck` (737 jobs), each exit 0; clean issue-linked build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A6c: `GateRunsAt` from one reader run (scripts/gen5/DG_ACC_FREEZE_REV6.md §1)
 
