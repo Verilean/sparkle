@@ -3,7 +3,7 @@ import Tools.ShippingGen5DCEntryN
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.DeclConnectCheck
 set_option autoImplicit false
--- Built (agent incremental build, NOT clean; tree e0e222ba): exit 0, 748 jobs. Counts: TYPE 7 (2 self-comparison positive controls not counted), MUTANT 15, CONJ 2, AXIOMS 7, CLOSURE 7 roots + 3 controls + unknown-name fixture (1 detect + 1 clean); signature/defeq rejections, NOT semantic counterexamples.
+-- Built: issue-linked build dc13v-6d6c9b22 `kjob lake build Tests.Gen5.DCEntryNCheck` exit 0, 749 jobs, approved at 6d6c9b22 (incremental build, dirty=false). Counts: TYPE 7 (2 self-comparison positive controls not counted), MUTANT 15, CONJ 2, AXIOMS 7, CLOSURE 7 roots + 3 controls + unknown-name fixture. Combined with DCEntryDCheck in that job: TYPE OK 15 / MUTANT REJECTED 39 / AXIOMS OK 11. Signature/defeq rejections, NOT semantic counterexamples.
 
 /-! # DC-CONNECT U-TOPNAME: checks (survey §13, §15)
 

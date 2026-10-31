@@ -1,7 +1,6 @@
 import Tools.ShippingGen5DCEntryD
 import Tools.ShippingMachineLinked
--- Built (agent incremental build, NOT clean; tree e0e222ba): `kjob lake build Tests.Gen5.DCEntryNCheck` exit 0, 748 jobs. U-TOPNAME, scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §13 (freeze 35d1b243 approved).
--- NOT BUILT: U-TOPNAME, scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §13 (freeze 35d1b243 approved). No clean issue-linked build yet.
+-- Built: issue-linked build dc13v-6d6c9b22 (`kjob lake build Tests.Gen5.DCEntryNCheck`, with DCEntryDCheck) exit 0, 749 jobs, approved at 6d6c9b22 (incremental build, dirty=false). U-TOPNAME, scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §13 (freeze 35d1b243 approved)
 
 /-! # DC-CONNECT U-TOPNAME: lookups in `topMap`
 
