@@ -1,6 +1,6 @@
 # DG-READERTRACE freeze rev1 — corrections R1 / R2 and typing of named helpers (Issue sparkle-gen5-dg-readertrace)
 
-**FOR REVIEW — docs only.** Addendum to `scripts/gen5/DG_READERTRACE_FREEZE.md` (rev0, reviewer `changes_requested`). Sections of rev0 not mentioned here are unchanged and are still **not approved** (in particular §3 arms, §5 `machineShapeF_reach`, U-R4 / U-R5 are not re-frozen here).
+**FOR REVIEW.** Committed together with the U-R1 independent-part Lean (`521b3e8a`); that Lean built in the Pod (`rt2v-1fd3e5d9`, exit 0, 722 jobs, at `1fd3e5d9`). Addendum to `scripts/gen5/DG_READERTRACE_FREEZE.md` (rev0, reviewer `changes_requested`). Sections of rev0 not mentioned here are unchanged and are still **not approved** (in particular §3 arms, §5 `machineShapeF_reach`, U-R4 / U-R5 are not re-frozen here).
 Base `2b83c234`. No guarantee, law, TRUSTED boundary, FG scope, compiler or shared definition is changed; `GenWF` is not strengthened; no FG premise is added. Conditional results are INTERMEDIATE.
 Wording: "not found" = this investigation found no supplier/route, never "impossible". A mutant is a signature/defeq rejection, not a semantic counterexample.
 
