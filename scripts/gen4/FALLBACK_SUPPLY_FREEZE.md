@@ -1700,3 +1700,78 @@ The theorems are conditional on `EntryDefines` and `WF` (existing hypothesis pre
 - `Tools/ShippingGen4FbFrag.lean` (`postReady_instFree`, `synthesizeCombinational_fragment_dz`) and `Tests/Gen4/FbFragCheck.lean` implement §31.3/§31.4; types as in §31.3, proofs closed in the first attempt. Lean commit `8f4a0a55` (comment-only header edits after the build).
 - Pod build (`kjob lake build`, one target at a time): `Tools.ShippingGen4FbFrag` exit 0 (705 jobs), `Tests.Gen4.FbFragCheck` exit 0. Check: TYPE 2, MUTANT REJECTED 11 (all planned mutants were well-typed; signature/defeq rejections, not semantic counterexamples), closure 4657 / 13635 constants with missing 0, controls (absent root, forbidden root `memoInv_hit`, helper value / helper type-only unknown, clean fixture) succeed, AXIOMS 2 standard only, `sorry` 0. This is not a clean issue-linked build; that is the coder's.
 - Still hypotheses / unsupplied on the routes read: `EntryDefines` / `WF`, `ChildRunN … M` for the core module, the clean-up-arm equation `M' = dropZeroWidthModule M`; instance-bearing bodies, `mergeChecked`, T-LEG, T-MEMO, K4, M4 and FG. Issue not complete.
+
+## 33. FB-22: header sync record, survey of the remaining rows, and the next unit — `ChildRunN` for the real full-entry module of a first-gate fragment (from `ChildFnR`), both `PPRel` arms (rev18; text for review; NOT Lean, NOT implemented)
+
+- **Status.** Docs, committed BEFORE any Lean of this unit; Lean waits for the reviewer's approval of this section. Base `a3e9ce9c`. First commit of this unit (`e56b6e97`) is comments-only: Tools/Check headers of `ShippingGen4FbFrag` / `FbFragCheck` record the clean build `fb22v-a3e9ce9c` (exit 0, 817 jobs, dirty=false, approved at `a3e9ce9c`). No new law, no `Laws` field, no TRUSTED boundary, no shared-definition / compiler edit, no FG/guarantee change. "Unsupplied / route not found" means this investigation's candidate routes found no supplier in the files read; it does not say a row is false or underivable. Mutants in the planned check are signature/defeq rejections, not semantic counterexamples.
+- **FB-21 build record.** `fb22v-a3e9ce9c` exit 0; `FbFragCheck` TYPE 2 / MUTANT 11 / AXIOMS 2 (standard only), `sorry` 0; reviewer approved the two theorems as a limited supply/transport.
+
+### 33.1 Rows (existing names read in this investigation)
+| row | existing names read (file:line) | closes from existing lemmas? | verdict |
+|---|---|---|---|
+| **`ChildRunN … b …` for the real full-entry module `b` of a first-gate fragment (both `PPRel` arms), with the package source stream `S` constrained pointwise** | `first_child_fnR` (`ShippingFirstGateChild.lean:735`: from `RunsTo (synthesizeCombinational declName) … (b, design) w'`, `EntryDefines … (quoteDecl dn names n fe)`, `fe.WF names.length n`, `0 < n` ⊢ `ChildFnR b (fun vs => InRange vs ((firstBs dn names n).filter …)) (firstFn dn names n fe)`; internally `childFnR_post` covers dropZeroWidth AND mergeChecked); `first_child_fullFacts` / `first_full_inputs` / `first_full_outputs` (`:439,:538,:395`: `b.outputs = [out : bitVector n]`, inputs distinct, none is `clk`/`rst`/`out`, `b.inputs.length = names.length`, `ChildComb b` with `body.all isAssign`); `firstBs_filter` (`:173`); `RunOn_instFree` (`ShippingMachineDepth.lean:42`); `instFree_of_assigns`, `runModule_assigns_get`, `seedIn_self`, `evalAssigns_mems_irrel`, `childFn_of_combRun` (`ShippingGen2CombKid.lean:24,103,122,170,174`: the REVERSE direction `CombChildRunN → ChildFn`); `regNexts_assigns` / `memNexts_assigns` (`ShippingMachineShipsComb.lean:39,48`); `CombChildRunN` (`ShippingGen2Defs.lean:60`) | **yes**, for the forward direction `ChildFnR` + port facts + assign-only body ⊢ `CombChildRunN` (needs one new helper: existence of an assign-only run, the `_get` lemma's converse, none found in this investigation) ; the pointwise condition on `S` is an explicit premise | **selected (this unit)** |
+| the pointwise condition on the package's `S` (`(S vals)[0]? = some f → f j = firstFn … (vals j)` on in-range `vals j`) | `combS_pointwise` (`ShippingGen2CombKid.lean:205`) gives pointwise-ness of `S` FROM a `CombChildRunN`, the converse; no lemma read here links a package's `S` to `firstFn` | no | unsupplied / route not found in this investigation (stays an explicit premise `hS`) |
+| `PPRel`-arm equation `M' = dropZeroWidthModule M` (hypothesis of FB-21) | not needed on this route: `first_child_fnR` already handles both arms | n/a | not used by this unit; FB-21's last conjunct is unchanged |
+| instance-bearing bodies | `ResetN` / `RunOn` at `n+1` read `children`; `ChildShips raw` is about `dsg`, `dout` holds cleaned modules | no | unsupplied / route not found in this investigation |
+| non-fragment `mergeChecked` arm (a body that is not a first-gate fragment) | `refineCheck_transfer` (`ShippingRefineSoundness.lean:1039`) needs `hinsFit`, `rst = 0`, `hcpl`, `hfit`, `refineCheck m o = true` | no | unsupplied / route not found in this investigation |
+| T-LEG (miss arm), T-MEMO (hit, nested miss), K4 | as §29.1 | no | unsupplied / route not found in this investigation; T-MEMO hit needs a law, none proposed |
+
+### 33.2 Selection and reason
+First unit: **T-FRAG-RUN** (`runModule_assigns_exists`, `combChildRunN_of_childFnR`, `synthesizeCombinational_fragment_childRunN`). It is the only remaining row built from existing named lemmas (the real-run `ChildFnR` of `first_child_fnR`, the port facts of `first_full_*`, `RunOn_instFree`, the assign-only run lemmas) plus one small converse helper, with no law, no shared-definition edit, no new TRUSTED boundary. It turns the hypothesis `ChildRunN … M` of FB-19/FB-21 into a conclusion for the final module `b` for first-gate fragments, on both `PPRel` arms, at the cost of an explicit premise on `S`. It does NOT supply the `S` condition, and is not about non-fragment declarations.
+
+### 33.3 Complete types (target)
+New file `Tools/ShippingGen4FbFragRun.lean`, namespace `Tools.ShippingGen4FbFragRun`; imports `Tools.ShippingGen4FbPP` (`CombPortFacts`), `Tools.ShippingFirstGateChild`, `Tools.ShippingGen2CombKid`, `Tools.ShippingMachineShipsComb`; `set_option autoImplicit false`. Names: `evalAssigns`, `runModule`, `Env`, `MEnv`, `WEnv` in `Sparkle.IR.Semantics`; `Stmt`, `Module`, `Design` in `Sparkle.IR.AST`; `isAssign` in `Sparkle.IR.RegDedup`; `OutField` in `Sparkle.IR.Machine`; `RunsTo`, `FExpr`, `quoteDecl` in `Tools.ShippingEntrySoundness`; `EntryDefines` in `Tools.ShippingInlineSoundness`; `ChildFnR`, `firstBs`, `firstFn` in `Tools.ShippingFirstGateChild`; `InRange` in `Tools.ShippingMachineChild`; `ChildRunN`, `CombChildRunN` in `Tools.ShippingGen2`.
+```lean
+theorem runModule_assigns_exists {we : Sparkle.IR.Semantics.WEnv} {body : List Sparkle.IR.AST.Stmt}
+    {seed : Nat → (String → Nat) → Sparkle.IR.Semantics.Env}
+    (hA : body.all Sparkle.IR.RegDedup.isAssign = true)
+    (st : String → Nat) (mems : Sparkle.IR.Semantics.MEnv) :
+    ∀ (T : Nat),
+      (∀ j, j < T → ∃ e, Sparkle.IR.Semantics.evalAssigns we mems body (seed j st) = some e) →
+      ∃ envs, Sparkle.IR.Semantics.runModule we body seed T st mems = some envs
+
+theorem combChildRunN_of_childFnR
+    {ch : String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)}
+    {dsn : Sparkle.IR.AST.Design} {n : Nat} {mc : Sparkle.IR.AST.Module}
+    {bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)}
+    {o : Sparkle.IR.Machine.OutField}
+    {S : (Nat → List Nat) → List (Nat → Nat)}
+    {F : List Nat → Nat}
+    (hpf : Tools.ShippingGen4FbPP.CombPortFacts mc bsC [o])
+    (hA : mc.body.all Sparkle.IR.RegDedup.isAssign = true)
+    (hfn : Tools.ShippingFirstGateChild.ChildFnR mc
+      (fun vs => Tools.ShippingMachineChild.InRange vs (bsC.filter fun b => b.2 != .domain)) F)
+    (hS : ∀ (vals : Nat → List Nat) (f : Nat → Nat), (S vals)[0]? = some f →
+      ∀ j, Tools.ShippingMachineChild.InRange (vals j) (bsC.filter fun b => b.2 != .domain) →
+        f j = F (vals j)) :
+    Tools.ShippingGen2.CombChildRunN ch dsn n mc bsC [o] S
+
+theorem synthesizeCombinational_fragment_childRunN {declName : Lean.Name} {mctx : Lean.Meta.Context}
+    {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context}
+    {cref : ST.Ref IO.RealWorld Lean.Core.State} {w w' : Void IO.RealWorld}
+    {b : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    {dn : Lean.Name} {names : List Lean.Name} {n : Nat} {fe : Tools.ShippingEntrySoundness.FExpr}
+    (hr : Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational declName)
+      mctx mref cctx cref w (b, design) w')
+    (entry : Tools.ShippingInlineSoundness.EntryDefines mctx mref cctx cref declName
+      (Tools.ShippingEntrySoundness.quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n)
+    {ch : String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)}
+    {dsn : Sparkle.IR.AST.Design} {m : Nat}
+    {S : (Nat → List Nat) → List (Nat → Nat)}
+    (hS : ∀ (vals : Nat → List Nat) (f : Nat → Nat), (S vals)[0]? = some f →
+      ∀ j, Tools.ShippingMachineChild.InRange (vals j)
+          ((Tools.ShippingFirstGateChild.firstBs dn names n).filter fun x => x.2 != .domain) →
+        f j = Tools.ShippingFirstGateChild.firstFn dn names n fe (vals j)) :
+    Tools.ShippingGen2.ChildRunN ch dsn m b (Tools.ShippingFirstGateChild.firstBs dn names n)
+      [({ name := "out", lo := 0, width := n, ty := .bitVector n } : Sparkle.IR.Machine.OutField)] S
+```
+The `lo` / `width` fields of the `OutField` are not read by `CombChildRunN` (only `name`/`ty`); `lo := 0, width := n` is a fixed choice, not a claim about the package layout. `first_child_fnR` lives under that file's `variable {mctx …}`; implicit argument order is to be read by the elaborator (instantiate by named arguments if needed).
+
+Proof plan (a plan, not a result): **(1)** induction on `T`: `runModule` at `k+1` unfolds to `stepModule` (`evalAssigns` on `seed k st`), then `regNexts_assigns` / `memNexts_assigns` / `applyNexts_nil` leave `st`, `mems` unchanged, so the hypotheses at `j < k` feed the induction (the converse of `runModule_assigns_get`'s case split). **(2)** `obtain ⟨houts, hnd, hclk, hrst, hdisj, hlen⟩ := hpf` for the six non-run conjuncts; run conjunct: `intro T ins s vals hrange hports hreset`; `rw [RunOn_instFree ch mc (instFree_of_assigns hA)]`; for each `j' < T`, `hfn` at `mems := memsOf n s`, `env := seedIn mc ins j' (stOf n s)` gives `evalAssigns` success: `P` holds since `(argPorts mc).map (fun p => env p.name) = (argPorts mc).map (fun p => ins j' p.name) = vals (T-1-j')` (`argPorts mc ⊆ mc.inputs`, so `seedIn` reads `ins`; `hports`; `hrange`); existence by (1); `runModule_assigns_get` gives `evalAssigns … (seed (T-1-j)) = some envs[j]`, uniqueness of `evalAssigns` result gives `envs[j] outP.name = F (vals j)`; `outP.name = o.name` from `houts`; `hS` closes with `f j = F (vals j)` (`k = 0` from `[o][k]? = some o`). **(3)** `first_child_fnR hr entry hwf hn` for `hfn` (`hP := id`); `first_full_outputs` + `first_full_inputs` + `first_child_fullFacts` (`ChildComb b`: `assigns`) for `hpf` (the `argPorts b = b.inputs` step: `filter` keeps every port since none is `clk`/`rst`; its length via `firstBs_filter`); `Or.inr` for `ChildRunN`. If a step does not go through the unit reports "not closed in this attempt" with the failing step; the `argPorts` filter step and the `seedIn`/`contains` step are the most likely to need a `show`.
+
+### 33.4 Planned checks (new files only; nothing run)
+Files: `Tools/ShippingGen4FbFragRun.lean`, `Tests/Gen4/FbFragRunCheck.lean`, two `lean_lib` entries in `lakefile.lean`; no change to earlier FB files. Same requirements as §31.4: (1) TYPE: all three theorems against independently typed `Expected…` in the Check (one comparator, `withReducible`; the instance-free-run existence helper included); (2) MUTANTS, well-typed single changes only: `runModule_assigns_exists` — `hA` dropped; `j < T` replaced by `j ≤ T`. `combChildRunN_of_childFnR` — `hA` dropped; `hS` dropped; `hpf` replaced by `SeqPortFacts mc bsC [o]`; conclusion `CombChildRunN … [o]` replaced by `… []`; `f j = F (vals j)` replaced by `f 0 = F (vals j)`. Fragment theorem — `hn` dropped; `hwf` dropped; `entry` dropped; `hS` dropped; `ChildRunN … b` replaced by `ChildRunN … raw`-free variant `ChildRunN … (dropZeroWidthModule b)` (if well-typed); `m` fixed to `0` in the conclusion only; `firstFn …` replaced by `fun _ => 0` in `hS`. The implementation records the real count of mutants that are well-typed; a planned mutant found ill-typed is dropped and reported. (3) closure audit with root self-judgement, `missing` failing, for each of the three roots; controls inside `withoutModifyingEnv`: absent root, forbidden root (a real existing forbidden constant such as `Tools.ShippingMemo.memoInv_hit`, distinct from unknown), helper VALUE unknown, helper TYPE-only unknown, good fixture — reusing `fbReach`/`auditOk`/`addFixture`; (4) AXIOMS standard only, `sorry` 0; (5) real counts by category. A Pod build by this unit is not a clean build; the clean issue-linked build is the coder's.
+
+### 33.5 What this section does not claim
+The fragment theorem is conditional on `EntryDefines`, `WF`, `0 < n` and the pointwise premise `hS` on the package's `S` (not supplied here), covers first-gate fragments only, and says nothing about non-fragment declarations. It does not use or replace FB-21's clean-up-arm theorem; it gives a `ChildRunN` for the returned `b` on both `PPRel` arms. Instance-bearing bodies, the non-fragment `mergeChecked` arm, T-LEG, T-MEMO (hit, nested miss, K4), M4 and FG stay unsupplied on the routes read; no law is adopted. Issue, M4 and FG are not complete.
