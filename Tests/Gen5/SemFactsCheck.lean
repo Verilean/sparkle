@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemFacts
 import Tests.Gen5.SemCausalCheck
 set_option autoImplicit false
--- NOT BUILT yet (U6B check). No sorry/axiom/native_decide.
+-- Pod incremental build (kjob lake build Tests.Gen5.SemFactsCheck) exit 0 (714 jobs) on the content of a00f8017 (Lean/lakefile identical to the commit); clean issue-linked build is the coder's. No sorry/axiom/native_decide.
 /-! # DG-SEM U6B check (Tools/ShippingGen5SemFacts.lean; scripts/gen5/DG_SEM_FREEZE_P6D.md §3.1)
 
 * TYPE    — `genFacts_gen`, `genFacts_comb`, `genFacts` by statement against `Exp*` written here from the sentences of §3

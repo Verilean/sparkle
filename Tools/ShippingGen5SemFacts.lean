@@ -1,6 +1,6 @@
 import Tools.ShippingGen5SemCausal
 set_option autoImplicit false
--- NOT BUILT yet (U6B implementation, freeze scripts/gen5/DG_SEM_FREEZE_P6D.md §3). No sorry/axiom/native_decide.
+-- Pod incremental build (kjob lake build Tools.ShippingGen5SemFacts) exit 0 on the content of a00f8017 (Lean/lakefile identical to the commit); clean issue-linked build is the coder's. No sorry/axiom/native_decide.
 /-! # DG-SEM U6B (scripts/gen5/DG_SEM_FREEZE_P6D.md §3): `genFacts_gen`, `genFacts_comb`, `genFacts`
 
 `FactsOf (genSemI Q X g)`: the `.gen` arm (`GenFacts`, conditional on `CalleesCausal Q g.d` for its `causal` field only, through
