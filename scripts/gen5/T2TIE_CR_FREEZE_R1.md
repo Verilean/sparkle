@@ -110,3 +110,9 @@ by the comparator; rejection is by signature/defeq only and is NOT a semantic co
 
 Also: closure walker (unknown name = FAIL, with the r6 negative control); forbidden roots (`T1Hyp.dec`, `T1Hyp` projections, `stop_of_run`); AXIOMS standard only; no `sorry`/`axiom`/`native_decide`.
 Not claimed: any supply of `hDG_GENP`/`hDG_SEM`/`hDG_SEM_range`, the group field row, or the rows in §3'(b)-(d); the build is run by the coder with a clean exact-head job, not by this freeze.
+
+## 6'. Sync notes (non-blocking, no type change; added at implementation)
+
+1. `closingRun_of_run_ga` takes only `hrow`; `hrows` is not a binder of it. The direct candidate for `hord` is `hrow`; `hrows` (DataRows) belongs to the PostFacts/IH supply route (§3'(c)).
+2. The T2Tie names (`FieldRowAt`, `CallTie`, `GenExtAtCall`, `CallOutRange`, `callTie_of_served`) live in namespace `Tools.ShippingGen2`, which the `ClosingRun2` header already opens (`open Tools.ShippingGen2 …`); there is no `Tools.ShippingGen5T2Tie` namespace, so no extra `open` was needed and the types are unchanged.
+3. Implementation: `Tools/ShippingGen5T2TieCR.lean` (3 theorems), `Tests/Gen5/T2TieCRCheck.lean` (5 TYPE comparisons incl. 2 positive controls, 20 mutant definitions covering M1-M12, 3 closure audits, 3 axiom checks). Pod build of both targets exit 0; clean exact-head build is the coder's. Scope unchanged: one-output C1-C4 only; not a supply of GENP/SEM/range/group/FG or Issue completion.
