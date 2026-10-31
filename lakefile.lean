@@ -4841,3 +4841,9 @@ lean_lib «Tools.ShippingGen4ParamBridgeSpecExpr» where
 
 lean_lib «Tests.Gen4.ParamBridgeSpecExprCheck» where
   roots := #[`Tests.Gen4.ParamBridgeSpecExprCheck]
+
+lean_lib «Tools.ShippingGen4ParamBridgeLegal» where
+  roots := #[`Tools.ShippingGen4ParamBridgeLegal]
+
+lean_lib «Tests.Gen4.ParamBridgeLegalCheck» where
+  roots := #[`Tests.Gen4.ParamBridgeLegalCheck]
