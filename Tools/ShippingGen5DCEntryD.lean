@@ -1,6 +1,6 @@
 import Tools.ShippingGen5DCEntry
 set_option autoImplicit false
--- Built: agent build `kjob lake build Tools.ShippingGen5DCEntryD` exit 0, 252 jobs, at the g5dc-r11 Lean commit (NOT clean-built; clean issue-linked build is the coder's). U-POSTD, scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §9 (freeze 3e5b5add approved)
+-- Built: issue-linked build dc11v-4523f2e9 (`kjob lake build Tests.Gen5.DCEntryDCheck`, which includes this file) exit 0, 747 jobs, approved at 4523f2e9 (incremental build, source=base=end, dirty=false). U-POSTD, scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §9 (freeze 3e5b5add approved)
 
 /-! # DC-CONNECT U-POSTD: the module and the returned design of the default entry, in the same branch
 
