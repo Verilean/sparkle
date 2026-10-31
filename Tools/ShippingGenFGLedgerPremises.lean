@@ -7,7 +7,7 @@ import Tools.ShippingReaderFuelShape
 import Tools.ShippingStRefCorrespondence
 import Tools.Prototype.DGenStored2
 set_option autoImplicit false
--- NOT BUILT (agent has not yet built this tree; the clean build is the coder's).
+-- Built at 9cb96b88c9999b3420d576b6cc49713caad80bf5 (agent incremental `kjob lake build`, exit 0; the clean issue-linked build is the coder's).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # FG ledger premises: the typed part of the stage-2 plan (scripts/gen2/PREMISE_LEDGER.md §8.3, approved design)
