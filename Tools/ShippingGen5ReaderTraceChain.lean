@@ -1,6 +1,6 @@
 import Tools.ShippingGen5ReaderTraceArms
 set_option autoImplicit false
--- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceChain, exit 0, 724 jobs) on the tree of a2005315 (source content identical; this header is comment-only). Written against freeze rev4 `scripts/gen5/DG_READERTRACE_FREEZE_REV4.md` (approved at bc6b1e12). Clean issue-linked build: pending (coder). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceChain, exit 0, 724 jobs) on the tree of a2005315 (source content identical; this header is comment-only). Written against freeze rev4 `scripts/gen5/DG_READERTRACE_FREEZE_REV4.md` (approved at bc6b1e12). Clean issue-linked build: rt10v-04b00b00 exit 0 (726 jobs, dirty=false) at 04b00b00c797a6fad7af564f46cc5768d6d2322f. No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R3b: the two non-`letE` arms of `chainStep` (`pure'`, `bind`/`next`)
 
