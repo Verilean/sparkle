@@ -42,6 +42,9 @@ theorem hT1 : True := helperT1
 -- unresolved-name carriers (the name is hidden by the walker's lookup)
 theorem hv : True := helperClean
 theorem ht (_ : helperTy) : True := trivial
+-- root -> existing helper -> unknown name occurring ONLY in the helper's type (root type and value never mention helperTy)
+theorem helperHt : helperTy := trivial
+theorem ht2 : True := helperHt
 -- clean controls
 theorem cUnrelated : True := trivial
 theorem cBinders {σ : Type} (r : IO.Ref σ) (_ : Tools.ShippingStRefCorrespondence.ReadWorld r) : True := trivial
@@ -226,6 +229,8 @@ def reach (forbid : List Name) (root : Name) (hidden : Option Name := none) (cap
     i := i + 1
     out := { out with visited := out.visited + 1 }
     if out.visited > cap then throwError "ENVFRAME AUDIT INCOMPLETE at {root}"
+    -- the root / dequeued constant itself is judged too (not only its dependencies)
+    if forbid.contains c then return { out with hit := some path }
     let some ci := lookup c | throwError "ENVFRAME AUDIT UNRESOLVED NAME {c} (path {path})"
     let body := body? ci
     if badProj ci.type || (body.map badProj).getD false then
@@ -270,22 +275,39 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     logInfo m!"ENVFRAME CONTROL {c}: flagged {toString r.hit}; intended {t} alone {toString rt.hit}"
   -- unresolved names must throw (and name the right constant)
   let missing := `Tests.Gen5.EnvFrameFixture.noSuchRoot
-  let unres : List (Name × Option Name × Name) :=
-    [(missing, none, missing), (F ++ `hv, some (F ++ `helperClean), F ++ `helperClean),
-     (F ++ `ht, some (F ++ `helperTy), F ++ `helperTy)]
+  -- (root, hidden, expected unresolved name, names that must lie on the reported path)
+  let unres : List (Name × Option Name × Name × List Name) :=
+    [(missing, none, missing, []), (F ++ `hv, some (F ++ `helperClean), F ++ `helperClean, []),
+     (F ++ `ht, some (F ++ `helperTy), F ++ `helperTy, []),
+     (F ++ `ht2, some (F ++ `helperTy), F ++ `helperTy, [F ++ `ht2, F ++ `helperHt])]
   let mut nUnres : Nat := 0
-  for (c, hid, nm) in unres do
+  for (c, hid, nm, via) in unres do
     let ok ← try
         let _ ← reach forbid c hid
         pure false
       catch e =>
         let msg ← e.toMessageData.toString
-        pure (msg.startsWith "ENVFRAME AUDIT UNRESOLVED NAME" && (msg.splitOn (toString nm)).length > 1)
+        let has (n : Name) := (msg.splitOn (toString n)).length > 1
+        -- the reported unresolved name is exactly nm, and the path runs through every `via` constant
+        pure (msg.startsWith s!"ENVFRAME AUDIT UNRESOLVED NAME {nm} " && via.all has)
     unless ok do throwError "ENVFRAME AUDIT FAILED: unresolved {nm} under root {c} did not throw"
     nUnres := nUnres + 1
-    logInfo m!"ENVFRAME CONTROL unresolved {nm} under {c}: throws"
+    logInfo m!"ENVFRAME CONTROL unresolved {nm} under {c} via {via}: throws"
+  -- the root itself is a forbidden constant: reach must hit with the path [root] (both the full list and [root] alone)
+  let selfRoots : List Name :=
+    [``Tools.ShippingEnvSnapshot.GetEnvFrame, ``Tools.ShippingGen2.T1Hyp.defines,
+     ``Tools.ShippingGen2.T1HypND.defines, ``Tools.ShippingGen2.Laws.O, ops ++ `frame, ops ++ `casesOn,
+     ``Tools.ShippingStRefCorrespondence.getEnvFrame_of_readKeeps]
+  let mut nSelf : Nat := 0
+  for t in selfRoots do
+    unless forbid.contains t do throwError "ENVFRAME AUDIT FAILED: self-root {t} not forbidden"
+    for fl in [forbid, [t]] do
+      let r ← reach fl t
+      unless r.hit == some [t] do throwError "ENVFRAME AUDIT FAILED: forbidden root {t} itself not flagged ({toString r.hit})"
+    nSelf := nSelf + 1
+    logInfo m!"ENVFRAME CONTROL self-root {t}: flagged as the root itself"
   -- clean controls (and the carriers of the unresolved cases WITHOUT hiding)
-  let clean : List Name := [F ++ `cUnrelated, F ++ `cBinders, F ++ `cBinders2, F ++ `cHelper, F ++ `hv, F ++ `ht]
+  let clean : List Name := [F ++ `cUnrelated, F ++ `cBinders, F ++ `cBinders2, F ++ `cHelper, F ++ `hv, F ++ `ht, F ++ `ht2]
   let mut nClean : Nat := 0
   for c in clean do
     let r ← reach forbid c
@@ -302,7 +324,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     if let some p := r.hit then throwError "ENVFRAME AUDIT FAILED {c}: forbidden use via {p}"
     nRoots := nRoots + 1
     logInfo m!"ENVFRAME REACH {c}: clean, type and value (visited {r.visited})"
-  logInfo m!"ENVFRAME CLOSURE total: {nRoots} roots / negatives {nNeg} ({direct.length} direct + {helper.length} helper) + {nUnres} unresolved / {nClean} clean"
+  logInfo m!"ENVFRAME CLOSURE total: {nRoots} roots / negatives {nNeg} ({direct.length} direct + {helper.length} helper) + {nUnres} unresolved + {nSelf} self-root / {nClean} clean"
 
 /-! ## 3. Axioms -/
 run_cmd Lean.Elab.Command.liftTermElabM do
