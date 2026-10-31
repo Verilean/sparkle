@@ -28,6 +28,8 @@ namespace Tools.ShippingGen5Acc
 open Lean Meta Sparkle.Compiler.Elab Tools.ShippingGen2 Tools.ShippingGen5Sem
 open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry Tools.ShippingMachineAuto
 open Tools.ShippingMachineClosesData
+open Tools.ShippingMixedSourceBridge (inputExpr)
+open Tools.ShippingUnifiedSource (quote)
 
 /-- Conjuncts 1-3 of `dataOfAt_sound` / `dataOfFrom_sound`, for the kit's `dataOf`. -/
 def DataSound (K : AssignKit ι dom env₀) : Prop :=
