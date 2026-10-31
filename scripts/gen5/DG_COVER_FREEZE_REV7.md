@@ -22,8 +22,8 @@ Findings (S1-S5). Each is "what this investigation found", not a proof that noth
 * **S2. `FStep` does not cover every state write of the fuel reader.** `FStep` has constructors for `lets`, `insts`(+`instOrigins`), `kinds`/`inits`/`names` and `ws` only. `readF` also writes `dom` (`ShippingReaderFuelDefs.lean:318, 420, 450, 585`),
   `nested`/`inInner` (`:408`), `loops` (`:586`), `runs` (`reserved`, `ShippingReaderLenOk.lean:176`), often in the same record update as a covered field (e.g. `:317-318` pushes `kinds/inits/names` **and** sets `dom`).
   So the sentence "every reader step is an `FStep`" is **not available as typed**: those updates are not `FStep` results. The fields `dom/nested/loops/inInner/runs` are not read by `CallOrderInv`, `RangeInv`, `OrigAligned`, `EntryKinds`
-  (they read `lets, insts, instOrigins, kinds, inits(size via LenOk elsewhere), ws`; `callOrderInv_congr`/`rangeInv_mono_aux` show the congruence). This investigation found no route to R-trace that avoids extending the step relation;
-  the extension below (`FReachC`, a `ctrl` step on the non-read fields) is new content in a new file, with `Cover3` untouched.
+  (they read `lets, insts, instOrigins, kinds, inits(size via LenOk elsewhere), ws`; `callOrderInv_congr`/`rangeInv_mono_aux` show the congruence). This investigation did not look for another way to state R-trace; the route **adopted in this plan** is to extend the step relation
+  (below, `FReachC`, a `ctrl` step on the non-read fields), as new content in a new file with `Cover3` untouched. (rev7.1: this is a choice of plan, not a claim that the extension is indispensable for every `TraceGood`.)
 * **S3. `nDecl` is not a quantity of the fuel run.** `_machIn i` is created only by `convBvar` (`ShippingReaderFuelDefs.lean:255`: `machIn (j - d - env.length)` for a **loose bvar** of the input expression). Hence R-in
   ("every `_machIn i` mentioned by a pushed let has `i < nDecl`") needs: (a) a loose-bvar bound `< d + env.length + nDecl` on the expressions handed to the reader; (b) the same for placeholders already present in `env` values;
   (c) that `rootFloat`/`liftLooseBVars`/`instantiate1`/`bundleIota` and `senv.instS` types keep these bounds. (a) and (b) are input conditions; (c) are the **extern/partial** facts that `machConvF_post` already carries only for `LetOk`
@@ -37,10 +37,10 @@ Findings (S1-S5). Each is "what this investigation found", not a proof that noth
 
 | row | status | named premise(s) that remain (all UNPROVED, none an axiom here) | supplier Issue |
 |---|---|---|---|
-| 1 R-trace | **未供給 / この調査で経路未発見** for `readF` calls. Closable in-tree: the **step relation extension** and the `machReserve` step (U-E3a). | `TraceGood` (below): a per-call joint invariant (new induction over the seven `readF` bodies, mirror of `readF_good`) | none assigned. No existing Issue found whose scope is the reader's range/trace invariant (`dg-readkinds` = top-level `Read` record; `dg-dataof` = `d`; `dg-sem` = `genSem`). Proposal: manager to open an Issue "reader trace invariant TraceGood" (this Issue changes no other Issue) |
-| 2 R-in | **未供給 / 経路未発見** | `ShapeInputs nDecl …` (loose-bvar / placeholder input bounds, S3 a,b); `RootFloatPh, LiftPh, Inst1Ph, BundleIotaPh, SigTyPh` (S3 c) | same proposal; `SigTyPh` is an environment condition (`structEnv`) |
-| 3 R-nl | **未供給 / 経路未発見** | loose-bvar fact of stored lets; `liftLooseBVars` extern | same proposal |
-| 4 R-dom | **未供給 / 経路未発見** (only the `_machLet` clause) | other three `PhInRange` clauses of `st.dom` | same proposal |
+| 1 R-trace | **未供給 / この調査で経路未発見** for `readF` calls. Closable in-tree: the **step relation extension** and the `machReserve` step (U-E3a). | `TraceGood` (below): a per-call joint invariant (new induction over the seven `readF` bodies, mirror of `readF_good`) | see §6 (rev7.1): no existing Issue's goal covers it; new Issue proposed (completion condition in §6.2) |
+| 2 R-in | **未供給 / 経路未発見** | `ShapeInputs nDecl …` (loose-bvar / placeholder input bounds, S3 a,b); `RootFloatPh, LiftPh, Inst1Ph, BundleIotaPh, SigTyPh` (S3 c) | §6 new Issue; `SigTyPh` is an environment condition (`structEnv`, DG-ENV `sparkle-gen5-dg-env` is the existing Issue for env facts) |
+| 3 R-nl | **未供給 / 経路未発見** | loose-bvar fact of stored lets; `liftLooseBVars` extern | §6 new Issue |
+| 4 R-dom | **未供給 / 経路未発見** (only the `_machLet` clause). **A separate obligation from U-E3a**: `CtrlEq` leaves `dom` free, so `FReachC`/`fullInv_reachC` give no information on `dom` (rev7.1) | other three `PhInRange` clauses of `st.dom` | §6 new Issue |
 
 Production connection stays through `ShapeFuelBridge` (`hbr`, assumed once, inline as in T6); nothing below mentions production.
 
@@ -78,7 +78,7 @@ If `fullInv_empty` already exists under another name in the tree it is not dupli
 
 What U-E3a does **not** do: it does not connect any `readF` call to `FReachC` (S1/S3), supplies no range, and is not an R-trace supply. It makes the closure *able to hold* the real writes (S2) and closes `machReserve` (S4).
 
-### 2.2 U-E3b — the connecting theorem (full type; **not implemented in this unit**, premises named)
+### 2.2 U-E3b — the connecting theorem (**ROADMAP, not a full type** (rev7.1): `TracePre`/`TracePost`/`ShapeInputs` bodies are undefined and the conclusion is abbreviated; **not implemented in this unit**, premises named)
 
 Reader-call helpers (new `def`s, pure projections): `Call.st : Call → MachRead` (the input state field of each constructor) and `Call.outSt : (c : Call) → c.Res → MachRead` (the output state of the result).
 
@@ -96,10 +96,10 @@ theorem machineShapeF_reach {n : Nat} {sm : Bool} {ps : List (String × Nat)} {c
     (hTG : TraceGood nDecl (readF senv n))
     (hIn : ShapeInputs nDecl sm ps ci senv) :
     ∃ (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (env : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
-      <the thirteen clauses of machineShapeF_state_side, same text> ∧
+      <the eleven clauses of machineShapeF_state_side, same text> ∧
       FReachC nDecl ({} : MachRead) st0 ∧ FReachC nDecl st0 st1 ∧ FReachC nDecl st1 st ∧ FullInv nDecl st
 ```
-The conclusion is exactly the thirteen T3 clauses ∧ `FReachC nDecl {} st0 ∧ FReachC nDecl st0 st1 ∧ FReachC nDecl st1 st ∧ FullInv nDecl st` (`FullInv` from `fullInv_reachC` + `fullInv_empty`).
+The conclusion is the eleven T3 clauses (six run equations `shapePre/machNormF/shapeStart/rootLets/shapeBody/shapePost`, `st.LenOk`, four facts `sp.insts/instOrigins/layout.slots/layout.lets`; rev7.1: the earlier "thirteen" was a miscount) ∧ `FReachC nDecl {} st0 ∧ FReachC nDecl st0 st1 ∧ FReachC nDecl st1 st ∧ FullInv nDecl st` (`FullInv` from `fullInv_reachC` + `fullInv_empty`).
 The root-value range `hv` of `resultRange_final` (row 8) is `InRange nDecl st1 st1.lets.size v`: it would be a further clause of `TracePost` for `chain`/`conv` (the returned expression); it is **not** part of this type until `TracePost` is fixed with its supplier.
 `ShapeInputs nDecl sm ps ci senv` and `TracePre/TracePost` are given only as the comments above in this revision: their precise bodies are fixed **only after U-E3a is built**, in a rev8 addendum together with the supplier decision. U-E3b is therefore *not* proposed for Lean in this unit.
 
@@ -107,8 +107,8 @@ Identification of `nDecl`: a later combination takes `hnD : nDecl = kDOf d` as a
 
 ## 3. Choice of the first unit, and why
 
-**U-E3a (§2.1).** Reasons: (1) everything it needs is in this tree (`FStep`, `FullInv` congruence lemmas, `reserved`, `machReserve_eq_spec`), no import of an unmerged branch, no premise; (2) S2 shows R-trace cannot even be *stated* as "each step is an `FStep`" without it,
-so it is the precondition of any `TraceGood` statement, and fixing it first avoids freezing a `TracePost` that the fuel reader's real writes cannot satisfy; (3) it pins the shape of the premise that U-E3b leaves open, without claiming a supply.
+**U-E3a (§2.1).** Reasons: (1) everything it needs is in this tree (`FStep`, `FullInv` congruence lemmas, `reserved`, `machReserve_eq_spec`), no import of an unmerged branch, no premise; (2) S2 shows R-trace cannot be *stated* as "each step is an `FStep`" with the current `FStep`; the extension is the way this plan states it (not the only conceivable one),
+so it is the precondition of the `TraceGood` statement **of this plan**, and fixing it first avoids freezing a `TracePost` that the fuel reader's real writes cannot satisfy; (3) it pins the shape of the premise that U-E3b leaves open, without claiming a supply.
 Not chosen: U-E3b (needs the five ph-range premises and a new seven-way mutual induction; supplier Issue not assigned, so its body would be a conditional wrapper on its own conclusion), R-nl/R-dom (no route found, S5).
 
 ## 4. Checks planned (`Tests/Gen5/Cover6Check.lean`, form of `Cover5Check.lean`; real counts with category and rule: one compared declaration = 1)
@@ -123,6 +123,29 @@ Not chosen: U-E3b (needs the five ph-range premises and a new seven-way mutual i
 ## 5. Not claimed
 
 * R-trace for `readF` calls, R-in, R-nl, R-dom: **未供給 / この調査で経路未発見**. U-E3a is a step-relation extension and the `machReserve` step; it is not a supply of any of rows 1-4.
-* `TraceGood`, `ShapeInputs`, the five ph-range premises, `hnD : nDecl = kDOf d`: unsupplied named premises; no supplier Issue exists yet (proposal in §1, to be made by the manager; this Issue changes no other Issue).
+* `TraceGood`, `ShapeInputs`, the five ph-range premises, `hnD : nDecl = kDOf d`: unsupplied named premises; supplier per row in §6 (rev7.1).
 * Row 6b, `ShapeFuelBridge` (`hbr`), `LetQuoteEq`, `LetsNoLoose`, `FullInv` for a real run, `d.ok` for a run, real reader coverage, B3: unchanged from rev5/rev6. Issue/FG not complete.
 * No new law, TRUSTED boundary, FG/guarantee change, compiler or shared-definition change; `GenWF` not strengthened.
+
+## 6. rev7.1 addendum (wording corrections + supplier assignment; docs only, no Lean changed)
+
+### 6.1 Corrections to rev7
+* "Extension is indispensable" is **not** claimed: `FReachC` is the route adopted in this plan (S2, §3).
+* §2.2 (U-E3b) is a **roadmap**: `TracePre`/`TracePost`/`ShapeInputs` have no body and the conclusion is abbreviated. It is not a complete type and is not proposed for Lean.
+* T3 (`machineShapeF_state_side`, Cover5) has **11** clauses: 6 run equations + `LenOk` + 4 facts (rev7 wrote "thirteen").
+* R-dom is a separate obligation: `CtrlEq` lets `dom` change freely, so U-E3a preserves `FullInv` (which does not read `dom`) and says nothing about `dom`.
+* The supply of `FReachC` for actual `readF` calls (the connection S1/S3) is **not done**: U-E3a only makes the closure able to hold the writes of S2 and closes `machReserve`.
+
+### 6.2 Supplier per row (checked against the Issue goals/notes listed by `managerctl plan list`; this investigation compared goals and latest notes only)
+| item | supplier Issue | basis / overlap check |
+|---|---|---|
+| row 6b (`hsp/hss/hls/hn`), `nDecl = kDOf d` identification on the same `d` and `sp` | `sparkle-gen5-dg-dataof` | its note: row 6b projection lemmas (dims/nIn/sound_dims) built by g5do-r6; `s = sp` identification is a consumer-side assumption there |
+| `hbr` (`ShapeFuelBridge`: production `machineShape?` ↔ fuel `machineShapeF`) | `sparkle-gen5-reader-bridge` | its goal: "fuel版の正しさだけでproductionとの同一性を主張しない" |
+| `SigTyPh` / structEnv conditions, SigEq at every world | `sparkle-gen5-dg-env` (existing env Issue); reader-bridge Q3 | goal "one environment across runs (C0 incl. inst/instS SigEq)" |
+| B3 `MemSrcKinds/ReadTyped` (memory argument sorts) | `sparkle-gen3-src-argw` | its note: B3 is owned by SRC-ARGW |
+| `LetOk`-range of top-level `Read` record | `sparkle-gen5-dg-readkinds` | goal: reader kinds / `Read` record; **not** the `readF` call-level range/trace invariant |
+| **R-trace (`TraceGood`), R-in (`ShapeInputs`, ph-range of `RootFloat/Lift/Inst1/BundleIota/SigTy`), R-nl, R-dom (3 clauses), `readF` calls ⇒ `FReachC`** | **no existing Issue** (new Issue needed) | SRC-ARGW's scope is call-argument *widths* (let-index fresh vs reuse, `bsIn` vs `telescopeKinds`), not placeholder `_machIn` ranges, loose-bvar facts or step traces; READKINDS is the top-level record; DATAOF is `d`; SEM is `genSem`. Overlap with SRC-ARGW possible only on the shared lemma `readF` call-index, to be coordinated, not merged |
+
+Proposed new Issue (creation by the coder, not by this agent): **`sparkle-gen5-dg-readertrace`** under `sparkle-gen5-package-coverage`.
+Completion condition draft: "Full-type freeze of `TracePre/TracePost/TraceGood/ShapeInputs`, then kernel proof (new files, mirror of `readF_good` over the seven `readF` bodies) of `TraceGood nDecl (readF senv n)` including `FReachC` from each call's input to output state, R-in/R-nl/R-dom range clauses, and U-E3b `machineShapeF_reach`; the extern/partial facts (`RootFloatRange, LiftRange, Inst1Range, BundleIotaRange, SigTyRange` placeholder/loose-bvar versions) are either proved or kept as exactly-named conditions; expected-type/closure/axiom audit; clean issue-linked build; reviewer acceptance. No new TRUSTED/law/compiler change, no `GenWF` strengthening; conditional results are intermediate."
+Dependencies: `sparkle-gen5-dg-cover` (U-E3a, this Issue), `sparkle-gen5-dg-env` (SigTy), `sparkle-gen5-dg-dataof` (nDecl identification).
