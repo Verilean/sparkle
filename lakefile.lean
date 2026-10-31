@@ -4823,3 +4823,9 @@ lean_lib «Tools.ShippingGen4ParamBridgeCompose» where
 
 lean_lib «Tests.Gen4.ParamBridgeComposeCheck» where
   roots := #[`Tests.Gen4.ParamBridgeComposeCheck]
+
+lean_lib «Tools.ShippingGen4ParamBridgeWidth» where
+  roots := #[`Tools.ShippingGen4ParamBridgeWidth]
+
+lean_lib «Tests.Gen4.ParamBridgeWidthCheck» where
+  roots := #[`Tests.Gen4.ParamBridgeWidthCheck]
