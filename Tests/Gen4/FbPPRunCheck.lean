@@ -2,7 +2,8 @@ import Tools.ShippingGen4FbPPRun
 import Tests.Gen4.FbPPCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (unit FB-18). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §27.3/§27.4. Reuses `fbReach`/`auditOk`/`addFixture`
+-- BUILT (unit FB-18): kjob lake build Tests.Gen4.FbPPRunCheck exit 0 (815 jobs, Pod build at e9fc8213); clean issue-linked build fb18v-e9fc8213 exit 0 (815 jobs, dirty=false; approved at e9fc8213): TYPE 2 / MUTANT REJECTED 9 / AXIOMS 2 (standard only), sorry 0.
+-- Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §27.3/§27.4. Reuses `fbReach`/`auditOk`/`addFixture`
 -- of Tests.Gen4.FbPPCheck.
 -- All TYPE/MUTANT comparisons run under `withReducible` (one comparator; default-transparency `isDefEq` unfolds
 -- `synthesizeCombinationalCore` and exhausts heartbeats).
@@ -41,7 +42,7 @@ def ExpLookupRun : Prop :=
       (∀ y : String, y ≠ M.name →
         moduleByName D'.modules y = moduleByName D.modules y)
 
--- single-change mutants (each well typed)
+-- single-change mutants (each well typed). MutLkSelfName changes only the looked-up name (`M'.name` -> `M.name`) and keeps `= some M'`.
 def MutPPSwap : Prop :=
   ∀ {declName : Lean.Name} {mctx : Lean.Meta.Context}
     {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context}

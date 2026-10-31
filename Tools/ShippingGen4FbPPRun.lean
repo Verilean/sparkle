@@ -1,7 +1,7 @@
 import Tools.ShippingGen4FbPPLookup
 import Tools.ShippingMachineDepthRunR
 set_option autoImplicit false
--- NOT BUILT (unit FB-18): written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §27.3 (committed before this file).
+-- BUILT (unit FB-18): kjob lake build Tools.ShippingGen4FbPPRun exit 0 (703 jobs, Pod build at e9fc8213); clean issue-linked build fb18v-e9fc8213 exit 0 (815 jobs, dirty=false; approved at e9fc8213, scope-limited to the two theorems). Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §27.3 (committed before this file).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 
 /-! # FB-18: T-PP-RUN — a real run of the full entry gives `PPRel`
