@@ -364,3 +364,6 @@ each will be re-frozen with a complete telescope before implementation. Ownershi
 - No supplier is claimed for `GenIn`, `GenWF` coverage, `S1`–`S3`, `houtTy`, `CallOutWidthAt`, callee causality, `Acc`, `GenExtAtCall`/`HPointG`.
 - MUTANT results are signature/defeq rejections, not semantic counterexamples. The closure audit is a constant-reference walk (kernel terms, current environment), not a semantic or compiled-code audit; the axiom audit is separate.
 - No FG/M5 completion; no change to FG, a shared definition, the compiler, or any law; no coverage narrowing, no `GenWF` strengthening.
+
+## 10. Implementation addendum (g5sm-u4)
+`typedVal_let_congr` (§5.2) was not provable as stated (its off-sort conjunct is not implied by `hb`/`hv`); see `scripts/gen5/DG_SEM_FREEZE_P4_U4E_ADDENDUM.md`. All other statements of §3–§5 are implemented as frozen (U4A–U4F); `lsrcAt_congr` is proved with the frozen statement via the internal sort-aware `typedVal_let_agree`.
