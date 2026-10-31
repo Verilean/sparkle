@@ -1355,3 +1355,110 @@ Files: `Tools/ShippingGen4FbMachInv.lean`, `Tests/Gen4/FbMachInvCheck.lean`, two
 - Check: `A4MachineSideInv` value and type compared with `ExpSideInv` (body of `A4MachineSideA` ShippingGen4FbR4.lean:77-101 with `O := L.O`, plus the three conjuncts, fully expanded) and the three theorems with Expected typed again; two projection theorems (`sideInv_to_sideA`, `extract_to_fb4`) in the check file.
 - Not supplied: T-LEG, T-MEMO, K4, T-PP, machine-route meaning (`runsS` → `ChildShips`); no law adopted; Issue / M4 / FG are not complete. The clean issue-linked build is the coder's.
 - Pod builds (exit 0, each alone, NOT clean issue-linked builds): `Tools.ShippingGen4FbMachInv` (760 jobs), `Tests.Gen4.FbMachInvCheck` (811 jobs). Check output, by category: TYPE OK 5 (definition value 1, definition type 1, theorems 3; the 3 theorem comparisons are accepted by logged `isDefEq` against the `ExpSideInv`/`ExpR4RunInvT5` copies, fallbacks 3 counted separately; the definition value/type comparisons were syntactic); MUTANT REJECTED 16 (well-typed single changes, signature/defeq rejections by the same comparator, NOT semantic counterexamples: 4 on the definition value [w₅ conjunct dropped, `JQC` for `InvAt`, depth `D`, `w₆` for `w₅`], 5 on `tFin0_of_a4MachineSideInv` [conclusion depth 1, start world, `JQC` only, hypothesis depth 1, `hA` dropped], 3 on the extraction [`hC` dropped, `A4MachineSideA` in place, `R4RunInv` in place of `R4RunInvT` (dropped conjunct)], 4 on `_both` [conclusion conjunct dropped, conjunct inside the second disjunct only, `hC` at depth 0, `A4MachineSideA` in place]); REACH 6 (4 theorems/def + 2 projections; `missing = 0`, no `Tools.ShippingMemo.*`); controls 9 (absent root → missing 1 and assertion failed as expected, raw proj flagged, 3 bad fixtures flagged, 4 non-flag: unrelated, FB-3, FB-7, FB-11 theorems); AXIOMS OK 6 (standard three). `sorry` 0. Counts are numbers of checks that ran by category; summary lines excluded.
+
+---
+
+## 23. FB-14: survey of T-LEG / T-MEMO / T-PP from T-MACH-INV, and the next unit (T-PP-PORTS: the port/shape part of the post-processing) — complete types (rev13; text for review)
+
+- **Status.** Docs, committed BEFORE the Lean file of this unit. Base `c435c90a` (= `4e639a94`, T-MACH-INV, FB-13 approved: `A4MachineSideInv` / `a4_inv_side_or_tail` / `tFin0_of_a4MachineSideInv` / `a4_inv_tail_fin0_both`; clean build `fb13vb-c435c90a` exit 0, 811 jobs). No new law, no `Laws` field, no TRUSTED boundary, no shared-definition / compiler edit, no FG/guarantee change, `stop_of_run` untouched. "Unsupplied / route not found in this survey" means this survey found no supplier in the files read; it does NOT say a row is false or underivable. Mutants in the planned check are signature/defeq rejections, not semantic counterexamples.
+- **Process note.** The unit instruction orders "freeze commit, then implement". The common rule asks for freeze approval before Lean. This unit follows the unit instruction; the Issue stays `doing`, and the Lean commit is reported as written before a reviewer saw §23. If the reviewer rejects §23.3, the Lean commit is the thing to revert; nothing built here is relied on by an approved file.
+- **Names §12 uses but this tree lacks** are as in §19 (`ChildShipsI`, `ChildIface.ofPkg`); statements here read `ChildRunN` / `ChildShips`, which exist in this tree (`Tools/ShippingGen2Defs.lean:60-92`).
+
+### 23.1 Survey (row → names read in this pass → gap → verdict)
+| row | existing names (file:line) | what they state | gap | verdict |
+|---|---|---|---|---|
+| T-LEG (miss arm) | unchanged since §21.1: `legacy_entry_walk(_in/_at)`, `legacy_entry_output(_walked)`, `outer_miss` carry `hmach : machineShape? … = none`; `grep -rl legacyTail Tools Tests` finds it only in the FB files, `ShippingMachineOutcomeA/A3/A4`, `ShippingChild{ComposeA,ComposeC,LegacyTailA,PinC,MainA}`, `ShippingGen2Keep`, `ShippingGen5RunReads`, `Tests/Compiler/ChildVertAuditTest`, `Tests/Gen5/RunReadsCheck`: all preservation or run-extraction statements, none states what `(m,d)` computes | — | the tail starts at `w₆` after the machine attempt; no register/instance contract; `LegacyDom`/`Value` scalar | **unsupplied / route not found in this survey** (no new route since §21.1) |
+| T-MEMO, hit | `memoInv_hit` (`ShippingMemoInv.lean:88`) over `RefLawsM`. This pass also read `RefLawsAOps` (`ShippingChildInvA.lean:263-294`): its fields frame `cv`/`sv`/`dv` and set `cv`/`dv`, there is NO field about the VALUE of `sparkleSubModuleCache` (the memo insert is only a framed `sideModify`, which is why FB-13 could keep `InvAt` across it) | | linking `sparkleSubModuleCache.get` to a content invariant needs `RefLawsM.memoGet`/`mval` on the route examined | **unsupplied on the examined route (goes through `RefLawsM`); a law there is the user's decision (§19.4 text unchanged, nothing added); other routes not examined** |
+| T-MEMO, nested miss / K4 | `memoInv_*`, `ArmObligations`, `MemoSound` (statements only) | | no theorem for "memo names ⊆ `childCache` names ∪ {top}" | **unsupplied / route not found in this survey** |
+| T-PP, run level | `dropZeroWidth_entry` (`ShippingPostSoundness.lean:519`), `dropZeroWidth_entry_order` (:953), `postprocess_sized`/`_facts`/`_order`: all take `PostReady M n` with `0 < n` (the shape of the ENTRY module); `refineCheck_transfer` (`ShippingRefineSoundness.lean:1039`) transfers runs for `refineCheck m o = true` (the `mergeChecked` accept case); `mergeChecked_inst` (`ShippingMachineShipsHier.lean:69`) / `mergeChecked_of_hasInst` (`ShippingMachineDepthRun.lean:85`): instance-containing body ⇒ `mergeChecked r = r`; `machine_ships_wiredSW` (machine route only) | run/body facts for specific classes | no theorem `ChildRunN … raw … → ChildRunN … out …` for an arbitrary `raw`: `PostReady` is not available for a legacy-tail `raw`, and the `dropZeroWidthModule` body rewrite (`dzStmt`) has no run-level transport lemma outside `PostReady` modules | **run part: unsupplied / route not found in this survey** |
+| T-PP, port/shape level | `dropZW_name` (`ShippingMachineDepthRun.lean:98`), `dropZW_inputs` (`ShippingOutsExtractedParts.lean:176`); `Sparkle.IR.ZeroWidth.dropZeroWidthModule` is `m` or `{ m with body, wires }` (`Sparkle/IR/ZeroWidth.lean:113`), so `outputs` is unchanged by construction; `mergeChecked_ports` (`Sparkle/IR/RefineCheck.lean:291`: inputs, outputs, wires), `mergeChecked_name` (`ShippingMachineDepthRunR.lean:51`) | name / inputs / outputs / wires preserved | the six non-run conjuncts of `SeqChildRunN` / `CombChildRunN` read only `mc.inputs` and `mc.outputs` (plus the interface data `bsC`, `outsC`), so they transfer along `PPRel` | **to be proved from existing parts (this unit)** |
+
+### 23.2 Selection and reason
+First unit: **T-PP-PORTS** (FB-14). The port/shape part of T-PP is the only unsupplied piece whose supply is made of existing lemmas plus a case split on `PPRel`: no `RefLawsM`, no law, no shared definition. It is a **partial** supply of T-PP: it covers the non-run conjuncts of `ChildRunN` (and the module names of the rewritten design) and **not** the run conjunct (`∀ T ins s vals … RunOn …`), which stays unsupplied. T-LEG and T-MEMO have no closable piece in this survey. Preservation-class (P)/shape-class only: nothing here relates `(m, d)` to `q.S`.
+
+### 23.3 Complete types (target; each hypothesis and binder written out)
+Namespace `Tools.ShippingGen4FbPP` (new file `Tools/ShippingGen4FbPP.lean`, `import Tools.ShippingGen2Defs`, `set_option autoImplicit false`). `ChildRunN` is `Tools.ShippingGen2.ChildRunN`, `SeqChildRunN` is `Tools.ShippingMachineDepth.SeqChildRunN`, `CombChildRunN` is `Tools.ShippingGen2.CombChildRunN`, `argPorts` is `Tools.ShippingMachineCompose.argPorts`, `MixedGateBinder` is `Sparkle.Compiler.Elab.MixedGateBinder`, `OutField` / `WEnv` as in those files.
+```lean
+/-- Elab.lean 5598-5606: the post-processing of `synthesizeCombinationalWith` (§12.6). -/
+def PPRel (raw : Sparkle.IR.AST.Module) (dsg : Sparkle.IR.AST.Design)
+    (out : Sparkle.IR.AST.Module) (dout : Sparkle.IR.AST.Design) : Prop :=
+  let top : (Sparkle.IR.AST.Module → Sparkle.IR.AST.Module) → Sparkle.IR.AST.Design →
+      Sparkle.IR.AST.Design := fun f d =>
+    { d with modules := d.modules.map fun x => if x.name == raw.name then f x else x }
+  let m' := Sparkle.IR.ZeroWidth.dropZeroWidthModule raw
+  let d₁ := top Sparkle.IR.ZeroWidth.dropZeroWidthModule dsg
+  (out = m' ∧ dout = d₁) ∨
+  (out = Sparkle.IR.RefineCheck.mergeChecked m' ∧ dout = top Sparkle.IR.RefineCheck.mergeChecked d₁)
+
+/-- The six non-run conjuncts of `SeqChildRunN` (Tools/ShippingMachineDepth.lean:67-71), in order. -/
+def SeqPortFacts (mc : Sparkle.IR.AST.Module)
+    (bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)) (outsC : List OutField) : Prop :=
+  mc.outputs = outsC.map (fun o => ({ name := o.name, ty := o.ty } : Port)) ∧
+  (mc.inputs.map (·.name)).Nodup ∧ "clk" ∈ mc.inputs.map (·.name) ∧
+  "rst" ∈ mc.inputs.map (·.name) ∧
+  (∀ x ∈ mc.outputs.map (·.name), x ∉ mc.inputs.map (·.name)) ∧
+  (Tools.ShippingMachineCompose.argPorts mc).length =
+    (bsC.filter fun b => b.2 != .domain).length
+
+/-- The six non-run conjuncts of `CombChildRunN` (Tools/ShippingGen2Defs.lean:61-67), in order. -/
+def CombPortFacts (mc : Sparkle.IR.AST.Module)
+    (bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)) (outsC : List OutField) : Prop :=
+  mc.outputs = outsC.map (fun o => ({ name := o.name, ty := o.ty } : Port)) ∧
+  (mc.inputs.map (·.name)).Nodup ∧
+  "clk" ∉ mc.inputs.map (·.name) ∧ "rst" ∉ mc.inputs.map (·.name) ∧
+  (∀ x ∈ mc.outputs.map (·.name), x ∉ mc.inputs.map (·.name)) ∧
+  (Tools.ShippingMachineCompose.argPorts mc).length =
+    (bsC.filter fun b => b.2 != .domain).length
+
+theorem ppRel_ports {raw : Sparkle.IR.AST.Module} {dsg : Sparkle.IR.AST.Design}
+    {out : Sparkle.IR.AST.Module} {dout : Sparkle.IR.AST.Design}
+    (h : PPRel raw dsg out dout) :
+    out.name = raw.name ∧ out.inputs = raw.inputs ∧ out.outputs = raw.outputs
+
+theorem ppRel_design_names {raw : Sparkle.IR.AST.Module} {dsg : Sparkle.IR.AST.Design}
+    {out : Sparkle.IR.AST.Module} {dout : Sparkle.IR.AST.Design}
+    (h : PPRel raw dsg out dout) :
+    dout.topModule = dsg.topModule ∧ dout.modules.map (·.name) = dsg.modules.map (·.name)
+
+theorem ppRel_seqPortFacts {raw : Sparkle.IR.AST.Module} {dsg : Sparkle.IR.AST.Design}
+    {out : Sparkle.IR.AST.Module} {dout : Sparkle.IR.AST.Design}
+    {bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)} {outsC : List OutField}
+    (h : PPRel raw dsg out dout) (hs : SeqPortFacts raw bsC outsC) : SeqPortFacts out bsC outsC
+
+theorem ppRel_combPortFacts {raw : Sparkle.IR.AST.Module} {dsg : Sparkle.IR.AST.Design}
+    {out : Sparkle.IR.AST.Module} {dout : Sparkle.IR.AST.Design}
+    {bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)} {outsC : List OutField}
+    (h : PPRel raw dsg out dout) (hs : CombPortFacts raw bsC outsC) : CombPortFacts out bsC outsC
+
+theorem ppRel_childRunN_portFacts {raw : Sparkle.IR.AST.Module} {dsg : Sparkle.IR.AST.Design}
+    {out : Sparkle.IR.AST.Module} {dout : Sparkle.IR.AST.Design}
+    {children : String → Option (Sparkle.IR.AST.Module × WEnv)} {dsn : Design} {n : Nat}
+    {bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)} {outsC : List OutField}
+    {S : (Nat → List Nat) → List (Nat → Nat)}
+    (h : PPRel raw dsg out dout) (hr : ChildRunN children dsn n raw bsC outsC S) :
+    SeqPortFacts out bsC outsC ∨ CombPortFacts out bsC outsC
+```
+(`Port`, `OutField`, `WEnv`, `Design` are written exactly as in the files cited when the Lean is typed; if a name needs a namespace prefix, the Lean text uses the prefix and §24 records it. The binder names above are the ones the Check's `Expected…` copies use.)
+
+Proof plan (a plan, not a result): `ppRel_ports` — `rcases h` into the four equations, then `dropZeroWidthModule` is `m` or `{ m with … }` (`unfold; split <;> rfl` for name/inputs/outputs) and `mergeChecked_ports` / `mergeChecked_name`. `ppRel_design_names` — `rcases h`; `List.map_map` and the name of `if x.name == raw.name then f x else x` is `x.name` because `f` preserves names. The `SeqPortFacts`/`CombPortFacts` transfers rewrite `out.inputs`, `out.outputs` with `ppRel_ports` (each conjunct reads only those two fields and `bsC`/`outsC`). `ppRel_childRunN_portFacts` — `rcases hr` into `SeqChildRunN`/`CombChildRunN`, take its first six conjuncts (they ARE `SeqPortFacts`/`CombPortFacts raw`, by the definitions above) and apply the transfers. If a step does not go through the unit reports "not closed in this attempt" with the failing step.
+
+### 23.4 Supplier table
+| part | supplier | status |
+|---|---|---|
+| `out.name/inputs/outputs = raw.…` | `dropZW_name`, local `inputs`/`outputs` unfolding, `mergeChecked_ports`, `mergeChecked_name` | proof planned |
+| design names / `topModule` | `List.map_map` + the above | proof planned |
+| six non-run conjuncts of `SeqChildRunN` / `CombChildRunN` for `out` | `ppRel_ports` rewriting | proof planned |
+| the run conjunct (`RunOn … T ins s vals`) for `out` | none found: needs `ChildRunN raw → ChildRunN out` for `dzStmt`-rewritten body outside `PostReady`; for the `mergeChecked` accept case `refineCheck_transfer` is the closest | **unsupplied / route not found in this survey** |
+| the design side (`moduleByName dsn.modules out.name = some out`, `Dc`-extension premise of `ChildShips`) | not looked at beyond names | not in this unit |
+
+### 23.5 Planned checks (new files only; nothing run)
+Files: `Tools/ShippingGen4FbPP.lean`, `Tests/Gen4/FbPPCheck.lean`, two `lean_lib` entries in `lakefile.lean`. The common checker shape requested for this unit:
+1. TYPE: `PPRel`, `SeqPortFacts`, `CombPortFacts` (definition VALUES) and the five theorems against `Expected…` typed again in the check file from §23.3 (not copied from the Lean file), by ONE reducible comparator (`==`, then logged `isDefEq` fallback, fallbacks counted separately), the same comparator for positive and negative cases.
+2. MUTANTS (well-typed single changes to the Expected; signature/defeq rejections, NOT semantic counterexamples): `PPRel` with `!=` in `top`; with the second disjunct's `dout` not rewritten by `mergeChecked`; with `mergeChecked` missing in the second `out`; `ppRel_ports` with a conjunct dropped / `out.inputs = dsg…` replaced by `out.outputs = raw.inputs`; `ppRel_design_names` without `topModule`; `ppRel_seqPortFacts` concluding `CombPortFacts`; `ppRel_combPortFacts` with the hypothesis `SeqPortFacts`; `SeqPortFacts` with the `"rst" ∈` conjunct dropped; `CombPortFacts` with `"clk" ∉` turned into `"clk" ∈`; `ppRel_childRunN_portFacts` concluding the `Seq` disjunct only; with the `PPRel` hypothesis dropped.
+3. REACH/closure audit (common form): the walker tests the ROOT itself against the forbidden prefix `Tools.ShippingMemo` before expanding (root self-judgement), then the type and body of every reached constant (raw `Expr.proj` structure names included); a constant not found in the environment is recorded in `missing`, and `missing ≠ 0` makes the audit FAIL ("not established"). Controls with the same walker: root = a forbidden constant itself (flagged); absent root; a helper whose VALUE mentions an absent name; an existing helper whose TYPE only mentions an absent name; fixtures using `memoInv_hit` directly, through one helper, and `outer_miss` (flagged); a clean fixture and the built `a4_inv_tail_fin0_both` (not flagged, `missing = 0`). The invalid fixtures (declarations that mention absent names) are added with `addDeclWithoutChecking` inside `withoutModifyingEnv`, so the Check leaves the environment unchanged. The intended names are asserted (the audit list is compared with the expected list of new declarations; a name absent from the environment fails).
+4. AXIOMS ⊆ {propext, Classical.choice, Quot.sound}, `sorry` 0, no `native_decide`.
+5. Counts in reports are actual numbers of checks that ran by category with the aggregation rule stated; summary lines excluded. A Pod build by this unit is not a clean build; the clean issue-linked build is the coder's.
+
+### 23.6 What this section does not claim
+- T-PP is NOT supplied: only its port/shape part. The run part of `ChildRunN` after `dropZeroWidthModule` / `mergeChecked` is unsupplied (route not found in this survey), so `PPTransportStmt` (§12.6) is not provable from this unit.
+- T-LEG, T-MEMO (hit, nested miss, K4) are unsupplied; no law is added; §19.4 / §21.3 remain the text for the user to decide. A, `R4OutStmt`, Issue, M4 and FG are not complete.
