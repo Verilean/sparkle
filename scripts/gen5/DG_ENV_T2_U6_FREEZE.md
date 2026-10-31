@@ -65,3 +65,9 @@ Same discipline as `EnvCacheCheck`: `Tests.Gen3.ExpectedType` (`checkExpected`),
 ## 4. Not claimed
 * `hn`, `hN` and `QuietStrength` remain hypotheses; real-cache `hN`, a non-empty concrete example, `L′`, `hE`, `CellPrem`, `¬ DRow`, callbacks, C0, FG, M5 are not supplied and not touched (未供給 / この調査で経路未発見). This is bookkeeping between existing premises; it is not progress toward supplying them and is not Issue completion.
 * No new law or TRUSTED; no decision document is needed. Mutants are signature / defeq rejections, not semantic counterexamples. No edit of `Tools/ShippingGen2Defs.lean`, `T1Hyp`, `T1HypND`, `Elab*.lean`, compiler, FG or `GenWF`; only `lakefile.lean` (two `lean_lib` entries) among existing files.
+
+## 5. Wording corrections from the reviewer (no frozen type changes; recorded before the Lean is written)
+* M8 is the identity form of B4: its input `h : RealChildN L' env₀ c r` is already the conclusion `RealChildN L' env₀ c r`; it is NOT the B3 direction and does not need `hq`. It is kept only as a signature-rejection control (a different statement from B4 under the same comparator).
+* B2 `→`: introduce `hw : L.O.quiet w` and close with `((h w).mp hw).2`; `Iff.rfl` is not used. `←`: `fun h w => ⟨fun hw => ⟨hw, h w hw⟩, fun hw => hw.1⟩`.
+* B1 is proved by one constructor per direction (`Iff.intro`), removing the duplicated `ReadsAt` conjunct: `→` goes `h2` then `h1`; `←` goes `h1` then `h2`.
+* Real `hN`, non-empty example, `L′`, `QuietStrength`, C0 and FG remain unsupplied; these bookkeeping lemmas do not count as completion.
