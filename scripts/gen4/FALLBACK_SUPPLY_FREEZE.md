@@ -1571,3 +1571,11 @@ Files: `Tools/ShippingGen4FbPPRun.lean`, `Tests/Gen4/FbPPRunCheck.lean`, two `le
 
 ### 27.5 What this section does not claim
 The `ChildRunN` run conjunct across the clean-up, T-LEG, T-MEMO (hit, nested miss, K4), and the connection of `(M, D)` to what the entry computes stay unsupplied; no law is adopted; `PPTransportStmt` / `R4OutStmt` are not provable from this unit; Issue, M4 and FG are not complete.
+
+## 28. FB-18 implementation status (docs; Pod build only)
+
+- Implemented per §27.3 in `Tools/ShippingGen4FbPPRun.lean` (`synthesizeCombinational_ppRel`, `synthesizeCombinational_lookup`; types as in §27.3, proofs as planned: the text of `synthesizeCombinational_design` with `Or.inl ⟨rfl, rfl⟩` / `Or.inr ⟨rfl, rfl⟩`, then `ppRel_lookup_self` / `ppRel_lookup_other`). `Tests/Gen4/FbPPRunCheck.lean` and two `lean_lib` entries added. No built file, shared definition or compiler file edited.
+- Pod build (not a clean build): `Tools.ShippingGen4FbPPRun` exit 0 (703 jobs); `Tests.Gen4.FbPPRunCheck` exit 0 (815 jobs). Check: TYPE 2 / MUTANT 9 (4 on the first theorem, 5 on the second; each a single well-typed change, no block change; signature/defeq rejections, not semantic counterexamples) / AXIOMS 2 (standard only) / REACH 2 (missing 0, no `Tools.ShippingMemo.*`) / CONTROL 4 (absent root; real forbidden constant `Tools.ShippingMemo.memoInv_hit` judged as the root itself; unknown name via helper value and via helper TYPE only; good constant `ppRel_ports`). `sorry` 0.
+- Comparator note: TYPE and MUTANT run under `withReducible`. With default transparency the flag mutant (`synthesizeCombinationalCore declName [] true` vs `false`) makes `isDefEq` unfold the core and exhaust the heartbeats; all 11 comparisons use the same reducible comparator.
+- Overlap recorded (not deduplicated here): `DCEntryD.PostEntry` (g5dc) is, as read, the same relation as `PPRel` up to argument order; at integration share it with `synthesizeCombinational_postEntry` and with `moduleByName_topMap_self`.
+- Still unsupplied / route not found in this investigation: `ChildRunN` run conjunct across the clean-up, T-LEG, T-MEMO (hit, nested miss, K4), M4, FG.
