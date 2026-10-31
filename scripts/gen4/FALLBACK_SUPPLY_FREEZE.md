@@ -1579,3 +1579,56 @@ The `ChildRunN` run conjunct across the clean-up, T-LEG, T-MEMO (hit, nested mis
 - Comparator note: TYPE and MUTANT run under `withReducible`. With default transparency the flag mutant (`synthesizeCombinationalCore declName [] true` vs `false`) makes `isDefEq` unfold the core and exhaust the heartbeats; all 11 comparisons use the same reducible comparator.
 - Overlap recorded (not deduplicated here): `DCEntryD.PostEntry` (g5dc) is, as read, the same relation as `PPRel` up to argument order; at integration share it with `synthesizeCombinational_postEntry` and with `moduleByName_topMap_self`.
 - Still unsupplied / route not found in this investigation: `ChildRunN` run conjunct across the clean-up, T-LEG, T-MEMO (hit, nested miss, K4), M4, FG.
+
+## 29. FB-19: header sync record, survey of the remaining rows, and the next unit — `ChildRunN` run transport across the zero-width clean-up, instance-free branch (rev16; text for review; NOT Lean, NOT implemented)
+
+- **Status.** Docs, committed BEFORE any Lean of this unit; Lean waits for the reviewer's approval of this section. Base `074424c0` (comments-only header sync of `e9fc8213`: Tools/Check headers now record the clean build `fb18v-e9fc8213` and the self-lookup mutant `MutLkSelfName` is described as the single change `M'.name` → `M.name` keeping `= some M'`; this refines the loose wording of §27.4 "the self-lookup conclusion `… M.name = some M`", the implemented mutant keeps `some M'`). No new law, no `Laws` field, no TRUSTED boundary, no shared-definition / compiler edit, no FG/guarantee change. "Unsupplied / route not found" means this investigation's candidate routes found no supplier in the files read; it does not say a row is false or underivable. Mutants in the planned check are signature/defeq rejections, not semantic counterexamples.
+- **FB-18 build record.** Clean issue-linked build `fb18v-e9fc8213` exit 0 (815 jobs, dirty=false); `FbPPRunCheck`: TYPE 2 / MUTANT 9 / AXIOMS 2 (standard only), `sorry` 0; reviewer approved at `e9fc8213`, scope limited to `synthesizeCombinational_ppRel` / `_lookup`. Not Issue completion.
+
+### 29.1 Rows (what closes from existing lemmas, read in this investigation)
+| row | existing names read (file:line) | closes from existing lemmas? | verdict |
+|---|---|---|---|
+| **`ChildRunN` run conjunct across `dropZeroWidthModule`, instance-free body** | `ChildRunN` / `CombChildRunN` (`ShippingGen2Defs.lean:60,77`), `SeqChildRunN` (`ShippingMachineDepth.lean:63`), `RunOn_instFree` (`ShippingMachineDepth.lean:42`: for `instFree mc.body`, `RunOn children n mc seed T s = runModule (declWidth mc) mc.body seed T (stOf n s) (memsOf n s)`, `children` not read), `ResetN` (`:52`: registers / memories / latches from `mc.body`; the instance clause is vacuous when no statement is an instance), `dropZeroWidth_entry` (`ShippingPostSoundness.lean:519`: under `PostReady M n`, `0 < n`: same body, `weOf`, inputs, outputs), `seedIn` (reads `m.inputs` only), `ppRel_childRunN_portFacts` (FB-14: the six non-run conjuncts) | **yes** for the case that the body, inputs, outputs and `declWidth` of `out` equal those of `raw` and `raw.body` has no instance: both runs unfold to the same `runModule` term | **selected (this unit)** |
+| same, body with instances | `ResetN` / `RunOn` for `n+1` read `children` / `dsn` at the instance names; `ChildShips raw` is stated for designs containing `dsg`'s modules, whereas the returned `dout` holds the CLEANED modules (`PPRel`: `dout = top … dsg`) | no: the instance children differ between `dsg` and `dout`; no lemma found in this investigation that moves a child's `ChildRunN` from `dsg` to the cleaned design | unsupplied / route not found in this investigation |
+| same, merge branch (`mergeChecked`) | `refineCheck_transfer` (`ShippingRefineSoundness.lean:1039`): premises are the canonical seed `seedIn m ins` with `hinsFit` (`ins t x < 2 ^ declWidth m x`), `"rst" ∈ inputs`, `rst = 0`, a register-state coupling `hcpl` and `hfit`, and it requires `refineCheck m o = true`; `mergeChecked_cases` gives `mergeDuplicates m ∨ m` without the check | no: `ChildRunN` quantifies `ins` without `hinsFit`, and the `mergeDuplicates`-without-check arm (assignment-only body) is not covered by `refineCheck_transfer`; no bridging lemma found | unsupplied / route not found in this investigation |
+| T-LEG (miss arm) | unchanged from §21.1 / §23.1 | no | unsupplied / route not found in this investigation |
+| T-MEMO hit | `memoInv_hit` over `RefLawsM`; adding a law is the user's decision | no, and no law is proposed here | unsupplied on the examined route |
+| T-MEMO nested miss / K4 | statements only | no | unsupplied / route not found in this investigation |
+
+### 29.2 Selection and reason
+First unit: **T-DZ-RUN-FREE** (`childRunN_dz_instFree`, `childRunN_dz_postReady`). It is the only remaining row with a supply made of existing definitions and lemmas plus an unfolding (`RunOn_instFree`, `ResetN`, `seedIn`, `dropZeroWidth_entry`), with no law, no shared-definition edit and no new TRUSTED boundary. It is partial: only the clean-up (`dropZeroWidthModule`) arm of `PPRel`, only instance-free bodies, and it does not touch the merge arm. It does NOT state that the clean-up arm is the one taken, nor anything about what `(M, D)` computes.
+
+### 29.3 Complete types (target)
+New file `Tools/ShippingGen4FbDzRun.lean`, namespace `Tools.ShippingGen4FbDzRun`; imports `Tools.ShippingGen4FbPP` and `Tools.ShippingPostSoundness` (and whatever the first already brings: `Tools.ShippingGen2Defs` for `ChildRunN`, `Tools.ShippingMachineDepth`); `set_option autoImplicit false`. `Module` is `Sparkle.IR.AST.Module`, `Design` is `Sparkle.IR.AST.Design`, `WEnv` is `Sparkle.IR.Semantics.WEnv`, `OutField` is `Sparkle.IR.Machine.OutField`, `PostReady` is `Tools.ShippingEntrySoundness.PostReady`, `weOf` is `Tools.ShippingEntrySoundness.weOf`, `instFree` is `Tools.ShippingHierStateG.instFree`.
+```lean
+theorem childRunN_dz_instFree
+    {ch₁ ch₂ : String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)}
+    {dsn₁ dsn₂ : Sparkle.IR.AST.Design} {n : Nat}
+    {raw out : Sparkle.IR.AST.Module}
+    {bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)}
+    {outsC : List Sparkle.IR.Machine.OutField}
+    {S : (Nat → List Nat) → List (Nat → Nat)}
+    (hbody : out.body = raw.body) (hin : out.inputs = raw.inputs) (hout : out.outputs = raw.outputs)
+    (hwe : Sparkle.IR.RegDedup.declWidth out = Sparkle.IR.RegDedup.declWidth raw)
+    (hf : Tools.ShippingHierStateG.instFree raw.body)
+    (h : Tools.ShippingGen2.ChildRunN ch₁ dsn₁ n raw bsC outsC S) :
+    Tools.ShippingGen2.ChildRunN ch₂ dsn₂ n out bsC outsC S
+
+theorem childRunN_dz_postReady
+    {ch₁ ch₂ : String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)}
+    {dsn₁ dsn₂ : Sparkle.IR.AST.Design} {n : Nat} {k : Nat} {raw : Sparkle.IR.AST.Module}
+    {bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)}
+    {outsC : List Sparkle.IR.Machine.OutField}
+    {S : (Nat → List Nat) → List (Nat → Nat)}
+    (hk : 0 < k) (hpr : Tools.ShippingEntrySoundness.PostReady raw k)
+    (hf : Tools.ShippingHierStateG.instFree raw.body)
+    (h : Tools.ShippingGen2.ChildRunN ch₁ dsn₁ n raw bsC outsC S) :
+    Tools.ShippingGen2.ChildRunN ch₂ dsn₂ n (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw) bsC outsC S
+```
+Proof plan (a plan, not a result): first theorem — `rcases h` into the sequential / combinational disjunct; the six non-run conjuncts by `rw [hin, hout]` (as `ppRel_seqPortFacts` / `ppRel_combPortFacts`, which read only inputs/outputs); the run conjunct: from `ResetN dsn₂ n out s` get the four-part reset facts (registers / memories / latches via `hbody`; the instance clause is vacuous since no statement of `out.body = raw.body` is an instance, from `hf`), hence `ResetN dsn₁ n raw s`; then `rw [RunOn_instFree ch₂ out (hbody ▸ hf)]`, `rw [hbody, hwe]`, and `seedIn out ins = seedIn raw ins` by `hin`, and apply `h`'s run conjunct. Second theorem — `dropZeroWidth_entry raw k hk hpr` gives body / `weOf` / inputs / outputs; `declWidth` and `weOf` are the same `match` on `wires.find?` (to be seen by the elaborator, not assumed; fall back to `funext` + `rfl`); then the first theorem. If a step does not go through the unit reports "not closed in this attempt" with the failing step; the `ResetN` instance clause and the `declWidth`/`weOf` match are the steps most likely to need a `show`.
+
+### 29.4 Planned checks (new files only; nothing run)
+Files: `Tools/ShippingGen4FbDzRun.lean`, `Tests/Gen4/FbDzRunCheck.lean`, two `lean_lib` entries in `lakefile.lean`; no change to earlier FB files. Same requirements as §27.4: (1) TYPE: both theorems against independently typed `Expected…` in the Check (one comparator, `withReducible`, same as `FbPPRunCheck`); (2) MUTANTS, well-typed single changes only: first theorem — `hbody` dropped; `hwe` dropped; `hf` dropped; `hin` replaced by `out.inputs = raw.outputs`; conclusion at depth `n + 1`; `raw` and `out` swapped in the conclusion; `bsC` replaced by `bsC.take 0` in the conclusion only; second theorem — `hk` dropped; `hf` dropped; conclusion on `raw` instead of the clean-up. (3) closure audit with root self-judgement, `missing` failing; controls inside `withoutModifyingEnv`: absent root, forbidden root (a real existing forbidden constant such as `Tools.ShippingMemo.memoInv_hit`, distinct from unknown), helper VALUE unknown, helper TYPE-only unknown, good fixture — reusing `fbReach`/`auditOk`/`addFixture`; (4) AXIOMS standard only, `sorry` 0; (5) real counts by category. A Pod build by this unit is not a clean build; the clean issue-linked build is the coder's.
+
+### 29.5 What this section does not claim
+`ChildRunN` run transport for bodies with instances and across the `mergeChecked` arm, T-LEG, T-MEMO (hit, nested miss, K4), M4 and FG stay unsupplied on the routes read; no law is adopted. The theorems do not say which arm of `PPRel` holds. `DCEntryD.PostEntry` sharing with `PPRel` is for integration. Issue, M4 and FG are not complete.
