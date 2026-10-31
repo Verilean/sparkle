@@ -1,6 +1,7 @@
 import Tools.ShippingGen5AccOrdCallees
 import Tools.ShippingGen5SemGenData
--- proof-accept SKELETON: the three roots have the frozen types (scripts/gen5/CANDA_FREEZE.md at eab9da5d) and `sorry` bodies (intended holes).
+-- proof-accept candidate: proofs of the three frozen roots (from kjob/canda2 063c8659; `unfold` replaced by `delta` so no
+-- equation lemmas are generated in this module). No sorry / axiom / native_decide.
 
 /-! # Candidate A: `hacc_genS`, `ordCallees_eq_ordCallees₀`, `factsOf_genS_assembled` (scripts/gen5/CANDA_FREEZE.md §2)
 
@@ -19,10 +20,15 @@ variable {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig} {env₀ : E
 
 theorem hacc_genS (K : AssignKit ι dom env₀) :
     ∀ (Y : Name) (s : SemPkg ι dom), genS K Y = some s → Acc (CallRel K) Y := by
-  sorry
+  intro Y s hs
+  obtain ⟨_, _, _, _, hacc, _, _⟩ := genS_some_inv K hs
+  exact hacc
 
 theorem ordCallees_eq_ordCallees₀ (d : MachineData) : ordCallees d = ordCallees₀ d := by
-  sorry
+  delta ordCallees ordCallees₀
+  apply List.filter_congr
+  intro k _
+  cases ((d.shape.instOrigins.getD k .ord).child?) <;> simp
 
 theorem factsOf_genS_assembled
     {dataOf : ConstantInfo → StructEnv → MachineShape → Option MachineData}
@@ -49,7 +55,9 @@ theorem factsOf_genS_assembled
           (fun Q X {E} g => GenData.genSem hs Q X g) ordCallees₀_mem hev hloc hdecl hd)) X gd) :
     ∀ (X : Name) (s : SemPkg ι dom),
       genS (mkKit dataOf (fun E => GenData dataOf E (structEnv env₀)) (fun {E} g => g.d) genData₀ ordCallees₀
-        (fun Q X {E} g => GenData.genSem hs Q X g) ordCallees₀_mem hev hloc hdecl hd) X = some s → FactsOf s := by
-  sorry
+        (fun Q X {E} g => GenData.genSem hs Q X g) ordCallees₀_mem hev hloc hdecl hd) X = some s → FactsOf s :=
+  factsOf_all_of_acc_unfold _ _
+    (hunf_of_genData hs (structEnv env₀) ordCallees₀ ordCallees₀_mem _ _ hinv)
+    (hacc_genS _)
 
 end Tools.ShippingGen5Acc
