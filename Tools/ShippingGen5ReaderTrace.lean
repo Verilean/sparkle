@@ -2,7 +2,7 @@ import Tools.ShippingGen5Cover6
 import Tools.ShippingLetsReaderInvBase
 import Tools.ShippingReaderFuelDefs
 set_option autoImplicit false
--- Built in g5rt-r2 at 521b3e8a (Pod `kjob lake build Tools.ShippingGen5ReaderTrace`, exit 0). Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Built in Pod build rt3v-1f8d15d6 (exit 0, 722 jobs; approved at 1f8d15d6; Lean content unchanged since 521b3e8a). Totality of NoPh / BvarLt vs the independent specs is the two kernel theorems noPh_eq_exp / bvarLt_eq_exp (checked in ReaderTraceCheck); the 247 samples there only detect mutants. No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R1 (independent part): `NoPh`, `BvarLt`, `NoLoose`, `EnvPh`, `DomPh`, the `FReachC` glue, `convBvar_trace`
 
