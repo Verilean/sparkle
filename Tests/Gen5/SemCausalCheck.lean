@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemCausal
 import Tests.Gen5.SemExtCheck
 set_option autoImplicit false
--- Pod incremental build (kjob lake build Tests.Gen5.SemCausalCheck) exit 0 on this content before commit (712 jobs); the clean issue-linked build is the coder's (not yet run). No sorry/axiom/native_decide.
+-- Pod incremental build (kjob lake build Tests.Gen5.SemCausalCheck) exit 0 on this content before commit (712 jobs); clean issue-linked build smu9v-c0d18b96 exit 0 (712 jobs), approved at c0d18b96. No sorry/axiom/native_decide.
 /-! # DG-SEM U6A check (Tools/ShippingGen5SemCausal.lean; scripts/gen5/DG_SEM_FREEZE_P6C.md §3.3)
 
 * TYPE    — `SrcCausal`/`CalleesCausal` compared BY BODY and the three theorems by statement against `Exp*`, written here from the

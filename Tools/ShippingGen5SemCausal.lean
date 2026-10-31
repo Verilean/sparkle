@@ -1,12 +1,12 @@
 import Tools.ShippingGen5SemExt
 import Tools.ShippingMachineMemCausal
 set_option autoImplicit false
--- Pod incremental build (kjob lake build Tools.ShippingGen5SemCausal) exit 0 on this content before commit; the clean issue-linked build is the coder's (not yet run). No sorry/axiom/native_decide.
+-- Pod incremental build (kjob lake build Tools.ShippingGen5SemCausal) exit 0 on this content before commit; clean issue-linked build smu9v-c0d18b96 exit 0 (712 jobs), approved at c0d18b96. No sorry/axiom/native_decide.
 /-! # DG-SEM U6A (scripts/gen5/DG_SEM_FREEZE_P6C.md §3): `extCausal_of_genSem`
 
 `SrcCausal`/`CalleesCausal` (DGEN rev2 text), the memory-read causality `memRead_causal`, the stage-wise `ExtStage_causal`
 (induction on the stage count, `t` generalized) and `HCausalOf g.d dom (extOf Q g) (extBOf Q g)`.
-Conditional on `CalleesCausal Q g.d`. The proof route does not use `g.wf` (a `GenIn` contains it). `hord`-type facts are
+Conditional on `CalleesCausal Q g.d`. The proof route does not use `g.wf` (this means only that this proof does not invoke it; a `GenIn` still contains `wf`, so this is not a wf-free claim). `hord`-type facts are
 not supplied here (the ordinary-callee condition is used only through `ordCallees`). Nothing here supplies `hp`/`hq`/`GenIn`
 of a run, `CalleesCausal` for a real table (P10/P11), `GenSFacts`, ACC, M5 or FG. -/
 namespace Tools.ShippingGen5Sem
