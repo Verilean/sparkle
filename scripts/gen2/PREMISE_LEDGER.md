@@ -882,3 +882,128 @@ reviewer が段 2 承認時（seq 5716, 5755）に残した確認を行った記
 
 - この版の前提差分: **解消 0 / 追加 0**（調査の記録のみ）。現在値は **FG 107 / T1 58**。純差分 +2（A）は見込みで、freeze 承認・実装・clean build の後に初めて台帳に反映する。
 - 4 段（設計承認 / 条件付き部品 / 前提解消 / 最終受理）: 設計（段 1）の前の調査記録。どの行も進めない。
+
+## 11. A / SM3 受理後の次候補（agent `fgnext2`、branch `kjob/fgnext2`、base `kjob/fgnext1` b54e343d。文書のみ。Lean・build なし）
+
+**これは調査の記録であって前提の供給ではない。この版の台帳の前提差分は 解消 0 / 追加 0。現在値は FG 107 / T1 58 のまま。** 候補 A（C.SM-2 / C.SM-4、`kjob/canda-pa2` 628bc5d3、Issue sparkle-gen5-dg-sem）と SM3（C.SM-3、`kjob/sm3-pa2` 4cade1d0、Issue sparkle-gen5-dg-acc）は dry-run 合格・本番 proof-accept 待ちで、**まだ減算していない**（本番合格後に FG -3 で 104 の予定）。以下の「A / SM3 受理後」は、その 2 つが受理された場合の見込みを前提にした条件付きの話である。候補 B（D.E-6 / D.E-1）は §10.2 のとおり移し替えで、ここでも減算に数えない。
+
+方法: A / SM3 の root 型（`kjob/canda1` の `scripts/gen5/CANDA_FREEZE.md`、`kjob/smb1` の `scripts/gen5/SM3_FREEZE.md`）と、candidate 628bc5d3 / 4cade1d0 の Lean 原文を `git show` で読んだ。補題の署名は原文で、**この調査では build も elaborate もしていない**（Lean を書かない指示のため）。したがって下の「書く型」のうち証明の形は案であり、elaborate の確認は freeze 承認後の実装の最初の作業になる。「未供給」は「この調査で辿った候補経路では供給元・経路が見つからなかった」の意味で、存在しえないという意味ではない。mutant は signature / defeq での棄却であって意味的反例ではない（Check を書く場合）。
+
+### 11.1 出発点: A / SM3 受理後の assembly に残る仮説
+
+`factsOf_genS_assembled'`（`Tools/ShippingGen5AccHinv.lean`、kjob/sm3-pa2 4cade1d0。HYP = `hs hev hloc hdecl hd`）の仮説の台帳上の行（CANDA_FREEZE §3、SM3_FREEZE §3 の判定表のとおり）:
+
+| 仮説 | 台帳行 | 状態 |
+|---|---|---|
+| `hs : DataOfSound dataOf initsOf` | C.SM-1（merged C.DO-1, C.AC-1） | 残る |
+| `hev : GDEvidence …` | C.AC-2 | 残る（CANDA_FREEZE §3: 「`genData_evidence` で埋まる形だが、この freeze は C.AC-2 を消さない」） |
+| `hloc` / `hdecl` / `hd` | C.AC-3 | 残る |
+| `genData₀` | carrier（成功は C.AC-4 / C.SM-6 側） | 関数引数 |
+
+CANDA_FREEZE §3 は `hev` を「`GD := GenData` の `genData_evidence` で埋まる形」と書き、AccHinv の判定表も `hev`、`hloc`/`hdecl`/`hd` を「変更なし（残る）」とした。**この調査はその 4 つが、固定 carrier（`GD := GenData`、`dOf := (·.d)`、`genSem := GenData.genSem hs`、`ordCallees := ordCallees₀`）では既存の定理で出るかを 1 つずつ辿った。**
+
+### 11.2 候補 C（C.AC-2 / C.AC-3: GenData-kit の証拠・局所性・宣言名・データ一致）
+
+**消える予定の台帳 ID（2 行）: C.AC-2、C.AC-3。** 行の内容（`C_M5dg.md` AC-2 / AC-3 の原文）は、一般の `GD` / `dOf` / `genSem` についての `hev` と `hloc` / `hdecl` / `hd` で、A の carrier 固定（`GD := fun E => GenData dataOf E (structEnv env₀)`）の後は、`mkKit` に渡すこの 4 引数が `GenData` の定理になる。
+
+| 仮説 | 供給する既存補題（実名・完全な型・branch@SHA） | 辿った結果 |
+|---|---|---|
+| `hev` | `Tools.ShippingGen5Sem.genData_evidence`（`Tools/ShippingGen5SemGenData.lean:57`、kjob/canda-pa2@628bc5d3、g5sm-u23 系）: `{dataOf : ConstantInfo → StructEnv → MachineShape → Option MachineData} (senv : StructEnv) (E : ConstantInfo) (g : GenData dataOf E senv) : machineShape? false [] E senv = some g.d.shape ∧ dataOf E senv g.d.shape = some g.d` | `GDEvidence dataOf GD dOf env₀`（`Tools/ShippingGen5AccGenDataEv.lean:22`）は `∀ E g, machineShape? false [] E (structEnv env₀) = some (dOf g).shape ∧ dataOf E (structEnv env₀) (dOf g).shape = some (dOf g)`。`GD := GenData …`、`dOf := (·.d)` で、`genData_evidence (structEnv env₀) E g` と字面が一致する（`GenData` の field `hshape` / `hdata` がそのまま）。新しい仮説なし |
+| `hdecl` | `Tools.ShippingGen5Sem.genSemI_decl`（`Tools/ShippingGen5SemCall.lean:112`）: `(Q : Name → Option (SemPkg ι dom)) (X : Name) (g : GenIn) : (genSemI Q X g).decl = X` | `GenData.genSem hs Q X g = genSemI Q X (g.toIn hs)`（`SemGenData.lean`、定義の展開）なので `genSemI_decl Q X (g.toIn hs)` で出る。新しい仮説なし |
+| `hd` | `Tools.ShippingGen5Sem.genSemI_d`（`SemCall.lean:115`）: `(Q) (X) (g : GenIn) : (genSemI Q X g).d = g.d` と `genData_toIn_d`（`SemGenData.lean:46` 付近、`rfl`）: `(g.toIn hs).d = g.d` | 目標 `(GenData.genSem hs Q X g).d = g.d` は 2 つの合成。新しい仮説なし |
+| `hloc` | `Tools.ShippingGen5Sem.genSemI_local`（`SemCall.lean:182`）: `(Q Q' : Name → Option (SemPkg ι dom)) (X : Name) (g : GenIn) (hQ : ∀ k ∈ ordCallees g.d, Q (g.d.shape.insts[k]).1 = Q' (g.d.shape.insts[k]).1) : genSemI Q X g = genSemI Q' X g`、および `Tools.ShippingGen5Acc.ordCallees_eq_ordCallees₀`（`Tools/ShippingGen5AccSemJoin.lean:27`、kjob/canda-pa2@628bc5d3）: `(d : MachineData) : ordCallees d = ordCallees₀ d` | `hloc` の前件は `ordCallees₀ g.d` 上、`genSemI_local` の前件は `ordCallees (g.toIn hs).d` 上（`(g.toIn hs).d = g.d` は `rfl`）。両者を A が置く `ordCallees_eq_ordCallees₀` で結ぶ（CANDA_FREEZE §2.2 が「`hloc` を `genSemI_local` につなぐ実装段階で使う」と書いた橋）。新しい仮説なし |
+
+**書く型（freeze に書く。全て新規ファイル `Tools/ShippingGen5AccGenDataKit.lean`（案）、namespace `Tools.ShippingGen5Acc`、`import Tools.ShippingGen5AccHinv`（A と SM3 の candidate を積む）。共通の `variable {ι} {dom} {env₀}` と open は CANDA_FREEZE §2 のとおり。証明は上の列の補題を並べる形の案で、elaborate は未確認）:**
+
+```lean
+theorem genData_gdEvidence
+    (dataOf : ConstantInfo → StructEnv → MachineShape → Option MachineData) :
+    GDEvidence dataOf (fun E => GenData dataOf E (structEnv env₀)) (fun {E} g => g.d) env₀
+-- 案: fun E g => genData_evidence (structEnv env₀) E g
+
+theorem genData_genSem_decl
+    {dataOf : ConstantInfo → StructEnv → MachineShape → Option MachineData}
+    {initsOf : (d : MachineData) → HList (tys d.ss)} (hs : DataOfSound dataOf initsOf) :
+    ∀ (Q : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GenData dataOf E (structEnv env₀)),
+      (GenData.genSem hs Q X g).decl = X
+-- 案: fun Q X E g => genSemI_decl Q X (g.toIn hs)
+
+theorem genData_genSem_d
+    {dataOf : ConstantInfo → StructEnv → MachineShape → Option MachineData}
+    {initsOf : (d : MachineData) → HList (tys d.ss)} (hs : DataOfSound dataOf initsOf) :
+    ∀ (Q : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GenData dataOf E (structEnv env₀)),
+      (GenData.genSem hs Q X g).d = g.d
+-- 案: fun Q X E g => genSemI_d Q X (g.toIn hs)
+
+theorem genData_genSem_local
+    {dataOf : ConstantInfo → StructEnv → MachineShape → Option MachineData}
+    {initsOf : (d : MachineData) → HList (tys d.ss)} (hs : DataOfSound dataOf initsOf) :
+    ∀ (Q Q' : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GenData dataOf E (structEnv env₀)),
+      (∀ k ∈ ordCallees₀ g.d, Q (g.d.shape.insts[k]).1 = Q' (g.d.shape.insts[k]).1) →
+      GenData.genSem hs Q X g = GenData.genSem hs Q' X g
+-- 案: genSemI_local Q Q' X (g.toIn hs) に、ordCallees_eq_ordCallees₀ g.d で前件を書き換えて渡す
+
+theorem factsOf_genS_assembled''
+    {dataOf : ConstantInfo → StructEnv → MachineShape → Option MachineData}
+    {initsOf : (d : MachineData) → HList (tys d.ss)}
+    (hs : DataOfSound dataOf initsOf)
+    (genData₀ : (E : ConstantInfo) → Option (GenData dataOf E (structEnv env₀))) :
+    ∀ (X : Name) (s : SemPkg ι dom),
+      genS (mkKit dataOf (fun E => GenData dataOf E (structEnv env₀)) (fun {E} g => g.d) genData₀ ordCallees₀
+        (fun Q X {E} g => GenData.genSem hs Q X g) ordCallees₀_mem
+        (genData_gdEvidence dataOf) (genData_genSem_local hs) (genData_genSem_decl hs) (genData_genSem_d hs)) X = some s →
+      FactsOf s
+-- 案: factsOf_genS_assembled' hs genData₀ (genData_gdEvidence dataOf) (genData_genSem_local hs) (genData_genSem_decl hs) (genData_genSem_d hs)
+```
+
+`factsOf_genS_assembled''` の仮説は `hs`（C.SM-1）と carrier `genData₀` だけになる。`factsOf_genS_assembled'` との差は、`hev hloc hdecl hd` の 4 つの binder が定理 4 つの適用に置き換わることだけ。
+
+**仮説の判定（1 つずつ）。** 4 補題の仮説は `hs : DataOfSound dataOf initsOf`（既存行 C.SM-1。上の `genData_gdEvidence` だけは `hs` も取らない）以外にない。`genData₀` は carrier（§8.3 の規則）。**新しい前提: 0。** `genSemI_local` / `genSemI_decl` / `genSemI_d` / `genData_evidence` / `ordCallees_eq_ordCallees₀` はすべて仮説なしの定理（または `hs` だけ）で、原文で確認した。
+
+**純差分（C）= 消える 2（C.AC-2、C.AC-3）− 新しい前提 0 = +2。** 移し替えではない（別の未供給境界に帰着せず、既存の定理で直接出る）。
+
+**注意（reviewer 確認事項）:**
+1. C.AC-2 / C.AC-3 の行の本文は一般の `GD`（kit の field）についての仮説で、「kit `K` の carrier が固定されていない」と §8.2 は書く。**これが消えるのは、A の carrier 固定（`GD := GenData`）を最終 assembly が採る場合に限る。** A13 の `GDf` / `genDataF`（`GenData` と別型、DG_ACC freeze 承認済み・Lean 未実装）を最終 assembly の kit に採る場合は、C.AC-2 / C.AC-3 は別の `GD` について再び要る。A 自体がこの carrier を前提にしている（CANDA_FREEZE §3 reviewer 確認事項 1、2）ので新しい決定ではないが、「A を承認 = GenData-kit を採る」を C の前提として明記する。
+2. 前置き: **A の本番 proof-accept（628bc5d3）が通っていること**（`ordCallees_eq_ordCallees₀` と `factsOf_genS_assembled'` を使う）。SM3 の受理は C の型には要らない（`factsOf_genS_assembled'` は SM3 の candidate 4cade1d0 の AccHinv にあるので、C を SM3 の上に積むなら SM3 も要る。A だけに積むなら `factsOf_genS_assembled`（`hinv` を取る版）に対する `hinv` が残るので、SM3 の上に積む形を推奨）。
+3. 5 つの carrier（`dataOf`、`GD`、`dOf`、`genData₀`、`genSem`）を前提に数えない扱いは A / SM3 と同じ。
+4. C.AC-4（`ReachCover`、`genData₀` の成功）、C.AC-5 / C.AC-7 / C.AC-9、C.SM-6（`GenWF`）、A.P-24（C.AC-8 統合）は減算に入れない（11.4）。
+
+### 11.3 候補 D（C.SM-1: `DataOfSound` を `dataOfAt lvl` で供給する）
+
+**消える予定の台帳 ID: C.SM-1（条件付き）。** 補題:
+
+- `Tools.ShippingGen5DataOf.dataOfAt_sound`（`Tools/ShippingGen5DataOf.lean:211`、kjob/g5do-r6@063056d6）: `(lvl : Lean.Expr → Nat) {E : ConstantInfo} {senv : StructEnv} {s : MachineShape} {d : MachineData} (h : dataOfAt lvl E senv s = some d) : d.shape = s ∧ d.ok = true ∧ d.shape.body = quote d.dom (fun j => inputExpr d.shape.binders.length (d.bpos j)) (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed ∧ d.initOk (initsOf d) = true`。ここで `initsOf` は `Tools.ShippingGen5DataOfPure.initsOf (d : MachineData) : HList (tys d.ss)`（`ShippingGen5DataOfPure.lean:354`）。
+- 並べると `DataOfSound (dataOfAt lvl) Tools.ShippingGen5DataOfPure.initsOf`（`Tools/ShippingGen5SemGenData.lean:18` の定義、4 連言が一致）は `fun E senv s d h => dataOfAt_sound lvl h` で出る形。**書く型（案）:** `theorem dataOfSound_dataOfAt (lvl : Lean.Expr → Nat) : DataOfSound (Tools.ShippingGen5DataOf.dataOfAt lvl) Tools.ShippingGen5DataOfPure.initsOf`。
+
+判定:
+- 新しい仮説は見つからなかった（`dataOfAt_sound` の `h` は `DataOfSound` の `∀ … d, dataOf E senv s = some d →` の内側で束縛される）。`lvl` は carrier（`exprSize` は DG-READKINDS の側で、`g5do-r6` の木に無い。`C.DO-3` の「`dataOf at exprSize`」の行が既にある）。
+- **消えるかの条件。** C.SM-1 は C.DO-1 と C.AC-1 を統合した行で（§4、別名 `DataOfSound` / `DataSoundAt`）、§8.2 は「`DataOfSound` と coverage `dataOfAt = some d`」と書く。上の補題が供給するのは `DataOfSound` の半分で、`dataOfAt = some d` の被覆（`genData₀` の成功、DO-1 の本来の内容。`dataOfAt` を `some` にする定理は `g5do-r6` に無い、DATAOF freeze §11.2）は供給しない。被覆の半分を既存行（C.DG-1 (i)、C.AC-4）が持つと reviewer が判断すれば C.SM-1 は消え**+1**。そう判断しないなら、行は残り、この候補は 0（行の分割は 110 を変えるので、この調査では行わない）。
+- **前置きの作業（未確認）:** kjob/g5do-r6 は A / SM3 の木と祖先関係が無く（merge-base 9d26005c）、`git merge-tree` では `lakefile.lean` だけが衝突する（lean_lib の和集合で足りる見込み）。import の連鎖（`ShippingReaderApp`、`ShippingMachineCommand` 等）が A / SM3 の木と同時に build できるかは確認していない。さらに `dataOf := dataOfAt lvl` に固定すると、production の reader との一致（C.DO-2）、`lvl` の選択（C.DO-3）が `dataOf` carrier を通して assembly に結び付く。この 2 行は既存行のまま。
+- 並行して C.AC-9 の `hDS : DataOfShape K` の半分は、`K.dataOf = dataOf` と C.SM-1 の第 1 連言（`d.shape = s`）から `dataOfShape_of_sound` で出る見込みだが、C.AC-9 は `RunDataLink`（run 依存）も持つので行は残る（減算に入れない）。
+
+**純差分（D）= 消える 1（C.SM-1、reviewer が被覆の半分を既存行と判定した場合）− 新しい前提 0 = +1。判定されない場合は 0。** 被覆と lineage の確認が先なので、C の次の順位とする。
+
+### 11.4 辿ったが減算候補にしなかったもの
+
+- **候補 B**（D.E-6 / D.E-1）: §10.2 のとおり移し替え。変更なし。
+- **C.AC-4**（`ReachCover K Reach`、`hcl`）: `genS_isSome_of_cover` が前件に取る被覆で、`genData₀ E = some g` の成功を述べる。`genData₀` の成功を run から作る補題は、この調査で辿った経路（`hacc_of_top_runs`、`accServed0_of_cover_gates`、`dataOfAt_sound`）には見つからなかった（`dataOfAt` の被覆は DATAOF freeze §11.2 で未供給）。
+- **C.AC-5 / C.AC-7 / C.AC-9 の `RunDataLink`**: `accServed0_of_cover_gates` が前件に取る行で、`GateRunsAt` / `ReaderRunsAt`（AC-5 の別名）、`QuietStrengthA`（AC-7 → C.EN-1）、run の `MachineDefinesR`（AC-9）に帰着する。いずれも既存行（C.EN-1 / C.EN-6 / A.P-06 等）への帰着で、消える行より増える行の方が多いか同数で、純差分が正になる経路は見つからなかった。
+- **C.AC-8 / A.P-24**: §10.1 のとおり減算に入れない。
+- **C.SM-6**（`GenWF`）: `rowC_of_reader` 等が `hq` / `hnl` / `FullInv`（C.CV-1/2/3）を前件に取る。これらは run-local の reader state で、供給元は見つからなかった。
+
+### 11.5 結論（優先順）
+
+1. **第 1: 候補 C（C.AC-2 + C.AC-3、純差分 +2）。** 条件: A の本番受理（628bc5d3）、SM3 の本番受理（積む場合）。最初の単位の freeze に書く内容（短く）:
+   - 目標: C.AC-2（`hev`）と C.AC-3（`hloc` / `hdecl` / `hd`）の 2 行を、固定 carrier（`GD := GenData`、`ordCallees₀`）で消す。**消える ID と新しい前提を ID で列挙し、純差分 +2 / 追加 0 を台帳の前提差分欄に書く。**
+   - 書く型: 11.2 の 5 つ（`genData_gdEvidence`、`genData_genSem_decl`、`genData_genSem_d`、`genData_genSem_local`、`factsOf_genS_assembled''`）。
+   - 判定表: 使う仮説は `hs`（C.SM-1、残る）だけ。`genData₀` は carrier。
+   - 明記: 「A の carrier 固定（GenData-kit）を最終 assembly が採ることが前提」「A13 の `GDf` を採る場合は C.AC-2 / C.AC-3 が再び要る」「C.AC-4 / SM-6 / AC-5 / AC-7 / AC-9 / A.P-24 は減算に入れない」。供給・共同充足性・FG 証明は主張しない。elaborate は実装の最初の作業。
+   - 台帳の分担（共通ルール 14）: 行の除去を含むので reviewer の承認が要る freeze（1 回）。
+2. **第 2: 候補 D（C.SM-1、条件付き +1）。** 先に reviewer が「C.SM-1 の被覆の半分を既存行が持つ」と判定し、`g5do-r6` と A / SM3 の木の統合 build の見込みを確認する。判定されなければ 0 なので、第 1 の後に起こす。
+
+その後に残る FG 側の assembly 仮説は C.SM-1 と `genData₀` の成功（C.AC-4 / C.SM-6 / C.DG-1）で、後者は run から払う補題がこの調査では見つからなかった。**実 run から払える根拠のある行を挙げるなら**（正の純差分の候補が尽きた後の参考）: 流れ 2 の C.RK-4（`readMachine declName` の run 存在）は §9.2 で dg-runreads / dg-closingrun の予定、未計数のため候補に数えない。
+
+### 11.6 前提差分と 4 段（本版）
+
+- この版の前提差分: **解消 0 / 追加 0**（調査の記録のみ）。現在値は **FG 107 / T1 58**。A / SM3 の本番受理後は FG 104（-3）の予定、C を受理すれば 102（-2）、D が成立すればさらに 101 の見込み（いずれも見込みで、受理・台帳反映前は書かない）。
+- 4 段（設計承認 / 条件付き部品 / 前提解消 / 最終受理）: 設計（段 1）の前の調査記録。どの行も進めない。
