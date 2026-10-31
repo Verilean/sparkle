@@ -4867,3 +4867,9 @@ lean_lib «Tools.ShippingGen5EnvStart» where
 
 lean_lib «Tests.Gen5.EnvStartCheck» where
   roots := #[`Tests.Gen5.EnvStartCheck]
+
+lean_lib «Tools.ShippingGen5EnvCache» where
+  roots := #[`Tools.ShippingGen5EnvCache]
+
+lean_lib «Tests.Gen5.EnvCacheCheck» where
+  roots := #[`Tests.Gen5.EnvCacheCheck]
