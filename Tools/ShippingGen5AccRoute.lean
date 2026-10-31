@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccServed
 set_option autoImplicit false
--- Built in the Pod (g5ac-r8) at 36376724: `kjob lake build Tools.ShippingGen5AccRoute`, exit 0, 721 jobs. Not yet a clean issue-linked build (coder runs it). No sorry / axiom / native_decide.
+-- Built (coder, issue-linked incremental build ac8v-da5a6106, approved at da5a6106): `kjob lake build Tools.ShippingGen5AccRoute`, exit 0 (724 jobs for the Check). No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A6a: `MachineRouteAt` from `ReachCover` + gates + closes (scripts/gen5/DG_ACC_FREEZE_REV4.md §1)
 
