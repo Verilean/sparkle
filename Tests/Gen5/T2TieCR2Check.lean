@@ -5,7 +5,7 @@ import Tests.Gen5.T2TieCheck
 import Tests.Gen3.ExpectedType
 import Tools.ShippingGen5ClosingRun
 set_option autoImplicit false
--- NOT BUILT as a clean issue-linked build. No sorry / axiom / native_decide.
+-- Built in ttcr6-456699fc (clean issue-linked build, exit 0, 776 jobs; scoped approved at 456699fc). No sorry / axiom / native_decide.
 
 /-! # T2-TIE next-unit checks (Tools/ShippingGen5T2TieCR2.lean; scripts/gen5/T2TIE_NEXT_FREEZE_R0.md §3-§4)
 

@@ -3,7 +3,7 @@ import Tools.ShippingGen5T1ND
 import Tools.ShippingMachineInstG
 import Tools.ShippingChildServe
 set_option autoImplicit false
--- NOT BUILT as a clean issue-linked build (Pod build only; see scripts/gen5/T2TIE_NEXT_FREEZE_R0.md).
+-- Built in ttcr6-456699fc (clean issue-linked build, exit 0, 776 jobs; scoped approved at 456699fc).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # T2-TIE next unit (scripts/gen5/T2TIE_NEXT_FREEZE_R0.md, approved f13820c9)
