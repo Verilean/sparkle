@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccServed
 set_option autoImplicit false
--- NOT BUILT (A6a, agent g5ac-r8): the Pod build SHA is recorded here by a comment-only commit after `kjob lake build Tools.ShippingGen5AccRoute`. No sorry / axiom / native_decide.
+-- Built in the Pod (g5ac-r8) at 36376724: `kjob lake build Tools.ShippingGen5AccRoute`, exit 0, 721 jobs. Not yet a clean issue-linked build (coder runs it). No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A6a: `MachineRouteAt` from `ReachCover` + gates + closes (scripts/gen5/DG_ACC_FREEZE_REV4.md §1)
 

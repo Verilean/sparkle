@@ -1,7 +1,7 @@
 import Tools.ShippingGen5AccRoute
 import Tests.Gen5.AccCheck
 set_option autoImplicit false
--- NOT BUILT (A6a, agent g5ac-r8): the Pod build SHA and the measured counts are recorded here by a comment-only commit after `kjob lake build Tests.Gen5.AccRouteCheck`. No sorry / axiom / native_decide in this source (the `sorry` warnings come from the intended walker-control negatives of `Tests.Gen5.AccCheck`).
+-- Built in the Pod (g5ac-r8) at 36376724: `kjob lake build Tests.Gen5.AccRouteCheck`, exit 0, 724 jobs. TYPE 4 (2 definitions by body + 2 theorems, all syntactic, no isDefEq fallback) / MUTANT 8 (signature/defeq rejection, not semantic: 3 on definitions, 3 on machineRouteAt_of_cover, 2 on accServed0_of_cover_gates) / AXIOMS 4 (standard three; = the 4 TYPE items) / CLOSURE OK 13305 constants (unknown 0) / walker controls 4 negatives / unknown controls 3 negatives + 1 clean. Not yet a clean issue-linked build (coder runs it). No sorry / axiom / native_decide in this source (the 3 `sorry` warnings, at the walkerControls line of the Check, come from the intended walker-control negatives of Tests.Gen5.AccCheck).
 
 /-! # DG-ACC unit A6a checks (Tools/ShippingGen5AccRoute.lean; scripts/gen5/DG_ACC_FREEZE_REV4.md §1)
 
