@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Pod build (kjob lake build Tests.Gen5.NameKidsCheck, exit 0, 500 jobs) on the tree of bb19b56e: TYPE 6 (5 + 1 comparator sanity), MUTANT 8 single-point + 2 cross-statement = 10, use-site examples 2, closure controls negative 6 + clean 1, REACH 5, AXIOMS 5; NOT a clean issue-linked build.
+-- Last clean issue-linked build: ba2v-d68b0f47 (exit 0, 500 jobs) of d68b0f47, i.e. the version of this file BEFORE the R1/R2 closure-control rewrite below; its counts were: TYPE 6 (5 theorems + 1 comparator sanity), MUTANT 10 (8 single-point + 2 cross-statement), use-site examples 2, closure controls negative 6 + clean 1, REACH 5 (one per theorem), AXIOMS 5 (one per theorem). Counts are per run_cmd/logInfo line of each class. THIS version (R1/R2) has no clean build yet.
 -- No sorry / axiom / native_decide.
 
 /-! # BOUNDARY-AUDIT U1 checks
@@ -18,9 +18,15 @@ a name the resolver cannot resolve is counted and the audit throws. -/
 namespace Tests.Gen5.NameKidsFixture
 theorem helperV : True := (fun _ => trivial) @Lean.ofReduceBool
 theorem helperTy : @Lean.ofReduceBool = @Lean.ofReduceBool := rfl
+-- `auxT` occurs only in the TYPE of `helperTyU` (the checker replaces `helperTyU` by an axiom, dropping its value)
+-- `helperTy` is the same kind of helper for the forbidden-constant case
+def auxT : Nat := 0
+theorem helperTyU : auxT = auxT := rfl
+-- NB: an elaborated application such as `(fun _ => trivial) @helperTy` copies the helper's type into the root's own value, so type-only
+-- reachability cannot be built from the elaborated fixtures; the checker synthesizes the roots below (`synthRoot`) instead.
+-- `badRoot` is an EDGE test (a non-forbidden theorem whose value uses a forbidden constant); it does not test a forbidden root itself
 theorem badRoot : True := (fun _ => trivial) @Lean.ofReduceBool
 theorem badViaValue : True := helperV
-theorem badViaType : True := (fun _ => trivial) @helperTy
 theorem cleanRoot : True := (fun _ => trivial) @Tools.ShippingModuleName.ofDecl_injective
 end Tests.Gen5.NameKidsFixture
 
@@ -215,12 +221,12 @@ def reachWith (resolve : Name → Option ConstantInfo) (root : Name) (cap : Nat 
     i := i + 1
     out := { out with visited := out.visited + 1 }
     if out.visited > cap then throwError "NK AUDIT INCOMPLETE at {root}"
+    if forbidConsts.contains c then return { out with hit := some path }
     let some ci := resolve c | do
       out := { out with unknown := out.unknown + 1, unknownFirst := out.unknownFirst <|> some path }
       continue
     let body := body? ci
     for u in ci.type.getUsedConstants ++ (body.map (·.getUsedConstants)).getD #[] do
-      if forbidConsts.contains u then return { out with hit := some (path ++ [u]) }
       unless out.seen.contains u do
         out := { out with seen := out.seen.insert u }
         queue := queue.push (u, path ++ [u])
@@ -242,22 +248,46 @@ def failsAudit (resolve : Name → Option ConstantInfo) (root : Name) : MetaM Bo
 run_cmd Lean.Elab.Command.liftTermElabM do
   let env ← getEnv
   let F := `Tests.Gen5.NameKidsFixture
-  -- negative controls: root / helper value / helper type (the helper's type only, its value removed) / unresolved names
-  unless ← failsAudit env.find? (F ++ `badRoot) do throwError "NK AUDIT FAILED: root fixture accepted"
-  unless ← failsAudit env.find? (F ++ `badViaValue) do throwError "NK AUDIT FAILED: helper-value fixture accepted"
-  let tyOnly := fun n => if n == F ++ `helperTy then
-      (env.find? n).map fun ci => ConstantInfo.axiomInfo { name := ci.name, levelParams := ci.levelParams, type := ci.type, isUnsafe := false }
+  -- negative controls; each asserts the intended path/name, not merely that the audit failed
+  let expectHit := fun (what : String) (resolve : Name → Option ConstantInfo) (root : Name) (path : List Name) => do
+    let r ← reachWith resolve root
+    unless r.hit == some path do throwError "NK AUDIT CONTROL {what}: expected hit {path}, got {toString r.hit} (unknown {r.unknown})"
+    unless ← failsAudit resolve root do throwError "NK AUDIT FAILED: {what} accepted"
+  let expectUnknown := fun (what : String) (resolve : Name → Option ConstantInfo) (root : Name) (first : List Name) => do
+    let r ← reachWith resolve root
+    unless r.hit.isNone && r.unknown > 0 && r.unknownFirst == some first do
+      throwError "NK AUDIT CONTROL {what}: expected unknown via {first}, got hit {toString r.hit}, unknown {r.unknown}, first {toString r.unknownFirst}"
+    unless ← failsAudit resolve root do throwError "NK AUDIT FAILED: {what} accepted"
+  -- (1) forbidden constant used by the root's value; (2) by a helper's value; (3) by a helper's TYPE only (value removed)
+  expectHit "edge root->forbidden" env.find? (F ++ `badRoot) [F ++ `badRoot, ``Lean.ofReduceBool]
+  expectHit "helper value" env.find? (F ++ `badViaValue) [F ++ `badViaValue, F ++ `helperV, ``Lean.ofReduceBool]
+  -- synthetic roots: type `True`, value = a bare reference to the helper (so the helper is reached through the value edge only,
+  -- and whatever occurs in the helper's TYPE is reachable only by walking that type). The walker is syntactic; the roots need not be well-typed.
+  let asAxiom := fun (ci : ConstantInfo) => ConstantInfo.axiomInfo { name := ci.name, levelParams := ci.levelParams, type := ci.type, isUnsafe := false }
+  let synthRoot := fun (root helper : Name) =>
+    ConstantInfo.thmInfo { name := root, levelParams := [], type := mkConst ``True, value := mkConst helper, all := [root] }
+  let SR := F ++ `synthRoot
+  let tyOnly := fun n =>
+    if n == SR then some (synthRoot SR (F ++ `helperTy))
+    else if n == F ++ `helperTy then (env.find? n).map asAxiom
     else env.find? n
-  unless ← failsAudit tyOnly (F ++ `badViaType) do throwError "NK AUDIT FAILED: helper-type fixture accepted"
-  let hideRoot := fun n => if n == F ++ `badRoot then none else env.find? n
-  unless ← failsAudit hideRoot (F ++ `badRoot) do throwError "NK AUDIT FAILED: unknown ROOT accepted"
-  let hideHV := fun n => if n == F ++ `helperV then none else env.find? n
-  unless ← failsAudit hideHV (F ++ `badViaValue) do throwError "NK AUDIT FAILED: unknown helper VALUE accepted"
-  let hideHT := fun n => if n == F ++ `helperTy then none else env.find? n
-  unless ← failsAudit hideHT (F ++ `badViaType) do throwError "NK AUDIT FAILED: unknown helper TYPE accepted"
+  expectHit "helper type" tyOnly SR [SR, F ++ `helperTy, ``Lean.ofReduceBool]
+  -- (4) the root itself is a forbidden constant
+  expectHit "forbidden root ofReduceBool" env.find? ``Lean.ofReduceBool [``Lean.ofReduceBool]
+  expectHit "forbidden root sorryAx" env.find? ``sorryAx [``sorryAx]
+  -- (5)-(7) unresolved names: root, helper value, and a name reachable ONLY through a helper's type
+  expectUnknown "unknown root" (fun n => if n == F ++ `badRoot then none else env.find? n) (F ++ `badRoot) [F ++ `badRoot]
+  expectUnknown "unknown helper value" (fun n => if n == F ++ `helperV then none else env.find? n) (F ++ `badViaValue) [F ++ `badViaValue, F ++ `helperV]
+  -- helperTyU stays resolvable but is an axiom (type only); auxT, which occurs in that type alone, is unresolvable
+  let tyOnlyU := fun n =>
+    if n == SR then some (synthRoot SR (F ++ `helperTyU))
+    else if n == F ++ `auxT then none
+    else if n == F ++ `helperTyU then (env.find? n).map asAxiom
+    else env.find? n
+  expectUnknown "unknown name via helper type" tyOnlyU SR [SR, F ++ `helperTyU, F ++ `auxT]
   -- clean control
   let rc ← auditRoot env.find? (F ++ `cleanRoot)
-  logInfo m!"NK CONTROLS closure: negative 6 (root, helper value, helper type, unknown root, unknown helper value, unknown helper type) all rejected; clean 1 accepted (visited {rc.visited})"
+  logInfo m!"NK CONTROLS closure: negative 8 (edge root->forbidden, helper value, helper type, forbidden root ofReduceBool, forbidden root sorryAx, unknown root, unknown helper value, unknown name via helper type) all rejected with the intended path; clean 1 accepted (visited {rc.visited})"
   for r in [``kidModName_inj_nonmem, ``kidModName_ne_mem, ``kidModName_inj_mem, ``hsep_of_kidNames, ``hparent_of_kidNames] do
     let a ← auditRoot env.find? r
     logInfo m!"NK REACH {r}: no ofReduceBool / sorryAx / trustCompiler, no unresolved name; visited {a.visited} constants (all namespaces)"
