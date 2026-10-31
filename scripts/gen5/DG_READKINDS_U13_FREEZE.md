@@ -19,7 +19,7 @@ Top theorem now: `Tools.ShippingGen5ReadKindsU12.readMachine_agrees_runReads_of_
 |---|---|---|---|
 | `hk` | `ReadKeeps cref` (`∀ w, readOf cref (getW cref w) = readOf cref w`) | 未割当 | premise on the opaque `ST.Ref.get`. `ReadWorld.readKeeps` gives it from `ReadWorld cref`; no route to either from the runtime was found in this survey |
 | `hHead` | `EnvFrame (coreHead X) mctx mref cctx cref` | 未割当 (the IO steps share the name `ioEnv` with `sparkle-gen5-dg-env`; that assignment is not confirmed) | not supplied. `coreHead` runs `IO.getEnv`, `IO.eprintln`, `IO.FS.Handle.mk/putStrLn`, then `ST.Ref.get/set` on the `sparkle*` cells. Base pieces: `EnvFrame.pure/bind`, `envFrame_set` (needs `SetFrame r cref`, `r.ref ≠ cref.ref`). Not found in the candidate routes followed: an `EnvFrame` for the IO steps, a premise form for `ST.Ref.get` of a cell other than `cref` |
-| `h0` | `ReadsAt env₀ cref w` | closed in the tree by `readsAt_self` (E1) for `env₀ := envAt cref w`; U12b still takes it as a hypothesis | **payable now** (U13 below) |
+| `h0` | `ReadsAt env₀ cref w` | closed in the tree by `readsAt_self` (E1) for `env₀ := envAt cref w`; U12b still takes it as a hypothesis | **U13 で解消: h0、任意 env₀** (`readsAt_self cref w`, `env₀ := envAt cref w`; 実装 `Tools/ShippingGen5ReadKindsU13.lean`) |
 | `h0s` | `ReadsAt env₀ cref ws` | `sparkle-gen5-dg-env` (env tie / C0) | not supplied; `w` (readMachine start) and `ws` (core-run start) belong to two different runs and no link between them was found |
 | `hrun` | `RunsTo (readMachine declName allowGate) mctx mref cctx cref w r w'` | `sparkle-gen5-dg-runreads` / `-closingrun` (run existence) | not supplied |
 | `R` | `RunReadsAt … X ws ws' raw D b ci envR envR' shape w5 w6` | `sparkle-gen5-dg-runreads` (`runReads_of_run` RR3 builds it from `O`, `hA`, `JQ`/cache, `MachineDefines`, `MachineClosesAtA`) | not supplied here |
@@ -89,3 +89,17 @@ Written from this document, not from the Lean statement.
 4. CLOSURE (`reach2` as in U12): root itself tested against the forbid set; unknown constant = throw; negatives for an unknown root, a helper whose VALUE mentions an unknown name, an existing helper whose TYPE only mentions an unknown name; clean control; fixtures inside `withoutModifyingEnv`. Required suppliers reached (assert): `readMachine_agrees_runReads_of_head` (U12b) and `readsAt_self`. `ReadKeeps` / `EnvFrame` recorded as FACTs (premise use), not forbidden; forbid set as in U12.
 5. AXIOMS: `#print axioms`-equivalent via the same collector as U12, standard three only; sorry absent.
 6. Build: `kjob lake build Tools.ShippingGen5ReadKindsU13` then `Tests.Gen5.ReadKindsU13Check`, one at a time. After the Lean commit the Issue stays `doing`; the clean issue-linked build is the coder's.
+
+## 5. Implementation status (U13, agent g5rk-r22) — ledger after U13
+U13 resolved: **h0, and the free `env₀`** (premise of the top theorem). Theorem `Tools.ShippingGen5ReadKindsU13.readMachine_agrees_runReads_of_head_self` is the §3 statement, proof one `exact` of U12b with `readsAt_self cref w`. Conditional = intermediate.
+
+Remaining premises of the top theorem (U13): 
+| premise | status |
+|---|---|
+| `hk` | 未供給 (この調査で辿った経路では) |
+| `hHead` | 未供給 |
+| `h0s : ReadsAt (envAt cref w) cref ws` | 残る。run 開始 world 間の tie (DG-ENV C0)。供給の主張なし |
+| `hrun`, `R` | run existence (他 Issue) |
+| `hX` | 束縛のみ |
+Also unsupplied: hall / C0, coverage, hag, hK, ReadWorld, `envR = envR'`, `ci ∈ envR`, hq, FG.
+Check: `Tests/Gen5/ReadKindsU13Check.lean` (mutants are signature/defeq rejections, not semantic counterexamples).
