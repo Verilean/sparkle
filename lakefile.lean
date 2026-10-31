@@ -4850,3 +4850,6 @@ lean_lib «Tools.ShippingGen5SemCall» where
 
 lean_lib «Tools.ShippingGen5SemCongr» where
   roots := #[`Tools.ShippingGen5SemCongr]
+
+lean_lib «Tools.ShippingGen5SemMem» where
+  roots := #[`Tools.ShippingGen5SemMem]
