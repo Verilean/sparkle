@@ -4907,3 +4907,9 @@ lean_lib «Tools.ShippingGen5AccDataSound» where
 
 lean_lib «Tests.Gen5.AccDataSoundCheck» where
   roots := #[`Tests.Gen5.AccDataSoundCheck]
+
+lean_lib «Tools.ShippingGen5AccDataAgree» where
+  roots := #[`Tools.ShippingGen5AccDataAgree]
+
+lean_lib «Tests.Gen5.AccDataAgreeCheck» where
+  roots := #[`Tests.Gen5.AccDataAgreeCheck]
