@@ -3,7 +3,7 @@ import Tools.ShippingGen2Keep
 import Tools.ShippingGen2T1
 import Tools.ShippingDesignWriterRun
 set_option autoImplicit false
--- Clean issue-linked build ac4v-5aab73de: exit 0, 714 jobs, source=base=end, dirty=false, scoped approved at 5aab73de. Earlier Pod builds: g5ac-r3 at 174b92b3. No sorry / axiom / native_decide.
+-- Clean issue-linked build ac5v-802381fe: exit 0, source=base=end, dirty=false, approved at 802381fe (earlier clean build ac4v-5aab73de, 714 jobs). Earlier Pod builds: g5ac-r3 at 174b92b3. No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A4: the Acc induction skeleton, CONDITIONAL (scripts/gen5/DG_ACC_FREEZE_REV1.md §B.2-B.3, REV2 §B)
 

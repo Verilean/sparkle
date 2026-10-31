@@ -2,7 +2,7 @@ import Tools.ShippingGen5AccInd
 import Tools.ShippingGen5EnvR
 import Tools.ShippingGen5RunReads
 set_option autoImplicit false
--- Built in g5ac-r5 at 0f120373 (Pod `kjob lake build Tools.ShippingGen5AccReads`, exit 0, 716 jobs; the build was of the identical content; this header is the only later change). Clean build is the coder's. No sorry / axiom / native_decide.
+-- Clean issue-linked build ac5v-802381fe: exit 0, source=base=end, dirty=false, approved at 802381fe (earlier Pod build g5ac-r5 at 0f120373, 716 jobs). No sorry / axiom / native_decide.
 
 /-! # DG-ACC rev2 R1 (read worlds) and R2 (`hacc` from top runs) (scripts/gen5/DG_ACC_FREEZE_REV2.md §B.2, §C.2)
 
