@@ -1,6 +1,6 @@
 import Tools.ShippingPostSoundness
 set_option autoImplicit false
--- NOT BUILT (U-POST, scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §4)
+-- Built at 160ba5d174b3b055a526917964cf358a7d9a019f (agent build `kjob lake build Tools.ShippingGen5DCEntry` exit 0, 251 jobs; NOT clean-built, clean build by coder pending). U-POST, scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §4
 
 /-! # DC-CONNECT U-POST: the default entry satisfies the `T1Stmt` post-processing relation
 
