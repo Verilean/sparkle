@@ -1,7 +1,11 @@
 import Tools.ShippingGen4ParamIface
 import Tools.ShippingGen4ParamKeeps
 set_option autoImplicit false
--- BUILT: clean issue-linked build par6v-41ad0be7 (Tests.Gen4.ParamIfaceCheck) exit 0, 705 jobs, at 41ad0be7. Comment-only update.
+-- BUILT (clean issue-linked, earlier content): par8v-ada16f86 (Tests.Gen4.ParamIfaceCheck) exit 0, 706 jobs, at ada16f86. That build predates the R2 change below.
+-- NOT BUILT (clean issue-linked): the R2 change (unresolved closure names fail; 3 unknown-name negatives + clean control). Pod build only: kjob lake build Tests.Gen4.ParamIfaceCheck exit 0, 705 jobs.
+-- Directive counts in this file (rule: count of top-level `#...` directive lines per kind, each a pass/fail assertion, silent on success; the unknown-name
+-- fixture is ONE directive that runs 4 internal cases): type_defeq 7, value_defeq 5, mutant_rejected 5, audit_axioms 12, audit_closure 12,
+-- closure_detects 2, closure_clean 2, sig_clean 2, closure_unknown_fixtures 1 (3 negatives + 1 clean control).
 
 /-! # Audit of Tools/ShippingGen4ParamIface.lean and Tools/ShippingGen4ParamKeeps.lean (PARAMETRIC_FREEZE.md rev4 §11.2, §11.3, §11.5)
 
@@ -11,7 +15,8 @@ set_option autoImplicit false
 3. AXIOMS: only propext / Classical.choice / Quot.sound; no sorryAx, no `ofReduceBool` (native_decide).
 4. CLOSURE: transitive constant closure (types plus `thmInfo.value`/`defnInfo.value`; `opaque` bodies are not tracked and
    are logged) has no `Laws`, `T1Hyp`, `T1HypND` constant. Section 5 runs proof-only negative (direct, via other-namespace
-   helper) and positive fixtures through the same detector.
+   helper) and positive fixtures through the same detector. A name that `env.find?` cannot resolve is a FAILURE (not a skip);
+   section 5 runs three unknown-name negatives (root, helper value, helper type) and a clean control through the same function.
 Scope: I4-struct is a decomposition (which `b` from which `raw`), not an equivalence. The definitions are definitions only.
 I3c is the OUTERMOST symbolic run (keeps at general depth D; worlds/balance at depth 0). -/
 
@@ -42,29 +47,34 @@ elab "#audit_axioms " c:ident : command => liftTermElabM do
 /-- Transitive constant closure. The body is fetched explicitly per `ConstantInfo` kind:
 `thmInfo.value` and `defnInfo.value` are traversed; `opaqueInfo` bodies are NOT tracked (only the type is), and the
 opaque constants reached are returned so the log can state it. Other kinds (axiom, inductive, ctor, rec, quot) have
-no body, only a type. Returns (seen, opaque constants reached). -/
-private partial def closure (env : Environment) (todo : List Name) (seen : NameSet) (opq : NameSet) :
-    NameSet × NameSet :=
+no body, only a type. A name that `env.find?` does not resolve is NOT skipped: it is collected in the third component
+and the production audit fails on it. Returns (seen, opaque constants reached, unresolved names). -/
+private partial def closure (env : Environment) (todo : List Name) (seen : NameSet) (opq : NameSet) (unk : NameSet) :
+    NameSet × NameSet × NameSet :=
   match todo with
-  | [] => (seen, opq)
+  | [] => (seen, opq, unk)
   | n :: rest =>
-    if seen.contains n then closure env rest seen opq else
+    if seen.contains n then closure env rest seen opq unk else
     let seen := seen.insert n
     match env.find? n with
-    | none => closure env rest seen opq
+    | none => closure env rest seen opq (unk.insert n)
     | some ci =>
       let (body, opq) : List Name × NameSet := match ci with
         | .thmInfo v => (v.value.getUsedConstants.toList, opq)
         | .defnInfo v => (v.value.getUsedConstants.toList, opq)
         | .opaqueInfo _ => ([], opq.insert n)
         | _ => ([], opq)
-      closure env (ci.type.getUsedConstants.toList ++ body ++ rest) seen opq
+      closure env (ci.type.getUsedConstants.toList ++ body ++ rest) seen opq unk
 
-/-- The one detector, used by production checks and by the fixtures. -/
-private def closureReport (forbidden : List Name) (n : Name) : CoreM (List Name × List Name) := do
-  let env ← getEnv
-  let (seen, opq) := closure env [n] {} {}
-  return (seen.toList.filter fun m => forbidden.any fun f => f.isPrefixOf m, opq.toList)
+/-- The one detector, used by production checks and by the fixtures (also on synthetic environments).
+Returns (forbidden constants reached, opaque constants reached, unresolved names). -/
+private def closureReportIn (env : Environment) (forbidden : List Name) (n : Name) :
+    List Name × List Name × List Name :=
+  let (seen, opq, unk) := closure env [n] {} {} {}
+  (seen.toList.filter fun m => forbidden.any fun f => f.isPrefixOf m, opq.toList, unk.toList)
+
+private def closureReport (forbidden : List Name) (n : Name) : CoreM (List Name × List Name × List Name) := do
+  return closureReportIn (← getEnv) forbidden n
 
 private def prodForbidden : List Name :=
   [`Tools.ShippingGen2.Laws, `Tools.ShippingGen2.T1Hyp, `Tools.ShippingGen2.T1HypND]
@@ -73,21 +83,59 @@ private def fixtureForbidden : List Name := [`Tests.Gen4.ParamIfaceCheck.Fixture
 
 elab "#audit_closure " c:ident : command => liftTermElabM do
   let n ← realizeGlobalConstNoOverloadWithInfo c
-  let (bad, opq) ← closureReport prodForbidden n
+  let (bad, opq, unk) ← closureReport prodForbidden n
+  unless unk.isEmpty do throwError "{n}: closure reached names not found in the environment: {unk}"
   unless opq.isEmpty do logInfo m!"CLOSURE {n}: opaque bodies NOT tracked (type only): {opq}"
   unless bad.isEmpty do throwError "{n}: forbidden constants {bad}"
 
 /-- Fixture must be flagged by the same detector (fixture-only forbidden name). -/
 elab "#closure_detects " c:ident : command => liftTermElabM do
   let n ← realizeGlobalConstNoOverloadWithInfo c
-  let (bad, _) ← closureReport fixtureForbidden n
+  let (bad, _, _) ← closureReport fixtureForbidden n
   if bad.isEmpty then throwError "{n}: detector MISSED the forbidden constant"
 
 /-- Fixture must not be flagged by the same detector. -/
 elab "#closure_clean " c:ident : command => liftTermElabM do
   let n ← realizeGlobalConstNoOverloadWithInfo c
-  let (bad, _) ← closureReport fixtureForbidden n
+  let (bad, _, _) ← closureReport fixtureForbidden n
   unless bad.isEmpty do throwError "{n}: detector flagged a clean fixture: {bad}"
+
+/-- Unresolved-name fixtures, through the same `closureReport` as `#audit_closure`. Synthetic declarations are added
+with the kernel check skipped (`debug.skipKernelTC`; the kernel would refuse an unknown constant) inside
+`withoutModifyingEnv`, so they never reach the file's environment. Three negatives (unknown root, unknown name reached
+through a helper VALUE, through a helper TYPE) must report the unknown name; the clean control (same shapes, all names
+known) must report none. -/
+elab "#closure_unknown_fixtures" : command => liftTermElabM do
+  let nat := Expr.const ``Nat []
+  let zero := Expr.const ``Nat.zero []
+  let add (nm : Name) (ty val : Expr) : MetaM Unit :=
+    withOptions (fun o => debug.skipKernelTC.set o true) do
+      addDecl (.defnDecl { name := nm, levelParams := [], type := ty, value := val, hints := .abbrev, safety := .safe })
+  -- negative 1: the root itself does not exist
+  withoutModifyingEnv do
+    let (_, _, unk) ← closureReport fixtureForbidden `Fixture.Unknown.root
+    unless unk.contains `Fixture.Unknown.root do throwError "unknown ROOT was not reported"
+  -- negative 2: helper VALUE mentions an unknown constant
+  withoutModifyingEnv do
+    add `Fixture.Unknown.hv nat (.const `Fixture.Unknown.v [])
+    add `Fixture.Unknown.rootV nat (.const `Fixture.Unknown.hv [])
+    let (_, _, unk) ← closureReport fixtureForbidden `Fixture.Unknown.rootV
+    unless unk.contains `Fixture.Unknown.v do throwError "unknown name via helper VALUE was not reported: {unk}"
+  -- negative 3: helper TYPE mentions an unknown constant
+  withoutModifyingEnv do
+    add `Fixture.Unknown.hT (.const `Fixture.Unknown.T []) zero
+    add `Fixture.Unknown.rootT nat (.const `Fixture.Unknown.hT [])
+    let (_, _, unk) ← closureReport fixtureForbidden `Fixture.Unknown.rootT
+    unless unk.contains `Fixture.Unknown.T do throwError "unknown name via helper TYPE was not reported: {unk}"
+  -- clean control: same shapes, everything resolves
+  withoutModifyingEnv do
+    add `Fixture.Unknown.cv nat zero
+    add `Fixture.Unknown.cT nat zero
+    add `Fixture.Unknown.cRoot nat (.const `Fixture.Unknown.cv [])
+    add `Fixture.Unknown.cRoot2 (.const `Fixture.Unknown.cT []) zero
+    let (_, _, unk) ← closureReport fixtureForbidden `Fixture.Unknown.cRoot
+    let (_, _, unk2) ← closureReport fixtureForbidden `Fixture.Unknown.cRoot2
+    unless unk.isEmpty && unk2.isEmpty do throwError "clean control reported unresolved names: {unk} {unk2}"
 
 /-- The fixture's signature must not itself mention the forbidden name (only the proof may). -/
 elab "#sig_clean " c:ident : command => liftTermElabM do
@@ -324,5 +372,6 @@ theorem posViaHelper : True := FixtureHelper.helperOk
 #closure_detects negViaHelper
 #closure_clean Fixture.posOk
 #closure_clean posViaHelper
+#closure_unknown_fixtures
 
 end Tests.Gen4.ParamIfaceCheck
