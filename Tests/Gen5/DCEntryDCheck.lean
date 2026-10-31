@@ -241,7 +241,9 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let rcl ← reach envF `fixRootClean
     unless rcl.unknown.isEmpty do throwError "UNKNOWN-NAME FIXTURE CLEAN CONTROL FAILED"
     logInfo m!"UNKNOWN-NAME FIXTURE CLEAN CONTROL OK fixRootClean"
-  unless (env.find? `fixHelperTy).isNone do throwError "fixture leaked into the environment"
+  -- inspect the CURRENT environment (after `withoutModifyingEnv`), not the saved `env`
+  unless ((← getEnv).find? `fixHelperTy).isNone && ((← getEnv).find? `fixRootUsesHelper).isNone && ((← getEnv).find? `fixRootClean).isNone do
+    throwError "fixture leaked into the environment"
   logInfo m!"COUNTS: TYPE {nType} (one per statement: topMap, PostEntry, synthesizeCombinational_postEntry, postEntry_postT1; plus 2 positive-control self-comparisons not counted), MUTANT {nMut} (well-typed single change, signature/defeq rejection under withReducible, not semantic counterexamples), CONJ {nConj} (conjunct/disjunct/conclusion drops), AXIOMS {targets.length}, CLOSURE {nClosure} roots + 1 missing-owner control + 1 forbidden-mention control + 1 clean control + unknown-name fixture (1 detect + 1 clean)"
   logInfo m!"STATUS: NOT supplied by this unit: (a2) TopShips D->D' transport, (a3) post-processed top semantics, (b1) O3 arbitrary raw identification, (b2) O3 restatement, (c5) reader/core tie, (c6) hall/ReadsAt at later worlds, (c7) O2/DeclConnect rows, S3 parametric route, S12 DCF, S14 ReflectsAll"
 
