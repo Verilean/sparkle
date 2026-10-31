@@ -2,7 +2,7 @@ import Tools.ShippingGen4FbFragRun
 import Tests.Gen4.FbPPCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (unit FB-22): written from scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §33.3/§33.4 (freeze 14e312de), independently of the proofs.
+-- BUILT (unit FB-22): `kjob lake build Tests.Gen4.FbFragRunCheck` exit 0 (814 jobs) in the Pod (Lean commit 7dd7d127): TYPE 3 / MUTANT REJECTED 14 / AXIOMS 3 (standard only) / sorry 0; NOT a clean issue-linked build (coder).
 -- Text = §33.3/§33.4. Reuses `fbReach`/`auditOk`/`addFixture` of Tests.Gen4.FbPPCheck.
 -- All TYPE/MUTANT comparisons run under `withReducible` (one comparator, as FbFragCheck).
 -- Checks: TYPE (3 theorems), MUTANT (well-typed single changes; signature/defeq rejections, NOT semantic counterexamples),
