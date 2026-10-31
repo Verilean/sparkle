@@ -1,6 +1,6 @@
 import Tools.ShippingGen5SemKitInv
 set_option autoImplicit false
--- NOT BUILT HERE (U8, scripts/gen5/DG_SEM_FREEZE_P8.md §3.1). No sorry/axiom/native_decide.
+-- NOT BUILT HERE (U8, scripts/gen5/DG_SEM_FREEZE_P8.md §3.1; incremental Pod build of this tree at d8ddd8f2: Tools.ShippingGen5SemGenData exit 0 (713 jobs); clean build is the coder's). No sorry/axiom/native_decide.
 /-! # DG-SEM U8 (scripts/gen5/DG_SEM_FREEZE_P8.md §3.1): `GenData`, `GenData.toIn`, `GenData.genSem`
 and `hsem` / `hd` / evidence as theorems.
 

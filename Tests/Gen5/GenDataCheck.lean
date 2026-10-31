@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemGenData
 import Tests.Gen5.SemFactsCheck
 set_option autoImplicit false
--- NOT BUILT HERE (U8 check, scripts/gen5/DG_SEM_FREEZE_P8.md §3.2). No sorry/axiom/native_decide.
+-- NOT BUILT HERE (U8 check, scripts/gen5/DG_SEM_FREEZE_P8.md §3.2; incremental Pod build of this tree at d8ddd8f2: Tests.Gen5.GenDataCheck exit 0 (719 jobs); clean build is the coder's). No sorry/axiom/native_decide.
 /-! # DG-SEM U8 check (Tools/ShippingGen5SemGenData.lean), plan of freeze §3.2 (after R1)
 
 * (a) THEOREMS (5): type against an independent `Exp*` (`checkExpected`/`cmpTele`).
