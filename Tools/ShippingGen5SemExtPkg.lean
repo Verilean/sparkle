@@ -2,7 +2,7 @@ import Tools.ShippingGen5SemExt
 import Tools.ShippingGen5T2Tie
 import Tools.ShippingGen5T2Range
 set_option autoImplicit false
--- Pod build exit 0 (kjob lake build Tests.Gen5.SemExtPkgCheck, 749 jobs) ONLY with the one-line S1 pattern fix of `callField_at` in Tools/ShippingGen5T2Tie.lean (43977202) applied as an UNCOMMITTED local patch: at 1c300db6 Tools.ShippingGen5T2Tie itself does not elaborate. Clean build is the coder's. No sorry/axiom/native_decide.
+-- Pod build smu7v-7c06a80f exit 0 (kjob lake build Tests.Gen5.SemExtPkgCheck, 749 jobs), approved at 7c06a80f; the one-line S1 pattern fix of `callField_at` in Tools/ShippingGen5T2Tie.lean (43977202) is committed at 7c06a80f. Clean build is the coder's. No sorry/axiom/native_decide.
 /-! # DG-SEM U5E (scripts/gen5/DG_SEM_FREEZE_P4E.md §5.2, rev3 §6): `GenExtAtCall` for a package whose forgotten data is `genSemI`
 
 `Tools.ShippingGen2.GenExtAtCall p q k hk` (T2-TIE's `hDG_SEM`) from `p.toSem = genSemI (semOf P) X g`, the callee package `hq`, and
