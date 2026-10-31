@@ -3,7 +3,7 @@ import Tools.ShippingMemoInv
 import Tools.ShippingLegacySemMemoWalk
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (unit FB-13). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §21.4/§21.5 (rev12, scoped approved at a02dc304).
+-- BUILT (unit FB-13) at 4e639a94: kjob lake build Tests.Gen4.FbMachInvCheck exit 0 (811 jobs, Pod build; clean build is the coder's). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §21.4/§21.5 (rev12, scoped approved at a02dc304), status §22.
 -- Expected definitions are typed again here: `ExpSideInv` = the body of `A4MachineSideA` (ShippingGen4FbR4.lean:71-98, `O := L.O`)
 -- with the three leading `InvAt (D+1)` conjuncts; `ExpR4RunInvT5` = a retyped copy of the `R4RunInvT` body.
 -- Checks: TYPE (definition VALUE and TYPE, three theorems), MUTANT (well-typed single changes; signature/defeq rejections,

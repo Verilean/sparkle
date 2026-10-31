@@ -1,6 +1,6 @@
 import Tools.ShippingGen4FbFin0
 set_option autoImplicit false
--- NOT BUILT (unit FB-13): written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §21.4 (rev12, scoped approved at a02dc304).
+-- BUILT (unit FB-13) at 4e639a94: kjob lake build Tools.ShippingGen4FbMachInv exit 0 (760 jobs, Pod build; clean build is the coder's). Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §21.4 (rev12, scoped approved at a02dc304), status §22.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. One definition and three theorems only.
 
 /-! # FB-13: T-MACH-INV, `InvAt` on the `A4MachineSideA` side
