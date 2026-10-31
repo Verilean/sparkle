@@ -3,7 +3,8 @@ import Tools.ShippingGen5DCEntryR
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.DeclConnectCheck
 set_option autoImplicit false
--- NOT BUILT by an issue-linked clean build: U-RESETN checks (scripts/gen5/DC_CONNECT_RESETN_FREEZE.md §4). Agent incremental build only.
+-- U-RESETN checks (scripts/gen5/DC_CONNECT_RESETN_FREEZE.md §4). Issue-linked clean build dc17v-1c948e47 exit 0 (749 jobs); approved at 1c948e47.
+-- Counts: TYPE 3 (2 theorems + definition-equation pin) + 3 self-comparisons, MUT 15 + CONJ 2, AX 3.
 
 /-! # DC-CONNECT U-RESETN: checks
 
