@@ -1,6 +1,6 @@
 import Tools.ShippingGen5NameKids3
 set_option autoImplicit false
--- NOT BUILT. 1 theorem, 0 new definitions. Written against freeze BOUNDARY_AUDIT_FREEZE_U7.md §2 + §5.
+-- Reviewed build ba15v-3f5bcb2e (exit 0, 723 jobs, approved at 3f5bcb2e; this comment-only revision follows it). 1 theorem, 0 new definitions. Written against freeze BOUNDARY_AUDIT_FREEZE_U7.md §2 + §5.
 -- Conditional on `hg : GraphAgrees g (OrdPath g top) S`; no instance of `hg` is constructed, so this is NOT evidence of non-vacuity. The production Reach / GraphAgrees / hnd / hr / hfo / ReachSpans / FG are unsupplied.
 -- No sorry / axiom / native_decide.
 

@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids7
 import Tools.ShippingGen2Defs
 import Tests.Gen5.NameKidsCheck
--- NOT BUILT. U7 check: TYPE 1 / MUTANT 4 (single-point; signature/defeq rejection, not semantic counterexamples; no block mutant) / use-site 1 / closure negatives 8 + clean 1 / REACH 1 / AXIOMS 1 (standard three only).
+-- Reviewed build ba15v-3f5bcb2e (exit 0, 723 jobs, approved at 3f5bcb2e; this comment-only revision follows it). U7 check: TYPE 1 / MUTANT 4 (3 single-change: MutNoHg, MutHgTrue, MutConclSpans; 1 two-place: MutSNone replaces S in both the premise and the conclusion; signature/defeq rejection, not semantic counterexamples; no block mutant) / use-site 1 / closure negatives 8 + clean 1 / REACH 1 / AXIOMS 1 (standard three only).
 -- Count rule: one `logInfo` line per class: TYPE = theorem vs its Expected; MUTANT = distinct mutant def counted once (MutNoHg, MutHgTrue, MutConclSpans, MutSNone); REACH/AXIOMS = one per theorem.
 -- `hg` is a premise; no instance of it is constructed (not evidence of non-vacuity). No sorry / axiom / native_decide.
 
@@ -9,7 +9,7 @@ import Tests.Gen5.NameKidsCheck
 
 `ExpReachClosedOrdPathF` is written from the Lean text of freeze `BOUNDARY_AUDIT_FREEZE_U7.md` §2, with the defs `GraphAgrees` / `ReachClosed` of Kids3 (the reducible comparator does not unfold them), not from the implementation.
 ONE comparator (`cmpTeleR` / `checkExpectedR` / `checkMutantR` of `Tests.Gen5.NameKidsCheck`) is used for the positive and the mutants.
-Mutants are well-typed single-point variants; a rejection is by signature / defeq, NOT a semantic counterexample. -/
+Mutants are well-typed variants (three single-change, MutSNone a two-place S replacement); a rejection is by signature / defeq, NOT a semantic counterexample. -/
 
 namespace Tests.Gen5.NameKids7Check
 open Lean Meta
@@ -25,7 +25,7 @@ open Tests.Gen5.NameKidsCheck (cmpEqR cmpTeleR checkExpectedR checkMutantR reach
 def ExpReachClosedOrdPathF : Prop := ∀ {g : CallGraph} {top : Name} {S : Name → Option MachineShape}
     (hg : GraphAgrees g (OrdPath g top) S), ReachClosed (OrdPath g top) S
 
-/-! ## 2. Mutants (single change each; rejection by signature, not a semantic counterexample) -/
+/-! ## 2. Mutants (MutNoHg/MutHgTrue/MutConclSpans: one change each; MutSNone: S replaced in premise and conclusion, two places; rejection by signature, not a semantic counterexample) -/
 def MutNoHg : Prop := ∀ {g : CallGraph} {top : Name} {S : Name → Option MachineShape},
     ReachClosed (OrdPath g top) S
 def MutHgTrue : Prop := ∀ {g : CallGraph} {top : Name} {S : Name → Option MachineShape}
