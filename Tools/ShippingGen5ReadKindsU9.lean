@@ -4,7 +4,7 @@ import Tools.ShippingGen5ReadKindsU7
 import Tools.ShippingGen5Env
 import Tools.ShippingGen5RunReads
 set_option autoImplicit false
--- NOT BUILT (header to be synced with the clean build SHA). Freeze: scripts/gen5/DG_READKINDS_U9_FREEZE.md. No sorry / axiom / native_decide.
+-- Built: kjob lake build Tests.Gen5.ReadKindsU9Check exit 0 in pod on e1d81639ea92edc6d8837a13c941516c9d3ad4a0 (clean issue-linked build by coder pending; conditional intermediate, M5/FG not complete). Freeze: scripts/gen5/DG_READKINDS_U9_FREEZE.md. No sorry / axiom / native_decide.
 
 /-! # DG-READKINDS U9 (freeze scripts/gen5/DG_READKINDS_U9_FREEZE.md)
 
