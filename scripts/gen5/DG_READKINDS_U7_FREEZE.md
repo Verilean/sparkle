@@ -12,7 +12,7 @@ Nothing below is a real-run tie, reader coverage, or an FG supply; the Issue sta
 ## 1. T3 — remaining `Read` fields (`Tools/ShippingMachineCommand.lean:390-413`, `readMachine` `:440-541`)
 
 Same method as U6d (`readMachine_root`): repeat the `readMachine_run` walk and keep, in the conclusion, facts that the walk's `generalize … = o` hypotheses give. Nothing about
-`partial` defs is unfolded. `Read` has 19 fields; status of each (E := `GenEntry ci env`, T := `E.type`, `S := structEnv env`):
+`partial` defs is unfolded. `Read` has 18 fields; status of each (E := `GenEntry ci env`, T := `E.type`, `S := structEnv env`):
 
 | field | status | statement kept (real names) |
 |---|---|---|
@@ -110,7 +110,7 @@ hq = "the terms read off the body quote back to it" (`readMachine`'s `unless q.e
   Lean.Expr.equal_sound : ∀ a b : Lean.Expr, Lean.Expr.equal a b = true → a = b
   ```
   Impact: it is a new trust boundary (an assumption about the Lean runtime's `Expr` equality, i.e. extern code) that `Laws` does not contain; with it the success of `readMachine` gives
-  `quote … packed = shape.body` (hq) for the walked `packed`/`dom`, the other half of what coverage needs together with Q2. Without it every route through `readMachine`'s final guard stops at the opaque call. Adding it is the user's decision (new law); this unit does not add it, and does not ask for it now.
+  `quote … packed = shape.body` (hq) for the walked `packed`/`dom`, the other half of what coverage needs together with Q2. This survey found no route from the guard to the equation that avoids the opaque call (this is the extent of the survey; it does not show impossibility or that this law is necessary). Adding it is the user's decision (new law); this unit does not add it, and does not ask for it now.
 * **Q2** (`unq c shape.body = some whole` is `partial`, `ShippingMachineCommand.lean:93`): this survey found no theorem relating `unq` to `readN`/`readTot`; stays "not supplied / route not found". No law named here.
 * **Q3**: hq from `readN` success via `readN_sound` + `machine_body_of_readN` (U3): conditional on `hread : readN cfg k body = some r`, which is the coverage question; it remains a premise (coverage side), not supplied.
 * U7 adds no theorem for hq.
@@ -129,3 +129,6 @@ hq = "the terms read off the body quote back to it" (`readMachine`'s `unless q.e
 ## 5. Not claimed
 hq; `Expr.equal_sound` (not added); `hentry`; `RunReadsAt` / `GetEnvFrame` / `hX` / `hall` supplied; `srcDom`, `ls`, `outs`, `nexts`; real-run tie; reader coverage; FG, M5, DG-COVER, DG-READKINDS completion.
 After Lean commits the Issue stays `doing` (clean build is the coder's).
+
+## 6. Addendum (reviewer note, non-blocking)
+* ReadRoot (U6d) and ReadFields (U7a) are separate walks. If they are ever combined, the existence witnesses (`ci`/`env`/`entryV`/body) must not be identified by a mere conjunction of two existence conclusions: either prove the witnesses equal, or state both facts from one and the same walk. U7 does not combine them.
