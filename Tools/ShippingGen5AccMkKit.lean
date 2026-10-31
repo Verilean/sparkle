@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccGenDataEv
 set_option autoImplicit false
--- NOT BUILT. Lean source for DG-ACC unit A11 (freeze scripts/gen5/DG_ACC_FREEZE_REV11.md, design approved at 8e0d0bc3). No sorry / axiom / native_decide.
+-- Pod incremental build OK at 74a2e66c (Tools 726 jobs, Check 729 jobs, committed tree; clean issue-linked build is the coder's, not yet run). Lean source for DG-ACC unit A11 (freeze scripts/gen5/DG_ACC_FREEZE_REV11.md, design approved at 8e0d0bc3). No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A11: the kit built from abstract parts, with `dataOf := f` (scripts/gen5/DG_ACC_FREEZE_REV11.md §1)
 
