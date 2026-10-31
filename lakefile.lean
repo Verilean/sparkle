@@ -4874,3 +4874,9 @@ lean_lib «Tools.ShippingGen4FbSplit» where
 
 lean_lib «Tests.Gen4.FbSplitCheck» where
   roots := #[`Tests.Gen4.FbSplitCheck]
+
+lean_lib «Tools.ShippingGen4FbFin0» where
+  roots := #[`Tools.ShippingGen4FbFin0]
+
+lean_lib «Tests.Gen4.FbFin0Check» where
+  roots := #[`Tests.Gen4.FbFin0Check]
