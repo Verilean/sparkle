@@ -3,7 +3,7 @@ import Tools.ShippingGen5T1ND
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- Built in doc-bc9a300d (clean issue-linked, exit 0, 743 jobs; source=end=bc9a300d on par/gen3-combined 43977202) (DG-DATAOF checks for Tools/ShippingGen5DataOfPure.lean; scripts/gen5/DG_DATAOF_FREEZE.md rev1).
+-- Last clean build doc-bc9a300d; the unknown-name fail + DATAOF UNKNOWN CONTROL block was added after and is NOT BUILT by an issue-linked clean build (agent build exit 0). Earlier: built in doc-bc9a300d (clean issue-linked, exit 0, 743 jobs; source=end=bc9a300d on par/gen3-combined 43977202) (DG-DATAOF checks for Tools/ShippingGen5DataOfPure.lean; scripts/gen5/DG_DATAOF_FREEZE.md rev1).
 -- No sorry / axiom / native_decide.
 
 /-! # DG-DATAOF checks for the pure units (U-A, U-B, U-C)
@@ -159,9 +159,13 @@ structure AReach where
   noBody : Nat := 0
   opaques : Nat := 0
   opaqueNames : List Name := []
+  unknown : List Name := []
 
-def reach (root : Name) (cap : Nat := 3000000) : MetaM AReach := do
-  let env ← getEnv
+/-- Walk the constants reachable from `root`. A name that `env.find?` does not resolve is COUNTED (never silently
+skipped); any unknown name makes the walk fail (`throwError`), so a missing root / value / type is not read as clean.
+`env?` lets the negative controls run the same detector over a modified environment. -/
+def reach (root : Name) (cap : Nat := 3000000) (env? : Option Environment := none) : MetaM AReach := do
+  let env ← match env? with | some e => pure e | none => getEnv
   let mut out : AReach := { seen := ({} : NameSet).insert root }
   let mut queue : Array (Name × List Name) := #[(root, [root])]
   let mut i := 0
@@ -170,7 +174,9 @@ def reach (root : Name) (cap : Nat := 3000000) : MetaM AReach := do
     i := i + 1
     out := { out with visited := out.visited + 1 }
     if out.visited > cap then throwError "DATAOF AUDIT INCOMPLETE at {root}"
-    let some ci := env.find? c | continue
+    let some ci := env.find? c | do
+      out := { out with unknown := c :: out.unknown }
+      continue
     let body := body? ci
     if body.isNone then out := { out with noBody := out.noBody + 1 }
     if ci matches .opaqueInfo _ then out := { out with opaques := out.opaques + 1, opaqueNames := c :: out.opaqueNames }
@@ -181,6 +187,8 @@ def reach (root : Name) (cap : Nat := 3000000) : MetaM AReach := do
       unless out.seen.contains u do
         out := { out with seen := out.seen.insert u }
         queue := queue.push (u, path ++ [u])
+  unless out.unknown.isEmpty do
+    throwError "DATAOF AUDIT INCOMPLETE at {root}: {out.unknown.length} unknown name(s) {out.unknown.reverse}"
   return out
 
 set_option maxHeartbeats 0 in
@@ -193,6 +201,27 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     if bad && r.hit.isNone then throwError "DATAOF AUDIT FAILED: detector misses {c}"
     if !bad && r.hit.isSome then throwError "DATAOF AUDIT FAILED: detector flags {c}"
     logInfo m!"DATAOF CONTROL {c}: {toString r.hit}"
+  -- unknown-name controls: the same detector must FAIL on an unknown root / helper value / helper type, and pass the clean one
+  let env ← getEnv
+  let mk (n : Name) (ty v : Expr) : Declaration :=
+    .defnDecl { name := n, levelParams := [], type := ty, value := v, hints := .abbrev, safety := .safe }
+  let ghost := `Tests.Gen5.DataOfFixture.ghostName
+  let addD (d : Declaration) : MetaM Environment := do
+    match env.addDeclCore 0 d none (doCheck := false) with
+    | .ok e => pure e
+    | .error _ => throwError "DATAOF AUDIT FAILED: could not build unknown-name control"
+  let F := `Tests.Gen5.DataOfFixture
+  let envVal ← addD (mk (F ++ `helperBadVal) (mkConst ``Nat) (mkConst ghost))
+  let envTy ← addD (mk (F ++ `helperBadTy) (mkConst ghost) (mkConst ``Nat.zero))
+  let envOk ← addD (mk (F ++ `helperOk) (mkConst ``Nat) (mkConst ``Nat.zero))
+  for (lbl, root, e) in [("unknown root", ghost, env), ("helper value unknown", F ++ `helperBadVal, envVal),
+      ("helper type unknown", F ++ `helperBadTy, envTy)] do
+    let failed ← try discard <| reach root (env? := some e); pure false catch ex => pure ((← ex.toMessageData.toString).contains "unknown name")
+    unless failed do throwError "DATAOF AUDIT FAILED: unknown-name control '{lbl}' was not rejected"
+    logInfo m!"DATAOF UNKNOWN CONTROL {lbl}: rejected"
+  let r ← reach (F ++ `helperOk) (env? := some envOk)
+  unless r.unknown.isEmpty do throwError "DATAOF AUDIT FAILED: clean helper control has unknown names"
+  logInfo m!"DATAOF UNKNOWN CONTROL clean helper: accepted, unknown {r.unknown.length}"
   for c in [``termsOfAny_fields, ``termBeq_sound, ``termBeq_refl, ``anyBeq_eq, ``anyBeq_refl, ``bitsBeq_eq,
       ``bitsBeq_refl, ``bitsBeq_width, ``initOk_of_ok] do
     let r ← reach c

@@ -3,7 +3,7 @@ import Tests.Gen5.DataOfCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- NOT BUILT by an issue-linked clean build (DG-DATAOF checks for Tools/ShippingGen5DataOf.lean; scripts/gen5/DG_DATAOF_FREEZE.md rev2 Q5).
+-- clean issue-linked build do4v-8b57cc6e exit 0 (762 jobs = Lake jobs of the Tests.Gen5.DataOfCheck3 + Tests.Gen5.DataOfCheck2 targets built together; tallies summed over both Checks: TYPE OK 20, MUTANT REJECTED 16, AXIOMS OK 21, REACH 23, fixture CONTROL 4); that build predates the unknown-name fail in Tests/Gen5/DataOfCheck.lean, which is NOT BUILT by an issue-linked clean build (agent builds only: DataOfCheck3 761 jobs, DataOfCheck2 758 jobs, exit 0) (DG-DATAOF checks for Tools/ShippingGen5DataOf.lean; scripts/gen5/DG_DATAOF_FREEZE.md rev2 Q5).
 -- No sorry / axiom / native_decide.
 
 /-! # DG-DATAOF checks for `dataOfFrom` / `dataOfAt` and their conditional soundness
