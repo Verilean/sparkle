@@ -47,7 +47,7 @@ theorem factsOf_all_of_acc_unfold (R : Name → Name → Prop) (G : Name → Opt
     (hacc : ∀ (Y : Name) (s : SemPkg ι dom), G Y = some s → Acc R Y) :
     ∀ (X : Name) (s : SemPkg ι dom), G X = some s → FactsOf s
 ```
-Reading: `R c Y` = "`c` is an ordinary callee of `Y`" (DG-ACC's `CallRel K c Y = CallEdge K Y c`; `Acc R Y` quantifies over such `c`). `hunf` is a **premise** about the table, not a law; it is what `genS_some_inv` + `callEdge_of_ord` + `K.genSem = genSemVia …` would give for the real table, and **this unit does not supply it**. `ordCallees`, `genSemI`, `SrcCausal`, `FactsOf`, `GenIn` `[B]`.
+Reading: `R c Y` = "`c` is an ordinary callee of `Y`" (DG-ACC's `CallRel K c Y = CallEdge K Y c`; `Acc R Y` quantifies over such `c`). `R` is an arbitrary relation: it may contain the ordinary-edge pairs and need not be equivalent to the callee relation (no iff with callees is required). `hunf` is a **premise** about the table, not a law; it is what `genS_some_inv` + `callEdge_of_ord` + `K.genSem = genSemVia …` would give for the real table, and **this unit does not supply it**. `ordCallees`, `genSemI`, `SrcCausal`, `FactsOf`, `GenIn` `[B]`.
 
 Proof plan.
 - `srcCausal_of_acc_unfold`: `Acc.induction` on `hX` (motive `∀ s, G X = some s → SrcCausal s`). Given `Y`, IH, `s` with `G Y = some s`: `hunf` gives `g`, `s = genSemI G Y g`, callee edges. `CalleesCausal G g.d` unfolds to `∀ k ∈ ordCallees g.d, ∀ s', G (insts[k]).1 = some s' → SrcCausal s'`; each is `IH _ (edge) s' hs'`. Then `genSemI_srcCausal G Y g hQ`.
@@ -59,12 +59,18 @@ Proof plan.
 ### 3.1 Check (new file `Tests/Gen5/SemAccStepCheck.lean`, Expected written from the sentences above, not from the implementation)
 Same requirements as `SemSrcCausalCheck`:
 - **TYPE**: three theorems against independently written `Exp*` statements (`checkExpected`/`cmpTele`, reducible).
-- **MUTANT** (well-typed single changes; rejection = signature/defeq, **not** a semantic counterexample; ill-typed proposals are not counted): drop `hunf`'s callee-edge conjunct (1); drop `hX` from `srcCausal_of_acc_unfold` (1); drop `hacc` from `factsOf_all_of_acc_unfold` (1); conclusion `SrcCausal` replaced by `CalleesCausal G g.d`-free wrong target e.g. `FactsOf s` in theorem 1 (1); `hunf` equation `s = genSemI G Y g` replaced by `s = genSemI (fun _ => none) Y g` (1); `R` argument order flipped in the edge conjunct `R Y callee` (1); theorem 2 stated with `SrcCausal` (wrong conclusion, 1). Adding an unused hypothesis is a stronger-statement variant and is NOT counted. Real counts and the counting rule are printed by the Check.
+- **MUTANT** (well-typed single changes; rejection = signature/defeq, **not** a semantic counterexample; ill-typed proposals are not counted): drop `hunf`'s callee-edge conjunct (1); drop `hX` from `srcCausal_of_acc_unfold` (1); drop `hacc` from `factsOf_all_of_acc_unfold` (1); conclusion `SrcCausal` replaced by `CalleesCausal G g.d`-free wrong target e.g. `FactsOf s` in theorem 1 (1); `hunf` equation `s = genSemI G Y g` replaced by `s = genSemI (fun _ => none) Y g` (1); `R` argument order flipped in the edge conjunct `R Y callee` (1); theorem 2 stated with `SrcCausal` (wrong conclusion, 1). Adding an unused extra hypothesis makes the proposition weaker (not stronger) and is NOT counted. Real counts and the counting rule are printed by the Check.
 - **AXIOMS**: standard only. **sorry**: absent.
 - **CLOSURE**: explicit walk (unknown name ⇒ `throwError`) with controls: unknown root, forbidden roots (`sorryAx`, `Lean.ofReduceBool`) flagged by the root itself, unknown helper value (`Mv`), unknown helper type (`Mt`), clean fixture; fixtures only inside `withoutModifyingEnv`; positive and negative controls.
 - **REACH**: `srcCausal_of_acc_unfold` reaches `genSemI_srcCausal`; `factsOf_of_acc_unfold` reaches `genFacts` and `srcCausal_of_acc_unfold`; `factsOf_all_of_acc_unfold` reaches `factsOf_of_acc_unfold`.
 
 ## 4. Not claimed
-- `CalleesCausal` for the real `genS` table, `GenSFacts K`, `hp`/`hq`, `GenIn` supply, `GenData.toIn`, real runs, FG/M5/DG-ACC completion: **not supplied**. U6D only gives a conditional implication (`hunf` ⇒ facts); `hunf` for the real table 未供給 / この調査で経路未発見.
+- `CalleesCausal` for the real `genS` table, `GenSFacts K`, `hp`/`hq`, `GenIn` supply, `GenData.toIn`, real runs, FG/M5/DG-ACC completion: **not supplied**. U6D only gives a conditional implication (`hunf` ⇒ facts for the pointwise forms; `hunf` + `hacc` ⇒ facts for the whole-table form); `hunf` for the real table 未供給 / この調査で経路未発見.
 - Mutants are rejected by signature/defeq; they are not semantic counterexamples.
 - SEM lineage is before S1; every claim is re-verified at the integration SHA. No new law/TRUSTED; if instantiating `hunf` turns out to need one, a decision document is written then (not now).
+
+## 5. Wording corrections (reviewer notes at approval 204bbcb6, applied at implementation; no type changed)
+- §3.1: an extra unused hypothesis makes the statement weaker, not stronger.
+- §4 / `factsOf_all_of_acc_unfold`: conditional on `hunf` **and** `hacc`.
+- `R c Y` is any relation containing the ordinary-edge pairs; equivalence with the callee relation is not required.
+- Still unsupplied: `hunf`/`hacc` for the real `genS`, `GenData.toIn`/kit identification, real run/FG, integration re-verification.
