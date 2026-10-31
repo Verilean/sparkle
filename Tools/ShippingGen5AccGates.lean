@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccRoute
 set_option autoImplicit false
--- Built in the Pod (g5ac-r10) at 5b542e30: `kjob lake build Tools.ShippingGen5AccGates`, exit 0, 722 jobs. Not yet a clean issue-linked build (the coder runs it). No sorry / axiom / native_decide.
+-- Built in the Pod (g5ac-r10) at 5b542e30: `kjob lake build Tools.ShippingGen5AccGates`, exit 0, 722 jobs. Clean issue-linked build ac10v-00f1b849 (exit 0, 725 jobs, src=base=end, dirty=false) approved at 00f1b849. No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A6b: `GatesNoneAt` from reader runs (scripts/gen5/DG_ACC_FREEZE_REV5.md §2)
 
