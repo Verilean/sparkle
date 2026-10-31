@@ -4904,3 +4904,9 @@ lean_lib «Tools.ShippingGen5SemGenData» where
 
 lean_lib «Tests.Gen5.GenDataCheck» where
   roots := #[`Tests.Gen5.GenDataCheck]
+
+lean_lib «Tools.ShippingGen5SemDataOfParts» where
+  roots := #[`Tools.ShippingGen5SemDataOfParts]
+
+lean_lib «Tests.Gen5.DataOfPartsCheck» where
+  roots := #[`Tests.Gen5.DataOfPartsCheck]
