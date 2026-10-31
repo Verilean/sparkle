@@ -5012,3 +5012,9 @@ lean_lib «Tools.ShippingGen5AccSemJoin» where
 
 lean_lib «Tests.Gen5.CandACheck» where
   roots := #[`Tests.Gen5.CandACheck]
+
+lean_lib «Tools.ShippingGen5AccHinv» where
+  roots := #[`Tools.ShippingGen5AccHinv]
+
+lean_lib «Tests.Gen5.SM3Check» where
+  roots := #[`Tests.Gen5.SM3Check]
