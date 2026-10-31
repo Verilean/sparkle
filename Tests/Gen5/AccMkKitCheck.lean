@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccMkKit
 import Tests.Gen5.AccCheck
--- NOT BUILT (Check for A11, freeze scripts/gen5/DG_ACC_FREEZE_REV11.md §2 as revised at 8e0d0bc3).
+-- Pod incremental build OK at 74a2e66c (exit 0, 729 jobs): TYPE 4 (Pi 1 + theorems 3) / BODY 1 / MUTANT 6 (single 5 + compound 1; signature/defeq rejection, not semantic) / AXIOMS 4 standard / CLOSURE 6583 consts, unknown 0. Clean build not yet run. (Check for A11, freeze scripts/gen5/DG_ACC_FREEZE_REV11.md §2 as revised at 8e0d0bc3).
 
 /-! # DG-ACC unit A11 checks (Tools/ShippingGen5AccMkKit.lean)
 
