@@ -3,8 +3,8 @@ import Tools.ShippingGen5DCEntryT
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.DeclConnectCheck
 set_option autoImplicit false
--- U-RUNT checks (scripts/gen5/DC_CONNECT_RUNT_FREEZE.md §4). Agent incremental build exit 0 (751 jobs), NOT a clean issue-linked build; clean build is the coder's.
--- Counts (measured): TYPE 5 + self 5; SOURCE-PIN 4 + PIN-NEG 4; MUT 39 (single change); BLOCK 0; CONJ 0; AX 5; CLOSURE 5 roots. 40 binder comparisons pass via isDefEq only because of local abbrevs (Dsg/WE/Chd/..), logged as GEN3 DEFEQ.
+-- U-RUNT checks (scripts/gen5/DC_CONNECT_RUNT_FREEZE.md §4). Issue-linked clean build dc21v-0fcce4e7 exit 0 (751 jobs); approved at 0fcce4e7.
+-- Counts (measured): TYPE 5 + self-comparison 5 (the 10 TYPE OK lines are not 10 independent comparisons); SOURCE-PIN 4 + PIN-NEG 4; MUT 39 (single change); BLOCK 0; CONJ 0; AX 5; CLOSURE 5 roots. 40 binder comparisons pass via isDefEq only because of local abbrevs (Dsg/WE/Chd/..), logged as GEN3 DEFEQ.
 
 /-! # DC-CONNECT U-RUNT: checks
 

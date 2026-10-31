@@ -1,6 +1,6 @@
 import Tools.ShippingGen5DCEntryS
 set_option autoImplicit false
--- NOT BUILT: U-RUNT, scripts/gen5/DC_CONNECT_RUNT_FREEZE.md §3 (freeze 64cbaa20 approved as a design). Not yet built in a clean issue-linked build.
+-- U-RUNT, scripts/gen5/DC_CONNECT_RUNT_FREEZE.md §3 (freeze 64cbaa20 approved). Issue-linked clean build dc21v-0fcce4e7 exit 0 (751 jobs); approved at 0fcce4e7 as a conditional supply unit (not FG).
 
 /-! # DC-CONNECT U-RUNT: conditional run transport `childMap D'` → `childMap D`
 

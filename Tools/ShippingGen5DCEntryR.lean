@@ -1,7 +1,7 @@
 import Tools.ShippingGen5DCEntryN
 import Tools.ShippingMachineShipsDepth
 set_option autoImplicit false
--- NOT BUILT: U-RESETN, scripts/gen5/DC_CONNECT_RESETN_FREEZE.md §3 (freeze 4ccaa035 approved; wording fixes 6c0c96c4). Issue-linked clean build dc17v-1c948e47 exit 0 (749 jobs); approved at 1c948e47 as a conditional transport unit (not FG).
+-- U-RESETN, scripts/gen5/DC_CONNECT_RESETN_FREEZE.md §3 (freeze 4ccaa035 approved; wording fixes 6c0c96c4). Issue-linked clean build dc17v-1c948e47 exit 0 (749 jobs); approved at 1c948e47 as a conditional transport unit (not FG).
 
 /-! # DC-CONNECT U-RESETN: conditional `ResetNk` transport `D → D'`
 
