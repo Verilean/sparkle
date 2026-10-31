@@ -486,3 +486,35 @@ the common `Tests.Gen5.DataOfCheck.reach` (unknown names fail); axioms standard 
 ### 10.5 Not supplied by §10
 
 That `dataOfAt` is `some`; `s` being the run's `sp`; that `d.ss`/`d.ls` entries (not lengths) agree with the state; the state-side half (row 6a) and `LenOk`.
+
+## 11. rev3 coverage / real-reader survey (agent g5do-r6) — what closes, what does not
+
+Wording: "この調査では供給元・経路が見つからなかった" means this survey (grep of this tree and of `kjob/g5rk-impl`, `kjob/g5cv-r11` by `git show`) found none; it does not say the fact is false or underivable.
+Goal of the survey: from existing theorems, a path to (Cov) "`dataOfAt lvl E senv s = some d` on every successful machine-route run" and (Rdr) agreement with the compiler's actual reader.
+
+### 11.1 Row 6b (supplied, §10)
+`d.shape = s`, `d.ss.length`, `d.ls.length`, `d.nIn` for the `d` of one success: supplied by `dataOfFrom_dims`/`dataOfAt_dims` (agent build, clean build pending). 
+
+### 11.2 Conditions for `dataOfFrom … = some _` and where each could come from
+
+| # | Condition read off `dataOfFront`/`dataOfCore`/`dataOfTail`/`checked` | Existing source | Status |
+|---|---|---|---|
+| 1 | `mixedGatePeel tin = some p` (tin = `packTupleInputs entryV`, a `partial def`) | none (opaque to the kernel; `RootFacts` U5 of READKINDS not supplied) | 未供給 / この調査で経路未発見 |
+| 2 | `shape.binders.length = p.1.length + insts.length + slots.length + lets` | row 6a/6b-type length facts exist only in the fuel model (Cover5 T2/T3, `kjob/g5cv-r11`, needs `LenOk` and `ShapeFuelBridge`); no statement ties `shape.binders` to `p.1` | 未供給 / この調査で経路未発見 |
+| 3 | `srcDomOf`, `srcDom'Of`, `machDom?`, `machTupleKinds?`/`machOuts?` all `some` | total functions in this tree, but no theorem says they are `some` for a production `E`/`entryBody` (`fl = rootFloat`, `partial`) | 未供給 / この調査で経路未発見 |
+| 4 | `readN (kindsCfg …) (lvl shape.body) shape.body = some ⟨.bits W, whole⟩` | completeness `readN_quote` / `readTot_of_quote_body` exist ON `kjob/g5rk-impl` (U1–U4, audit status not claimed here), NOT in this tree; they have the premise `shape.body = quote … d.packed` with `WF` facts (C-QWIT), which has no run supplier. Even then `lvl shape.body` must dominate `liftDepth` (`readTot` uses `exprSize`; `dataOf` at `exprSize` is not defined in this tree) | 未供給 / C-QWIT 供給元未発見 |
+| 5 | `splitLets lets ⟨W,whole⟩ = some _` and `splitFields (nOuts+nSlots) core = some _` | only the converse direction exists (`splitLets_some`, `splitFields_some`: output ⇒ `t = packLets/packAll …`, U-E). The direction "`packLets fs core` ⇒ `splitLets … = some (fs, core)`" for the packed term of a `MachineData` was not found in the tree | 未供給 / この調査で経路未発見 |
+| 6 | `typedFields` successes (a `.bool` binder needs the field to be a `mux`) | the `ok` rows give sorts/widths (`ok_K_nexts`, `ok_letsTyped`, `ok_outsFit`, §5b) but only for a `d` that already exists; no source of the `mux` shape of a Bool field | 未供給 / この調査で経路未発見 |
+| 7 | `bitsBeq ⟨W,whole⟩ ⟨_, d.packed⟩ = true` | `bitsBeq_refl` (§5a) gives it when `whole` is syntactically `d.packed`; that needs 4 and 5 for the same `d` (`mkData`'s `packed` is computed from `d`'s `letFields`/`core`, so it is the re-pack of 5's pieces) | 条件付き (4,5 が来れば閉じる見込みだが未証明) |
+| 8 | `d.ok = true` | S-OK (§4) | 未供給 (DG-COVER / DG-WFCOVER) |
+
+Net: (Cov) is not closed. Rows 1, 2, 3, 4, 5, 6, 8 are open; 7 depends on 4 and 5. No existing theorem makes `dataOfAt` `some`.
+
+### 11.3 (Rdr): agreement with the real reader
+(a) With the auxiliary `readMachine` (`Tools/ShippingMachineCommand.lean:440`): `dataOfFrom` is built from the same pieces but replaces `unq` + the opaque `q.equal` by `readN` + `bitsBeq`; no theorem relates the two outputs, and `readMachine` is a `MetaM` command (not a function the kernel can unfold). 未供給 / この調査で経路未発見.
+(b) With the compiler's reader (the one the machine route runs): its identity/location is not established by this Issue (§4 C-QWIT); no link from `dataOfAt` found.
+(c) The values `tin`, `fl` versus those used by `machineShape?` (S-COV-FLOAT): both are `partial`; no producer found.
+
+### 11.4 What is and is not supplied after this rev
+Supplied (conditional, agent builds / clean-build pending where stated): §10 projections for the `d` of a successful `dataOfFrom`/`dataOfAt`.
+Not supplied: (Cov), (Rdr), `s = sp` identification with the DG-COVER run, row 6a, C-CMP, C-QWIT, S-OK, S-COV-FLOAT, T-X, `dataOf` at `exprSize`. This is not an Issue/M5/FG completion.
