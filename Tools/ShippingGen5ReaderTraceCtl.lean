@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTrace
 import Tools.ShippingLetsReaderInv
 import Tools.ShippingReaderFuelDefs
 set_option autoImplicit false
--- NOT BUILT (U-R1b, written against freeze rev2 `scripts/gen5/DG_READERTRACE_FREEZE_REV2.md`; the build SHA is recorded here by a comment-only commit after the Pod build). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceCtl, exit 0) on the tree of b450d6e5 (source content identical; this header is comment-only). Written against freeze rev2 `scripts/gen5/DG_READERTRACE_FREEZE_REV2.md`. Clean issue-linked build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R1b: `GroupsPh / CtlPh / TrInv / callSt / callOut / PhPre / ExprPh / ChainPh / RootPh / PhPost / TracePre / TracePost / TraceGood` and five leaf lemmas
 

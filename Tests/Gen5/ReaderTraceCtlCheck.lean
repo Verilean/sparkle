@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceCtl
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (U-R1b Check, written against freeze rev2; counts below are printed by the build, never fixed here). No sorry / axiom / native_decide in source; the intended sorry-based negatives of the closure controls are built in memory (no `sorry` token).
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceCtlCheck, exit 0, 724 jobs) on the tree of b450d6e5 (content identical; header comment-only). Measured: TYPE 9 non-match defs/abbrevs + 5 leaf theorems = 14 compared (0 isDefEq fallbacks logged); MATCHDEF 4 defs x 7 ctors agree + 4 full-argument theorems (callSt_eq_exp, callOut_eq_exp, phPre_eq_exp, phPost_eq_exp); MUTANT 14 value/statement (10 def + 4 theorem) + 10 well-typed match-def mutants (each rejected at exactly the changed constructor), no ill-typed variant counted; AXIOMS 9 theorems standard only (trInv_empty [propext], machInstCall?_spec [propext,Quot.sound], ...); CLOSURE OK 3939 constants with 3 negative + 3 forbidden-root self-hit + 2 clean controls, UNKNOWN 3 negative / 1 clean; 3 intended sorry negatives print 3 warnings. Mutants are signature/defeq rejections, not semantic counterexamples. Clean build is the coder's. No sorry / axiom / native_decide in source; the intended sorry-based negatives of the closure controls are built in memory (no `sorry` token).
 /-! # DG-READERTRACE U-R1b checks (Tools/ShippingGen5ReaderTraceCtl.lean)
 
 TYPE: each def / theorem of `DG_READERTRACE_FREEZE_REV2.md` §1 is compared by `checkExpected` (`Tests/Gen3/ExpectedType.lean`) against an `Exp…` statement written here from the freeze text (own spelling).
