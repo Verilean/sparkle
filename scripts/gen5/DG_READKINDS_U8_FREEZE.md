@@ -129,3 +129,8 @@ Rows 1-3 are the only ones U8 changes (row 3 closed for the run's own env, rows 
 ## 8. Not claimed
 `hall` / DG-ENV C0 supplied; real-run tie; `hstore`; `GateDefines`; `srcDom`, `ls`, `outs`, `nexts`; hq; `Expr.equal_sound` (not added); reader coverage; FG, M5, DG-COVER, DG-READKINDS completion.
 After Lean commits the Issue stays `doing` (clean build is the coder's).
+
+## 9. Implementation status (appended after the Lean commit; the freeze statements above are unchanged)
+Implemented as frozen in `Tools/ShippingGen5ReadKindsU8.lean`: `runsTo_det` (thin alias of `Tools.ShippingStRefCorrespondence.runsTo_det`, not re-proved), `readMachine_rootFields`, `readMachine_gates`,
+`machineDefines_of_readMachine` (conditional on `hall`). Pod build of `Tests.Gen5.ReadKindsU8Check` exit 0; the clean issue-linked build is the coder's.
+§5 table status sync: rows 3 (own `ci`/`env`) and 5 closed in the built statement sense above; rows 1, 2 conditional on `hall` (row 1 also `hrun`, `hstore`); rows 4, 6, 9, 10, 11 unchanged (not supplied / no route found in this survey); rows 7 unchanged; row 8 as in §4.
