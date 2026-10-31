@@ -1,7 +1,7 @@
 import Tools.ShippingGen5FG
 import Tools.ShippingGen5DCEntryD
 set_option autoImplicit false
--- NOT BUILT: U-ENTRYW, scripts/gen5/DC_CONNECT_NEXT_UNIT_FREEZE.md §3 (freeze 38259f62 approved). Build is the coder's.
+-- Built: issue-linked build dc15v-135aa0ac (`kjob lake build Tests.Gen5.DCEntryWCheck`) exit 0, 751 jobs, approved at 135aa0ac (incremental build, dirty=false). U-ENTRYW, scripts/gen5/DC_CONNECT_NEXT_UNIT_FREEZE.md §3 (freeze 38259f62 approved). Scoped approval: two theorems only; not the Issue or M5.
 
 /-! # DC-CONNECT U-ENTRYW: reading an `EntryWitness`
 

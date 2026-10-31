@@ -3,13 +3,13 @@ import Tools.ShippingGen5DCEntryW
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.DeclConnectCheck
 set_option autoImplicit false
--- NOT BUILT: checks of U-ENTRYW (freeze 38259f62 approved). Build is the coder's.
+-- Built: issue-linked build dc15v-135aa0ac `kjob lake build Tests.Gen5.DCEntryWCheck` exit 0, 751 jobs, approved at 135aa0ac (incremental build, dirty=false). Build log: TYPE OK 4 lines = 2 distinct theorem comparisons + 2 repeated/self-comparison lines (not 4 distinct); MUTANT 12 + CONJ 8 (counted separately), AXIOMS 2 standard only, sorry 0. `set_option autoImplicit false` was verified in this file and in Tools/ShippingGen5DCEntryW.lean only (Tools/ShippingGen5DCEntryN.lean is still not restored).
 
 /-! # DC-CONNECT U-ENTRYW: checks (scripts/gen5/DC_CONNECT_NEXT_UNIT_FREEZE.md §3, §4)
 
 TYPE: `ExpW1`/`ExpW2` written from the prose of §3 (a witness gives `Start` and either the default core run tied to the same-branch
 `PostEntry`, or the parametrised run itself), not copied from the Lean statements; compared by `Tests.Gen3.ExpectedType.checkExpected`.
-MUTANT: well-typed ONE-change variants rejected by the SAME comparator (`checkMutant`), both under `withReducible` -- signature/defeq
+MUTANT: well-typed variants, each changing ONE statement component except where noted (`MutW2Forall` changes all three existential quantifiers `∃ raw D w1` to `∀` as a block; `MutW1CoreArgs`/`MutW2Flag` change the two arguments `[]`/`false` of the core run together), rejected by the SAME comparator (`checkMutant`), both under `withReducible` -- signature/defeq
 rejections, NOT semantic counterexamples. CONJ: variants dropping a conjunct/disjunct, counted separately (the `Start`-drop is counted
 under CONJ only). A variant that is not well-typed is not counted. AXIOMS. CLOSURE: the `DeclConnectCheck` walker (root judged itself,
 an unknown name FAILS), plus fixtures where ONLY a helper's TYPE, or ONLY a helper's VALUE, mentions an unknown name. -/
