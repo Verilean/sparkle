@@ -156,6 +156,38 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 
 run_cmd Lean.Elab.Command.liftTermElabM Tests.Gen5.AccCheck.walkerControls
 
+/-- Unknown-name controls through the same `closureReport` path: a root, a helper value and a helper type that mention a name absent
+from the environment MUST be reported unknown; a clean chain MUST NOT. (The helpers are added with the kernel type check skipped,
+inside `withoutModifyingEnv`.) -/
+def unknownControls : MetaM Unit := do
+  let ghost := `Ghost.Absent.name
+  let addU (n : Name) (type value : Expr) : MetaM Unit :=
+    withOptions (fun o => debug.skipKernelTC.set o true) do
+      addDecl (.thmDecl { name := n, levelParams := [], type := type, value := value })
+  let unk (roots : List Name) : MetaM (Array Name) := do
+    let (_, u, _) ← Tests.Gen5.AccCheck.closureReport (← getEnv) roots
+    pure u
+  let u1 ← unk [ghost]
+  unless u1 == #[ghost] do throwError "GEN5 UNKNOWN CONTROL FAILED: unknown root not reported ({u1})"
+  let u2 ← withoutModifyingEnv do
+    addU `Tests.Gen5.UnkCtl.HelperVal (mkConst ``True) (mkConst ghost)
+    addU `Tests.Gen5.UnkCtl.RootVal (mkConst ``True) (mkConst `Tests.Gen5.UnkCtl.HelperVal)
+    unk [`Tests.Gen5.UnkCtl.RootVal]
+  unless u2 == #[ghost] do throwError "GEN5 UNKNOWN CONTROL FAILED: helper value naming an unknown constant not reported ({u2})"
+  let u3 ← withoutModifyingEnv do
+    addU `Tests.Gen5.UnkCtl.HelperTy (mkConst ghost) (mkConst ``True.intro)
+    addU `Tests.Gen5.UnkCtl.RootTy (mkConst ``True) (mkConst `Tests.Gen5.UnkCtl.HelperTy)
+    unk [`Tests.Gen5.UnkCtl.RootTy]
+  unless u3 == #[ghost] do throwError "GEN5 UNKNOWN CONTROL FAILED: helper type naming an unknown constant not reported ({u3})"
+  let u4 ← withoutModifyingEnv do
+    addU `Tests.Gen5.UnkCtl.CleanHelper (mkConst ``True) (mkConst ``True.intro)
+    addU `Tests.Gen5.UnkCtl.CleanRoot (mkConst ``True) (mkConst `Tests.Gen5.UnkCtl.CleanHelper)
+    unk [`Tests.Gen5.UnkCtl.CleanRoot]
+  unless u4.isEmpty do throwError "GEN5 UNKNOWN CONTROL FAILED: clean control reported unknown ({u4})"
+  logInfo m!"GEN5 UNKNOWN CONTROLS OK: 3 negatives reported unknown (root / helper value / helper type), clean control not reported"
+
+run_cmd Lean.Elab.Command.liftTermElabM unknownControls
+
 run_cmd Lean.Elab.Command.liftTermElabM do
   let env ← getEnv
   let roots := [``stableA_accInvAt, ``accInvAt_sv, ``translate_keepsAcc_of_tele, ``accKeepBody, ``accIHAt_limit,
@@ -166,8 +198,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let s := n.toString
     if s.startsWith "Tools.ShippingGen5DataOf" || s.startsWith "Tools.ShippingGen5SemGen" then
       throwError "GEN5 CLOSURE FAILED: supplier constant {n} reached"
-  if !unk.isEmpty then
-    logInfo m!"GEN5 CLOSURE unknown (not in the environment): {unk}"
-  logInfo m!"GEN5 CLOSURE OK (A4): {seen.toList.length} constants, no forbidden constant, no supplier-unit constant, {unk.size} unknown"
+  unless unk.isEmpty do throwError "GEN5 CLOSURE FAILED: unknown constants (not in the environment): {unk}"
+  logInfo m!"GEN5 CLOSURE OK (A4): {seen.toList.length} constants, no forbidden constant, no supplier-unit constant, no unknown constant"
 
 end Tests.Gen5.AccIndCheck
