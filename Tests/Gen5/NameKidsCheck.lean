@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Last clean issue-linked build: ba2v-d68b0f47 (exit 0, 500 jobs) of d68b0f47, i.e. the version of this file BEFORE the R1/R2 closure-control rewrite below; its counts were: TYPE 6 (5 theorems + 1 comparator sanity), MUTANT 10 (8 single-point + 2 cross-statement), use-site examples 2, closure controls negative 6 + clean 1, REACH 5 (one per theorem), AXIOMS 5 (one per theorem). Counts are per run_cmd/logInfo line of each class. THIS version (R1/R2) has no clean build yet.
+-- Last clean issue-linked build: ba2v-d68b0f47 (exit 0, 500 jobs) of d68b0f47, i.e. the version of this file BEFORE the R1/R2 closure-control rewrite below; its counts were: TYPE 6 (5 theorems + 1 comparator sanity), MUTANT 10 (8 single-point + 2 cross-statement), use-site examples 2, closure controls negative 6 + clean 1, REACH 5 (one per theorem), AXIOMS 5 (one per theorem). Counts are per run_cmd/logInfo line of each class. THIS version (R1/R2): Pod build exit 0, 500 jobs, of 454bce14 (not a clean issue-linked build): closure controls negative 8 + clean 1 (each asserts the intended hit/unknown path), other counts unchanged.
 -- No sorry / axiom / native_decide.
 
 /-! # BOUNDARY-AUDIT U1 checks
