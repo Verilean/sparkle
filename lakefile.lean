@@ -4898,3 +4898,9 @@ lean_lib «Tools.ShippingGen5SemKitInv» where
 
 lean_lib «Tests.Gen5.SemKitInvCheck» where
   roots := #[`Tests.Gen5.SemKitInvCheck]
+
+lean_lib «Tools.ShippingGen5SemGenData» where
+  roots := #[`Tools.ShippingGen5SemGenData]
+
+lean_lib «Tests.Gen5.GenDataCheck» where
+  roots := #[`Tests.Gen5.GenDataCheck]
