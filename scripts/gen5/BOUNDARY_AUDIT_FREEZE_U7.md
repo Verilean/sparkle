@@ -44,3 +44,9 @@ What U7 does NOT show: that the production `Reach` is `OrdPath g top`; `GraphAgr
 
 ## 4. Not done
 No merge of other branches; no compiler/shared-definition change; no built file changed; no new TRUSTED/law. Production `hnd` / `hr`, `hfo`, ReachSpans for the production `Reach`, production link, (c), (d), G5, N1/G7/M5/FG: 未供給 / この調査で辿った候補経路では未発見.
+
+## 5. Amendment (reviewer's explanation corrections; types in §2 unchanged)
+* The binders of `hself_all_reached` / `sepK_parent_all_reached` are `hin`, `hg`, `hsp` (and `hmem`); neither takes `ReachClosed`. The sentence in §2 saying that the pair `ReachClosed` / `ReachSpans` is "used by" those consumers is withdrawn: U7 does NOT discharge a `ReachClosed` premise of those consumers. What U7 gives is, under `hg : GraphAgrees g (OrdPath g top) S`, the closure `ReachClosed (OrdPath g top) S` together with `ReachSpans g top (OrdPath g top)` (identity, `fun _ h => h`) for the same set.
+* A theorem conditional on `hg` does not show that `hg` is satisfiable for any concrete `g`, `S`; this unit is therefore NOT evidence of non-vacuity. No instance of `hg` is constructed here.
+* The use-site `example` keeps the closure conclusion explicitly (a pair `⟨reachClosed_ordPath hg, hself_all_reached hin hg (fun _ h => h)⟩`) and is a type check only; it is separate from any consumer use (no consumer takes `ReachClosed`).
+* Production `Reach`, `GraphAgrees`, `hnd`, `hr`, `hfo`, FG are unsupplied.
