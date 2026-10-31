@@ -1,8 +1,9 @@
 import Tools.ShippingGen5SemGen
 set_option autoImplicit false
--- Built in g5sm-p4r at 0f3e0966209275957ebc9b62a036c83c7d9c5dcd (Pod `kjob lake build Tests.Gen5.SemP4FreezeTypes`, exit 0). Types only, no proofs. Clean build is the coder's.
--- SCRATCH type-elaboration of scripts/gen5/DG_SEM_FREEZE_P4.md (rev1). Definitions are the U4A text; every theorem is a `Prop` def (statement only, no proof, no sorry).
-namespace Tools.ShippingGen5Sem
+-- Built (Pod kjob lake build Tests.Gen5.SemP4FreezeTypes, exit 0) after isolation into namespace Tests.Gen5.SemP4Scratch in g5sm-u4. Types only, no proofs. Clean build is the coder's.
+-- ISOLATED in namespace Tests.Gen5.SemP4Scratch (g5sm-u4): never import together with the U4 implementation. SCRATCH type-elaboration of scripts/gen5/DG_SEM_FREEZE_P4.md (rev1). Definitions are the U4A text; every theorem is a `Prop` def (statement only, no proof, no sorry).
+namespace Tests.Gen5.SemP4Scratch
+open Tools.ShippingGen5Sem
 open Lean Sparkle.Compiler.Elab Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingMachineDenote Tools.ShippingMachineAuto Tools.ShippingMachineSource
@@ -35,7 +36,7 @@ noncomputable def calleeOut (Q : Name → Option (SemPkg ι dom)) (g : GenIn) (i
     match Q c with
     | none => fun _ => 0
     | some q =>
-      let vals : Nat → List Nat := ShippingMachineCallsLinkedT.valsOf (lsrcAt g.d bs vs S) (callArgs g.d k)
+      let vals : Nat → List Nat := Tools.ShippingMachineCallsLinkedT.valsOf (lsrcAt g.d bs vs S) (callArgs g.d k)
       let A := Tools.ShippingMachineChild.boolsOf (D := dom i) (q.d.bsIn.take q.kD) vals
       let B := Tools.ShippingMachineChild.bitsOf (D := dom i) (q.d.bsIn.take q.kD) vals
       match selIdx g.d q k with
@@ -188,4 +189,4 @@ def S_memFacts_of_genSem : Prop := g.d.ok = true → ∀ (c : Name) (a : List Na
       (extOf Q g i bools bits Sst) k c
 end Stmts
 
-end Tools.ShippingGen5Sem
+end Tests.Gen5.SemP4Scratch
