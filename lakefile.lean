@@ -4880,3 +4880,9 @@ lean_lib «Tools.ShippingGen5SemFacts» where
 
 lean_lib «Tests.Gen5.SemFactsCheck» where
   roots := #[`Tests.Gen5.SemFactsCheck]
+
+lean_lib «Tools.ShippingGen5SemSrcCausal» where
+  roots := #[`Tools.ShippingGen5SemSrcCausal]
+
+lean_lib «Tests.Gen5.SemSrcCausalCheck» where
+  roots := #[`Tests.Gen5.SemSrcCausalCheck]
