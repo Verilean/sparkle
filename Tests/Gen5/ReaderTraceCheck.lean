@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTrace
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (g5rt-r2). Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Built in g5rt-r2 at 521b3e8a (Pod `kjob lake build Tests.Gen5.ReaderTraceCheck`, exit 0; TYPE 11 theorems + 4 defs = 15 compared, EQN 16 (NoPh 8 + BvarLt 8), MUTANT 8 statement (5 theorem + 3 def) + 4 equation, AXIOMS 11 standard, CLOSURE OK 4181 constants with 3 negative / 2 clean controls, UNKNOWN 3 negative / 1 clean; 3 intended sorry negatives print 3 warnings). Clean build is the coder's. No sorry / axiom / native_decide in source.
 /-! # DG-READERTRACE U-R1 independent part (Tools/ShippingGen5ReaderTrace.lean) checks
 
 TYPE: each theorem / non-recursive def of the freeze (`DG_READERTRACE_FREEZE.md` §2, `DG_READERTRACE_FREEZE_REV1.md`) is compared by the SAME comparer (`checkExpected` of `Tests/Gen3/ExpectedType.lean`)

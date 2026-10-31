@@ -2,7 +2,7 @@ import Tools.ShippingGen5Cover6
 import Tools.ShippingLetsReaderInvBase
 import Tools.ShippingReaderFuelDefs
 set_option autoImplicit false
--- NOT BUILT (U-R1 independent part, g5rt-r2). Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Built in g5rt-r2 at 521b3e8a (Pod `kjob lake build Tools.ShippingGen5ReaderTrace`, exit 0). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R1 (independent part): `NoPh`, `BvarLt`, `NoLoose`, `EnvPh`, `DomPh`, the `FReachC` glue, `convBvar_trace`
 
