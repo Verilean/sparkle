@@ -4874,3 +4874,9 @@ lean_lib «Tools.ShippingGen5DCEntryR» where
 
 lean_lib «Tests.Gen5.DCEntryRCheck» where
   roots := #[`Tests.Gen5.DCEntryRCheck]
+
+lean_lib «Tools.ShippingGen5DCEntryS» where
+  roots := #[`Tools.ShippingGen5DCEntryS]
+
+lean_lib «Tests.Gen5.DCEntrySCheck» where
+  roots := #[`Tests.Gen5.DCEntrySCheck]
