@@ -4913,3 +4913,9 @@ lean_lib «Tools.ShippingGen5AccDataAgree» where
 
 lean_lib «Tests.Gen5.AccDataAgreeCheck» where
   roots := #[`Tests.Gen5.AccDataAgreeCheck]
+
+lean_lib «Tools.ShippingGen5AccGenDataEv» where
+  roots := #[`Tools.ShippingGen5AccGenDataEv]
+
+lean_lib «Tests.Gen5.AccGenDataEvCheck» where
+  roots := #[`Tests.Gen5.AccGenDataEvCheck]
