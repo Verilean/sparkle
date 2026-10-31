@@ -4897,3 +4897,63 @@ lean_lib «Tools.ShippingGen5EnvCacheE» where
 
 lean_lib «Tests.Gen5.EnvCacheECheck» where
   roots := #[`Tests.Gen5.EnvCacheECheck]
+
+lean_lib «Tools.ShippingGen5DeclConnectAbs» where
+  roots := #[`Tools.ShippingGen5DeclConnectAbs]
+
+lean_lib «Tests.Gen5.DeclConnectAbsCheck» where
+  roots := #[`Tests.Gen5.DeclConnectAbsCheck]
+
+lean_lib «Tools.ShippingGen5DeclConnect» where
+  roots := #[`Tools.ShippingGen5DeclConnect]
+
+lean_lib «Tests.Gen5.DeclConnectCheck» where
+  roots := #[`Tests.Gen5.DeclConnectCheck]
+
+lean_lib «Tools.ShippingGen5FG» where
+  roots := #[`Tools.ShippingGen5FG]
+
+lean_lib «Tests.Gen5.FGCheck» where
+  roots := #[`Tests.Gen5.FGCheck]
+
+lean_lib «Tools.ShippingGen5DCEntry» where
+  roots := #[`Tools.ShippingGen5DCEntry]
+
+lean_lib «Tests.Gen5.DCEntryCheck» where
+  roots := #[`Tests.Gen5.DCEntryCheck]
+
+lean_lib «Tools.ShippingGen5DCEntryD» where
+  roots := #[`Tools.ShippingGen5DCEntryD]
+
+lean_lib «Tests.Gen5.DCEntryDCheck» where
+  roots := #[`Tests.Gen5.DCEntryDCheck]
+
+lean_lib «Tools.ShippingGen5DCEntryN» where
+  roots := #[`Tools.ShippingGen5DCEntryN]
+
+lean_lib «Tests.Gen5.DCEntryNCheck» where
+  roots := #[`Tests.Gen5.DCEntryNCheck]
+
+lean_lib «Tools.ShippingGen5DCEntryW» where
+  roots := #[`Tools.ShippingGen5DCEntryW]
+
+lean_lib «Tests.Gen5.DCEntryWCheck» where
+  roots := #[`Tests.Gen5.DCEntryWCheck]
+
+lean_lib «Tools.ShippingGen5DCEntryR» where
+  roots := #[`Tools.ShippingGen5DCEntryR]
+
+lean_lib «Tests.Gen5.DCEntryRCheck» where
+  roots := #[`Tests.Gen5.DCEntryRCheck]
+
+lean_lib «Tools.ShippingGen5DCEntryS» where
+  roots := #[`Tools.ShippingGen5DCEntryS]
+
+lean_lib «Tests.Gen5.DCEntrySCheck» where
+  roots := #[`Tests.Gen5.DCEntrySCheck]
+
+lean_lib «Tools.ShippingGen5DCEntryT» where
+  roots := #[`Tools.ShippingGen5DCEntryT]
+
+lean_lib «Tests.Gen5.DCEntryTCheck» where
+  roots := #[`Tests.Gen5.DCEntryTCheck]
