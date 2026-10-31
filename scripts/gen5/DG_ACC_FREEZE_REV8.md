@@ -53,7 +53,7 @@ Not claimed: `DataSound K` for any real kit (dg-dataof integration obligation; `
 ## 2. Check plan (`Tests/Gen5/AccDataSoundCheck.lean`, new)
 Same requirements as A7.
 TYPE: independent `Expected…` for `DataSound` body and both theorems (written from §1 prose), `checkExpected` with `Tests.Gen3.ExpectedType`, definition compared by body, positive control.
-MUTANT (well-typed single change; signature/defeq rejection only): `DataSound` without the body-equation conjunct; `DataSound` without `d.ok`; `DataSound` with `d.shape = s` dropped; `closesData_of_sound` without `hL`; `closesData_of_sound` without `h`; `dataOfShape_of_sound` with `Reach`-restricted statement. Counts reported as measured with the rule.
+MUTANT (well-typed changes; signature/defeq rejection only; the first five are single changes, the last (`dataOfShape_of_sound` Reach-restricted) is a COMPOUND change -- Reach binder added and conclusion changed -- counted separately): `DataSound` without the body-equation conjunct; `DataSound` without `d.ok`; `DataSound` with `d.shape = s` dropped; `closesData_of_sound` without `hL`; `closesData_of_sound` without `h`; `dataOfShape_of_sound` with `Reach`-restricted statement. Counts reported as measured with the rule.
 CLOSURE: `closureReport` (unknown = fail; positive closure of roots, root self-judgement, helper value / helper type unknown controls + clean, `withoutModifyingEnv`; forbidden set and expected suppliers fixed, DataOf/SemGen units not reached); AXIOMS standard three only; no sorry in roots (isolated walker-control negatives counted and located); measured counts reported.
 Build one target at a time in the Pod (`-c 2`, incremental), Check on the committed tree; Lean commit stays `doing` ("clean build is the coder's").
 
