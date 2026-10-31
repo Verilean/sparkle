@@ -1,6 +1,8 @@
 # M4 parametric: bridge unit 5 (`ParamBridgeSpecExpr`) — freeze, complete types, supplier table
 
 Issue `sparkle-gen4-parametric-supply`, branch `kjob/g4par-r20`, base 9a6fbde1 (= F1 approved 10e7df1e, build parv19-10e7df1e, + comment/doc-only BUILT sync). Docs only; Lean waits for approval of this freeze.
+**Status (synced after F2 implementation):** F2 (6 mutual defs + `specExprM_ok` / `specExprM_noDim` / `specExprM_startLength`) implemented at 0ebbddc0 and approved; clean build `par21w-0ebbddc0` (Tests.Gen4.ParamBridgeSpecExprCheck) exit 0, 230 jobs. Rows B1-B4 / T / FG are unchanged: 未供給 / この調査で経路未発見. Model-side conditional result only; M4 / FG are not complete.
+
 Words: "this survey did not find a route/supplier for X" = the cited sources were read and X was not found; it never says X is impossible or underivable. A "mutant" in a Check is a rejection by signature/defeq/elaboration, not a semantic counterexample. Nothing here supplies a production I5b fact, discharges T, changes FG, adds a law/TRUSTED boundary, or edits production/shared files. D1-D3 of `PARAMETRIC_SPECSUCCESS_DECISION.md` are NOT adopted. M4 / FG are not complete.
 
 ## 1. Supplier table (re-checked at 9a6fbde1; sources: Sparkle/IR/Specialize.lean:18-175, Sparkle/IR/Type.lean:34-93,126-131,190-203, UNIT4 freeze §1, Tools/ShippingGen4Param{LayerA,BridgeShape,BridgeCompose,BridgeWidth,BridgeSpecType,Iface}.lean)

@@ -1,7 +1,7 @@
 import Lean
 import Tools.ShippingGen4ParamBridgeSpecExpr
 set_option autoImplicit false
--- NOT BUILT: Check of Tools/ShippingGen4ParamBridgeSpecExpr.lean (scripts/gen4/PARAMETRIC_BRIDGE_UNIT5_FREEZE.md §3). Directive counts, measured (rule: top-level `#...` directive lines per kind, silent on success):
+-- BUILT: clean issue-linked build par21w-0ebbddc0 (Tests.Gen4.ParamBridgeSpecExprCheck) exit 0, 230 jobs, approved at 0ebbddc0. Comment-only update. Check of Tools/ShippingGen4ParamBridgeSpecExpr.lean (scripts/gen4/PARAMETRIC_BRIDGE_UNIT5_FREEZE.md §3). Directive counts, measured (rule: top-level `#...` directive lines per kind, silent on success):
 -- proves 27 (clause statements: specExprM 7 + specExprsM 2 + ExprOK 7 + ExprsOK 2 + NoDim 7 + NoDims 2; one of them multi-line), not_proves 12 (def mutants:
 -- 6 slice-clause, 2 list-clause, 1 index-clause, 2 ExprOK, 1 NoDim), type_defeq 9, mutant_rejected 9 (theorem mutants), audit_axioms 9, audit_closure 9,
 -- closure_detects 2, closure_clean 2, sig_clean 2, closure_unknown_fixtures 1. Agreement theorems: 6 (agree_spec/specs/ok/oks/noDim/noDims; mutual).

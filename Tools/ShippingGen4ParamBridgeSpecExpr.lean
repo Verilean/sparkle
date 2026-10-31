@@ -1,6 +1,6 @@
 import Tools.ShippingGen4ParamBridgeCompose
 set_option autoImplicit false
--- NOT BUILT: implementation of scripts/gen4/PARAMETRIC_BRIDGE_UNIT5_FREEZE.md §2 (F2, approved freeze d49d342a). Awaiting clean issue-linked build.
+-- BUILT: clean issue-linked build par21w-0ebbddc0 (Tests.Gen4.ParamBridgeSpecExprCheck) exit 0, 230 jobs, approved at 0ebbddc0. Comment-only update. Implementation of scripts/gen4/PARAMETRIC_BRIDGE_UNIT5_FREEZE.md §2 (F2, approved freeze d49d342a).
 
 /-! # M4 parametric, bridge unit 5 (F2: model-level lift of D1 to whole expressions) (scripts/gen4/PARAMETRIC_BRIDGE_UNIT5_FREEZE.md §2)
 
