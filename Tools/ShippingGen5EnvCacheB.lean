@@ -1,6 +1,6 @@
 import Tools.ShippingGen5EnvCache
 set_option autoImplicit false
--- NOT BUILT (clean issue-linked build): awaiting coder; incremental kjob lake build of Tests.Gen5.EnvCacheBCheck passed on this tree (agent g5env-r15). Conditional intermediate result: bookkeeping between existing premises; hN/hn/QuietStrength remain hypotheses.
+-- Built: clean issue-linked build env15v-e511ffc0 exit 0 (760 jobs, dirty=false), approved at e511ffc0 (freeze scripts/gen5/DG_ENV_T2_U6_FREEZE.md). Conditional intermediate result: bookkeeping between existing premises; hN/hn/QuietStrength remain hypotheses.
 
 /-! # DG-ENV unit U6: `QuietStrength` composition and `RealChildN` independence of the related bundle, CONDITIONAL
 (scripts/gen5/DG_ENV_T2_U6_FREEZE.md §2)

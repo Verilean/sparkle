@@ -2,7 +2,7 @@ import Tests.Gen5.EnvFrame3Check
 import Tools.ShippingGen5EnvCacheB
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (clean issue-linked build): awaiting coder; incremental kjob lake build of Tests.Gen5.EnvCacheBCheck passed on this tree (agent g5env-r15). Counting: TYPE = 4 Expected comparisons (B1-B4); MUTANT = well-typed single changes rejected by the same comparator (signature/defeq, not semantic counterexamples);
+-- Built: clean issue-linked build env15v-e511ffc0 exit 0 (760 jobs, dirty=false), approved at e511ffc0. Counting: TYPE = 4 Expected comparisons (B1-B4); MUTANT = 8 well-typed single changes rejected by the same comparator (signature/defeq, not semantic counterexamples);
 -- CLOSURE = roots; negatives (forbidden, flagged) direct + helper; unknown kept apart; self-root; clean.
 
 /-! # DG-ENV unit U6 checks (Tools/ShippingGen5EnvCacheB.lean)
