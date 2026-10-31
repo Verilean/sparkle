@@ -806,3 +806,79 @@ reviewer が段 2 承認時（seq 5716, 5755）に残した確認を行った記
 - この版の前提差分: **解消 0 / 追加 0**（文書の確認と反映のみ。流れ 1 の解消は kjob/flow1-b の closingrun 側で計上済み。110 表の 3 行）。
 - 現在値: **FG 107 / T1 58**（FG の定義は §2。T1 は U18 82cb67a6 で 62 → 59、U-B1 83820d32（sparkle-gen3-data-supply、T1L-28）で 59 → 58）。基準件数 FG 146 / 110、T1 62 と U18 後の 59 は版の履歴。
 - 4 段（設計承認 / 条件付き部品 / 前提解消 / 最終受理）: 本版は設計（段 1）の記録の更新。FG の最終受理はまだ何も満たしていない。
+
+## 10. 候補 A / B の純差分の確定（agent `fgnext1`、branch `kjob/fgnext1`、base `kjob/fgreg2` 8fd85e5d。文書のみ。Lean・build なし）
+
+**これは調査の記録であって前提の供給ではない。台帳の前提差分は 解消 0 / 追加 0。現在値は FG 107 / T1 58 のまま。** 署名は `git show <branch>:<path>` で読んだ原文で、この調査では build していない（各 branch の build・承認状態も確認していない）。「未供給」は「この調査で辿った候補経路では供給元・経路が見つからなかった」の意味で、存在しえないという意味ではない。
+
+数え方: **純差分 = 消える台帳行数（§8.2 の 110 表の行）− 新しい前提数**。補題の仮説を 1 つずつ「既存の台帳行（ID）に当たる / 新しい前提」に判定した。既存行に当たるものは、その行が未解消のまま残るので新しい前提には数えない（ただしその行への依存は書く）。別の未供給境界に帰着させるだけのものは「移し替え」と書き、減算に数えない。
+
+### 10.1 候補 A（DG-ACC / DG-SEM の Acc）
+
+**調査で分かったこと（§9.4 の記述の訂正を含む）。** §9.4 は C.SM-4 の補題を `hacc_of_top_runs` としたが、C.SM-4 の型 `∀ Y s, G Y = some s → Acc R Y`（C_M5dg.md SM-4）は、`G := genS K`、`R := CallRel K` と置けば run を使わずに出る。`genS K X = some s` から `Acc (CallRel K) X` を返す補題が既にあるため（下の補題 A1）。`hacc_of_top_runs` が要るのは別の用途（`genS` が到達する全名に `some` を返すこと、`genS_isSome_of_cover` の前件 `∀ c, Reach c → Acc …`）で、C.SM-4 の消去には使わない。
+
+**消える予定の台帳 ID（2 行）: C.SM-4、C.SM-2。**
+
+| 行 | 補題（実名・完全な型・branch@SHA） | 状態 |
+|---|---|---|
+| C.SM-4 | A1 `Tools.ShippingGen5Acc.genS_some_inv`（`Tools/ShippingGen5Acc.lean`、kjob/g5ac-r26@cff12a48）: `{ι} {dom} {env₀} (K : AssignKit ι dom env₀) {X : Name} {s : SemPkg ι dom} (hs : genS K X = some s) : ∃ (E : ConstantInfo) (g : K.GD E), entry₀ env₀ X = some E ∧ K.genData₀ E = some g ∧ Acc (CallRel K) X ∧ (∀ k ∈ K.ordCallees (K.dOf g), ∃ sc, genS K ((K.dOf g).shape.insts[k]).1 = some sc) ∧ s = K.genSem (genS K) X g`。第 3 連言が `Acc`。`genS_of_not_acc` により `¬Acc` なら `genS K X = none` | 補題あり。C.SM-4 の型は A1 の `.2.2.2.1` で出る（組み立て 1 行の系。**この系の名前・型は未記述なので、freeze で書く型**: `hacc_genS (K) : ∀ (Y : Name) (s : SemPkg ι dom), genS K Y = some s → Acc (CallRel K) Y`） |
+| C.SM-2 | A2 `Tools.ShippingGen5Acc.ordCallees₀_mem`（`Tools/ShippingGen5AccOrdCallees.lean:21`、kjob/g5ac-r26@cff12a48）: `(d : MachineData) (k : Fin d.shape.insts.length) : k ∈ ordCallees₀ d ↔ (d.shape.instOrigins.getD k .ord).child? = none`。A3 `mkKit_ordCallees₀_dataSound`（同ファイル:28 付近）: `(f) (GD) (dOf) (genData₀) (genSem) (hev : GDEvidence f GD dOf env₀) (hloc …) (hdecl …) (hd …) (hf : DataSoundAt f) : DataSound (mkKit f GD dOf genData₀ ordCallees₀ genSem ordCallees₀_mem hev hloc hdecl hd)` | 補題あり。ただし SEM 側 `hmem` の `ordC` は `SemCall.lean:17` の `ordCallees`（述語版 filter）で、A2 の `ordCallees₀`（`isNone` の Bool 版）と字面が違う。**両者を結ぶ補題は見つからなかった。freeze で書く型**: `ordCallees_eq_ordCallees₀ (d : MachineData) : ordCallees d = ordCallees₀ d`（定義の同値で、証明は `List.filter` の述語の一致。未確認） |
+
+**これらの補題が要求する仮説の判定（1 つずつ）。**
+
+| 補題 | 仮説 | 判定 | 型の根拠 |
+|---|---|---|---|
+| A1 | `K : AssignKit ι dom env₀` | carrier（binder）。仮説ではない（§8.3 の規則）。ただし A3 で組む場合は f / GD / dOf / genData₀ / genSem の **5 つの carrier** になる（`mkKit` の引数、A3 の署名）。§8.3 は carrier を前提に数えないので +0 としたが、reviewer が数えると決めるならこの欄が変わる | `Tools/ShippingGen5Acc.lean:32`（`AssignKit` の field） |
+| A1 | `hs : genS K X = some s` | 補題の前件で、使う側（SEM の `hacc` の ∀ Y s, G Y = some s）が与える。仮説ではない | A1 の署名 |
+| A2 | なし | — | — |
+| A3 | `hev : GDEvidence f GD dOf env₀` | **既存行 C.AC-2** | `Tools/ShippingGen5AccGenDataEv.lean:22`（§9.2） |
+| A3 | `hloc` / `hdecl` / `hd` | **既存行 C.AC-3** | A3 の署名、§9.2 |
+| A3 | `hf : DataSoundAt f` | **既存行 C.SM-1（merged C.DO-1, C.AC-1）** | `DataSoundAt`（C_M5dg.md SM-1 の別名欄） |
+
+新しい前提: **0**（この表の範囲）。ただし A3 で組むと、K を `mkKit … ordCallees₀ …` に固定する **文の選択**（`G := genS K`、`ordC := ordCallees₀`、`R := CallRel K`）が入る。これは前提の追加ではないが、§8.4 の「DG-SEM と DG-ACC を 1 本の木に置く（kit K の carrier を固定）」という既存の未決事項の決定であり、台帳前提の付け替えに当たる。
+
+**前置きの作業（この調査では未確認）**: kjob/g5ac-r26 と kjob/g5sm-u23 の局所統合（§8.6 の試行では `lakefile.lean` のみ衝突。連続 merge の build は未確認）。SEM 側の `hacc`（`factsOf_all_of_acc_unfold`）の署名を g5sm-u23@7af6c7cc で読み直し、`G` と `R` を A1 の `genS K` と `CallRel K` で置換できる形か（binder の順・暗黙引数）を確認する必要がある。この調査では `hacc` を取る補題の原文は C_M5dg.md SM-4 の貼付だけを読んだ。
+
+**C.AC-8（hI / hKI / hLim / hS）は減算に入れない。** 補題の面では `limitStmt_proved`（`Tools/ShippingGen2T1.lean:127`、base）と `accKeepChild_proved`（`Tools/ShippingGen5AccKeep.lean:337`、g5ac-r26）が前提なしで、`acc_of_run`（`AccInd.lean:146`）が `hS : AccServed0Stmt` から `hI` / `hKI` を作る。`hS` は `accServed0_of_cover_gates`（`Tools/ShippingGen5AccRoute.lean:70`）が `hcl`（`ReachEdge` の閉包で成立）と C.AC-4（`ReachCover`）・C.AC-9（`DataOfShape`）・C.AC-5（`GatesNoneAt`）・C.AC-6（`ClosesOfShape`、= A.P-07 に統合）・C.AC-7（`ReadsSupplyAt`）に帰着させる。すべて既存行で、新しい前提は見つからなかった。しかし C.AC-8 は §4 で A.P-24 の組に統合された行（110 表の行は A.P-24）で、A.P-24 を FG の数に残すかは §9.3 の reviewer 確認事項のまま。この調査は A.P-24 を減算に入れない。
+
+**純差分（A）= 消える 2（C.SM-4、C.SM-2）− 新しい前提 0 = +2。** どちらの消去も、使う補題は証明済み（A1、A2）で、残る依存は既存の未解消行（C.AC-1/2/3 = A3 の仮説）だけ。移し替えではない（C.SM-4 は run にも別境界にも帰着せず、A1 で直接出る）。ただし上の 2 つの未確認（統合 build、SEM 側署名の一致）と `ordCallees_eq_ordCallees₀` の型が freeze で確定するまでは「見込み」であり、消えたとは言わない。
+
+### 10.2 候補 B（boundary-audit の名前の鎖）
+
+**消える予定の台帳 ID: D.E-6（`hF`）、D.E-1（`hmemSame`）。** D.E-5 は `hg` / `hsp` / `hin` が残るので、`hmem` の部分が消えてもブロックは消えない（減算に入れない）。
+
+| 補題 | 完全な型・branch@SHA |
+|---|---|
+| B1 `hmem_of_machineShapeF`（`Tools/ShippingGen5NameKids4.lean:33`、kjob/g5ba-r16@96e862fe） | `{Reach : Name → Prop} {S : Name → Option MachineShape} (hF : ∀ c, Reach c → ∀ sp, S c = some sp → ∃ (n : Nat) (sm : Bool) (ps : List (String × Nat)) (ci : ConstantInfo) (senv : StructEnv) (ai : Bool), machineShapeF n sm ps ci senv ai = some (some sp)) : ∀ c, Reach c → ∀ sp, S c = some sp → MemTagsNamed sp` |
+| B2 `hmemSame_of_memTagsNamed`（`Tools/ShippingGen5NameKids2.lean:71`、同 branch） | `(shape : MachineShape) (h : MemTagsNamed shape) : ∀ (k) (hk : k < shape.insts.length) (k') (hk' : k' < shape.insts.length), memKey (originAt shape k) ≠ none → memKey (originAt shape k) = memKey (originAt shape k') → (shape.insts[k]'hk).1 = (shape.insts[k']'hk').1` |
+
+`hF` は B1 の仮説で、`hF` を作る補題（`S c = some sp → ∃ …, machineShapeF … = some (some sp)`）は **この調査では見つからなかった**（B1 のファイル先頭コメントも「`hF` は production bridge ではない」と書く）。書く必要のある型と、それが要求する仮説:
+
+`hF_of_defines`（freeze で書く型、未実装）: `S := fun c => (GP (envAt cref w) c).map (·.d.shape)`、`Reach := TgtRun (GP (envAt cref w)) declName`（§8.3 の Q-F2 の閉包）として、`hF` の結論を、(i) 文 §8.3 の `h_A_P06`（`MachineDefines … c q.d.shape`）、(ii) `h_C_CV4`（`machineShape? false [] E senv = some sp → ∃ n, machineShapeF n false [] E senv true = some (some sp)`）から作る。`MachineDefines`（`Tools/ShippingMachineEntry.lean:2345`、kjob/g5dc-r23@0fcce4e7）は `∀ w1 ci w2 w5 envR w6 w7 envR' w8, RunsTo (getConstInfo c) … → RunsTo getEnv … → RunsTo getEnv … → … ∧ machineShape? false [] (entryConst true false [] ci …) (structEnv envR') = some shape` の形なので、`machineShape? … = some sp` を取り出すには **3 つの run の存在**が要る。
+
+| 仮説 | 判定 | 根拠 |
+|---|---|---|
+| `h_A_P06`（`MachineDefines`） | **既存行 A.P-06**（§8.3 の typed 7 の 1 つ） | 文 §8.3 |
+| `h_C_CV4` | **既存行 C.CV-4**（typed 7 の 1 つ） | 文 §8.3、`Cover5.lean:97` |
+| 2 本の `getEnv` の run の存在 | 前提ではない（`getEnv_runs_exists`、`ShippingEntryReadsLinked`/`ShippingGen5Acc` で使用。任意の world で存在。本調査では署名を `git grep` で確認しただけ） | g5ac-r26 `AccServed.lean` の使用箇所 |
+| `AdmCtx L.O.quiet mctx' cctx'` の witness | 既存行 A.P-02 / A.P-04 の `Start`（`EntryWitness` の第 1 conjunct）から top については取れる。**子の名前 `c` では、`TgtRun` の全 `c` に対して取る補題は見つからなかった**（`RealChildA` は `AdmCtx` を含むが、`TgtRun` との接続は未記述） | `Tools/ShippingGen2Defs.lean:52`、`FG.lean:26` |
+| `TgtRun` の全 `c` に対し、`getConstInfo c` が成功する run（ci と world）の存在 | **新しい前提 1**。台帳に当たる行が無い（C.RK-4 は `readMachine declName` の run で、`getConstInfo c` の run の存在ではない。C_M5dg.md RK-4 の型を比較した）。top は `EntryWitness` の run から `core_chain` で取れる可能性があるが、子は子の run（`RealChildA`）が要り、`hacc_of_top_runs` のコメントも「他の reached name の run は無い」と書く | `ShippingGen5AccReads.lean` の `hacc_of_top_runs` 付近、`RK-4` |
+| S の carrier の固定（`S := (GP …).map (·.d.shape)`） | 前提ではなく文の選択。ただし D.E の全行（E-5/E-7/E-8/E-9）の `S`・`Reach` が「production の ds/Reach/S が未供給」と書く既存の未決事項の決定になる | §8.4、D_M5t2.md E-5/E-7 |
+
+**純差分（B）= 消える 2（D.E-6、D.E-1）− 新しい前提 1（`TgtRun` の全 `c` の `getConstInfo` run の存在 + `AdmCtx` witness）= 形式上 +1。ただしこれは移し替えである。** D.E-6 の内容（`S` の shape が `machineShape?` の出力であること）を、既存の A.P-06 / C.CV-4 と、**新しい未供給の境界（子ごとの実 run の存在）** に帰着させるだけで、供給の道（子の run を `TgtRun` に結ぶ補題）は B 側に無い。§9.4 の注意（C.CV-4 への移し替え）が、この調査で 1 つの新しい境界に変わっただけである。よって **B は減算に数えず、着手可能としない。** 形式上の +1 を採るかは reviewer / coder の判断。なお D.E-1 は D.E-6 の `S` の shape から `MemTagsNamed` を作る経路（B1）を共有するので、D.E-6 を数えないなら D.E-1 だけを単独で減算にはできない（`memTagsNamed_of_tagsAgree`（`NameKids2.lean:62`）の `TagsAgree shape` を別に供給する経路は、この調査では辿っていない）。
+
+### 10.3 結論
+
+- **着手可能: 候補 A（純差分 +2、C.SM-4 と C.SM-2）。** 条件: freeze が承認されること（台帳前提の付け替え・carrier の固定を含むので、共通ルール 14 の分担により reviewer の承認が要る freeze）。
+- **着手不可: 候補 B（移し替え。形式 +1 を採るなら reviewer の判断）。**
+- 最初の単位（A）の freeze に書くこと（短く）:
+  1. 目標: C.SM-4 と C.SM-2 の 2 行の消去。**消える ID と新しい前提を ID で列挙し、純差分 +2 / 追加 0 を台帳の前提差分欄に書く。**
+  2. 書く型 3 つ: `hacc_genS`（A1 の系。上の型）、`ordCallees_eq_ordCallees₀`（上の型）、およびそれらを SEM の `hacc` / `hmem` の binder に渡す 1 つの組み立て（`G := genS K`、`R := CallRel K`、`ordC := ordCallees₀`）の完全な型。
+  3. 使う仮説の判定表: C.AC-2 / C.AC-3 / C.SM-1 は既存行のまま、新しい前提 0。carrier（f / GD / dOf / genData₀ / genSem の 5 つ）の扱い（§8.3 の規則で前提に数えない、とするかの reviewer 確認）。
+  4. 前置き: g5ac-r26@cff12a48 と g5sm-u23@7af6c7cc の統合木の build、SEM 側 `hacc` / `hmem` の署名の一致の確認。
+  5. 明記: `hacc_of_top_runs` は使わない（C.SM-4 の消去に run は不要）。C.AC-8 / A.P-24 は減算に入れない。mutant は signature / defeq での棄却であって意味的反例ではない（Check を書く場合）。供給・共同充足性・FG 証明は主張しない。
+
+### 10.4 前提差分と 4 段（本版）
+
+- この版の前提差分: **解消 0 / 追加 0**（調査の記録のみ）。現在値は **FG 107 / T1 58**。純差分 +2（A）は見込みで、freeze 承認・実装・clean build の後に初めて台帳に反映する。
+- 4 段（設計承認 / 条件付き部品 / 前提解消 / 最終受理）: 設計（段 1）の前の調査記録。どの行も進めない。
