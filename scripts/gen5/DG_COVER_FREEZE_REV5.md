@@ -40,7 +40,7 @@ Legend: **closed here** = every premise is a theorem/definition of this tree or 
 
 Other items of the task text and who owns them (no overlap, nothing re-implemented):
 - `RootFactsAt` (U5, `4ac00d24` approved), `readMachine_root` (U6, `36318286` approved as conditional intermediate), `readMachine_fields` / `ReadFields` (U7, type freeze `f02837ed` approved,
-  implementation `bb783eda` in review) — DG-READKINDS. They describe the top-level `Read` record that `readMachine` returns (entry body, `nDecl`, `nIn = nDecl + insts.length`,
+  implementation `bb783eda`: **2026-10-31 changes_requested** (`readMachine_fields` had dropped `ReadConcl`; being fixed in g5rk-r9)) — DG-READKINDS. That the external branch is not integrated here is a working dependency, not a proof of impossibility; the later integration and supply plan is kept. They describe the top-level `Read` record that `readMachine` returns (entry body, `nDecl`, `nIn = nDecl + insts.length`,
   binder count, `bposL/vposL/vwL`, `machDom?`). They are **not** statements about the per-step `MachRead` evolution, so they do not supply R-trace/R-in/R-nl/R-dom. The only row they
   touch is the `d`-side of ShapeAgree (`r.nIn = r.nDecl + r.shape.insts.length`, `r.shape.binders.length = r.nIn + slots + lets`) for the `Read` produced by the *real* reader; the `d` of
   `dataOf` is built from a `MachineShape`, not from `Read`, so the identification `r` ↔ `d` is also not supplied (DG-DATAOF/DG-RUNREADS).
@@ -97,3 +97,10 @@ in the `0` case `k < d.shape.insts.length ≤ d.nIn ≤ 0` (`hag.nIn`) is absurd
 - `d.ok = true` is a premise of U-E1 (delivered by DG-DATAOF's conditional `dataOfFrom_sound`); no successful run, `dataOf` success, `GenWF` on real data, corpus, M5 or FG statement is made.
 - Twin-side statements (rows 1, 6a, 8) are about the fuel model; production only through `ShapeFuelBridge`, which is assumed once and not proved.
 - No new law, TRUSTED boundary, FG/guarantee change, compiler change or shared-definition change; `GenWF` is not strengthened.
+
+## 6. Addendum (g5cv-r9): implementation notes for U-E1 (added after approval; no change of the three frozen types)
+
+- The three frozen theorems are implemented with the types of §3 (`Tools/ShippingGen5Cover4.lean`, `Tests/Gen5/Cover4Check.lean`, two `lean_lib` entries in `lakefile.lean`). No premise was added.
+- Two small helper theorems were added, **not in §3**: `ok_row_kb` / `ok_row_kv` (rows 16 / 17 of `MachineData.ok` as stated there, extracted by projection of the `&&` chain after `simp only [Bool.and_eq_true]`). They are compared in Cover4Check as well (`ExpRowKb/ExpRowKv`).
+- Check counts (category + rule: one compared declaration = 1): TYPE 5 = 5 theorems by `checkExpected` (3 frozen + 2 helpers); MUTANT 5 signature/defeq rejections (`bpos` `≤`, `bpos` no `hpos`, `vpos` no `hpos`, `ok_row_kb` conclusion cut to its first conjunct, `rowC_of_reader_ok` no `hok`; not semantic counterexamples); AXIOMS 5 theorems standard only.
+- Still unsupplied: `d.ok = true` for any run, `ShapeAgree`, `FullInv`, `LetQuoteEq`, `LetsNoLoose`, real reader connection, `ShapeFuelBridge`. Not completion of the Issue or FG.
