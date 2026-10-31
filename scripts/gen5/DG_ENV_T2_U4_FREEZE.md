@@ -17,7 +17,7 @@ nothing supplies C0 / QuietStrength / AdmDown / CellPrem / `¬ DRow` / L′ / FG
 ## 1. Rows examined (existing lemmas, full names and types)
 ### 1.1 `¬ DRow p`
 `DRow` is an inductive predicate on `MetaM α` values (functions). To prove `¬ DRow p` for a concrete `p`, one would need `p ≠` each of 13 constructor values (`liftM (IO.getEnv n)`, `Lean.Meta.whnf e`, …).
-These are function values, so disequality needs either a world on which the two differ (needs a premise about the runtime's behaviour on that world, e.g. what `getEnv` returns) or injectivity of constructors, which `MetaM` terms do not have.
+These are function values, so the proof routes enumerated in this survey for a disequality are: a world on which the two differ (an obligation: a premise about the runtime's behaviour on that world, e.g. what `getEnv` returns) or injectivity of constructors (an obligation: `MetaM` terms are functions and no such injectivity lemma was found). This lists the obligations of the routes examined here, not a necessary condition over all routes.
 Existing lemmas read: `Tools.ShippingGen5EnvFrame3.drow_toFramedA`, `envFrameEnd_framedA`, `Tools.ShippingChildInvA.FramedA` constructors. None gives `¬ DRow`. 未供給 / この調査で経路未発見.
 ### 1.2 `CellPrem`
 Components: `ReadWorld`, `SetFrame`, `SetGet` (`Tools.ShippingStRefCorrespondence`, premises "for the real runtime"), `r.ref ≠ cref.ref`. Existing lemma `ReadWorld.readKeeps : ReadWorld r → ReadKeeps r` goes between premises only.
@@ -33,7 +33,7 @@ Components: `ReadWorld`, `SetFrame`, `SetGet` (`Tools.ShippingStRefCorrespondenc
 `CacheInvA O m := ∀ c r, m.get? c = some r → RealChildA O c r`.
 Closed parts with existing lemmas: `Tools.ShippingGen5EnvQ.jq_start : QuietStrength L L′ (envAt cref w₀) → Start L mctx cctx w₀ → JQ L′.O.quiet 0 w₀` (the `JQ` half);
 `Tools.ShippingChildInvA.admCtx_none` (the `AdmCtx` half when `mctx.canUnfold? = none`); `Tools.ShippingChildCacheA.cacheInvA_empty (O) : CacheInvA O {}` (the cache half when the cache is empty).
-Not closed: the cache half for a NON-empty cache: `RealChildA L′.O` from `RealChildA L.O` is "old ⇒ new" and would need `AdmDown`-converse and a quiet-strength-in-reverse for the stored runs (`RealChildA.run` stores `quiet`, `adm`, `hr` of the old law bundle).
+Not closed: the cache half for a NON-empty cache: `RealChildA L′.O` from `RealChildA L.O` is "old ⇒ new"; the routes examined here would carry the obligations `AdmDown`-converse and a quiet-strength-in-reverse for the stored runs (this lists the obligations of the examined routes, not a necessary condition over all routes) (`RealChildA.run` stores `quiet`, `adm`, `hr` of the old law bundle).
 未供給 / この調査で経路未発見 (`realChildA_down` is the other direction).
 
 ## 2. Chosen first unit: U4 = `Start L′` at an empty cache and a no-callback context
@@ -68,7 +68,7 @@ theorem cacheInvA_of_empty {Fresh : (σ : Type) → IO.Ref σ → Prop} (O : Too
     {w₀ : Void IO.RealWorld} (hE : cv w₀ = {}) : CacheInvA O (cv w₀)
 end Tools.ShippingGen5EnvStart
 ```
-Proof plans. S1: `⟨hA, jq_start hq hS, hC⟩` (`JQC` unfolds to `JQ ∧ CacheInvA`; `jq_start` is Q9). S2: S1 with `admCtx_none hn` and `cacheInvA_of_empty`. S3: `hE ▸ cacheInvA_empty O`.
+Proof plans. S1: `⟨hA, jq_start hq hS, hC⟩` (`JQC` unfolds to `JQ ∧ CacheInvA`; `jq_start` is Q9). S2: S1 with `admCtx_none hn` and `cacheInvA_of_empty`. S3: `rw [hE]; exact cacheInvA_empty O` (rewrite `cv w₀` to `{}`; the earlier `hE ▸` form had the direction reversed).
 If the exact `open` / implicit-argument shapes of `RefLawsAOps` need an adjustment when elaborating, the statements above are the frozen content and any change is reported before review.
 Counting: 3 theorems, no definitions. TYPE = 3 Expected comparisons.
 
