@@ -2,7 +2,7 @@ import Tests.Gen5.EnvFrame3Check
 import Tools.ShippingGen5EnvCache
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: no clean issue-linked build yet (Tools/ShippingGen5EnvCache.lean, freeze scripts/gen5/DG_ENV_T2_U5_FREEZE.md).
+-- Built: clean issue-linked build env13v-9b886655 exit 0 (759 jobs, dirty=false), approved at 9b886655. Result: TYPE 5, MUTANT 8 (signature/defeq rejection, not semantic counterexamples), CLOSURE 4 roots, AXIOMS 4 standard.
 -- Counting rule: TYPE = Expected comparisons (4 theorems) + 1 constructor type of `RealChildN.run`; MUTANT = well-typed single changes rejected by the same comparator;
 -- CLOSURE = roots; negatives (forbidden, flagged) are counted direct + helper; unknown = throwing controls, kept apart; self-root = forbidden constant as root; clean = not-flagged controls.
 

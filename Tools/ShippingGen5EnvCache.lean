@@ -1,6 +1,6 @@
 import Tools.ShippingGen5EnvStart
 set_option autoImplicit false
--- NOT BUILT: no clean issue-linked build yet (freeze scripts/gen5/DG_ENV_T2_U5_FREEZE.md, approved b0963e03).
+-- Built: clean issue-linked build env13v-9b886655 exit 0 (759 jobs, dirty=false), approved at 9b886655 (freeze scripts/gen5/DG_ENV_T2_U5_FREEZE.md). Conditional intermediate result: hN/hn/QuietStrength are hypotheses, not supplied for a real cache.
 
 /-! # DG-ENV unit U5: `Start L'` at a NON-empty start cache whose entries have RESTRICTED derivations, CONDITIONAL
 (scripts/gen5/DG_ENV_T2_U5_FREEZE.md §2)
