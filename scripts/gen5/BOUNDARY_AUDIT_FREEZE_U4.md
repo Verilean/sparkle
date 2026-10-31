@@ -50,3 +50,8 @@ What U4 does NOT show: that the production `readMachine`'s `machineShape?` outpu
 
 ## 4. Not done
 No merge of other branches; no compiler/shared-definition change; no change to built files; no new TRUSTED/law. Rows `GraphAgrees` (candidate U5), `InClass`, `ReachSpans`, (c), (d), G5: unchanged or 未供給 / この調査で経路未発見.
+
+## 5. Implementation sync (U4, written with the Lean commit)
+* §2 opens: `Tools.ShippingReaderFuel (machineShapeF)` is opened (machineShapeF lives there), in addition to the listed opens. The statements are unchanged.
+* `hF` is an existence premise over arbitrary `n sm ps ci senv ai`; it does not fix the witnesses of any actual run, so `hmem_of_machineShapeF` is NOT the production bridge. The `machineShape?` ↔ `machineShapeF` link, GraphAgrees / InClass / ReachSpans, N1 / G5 / G7 / M5 / FG remain unsupplied or unfinished.
+* Observed in a Pod incremental build (not clean): TYPE 2, MUTANT 7 (5 single-change + 2 cross-statement controls; signature/defeq rejection, not semantic counterexamples), use-site example 1, closure negative 8 + clean 1, REACH 2, AXIOMS 2 (standard only), sorry 0. Both theorems are as frozen in §2 (no type change).
