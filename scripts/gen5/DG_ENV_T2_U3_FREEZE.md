@@ -1,11 +1,22 @@
 # DG-ENV T2 unit U3 freeze: per-field aggregation of the closed `FramedA` rows, class D re-survey, what `QuietStrength` / C0 still lack (docs only, before any Lean)
 
-Issue `sparkle-gen5-dg-env`. Base: `kjob/g5env-r7` ec02705c (U2 approved; header sync 50027b67, comments only).
+Issue `sparkle-gen5-dg-env`. Base: `kjob/g5env-r8` 756e6662 (U3 freeze, reviewer changes_requested R1 + 3 wording points; this revision r9 answers them). U2 approved at ec02705c.
 Extends `scripts/gen5/DG_ENV_T2_FREEZE_R3.md` (rev3.1) and `scripts/gen5/DG_ENV_T2_U2_FREEZE.md`. Nothing here adds a law, a `Laws` /
 `RefLawsAOps` / `RefLawsATele` field, a TRUSTED boundary, a premise with new content, or a shared definition; nothing narrows FG or
 strengthens `GenWF`; nothing supplies C0 / QuietStrength / AdmDown / Start L′ / FG. Every theorem below is CONDITIONAL: the cell premises
 (`ReadWorld`, `SetFrame`, `SetGet`, distinctness), `QuietStrength L L′ env₀` and `AdmDown L L′` are hypotheses. "未供給 / この調査で経路未発見"
 below is a result of THIS survey (what was read at ec02705c and probed in this Pod, Lean 4.32.1), not a claim of impossibility.
+
+## 0.0 Revision r9 (answers to the review of 756e6662)
+* **R1 (choice made: E4 is a general lemma about an ARBITRARY quiet predicate).** E4 is now `admCtx_down_of_none` over any `q q' : Void IO.RealWorld → Prop`; its statement
+  and proof mention no `Laws` / `RefLawsAOps` / `RefLawsATele` / `T1Hyp` / `T1HypND` constant. The instantiation `q := L.O.quiet`, `q' := L'.O.quiet` is done at the use site and is covered by a
+  separate "quiet-only" mode of the closure walker (§7): there ONLY `Laws.O` and `RefLawsAOps.quiet` are allowed; every law-bearing field (`RefLawsAOps.<other>`, `Laws.T`, `RefLawsATele.*`,
+  `T1Hyp.*`, `T1HypND.*`), every recursor and every raw projection stays forbidden. So E1-E3 and E4 are no longer under one rule: E1-E3 and E4 are law-free roots (no `Laws` constant at all), the
+  8 F roots are "field roots" (the allowed set is exactly `Laws.O`, `RefLawsAOps.quiet`, the row's own field), and the E4 instantiation fixture is a "quiet-only" positive control.
+* **Wording.** "40 − 13 = 27" is the number of `FramedA` constructors left after removing the 13 `DRow` constructors (a constructor count). It is NOT a proof that the 27 actions are
+  mutually non-overlapping as `MetaM` values, and NOT a proof that each of the 27 rows has a supplier of `¬ DRow p`. In §3.4 and §6 statements of the form "does not follow" / "only a T1 would close"
+  are limited to: this route supplies nothing for them (未供給 / この調査で経路未発見).
+* **Kept.** Scratch probes are not acceptance evidence. `L′`, `CellPrem`, `AdmDown` (beyond `canUnfold? = none`), `QuietStrength`, C0 stay unsupplied, and are kept distinct from each other (§6).
 
 ## 0. Findings (summary)
 1. **Laws fields, 13 (`RefLawsAOps` 9 + `RefLawsATele` 4).** With U1 + U2 the env part of `L′` (the fields of `L′` whose `quiet` is
@@ -80,9 +91,9 @@ is not given by any existing premise. 未供給 / この調査で経路未発見
 * `forallTelescopeReducing` reaches `forallTelescopeReducingAux` (private, partial); `lambdaTelescope` reaches `lambdaTelescopeImp.process` (partial);
   `withLocalDeclD` / `withLetDecl` reach `isClassExpensive?` (partial) besides `Ref.get/set` and `mkFreshFVarId` (closed by U2-8). The wrappers also run an arbitrary
   continuation `k`; the field is a `Keeps I` statement, not an env frame, and `L′`'s stability premise (`quiet′ w → quiet′ w′`) is weaker than the premise `L.T` accepts
-  (`quiet w → quiet w′`), so `L′.T` does not follow from `L.T` (rev3.1 §1 rows 10-13; unchanged by U1 / U2). 未供給 / この調査で経路未発見.
+  (`quiet w → quiet w′`), so this route does not obtain `L′.T` from `L.T` (rev3.1 §1 rows 10-13; unchanged by U1 / U2). 未供給 / この調査で経路未発見.
 * `InertUnfold quiet′ f` / `AdmCtx`: `f : Meta.Config → ConstantInfo → CoreM Bool` is arbitrary; U1 / U2 give nothing about an arbitrary `f`. The only closed
-  fragment is `canUnfold? = none` (`admCtx_none`, §4 `admDown_of_none`). Whether `AdmCtx quiet′ ⇒ AdmCtx quiet` holds for contexts with a callback: 未供給 / この調査で経路未発見.
+  fragment is `canUnfold? = none` (`admCtx_none`, §4 `admCtx_down_of_none`). Whether `AdmCtx quiet′ ⇒ AdmCtx quiet` holds for contexts with a callback: 未供給 / この調査で経路未発見.
 
 ## 4. Frozen types. New file `Tools/ShippingGen5EnvFrame3.lean` (lean_lib `Tools.ShippingGen5EnvFrame3`), imports `Tools.ShippingGen5EnvFrame2`, `Tools.ShippingGen5EnvQ`, `Tools.ShippingChildFresh`
 ```lean
@@ -135,7 +146,7 @@ def CellPrem (Fresh : (σ : Type) → IO.Ref σ → Prop) (mref : ST.Ref IO.Real
   (∀ (σ : Type) (r : IO.Ref σ), Fresh σ r → CellOK cref r) ∧
   ReadWorld mref ∧ SetFrame mref cref ∧ mref.ref ≠ cref.ref ∧ ReadWorld cref ∧ SetGet cref
 
--- partition guard
+-- partition guard (a constructor-count statement: 40 − 13 = 27 cases remain; no claim that the 27 are disjoint as MetaM values or that each has a `¬ DRow` supplier)
 /-- (E1) the 13 D constructors are `FramedA` constructors (the subtraction `¬ DRow p` below removes real rows). -/
 theorem drow_toFramedA {Fresh : (σ : Type) → IO.Ref σ → Prop} {α : Type} {p : MetaM α} (h : DRow p) : FramedA Fresh p
 
@@ -147,9 +158,9 @@ theorem envFrameEnd_framedA {Fresh : (σ : Type) → IO.Ref σ → Prop} (hcell 
 /-- (E3) both `Throws` constructors are `EnvFrameEnd`. -/
 theorem envFrameEnd_throws {mctx : Meta.Context} {cctx : Core.Context} {α : Type} {p : MetaM α}
     (hp : Throws p) (hc : ReadWorld cref) (hm : ReadWorld mref) : EnvFrameEnd p mctx mref cctx cref
-/-- (E4) `AdmDown` on the contexts without a callback. -/
-theorem admDown_of_none {L L' : Laws mref cref} {mctx : Meta.Context} {cctx : Core.Context}
-    (h : mctx.canUnfold? = none) : AdmCtx L'.O.quiet mctx cctx → AdmCtx L.O.quiet mctx cctx
+/-- (E4) `AdmCtx` is down-closed on the contexts without a callback, for ANY two quiet predicates (law-free; instantiate at `L'.O.quiet` / `L.O.quiet` at the use site). -/
+theorem admCtx_down_of_none {q q' : Void IO.RealWorld → Prop} {mctx : Meta.Context} {cctx : Core.Context}
+    (h : mctx.canUnfold? = none) : AdmCtx q' mctx cctx → AdmCtx q mctx cctx
 
 -- per-field conclusions at L′ (the field statement of RefLawsAOps with `L'.O.quiet`; `L'` appears only through `L'.O.quiet`)
 /-- (F-frameT, row 2) -/
@@ -205,7 +216,7 @@ end Tools.ShippingGen5EnvFrame3
 ```
 Proof plans. E1: case split on `DRow`, each case is the `FramedA` constructor of the same name. E2: destructure `CellPrem`, case split on `FramedA` (40 cases); the 27 non-D cases
 are the U1 / U2 lemma named in the table of U2 (`get/set/modify/modifyGet`, their `IO` lifts, `getEnv`, `metaGet`, `metaModify`, `coreModifyTrace`, `freshFVar`, `fvarThrowUnknown`,
-`constInfo`) fed by the matching component of `CellPrem`; the 13 D cases by `absurd (DRow.c …) hnd`. E3: `err` is U2 A2; `coreErr` is the U2-9 shape. E4: `admCtx_none`.
+`constInfo`) fed by the matching component of `CellPrem`; the 13 D cases by `absurd (DRow.c …) hnd`. E3: `err` is U2 A2; `coreErr` is the U2-9 shape. E4: `fun _ => admCtx_none h` (general `q`, so no `Laws` constant occurs).
 F-rows: `(hq w).mp` splits `L′.O.quiet w` into `L.O.quiet w ∧ ReadsAt env₀ cref w`; the `L.O` field gives the `L`-part (at `AdmCtx L.O.quiet` from `hd`); the `ReadsAt` part is
 `readsAt_endW` (U1-8) applied to E2 / E3 / U1-4 at `sparkleChildCache` / `sparkleSynthDepth` (for rows 5, 6 after `endW_of_runs`); `(hq _).mpr` reassembles. Rows 3, 7, 8, 9 use the `L.O` field only.
 
@@ -234,12 +245,12 @@ Impact (as FREEZE §4.4.4 / §4.4.6): these add ≈ 8-10 TRUSTED clauses about `
 | item | after U1 + U2 + U3 | missing |
 |---|---|---|
 | `QuietStrength L L′ env₀` (an `L′` exists) | fields 2, 3, 5, 6, 7, 8, 9 and 27 / 40 of field 4 have their `L′` statements (§4); `L′` is NOT built (no structure value) | fields 1 (`diag`) and 10-13 (telescopes); 13 `DRow` constructors of field 4 |
-| `AdmDown L L′` | only `canUnfold? = none` (E4) | contexts with a callback: no route found |
+| `AdmDown L L′` | only `canUnfold? = none` (E4, for arbitrary quiet predicates; `AdmDown L L′` itself is not obtained) | contexts with a callback: no route found |
 | `CellPrem` (cell premises) | named, used as hypothesis | not supplied for the runtime (ReadWorld / SetFrame / SetGet / distinctness / `Fresh`-ref non-aliasing) |
 | `Start L′` | unchanged (rev3.1 §4) | `CacheInvA L′.O (cv w₀)` |
 | C0 (generic, all worlds) | an induction over every operation the compiler runs would use E2 / E3 for the 27 + 2 rows | the 13 D rows, `Diag`, telescopes, callbacks; plus `CellPrem` at the runtime |
 | FG / M5 | not touched | not supplied |
-Rows that only a T1 would close: §5 (law statement and impact only; nothing adopted).
+Rows for which this route supplies nothing: §5 lists the statements a T1 could add (law statement and impact only; nothing adopted, and no claim that a T1 is the only way).
 
 ## 7. Checks (`Tests/Gen5/EnvFrame3Check.lean`, lean_lib `Tests.Gen5.EnvFrame3Check`), Expected written from §4 of THIS file, not from the implementation
 Imports `Tools.ShippingGen5EnvFrame3`, `Tests.Gen5.EnvFrame2Check` (reuses `reach`, `mkForbid`, fixtures; no walker change for the law-free roots) and `Tests.Gen3.ExpectedType`.
@@ -247,13 +258,15 @@ Imports `Tools.ShippingGen5EnvFrame3`, `Tests.Gen5.EnvFrame2Check` (reuses `reac
 * MUTANT (well-typed single changes, rejected by the same comparator; signature / defeq rejections, NOT semantic counterexamples): N1 `frameQ_plus` without `¬ DRow p`; N2 `frameQ_plus` without `hd`;
   N3 `frameQ_plus` concluding `L.O.quiet` instead of `L′.O.quiet`; N4 `cacheSetQ_plus` without `hcell`; N5 `frameT_plus` dropping the `quiet` conjunct; N6 `frameT_plus` dropping the `cv/sv/dv` conjunct;
   N7 `cacheSet_plus` dropping the last conjunct `dv w' = dv w`; N8 `envFrameEnd_framedA` without `hnd`; N9 `envFrameEnd_throws` without `hm`; N10 `excOk_plus` without `hd`; N11 `CellPrem` without `SetGet cref`;
-  N12 `CellOK` without `r.ref ≠ cref.ref`; N13 `admDown_of_none` without `h`. MUTANT total = 13 (N5-N7 are conjunct-dropping mutants of the conjunctive conclusions).
-* PARTITION: `DRow` has exactly 13 constructors and each is a result type of a `FramedA` constructor (E1); `FramedA` has 40 constructors, so the closed set is 27 (counts read from the environment).
-* CLOSURE (same walker, root self judged, unknown name `throwError`, intended name and path asserted): E1-E4 are law-free roots (no `Laws` / `RefLawsAOps` / `RefLawsATele` / `T1Hyp` / `T1HypND` field, recursor, raw
-  `Expr.proj`, no `GetEnvFrame` / `EnvSnapshot` / `getEnvFrame_of_readKeeps` / `envFrame_getConstInfo`). The 8 F roots use `L.O` by design: for them the walker is run in collect mode and the reached set of guarded constants
+  N12 `CellOK` without `r.ref ≠ cref.ref`; N13 `admCtx_down_of_none` without `h`. MUTANT total = 13 (N5-N7 are conjunct-dropping mutants of the conjunctive conclusions).
+* PARTITION: `DRow` has exactly 13 constructors and each is a result type of a `FramedA` constructor (E1); `FramedA` has 40 constructors, so 40 − 13 = 27 constructor cases remain (counts read from the environment). This is a constructor count only; it is not a proof of non-overlap of the 27 actions as `MetaM` values or of a `¬ DRow` supplier for any of them.
+* CLOSURE (same walker, root self judged, unknown name `throwError`, intended name and path asserted) in three modes. (i) LAW-FREE: E1-E4 (4 roots) use the full forbid list (no `Laws` / `RefLawsAOps` / `RefLawsATele` / `T1Hyp` / `T1HypND` field, recursor, raw
+  `Expr.proj`, no `GetEnvFrame` / `EnvSnapshot` / `getEnvFrame_of_readKeeps` / `envFrame_getConstInfo`); E4 is law-free because it is stated for an arbitrary quiet predicate. (ii) QUIET-ONLY (E4 at the laws): a Check fixture
+  instantiates E4 at `L.O.quiet` / `L'.O.quiet`; with the forbid list minus {`Laws.O`, `RefLawsAOps.quiet`} it must be clean and its collected guarded set must be exactly {`Laws.O`, `RefLawsAOps.quiet`} (positive). Negatives in the same mode,
+  each flagged with the intended constant on the path: a fixture using `L.O.frame` (another `RefLawsAOps` field), `L.T` (`Laws.T`), `L.T.telescope` (`RefLawsATele`), `T1Hyp.defines`, a raw projection of `RefLawsAOps`. (iii) FIELD ROOTS: see next. (iii) The 8 F roots use `L.O` by design: for them the walker is run in collect mode and the reached set of guarded constants
   must be EXACTLY {`Laws.O`, `RefLawsAOps.quiet`, `RefLawsAOps.<the row's field>`} (and for rows 2, 5, 6 the same plus nothing else): no `Laws.T`, no `RefLawsATele` field, no `T1Hyp` / `T1HypND` field, no other `RefLawsAOps`
   field, no raw guarded projection. Negative controls: a fixture reaching a second field must be flagged as an extra; a fixture reaching `Laws.T`; the U1 / U2 control suites re-run against the same walker. Counts reported as
-  `n law-free roots + n field roots / n negatives (direct + helper) + n unresolved + n self-root / n clean`.
+  `n law-free roots + n field roots / n negatives (direct + helper, per mode) + n unresolved + n self-root / n clean`.
 * AXIOMS: standard only (`propext`, `Classical.choice`, `Quot.sound`) for every root; no `sorry`, no `native_decide`.
 * `lakefile.lean`: two `lean_lib` entries; build `kjob lake build Tests.Gen5.EnvFrame3Check` (one target, `-c 2`). The tree that is committed is the tree that is built before the commit.
 Lean commit ⇒ the Issue stays `doing`, the note says "clean build は coder".
