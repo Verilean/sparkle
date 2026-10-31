@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccCloses
 set_option autoImplicit false
--- NOT BUILT (A8, g5ac-r16): no build recorded yet; the clean issue-linked build is the coder's. No sorry / axiom / native_decide.
+-- Pod build (g5ac-r16) at 317fb29f: `kjob lake build Tools.ShippingGen5AccDataSound` (723 jobs) and `kjob lake build Tests.Gen5.AccDataSoundCheck` (726 jobs, committed tree), each exit 0; clean issue-linked build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A8: `DataOfShape` and `ClosesData` from one `DataSound` premise (scripts/gen5/DG_ACC_FREEZE_REV8.md §1)
 

@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccDataSound
 import Tests.Gen5.AccCheck
--- NOT BUILT (A8, g5ac-r16): Check build not yet recorded; the clean issue-linked build is the coder's. No sorry / axiom / native_decide in this source; the sorry warnings of a build are the intended walker-control negatives (the `walkerControls` line).
+-- Pod build (g5ac-r16) at 317fb29f (Check built on the committed tree), exit 0, 726 jobs: TYPE 3 (1 definition by body + 2 theorems) / MUTANT 6 (signature/defeq rejection, not semantic: 3 DataSound, 2 closesData_of_sound, 1 dataOfShape_of_sound) / AXIOMS 2 standard three only / CLOSURE OK 6806 constants (unknown 0, 4 expected suppliers reached, DataOf/SemGen units not reached) / walker controls 4 negatives / unknown controls 3 negatives + 1 clean. Clean issue-linked build is the coder's. No sorry / axiom / native_decide in this source; the sorry warnings of a build are the intended walker-control negatives (the `walkerControls` line).
 
 /-! # DG-ACC unit A8 checks (Tools/ShippingGen5AccDataSound.lean; scripts/gen5/DG_ACC_FREEZE_REV8.md §2)
 
