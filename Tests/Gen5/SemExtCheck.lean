@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemExt
 import Tests.Gen5.SemGenCheck
 set_option autoImplicit false
--- NOT BUILT (Check of U5A-D, scripts/gen5/DG_SEM_FREEZE_P4E.md rev2; Pod build result is recorded by a comment-only commit). No sorry/axiom/native_decide.
+-- Pod build (kjob lake build Tests.Gen5.SemExtCheck) exit 0, 709 jobs, at Lean commit 791769d90f85a12106bcba98bd3c77279bd08694; clean build is the coder's (not yet run). No sorry/axiom/native_decide.
 
 /-! # DG-SEM units U5A-U5D checks (Tools/ShippingGen5SemExt.lean; scripts/gen5/DG_SEM_FREEZE_P4E.md §2/§3, rev2 §5)
 

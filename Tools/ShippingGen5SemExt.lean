@@ -1,6 +1,6 @@
 import Tools.ShippingGen5SemMem
 set_option autoImplicit false
--- NOT BUILT (U5A-D of scripts/gen5/DG_SEM_FREEZE_P4E.md rev2; Pod build result is recorded by a comment-only commit). No sorry/axiom/native_decide.
+-- Pod build (kjob lake build Tools.ShippingGen5SemExt) exit 0 at Lean commit 791769d90f85a12106bcba98bd3c77279bd08694; clean build is the coder's (not yet run). No sorry/axiom/native_decide.
 /-! # DG-SEM U5A-U5D (scripts/gen5/DG_SEM_FREEZE_P4E.md §2, rev2 §5)
 
 U5A the stage value of an ordinary call, U5B stage-independence of the `calleeOut` read and the final families at
