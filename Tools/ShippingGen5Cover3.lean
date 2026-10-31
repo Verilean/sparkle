@@ -13,7 +13,7 @@ Not supplied: R-trace, R-in, R-nl, R-dom, B3, Q rows, any run, `dataOf`, `GenWF`
 
 namespace Tools.ShippingGen5Cover3
 open Lean Sparkle.Compiler.Elab Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge Tools.ShippingGen5Cover2
-  Tools.ShippingGen5Sem Tools.ShippingGen5Cover Sparkle.Compiler.MachInstOrigin
+  Tools.ShippingGen5Sem Tools.ShippingGen5Cover Sparkle.Compiler.MachInstOrigin Tools.ShippingMachineAuto
 
 /-! ## U-D1 definitions (freeze rev4 §1, verbatim from `CoverNegCheck`) -/
 
@@ -673,5 +673,182 @@ theorem machResults_range {nDecl kI n k : Nat} (sel : Option (Name × Nat × Nat
           exact this e hmem
         · simp at h
       · simp at h
+
+/-! # U-D3 — RowA/B/C from the invariants (freeze rev4 §3) -/
+
+structure ShapeAgree (d : MachineData) (st : MachRead) : Prop where
+  insts   : d.shape.insts = st.insts.toList
+  origins : d.shape.instOrigins = st.instOrigins.toList
+  slots   : d.ss.length = st.kinds.size
+  lets    : d.ls.length = st.lets.size
+  nIn     : d.shape.insts.length ≤ d.nIn
+
+def LetQuoteEq (d : MachineData) (st : MachRead) : Prop :=
+  ∀ (j : Nat) (hj : j < d.ls.length) (nm : Name) (kd : MixedGateBinder) (v : Lean.Expr), st.lets[j]? = some (nm, kd, v) →
+    quote d.dom (fun i => inputExpr (kDOf d + st.insts.size + st.kinds.size + st.lets.size) (d.bpos i))
+                (fun i => inputExpr (kDOf d + st.insts.size + st.kinds.size + st.lets.size) (d.vpos i)) (d.ls[j]'hj).2
+      = machClose st.insts.size st.kinds.size st.lets.size 0 v
+
+def LetsNoLoose (st : MachRead) : Prop :=
+  ∀ (j : Nat) (nm : Name) (kd : MixedGateBinder) (v : Lean.Expr), st.lets[j]? = some (nm, kd, v) → ∀ b, ¬ LooseOcc 0 v b
+
+theorem foldl_snoc_spec {α : Type} (g : List Bool → α → Bool) :
+    ∀ (ls : List α) (acc : List Bool),
+      (ls.foldl (fun c l => c ++ [g c l]) acc).take acc.length = acc ∧
+      (ls.foldl (fun c l => c ++ [g c l]) acc).length = acc.length + ls.length ∧
+      ∀ (i : Nat) (hi : i < ls.length),
+        (ls.foldl (fun c l => c ++ [g c l]) acc)[acc.length + i]? =
+          some (g ((ls.foldl (fun c l => c ++ [g c l]) acc).take (acc.length + i)) (ls[i]'hi)) := by
+  intro ls
+  induction ls with
+  | nil => intro acc; simp
+  | cons x ls ih =>
+    intro acc
+    obtain ⟨h1, h2, h3⟩ := ih (acc ++ [g acc x])
+    simp only [List.foldl_cons]
+    have hl : (acc ++ [g acc x]).length = acc.length + 1 := by simp
+    generalize List.foldl (fun c l => c ++ [g c l]) (acc ++ [g acc x]) ls = r at h1 h2 h3 ⊢
+    rw [hl] at h1 h2
+    have hacc : r.take acc.length = acc := by
+      have h' : (r.take (acc.length + 1)).take acc.length = acc := by rw [h1]; simp
+      rw [List.take_take] at h'
+      simpa [Nat.min_eq_left (Nat.le_succ _)] using h'
+    refine ⟨hacc, ?_, ?_⟩
+    · simp only [List.length_cons]; omega
+    · intro i hi
+      cases i with
+      | zero =>
+        simp only [Nat.add_zero, List.getElem_cons_zero]
+        have e1 : r[acc.length]? = some (g acc x) := by
+          rw [← List.getElem?_take_of_lt (Nat.lt_succ_self acc.length), h1]
+          simp
+        rw [e1, hacc]
+      | succ i' =>
+        simp only [List.getElem_cons_succ]
+        have e : acc.length + (i' + 1) = (acc ++ [g acc x]).length + i' := by omega
+        rw [e]
+        exact h3 i' (by simpa using hi)
+
+theorem cleanLets_getElem (d : MachineData) (k l : Nat) (hl : l < d.ls.length) :
+    (cleanLets d k)[l]? = some (Tools.ShippingMachineRef.reads
+      (fun j => posOk d k ((cleanLets d k).take l) (d.bpos j)) (fun j => posOk d k ((cleanLets d k).take l) (d.vpos j)) (d.ls[l]'hl).2) := by
+  have := (foldl_snoc_spec (fun clean (l : Σ s : SType, Term s) =>
+      Tools.ShippingMachineRef.reads (fun j => posOk d k clean (d.bpos j)) (fun j => posOk d k clean (d.vpos j)) l.2) d.ls []).2.2 l hl
+  simpa [cleanLets] using this
+
+theorem letReach_edge {lets : MachLets} {a l j : Nat} (h : LetReach lets a l) (e : LetEdge lets l j) : LetReach lets a j := by
+  induction h with
+  | refl => exact LetReach.step e (LetReach.refl j)
+  | step he _ ih => exact LetReach.step he (ih e)
+
+theorem entry_of_agree {d : MachineData} {st : MachRead} (hag : ShapeAgree d st) {k : Nat} (hk : k < d.shape.insts.length) :
+    ∃ (c : Name) (js : List Nat) (r : MixedGateBinder), d.shape.insts[k]? = some (c, js, r) ∧ st.insts[k]? = some (c, js, r) := by
+  obtain ⟨⟨c, js, r⟩, hx⟩ : ∃ x, d.shape.insts[k]? = some x := ⟨_, List.getElem?_eq_getElem hk⟩
+  refine ⟨c, js, r, hx, ?_⟩
+  rw [hag.insts] at hx
+  simpa using hx
+
+theorem callArgs_of {d : MachineData} {k : Nat} {c : Name} {js : List Nat} {r : MixedGateBinder}
+    (h : d.shape.insts[k]? = some (c, js, r)) : callArgs d k = js := by
+  simp [callArgs, List.getElem?_map, h]
+
+theorem rowA2_of_inv {d : MachineData} {st : MachRead} (hag : ShapeAgree d st) (hi : OrigAligned st) :
+    d.shape.instOrigins.length = d.shape.insts.length := by
+  rw [hag.origins, hag.insts]
+  simp only [Array.length_toList]
+  exact hi
+
+theorem rowA3_of_inv {d : MachineData} {nDecl : Nat} {st : MachRead} (hag : ShapeAgree d st) (hi : FullInv nDecl st) :
+    ∀ k, k < d.shape.insts.length → ∀ l ∈ callArgs d k, l < d.ls.length := by
+  intro k hk l hl
+  obtain ⟨c, js, r, hd, hs⟩ := entry_of_agree hag hk
+  rw [callArgs_of hd] at hl
+  rw [hag.lets]
+  exact hi.1.2.2.1 k c js r hs l hl
+
+theorem rowA4B23_mem_of_inv {d : MachineData} {nDecl : Nat} {st : MachRead} (hag : ShapeAgree d st) (hi : FullInv nDecl st) :
+    ∀ k, k < d.shape.insts.length → ∀ cb aw dw, originOf d k = .mem cb aw dw →
+      (callArgs d k).length = 4 ∧ (d.shape.insts[k]?).map (·.2.2) = some (.bits dw) := by
+  intro k hk cb aw dw ho
+  obtain ⟨c, js, r, hd, hs⟩ := entry_of_agree hag hk
+  have hos : st.instOrigins[k]? = some (.mem cb aw dw) := by
+    unfold originOf at ho
+    rw [List.getD_eq_getElem?_getD] at ho
+    cases hg : d.shape.instOrigins[k]? with
+    | none => rw [hg] at ho; simp at ho
+    | some o =>
+      rw [hg] at ho
+      simp only [Option.getD_some] at ho
+      rw [hag.origins] at hg
+      rw [← ho]
+      simpa using hg
+  obtain ⟨h4, hr⟩ := hi.2.2.2.2 k c js r hs cb aw dw hos
+  rw [callArgs_of hd]
+  refine ⟨h4, ?_⟩
+  rw [hd]
+  simp [hr]
+
+theorem rowB1_of_inv {d : MachineData} {nDecl : Nat} {st : MachRead} (hag : ShapeAgree d st) (hi : FullInv nDecl st)
+    (hcb : ∀ k (hk : k < d.shape.insts.length), (d.shape.binders[kDOf d + k]?).map (·.2) = some (d.shape.insts[k]'hk).2.2) :
+    ∀ k, k < d.shape.insts.length → callKind d k ≠ .domain := by
+  intro k hk
+  obtain ⟨c, js, r, hd, hs⟩ := entry_of_agree hag hk
+  rw [callKind_eq_inst d hk hag.nIn (hcb k hk)]
+  have : (d.shape.insts[k]'hk) = (c, js, r) := by
+    have := List.getElem?_eq_getElem hk (l := d.shape.insts)
+    rw [hd] at this
+    exact (Option.some.inj this).symm
+  rw [this]
+  exact hi.2.2.2.1 k c js r hs
+
+theorem getD_take_of_lt (c : List Bool) {l j : Nat} (h : j < l) : (c.take l).getD j false = c.getD j false := by
+  rw [List.getD_eq_getElem?_getD, List.getD_eq_getElem?_getD, List.getElem?_take_of_lt h]
+
+theorem rowC_of_reader {d : MachineData} {st : MachRead} (hag : ShapeAgree d st) (hi : FullInv (kDOf d) st)
+    (hq : LetQuoteEq d st) (hnl : LetsNoLoose st)
+    (hb : ∀ j, d.bpos j < d.nIn + d.ss.length + d.ls.length) (hv : ∀ j, d.vpos j < d.nIn + d.ss.length + d.ls.length) :
+    ∀ k, k < d.shape.insts.length → ∀ l ∈ callArgs d k, (cleanLets d k)[l]? = some true := by
+  intro k hk l0 hl0
+  obtain ⟨c, js, r, hd, hs⟩ := entry_of_agree hag hk
+  rw [callArgs_of hd] at hl0
+  obtain ⟨hC, hR, hO, hK⟩ := hi
+  have hnin := kDOf_add_len d hag.nIn
+  have hlenI : d.shape.insts.length = st.insts.size := by rw [hag.insts]; simp
+  have hss : d.ss.length = st.kinds.size := hag.slots
+  have hll : d.ls.length = st.lets.size := hag.lets
+  have hsum : kDOf d + st.insts.size + st.kinds.size + st.lets.size = d.nIn + d.ss.length + d.ls.length := by omega
+  have key : ∀ l, LetReach st.lets l0 l → (cleanLets d k)[l]? = some true := by
+    intro l
+    induction l using Nat.strongRecOn with
+    | _ l ih =>
+      intro hr
+      have hlt : l < st.lets.size := letReach_lt st.lets hC.1 hr (hC.2.2.1 k c js r hs l0 hl0)
+      have hldl : l < d.ls.length := by omega
+      obtain ⟨nm, kd, v, hv_l⟩ : ∃ nm kd v, st.lets[l]? = some (nm, kd, v) := by
+        cases hg : st.lets[l]? with
+        | none => rw [Array.getElem?_eq_getElem hlt] at hg; simp at hg
+        | some x => exact ⟨x.1, x.2.1, x.2.2, rfl⟩
+      rw [cleanLets_getElem d k l hldl]
+      simp only [Option.some.injEq]
+      refine readsOfQuoteStmt d.dom (kDOf d) st.insts.size st.kinds.size st.lets.size d.bpos d.vpos
+        (posOk d k ((cleanLets d k).take l)) (d.ls[l]'hldl).2 v
+        (phInRange_mono (hR.1 l nm kd v hv_l) (Nat.le_refl _) (Nat.le_refl _) (Nat.le_refl _) (Nat.le_of_lt hlt))
+        (fun j => by have := hb j; omega) (fun j => by have := hv j; omega) (hnl l nm kd v hv_l)
+        (hq l hldl nm kd v hv_l) ?_
+      intro p hp
+      simp only [posOk, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq]
+      rcases hp with ⟨i, hi', hm, hp⟩ | ⟨m, hm', hm, hp⟩ | ⟨i, hi', hm, hp⟩ | ⟨j, hj', hm, hp⟩
+      · exact Or.inl (Or.inl (by omega))
+      · have := hC.2.2.2 k c js r hs l0 hl0 l hr nm kd v hv_l m hm
+        exact Or.inl (Or.inl (by omega))
+      · exact Or.inl (Or.inr ⟨by omega, by omega⟩)
+      · have hedge : LetEdge st.lets l j := ⟨nm, kd, v, hv_l, hm⟩
+        have hjl : j < l := hC.1 l nm kd v hv_l j hm
+        have ihj := ih j hjl (letReach_edge hr hedge)
+        refine Or.inr ⟨by omega, ?_⟩
+        have e : p - (d.nIn + d.ss.length) = j := by omega
+        rw [e, getD_take_of_lt _ hjl, getD_true_iff]
+        exact ihj
+  exact key l0 (LetReach.refl l0)
 
 end Tools.ShippingGen5Cover3
