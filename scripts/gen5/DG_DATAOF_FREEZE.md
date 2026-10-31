@@ -396,3 +396,93 @@ Original questions (rev0):
 * No claim about `rootFloat` / `packTupleInputs` beyond using their values; no claim about `Expr.equal`.
 * No claim that DG-READKINDS U1-U4 are proved; this document uses only the already-existing `readN_expr_sound`.
 * The `dataOf` line (§2.2) is conditional on READKINDS exporting `exprSize`; until then only `dataOfAt` exists.
+
+## 10. rev3 freeze addition: row 6b projection lemmas (DG-COVER `ShapeAgree`, `d` side) **[agent g5do-r6; written BEFORE the Lean]**
+
+Source of the row: `kjob/g5cv-r9 8e01a9cf` `scripts/gen5/DG_COVER_FREEZE_REV5.md` row 6b (owner DG-DATAOF). Consumer: `kjob/g5cv-r11 9b9cdd55`
+`Tools/ShippingGen5Cover5.lean` `shapeAgree_of_sides`, whose `d`-side premises are, for one `d` and one `sp`:
+`hsp : d.shape = sp`, `hss : d.ss.length = sp.layout.slots.length`, `hls : d.ls.length = sp.layout.lets`, `hn : sp.insts.length ≤ d.nIn`.
+(That branch is not in this tree; its text was read with `git show`; the match below is by reading, and `DataOfCheck4` states the four premises independently.)
+
+New file `Tools/ShippingGen5DataOfDims.lean` (imports `Tools.ShippingGen5DataOf`; namespace `Tools.ShippingGen5DataOf`; nothing in an existing file changes).
+Check: `Tests/Gen5/DataOfCheck4.lean`. No new law / TRUSTED / definition change.
+
+### 10.1 Exact statements (full types)
+
+```lean
+theorem typedFields_length {ks : List MixedGateBinder} {fs : List (Σ w : Nat, Term (.bits w))}
+    {r : List (Σ s : SType, Term s)} (h : typedFields ks fs = some r) :
+    r.length = min ks.length fs.length
+
+theorem dataOfFront_some {E : Lean.ConstantInfo} {senv : StructEnv} {shape : MachineShape}
+    {tin : Lean.Expr} {fl : Lean.Expr → Lean.Expr} {nIn : Nat} {dom : Lean.Expr}
+    (h : dataOfFront E senv shape tin fl = some (nIn, dom)) :
+    (∃ p, mixedGatePeel tin = some p ∧ nIn = p.1.length + shape.insts.length) ∧
+    shape.binders.length = nIn + shape.layout.slots.length + shape.layout.lets
+
+theorem dataOfTail_dims {shape : MachineShape} {nIn : Nat} {dom : Lean.Expr} {W : Nat} {whole : Term (.bits W)}
+    {d : MachineData} (hb : shape.binders.length = nIn + shape.layout.slots.length + shape.layout.lets)
+    (h : dataOfTail shape nIn dom W whole = some d) :
+    d.nIn = nIn ∧ d.ss.length = shape.layout.slots.length ∧ d.ls.length = shape.layout.lets
+
+theorem dataOfCore_dims (lvl : Lean.Expr → Nat) {shape : MachineShape} {nIn : Nat} {dom : Lean.Expr} {d : MachineData}
+    (hb : shape.binders.length = nIn + shape.layout.slots.length + shape.layout.lets)
+    (h : dataOfCore lvl shape nIn dom = some d) :
+    d.shape = shape ∧ d.nIn = nIn ∧ d.ss.length = shape.layout.slots.length ∧ d.ls.length = shape.layout.lets
+
+/-- Row 6b, `d` side, in the consumer's premise shape: the same `d` and the same `s`. -/
+theorem dataOfFrom_dims (lvl : Lean.Expr → Nat) {E : Lean.ConstantInfo} {senv : StructEnv} {s : MachineShape}
+    {tin : Lean.Expr} {fl : Lean.Expr → Lean.Expr} {d : MachineData}
+    (h : dataOfFrom lvl E senv s tin fl = some d) :
+    d.shape = s ∧ d.ss.length = s.layout.slots.length ∧ d.ls.length = s.layout.lets ∧ s.insts.length ≤ d.nIn
+
+/-- Sharper `nIn`: it is the peeled-binder count plus the instance count. -/
+theorem dataOfFrom_nIn (lvl : Lean.Expr → Nat) {E senv s tin fl d}
+    (h : dataOfFrom lvl E senv s tin fl = some d) :
+    ∃ p, mixedGatePeel tin = some p ∧ d.nIn = p.1.length + s.insts.length
+
+/-- Soundness and the row-6b facts about ONE `d` from ONE `h` (not two witnesses joined by `∧`). -/
+theorem dataOfFrom_sound_dims (lvl : Lean.Expr → Nat) {E senv s tin fl d}
+    (h : dataOfFrom lvl E senv s tin fl = some d) :
+    (d.shape = s ∧ d.ok = true ∧
+      d.shape.body = quote d.dom (fun j => inputExpr d.shape.binders.length (d.bpos j))
+        (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed ∧
+      d.initOk (initsOf d) = true) ∧
+    (d.ss.length = s.layout.slots.length ∧ d.ls.length = s.layout.lets ∧ s.insts.length ≤ d.nIn)
+
+theorem dataOfAt_dims (lvl : Lean.Expr → Nat) {E senv s d} (h : dataOfAt lvl E senv s = some d) :
+    d.shape = s ∧ d.ss.length = s.layout.slots.length ∧ d.ls.length = s.layout.lets ∧ s.insts.length ≤ d.nIn
+
+theorem dataOfAt_sound_dims (lvl : Lean.Expr → Nat) {E senv s d} (h : dataOfAt lvl E senv s = some d) :
+    (same conjunction as dataOfFrom_sound_dims)
+```
+
+(`{E senv …}` are shorthand here; the Lean has the full binder types of `dataOfFrom_sound`.)
+
+### 10.2 Match with `shapeAgree_of_sides` (and the difference)
+
+`dataOfFrom_dims h` / `dataOfAt_dims h` is, up to conjunction order, exactly `⟨hsp, hss, hls, hn⟩` with `sp := s`, so
+`obtain ⟨hsp, hss, hls, hn⟩ := dataOfAt_dims lvl h; exact shapeAgree_of_sides hs hsp hss hls hn` has no glue lemma.
+Difference: the consumer's `hs` (state side) and `sp` come from a fuel-model run (`machineShapeF`, DG-COVER); that `s` here (the argument
+of `dataOfAt`) is the same `sp` as in that run is a hypothesis the CONSUMER has to state (`s` is a free argument of `dataOfFrom`/`dataOfAt`);
+this file does not and cannot identify them. Soundness and dims are joined only through the single `h` (`*_sound_dims`), never by
+conjoining two different `dataOf` walks.
+
+### 10.3 Proof plan (no new facts)
+
+`mkData`'s fields: `d.nIn = nIn`, `d.ls = ls`, `d.ss = nl.map (·.1)`, `d.shape = shape` by `rfl`. `splitLets_some` and `splitFields_some` (U-E) give
+`lc.1.length = lets` and `fs.length = nOuts + nSlots`; `typedFields_length` (zip-then-`mapM`) gives the two lengths as `min`; the front guard
+`shape.binders.length == nIn + nSlots + nLets` (`dataOfFront`) makes the `min`s the claimed values. Without that guard (i.e. for `dataOfCore` alone) the
+lengths are NOT claimed: `dataOfCore_dims` takes it as a hypothesis, and `dataOfFrom_dims` discharges it from `dataOfFront_some`.
+
+### 10.4 Check (`Tests/Gen5/DataOfCheck4.lean`): same discipline as Check3
+
+TYPE against independently written `Prop`s (the consumer's four premises written from the Cover5 text, not copied from the Lean statement), by the same
+reducible comparator (`checkExpected`); MUTANTS by `checkMutant` (single changes: `ss`↔`ls` swapped, `≤` → `<`, `lets` → `slots.length`, the `d.shape = s`
+conjunct dropped, the conjunction of `dataOfFrom_sound_dims` cut to its first half) — signature/defeq rejections, NOT semantic counterexamples; closure by
+the common `Tests.Gen5.DataOfCheck.reach` (unknown names fail); axioms standard only; no `sorry`. Counts are reported by the build log with the partition
+(TYPE / MUTANT / REACH / AXIOMS) and the summing rule (each Check file counted separately).
+
+### 10.5 Not supplied by §10
+
+That `dataOfAt` is `some`; `s` being the run's `sp`; that `d.ss`/`d.ls` entries (not lengths) agree with the state; the state-side half (row 6a) and `LenOk`.
