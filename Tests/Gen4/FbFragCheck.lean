@@ -2,7 +2,7 @@ import Tools.ShippingGen4FbFrag
 import Tests.Gen4.FbPPCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- BUILT IN POD ONLY (unit FB-21): `kjob lake build Tests.Gen4.FbFragCheck` exit 0 in the Pod (TYPE 2 / MUTANT REJECTED 11 / AXIOMS 2 standard only, sorry 0); NOT a clean issue-linked build.
+-- BUILT (unit FB-21): `kjob lake build Tests.Gen4.FbFragCheck` exit 0 in the Pod; clean issue-linked build fb22v-a3e9ce9c exit 0 (817 jobs, dirty=false), approved at a3e9ce9c: TYPE 2 / MUTANT REJECTED 11 / AXIOMS 2 (standard only), sorry 0.
 -- Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §31.3/§31.4. Reuses `fbReach`/`auditOk`/`addFixture` of Tests.Gen4.FbPPCheck.
 -- All TYPE/MUTANT comparisons run under `withReducible` (one comparator, as FbDzRunCheck).
 -- Checks: TYPE (2 theorems), MUTANT (well-typed single changes; signature/defeq rejections, NOT semantic counterexamples),

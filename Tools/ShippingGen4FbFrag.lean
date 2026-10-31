@@ -2,7 +2,7 @@ import Tools.ShippingGen4FbPPRun
 import Tools.ShippingGen4FbDzRun
 import Tools.ShippingFirstGateChild
 set_option autoImplicit false
--- BUILT IN POD ONLY (unit FB-21): `kjob lake build Tools.ShippingGen4FbFrag` exit 0 (705 jobs) in the Pod; NOT a clean issue-linked build. Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §31.3 (freeze 713c9645, approved, committed before this file).
+-- BUILT (unit FB-21): `kjob lake build Tools.ShippingGen4FbFrag` exit 0 (705 jobs) in the Pod; clean issue-linked build fb22v-a3e9ce9c exit 0 (817 jobs, dirty=false), approved at a3e9ce9c. Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §31.3 (freeze 713c9645, approved, committed before this file).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 
 /-! # FB-21: real-run `PostReady` / `instFree` for a first-gate fragment, and `ChildRunN` transport on the clean-up arm
