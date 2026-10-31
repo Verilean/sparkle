@@ -406,6 +406,30 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       unless hits.isEmpty do throwError "GEN5 COVER3 CLOSURE CONTROL FAILED: clean control {n} flagged {hits}"
     logInfo m!"GEN5 COVER3 CLOSURE CONTROLS OK: 3 negative controls detected, 2 unrelated clean controls clean"
 
+-- Unknown-name controls: the SAME `closureHits` path must report `unk` non-empty for a name the environment lacks, whether it is a root, reached through a
+-- declaration in another namespace (helper resolution), or reached through a helper's type. The fixtures reference a missing constant, so they are added with
+-- `debug.skipKernelTC` (inside `withoutModifyingEnv`); they are not sorry-based. The final `unknown` gate is the same predicate (`unk.isEmpty`) used below.
+run_cmd Lean.Elab.Command.liftTermElabM do
+  withoutModifyingEnv do
+    let tru := mkConst ``True
+    let ok := mkConst ``True.intro
+    let missing := mkConst `Cover3Ctl.Missing.nowhere
+    withOptions (fun o => o.setBool `debug.skipKernelTC true) do
+      addDecl (.defnDecl { name := `Other.Ns.helperU, levelParams := [], type := tru, value := missing, hints := .abbrev, safety := .safe })
+      addDecl (.thmDecl { name := `Cover3Ctl.viaHelperU, levelParams := [], type := tru, value := mkConst `Other.Ns.helperU })
+      addDecl (.defnDecl { name := `Another.Ns.helperT, levelParams := [], type := missing, value := ok, hints := .abbrev, safety := .safe })
+      addDecl (.thmDecl { name := `Cover3Ctl.viaHelperT, levelParams := [], type := tru, value := mkConst `Another.Ns.helperT })
+      addDecl (.thmDecl { name := `Cover3Ctl.cleanU, levelParams := [], type := tru, value := ok })
+    let env ← getEnv
+    let (_, unkRoot, _) ← closureHits env [`Cover3Ctl.Missing.nowhere]
+    unless unkRoot.contains `Cover3Ctl.Missing.nowhere do throwError "GEN5 COVER3 UNKNOWN CONTROL FAILED: missing root not reported"
+    for n in [`Cover3Ctl.viaHelperU, `Cover3Ctl.viaHelperT] do
+      let (_, unk, _) ← closureHits env [n]
+      unless unk.contains `Cover3Ctl.Missing.nowhere do throwError "GEN5 COVER3 UNKNOWN CONTROL FAILED: {n} does not reach the unknown name"
+    let (_, unkClean, _) ← closureHits env [`Cover3Ctl.cleanU]
+    unless unkClean.isEmpty do throwError "GEN5 COVER3 UNKNOWN CONTROL FAILED: clean control reported unknown {unkClean.toList}"
+    logInfo m!"GEN5 COVER3 UNKNOWN CONTROLS OK: 3 negative (root, helper value, helper type) reported unknown, 1 clean not"
+
 run_cmd Lean.Elab.Command.liftTermElabM do
   let env ← getEnv
   let (seen, unk, hits) ← closureHits env allThms
@@ -414,7 +438,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let s := n.toString
     if (s.splitOn "dataOf").length > 1 || (s.splitOn "native").length > 1 then
       throwError "GEN5 COVER3 CLOSURE FAILED: unexpected constant {n}"
-  unless unk.isEmpty do logInfo m!"GEN5 COVER3 CLOSURE: unknown constants (not in the environment): {unk.toList}"
+  unless unk.isEmpty do throwError "GEN5 COVER3 CLOSURE FAILED: unknown constants (not in the environment): {unk.toList}"
   logInfo m!"GEN5 COVER3 CLOSURE OK: {seen.toList.length} constants, no forbidden constant"
 
 #print axioms readsOfQuoteStmt
