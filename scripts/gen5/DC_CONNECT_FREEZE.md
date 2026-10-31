@@ -334,7 +334,7 @@ Any check that pins the text of `Tools/ShippingGen2Defs.lean` must be re-pinned 
 def ConstValueFunctional (CV : ConstValueRel) : Prop :=
   ∀ env c (α β : Type) (v : α) (w : β), CV env c α v → CV env c β w → α = β ∧ HEq v w
 
-inductive TgtRun (P : Pkgs ι dom) (declName : Name) : Name → Prop     -- least predicate: declName, and the ordinary callees of reached names
+inductive TgtRun (P : Pkgs ι dom) (declName : Name) : Name → Prop     -- least predicate: declName, and the callees of reached names whose instance origin has `child? = none` (this includes field instances; it is not only `origin = .ord`)
   | top : TgtRun P declName declName
   | call {c : Name} {q : Pkg ι dom} (hc : TgtRun P declName c) (hq : P c = some q) (k : Nat) (hk : k < q.d.shape.insts.length)
       (ord : (q.d.shape.instOrigins.getD k .ord).child? = none) : TgtRun P declName (q.d.shape.insts[k]'hk).1
@@ -531,6 +531,8 @@ Order, each unit in a NEW file or the named edit, built one target at a time in 
 | U-FG | `ConstValueFunctional`, `TgtRun`, `EntryWitness`, `FG_COND`, `FG_CONNECT` and the conditional non-vacuity lemmas NV-Post/NV-GP/NV-CV | §C.3 rev5 (scoped approved) | **implemented** (agent g5dc-r6, agent build exit 0, clean build is the coder's): `Tools/ShippingGen5FG.lean` (defs, `nv_post`/`nv_gp`/`nv_cv`, `o2_of_o1_o3`, `fgCond_trivial`) and `Tests/Gen5/FGCheck.lean` (by category: TYPE 9 theorem/definition level, constructors NOT included; CTOR TYPE 2 = `TgtRun.top`/`call` against independently written complete telescopes (names, order, binder infos, types at reducible transparency); MUTANT 11 theorem level + CTOR MUTANT 6 (ord 2, parent reach 2, pkg correspondence 1, `top` 1); AXIOMS 12; all signature/defeq rejections, not semantic counterexamples; the earlier "MUTANT 12" was a miscount; value closure of `FG_CONNECT`/`FG_COND` with required owner constants + controls). NV lemmas are conditional on an `EntryWitness`. Still OPEN: supply of Post/ReflectsAll from a real run and scope preservation, parametric/defaultDomain/struct coverage, DCF (`ConstValueFunctional` stays planned; rule design and minimal-table survey not yet run in this pass: no route found yet, not a claim of impossibility), FG completion |
 | DCF | `ConstValueE` (rules, exclusivity/consistency, functionality: §C.6 (a)-(d)) | its own freeze | planned |
 | final connection | `FG_CONNECT (…) L` at `GP := genP …`, `CV := ConstValueE …`, M4's `Post`/`ReflectsAll` | DG-SEM/DATAOF/ACC/COVER, DCF, M4 | not before |
+
+**Aggregate (DeclConnectCheck + FGCheck, clean build dc7v-6bd33fd7 exit 0, 748 jobs, scoped approved at 6bd33fd7):** TYPE 23 (14 + 9) + CTOR TYPE 2; signature/defeq MUTANT 25 (14 + 11) + CTOR MUTANT 6; recognizer-copy mutants 2 are a separate class (finite-battery disagreement, not signature rejection). None is a semantic counterexample. Core-module/opaque exploration boundaries remain; FG_COND/FG_CONNECT are conditional, not FG completion.
 
 Audit of `Tests/Gen5/DeclConnectCheck.lean` (implemented at 68f1be34; agent build exit 0; the clean issue-linked build is the coder's). Same discipline as Part A §4.1; every "mutant" is a signature/defeq (or finite-battery) rejection, NOT a semantic counterexample.
 - **TYPE** (independent `Exp*`, compared by `Tests.Gen3.ExpectedType.checkExpected`: binder names, binder infos, types, then the conclusion; a non-syntactic match is logged as `GEN3 DEFEQ`): 14 targets — `declConnect_eq`, `declConnect_mono`, `not_declConnect_of_empty`,

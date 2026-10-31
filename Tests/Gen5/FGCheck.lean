@@ -3,7 +3,7 @@ import Tools.ShippingGen5FG
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.DeclConnectCheck
 set_option autoImplicit false
--- Built at dd1aafd0b264f5610abea861c8f6f0ff959fd314 (agent build `kjob lake build Tests.Gen5.FGCheck`, exit 0, 748 jobs; clean issue-linked build is the coder's; previous clean build fgv-058c3cde exit 0, 748 jobs, at 058c3cde). Counts by category: TYPE 9 (theorem/definition level; constructor checks NOT included) + CTOR TYPE 2 (`TgtRun.top`/`call`, independent telescope at reducible transparency); MUTANT 11 (theorem level) + CTOR MUTANT 6 (`top` 1; `call`: ord 2, parent reach 2, pkg correspondence 1); AXIOMS 12. All signature/defeq rejections, NOT semantic counterexamples.
+-- Built at dd1aafd0b264f5610abea861c8f6f0ff959fd314 (agent build `kjob lake build Tests.Gen5.FGCheck`, exit 0, 748 jobs; clean issue-linked build dc7v-6bd33fd7 exit 0, 748 jobs, at 6bd33fd7, scoped approved; comment-only commits since). Counts by category: TYPE 9 (theorem/definition level; constructor checks NOT included) + CTOR TYPE 2 (`TgtRun.top`/`call`, independent telescope at reducible transparency); MUTANT 11 (theorem level) + CTOR MUTANT 6 (`top` 1; `call`: ord 2, parent reach 2, pkg correspondence 1); AXIOMS 12. All signature/defeq rejections, NOT semantic counterexamples.
 
 /-! # DC-CONNECT U-FG: checks (scripts/gen5/DC_CONNECT_FREEZE.md rev5 §C.3, §C.8)
 
@@ -213,7 +213,7 @@ def table : List (Name × Name × List Name) :=
    (``o2_of_o1_o3, ``ExpO2, [``MutO2]), (``fgCond_trivial, ``ExpTrivial, [])]
 
 /-! ## TgtRun constructors: independent complete telescopes, compared at reducible transparency
-Written from the freeze sentence "least predicate: `declName`, and the ordinary callees (origin `.ord`, no `child?`) of the instances of reached names". -/
+Written from the freeze sentence "least predicate: `declName`, and the ordinary callees (`child? = none` on the instance origin; this covers field instances too, it is NOT only `origin = .ord`) of the instances of reached names". -/
 
 def ExpTop : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name}, TgtRun P declName declName
 def ExpCall : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name} {c : Name} {q : Pkg ι dom}
@@ -221,7 +221,7 @@ def ExpCall : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι d
     (ord : (q.d.shape.instOrigins.getD k .ord).child? = none), TgtRun P declName (q.d.shape.insts[k]'hk).1
 /-- one change: the top constructor reaches a different name -/
 def MutTop : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name}, TgtRun P declName Name.anonymous
-/-- one change (ord): the `.ord`/no-child condition on the origin replaced by `child?` being present -/
+/-- one change (ord): the `child? = none` condition on the origin replaced by `child?` being present -/
 def MutCallOrd : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name} {c : Name} {q : Pkg ι dom}
     (hc : TgtRun P declName c) (hq : P c = some q) (k : Nat) (hk : k < q.d.shape.insts.length)
     (ord : (q.d.shape.instOrigins.getD k .ord).child?.isSome = true), TgtRun P declName (q.d.shape.insts[k]'hk).1

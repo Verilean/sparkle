@@ -3,7 +3,7 @@ import Tools.ShippingGen5DeclConnect
 import Tests.Gen3.ExpectedType
 import Tests.Compiler.ShippingMachineCommandTest
 set_option autoImplicit false
--- Built at dd1aafd0b264f5610abea861c8f6f0ff959fd314 (agent build `kjob lake build Tests.Gen5.DeclConnectCheck`, exit 0, 744 jobs; clean issue-linked build is the coder's; previous clean build dc5v-c07b5f66 exit 0 at c07b5f66). TYPE 14; MUTANT 16 = 14 signature/defeq rejections + 2 recognizer-copy mutants (finite-battery disagreement, NOT a signature rejection; none is a semantic counterexample); AXIOMS 26, battery 11, corpus 8, CLOSURE 14 + exact 4 + controls. The walk now FAILS on a name unknown to the environment (controls: unknown root, helper value, helper type, clean).
+-- Built at dd1aafd0b264f5610abea861c8f6f0ff959fd314 (agent build `kjob lake build Tests.Gen5.DeclConnectCheck`, exit 0, 744 jobs; clean issue-linked build dc7v-6bd33fd7 exit 0, 748 jobs, at 6bd33fd7, scoped approved; comment-only commits since). TYPE 14; MUTANT 16 = 14 signature/defeq rejections + 2 recognizer-copy mutants (finite-battery disagreement, NOT a signature rejection; none is a semantic counterexample); AXIOMS 26, battery 11, corpus 8, CLOSURE 14 + exact 4 + controls. The walk now FAILS on a name unknown to the environment (controls: unknown root, helper value, helper type, clean).
 
 /-! # DC-CONNECT concrete units: checks (scripts/gen5/DC_CONNECT_FREEZE.md rev5 §C.8)
 
