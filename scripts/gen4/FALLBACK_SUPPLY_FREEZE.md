@@ -1469,3 +1469,47 @@ Files: `Tools/ShippingGen4FbPP.lean`, `Tests/Gen4/FbPPCheck.lean`, two `lean_lib
 - `Tools/ShippingGen4FbPP.lean` (`PPRel`, `SeqPortFacts`, `CombPortFacts`, `dropZW_outputs`, `ppRel_ports`, `ppRel_design_names`, `ppRel_seqPortFacts`, `ppRel_combPortFacts`, `ppRel_childRunN_portFacts`) and `Tests/Gen4/FbPPCheck.lean`; two `lean_lib` entries appended to `lakefile.lean`. Types as §23.3 plus the helper `dropZW_outputs` (a local lemma, `unfold; split <;> rfl`; `mergeChecked_name` is `Tools.ShippingMachineDepthRun.mergeChecked_name`). No built file, shared definition or compiler touched. The Lean was written after the §23 commit (3d58fd03) but before any review of §23.
 - Pod builds (exit 0, each alone, NOT clean issue-linked builds): `Tools.ShippingGen4FbPP` (701 jobs), `Tests.Gen4.FbPPCheck`. Check output by category: TYPE OK 8 (3 definition values, 5 theorems; all syntactic, logged isDefEq fallbacks 0); MUTANT REJECTED 12 (5 on definition values, 7 on theorems; well-typed single changes, signature/defeq rejections, NOT semantic counterexamples); REACH 9 (new declarations incl. helper; `missing = 0`, no `Tools.ShippingMemo.*`); controls 10 (absent root; forbidden root judged itself; 3 unknown-name fixtures added with `debug.skipKernelTC` inside `withoutModifyingEnv`: helper value / helper type / via helper, each missing 1 and not passed; clean fixture not flagged, env restored; raw proj; 3 bad real fixtures flagged; 3 clean not flagged); AXIOMS OK 9 (standard axioms or fewer). `sorry` 0. Counts are numbers of checks that ran by category; summary lines excluded.
 - Not supplied: the RUN conjunct of `ChildRunN` after `dropZeroWidthModule`/`mergeChecked` (so `PPTransportStmt` is not provable from this), T-LEG, T-MEMO (hit, nested miss, K4), machine-route meaning; no law adopted; Issue / M4 / FG are not complete. The clean issue-linked build is the coder's.
+
+## 25. FB-15: next unit after T-PP-PORTS — survey of the unsupplied rows and the design lookup of `PPRel` (rev14; text for review; NOT Lean, NOT implemented)
+
+- **Status.** Docs, committed BEFORE any Lean of this unit; Lean waits for the reviewer's approval of this section. Base `beb75594` (header sync of FB-14, comments/docs only; FB-14 `67756b3c` approved with limited scope, build `fb14v-67756b3c` exit 0, 812 jobs). No new law, no `Laws` field, no TRUSTED boundary, no shared-definition / compiler edit, no FG/guarantee change. "Unsupplied / route not found in this investigation" means this investigation found no supplier in the files read; it does not say a row is false or underivable. Mutants in the planned check are signature/defeq rejections, not semantic counterexamples.
+
+### 25.1 Rows (unsupplied rows and what closes from existing lemmas)
+| row | existing names read (file) | closes from existing lemmas? | verdict |
+|---|---|---|---|
+| real run → `PPRel` (that the entry's `(out, dout)` IS `PPRel raw dsg …`) | `synthesizeCombinational_design` (`ShippingMachineDepthRunR.lean`, concludes `M' = dzm M ∨ M' = mergeChecked (dzm M)` and `∀ y ≠ M.name, moduleByName D'.modules y = moduleByName D.modules y`, i.e. NOT the `PPRel` equation for the design `dout`); `moduleByName_post_other` (`ShippingSeqParentAt.lean`, takes `y2 = topMap … ∨ …` as hypothesis); `topshare_entry_run4_ret` (`y.2 = topMap M.name f Dg`) | the module part and the "other names" lookup are already supplied; `PPRel`'s design equation (`dout = top … dsg` as a value) is a restatement of `topMap`/`RunsTo` data I did not connect here | **real run → `PPRel`: unsupplied / route not found in this investigation** (a route probably goes through `topshare_entry_run4_ret`; not examined to the end) |
+| `PPRel` design lookup of the entry's OWN name | `moduleByName_map_other` (other names only), `moduleByName_post_other` (other names only); `grep moduleByName.*topMap`, `moduleByName_map_self/same` found no lemma for the entry's own name | **yes**: one induction on the list with `dropZW_name` / `mergeChecked_name` | **selected (this unit)** |
+| `ChildRunN` run conjunct across `dzStmt` / `mergeChecked` | `refineCheck_transfer` (`ShippingRefineSoundness.lean:1039`), `dropZeroWidth_entry` family needing `PostReady` | no: unchanged from §23.1 | unsupplied / route not found in this investigation |
+| T-LEG (miss arm) | unchanged from §23.1 | no | unsupplied / route not found in this investigation |
+| T-MEMO hit | `memoInv_hit` over `RefLawsM`; a law there is the user's decision | no, and no law is added | unsupplied on the examined route; no law proposed here |
+| T-MEMO nested miss / K4 | statements only | no | unsupplied / route not found in this investigation |
+
+### 25.2 Selection and reason
+First unit: **T-PP-LOOKUP**. It is the one row whose supply is existing lemmas plus a list induction, with no law and no shared definition, and it is a premise of the design side of `ChildShips` (`moduleByName dsn.modules out.name = some out`, `ShippingGen2Defs.lean:90-91`): FB-14 §23.4 listed that side as "not in this unit". It is a partial supply: it relates lookups in `dout` to lookups in `dsg`; it does not transport `ChildRunN`, nor `DesignSV`, nor the run conjunct. It is not "real run → PPRel".
+
+### 25.3 Complete types (target)
+New file `Tools/ShippingGen4FbPPLookup.lean` (`import Tools.ShippingGen4FbPP`, `import Tools.ShippingMachineDepthRunR`, `set_option autoImplicit false`), namespace `Tools.ShippingGen4FbPPLookup`; `moduleByName` is `Sparkle.IR.Machine.moduleByName`, `mergeChecked_name` is `Tools.ShippingMachineDepthRun.mergeChecked_name` (prefix written as the files have it when typed; recorded in §26). `Module` is `Sparkle.IR.AST.Module`.
+```lean
+theorem moduleByName_map_self (N : String) (f : Module → Module) (hf : ∀ x, (f x).name = x.name) :
+    ∀ (l : List Module) (x : Module), moduleByName l N = some x →
+      moduleByName (l.map fun y => if y.name == N then f y else y) N = some (f x)
+
+theorem ppRel_lookup_self {raw : Module} {dsg : Design} {out : Module} {dout : Design}
+    (h : Tools.ShippingGen4FbPP.PPRel raw dsg out dout)
+    (hraw : moduleByName dsg.modules raw.name = some raw) :
+    moduleByName dout.modules out.name = some out
+
+theorem ppRel_lookup_other {raw : Module} {dsg : Design} {out : Module} {dout : Design}
+    (h : Tools.ShippingGen4FbPP.PPRel raw dsg out dout) :
+    ∀ y : String, y ≠ raw.name → moduleByName dout.modules y = moduleByName dsg.modules y
+```
+Proof plan (a plan, not a result): `moduleByName_map_self` — induction on `l`; head `y` with `y.name == N`: `find?` returns `f y` (name `N` by `hf`), and `moduleByName (y :: _) N = some y` gives `x = y`; head with `y.name ≠ N`: unchanged head, `find?` continues, `ih`. `ppRel_lookup_self` — `rcases h` into the two disjuncts, `subst`, `ppRel_ports`-style name equations (`out.name = raw.name`) and `moduleByName_map_self` once (disjunct 1: `f = dzm`) or twice (disjunct 2: `dzm` then `mergeChecked`; the result of the first map is `some (dzm raw)` and the second maps it to `some (mergeChecked (dzm raw))`, which is `out`). `ppRel_lookup_other` — `rcases h`, `moduleByName_map_other` once or twice (existing, `ShippingMachineDepthRunR.lean:60`). If a step does not go through the unit reports "not closed in this attempt" with the failing step.
+
+### 25.4 Planned checks (new files only; nothing run)
+Files: `Tools/ShippingGen4FbPPLookup.lean`, `Tests/Gen4/FbPPLookupCheck.lean`, two `lean_lib` entries in `lakefile.lean`; the FB-14 Check gets the type-only-helper fixture of §25.5 (same Lean commit). Same requirements as §23.5: (1) TYPE against independently typed `Expected…` by one comparator (`==` then logged `isDefEq`, fallbacks counted separately); (2) MUTANTS, well-typed single changes only (`ppRel_lookup_self` with `out.name` replaced by `raw.name` is NOT a mutant (defeq after `ppRel_ports`), so the mutants are: conclusion `none`; hypothesis `hraw` dropped; `ppRel_lookup_other` with `y ≠ raw.name` dropped or `dout`/`dsg` swapped; `moduleByName_map_self` conclusion `some x`; hypothesis `hf` dropped); (3) closure audit with root self-judgement, `missing` failing the audit, controls inside `withoutModifyingEnv` (absent root, forbidden root, helper VALUE unknown, **root → existing helper whose TYPE only is unknown**, via helper, raw proj, real bad/good fixtures); (4) AXIOMS standard only, `sorry` 0; (5) real counts and the aggregation rule. A Pod build by this unit is not a clean build; the clean issue-linked build is the coder's.
+
+### 25.5 Audit supplement for FB-14's check (same Lean commit)
+`fxTypeUnknown` of `Tests/Gen4/FbPPCheck.lean` is a root whose TYPE is the unknown name (direct). Added: an existing helper `fxTypeHelper` whose TYPE only is `ghostName`, and a root `fxRootViaTypeHelper : True := (fun (_ : True) => True.intro) fxTypeHelper` that mentions `ghostName` nowhere (not in its type, value or λ-binder types), so the walker can only see the ghost through the helper's type. Assertion: `fbReach fxRootViaTypeHelper` has `ghostName ∈ missing` (the intended name, not just `missing.size ≥ 1`) and `auditOk` is false; all inside `withoutModifyingEnv`; the environment is checked to be restored. Also the misleading comment above `fxViaHelper` is reworded.
+
+### 25.6 What this section does not claim
+Real run → `PPRel`, the run conjunct of `ChildRunN` after the clean-up, T-LEG, T-MEMO (hit, nested miss, K4) stay unsupplied; no law is adopted; `PPTransportStmt` and `R4OutStmt` are not provable from this unit; Issue, M4 and FG are not complete.
