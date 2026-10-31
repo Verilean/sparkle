@@ -864,5 +864,9 @@ Gen3ArgSupply, ArgWidthSrc, Gen5{T1ND,T2OutTy,T2Range}, and the Tests ChildPortW
 SlotlessPortWidthsCheck, PkgCompat, LeafInstance, MemParentInstance, PMem4Check, QuantInstance, S3GroupCheck, S5Check,
 S5SlotlessProbe, SlotlessLeafInstance, TopNCCheck, ArityCheck, ServedCheck, T1NDCheck, T2{Conn,OutTy,Tie}Check, T1Check.
 NOT done here: full reverse-import closure of Defs and AllTests (coder's clean build).
+Done afterwards by the coder (record sync, comment only): clean issue-linked build s3v-cca7d3f1 at cca7d3f1 (exit 0, 1844 jobs:
+the 35 reverse-import leaves of Tools.ShippingGen2Defs + Tests.AllTests; every axiom list standard). Its only `sorry`
+warnings are the pre-existing ones in Tests/TestTemporal.lean at lines 156, 162, 166 and 171 (4 warnings, outside this
+change). Reviewer approved at cca7d3f1.
 Not supplied: StepStmt proof, gate route [M4], general coverage. Old ⇒ new width: UNPROVED (compat premise).
 Mixed-position old/new equivalence: not claimed.
