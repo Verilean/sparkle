@@ -1521,3 +1521,53 @@ Real run → `PPRel`, the run conjunct of `ChildRunN` after the clean-up, T-LEG,
 - **Nodup.** No `Nodup` of module names is assumed by any of the three theorems; they are about the first match of `List.find?`, which is what `moduleByName` is.
 - **Audit supplement (§25.5), exact form.** The root `fxRootViaTypeHelper` mentions `ghostName` nowhere (not in type, value, or λ-binder types); the assertion is `ghostName ∈ missing` (the intended name) and `auditOk = false`, inside `withoutModifyingEnv`, with the environment checked to be restored.
 - Counting rule for the Check (§25.4 (5)): TYPE = number of `checkExpected` calls; MUTANT = number of `checkMutant` calls (signature/defeq rejections, not semantic counterexamples); AXIOMS = number of `checkAxioms` calls; REACH = intended names audited; CONTROL = number of control log lines.
+
+## 27. FB-16: build record of FB-15, and the next unit — real run → `PPRel` (rev15; text for review; NOT Lean, NOT implemented)
+
+- **Status.** Docs, committed BEFORE any Lean of this unit; Lean waits for the reviewer's approval of this section. Base `18c4fc76` (comments-only header sync of `43b31a15`). No new law, no `Laws` field, no TRUSTED boundary, no shared-definition / compiler edit (`Tools/ShippingGen2Defs.lean`, `T1Hyp`, `T1HypND`, `Elab*.lean` untouched), no FG/guarantee change. "Unsupplied / route not found in this investigation" means this investigation found no supplier in the files read; it does not say a row is false or underivable. Mutants in the planned check are signature/defeq rejections, not semantic counterexamples.
+- **FB-15 build record.** Clean issue-linked build `fb16v-43b31a15` exit 0 (814 jobs, dirty=false); `FbPPLookupCheck` + `FbPPCheck`: TYPE 11 / MUTANT 20 / AXIOMS 12 (standard axioms only), `sorry` 0; reviewer approved at `43b31a15`, scope limited to `moduleByName_map_self` / `ppRel_lookup_self` / `ppRel_lookup_other` and the type-only-helper audit supplement. Not Issue completion.
+
+### 27.1 Rows (what closes from existing lemmas)
+| row | existing names read (file) | closes from existing lemmas? | verdict |
+|---|---|---|---|
+| **real run → `PPRel`** (that a run of the full entry returning `(M', D')` has `PPRel M D M' D'` for the core run's `(M, D)`) | `synthesizeCombinational_design` (`ShippingMachineDepthRunR.lean:82`) and `synthesizeCombinational_designTop` (`ShippingDesignWriterRun.lean:69`): both `unfold synthesizeCombinational synthesizeCombinationalWith`, take `RunsTo.bind`, `RunsTo.ite`, `RunsTo.pure`, and after `subst` of the returned pair have `M'` as the one or two cleaned-up forms and `D'` as the literal `{ D with modules := … map … }` term. They keep the module disjunction and the lookups but discard the design equation. `PPRel` (FB-14) is that very disjunction paired with the design equation. | **yes**: the same proof text with the design equation kept (`rfl` in each branch). | **selected (this unit)** — earlier text (§25.1) said "a route probably goes through `topshare_entry_run4_ret`, not examined to the end"; this investigation found that it does not need `topshare_entry_run4_ret`. |
+| `ChildRunN` run conjunct across `dzStmt` / `mergeChecked` | `refineCheck_transfer` (`ShippingRefineSoundness.lean:1039`), `dropZeroWidth_entry` family needing `PostReady` | no (unchanged from §23.1/§25.1) | unsupplied / route not found in this investigation |
+| T-LEG (miss arm) | unchanged from §23.1 | no | unsupplied / route not found in this investigation |
+| T-MEMO hit | `memoInv_hit` over `RefLawsM`; a law there is the user's decision | no, and no law is added | unsupplied on the examined route; no law proposed here |
+| T-MEMO nested miss / K4 | statements only | no | unsupplied / route not found in this investigation |
+
+### 27.2 Selection and reason
+First unit: **T-PP-RUN** (`synthesizeCombinational_ppRel` and a lookup corollary). It is the only remaining row whose supply is an existing proof pattern with one extra `rfl`; it connects FB-14/FB-15 (`PPRel`, `ppRel_*`) to an actual run of the full entry, so `PPRel` is no longer only a hypothesis. It does NOT transport `ChildRunN`'s run conjunct, `DesignSV`, or anything about what `(M, D)` computes. Overlap: the `top`-rewrite lemmas of `kjob/g5dc-r13` (`moduleByName_topMap_self`) are for integration, not re-investigated here.
+
+### 27.3 Complete types (target)
+New file `Tools/ShippingGen4FbPPRun.lean`, namespace `Tools.ShippingGen4FbPPRun`; imports `Tools.ShippingGen4FbPPLookup` and `Tools.ShippingMachineDepthRunR` (the second is already in the Lookup file's closure; `Tools.ShippingDesignWriterRun` is NOT imported); `set_option autoImplicit false`; `open Lean Meta Sparkle.IR.AST Sparkle.IR.Machine Sparkle.Compiler.Elab`, `open Tools.ShippingEntrySoundness (RunsTo)`, `open Tools.ShippingGen4FbPP Tools.ShippingGen4FbPPLookup`. `Module` is `Sparkle.IR.AST.Module`, `Design` is `Sparkle.IR.AST.Design`, `synthesizeCombinational` / `synthesizeCombinationalCore` are `Sparkle.Compiler.Elab.…`. Binder names are those of `synthesizeCombinational_design`.
+```lean
+theorem synthesizeCombinational_ppRel {declName : Lean.Name} {mctx : Lean.Meta.Context}
+    {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context}
+    {cref : ST.Ref IO.RealWorld Lean.Core.State} {w w' : Void IO.RealWorld}
+    {M' : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (h : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational declName) mctx mref cctx cref w (M', D') w') :
+    ∃ (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w1 : Void IO.RealWorld),
+      RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w1 ∧
+      Tools.ShippingGen4FbPP.PPRel M D M' D'
+
+theorem synthesizeCombinational_lookup {declName : Lean.Name} {mctx : Lean.Meta.Context}
+    {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context}
+    {cref : ST.Ref IO.RealWorld Lean.Core.State} {w w' : Void IO.RealWorld}
+    {M' : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (h : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational declName) mctx mref cctx cref w (M', D') w') :
+    ∃ (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w1 : Void IO.RealWorld),
+      RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w1 ∧
+      Tools.ShippingGen4FbPP.PPRel M D M' D' ∧
+      (Sparkle.IR.Machine.moduleByName D.modules M.name = some M →
+        Sparkle.IR.Machine.moduleByName D'.modules M'.name = some M') ∧
+      (∀ y : String, y ≠ M.name →
+        Sparkle.IR.Machine.moduleByName D'.modules y = Sparkle.IR.Machine.moduleByName D.modules y)
+```
+Proof plan (a plan, not a result): first theorem — exactly the text of `synthesizeCombinational_design` up to `rcases RunsTo.ite h`; in the `SPARKLE_NO_REGDEDUP` branch (`(m', d)`) after `subst` close `PPRel` by `Or.inl ⟨rfl, rfl⟩`, in the other branch by `Or.inr ⟨rfl, rfl⟩` (after `unfold PPRel` / `show`; the `let top` of `PPRel` is the `let top` of `synthesizeCombinationalWith`, so both sides are the same term — to be seen by the elaborator, not assumed). Second theorem — first theorem, then `ppRel_lookup_self` and `ppRel_lookup_other` (FB-15). If a step does not go through the unit reports "not closed in this attempt" with the failing step; the `top`-binder `raw.name` vs `m.name` match is the step most likely to need a `show`.
+
+### 27.4 Planned checks (new files only; nothing run)
+Files: `Tools/ShippingGen4FbPPRun.lean`, `Tests/Gen4/FbPPRunCheck.lean`, two `lean_lib` entries in `lakefile.lean`; no change to FB-14/FB-15 files. Same requirements as §23.5/§25.4: (1) TYPE: both theorems against independently typed `Expected…` in the Check (one comparator: `==`, then logged `isDefEq`, fallbacks counted separately); (2) MUTANTS, well-typed single changes only: first theorem — conclusion `PPRel M D M' D'` replaced by `PPRel M' D' M D`; `PPRel M D M' D` (design not the returned one); the core run `synthesizeCombinationalCore declName [] true` (flag changed); `w1` replaced by `w'`; second theorem — `PPRel` conjunct dropped; `y ≠ M.name` dropped; the self-lookup conclusion `… M.name = some M`; the hypothesis premise `… = some M` dropped; `D'`/`D` swapped in the other-name conjunct; (3) closure audit with root self-judgement, `missing` failing the audit, controls inside `withoutModifyingEnv` (absent root, forbidden root `Tools.ShippingMemo`, helper VALUE unknown, root → existing helper whose TYPE only is unknown, raw proj, real bad/good fixtures) — reusing `fbReach`/`auditOk`/`addFixture`; (4) AXIOMS standard only, `sorry` 0; (5) real counts by category and the aggregation rule. A Pod build by this unit is not a clean build; the clean issue-linked build is the coder's.
+
+### 27.5 What this section does not claim
+The `ChildRunN` run conjunct across the clean-up, T-LEG, T-MEMO (hit, nested miss, K4), and the connection of `(M, D)` to what the entry computes stay unsupplied; no law is adopted; `PPTransportStmt` / `R4OutStmt` are not provable from this unit; Issue, M4 and FG are not complete.
