@@ -3,7 +3,7 @@ import Tests.Gen5.ReadKindsCheck
 import Tests.Gen5.ReadKindsU5Check
 import Tests.Gen5.ReadKindsU7Check
 set_option autoImplicit false
--- NOT BUILT. Freeze: scripts/gen5/DG_READKINDS_U13_FREEZE.md (approved e6d56e4a). No sorry / axiom / native_decide.
+-- Built: kjob lake build Tests.Gen5.ReadKindsU13Check exit 0 (827 jobs), clean issue-linked build rk22v-25540b18 (dirty=false), approved at 25540b18 (U13 only; conditional intermediate, M5/FG not complete). Check log counts: TYPE 3 comparisons (1 theorem + positive control + U12b-type negative control), propositional mutants 6. Freeze: scripts/gen5/DG_READKINDS_U13_FREEZE.md (approved e6d56e4a). No sorry / axiom / native_decide.
 
 /-! # DG-READKINDS U13 checks (Tools/ShippingGen5ReadKindsU13.lean)
 
