@@ -5,6 +5,7 @@ import Tools.ShippingSrm7Rank
 import Tools.ShippingMemOnlyNames
 set_option autoImplicit false
 -- Pod build (kjob lake build Tools.ShippingGen5NameKids2, exit 0, 685 jobs) on the tree of b870656c; NOT a clean issue-linked build (coder runs that). Written against freeze BOUNDARY_AUDIT_FREEZE_U2.md §3. 7 theorems + 2 definitions (kidNameAt, MemTagsNamed).
+-- Reviewed build: ba5v-e363183a (exit 0, 688 jobs, approved at e363183a; src=base=end, dirty=false). The supply table in freeze U2 §2 is a past snapshot: a final audit must re-check each owner's latest supply.
 -- No sorry / axiom / native_decide.
 
 /-! # BOUNDARY-AUDIT U2: the premises `hn`, `hmemSame`, `hself` from a chosen `nameK`, `MemTagsNamed`, and a rank
