@@ -3,7 +3,7 @@ import Tools.ShippingReaderFuelShapeR5
 import Tools.ShippingReaderLenOk
 import Tools.ShippingShapeDecomp
 set_option autoImplicit false
--- NOT BUILT. Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Built in g5cv-r11 at 00b29bcb (Pod `kjob lake build Tools.ShippingGen5Cover5`, exit 0). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-COVER rev6 unit U-E2: row 6a (state side of `ShapeAgree`), fuel model only
 

@@ -1,7 +1,7 @@
 import Tools.ShippingGen5Cover5
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT. Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Built in g5cv-r11 at 00b29bcb (Pod `kjob lake build Tests.Gen5.Cover5Check`, exit 0; TYPE 6, MUTANT 8, AXIOMS 6 standard, CLOSURE OK 5040 constants with 3 negative / 2 clean controls, UNKNOWN 3 negative / 1 clean; 3 intended sorry negatives print 3 "declaration uses `sorry`" warnings). Clean build is the coder's. No sorry / axiom / native_decide in source.
 /-! # DG-COVER rev6 U-E2 (Tools/ShippingGen5Cover5.lean) checks
 
 TYPE: each theorem is compared by the SAME comparer (`checkExpected`: binder names / binder info / `==` then `isDefEq` fallback, logged) with an `Exp…` statement
