@@ -3,7 +3,7 @@ import Tools.ShippingGen5FG
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.DeclConnectCheck
 set_option autoImplicit false
--- Built at ba85e637b523e1d880e1c2e1176ff64891fe9a6a (agent build `kjob lake build Tests.Gen5.FGCheck`, exit 0; clean issue-linked build is the coder's).
+-- Built at dd1aafd0b264f5610abea861c8f6f0ff959fd314 (agent build `kjob lake build Tests.Gen5.FGCheck`, exit 0, 748 jobs; clean issue-linked build is the coder's; previous clean build fgv-058c3cde exit 0, 748 jobs, at 058c3cde). Counts by category: TYPE 9 (theorem/definition level; constructor checks NOT included) + CTOR TYPE 2 (`TgtRun.top`/`call`, independent telescope at reducible transparency); MUTANT 11 (theorem level) + CTOR MUTANT 6 (`top` 1; `call`: ord 2, parent reach 2, pkg correspondence 1); AXIOMS 12. All signature/defeq rejections, NOT semantic counterexamples.
 
 /-! # DC-CONNECT U-FG: checks (scripts/gen5/DC_CONNECT_FREEZE.md rev5 §C.3, §C.8)
 
