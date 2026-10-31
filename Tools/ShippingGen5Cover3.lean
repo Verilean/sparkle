@@ -67,7 +67,7 @@ theorem sub_all_e (nm : Name) (t e : Lean.Expr) (bi : BinderInfo) : ∀ tag i, M
 
 /-! ## `looseOcc_machClose` -/
 
-theorem looseOcc_machClose (nDecl kI n k : Nat) :
+theorem looseOcc_machClose_aux (nDecl kI n k : Nat) :
     ∀ (v : Lean.Expr) (d : Nat) (b : Nat), (∀ b', ¬ LooseOcc d v b') → PhInRange nDecl kI n k v →
       LooseOcc d (machClose kI n k d v) b →
       ∃ p, MentionPos nDecl kI n k v p ∧ b = nDecl + kI + n + k - 1 - p := by
@@ -144,6 +144,13 @@ theorem looseOcc_machClose (nDecl kI n k : Nat) :
   | _ =>
     intro d b hn hr hl
     simp [machClose, LooseOcc] at hl
+
+/-- the freeze rev4 §1 statement (binder order `d v b`). -/
+theorem looseOcc_machClose (nDecl kI n k : Nat) :
+    ∀ (d : Nat) (v : Lean.Expr) (b : Nat), (∀ b', ¬ LooseOcc d v b') → PhInRange nDecl kI n k v →
+      LooseOcc d (machClose kI n k d v) b →
+      ∃ p, MentionPos nDecl kI n k v p ∧ b = nDecl + kI + n + k - 1 - p :=
+  fun d v b => looseOcc_machClose_aux nDecl kI n k v d b
 
 /-! ## Operand occurrence lemmas: every operand of a quote helper is an application argument at binder depth 0 -/
 
@@ -284,7 +291,7 @@ theorem readsOfQuoteStmt : ReadsOfQuoteStmt := by
   · intro b hl
     have hl' : LooseOcc 0 (machClose kI n k 0 v) b := by
       rw [← hq]; exact hl
-    obtain ⟨p, hp, hbp⟩ := looseOcc_machClose nDecl kI n k v 0 b hn hr hl'
+    obtain ⟨p, hp, hbp⟩ := looseOcc_machClose nDecl kI n k 0 v b hn hr hl'
     have hlt := mentionPos_lt hp
     have : nDecl + kI + n + k - 1 - b = p := by omega
     simp only [this]
