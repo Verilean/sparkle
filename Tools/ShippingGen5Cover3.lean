@@ -512,4 +512,166 @@ theorem fullInv_reach {nDecl : Nat} {st0 st : MachRead} (h : FullInv nDecl st0) 
   | refl => exact h
   | tail _ hs ih => exact fullInv_step ih hs
 
+theorem fStep_sizes_mono {nDecl : Nat} {a b : MachRead} (hs : FStep nDecl a b) :
+    a.lets.size ≤ b.lets.size ∧ a.insts.size ≤ b.insts.size ∧ a.kinds.size ≤ b.kinds.size := by
+  cases hs <;> simp [Array.size_push, Array.size_append]
+
+theorem reach_sizes_mono {nDecl : Nat} {a b : MachRead} (hr : FReach nDecl a b) :
+    a.lets.size ≤ b.lets.size ∧ a.insts.size ≤ b.insts.size ∧ a.kinds.size ≤ b.kinds.size := by
+  induction hr with
+  | refl => exact ⟨Nat.le_refl _, Nat.le_refl _, Nat.le_refl _⟩
+  | tail _ hs ih =>
+    have := fStep_sizes_mono hs
+    exact ⟨Nat.le_trans ih.1 this.1, Nat.le_trans ih.2.1 this.2.1, Nat.le_trans ih.2.2 this.2.2⟩
+
+/-! ### Suppliers -/
+
+theorem letRange_final {nDecl : Nat} {st0 st : MachRead} (h0 : FullInv nDecl st0) (hr : FReach nDecl st0 st)
+    {j : Nat} {nm : Name} {kd : MixedGateBinder} {v : Lean.Expr} (hj : st.lets[j]? = some (nm, kd, v)) :
+    PhInRange nDecl st.insts.size st.kinds.size st.lets.size v := by
+  have hI := fullInv_reach h0 hr
+  have hlt := (Array.getElem?_eq_some_iff.1 hj).1
+  exact phInRange_mono (hI.2.1.1 j nm kd v hj) (Nat.le_refl _) (Nat.le_refl _) (Nat.le_refl _) (Nat.le_of_lt hlt)
+
+theorem writeRange_final {nDecl : Nat} {st0 st : MachRead} (h0 : FullInv nDecl st0) (hr : FReach nDecl st0 st)
+    {w : Nat × Lean.Expr} (hw : w ∈ st.ws) :
+    w.1 < st.kinds.size ∧ PhInRange nDecl st.insts.size st.kinds.size st.lets.size w.2 :=
+  (fullInv_reach h0 hr).2.1.2 w hw
+
+theorem resultRange_final {nDecl : Nat} {st1 st : MachRead} (hr : FReach nDecl st1 st) {v : Lean.Expr}
+    (hv : InRange nDecl st1 st1.lets.size v) : PhInRange nDecl st.insts.size st.kinds.size st.lets.size v := by
+  have hm := reach_sizes_mono hr
+  exact inRange_mono hv hm.2.1 hm.2.2 hm.1
+
+theorem phInRange_machSlot {nDecl kI n k i : Nat} (hi : i < n) : PhInRange nDecl kI n k (machSlot i) :=
+  ⟨fun j hj => by simp [machSlot, MentionsPh] at hj, fun j hj => by simp [machSlot, MentionsPh] at hj,
+   fun j hj => by simp [machSlot, MentionsPh] at hj; omega, fun j hj => by simp [machSlot, MentionsPh] at hj⟩
+
+theorem machNext_range {nDecl : Nat} {st : MachRead} (h : RangeInv nDecl st) {i : Nat} (hi : i < st.kinds.size) :
+    PhInRange nDecl st.insts.size st.kinds.size st.lets.size (machNext i st.ws.toList) := by
+  unfold machNext
+  split
+  · rename_i a e hf
+    have hm := List.mem_of_find?_eq_some hf
+    rw [List.mem_reverse, Array.mem_toList_iff] at hm
+    exact (h.2 _ hm).2
+  · exact phInRange_machSlot hi
+
+/-! ### Bundle / result parts -/
+
+theorem inlSpine_mentions (tag : String) (i : Nat) :
+    ∀ (e : Lean.Expr) (acc : List Lean.Expr) (x : Lean.Expr), x ∈ (inlSpine e acc).2 → MentionsPh tag i x →
+      MentionsPh tag i e ∨ ∃ y ∈ acc, MentionsPh tag i y := by
+  intro e
+  induction e with
+  | app f a ihf iha =>
+    intro acc x hx hm
+    simp only [inlSpine] at hx
+    rcases ihf (a :: acc) x hx hm with h | ⟨y, hy, hmy⟩
+    · exact Or.inl (Or.inl h)
+    · rcases List.mem_cons.1 hy with rfl | hy
+      · exact Or.inl (Or.inr hmy)
+      · exact Or.inr ⟨y, hy, hmy⟩
+  | _ => intro acc x hx hm; exact Or.inr ⟨x, by simpa [inlSpine] using hx, hm⟩
+
+theorem inlSpine_range {nDecl kI n k : Nat} {e : Lean.Expr} (h : PhInRange nDecl kI n k e) :
+    ∀ x ∈ (inlSpine e []).2, PhInRange nDecl kI n k x := by
+  intro x hx
+  exact ⟨fun i hi => h.1 i (by
+      rcases inlSpine_mentions "_machIn" i e [] x hx hi with h | ⟨y, hy, _⟩
+      · exact h
+      · simp at hy),
+    fun i hi => h.2.1 i (by
+      rcases inlSpine_mentions "_machInst" i e [] x hx hi with h | ⟨y, hy, _⟩
+      · exact h
+      · simp at hy),
+    fun i hi => h.2.2.1 i (by
+      rcases inlSpine_mentions "_machSlot" i e [] x hx hi with h | ⟨y, hy, _⟩
+      · exact h
+      · simp at hy),
+    fun i hi => h.2.2.2 i (by
+      rcases inlSpine_mentions "_machLet" i e [] x hx hi with h | ⟨y, hy, _⟩
+      · exact h
+      · simp at hy)⟩
+
+theorem machBundleParts_range {nDecl kI n k : Nat} :
+    ∀ (m : Nat) (e : Lean.Expr) (ps : List Lean.Expr), machBundleParts? m e = some ps → PhInRange nDecl kI n k e →
+      ∀ p ∈ ps, PhInRange nDecl kI n k p := by
+  intro m
+  induction m with
+  | zero => intro e ps h; simp [machBundleParts?] at h
+  | succ m ih =>
+    intro e ps h hr p hp
+    cases m with
+    | zero =>
+      have h1 : machBundleParts? 1 e = some [e] := rfl
+      rw [h1, Option.some.injEq] at h
+      subst h
+      simp only [List.mem_singleton] at hp
+      subst hp
+      exact hr
+    | succ m =>
+      unfold machBundleParts? at h
+      split at h
+      · simp at h
+      · exfalso; omega
+      · rename_i _ _ n' us A B C a b _ heq
+        have hn' : n' = m + 1 := by omega
+        subst hn'
+        cases hq : machBundleParts? (m + 1) b with
+        | none => simp [hq] at h
+        | some qs =>
+          rw [hq] at h
+          simp only [Option.map_some, Option.some.injEq] at h
+          subst h
+          rcases List.mem_cons.1 hp with rfl | hp
+          · refine phInRange_of_sub ?_ hr
+            exact fun t i h => Or.inl (Or.inr h)
+          · refine ih b qs hq ?_ p hp
+            refine phInRange_of_sub ?_ hr
+            exact fun t i h => Or.inr h
+      · simp at h
+
+theorem machResults_range {nDecl kI n k : Nat} (sel : Option (Name × Nat × Nat)) (ctor? : Option Name) (m : Nat) (v : Lean.Expr)
+    (es : List Lean.Expr) (h : machResults? sel ctor? m v = some es) (hv : PhInRange nDecl kI n k v) :
+    ∀ e ∈ es, PhInRange nDecl kI n k e := by
+  intro e he
+  unfold machResults? at h
+  cases ctor? with
+  | none =>
+    simp only [Option.map_eq_some_iff] at h
+    obtain ⟨r, hr, rfl⟩ := h
+    simp only [List.mem_singleton] at he
+    subst he
+    unfold machResult? at hr
+    cases sel with
+    | none => simp at hr; subst hr; exact hv
+    | some t =>
+      obtain ⟨ctor, np, idx⟩ := t
+      simp only at hr
+      split at hr
+      · rename_i c us args hspine
+        split at hr
+        · have hmem := List.mem_of_getElem? hr
+          have := inlSpine_range hv
+          rw [hspine] at this
+          exact this e hmem
+        · simp at hr
+      · simp at hr
+  | some ctor =>
+    simp only at h
+    split at h
+    · simp at h
+    · split at h
+      · rename_i c us args hspine
+        split at h
+        · simp only [Option.some.injEq] at h
+          subst h
+          have hmem := List.mem_of_mem_drop he
+          have := inlSpine_range hv
+          rw [hspine] at this
+          exact this e hmem
+        · simp at h
+      · simp at h
+
 end Tools.ShippingGen5Cover3
