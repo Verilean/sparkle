@@ -3,7 +3,7 @@ import Tests.Gen5.CoverNegCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 -- Built in g5cv-r6 at 302525c0 (Pod `kjob lake build Tests.Gen5.Cover3Check`, exit 0; TYPE 27, MUTANT 6, AXIOMS standard (29 theorems), CLOSURE OK 4233 constants with 3 negative / 2 clean controls; the 3 intended negative controls print 3 "declaration uses `sorry`" warnings). Clean build is the coder's. No sorry / axiom / native_decide in source.
-
+-- Built in g5cv-r7 at 8ee47c8e (Pod `kjob lake build Tests.Gen5.Cover3Check`, exit 0, 708 jobs; TYPE 27, MUTANT 6, AXIOMS standard (29 theorems), CLOSURE OK 4233 constants with 3 negative / 2 clean controls; UNKNOWN controls 3 negative / 1 clean, non-empty unknown now throws; the 3 intended sorry-based negative controls print 3 "declaration uses `sorry`" warnings). Clean build is the coder's. No sorry / axiom / native_decide in source.
 /-! # DG-COVER rev4 (Tools/ShippingGen5Cover3.lean) checks
 
 TYPE: every theorem (and the `FStep` constructors, and `ShapeAgree` field-wise) is compared by the SAME comparer (`checkExpected`: binder names / binder info /
