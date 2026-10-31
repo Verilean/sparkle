@@ -1,6 +1,6 @@
 import Tools.ShippingGen4FbTailInv
 set_option autoImplicit false
--- NOT BUILT (unit FB-9). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §17.3 (rev10, scoped approved at 22147275).
+-- BUILT (unit FB-9) at 777f89cc (header-sync commit follows, comments only): kjob lake build Tools.ShippingGen4FbSplit (709 jobs) exit 0 (Pod build, NOT a clean issue-linked build; that is the coder's). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §17.3 (rev10, scoped approved at 22147275).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Two theorems only.
 
 /-! # FB-9: K-TSPLIT — the first action of `legacyTail` (false mode) is the memo read

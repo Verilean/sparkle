@@ -3,7 +3,7 @@ import Tools.ShippingMemoInv
 import Tools.ShippingLegacySemMemoWalk
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (unit FB-9). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §17.3/§17.4 (rev10).
+-- BUILT (unit FB-9) at 777f89cc (header-sync commit follows, comments only): kjob lake build Tests.Gen4.FbSplitCheck exit 0 (Pod build, NOT a clean issue-linked build; that is the coder's). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §17.3/§17.4 (rev10).
 -- Checks: TYPE (independent Expected typed again from §17.3), MUTANT (signature/defeq rejections, NOT semantic counterexamples),
 -- AXIOMS, value-closure audit with a `missing` list that FAILS when non-zero (an unknown constant is not "clean"), and controls.
 
