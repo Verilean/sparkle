@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccDataAgree
 set_option autoImplicit false
--- Pod incremental build (kjob lake build, -c 2) at 6b94f3b4: exit 0, 725 jobs; NOT a clean issue-linked build (coder runs that). (freeze scripts/gen5/DG_ACC_FREEZE_REV10.md rev10 d7f700fc design approved). No sorry / axiom / native_decide.
+-- Clean issue-linked build ac20v-1e791651 (approved at 1e791651; Lean source unchanged since 6b94f3b4): exit 0, 728 jobs, dirty=false. Conditional glue only (freeze scripts/gen5/DG_ACC_FREEZE_REV10.md rev10 d7f700fc). No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A10: `genData₀_dataOf` from `GenData`-shaped evidence (scripts/gen5/DG_ACC_FREEZE_REV10.md §1)
 
