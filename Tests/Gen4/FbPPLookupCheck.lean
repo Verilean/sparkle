@@ -2,7 +2,7 @@ import Tools.ShippingGen4FbPPLookup
 import Tests.Gen4.FbPPCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (unit FB-15): text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §25.3/§25.4 + §26. Reuses the audit walker `fbReach`/`auditOk`/`addFixture`
+-- BUILT (unit FB-15): kjob lake build Tests.Gen4.FbPPLookupCheck exit 0 (814 jobs, Pod build at f21380e345c9b94b58878d7d7474d57c8af6c42f; not a clean build). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §25.3/§25.4 + §26. Reuses the audit walker `fbReach`/`auditOk`/`addFixture`
 -- of Tests.Gen4.FbPPCheck (already built at FB-14) rather than copying it.
 -- Checks: TYPE (3 theorems), MUTANT (well-typed single changes; signature/defeq rejections, NOT semantic counterexamples),
 -- value-closure audit (root judged itself; `missing` fails), controls (inside `withoutModifyingEnv`), AXIOMS.
