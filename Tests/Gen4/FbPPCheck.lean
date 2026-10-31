@@ -301,8 +301,13 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let v ← withoutModifyingEnv do
     addFixture `Tests.Gen4.FbPPFixtureC.fxValueUnknown ty0 ghost
     addFixture `Tests.Gen4.FbPPFixtureC.fxTypeUnknown ghost (mkConst ``True.intro)
-    -- an EXISTING helper (valid declaration) whose type only is the unknown name is `fxTypeUnknown` above;
-    -- a helper that reaches an unknown name only through another existing helper:
+    -- `fxViaHelper` reaches an unknown name only through another (added) helper's VALUE;
+    -- `fxTypeHelper` / `fxRootViaTypeHelper` (FB-15 supplement): the helper's TYPE alone is the unknown name and the
+    -- root mentions the ghost nowhere (not in its type, value or λ-binder type), only the helper constant:
+    addFixture `Tests.Gen4.FbPPFixtureC.fxTypeHelper ghost (mkConst ``True.intro)
+    addFixture `Tests.Gen4.FbPPFixtureC.fxRootViaTypeHelper ty0
+      (Lean.mkApp (Lean.mkLambda `_x .default ty0 (mkConst ``True.intro))
+        (mkConst `Tests.Gen4.FbPPFixtureC.fxTypeHelper))
     addFixture `Tests.Gen4.FbPPFixtureC.fxViaHelper ty0 (mkConst `Tests.Gen4.FbPPFixtureC.fxValueUnknown)
     addFixture `Tests.Gen4.FbPPFixtureC.fxClean ty0 (mkConst ``True.intro)
     let a ← fbReach `Tests.Gen4.FbPPFixtureC.fxValueUnknown
@@ -313,12 +318,18 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let okb ← auditOk `Tests.Gen4.FbPPFixtureC.fxTypeUnknown
     let okc ← auditOk `Tests.Gen4.FbPPFixtureC.fxViaHelper
     let okd ← auditOk `Tests.Gen4.FbPPFixtureC.fxClean
-    pure (a.missing.size, b.missing.size, c.missing.size, d.missing.size, oka, okb, okc, okd)
-  let (ma, mb, mc, md, oka, okb, okc, okd) := v
+    let e ← fbReach `Tests.Gen4.FbPPFixtureC.fxRootViaTypeHelper
+    let oke ← auditOk `Tests.Gen4.FbPPFixtureC.fxRootViaTypeHelper
+    let ghostSeen := e.missing.contains `Tests.Gen4.FbPPFixtureC.ghostName
+    pure (a.missing.size, b.missing.size, c.missing.size, d.missing.size, oka, okb, okc, okd, e.missing.size, oke, ghostSeen)
+  let (ma, mb, mc, md, oka, okb, okc, okd, me, oke, ghostSeen) := v
   unless ma ≥ 1 && !oka do throwError "FB14 AUDIT FAILED: unknown name in a helper VALUE not reported (missing {ma}, ok {oka})"
   unless mb ≥ 1 && !okb do throwError "FB14 AUDIT FAILED: unknown name in a helper TYPE not reported (missing {mb}, ok {okb})"
   unless mc ≥ 1 && !okc do throwError "FB14 AUDIT FAILED: unknown name through a helper not reported (missing {mc}, ok {okc})"
   unless md == 0 && okd do throwError "FB14 AUDIT FAILED: the clean fixture is not clean (missing {md}, ok {okd})"
+  unless ghostSeen && !oke do
+    throwError "FB15 AUDIT FAILED: root -> type-only helper: ghostName not in missing (missing {me}, ghostSeen {ghostSeen}, ok {oke})"
+  logInfo m!"FB15 CONTROL root -> helper with TYPE-only unknown: ghostName in missing (missing {me}), audit not passed"
   logInfo m!"FB14 CONTROL unknown-name fixtures: helper value missing {ma}, helper type missing {mb}, via helper missing {mc}; clean fixture missing {md} (not flagged)"
   if (← getEnv).contains `Tests.Gen4.FbPPFixtureC.fxClean then
     throwError "FB14 AUDIT FAILED: withoutModifyingEnv did not restore the environment"
