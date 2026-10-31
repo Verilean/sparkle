@@ -170,3 +170,8 @@ theorem would have; it is a restatement of the same premise, not a supply of it.
 * Row 4 (group) is a reading of existing statements, not yet elaborated; it is part of this freeze so the reviewer can reject it before any Lean exists.
 * No new law/TRUSTED, no shared-definition or compiler change, no FG narrowing, no `GenWF` change; `stop_of_run` unchanged and unreachable from the new theorems (checked by CLOSURE).
 * The clean exact-head build is the coder's; this freeze is docs only and elaborates nothing.
+
+## 6. Addendum: reference SHAs for the §0 branch tips (non-blocking docs fix)
+The branch names in §0 are movable. Tips read by `git rev-parse` in this worktree on 2026-10-31 (the survey itself did not record the SHAs it read, so these are
+the tips now, not necessarily the ones the survey read): `kjob/g5sm-u3` 309a33a9, `kjob/g5sm-p4r` 6d596308, `kjob/g5ac-r3` c2702371, `kjob/g5do-r4` 8b57cc6e,
+`kjob/g5rk-r8` bb783eda, `kjob/g5cv-r7` 72752f4c, `kjob/g5dc-r6` 058c3cde, `kjob/g5cr-r6` f3a29dbb, `kjob/g3ds-ds8` 79aef1c9.
