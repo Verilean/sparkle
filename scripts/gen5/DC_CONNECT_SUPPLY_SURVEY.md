@@ -78,3 +78,78 @@ Not claimed by this unit: the parametric route (S3), that M4 adopts `PostT1` as 
 
 ## 7. Not claimed
 D/D′ design transport, arbitrary-`raw` (O3) to core-witness `raw` connection, O2, O3, DeclConnect rows, parametric route, `ReflectsAll`, `Post` adoption by M4, NV-witness, `hall`/C0, real-run tie, DCF, FG completion, M5. The Issue stays open.
+
+---
+# Addendum (agent g5dc-r10, base `kjob/g5dc-r9` db171c2e, U-POST approved): D′ transport, O3 witness identification, real EntryWitness — survey + freeze of the next unit
+**Design only; no Lean in this commit.** Wording as in the head of this file: "unsupplied / this survey found no route" is a statement about THIS survey (this tree, `kjob/g5rk-r12..r14`, `par/gen5-t2`), not impossibility. A "mutant" is a signature/defeq rejection of a well-typed changed statement, not a semantic counterexample. `FG_COND`/`FG_CONNECT` stay conditional; U-POST is not an adoption of `Post`. No new law/TRUSTED, no shared-definition/compiler edit, FG not narrowed, `GenWF` not strengthened.
+
+## 8. The three rows (read from `Tools/ShippingGen5FG.lean`, `Tools/ShippingGen2Defs.lean`, `Sparkle/Compiler/Elab.lean:5592-5606`)
+Key fact read from the sources: `T1Stmt` / `StepStmt` / `MemParentStmt` / `LeafStmt` state `TopShips p n c b raw D` with `D` the design of the **core** run (`RunsTo (synthesizeCombinationalCore c [] false) … (raw, D)`), but `FG_CONNECT` O3 states `TopShips p n declName b raw D` with `D` the design of the **entry** `EntryWitness … b D` (`RunsTo (synthesizeCombinational declName) … (b, D)`), i.e. the RETURNED design D′. `synthesizeCombinationalWith` builds it as `D′ = top mergeChecked (top dropZeroWidthModule D)` (or `top dropZeroWidthModule D` when `SPARKLE_NO_REGDEDUP` is set) with `top f d := { d with modules := d.modules.map fun x => if x.name == m.name then f x else x }`, `m` = the core's module.
+
+### Row (a): transport to the returned design D′
+| step | name and full type | status |
+|---|---|---|
+| (a1) relation of D and D′ as a statement about the compiler text | none exists (`synthesizeCombinational_reads`, `…_postT1` return `D` only inside the core-run conjunct) | **NEW lemma `synthesizeCombinational_postEntry` below**: closable by the same unfolding as U-POST (`RunsTo.bind`, `RunsTo.ite`, `RunsTo.pure`); no law |
+| (a2) `TopShips p n c b raw D → TopShips p n c b raw D′` | `TopShips` (`Tools/ShippingGen2Defs.lean:280`) uses `D` only in `ResetNk n raw D kids` and `childMap D.modules` (and `KSn (childMap D.modules) n`) | **Unsupplied / this survey found no route.** It needs: the changed module (`x.name == raw.name`) is not looked up as a child (`childMap` lookups of other names are unchanged by `top`, but a child named `raw.name`, or a second module with that name, is not excluded by anything read), and `ResetNk` invariance. This survey did not find a theorem about `childMap (D.modules.map …)`, `ResetNk` under `top`, or name-distinctness of `D.modules` from the core run. Not claimed. |
+| (a3) the post-processing of the top module inside `D′` preserves the semantics `TopShips` observes (`checkedOptimize b`) | `postprocess_sound`, `postprocess_facts` (`Tools/ShippingPostSoundness.lean:551,737`) are about the module, with side conditions (`0 < n`, nodup wires) | **Unsupplied for the design-level statement / this survey found no route**; not examined beyond the names |
+
+### Row (b): O3's arbitrary `raw` versus the core witness's `raw`
+O3 is `∀ raw, Post b raw → ∃ p n, GP … = some p ∧ TopShips p n declName b raw D`. For `Post := PostT1` the `raw` is any module with `b = drop raw ∨ b = mergeChecked (drop raw)`.
+| step | name and full type | status |
+|---|---|---|
+| (b1) identify an arbitrary `raw′` with `PostT1 b raw′` with the `raw` of the core run | needs `dropZeroWidthModule` (and `mergeChecked ∘ drop`) injective on the relevant modules | **Unsupplied / this survey found no route.** `dropZeroWidthModule` (`Sparkle/IR/ZeroWidth.lean:113`) is a function that returns `m` unchanged or rewrites it; no injectivity theorem was found; whether it is injective is not decided here. `runsTo_det` (`Tools.ShippingStRefCorrespondence.runsTo_det`, restated as `Tools.ShippingGen5ReadKindsU8.runsTo_det` [r12-r14]) gives uniqueness only among runs of the SAME computation from the same world, which does not apply to an unrelated `raw′`. |
+| (b2) restate O3 so that the `raw` is the witness's | requires a change of the `FG_CONNECT` statement (`Post` is `Module → Module → Prop` and cannot mention the world `w`) | **Not done: it changes the stated guarantee and is a user/reviewer decision, not made here.** If (b1) is unavailable, the alternative is a `Post` that is strong enough that `Post b raw′` forces the identification (M4's choice: `sparkle-gen4-fg-assembly`). |
+
+### Row (c): the real EntryWitness (what is needed to derive O1/O2/O3/DC for ANY witness)
+| step | name and full type | status |
+|---|---|---|
+| (c1) route disjunct ⇒ core run + post relation | U-POST `Tools.ShippingGen5DCEntry.synthesizeCombinational_postT1` (approved) | **Exists** for the left (default) route; the right disjunct (`synthesizeCombinationalWithParameters`): no Lean in the surveyed trees (S3) |
+| (c2) core run ⇒ linked chain | `Tools.ShippingEntryReadsLinked.core_chain` | **Exists** |
+| (c3) chain ⇒ reads of the run | `Tools.ShippingGen5RunReads.runReads_of_run` (premises `JQ O.quiet D₀ w`, `D₀ = 0 ∨ CacheInvA O (cv w)`, `MachineDefines`, `MachineClosesAtA`) | **Exists**; premises: `JQ` from `Start` (`Start L mctx cctx w := AdmCtx L.O.quiet mctx cctx ∧ JQC L.O 0 w`; `JQC 0 ⇒ JQ 0` not examined), `MachineDefines`/`MachineClosesAtA` = content of `ReflectsAll` (S14, M4) |
+| (c4) reader run ⇒ `ReadRoot ∧ ReadFields` for ONE `ci/env/w1/w2` | `Tools.ShippingGen5ReadKindsU8.readMachine_rootFields` [r12-r14, clean build rk12v-f86cbdd7]: `RunsTo (readMachine declName allowGate) … w r w' → ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) … w env w1 ∧ RunsTo (getConstInfo declName) … w1 ci w2 ∧ ReadRoot ci env r ∧ ReadFields ci env r`; also `readMachine_gates`, `machineDefines_of_readMachine` (conditional on `hall`) | **Exists on those branches, NOT in this tree** (this tree does not import it; using it needs the branch to be merged or a dependency, which this Issue does not do) |
+| (c5) tie of the reader run to the core run of the same declaration | `kjob/g5rk-r14` `DG_READKINDS_U9_FREEZE.md` (U9c, `hrun` with named-world `ReadsAt`, design only) | **Unsupplied / this survey found no route in Lean** (design in flight, owner `sparkle-gen5-dg-readkinds`) |
+| (c6) `hall` / `ReadsAt` at later worlds | DG-ENV C0 | **Unsupplied** (owner `sparkle-gen5-dg-env`) |
+| (c7) O2 `GP … = some p`, DC (`DeclConnect`) rows | `DeclConnect` / `declConnect_eq` (`Tools/ShippingGen5DeclConnect.lean:277,281`): rows 1 (`env₀.find? X = some ci`), 2 (`shapeOf ci = some sh ∧ ShapeMatches`), 4 (`CV env₀ X sh.Ty v`), 5 (`obs = p.src`) | rows 1,2 depend on (c4)-(c6); row 4/5 on DCF (`ConstValueRel`, S12); **not closed**. FG_COND/FG_CONNECT: conditional, not FG completion. |
+
+## 9. The first unit to implement: U-POSTD (design relation of the entry), and why
+**Why:** it is the only row among (a)-(c) whose inputs are all existing approved text (the body of `synthesizeCombinationalWith`, `RunsTo.bind/ite/pure`, `mergeChecked`, `dropZeroWidthModule`) and that needs no owner (no `ReadsAt`, `hall`, `ReflectsAll`, `Post` choice). It makes the relation of D and D′ a theorem instead of an unstated gap, so (a2) becomes a precisely stated remaining obligation, and the joint form ties `b` and `D′` to the SAME branch (the separate `PostT1` gives no such tie). It does NOT close (a2), (b), (c) and does not adopt `Post`.
+
+New files only: `Tools/ShippingGen5DCEntryD.lean` (namespace `Tools.ShippingGen5DCEntryD`, `import Tools.ShippingGen5DCEntry`), `Tests/Gen5/DCEntryDCheck.lean`, `lean_lib` additions in `lakefile.lean`. Fully explicit/`{}` binders as in U-POST.
+```lean
+/-- the `top` of `synthesizeCombinationalWith`: rewrite the module named like `m` -/
+def topMap (f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module) (m : Sparkle.IR.AST.Module)
+    (d : Sparkle.IR.AST.Design) : Sparkle.IR.AST.Design :=
+  { d with modules := d.modules.map fun x => if x.name == m.name then f x else x }
+
+/-- module and design of the default entry, in the SAME branch -/
+def PostEntry (b raw : Sparkle.IR.AST.Module) (D D' : Sparkle.IR.AST.Design) : Prop :=
+  (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∧
+    D' = topMap Sparkle.IR.ZeroWidth.dropZeroWidthModule raw D) ∨
+  (b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw) ∧
+    D' = topMap Sparkle.IR.RefineCheck.mergeChecked raw (topMap Sparkle.IR.ZeroWidth.dropZeroWidthModule raw D))
+
+theorem synthesizeCombinational_postEntry {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (b, D') w') :
+    ∃ (raw : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w1 : Void IO.RealWorld),
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (raw, D) w1 ∧
+      PostEntry b raw D D'
+
+theorem postEntry_postT1 {b raw : Sparkle.IR.AST.Module} {D D' : Sparkle.IR.AST.Design}
+    (h : PostEntry b raw D D') : Tools.ShippingGen5DCEntry.PostT1 b raw
+```
+Proof route: as U-POST (`unfold synthesizeCombinational synthesizeCombinationalWith at h`, `RunsTo.bind`, `RunsTo.ite`, `RunsTo.pure`, `Prod.mk.injEq`); the `top` is the `let` of the definition, so `topMap` is its `rfl`-instance; `postEntry_postT1` is `Or` case analysis. If the `rfl` of `topMap` against the zeta-reduced `top` fails, the statement is NOT changed (stop and report).
+Note: `D′` here has the same `topModule` and the same module count as `D` (`{ d with modules := … }`); that is a consequence readable from `topMap`, not an added claim.
+
+## 10. Check plan for U-POSTD (`Tests/Gen5/DCEntryDCheck.lean`; counts with category and counting rule)
+- **TYPE:** `ExpTopMap`, `ExpPostEntry`, `ExpPostEntryRun`, `ExpPostEntryPostT1`, written from §9's prose (the relation: top module rewritten by name; same branch for `b` and `D′`), compared by `Tests.Gen3.ExpectedType.checkExpected` (one reducible comparator for positive and negative cases); positive self-comparison control (not counted).
+- **MUTANT** (well-typed single change; signature/defeq rejection, not a semantic counterexample): `mergeChecked`→`mergeDuplicates` (needs the same type: `Module → Module`), `topMap` keyed by `x.name == m.name`→`x.name != m.name`, the inner `topMap … D` dropped in the merge branch, `D'`/`D` swapped in the relation, `∧`→`∨` between the `b` and `D′` conjuncts (joint branch dropped), core-run `[] false`→`[] true`, `PostT1 b raw` arguments swapped. Counted per mutant that type-checks; ill-typed ones are not counted.
+- **CONJ:** the conclusion's conjunct dropped (core run / `PostEntry`), counted separately.
+- **CLOSURE:** the `DeclConnectCheck` walker (unknown name = FAIL, root judged itself); new fixture: a helper whose TYPE mentions a name unknown to the environment (only that helper's type is unknown), the intended name asserted, `withoutModifyingEnv`; the three owner constants named (`synthesizeCombinational`, `synthesizeCombinationalCore`, `mergeChecked`, `dropZeroWidthModule`, `RunsTo`).
+- **AXIOMS:** `propext`, `Classical.choice`, `Quot.sound` only; no `sorry`/`native_decide`.
+- STATUS line lists the NOT supplied rows: (a2), (a3), (b1), (b2), (c5), (c6), (c7), S3, S12, S14.
+
+## 11. Not claimed (addendum)
+D′ transport of `TopShips` (a2/a3), O3 arbitrary `raw` identification (b), real `EntryWitness`, `hall`, reader/core tie, O2, DeclConnect rows, `ReflectsAll`, parametric route, `Post` adoption by M4, `Post`/O3 restatement, FG completion, M5. The Issue stays open.
