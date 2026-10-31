@@ -2,7 +2,7 @@ import Tests.Gen5.EnvFrame3Check
 import Tools.ShippingGen5EnvCacheC
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT. Counting: TYPE = 1 definition-body comparison (O0) + 4 Expected comparisons (O1-O4); MUTANT = 9 well-typed single changes rejected by the same comparator (signature/defeq, not semantic counterexamples);
+-- Built: clean issue-linked build env17v-3fa51023 exit 0 (761 jobs, dirty=false), approved at 3fa51023. Counting: TYPE = 1 definition-body comparison (O0) + 4 Expected comparisons (O1-O4); MUTANT = 9 well-typed single changes rejected by the same comparator (signature/defeq, not semantic counterexamples);
 -- CLOSURE (per-root expected set, observed: O0/O1/O2 reach no guarded constant, O3/O4 reach exactly Laws.O + RefLawsAOps.quiet; the freeze said "at most" those two) = roots; negatives (forbidden, flagged) direct + helper; unknown kept apart; self-root; clean.
 
 /-! # DG-ENV unit U7 checks (Tools/ShippingGen5EnvCacheC.lean)

@@ -1,6 +1,6 @@
 import Tools.ShippingGen5EnvCacheB
 set_option autoImplicit false
--- NOT BUILT (U7 O0-O4 implementation; freeze scripts/gen5/DG_ENV_T2_U7_FREEZE.md approved at 047c2f7c as design only). Conditional bookkeeping: hn/rd/quiet/synth/RunsTo witness/QuietStrength remain hypotheses.
+-- Built: clean issue-linked build env17v-3fa51023 exit 0 (761 jobs, dirty=false), approved at 3fa51023 (freeze scripts/gen5/DG_ENV_T2_U7_FREEZE.md). Conditional bookkeeping: hn/rd/quiet/synth/RunsTo witness/QuietStrength remain hypotheses.
 
 /-! # DG-ENV unit U7: the restricted cache invariant `CacheInvN` and its empty / insert / run-step / transport lemmas, CONDITIONAL
 (scripts/gen5/DG_ENV_T2_U7_FREEZE.md §2)
