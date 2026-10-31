@@ -1,7 +1,7 @@
 import Tools.ShippingGen5Cover3
 import Tools.ShippingMachineAuto
 set_option autoImplicit false
--- NOT BUILT: written in g5cv-r9 against freeze rev5 (`scripts/gen5/DG_COVER_FREEZE_REV5.md` §3); no build result recorded yet. Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Built in g5cv-r9 at d75f5b18 (Pod `kjob lake build Tools.ShippingGen5Cover4`, exit 0). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-COVER rev5 unit U-E1: `hb` / `hv` of `rowC_of_reader` from `MachineData.ok`
 
