@@ -5018,3 +5018,6 @@ lean_lib «Tools.ShippingGen5AccHinv» where
 
 lean_lib «Tests.Gen5.SM3Check» where
   roots := #[`Tests.Gen5.SM3Check]
+
+lean_lib «Tools.ShippingGen5AccGenDataKit» where
+  roots := #[`Tools.ShippingGen5AccGenDataKit]
