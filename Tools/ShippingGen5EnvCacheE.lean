@@ -1,7 +1,7 @@
 import Tools.ShippingGen5EnvCacheD
 import Tools.ShippingGen5EnvFrame
 set_option autoImplicit false
--- NOT BUILT: U9 implementation of freeze scripts/gen5/DG_ENV_T2_U9_FREEZE.md; build pending (clean build is run by the coder).
+-- BUILT: clean issue-linked build env22v-b6b3206b exit 0 (763 jobs, dirty=false) at b6b3206b: U9 implementation of freeze scripts/gen5/DG_ENV_T2_U9_FREEZE.md; build pending (clean build is run by the coder).
 
 /-! # DG-ENV unit U9: one whole `synthesizeChild n` call keeps `CacheInvN` and yields `RealChildN`, CONDITIONAL
 (scripts/gen5/DG_ENV_T2_U9_FREEZE.md §2)

@@ -2,7 +2,7 @@ import Tests.Gen5.EnvFrame3Check
 import Tools.ShippingGen5EnvCacheE
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: U9 check of freeze scripts/gen5/DG_ENV_T2_U9_FREEZE.md. Counting: TYPE = 1 Expected comparison (Q1); MUTANT = well-typed single changes rejected by the same comparator (signature/defeq, not semantic counterexamples), count as measured;
+-- BUILT: clean issue-linked build env22v-b6b3206b exit 0 (763 jobs, dirty=false) at b6b3206b: U9 check of freeze scripts/gen5/DG_ENV_T2_U9_FREEZE.md. Counting: TYPE = 1 Expected comparison (Q1); MUTANT = well-typed single changes rejected by the same comparator (signature/defeq, not semantic counterexamples), count as measured;
 -- CLOSURE (quiet-plus-four: Laws.O, RefLawsAOps.quiet, frame, frameQ, cacheSet, cacheSetQ allowed as leaves; per-root observed set reported) = roots; negatives (forbidden, flagged) direct + helper; unknown kept apart; self-root; clean.
 
 /-! # DG-ENV unit U9 checks (Tools/ShippingGen5EnvCacheE.lean)
