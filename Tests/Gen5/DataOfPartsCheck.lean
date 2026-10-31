@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemDataOfParts
 import Tests.Gen5.GenDataCheck
 set_option autoImplicit false
--- NOT BUILT HERE (U9 check, scripts/gen5/DG_SEM_FREEZE_P9.md §2.2). Mutants are rejected by signature comparison, not semantic counterexamples. No sorry/axiom/native_decide.
+-- NOT BUILT HERE (U9 check, scripts/gen5/DG_SEM_FREEZE_P9.md §2.2). Pod incremental build exit 0 (721 jobs) at Lean tree 766e78a2: TYPE OK 2 (no defeq-only), MUTANT REJECTED 11 (of_parts 6, parts 5), AXIOMS OK 2 standard, CLOSURE OK + controls; clean build is the coder's. Mutants are rejected by signature comparison, not semantic counterexamples. No sorry/axiom/native_decide.
 /-! # DG-SEM U9 check (Tools/ShippingGen5SemDataOfParts.lean): 2 theorems typed against independent `Exp*`; no new def/structure (U8's `DataOfSound` value stays covered by `GenDataCheck`). Not connected to the real `dataOfAt_sound`. -/
 namespace Tests.Gen5.SemDataOfPartsCheck
 open Lean Meta Elab

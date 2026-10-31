@@ -1,6 +1,6 @@
 import Tools.ShippingGen5SemGenData
 set_option autoImplicit false
--- NOT BUILT HERE (U9, scripts/gen5/DG_SEM_FREEZE_P9.md §2.1; freeze approved at 7f72f5c3. Not elaborated/built when written. Not connected to the real `dataOfAt_sound` / `initOk_of_ok` (they live on another branch, not imported). No sorry/axiom/native_decide.
+-- NOT BUILT HERE (U9, scripts/gen5/DG_SEM_FREEZE_P9.md §2.1; freeze approved at 7f72f5c3. Pod incremental build of Tools.ShippingGen5SemDataOfParts exit 0 (714 jobs) at Lean tree 766e78a2; clean build is the coder's. No defeq-only site. Not connected to the real `dataOfAt_sound` / `initOk_of_ok` (they live on another branch, not imported). No sorry/axiom/native_decide.
 /-! # DG-SEM U9 (scripts/gen5/DG_SEM_FREEZE_P9.md §2): `DataOfSound` ⇔ (3-conjunct soundness) ∧ (`initOk` from `ok`).
 
 Pure logic over the P8 definition `DataOfSound`. Supplies no real `dataOf`/`initsOf`, no `dataOfAt_sound` connection (unproved here), no `GenWF`,
