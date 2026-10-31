@@ -3,8 +3,8 @@ import Tools.ShippingGen5DCEntryS
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.DeclConnectCheck
 set_option autoImplicit false
--- U-NORAW checks (scripts/gen5/DC_CONNECT_NORAW_FREEZE.md §4). NOT BUILT (clean): agent incremental build only; base clean build dc17v-1c948e47 exit 0 (U-RESETN).
--- Counts (agent incremental build, 750 jobs): TYPE 5 (3 theorems + 2 source pins) + 3 self-comparisons, MUT 17 (single change) + BLOCK 1 + CONJ 2, AX 3, CLOSURE 3 roots.
+-- U-NORAW checks (scripts/gen5/DC_CONNECT_NORAW_FREEZE.md §4). Issue-linked clean build dc19v-716d342b exit 0 (750 jobs); approved at 716d342b.
+-- Counts: TYPE 5 (main 3 + source-pin 2) + self 3; MUT 17 (single change) + BLOCK 1 + CONJ 2; AX 3; CLOSURE 3 roots. The freeze listed CONJ 0; 2 source-pin negative controls (CONJ) were added in the implementation.
 
 /-! # DC-CONNECT U-NORAW: checks
 
