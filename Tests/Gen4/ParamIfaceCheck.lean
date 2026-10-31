@@ -1,8 +1,7 @@
 import Tools.ShippingGen4ParamIface
 import Tools.ShippingGen4ParamKeeps
 set_option autoImplicit false
--- BUILT (clean issue-linked, earlier content): par8v-ada16f86 (Tests.Gen4.ParamIfaceCheck) exit 0, 706 jobs, at ada16f86. That build predates the R2 change below.
--- NOT BUILT (clean issue-linked): the R2 change (unresolved closure names fail; 3 unknown-name negatives + clean control). Pod build only: kjob lake build Tests.Gen4.ParamIfaceCheck exit 0, 705 jobs.
+-- BUILT (clean issue-linked): par9v-38e1f06f (Tests.Gen4.ParamIfaceCheck) exit 0, 705 jobs, approved at 38e1f06f; includes the R2 change (unresolved closure names fail; 3 unknown-name negatives + clean control).
 -- Directive counts in this file (rule: count of top-level `#...` directive lines per kind, each a pass/fail assertion, silent on success; the unknown-name
 -- fixture is ONE directive that runs 4 internal cases): type_defeq 7, value_defeq 5, mutant_rejected 5, audit_axioms 12, audit_closure 12,
 -- closure_detects 2, closure_clean 2, sig_clean 2, closure_unknown_fixtures 1 (3 negatives + 1 clean control).

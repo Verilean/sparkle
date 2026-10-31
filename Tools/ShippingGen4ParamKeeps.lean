@@ -2,7 +2,7 @@ import Tools.ShippingChildBalance
 import Tools.ShippingChildBody
 import Tools.ShippingGen4ParamEntry
 set_option autoImplicit false
--- BUILT: clean issue-linked build par6v-41ad0be7 (Tests.Gen4.ParamIfaceCheck) exit 0, 705 jobs, at 41ad0be7. Comment-only update.
+-- BUILT: clean issue-linked build par9v-38e1f06f (Tests.Gen4.ParamIfaceCheck) exit 0, 705 jobs, approved at 38e1f06f. Comment-only update.
 
 /-! # M4 parametric entry, rev4 §11.2: I3c for the OUTERMOST symbolic run (scripts/gen4/PARAMETRIC_FREEZE.md)
 

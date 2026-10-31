@@ -23,7 +23,7 @@ def evalM (θ : Binding) : DimExpr → Except String Nat
       | none => .error s!"missing specialization binding for parameter '{n}'"
   | .add a b => do let x ← evalM θ a; let y ← evalM θ b; pure (x + y)
   | .sub a b => do let x ← evalM θ a; let y ← evalM θ b
-                   if x < y then throw "hardware dimension subtraction underflow" else pure (x - y)
+                   if x < y then throw s!"hardware dimension subtraction underflow: {x} - {y}" else pure (x - y)
   | .mul a b => do let x ← evalM θ a; let y ← evalM θ b; pure (x * y)
   | .div a b => do let x ← evalM θ a; let y ← evalM θ b
                    if y == 0 then throw "hardware dimension division by zero" else pure (x / y)
