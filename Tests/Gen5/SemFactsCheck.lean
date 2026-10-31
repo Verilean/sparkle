@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemFacts
 import Tests.Gen5.SemCausalCheck
 set_option autoImplicit false
--- Pod incremental build (kjob lake build Tests.Gen5.SemFactsCheck) exit 0 (714 jobs) on the content of a00f8017 (Lean/lakefile identical to the commit); clean issue-linked build is the coder's. No sorry/axiom/native_decide.
+-- Clean issue-linked build smu11v-7b5b844f exit 0 (714 jobs), approved at 7b5b844f: TYPE 3 / MUTANT 9 / AXIOMS 4 standard / CLOSURE 4231 consts (3 roots) / REACH 6. No sorry/axiom/native_decide.
 /-! # DG-SEM U6B check (Tools/ShippingGen5SemFacts.lean; scripts/gen5/DG_SEM_FREEZE_P6D.md §3.1)
 
 * TYPE    — `genFacts_gen`, `genFacts_comb`, `genFacts` by statement against `Exp*` written here from the sentences of §3

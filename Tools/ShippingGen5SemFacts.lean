@@ -1,6 +1,6 @@
 import Tools.ShippingGen5SemCausal
 set_option autoImplicit false
--- Pod incremental build (kjob lake build Tools.ShippingGen5SemFacts) exit 0 on the content of a00f8017 (Lean/lakefile identical to the commit); clean issue-linked build is the coder's. No sorry/axiom/native_decide.
+-- Clean issue-linked build smu11v-7b5b844f exit 0 (714 jobs), approved at 7b5b844f (U6B; conditional on hQ). Kernel type/value audit only, not an audit of opaque implementations or compiled code. No sorry/axiom/native_decide.
 /-! # DG-SEM U6B (scripts/gen5/DG_SEM_FREEZE_P6D.md §3): `genFacts_gen`, `genFacts_comb`, `genFacts`
 
 `FactsOf (genSemI Q X g)`: the `.gen` arm (`GenFacts`, conditional on `CalleesCausal Q g.d` for its `causal` field only, through
