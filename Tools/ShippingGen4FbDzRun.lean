@@ -1,7 +1,7 @@
 import Tools.ShippingGen4FbPP
 import Tools.ShippingPostSoundness
 set_option autoImplicit false
--- NOT BUILT (unit FB-20): written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §29.3 (committed d283cd0d before this file).
+-- BUILT in the Pod only (unit FB-20): kjob lake build Tools.ShippingGen4FbDzRun exit 0 (702 jobs) at cd693e12 (not a clean issue-linked build). Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §29.3 (committed d283cd0d before this file).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 
 /-! # FB-19: `ChildRunN` run transport across the zero-width clean-up, instance-free body

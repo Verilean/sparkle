@@ -2,7 +2,7 @@ import Tools.ShippingGen4FbDzRun
 import Tests.Gen4.FbPPCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (unit FB-20): Pod build only until the coder's clean build.
+-- BUILT in the Pod only (unit FB-20): kjob lake build Tests.Gen4.FbDzRunCheck exit 0 (814 jobs) at cd693e12 (not a clean build): TYPE 2 / MUTANT REJECTED 10 / AXIOMS 2 (standard only), sorry 0.
 -- Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §29.3/§29.4. Reuses `fbReach`/`auditOk`/`addFixture` of Tests.Gen4.FbPPCheck.
 -- All TYPE/MUTANT comparisons run under `withReducible` (one comparator, as FbPPRunCheck).
 -- Checks: TYPE (2 theorems), MUTANT (well-typed single changes; signature/defeq rejections, NOT semantic counterexamples),
