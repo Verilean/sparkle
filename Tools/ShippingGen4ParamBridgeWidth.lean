@@ -1,6 +1,6 @@
 import Tools.ShippingGen4ParamBridgeShape
 set_option autoImplicit false
--- NOT BUILT: implementation of scripts/gen4/PARAMETRIC_BRIDGE_UNIT3_FREEZE.md §2 (E1 = B2' model side); build pending.
+-- BUILT: clean issue-linked build parv-d7892ef6 (Tests.Gen4.ParamBridgeWidthCheck, kjob lake incremental) exit 0, 229 jobs, approved at d7892ef6. Comment-only update. Implementation of scripts/gen4/PARAMETRIC_BRIDGE_UNIT3_FREEZE.md §2 (E1 = B2' model side).
 
 /-! # M4 parametric, bridge unit 3 (E1 = B2', model side) (scripts/gen4/PARAMETRIC_BRIDGE_UNIT3_FREEZE.md §2)
 

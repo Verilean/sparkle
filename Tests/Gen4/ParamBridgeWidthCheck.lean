@@ -1,7 +1,7 @@
 import Lean
 import Tools.ShippingGen4ParamBridgeWidth
 set_option autoImplicit false
--- NOT BUILT: build pending.
+-- BUILT: clean issue-linked build parv-d7892ef6 (Tests.Gen4.ParamBridgeWidthCheck, kjob lake incremental) exit 0, 229 jobs, approved at d7892ef6. Comment-only update.
 -- Directive counts (rule: count of top-level `#...` directive lines per kind; each is one pass/fail assertion, silent on success;
 -- the unknown-name fixture is ONE directive running 4 internal cases): type_defeq 1, mutant_rejected 8, audit_axioms 1, audit_closure 1,
 -- closure_detects 2, closure_clean 2, sig_clean 2, closure_unknown_fixtures 1.
