@@ -129,3 +129,13 @@ U6b = `readMachine_run`, `getEnv_value` ×3, `envFrame_getConstInfo X hg`, `hg`,
 ## 5. Not claimed
 `hentry` supplied (U6b is conditional on `hg`, `hw`, `hX`); `GetEnvFrame` or `hw` supplied; hq supplied; reader coverage; real-run tie; FG, M5, DG-COVER completion.
 `RootFactsAt r.entry` (U6a) is existence from the peel, as in U5; it is not a statement about which body `readMachine` used (that is U6d). Build: `kjob lake build` one target at a time in the pod; after Lean commits the Issue stays `doing` (clean build is the coder's).
+
+## 6. Implementation record (difference from §3-§4)
+
+* U6a, U6d, U6b are all written and elaborate in the pod (`kjob lake build Tools.ShippingGen5ReadKindsU6` exit 0, 573 jobs; `Tests.Gen5.ReadKindsU6Check` exit 0, 816 jobs). U6d needed no change beyond the one in §3 except that the pure-return hypothesis is named `hpr` (the original names it `hp`, which would shadow the peel `hp`). The memory risk named in §3 did not occur in the pod build.
+* `ReadRoot` is stated as in §3. U6b is stated with the chain pieces as in §3 (not with `RunReadsAt`).
+* Check, actual counts (summary lines excluded): TYPE 5 comparisons (3 theorems + 1 definition `ReadRoot` + 1 positive control); MUTANT 6 (U6a `∀ body`; `ReadRoot` with `nIn` for `rootLets`; U6b without `hg`; without `hw`; `envR'` in the entry; without the shape conjunct) = signature/defeq rejections of changed statements, not semantic counterexamples;
+  REACH 3 (T1Hyp/T1HypND/Laws not reached; unknown 0); the full forbid set (incl. `Lean.Expr.equal`) is reached through the program `readMachine` (U6a, U6b) or inside `readMachine_root` and is logged as `RK-U6 FACT`; it is not a law the proofs use; CONTROL 1; AXIOMS 3 (standard three).
+  The plan's mutant "U6a with an unrelated `ci`" was replaced by the `∀ body` mutant (U6a has no `ci`).
+* `readMachine_root`'s REACH reports hit via `Lean.Expr.equal` in the full set directly from the theorem (the walk's `Decidable.casesOn` on `q.equal shape.body` is part of the `readMachine` program the proof walks). No `Expr.equal` law is used.
+* The `GetEnvFrame` premise of U6b stays an unproved hypothesis; this unit does not supply it.
