@@ -3,8 +3,8 @@ import Tools.ShippingMemoInv
 import Tools.ShippingLegacySemMemoWalk
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- BUILT (unit FB-11): kjob lake build Tests.Gen4.FbFin0Check exit 0, 810 jobs (Pod build, NOT a clean issue-linked build; that is the coder's). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §19.5/§19.7 (rev11, scoped approved at 23682b7b); Expected types typed again from §19.5.
--- Checks: TYPE (independent Expected typed again from §17.3), MUTANT (signature/defeq rejections, NOT semantic counterexamples),
+-- BUILT (unit FB-11): kjob lake build Tests.Gen4.FbFin0Check exit 0, 810 jobs (Pod build); clean issue-linked build fb11v-438d2448 exit 0, 812 jobs, scoped approved at 438d2448. Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §19.5/§19.7 (rev11, scoped approved at 23682b7b); Expected types typed again from §19.5.
+-- Checks: TYPE (independent Expected typed again from §19.5), MUTANT (signature/defeq rejections, NOT semantic counterexamples),
 -- AXIOMS, value-closure audit with a `missing` list that FAILS when non-zero (an unknown constant is not "clean"), and controls.
 
 namespace Tests.Gen4.FbFin0Fixture

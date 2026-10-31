@@ -1,6 +1,6 @@
 import Tools.ShippingGen4FbFin
 set_option autoImplicit false
--- BUILT (unit FB-11): kjob lake build Tools.ShippingGen4FbFin0 exit 0 (Pod build, NOT a clean issue-linked build; that is the coder's). Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §19.5 (rev11, scoped approved at 23682b7b). 
+-- BUILT (unit FB-11): kjob lake build Tools.ShippingGen4FbFin0 exit 0 (Pod build); clean issue-linked build fb11v-438d2448 exit 0, 812 jobs, scoped approved at 438d2448. Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §19.5 (rev11, scoped approved at 23682b7b).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Two theorems only.
 
 /-! # FB-11: T-FIN at depth 0 on the `R4RunInvT` side
