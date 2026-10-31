@@ -4886,3 +4886,9 @@ lean_lib «Tools.ShippingGen4FbMachInv» where
 
 lean_lib «Tests.Gen4.FbMachInvCheck» where
   roots := #[`Tests.Gen4.FbMachInvCheck]
+
+lean_lib «Tools.ShippingGen4FbPP» where
+  roots := #[`Tools.ShippingGen4FbPP]
+
+lean_lib «Tests.Gen4.FbPPCheck» where
+  roots := #[`Tests.Gen4.FbPPCheck]
