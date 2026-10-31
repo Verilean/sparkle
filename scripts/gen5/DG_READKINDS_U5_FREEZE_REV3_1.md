@@ -102,3 +102,10 @@ untyped `∃ entryV bsIn entryBody₀, … value? …`; the peel-only unfolded s
 * The check log does NOT carry a "no producer" line for `RootFactsAt`. It records: `RootFactsAt` supplied by the peel; `RootFactsTie` at an externally fixed body, `hentry`, `hq`: not supplied.
 
 Build: `kjob lake build` one target at a time in the pod; after Lean commits the issue stays `doing` ("clean build は coder").
+
+## Implementation record (difference from the Check plan above)
+
+* CLOSURE forbid set for U5 drops `Lean.Expr.equal` / `Lean.Expr.eqv`: `peel_of_machineShape` and `rootFactsAt_of_runReads` reach them only through the PROGRAM
+  `machineShape?` (`machBindLetNamed` → `Expr` `BEq` → `eqv`), which the statements talk about; the proofs use no `Expr.equal` law. The Check keeps `T1Hyp`/`T1HypND`
+  (name, raw proj, rec) and `Laws` forbidden, and logs the full-set hit path as a fact (`RK-U5 FACT`). `rootFacts_unique` does not reach them at all.
+* Positive control of the comparator is a separately written copy (`CopyOfPeel`) of `ExpPeel`.

@@ -4793,3 +4793,9 @@ lean_lib «Tools.ShippingGen5EnvQ» where
 
 lean_lib «Tests.Gen5.EnvQCheck» where
   roots := #[`Tests.Gen5.EnvQCheck]
+
+lean_lib «Tools.ShippingGen5ReadKindsU5» where
+  roots := #[`Tools.ShippingGen5ReadKindsU5]
+
+lean_lib «Tests.Gen5.ReadKindsU5Check» where
+  roots := #[`Tests.Gen5.ReadKindsU5Check]
