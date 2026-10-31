@@ -3,7 +3,7 @@ import Tests.Gen5.ReadKindsCheck
 import Tests.Gen5.ReadKindsU5Check
 import Tests.Gen5.ReadKindsU7Check
 set_option autoImplicit false
--- Built: kjob lake build Tests.Gen5.ReadKindsU10Check exit 0 (823 jobs) in the pod (job g5rk-r16) on the uncommitted working tree whose Lean+lakefile content equals commit 0da94331 (conditional intermediate, M5/FG not complete; clean build is the coder's). Freeze: scripts/gen5/DG_READKINDS_U10_FREEZE.md. No sorry / axiom / native_decide.
+-- Built: kjob lake build Tests.Gen5.ReadKindsU10Check exit 0 (823 jobs), clean issue-linked build rk16v-1045325e (dirty=false), approved at 1045325e (U10a/b/c only; conditional intermediate, M5/FG not complete). Freeze: scripts/gen5/DG_READKINDS_U10_FREEZE.md. No sorry / axiom / native_decide.
 
 /-! # DG-READKINDS U10 checks (Tools/ShippingGen5ReadKindsU10.lean)
 

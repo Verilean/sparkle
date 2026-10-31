@@ -1,4 +1,4 @@
-# DG-READKINDS U10 freeze (Issue sparkle-gen5-dg-readkinds; base a04a7a8e = 730dbea5 + header sync, branch kjob/g5rk-r15) — DESIGN ONLY, no Lean yet
+# DG-READKINDS U10 freeze (Issue sparkle-gen5-dg-readkinds; base a04a7a8e = 730dbea5 + header sync, branch kjob/g5rk-r15) — implemented (U10a/b/c); build rk16v-1045325e exit 0, approved at 1045325e (see §7); conditional intermediate
 
 Extends `DG_READKINDS_FREEZE.md` and the U5–U9 freezes. Sections not named here are unchanged.
 New Lean only in NEW files `Tools/ShippingGen5ReadKindsU10.lean`, `Tests/Gen5/ReadKindsU10Check.lean` (lakefile `lean_lib` additions only).
