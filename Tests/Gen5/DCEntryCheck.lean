@@ -3,7 +3,7 @@ import Tools.ShippingGen5DCEntry
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.DeclConnectCheck
 set_option autoImplicit false
--- Built at 160ba5d174b3b055a526917964cf358a7d9a019f (agent build `kjob lake build Tests.Gen5.DCEntryCheck` exit 0, 746 jobs; NOT clean-built, clean build by coder pending). Counts by category: TYPE 3 (statements; 2 self-comparison positive controls not counted), MUTANT 13 (PostT1 3, run 5, o1 5), CONJ 5 (PostT1 2, run 2, o1 1), AXIOMS 3, CLOSURE 3 + 1 missing-owner control + 1 forbidden-mention control + 1 clean control. All signature/defeq rejections under withReducible, NOT semantic counterexamples.
+-- Built: clean issue-linked build dc9vb-db171c2e exit 0, 746 jobs, at db171c2e (kjob lake incremental build), approved at db171c2e (scoped; comment-only commits since). Counts by category: TYPE 3 (statements; 2 self-comparison positive controls not counted), MUTANT 13 (PostT1 3, run 5, o1 5), CONJ 5 (PostT1 2, run 2, o1 1), AXIOMS 3, CLOSURE 3 + 1 missing-owner control + 1 forbidden-mention control + 1 clean control. All signature/defeq rejections under withReducible, NOT semantic counterexamples.
 
 /-! # DC-CONNECT U-POST: checks (scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §4, §5)
 

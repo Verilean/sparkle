@@ -1,10 +1,10 @@
 import Tools.ShippingPostSoundness
 set_option autoImplicit false
--- Built at 160ba5d174b3b055a526917964cf358a7d9a019f (agent build `kjob lake build Tools.ShippingGen5DCEntry` exit 0, 251 jobs; NOT clean-built, clean build by coder pending). U-POST, scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §4
+-- Built: clean issue-linked build dc9vb-db171c2e exit 0, 746 jobs, at db171c2e (kjob lake incremental build), approved at db171c2e (scoped; not a final adoption of `Post`; comment-only commits since). U-POST, scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §4
 
 /-! # DC-CONNECT U-POST: the default entry satisfies the `T1Stmt` post-processing relation
 
-Design only about the default route (`synthesizeCombinational`); no parametric route, no `ReflectsAll`, no O2/O3,
+Concerns only the default route (`synthesizeCombinational`); no parametric route, no `ReflectsAll`, no O2/O3,
 no relation between the core's design `D` and the returned `D'`, no connection of O3's arbitrary `raw` to the
 core witness's `raw`. -/
 
