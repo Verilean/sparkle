@@ -1041,7 +1041,8 @@ The companion's proof is `⟨a4_inv_tail_machine_or_R4RunInvT L P Reach hA hI hC
 `Tests/Gen4/FbFinCheck.lean`: (1) TYPE: `ExpTFinStop`, `ExpA4InvTailFin` typed independently (full `∀`, `h1` at the §15.2 position, `R4RunInvT` written with its §15.1 body via a local `ExpR4RunInvT` copy typed again); (2) the §14.5 mutants plus `h1` after `hI` (rejected by the same comparator); (3) projection `a4_inv_tail_fin → K-RUNT statement` and `→ tFin_stop` as theorems; (4) AXIOMS standard three; (5) value closure per §14.4 with `missing` list: no `Tools.ShippingMemo.*`; `missing = 0` required (fails otherwise); `stop_of_run` reached; controls (a) absent root → failure caught as expected, (b) flagged fixtures (direct, two-helper, raw `Expr.proj`) flagged, (c) unrelated and FB-3 theorem not flagged with `missing = 0`; also a control that a theorem which RE-PROVES the keep without `stop_of_run` does not reach it. `missing` counts constants that `env.find?` does not resolve; these never silently pass. missing (`env.find?` absent) ⇒ fail, i.e. "not established", never "no reference".
 
 ### 15.5 Target manifest (for the coder's clean issue-linked build at the exact integration SHA)
-The exact SHA to build is the commit that contains this section AND the Lean files of §15.4 (recorded in the Issue note; do not build an earlier SHA). One target per build, sequentially (Pod rule). Order: new → FB → ClosingRun → Defs-affected.
+[Record fix after review of 8c7e5ff6: the Tier-B list below is renumbered 8–48 (it originally repeated number 7), so the manifest has **48 modules** = 7 + 41. The build was run as **one multi-target build** (not one target per build) with **47 target arguments**: `Tests.Gen5.EnvCheck` (#48) was not passed; it is built through `Tests.Gen5.EnvRCheck`. All 48 modules have Built/Replayed lines in log `fb7w-8c7e5ff6` (exit 0, 1090 jobs, scoped approved at 8c7e5ff6).]
+The exact SHA to build is the commit that contains this section AND the Lean files of §15.4 (recorded in the Issue note; do not build an earlier SHA). Order: new → FB → ClosingRun → Defs-affected.
 1. `Tools.ShippingGen4FbFin`
 2. `Tests.Gen4.FbFinCheck`
 3. `Tests.Gen4.FbTailInvCheck` (existing FB checks on the merged tree; imports `ShippingGen2Defs`, whose `ShipsRes` changed)
@@ -1050,47 +1051,47 @@ The exact SHA to build is the commit that contains this section AND the Lean fil
 6. `Tests.Gen4.FbR4Check` (no `ShippingGen2Defs` in its closure; built as a regression control)
 7. `Tests.Gen5.ClosingRunCheck` (the consumed lineage on the merged tree)
 Tier B (affected by the `ShippingGen2Defs` / `ShipsRes` / `TopShips` change on the merged tree; these are that lineage's checks, listed so that a failure caused by the merge is separated from a failure of this unit; computed from the `import` graph: every `Tests.*` module whose import closure contains a modified module of §15.3 item 1):
-7. `Tests.Gen2.AdaptInstance`
-8. `Tests.Gen2.LeafInstance`
-9. `Tests.Gen2.CallDecInstance`
-10. `Tests.Gen2.TopNCCheck`
-11. `Tests.Gen2.SlotlessCheck`
-12. `Tests.Gen2.MemParentInstance`
-13. `Tests.Gen2.S4StageACheck`
-14. `Tests.Gen2.QuantInstance`
-15. `Tests.Gen2.PkgCompat`
-16. `Tests.Gen2.PMem4Check`
-17. `Tests.Gen2.DataBridgeCheck`
-18. `Tests.Gen2.S4StageBCheck`
-19. `Tests.Gen2.OneOutCallField`
-20. `Tests.Gen2.SlotlessLeafInstance`
-21. `Tests.Gen2.U0Check`
-22. `Tests.Gen2.S3GroupCheck`
-23. `Tests.Gen2.S4FitCheck`
-24. `Tests.Gen2.S5Check`
-25. `Tests.Gen3.ArgSupplyCheck`
-26. `Tests.Gen3.PortWidthsPrepCheck`
-27. `Tests.Gen3.PostFactsCheck`
-28. `Tests.Gen3.ServedCheck`
-29. `Tests.Gen3.ChildPortWidthsCheck`
-30. `Tests.Gen3.ArgSupply3Check`
-31. `Tests.Gen3.ArgWidthCheck`
-32. `Tests.Gen3.T1Check`
-33. `Tests.Gen3.ArgWidthSrcCheck`
-34. `Tests.Gen3.SlotlessPortWidthsCheck`
-35. `Tests.Gen3.ArgSupply2Check`
-36. `Tests.Gen3.ArityCheck`
-37. `Tests.Gen3.ArgSupply4Check`
-38. `Tests.Gen5.T2DecCheck`
-39. `Tests.Gen5.EnvQCheck`
-40. `Tests.Gen5.T1NDCheck`
-41. `Tests.Gen5.T2TieCheck`
-42. `Tests.Gen5.RunReadsCheck`
-43. `Tests.Gen5.T2OutTyCheck`
-44. `Tests.Gen5.T2ConnCheck`
-45. `Tests.Gen5.T2RangeCheck`
-46. `Tests.Gen5.EnvRCheck`
-47. `Tests.Gen5.EnvCheck`
+8. `Tests.Gen2.AdaptInstance`
+9. `Tests.Gen2.LeafInstance`
+10. `Tests.Gen2.CallDecInstance`
+11. `Tests.Gen2.TopNCCheck`
+12. `Tests.Gen2.SlotlessCheck`
+13. `Tests.Gen2.MemParentInstance`
+14. `Tests.Gen2.S4StageACheck`
+15. `Tests.Gen2.QuantInstance`
+16. `Tests.Gen2.PkgCompat`
+17. `Tests.Gen2.PMem4Check`
+18. `Tests.Gen2.DataBridgeCheck`
+19. `Tests.Gen2.S4StageBCheck`
+20. `Tests.Gen2.OneOutCallField`
+21. `Tests.Gen2.SlotlessLeafInstance`
+22. `Tests.Gen2.U0Check`
+23. `Tests.Gen2.S3GroupCheck`
+24. `Tests.Gen2.S4FitCheck`
+25. `Tests.Gen2.S5Check`
+26. `Tests.Gen3.ArgSupplyCheck`
+27. `Tests.Gen3.PortWidthsPrepCheck`
+28. `Tests.Gen3.PostFactsCheck`
+29. `Tests.Gen3.ServedCheck`
+30. `Tests.Gen3.ChildPortWidthsCheck`
+31. `Tests.Gen3.ArgSupply3Check`
+32. `Tests.Gen3.ArgWidthCheck`
+33. `Tests.Gen3.T1Check`
+34. `Tests.Gen3.ArgWidthSrcCheck`
+35. `Tests.Gen3.SlotlessPortWidthsCheck`
+36. `Tests.Gen3.ArgSupply2Check`
+37. `Tests.Gen3.ArityCheck`
+38. `Tests.Gen3.ArgSupply4Check`
+39. `Tests.Gen5.T2DecCheck`
+40. `Tests.Gen5.EnvQCheck`
+41. `Tests.Gen5.T1NDCheck`
+42. `Tests.Gen5.T2TieCheck`
+43. `Tests.Gen5.RunReadsCheck`
+44. `Tests.Gen5.T2OutTyCheck`
+45. `Tests.Gen5.T2ConnCheck`
+46. `Tests.Gen5.T2RangeCheck`
+47. `Tests.Gen5.EnvRCheck`
+48. `Tests.Gen5.EnvCheck`
 Not claimed by building these: no acceptance of any lineage, no Issue completion.
 
 ### 15.6 What this section does not claim

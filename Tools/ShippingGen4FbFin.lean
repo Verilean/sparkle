@@ -1,7 +1,7 @@
 import Tools.ShippingGen4FbTailInv
 import Tools.ShippingGen5ClosingRun
 set_option autoImplicit false
--- BUILT (unit FB-7) at b103bd90: kjob lake build Tools.ShippingGen4FbFin exit 0 (758 jobs, Pod build; NOT a clean issue-linked build, the coder runs that). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §14.1/§15.1 (rev8/rev9).
+-- BUILT (unit FB-7) at b103bd90 (header-sync 8c7e5ff6): kjob lake build Tools.ShippingGen4FbFin exit 0 (758 jobs, Pod build); clean issue-linked build: fb7w-8c7e5ff6 exit 0, 1090 jobs, scoped approved at 8c7e5ff6. Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §14.1/§15.1 (rev8/rev9).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. Two theorems only.
 
 /-! # FB-7: T-FIN for `D ≥ 1` by consuming the ClosingRun `stop_of_run`

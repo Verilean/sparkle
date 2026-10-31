@@ -2,7 +2,7 @@ import Tools.ShippingGen4FbFin
 import Tools.ShippingMemoInv
 import Tests.Gen4.FbTailInvCheck
 set_option autoImplicit false
--- BUILT (unit FB-7) at b103bd90: kjob lake build Tests.Gen4.FbFinCheck exit 0 (764 jobs, Pod build; NOT a clean issue-linked build): TYPE OK x2 (companion via logged isDefEq), MUTANT REJECTED x8, REACH missing 0 + stop_of_run reached, AXIOMS OK x4. Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §14.4/§14.5/§15 (rev8/rev9).
+-- BUILT (unit FB-7) at b103bd90 (header-sync 8c7e5ff6): kjob lake build Tests.Gen4.FbFinCheck exit 0 (764 jobs, Pod build); clean issue-linked build: fb7w-8c7e5ff6 exit 0, 1090 jobs, scoped approved at 8c7e5ff6: TYPE OK x2 (companion via logged isDefEq), MUTANT REJECTED x8, REACH missing 0 + stop_of_run reached, AXIOMS OK x4. Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §14.4/§14.5/§15 (rev8/rev9).
 -- Checks: TYPE (independent Expected, `h1` at the §15.2 position), MUTANT (signature/defeq rejections, NOT semantic counterexamples),
 -- projections as theorems, AXIOMS, value-closure audit with a `missing` list that FAILS when non-zero, and controls.
 
@@ -167,7 +167,7 @@ def MutFinH1AfterHI : Prop :=
     {X : Name} {D : Nat} {w w' : Void IO.RealWorld}
     {raw : Sparkle.IR.AST.Module} {dsg : Sparkle.IR.AST.Design}
     (hC : ChildKeepsInv L P Reach (D + 1)) (hI : InvAt L P Reach D w) (h1 : 1 ≤ D)
-    
+
     (hr : RunsTo (synthesizeCombinationalCore X [] false) mctx mref cctx cref w (raw, dsg) w'),
     InvAt L P Reach D w'
 
@@ -206,7 +206,7 @@ def MutCompH1AfterHI : Prop :=
     {declName : Name} {shape : MachineShape} {D : Nat}
     {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
     (hI : InvAt L P Reach D w) (hC : ChildKeepsInv L P Reach (D + 1)) (h1 : 1 ≤ D)
-    
+
     (hr : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (m, d) w')
     (entry : MachineDefines mctx mref cctx cref declName shape),
     (A4MachineSideA L.O mctx cctx D declName shape m d w w' ∨
