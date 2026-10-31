@@ -1,6 +1,7 @@
 # DG-ACC freeze rev7 (issue `sparkle-gen5-dg-acc`): supplier table after A6c, and the next unit A7
 
 **FOR REVIEW (docs only; no Lean for A7 is written until this is approved).** Rev1-rev6 unchanged. Base: `kjob/g5ac-r12` d9a894b2 (A6c approved; clean build `acv-d9a894b2`, exit 0, 737 jobs).
+Status sync (r15, comment/docs only): A7 built as `ac14v-c12df3ef` (exit 0, 725 jobs), approved at c12df3ef; row C below updated.
 Header comment / rev6-table sync (A6c: build `acv-d9a894b2`, approved at d9a894b2) committed at 1502bea4, comment/docs only.
 
 Tags: `[S]` source read (this worktree, or the named branch via `git show`); `[B]` built in this lineage. Nothing below was elaborated yet (statements only; the proof sketch is a plan, not a result).
@@ -11,7 +12,7 @@ Conditional results are INTERMEDIATE, never completion. Maintained: `GetEnvFrame
 
 | row | premise (full type in) | existing lemma found (real name, location) | closes from it in this lineage? | state |
 |---|---|---|---|---|
-| C | `ClosesOfShape env₀ L Reach` (`Tools/ShippingGen5AccRoute.lean:42` `[B]`) | `Tools.ShippingMachineClosesData.letsClose_of_data` (`:177` `[B]`, needs `d.ok`, `d.shape.body = quote …`, `d.letsAliasOk`), `Tools.ShippingClosesSplit.machineCloses_iff` (`:50` `[B]`), `Tools.ShippingGen5Acc.machineClosesAtA_of_closes` (`Tools/ShippingGen5AccServed.lean:440` `[B]`), `K.genData₀_dataOf`, `dataOf₀_of_genData₀` (`Tools/ShippingGen5Acc.lean:58` `[B]`) | **yes, as a reduction**: `LetsClose` and (for `insts = []`) the whole `MachineCloses` follow from the three data facts; for `insts ≠ []` `CallsClose` stays a premise | **A7 below** |
+| C | `ClosesOfShape env₀ L Reach` (`Tools/ShippingGen5AccRoute.lean:42` `[B]`) | `Tools.ShippingMachineClosesData.letsClose_of_data` (`:177` `[B]`, needs `d.ok`, `d.shape.body = quote …`, `d.letsAliasOk`), `Tools.ShippingClosesSplit.machineCloses_iff` (`:50` `[B]`), `Tools.ShippingGen5Acc.machineClosesAtA_of_closes` (`Tools/ShippingGen5AccServed.lean:440` `[B]`), `K.genData₀_dataOf`, `dataOf₀_of_genData₀` (`Tools/ShippingGen5Acc.lean:58` `[B]`) | **yes, as a reduction**: `LetsClose` and (for `insts = []`) the whole `MachineCloses` follow from the three data facts; for `insts ≠ []` `CallsClose` stays a premise | **A7 below**: implemented, clean build `ac14v-c12df3ef` exit 0 (725 jobs), approved at c12df3ef (conditional on `ClosesData` / `ClosesCalls` / `ReachCover` / `DataOfShape` as inputs) |
 | C′ | `CallsClose` for non-leaf reached names | `machineClosesAtA_of_pure` (`Tools/ShippingCallsCloseA.lean:138` `[S]`) needs `CallsPureA`, which is stated over real children (`ChildrenRealA`), i.e. the same induction as `AccServed0Stmt` | this survey did not find a non-circular route | not supplied / no route found |
 | F | `d.ok`, `d.shape.body = quote …`, `d.shape = s` | `dataOfFrom_sound` / `dataOfAt_sound` (`kjob/g5do-r6:Tools/ShippingGen5DataOf.lean:197,211`, conjuncts 1-3, owner dg-dataof) | not importable on this lineage; stated as a premise of its exact conjunct shape | integration obligation (owner dg-dataof) |
 | L | `d.letsAliasOk = true` | this survey did not find a lemma giving it from `dataOfFrom` (`dataOfFrom_sound` does not list it) | no | not supplied / no route found |
