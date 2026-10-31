@@ -1,7 +1,7 @@
 import Tools.ShippingGen4FbPP
 import Tools.ShippingMachineDepthRunR
 set_option autoImplicit false
--- BUILT (unit FB-15): kjob lake build Tools.ShippingGen4FbPPLookup exit 0 (702 jobs, Pod build at f21380e345c9b94b58878d7d7474d57c8af6c42f; not a clean build). Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §25.3 + §26 (committed before this file). Build record is added by a comments-only commit.
+-- BUILT (unit FB-15): kjob lake build Tools.ShippingGen4FbPPLookup exit 0 (702 jobs, Pod build at f21380e3); clean issue-linked build fb16v-43b31a15 exit 0 (814 jobs, dirty=false; approved at 43b31a15, scope-limited to the lookup and the type-only-helper audit supplement). Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §25.3 + §26 (committed before this file).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 
 /-! # FB-15: T-PP-LOOKUP — design lookup through `PPRel`
