@@ -2,7 +2,9 @@ import Tools.ShippingGen5EnvFrame
 import Tools.ShippingGen5EnvQ
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- BUILT (unit U1 checks) at 84b4f0f9: TYPE 9, MUTANT 8, CLOSURE 8 roots / 12 negatives + 3 unresolved / 6 clean (+ rawProj 5 flagged, 1 not), AXIOMS 9 standard.
+-- BUILT (Pod kjob lake build, exit 0, 752 jobs) at 4499367f: TYPE 9, MUTANT 8, CLOSURE 8 roots / negatives 12 (9 direct + 3 helper) + 4 unresolved + 7 self-root / 7 clean (+ rawProj 5 flagged, 1 not), AXIOMS 9 standard.
+-- Counting rule: negatives = direct + helper controls; unresolved = throwing controls (incl. ht2: root -> helperHt -> name only in helperHt's type); self-root = forbidden constant used as the root; clean = not-flagged controls.
+-- Previous clean build env4v-79b13337 (exit 0, 752 jobs) covered the check BEFORE this change (3 unresolved / 6 clean, no self-root); clean build of the current check is the coder's.
 
 /-! # DG-ENV unit U1 checks (Tools/ShippingGen5EnvFrame.lean)
 
