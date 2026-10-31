@@ -197,3 +197,12 @@ CLOSURE unknown controls (four now, plus the clean one), each run inside `withou
 5. **clean** control (same shape, no missing name) must pass.
 The root statement itself never contains the unknown name in (3)/(4). Fixtures are built in-test with `Environment.addDecl` (axiom-free: the helper is a `defnDecl`/`thmDecl` with `sorry`-free bodies; the missing name is simply never declared) inside `withoutModifyingEnv`, so the library environment is not changed.
 Counting rule stays: TYPE/DEFTYPE/DEFBODY/MUTANT/AXIOMS/CLOSURE/REACH are reported as real counts by category.
+
+## 6. rev3 — U5E start record (agent g5sm-u7, base `1c300db6`)
+
+* **Definition identity check.** `git diff 1c300db6 43977202 -- Tools/ShippingGen5T2Tie.lean` changes exactly two things: one comment line (the `S1 combined` build header) and the destructuring pattern
+  of `hS` in the proof of `callField_at` (`obtain ⟨-, q0, n, hq0, -, hCS⟩` → `obtain ⟨-, ⟨q0, n, hq0, -, hCS⟩, -⟩`). The text of `GenExtAtCall` (`def` at line 237 in this tree), `CallOutRange`, `SigAt`, `CallTie`
+  is **identical** at both SHAs. So the type of §5.2 is the S1 version's type; no difference to report. (The `hS` shape change belongs to another file's structure at 43977202 and does not touch U5E's statement.)
+* **Statement** is §5.2 unchanged (module `Tools/ShippingGen5SemExtPkg.lean`, theorem `Tools.ShippingGen5Sem.genExtAtCall_of_genSem`, `hnd` derived from `t2r_ok_outNames_nodup q.d q.ok`). `GenWF`-derived `callKind g.d k ≠ .domain`
+  is taken from `g.wf` (`RowB`, first conjunct). No extra premise is added beyond `hp`, `hq`, `hord`.
+* **Check** `Tests/Gen5/SemExtPkgCheck.lean`: TYPE against an independently written `Exp` statement, MUTANT (well-typed single changes, signature/defeq rejection only), AXIOMS, CLOSURE with the §5.3 controls, REACH.
