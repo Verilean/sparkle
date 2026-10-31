@@ -130,3 +130,12 @@ Counts are reported as real numbers with the partition and the counting rule. Be
 
 ## 6. Not claimed
 `hw1`, env tie / C0 / `hall`, `CellPrem`, existence of the runs, `envR = envR′`, `ci ∈ envR`, `hag`, `hK`, `GateDefines`, `srcDom`, `ls`/`outs`/`nexts`, hq, coverage, FG, M5. The Issue stays open.
+
+## 7. Implementation record and non-blocking corrections (U10a/b/c implemented; conditional intermediate)
+Files: `Tools/ShippingGen5ReadKindsU10.lean`, `Tests/Gen5/ReadKindsU10Check.lean`, lakefile `lean_lib` additions only. Statements are those of §2 verbatim (the only difference: `Meta.`/`Core.` written `Lean.Meta.`/`Lean.Core.` in the theorem file; same terms under `open Lean`).
+1. **hw1 mutant (corrects §4 item 2).** The hw1 mutant keeps `∀ w1 w2 w3` and all three `RunsTo` premises of `hw1` and changes only its conclusion `ReadsAt env₀ cref w1` to `ReadsAt env₀ cref w2` (`MutHRHw1W2`). A bare `ReadsAt … w2` premise is not used (`w2` would be unbound).
+2. **hg wording.** `hg : GetEnvFrame` is an explicit premise that U9c did not have. It is an existing definition used conditionally. "law-free / no new premise" in §2 heading and text is withdrawn: it does NOT mean the runtime law behind `GetEnvFrame` is proved or adopted.
+3. **hw1 wording.** `hw1` stays a condition quantified over all matching `(w1, w2, w3)` triples. It does not supply a single actual post-`coreHead` world.
+4. **§5(a) bridge.** A later unit may bridge the accepted `EnvFrameEnd` (DG-ENV U1–U3) to `EnvFrame`/`GetEnvFrame`; this survey did not find such a bridge. Even then `ReadWorld cref` (needed by `envFrameEnd_getEnv`) remains a residual premise, together with hw1, env tie / C0, `hall`, run existence.
+Check results (pod build of the committed tree, `Tests.Gen5.ReadKindsU10Check`): TYPE 4 comparisons (3 theorems + 1 positive control); MUTANT 7 (hR_of_w1 3, h1_of_h0 1, readMachine_agrees_runReads_framed 3; conclusion-conjunct drops NoW3, NoW2, EntryOnly; others Hw1W2, AtW, NoHX, NoH0; signature/defeq rejection, not semantic counterexamples); COUNT (rule: And/Exists/∀-body leaves, premises not counted); CLOSURE reach2 (root itself tested, unknown = throw, negatives for unknown root / helper value / existing helper's type, clean control, forbidden root, fixtures in `withoutModifyingEnv`); AXIOMS standard only; no sorry.
+Still not supplied: hw1, env tie / C0, hall, ReadWorld, run existence, hag, hK, coverage, FG. The Issue stays open.
