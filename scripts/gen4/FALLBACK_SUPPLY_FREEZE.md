@@ -1635,3 +1635,62 @@ Files: `Tools/ShippingGen4FbDzRun.lean`, `Tests/Gen4/FbDzRunCheck.lean`, two `le
 
 ## 30. FB-20 implementation status (docs; Pod build only)
 `childRunN_dz_instFree` / `childRunN_dz_postReady` implemented at `cd693e12` in `Tools/ShippingGen4FbDzRun.lean` with the §29.3 types unchanged (no helper theorems; `seedIn` opened from `Tools.ShippingSeqOptSoundness`). Pod builds (one target at a time, exit 0): `Tools.ShippingGen4FbDzRun` (702 jobs), `Tests.Gen4.FbDzRunCheck` (814 jobs). Check: TYPE 2, MUTANT REJECTED 10 (well-typed single changes; signature/defeq rejections, not semantic counterexamples), AXIOMS 2 standard only, closure `missing` 0 for both roots, controls (absent root, forbidden root `Tools.ShippingMemo.memoInv_hit`, helper value / helper type unknown, clean fixture, good constant) as in FbPPRunCheck; `sorry` 0. Not a clean issue-linked build (the coder's). Still unsupplied on the routes read: instance-bearing bodies, `mergeChecked` arm, real-run supply of `PostReady` (it is an assign-only-type condition, not a general-module guarantee), T-LEG, T-MEMO, K4, M4, FG.
+
+## 31. FB-21: header sync record, survey of the remaining rows, and the next unit — real-run `PostReady` / `instFree` supply for a first-gate fragment, and `ChildRunN` transport on the clean-up arm (rev17; text for review; NOT Lean, NOT implemented)
+
+- **Status.** Docs, committed BEFORE any Lean of this unit; Lean waits for the reviewer's approval of this section. Base `cc9890f2`. First commit of this unit is comments-only: Tools/Check headers of `ShippingGen4FbDzRun` / `FbDzRunCheck` record the clean build `fb20v-cc9890f2` (exit 0, 814 jobs, dirty=false, approved at `cc9890f2`). No new law, no `Laws` field, no TRUSTED boundary, no shared-definition / compiler edit, no FG/guarantee change. "Unsupplied / route not found" means this investigation's candidate routes found no supplier in the files read; it does not say a row is false or underivable. Mutants in the planned check are signature/defeq rejections, not semantic counterexamples.
+- **FB-19 build record.** `fb20v-cc9890f2` exit 0; `FbDzRunCheck` TYPE 2 / MUTANT 10 / AXIOMS 2 (standard only), `sorry` 0; reviewer approved the two theorems as a conditional transport, not as full-path supply.
+
+### 31.1 Rows (existing names read in this investigation)
+| row | existing names read (file:line) | closes from existing lemmas? | verdict |
+|---|---|---|---|
+| **real-run `PostReady` for the core module, first-gate fragment** | `first_core_postReady` (`ShippingFirstGateChild.lean:358`: `RunsTo (synthesizeCombinationalCore declName [] false) … (M, D) w'`, `EntryDefines … declName (quoteDecl dn names n fe)`, `fe.WF names.length n` ⊢ `PostReady M n`); `EntryDefines` (`ShippingInlineSoundness.lean:48`, an existing hypothesis predicate used by the existing first-gate theorems); `synthesizeCombinational_ppRel` (FB-18) | **yes**, for declarations whose entry constant is the quoted fragment `quoteDecl dn names n fe`; it is a hypothesis of the theorem, not a statement that every module has this form | **selected (this unit)** |
+| `instFree` of that module | `PostReady` third conjunct (`ShippingEntrySoundness.lean:636`): every statement of `M.body` is `.assign l r`; `isInst` (`Sparkle/IR/Machine.lean:290`) is `true` only on `.inst`; `instFree` (`ShippingHierStateG.lean:559`) | **yes**, by the definition of `PostReady` | **selected (this unit)** |
+| `ChildRunN` run transport, clean-up arm, real run | FB-19 `childRunN_dz_postReady`, with the two rows above and `PPRel` arm 1 (`out = dropZeroWidthModule raw`) | **yes, on arm 1 only**: stated under the hypothesis `M' = dropZeroWidthModule M`; nothing says which arm holds | **selected (this unit)** |
+| the `ChildRunN` conclusion for the core module `M` itself (the hypothesis `h` of FB-19) | `ChildRunN` for a first-gate fragment is stated for designs with `dsg` modules; no lemma read here yields `ChildRunN … M …` from the core run | no | unsupplied / route not found in this investigation (stays a hypothesis) |
+| instance-bearing bodies | `ResetN` / `RunOn` at `n+1` read `children`; `ChildShips raw` is about `dsg`, `dout` holds cleaned modules | no | unsupplied / route not found in this investigation |
+| `mergeChecked` arm | `refineCheck_transfer` (`ShippingRefineSoundness.lean:1039`) needs `hinsFit`, `rst = 0`, `hcpl`, `hfit`, `refineCheck m o = true`; `ChildRunN` quantifies `ins` without `hinsFit` | no | unsupplied / route not found in this investigation |
+| T-LEG (miss arm), T-MEMO (hit, nested miss), K4 | as §29.1 | no | unsupplied / route not found in this investigation; T-MEMO hit needs a law, none proposed |
+
+### 31.2 Selection and reason
+First unit: **T-FRAG-PP** (`postReady_instFree`, `synthesizeCombinational_fragment_dz`). It is the only remaining row whose supply is made of existing named lemmas by composition (`first_core_postReady` + `synthesizeCombinational_ppRel` + `childRunN_dz_postReady`), with no law, no shared-definition edit and no new TRUSTED boundary. It connects FB-16/FB-19 to a real run for the first-gate fragment, which FB-19 left as the hypothesis `PostReady`. It is partial: first-gate fragments only (`EntryDefines`, `WF` as hypotheses), clean-up arm only, and `ChildRunN … M` for the core module remains a hypothesis.
+
+### 31.3 Complete types (target)
+New file `Tools/ShippingGen4FbFrag.lean`, namespace `Tools.ShippingGen4FbFrag`; imports `Tools.ShippingGen4FbPPRun`, `Tools.ShippingGen4FbDzRun`, `Tools.ShippingFirstGateChild`; `set_option autoImplicit false`. Names: `RunsTo`, `FExpr`, `quoteDecl`, `PostReady` are in `Tools.ShippingEntrySoundness`; `EntryDefines` in `Tools.ShippingInlineSoundness`; `ChildRunN` in `Tools.ShippingGen2`; `instFree` in `Tools.ShippingHierStateG`; `first_core_postReady` in `Tools.ShippingFirstGateChild`.
+```lean
+theorem postReady_instFree {M : Sparkle.IR.AST.Module} {n : Nat}
+    (h : Tools.ShippingEntrySoundness.PostReady M n) :
+    Tools.ShippingHierStateG.instFree M.body
+
+theorem synthesizeCombinational_fragment_dz {declName : Lean.Name} {mctx : Lean.Meta.Context}
+    {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cctx : Lean.Core.Context}
+    {cref : ST.Ref IO.RealWorld Lean.Core.State} {w w' : Void IO.RealWorld}
+    {M' : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    {dn : Lean.Name} {names : List Lean.Name} {n : Nat} {fe : Tools.ShippingEntrySoundness.FExpr}
+    (h : Tools.ShippingEntrySoundness.RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational declName)
+      mctx mref cctx cref w (M', D') w')
+    (entry : Tools.ShippingInlineSoundness.EntryDefines mctx mref cctx cref declName
+      (Tools.ShippingEntrySoundness.quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) :
+    ∃ (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w1 : Void IO.RealWorld),
+      Tools.ShippingEntrySoundness.RunsTo
+        (Sparkle.Compiler.Elab.synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w1 ∧
+      Tools.ShippingGen4FbPP.PPRel M D M' D' ∧
+      Tools.ShippingEntrySoundness.PostReady M n ∧
+      Tools.ShippingHierStateG.instFree M.body ∧
+      (0 < n → M' = Sparkle.IR.ZeroWidth.dropZeroWidthModule M →
+        ∀ {ch₁ ch₂ : String → Option (Sparkle.IR.AST.Module × Sparkle.IR.Semantics.WEnv)}
+          {dsn₁ dsn₂ : Sparkle.IR.AST.Design} {m : Nat}
+          {bsC : List (Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder)}
+          {outsC : List Sparkle.IR.Machine.OutField}
+          {S : (Nat → List Nat) → List (Nat → Nat)},
+        Tools.ShippingGen2.ChildRunN ch₁ dsn₁ m M bsC outsC S →
+        Tools.ShippingGen2.ChildRunN ch₂ dsn₂ m M' bsC outsC S)
+```
+Proof plan (a plan, not a result): first theorem — `h.2.2.1 : ∀ st ∈ M.body, ∃ l r, st = .assign l r ∧ …`; `intro st hst; obtain ⟨l, r, rfl, -⟩ := …; rfl`. Second — `obtain ⟨M, D, w1, hcore, hpp⟩ := synthesizeCombinational_ppRel h`; `hpr := first_core_postReady hcore entry hwf`; `instFree` by the first theorem; the last conjunct: `intro hn hM' ch₁ ch₂ … hcr; subst hM'; exact childRunN_dz_postReady hn hpr hinst hcr`. If a step does not go through the unit reports "not closed in this attempt" with the failing step. `first_core_postReady` lives under that file's `variable {mctx …}`; the implicit argument order is to be read by the elaborator (the statement above is the target, instantiation by named arguments if needed).
+
+### 31.4 Planned checks (new files only; nothing run)
+Files: `Tools/ShippingGen4FbFrag.lean`, `Tests/Gen4/FbFragCheck.lean`, two `lean_lib` entries in `lakefile.lean`; no change to earlier FB files. Same requirements as §29.4: (1) TYPE: both theorems against independently typed `Expected…` in the Check (one comparator, `withReducible`); (2) MUTANTS, well-typed single changes only: first theorem — `PostReady M n` replaced by `PostReady M (n+1)`-free variant is NOT used (the conclusion would be unchanged); instead `instFree M.body` replaced by `instFree M.inputs`-free is not well-typed, so the mutants are: conclusion `instFree` on a different module `M'` is not stated; the planned set is — first theorem: hypothesis `h` dropped (then the statement has an unbound `M`, not well-typed, so NOT used); conclusion changed to `¬ instFree M.body`; second theorem — `hwf` dropped; `entry` dropped; `0 < n →` dropped; `M' = dropZeroWidthModule M →` dropped; `PPRel M D M' D'` replaced by `PPRel M D M D`; `PostReady M n` replaced by `PostReady M 0`; `instFree M.body` conjunct dropped; `ChildRunN … M'` replaced by `ChildRunN … M`; `m` replaced by `m + 1` in the conclusion only. The implementation records the real count of well-typed mutants; any planned mutant found ill-typed is dropped and reported. (3) closure audit with root self-judgement, `missing` failing; controls inside `withoutModifyingEnv`: absent root, forbidden root (a real existing forbidden constant such as `Tools.ShippingMemo.memoInv_hit`, distinct from unknown), helper VALUE unknown, helper TYPE-only unknown, good fixture — reusing `fbReach`/`auditOk`/`addFixture`; (4) AXIOMS standard only, `sorry` 0; (5) real counts by category. A Pod build by this unit is not a clean build; the clean issue-linked build is the coder's.
+
+### 31.5 What this section does not claim
+The theorems are conditional on `EntryDefines` and `WF` (existing hypothesis predicates), cover first-gate fragments only, and do not say which arm of `PPRel` holds. `ChildRunN … M` for the core module, instance-bearing bodies, the `mergeChecked` arm, T-LEG, T-MEMO (hit, nested miss, K4), M4 and FG stay unsupplied on the routes read; no law is adopted. Issue, M4 and FG are not complete.
