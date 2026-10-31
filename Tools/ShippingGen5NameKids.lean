@@ -1,5 +1,5 @@
 import Tools.ShippingSrm7Rank
-import Tools.ShippingMemClosesKidsT
+-- Pod build (kjob lake build Tools.ShippingGen5NameKids, exit 0) on the tree of bb19b56e; NOT a clean issue-linked build (coder runs that). 5 theorems; premises hn/hmemSame/hself remain.
 import Tools.ShippingModuleName
 set_option autoImplicit false
 -- NOT BUILT (unit U1 of BOUNDARY-AUDIT; scripts/gen5/BOUNDARY_AUDIT_FREEZE.md §1.3). No clean build has been run on this file yet.

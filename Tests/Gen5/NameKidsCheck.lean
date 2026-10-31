@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (U1 check, written with Tools/ShippingGen5NameKids.lean; scripts/gen5/BOUNDARY_AUDIT_FREEZE.md §1.3, §5).
+-- Pod build (kjob lake build Tests.Gen5.NameKidsCheck, exit 0, 500 jobs) on the tree of bb19b56e: TYPE 6 (5 + 1 comparator sanity), MUTANT 8 single-point + 2 cross-statement = 10, use-site examples 2, closure controls negative 6 + clean 1, REACH 5, AXIOMS 5; NOT a clean issue-linked build.
 -- No sorry / axiom / native_decide.
 
 /-! # BOUNDARY-AUDIT U1 checks
