@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemFacts
 import Tools.ShippingMachineCausalCtx
 set_option autoImplicit false
--- NOT BUILT in a clean issue-linked build yet (U6C). No sorry/axiom/native_decide.
+-- Clean issue-linked build smu13v-343faecd exit 0 (716 jobs), approved at 343faecd (U6C; conditional on hQ). Kernel type/value audit only, not an audit of opaque implementations or compiled code. No sorry/axiom/native_decide.
 /-! # DG-SEM U6C (scripts/gen5/DG_SEM_FREEZE_P6E.md §3, §5): `extJoint_of_genSem`, `genSemGen_srcCausal`, `genSemComb_srcCausal`, `genSemI_srcCausal`
 
 The step `SrcCausal (genSemI Q X g)` from `CalleesCausal Q g.d`. The `.gen` arm builds the arguments of

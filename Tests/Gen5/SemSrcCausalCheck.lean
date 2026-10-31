@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemSrcCausal
 import Tests.Gen5.SemFactsCheck
 set_option autoImplicit false
--- NOT BUILT in a clean issue-linked build yet (U6C). No sorry/axiom/native_decide.
+-- Clean issue-linked build smu13v-343faecd exit 0 (716 jobs), approved at 343faecd (U6C; conditional on hQ : CalleesCausal Q g.d): TYPE 4 / MUTANT 9 / AXIOMS 7 standard / CLOSURE 4233 consts (4 roots) / REACH 10. No sorry/axiom/native_decide.
 /-! # DG-SEM U6C check (Tools/ShippingGen5SemSrcCausal.lean; scripts/gen5/DG_SEM_FREEZE_P6E.md §3.1, §5)
 
 * TYPE    — `extJoint_of_genSem`, `genSemGen_srcCausal`, `genSemComb_srcCausal`, `genSemI_srcCausal` by statement against `Exp*` written
