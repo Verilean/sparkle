@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReadKindsU10
 import Tools.ShippingStRefCorrespondence
 set_option autoImplicit false
--- NOT BUILT: no pod build yet for this file. Freeze: scripts/gen5/DG_READKINDS_U11_FREEZE.md (design approved at 67b942f2). No sorry / axiom / native_decide.
+-- Built: kjob lake build Tests.Gen5.ReadKindsU11Check exit 0 (825 jobs), clean issue-linked build rk18v-be8ff28d (dirty=false), approved at be8ff28d (U11 only; conditional intermediate, M5/FG not complete). Freeze: scripts/gen5/DG_READKINDS_U11_FREEZE.md. No sorry / axiom / native_decide.
 
 /-! # DG-READKINDS U11 (freeze scripts/gen5/DG_READKINDS_U11_FREEZE.md)
 

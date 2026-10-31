@@ -3,11 +3,11 @@ import Tests.Gen5.ReadKindsCheck
 import Tests.Gen5.ReadKindsU5Check
 import Tests.Gen5.ReadKindsU7Check
 set_option autoImplicit false
--- NOT BUILT: no pod build yet for this file. Freeze: scripts/gen5/DG_READKINDS_U11_FREEZE.md. No sorry / axiom / native_decide.
+-- Built: kjob lake build Tests.Gen5.ReadKindsU11Check exit 0 (825 jobs), clean issue-linked build rk18v-be8ff28d (dirty=false), approved at be8ff28d (U11 only; conditional intermediate, M5/FG not complete). Freeze: scripts/gen5/DG_READKINDS_U11_FREEZE.md. No sorry / axiom / native_decide.
 
 /-! # DG-READKINDS U11 checks (Tools/ShippingGen5ReadKindsU11.lean)
 
-1. TYPE: the theorem against an independently written `ExpU11` (from freeze §2; same reducible comparator `Tests.Gen3.ExpectedType`); positive control.
+1. TYPE: the theorem against an independently written `ExpU11` (from freeze §2; same reducible comparator `Tests.Gen3.ExpectedType`); positive control (real count: TYPE 1 theorem + positive 1; MUTANT 5).
 2. MUTANT: signature/defeq rejections of well-typed single-change statements, NOT semantic counterexamples.
 3. COUNT: conjunct counts (auxiliary, necessary condition only).
 4. CLOSURE: `reach2` (root tested against the forbid set; unknown constant = throw); negatives inside `withoutModifyingEnv`.
