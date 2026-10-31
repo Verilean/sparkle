@@ -94,3 +94,8 @@ Counts are reported as real numbers with the partition and the counting rule.
 
 ## 6. Not claimed
 `hag`, `hK`, `hall`/DG-ENV C0, existence of the runs, `GateDefines`, `srcDom`, `ls`/`outs`/`nexts`, hq (Q1 not adopted; Q3), coverage, FG, M5.
+
+## 7. Implementation record (agent g5rk-r14; appended, types unchanged)
+U9c → U9a → U9b were implemented in `Tools/ShippingGen5ReadKindsU9.lean` with the §1–§3 statements unchanged (no stop point; U9a closed, so U9b's successful-run version is not held back).
+Proof routes: U9c as U7b with `R.chain`/`R.shapeEq` destructured and the five `ReadsAt` facts from `h0`, `h1`, `hR` (not `hall`); U9a by `rcases` on `reflExpr`/`layoutE` outputs then `RunsTo.bind` / `throwError_not_runs` / `RunsTo.pure_eq`; U9b from U9a and `storedFromRead_of_kernelRead`.
+Check (`Tests/Gen5/ReadKindsU9Check.lean`): conditional intermediates only. `hR` stays a conditional premise over all matching triples; `hag`, `hK`, `hall`/DG-ENV C0, existence of the runs, coverage and FG remain open.
