@@ -2,6 +2,7 @@
 
 Issue: `sparkle-fg-final`（job `fg-ledger1`、ブランチ kjob/fg-ledger1）。base: par/gen2-spec d0ddc50b。
 状態: **段 1 文書のみ。Lean は書いていない。**（段 1 は承認済み: dd624a27。）段 2（全前提を明示仮説にした文の Lean 計画）は **§8**（文書のみ、Lean なし、再 review 待ち）。
+版の履歴: 段 1 基準件数 146 / 110（dd624a27）→ 段 2 計画（62aef763、approved）→ 型付け 7 仮説の文と Check（13c7d5a3、条件付き設計確認として approved）→ **本版（fgreg1、文書のみ）: 流れ 1 の前提解消（e6d8e55b）を反映して現在値 FG 106、registry 69 行の owner / 型の確認（§9.2）、T1 crosswalk 16 行の確認（§9.3）、次の候補の流れ（§9.4）。基準件数 146 / 110 は版の履歴として残し、現在値と区別する（§2）。**
 
 ## 0. 範囲・方法・読み方
 
@@ -29,6 +30,7 @@ ID は `<ファイル記号>.<部分ファイル内の見出しID>`（例: `C.RK
 - **重複整理前: 146 ブロック**（28 + 26 + 55 + 37）。
 - **重複整理後: 110 ブロック**（146 − 36）。整理の規則と一覧は §4。整理は「部分ファイルの別名欄または同じ型と明記されているもの」に限った保守的な統合で、型の同値は Lean では確認していない。
 - **基準件数と既知の差分は別**: 146 / 110 は段 1 の基準件数で書き換えない。基準日以降に承認済みの unit6 F3（parametric-supply, 50d22e3b）の差分は B.P-8 に別記した: `LegalBinding` を前提に B.P-1 `AllPos θ` と宣言 parameter coverage の 2 項目を条件付きで導出、`requirePositive` 実装/model 一致 1 項目を解消、追加前提 0、`LegalBinding` は入力として残る。この差分は 146 / 110 に反映していない。広い残余（B1-B3、T、FG）は未供給のまま。
+- **現在値（本版）**: FG 側のブロック数は **106**（110 − 4）。流れ 1 の U1 / U2（kjob/flow1-b e6d8e55b、reviewer 承認 seq 5756、clean build f1v-e6d8e55b exit 0）が C.RK-5、D.T-5、D.T-8、D.T-9 を前提解消とした。条件付き部品であり、FG の完了ではない。**基準件数 146 / 110 とは別の欄**で、146 / 110 は段 1・段 2 の版の記録として書き換えていない。詳細と数え方の注意（D.T-5 は §4 で除かれた行）は §9.1。
 - 分類の内訳は部分ファイルごとにある（A は §4 の集計に、他は各ブロックの分類欄）。この台帳全体での分類別の合算は、各ファイルの分類欄の書式が揃っていないので行っていない（数えていない値は書かない）。
 - TRUSTED 境界として**明示された**前提: 確定した TRUSTED 宣言はこの調査では見つからなかった。候補として挙がっているのは A.P-01（Laws。GENERAL_SPEC §5 は「model または明示 TRUSTED」）、D.E-10（Laws の 14 フィールド。boundary-audit は CONTRACT と分類）、D.E-13（G7-c 印字。boundary-audit §3 が「TRUSTED by design」）。C 群は「新 TRUSTED / 新 law なし」と記録し、DG_ENV_FREEZE §4 の A/B/C 判断へのユーザ決定の記録は見つからなかったと報告している。
 - 実run から払える根拠の補題名が履歴・freeze にあるもの（各行の「実runから払えそうか」が「はい」または「条件付きではい」）: A.P-07（条件付き、`machineRunJQC_of_closesA`）、A.P-13（`memOrigin_of_memDec`、`Nonempty ι` の下）、B.G-2（`RealChildA` は成功 run から）、C.RK-5（`runReads_of_run`）、C.SM-5（`srcCausal_of_acc_unfold`、`hunf` と `Acc` が前提）、D.P2（decoded 版 `letTie_dec`）、D.T-7（存在形 `calleePkg_of_t1ND`）、D.T-8, D.T-9（組み立て済み、末端は D.T-5/T-6）、D.D-2（default route のみ `synthesizeCombinational_postEntry`）、D.D-8（`postEntry_lookup_ne`）。これは各行を読んで拾った一覧で、いずれも前提つきである。
@@ -168,7 +170,7 @@ ID は `<ファイル記号>.<部分ファイル内の見出しID>`（例: `C.RK
 | C.RK-2 | `hHead` | 未割当 | 不明（U13 freeze §2: 「run が return したと言うだけ。 | 未供給の義務 |
 | C.RK-3 | `h0s` | sparkle-gen5-dg-env（U13 freeze 表） | いいえ、とは言えない。U13 freeze §2: 「`ReadsAt.of_e | 未供給の義務 |
 | C.RK-4 | `hrun`（readMachine）と `hX` | 履歴・U13 freeze 表: `sparkle-gen5-dg-runreads` / `-cl | 不明（`hX` は命名の等式で U13 freeze は gap に数えない） | `hrun` 未供給の義務、`hX` 入力条件（trivial） |
-| C.RK-5 | `R : RunReadsAt …` | sparkle-gen5-dg-runreads（RR3 が `O, hA, JQ/cache, M | はい（`runReads_of_run`、ただし RR-1/RR-3 の前提つき | 入力条件（RR-1..RR-3 に帰着） |
+| C.RK-5 | `R : RunReadsAt …` | sparkle-gen5-dg-runreads（RR3 が `O, hA, JQ/cache, M | はい（`runReads_of_run`、ただし RR-1/RR-3 の前提つき | 入力条件（RR-1..RR-3 に帰着） **【前提解消（e6d8e55b、reviewer 承認 seq 5756）。条件付き部品。§9.1】** |
 | C.RK-6 | `hag : ReflExprAgree` | 未割当（記載なし） | 不明（記載なし） | 未供給の義務 |
 | C.RK-7 | U14 の置換前提 `hM` / `hC`（freeze 承認、Lean は未実装） | RK-1/RK-2 と同じ未割当 | 不明 | 未供給の義務 |
 | C.RK-8 | reader 完全性の前提（`readN_quote` 系、U1-U4 の成果） | DATAOF freeze: C-QWIT は「供給元未発見」 | 不明 | 未供給の義務 |
@@ -210,11 +212,11 @@ ID は `<ファイル記号>.<部分ファイル内の見出しID>`（例: `C.RK
 | D.T-2 | hDG_SEM_range（CallOutRange） | 置換版 `callOutRange_of_widths`（T2Range.lean:162）が `P | `Pkg.src_range`、`callOutRange_of_widths` | 未供給の義務（組み立て済み、末端は T-3/T-4） |
 | D.T-3 | hOW（OneOutWidth） | sparkle-gen3-data-supply（G-ONEOUT-WID / G-DATA）。T2 | 補題 `oneOutWidth_of_strictP`（Tools/Shippi | 未供給の義務（M3/gen3 側。T1 台帳を参照） |
 | D.T-4 | hkidW（group parent の幅） | sparkle-gen3-data-supply（T2TIE_NEXT_FREEZE_R0 §1 r | この調査では見つからなかった。候補 `hkidW_of_data`（CallWi | 未供給の義務（M3/gen3 側。T1 台帳を参照） |
-| D.T-5 | hsh / hDG_CLOSINGRUN（ClosingShared、ClosingRun0） | sparkle-gen5-dg-closingrun（非空虚性、depth0 `stop`） | 履歴は、`ClosingShared` が `ClosingRun.shared | 未供給の義務（dg-closingrun 側。各 binder は dg-clo |
+| D.T-5 | hsh / hDG_CLOSINGRUN（ClosingShared、ClosingRun0） | sparkle-gen5-dg-closingrun（非空虚性、depth0 `stop`） | 履歴は、`ClosingShared` が `ClosingRun.shared | 未供給の義務（dg-closingrun 側。各 binder は dg-clo **【前提解消（e6d8e55b、reviewer 承認 seq 5756）。条件付き部品。§9.1】** |
 | D.T-6 | hT（T1HypND） | T1 側 | T1 台帳を参照 | T1 台帳を参照 |
 | D.T-7 | hDG_GENP | `_one_ex` と `_group_kidW` では `calleePkg_of_t1ND`（T | 存在形は はい（`calleePkg_of_t1ND`、built）。T1 の | 入力条件（T1 の `pkg` に帰着） |
-| D.T-8 | hT2_FIELD（CallField の per-i 存在）と FieldRowAt | 一人出力は `fieldRow_one_of_callStmt`（T2Tie.lean:178）が | はい（上記 2 補題）。ただし `hsh`（T-5）が前提 | 組み立て済み。末端は T-5 |
-| D.T-9 | houtTy | T2-OUTTY H1-H4（`houtTy_of_realChildND`、`reach_call | はい。`hT.defines`/`hT.closed` と closing wi | 組み立て済み。末端は T-5 / T-6 |
+| D.T-8 | hT2_FIELD（CallField の per-i 存在）と FieldRowAt | 一人出力は `fieldRow_one_of_callStmt`（T2Tie.lean:178）が | はい（上記 2 補題）。ただし `hsh`（T-5）が前提 | 組み立て済み。末端は T-5 **【前提解消（e6d8e55b、reviewer 承認 seq 5756）。条件付き部品。§9.1】** |
+| D.T-9 | houtTy | T2-OUTTY H1-H4（`houtTy_of_realChildND`、`reach_call | はい。`hT.defines`/`hT.closed` と closing wi | 組み立て済み。末端は T-5 / T-6 **【前提解消（e6d8e55b、reviewer 承認 seq 5756）。条件付き部品。§9.1】** |
 | D.T-10 | hG_DATA_CALL_*（4 個） | 未割当（この調査の履歴・文書には支払い先が書かれていない） | この調査では見つからなかった | 未供給の義務 |
 | D.T-11 | hG_MEMCALLS | GENERAL_SPEC.md:364 の表で「G-MEMCALLS: `MemDec` from | この調査では見つからなかった | 未供給の義務（M2/gen2 側。T1 台帳を参照） |
 | D.T-12 | closingRun0_of_run 系の statement-level binder | R0 §1 の owner 列による。`hord`/`hrow`/`hrows`/`hIH` は s | `hs`、`hd0`、`hrun` は FG の仮定そのもの。他は、この調査では | 入力条件（`hs`、`hd0`、`hrun`）。未供給の義務（`hord`、`h |
@@ -378,7 +380,7 @@ ID は `<ファイル記号>.<部分ファイル内の見出しID>`（例: `C.RK
 | C.RK-1 | `h_C_RK1` | TY-O | `ReadKeeps cref` (closed) |
 | C.RK-2 | - | UN-C | `hHead`: `EnvFrame (coreHead X) …` per X, mctx, cctx |
 | C.RK-4 | - | UN-C | `hrun` of `readMachine` (auxiliary command run, not a FG hypothesis) and `hX` |
-| C.RK-5 | - | PA | `RunReadsAt` object, built by `runReads_of_run` from the start/run/defines/closes rows |
+| C.RK-5 | - | PA | `RunReadsAt` object, built by `runReads_of_run` from the start/run/defines/closes rows **【前提解消（e6d8e55b、reviewer 承認 seq 5756）。条件付き部品。§9.1】** |
 | C.RK-6 | `h_C_RK6` | TY-O | `ReflExprAgree` (closed) |
 | C.RK-7 | - | UN-D | U14 `hM`/`hC`: freeze text only, Lean not implemented |
 | C.RK-8 | - | UN-C | reader completeness (`Complete cfg`, `hb hv hw hwf hdom` per `d`) |
@@ -411,8 +413,8 @@ ID は `<ファイル記号>.<部分ファイル内の見出しID>`（例: `C.RK
 | D.T-1 | `h_D_T1` | TY-I | `GenExtAtCall` over reached ordinary calls (R-clo, Q-F2). T1 ledger §8 assigns hDG_SEM to the FG ledger |
 | D.T-2 | - | PA | `CallOutRange`, built by `callOutRange_of_widths` from A.P-25/T1L-14, D.T-4, houtTy (D.T-9) |
 | D.T-4 | `h_D_T4` | TY-I | `hkidW` group-parent width (R-clo, Q-F2). T1 ledger §8 assigns it to the FG ledger |
-| D.T-8 | - | PA | `CallField`/`FieldRowAt`, built by `fieldRow_one_of_callStmt`, `servedCall_of_closingShared_group` from the ClosingRun row (C.CR-2 chain) |
-| D.T-9 | - | PA | `houtTy`, built by `houtTy_of_closingND` from T1Hyp fields and the ClosingRun row |
+| D.T-8 | - | PA | `CallField`/`FieldRowAt`, built by `fieldRow_one_of_callStmt`, `servedCall_of_closingShared_group` from the ClosingRun row (C.CR-2 chain) **【前提解消（e6d8e55b、reviewer 承認 seq 5756）。条件付き部品。§9.1】** |
+| D.T-9 | - | PA | `houtTy`, built by `houtTy_of_closingND` from T1Hyp fields and the ClosingRun row **【前提解消（e6d8e55b、reviewer 承認 seq 5756）。条件付き部品。§9.1】** |
 | D.D-1 | `ReflectsAll` | UN-R | carrier `ReflectsAll : Laws mref cref -> Name -> List (String × Nat) -> Prop` (FG.lean:30); its definition = the per-route rows B.G-*, B.F-4, B.P-*, A.P-06, ... ; no Lean definition found |
 | D.D-3 | `GP` | UN-K | carrier `GP : Environment -> Pkgs ι dom`; package assignment. merged: D.P1, D.T-7. dg-acc `genP_pkg` is conditional |
 | D.D-4 | `CV` | UN-K | carrier `CV : ConstValueRel`; ConstValue definition not written (DCF unit); `ConstValueFunctional CV` is a conclusion conjunct of `FG_CONNECT` |
@@ -629,3 +631,176 @@ N4, N5 は新しい台帳行ではない（110 を変えない）。N1, N2, N3 �
 - この計画（と書く Lean の文）の前提差分: **解消 0 / 追加 0。** 文の 7 仮説・14 行は全て既存の台帳行で、この計画は新しい前提を足していない。T1 区分 16 行と T1 台帳の行との対応は参照であって、解消ではない。
 - 進捗の 4 段（設計承認 / 条件付き部品 / 前提解消 / 最終受理）: この計画は **設計（段 1）** の記録。どの行も、条件付き部品、前提解消、最終受理に進めない。
 - 次（承認後）: coder が §8.6 の G-ENV, G-FG を行い、§8.3 と §8.7 の 2 ファイルを書いて build し、clean build の証跡を付ける。registry 69 行の型付けは §8.4 の各 freeze の owner の仕事（それぞれの freeze に「台帳の前提がいくつ消え、いくつ増えるか」を必須とする）。台帳 §5 の 3 本の流れ（流れ 1: runReads→ClosingRun、T1 の流れ A・B）のうち、**この文に入る 7 仮説はどの流れの「消える予定の ID」でもない**。流れ 1 の C.RK-5（PA）・D.T-8（PA）・D.T-9（PA）・D.T-5（除かれた行）は文に仮説として現れない。流れ 1 の最初の単位の freeze は、この計画とは別。
+
+## 9. 段 2 承認後の確認（agent `fgreg1`、branch `kjob/fgreg1`、base `kjob/fgstmt1` 13c7d5a3。文書のみ。Lean・build なし）
+
+reviewer が段 2 承認時（seq 5716, 5755）に残した確認を行った記録。**この節は前提の供給ではない。この節による台帳の前提差分は 解消 0 / 追加 0。** 解消 4 は §9.1 のとおり別の単位（流れ 1）の成果で、reviewer 承認済みのものを反映しただけである。
+
+### 9.1 前提解消の反映（FG 側）
+
+| 台帳ID | 現在の状態 | 根拠 |
+|---|---|---|
+| C.RK-5 | **前提解消（e6d8e55b、reviewer 承認）** | U2 `readMachine_agrees_of_run`（`runReads_of_run` が R を置換）。kjob/flow1-b e6d8e55b |
+| D.T-8 | **前提解消（e6d8e55b、reviewer 承認）** | U1 `callTie_of_run_{one_ex,group_kidW}`（run 側の前提が `hsh` を置換）。kjob/flow1-b 29701f80 |
+| D.T-9 | **前提解消（e6d8e55b、reviewer 承認）** | 同上 U1 |
+| D.T-5 | **前提解消（e6d8e55b、reviewer 承認）** | 同上 U1。§4 で ClosingRun の行へ統合され、110 の表（§8.2）には現れない行（下の注意） |
+
+- 承認記録: `managerctl plan history sparkle-gen5-dg-closingrun` seq 5756（approved、前提差分 FG -4 / +0、T1 0、「台帳 FG 110→106」）。clean build `f1v-e6d8e55b` exit 0、dirty=false、842 jobs、sorry 0、標準 axioms のみ。Check 集計は Tie: TYPE 2 / MUTANT 38 + NEGATIVE 3 / CONTROL 5 / REACH 2 / AXIOMS 2、Reads: TYPE 1 / MUTANT 23 + NEGATIVE 2 / CONTROL 4 / REACH 1 / AXIOMS 1（Issue の note による。この agent は再 build していない）。mutant は signature / defeq での棄却であって意味的反例ではない。
+- **残る前提（承認 note の記録）**: `hord` / `hGen` / `hIH` / `hKI`、非空虚性、depth0 `stop`、`hk` / `hHead` / `h0s`、DG-ENV、served。**条件付き部品であり、ClosingRun や FG の完了ではない。**
+- **現在値と版の履歴**: 現在値 **FG 106**（本版）。段 1・段 2 の基準件数 **146 / 110** は書き換えていない（§2）。
+- **数え方の注意（reviewer の確認事項）**: reviewer の承認 note は「110 → 106」で 4 行（C.RK-5、D.T-5、D.T-8、D.T-9）を引いている。しかしこの台帳の §8.2 の 110 行の表に載っている行は C.RK-5、D.T-8、D.T-9 の **3 行**で、D.T-5 は §4 で除かれた 36 行の 1 つ（ClosingRun の指し示し行）である。したがって **§8.2 の表の行数で数えれば 110 − 3 = 107** で、記録値 106 とは 1 違う。どちらに揃えるか（D.T-5 を統合先の C.CR-1 / C.CR-2 の側で別に数えるか、除かれた行は引かないか）は、この agent は決めない。本版は記録値の 106 を現在値として使い、§8.2 / §7 の行数（110 / 146）と Check のリテラルは変えていない。§7 と §8.2 の該当 7 行（C.RK-5、D.T-5〈§7 のみ〉、D.T-8、D.T-9）に「前提解消」の印だけを足した。
+- **T1 側（この台帳では数えない）**: T1L-20 / T1L-22 / T1L-24 は kjob/flowa-b 82cb67a6（U18、reviewer 承認 seq 5748、clean build `fav-82cb67a6` exit 0）で前提解消（T1 62 → 59）。T1 台帳の話なので、FG 台帳の数には入れない。FG 台帳に関係するのは §9.3 の A.P-07 の行の注記だけ。
+
+### 9.2 registry 69 行: 支払い予定の Issue（owner）と型の根拠
+
+読み方:
+- 「型の区分」は §8.4 のコード（C 閉包未固定 48、R 6、D 4、N 3、B 3、K 3、U 2。上の表の行を数えると一致した）。
+- 「支払い予定の Issue」は**台帳（部分ファイル）と各 Issue の履歴に書いてある**もの。履歴上決まっていない行は **未割当**と書いた。「候補・条件付き」は、Issue 名がタイトルまたは設計文書にあるだけで、履歴本文に支払いの記録が見つからなかったもの。
+- 「型の根拠」は、**Lean 名 + branch@SHA :path**（部分ファイルが `git show` の原文を貼っているもの）、**文書の型**（freeze / 設計文のみ）、**名前のみ**、**型が見つからなかった**に分けた。「見つからなかった」はこの調査で辿った範囲の話で、存在しえないという意味ではない。
+- Issue 名は台帳の短縮名。`sparkle-gen5-<名>` として `managerctl show` で確認できたもの: dg-env / dg-acc / dg-sem / dg-dataof / dg-readertrace / dg-closingrun / dg-audit（todo）、dg-cover（approved）、dg-readkinds（doing）、dg-runreads（done）。**dg-wfcover、dg-pkgassign、dg-declconnect は同名では `show` できなかった**（dg-cover の題名に WFCOVER、dg-acc の題名に PKGASSIGN を含む。dg-declconnect に当たる題名は decl-bridge）。台帳の記載のまま書き、実在する Issue への読み替えは決めていない。
+- この表の branch@SHA は部分ファイルが引くもので、本確認で `git cat-file -e` により path の存在を確かめた（kjob/g4fb-fb25、g5ac-r26、g5dc-r23、g5env-r22、g5cv-r13、g5rt-r10、g5sm-u23、g5ba-r16、g4par-r21/r23、g4gate-g3c、g5rk-r23、g5do-r6）。**行番号は部分ファイルの記載で、本確認では読み直していないものがある。**
+
+| 台帳ID | 型の区分(§8.4) | 支払い予定の Issue(owner。台帳と履歴の記載) | 割当 | 型の根拠 | 根拠の種類 |
+|---|---|---|---|---|---|
+| A.P-05 | K | 未割当(GENERAL_SPEC §1.1 は M4 で固定と書く。Issue 割当なし。parametric route の Post 採用は未承認 seq 4318) | 未割当 | GEN2_DEFS.lean.txt:305-306,324-325,337-338 の式(par/gen2-spec)。Lean 定義は読んでいない | 文書の型 |
+| A.P-18 | C | G3GEN_CALL_PLAN §4 は「M5」。Issue 名はタイトル上 gencall-proof / t2-tie / dgen の候補(履歴本文は未読) | 候補・条件付きの記載 | HPointAt: Tools/ShippingQuadHPoint.lean:14, ShippingQuadCalls.lean:223 @par/gen2-spec d0ddc50b。HPointG: Tools/ShippingGen2CallField.lean:75-87 @par/gen2-spec 3b702f15 | Lean(名と branch@SHA) |
+| B.G-1 | R | 未割当 | 未割当 | EntryDefines: Tools/ShippingInlineSoundness.lean:48 @d0ddc50b。gate 版 binder: kjob/g4gate-g3c 59b68658 | Lean(名と branch@SHA) |
+| B.G-3 | R | 未割当 | 未割当 | GateLeaf.old: Tools/ShippingGen4GateIface.lean @kjob/g4gate-g3c 59b68658 | Lean(名と branch@SHA) |
+| B.G-4 | R | 未割当 | 未割当 | GateLeaf.peel: 同上 | Lean(名と branch@SHA) |
+| B.G-5 | R | 未割当 | 未割当 | GateLeaf.he: 同上(`e.WF kb kv vw`) | Lean(名と branch@SHA) |
+| B.G-6 | R | 未割当 | 未割当 | GateLeaf.hb/hv: 同上 | Lean(名と branch@SHA) |
+| B.G-7 | C | 未割当(seq 3500「幅1は調査継続」) | 未割当 | hw1: Tools/ShippingGen4GateOutTy.lean @kjob/g4gate-g3c 59b68658 | Lean(名と branch@SHA) |
+| B.G-9 | D | 未割当(assembler は sparkle-gen4-fg-assembly だがその履歴に記述なし) | 未割当 | Q/hQ の型: IfaceMap, Tools/ShippingGen4Iface.lean @kjob/g4gate-g3c 59b68658。供給側(route table assembler)は Lean なし | Lean(名と branch@SHA) |
+| B.F-4 | C | 未割当(seq 5568: 台帳で割当時に再開) | 未割当 | hS: Tools/ShippingGen4FbFragRun.lean @kjob/g4fb-fb25 4519e2fb | Lean(名と branch@SHA) |
+| B.F-8 | C | 未割当 | 未割当 | ChildRunN: Tools/ShippingGen4FbDzRun.lean:17,:75 @kjob/g4fb-fb25 4519e2fb(PostReady は Tools/ShippingEntrySoundness.lean:636) | Lean(名と branch@SHA) |
+| B.P-1 | C | 未割当(seq 3648/5358: B1-B3/T/FG 未供給) | 未割当 | AllPos: Tools/ShippingGen4ParamLayerA.lean 約:44 @kjob/g4par-r21 0ebbddc0。legalBinding_allPos は kjob/g4par-r23 50d22e3b | Lean(名と branch@SHA) |
+| B.P-2 | C | 未割当 | 未割当 | Bound/PosDim/NonNegDim/SliceOK: Tools/ShippingGen4ParamLayerA.lean @0ebbddc0 | Lean(名と branch@SHA) |
+| B.P-3 | C | 未割当 | 未割当 | ExprOK/TyPos/TyBound: SpecExpr/SpecType(Tools/ShippingGen4ParamBridge*.lean)@0ebbddc0 | Lean(名と branch@SHA) |
+| B.P-4 | B | 未割当(決定資料 §5「決定が無ければ B1-B3 は未供給」) | 未割当 | B1 は閉じた型が台帳にある。B2-B4 は文章のみ。requirePositive_eq は Tools/ShippingGen4ParamBridgeLegal.lean:44 @kjob/g4par-r23(B4 の一部、解消済みの差分) | 文書の型 |
+| B.P-5 | U | 未割当(D3 のユーザー判断待ち) | 未割当 | SpecSuccessAllPositive: Tools/ShippingGen4ParamIface.lean:106 @kjob/g4par-r21 0ebbddc0 | Lean(名と branch@SHA) |
+| B.P-7 | B | 未割当 | 未割当 | body_symbolic_keeps 等: Tools/ShippingGen4ParamKeeps.lean(旧 RefLaws 上)。Start→Out0 の補題は PARAMETRIC_FREEZE の F1 行に「見つからなかった」 | Lean(名と branch@SHA) |
+| B.P-8 | C | 未割当 | 未割当 | LegalBinding: legal_facts 等 Tools/ShippingGen4ParamBridgeLegal.lean:52,:79,:84 @kjob/g4par-r23 50d22e3b。D か D.addModule b かは固定されていない | Lean(名と branch@SHA) |
+| C.RR-2 | B | FG の仮説そのもの(支払い先なし。履歴・台帳に割当の記載なし) | 未割当 | RunsTo(synthesizeCombinationalCore X [] false) の文は部分ファイルにあるが、entry run → core run の橋の命題は見つからなかった | 型が見つからなかった |
+| C.CR-2 | D | DG-COVER + DG-WFCOVER + genP_generated(C6) + DG-ENV(R6 freeze §2 / DGEN_FREEZE) | Issue 名あり | GeneratedAt: par/gen5-t2 c398021c scripts/gen5/DGEN_FREEZE.md(設計文のみ)。RunReadsAt: par/gen2-spec 88771739 RunReads.lean:42。GeneratedAtK: kjob/g5ac-r26 cff12a48 Tools/ShippingGen5AccGenP.lean:33 | 文書の型 |
+| C.EN-1 | C | dg-env(履歴 5467/5476: 「L′/QuietStrength 未供給」) | Issue 名あり | QuietStrength: kjob/g5env-r22 b6b3206b Tools/ShippingGen5EnvQ.lean:38 | Lean(名と branch@SHA) |
+| C.EN-2 | C | dg-env | Issue 名あり | AdmDown: Tools/ShippingGen5EnvQ.lean:42 @kjob/g5env-r22 b6b3206b | Lean(名と branch@SHA) |
+| C.EN-3 | C | dg-env(5476: 実 start cache 未供給) | Issue 名あり | CacheInvN: Tools/ShippingGen5EnvCacheC.lean:25, RealChildN: EnvCache.lean:26 @kjob/g5env-r22 | Lean(名と branch@SHA) |
+| C.EN-5 | C | dg-env(5476: ¬DRow 未供給) | Issue 名あり | DRow: Tools/ShippingGen5EnvFrame3.lean:35 @kjob/g5env-r22 | Lean(名と branch@SHA) |
+| C.EN-6 | C | dg-env(C0 は履歴の全 note で未供給) | Issue 名あり | hall 等: Tools/ShippingGen5Env*.lean @kjob/g5env-r22(ブロック全体は閉包未固定) | Lean(名と branch@SHA) |
+| C.EN-7 | C | 未割当(U9 freeze §0: G-REACH / DG-READKINDS が持つ行は名前のみ) | 未割当 | hentry の Lean 文は C_M5dg.md EN-7 に貼ってある。RealChildN: Tools/ShippingGen5EnvCache.lean:26 @kjob/g5env-r22 b42ce414(hentry 自身の定義行は読み直していない) | Lean(名と branch@SHA) |
+| C.EN-8 | U | 未割当 | 未割当 | hn: mctx.canUnfold? = none(kjob/g5env-r22 RealChildN の field)。採否はユーザー判断 | Lean(名と branch@SHA) |
+| C.RK-2 | C | 未割当 | 未割当 | EnvFrame: Tools/ShippingEnvSnapshot.lean:43(base)。coreHead X は Tools.ShippingEntryReadsLinked | Lean(名と branch@SHA) |
+| C.RK-4 | C | dg-runreads / dg-closingrun(run existence。U13 freeze 表) | Issue 名あり | readMachine: Tools/ShippingMachineCommand.lean:440 の run。RunsTo は Tools.ShippingEntrySoundness | Lean(名と branch@SHA) |
+| C.RK-7 | D | 未割当(RK-1/RK-2 と同じ) | 未割当 | U14 の hM/hC: kjob/g5rk-r23 221d590a の freeze 文。Lean は未実装 | 文書の型 |
+| C.RK-8 | C | DATAOF freeze: C-QWIT は「供給元未発見」。割当なし | 未割当 | readN_quote: Tools/ShippingGen5ReadKinds.lean:401, readTot_of_quote_body: :702, RootFacts: :725 @kjob/g5rk-r23 221d590a | Lean(名と branch@SHA) |
+| C.DO-2 | N | dg-cover / dg-readkinds(DG_DATAOF_FREEZE 本文) | Issue 名あり | Rdr / s = sp の Lean 命題は見つからなかった(DATAOF freeze §11.3 は定理なしと記す) | 型が見つからなかった |
+| C.DO-3 | N | S-OK は dg-cover / dg-wfcover。他は記載なし | 候補・条件付きの記載 | row 6a, C-CMP, C-QWIT, S-OK, S-COV-FLOAT: DG_DATAOF_FREEZE.md(kjob/g5do-r6 063056d6)に名前のみ | 名前のみ |
+| C.SM-1 | C | dg-dataof(5492 note)。dataOfAt_sound は別 branch で SEM から import 不可 | Issue 名あり | DataOfSound: Tools/ShippingGen5SemGenData.lean:18 @kjob/g5sm-u23 7af6c7cc(未 review) | Lean(名と branch@SHA) |
+| C.SM-2 | C | dg-acc A12(ordCallees₀ + ordCallees₀_mem、5342 approved)。SEM 側への接続は別 branch | Issue 名あり | ordCallees: SemCall.lean:17。ordCallees₀_mem: Tools/ShippingGen5AccOrdCallees.lean:21 @kjob/g5ac-r26 cff12a48 | Lean(名と branch@SHA) |
+| C.SM-3 | C | dg-acc(genS が hunf/hinv を満たす構成。5492) | Issue 名あり | factsOf_all_of_genDataInv 等 @kjob/g5sm-u23。genS_unfold: Tools/ShippingGen5Acc.lean:121 @kjob/g5ac-r26 は候補 | Lean(名と branch@SHA) |
+| C.SM-4 | C | dg-acc(AC-8) | Issue 名あり | factsOf_all_of_acc_unfold @kjob/g5sm-u23。hacc_of_top_runs: Tools/ShippingGen5AccReads.lean:137 @kjob/g5ac-r26 | Lean(名と branch@SHA) |
+| C.SM-6 | C | dg-cover(rowC_of_reader / rowA3_of_inv)/ dg-wfcover(5492: GenWF は DG-COVER) | Issue 名あり | GenWF/GenData: Tools/ShippingGen5SemGenData.lean:27, SemGen.lean:61 @kjob/g5sm-u23 | Lean(名と branch@SHA) |
+| C.AC-2 | C | dg-sem(5456: 実 GenData/genSem/hev 未供給) | Issue 名あり | GDEvidence: Tools/ShippingGen5AccGenDataEv.lean:22 @kjob/g5ac-r26 cff12a48 | Lean(名と branch@SHA) |
+| C.AC-3 | C | dg-sem(実 genSem から。接続は別 branch) | Issue 名あり | Tools/ShippingGen5AccMkKit.lean @kjob/g5ac-r26 cff12a48 | Lean(名と branch@SHA) |
+| C.AC-4 | C | dg-cover / dg-dataof(A13: genData₀ が成功する条件) | Issue 名あり | ReachCover: Tools/ShippingGen5Acc.lean:206 @kjob/g5ac-r26 cff12a48 | Lean(名と branch@SHA) |
+| C.AC-5 | C | 未割当 | 未割当 | GatesNoneAt: Tools/ShippingGen5AccRoute.lean:34 @kjob/g5ac-r26 cff12a48 | Lean(名と branch@SHA) |
+| C.AC-7 | C | dg-env | Issue 名あり | ReadsSupplyAt / ChainReadsAt: Tools/ShippingGen5AccReads.lean @kjob/g5ac-r26 cff12a48 | Lean(名と branch@SHA) |
+| C.AC-9 | C | dg-dataof(DataSound / dataOfAt_sound) | Issue 名あり | RunDataLink / DataOfShape: Tools/ShippingGen5AccServed.lean:64-70 @kjob/g5ac-r26 cff12a48 | Lean(名と branch@SHA) |
+| C.CV-1 | C | 未割当(履歴 4246 は R-trace/R-in/R-nl/R-dom を dg-readertrace としたが、hq 自身の担当は見つからなかった) | 未割当 | LetQuoteEq: Tools/ShippingGen5Cover3.lean:693 @kjob/g5cv-r13 44d72eaf | Lean(名と branch@SHA) |
+| C.CV-2 | C | dg-readertrace(4246 note) | Issue 名あり | LetsNoLoose: Tools/ShippingGen5Cover3.lean:699 @kjob/g5cv-r13 44d72eaf | Lean(名と branch@SHA) |
+| C.CV-3 | C | dg-readertrace | Issue 名あり | FullInv: Tools/ShippingGen5Cover3.lean:316 @kjob/g5cv-r13 44d72eaf | Lean(名と branch@SHA) |
+| C.CV-5 | C | dg-dataof(4246: row 6b / nDecl) | Issue 名あり | shapeAgree_of_* の binder: Tools/ShippingGen5Cover5.lean @kjob/g5cv-r13 44d72eaf | Lean(名と branch@SHA) |
+| C.CV-6 | N | hcb は src-argw(4246 の B3)、R-in/R-dom/R-nl は dg-readertrace、SigTyPh は dg-env | Issue 名あり | hcb: rowB1_of_inv(Cover3)。R-in/R-dom は ShapeInputs 等の名前のみ(REV7) | 名前のみ |
+| C.RT-1 | C | dg-readertrace(自身) | Issue 名あり | TraceGood: Tools/ShippingGen5ReaderTraceCtl.lean:94-99 @kjob/g5rt-r10 6e6c880f | Lean(名と branch@SHA) |
+| C.RT-2 | C | dg-readertrace(REV7: ShapeInputs) | Issue 名あり | TracePre/PhPre: ReaderTraceCtl.lean:47-70 @kjob/g5rt-r10 6e6c880f | Lean(名と branch@SHA) |
+| C.RT-3 | C | 未割当(5560 に hT/成功 run とあるのみ) | 未割当 | chainStep/convStep の hv: ReaderTraceChain/Arms.lean @kjob/g5rt-r10 6e6c880f | Lean(名と branch@SHA) |
+| C.RT-4 | C | dg-readertrace(REV4 §0 が未供給 arm を列挙) | Issue 名あり | readF_traceGood_of_step: Tools/ShippingGen5ReaderTraceArms.lean:195 @kjob/g5rt-r10 6e6c880f | Lean(名と branch@SHA) |
+| C.DG-1 | D | (i) dg-cover (ii) dg-wfcover (iii) dg-pkgassign(DGEN_FREEZE の inhabitation argument) | Issue 名あり | GeneratedAt: par/gen5-t2 c398021c DGEN_FREEZE.md(設計文のみ) | 文書の型 |
+| D.D-1 | R | boundary-audit §4 の表は supplier を「M4/M5 G3」とし state OPEN。割当の Issue 名は履歴に無い | 未割当 | 型は Laws mref cref → Name → List (String × Nat) → Prop(Tools/ShippingGen5FG.lean:30 @kjob/g5dc-r23 0fcce4e7)。定義は見つからなかった | 型が見つからなかった |
+| D.D-3 | K | package-coverage(todo、設計なし)/ dg-acc の genP_pkg(条件付き) | 候補・条件付きの記載 | 型 Environment → Pkgs ι dom(Tools/ShippingGen5FG.lean:42 @0fcce4e7)。genP の定義は見つからなかった | Lean(名と branch@SHA) |
+| D.D-4 | K | decl-bridge(todo)。DC-FORM / DC-SUPPLY は t2cover seq 2721 の study unit | 候補・条件付きの記載 | ConstValueRel: Tools/ShippingGen5DeclConnect.lean:267 @kjob/g5dc-r23 0fcce4e7。ConstValue の定義は未記述 | Lean(名と branch@SHA) |
+| D.D-5 | C | decl-bridge(設計のみ)/ dg-sem / dg-dataof / dg-acc | 候補・条件付きの記載 | declConnect_of_rows, dcGen_of_rows: Tools/ShippingGen5DeclConnect*.lean @kjob/g5dc-r23 0fcce4e7 | Lean(名と branch@SHA) |
+| D.D-7 | C | dc-connect の U-CORENR(74343ad8、freeze 28f2627c は seq 5327 承認、実装は未 review) | Issue 名あり | NoRawBelow: Tools/ShippingGen5DCEntryR.lean:14 @kjob/g5dc-r23。実 core run との接続 noRawBelow_of_coreRun は 74343ad8(未 review) | Lean(名と branch@SHA) |
+| D.E-1 | C | MemTagsNamed は U4(下の D.E-6 に帰着)。割当の Issue 名は boundary-audit | Issue 名あり | hmemSame_of_memTagsNamed: Tools/ShippingGen5NameKids2.lean:71 @kjob/g5ba-r16 96e862fe | Lean(名と branch@SHA) |
+| D.E-2 | C | boundary-audit(E-6〜E-9 に帰着) | Issue 名あり | hself_of_rank: NameKids2.lean:80, hself_all_reached: NameKids3.lean:99 @kjob/g5ba-r16 96e862fe | Lean(名と branch@SHA) |
+| D.E-3 | C | boundary-audit。文書は synthesis run の事実とし供給元は不明 | Issue 名あり | hn_kidNameAt: NameKids2.lean:58 @kjob/g5ba-r16。ordinary kid の y.1.name = ofDecl c(B7)は見つからなかった | Lean(名と branch@SHA) |
+| D.E-4 | C | boundary-audit。B5 はユーザー判断の可能性あり | Issue 名あり | BOUNDARY_AUDIT_FREEZE.md §1.2 の B3/B4/B5。machineClosesAtA_of_memKids'(CallsMemPinned.lean:330)の binder | 文書の型 |
+| D.E-5 | C | U4 / U5 / U6 が各 hmem/hg/hin(boundary-audit) | Issue 名あり | NameKids3.lean(GraphAgrees/ReachSpans/InClass)@kjob/g5ba-r16 96e862fe | Lean(名と branch@SHA) |
+| D.E-6 | C | reader-bridge(machineDefines_of_readsAll、partial) | Issue 名あり | hmem_of_machineShapeF: NameKids4.lean:33 @kjob/g5ba-r16 96e862fe | Lean(名と branch@SHA) |
+| D.E-7 | C | 未割当(production の ds/Reach/S が未供給) | 未割当 | graphAgrees_of_firstOcc: NameKids5.lean:20 @kjob/g5ba-r16 96e862fe | Lean(名と branch@SHA) |
+| D.E-8 | C | 未割当 | 未割当 | inClass_graphOf: NameKids6.lean:18 @kjob/g5ba-r16 96e862fe | Lean(名と branch@SHA) |
+| D.E-9 | C | U8(graphAgrees_of_mem)は freeze のみ承認。Lean なし | 候補・条件付きの記載 | reachClosed_ordPath: NameKids7.lean:20 @kjob/g5ba-r16 96e862fe | Lean(名と branch@SHA) |
+| D.E-12 | C | 未割当 | 未割当 | writer_prints_endpoint_artifact: Tools/ShippingDesignWriterRun.lean:119(G7-a) | Lean(名と branch@SHA) |
+
+**数えた値（上の表の列を数えたもの。推測なし）**
+
+| 項目 | 行数 |
+|---|---|
+| 合計 | 69 |
+| 割当: Issue 名あり / 候補・条件付き / **未割当** | 33 / 6 / **30** |
+| 型の根拠: Lean（名と branch@SHA） / 文書の型 / 名前のみ / 型が見つからなかった | 58 / 6 / 2 / 3 |
+
+- 未割当 30 行が、`ReflectsAll` の構成要素（B.G-*）、parametric（B.P-*）、fallback（B.F-*）、boundary-audit の一部（D.E-7, E-8, E-12）、DG-ENV の一部（C.EN-7, EN-8）などに及ぶ。**履歴上の割当を持たない Issue**（gen5-gencall-proof / package-coverage / reader-bridge / decl-bridge / boundary-audit / gen4-fg-assembly）の存在は §2 のとおり。
+- **「型の根拠」が Lean でも、閉包（どの reach・run・carrier の上の全称か）が固定されていない行（C 48 行）は型付けできていない**（§8.4）。この表は owner と型の出どころを揃えただけで、型付けの前進ではない。
+- 本確認で読み直したのは部分ファイルの記載と、branch 上の path の存在、`hacc_of_top_runs` など §9.4 の補題の署名のみ。上の branch の Lean を build し直してはいない。
+
+### 9.3 T1 crosswalk（Q-F1 の 16 行）: 1 行ずつの確認。合算しない
+
+比較元: T1 台帳 `scripts/gen3/PREMISE_LEDGER.md` @ **kjob/t1stmt2 51ebec20**（`git show` で全文を読んだ。T1 の数は 71 行 / リーフ 62 = TRUSTED 1 + 入力 2 + 証明義務 56 + 監査 3。型付き 27 / registry 29、§11.1。その後 T1L-20 / 22 / 24 が 82cb67a6 で前提解消、T1 59）。
+
+確認の中身: (a) FG 行の別名・本文に書かれた名前（G-MEMCALLS、G-DATA-CALL、LiftShips、hrow / hord、MemParentDataOk、ExtInS、OneOutWidth など）が T1 台帳 §3 の表の該当行の「別名」「前提」欄・§4・§6 に書かれているか、(b) 役割（何を述べる前提か）が同じか。**「一致」は名前と役割が T1 台帳の記載で一致したという意味で、Lean の型の同値は確認していない。** T1 側の agent の確認は受けていない。
+
+| FG の行（§8.2 の区分 T1） | FG 側の内容 | T1 台帳の ID（§3） | T1 側の状態（§11.1、51ebec20） | 対応の確認 |
+|---|---|---|---|---|
+| A.P-07（merged C.AC-6） | `MachineTaken` / `MachineClosesAtA`（G-CLOSES） | T1L-08（親）→ 20-25、21 | 21: 型付き `h_T1L_21`。23, 25: registry。**20, 22, 24: 前提解消（82cb67a6、T1 62→59）**。`MachineTaken` 自体は T1 §6 で「T1Hyp.defines / closes から導出」で行ではない | 親にのみ対応。FG の `MachineTaken` の読みは T1 §6 と整合。リーフ単位の一致は T1 台帳が示さない。**T1L-20 / 22 / 24 の解消は T1 台帳の話で、FG の数は動かさない** |
+| A.P-08 | package の存在・生成事実（G3-GEN / G3-DECL）、`T1Hyp.pkg` | T1L-06 | 型付き `h_T1L_06`。支払い先は FG 台帳（T1 §8） | **一致**（T1L-06 の記載が `T1Hyp.pkg` / G3-GEN） |
+| A.P-09 | `DataOkB` の行と callDec 系 `hok` / `hco` / `hslots` | T1L-32、39、40 | 32: registry（理由 L）。39, 40: 型付き | **一致**（T1L-39 = `callsOk`、T1L-40 = `ss.length = slots.length`、T1L-32 = `DataOkB p = true`）。FG ledger も「A.P-09 は特に読みが入る」と書いていた（§8.1）。`outTy` / `outHead` に対応する T1 行は見つけていない |
+| A.P-10 | `MemParentDataOk` | T1L-12 | 型付き | **一致**（T1L-12 の記載が `MemParentDataOk q ∧ ExtInS q`）。T1 は T1L-13 を T1L-12 に統合（同じ文の別 binder） |
+| A.P-11 | `LeafDataOk` | T1L-11 | 型付き | **一致**（`LeafDataOk q ∧ ExtInS q`） |
+| A.P-12 | `ExtInS` | T1L-11、12（`ExtInS` の連言） | 型付き | **一致**（T1 側では独立の行ではなく T1L-11 / 12 の連言）。FG 側 A.P-10 / A.P-11 / A.P-12 は T1 では 2 行に束ねられる（多対一） |
+| A.P-14 | case 前提（insts / instFields / slots / Nonempty ι / `StepCaseOK`） | T1L-15..18、T1L-03（親） | 15-18: registry（`sparkle-gen2-step` 型待ち）。T1L-41 は非 Prop 入力 | **部分一致**。T1L-15..18 は未被覆 case の `TopShips` で、`StepCaseOK` 側の case 前提は T1L-03 の範囲。case 前提の各項を T1 のどの行が持つかは T1 台帳が示さない |
+| A.P-15 | `hrst`（rst が入力でない）、`hnoRst` / `hnoClk` | T1L-17（補集合） | registry（slotless one-output with `rst` an input、C5S） | **補集合として対応**。FG の `hrst` は T1L-17 の否定側（`StepStmtCases` の case 制限）で、同じ前提ではない。T1 側が数えるのは T1L-17（case S の `TopShips`）のみ |
+| A.P-16（merged D.T-11） | `MemDec`（G-MEMCALLS）、`hG_MEMCALLS` | T1L-26 | 型付き `h_T1L_26` | **一致**（T1L-26 の記載が `MemDec` supply / G-MEMCALLS、「`hG_MEMCALLS` of `Tools/ShippingGen5T2Tie.lean` と同じ前提」と T1 §8 にもある） |
+| A.P-19（merged D.T-10） | `callArgsOkAt` / arity（G-DATA-CALL） | T1L-27 | registry（理由 D、`PortTie` 未設計） | **一致**（T1L-27 = G-DATA-CALL の run-local assembly）。T1L-28（`hPW`）は別行 |
+| A.P-22 | G-SERVED の trace（`ServedP (ShipsRes L P)`） | FG 台帳の読み: T1L-03（親、`hStep`）。T1 台帳の別の読み: §6 の `ServedShips0Stmt` → `hrow`（T1L-04） | T1L-03 はリーフなし。T1L-04 は型付き | **不一致の可能性**。FG 台帳は T1L-03 としたが、T1 §6 は served 系を `hrow` に置換したと書く。どちらが対応するかは未確定（reviewer / T1 側の確認事項） |
+| A.P-23 | `LiftShips`（G-LIFT） | T1L-19 | 型付き `h_T1L_19`（`Tools/ShippingGen2StepLift.lean` の 1 ファイル） | **一致**（`LiftShips L P`）。`LiftShipsInstFree` は別の弱い文で、T1 側でも「instance-free restriction only」 |
+| A.P-24（merged B.F-1, C.CR-3, C.AC-8） | `ChildKeepsInv`（G-KEEP-CHILD）、`hIH` / `hKI` の一部 | **対応する行なし** | T1 §6: `KeepChildStmt` は `keepChild_proved`（@9b79bf3a）で行でなくなった。`LimitStmt` も `limitStmt_proved` | **T1 側に行がない**。FG 台帳は「T1 側で解消済み」と読んで T1 区分に置いた。FG の `hIH` / `hKI`（C.CR-3 の `AccIHAt` / `AccChildKeeps`）がこの解消でカバーされるかは確認していない。**この 4 行（統合後は 1 行）を FG の数に残すかは reviewer の確認事項** |
+| A.P-25（merged D.T-3） | `hW : OneOutWidth P p k`（G-ONEOUT-WID） | T1L-14 | 型付き `h_T1L_14` | **一致** |
+| A.P-26 | `hnomem`（名前半分）と `hord`（起源半分） | T1L-04（`hrow`、`hord` に使う） | 型付き `h_T1L_04` | **一致（`hord` の部分）**。名前半分は O-copies で除去済み（FG 側の記載）。C.CR-1 と同じ T1L-04 に当たる（下） |
+| C.CR-1 | `hrow` / `hord`（`closingRun0_of_run`） | T1L-04 | 型付き `h_T1L_04` | **一致**。**A.P-26 と C.CR-1 の 2 行が T1 の 1 行（T1L-04）に当たる**（多対一）。流れ 1（e6d8e55b）は `hord` を前提のまま残している（§9.1） |
+
+**集計（上の表を数えた値）**: 16 行のうち、名前と役割が T1 台帳の記載で一致したもの **11**（A.P-08, 09, 10, 11, 12, 16, 19, 23, 25, 26, C.CR-1）、親行・補集合にのみ対応し、リーフ単位は未特定のもの **4**（A.P-07, 14, 15, 22。うち A.P-22 は別の読みが T1 §6 にある）、**T1 側に行がないもの 1**（A.P-24）。多対一は A.P-10 / A.P-11 / A.P-12 → T1L-11、12（3 行が 2 行）、A.P-26 / C.CR-1 → T1L-04（2 行が 1 行）。
+
+- **合算していない。** FG の 106（現在値）と T1 の 59（現在値）は数え方が違う（FG はブロック、T1 はリーフ）。16 行を重複なしで足し引きするには、この表の多対一と A.P-24 の扱いを決める必要があり、その決定はこの agent は行わない。
+- §8.1 の「T1 と同じとみなした 21 行」のうち、この 16 行の外の 5 行は A.P-01、A.P-02、A.P-04（文脈 / 前件）、A.P-28（監査）、C.CV-4（FG が型付けした `h_C_CV4`、T1L-43 と共有）。ここでは確認していない。C.CV-4 / T1L-43 の「どちらの文が持つか」は Q-F1 の未決事項のまま（推奨は FG が持つ）。
+- T1 §8 は FG 側の前提（`hDG_GENP`、`hDG_CLOSINGRUN`、`hDG_SEM`、`hkidW`、`KD` / `OSH` / `ENV` / `TEL` など）が T1 に効くと書く。逆向きの対応（T1L-06 / 07 / 42 / 43 / 48 / 49 が FG のどの行か）はこの確認の範囲外。
+
+### 9.4 次に前提を減らせる候補の流れ（FG 側。2 つ）
+
+**これは候補であって実績ではない。** 消える予定の ID は、補題が行の前提を満たすことを freeze で型として示せたときの候補で、消えたとは言えない。増える前提は**数えていない**（推測の数は書かない）。着手は reviewer / ユーザーの判断で、各 freeze に「消える / 増える」を数えて書くことを必須にする（§5 と同じ）。選定の根拠は、§9.2 の表で「Lean（名と branch@SHA）」があり、かつ実 run（`Start` と `RunsTo (synthesizeCombinationalCore …)`）または成功した reader から前件が作られる補題が branch 上にあること。以下の署名は本確認で `git show` により読んだ。
+
+**候補 A: DG-ACC / DG-SEM の Acc → 因果性の鎖（C.SM-4、C.SM-2。C.SM-5 の残りを減らす）**
+- 実 run から払える補題:
+  - `hacc_of_top_runs`（kjob/g5ac-r26 cff12a48、`Tools/ShippingGen5AccReads.lean:137`）: top ごとに `Start L mctx cctx w ∧ RunsTo (synthesizeCombinationalCore t [] false) …` を与えると、`∀ c, ReachEdge K Top c → Acc (CallRel K) c`（C.SM-4 の `hacc ∀ Y s, G Y = some s → Acc R Y` の形に当たる）。内部で `acc_top_of_run`（:124、同ファイル）。
+  - `srcCausal_of_acc_unfold`（kjob/g5sm-u23 7af6c7cc、`Tools/ShippingGen5SemAccStep.lean:14`）: `hunf` と `Acc R X` から `SrcCausal s`（C.SM-5 の `CalleesCausal` の材料）。
+  - `ordCallees₀_mem`（kjob/g5ac-r26、`Tools/ShippingGen5AccOrdCallees.lean:21`）: C.SM-2 の `hmem`（ordC の membership）を `ordCallees₀` で具体化。
+- 消える予定の ID: **C.SM-4**（`hacc`）、**C.SM-2**（`hmem`、`ordC := ordCallees₀` に限る）。C.SM-5 は既に PA で、C.SM-4 が消えれば残りは C.SM-3（`hinv` / `hunf`）だけになる。
+- 増える前提の見込み（名前のみ。数は未計数）: `hacc_of_top_runs` が取る `hLim : LimitStmt L`、`AccServed0Stmt K L (ReachEdge K Top)`、`AccKeepChildStmt K L (ReachEdge K Top)`。`LimitStmt` は T1 側で `limitStmt_proved`（T1 §6）。`AccServed0Stmt` と C.AC-8 の `hS` の関係、および FG 台帳が C.AC-8 を A.P-24 に統合した扱いとの整合は未確認。kit `K` の carrier の固定（§8.4 の「DG-SEM と DG-ACC を 1 本の木に置く」）が先に要る。
+- 前置きの作業: kjob/g5ac-r26 と kjob/g5sm-u23 の局所統合（§8.6 の試行では `lakefile.lean` のみ衝突。連続した merge の build は未確認）。g5sm-u23 の最新実装 7af6c7cc は未 review、g5ac-r26 の A13 は freeze 止まり（C.AC-4, C.AC-9 は残る）。
+
+**候補 B: boundary-audit の名前の鎖を、型付き仮説 `h_C_CV4` に帰着させる（D.E-6、D.E-1）**
+- 実 run から払える補題:
+  - `hmem_of_machineShapeF`（kjob/g5ba-r16 96e862fe、`Tools/ShippingGen5NameKids4.lean:33`）: `hF : ∀ c, Reach c → ∀ sp, S c = some sp → ∃ n sm ps ci senv ai, machineShapeF n sm ps ci senv ai = some (some sp)` から `MemTagsNamed sp`。
+  - `hmemSame_of_memTagsNamed`（`NameKids2.lean:71`、同 branch）: `MemTagsNamed shape` から D.E-1 の `hmemSame`。
+  - `hself_of_rank`（`NameKids2.lean:80`）、`hn_kidNameAt`（`NameKids2.lean:58`）は D.E-2、D.E-3 の built 側。
+- 消える予定の ID: **D.E-6**（`hF`）、**D.E-1**（`hmemSame`）、D.E-5 の `hmem` の部分（ブロック全体ではない）。
+- 増える前提の見込み（名前のみ。数は未計数）: (1) `hF` を **文 §8.3 の `h_C_CV4`**（`machineShape? false [] E senv = some sp → ∃ n, machineShapeF n false [] E senv true = some (some sp)`）から作るには、`S c = some sp` と run の `machineShape? … = some sp` を結ぶ対応が要る（`S` の carrier は D.E の全行で未固定。reader-bridge の `machineDefines_of_readsAll` が候補だが partial）。(2) `hF` の量化する `sm ps ai` と `h_C_CV4` の固定値（`false [] true`）の一致は、本確認では Lean で確認していない。
+- **注意**: この流れで消える D.E-6 / D.E-1 は C.CV-4（既に台帳にある、実 run から払う補題が無い境界 = DG-COVER D2(b)）に**帰着する**。帰着先が増えないなら FG の数は減るが、新しい支払い元ができるわけではない。実 run から払える根拠の強さは候補 A より弱い。
+
+候補にしなかったもの: 段 1 の流れ 3（default route の post / entry。`synthesizeCombinational_postEntry` と `postEntry_lookup_ne`）は、D.D-8 が既に PA、D.D-2 が A.P-05 に統合されていて、引ける独立の ID が §8.2 に残っていないため。流れ 2（DataOf の健全性）は候補 A に含めた。
+
+### 9.5 前提差分と 4 段（本版）
+
+- この版の前提差分: **解消 0 / 追加 0**（文書の確認と反映のみ。流れ 1 の -4 は kjob/flow1-b の closingrun 側で計上済み）。
+- 現在値: **FG 106 / T1 59**。基準件数 FG 146 / 110 と T1 62 は版の履歴。
+- 4 段（設計承認 / 条件付き部品 / 前提解消 / 最終受理）: 本版は設計（段 1）の記録の更新。FG の最終受理はまだ何も満たしていない。
