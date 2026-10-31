@@ -1,10 +1,13 @@
-# DG-ENV freeze rev3: route T2 (runtime-model correspondence) survey, and the first closing unit (docs only)
+# DG-ENV freeze rev3.1: route T2 (runtime-model correspondence) survey, and the first closing unit (docs only)
 
 Issue `sparkle-gen5-dg-env`. Base: `kjob/g5cr-r6` f3a29dbb (S1 43977202; unit (d) 3db43dcb/2b4b7b1a included).
 Inputs read in full: `par/gen5-t2:scripts/gen5/DG_ENV_FREEZE.md` (§0, §4.2 axis T, §4.3, §4.4, §4.5),
 `Tools/ShippingHeapModel.lean`, `Tools/ShippingHeapProvenance.lean` (header table), `Tools/ShippingStRefCorrespondence.lean`,
 `Tools/ShippingEnvSnapshot.lean`, `Tools/ShippingChildInvA.lean` (`FramedA`, `RefLawsAOps`, `RefLawsATele`, `AdmCtx`),
 `Tools/ShippingChildInv.lean` (`Diag`, `Throws`, `Op`, `endW`, `Keeps`), `Tools/ShippingGen5Env{,R,Q}.lean`.
+
+Rev3.1 (docs sync, no type change): R1 U1-7 is proved directly (no `getEnvFrame_of_readKeeps`, §2.1 prohibition kept); R2 necessity wording
+limited to what was surveyed (§0.1, §1 row 10-13, §3); U1 is a conditional algebra that keeps the cell premises and is NOT a supply of C0.
 
 Status: FREEZE for review. Nothing here adds a law, a `Laws` field, a TRUSTED boundary or a shared definition, narrows FG,
 or claims C0 / QuietStrength / AdmDown / hA′ / L′ / Start L′ is supplied. Every "未供給 / この調査で経路未発見" below is a result of
@@ -13,12 +16,12 @@ THIS survey (what was read at f3a29dbb), not a claim of impossibility or of nece
 ## 0. Findings (summary)
 1. **The heap model has no environment cell.** `Heap σ` = `cache, synth, depth, other, next, reg` (HeapModel.lean:92-98);
    `HeapLaws` has exactly the fields `frameT excOk frameQ cacheSetQ depthSetQ frame cacheSet depthSet`, about `cv/sv/dv`/`quiet` only.
-   So no statement "EnvFrame / Keeps (ReadsAt env₀)" can even be stated over `Heap σ`, let alone derived from it. The HeapModel header
+   In the existing model no `envAt` and no correspondence to the real environment is defined, so this survey found no way to state "EnvFrame / Keeps (ReadsAt env₀)" over `Heap σ` (a statement would need such a definition added; not claimed impossible). The HeapModel header
    itself lists `diag`, `telescope`, `lamTelescope`, `localDecl`, `letDecl`, the Meta-primitive constructors of `Framed` and `excOk` on
    Lean exceptions as having NO counterpart.
 2. **What T2 can mean here is the REAL-type route** already started in `ShippingStRefCorrespondence.lean`: cell premises
    `ReadWorld r` / `ReadKeeps r` / `SetGet r` / `SetFrame r r'` about the opaque `ST.Ref.get/set`, plus the proved
-   `getEnvFrame_of_readKeeps`, `envFrame_set`. These are PREMISES (the "fit", open); the heap model supplies their model-side
+   `envFrame_set` (and `getEnvFrame_of_readKeeps`, which U1 does not use). These are PREMISES (the "fit", open); the heap model supplies their model-side
    analogues (`runsTo_getM`, `get_set_other`, `modify_split`, `FramedR.keeps`) but is not connected to them. Using them adds no
    law/TRUSTED boundary only as long as they stay hypotheses of the lemmas; they are not supplied for the real runtime.
 3. **`EnvFrame` has the wrong shape for the `Laws` clauses.** `EnvFrame x` (EnvSnapshot.lean:51) speaks about SUCCESSFUL runs
@@ -54,7 +57,7 @@ telescope lamTelescope localDecl letDecl). Target (TQ, FREEZE §4.4.2): `L′.O.
 | 7 | `depthSetQ` | same for `sparkleSynthDepth` | yes, conditional (as 6) | same |
 | 8 | `frameT` | `ReadsAt` at `endW p w` for `Throws p` (`throwError`, lifted `throwError`) | candidate (C): unfold `throwError` to reads of `mref`/`cref`; `ReadWorld mref`, `ReadWorld cref`. NOT checked | the unfolding; `AdmDown` |
 | 9 | `diag` | `ReadsAt` at `endW p w` for `Diag p` (`profLog ppExpr ioEprintln msgToString ioGetStderr stderrFlush ioHandleMk ioHandlePutStrLn ioHandleFlush`) | no route found (D): `ppExpr` runs registered printers; the others are opaque `IO` prims | a premise per class (not an existing premise name) |
-| 10-13 | `telescope lamTelescope localDecl letDecl` | the stability premise of `L′`'s field gives `quiet′ w → quiet′ w′` for the continuation; `L.T`'s premise form cannot produce `envAt w′ = envAt w` | no route found (D): the heap model has no counterpart; bodies are Meta `def`s over opaque `whnf` | 4 stronger clauses (TQ-F) — new TRUSTED, not requested |
+| 10-13 | `telescope lamTelescope localDecl letDecl` | the stability premise of `L′`'s field gives `quiet′ w → quiet′ w′` for the continuation; `L.T`'s premise form cannot produce `envAt w′ = envAt w` | no route found by this survey (D): the heap model has no counterpart; bodies are Meta `def`s over opaque `whnf` | 4 stronger clauses (TQ-F): unsupplied candidate specification; whether they are needed is not established; not requested |
 
 Count by rule "per Laws field": env-free 4 (rows 1-4); closes conditionally 2 (6, 7); partly 1 (5); candidate unchecked 1 (8); no route 5
 (9, 10-13). 4+2+1+1+5 = 13.
@@ -86,7 +89,7 @@ except `lakefile.lean` (two `lean_lib` entries).
 Why U1 first: (i) it is the only group whose route exists in the repository (modify reduces to get;set — verified; `envFrame_set` and
 `getEnvFrame_of_readKeeps` exist), (ii) it types the `endW` form that every later row (C and `frameQ` of `L′`) needs, so the
 success-only `EnvFrame` of E3 is replaced by the form the clauses actually use, (iii) it uses no `Laws`/`T1Hyp` field and adds no
-boundary: the cell premises stay hypotheses, (iv) it states exactly which premises the 13 rows need, which is the input for the
+boundary: the cell premises stay hypotheses, (iv) it is a conditional algebra: the cell premises stay as hypotheses, so U1 is not a supply of C0; (v) it states exactly which premises the 13 rows need, which is the input for the
 user-judgment material (§3). It does NOT make the premises true and does not give `frameQ` for `L′`.
 
 ```lean
@@ -129,8 +132,9 @@ end Tools.ShippingGen5EnvFrame
 ```
 Proof sketches: U1-1 `pure_world`; U1-2 case on `m` at `w` (error: `hm w`; ok: `hf` at the middle world composed with `hm`);
 U1-3/4 unfold to the `ST` term as `envFrame_set`'s `key` (`rfl`) then `ReadWorld` (`getW r w = w`) / `SetFrame`; U1-5/6 by
-`ST.Prim.Ref.modify`/`modifyGet` unfolding then U1-2/3/4; U1-7 `ReadWorld.readKeeps` + `getEnvFrame_of_readKeeps`'s argument at
-`endW`; U1-8 `ReadsAt.of_envEq`. If a step does not unfold by `rfl`, U1 records that theorem as a gap in the header instead of adding a
+`ST.Prim.Ref.modify`/`modifyGet` unfolding then U1-2/3/4; U1-7 directly inside the lemma: `Lean.getEnv` unfolds to `cref.get` (key lifted as in `envFrame_set`), `ReadWorld cref` gives
+`getW cref w = w` / the read value via `readOf_get`, so `endW` returns `w` and `envAt` is unchanged. It does NOT call
+`getEnvFrame_of_readKeeps` and does not reach `GetEnvFrame` (§2.1 prohibition kept); U1-8 `ReadsAt.of_envEq`. If a step does not unfold by `rfl`, U1 records that theorem as a gap in the header instead of adding a
 hypothesis.
 
 Counting: 1 def + 8 theorems = 9 items. Rows they serve: 13 class-B constructors (6 get via U1-3, 2 set via U1-4, 3 modify via U1-5
@@ -146,16 +150,16 @@ Counting: 1 def + 8 theorems = 9 items. Rows they serve: 13 class-B constructors
   dropped; M7 U1-8 without the `ReadsAt` premise `h`. Total MUTANT = 7 (M1-M7).
 - CLOSURE (walker over the proof terms and their dependencies; an unknown name is `throwError`): positive roots U1-1…U1-8 must not
   reach any `Laws`/`RefLawsAOps`/`RefLawsATele`/`T1Hyp`/`T1HypND` field (named projection, raw `Expr.proj`, recursor), nor
-  `GetEnvFrame`/`EnvSnapshot` (`ReadWorld`/`SetFrame` appear only as hypothesis binders, `getEnvFrame_of_readKeeps` may be used by
-  U1-7 and is allowed by name). Negative controls: one root per forbidden class (a Laws projection, a `T1Hyp` field, `EnvSnapshot`)
+  `GetEnvFrame`/`EnvSnapshot`/`getEnvFrame_of_readKeeps` (`ReadWorld`/`SetFrame` appear only as hypothesis binders; no name is
+  exempted, so type and value closure of every root, U1-7 included, must avoid them). Negative controls: one root per forbidden class (a Laws projection, a `T1Hyp` field, `EnvSnapshot`)
   and an unresolved name (must `throwError`), plus clean controls (a closed lemma that passes). helper value / helper type negatives as
   in `EnvQCheck`. Counts are stated as `n roots / n negatives / n clean` in the check output.
 - AXIOMS: standard only (`propext`, `Classical.choice`, `Quot.sound`) for every root; no `sorry`, no `native_decide`.
 - `lakefile.lean`: two `lean_lib` entries; build `kjob lake build Tests.Gen5.EnvFrameCheck` (one target at a time, `-c 4`).
 Lean commit ⇒ Issue stays `doing`, note says "clean build は coder".
 
-## 3. Rows that need T1 (new TRUSTED) — exact statements for the user-judgment material, NOT adopted
-Format as FREEZE §4.3. All in `RefLawsAOps`-style, over the restricted class lists (a law over arbitrary actions is false in the model:
+## 3. Rows with no T2 route found: candidate specifications (unsupplied; need for a new TRUSTED boundary is NOT established) — statements for the user-judgment material, NOT adopted
+Format as FREEZE §4.3. These are candidate statements only; this survey found no route for these rows, which does not show that none exists. All in `RefLawsAOps`-style, over the restricted class lists (a law over arbitrary actions is false in the model:
 `frame_all_false`; a law over `whnf` etc. that does not restrict `canUnfold?` could have the same defect — not checked).
 
 T1-D (classes D of §1.1, one clause; or split by class):
