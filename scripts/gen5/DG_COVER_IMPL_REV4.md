@@ -25,7 +25,7 @@ commit `9c7b5c35` records that SHA. **Clean exact-head build is the coder's; not
    `FStep`/`FReach` (constructor types are checked separately), `ShapeAgree` (field-wise by `shapeAgree_fields`). `FullInv` and its parts are re-spelled in the Check.
 
 ## Checks (Cover3Check, observed in the Pod build)
-TYPE 27 (incl. 6 `FStep` constructors), MUTANT 6 (`MutLooseMachClose` `c-p`; `MutReadsOfQuoteStmtRev1` no `PhInRange`; `MutLetRange` `≤`; `MutRowCNoNL`; `MutFStepGroup`
+TYPE 27 compared declarations (aggregation rule: one compared declaration = 1, not log lines; breakdown: 20 theorems via `checkExpected` + 1 theorem whose type is a Prop def, `readsOfQuoteStmt`, via `checkExpectedUnf` + 6 `FStep` constructors via `checkExpectedC`; the 3 iff/field lemmas, 3 scanner-equivalence/negcheck theorems and 2 kernel negatives are not TYPE-compared; AXIOMS lists 29 theorems; earlier note "TYPE 20" counted only the `checkExpected` theorems), MUTANT 6 (`MutLooseMachClose` `c-p`; `MutReadsOfQuoteStmtRev1` no `PhInRange`; `MutLetRange` `≤`; `MutRowCNoNL`; `MutFStepGroup`
 without `rs.length = os.length`; `MutRowA3` `≤`) — each a well-typed statement rejected by the same comparer by signature/defeq, **not** a semantic counterexample.
 AXIOMS 29 constants standard only; CLOSURE OK (4233 constants, no `sorryAx`/native axiom), 3 negative + 2 clean controls; the 3 intended negative controls (in memory,
 `withoutModifyingEnv`) print 3 "declaration uses sorry" warnings (意図した負例 3 件). Kernel negative kept: `c3_example_not_in_range`, plus CoverNegCheck's own.
@@ -35,3 +35,6 @@ AXIOMS 29 constants standard only; CLOSURE OK (4233 constants, no `sorryAx`/nati
   the entry body), R-nl (`LetsNoLoose`), R-dom, B3 (memory arg sorts), Q-wit/Q-cmp/Q-snd (`LetQuoteEq` etc.), `resultRange_final`'s `hv` (range at return time),
   `ShapeAgree`, `hb`/`hv` (O10/O11) are premises or unsupplied. Searches found no supplier for these in this tree; that is not a claim they are impossible.
 - No real run, `dataOf` success, `GenWF` on real data, corpus, M5 or FG statement is made.
+
+## Clean build
+`cv7v-72752f4c` (exit 0, 708 jobs, scoped approved at 72752f4c) is recorded in the `Cover3Check` header. Approval covers Cover3 U-D1/U-D2/U-D3 + audit fix as a conditional intermediate result.
