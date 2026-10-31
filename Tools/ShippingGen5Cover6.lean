@@ -1,7 +1,7 @@
 import Tools.ShippingGen5Cover3
 import Tools.ShippingReaderLenOk
 set_option autoImplicit false
--- NOT BUILT yet (written in g5cv-r13 against freeze rev7 §2.1 as accepted scoped by the reviewer). Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Built in g5cv-r13 at ef0612b5 (Pod `kjob lake build Tools.ShippingGen5Cover6`, exit 0). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-COVER rev7 unit U-E3a: `FReachC` — the step closure extended by `CtrlEq` steps, and the `machReserve` step
 
