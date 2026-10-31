@@ -1,6 +1,6 @@
 import Tools.ShippingGen5EnvFrame
 set_option autoImplicit false
--- NOT BUILT: implementation of the U2 freeze (scripts/gen5/DG_ENV_T2_U2_FREEZE.md). Pod scratch compile only; Pod build and clean build are the coder's.
+-- BUILT (unit U2): kjob lake build Tests.Gen5.EnvFrame2Check exit 0, 754 jobs, at 954fe258 (pod build, not the coder's clean exact-head build). No sorry / axiom / native_decide.
 
 /-! # DG-ENV unit U2: `EnvFrameEnd` rows for class B' (IO lift) and class C, CONDITIONAL
 
