@@ -4787,6 +4787,18 @@ lean_lib «Tools.ShippingGen5EnvQ» where
 
 lean_lib «Tests.Gen5.EnvQCheck» where
   roots := #[`Tests.Gen5.EnvQCheck]
+
+lean_lib «Tools.ShippingGen5EnvFrame» where
+  roots := #[`Tools.ShippingGen5EnvFrame]
+
+lean_lib «Tests.Gen5.EnvFrameCheck» where
+  roots := #[`Tests.Gen5.EnvFrameCheck]
+
+lean_lib «Tools.ShippingGen5EnvFrame2» where
+  roots := #[`Tools.ShippingGen5EnvFrame2]
+
+lean_lib «Tests.Gen5.EnvFrame2Check» where
+  roots := #[`Tests.Gen5.EnvFrame2Check]
 lean_lib «Tools.ShippingGen2T1» where
   roots := #[`Tools.ShippingGen2T1]
 
@@ -4831,3 +4843,57 @@ lean_lib «Tools.ShippingGen2TopClkIn» where
 
 lean_lib «Tools.ShippingGen2TopContract» where
   roots := #[`Tools.ShippingGen2TopContract]
+
+lean_lib «Tools.ShippingGen5ClosingRun» where
+  roots := #[`Tools.ShippingGen5ClosingRun]
+
+lean_lib «Tests.Gen5.ClosingRunCheck» where
+  roots := #[`Tests.Gen5.ClosingRunCheck]
+
+lean_lib «Tools.ShippingGen5ClosingRun2» where
+  roots := #[`Tools.ShippingGen5ClosingRun2]
+
+lean_lib «Tests.Gen5.ClosingRun2Check» where
+  roots := #[`Tests.Gen5.ClosingRun2Check]
+
+lean_lib «Tools.ShippingGen5EnvFrame3» where
+  roots := #[`Tools.ShippingGen5EnvFrame3]
+
+lean_lib «Tests.Gen5.EnvFrame3Check» where
+  roots := #[`Tests.Gen5.EnvFrame3Check]
+
+lean_lib «Tools.ShippingGen5EnvStart» where
+  roots := #[`Tools.ShippingGen5EnvStart]
+
+lean_lib «Tests.Gen5.EnvStartCheck» where
+  roots := #[`Tests.Gen5.EnvStartCheck]
+
+lean_lib «Tools.ShippingGen5EnvCache» where
+  roots := #[`Tools.ShippingGen5EnvCache]
+
+lean_lib «Tests.Gen5.EnvCacheCheck» where
+  roots := #[`Tests.Gen5.EnvCacheCheck]
+
+lean_lib «Tools.ShippingGen5EnvCacheB» where
+  roots := #[`Tools.ShippingGen5EnvCacheB]
+
+lean_lib «Tests.Gen5.EnvCacheBCheck» where
+  roots := #[`Tests.Gen5.EnvCacheBCheck]
+
+lean_lib «Tools.ShippingGen5EnvCacheC» where
+  roots := #[`Tools.ShippingGen5EnvCacheC]
+
+lean_lib «Tests.Gen5.EnvCacheCCheck» where
+  roots := #[`Tests.Gen5.EnvCacheCCheck]
+
+lean_lib «Tools.ShippingGen5EnvCacheD» where
+  roots := #[`Tools.ShippingGen5EnvCacheD]
+
+lean_lib «Tests.Gen5.EnvCacheDCheck» where
+  roots := #[`Tests.Gen5.EnvCacheDCheck]
+
+lean_lib «Tools.ShippingGen5EnvCacheE» where
+  roots := #[`Tools.ShippingGen5EnvCacheE]
+
+lean_lib «Tests.Gen5.EnvCacheECheck» where
+  roots := #[`Tests.Gen5.EnvCacheECheck]
