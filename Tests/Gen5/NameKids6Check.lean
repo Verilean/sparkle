@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids6
 import Tools.ShippingGen2Defs
 import Tests.Gen5.NameKidsCheck
--- NOT BUILT (reviewed build not yet recorded). U6 check: TYPE 1 / MUTANT 4 (single-point; signature/defeq rejection, not semantic counterexamples; no block mutant) / use-site 1 / closure negatives 8 + clean 1 / REACH 1 / AXIOMS 1 (standard three only).
+-- Reviewed build ba13v-b07cfcec (approved at b07cfcec): exit 0, 724 jobs. U6 check: TYPE 1 / MUTANT 4 (single-point; signature/defeq rejection, not semantic counterexamples; no block mutant) / use-site 1 / closure negatives 8 + clean 1 / REACH 1 / AXIOMS 1 (standard three only).
 -- Count rule: one `logInfo` line per class: TYPE = theorem vs its Expected; MUTANT = distinct mutant def counted once (MutNoHnd, MutNoHr, MutNeq, MutReverse); REACH/AXIOMS = one per theorem.
 -- hnd / hr are premises, not supplied for the production program. No sorry / axiom / native_decide.
 

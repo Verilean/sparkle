@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids3
 import Tools.ShippingSrm15Graph
 set_option autoImplicit false
--- NOT BUILT (reviewed build not yet recorded). 1 theorem, 0 new definitions.
+-- Reviewed build ba13v-b07cfcec (approved at b07cfcec): exit 0, 724 jobs. 1 theorem, 0 new definitions.
 -- Conditional reduction only: `hnd` (names of ds pairwise distinct) and `hr` (rank of the root within B) are premises and are NOT supplied here for the production program. The rank half of InClass, hfo, ReachSpans, production bridge, N1 / G5 / G7 / M5 / FG are unsupplied.
 -- No sorry / axiom / native_decide.
 
