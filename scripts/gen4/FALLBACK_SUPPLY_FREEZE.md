@@ -1103,3 +1103,72 @@ Not claimed by building these: no acceptance of any lineage, no Issue completion
 - `Tools/ShippingGen4FbFin.lean` (`tFin_stop`, `a4_inv_tail_fin`) and `Tests/Gen4/FbFinCheck.lean` at `b103bd90` (header-sync commit follows, comments only), `lean_lib` entries appended to `lakefile.lean`. Types as §14.1 / §15.1 with `h1` at the §15.2 position. `tFin_stop` is `hI.1.1.2.2 : dv w = D`, `subst`, then the single application of `stop_of_run`; no definition or proof of `stop_of_run`/`core_tripleAInv`/`keepBody` is copied. No `sorry`/`axiom`/`native_decide`, no new law or field.
 - Pod builds (exit 0, each alone, NOT clean issue-linked builds): `Tools.ShippingGen4FbFin` (758 jobs), `Tests.Gen4.FbFinCheck` (764: TYPE OK ×2, the companion accepted by logged `isDefEq` against the independent `ExpR4RunInvT2` copy; MUTANT REJECTED ×8 incl. `h1` after `hI`, signature/defeq rejections not semantic counterexamples; REACH: no `Tools.ShippingMemo.*`, `missing = 0`, `stop_of_run` reached by `tFin_stop`; controls: absent root → missing 1 and assertion failed as expected, direct/indirect/raw-proj flagged, unrelated and FB-3 theorem not flagged with missing 0, consumer sees `stop_of_run` and the FB-3 theorem does not; AXIOMS standard three ×4), and on the merged tree `Tests.Gen4.FbTailInvCheck` (713), `FbInvCheck` (709), `FbTailCheck` (703), `FbR4Check` (353), `Tests.Gen5.ClosingRunCheck` (755). The Tier-B targets of §15.5 were NOT built by this unit.
 - Not supplied: depth 0, T-LEG, T-MEMO, K4, T-PP, memo law, K-TSPLIT. T-FIN (D ≥ 1) is a preservation fact. The clean issue-linked build at the exact SHA recorded in the Issue note is the coder's. Issue / M4 / FG are not complete.
+
+---
+
+## 17. FB-8: survey of the unsupplied rows from existing theorems, and the next unit (K-TSPLIT) — complete types (rev10; text for review; NOT Lean, NOT implemented)
+
+- **Status.** Docs only. Base `3c45dcbf` (record fix: §15.5 is 48 modules, built as ONE multi-target build with 47 target arguments, `Tests.Gen5.EnvCheck` via `EnvRCheck`; log `fb7w-8c7e5ff6` exit 0, 1090 jobs, scoped approved at `8c7e5ff6`). No new law, no `Laws` field, no TRUSTED boundary, no shared-definition or compiler edit, no FG/guarantee change, `stop_of_run` untouched. "Not found" below means "this survey found no supplier / route in the files read"; it is NOT a claim that a row is false or underivable. Mutants in the planned check are signature/defeq rejections, not semantic counterexamples.
+- Method: `grep` of `Tools/` for the names of §12.4–§12.6 (`outer_miss`, `memoInv_*`, `legacy_entry_*`, `PPRel`-shaped `hpost`, `dropZeroWidthModule`, `mergeChecked`) and reading of the statements (not proofs) listed below.
+
+### 17.1 Survey (row → real names and types → verdict)
+| row | existing names (file) | what they state | gap to the §12.4–§12.6 type | verdict |
+|---|---|---|---|---|
+| depth 0 of T-FIN | `core_tripleAInv` (`ShippingGen2KeepChild`) requires `1 ≤ D`; `stop_of_run` (ClosingRun) inherits `h1 : 1 ≤ dv w` | `InvAt D w'` for `D ≥ 1` | at `D = 0` the cache clear (`coreFinally` with all seven maps `{}`, the `D = 0 → sf = {} ∧ …` conjunct of `R4RunInvT`) is part of the run; `JQC L.O 0 w'` is the only fact at `w'` in this tree | **unsupplied / no route found** in this survey |
+| T-MEMO, depth 0 (outer miss) | `outer_miss` (`Tools/ShippingLegacySemMemoWalk.lean:495`), `outer_reset_reaches` (`Tools/ShippingMemoLaws.lean:160`), `memo_miss_after_reset` (superseded sketch with its own `MemoLaws`) | in a returning core run from `L.dval w = 0 ∧ L.quiet w`, THIS run's memo read returns a map with no entry; the premises include `(L : RefLawsM mref cref)` | `Laws` has fields `O`, `T` only; `RefLawsM extends RefLaws` and adds `mval`, `memoGet/Set/Modify`, `distinct`, `memoFrame` (a larger trust base). Supplying `outer_miss` to an R4 statement about `Laws` needs `RefLawsM` as a new premise or a field. This is the open D-MEMO-LAW (§5.6, §7) | **blocked by a user decision (new law); not introduced here.** The supplier exists in the repo; the premise is the issue |
+| T-MEMO, nested (K4) | `memoInv_hit`, `memoInv_write`, `memoInv_of_empty/same/reset/frame/read` (`Tools/ShippingMemoInv.lean`), `ArmObligations`, `MemoSound` (statements only, `:152/:209`; the only other mention is `Tests/Compiler/LegacySemMemoTest.lean`) | `MemoInv LM Φ w := ∀ n r, (LM.mval w).get? n = some r → Φ n r` and its preservation laws | all over `RefLawsM`; `MemoInv … w₆` at a nested tail start has no supplier (K4 "memo names ⊆ `childCache` names ∪ {top}" is a reading of the source, not a theorem) | **unsupplied; also needs `RefLawsM`** |
+| T-LEG | `legacy_entry_walk_in` (`ShippingLegacySemEntryIn.lean:47`, MReturns form), `legacy_entry_walk` (`ShippingLegacySemEntryWalk.lean:133`), `legacy_entry_walk_at`/`_start` (`…MemoWalk.lean:93/227`, RunsTo form, needs `RefLawsM`), `legacy_entry_output`, `legacy_entry_output_walked`, `proj_entry_output_outer` | meaning of the legacy arm for the scalar-combinational / projection classes, with `hmach : machineShape? … = none` | in R4 the machine attempt ran first and the tail starts at `w₆` after `closeInsts` (§12.5); the `…_at` forms are about `synthesizeFromConst` from a fresh world, not about `legacyTail` from `w₆`; `LegacyDom`/`Value` are scalar-combinational (U4); no register/instance contract | **unsupplied / no route found** to `LegMissStmt` (§12.5) |
+| T-PP | `refineCheck_transfer`, `refineCheck_ports` (`ShippingRefineSoundness.lean:1039/1067`: run-level transfer and port equality for `refineCheck m o = true`), `mergeChecked_cases`, `mergeChecked_ports` (`Sparkle/IR/RefineCheck.lean`), `dropZW_wires` (`ShippingOutsExtractedParts`), consumers with `hpost : b = dropZeroWidthModule M ∨ b = mergeChecked (dropZeroWidthModule M)` (`ShippingCallSelf`, `ShippingCallsChildPorts`, `ShippingCallWidthsChildRealA`) | port/wire/body facts relating `b` to `M` | no statement `ChildShipsI I n raw dsg → ChildShipsI I n out dout` (`PPTransportStmt`); also `dout` is `top …` on the design (§12.4), and the `hpost` consumers state only module-level facts (`b.body = M.body`, wires, ports) | **unsupplied / no route found** to `PPTransportStmt` |
+| K-TSPLIT | `RunsTo.bind`, `RunsTo.ite` (`ShippingEntrySoundness.lean:946/957`), `runsTo_ite_pos/neg`, `runsTo_pure` (`MemoWalk.lean:69-86`), `RunsTo.pure_world` (`ShippingChildInv.lean:874`); the model proof is the memo-read prefix of `legacy_entry_walk_at` | structural inversions of `bind`/`ite`/`pure` | none: the statement is about the named program `legacyTail` (`ShippingMachineOutcomeA.lean:54`) and mentions no `mval`, no `RefLawsM`, no law | **supplied from existing parts** |
+
+### 17.2 Selection and reason
+First unit: **K-TSPLIT** (FB-9). Reasons: (1) it is the only row of §17.1 whose proof uses only existing structural lemmas, with no law, no `RefLawsM`, no field of `Laws`; every other row stops at `RefLawsM` (user decision D-MEMO-LAW) or at a statement with no supplier found; (2) it is the hinge of §12.5 (T-LEG-miss and T-MEMO-hit are the two arms; `LegMissStmt`'s premise "the tail's memo read at `w₆` missed" becomes a term only once the split exists with the same `w₆`); (3) it consumes the already-built `R4RunInvT` package unchanged. It is a structural fact about control flow: it does not say anything about the meaning of `(m, d)` and does not advance (S).
+
+### 17.3 K-TSPLIT: complete types (target; each hypothesis and binder written out)
+Namespace `Tools.ShippingGen4FbSplit` (new file `Tools/ShippingGen4FbSplit.lean`); same `variable`/`open` context as `Tools/ShippingGen4FbTailInv.lean` (`mctx cctx mref cref`, `TranslateFn`, `Res := Module × Design`).
+```lean
+theorem legacyTail_hit_or_miss
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {translate : TranslateFn} {logProf : String → IO Unit} {declName : Name} {ci : ConstantInfo}
+    {w w₅ : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (h : RunsTo (legacyTail translate logProf declName [] false ci) mctx mref cctx cref w (m, d) w₅) :
+    ∃ (memo : Std.HashMap Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) (w₁ : Void IO.RealWorld),
+      RunsTo (sparkleSubModuleCache.get : MetaM _) mctx mref cctx cref w memo w₁ ∧
+      (memo.get? declName = some (m, d) ∨ memo.get? declName = none)
+```
+(`symbolicMode := false`, `parameters := []` fixed, as in `R4RunInvT`.) The read is the FIRST action of `legacyTail` (its `if !symbolicMode` arm), so it runs at the start world `w`. The hit arm records that the returned pair IS the cached entry (`return cached`); no equation `w₅ = w₁` is claimed (the profile log between them is a lifted `IO` action whose world effect is not constrained here). The miss arm records only `memo.get? declName = none`; the build that follows is not named.
+```lean
+theorem r4RunInvT_tail_hit_or_miss
+    {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {L : Laws mref cref} {P : Pkgs ι dom} {Reach : Name → Prop}
+    {mctx : Meta.Context} {cctx : Core.Context} {D : Nat} {declName : Name} {shape : MachineShape}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design} {w w' : Void IO.RealWorld}
+    (h : R4RunInvT L P Reach mctx cctx D declName shape m d w w') :
+    ∃ (tenv : Lean.Environment) (pb : Bool) (ci : ConstantInfo) (w₅ w₆ : Void IO.RealWorld)
+      (memo : Std.HashMap Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) (w₁ : Void IO.RealWorld),
+      InvAt L P Reach (D + 1) w₆ ∧ InvAt L P Reach (D + 1) w₅ ∧
+      RunsTo (legacyTail (fun e hint top named => translateExprToWire tenv e hint top named) (profLogIO pb)
+        declName [] false
+        (entryConst true false [] ci (instancePredicate tenv) (userInliner tenv) (structEnv tenv)))
+        mctx mref cctx cref w₆ (m, d) w₅ ∧
+      RunsTo (sparkleSubModuleCache.get : MetaM _) mctx mref cctx cref w₆ memo w₁ ∧
+      (memo.get? declName = some (m, d) ∨ memo.get? declName = none)
+```
+The `w₅`, `w₆`, `tenv`, `pb`, `ci` are those of the `R4RunInvT` package (destructure `h`, apply `legacyTail_hit_or_miss` to its tail-run conjunct, repackage); no second existential for the worlds, so the read is at the package's `w₆`. The `InvAt` conjuncts are copied from `h` (they are the existing FB-4 facts, not new).
+
+Proof plan: `unfold legacyTail at h`; the `if !false = true` arm is taken (`runsTo_ite_pos`); `RunsTo.bind` gives `memo w₁` for the read and a remaining program `f memo`; `cases hc : memo.get? declName`: `none` → `Or.inr`; `some c` → the `if let` takes the hit arm, `bind` of the `logProf` lift then `pure cached`; `RunsTo.pure_world`/`runsTo_pure` give `(m, d) = c`, hence `Or.inl`. If the lifted `logProf` bind needs a lemma that is not a one-liner, the unit reports "not closed in this attempt" with the failing step (not a claim that the split is false).
+
+### 17.4 Planned checks (new files only; nothing run)
+Files: `Tools/ShippingGen4FbSplit.lean`, `Tests/Gen4/FbSplitCheck.lean`, two `lean_lib` entries in `lakefile.lean`; imports `Tools.ShippingGen4FbTailInv` (and `Tools.ShippingLegacySemMemoWalk` only if the `runsTo_*` helpers are reused; its closure is expected to contain `Tools.ShippingMemo.*`, so the REACH audit below decides — if it does, the helpers are re-proved locally in the new file instead).
+1. TYPE: both theorems against `Expected…` typed again in the check file from §17.3 (not copied from the Lean file), same reducible comparator (`==` then logged `isDefEq`) for the positive and every negative case.
+2. MUTANTS (signature/defeq rejections, NOT semantic counterexamples), each must be REJECTED by the same comparator: hit arm with a free pair `some (m', d')`; miss arm `= some _`; `symbolicMode := true`; read located at `w₅` instead of `w`/`w₆`; dichotomy replaced by the hit arm only; dichotomy without the read; `InvAt` at depth `D` instead of `D + 1`; `w₆` replaced by a fresh existential in the corollary.
+3. REACH/closure audit: the value closure of both theorems (type and body, raw `Expr.proj` structure names included) contains no `Tools.ShippingMemo.*` (so no `RefLawsM`, `MemoInv`, `outer_miss`); an unknown constant (not found in the environment) FAILS the audit (it is counted in `missing`, which must be 0); controls with the same search: a fixture using `outer_miss` is flagged, a fixture using `memoInv_hit` through a helper is flagged, an absent root gives `missing ≥ 1` and the assertion fails as expected, an unrelated theorem is not flagged.
+4. AXIOMS `⊆ {propext, Classical.choice, Quot.sound}` for both theorems; `sorry` 0; no `native_decide`.
+5. Counts in the report are the actual numbers of checks that ran (no summary line counted). The clean issue-linked build is the coder's; a Pod build by this unit is not a clean build.
+
+### 17.5 What this section does not claim
+- No row of (S) is supplied: T-LEG, T-MEMO (depth 0 `outer_miss` exists but needs `RefLawsM`; nested K4), T-PP, depth 0 of T-FIN stay unsupplied; the split does not relate `(m, d)` to `q.S`.
+- It does not say `RefLawsM` cannot be obtained from `Laws`; it says this survey found no such derivation. Whether to add it is the user's decision (D-MEMO-LAW); a decision document is not written here because K-TSPLIT does not need it.
+- Whole-Issue status unchanged: fallback / legacy / memo success routes, M4 and FG are not complete.
