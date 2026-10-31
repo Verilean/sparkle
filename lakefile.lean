@@ -4856,3 +4856,9 @@ lean_lib «Tools.ShippingGen5SemMem» where
 
 lean_lib «Tests.Gen5.SemCallCheck» where
   roots := #[`Tests.Gen5.SemCallCheck]
+
+lean_lib «Tools.ShippingGen5SemExt» where
+  roots := #[`Tools.ShippingGen5SemExt]
+
+lean_lib «Tests.Gen5.SemExtCheck» where
+  roots := #[`Tests.Gen5.SemExtCheck]
