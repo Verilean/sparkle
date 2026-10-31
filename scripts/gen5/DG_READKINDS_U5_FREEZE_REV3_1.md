@@ -109,3 +109,8 @@ Build: `kjob lake build` one target at a time in the pod; after Lean commits the
   `machineShape?` (`machBindLetNamed` → `Expr` `BEq` → `eqv`), which the statements talk about; the proofs use no `Expr.equal` law. The Check keeps `T1Hyp`/`T1HypND`
   (name, raw proj, rec) and `Laws` forbidden, and logs the full-set hit path as a fact (`RK-U5 FACT`). `rootFacts_unique` does not reach them at all.
 * Positive control of the comparator is a separately written copy (`CopyOfPeel`) of `ExpPeel`.
+
+
+## Record correction (g5rk-r6)
+
+Clean issue-linked build `rk5v-4ac00d24`: exit 0, 756 jobs, scoped approved at `4ac00d24`. Actual counts of `ReadKindsU5Check`, excluding summary/marker log lines: TYPE = 10 comparisons (7 theorems + 2 definitions + 1 comparator positive control); MUTANT = 7 rejections (signature/defeq rejection, not semantic counterexamples); REACH 7 (unknown 0); AXIOMS 7 standard. Earlier notes of TYPE 11 / MUTANT 8 counted summary lines and are superseded.

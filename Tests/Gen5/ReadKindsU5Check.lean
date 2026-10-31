@@ -2,6 +2,7 @@ import Tools.ShippingGen5ReadKindsU5
 import Tests.Gen5.ReadKindsCheck
 set_option autoImplicit false
 -- Built: kjob lake build Tests.Gen5.ReadKindsU5Check exit 0 (756 jobs) in pod on 6e343e997fdbf0ce8cff741ce57f7de45cc68790 (not a clean issue-linked build; that is the coder's). No sorry / axiom / native_decide.
+-- Clean issue-linked build: rk5v-4ac00d24 exit 0 (756 jobs), scoped approved at 4ac00d24. Counts (summary lines excluded): TYPE 10 comparisons (7 theorems + 2 definitions + positive control), MUTANT 7.
 
 /-! # DG-READKINDS U5 checks (Tools/ShippingGen5ReadKindsU5.lean; freeze rev3.1)
 
