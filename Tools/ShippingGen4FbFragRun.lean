@@ -2,8 +2,8 @@ import Tools.ShippingGen4FbPP
 import Tools.ShippingFirstGateChild
 import Tools.ShippingGen2CombKid
 import Tools.ShippingMachineShipsComb
+set_option autoImplicit false
 -- BUILT (unit FB-22): `kjob lake build Tools.ShippingGen4FbFragRun` exit 0 (705 jobs) in the Pod (Lean commit 7dd7d127; comment-only header edit after); NOT a clean issue-linked build (coder). Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §33.3 (freeze 14e312de, approved, committed before this file).
--- NOT BUILT (unit FB-22): written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §33.3 (freeze 14e312de, approved, committed before this file).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field.
 
 /-! # FB-22: `ChildRunN` for the real full-entry module of a first-gate fragment (from `ChildFnR`), both `PPRel` arms
