@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccGenDataEv
 import Tests.Gen5.AccCheck
--- NOT BUILT: committed tree not yet built.
+-- Pod incremental build at 6b94f3b4 (committed tree), exit 0, 728 jobs; NOT a clean issue-linked build: TYPE 3 (1 definition by body + 2 theorems) / MUTANT 5 (signature/defeq rejection, not semantic): 4 single-change + 1 COMPOUND / AXIOMS 2 theorems standard three only / CLOSURE OK 6232 constants (unknown 0; roots GDEvidence, genData₀_dataOf_of_evidence, kitAgrees_of_eq; KitAgrees/AssignKit reached and distinct from the roots; DataOf/SemGen units not reached) / walker controls 4 negatives / unknown controls 3 negatives + 1 clean. Sorry warnings are the walker-control negatives only.
 
 /-! # DG-ACC unit A10 checks (Tools/ShippingGen5AccGenDataEv.lean; scripts/gen5/DG_ACC_FREEZE_REV10.md §2)
 
