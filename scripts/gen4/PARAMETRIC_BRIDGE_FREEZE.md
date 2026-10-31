@@ -58,3 +58,8 @@ TYPE: `isDefEq` to an independent copy of each of the five statements above. MUT
 
 ## 6. Open and unchanged
 B1-B4 unsupplied; T, Layer B, F1-F6, source/clock/PostTransfer/FG connection: OPEN. Issue not complete. No guarantee change, compiler change, law, or TRUSTED boundary is proposed here.
+
+## 7. Wording added at approval (no re-freeze; text clarifications only)
+- C1 (`makeSliceExpr_sliceOK`) is a structural fact about `makeSliceExpr` (a case split on `toNat?` of both bounds). It does not use the meaning of `SliceOK`; the hypothesis is carried only because the frozen type has it. It is not a semantic check of `SliceOK`.
+- Even after B1 (`evaluate = evalM`) is supplied, the link to `specializeType` / `specializeExpr` unfolding (B2, B3) remains a separate obligation each; §4's "exactly one remaining gap" is limited to that sense.
+- The `slice` mutants in the Check are well-typed (argument types matched), rejected by signature/defeq only, not semantic counterexamples.

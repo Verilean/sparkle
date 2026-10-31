@@ -4811,3 +4811,9 @@ lean_lib «Tools.ShippingGen4ParamLayerA» where
 
 lean_lib «Tests.Gen4.ParamLayerACheck» where
   roots := #[`Tests.Gen4.ParamLayerACheck]
+
+lean_lib «Tools.ShippingGen4ParamBridgeShape» where
+  roots := #[`Tools.ShippingGen4ParamBridgeShape]
+
+lean_lib «Tests.Gen4.ParamBridgeShapeCheck» where
+  roots := #[`Tests.Gen4.ParamBridgeShapeCheck]
