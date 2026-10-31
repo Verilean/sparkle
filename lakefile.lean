@@ -4919,3 +4919,9 @@ lean_lib «Tools.ShippingGen5AccGenDataEv» where
 
 lean_lib «Tests.Gen5.AccGenDataEvCheck» where
   roots := #[`Tests.Gen5.AccGenDataEvCheck]
+
+lean_lib «Tools.ShippingGen5AccMkKit» where
+  roots := #[`Tools.ShippingGen5AccMkKit]
+
+lean_lib «Tests.Gen5.AccMkKitCheck» where
+  roots := #[`Tests.Gen5.AccMkKitCheck]
