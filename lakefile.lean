@@ -4847,3 +4847,6 @@ lean_lib «Tests.Gen5.SemP4FreezeTypes» where
 
 lean_lib «Tools.ShippingGen5SemCall» where
   roots := #[`Tools.ShippingGen5SemCall]
+
+lean_lib «Tools.ShippingGen5SemCongr» where
+  roots := #[`Tools.ShippingGen5SemCongr]
