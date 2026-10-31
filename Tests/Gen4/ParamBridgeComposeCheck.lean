@@ -1,7 +1,7 @@
 import Lean
 import Tools.ShippingGen4ParamBridgeCompose
 set_option autoImplicit false
--- NOT BUILT: no clean issue-linked build yet (coder runs it).
+-- BUILT: clean issue-linked build par14v-40bc5ec0 (Tests.Gen4.ParamBridgeComposeCheck, kjob lake incremental) exit 0, 229 jobs, approved at 40bc5ec0. Comment-only update.
 -- Directive counts (rule: count of top-level `#...` directive lines per kind; each is one pass/fail assertion, silent on success;
 -- the unknown-name fixture is ONE directive running 4 internal cases): type_defeq 3, mutant_rejected 9
 -- (startLength_node_ordered 7, Bound_of_mkAdd 1, Bound_of_mkSub 1), audit_axioms 3, audit_closure 3,

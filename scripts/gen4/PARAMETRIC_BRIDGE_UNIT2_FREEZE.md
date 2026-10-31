@@ -43,4 +43,4 @@ B1-B4, T, Layer B, F1-F6, FG connection: unsupplied. No guarantee change, compil
 ## 5. Wording sync at implementation (g4par-r14; no re-freeze)
 - `Bound_of_mkAdd` / `Bound_of_mkSub` are the forward direction (components bound => combination bound), the reverse of Layer A's `Bound_mkAdd` / `Bound_mkSub`.
 - The `sliceDim` -> `slice` mutant is counted only as the well-typed statement with literal bounds `0 0`; ill-typed variants are not counted. Mutants are signature/defeq rejections, not semantic counterexamples.
-- Implemented unchanged from §2: `Tools/ShippingGen4ParamBridgeCompose.lean`, `Tests/Gen4/ParamBridgeComposeCheck.lean` (no extra lemma, no extra hypothesis). Pod build of Tools + Check (exit 0, 229 jobs) is not a clean issue-linked build.
+- Implemented unchanged from §2: `Tools/ShippingGen4ParamBridgeCompose.lean`, `Tests/Gen4/ParamBridgeComposeCheck.lean` (no extra lemma, no extra hypothesis). Pod build of Tools + Check (exit 0, 229 jobs) was not clean issue-linked; the issue-linked build par14v-40bc5ec0 (exit 0, 229 jobs, approved at 40bc5ec0) later accepted it.

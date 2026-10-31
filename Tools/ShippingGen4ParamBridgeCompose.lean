@@ -1,6 +1,6 @@
 import Tools.ShippingGen4ParamBridgeShape
 set_option autoImplicit false
--- NOT BUILT: no clean issue-linked build yet (coder runs it). Lean implementation of scripts/gen4/PARAMETRIC_BRIDGE_UNIT2_FREEZE.md §2.
+-- BUILT: clean issue-linked build par14v-40bc5ec0 (Tests.Gen4.ParamBridgeComposeCheck, kjob lake incremental) exit 0, 229 jobs, approved at 40bc5ec0. Comment-only update. Lean implementation of scripts/gen4/PARAMETRIC_BRIDGE_UNIT2_FREEZE.md §2.
 
 /-! # M4 parametric, bridge unit 2 (D1 = B3', model side) (scripts/gen4/PARAMETRIC_BRIDGE_UNIT2_FREEZE.md §2)
 
