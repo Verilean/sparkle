@@ -3,7 +3,7 @@ import Tests.Gen5.DataOfCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- BUILT: clean issue-linked build do3v-62ea2479 exit 0 (758 jobs), scoped approved at 62ea2479 (no claim beyond U-D/U-E); re-verified after the shared DataOfCheck.reach unknown-name fail by an agent build (758 jobs, exit 0), not a clean build (DG-DATAOF checks for Tools/ShippingGen5DataOfPure2.lean; scripts/gen5/DG_DATAOF_FREEZE.md rev2).
+-- BUILT: clean issue-linked build do3v-62ea2479 exit 0 (758 jobs), scoped approved at 62ea2479 (no claim beyond U-D/U-E); re-verified after the shared DataOfCheck.reach unknown-name fail in the clean issue-linked build do5v-945fbe9a (exit 0, 762 jobs), scoped approved at 945fbe9a (DG-DATAOF checks for Tools/ShippingGen5DataOfPure2.lean; scripts/gen5/DG_DATAOF_FREEZE.md rev2).
 -- No sorry / axiom / native_decide.
 
 /-! # DG-DATAOF checks for U-D and U-E

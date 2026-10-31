@@ -3,7 +3,7 @@ import Tools.ShippingGen5DataOfPure2
 import Tools.ShippingReaderApp
 import Tools.ShippingMachineCommand
 set_option autoImplicit false
--- BUILT: clean issue-linked build do4v-8b57cc6e exit 0 (762 jobs, Tests.Gen5.DataOfCheck3 + DataOfCheck2 targets together); conditional results only, reviewer changes_requested on the Check closure audit addressed in Tests/Gen5/DataOfCheck.lean (not yet clean-built) (DG-DATAOF `dataOfFrom` / `dataOfAt` and their CONDITIONAL soundness;
+-- BUILT: clean issue-linked build do5v-945fbe9a exit 0 (762 jobs, DataOfCheck + DataOfCheck2 + DataOfCheck3), scoped approved at 945fbe9a; conditional results only (DG-DATAOF `dataOfFrom` / `dataOfAt` and their CONDITIONAL soundness;
 -- scripts/gen5/DG_DATAOF_FREEZE.md rev2 §2.4a Q5). No sorry / axiom / native_decide.
 
 /-! # DG-DATAOF: `dataOfFrom`, `dataOfAt`

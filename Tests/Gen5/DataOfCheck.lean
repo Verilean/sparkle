@@ -3,7 +3,7 @@ import Tools.ShippingGen5T1ND
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- Last clean build doc-bc9a300d; the unknown-name fail + DATAOF UNKNOWN CONTROL block was added after and is NOT BUILT by an issue-linked clean build (agent build exit 0). Earlier: built in doc-bc9a300d (clean issue-linked, exit 0, 743 jobs; source=end=bc9a300d on par/gen3-combined 43977202) (DG-DATAOF checks for Tools/ShippingGen5DataOfPure.lean; scripts/gen5/DG_DATAOF_FREEZE.md rev1).
+-- Clean issue-linked build do5v-945fbe9a exit 0 (762 jobs, incl. the unknown-name fail + DATAOF UNKNOWN CONTROL block), scoped approved at 945fbe9a. Earlier: built in doc-bc9a300d (clean issue-linked, exit 0, 743 jobs; source=end=bc9a300d on par/gen3-combined 43977202) (DG-DATAOF checks for Tools/ShippingGen5DataOfPure.lean; scripts/gen5/DG_DATAOF_FREEZE.md rev1).
 -- No sorry / axiom / native_decide.
 
 /-! # DG-DATAOF checks for the pure units (U-A, U-B, U-C)
