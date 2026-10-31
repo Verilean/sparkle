@@ -2,7 +2,7 @@ import Tools.ShippingGen5AccRoute
 import Tools.ShippingMachineClosesData
 import Tools.ShippingClosesSplit
 set_option autoImplicit false
--- NOT BUILT as of this commit (A7 written by g5ac-r14; Pod build result is recorded in the header by a later comment-only commit).
+-- Pod build (g5ac-r14) at 18f10401: `kjob lake build Tools.ShippingGen5AccCloses` (722 jobs) and `kjob lake build Tests.Gen5.AccClosesCheck` (725 jobs, committed tree), each exit 0; clean issue-linked build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A7: `ClosesOfShape` from data facts (scripts/gen5/DG_ACC_FREEZE_REV7.md §1)
 

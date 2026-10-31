@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccCloses
 import Tests.Gen5.AccCheck
--- NOT BUILT as of this commit (Check written by g5ac-r14; Pod build result is recorded in the header by a later comment-only commit).
+-- Pod build (g5ac-r14) at 18f10401 (Check built on the committed tree), exit 0, 725 jobs. TYPE 3 (2 definitions by body + 1 theorem) / MUTANT 7 (signature/defeq rejection, not semantic: 2 ClosesData, 1 ClosesCalls, 4 closesOfShape_of_data) / AXIOMS 1 standard three only / CLOSURE OK 15025 constants (unknown 0, 4 expected suppliers reached, DataOf/SemGen units not reached) / walker controls 4 negatives / unknown controls 3 negatives + 1 clean. The 3 sorry warnings are the intended walker-control negatives (Tests/Gen5/AccClosesCheck.lean:110).
 
 /-! # DG-ACC unit A7 checks (Tools/ShippingGen5AccCloses.lean; scripts/gen5/DG_ACC_FREEZE_REV7.md §2)
 
