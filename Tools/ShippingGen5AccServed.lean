@@ -2,7 +2,7 @@ import Tools.ShippingGen5AccKeep
 import Tools.ShippingGen5AccReads
 import Tools.ShippingGen2ServedRun
 set_option autoImplicit false
--- NOT BUILT (g5ac-r6 draft; no Pod build recorded yet). The clean build is the coder's. No sorry / axiom / native_decide.
+-- Built in the Pod (g5ac-r6) at 5c38c6fc: `kjob lake build Tools.ShippingGen5AccServed`, exit 0, 720 jobs (the build was of the identical content; this header is the only later change). Clean issue-linked build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A5b: `AccServed0Stmt` from named premises (scripts/gen5/DG_ACC_FREEZE_REV3.md §2.2-§2.5, items 6-12)
 
@@ -21,8 +21,9 @@ Not supplied: `GenSFacts`, `QuietStrengthA`/`GetEnvFrame`/`AdmDownA`, `OffRouteS
 
 "No `hrow`" in this file is a statement about the ordinary static edges only (`child? = none` entries of the one-output / general
 closing): it is NOT a claim about the supply of `ServedP` in general. `QuietStrengthA` / `AdmDownA` (in `ShippingGen5AccReads`) and any
-other text copied from EnvQ must be checked against the original when EnvQ is integrated; the Check of this unit compares the copies
-that this file's statements use with `Tools.ShippingGen5EnvQ` only if EnvQ is importable (it is not on this base). -/
+other text copied from EnvQ must be checked against the original when EnvQ is integrated. `Tests/Gen5/AccServedCheck.lean` compares the
+definition TEXT of `QuietStrengthA` / `AdmDownA` with `Tools/ShippingGen5EnvQ.lean` (EnvQ cannot be imported on this base, so this is a source-text
+comparison, not a typed one) and rejects changed copies. -/
 
 namespace Tools.ShippingGen5Acc
 open Lean Meta Sparkle.Compiler.Elab Tools.ShippingGen2 Tools.ShippingGen5Sem

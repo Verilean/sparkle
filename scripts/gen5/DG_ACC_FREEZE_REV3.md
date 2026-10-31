@@ -296,3 +296,22 @@ Mutant plan: `AccKeepChildStmt` without `1 ≤ D`; `AccServed0Stmt`'s premise `h
 ## 5. Not claimed
 DG-ACC is **not** done. A5 is not implemented; §2.1-§2.4 are statements. `AccServed0Stmt` would be conditional on the rows S1-S3 (S4 excluded by hypothesis); `GenSFacts`, `MachineRouteAt`, `RunDataLink`/`ReachCover`/`DataOfShape`, `OffRouteServes`, `QuietStrengthA`, `GetEnvFrame`, `AdmDownA` have no producer found in this investigation. The results hold at the kit.
 No change to FG, `T1Hyp`/`T1HypND`, a law, a TRUSTED boundary, or the compiler.
+
+## 6. Implementation status (g5ac-r6; docs only, appended after the freeze approval)
+
+Implemented as frozen, in new files: `Tools/ShippingGen5AccKeep.lean` (A5a, §2.1), `Tools/ShippingGen5AccServed.lean` (A5b, §2.2-§2.5), with `Tests/Gen5/AccKeepCheck.lean`
+and `Tests/Gen5/AccServedCheck.lean`. Pod-built (not the coder's clean issue-linked build): `AccKeepChildStmt` is proved by `accKeepChild_proved` with **no** premise
+(no route, data-link, reads or `hrow` premise). `AccServed0Stmt` is proved by `accServed0_of_route` / `accServed0_of_cover` **from the named premises** `hcl`,
+`MachineRouteAt`, `ReadsSupplyAt`, and `RunDataLink` or `ReachCover` + `DataOfShape` (the premises are not supplied, §3). No premise was added to the frozen types. Two helper theorems
+were added that are not in §2 (`getEnv_runs_exists`, `accServed_core`: the shared run analysis; covered by the AXIOMS / CLOSURE checks, not by TYPE).
+The proof of `accServed_core` needs one fact the freeze did not spell out: a `getEnv` run exists at every world, so the second `getEnv` of the chain
+can be exhibited before the body is unfolded (needed to read `old`/`miss` off `ChainReadsAt`); `getEnv_runs_exists` proves it (no new premise).
+
+* "No `hrow`" holds only for the ordinary static edges (`child? = none` entries) that `AccServed0Stmt` talks about. It is **not** a statement about the supply of `ServedP`
+  in general; M3's `hrow` belongs to the trace chain, which is not copied.
+* `closes` rows of §1 are now proved (items 1-12) and may be counted as supply **of the statement, given the premises**; the premises are still unsupplied (S1-S6).
+* `QuietStrengthA` / `AdmDownA` (and `QuietStrengthA`'s use in `readsSupply_of_quiet`) are copies of EnvQ's `QuietStrength` / `AdmDown`; they must be checked against the originals when EnvQ is
+  integrated. EnvQ cannot be imported on this base, so `AccServedCheck` compares the definition **text** with `Tools/ShippingGen5EnvQ.lean` (positive and negative control).
+* Mutants in the Checks are rejections by signature / defeq, not semantic counterexamples.
+Still not supplied: `MachineRouteAt`, `RunDataLink` / `ReachCover` / `DataOfShape`, `ReadsSupplyAt` for the FG's `L`, `OffRouteServes`, `GenSFacts`, `QuietStrengthA`/`GetEnvFrame`/`AdmDownA`.
+This is not DG-ACC, M5 or FG completion.

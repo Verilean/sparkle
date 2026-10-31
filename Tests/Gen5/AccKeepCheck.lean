@@ -1,8 +1,7 @@
 import Tools.ShippingGen5AccKeep
 import Tests.Gen5.AccCheck
 set_option autoImplicit false
--- NOT BUILT (g5ac-r6 draft; no Pod build recorded yet). The clean build is the coder's. No sorry / axiom / native_decide in this source (the
--- `sorry` warnings come from the intended walker-control negatives of `AccCheck.walkerControls`, 3 per Check file).
+-- Built in the Pod (g5ac-r6) at 5c38c6fc: `kjob lake build Tests.Gen5.AccKeepCheck`, exit 0, 714 jobs. TYPE 12 (1 definition + 11 theorems, all syntactic, no isDefEq fallback), MUTANT 10 (signature/defeq rejection, not semantic), AXIOMS 12 (standard three), walker controls + unknown controls + CLOSURE OK 12149 constants. Clean issue-linked build is the coder's. No sorry / axiom / native_decide in this source (the 3 `sorry` warnings come from the intended walker-control negatives).
 
 /-! # DG-ACC unit A5a checks (Tools/ShippingGen5AccKeep.lean; scripts/gen5/DG_ACC_FREEZE_REV3.md §2.1)
 
