@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemKitInv
 import Tests.Gen5.SemFactsCheck
 set_option autoImplicit false
--- NOT BUILT HERE (U7 check, scripts/gen5/DG_SEM_FREEZE_P7.md §3.2). No sorry/axiom/native_decide.
+-- NOT BUILT HERE (U7 check, scripts/gen5/DG_SEM_FREEZE_P7.md §3.2; built clean as smu17v-9150ffd7, exit 0, approved at 9150ffd7; header/comment sync only). No sorry/axiom/native_decide.
 /-! # DG-SEM U7 check (Tools/ShippingGen5SemKitInv.lean)
 
 * TYPE    — `hunf_of_kitInv`, `factsOf_all_of_kitInv` (and helper `ordCallees_transport`) by statement against `Exp*` written here

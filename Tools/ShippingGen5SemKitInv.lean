@@ -1,6 +1,6 @@
 import Tools.ShippingGen5SemAccStep
 set_option autoImplicit false
--- NOT BUILT HERE (U7, scripts/gen5/DG_SEM_FREEZE_P7.md). No sorry/axiom/native_decide.
+-- NOT BUILT HERE (U7, scripts/gen5/DG_SEM_FREEZE_P7.md; built clean as smu17v-9150ffd7, exit 0, approved at 9150ffd7; header/comment sync only). No sorry/axiom/native_decide.
 /-! # DG-SEM U7 (scripts/gen5/DG_SEM_FREEZE_P7.md §3.1): `hunf_of_kitInv`, `factsOf_all_of_kitInv`
 
 Kit-shaped premises (`hsem`, `hd`, `hmem`, `hinv`) are explicit variables, not laws. Nothing here supplies them for the real
