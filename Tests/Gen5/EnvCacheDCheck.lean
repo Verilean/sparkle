@@ -2,7 +2,7 @@ import Tests.Gen5.EnvFrame3Check
 import Tools.ShippingGen5EnvCacheD
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: header to be synced to the clean issue-linked build SHA after build. Counting: TYPE = 1 Expected comparison (P1); MUTANT = well-typed single changes rejected by the same comparator (signature/defeq, not semantic counterexamples), count as measured;
+-- Built: clean issue-linked build env20v-bb49da59 exit 0 (762 jobs, dirty=false), approved at bb49da59. Measured: TYPE 1, MUTANT 8, AXIOMS 1 standard, sorry 0. Counting: TYPE = 1 Expected comparison (P1); MUTANT = well-typed single changes rejected by the same comparator (signature/defeq, not semantic counterexamples), count as measured;
 -- CLOSURE (quiet-plus-three: Laws.O, RefLawsAOps.quiet, frame, frameQ, cacheSet allowed as leaves; per-root observed set reported) = roots; negatives (forbidden, flagged) direct + helper; unknown kept apart; self-root; clean.
 
 /-! # DG-ENV unit U8 checks (Tools/ShippingGen5EnvCacheD.lean)

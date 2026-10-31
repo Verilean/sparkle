@@ -1,6 +1,6 @@
 import Tools.ShippingGen5EnvCacheC
 set_option autoImplicit false
--- NOT BUILT: header to be synced to the clean issue-linked build SHA after build (freeze scripts/gen5/DG_ENV_T2_U8_FREEZE.md, approved). Conditional bookkeeping: hn/quiet/hw/hr/RunsTo witness remain hypotheses.
+-- Built: clean issue-linked build env20v-bb49da59 exit 0 (762 jobs, dirty=false), approved at bb49da59 (freeze scripts/gen5/DG_ENV_T2_U8_FREEZE.md). Conditional bookkeeping: hn/quiet/hw/hr/RunsTo witness remain hypotheses.
 
 /-! # DG-ENV unit U8: the executed cache insert keeps `CacheInvN`, CONDITIONAL
 (scripts/gen5/DG_ENV_T2_U8_FREEZE.md §2)
