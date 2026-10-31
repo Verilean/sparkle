@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccOrdCallees
 import Tests.Gen5.AccCheck
--- NOT BUILT (A12 Check written at a5defa8c; Pod incremental build pending). Check for A12, freeze scripts/gen5/DG_ACC_FREEZE_REV12.md §2.
+-- Pod incremental build OK at b835726d (exit 0, 730 jobs): TYPE 3 (Pi 1 + theorems 2) / BODY 1 / MUTANT 5 (single 4 + compound 1; signature/defeq rejection, not semantic) / AXIOMS 3 standard / CLOSURE 6664 consts, unknown 0. Clean issue-linked build pending (coder). Check for A12, freeze scripts/gen5/DG_ACC_FREEZE_REV12.md §2.
 
 /-! # DG-ACC unit A12 checks (Tools/ShippingGen5AccOrdCallees.lean)
 

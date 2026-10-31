@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccMkKit
 set_option autoImplicit false
--- NOT BUILT (A12, written at a5defa8c; Pod incremental build pending). Lean source for DG-ACC unit A12 (freeze scripts/gen5/DG_ACC_FREEZE_REV12.md, design approved at a5defa8c). No sorry / axiom / native_decide.
+-- Pod incremental build OK at b835726d (Tools 729 jobs, Check 730 jobs, committed tree); clean issue-linked build pending (coder). Lean source for DG-ACC unit A12 (freeze scripts/gen5/DG_ACC_FREEZE_REV12.md, design approved at a5defa8c). No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A12: a concrete `ordCallees₀` with its membership law `hmem` (scripts/gen5/DG_ACC_FREEZE_REV12.md §1)
 
