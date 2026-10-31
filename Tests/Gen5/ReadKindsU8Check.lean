@@ -3,14 +3,14 @@ import Tests.Gen5.ReadKindsCheck
 import Tests.Gen5.ReadKindsU5Check
 import Tests.Gen5.ReadKindsU7Check
 set_option autoImplicit false
--- Built: kjob lake build Tests.Gen5.ReadKindsU8Check exit 0 in pod on 7b72f4657ebcba4c4e8efc153a80bdc5d05eb982 (821 jobs); clean issue-linked build pending (coder). Freeze: scripts/gen5/DG_READKINDS_U8_FREEZE.md. No sorry / axiom / native_decide.
+-- Built: clean issue-linked build rk12v-f86cbdd7 (kjob lake build Tests.Gen5.ReadKindsU8Check) exit 0 at f86cbdd7; approved at f86cbdd7 (conditional intermediate result; M5/FG not complete). Freeze: scripts/gen5/DG_READKINDS_U8_FREEZE.md. No sorry / axiom / native_decide.
 
 /-! # DG-READKINDS U8 checks (Tools/ShippingGen5ReadKindsU8.lean)
 
 1. TYPE: each declaration against an independently written `Exp…` statement (written from freeze §1-§3, not copied from the Lean; same reducible comparator `Tests.Gen3.ExpectedType`); positive control: the comparator accepts a copy.
 2. MUTANT: signature/defeq rejections of well-typed single-change statements, NOT semantic counterexamples. A mutant that fails to typecheck is not counted.
 3. COUNT: conjunct counts (auxiliary, necessary condition only).
-4. CLOSURE: explicit-value scan; unknown constant = fail. 5. AXIOMS: propext / Classical.choice / Quot.sound only. -/
+4. CLOSURE: explicit-value scan; unknown constant = fail. AUDIT LIMITS: the scan covers the 4 fixed roots only (none is a forbidden name); the shared `reach` does not test the root itself against the forbid set and this Check has no unknown-name negative; the walker collects unknown names and the caller fails (no immediate throw). `Expr.equal`/`eqv` is excluded from the U8 forbid set: that is NOT a supply of a soundness law (Q1 stays a trust boundary, not adopted). 5. AXIOMS: propext / Classical.choice / Quot.sound only. -/
 
 namespace Tests.Gen5.ReadKindsU8Check
 open Lean Meta
@@ -47,7 +47,7 @@ def ExpRootFields : Prop :=
     ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ ExpReadRoot ci env r ∧ ExpReadFields ci env r
 def ExpGates : Prop :=
-  ∀ {declName : Lean.Name} 
+  ∀ {declName : Lean.Name}
     {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
@@ -56,7 +56,7 @@ def ExpGates : Prop :=
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ certifiedShape? false [] (GenEntry ci env) = none ∧
       mixedCertifiedShape? false [] (GenEntry ci env) (instancePredicate env) = none
 def ExpMD : Prop :=
-  ∀ {declName : Lean.Name} 
+  ∀ {declName : Lean.Name}
     {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
@@ -120,7 +120,7 @@ def MutGatesAllowGate : Prop :=
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ certifiedShape? false [] (GenEntry ci env) = none ∧
       mixedCertifiedShape? false [] (GenEntry ci env) (instancePredicate env) = none
 def MutGatesIsSome : Prop :=
-  ∀ {declName : Lean.Name} 
+  ∀ {declName : Lean.Name}
     {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
@@ -129,7 +129,7 @@ def MutGatesIsSome : Prop :=
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ (certifiedShape? false [] (GenEntry ci env)).isSome = true ∧
       mixedCertifiedShape? false [] (GenEntry ci env) (instancePredicate env) = none
 def MutGatesNoMixed : Prop :=
-  ∀ {declName : Lean.Name} 
+  ∀ {declName : Lean.Name}
     {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
@@ -137,7 +137,7 @@ def MutGatesNoMixed : Prop :=
     ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ certifiedShape? false [] (GenEntry ci env) = none
 def MutMDNoHall : Prop :=
-  ∀ {declName : Lean.Name} 
+  ∀ {declName : Lean.Name}
     {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
     {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}

@@ -5,7 +5,7 @@ import Tools.ShippingGen5ReadKindsU7
 import Tools.ShippingGen5Env
 import Tools.ShippingStRefCorrespondence
 set_option autoImplicit false
--- Built: kjob lake build Tests.Gen5.ReadKindsU8Check exit 0 in pod on 7b72f4657ebcba4c4e8efc153a80bdc5d05eb982 (821 jobs); clean issue-linked build pending (coder). Freeze: scripts/gen5/DG_READKINDS_U8_FREEZE.md. No sorry / axiom / native_decide.
+-- Built: clean issue-linked build rk12v-f86cbdd7 (kjob lake build Tests.Gen5.ReadKindsU8Check) exit 0 at f86cbdd7; approved at f86cbdd7 (conditional intermediate result; M5/FG not complete). Freeze: scripts/gen5/DG_READKINDS_U8_FREEZE.md. No sorry / axiom / native_decide.
 
 /-! # DG-READKINDS U8 (freeze scripts/gen5/DG_READKINDS_U8_FREEZE.md)
 
