@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccDataAgree
 import Tests.Gen5.AccCheck
--- Pod build (g5ac-r18) at b6707234 (Check built on the committed tree), exit 0, 727 jobs: TYPE 3 (2 definitions by body + 1 theorem) / MUTANT 6 (signature/defeq rejection, not semantic): 5 single-change (2 DataSoundAt, 1 KitAgrees, 2 dataSound_of_agree) + 1 COMPOUND (MutCompoundShape: conclusion DataOfShape AND hf weakened) / AXIOMS 1 standard three only / CLOSURE OK 3783 constants (unknown 0, 3 expected suppliers reached, DataOf/SemGen units not reached) / walker controls 4 negatives / unknown controls 3 negatives + 1 clean. Sorry warnings (3 per run) are the walker-control negatives only. Clean issue-linked build is the coder's.
+-- Clean issue-linked build ac18v-7076f718 (approved at 7076f718), exit 0, 727 jobs, dirty=false: TYPE 3 (2 definitions by body + 1 theorem) / MUTANT 6 (signature/defeq rejection, not semantic): 5 single-change + 1 COMPOUND (MutCompoundShape) / AXIOMS 1 standard three only / CLOSURE OK 3783 constants (unknown 0; the '3 expected suppliers reached' is the union of the 3 roots, two of which (DataSoundAt, KitAgrees) are roots themselves, so it is NOT an independent proof-dependency assert; DataOf/SemGen units not reached) / walker controls 4 negatives / unknown controls 3 negatives + 1 clean. Sorry warnings are the walker-control negatives only.
 
 /-! # DG-ACC unit A9 checks (Tools/ShippingGen5AccDataAgree.lean; scripts/gen5/DG_ACC_FREEZE_REV9.md §2)
 
@@ -134,7 +134,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   unless hits.isEmpty do throwError "GEN5 CLOSURE FAILED: forbidden constants reached: {hits}"
   for n in roots do
     unless seen.contains n do throwError "GEN5 CLOSURE FAILED: root {n} is not in the seen set"
-  -- expected suppliers that the proof must reach
+  -- the 3 roots' union (DataSoundAt and KitAgrees are roots themselves; not an independent proof-dependency assert)
   for n in [``Tools.ShippingGen5Acc.DataSound, ``Tools.ShippingGen5Acc.KitAgrees, ``Tools.ShippingGen5Acc.DataSoundAt] do
     unless seen.contains n do throwError "GEN5 CLOSURE FAILED: expected supplier {n} is not reached"
   for n in seen.toList do

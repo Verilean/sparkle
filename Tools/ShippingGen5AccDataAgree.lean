@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccDataSound
 set_option autoImplicit false
--- Pod build (g5ac-r18) at b6707234: `kjob lake build Tools.ShippingGen5AccDataAgree` (724 jobs) and `kjob lake build Tests.Gen5.AccDataAgreeCheck` (727 jobs, committed tree), each exit 0. Clean issue-linked build is the coder's. No sorry / axiom / native_decide.
+-- Clean issue-linked build ac18v-7076f718 (approved at 7076f718; Lean source unchanged since b6707234): `Tools.ShippingGen5AccDataAgree` and `Tests.Gen5.AccDataAgreeCheck`, exit 0, 727 jobs, dirty=false. Conditional transport only (no real-kit supply). No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A9: `DataSound` from kit agreement with a specified function (scripts/gen5/DG_ACC_FREEZE_REV9.md §1)
 
