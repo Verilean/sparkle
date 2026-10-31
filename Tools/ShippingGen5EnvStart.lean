@@ -1,6 +1,6 @@
 import Tools.ShippingGen5EnvQ
 set_option autoImplicit false
--- Built: Pod kjob lake build Tests.Gen5.EnvStartCheck exit 0, 758 jobs, at tree 0d506a98 (Lean commit; clean issue-linked build is run by the coder). Result: TYPE 3, MUTANT 7, CLOSURE 3 roots, AXIOMS 3 standard.
+-- Built: clean issue-linked build env11v-b86a9535 exit 0 (758 jobs, dirty=false), approved at b86a9535. Result: TYPE 3, MUTANT 7, CLOSURE 3 roots, AXIOMS 3 standard. Audit scope: kernel types/values reached from the permitted projections as leaves; not a proof that a law bundle was constructed.
 
 /-! # DG-ENV unit U4: `Start L'` at an empty start cache and a no-callback context, CONDITIONAL
 (scripts/gen5/DG_ENV_T2_U4_FREEZE.md §3)

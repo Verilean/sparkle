@@ -1,6 +1,7 @@
 # DG-ENV T2 unit U4 freeze: survey of the unsupplied rows, and the first unit (`Start L′` at an empty cache, no callback) (docs only, before any Lean)
 
 Issue `sparkle-gen5-dg-env`. Base: `kjob/g5env-r9` fe5c28aa (U3 approved, build env9v-fe5c28aa exit 0, 756 jobs, TYPE 27 / MUT 13 / AX 15), plus 36a93441 (header comment sync, no proof change).
+Build status: U4 S1-S3 built clean as env11v-b86a9535 (exit 0, 758 jobs, TYPE 3 / MUT 7 / AX 3), approved at b86a9535; the audit covers kernel types/values with the permitted projections as leaves and does not show a law bundle was constructed.
 Nothing here adds a law, a `Laws` / `RefLawsAOps` / `RefLawsATele` field, a TRUSTED boundary, a premise with new content, or a shared definition; nothing narrows FG or strengthens `GenWF`;
 nothing supplies C0 / QuietStrength / AdmDown / CellPrem / `¬ DRow` / L′ / FG. "未供給 / この調査で経路未発見" below is a result of THIS survey (what was read at fe5c28aa), not a claim of impossibility.
 
