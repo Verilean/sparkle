@@ -212,6 +212,65 @@ def table : List (Name × Name × List Name) :=
    (``nv_post, ``ExpNVPost, [``MutNVPost]), (``nv_gp, ``ExpNVGP, [``MutNVGP]), (``nv_cv, ``ExpNVCV, [``MutNVCV]),
    (``o2_of_o1_o3, ``ExpO2, [``MutO2]), (``fgCond_trivial, ``ExpTrivial, [])]
 
+/-! ## TgtRun constructors: independent complete telescopes, compared at reducible transparency
+Written from the freeze sentence "least predicate: `declName`, and the ordinary callees (origin `.ord`, no `child?`) of the instances of reached names". -/
+
+def ExpTop : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name}, TgtRun P declName declName
+def ExpCall : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name} {c : Name} {q : Pkg ι dom}
+    (hc : TgtRun P declName c) (hq : P c = some q) (k : Nat) (hk : k < q.d.shape.insts.length)
+    (ord : (q.d.shape.instOrigins.getD k .ord).child? = none), TgtRun P declName (q.d.shape.insts[k]'hk).1
+/-- one change: the top constructor reaches a different name -/
+def MutTop : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name}, TgtRun P declName Name.anonymous
+/-- one change (ord): the `.ord`/no-child condition on the origin replaced by `child?` being present -/
+def MutCallOrd : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name} {c : Name} {q : Pkg ι dom}
+    (hc : TgtRun P declName c) (hq : P c = some q) (k : Nat) (hk : k < q.d.shape.insts.length)
+    (ord : (q.d.shape.instOrigins.getD k .ord).child?.isSome = true), TgtRun P declName (q.d.shape.insts[k]'hk).1
+/-- one change (ord, drop): no origin condition at all -/
+def MutCallNoOrd : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name} {c : Name} {q : Pkg ι dom}
+    (hc : TgtRun P declName c) (hq : P c = some q) (k : Nat) (hk : k < q.d.shape.insts.length),
+    TgtRun P declName (q.d.shape.insts[k]'hk).1
+/-- one change (reaching the parent): the parent is reached from the root `declName` itself instead of from the reached `c` -/
+def MutCallParent : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name} {c : Name} {q : Pkg ι dom}
+    (hc : TgtRun P c c) (hq : P c = some q) (k : Nat) (hk : k < q.d.shape.insts.length)
+    (ord : (q.d.shape.instOrigins.getD k .ord).child? = none), TgtRun P declName (q.d.shape.insts[k]'hk).1
+/-- one change (reaching the parent, drop): no reachability premise -/
+def MutCallNoParent : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name} {c : Name} {q : Pkg ι dom}
+    (hq : P c = some q) (k : Nat) (hk : k < q.d.shape.insts.length)
+    (ord : (q.d.shape.instOrigins.getD k .ord).child? = none), TgtRun P declName (q.d.shape.insts[k]'hk).1
+/-- one change (pkg correspondence): the package is that of `declName`, not of the reached parent `c` -/
+def MutCallPkg : Prop := ∀ {ι : Type} {dom : ι → DomainConfig} {P : Pkgs ι dom} {declName : Name} {c : Name} {q : Pkg ι dom}
+    (hc : TgtRun P declName c) (hq : P declName = some q) (k : Nat) (hk : k < q.d.shape.insts.length)
+    (ord : (q.d.shape.instOrigins.getD k .ord).child? = none), TgtRun P declName (q.d.shape.insts[k]'hk).1
+/-- compare binder by binder: names (macro scopes erased), binder infos, and types / conclusion by `isDefEq` at REDUCIBLE transparency -/
+partial def cmpTeleR (what : String) (a e : Lean.Expr) (i : Nat := 0) : MetaM Unit := do
+  match a, e with
+  | .forallE na ta ba bia, .forallE ne te be bie =>
+    unless na.eraseMacroScopes == ne.eraseMacroScopes do throwError "CTOR CHECK FAILED {what}: binder {i} is named {na}, expected {ne}"
+    unless bia == bie do throwError "CTOR CHECK FAILED {what}: binder {i} ({na}) has a different binder info"
+    unless (← withReducible (isDefEq ta te)) do throwError "CTOR CHECK FAILED {what}: binder {i} ({na}) type{indentExpr ta}\nexpected{indentExpr te}"
+    withLocalDecl na bia ta fun x => cmpTeleR what (ba.instantiate1 x) (be.instantiate1 x) (i + 1)
+  | .forallE na .., _ => throwError "CTOR CHECK FAILED {what}: extra binder {i} ({na})"
+  | _, .forallE ne .. => throwError "CTOR CHECK FAILED {what}: binder {i} ({ne}) missing"
+  | _, _ => unless (← withReducible (isDefEq a e)) do throwError "CTOR CHECK FAILED {what}: conclusion{indentExpr a}\nexpected{indentExpr e}"
+
+def checkCtor (c e : Name) : MetaM Unit := do
+  let ci ← getConstInfo c
+  unless ci matches .ctorInfo _ do throwError "CTOR CHECK FAILED {c} is not a constructor"
+  cmpTeleR s!"{c}" ci.type (← stmtOf e)
+  logInfo m!"CTOR TYPE OK {c} against {e} (names, order, binder infos, types at reducible transparency)"
+
+/-- signature rejection by the same comparator (not a semantic counterexample) -/
+def checkCtorMutant (c m : Name) : MetaM Unit := do
+  let ci ← getConstInfo c
+  let rejected ← try cmpTeleR s!"{c}" ci.type (← stmtOf m); pure false catch _ => pure true
+  unless rejected do throwError "CTOR MUTANT ACCEPTED {m} for {c}"
+  logInfo m!"CTOR MUTANT REJECTED {m} for {c} (signature comparison, not a semantic counterexample)"
+
+/-- (constructor, expected, mutants) -/
+def ctorTable : List (Name × Name × List Name) :=
+  [(``TgtRun.top, ``ExpTop, [``MutTop]),
+   (``TgtRun.call, ``ExpCall, [``MutCallOrd, ``MutCallNoOrd, ``MutCallParent, ``MutCallNoParent, ``MutCallPkg])]
+
 /-! ## Value-closure machinery (reuses the `DeclConnectCheck` walker) -/
 open Tests.Gen5.DeclConnectCheck (reach violations forbiddenFragments)
 
@@ -239,11 +298,11 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for n in [``ConstValueFunctional, ``EntryWitness, ``FG_COND, ``FG_CONNECT, ``nv_post, ``nv_gp, ``nv_cv, ``o2_of_o1_o3, ``fgCond_trivial,
             ``TgtRun, ``TgtRun.top, ``TgtRun.call] do
     checkAxioms n
-  -- TgtRun: constructor types pinned (independent text)
-  let ciTop ← getConstInfo ``TgtRun.top
-  let ciCall ← getConstInfo ``TgtRun.call
-  unless (toString ciTop.type).length > 0 && ciCall.type.isForall do throwError "TgtRun constructors malformed"
-  logInfo m!"TgtRun ctor types: {ciTop.type}\n{ciCall.type}"
+  -- TgtRun: constructor types compared with independently written complete telescopes (names, order, binder infos, types; reducible)
+  for (c, e, ms) in ctorTable do
+    checkCtor c e
+    for m in ms do checkCtorMutant c m
+  logInfo m!"TgtRun ctor types: {(← getConstInfo ``TgtRun.top).type}\n{(← getConstInfo ``TgtRun.call).type}"
   -- VALUE CLOSURE
   for n in [``FG_CONNECT, ``FG_COND] do
     let r ← reach env n

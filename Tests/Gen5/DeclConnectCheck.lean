@@ -227,6 +227,8 @@ structure Reach where
   seen : NameSet := {}
   opaques : Array Name := #[]
   axioms : Array Name := #[]
+  /-- names reached (root, or referenced by a value / type) that `env.find?` does not know: the walk could not look inside them -/
+  unknown : Array Name := #[]
 
 /-- transitive walk; core modules are leaves; thm/defn values and types, inductive constructors; opaque/axiom bodies are not followed (reported). -/
 partial def walk (env : Environment) (st : IO.Ref Reach) (n : Name) : MetaM Unit := do
@@ -235,7 +237,9 @@ partial def walk (env : Environment) (st : IO.Ref Reach) (n : Name) : MetaM Unit
   match moduleOf env n with
   | some m => if isCoreMod m then return
   | none => pure ()
-  let some ci := env.find? n | return
+  let some ci := env.find? n | do
+    st.modify fun s => { s with unknown := s.unknown.push n }
+    return
   let mut refs : NameSet ← usedConsts ci.type
   match ci with
   | .thmInfo v => refs := (← usedConsts v.value).toList.foldl (fun a c => a.insert c) refs
@@ -246,10 +250,17 @@ partial def walk (env : Environment) (st : IO.Ref Reach) (n : Name) : MetaM Unit
   | _ => pure ()
   for r in refs do walk env st r
 
-def reach (env : Environment) (n : Name) : MetaM Reach := do
+/-- the walk without the unknown-name failure (used by the unknown-name controls only) -/
+def reachRaw (env : Environment) (n : Name) : MetaM Reach := do
   let st ← IO.mkRef ({} : Reach)
   walk env st n
   st.get
+
+/-- the walk; a reached name that `env.find?` does not know FAILS (it used to be skipped silently, which could hide a forbidden dependency) -/
+def reach (env : Environment) (n : Name) : MetaM Reach := do
+  let r ← reachRaw env n
+  unless r.unknown.isEmpty do throwError "WALK FAILED from {n}: unknown names (not in the environment, not followed) {r.unknown}"
+  return r
 
 /-- the owners whose results this issue must not use, by name prefix or fragment -/
 def forbiddenPrefixes : List Name :=
@@ -297,6 +308,25 @@ theorem negThm : True := by
 def negAlias (k : Elsewhere.KAlias) : Nat := k.x
 def cleanDef (n : Nat) : Nat := n + 1
 theorem cleanThm : cleanDef 1 = 2 := rfl
+
+/-- unknown-name controls: constants added WITHOUT kernel checking to a scratch copy of the environment, whose value / type mention a name that is in no environment -/
+def ghostName : Name := `Tests.Gen5.DeclConnectCheck.ghost_unknown
+def ghostTyName : Name := `Tests.Gen5.DeclConnectCheck.ghost_unknown_ty
+def ctlEnv (env : Environment) : MetaM Environment := do
+  let add (env : Environment) (n : Name) (ty v : Lean.Expr) : MetaM Environment :=
+    match env.addDeclCore 0 (.defnDecl { name := n, levelParams := [], type := ty, value := v, hints := .abbrev, safety := .safe }) none (doCheck := false) with
+    | .ok e => pure e
+    | .error _ => throwError "control environment: could not add {n}"
+  let nat := Lean.mkConst ``Nat
+  let env ← add env `ctlValUnknown nat (Lean.mkConst ghostName)
+  let env ← add env `ctlTyUnknown (Lean.mkConst ghostTyName) (Lean.mkConst ``Nat.zero)
+  add env `ctlRootsClean nat (Lean.mkConst ``Nat.zero)
+
+/-- unknown-name controls: (root, a name the walk must report as unknown, why) -/
+def unknownControls : List (Name × Name × String) :=
+  [(`Tests.Gen5.DeclConnectCheck.no_such_root, `Tests.Gen5.DeclConnectCheck.no_such_root, "root is an unknown name"),
+   (`ctlValUnknown, ghostName, "helper VALUE refers to an unknown name"),
+   (`ctlTyUnknown, ghostTyName, "helper TYPE refers to an unknown name")]
 
 /-! ## Run -/
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -373,6 +403,17 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   unless !(pe.getUsedConstants.contains ``Tools.ShippingGen5Acc.FakeKit) do throwError "control premise: getUsedConstants unexpectedly sees the proj structure"
   unless (← usedConsts pe).contains ``Tools.ShippingGen5Acc.FakeKit do throwError "CLOSURE CONTROL NOT DETECTED (raw Expr.proj)"
   logInfo m!"CLOSURE CONTROL DETECTED raw Expr.proj structure name (getUsedConstants alone does not return it)"
+  -- unknown-name controls: `reach` must FAIL, and the raw walk must report exactly the expected unknown name
+  let envC ← ctlEnv env
+  for (c, g, why) in unknownControls do
+    let raw ← reachRaw envC c
+    unless raw.unknown.contains g do throwError "UNKNOWN-NAME CONTROL NOT DETECTED by the raw walk ({why}): {raw.unknown}"
+    let failed ← try let _ ← reach envC c; pure false catch _ => pure true
+    unless failed do throwError "UNKNOWN-NAME CONTROL: `reach` did not fail ({why})"
+    logInfo m!"UNKNOWN-NAME CONTROL DETECTED {c} ({why}): unknown {raw.unknown}, reach fails"
+  let rc ← reach envC `ctlRootsClean
+  unless rc.unknown.isEmpty do throwError "UNKNOWN-NAME CLEAN CONTROL FAILED"
+  logInfo m!"UNKNOWN-NAME CLEAN CONTROL OK ctlRootsClean"
   -- clean controls
   for c in [``cleanDef, ``cleanThm] do
     let v := violations env (← reach env c)
