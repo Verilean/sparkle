@@ -1,7 +1,7 @@
 import Tools.ShippingGen5AccInd
 import Tools.ShippingGen2KeepChild
 set_option autoImplicit false
--- Built in the Pod (g5ac-r6) at 5c38c6fc: `kjob lake build Tools.ShippingGen5AccKeep`, exit 0, 711 jobs (the build was of the identical content; this header is the only later change). Clean issue-linked build is the coder's. No sorry / axiom / native_decide.
+-- Built in the Pod (g5ac-r6) at 5c38c6fc: `kjob lake build Tools.ShippingGen5AccKeep`, exit 0, 711 jobs (the build was of the identical content; this header is the only later change). Clean issue-linked build ac6v-a88c3e9c (incremental kjob lake build): exit 0, 724 jobs, source=base=end, dirty=false, approved at a88c3e9c (the Pod build at 5c38c6fc was of identical content). No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A5a: `AccKeepChildStmt` (scripts/gen5/DG_ACC_FREEZE_REV3.md §2.1, items 1-5)
 

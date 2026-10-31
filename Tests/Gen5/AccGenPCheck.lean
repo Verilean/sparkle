@@ -1,7 +1,7 @@
 import Tools.ShippingGen5AccGenP
 import Tests.Gen5.AccCheck
 set_option autoImplicit false
--- Clean issue-linked build ac5v-802381fe: exit 0, source=base=end, dirty=false, approved at 802381fe (earlier clean build ac4v-5aab73de, 714 jobs). Earlier Pod builds: g5ac-r4 at e8ef4249. No sorry / axiom / native_decide in this source.
+-- Clean issue-linked build ac6v-a88c3e9c (incremental kjob lake build): exit 0, 724 jobs, source=base=end, dirty=false, approved at a88c3e9c (earlier clean build ac5v-802381fe, approved at 802381fe) (earlier clean build ac4v-5aab73de, 714 jobs). Earlier Pod builds: g5ac-r4 at e8ef4249. No sorry / axiom / native_decide in this source.
 
 /-! # DG-ACC unit A3 checks (Tools/ShippingGen5AccGenP.lean; scripts/gen5/DG_ACC_FREEZE_REV2.md §B)
 

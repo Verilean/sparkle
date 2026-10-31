@@ -1,7 +1,7 @@
 import Tools.ShippingGen5AccReads
 import Tests.Gen5.AccCheck
 set_option autoImplicit false
--- Clean issue-linked build ac5v-802381fe: exit 0, source=base=end, dirty=false, approved at 802381fe (earlier Pod build g5ac-r5 at 0f120373, 719 jobs). TYPE 12 = 4 definitions + 8 main theorems (all syntactic, no isDefEq fallback; the 3 auxiliary down theorems are covered by AXIOMS / CLOSURE, not by TYPE), MUTANT 14 (signature/defeq rejection, not semantic), AXIOMS 15 (standard three), walker controls + unknown controls + CLOSURE OK 13358 constants). No sorry / axiom / native_decide in this source (the 3 `sorry` warnings come from the intended walker-control negatives).
+-- Clean issue-linked build ac6v-a88c3e9c (incremental kjob lake build): exit 0, 724 jobs, source=base=end, dirty=false, approved at a88c3e9c (earlier clean build ac5v-802381fe, approved at 802381fe) (earlier Pod build g5ac-r5 at 0f120373, 719 jobs). TYPE 12 = 4 definitions + 8 main theorems (all syntactic, no isDefEq fallback; the 3 auxiliary down theorems are covered by AXIOMS / CLOSURE, not by TYPE), MUTANT 14 (signature/defeq rejection, not semantic), AXIOMS 15 (standard three), walker controls + unknown controls + CLOSURE OK 13358 constants). No sorry / axiom / native_decide in this source (the 3 `sorry` warnings come from the intended walker-control negatives).
 
 /-! # DG-ACC rev2 R1/R2 checks (Tools/ShippingGen5AccReads.lean; scripts/gen5/DG_ACC_FREEZE_REV2.md §B.2, §C.2)
 

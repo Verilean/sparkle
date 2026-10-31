@@ -1,6 +1,6 @@
 # DG-ACC freeze rev3 (issue `sparkle-gen5-dg-acc`): A5 supply survey, complete types, supplier table
 
-**FOR REVIEW (docs only; no Lean for A5 is written until this is approved).** Rev1 (`DG_ACC_FREEZE_REV1.md`) and rev2 (`DG_ACC_FREEZE_REV2.md`) are unchanged. Base: `kjob/g5ac-r5`, rev2 §B.2/§C.2 Lean committed as
+**Freeze document (written docs-only before any A5 Lean; approved at 802381fe; implementation status in §6).** Rev1 (`DG_ACC_FREEZE_REV1.md`) and rev2 (`DG_ACC_FREEZE_REV2.md`) are unchanged. Base: `kjob/g5ac-r5`, rev2 §B.2/§C.2 Lean committed as
 `Tools/ShippingGen5AccReads.lean` + `Tests/Gen5/AccReadsCheck.lean` (0f120373, Pod-built; clean build is the coder's).
 
 Tags: `[S]` source read in this worktree (or the named branch); `[B]` built in the Pod; `[E]` the statement below elaborates (all proofs `sorry`) in a Pod scratch file (`kjob lake env lean`, scratchpad, **not committed**; exit 0, no error).
@@ -294,7 +294,7 @@ theorem accServed0_of_cover (L : Laws mref cref) (Reach : Name → Prop)
 Mutant plan: `AccKeepChildStmt` without `1 ≤ D`; `AccServed0Stmt`'s premise `hcl` dropped from `accServed0_of_*`; `ChildrenAccI` with `Reach` premise dropped from the `Acc` conjunct; `childrenAcc_reached` without `hcl`; `accServed0_of_route` without `ReadsSupplyAt`; `coreHead_accInvAt` without the cache disjunct; `synthesizeChild_acc` without `AccChildKeeps`; conjunct-drop mutant of `fromConst_machine_accInvAt` (the `AccInvAt n w₁` conjunct). Counts will be reported as measured with their classification rule.
 
 ## 5. Not claimed
-DG-ACC is **not** done. A5 is not implemented; §2.1-§2.4 are statements. `AccServed0Stmt` would be conditional on the rows S1-S3 (S4 excluded by hypothesis); `GenSFacts`, `MachineRouteAt`, `RunDataLink`/`ReachCover`/`DataOfShape`, `OffRouteServes`, `QuietStrengthA`, `GetEnvFrame`, `AdmDownA` have no producer found in this investigation. The results hold at the kit.
+DG-ACC is **not** done. (Status at freeze time; A5a/A5b were later implemented, see §6.) §2.1-§2.4 are statements. `AccServed0Stmt` is conditional on the rows S1-S3 (S4 excluded by hypothesis); `GenSFacts`, `MachineRouteAt`, `RunDataLink`/`ReachCover`/`DataOfShape`, `OffRouteServes`, `QuietStrengthA`, `GetEnvFrame`, `AdmDownA` have no producer found in this investigation. The results hold at the kit.
 No change to FG, `T1Hyp`/`T1HypND`, a law, a TRUSTED boundary, or the compiler.
 
 ## 6. Implementation status (g5ac-r6; docs only, appended after the freeze approval)
@@ -315,3 +315,9 @@ can be exhibited before the body is unfolded (needed to read `old`/`miss` off `C
 * Mutants in the Checks are rejections by signature / defeq, not semantic counterexamples.
 Still not supplied: `MachineRouteAt`, `RunDataLink` / `ReachCover` / `DataOfShape`, `ReadsSupplyAt` for the FG's `L`, `OffRouteServes`, `GenSFacts`, `QuietStrengthA`/`GetEnvFrame`/`AdmDownA`.
 This is not DG-ACC, M5 or FG completion.
+
+## 7. Build record (docs sync)
+
+A5a / A5b (`Tools/ShippingGen5AccKeep.lean`, `Tools/ShippingGen5AccServed.lean`, `Tests/Gen5/AccKeepCheck.lean`, `Tests/Gen5/AccServedCheck.lean`) are covered by the clean issue-linked
+build `ac6v-a88c3e9c` (incremental `kjob lake build`; exit 0, 724 jobs, source=base=end, dirty=false), approved at a88c3e9c (TYPE 27 / MUTANT 22 / AXIOMS 29 standard / CLOSURE A5a 12149, A5b 13304, unknown 0).
+Approval is limited: the premises listed in §6 remain unsupplied, and the `EnvQ` agreement is a source-text comparison only (to be re-checked as a typed comparison at an integration SHA).

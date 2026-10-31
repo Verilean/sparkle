@@ -2,7 +2,7 @@ import Tools.ShippingGen5AccInd
 import Tools.ShippingGen5EnvR
 import Tools.ShippingGen5RunReads
 set_option autoImplicit false
--- Clean issue-linked build ac5v-802381fe: exit 0, source=base=end, dirty=false, approved at 802381fe (earlier Pod build g5ac-r5 at 0f120373, 716 jobs). No sorry / axiom / native_decide.
+-- Clean issue-linked build ac6v-a88c3e9c (incremental kjob lake build): exit 0, 724 jobs, source=base=end, dirty=false, approved at a88c3e9c (earlier clean build ac5v-802381fe, approved at 802381fe) (earlier Pod build g5ac-r5 at 0f120373, 716 jobs). No sorry / axiom / native_decide.
 
 /-! # DG-ACC rev2 R1 (read worlds) and R2 (`hacc` from top runs) (scripts/gen5/DG_ACC_FREEZE_REV2.md §B.2, §C.2)
 

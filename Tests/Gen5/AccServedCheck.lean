@@ -1,7 +1,7 @@
 import Tools.ShippingGen5AccServed
 import Tests.Gen5.AccCheck
 set_option autoImplicit false
--- Built in the Pod (g5ac-r6) at 5c38c6fc: `kjob lake build Tests.Gen5.AccServedCheck`, exit 0, 723 jobs. TYPE 15 (4 definitions + 11 theorems, all syntactic, no isDefEq fallback; the 2 helper theorems `getEnv_runs_exists`/`accServed_core` are covered by AXIOMS / CLOSURE, not TYPE), MUTANT 12 (signature/defeq rejection, not semantic), AXIOMS 17 (standard three; 15 TYPE items + 2 helpers), walker controls + unknown controls + CLOSURE OK 13304 constants, ENVQ AGREEMENT by source text (2 changed copies rejected). Clean issue-linked build is the coder's. No sorry / axiom / native_decide in this source (the 3 `sorry` warnings come from the intended walker-control negatives).
+-- Built in the Pod (g5ac-r6) at 5c38c6fc: `kjob lake build Tests.Gen5.AccServedCheck`, exit 0, 723 jobs. TYPE 15 (4 definitions + 11 theorems, all syntactic, no isDefEq fallback; the 2 helper theorems `getEnv_runs_exists`/`accServed_core` are covered by AXIOMS / CLOSURE, not TYPE), MUTANT 12 (signature/defeq rejection, not semantic), AXIOMS 17 (standard three; 15 TYPE items + 2 helpers), walker controls + unknown controls + CLOSURE OK 13304 constants, ENVQ AGREEMENT by source text (2 changed copies rejected). Clean issue-linked build ac6v-a88c3e9c (incremental kjob lake build): exit 0, 724 jobs, source=base=end, dirty=false, approved at a88c3e9c (the Pod build at 5c38c6fc was of identical content). No sorry / axiom / native_decide in this source (the 3 `sorry` warnings come from the intended walker-control negatives).
 
 /-! # DG-ACC unit A5b checks (Tools/ShippingGen5AccServed.lean; scripts/gen5/DG_ACC_FREEZE_REV3.md §2.2-§2.5)
 

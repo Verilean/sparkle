@@ -3,14 +3,16 @@ import Tools.ShippingGen2Keep
 import Tools.ShippingGen2T1
 import Tools.ShippingDesignWriterRun
 set_option autoImplicit false
--- Clean issue-linked build ac5v-802381fe: exit 0, source=base=end, dirty=false, approved at 802381fe (earlier clean build ac4v-5aab73de, 714 jobs). Earlier Pod builds: g5ac-r3 at 174b92b3. No sorry / axiom / native_decide.
+-- Clean issue-linked build ac6v-a88c3e9c (incremental kjob lake build): exit 0, 724 jobs, source=base=end, dirty=false, approved at a88c3e9c (earlier clean build ac5v-802381fe, approved at 802381fe) (earlier clean build ac4v-5aab73de, 714 jobs). Earlier Pod builds: g5ac-r3 at 174b92b3. No sorry / axiom / native_decide.
 
 /-! # DG-ACC unit A4: the Acc induction skeleton, CONDITIONAL (scripts/gen5/DG_ACC_FREEZE_REV1.md §B.2-B.3, REV2 §B)
 
 `InvAt`/`IHAt`/`BodyKeepsInv`/`ChildKeepsInv`/`KeepChildStmt`/`ServedShips0Stmt` of Gen2 with `CacheShips`/`ShipsRes` replaced by
 `CacheAcc K Reach` / `Acc (CallRel K) c`. PROVED here: `stableA_accInvAt`, `accKeepBody` (the copy of `keepBody`), `accIHAt_limit`
 (the copy of `ihAt_limit`), `accIHAt_step` (from `AccServed0Stmt`), `acc_of_run` (the copy of `ih_allPF`'s induction).
-NOT supplied (premises): `AccServed0Stmt` (A5), `AccKeepChildStmt` (A5). Nothing says a real run satisfies them. -/
+A5 status (scripts/gen5/DG_ACC_FREEZE_REV3.md §6): `AccKeepChildStmt` is proved with no premise (`Tools/ShippingGen5AccKeep.lean`, `accKeepChild_proved`);
+`AccServed0Stmt` is proved only FROM NAMED PREMISES (`Tools/ShippingGen5AccServed.lean`, `accServed0_of_route` / `accServed0_of_cover`: `hcl`, `MachineRouteAt`,
+`ReadsSupplyAt`, `RunDataLink` or `ReachCover` + `DataOfShape`), which are not supplied. Nothing here says a real run satisfies those premises. -/
 namespace Tools.ShippingGen5Acc
 open Lean Meta Sparkle.Compiler.Elab Tools.ShippingGen2 Tools.ShippingGen5Sem
 open Tools.ShippingEntrySoundness (RunsTo)
