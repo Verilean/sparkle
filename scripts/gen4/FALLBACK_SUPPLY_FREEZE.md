@@ -1694,3 +1694,9 @@ Files: `Tools/ShippingGen4FbFrag.lean`, `Tests/Gen4/FbFragCheck.lean`, two `lean
 
 ### 31.5 What this section does not claim
 The theorems are conditional on `EntryDefines` and `WF` (existing hypothesis predicates), cover first-gate fragments only, and do not say which arm of `PPRel` holds. `ChildRunN … M` for the core module, instance-bearing bodies, the `mergeChecked` arm, T-LEG, T-MEMO (hit, nested miss, K4), M4 and FG stay unsupplied on the routes read; no law is adopted. Issue, M4 and FG are not complete.
+
+## 32. FB-21 implementation status (docs; Pod build only)
+
+- `Tools/ShippingGen4FbFrag.lean` (`postReady_instFree`, `synthesizeCombinational_fragment_dz`) and `Tests/Gen4/FbFragCheck.lean` implement §31.3/§31.4; types as in §31.3, proofs closed in the first attempt. Lean commit `8f4a0a55` (comment-only header edits after the build).
+- Pod build (`kjob lake build`, one target at a time): `Tools.ShippingGen4FbFrag` exit 0 (705 jobs), `Tests.Gen4.FbFragCheck` exit 0. Check: TYPE 2, MUTANT REJECTED 11 (all planned mutants were well-typed; signature/defeq rejections, not semantic counterexamples), closure 4657 / 13635 constants with missing 0, controls (absent root, forbidden root `memoInv_hit`, helper value / helper type-only unknown, clean fixture) succeed, AXIOMS 2 standard only, `sorry` 0. This is not a clean issue-linked build; that is the coder's.
+- Still hypotheses / unsupplied on the routes read: `EntryDefines` / `WF`, `ChildRunN … M` for the core module, the clean-up-arm equation `M' = dropZeroWidthModule M`; instance-bearing bodies, `mergeChecked`, T-LEG, T-MEMO, K4, M4 and FG. Issue not complete.
