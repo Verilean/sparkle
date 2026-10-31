@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccReader
 import Tests.Gen5.AccCheck
--- Built in the Pod (g5ac-r12) at 46600383 (Check built on the committed tree), exit 0, 737 jobs. TYPE 4 (2 definitions by body + 2 theorems) / MUTANT 5 (signature/defeq rejection, not semantic: 1 ReaderGateShape, 1 ReaderRunsAt, 2 gateRunsAt_of_readerRuns, 1 gatesNoneAt_of_readerRuns) / AXIOMS 2 standard three only / CLOSURE OK 8038 constants (unknown 0) / walker controls 4 negatives / unknown controls 3 negatives + 1 clean. The 3 sorry warnings are the intended walker-control negatives (Tests/Gen5/AccReaderCheck.lean:107); AccCheck's own 3 are the same kind.
+-- Clean issue-linked build `acv-d9a894b2` exit 0, 737 jobs (approved at d9a894b2). Pod build (g5ac-r12) at 46600383 (Check built on the committed tree), exit 0, 737 jobs. TYPE 4 (2 definitions by body + 2 theorems) / MUTANT 5 (signature/defeq rejection, not semantic: 1 ReaderGateShape, 1 ReaderRunsAt, 2 gateRunsAt_of_readerRuns, 1 gatesNoneAt_of_readerRuns) / AXIOMS 2 standard three only / CLOSURE OK 8038 constants (unknown 0) / walker controls 4 negatives / unknown controls 3 negatives + 1 clean. The 3 sorry warnings are the intended walker-control negatives (Tests/Gen5/AccReaderCheck.lean:107); AccCheck's own 3 are the same kind.
 
 /-! # DG-ACC unit A6c checks (Tools/ShippingGen5AccReader.lean; scripts/gen5/DG_ACC_FREEZE_REV6.md §2)
 
