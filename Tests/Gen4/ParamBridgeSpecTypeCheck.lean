@@ -1,7 +1,7 @@
 import Lean
 import Tools.ShippingGen4ParamBridgeSpecType
 set_option autoImplicit false
--- NOT BUILT: Check of Tools/ShippingGen4ParamBridgeSpecType.lean (scripts/gen4/PARAMETRIC_BRIDGE_UNIT4_FREEZE.md §3). Build result is recorded by the coder.
+-- BUILT: clean issue-linked build parv19-10e7df1e (Tests.Gen4.ParamBridgeSpecTypeCheck, kjob lake incremental) exit 0, 230 jobs, approved at 10e7df1e. Comment-only update. Check of Tools/ShippingGen4ParamBridgeSpecType.lean (scripts/gen4/PARAMETRIC_BRIDGE_UNIT4_FREEZE.md §3).
 -- Directive counts, measured (rule: top-level `#...` directive lines per kind, each one pass/fail assertion, silent on success;
 -- the unknown-name fixture is ONE directive running 4 internal cases): proves 13 (clause statements of the 4 defs; plus theorem
 -- clause_spec_dim for the bitVectorDim clause), not_proves 11 (def mutants), type_defeq 6, mutant_rejected 8 (theorem mutants),

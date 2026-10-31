@@ -1,6 +1,6 @@
 import Tools.ShippingGen4ParamBridgeWidth
 set_option autoImplicit false
--- NOT BUILT: implementation of scripts/gen4/PARAMETRIC_BRIDGE_UNIT4_FREEZE.md §2 (F1, approved freeze 4013f4b2). Build result is recorded by the coder.
+-- BUILT: clean issue-linked build parv19-10e7df1e (Tests.Gen4.ParamBridgeSpecTypeCheck, kjob lake incremental) exit 0, 230 jobs, approved at 10e7df1e. Comment-only update. Implementation of scripts/gen4/PARAMETRIC_BRIDGE_UNIT4_FREEZE.md §2 (F1, approved freeze 4013f4b2).
 
 /-! # M4 parametric, bridge unit 4 (F1: model-level lift of E1 to whole types) (scripts/gen4/PARAMETRIC_BRIDGE_UNIT4_FREEZE.md §2)
 
