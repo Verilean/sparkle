@@ -157,3 +157,43 @@ theorem genExtAtCall_of_genSem {ι : Type} {dom : ι → DomainConfig} (P : Tool
 - Not `GenExtAtCall` for any real package: U5E is conditional on `hp`, `hq`, `hord`, `hnd`, and on `GenIn` (hence `GenWF`/`d.ok`) existing for the run; none of these is supplied here.
 - Not `CallOutRange`, causality, `Acc`, `GenWF`/`d.ok` coverage of real runs, DATAOF/ACC, M5, FG. Nothing here changes `T2-TIE`'s hypotheses; `hDG_SEM` is only *discharged* by U5E under the premises above.
 - The route of §1 is read from the definitions; nothing is elaborated until U5A/B are built. MUTANT results are signature/defeq rejections, not semantic counterexamples.
+
+## 5. Revision rev2 (answers reviewer changes_requested on 783419ad: R1, R2, R3) — supersedes the conflicting text of §0–§4
+
+Reference fixed at **`783419ad`** (`kjob/g5sm-u6` base; in this tree `Tools/ShippingGen5T2Tie.lean`, `Tools/ShippingGen5T2Dec.lean`, `Tools/ShippingGen5T2Range.lean` exist and are importable —
+the "not in the base" remark of the header/§0/§2.4 is withdrawn; the `[T]` mark now means "read at 783419ad").
+
+### 5.1 R1 — existing supply is reused; no duplicate gap
+* **`hnd`** (callee output names `Nodup`). For a **`Pkg`** `q`, it is supplied by `Tools.ShippingGen2.t2r_ok_outNames_nodup q.d q.ok : (q.d.shape.layout.outs.map (·.name)).Nodup`
+  (`Tools/ShippingGen5T2Range.lean:238`; its hypothesis `q.d.ok = true` is the `Pkg` field `q.ok`). So at the Pkg level `hnd` is **not** a premise and not a gap; the earlier sentence
+  "this survey did not find a supply route for a package q" and the lead on `Elab.lean:5085` / `ShippingReaderOutNames` are withdrawn for the Pkg case.
+  U5D (`selIdx_of_callField`) is stated on a `SemPkg`/`MachineData` and keeps `hnd` as a hypothesis (a `SemPkg` carries no `ok` field); **U5E derives it from the `Pkg`**: `fun _ => t2r_ok_outNames_nodup q.d q.ok` (a corollary, not an assumption).
+* **`CallOutRange p q k hk`**: not part of this unit and not a gap of DG-SEM. Existing: `Pkg.src_range q` (every source output `< 2 ^ o.width`, unconditional, `T2Range.lean:122`) and
+  `callOutRange_of_widths p q k hk houtTy hW` (`T2Range.lean:162`; inputs `houtTy : ∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width` and `hW : CallOutWidthAt p q k`). What is **not supplied** is only the *run-level supply of those inputs*
+  (`houtTy`, `hW` for each call of a real run), and it is not assigned to ACC/causality. This is the existing T2-TIE connection (`T2Conn.lean`); nothing new is allocated here.
+* Table row replacement: premise `hnd` → *derived for Pkg (U5E corollary of `t2r_ok_outNames_nodup`), kept as a hypothesis of U5D only*; premise `CallOutRange` → *existing bridge; run-level supply of `houtTy`/`hW` OPEN, T2-TIE side*.
+* Still premises of U5E (unchanged, **not** supplied here): `hq` (hDG_GENP/CLOSINGRUN), `hp` (which `g : GenIn`; DATAOF), `g.wf`/`g.ok` for a real run (WFCOVER), `hord`. Causality/`Acc`/M5/FG not claimed.
+
+### 5.2 R2 — U5E signature corrected (actual namespace `Tools.ShippingGen2`)
+`GenExtAtCall`, `SigAt`, `CallField`, `decA`, `decB`, `Pkg`, `Pkgs` live in `namespace Tools.ShippingGen2` (`T2Tie.lean:38/237`, `T2Dec.lean:29`); `Tools.ShippingGen5T2Tie.GenExtAtCall` does not exist.
+The decoded families are `Tools.ShippingGen2.decA p q k hk` / `Tools.ShippingGen2.decB p q k hk` (bodies as in §0). Corrected statement (module `Tools/ShippingGen5SemExtPkg.lean`, imports `Tools.ShippingGen5SemExt`, `Tools.ShippingGen5T2Tie`, `Tools.ShippingGen5T2Range`, `Tools.ShippingGen5SemPkg`):
+```lean
+theorem genExtAtCall_of_genSem {ι : Type} {dom : ι → DomainConfig} (P : Tools.ShippingGen2.Pkgs ι dom) (X : Name) (g : GenIn)
+    (p q : Tools.ShippingGen2.Pkg ι dom) (k : Nat) (hk : k < p.d.shape.insts.length)
+    (hp : p.toSem = genSemI (semOf P) X g)
+    (hq : P (p.d.shape.insts[k]'hk).1 = some q)
+    (hord : (originOf p.d k).child? = none) :
+    Tools.ShippingGen2.GenExtAtCall p q k hk
+```
+(`hnd` is removed from the statement; derived inside as in 5.1. `semOf`, `Pkg.toSem`, `genSemI` as at 783419ad in `Tools/ShippingGen5SemPkg.lean`/`SemGen`; the exact binder forms are re-read at that SHA when it is elaborated.)
+**Scope of this issue run:** U5E is *type and dependency description only*; its elaboration is done after the U5A–D files are integrated. Nothing about U5E is claimed built.
+
+### 5.3 R3 — Check: helper-type negative control
+CLOSURE unknown controls (four now, plus the clean one), each run inside `withoutModifyingEnv`, the invalid fixtures added to the environment only there:
+1. unknown **root** (name not in env) ⇒ `throwError`;
+2. root itself forbidden-checked (a forbidden constant as the root is detected);
+3. unknown **helper value**: root `R` (exists) whose *proof term* mentions an existing helper `H`, and `H`'s *value* mentions a missing constant `Mv`; the walker must throw and the thrown message must contain `Mv`;
+4. unknown **helper type**: root `R` whose statement and proof reference an existing helper `H` only, where `H`'s **type** (not `R`'s type and not `H`'s value) mentions a missing constant `Mt`: path `R → H → type(H) ∋ Mt`; the check asserts it threw **and** that the message names `Mt` (the intended name) and not another;
+5. **clean** control (same shape, no missing name) must pass.
+The root statement itself never contains the unknown name in (3)/(4). Fixtures are built in-test with `Environment.addDecl` (axiom-free: the helper is a `defnDecl`/`thmDecl` with `sorry`-free bodies; the missing name is simply never declared) inside `withoutModifyingEnv`, so the library environment is not changed.
+Counting rule stays: TYPE/DEFTYPE/DEFBODY/MUTANT/AXIOMS/CLOSURE/REACH are reported as real counts by category.
