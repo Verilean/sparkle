@@ -1,6 +1,6 @@
 import Tools.ShippingGen5SemCongr
 set_option autoImplicit false
--- NOT BUILT (g5sm-u4, work in progress)
+-- Built in g5sm-u4 at c28de8a1a7e26247d4b3082731cbcf6a820b640c (Pod kjob lake build, exit 0). Clean build is the coder's. No sorry/axiom/native_decide.
 /-! # DG-SEM U4F (scripts/gen5/DG_SEM_FREEZE_P4.md rev1 §5.3): final-stage memory equation, `lsrcAt_genSemGen`, `memFacts_of_genSem`
 
 Premises are those of the freeze (`GenWF`, `d.ok`); none of them is supplied here for a real run (DG-WFCOVER, DG-DATAOF). -/

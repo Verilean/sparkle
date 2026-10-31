@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemMem
 import Tests.Gen5.SemGenCheck
 set_option autoImplicit false
--- NOT BUILT (g5sm-u4, work in progress)
+-- Built in g5sm-u4 at c28de8a1a7e26247d4b3082731cbcf6a820b640c (Pod kjob lake build, exit 0). Clean build is the coder's. No sorry/axiom/native_decide.
 
 /-! # DG-SEM units U4A-U4F checks (Tools/ShippingGen5SemCall.lean, ShippingGen5SemCongr.lean, ShippingGen5SemMem.lean;
 scripts/gen5/DG_SEM_FREEZE_P4.md rev1)
