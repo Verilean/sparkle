@@ -71,3 +71,10 @@ Not claimed: DG-SEM `GenData`, `GenWF`, `genSem`, `hloc/hdecl/hd`, `hf` for `dat
 
 ## 3. Decisions
 No new law / TRUSTED / shared-definition or compiler change; no decision needed. DG-ACC, M5, FG are not complete. Rows owned by DG-DATAOF / DG-SEM / DG-COVER / DG-WFCOVER are named only.
+
+## 4. Implementation record (A13, Lean written after approval)
+Files: `Tools/ShippingGen5AccGDf.lean`, `Tests/Gen5/AccGDfCheck.lean`, two `lean_lib` entries in `lakefile.lean`. Types as in §1 (the Check compares them with independently written Expected). Pod incremental build exit 0 (Tools 728 jobs, Check 731 jobs): TYPE 6 / BODY 2 / MUTANT 5 (single 4 + compound 1; signature/defeq rejection, not semantic counterexamples) / AXIOMS standard only / CLOSURE 6472 constants, unknown 0, suppliers `GDEvidence`/`DataSoundAt` reached. Clean issue-linked build: the coder's.
+
+Premises resolved by A13: `hev` for the f-derived `GDf` (`genDataF_evidence`, unconditional); success characterization of `genDataF` (`genDataF_isSome_iff`).
+Premises introduced (hypotheses of `genDataF_isSome_of_sound`): `hf : DataSoundAt f`, shape witness `hs`, success of `f` (`hd`).
+Still not supplied: real DG-SEM `GenData` (`GDf` is a different type), `genSem`/laws, `hf` for `dataOfAt lvl`, success of a real run, coverage, L, C', `ReachCover`, M5, FG, S1.

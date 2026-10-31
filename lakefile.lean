@@ -4931,3 +4931,9 @@ lean_lib «Tools.ShippingGen5AccOrdCallees» where
 
 lean_lib «Tests.Gen5.AccOrdCalleesCheck» where
   roots := #[`Tests.Gen5.AccOrdCalleesCheck]
+
+lean_lib «Tools.ShippingGen5AccGDf» where
+  roots := #[`Tools.ShippingGen5AccGDf]
+
+lean_lib «Tests.Gen5.AccGDfCheck» where
+  roots := #[`Tests.Gen5.AccGDfCheck]
