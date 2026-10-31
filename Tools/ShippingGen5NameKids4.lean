@@ -1,7 +1,7 @@
 import Tools.ShippingGen5NameKids3
 import Tools.ShippingReaderFuelShapeProv
 set_option autoImplicit false
--- NOT BUILT (no build of this tree yet; the Pod build SHA is recorded by a later comment-only commit). Written against freeze BOUNDARY_AUDIT_FREEZE_U4.md §2 + §3. 2 theorems, 0 new definitions.
+-- Reviewed build: ba9v-39c565c4 (exit 0, 735 jobs, approved at 39c565c4; src=base=end, dirty=false; clean issue-linked build). 2 theorems, 0 new definitions. TYPE 2 / MUTANT 7 / AXIOMS 2 (standard only). The audit is over kernel types/values, not a proof of the runtime extern implementation.
 -- `hF` (hmem_of_machineShapeF) is an existence premise over arbitrary ci / senv / ...; it does not fix the witness of any actual run, so it is NOT the production bridge. The link machineShape? <-> machineShapeF, GraphAgrees / InClass / ReachSpans, N1 / G5 / G7 / M5 / FG are unsupplied or unfinished.
 -- No sorry / axiom / native_decide.
 

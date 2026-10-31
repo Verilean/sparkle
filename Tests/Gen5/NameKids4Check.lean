@@ -1,15 +1,15 @@
 import Tools.ShippingGen5NameKids4
 import Tools.ShippingGen2Defs
 import Tests.Gen5.NameKidsCheck
--- NOT BUILT (no build of this tree yet; the Pod build SHA is recorded by a later comment-only commit). Written against freeze BOUNDARY_AUDIT_FREEZE_U4.md §3.
--- Count rule: each count is the number of `logInfo` lines of one class (TYPE = theorem compared against its Expected; MUTANT = distinct mutant def or cross-statement control, each counted once; REACH/AXIOMS = one per theorem).
+-- Reviewed build: ba9v-39c565c4 (exit 0, 735 jobs, approved at 39c565c4; src=base=end, dirty=false; clean issue-linked build). TYPE 2 / MUTANT 7 / closure negatives 8 + clean 1 / REACH 2 / AXIOMS 2 (standard only).
+-- Count rule: each count is the number of `logInfo` lines of one class (TYPE = theorem compared against its Expected; MUTANT = distinct mutant def or cross-statement control, each counted once; REACH/AXIOMS = one per theorem). MUTANT 7 = single-binder/point variants 4 (MutMemTagsNone, MutMemTagsNeg, MutHmemNoReach, MutHmemNone) + quantifier-block mutant 1 (MutHmemAll) + cross-statement controls 2.
 -- hF is an existence premise, not the production bridge. No sorry / axiom / native_decide.
 
 /-! # BOUNDARY-AUDIT U4 checks
 
 Every `Exp…` statement is written from the Lean text of freeze `BOUNDARY_AUDIT_FREEZE_U4.md` §2, not from the implementation.
 ONE comparator (`cmpTeleR` / `checkExpectedR` / `checkMutantR` of `Tests.Gen5.NameKidsCheck`) is used for positives and mutants.
-Mutants are single-point, well-typed variants; a rejection is by signature / defeq, NOT a semantic counterexample. -/
+Mutants are well-typed variants (single-point, except the quantifier-block MutHmemAll, counted separately); a rejection is by signature / defeq, NOT a semantic counterexample. -/
 
 namespace Tests.Gen5.NameKids4Check
 open Lean Meta
@@ -47,6 +47,7 @@ def MutHmemNone : Prop := ∀ {Reach : Name → Prop} {S : Name → Option Machi
       ∃ (n : Nat) (sm : Bool) (ps : List (String × Nat)) (ci : ConstantInfo) (senv : StructEnv) (ai : Bool),
         machineShapeF n sm ps ci senv ai = some (some sp)),
     ∀ c, Reach c → ∀ sp, S c = none → MemTagsNamed sp
+-- Quantifier-block mutant: turns ALL six existential variables (n sm ps ci senv ai) into ∀ at once; NOT a single-binder change (reviewer note at approval).
 def MutHmemAll : Prop := ∀ {Reach : Name → Prop} {S : Name → Option MachineShape}
     (hF : ∀ c, Reach c → ∀ sp, S c = some sp →
       ∀ (n : Nat) (sm : Bool) (ps : List (String × Nat)) (ci : ConstantInfo) (senv : StructEnv) (ai : Bool),
