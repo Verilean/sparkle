@@ -18,7 +18,7 @@ It is the only remaining row whose inputs are all existing approved text (`postE
 ## 3. Full types (no abbreviations)
 New files only: `Tools/ShippingGen5DCEntryR.lean` (namespace `Tools.ShippingGen5DCEntryR`; `import Tools.ShippingGen5DCEntryN`, `import Tools.ShippingMachineShipsDepth`; `set_option autoImplicit false`), `Tests/Gen5/DCEntryRCheck.lean`, `lean_lib` additions in `lakefile.lean`. `open Sparkle.IR.AST` is NOT used; names are fully qualified below (`Stmt.inst mn iname conns` is `Sparkle.IR.AST.Stmt.inst`).
 ```lean
-/-- no instance reachable from `mc` (to depth `k`, through `D`) is named `rn`; at depth 0 nothing is read -/
+/-- a STRONG sufficient condition: every instance statement of `mc` (also one whose lookup in `D` fails) has `mn ≠ rn`, recursively (to depth `k`, through `D`) for those whose lookup succeeds; at depth 0 nothing is read -/
 def NoRawBelow (D : Sparkle.IR.AST.Design) (rn : String) : Nat → Sparkle.IR.AST.Module → Prop
   | 0, _ => True
   | k + 1, mc =>
@@ -57,4 +57,7 @@ Proof route. `resetN_transport`: induction on `n`. `unfold Tools.ShippingMachine
 That `NoRawBelow` holds for any design the compiler produces; `TopShips` on `D'`; the run transport; O3 identification; supply of an `EntryWitness`/`ReflectsAll`; `Post` adoption; FG completion; M5. The Issue stays open. No new law, TRUSTED boundary or shared-definition change is needed, so no decision document is required.
 
 ## 6. Reuse
-`resetN_transport` takes the lookup agreement as a hypothesis (`hlk`), so FB-15's own-name lookup lemmas (see `DC_CONNECT_NEXT_UNIT_FREEZE.md` §6) can be reused on integration without changes here.
+`resetN_transport` takes the lookup agreement as a hypothesis (`hlk`). On integration, the lookup-agreement facts for names other than the top come from `postEntry_lookup_ne` here, and FB's `ppRel_lookup_other` (other-name lookup, NOT the own-name lookup) with the `PostEntry`/`PPRel` correspondence is the relevant reuse target; no change here.
+
+## 7. Wording fixed (reviewer, 4927)
+`NoRawBelow` is a strong sufficient condition: its first conjunct demands `mn ≠ rn` for EVERY `Stmt.inst` in `mc.body`, including instances whose lookup in `D` is unsuccessful. It is not claimed necessary. `NoRawBelow` and a real run are unsupplied; this unit is conditional and not an FG completion. The definition is pinned in the Check by its two equations (`NoRawBelow D rn 0 mc = True`, and the `k+1` clause) proved by `rfl` and compared with independently written Expected statements.
