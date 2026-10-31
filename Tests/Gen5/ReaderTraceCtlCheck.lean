@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceCtl
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceCtlCheck, exit 0, 724 jobs) on the tree of b450d6e5 (content identical; header comment-only). Measured: TYPE 9 non-match defs/abbrevs + 5 leaf theorems = 14 compared (0 isDefEq fallbacks logged); MATCHDEF 4 defs x 7 ctors agree + 4 full-argument theorems (callSt_eq_exp, callOut_eq_exp, phPre_eq_exp, phPost_eq_exp); MUTANT 14 value/statement (10 def + 4 theorem) + 10 well-typed match-def mutants (each rejected at exactly the changed constructor), no ill-typed variant counted; AXIOMS 9 theorems standard only (trInv_empty [propext], machInstCall?_spec [propext,Quot.sound], ...); CLOSURE OK 3939 constants with 3 negative + 3 forbidden-root self-hit + 2 clean controls, UNKNOWN 3 negative / 1 clean; 3 intended sorry negatives print 3 warnings. Mutants are signature/defeq rejections, not semantic counterexamples. Clean build is the coder's. No sorry / axiom / native_decide in source; the intended sorry-based negatives of the closure controls are built in memory (no `sorry` token).
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceCtlCheck, exit 0, 724 jobs) on the tree of the R1 fix (13 defs added to closure roots; this header line is the only later, comment-only change). Measured: TYPE 9 non-match defs/abbrevs + 5 leaf theorems = 14 compared (0 isDefEq fallbacks logged); MATCHDEF 4 defs x 7 ctors agree + 4 full-argument theorems (callSt_eq_exp, callOut_eq_exp, phPre_eq_exp, phPost_eq_exp); MUTANT 14 value/statement (10 def + 4 theorem; distinct from the 10 match-def mutants below) + 10 well-typed match-def mutants (each rejected at exactly the changed constructor), no ill-typed variant counted; AXIOMS 9 theorems standard only (trInv_empty [propext], machInstCall?_spec [propext,Quot.sound], ...); CLOSURE OK 3973 constants from 22 roots (13 defs + 9 theorems), all 18 target declarations (13 defs + 5 leaf theorems) asserted in seen, with 3 negative + 3 forbidden-root self-hit + 2 clean controls, UNKNOWN 3 negative / 1 clean; 3 intended sorry negatives print 3 warnings. Mutants are signature/defeq rejections, not semantic counterexamples. Clean build is the coder's. No sorry / axiom / native_decide in source; the intended sorry-based negatives of the closure controls are built in memory (no `sorry` token).
 /-! # DG-READERTRACE U-R1b checks (Tools/ShippingGen5ReaderTraceCtl.lean)
 
 TYPE: each def / theorem of `DG_READERTRACE_FREEZE_REV2.md` §1 is compared by `checkExpected` (`Tests/Gen3/ExpectedType.lean`) against an `Exp…` statement written here from the freeze text (own spelling).
@@ -352,6 +352,13 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for n in allThms do checkAxioms n
   logInfo m!"GEN5 CTLCHECK AXIOMS {allThms.length} theorems checked (standard axioms only)"
 
+-- the 13 U-R1b definitions (3 abbrev + 10 def), named explicitly; closure roots = these 13 + the 5 leaf theorems + the 4 match-agreement theorems = 22 names
+-- of which the 18 declarations (13 defs + 5 leaf theorems) are the freeze targets that must all be in `seen`.
+def allDefs : List Name := [``GroupsPh, ``CtlPh, ``TrInv, ``callSt, ``callOut, ``PhPre, ``PhPost,
+  ``ExprPh, ``ChainPh, ``RootPh, ``TracePre, ``TracePost, ``TraceGood]
+def leafThms : List Name := [``trInv_empty, ``bindLetNamed_reach, ``letIndex_reach, ``machInstCall?_spec, ``machInstCallS?_spec]
+def closureRoots : List Name := allDefs ++ allThms
+
 /-! ## Closure audit -/
 
 def valueOfCI : ConstantInfo → Option Expr
@@ -432,13 +439,16 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 
 run_cmd Lean.Elab.Command.liftTermElabM do
   let env ← getEnv
-  let (seen, unk, hits) ← closureHits env allThms
+  let (seen, unk, hits) ← closureHits env closureRoots
+  unless allDefs.length == 13 && leafThms.length == 5 do throwError "GEN5 CTLCHECK CLOSURE FAILED: expected 13 defs + 5 leaf theorems"
+  for n in allDefs ++ leafThms do
+    unless seen.contains n do throwError "GEN5 CTLCHECK CLOSURE FAILED: target declaration {n} not in the closure seen set"
   unless hits.isEmpty do throwError "GEN5 CTLCHECK CLOSURE FAILED: forbidden constants {hits}"
   for n in seen.toList do
     let s := n.toString
     if (s.splitOn "native_decide").length > 1 then
       throwError "GEN5 CTLCHECK CLOSURE FAILED: unexpected constant {n}"
   unless unk.isEmpty do throwError "GEN5 CTLCHECK CLOSURE FAILED: unknown constants (not in the environment): {unk.toList}"
-  logInfo m!"GEN5 CTLCHECK CLOSURE OK: {seen.toList.length} constants, no forbidden constant"
+  logInfo m!"GEN5 CTLCHECK CLOSURE OK: {seen.toList.length} constants from {closureRoots.length} roots (13 defs + 9 theorems); all 18 target declarations (13 defs + 5 leaf theorems) in seen, no forbidden constant"
 
 end Tests.Gen5.ReaderTraceCtlCheck
