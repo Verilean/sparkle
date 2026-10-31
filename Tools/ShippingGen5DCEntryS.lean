@@ -1,7 +1,7 @@
 import Tools.ShippingGen5DCEntryR
 import Tools.ShippingChildServe
 set_option autoImplicit false
--- NOT BUILT: U-NORAW, scripts/gen5/DC_CONNECT_NORAW_FREEZE.md §3 (freeze 7a6cb5af approved). Issue-linked clean build dc19v-716d342b exit 0 (750 jobs); approved at 716d342b as a conditional supply unit (not FG).
+-- U-NORAW, scripts/gen5/DC_CONNECT_NORAW_FREEZE.md §3 (freeze 7a6cb5af approved). Issue-linked clean build dc19v-716d342b exit 0 (750 jobs); approved at 716d342b as a conditional supply unit (not FG).
 
 /-! # DC-CONNECT U-NORAW: `NoRawBelow` from the closing's acyclicity facts
 
