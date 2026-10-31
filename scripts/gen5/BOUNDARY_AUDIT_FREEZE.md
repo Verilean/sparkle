@@ -21,10 +21,10 @@ These cover MODULE names only (Gaps §1 N1 row).
 
 ### 1.2 Where an N1-shaped premise enters the FG chain (real names)
 In the FG statement (§1.1) there is no name binder. Searching `Tools/ShippingGen2*.lean`, `Tools/ShippingGen5*.lean` for
-`outHead|hfresh|hsep|hparent|disjD|NameSep` finds no name premise in them. Names enter only inside the supplier of the
+`outHead|hfresh|hsep|hparent|disjD|NameSep` finds no name premise in them. Among the routes searched, names enter inside the supplier of the
 `T1Hyp.closes` field (`MachineClosesAtA`, Gen2Defs.lean:209, G-CLOSES, itself OPEN), whose general memory-parent supplier
 is `Tools.ShippingSrm3Callee.memCallee_closesA` (Srm3Callee.lean:91) over `MemCalleeData`, which calls
-`Tools.ShippingCallsMemPinned.machineClosesAtA_of_memKids'` (CallsMemPinned.lean:330). The N1-shaped binders are:
+`Tools.ShippingCallsMemPinned.machineClosesAtA_of_memKids'` (CallsMemPinned.lean:330). This survey did not search every FG route, so no exclusivity of this entry point is claimed. The N1-shaped binders found are:
 
 | # | binder (theorem / field) | exact Prop | derivable from existing theorems? | new lemma provable (this Issue)? |
 |---|---|---|---|---|
@@ -39,9 +39,9 @@ is `Tools.ShippingSrm3Callee.memCallee_closesA` (Srm3Callee.lean:91) over `MemCa
 ### 1.3 Unit U1 (first implementation unit): kid module-name separation
 File (new): `Tools/ShippingGen5NameKids.lean`; check file (new): `Tests/Gen5/NameKidsCheck.lean`; two `lean_lib` entries
 (`Tools.ShippingGen5NameKids`, `Tests.Gen5.NameKidsCheck`). Imports: `Tools.ShippingSrm7Rank` (kidModName),
-`Tools.ShippingMemClosesKidsT` (memKey), `Tools.ShippingModuleName`. Namespace `Tools.ShippingGen5NameKids`.
+`Tools.ShippingMemClosesKidsT` (memKey, namespace `Tools.ShippingMemCloses`), `Tools.ShippingModuleName`. Namespace `Tools.ShippingGen5NameKids`.
 `open Sparkle.IR.ModuleName (ofDecl ofMem)`, `open Sparkle.Compiler.MachInstOrigin (InstOrigin)`,
-`open Tools.ShippingSrm7Rank (kidModName)`, `open Tools.ShippingMemClosesKidsT (memKey)`.
+`open Tools.ShippingSrm7Rank (kidModName)`, `open Tools.ShippingMemCloses (memKey)` (the file is `Tools/ShippingMemClosesKidsT.lean`, but `memKey` is declared in namespace `Tools.ShippingMemCloses`).
 All statements are Props about names only; no `Laws`, no runtime, no compiler definition.
 
 ```
@@ -79,10 +79,10 @@ at `insts := d.shape.insts`, `org := originAt d.shape` to produce exactly the `h
 
 Reason this is the first unit: it is the only N1-shaped row above that is both pure name algebra (no dependence on a
 synthesis run, a package, or a design's contents) and is a binder of the existing G-CLOSES supplier. B3/B4/B7 need runs or
-designs; B5 is not derivable (decision item if FG must cover it).
+designs; B5: no supplier was found by this survey (a decision item only if FG must cover it).
 
 ### 1.4 N1 residue after U1 (what stays OPEN)
-B3 `hparentD`, B4 `hdisjD`, B5 `hfresh`/`outHead`, B7 `hn`, plus the premises `hself`, `hmemSame` of U1. None is claimed.
+B3 `hparentD`, B4 `hdisjD`, B5 `hfresh`/`outHead`, B7 `hn`, plus the premises `hn`, `hmemSame`, `hself` of U1 (they remain; U1 is not the supply of N1 as a whole). None is claimed.
 
 ## 2. G5: `Laws` / `Start` in FG
 
@@ -109,8 +109,9 @@ boundary, `Gaps §1` G5 row "CONTRACT / OPEN"); TRUSTED = a trusted-by-design bo
 | `Start.2` `JQC O 0 w` | binder `Start` | CONTRACT (start-world invariant at depth 0, Gaps row #14); `CacheInvA` of the empty cache is PROVED (`cacheInvA_empty`) | — |
 | `ReflectsAll` | separate FG binder (G3) | not G5 | — |
 
-Findings from this table, no more: (a) all 12 `Laws` fields and `Start` are CONTRACT; none is TRUSTED and none is PROVED
-except the pointwise facts named. (b) The Gaps §1 G5 note that the old `RefLaws.frame` was REFUTED applies to the old
+Note on counting: the direct fields of `Laws` are `O` and `T`. `O` unfolds to 10 fields (`quiet` among them) and `T` to 4 fields (14 fields in total, all listed in the table above, `quiet` as a field of `O`); `quiet` is also the predicate parameter of `RefLawsATele O.quiet`, which is a different role from its being a field. The earlier "all 12" was wrong and is withdrawn.
+
+This table and §3-§4 are a PRELIMINARY inventory, not an accepted final audit. Findings from this table, no more: (a) the `O` fields (10, including `quiet`), the `T` fields (4) and `Start` are classed CONTRACT here; none is classed TRUSTED, and none is PROVED except the pointwise facts named. (b) The Gaps §1 G5 note that the old `RefLaws.frame` was REFUTED applies to the old
 boundary; the present boundary's runtime fit and joint satisfiability are OPEN (Gaps row 127). (c) A model of `Laws`
 (GENERAL_SPEC §5 M5 "G5: a model of `Laws`, or an explicit TRUSTED status") was not found in tree; this Issue does not
 add either. A per-field use trace "which field FG's proof actually needs" is not done: it needs the closed proof term of FG,
