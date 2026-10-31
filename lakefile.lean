@@ -5006,3 +5006,9 @@ lean_lib «Tools.ShippingGen5AccGDf» where
 
 lean_lib «Tests.Gen5.AccGDfCheck» where
   roots := #[`Tests.Gen5.AccGDfCheck]
+
+lean_lib «Tools.ShippingGen5AccSemJoin» where
+  roots := #[`Tools.ShippingGen5AccSemJoin]
+
+lean_lib «Tests.Gen5.CandACheck» where
+  roots := #[`Tests.Gen5.CandACheck]
