@@ -46,13 +46,56 @@ def mkKit (f : ConstantInfo → StructEnv → MachineShape → Option MachineDat
     genData₀_dataOf := genData₀_dataOf_of_evidence f GD dOf genData₀ hev,
     genSem_local := hloc, genSem_decl := hdecl, genSem_d := hd }
 
-theorem mkKit_dataOf (f : ConstantInfo → StructEnv → MachineShape → Option MachineData) … : (mkKit f GD dOf genData₀ ordCallees genSem hmem hev hloc hdecl hd).dataOf = f := rfl
+theorem mkKit_dataOf
+    (f : ConstantInfo → StructEnv → MachineShape → Option MachineData)
+    (GD : ConstantInfo → Type) (dOf : {E : ConstantInfo} → GD E → MachineData)
+    (genData₀ : (E : ConstantInfo) → Option (GD E))
+    (ordCallees : (d : MachineData) → List (Fin d.shape.insts.length))
+    (genSem : (Q : Name → Option (SemPkg ι dom)) → Name → {E : ConstantInfo} → GD E → SemPkg ι dom)
+    (hmem : ∀ (d : MachineData) (k : Fin d.shape.insts.length),
+      k ∈ ordCallees d ↔ (d.shape.instOrigins.getD k .ord).child? = none)
+    (hev : GDEvidence f GD dOf env₀)
+    (hloc : ∀ (Q Q' : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GD E),
+      (∀ k ∈ ordCallees (dOf g), Q ((dOf g).shape.insts[k]).1 = Q' ((dOf g).shape.insts[k]).1) →
+      genSem Q X g = genSem Q' X g)
+    (hdecl : ∀ (Q : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GD E), (genSem Q X g).decl = X)
+    (hd : ∀ (Q : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GD E), (genSem Q X g).d = dOf g) :
+    (mkKit f GD dOf genData₀ ordCallees genSem hmem hev hloc hdecl hd).dataOf = f
 
-theorem mkKit_agrees … : KitAgrees (mkKit f GD dOf genData₀ ordCallees genSem hmem hev hloc hdecl hd) f
+theorem mkKit_agrees
+    (f : ConstantInfo → StructEnv → MachineShape → Option MachineData)
+    (GD : ConstantInfo → Type) (dOf : {E : ConstantInfo} → GD E → MachineData)
+    (genData₀ : (E : ConstantInfo) → Option (GD E))
+    (ordCallees : (d : MachineData) → List (Fin d.shape.insts.length))
+    (genSem : (Q : Name → Option (SemPkg ι dom)) → Name → {E : ConstantInfo} → GD E → SemPkg ι dom)
+    (hmem : ∀ (d : MachineData) (k : Fin d.shape.insts.length),
+      k ∈ ordCallees d ↔ (d.shape.instOrigins.getD k .ord).child? = none)
+    (hev : GDEvidence f GD dOf env₀)
+    (hloc : ∀ (Q Q' : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GD E),
+      (∀ k ∈ ordCallees (dOf g), Q ((dOf g).shape.insts[k]).1 = Q' ((dOf g).shape.insts[k]).1) →
+      genSem Q X g = genSem Q' X g)
+    (hdecl : ∀ (Q : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GD E), (genSem Q X g).decl = X)
+    (hd : ∀ (Q : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GD E), (genSem Q X g).d = dOf g) :
+    KitAgrees (mkKit f GD dOf genData₀ ordCallees genSem hmem hev hloc hdecl hd) f
 
-theorem mkKit_dataSound … (hf : DataSoundAt f) : DataSound (mkKit f GD dOf genData₀ ordCallees genSem hmem hev hloc hdecl hd)
+theorem mkKit_dataSound
+    (f : ConstantInfo → StructEnv → MachineShape → Option MachineData)
+    (GD : ConstantInfo → Type) (dOf : {E : ConstantInfo} → GD E → MachineData)
+    (genData₀ : (E : ConstantInfo) → Option (GD E))
+    (ordCallees : (d : MachineData) → List (Fin d.shape.insts.length))
+    (genSem : (Q : Name → Option (SemPkg ι dom)) → Name → {E : ConstantInfo} → GD E → SemPkg ι dom)
+    (hmem : ∀ (d : MachineData) (k : Fin d.shape.insts.length),
+      k ∈ ordCallees d ↔ (d.shape.instOrigins.getD k .ord).child? = none)
+    (hev : GDEvidence f GD dOf env₀)
+    (hloc : ∀ (Q Q' : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GD E),
+      (∀ k ∈ ordCallees (dOf g), Q ((dOf g).shape.insts[k]).1 = Q' ((dOf g).shape.insts[k]).1) →
+      genSem Q X g = genSem Q' X g)
+    (hdecl : ∀ (Q : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GD E), (genSem Q X g).decl = X)
+    (hd : ∀ (Q : Name → Option (SemPkg ι dom)) (X : Name) {E : ConstantInfo} (g : GD E), (genSem Q X g).d = dOf g)
+    (hf : DataSoundAt f) :
+    DataSound (mkKit f GD dOf genData₀ ordCallees genSem hmem hev hloc hdecl hd)
 ```
-In the three theorems the binders are written out in full in the Lean file, identical to those of `mkKit` (same names, same types, same implicitness: `ι dom env₀` implicit, the rest explicit as in `mkKit`); the `…` above only abbreviates this freeze document's text, not the Lean statement. Proof plan: `mkKit_dataOf := rfl`; `mkKit_agrees := kitAgrees_of_eq _ f rfl`; `mkKit_dataSound := dataSound_of_agree _ f hf (mkKit_agrees …)`.
+The three theorems take exactly the binders of `mkKit` (copied above, same names, types and implicitness; `ι dom env₀` from `variable`), with `mkKit_dataSound` additionally taking `hf`. Proof plan: `mkKit_dataOf := rfl`; `mkKit_agrees := kitAgrees_of_eq (mkKit f GD dOf genData₀ ordCallees genSem hmem hev hloc hdecl hd) f rfl`; `mkKit_dataSound := dataSound_of_agree (mkKit f GD dOf genData₀ ordCallees genSem hmem hev hloc hdecl hd) f hf (mkKit_agrees f GD dOf genData₀ ordCallees genSem hmem hev hloc hdecl hd)`.
 
 Not claimed: a real `GD` / `genData₀` / `genSem`; `GenData`; `GenWF`; success of `genData₀`; `hf` for `dataOfAt lvl`; `hev` for a real run; L; C′; `ReachCover`; real run; M5; FG. Integration obligation (kept open): at the integration SHA instantiate the parts from DG-SEM's `GenData`/`genSem` and close `hev` (from `GenData.hshape/hdata`) and `hf` (from `dataOfAt_sound`). If DG-SEM's final field shapes differ, the hypotheses of `mkKit` are re-stated at integration.
 
