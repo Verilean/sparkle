@@ -3,7 +3,7 @@ import Tools.ShippingGen5DCEntryN
 import Tests.Gen3.ExpectedType
 import Tests.Gen5.DeclConnectCheck
 set_option autoImplicit false
--- NOT BUILT: U-TOPNAME checks (scripts/gen5/DC_CONNECT_SUPPLY_SURVEY.md §15). No clean issue-linked build yet.
+-- Built (agent incremental build, NOT clean; tree e0e222ba): exit 0, 748 jobs. Counts: TYPE 7 (2 self-comparison positive controls not counted), MUTANT 15, CONJ 2, AXIOMS 7, CLOSURE 7 roots + 3 controls + unknown-name fixture (1 detect + 1 clean); signature/defeq rejections, NOT semantic counterexamples.
 
 /-! # DC-CONNECT U-TOPNAME: checks (survey §13, §15)
 
