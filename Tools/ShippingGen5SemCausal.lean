@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemExt
 import Tools.ShippingMachineMemCausal
+set_option autoImplicit false
 -- Pod incremental build (kjob lake build Tools.ShippingGen5SemCausal) exit 0 on this content before commit; the clean issue-linked build is the coder's (not yet run). No sorry/axiom/native_decide.
--- NOT BUILT: no Pod build has run on this file yet; the built SHA goes here by a comment-only commit. No sorry/axiom/native_decide.
 /-! # DG-SEM U6A (scripts/gen5/DG_SEM_FREEZE_P6C.md §3): `extCausal_of_genSem`
 
 `SrcCausal`/`CalleesCausal` (DGEN rev2 text), the memory-read causality `memRead_causal`, the stage-wise `ExtStage_causal`
