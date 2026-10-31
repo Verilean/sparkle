@@ -1,7 +1,7 @@
 import Tools.ShippingGen4ParamLayerA
 import Sparkle.Compiler.Elab
 set_option autoImplicit false
--- NOT BUILT: header is updated by a comment-only commit after a successful build.
+-- BUILT: clean issue-linked build par12v-2f421f4f (Tests.Gen4.ParamBridgeShapeCheck, kjob lake incremental) exit 0, 228 jobs, approved at 2f421f4f. Comment-only update.
 
 /-! # M4 parametric, bridge shape C1-C3 (scripts/gen4/PARAMETRIC_BRIDGE_FREEZE.md §4)
 

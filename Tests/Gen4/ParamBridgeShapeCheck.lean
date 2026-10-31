@@ -1,7 +1,7 @@
 import Lean
 import Tools.ShippingGen4ParamBridgeShape
 set_option autoImplicit false
--- NOT BUILT: header is updated by a comment-only commit after a successful build.
+-- BUILT: clean issue-linked build par12v-2f421f4f (Tests.Gen4.ParamBridgeShapeCheck, kjob lake incremental) exit 0, 228 jobs, approved at 2f421f4f. Comment-only update.
 -- Directive counts (rule: count of top-level `#...` directive lines per kind; each is one pass/fail assertion, silent on success;
 -- the unknown-name fixture is ONE directive running 4 internal cases): type_defeq 5, mutant_rejected 13
 -- (makeSliceExpr_sliceOK 5, makeSliceFromStartLength_eq 2, hwTypeFromDim_nonliteral 2, hwTypeFromDim_literal 1, evalM_mkMul 3),
