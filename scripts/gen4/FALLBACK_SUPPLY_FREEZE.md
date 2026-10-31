@@ -947,7 +947,7 @@ New files only: `Tools/ShippingGen4FbFin.lean` (`tFin_stop`, `a4_inv_tail_fin`),
 2. MUTANTS (one well-typed change each, rejected by the SAME comparator; signature/defeq rejections, NOT semantic counterexamples): `tFin_stop` without `h1`; with `hC` at `D` instead of `D + 1`; with conclusion at `D + 1`; with conclusion at `w` instead of `w'`; `a4_inv_tail_fin` without the `InvAt D w'` conjunct; without `h1`.
 3. AXIOMS ⊆ {propext, Classical.choice, Quot.sound}; `sorry` 0; no `native_decide`.
 4. Value closure (§14.4): no `Tools.ShippingMemo.*`, `missing = 0`, `stop_of_run` reached, with the controls above.
-5. The clean issue-linked build is the coder's.
+5. Build record: clean issue-linked build `fb14v-67756b3c` exit 0 (812 jobs, dirty=false), approved by the reviewer at 67756b3c with a limited scope (PPRel = real postpass top-name condition, `dropZeroWidth`, optional `mergeChecked`); reviewer note: the unknown-name type fixture was root-direct, not root → helper-type-only (addressed in FB-15).
 
 ### 14.6 What this section does not claim
 - Not a T1 / FG / M5 / M4 completion, and not an acceptance of the ClosingRun lineage. `stop_of_run` is consumed as published by `6f3c8ee5`; its own review is that Issue's.

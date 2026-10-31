@@ -1,6 +1,6 @@
 import Tools.ShippingGen2Defs
 set_option autoImplicit false
--- BUILT (unit FB-14): kjob lake build Tools.ShippingGen4FbPP exit 0 (701 jobs, Pod build; clean build is the coder's). Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §23.3 (rev13, committed 3d58fd03 before this file).
+-- BUILT (unit FB-14): kjob lake build Tools.ShippingGen4FbPP exit 0 (701 jobs, Pod build); clean issue-linked build fb14v-67756b3c exit 0 (approved at 67756b3c, scope-limited). Written against scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §23.3 (rev13, committed 3d58fd03 before this file).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field. One definition set and five theorems.
 
 /-! # FB-14: T-PP-PORTS — the port/shape part of the post-processing

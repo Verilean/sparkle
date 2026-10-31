@@ -4,7 +4,7 @@ import Tools.ShippingMemoInv
 import Tools.ShippingLegacySemMemoWalk
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- BUILT (unit FB-14): kjob lake build Tests.Gen4.FbPPCheck exit 0 (Pod build; clean build is the coder's). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §23.3/§23.5 (rev13, committed 3d58fd03).
+-- BUILT (unit FB-14): kjob lake build Tests.Gen4.FbPPCheck exit 0 (812 jobs); clean issue-linked build fb14v-67756b3c exit 0 (approved at 67756b3c, scope-limited). Text = scripts/gen4/FALLBACK_SUPPLY_FREEZE.md §23.3/§23.5 (rev13, committed 3d58fd03).
 -- Expected definitions are typed again here (`ExpPPRel`, `ExpSeqPortFacts`, `ExpCombPortFacts`); theorem Expecteds use the
 -- definitions under test only after their VALUES were compared with the independent copies.
 -- Checks: TYPE (3 definition values, 5 theorems), MUTANT (well-typed single changes; signature/defeq rejections, NOT semantic
