@@ -4910,3 +4910,9 @@ lean_lib «Tools.ShippingGen4FbDzRun» where
 
 lean_lib «Tests.Gen4.FbDzRunCheck» where
   roots := #[`Tests.Gen4.FbDzRunCheck]
+
+lean_lib «Tools.ShippingGen4FbFrag» where
+  roots := #[`Tools.ShippingGen4FbFrag]
+
+lean_lib «Tests.Gen4.FbFragCheck» where
+  roots := #[`Tests.Gen4.FbFragCheck]
