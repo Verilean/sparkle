@@ -2,7 +2,7 @@ import Tests.Gen5.EnvFrameCheck
 import Tools.ShippingGen5EnvFrame2
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- BUILT (Pod kjob lake build, exit 0, 754 jobs) at 954fe258: TYPE 13, MUTANT 11, CLOSURE 13 roots / negatives 14 (10 direct + 4 helper) + 4 unresolved + 7 self-root / 7 clean, AXIOMS 13 standard. Clean exact-head build is the coder's.
+-- BUILT (kjob lake build, build env7v-ec02705c (exit 0, 754 jobs, exact source=base=end, approved at ec02705c)): TYPE 13, MUTANT 11, CLOSURE 13 roots / negatives 14 (10 direct + 4 helper) + 4 unresolved + 7 self-root / 7 clean, AXIOMS 13 standard.
 -- Counting rule: TYPE = Expected comparisons (13 items: A1-A3 + U2-1..10); MUTANT = single changes rejected by the same comparator; negatives = direct + helper controls; unresolved = throwing controls; self-root = forbidden constant as root; clean = not-flagged controls.
 
 /-! # DG-ENV unit U2 checks (Tools/ShippingGen5EnvFrame2.lean)

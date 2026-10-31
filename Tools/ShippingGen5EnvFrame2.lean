@@ -1,6 +1,6 @@
 import Tools.ShippingGen5EnvFrame
 set_option autoImplicit false
--- BUILT (unit U2): kjob lake build Tests.Gen5.EnvFrame2Check exit 0, 754 jobs, at 954fe258 (pod build, not the coder's clean exact-head build). No sorry / axiom / native_decide.
+-- BUILT (unit U2): kjob lake build Tests.Gen5.EnvFrame2Check exit 0, 754 jobs, build env7v-ec02705c (exit 0, 754 jobs, exact source=base=end, approved at ec02705c). No sorry / axiom / native_decide.
 
 /-! # DG-ENV unit U2: `EnvFrameEnd` rows for class B' (IO lift) and class C, CONDITIONAL
 
