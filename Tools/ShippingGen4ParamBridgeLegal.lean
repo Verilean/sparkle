@@ -1,7 +1,7 @@
 import Tools.ShippingGen4ParamIface
 import Tools.ShippingGen4ParamBridgeSpecType
 set_option autoImplicit false
--- NOT BUILT: implementation of scripts/gen4/PARAMETRIC_BRIDGE_UNIT6_FREEZE.md §2 (F3; freeze 99f322ce approved). Private Specialize.requirePositive / validateBindings are named by their mangled constants (name resolution only). legal_facts gives NECESSARY conditions of LegalBinding (positive values, parameter coverage); not an equivalence. forIn_yield_each is restricted to bodies that yield () or throw. B1-B3/T/FG unsupplied.
+-- BUILT: clean issue-linked build par23v-261a2b3c exit 0 (708 jobs, dirty=false) at 261a2b3c9ca9045be2b61920dd3e46b4e5ea46af; implementation of scripts/gen4/PARAMETRIC_BRIDGE_UNIT6_FREEZE.md §2 (F3; freeze 99f322ce approved). Private Specialize.requirePositive / validateBindings are named by their mangled constants (name resolution only). legal_facts gives NECESSARY conditions of LegalBinding (positive values, parameter coverage); not an equivalence. forIn_yield_each is restricted to bodies that yield () or throw. B1-B3/T/FG unsupplied.
 namespace Tools.ShippingGen4ParamBridgeLegal
 open Lean Elab Term Tools.ShippingGen4ParamEntry Sparkle.IR.AST Tools.ShippingGen4ParamIface Tools.ShippingGen4ParamLayerA Tools.ShippingGen4ParamBridgeSpecType
 

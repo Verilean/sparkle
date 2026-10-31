@@ -1,7 +1,7 @@
 import Lean
 import Tools.ShippingGen4ParamBridgeLegal
 set_option autoImplicit false
--- NOT BUILT: Check of Tools/ShippingGen4ParamBridgeLegal.lean (scripts/gen4/PARAMETRIC_BRIDGE_UNIT6_FREEZE.md §3). Silent on success. Mutants are rejections by signature/defeq/proof failure, not semantic counterexamples.
+-- BUILT: clean issue-linked build par23v-261a2b3c exit 0 (708 jobs, dirty=false) at 261a2b3c9ca9045be2b61920dd3e46b4e5ea46af; Check of Tools/ShippingGen4ParamBridgeLegal.lean (scripts/gen4/PARAMETRIC_BRIDGE_UNIT6_FREEZE.md §3). Silent on success. Mutants are rejections by signature/defeq/proof failure, not semantic counterexamples.
 -- Directive counts (rule: top-level `#...` lines per kind): proves 3 (incl. 1 positive control), not_proves 5 (def mutants of requirePositiveM: 4 single + 1 compound), type_defeq 5, mutant_rejected 7 (theorem mutants), audit_axioms 7, audit_closure 6, closure_detects 2, closure_clean 2, sig_clean 2, closure_unknown_fixtures 1. No sorry, no native_decide. Opaque bodies are type-only in the closure.
 
 open Lean Elab Command Meta
