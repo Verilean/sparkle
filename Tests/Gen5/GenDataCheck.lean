@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemGenData
 import Tests.Gen5.SemFactsCheck
 set_option autoImplicit false
--- NOT BUILT HERE (U8 check, scripts/gen5/DG_SEM_FREEZE_P8.md §3.2; incremental Pod build of this tree at d8ddd8f2: Tests.Gen5.GenDataCheck exit 0 (719 jobs); clean build is the coder's). No sorry/axiom/native_decide.
+-- NOT BUILT HERE (U8 check, scripts/gen5/DG_SEM_FREEZE_P8.md §3.2; clean issue-linked build smu21v-d0a8cf66 exit 0 (719 jobs, dirty=false), approved at d0a8cf66: VALUE 3 / TYPE 5 / MUTANT 25 / AXIOMS 9. TYPE defeq-only (accepted by isDefEq, not syntactically equal): `hunf_of_genData` binder 10 (`hinv`) and conclusion, `factsOf_all_of_genDataInv` binder 10 (`hinv`). Mutants are rejected by signature/value/telescope comparison, not semantic counterexamples. No sorry/axiom/native_decide.
 /-! # DG-SEM U8 check (Tools/ShippingGen5SemGenData.lean), plan of freeze §3.2 (after R1)
 
 * (a) THEOREMS (5): type against an independent `Exp*` (`checkExpected`/`cmpTele`).
