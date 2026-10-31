@@ -20,7 +20,7 @@ Binders of every theorem are fully explicit (no `variable`): `{mctx : Meta.Conte
 |---|---|---|---|
 | **hstore** | `Tools.Prototype.DGenProv.StoredFromRead (d : MachineData) (r : Read) : Prop := d.shape = r.shape` | `Tools.Prototype.DGenStored2.storedFromRead_of_kernelRead (hag : ReflExprAgree) (d) (r) (b lay : Lean.Expr) (hb : reflExpr r.shape.body = .ok b) (hl : layoutE r.shape.layout = some lay) (hK : ShapeDenotes (dataShapeE r.shape b lay) d.shape) : StoredFromRead d r` | open premises: `hag` (`reflExpr` is a `partial def`; only a finite sample check exists), `hK` (stored constant ↔ declared `Expr`: `generateCore` calls `addDef … (← dataE r)`; the link from the added declaration's value to the kernel-evaluated `d` is not formulated; this survey found no route), `hb`/`hl` (success of `reflExpr`/`layoutE` — **U9a/U9b below replace `hb`/`hl` by "the `dataE r` run succeeded"**) |
 | **hrun** (tie to a real synthesis run) | `RunReadsAt mctx mref cctx cref X w w' raw D b ci envR envR' shape w5 w6` (`Tools/ShippingGen5RunReads.lean:42`) with `chain` (getConstInfo X from w1, getEnv from w2, getEnv from w3) and `shapeEq` | `Tools.ShippingGen5ReadKindsU7.readMachine_agrees_runReads_of_readsAt` (needs `hall : ∀ u, ReadsAt env₀ cref u` and takes `hget henv henv' hshape` as separate hypotheses) | conditional on `hall` over EVERY world. **U9c below needs `ReadsAt` only at the named worlds of the two runs** (the shape of `MachineDefinesR`), takes `R : RunReadsAt …` directly. The runs themselves (that a `readMachine` run and a synthesis run exist at all, and `declName = X`) are premises of the consumer, not produced here |
-| hall | `∀ u, ReadsAt env₀ cref u` (U9c: the named-world `ReadsAt` premises) | DG-ENV C0: `GetEnvFrame` / `EnvFrame` / `EnvSnapshot` are PREMISES (`Tools/ShippingEnvSnapshot.lean`); no supplier | NOT supplied (DG-ENV C0). The world `w'` returned by `getEnv` is an abstract `Void` token; `envAt cref w' = envAt cref w` is not derivable without `GetEnvFrame` |
+| hall | `∀ u, ReadsAt env₀ cref u` (U9c: the named-world `ReadsAt` premises) | DG-ENV C0: `GetEnvFrame` / `EnvFrame` / `EnvSnapshot` are PREMISES (`Tools/ShippingEnvSnapshot.lean`); no supplier | NOT supplied (DG-ENV C0). The world `w'` returned by `getEnv` is an abstract `Void` token; `envAt cref w' = envAt cref w` is not supplied by the existing routes (this survey found no derivation without `GetEnvFrame`; non-derivability is NOT proved) |
 | hq | `Expr.equal` soundness law (Q1); readN coverage (Q3) | none | Q1: trust boundary, not adopted. Q3: not supplied |
 | coverage / FG | — | — | not supplied |
 
@@ -77,6 +77,7 @@ theorem readMachine_agrees_runReads_at {declName X : Lean.Name} {allowGate : Boo
       r.shape = shape
 ```
 Route: as `readMachine_agrees_runReads_of_readsAt` (U7), with `R.chain` / `R.shapeEq` destructured for `hget henv henv' hshape` and the five `ReadsAt` facts taken from `h0`, `h1` (at the `readMachine` run's own `getEnv`-end world; `h1` quantifies over the run's possible end world, so it is a fact about that run) and `hR`. The `getConstInfo` read of `readMachine` happens at the world `v1` that `h1` covers.
+Note on `hR`: when used it supplies the same chain witness as `R.chain`, but its type is a conditional premise quantifying over ALL matching `(w1,w2,w3)` triples, so it is not a completed supply of the finite five worlds.
 Premises remaining: the five named-world `ReadsAt env₀` facts (DG-ENV C0), the two runs, `hX`. Not claimed: that the two runs exist, `envR = envR'`, `ci ∈ envR`, gates agreement, `hall`.
 
 ## 4. Check plan (`Tests/Gen5/ReadKindsU9Check.lean`)
@@ -89,7 +90,7 @@ Written from this document, not from the Lean statement.
 Counts are reported as real numbers with the partition and the counting rule.
 
 ## 5. Risks
-`dataE` peeling may need `generalize` on the `Except` (`reflExpr` is a `partial def`; only `Eq` reasoning on its output is used, never unfolding). If U9a does not close, U9b/U9c are independent and are committed alone; a non-closing row stays "not supplied".
+`dataE` peeling may need `generalize` on the `Except` (`reflExpr` is a `partial def`; only `Eq` reasoning on its output is used, never unfolding). If U9a does not close, U9b's successful-run version also depends on it and is held back; only U9c is independent and is committed alone. A non-closing row stays "not supplied" (stop point and reason are appended to this document, the types are not silently changed).
 
 ## 6. Not claimed
 `hag`, `hK`, `hall`/DG-ENV C0, existence of the runs, `GateDefines`, `srcDom`, `ls`/`outs`/`nexts`, hq (Q1 not adopted; Q3), coverage, FG, M5.
