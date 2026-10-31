@@ -155,3 +155,81 @@ Note: `D′` here has the same `topModule` and the same module count as `D` (`{ 
 
 ## 11. Not claimed (addendum)
 D′ transport of `TopShips` (a2/a3), O3 arbitrary `raw` identification (b), real `EntryWitness`, `hall`, reader/core tie, O2, DeclConnect rows, `ReflectsAll`, parametric route, `Post` adoption by M4, `Post`/O3 restatement, FG completion, M5. The Issue stays open.
+
+---
+# Addendum 2 (agent g5dc-r12, base `kjob/g5dc-r11` 4523f2e9, U-POSTD approved): lookups in `D′`, the remaining rows — survey + freeze of the next unit
+**Design only; no Lean in this commit.** Wording as in the head of this file: "unsupplied / this survey found no route" is a statement about THIS survey (this tree; branches `kjob/g5rk-r12..r14`; `par/gen5-t2`), not impossibility. A "mutant" is a signature/defeq rejection of a well-typed changed statement, not a semantic counterexample. `FG_COND`/`FG_CONNECT` stay conditional; no `Post` adoption. No new law/TRUSTED, no shared-definition/compiler edit, FG not narrowed, `GenWF` not strengthened.
+
+## 12. Row (a) refined: what `TopShips` reads of `D`, and which part is closable now
+`TopShips p n declName b raw D` (`Tools/ShippingGen2Defs.lean:280`) uses `D` in exactly three places: `ResetNk n raw D kids`, `childMap D.modules` (in `bodyInstOuts (childMap D.modules) b.body`) and `KSn (childMap D.modules) n` / `runModuleTG … (childMap D.modules)`.
+- `childMap ms mn = (Sparkle.IR.Machine.moduleByName ms mn).map fun c => (c, Sparkle.IR.RegDedup.declWidth c)` (`Tools/ShippingMachineLinked.lean:341`), `moduleByName ms mn = ms.find? (fun c => c.name == mn)` (`Sparkle/IR/Machine.lean:359`).
+- `ResetNk n m D kids := ∀ iname mc, (∃ conns, Stmt.inst mc.name iname conns ∈ m.body) → moduleByName D.modules mc.name = some mc → Tools.ShippingMachineDepth.ResetN D n mc (kids iname)` (`Tools/ShippingMachineShipsDepth.lean:245`); `ResetN D n mc s` recurses over the instances of `mc.body` through `D` (`Tools/ShippingMachineDepth.lean:52`).
+- `D′ = topMap f raw D` (U-POSTD) changes only the elements `x` of `D.modules` with `x.name == raw.name` (each replaced by `f x`). So every lookup of a name `mn ≠ raw.name` is the same in `D` and `D′`, PROVIDED `f` keeps the module name. Read from the definitions: `dropZeroWidthModule m` is `m` or `{ m with body := …, wires := … }` (`Sparkle/IR/ZeroWidth.lean:113`); `mergeChecked m` is, by `mergeChecked_cases` (`Sparkle/IR/RefineCheck.lean:280`), `mergeDuplicates m` or `m`; `mergeDuplicates m` is `{ m with … }` or `m` or `mergeDuplicatesRaw m = { m with body, assertions }` (`Sparkle/IR/RegDedup.lean:297-311`). No theorem stating the name preservation was found by this survey (grep for `_name` lemmas on these three); each is an `unfold`/`split` proof of the same shape as `mergeDuplicates_ports` (`RegDedup.lean:314`).
+
+| step | name and full type | status |
+|---|---|---|
+| (a2.1) the three post-processors keep the module name | `dropZeroWidthModule_name`, `mergeDuplicates_name`, `mergeChecked_name` (NEW, §13) | **closable now**, no owner, no law |
+| (a2.2) `moduleByName` / `childMap` of `topMap f raw D` at names `≠ raw.name` equal those of `D` | NEW (§13) | **closable now** given name preservation of `f` |
+| (a2.3) `moduleByName (topMap f raw D).modules raw.name = (moduleByName D.modules raw.name).map f` (what DOES change) | NEW (§13) | **closable now** |
+| (a2.4) transport of `ResetNk n raw D kids` and of the `childMap`-dependent run (`runModuleTG (KSn (childMap D.modules) n) …`) from `D` to `D′` | needs: no name looked up from the top reaches a module named `raw.name` (instance names in `raw.body` and, through `ResetN`, in every descendant module of `D`, differ from `raw.name`), plus `ResetN D n mc s ↔ ResetN D′ n mc s` for such `mc` by induction on `n` | **Unsupplied / this survey found no route to the premise** "no descendant is named `raw.name`": nothing read gives name-distinctness or acyclicity of `D.modules` from the core run. The induction on `n` would be closable GIVEN that premise as a hypothesis, which is a new premise on `TopShips`'s transport, not derived. Not claimed. |
+| (a3) post-processed top (`checkedOptimize b`) semantics | as §8 (a3) | unchanged: **unsupplied / no route found** |
+
+## 13. The first unit to implement: U-TOPNAME (lookups in `topMap`), and why
+**Why this one first:** (a2.1)-(a2.3) are the exact lemma layer under (a2); every input is existing approved text (`topMap`, `PostEntry`, the three post-processors, `moduleByName`, `childMap`); no owner is involved; it states precisely WHICH part of `D → D′` is invariant (all names `≠ raw.name`) and WHAT changes, so (a2.4) becomes a stated residual premise instead of an unstated gap. Rows (b) and (c) have no unit whose inputs are all in this tree (§14), so they are not first. It does not close (a2), does not transport `TopShips`, does not adopt `Post`.
+
+New files only: `Tools/ShippingGen5DCEntryN.lean` (namespace `Tools.ShippingGen5DCEntryN`, `import Tools.ShippingGen5DCEntryD`, `import Tools.ShippingMachineLinked`), `Tests/Gen5/DCEntryNCheck.lean`, `lean_lib` additions in `lakefile.lean`. `open Tools.ShippingGen5DCEntryD (topMap PostEntry)`. Fully explicit binders.
+```lean
+theorem dropZeroWidthModule_name (m : Sparkle.IR.AST.Module) :
+    (Sparkle.IR.ZeroWidth.dropZeroWidthModule m).name = m.name
+
+theorem mergeDuplicates_name (m : Sparkle.IR.AST.Module) :
+    (Sparkle.IR.RegDedup.mergeDuplicates m).name = m.name
+
+theorem mergeChecked_name (m : Sparkle.IR.AST.Module) :
+    (Sparkle.IR.RefineCheck.mergeChecked m).name = m.name
+
+theorem moduleByName_topMap_ne {f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design} {mn : String}
+    (hf : ∀ x, (f x).name = x.name) (hne : mn ≠ m.name) :
+    Sparkle.IR.Machine.moduleByName (topMap f m d).modules mn = Sparkle.IR.Machine.moduleByName d.modules mn
+
+theorem moduleByName_topMap_self {f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (hf : ∀ x, (f x).name = x.name) :
+    Sparkle.IR.Machine.moduleByName (topMap f m d).modules m.name =
+      (Sparkle.IR.Machine.moduleByName d.modules m.name).map f
+
+theorem childMap_topMap_ne {f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design} {mn : String}
+    (hf : ∀ x, (f x).name = x.name) (hne : mn ≠ m.name) :
+    Tools.ShippingMachineLinked.childMap (topMap f m d).modules mn = Tools.ShippingMachineLinked.childMap d.modules mn
+
+/-- the two designs of one entry agree on every name other than the top module's -/
+theorem postEntry_lookup_ne {b raw : Sparkle.IR.AST.Module} {D D' : Sparkle.IR.AST.Design} {mn : String}
+    (h : PostEntry b raw D D') (hne : mn ≠ raw.name) :
+    Sparkle.IR.Machine.moduleByName D'.modules mn = Sparkle.IR.Machine.moduleByName D.modules mn ∧
+    Tools.ShippingMachineLinked.childMap D'.modules mn = Tools.ShippingMachineLinked.childMap D.modules mn
+```
+Proof route: `unfold` + `split` for the three name lemmas (as `mergeDuplicates_ports`, with `mergeChecked_cases` for the third); `moduleByName`/`topMap` are `List.find?`/`List.map`: the `_ne` lemmas by induction on `d.modules` (predicate `(f x).name == mn` equals `x.name == mn` for `x.name == m.name` because `(f x).name = m.name ≠ mn` and `x.name = m.name ≠ mn`), `_self` by the same induction; `childMap` ones by `unfold childMap` + the `moduleByName` lemma; the last by `PostEntry` case analysis with `hf` instantiated by the first three lemmas (the merge branch composes two `topMap`s, so the `_ne` lemma is applied twice). If an induction does not go through as stated, the statement is NOT changed (stop and report).
+
+## 14. Rows (b) and (c) from the same sources — status, no unit
+| row | what was read | status |
+|---|---|---|
+| (b1) arbitrary `raw′` with `PostT1 b raw′` vs the core witness's `raw` | `dropZeroWidthModule` (`ZeroWidth.lean:113`) filters statements via `dzStmt` and removes zero-width wires; this survey did not decide whether it is injective on the modules the core produces, and found no injectivity or determinism theorem for it, for `mergeChecked`, or for `mergeChecked ∘ dropZeroWidthModule`. `runsTo_det` covers runs of one computation from one world only. | **Unsupplied / this survey found no route.** Not claimed either way. |
+| (b2) restating O3 | changes the stated `FG_CONNECT` guarantee (`Post : Module → Module → Prop` cannot mention `w`) | **Not done: reviewer/user decision**; options are recorded in §8 (b2) and not re-opened here. |
+| (c1′) `EntryWitness`'s left route ⇒ `Start ∧ ∃ raw D w1, core run ∧ PostEntry b raw D D′` | `EntryWitness` (`Tools/ShippingGen5FG.lean:32`) = `Start ∧ (route₁ ∨ route₂) ∧ ReflectsAll`; `synthesizeCombinational_postEntry` (U-POSTD) | **closable now** as a pure assembly (candidate NEXT unit after U-TOPNAME; separate freeze). Needs no `ReflectsAll` content; the right disjunct has no supplier (S3). |
+| (c4) `readMachine_rootFields` | `kjob/g5rk-r12..r14` `Tools/ShippingGen5ReadKindsU8.lean:35` (clean build rk12v-f86cbdd7 per the owner's header); NOT in this tree | exists on those branches; this Issue does not import it (needs a merge or dependency decision outside this Issue) |
+| (c5) reader/core tie | U9c design only (`kjob/g5rk-r14`) | **Unsupplied / this survey found no route in Lean** |
+| (c6) `hall`, `ReadsAt` at later worlds | DG-ENV C0 (doing) | unsupplied |
+| (c7) O2/DC rows, ConstValue (DCF) | `DeclConnect`; owners dg-acc / dg-sem / dg-dataof / DCF | **Unsupplied / this survey found no route**; waits |
+
+## 15. Check plan for U-TOPNAME (`Tests/Gen5/DCEntryNCheck.lean`; counts reported with category and counting rule)
+- **TYPE:** `Exp*` for the 7 theorems, written from §13's prose (module name preserved by each post-processor; a lookup at a name other than the rewritten one is unchanged; the rewritten name's lookup is the `map f` of the old one), compared by `Tests.Gen3.ExpectedType.checkExpected` under `withReducible`; self-comparison positive control (not counted).
+- **MUTANT** (well-typed single change, same comparator; signature/defeq rejection, not a semantic counterexample): `hne` dropped (`mn ≠ m.name` removed — an unconditional claim, well-typed); `hne` replaced by `mn = m.name`; `hf` dropped; `.map f` dropped in `_self`; `D`/`D′` swapped in `postEntry_lookup_ne`; `mergeChecked`→`mergeDuplicates` in the `PostEntry`-side statement is NOT used (types equal, counted only if it type-checks); `childMap` replaced by `moduleByName` in the `childMap` lemma. A mutant that is not well-typed is NOT counted.
+- **CONJ:** each conjunct of `postEntry_lookup_ne` dropped, counted separately.
+- **CLOSURE:** the `DeclConnectCheck` walker (unknown name = FAIL, root judged itself); an unknown-name fixture whose helper's TYPE alone mentions an unknown name, the intended name asserted, `withoutModifyingEnv`, and afterwards the CURRENT environment (`getEnv`) is inspected for leak; each root requires only what it needs (`moduleByName_topMap_*`: `topMap`, `moduleByName`; `childMap_*`: `childMap`; `postEntry_lookup_ne`: `PostEntry`, `topMap`; name lemmas: the post-processor).
+- **AXIOMS:** `propext`, `Classical.choice`, `Quot.sound` only; no `sorry`/`native_decide`. Counts are reported as measured, with the category and counting rule, after the build of the committed tree.
+- STATUS line lists the NOT supplied rows: (a2.4), (a3), (b1), (b2), (c4 import), (c5), (c6), (c7), S3, S12, S14.
+
+## 16. Not claimed (addendum 2)
+Transport of `TopShips`/`ResetNk` from `D` to `D′` (a2.4), post-processed top semantics (a3), O3 arbitrary-`raw` identification, restating O3/`Post`, real `EntryWitness` derivation of O2/O3/DC, reader/core tie, `hall`, `ReflectsAll`, parametric route, `Post` adoption, DCF, FG completion, M5. The Issue stays open.
