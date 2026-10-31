@@ -83,13 +83,13 @@ local macro "tail4F" tupT:tacticSeq : tactic => `(tactic| (
   have_open h as q hx_q
   have_open h as jp5 hj5
   have H5 : ∀ (a : Unit) w r w', RunsTo (jp5 a) mctx mref cctx cref w r w' →
-      ReadFields ci env r := by
+      (ReadConcl ci env r ∧ ReadFields ci env r) := by
     intro a5 w r w' h
     subst hj5
     have hpr := RunsTo.pure_eq h
     subst hpr
     have hcnt' := beq_iff_eq.mp hcnt
-    refine ⟨entryV, bsIn, entryBody, hv, hp, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨⟨rfl, hs⟩, entryV, bsIn, entryBody, hv, hp, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · exact hx_nDecl
     · exact hx_nIn
     · rw [hx_binders, hx_nSlots, hx_nLets] at hcnt'
@@ -113,13 +113,13 @@ theorem readMachine_fields {declName : Name} {allowGate : Bool}
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
     (h : RunsTo (readMachine declName allowGate) mctx mref cctx cref w r w') :
     ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
-      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ ReadFields ci env r := by
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ (ReadConcl ci env r ∧ ReadFields ci env r) := by
   unfold readMachine at h
   obtain ⟨env, w1, he, h⟩ := RunsTo.bind h
   obtain ⟨ci, w2, hc, h⟩ := RunsTo.bind h
   refine ⟨ci, env, w1, w2, he, hc, ?_⟩
   have_open h as jp0 hj0
-  have H0 : ∀ a w r w', RunsTo (jp0 a) mctx mref cctx cref w r w' → ReadFields ci env r := by
+  have H0 : ∀ a w r w', RunsTo (jp0 a) mctx mref cctx cref w r w' → (ReadConcl ci env r ∧ ReadFields ci env r) := by
     intro a w r w' h
     subst hj0
     have_open h as senv hse
@@ -155,7 +155,7 @@ theorem readMachine_fields {declName : Name} {allowGate : Bool}
     have_open h as binders hx_binders
     have_open h as jp2 hj2
     have H2 : (binders.length == nIn + nSlots + nLets) = true → ∀ (a : Unit) w r w', RunsTo (jp2 a) mctx mref cctx cref w r w' →
-        ReadFields ci env r := by
+        (ReadConcl ci env r ∧ ReadFields ci env r) := by
       intro hcnt a w r w' h
       subst hj2
       generalize hm : machRoot (structEnv env).proj eb [] = o at h
@@ -163,14 +163,14 @@ theorem readMachine_fields {declName : Name} {allowGate : Bool}
       dsimp (config := {zeta := false}) only at h
       have_open h as jp3 hj3
       have H3 : ∀ (a : Lean.Expr × Nat) w r w', RunsTo (jp3 a) mctx mref cctx cref w r w' →
-          ReadFields ci env r := by
+          (ReadConcl ci env r ∧ ReadFields ci env r) := by
         intro a w r w' h
         subst hj3
         rcases a with ⟨srcDom, depth⟩
         dsimp (config := {zeta := false}) only at h
         have_open h as jp4 hj4
         have H4 : ∀ (a : Lean.Expr) w r w', RunsTo (jp4 a) mctx mref cctx cref w r w' →
-            ReadFields ci env r := by
+            (ReadConcl ci env r ∧ ReadFields ci env r) := by
           intro a w r w' h
           subst hj4
           dsimp (config := {zeta := false}) only at h

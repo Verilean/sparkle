@@ -44,6 +44,10 @@ def ExpReadFields (ci : Lean.ConstantInfo) (env : Lean.Environment) (r : Read) :
     ∃ (srcDom' : Lean.Expr) (snd : Sparkle.IR.Type.ResetKind),
       machDom? (r.shape.insts.length + r.shape.layout.slots.length + r.shape.layout.lets) srcDom' = some (r.dom, snd)
 
+/-- written from freeze §1 (`ReadConcl`): the entry and the shape of the run -/
+def ExpReadConcl (ci : Lean.ConstantInfo) (env : Lean.Environment) (r : Read) : Prop :=
+  r.entry = GenEntry ci env ∧ machineShape? false [] (GenEntry ci env) (structEnv env) = some r.shape
+
 def ExpFields : Prop :=
   ∀ {declName : Lean.Name} {allowGate : Bool}
     {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
@@ -51,7 +55,7 @@ def ExpFields : Prop :=
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
     (h : RunsTo (readMachine declName allowGate) mctx mref cctx cref w r w'),
     ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
-      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ ExpReadFields ci env r
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ ExpReadConcl ci env r ∧ ExpReadFields ci env r
 
 def ExpAgrees : Prop :=
   ∀ {declName X : Lean.Name} {allowGate : Bool}
@@ -78,7 +82,7 @@ def CopyOfFields : Prop :=
     {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
     (h : RunsTo (readMachine declName allowGate) mctx mref cctx cref w r w'),
     ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
-      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ ExpReadFields ci env r
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ ExpReadConcl ci env r ∧ ExpReadFields ci env r
 
 run_cmd Lean.Elab.Command.liftTermElabM do
   checkExpected ``readMachine_fields ``ExpFields
@@ -182,6 +186,36 @@ def MutFieldsSwap : Prop :=
     ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
       RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ MutReadFieldsSwap ci env r
 
+/-- ReadConcl dropped (the R1 weakening) -/
+def MutFieldsNoConcl : Prop :=
+  ∀ {declName : Lean.Name} {allowGate : Bool}
+    {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
+    (h : RunsTo (readMachine declName allowGate) mctx mref cctx cref w r w'),
+    ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ ExpReadFields ci env r
+
+/-- ReadConcl kept but without the shape conjunct -/
+def MutFieldsNoShape : Prop :=
+  ∀ {declName : Lean.Name} {allowGate : Bool}
+    {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
+    (h : RunsTo (readMachine declName allowGate) mctx mref cctx cref w r w'),
+    ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ r.entry = GenEntry ci env ∧ ExpReadFields ci env r
+
+/-- ReadConcl kept but without the entry conjunct -/
+def MutFieldsNoEntry : Prop :=
+  ∀ {declName : Lean.Name} {allowGate : Bool}
+    {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
+    {cctx : Lean.Core.Context} {cref : ST.Ref IO.RealWorld Lean.Core.State}
+    {w : Void IO.RealWorld} {r : Read} {w' : Void IO.RealWorld}
+    (h : RunsTo (readMachine declName allowGate) mctx mref cctx cref w r w'),
+    ∃ ci env w1 w2, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w env w1 ∧
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ machineShape? false [] (GenEntry ci env) (structEnv env) = some r.shape ∧ ExpReadFields ci env r
+
 def MutAgreesEnv : Prop :=
   ∀ {declName X : Lean.Name} {allowGate : Bool}
     {mctx : Lean.Meta.Context} {mref : ST.Ref IO.RealWorld Lean.Meta.State}
@@ -253,11 +287,14 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   checkMutant ``readMachine_fields ``MutFieldsNIn
   checkMutant ``readMachine_fields ``MutFieldsTuple
   checkMutant ``readMachine_fields ``MutFieldsSwap
+  checkMutant ``readMachine_fields ``MutFieldsNoConcl
+  checkMutant ``readMachine_fields ``MutFieldsNoShape
+  checkMutant ``readMachine_fields ``MutFieldsNoEntry
   checkMutant ``readMachine_agrees_runReads_of_readsAt ``MutAgreesEnv
   checkMutant ``readMachine_agrees_runReads_of_readsAt ``MutAgreesNoHx
   checkMutant ``readMachine_agrees_runReads_of_readsAt ``MutAgreesNoHall
   checkMutant ``readMachine_agrees_runReads_of_readsAt ``MutAgreesNoShape
-  logInfo "RK-U7 MUTANT REJECTED 7 (signature/defeq rejection, not semantic counterexamples)"
+  logInfo "RK-U7 MUTANT REJECTED 10 (signature/defeq rejection, not semantic counterexamples)"
 
 /-! ## 3. Closure (Expr.equal / Expr.eqv reached only through the programs `readMachine` / `machineShape?`; logged as a fact) -/
 
@@ -289,4 +326,4 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     checkAxioms n
 
 run_cmd Lean.Elab.Command.liftTermElabM do
-  logInfo "RK-U7 STATUS: readMachine_fields closed from a readMachine run `h`; readMachine_agrees_runReads_of_readsAt is CONDITIONAL (hall : ∀ u, ReadsAt env₀ cref u, declName = X). NOT supplied: hall, hX, GetEnvFrame, hq (Expr.equal_sound not added; Q2; Q3), srcDom, ls/outs/nexts, real-run tie, coverage, FG."
+  logInfo "RK-U7 STATUS: readMachine_fields (ReadConcl ∧ ReadFields from the same ci/env/w1/w2 walk) closed from a readMachine run `h`; readMachine_agrees_runReads_of_readsAt is CONDITIONAL (hall : ∀ u, ReadsAt env₀ cref u, declName = X). NOT supplied: hall, hX, GetEnvFrame, hq (Expr.equal_sound not added; Q2; Q3), srcDom, ls/outs/nexts, real-run tie, coverage, FG."
