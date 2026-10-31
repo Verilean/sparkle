@@ -1,7 +1,7 @@
 import Tools.ShippingGen5Env
 import Tools.ShippingStRefCorrespondence
 set_option autoImplicit false
--- NOT BUILT (unit U1, scripts/gen5/DG_ENV_T2_FREEZE_R3.md rev3.1). No sorry / axiom / native_decide.
+-- BUILT (unit U1): kjob lake build Tests.Gen5.EnvFrameCheck exit 0, 752 jobs, at 84b4f0f9 (pod build, not the coder's clean exact-head build). No sorry / axiom / native_decide.
 
 /-! # DG-ENV unit U1: `EnvFrameEnd` rows for class-B operations, CONDITIONAL
 

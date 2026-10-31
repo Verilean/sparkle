@@ -2,7 +2,7 @@ import Tools.ShippingGen5EnvFrame
 import Tools.ShippingGen5EnvQ
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (unit U1 checks; scripts/gen5/DG_ENV_T2_FREEZE_R3.md rev3.1 §2.1).
+-- BUILT (unit U1 checks) at 84b4f0f9: TYPE 9, MUTANT 8, CLOSURE 8 roots / 12 negatives + 3 unresolved / 6 clean (+ rawProj 5 flagged, 1 not), AXIOMS 9 standard.
 
 /-! # DG-ENV unit U1 checks (Tools/ShippingGen5EnvFrame.lean)
 
