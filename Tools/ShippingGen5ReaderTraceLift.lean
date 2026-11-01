@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceCtl
 import Tools.ShippingLetsExternSpec
 set_option autoImplicit false
--- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceLift, exit 0) on the tree of f053d6018560ba5dfe5d501bb447716ba5c1bd6f (this header is comment-only). Written against freeze rev7 `scripts/gen5/DG_READERTRACE_FREEZE_REV7.md` §2 (U-R4c, part 2); clean issue-linked build pending (coder). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceLift, exit 0) on the tree of c7e641ff982b816588e1d48891590bb83fe50199 (Lean content identical; this header is comment-only). Written against freeze rev7 `scripts/gen5/DG_READERTRACE_FREEZE_REV7.md` §2 (U-R4c, part 2); clean issue-linked build pending (coder). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R4c (part 2): `liftSpec` / `rootFloatS` preserve `NoPh` and `BvarLt`
 
