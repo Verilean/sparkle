@@ -5035,3 +5035,9 @@ lean_lib «Tools.PartialTotal.Agree» where
 
 lean_lib «Tests.Gen3.PartialTotalCheck» where
   roots := #[`Tests.Gen3.PartialTotalCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceDirect» where
+  roots := #[`Tools.ShippingGen5ReaderTraceDirect]
+
+lean_lib «Tests.Gen5.ReaderTraceDirectCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceDirectCheck]
