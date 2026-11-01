@@ -5178,3 +5178,9 @@ lean_lib «Tools.ShippingGen5ReadKindsU13» where
 
 lean_lib «Tests.Gen5.ReadKindsU13Check» where
   roots := #[`Tests.Gen5.ReadKindsU13Check]
+
+lean_lib «Tools.ShippingGen5DataOfComplete» where
+  roots := #[`Tools.ShippingGen5DataOfComplete]
+
+lean_lib «Tests.Gen5.DataOfCompleteCheck» where
+  roots := #[`Tests.Gen5.DataOfCompleteCheck]

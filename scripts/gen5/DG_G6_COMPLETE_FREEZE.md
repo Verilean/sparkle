@@ -30,7 +30,7 @@ theorem dataOfFrom_complete_of_quote (lvl : Lean.Expr → Nat)
     (hss : d.ss.length = shape.layout.slots.length)
     (hls : d.ls.length = shape.layout.lets)
     -- 条件 6 の出力側の sort（下の注 N1）
-    (houts : List.Forall₂ (fun (o : OutField) (t : Σ s : SType, Term s) => sortOf (outKind o) = some t.1)
+    (houts : Tools.ShippingMachineClose.Zip₂ (fun (o : OutField) (t : Σ s : SType, Term s) => sortOf (outKind o) = some t.1)
       shape.layout.outs d.outs) :
     dataOfFrom lvl E senv shape tin fl = some d
 ```
@@ -67,13 +67,13 @@ theorem unField_toField {k : MixedGateBinder} {s : SType} (t : Term s) (h : sort
 
 -- typedFields_of_quote_fields: sort が揃えば typedFields は fields の逆
 theorem typedFields_of_quote_fields {ks : List MixedGateBinder} {ts : List (Σ s : SType, Term s)}
-    (h : List.Forall₂ (fun k t => sortOf k = some t.1) ks ts) :
+    (h : Tools.ShippingMachineClose.Zip₂ (fun k t => sortOf k = some t.1) ks ts) :
     typedFields ks (ts.map fun t => toField t.1 t.2) = some ts
 
 -- anyTerms: Terms ss の各項を Σ に詰める（termsOfAny の逆）
 def anyTerms : {ss : List SType} → Terms ss → List (Σ s : SType, Term s)
-theorem anyTerms_spec {ss : List SType} (ts : Terms ss) :
-    ∃ h : (anyTerms ts).map (·.1) = ss, HEq (termsOfAny (anyTerms ts)) ts
+theorem anyTerms_sorts {ss : List SType} (ts : Terms ss) : (anyTerms ts).map (·.1) = ss
+theorem anyTerms_heq {ss : List SType} (ts : Terms ss) : HEq (termsOfAny (anyTerms ts)) ts
 ```
 
 実装中に補助の個数や名前が変わる場合（型が同じ意味の補助の追加を除く）、この md を更新する。主定理の型を変える必要が出たら止めて note と md に書き、review にする。
@@ -84,3 +84,8 @@ theorem anyTerms_spec {ss : List SType} (ts : Terms ss) :
 - mutant は **signature / defeq での棄却**であって、意味的な反例ではない。
 - closure: `reach`（T1Hyp / T1HypND / Expr.equal / Expr.eqv / ofReduceBool が無い）。AXIOMS は標準 3 本のみ（`checkAxioms`）。COUNTS 行を他の Check と同じ形で出す。
 - sorry / axiom / native_decide なし。
+
+## 4. 実装時の更新（型の意味は変えていない）
+- Lean の core にこの toolchain（4.32.1）では `List.Forall₂` が無いので、`Tools.ShippingMachineClose.Zip₂`（同じ意味の帰納述語、既存）を使った。`Forall₂` と書いた箇所は `Zip₂`。
+- `anyTerms_spec`（∃ 形）は `anyTerms_sorts` と `anyTerms_heq` の 2 本に分けた（HEq 側が index に依存しないため）。
+- 追加の内部補題（主定理の型に出ない）: `dataOfTail_complete`、`dataOfTail_complete_mk`、`mkData_eta`、`zip_of_K`、`zip_map_left`、`letsTyped_get`、`ok_packed_wf`、`ok_fields_ne`。`hwf` は仮定にせず `hok` の行から取った（§1 のとおり）。
