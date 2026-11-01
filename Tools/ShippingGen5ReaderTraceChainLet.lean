@@ -1,6 +1,6 @@
 import Tools.ShippingGen5ReaderTraceLet
 set_option autoImplicit false
--- NOT BUILT: written against freeze rev10 addendum §2 `scripts/gen5/DG_READERTRACE_FREEZE_REV10.md` (U-R5b: `chainStep` `letE` arm; premises: existing named hypotheses `LiftAgrees` T1L-50 and `RootFloatAgrees` T1L-52 only). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceChainLet, exit 0) on the tree of 745e7fda39e8aa60e718ae54ce43c87ee4cfdae0 (Lean content identical; this header is comment-only). Written against freeze rev10 addendum §2 `scripts/gen5/DG_READERTRACE_FREEZE_REV10.md` (U-R5b: `chainStep` `letE` arm; premises: existing named hypotheses `LiftAgrees` T1L-50 and `RootFloatAgrees` T1L-52 only). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R5b: the `letE` arm of `chainStep`
 
