@@ -29,12 +29,12 @@ def ExpLiftAgrees0 : Prop :=
 
 def ExpLowerAgreesEq : Prop :=
   ∀ (e : Lean.Expr) (i : Nat), Tools.ShippingLetsReaderInv.LetOk 0 e = true →
-    e.lowerLooseBVars i i = Tools.ShippingN3ExternAgree.lowerSpec e i i
+    e.lowerLooseBVars i i = Tools.Assume.N3Extern.lowerSpec e i i
 
 def ExpZeroLitAgrees0 : Prop :=
   ∀ (e : Lean.Expr), Tools.ShippingLetsReaderInv.LetOk 0 e = true →
     Sparkle.Compiler.MachRawSurface.zeroLit Sparkle.Compiler.Elab.inlNatLit Sparkle.Compiler.Elab.canonicalNatLitValue? e =
-      e.replaceNoCache Tools.ShippingN3ExternAgree.zeroLitF
+      e.replaceNoCache Tools.Assume.N3Extern.zeroLitF
 
 def ExpLiftLooseRange0 : Prop :=
   ∀ (e : Lean.Expr) (d : Nat), Tools.ShippingLetsReaderInv.LetOk 0 e = true →
@@ -51,23 +51,23 @@ def ExpZeroLitRange0 : Prop :=
 
 def ExpLowerGoOk : Prop :=
   ∀ (n : Nat) (e : Lean.Expr) (s d : Nat), Tools.ShippingLetsReaderInv.LetOk n e = true →
-    Tools.ShippingLetsReaderInv.LetOk n (Tools.ShippingN3ExternAgree.lowerGo e s d) = true
+    Tools.ShippingLetsReaderInv.LetOk n (Tools.Assume.N3Extern.lowerGo e s d) = true
 
 def ExpLowerSpecOk : Prop :=
   ∀ (n : Nat) (e : Lean.Expr) (s d : Nat), Tools.ShippingLetsReaderInv.LetOk n e = true →
-    Tools.ShippingLetsReaderInv.LetOk n (Tools.ShippingN3ExternAgree.lowerSpec e s d) = true
+    Tools.ShippingLetsReaderInv.LetOk n (Tools.Assume.N3Extern.lowerSpec e s d) = true
 
 def ExpR1 : Prop :=
-  ∀ (h : Tools.ShippingN3ExternAgree.LiftAgrees0), Tools.ShippingN3ExternAgree.LiftLooseRange0
+  ∀ (h : Tools.Assume.N3Extern.LiftAgrees0), Tools.ShippingN3ExternAgree.LiftLooseRange0
 
 def ExpR2 : Prop :=
-  ∀ (h : Tools.ShippingN3ExternAgree.LowerAgreesEq), Tools.ShippingN3ExternAgree.LowerLooseRangeEq
+  ∀ (h : Tools.Assume.N3Extern.LowerAgreesEq), Tools.ShippingN3ExternAgree.LowerLooseRangeEq
 
 def ExpR3 : Prop :=
-  ∀ (h : Tools.ShippingN3ExternAgree.ZeroLitAgrees0), Tools.ShippingN3ExternAgree.ZeroLitRange0
+  ∀ (h : Tools.Assume.N3Extern.ZeroLitAgrees0), Tools.ShippingN3ExternAgree.ZeroLitRange0
 
 def ExpRawNodeOkOfAgrees : Prop :=
-  ∀ (hl : Tools.ShippingN3ExternAgree.LiftAgrees0) (hlo : Tools.ShippingN3ExternAgree.LowerAgreesEq)
+  ∀ (hl : Tools.Assume.N3Extern.LiftAgrees0) (hlo : Tools.Assume.N3Extern.LowerAgreesEq)
     (hb : Tools.Prototype.RawNodeRangeLetOk.BetaRange) (pm : Lean.Name → Option Nat) (e e' : Lean.Expr),
     Tools.ShippingLetsReaderInv.LetOk 0 e = true → Sparkle.Compiler.MachRawSurface.rawNode pm e = some e' →
       Tools.ShippingLetsReaderInv.LetOk 0 e' = true
@@ -87,12 +87,12 @@ def MutLiftAgrees0_s1 : Prop :=
 -- equality version: lower i j with i ≠ j (an extra independent offset)
 def MutLowerAgreesEq_ij : Prop :=
   ∀ (e : Lean.Expr) (i j : Nat), Tools.ShippingLetsReaderInv.LetOk 0 e = true →
-    e.lowerLooseBVars i j = Tools.ShippingN3ExternAgree.lowerSpec e i j
+    e.lowerLooseBVars i j = Tools.Assume.N3Extern.lowerSpec e i j
 
 -- equality version: premise on `LetOk 1`
 def MutLowerAgreesEq_LetOk1 : Prop :=
   ∀ (e : Lean.Expr) (i : Nat), Tools.ShippingLetsReaderInv.LetOk 1 e = true →
-    e.lowerLooseBVars i i = Tools.ShippingN3ExternAgree.lowerSpec e i i
+    e.lowerLooseBVars i i = Tools.Assume.N3Extern.lowerSpec e i i
 
 -- equality version: right-hand side is liftSpec (wrong model)
 def MutLowerAgreesEq_liftRhs : Prop :=
@@ -103,33 +103,33 @@ def MutLowerAgreesEq_liftRhs : Prop :=
 def MutZeroLitAgrees0_noDomain : Prop :=
   ∀ (e : Lean.Expr),
     Sparkle.Compiler.MachRawSurface.zeroLit Sparkle.Compiler.Elab.inlNatLit Sparkle.Compiler.Elab.canonicalNatLitValue? e =
-      e.replaceNoCache Tools.ShippingN3ExternAgree.zeroLitF
+      e.replaceNoCache Tools.Assume.N3Extern.zeroLitF
 
 -- derivation reversed: range gives the equality
 def MutR1_reversed : Prop :=
-  ∀ (h : Tools.ShippingN3ExternAgree.LiftLooseRange0), Tools.ShippingN3ExternAgree.LiftAgrees0
+  ∀ (h : Tools.ShippingN3ExternAgree.LiftLooseRange0), Tools.Assume.N3Extern.LiftAgrees0
 
 -- derivation from the wrong premise
 def MutR2_fromLift : Prop :=
-  ∀ (h : Tools.ShippingN3ExternAgree.LiftAgrees0), Tools.ShippingN3ExternAgree.LowerLooseRangeEq
+  ∀ (h : Tools.Assume.N3Extern.LiftAgrees0), Tools.ShippingN3ExternAgree.LowerLooseRangeEq
 
 -- connection theorem keeping the range premise (the thing it is supposed to replace)
 def MutRawNodeOkOfAgrees_keepsRange : Prop :=
-  ∀ (hl : Tools.Prototype.RawNodeRangeLetOk.LiftLooseRange) (hlo : Tools.ShippingN3ExternAgree.LowerAgreesEq)
+  ∀ (hl : Tools.Prototype.RawNodeRangeLetOk.LiftLooseRange) (hlo : Tools.Assume.N3Extern.LowerAgreesEq)
     (hb : Tools.Prototype.RawNodeRangeLetOk.BetaRange) (pm : Lean.Name → Option Nat) (e e' : Lean.Expr),
     Tools.ShippingLetsReaderInv.LetOk 0 e = true → Sparkle.Compiler.MachRawSurface.rawNode pm e = some e' →
       Tools.ShippingLetsReaderInv.LetOk 0 e' = true
 
 -- connection theorem with BetaRange dropped
 def MutRawNodeOkOfAgrees_noBeta : Prop :=
-  ∀ (hl : Tools.ShippingN3ExternAgree.LiftAgrees0) (hlo : Tools.ShippingN3ExternAgree.LowerAgreesEq)
+  ∀ (hl : Tools.Assume.N3Extern.LiftAgrees0) (hlo : Tools.Assume.N3Extern.LowerAgreesEq)
     (pm : Lean.Name → Option Nat) (e e' : Lean.Expr),
     Tools.ShippingLetsReaderInv.LetOk 0 e = true → Sparkle.Compiler.MachRawSurface.rawNode pm e = some e' →
       Tools.ShippingLetsReaderInv.LetOk 0 e' = true
 
 -- conclusion weakened to `LetOk 1`... on the output
 def MutRawNodeOkOfAgrees_concl : Prop :=
-  ∀ (hl : Tools.ShippingN3ExternAgree.LiftAgrees0) (hlo : Tools.ShippingN3ExternAgree.LowerAgreesEq)
+  ∀ (hl : Tools.Assume.N3Extern.LiftAgrees0) (hlo : Tools.Assume.N3Extern.LowerAgreesEq)
     (hb : Tools.Prototype.RawNodeRangeLetOk.BetaRange) (pm : Lean.Name → Option Nat) (e e' : Lean.Expr),
     Tools.ShippingLetsReaderInv.LetOk 0 e = true → Sparkle.Compiler.MachRawSurface.rawNode pm e = some e' →
       Tools.ShippingLetsReaderInv.LetOk 1 e' = true
@@ -137,7 +137,7 @@ def MutRawNodeOkOfAgrees_concl : Prop :=
 -- lowerSpec_ok at a fixed n
 def MutLowerSpecOk_n0 : Prop :=
   ∀ (e : Lean.Expr) (s d : Nat), Tools.ShippingLetsReaderInv.LetOk 0 e = true →
-    Tools.ShippingLetsReaderInv.LetOk 0 (Tools.ShippingN3ExternAgree.lowerSpec e s d) = true
+    Tools.ShippingLetsReaderInv.LetOk 0 (Tools.Assume.N3Extern.lowerSpec e s d) = true
 
 /-! ## 3. Closure allow-list -/
 
@@ -154,9 +154,9 @@ def allowedNames : List Name :=
   [``Nat, ``Bool, ``Bool.true, ``Option, ``Option.some, ``Eq, ``Lean.Expr, ``Lean.Name,
    ``OfNat.ofNat, ``instOfNatNat, ``instOfNat, ``Lean.Expr.liftLooseBVars, ``Lean.Expr.lowerLooseBVars,
    ``Lean.Expr.replaceNoCache, ``Tools.ShippingLetsReaderInv.LetOk, ``Tools.ShippingLetsReaderInv.liftSpec,
-   ``Tools.ShippingN3ExternAgree.lowerSpec, ``Tools.ShippingN3ExternAgree.lowerGo,
-   ``Tools.ShippingN3ExternAgree.zeroLitF, ``Tools.ShippingN3ExternAgree.LiftAgrees0,
-   ``Tools.ShippingN3ExternAgree.LowerAgreesEq, ``Tools.ShippingN3ExternAgree.ZeroLitAgrees0,
+   ``Tools.Assume.N3Extern.lowerSpec, ``Tools.Assume.N3Extern.lowerGo,
+   ``Tools.Assume.N3Extern.zeroLitF, ``Tools.Assume.N3Extern.LiftAgrees0,
+   ``Tools.Assume.N3Extern.LowerAgreesEq, ``Tools.Assume.N3Extern.ZeroLitAgrees0,
    ``Tools.ShippingN3ExternAgree.LiftLooseRange0, ``Tools.ShippingN3ExternAgree.LowerLooseRangeEq,
    ``Tools.ShippingN3ExternAgree.ZeroLitRange0, ``Tools.Prototype.RawNodeRangeLetOk.BetaRange,
    ``Sparkle.Compiler.MachRawSurface.zeroLit, ``Sparkle.Compiler.MachRawSurface.rawNode,
@@ -177,9 +177,10 @@ def reportAxioms (n : Name) : MetaM Bool := do
 
 run_meta do
   let N := `Tools.ShippingN3ExternAgree
+  let A := `Tools.Assume.N3Extern
   let types : List (Name × Name) :=
-    [(N ++ `LiftAgrees0, ``ExpLiftAgrees0), (N ++ `LowerAgreesEq, ``ExpLowerAgreesEq),
-     (N ++ `ZeroLitAgrees0, ``ExpZeroLitAgrees0), (N ++ `LiftLooseRange0, ``ExpLiftLooseRange0),
+    [(A ++ `LiftAgrees0, ``ExpLiftAgrees0), (A ++ `LowerAgreesEq, ``ExpLowerAgreesEq),
+     (A ++ `ZeroLitAgrees0, ``ExpZeroLitAgrees0), (N ++ `LiftLooseRange0, ``ExpLiftLooseRange0),
      (N ++ `LowerLooseRangeEq, ``ExpLowerLooseRangeEq), (N ++ `ZeroLitRange0, ``ExpZeroLitRange0),
      (N ++ `lowerGo_ok, ``ExpLowerGoOk), (N ++ `lowerSpec_ok, ``ExpLowerSpecOk),
      (N ++ `r1, ``ExpR1), (N ++ `r2, ``ExpR2), (N ++ `r3, ``ExpR3),
@@ -190,9 +191,9 @@ run_meta do
     nT := nT + 1
   -- negative control for the comparator: an expected statement against a different expected statement must fail
   let mutants : List (Name × Name) :=
-    [(N ++ `LiftAgrees0, ``MutLiftAgrees0_LetOk1), (N ++ `LiftAgrees0, ``MutLiftAgrees0_s1),
-     (N ++ `LowerAgreesEq, ``MutLowerAgreesEq_ij), (N ++ `LowerAgreesEq, ``MutLowerAgreesEq_LetOk1),
-     (N ++ `LowerAgreesEq, ``MutLowerAgreesEq_liftRhs), (N ++ `ZeroLitAgrees0, ``MutZeroLitAgrees0_noDomain),
+    [(A ++ `LiftAgrees0, ``MutLiftAgrees0_LetOk1), (A ++ `LiftAgrees0, ``MutLiftAgrees0_s1),
+     (A ++ `LowerAgreesEq, ``MutLowerAgreesEq_ij), (A ++ `LowerAgreesEq, ``MutLowerAgreesEq_LetOk1),
+     (A ++ `LowerAgreesEq, ``MutLowerAgreesEq_liftRhs), (A ++ `ZeroLitAgrees0, ``MutZeroLitAgrees0_noDomain),
      (N ++ `r1, ``MutR1_reversed), (N ++ `r2, ``MutR2_fromLift),
      (N ++ `rawNode_ok_of_agrees, ``MutRawNodeOkOfAgrees_keepsRange),
      (N ++ `rawNode_ok_of_agrees, ``MutRawNodeOkOfAgrees_noBeta),
@@ -207,7 +208,7 @@ run_meta do
     checkClosure t allowedNames
   let failed ← withoutModifyingState do
     try
-      checkClosure (N ++ `r1) (allowedNames.erase (N ++ `LiftAgrees0))
+      checkClosure (N ++ `r1) (allowedNames.erase (A ++ `LiftAgrees0))
       pure false
     catch _ => pure true
   unless failed do throwError "N3AGREE CLOSURE negative control: an unknown name was accepted"
@@ -217,6 +218,11 @@ run_meta do
   for (t, _) in types do
     if (← reportAxioms t) then sorries := sorries + 1
   logInfo m!"N3AGREE SORRY-DEPENDENT ROOTS: {sorries} (skeleton: expected 6 theorems: lowerGo_ok, lowerSpec_ok, r1, r2, r3, rawNode_ok_of_agrees; 0 after the candidate)"
+  -- which assumption of Tools/Assume each root's statement takes (by name; the module holds only these three)
+  let assumes : List Name := [A ++ `LiftAgrees0, A ++ `LowerAgreesEq, A ++ `ZeroLitAgrees0]
+  for (t, _) in types do
+    let cs := (← stmtOf t).getUsedConstants
+    logInfo m!"N3AGREE ASSUME-DEPS {t}: {assumes.filter cs.contains}"
   logInfo m!"N3AGREE COUNTS: TYPE {nT} / MUTANT {nM}"
   logInfo m!"N3AGREE NOTE: mutants are rejections by signature/defeq of statements, not semantic counterexamples."
 
