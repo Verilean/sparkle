@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceExtract
 import Tools.ShippingLetsSigTy
 import Tools.Assume.EnvSigTy
 set_option autoImplicit false
--- NOT BUILT: written against freeze rev9 `scripts/gen5/DG_READERTRACE_FREEZE_REV9.md` §3 (U-R4e2: `ty` component of `machInstCallS?`, under the named condition `SigTyClosed`). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceSigTy, exit 0) on the tree of 76c134b69a23177be1355a3e4a1676574a55c78a (Lean content identical; this header is comment-only). Written against freeze rev9 `scripts/gen5/DG_READERTRACE_FREEZE_REV9.md` §3 (U-R4e2: `ty` component of `machInstCallS?`, under the named condition `SigTyClosed`). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R4e2: the `ty` component of `machInstCallS?` is `NoPh ∧ BvarLt 0`
 
