@@ -5027,3 +5027,11 @@ lean_lib «Tools.ShippingGen5ReaderTraceShapeIn» where
 
 lean_lib «Tests.Gen5.ReaderTraceShapeInCheck» where
   roots := #[`Tests.Gen5.ReaderTraceShapeInCheck]
+lean_lib «Tools.PartialTotal.Measure» where
+  roots := #[`Tools.PartialTotal.Measure]
+
+lean_lib «Tools.PartialTotal.Agree» where
+  roots := #[`Tools.PartialTotal.Agree]
+
+lean_lib «Tests.Gen3.PartialTotalCheck» where
+  roots := #[`Tests.Gen3.PartialTotalCheck]
