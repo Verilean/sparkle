@@ -5053,3 +5053,6 @@ lean_lib «Tools.ShippingGen5ReaderTraceDomKeepS» where
 
 lean_lib «Tools.ShippingGen5ReaderTraceShape2» where
   roots := #[`Tools.ShippingGen5ReaderTraceShape2]
+
+lean_lib «Tools.ShippingGen5ReaderTraceDirect2» where
+  roots := #[`Tools.ShippingGen5ReaderTraceDirect2]
