@@ -5047,3 +5047,12 @@ lean_lib «Tools.ShippingGen5ReaderTraceInlineP1» where
 
 lean_lib «Tests.Gen5.ReaderTraceInlineP1Check» where
   roots := #[`Tests.Gen5.ReaderTraceInlineP1Check]
+
+lean_lib «Tools.Assume.AbbrevExtern» where
+  roots := #[`Tools.Assume.AbbrevExtern]
+
+lean_lib «Tools.ShippingGen5ReaderTraceAbbrevS1» where
+  roots := #[`Tools.ShippingGen5ReaderTraceAbbrevS1]
+
+lean_lib «Tests.Gen5.ReaderTraceAbbrevS1Check» where
+  roots := #[`Tests.Gen5.ReaderTraceAbbrevS1Check]
