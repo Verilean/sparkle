@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceShape
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceShapeCheck, exit 0, 773 jobs; TYPE 7, MUTANT 5 signature/defeq rejections not semantic counterexamples, AXIOMS 7 standard only, CLOSURE OK 5214 constants from 7 roots, no sorryAx; 3 intended in-memory sorry negatives print warnings) on the tree of 8ba8bf09 (Lean content identical; this header is comment-only). Clean build is the coder's. (checks the part of rev14 U-R12a that is implemented: MidInputs / ShapeInputs / ShapeCarry, shapeCarry_empty, shapeRootLet_trace, rootLets_trace, shapeBody_trace). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceShapeCheck, exit 0, 773 jobs; TYPE 12, MUTANT 8 signature/defeq rejections not semantic counterexamples, AXIOMS 12 standard only, CLOSURE OK 9758 constants from 12 roots, no sorryAx; 3 intended in-memory sorry negatives print warnings) on the tree of 389c4097 (Lean content identical; this header is comment-only). Clean build is the coder's. (checks rev14 U-R12a/U-R12b with §10 plan A: DomAtomic, MidInputs / ShapeInputs / ShapeCarry, shapeCarry_empty, shapeStart_trace, shapeRootLet_trace, rootLets_trace, shapeBody_trace, machineShapeF_reach, _of_premises, _ranges). No sorry / axiom / native_decide in source.
 /-! # DG-READERTRACE U-R12a (part) checks (Tools/ShippingGen5ReaderTraceShape.lean)
 
 TYPE: the three `def`s (compared by VALUE) and the four theorems are compared by `checkExpected` against `Exp…` statements written here (own spelling).

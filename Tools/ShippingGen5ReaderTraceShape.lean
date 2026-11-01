@@ -3,7 +3,7 @@ import Tools.ShippingGen5Cover5
 import Tools.ShippingReaderFuelShapeR5
 import Tools.ShippingReaderLenOkReserve
 set_option autoImplicit false
--- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceShape, exit 0, 771 jobs) on the tree of 8ba8bf09 (Lean content identical; this header is comment-only). Written against freeze rev14 `scripts/gen5/DG_READERTRACE_FREEZE_REV14.md` §2.1; see its §10 addendum for the part not implemented. Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceShape, exit 0, 771 jobs) on the tree of 389c4097 (Lean content identical; this header is comment-only). Written against freeze rev14 `scripts/gen5/DG_READERTRACE_FREEZE_REV14.md` §2.1 / §2.2 with the §10 plan A (`DomAtomic` restored). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R12a / U-R12b: `DomAtomic`, `MidInputs`, `ShapeInputs`, `ShapeCarry`, `shapeStart_trace`, `shapeRootLet_trace`, `rootLets_trace`, `shapeBody_trace`, `machineShapeF_reach` (+ `_of_premises`, `machineShapeF_ranges`)
 

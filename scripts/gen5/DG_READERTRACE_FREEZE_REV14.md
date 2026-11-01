@@ -274,3 +274,12 @@ COUNTS: `Tools.ShippingGen5ReaderTraceShape` exit 0（771 jobs）/ `Tests.Gen5.R
 ### 10.5 主張しないこと
 
 `ShapeInputs` / `DomAtomic` が受理されたソースで成り立つこと。`hT` の 6 つの名前付き仮説の真偽。台帳の行が消えること。U-R12c の構造補題（`mixedGatePeel_ph` 等）は未着手（この追記の判断とは独立で、前提なし部分として後で進められる）。
+
+## 11. 追記（rt19、2026-11-01）: §10 案 A の実装結果（新しい前提なし）
+
+**台帳: FG 103 / T1 54（今回 FG -0 +0 / T1 -0 +0）。**
+
+実装（Lean コミット 389c4097、`Tools/ShippingGen5ReaderTraceShape.lean` / `Tests/Gen5/ReaderTraceShapeCheck.lean`）: `DomAtomic`、`MidInputs`（run 節に `DomAtomic dom` を戻した版、rev0 §5 の位置）、`shapeStart_trace`（`DomAtomic` 付き）、`machineShapeF_reach`、`machineShapeF_reach_of_premises`、`machineShapeF_ranges`。U-R12a の残りはない（U-R12c は未着手で別の単位）。
+`shapeStart_trace` の道筋: `shapeStart_inv` で `dom'`/`stc` を取り、`dom` が bvar なら `convBvar_trace`（空の units 環境、`r.2 = st`）、const なら `readF` の catch-all 腕の 1 段展開で `stc = {}`。以後 `hT`（conv 呼び）で `dom'` の範囲と `LetOk 0 dom'` を得て `trInv_reserved` と `adv_dom` に渡す。
+検証（kjob lake build を 1 つずつ、exit 0）: Tools 771 jobs / Check 773 jobs。COUNTS: TYPE 12、MUTANT 8（signature/defeq での棄却で意味的反例ではない）、AXIOMS 12（標準のみ）、CLOSURE 9758 constants from 12 roots（unknown 0、sorryAx なし）。clean build は coder。
+主張しないこと: `ShapeInputs`（`DomAtomic dom` を含む）が受理されたソースで成り立つこと（供給は未証明のまま。U-R12c / N1〜N4 の判断に残る）、`hT` の 6 つの名前付き仮説の真偽、台帳の行が消えること。
