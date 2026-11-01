@@ -4761,6 +4761,12 @@ lean_lib «Tools.ShippingGen5RunReads» where
 lean_lib «Tests.Gen5.RunReadsCheck» where
   roots := #[`Tests.Gen5.RunReadsCheck]
 
+lean_lib «Tools.ShippingGen5ReadKinds» where
+  roots := #[`Tools.ShippingGen5ReadKinds]
+
+lean_lib «Tests.Gen5.ReadKindsCheck» where
+  roots := #[`Tests.Gen5.ReadKindsCheck]
+
 lean_lib «Tools.ShippingGen3ArgSupply4» where
   roots := #[`Tools.ShippingGen3ArgSupply4]
 
@@ -5118,3 +5124,57 @@ lean_lib «Tools.ShippingGen5DataOfDims» where
 
 lean_lib «Tests.Gen5.DataOfCheck4» where
   roots := #[`Tests.Gen5.DataOfCheck4]
+
+lean_lib «Tools.ShippingGen5ReadKindsU5» where
+  roots := #[`Tools.ShippingGen5ReadKindsU5]
+
+lean_lib «Tests.Gen5.ReadKindsU5Check» where
+  roots := #[`Tests.Gen5.ReadKindsU5Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU6» where
+  roots := #[`Tools.ShippingGen5ReadKindsU6]
+
+lean_lib «Tests.Gen5.ReadKindsU6Check» where
+  roots := #[`Tests.Gen5.ReadKindsU6Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU7» where
+  roots := #[`Tools.ShippingGen5ReadKindsU7]
+
+lean_lib «Tests.Gen5.ReadKindsU7Check» where
+  roots := #[`Tests.Gen5.ReadKindsU7Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU8» where
+  roots := #[`Tools.ShippingGen5ReadKindsU8]
+
+lean_lib «Tests.Gen5.ReadKindsU8Check» where
+  roots := #[`Tests.Gen5.ReadKindsU8Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU9» where
+  roots := #[`Tools.ShippingGen5ReadKindsU9]
+
+lean_lib «Tests.Gen5.ReadKindsU9Check» where
+  roots := #[`Tests.Gen5.ReadKindsU9Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU10» where
+  roots := #[`Tools.ShippingGen5ReadKindsU10]
+
+lean_lib «Tests.Gen5.ReadKindsU10Check» where
+  roots := #[`Tests.Gen5.ReadKindsU10Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU11» where
+  roots := #[`Tools.ShippingGen5ReadKindsU11]
+
+lean_lib «Tests.Gen5.ReadKindsU11Check» where
+  roots := #[`Tests.Gen5.ReadKindsU11Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU12» where
+  roots := #[`Tools.ShippingGen5ReadKindsU12]
+
+lean_lib «Tests.Gen5.ReadKindsU12Check» where
+  roots := #[`Tests.Gen5.ReadKindsU12Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU13» where
+  roots := #[`Tools.ShippingGen5ReadKindsU13]
+
+lean_lib «Tests.Gen5.ReadKindsU13Check» where
+  roots := #[`Tests.Gen5.ReadKindsU13Check]
