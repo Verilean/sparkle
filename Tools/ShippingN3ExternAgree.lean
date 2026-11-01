@@ -36,22 +36,35 @@ def ZeroLitRange0 : Prop :=
 theorem lowerGo_ok (n : Nat) : ∀ (e : Expr) s d, LetOk n e = true → LetOk n (lowerGo e s d) = true := by
   intro e
   induction e with
-  | bvar i => intro s d _; unfold lowerGo; split <;> rfl
+  | bvar i =>
+    intro s d _
+    show LetOk n (if i < s then Expr.bvar i else Expr.bvar (i - d)) = true
+    split <;> rfl
   | app f a ihf iha =>
     intro s d h; simp only [LetOk, Bool.and_eq_true] at h
-    simp only [lowerGo, LetOk, Bool.and_eq_true]; exact ⟨ihf _ _ h.1, iha _ _ h.2⟩
-  | lam _ t b _ iht ihb =>
+    show LetOk n (.app (lowerGo f s d) (lowerGo a s d)) = true
+    simp only [LetOk, Bool.and_eq_true]; exact ⟨ihf _ _ h.1, iha _ _ h.2⟩
+  | lam nm t b bi iht ihb =>
     intro s d h; simp only [LetOk, Bool.and_eq_true] at h
-    simp only [lowerGo, LetOk, Bool.and_eq_true]; exact ⟨iht _ _ h.1, ihb _ _ h.2⟩
-  | forallE _ t b _ iht ihb =>
+    show LetOk n (.lam nm (lowerGo t s d) (lowerGo b (s + 1) d) bi) = true
+    simp only [LetOk, Bool.and_eq_true]; exact ⟨iht _ _ h.1, ihb _ _ h.2⟩
+  | forallE nm t b bi iht ihb =>
     intro s d h; simp only [LetOk, Bool.and_eq_true] at h
-    simp only [lowerGo, LetOk, Bool.and_eq_true]; exact ⟨iht _ _ h.1, ihb _ _ h.2⟩
-  | letE _ t v b _ iht ihv ihb =>
+    show LetOk n (.forallE nm (lowerGo t s d) (lowerGo b (s + 1) d) bi) = true
+    simp only [LetOk, Bool.and_eq_true]; exact ⟨iht _ _ h.1, ihb _ _ h.2⟩
+  | letE nm t v b nd iht ihv ihb =>
     intro s d h; simp only [LetOk, Bool.and_eq_true] at h
-    simp only [lowerGo, LetOk, Bool.and_eq_true]
+    show LetOk n (.letE nm (lowerGo t s d) (lowerGo v s d) (lowerGo b (s + 1) d) nd) = true
+    simp only [LetOk, Bool.and_eq_true]
     exact ⟨⟨iht _ _ h.1.1, ihv _ _ h.1.2⟩, ihb _ _ h.2⟩
-  | mdata _ e ih => intro s d h; simp only [LetOk] at h; simp only [lowerGo, LetOk]; exact ih _ _ h
-  | proj _ _ e ih => intro s d h; simp only [LetOk] at h; simp only [lowerGo, LetOk]; exact ih _ _ h
+  | mdata m e ih =>
+    intro s d h; simp only [LetOk] at h
+    show LetOk n (.mdata m (lowerGo e s d)) = true
+    simp only [LetOk]; exact ih _ _ h
+  | proj nm i e ih =>
+    intro s d h; simp only [LetOk] at h
+    show LetOk n (.proj nm i (lowerGo e s d)) = true
+    simp only [LetOk]; exact ih _ _ h
   | fvar _ => intro s d h; exact h
   | mvar _ => intro s d h; exact h
   | sort _ => intro s d h; exact h
@@ -60,7 +73,7 @@ theorem lowerGo_ok (n : Nat) : ∀ (e : Expr) s d, LetOk n e = true → LetOk n 
 
 theorem lowerSpec_ok (n : Nat) : ∀ (e : Expr) s d, LetOk n e = true → LetOk n (lowerSpec e s d) = true := by
   intro e s d h
-  unfold lowerSpec
+  show LetOk n (if s < d then e else lowerGo e s d) = true
   split
   · exact h
   · exact lowerGo_ok n e s d h
@@ -78,7 +91,7 @@ theorem r3 (h : ZeroLitAgrees0) : ZeroLitRange0 := by
   rw [h e he]
   refine replaceNoCache_ok 0 zeroLitF ?_ e he
   intro x r hx
-  unfold zeroLitF at hx
+  delta zeroLitF at hx
   split at hx
   · obtain ⟨k, -, rfl⟩ := Option.map_eq_some_iff.mp hx
     simp only [mkApp2, LetOk, Bool.and_eq_true, Bool.true_and]
