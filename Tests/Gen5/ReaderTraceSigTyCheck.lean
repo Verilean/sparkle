@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceSigTy
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: written against freeze rev9 `scripts/gen5/DG_READERTRACE_FREEZE_REV9.md` §3 (U-R4e2). No sorry / axiom / native_decide in source; the closure-control negatives are built in memory (no `sorry` token).
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceSigTyCheck, exit 0; TYPE 2 theorems; MUTANT 6 theorem-statement mutants (signature/defeq rejections, not semantic counterexamples); AXIOMS 3 (standard only); CLOSURE OK 7157 constants from 3 roots, 3 targets seen; 3 intended in-memory sorry negatives print warnings) on the tree of 76c134b69a23177be1355a3e4a1676574a55c78a (Lean content identical; this header is comment-only). Written against freeze rev9 `scripts/gen5/DG_READERTRACE_FREEZE_REV9.md` §3 (U-R4e2). No sorry / axiom / native_decide in source; the closure-control negatives are built in memory (no `sorry` token).
 /-! # DG-READERTRACE U-R4e2 checks (Tools/ShippingGen5ReaderTraceSigTy.lean)
 
 TYPE: `sigTyPh_of` and `machInstCallS?_ty_ph` are compared by `checkExpected` against `Exp…` statements written here from the freeze text (own spelling); `noPh_of_noFv` is checked by AXIOMS and CLOSURE only.
