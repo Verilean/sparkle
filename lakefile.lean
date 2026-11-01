@@ -4955,3 +4955,6 @@ lean_lib «Tools.ShippingGen5ReaderTraceExtract» where
 
 lean_lib «Tests.Gen5.ReaderTraceExtractCheck» where
   roots := #[`Tests.Gen5.ReaderTraceExtractCheck]
+
+lean_lib «Tools.Assume.EnvSigTy» where
+  roots := #[`Tools.Assume.EnvSigTy]
