@@ -1,5 +1,6 @@
 import Tools.Prototype.LiftScalarModelLetOk
 import Tools.ShippingLetsExternSpec
+import Tools.PartialTotal.Measure
 set_option autoImplicit false
 -- NOT BUILT: K1 skeleton (the four theorems carry `sorry`). Skeleton content built OK at 6e3739fd (Tests.Gen3.PartialTotalCheck exit 0).
 
