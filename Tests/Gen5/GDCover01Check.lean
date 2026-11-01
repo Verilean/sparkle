@@ -1,8 +1,8 @@
 import Tools.ShippingGen5GDCover0
 import Tools.ShippingGen5GDCover1
 import Tests.Gen5.AccCheck
+set_option autoImplicit false
 -- Pod target build OK at f6ba6a98 (`kjob lake build Tests.Gen5.GDCover01Check`, exit 0): TYPE 8 / BODY 2 / MUTANT 17 (single 15 + compound 2; signature/defeq rejection, not semantic) / AXIOMS 8 standard / CLOSURE 8537 consts, unknown 0. 3 intended sorry warnings = walker negatives. Clean build is the coder's. No sorry / axiom / native_decide in source.
--- NOT BUILT (draft). Check for G0 + G1 + W1, freeze scripts/gen5/GDCOVER01_FREEZE.md. No sorry / axiom / native_decide.
 
 /-! # G0 / G1 / W1 checks (Tools/ShippingGen5GDCover0.lean, Tools/ShippingGen5GDCover1.lean)
 
