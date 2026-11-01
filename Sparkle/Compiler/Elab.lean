@@ -3381,29 +3381,57 @@ def inlAbbrevs (env : Environment) : Nat → Lean.Expr → Lean.Expr
       | _ => none
     if e' == e then e else inlAbbrevs env n e'.headBeta
 
+/-- A user helper the recursive-helper unfolding (`MachRecUnfold`) may unfold. -/
+def userRecHelper (env : Environment) (n : Name) : Bool :=
+  inlUserModule env n && !Sparkle.Compiler.isHardwareModule env n &&
+    env.contains (Lean.Meta.mkSmartUnfoldingNameFor n)
+
+/-- The unfolding of user definitions and structure projections of `env`,
+    within the budget (the expression itself when the budget is exhausted or a
+    refused form is met). -/
+def userInlStep (env : Environment) (e : Lean.Expr) : Lean.Expr :=
+  match inlineDefs (userDefinition? env) (userProjection? env) inlineDepth e inlineBudget with
+  | some (e', _) => e'
+  | none => e
+
 /-- The run's unfolding: user definitions and structure projections of
     `env`, within the budget (the expression itself when the budget is
-    exhausted or a refused form is met), then literal `Nat` sums folded. -/
-def userInliner (env : Environment) : Lean.Expr → Lean.Expr := fun e =>
-  let inl (e : Lean.Expr) : Lean.Expr :=
-    match inlineDefs (userDefinition? env) (userProjection? env) inlineDepth e inlineBudget with
-    | some (e', _) => e'
-    | none => e
+    exhausted or a refused form is met), then literal `Nat` sums folded.
+    An `error` is a fuel exhaustion of `MachRecUnfold` (its definition and
+    limit); `entryInlinerError?` reports it as a compile error. -/
+def userInlinerE (env : Environment) (e : Lean.Expr) : Except String Lean.Expr :=
   -- recursive user helpers on literal data, unfolded (`MachRecUnfold`), then
   -- inlined again, while that changes the value
-  let isRec (n : Name) : Bool :=
-    inlUserModule env n && !Sparkle.Compiler.isHardwareModule env n &&
-      env.contains (Lean.Meta.mkSmartUnfoldingNameFor n)
-  let rec rounds : Nat → Lean.Expr → Lean.Expr
-    | 0, e => e
-    | k + 1, e =>
-      let e' := Sparkle.Compiler.MachRecUnfold.pass env canonicalNatLitValue? isRec e
-      if e' == e then e else rounds k (inl e')
-  let e1 := inl e
+  let rec rounds : Nat → Lean.Expr → Except String Lean.Expr
+    | 0, e => .ok e
+    | k + 1, e => do
+      let e' ← Sparkle.Compiler.MachRecUnfold.pass env canonicalNatLitValue? (userRecHelper env) e
+      if e' == e then pure e else rounds k (userInlStep env e')
+  let e1 := userInlStep env e
   -- only a value reaching a recursive helper or literal-data operation
-  if Sparkle.Compiler.MachRecUnfold.relevantClosure (userDefinition? env) isRec e then
-    inlFoldNat (inlAbbrevs env 4 (rounds 64 e1))
-  else inlFoldNat (inlAbbrevs env 4 e1)
+  if Sparkle.Compiler.MachRecUnfold.relevantClosure (userDefinition? env) (userRecHelper env) e then do
+    let e2 ← rounds 64 e1
+    pure (inlFoldNat (inlAbbrevs env 4 e2))
+  else pure (inlFoldNat (inlAbbrevs env 4 e1))
+
+/-- `userInlinerE`, the value without the recursive-helper unfolding when that
+    ran out of fuel (the compile error is raised by `entryInlinerError?`). -/
+def userInliner (env : Environment) : Lean.Expr → Lean.Expr := fun e =>
+  match userInlinerE env e with
+  | .ok e' => e'
+  | .error _ => inlFoldNat (inlAbbrevs env 4 (userInlStep env e))
+
+/-- The fuel-exhaustion message of the unfolding of a definition's value or type. -/
+def userInlinerError? (env : Environment) : ConstantInfo → Option String
+  | .defnInfo d =>
+    [d.value, d.type].findSome? fun e =>
+      if Sparkle.Compiler.MachRecUnfold.relevantClosure (userDefinition? env) (userRecHelper env) e
+      then
+        match userInlinerE env e with
+        | .error msg => some msg
+        | .ok _ => none
+      else none
+  | _ => none
 
 /-- A definition with its value rewritten. -/
 def inlinedConst (inl : Lean.Expr → Lean.Expr) : ConstantInfo → ConstantInfo
@@ -5292,6 +5320,18 @@ def entryConst (certifiedFrontEnd symbolicMode : Bool) (parameters : List (Strin
         (machineShape? symbolicMode parameters (inlinedConst inl ci) projs).isSome
     then inlinedConst inl ci else ci
   else ci
+
+/-- The compile error of `entryConst`: its unfolding ran out of fuel (the message
+    names the definition of `MachRecUnfold` and its limit). Only where `entryConst`
+    reaches the unfolding. -/
+def entryInlinerError? (env : Environment) (certifiedFrontEnd symbolicMode : Bool)
+    (parameters : List (String × Nat)) (ci : ConstantInfo) (isInst : Lean.Expr → Bool) :
+    Option String :=
+  if certifiedFrontEnd && !symbolicMode && parameters.isEmpty &&
+      (certifiedShape? symbolicMode parameters ci).isNone &&
+      (mixedCertifiedShape? symbolicMode parameters ci isInst).isNone then
+    userInlinerError? env ci
+  else none
 
 /-- Everything the entry does AFTER reading the declaration, as a function of the
     `ConstantInfo` it read.  `synthesizeCombinationalCoreWith` calls it with the
@@ -8978,10 +9018,22 @@ def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
   for stmt in m.body do
     IO.println s!"  {stmt}"
 
+/-- The compile error for a declaration whose recursive-helper unfolding
+    (`MachRecUnfold`) ran out of fuel: the message names the declaration, the
+    definition and its limit. Raised by the commands before the synthesis (a child
+    declaration whose own unfolding runs out of fuel is synthesized from its
+    value without the unfolding, as `userInliner` does). -/
+def inlinerFuelGuard (declName : Name) : MetaM Unit := do
+  let ci ← getConstInfo declName
+  let env ← getEnv
+  if let some msg := entryInlinerError? env true false [] ci (instancePredicate env) then
+    throwError "{declName}: {msg}"
+
 elab "#synthesize" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
+    inlinerFuelGuard declName
     let (module, _) ← synthesizeCombinational declName
     printModule module
     IO.println "\n-- IR successfully generated!"
@@ -9029,6 +9081,7 @@ elab "#synthesizeVerilog" id:ident : command => do
   logProf s!"[profile] declName resolved: {declName}"
   Lean.Elab.Command.liftTermElabM do
     logProf s!"[profile] entering liftTermElabM, calling synthesizeCombinational"
+    inlinerFuelGuard declName
     let (module, _) ← synthesizeCombinational declName
     let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
     for w in warnings do
@@ -9087,6 +9140,7 @@ elab "#showVerilog" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
+    inlinerFuelGuard declName
     let (module, _) ← synthesizeCombinational declName
     let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
     for w in warnings do
@@ -9149,6 +9203,7 @@ elab "#synthesizeDesign" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
+    inlinerFuelGuard declName
     let design ← synthesizeHierarchical declName
     for m in design.modules do
       printModule m
@@ -9158,6 +9213,7 @@ elab "#synthesizeVerilogDesign" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
+    inlinerFuelGuard declName
     let design ← synthesizeHierarchical declName
     runDesignDRC design
     let verilog := toVerilogDesignChecked design
@@ -9168,6 +9224,7 @@ elab "#writeVerilogDesign" id:ident str:str : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
+    inlinerFuelGuard declName
     let design ← synthesizeHierarchical declName
     runDesignDRC design
     let verilog := toVerilogDesignChecked design
@@ -9181,6 +9238,7 @@ elab "#writeCppSimDesign" id:ident str:str : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
+    inlinerFuelGuard declName
     let design ← synthesizeHierarchical declName
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let cSrc := Sparkle.Backend.CSim.toCDesign optimized
@@ -9230,6 +9288,7 @@ elab "#writeCudaDesign" id:ident str:str : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
+    inlinerFuelGuard declName
     let design ← synthesizeHierarchical declName
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let cu := Sparkle.Backend.CudaSim.toCudaSimDesign optimized
@@ -9282,6 +9341,7 @@ elab "#writeCudaIntraDesign" id:ident str:str : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
+    inlinerFuelGuard declName
     let design ← synthesizeHierarchical declName
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     match Sparkle.Backend.CudaIntra.toCudaIntraDesign optimized with
@@ -9305,6 +9365,7 @@ private opaque evalStringArray (name : Name) : TermElabM (Array String)
 /-- Core implementation for #writeDesign -/
 private def writeDesignCore (declName : Name) (svPath cppPath : String)
     (observableWires : Option (List String)) : TermElabM Unit := do
+  inlinerFuelGuard declName
   let design ← synthesizeHierarchical declName
   runDesignDRC design
   -- Ensure output directories exist
@@ -9383,6 +9444,7 @@ elab "#sim" id:ident : command => do
     Lean.resolveGlobalConstNoOverload id
   -- Phase 1: Synthesize + generate JIT C++ AND Verilog .sv (in TermElabM)
   let (ns, jitPath, svPath, topName, userInputs, outputs) ← Lean.Elab.Command.liftTermElabM do
+    inlinerFuelGuard declName
     let design ← synthesizeHierarchical declName
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let jitC := Sparkle.Backend.CSim.toCJIT optimized
