@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceLift
 import Tools.ShippingLetsExternSpec
 set_option autoImplicit false
--- NOT BUILT yet (pending Pod build). Written against freeze rev9 `scripts/gen5/DG_READERTRACE_FREEZE_REV9.md` §1 (Inst1Ph as a lemma from the existing `Inst1Agrees`, T1L-51); clean issue-linked build pending (coder). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceInst1, exit 0) on the tree of ace83337f77cfcf94e8b0c01d114e751f6de023a (Lean content identical; this header is comment-only). Written against freeze rev9 `scripts/gen5/DG_READERTRACE_FREEZE_REV9.md` §1 (Inst1Ph as a lemma from the existing `Inst1Agrees`, T1L-51; no new premise); clean issue-linked build pending (coder). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE: `Inst1Ph` — `Expr.instantiate1` preserves `NoPh` / `BvarLt` (lemma from the existing `Inst1Agrees`)
 
