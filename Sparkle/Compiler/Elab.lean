@@ -4649,7 +4649,7 @@ def machNormAp (e : Lean.Expr) : Lean.Expr :=
     operators, a concatenation, a slice as a `map` of `extractLsb'`, `not` as
     `allOnes ^^^ ·`, constants as `Signal.pure` of their literal. Returns the
     width and the Signal expression. -/
-partial def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (Nat × Lean.Expr)) :
+def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (Nat × Lean.Expr)) :
     Lean.Expr → Option (Nat × Lean.Expr)
   | .bvar i => vars[i]?
   | e@(.app (.app (.app (.app (.app (.app (.const m _) t1) t2) t3) inst) x) y) =>
@@ -4723,7 +4723,7 @@ partial def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (N
     if n == 0 then none else
     let (wx, x') ← machLiftScalarN senv dom vars x
     if wx != n then none else
-    let y' ← match s with
+    let y' ← match hs : s with
       | .app (.app (.const ``BitVec.toNat _) mE) y => do
         if canonicalNatLitValue? mE != some n then none else
         let (wy, y') ← machLiftScalarN senv dom vars y
@@ -4735,9 +4735,19 @@ partial def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (N
     some (n, Sparkle.Compiler.MachSignOps.ashrE inlNatLit
       (fun m a b => machSigBin m ((machSigInst m).getD .anonymous) dom n a b) dom n x' y')
   -- the DSL's `ashr a b` is `a.sshiftRight b.toNat` (its definition)
-  | .app (.app (.app (.const ``Sparkle.Core.Signal.ashr _) nE) x) y =>
-    machLiftScalarN senv dom vars
-      (mkApp3 (.const ``BitVec.sshiftRight []) nE x (mkApp2 (.const ``BitVec.toNat []) nE y))
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.ashr _) nE) x) y => do
+    let e' := mkApp3 (.const ``BitVec.sshiftRight []) nE x (mkApp2 (.const ``BitVec.toNat []) nE y)
+    if !x.hasLooseBVars then machLiftScalarN.machLiftConst senv dom e' else
+    let n ← canonicalNatLitValue? nE
+    if n == 0 then none else
+    let (wx, x') ← machLiftScalarN senv dom vars x
+    if wx != n then none else
+    let y' ← do
+      if canonicalNatLitValue? nE != some n then none else
+      let (wy, y') ← machLiftScalarN senv dom vars y
+      if wy != n then none else some y'
+    some (n, Sparkle.Compiler.MachSignOps.ashrE inlNatLit
+      (fun m a b => machSigBin m ((machSigInst m).getD .anonymous) dom n a b) dom n x' y')
   -- `-x` is `0 - x` (by the definitions of `BitVec.neg` and `BitVec.sub`)
   | e@(.app (.app (.app (.const ``Neg.neg _) (.app (.const ``BitVec _) nE)) _) x) => do
     if !x.hasLooseBVars then machLiftConst senv dom e else
@@ -4754,6 +4764,8 @@ partial def machLiftScalarN (senv : StructEnv) (dom : Lean.Expr) (vars : List (N
     some (n, machSigBin ``HXor.hXor ``Sparkle.Core.Signal.instHXorSignalBitVec dom n
       (machPureE dom n (machBVLit n (2 ^ n - 1))) x')
   | e => machLiftConst senv dom e
+termination_by e => sizeOf e
+decreasing_by all_goals (simp_wf; first | omega | (simp [hs]; omega))
 where
   /-- A closed constant: its literal, as `Signal.pure`. -/
   machLiftConst (senv : StructEnv) (dom e : Lean.Expr) : Option (Nat × Lean.Expr) :=
@@ -4828,7 +4840,7 @@ def machNormApLift (senv : StructEnv) (e : Lean.Expr) : Lean.Expr :=
 /-- A `Bool`-valued lambda over a `BitVec` Signal `a` of width `wa`: an
     equality of lifted operands (`x == y`, `Signal.beq`), under `!`
     (`~~~`, the Signal's Bool complement). -/
-partial def machBoolMap (senv : StructEnv) (dom a : Lean.Expr) (wa : Nat) :
+def machBoolMap (senv : StructEnv) (dom a : Lean.Expr) (wa : Nat) :
     Lean.Expr → Option Lean.Expr
   | .app (.const c _) x =>
     if c == ``Bool.not || c == ``not then do

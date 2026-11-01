@@ -4796,3 +4796,9 @@ lean_lib «Tools.ShippingN3ExternAgree» where
 
 lean_lib «Tests.Gen3.N3AgreeCheck» where
   roots := #[`Tests.Gen3.N3AgreeCheck]
+
+lean_lib «Tools.PartialTotal.Agree» where
+  roots := #[`Tools.PartialTotal.Agree]
+
+lean_lib «Tests.Gen3.PartialTotalCheck» where
+  roots := #[`Tests.Gen3.PartialTotalCheck]
