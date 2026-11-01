@@ -85,3 +85,58 @@ theorem nested_trace (senv : StructEnv) (nDecl n : Nat)
 ```
 * 内容: `inInner` で失敗 / `cConv dom` / `findSomeO nestedProbe`（共有: 各候補は `cChain (.regs base :: env) body` を呼び、`CtlPh` の nested 節から保存済みの `v` の `InRange` / `NoLoose` を単調性で持ち上げる）/ `machReserve`（`machReserve_some` + `trInv_reserved`）/ `cChain`（`inInner := true` の状態）/ `ws ++` と nested の push（`reachC_ws` + `trInv_pushNested`）。
 * 前提: なし。台帳差分 FG -0 +0 / T1 -0 +0。
+
+## 4. Addendum: U-R7 — `instStep`（台帳差分 -0 +0、前提なし、review に出さない）
+
+新ファイル `Tools/ShippingGen5ReaderTraceInst.lean`（+ `Tests/Gen5/ReaderTraceInstCheck.lean`）。`foldO` の帰納は、REV5 表の「`foldO_js_length` 相当は新規かも」のとおりこの単位で自前に証明する（js の長さを数える依存付き帰納。既存名はこの調査では見つからなかった）。LiftAgrees / RootFloatAgrees / SigTyClosed は使わない。
+```lean
+def InstFold (senv : StructEnv) (nDecl : Nat) (st0 : MachRead) (p : List Nat × MachRead) : Prop :=
+  Adv st0 p.2 ∧ FReachC nDecl st0 p.2 ∧ TrInv senv nDecl p.2 ∧ ∀ a ∈ p.1, a < p.2.lets.size
+
+def nonDom : MixedGateBinder → Nat
+  | .domain => 0
+  | _ => 1
+
+theorem inRange_machInstOut {nDecl k' kk : Nat} {st : MachRead} (h : k' < st.insts.size) :
+    InRange nDecl st kk (machInstOut k')
+theorem trInv_letIndex {senv : StructEnv} {nDecl : Nat} {st : MachRead} (hTr : TrInv senv nDecl st) {nm : Name}
+    {kd : MixedGateBinder} {v' : Lean.Expr} (h : InRange nDecl st st.lets.size v') (hn : NoLoose 0 v') :
+    TrInv senv nDecl { st with lets := (machLetIndex nm kd v' st.lets).2 }
+theorem trInv_dom {senv : StructEnv} {nDecl : Nat} {st : MachRead} (hTr : TrInv senv nDecl st) {v' : Lean.Expr}
+    (h : InRange nDecl st st.lets.size v') (hn : NoLoose 0 v') :
+    FReachC nDecl st { st with dom := some v' } ∧ TrInv senv nDecl { st with dom := some v' }
+theorem trInv_pushInst {senv : StructEnv} {nDecl : Nat} {st : MachRead} (hTr : TrInv senv nDecl st)
+    (c : Name) (js : List Nat) (r : MixedGateBinder) (o : Sparkle.Compiler.MachInstOrigin.InstOrigin) (f : String)
+    (hj : ∀ a ∈ js, a < st.lets.size) (hr : r ≠ .domain)
+    (ho : ∀ cb aw dw, o = .mem cb aw dw → js.length = 4 ∧ r = .bits dw) (hf : ∀ i, o ≠ .field i) :
+    FReachC nDecl st { st with insts := st.insts.push (c, js, r), instFields := st.instFields.push f,
+                               instOrigins := st.instOrigins.push o } ∧
+    TrInv senv nDecl { st with insts := st.insts.push (c, js, r), instFields := st.instFields.push f,
+                               instOrigins := st.instOrigins.push o }
+
+theorem instArg_trace (senv : StructEnv) (nDecl n : Nat) (hT : TraceGood senv nDecl (readF senv n))
+    (env : List MachVal) (k : Nat) {st0 : MachRead} (hE0 : EnvOk st0.lets.size env) (hEp0 : EnvPh nDecl st0 env)
+    (kind : MixedGateBinder) (arg : Lean.Expr) (harg : NoPh arg = true ∧ BvarLt (env.length + nDecl) arg = true)
+    (js : List Nat) (st : MachRead) (hI : InstFold senv nDecl st0 (js, st)) :
+    SatP (readF senv n) (fun p : List Nat × MachRead => InstFold senv nDecl st0 p ∧ p.1.length = js.length + nonDom kind)
+      (instArg env k (js, st) (kind, arg))
+
+theorem instFold_trace (senv : StructEnv) (nDecl n : Nat) (hT : TraceGood senv nDecl (readF senv n))
+    (env : List MachVal) (k : Nat) {st0 : MachRead} (hE0 : EnvOk st0.lets.size env) (hEp0 : EnvPh nDecl st0 env) :
+    ∀ (l : List (MixedGateBinder × Lean.Expr)), (∀ a ∈ l, NoPh a.2 = true ∧ BvarLt (env.length + nDecl) a.2 = true) →
+    ∀ (js : List Nat) (st : MachRead), InstFold senv nDecl st0 (js, st) →
+      SatP (readF senv n) (fun p : List Nat × MachRead => InstFold senv nDecl st0 p ∧
+          p.1.length = js.length + (l.map fun a => nonDom a.1).sum)
+        (foldO (instArg env k) (js, st) l)
+
+theorem inst_trace (senv : StructEnv) (nDecl n : Nat) (hT : TraceGood senv nDecl (readF senv n))
+    (env : List MachVal) (c : Name) (org : Sparkle.Compiler.MachInstOrigin.InstOrigin)
+    (kinds : List MixedGateBinder) (res : MixedGateBinder) (args : List Lean.Expr) (st : MachRead)
+    (hpre : TracePre senv nDecl (Call.inst env c org kinds res args st))
+    (r : (Call.inst env c org kinds res args st).Res)
+    (hv : (instStep env c org kinds res args st).run (readF senv n) = some (some r)) :
+    FReachC nDecl st (callOut (Call.inst env c org kinds res args st) r) ∧
+    PhPost senv nDecl (Call.inst env c org kinds res args st) r
+```
+* `trInv_pushInst` の `hf` は `GroupsPh` の `.field 0` 節に新しい entry が当たらないための条件（`PhPre inst` の origin は `ord` か `mem`）。`inst_trace` の `args.length = kinds.length` は `PhPre inst` に無いので使わず、`kinds.zip args` の `mem` の場合の長さ 4 は `PhPre` の `kinds = [domain, bits aw, bits dw, bool, bits aw] ∧ args.length = 5` から数える。
+* 前提: なし。台帳差分 FG -0 +0 / T1 -0 +0。
