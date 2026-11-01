@@ -1,6 +1,6 @@
 import Tools.ShippingGen5AccGenDataKit
 set_option autoImplicit false
--- NOT BUILT (draft; freeze scripts/gen5/GDCOVER01_FREEZE.md). No sorry / axiom / native_decide.
+-- Pod target build OK at f6ba6a98 (`kjob lake build Tools.ShippingGen5GDCover0`, exit 0, 744 jobs). Clean build is the coder's. No sorry / axiom / native_decide. Freeze scripts/gen5/GDCOVER01_FREEZE.md.
 
 /-! # G0: `genDataC`, `genDataC_isSome_iff`, `reachCover_iff_sdw`, `peel_of_machineShape` (scripts/gen5/GDCOVER01_FREEZE.md)
 

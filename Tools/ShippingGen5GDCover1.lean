@@ -1,7 +1,7 @@
 import Tools.ShippingGen5Cover5
 import Tools.ShippingGen5DataOfDims
 set_option autoImplicit false
--- NOT BUILT (draft; freeze scripts/gen5/GDCOVER01_FREEZE.md). No sorry / axiom / native_decide.
+-- Pod target build OK at f6ba6a98 (`kjob lake build Tools.ShippingGen5GDCover1`, exit 0, 734 jobs). Clean build is the coder's. No sorry / axiom / native_decide. Freeze scripts/gen5/GDCOVER01_FREEZE.md.
 
 /-! # G1 + W1 (scripts/gen5/GDCOVER01_FREEZE.md): the state-side witness of one production run, and `ShapeAgree d st` for the SAME `st`
 
