@@ -4958,3 +4958,9 @@ lean_lib «Tests.Gen5.ReaderTraceExtractCheck» where
 
 lean_lib «Tools.Assume.EnvSigTy» where
   roots := #[`Tools.Assume.EnvSigTy]
+
+lean_lib «Tools.ShippingGen5ReaderTraceSigTy» where
+  roots := #[`Tools.ShippingGen5ReaderTraceSigTy]
+
+lean_lib «Tests.Gen5.ReaderTraceSigTyCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceSigTyCheck]
