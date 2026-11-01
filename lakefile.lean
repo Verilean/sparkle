@@ -4962,6 +4962,12 @@ lean_lib «Tools.Assume.EnvSigTy» where
 lean_lib «Tools.Assume.EnvInstS» where
   roots := #[`Tools.Assume.EnvInstS]
 
+lean_lib «Tools.ShippingGen5ReaderTraceInstS» where
+  roots := #[`Tools.ShippingGen5ReaderTraceInstS]
+
+lean_lib «Tests.Gen5.ReaderTraceInstSCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceInstSCheck]
+
 lean_lib «Tools.ShippingGen5ReaderTraceSigTy» where
   roots := #[`Tools.ShippingGen5ReaderTraceSigTy]
 
