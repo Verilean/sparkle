@@ -25,12 +25,10 @@
     "Tools.ShippingN3ExternAgree.rawNode_ok0"
   ],
   "forbidden": [
-    "Tools.ShippingGen2.T1Hyp",
-    "Tools.ShippingGen2.Laws",
     "Tools.Prototype.RawNodeRangeLetOk.LiftLooseRange",
     "Tools.Prototype.RawNodeRangeLetOk.LowerLooseRange"
   ],
   "forbidden_modules": [],
-  "inherited": "残る: Tools.Assume.N3Extern の LiftAgrees0 / LowerAgreesEq / ZeroLitAgrees0(Prop の def、C++ extern の振る舞い仮定、LetOk 0 の入力に限定。仮定専用モジュールで allowed_paths の外なので candidate では変更できない)、BetaRange(T1L-57)。範囲外: ArgSupply15 以降(rawNodeRange_structEnv 等)、下流差し込み(ZeroLitAgrees0 を machineShapeN_lets'' 側へ)、実コーパス差分テスト、Inst1Range0、T1L-50/51/57。forbidden の LiftLooseRange / LowerLooseRange(RawNodeRangeLetOk)は range を仮定の型として直接使う旧 rawNode_ok の経路が root から到達しないことを示す名前(LiftLooseRange0 / LowerLooseRangeEq / ZeroLitRange0 は r1/r2/r3 の結論として到達してよい補題)。",
+  "inherited": "残る: Tools.Assume.N3Extern の LiftAgrees0 / LowerAgreesEq / ZeroLitAgrees0(Prop の def、C++ extern の振る舞い仮定、LetOk 0 の入力に限定。仮定専用モジュールで allowed_paths の外なので candidate では変更できない)、BetaRange(T1L-57)。範囲外: ArgSupply15 以降(rawNodeRange_structEnv 等)、下流差し込み(ZeroLitAgrees0 を machineShapeN_lets'' 側へ)、実コーパス差分テスト、Inst1Range0、T1L-50/51/57。forbidden の LiftLooseRange / LowerLooseRange(RawNodeRangeLetOk)は range を仮定の型として直接使う旧 rawNode_ok の経路が root から到達しないことを示す名前(LiftLooseRange0 / LowerLooseRangeEq / ZeroLitRange0 は r1/r2/r3 の結論として到達してよい補題)。 forbidden から Tools.ShippingGen2.T1Hyp / Laws を外した理由: target の import closure に無く、checker が base で名前を見つけられない(ManifestError)。import は proof-accept の imports 検査で base と同じであることを確認するので、これらに到達しないことはそちらで担保される。",
   "meaning": "scripts/gen3/N3_EXTERN_MIN.md rev2(bb665fa2)§3.4.2: T1L-54/55/56 の trust 文が range(ZeroLitRange0 / LiftLooseRange0 / LowerLooseRangeEq)から等式(ZeroLitAgrees0 / LiftAgrees0 / LowerAgreesEq)に置換され、range は lowerGo_ok / lowerSpec_ok / r1 / r2 / r3 で導かれる補題になる。rawNode_ok_of_agrees は rawNode_ok の仮説を等式に替えた接続。台帳は置換で正味 0(FG 102 / T1 57 のまま)。等式仮定が C++ の実挙動と一致することの証明ではない(差分テストも証明ではない)。"
 }
