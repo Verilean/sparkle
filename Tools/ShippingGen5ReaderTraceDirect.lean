@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceShapeIn
 import Tools.PartialTotal.Agree
 import Tools.Prototype.NormRangeLetOk
 set_option autoImplicit false
--- NOT BUILT: first draft, not yet built.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceDirect, exit 0) on the tree of 8c4f49c965944dc41e9437ac46bdd058de3706b5 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE: `shapeInputs_of_direct` (freeze rev19 `scripts/gen5/DG_READERTRACE_FREEZE_REV19.md` §2-§3)
 
