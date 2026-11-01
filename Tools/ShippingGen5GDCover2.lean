@@ -1,6 +1,7 @@
 import Tools.ShippingGen5GDCover0
 import Tools.ShippingGen5GDCover1
 set_option autoImplicit false
+-- Pod target build OK at 7fc1a6ba (`kjob lake build Tools.ShippingGen5GDCover2`, exit 0, 776 jobs). Clean build is the coder's. No sorry / axiom / native_decide. Freeze scripts/gen5/GD_G2_FREEZE.md.
 
 namespace Tools.ShippingGen5GDCover2
 open Lean Sparkle.Compiler.Elab Tools.ShippingGen5Cover3 Tools.ShippingReaderFuel Tools.ShippingReaderLenOk

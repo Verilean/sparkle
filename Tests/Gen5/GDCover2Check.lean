@@ -1,6 +1,7 @@
 import Tools.ShippingGen5GDCover2
 import Tests.Gen5.AccCheck
 set_option autoImplicit false
+-- Pod target build OK at 7fc1a6ba (`kjob lake build Tests.Gen5.GDCover2Check`, exit 0, 779 jobs): TYPE 4 / MUTANT 9 (single 7 + compound 2; signature/defeq rejection, not semantic) / POSITIVE 1 / AXIOMS 4 standard / CLOSURE 4939 consts, unknown 0. 3 intended sorry warnings = walker negatives. Clean build is the coder's.
 
 /-! # G2 checks (Tools/ShippingGen5GDCover2.lean; freeze scripts/gen5/GD_G2_FREEZE.md)
 
