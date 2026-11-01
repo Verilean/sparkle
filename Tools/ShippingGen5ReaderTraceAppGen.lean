@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceReg
 import Tools.ShippingGen5ReaderTraceIota
 set_option autoImplicit false
--- NOT BUILT: written against freeze rev7 `scripts/gen5/DG_READERTRACE_FREEZE_REV7.md` §3 (U-R4d); build result and clean issue-linked build pending. No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceAppGen, exit 0) on the tree of d3437c63173007552dfe8fe7715d214c348bb7da (this header is comment-only). Written against freeze rev7 `scripts/gen5/DG_READERTRACE_FREEZE_REV7.md` §3 (U-R4d); clean issue-linked build pending (coder). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R4d: the general `app` arm of `convStep`
 
