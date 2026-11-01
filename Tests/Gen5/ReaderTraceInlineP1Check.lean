@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceInlineP1
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- NOT BUILT (header to be replaced by a comment-only commit with the built SHA). Clean build is the coder's.
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceInlineP1Check, exit 0; TYPE 15 / MUTANT 8 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 15 standard only / POSITIVE 7 / CLOSURE OK) on the tree of 72ba7d9c18241faa708b3e6037be8ff9144860cb (Lean content identical; header comment-only). Clean build is the coder's.
 
 /-! # RT inline P1 checks (Tools/ShippingGen5ReaderTraceInlineP1.lean)
 

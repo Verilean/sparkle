@@ -1,6 +1,6 @@
 import Tools.ShippingGen5ReaderTraceDirect
 set_option autoImplicit false
--- NOT BUILT (header to be replaced by a comment-only commit with the built SHA). Clean build is the coder's. Written against `scripts/gen5/RT_INLINE_P1_FREEZE.md` (types copied from its #check output). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceInlineP1, exit 0) on the tree of 72ba7d9c18241faa708b3e6037be8ff9144860cb (Lean content identical; this header is comment-only). Clean build is the coder's. Written against `scripts/gen5/RT_INLINE_P1_FREEZE.md` (types copied from its #check output). No sorry / axiom / native_decide in source.
 
 /-! # RT inline P1: `inlineDefs` and its parts preserve `NoPh ∧ BvarLt` (freeze `scripts/gen5/RT_INLINE_P1_FREEZE.md`)
 
