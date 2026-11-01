@@ -1022,3 +1022,17 @@ theorem factsOf_genS_assembled''
 - 候補 D（C.SM-1）は reviewer 裁定で 0（`dataOfAt_sound` は被覆を作らない）。§11.5 の第 2 は起こさない。
 - その後の調査 `scripts/gen5/GENDATA_COVER_SURVEY.md`（b68e83bd、reviewer 承認）: C.AC-4 / C.SM-6 / C.DG-1 は、この調査で辿った候補経路では未供給。正の純差分の候補なし。
 - 合算していない（§9.3 のとおり、FG と T1 は数え方が違う）。
+
+### 12.1 追記（2026-11-02、coder。文書のみ）
+
+§12 の FG 102 の後に、reviewer の承認で次の増減を反映した。
+
+| 変更 | 行 | 根拠 |
+|---|---|---|
+| +1 | `SigTyClosed`（`instS` の型閉性、C0 共有環境の名前付き条件。EnvTypesFVarFree より強い別条件） | reader-trace rev9 0e7b1723 承認、登録 4d6b9719（`Tools/Assume/EnvSigTy.lean`） |
+| +1 | `InstSFieldsDet`（同じ `instS` 署名の任意 args 間で `machOuts` の fields 数一致、C0 共有環境） | reader-trace rev12 bdb4d79b 承認（案 A）、登録 206c39a2（`Tools/Assume/EnvInstS.lean`） |
+| −1 | C.CV-1（ユーザー判断 D4 選択肢 1 で文を `LetQuoteEqC` に改訂した後の行） | 改訂 freeze 7f45fb24、改訂 Lean 954bc981、witness `letQuoteEqC_witness` 65c5f644（Lean 973d6db8、clean build w3v-65c5f644）。reviewer: dataOfAt の成功・machineShape? の結果・既存 C.CV-4 の下で同じ st の完全な述語を返し、rowC_of_reader_canon の hqC を供給する |
+
+- **現在値: FG 103**（102 + 2 − 1）。T1 は **54** のまま。
+- 残る: C.CV-4 の証明と本番 fuel への適用、dataOfAtP、FullInv / LetsNoLoose。loop path 2/3 は定理の仮説を満たす全 st を含む構造上の帰結で、実行試験ではない。
+- SigTyClosed と InstSFieldsDet は DG-ENV（sparkle-gen5-dg-env）と同じ置き場所で、一度だけ数える。
