@@ -234,3 +234,43 @@ C.CV-2 と C.CV-3 が 2 行として別個に消えるか、または粗い束�
 3. §4 の切り分け（U-R12 は G8 の範囲の入力を供給するが C-QWIT 本体を供給しない。`TracePost` は変えない）。
 
 N1〜N4 の扱い（採用する / helper ごとに分解する / `ShapeInputs` を 1 つの名前付き前提のまま FG に載せる / 先送りする）は、この rev14 の承認とは分け、reviewer が 1 回で選べるよう次の rev で U-R12a/b の build 結果を添えて出す。**先送りの場合の影響: U-R12a/b は進む。FG 受理側で `ShapeInputs` が残る。**
+
+## 10. 追記（rt18、2026-11-01）: `shapeStart_trace` と U-R12b は rev14 の型のままでは進められない（review に出す）
+
+**台帳: FG 104 / T1 54（今回 FG -0 +0 / T1 -0 +0）。この追記は台帳を 1 行も変えない。**以下の選択肢のうち、台帳に影響し得るもの（選択肢 B）は採用せず、数えていない。
+
+### 10.1 実装したもの（rev14 の型どおり。新しい前提なし）
+
+`Tools/ShippingGen5ReaderTraceShape.lean`（+ `Tests/Gen5/ReaderTraceShapeCheck.lean`、`lakefile.lean` に `lean_lib` 2 件）、コミット 8ba8bf09、Pod build 済み（`kjob lake build` を 1 つずつ）:
+`MidInputs`（`DomAtomic` なしの rev14 版）、`ShapeInputs`、`ShapeCarry`、`shapeCarry_empty`、`shapeRootLet_trace`、`rootLets_trace`、`shapeBody_trace`。
+COUNTS: `Tools.ShippingGen5ReaderTraceShape` exit 0（771 jobs）/ `Tests.Gen5.ReaderTraceShapeCheck` exit 0（773 jobs）: TYPE 7（3 つの `def` は値で、4 つの定理は型で比較）、MUTANT 5（signature / defeq での棄却で、意味的反例ではない）、AXIOMS 7（標準 3 つのみ）、CLOSURE OK 5214 constants from 7 roots（sorryAx なし。Check 内の sorry 警告は in-memory の負の対照）。Tools 側に sorry / axiom / native_decide なし。clean build は coder。
+
+### 10.2 実装できていないもの: `shapeStart_trace`（したがって `machineShapeF_reach`、`machineShapeF_reach_of_premises`）
+
+**事実（Lean のコードを読んだ範囲）。** `shapeStart` は `wConv (units) 0 dom {}` の結果 `(dom', stc)` の**状態 `stc` を捨て**、`machReserve … dom' … ({} : MachRead)` を**空の状態 `{}`** に対して実行する（`ShippingReaderFuelShape.lean` の `shapeStart`）。したがって `st0 = reserved {} dom' body kinds inits`。`TrInv senv nDecl st0` の `DomPh` は `InRange nDecl st0 st0.lets.size dom'` を要し、`st0.lets.size = 0`、`st0.insts.size = 0` なので、`dom'` が `_machLet` / `_machInst` を**一つも含まない**ことが要る。一方 `hT` が与えるのは `InRange nDecl stc stc.lets.size dom'`（捨てられた `stc` に対する範囲）で、`stc.lets.size` / `stc.insts.size` は 0 とは限らない（`conv` は let を束縛し得る）。`RdOk st0` の `LetOk 0 dom'` も同じ理由で `hT` からは出ない。
+この調査では、`hT`・`MidInputs` の rev14 版・既存の補題から、`InRange nDecl {} 0 dom'` を出す経路は見つからなかった（不可能という主張ではない）。
+
+**rev14 §0 の 4 点目の訂正。** 「`DomAtomic` は `CtlPh / PhPre / trInv_reserved` のどこにも使われない」は、上の理由で**誤り**だった。`DomAtomic`（rev0 `DG_READERTRACE_FREEZE.md` §3.3、F4）は、まさにこの「`shapeStart` が `dom` の変換状態を捨てる」ことへの入力条件として置かれたもの（`DomAtomic e := (∃ j, e = .bvar j) ∨ (∃ c ls, e = .const c ls)`）で、`CtlPh` ではなく `shapeStart_trace` の証明で使う。rev14 でこれを外した変更（「弱化」）は、`shapeStart_trace` の結論を支えなくする。
+
+`shapeRootLet_trace` / `rootLets_trace` / `shapeBody_trace` は `dom'` を使わないので、この問題の影響を受けず、上のとおり実装済み。
+
+### 10.3 選択肢
+
+| 案 | 内容 | 台帳 | 影響・コスト | 可逆性 |
+|---|---|---|---|---|
+| A（推奨） | `MidInputs` の run 節に `DomAtomic dom` を戻す（rev0 の形）。`shapeStart_trace` では `readF senv (n'+1) (conv units 0 dom {})` を `dom` が bvar / const の場合に直接展開し、`dom' = machIn (j - rootLets.length)`（`j < rootLets.length` は `convBvar` が `unit` で失敗するので成功 run と矛盾）または `dom' = dom`（const）で、状態 `stc = {}` を示す。`InRange nDecl {} 0 dom'` は `inRange_machIn`（`j - len < nDecl` は `BvarLt (len + nDecl)` から）と const の自明性 | 0 / 0（`ShapeInputs` は定理の仮定で台帳の行ではない。ただし `ShapeInputs` が**強くなる**ので、U-R12c の供給側でも「受理されたソースの `dom` が bvar か const」を示す必要がある。**この調査では、その供給元は確認していない**。N1〜N4 と同じく別の判断に残す） | 追加の証明は `readF` の bvar / const 腕の 1 段展開のみ（trace 不要）。`MidInputs` の型が rev14 から変わる（`DomAtomic` を戻す） | 可逆（型を再び弱めればよい） |
+| B | `dom'` の範囲を出力側の名前付き条件にする: `∀ dom' stc, machConvF n senv (units) 0 dom {} = some (some (dom', stc)) → InRange nDecl {} 0 dom'`（`n` に依存。`ShapeInputs` の節か `shapeStart_trace` の仮定） | 新規の条件（FG +1 見込み。既存行との照合は未、数えない） | 証明は軽いが、リーダーの出力についての新しい前提になる。ユーザー方針（前提の追加を避ける）に反し得る | 可逆 |
+| C | `shapeStart_trace` を諦め、`DomPh` を `ShapeCarry` から外す | — | `TrInv` の定義（承認済み・共有）の変更になるので不可（FG の縮小にも当たり得る） | — |
+| D | 判断を待つ間 U-R12a の残りと U-R12b は止める | 0 / 0 | U-R12b（`machineShapeF_reach`）、C.RT-2 / C.CV-2 / C.CV-3 の台帳候補（§6）が止まる | — |
+
+推奨は A。理由: 新しい前提を増やさず、rev0 の設計意図（F4）に戻すだけで、証明の追加も `readF` の 1 段展開に限られるため。ただし `ShapeInputs` を満たすべき入力が増える（強化）ので、reviewer の判断が要る。
+
+### 10.4 reviewer への依頼
+
+1. 10.2 の訂正（rev14 §0 の 4 点目の取り下げ）の確認。
+2. 10.3 の A / B / D の選択（C は不可）。A なら、`MidInputs` に `DomAtomic dom` を戻した型で、`shapeStart_trace` / U-R12b を実装してよいか。
+3. 10.1 の実装済み部分（rev14 の型どおり、新しい前提なし）の Lean レビューは、clean build（coder）の後。
+
+### 10.5 主張しないこと
+
+`ShapeInputs` / `DomAtomic` が受理されたソースで成り立つこと。`hT` の 6 つの名前付き仮説の真偽。台帳の行が消えること。U-R12c の構造補題（`mixedGatePeel_ph` 等）は未着手（この追記の判断とは独立で、前提なし部分として後で進められる）。
