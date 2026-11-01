@@ -5047,3 +5047,6 @@ lean_lib «Tools.Assume.ExprEqv» where
 
 lean_lib «Tools.ShippingGen5ReaderTraceDomKeepF» where
   roots := #[`Tools.ShippingGen5ReaderTraceDomKeepF]
+
+lean_lib «Tools.ShippingGen5ReaderTraceDomKeepS» where
+  roots := #[`Tools.ShippingGen5ReaderTraceDomKeepS]
