@@ -5015,3 +5015,9 @@ lean_lib «Tools.ShippingGen5ReaderTraceLoopRoot» where
 
 lean_lib «Tests.Gen5.ReaderTraceLoopCheck» where
   roots := #[`Tests.Gen5.ReaderTraceLoopCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceShape» where
+  roots := #[`Tools.ShippingGen5ReaderTraceShape]
+
+lean_lib «Tests.Gen5.ReaderTraceShapeCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceShapeCheck]
