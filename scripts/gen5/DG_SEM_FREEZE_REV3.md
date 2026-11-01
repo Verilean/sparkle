@@ -312,3 +312,19 @@ Ownership of `genS` / `genSem_local` / `GenIn.wf` coverage: unchanged from rev2 
 - MUTANT results elsewhere in this issue are signature/defeq rejections, not semantic counterexamples.
 - No FG/M5 completion; no change to FG, a shared definition, the compiler, or any law; no coverage narrowing.
 - Other agents' in-flight work (SRC-ARGW `kjob/g3aw-impl`, READKINDS `kjob/g5rk-impl`, M4) was not touched or duplicated.
+
+## 6. Record: freeze → implementation changes (U3 audit, `Tests/Gen5/SemGenCheck.lean`)
+**Mutants (§1.4 planned vs. implemented).** All are signature/defeq rejections by `checkMutant`, **not** semantic counterexamples.
+| freeze §1.4 (planned) | implemented | change |
+|---|---|---|
+| m1 `refBodyE` returns `sigListOfFn _ (fun _ => g.inits)` | `MutWritesShift`: the `writes` statement reads `typedVal … (t+1) (S.val (t+1))` | replaced; the planned `refBodyE` mutant is not implemented; the shift is on the `writes` statement (this also covers planned m3's idea, but on the statement, not on `valAtE`) |
+| m2 `genSemGenE` with `obsR := fun _ _ => []` | `MutSourceEmpty`: the `source` statement says `src … = []` | changed from a mutated definition to a mutated statement |
+| m3 `valAtE` reading `S.val (t+1)` | (merged into `MutWritesShift`) | no separate `valAtE` mutant |
+| — (not planned) | `MutResultReversed`: `result` with `g.d.outs.reverse` | added |
+**Closure audit (reviewer R1).** `closureOf` no longer uses `ci.value?`: it reads `thmInfo.value`, `defnInfo.value`, `opaqueInfo.value` and the type of every kind; an unknown name fails
+(`GEN5 CLOSURE FAILED: unresolved`), opaque and body-less kinds are recorded and logged. Scope recorded: kernel-level constant references only; an opaque's logical value is followed
+but its `implemented_by`/`extern`/compiled code is not (in the unit's closure the only opaque is `String.Internal.append`). Same detector, controls: forbidden direct use,
+via `opaque`, via helper theorem and helper def in other namespaces — all detected; three unrelated clean roots — not flagged. The forbidden list now also has `Lean.reduceBool/reduceNat`.
+Reach: `genSemGenE_writes` reaches `valsAt_sigListOfFn` (P1) and `reconState_mkHolds` (P2); `genSemGenE_result` reaches P2 and `List.map_map`; `genSemGenE_source` reaches `refBodyE`/`genSemGenE`.
+The earlier CLOSURE 662 is superseded (new count 1364 because types of body-less kinds are now also walked); the axiom audit (AXIOMS 10, standard only) is a separate, unchanged check.
+This is a Pod build (`kjob lake build Tests.Gen5.SemGenCheck`, exit 0); the clean focused build is the coder's. No definition or proof of U3 changed.

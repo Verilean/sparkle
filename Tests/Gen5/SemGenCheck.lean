@@ -1,7 +1,7 @@
 import Tools.ShippingGen5SemGen
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Built in g5sm-u3 at 4ebc4067 (Pod `kjob lake build`, exit 0; SemGenCheck: TYPE 5, MUTANT 3, AXIOMS standard, CLOSURE OK). Clean build is the coder's. No sorry / axiom / native_decide.
+-- Built in g5sm-aud at 3c2e14cb (Pod `kjob lake build Tests.Gen5.SemGenCheck`, exit 0; TYPE 5, MUTANT 3, AXIOMS standard, CLOSURE OK + CONTROLS OK + REACH OK). Clean build is the coder's. No sorry / axiom / native_decide.
 
 /-! # DG-SEM unit U3 (P3) checks (Tools/ShippingGen5SemGen.lean; scripts/gen5/DG_SEM_FREEZE_REV3.md §1, §1.4)
 
@@ -112,31 +112,114 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       ``valAtE, ``nextFnE, ``resultFnE, ``GenWF, ``kDOf] do
     checkAxioms n
 
--- Closure audit: the constants the unit mentions (transitively, through definitions and theorems) do not include forbidden ones.
-partial def closureOf (env : Environment) (root : Name) : StateT NameSet MetaM Unit := do
-  if (← get).contains root then return
-  modify (·.insert root)
+/-! ## Closure audit (separate from the axiom audit)
+
+`closureOf` walks the constants a root mentions, reading the type AND the body explicitly per kind (`thmInfo.value`, `defnInfo.value`,
+`opaqueInfo.value`). Nothing is skipped silently: a name the environment does not know, an `opaque` (whose logical `value` is followed but whose
+`@[implemented_by]` / `@[extern]` target and compiled code are NOT), and the kinds that carry no body (axiom, quot, inductive, constructor,
+recursor — their *type* is walked) are recorded in the result and logged. Scope: kernel-level constant references of types and bodies in the
+current environment; not source text, not compiled IR, not instances resolved at run time. -/
+
+structure Closure where
+  seen    : NameSet := {}
+  missing : Array Name := #[]     -- referenced but not found in the environment
+  opaques : Array Name := #[]     -- opaque: logical value followed, implementation target not followed
+  bodyless : Array Name := #[]    -- axiom/quot/inductive/ctor/rec: type only
+  deriving Inhabited
+
+partial def closureOf (env : Environment) (root : Name) : StateT Closure MetaM Unit := do
+  if (← get).seen.contains root then return
+  modify fun c => { c with seen := c.seen.insert root }
+  let walk (e : Expr) : StateT Closure MetaM Unit := do
+    for c in e.getUsedConstants do closureOf env c
   match env.find? root with
-  | none => pure ()
+  | none => modify fun c => { c with missing := c.missing.push root }
+  | some (.thmInfo v) => walk v.type; walk v.value
+  | some (.defnInfo v) => walk v.type; walk v.value
+  | some (.opaqueInfo v) =>
+    modify fun c => { c with opaques := c.opaques.push root }
+    walk v.type; walk v.value
   | some ci =>
-    for c in ci.type.getUsedConstants do closureOf env c
-    match ci.value? with
-    | some v => for c in v.getUsedConstants do closureOf env c
-    | none => pure ()
+    modify fun c => { c with bodyless := c.bodyless.push root }
+    walk ci.type
+
+/-- Closure of `roots`; fails (never silently succeeds) if a referenced constant is unknown. -/
+def closureRun (roots : List Name) : MetaM Closure := do
+  let env ← getEnv
+  let (_, c) ← (roots.forM (closureOf env)).run {}
+  unless c.missing.isEmpty do
+    throwError "GEN5 CLOSURE FAILED: unresolved constants {c.missing}"
+  return c
+
+def forbiddenConsts : List Name :=
+  [``sorryAx, ``Lean.ofReduceBool, ``Lean.trustCompiler, ``Lean.reduceBool, ``Lean.reduceNat]
+
+def forbiddenIn (c : Closure) : List Name := forbiddenConsts.filter c.seen.contains
+
+/-- Detector control entry: the forbidden constants the closure of `roots` reaches. -/
+def detect (roots : List Name) : MetaM (List Name) := do return forbiddenIn (← closureRun roots)
+
+-- Controls (no sorry / native_decide: the forbidden constants are only *referenced*; the deprecation lint is silenced for them).
+set_option linter.deprecated false
+namespace Ctl
+theorem direct : ∀ a b, Lean.reduceBool a = b → a = b := fun a b h => Lean.ofReduceBool a b h
+opaque viaOpaque : Nat := Lean.reduceNat 1
+namespace OtherNs
+theorem helperThm : ∀ a b, Lean.reduceBool a = b → a = b := fun a b h => Lean.ofReduceBool a b h
+def helperDef : Nat := Lean.reduceNat 2
+end OtherNs
+namespace ThirdNs
+theorem viaThm : ∀ a b, Lean.reduceBool a = b → a = b := OtherNs.helperThm
+theorem viaDef : OtherNs.helperDef = OtherNs.helperDef := rfl
+end ThirdNs
+def helperClean : Nat := 3
+theorem cleanThm : helperClean + 1 = 4 := rfl
+namespace Unrelated
+def cleanHelper (n : Nat) : Nat := n + 1
+theorem cleanFact : cleanHelper 1 = 2 := rfl
+end Unrelated
+theorem cleanVia : Unrelated.cleanHelper 1 = 2 := Unrelated.cleanFact
+end Ctl
+set_option linter.deprecated true
 
 run_cmd Lean.Elab.Command.liftTermElabM do
-  let env ← getEnv
+  -- negative controls: must be DETECTED
+  for (r, want) in [(``Ctl.direct, ``Lean.ofReduceBool), (``Ctl.viaOpaque, ``Lean.reduceNat),
+      (``Ctl.ThirdNs.viaThm, ``Lean.ofReduceBool), (``Ctl.ThirdNs.viaDef, ``Lean.reduceNat)] do
+    let f ← detect [r]
+    unless f.contains want do throwError "GEN5 CLOSURE CONTROL FAILED: {r} not detected as reaching {want} (got {f})"
+  -- clean controls: must NOT be flagged
+  for r in [``Ctl.cleanThm, ``Ctl.cleanVia, ``Ctl.Unrelated.cleanFact] do
+    let f ← detect [r]
+    unless f.isEmpty do throwError "GEN5 CLOSURE CONTROL FAILED: clean {r} falsely flagged {f}"
+  logInfo m!"GEN5 CLOSURE CONTROLS OK: 4 forbidden uses detected (direct, opaque body, helper theorem and helper def in another namespace), 3 clean roots not flagged"
+
+run_cmd Lean.Elab.Command.liftTermElabM do
   let roots := [``genSemGenE_writes, ``genSemGenE_result, ``genSemGenE_source, ``genSemGenE]
-  let (_, seen) ← (roots.forM (closureOf env)).run {}
-  let forbidden : List Name := [``sorryAx, ``Lean.ofReduceBool, ``Lean.trustCompiler]
-  for f in forbidden do
-    if seen.contains f then throwError "GEN5 CLOSURE FAILED: forbidden constant {f}"
+  let c ← closureRun roots
+  let f := forbiddenIn c
+  unless f.isEmpty do throwError "GEN5 CLOSURE FAILED: forbidden constants {f}"
   -- the unit does not mention the (unbuilt) suppliers
-  for n in seen.toList do
+  for n in c.seen.toList do
     let s := n.toString
     if (s.splitOn "dataOf").length > 1 || (s.splitOn "genS_some").length > 1 || (s.splitOn "native").length > 1 then
       throwError "GEN5 CLOSURE FAILED: unexpected constant {n}"
-  logInfo m!"GEN5 CLOSURE OK: {seen.toList.length} constants, no forbidden/supplier constant"
+  logInfo m!"GEN5 CLOSURE OK: {c.seen.toList.length} constants (types and bodies read by thm/defn/opaque kind), no forbidden/supplier constant; \
+    opaque ({c.opaques.size}, logical value followed, implemented_by/extern/compiled code not followed): {c.opaques}; \
+    body-less kinds (type only): {c.bodyless.size}; unresolved: 0"
+
+-- Reach: the freeze's dependencies are actually reached from the proofs' bodies.
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let reach (r : Name) (need : List Name) : MetaM Unit := do
+    let c ← closureRun [r]
+    for n in need do
+      unless c.seen.contains n do throwError "GEN5 CLOSURE REACH FAILED: {r} does not reach {n}"
+  reach ``genSemGenE_writes [``Tools.ShippingGen5Sem.valsAt_sigListOfFn, ``Tools.ShippingGen5Sem.reconState_mkHolds,
+    ``Tools.ShippingGen5Sem.refBodyE, ``Tools.ShippingGen5Sem.nextFnE]
+  reach ``genSemGenE_result [``Tools.ShippingGen5Sem.reconState_mkHolds, ``List.map_map,
+    ``Tools.ShippingGen5Sem.refBodyE, ``Tools.ShippingGen5Sem.resultFnE]
+  reach ``genSemGenE_source [``Tools.ShippingGen5Sem.refBodyE, ``Tools.ShippingGen5Sem.genSemGenE]
+  logInfo m!"GEN5 CLOSURE REACH OK: writes -> P1 (valsAt_sigListOfFn) + P2 (reconState_mkHolds); result -> P2 + List.map_map; source -> refBodyE/genSemGenE"
 
 #print axioms genSemGenE_writes
 #print axioms genSemGenE_result

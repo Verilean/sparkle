@@ -2,6 +2,7 @@ import Tools.ShippingGen5T2Dec
 import Tools.ShippingMachineCausal
 set_option autoImplicit false
 -- Built: g5tt-36beb7dc (clean snapshot, exit 0, standard axioms); issue `sparkle-gen5-t2-tie`. No sorry / axiom /
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 -- native_decide.
 
 /-! # T2-POSENC, T2-FIELD (standalone) and T2-TIE / T2-STEP (CONDITIONAL on named D-GEN units)
@@ -218,7 +219,7 @@ theorem callField_at {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (p q : P
     (hmc : Sparkle.IR.Machine.moduleByName dsn.modules r.1.name = some r.1)
     (hrow : FieldRowAt p k r.1) (i : ι) :
     ∃ (k' : Nat) (o : Sparkle.IR.Machine.OutField), q.d.shape.layout.outs[k']? = some o ∧ CallField p q k o := by
-  obtain ⟨-, q0, n, hq0, -, hCS⟩ := hS
+  obtain ⟨-, ⟨q0, n, hq0, -, hCS⟩, -⟩ := hS
   rw [hq] at hq0
   obtain rfl : q = q0 := Option.some.inj hq0
   exact callField_of_outputs p q k r.1 (childRunN_outputs (hCS dsn hDc hmc i)) hrow

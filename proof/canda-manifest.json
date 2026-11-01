@@ -1,0 +1,34 @@
+{
+  "issue": "sparkle-gen5-dg-sem",
+  "unit": "CANDA",
+  "base_sha": "5ce120494231c44be648e2c1b240aa96cad27c23",
+  "toolchain": "leanprover/lean4:v4.32.1",
+  "modules": [
+    "Tools.ShippingGen5AccSemJoin"
+  ],
+  "targets": [
+    "Tests.Gen5.CandACheck"
+  ],
+  "roots": [
+    "Tools.ShippingGen5Acc.hacc_genS",
+    "Tools.ShippingGen5Acc.ordCallees_eq_ordCallees₀",
+    "Tools.ShippingGen5Acc.factsOf_genS_assembled"
+  ],
+  "allowed_paths": [
+    "Tools/ShippingGen5AccSemJoin.lean"
+  ],
+  "aux": [],
+  "forbidden": [
+    "Tools.ShippingGen2.T1Hyp",
+    "Tools.ShippingGen2.T1HypND",
+    "Tools.ShippingGen2.Laws",
+    "Tools.ShippingEnvSnapshot.GetEnvFrame",
+    "Tools.ShippingEntryReadsLinked.EnvSnapshot",
+    "Tools.ShippingGen5Acc.hacc_of_top_runs"
+  ],
+  "forbidden_modules": [
+    "Tools.ShippingGen5T1ND"
+  ],
+  "inherited": "前提として残る（既存行）: hs (C.SM-1)、hev/hloc/hdecl/hd (C.AC-2/C.AC-3)、hinv (C.SM-3)。carrier は GenData / structEnv env₀ / ordCallees₀ に固定。",
+  "meaning": "FG 台帳 C.SM-4（hacc）と C.SM-2（hmem）を固定 carrier の範囲で供給（FG -2 +0）。全 carrier 一般の供給、GenWF / genData₀ 成功、C.SM-3 / C.AC-8 / A.P-24 の減算ではない。hacc_of_top_runs は使わない（freeze §5）。"
+}
