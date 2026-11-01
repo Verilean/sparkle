@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceCtl
 import Tools.ShippingGen5ReaderTraceReg
 set_option autoImplicit false
--- NOT BUILT yet (pending Pod build). Written against freeze rev9 `scripts/gen5/DG_READERTRACE_FREEZE_REV9.md` §2 (U-R4e1: extractor Ph lemmas, no premise); clean issue-linked build pending (coder). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceExtract, exit 0) on the tree of 1e130cf552b475ea1b1d6ccab006d54bd4dcaca0 (Lean content identical; this header is comment-only). Written against freeze rev9 `scripts/gen5/DG_READERTRACE_FREEZE_REV9.md` §2 (U-R4e1: extractor Ph lemmas, no premise); clean issue-linked build pending (coder). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R4e1: `machRunApp?` / `machInstCall?` / `machInstCallS?` (args) / `memCall?` results are `NoPh ∧ BvarLt`
 
