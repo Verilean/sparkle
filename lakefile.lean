@@ -4917,6 +4917,36 @@ lean_lib «Tools.ShippingGen5ReaderTraceChain» where
 lean_lib «Tests.Gen5.ReaderTraceChainCheck» where
   roots := #[`Tests.Gen5.ReaderTraceChainCheck]
 
+lean_lib «Tools.ShippingGen5ReaderTraceApp» where
+  roots := #[`Tools.ShippingGen5ReaderTraceApp]
+
+lean_lib «Tests.Gen5.ReaderTraceAppCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceAppCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceReg» where
+  roots := #[`Tools.ShippingGen5ReaderTraceReg]
+
+lean_lib «Tests.Gen5.ReaderTraceRegCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceRegCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceIota» where
+  roots := #[`Tools.ShippingGen5ReaderTraceIota]
+
+lean_lib «Tools.ShippingGen5ReaderTraceLift» where
+  roots := #[`Tools.ShippingGen5ReaderTraceLift]
+
+lean_lib «Tests.Gen5.ReaderTraceIotaCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceIotaCheck]
+
+lean_lib «Tests.Gen5.ReaderTraceLiftCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceLiftCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceAppGen» where
+  roots := #[`Tools.ShippingGen5ReaderTraceAppGen]
+
+lean_lib «Tests.Gen5.ReaderTraceAppGenCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceAppGenCheck]
+
 lean_lib «Tools.Assume.N3Extern» where
   roots := #[`Tools.Assume.N3Extern]
 
@@ -5209,3 +5239,75 @@ lean_lib «Tools.ShippingGen5DataOfComplete» where
 
 lean_lib «Tests.Gen5.DataOfCompleteCheck» where
   roots := #[`Tests.Gen5.DataOfCompleteCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceInst1» where
+  roots := #[`Tools.ShippingGen5ReaderTraceInst1]
+
+lean_lib «Tests.Gen5.ReaderTraceInst1Check» where
+  roots := #[`Tests.Gen5.ReaderTraceInst1Check]
+
+lean_lib «Tools.ShippingGen5ReaderTraceExtract» where
+  roots := #[`Tools.ShippingGen5ReaderTraceExtract]
+
+lean_lib «Tests.Gen5.ReaderTraceExtractCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceExtractCheck]
+
+lean_lib «Tools.Assume.EnvSigTy» where
+  roots := #[`Tools.Assume.EnvSigTy]
+
+lean_lib «Tools.Assume.EnvInstS» where
+  roots := #[`Tools.Assume.EnvInstS]
+
+lean_lib «Tools.ShippingGen5ReaderTraceInstS» where
+  roots := #[`Tools.ShippingGen5ReaderTraceInstS]
+
+lean_lib «Tests.Gen5.ReaderTraceInstSCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceInstSCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceAppCall» where
+  roots := #[`Tools.ShippingGen5ReaderTraceAppCall]
+
+lean_lib «Tools.ShippingGen5ReaderTraceDispatch» where
+  roots := #[`Tools.ShippingGen5ReaderTraceDispatch]
+
+lean_lib «Tests.Gen5.ReaderTraceDispatchCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceDispatchCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceSigTy» where
+  roots := #[`Tools.ShippingGen5ReaderTraceSigTy]
+
+lean_lib «Tests.Gen5.ReaderTraceSigTyCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceSigTyCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceLet» where
+  roots := #[`Tools.ShippingGen5ReaderTraceLet]
+
+lean_lib «Tests.Gen5.ReaderTraceLetCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceLetCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceChainLet» where
+  roots := #[`Tools.ShippingGen5ReaderTraceChainLet]
+
+lean_lib «Tests.Gen5.ReaderTraceChainLetCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceChainLetCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceNested» where
+  roots := #[`Tools.ShippingGen5ReaderTraceNested]
+
+lean_lib «Tests.Gen5.ReaderTraceNestedCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceNestedCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceInst» where
+  roots := #[`Tools.ShippingGen5ReaderTraceInst]
+
+lean_lib «Tests.Gen5.ReaderTraceInstCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceInstCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceLoop» where
+  roots := #[`Tools.ShippingGen5ReaderTraceLoop]
+
+lean_lib «Tools.ShippingGen5ReaderTraceLoopRoot» where
+  roots := #[`Tools.ShippingGen5ReaderTraceLoopRoot]
+
+lean_lib «Tests.Gen5.ReaderTraceLoopCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceLoopCheck]
