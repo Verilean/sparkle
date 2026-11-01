@@ -1,27 +1,30 @@
 import Tools.ShippingGen5ReaderTraceDispatch
 import Tools.ShippingGen5Cover5
 import Tools.ShippingReaderFuelShapeR5
+import Tools.ShippingReaderLenOkReserve
 set_option autoImplicit false
 -- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceShape, exit 0, 771 jobs) on the tree of 8ba8bf09 (Lean content identical; this header is comment-only). Written against freeze rev14 `scripts/gen5/DG_READERTRACE_FREEZE_REV14.md` §2.1; see its §10 addendum for the part not implemented. Clean build is the coder's. No sorry / axiom / native_decide in source.
 
-/-! # DG-READERTRACE U-R12a (part): `MidInputs`, `ShapeInputs`, `ShapeCarry`, `shapeRootLet_trace`, `rootLets_trace`, `shapeBody_trace`
+/-! # DG-READERTRACE U-R12a / U-R12b: `DomAtomic`, `MidInputs`, `ShapeInputs`, `ShapeCarry`, `shapeStart_trace`, `shapeRootLet_trace`, `rootLets_trace`, `shapeBody_trace`, `machineShapeF_reach` (+ `_of_premises`, `machineShapeF_ranges`)
 
-Statements are those of rev14 §2.1. `hT : TraceGood senv nDecl (readF senv n)` and the `MidInputs`-shaped range hypotheses are theorem hypotheses; no new premise.
-NOT implemented here: `shapeStart_trace` and `machineShapeF_reach` (see the addendum of rev14: `shapeStart` reserves into the EMPTY state `{}` with the converted domain `dom'`, whose `InRange` is
-relative to the discarded conversion state `stc`, so `DomPh` of the reserved state is not supplied by `hT` alone).
-Conditional (intermediate) result: it does not claim that `ShapeInputs` or any named hypothesis behind `hT` holds. Not supplied: C-QWIT, `d'.ok`, real run, FG. -/
+Statements are those of rev14 §2.1 / §2.2 with `DomAtomic dom` restored in the `MidInputs` run clause (rev14 §10, plan A, approved by the reviewer; rev0 §3.3 / F4). `hT : TraceGood senv nDecl (readF senv n)` and `hIn : ShapeInputs` are theorem hypotheses; no new premise.
+`shapeStart` reserves into the EMPTY state `{}` with the converted domain `dom'`, discarding the conversion state; `DomAtomic dom` (bvar or const) gives, by a one-step unfolding of the `readF` conv arm, that the discarded state is `{}`, so `hT` supplies the range of `dom'` in the reserved state.
+Conditional (intermediate) result: it does not claim that `ShapeInputs` (including `DomAtomic dom` for accepted sources) or any named hypothesis behind `hT` holds. Not supplied: the supply of `ShapeInputs` (U-R12c), C-QWIT, `d'.ok`, real run, FG. -/
 
 namespace Tools.ShippingGen5ReaderTrace
 open Lean Sparkle.Compiler.Elab Tools.ShippingGen5Cover2 Tools.ShippingGen5Cover3 Tools.ShippingGen5Cover5 Tools.ShippingGen5Cover6
-  Tools.ShippingReaderFuel Tools.ShippingReaderFuelShapeR5 Tools.ShippingLetsReaderInv Tools.ShippingLetsAliasInv
+  Tools.ShippingReaderFuel Tools.ShippingReaderFuelShapeR5 Tools.ShippingLetsReaderInv Tools.ShippingLetsAliasInv Tools.ShippingReaderLenOk
 
-/-- rev0 §5 `MidInputs` without `DomAtomic dom` (rev14 §0 point 4: a weakening). -/
+/-- rev0 §3.3 (F4): the domain of the enclosing machine is a bound variable or a constant. `shapeStart` discards the state of the `dom` conversion, so this is the input condition that gives the range of the converted domain in the reserved (empty) state. A named input condition (rev14 §10, plan A); its supply from accepted sources is not proved here. -/
+def DomAtomic (e : Lean.Expr) : Prop := (∃ j, e = .bvar j) ∨ (∃ c ls, e = .const c ls)
+
+/-- rev0 §5 `MidInputs`, with `DomAtomic dom` restored (rev14 §10, plan A). -/
 def MidInputs (nDecl : Nat) (senv : StructEnv) (p : ShapePre) (en : Lean.Expr) : Prop :=
   p.bs.length ≤ nDecl ∧
   (∀ (k : Nat) (x : Name × Lean.Expr × Lean.Expr), (shapeMid senv p en).rootLets[k]? = some x →
       NoPh x.2.2 = true ∧ BvarLt (k + nDecl) x.2.2 = true) ∧
   (∀ (dom αs ie b : Lean.Expr), (shapeMid senv p en).run? = some (dom, αs, ie, b) →
-      NoPh dom = true ∧ BvarLt ((shapeMid senv p en).rootLets.length + nDecl) dom = true ∧
+      NoPh dom = true ∧ BvarLt ((shapeMid senv p en).rootLets.length + nDecl) dom = true ∧ DomAtomic dom ∧
       NoPh b = true ∧ BvarLt ((shapeMid senv p en).rootLets.length + 1 + nDecl) b = true) ∧
   ((shapeMid senv p en).run? = none →
       NoPh (shapeMid senv p en).root = true ∧
@@ -38,6 +41,59 @@ def ShapeCarry (senv : StructEnv) (nDecl : Nat) (env : List MachVal) (st : MachR
 theorem shapeCarry_empty (senv : StructEnv) (nDecl : Nat) : ShapeCarry senv nDecl [] ({} : MachRead) :=
   ⟨rdOk_init, fun v hv => absurd hv (by simp), trInv_empty,
     ⟨fun v hv => absurd hv (by simp), fun b n hbn => absurd hbn (by simp)⟩⟩
+
+theorem readF_conv_bvar {senv : StructEnv} {n : Nat} {env : List MachVal} {d j : Nat} {st : MachRead}
+    {r : Lean.Expr × MachRead} (h : readF senv n (Call.conv env d (.bvar j) st) = some (some r)) :
+    convBvar env d j st = some r := by
+  cases n with
+  | zero => exact absurd h (by simp [readF, fuel])
+  | succ n =>
+    have h' : (some (convBvar env d j st) : Option (Option (Lean.Expr × MachRead))) = some (some r) := h
+    exact Option.some.inj h'
+
+theorem readF_conv_const {senv : StructEnv} {n : Nat} {env : List MachVal} {d : Nat} {c : Name} {ls : List Level}
+    {st : MachRead} {r : Lean.Expr × MachRead} (h : readF senv n (Call.conv env d (.const c ls) st) = some (some r)) :
+    r = (.const c ls, st) := by
+  cases n with
+  | zero => exact absurd h (by simp [readF, fuel])
+  | succ n =>
+    have h' : (some (some (Lean.Expr.const c ls, st)) : Option (Option (Lean.Expr × MachRead))) = some (some r) := h
+    exact (Option.some.inj (Option.some.inj h')).symm
+
+theorem shapeStart_trace (senv : StructEnv) (nDecl n : Nat) (hT : TraceGood senv nDecl (readF senv n))
+    (m : ShapeMid)
+    (hdom : ∀ dom αs ie b, m.run? = some (dom, αs, ie, b) →
+        NoPh dom = true ∧ BvarLt (m.rootLets.length + nDecl) dom = true ∧ DomAtomic dom)
+    {st0 : MachRead} (hr : (shapeStart senv m).run (wtab senv n) = some (some st0)) :
+    FReachC nDecl ({} : MachRead) st0 ∧ ShapeCarry senv nDecl [] st0 := by
+  rcases shapeStart_inv hr with ⟨_, e⟩ | ⟨dom, αs, initsE, body, dom', stc, base, hm, hc, hres⟩
+  · subst e
+    exact ⟨FReachC.refl _, shapeCarry_empty senv nDecl⟩
+  · obtain ⟨hn, hb, hat⟩ := hdom dom αs initsE body hm
+    have hUnits : EnvPh nDecl ({} : MachRead) (m.rootLets.map fun _ => MachVal.unit) :=
+      ⟨fun v hv => by simp at hv, fun b n hbn => by simp at hbn⟩
+    have hb' : BvarLt (0 + (m.rootLets.map fun _ => MachVal.unit).length + nDecl) dom = true := by
+      rw [List.length_map, Nat.zero_add]; exact hb
+    have hpre : TracePre senv nDecl (Call.conv (m.rootLets.map fun _ => MachVal.unit) 0 dom ({} : MachRead)) :=
+      ⟨⟨rdOk_init, fun v hv => by simp at hv, noPh_letOk 0 dom hn⟩, ⟨trInv_empty, hUnits, hn, hb'⟩⟩
+    have hc' : readF senv n (Call.conv (m.rootLets.map fun _ => MachVal.unit) 0 dom ({} : MachRead)) =
+        some (some (dom', stc)) := hc
+    -- the state of the discarded conversion is `{}` (one-step unfolding of the bvar / const arm)
+    have hstc : stc = ({} : MachRead) := by
+      rcases hat with ⟨j, rfl⟩ | ⟨c, ls, rfl⟩
+      · have hcb := readF_conv_bvar hc'
+        exact (convBvar_trace (nDecl := nDecl) hUnits (fun d hd => by cases hd) hb' hcb).1
+      · have := readF_conv_const hc'
+        exact (Prod.mk.inj this).2
+    subst hstc
+    obtain ⟨hP, _, hX⟩ := hT _ hpre (dom', ({} : MachRead)) hc'
+    obtain ⟨kinds, inits, _, _, _, hst⟩ := machReserve_some hres
+    subst hst
+    obtain ⟨hR, hTr⟩ := trInv_reserved hX.1 hX.2.1 hX.2.2 body kinds inits
+    refine ⟨hR, ?_, ?_, hTr, ?_⟩
+    · exact (adv_dom (st' := reserved ({} : MachRead) dom' body kinds inits) (adv_refl rdOk_init) rfl rfl (d := dom') rfl hP.2).1
+    · exact fun v hv => absurd hv (by simp [reserved])
+    · exact ⟨fun v hv => absurd hv (by simp), fun b n hbn => absurd hbn (by simp)⟩
 
 theorem shapeRootLet_trace (senv : StructEnv) (nDecl n : Nat) (hT : TraceGood senv nDecl (readF senv n))
     (s : List MachVal × MachRead) (a : Name × Lean.Expr × Lean.Expr)
@@ -177,5 +233,65 @@ theorem shapeBody_trace (senv : StructEnv) (nDecl n : Nat) (hT : TraceGood senv 
     rw [← e2]
     simp only [hw]
     exact ⟨hX.2.2.1, hX.2.2.2⟩
+
+theorem machineShapeF_reach {n : Nat} {sm : Bool} {ps : List (String × Nat)} {ci : ConstantInfo}
+    {senv : StructEnv} {ai : Bool} {sp : MachineShape} {nDecl : Nat}
+    (hT : TraceGood senv nDecl (readF senv n))
+    (h : machineShapeF n sm ps ci senv ai = some (some sp))
+    (hIn : ShapeInputs nDecl senv sm ps ci n) :
+    ∃ (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (env : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
+      shapePre sm ps ci senv = some p ∧
+      machNormF n senv p.e = some en ∧
+      (shapeStart senv (shapeMid senv p en)).run (wtab senv n) = some (some st0) ∧
+      (foldO (shapeRootLet senv) (([] : List MachVal), st0) (shapeMid senv p en).rootLets).run (wtab senv n) = some (some (env, st1)) ∧
+      (shapeBody (shapeMid senv p en) env st1).run (wtab senv n) = some (some (st, v)) ∧
+      shapePost ai p (shapeMid senv p en) st v = some sp ∧
+      st.LenOk ∧
+      sp.insts = st.insts.toList ∧ sp.instOrigins = st.instOrigins.toList ∧
+      sp.layout.slots.length = st.kinds.size ∧ sp.layout.lets = st.lets.size ∧
+      FReachC nDecl ({} : MachRead) st0 ∧ FReachC nDecl st0 st1 ∧ FReachC nDecl st1 st ∧
+      TrInv senv nDecl st ∧
+      ((shapeMid senv p en).wrap? = none → InRange nDecl st st.lets.size v ∧ NoLoose 0 v) := by
+  obtain ⟨p, en, st0, env, st1, st, v, hp, hen, h0, h1, h2, h3, l2, i1, i2, i3, i4⟩ := machineShapeF_state_side h
+  obtain ⟨_, hrl, hrun, hroot⟩ := hIn p en hp hen
+  obtain ⟨R0, C0⟩ := shapeStart_trace senv nDecl n hT (shapeMid senv p en)
+    (fun dom αs ie b hm => ⟨(hrun dom αs ie b hm).1, (hrun dom αs ie b hm).2.1, (hrun dom αs ie b hm).2.2.1⟩) h0
+  obtain ⟨R1, C1, hl1⟩ := rootLets_trace senv nDecl n hT _ [] st0 C0
+    (fun k x hk => by
+      have := hrl k x hk
+      rw [List.length_nil, Nat.zero_add]
+      exact this) h1
+  obtain ⟨R2, Tr, hv⟩ := shapeBody_trace senv nDecl n hT _ env st1 C1 (by simpa using hl1)
+    (fun dom αs ie b hm => ⟨(hrun dom αs ie b hm).2.2.2.1, (hrun dom αs ie b hm).2.2.2.2⟩) hroot h2
+  exact ⟨p, en, st0, env, st1, st, v, hp, hen, h0, h1, h2, h3, l2, i1, i2, i3, i4, R0, R1, R2, Tr, hv⟩
+
+theorem machineShapeF_reach_of_premises (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hla : LiftAgrees) (hrf : RootFloatAgrees)
+    (hi1 : Inst1Agrees) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env)) {n : Nat} {sm : Bool}
+    {ps : List (String × Nat)} {ci : ConstantInfo} {ai : Bool} {sp : MachineShape} {nDecl : Nat}
+    (h : machineShapeF n sm ps ci (structEnv env) ai = some (some sp))
+    (hIn : ShapeInputs nDecl (structEnv env) sm ps ci n) :
+    ∃ (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (envs : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
+      shapePre sm ps ci (structEnv env) = some p ∧
+      machNormF n (structEnv env) p.e = some en ∧
+      (shapeStart (structEnv env) (shapeMid (structEnv env) p en)).run (wtab (structEnv env) n) = some (some st0) ∧
+      (foldO (shapeRootLet (structEnv env)) (([] : List MachVal), st0) (shapeMid (structEnv env) p en).rootLets).run
+        (wtab (structEnv env) n) = some (some (envs, st1)) ∧
+      (shapeBody (shapeMid (structEnv env) p en) envs st1).run (wtab (structEnv env) n) = some (some (st, v)) ∧
+      shapePost ai p (shapeMid (structEnv env) p en) st v = some sp ∧
+      st.LenOk ∧
+      sp.insts = st.insts.toList ∧ sp.instOrigins = st.instOrigins.toList ∧
+      sp.layout.slots.length = st.kinds.size ∧ sp.layout.lets = st.lets.size ∧
+      FReachC nDecl ({} : MachRead) st0 ∧ FReachC nDecl st0 st1 ∧ FReachC nDecl st1 st ∧
+      TrInv (structEnv env) nDecl st ∧
+      ((shapeMid (structEnv env) p en).wrap? = none → InRange nDecl st st.lets.size v ∧ NoLoose 0 v) :=
+  machineShapeF_reach (readF_traceGood_of_premises env hK hC hla hrf hi1 hD nDecl n) h hIn
+
+theorem machineShapeF_ranges {nDecl : Nat} {senv : StructEnv} {st : MachRead} (hTr : TrInv senv nDecl st) :
+    (∀ (j : Nat) (nm : Name) (kd : MixedGateBinder) (v : Lean.Expr), st.lets[j]? = some (nm, kd, v) →
+        InRange nDecl st j v ∧ NoLoose 0 v) ∧
+    (∀ w ∈ st.ws, w.1 < st.kinds.size ∧ InRange nDecl st st.lets.size w.2) ∧
+    (∀ d, st.dom = some d → InRange nDecl st st.lets.size d ∧ NoLoose 0 d) :=
+  ⟨fun j nm kd v hj => ⟨hTr.1.2.1.1 j nm kd v hj, hTr.2.2.2.2.2.1 j nm kd v hj⟩, hTr.1.2.1.2, hTr.2.2.2.2.1⟩
 
 end Tools.ShippingGen5ReaderTrace
