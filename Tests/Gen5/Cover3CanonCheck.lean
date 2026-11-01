@@ -2,7 +2,7 @@ import Tools.ShippingGen5Cover3Canon
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- NOT BUILT (draft at 7f45fb24 + working tree; see the build line below once a build succeeds). No sorry / axiom / native_decide in source.
+-- Built in gdw3e at cd4df277 (Pod `kjob lake build Tools.ShippingGen5Cover3Canon` / `Tests.Gen5.Cover3CanonCheck`, exit 0; TYPE 6, MUTANT 6 signature/defeq rejections (not semantic counterexamples), AXIOMS standard (9), CLOSURE OK 4061 constants with 3 negative / 2 clean controls; the 3 intended negative controls print 3 "declaration uses `sorry`" warnings). Clean build is the coder's. No sorry / axiom / native_decide in source.
 /-! # C.CV-1 canon units (Tools/ShippingGen5Cover3Canon.lean) checks, `scripts/gen5/CV1_CANON_FREEZE.md` §1 / §3 / §4
 
 TYPE: each theorem is compared by `checkExpected` / `checkExpectedUnf` with an `Exp…` statement written here from the freeze text, spelled out without the new

@@ -1,5 +1,6 @@
 import Tools.ShippingGen5Cover3
 set_option autoImplicit false
+-- Built in gdw3e at cd4df277 (Pod `kjob lake build Tools.ShippingGen5Cover3Canon`, exit 0, no warning from this file). Clean build is the coder's. No sorry / axiom / native_decide in source. Units: `scripts/gen5/CV1_CANON_FREEZE.md` §1/§3/§4 ((a1)-(a3), (b), rowC_of_reader_canon); not here: letQuoteEqC_witness, production fuel, loop paths 2/3.
 
 namespace Tools.ShippingGen5Cover3Canon
 open Lean Sparkle.Compiler.Elab Tools.ShippingGen5Cover3 Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
