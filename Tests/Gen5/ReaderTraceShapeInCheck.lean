@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceShapeIn
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: checks for rev14 §2.3 U-R12c (structural NoPh/BvarLt lemmas through the preprocessing of shapeMid, MidPh, shapeInputs_of). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceShapeInCheck, exit 0; TYPE 9, MUTANT 5 signature/defeq rejections not semantic counterexamples, AXIOMS 9 standard only, CLOSURE OK 4845 constants from 9 roots, no sorryAx; 3 intended in-memory sorry negatives print warnings) on the tree of 179cbe7a16a15cb9610c070cbede717c7dcffc50 (Lean content identical; this header is comment-only). Clean build is the coder's. Checks for rev14 §2.3 U-R12c (structural NoPh/BvarLt lemmas through the preprocessing of shapeMid, MidPh, shapeInputs_of). No sorry / axiom / native_decide in source.
 /-! # DG-READERTRACE U-R12c checks (Tools/ShippingGen5ReaderTraceShapeIn.lean)
 
 TYPE: the two `def`s (by VALUE) and the seven theorems are compared by `checkExpected` against `Exp…` statements written here (own spelling).

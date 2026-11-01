@@ -4,7 +4,7 @@ import Tools.ShippingGen5ReaderTraceLet
 import Tools.Assume.N3Extern
 import Tools.ShippingGen5ReaderTraceReg
 set_option autoImplicit false
--- NOT BUILT: written against freeze rev14 `scripts/gen5/DG_READERTRACE_FREEZE_REV14.md` §2.3 (U-R12c, structural lemmas without premise). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceShapeIn, exit 0) on the tree of 179cbe7a16a15cb9610c070cbede717c7dcffc50 (Lean content identical; this header is comment-only). Clean build is the coder's. Written against freeze rev14 `scripts/gen5/DG_READERTRACE_FREEZE_REV14.md` §2.3 (U-R12c, structural lemmas without premise). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R12c: `NoPh ∧ BvarLt` through the preprocessing of `shapeMid`
 
