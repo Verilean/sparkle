@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceDispatch
 import Tools.ShippingGen5Cover5
 import Tools.ShippingReaderFuelShapeR5
 set_option autoImplicit false
--- NOT BUILT yet (written against freeze rev14 `scripts/gen5/DG_READERTRACE_FREEZE_REV14.md` §2.1; see the rev14 addendum for the part not implemented). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceShape, exit 0, 771 jobs) on the tree of 8ba8bf09 (Lean content identical; this header is comment-only). Written against freeze rev14 `scripts/gen5/DG_READERTRACE_FREEZE_REV14.md` §2.1; see its §10 addendum for the part not implemented. Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R12a (part): `MidInputs`, `ShapeInputs`, `ShapeCarry`, `shapeRootLet_trace`, `rootLets_trace`, `shapeBody_trace`
 
