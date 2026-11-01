@@ -2,8 +2,8 @@ import Tools.ShippingGen5ReaderTraceInst
 import Tools.ShippingGen5ReaderTraceInst1
 import Tools.ShippingGen5ReaderTraceReg
 import Tools.Assume.EnvInstS
+set_option autoImplicit false
 -- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceInstS, exit 0, 759 jobs) on the tree of this file's commit. Written against freeze rev12 (U-R8; option A, `InstSFieldsDet` as a named hypothesis). No sorry / axiom / native_decide in source.
--- NOT BUILT yet.
 
 /-! # DG-READERTRACE U-R8: `instSStep` (structure-returning instance call)
 
