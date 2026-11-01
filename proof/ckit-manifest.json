@@ -1,0 +1,33 @@
+{
+  "issue": "sparkle-gen5-dg-kit",
+  "unit": "CKIT",
+  "base_sha": "621367d2b9186aafa07f3f986bfaa7b1168dd852",
+  "toolchain": "leanprover/lean4:v4.32.1",
+  "modules": [
+    "Tools.ShippingGen5AccGenDataKit"
+  ],
+  "targets": [
+    "Tests.Gen5.CKitCheck"
+  ],
+  "roots": [
+    "Tools.ShippingGen5Acc.genData_gdEvidence",
+    "Tools.ShippingGen5Acc.genData_genSem_decl",
+    "Tools.ShippingGen5Acc.genData_genSem_d",
+    "Tools.ShippingGen5Acc.genData_genSem_local",
+    "Tools.ShippingGen5Acc.factsOf_genS_assembled''"
+  ],
+  "allowed_paths": [
+    "Tools/ShippingGen5AccGenDataKit.lean"
+  ],
+  "aux": [],
+  "forbidden": [
+    "Tools.ShippingGen2.T1Hyp",
+    "Tools.ShippingGen2.Laws",
+    "Tools.ShippingEnvSnapshot.GetEnvFrame",
+    "Tools.ShippingEntryReadsLinked.EnvSnapshot",
+    "Tools.ShippingGen5Acc.hacc_of_top_runs"
+  ],
+  "forbidden_modules": [],
+  "inherited": "残る: hs (C.SM-1)、genData₀ 成功、DataOfSound、実 run。carrier は GenData / structEnv env₀ / ordCallees₀ / mkKit に固定。適用条件: 最終 assembly が A の GenData-kit を採用（A13 GDf を採る場合は C.AC-2/C.AC-3 が別の GD で再び要り、減算は成立しない）。T1ND を forbidden_modules に入れない理由は SM3 rev2 と同じ（import 不変は proof-accept の imports 検査で確認）。",
+  "meaning": "FG 台帳 C.AC-2（hev）と C.AC-3（hloc/hdecl/hd）を、固定 carrier の GenData-kit に限り既存定理 genData_evidence / genSemI_decl / genSemI_d / genSemI_local の適用で除去（FG -2 +0、scripts/gen5/CKIT_FREEZE.md 7c8fdff7）。DataOfSound / genData₀ 成功 / GenWF / 実 run の供給、共同充足性、FG の証明ではない。"
+}

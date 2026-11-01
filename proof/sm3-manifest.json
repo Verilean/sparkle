@@ -1,0 +1,30 @@
+{
+  "issue": "sparkle-gen5-dg-acc",
+  "unit": "SM3",
+  "base_sha": "2a1d2c2cc511825af900758506e20410b1d64956",
+  "toolchain": "leanprover/lean4:v4.32.1",
+  "modules": [
+    "Tools.ShippingGen5AccHinv"
+  ],
+  "targets": [
+    "Tests.Gen5.SM3Check"
+  ],
+  "roots": [
+    "Tools.ShippingGen5Acc.hinv_genS",
+    "Tools.ShippingGen5Acc.factsOf_genS_assembled'"
+  ],
+  "allowed_paths": [
+    "Tools/ShippingGen5AccHinv.lean"
+  ],
+  "aux": [],
+  "forbidden": [
+    "Tools.ShippingGen2.T1Hyp",
+    "Tools.ShippingGen2.Laws",
+    "Tools.ShippingEnvSnapshot.GetEnvFrame",
+    "Tools.ShippingEntryReadsLinked.EnvSnapshot",
+    "Tools.ShippingGen5Acc.hacc_of_top_runs"
+  ],
+  "forbidden_modules": [],
+  "inherited": "前提として残る（既存行）: hs (C.SM-1)、hev/hloc/hdecl/hd (C.AC-2/C.AC-3)、DataOfSound、genData₀ 成功、実 run。carrier は GenData / structEnv env₀ / ordCallees₀ / mkKit に固定。 manifest rev2（候補A rev2 787c984e と同じ扱い）: Tools.ShippingGen5T1ND（T1HypND の定義元）は root と target の import 閉包に無く、import 不変は proof-accept の imports 検査（verdict に記録）で確かめる。T1ND を forbidden_modules に入れると、この skeleton では既存の壊れた Tools.ShippingGen5T2Conn（113 行、修復は sparkle-gen5-t2-tie の 0db42b4b）を検査器がビルドするため外した。",
+  "meaning": "FG 台帳 C.SM-3（hinv）を、固定 carrier の候補 A の組み立てに限り genS_some_inv と callEdge_of_ord から導出して除去（FG -1 +0、scripts/gen5/SM3_FREEZE.md c31cd300）。他 carrier の C.SM-3 行の解消、DataOfSound / genData₀ 成功 / GenWF / 実 run の供給ではない。"
+}
