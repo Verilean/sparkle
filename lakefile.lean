@@ -4911,6 +4911,12 @@ lean_lib «Tools.ShippingGen5ReaderTraceApp» where
 lean_lib «Tests.Gen5.ReaderTraceAppCheck» where
   roots := #[`Tests.Gen5.ReaderTraceAppCheck]
 
+lean_lib «Tools.ShippingGen5ReaderTraceReg» where
+  roots := #[`Tools.ShippingGen5ReaderTraceReg]
+
+lean_lib «Tests.Gen5.ReaderTraceRegCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceRegCheck]
+
 lean_lib «Tools.Assume.N3Extern» where
   roots := #[`Tools.Assume.N3Extern]
 
