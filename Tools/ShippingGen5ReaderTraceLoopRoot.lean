@@ -11,13 +11,13 @@ namespace Tools.ShippingGen5ReaderTrace
 open Lean Sparkle.Compiler.Elab Tools.ShippingGen5Cover2 Tools.ShippingGen5Cover3 Tools.ShippingGen5Cover6
   Tools.ShippingReaderFuel Tools.ShippingLetsReaderInv Tools.ShippingLetsAliasInv
 
-theorem inlSpine_ph {L : Nat} : ∀ (e : Lean.Expr) (acc : List Lean.Expr), NoPh e = true → BvarLt L e = true →
+theorem inlSpinePair_ph {L : Nat} : ∀ (e : Lean.Expr) (acc : List Lean.Expr), NoPh e = true → BvarLt L e = true →
     (∀ a ∈ acc, NoPh a = true ∧ BvarLt L a = true) →
     ∀ (fn : Lean.Expr) (args : List Lean.Expr), inlSpine e acc = (fn, args) →
     ∀ a ∈ args, NoPh a = true ∧ BvarLt L a = true
   | .app f a, acc, hn, hb, hacc, fn, args, h => by
     simp only [NoPh, BvarLt, Bool.and_eq_true] at hn hb
-    refine inlSpine_ph f (a :: acc) hn.1 hb.1 ?_ fn args h
+    refine inlSpinePair_ph f (a :: acc) hn.1 hb.1 ?_ fn args h
     intro x hx
     rcases List.mem_cons.mp hx with rfl | hx
     · exact ⟨hn.2, hb.2⟩
@@ -48,7 +48,7 @@ theorem inlSpine_ph {L : Nat} : ∀ (e : Lean.Expr) (acc : List Lean.Expr), NoPh
 theorem loopView_ph {L : Nat} {e dom body : Lean.Expr} (hn : NoPh e = true) (hb : BvarLt L e = true)
     (h : loopView? e = some (dom, body)) :
     (NoPh dom = true ∧ BvarLt L dom = true) ∧ (NoPh body = true ∧ BvarLt (L + 1) body = true) := by
-  have hs := inlSpine_ph e [] hn hb (by simp)
+  have hs := inlSpinePair_ph e [] hn hb (by simp)
   unfold loopView? at h
   generalize hsp : inlSpine e [] = sp at h
   obtain ⟨fn, args⟩ := sp

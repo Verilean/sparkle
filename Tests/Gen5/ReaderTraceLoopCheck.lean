@@ -112,7 +112,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   logInfo m!"GEN5 LOOPCHECK MUTANT 6 theorem-statement mutants rejected (signature/defeq rejection, not semantic counterexamples)"
 
 def newThms : List Name := [``loopReg_ph, ``loopRegs_ph, ``resolve_ph, ``trInv_bindLetNamed, ``bindLetAlias_trace,
-  ``loopLet_ph, ``loopNext_trace, ``loopFold_trace, ``loopBody_trace, ``inlSpine_ph, ``loopView_ph, ``mapM_len_some,
+  ``loopLet_ph, ``loopNext_trace, ``loopFold_trace, ``loopBody_trace, ``inlSpinePair_ph, ``loopView_ph, ``mapM_len_some,
   ``trInv_pushLoop, ``envPh_cons_state, ``trInv_loopWs, ``loopProbe_trace, ``loopRoot_trace]
 
 run_cmd Lean.Elab.Command.liftTermElabM do
