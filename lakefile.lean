@@ -4982,3 +4982,9 @@ lean_lib «Tools.ShippingGen5ReaderTraceNested» where
 
 lean_lib «Tests.Gen5.ReaderTraceNestedCheck» where
   roots := #[`Tests.Gen5.ReaderTraceNestedCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceInst» where
+  roots := #[`Tools.ShippingGen5ReaderTraceInst]
+
+lean_lib «Tests.Gen5.ReaderTraceInstCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceInstCheck]
