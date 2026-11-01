@@ -1,6 +1,6 @@
 import Tools.ShippingGen5ReaderTraceChain
 set_option autoImplicit false
--- NOT BUILT: written against freeze rev5 `scripts/gen5/DG_READERTRACE_FREEZE_REV5.md` §4 (U-R4a); clean issue-linked build pending (coder). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceApp, exit 0, 725 jobs) on the tree of 564cecaa62ac63171ef5d467ac53a964e2a3d802 (this header is comment-only). Written against freeze rev5 `scripts/gen5/DG_READERTRACE_FREEZE_REV5.md` §4 (U-R4a); clean issue-linked build pending (coder). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R4a: the three leaf arms of `convStep` `app` (bare register found, `machLoopRead?`, `machReadV`)
 
