@@ -1,12 +1,25 @@
 # N3 extern 最小仮定: liftLooseBVars / lowerLooseBVars / instantiate1 を閉じる最小の LetOk 条件(T1L-50/51/55/56、54/57 は必要性のみ)
 
-- Issue: `sparkle-n3-extern-min`(親 `sparkle-gen3-src-argw`)。agent `n3min1`、branch `kjob/n3min1`、base `b8a3ddb8`(`kjob/tre1`、旧 N3 freeze `scripts/gen3/TRUST_EXPR_FREEZE.md`、承認済み・未実装・未有効)。**文書のみ。Lean のソースツリーは変更していない。** Lean の探索は scratch(ソースツリー外、コミットしない)。
+- 改訂 2(agent `n3min2`、branch `kjob/n3min2`、base `86320d72` = 初版。reviewer: changes requested):**range 型(`LiftLooseRange0` / `LowerLooseRangeEq` / `ZeroLitRange0`)を直接 trust しない。** 直接 trust する仮定は、必要 domain(`LetOk 0` の入力)に限定した **C++ の振る舞いの等式**(`LiftAgrees0` / `LowerAgreesEq` / `ZeroLitAgrees0`、§3.4)にし、range は**証明する補題**(内部補題)に下げた。§3.4 が改訂の中心で、§3.1 の T1L-55/56 と §3.2・§4・§6・§7 のうち range を trust する記述は §3.4 に従って読み替える(読み替えは各節の冒頭注に書いた)。
+- Issue: `sparkle-n3-extern-min`(親 `sparkle-gen3-src-argw`)。初版 agent `n3min1`、branch `kjob/n3min1`、base `b8a3ddb8`(`kjob/tre1`、旧 N3 freeze `scripts/gen3/TRUST_EXPR_FREEZE.md`、承認済み・未実装・未有効)。**文書のみ。Lean のソースツリーは変更していない。** Lean の探索は scratch(ソースツリー外、コミットしない)。
 - 位置づけ: ユーザー指示(2026-11-01)「複合命題を丸ごと信頼せず、C++ 実装の振る舞いを小さく仮定して残りを証明する」に対する、reviewer 意見(B5 全入力は強すぎる / C++ source と照合 / B6・B7 は必要形に絞る / #5 `s=0` と `lowerSpec_ok` 一般化は証明が通るまで未確認)への回答資料。**これは仮定の追加・変更の freeze 相談で、reviewer の承認が出るまで Lean 実装・有効化には進まない。**
 - coder 案 `~/git/.kjob-state/n1n3-behavior-spec.md` はこの Pod から見えなかった(読めていない)。B5/B6/B7 は brief の要約(B5 = extern を全入力で仕様と一致と仮定、B6 = `replace` を全 `f,e` で、B7 = `beta`)に従って扱った。
 - 書き方の規則: 「見つからなかった」は「この調査では供給元・経路が見つからなかった」の意味で、不可能・導出不能の主張ではない。mutant は signature / defeq での棄却で、意味的反例ではない。差分テストは検査であって証明ではない。台帳の数は数えたものだけ書く。
 - 台帳: FG 102 / T1 57(今回 FG -0 +0 / T1 -0 +0、文書のみ。T1 57 に T1L-50..59 の 9 行が全て含まれるかは未計数)。
 
 ## 0. 結論(先に)
+
+**改訂 2 の結論(初版の下の 1〜5 は事実の記録として残すが、range を trust する箇所は次で上書きする):**
+
+- R1. lift / lower / `zeroLit` の `replace` は、**`LetOk 0` の入力に限った等式**(`LiftAgrees0`、`LowerAgreesEq`、`ZeroLitAgrees0`)を trust する案にする。等式の右辺 `liftSpec` / `lowerSpec` / `replaceNoCache zeroLitF` は構造再帰(ノードごとに子へ分配)で、C++ の `replace` のラムダと行単位で照合できる。**range(`LiftLooseRange0` ほか)は trust せず、等式から `liftSpec_ok` / `lowerSpec_ok` / `replaceNoCache_ok` で証明する**(scratch で sorry なし、§3.4)。
+- R2. 「ノードごとの構造保存」を別個の仮定にする形は採らない。extern は展開できないので、ノードごとの文は結局「`e` の各部分項に対して」の量化になり、等式と同じ強さになる(理由と比較は §3.4.1)。
+- R3. 等式は range より**論理的に強い**(range を導けるが逆は言えない)。その代わり**全入力・全 `(s,d)` の B5 よりは弱い**(domain `LetOk 0`、`s=0`/`s=d` のみ)。強さの比較は §3.4.4。
+- R4. `Inst1Range0` は縮めない。**当面は旧 freeze の原文 `Inst1Range`(T1L-51、`∀ n`)を保つ**(`PureFacts` の書き換え見積が無い)。別判断。
+- R5. 実コーパスの差分テストは**別単位**で、**証明の代替ではない**。
+- R6. `rawNode_ok` の scratch は `rawNode_ok`(RawNodeRangeLetOk:428)だけで、**ArgSupply15 以降は確認していない(未解決)**。
+- R7. 旧 freeze のどの節・命題を supersede するかは §6.2 の表、台帳の数え方は §6.1 の表。
+
+初版の結論(下記 1〜5。range を trust する案としての記述):
 
 1. 4 行(T1L-50/51/55/56)のうち、reader の証明が使う形は**すでに LetOk 保存(range)か、(0,1)・(1,1) の等式**で、旧 freeze の原文より小さくできる箇所は **`n = 0` への絞り(T1L-51・54)だけ**だった。B5(全入力で仕様と等式)は**不要**で採らない。
 2. **#5(T1L-55)`LiftLooseRange0`(`s = 0`)と #6(T1L-56)`LowerLooseRangeEq`(`s = d`)は、scratch で `rawNode_ok` の証明をそのまま(仮説の型と `hl _ _ _`→`hl _ _` の引数減らしだけ変えて)通した。** `sorry` なし、公理は `propext, Classical.choice, Quot.sound` のみ(§3.3)。reviewer が未確認とした「`s = 0` が証明で足りるか」は、**`rawNode_ok`(RawNodeRangeLetOk:428)については確認済み**。下流(`rawNodeRange_structEnv` ほか ArgSupply15)は base に無く、未確認。
@@ -78,6 +91,8 @@
 
 ### 3.1 候補(原文)と判定
 
+> 改訂 2 注: T1L-55/56 の `LiftLooseRange0` / `LowerLooseRangeEq` は、以下では **trust する仮定ではなく、§3.4 の等式から証明する内部補題**として読む。T1L-50・51・57 の記述は変更なし。
+
 #### T1L-50 — 変更しない(`LiftAgrees`、旧 freeze #1)
 ```
 LiftAgrees : Prop :=
@@ -121,6 +136,8 @@ LowerLooseRangeEq : Prop :=
 
 ### 3.2 B 案(等式を仮定し range を導く)と、B5(全入力等式)を採らない理由
 
+> 改訂 2 注: この節の「B 案(等式)は採らない」という初版の推奨は、reviewer の指摘(range を直接 trust しない)により**撤回**し、§3.4 で B 案(domain を限定した等式)を採る形に改めた。B5(全入力・全 `(s,d)` の等式)を採らない点は変わらない。
+
 等式形の候補(scratch で elaborate、`LiftAgrees0` と `LowerAgreesEq` は型が通った):
 ```
 LiftAgrees0 : Prop := ∀ (e : Lean.Expr) (d : Nat), LetOk 0 e = true → e.liftLooseBVars 0 d = liftSpec e 0 d
@@ -146,7 +163,60 @@ def lowerSpec (e : Expr) (s d : Nat) : Expr := if s < d then e else lowerGo e s 
 
 制約: 上の `rawNode_ok` の通りは `Tools/Prototype/RawNodeRangeLetOk.lean` の複製に対するもの。`rawNodeRange_of`・`rawNodeRange_structEnv`・`siteLetOk_structEnv''` 以降は elaborate していない。
 
+### 3.4 (改訂 2)振る舞い仮定 → range 補題
+
+#### 3.4.1 形の選択: 「必要 domain の等式」(A)か「ノードごとの構造保存」(B')か
+- (A) `LetOk 0 e → e.liftLooseBVars 0 d = liftSpec e 0 d`(lower・zeroLit も同形)。
+- (B') ノードごと: 例 `lift (app f a) s d = app (lift f s d) (lift a s d)`、`lift (bvar i) s d = if i < s then bvar i else bvar (i+d)`、`lam`/`forallE`/`letE`(本体 `s+1`)…を 1 constructor ずつ。
+- **(A) を選ぶ。** 理由:
+  1. `liftSpec` / `inst1Spec`(ExternSpec、既存・証明済みの範囲で使用中)が既に構造再帰の定義で、(A) の右辺はそれ自体が「ノードごとに子へ分配」の記述。C++ との照合は `expr.cpp:448-463` の `replace` ラムダ(§1.2)を `liftSpec` の各行と並べれば済む。(B') は同じ照合を constructor ごとの別命題に分けるだけで、照合の量が減らない。
+  2. (B') は extern に対する命題なので「`e` の部分項に対し」でしか書けず、`s` の増え方(`lam` の本体で `s+1`)を命題ごとに持つ。証明では結局 `liftSpec` と同じ帰納で等式に束ねる必要があり、仮定の本数(constructor 数 ≒ 6〜8 本)だけ増える。台帳の行数を増やさない方針(§6.1)とも合わない。
+  3. 既存の `liftRange_of_agrees`(ExternSpec)と同じ型の導出で、証明の書き方が既に base にある(`LiftAgrees` → range)。
+- (A) の弱点: `lowerSpec` を新設する(既存に無い)。`lowerSpec` が C++ と違うと、仮定が偽になるだけで(trust する文が誤り)、証明は壊れない。この誤りは差分テスト(§5.1、`lowerLooseBVars` 200000 件で不一致 0 だったが証明ではない)でしか見えない。
+- (B') を採る場合の参考: 上の理由 2 のとおり、仮定 1 件が constructor 別の複数件になる。この文書は採らない。reviewer が (B') を求めるなら、台帳の数え方(§6.1)を改める必要がある。
+
+#### 3.4.2 型案(scratch で elaborate・証明済み。ソースツリーには置いていない)
+```
+-- trust する仮定(振る舞い。domain は LetOk 0 の入力、(s,d) は callsite が使う範囲)
+LiftAgrees0  : Prop := ∀ (e : Expr) (d : Nat), LetOk 0 e = true → e.liftLooseBVars 0 d = liftSpec e 0 d
+LowerAgreesEq : Prop := ∀ (e : Expr) (i : Nat), LetOk 0 e = true → e.lowerLooseBVars i i = lowerSpec e i i
+ZeroLitAgrees0 : Prop := ∀ e, LetOk 0 e = true →
+  zeroLit inlNatLit canonicalNatLitValue? e = e.replaceNoCache zeroLitF   -- zeroLitF は ZeroLitAgrees の右辺と同じ関数(ExtReaderDefs.lean:118)
+-- 新設の定義(trust ではなく定義。C++ との照合は §1.2 の lower 行)
+def lowerGo ... ; def lowerSpec (e) (s d) := if s < d then e else lowerGo e s d
+-- 証明する補題(内部補題。仮定ではない)
+theorem r1 (h : LiftAgrees0)    : LiftLooseRange0      -- liftSpec_ok(既存)
+theorem r2 (h : LowerAgreesEq)  : LowerLooseRangeEq    -- lowerSpec_ok(新、lowerGo_ok を含む)
+theorem r3 (h : ZeroLitAgrees0) : ZeroLitRange0        -- replaceNoCache_ok(PreprocLetOk:58)+ letOk_natLit
+```
+- `LiftLooseRange0`・`LowerLooseRangeEq`・`ZeroLitRange0` の定義は §3.1・§4 の原文のまま。
+- `lowerSpec` の `s < d` の分岐は C++ の `if (s < d) return e`(`expr.cpp:440-446`)に対応。`s = d`(callsite)では `s < d` は偽なので実際には `lowerGo` の側だけを使う。
+- 導出後の使い方: `build_ok` / `rawNode_ok` は §3.3 の変更(引数を減らす)で `LiftLooseRange0` / `LowerLooseRangeEq` を仮説に取る。それに `r1`・`r2` を渡す(関数適用)。
+
+#### 3.4.3 scratch の結果(コミットしない。`kjob lake env lean`、Lean v4.32.1、import は `Tools.Prototype.PreprocLetOk`・`Tools.ShippingLetsExternSpec`)
+| 実験 | 結果 |
+|---|---|
+| `r1 : LiftAgrees0 → LiftLooseRange0` | 通った。`#print axioms`: `[propext]` |
+| `lowerGo_ok`・`lowerSpec_ok`(一般 `(s,d)`)と `r2 : LowerAgreesEq → LowerLooseRangeEq` | 通った。`[propext]` |
+| `r3 : ZeroLitAgrees0 → ZeroLitRange0` | 通った。`[propext, Quot.sound]` |
+| `sorry` / 追加 `axiom` | なし。`sorryAx` は出ない |
+| 上の `r1`・`r2` と、初版 §3.3 の `rawNode_ok` 複製(仮説を `LiftLooseRange0` / `LowerLooseRangeEq` に替えたもの、reviewer も確認済み)の接続 | **接続の文は関数適用だけなので型は合うが、改訂 2 では `rawNode_ok` の複製を再実行していない**(初版と reviewer の確認に依拠) |
+| `rawNodeRange_of`・`rawNodeRange_structEnv`・ArgSupply15 以降 | **未解決(elaborate していない)**。止まる点を特定したのではなく、この調査では触っていない |
+| `betaRev` の `go`(partial)の展開 | 初版のとおり `rfl` で開かない。`beta` は仮定のまま(T1L-57) |
+
+#### 3.4.4 等式仮定の強さ(range・B5 との比較)
+- `LiftAgrees0` ⇒ `LiftLooseRange0`(scratch r1)。逆は言えない。つまり**trust する文としては range より強い**。強くなる分は「結果が `liftSpec` と等しい」という具体的な振る舞いで、C++ source と直接照合できる(照合できない range より検査しやすい)ことで正当化する。
+- B5(全入力・全 `(s,d)` で `lift e s d = liftSpec e s d`)⇒ `LiftAgrees0`。逆は言えない。**`LiftAgrees0` は domain を `LetOk 0 e` に、`s` を 0 に絞った分だけ B5 より弱い**。
+- `LiftAgrees`(T1L-50、`(0,1)`/`(1,1)`)との関係: `LiftAgrees0` は `(0,1)` を含む。T1L-50 と T1L-55 を 1 つの仮定 `LetOk 0 e → (∀ d, lift 0 d = liftSpec …) ∧ lift 1 1 = liftSpec …` にまとめる案は**考えられる**が、まとめると T1L-50 の文面が変わる(ユーザー承認が要る)ので**この文書では提案しない**(§6.1)。
+- `LowerAgreesEq`: lower の `s = d = i` のみ。全 `(s,d)` の lower 等式よりは弱い。
+- `ZeroLitAgrees0`: base の `ZeroLitAgrees`(全 `e`)を `LetOk 0 e` に絞った形で、**base の仮定より弱い**(下流の差し込み規模は未確認、別単位)。
+
+#### 3.4.5 mutant(signature / defeq での棄却であって意味的反例ではない)
+**改訂 2 では新しい mutant を実行していない。** 等式仮定に対する mutant(前提を `LetOk 1` に替える、`lower i j`(`i ≠ j`)で閉じる、等)は初版 §5.2 の range 版が最も近いが、等式版では再実行していない。いずれも型の向きの検査で、仮定が C++ と合っているかの検査ではない。
+
 ## 4. T1L-54 / T1L-57 の必要性
+
+> 改訂 2 注: T1L-54 は `ZeroLitRange0` を trust せず、`ZeroLitAgrees0`(§3.4.2)から証明する。`n=0` への絞りの根拠(`zeroLit_ok` の使用 2 箇所が `n=0`)は初版のまま。**下流(`machineShapeN_lets''` が `hz : ZeroLitAgrees` を取る形)への差し込みは別単位**で、規模は未見積。
 
 ### T1L-54(`zeroLit`、`Expr.replace`)
 - 証明の使用: `zeroLit_ok hz 0 _ …` が 2 箇所(PreprocLetOk:288、ArgSupply13 `readSub_letOk` の `root`)で、**どちらも `n = 0`**。
@@ -195,29 +265,39 @@ scratch の `example` で、仮定を強め・弱めた形が型で弾かれる�
 
 ## 6. 台帳の差分の見込み、旧 freeze の supersede、範囲外
 
-### 6.1 T1L 行ごと(この文書の推奨を採った場合)
+### 6.1 T1L 行ごと(改訂 2。等式仮定を trust する案を採った場合)
 
-| ID | 旧 freeze(b8a3ddb8) | この文書の推奨 | 台帳の動き |
+| ID | 旧 freeze(b8a3ddb8)の仮定 | 改訂 2 で trust する仮定 | 台帳の数え方(案) |
 |---|---|---|---|
-| T1L-50 | `LiftAgrees`(元のまま) | **変更なし**(§3.1) | 行は残る。置き換わらない |
-| T1L-51 | `Inst1Range` | **変更なし**。`Inst1Range0` は未確認の選択肢(§3.1) | 行は残る |
-| T1L-55 | `LiftLooseRange0`(`s=0` は未確認と注記) | **同じ型。`rawNode_ok` で `s=0` を確認**(scratch) | 行は残る。置き換わる仮定の文面は旧 freeze と同じ |
-| T1L-56 | `LowerLooseRangeEq`(同) | **同じ型。`rawNode_ok` で `s=d` を確認**(scratch) | 行は残る |
-| T1L-54 | `ZeroLitRange`(`n` 一般) | `ZeroLitRange0`(`n=0`)へ絞る**提案**。下流の差し込み規模は未確認 | 行は残る |
-| T1L-57 | `BetaRange` | **変更なし**(これ以上絞れる形は見つからなかった) | 行は残る |
-| T1L-52/58/59/53 | — | この文書の範囲外(コンパイラの `partial def`、kernel fact) | 変更なし |
+| T1L-50 | `LiftAgrees`((0,1)/(1,1)) | **変更なし** | 1 行のまま |
+| T1L-51 | `Inst1Range`(`∀ n`) | **変更なし**。`Inst1Range0` は縮めず別判断。当面は T1L-51 の原文を保つ | 1 行のまま |
+| T1L-55 | `LiftLooseRange0`(range を trust) | `LiftAgrees0`(`LetOk 0`、`s=0`、任意 `d` の等式)。`LiftLooseRange0` は**証明する補題** | 1 行を 1 行で置き換え(range の行は消え、等式の行が入る)。**正味 0 の案**。置換が「数え方として妥当」かは reviewer の判断で、数えていない |
+| T1L-56 | `LowerLooseRangeEq`(range を trust) | `LowerAgreesEq`(`LetOk 0`、`s=d=i`)。`lowerSpec` は新設の**定義**で trust ではない | 1 行を 1 行で置き換え。正味 0 の案 |
+| T1L-54 | `ZeroLitRange`(`n` 一般、range を trust) | `ZeroLitAgrees0`(`LetOk 0`、等式)。`ZeroLitRange0` は**証明する補題**。base の `ZeroLitAgrees` より弱い | 1 行を 1 行で置き換え。正味 0 の案。下流の差し込みは別単位(未見積) |
+| T1L-57 | `BetaRange` | **変更なし**(`betaRev.go` が開けない) | 1 行のまま |
+| T1L-52/53/58/59 | — | この文書の範囲外 | 変更なし |
 
-- **消える行は無い**(TRUSTED の仮定として残る)。**新しい仮定の追加は無い**(旧 freeze の 9 件の文面の中での絞り・確認)。B5(全入力等式)・B6(`replace` 全 `f,e`)・B7(`beta` 全般)を**採らない**ので、仮定の件数は旧 freeze の 9 のまま増えない。
-- **二重計上しない**: この文書の候補は旧 freeze の同番号(#1,#2,#4,#5,#6,#7)の**言い換え・確認**であって別行ではない。T1L-50..59 の 9 行は旧 freeze が数えるものと同じ。
-- FG 側: 変更なし(この調査では対応する FG 行は見つからなかった)。FG 102 → 102 (-0 +0)。T1 57 → 57 (-0 +0)。T1 57 に 9 行が全て含まれるかは旧 freeze と同じく未計数。
+- **消える候補の T1L 行は無い。** 置き換わる行は 3 つ(T1L-54・55・56)で、いずれも「1 行 → 1 行」の置換として数える案。ただし「range の仮定を等式の仮定で置き換える」ことを台帳上どう扱うか(同一行の改訂か、旧行除去 + 新行追加か)は**このドキュメントでは決めない**。除去+追加で数えるなら FG は 0 のまま T1 は -3 +3 で正味 0。
+- 数えていないもの: T1 57 に T1L-50..59 の 9 行が全て含まれるか(未計数、旧 freeze と同じ)、`LiftAgrees0` と `LiftAgrees` を 1 仮定にまとめる案(§3.4.4。文面変更になるので提案しない)での行数。
+- FG 側: 変更なし(対応する FG 行はこの調査では見つからなかった)。**台帳: FG 102 / T1 57(今回 FG -0 +0 / T1 -0 +0、置換は正味 0 の案。未計数の点は上のとおり)**。
+- 新しい TRUSTED 境界・law の追加はない(旧 freeze の 9 件の範囲内の書き換え)が、**仮定の中身が range → 等式に変わる**ので、reviewer の承認が要る(freeze 相談)。
 
-### 6.2 旧 freeze(`TRUST_EXPR_FREEZE.md`)のどの節を supersede するか
-- §1 #5 の「注意(次段で確認すべき点)」と §8 の「`rawNode_ok` の `hl _ _ _` の全使用箇所が `s = 0` か」の未確認: **`rawNode_ok` については確認済み**(scratch、§3.3)に更新。ただし ArgSupply15 以降は未確認のまま。
-- §1 #6 の同様の記述: 同上(`s = d`)。
-- §1 #4 の「`n` を 0 に絞れるかは未確認」: **`n = 0` で足りる使用を確認**(`zeroLit_ok` 2 箇所)。`ZeroLitRange0` を採るかは reviewer の判断。採れば #4 の原文だけを置き換える(§4 の差し込み規模が未確認)。
-- §1 #2 の「`n = 0` で足りるかは未確認」: **使用側は `n = 0` だけ見つかった**が、`PureFacts.inst1` が `∀ n` なので採る場合は別の単位(§3.1)。**この文書は #2 の原文を変えない**。
-- §1 #1, #3, #7, #8, #9 と §2(版固定)・§3(差分テスト範囲)・§4 の U2〜U5・§5 の台帳表: **supersede しない**(そのまま有効)。§4 U1 の「唯一元の証明がそのまま通らない可能性のある単位」は、`rawNode_ok'` の証明が引数を減らすだけで通ることが scratch で分かった(§3.3)ので、リスクは下がった(ただし scratch の複製で、コミットされた単位ではない)。
-- 旧 freeze 全体は、この文書が reviewer に採用された**範囲(上の #4・#5・#6 の注記と、B5/B6/B7 を採らない判断)だけ**を supersede する。採用されなければ旧 freeze が有効なまま。
+### 6.2 旧 freeze(`TRUST_EXPR_FREEZE.md` b8a3ddb8)の supersede 表(改訂 2)
+
+| 旧 freeze の節・命題 | 扱い |
+|---|---|
+| §1 #1(T1L-50 `LiftAgrees`) | **残す** |
+| §1 #2(T1L-51 `Inst1Range`) | **残す**(原文のまま。`n=0` 絞りは別判断) |
+| §1 #3(T1L-52 `RootFloatRange`)、#8(T1L-58)、#9(T1L-59) | **残す**(この文書の範囲外) |
+| §1 #4(T1L-54 `ZeroLitRange`) | **supersede 案**: trust を `ZeroLitAgrees0` に置換、`ZeroLitRange0` は補題。採否は reviewer。下流差し込みは別単位 |
+| §1 #5(T1L-55 `LiftLooseRange0`)の命題 | **supersede 案**: trust を `LiftAgrees0` に置換、range は補題。注記「`s=0` は未確認」は `rawNode_ok` について確認済みに更新(ArgSupply15 以降は未確認) |
+| §1 #6(T1L-56 `LowerLooseRangeEq`)の命題 | **supersede 案**: trust を `LowerAgreesEq` に置換、`lowerSpec` 新設。注記は #5 と同じ |
+| §1 #7(T1L-57 `BetaRange`) | **残す** |
+| §2(版固定)、§3(差分テスト範囲)、§4 U2〜U5、§5 台帳表 | **残す**。§5 の台帳表は T1L-54/55/56 の文面だけが §6.1 のとおり変わる |
+| §4 U1 の「`rawNode_ok'` が通らない可能性」 | `rawNode_ok` 複製は通った(初版 §3.3、reviewer 確認済み)ので更新。ArgSupply15 以降は未確認のまま |
+| §8 の `rawNode_ok` の `s=0` 確認 | `rawNode_ok` のみ確認済み。他は未解決 |
+
+採否は reviewer が決める。採用されなければ旧 freeze がそのまま有効。
 
 ### 6.3 範囲外(この文書が閉じないもの)
 1. `MachTupleIn.lean:87`(`packTupleInputs`、`liftLooseBVars` (1,1)・(0,1))の入力が `LetOk 0` か。
@@ -227,12 +307,14 @@ scratch の `example` で、仮定を強め・弱めた形が型で弾かれる�
 5. `Inst1Range0`(`n = 0`)を実際に使うための `PureFacts` 側の書き換え。
 6. `rawNodeRange_structEnv` 以降(ArgSupply15)の elaborate。
 
-## 7. reviewer への質問
-1. T1L-55/56 は旧 freeze と同じ range の型(`LiftLooseRange0`・`LowerLooseRangeEq`)で進めてよいか(B 案の等式 + `lowerSpec` 新設は採らない)。
-2. T1L-54 を `ZeroLitRange0`(`n = 0`)に絞る提案を採るか。採る場合、下流の差し込みを別の単位として出してよいか。
-3. T1L-51 の `n = 0` への絞り(`Inst1Range0`)は、`PureFacts.inst1` の扱いが共有定義に近いので、**この文書では採らず**別の判断に回す、でよいか。
-4. 実コーパスでの差分テスト(§5.1 b)を別の単位として出すか。
+## 7. reviewer への質問(改訂 2)
+1. T1L-54・55・56 を、range を直接 trust する代わりに**等式仮定**(`ZeroLitAgrees0`・`LiftAgrees0`・`LowerAgreesEq`、§3.4)にしてよいか。等式(A)でなく、ノードごとの構造保存(B')を求めるか(§3.4.1 に採らない理由)。
+2. `lowerSpec`(新設の定義)を置いてよいか。定義は trust ではないが、C++ と違えば仮定が偽になる(§3.4.1)。
+3. 台帳の数え方: 置換を「1 行 → 1 行(正味 0)」と数えてよいか、「除去 + 追加」で数えるか(§6.1)。
+4. `ZeroLitAgrees0` の下流差し込み(別単位)、実コーパス差分テスト(別単位、証明の代替ではない)、`Inst1Range0`(別判断、当面は T1L-51 原文)を、それぞれ別単位とする進め方でよいか。
 
 ## 8. この文書が確認したこと / していないこと
 - 確認した(コマンドで確かめた): toolchain `leanprover/lean4:v4.32.1`(commit `f054605aea4b840552cca2e725580bffd1e1b704`)、extern の宣言行(§1.1)、Lean tag `v4.32.1` の C++ を取得して読んだ内容(§1.2)、callsite の行(base `b8a3ddb8` の `grep`)、8fff703c の証明側の使用箇所(`git show`/`git grep`)、scratch での elaborate・証明・差分テスト・mutant(§3.3・§5)。`Tools.Prototype.RawNodeRangeLetOk` の `kjob lake build` が成功(510 jobs)したことを scratch の前提にした。
 - していない: coder 案の読み取り(Pod から見えなかった)、`rawNodeRange_structEnv` 以降の elaborate、`PureFacts` の `n=0` 書き換えの見積もり、実コーパスでの差分テスト、C++ の `unsigned` 切り捨ての影響、バイナリとソースの機械的同一性、T1 57 の内訳の計数。
+- 改訂 2 で追加で確認した: `r1`・`r2`・`r3` と `lowerGo_ok`・`lowerSpec_ok`(§3.4.3、scratch、sorry なし、`kjob lake env lean`)。
+- 改訂 2 でも**していない**: `rawNode_ok` 複製の再実行、ArgSupply15 以降の elaborate(未解決)、等式版 mutant の再実行、`PureFacts` の `n=0` 書き換えの見積もり、実コーパス差分テスト、台帳の再計数(置換の数え方は案のみ)。
