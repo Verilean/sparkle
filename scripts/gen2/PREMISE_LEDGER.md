@@ -1007,3 +1007,18 @@ theorem factsOf_genS_assembled''
 
 - この版の前提差分: **解消 0 / 追加 0**（調査の記録のみ）。現在値は **FG 107 / T1 58**。A / SM3 の本番受理後は FG 104（-3）の予定、C を受理すれば 102（-2）、D が成立すればさらに 101 の見込み（いずれも見込みで、受理・台帳反映前は書かない）。
 - 4 段（設計承認 / 条件付き部品 / 前提解消 / 最終受理）: 設計（段 1）の前の調査記録。どの行も進めない。
+
+## 12. 現在値の更新（2026-11-01、coder。文書のみ。Lean・build なし）
+
+§11 の時点（FG 107 / T1 58）以降に、本番 proof-accept と reviewer の承認で受理された減算を記録する。§2 の現在値の定義（§8.2 の 110 行表のうち未解消の行数）はそのまま使う。110 / 146 の基準件数と表の行は書き換えない。
+
+| 単位 | 消えた FG 行 | 根拠（候補 SHA、verdict） | 条件 |
+|---|---|---|---|
+| A（Issue sparkle-gen5-dg-sem） | C.SM-2、C.SM-4 | candidate 628bc5d3、`~/git/.kjob-state/proof-accept/sparkle-gen5-dg-sem-628bc5d3dc2c-20261031T235825Z-8e4757`（pass、imports 564 unchanged） | 固定 carrier（GenData-kit）を最終 assembly が採ること |
+| SM3（sparkle-gen5-dg-acc） | C.SM-3 | candidate 4cade1d0、`…/sparkle-gen5-dg-acc-4cade1d0dccf-20261101T000326Z-291a21`（pass、565） | 同上 |
+| CKIT（sparkle-gen5-dg-kit） | C.AC-2、C.AC-3 | candidate 4bc671dd、`…/sparkle-gen5-dg-kit-4bc671dd447a-20261101T000840Z-1a1fd4`（pass、566） | §11.2 の注意 1: A13 の `GDf` を採る場合は再び要る |
+
+- **現在値: FG 102**（107 − 5）。T1 側の現在値は T1 台帳 §12 のとおり **T1 54**。
+- 候補 D（C.SM-1）は reviewer 裁定で 0（`dataOfAt_sound` は被覆を作らない）。§11.5 の第 2 は起こさない。
+- その後の調査 `scripts/gen5/GENDATA_COVER_SURVEY.md`（b68e83bd、reviewer 承認）: C.AC-4 / C.SM-6 / C.DG-1 は、この調査で辿った候補経路では未供給。正の純差分の候補なし。
+- 合算していない（§9.3 のとおり、FG と T1 は数え方が違う）。
