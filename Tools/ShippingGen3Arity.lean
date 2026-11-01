@@ -1,6 +1,7 @@
 import Tools.ShippingGen2Defs
 set_option autoImplicit false
 -- Built: g3dsc-1b840215 (clean snapshot, exit 0, standard axioms).
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # U-ARITY: call arity `(insts[k]).2.1.length = q.ports.length` from ONE trace witness

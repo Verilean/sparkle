@@ -5095,3 +5095,26 @@ lean_lib «Tests.Gen5.CKitCheck» where
 
 lean_lib «Tools.ShippingGen5AccGenDataKit» where
   roots := #[`Tools.ShippingGen5AccGenDataKit]
+lean_lib «Tools.ShippingGen5DataOfPure» where
+  roots := #[`Tools.ShippingGen5DataOfPure]
+
+lean_lib «Tests.Gen5.DataOfCheck» where
+  roots := #[`Tests.Gen5.DataOfCheck]
+
+lean_lib «Tools.ShippingGen5DataOfPure2» where
+  roots := #[`Tools.ShippingGen5DataOfPure2]
+
+lean_lib «Tests.Gen5.DataOfCheck2» where
+  roots := #[`Tests.Gen5.DataOfCheck2]
+
+lean_lib «Tools.ShippingGen5DataOf» where
+  roots := #[`Tools.ShippingGen5DataOf]
+
+lean_lib «Tests.Gen5.DataOfCheck3» where
+  roots := #[`Tests.Gen5.DataOfCheck3]
+
+lean_lib «Tools.ShippingGen5DataOfDims» where
+  roots := #[`Tools.ShippingGen5DataOfDims]
+
+lean_lib «Tests.Gen5.DataOfCheck4» where
+  roots := #[`Tests.Gen5.DataOfCheck4]

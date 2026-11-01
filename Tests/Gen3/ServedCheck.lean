@@ -3,6 +3,7 @@ import Tests.Gen3.ExpectedType
 import Tests.Gen2.LeafInstance
 set_option autoImplicit false
 -- Built: g3sv-b5be62e6 (clean snapshot, exit 0, standard axioms); written by reading at 96cbd548. No `sorry`, no `axiom`, no `native_decide`.
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 
 /-! # G-SERVED checks (scripts/gen2/SERVED_FREEZE.md rev1 §4.2)
 

@@ -2,6 +2,7 @@ import Tools.ShippingGen2PostFactsProof
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 -- Built: g3pf3-a9c42458 (clean snapshot, exit 0, standard axioms); written by reading at 35588c38. No `sorry`, no `axiom`, no `native_decide`.
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 -- REMAINING PREMISES of the G-POST producer (scripts/gen2/GPOST_ASSEMBLY_NOTE.md):
 --   * `hrows : ∀ q, DataOk q → DataRows q`                         (GPOST_FREEZE §11 S1; UNSUPPLIED)
 --   * `hrow  : ∀ q, DataOk q → OneOutNoMemRow q = true`             (U1 G-ONEOUT-REACH, R-ROW; UNSUPPLIED)

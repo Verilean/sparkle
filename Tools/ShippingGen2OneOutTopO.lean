@@ -5,6 +5,7 @@ import Tools.ShippingParentTailsO
 import Tools.ShippingParentDesignO
 set_option autoImplicit false
 -- Written on cd026658; built at 0efea824 (kjob g2pm4-0efea824: exit 0, standard axioms only).
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # P-MEM-4: the one-output top without the NAME half of `hnomem`

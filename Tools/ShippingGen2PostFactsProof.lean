@@ -5,6 +5,7 @@ import Tools.ShippingGen2KidsInst
 import Tools.ShippingGen2InstKeep
 set_option autoImplicit false
 -- Built: g3pf3-a9c42458 (clean snapshot, exit 0, standard axioms) (written by reading at 35588c38; scripts/gen2/GPOST_FREEZE.md rev1 §5 + §11,
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 -- scripts/gen2/GPOST_ASSEMBLY_NOTE.md). No `sorry`, no `axiom`, no `native_decide`.
 -- The statements live in Tools/ShippingGen2PostFacts.lean (built at 28476add); that file is NOT edited, so the
 -- producer is in this NEW file.
