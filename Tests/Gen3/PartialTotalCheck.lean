@@ -3,7 +3,7 @@ import Tools.Assume.N3Extern
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- NOT BUILT: K1 skeleton check (the four roots still carry `sorry`; the axiom report below logs `sorryAx` instead of throwing).
+-- NOT BUILT: K1 skeleton check (built OK at 6e3739fd, exit 0) (the four roots still carry `sorry`; the axiom report below logs `sorryAx` instead of throwing).
 
 /-! # Partial-total agreement checks (scripts/gen3/PARTIAL_TOTAL_FREEZE.md §3)
 

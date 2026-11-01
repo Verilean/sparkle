@@ -1,7 +1,7 @@
 import Tools.Prototype.LiftScalarModelLetOk
 import Tools.ShippingLetsExternSpec
 set_option autoImplicit false
--- NOT BUILT: K1 skeleton (the four theorems carry `sorry`).
+-- NOT BUILT: K1 skeleton (the four theorems carry `sorry`). Skeleton content built OK at 6e3739fd (Tests.Gen3.PartialTotalCheck exit 0).
 
 /-! # Partial-total agreement theorems (scripts/gen3/PARTIAL_TOTAL_FREEZE.md §3)
 
