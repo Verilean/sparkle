@@ -201,7 +201,12 @@
     "_private.Tools.PartialTotal.Agree.0.Tools.Prototype.LiftScalarModelLetOk.liftStep.match_8.splitter._sparseCasesOn_14",
     "_private.Tools.PartialTotal.Agree.0.Tools.Prototype.LiftScalarModelLetOk.liftStep.match_8.splitter._sparseCasesOn_15",
     "_private.Tools.PartialTotal.Agree.0.Tools.Prototype.LiftScalarModelLetOk.liftStep.match_8.splitter._sparseCasesOn_16",
-    "_private.Tools.PartialTotal.Agree.0.Tools.Prototype.LiftScalarModelLetOk.liftStep.match_8.splitter._sparseCasesOn_17"
+    "_private.Tools.PartialTotal.Agree.0.Tools.Prototype.LiftScalarModelLetOk.liftStep.match_8.splitter._sparseCasesOn_17",
+    "_private.Tools.PartialTotal.Agree.0.Tools.PartialTotal.Agree.csz.match_1.splitter._sparseCasesOn_2",
+    "_private.Tools.PartialTotal.Agree.0.Tools.PartialTotal.Agree.isAshrHead.match_1.splitter._sparseCasesOn_2",
+    "_private.Tools.PartialTotal.Agree.0.Tools.PartialTotal.Agree.isAshrHead.match_1.splitter._sparseCasesOn_4",
+    "_private.Tools.PartialTotal.Agree.0.Tools.PartialTotal.Agree.isToNatHead.match_1.splitter._sparseCasesOn_2",
+    "_private.Tools.PartialTotal.Agree.0.Tools.PartialTotal.Agree.isToNatHead.match_1.splitter._sparseCasesOn_4"
   ],
   "forbidden": [],
   "forbidden_modules": [],
