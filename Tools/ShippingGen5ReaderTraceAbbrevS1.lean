@@ -4,7 +4,7 @@ import Tools.ShippingGen5ReaderTraceLift
 import Tools.ShippingGen5ReaderTraceDirect
 import Tools.ShippingInlCand
 set_option autoImplicit false
--- NOT BUILT: written against `scripts/gen5/RT_ABBREV_S1_FREEZE.md` rev2 (types copied from its #check output).
+-- Built in Pod (kjob lake build, exit 0) on the tree of 2afbcc18af7226555f7c5b77916e265d4bbc3779 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source. Written against `scripts/gen5/RT_ABBREV_S1_FREEZE.md` rev2 (types copied from its #check output).
 
 /-! # RT abbrev S1: `inlAbbrevs` preserves `NoPh ∧ BvarLt 0` (freeze `scripts/gen5/RT_ABBREV_S1_FREEZE.md` rev2)
 

@@ -1,7 +1,7 @@
 import Tools.ShippingLetsExternSpec
 import Tools.ShippingGen5ReaderTrace
 set_option autoImplicit false
--- NOT BUILT: assumption module (statements and the model definitions they mention; no theorems). Pod build of Tools.Assume.AbbrevExtern: see header commit below.
+-- Built in Pod (kjob lake build, exit 0) on the tree of 2afbcc18af7226555f7c5b77916e265d4bbc3779 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source. (assumption module: statements and the model definitions they mention; no theorems.)
 
 /-! # Behaviour assumptions: `Expr.replace` and `Expr.headBeta` as used by `inlAbbrevs` (RT abbrev S1)
 
