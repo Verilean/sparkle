@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceDirect2
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT yet.
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceRev21Check, exit 0; TYPE 21 / MUTANT 17 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 21 standard only / POSITIVE+NEGATIVE 9 / CLOSURE OK / EqvAtom DEPTABLE OK) on the tree of 237f86d9179ae02cd11f4a9766bcb668fb4bdeab (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE rev20 / rev21.1 checks (`Tools/Assume/ExprEqv.lean`, `Tools/ShippingGen5ReaderTraceDomKeepF.lean`, `...DomKeepS.lean`, `...Shape2.lean`, `...Direct2.lean`)
 

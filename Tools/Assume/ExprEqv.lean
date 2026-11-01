@@ -1,7 +1,8 @@
 import Lean
 import Sparkle.Core.Domain
 set_option autoImplicit false
--- NOT BUILT yet. Assumption module (statements only; no theorems). Written against `scripts/gen5/DG_READERTRACE_FREEZE_REV21.md` (rev21.1) §1.
+-- Built in Pod (kjob lake build Tools.Assume.ExprEqv, exit 0) on the tree of 237f86d9179ae02cd11f4a9766bcb668fb4bdeab (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Assumption module (statements only; no theorems). Written against `scripts/gen5/DG_READERTRACE_FREEZE_REV21.md` (rev21.1) §1.
 
 /-! # Environment/C++ assumption: `==` on `Lean.Expr` is equality when the right side is a domain atom (`EqvAtom`)
 

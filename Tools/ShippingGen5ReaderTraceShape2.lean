@@ -1,6 +1,7 @@
 import Tools.ShippingGen5ReaderTraceDomKeepS
 set_option autoImplicit false
--- NOT BUILT yet. Written against freeze rev20 §2 + rev21.1 §4 `scripts/gen5/DG_READERTRACE_FREEZE_REV21.md` (`MidInputs'`, `ShapeInputs'`, `shapeStart_trace'`, `machineShapeF_reach'`).
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceShape2, exit 0) on the tree of 237f86d9179ae02cd11f4a9766bcb668fb4bdeab (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Written against freeze rev20 §2 + rev21.1 §4 `scripts/gen5/DG_READERTRACE_FREEZE_REV21.md` (`MidInputs'`, `ShapeInputs'`, `shapeStart_trace'`, `machineShapeF_reach'`).
 
 /-! # DG-READERTRACE rev20/rev21.1 primed wrapper reach: no `DomAtomic dom`
 

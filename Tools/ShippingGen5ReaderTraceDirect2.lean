@@ -1,7 +1,8 @@
 import Tools.ShippingGen5ReaderTraceDirect
 import Tools.ShippingGen5ReaderTraceShape2
 set_option autoImplicit false
--- NOT BUILT yet. Written against freeze rev20 §3 `scripts/gen5/DG_READERTRACE_FREEZE_REV20.md` (`nDeclOfCi`, `bs_len_eq`, `hbs_of_nDeclOfCi`, `shapeInputs_of'`, `shapeInputs_of_direct'`).
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceDirect2, exit 0) on the tree of 237f86d9179ae02cd11f4a9766bcb668fb4bdeab (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Written against freeze rev20 §3 `scripts/gen5/DG_READERTRACE_FREEZE_REV20.md` (`nDeclOfCi`, `bs_len_eq`, `hbs_of_nDeclOfCi`, `shapeInputs_of'`, `shapeInputs_of_direct'`).
 
 /-! # DG-READERTRACE rev20: `hbs` removed by `nDeclOfCi`, primed `shapeInputs_of` / `shapeInputs_of_direct` (no `hdom`, no `hbs` binder)
 

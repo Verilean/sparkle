@@ -1,7 +1,8 @@
 import Tools.ShippingGen5ReaderTraceDomKeepF
 import Tools.ShippingGen5ReaderTraceShape
 set_option autoImplicit false
--- NOT BUILT yet. Written against freeze rev21.1 `scripts/gen5/DG_READERTRACE_FREEZE_REV21.md` §4, §5 (`shapeRootLet_domKeepF`, `rootLets_domKeepF`, `shapeBody_domKeepF`, `shapePost_domForm`).
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceDomKeepS, exit 0) on the tree of 237f86d9179ae02cd11f4a9766bcb668fb4bdeab (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Written against freeze rev21.1 `scripts/gen5/DG_READERTRACE_FREEZE_REV21.md` §4, §5 (`shapeRootLet_domKeepF`, `rootLets_domKeepF`, `shapeBody_domKeepF`, `shapePost_domForm`).
 
 /-! # DG-READERTRACE rev21.1: the wrapper's three reader stages keep the `dom` relation (`DomKeepF`), and `shapePost` yields `DomForm`
 

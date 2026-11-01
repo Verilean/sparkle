@@ -3,7 +3,8 @@ import Tools.ShippingGen5ReaderTraceCtl
 import Tools.ShippingReaderFuelR5
 import Tools.ShippingReaderLenOkReserve
 set_option autoImplicit false
--- NOT BUILT yet. Written against freeze rev21.1 `scripts/gen5/DG_READERTRACE_FREEZE_REV21.md` §1.1, §3, §5 (`DomForm`, `domForm_shape`, `DomKeepF`, `domKeepF_seq`, `domKeepF_write`, `readF_domKeepF`).
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceDomKeepF, exit 0) on the tree of 237f86d9179ae02cd11f4a9766bcb668fb4bdeab (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Written against freeze rev21.1 `scripts/gen5/DG_READERTRACE_FREEZE_REV21.md` §1.1, §3, §5 (`DomForm`, `domForm_shape`, `DomKeepF`, `domKeepF_seq`, `domKeepF_write`, `readF_domKeepF`).
 
 /-! # DG-READERTRACE rev21.1: `DomKeepF` and `readF_domKeepF`
 
