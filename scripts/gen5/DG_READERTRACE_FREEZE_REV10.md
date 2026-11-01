@@ -43,3 +43,18 @@ theorem conv_letE_trace (senv : StructEnv) (nDecl n : Nat) (hla : LiftAgrees) (h
 * arm の分岐（`d ≠ 0` で失敗 / `rootFloat v` が `letE` / `Signal.loop` / `machTailV` / `machHandleV` / 既定）を全部この 1 つの theorem で覆う。`hT` から再帰呼び出し（`cConv`、`cLoopRoot`）の `TracePost` を取る。
 * 前提: `LiftAgrees`（T1L-50）、`RootFloatAgrees`（T1L-52）。どちらも既存の名前付き仮説で、行は変えない。`Inst1` / `SigTyClosed` は使わない。
 * 主張しないこと: 他の arm、`TraceGood senv nDecl (readF senv n)` 全体、`RootFloatAgrees` / `LiftAgrees` が真であること。
+
+## 2. Addendum: U-R5b — `chainStep` の `letE` arm（台帳差分 -0 +0、前提は §1 と同じ既存 2 件、review に出さない）
+
+新ファイル `Tools/ShippingGen5ReaderTraceChainLet.lean`（+ `Tests/Gen5/ReaderTraceChainLetCheck.lean`）。§1 の補助補題（`lift01_ph` 他）を再利用し、新しい補助は無い。
+```lean
+theorem chain_letE_trace (senv : StructEnv) (nDecl n : Nat) (hla : LiftAgrees) (hrf : RootFloatAgrees)
+    (hT : TraceGood senv nDecl (readF senv n))
+    (env : List MachVal) (nm : Name) (ty v b : Lean.Expr) (nd : Bool) (st : MachRead)
+    (hpre : TracePre senv nDecl (Call.chain env (.letE nm ty v b nd) st))
+    (r : (Call.chain env (.letE nm ty v b nd) st).Res)
+    (hv : (chainStep senv env (.letE nm ty v b nd) st).run (readF senv n) = some (some r)) :
+    FReachC nDecl st (callOut (Call.chain env (.letE nm ty v b nd) st) r) ∧
+    PhPost senv nDecl (Call.chain env (.letE nm ty v b nd) st) r
+```
+5 つの分岐（rootFloat が `letE` / `Signal.loop` / `machTailV` / `machHandleV` / 既定）は §1 と同形で、再帰が `cChain`（`d` なし。`PhPre` の `BvarLt` は `env.length + nDecl`）になるだけ。台帳差分 FG -0 +0 / T1 -0 +0。
