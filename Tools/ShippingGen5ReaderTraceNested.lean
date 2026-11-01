@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceLet
 import Tools.ShippingReaderLenOkReserve
 set_option autoImplicit false
--- NOT BUILT: written against freeze rev10 addendum §3 `scripts/gen5/DG_READERTRACE_FREEZE_REV10.md` (U-R6: `nestedStep`; no premise). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceNested, exit 0) on the tree of b3e517dfe919fb1424122e223aef8abe56b79456 (Lean content identical; this header is comment-only). Written against freeze rev10 addendum §3 `scripts/gen5/DG_READERTRACE_FREEZE_REV10.md` (U-R6: `nestedStep`; no premise). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R6: `nestedStep`
 
