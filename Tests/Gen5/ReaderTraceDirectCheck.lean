@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceDirect
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: first draft.
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceDirectCheck, exit 0; TYPE 10 / MUTANT 7 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 10 standard only / POSITIVE 2 / CLOSURE OK) on the tree of 8c4f49c965944dc41e9437ac46bdd058de3706b5 (Lean content identical; header comment-only). Clean build is the coder's.
 
 /-! # DG-READERTRACE `shapeInputs_of_direct` checks (Tools/ShippingGen5ReaderTraceDirect.lean)
 
