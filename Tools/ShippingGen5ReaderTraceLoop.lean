@@ -1,6 +1,6 @@
 import Tools.ShippingGen5ReaderTraceLet
 set_option autoImplicit false
--- NOT BUILT YET. Written against freeze rev13 `scripts/gen5/DG_READERTRACE_FREEZE_REV13.md` §1 (U-R9: `loopBodyStep`; no premise). No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceLoop, exit 0, 755 jobs) on the tree of 97de8a8e8a8ada2267a12a6d50738201a64e9ec5 (Lean content identical; this header is comment-only). Written against freeze rev13 `scripts/gen5/DG_READERTRACE_FREEZE_REV13.md` §1 (U-R9: `loopBodyStep`; no premise). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R9: `loopBodyStep`
 

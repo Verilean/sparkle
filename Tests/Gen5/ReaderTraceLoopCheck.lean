@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceLoopRoot
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT YET. Written against freeze rev13 `scripts/gen5/DG_READERTRACE_FREEZE_REV13.md` (U-R9 / U-R10). No sorry / axiom / native_decide in source; the closure-control negatives are built in memory (no `sorry` token).
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceLoopCheck, exit 0, 758 jobs; TYPE 4 theorems; MUTANT 6 theorem-statement mutants (signature/defeq rejections, not semantic counterexamples); AXIOMS 17 (standard only); CLOSURE OK 5018 constants from 17 roots; 3 intended in-memory sorry negatives print warnings) on the tree of 97de8a8e8a8ada2267a12a6d50738201a64e9ec5 (Lean content identical; this header is comment-only). Written against freeze rev13 `scripts/gen5/DG_READERTRACE_FREEZE_REV13.md` (U-R9 / U-R10). No sorry / axiom / native_decide in source; the closure-control negatives are built in memory (no `sorry` token).
 /-! # DG-READERTRACE U-R9 / U-R10 checks (Tools/ShippingGen5ReaderTraceLoop.lean, Tools/ShippingGen5ReaderTraceLoopRoot.lean)
 
 TYPE: `loopBody_trace`, `loopFold_trace`, `loopProbe_trace`, `loopRoot_trace` are compared by `checkExpected` against `Exp…` statements written here from the freeze text (own spelling); the other new declarations are checked by AXIOMS and CLOSURE only.
