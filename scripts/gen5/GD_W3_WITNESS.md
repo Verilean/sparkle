@@ -41,7 +41,7 @@ theorem letQuoteEqC_witness   -- 上と同じ結論、hd : dataOfAt lvl E senv s
 | | 内容 | 状態 |
 |---|---|---|
 | (a) | 冪等補題 | 不要（`LetQuoteEqC` は `machCanonAp` 付き。D4 選択肢 1） |
-| (b) | Bool let | §2-5 の場合分けで扱う（Lean 実装で確認、現時点は未証明） |
+| (b) | Bool let | §2-5 の場合分けで Lean 証明済み（`letQuoteEqC_of_post`、Pod build）。Bool let は `machBoolBits` の条件引数への injection で `quote t = machCanonAp (machClose … v)` |
 | (c) | C.CV-1 の binder / domain の一致 | `LetQuoteEqC` と `rowC_of_reader_canon` は承認済み（954bc981）。台帳行の原文との再読は reviewer |
 | (d) | W1 と同じ `st` | 結論の型で同一（§1） |
 | (e) | carrier | `dataOfAt`（W1 と同じ）。`dataOfAtP` は範囲外 |
@@ -49,3 +49,10 @@ C.CV-1 を消せるかは、Lean が通り、clean build と reviewer の判定�
 
 ## 5. Check（他の単位と同じ形）
 `Tests/Gen5/GDW3Check.lean`（新規）: 独立 Expected TYPE、正負対照、mutant（signature/defeq 棄却）、closure（sorryAx 等が無いこと）、`#print axioms` が標準のみ、COUNTS 行。
+
+## 6. 実装結果（Lean、Pod の target build。clean build は coder）
+* 新規 `Tools/ShippingGen5GDW3.lean`（`shapePost_binders`、`letsTyped_get`、`machCanonAp_machBoolBits'`、`letQuoteEqC_of_post`、`letQuoteEqC_witness_from`、`letQuoteEqC_witness`）、`Tests/Gen5/GDW3Check.lean`、lakefile に lean_lib 2 件。共有定義・既存ファイルは未変更。sorry / axiom / native_decide なし。
+* `letQuoteEqC_of_post` の仮説は `p.outs ≠ []`、`shapePost` の成功、`d.shape = sp`、`d.ok`、`d.shape.body = quote …`、`ShapeAgree d st` のみ。経路（`lets.push` の 4 箇所）は見ない。
+* `machCanonAp_machBoolBits'` は `dom` が `machCanonAp` で動かない仮定を要らない形（右辺は `machBoolBits (machCanonAp dom) (machCanonAp e)`）。承認済みの `machCanonAp_machBoolBits`（`hdom` 付き）は使っていない。
+* Check の `checkExpected` は `hbr` の binder（`Cv4` の再記述）と結論（`LetQuoteEqC` と `ExpLetQuoteEqC`、`StateSideWitness` と `ExpSswBody`）の一致を、定義の展開を挟んだ isDefEq で受理している（Check の出力に "accepted by isDefEq (NOT syntactic)" と出る）。構文的一致ではない。
+* 未確認のまま: `hbr`（C.CV-4）の証明、本番 fuel が `hbr` の `n` を与えること、`dataOfAtP`、`FullInv` / `LetsNoLoose`、実行（reader を走らせた）での経路 2/3 の確認。C.CV-1 を消す判定は reviewer。
