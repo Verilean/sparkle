@@ -58,3 +58,30 @@ theorem chain_letE_trace (senv : StructEnv) (nDecl n : Nat) (hla : LiftAgrees) (
     PhPost senv nDecl (Call.chain env (.letE nm ty v b nd) st) r
 ```
 5 つの分岐（rootFloat が `letE` / `Signal.loop` / `machTailV` / `machHandleV` / 既定）は §1 と同形で、再帰が `cChain`（`d` なし。`PhPre` の `BvarLt` は `env.length + nDecl`）になるだけ。台帳差分 FG -0 +0 / T1 -0 +0。
+
+## 3. Addendum: U-R6 — `nestedStep`（台帳差分 -0 +0、前提なし、review に出さない）
+
+新ファイル `Tools/ShippingGen5ReaderTraceNested.lean`（+ `Tests/Gen5/ReaderTraceNestedCheck.lean`）。`machReserve` の reach 補題は、この調査では既存名 `machReserve_some`（`Tools/ShippingReaderLenOkReserve.lean`、`machReserve` の結果が `reserved st dom' body kinds inits`）と `reserved_reachC`（`Tools/ShippingGen5Cover6.lean`）が見つかった（REV5 表の「新規かも」は不要）。LiftAgrees / RootFloatAgrees / SigTyClosed は使わない。
+```lean
+theorem trInv_reserved {senv : StructEnv} {nDecl : Nat} {s : MachRead} (hTr : TrInv senv nDecl s)
+    {dom' : Lean.Expr} (hdr : InRange nDecl s s.lets.size dom') (hdn : NoLoose 0 dom')
+    (body : Lean.Expr) (kinds : List MixedGateBinder) (inits : List Nat) :
+    FReachC nDecl s (reserved s dom' body kinds inits) ∧ TrInv senv nDecl (reserved s dom' body kinds inits)
+
+theorem trInv_pushNested {senv : StructEnv} {nDecl : Nat} {s : MachRead} (hTr : TrInv senv nDecl s)
+    (ob : Bool) (e : Nat × Lean.Expr × Lean.Expr × Lean.Expr × List (Nat × Lean.Expr) × Lean.Expr)
+    (hv : InRange nDecl s s.lets.size e.2.2.2.2.2) (hn : NoLoose 0 e.2.2.2.2.2) :
+    FReachC nDecl s { s with inInner := ob, nested := s.nested.push e } ∧
+    TrInv senv nDecl { s with inInner := ob, nested := s.nested.push e }
+
+theorem nested_trace (senv : StructEnv) (nDecl n : Nat)
+    (hT : TraceGood senv nDecl (readF senv n))
+    (env : List MachVal) (dom αs initsE body : Lean.Expr) (st : MachRead)
+    (hpre : TracePre senv nDecl (Call.nested env dom αs initsE body st))
+    (r : (Call.nested env dom αs initsE body st).Res)
+    (hv : (nestedStep senv env dom αs initsE body st).run (readF senv n) = some (some r)) :
+    FReachC nDecl st (callOut (Call.nested env dom αs initsE body st) r) ∧
+    PhPost senv nDecl (Call.nested env dom αs initsE body st) r
+```
+* 内容: `inInner` で失敗 / `cConv dom` / `findSomeO nestedProbe`（共有: 各候補は `cChain (.regs base :: env) body` を呼び、`CtlPh` の nested 節から保存済みの `v` の `InRange` / `NoLoose` を単調性で持ち上げる）/ `machReserve`（`machReserve_some` + `trInv_reserved`）/ `cChain`（`inInner := true` の状態）/ `ws ++` と nested の push（`reachC_ws` + `trInv_pushNested`）。
+* 前提: なし。台帳差分 FG -0 +0 / T1 -0 +0。
