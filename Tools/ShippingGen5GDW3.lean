@@ -3,7 +3,7 @@ import Tools.ShippingGen5Cover3Canon
 import Tools.Prototype.ReaderFixpointTyped
 import Tools.ShippingGen5DataOfPure2
 set_option autoImplicit false
--- NOT BUILT (draft). Freeze scripts/gen5/GD_W3_WITNESS.md.
+-- Pod target build OK at 973d6db8 (`kjob lake build Tools.ShippingGen5GDW3`, exit 0, 763 jobs). Clean build is the coder's. No sorry / axiom / native_decide. Freeze scripts/gen5/GD_W3_WITNESS.md.
 
 namespace Tools.ShippingGen5GDW3
 open Lean Sparkle.Compiler.Elab Tools.ShippingGen5Cover3 Tools.ShippingReaderFuel Tools.ShippingReaderLenOk

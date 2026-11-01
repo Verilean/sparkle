@@ -2,7 +2,7 @@ import Tools.ShippingGen5GDW3
 import Tests.Gen5.AccCheck
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- NOT BUILT (draft). Freeze scripts/gen5/GD_W3_WITNESS.md.
+-- Pod target build OK at 973d6db8 (`kjob lake build Tests.Gen5.GDW3Check`, exit 0, 767 jobs): TYPE 6 / MUTANT 13 (single 11 + compound 2; signature/defeq rejection, not semantic) / AXIOMS 6 standard / CLOSURE 6397 consts, unknown 0. 3 intended sorry warnings = walker negatives (AccCheck.walkerControls). Clean build is the coder's. No sorry / axiom / native_decide in source. Freeze scripts/gen5/GD_W3_WITNESS.md.
 
 /-! # W3 checks (Tools/ShippingGen5GDW3.lean)
 
