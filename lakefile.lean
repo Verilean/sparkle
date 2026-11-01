@@ -5204,3 +5204,8 @@ lean_lib «Tools.ShippingGen5GDCover2» where
 
 lean_lib «Tests.Gen5.GDCover2Check» where
   roots := #[`Tests.Gen5.GDCover2Check]
+lean_lib «Tools.ShippingGen5DataOfComplete» where
+  roots := #[`Tools.ShippingGen5DataOfComplete]
+
+lean_lib «Tests.Gen5.DataOfCompleteCheck» where
+  roots := #[`Tests.Gen5.DataOfCompleteCheck]
