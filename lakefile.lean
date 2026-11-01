@@ -4943,3 +4943,9 @@ lean_lib «Tools.ShippingN3ExternAgree» where
 
 lean_lib «Tests.Gen3.N3AgreeCheck» where
   roots := #[`Tests.Gen3.N3AgreeCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceInst1» where
+  roots := #[`Tools.ShippingGen5ReaderTraceInst1]
+
+lean_lib «Tests.Gen5.ReaderTraceInst1Check» where
+  roots := #[`Tests.Gen5.ReaderTraceInst1Check]

@@ -116,3 +116,7 @@ theorem sigTyPh_of (env : Environment) (hK : EnvTypesFVarFree env) (hC : SigTyCl
 
 ## 5. この rev9 が主張しないこと
 `SigTyClosed` が真であること、`TraceGood senv nDecl (readF senv n)` の成立、§1〜§3 の型が elaborate すること、台帳の数の変更。新しい law / TRUSTED 境界 / コンパイラ・共有定義の変更 / FG の縮小 / `GenWF` の強化は含まない。
+
+## 6. Addendum (U-R4 Inst1 実装時): `inst1Spec_bvarLt` の仮説形
+
+§1 の `inst1Spec_bvarLt` は仮説に `BvarLt (m' + off) (liftSpec a 0 off)` を取る形で書いたが、束縛子（`lam` / `forallE` / `letE`）の帰納で `off + 1` の仮説が要り、この形では閉じない。実装は仮説を `BvarLt m' a = true` に置き換え（`liftSpec_bvarLt a 0 off m'` が持ち上げ形を与える）。`inst1Ph_of_agrees` と `Inst1Ph` の型は §1 のまま。台帳への影響なし（補助補題の仮説形のみ。前提は増えない）。
