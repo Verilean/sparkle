@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceApp
 import Tools.ShippingGen3ArgSupply4
 set_option autoImplicit false
--- NOT BUILT: written against freeze rev6 `scripts/gen5/DG_READERTRACE_FREEZE_REV6.md` (U-R4b); build result and clean issue-linked build pending. No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceReg, exit 0) on the tree of 252ea167e441cc345829d4fd35c41c8c473da47f (this header is comment-only). Written against freeze rev6 `scripts/gen5/DG_READERTRACE_FREEZE_REV6.md` (U-R4b); clean issue-linked build pending (coder). No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE U-R4b: the new bare-register arm of `convStep` `app`
 

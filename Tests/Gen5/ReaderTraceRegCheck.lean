@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceReg
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: written against freeze rev6 `scripts/gen5/DG_READERTRACE_FREEZE_REV6.md` §1; build result and clean issue-linked build pending. No sorry / axiom / native_decide in source; the intended sorry-based negatives of the closure controls are built in memory (no `sorry` token).
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceRegCheck, exit 0, 746 jobs) on the tree of 252ea167e441cc345829d4fd35c41c8c473da47f (this header is comment-only). Measured: TYPE 3 theorems; MUTANT 11 theorem-statement mutants (signature/defeq rejections, not semantic counterexamples); AXIOMS 5 (standard only); CLOSURE OK 4752 constants from 5 roots, 5 targets seen; 3 intended in-memory sorry negatives print 3 warnings. Written against freeze rev6 `scripts/gen5/DG_READERTRACE_FREEZE_REV6.md` §1; clean issue-linked build pending (coder). No sorry / axiom / native_decide in source; the intended sorry-based negatives of the closure controls are built in memory (no `sorry` token).
 /-! # DG-READERTRACE U-R4b checks (Tools/ShippingGen5ReaderTraceReg.lean)
 
 TYPE: the 3 frozen theorems are compared by `checkExpected` against `Exp…` statements written here from the freeze text (own spelling); the helpers `ph_argsAcc` / `trInv_pushReg` are checked by AXIOMS and CLOSURE only.
