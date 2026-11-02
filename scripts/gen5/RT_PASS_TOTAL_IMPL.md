@@ -66,7 +66,8 @@ Issue: `sparkle-rt-pass-total`。判断資料: `scripts/gen5/RT_PASS_DECISION.md
 |---|---|---|
 | Elab.lean `#synthesize` / `#synthesizeVerilog` / `#showVerilog` / `#synthesizeDesign` / `#synthesizeVerilogDesign` / `#writeVerilogDesign` / `#writeCppSimDesign` / `#writeCudaDesign` / `#writeCudaIntraDesign` / `writeDesignCore`（`#writeDesign`）/ `#sim` | `inlinerFuelGuard`（トップと子） | あり（もとからあった呼び出しが、子も見るようになった） |
 | Elab.lean `#synthesizeParameterizedVerilog`、`#writeParameterizedCppSimDesign`、`#writeParameterizedCudaDesign` | `synthesizeCombinationalWithParameters` / `synthesizeHierarchicalWithParameters` | **新規**: `inlinerFuelGuardParams`（トップは symbolic で展開しないので見ない。子は symbolic でなく合成されるので見る） |
-| Sparkle/Verification/CostCmd.lean:59,88、Sparkle/Verification/CoSim.lean:90、Sparkle/Compiler/SimChecked.lean:77、Sparkle/Display/Synthesise.lean:68,83 | `synthesizeCombinational` / `synthesizeHierarchical` を直接呼ぶ | **なし**。この Issue の編集許可（Elab.lean の呼び出し側と MachRecUnfold.lean）の外なので触っていない。ここでは燃料切れは黙って fallback する。→ coder へ: 許可を広げて `inlinerFuelGuard` を足すか、判断の差としてユーザーに戻すか |
+| Sparkle/Verification/CostCmd.lean（`#verify_cost` / `#verify_fpga`）、Sparkle/Verification/CoSim.lean（`generateVerilogFile`）、Sparkle/Compiler/SimChecked.lean（`#simChecked`）、Sparkle/Display/Synthesise.lean（`#showDiagram` / `#showDesign`） | `synthesizeCombinational` / `synthesizeHierarchical` を直接呼ぶ | **あり（coder、par/rt-pass-total-entry）**: 合成の直前に `inlinerFuelGuard declName`（トップと子）。ユーザー判断 A（燃料切れはコンパイルエラー）の実装の続きで、新しい判断ではない |
+| Examples/MemorySynthesis.lean、Examples/VectorTest.lean | ライブラリ関数 `synthesizeCombinational` を直接呼ぶ例 | なし（コマンドでなく API を直接使う例。Tests の純関数の呼び出しと同じ扱い。入力は燃料切れしない） |
 
 ### 6.3 実装と根拠
 

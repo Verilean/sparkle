@@ -56,6 +56,7 @@ def elabVerifyCost : CommandElab := fun stx => do
   | `(#verify_cost $id:ident $budgetStx:term) => do
     let declName ← liftCoreM <| Lean.resolveGlobalConstNoOverload id
     let (mod, design) ← liftTermElabM do
+      Sparkle.Compiler.Elab.inlinerFuelGuard declName
       Sparkle.Compiler.Elab.synthesizeCombinational declName
     let budget ← liftTermElabM do
       let e ← Term.elabTermAndSynthesize budgetStx (some (mkConst ``Budget))
@@ -85,6 +86,7 @@ def elabVerifyFpga : CommandElab := fun stx => do
   | `(#verify_fpga $id:ident $targetStx:term) => do
     let declName ← liftCoreM <| Lean.resolveGlobalConstNoOverload id
     let (mod, design) ← liftTermElabM do
+      Sparkle.Compiler.Elab.inlinerFuelGuard declName
       Sparkle.Compiler.Elab.synthesizeCombinational declName
     let target ← liftTermElabM do
       let e ← Term.elabTermAndSynthesize targetStx (some (mkConst ``Target))
