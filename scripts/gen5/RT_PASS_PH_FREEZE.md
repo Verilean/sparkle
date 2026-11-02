@@ -212,3 +212,50 @@ T1 台帳への影響（reviewer が選ぶ。どちらも数は **受理され�
 3. `BetaNonTargetAgrees` を rev1 のまま（L 版なし）にすること。
 4. `HeadBetaAgreesL` / `BetaNonTargetAgrees` の配置（新規 `Tools/Assume/BetaExtern.lean`、`AbbrevExtern.lean` は編集しない）。
 5. §6 の並列作業の切り替え（特に Rec / ListLit の完了済み補題の `GL L` 化）。
+
+## rev3（2026-11-03、coder）: memo の保存に要る `Expr.eqv` の振る舞いの仮定
+
+根拠: `scripts/gen5/RT_PASS_PH_MEMO.md`（rt120、69c0dcc0）と scratch `RT_PASS_PH_MEMO_scratch.lean.txt`（`kjob lake env lean` で elaborate、sorry / axiom なし）。
+
+**問題.** `passM` の memo は `Std.HashMap Expr Expr`。`Expr` の `BEq` は extern の `Expr.eqv` で、core には `EquivBEq Expr` も `LawfulHashable Expr` も無い（`#synth` が失敗する）。`Std` の `getElem?_insert` などは、この 2 つを要る。
+
+さらに、hit したときと insert の後の不変量 `MemoGoodL` には、`e == k` から `GL L k → GL L e`（またはその逆）を得る事実が要る。`EquivBEq` は `==` の反射・対称・推移しか言わないので、それだけでは足りない（MEMO §2）。
+
+- 既存の T1L-72 `ExprEqvAtom` は atom にしか効かない。
+- `KeySound`（`a == b → a = b`）は、`Expr.eqv` が binder 名を無視するので偽の見込み。
+
+**仮定（案 A、推奨。T1 +1 の 1 行に束ねる）.** `Tools/Assume/ExprEqvGL.lean` に置く（新規）:
+
+```lean
+/-- `Expr.eqv`（extern）は alpha 同値で、`hash` と整合し、`GL L`（NoPh ∧ BvarLt L）を保つ。
+    NoPh（fvar の tag）と BvarLt（bvar の番号と binder の深さ）は binder 名に依存しない。C++ の実装についての仮定。 -/
+structure ExprEqvLaws : Prop where
+  equiv : EquivBEq Lean.Expr
+  lawfulHash : LawfulHashable Lean.Expr
+  pres : ∀ a b : Lean.Expr, (a == b) = true → ∀ L, GL L a → GL L b
+```
+
+型クラスの instance は、仮定の中の値から `haveI` で局所的に作る（大域の instance は足さない）。
+
+**使い道.**
+- `memoGoodL_insert`（ExprEqvLaws と MemoGoodL s と `∀ L, GL L e → GL L r` から MemoGoodL (s.insert e r)）
+- `memoGoodL_hit`（定義そのもの）
+- `memoGoodL_empty`
+
+これらを `Tools/PassPh/Defs.lean` 相当に置く。`passM_goodL` / `passStep_goodL` / `passSpine_goodL` / `passWith_ph` / `pass_ph` の仮説に `(hEq : ExprEqvLaws)` を足す。
+
+**文の差分（rev2 から）.** 上の 5 つの補題の仮説に `hEq : ExprEqvLaws` を 1 つ足すだけ。結論は不変。`PassPh'` の最終の文にも `ExprEqvLaws →` が 1 つ加わる。
+
+**台帳.**
+- 受入済みは変えない（FG 94 / T1 54）。
+- 条件付きの見込みは T1 +1（ExprEqvLaws）。rev2 までの見込み T1 55（BetaNonTargetAgrees +1、HeadBetaAgreesL は T1L-74 の置き換えで ±0）と合わせて、**T1 56**（受理されたとき）。
+- 案 B（3 行に分けて T1 +3）は推奨しない。同じ extern `Expr.eqv` の 1 つの性質の束で、使い道は MemoGoodL の保存だけであるため。
+
+**代替（仮定を増やさない）.** この調査では見つからなかった（MEMO §3, §5）:
+- `toList` の形でも `EquivBEq` が要り、hit 側の `GL L e → GL L k` も残る。
+- memo を別実装に差し替えるのは、compiler の編集になる。
+
+**reviewer に確認してほしい点.**
+1. 案 A（1 行）でよいか。
+2. `pres` の妥当性の読み（binder 名を無視する alpha 同値が `NoPh` / `BvarLt` を保つ）。
+3. 型クラスを structure の field として持つ形でよいか。
