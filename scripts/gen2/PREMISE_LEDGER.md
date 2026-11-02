@@ -1036,3 +1036,21 @@ theorem factsOf_genS_assembled''
 - **現在値: FG 103**（102 + 2 − 1）。T1 は **54** のまま。
 - 残る: C.CV-4 の証明と本番 fuel への適用、dataOfAtP、FullInv / LetsNoLoose。loop path 2/3 は定理の仮説を満たす全 st を含む構造上の帰結で、実行試験ではない。
 - SigTyClosed と InstSFieldsDet は DG-ENV（sparkle-gen5-dg-env）と同じ置き場所で、一度だけ数える。
+
+### 12.2 数え方 R0 と C.SM-5（2026-11-02、coder。文書のみ）
+
+reviewer が R0 freeze（`scripts/gen2/LEDGER_R0_FREEZE.md`、c4451031、par/ledger-shorten）を承認した。
+
+| 変更 | 行 | 根拠 |
+|---|---|---|
+| R0-A（表示の分割） | — | 現在値を「FG リーフ（TY + UN の未解消、名前付き条件 SigTyClosed / InstSFieldsDet を含む）」と「非リーフ（T1 参照由来・派生・監査・除外・入力）」に分けて表示する。表示の重複除去であって、証明の進捗ではない。T1 の数は変わらない。月次の比較は、旧定義（合計）と新定義（リーフ）の両方で出す |
+| −1（R0-B） | C.SM-5 `CalleesCausal`（PA） | 材料 C.SM-3 / C.SM-4 は解消済みで、`srcCausal_of_acc_unfold` で組み立てられる。範囲: 固定 GenData-kit carrier の組み立てで、CalleesCausal を仮説に取らない範囲に限る。C.SM-1 と genData₀ の成功は残る |
+
+reviewer の裁定（Q1〜Q3）:
+- A.P-24 は除外しない。FG 側の hIH / hKI が同じ T1 の解消で払われることの照合がないため。非リーフの「T1 参照由来 16」の中で「未照合 1 件」として表示する。
+- SigTyClosed / InstSFieldsDet はリーフに含める。
+- D.D-8 は PA のまま。
+
+- **現在値: FG 102**（103 − 1）。内訳: リーフ 72 / 非リーフ 30（T1 参照由来 16（うち未照合 1: A.P-24）、派生 6、監査 2、除外 3、入力 3）。
+- U1（C.RT-1 / 3 / 4）の受理で FG 99（リーフ 69）になる見込み。U1 の Check は再提出の準備中。
+- T1 は 56（T1 台帳 §12.2）。
