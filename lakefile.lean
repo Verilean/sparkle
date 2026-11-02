@@ -5042,6 +5042,24 @@ lean_lib «Tools.ShippingGen5ReaderTraceDirect» where
 lean_lib «Tests.Gen5.ReaderTraceDirectCheck» where
   roots := #[`Tests.Gen5.ReaderTraceDirectCheck]
 
+lean_lib «Tools.Assume.ExprEqv» where
+  roots := #[`Tools.Assume.ExprEqv]
+
+lean_lib «Tools.ShippingGen5ReaderTraceDomKeepF» where
+  roots := #[`Tools.ShippingGen5ReaderTraceDomKeepF]
+
+lean_lib «Tools.ShippingGen5ReaderTraceDomKeepS» where
+  roots := #[`Tools.ShippingGen5ReaderTraceDomKeepS]
+
+lean_lib «Tools.ShippingGen5ReaderTraceShape2» where
+  roots := #[`Tools.ShippingGen5ReaderTraceShape2]
+
+lean_lib «Tools.ShippingGen5ReaderTraceDirect2» where
+  roots := #[`Tools.ShippingGen5ReaderTraceDirect2]
+
+lean_lib «Tests.Gen5.ReaderTraceRev21Check» where
+  roots := #[`Tests.Gen5.ReaderTraceRev21Check]
+
 lean_lib «Tools.ShippingGen5ReaderTraceInlineP1» where
   roots := #[`Tools.ShippingGen5ReaderTraceInlineP1]
 
@@ -5086,3 +5104,9 @@ lean_lib «Tools.PassPh.Memo» where
 
 lean_lib «Tests.Gen5.PassPhCheck» where
   roots := #[`Tests.Gen5.PassPhCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceInlineCompose» where
+  roots := #[`Tools.ShippingGen5ReaderTraceInlineCompose]
+
+lean_lib «Tests.Gen5.ReaderTraceInlineComposeCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceInlineComposeCheck]
