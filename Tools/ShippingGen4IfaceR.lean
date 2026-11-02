@@ -1,6 +1,6 @@
 import Tools.ShippingGen2Defs
 set_option autoImplicit false
--- NOT BUILT. U-GC0 (scripts/gen2/GATE_GC0_FREEZE.md): transfer of kjob/g4gate-g6 to base 15cd9d1f. No sorry / axiom / native_decide.
+-- BUILT by kjob lake build (focused, exit 0) at 6153c0ef; clean build is the coder's. U-GC0 (scripts/gen2/GATE_GC0_FREEZE.md): transfer of kjob/g4gate-g6 to base 15cd9d1f. No sorry / axiom / native_decide.
 
 /-! # M4 gate supply, U-G1: the route-agnostic CHILD interface (scripts/gen4/GATE_SUPPLY_FREEZE.md rev1 §3.0)
 

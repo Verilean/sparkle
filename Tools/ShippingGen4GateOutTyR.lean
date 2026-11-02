@@ -1,7 +1,7 @@
 import Tools.ShippingGen4GateIfaceR
 import Tools.ShippingGateKid
 set_option autoImplicit false
--- NOT BUILT. U-GC0 (scripts/gen2/GATE_GC0_FREEZE.md): transfer of kjob/g4gate-g6 to base 15cd9d1f. No sorry / axiom / native_decide.
+-- BUILT by kjob lake build (focused, exit 0) at 6153c0ef; clean build is the coder's. U-GC0 (scripts/gen2/GATE_GC0_FREEZE.md): transfer of kjob/g4gate-g6 to base 15cd9d1f. No sorry / axiom / native_decide.
 
 /-! # U-G2a, output side: `out : bitVector srt.width` for `srt.width ≠ 1` (supplier `gate_full_outputs`). Width 1: no supplier found, OPEN. -/
 

@@ -5,7 +5,7 @@ import Tools.ShippingGen4GateOutTyR
 import Tools.ShippingGen4FirstLeafR
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT. U-GC0 (scripts/gen2/GATE_GC0_FREEZE.md §4): checks of the gate Lean transferred to base 15cd9d1f.
+-- BUILT by kjob lake build (focused, exit 0) at 6153c0ef; clean build is the coder's. U-GC0 (scripts/gen2/GATE_GC0_FREEZE.md §4): checks of the gate Lean transferred to base 15cd9d1f.
 
 /-! # U-GC0 checks
 1. TYPE: each moved/changed declaration against an independent statement written here from the base `ChildShips` /
