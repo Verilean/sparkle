@@ -113,7 +113,10 @@ exact-head build（ptv4-27c6d1ea）: `kjob lake build Sparkle.Compiler.MachRecUn
   - `synthesizeCombinationalWith` を unfold: 17 ファイル。
 - 新しい throw 枝は、各定理の run の場合分けに「失敗の枝」を 1 つ増やす。多くは「run が ok のとき…」の形なので、文を変えずに枝を閉じられる見込みだが、Triple / Keeps 型の文（`Keeps … (synthesizeChild c)` など）では例外の扱いが文に出るかどうかは、この調査では未確認。
 
-### 7.3 結論（暫定）
+### 7.3 結論と実装（案 B を採用）
 
-- 案 A は効かない（7.1）。案 B は 25 ファイル規模の証明の追従が要り、定理の文を変えずに済むかは未確認。
-- 次: 案 B を 1 つの代表ファイルで試して、文を変えずに済むかを確かめる（結果をこの節に追記）。済まなければ実装を止め、`scripts/gen5/RT_PASS_ALLROUTE_DECISION.md` を書いて `decision`。
+- 案 A は効かない（7.1）。案 B を実装した。`doSynth`（`synthesizeCombinationalCoreWith`）が `getConstInfo` と `getEnv` の直後に `entryInlinerError?`（本番の上限）を当て、燃料切れなら `throwError "<宣言名>: <理由>"` する。トップ、子（`synthesizeChild` がこの入口を呼ぶ）、`synthesizeCombinational` / `synthesizeHierarchical` の直接呼び出し、展開の後で初めて確定する子のどれも、合成される時点でこの入口を通る。静的走査（`hardwareChildren`）には依存しない。`inlinerFuelGuard` は残す（コマンドでの早い、分かりやすいエラー。役割はコメントに書いた）。燃料切れのない入力では `entryInlinerError?` が `none` で、挙動は変わらない（`userInliner` / `entryConst` は変更なし）。
+- 定理への影響（ビルドで確認、定理の文は変えていない）: 追従した証明は 5 ファイル。`Tools/ShippingEntrySoundness.lean`（`RunsTo.throwError_false` を追加し、`synthesizeCombinationalCore_reads` に throw 枝を閉じる場合分けを足した）、`ShippingChildKeeps.lean`（`core_keeps` の `body` に新しい `if` を足し、`Triple.ite` で throw 枝を `Triple.throwErr` で閉じる）、`ShippingChildRun.lean`（2 箇所、`RunsTo.ite` で throw 枝を閉じる）、`ShippingChildVertA.lean`、`ShippingChildBalance.lean`（`body` に `if` を足し、throw 枝を閉じる）。ほかの `synthesizeCombinationalCoreWith` / `synthesizeChild` / `synthesizeCombinationalWith` を unfold する 35 ファイルは、変更なしでビルドが通った（`kjob lake build` で確認）。
+- テスト（`Tests/Compiler/MachRecUnfoldFuelTest.lean`、`MACHRECUNFOLD-FUEL-API`）: `loopN 20000 a`（値が増えず 1 ステップ 1 re-entry の構造再帰）は本番の上限 10000 を超える。コマンドの guard を通さず `synthesizeCombinational` / `synthesizeHierarchical` を直接呼び、(a) トップ `topBig` のエラー（両方）、(b) 親 `parentBig` が呼ぶ子 `kidBig` のエラー（両方、メッセージに子の名前と `fuel exhausted`）、(c) 燃料切れしない `parent` は通ること、を本番の関数・本番の上限のまま確かめる。既存の子・トップ・パラメータ版（燃料 1、`inlinerFuelGuardWith`）のテストは残す。
+- **残る範囲**: 依頼の「展開で初めて現れる子」の `#guard`（`hardwareChildren` に載らないことの確認）は書けなかった。この調査では、`hardwareChildren` に載らない形の hardware module の使い方（定義の値または型の定数でない呼び出し）が見つからなかった（ユーザー定義・hardware_module の定義の定数は辿るため、再帰 helper・高階引数・instance 経由でも載る）。見つからなかったのであって、存在しないことの証明ではない。そのため、この場合の担保は例ではなく構成による（すべての子は `doSynth` を通る）。
+- ビルド: `Tests.Compiler.MachRecUnfoldFuelTest` ok、上の 5 ファイルと 40 ファイルの対象は下の記録。clean build / AllTests / corpus の再確認は coder。
