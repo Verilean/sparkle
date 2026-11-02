@@ -9,7 +9,7 @@ import Tools.Prototype.BoolMapModelLetOk
 import Tools.Assume.ExprEqv
 import Tools.Assume.AbbrevExtern
 set_option autoImplicit false
--- NOT BUILT yet: the build SHA, TYPE / MUTANT / BINDERS / AXIOMS / CLOSURE / WATCH counts are recorded by a later comment-only commit. Clean build is the coder's.
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceU2Check, exit 0; TYPE 13 (+2 twin by type) / MUTANT 9 (signature/defeq rejections, not semantic counterexamples) / BINDERS 20 (16 named, full Name) / LEAVES 4 / AXIOMS 5 standard only / CLOSURE 11730 constants OK / WATCH 28 full names (25 constants + 3 prose-only), 1 decoy + 1 binder decoy) on the Lean content of 2b771482e278441fbc250ef0bd5e962a81358be6 (this header is comment-only). Clean build is the coder's.
 
 /-! # RT U2 checks (`scripts/gen5/RT_U2_FREEZE.md` §7): registration of N1-a / N2-b / N3-b and the composition `u2_compose`
 

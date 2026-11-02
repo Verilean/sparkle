@@ -6,7 +6,7 @@ import Tools.ShippingGen5ReaderTraceDispatch
 import Tools.ShippingGen5GDCover1
 import Tools.ShippingGen5Cover3Canon
 set_option autoImplicit false
--- Skeleton (exploration branch): `kjob lake build Tools.ShippingGen5ReaderTraceU2Compose` exit 0 on the Lean content of dc693b44fba11cf54294e4c502b5a97539174a89 (cached target build; this header is comment-only). No sorry / axiom / native_decide in source; the leaves are theorem HYPOTHESES (`KDOfLeaf` `SameStLeaf` `InlineInputs` `FuelBridge`), so this is NOT counted as accepted / approved / ledger subtraction. Clean build is the coder's.
+-- Skeleton (exploration branch): `kjob lake build Tools.ShippingGen5ReaderTraceU2Compose` exit 0 on the Lean content of 2b771482e278441fbc250ef0bd5e962a81358be6 (cached target build; Assume imports added; this header is comment-only). No sorry / axiom / native_decide in source; the leaves are theorem HYPOTHESES (`KDOfLeaf` `SameStLeaf` `InlineInputs` `FuelBridge`), so this is NOT counted as accepted / approved / ledger subtraction. Clean build is the coder's.
 
 /-! # RT U2 compose (skeleton; freeze `scripts/gen5/RT_U2_FREEZE.md`)
 

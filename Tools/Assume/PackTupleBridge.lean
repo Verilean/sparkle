@@ -1,6 +1,6 @@
 import Tools.ShippingGen5ReaderTrace
 set_option autoImplicit false
--- NOT BUILT yet (registration of Tools.Assume.PackTupleBridge; build SHA is recorded in a later comment-only commit). Assumption module (statements only; no theorems).
+-- Built in Pod (kjob lake build Tools.Assume.PackTupleBridge, exit 0) on the Lean content of 2b771482e278441fbc250ef0bd5e962a81358be6 (this header is comment-only). Assumption module (statements only; no theorems).
 
 /-! # Assumption: N2-b `PackTupleInputsBridge` (with the twin model `lamDepth` / `packTupleInputsF`)
 
