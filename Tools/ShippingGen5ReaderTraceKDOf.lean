@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceDirect2
 import Tools.ShippingGen5DataOfDims
 import Tools.ShippingGen5SemGen
 set_option autoImplicit false
--- NOT BUILT (skeleton with sorry; to be filled by rt46). Freeze: scripts/gen5/RT_CLOSE_PLAN.md §2 C.CV-3 (no new premise).
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceKDOf, exit 0) on the tree of 55c9331b365c87905bc648b6c5be1cd0d5e727a8 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source. Freeze: scripts/gen5/RT_CLOSE_PLAN.md §2 C.CV-3 (no new premise).
 
 /-! # RT C.CV-3: `kDOf d = nDeclOfCi ci`
 
