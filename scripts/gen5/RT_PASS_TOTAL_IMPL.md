@@ -132,3 +132,15 @@ ptall-dd06dee4（lakefile の lean_lib 全件を 1 回で build）の log から
   - `Tools/ShippingGen5T2Tie.lean:221:9`（`callField_at` の `obtain ⟨-, q0, n, hq0, -, hCS⟩ := hS`）。`ShipsRes` が第 3 の連言 `InstClosed` を持つ形（Tools/ShippingGen2Defs.lean:143）と分解パターンが合わない。doSynth とは無関係に見える。この調査では、doSynth の変更との関係は見つからなかった。
   - `Examples/FPU/Proofs`、`Examples/FPU/SimTest`、`Notebooks.*`、`IP.USB` / `IP.Crypto`、`Tests`/`TutorialExtended` の bad imports: log を読んだ範囲では doSynth の throw 枝に関係するエラーは出ていない（構文・名前空間・未定義識別子など）。原因は未調査。
 - 未確認: ptall の log は `Tools.ShippingGen5T2Tie` の失敗で打ち切られた形（`build failed`）で、全件を通した結果ではない。直した 2 ファイルの下流の再確認と全 lean_lib の build、corpus の再確認は coder。
+
+### 7.3 追記（rt91）: ServedRun の追従と、その下流 Gen2Served の別原因の失敗
+
+ptall-9b814f6e の log から、Tools/ShippingGen2ServedRun の失敗（138:64 / 175:64）を読んだ。定理の文は変えていない。
+
+- 直したファイルと結果:
+  - `Tools/ShippingGen2ServedRun.lean`（`synthesizeFromConst_machine_invAt` の 2 箇所（outermost / nested）。最後の `exact ⟨prof.isSome, …, h, hw⟩` の前に `rcases RunsTo.ite h with h | h` + `throwError_not_runs` で throw 枝を閉じる）: `kjob lake build Tools.ShippingGen2ServedRun` Build completed successfully (708 jobs)。コミット 3c2cb3d8。
+- 全 lean_lib の build（`kjob lake build $(cat alllibs.txt)`、1904 jobs）で残った失敗:
+  - 既存（base 27c6d1ea でも同じ）: Tools.ShippingGen5T2Tie、Examples.FPU.SimTest / Proofs、Lean 以外 22（job computation、IP.USB、IP.Crypto、Notebooks.*）。
+  - **新しく見えた 1 本（throw 枝とは別原因のため直していない）**: `Tools/ShippingGen2Served.lean`。594:7 / 596:5 / 601:13 `Unknown identifier Tools.ShippingGen2.letObsComb`、601:2 `simp made no progress`、631:6 `unexpected identifier; expected command`（構文エラーで以降の宣言が壊れる）。`letObsComb` の定義は `Tools/ShippingMachineSeqLinked.lean:138`（namespace `Tools.ShippingMachineCausal`）にあり、この調査では `Tools.ShippingGen2.letObsComb` という名前の供給元は見つからなかった。履歴では 3ee5132a（S1 G-SERVED steps 2-3）がこの参照を入れた。ServedRun が壊れていたため、これまで build されていなかった下流である。doSynth の throw 枝とは関係がない（名前解決と構文の問題）。直すには import / 名前の変更が要り、この Issue の許可範囲（throw 枝の追従）の外のため止めた。
+  - Served の下流（`Tools.ShippingGen2PostFactsProof`、`Tests.Gen3.ServedCheck`、`Tests.Gen3.PostFactsCheck`）は、Served が失敗したため build されていない（未確認）。
+- 未確認: Served を直した後の下流 3 件、corpus の再確認。全 lean_lib の clean 確認は coder。
