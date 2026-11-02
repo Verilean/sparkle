@@ -1054,3 +1054,16 @@ reviewer の裁定（Q1〜Q3）:
 - **現在値: FG 102**（103 − 1）。内訳: リーフ 72 / 非リーフ 30（T1 参照由来 16（うち未照合 1: A.P-24）、派生 6、監査 2、除外 3、入力 3）。
 - U1（C.RT-1 / 3 / 4）の受理で FG 99（リーフ 69）になる見込み。U1 の Check は再提出の準備中。
 - T1 は 56（T1 台帳 §12.2）。
+
+### 12.3 減算（2026-11-02、coder。文書のみ）
+
+reviewer の承認で、次の行を除く。
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| U1（Issue sparkle-rt-u1） | C.RT-1、C.RT-3、C.RT-4（−3） | readF_traceGood_of_premises の前提閉包が、数えた行だけ（T1L-50 / 51 / 53、SigTyClosed、InstSFieldsDet、rootFloatAgrees で LiftAgrees から）に帰着することの Check。912022f1（par/rt-u1）、clean build rtv6-912022f1 exit 0（806 jobs）、WATCH は完全修飾 Lean.Name で照合し、別 namespace の同末尾名 decoy を許可外として検出 | 適用範囲は C0 の下で senv = structEnv env₀ と同一視できる消費側。C.EN-6 と C.RT-2 は残る。前提の追加 0 |
+| U-A1（Issue sparkle-aud-ua1） | D.E-1、D.E-2、D.E-5、D.E-9（−4） | 4 行は、残る行 D.E-6 / D.E-7 / D.E-8 と（D.E-7 から graphAgrees_of_firstOcc で出る）GraphAgrees から導かれる派生行になった（reviewer 判断）。0d979146（par/aud-ua1）、ua1c-0d979146 exit 0（745 jobs）、AUDIT UA1 COUNTS: theorems 8、premise delta 0、sorry 0 | 依存の行 D.E-6 / D.E-7 / D.E-8 は残し、追跡する。前提の追加 0 |
+
+- **現在値: FG 95**（102 − 3 − 4）。表示（R0）: リーフ 65 / 非リーフ 30。
+- D.E-6 については、U-A2 の freeze（c3030aa5）が承認された。非 top の RunsExistAt を条件付きの仮定とする（+1 の候補）。D.E-6 の減算は、RunsExistAt が証明されるまで反映しない（今回 0/0）。
+- T1 は 56 のまま。
