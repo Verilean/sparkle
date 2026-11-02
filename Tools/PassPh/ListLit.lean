@@ -25,7 +25,7 @@ theorem GL_app {L : Nat} {f a : Lean.Expr} (h : GL L (.app f a)) : GL L f ∧ GL
   exact ⟨⟨h.1.1, h.2.1⟩, h.1.2, h.2.2⟩
 
 theorem GL_mdata {L : Nat} {d : Lean.MData} {b : Lean.Expr} (h : GL L (.mdata d b)) : GL L b := by
-  simpa [G, NoPh, BvarLt] using h
+  simpa [GL, NoPh, BvarLt] using h
 
 theorem listLit?_good_aux (hi1 : Inst1Agrees) (natLit? : Lean.Expr → Option Nat)
     (fuel L : Nat) (e α : Lean.Expr) (xs : List Lean.Expr) (hG : GL L e)
