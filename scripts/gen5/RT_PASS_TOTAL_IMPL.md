@@ -46,3 +46,33 @@ Issue: `sparkle-rt-pass-total`。判断資料: `scripts/gen5/RT_PASS_DECISION.md
 
 - exact-head build と AllTests（ptv2-8a616cbc）。
 - 保存の定理 `pass_ph`（NoPh ∧ BvarLt の保存）と `RecRulePhU` の登録は別の単位（sparkle-rt-inline-compose の PassPh を外す）。
+
+## 6. 燃料切れの経路（変更依頼 rt81）
+
+### 6.1 userInliner / entryConst の呼び出し箇所（grep、Sparkle/ と Tools/ の本体。Tests の呼び出しは下に別記）
+
+| file:line | 呼ぶもの | トップ / 子 | 燃料切れ（rt81 後） |
+|---|---|---|---|
+| Sparkle/Compiler/Elab.lean:5639（`synthesizeCombinationalCoreWith` の `doSynth`） | `entryConst … (userInliner env)` | **両方**: トップも、`synthesizeChild`（8981 付近）→ `synthesizeCombinational` → この関数の経由で子も | ここでは fallback のまま（`userInliner` は純関数で、`doSynth` と `synthesizeChild` は Tools の多数の定理が `unfold` する定義なので編集しない）。エラーは下のコマンド入口の guard が、ここへ来る前に出す |
+| Sparkle/Compiler/Elab.lean:5340 付近 `entryInlinerErrorWith?` / `userInlinerErrorWith?` | `userInlinerEWith` の `.error` を `Option String` で返す | guard から、宣言ごとに | エラー（理由つき） |
+| Tools/Prototype/DGenProv.lean, DGenConnect.lean | `entryConst … (userInliner env)`（証明の中の記述） | 証明用。実行経路ではない | 変更なし |
+| Tests/**（`entryConst … (userInliner env)`）約 60 ファイル | 純関数として直接呼ぶテスト | 実行経路ではない | 変更なし（fallback のまま。入力は燃料切れしない） |
+
+`userInlinerE` を呼ぶのは `userInliner` と `userInlinerErrorWith?` だけ（Sparkle/Compiler/Elab.lean）。
+
+### 6.2 コマンド入口（`synthesizeCombinational` / `synthesizeHierarchical` / `…WithParameters` を呼ぶ箇所）
+
+| file:line | 入口 | guard（rt81 後） |
+|---|---|---|
+| Elab.lean `#synthesize` / `#synthesizeVerilog` / `#showVerilog` / `#synthesizeDesign` / `#synthesizeVerilogDesign` / `#writeVerilogDesign` / `#writeCppSimDesign` / `#writeCudaDesign` / `#writeCudaIntraDesign` / `writeDesignCore`（`#writeDesign`）/ `#sim` | `inlinerFuelGuard`（トップと子） | あり（もとからあった呼び出しが、子も見るようになった） |
+| Elab.lean `#synthesizeParameterizedVerilog`、`#writeParameterizedCppSimDesign`、`#writeParameterizedCudaDesign` | `synthesizeCombinationalWithParameters` / `synthesizeHierarchicalWithParameters` | **新規**: `inlinerFuelGuardParams`（トップは symbolic で展開しないので見ない。子は symbolic でなく合成されるので見る） |
+| Sparkle/Verification/CostCmd.lean:59,88、Sparkle/Verification/CoSim.lean:90、Sparkle/Compiler/SimChecked.lean:77、Sparkle/Display/Synthesise.lean:68,83 | `synthesizeCombinational` / `synthesizeHierarchical` を直接呼ぶ | **なし**。この Issue の編集許可（Elab.lean の呼び出し側と MachRecUnfold.lean）の外なので触っていない。ここでは燃料切れは黙って fallback する。→ coder へ: 許可を広げて `inlinerFuelGuard` を足すか、判断の差としてユーザーに戻すか |
+
+### 6.3 実装と根拠
+
+- 実装: `inlinerFuelGuardWith fuel symbolicMode declName`。宣言自身（symbolic でないとき）と、`hardwareChildren`（宣言の値と型から、user モジュールまたは hardware_module の定義を辿って届く `@[hardware_module]` の定数。最大 100000 定数を訪問）の各々に `entryInlinerErrorWith?` を当てる。子は `synthesizeChild` が `synthesizeCombinationalCoreWith … [] false` で合成するので、見ている条件（`certifiedFrontEnd true`、`symbolicMode false`、パラメータ無し）は子の `entryConst` の条件と同じ。
+- `userInliner`（純関数）の fallback は残す。役割: Tools と Tests の純関数の呼び出し、および 6.2 の最後の行の入口。`inlinerFuelGuard` は要らなくならないので整理せず、役割をコメントに書いた。
+- 燃料を渡せる版: `MachRecUnfold.passWith`、`userInlinerEWith`、`userInlinerErrorWith?`、`entryInlinerErrorWith?`、`inlinerFuelGuardWith`。本番はそれぞれ `passLimit` を渡す（`pass` / `userInlinerE` / `userInlinerError?` / `entryInlinerError?` / `inlinerFuelGuard`）。`userInliner` の本体は変えていない。燃料切れしない入力の挙動は同じ。
+- 子の探索は値と型の定数の走査であって、展開後の値ではない。展開の途中で初めて現れる子（展開で出る hardware_module の呼び出し）は、展開前の定義に定数として現れる前提。この調査では、展開で初めて出る子の経路は見つからなかったが、網羅の証明ではない。
+- 負例テスト: `Tests/Compiler/MachRecUnfoldFuelTest.lean`（`MachRecUnfoldFuelTest` 名前空間）。`chainN 4 a` を値に持つ `@[hardware_module] kid` を `parent` が呼ぶ。燃料 1 で、`parent` のコマンド guard が子 `kid` の名前と `fuel exhausted` を含むエラーになること、パラメータ版も同じこと、トップ `topChain` も同じこと、燃料 100 と本番の上限では通ること、`synthesizeHierarchical parent` の design に `kid` のモジュールがあること（子が実際に合成される経路であること）を確かめる。本番と同じ関数 `inlinerFuelGuardWith` を燃料だけ小さくして通す。エラー文の上限の数は本番の定数（10000）のまま出る。
+- ビルド: `kjob lake build Tests.Compiler.MachRecUnfoldFuelTest` ok、`Tools.ShippingInlineSoundness` / `Tools.ShippingInlCand` / `Tools.ShippingEntrySoundness`（とその依存）ok。clean build、AllTests、corpus の再確認は coder。
