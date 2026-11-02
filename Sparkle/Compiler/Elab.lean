@@ -3399,13 +3399,13 @@ def userInlStep (env : Environment) (e : Lean.Expr) : Lean.Expr :=
     exhausted or a refused form is met), then literal `Nat` sums folded.
     An `error` is a fuel exhaustion of `MachRecUnfold` (its definition and
     limit); `entryInlinerError?` reports it as a compile error. -/
-def userInlinerE (env : Environment) (e : Lean.Expr) : Except String Lean.Expr :=
+def userInlinerEWith (fuel : Nat) (env : Environment) (e : Lean.Expr) : Except String Lean.Expr :=
   -- recursive user helpers on literal data, unfolded (`MachRecUnfold`), then
   -- inlined again, while that changes the value
   let rec rounds : Nat → Lean.Expr → Except String Lean.Expr
     | 0, e => .ok e
     | k + 1, e => do
-      let e' ← Sparkle.Compiler.MachRecUnfold.pass env canonicalNatLitValue? (userRecHelper env) e
+      let e' ← Sparkle.Compiler.MachRecUnfold.passWith fuel env canonicalNatLitValue? (userRecHelper env) e
       if e' == e then pure e else rounds k (userInlStep env e')
   let e1 := userInlStep env e
   -- only a value reaching a recursive helper or literal-data operation
@@ -3413,6 +3413,10 @@ def userInlinerE (env : Environment) (e : Lean.Expr) : Except String Lean.Expr :
     let e2 ← rounds 64 e1
     pure (inlFoldNat (inlAbbrevs env 4 e2))
   else pure (inlFoldNat (inlAbbrevs env 4 e1))
+
+/-- `userInlinerEWith` at the compiler's limit (the run's unfolding). -/
+def userInlinerE (env : Environment) (e : Lean.Expr) : Except String Lean.Expr :=
+  userInlinerEWith Sparkle.Compiler.MachRecUnfold.passLimit env e
 
 /-- `userInlinerE`, the value without the recursive-helper unfolding when that
     ran out of fuel (the compile error is raised by `entryInlinerError?`). -/
@@ -3422,16 +3426,20 @@ def userInliner (env : Environment) : Lean.Expr → Lean.Expr := fun e =>
   | .error _ => inlFoldNat (inlAbbrevs env 4 (userInlStep env e))
 
 /-- The fuel-exhaustion message of the unfolding of a definition's value or type. -/
-def userInlinerError? (env : Environment) : ConstantInfo → Option String
+def userInlinerErrorWith? (fuel : Nat) (env : Environment) : ConstantInfo → Option String
   | .defnInfo d =>
     [d.value, d.type].findSome? fun e =>
       if Sparkle.Compiler.MachRecUnfold.relevantClosure (userDefinition? env) (userRecHelper env) e
       then
-        match userInlinerE env e with
+        match userInlinerEWith fuel env e with
         | .error msg => some msg
         | .ok _ => none
       else none
   | _ => none
+
+/-- `userInlinerErrorWith?` at the compiler's limit. -/
+def userInlinerError? (env : Environment) : ConstantInfo → Option String :=
+  userInlinerErrorWith? Sparkle.Compiler.MachRecUnfold.passLimit env
 
 /-- A definition with its value rewritten. -/
 def inlinedConst (inl : Lean.Expr → Lean.Expr) : ConstantInfo → ConstantInfo
@@ -5324,14 +5332,21 @@ def entryConst (certifiedFrontEnd symbolicMode : Bool) (parameters : List (Strin
 /-- The compile error of `entryConst`: its unfolding ran out of fuel (the message
     names the definition of `MachRecUnfold` and its limit). Only where `entryConst`
     reaches the unfolding. -/
-def entryInlinerError? (env : Environment) (certifiedFrontEnd symbolicMode : Bool)
+def entryInlinerErrorWith? (fuel : Nat) (env : Environment) (certifiedFrontEnd symbolicMode : Bool)
     (parameters : List (String × Nat)) (ci : ConstantInfo) (isInst : Lean.Expr → Bool) :
     Option String :=
   if certifiedFrontEnd && !symbolicMode && parameters.isEmpty &&
       (certifiedShape? symbolicMode parameters ci).isNone &&
       (mixedCertifiedShape? symbolicMode parameters ci isInst).isNone then
-    userInlinerError? env ci
+    userInlinerErrorWith? fuel env ci
   else none
+
+/-- `entryInlinerErrorWith?` at the compiler's limit. -/
+def entryInlinerError? (env : Environment) (certifiedFrontEnd symbolicMode : Bool)
+    (parameters : List (String × Nat)) (ci : ConstantInfo) (isInst : Lean.Expr → Bool) :
+    Option String :=
+  entryInlinerErrorWith? Sparkle.Compiler.MachRecUnfold.passLimit env certifiedFrontEnd symbolicMode
+    parameters ci isInst
 
 /-- Everything the entry does AFTER reading the declaration, as a function of the
     `ConstantInfo` it read.  `synthesizeCombinationalCoreWith` calls it with the
@@ -9018,16 +9033,52 @@ def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
   for stmt in m.body do
     IO.println s!"  {stmt}"
 
+/-- The hardware modules a declaration can synthesize as children: the hardware modules among the
+    constants reachable from its value and type through definitions that are user modules or
+    hardware modules (the traversal does not look at the unfolded value, which may not exist when the
+    fuel runs out). The traversal visits at most 100000 constants. -/
+def hardwareChildren (env : Environment) (declName : Name) : List Name := Id.run do
+  let mut seen : NameSet := NameSet.empty.insert declName
+  let mut todo : List Name := [declName]
+  let mut out : Array Name := #[]
+  for _ in [0:100000] do
+    match todo with
+    | [] => break
+    | n :: rest =>
+      todo := rest
+      if let some (.defnInfo d) := env.find? n then
+        for c in (d.value.getUsedConstants ++ d.type.getUsedConstants) do
+          if !seen.contains c &&
+              (Sparkle.Compiler.isHardwareModule env c || inlUserModule env c) then
+            seen := seen.insert c
+            todo := c :: todo
+            if Sparkle.Compiler.isHardwareModule env c then out := out.push c
+  return out.toList
+
 /-- The compile error for a declaration whose recursive-helper unfolding
     (`MachRecUnfold`) ran out of fuel: the message names the declaration, the
-    definition and its limit. Raised by the commands before the synthesis (a child
-    declaration whose own unfolding runs out of fuel is synthesized from its
-    value without the unfolding, as `userInliner` does). -/
-def inlinerFuelGuard (declName : Name) : MetaM Unit := do
-  let ci ← getConstInfo declName
+    definition and its limit. Raised by the commands before the synthesis, for the declaration
+    itself (`symbolicMode` false: the entry unfolds it) and for every hardware module it can
+    synthesize as a child (`synthesizeChild` runs the entry on each, with `symbolicMode` false, so
+    each child's unfolding is exactly what `entryInlinerErrorWith?` tests). `userInliner`'s
+    fallback to the value without the unfolding is therefore not reached from the commands. -/
+def inlinerFuelGuardWith (fuel : Nat) (symbolicMode : Bool) (declName : Name) : MetaM Unit := do
   let env ← getEnv
-  if let some msg := entryInlinerError? env true false [] ci (instancePredicate env) then
-    throwError "{declName}: {msg}"
+  let check (n : Name) : MetaM Unit := do
+    let ci ← getConstInfo n
+    if let some msg := entryInlinerErrorWith? fuel env true false [] ci (instancePredicate env) then
+      throwError "{n}: {msg}"
+  unless symbolicMode do check declName
+  for n in hardwareChildren env declName do
+    check n
+
+/-- `inlinerFuelGuardWith` at the compiler's limit. -/
+def inlinerFuelGuard (declName : Name) : MetaM Unit :=
+  inlinerFuelGuardWith Sparkle.Compiler.MachRecUnfold.passLimit false declName
+
+/-- `inlinerFuelGuard` for the parameterised commands (symbolic top, children as usual). -/
+def inlinerFuelGuardParams (declName : Name) : MetaM Unit :=
+  inlinerFuelGuardWith Sparkle.Compiler.MachRecUnfold.passLimit true declName
 
 elab "#synthesize" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
@@ -9118,6 +9169,7 @@ elab_rules : command
     let declName ← Lean.Elab.Command.liftCoreM do
       Lean.resolveGlobalConstNoOverload id
     Lean.Elab.Command.liftTermElabM do
+      inlinerFuelGuardParams declName
       let (module, _) ← synthesizeCombinationalWithParameters declName parameters
       let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
       for warning in warnings do
@@ -9265,6 +9317,7 @@ elab_rules : command
     let declName ← Lean.Elab.Command.liftCoreM do
       Lean.resolveGlobalConstNoOverload id
     Lean.Elab.Command.liftTermElabM do
+      inlinerFuelGuardParams declName
       let design ← synthesizeHierarchicalWithParameters declName parameters
       let concrete ←
         match Sparkle.IR.Specialize.specializeDesign design parameters with
@@ -9318,6 +9371,7 @@ elab_rules : command
       -- CUDA shares CSim's fixed data layout.  Retain dimensions during Lean
       -- synthesis, specialize the whole design, and only then run passes that
       -- query concrete bit widths.
+      inlinerFuelGuardParams declName
       let design ← synthesizeHierarchicalWithParameters declName parameters
       let concrete ←
         match Sparkle.IR.Specialize.specializeDesign design parameters with

@@ -401,9 +401,14 @@ def relevant (isUser : Name → Bool) (e : Expr) : Bool :=
 
 /-- The pass from an empty memo; an `error` is a fuel exhaustion (the definition
 and its limit), which the compiler reports as a compile error. -/
+def passWith (fuel : Nat) (env : Environment) (natLit? : Expr → Option Nat) (isUser : Name → Bool)
+    (e : Expr) : Except String Expr :=
+  (passM env natLit? isUser fuel e).run.run' {}
+
+/-- `passWith` at the compiler's limit. -/
 def pass (env : Environment) (natLit? : Expr → Option Nat) (isUser : Name → Bool) (e : Expr) :
     Except String Expr :=
-  (passM env natLit? isUser passLimit e).run.run' {}
+  passWith passLimit env natLit? isUser e
 
 /-- Whether the constants reachable from `e` through the user definitions it
 unfolds (`defs`) include something the pass acts on — decided on the small

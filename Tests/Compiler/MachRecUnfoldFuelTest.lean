@@ -1,4 +1,6 @@
 import Sparkle.Compiler.MachRecUnfold
+import Sparkle.Compiler.Elab
+import Sparkle.Compiler.InlineAttr
 
 /-! # Fuel of the total `MachRecUnfold` (sparkle-rt-pass-total)
 
@@ -48,3 +50,61 @@ run_cmd Lean.Elab.Command.liftCoreM do
   -- the compiler's limits are the same positive constants the messages report
   check "limits" (headBetaLimit > 0 && betaAllLimit > 0 && listLitLimit > 0 && passLimit > 0)
   logInfo m!"MACHRECUNFOLD-FUEL: exhaustion errors name the definition; fuel 1 suffices for one step"
+
+/-! ## Fuel exhaustion on the production route: the top declaration and a child
+
+`chainN n s` is a structurally recursive helper on a literal `Nat`: the unfolding takes one re-entry per
+step. `kid` is a `@[hardware_module]` whose value is `chainN 4 a`; `parent` calls it as a hardware module,
+so `kid` is synthesized as a child (`synthesizeChild`), and `parent`'s own value has no recursive helper.
+`inlinerFuelGuardWith fuel` is the function the commands run (`inlinerFuelGuard` is the same at
+`passLimit`), so a small `fuel` is the production check with a small limit. The message still reports the
+production limit (10000): `fuelMsg` names the constant, not the fuel passed in.
+
+This is a check that the guard raises the error for the child and for the top, and agrees with the
+production limit when the fuel suffices; not a proof that every route is caught (the table of routes is in
+`scripts/gen5/RT_PASS_TOTAL_IMPL.md` §6). -/
+namespace MachRecUnfoldFuelTest
+open Lean Meta Sparkle.Compiler.Elab Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
+
+def chainN {dom : DomainConfig} : Nat → Signal dom (BitVec 8) → Signal dom (BitVec 8)
+  | 0, s => s
+  | n + 1, s => chainN n (s + s)
+
+@[hardware_module]
+def kid {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := chainN 4 a
+
+def parent {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := kid a + a
+
+def topChain {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := chainN 4 a
+
+private def guardMsg (fuel : Nat) (symbolic : Bool) (n : Name) : MetaM (Option String) := do
+  try
+    inlinerFuelGuardWith fuel symbolic n
+    pure none
+  catch e => pure (some (← e.toMessageData.toString))
+
+private def has (m : Option String) (subs : List String) : Bool :=
+  match m with
+  | some m => subs.all fun x => (m.splitOn x).length > 1
+  | none => false
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let check (name : String) (b : Bool) : MetaM Unit :=
+    unless b do throwError "MachRecUnfoldFuelTest: {name} failed"
+  let kidN := toString ``kid
+  -- the child: the parent's compile (its guard) is an error naming the child and the exhaustion
+  check "parent, child fuel exhausted" (has (← guardMsg 1 false ``parent) [kidN, "fuel exhausted", "MachRecUnfold"])
+  check "parent (parameterised), child fuel exhausted"
+    (has (← guardMsg 1 true ``parent) [kidN, "fuel exhausted"])
+  -- the top declaration
+  check "top fuel exhausted" (has (← guardMsg 1 false ``topChain) [toString ``topChain, "fuel exhausted"])
+  -- enough fuel: no error, at a small fuel and at the production limit
+  check "parent ok at 100" ((← guardMsg 100 false ``parent).isNone)
+  check "parent ok at production" ((← guardMsg Sparkle.Compiler.MachRecUnfold.passLimit false ``parent).isNone)
+  inlinerFuelGuard ``parent
+  -- `kid` is synthesized as a child of `parent` (so the guard above is on the route)
+  let d ← synthesizeHierarchical ``parent
+  check "kid is a module of parent's design" (d.modules.any fun m => (m.name.splitOn "kid").length > 1)
+  logInfo m!"MACHRECUNFOLD-FUEL-CHILD: child and top exhaustion are errors naming the declaration"
+
+end MachRecUnfoldFuelTest
