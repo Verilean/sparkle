@@ -92,3 +92,28 @@ exact-head build（ptv4-27c6d1ea）: `kjob lake build Sparkle.Compiler.MachRecUn
 - 子の探索は値と型の定数の走査であって、展開後の値ではない。展開の途中で初めて現れる子（展開で出る hardware_module の呼び出し）は、展開前の定義に定数として現れる前提。この調査では、展開で初めて出る子の経路は見つからなかったが、網羅の証明ではない。
 - 負例テスト: `Tests/Compiler/MachRecUnfoldFuelTest.lean`（`MachRecUnfoldFuelTest` 名前空間）。`chainN 4 a` を値に持つ `@[hardware_module] kid` を `parent` が呼ぶ。燃料 1 で、`parent` のコマンド guard が子 `kid` の名前と `fuel exhausted` を含むエラーになること、パラメータ版も同じこと、トップ `topChain` も同じこと、燃料 100 と本番の上限では通ること、`synthesizeHierarchical parent` の design に `kid` のモジュールがあること（子が実際に合成される経路であること）を確かめる。本番と同じ関数 `inlinerFuelGuardWith` を燃料だけ小さくして通す。エラー文の上限の数は本番の定数（10000）のまま出る。
 - ビルド: `kjob lake build Tests.Compiler.MachRecUnfoldFuelTest` ok、`Tools.ShippingInlineSoundness` / `Tools.ShippingInlCand` / `Tools.ShippingEntrySoundness`（とその依存）ok。clean build、AllTests、corpus の再確認は coder。
+
+## 7. 全経路の燃料切れ（変更依頼 2 回目、rt83）— 設計調査（下書き）
+
+状態: 調査の途中。実装は未着手。この節は grep と定義の読みによる件数で、ビルドで確かめた結果ではない。
+
+### 7.1 案 A（番兵: `userInliner` の `.error` 枝が合成できない式を返す）
+
+- 調べたこと: `entryConst`（Sparkle/Compiler/Elab.lean:5320）は、`inlinedConst inl ci` が `certifiedShape?` / `mixedCertifiedShape?` / `machineShape?` のどれかを通るときだけ展開後の値を返し、通らなければ **元の `ci` を返す**（`else ci`）。
+- したがって、番兵（本体の無い opaque 定数の適用）を `userInliner` が返しても、どのゲートも通らないので `entryConst` が捨てて元の `ci` を返し、合成は燃料切れを黙って無視して続く。この調査の読みでは、案 A は `entryConst` の本体を変えない限り、エラーにならない。`entryConst` の本体の編集は今回の許可範囲（呼び出し側のみ）の外で、また `entryConst` は Tools の多数の定理の文に現れる。
+- 定理への影響（grep）: `userInliner` を unfold/simp する定理は 0 件（`Tools/ShippingInlTypeReads.lean:150` は `userInlinerC`）。`userInliner env ty = userInlinerC env ty` の形は仮説（`Tools/ShippingP5Forall.lean:78`、証明されていない）。多くの定理は `userInliner envR` を不透明な引数として持つだけ。つまり影響は小さいが、**効かない**。
+- 番兵がゲートを通る形にする案は、この調査では安全な形を見つけていない（opaque 定数の適用は翻訳できない）。
+
+### 7.2 案 B（`doSynth` / `synthesizeChild` の入口で `.error` を throw）
+
+- `doSynth` は `synthesizeCombinationalCoreWith`（Elab.lean:5633）の中。トップも、`synthesizeChild`（8996）→ `synthesizeCombinational` → この関数の経由で子も通る。API 直接呼び出しも通る。展開で初めて現れる子も、確定して合成される時点で必ずここを通る（静的走査に依存しない）。
+- 定理への影響（grep、unfold/simp している箇所）:
+  - `synthesizeCombinationalCoreWith`: 27 箇所 / 25 ファイル（Tools/ShippingCacheCoherentVia.lean:181、ShippingEntrySoundness.lean:1105、ShippingChildPinC.lean:141、ShippingLeafKeepCache.lean:150,245 ほか）。
+  - `synthesizeChild`: 約 25 箇所 / 17 ファイル（ShippingChildCacheA.lean:306,358、ShippingCacheCoherent.lean:250、ShippingLeafKeepCache.lean:402,442 ほか）。
+  - `synthesizeCombinationalWith` を unfold: 17 ファイル。
+- 新しい throw 枝は、各定理の run の場合分けに「失敗の枝」を 1 つ増やす。多くは「run が ok のとき…」の形なので、文を変えずに枝を閉じられる見込みだが、Triple / Keeps 型の文（`Keeps … (synthesizeChild c)` など）では例外の扱いが文に出るかどうかは、この調査では未確認。
+
+### 7.3 結論（暫定）
+
+- 案 A は効かない（7.1）。案 B は 25 ファイル規模の証明の追従が要り、定理の文を変えずに済むかは未確認。
+- 次: 案 B を 1 つの代表ファイルで試して、文を変えずに済むかを確かめる（結果をこの節に追記）。済まなければ実装を止め、`scripts/gen5/RT_PASS_ALLROUTE_DECISION.md` を書いて `decision`。
