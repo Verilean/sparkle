@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceKDOf
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (header updated with the built SHA after the Pod build). Clean build is the coder's. No sorry / axiom / native_decide in source.
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceKDOfCheck, exit 0; TYPE 2 / MUTANT 2 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 2 standard only / CLOSURE OK) on the tree of 55c9331b365c87905bc648b6c5be1cd0d5e727a8 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # RT C.CV-3 checks (`Tools/ShippingGen5ReaderTraceKDOf.lean`)
 
