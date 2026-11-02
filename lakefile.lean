@@ -5056,3 +5056,24 @@ lean_lib «Tools.ShippingGen5ReaderTraceAbbrevS1» where
 
 lean_lib «Tests.Gen5.ReaderTraceAbbrevS1Check» where
   roots := #[`Tests.Gen5.ReaderTraceAbbrevS1Check]
+
+lean_lib «Tools.PassPh.Defs» where
+  roots := #[`Tools.PassPh.Defs]
+
+lean_lib «Tools.PassPh.Beta» where
+  roots := #[`Tools.PassPh.Beta]
+
+lean_lib «Tools.PassPh.Rec» where
+  roots := #[`Tools.PassPh.Rec]
+
+lean_lib «Tools.PassPh.Iota» where
+  roots := #[`Tools.PassPh.Iota]
+
+lean_lib «Tools.PassPh.BetaAll» where
+  roots := #[`Tools.PassPh.BetaAll]
+
+lean_lib «Tools.PassPh.ListLit» where
+  roots := #[`Tools.PassPh.ListLit]
+
+lean_lib «Tools.PassPh.Pass» where
+  roots := #[`Tools.PassPh.Pass]
