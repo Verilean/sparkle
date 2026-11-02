@@ -1,7 +1,7 @@
 import Tools.ShippingGen4GateCarrier
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT. U-GC1 (scripts/gen2/GATE_CARRIER_FREEZE.md §3.1, §4, §6): checks of the gate carrier.
+-- BUILT by kjob lake build (focused, exit 0) at 6c24408f; clean build is the coder's. U-GC1 (scripts/gen2/GATE_CARRIER_FREEZE.md §3.1, §4, §6): checks of the gate carrier.
 
 /-! # U-GC1 checks
 1. DEF: each carrier definition's value (and each constructor type) against an independent definition written here.

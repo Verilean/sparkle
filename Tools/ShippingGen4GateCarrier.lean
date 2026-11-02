@@ -1,7 +1,7 @@
 import Tools.ShippingGen4GateOutTyR
 import Tools.ShippingGen4FirstLeafR
 set_option autoImplicit false
--- NOT BUILT. U-GC1 (scripts/gen2/GATE_CARRIER_FREEZE.md §3.1, §4): carrier GateTable/GateRec and gateReflects_shipsResI. No sorry / axiom / native_decide.
+-- BUILT by kjob lake build (focused, exit 0) at 6c24408f; clean build is the coder's. U-GC1 (scripts/gen2/GATE_CARRIER_FREEZE.md §3.1, §4): carrier GateTable/GateRec and gateReflects_shipsResI. No sorry / axiom / native_decide.
 
 namespace Tools.ShippingGen4GateCarrier
 open Lean Meta Sparkle.Compiler.Elab
