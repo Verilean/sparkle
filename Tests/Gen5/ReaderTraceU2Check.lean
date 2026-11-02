@@ -201,6 +201,87 @@ def MutComposeNDecl : Prop :=
       StateSideWitness E (structEnv env) sp n p en st0 env' st1 st v ∧ ShapeAgree d st ∧
       FullInv (nDeclOfCi E) st ∧ LetsNoLoose st
 
+-- leaf-free versions (rt61): KDOfLeaf / SameStLeaf / InlineInputs replaced by theorems
+def ExpU2Core' : Prop :=
+  ∀ (hE : Tools.Assume.ExprEqv.EqvAtom) (hla : LiftAgrees) (hi1 : Inst1Agrees)
+    (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
+    (hfb : Tools.ShippingGen5ReaderTraceU2.FuelBridge)
+    {E : ConstantInfo} {dd : DefinitionVal} (hEd : E = ConstantInfo.defnInfo dd)
+    (hIn : ∀ n : Nat, ShapeInputs' (nDeclOfCi E) (structEnv env) false [] E n)
+    {sp : MachineShape} (h : machineShape? false [] E (structEnv env) = some sp)
+    {lvl : Lean.Expr → Nat} {d : MachineData} (hd : Tools.ShippingGen5DataOf.dataOfAt lvl E (structEnv env) sp = some d),
+    ∃ (n : Nat) (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (env' : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
+      StateSideWitness E (structEnv env) sp n p en st0 env' st1 st v ∧ ShapeAgree d st ∧
+      FullInv (kDOf d) st ∧ LetsNoLoose st
+def ExpU2Direct' : Prop :=
+  ∀ (hE : Tools.Assume.ExprEqv.EqvAtom) (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
+    (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
+    (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+    (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
+    (hrr : RecRulePhU env) (hp : PassPh env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hfb : Tools.ShippingGen5ReaderTraceU2.FuelBridge)
+    {E : ConstantInfo} {dd : DefinitionVal} (hEd : E = ConstantInfo.defnInfo dd) (hci : CiDirect env E)
+    {sp : MachineShape} (h : machineShape? false [] E (structEnv env) = some sp)
+    {lvl : Lean.Expr → Nat} {d : MachineData} (hd : Tools.ShippingGen5DataOf.dataOfAt lvl E (structEnv env) sp = some d),
+    ∃ (n : Nat) (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (env' : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
+      StateSideWitness E (structEnv env) sp n p en st0 env' st1 st v ∧ ShapeAgree d st ∧
+      FullInv (kDOf d) st ∧ LetsNoLoose st
+def ExpU2Inline' : Prop :=
+  ∀ (hE : Tools.Assume.ExprEqv.EqvAtom) (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
+    (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
+    (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+    (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
+    (hrr : RecRulePhU env) (hp : PassPh env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hfb : Tools.ShippingGen5ReaderTraceU2.FuelBridge)
+    {ci0 : ConstantInfo} (hci : CiDirect env ci0)
+    {dd : DefinitionVal} (hEd : inlinedConst (userInliner env) ci0 = ConstantInfo.defnInfo dd)
+    {sp : MachineShape} (h : machineShape? false [] (inlinedConst (userInliner env) ci0) (structEnv env) = some sp)
+    {lvl : Lean.Expr → Nat} {d : MachineData}
+    (hd : Tools.ShippingGen5DataOf.dataOfAt lvl (inlinedConst (userInliner env) ci0) (structEnv env) sp = some d),
+    ∃ (n : Nat) (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (env' : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
+      StateSideWitness (inlinedConst (userInliner env) ci0) (structEnv env) sp n p en st0 env' st1 st v ∧ ShapeAgree d st ∧
+      FullInv (kDOf d) st ∧ LetsNoLoose st
+def ExpU2Compose' : Prop :=
+  ∀ (hE : Tools.Assume.ExprEqv.EqvAtom) (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
+    (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
+    (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+    (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
+    (hrr : RecRulePhU env) (hp : PassPh env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hfb : Tools.ShippingGen5ReaderTraceU2.FuelBridge)
+    {ci0 E : ConstantInfo} (hci : CiDirect env ci0)
+    (hbranch : E = ci0 ∨ E = inlinedConst (userInliner env) ci0)
+    {dd : DefinitionVal} (hEd : E = ConstantInfo.defnInfo dd)
+    {sp : MachineShape} (h : machineShape? false [] E (structEnv env) = some sp)
+    {lvl : Lean.Expr → Nat} {d : MachineData} (hd : Tools.ShippingGen5DataOf.dataOfAt lvl E (structEnv env) sp = some d),
+    ∃ (n : Nat) (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (env' : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
+      StateSideWitness E (structEnv env) sp n p en st0 env' st1 st v ∧ ShapeAgree d st ∧
+      FullInv (kDOf d) st ∧ LetsNoLoose st
+def ExpU2RowC' : Prop :=
+  ∀ (hE : Tools.Assume.ExprEqv.EqvAtom) (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
+    (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
+    (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+    (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
+    (hrr : RecRulePhU env) (hp : PassPh env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hfb : Tools.ShippingGen5ReaderTraceU2.FuelBridge)
+    {ci0 E : ConstantInfo} (hci : CiDirect env ci0)
+    (hbranch : E = ci0 ∨ E = inlinedConst (userInliner env) ci0)
+    {dd : DefinitionVal} (hEd : E = ConstantInfo.defnInfo dd)
+    {sp : MachineShape} (h : machineShape? false [] E (structEnv env) = some sp)
+    {lvl : Lean.Expr → Nat} {d : MachineData} (hd : Tools.ShippingGen5DataOf.dataOfAt lvl E (structEnv env) sp = some d)
+    (hqC : ∀ st : MachRead, ShapeAgree d st → Tools.ShippingGen5Cover3Canon.LetQuoteEqC d st)
+    (hbb : ∀ j, d.bpos j < d.nIn + d.ss.length + d.ls.length) (hvv : ∀ j, d.vpos j < d.nIn + d.ss.length + d.ls.length),
+    ∃ st : MachRead, ShapeAgree d st ∧
+      ∀ k, k < d.shape.insts.length → ∀ l ∈ callArgs d k, (cleanLets d k)[l]? = some true
+
 end Expected
 
 -- value samples for the twin definitions (by `rfl`, no `native_decide`)
@@ -449,5 +530,78 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   logInfo m!"GEN5 U2CHECK CLOSURE OK: {seen.toList.length} constants from {closureRoots.length} roots; no forbidden constant"
   logInfo m!"GEN5 U2CHECK WATCH OK: reached {reached.length} of {watchAll.length} watched full names (exactly the {allowedPremises.length} allowed + {derivedPremises.length} derived; no same-tail lookalike); not reached: {notReached}"
   logInfo m!"GEN5 U2CHECK COUNTS: TYPE 13 (+2 twin by type) / MUTANT 9 / BINDERS {allowedBinders.length} ({allowedPremises.length} named) / LEAVES 4 / AXIOMS 5 / WATCH {watchAll.length} full names ({allowedPremises.length + derivedPremises.length + watchOut.length} constants + {watchProse.length} prose-only) / WATCH-NEG 1 decoy + 1 binder decoy"
+
+/-! ## Leaf-free theorems (rt61): TYPE / BINDERS / AXIOMS / CLOSURE for `u2_core'` `u2_compose_direct'` `u2_compose_inline'` `u2_compose'` `u2_rowC'`
+
+Hypotheses of `u2_compose'` that are not registered N1-a / N2-b / N3-b / U1 rows: `FuelBridge` (C.CV-4), `RecRulePhU`, `PassPh`, `ReplaceAgrees`, `HeadBetaAgrees0`.
+`KDOfLeaf` / `SameStLeaf` / `InlineInputs` are not binders and are not reached. Name matching is by full `Lean.Name`; nothing here shows that any hypothesis holds. -/
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  checkExpected ``Tools.ShippingGen5ReaderTraceU2.u2_core' ``ExpU2Core'
+  checkExpected ``Tools.ShippingGen5ReaderTraceU2.u2_compose_direct' ``ExpU2Direct'
+  checkExpected ``Tools.ShippingGen5ReaderTraceU2.u2_compose_inline' ``ExpU2Inline'
+  checkExpected ``Tools.ShippingGen5ReaderTraceU2.u2_compose' ``ExpU2Compose'
+  checkExpected ``Tools.ShippingGen5ReaderTraceU2.u2_rowC' ``ExpU2RowC'
+  logInfo m!"GEN5 U2CHECK TYPE' 5 leaf-free theorems compared by checkExpected"
+
+def allowedBinders2 : List Name :=
+  [``Tools.Assume.ExprEqv.EqvAtom, ``Tools.Assume.N3Extern.ZeroLitAgrees0, ``Tools.ShippingLetsReaderInv.LiftAgrees,
+   ``Tools.ShippingLetsReaderInv.Inst1Agrees, ``Tools.ShippingLetsReaderInv.EnvTypesFVarFree,
+   ``Tools.Assume.EnvSigTy.SigTyClosed, ``Tools.Assume.EnvInstS.InstSFieldsDet,
+   ``Tools.Assume.EnvDeclValue.DeclValuePh, ``Tools.Assume.PackTupleBridge.PackTupleInputsBridge,
+   ``Tools.Assume.NormNodePh.RawNodePh, ``Tools.Assume.NormNodePh.NormNodePh,
+   ``Tools.ShippingGen5ReaderTrace.RecRulePhU, ``Tools.ShippingGen5ReaderTrace.PassPh,
+   ``Tools.Assume.AbbrevExtern.ReplaceAgrees, ``Tools.Assume.AbbrevExtern.HeadBetaAgrees0,
+   ``Tools.ShippingGen5ReaderTraceU2.FuelBridge, ``Tools.ShippingGen5ReaderTrace.CiDirect, ``Or, ``Eq, ``Eq, ``Eq]
+
+def removedLeaves : List Name := [``Tools.ShippingGen5ReaderTraceU2.KDOfLeaf, ``Tools.ShippingGen5ReaderTraceU2.SameStLeaf, ``Tools.ShippingGen5ReaderTraceU2.InlineInputs]
+def closureRoots2 : List Name :=
+  [``Tools.ShippingGen5ReaderTraceU2.u2_core', ``Tools.ShippingGen5ReaderTraceU2.u2_compose_direct', ``Tools.ShippingGen5ReaderTraceU2.u2_compose_inline',
+   ``Tools.ShippingGen5ReaderTraceU2.u2_compose', ``Tools.ShippingGen5ReaderTraceU2.u2_rowC']
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let heads ← propBinderHeads ``Tools.ShippingGen5ReaderTraceU2.u2_compose'
+  unless bindersMatch heads allowedBinders2 do
+    throwError "GEN5 U2CHECK BINDERS' FAILED: heads {heads}, allowed {allowedBinders2}"
+  let hr ← propBinderHeads ``Tools.ShippingGen5ReaderTraceU2.u2_rowC'
+  for r in removedLeaves do
+    if heads.contains r || hr.contains r then throwError "GEN5 U2CHECK BINDERS' FAILED: removed leaf {r} is still a binder"
+  -- direct branch takes no inline-only premises; inline branch none of the direct-only premises
+  let hd ← propBinderHeads ``Tools.ShippingGen5ReaderTraceU2.u2_compose_direct'
+  let hi ← propBinderHeads ``Tools.ShippingGen5ReaderTraceU2.u2_compose_inline'
+  for n in [``Tools.ShippingGen5ReaderTrace.RecRulePhU, ``Tools.ShippingGen5ReaderTrace.PassPh,
+      ``Tools.Assume.AbbrevExtern.ReplaceAgrees, ``Tools.Assume.AbbrevExtern.HeadBetaAgrees0] do
+    if hd.contains n then throwError "GEN5 U2CHECK BINDERS' FAILED: direct branch takes {n}"
+    unless hi.contains n do throwError "GEN5 U2CHECK BINDERS' FAILED: inline branch lacks {n}"
+  -- negative control: a decoy in another namespace is rejected by the full-name match
+  let swapped := allowedBinders2.map fun n => if n == ``Tools.ShippingGen5ReaderTrace.PassPh then ``Decoy.KDOfLeaf else n
+  if bindersMatch swapped allowedBinders2 then throwError "GEN5 U2CHECK BINDERS' CONTROL FAILED: decoy accepted"
+  logInfo m!"GEN5 U2CHECK BINDERS' OK: {heads.length} Prop binders of u2_compose' match by full name; KDOfLeaf / SameStLeaf / InlineInputs are not binders of u2_compose' / u2_rowC'"
+  logInfo m!"GEN5 U2CHECK REMAINING HYPOTHESES (u2_compose', besides the registered rows): {[``Tools.ShippingGen5ReaderTraceU2.FuelBridge, ``Tools.ShippingGen5ReaderTrace.PassPh, ``Tools.ShippingGen5ReaderTrace.RecRulePhU, ``Tools.Assume.AbbrevExtern.ReplaceAgrees, ``Tools.Assume.AbbrevExtern.HeadBetaAgrees0]}"
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  for n in closureRoots2 do checkAxioms n
+
+def allowedPremises2 : List Name := allowedBinders2.filter fun n => n != ``Or && n != ``Eq
+def watchOut2 : List Name := watchOut.filter fun n =>
+  n != `Tools.Assume.AbbrevExtern.ReplaceAgrees && n != `Tools.Assume.AbbrevExtern.HeadBetaAgrees0
+def watchAll2 : List Name := allowedPremises2 ++ derivedPremises ++ watchOut2 ++ removedLeaves ++ [`RecRulePh, `ShapeFuelBridge]
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let env ← getEnv
+  let (seen, unk, hits) ← closureHits env closureRoots2
+  for n in closureRoots2 do
+    unless seen.contains n do throwError "GEN5 U2CHECK CLOSURE' FAILED: root {n} not in seen"
+  unless hits.isEmpty do throwError "GEN5 U2CHECK CLOSURE' FAILED: forbidden constants {hits}"
+  unless unk.isEmpty do throwError "GEN5 U2CHECK CLOSURE' FAILED: unknown constants {unk.toList}"
+  let reached := watchAll2.filter fun w => seen.contains w
+  for a in allowedPremises2 do
+    unless reached.contains a do throwError "GEN5 U2CHECK WATCH' FAILED: allowed premise {a} not reached"
+  for r in reached do
+    unless allowedPremises2.contains r || derivedPremises.contains r do throwError "GEN5 U2CHECK WATCH' FAILED: unexpected name reached: {r}"
+  let tails := watchAll2.map Name.getString!
+  let lk := seen.toList.filter fun n => n.isStr && tails.contains n.getString! && !watchAll2.contains n
+  unless lk.isEmpty do throwError "GEN5 U2CHECK WATCH' FAILED: same-tail constants in other namespaces reached: {lk}"
+  logInfo m!"GEN5 U2CHECK CLOSURE' OK: {seen.toList.length} constants from {closureRoots2.length} roots; no forbidden constant; reached watched names = the {allowedPremises2.length} allowed + {derivedPremises.length} derived; KDOfLeaf / SameStLeaf / InlineInputs not reached; no same-tail lookalike"
 
 end Tests.Gen5.ReaderTraceU2Check
