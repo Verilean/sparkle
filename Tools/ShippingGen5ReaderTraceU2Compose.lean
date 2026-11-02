@@ -168,7 +168,7 @@ theorem u2_rowC
 /-! ## Leaf-free versions (`KDOfLeaf` / `SameStLeaf` / `InlineInputs` replaced by theorems)
 
 The old statements above are kept. Remaining hypotheses of the `'` versions: the registered N1-a / N2-b / N3-b (`DeclValuePh`, `PackTupleInputsBridge`, `RawNodePh`, `NormNodePh`),
-`FuelBridge` (C.CV-4), and, on the inline branch only, `PassPh` (S2 leaf), `RecRulePhU`, `ReplaceAgrees`, `HeadBetaAgrees0`. -/
+`FuelBridge` (C.CV-4), and, on the inline branch only, `RecRulePhU`, `ReplaceAgrees`, `HeadBetaAgreesL`, `BetaNonTargetAgrees`, `ExprEqvLaws` (the pass_ph version of the inline composition; `PassPh` is gone). -/
 
 /-- `u2_core` with `KDOfLeaf` ↦ `kDOf_eq_nDeclOfCi` and `SameStLeaf` ↦ `reach'_of_witness` (via `stateSide_functional`). -/
 theorem u2_core'
@@ -215,15 +215,16 @@ theorem u2_compose_direct'
   u2_core' hE hla hi1 env hK hC hD hfb hEd
     (fun n => shapeInputs_of_direct' hz hla hi1 env hv hci hbr hraw hnode) h hd
 
-/-- Inline branch, leaf-free: `InlineInputs env` ↦ `shapeInputs_of_inline'`; its hypotheses `PassPh` `RecRulePhU` `ReplaceAgrees` `HeadBetaAgrees0` appear here. -/
+/-- Inline branch, leaf-free: `InlineInputs env` ↦ `shapeInputs_of_inline'`; its hypotheses `RecRulePhU` `ReplaceAgrees` `HeadBetaAgreesL` `BetaNonTargetAgrees` `ExprEqvLaws` appear here. -/
 theorem u2_compose_inline'
     (hE : Tools.Assume.ExprEqv.EqvAtom) (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
     (env : Lean.Environment) (hK : EnvTypesFVarFree env)
     (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
     (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
     (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
-    (hrr : RecRulePhU env) (hp : PassPh env)
-    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hrr : Tools.PassPh.RecRulePhU env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hh : Tools.Assume.AbbrevExtern.HeadBetaAgreesL)
+    (hbt : Tools.PassPh.BetaNonTargetAgrees) (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws)
     (hfb : FuelBridge)
     {ci0 : ConstantInfo} (hci : Tools.ShippingGen5ReaderTrace.CiDirect env ci0)
     {dd : DefinitionVal} (hEd : inlinedConst (userInliner env) ci0 = ConstantInfo.defnInfo dd)
@@ -235,7 +236,7 @@ theorem u2_compose_inline'
       FullInv (kDOf d) st ∧ LetsNoLoose st := by
   obtain ⟨c, hc⟩ := hci
   exact u2_core' hE hla hi1 env hK hC hD hfb hEd
-    (fun n => Tools.ShippingGen5ReaderTrace.shapeInputs_of_inline' hz hla hi1 env hv hrr hp hr hb hc rfl hbr hraw hnode) h hd
+    (fun n => Tools.ShippingGen5ReaderTrace.shapeInputs_of_inline' hz hla hi1 env hv hrr hr hh hbt hEq hc rfl hbr hraw hnode) h hd
 
 /-- Both branches, leaf-free. -/
 theorem u2_compose'
@@ -244,8 +245,9 @@ theorem u2_compose'
     (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
     (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
     (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
-    (hrr : RecRulePhU env) (hp : PassPh env)
-    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hrr : Tools.PassPh.RecRulePhU env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hh : Tools.Assume.AbbrevExtern.HeadBetaAgreesL)
+    (hbt : Tools.PassPh.BetaNonTargetAgrees) (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws)
     (hfb : FuelBridge)
     {ci0 E : ConstantInfo} (hci : Tools.ShippingGen5ReaderTrace.CiDirect env ci0)
     (hbranch : E = ci0 ∨ E = inlinedConst (userInliner env) ci0)
@@ -257,7 +259,7 @@ theorem u2_compose'
       FullInv (kDOf d) st ∧ LetsNoLoose st := by
   rcases hbranch with rfl | rfl
   · exact u2_compose_direct' hE hz hla hi1 env hK hC hD hv hbr hraw hnode hfb hEd hci h hd
-  · exact u2_compose_inline' hE hz hla hi1 env hK hC hD hv hbr hraw hnode hrr hp hr hb hfb hci hEd h hd
+  · exact u2_compose_inline' hE hz hla hi1 env hK hC hD hv hbr hraw hnode hrr hr hh hbt hEq hfb hci hEd h hd
 
 /-- The consumer with the leaf-free composition. -/
 theorem u2_rowC'
@@ -266,8 +268,9 @@ theorem u2_rowC'
     (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
     (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
     (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
-    (hrr : RecRulePhU env) (hp : PassPh env)
-    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hrr : Tools.PassPh.RecRulePhU env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hh : Tools.Assume.AbbrevExtern.HeadBetaAgreesL)
+    (hbt : Tools.PassPh.BetaNonTargetAgrees) (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws)
     (hfb : FuelBridge)
     {ci0 E : ConstantInfo} (hci : Tools.ShippingGen5ReaderTrace.CiDirect env ci0)
     (hbranch : E = ci0 ∨ E = inlinedConst (userInliner env) ci0)
@@ -279,7 +282,7 @@ theorem u2_rowC'
     ∃ st : MachRead, ShapeAgree d st ∧
       ∀ k, k < d.shape.insts.length → ∀ l ∈ callArgs d k, (cleanLets d k)[l]? = some true := by
   obtain ⟨n, p, en, st0, env', st1, st, v, -, hag, hi, hnl⟩ :=
-    u2_compose' hE hz hla hi1 env hK hC hD hv hbr hraw hnode hrr hp hr hb hfb hci hbranch hEd h hd
+    u2_compose' hE hz hla hi1 env hK hC hD hv hbr hraw hnode hrr hr hh hbt hEq hfb hci hbranch hEd h hd
   exact ⟨st, hag, rowC_of_reader_canon hag hi (hqC st hag) hnl hbb hvv⟩
 
 end Tools.ShippingGen5ReaderTraceU2

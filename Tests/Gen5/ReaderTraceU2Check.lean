@@ -234,8 +234,9 @@ def ExpU2Inline' : Prop :=
     (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
     (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
     (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
-    (hrr : RecRulePhU env) (hp : PassPh env)
-    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hrr : Tools.PassPh.RecRulePhU env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hh : Tools.Assume.AbbrevExtern.HeadBetaAgreesL)
+    (hbt : Tools.PassPh.BetaNonTargetAgrees) (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws)
     (hfb : Tools.ShippingGen5ReaderTraceU2.FuelBridge)
     {ci0 : ConstantInfo} (hci : CiDirect env ci0)
     {dd : DefinitionVal} (hEd : inlinedConst (userInliner env) ci0 = ConstantInfo.defnInfo dd)
@@ -251,8 +252,9 @@ def ExpU2Compose' : Prop :=
     (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
     (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
     (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
-    (hrr : RecRulePhU env) (hp : PassPh env)
-    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hrr : Tools.PassPh.RecRulePhU env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hh : Tools.Assume.AbbrevExtern.HeadBetaAgreesL)
+    (hbt : Tools.PassPh.BetaNonTargetAgrees) (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws)
     (hfb : Tools.ShippingGen5ReaderTraceU2.FuelBridge)
     {ci0 E : ConstantInfo} (hci : CiDirect env ci0)
     (hbranch : E = ci0 ∨ E = inlinedConst (userInliner env) ci0)
@@ -268,8 +270,9 @@ def ExpU2RowC' : Prop :=
     (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
     (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
     (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
-    (hrr : RecRulePhU env) (hp : PassPh env)
-    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hrr : Tools.PassPh.RecRulePhU env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hh : Tools.Assume.AbbrevExtern.HeadBetaAgreesL)
+    (hbt : Tools.PassPh.BetaNonTargetAgrees) (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws)
     (hfb : Tools.ShippingGen5ReaderTraceU2.FuelBridge)
     {ci0 E : ConstantInfo} (hci : CiDirect env ci0)
     (hbranch : E = ci0 ∨ E = inlinedConst (userInliner env) ci0)
@@ -532,7 +535,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
 
 /-! ## Leaf-free theorems (rt61): TYPE / BINDERS / AXIOMS / CLOSURE for `u2_core'` `u2_compose_direct'` `u2_compose_inline'` `u2_compose'` `u2_rowC'`
 
-Hypotheses of `u2_compose'` that are not registered N1-a / N2-b / N3-b / U1 rows: `FuelBridge` (C.CV-4), `RecRulePhU`, `PassPh`, `ReplaceAgrees`, `HeadBetaAgrees0`.
+Hypotheses of `u2_compose'` that are not registered N1-a / N2-b / N3-b / U1 rows: `FuelBridge` (C.CV-4), `RecRulePhU`, `ReplaceAgrees`, `HeadBetaAgreesL`, `BetaNonTargetAgrees`, `ExprEqvLaws` (pass_ph version; `PassPh` and `HeadBetaAgrees0` are no longer binders).
 `KDOfLeaf` / `SameStLeaf` / `InlineInputs` are not binders and are not reached. Name matching is by full `Lean.Name`; nothing here shows that any hypothesis holds. -/
 
 run_cmd Lean.Elab.Command.liftTermElabM do
@@ -549,8 +552,8 @@ def allowedBinders2 : List Name :=
    ``Tools.Assume.EnvSigTy.SigTyClosed, ``Tools.Assume.EnvInstS.InstSFieldsDet,
    ``Tools.Assume.EnvDeclValue.DeclValuePh, ``Tools.Assume.PackTupleBridge.PackTupleInputsBridge,
    ``Tools.Assume.NormNodePh.RawNodePh, ``Tools.Assume.NormNodePh.NormNodePh,
-   ``Tools.ShippingGen5ReaderTrace.RecRulePhU, ``Tools.ShippingGen5ReaderTrace.PassPh,
-   ``Tools.Assume.AbbrevExtern.ReplaceAgrees, ``Tools.Assume.AbbrevExtern.HeadBetaAgrees0,
+   ``Tools.PassPh.RecRulePhU, ``Tools.Assume.AbbrevExtern.ReplaceAgrees, ``Tools.Assume.AbbrevExtern.HeadBetaAgreesL,
+   ``Tools.PassPh.BetaNonTargetAgrees, ``Tools.Assume.ExprEqvGL.ExprEqvLaws,
    ``Tools.ShippingGen5ReaderTraceU2.FuelBridge, ``Tools.ShippingGen5ReaderTrace.CiDirect, ``Or, ``Eq, ``Eq, ``Eq]
 
 def removedLeaves : List Name := [``Tools.ShippingGen5ReaderTraceU2.KDOfLeaf, ``Tools.ShippingGen5ReaderTraceU2.SameStLeaf, ``Tools.ShippingGen5ReaderTraceU2.InlineInputs]
@@ -567,15 +570,15 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   -- direct branch takes no inline-only premises; inline branch none of the direct-only premises
   let hd ← propBinderHeads ``Tools.ShippingGen5ReaderTraceU2.u2_compose_direct'
   let hi ← propBinderHeads ``Tools.ShippingGen5ReaderTraceU2.u2_compose_inline'
-  for n in [``Tools.ShippingGen5ReaderTrace.RecRulePhU, ``Tools.ShippingGen5ReaderTrace.PassPh,
-      ``Tools.Assume.AbbrevExtern.ReplaceAgrees, ``Tools.Assume.AbbrevExtern.HeadBetaAgrees0] do
+  for n in [``Tools.PassPh.RecRulePhU, ``Tools.Assume.AbbrevExtern.ReplaceAgrees, ``Tools.Assume.AbbrevExtern.HeadBetaAgreesL,
+      ``Tools.PassPh.BetaNonTargetAgrees, ``Tools.Assume.ExprEqvGL.ExprEqvLaws] do
     if hd.contains n then throwError "GEN5 U2CHECK BINDERS' FAILED: direct branch takes {n}"
     unless hi.contains n do throwError "GEN5 U2CHECK BINDERS' FAILED: inline branch lacks {n}"
   -- negative control: a decoy in another namespace is rejected by the full-name match
-  let swapped := allowedBinders2.map fun n => if n == ``Tools.ShippingGen5ReaderTrace.PassPh then ``Decoy.KDOfLeaf else n
+  let swapped := allowedBinders2.map fun n => if n == ``Tools.PassPh.BetaNonTargetAgrees then ``Decoy.KDOfLeaf else n
   if bindersMatch swapped allowedBinders2 then throwError "GEN5 U2CHECK BINDERS' CONTROL FAILED: decoy accepted"
   logInfo m!"GEN5 U2CHECK BINDERS' OK: {heads.length} Prop binders of u2_compose' match by full name; KDOfLeaf / SameStLeaf / InlineInputs are not binders of u2_compose' (u2_rowC' is covered by the closure)"
-  logInfo m!"GEN5 U2CHECK REMAINING HYPOTHESES (u2_compose', besides the registered rows): {[``Tools.ShippingGen5ReaderTraceU2.FuelBridge, ``Tools.ShippingGen5ReaderTrace.PassPh, ``Tools.ShippingGen5ReaderTrace.RecRulePhU, ``Tools.Assume.AbbrevExtern.ReplaceAgrees, ``Tools.Assume.AbbrevExtern.HeadBetaAgrees0]}"
+  logInfo m!"GEN5 U2CHECK REMAINING HYPOTHESES (u2_compose', besides the registered rows): {[``Tools.ShippingGen5ReaderTraceU2.FuelBridge, ``Tools.PassPh.RecRulePhU, ``Tools.Assume.AbbrevExtern.ReplaceAgrees, ``Tools.Assume.AbbrevExtern.HeadBetaAgreesL, ``Tools.PassPh.BetaNonTargetAgrees, ``Tools.Assume.ExprEqvGL.ExprEqvLaws]}"
 
 run_cmd Lean.Elab.Command.liftTermElabM do
   for n in closureRoots2 do checkAxioms n
