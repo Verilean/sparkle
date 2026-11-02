@@ -107,4 +107,56 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   check "kid is a module of parent's design" (d.modules.any fun m => (m.name.splitOn "kid").length > 1)
   logInfo m!"MACHRECUNFOLD-FUEL-CHILD: child and top exhaustion are errors naming the declaration"
 
+/-! ## Fuel exhaustion at the production limit, through the API without the command guard (rt83)
+
+`loopN n s` is a structural recursion that takes one re-entry per step and does not grow the value, so
+`loopN 20000 a` runs past the production limit (`passLimit`, 10000) and is cheap. `synthesizeCombinational` /
+`synthesizeHierarchical` are called directly here, with no `inlinerFuelGuard` in front: the error comes
+from the synthesis entry itself (`doSynth` in `synthesizeCombinationalCoreWith`), for the top declaration
+and for a child (`synthesizeChild` runs the same entry). With the production function and the production
+limit; no fuel is lowered.
+
+What this does not show: a child that appears only after an unfolding and that `hardwareChildren` does not
+list. This survey found no form of a declaration in which a hardware module is used and not listed (every
+use is a constant in the value or type of a user definition, which the traversal follows), so no such
+`#guard` is written; the coverage of that case is by construction (every child goes through the entry that
+raises the error), not by an example. -/
+namespace MachRecUnfoldFuelTest
+
+def loopN {dom : DomainConfig} : Nat → Signal dom (BitVec 8) → Signal dom (BitVec 8)
+  | 0, s => s
+  | n + 1, s => loopN n s
+
+@[hardware_module]
+def kidBig {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := loopN 20000 a
+
+def parentBig {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := kidBig a + a
+
+def topBig {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := loopN 20000 a
+
+private def apiErr (x : MetaM Unit) : MetaM (Option String) := do
+  try
+    x
+    pure none
+  catch e => pure (some (← e.toMessageData.toString))
+
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let check (name : String) (b : Bool) : MetaM Unit :=
+    unless b do throwError "MachRecUnfoldFuelTest: {name} failed"
+  -- the top, `synthesizeCombinational` directly
+  check "API top (combinational)"
+    (has (← apiErr (do let _ ← synthesizeCombinational ``topBig)) [toString ``topBig, "fuel exhausted", "MachRecUnfold"])
+  -- the top, `synthesizeHierarchical` directly
+  check "API top (hierarchical)"
+    (has (← apiErr (do let _ ← synthesizeHierarchical ``topBig)) [toString ``topBig, "fuel exhausted"])
+  -- the parent's own value is fine; its child `kidBig` is the declaration that runs out
+  check "API parent, child exhausted (hierarchical)"
+    (has (← apiErr (do let _ ← synthesizeHierarchical ``parentBig)) [toString ``kidBig, "fuel exhausted"])
+  check "API parent, child exhausted (combinational)"
+    (has (← apiErr (do let _ ← synthesizeCombinational ``parentBig)) [toString ``kidBig, "fuel exhausted"])
+  -- an input that does not exhaust the fuel is unchanged
+  let d ← synthesizeHierarchical ``parent
+  check "API parent ok" (d.modules.any fun m => (m.name.splitOn "kid").length > 1)
+  logInfo m!"MACHRECUNFOLD-FUEL-API: direct synthesis calls raise the exhaustion error at the production limit"
+
 end MachRecUnfoldFuelTest
