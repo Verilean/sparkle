@@ -9,6 +9,7 @@ import Tools.ShippingGen5ReaderTraceKDOf
 import Tools.ShippingGen5ReaderTraceSameSt
 import Tools.ShippingGen5ReaderTraceInlineCompose
 set_option autoImplicit false
+-- rt61: leaf-free theorems u2_core' / u2_compose_direct' / u2_compose_inline' / u2_compose' / u2_rowC' added (old ones kept); `kjob lake build Tools.ShippingGen5ReaderTraceU2Compose` exit 0 on the Lean content of 5c6177007416f405d661c6057f5178cbb6dea0ac (this line comment-only). Remaining hypotheses of u2_compose': registered rows, FuelBridge, PassPh, RecRulePhU, ReplaceAgrees, HeadBetaAgrees0. Clean build is the coder's.
 -- Skeleton (exploration branch): `kjob lake build Tools.ShippingGen5ReaderTraceU2Compose` exit 0 on the Lean content of 2b771482e278441fbc250ef0bd5e962a81358be6 (cached target build; Assume imports added; this header is comment-only). No sorry / axiom / native_decide in source; the leaves are theorem HYPOTHESES (`KDOfLeaf` `SameStLeaf` `InlineInputs` `FuelBridge`), so this is NOT counted as accepted / approved / ledger subtraction. Clean build is the coder's.
 
 /-! # RT U2 compose (skeleton; freeze `scripts/gen5/RT_U2_FREEZE.md`)
