@@ -63,21 +63,21 @@ def ExpIffOrdPath : Prop := ∀ {ι : Type} {dom : ι → Sparkle.Core.Domain.Do
     TgtRun P top c ↔ OrdPath g top c
 def ExpE9OfTgtRun : Prop := ∀ {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
     (P : Pkgs ι dom) (top : Name) {ds : List (Name × MachineData)}
-    (hg : GraphAgrees (graphOf ds) (TgtRun P top) (SOf P)), ExpE9 P ds top
+    (hg : GraphAgrees (graphOf ds) (TgtRun P top) (SOf P)), AuditE9 P ds top
 def ExpE1OfE5 : Prop := ∀ {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
     (P : Pkgs ι dom) (Reach : Name → Prop) {ds : List (Name × MachineData)} {B : Nat} {top : Name}
-    (h : ExpE5 P Reach ds B top), ExpE1 P Reach
+    (h : AuditE5 P Reach ds B top), AuditE1 P Reach
 def ExpE2OfE5 : Prop := ∀ {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
     (P : Pkgs ι dom) (Reach : Name → Prop) {ds : List (Name × MachineData)} {B : Nat} {top : Name}
-    (h : ExpE5 P Reach ds B top), ExpE2 P Reach
+    (h : AuditE5 P Reach ds B top), AuditE2 P Reach
 def ExpE5OfParts : Prop := ∀ {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
     (P : Pkgs ι dom) (Reach : Name → Prop) {ds : List (Name × MachineData)} {B : Nat} {top : Name}
-    (hfo : ExpE7 P Reach ds) (hnr : ExpE8 ds B top)
-    (hsp : ReachSpans (graphOf ds) top Reach) (hF : ExpE6 P Reach), ExpE5 P Reach ds B top
+    (hfo : AuditE7 P Reach ds) (hnr : AuditE8 ds B top)
+    (hsp : ReachSpans (graphOf ds) top Reach) (hF : AuditE6 P Reach), AuditE5 P Reach ds B top
 def ExpE5TgtRun : Prop := ∀ {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
     {P : Pkgs ι dom} {top : Name} {ds : List (Name × MachineData)} {B : Nat}
-    (hfo : ExpE7 P (TgtRun P top) ds) (hnr : ExpE8 ds B top) (hF : ExpE6 P (TgtRun P top)),
-    ExpE5 P (TgtRun P top) ds B top ∧ ExpE9 P ds top
+    (hfo : AuditE7 P (TgtRun P top) ds) (hnr : AuditE8 ds B top) (hF : AuditE6 P (TgtRun P top)),
+    AuditE5 P (TgtRun P top) ds B top ∧ AuditE9 P ds top
 
 /-! ## 3. Mutants (signature/defeq rejection, not semantic counterexamples) -/
 def MutE1NoHyp : Prop := ∀ {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
