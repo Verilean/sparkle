@@ -5397,3 +5397,9 @@ lean_lib «Tools.ShippingGen5ReaderTraceSameSt» where
 
 lean_lib «Tests.Gen5.ReaderTraceSameStCheck» where
   roots := #[`Tests.Gen5.ReaderTraceSameStCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceInlineCompose» where
+  roots := #[`Tools.ShippingGen5ReaderTraceInlineCompose]
+
+lean_lib «Tests.Gen5.ReaderTraceInlineComposeCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceInlineComposeCheck]
