@@ -120,3 +120,15 @@ exact-head build（ptv4-27c6d1ea）: `kjob lake build Sparkle.Compiler.MachRecUn
 - テスト（`Tests/Compiler/MachRecUnfoldFuelTest.lean`、`MACHRECUNFOLD-FUEL-API`）: `loopN 20000 a`（値が増えず 1 ステップ 1 re-entry の構造再帰）は本番の上限 10000 を超える。コマンドの guard を通さず `synthesizeCombinational` / `synthesizeHierarchical` を直接呼び、(a) トップ `topBig` のエラー（両方）、(b) 親 `parentBig` が呼ぶ子 `kidBig` のエラー（両方、メッセージに子の名前と `fuel exhausted`）、(c) 燃料切れしない `parent` は通ること、を本番の関数・本番の上限のまま確かめる。既存の子・トップ・パラメータ版（燃料 1、`inlinerFuelGuardWith`）のテストは残す。
 - **残る範囲**: 依頼の「展開で初めて現れる子」の `#guard`（`hardwareChildren` に載らないことの確認）は書けなかった。この調査では、`hardwareChildren` に載らない形の hardware module の使い方（定義の値または型の定数でない呼び出し）が見つからなかった（ユーザー定義・hardware_module の定義の定数は辿るため、再帰 helper・高階引数・instance 経由でも載る）。見つからなかったのであって、存在しないことの証明ではない。そのため、この場合の担保は例ではなく構成による（すべての子は `doSynth` を通る）。
 - ビルド: `Tests.Compiler.MachRecUnfoldFuelTest` ok、上の 5 ファイルと 40 ファイルの対象は下の記録。clean build / AllTests / corpus の再確認は coder。
+
+### 7.3 追記（rt87）: AllTests の import 閉包の外の Tools の追従
+
+ptall-dd06dee4（lakefile の lean_lib 全件を 1 回で build）の log から、doSynth の燃料切れ throw 枝に起因する失敗を読んだ。定理の文は変えていない。
+
+- 直したファイルと結果（`kjob lake build <Target>`）:
+  - `Tools/ShippingCacheCoherentOuter.lean`（`core_reads_val0`: `invE_framed` の後に `RunsTo.ite` + `throwError_not_runs` で throw 枝を閉じる。163:50 と 124:82 は同じ原因）: `Tools.ShippingCacheCoherentOuter` Build completed successfully (429 jobs)。コミット 65d9ac48。
+  - `Tools/ShippingGen2KeepChild.lean`（`core_tripleAInv`: `body` に `if` を足し `Triple.ite` + `tripleA_throwErr`。205:4 の heartbeat timeout は、`body` の型が新しい `if` を含む形と一致しなかったことによる）: `Tools.ShippingGen2KeepChild` Build completed successfully (707 jobs)。
+- この調査で別の原因だった失敗（今回は直していない。throw 枝の追従ではないため範囲外）:
+  - `Tools/ShippingGen5T2Tie.lean:221:9`（`callField_at` の `obtain ⟨-, q0, n, hq0, -, hCS⟩ := hS`）。`ShipsRes` が第 3 の連言 `InstClosed` を持つ形（Tools/ShippingGen2Defs.lean:143）と分解パターンが合わない。doSynth とは無関係に見える。この調査では、doSynth の変更との関係は見つからなかった。
+  - `Examples/FPU/Proofs`、`Examples/FPU/SimTest`、`Notebooks.*`、`IP.USB` / `IP.Crypto`、`Tests`/`TutorialExtended` の bad imports: log を読んだ範囲では doSynth の throw 枝に関係するエラーは出ていない（構文・名前空間・未定義識別子など）。原因は未調査。
+- 未確認: ptall の log は `Tools.ShippingGen5T2Tie` の失敗で打ち切られた形（`build failed`）で、全件を通した結果ではない。直した 2 ファイルの下流の再確認と全 lean_lib の build、corpus の再確認は coder。
