@@ -209,6 +209,8 @@ theorem core_reads_val (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref,
   have hwM := invM_framed L hget hwM (Op.framed (.constInfo _))
   obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
   have hwM := invM_framed L henv hwM (Op.framed .env)
+  rcases RunsTo.ite h with h | h
+  · exact (throwError_not_runs _ h).elim
   have hw3 := invV_of_invC L hwM.1
   have hd3 := hwM.1.2.2.2 (Nat.succ_ne_zero _)
   -- the body keeps the invariant: the world the `finally` starts in
