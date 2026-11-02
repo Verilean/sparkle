@@ -5633,6 +5633,12 @@ def synthesizeCombinationalCoreWith (translate : Lean.Environment → TranslateF
   let doSynth : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let constInfo ← getConstInfo declName
     let env ← getEnv
+    if (entryInlinerError? env certifiedFrontEnd symbolicMode parameters constInfo
+        (instancePredicate env)).isSome then
+      throw (Exception.error Syntax.missing
+        (toMessageData s!"{declName}: {(entryInlinerError? env certifiedFrontEnd symbolicMode
+          parameters constInfo (instancePredicate env)).getD ""}"))
+    else
     synthesizeFromConst (translate env) logProf declName parameters symbolicMode
       certifiedFrontEnd
       (entryConst certifiedFrontEnd symbolicMode parameters constInfo
