@@ -61,3 +61,18 @@ Write the result to the Issue note: files compared, count identical / renumbered
 `HROWGATE-FIRED`, files not measured (timeout/OOM) listed separately as UNMEASURED. If any file fires, record the
 file, do not remove the gate, and stop for the user (the narrowing of the machine route is then a measured fact,
 decision document needed). The coder runs this with `kjob run`; this agent did not run it.
+
+## 5. Results (coder, 2026-11-02)
+
+| Measurement | Job(s) | Result |
+|---|---|---|
+| M2 firing count | hrowm2-877c1498 (marked copy, Tests / Examples / IP, 389 IP modules) | `HROWGATE-FIRED` 0. The 23 build failures are the same targets as the base (pre-existing) |
+| M1 build | hrowcmp-base (43977202) / hrowcmp-new (877c1498, unmarked) | both exit 0, `CorpusCmp` 456 modules, 1953 jobs, 478 output files each, missing 0 |
+| M1 compare_outputs | `compare_outputs.py HCMP-base/out HCMP-new/out` | identical 436, renumbered 0, **different 42** |
+| Verilog in the 42 | `grep endmodule` on both sides | **0 files**: none of the 42 contains a Verilog module |
+| What the 42 differ in (digits masked) | diff after masking numbers / build-dir hashes | 29: `[profile]` times, heartbeats, closure counts only. 13 differ in text, all tests (no Verilog), next rows |
+| Exit status changed (6) | status.txt | ChildVertAuditTest 0→124 (timeout of the run pass under load), Gen2/PkgCompat 0→1 (`rfl` type mismatch), Gen3/PostFactsCheck 0→1 (missing olean), Gen2/LeafInstance, S3GroupCheck, SlotlessLeafInstance 1→0. Changes in both directions |
+| Those 6 at the exact head | hrowst-877c1498: `kjob lake build` of the 6 modules at 877c1498 | **exit 0** (956 jobs): all 6 build, PkgCompat and ChildVertAuditTest included. So the run-pass statuses come from the measurement environment (olean set / load), not from the gate |
+| Other 7 text diffs | — | files outside `CorpusCmp` that fail on both sides with `object file … does not exist`; only which missing olean is reported differs (and TopNCCheck reports unknown constants from its missing import) |
+
+Conclusion: under the §3 rule "Accept: no `different`" the literal count is 42, not 0. None of the 42 contains Verilog, and every one is explained by timing/count output or by the run-pass environment, as above. The generated Verilog is identical on all files that contain it. This is a measurement, not a proof. The gate did not fire on the corpus (M2).
