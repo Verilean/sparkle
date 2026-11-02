@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceInlineCompose
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- Built in Pod (same kjob lake build, exit 0) on the tree of 96819c6edd9dba41eefb44431c881bf3a95b035d (Lean content identical; header comment-only). Clean build is the coder's. rewritten for the pass_ph version of the module (PassPh hypothesis gone). Clean build is the coder's. If a `sorry` returns to the source, the AXIOMS check fails with sorryAx.
+-- Built in Pod (same kjob lake build, exit 0) on the tree of ee1e0f0153396bdb9858697d3f0143aa24077a16 (Lean content identical; header comment-only). Clean build is the coder's. rewritten for the pass_ph version of the module (PassPh hypothesis gone). Clean build is the coder's. If a `sorry` returns to the source, the AXIOMS check fails with sorryAx.
 
 /-! # RT inline compose checks
 
@@ -51,6 +51,86 @@ def MutUserInlinerL1 : Prop := ∀ (env : Lean.Environment) (hv : Tools.Assume.E
   (e : Lean.Expr) (hn : NoPh e = true) (hbl : BvarLt 1 e = true),
     NoPh (Sparkle.Compiler.Elab.userInliner env e) = true ∧ BvarLt 0 (Sparkle.Compiler.Elab.userInliner env e) = true
 
+-- ShapeInputs' branches (own spelling, fully qualified; rev2/rev3 freeze hypotheses in binder order)
+def ExpShapeDecl : Prop := ∀ (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : Tools.ShippingLetsReaderInv.LiftAgrees)
+  (hi1 : Tools.ShippingLetsReaderInv.Inst1Agrees) (env : Lean.Environment) {ci : Lean.ConstantInfo}
+  (hdecl : ∀ d, ci = Lean.ConstantInfo.defnInfo d → NoPh d.value = true ∧ BvarLt 0 d.value = true)
+  (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+  (hraw : Tools.Assume.NormNodePh.RawNodePh (Sparkle.Compiler.Elab.structEnv env))
+  (hnode : Tools.Assume.NormNodePh.NormNodePh (Sparkle.Compiler.Elab.structEnv env))
+  {sm : Bool} {ps : List (String × Nat)} {n : Nat},
+    ShapeInputs' (nDeclOfCi ci) (Sparkle.Compiler.Elab.structEnv env) sm ps ci n
+def ExpShapeInline : Prop := ∀ (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : Tools.ShippingLetsReaderInv.LiftAgrees)
+  (hi1 : Tools.ShippingLetsReaderInv.Inst1Agrees) (env : Lean.Environment)
+  (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hrr : Tools.PassPh.RecRulePhU env)
+  (hrep : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hh : Tools.Assume.AbbrevExtern.HeadBetaAgreesL)
+  (hbt : Tools.PassPh.BetaNonTargetAgrees) (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws)
+  {c : Lean.Name} {ci0 : Lean.ConstantInfo} (hc : env.find? c = some ci0)
+  {ci : Lean.ConstantInfo} (hci : ci = Sparkle.Compiler.Elab.inlinedConst (Sparkle.Compiler.Elab.userInliner env) ci0)
+  (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+  (hraw : Tools.Assume.NormNodePh.RawNodePh (Sparkle.Compiler.Elab.structEnv env))
+  (hnode : Tools.Assume.NormNodePh.NormNodePh (Sparkle.Compiler.Elab.structEnv env))
+  {sm : Bool} {ps : List (String × Nat)} {n : Nat},
+    ShapeInputs' (nDeclOfCi ci) (Sparkle.Compiler.Elab.structEnv env) sm ps ci n
+def ExpShapeEntry : Prop := ∀ (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : Tools.ShippingLetsReaderInv.LiftAgrees)
+  (hi1 : Tools.ShippingLetsReaderInv.Inst1Agrees) (env : Lean.Environment)
+  (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hrr : Tools.PassPh.RecRulePhU env)
+  (hrep : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hh : Tools.Assume.AbbrevExtern.HeadBetaAgreesL)
+  (hbt : Tools.PassPh.BetaNonTargetAgrees) (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws)
+  {c : Lean.Name} {ci0 : Lean.ConstantInfo} (hc : env.find? c = some ci0)
+  (certifiedFrontEnd symbolicMode : Bool) (parameters : List (String × Nat)) (isInst : Lean.Expr → Bool)
+  (projs : Sparkle.Compiler.Elab.StructEnv)
+  (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+  (hraw : Tools.Assume.NormNodePh.RawNodePh (Sparkle.Compiler.Elab.structEnv env))
+  (hnode : Tools.Assume.NormNodePh.NormNodePh (Sparkle.Compiler.Elab.structEnv env))
+  {sm : Bool} {ps : List (String × Nat)} {n : Nat},
+    ShapeInputs' (nDeclOfCi (Sparkle.Compiler.Elab.entryConst certifiedFrontEnd symbolicMode parameters ci0 isInst
+        (Sparkle.Compiler.Elab.userInliner env) projs))
+      (Sparkle.Compiler.Elab.structEnv env) sm ps
+      (Sparkle.Compiler.Elab.entryConst certifiedFrontEnd symbolicMode parameters ci0 isInst
+        (Sparkle.Compiler.Elab.userInliner env) projs) n
+
+-- `example`s: the _pp theorems themselves (not the abbrev aliases) elaborate against the expected types
+example : ExpShapeDecl := @shapeInputs_of_decl_pp
+example : ExpShapeInline := @shapeInputs_of_inline_pp
+example : ExpShapeEntry := @shapeInputs_of_entryConst_pp
+
+-- mutants (well-typed; rejected by signature/defeq, NOT semantic counterexamples)
+def MutShapeDeclNoRaw : Prop := ∀ (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : Tools.ShippingLetsReaderInv.LiftAgrees)
+  (hi1 : Tools.ShippingLetsReaderInv.Inst1Agrees) (env : Lean.Environment) {ci : Lean.ConstantInfo}
+  (hdecl : ∀ d, ci = Lean.ConstantInfo.defnInfo d → NoPh d.value = true ∧ BvarLt 0 d.value = true)
+  (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+  (hnode : Tools.Assume.NormNodePh.NormNodePh (Sparkle.Compiler.Elab.structEnv env))
+  {sm : Bool} {ps : List (String × Nat)} {n : Nat},
+    ShapeInputs' (nDeclOfCi ci) (Sparkle.Compiler.Elab.structEnv env) sm ps ci n
+def MutShapeInlineNoEqv : Prop := ∀ (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : Tools.ShippingLetsReaderInv.LiftAgrees)
+  (hi1 : Tools.ShippingLetsReaderInv.Inst1Agrees) (env : Lean.Environment)
+  (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hrr : Tools.PassPh.RecRulePhU env)
+  (hrep : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hh : Tools.Assume.AbbrevExtern.HeadBetaAgreesL)
+  (hbt : Tools.PassPh.BetaNonTargetAgrees)
+  {c : Lean.Name} {ci0 : Lean.ConstantInfo} (hc : env.find? c = some ci0)
+  {ci : Lean.ConstantInfo} (hci : ci = Sparkle.Compiler.Elab.inlinedConst (Sparkle.Compiler.Elab.userInliner env) ci0)
+  (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+  (hraw : Tools.Assume.NormNodePh.RawNodePh (Sparkle.Compiler.Elab.structEnv env))
+  (hnode : Tools.Assume.NormNodePh.NormNodePh (Sparkle.Compiler.Elab.structEnv env))
+  {sm : Bool} {ps : List (String × Nat)} {n : Nat},
+    ShapeInputs' (nDeclOfCi ci) (Sparkle.Compiler.Elab.structEnv env) sm ps ci n
+def MutShapeEntryWeak : Prop := ∀ (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : Tools.ShippingLetsReaderInv.LiftAgrees)
+  (hi1 : Tools.ShippingLetsReaderInv.Inst1Agrees) (env : Lean.Environment)
+  (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hrr : Tools.PassPh.RecRulePhU env)
+  (hrep : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hh : Tools.Assume.AbbrevExtern.HeadBetaAgreesL)
+  (hbt : Tools.PassPh.BetaNonTargetAgrees) (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws)
+  {c : Lean.Name} {ci0 : Lean.ConstantInfo} (hc : env.find? c = some ci0)
+  (certifiedFrontEnd symbolicMode : Bool) (parameters : List (String × Nat)) (isInst : Lean.Expr → Bool)
+  (projs : Sparkle.Compiler.Elab.StructEnv)
+  (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+  (hraw : Tools.Assume.NormNodePh.RawNodePh (Sparkle.Compiler.Elab.structEnv env))
+  (hnode : Tools.Assume.NormNodePh.NormNodePh (Sparkle.Compiler.Elab.structEnv env))
+  {sm : Bool} {ps : List (String × Nat)} {n : Nat},
+    ShapeInputs' (nDeclOfCi (Sparkle.Compiler.Elab.entryConst certifiedFrontEnd symbolicMode parameters ci0 isInst
+        (Sparkle.Compiler.Elab.userInliner env) projs))
+      (Sparkle.Compiler.Elab.structEnv env) sm [] ci0 n
+
 end Expected
 
 -- Decoy: same suffix as the real hypothesis, different namespace. Used only as a negative control.
@@ -83,6 +163,13 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   checkExpected ``userInliner_ph_pp ``ExpUserInliner
   checkExpected ``rounds_ph_pp ``ExpRounds
   checkExpected ``inlinedConst_defn_ph_pp ``ExpInlinedConst
+  checkExpected ``shapeInputs_of_decl_pp ``ExpShapeDecl
+  checkExpected ``shapeInputs_of_inline_pp ``ExpShapeInline
+  checkExpected ``shapeInputs_of_entryConst_pp ``ExpShapeEntry
+  for (t, m) in [(``shapeInputs_of_decl_pp, ``MutShapeDeclNoRaw), (``shapeInputs_of_inline_pp, ``MutShapeInlineNoEqv),
+      (``shapeInputs_of_entryConst_pp, ``MutShapeEntryWeak)] do
+    let r ← try checkExpected t m; pure true catch _ => pure false
+    if r then throwError "RT INLINECOMPOSECHECK MUTANT {m} was accepted"
   for m in [``MutUserInlinerNoBeta, ``MutUserInlinerNoEqv, ``MutUserInlinerL1] do
     let r ← try checkExpected ``userInliner_ph_pp m; pure true catch _ => pure false
     if r then throwError "RT INLINECOMPOSECHECK MUTANT {m} was accepted"
@@ -97,7 +184,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let r ← try checkHyps ``Decoy.userInliner_ph_decoy hyps; pure true catch _ => pure false
   if r then throwError "RT INLINECOMPOSECHECK HYPS decoy RecRulePhU was accepted"
   logInfo m!"RT INLINECOMPOSECHECK HYPS 7 qualified hypotheses matched on 3 theorems; decoy rejected"
-  logInfo m!"RT INLINECOMPOSECHECK TYPE 3 / MUTANT 3 rejected by signature/defeq (not semantic counterexamples)"
+  logInfo m!"RT INLINECOMPOSECHECK TYPE 6 / MUTANT 6 rejected by signature/defeq (not semantic counterexamples)"
 
 def thms : List Name := [``inl_step_ph_pp, ``rounds_ph_pp, ``abbrev_fold_ph_pp, ``userInliner_ph_pp, ``inlinedConst_defn_ph_pp,
   ``shapeInputs_of_decl_pp, ``shapeInputs_of_inline_pp, ``shapeInputs_of_entryConst_pp,
