@@ -1,0 +1,36 @@
+import Std.Data.HashMap
+import Lean
+set_option autoImplicit false
+open Lean
+#synth EquivBEq Expr
+#synth LawfulHashable Expr
+#synth PartialEquivBEq Expr
+
+-- abstract stand-in for GL (NoPh ∧ BvarLt L); only used through `P`
+section
+variable (P : Nat → Expr → Prop)
+
+def MemoGoodL (s : Std.HashMap Expr Expr) : Prop :=
+  ∀ k v, s.get? k = some v → ∀ L, P L k → P L v
+
+/-- the one new fact: `Expr.eqv` preserves the invariant (one direction suffices given symmetry) -/
+def EqvPres : Prop := ∀ a b : Expr, (a == b) = true → ∀ L, P L a → P L b
+
+theorem memoGoodL_empty : MemoGoodL P (∅ : Std.HashMap Expr Expr) := by
+  intro k v h; simp at h
+
+theorem memoGoodL_insert [EquivBEq Expr] [LawfulHashable Expr] (hE : EqvPres P)
+    {s : Std.HashMap Expr Expr} (hs : MemoGoodL P s) (e r : Expr) (hr : ∀ L, P L e → P L r) :
+    MemoGoodL P (s.insert e r) := by
+  intro k v h L hk
+  rw [Std.HashMap.get?_eq_getElem?, Std.HashMap.getElem?_insert] at h
+  split at h
+  · rename_i hb
+    have : (k == e) = true := BEq.symm hb
+    cases h
+    exact hr L (hE k e this L hk)
+  · exact hs k v (by rwa [Std.HashMap.get?_eq_getElem?]) L hk
+
+theorem memoGoodL_hit {s : Std.HashMap Expr Expr} (hs : MemoGoodL P s) {e v : Expr}
+    (h : s.get? e = some v) : ∀ L, P L e → P L v := hs e v h
+end
