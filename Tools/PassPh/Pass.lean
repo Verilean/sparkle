@@ -4,7 +4,7 @@ import Tools.PassPh.Iota
 import Tools.PassPh.BetaAll
 import Tools.PassPh.ListLit
 set_option autoImplicit false
--- SKELETON (rev2 L version): sorry あり、探索ブランチのみ（受理の対象ではない）. Not built yet. Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev2.
+-- rev2 L version (scripts/gen5/RT_PASS_PH_FREEZE.md rev2). Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of aa24f5ed161ebaf66322fc58f0d153e215e4d94f (Lean content identical; header comment-only). sorry 7 (evalNode?, unfoldCall?, passM/passStep/passSpine, passWith_ph, pass_ph). Clean build is the coder's. Exploration branch, not an acceptance target.
 
 /-! # pass_ph skeleton: Pass group (evalNode?_good, unfoldCall?_good, joint induction on passM/passStep/passSpine, passWith_ph, pass_ph).
 Depends on all other groups. Memo invariant `MemoGoodL` (Defs): every (k, v) in the memo has `∀ L, GL L k → GL L v`. -/

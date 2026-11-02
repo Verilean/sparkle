@@ -1,7 +1,7 @@
 import Tools.PassPh.Defs
 import Tools.ShippingGen5ReaderTraceReg
 set_option autoImplicit false
--- Rec group: all 5 sorries filled. Built in Pod (kjob lake build Tools.PassPh.Rec, exit 0) on the tree of 1a11e552 (Lean content identical; header comment-only). Axioms: propext / Classical.choice / Quot.sound only. Added import Tools.ShippingGen5ReaderTraceReg (for phArgs_getAppArgs). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1.
+-- rev2 L version (scripts/gen5/RT_PASS_PH_FREEZE.md rev2). Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of aa24f5ed161ebaf66322fc58f0d153e215e4d94f (Lean content identical; header comment-only). no sorry. Clean build is the coder's. Exploration branch, not an acceptance target.
 
 /-! # pass_ph skeleton: Rec group (freeze §5; types from RT_RECRULE_FREEZE §3 scratch output). Depends on Defs only. -/
 

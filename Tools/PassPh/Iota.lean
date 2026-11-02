@@ -2,7 +2,7 @@ import Tools.PassPh.Beta
 import Tools.PassPh.Rec
 import Tools.ShippingGen5ReaderTraceReg
 set_option autoImplicit false
--- SKELETON (rev2 L version): not built yet. Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev2.
+-- rev2 L version (scripts/gen5/RT_PASS_PH_FREEZE.md rev2). Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of aa24f5ed161ebaf66322fc58f0d153e215e4d94f (Lean content identical; header comment-only). no sorry. Clean build is the coder's. Exploration branch, not an acceptance target.
 
 /-! # pass_ph skeleton: Iota group (iota_good, reduceMatcher?_good, reduceHead_good). Depends on Beta + Rec. -/
 

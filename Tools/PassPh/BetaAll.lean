@@ -1,6 +1,6 @@
 import Tools.PassPh.Beta
 set_option autoImplicit false
--- SKELETON (rev2 L version): sorry あり、探索ブランチのみ（受理の対象ではない）. Not built yet. Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev2.
+-- rev2 L version (scripts/gen5/RT_PASS_PH_FREEZE.md rev2). Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of aa24f5ed161ebaf66322fc58f0d153e215e4d94f (Lean content identical; header comment-only). sorry 2 (betaAll_goodL, betaSpine_goodL). Clean build is the coder's. Exploration branch, not an acceptance target.
 
 /-! # pass_ph skeleton: BetaAll group (mutual betaAll / betaSpine, measure (fuel, sizeOf, k)). Depends on Beta. -/
 

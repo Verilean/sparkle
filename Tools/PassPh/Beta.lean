@@ -1,6 +1,6 @@
 import Tools.PassPh.Defs
 set_option autoImplicit false
--- SKELETON: sorry あり、探索ブランチのみ（受理の対象ではない）. Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of dec1b348 (Lean content identical; header comment-only). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1 (approved as document/types only).
+-- rev2 L version (scripts/gen5/RT_PASS_PH_FREEZE.md rev2). Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of aa24f5ed161ebaf66322fc58f0d153e215e4d94f (Lean content identical; header comment-only). no sorry. Clean build is the coder's. Exploration branch, not an acceptance target.
 
 /-! # pass_ph skeleton: Beta group, rev2 L version (freeze rev2 §2/§4: beta_target, beta_goodL, headBetaM_goodL; proofs from scripts/gen5/RT_PASS_PH_REV2_SCRATCH2.lean.txt). Depends on Defs only. -/
 
