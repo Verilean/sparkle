@@ -4826,3 +4826,9 @@ lean_lib «Tools.ShippingGen2PostFactsProof» where
 lean_lib «Tests.Gen3.PostFactsCheck» where
   roots := #[`Tests.Gen3.PostFactsCheck]
 
+
+lean_lib «Tools.ShippingGen3HrowGate» where
+  roots := #[`Tools.ShippingGen3HrowGate]
+
+lean_lib «Tools.ShippingGen3HrowGateServed» where
+  roots := #[`Tools.ShippingGen3HrowGateServed]
