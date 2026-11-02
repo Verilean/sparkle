@@ -1,21 +1,22 @@
 import Tools.ShippingGen5ReaderTraceInlineP1
 import Tools.ShippingGen5ReaderTraceAbbrevS1
 import Tools.ShippingGen5ReaderTraceDirect2
--- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceInlineCompose, exit 0) on the tree of 2a6af8f053b88b44dbe1681b0dbaa93ec9e7b1b9 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source. Written against `scripts/gen5/RT_INLINE_COMPOSE_FREEZE.md`. Hypotheses only: DeclValuePh, RecRulePh, PassPh (S2 leaf), ReplaceAgrees, HeadBetaAgrees0.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceInlineCompose, exit 0) on the tree of 2a6af8f053b88b44dbe1681b0dbaa93ec9e7b1b9 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source. Written against `scripts/gen5/RT_INLINE_COMPOSE_FREEZE.md`. Hypotheses only: DeclValuePh, RecRulePhU, PassPh (S2 leaf), ReplaceAgrees, HeadBetaAgrees0.
 -- NOT BUILT. EXPLORATION SKELETON (contains sorry; not counted toward acceptance or the ledger). Written against `scripts/gen5/RT_INLINE_COMPOSE_FREEZE.md`.
 
 namespace Tools.ShippingGen5ReaderTrace
 open Lean Sparkle.Compiler.Elab Tools.ShippingLetsReaderInv Tools.ShippingReaderFuel Tools.Assume.AbbrevExtern Tools.ShippingGen5ReaderTraceAbbrevS1
 open Sparkle.Compiler.MachTupleIn Tools.ShippingGen5ReaderTracePack Tools.ShippingReaderFuelShapeR5
 
-/-- (hypothesis only; supplied by `sparkle-rt-recrule`) recursor rules of `env` are closed `NoPh` terms -/
-def RecRulePh (env : Lean.Environment) : Prop :=
-  ∀ (n : Lean.Name) (rv : Lean.RecursorVal), env.find? n = some (.recInfo rv) →
-    ∀ r ∈ rv.rules, NoPh r.rhs = true ∧ BvarLt 0 r.rhs = true
+/-- (hypothesis only; approved freeze `scripts/gen5/RT_RECRULE_FREEZE.md` §1.2, par/rt-recrule bab003d9; not registered in `Tools/Assume/`, registration is the pass_ph unit) the recursor rule `iota` selects is a closed `NoPh` term -/
+def RecRulePhU (env : Lean.Environment) : Prop :=
+  ∀ (p : Lean.Name) (rv : Lean.RecursorVal) (c : Lean.Name) (r : Lean.RecursorRule),
+    env.find? (.str p "rec") = some (.recInfo rv) → rv.rules.find? (·.ctor == c) = some r →
+    NoPh r.rhs = true ∧ BvarLt 0 r.rhs = true
 
 /-- (hypothesis only; leaf S2 `pass_ph`, `sparkle-rt-pass-total`) `MachRecUnfold.pass` preserves `NoPh ∧ BvarLt 0` -/
 def PassPh (env : Lean.Environment) : Prop :=
-  Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePh env →
+  Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePhU env →
     ∀ (isUser : Lean.Name → Bool) (e : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
       NoPh (Sparkle.Compiler.MachRecUnfold.pass env canonicalNatLitValue? isUser e) = true ∧
         BvarLt 0 (Sparkle.Compiler.MachRecUnfold.pass env canonicalNatLitValue? isUser e) = true
@@ -31,7 +32,7 @@ theorem inl_step_ph (env : Lean.Environment) (hv : Tools.Assume.EnvDeclValue.Dec
   inlineDefs_user_ph env hv 0 e hn hb
 
 theorem rounds_ph (env : Lean.Environment) (hv : Tools.Assume.EnvDeclValue.DeclValuePh env)
-    (hrr : RecRulePh env) (hp : PassPh env) (inl : Lean.Expr → Lean.Expr) (isRec : Lean.Name → Bool)
+    (hrr : RecRulePhU env) (hp : PassPh env) (inl : Lean.Expr → Lean.Expr) (isRec : Lean.Name → Bool)
     (hinl : ∀ e : Lean.Expr, NoPh e = true → BvarLt 0 e = true → NoPh (inl e) = true ∧ BvarLt 0 (inl e) = true) :
     ∀ (k : Nat) (e : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
       NoPh (userInliner.rounds env inl isRec k e) = true ∧ BvarLt 0 (userInliner.rounds env inl isRec k e) = true := by
@@ -54,7 +55,7 @@ theorem abbrev_fold_ph (env : Lean.Environment) (hv : Tools.Assume.EnvDeclValue.
   exact inlFoldNat_ph (L := 0) _ h3.1 h3.2
 
 theorem userInliner_ph (env : Lean.Environment) (hv : Tools.Assume.EnvDeclValue.DeclValuePh env)
-    (hrr : RecRulePh env) (hp : PassPh env) (hr : ReplaceAgrees) (hb : HeadBetaAgrees0)
+    (hrr : RecRulePhU env) (hp : PassPh env) (hr : ReplaceAgrees) (hb : HeadBetaAgrees0)
     (e : Lean.Expr) (hn : NoPh e = true) (hbl : BvarLt 0 e = true) :
     NoPh (userInliner env e) = true ∧ BvarLt 0 (userInliner env e) = true := by
   have h1 := inl_step_ph env hv e hn hbl
@@ -67,7 +68,7 @@ theorem userInliner_ph (env : Lean.Environment) (hv : Tools.Assume.EnvDeclValue.
   · exact abbrev_fold_ph env hv hr hb _ h1.1 h1.2
 
 theorem inlinedConst_defn_ph (env : Lean.Environment) (hv : Tools.Assume.EnvDeclValue.DeclValuePh env)
-    (hrr : RecRulePh env) (hp : PassPh env) (hr : ReplaceAgrees) (hb : HeadBetaAgrees0)
+    (hrr : RecRulePhU env) (hp : PassPh env) (hr : ReplaceAgrees) (hb : HeadBetaAgrees0)
     (c : Lean.Name) (ci0 : Lean.ConstantInfo) (hc : env.find? c = some ci0) (d : Lean.DefinitionVal)
     (hd : inlinedConst (userInliner env) ci0 = .defnInfo d) :
     NoPh d.value = true ∧ BvarLt 0 d.value = true := by
@@ -115,7 +116,7 @@ theorem shapeInputs_of_decl'
 theorem shapeInputs_of_inline'
     (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
     (env : Lean.Environment) (hv : Tools.Assume.EnvDeclValue.DeclValuePh env)
-    (hrr : RecRulePh env) (hp : PassPh env) (hr : ReplaceAgrees) (hb : HeadBetaAgrees0)
+    (hrr : RecRulePhU env) (hp : PassPh env) (hr : ReplaceAgrees) (hb : HeadBetaAgrees0)
     {c : Lean.Name} {ci0 : Lean.ConstantInfo} (hc : env.find? c = some ci0)
     {ci : Lean.ConstantInfo} (hci : ci = inlinedConst (userInliner env) ci0)
     (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
@@ -131,7 +132,7 @@ theorem shapeInputs_of_inline'
 theorem shapeInputs_of_entryConst'
     (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
     (env : Lean.Environment) (hv : Tools.Assume.EnvDeclValue.DeclValuePh env)
-    (hrr : RecRulePh env) (hp : PassPh env) (hr : ReplaceAgrees) (hb : HeadBetaAgrees0)
+    (hrr : RecRulePhU env) (hp : PassPh env) (hr : ReplaceAgrees) (hb : HeadBetaAgrees0)
     {c : Lean.Name} {ci0 : Lean.ConstantInfo} (hc : env.find? c = some ci0)
     (certifiedFrontEnd symbolicMode : Bool) (parameters : List (String × Nat)) (isInst : Lean.Expr → Bool)
     (projs : StructEnv)
