@@ -5,6 +5,9 @@ import Tools.ShippingGen5ReaderTraceDirect2
 import Tools.ShippingGen5ReaderTraceDispatch
 import Tools.ShippingGen5GDCover1
 import Tools.ShippingGen5Cover3Canon
+import Tools.ShippingGen5ReaderTraceKDOf
+import Tools.ShippingGen5ReaderTraceSameSt
+import Tools.ShippingGen5ReaderTraceInlineCompose
 set_option autoImplicit false
 -- Skeleton (exploration branch): `kjob lake build Tools.ShippingGen5ReaderTraceU2Compose` exit 0 on the Lean content of 2b771482e278441fbc250ef0bd5e962a81358be6 (cached target build; Assume imports added; this header is comment-only). No sorry / axiom / native_decide in source; the leaves are theorem HYPOTHESES (`KDOfLeaf` `SameStLeaf` `InlineInputs` `FuelBridge`), so this is NOT counted as accepted / approved / ledger subtraction. Clean build is the coder's.
 
@@ -160,5 +163,122 @@ theorem u2_rowC
   obtain ⟨n, p, en, st0, env', st1, st, v, -, hag, hi, hnl⟩ :=
     u2_compose hE hz hla hi1 env hK hC hD hv hbr hraw hnode hInl hfb hkd hss hci hbranch hEd h hd
   exact ⟨st, hag, rowC_of_reader_canon hag hi (hqC st hag) hnl hb hvv⟩
+
+/-! ## Leaf-free versions (`KDOfLeaf` / `SameStLeaf` / `InlineInputs` replaced by theorems)
+
+The old statements above are kept. Remaining hypotheses of the `'` versions: the registered N1-a / N2-b / N3-b (`DeclValuePh`, `PackTupleInputsBridge`, `RawNodePh`, `NormNodePh`),
+`FuelBridge` (C.CV-4), and, on the inline branch only, `PassPh` (S2 leaf), `RecRulePhU`, `ReplaceAgrees`, `HeadBetaAgrees0`. -/
+
+/-- `u2_core` with `KDOfLeaf` ↦ `kDOf_eq_nDeclOfCi` and `SameStLeaf` ↦ `reach'_of_witness` (via `stateSide_functional`). -/
+theorem u2_core'
+    (hE : Tools.Assume.ExprEqv.EqvAtom) (hla : LiftAgrees) (hi1 : Inst1Agrees)
+    (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
+    (hfb : FuelBridge)
+    {E : ConstantInfo} {dd : DefinitionVal} (hEd : E = ConstantInfo.defnInfo dd)
+    (hIn : ∀ n : Nat, ShapeInputs' (nDeclOfCi E) (structEnv env) false [] E n)
+    {sp : MachineShape} (h : machineShape? false [] E (structEnv env) = some sp)
+    {lvl : Lean.Expr → Nat} {d : MachineData} (hd : Tools.ShippingGen5DataOf.dataOfAt lvl E (structEnv env) sp = some d) :
+    ∃ (n : Nat) (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (env' : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
+      StateSideWitness E (structEnv env) sp n p en st0 env' st1 st v ∧ ShapeAgree d st ∧
+      FullInv (kDOf d) st ∧ LetsNoLoose st := by
+  obtain ⟨n, hn⟩ := hfb E (structEnv env) sp h
+  obtain ⟨p, en, st0, env1, st1, st, v, w⟩ := Tools.ShippingGen5Cover5.machineShapeF_state_side hn
+  have hT := readF_traceGood_of_premises env hK hC hla (Tools.PartialTotal.Agree.rootFloatAgrees hla) hi1 hD (nDeclOfCi E) n
+  obtain ⟨-, -, -, hTr, -⟩ := reach'_of_witness hE hT hn (hIn n) w
+  obtain ⟨hw1, hw2, hw3, hw4, hw5, hw6, hw7, hw8, hw9, hw10, hw11⟩ := w
+  obtain ⟨hsp, hss', hls, hn'⟩ := dims_of_dataOfAt hd
+  have hkd' : kDOf d = nDeclOfCi E := by
+    subst hEd
+    exact kDOf_eq_nDeclOfCi lvl hd
+  refine ⟨n, p, en, st0, env1, st1, st, v, ⟨hw1, hw2, hw3, hw4, hw5, hw6, hw7, hw8, hw9, hw10, hw11⟩,
+    Tools.ShippingGen5Cover5.shapeAgree_of_sides ⟨hw8, hw9, hw10, hw11⟩ hsp hss' hls hn', ?_, hTr.2.2.2.2.2.1⟩
+  rw [hkd']
+  exact hTr.1
+
+/-- Direct branch, leaf-free. -/
+theorem u2_compose_direct'
+    (hE : Tools.Assume.ExprEqv.EqvAtom) (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
+    (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
+    (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+    (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
+    (hfb : FuelBridge)
+    {E : ConstantInfo} {dd : DefinitionVal} (hEd : E = ConstantInfo.defnInfo dd)
+    (hci : Tools.ShippingGen5ReaderTrace.CiDirect env E)
+    {sp : MachineShape} (h : machineShape? false [] E (structEnv env) = some sp)
+    {lvl : Lean.Expr → Nat} {d : MachineData} (hd : Tools.ShippingGen5DataOf.dataOfAt lvl E (structEnv env) sp = some d) :
+    ∃ (n : Nat) (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (env' : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
+      StateSideWitness E (structEnv env) sp n p en st0 env' st1 st v ∧ ShapeAgree d st ∧
+      FullInv (kDOf d) st ∧ LetsNoLoose st :=
+  u2_core' hE hla hi1 env hK hC hD hfb hEd
+    (fun n => shapeInputs_of_direct' hz hla hi1 env hv hci hbr hraw hnode) h hd
+
+/-- Inline branch, leaf-free: `InlineInputs env` ↦ `shapeInputs_of_inline'`; its hypotheses `PassPh` `RecRulePhU` `ReplaceAgrees` `HeadBetaAgrees0` appear here. -/
+theorem u2_compose_inline'
+    (hE : Tools.Assume.ExprEqv.EqvAtom) (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
+    (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
+    (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+    (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
+    (hrr : RecRulePhU env) (hp : PassPh env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hfb : FuelBridge)
+    {ci0 : ConstantInfo} (hci : Tools.ShippingGen5ReaderTrace.CiDirect env ci0)
+    {dd : DefinitionVal} (hEd : inlinedConst (userInliner env) ci0 = ConstantInfo.defnInfo dd)
+    {sp : MachineShape} (h : machineShape? false [] (inlinedConst (userInliner env) ci0) (structEnv env) = some sp)
+    {lvl : Lean.Expr → Nat} {d : MachineData}
+    (hd : Tools.ShippingGen5DataOf.dataOfAt lvl (inlinedConst (userInliner env) ci0) (structEnv env) sp = some d) :
+    ∃ (n : Nat) (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (env' : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
+      StateSideWitness (inlinedConst (userInliner env) ci0) (structEnv env) sp n p en st0 env' st1 st v ∧ ShapeAgree d st ∧
+      FullInv (kDOf d) st ∧ LetsNoLoose st := by
+  obtain ⟨c, hc⟩ := hci
+  exact u2_core' hE hla hi1 env hK hC hD hfb hEd
+    (fun n => Tools.ShippingGen5ReaderTrace.shapeInputs_of_inline' hz hla hi1 env hv hrr hp hr hb hc rfl hbr hraw hnode) h hd
+
+/-- Both branches, leaf-free. -/
+theorem u2_compose'
+    (hE : Tools.Assume.ExprEqv.EqvAtom) (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
+    (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
+    (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+    (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
+    (hrr : RecRulePhU env) (hp : PassPh env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hfb : FuelBridge)
+    {ci0 E : ConstantInfo} (hci : Tools.ShippingGen5ReaderTrace.CiDirect env ci0)
+    (hbranch : E = ci0 ∨ E = inlinedConst (userInliner env) ci0)
+    {dd : DefinitionVal} (hEd : E = ConstantInfo.defnInfo dd)
+    {sp : MachineShape} (h : machineShape? false [] E (structEnv env) = some sp)
+    {lvl : Lean.Expr → Nat} {d : MachineData} (hd : Tools.ShippingGen5DataOf.dataOfAt lvl E (structEnv env) sp = some d) :
+    ∃ (n : Nat) (p : ShapePre) (en : Lean.Expr) (st0 : MachRead) (env' : List MachVal) (st1 st : MachRead) (v : Lean.Expr),
+      StateSideWitness E (structEnv env) sp n p en st0 env' st1 st v ∧ ShapeAgree d st ∧
+      FullInv (kDOf d) st ∧ LetsNoLoose st := by
+  rcases hbranch with rfl | rfl
+  · exact u2_compose_direct' hE hz hla hi1 env hK hC hD hv hbr hraw hnode hfb hEd hci h hd
+  · exact u2_compose_inline' hE hz hla hi1 env hK hC hD hv hbr hraw hnode hrr hp hr hb hfb hci hEd h hd
+
+/-- The consumer with the leaf-free composition. -/
+theorem u2_rowC'
+    (hE : Tools.Assume.ExprEqv.EqvAtom) (hz : Tools.Assume.N3Extern.ZeroLitAgrees0) (hla : LiftAgrees) (hi1 : Inst1Agrees)
+    (env : Lean.Environment) (hK : EnvTypesFVarFree env)
+    (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
+    (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
+    (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
+    (hrr : RecRulePhU env) (hp : PassPh env)
+    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
+    (hfb : FuelBridge)
+    {ci0 E : ConstantInfo} (hci : Tools.ShippingGen5ReaderTrace.CiDirect env ci0)
+    (hbranch : E = ci0 ∨ E = inlinedConst (userInliner env) ci0)
+    {dd : DefinitionVal} (hEd : E = ConstantInfo.defnInfo dd)
+    {sp : MachineShape} (h : machineShape? false [] E (structEnv env) = some sp)
+    {lvl : Lean.Expr → Nat} {d : MachineData} (hd : Tools.ShippingGen5DataOf.dataOfAt lvl E (structEnv env) sp = some d)
+    (hqC : ∀ st : MachRead, ShapeAgree d st → LetQuoteEqC d st)
+    (hbb : ∀ j, d.bpos j < d.nIn + d.ss.length + d.ls.length) (hvv : ∀ j, d.vpos j < d.nIn + d.ss.length + d.ls.length) :
+    ∃ st : MachRead, ShapeAgree d st ∧
+      ∀ k, k < d.shape.insts.length → ∀ l ∈ callArgs d k, (cleanLets d k)[l]? = some true := by
+  obtain ⟨n, p, en, st0, env', st1, st, v, -, hag, hi, hnl⟩ :=
+    u2_compose' hE hz hla hi1 env hK hC hD hv hbr hraw hnode hrr hp hr hb hfb hci hbranch hEd h hd
+  exact ⟨st, hag, rowC_of_reader_canon hag hi (hqC st hag) hnl hbb hvv⟩
 
 end Tools.ShippingGen5ReaderTraceU2
