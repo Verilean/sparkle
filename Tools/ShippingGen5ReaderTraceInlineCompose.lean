@@ -1,8 +1,7 @@
 import Tools.ShippingGen5ReaderTraceInlineP1
 import Tools.ShippingGen5ReaderTraceAbbrevS1
 import Tools.ShippingGen5ReaderTraceDirect2
--- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceInlineCompose, exit 0) on the tree of 2a6af8f053b88b44dbe1681b0dbaa93ec9e7b1b9 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source. Written against `scripts/gen5/RT_INLINE_COMPOSE_FREEZE.md`. Hypotheses only: DeclValuePh, RecRulePhU, PassPh (S2 leaf), ReplaceAgrees, HeadBetaAgrees0.
--- NOT BUILT. EXPLORATION SKELETON (contains sorry; not counted toward acceptance or the ledger). Written against `scripts/gen5/RT_INLINE_COMPOSE_FREEZE.md`.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceInlineCompose, exit 0) on the tree of 9e633268f99651cf6f1843e4702b0f5a107f6899 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source. Written against `scripts/gen5/RT_INLINE_COMPOSE_FREEZE.md`; RecRulePhU per approved `scripts/gen5/RT_RECRULE_FREEZE.md` (bab003d9). Hypotheses only: DeclValuePh, RecRulePhU, PassPh (S2 leaf), ReplaceAgrees, HeadBetaAgrees0.
 
 namespace Tools.ShippingGen5ReaderTrace
 open Lean Sparkle.Compiler.Elab Tools.ShippingLetsReaderInv Tools.ShippingReaderFuel Tools.Assume.AbbrevExtern Tools.ShippingGen5ReaderTraceAbbrevS1

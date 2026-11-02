@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceInlineCompose
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceInlineComposeCheck, exit 0; TYPE 3 / MUTANT 2 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 8 standard only / no sorryAx) on the tree of 2a6af8f053b88b44dbe1681b0dbaa93ec9e7b1b9 (Lean content identical; header comment-only). Clean build is the coder's. If a `sorry` returns to the source, the AXIOMS check fails with sorryAx.
+-- Built in Pod (kjob lake build Tests.Gen5.ReaderTraceInlineComposeCheck, exit 0; TYPE 3 / MUTANT 2 (signature/defeq rejections, not semantic counterexamples) / HYPS 5 qualified names + decoy rejected / AXIOMS 8 standard only / no sorryAx) on the tree of 9e633268f99651cf6f1843e4702b0f5a107f6899 (Lean content identical; header comment-only). Clean build is the coder's. If a `sorry` returns to the source, the AXIOMS check fails with sorryAx.
 
 /-! # RT inline compose checks
 
