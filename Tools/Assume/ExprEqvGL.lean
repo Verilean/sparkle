@@ -1,7 +1,7 @@
 import Std.Data.HashMap
 import Tools.PassPh.Defs
 set_option autoImplicit false
--- ExprEqvLaws as in scripts/gen5/RT_PASS_PH_FREEZE.md rev3 (reviewer-approved as a design, b74a86de). A hypothesis definition only: not an accepted premise, not counted in the ledger (conditional T1 +1 candidate). No global instance.
+-- freeze rev2 + rev3 (scripts/gen5/RT_PASS_PH_FREEZE.md). Built in Pod (kjob lake build Tools.PassPh.Pass Tests.Gen5.PassPhCheck Tools.ShippingGen5ReaderTraceAbbrevS1 Tests.Gen5.ReaderTraceAbbrevS1Check, exit 0) on the tree of 18fa57ac6bdb999e9ac4747bbe7ad43143004dfd (Lean content identical; header comment-only). No sorry / axiom / native_decide in source (all of Tools/PassPh/*.lean). Conditional on BetaNonTargetAgrees, ExprEqvLaws (T1 +1 candidates), HeadBetaAgreesL (replaces T1L-74), RecRulePhU (hypothesis definition); none accepted. Clean build is the coder's. ExprEqvLaws is a hypothesis definition only; no global instance.
 
 namespace Tools.Assume.ExprEqvGL
 open Tools.PassPh

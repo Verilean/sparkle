@@ -1,6 +1,6 @@
 import Tools.Assume.ExprEqvGL
 set_option autoImplicit false
--- memo lemmas of scripts/gen5/RT_PASS_PH_FREEZE.md rev3 (proofs from RT_PASS_PH_MEMO_scratch.lean.txt). No sorry. Instances are made locally (haveI) from the ExprEqvLaws value; no global instance.
+-- freeze rev2 + rev3 (scripts/gen5/RT_PASS_PH_FREEZE.md). Built in Pod (kjob lake build Tools.PassPh.Pass Tests.Gen5.PassPhCheck Tools.ShippingGen5ReaderTraceAbbrevS1 Tests.Gen5.ReaderTraceAbbrevS1Check, exit 0) on the tree of 18fa57ac6bdb999e9ac4747bbe7ad43143004dfd (Lean content identical; header comment-only). No sorry / axiom / native_decide in source (all of Tools/PassPh/*.lean). Conditional on BetaNonTargetAgrees, ExprEqvLaws (T1 +1 candidates), HeadBetaAgreesL (replaces T1L-74), RecRulePhU (hypothesis definition); none accepted. Clean build is the coder's.
 
 namespace Tools.PassPh
 open Tools.Assume.ExprEqvGL

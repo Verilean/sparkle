@@ -2,7 +2,7 @@ import Tools.PassPh.Pass
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- NOT BUILT (Check for Tools/PassPh/Pass.lean, freeze rev2 + rev3). No sorry / axiom / native_decide in source. Conditional result: pass_ph holds under the hypotheses BetaNonTargetAgrees (T1 +1 candidate), ExprEqvLaws (T1 +1 candidate), HeadBetaAgreesL (replaces T1L-74), RecRulePhU (hypothesis definition); none accepted. Clean build is the coder's.
+-- Built in Pod (kjob lake build, exit 0) on the tree of 18fa57ac6bdb999e9ac4747bbe7ad43143004dfd (Lean content identical; header comment-only). Check for Tools/PassPh/Pass.lean, freeze rev2 + rev3). No sorry / axiom / native_decide in source. Conditional result: pass_ph holds under the hypotheses BetaNonTargetAgrees (T1 +1 candidate), ExprEqvLaws (T1 +1 candidate), HeadBetaAgreesL (replaces T1L-74), RecRulePhU (hypothesis definition); none accepted. TYPE 2 / MUTANT 4 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 10 standard only / CLOSURE OK. Clean build is the coder's.
 
 /-! # RT pass_ph checks (Tools/PassPh/*.lean, Tools/Assume/ExprEqvGL.lean)
 

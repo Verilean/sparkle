@@ -5,7 +5,7 @@ import Tools.PassPh.BetaAll
 import Tools.PassPh.ListLit
 import Tools.PassPh.Memo
 set_option autoImplicit false
--- rev2 L version (scripts/gen5/RT_PASS_PH_FREEZE.md rev2). Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of aa24f5ed161ebaf66322fc58f0d153e215e4d94f (Lean content identical; header comment-only). sorry 7 (evalNode?, unfoldCall?, passM/passStep/passSpine, passWith_ph, pass_ph). Clean build is the coder's. Exploration branch, not an acceptance target.
+-- freeze rev2 + rev3 (scripts/gen5/RT_PASS_PH_FREEZE.md). Built in Pod (kjob lake build Tools.PassPh.Pass Tests.Gen5.PassPhCheck Tools.ShippingGen5ReaderTraceAbbrevS1 Tests.Gen5.ReaderTraceAbbrevS1Check, exit 0) on the tree of 18fa57ac6bdb999e9ac4747bbe7ad43143004dfd (Lean content identical; header comment-only). No sorry / axiom / native_decide in source (all of Tools/PassPh/*.lean). Conditional on BetaNonTargetAgrees, ExprEqvLaws (T1 +1 candidates), HeadBetaAgreesL (replaces T1L-74), RecRulePhU (hypothesis definition); none accepted. Clean build is the coder's.
 
 /-! # pass_ph skeleton: Pass group (evalNode?_good, unfoldCall?_good, joint induction on passM/passStep/passSpine, passWith_ph, pass_ph).
 Depends on all other groups. Memo invariant `MemoGoodL` (Defs): every (k, v) in the memo has `∀ L, GL L k → GL L v`. -/

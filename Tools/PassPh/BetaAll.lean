@@ -1,6 +1,6 @@
 import Tools.PassPh.Beta
 set_option autoImplicit false
--- rev2 L version. Built in Pod (kjob lake build Tools.PassPh.BetaAll, exit 0) on the tree of 14684ae151e258069349cf3055f7148d1f415c34. no sorry. Clean build is the coder's. Exploration branch, not an acceptance target.
+-- freeze rev2 + rev3 (scripts/gen5/RT_PASS_PH_FREEZE.md). Built in Pod (kjob lake build Tools.PassPh.Pass Tests.Gen5.PassPhCheck Tools.ShippingGen5ReaderTraceAbbrevS1 Tests.Gen5.ReaderTraceAbbrevS1Check, exit 0) on the tree of 18fa57ac6bdb999e9ac4747bbe7ad43143004dfd (Lean content identical; header comment-only). No sorry / axiom / native_decide in source (all of Tools/PassPh/*.lean). Conditional on BetaNonTargetAgrees, ExprEqvLaws (T1 +1 candidates), HeadBetaAgreesL (replaces T1L-74), RecRulePhU (hypothesis definition); none accepted. Clean build is the coder's.
 
 /-! # pass_ph skeleton: BetaAll group (mutual betaAll / betaSpine, measure (fuel, sizeOf, k)). Depends on Beta. -/
 
