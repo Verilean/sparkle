@@ -4832,3 +4832,6 @@ lean_lib «Tools.ShippingGen3HrowGate» where
 
 lean_lib «Tools.ShippingGen3HrowGateServed» where
   roots := #[`Tools.ShippingGen3HrowGateServed]
+
+lean_lib «Tests.Gen3.HrowGateCheck» where
+  roots := #[`Tests.Gen3.HrowGateCheck]
