@@ -4,7 +4,7 @@ import Tools.PassPh.Iota
 import Tools.PassPh.BetaAll
 import Tools.PassPh.ListLit
 set_option autoImplicit false
--- NOT BUILT (SKELETON: sorry あり、探索ブランチのみ。受理の対象ではない). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1 (approved as document/types only).
+-- SKELETON: sorry あり、探索ブランチのみ（受理の対象ではない）. Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of dec1b348 (Lean content identical; header comment-only). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1 (approved as document/types only).
 
 /-! # pass_ph skeleton: Pass group (evalNode?_good, unfoldCall?_good, joint induction on passM/passStep/passSpine, passWith_ph, pass_ph).
 Depends on all other groups. Memo invariant `MemoGood`: every (k, v) in the memo with `G k` has `G v`. -/

@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceAbbrevS1
 import Tools.ShippingGen5ReaderTraceInst1
 import Sparkle.Compiler.MachRecUnfold
 set_option autoImplicit false
--- NOT BUILT (SKELETON: sorry あり、探索ブランチのみ。受理の対象ではない). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1 (approved as document/types only).
+-- SKELETON: sorry あり、探索ブランチのみ（受理の対象ではない）. Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of dec1b348 (Lean content identical; header comment-only). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1 (approved as document/types only).
 
 /-! # pass_ph skeleton: common definitions (freeze §1)
 `RecRulePhU` is a hypothesis definition only (not registered). `BetaNonTargetAgrees` is an UNPROVEN T1 +1 candidate (not accepted, not counted). -/

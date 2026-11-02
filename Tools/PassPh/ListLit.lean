@@ -1,6 +1,6 @@
 import Tools.PassPh.Defs
 set_option autoImplicit false
--- NOT BUILT (SKELETON: sorry あり、探索ブランチのみ。受理の対象ではない). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1 (approved as document/types only).
+-- SKELETON: sorry あり、探索ブランチのみ（受理の対象ではない）. Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of dec1b348 (Lean content identical; header comment-only). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1 (approved as document/types only).
 
 /-! # pass_ph skeleton: ListLit group (listLit?_good). Depends on Defs only (Inst1Agrees + inst1Spec lemmas). -/
 
