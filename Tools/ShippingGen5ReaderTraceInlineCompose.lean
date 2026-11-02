@@ -158,13 +158,13 @@ theorem shapeInputs_of_entryConst_pp
   · exact hv c d (by rw [hc, hd])
 
 /-! Aliases for the names of the pre-S2 file. Types are the NEW ones (`PassPh` hypothesis gone; `hb : HeadBetaAgrees0` replaced by `hh : HeadBetaAgreesL`, plus `hbt`, `hEq`). `PassPh` and the local `RecRulePhU` no longer exist here (`RecRulePhU` is `Tools.PassPh.RecRulePhU`). -/
-theorem inl_step_ph := @inl_step_ph_pp
-theorem rounds_ph := @rounds_ph_pp
-theorem abbrev_fold_ph := @abbrev_fold_ph_pp
-theorem userInliner_ph := @userInliner_ph_pp
-theorem inlinedConst_defn_ph := @inlinedConst_defn_ph_pp
-theorem shapeInputs_of_decl' := @shapeInputs_of_decl_pp
-theorem shapeInputs_of_inline' := @shapeInputs_of_inline_pp
-theorem shapeInputs_of_entryConst' := @shapeInputs_of_entryConst_pp
+abbrev inl_step_ph := @inl_step_ph_pp
+abbrev rounds_ph := @rounds_ph_pp
+abbrev abbrev_fold_ph := @abbrev_fold_ph_pp
+abbrev userInliner_ph := @userInliner_ph_pp
+abbrev inlinedConst_defn_ph := @inlinedConst_defn_ph_pp
+abbrev shapeInputs_of_decl' := @shapeInputs_of_decl_pp
+abbrev shapeInputs_of_inline' := @shapeInputs_of_inline_pp
+abbrev shapeInputs_of_entryConst' := @shapeInputs_of_entryConst_pp
 
 end Tools.ShippingGen5ReaderTrace
