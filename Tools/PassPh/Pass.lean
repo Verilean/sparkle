@@ -3,6 +3,7 @@ import Tools.PassPh.Rec
 import Tools.PassPh.Iota
 import Tools.PassPh.BetaAll
 import Tools.PassPh.ListLit
+import Tools.PassPh.Memo
 set_option autoImplicit false
 -- rev2 L version (scripts/gen5/RT_PASS_PH_FREEZE.md rev2). Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of aa24f5ed161ebaf66322fc58f0d153e215e4d94f (Lean content identical; header comment-only). sorry 7 (evalNode?, unfoldCall?, passM/passStep/passSpine, passWith_ph, pass_ph). Clean build is the coder's. Exploration branch, not an acceptance target.
 
@@ -209,44 +210,334 @@ theorem unfoldCall?_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Opti
     have h3 : (some (betaAll betaAllLimit r1) : Option (Except String Lean.Expr)) = some (Except.ok r) := h2
     exact betaAll_goodL hh hbt _ L _ _ hr1 (Option.some.inj h3)
 
-/-- joint induction on `passM` / `passStep` / `passSpine` (measure as in the definitions); the three statements are proved together -/
+abbrev St := Std.HashMap Lean.Expr Lean.Expr
+
+theorem PM_bind_ok {α β : Type} (x : PM α) (f : α → PM β) (s : St) (r : β) (s' : St)
+    (h : (ExceptT.bind x f).run.run s = (Except.ok r, s')) :
+    ∃ v s1, x.run.run s = (Except.ok v, s1) ∧ (f v).run.run s1 = (Except.ok r, s') := by
+  rcases hx : x.run.run s with ⟨o, s1⟩
+  have key : (ExceptT.bind x f).run.run s = (match x.run.run s with
+      | (a, s1) => (ExceptT.bindCont f a).run s1) := rfl
+  rw [key, hx] at h
+  cases o with
+  | error m => exfalso; have := Prod.mk.inj h; cases this.1
+  | ok v => exact ⟨v, s1, rfl, h⟩
+
+theorem PM_pure_ok {α : Type} (a r : α) (s s' : St) (h : (ExceptT.pure a : PM α).run.run s = (Except.ok r, s')) : a = r ∧ s = s' := by
+  have h2 := Prod.mk.inj h
+  exact ⟨Except.ok.inj h2.1, h2.2⟩
+
+theorem PM_get_ok (s s' : St) {r : St} (h : (get : PM St).run.run s = (Except.ok r, s')) : r = s ∧ s = s' := by
+  have h2 := Prod.mk.inj h
+  exact ⟨(Except.ok.inj h2.1).symm, h2.2⟩
+
+
+theorem liftStep_ok {α : Type} (x : M α) (s s' : St) (o : Option α)
+    (h : (liftStep x).run.run s = (Except.ok o, s')) :
+    s = s' ∧ (o = none ∨ ∃ a, o = some a ∧ x = ExceptT.mk (some (.ok a))) := by
+  have hx : x = ExceptT.mk x.run := rfl
+  unfold liftStep at h
+  rcases hr : x.run with _ | (m | a)
+  · rw [hr] at h
+    have h2 := Prod.mk.inj h
+    exact ⟨h2.2, Or.inl (Except.ok.inj h2.1).symm⟩
+  · rw [hr] at h
+    have h2 := Prod.mk.inj h
+    cases h2.1
+  · rw [hr] at h
+    have h2 := Prod.mk.inj h
+    refine ⟨h2.2, Or.inr ⟨a, (Except.ok.inj h2.1).symm, ?_⟩⟩
+    rw [hx, hr]
+
+
+theorem PM_modify_ok (f : St → St) (s s' : St) (u : Unit) (h : (modify f : PM Unit).run.run s = (Except.ok u, s')) : s' = f s := by
+  exact (Prod.mk.inj h).2.symm
+
+theorem PM_reenter {α : Type} (m : String) (fuel : Nat) (k : Nat → PM α) (s s' : St) (r : α)
+    (h : (match fuel with | 0 => throw m | n+1 => k n : PM α).run.run s = (Except.ok r, s')) :
+    ∃ n, fuel = n+1 ∧ (k n).run.run s = (Except.ok r, s') := by
+  cases fuel with
+  | zero => exact absurd (Prod.mk.inj h).1 (by intro h'; cases h')
+  | succ n => exact ⟨n, rfl, h⟩
+
+theorem gl_lam {L : Nat} {n : Lean.Name} {t b : Lean.Expr} {bi : Lean.BinderInfo} :
+    GL L (.lam n t b bi) ↔ GL L t ∧ GL (L+1) b := by
+  simp only [GL, NoPh, BvarLt, Bool.and_eq_true]
+  constructor
+  · rintro ⟨⟨h1, h2⟩, h3, h4⟩; exact ⟨⟨h1, h3⟩, h2, h4⟩
+  · rintro ⟨⟨h1, h3⟩, h2, h4⟩; exact ⟨⟨h1, h2⟩, h3, h4⟩
+
+theorem gl_letE {L : Nat} {n : Lean.Name} {t v b : Lean.Expr} {nd : Bool} :
+    GL L (.letE n t v b nd) ↔ GL L t ∧ GL L v ∧ GL (L+1) b := by
+  simp only [GL, NoPh, BvarLt, Bool.and_eq_true]
+  constructor
+  · rintro ⟨⟨⟨h1, h2⟩, h3⟩, ⟨h4, h5⟩, h6⟩; exact ⟨⟨h1, h4⟩, ⟨h2, h5⟩, h3, h6⟩
+  · rintro ⟨⟨h1, h4⟩, ⟨h2, h5⟩, h3, h6⟩; exact ⟨⟨⟨h1, h2⟩, h3⟩, ⟨h4, h5⟩, h6⟩
+
+theorem gl_mdata' {L : Nat} {d : Lean.MData} {b : Lean.Expr} : GL L (.mdata d b) ↔ GL L b := by
+  simp [GL, NoPh, BvarLt]
+
+def PMOk (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool) (fuel : Nat) (e : Lean.Expr) : Prop :=
+  ∀ (r : Lean.Expr) (s s' : St), MemoGoodL s → (passM env natLit? isUser fuel e).run.run s = (Except.ok r, s') →
+    MemoGoodL s' ∧ ∀ L, GL L e → GL L r
+
+def PStOk (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool) (fuel : Nat) (e : Lean.Expr) : Prop :=
+  ∀ (r : Lean.Expr) (s s' : St), MemoGoodL s → (passStep env natLit? isUser fuel e).run.run s = (Except.ok r, s') →
+    MemoGoodL s' ∧ ∀ L, GL L e → GL L r
+
+def PSpOk (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool) (fuel : Nat) (e : Lean.Expr) : Prop :=
+  ∀ (h : Lean.Expr) (args : Array Lean.Expr) (s s' : St), MemoGoodL s →
+    (passSpine env natLit? isUser fuel e).run.run s = (Except.ok (h, args), s') →
+    MemoGoodL s' ∧ ∀ L, GL L e → GL L h ∧ ∀ a ∈ args, GL L a
+
+theorem passJoint (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
+    (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
+    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees)
+    (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws) :
+    ∀ fuel, (∀ e, PMOk env natLit? isUser fuel e) ∧ (∀ e, PStOk env natLit? isUser fuel e) ∧
+      (∀ e, PSpOk env natLit? isUser fuel e) := by
+  intro fuel
+  induction fuel using Nat.strongRecOn with
+  | _ fuel ihF =>
+  suffices H : ∀ n e, sizeOf e = n → PMOk env natLit? isUser fuel e ∧ PStOk env natLit? isUser fuel e ∧
+      PSpOk env natLit? isUser fuel e from
+    ⟨fun e => (H _ e rfl).1, fun e => (H _ e rfl).2.1, fun e => (H _ e rfl).2.2⟩
+  intro n
+  induction n using Nat.strongRecOn with
+  | _ n ihN =>
+  intro e hn
+  have sm : ∀ e', sizeOf e' < sizeOf e → PMOk env natLit? isUser fuel e' ∧ PStOk env natLit? isUser fuel e' ∧
+      PSpOk env natLit? isUser fuel e' := fun e' h => ihN _ (hn ▸ h) e' rfl
+  have hstep : PStOk env natLit? isUser fuel e := by
+    intro r s s' hs h
+    cases e with
+    | app f a =>
+      rw [passStep] at h
+      obtain ⟨⟨hd', args⟩, s1, h1, h2⟩ := PM_bind_ok _ _ _ _ _ h
+      obtain ⟨a', s2, h3, h4⟩ := PM_bind_ok _ _ _ _ _ h2
+      obtain ⟨hs1, hsp⟩ := (sm f (by simp <;> omega)).2.2 _ _ _ _ hs h1
+      obtain ⟨hs2, hma⟩ := (sm a (by simp <;> omega)).1 _ _ _ hs1 h3
+      dsimp only at h4
+      obtain ⟨o, s3, h5, h6⟩ := PM_bind_ok _ _ _ _ _ h4
+      obtain ⟨hs23, ho⟩ := liftStep_ok _ _ _ _ h5
+      subst hs23
+      have hge : ∀ L, GL L (f.app a) → GL L (mkAppN hd' (args.push a')) := by
+        intro L he
+        obtain ⟨hf, ha⟩ := gl_app_split he
+        obtain ⟨h1', h2'⟩ := (hsp L hf)
+        refine mkAppN_goodL L _ _ h1' ?_
+        intro x hx
+        rcases Array.mem_push.mp hx with h | h
+        · exact h2' x h
+        · subst h; exact hma L ha
+      rcases ho with rfl | ⟨r1, rfl, hev⟩
+      · dsimp only at h6
+        obtain ⟨o2, s4, h7, h8⟩ := PM_bind_ok _ _ _ _ _ h6
+        obtain ⟨hs34, ho2⟩ := liftStep_ok _ _ _ _ h7
+        subst hs34
+        rcases ho2 with rfl | ⟨r2, rfl, hun⟩
+        · dsimp only at h8
+          obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h8
+          exact ⟨hs2, fun L he => hge L he⟩
+        · dsimp only at h8
+          obtain ⟨n, rfl, h9⟩ := PM_reenter _ _ (fun n => passM env natLit? isUser n r2) _ _ _ h8
+          obtain ⟨hs', hr2⟩ := (ihF n (Nat.lt_succ_self n)).1 r2 _ _ _ hs2 h9
+          exact ⟨hs', fun L he => hr2 L (unfoldCall?_goodL env natLit? isUser hd hr hrep hh hbt L _ _ (hge L he) hun)⟩
+      · dsimp only at h6
+        obtain ⟨n, rfl, h9⟩ := PM_reenter _ _ (fun n => passM env natLit? isUser n r1) _ _ _ h6
+        obtain ⟨hs', hr1⟩ := (ihF n (Nat.lt_succ_self n)).1 r1 _ _ _ hs2 h9
+        exact ⟨hs', fun L he => hr1 L (evalNode?_goodL hi1 natLit? L _ _ (hge L he) hev)⟩
+    | lam n t b bi =>
+      rw [passStep] at h
+      obtain ⟨b', s1, h1, h2⟩ := PM_bind_ok _ _ _ _ _ h
+      obtain ⟨hs1, hb⟩ := (sm b (by simp <;> omega)).1 _ _ _ hs h1
+      obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h2
+      refine ⟨hs1, fun L he => ?_⟩
+      rw [gl_lam] at he ⊢
+      exact ⟨he.1, hb _ he.2⟩
+    | mdata d b =>
+      rw [passStep] at h
+      obtain ⟨b', s1, h1, h2⟩ := PM_bind_ok _ _ _ _ _ h
+      obtain ⟨hs1, hb⟩ := (sm b (by simp <;> omega)).1 _ _ _ hs h1
+      obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h2
+      refine ⟨hs1, fun L he => ?_⟩
+      rw [gl_mdata'] at he ⊢
+      exact hb _ he
+    | letE n t v b nd =>
+      rw [passStep] at h
+      obtain ⟨v', s1, h1, h2⟩ := PM_bind_ok _ _ _ _ _ h
+      obtain ⟨hs1, hv⟩ := (sm v (by simp <;> omega)).1 _ _ _ hs h1
+      obtain ⟨o, s2, h3, h4⟩ := PM_bind_ok _ _ _ _ _ h2
+      obtain ⟨hs12, ho⟩ := liftStep_ok _ _ _ _ h3
+      subst hs12
+      by_cases hc : (!v'.hasLooseBVars && !v'.hasFVar && o.isSome) = true
+      · rw [if_pos hc] at h4
+        obtain ⟨n', rfl, h9⟩ := PM_reenter _ _ (fun k => passM env natLit? isUser k (b.instantiate1 v')) _ _ _ h4
+        obtain ⟨hs', hr1⟩ := (ihF n' (Nat.lt_succ_self n')).1 (b.instantiate1 v') _ _ _ hs1 h9
+        refine ⟨hs', fun L he => hr1 L ?_⟩
+        rw [gl_letE] at he
+        have hv' := hv L he.2.1
+        have := inst1Ph_of_agrees hi1 b v' L L he.2.2.1 hv'.1 he.2.2.2 hv'.2 (Nat.le_refl L)
+        exact ⟨this.1, this.2⟩
+      · rw [if_neg hc] at h4
+        obtain ⟨b', s3, h5, h6⟩ := PM_bind_ok _ _ _ _ _ h4
+        obtain ⟨hs3, hb⟩ := (sm b (by simp <;> omega)).1 _ _ _ hs1 h5
+        obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h6
+        refine ⟨hs3, fun L he => ?_⟩
+        rw [gl_letE] at he ⊢
+        exact ⟨he.1, hv L he.2.1, hb _ he.2.2⟩
+    | bvar i =>
+      rw [passStep] at h
+      · obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h
+        exact ⟨hs, fun L he => he⟩
+      all_goals (intros; contradiction)
+    | fvar i =>
+      rw [passStep] at h
+      · obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h
+        exact ⟨hs, fun L he => he⟩
+      all_goals (intros; contradiction)
+    | mvar i =>
+      rw [passStep] at h
+      · obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h
+        exact ⟨hs, fun L he => he⟩
+      all_goals (intros; contradiction)
+    | sort i =>
+      rw [passStep] at h
+      · obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h
+        exact ⟨hs, fun L he => he⟩
+      all_goals (intros; contradiction)
+    | const i j =>
+      rw [passStep] at h
+      · obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h
+        exact ⟨hs, fun L he => he⟩
+      all_goals (intros; contradiction)
+    | forallE i j k l =>
+      rw [passStep] at h
+      · obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h
+        exact ⟨hs, fun L he => he⟩
+      all_goals (intros; contradiction)
+    | lit i =>
+      rw [passStep] at h
+      · obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h
+        exact ⟨hs, fun L he => he⟩
+      all_goals (intros; contradiction)
+    | proj i j k =>
+      rw [passStep] at h
+      · obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h
+        exact ⟨hs, fun L he => he⟩
+      all_goals (intros; contradiction)
+  have hM : PMOk env natLit? isUser fuel e := by
+    intro r s s' hs h
+    rw [passM] at h
+    obtain ⟨st, s1, h1, h2⟩ := PM_bind_ok _ _ _ _ _ h
+    obtain ⟨rfl, rfl⟩ := PM_get_ok _ _ h1
+    rcases hg : st.get? e with _ | v
+    · rw [hg] at h2
+      dsimp only at h2
+      obtain ⟨r0, s2, h3, h4⟩ := PM_bind_ok _ _ _ _ _ h2
+      obtain ⟨hs2, hr0⟩ := hstep _ _ _ hs h3
+      obtain ⟨u, s3, h5, h6⟩ := PM_bind_ok _ _ _ _ _ h4
+      have h7 := PM_modify_ok _ _ _ _ h5
+      obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h6
+      subst h7
+      exact ⟨memoGoodL_insert hEq hs2 e r0 hr0, hr0⟩
+    · rw [hg] at h2
+      dsimp only at h2
+      obtain ⟨rfl, rfl⟩ := PM_pure_ok _ _ _ _ h2
+      exact ⟨hs, memoGoodL_hit hs hg⟩
+  have hsp : PSpOk env natLit? isUser fuel e := by
+    intro hh' args s s' hs h
+    cases e with
+    | app f a =>
+      rw [passSpine] at h
+      obtain ⟨⟨hd', args'⟩, s1, h1, h2⟩ := PM_bind_ok _ _ _ _ _ h
+      obtain ⟨a', s2, h3, h4⟩ := PM_bind_ok _ _ _ _ _ h2
+      obtain ⟨hs1, hsp'⟩ := (sm f (by simp <;> omega)).2.2 _ _ _ _ hs h1
+      obtain ⟨hs2, hma⟩ := (sm a (by simp <;> omega)).1 _ _ _ hs1 h3
+      obtain ⟨he, rfl⟩ := PM_pure_ok _ _ _ _ h4
+      have he' := Prod.mk.inj he
+      obtain ⟨rfl, rfl⟩ := he'
+      refine ⟨hs2, fun L hL => ?_⟩
+      obtain ⟨hf, ha⟩ := gl_app_split hL
+      obtain ⟨hh1, hh2⟩ := hsp' L hf
+      refine ⟨hh1, fun x hx => ?_⟩
+      rcases Array.mem_push.mp hx with h | h
+      · exact hh2 x h
+      · subst h; exact hma L ha
+    | _ =>
+      rw [passSpine] at h
+      · obtain ⟨r0, s1, h1, h2⟩ := PM_bind_ok _ _ _ _ _ h
+        obtain ⟨hs1, hr0⟩ := hM _ _ _ hs h1
+        obtain ⟨he, rfl⟩ := PM_pure_ok _ _ _ _ h2
+        obtain ⟨rfl, rfl⟩ := Prod.mk.inj he
+        exact ⟨hs1, fun L hL => ⟨hr0 L hL, by simp⟩⟩
+      all_goals (intros; contradiction)
+  exact ⟨hM, hstep, hsp⟩
+
+
+/-- the statement of `pass_ph` (freeze §1 with rev3: `ExprEqvLaws` added), as a Prop -/
+def PassPh' : Prop :=
+  ∀ (natLit? : Lean.Expr → Option Nat),
+    ∀ (env : Lean.Environment), Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePhU env →
+    ReplaceAgrees → Inst1Agrees → HeadBetaAgreesL → BetaNonTargetAgrees →
+    Tools.Assume.ExprEqvGL.ExprEqvLaws →
+    ∀ (isUser : Lean.Name → Bool) (e r : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
+      Sparkle.Compiler.MachRecUnfold.pass env natLit? isUser e = .ok r →
+      NoPh r = true ∧ BvarLt 0 r = true
+
+/-- joint induction on `passM` / `passStep` / `passSpine` (done in `passJoint`) -/
 theorem passM_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
     (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
-    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees)
+    (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws) :
     ∀ (fuel : Nat) (e r : Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr), MemoGoodL s →
-      (passM env natLit? isUser fuel e).run.run s = (Except.ok r, s') → MemoGoodL s' ∧ ∀ L, GL L e → GL L r := by
-  sorry
+      (passM env natLit? isUser fuel e).run.run s = (Except.ok r, s') → MemoGoodL s' ∧ ∀ L, GL L e → GL L r :=
+  fun fuel e r s s' hs h => (passJoint env natLit? isUser hd hr hrep hi1 hh hbt hEq fuel).1 e r s s' hs h
 
 theorem passStep_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
     (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
-    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees)
+    (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws) :
     ∀ (fuel : Nat) (e r : Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr), MemoGoodL s →
-      (passStep env natLit? isUser fuel e).run.run s = (Except.ok r, s') → MemoGoodL s' ∧ ∀ L, GL L e → GL L r := by
-  sorry
+      (passStep env natLit? isUser fuel e).run.run s = (Except.ok r, s') → MemoGoodL s' ∧ ∀ L, GL L e → GL L r :=
+  fun fuel e r s s' hs h => (passJoint env natLit? isUser hd hr hrep hi1 hh hbt hEq fuel).2.1 e r s s' hs h
 
 theorem passSpine_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
     (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
-    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees)
+    (hEq : Tools.Assume.ExprEqvGL.ExprEqvLaws) :
     ∀ (fuel : Nat) (e h : Lean.Expr) (args : Array Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr),
       MemoGoodL s → (passSpine env natLit? isUser fuel e).run.run s = (Except.ok (h, args), s') →
-      MemoGoodL s' ∧ ∀ L, GL L e → GL L h ∧ ∀ a ∈ args, GL L a := by
-  sorry
+      MemoGoodL s' ∧ ∀ L, GL L e → GL L h ∧ ∀ a ∈ args, GL L a :=
+  fun fuel e h args s s' hs h' => (passJoint env natLit? isUser hd hr hrep hi1 hh hbt hEq fuel).2.2 e h args s s' hs h'
 
 theorem passWith_ph (natLit? : Lean.Expr → Option Nat) :
     ∀ (env : Lean.Environment), Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePhU env →
     ReplaceAgrees → Inst1Agrees → HeadBetaAgreesL → BetaNonTargetAgrees →
+    Tools.Assume.ExprEqvGL.ExprEqvLaws →
     ∀ (fuel : Nat) (isUser : Lean.Name → Bool) (e r : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
       Sparkle.Compiler.MachRecUnfold.passWith fuel env natLit? isUser e = .ok r →
       NoPh r = true ∧ BvarLt 0 r = true := by
-  sorry
+  intro env hd hr hrep hi1 hh hbt hEq fuel isUser e r hn hb h
+  unfold Sparkle.Compiler.MachRecUnfold.passWith at h
+  rcases hx : (passM env natLit? isUser fuel e).run.run {} with ⟨o, s'⟩
+  have h' : o = Except.ok r := by
+    have : ((passM env natLit? isUser fuel e).run.run' {}) = o := by
+      show (fun p => p.1) <$> (passM env natLit? isUser fuel e).run.run {} = o
+      rw [hx]; rfl
+    rw [this] at h; exact h
+  subst h'
+  exact (passM_goodL env natLit? isUser hd hr hrep hi1 hh hbt hEq fuel e r {} s' memoGoodL_empty hx).2 0 ⟨hn, hb⟩
 
 theorem pass_ph (natLit? : Lean.Expr → Option Nat) :
     ∀ (env : Lean.Environment), Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePhU env →
     ReplaceAgrees → Inst1Agrees → HeadBetaAgreesL → BetaNonTargetAgrees →
+    Tools.Assume.ExprEqvGL.ExprEqvLaws →
     ∀ (isUser : Lean.Name → Bool) (e r : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
       Sparkle.Compiler.MachRecUnfold.pass env natLit? isUser e = .ok r →
-      NoPh r = true ∧ BvarLt 0 r = true := by
-  sorry
+      NoPh r = true ∧ BvarLt 0 r = true :=
+  fun env hd hr hrep hi1 hh hbt hEq isUser e r hn hb h =>
+    passWith_ph natLit? env hd hr hrep hi1 hh hbt hEq _ isUser e r hn hb h
 
 theorem passPh' : PassPh' := fun natLit? => pass_ph natLit?
 

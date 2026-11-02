@@ -23,15 +23,6 @@ def RecRulePhU (env : Lean.Environment) : Prop :=
 def BetaNonTargetAgrees : Prop :=
   ∀ (f : Lean.Expr) (args : Array Lean.Expr), f.isHeadBetaTargetFn false = false → f.beta args = mkAppN f args
 
-/-- the statement of `pass_ph` (freeze §1), as a Prop -/
-def PassPh' : Prop :=
-  ∀ (natLit? : Lean.Expr → Option Nat),
-    ∀ (env : Lean.Environment), Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePhU env →
-    ReplaceAgrees → Inst1Agrees → HeadBetaAgreesL → BetaNonTargetAgrees →
-    ∀ (isUser : Lean.Name → Bool) (e r : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
-      Sparkle.Compiler.MachRecUnfold.pass env natLit? isUser e = .ok r →
-      NoPh r = true ∧ BvarLt 0 r = true
-
 /-- rev2 invariant: no placeholders and loose bvars below `L` -/
 def GL (L : Nat) (e : Lean.Expr) : Prop := NoPh e = true ∧ BvarLt L e = true
 
