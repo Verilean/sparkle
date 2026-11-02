@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceSameSt
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- NOT BUILT (pending build). Check for Tools/ShippingGen5ReaderTraceSameSt.lean (RT C.CV-2). Clean build is the coder's.
+-- Built in Pod (kjob lake build, exit 0) on the tree of 103188546c6022566a55a5d45f16cb92681aa8d7 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # RT SameSt checks
 

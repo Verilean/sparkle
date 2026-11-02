@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceShape2
 import Tools.ShippingGen5GDCover1
 set_option autoImplicit false
--- NOT BUILT (pending build). RT C.CV-2 (issue sparkle-rt-samest). No sorry in source.
+-- Built in Pod (kjob lake build, exit 0) on the tree of 103188546c6022566a55a5d45f16cb92681aa8d7 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # RT: the W-side state `st` and the `machineShapeF_reach'` state `st` are the same state
 
