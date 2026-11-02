@@ -8,7 +8,20 @@ namespace Tools.PassPh
 open Lean Tools.ShippingLetsReaderInv Tools.ShippingGen5ReaderTrace Tools.Assume.AbbrevExtern
 
 theorem mkAppN_good : ∀ (f : Lean.Expr) (as : Array Lean.Expr), G f → (∀ a ∈ as, G a) → G (mkAppN f as) := by
-  sorry
+  intro f as hf has
+  unfold mkAppN
+  rw [← Array.foldl_toList]
+  have key : ∀ (l : List Lean.Expr) (f : Lean.Expr), G f → (∀ a ∈ l, G a) → G (l.foldl mkApp f) := by
+    intro l
+    induction l with
+    | nil => intro f hf _; exact hf
+    | cons a t ih =>
+      intro f hf hl
+      refine ih _ ?_ (fun x hx => hl x (List.mem_cons_of_mem _ hx))
+      have ha := hl a List.mem_cons_self
+      simp only [G, NoPh, BvarLt, Bool.and_eq_true] at hf ha ⊢
+      exact ⟨⟨hf.1, ha.1⟩, ⟨hf.2, ha.2⟩⟩
+  exact key as.toList f hf (fun a ha => has a (Array.mem_toList_iff.mp ha))
 
 theorem rnc_ph2 : ∀ (f : Lean.Expr → Option Lean.Expr),
     (∀ (x v : Lean.Expr), f x = some v → ∀ (L : Nat), NoPh x = true → BvarLt L x = true → NoPh v = true ∧ BvarLt L v = true) →
