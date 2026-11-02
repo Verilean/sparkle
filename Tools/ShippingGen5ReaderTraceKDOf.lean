@@ -17,12 +17,16 @@ theorem kDOf_eq_nDeclOfCi_of_dataOfFrom (lvl : Lean.Expr → Nat) {dv : Lean.Def
     (h : dataOfFrom lvl (Lean.ConstantInfo.defnInfo dv) senv s
       (Sparkle.Compiler.MachTupleIn.packTupleInputs dv.value) fl = some d) :
     kDOf d = nDeclOfCi (Lean.ConstantInfo.defnInfo dv) := by
-  sorry
+  obtain ⟨p, hp, hn⟩ := dataOfFrom_nIn lvl h
+  have e : nDeclOfCi (Lean.ConstantInfo.defnInfo dv) = p.1.length := by
+    simp only [nDeclOfCi, hp]; rfl
+  obtain ⟨hs, -⟩ := dataOfFrom_dims lvl h
+  unfold kDOf; rw [hs]; omega
 
 theorem kDOf_eq_nDeclOfCi (lvl : Lean.Expr → Nat) {dv : Lean.DefinitionVal} {senv : StructEnv}
     {s : MachineShape} {d : MachineData}
     (h : dataOfAt lvl (Lean.ConstantInfo.defnInfo dv) senv s = some d) :
     kDOf d = nDeclOfCi (Lean.ConstantInfo.defnInfo dv) := by
-  sorry
+  exact kDOf_eq_nDeclOfCi_of_dataOfFrom lvl (by simpa [dataOfAt, Lean.ConstantInfo.value?] using h)
 
 end Tools.ShippingGen5ReaderTrace
