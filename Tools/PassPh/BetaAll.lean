@@ -1,6 +1,6 @@
 import Tools.PassPh.Beta
 set_option autoImplicit false
--- rev2 L version (scripts/gen5/RT_PASS_PH_FREEZE.md rev2). Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of aa24f5ed161ebaf66322fc58f0d153e215e4d94f (Lean content identical; header comment-only). sorry 2 (betaAll_goodL, betaSpine_goodL). Clean build is the coder's. Exploration branch, not an acceptance target.
+-- rev2 L version. Built in Pod (kjob lake build Tools.PassPh.BetaAll, exit 0) on the tree of 14684ae151e258069349cf3055f7148d1f415c34. no sorry. Clean build is the coder's. Exploration branch, not an acceptance target.
 
 /-! # pass_ph skeleton: BetaAll group (mutual betaAll / betaSpine, measure (fuel, sizeOf, k)). Depends on Beta. -/
 
