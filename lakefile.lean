@@ -4761,6 +4761,12 @@ lean_lib «Tools.ShippingGen5RunReads» where
 lean_lib «Tests.Gen5.RunReadsCheck» where
   roots := #[`Tests.Gen5.RunReadsCheck]
 
+lean_lib «Tools.ShippingGen5ReadKinds» where
+  roots := #[`Tools.ShippingGen5ReadKinds]
+
+lean_lib «Tests.Gen5.ReadKindsCheck» where
+  roots := #[`Tests.Gen5.ReadKindsCheck]
+
 lean_lib «Tools.ShippingGen3ArgSupply4» where
   roots := #[`Tools.ShippingGen3ArgSupply4]
 
@@ -4863,6 +4869,12 @@ lean_lib «Tools.ShippingGen5Cover3» where
 lean_lib «Tests.Gen5.Cover3Check» where
   roots := #[`Tests.Gen5.Cover3Check]
 
+lean_lib «Tools.ShippingGen5Cover3Canon» where
+  roots := #[`Tools.ShippingGen5Cover3Canon]
+
+lean_lib «Tests.Gen5.Cover3CanonCheck» where
+  roots := #[`Tests.Gen5.Cover3CanonCheck]
+
 lean_lib «Tools.ShippingGen5Cover4» where
   roots := #[`Tools.ShippingGen5Cover4]
 
@@ -4943,6 +4955,290 @@ lean_lib «Tools.ShippingN3ExternAgree» where
 
 lean_lib «Tests.Gen3.N3AgreeCheck» where
   roots := #[`Tests.Gen3.N3AgreeCheck]
+lean_lib «Tests.Gen5.SemP4FreezeTypes» where
+  roots := #[`Tests.Gen5.SemP4FreezeTypes]
+
+lean_lib «Tools.ShippingGen5SemCall» where
+  roots := #[`Tools.ShippingGen5SemCall]
+
+lean_lib «Tools.ShippingGen5SemCongr» where
+  roots := #[`Tools.ShippingGen5SemCongr]
+
+lean_lib «Tools.ShippingGen5SemMem» where
+  roots := #[`Tools.ShippingGen5SemMem]
+
+lean_lib «Tests.Gen5.SemCallCheck» where
+  roots := #[`Tests.Gen5.SemCallCheck]
+
+lean_lib «Tools.ShippingGen5SemExt» where
+  roots := #[`Tools.ShippingGen5SemExt]
+
+lean_lib «Tests.Gen5.SemExtCheck» where
+  roots := #[`Tests.Gen5.SemExtCheck]
+
+lean_lib «Tools.ShippingGen5SemExtPkg» where
+  roots := #[`Tools.ShippingGen5SemExtPkg]
+
+lean_lib «Tests.Gen5.SemExtPkgCheck» where
+  roots := #[`Tests.Gen5.SemExtPkgCheck]
+
+lean_lib «Tools.ShippingGen5SemCausal» where
+  roots := #[`Tools.ShippingGen5SemCausal]
+
+lean_lib «Tests.Gen5.SemCausalCheck» where
+  roots := #[`Tests.Gen5.SemCausalCheck]
+
+lean_lib «Tools.ShippingGen5SemFacts» where
+  roots := #[`Tools.ShippingGen5SemFacts]
+
+lean_lib «Tests.Gen5.SemFactsCheck» where
+  roots := #[`Tests.Gen5.SemFactsCheck]
+
+lean_lib «Tools.ShippingGen5SemSrcCausal» where
+  roots := #[`Tools.ShippingGen5SemSrcCausal]
+
+lean_lib «Tests.Gen5.SemSrcCausalCheck» where
+  roots := #[`Tests.Gen5.SemSrcCausalCheck]
+
+lean_lib «Tools.ShippingGen5SemAccStep» where
+  roots := #[`Tools.ShippingGen5SemAccStep]
+
+lean_lib «Tests.Gen5.SemAccStepCheck» where
+  roots := #[`Tests.Gen5.SemAccStepCheck]
+
+lean_lib «Tools.ShippingGen5SemKitInv» where
+  roots := #[`Tools.ShippingGen5SemKitInv]
+
+lean_lib «Tests.Gen5.SemKitInvCheck» where
+  roots := #[`Tests.Gen5.SemKitInvCheck]
+
+lean_lib «Tools.ShippingGen5SemGenData» where
+  roots := #[`Tools.ShippingGen5SemGenData]
+
+lean_lib «Tests.Gen5.GenDataCheck» where
+  roots := #[`Tests.Gen5.GenDataCheck]
+
+lean_lib «Tools.ShippingGen5SemDataOfParts» where
+  roots := #[`Tools.ShippingGen5SemDataOfParts]
+
+lean_lib «Tests.Gen5.DataOfPartsCheck» where
+  roots := #[`Tests.Gen5.DataOfPartsCheck]
+
+lean_lib «Tools.ShippingGen5Acc» where
+  roots := #[`Tools.ShippingGen5Acc]
+
+lean_lib «Tests.Gen5.AccCheck» where
+  roots := #[`Tests.Gen5.AccCheck]
+
+lean_lib «Tools.ShippingGen5AccGenP» where
+  roots := #[`Tools.ShippingGen5AccGenP]
+
+lean_lib «Tools.ShippingGen5AccInd» where
+  roots := #[`Tools.ShippingGen5AccInd]
+
+lean_lib «Tests.Gen5.AccGenPCheck» where
+  roots := #[`Tests.Gen5.AccGenPCheck]
+
+lean_lib «Tests.Gen5.AccIndCheck» where
+  roots := #[`Tests.Gen5.AccIndCheck]
+
+lean_lib «Tools.ShippingGen5AccReads» where
+  roots := #[`Tools.ShippingGen5AccReads]
+
+lean_lib «Tests.Gen5.AccReadsCheck» where
+  roots := #[`Tests.Gen5.AccReadsCheck]
+
+lean_lib «Tools.ShippingGen5AccKeep» where
+  roots := #[`Tools.ShippingGen5AccKeep]
+
+lean_lib «Tools.ShippingGen5AccServed» where
+  roots := #[`Tools.ShippingGen5AccServed]
+
+lean_lib «Tests.Gen5.AccKeepCheck» where
+  roots := #[`Tests.Gen5.AccKeepCheck]
+
+lean_lib «Tests.Gen5.AccServedCheck» where
+  roots := #[`Tests.Gen5.AccServedCheck]
+
+lean_lib «Tools.ShippingGen5AccRoute» where
+  roots := #[`Tools.ShippingGen5AccRoute]
+
+lean_lib «Tests.Gen5.AccRouteCheck» where
+  roots := #[`Tests.Gen5.AccRouteCheck]
+
+lean_lib «Tools.ShippingGen5AccGates» where
+  roots := #[`Tools.ShippingGen5AccGates]
+
+lean_lib «Tests.Gen5.AccGatesCheck» where
+  roots := #[`Tests.Gen5.AccGatesCheck]
+
+lean_lib «Tools.ShippingGen5AccReader» where
+  roots := #[`Tools.ShippingGen5AccReader]
+
+lean_lib «Tests.Gen5.AccReaderCheck» where
+  roots := #[`Tests.Gen5.AccReaderCheck]
+
+lean_lib «Tools.ShippingGen5AccCloses» where
+  roots := #[`Tools.ShippingGen5AccCloses]
+
+lean_lib «Tests.Gen5.AccClosesCheck» where
+  roots := #[`Tests.Gen5.AccClosesCheck]
+
+lean_lib «Tools.ShippingGen5AccDataSound» where
+  roots := #[`Tools.ShippingGen5AccDataSound]
+
+lean_lib «Tests.Gen5.AccDataSoundCheck» where
+  roots := #[`Tests.Gen5.AccDataSoundCheck]
+
+lean_lib «Tools.ShippingGen5AccDataAgree» where
+  roots := #[`Tools.ShippingGen5AccDataAgree]
+
+lean_lib «Tests.Gen5.AccDataAgreeCheck» where
+  roots := #[`Tests.Gen5.AccDataAgreeCheck]
+
+lean_lib «Tools.ShippingGen5AccGenDataEv» where
+  roots := #[`Tools.ShippingGen5AccGenDataEv]
+
+lean_lib «Tests.Gen5.AccGenDataEvCheck» where
+  roots := #[`Tests.Gen5.AccGenDataEvCheck]
+
+lean_lib «Tools.ShippingGen5AccMkKit» where
+  roots := #[`Tools.ShippingGen5AccMkKit]
+
+lean_lib «Tests.Gen5.AccMkKitCheck» where
+  roots := #[`Tests.Gen5.AccMkKitCheck]
+
+lean_lib «Tools.ShippingGen5AccOrdCallees» where
+  roots := #[`Tools.ShippingGen5AccOrdCallees]
+
+lean_lib «Tests.Gen5.AccOrdCalleesCheck» where
+  roots := #[`Tests.Gen5.AccOrdCalleesCheck]
+
+lean_lib «Tools.ShippingGen5AccGDf» where
+  roots := #[`Tools.ShippingGen5AccGDf]
+
+lean_lib «Tests.Gen5.AccGDfCheck» where
+  roots := #[`Tests.Gen5.AccGDfCheck]
+
+lean_lib «Tools.ShippingGen5AccSemJoin» where
+  roots := #[`Tools.ShippingGen5AccSemJoin]
+
+lean_lib «Tests.Gen5.CandACheck» where
+  roots := #[`Tests.Gen5.CandACheck]
+
+lean_lib «Tools.ShippingGen5AccHinv» where
+  roots := #[`Tools.ShippingGen5AccHinv]
+
+lean_lib «Tests.Gen5.SM3Check» where
+  roots := #[`Tests.Gen5.SM3Check]
+
+lean_lib «Tests.Gen5.CKitCheck» where
+  roots := #[`Tests.Gen5.CKitCheck]
+
+lean_lib «Tools.ShippingGen5AccGenDataKit» where
+  roots := #[`Tools.ShippingGen5AccGenDataKit]
+lean_lib «Tools.ShippingGen5DataOfPure» where
+  roots := #[`Tools.ShippingGen5DataOfPure]
+
+lean_lib «Tests.Gen5.DataOfCheck» where
+  roots := #[`Tests.Gen5.DataOfCheck]
+
+lean_lib «Tools.ShippingGen5DataOfPure2» where
+  roots := #[`Tools.ShippingGen5DataOfPure2]
+
+lean_lib «Tests.Gen5.DataOfCheck2» where
+  roots := #[`Tests.Gen5.DataOfCheck2]
+
+lean_lib «Tools.ShippingGen5DataOf» where
+  roots := #[`Tools.ShippingGen5DataOf]
+
+lean_lib «Tests.Gen5.DataOfCheck3» where
+  roots := #[`Tests.Gen5.DataOfCheck3]
+
+lean_lib «Tools.ShippingGen5DataOfDims» where
+  roots := #[`Tools.ShippingGen5DataOfDims]
+
+lean_lib «Tests.Gen5.DataOfCheck4» where
+  roots := #[`Tests.Gen5.DataOfCheck4]
+
+lean_lib «Tools.ShippingGen5ReadKindsU5» where
+  roots := #[`Tools.ShippingGen5ReadKindsU5]
+
+lean_lib «Tests.Gen5.ReadKindsU5Check» where
+  roots := #[`Tests.Gen5.ReadKindsU5Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU6» where
+  roots := #[`Tools.ShippingGen5ReadKindsU6]
+
+lean_lib «Tests.Gen5.ReadKindsU6Check» where
+  roots := #[`Tests.Gen5.ReadKindsU6Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU7» where
+  roots := #[`Tools.ShippingGen5ReadKindsU7]
+
+lean_lib «Tests.Gen5.ReadKindsU7Check» where
+  roots := #[`Tests.Gen5.ReadKindsU7Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU8» where
+  roots := #[`Tools.ShippingGen5ReadKindsU8]
+
+lean_lib «Tests.Gen5.ReadKindsU8Check» where
+  roots := #[`Tests.Gen5.ReadKindsU8Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU9» where
+  roots := #[`Tools.ShippingGen5ReadKindsU9]
+
+lean_lib «Tests.Gen5.ReadKindsU9Check» where
+  roots := #[`Tests.Gen5.ReadKindsU9Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU10» where
+  roots := #[`Tools.ShippingGen5ReadKindsU10]
+
+lean_lib «Tests.Gen5.ReadKindsU10Check» where
+  roots := #[`Tests.Gen5.ReadKindsU10Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU11» where
+  roots := #[`Tools.ShippingGen5ReadKindsU11]
+
+lean_lib «Tests.Gen5.ReadKindsU11Check» where
+  roots := #[`Tests.Gen5.ReadKindsU11Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU12» where
+  roots := #[`Tools.ShippingGen5ReadKindsU12]
+
+lean_lib «Tests.Gen5.ReadKindsU12Check» where
+  roots := #[`Tests.Gen5.ReadKindsU12Check]
+
+lean_lib «Tools.ShippingGen5ReadKindsU13» where
+  roots := #[`Tools.ShippingGen5ReadKindsU13]
+
+lean_lib «Tests.Gen5.ReadKindsU13Check» where
+  roots := #[`Tests.Gen5.ReadKindsU13Check]
+
+lean_lib «Tools.ShippingGen5GDCover0» where
+  roots := #[`Tools.ShippingGen5GDCover0]
+
+lean_lib «Tools.ShippingGen5GDCover1» where
+  roots := #[`Tools.ShippingGen5GDCover1]
+
+lean_lib «Tests.Gen5.GDCover01Check» where
+  roots := #[`Tests.Gen5.GDCover01Check]
+
+lean_lib «Tools.ShippingGen5GDW3» where
+  roots := #[`Tools.ShippingGen5GDW3]
+
+lean_lib «Tests.Gen5.GDW3Check» where
+  roots := #[`Tests.Gen5.GDW3Check]
+lean_lib «Tools.ShippingGen5GDCover2» where
+  roots := #[`Tools.ShippingGen5GDCover2]
+
+lean_lib «Tests.Gen5.GDCover2Check» where
+  roots := #[`Tests.Gen5.GDCover2Check]
+lean_lib «Tools.ShippingGen5DataOfComplete» where
+  roots := #[`Tools.ShippingGen5DataOfComplete]
+
+lean_lib «Tests.Gen5.DataOfCompleteCheck» where
+  roots := #[`Tests.Gen5.DataOfCompleteCheck]
 
 lean_lib «Tools.ShippingGen5ReaderTraceInst1» where
   roots := #[`Tools.ShippingGen5ReaderTraceInst1]
@@ -5036,6 +5332,15 @@ lean_lib «Tools.PartialTotal.Agree» where
 lean_lib «Tests.Gen3.PartialTotalCheck» where
   roots := #[`Tests.Gen3.PartialTotalCheck]
 
+lean_lib «Tools.Assume.EnvDeclValue» where
+  roots := #[`Tools.Assume.EnvDeclValue]
+
+lean_lib «Tools.Assume.PackTupleBridge» where
+  roots := #[`Tools.Assume.PackTupleBridge]
+
+lean_lib «Tools.Assume.NormNodePh» where
+  roots := #[`Tools.Assume.NormNodePh]
+
 lean_lib «Tools.ShippingGen5ReaderTraceDirect» where
   roots := #[`Tools.ShippingGen5ReaderTraceDirect]
 
@@ -5104,6 +5409,24 @@ lean_lib «Tools.PassPh.Memo» where
 
 lean_lib «Tests.Gen5.PassPhCheck» where
   roots := #[`Tests.Gen5.PassPhCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceU2Compose» where
+  roots := #[`Tools.ShippingGen5ReaderTraceU2Compose]
+
+lean_lib «Tests.Gen5.ReaderTraceU2Check» where
+  roots := #[`Tests.Gen5.ReaderTraceU2Check]
+
+lean_lib «Tools.ShippingGen5ReaderTraceKDOf» where
+  roots := #[`Tools.ShippingGen5ReaderTraceKDOf]
+
+lean_lib «Tests.Gen5.ReaderTraceKDOfCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceKDOfCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceSameSt» where
+  roots := #[`Tools.ShippingGen5ReaderTraceSameSt]
+
+lean_lib «Tests.Gen5.ReaderTraceSameStCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceSameStCheck]
 
 lean_lib «Tools.ShippingGen5ReaderTraceInlineCompose» where
   roots := #[`Tools.ShippingGen5ReaderTraceInlineCompose]
