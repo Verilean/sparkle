@@ -140,6 +140,8 @@ theorem core_reads_invA (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet 
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
     have hw := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableA_JQC O (0 + 1))
       FramedA.env)) hw henv
+    rcases RunsTo.ite h with h | h
+    · exact (throwError_not_runs _ h).elim
     exact ⟨prof.isSome, env, ci, _, w2, _, _, _, _, hget, henv, h, hw⟩
   · -- nested: the cache half is inherited
     replace hw : JQC O D w := ⟨hw, hc.resolve_left h0⟩
@@ -176,6 +178,8 @@ theorem core_reads_invA (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet 
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
     have hw := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableA_JQC O (d + 1))
       FramedA.env)) hw henv
+    rcases RunsTo.ite h with h | h
+    · exact (throwError_not_runs _ h).elim
     exact ⟨prof.isSome, env, ci, _, w2, _, _, _, _, hget, henv, h, hw⟩
 
 /-- `synthesizeFromConst_machine_inv` under `JQC`: on the machine route (both gates miss), the
