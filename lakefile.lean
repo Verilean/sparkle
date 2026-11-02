@@ -5077,3 +5077,9 @@ lean_lib «Tools.PassPh.ListLit» where
 
 lean_lib «Tools.PassPh.Pass» where
   roots := #[`Tools.PassPh.Pass]
+
+lean_lib «Tools.Assume.ExprEqvGL» where
+  roots := #[`Tools.Assume.ExprEqvGL]
+
+lean_lib «Tools.PassPh.Memo» where
+  roots := #[`Tools.PassPh.Memo]
