@@ -1,7 +1,7 @@
 import Tools.PassPh.Defs
 import Tools.ShippingGen5ReaderTraceReg
 set_option autoImplicit false
--- SKELETON: sorry あり、探索ブランチのみ（受理の対象ではない）. Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of dec1b348 (Lean content identical; header comment-only). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1 (approved as document/types only).
+-- Rec group: all 5 sorries filled. Built in Pod (kjob lake build Tools.PassPh.Rec, exit 0) on the tree of 1a11e552 (Lean content identical; header comment-only). Axioms: propext / Classical.choice / Quot.sound only. Added import Tools.ShippingGen5ReaderTraceReg (for phArgs_getAppArgs). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1.
 
 /-! # pass_ph skeleton: Rec group (freeze §5; types from RT_RECRULE_FREEZE §3 scratch output). Depends on Defs only. -/
 
