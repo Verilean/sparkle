@@ -38,13 +38,28 @@ Issue: `sparkle-rt-pass-total`。判断資料: `scripts/gen5/RT_PASS_DECISION.md
 
 → 生成される Verilog は全件で変わらない（測定であって証明ではない）。
 
+### 3.1 rt81 の変更と入口 guard の後（27c6d1ea）の再比較
+
+同じ方法で 8a616cbc と 27c6d1ea を比べた（job ptcmp-27c6d1ea、exit 0、build 1954 jobs、39 分。比較の相手は ptcmp-new-8a616cbc の出力）。
+
+| 項目 | 結果 |
+|---|---|
+| ファイル | 8a616cbc の 478 本はすべてある。新しい 1 本は `Tests/Compiler/MachRecUnfoldFuelTest.lean`（rt81 の負例テスト、exit 0） |
+| 各ファイルの終了状態 | 478 本で完全に一致（並べ替えたうえで比較） |
+| compare_outputs.py | identical 437、renumbered 0、different 41、missing 0（different の 41 本は 8a616cbc と base の比較のときと同じ集合） |
+| different 41 本の中身 | Verilog（`endmodule`）を含むものは 0 本。数字を伏せると 31 本は同じ文で、差は `[profile]` の時間、heartbeats、閉包の定数の数だけ。残る 10 本は、もとから exit 1 のファイル（CorpusCmp の外の olean が無い）。そのエラー文の build ディレクトリの名前だけが違う |
+| 燃料切れ | 0 |
+
+→ 入口の guard を足しても、生成物と終了状態は変わらない（燃料切れが起きない corpus では guard は何もしない。測定であって証明ではない）。
+exact-head build（ptv4-27c6d1ea）: `kjob lake build Sparkle.Compiler.MachRecUnfold test` exit 0、3150 jobs（AllTests を含む）。
+
 ## 4. 燃料切れになる条件（挙動が変わりうる入力）
 
 展開の段数が 10000 を超える入力だけ。今の corpus では 1000 を超えるものは無い。そのような入力は、全域化前の compiler では極端に遅いか止まらない（RT_PASS_TOTAL_SURVEY §2）。全域化後は、理由つきのコンパイルエラーで止まる。
 
 ## 5. 残り
 
-- exact-head build と AllTests（ptv2-8a616cbc）。
+- exact-head build と AllTests: ptv2-8a616cbc（8a616cbc）と ptv4-27c6d1ea（27c6d1ea）、どちらも exit 0。
 - 保存の定理 `pass_ph`（NoPh ∧ BvarLt の保存）と `RecRulePhU` の登録は別の単位（sparkle-rt-inline-compose の PassPh を外す）。
 
 ## 6. 燃料切れの経路（変更依頼 rt81）
