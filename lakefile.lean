@@ -5391,3 +5391,9 @@ lean_lib «Tools.ShippingGen5ReaderTraceKDOf» where
 
 lean_lib «Tests.Gen5.ReaderTraceKDOfCheck» where
   roots := #[`Tests.Gen5.ReaderTraceKDOfCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceSameSt» where
+  roots := #[`Tools.ShippingGen5ReaderTraceSameSt]
+
+lean_lib «Tests.Gen5.ReaderTraceSameStCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceSameStCheck]
