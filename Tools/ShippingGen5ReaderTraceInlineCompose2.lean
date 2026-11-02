@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceInlineP1
 import Tools.ShippingGen5ReaderTraceAbbrevS1
 import Tools.ShippingGen5ReaderTraceDirect2
 import Tools.PassPh.Pass
--- NOT BUILT. Integration candidate (conditional): the inline composition with the `PassPh` hypothesis replaced by `pass_ph` (Tools/PassPh/Pass.lean) and its assumptions. Port of Tools/ShippingGen5ReaderTraceInlineCompose.lean to the Except-valued `userInliner` / `userInlinerEWith` (S2); that file does not build on this tree (its `PassPh` and `userInliner.rounds` predate S2) and is left unchanged. No sorry / axiom / native_decide. Hypotheses only: DeclValuePh, RecRulePhU, ReplaceAgrees, Inst1Agrees, HeadBetaAgreesL, BetaNonTargetAgrees, ExprEqvLaws.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceInlineCompose2, exit 0; axioms of shapeInputs_of_entryConst_pp / shapeInputs_of_inline_pp: propext, Classical.choice, Quot.sound) on the tree of 73f53745d7a73de123044e4ff5e85bfbd0ff1893 (Lean content identical; header comment-only). Clean build is the coder's. Integration candidate (conditional): the inline composition with the `PassPh` hypothesis replaced by `pass_ph` (Tools/PassPh/Pass.lean) and its assumptions. Port of Tools/ShippingGen5ReaderTraceInlineCompose.lean to the Except-valued `userInliner` / `userInlinerEWith` (S2); that file does not build on this tree (its `PassPh` and `userInliner.rounds` predate S2) and is left unchanged. No sorry / axiom / native_decide. Hypotheses only: DeclValuePh, RecRulePhU, ReplaceAgrees, Inst1Agrees, HeadBetaAgreesL, BetaNonTargetAgrees, ExprEqvLaws.
 
 namespace Tools.ShippingGen5ReaderTrace
 open Lean Sparkle.Compiler.Elab Tools.ShippingLetsReaderInv Tools.ShippingReaderFuel Tools.Assume.AbbrevExtern Tools.ShippingGen5ReaderTraceAbbrevS1
