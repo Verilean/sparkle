@@ -42,11 +42,11 @@ def ExpGateRecDecl : GateRec → Name
 def ExpGateRecValue : GateRec → Lean.Expr
   | .mixed g => g.value
   | .first f => f.value
-def ExpGateRecIface (ι : Type) : GateRec → ChildIface ι
+noncomputable def ExpGateRecIface (ι : Type) : GateRec → ChildIface ι
   | .mixed g => ⟨g.decl, g.bs, [GateLeaf.outField (.bitVector g.srt.width)], fun _ => gateS g.bs g.e g.bpos g.vpos⟩
   | .first f => ⟨f.decl, Tools.ShippingFirstGateChild.firstBs f.dn f.names f.n, [GateLeaf.outField (.bitVector f.n)],
       fun _ => gateS (Tools.ShippingFirstGateChild.firstBs f.dn f.names f.n) (Tools.ShippingUnifiedSource.ofF f.n f.fe) (fun _ => 0) (fun j => j + 1)⟩
-def ExpGateQ : (ι : Type) → GateTable → IfaceMap ι := fun ι GT => fun c => (GT c).map (GateRec.iface ι)
+noncomputable def ExpGateQ : (ι : Type) → GateTable → IfaceMap ι := fun ι GT => fun c => (GT c).map (GateRec.iface ι)
 def ExpEntryRow : ST.Ref IO.RealWorld Lean.Meta.State → ST.Ref IO.RealWorld Lean.Core.State → GateTable → Prop :=
   fun mref cref GT => ∀ c r, GT c = some r → r.decl = c ∧
     ∀ (mctx : Lean.Meta.Context) (cctx : Lean.Core.Context), EntryDefines mctx mref cctx cref c r.value
@@ -61,11 +61,11 @@ def ExpReflects : ST.Ref IO.RealWorld Lean.Meta.State → ST.Ref IO.RealWorld Le
     GateHeRow GT ∧ GateHbvRow GT ∧ GateWidthRow GT
 
 /-- constructor types (the field lists of the three data types). -/
-def ExpGateDataMk : Prop := ∀ (decl : Name) (value domE : Lean.Expr) (bs : List (Name × MixedGateBinder)) (kb kv : Nat)
+def ExpGateDataMk : Type := ∀ (decl : Name) (value domE : Lean.Expr) (bs : List (Name × MixedGateBinder)) (kb kv : Nat)
   (vw bpos vpos : Nat → Nat) (srt : SType) (e : Term srt), GateData
-def ExpFirstDataMk : Prop := ∀ (decl dn : Name) (names : List Name) (n : Nat) (fe : FExpr), FirstData
-def ExpMixedMk : Prop := ∀ (g : GateData), GateRec
-def ExpFirstMk : Prop := ∀ (f : FirstData), GateRec
+def ExpFirstDataMk : Type := ∀ (decl dn : Name) (names : List Name) (n : Nat) (fe : FExpr), FirstData
+def ExpMixedMk : Type := ∀ (g : GateData), GateRec
+def ExpFirstMk : Type := ∀ (f : FirstData), GateRec
 
 /-! ## 2. Expected theorem statements (over the carrier entities compared above) -/
 def ExpMain : Prop :=
@@ -85,7 +85,7 @@ def ExpQNone : Prop := ∀ {ι : Type} (GT : GateTable) (c : Name) (h : GT c = n
 def ExpRealChildACtx : Prop :=
   ∀ {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cref : ST.Ref IO.RealWorld Lean.Core.State}
     {O : Tools.ShippingChildInvA.RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref} {c : Name} {y : Res}
-    (_h : RealChildA O c y), ∃ (_ : Lean.Meta.Context) (_ : Lean.Core.Context), True
+    (h : RealChildA O c y), ∃ (_ : Lean.Meta.Context) (_ : Lean.Core.Context), True
 
 /-- the gate-leaf output type lemma that the main theorem consumes (re-stated, as in U-GC0). -/
 def ExpOutTy : Prop :=
@@ -191,16 +191,16 @@ def checkVocab (thm : Name) (expected : List Name) : MetaM Unit := do
 run_cmd Lean.Elab.Command.liftTermElabM do
   let mainSet := [``GateTable, ``GateRec, ``GateReflects, ``ShipsResI, ``RealChildA, ``Laws, ``gateQ]
   checkVocab ``gateReflects_shipsResI mainSet
-  checkVocab ``gateReflects_empty [``GateReflects]
-  checkVocab ``gateQ_none [``GateTable, ``gateQ]
-  checkVocab ``GateReflects [``GateEntryRow, ``GateFirstDataRow, ``GateOldRow, ``GatePeelRow, ``GateHeRow, ``GateHbvRow, ``GateWidthRow]
-  checkVocab ``GateEntryRow [``GateRec.decl, ``GateRec.value, ``EntryDefines]
-  checkVocab ``GateOldRow [``GateRec.mixed, ``GateData.Old]
-  checkVocab ``GatePeelRow [``GateRec.mixed, ``GateData.Peel]
-  checkVocab ``GateHeRow [``GateRec.mixed, ``GateData.He]
-  checkVocab ``GateHbvRow [``GateRec.mixed, ``GateData.Hb, ``GateData.Hv]
-  checkVocab ``GateFirstDataRow [``GateRec.first]
-  checkVocab ``GateWidthRow [``GateRec.mixed]
+  checkVocab ``gateReflects_empty [``GateReflects, ``GateRec]
+  checkVocab ``gateQ_none [``GateTable, ``GateRec, ``gateQ]
+  checkVocab ``GateReflects [``GateTable, ``GateEntryRow, ``GateFirstDataRow, ``GateOldRow, ``GatePeelRow, ``GateHeRow, ``GateHbvRow, ``GateWidthRow]
+  checkVocab ``GateEntryRow [``GateTable, ``GateRec, ``GateRec.decl, ``GateRec.value, ``EntryDefines]
+  checkVocab ``GateOldRow [``GateTable, ``GateRec, ``GateData, ``GateRec.mixed, ``GateData.Old]
+  checkVocab ``GatePeelRow [``GateTable, ``GateRec, ``GateData, ``GateRec.mixed, ``GateData.Peel]
+  checkVocab ``GateHeRow [``GateTable, ``GateRec, ``GateData, ``GateRec.mixed, ``GateData.He]
+  checkVocab ``GateHbvRow [``GateTable, ``GateRec, ``GateData, ``GateRec.mixed, ``GateData.Hb, ``GateData.Hv]
+  checkVocab ``GateFirstDataRow [``GateTable, ``GateRec, ``FirstData, ``GateRec.first]
+  checkVocab ``GateWidthRow [``GateTable, ``GateRec, ``GateData, ``GateRec.mixed]
   -- decoy: the same statement shape over the decoy constants must be rejected against the real set
   let rejected ← try
       checkVocab ``Decoy.gateReflects_shipsResI mainSet
@@ -220,15 +220,20 @@ structure ReachRes where
   seen : NameSet := {}
   opaques : Array Name := #[]
   axioms : Array Name := #[]
+  /-- `.proj S i _` whose projection function `S.f` is not a constant (e.g. `Lean.Environment.base`): the structure `S` is
+  followed, the missing function is LISTED here and in the log (never silently dropped). -/
+  projMissing : Array Name := #[]
 
-partial def projRefs (env : Environment) (e : Expr) : StateM (Std.HashSet Expr × Array Name) Unit := do
+partial def projRefs (env : Environment) (e : Expr) : StateM (Std.HashSet Expr × Array Name × Array Name) Unit := do
   if (← get).1.contains e then return
-  modify fun (v, r) => (v.insert e, r)
+  modify fun (v, r, m) => (v.insert e, r, m)
   match e with
   | .proj s i b =>
+    modify fun (v, r, m) => (v, r.push s, m)
     if isStructure env s then
       if let some f := (getStructureFields env s)[i]? then
-        modify fun (v, r) => (v, r.push (s ++ f))
+        if env.contains (s ++ f) then modify fun (v, r, m) => (v, r.push (s ++ f), m)
+        else modify fun (v, r, m) => (v, r, m.push (s ++ f))
     projRefs env b
   | .app f a => projRefs env f; projRefs env a
   | .lam _ t b _ => projRefs env t; projRefs env b
@@ -237,8 +242,9 @@ partial def projRefs (env : Environment) (e : Expr) : StateM (Std.HashSet Expr �
   | .mdata _ b => projRefs env b
   | _ => pure ()
 
-def refsOfExpr (env : Environment) (e : Expr) : List Name :=
-  e.getUsedConstants.toList ++ ((projRefs env e).run ({}, #[])).2.2.toList
+def refsOfExpr (env : Environment) (e : Expr) : List Name × List Name :=
+  let st := ((projRefs env e).run ({}, #[], #[])).2
+  (e.getUsedConstants.toList ++ st.2.1.toList, st.2.2.toList)
 
 partial def reachGo (todo : List Name) (r : ReachRes) : MetaM ReachRes := do
   match todo with
@@ -254,7 +260,9 @@ partial def reachGo (todo : List Name) (r : ReachRes) : MetaM ReachRes := do
       | .opaqueInfo _ => ([], { r with opaques := r.opaques.push n })
       | .axiomInfo _ => ([], { r with axioms := r.axioms.push n })
       | _ => ([], r)
-    reachGo ((ci.type :: bodies).foldl (fun acc e => refsOfExpr env e ++ acc) [] ++ rest) r
+    let (refs, miss) := (ci.type :: bodies).foldl
+      (fun (acc : List Name × List Name) e => let (a, m) := refsOfExpr env e; (a ++ acc.1, m ++ acc.2)) ([], [])
+    reachGo (refs ++ rest) { r with projMissing := r.projMissing ++ miss.toArray }
 
 def forbiddenLaw : List Name := [``Laws.T, ``T1Hyp, `Tools.ShippingGen2.T1HypND, ``Tools.ShippingChildInvA.RefLawsATele]
 
@@ -284,7 +292,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for n in roots do
     let (hit, r) ← reachesForbidden n
     if let some f := hit then throwError "U-GC1 CLOSURE FAILED {n}: reaches {f}"
-    logInfo m!"U-GC1 CLOSURE {n}: {r.seen.size} constants, none of Laws.T/T1Hyp/T1HypND/RefLawsATele; opaque boundaries NOT traversed: {r.opaques}; axioms reached: {r.axioms}"
+    logInfo m!"U-GC1 CLOSURE {n}: {r.seen.size} constants, none of Laws.T/T1Hyp/T1HypND/RefLawsATele; opaque boundaries NOT traversed: {r.opaques}; axioms reached: {r.axioms}; projection functions not constants (structure followed, listed): {r.projMissing.toList.eraseDups}"
   logInfo s!"U-GC1 CLOSURE COUNTS: roots {roots.length}, controls 2 negatives + 1 positive + 1 unknown-name"
 
 /-! ## 6. Axioms -/
