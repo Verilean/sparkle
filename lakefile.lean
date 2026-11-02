@@ -5385,3 +5385,9 @@ lean_lib «Tools.ShippingGen5ReaderTraceU2Compose» where
 
 lean_lib «Tests.Gen5.ReaderTraceU2Check» where
   roots := #[`Tests.Gen5.ReaderTraceU2Check]
+
+lean_lib «Tools.ShippingGen5ReaderTraceKDOf» where
+  roots := #[`Tools.ShippingGen5ReaderTraceKDOf]
+
+lean_lib «Tests.Gen5.ReaderTraceKDOfCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceKDOfCheck]
