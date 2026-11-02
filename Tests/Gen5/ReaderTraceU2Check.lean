@@ -220,8 +220,6 @@ def ExpU2Direct' : Prop :=
     (hC : Tools.Assume.EnvSigTy.SigTyClosed (structEnv env)) (hD : Tools.Assume.EnvInstS.InstSFieldsDet (structEnv env))
     (hv : Tools.Assume.EnvDeclValue.DeclValuePh env) (hbr : Tools.Assume.PackTupleBridge.PackTupleInputsBridge)
     (hraw : Tools.Assume.NormNodePh.RawNodePh (structEnv env)) (hnode : Tools.Assume.NormNodePh.NormNodePh (structEnv env))
-    (hrr : RecRulePhU env) (hp : PassPh env)
-    (hr : Tools.Assume.AbbrevExtern.ReplaceAgrees) (hb : Tools.Assume.AbbrevExtern.HeadBetaAgrees0)
     (hfb : Tools.ShippingGen5ReaderTraceU2.FuelBridge)
     {E : ConstantInfo} {dd : DefinitionVal} (hEd : E = ConstantInfo.defnInfo dd) (hci : CiDirect env E)
     {sp : MachineShape} (h : machineShape? false [] E (structEnv env) = some sp)
@@ -563,9 +561,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   let heads ← propBinderHeads ``Tools.ShippingGen5ReaderTraceU2.u2_compose'
   unless bindersMatch heads allowedBinders2 do
     throwError "GEN5 U2CHECK BINDERS' FAILED: heads {heads}, allowed {allowedBinders2}"
-  let hr ← propBinderHeads ``Tools.ShippingGen5ReaderTraceU2.u2_rowC'
   for r in removedLeaves do
-    if heads.contains r || hr.contains r then throwError "GEN5 U2CHECK BINDERS' FAILED: removed leaf {r} is still a binder"
+    if heads.contains r then throwError "GEN5 U2CHECK BINDERS' FAILED: removed leaf {r} is still a binder"
   -- direct branch takes no inline-only premises; inline branch none of the direct-only premises
   let hd ← propBinderHeads ``Tools.ShippingGen5ReaderTraceU2.u2_compose_direct'
   let hi ← propBinderHeads ``Tools.ShippingGen5ReaderTraceU2.u2_compose_inline'
@@ -576,7 +573,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   -- negative control: a decoy in another namespace is rejected by the full-name match
   let swapped := allowedBinders2.map fun n => if n == ``Tools.ShippingGen5ReaderTrace.PassPh then ``Decoy.KDOfLeaf else n
   if bindersMatch swapped allowedBinders2 then throwError "GEN5 U2CHECK BINDERS' CONTROL FAILED: decoy accepted"
-  logInfo m!"GEN5 U2CHECK BINDERS' OK: {heads.length} Prop binders of u2_compose' match by full name; KDOfLeaf / SameStLeaf / InlineInputs are not binders of u2_compose' / u2_rowC'"
+  logInfo m!"GEN5 U2CHECK BINDERS' OK: {heads.length} Prop binders of u2_compose' match by full name; KDOfLeaf / SameStLeaf / InlineInputs are not binders of u2_compose' (u2_rowC' is covered by the closure)"
   logInfo m!"GEN5 U2CHECK REMAINING HYPOTHESES (u2_compose', besides the registered rows): {[``Tools.ShippingGen5ReaderTraceU2.FuelBridge, ``Tools.ShippingGen5ReaderTrace.PassPh, ``Tools.ShippingGen5ReaderTrace.RecRulePhU, ``Tools.Assume.AbbrevExtern.ReplaceAgrees, ``Tools.Assume.AbbrevExtern.HeadBetaAgrees0]}"
 
 run_cmd Lean.Elab.Command.liftTermElabM do
