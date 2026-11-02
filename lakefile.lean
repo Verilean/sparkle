@@ -5083,3 +5083,6 @@ lean_lib «Tools.Assume.ExprEqvGL» where
 
 lean_lib «Tools.PassPh.Memo» where
   roots := #[`Tools.PassPh.Memo]
+
+lean_lib «Tests.Gen5.PassPhCheck» where
+  roots := #[`Tests.Gen5.PassPhCheck]
