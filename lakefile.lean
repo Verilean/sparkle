@@ -4963,3 +4963,45 @@ lean_lib «Tools.ShippingGenFGLedgerPremises» where
 
 lean_lib «Tests.Gen5.FGLedgerPremisesCheck» where
   roots := #[`Tests.Gen5.FGLedgerPremisesCheck]
+
+lean_lib «Tools.ShippingGen5NameKids» where
+  roots := #[`Tools.ShippingGen5NameKids]
+
+lean_lib «Tests.Gen5.NameKidsCheck» where
+  roots := #[`Tests.Gen5.NameKidsCheck]
+
+lean_lib «Tools.ShippingGen5NameKids2» where
+  roots := #[`Tools.ShippingGen5NameKids2]
+
+lean_lib «Tests.Gen5.NameKids2Check» where
+  roots := #[`Tests.Gen5.NameKids2Check]
+
+lean_lib «Tools.ShippingGen5NameKids3» where
+  roots := #[`Tools.ShippingGen5NameKids3]
+
+lean_lib «Tests.Gen5.NameKids3Check» where
+  roots := #[`Tests.Gen5.NameKids3Check]
+
+lean_lib «Tools.ShippingGen5NameKids4» where
+  roots := #[`Tools.ShippingGen5NameKids4]
+
+lean_lib «Tests.Gen5.NameKids4Check» where
+  roots := #[`Tests.Gen5.NameKids4Check]
+
+lean_lib «Tools.ShippingGen5NameKids5» where
+  roots := #[`Tools.ShippingGen5NameKids5]
+
+lean_lib «Tests.Gen5.NameKids5Check» where
+  roots := #[`Tests.Gen5.NameKids5Check]
+
+lean_lib «Tools.ShippingGen5NameKids6» where
+  roots := #[`Tools.ShippingGen5NameKids6]
+
+lean_lib «Tests.Gen5.NameKids6Check» where
+  roots := #[`Tests.Gen5.NameKids6Check]
+
+lean_lib «Tools.ShippingGen5NameKids7» where
+  roots := #[`Tools.ShippingGen5NameKids7]
+
+lean_lib «Tests.Gen5.NameKids7Check» where
+  roots := #[`Tests.Gen5.NameKids7Check]
