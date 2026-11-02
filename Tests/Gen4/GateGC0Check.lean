@@ -217,10 +217,9 @@ def vocab : List Name :=
    ``FirstLeaf.ifaceOf, ``RealChildA, ``ChildShips, ``ShipsRes, ``ChildPortWidths,
    ``Decoy.ChildShipsI, ``Decoy.ShipsResI, ``Decoy.InstClosed]
 
-/-- The vocabulary constants (fully qualified) in the type of `thm` must be exactly `expected`. -/
+/-- The vocabulary constants (fully qualified) in the statement of `thm` (type of a theorem, value of a definition) must be exactly `expected`. -/
 def checkVocab (thm : Name) (expected : List Name) : MetaM Unit := do
-  let ci ← getConstInfo thm
-  let used := ci.type.getUsedConstants.toList.filter vocab.contains
+  let used := (← stmtOf thm).getUsedConstants.toList.filter vocab.contains
   let ok := used.all expected.contains && expected.all used.contains
   unless ok do throwError "U-GC0 BINDER SET FAILED {thm}: vocabulary {used}, expected {expected}"
   logInfo m!"U-GC0 BINDER SET OK {thm}: {used}"
