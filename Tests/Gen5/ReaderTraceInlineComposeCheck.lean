@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceInlineCompose
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- NOT BUILT (rt126): rewritten for the pass_ph version of the module (PassPh hypothesis gone). Clean build is the coder's. If a `sorry` returns to the source, the AXIOMS check fails with sorryAx.
+-- Built in Pod (same kjob lake build, exit 0) on the tree of 96819c6edd9dba41eefb44431c881bf3a95b035d (Lean content identical; header comment-only). Clean build is the coder's. rewritten for the pass_ph version of the module (PassPh hypothesis gone). Clean build is the coder's. If a `sorry` returns to the source, the AXIOMS check fails with sorryAx.
 
 /-! # RT inline compose checks
 

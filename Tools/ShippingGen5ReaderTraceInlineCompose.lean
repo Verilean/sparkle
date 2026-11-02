@@ -2,7 +2,7 @@ import Tools.ShippingGen5ReaderTraceInlineP1
 import Tools.ShippingGen5ReaderTraceAbbrevS1
 import Tools.ShippingGen5ReaderTraceDirect2
 import Tools.PassPh.Pass
--- NOT BUILT (rt126): content of InlineCompose2 (rt124, built ok at 73f53745) moved to this module name so downstream imports are unchanged; `PassPh` hypothesis replaced by `pass_ph` (Tools/PassPh/Pass.lean). Old-name aliases at the end. No sorry / axiom / native_decide. Hypotheses only: DeclValuePh, RecRulePhU (Tools.PassPh), ReplaceAgrees, Inst1Agrees, HeadBetaAgreesL, BetaNonTargetAgrees, ExprEqvLaws. Clean build is the coder's.
+-- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceInlineCompose Tests.Gen5.ReaderTraceInlineComposeCheck Tools.PassPh.Pass Tests.Gen5.PassPhCheck, exit 0) on the tree of 96819c6edd9dba41eefb44431c881bf3a95b035d (Lean content identical; header comment-only). Clean build is the coder's. Content: content of InlineCompose2 (rt124, built ok at 73f53745) moved to this module name so downstream imports are unchanged; `PassPh` hypothesis replaced by `pass_ph` (Tools/PassPh/Pass.lean). Old-name aliases at the end. No sorry / axiom / native_decide. Hypotheses only: DeclValuePh, RecRulePhU (Tools.PassPh), ReplaceAgrees, Inst1Agrees, HeadBetaAgreesL, BetaNonTargetAgrees, ExprEqvLaws. Clean build is the coder's.
 
 namespace Tools.ShippingGen5ReaderTrace
 open Lean Sparkle.Compiler.Elab Tools.ShippingLetsReaderInv Tools.ShippingReaderFuel Tools.Assume.AbbrevExtern Tools.ShippingGen5ReaderTraceAbbrevS1
