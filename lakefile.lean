@@ -5332,6 +5332,15 @@ lean_lib «Tools.PartialTotal.Agree» where
 lean_lib «Tests.Gen3.PartialTotalCheck» where
   roots := #[`Tests.Gen3.PartialTotalCheck]
 
+lean_lib «Tools.Assume.EnvDeclValue» where
+  roots := #[`Tools.Assume.EnvDeclValue]
+
+lean_lib «Tools.Assume.PackTupleBridge» where
+  roots := #[`Tools.Assume.PackTupleBridge]
+
+lean_lib «Tools.Assume.NormNodePh» where
+  roots := #[`Tools.Assume.NormNodePh]
+
 lean_lib «Tools.ShippingGen5ReaderTraceDirect» where
   roots := #[`Tools.ShippingGen5ReaderTraceDirect]
 
@@ -5373,3 +5382,6 @@ lean_lib «Tests.Gen5.ReaderTraceAbbrevS1Check» where
 
 lean_lib «Tools.ShippingGen5ReaderTraceU2Compose» where
   roots := #[`Tools.ShippingGen5ReaderTraceU2Compose]
+
+lean_lib «Tests.Gen5.ReaderTraceU2Check» where
+  roots := #[`Tests.Gen5.ReaderTraceU2Check]

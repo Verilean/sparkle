@@ -1,3 +1,6 @@
+import Tools.Assume.EnvDeclValue
+import Tools.Assume.PackTupleBridge
+import Tools.Assume.NormNodePh
 import Tools.ShippingGen5ReaderTraceDirect2
 import Tools.ShippingGen5ReaderTraceDispatch
 import Tools.ShippingGen5GDCover1
@@ -11,7 +14,7 @@ Composes, for BOTH entry branches (`entryConst` returns the original `ci0` or `i
 `readF_traceGood_of_premises` (U1) + `ShapeInputs'` (direct: `shapeInputs_of_direct'`; inline: hypothesis `InlineInputs env`, supplied by `sparkle-rt-inline-compose`)
 + `machineShapeF_reach'` + the two leaf identifications `KDOfLeaf` (`sparkle-rt-kdof`) and `SameStLeaf` (`sparkle-rt-samest`),
 into the consumer facts `FullInv (kDOf d) st` and `LetsNoLoose st` of `rowC_of_reader_canon`.
-N1-a / N2-b / N3-b are theorem hypotheses here (they are defined in `Tools/ShippingGen5ReaderTraceDirect.lean`; registration in `Tools/Assume/` follows the freeze approval).
+N1-a / N2-b / N3-b are theorem hypotheses here, registered in `Tools/Assume/{EnvDeclValue,PackTupleBridge,NormNodePh}.lean` (moved verbatim from `Direct.lean`).
 Conditional (intermediate) result: no hypothesis is shown to hold for accepted sources. -/
 
 namespace Tools.ShippingGen5ReaderTraceU2

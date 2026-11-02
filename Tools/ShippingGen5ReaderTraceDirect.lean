@@ -1,60 +1,19 @@
 import Tools.ShippingGen5ReaderTraceShapeIn
 import Tools.PartialTotal.Agree
 import Tools.Prototype.NormRangeLetOk
+import Tools.Assume.EnvDeclValue
+import Tools.Assume.PackTupleBridge
+import Tools.Assume.NormNodePh
 set_option autoImplicit false
 -- Built in Pod (kjob lake build Tools.ShippingGen5ReaderTraceDirect, exit 0) on the tree of 8c4f49c965944dc41e9437ac46bdd058de3706b5 (Lean content identical; this header is comment-only). Clean build is the coder's. No sorry / axiom / native_decide in source.
 
 /-! # DG-READERTRACE: `shapeInputs_of_direct` (freeze rev19 `scripts/gen5/DG_READERTRACE_FREEZE_REV19.md` §2-§3)
 
 The conditions N1-a (`DeclValuePh`), N2-b (`PackTupleInputsBridge`, twin `lamDepth` / `packTupleInputsF`), N3-b (`RawNodePh` / `NormNodePh`)
-and `CiDirect` are defined here exactly as in rev19 §2 and are theorem hypotheses only: they are NOT registered in `Tools/Assume/` and not
-claimed true for accepted sources (a later freeze decides registration). `RootFloatAgrees` is obtained from `rootFloatAgrees` (par/ptot-m4)
+and `CiDirect` follow rev19 §2 and are theorem hypotheses only. The first three groups are now defined in `Tools/Assume/` (moved verbatim,
+`scripts/gen5/RT_U2_FREEZE.md` §1.3); none is claimed true for accepted sources. `RootFloatAgrees` is obtained from `rootFloatAgrees` (par/ptot-m4)
 and `LiftAgrees`. Proved here: `packTupleInputsF_ph` (from `LiftAgrees`, `Inst1Agrees`), `machNormF_ph` (from `Inst1Agrees`, `RawNodePh`,
 `NormNodePh`), `shapeInputs_of_direct`. Conditional (intermediate) result: no hypothesis is shown to hold for accepted sources. -/
-
-namespace Tools.Assume.EnvDeclValue
-open Lean Tools.ShippingGen5ReaderTrace
-def DeclValuePh (env : Lean.Environment) : Prop :=
-  ∀ (n : Lean.Name) (d : Lean.DefinitionVal),
-    env.find? n = some (.defnInfo d) → NoPh d.value = true ∧ BvarLt 0 d.value = true
-end Tools.Assume.EnvDeclValue
-
-namespace Tools.ShippingGen5ReaderTracePack
-open Lean Sparkle.Compiler.MachTupleIn Tools.ShippingGen5ReaderTrace
-def lamDepth : Lean.Expr → Nat
-  | .lam _ _ b _ => lamDepth b + 1
-  | _ => 0
-def packTupleInputsF : Nat → Lean.Expr → Lean.Expr
-  | k + 1, .lam nm ty b bi =>
-    match tupleInput? ty with
-    | some (dom, ws) =>
-      let n := ws.foldl (· + ·) 0
-      let ty' := mkApp2 (.const ``Sparkle.Core.Signal.Signal [.zero]) dom (mkApp (.const ``BitVec []) (natE n))
-      let b' := (b.liftLooseBVars 1 1).instantiate1 (unpackE (dom.liftLooseBVars 0 1) ws (.bvar 0))
-      .lam nm ty' (packTupleInputsF k b') bi
-    | none => .lam nm ty (packTupleInputsF k b) bi
-  | _, e => e
-end Tools.ShippingGen5ReaderTracePack
-
-namespace Tools.Assume.PackTupleBridge
-open Lean Tools.ShippingGen5ReaderTrace
-def PackTupleInputsBridge : Prop :=
-  ∀ e : Lean.Expr, NoPh e = true → BvarLt 0 e = true →
-    Sparkle.Compiler.MachTupleIn.packTupleInputs e = Tools.ShippingGen5ReaderTracePack.packTupleInputsF (Tools.ShippingGen5ReaderTracePack.lamDepth e) e
-end Tools.Assume.PackTupleBridge
-
-namespace Tools.Assume.NormNodePh
-open Lean Sparkle.Compiler.Elab Tools.ShippingGen5ReaderTrace
-def RawNodePh (senv : StructEnv) : Prop :=
-  ∀ (L : Nat) (f a e' : Lean.Expr),
-    NoPh f = true → NoPh a = true → BvarLt L f = true → BvarLt L a = true →
-    Sparkle.Compiler.MachRawSurface.rawNode senv.prodMatch (.app f a) = some e' →
-    NoPh e' = true ∧ BvarLt L e' = true
-def NormNodePh (senv : StructEnv) : Prop :=
-  ∀ (L : Nat) (f a : Lean.Expr),
-    NoPh f = true → NoPh a = true → BvarLt L f = true → BvarLt L a = true →
-    NoPh (machNormNode senv (.app f a)) = true ∧ BvarLt L (machNormNode senv (.app f a)) = true
-end Tools.Assume.NormNodePh
 
 namespace Tools.ShippingGen5ReaderTrace
 open Lean Sparkle.Compiler.Elab Tools.ShippingLetsReaderInv Tools.ShippingReaderFuel
