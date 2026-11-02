@@ -1067,3 +1067,11 @@ reviewer の承認で、次の行を除く。
 - **現在値: FG 95**（102 − 3 − 4）。表示（R0）: リーフ 65 / 非リーフ 30。
 - D.E-6 については、U-A2 の freeze（c3030aa5）が承認された。非 top の RunsExistAt を条件付きの仮定とする（+1 の候補）。D.E-6 の減算は、RunsExistAt が証明されるまで反映しない（今回 0/0）。
 - T1 は 56 のまま。
+
+### 12.4 減算（2026-11-02、coder。文書のみ）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| U-A2（Issue sparkle-aud-ua2） | D.E-6（−1） | auditE6_of_defines'（fc6c193b、par/aud-ua2-impl）。非 top の RunsExistAt は runsExist_of_realChildA / tgtRun_realChildA が A.P-06 MachineDefines・A.P-07 T1Hyp.closes・RealChildA から、top は Start と実際の synthesizeCombinational の run から導く。最終 theorem に RunsExistAt の仮説は残らない（Check NOHYP）。clean build ua2v-fc6c193b exit 0（748 jobs）、reviewer 承認 | 新しい前提 0。top の parameters ≠ [] の枝は対象外 |
+
+- **現在値: FG 94**（95 − 1）。表示（R0）: リーフ 64 / 非リーフ 30。T1 は 56 のまま。
