@@ -174,6 +174,8 @@ theorem core_reads_link4A (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quie
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
     have hw := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableA_JQC O (0 + 1))
       FramedA.env)) hw henv
+    rcases RunsTo.ite h with h | h
+    · exact (throwError_not_runs _ h).elim
     exact ⟨prof.isSome, env, ci, _, w2, _, _, hget, henv, h, hw, _, _, _, _, _, _, _, hfin, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, fun h0 => absurd rfl h0⟩
   · -- nested: the cache half is inherited
     replace hw : JQC O D w := ⟨hw, hc.resolve_left h0⟩
@@ -214,6 +216,8 @@ theorem core_reads_link4A (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quie
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
     have hw := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableA_JQC O (d + 1))
       FramedA.env)) hw henv
+    rcases RunsTo.ite h with h | h
+    · exact (throwError_not_runs _ h).elim
     exact ⟨prof.isSome, env, ci, _, w2, _, _, hget, henv, h, hw, _, _, _, _, _, _, _, hfin, fun h0' => absurd h0' h0,
       fun _ => ⟨prof, wa, wb, wc, x1, x2, x3, x4, x5, x6, x7, rfl, s1, s2, s3, g1,
         runsTo_get_readOf _ g1, g2, runsTo_get_readOf _ g2, g3, runsTo_get_readOf _ g3, g4,
