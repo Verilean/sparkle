@@ -4963,3 +4963,18 @@ lean_lib «Tools.ShippingGenFGLedgerPremises» where
 
 lean_lib «Tests.Gen5.FGLedgerPremisesCheck» where
   roots := #[`Tests.Gen5.FGLedgerPremisesCheck]
+
+lean_lib «Tools.ShippingGen4IfaceR» where
+  roots := #[`Tools.ShippingGen4IfaceR]
+
+lean_lib «Tools.ShippingGen4GateLeafR» where
+  roots := #[`Tools.ShippingGen4GateLeafR]
+
+lean_lib «Tools.ShippingGen4GateIfaceR» where
+  roots := #[`Tools.ShippingGen4GateIfaceR]
+
+lean_lib «Tools.ShippingGen4GateOutTyR» where
+  roots := #[`Tools.ShippingGen4GateOutTyR]
+
+lean_lib «Tools.ShippingGen4FirstLeafR» where
+  roots := #[`Tools.ShippingGen4FirstLeafR]
