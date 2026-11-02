@@ -1,7 +1,7 @@
 import Tools.ShippingGen3HrowGateServed
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT yet (written with the commit that introduces it). No `sorry`, no `axiom`, no `native_decide`.
+-- Built: cached target build at 76c9d2ae (kjob lake build in the rt77 Pod; NOT a clean build, the coder runs it), exit 0, standard axioms. No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # G-HROW-GATE checks (scripts/gen3/HROW_GATE_DECISION.md, user decision G)
 

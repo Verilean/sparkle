@@ -4,8 +4,7 @@ set_option autoImplicit false
 
 /-! # G-HROW-GATE, L2: a shape `machineShape?` returns satisfies `noMemRowS` (scripts/gen3/HROW_GATE_DECISION.md, user decision G)
 
-NOT BUILT yet (written at the commit that introduces this file; the build SHA goes in the header by a later
-comment-only commit).
+Built: cached target build at 76c9d2ae (kjob lake build in the rt77 Pod; NOT a clean build, the coder runs it), exit 0, standard axioms.
 
 `Sparkle/Compiler/Elab.lean` `machineShape?` ends with a final gate (before `unifiedGateRoot`):
 

@@ -6,7 +6,7 @@ set_option autoImplicit false
 
 /-! # G-HROW-GATE consumers: `servedShips0_proved` / `postFacts_proved` / `t1_of_stepPF_served` per run
 
-NOT BUILT yet (written at the commit that introduces this file).
+Built: cached target build at 76c9d2ae (kjob lake build in the rt77 Pod; NOT a clean build, the coder runs it), exit 0, standard axioms.
 
 The existing theorems (`Tools/ShippingGen2Served.lean`, `Tools/ShippingGen2PostFactsProof.lean`) stay unchanged. Here:
 
