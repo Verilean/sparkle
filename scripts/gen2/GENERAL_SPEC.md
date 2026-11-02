@@ -101,6 +101,11 @@ FG : ∀ (L : Laws mref cref) declName (parameters : List (String × Nat)) mctx 
 - The machine-route parts are exact text now (§1.3).
 - **Success only.** Failed runs, the depth limit (`sparkleSynthDepthLimit = 1024`, Elab.lean:970, :5465) and
   exceptions are outside FG. They produce no design.
+- **Scope limitation (B4, user decision 2026-11-03).** The premise D.E-4 B4 (`hdisjD`) is false for a declaration
+  where two calls of different callees (or memKeys) bring child designs that share a module name (a shared
+  descendant), or where one child's design holds the other child's module name. FG holds only vacuously for
+  designs containing such a declaration. The statement is unchanged. See `scripts/gen2/PREMISE_LEDGER.md` §12.5 and
+  `scripts/gen5/AUD_B4_MEASURE.md` (corpus at 11ba0bd8: 1 of 29 hierarchical Verilog outputs, a probe test).
 
 ### 1.2 Runtime laws vs. start conditions (G5)
 - **`Laws mref cref`** (GEN2_DEFS §2) is the uniform G5 law, the same for every declaration:

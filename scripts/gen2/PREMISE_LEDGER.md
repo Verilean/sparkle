@@ -1075,3 +1075,11 @@ reviewer の承認で、次の行を除く。
 | U-A2（Issue sparkle-aud-ua2） | D.E-6（−1） | auditE6_of_defines'（fc6c193b、par/aud-ua2-impl）。非 top の RunsExistAt は runsExist_of_realChildA / tgtRun_realChildA が A.P-06 MachineDefines・A.P-07 T1Hyp.closes・RealChildA から、top は Start と実際の synthesizeCombinational の run から導く。最終 theorem に RunsExistAt の仮説は残らない（Check NOHYP）。clean build ua2v-fc6c193b exit 0（748 jobs）、reviewer 承認 | 新しい前提 0。top の parameters ≠ [] の枝は対象外 |
 
 - **現在値: FG 94**（95 − 1）。表示（R0）: リーフ 64 / 非リーフ 30。T1 は 56 のまま。
+
+### 12.5 B4 の範囲の明記（2026-11-03、coder。文書のみ。数は変えない）
+
+- ユーザー判断（2026-11-03「3で」、`scripts/gen5/AUD_B4_DECISION.md` 案 (3)、Issue sparkle-aud-ua4）。D.E-4 の B4（`hdisjD`）は文を変えずに残す。
+- **範囲の限定**: 異なる callee（または memKey）の 2 つの呼び出しの子の design が、同じ名前の module を持つ場合（共有する子孫）、または一方が他方の子の module 名を含む場合は、B4 が偽になる。そのような宣言を含む設計については、FG は空虚にしか成り立たない（何も保証しない）。根拠: `scripts/gen5/AUD_UA4_STUDY.md` §3（scratch `b4_refuted`）、`docs/parallel/A-shared-descendant.md` §0。
+- **測定**（`scripts/gen5/AUD_B4_MEASURE.md`、`11ba0bd8` の corpus 479 ファイル）: Verilog を出す 123 本のうち階層がある 29 本で、共有する子孫があるのは 1 本（probe の `Tests/Compiler/SubInstanceKeyTest.lean`）。IP の設計は 0 本。Verilog を出さない fixture（既知の例 `mixDeep`）は数えていない。
+- 保証を広げる道（案 (2)、`CacheAgrees` 型への置き換え）は、共有する設計が増えたときに再検討する。
+- **現在値: FG 94**（変化なし）。T1 54。
