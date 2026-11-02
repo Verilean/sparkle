@@ -64,9 +64,12 @@ unfolding steps along one path, not the size of the expression.  Running out is
 a compile error, never a silent cut: the message names the definition and the
 limit (the caller adds the declaration). -/
 
-/-- The single provisional fuel limit shared by the four limits below (one constant to switch;
-the threshold measurement `scripts/shipping-coverage/rt_fuel_threshold.sh` rewrites this line). -/
-def fuelLimit : Nat := 100
+/-- The fuel limit shared by the four limits below. Chosen from measurement (user decision A,
+2026-11-02, "decide by checking the real IP"): at 100, `IP/YOLOv8/Blocks/ConvBnSiLU` runs out of fuel;
+at 1000, every corpus module (IP 43 files, Tests/Examples) elaborates with no fuel exhaustion, and the
+Tests/Examples failures are the same as with the pre-total compiler. 10000 keeps a 10x margin.
+The value does not enter any proof. -/
+def fuelLimit : Nat := 10000
 
 /-- Limit of `headBetaM`: head β-steps in one call. -/
 def headBetaLimit : Nat := fuelLimit
