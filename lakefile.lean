@@ -4981,3 +4981,9 @@ lean_lib «Tools.ShippingGen4FirstLeafR» where
 
 lean_lib «Tests.Gen4.GateGC0Check» where
   roots := #[`Tests.Gen4.GateGC0Check]
+
+lean_lib «Tools.ShippingGen4GateCarrier» where
+  roots := #[`Tools.ShippingGen4GateCarrier]
+
+lean_lib «Tests.Gen4.GateCarrierCheck» where
+  roots := #[`Tests.Gen4.GateCarrierCheck]
