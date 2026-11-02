@@ -92,9 +92,168 @@ calls 枝で `hno` が要る形（UA7 §4 `e12_calls` の `hsep`）:
 
 ## 4. scratch での elaborate（`set_option autoImplicit false`、`kjob lake env lean`）
 
-ソースツリーには入れていない（scratchpad）。結果は §6 の末尾に追記する。
+ソースツリーには入れていない（scratchpad）。
 
-SCRATCH_RESULT_PLACEHOLDER
+scratch は 2 ファイル（import: Tools.ShippingTransitionClosed, ShippingSeqChildIface, ShippingDesignWithG, ShippingMachineEntry, ShippingSrm3Callee, ShippingGen5NameKids3, ShippingGen2Pkg, ShippingGen5ClosingRun / 別ファイルは ShippingDesignWriterRun）。`sorry` なし。`#print axioms` は 4 定理とも `[propext, Classical.choice, Quot.sound]`。
+ClosingRun の olean は `kjob lake build Tools.ShippingGen5ClosingRun` を先に回して（exit 0、約 9 分）同じ build dir で `lake env lean` した。
+
+- `e12_data`: `d.ok`・`hbody` だけから、`synthesizeMixedCertified` の戻り `(t, d₀)` の `t.name = ofDecl declName` と `d₀ = Design.empty (ofDecl declName)`（§3）。
+- `hsep_of_ifaces`: §1 の分解（メモリ子 + 実子の `ChildIfaceP` + `callee ≠ declName` + `ofDecl declName ∉ nms`）から calls 枝の `hsep'`。(b) は仮定 `∉ nms` のまま。
+- `e12_closingRun`: ClosingRun から `AuditE12` の結論。葉枝は無条件、calls 枝は `hsep'` を仮定。
+- `full_modules_length`, `hno_of_full_empty`: §2 の gate 葉の `hno`。
+
+```lean
+/-- item 3: the transition_closed data premises from `d.ok` and `hbody` alone (as in seqChild_ifaceA) -/
+theorem e12_data {tenv : Lean.Environment} {logProf : String → IO Unit} {declName : Name}
+    (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {t : Sparkle.IR.AST.Module} {d₀ : Design}
+    (run : MReturns (synthesizeMixedCertified
+      (fun e hint top named => translateExprToWire tenv e hint top named) logProf declName
+      d.shape.binders d.shape.body) (t, d₀)) :
+    t.name = Sparkle.IR.ModuleName.ofDecl declName ∧
+      d₀ = Design.empty (Sparkle.IR.ModuleName.ofDecl declName) := by
+  simp only [MachineData.ok, Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true'] at ok
+  obtain ⟨hlen, hlets, positive, slotKinds, letKinds, layB, outsOk, outsNodup, hwf, hb, hv,
+    hfit, houtfit, hscoped, _, _, _, _, _, _, _, _⟩ := ok
+  have hposv : PositiveBinders d.shape.binders := by
+    intro name n hmem
+    have := List.all_eq_true.mp positive _ hmem
+    simpa using this
+  have hb' : ∀ j, j < d.kb → ∃ name, d.shape.binders[d.bpos j]? = some (name, .bool) := by
+    intro j hj
+    have := hb j hj
+    cases h : d.shape.binders[d.bpos j]? with
+    | none => rw [h] at this; cases this
+    | some b =>
+      obtain ⟨name, k⟩ := b
+      rw [h] at this
+      simp only [Option.map_some, Option.some.injEq] at this
+      exact ⟨name, by rw [← this]⟩
+  have hv' : ∀ j, j < d.kv → ∃ name, d.shape.binders[d.vpos j]? = some (name, .bits (d.vw j)) := by
+    intro j hj
+    have := hv j hj
+    cases h : d.shape.binders[d.vpos j]? with
+    | none => rw [h] at this; cases this
+    | some b =>
+      obtain ⟨name, k⟩ := b
+      rw [h] at this
+      simp only [Option.map_some, Option.some.injEq] at this
+      exact ⟨name, by rw [← this]⟩
+  obtain ⟨ids, cache, returned, st, nd, len, hrun, hm, hD, nameLegal⟩ :=
+    synthesizeMixedCertified_returns run
+  obtain ⟨-, -, -, -, hdes, hname⟩ :=
+    transition_closed nd len hrun hm nameLegal hposv d.packed hwf hb' hv' hbody
+  refine ⟨?_, ?_⟩
+  · exact hname
+  · rw [hD, hdes]; rfl
+
+open Sparkle.IR.ModuleName (ofDecl ofMem)
+open Tools.ShippingInstTagged (originAt)
+open Tools.ShippingMemCloses (memKey ChildIfaceP)
+
+/-- item 1: the calls-branch `hsep` of e12_calls, from the kids' interface facts, kid ≠ parent, and parent ∉ descendants -/
+theorem hsep_of_ifaces {declName : Name} {O : RefLawsAOps MkRefd mref cref} {shape : MachineShape}
+    {children : List (Sparkle.IR.AST.Module × Design)}
+    (hch : ∀ c ∈ children, ∃ (k : Nat) (hk : k < shape.insts.length),
+      (∃ cb aw dw, c = Sparkle.Compiler.MachMemory.memModule cb aw dw) ∨
+      ((originAt shape k).child? = none ∧ RealChildA O (shape.insts[k]).1 c))
+    (hI : ∀ (k : Nat) (hk : k < shape.insts.length) (y : Res), (originAt shape k).child? = none →
+      RealChildA O (shape.insts[k]).1 y → ∃ (n : Nat) (outs nms : List String),
+        ChildIfaceP (ofDecl (shape.insts[k]).1) n outs nms y.1 y.2 ∧ ofDecl declName ∉ nms)
+    (hne : ∀ (k : Nat) (hk : k < shape.insts.length), (originAt shape k).child? = none →
+      (shape.insts[k]).1 ≠ declName) :
+    ∀ c ∈ children, ∀ g ∈ c.1 :: c.2.modules, g.name ≠ ofDecl declName := by
+  intro c hc g hg
+  obtain ⟨k, hk, hor⟩ := hch c hc
+  rcases hor with ⟨cb, aw, dw, rfl⟩ | ⟨hnone, hre⟩
+  · intro e
+    have hg' : g = (Sparkle.Compiler.MachMemory.memModule cb aw dw).1 := by
+      simpa [Tools.ShippingSrm12Corr.memModule_design_modules] using hg
+    rw [hg'] at e
+    exact Tools.ShippingModuleName.ofDecl_ne_ofMem declName cb aw dw e.symm
+  · obtain ⟨n, outs, nms, hi, hown⟩ := hI k hk c hnone hre
+    exact Tools.ShippingSrm3Callee.sep_of_iface hi
+      (Tools.ShippingModuleName.ofDecl_ne (hne k hk hnone)) hown g hg
+
+open Tools.ShippingGen2 Tools.ShippingGen5ClosingRun in
+/-- items 2+3: `AuditE12`'s conclusion for a `ClosingRun`, both branches; the calls branch takes the separation `hsep` -/
+theorem e12_closingRun {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
+    {L : Laws mref cref} {P : Pkgs ι dom} {Reach : Name → Prop}
+    {mctx : Meta.Context} {cctx : Core.Context} {X : Name} {p : Pkg ι dom}
+    {Gen : ConstantInfo → Environment → Environment → Prop}
+    {w w' : Void IO.RealWorld} {raw : Sparkle.IR.AST.Module} {D : Design}
+    (cr : ClosingRun L P Reach mctx cctx X p Gen w w' raw D)
+    (hsep : p.d.shape.insts ≠ [] → ∀ (d₀ : Design) (children : List Res),
+      (∃ (t t' : Sparkle.IR.AST.Module), CloseCalls p.d.shape t (closeMachine p.d.shape.layout t') d₀ children raw D) →
+      ∀ c ∈ children, ∀ g ∈ c.1 :: c.2.modules, g.name ≠ ofDecl X) :
+    (∀ x ∈ D.modules, x.name ≠ raw.name) ∧ D.topModule = raw.name := by
+  obtain ⟨b, ci, envR, envR', w5, w6, t, t', d₀, children, -, -, -, hmr, hcl, hbr, -⟩ := cr.shared
+  obtain ⟨hnt, hd0⟩ := e12_data p.d p.ok p.body_eq hmr
+  have hnm : raw.name = ofDecl X := by
+    rcases hbr with ⟨-, -, hraw, -⟩ | ⟨-, hcc, -⟩
+    · rw [hraw, closeMachine_name, closeLets_name hcl, hnt]
+    · obtain ⟨-, -, hrn, -⟩ := CloseCalls.some hcc
+      rw [hrn, closeMachine_name, closeLets_name hcl, hnt]
+  rcases hbr with ⟨-, -, hraw, hD⟩ | ⟨hne, hcc, -⟩
+  · refine ⟨?_, ?_⟩
+    · intro x hx; rw [hD, hd0] at hx; simp [Design.empty] at hx
+    · rw [hD, hd0, hnm]; rfl
+  · obtain ⟨-, -, -, -, -, -, -, -, -, -, -, hDe, -⟩ := CloseCalls.some hcc
+    have hmods : d₀.modules = [] := by rw [hd0]; rfl
+    refine ⟨?_, ?_⟩
+    · intro x hx
+      rw [hDe] at hx
+      obtain ⟨-, hv⟩ := Tools.ShippingDesignWithG.designWith_modules (children := children) hmods
+      obtain ⟨c, hc, hxc⟩ := Tools.ShippingDesignWithG.mem_visited.mp (hv x hx)
+      rw [hnm]
+      exact hsep hne d₀ children ⟨t, t', hcc⟩ c hc x (by rcases hxc with h | h <;> simp [h])
+    · rw [hDe, hnm, hd0]; rfl
+
+/-- the full entry's design has as many modules as the core run's design -/
+theorem full_modules_length {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M' : Sparkle.IR.AST.Module} {D' : Design}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (M', D') w') :
+    ∃ (M : Sparkle.IR.AST.Module) (D : Design) (w1 : Void IO.RealWorld),
+      RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w1 ∧
+      D'.topModule = D.topModule ∧ D'.modules.length = D.modules.length := by
+  unfold synthesizeCombinational synthesizeCombinationalWith at h
+  obtain ⟨⟨M, D⟩, w1, hcore, h⟩ := Tools.ShippingEntrySoundness.RunsTo.bind h
+  refine ⟨M, D, w1, hcore, ?_⟩
+  dsimp only at h
+  obtain ⟨_, _, -, h⟩ := Tools.ShippingEntrySoundness.RunsTo.bind h
+  rcases Tools.ShippingEntrySoundness.RunsTo.ite h with h | h
+  · have := Tools.ShippingPostSoundness.RunsTo.pure h
+    simp only [Prod.mk.injEq] at this
+    obtain ⟨h1, h2⟩ := this
+    subst h1 h2
+    exact ⟨rfl, by simp⟩
+  · have := Tools.ShippingPostSoundness.RunsTo.pure h
+    simp only [Prod.mk.injEq] at this
+    obtain ⟨h1, h2⟩ := this
+    subst h1 h2
+    exact ⟨rfl, by simp⟩
+
+/-- hno from an empty full-entry design -/
+theorem hno_of_full_empty {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' w1 : Void IO.RealWorld}
+    {M' raw : Sparkle.IR.AST.Module} {D' D : Design}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (M', D') w')
+    (hcore : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (raw, D) w1)
+    (hempty : D'.modules = []) : D.modules = [] := by
+  obtain ⟨M, D2, w2, hc2, -, hl⟩ := full_modules_length h
+  obtain ⟨-, hD⟩ := Prod.mk.inj (Tools.ShippingDesignWriterRun.runsTo_det hc2 hcore)
+  subst hD
+  rw [hempty] at hl
+  exact List.length_eq_zero_iff.mp hl.symm
+```
+
+注: scratch の結果で、ソースツリーには入れていない。台帳の行を消す根拠にはまだならない（§6）。mutant は扱っていない。
 
 ## 5. 選択肢（ユーザー判断の材料）
 
