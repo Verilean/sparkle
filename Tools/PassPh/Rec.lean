@@ -8,22 +8,6 @@ set_option autoImplicit false
 namespace Tools.PassPh
 open Lean Tools.ShippingLetsReaderInv Tools.ShippingGen5ReaderTrace Tools.Assume.AbbrevExtern
 
-theorem mkAppN_good : ∀ (f : Lean.Expr) (as : Array Lean.Expr), G f → (∀ a ∈ as, G a) → G (mkAppN f as) := by
-  intro f as hf has
-  unfold mkAppN
-  rw [← Array.foldl_toList]
-  have key : ∀ (l : List Lean.Expr) (f : Lean.Expr), G f → (∀ a ∈ l, G a) → G (l.foldl mkApp f) := by
-    intro l
-    induction l with
-    | nil => intro f hf _; exact hf
-    | cons a t ih =>
-      intro f hf hl
-      refine ih _ ?_ (fun x hx => hl x (List.mem_cons_of_mem _ hx))
-      have ha := hl a List.mem_cons_self
-      simp only [G, NoPh, BvarLt, Bool.and_eq_true] at hf ha ⊢
-      exact ⟨⟨hf.1, ha.1⟩, ⟨hf.2, ha.2⟩⟩
-  exact key as.toList f hf (fun a ha => has a (Array.mem_toList_iff.mp ha))
-
 theorem rnc_ph2 : ∀ (f : Lean.Expr → Option Lean.Expr),
     (∀ (x v : Lean.Expr), f x = some v → ∀ (L : Nat), NoPh x = true → BvarLt L x = true → NoPh v = true ∧ BvarLt L v = true) →
     ∀ (e : Lean.Expr) (L : Nat), NoPh e = true → BvarLt L e = true →
@@ -125,34 +109,34 @@ theorem ilp_ph : ReplaceAgrees →
     · cases hx; exact ⟨hn, hb⟩
     · cases x <;> simp_all [Lean.Expr.updateConst!, Lean.Expr.updateSort!, NoPh, BvarLt] <;> (subst hx; exact ⟨rfl, rfl⟩)
 
-theorem rec_arm_goodU : ReplaceAgrees →
+theorem rec_arm_goodUL : ReplaceAgrees →
     ∀ (env : Lean.Environment), RecRulePhU env →
     ∀ (p : Lean.Name) (rv : Lean.RecursorVal), env.find? (p.str "rec") = some (Lean.ConstantInfo.recInfo rv) →
     ∀ (c : Lean.Name) (rule : Lean.RecursorRule), rv.rules.find? (fun x => x.ctor == c) = some rule →
-    ∀ (ls : List Lean.Level) (pre fields rest : Array Lean.Expr),
-      (∀ a ∈ pre, G a) → (∀ a ∈ fields, G a) → (∀ a ∈ rest, G a) →
-      G (mkAppN (mkAppN (mkAppN (rule.rhs.instantiateLevelParams rv.levelParams ls) pre) fields) rest) := by
-  intro hr env hU p rv hf c rule hrule ls pre fields rest hp hfl hre
+    ∀ (L : Nat) (ls : List Lean.Level) (pre fields rest : Array Lean.Expr),
+      (∀ a ∈ pre, GL L a) → (∀ a ∈ fields, GL L a) → (∀ a ∈ rest, GL L a) →
+      GL L (mkAppN (mkAppN (mkAppN (rule.rhs.instantiateLevelParams rv.levelParams ls) pre) fields) rest) := by
+  intro hr env hU p rv hf c rule hrule L ls pre fields rest hp hfl hre
   have h0 := hU p rv c rule hf hrule
-  have h1 := ilp_ph hr rv.levelParams ls rule.rhs h0
-  exact mkAppN_good _ _ (mkAppN_good _ _ (mkAppN_good _ _ h1 hp) hfl) hre
+  have h1 := GL_mono (Nat.zero_le L) (ilp_ph hr rv.levelParams ls rule.rhs h0)
+  exact mkAppN_goodL L _ _ (mkAppN_goodL L _ _ (mkAppN_goodL L _ _ h1 hp) hfl) hre
 
-theorem ctorApp_good : ∀ (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (e : Lean.Expr)
-    (cv : Lean.ConstructorVal) (fs : Array Lean.Expr), G e →
-    Sparkle.Compiler.MachRecUnfold.ctorApp? env natLit? e = some (cv, fs) → ∀ f ∈ fs, G f := by
-  intro env natLit? e cv fs he h f hf
-  have hcm : ∀ (x : Lean.Expr), G x → G x.consumeMData := by
+theorem ctorApp_goodL : ∀ (L : Nat) (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (e : Lean.Expr)
+    (cv : Lean.ConstructorVal) (fs : Array Lean.Expr), GL L e →
+    Sparkle.Compiler.MachRecUnfold.ctorApp? env natLit? e = some (cv, fs) → ∀ f ∈ fs, GL L f := by
+  intro L env natLit? e cv fs he h f hf
+  have hcm : ∀ (x : Lean.Expr), GL L x → GL L x.consumeMData := by
     intro x
     induction x with
-    | mdata m b ih => intro hx; simp only [G, NoPh, BvarLt] at hx; rw [Lean.Expr.consumeMData]; exact ih hx
+    | mdata m b ih => intro hx; simp only [GL, NoPh, BvarLt] at hx; rw [Lean.Expr.consumeMData]; exact ih hx
     | _ => intro hx; exact hx
   have hg := hcm e he
   unfold Sparkle.Compiler.MachRecUnfold.ctorApp? at h
   dsimp only at h
   generalize e.consumeMData = e' at hg h
-  have hlit : ∀ n, G (Sparkle.Compiler.MachRecUnfold.natLitE n) := by
+  have hlit : ∀ n, GL L (Sparkle.Compiler.MachRecUnfold.natLitE n) := by
     intro n
-    simp [G, Sparkle.Compiler.MachRecUnfold.natLitE, Lean.mkApp3, Lean.mkApp, NoPh, BvarLt]
+    simp [GL, Sparkle.Compiler.MachRecUnfold.natLitE, Lean.mkApp3, Lean.mkApp, NoPh, BvarLt]
   split at h
   · rename_i c fields hc
     unfold Sparkle.Compiler.MachRecUnfold.natCtor? at hc

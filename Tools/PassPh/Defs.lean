@@ -27,10 +27,39 @@ def BetaNonTargetAgrees : Prop :=
 def PassPh' : Prop :=
   ∀ (natLit? : Lean.Expr → Option Nat),
     ∀ (env : Lean.Environment), Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePhU env →
-    ReplaceAgrees → Inst1Agrees → HeadBetaAgrees0 → BetaNonTargetAgrees →
+    ReplaceAgrees → Inst1Agrees → HeadBetaAgreesL → BetaNonTargetAgrees →
     ∀ (isUser : Lean.Name → Bool) (e r : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
       Sparkle.Compiler.MachRecUnfold.pass env natLit? isUser e = .ok r →
       NoPh r = true ∧ BvarLt 0 r = true
+
+/-- rev2 invariant: no placeholders and loose bvars below `L` -/
+def GL (L : Nat) (e : Lean.Expr) : Prop := NoPh e = true ∧ BvarLt L e = true
+
+/-- rev2 memo invariant: each entry preserves `GL L` for every `L` -/
+def MemoGoodL (s : Std.HashMap Lean.Expr Lean.Expr) : Prop :=
+  ∀ (k v : Lean.Expr), s.get? k = some v → ∀ L, GL L k → GL L v
+
+theorem headBetaAgreesL_zero : HeadBetaAgreesL → HeadBetaAgrees0 := fun h e hn hb => h 0 e hn hb
+
+theorem GL_zero (e : Lean.Expr) : GL 0 e ↔ G e := Iff.rfl
+
+theorem GL_mono {L L' : Nat} {e : Lean.Expr} (hL : L ≤ L') (h : GL L e) : GL L' e := ⟨h.1, bvarLt_mono hL h.2⟩
+
+theorem mkAppN_goodL : ∀ (L : Nat) (f : Lean.Expr) (as : Array Lean.Expr), GL L f → (∀ a ∈ as, GL L a) → GL L (mkAppN f as) := by
+  intro L f as hf has
+  unfold mkAppN
+  rw [← Array.foldl_toList]
+  have key : ∀ (l : List Lean.Expr) (f : Lean.Expr), GL L f → (∀ a ∈ l, GL L a) → GL L (l.foldl mkApp f) := by
+    intro l
+    induction l with
+    | nil => intro f hf _; exact hf
+    | cons a t ih =>
+      intro f hf hl
+      refine ih _ ?_ (fun x hx => hl x (List.mem_cons_of_mem _ hx))
+      have ha := hl a List.mem_cons_self
+      simp only [GL, NoPh, BvarLt, Bool.and_eq_true] at hf ha ⊢
+      exact ⟨⟨hf.1, ha.1⟩, ⟨hf.2, ha.2⟩⟩
+  exact key as.toList f hf (fun a ha => has a (Array.mem_toList_iff.mp ha))
 
 theorem G_iff (e : Lean.Expr) : G e ↔ (NoPh e = true ∧ BvarLt 0 e = true) := Iff.rfl
 

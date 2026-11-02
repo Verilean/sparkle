@@ -4,54 +4,50 @@ import Tools.PassPh.Iota
 import Tools.PassPh.BetaAll
 import Tools.PassPh.ListLit
 set_option autoImplicit false
--- SKELETON: sorry あり、探索ブランチのみ（受理の対象ではない）. Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of dec1b348 (Lean content identical; header comment-only). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1 (approved as document/types only).
+-- SKELETON (rev2 L version): sorry あり、探索ブランチのみ（受理の対象ではない）. Not built yet. Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev2.
 
 /-! # pass_ph skeleton: Pass group (evalNode?_good, unfoldCall?_good, joint induction on passM/passStep/passSpine, passWith_ph, pass_ph).
-Depends on all other groups. Memo invariant `MemoGood`: every (k, v) in the memo with `G k` has `G v`. -/
+Depends on all other groups. Memo invariant `MemoGoodL` (Defs): every (k, v) in the memo has `∀ L, GL L k → GL L v`. -/
 
 namespace Tools.PassPh
 open Lean Tools.ShippingLetsReaderInv Tools.ShippingGen5ReaderTrace Tools.Assume.AbbrevExtern Sparkle.Compiler.MachRecUnfold
 
-def MemoGood (s : Std.HashMap Lean.Expr Lean.Expr) : Prop :=
-  ∀ (k v : Lean.Expr), s.get? k = some v → G k → G v
-
-theorem evalNode?_good (hi1 : Inst1Agrees) (natLit? : Lean.Expr → Option Nat) :
-    ∀ (e r : Lean.Expr), G e → evalNode? natLit? e = ExceptT.mk (some (.ok r)) → G r := by
+theorem evalNode?_goodL (hi1 : Inst1Agrees) (natLit? : Lean.Expr → Option Nat) :
+    ∀ (L : Nat) (e r : Lean.Expr), GL L e → evalNode? natLit? e = ExceptT.mk (some (.ok r)) → GL L r := by
   sorry
 
-theorem unfoldCall?_good (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
+theorem unfoldCall?_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
     (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
-    (hrep : ReplaceAgrees) (hh : HeadBetaAgrees0) (hbt : BetaNonTargetAgrees) :
-    ∀ (e r : Lean.Expr), G e → unfoldCall? env natLit? isUser e = ExceptT.mk (some (.ok r)) → G r := by
+    (hrep : ReplaceAgrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (L : Nat) (e r : Lean.Expr), GL L e → unfoldCall? env natLit? isUser e = ExceptT.mk (some (.ok r)) → GL L r := by
   sorry
 
 /-- joint induction on `passM` / `passStep` / `passSpine` (measure as in the definitions); the three statements are proved together -/
-theorem passM_good (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
+theorem passM_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
     (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
-    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgrees0) (hbt : BetaNonTargetAgrees) :
-    ∀ (fuel : Nat) (e r : Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr), G e → MemoGood s →
-      (passM env natLit? isUser fuel e).run.run s = (Except.ok r, s') → G r ∧ MemoGood s' := by
+    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel : Nat) (e r : Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr), MemoGoodL s →
+      (passM env natLit? isUser fuel e).run.run s = (Except.ok r, s') → MemoGoodL s' ∧ ∀ L, GL L e → GL L r := by
   sorry
 
-theorem passStep_good (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
+theorem passStep_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
     (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
-    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgrees0) (hbt : BetaNonTargetAgrees) :
-    ∀ (fuel : Nat) (e r : Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr), G e → MemoGood s →
-      (passStep env natLit? isUser fuel e).run.run s = (Except.ok r, s') → G r ∧ MemoGood s' := by
+    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel : Nat) (e r : Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr), MemoGoodL s →
+      (passStep env natLit? isUser fuel e).run.run s = (Except.ok r, s') → MemoGoodL s' ∧ ∀ L, GL L e → GL L r := by
   sorry
 
-theorem passSpine_good (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
+theorem passSpine_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
     (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
-    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgrees0) (hbt : BetaNonTargetAgrees) :
+    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
     ∀ (fuel : Nat) (e h : Lean.Expr) (args : Array Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr),
-      G e → MemoGood s →
-      (passSpine env natLit? isUser fuel e).run.run s = (Except.ok (h, args), s') →
-      (G h ∧ ∀ a ∈ args, G a) ∧ MemoGood s' := by
+      MemoGoodL s → (passSpine env natLit? isUser fuel e).run.run s = (Except.ok (h, args), s') →
+      MemoGoodL s' ∧ ∀ L, GL L e → GL L h ∧ ∀ a ∈ args, GL L a := by
   sorry
 
 theorem passWith_ph (natLit? : Lean.Expr → Option Nat) :
     ∀ (env : Lean.Environment), Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePhU env →
-    ReplaceAgrees → Inst1Agrees → HeadBetaAgrees0 → BetaNonTargetAgrees →
+    ReplaceAgrees → Inst1Agrees → HeadBetaAgreesL → BetaNonTargetAgrees →
     ∀ (fuel : Nat) (isUser : Lean.Name → Bool) (e r : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
       Sparkle.Compiler.MachRecUnfold.passWith fuel env natLit? isUser e = .ok r →
       NoPh r = true ∧ BvarLt 0 r = true := by
@@ -59,7 +55,7 @@ theorem passWith_ph (natLit? : Lean.Expr → Option Nat) :
 
 theorem pass_ph (natLit? : Lean.Expr → Option Nat) :
     ∀ (env : Lean.Environment), Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePhU env →
-    ReplaceAgrees → Inst1Agrees → HeadBetaAgrees0 → BetaNonTargetAgrees →
+    ReplaceAgrees → Inst1Agrees → HeadBetaAgreesL → BetaNonTargetAgrees →
     ∀ (isUser : Lean.Name → Bool) (e r : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
       Sparkle.Compiler.MachRecUnfold.pass env natLit? isUser e = .ok r →
       NoPh r = true ∧ BvarLt 0 r = true := by

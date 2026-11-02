@@ -16,7 +16,7 @@ READINGS of the source, not proofs.
 | name | ledger row | extern / core function |
 |---|---|---|
 | `ReplaceAgrees` (U-1) | replaces T1L-54 (`ZeroLitAgrees0` becomes a theorem, `zeroLitAgrees0_of_replace`) | `Expr.replace` (`lean_replace_expr`) |
-| `HeadBetaAgrees0` (U-2) | new T1 (+1) | `Expr.headBeta` (`betaRev` is a `partial def`; `instantiate` / `instantiateRange` are externs) |
+| `HeadBetaAgreesL` (U-2, rev2: strengthens `HeadBetaAgrees0` = the `L = 0` instance; replaces it as the T1L-74 row, ±0) | new T1 (+1) | `Expr.headBeta` (`betaRev` is a `partial def`; `instantiate` / `instantiateRange` are externs) |
 
 * `ReplaceAgrees`: C++ `replace_fn.cpp:87-154` (v4.32.1) caches the result for shared nodes keyed by pointer and otherwise recurses
   exactly as `replaceNoCache` does; since `f` is a pure function the cache cannot change the result. Limits: the pointer-keyed cache's
@@ -82,5 +82,12 @@ def ReplaceAgrees : Prop :=
 * Limits: `unsigned` truncation (`≥ 2^32`) is out of the model; the `partial def` is read as running its body. -/
 def HeadBetaAgrees0 : Prop :=
   ∀ e : Lean.Expr, NoPh e = true → BvarLt 0 e = true → e.headBeta = headBetaSpec e
+
+/-- **ASSUMPTION U-2 rev2 (replaces `HeadBetaAgrees0` as the T1L-74 row; strengthening approved as scripts/gen5/RT_PASS_PH_FREEZE.md rev2, plan (i)).**
+On `NoPh e ∧ BvarLt L e` inputs (any `L`) core `Expr.headBeta` equals the total model `headBetaSpec`. `HeadBetaAgrees0` is its `L = 0` instance
+(`Tools.PassPh.headBetaAgreesL_zero`); it is kept only as the statement of existing theorems and is no longer a separate assumption row.
+Same reading, source and limits as `HeadBetaAgrees0`; for `L > 0` the reading of `instantiate_core` / `lift_loose_bvars` is the same (a reading, not a proof). -/
+def HeadBetaAgreesL : Prop :=
+  ∀ (L : Nat) (e : Lean.Expr), NoPh e = true → BvarLt L e = true → e.headBeta = headBetaSpec e
 
 end Tools.Assume.AbbrevExtern

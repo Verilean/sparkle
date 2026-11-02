@@ -2,7 +2,7 @@ import Tools.PassPh.Beta
 import Tools.PassPh.Rec
 import Tools.ShippingGen5ReaderTraceReg
 set_option autoImplicit false
--- SKELETON: sorry あり、探索ブランチのみ（受理の対象ではない）. Built in Pod (kjob lake build Tools.PassPh.Pass, exit 0) on the tree of dec1b348 (Lean content identical; header comment-only). Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev1 (approved as document/types only).
+-- SKELETON (rev2 L version): not built yet. Types follow scripts/gen5/RT_PASS_PH_FREEZE.md rev2.
 
 /-! # pass_ph skeleton: Iota group (iota_good, reduceMatcher?_good, reduceHead_good). Depends on Beta + Rec. -/
 
@@ -36,28 +36,16 @@ private theorem M_bind_ok {α β : Type} (x : M α) (f : α → M β) (r : β)
     · exact ⟨a, rfl, hy⟩
   exact key x h
 
-private theorem G_consume : ∀ e : Lean.Expr, G e → G e.consumeMData := by
-  intro e
-  induction e with
-  | mdata m b ih =>
-    intro h
-    simp only [G, NoPh, BvarLt] at h
-    exact ih h
-  | _ => intro h; exact h
+private theorem GL_args {L : Nat} {e : Lean.Expr} (h : GL L e) : ∀ a ∈ e.getAppArgs, GL L a :=
+  fun a ha => getAppArgs_goodL L e h.1 h.2 a ha
 
-private theorem G_fn {e : Lean.Expr} (h : G e) : G e.getAppFn :=
-  Tools.ShippingGen5ReaderTraceAbbrevS1.getAppFn_good e h.1 h.2
-
-private theorem G_args {e : Lean.Expr} (h : G e) : ∀ a ∈ e.getAppArgs, G a :=
-  fun a ha => Tools.ShippingGen5ReaderTrace.phArgs_getAppArgs h.1 h.2 a ha
-
-private theorem G_extract {as : Array Lean.Expr} (h : ∀ a ∈ as, G a) (i j : Nat) : ∀ a ∈ as.extract i j, G a :=
+private theorem GL_extract {L : Nat} {as : Array Lean.Expr} (h : ∀ a ∈ as, GL L a) (i j : Nat) : ∀ a ∈ as.extract i j, GL L a :=
   fun a ha => by
     obtain ⟨k, _, rfl⟩ := Array.mem_extract_iff_getElem.mp ha
     exact h _ (Array.getElem_mem _)
 
-private theorem G_getBang {as : Array Lean.Expr} (h : ∀ a ∈ as, G a) (i : Nat) : G as[i]! :=
-  Tools.ShippingGen5ReaderTraceAbbrevS1.getBang_good h i
+private theorem ilp_GL (hrep : ReplaceAgrees) (ps : List Lean.Name) (ls : List Lean.Level) (e : Lean.Expr) (L : Nat)
+    (he : G e) : GL L (e.instantiateLevelParams ps ls) := GL_mono (Nat.zero_le L) (ilp_ph hrep ps ls e he)
 
 open Lean Tools.ShippingLetsReaderInv Tools.ShippingGen5ReaderTrace Tools.Assume.AbbrevExtern Sparkle.Compiler.MachRecUnfold
 
@@ -69,20 +57,20 @@ private theorem M_lift_ok {α : Type} {x : Option α} {a : α}
   · have := Except.ok.inj (Option.some.inj h')
     rw [this]
 
-theorem iota_good (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
+theorem iota_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
     (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
-    (hrep : ReplaceAgrees) (hh : HeadBetaAgrees0) (hbt : BetaNonTargetAgrees) :
-    ∀ (fuel : Nat) (e r : Lean.Expr), G e → iota env natLit? fuel e = ExceptT.mk (some (.ok r)) → G r := by
+    (hrep : ReplaceAgrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel L : Nat) (e r : Lean.Expr), GL L e → iota env natLit? fuel e = ExceptT.mk (some (.ok r)) → GL L r := by
   intro fuel
   induction fuel with
-  | zero => intro e r _ h; exact (M_stuck_no h).elim
+  | zero => intro L e r _ h; exact (M_stuck_no h).elim
   | succ fuel ih =>
-    intro e r he h
+    intro L e r he h
     unfold iota at h
     obtain ⟨e1, h1, h⟩ := M_bind_ok _ _ _ h
-    have hg : G e1 := headBetaM_good hh hbt _ e e1 he (M_ofExcept_ok h1)
-    have hargs := G_args hg
-    have hpure : (pure e1 : M Lean.Expr) = ExceptT.mk (some (.ok r)) → G r := fun hx => (M_pure_ok hx) ▸ hg
+    have hg : GL L e1 := headBetaM_goodL hh hbt _ L e e1 he (M_ofExcept_ok h1)
+    have hargs := GL_args hg
+    have hpure : (pure e1 : M Lean.Expr) = ExceptT.mk (some (.ok r)) → GL L r := fun hx => (M_pure_ok hx) ▸ hg
     split at h
     · rename_i n ls hfn
       split at h
@@ -91,7 +79,7 @@ theorem iota_good (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
         · rename_i hsp
           split at h
           · rename_i d hdf
-            exact ih _ _ (mkAppN_good _ _ (ilp_ph hrep _ _ _ (hd (pfx.str s) d hdf)) hargs) h
+            exact ih L _ _ (mkAppN_goodL L _ _ (ilp_GL hrep _ _ _ L (hd (pfx.str s) d hdf)) hargs) h
           · exact hpure h
         · split at h
           · rename_i hsr
@@ -109,9 +97,9 @@ theorem iota_good (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
                   try dsimp only at h
                   have hsr' : s = "rec" := by simpa using hsr
                   subst hsr'
-                  have hfields := ctorApp_good env natLit? _ cv fields (G_getBang hargs _) hc'
-                  exact ih _ _ (rec_arm_goodU hrep env hr pfx rv hrv cv.name rule hrule ls _ _ _
-                    (G_extract hargs _ _) hfields (G_extract hargs _ _)) h
+                  have hfields := ctorApp_goodL L env natLit? _ cv fields (getBang_goodL hargs _) hc'
+                  exact ih L _ _ (rec_arm_goodUL hrep env hr pfx rv hrv cv.name rule hrule L ls _ _ _
+                    (GL_extract hargs _ _) hfields (GL_extract hargs _ _)) h
                 · exact (M_stuck_no h).elim
             · exact hpure h
           · split at h
@@ -123,19 +111,19 @@ theorem iota_good (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
                 | (obtain ⟨⟨cv, fields⟩, hc, h⟩ := M_bind_ok _ _ _ h
                    have hc' := M_lift_ok hc
                    try dsimp only at h
-                   have hfields := ctorApp_good env natLit? _ cv fields (G_getBang hargs _) hc'
-                   exact ih _ _ (mkAppN_good _ _ (mkAppN_good _ _ (G_getBang hargs _) hfields)
-                     (G_extract hargs _ _)) h)
+                   have hfields := ctorApp_goodL L env natLit? _ cv fields (getBang_goodL hargs _) hc'
+                   exact ih L _ _ (mkAppN_goodL L _ _ (mkAppN_goodL L _ _ (getBang_goodL hargs _) hfields)
+                     (GL_extract hargs _ _)) h)
             · exact hpure h
       · exact hpure h
     · exact hpure h
 
 
-theorem reduceMatcher?_good (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
+theorem reduceMatcher?_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
     (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
-    (hrep : ReplaceAgrees) (hh : HeadBetaAgrees0) (hbt : BetaNonTargetAgrees) :
-    ∀ (e r : Lean.Expr), G e → reduceMatcher? env natLit? e = ExceptT.mk (some (.ok r)) → G r := by
-  intro e r he h
+    (hrep : ReplaceAgrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (L : Nat) (e r : Lean.Expr), GL L e → reduceMatcher? env natLit? e = ExceptT.mk (some (.ok r)) → GL L r := by
+  intro L e r he h
   unfold reduceMatcher? at h
   split at h
   · rename_i n ls hfn
@@ -144,8 +132,8 @@ theorem reduceMatcher?_good (env : Lean.Environment) (natLit? : Lean.Expr → Op
     · split at h
       · rename_i d hdf
         obtain ⟨r1, h1, h⟩ := M_bind_ok _ _ _ h
-        have hg1 : G r1 := iota_good env natLit? hd hr hrep hh hbt 256 _ r1
-          (mkAppN_good _ _ (ilp_ph hrep _ _ _ (hd n d hdf)) (G_args he)) h1
+        have hg1 : GL L r1 := iota_goodL env natLit? hd hr hrep hh hbt 256 L _ r1
+          (mkAppN_goodL L _ _ (ilp_GL hrep _ _ _ L (hd n d hdf)) (GL_args he)) h1
         try dsimp only at h
         split at h
         · split at h
@@ -155,26 +143,34 @@ theorem reduceMatcher?_good (env : Lean.Environment) (natLit? : Lean.Expr → Op
       · exact (M_stuck_no h).elim
   · exact (M_stuck_no h).elim
 
-theorem reduceHead_good (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
+theorem reduceHead_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
     (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
-    (hrep : ReplaceAgrees) (hh : HeadBetaAgrees0) (hbt : BetaNonTargetAgrees) :
-    ∀ (fuel : Nat) (e r : Lean.Expr), G e → reduceHead env natLit? fuel e = ExceptT.mk (some (.ok r)) → G r := by
+    (hrep : ReplaceAgrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel L : Nat) (e r : Lean.Expr), GL L e → reduceHead env natLit? fuel e = ExceptT.mk (some (.ok r)) → GL L r := by
   intro fuel
   induction fuel with
-  | zero => intro e r _ h; exact (M_stuck_no h).elim
+  | zero => intro L e r _ h; exact (M_stuck_no h).elim
   | succ fuel ih =>
-    intro e r he h
+    intro L e r he h
     unfold reduceHead at h
     obtain ⟨e1, h1, h⟩ := M_bind_ok _ _ _ h
-    have hg : G e1 := headBetaM_good hh hbt _ e e1 he (M_ofExcept_ok h1)
+    have hg : GL L e1 := headBetaM_goodL hh hbt _ L e e1 he (M_ofExcept_ok h1)
     try dsimp only at h
     split at h
-    · -- letE arm: the recursive call is on the body `b`, which is only `BvarLt 1`, not `G`;
-      -- the statement (G only) gives no induction hypothesis for it.
-      sorry
+    · -- letE arm: the recursive call is on the body `b` (`GL (L+1)`), hence the `∀ L` induction hypothesis
+      rename_i n t v b nd
+      obtain ⟨b', hb', h⟩ := M_bind_ok _ _ _ h
+      have hb1 : GL (L + 1) b := by
+        simp only [GL, NoPh, BvarLt, Bool.and_eq_true] at hg ⊢
+        exact ⟨hg.1.2, hg.2.2⟩
+      have hb2 := ih (L + 1) b b' hb1 hb'
+      have := M_pure_ok h
+      subst this
+      simp only [GL, NoPh, BvarLt, Bool.and_eq_true] at hg hb2 ⊢
+      exact ⟨⟨hg.1.1, hb2.1⟩, ⟨hg.2.1, hb2.2⟩⟩
     · split at h
       · obtain ⟨r1, h2, h⟩ := M_bind_ok _ _ _ h
-        exact ih _ _ (reduceMatcher?_good env natLit? hd hr hrep hh hbt e1 r1 hg h2) h
+        exact ih L _ _ (reduceMatcher?_goodL env natLit? hd hr hrep hh hbt L e1 r1 hg h2) h
       · exact (M_pure_ok h) ▸ hg
 
 end Tools.PassPh
