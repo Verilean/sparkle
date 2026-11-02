@@ -78,7 +78,7 @@ theorem postFacts_of_run {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainCon
   have entry := hT.defines q.decl hR q hPq mctx cctx hA
   -- per-run row (user decision G): the shape of THIS run is the one `machineShape?` returned, and the final gate
   -- of `machineShape?` gives its `OneOutNoMemRow`
-  have hcl := hT.closes q.decl hR q hPq mctx cctx hA
+  have hcl : MachineClosesAtA L.O mctx cctx q.decl q.d.shape := hT.closes q.decl hR q hPq mctx cctx hA
   obtain ⟨_, _, _, _, _, _, hRR, -⟩ :=
     Tools.ShippingGen5RunReads.runReads_of_run L.O hA hu.1.1 (Or.inr hu.1.2) hcore entry hcl
   have hrowq : Tools.ShippingGen2DataBridge.OneOutNoMemRow q = true :=
