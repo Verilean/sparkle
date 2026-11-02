@@ -64,14 +64,18 @@ unfolding steps along one path, not the size of the expression.  Running out is
 a compile error, never a silent cut: the message names the definition and the
 limit (the caller adds the declaration). -/
 
+/-- The single provisional fuel limit shared by the four limits below (one constant to switch;
+the threshold measurement `scripts/shipping-coverage/rt_fuel_threshold.sh` rewrites this line). -/
+def fuelLimit : Nat := 100
+
 /-- Limit of `headBetaM`: head β-steps in one call. -/
-def headBetaLimit : Nat := 100
+def headBetaLimit : Nat := fuelLimit
 /-- Limit of `betaAll`: re-entries after a head β along one path. -/
-def betaAllLimit : Nat := 100
+def betaAllLimit : Nat := fuelLimit
 /-- Limit of `listLit?`: `let` zeta-steps along one path. -/
-def listLitLimit : Nat := 100
+def listLitLimit : Nat := fuelLimit
 /-- Limit of `passM`: re-entries on a rewritten value / substituted `let` along one path. -/
-def passLimit : Nat := 100
+def passLimit : Nat := fuelLimit
 
 /-- The message of a fuel exhaustion. -/
 def fuelMsg (what : String) (limit : Nat) (unit : String) : String :=
