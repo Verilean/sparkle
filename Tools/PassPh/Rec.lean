@@ -132,7 +132,10 @@ theorem rec_arm_goodU : ReplaceAgrees →
     ∀ (ls : List Lean.Level) (pre fields rest : Array Lean.Expr),
       (∀ a ∈ pre, G a) → (∀ a ∈ fields, G a) → (∀ a ∈ rest, G a) →
       G (mkAppN (mkAppN (mkAppN (rule.rhs.instantiateLevelParams rv.levelParams ls) pre) fields) rest) := by
-  sorry
+  intro hr env hU p rv hf c rule hrule ls pre fields rest hp hfl hre
+  have h0 := hU p rv c rule hf hrule
+  have h1 := ilp_ph hr rv.levelParams ls rule.rhs h0
+  exact mkAppN_good _ _ (mkAppN_good _ _ (mkAppN_good _ _ h1 hp) hfl) hre
 
 theorem ctorApp_good : ∀ (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (e : Lean.Expr)
     (cv : Lean.ConstructorVal) (fs : Array Lean.Expr), G e →
