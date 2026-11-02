@@ -135,6 +135,8 @@ theorem core_reads_invAt0 {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainCo
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
     have hw := triple_runs (keeps_iff.mp (keepsA_framed L.O hA (stableA_invAt L P Reach (0 + 1))
       FramedA.env)) hw henv
+    rcases RunsTo.ite h with h | h
+    · exact (throwError_not_runs _ h).elim
     exact ⟨prof.isSome, env, ci, _, w2, _, _, _, _, hget, henv, h, hw⟩
   · -- nested: `InvAt D` throughout
     replace hw : InvAt L P Reach D w := ⟨hw, hc.resolve_left h0⟩
@@ -172,6 +174,8 @@ theorem core_reads_invAt0 {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainCo
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
     have hw := triple_runs (keeps_iff.mp (keepsA_framed L.O hA (stableA_invAt L P Reach (d + 1))
       FramedA.env)) hw henv
+    rcases RunsTo.ite h with h | h
+    · exact (throwError_not_runs _ h).elim
     exact ⟨prof.isSome, env, ci, _, w2, _, _, _, _, hget, henv, h, hw⟩
 
 /-- `synthesizeFromConst_machine_invA` (ChildRunA.lean:200-235) at `InvAt` (`getEnv` is framed). -/
