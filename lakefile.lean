@@ -4853,3 +4853,6 @@ lean_lib «Tools.Assume.MemoFamily» where
 
 lean_lib «Tests.Gen4.MemoFamilyCheck» where
   roots := #[`Tests.Gen4.MemoFamilyCheck]
+
+lean_lib «Tools.Assume.FramedACases» where
+  roots := #[`Tools.Assume.FramedACases]
