@@ -1,4 +1,7 @@
 import Tools.ShippingGen4KWalkEntryArms
+import Tools.ShippingGen4KWalkEntryCore
+import Tools.ShippingGen4KWalkHelpers
+import Tools.ShippingGen4KWalkLegacyTail
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
 -- BUILT: kjob lake build Tests.Gen4.KWalkEntryCheck exit 0 (rt169, source as of 894ffd2f); KWALKENTRY CHECK: TYPE 4/4 / MUTANT 2/2 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 12/12 standard-only / CLOSURE 12/12 clean (+2 positive controls). Clean build is the coder's. Audit of Tools/ShippingGen4KWalkEntry{,Arms}.lean (S4 of scripts/gen4/KWALK_PLAN.md).
@@ -45,6 +48,13 @@ def windowTriple {α : Type} (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld M
     | .ok _ w' => KWalkXOf O n w'
     | .error e w' => KWalkOf O w' ∧ OkExc e
 
+def windowTripleP {α : Type} (Pre : Void IO.RealWorld → Prop) (mctx : Meta.Context)
+    (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
+    (cref : ST.Ref IO.RealWorld Core.State) (O : RefLawsAOps MkRefd mref cref) (n : Name) (p : MetaM α) : Prop :=
+  ∀ w, Pre w → match p mctx mref cctx cref w with
+    | .ok _ w' => KWalkXOf O n w'
+    | .error e w' => KWalkOf O w' ∧ OkExc e
+
 def memoInsert : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {O : RefLawsAOps MkRefd mref cref},
@@ -83,6 +93,17 @@ def frontends : Prop :=
     windowTriple mctx mref cctx cref O declName
       (synthesizeFromConst translate (profLogIO b) declName [] false true constInfo isInst)
 
+def entryNested : Prop :=
+  ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {O : RefLawsAOps MkRefd mref cref},
+    Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx → logMv O →
+    ∀ (translate : Lean.Environment → TranslateFn) (declName : Name),
+    (∀ (b : Bool) (env : Lean.Environment) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+      windowTriple mctx mref cctx cref O declName
+        (synthesizeFromConst (translate env) (profLogIO b) declName [] false true ci isInst)) →
+    windowTripleP (fun w => KWalkOf O w ∧ readOf sparkleSynthDepth w ≠ 0) mctx mref cctx cref O declName
+      (synthesizeCombinationalCoreWith translate declName [] false true)
+
 end Expected
 
 namespace Mutant
@@ -110,6 +131,18 @@ def M2 : Prop :=
         (synthesizeFromConst translate (profLogIO b) declName [] false false constInfo isInst)) →
     Expected.windowTriple mctx mref cctx cref O declName
       (synthesizeFromConst translate (profLogIO b) declName [] false true constInfo isInst)
+
+/-- M3: the nested entry without the `depth ≠ 0` precondition (a depth-0 run resets the tables instead). -/
+def M3 : Prop :=
+  ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {O : RefLawsAOps MkRefd mref cref},
+    Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx → Expected.logMv O →
+    ∀ (translate : Lean.Environment → TranslateFn) (declName : Name),
+    (∀ (b : Bool) (env : Lean.Environment) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+      Expected.windowTriple mctx mref cctx cref O declName
+        (synthesizeFromConst (translate env) (profLogIO b) declName [] false true ci isInst)) →
+    Expected.windowTripleP (fun w => Expected.KWalkOf O w) mctx mref cctx cref O declName
+      (synthesizeCombinationalCoreWith translate declName [] false true)
 
 end Mutant
 
@@ -147,9 +180,11 @@ elab "#kwalkentry_check" : command => liftTermElabM do
     [(en ++ `triple_memoInsert, pre ++ `Expected ++ `memoInsert),
      (en ++ `keepsK_profLog, pre ++ `Expected ++ `profLog),
      (ar ++ `fromConst_certified_windowK, pre ++ `Expected ++ `certifiedArm),
-     (ar ++ `fromConst_frontends_windowK, pre ++ `Expected ++ `frontends)]
+     (ar ++ `fromConst_frontends_windowK, pre ++ `Expected ++ `frontends),
+     (`Tools.ShippingGen4KWalkEntryCore.entryNested_windowK, pre ++ `Expected ++ `entryNested)]
   let mutCases : List (String × Name × Name) :=
-    [("M1", en ++ `triple_memoInsert, `M1), ("M2", ar ++ `fromConst_frontends_windowK, `M2)]
+    [("M1", en ++ `triple_memoInsert, `M1), ("M2", ar ++ `fromConst_frontends_windowK, `M2),
+     ("M3", `Tools.ShippingGen4KWalkEntryCore.entryNested_windowK, `M3)]
   let mut ok : Nat := 0
   for (t, e) in typeCases do
     let ti ← getConstInfo t
@@ -163,7 +198,13 @@ elab "#kwalkentry_check" : command => liftTermElabM do
   let audited : List Name := typeCases.map (·.1) ++
     [en ++ `emitLeavesKP, en ++ `certified_keepsK, en ++ `mixed_keepsK, en ++ `machineCert_keepsK,
      en ++ `closeInstsM_keepsK, en ++ `closeInstsGM_keepsK,
-     ar ++ `fromConst_mixed_windowK, ar ++ `fromConst_machine_windowK]
+     ar ++ `fromConst_mixed_windowK, ar ++ `fromConst_machine_windowK,
+     `Tools.ShippingGen4KWalkEntryCore.tryFinallySplit, `Tools.ShippingGen4KWalkEntryCore.fin_totalK,
+     `Tools.ShippingGen4KWalkHelpers.extractWidthK, `Tools.ShippingGen4KWalkHelpers.inferHWTypeK,
+     `Tools.ShippingGen4KWalkHelpers.extractDimExprK, `Tools.ShippingGen4KWalkHelpers.inferHWTypeWithDimensionsK,
+     `Tools.ShippingGen4KWalkHelpers.inferHWTypeFromSignalK, `Tools.ShippingGen4KWalkHelpers.isSignalBinderTypeK,
+     `Tools.ShippingGen4KWalkLegacyTail.openRecordInputs_keepsK, `Tools.ShippingGen4KWalkLegacyTail.splitReturnLeaves_keepsK,
+     `Tools.ShippingGen4KWalkLegacyTail.bindInputsLegacyKP]
   let mut axOk : Nat := 0
   let mut clOk : Nat := 0
   for n in audited do
@@ -180,7 +221,7 @@ elab "#kwalkentry_check" : command => liftTermElabM do
   -- LogMvK is in the closure of the arms (it is their hypothesis): count that it IS reachable
   let (seen, _) := closure (← getEnv) [ar ++ `fromConst_frontends_windowK] {} {}
   let logIn := seen.contains (en ++ `LogMvK)
-  logInfo m!"KWALKENTRY CHECK: TYPE {ok}/4 / MUTANT {rej}/2 (signature/defeq rejections, not semantic counterexamples) / AXIOMS {axOk}/{audited.length} standard-only / CLOSURE {clOk}/{audited.length} clean (+2 positive controls) / LogMvK hypothesis in closure of frontends: {logIn}"
+  logInfo m!"KWALKENTRY CHECK: TYPE {ok}/5 / MUTANT {rej}/3 (signature/defeq rejections, not semantic counterexamples) / AXIOMS {axOk}/{audited.length} standard-only / CLOSURE {clOk}/{audited.length} clean (+2 positive controls) / LogMvK hypothesis in closure of frontends: {logIn}"
 
 #kwalkentry_check
 
