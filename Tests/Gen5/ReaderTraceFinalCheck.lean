@@ -1,7 +1,7 @@
 import Tools.ShippingGen5ReaderTraceFinal
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT: rt142 Check for scripts/gen5/RT_FINAL_FREEZE.md §5 (conditional stage; clean build is the coder's).
+-- Built in Pod: `kjob lake build Tests.Gen5.ReaderTraceFinalCheck` exit 0 on the tree of 36825acade0973d83a4e7e544f78a81ad453edcf (TYPE 1 / MUTANT 3 signature-defeq rejections / BINDERS 21 / CLOSURE 13096 / AXIOMS standard 3; this line comment-only). Clean build is the coder's.
 
 /-! # RT final theorem checks (`scripts/gen5/RT_FINAL_FREEZE.md` §5): `readerTrace_final`
 

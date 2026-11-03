@@ -1,4 +1,4 @@
--- NOT BUILT: rt142 implementation of scripts/gen5/RT_FINAL_FREEZE.md §2 (conditional stage; clean build is the coder's).
+-- Built in Pod: `kjob lake build Tools.ShippingGen5ReaderTraceFinal` exit 0 on the tree of 36825acade0973d83a4e7e544f78a81ad453edcf (this line comment-only). Clean build is the coder's.
 import Tools.ShippingGen5ReaderTraceU2Compose
 import Tools.ShippingGen5ReaderTraceAbbrevS1
 set_option autoImplicit false
