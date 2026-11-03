@@ -1102,3 +1102,24 @@ reviewer の承認で、次の行を除く。
 | 変更なし | A.P-24 | 同上。dec・差し込み・非循環性の確認待ち（§12.2 の「未照合 1 件」のまま） | — |
 
 - **現在値: FG 92**（93 − 1）。内訳（R0）: リーフ 63 / 非リーフ 29。T1 は 55。
+
+### 12.8 置き換え（2026-11-03、coder。文書のみ。ユーザー判断 (A)）
+
+ユーザー判断（2026-11-03「Aで」、`scripts/gen5/RT_ADMIT_DECISION.md` 案 (A)、aab355f2、Issue sparkle-gen5-dg-readertrace）: `readerTrace_final` が使う、承認済みの小さな明示の仮定を台帳に計上し、reader の正しさの 3 行を消す。
+
+| 変更 | 行 | 根拠 |
+|---|---|---|
+| 足す +1 | N1-a `DeclValuePh`（`Tools/Assume/EnvDeclValue.lean`） | RT_U2_FREEZE §1（par/rt-u2-int3）、reviewer 承認 |
+| 足す +1 | N2-b `PackTupleInputsBridge`（`Tools/Assume/PackTupleBridge.lean`） | 同上 |
+| 足す +1 | N3-b `RawNodePh`（`Tools/Assume/NormNodePh.lean`） | 同上 |
+| 足す +1 | N3-b `NormNodePh`（同上） | 同上 |
+| 足す +1 | `RecRulePhU`（`Tools/PassPh/Defs.lean:17`、N1-a とは別の行） | RT_RECRULE_FREEZE §1.2・§5、reviewer 承認 |
+| 消す −1 | C.RT-2 | `readerTrace_final`（378f8e31、par/rt-final）。RT_U2_FREEZE §2、reviewer の承認範囲（`ShapeInputs'` で文が尽きる範囲） |
+| 消す −1 | C.CV-2 | 同上 |
+| 消す −1 | C.CV-3 | 同上 |
+
+- 証拠: `readerTrace_final` の exact-head build `rtfv-378f8e31` exit 0（838 jobs）。Check は TYPE 1 / MUTANT 3 / BINDERS 21（16 hypotheses、完全修飾名で照合）/ CLOSURE / AXIOMS 標準 3 つ。reviewer 承認。
+- 既存の行は変わらない: C.CV-4 `FuelBridge`、`SigTyClosed`、`InstSFieldsDet`。
+- T1 側の +2（`BetaNonTargetAgrees`、`ExprEqvLaws`）と T1L-74 の置き換えは、T1 台帳 §12.6 に書く。
+- 仮定の真偽は、C++ と環境の読みに依る。証明ではない。証明できたものは、行を消せる。
+- **現在値: FG 94**（92 + 5 − 3）。T1 は 57。
