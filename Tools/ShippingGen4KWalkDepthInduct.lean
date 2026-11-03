@@ -95,8 +95,59 @@ theorem synthesizeChild_depthK (D : Nat) (hD : D ≠ 0) : ChildAt O D :=
 
 end Induct
 
+
+/-! ## The connection to `memo_miss_of_child_miss` (MEMO_FAMILY_PROPOSAL §: K gives "child miss implies memo miss") -/
+
+/-- **`memo_miss_of_child_miss`**, from K only: a name that is not a child-cache key is not a memo key. -/
+theorem memo_miss_of_child_miss {m c : Std.HashMap Name Res} (h : MemoKeysInChild m c) {n : Name}
+    (hc : c.contains n = false) : m.contains n = false := by
+  cases hm : m.contains n with
+  | false => rfl
+  | true => rw [h n hm] at hc; exact absurd hc (by simp)
+
+theorem contains_false_of_get?_none (c : Std.HashMap Name Res) {n : Name} (h : c.get? n = none) :
+    c.contains n = false := by
+  rw [Std.HashMap.contains_eq_isSome_getElem?]
+  simpa [Std.HashMap.get?_eq_getElem?] using h
+
+/-- In a world satisfying `KWD K D`, a child-cache miss of `n` is a memo miss of `n`. -/
+theorem memo_miss_of_child_miss_KWD {O : RefLawsAOps MkRefd mref cref} {D : Nat} {w : Void IO.RealWorld}
+    (h : KWD O MemoKeysInChild D w) {n : Name} (hc : (cv w).contains n = false) : (mv w).contains n = false :=
+  memo_miss_of_child_miss h.1.2.2 hc
+
+section Miss
+variable {mctx : Meta.Context} {cctx : Core.Context}
+variable {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hA : AdmCtx O.quiet mctx cctx)
+include M hA
+
+/-- The child-cache read in `synthesizeChild`: it returns the cache as it is, in `KWD K D` (it cannot throw). -/
+theorem tripleK_cacheGetD (D : Nat) {R : Exception → Void IO.RealWorld → Prop} :
+    Triple mctx mref cctx cref (KWD O MemoKeysInChild D)
+      (sparkleChildCache.get : MetaM (Std.HashMap Name Res))
+      (fun c w => KWD O MemoKeysInChild D w ∧ c = cv w) R :=
+  Triple.of_runs (refGet_runs _) fun w a w' hw h => by
+    have hK := keepsK_framedNM M hA (stableK_KWD O MemoKeysInChild D) FramedNM.cacheGet w hw
+    have hf := O.frame hA _ FramedA.cacheGet w hw.1.1
+    rw [endW_of_runs h] at hK hf
+    exact ⟨hK.1, (runsTo_get_readOf _ h).trans hf.1.symm⟩
+
+/-- **The connection**: the miss branch of `synthesizeChild` (the read says `n` is not cached) is a world where `n` is not in the memo either. -/
+theorem childMiss_memoMiss (D : Nat) (n : Name) {R : Exception → Void IO.RealWorld → Prop} :
+    Triple mctx mref cctx cref (KWD O MemoKeysInChild D)
+      (sparkleChildCache.get : MetaM (Std.HashMap Name Res))
+      (fun c w => KWD O MemoKeysInChild D w ∧ (c.get? n = none → (mv w).contains n = false)) R :=
+  Triple.conseq (tripleK_cacheGetD M hA D) (fun _ h => h)
+    (fun c w h => ⟨h.1, fun hn => by
+      obtain ⟨hw, hc⟩ := h
+      subst hc
+      exact memo_miss_of_child_miss_KWD hw (contains_false_of_get?_none _ hn)⟩)
+    (fun _ _ h => h)
+
+end Miss
+
 end Tools.ShippingGen4KWalkDepthInduct
 
 #print axioms Tools.ShippingGen4KWalkDepthInduct.child_step
 #print axioms Tools.ShippingGen4KWalkDepthInduct.child_budget
 #print axioms Tools.ShippingGen4KWalkDepthInduct.synthesizeChild_depthK
+#print axioms Tools.ShippingGen4KWalkDepthInduct.childMiss_memoMiss
