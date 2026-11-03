@@ -29,3 +29,8 @@ Child 0 は D ≥ limit で入口が throwError（K のまま失敗）。Child (
 
 ## 5. Check（Tests/Gen4/KWalkDepthCheck.lean）
 TYPE / MUTANT（窓の dv を落とした型、予算を外した型は棄却。signature/defeq での棄却）/ AXIOMS / CLOSURE（LogMvK・PpMvK が閉包に入る）。
+
+## 6. 追記（rt170、実装後。台帳の差分は 0 のまま）
+* 型は §3 の案のとおりに BUILT。`child_step`（1 段）、`child_budget`（予算 k）、`synthesizeChild_depthK`（見出し）。`hlegacy` は `LegacyArmD O D`（実 translator `translateExprToWire env` を固定、`D ≠ 0`、`AdmCtx` つき）として取った。
+* 追加: `memo_miss_of_child_miss` / `memo_miss_of_child_miss_KWD` / `tripleK_cacheGetD` / `childMiss_memoMiss`。
+* `PpMvK` は帰納の閉包に入らない（`hleg` / `hImpl` の中身で使う）。残る仮説は `LogMvK`、`LegacyImplK`（D ≠ 0 ごと）、`LegacyArmD`（D ≠ 0 ごと）だけ。

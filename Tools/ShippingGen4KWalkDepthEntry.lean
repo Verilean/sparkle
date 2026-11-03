@@ -1,6 +1,6 @@
 import Tools.ShippingGen4KWalkDepthArms
 import Tools.ShippingGen4KWalkEnv
--- NOT BUILT. S6 (depth induction, part 3) of scripts/gen4/KWALK_PLAN.md (frozen in scripts/gen4/KWALK_S6_FREEZE.md): the entry of a NESTED run, `synthesizeCombinationalWith` and `synthesizeChild` at a
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkDepthEntry exit 0 (rt170, source as of 1e5b4f86); axioms standard only. Clean build is the coder's. S6 (depth induction, part 3) of scripts/gen4/KWALK_PLAN.md (frozen in scripts/gen4/KWALK_S6_FREEZE.md): the entry of a NESTED run, `synthesizeCombinationalWith` and `synthesizeChild` at a
 -- PINNED depth (`KWD O K D = KW O K ∧ dv = D`): a nested run gives the depth back; the entry throws at `D ≥ sparkleSynthDepthLimit`.
 -- The arm `hbody` is asked only for `D < sparkleSynthDepthLimit`, at depth `D + 1`. Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. DIAG-PENDING hypothesis `LogMvK`.
 -- No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.

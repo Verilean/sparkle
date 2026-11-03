@@ -1,5 +1,5 @@
 import Tools.ShippingGen4KWalkEntryCore
--- NOT BUILT. S6 (depth induction, part 1) of scripts/gen4/KWALK_PLAN.md, frozen in scripts/gen4/KWALK_S6_FREEZE.md: the window and entry theorems
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkDepth exit 0 (rt170, source as of 1e5b4f86); axioms standard only. Clean build is the coder's. S6 (depth induction, part 1) of scripts/gen4/KWALK_PLAN.md, frozen in scripts/gen4/KWALK_S6_FREEZE.md: the window and entry theorems
 -- with a DEPTH-INDEXED invariant `KWD O P D = KW O P ∧ dv = D` (the same proofs as Arms/EntryCore with the invariant `KWalk ∧ dv = D`; the
 -- `dv` is also a postcondition: a nested run gives the depth back).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. DIAG-PENDING hypothesis `LogMvK` (see Entry).

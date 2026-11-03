@@ -1,6 +1,6 @@
 import Tools.ShippingGen4KWalkDepthEntry
 import Tools.ShippingGen4KWalkLegacyCached
--- NOT BUILT. S6 (depth induction, part 4) of scripts/gen4/KWALK_PLAN.md (frozen in scripts/gen4/KWALK_S6_FREEZE.md): THE DEPTH INDUCTION. `hchild := synthesizeChild_windowD`, `hbody := fromConst_frontends_windowD`,
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkDepthInduct exit 0 (rt170, source as of 1e5b4f86); axioms standard only. Clean build is the coder's. S6 (depth induction, part 4) of scripts/gen4/KWALK_PLAN.md (frozen in scripts/gen4/KWALK_S6_FREEZE.md): THE DEPTH INDUCTION. `hchild := synthesizeChild_windowD`, `hbody := fromConst_frontends_windowD`,
 -- `htr := translate_keepsK` are closed TOGETHER, by induction on the budget `k` with `sparkleSynthDepthLimit ≤ D + k` (measure `sparkleSynthDepthLimit - dv`): the entry throws at `D ≥ limit`, so the body is only walked below the limit.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. Remaining hypotheses (the only ones): `LogMvK` (Diag), `LegacyImplK` (which holds `PpMvK`'s consumers), `hleg` (the legacy arm).
 -- No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.

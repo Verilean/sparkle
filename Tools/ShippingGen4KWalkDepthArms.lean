@@ -1,5 +1,5 @@
 import Tools.ShippingGen4KWalkDepth
--- NOT BUILT. S6 (depth induction, part 2) of scripts/gen4/KWALK_PLAN.md (frozen in scripts/gen4/KWALK_S6_FREEZE.md): the arms of `synthesizeFromConst` with the memo window at a PINNED depth
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkDepthArms exit 0 (rt170, source as of 1e5b4f86); axioms standard only. Clean build is the coder's. S6 (depth induction, part 2) of scripts/gen4/KWALK_PLAN.md (frozen in scripts/gen4/KWALK_S6_FREEZE.md): the arms of `synthesizeFromConst` with the memo window at a PINNED depth
 -- (`KWD O K D`: copy of EntryArms with the invariant `KWalk ∧ dv = D`; the logger and `machineCert` are generic in the invariant).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. DIAG-PENDING hypothesis `LogMvK`. The legacy tail is the premise `hlegacy`.
 -- No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
