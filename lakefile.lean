@@ -4895,3 +4895,6 @@ lean_lib «Tools.ShippingGen4KWalkProjField» where
 
 lean_lib «Tools.ShippingGen4KWalkCanon» where
   roots := #[`Tools.ShippingGen4KWalkCanon]
+
+lean_lib «Tools.ShippingGen4KWalkFallback» where
+  roots := #[`Tools.ShippingGen4KWalkFallback]
