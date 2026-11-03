@@ -5011,3 +5011,9 @@ lean_lib «Tools.ShippingGen5AuditUA1» where
 
 lean_lib «Tests.Gen5.AuditUA1Check» where
   roots := #[`Tests.Gen5.AuditUA1Check]
+
+lean_lib «Tools.ShippingGen5AuditE3B3» where
+  roots := #[`Tools.ShippingGen5AuditE3B3]
+
+lean_lib «Tests.Gen5.AuditE3B3Check» where
+  roots := #[`Tests.Gen5.AuditE3B3Check]
