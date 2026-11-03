@@ -5433,3 +5433,9 @@ lean_lib «Tools.ShippingGen5ReaderTraceInlineCompose» where
 
 lean_lib «Tests.Gen5.ReaderTraceInlineComposeCheck» where
   roots := #[`Tests.Gen5.ReaderTraceInlineComposeCheck]
+
+lean_lib «Tools.ShippingGen5ReaderTraceFinal» where
+  roots := #[`Tools.ShippingGen5ReaderTraceFinal]
+
+lean_lib «Tests.Gen5.ReaderTraceFinalCheck» where
+  roots := #[`Tests.Gen5.ReaderTraceFinalCheck]
