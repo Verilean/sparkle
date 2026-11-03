@@ -1,6 +1,6 @@
 import Tools.ShippingGen4KWalkInst
 import Tools.ShippingChildLoopsCP
--- NOT BUILT. S3 (part 4) of scripts/gen4/KWALK_PLAN.md: `canonHardwareKey` (the multi-output call key) for `StableK` (copy of ShippingChildCanonKeyA, the two side-ref reads are `FramedNM.sideGetIO`).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkCanon exit 0 (rt167, source as of de85ce20); axioms standard only. Clean build is the coder's. S3 (part 4) of scripts/gen4/KWALK_PLAN.md: `canonHardwareKey` (the multi-output call key) for `StableK` (copy of ShippingChildCanonKeyA, the two side-ref reads are `FramedNM.sideGetIO`).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkCanon
 open Lean Meta

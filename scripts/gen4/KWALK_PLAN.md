@@ -84,7 +84,7 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 | S0 | §1 の土台 + Check | **完了（BUILT）** | 320 + 194（実測） |
 | S1 | `StableK`（`cv/sv/dv/mv` が同じなら移る）と T1/T2 の K 版 | **完了（BUILT、rt165）** | 195 + 200 + Env 30（実測。見積り 200-300 に収まった） |
 | S2 | T3: `translateStepWith`/`Core`/fuel、T5 の K 版（`translateK_of_fallback`） | **完了（BUILT、rt166、`Tools/ShippingGen4KWalkTranslate.lean`）** | 139 + Check 202（実測。見積り 150-250 に収まった。T5 の telescope 結合子は S0 の `keeps_KW_*` で済み、S2 の T5 相当は fuel 帰納） |
-| S3 | T4: fallback と handler（A 版 FallbackA 616 + WalkA 873 に相当） | 未着手（試験のみ、`Tools/ShippingGen4KWalkFallbackProbe.lean` 48 行、BUILT） | 1000-1500。**不確実が最大**。試験: 既存の `kwalk` タクティクは K 版で動いた（下の注） |
+| S3 | T4: fallback と handler（A 版 FallbackA 616 + WalkA 873 に相当） | **部分完了（BUILT、rt167）**: FallbackA 相当（emit / rec 腕 / instance / telescope 腕 / canonHardwareKey / 15 腕の組立て）と LegacyCached。**未着手: `LegacyImplK`（`Rec.translateExprToWireImpl`、A 版 Helpers 171 + Handlers 179 + Impl 120 + Tail 223 と、それを歩く `vca`＝WalkA 873 の K 版）**。下の「S3 の結果」 | 実測 264 + 206 + 130 + 80 + 84 + 85 = 849 + Check 196（FallbackA 616 相当の部分。見積り 1000-1500 の残りは LegacyImplK） |
 | S4 | E6/E5: 入口の腕（certified / mixed / machine / legacy）と窓の開閉 | 未着手 | 400-600 |
 | S5 | E2-E4/E7: 入口の前置き、リセット、深さ、`try/finally`、窓の中 | 未着手 | 300-400 |
 | S6 | E1/E8: `synthesizeChild`、深さ帰納、`memo_miss_of_child_miss` への接続 | 未着手 | 200-300 |
@@ -98,6 +98,19 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 
 **S3 試験の結果（rt166）**: `Tools/ShippingChildKWalk.lean` の `kwalk [makeWirePK M hA hS, emitAssignP]` で、FallbackA の葉の emitter 3 つ（`emitBoolResult`/`emitSliceResult`/`emitMuxResult`）の K 版が通った（`kjob lake build` 326 jobs exit 0、`unfold` の後に `kwalk` 1 行）。
 `kwalk` は `KeepsCP` について `I` に一般なので、`StableK` 版でもそのまま使える。試したのは葉 3 つだけで、`rec` を取る handler、`FramedNM` 以外の腕（`liftMetaM` を含むもの）、telescope を含むもの（`projFieldName?` 等）は試していない。S3 の 1000-1500 行の見積りは変えていない（推定）。
+
+## S3 の結果（rt167、`scripts/gen4/KWALK_S3_FREEZE.md` の型で実装。全て `kjob lake build` 済み、sorry・axiom・native_decide なし、axioms は標準のみ）
+
+* `Tools/ShippingGen4KWalkEmit.lean`（264）: 結果 emitter 7 つ、`translateConcatActsK`、rec を取る腕 20 個（FallbackA 96-325 の K 版）。`kwalk` は K 版でもそのまま動いた。**唯一の止まり**: `loopRegister` / `circuitDo` / `circuitDo2` の腕で `mkFreshFVarId` が `monadNameGeneratorLift ..` に unfold されて止まった（`kwalk` の `Keeps` 規則が `keepsA_framed O hA hS` 固定のため）。`kwalk` の規則に `keepsK_framedNM M hA hS (FramedNM.freshFVar (Fresh := MkRefd))` を渡して解決（家族に文は足していない）。
+* `Tools/ShippingGen4KWalkInst.lean`（206）: wrapper、instance helper 群、`translateInstanceUncachedWithK`、`translateProjInstanceUncachedWithK`、`translateInstanceOrFallbackK`。`keepsA_framed O hA hS (FramedA.X)` → `keepsK_framedNM M hA hS (FramedNM.X)` の機械的な写しで通った。
+* **telescope 腕** `Tools/ShippingGen4KWalkProjField.lean`（130）: `projFieldNameK`（`forallTelescopeReducing` は `M.tele.telescope`）。止まりかけた点: `getConstInfoInduct/Ctor` の `throwError`。`MemoFamily.frame` は `FramedNM` にしか `mv` を保証せず、`throwError` は `FramedNM` ではない。
+  `Lean.throwError` を `getRef`（context 読み）→ `AddErrorMessageContext.add`（= `addMessageContextFull` = `getEnv`(`FramedNM.env`) + `getMCtx`(`FramedNM.metaGet`) + `getLCtx`/`getOptions`(context 読み)）→ `throw` に展開し、前半を `Keeps` の bind で歩き、例外のメッセージ類は既存の `O.excOk`（`Op.throwErr`）で閉じた（`keepsK_throwError`）。**新しい law・家族の文は不要**（この調査では、家族に `throwError` の構成子を足す必要は見つからなかった）。
+* `Tools/ShippingGen4KWalkCanon.lean`（80）: `canonHardwareKeyK`（`FramedNM.sideGetIO` ×2、`lookupVarP`、`KeepsCP.forIn_*`、`fuelFixM`）。A 版と同形。
+* `Tools/ShippingGen4KWalkFallback.lean`（84）: `translateFallbackK`、`translate_keepsK`。**仮説として残るのは `LegacyImplK`（`Rec.translateExprToWireImpl`）、`LegacyCachedK`、`ChildEntryK`（`childSynthEntry`）の 3 つ**。`canonHardwareKey` と `projFieldName?` は証明済みで仮説から外れた（A 版は 5 つ）。
+* `Tools/ShippingGen4KWalkLegacyCached.lean`（85）: `legacyCachedK_of_impl : LegacyImplK → LegacyCachedK`。これで `translate_keepsK` の仮説は `LegacyImplK` と `ChildEntryK`（S4-S6 の入口帰納）の 2 つに実質減る（`translate_keepsK` 自体の型は 3 仮説のまま、`LegacyCachedK` は `legacyCachedK_of_impl` から得る）。
+* `Tests/Gen4/KWalkFallbackCheck.lean`（196）: KWALKFALLBACK CHECK: TYPE 5/5 / MUTANT 3/3（signature/defeq での棄却、意味的反例ではない）/ AXIOMS 10/10 標準のみ / CLOSURE 10/10 clean（Laws・T1Hyp・T1HypND 無し、陽性対照 2 件）。
+* **終わらなかった handler の一覧**: `LegacyImplK` の全体 — `Rec.translateExprToWireImpl` が呼ぶ `handleApplicative` / `handleBitVecOps` / `handleRegister` / `handleMux` / `handleMemory` / `handleLoop` / `handleCircuitMonad` / `handleDefinitionUnfold` 等（A 版 `ShippingChildLegacyHandlersA` 179 / `HelpersA` 171 / `ImplA` 120 / `TailA` 223 行）と、それを歩く `vca`（`ShippingChildWalkA` 873 行、`keepsA_framed O hA hS` / `keepsA_diag` / telescope の `RefLawsATele` 固定）の K 版。
+  `vca` の K 版が要る理由: A 版の handler は `@[keepsA]` 属性と `vca` で歩いており、`kwalk` ではない（`kwalk` は FallbackA 用）。今回は着手していない。見積り: WalkA の写し 600-900 + Helpers/Handlers/Impl/Tail の写し 400-700（推定、実測ではない）。`Diag` の腕（tracing）は `FramedNM` に対応が無い可能性があり、読んだだけで未確認。
 
 ## 4. 前提を増やさないことの確認と、止まる点
 

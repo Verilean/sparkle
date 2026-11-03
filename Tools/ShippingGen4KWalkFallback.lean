@@ -1,6 +1,6 @@
 import Tools.ShippingGen4KWalkProjField
 import Tools.ShippingGen4KWalkCanon
--- NOT BUILT. S3 (part 5) of scripts/gen4/KWALK_PLAN.md, frozen in scripts/gen4/KWALK_S3_FREEZE.md: the fallback assembled (one arm per `fallbackKind`) and the shipping translator for `StableK`
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkFallback exit 0 (rt167, source as of de85ce20); axioms standard only. Clean build is the coder's. S3 (part 5) of scripts/gen4/KWALK_PLAN.md, frozen in scripts/gen4/KWALK_S3_FREEZE.md: the fallback assembled (one arm per `fallbackKind`) and the shipping translator for `StableK`
 -- (copy of ShippingChildFallbackA 505-577). `canonHardwareKey` and `projFieldName?` are PROVED (Canon / ProjField files); the three REMAINING HYPOTHESES of `translateFallbackK` are
 -- `LegacyImplK` (`Rec.translateExprToWireImpl`, not decomposed), `LegacyCachedK` (its cache wrapper) and `ChildEntryK` (`childSynthEntry`, the child recursion = S4-S6).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.

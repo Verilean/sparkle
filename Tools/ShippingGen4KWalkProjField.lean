@@ -1,5 +1,5 @@
 import Tools.ShippingGen4KWalkInst
--- NOT BUILT (probe part built, rt167). S3 (part 3), telescope arm of scripts/gen4/KWALK_PLAN.md: `projFieldName?` for `StableK` (copy of ShippingChildProjFieldA).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkProjField exit 0 (rt167, source as of de85ce20); axioms standard only. Clean build is the coder's. S3 (part 3), telescope arm of scripts/gen4/KWALK_PLAN.md: `projFieldName?` for `StableK` (copy of ShippingChildProjFieldA).
 -- `throwError` (MetaM) is shown to keep a `StableK` invariant by unfolding it into reads (`getEnv` = FramedNM.env, `getMCtx` = FramedNM.metaGet, `getRef`/`getLCtx`/`getOptions` = context reads)
 -- plus the EXISTING `O.excOk` for the exception's message class; no `mv` law for `throwError` is needed. The telescope is `M.tele.telescope` (MemoFamily, approved).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.

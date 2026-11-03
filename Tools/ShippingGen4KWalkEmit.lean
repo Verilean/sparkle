@@ -1,6 +1,6 @@
 import Tools.ShippingGen4KWalkTranslate
 import Tools.ShippingChildKWalk
--- NOT BUILT. S3 (part 1) of scripts/gen4/KWALK_PLAN.md, frozen in scripts/gen4/KWALK_S3_FREEZE.md: the result emitters and the `rec`-taking handlers of the fallback
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkEmit exit 0 (rt167, source as of de85ce20); axioms standard only. Clean build is the coder's. S3 (part 1) of scripts/gen4/KWALK_PLAN.md, frozen in scripts/gen4/KWALK_S3_FREEZE.md: the result emitters and the `rec`-taking handlers of the fallback
 -- (copies of ShippingChildFallbackA 96-325), with `StableK` instead of `StableA`.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom.
 -- No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.

@@ -2,7 +2,7 @@ import Tools.ShippingGen4KWalkFallback
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
 set_option autoImplicit false
--- NOT BUILT. Audit of Tools/ShippingGen4KWalk{Emit,Inst,ProjField,Canon,Fallback}.lean (S3 of scripts/gen4/KWALK_PLAN.md).
+-- BUILT: kjob lake build Tests.Gen4.KWalkFallbackCheck exit 0 (rt167, source as of de85ce20); KWALKFALLBACK CHECK: TYPE 5/5 / MUTANT 3/3 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 10/10 standard-only / CLOSURE 10/10 clean (+2 positive controls). Clean build is the coder's. Audit of Tools/ShippingGen4KWalk{Emit,Inst,ProjField,Canon,Fallback}.lean (S3 of scripts/gen4/KWALK_PLAN.md).
 
 /-! # Audit of the S3 files
 

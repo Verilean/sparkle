@@ -1,5 +1,5 @@
 import Tools.ShippingGen4KWalkFallback
--- NOT BUILT. S3 (part 6) of scripts/gen4/KWALK_PLAN.md: `LegacyCachedK` from `LegacyImplK` (copy of ShippingChildLegacyCachedA), `StableK` instead of `StableA`.
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyCached exit 0 (rt167, source as of de85ce20); axioms standard only. Clean build is the coder's. S3 (part 6) of scripts/gen4/KWALK_PLAN.md: `LegacyCachedK` from `LegacyImplK` (copy of ShippingChildLegacyCachedA), `StableK` instead of `StableA`.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkLegacyCached
 open Lean Meta
