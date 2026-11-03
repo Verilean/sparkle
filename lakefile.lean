@@ -4898,3 +4898,6 @@ lean_lib «Tools.ShippingGen4KWalkCanon» where
 
 lean_lib «Tools.ShippingGen4KWalkFallback» where
   roots := #[`Tools.ShippingGen4KWalkFallback]
+
+lean_lib «Tests.Gen4.KWalkFallbackCheck» where
+  roots := #[`Tests.Gen4.KWalkFallbackCheck]
