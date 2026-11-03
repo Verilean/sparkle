@@ -4859,3 +4859,6 @@ lean_lib «Tools.Assume.FramedACases» where
 
 lean_lib «Tools.ShippingGen4KWalk» where
   roots := #[`Tools.ShippingGen4KWalk]
+
+lean_lib «Tests.Gen4.KWalkCheck» where
+  roots := #[`Tests.Gen4.KWalkCheck]
