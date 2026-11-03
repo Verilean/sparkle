@@ -147,6 +147,14 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       if h == c then
         if ← runTac ⟨← `(tactic| (apply $(⟨stx⟩) <;> first | assumption | skip))⟩ then
           return true
+    -- a local hypothesis about this very head (a recursive call's induction hypothesis)
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let dty ← instantiateMVars d.type
+      if let some hp := progOf? dty then
+        if headConst? hp == some c then
+          let id := mkIdent d.userName
+          if ← runTac (← `(tactic| exact $id)) then return true
     -- unfold a definition once
     let id := mkIdent c
     runTac (← `(tactic| unfold $id:ident))

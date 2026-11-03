@@ -90,4 +90,28 @@ theorem splitReturnLeaves_keepsK (hA : AdmCtx O.quiet mctx cctx) (e : Lean.Expr)
 
 end Tail
 
+section Tail2
+variable {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hpp : PpMvK O) {I : Void IO.RealWorld → Prop}
+  (hS : StableK O.quiet I)
+include M hpp hS
+
+theorem bindInputsLegacyKP (hA : AdmCtx O.quiet mctx cctx) (parameters : List (String × Nat))
+    (symbolicMode : Bool) (xs : Array Lean.Expr) (k : CompilerM String)
+    (hk : KeepsCP mctx mref cctx cref I k) (i : Nat) :
+    KeepsCP mctx mref cctx cref I (bindInputsLegacy parameters symbolicMode xs i k) := by
+  by_cases h : i < xs.size
+  · have ih := bindInputsLegacyKP hA parameters symbolicMode xs k hk (i + 1)
+    unfold bindInputsLegacy
+    rw [dif_pos h]
+    kwalkM [keepsK_getDecl M hpp hS _ _, keepsK_throwError M _ hS _ _,
+      isSignalBinderTypeK M hpp hS _ _, inferHWTypeFromSignalK M hpp hS _ _,
+      withDimVarMappingP M hpp hS _ _ _, bindInputPortKP M _ hS _ _ _ _, KeepsCP.tryCatch]
+  · unfold bindInputsLegacy
+    rw [dif_neg h]
+    exact hk
+termination_by xs.size - i
+decreasing_by omega
+
+end Tail2
+
 end Tools.ShippingGen4KWalkLegacyTail
