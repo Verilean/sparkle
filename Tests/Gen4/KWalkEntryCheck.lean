@@ -104,6 +104,28 @@ def entryNested : Prop :=
     windowTripleP (fun w => KWalkOf O w ∧ readOf sparkleSynthDepth w ≠ 0) mctx mref cctx cref O declName
       (synthesizeCombinationalCoreWith translate declName [] false true)
 
+def windowTripleQ {α : Type} (Pre : Void IO.RealWorld → Prop) (Rf : Exception → Void IO.RealWorld → Prop)
+    (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
+    (cref : ST.Ref IO.RealWorld Core.State) (O : RefLawsAOps MkRefd mref cref) (n : Name) (p : MetaM α) : Prop :=
+  ∀ w, Pre w → match p mctx mref cctx cref w with
+    | .ok _ w' => KWalkXOf O n w'
+    | .error e w' => Rf e w'
+
+def entryTop : Prop :=
+  ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {O : RefLawsAOps MkRefd mref cref},
+    Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx → logMv O →
+    ∀ (translate : Lean.Environment → TranslateFn) (declName : Name),
+    (∀ (b : Bool) (env : Lean.Environment) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+      windowTriple mctx mref cctx cref O declName
+        (synthesizeFromConst (translate env) (profLogIO b) declName [] false true ci isInst)) →
+    windowTripleQ
+      (fun w => (O.quiet w ∧ readOf sparkleChildSynth w = some synthesizeChild ∧ True) ∧
+        readOf sparkleSynthDepth w = 0)
+      (fun e w => (O.quiet w ∧ readOf sparkleChildSynth w = some synthesizeChild ∧ True) ∧ OkExc e)
+      mctx mref cctx cref O declName
+      (synthesizeCombinationalCoreWith translate declName [] false true)
+
 end Expected
 
 namespace Mutant
@@ -181,7 +203,8 @@ elab "#kwalkentry_check" : command => liftTermElabM do
      (en ++ `keepsK_profLog, pre ++ `Expected ++ `profLog),
      (ar ++ `fromConst_certified_windowK, pre ++ `Expected ++ `certifiedArm),
      (ar ++ `fromConst_frontends_windowK, pre ++ `Expected ++ `frontends),
-     (`Tools.ShippingGen4KWalkEntryCore.entryNested_windowK, pre ++ `Expected ++ `entryNested)]
+     (`Tools.ShippingGen4KWalkEntryCore.entryNested_windowK, pre ++ `Expected ++ `entryNested),
+     (`Tools.ShippingGen4KWalkEntryCore.entryTop_windowK, pre ++ `Expected ++ `entryTop)]
   let mutCases : List (String × Name × Name) :=
     [("M1", en ++ `triple_memoInsert, `M1), ("M2", ar ++ `fromConst_frontends_windowK, `M2),
      ("M3", `Tools.ShippingGen4KWalkEntryCore.entryNested_windowK, `M3)]
@@ -221,7 +244,7 @@ elab "#kwalkentry_check" : command => liftTermElabM do
   -- LogMvK is in the closure of the arms (it is their hypothesis): count that it IS reachable
   let (seen, _) := closure (← getEnv) [ar ++ `fromConst_frontends_windowK] {} {}
   let logIn := seen.contains (en ++ `LogMvK)
-  logInfo m!"KWALKENTRY CHECK: TYPE {ok}/5 / MUTANT {rej}/3 (signature/defeq rejections, not semantic counterexamples) / AXIOMS {axOk}/{audited.length} standard-only / CLOSURE {clOk}/{audited.length} clean (+2 positive controls) / LogMvK hypothesis in closure of frontends: {logIn}"
+  logInfo m!"KWALKENTRY CHECK: TYPE {ok}/6 / MUTANT {rej}/3 (signature/defeq rejections, not semantic counterexamples) / AXIOMS {axOk}/{audited.length} standard-only / CLOSURE {clOk}/{audited.length} clean (+2 positive controls) / LogMvK hypothesis in closure of frontends: {logIn}"
 
 #kwalkentry_check
 
