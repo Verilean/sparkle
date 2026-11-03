@@ -2,7 +2,7 @@ import Tools.ShippingGen4FbHsq
 import Tests.Gen4.FbPPCheck
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (unit B.F-4 hS -> hQ bridge). Text = scripts/gen4/FB_HSQ_SCRATCH.md §3 (bridge renamed firstLeaf_childRunN). Reuses `fbReach`/`auditOk`/`addFixture` of Tests.Gen4.FbPPCheck.
+-- BUILT (unit B.F-4 hS -> hQ bridge): `kjob lake build Tests.Gen4.FbHsqCheck` exit 0 (821 jobs) in the Pod (Lean commit b3e37699; comment-only header edit after): TYPE 2 / MUTANT REJECTED 8 / AXIOMS 2 (standard only) / controls 4 / REACH 2 / sorry 0; NOT a clean issue-linked build (coder). Text = FB_HSQ_SCRATCH.md §3 (bridge renamed firstLeaf_childRunN).
 -- All TYPE/MUTANT comparisons run under `withReducible` (one comparator, as FbFragRunCheck).
 -- Checks: TYPE (2 theorems), MUTANT (well-typed single changes; signature/defeq rejections, NOT semantic counterexamples),
 -- value-closure audit (roots judged themselves; `missing` fails), controls (inside `withoutModifyingEnv`), AXIOMS.
@@ -164,5 +164,6 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     logInfo m!"FBHSQ REACH {c}: no Tools.ShippingMemo.* in the closure (visited {r.visited}, missing {r.missing.size}, opaque {r.opaques.size})"
   for c in hqNew do
     checkAxioms c
+  logInfo m!"FBHSQ SUMMARY: TYPE 2 / MUTANT REJECTED 8 / AXIOMS {hqNew.length} (standard only) / controls 4 / REACH {hqNew.length}"
 
 end Tests.Gen4.FbHsqCheck

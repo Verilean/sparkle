@@ -2,7 +2,7 @@ import Tools.ShippingGen4FbFragRun
 import Tools.ShippingGen4FirstLeafR
 set_option autoImplicit false
 -- NOT BUILT (unit B.F-4 hS -> hQ bridge): written against scripts/gen4/FB_HSQ_SCRATCH.md §3/§5 (reviewer-approved at e2186f49). Rename: §3 `bridge` is `firstLeaf_childRunN`... see below.
--- NOT BUILT (unit B.F-4 hS -> hQ bridge): written against scripts/gen4/FB_HSQ_SCRATCH.md §3/§5 (reviewer-approved at e2186f49).
+-- BUILT (unit B.F-4 hS -> hQ bridge): `kjob lake build Tools.ShippingGen4FbHsq` exit 0 (713 jobs) in the Pod (Lean commit b3e37699; comment-only header edit after); NOT a clean issue-linked build (coder). Written against scripts/gen4/FB_HSQ_SCRATCH.md §3/§5 (approved e2186f49).
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field / hypothesis (only `RealChildA` and `EntryDefines`, as in the scratch).
 
 /-! # B.F-4: the fragment-limited `hS` -> `hQ` bridge
