@@ -1,4 +1,5 @@
 import Tools.ShippingGen4KWalkDepthInduct
+import Tools.ShippingGen4KWalkDepthTop
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
 -- BUILT: kjob lake build Tests.Gen4.KWalkDepthCheck exit 0 (rt170, source as of 1e5b4f86); axioms standard only. Clean build is the coder's. KWALKDEPTH CHECK: audit of Tools/ShippingGen4KWalk{Depth,DepthArms,DepthEntry,DepthInduct}.lean (S6 of scripts/gen4/KWALK_PLAN.md, scripts/gen4/KWALK_S6_FREEZE.md).
@@ -95,6 +96,52 @@ def headline : Prop :=
     ∀ (D : Nat), D ≠ 0 → ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx → ∀ n : Name,
       tripleD (KDof O D) (KDof O D) (fun e w => KDof O D w ∧ OkExc e) mctx mref cctx cref (synthesizeChild n)
 
+/-- The start world of the outermost run: quiet, the synthesis ref, depth 0 (no K needed). -/
+def KD0of {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (w : Void IO.RealWorld) : Prop :=
+  (O.quiet w ∧ readOf sparkleChildSynth w = some synthesizeChild ∧ True) ∧ readOf sparkleSynthDepth w = 0
+
+/-- The failure world of the outermost run: quiet and the synthesis ref only. -/
+def KQof {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (O : RefLawsAOps MkRefd mref cref) (w : Void IO.RealWorld) : Prop :=
+  O.quiet w ∧ readOf sparkleChildSynth w = some synthesizeChild ∧ True
+
+def memoResetD : Prop :=
+  ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {O : RefLawsAOps MkRefd mref cref},
+    Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx →
+    ∀ (P : Std.HashMap Name Res → Std.HashMap Name Res → Prop) (D : Nat) {R : Exception → Void IO.RealWorld → Prop},
+    tripleD (fun w => (O.quiet w ∧ readOf sparkleChildSynth w = some synthesizeChild ∧
+        P (readOf sparkleSubModuleCache w) (readOf sparkleChildCache w)) ∧ readOf sparkleSynthDepth w = D)
+      (fun w => (O.quiet w ∧ readOf sparkleChildSynth w = some synthesizeChild ∧ readOf sparkleSubModuleCache w = {}) ∧
+        readOf sparkleSynthDepth w = D) R mctx mref cctx cref (sparkleSubModuleCache.set {} : MetaM Unit)
+
+def entryTopD : Prop :=
+  ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {O : RefLawsAOps MkRefd mref cref},
+    Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx → logMv O →
+    ∀ (translate : Lean.Environment → TranslateFn) (declName : Name),
+    (0 < sparkleSynthDepthLimit → ∀ (b : Bool) (env : Lean.Environment) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+      tripleD (KDof O 1) (KDXof O declName 1) (fun e w => KDof O 1 w ∧ OkExc e) mctx mref cctx cref
+        (synthesizeFromConst (translate env) (profLogIO b) declName [] false true ci isInst)) →
+    tripleD (KD0of O) (KDXof O declName 0) (fun e w => KQof O w ∧ OkExc e) mctx mref cctx cref
+      (synthesizeCombinationalCoreWith translate declName [] false true)
+
+/-- The outermost entry with the three remaining hypotheses only. -/
+def topEntryK : Prop :=
+  ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {O : RefLawsAOps MkRefd mref cref},
+    Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx → logMv O →
+    (∀ D : Nat, D ≠ 0 → Tools.ShippingGen4KWalkFallback.LegacyImplK O (KDof O D)) →
+    (∀ D : Nat, D ≠ 0 → ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
+      ∀ (b : Bool) (env : Lean.Environment) (declName : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+        certifiedShape? false [] ci = none → mixedCertifiedShape? false [] ci isInst = none →
+        tripleD (KDof O D) (KDXof O declName D) (fun e w => KDof O D w ∧ OkExc e) mctx mref cctx cref
+          (synthesizeFromConst (fun e h t n => translateExprToWire env e h t n) (profLogIO b) declName [] false false ci isInst)) →
+    ∀ declName : Name,
+    tripleD (KD0of O) (KDXof O declName 0) (fun e w => KQof O w ∧ OkExc e) mctx mref cctx cref
+      (synthesizeCombinationalCoreWith (fun env e h t n => translateExprToWire env e h t n) declName [] false true)
+
 end Expected
 
 namespace Mutant
@@ -149,6 +196,48 @@ def M4 : Prop :=
       Expected.tripleD (Expected.KDof O D) (Expected.KDof O D) (fun e w => Expected.KDof O D w ∧ OkExc e) mctx mref cctx cref
         (synthesizeChild n)
 
+/-- M5: the outermost entry whose success world still has depth `1` (the depth not given back). -/
+def M5 : Prop :=
+  ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {O : RefLawsAOps MkRefd mref cref},
+    Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx → Expected.logMv O →
+    ∀ (translate : Lean.Environment → TranslateFn) (declName : Name),
+    (0 < sparkleSynthDepthLimit → ∀ (b : Bool) (env : Lean.Environment) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+      Expected.tripleD (Expected.KDof O 1) (Expected.KDXof O declName 1)
+        (fun e w => Expected.KDof O 1 w ∧ OkExc e) mctx mref cctx cref
+        (synthesizeFromConst (translate env) (profLogIO b) declName [] false true ci isInst)) →
+    Expected.tripleD (Expected.KD0of O) (Expected.KDXof O declName 1) (fun e w => Expected.KQof O w ∧ OkExc e)
+      mctx mref cctx cref (synthesizeCombinationalCoreWith translate declName [] false true)
+
+/-- M6: the outermost entry without the guard `0 < sparkleSynthDepthLimit`. -/
+def M6 : Prop :=
+  ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {O : RefLawsAOps MkRefd mref cref},
+    Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx → Expected.logMv O →
+    ∀ (translate : Lean.Environment → TranslateFn) (declName : Name),
+    (∀ (b : Bool) (env : Lean.Environment) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+      Expected.tripleD (Expected.KDof O 1) (Expected.KDXof O declName 1)
+        (fun e w => Expected.KDof O 1 w ∧ OkExc e) mctx mref cctx cref
+        (synthesizeFromConst (translate env) (profLogIO b) declName [] false true ci isInst)) →
+    Expected.tripleD (Expected.KD0of O) (Expected.KDXof O declName 0) (fun e w => Expected.KQof O w ∧ OkExc e)
+      mctx mref cctx cref (synthesizeCombinationalCoreWith translate declName [] false true)
+
+/-- M7: the outermost entry claiming the full K (not only quiet + the synthesis ref) on failure. -/
+def M7 : Prop :=
+  ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {O : RefLawsAOps MkRefd mref cref},
+    Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx → Expected.logMv O →
+    (∀ D : Nat, D ≠ 0 → Tools.ShippingGen4KWalkFallback.LegacyImplK O (Expected.KDof O D)) →
+    (∀ D : Nat, D ≠ 0 → ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
+      ∀ (b : Bool) (env : Lean.Environment) (declName : Name) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+        certifiedShape? false [] ci = none → mixedCertifiedShape? false [] ci isInst = none →
+        Expected.tripleD (Expected.KDof O D) (Expected.KDXof O declName D) (fun e w => Expected.KDof O D w ∧ OkExc e) mctx mref cctx cref
+          (synthesizeFromConst (fun e h t n => translateExprToWire env e h t n) (profLogIO b) declName [] false false ci isInst)) →
+    ∀ declName : Name,
+    Expected.tripleD (Expected.KD0of O) (Expected.KDXof O declName 0) (fun e w => Expected.KDof O 0 w ∧ OkExc e)
+      mctx mref cctx cref
+      (synthesizeCombinationalCoreWith (fun env e h t n => translateExprToWire env e h t n) declName [] false true)
+
 end Mutant
 
 /-! ## The checker -/
@@ -182,16 +271,21 @@ elab "#kwalkdepth_check" : command => liftTermElabM do
   let da := `Tools.ShippingGen4KWalkDepthArms
   let de := `Tools.ShippingGen4KWalkDepthEntry
   let di := `Tools.ShippingGen4KWalkDepthInduct
+  let dt := `Tools.ShippingGen4KWalkDepthTop
   let pre := `Tests.Gen4.KWalkDepthCheck
   let typeCases : List (Name × Name) :=
     [(dp ++ `triple_memoInsertD, pre ++ `Expected ++ `memoInsertD),
      (dp ++ `triple_childInsertD, pre ++ `Expected ++ `childInsertD),
      (de ++ `entryNested_windowD, pre ++ `Expected ++ `entryNestedD),
      (de ++ `synthesizeChild_windowD, pre ++ `Expected ++ `childWindowD),
-     (di ++ `synthesizeChild_depthK, pre ++ `Expected ++ `headline)]
+     (di ++ `synthesizeChild_depthK, pre ++ `Expected ++ `headline),
+     (dt ++ `triple_memoResetD, pre ++ `Expected ++ `memoResetD),
+     (dt ++ `entryTop_windowD, pre ++ `Expected ++ `entryTopD),
+     (dt ++ `topEntry_K, pre ++ `Expected ++ `topEntryK)]
   let mutCases : List (String × Name × Name) :=
     [("M1", dp ++ `triple_memoInsertD, `M1), ("M2", de ++ `entryNested_windowD, `M2),
-     ("M3", de ++ `entryNested_windowD, `M3), ("M4", di ++ `synthesizeChild_depthK, `M4)]
+     ("M3", de ++ `entryNested_windowD, `M3), ("M4", di ++ `synthesizeChild_depthK, `M4),
+     ("M5", dt ++ `entryTop_windowD, `M5), ("M6", dt ++ `entryTop_windowD, `M6), ("M7", dt ++ `topEntry_K, `M7)]
   let mut ok : Nat := 0
   for (t, e) in typeCases do
     let ti ← getConstInfo t
@@ -208,7 +302,7 @@ elab "#kwalkdepth_check" : command => liftTermElabM do
      da ++ `fromConst_certified_windowD, da ++ `fromConst_mixed_windowD, da ++ `fromConst_machine_windowD,
      da ++ `fromConst_frontends_windowD, de ++ `combWith_nestedD,
      di ++ `child_step, di ++ `child_budget, di ++ `memo_miss_of_child_miss, di ++ `memo_miss_of_child_miss_KWD,
-     di ++ `tripleK_cacheGetD, di ++ `childMiss_memoMiss]
+     di ++ `tripleK_cacheGetD, di ++ `childMiss_memoMiss, dt ++ `triple_childResetD]
   let mut axOk : Nat := 0
   let mut clOk : Nat := 0
   for n in audited do
@@ -229,7 +323,18 @@ elab "#kwalkdepth_check" : command => liftTermElabM do
   let legIn := seen.contains (di ++ `LegacyArmD)
   let ppIn := seen.contains `Tools.ShippingGen4KWalkHelpers.PpMvK
   unless logIn && implIn && legIn do throwError "a remaining hypothesis is NOT in the closure"
-  logInfo m!"KWALKDEPTH CHECK: TYPE {ok}/{typeCases.length} / MUTANT {rej}/{mutCases.length} (signature/defeq rejections, not semantic counterexamples) / AXIOMS {axOk}/{audited.length} standard-only / CLOSURE {clOk}/{audited.length} clean (+2 positive controls) / hypotheses in closure of the headline: LogMvK {logIn}, LegacyImplK {implIn}, LegacyArmD {legIn}; PpMvK {ppIn}"
+  -- the top entry: exactly three hypotheses (in its closure and in its type); the other hypothesis-like definitions are not
+  let (seenT, _) := closure (← getEnv) [dt ++ `topEntry_K] {} {}
+  let tyT := (← getConstInfo (dt ++ `topEntry_K)).type.getUsedConstants
+  let hypNames : List Name :=
+    [`Tools.ShippingGen4KWalkEntry.LogMvK, `Tools.ShippingGen4KWalkFallback.LegacyImplK, di ++ `LegacyArmD,
+     `Tools.ShippingGen4KWalkHelpers.PpMvK, `Tools.ShippingGen4KWalkFallback.LegacyCachedK, `Tools.ShippingGen4KWalkFallback.ChildEntryK]
+  let inClosure := hypNames.filter seenT.contains
+  let inType := hypNames.filter fun h => tyT.contains h
+  let want3 : List Name := [`Tools.ShippingGen4KWalkEntry.LogMvK, `Tools.ShippingGen4KWalkFallback.LegacyImplK, di ++ `LegacyArmD]
+  unless want3.all inClosure.contains && want3.all inType.contains && inType.length == 3 do
+    throwError "top entry: hypotheses in type {inType}, in closure {inClosure}; expected exactly {want3} in the type"
+  logInfo m!"KWALKDEPTH CHECK: TYPE {ok}/{typeCases.length} / MUTANT {rej}/{mutCases.length} (signature/defeq rejections, not semantic counterexamples) / AXIOMS {axOk}/{audited.length} standard-only / CLOSURE {clOk}/{audited.length} clean (+2 positive controls) / hypotheses in closure of the headline: LogMvK {logIn}, LegacyImplK {implIn}, LegacyArmD {legIn}; PpMvK {ppIn}; topEntry_K: hypotheses in its type {inType.length} (LogMvK, LegacyImplK, LegacyArmD), hypothesis-like defs appearing in its closure (proof terms included, built inside the proofs) {inClosure.map (·.getString!)}"
 
 #kwalkdepth_check
 
