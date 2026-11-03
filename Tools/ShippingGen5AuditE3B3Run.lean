@@ -34,6 +34,8 @@ open Tools.ShippingSrm12Corr
 section HrowRun
 open Tools.ShippingChildInv (Res)
 open Tools.ShippingKidsChildIface (synthesizeCombinational_designL)
+open Tools.ShippingChildVCA
+open Tools.ShippingChildBndCore (dv cv)
 variable {mctx : Lean.Meta.Context} {cctx : Lean.Core.Context}
 variable {mref : ST.Ref IO.RealWorld Lean.Meta.State} {cref : ST.Ref IO.RealWorld Lean.Core.State}
 
@@ -87,7 +89,7 @@ def MachPrem3R {mctx : Lean.Meta.Context} {cctx : Lean.Core.Context}
      (∃ nDecl : Nat, d.callsOk nDecl = true ∧ d.ss.length = d.shape.layout.slots.length ∧
         (∀ b ∈ d.shape.binders.drop nDecl, b.2 ≠ .domain) ∧ d.shape.insts ≠ [] ∧
         d.shape.instFields = [] ∧
-        ∀ (mctx'' : Lean.Meta.Context) (cctx' : Lean.Core.Context), AdmCtx O.quiet mctx' cctx' →
+        ∀ (mctx' : Lean.Meta.Context) (cctx' : Lean.Core.Context), AdmCtx O.quiet mctx' cctx' →
           Tools.ShippingChildRunAKids.MachineClosesAtA (mref := mref) (cref := cref) O mctx' cctx' c d.shape))
 
 set_option maxHeartbeats 4000000 in
