@@ -156,7 +156,15 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 * **`PpMvK` は今回の帰納の閉包に入らない**: `PpMvK` を使うのは Helpers の K 版（`extractDimExprK` 等、legacy 腕・`LegacyImplK` の中身）で、legacy 腕は `hleg`、`LegacyImplK` は `hImpl` として仮説のままなので、帰納の結論の型には現れない。`hleg` / `hImpl` を証明するときに `PpMvK`（Diag 判断待ち）が要る見込み（読み）。
 * **`memo_miss_of_child_miss` への接続**: `memo_miss_of_child_miss`（K だけから「child cache に無い名前は memo にも無い」）、`memo_miss_of_child_miss_KWD`、`tripleK_cacheGetD`、`childMiss_memoMiss`（`synthesizeChild` の child cache 読みが miss のとき、その世界で memo にも `n` が無い）。補題と Triple の形で、`MemoFamily` に文は足していない。消費者（legacy 腕の memo hit が起きない側）への接続自体は `hleg` の証明の中身で、今回は未着手。
 * `Tests/Gen4/KWalkDepthCheck.lean`: KWALKDEPTH CHECK: TYPE 5/5 / MUTANT 4/4（signature/defeq での棄却、意味的反例ではない）/ AXIOMS 22/22 標準のみ / CLOSURE 22/22 clean（Laws・T1Hyp・T1HypND 無し、陽性対照 2 件）/ 見出しの定理の閉包に `LogMvK`・`LegacyImplK`・`LegacyArmD` が入る（true、true、true）、`PpMvK` は入らない（false）。
-* 未着手（変わらず）: legacy 腕の全体（`hleg`、窓の判断待ち）、`LegacyImplK`（Diag の判断待ち）、最外の入口（depth 0）の `hbody` を `KWD K 1` で受ける版（`entryTop_windowK` は `KWalk` 前提の `hbody` のまま。`dv = 1` を載せるにはリセットの手前の部品に `dv = 0` を通す小さな補題が要る）。
+* 未着手（rt171 で更新）: legacy 腕の全体（`hleg`、窓の判断待ち）、`LegacyImplK`（Diag の判断待ち）。最外の入口（depth 0）の KWD 版は下の「最外の入口（rt171）」で完了。
+
+## 最外の入口（rt171、`Tools/ShippingGen4KWalkDepthTop.lean`、`scripts/gen4/KWALK_S6_TOP_FREEZE.md` の型。`kjob lake build` 済み、sorry・axiom・native_decide なし、axioms は標準のみ）
+
+* `triple_memoResetD`（memo `set {}` が `dv` を保つ。リセットの前の部品に `dv = 0` を通す小さな補題）、`triple_childResetD`（child cache `set` が `dv` と、child cache を見ない述語を保つ）。リセットの前の `pure` と副セル `set` は `stableK_KWD O (fun _ _ => True) 0` で `dv = 0` を保つ。
+* **`entryTop_windowD`**: 開始は `KWD O True 0`（quiet、`sv`、depth 0。K は要らない）。本体 `hbody` は `KWD K 1`（`0 < sparkleSynthDepthLimit` のときだけ）で受ける。成功は `KWD K_declName 0`（K_declName で終わり、depth は 0 に戻る）、失敗は quiet ∧ `sv`（リセットの前の失敗がありうるため）。
+* **`topEntry_K`**: `hbody` を `synthesizeChild_depthK`（D = 1）と `fromConst_frontends_windowD` から `child_step` と同じ形で作り、実際の翻訳器 `translateExprToWire` で閉じた。仮説は `LogMvK`・`LegacyImplK`（D≠0 ごと）・`LegacyArmD`（D≠0 ごと）の 3 つだけ。
+* `Tests/Gen4/KWalkDepthCheck.lean` に追加: TYPE 8/8（+3: memoResetD / entryTopD / topEntryK）、MUTANT 7/7（+3: M5 深さを戻さない成功、M6 ガード `0 < limit` なし、M7 失敗側に完全な K を要求。signature/defeq での棄却で、意味的反例ではない）、AXIOMS/CLOSURE 26/26。`topEntry_K` の型に現れる仮説定義は 3 つだけ（LogMvK / LegacyImplK / LegacyArmD）であることを検査。`PpMvK` は `synthesizeChild_depthK` の閉包に入らない。`topEntry_K` の閉包には証明項の中で構成する `LegacyCachedK` / `ChildEntryK` も現れる（型には現れず、仮説ではない）。
+* 残り: `hleg`（窓の判断待ち）と `LegacyImplK`（Diag の判断待ち）だけ。新しい law・前提・家族の文は無い。台帳の差分 0。
 
 ## 4. 前提を増やさないことの確認と、止まる点
 
