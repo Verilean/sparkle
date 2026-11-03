@@ -5,7 +5,7 @@ import Tools.ShippingGen2Keep
 import Tools.ShippingGen2KeepChild
 import Tools.ShippingGen2DataBridge
 set_option autoImplicit false
--- Built in the Pod (kjob lake build Tools.ShippingGen5ClosingRun, exit 0, standard axioms) on the tree of 0bdad261; NOT a clean issue-linked build (the coder runs that).
+-- Built in the Pod (kjob lake build Tools.ShippingGen5ClosingRun, exit 0, standard axioms) on the tree of 0bdad261; clean issue-linked build crv-6f3c8ee5 exit 0 (755 jobs), scoped approved at 6f3c8ee5.
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # DG-CLOSINGRUN (scripts/gen5/DG_CLOSINGRUN_FREEZE.md)

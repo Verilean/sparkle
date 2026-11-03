@@ -79,12 +79,18 @@ def ChildRunN (children : String → Option (Sparkle.IR.AST.Module × WEnv)) (ds
     (S : (Nat → List Nat) → List (Nat → Nat)) : Prop :=
   SeqChildRunN children dsn n mc bsC outsC S ∨ CombChildRunN children dsn n mc bsC outsC S
 
+/-- G-CHILD-PORTW: the served module's argument ports have the package's declared port widths. -/
+def ChildPortWidths (q : Pkg ι dom) (mc : Sparkle.IR.AST.Module) : Prop :=
+  (Tools.ShippingMachineCompose.argPorts mc).map (fun p => p.ty.bitWidth) =
+    q.ports.map (fun b => (kindTy b.2).bitWidth)
+
 /-- **ChildShips** (the IH content of `c`, for THE result `(mc, Dc)` a parent was served): for every design `dsn`
 that contains `Dc`'s modules and `mc`, the child run interface at height `n`, with the interface data taken from
 `c`'s own package `q`. Built-in transport: it is stated for every extending `dsn`, so the producer proves the
 transport once (gap G-TRANSPORT). A-COMB: the run is `ChildRunN` (sequential or combinational); this WEAKENS the
 child guarantee, and the final guarantee is preserved only once every parent consumer handles both branches. -/
 def ChildShips (q : Pkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Design) : Prop :=
+  ChildPortWidths q mc ∧
   ∀ (dsn : Design), (∀ g ∈ Dc.modules, moduleByName dsn.modules g.name = some g) →
     moduleByName dsn.modules mc.name = some mc →
     ∀ (i : ι), ChildRunN (childMap dsn.modules) dsn n mc (q.d.bsIn.take q.kD) q.d.shape.layout.outs (q.S i)

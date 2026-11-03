@@ -210,7 +210,7 @@ Not counted as supply: `hrow`, `hGen`, `h1` (top-level), the DG-ENV / DG-COVER /
   `hrow` dropped; `hGen` replaced by `Gen` unconditional; `T1Hyp` instead of `T1HypND`; `hreach` dropped; `1 ≤ dv w` dropped from (CR4); `RunReadsAt` with `envR` and `envR'` swapped in the translator environment; (CR1) at `w3` (bound inside `chain`'s `∃`, so stated as a bound type).
 - Closure audit (full reachable closure, explicit bodies; controls as in `T1NDCheck`): no reach to `T1Hyp.dec` (named projection, raw `.proj`, recursors; negative control), no `BodyStepC`, no `native_decide`, **no `TopShips`** (positive control: `StepStmt` reaches it), no `GeneratedAt`/`genP` (not in the tree), axioms standard (`#print axioms`).
 - Vacuity audit: a concrete `Pkg` and run satisfying the premises is NOT available without DG-GENP/`hrow`; stated as not performed (the same as DATA_SUPPLY's control inventory, items 1-4). `ClosingRun` itself is checked non-vacuous only in so far as the F1/P2/F2 theorems it factors are (`servedShips0_proved`'s own checks, SERVED_RESULT.md).
-- Build: `kjob lake build Tests.Gen5.ClosingRunCheck` by the coder (clean issue-linked build); the implementer commits with "clean build は coder が実行".
+- Build: clean issue-linked build crv-6f3c8ee5 exit 0 (755 jobs), scoped approved at 6f3c8ee5 (`kjob lake build Tests.Gen5.ClosingRunCheck`).
 
 ## 6. Questions for the reviewer (decisions this freeze needs; none touches a law / TRUSTED / FG)
 1. **`Gen` as a parameter** (§3, §3.3) instead of `GeneratedAt` directly: accepted? It keeps the single shared `∃` block (the R2 requirement) while DG-GENP is not in the tree. The alternative is to wait for DG-GENP; that blocks the independent pieces CR0-CR4.
@@ -225,7 +225,7 @@ Not counted as supply: `hrow`, `hGen`, `h1` (top-level), the DG-ENV / DG-COVER /
 - Not G-SERVED, G-POST, T1, M5 or FG completion. `closingRun_of_run` with `hrow` and `hGen` is an INTERMEDIATE result.
 
 ## 8. Implementation record (rev0 limited approval 25be9f8c -> `Tools/ShippingGen5ClosingRun.lean`, `Tests/Gen5/ClosingRunCheck.lean`)
-Written by agent g5cr-r2. Built in this Pod, one target at a time (`kjob lake build Tools.ShippingGen5ClosingRun`, then `kjob lake build Tests.Gen5.ClosingRunCheck`), both exit 0, standard axioms only (`propext`, `Classical.choice`, `Quot.sound`); no `sorry` / `axiom` / `native_decide`. The clean issue-linked build is the coder's.
+Written by agent g5cr-r2. Built in this Pod, one target at a time (`kjob lake build Tools.ShippingGen5ClosingRun`, then `kjob lake build Tests.Gen5.ClosingRunCheck`), both exit 0, standard axioms only (`propext`, `Classical.choice`, `Quot.sound`); no `sorry` / `axiom` / `native_decide`. The clean issue-linked build crv-6f3c8ee5 exit 0 (755 jobs), scoped approved at 6f3c8ee5.
 
 Differences from the §3 text (types changed at implementation):
 1. **`hlim` removed** from (CR4) `stop_of_run` and from `closingRun_of_run`. Shown by the build: `core_tripleAInv`'s `hbody` has its own binder `D < sparkleSynthDepthLimit →`, which the supplier `keepBody ... (dv w + 1) hKI` does not use (it holds at every depth), so the premise is never needed. No `core_limit_triple` use, no law. Argument order of (CR4): `(h1) (hKI) (hst) (hrun)`.

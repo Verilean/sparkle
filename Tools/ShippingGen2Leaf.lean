@@ -260,6 +260,7 @@ theorem leaf_childShips_of_LB (p : Pkg ι dom) {raw b : Module} {D : Design}
   have hS : ∀ i, p.S i = fun vals => p.src i (boolsOf (D := dom i) p.d.bsIn vals)
       (bitsOf (D := dom i) p.d.bsIn vals) := by
     intro i; funext vals; simp only [Pkg.S, htake]
+  refine ⟨Tools.ShippingGen3PortWidthsCore.noCalls_childPortWidths p hL hnoI hok hSS houtTy htake hpost, ?_⟩
   intro dsn _ _ i
   rw [hS i, htake]
   exact Or.inl <| seqChildRunN_of_flat (childMap dsn.modules) dsn

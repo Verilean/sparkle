@@ -305,7 +305,7 @@ theorem oneOutWidthAtO (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι dom)
     obtain ⟨_, ⟨q, n', hq, _, hCS⟩, _⟩ := hship
     -- step 4: its child run at `dsn := D`, `i0`; both branches start with the outputs
     have hmo : mc.outputs = q.d.shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) := by
-      rcases hCS D hDc hmod i0 with hr | hr
+      rcases hCS.2 D hDc hmod i0 with hr | hr
       · exact hr.1
       · exact hr.1
     -- step 5: `CallStmt`: the module has ONE output

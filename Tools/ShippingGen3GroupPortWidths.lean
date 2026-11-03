@@ -1,6 +1,5 @@
 import Tools.ShippingGen2GroupServed
 import Tools.ShippingGen3PortWidthsCore
-import Tools.ShippingGen3ChildPortWidths
 set_option autoImplicit false
 -- Built: g3pw-ba9b9c82 (clean snapshot, exit 0, standard axioms).
 -- (after `Tools.ShippingGen3PortWidthsCore`). No `sorry`, no `axiom`, no `native_decide`.
@@ -46,7 +45,7 @@ theorem group_childPortWidths (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι
     (n : Nat)
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsAt L P n) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc) :
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b := by
+    ChildPortWidths p b := by
   -- GroupServed:308-315 verbatim
   obtain ⟨hok, hco, hslots, houtTy, -⟩ := hdata.rows
   have hkD := data_hkD p.d p.kD hok hco

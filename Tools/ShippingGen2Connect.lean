@@ -137,7 +137,7 @@ theorem seqFactsRN_of_callDec {L : Laws mref cref} {P : Pkgs ι dom} {p q : Pkg 
     obtain ⟨hmod, Dc, ⟨_, q', hq', _, hcs⟩, hcons⟩ := hmc
     rw [hP] at hq'
     cases hq'
-    have h := (childRunN_iff_seq hclk).mp (hcs dsn hcons hmod i)
+    have h := (childRunN_iff_seq hclk).mp (hcs.2 dsn hcons hmod i)
     rw [hB, hO, hS]
     refine ⟨h, ?_⟩
     rw [h.2.2.2.2.2.1, hlen]

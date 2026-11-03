@@ -12,6 +12,8 @@ definitions — `Laws`, `MachineTaken`, `ServedP`, … — are the current ones)
 * `T1Hyp`: iff, with `DataOkLiftCompat` (compatibility tests only);
 * statements quantifying over all packages: NEW → OLD only (the new ones include the loop case).
 A-COMB (STEP_IFACE_FREEZE.md rev3) changed `ChildShips`; the affected checks are classified in the A-COMB section.
+S3 (U-CHILD-PORTTYS) added the width conjunct `ChildPortWidths` to `ChildShips`: `Old.ChildShips` has none, and the width
+old ⇒ new direction is UNPROVED (explicit compat premise `hpw` in `childShips_gen` and the lifts/`.gen` forms only).
 CALLFIELD (scripts/gen2/CALLFIELD_FREEZE.md §4) changed `CallDec`; the affected checks are classified in the CALLFIELD
 section. -/
 namespace Tools.ShippingGen2.Old
@@ -314,9 +316,13 @@ changes:
 * `T1Hyp`, `T1Stmt`: unaffected by A-COMB (no `ChildShips`); CALLFIELD makes `t1Hyp_iff` conditional on `GroupOnly`
   and `t1Stmt_compat` NEW → OLD under `GroupOnly` (section above). -/
 
-theorem childShips_gen (q : SrcPkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Sparkle.IR.AST.Design) :
+-- S3 (U-CHILD-PORTTYS): `Old.ChildShips` has no width conjunct and this investigation found no lemma deriving
+-- `ChildPortWidths (.gen q) mc` from it, so the width is an EXPLICIT compat premise `hpw`. It is a premise of the
+-- COMPAT lemmas only and is not added to any production producer. Old ⇒ new for the width is UNPROVED here.
+theorem childShips_gen (q : SrcPkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) (Dc : Sparkle.IR.AST.Design)
+    (hpw : ChildPortWidths (.gen q) mc) :
     Old.ChildShips q n mc Dc → ChildShips (.gen q) n mc Dc :=
-  fun h dsn h1 h2 i => Or.inl (h dsn h1 h2 i)
+  fun h => ⟨hpw, fun dsn h1 h2 i => Or.inl (h dsn h1 h2 i)⟩
 
 /-! ## package assignments: positive transport at the lift -/
 theorem lift_some {P : Lean.Name → Option (SrcPkg ι dom)} {c : Lean.Name} {q' : Pkg ι dom} :
@@ -331,27 +337,32 @@ theorem lift_some {P : Lean.Name → Option (SrcPkg ι dom)} {c : Lean.Name} {q'
 that conjunct as an EXPLICIT premise (`hic`); `InstClosed` is not derived from `Old`. `shipsAt_lift` is unchanged
 (`ShipsAt` has no `InstClosed`). -/
 theorem shipsRes_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (c : Lean.Name)
-    (r : Tools.ShippingChildInv.Res) (hic : InstClosed r) :
+    (r : Tools.ShippingChildInv.Res) (hic : InstClosed r)
+    (hpw : ∀ q, P c = some q → ChildPortWidths (.gen q) r.1) :
     Old.ShipsRes L P c r → ShipsRes L (Pkgs.lift P) c r := by
   rintro ⟨h1, q, n, hq, hd, hc⟩
-  exact ⟨h1, ⟨.gen q, n, lift_some.mpr ⟨q, hq, rfl⟩, hd, childShips_gen q n _ _ hc⟩, hic⟩
+  exact ⟨h1, ⟨.gen q, n, lift_some.mpr ⟨q, hq, rfl⟩, hd, childShips_gen q n _ _ (hpw q hq) hc⟩, hic⟩
 
 theorem shipsAt_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (n : Nat) (c : Lean.Name)
-    (r : Tools.ShippingChildInv.Res) : Old.ShipsAt L P n c r → ShipsAt L (Pkgs.lift P) n c r := by
+    (r : Tools.ShippingChildInv.Res)
+    (hpw : ∀ q, P c = some q → ChildPortWidths (.gen q) r.1) : Old.ShipsAt L P n c r → ShipsAt L (Pkgs.lift P) n c r := by
   rintro ⟨h1, q, hq, hd, hc⟩
-  exact ⟨h1, .gen q, lift_some.mpr ⟨q, hq, rfl⟩, hd, childShips_gen q n _ _ hc⟩
+  exact ⟨h1, .gen q, lift_some.mpr ⟨q, hq, rfl⟩, hd, childShips_gen q n _ _ (hpw q hq) hc⟩
 
 theorem cacheShips_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (m : Std.HashMap Lean.Name Tools.ShippingChildInv.Res)
-    (hic : ∀ c r, Reach c → m.get? c = some r → InstClosed r) :
+    (hic : ∀ c r, Reach c → m.get? c = some r → InstClosed r)
+    (hpw : ∀ c r, Reach c → m.get? c = some r → ∀ q, P c = some q → ChildPortWidths (.gen q) r.1) :
     Old.CacheShips L P Reach m → CacheShips L (Pkgs.lift P) Reach m :=
-  fun h c r hR hm => shipsRes_lift L P c r (hic c r hR hm) (h c r hR hm)
+  fun h c r hR hm => shipsRes_lift L P c r (hic c r hR hm) (hpw c r hR hm) (h c r hR hm)
 
 theorem invAt_lift (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (D : Nat) (w : Void IO.RealWorld)
-    (hic : ∀ c r, Reach c → (Tools.ShippingChildBndCore.cv w).get? c = some r → InstClosed r) :
+    (hic : ∀ c r, Reach c → (Tools.ShippingChildBndCore.cv w).get? c = some r → InstClosed r)
+    (hpw : ∀ c r, Reach c → (Tools.ShippingChildBndCore.cv w).get? c = some r →
+      ∀ q, P c = some q → ChildPortWidths (.gen q) r.1) :
     Old.InvAt L P Reach D w → InvAt L (Pkgs.lift P) Reach D w :=
-  fun h => ⟨h.1, cacheShips_lift L P Reach (Tools.ShippingChildBndCore.cv w) hic h.2⟩
+  fun h => ⟨h.1, cacheShips_lift L P Reach (Tools.ShippingChildBndCore.cv w) hic hpw h.2⟩
 
 theorem t1Hyp_iff (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) (hGO : GroupOnly P Reach) :
@@ -408,13 +419,14 @@ theorem memParentStmt'_gen (L : Laws mref cref) : Old.MemParentStmt' (ι := ι) 
       Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref q.decl q.d.shape →
       MachineTaken L mctx cctx (Tools.ShippingChildBndCore.dv w + 1) q.decl q.d.shape raw D →
       (∀ k (hk : k < q.d.shape.insts.length), MemDec (.gen q) k (q.d.shape.insts[k]).1) →
+      ChildPortWidths (.gen q) b →
       ∀ n, TopShips (.gen q) (n + 1) q.decl b raw D ∧ ChildShips (.gen q) (n + 1) b D := by
-  intro h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 n
+  intro h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 hpw n
   have := h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 n
   -- U-TOP-COMPAT: Old → new at the conclusion needs both memberships; they come from the run's `MachineWired`
   -- (`slots ≠ []`, U-TOP-CLKIN), not from a new premise
   obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id (Pkg.trace L.O L.T h7 (.gen q) h12).toLB
-  exact ⟨topShips_ofOld_wired (.gen q) (n + 1) wired h6 h10 this.1, childShips_gen q _ _ _ this.2⟩
+  exact ⟨topShips_ofOld_wired (.gen q) (n + 1) wired h6 h10 this.1, childShips_gen q _ _ _ hpw this.2⟩
 
 theorem memParentStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
     Old.MemParentStmt L DataOk →
@@ -430,12 +442,13 @@ theorem memParentStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop)
       Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref q.decl q.d.shape →
       MachineTaken L mctx cctx (Tools.ShippingChildBndCore.dv w + 1) q.decl q.d.shape raw D →
       (∀ k (hk : k < q.d.shape.insts.length), MemDec (.gen q) k (q.d.shape.insts[k]).1) →
+      ChildPortWidths (.gen q) b →
       ∀ n, TopShips (.gen q) (n + 1) q.decl b raw D ∧ ChildShips (.gen q) (n + 1) b D := by
-  intro h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 n
+  intro h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 hpw n
   have := h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 h9 n
   -- U-TOP-COMPAT: both memberships from the run (`slots ≠ []`, U-TOP-CLKIN)
   obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id (Pkg.trace L.O L.T h3 (.gen q) h8).toLB
-  exact ⟨topShips_ofOld_wired (.gen q) (n + 1) wired h2 h6 this.1, childShips_gen q _ _ _ this.2⟩
+  exact ⟨topShips_ofOld_wired (.gen q) (n + 1) wired h2 h6 this.1, childShips_gen q _ _ _ hpw this.2⟩
 
 theorem leafStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
     Old.LeafStmt L DataOk →
@@ -450,13 +463,14 @@ theorem leafStmt_gen (L : Laws mref cref) (DataOk : SrcPkg ι dom → Prop) :
         b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
       Tools.ShippingMachineEntry.MachineDefines mctx mref cctx cref q.decl q.d.shape →
       MachineTaken L mctx cctx (Tools.ShippingChildBndCore.dv w + 1) q.decl q.d.shape raw D →
+      ChildPortWidths (.gen q) b →
       ∀ n, TopShips (.gen q) n q.decl b raw D ∧ ChildShips (.gen q) n b D := by
-  intro h q mctx cctx w w1 raw b D h1 h2 hsl h3 h4 h5 h6 h7 h8 n
+  intro h q mctx cctx w w1 raw b D h1 h2 hsl h3 h4 h5 h6 h7 h8 hpw n
   have := h q mctx cctx w w1 raw b D h1 h2 h3 h4 h5 h6 h7 h8 n
   -- U-TOP-COMPAT: Old → new at the conclusion needs `"clk"` among the inputs, so this form is for leaves WITH slots
   -- (`hsl`, added: a slotless leaf has no clock input and old → new is NOT claimed there; its R-G top is U-TOP-S2)
   obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id (Pkg.trace L.O L.T h3 (.gen q) h8).toLB
-  exact ⟨topShips_ofOld_wired (.gen q) n wired hsl h6 this.1, childShips_gen q _ _ _ this.2⟩
+  exact ⟨topShips_ofOld_wired (.gen q) n wired hsl h6 this.1, childShips_gen q _ _ _ hpw this.2⟩
 
 theorem t1Stmt_compat (L : Laws mref cref) (P : Lean.Name → Option (SrcPkg ι dom)) (Reach : Lean.Name → Prop)
     (DataOk : SrcPkg ι dom → Prop) (hGO : GroupOnly P Reach) :
