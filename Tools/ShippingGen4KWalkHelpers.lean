@@ -99,6 +99,54 @@ theorem inferHWTypeK (hA : AdmCtx O.quiet mctx cctx) (e : Lean.Expr) :
   exact fuelFixM_keepsA inferHWTypeStep
     (fun rec hrec mctx cctx hA a => inferHWTypeStepK M hpp hS hA rec (hrec mctx cctx hA) a) _ mctx cctx hA e
 
+theorem extractDimExprStepK (hA : AdmCtx O.quiet mctx cctx) (rec : Lean.Expr → CompilerM Sparkle.IR.Type.DimExpr)
+    (hrec : ∀ a, KeepsCP mctx mref cctx cref I (rec a)) (e : Lean.Expr) :
+    KeepsCP mctx mref cctx cref I (extractDimExprStep rec e) := by
+  unfold extractDimExprStep
+  kwalkM [keepsK_framedNM M _ hS (FramedNM.whnf _), keepsK_throwError M _ hS _ _, keepsK_ppExpr M hpp hS _ _,
+    keepsK_getDecl M hpp hS _ _]
+
+theorem extractDimExprK (hA : AdmCtx O.quiet mctx cctx) (e : Lean.Expr) :
+    KeepsCP mctx mref cctx cref I (extractDimExpr e) := by
+  unfold extractDimExpr
+  exact fuelFixM_keepsCP extractDimExprStep
+    (fun rec hrec mctx cctx hA a => extractDimExprStepK M hpp hS hA rec (hrec mctx cctx hA) a) _ mctx cctx hA e
+
+theorem inferHWTypeWithDimensionsStepK (hA : AdmCtx O.quiet mctx cctx)
+    (rec : Lean.Expr → CompilerM (Option Sparkle.IR.Type.HWType))
+    (hrec : ∀ a, KeepsCP mctx mref cctx cref I (rec a)) (e : Lean.Expr) :
+    KeepsCP mctx mref cctx cref I (inferHWTypeWithDimensionsStep rec e) := by
+  unfold inferHWTypeWithDimensionsStep
+  kwalkM [keepsK_framedNM M _ hS (FramedNM.whnf _), keepsK_throwError M _ hS _ _, keepsK_ppExpr M hpp hS _ _,
+    Keeps.withReaderA (q := O.quiet) _ _, inferHWTypeK M hpp hS _ _, extractDimExprK M hpp hS _ _]
+
+theorem inferHWTypeWithDimensionsK (hA : AdmCtx O.quiet mctx cctx) (e : Lean.Expr) :
+    KeepsCP mctx mref cctx cref I (inferHWTypeWithDimensions e) := by
+  unfold inferHWTypeWithDimensions
+  exact fuelFixM_keepsCP inferHWTypeWithDimensionsStep
+    (fun rec hrec mctx cctx hA a => inferHWTypeWithDimensionsStepK M hpp hS hA rec (hrec mctx cctx hA) a) _ mctx cctx hA e
+
+theorem inferHWTypeFromSignalK (hA : AdmCtx O.quiet mctx cctx) (e : Lean.Expr) :
+    KeepsCP mctx mref cctx cref I (inferHWTypeFromSignal e) := by
+  unfold inferHWTypeFromSignal
+  kwalkM [keepsK_framedNM M _ hS (FramedNM.whnf _), keepsK_framedNM M _ hS FramedNM.monoMs,
+    keepsK_throwError M _ hS _ _, inferHWTypeWithDimensionsK M hpp hS _ _]
+
+theorem isSignalBinderTypeK (hA : AdmCtx O.quiet mctx cctx) (e : Lean.Expr) :
+    KeepsCP mctx mref cctx cref I (isSignalBinderType e) := by
+  unfold isSignalBinderType
+  kwalkM [keepsK_framedNM M _ hS (FramedNM.whnf _)]
+
+/-- `withDimVarMapping` keeps provenance (the update leaves `exprCache`). -/
+theorem withDimVarMappingP {α : Type} (fv : FVarId) (d : Sparkle.IR.Type.DimExpr)
+    {k : CompilerM α} (hk : KeepsCP mctx mref cctx cref I k) :
+    KeepsCP mctx mref cctx cref I (CompilerM.withDimVarMapping fv d k) := by
+  unfold CompilerM.withDimVarMapping
+  refine KeepsCP.bindCtx (fun old hold => ?_)
+  refine KeepsCP.withReader _ ?_ hk
+  intro _ _ r h
+  exact hold r h
+
 end Steps
 
 end Tools.ShippingGen4KWalkHelpers
