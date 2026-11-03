@@ -1,6 +1,6 @@
 import Tools.ShippingGen4KWalk
 import Tools.ShippingChildTranslateA
--- NOT BUILT: S1 of scripts/gen4/KWALK_PLAN.md. `StableK` and the K versions of the T1/T2 primitives
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkPrims exit 0 (322 jobs, rt165, source as of 3ce5d54f); axioms standard only. Clean build is the coder's. S1 of scripts/gen4/KWALK_PLAN.md. `StableK` and the K versions of the T1/T2 primitives
 -- (copies of `makeWireA` ... `recordTranslationA`, taking `StableK` instead of `StableA`).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom.
 -- No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.

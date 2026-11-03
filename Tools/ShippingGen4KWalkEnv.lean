@@ -1,5 +1,7 @@
 import Tools.ShippingChildInv
 
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkEnv exit 0 (308 jobs, rt165, source as of 3ce5d54f); axioms standard only. Clean build is the coder's. No sorry/axiom/native_decide; no Check file (one theorem).
+
 /-!
 # KWalkEnv: `IO.getEnv`, lifted to `MetaM`, always returns (KWALK_PLAN §4 (a))
 

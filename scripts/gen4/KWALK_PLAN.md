@@ -69,7 +69,7 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 | E4 深さの `set`/`modify` と `try/finally` | 5561, 5565-5584 | `ST.Ref.set/modify sparkleSynthDepth`、side ref の `set` | `frameDepthSet`, `frameDepthModify`, `frame` | `try … finally` の K 版（`Triple.tryFinally` は `ShippingChildKeeps.lean:128`、I について一般） |
 | E5 `synthesizeFromConst` の 4 つの腕と memo 読み取り | 5290-5400（5297/5304/5323/5388 書き込み、5335 読み取り） | **MemoAccess**（`get` 5335、`modify` ×4） | `memoGet`, `memoModify` | 書き込みは各腕の最後の効果（read）。`kwalk_memoInsert` で K → K_n。`!symbolicMode` の下だけ |
 | E6 `synthesizeCertified`/`Mixed`/`MachineCertified` と `closeInsts*` | 2934, 2959, 5252, 5206, 5229 | FramedNM + 子の入口（IH） | `frame` | 窓の外（memo 書き込みの前） |
-| E7 窓の中の処理（`finally`、`synthesizeCombinationalWith` の純粋な後処理、`IO.getEnv`） | 5577-5584, 5594-5605 | FramedNM（side ref の `set`、`depth modify`、`ioEnv`） | `frame`, `frameDepthModify` | K_n を保つ（`keeps_KW_framedNM` は任意の `P`）。**窓の中で例外が出ない**ことが要る（§4 (a)） |
+| E7 窓の中の処理（`finally`、`synthesizeCombinationalWith` の純粋な後処理、`IO.getEnv`） | 5577-5584, 5594-5605 | FramedNM（side ref の `set`、`depth modify`、`ioEnv`） | `frame`, `frameDepthModify` | K_n を保つ（`keeps_KW_framedNM` は任意の `P`）。**窓の中で例外が出ない**ことが要る（§4 (a)、解決） |
 | E8 入口の帰納（深さに関する） | 5465（深さ限度 1024、Elab.lean:970） | — | — | §3 |
 
 ## 3. 証明の順序と行数の見積り
@@ -82,7 +82,7 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 | 段階 | 内容 | 状態 | 行数（見積り。実測ではない） |
 |---|---|---|---|
 | S0 | §1 の土台 + Check | **完了（BUILT）** | 320 + 194（実測） |
-| S1 | `StableK`（`cv/sv/dv/mv` が同じなら移る）と T1/T2 の K 版 | 未着手 | 200-300（A 版 TranslateA 242-400 が約 160 行） |
+| S1 | `StableK`（`cv/sv/dv/mv` が同じなら移る）と T1/T2 の K 版 | **完了（BUILT、rt165）** | 195 + 200 + Env 30（実測。見積り 200-300 に収まった） |
 | S2 | T3: `translateStepWith`/`Core`/fuel、T5 | 未着手 | 150-250 |
 | S3 | T4: fallback と handler（A 版 FallbackA 616 + WalkA 873 に相当） | 未着手 | 1000-1500。**不確実が最大**。既存の `kwalk` タクティク（`Tools/ShippingChildKWalk.lean`、`KeepsCP` について I に一般）が使える見込みだが、使えるかは試していない |
 | S4 | E6/E5: 入口の腕（certified / mixed / machine / legacy）と窓の開閉 | 未着手 | 400-600 |
@@ -100,8 +100,13 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 
 * 土台は `MemoFamily` を仮説に取るだけ。`Laws` / `T1Hyp` / `T1HypND` は閉包に入らない（Check CLOSURE）。新しい law・TRUSTED 境界・FG/保証の変更は無い。FG の縮小も GenWF の強化も無い。台帳の差分 0。
 * **(a) 窓の中で例外が出ないこと**（E7）。memo に `n` を書いてから child cache に `n` を入れるまでの間に例外が出ると、`catch` の先で K が崩れる（memo に `n` があり child cache に無い → その後の `synthesizeChild n` が memo hit する）。窓の中の効果は、純粋な後処理、`finally` の `set`/`modify`、`IO.getEnv`。
-  `ref` の `get/set/modify` が投げないことは既存の `refGet_runs`/`refSet_runs`/`refModify_runs`（ShippingChildInv:690-）で足りる。`IO.getEnv` は `BaseIO`（エラー型 `Empty`。toolchain v4.20.0 の `Init/System/IO.lean:891` で読んだ。ビルドが使う 4.32.1 では未確認）なので投げないはずだが、
-  `MetaM` に持ち上げた形（`Core.liftIOCore (IO.getEnv n).toEIO`）で「必ず返る」を示す Lean の補題は **この調査では 2 回試して証明を閉じられなかった**（未完。不可能とは主張しない）。閉じられない場合、家族に 1 文（`ioEnv` は返る）を足す必要があり、それは新しい TRUSTED 文なので、止まって coder に報告する。**判断は未実施。今は前提を増やしていない。**
+  `ref` の `get/set/modify` が投げないことは既存の `refGet_runs`/`refSet_runs`/`refModify_runs`（ShippingChildInv:690-）で足りる。
+  **(a) の IO.getEnv 部分は解決（窓の中のその他の効果の「投げない」は §2 E7 の通り FramedNM の枠で扱い、ここで新たに示したのは IO.getEnv だけ）（rt165、`Tools/ShippingGen4KWalkEnv.lean`、BUILT）**: `Tools.ShippingGen4KWalkEnv.ioEnv_runs : ∀ n w, ∃ a w', RunsTo (IO.getEnv n : MetaM (Option String)) mctx mref cctx cref w a w'`（axioms は標準のみ、sorry なし）。
+  根拠: toolchain v4.32.1 の `IO.getEnv` は `@[extern "lean_io_getenv"] opaque getEnv (var : @& String) : BaseIO (Option String)`（`Init/System/IO.lean:951`、ビルドが使う版で確認）。
+  `MetaM` への持ち上げは `BaseIO.toEIO`（`Init/System/IO.lean:71`: `fun s => match act s with | .mk a s => .ok a s`、`.ok` のみ）を通る。証明は `refGet_runs` と同形: `IO.getEnv n w` を `cases` して `ST.Out.mk a w'` に分け、持ち上げの定義を `change` で展開し `rw`。
+  `@[extern]` の本体は見ていない（opaque のまま）。`BaseIO` の型が「エラーの場合が無い」ことだけを使うので、外部実装には依存しない。
+  したがって家族に 1 文足す必要は無く、新しい TRUSTED 文・前提は無い。Check ファイルは作っていない（定理 1 つ、`#print axioms` を同ファイルに置いた）。
+  なお `Core.liftIOCore (IO.getEnv n).toEIO` の形（`IO.toEIO` 経由で例外を作る版）は証明していない: 窓の中の呼び出し（Elab.lean:5602、`(← IO.getEnv ..)` を `MetaM` で書いた形）は上の `liftM (IO.getEnv n)` の形で、`FramedNM.ioEnv` の型もこの形。
 * (b) 深さ 0 の入口は、最後に top の名前 `n` を memo に書いて K_n で終わり、K に戻らない（child cache への挿入がない）。この後に翻訳器のコードは走らない（read）ので消費者は影響を受けないが、`EntryK` を深さ 0 に使わないこと（深さ 0 は E3 から始める別の文にする）。
 * (c) `memo` の中身（pair が `PairPF` か）は扱わない。K は key だけの不変量で、内容の不変量は案 A（`RefLawsM`）の領分であり、本 walk は案 B（hit を除く）。
 * (d) `outer_miss`（`Tools/ShippingLegacySemMemoWalk.lean:495`）の述べ直しは別単位（AdmCtx/quiet 制限下）。
