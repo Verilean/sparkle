@@ -1083,3 +1083,12 @@ reviewer の承認で、次の行を除く。
 - **測定**（`scripts/gen5/AUD_B4_MEASURE.md`、`11ba0bd8` の corpus 479 ファイル）: Verilog を出す 123 本のうち階層がある 29 本で、共有する子孫があるのは 1 本（probe の `Tests/Compiler/SubInstanceKeyTest.lean`）。IP の設計は 0 本。Verilog を出さない fixture（既知の例 `mixDeep`）は数えていない。
 - 保証を広げる道（案 (2)、`CacheAgrees` 型への置き換え）は、共有する設計が増えたときに再検討する。
 - **現在値: FG 94**（変化なし）。T1 54。
+
+### 12.6 減算（2026-11-03、coder。文書のみ）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| U-A4/U-A5（Issue sparkle-aud-ua4、sub-issue sparkle-aud-ua4-hrow） | D.E-3（−1） | `auditE3B3_of_t1hyp_run`（`Tools/ShippingGen5AuditE3B3Run.lean`、f5de62a0、par/aud-ua4-hrowfree）。仮説は T1Hyp・T1L-12 `hMemRow`・新しい T1 行 `hLeafAlias`（T1 台帳 §12.5）・AdmCtx・E-5 carrier（`hin`/`hsp`/`hg`）だけで、`AuditE3 ∧ AuditB3` を出す。`hrow`（除去済みの T1L-04）は RealChildA の run の shapeEq と hrow-gate の `machineShape?_noMemRow` から出していて、仮説に無い。exact-head `ua4hv-f5de62a0` exit 0（780 jobs）、Check: TYPE 1 / MUTANT 6 / BINDERS 7、axiom は標準 3 つ。reviewer 承認 | base は par/aud-ua4-impl 5043bc59 に par/hrow-gate 18e72d27 を局所 merge したもの。hrow-gate の共有 tree への統合後に、依存と受入を更新する。新しい前提は T1 側の `hLeafAlias` 1 件 |
+| 同上 | D.E-4 は**残す**（0） | `AuditB3`（B3 `hparentD` の名前の部分）は同じ定理で出る。しかし D.E-4 の行は B3 / B4 / B5 の束で、B4 は文を変えずに残し（§12.5、ユーザー判断 (3)）、B5 は未判断。行としては消えない | freeze（AUD_UA4_FREEZE.md §3）の見込み「B3 −1」は、行単位の数え方（R0）では 0。reviewer に確認を依頼中 |
+
+- **現在値: FG 93**（94 − 1）。T1 は 55（T1 台帳 §12.5）。
