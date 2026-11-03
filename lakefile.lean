@@ -4907,3 +4907,6 @@ lean_lib «Tools.ShippingGen4KWalkLegacyCached» where
 
 lean_lib «Tools.ShippingGen4KWalkEntry» where
   roots := #[`Tools.ShippingGen4KWalkEntry]
+
+lean_lib «Tools.ShippingGen4KWalkEntryArms» where
+  roots := #[`Tools.ShippingGen4KWalkEntryArms]
