@@ -1123,3 +1123,11 @@ reviewer の承認で、次の行を除く。
 - T1 側の +2（`BetaNonTargetAgrees`、`ExprEqvLaws`）と T1L-74 の置き換えは、T1 台帳 §12.6 に書く。
 - 仮定の真偽は、C++ と環境の読みに依る。証明ではない。証明できたものは、行を消せる。
 - **現在値: FG 94**（92 + 5 − 3）。T1 は 57。
+
+### 12.9 減算（2026-11-03、coder。文書のみ）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| U-A3g（Issue sparkle-aud-ua3g、調査 U-A3f c1e0b89f、freeze 4c984865） | D.E-7（−1）、D.E-8（−1） | `auditE7_e8_of_run`（`Tools/ShippingGen5AuditNoRecRun.lean`、a7baff1d、par/aud-ua3g-impl）。`noRec_of_run`（静的な通常 call の有限高さ `CallWF` を成功した top の run から出す）と、既存の `auditE7_e8_of_noRecCalls`（3f1d02cd）をつなぐ。仮説は T1Hyp、Start、成功した top の run、既存の E-6（U-A2 が別に供給）だけ。exact-head `ua3gv-a7baff1d` exit 0（755 jobs）、Check: TYPE 1 + example 1、MUTANT 6、BINDERS 4 Prop、CLOSURE 2 + control 1、axiom は標準 3 つ。reviewer 承認 | 新しい前提 0。非空虚性（仮説を同時に満たす具体例）は未示で、受理は含意として。base は par/aud-ua4-hrowfree に par/aud-ua3c を局所 merge したもの（973f298e） |
+
+- **現在値: FG 92**（94 − 2）。T1 は 57。
