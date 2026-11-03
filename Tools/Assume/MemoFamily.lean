@@ -1,6 +1,6 @@
 import Tools.ShippingChildFresh
 import Tools.ShippingChildBndCore
--- NOT BUILT (draft). TRUSTED: hypotheses about the RUNTIME behaviour of the memo / child-cache / depth cells
+-- BUILT: kjob lake build Tools.Assume.MemoFamily exit 0 (rt163, base 496afcef; part of the 742-job Tests.Gen4.MemoFamilyCheck build, exit 0). Clean build is the coder's. TRUSTED: hypotheses about the RUNTIME behaviour of the memo / child-cache / depth cells
 -- (`@[extern]` opaque `ST.Ref.get/set/modify`, `lean_st_ref_*`); they are NOT proved and NOT axioms: `MemoFamily` is a
 -- `structure` passed as a HYPOTHESIS (R-1: one ledger row, `M4.MEMO-01`). The family is not claimed true of the runtime,
 -- and not claimed consistent with `Laws` (ledger D.E-10 stays OPEN).

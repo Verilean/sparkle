@@ -2,7 +2,7 @@ import Tools.Assume.MemoFamily
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
 set_option autoImplicit false
--- NOT BUILT (draft).
+-- BUILT: kjob lake build Tests.Gen4.MemoFamilyCheck exit 0 (742 jobs, rt163, base 496afcef): MEMOFAMILY CHECK: TYPE 12/12 / MUTANT 8/8 variants of 7 labels / AXIOMS 8 standard-only / CLOSURE 8 clean (+2 positive controls) / MODEL 1. Clean build is the coder's.
 
 /-! # Audit of Tools/Assume/MemoFamily.lean (scripts/gen4/MEMO_FAMILY_FREEZE.md rev2, f23b4bc7)
 
