@@ -39,3 +39,11 @@ fromConst_certified_window / _mixed_window / _machine_window :
 1. 窓: 結論の `KWalkX O declName` を `KWalk O` にした型 → 棄却（`triple_memoInsert` は K から K_n）。
 2. 失敗側: `fun e w => KWalkX ..` にした型 → 棄却。
 3. `LogMvK` の `mv .. = mv w` を `cv .. = cv w` にした型 → 棄却。
+
+## 4. 追記（rt169、実装後。freeze の型は「前提を増やさない単位」の中で次のとおりに広がった。台帳の差分は 0 のまま）
+
+* 仮説 `PpMvK O`（`ppExpr e` が `mv` を変えない、`Tools/ShippingGen4KWalkHelpers.lean`）を追加。`LogMvK` と同じ種類（Diag の判断待ち、選択肢 A の `frameDiag` が `ppExpr` も覆えば解ける）。helper 内の `ppExpr` ×3 は §1 の数えから漏れていた（`KWALK_LEGACY_WINDOW_DECISION.md` §5）。
+* `htr`（翻訳器の仮説）は `KeepsC`（全文脈）でなく `KeepsCP`（`CtxOk` の文脈）の形（S3 の `RecK` から与えられる形）。`emitLeavesKP` / `bindCertifiedInputsKP` / `bindMixedCertifiedInputsKP` / `bindInputPortKP`。
+* 追加した定理: helper 群（`extractWidthK` / `inferHWTypeK` / `extractDimExprK` / `inferHWTypeWithDimensionsK` / `inferHWTypeFromSignalK` / `isSignalBinderTypeK` / `withDimVarMappingP`）、legacy 腕の部品（`openRecordInputs_keepsK` / `splitReturnLeaves_keepsK` / `bindInputsLegacyKP`）、S5（`tryFinallySplit` / `fin_totalK` / `entryNested_windowK` / `entryTop_windowK`）、S6 の一部（`combWith_nestedK` / `synthesizeChild_windowK`）。型は Check（`Tests/Gen4/KWalkEntryCheck.lean`）の `Expected.*` に別に書いてある。
+* 補助の tactic `kwalkM`（`Tools/ShippingGen4KWalkTac.lean`、`Tools/ShippingChildKWalk.lean` の `kwalk` の写しで `Keeps` の目標も歩く）。tactic であって law ではない（kernel が検査する証明項を作るだけ）。
+* **新しい判断点**: `KWALK_LEGACY_WINDOW_DECISION.md`（legacy 腕の失敗側）。新しい文・law は足していない。
