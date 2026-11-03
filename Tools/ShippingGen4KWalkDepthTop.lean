@@ -1,5 +1,5 @@
 import Tools.ShippingGen4KWalkDepthInduct
--- NOT BUILT: S6 (top entry) of scripts/gen4/KWALK_PLAN.md (frozen in scripts/gen4/KWALK_S6_TOP_FREEZE.md): the OUTERMOST entry (depth 0, with the resets) for `KWD`:
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkDepthTop exit 0 (rt171, source as of 15a1d49c); axioms standard only. Clean build is the coder's. S6 (top entry) of scripts/gen4/KWALK_PLAN.md (frozen in scripts/gen4/KWALK_S6_TOP_FREEZE.md): the OUTERMOST entry (depth 0, with the resets) for `KWD`:
 -- `entryTop_windowD` takes the body `hbody` at `KWD K 1` (as `synthesizeChild_depthK` at D = 1 gives it), and `topEntry_K` closes it with the hypotheses of the induction only (`LogMvK`, `LegacyImplK`, `LegacyArmD`).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkDepthTop

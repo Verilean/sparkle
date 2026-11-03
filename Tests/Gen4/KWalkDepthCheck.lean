@@ -2,7 +2,7 @@ import Tools.ShippingGen4KWalkDepthInduct
 import Tools.ShippingGen4KWalkDepthTop
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
--- BUILT: kjob lake build Tests.Gen4.KWalkDepthCheck exit 0 (rt170, source as of 1e5b4f86); axioms standard only. Clean build is the coder's. KWALKDEPTH CHECK: audit of Tools/ShippingGen4KWalk{Depth,DepthArms,DepthEntry,DepthInduct}.lean (S6 of scripts/gen4/KWALK_PLAN.md, scripts/gen4/KWALK_S6_FREEZE.md).
+-- BUILT: kjob lake build Tests.Gen4.KWalkDepthCheck exit 0 (rt171, source as of 15a1d49c; rt170 for the earlier cases); axioms standard only. Clean build is the coder's. KWALKDEPTH CHECK: audit of Tools/ShippingGen4KWalk{Depth,DepthArms,DepthEntry,DepthInduct}.lean (S6 of scripts/gen4/KWALK_PLAN.md, scripts/gen4/KWALK_S6_FREEZE.md).
 set_option autoImplicit false
 
 /-! # Audit of the S6 depth induction
