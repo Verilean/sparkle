@@ -83,8 +83,8 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 |---|---|---|---|
 | S0 | §1 の土台 + Check | **完了（BUILT）** | 320 + 194（実測） |
 | S1 | `StableK`（`cv/sv/dv/mv` が同じなら移る）と T1/T2 の K 版 | **完了（BUILT、rt165）** | 195 + 200 + Env 30（実測。見積り 200-300 に収まった） |
-| S2 | T3: `translateStepWith`/`Core`/fuel、T5 | 未着手 | 150-250 |
-| S3 | T4: fallback と handler（A 版 FallbackA 616 + WalkA 873 に相当） | 未着手 | 1000-1500。**不確実が最大**。既存の `kwalk` タクティク（`Tools/ShippingChildKWalk.lean`、`KeepsCP` について I に一般）が使える見込みだが、使えるかは試していない |
+| S2 | T3: `translateStepWith`/`Core`/fuel、T5 の K 版（`translateK_of_fallback`） | **完了（BUILT、rt166、`Tools/ShippingGen4KWalkTranslate.lean`）** | 139 + Check 202（実測。見積り 150-250 に収まった。T5 の telescope 結合子は S0 の `keeps_KW_*` で済み、S2 の T5 相当は fuel 帰納） |
+| S3 | T4: fallback と handler（A 版 FallbackA 616 + WalkA 873 に相当） | 未着手（試験のみ、`Tools/ShippingGen4KWalkFallbackProbe.lean` 48 行、BUILT） | 1000-1500。**不確実が最大**。試験: 既存の `kwalk` タクティクは K 版で動いた（下の注） |
 | S4 | E6/E5: 入口の腕（certified / mixed / machine / legacy）と窓の開閉 | 未着手 | 400-600 |
 | S5 | E2-E4/E7: 入口の前置き、リセット、深さ、`try/finally`、窓の中 | 未着手 | 300-400 |
 | S6 | E1/E8: `synthesizeChild`、深さ帰納、`memo_miss_of_child_miss` への接続 | 未着手 | 200-300 |
@@ -96,6 +96,9 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 **`StableA` が使えない件（見積りに効く）**: 既存 A-walk の原始操作（`makeWireA` など）は `hS : StableA O.quiet I`（`ShippingChildVCA.lean:46`）を取る。`StableA` の移送条件は `cv/sv/dv` だけで、K は `mv` に依存するので `StableA O.quiet (KW O P)` は一般に成り立たない（`mv` が違う世界を区別できない）。
 共有定義は触れないので、K 版の `StableK`（移送条件に `mv w' = mv w` を足す。`keeps_KW_framedNM` の `kw_transfer` が同じ形）と、それを取る原始操作の写しを新ファイルに作る。補題の証明は A 版と同形で、`hS.2` の呼び出しに `frame` 由来の `mv` の等式を足すだけの見込み（読み。未試行）。
 
+**S3 試験の結果（rt166）**: `Tools/ShippingChildKWalk.lean` の `kwalk [makeWirePK M hA hS, emitAssignP]` で、FallbackA の葉の emitter 3 つ（`emitBoolResult`/`emitSliceResult`/`emitMuxResult`）の K 版が通った（`kjob lake build` 326 jobs exit 0、`unfold` の後に `kwalk` 1 行）。
+`kwalk` は `KeepsCP` について `I` に一般なので、`StableK` 版でもそのまま使える。試したのは葉 3 つだけで、`rec` を取る handler、`FramedNM` 以外の腕（`liftMetaM` を含むもの）、telescope を含むもの（`projFieldName?` 等）は試していない。S3 の 1000-1500 行の見積りは変えていない（推定）。
+
 ## 4. 前提を増やさないことの確認と、止まる点
 
 * 土台は `MemoFamily` を仮説に取るだけ。`Laws` / `T1Hyp` / `T1HypND` は閉包に入らない（Check CLOSURE）。新しい law・TRUSTED 境界・FG/保証の変更は無い。FG の縮小も GenWF の強化も無い。台帳の差分 0。
@@ -106,7 +109,10 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
   `MetaM` への持ち上げは `BaseIO.toEIO`（`Init/System/IO.lean:71`: `fun s => match act s with | .mk a s => .ok a s`、`.ok` のみ）を通る。証明は `refGet_runs` と同形: `IO.getEnv n w` を `cases` して `ST.Out.mk a w'` に分け、持ち上げの定義を `change` で展開し `rw`。
   `@[extern]` の本体は見ていない（opaque のまま）。`BaseIO` の型が「エラーの場合が無い」ことだけを使うので、外部実装には依存しない。
   したがって家族に 1 文足す必要は無く、新しい TRUSTED 文・前提は無い。Check ファイルは作っていない（定理 1 つ、`#print axioms` を同ファイルに置いた）。
-  なお `Core.liftIOCore (IO.getEnv n).toEIO` の形（`IO.toEIO` 経由で例外を作る版）は証明していない: 窓の中の呼び出し（Elab.lean:5602、`(← IO.getEnv ..)` を `MetaM` で書いた形）は上の `liftM (IO.getEnv n)` の形で、`FramedNM.ioEnv` の型もこの形。
+  **窓の中で実際に呼ぶ形の確認（rt166、`Tests/Gen4/KWalkEnvShape.lean`、BUILT）**: Elab.lean:5602 `if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then …`（MetaM の do）を同じ形で書いて `pp.explicit` で出した。
+  elaborated term は `liftM (IO.getEnv "…")` で、持ち上げの連鎖は `BaseIO →(instMonadLiftBaseIOEIO IO.Error) IO →(Core.instMonadLiftIOCoreM) CoreM → StateRefT' → ReaderT`、すなわち **`Core.instMonadLiftIOCoreM`（`liftIOCore`）を通る**。`(IO.getEnv n : MetaM (Option String))` と書いた `ioEnv_runs` の文の項と同じ連鎖で、`example : probeGetEnv = bind (IO.getEnv … : MetaM _) …` が `rfl` で通った。
+  `ioEnv_runs` の証明はこの連鎖（`liftIOCore` を含む）を `change` で展開して `.ok` に落としており、build 済みなので、**Elab.lean:5602 の形は `ioEnv_runs` の文そのもの**。別の補題は要らない。同じ形の 5435（窓の外）も同じ。CompilerM 内の 6419・6938・6950 は `liftMetaM` 経由の別の形で、窓（`synthesizeChild` 内の memo 書き込みから child cache 挿入まで）の外（read。Lean では確認していない）。
+  （以前の記述）なお `Core.liftIOCore (IO.getEnv n).toEIO` の形（`IO.toEIO` 経由で例外を作る版）は証明していない: 窓の中の呼び出し（Elab.lean:5602、`(← IO.getEnv ..)` を `MetaM` で書いた形）は上の `liftM (IO.getEnv n)` の形で、`FramedNM.ioEnv` の型もこの形。
 * (b) 深さ 0 の入口は、最後に top の名前 `n` を memo に書いて K_n で終わり、K に戻らない（child cache への挿入がない）。この後に翻訳器のコードは走らない（read）ので消費者は影響を受けないが、`EntryK` を深さ 0 に使わないこと（深さ 0 は E3 から始める別の文にする）。
 * (c) `memo` の中身（pair が `PairPF` か）は扱わない。K は key だけの不変量で、内容の不変量は案 A（`RefLawsM`）の領分であり、本 walk は案 B（hit を除く）。
 * (d) `outer_miss`（`Tools/ShippingLegacySemMemoWalk.lean:495`）の述べ直しは別単位（AdmCtx/quiet 制限下）。

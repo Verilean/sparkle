@@ -2,7 +2,7 @@ import Tools.ShippingGen4KWalkTranslate
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
 set_option autoImplicit false
--- NOT BUILT. Audit of Tools/ShippingGen4KWalkTranslate.lean (S2 of scripts/gen4/KWALK_PLAN.md).
+-- BUILT: kjob lake build Tests.Gen4.KWalkTranslateCheck exit 0 (746 jobs, rt166, source as of 0cb3c4d3): KWALKTRANSLATE CHECK: TYPE 4/4 / MUTANT 3/3 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 6/6 standard-only / CLOSURE 6/6 clean (+2 positive controls). Clean build is the coder's. Audit of Tools/ShippingGen4KWalkTranslate.lean (S2 of scripts/gen4/KWALK_PLAN.md).
 
 /-! # Audit of Tools/ShippingGen4KWalkTranslate.lean
 

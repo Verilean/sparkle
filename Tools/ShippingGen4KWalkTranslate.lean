@@ -1,5 +1,5 @@
 import Tools.ShippingGen4KWalkPrims
--- NOT BUILT. S2 of scripts/gen4/KWALK_PLAN.md: T3 (`translateSignalPureLiteral?` / `translateCanonicalSignalBinary` / `translateCore` /
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkTranslate exit 0 (323 jobs, rt166, source as of 0cb3c4d3); axioms standard only. Clean build is the coder's. S2 of scripts/gen4/KWALK_PLAN.md: T3 (`translateSignalPureLiteral?` / `translateCanonicalSignalBinary` / `translateCore` /
 -- `translateStepWith`) and the fuel induction, with `StableK` instead of `StableA` (copies of ShippingChildTranslateA 399-525).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom.
 -- No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.

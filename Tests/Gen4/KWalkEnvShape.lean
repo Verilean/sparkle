@@ -1,5 +1,6 @@
 import Tools.ShippingGen4KWalkEnv
 
+-- BUILT: kjob lake build Tests.Gen4.KWalkEnvShape exit 0 (309 jobs, rt166). Output = the elaborated terms below (pp.explicit).
 -- shape probe (rt166): how `(← IO.getEnv ..)` in a MetaM do-block (Elab.lean:5602) elaborates
 open Lean Meta Tools.ShippingGen4KWalkEnv
 
