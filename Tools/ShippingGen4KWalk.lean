@@ -1,6 +1,6 @@
 import Tools.Assume.FramedACases
 import Tools.ShippingChildVC
--- NOT BUILT. Foundation of the K walk (scripts/gen4/KWALK_PLAN.md): `K` = every memo key is a child-cache key.
+-- BUILT: kjob lake build Tools.ShippingGen4KWalk exit 0 (317 jobs, rt164, source as of df94a168); axioms standard only. Clean build is the coder's. Foundation of the K walk (scripts/gen4/KWALK_PLAN.md): `K` = every memo key is a child-cache key.
 -- Takes `MemoFamily` (TRUSTED, approved freeze rev2 f23b4bc7) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom.
 -- No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 

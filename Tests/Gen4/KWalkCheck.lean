@@ -2,7 +2,7 @@ import Tools.ShippingGen4KWalk
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
 set_option autoImplicit false
--- NOT BUILT.
+-- BUILT: kjob lake build Tests.Gen4.KWalkCheck exit 0 (744 jobs, rt164, source as of df94a168): KWALK CHECK: TYPE 7/7 / MUTANT 3/3 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 24/24 standard-only / CLOSURE 24/24 clean (+2 positive controls). Clean build is the coder's.
 
 /-! # Audit of Tools/ShippingGen4KWalk.lean (scripts/gen4/KWALK_PLAN.md)
 
