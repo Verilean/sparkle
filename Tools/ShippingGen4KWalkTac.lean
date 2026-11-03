@@ -74,6 +74,7 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
   let some p := progOf? ty | do
     -- side goals left by a rule (`SideRef`, `LocalRefType`, a message class, a hypothesis)
     if ← runTac (← `(tactic| assumption)) then return true
+    if ← runTac (← `(tactic| rfl)) then return true
     let h := ty.getAppFn.constName?.getD .anonymous
     if h == ``Tools.ShippingChildInv.SideRef || h == ``Tools.ShippingChildInv.LocalRefType then
       return ← runTac (← `(tactic| constructor))
@@ -154,6 +155,13 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       if ← runTac (← `(tactic| apply Tools.ShippingChildInv.Keeps.forIn_array)) true then return true
       if ← runTac (← `(tactic| apply Tools.ShippingChildInv.Keeps.forIn_list)) true then return true
       if ← runTac (← `(tactic| apply Tools.ShippingChildInv.Keeps.forIn_range)) true then return true
+      -- an instance projection (e.g. `withTransparency` through `MonadControlT`): reduce it, as `vca` does
+      let inst ← withTransparency .instances (whnf fn.projExpr!)
+      let p' ← whnfCore (mkAppN (fn.updateProj! inst) p.getAppArgs)
+      if p' != p then
+        let g' ← g.replaceTargetDefEq (mkApp ty.consumeMData.appFn! p')
+        replaceMainGoal [g']
+        return true
     return false
   | .fvar _ =>
     for d in ← getLCtx do
