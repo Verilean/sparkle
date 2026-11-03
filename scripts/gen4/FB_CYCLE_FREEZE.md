@@ -1,4 +1,6 @@
-# (1c) 再入を必ず失敗させるコンパイラ変更: freeze rev2（文書のみ）
+# (1c) 再入を必ず失敗させるコンパイラ変更: freeze rev3（文書のみ）
+
+- **rev3（Issue rt162）**: rev2 = 598f195e への reviewer 指摘 2 点に対する改訂。(1) 定理の前提を既存の `Start` に戻し（`StartNR` 廃止）、entry の reset は RunsTo の中で扱う（§3.2、F0、scratch で elaborate）。(2) invocation-local 化を見積もった結果、`sparkleChildSynth` の型と `JQC` の共有定義に及び規模が大きいため、設計は A-global のまま、**判断資料 scripts/gen4/FB_CYCLE_CONC_DECISION.md をユーザーに出す**（§2.6 末尾、§7）。**並行の扱いが決まるまで、この freeze は reviewer に出さない（decision で停止）**。直した点は §8（rev3）。台帳: 新前提 0、D.E-12 は部分供給 0。
 
 - **rev2（Issue rt160）**: rev1 = bba569e2 への reviewer 指摘 2 点に対する改訂。(1) `Start` の完全型を固定（§3.2、scratch で elaborate）。(2) 新 cell が process-global な `IO.Ref` であることについて、top-level 合成が重ならない根拠を調査（§2.6）。直した点の対応表は §8。台帳: 新前提 0、D.E-12 は部分供給 0。
 
@@ -13,7 +15,7 @@
 1. 宣言のコンパイルが同じ宣言へ戻りうる入口は、読んだ範囲では**すべて `synthesizeCombinationalCoreWith`（Elab.lean:5423）を通る**（§1.1）。ここに「コンパイル中の宣言名の stack」と「再入した事実を残す sticky な旗（tripwire）」を置けば、入口ごとに手を入れる必要がない。
 2. 入れ子の失敗を飲む catch のうち、入れ子の entry 呼び出しを内側に含むのは `tryInlineUnfold` の `catch ex1` / `catch ex2`（6358, 6374）だけ（§1.3）。他の `catch` は Meta 内の `inferType` / `getConstInfo` 等か IO だけで、entry を呼ぶ式を含まない（読解）。
 3. 推奨設計は **A: stack + tripwire**。再入を見たら (i) 旗を立て、(ii) 専用 error を投げる。**旗は catch に飲まれても消えず、entry は成功で戻る直前に旗を見て、立っていれば必ず throw する**。catch 側の改造が要らないので、将来 catch が増えても `hno` の証明が壊れない。B（catch ごとに再送出）は §2.5 に比較として置く。
-4. 供給定理（§3）は「成功した run の出力 design に `ofDecl declName` の名前の module が無い」。使う既存定理は `ofDecl_injective`（Tools/ShippingModuleName.lean:766）、`hno_iff_not_any`（FB_HNO_STUDY §2.2）。**新しく要る事実は 3 つ**（F1 旗の単調性、F2 design の module 名の出自、F3 stack の釣り合い）。いずれも定理として証明する対象で、**新しい TRUSTED / law は要らない見込み**。ただし F2 は addModule の全箇所の walk で規模が大きい（§3.3）。F2 が立たないと分かったら止まって判断資料に回す。
+4. 供給定理（§3）は「成功した run の出力 design に `ofDecl declName` の名前の module が無い」。使う既存定理は `ofDecl_injective`（Tools/ShippingModuleName.lean:766）、`hno_iff_not_any`（FB_HNO_STUDY §2.2）。**新しく要る事実は 4 つ**（F0 reset prefix、F1 旗の単調性、F2 design の module 名の出自、F3 stack の釣り合い）。いずれも定理として証明する対象で、**新しい TRUSTED / law は要らない見込み**。ただし F2 は addModule の全箇所の walk で規模が大きい（§3.3）。F2 が立たないと分かったら止まって判断資料に回す。
 5. 動作の変化: 正常な（循環しない）コンパイルの出力は変わらない（§2.4）。**変わりうるのは、再入を含む試行が今は catch+retry で成功している設計**（§2.4 の (c)）。corpus 測定でそれが 0 件であることを確認し、出たら止めて報告する（§4）。
 
 ## 1. 再入の経路
@@ -171,7 +173,7 @@ B は専用の例外型を作り、`tryInlineUnfold` の 2 つの catch で「�
 | A-local（invocation-local） | outermost の入口で `SynthRun`（stack と tripwire の 2 つの新しい `IO.Ref`）を作り、引数で持ち回す | 合成 1 回ごとに独立。(e) の重なりでも他の合成の stack を壊さない | `synthesizeCombinationalCoreWith` / `childSynthEntry`（5620）/ `sparkleChildSynth` の型（現在 `Name → MetaM Res`）/ `synthesizeChild` の引数が増える。`sv w = some synthesizeChild`（`JQC`、Tools 側の定義と証明）が型ごと変わる＝**共有定義の変更**で、ユーザー承認が要る。この単位ではやらない |
 | A-thread-local | `Task` / thread id をキーにした map | 既存の型を変えない | Lean に標準の thread-local は見つからなかった（この調査では）。map は結局 global cell。thread id（`IO.getTID`）が同じ task 内で安定する保証は未確認 |
 
-**推奨**: 「重なる経路を閉じられなかった」ので、本来は A-local が安全側。ただし A-local は `sparkleChildSynth` の型と `JQC` を含む共有定義を変えるため、この rev2 では**設計を A-global に固定したまま、(e) の露出を既存 cell と同列の既知の制限として明記**（§7）し、**A-local への移行は reviewer / ユーザーの判断事項として残す**。A-local を選ぶ場合、本文書の §2.1/2.2/3 は引数持ち回しに書き直す（`StartNR` は `Start` のままで済み、(6)(7) の欄は消える）。どちらも**既存の cell の扱いは変えない**。**可逆性**: A-global → A-local は、実装前なら文書の変更だけ。実装後は共有定義の変更。**判断しない場合**: A-global のまま実装に進むが、server 経路の重なりは未解決の制限として残る。
+**rev3 の見積もり（invocation-local、reviewer 指摘 (2)）**: 入れ子の子は `sparkleChildSynth`（型 `Name → MetaM …`、1040）を通って呼ばれ、この型に「どの合成の子か」を渡す欄が無い。stack / 旗を合成ごとにするには、この型を変えて引数で持ち回す（変更は Elab.lean の約 8 関数、数十行の見積もり）か、MetaM を包む（Elab.lean の大半）かのどちらかで、**前者でも `sparkleChildSynth` の型を変える共有定義の変更**になる。`JQC`（`sv w = some synthesizeChild`）・`Start` に入っており、base で `sparkleChildSynth` / `synthesizeChild` / `childSynthEntry` / `JQC` を含む `Tools/` は 153 ファイル、`Tests/` は 29 ファイル（grep の件数）。さらに depth / child cache / memo cache / wire cache の既存 global cell は残るので、stack / 旗だけ local にしても重なった合成の出力が安全になるわけではない。したがって「新規ファイル中心で Elab.lean の変更が小さい」条件を満たさない。**設計は A-global に固定したまま、並行の扱い（invocation-local にするか、保証を逐次 command に限るか）は判断資料 `scripts/gen4/FB_CYCLE_CONC_DECISION.md` でユーザー判断に回す**（推奨は逐次 command に限る (ii)、範囲の縮小なので判断が要る）。既存の cell の扱いは変えない。
 
 ## 3. 供給定理の完全な型
 
@@ -180,41 +182,37 @@ B は専用の例外型を作り、`tryInlineUnfold` の 2 つの catch で「�
 `hno` は `Tools/ShippingDesignWriterRun.lean` の仮説（FB_HNO_STUDY §2.2）:
 `hno : ∀ x ∈ D.modules, x.name ≠ raw.name`。outermost の core run の結果 `(raw, D)` について、`raw.name = ofDecl declName`（FB_HNO_STUDY §1 の `htop_core` の第一成分）と合わせて、次の形にする。
 
-### 3.2 開始状態 `StartNR` と定理（まだ定理ではない。freeze 候補の型）
+### 3.2 開始状態は既存の `Start`、reset は RunsTo の中（rev3 で変更）
 
-**`StartNR`（新規ファイル `Tools/ShippingGen4Cycle.lean` に置く。`Tools/ShippingGen2Defs.lean` の `Start` は編集しない）**。既存の `Start`（Gen2Defs.lean:52 = `AdmCtx L.O.quiet mctx cctx ∧ JQC L.O 0 w`。`JQC` は ChildCacheA.lean:120: quiet、`sv w = some synthesizeChild`、`dv w = 0`、cache 半分 `CacheInvA`）に、新 cell の 2 欄を足す:
+**rev3 の方針（reviewer 推奨 (a)）**: 定理の前提は `Tools/ShippingGen2Defs.lean:52` の既存の `Start` のまま（`AdmCtx L.O.quiet mctx cctx ∧ JQC L.O 0 w`。`JQC` は ChildCacheA.lean:120: quiet、`sv w = some synthesizeChild`、`dv w = 0`、cache 半分 `CacheInvA`）。`StartNR`（rev2 の、`synthStack = []` と `synthReentry = none` を前提に足した形）は**廃止**する。`Start` は新 cell について何も言わないので、**直前の失敗で旗が `some` のまま残った world でも `Start` は成り立ち、定理は適用できる**。
+
+理由: §2.2 のとおり、depth 0 の entry は `synthStack.set []` と `synthReentry.set none` を**自分で**実行する（`synthesizeCombinationalCoreWith` の本体の中）。この 2 文は `RunsTo (synthesizeCombinationalCore declName [] false) …` の一部で、定理の仮定 `hcore` が既にこの reset を含む。したがって F1〜F3 の不変量は、**reset 直後の world**（stack = []、旗 = none）から始める。開始 world `w` の旗・stack の値には依らない。
+
+| 段階 | world の性質 | 根拠 |
+|---|---|---|
+| 開始 `w` | `Start L mctx cctx w`（`dv w = 0` を含む）。stack / 旗は任意 | 定理の前提 |
+| reset prefix（RunsTo の先頭、depth 判定の後） | `dv w = 0` なので `if depth == 0` の腕が実行され、stack = []、旗 = none | §2.2 の差分。`dv w = 0` は `Start` から。depth 判定（`depth ≥ 1024` で throw）は `0 < 1024` で通る |
+| enter（push `declName`）以降 | F1〜F3 の不変量 `Inv`: stack = `[declName]`（enter 直後）、旗 = none | reset prefix の事後条件 |
+| nested entry | depth ≥ 1。reset はしない（`depth == 0` の腕に入らない） | `dv` は nested で `+1` 済み（既存の depth 不変量 `dv w = D`） |
+
+reset prefix の補題（新しく要る事実 **F0**）: `dv w = 0` から、entry の最初の数文を実行した後 `readOf synthStack w' = []` ∧ `readOf synthReentry w' = none` ∧ `w'` が `Start` の `JQC` 欄を保つ（新 cell は `JQC` の cell と別なので、この 2 つの `set` は `JQC` / `AdmCtx` / `dv` を変えない）。IO.Ref の set/get の既存の世界モデル（`readOf` の set 補題、Tools/ShippingChildInv.lean:102 付近）で立つ見込み。F0 は reset 文 2 つの事後条件だけで、規模は小さい見込み（実装時に確認）。
+
+**完全な型（scratch で elaborate 済み）**:
 
 ```lean
-def StartNR {mref cref} (L : Laws mref cref) (mctx : Meta.Context) (cctx : Core.Context)
-    (w : Void IO.RealWorld) : Prop :=
-  Start L mctx cctx w ∧ readOf synthStack w = [] ∧ readOf synthReentry w = none
-```
-
-開始状態の全欄（展開後）: (1) `AdmCtx L.O.quiet mctx cctx`（contexts が admissible）、(2) `quiet w`、(3) `sparkleChildSynth` の中身 `= some synthesizeChild`、(4) **depth `dv w = 0`**、(5) cache 初期条件 `CacheInvA L.O (cv w)`（`sparkleChildCache` の中身は real-child の entry だけ）、(6) **`synthStack` の中身 `= []`**、(7) **`synthReentry` の中身 `= none`**。
-
-注意（正直に）: entry は depth 0 で (6)(7) を自分でリセットする（§2.2）ので、証明の中身は (6)(7) を使わなくても立つ見込み。それでも (6)(7) を前提に含めるのは、reviewer 指摘どおり開始状態を明示するため。**前の失敗した top-level 合成が旗を立てたまま残した world は `StartNR` を満たさない**（旗は sticky）。その場合 `hno_of_noReentry` は適用されず、リセット後の世界に対する別の補題（`StartNR` を entry のリセット後の world に取る）が要る。どちらを使うかは実装時に reviewer と詰める。この段階では「完全な型の固定」を優先し、強い前提（(6)(7) 付き）で固定する。
-
-**scratch での確認**: `StartNR` と、これを使った定理の文そのもの（`def … : Prop`、証明なし、sorry なし）を、新 cell を `initialize` で同じ形（§2.1）に置いた scratch で elaborate した。`kjob lake env lean`（rt160、Lean 4.32.1）、exit 0、`#print axioms` は `[propext, Classical.choice, Quot.sound]` のみ。scratch はソースツリー外（scratchpad）で、抜粋のみ引用する:
-
-```lean
-def StartNR {mref cref} (L : Laws mref cref) (mctx : Meta.Context) (cctx : Core.Context)
-    (w : Void IO.RealWorld) : Prop :=
-  Start L mctx cctx w ∧ readOf synthStack w = [] ∧ readOf synthReentry w = none
-
 def HnoOfNoReentryStmt : Prop :=
   ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (declName : Name) (mctx : Meta.Context) (cctx : Core.Context)
     (w w2 : Void IO.RealWorld) (raw : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design),
-    StartNR L mctx cctx w →
+    Start L mctx cctx w →
     RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (raw, D) w2 →
     raw.name = Sparkle.IR.ModuleName.ofDecl declName →
     ∀ x ∈ D.modules, x.name ≠ raw.name
 ```
 
-（これは文の型検査で、証明ではない。`synthesizeCombinationalCore` は現行の定義で elaborate した。変更後の定義は同じ名前・引数。）
+scratch: `Tools.ShippingGen2Defs` を import し、`open … Tools.ShippingEntrySoundness`（`RunsTo` の名前空間）。`kjob lake env lean`（rt162、Lean 4.32.1）、**exit 0、`#print axioms` は `[propext, Classical.choice, Quot.sound]` のみ、sorry なし**。scratch はソースツリー外（scratchpad）。型検査は現行の `synthesizeCombinationalCore`（変更前の定義）に対して。変更後の定義は同じ名前・引数・型。
 
-定理（上の `StartNR` を使う形。binder の順は scratch と同じ）:
-
+定理（上の文の証明。binder の順は同じ）:
 
 ```lean
 theorem hno_of_noReentry
@@ -223,21 +221,24 @@ theorem hno_of_noReentry
     {cctx : Core.Context}
     {w w2 : Void IO.RealWorld}
     {raw : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
-    (hstart : StartNR L mctx cctx w)   -- outermost の開始状態（下の `StartNR`。全欄を明示）
+    (hstart : Start L mctx cctx w)   -- 既存の Start（新 cell は未指定: 旗が some のまま残った w でも成り立つ）
     (hcore : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (raw, D) w2)
     (hname : raw.name = Sparkle.IR.ModuleName.ofDecl declName) :
     ∀ x ∈ D.modules, x.name ≠ raw.name
 ```
 
-（`synthesizeCombinationalCore` は変更後の定義。名前・引数は変えない。）これに `hno_iff_not_any`（FB_HNO_STUDY §2.2）を合成して、`synthesizeHierarchical` が `addModule` 分岐に入ることを得る。**これは D.E-12 の `hno` 側だけ**で、`htop` の legacy 分が残るので、行は部分供給（0）。
+これに `hno_iff_not_any`（FB_HNO_STUDY §2.2）を合成して、`synthesizeHierarchical` が `addModule` 分岐に入ることを得る。**これは D.E-12 の `hno` 側だけ**で、`htop` の legacy 分が残るので、行は部分供給（0）。
+
+`Start` を変えない効果: `Tools/ShippingGen2Defs.lean` は編集しない。既存の `Start` を使う全定理（`Start` を引く 27 ファイル）は影響を受けない。新 cell を `Start` に足す接続補題は不要。
 
 ### 3.3 証明の構成と新しく要る事実
 
-1. **F1（旗の単調性）**: entry の run の間、`synthReentry` が `some n` になったら run の終わりまで `some`。理由: `synthReentry` に書くのは `enter`（`orElse` で上書きしない）と depth 0 の入口の `set none` だけで、後者は outermost の最初にしか実行されない（nested は `depth ≥ 1`）。`Keeps` 型の不変量（`I w := synthReentry.get w = some n → …`）で、`@[keeps]` の walk に載せる。**この cell を書く式は新ファイルの 2 つと entry の 1 行だけ**。他の handler が cell を触らないこと（IO.Ref の名前が新しいので、既存の `@[keeps]` 補題は `I` を変えないと分かる）を使う。
+0. **F0（reset prefix）**: §3.2 の表。`dv w = 0` から、entry の reset 2 文の後 stack = []、旗 = none、`Start` の `JQC` 欄は保たれる。
+1. **F1（旗の単調性）**: reset 後の world から、entry の run の間、`synthReentry` が `some n` になったら run の終わりまで `some`。理由: `synthReentry` に書くのは `enter`（`orElse` で上書きしない）と depth 0 の入口の `set none` だけで、後者は outermost の最初にしか実行されない（nested は `depth ≥ 1`）。`Keeps` 型の不変量（`I w := synthReentry.get w = some n → …`）で、`@[keeps]` の walk に載せる。**この cell を書く式は新ファイルの 2 つと entry の 1 行だけ**。他の handler が cell を触らないこと（IO.Ref の名前が新しいので、既存の `@[keeps]` 補題は `I` を変えないと分かる）を使う。
 2. **F2（design の module 名の出自）**: run の結果 `(raw, D)` について、`D.modules` の各 module の name は `ofDecl k`（`k` は run の途中で `enter` された宣言）か、`ofDecl` と異なる系（`ofMem`、aux: `ofDecl_ne_ofMem`、`ofDecl_ne_aux` が既存）のいずれか。入れ子の design が `addModuleToDesign`（Elab.lean 6625, 6628, 8519, 8561）で親へ合流する箇所と machine の `closeInsts` / `designWith`（Tools/ShippingCacheCoherentCert.lean 系の `IsMem a ∨ IsTop`）を覆う帰納法。**machine route には既存の出自不変量があり、非 machine の legacy / certified の合流（6625-6628, 8519, 8561）に同じ形の補題を足す**。F2 は規模が最も大きい（addModule の全 4 箇所 + closeInsts 側の既存定理の再利用）。
 3. **F3（stack の釣り合い）**: entry の成功 run の前後で `synthStack` は同じ。`enter` が push、`finally` が `drop 1`。nested の run が失敗しても `finally` が pop するので、例外経路でも成立する。`declName ∈ stack` ⇒ `enter` が throw、は定義から。
 
-組み立て: 成功した outermost run で、(i) F1 と `checkNoReentry` により、run 中に旗は立たなかった。(ii) 旗が立たないので `enter` は throw しなかった、すなわち nested の `enter k` は毎回 `k ∉ stack`。(iii) outermost の stack は `[declName]` から始まるので、nested の `k` で `k = declName` のものは無い（`k ∈ stack` になる）。(iv) F2 から `D.modules` に `ofDecl declName` の名前の module があれば、`k = declName` の nested `enter` があったことになり矛盾。(v) `ofDecl_injective`（766）で名前の等号から宣言の等号を得る。(vi) `raw.name = ofDecl declName`（`hname`、htop 側の成分）から結論。
+組み立て: 成功した outermost run で、(i) F1 と `checkNoReentry` により、run 中に旗は立たなかった。(ii) 旗が立たないので `enter` は throw しなかった、すなわち nested の `enter k` は毎回 `k ∉ stack`。(iii) F0 により outermost の stack は reset 後 `[]`、enter 後 `[declName]` から始まるので、nested の `k` で `k = declName` のものは無い（`k ∈ stack` になる）。(iv) F2 から `D.modules` に `ofDecl declName` の名前の module があれば、`k = declName` の nested `enter` があったことになり矛盾。(v) `ofDecl_injective`（766）で名前の等号から宣言の等号を得る。(vi) `raw.name = ofDecl declName`（`hname`、htop 側の成分）から結論。
 
 **使う既存定理**: `ofDecl_injective`、`ofDecl_ne_ofMem`、`ofDecl_ne_aux`（Tools/ShippingModuleName.lean）、`hno_iff_not_any`（FB_HNO_STUDY §6 の scratch。freeze 後に Tools の新ファイルへ）、`finishSynth_returns`（Tools/ShippingEntrySoundness.lean:521）、machine 側の出自不変量（Tools/ShippingCacheCoherentCert.lean）。
 **新しい TRUSTED / law**: なし（F1〜F3 は定理として証明する）。**止まる条件**: F2 の walk が、`RefLawsM`（保留）や memo 法則、新しい仮説なしでは立たないと分かった場合は、実装を止めて判断資料にする。
@@ -275,6 +276,7 @@ theorem hno_of_noReentry
 - A は「再入を見たら必ず失敗」を保証するが、**循環が無い設計が失敗に変わらない**ことの保証は §2.4(a) の読解と §4 の測定だけ。変更により今成功している設計が失敗する場合は、ユーザーの判断（M4_DECISION §7: 出力が変わったら止める）に戻る。
 - F2 の規模は見積もれていない（addModule 4 箇所 + closeInsts 側の再利用）。着手後に規模が大きいと分かれば、止まって note に書く。
 - `htop` の legacy 分、(2c) legacy shim、memo 法則家族（項目 3）はこの文書の範囲外。
+- **rev3 追記**: 並行の扱いは判断資料 FB_CYCLE_CONC_DECISION.md（ユーザー判断待ち）。判断までこの freeze は承認を求めない。(ii) なら、本節の rev2 追記を「保証は逐次 command に限る」に書き換える。
 - **rev2 追記**: 新 cell が process-global であることの重なり（language server の cancel の窓、非同期 theorem body から合成を呼ぶユーザー tactic）は閉じられていない（§2.6 (e)）。既存の cell と同じ露出で、この文書は A-global を固定する。A-local への移行は共有定義（`sparkleChildSynth` の型、`JQC`）の変更になるので判断事項（§2.6 の表）。
 
 ## 8. rev2 で直した点（reviewer 指摘ごと）
@@ -283,5 +285,14 @@ theorem hno_of_noReentry
 |---|---|---|
 | (1) `Start` が「freeze 後に写す」のまま未定義 | §3.2 | `StartNR` を完全な型で固定。欄: `AdmCtx`、quiet、`sv = some synthesizeChild`、**depth 0**、cache 初期条件 `CacheInvA`、**`synthStack = []`**、**`synthReentry = none`**。定理の文そのものが `StartNR` を使う形に変更。scratch で elaborate（exit 0、axioms は propext / Classical.choice / Quot.sound のみ、sorry なし）。注意: sticky 旗が残った world は `StartNR` を満たさない（entry は depth 0 でリセットする）旨を明記 |
 | (2) 新 cell が process-global な `IO.Ref` | §2.6（新設）、§7 | 起動する command の全列挙、`initialize` の寿命、Lean の `doElab` が command を逐次に走らせること（Language/Lean.lean:679, 749）、`Elab.async` が theorem 本体に限られること（Frontend.lean:266, MutualDef.lean:1238-1331）、`lake build` は module ごとに別 process（Lake/Build/Actions.lean:28-48）を、ファイルと行で記載。**閉じられなかった経路**: server の cancel の窓と非同期 theorem body。既存 cell（depth / child cache / memo）も同じ問題を持つことを報告（扱いは変えない）。A-global / A-local / A-thread-local の比較表と推奨 |
+
+台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。新前提 0。D.E-12 は hno / htop の 1 行で、hno だけの供給は部分供給 0。
+
+## 9. rev3 で直した点（reviewer 指摘ごと）
+
+| 指摘 | 直した所 | 内容 |
+|---|---|---|
+| 1. `hno_of_noReentry` が入力 world に `synthReentry = none` / `synthStack = []` を要求し、旗が残った world に適用できない | §3.2、§3.3（F0 追加）、§0 の 4 | 推奨 (a) を採用。前提を既存の `Start` にし（`StartNR` 廃止）、depth 0 の reset 2 文を RunsTo の中（reset prefix、新しい事実 F0）で処理して、F1〜F3 の不変量は reset 後の world から始める。完全な型を scratch で elaborate（`Start` 版の `HnoOfNoReentryStmt`、exit 0、axioms は propext / Classical.choice / Quot.sound のみ、sorry なし）。`Tools/ShippingGen2Defs.lean` は編集しない |
+| 2. A-global のまま並行（server の cancel、非同期 theorem body）が未解決 | §2.6 末尾、§7、新規 scripts/gen4/FB_CYCLE_CONC_DECISION.md | invocation-local を見積もり（変更関数・既存 cell への影響・出力不変）、共有型 `sparkleChildSynth` / `JQC` に及び規模が大きいと判断。判断資料に (i) invocation-local と (ii) 逐次 command に限る（範囲の縮小）の影響・コスト・推奨・可逆性・判断しない場合を記載。note に書いて `decision` で停止。見積もりは読解と grep の件数で、実装・測定はしていない |
 
 台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。新前提 0。D.E-12 は hno / htop の 1 行で、hno だけの供給は部分供給 0。
