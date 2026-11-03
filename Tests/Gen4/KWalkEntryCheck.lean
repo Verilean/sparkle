@@ -4,7 +4,7 @@ import Tools.ShippingGen4KWalkHelpers
 import Tools.ShippingGen4KWalkLegacyTail
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
--- BUILT: kjob lake build Tests.Gen4.KWalkEntryCheck exit 0 (rt169, source as of 894ffd2f); KWALKENTRY CHECK: TYPE 4/4 / MUTANT 2/2 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 12/12 standard-only / CLOSURE 12/12 clean (+2 positive controls). Clean build is the coder's. Audit of Tools/ShippingGen4KWalkEntry{,Arms}.lean (S4 of scripts/gen4/KWALK_PLAN.md).
+-- BUILT: kjob lake build Tests.Gen4.KWalkEntryCheck exit 0 (rt169, source as of b0c1ab46); KWALKENTRY CHECK: TYPE 5/5 / MUTANT 3/3 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 24/24 standard-only / CLOSURE 24/24 clean (+2 positive controls). Clean build is the coder's. Audit of Tools/ShippingGen4KWalk{Entry,EntryArms,EntryCore,Helpers,LegacyTail}.lean (S4/S5 of scripts/gen4/KWALK_PLAN.md).
 set_option autoImplicit false
 
 /-! # Audit of the S4 files

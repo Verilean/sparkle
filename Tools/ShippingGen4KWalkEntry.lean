@@ -1,6 +1,6 @@
 import Tools.ShippingGen4KWalkFallback
 import Tools.ShippingChildFrontA
--- BUILT: kjob lake build Tools.ShippingGen4KWalkEntry exit 0 (rt169, source as of 894ffd2f); axioms standard only. Clean build is the coder's. S4 (part 1) of scripts/gen4/KWALK_PLAN.md, frozen in scripts/gen4/KWALK_S4_FREEZE.md: the entry arms' parts (emitLeaves / certified / mixed / machine) and the memo-write step that opens the window, for `KWalk`.
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkEntry exit 0 (rt169, source as of b0c1ab46); axioms standard only. Clean build is the coder's. S4 (part 1) of scripts/gen4/KWALK_PLAN.md, frozen in scripts/gen4/KWALK_S4_FREEZE.md: the entry arms' parts (emitLeaves / certified / mixed / machine) and the memo-write step that opens the window, for `KWalk`.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom to the family.
 -- DIAG-PENDING hypothesis `LogMvK` (one run of the profile logger leaves the memo as it was): a `def`, NOT a family statement; it is what scripts/gen4/KWALK_DIAG_DECISION.md option A would give.
 -- No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.

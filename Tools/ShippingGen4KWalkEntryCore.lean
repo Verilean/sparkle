@@ -1,6 +1,6 @@
 import Tools.ShippingGen4KWalkEntryArms
 
--- NOT BUILT (rt169). S5 of scripts/gen4/KWALK_PLAN.md: the entry `synthesizeCombinationalCoreWith` for a NESTED run (depth ≠ 0), for `KWalk`: the front matter, the depth set, `try … finally`, with the arm
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkEntryCore exit 0 (rt169, source as of b0c1ab46); axioms standard only. Clean build is the coder's. S5 of scripts/gen4/KWALK_PLAN.md: the entry `synthesizeCombinationalCoreWith` for a NESTED run (depth ≠ 0), for `KWalk`: the front matter, the depth set, `try … finally`, with the arm
 -- (`hbody`: K to K_declName, K on failure) as a hypothesis. The window opens inside the body and the `finally` (framed sets, a depth modify) keeps K_declName; a failure of the body leaves K.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. DIAG-PENDING hypothesis `LogMvK` (see Entry). No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkEntryCore
