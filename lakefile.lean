@@ -4937,3 +4937,6 @@ lean_lib «Tools.ShippingGen4KWalkDepthArms» where
 
 lean_lib «Tools.ShippingGen4KWalkDepthEntry» where
   roots := #[`Tools.ShippingGen4KWalkDepthEntry]
+
+lean_lib «Tools.ShippingGen4KWalkDepthInduct» where
+  roots := #[`Tools.ShippingGen4KWalkDepthInduct]
