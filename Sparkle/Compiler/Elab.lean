@@ -5182,6 +5182,11 @@ def machineShape? (symbolicMode : Bool) (parameters : List (String × Nat)) (ci 
       fun (j, kind) => (Name.mkSimple s!"inst{j}", kind)
     let binders : List (Name × MixedGateBinder) := bs ++ instBinders ++
       (st.names.toList.zip kinds) ++ st.lets.toList.map fun (nm, kind, _) => (nm, kind)
+    -- final gate (user decision G, scripts/gen3/HROW_GATE_DECISION.md): a shape with a
+    -- memory-origin call must carry the one-output structure (`instStruct` with non-empty
+    -- `instFields`); else `none` and the caller takes the legacy route.  Read from the
+    -- source to never fire; it makes `OneOutNoMemRow` a one-unfolding fact of this shape.
+    if !(st.instOrigins.all (·.child?.isNone) || (st.instStruct && !st.instFields.isEmpty)) then none else
     if unifiedGateRoot (binders.map (·.2)).toArray body then
       some
         { binders := binders
