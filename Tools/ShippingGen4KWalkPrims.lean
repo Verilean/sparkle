@@ -14,7 +14,6 @@ open Tools.ShippingChildBndInit
 open Tools.ShippingChildBndCore
 open Tools.ShippingChildInvA
 open Tools.ShippingChildFresh
-open Tools.ShippingChildHarness
 open Tools.ShippingChildTranslateA
 open Tools.ShippingChildPathA
 open Tools.Assume.MemoFamily
@@ -37,6 +36,7 @@ theorem stableK_KW (O : RefLawsAOps MkRefd mref cref) (P : Std.HashMap Name Res 
     StableK O.quiet (KW O P) :=
   ⟨fun _ h => h.1, fun _ _ hc hs _ hm hq h => kw_transfer hc hs hm hq h⟩
 
+variable {O : RefLawsAOps MkRefd mref cref} in
 /-- A `FramedNM` step keeps a `StableK` invariant (exceptions in the class): `keepsA_framed` for `StableK`. -/
 theorem keepsK_framedNM (M : MemoFamily O) (hA : AdmCtx O.quiet mctx cctx)
     {I : Void IO.RealWorld → Prop} (hS : StableK O.quiet I) {α : Type} {p : MetaM α}
