@@ -110,6 +110,7 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 * `Tools/ShippingGen4KWalkLegacyCached.lean`（85）: `legacyCachedK_of_impl : LegacyImplK → LegacyCachedK`。これで `translate_keepsK` の仮説は `LegacyImplK` と `ChildEntryK`（S4-S6 の入口帰納）の 2 つに実質減る（`translate_keepsK` 自体の型は 3 仮説のまま、`LegacyCachedK` は `legacyCachedK_of_impl` から得る）。
 * `Tests/Gen4/KWalkFallbackCheck.lean`（196）: KWALKFALLBACK CHECK: TYPE 5/5 / MUTANT 3/3（signature/defeq での棄却、意味的反例ではない）/ AXIOMS 10/10 標準のみ / CLOSURE 10/10 clean（Laws・T1Hyp・T1HypND 無し、陽性対照 2 件）。
 * **終わらなかった handler の一覧**: `LegacyImplK` の全体 — `Rec.translateExprToWireImpl` が呼ぶ `handleApplicative` / `handleBitVecOps` / `handleRegister` / `handleMux` / `handleMemory` / `handleLoop` / `handleCircuitMonad` / `handleDefinitionUnfold` 等（A 版 `ShippingChildLegacyHandlersA` 179 / `HelpersA` 171 / `ImplA` 120 / `TailA` 223 行）と、それを歩く `vca`（`ShippingChildWalkA` 873 行、`keepsA_framed O hA hS` / `keepsA_diag` / telescope の `RefLawsATele` 固定）の K 版。
+  **止まり（新しい文が要る）**: 翻訳器の範囲に `Diag` の操作（`ppExpr` 3、`IO.eprintln`+`flushStderr` 2 組、`IO.FS.Handle.mk`/`putStrLn`/`flush`）があり、`MemoFamily` に `Diag` の `mv` 保存の文が無い（`FramedNM` に `Diag` の構成子が無い）。この調査では導く経路が見つからなかった。判断資料: `scripts/gen4/KWALK_DIAG_DECISION.md`。
   `vca` の K 版が要る理由: A 版の handler は `@[keepsA]` 属性と `vca` で歩いており、`kwalk` ではない（`kwalk` は FallbackA 用）。今回は着手していない。見積り: WalkA の写し 600-900 + Helpers/Handlers/Impl/Tail の写し 400-700（推定、実測ではない）。`Diag` の腕（tracing）は `FramedNM` に対応が無い可能性があり、読んだだけで未確認。
 
 ## 4. 前提を増やさないことの確認と、止まる点
