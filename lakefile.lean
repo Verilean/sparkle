@@ -4904,3 +4904,6 @@ lean_lib «Tests.Gen4.KWalkFallbackCheck» where
 
 lean_lib «Tools.ShippingGen4KWalkLegacyCached» where
   roots := #[`Tools.ShippingGen4KWalkLegacyCached]
+
+lean_lib «Tools.ShippingGen4KWalkEntry» where
+  roots := #[`Tools.ShippingGen4KWalkEntry]
