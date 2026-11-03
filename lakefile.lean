@@ -4862,3 +4862,12 @@ lean_lib «Tools.ShippingGen4KWalk» where
 
 lean_lib «Tests.Gen4.KWalkCheck» where
   roots := #[`Tests.Gen4.KWalkCheck]
+
+lean_lib «Tools.ShippingGen4KWalkEnv» where
+  roots := #[`Tools.ShippingGen4KWalkEnv]
+
+lean_lib «Tools.ShippingGen4KWalkPrims» where
+  roots := #[`Tools.ShippingGen4KWalkPrims]
+
+lean_lib «Tests.Gen4.KWalkPrimsCheck» where
+  roots := #[`Tests.Gen4.KWalkPrimsCheck]
