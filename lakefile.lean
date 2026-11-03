@@ -4883,3 +4883,6 @@ lean_lib «Tests.Gen4.KWalkEnvShape» where
 
 lean_lib «Tools.ShippingGen4KWalkFallbackProbe» where
   roots := #[`Tools.ShippingGen4KWalkFallbackProbe]
+
+lean_lib «Tools.ShippingGen4KWalkEmit» where
+  roots := #[`Tools.ShippingGen4KWalkEmit]
