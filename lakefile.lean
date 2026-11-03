@@ -4925,3 +4925,6 @@ lean_lib «Tools.ShippingGen4KWalkHelpers» where
 
 lean_lib «Tools.ShippingGen4KWalkEntryCore» where
   roots := #[`Tools.ShippingGen4KWalkEntryCore]
+
+lean_lib «Tools.ShippingGen4KWalkChild» where
+  roots := #[`Tools.ShippingGen4KWalkChild]
