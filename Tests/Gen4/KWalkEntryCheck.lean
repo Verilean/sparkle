@@ -65,7 +65,7 @@ def certifiedArm : Prop :=
     ∀ (translate : TranslateFn) (b : Bool) (declName : Name) (constInfo : ConstantInfo)
       (isInst : Lean.Expr → Bool) {bs : List (Name × GateBinder)} {body : Lean.Expr},
     certifiedShape? false [] constInfo = some (bs, body) →
-    (∀ e hint top named, KeepsC mctx mref cctx cref (KWalkOf O) (translate e hint top named)) →
+    (∀ e hint top named, KeepsCP mctx mref cctx cref (KWalkOf O) (translate e hint top named)) →
     windowTriple mctx mref cctx cref O declName
       (synthesizeFromConst translate (profLogIO b) declName [] false true constInfo isInst)
 
@@ -75,7 +75,7 @@ def frontends : Prop :=
     Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx → logMv O →
     ∀ (translate : TranslateFn) (b : Bool) (declName : Name) (constInfo : ConstantInfo)
       (isInst : Lean.Expr → Bool),
-    (∀ e hint top named, KeepsC mctx mref cctx cref (KWalkOf O) (translate e hint top named)) →
+    (∀ e hint top named, KeepsCP mctx mref cctx cref (KWalkOf O) (translate e hint top named)) →
     (∀ c, Keeps mctx mref cctx cref (KWalkOf O) (synthesizeChild c)) →
     (certifiedShape? false [] constInfo = none → mixedCertifiedShape? false [] constInfo isInst = none →
       windowTriple mctx mref cctx cref O declName
@@ -103,7 +103,7 @@ def M2 : Prop :=
     Tools.Assume.MemoFamily.MemoFamily O → AdmCtx O.quiet mctx cctx →
     ∀ (translate : TranslateFn) (b : Bool) (declName : Name) (constInfo : ConstantInfo)
       (isInst : Lean.Expr → Bool),
-    (∀ e hint top named, KeepsC mctx mref cctx cref (Expected.KWalkOf O) (translate e hint top named)) →
+    (∀ e hint top named, KeepsCP mctx mref cctx cref (Expected.KWalkOf O) (translate e hint top named)) →
     (∀ c, Keeps mctx mref cctx cref (Expected.KWalkOf O) (synthesizeChild c)) →
     (certifiedShape? false [] constInfo = none → mixedCertifiedShape? false [] constInfo isInst = none →
       Expected.windowTriple mctx mref cctx cref O declName
@@ -161,7 +161,7 @@ elab "#kwalkentry_check" : command => liftTermElabM do
     if ← isDefEq ti.type (mkConst (pre ++ `Mutant ++ m)) then throwError "mutant {lbl} NOT rejected for {t}"
     rej := rej + 1
   let audited : List Name := typeCases.map (·.1) ++
-    [en ++ `emitLeavesK, en ++ `certified_keepsK, en ++ `mixed_keepsK, en ++ `machineCert_keepsK,
+    [en ++ `emitLeavesKP, en ++ `certified_keepsK, en ++ `mixed_keepsK, en ++ `machineCert_keepsK,
      en ++ `closeInstsM_keepsK, en ++ `closeInstsGM_keepsK,
      ar ++ `fromConst_mixed_windowK, ar ++ `fromConst_machine_windowK]
   let mut axOk : Nat := 0

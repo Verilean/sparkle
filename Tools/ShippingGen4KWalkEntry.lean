@@ -16,6 +16,7 @@ open Tools.ShippingChildFresh
 open Tools.ShippingChildVCA
 open Tools.ShippingChildVertA
 open Tools.ShippingChildPathA
+open Tools.ShippingChildTranslateA
 open Tools.ShippingChildFrontA
 open Tools.Assume.MemoFamily
 open Tools.ShippingGen4KWalk
@@ -68,119 +69,103 @@ theorem keepsK_mkExprCache_bind (v : Lean.ExprStructMap String) {β : Type}
 
 /-! ## The binder walk and the leaf emission -/
 
-theorem bindInputPortK {α : Type} (fv : FVarId) (bn : String) (ty : Sparkle.IR.Type.HWType) (k : CompilerM α)
-    (hk : TripleC mctx mref cctx cref I k (fun _ => I) (fun e w => I w ∧ OkExc e)) :
-    TripleC mctx mref cctx cref I (bindInputPort fv bn ty k)
-      (fun _ => I) (fun e w => I w ∧ OkExc e) := by
-  unfold bindInputPort CompilerM.withVarMapping
-  refine TripleC.bind (makeWireK M hA hS _ _ _) ?_
-  intro w
-  refine TripleC.bind (addInputK M hA hS _ _) ?_
-  intro _
-  refine TripleC.bind TripleC.getCompilerState ?_
-  intro old
-  exact TripleC.withReader _ hk
+theorem bindInputPortKP {α : Type} (fv : FVarId) (bn : String) (ty : Sparkle.IR.Type.HWType) (k : CompilerM α)
+    (hk : KeepsCP mctx mref cctx cref I k) :
+    KeepsCP mctx mref cctx cref I (bindInputPort fv bn ty k) := by
+  unfold bindInputPort
+  refine KeepsCP.bind (makeWirePK M hA hS _ _ _) (fun _ => ?_)
+  refine KeepsCP.bind (addInputPK M hA hS _ _) (fun _ => ?_)
+  exact withVarMappingP _ _ hk
 
-theorem bindCertifiedInputsK {α : Type} (k : CompilerM α)
-    (hk : TripleC mctx mref cctx cref I k (fun _ => I) (fun e w => I w ∧ OkExc e)) :
+theorem bindCertifiedInputsKP {α : Type} (k : CompilerM α) (hk : KeepsCP mctx mref cctx cref I k) :
     ∀ l : List ((Name × GateBinder) × FVarId),
-      TripleC mctx mref cctx cref I (bindCertifiedInputs k l)
-        (fun _ => I) (fun e w => I w ∧ OkExc e)
+      KeepsCP mctx mref cctx cref I (bindCertifiedInputs k l)
   | [] => by unfold bindCertifiedInputs; exact hk
   | ((_, .domain), _) :: rest => by
     unfold bindCertifiedInputs
-    exact bindCertifiedInputsK k hk rest
+    exact bindCertifiedInputsKP k hk rest
   | ((_, .signal _), _) :: rest => by
     unfold bindCertifiedInputs
-    exact bindInputPortK M hA hS _ _ _ _ (bindCertifiedInputsK k hk rest)
+    exact bindInputPortKP M hA hS _ _ _ _ (bindCertifiedInputsKP k hk rest)
 
-theorem bindMixedCertifiedInputsK {α : Type} (k : CompilerM α)
-    (hk : TripleC mctx mref cctx cref I k (fun _ => I) (fun e w => I w ∧ OkExc e)) :
+theorem bindMixedCertifiedInputsKP {α : Type} (k : CompilerM α) (hk : KeepsCP mctx mref cctx cref I k) :
     ∀ l : List ((Name × MixedGateBinder) × FVarId),
-      TripleC mctx mref cctx cref I (bindMixedCertifiedInputs k l)
-        (fun _ => I) (fun e w => I w ∧ OkExc e)
+      KeepsCP mctx mref cctx cref I (bindMixedCertifiedInputs k l)
   | [] => by unfold bindMixedCertifiedInputs; exact hk
   | ((_, .domain), _) :: rest => by
     unfold bindMixedCertifiedInputs
-    exact bindMixedCertifiedInputsK k hk rest
+    exact bindMixedCertifiedInputsKP k hk rest
   | ((_, .bool), _) :: rest => by
     unfold bindMixedCertifiedInputs
-    exact bindInputPortK M hA hS _ _ _ _ (bindMixedCertifiedInputsK k hk rest)
+    exact bindInputPortKP M hA hS _ _ _ _ (bindMixedCertifiedInputsKP k hk rest)
   | ((_, .bits _), _) :: rest => by
     unfold bindMixedCertifiedInputs
-    exact bindInputPortK M hA hS _ _ _ _ (bindMixedCertifiedInputsK k hk rest)
+    exact bindInputPortKP M hA hS _ _ _ _ (bindMixedCertifiedInputsKP k hk rest)
 
-/-- **`emitLeaves` for `StableK`**: every op but the translator is a `FramedNM` op or the logger (`hlog`). -/
-theorem emitLeavesK (hlog : LogMvK O)
+/-- **`emitLeaves` for `StableK`**, the translator hypothesis restricted to `CtxOk` contexts (copy of `emitLeavesAP`):
+every op but the translator is a `FramedNM` op or the logger (`hlog`). -/
+theorem emitLeavesKP (hlog : LogMvK O)
     (translate : TranslateFn) (b : Bool) (r : IO.Ref (Lean.ExprStructMap String))
     (hr : MkRefd _ r)
-    (htr : ∀ e hint top named, KeepsC mctx mref cctx cref I (translate e hint top named)) :
+    (htr : ∀ e hint top named, KeepsCP mctx mref cctx cref I (translate e hint top named)) :
     ∀ (leaves : List (String × Lean.Expr)) (fw : Option String) (idx : Nat),
-      TripleC mctx mref cctx cref I (emitLeaves translate r (profLogIO b) leaves fw idx)
-        (fun _ => I) (fun e w => I w ∧ OkExc e)
+      KeepsCP mctx mref cctx cref I (emitLeaves translate r (profLogIO b) leaves fw idx)
   | [], fw, idx => by
     unfold emitLeaves
-    exact TripleC.pure fun _ hw => hw
+    exact KeepsCP.pure _
   | (pn, le) :: rest, fw, idx => by
     unfold emitLeaves
-    have clock : TripleC mctx mref cctx cref I (CompilerM.liftMetaM (liftM IO.monoMsNow))
-        (fun _ => I) (fun e w => I w ∧ OkExc e) :=
-      TripleC.lift (keeps_iff.mp (keepsK_framedNM M hA hS FramedNM.monoMs))
-    have calls : TripleC mctx mref cctx cref I
-        (CompilerM.liftMetaM (ST.Ref.get sparkleCallCounter)) (fun _ => I)
-        (fun e w => I w ∧ OkExc e) :=
-      TripleC.lift (keeps_iff.mp (keepsK_framedNM M hA hS (FramedNM.sideGet .callCounter)))
-    have hits : TripleC mctx mref cctx cref I
-        (CompilerM.liftMetaM (ST.Ref.get sparkleCacheHits)) (fun _ => I)
-        (fun e w => I w ∧ OkExc e) :=
-      TripleC.lift (keeps_iff.mp (keepsK_framedNM M hA hS (FramedNM.sideGet .cacheHits)))
-    have log : ∀ msg, TripleC mctx mref cctx cref I
-        (CompilerM.liftMetaM (liftM (profLogIO b msg))) (fun _ => I)
-        (fun e w => I w ∧ OkExc e) :=
-      fun msg => TripleC.lift (keeps_iff.mp (keepsK_profLog M hA hS hlog b msg))
-    refine TripleC.bind clock ?_; intro t0
-    refine TripleC.bind calls ?_; intro c0
-    refine TripleC.bind hits ?_; intro h0
-    refine TripleC.bind (log _) ?_; intro _
-    refine TripleC.bind (keepsC_iff.mp (htr le pn false true)) ?_; intro lw
-    refine TripleC.bind clock ?_; intro t1
-    refine TripleC.bind calls ?_; intro c1
-    refine TripleC.bind hits ?_; intro h1
-    refine TripleC.bind (log _) ?_; intro _
+    have clock : KeepsCP mctx mref cctx cref I (CompilerM.liftMetaM (liftM IO.monoMsNow)) :=
+      KeepsCP.lift (keepsK_framedNM M hA hS FramedNM.monoMs)
+    have calls : KeepsCP mctx mref cctx cref I
+        (CompilerM.liftMetaM (ST.Ref.get sparkleCallCounter)) :=
+      KeepsCP.lift (keepsK_framedNM M hA hS (FramedNM.sideGet .callCounter))
+    have hits : KeepsCP mctx mref cctx cref I
+        (CompilerM.liftMetaM (ST.Ref.get sparkleCacheHits)) :=
+      KeepsCP.lift (keepsK_framedNM M hA hS (FramedNM.sideGet .cacheHits))
+    have log : ∀ msg, KeepsCP mctx mref cctx cref I
+        (CompilerM.liftMetaM (liftM (profLogIO b msg))) :=
+      fun msg => KeepsCP.lift (keepsK_profLog M hA hS hlog b msg)
+    refine KeepsCP.bind clock ?_; intro t0
+    refine KeepsCP.bind calls ?_; intro c0
+    refine KeepsCP.bind hits ?_; intro h0
+    refine KeepsCP.bind (log _) ?_; intro _
+    refine KeepsCP.bind (htr le pn false true) ?_; intro lw
+    refine KeepsCP.bind clock ?_; intro t1
+    refine KeepsCP.bind calls ?_; intro c1
+    refine KeepsCP.bind hits ?_; intro h1
+    refine KeepsCP.bind (log _) ?_; intro _
     dsimp only
-    refine TripleC.ite
-      (fun _ => TripleC.bind (TripleC.lift (keeps_iff.mp
-        (keepsK_framedNM M hA hS (FramedNM.exprCacheModify r _ hr)))) (fun _ => ?_))
+    refine KeepsCP.ite
+      (fun _ => KeepsCP.bind (KeepsCP.lift
+        (keepsK_framedNM M hA hS (FramedNM.exprCacheModify r _ hr))) (fun _ => ?_))
       (fun _ => ?_)
     all_goals
       try dsimp only
-      refine TripleC.bind TripleC.get ?_
+      refine KeepsCP.bind KeepsCP.get ?_
       intro cs
       try dsimp only
-      refine TripleC.ite (fun _ => ?_) (fun _ => ?_)
-      · refine TripleC.bind (Q := fun _ _ => False)
-          (TripleC.throw _ fun _ hw => ⟨hw, by okmsg⟩) ?_
-        intro _ _ _ w hf
-        exact hf.elim
+      refine KeepsCP.ite (fun _ => ?_) (fun _ => ?_)
+      · exact KeepsCP.throwBind _ (by okmsg) _
       · try dsimp only
-        refine TripleC.bind (addOutputK M hA hS _ _) ?_
+        refine KeepsCP.bind (addOutputPK M hA hS _ _) ?_
         intro _
-        refine TripleC.bind (emitAssignA _ _) ?_
+        refine KeepsCP.bind (emitAssignP _ _) ?_
         intro _
-        exact emitLeavesK hlog translate b r hr htr rest _ _
+        exact emitLeavesKP hlog translate b r hr htr rest _ _
 
 /-- `certRest` (the binder walk, the one leaf, the `CircuitM` run, `finishSynth`). -/
 theorem certRest_keepsK (hlog : LogMvK O)
     (translate : TranslateFn) (b : Bool) (declName : Name)
     (bs : List (Name × GateBinder)) (body : Lean.Expr)
-    (htr : ∀ e hint top named, KeepsC mctx mref cctx cref I (translate e hint top named))
+    (htr : ∀ e hint top named, KeepsCP mctx mref cctx cref I (translate e hint top named))
     (ids : List FVarId) (r : IO.Ref (Lean.ExprStructMap String)) (hr : MkRefd _ r) :
     Keeps mctx mref cctx cref I (certRest translate (profLogIO b) declName bs body ids r) := by
   unfold certRest
   refine keeps_iff.mpr ?_
   try dsimp only
-  refine Triple.bind
-    (bindCertifiedInputsK M hA hS _ (emitLeavesK M hA hS hlog translate b r hr htr _ _ _) _ _ _) ?_
+  refine Triple.bind (keeps_iff.mp (bindCertifiedInputsKP M hA hS _
+    (emitLeavesKP M hA hS hlog translate b r hr htr _ _ _) _ _ _ (ctxOk_entry false hr))) ?_
   rintro ⟨_, fs⟩
   exact finishSynthA declName fs
 
@@ -188,7 +173,7 @@ theorem certRest_keepsK (hlog : LogMvK O)
 theorem certified_keepsK (hlog : LogMvK O)
     (translate : TranslateFn) (b : Bool) (declName : Name)
     (bs : List (Name × GateBinder)) (body : Lean.Expr)
-    (htr : ∀ e hint top named, KeepsC mctx mref cctx cref I (translate e hint top named)) :
+    (htr : ∀ e hint top named, KeepsCP mctx mref cctx cref I (translate e hint top named)) :
     Keeps mctx mref cctx cref I (synthesizeCertified translate (profLogIO b) declName bs body) := by
   unfold synthesizeCertified
   refine Keeps.bind (Keeps.mapM _ (fun _ => keepsK_framedNM M hA hS (FramedNM.freshFVar (Fresh := MkRefd))) _) ?_
@@ -209,7 +194,7 @@ theorem certified_keepsK (hlog : LogMvK O)
 theorem mixed_keepsK (hlog : LogMvK O)
     (translate : TranslateFn) (b : Bool) (declName : Name)
     (bs : List (Name × MixedGateBinder)) (body : Lean.Expr)
-    (htr : ∀ e hint top named, KeepsC mctx mref cctx cref I (translate e hint top named)) :
+    (htr : ∀ e hint top named, KeepsCP mctx mref cctx cref I (translate e hint top named)) :
     Keeps mctx mref cctx cref I
       (synthesizeMixedCertified translate (profLogIO b) declName bs body) := by
   rw [keeps_iff]
@@ -221,9 +206,8 @@ theorem mixed_keepsK (hlog : LogMvK O)
   · dsimp only
     refine Triple.bindQ (φ := MkRefd _) (tripleK_mkExprCache M hA hS _) ?_
     intro cacheRef hr
-    refine Triple.bind
-      (bindMixedCertifiedInputsK M hA hS _
-        (emitLeavesK M hA hS hlog translate b cacheRef hr htr _ _ _) _ _ _) ?_
+    refine Triple.bind (keeps_iff.mp (bindMixedCertifiedInputsKP M hA hS _
+      (emitLeavesKP M hA hS hlog translate b cacheRef hr htr _ _ _) _ _ _ (ctxOk_entry false hr))) ?_
     rintro ⟨_, fs⟩
     exact finishSynthA declName fs
   · exact Triple.throw _ fun _ hw => ⟨hw, by okmsg⟩
@@ -278,7 +262,7 @@ theorem closeInstsGM_keepsK (hsv : ∀ w, I w → sv w = some synthesizeChild)
 
 theorem machineCert_keepsK (hlog : LogMvK O)
     (translate : TranslateFn) (b : Bool) (declName : Name)
-    (htr : ∀ e hint top named, KeepsC mctx mref cctx cref I (translate e hint top named))
+    (htr : ∀ e hint top named, KeepsCP mctx mref cctx cref I (translate e hint top named))
     (hchild : ∀ c, Keeps mctx mref cctx cref I (synthesizeChild c))
     (hsv : ∀ w, I w → sv w = some synthesizeChild) (shape : MachineShape) :
     Keeps mctx mref cctx cref I

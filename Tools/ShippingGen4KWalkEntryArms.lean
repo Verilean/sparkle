@@ -14,6 +14,7 @@ open Tools.ShippingChildFresh
 open Tools.ShippingChildVCA
 open Tools.ShippingChildVertA
 open Tools.ShippingChildPathA
+open Tools.ShippingChildTranslateA
 open Tools.ShippingChildFrontA
 open Tools.Assume.MemoFamily
 open Tools.ShippingGen4KWalk
@@ -44,7 +45,7 @@ theorem fromConst_certified_windowK
     (translate : TranslateFn) (b : Bool) (declName : Name) (constInfo : ConstantInfo)
     (isInst : Lean.Expr → Bool) {bs : List (Name × GateBinder)} {body : Lean.Expr}
     (hshape : certifiedShape? false [] constInfo = some (bs, body))
-    (htr : ∀ e hint top named, KeepsC mctx mref cctx cref (KWalk O) (translate e hint top named)) :
+    (htr : ∀ e hint top named, KeepsCP mctx mref cctx cref (KWalk O) (translate e hint top named)) :
     Triple mctx mref cctx cref (KWalk O)
       (synthesizeFromConst translate (profLogIO b) declName [] false true constInfo isInst)
       (fun _ => KWalkX O declName) (fun e w => KWalk O w ∧ OkExc e) := by
@@ -71,7 +72,7 @@ theorem fromConst_mixed_windowK
     (isInst : Lean.Expr → Bool) {bs : List (Name × MixedGateBinder)} {body : Lean.Expr}
     (hc : certifiedShape? false [] constInfo = none)
     (hm : mixedCertifiedShape? false [] constInfo isInst = some (bs, body))
-    (htr : ∀ e hint top named, KeepsC mctx mref cctx cref (KWalk O) (translate e hint top named)) :
+    (htr : ∀ e hint top named, KeepsCP mctx mref cctx cref (KWalk O) (translate e hint top named)) :
     Triple mctx mref cctx cref (KWalk O)
       (synthesizeFromConst translate (profLogIO b) declName [] false true constInfo isInst)
       (fun _ => KWalkX O declName) (fun e w => KWalk O w ∧ OkExc e) := by
@@ -105,7 +106,7 @@ theorem fromConst_machine_windowK
     (isInst : Lean.Expr → Bool)
     (hc : certifiedShape? false [] constInfo = none)
     (hm : mixedCertifiedShape? false [] constInfo isInst = none)
-    (htr : ∀ e hint top named, KeepsC mctx mref cctx cref (KWalk O) (translate e hint top named))
+    (htr : ∀ e hint top named, KeepsCP mctx mref cctx cref (KWalk O) (translate e hint top named))
     (hchild : ∀ c, Keeps mctx mref cctx cref (KWalk O) (synthesizeChild c))
     (hlegacy : Triple mctx mref cctx cref (KWalk O)
       (synthesizeFromConst translate (profLogIO b) declName [] false false constInfo isInst)
@@ -156,7 +157,7 @@ constants on which both gates miss. -/
 theorem fromConst_frontends_windowK
     (translate : TranslateFn) (b : Bool) (declName : Name) (constInfo : ConstantInfo)
     (isInst : Lean.Expr → Bool)
-    (htr : ∀ e hint top named, KeepsC mctx mref cctx cref (KWalk O) (translate e hint top named))
+    (htr : ∀ e hint top named, KeepsCP mctx mref cctx cref (KWalk O) (translate e hint top named))
     (hchild : ∀ c, Keeps mctx mref cctx cref (KWalk O) (synthesizeChild c))
     (hlegacy : certifiedShape? false [] constInfo = none →
       mixedCertifiedShape? false [] constInfo isInst = none →
