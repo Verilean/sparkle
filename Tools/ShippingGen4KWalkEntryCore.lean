@@ -1,4 +1,5 @@
 import Tools.ShippingGen4KWalkEntryArms
+
 -- NOT BUILT (rt169). S5 of scripts/gen4/KWALK_PLAN.md: the entry `synthesizeCombinationalCoreWith` for a NESTED run (depth ≠ 0), for `KWalk`: the front matter, the depth set, `try … finally`, with the arm
 -- (`hbody`: K to K_declName, K on failure) as a hypothesis. The window opens inside the body and the `finally` (framed sets, a depth modify) keeps K_declName; a failure of the body leaves K.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. DIAG-PENDING hypothesis `LogMvK` (see Entry). No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
@@ -129,6 +130,103 @@ theorem fin_totalK (P : Std.HashMap Name Res → Std.HashMap Name Res → Prop) 
   refine Triple.bind (hset _ .wireCanon) ?_; intro _
   refine Triple.bind (hset _ .subInstOut) ?_; intro _
   exact hset _ .singleOut
+
+omit M hA in
+theorem stableK_KD : StableK O.quiet (fun w => KWalk O w ∧ dv w ≠ 0) :=
+  ⟨fun _ h => h.1.1, fun w w' hc hs hd hm hq h => ⟨kw_transfer hc hs hm hq h.1, by rw [hd]; exact h.2⟩⟩
+
+/-- The depth read, under `KWalk ∧ dv ≠ 0`: returns a nonzero depth, keeps `KWalk` (it cannot throw). -/
+theorem tripleK_depthGetNZ {R : Exception → Void IO.RealWorld → Prop} :
+    Triple mctx mref cctx cref (fun w => KWalk O w ∧ dv w ≠ 0) (ST.Ref.get sparkleSynthDepth : MetaM Nat)
+      (fun d w => KWalk O w ∧ d ≠ 0) R :=
+  Triple.of_runs (refGet_runs _) fun w a w' hw h => by
+    have hK := keepsK_framedNM M hA (stableK_KD (O := O)) FramedNM.depthGet w hw
+    rw [endW_of_runs h] at hK
+    have ha : a = dv w := runsTo_get_readOf _ h
+    exact ⟨hK.1.1, by rw [ha]; exact hw.2⟩
+
+set_option hygiene false in
+macro "kget" : tactic => `(tactic|
+  (refine Triple.bind (keeps_iff.mp (keepsK_framedNM M hA (Tools.ShippingGen4KWalkEntryArms.stableK_KWalk O)
+      (FramedNM.sideGet ?s))) ?_
+   case s => constructor
+   intro _))
+set_option hygiene false in
+macro "kset" : tactic => `(tactic|
+  (refine Triple.bind (keeps_iff.mp (keepsK_framedNM M hA (Tools.ShippingGen4KWalkEntryArms.stableK_KWalk O)
+      (FramedNM.sideSet _ ?s))) ?_
+   case s => constructor
+   intro _))
+
+/-- **The entry for a nested run** (`depth ≠ 0`), from the arm `hbody` (K to K_declName, K on failure). -/
+theorem entryNested_windowK (hlog : LogMvK O) (translate : Lean.Environment → TranslateFn) (declName : Name)
+    (hbody : ∀ (b : Bool) (env : Lean.Environment) (ci : ConstantInfo) (isInst : Lean.Expr → Bool),
+      Triple mctx mref cctx cref (KWalk O)
+        (synthesizeFromConst (translate env) (profLogIO b) declName [] false true ci isInst)
+        (fun _ => KWalkX O declName) (fun e w => KWalk O w ∧ OkExc e)) :
+    Triple mctx mref cctx cref (fun w => KWalk O w ∧ dv w ≠ 0)
+      (synthesizeCombinationalCoreWith translate declName [] false true)
+      (fun _ => KWalkX O declName) (fun e w => KWalk O w ∧ OkExc e) := by
+  unfold synthesizeCombinationalCoreWith
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  refine Triple.bind (R := fun e w => KWalk O w ∧ OkExc e) (Q := fun _ w => KWalk O w ∧ dv w ≠ 0)
+    (Triple.conseq (keeps_iff.mp (keepsK_framedNM M hA (stableK_KD (O := O)) (FramedNM.ioEnv _)))
+      (fun _ h => h) (fun _ _ h => h) (fun _ _ h => ⟨h.1.1, h.2⟩)) ?_
+  intro prof
+  refine Triple.bind (R := fun e w => KWalk O w ∧ OkExc e) (Q := fun _ w => KWalk O w ∧ dv w ≠ 0)
+    (Triple.conseq (keeps_iff.mp (keepsK_profLog M hA (stableK_KD (O := O)) hlog prof.isSome _))
+      (fun _ h => h) (fun _ _ h => h) (fun _ _ h => ⟨h.1.1, h.2⟩)) ?_
+  intro _
+  refine Triple.bindQ (φ := fun d => d ≠ 0) (tripleK_depthGetNZ M hA) ?_
+  intro d hd
+  refine Triple.ite (fun _ => ?_) (fun _ => ?_)
+  · refine Triple.bind (Q := fun _ _ => False)
+      (tripleK_throwErr M hA (Tools.ShippingGen4KWalkEntryArms.stableK_KWalk O) _
+        (by first | exact .str _ | exact .fmt _)) ?_
+    intro _ w hf
+    exact hf.elim
+  · have h0 : (d == 0) = false := by simpa using hd
+    simp only [h0, Bool.false_eq_true, ↓reduceIte]
+    kget; kget; kget; kget; kget; kget; kget
+    kset; kset; kset; kset; kset; kset; kset
+    refine Triple.bind (triple_depthSetK M hA _ (d + 1)) ?_
+    intro _
+    have body : ∀ (m1 : Std.HashMap Lean.Name Lean.Expr) (m2 : Std.HashMap String Nat)
+        (m3 m4 m5 : Std.HashMap String String) (m6 : Std.HashMap (UInt64 × String) String)
+        (m7 : Std.HashMap String String),
+        Triple mctx mref cctx cref (KWalk O)
+          (_root_.tryFinally
+            (do
+              let constInfo ← getConstInfo declName
+              let env ← getEnv
+              synthesizeFromConst (translate env) (profLogIO prof.isSome) declName [] false true
+                (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
+                  (structEnv env))
+                (instancePredicate env))
+            (do
+              ST.Ref.modify sparkleSynthDepth fun x => x - 1
+              if (d != 0) = true then do
+                  ST.Ref.set sparkleFvarValueMap m1
+                  ST.Ref.set sparkleWireWidthCache m2
+                  ST.Ref.set sparkleLetWireCache m3
+                  ST.Ref.set sparkleLoopWireCache m4
+                  ST.Ref.set sparkleWireCanon m5
+                  ST.Ref.set sparkleSubInstanceOutputs m6
+                  ST.Ref.set sparkleSingleOutInstanceCache m7
+                else pure () : MetaM Unit))
+          (fun _ => KWalkX O declName) (fun e w => KWalk O w ∧ OkExc e) := by
+      intro m1 m2 m3 m4 m5 m6 m7
+      refine tryFinallySplit (Mo := KWalkX O declName) (Me := KWalk O) (E := OkExc) ?_
+        (fin_totalK M hA (MemoKeysExc declName) d m1 m2 m3 m4 m5 m6 m7)
+        (fin_totalK M hA MemoKeysInChild d m1 m2 m3 m4 m5 m6 m7)
+      refine Triple.bind (keeps_iff.mp (keepsK_framedNM M hA (Tools.ShippingGen4KWalkEntryArms.stableK_KWalk O)
+        (FramedNM.constInfo _))) ?_
+      intro ci
+      refine Triple.bind (keeps_iff.mp (keepsK_framedNM M hA (Tools.ShippingGen4KWalkEntryArms.stableK_KWalk O)
+        FramedNM.env)) ?_
+      intro env
+      exact hbody prof.isSome env _ _
+    exact body _ _ _ _ _ _ _
 
 end Core
 
