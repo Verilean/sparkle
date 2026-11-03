@@ -175,5 +175,6 @@ structure MemoFamily (O : RefLawsAOps MkRefd mref cref) : Prop where
     ∀ (f : Nat → Nat) w u w',
     RunsTo (ST.Ref.modify sparkleSynthDepth f : MetaM Unit) mctx mref cctx cref w u w' → O.quiet w →
     mv w' = mv w
+  tele : MemoTele O
 
 end Tools.Assume.MemoFamily
