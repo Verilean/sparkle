@@ -170,6 +170,8 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       let isRule ← forallTelescope dty fun _ concl => pure (progOf? concl).isSome
       if isRule then
         let id := mkIdent d.userName
+        if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _)) then return true
+        if ← runTac (← `(tactic| exact $id _ _ (by assumption) _)) then return true
         if ← runTac (← `(tactic| exact $id _ _ _ _)) then return true
         if ← runTac (← `(tactic| exact $id _)) then return true
         if ← runTac (← `(tactic| exact $id)) then return true

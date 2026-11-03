@@ -124,6 +124,13 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 * **仮説として残るもの（S4 の範囲）**: `LogMvK`（Diag 判断待ち）、`htr`（`translate_keepsK` から）、`hchild`（S6 の `synthesizeChild` 帰納）、`hlegacy`（legacy 腕）。LegacyImplK / ChildEntryK は S3 のとおり仮説のまま。
 * **legacy 腕（未着手、A 版 `ShippingChildLegacyTailA` 223 + HelpersA の写し）**: memo の hit は `return cached`（memo は変わらないので K を K_n に弱める `kwalkX_of_kwalk` で足りる、読み）。miss 側は `openRecordInputs`（`forallTelescopeReducing` + `getConstInfoInduct/Ctor` + `instantiateForall` + `mkLambdaFVars`）、`lambdaTelescope`、`splitReturnLeaves`（`fuelFixM2`）、`bindInputsLegacy`（`isSignalBinderType` / `inferHWTypeFromSignal`）、`emitLeaves`、`finishSynth`、memo 書き込み。新しい前提は要らない見込み（`M.tele` と `FramedNM` で足りる、読み）。
 
+* **legacy 腕で見つかった 2 点（rt169、S4 続き）**:
+  1. **Diag が増える**: 翻訳器が呼ぶ helper `extractDimExprStep`（Elab.lean 681, 686）と `inferHWTypeWithDimensionsStep`（715）が、`throwError` の前に `ppExpr` を呼ぶ（エラーメッセージの整形、`symbolicMode` の枝）。S3 の Diag の数え（翻訳器の範囲 5700-8960）はこの 3 箇所を数えていない（helper は 5700 より前）。`inferHWTypeFromSignal` はハンドラと legacy 腕の `bindInputsLegacy` の両方から呼ばれるので、**LegacyImplK の Diag 一覧に ppExpr ×3（helper 内）を足す必要がある**。`KWALK_DIAG_DECISION.md` の選択肢 A の `frameDiag` が `ppExpr` も含む形ならこれも解ける。仮説 `PpMvK`（`ppExpr e` が `mv` を変えない）を `Tools/ShippingGen4KWalkHelpers.lean` に `def` で取った（家族には足していない）。helper の K 版（`extractWidthK` / `inferHWTypeK` / `extractDimExprK` / `inferHWTypeWithDimensionsK` / `inferHWTypeFromSignalK` / `isSignalBinderTypeK`）はこの仮説の下で証明した。
+  2. **legacy 腕の失敗側が K で終わることを、現在の `MemoTele` では示せない**: 腕の `sparkleSubModuleCache.modify (·.insert declName result)`（Elab.lean 5388）は `Lean.Meta.lambdaTelescope body fun xs innerBody => do …` の継続の**内側**の最後の効果。`MemoTele.lamTelescope` は `Keeps I`（成功も失敗も同じ `I` で終わる）の形なので、継続の不変量 `I` は成功側（insert 後 = K_declName）と失敗側（insert 前 = K）を分けられない。`I := K_declName` を取ると成功側は閉じるが、失敗側は K_declName までしか言えない（K に戻せない）。
+     insert の後には `return result` しか無いので意味的には失敗は K（insert 前）のはずだが、これは telescope の外から見える形では書けない。この調査では、`MemoFamily` の既存 12 文から導く経路は見つからなかった。
+     必要なもの（新しい文）の候補: (a) `MemoTele` に成功と失敗の事後条件を分けた Triple 形（`lamTelescope` の 1 文）、(b) 「`lambdaTelescope e (fun xs b => k xs b >>= f) = lambdaTelescope e k >>= f`」型の可換則（f が xs, b に依らないとき）、(c) legacy 腕の失敗側を K_declName に弱め、その後の `catch` 側で K を別に示す（K walk の目標を弱める）。**どれも TRUSTED の文または目標の変更で、ユーザー未承認。止まり、判断資料にまとめる。** 証明できた部分（`openRecordInputs` / `splitReturnLeaves` / `bindInputsLegacy` の K 版、legacy 腕の「成功側 K_declName」）は (a)(b) のどれを選んでも使える。
+  同じ形（`try … finally` の内側で窓が開き、成功と失敗の事後条件が違う）は S5 の `Triple.tryFinally` にもあるが、こちらは `fin` が任意の `P` を保つ（`FramedNM` の文だけ）ので、成功と失敗で事後条件を分けた `tryFinally` の版を新規に証明すれば足りる見込み（読み）。
+
 ## 4. 前提を増やさないことの確認と、止まる点
 
 * 土台は `MemoFamily` を仮説に取るだけ。`Laws` / `T1Hyp` / `T1HypND` は閉包に入らない（Check CLOSURE）。新しい law・TRUSTED 境界・FG/保証の変更は無い。FG の縮小も GenWF の強化も無い。台帳の差分 0。
