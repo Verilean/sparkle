@@ -8,7 +8,7 @@ import Tools.ShippingSeqChildDeepConsumerA
 import Tools.ShippingSrm12Corr
 import Tools.ShippingGen5AuditUA1
 set_option autoImplicit false
--- NOT BUILT (no build run yet).
+-- BUILT (kjob lake build Tools.ShippingGen5AuditE3B3 exit 0, 774 jobs; Tests.Gen5.AuditE3B3Check exit 0, 777 jobs) at cb2062ac22783ef68ae59d02230fc5f70e31762c (kjob/rt135). Clean build is the coder's.
 -- U-A4/U-A5 of B-AUD: E-3 (AuditE3) and the B3 part of AuditE4_B3B4 from T1Hyp + existing rows (T1L-12, T1L-04) + the new row hLeafAlias
 -- (scripts/gen5/AUD_UA4_FREEZE.md §1, approved e917945e). Bodies are the scratch of AUD_UA4_STUDY2 / STUDY3 / STUDY4.
 -- Two origin-only copies (core_kids_facts_ranAO, deepChild_ifaceAO) of ShippingParentTailsA / ShippingSeqChildDeepConsumerA: binder `hnomem` -> `hnomemO`
