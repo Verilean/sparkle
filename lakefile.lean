@@ -4889,3 +4889,6 @@ lean_lib «Tools.ShippingGen4KWalkEmit» where
 
 lean_lib «Tools.ShippingGen4KWalkInst» where
   roots := #[`Tools.ShippingGen4KWalkInst]
+
+lean_lib «Tools.ShippingGen4KWalkProjField» where
+  roots := #[`Tools.ShippingGen4KWalkProjField]
