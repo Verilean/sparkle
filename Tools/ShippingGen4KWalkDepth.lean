@@ -116,35 +116,25 @@ theorem tripleK_depthGetD (P : Std.HashMap Name Res → Std.HashMap Name Res →
     exact ⟨hK.1, by rw [ha]; exact hw.2⟩
 
 /-- The memo write `memo.modify (·.insert n r)`: `KWD K D` to `KWD K_n D` (it cannot throw). -/
-theorem triple_memoInsertD (D : Nat) (n : Name) (r : Res) :
+theorem triple_memoInsertD (D : Nat) (n : Name) (r : Res) {R : Exception → Void IO.RealWorld → Prop} :
     Triple mctx mref cctx cref (KWD O MemoKeysInChild D)
       (sparkleSubModuleCache.modify (·.insert n r) : MetaM Unit)
-      (fun _ => KWD O (MemoKeysExc n) D) (fun e w => KWD O MemoKeysInChild D w ∧ OkExc e) := by
-  intro w hw
-  obtain ⟨a, w', hr⟩ := refModify_runs (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref)
-    sparkleSubModuleCache (·.insert n r) w
-  have e := hr
-  unfold RunsTo at e
-  rw [e]
-  have hp : FramedA MkRefd (sparkleSubModuleCache.modify (·.insert n r) : MetaM Unit) :=
-    framedA_of_memoAccess (MemoAccess.modify _)
-  have hf := O.frame hA _ hp w hw.1.1
-  rw [endW_of_runs hr] at hf
-  exact ⟨kwalk_memoInsert M hA n r hr hw.1, by rw [hf.2.2]; exact hw.2⟩
+      (fun _ => KWD O (MemoKeysExc n) D) R :=
+  Triple.of_runs (refModify_runs _ _) fun w u w' hw hr => by
+    have hp : FramedA MkRefd (sparkleSubModuleCache.modify (·.insert n r) : MetaM Unit) :=
+      framedA_of_memoAccess (MemoAccess.modify _)
+    have hf := O.frame hA _ hp w hw.1.1
+    rw [endW_of_runs hr] at hf
+    exact ⟨kwalk_memoInsert M hA n r hr hw.1, by rw [hf.2.2]; exact hw.2⟩
 
 /-- The child-cache write `child.modify (·.insert n r)` closes the window: `KWD K_n D` to `KWD K D`. -/
-theorem triple_childInsertD (D : Nat) (n : Name) (r : Res) :
+theorem triple_childInsertD (D : Nat) (n : Name) (r : Res) {R : Exception → Void IO.RealWorld → Prop} :
     Triple mctx mref cctx cref (KWD O (MemoKeysExc n) D)
       (sparkleChildCache.modify (·.insert n r) : MetaM Unit)
-      (fun _ => KWD O MemoKeysInChild D) (fun e w => KWD O (MemoKeysExc n) D w ∧ OkExc e) := by
-  intro w hw
-  obtain ⟨a, w', hr⟩ := refModify_runs (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref)
-    sparkleChildCache (·.insert n r) w
-  have e := hr
-  unfold RunsTo at e
-  rw [e]
-  have hk := O.cacheModify' hA (·.insert n r) hw.1.1 hr
-  exact ⟨kwalk_childInsert M hA n r hr hw.1, by rw [hk.2.2]; exact hw.2⟩
+      (fun _ => KWD O MemoKeysInChild D) R :=
+  Triple.of_runs (refModify_runs _ _) fun w u w' hw hr => by
+    have hk := O.cacheModify' hA (·.insert n r) hw.1.1 hr
+    exact ⟨kwalk_childInsert M hA n r hr hw.1, by rw [hk.2.2]; exact hw.2⟩
 
 /-- The depth-restoring `finally` of a nested run at depth `D`: `KWD O P (D+1)` to `KWD O P D`. Never throws. -/
 theorem fin_totalD (P : Std.HashMap Name Res → Std.HashMap Name Res → Prop) (D : Nat)
