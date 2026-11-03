@@ -15,7 +15,9 @@ open Tools.ShippingChildVCA
 open Tools.Assume.MemoFamily
 open Tools.ShippingGen4KWalk
 open Tools.ShippingGen4KWalkPrims
+open Tools.Assume.FramedACases
 open Tools.ShippingGen4KWalkTranslate
+open Tools.ShippingGen4KWalkFallback
 open Tools.ShippingGen4KWalkLegacyCached
 open Tools.ShippingGen4KWalkEntry
 open Tools.ShippingGen4KWalkEntryCore
@@ -99,7 +101,7 @@ theorem entryTop_windowD (hlog : LogMvK O) (translate : Lean.Environment → Tra
     kpureT (fun _ _ => True); kpureT (fun _ _ => True); kpureT (fun _ _ => True); kpureT (fun _ _ => True)
     kpureT (fun _ _ => True); kpureT (fun _ _ => True); kpureT (fun _ _ => True)
     ksetT (fun _ _ => True); ksetT (fun _ _ => True); ksetT (fun _ _ => True)
-    refine Triple.bind (R := fun e w => KW O (fun _ _ => True) w ∧ OkExc e) (Triple.conseq (triple_memoResetD M hA (fun _ _ => True) 0)
+    refine Triple.bind (R := fun e w => KW O (fun _ _ => True) w ∧ OkExc e) (Triple.conseq (R := fun _ _ => False) (triple_memoResetD M hA (fun _ _ => True) 0)
       (fun _ h => h) (fun _ _ h => h) (fun _ _ h => h.elim)) ?_
     intro _
     refine Triple.bind (R := fun e w => KW O (fun _ _ => True) w ∧ OkExc e) (Triple.conseq
@@ -140,7 +142,7 @@ theorem entryTop_windowD (hlog : LogMvK O) (translate : Lean.Environment → Tra
           (fun _ => KWD O (MemoKeysExc declName) 0) (fun e w => KW O (fun _ _ => True) w ∧ OkExc e) := by
       intro m1 m2 m3 m4 m5 m6 m7
       refine Triple.conseq (R := fun e w => KWD O MemoKeysInChild 0 w ∧ OkExc e) ?_ (fun _ h => h) (fun _ _ h => h)
-        (fun _ _ h => ⟨h.1.1, h.2⟩)
+        (fun _ _ h => ⟨kw_weak h.1.1, h.2⟩)
       refine tryFinallySplit2 (Mo := KWD O (MemoKeysExc declName) 1) (Me := KWD O MemoKeysInChild 1)
         (E := OkExc) ?_
         (fin_totalD M hA (MemoKeysExc declName) 0 m1 m2 m3 m4 m5 m6 m7)
