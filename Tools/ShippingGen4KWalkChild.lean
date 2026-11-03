@@ -1,6 +1,6 @@
 import Tools.ShippingGen4KWalkEntryCore
 import Tools.ShippingGen4KWalkEnv
--- NOT BUILT (rt169). S6 (first part) of scripts/gen4/KWALK_PLAN.md: `synthesizeCombinationalWith` and `synthesizeChild` for `KWalk`. The window is CLOSED here: `synthesizeChild` runs the entry (K to K_n), then inserts into the child cache (K_n to K).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkChild exit 0 (rt169, source as of 9e5eb088); axioms standard only. Clean build is the coder's. S6 (first part) of scripts/gen4/KWALK_PLAN.md: `synthesizeCombinationalWith` and `synthesizeChild` for `KWalk`. The window is CLOSED here: `synthesizeChild` runs the entry (K to K_n), then inserts into the child cache (K_n to K).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. DIAG-PENDING hypothesis `LogMvK` (see Entry). No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkChild
 open Lean Meta

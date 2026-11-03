@@ -2,7 +2,7 @@ import Tools.ShippingGen4KWalkEntryArms
 import Tools.ShippingChildLegacyTailA
 import Tools.ShippingGen4KWalkTac
 import Tools.ShippingGen4KWalkHelpers
--- BUILT (PIECES ONLY: the legacy arm as a whole is NOT proved, see KWALK_PLAN S4 results): kjob lake build Tools.ShippingGen4KWalkLegacyTail exit 0 (rt169, source as of b0c1ab46); axioms standard only. Clean build is the coder's. S4 part 3 of scripts/gen4/KWALK_PLAN.md: the legacy arm of the entry for `KWalk` (copy of ShippingChildLegacyTailA 75-190, `StableK` / `MemoFamily` instead of `StableA` / `RefLawsATele`).
+-- BUILT (PIECES ONLY: the legacy arm as a whole is NOT proved, see KWALK_PLAN S4 results): kjob lake build Tools.ShippingGen4KWalkLegacyTail exit 0 (rt169, source as of 9e5eb088); axioms standard only. Clean build is the coder's. S4 part 3 of scripts/gen4/KWALK_PLAN.md: the legacy arm of the entry for `KWalk` (copy of ShippingChildLegacyTailA 75-190, `StableK` / `MemoFamily` instead of `StableA` / `RefLawsATele`).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. DIAG-PENDING hypothesis `LogMvK` (see Entry).
 -- No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkLegacyTail
