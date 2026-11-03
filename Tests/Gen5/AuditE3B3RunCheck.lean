@@ -3,7 +3,7 @@ import Tools.ShippingGen5AuditE3B3Run
 import Tools.ShippingGen2Defs
 import Tests.Gen5.NameKidsCheck
 set_option autoImplicit false
--- NOT BUILT (rt136 draft). Clean build is the coder's.
+-- BUILT (kjob lake build Tools.ShippingGen5AuditE3B3Run exit 0; Tests.Gen5.AuditE3B3RunCheck exit 0, cached target builds) at 0737899658d83a08c6992a34595379db1a31e277 (kjob/rt136). Clean build is the coder's.
 -- U-A4/U-A5 check. Expected statements are written from the Lean text of AUDIT_CARRIER_FREEZE §2 (AuditE3, B3 part of AuditE4_B3B4)
 -- and AUD_UA4_FREEZE §1 (hLeafAlias), not copied from the implementation.
 -- Mutants are well-typed variants; a rejection is by signature / defeq of a changed statement, NOT a semantic counterexample.

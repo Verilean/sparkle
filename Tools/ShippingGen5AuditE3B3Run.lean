@@ -2,7 +2,7 @@ import Tools.ShippingGen5AuditE3B3
 import Tools.ShippingGen3HrowGate
 import Tools.ShippingGen5RunReads
 set_option autoImplicit false
--- NOT BUILT (written in the rt136 Pod; the build is pending).
+-- BUILT (kjob lake build Tools.ShippingGen5AuditE3B3Run exit 0; Tests.Gen5.AuditE3B3RunCheck exit 0, cached target builds) at 0737899658d83a08c6992a34595379db1a31e277 (kjob/rt136). Clean build is the coder's.
 -- U-A4 hrow (T1L-04) from the run: hrow-free version of auditE3B3_of_t1hyp (scripts/gen5/AUD_UA4_HROW.md).
 -- The origin-only row (instFields = [] -> every tag is a non-memory origin) is obtained INSIDE q_induct3R from the run `RealChildA O c y`:
 -- runReads_of_run (RR3) gives `shapeEq : machineShape? .. = some d.shape`, `machineShape?_noMemRow` (L2) gives `noMemRowS`.
