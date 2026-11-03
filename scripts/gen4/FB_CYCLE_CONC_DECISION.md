@@ -64,3 +64,7 @@ reviewer の指摘: 既存の cell が global だからといって、新しい�
 ## 6. 状態
 
 freeze rev3 は指摘 1（Start からの reset の処理）を修正済みで、設計は A-global のまま、並行の扱いだけがこの判断待ち。判断後、(ii) なら rev3 の §2.6 / §7 を判断の記録に置き換えて reviewer へ。(i) なら、新しい freeze（共有定義変更）を一から書く。
+
+## 7. ユーザーの判断（2026-11-03）
+
+ユーザー: 「(ii)で」。保証は逐次 command に限り、並行経路（language server の cancel の窓、非同期 theorem 本体からの合成）は保証の外として明記する。設計は A-global のまま。freeze rev4（FB_CYCLE_FREEZE.md §2.6 末尾、§7）に反映した。(i) は、将来 cell 全体を局所化する別 Issue で扱う。台帳は変わらない（FG 91 / T1 57）。

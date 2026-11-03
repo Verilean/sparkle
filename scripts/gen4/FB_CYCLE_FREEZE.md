@@ -1,4 +1,4 @@
-# (1c) 再入を必ず失敗させるコンパイラ変更: freeze rev3（文書のみ）
+# (1c) 再入を必ず失敗させるコンパイラ変更: freeze rev4（文書のみ）
 
 - **rev3（Issue rt162）**: rev2 = 598f195e への reviewer 指摘 2 点に対する改訂。(1) 定理の前提を既存の `Start` に戻し（`StartNR` 廃止）、entry の reset は RunsTo の中で扱う（§3.2、F0、scratch で elaborate）。(2) invocation-local 化を見積もった結果、`sparkleChildSynth` の型と `JQC` の共有定義に及び規模が大きいため、設計は A-global のまま、**判断資料 scripts/gen4/FB_CYCLE_CONC_DECISION.md をユーザーに出す**（§2.6 末尾、§7）。**並行の扱いが決まるまで、この freeze は reviewer に出さない（decision で停止）**。直した点は §8（rev3）。台帳: 新前提 0、D.E-12 は部分供給 0。
 
@@ -175,6 +175,12 @@ B は専用の例外型を作り、`tryInlineUnfold` の 2 つの catch で「�
 
 **rev3 の見積もり（invocation-local、reviewer 指摘 (2)）**: 入れ子の子は `sparkleChildSynth`（型 `Name → MetaM …`、1040）を通って呼ばれ、この型に「どの合成の子か」を渡す欄が無い。stack / 旗を合成ごとにするには、この型を変えて引数で持ち回す（変更は Elab.lean の約 8 関数、数十行の見積もり）か、MetaM を包む（Elab.lean の大半）かのどちらかで、**前者でも `sparkleChildSynth` の型を変える共有定義の変更**になる。`JQC`（`sv w = some synthesizeChild`）・`Start` に入っており、base で `sparkleChildSynth` / `synthesizeChild` / `childSynthEntry` / `JQC` を含む `Tools/` は 153 ファイル、`Tests/` は 29 ファイル（grep の件数）。さらに depth / child cache / memo cache / wire cache の既存 global cell は残るので、stack / 旗だけ local にしても重なった合成の出力が安全になるわけではない。したがって「新規ファイル中心で Elab.lean の変更が小さい」条件を満たさない。**設計は A-global に固定したまま、並行の扱い（invocation-local にするか、保証を逐次 command に限るか）は判断資料 `scripts/gen4/FB_CYCLE_CONC_DECISION.md` でユーザー判断に回す**（推奨は逐次 command に限る (ii)、範囲の縮小なので判断が要る）。既存の cell の扱いは変えない。
 
+**ユーザー判断（2026-11-03、rev4）**: 「(ii)で」（FB_CYCLE_CONC_DECISION.md §7）。設計は A-global のまま固定する。`hno_of_noReentry` の保証は、**単一の合成が逐次に走る**モデル（`RunsTo` が 1 つの world を逐次に走らせる）に対するもの。次の 2 経路は**保証の外**で、既知の制限として扱う。
+1. language server で、cancel が効くまでの窓に、古い合成と新しい合成が同じ process で重なる場合。
+2. 非同期に走る theorem 本体から合成を呼ぶユーザー tactic / `run_meta`（repo 内には無い）。
+
+重なった場合に起こりうるのは、循環の無い設計の誤った再入エラー、または既存 cell（depth / child cache / memo / wire cache）の混入である。後者は、この変更の前から同じ前提に依存している。invocation-local 化（選択肢 (i)）と、cell 全体の局所化は、将来の別 Issue とする。
+
 ## 3. 供給定理の完全な型
 
 ### 3.1 対象
@@ -276,8 +282,7 @@ theorem hno_of_noReentry
 - A は「再入を見たら必ず失敗」を保証するが、**循環が無い設計が失敗に変わらない**ことの保証は §2.4(a) の読解と §4 の測定だけ。変更により今成功している設計が失敗する場合は、ユーザーの判断（M4_DECISION §7: 出力が変わったら止める）に戻る。
 - F2 の規模は見積もれていない（addModule 4 箇所 + closeInsts 側の再利用）。着手後に規模が大きいと分かれば、止まって note に書く。
 - `htop` の legacy 分、(2c) legacy shim、memo 法則家族（項目 3）はこの文書の範囲外。
-- **rev3 追記**: 並行の扱いは判断資料 FB_CYCLE_CONC_DECISION.md（ユーザー判断待ち）。判断までこの freeze は承認を求めない。(ii) なら、本節の rev2 追記を「保証は逐次 command に限る」に書き換える。
-- **rev2 追記**: 新 cell が process-global であることの重なり（language server の cancel の窓、非同期 theorem body から合成を呼ぶユーザー tactic）は閉じられていない（§2.6 (e)）。既存の cell と同じ露出で、この文書は A-global を固定する。A-local への移行は共有定義（`sparkleChildSynth` の型、`JQC`）の変更になるので判断事項（§2.6 の表）。
+- **保証は逐次 command に限る**（ユーザー判断 (ii)、2026-11-03、§2.6 末尾）。保証の外は 2 つ: language server の cancel の窓で合成が重なる場合と、非同期 theorem 本体から合成を呼ぶユーザー tactic の場合。いずれも A-global の cell を共有するので、誤った再入エラーや既存 cell の混入が起こりうる。この限定は、実装の受入時に、台帳の記録と FG の説明（`scripts/gen2/GENERAL_SPEC.md` §1.1）にも書く（B4 の範囲の明記と同じ扱い）。
 
 ## 8. rev2 で直した点（reviewer 指摘ごと）
 
@@ -294,5 +299,13 @@ theorem hno_of_noReentry
 |---|---|---|
 | 1. `hno_of_noReentry` が入力 world に `synthReentry = none` / `synthStack = []` を要求し、旗が残った world に適用できない | §3.2、§3.3（F0 追加）、§0 の 4 | 推奨 (a) を採用。前提を既存の `Start` にし（`StartNR` 廃止）、depth 0 の reset 2 文を RunsTo の中（reset prefix、新しい事実 F0）で処理して、F1〜F3 の不変量は reset 後の world から始める。完全な型を scratch で elaborate（`Start` 版の `HnoOfNoReentryStmt`、exit 0、axioms は propext / Classical.choice / Quot.sound のみ、sorry なし）。`Tools/ShippingGen2Defs.lean` は編集しない |
 | 2. A-global のまま並行（server の cancel、非同期 theorem body）が未解決 | §2.6 末尾、§7、新規 scripts/gen4/FB_CYCLE_CONC_DECISION.md | invocation-local を見積もり（変更関数・既存 cell への影響・出力不変）、共有型 `sparkleChildSynth` / `JQC` に及び規模が大きいと判断。判断資料に (i) invocation-local と (ii) 逐次 command に限る（範囲の縮小）の影響・コスト・推奨・可逆性・判断しない場合を記載。note に書いて `decision` で停止。見積もりは読解と grep の件数で、実装・測定はしていない |
+
+台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。新前提 0。D.E-12 は hno / htop の 1 行で、hno だけの供給は部分供給 0。
+
+## 10. rev4 で直した点
+
+| 項目 | 直した所 | 内容 |
+|---|---|---|
+| 並行の扱い（rev3 の指摘 2、ユーザー判断 (ii)） | §2.6 末尾、§7 | 判断を記録し、保証の範囲を「逐次 command」と明記した。保証の外の 2 経路と、そこで起こりうることを書いた。台帳と GENERAL_SPEC への記載は、実装の受入時に行う。設計（A-global）、型（§3.2 の `Start` 版）、測定計画は rev3 のまま |
 
 台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。新前提 0。D.E-12 は hno / htop の 1 行で、hno だけの供給は部分供給 0。
