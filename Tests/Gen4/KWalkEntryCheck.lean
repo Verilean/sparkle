@@ -1,8 +1,8 @@
 import Tools.ShippingGen4KWalkEntryArms
 import Tools.ShippingGen2Defs
+import Tools.ShippingGen5T1ND
 -- BUILT: kjob lake build Tests.Gen4.KWalkEntryCheck exit 0 (rt169, source as of 894ffd2f); KWALKENTRY CHECK: TYPE 4/4 / MUTANT 2/2 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 12/12 standard-only / CLOSURE 12/12 clean (+2 positive controls). Clean build is the coder's. Audit of Tools/ShippingGen4KWalkEntry{,Arms}.lean (S4 of scripts/gen4/KWALK_PLAN.md).
 set_option autoImplicit false
--- NOT BUILT (rt169). KWALKENTRY CHECK: audit of Tools/ShippingGen4KWalkEntry.lean and Tools/ShippingGen4KWalkEntryArms.lean (S4 of scripts/gen4/KWALK_PLAN.md).
 
 /-! # Audit of the S4 files
 
