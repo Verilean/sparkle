@@ -146,3 +146,15 @@ Issue: `sparkle-gen4-fallback-supply`（項目 1・2・3）、`sparkle-gen4-para
 | 1 非循環 | (1c) コンパイラで循環を必ず失敗させる（出力不変を corpus で確認） | 0 |
 | 2 legacy shim | (2c) 今は保留 | 0 |
 | 3 memo 法則 | C・R-1（parametric と fallback で 1 家族を共有、別構造。10 文、補題を示せば 9 文） | 今は FG +1。F-kids 等が全部揃えば純差分 −1 |
+
+## 7. ユーザーの判断（2026-11-03）
+
+ユーザー: 「1c、2c、3Cで」。
+
+| 項目 | 決まった案 | 次 |
+|---|---|---|
+| 1 非循環 | (1c) 同じ宣言への再入を、catch に飲まれない形で必ず失敗させるコンパイラ変更 | 変更の設計と `hno` の供給定理の文を freeze → reviewer。実装後、corpus で出力不変を測る。変わったら止めて報告 |
+| 2 legacy shim | (2c) 保留 | B.F-8 の legacy 腕は未供給のまま。項目 1・3 の結果を見て決め直す |
+| 3 memo 法則 | C（parametric と fallback の memo hit で 1 家族を共有、`Laws` とは別構造）、数え方 R-1 | `memoModify` の導出補題を先に試し、家族の文（9 または 10）を freeze → reviewer。家族を使う証明が受入されたとき FG +1。純差分 −1 は F-kids 等が全部揃った後だけ |
+
+この判断で台帳は変わらない（FG 91 / T1 57）。
