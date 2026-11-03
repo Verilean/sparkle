@@ -1,5 +1,5 @@
 import Tools.ShippingGen4KWalkEntry
--- NOT BUILT (rt169). S4 part 2 of scripts/gen4/KWALK_PLAN.md (frozen in scripts/gen4/KWALK_S4_FREEZE.md): the arms of `synthesizeFromConst` with the memo window (copy of ShippingChildFrontA 322-445, `Triple` from `KWalk` to `KWalkX declName`).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkEntryArms exit 0 (rt169, source as of 894ffd2f); axioms standard only. Clean build is the coder's. S4 (part 2) of scripts/gen4/KWALK_PLAN.md (frozen in scripts/gen4/KWALK_S4_FREEZE.md): the arms of `synthesizeFromConst` with the memo window (copy of ShippingChildFrontA 322-445, `Triple` from `KWalk` to `KWalkX declName`).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom to the family. DIAG-PENDING hypothesis `LogMvK` (see Entry). The legacy tail is the premise `hlegacy`.
 -- No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkEntryArms
