@@ -139,6 +139,8 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
   let fn := p.getAppFn
   if (← IO.getEnv "KWALK_DEBUG").isSome then
     logInfo m!"kwalk step: head {fn}; rules {rules.map (·.2.1)}"
+    if fn.constName? == some `Sparkle.Compiler.Elab.CompilerM.withLocalDecl then
+      logInfo m!"kwalk wld: n {p.getArg! 1} ty {p.getArg! 2} goalDepth {p.approxDepth}"
   match fn with
   | .const c _ =>
     if c == ``Bind.bind then
