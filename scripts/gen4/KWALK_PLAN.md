@@ -282,3 +282,28 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 **Induct2 は BUILT**（`Tools/ShippingGen4KWalkLegacyInduct2.lean`、lakefile 登録、`kjob lake build` exit 0、33 秒、`#print axioms` は `synthesizeChild_depthKL2` / `topEntry_KL2` / `topEntry_K_of_family2` とも propext / Classical.choice / Quot.sound のみ）。`hImpl : ∀ D ≠ 0, ChildEntryK … → LegacyImplK …` を仮説として取る形なので、`LegacyImplK` 自体の証明（H11）が済むまで、`topEntry_K_of_family` から LegacyImplK を外した版にはならない。組立て・Check は未着手（H11 が通っていないため）。MsgMvK 以外の新しい仮説は出ていない。
 
 台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## rt180: LegacyImplK その 7（base b2efa8c0。新しい仮説・law・家族の文なし。sorry・axiom・native_decide なし。Elab.lean 未編集）
+
+**H11 が通った（BUILT）。本体を腕ごとに分ける必要はなかった。** `kjob lake build Tools.ShippingGen4KWalkLegacyH11` exit 0、H11 本体 8.6 秒、ビルド全体 42 秒、最大 RSS 3.8 GB。`#print axioms legacyImplKcore` は propext / Classical.choice / Quot.sound のみ。
+
+**OOM の原因（この調査で特定）**
+* `ulimit -v 20000000` では Lean が動かない（`failed to create thread`、H10a で確認）。代わりに、子プロセス木の RSS を 1 秒ごとに見て上限を超えたら自分の process group だけを kill する guard（スクリプトはスクラッチパッド、ソースツリー外）を使った。H10a は guard 下で exit 0（最大 4.0 GB）。
+* 歩き（kloop）は 1500 step 前後で **未解決ゴール 0 で終わる**。その間の RSS は 1.7〜1.8 GB で増えない（`KWALK_TRACE` で step ごとに /proc/self/statm を記録）。つまり heartbeat・step 数・KWALK_DEBUG の出力ではなかった。
+* 歩きの後、タクティクブロックの証明項の `instantiateMVars` で RSS が 5 GB → 20 GB 超（guard が kill）。`debug.skipKernelTC` と linter 停止では変わらない（kernel でも linter でもない）。
+* 原因: do 記法の join point を `(fun jp hj => body) v hv` の beta-redex としてゴールに割り当てていたため、`instantiateMVars` が beta 簡約で `v`（継続全体）を `body` 中の `jp` の使用箇所ごとにコピーした（join point が入れ子で指数的）。
+* 対処（Tac2 の変更、law なし）: join point と事実を **let 束縛**（`let jp := v; let hj := hv; body`、`withLetDecl` + `mkLetFVars`）にする。これに合わせ `runTac` を `zetaDelta := false` で動かす（let 束縛の `jp ?u =?= jp ()` を展開させない）。ほかに: `Except.rec` の一般の場合（主引数がコンストラクタなら iota、fvar なら `cases` して各腕を歩く。腕が `pure` でなくてもよい。これが未解決ゴール 1 件の原因で、既定の "unsolved goals" の表示がゴール全体（do ブロック）を整形して 20 GB を使っていた）、`kwalkS`（歩き終わりに未解決ゴールがあれば短いメッセージ［先頭 5 つの head と depth］で失敗する。H11 の `kwMain` で使用）、`KWALK_TRACE=パス`（step ごとの head・depth・RSS を追記）。
+* 腕ごとの別補題・別モジュールには**していない**（原因が項の組立てだったため不要になった）。腕ごとの時間・メモリの測定は行っていない（本体 1 つで 8.6 秒・3.8 GB）。
+
+**再ビルド（Tac2 変更後、guard 下）**: H10b（H1〜H10a、H8d を含む依存）、H11、Induct2（Final の依存として）、Final、Check がすべて exit 0。
+
+**LegacyImplK を外した版**: `Tools/ShippingGen4KWalkLegacyFinal.lean`（BUILT）
+* `legacyImplK_of_entry M hmsg hS hchild : LegacyImplK O I`（`legacyImplKcore` と `ppMvK_of M` から）。
+* `topEntry_K_of_family3 M hmsg hA declName`（Induct2 の `topEntry_K_of_family2` に `hImpl := fun D _ hEntry => legacyImplK_of_entry M hmsg (stableK_KWD O MemoKeysInChild D) hEntry` を渡す）。**型の仮説は `MsgMvK` だけ**（と家族 `M`、`AdmCtx`）。
+* 新しい仮説・law・家族の文は増えていない。axioms: propext / Classical.choice / Quot.sound。
+
+**Check**: `Tests/Gen4/KWalkLegacyFinalCheck.lean`（BUILT、787 jobs）KWALKLEGACYFINAL CHECK: TYPE 2/2 / MUTANT 5/5（signature/defeq での棄却で意味的反例ではない）/ AXIOMS 2/2 / CLOSURE 2/2 clean（+2 陽性対照）。閉包の仮説様の定義: `topEntry_K_of_family3` は 型 [MsgMvK] / 閉包 [LogMvK, LegacyImplK, PpMvK, MsgMvK, LegacyCachedK, ChildEntryK]（`LogMvK` と `PpMvK` は家族から導かれたもの、`LegacyImplK` と `ChildEntryK` は `legacyImplK_of_entry` と深さ帰納の中で証明されたもので、型には現れない。`LegacyArmD` は閉包に無い）。
+
+**残り**: `MsgMvK`（Elab.lean 6605 の `msgToString`）は仮説のまま（これが FG 受入の残り。新しい仮説ではなく、指示どおりの唯一の仮説）。clean build は coder。
+
+台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。`MemoFamily` を使う K walk 全体の受入は `MsgMvK` が閉じるまで起きない。

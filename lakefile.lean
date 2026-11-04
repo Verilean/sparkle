@@ -5013,3 +5013,6 @@ lean_lib «Tools.ShippingGen4KWalkLegacyH11» where
 
 lean_lib «Tools.ShippingGen4KWalkLegacyFinal» where
   roots := #[`Tools.ShippingGen4KWalkLegacyFinal]
+
+lean_lib «Tests.Gen4.KWalkLegacyFinalCheck» where
+  roots := #[`Tests.Gen4.KWalkLegacyFinalCheck]
