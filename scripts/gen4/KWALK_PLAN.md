@@ -279,6 +279,6 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 * **最後に始まって終わらない step は `@CompilerM.withLocalDecl`**（ステップ 1055 件目）。ステップ末尾の `kwalk hb` 行が出ず、runTac の失敗も出ていない（heartbeat の例外は握りつぶされず上に抜ける）。同じ頭の step はそれ以前に成功している。なので「どの withLocalDecl か（束縛する型・継続の形）」で何かが異なる。**この調査では、その step の中のどの `apply`/`unify` が止まっているかまでは見つからなかった**。
 * **次の rt の候補**: (a) その withLocalDecl step の `p` の引数（型 `ty` と継続 `k`）を Dbg で出して、規則 `withLocalDeclPK` の `apply` の単一化が `k` の beta/whnf に落ちていないか確かめる（`withLocalDeclPK` の `k` を `fun x => ?_` でなく、`refine withLocalDeclPK … (fun _ _ _ x => ?_)` の形の専用 step にする）、(b) `framedNM` の試行を、頭が `liftM` / `monadLift` で引数が `FramedNM` の構成子に当たると分かる場合だけにする（`constructor` を使わず、`FramedNM` の各構成子に対応する `exact` の候補を直接並べる）、(c) 本体を腕ごとの別補題に分ける（`Elab 6930-7985` を `handleSynthesize…` ごとの `let rec` ではなく、モジュール境界で）— ただし本体は 1 つの定義なので、腕を別定理にするには腕の型を `Rec.translateExprToWireImpl` の `match` から取り出す補題（`unfold` 後の部分項の抽出）が要る。
 
-**Induct2 と組立て・Check は未着手**（H11 が通っていないため）。MsgMvK 以外の新しい仮説は出ていない。
+**Induct2 は BUILT**（`Tools/ShippingGen4KWalkLegacyInduct2.lean`、lakefile 登録、`kjob lake build` exit 0、33 秒、`#print axioms` は `synthesizeChild_depthKL2` / `topEntry_KL2` / `topEntry_K_of_family2` とも propext / Classical.choice / Quot.sound のみ）。`hImpl : ∀ D ≠ 0, ChildEntryK … → LegacyImplK …` を仮説として取る形なので、`LegacyImplK` 自体の証明（H11）が済むまで、`topEntry_K_of_family` から LegacyImplK を外した版にはならない。組立て・Check は未着手（H11 が通っていないため）。MsgMvK 以外の新しい仮説は出ていない。
 
 台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。

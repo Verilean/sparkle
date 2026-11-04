@@ -1,5 +1,5 @@
 import Tools.ShippingGen4KWalkLegacyInduct
--- NOT BUILT (rt175 WIP). The depth induction of `Induct` with the main-body hypothesis in the form `hImpl : ∀ D ≠ 0, ChildEntryK (KWD D) → LegacyImplK (KWD D)`: `hEntry` (built from `IH` by `tripleK_synthGet`) is handed to `hImpl`, so `ChildEntryK` is not a hypothesis.
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyInduct2 exit 0 (rt176; axioms of topEntry_K_of_family2: propext, Classical.choice, Quot.sound; takes `hImpl : ∀ D ≠ 0, ChildEntryK → LegacyImplK` as a hypothesis, not yet discharged because H11 is not built). The depth induction of `Induct` with the main-body hypothesis in the form `hImpl : ∀ D ≠ 0, ChildEntryK (KWD D) → LegacyImplK (KWD D)`: `hEntry` (built from `IH` by `tripleK_synthGet`) is handed to `hImpl`, so `ChildEntryK` is not a hypothesis.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkLegacyInduct2
 open Lean Meta
