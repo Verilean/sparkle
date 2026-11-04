@@ -139,6 +139,8 @@ base = par/hord-run@392dc221（以下「base」）。「読み」= ファイル�
 
 ### 候補 A: C.RR-2（P）
 
+**修正（reviewer 2026-11-05）**: `entryWitness_left_postEntry` / `synthesizeCombinational_postEntry` は既定の `synthesizeCombinational` route だけを扱い、`EntryWitness` は parameterized route も含む。よって一般 FG の減算は parametric の橋が揃うまで 0。下の表の効果は default route 限定の見込みとして読む（本文 §2.2）。
+
 | 項目 | 内容 |
 |---|---|
 | 消える ID | C.RR-2 |

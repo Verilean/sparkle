@@ -17,7 +17,7 @@ base: 392dc221（par/hord-run）。台帳の根拠: FG `par/fg-ledger-sync` §8.
 1. 88 行の分類（読み）: **P 16 / R 5 / D 14 / U 25 / X 28**（合計 88）。R は run から出せそうなもので、うち 3 つは条件付き（B.P-1、B.P-8、C.EN-3）。
 2. **run だけから束縛変数を消せる行は、この調査では本質的に見つからなかった。** gate 系（B.G-*）は per-declaration の生成定数の kernel 事実で、run が「どの枝を通ったか」の証拠を持たない。env 系（C.EN-*）は第 2 の Laws L′ と全 world の `ReadsAt` が要り、run は特定の world 列しか与えない。reader の `partial def` に当たる行（C.RK-6、C.DO-2、C.CV-4、N2-b など）は、証明から展開できない。
 3. **既存の証明済み定理で置き換わりそうな行（P）が実質の候補**。ただし多くは「定理は別 branch にある」「統合 tree が無い」がつく（§2 の各候補に書く）。
-4. 上位候補（§2）: ① C.RK-1（C.EN-4 の conjunct から、リーフ −1 の見込み）、② C.RR-2（base の `entryWitness_left_postEntry`）、③ A.P-13（`stepStmtCases_of_rows`、統合待ち）、④ carrier を `dataOfAt` に固定する一括単位（C.AC-9 / C.CV-5 / C.SM-1 の半分）、⑤ C.CV-6（`hcb` の新補題）。
+4. 上位候補（§2）: ① C.RK-1（C.EN-4 の conjunct から、リーフ −1 の見込み。projection・elaboration と Check が通るまで台帳は減らさない）、② C.RR-2（base の `entryWitness_left_postEntry`。**default route 限定**で、一般 FG の減算は parametric の橋が揃うまで 0）、③ A.P-13（`stepStmtCases_of_rows`、統合待ち）、④ carrier を `dataOfAt` に固定する一括単位（C.AC-9 / C.CV-5 / C.SM-1 の半分）、⑤ C.CV-6（`hcb` の新補題）。
 5. 文書だけで外せそうに見える行（A.P-07、D.T-2、C.SM-7、D.D-8）は、A.P-22 型の「FG 側に独立した束縛変数が無い」読みだが、上の裁定では**単独では外せない**（既存の行に Lean で置き換わる定理が要る）。候補としては挙げるが、数えない（§2.6）。
 6. 台帳の数・行の文は変えていない。新しい TRUSTED / law、FG の縮小、GenWF の強化は提案していない。
 
@@ -169,7 +169,7 @@ B.G-* は FG の束縛変数ではなく carrier `ReflectsAll`（D.D-1）の構�
 | 残る条件 | C.EN-4（`CellPrem`）。置換先が TRUSTED かの A/B/C 判断（DG_ENV_FREEZE §4、記録なし）は動かない |
 | root theorem（型案） | `theorem readKeeps_of_cellPrem {MkRefd} (h : CellPrem MkRefd mref cref) : ReadKeeps cref := ReadWorld.readKeeps h.2.2.2.2.2.2.2.2.1`（添字は `EnvFrame3.lean:58-63` の並びによる。読み） |
 | 費用 | 補題は数行。`FGLedgerPremisesStmt` から `h_C_RK1` を除く statement 変更と Check の期待値更新を含めて約 150 行（推定） |
-| 確かさ | 高（`readKeeps` は証明済み、確認）。conjunct の位置は未確認 |
+| 確かさ | 高（`readKeeps` は証明済み、確認）。conjunct の位置（projection）は未確認。**projection の elaboration と Check が通るまで台帳は減らさない**（reviewer 2026-11-05） |
 | freeze / TRUSTED | freeze 要（行の除去は reviewer 承認の対象）。新しい TRUSTED/law は不要 |
 | 新しく増える行 | なし。純差分 FG **−1（リーフ）** |
 
@@ -184,7 +184,8 @@ B.G-* は FG の束縛変数ではなく carrier `ReflectsAll`（D.D-1）の構�
 | 費用 | 20〜40 行の配線（推定） |
 | 確かさ | 高（定理は base にあり build 済み、確認）。ただし C.RR-2 が FG のどの束縛変数に当たるかの対応（台帳に「橋の命題が無い」とある行）を reviewer が読み替える必要。default route 限定の範囲になる |
 | freeze / TRUSTED | freeze 要。TRUSTED 不要 |
-| 新しく増える行 | なし。FG **−1（リーフまたは非リーフ。行の区分は UN-B でリーフ）**。parametric を含む範囲に広げると 0 |
+| 新しく増える行 | なし |
+| 台帳への効果（reviewer 2026-11-05 の修正） | **一般 FG: 0**。`EntryWitness` は parameterized route も含むが、`entryWitness_left_postEntry` / `synthesizeCombinational_postEntry` は既定の `synthesizeCombinational` route だけを扱う。parametric の橋（B.P-6 / D.D-2）が揃うまで一般 FG からは −1 と数えない。**default route 限定の見込み**: −1（一般台帳の減算ではない。IP 限定の結果と同じく別欄） |
 
 ### 2.3 候補 ③: A.P-13（MemOrigin）を `stepStmtCases_of_rows` で置換（P）
 
@@ -234,7 +235,7 @@ A.P-07、D.T-2、C.SM-7、D.D-8 は、「FG 側に独立した束縛変数が無
 
 ## 4. 推奨する次の単位
 
-1. **C.RK-1（候補 ①）と C.RR-2（候補 ②）を 1 つの小さな単位に束ねる**。どちらも base に必要な定理があり（`ReadWorld.readKeeps`、`entryWitness_left_postEntry`）、Lean の新規部分は配線だけで、統合 tree を作らない。新しい TRUSTED/law/行は増えない。freeze は reviewer の番（FG の statement から行を除くため）。期待は FG −2（リーフ）。ただし C.RR-2 は default route 限定の範囲になることと、C.RK-1 の置換先 C.EN-4 が残ることを freeze に明記する。
+1. **C.RK-1（候補 ①）を次の単位にする**（C.RR-2（候補 ②）の配線は同じ単位に入れてよいが、default route 限定の結果で、一般 FG の減算には数えない）。どちらも base に必要な定理があり（`ReadWorld.readKeeps`、`entryWitness_left_postEntry`）、Lean の新規部分は配線だけで、統合 tree を作らない。新しい TRUSTED/law/行は増えない。freeze は reviewer の番（FG の statement から行を除くため）。**一般 FG の候補は ① の −1 だけ**（① と ② を −2 と合算しない）。② は default route 限定の見込み（−1）で、一般 FG の減算は parametric の橋が揃うまで 0。C.RK-1 の置換先 C.EN-4 は残る。① は projection・elaboration と Check が通るまで台帳を減らさない（reviewer 2026-11-05）。
 2. **候補 ④（`dataOfAt` 固定の一括単位）の統合 tree の調査**を先にやる。DG 系を同時に含む branch が無いため、費用は定理の長さではなく統合にかかる。この単位は FG −2（リーフ）の見込みで、価値は大きいが、先に「どの branch をどの順で局所統合するか」の文書が要る。
 
 run だけから消える行がほとんど無いことは §0 のとおりで、リーフ 62 の大半は U / X。X の多くは `partial def` の不透明性（C.RK-6、C.DO-2、C.CV-4、N2-b）か環境の事実（7 行）で、一般定理から払うにはコンパイラ変更か新しい仮定が要り、ユーザー判断の領域。
