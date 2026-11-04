@@ -1,7 +1,7 @@
 import Tools.ShippingGen4KWalkLegacyH10a
 import Tools.ShippingGen4KWalkLegacyH10b
 import Tools.ShippingGen4KWalkLegacyH8d
--- NOT BUILT, NOT IN THE LAKEFILE (rt176: the target build does not finish; the last step started is `CompilerM.withLocalDecl`, see KWALK_PLAN rt176): LegacyImplK part 11: the main body `Rec.translateExprToWireImpl`.
+-- BUILT (rt180): kjob lake build Tools.ShippingGen4KWalkLegacyH11 exit 0, 8.6 s, peak RSS 3.8 GB (axioms propext, Classical.choice, Quot.sound); clean build is the coder's. LegacyImplK part 11: the main body `Rec.translateExprToWireImpl`.
 namespace Tools.ShippingGen4KWalkLegacyH11
 open Lean Meta
 open Tools.ShippingEntrySoundness
@@ -92,3 +92,5 @@ theorem legacyImplKcore (hA : AdmCtx O.quiet mctx cctx)
 end H10b
 
 end Tools.ShippingGen4KWalkLegacyH11
+
+#print axioms Tools.ShippingGen4KWalkLegacyH11.legacyImplKcore

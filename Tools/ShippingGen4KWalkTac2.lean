@@ -58,7 +58,8 @@ def runTac (stx : TSyntax `tactic) (sorryOk : Bool := false) : TacticM Bool := d
     -- `by` with unsolved goals only LOGS an error, so a new logged error also fails it)
     let n0 := (← Core.getMessageLog).toList.length
     let hb0 ← IO.getNumHeartbeats
-    if sorryOk then evalTactic stx else Term.withoutErrToSorry (evalTactic stx)
+    -- (rt180) let-bound join points are not unfolded by unification (`jp ?u =?= jp ()` must assign `?u`)
+    withConfig (fun c => { c with zetaDelta := false }) <| if sorryOk then evalTactic stx else Term.withoutErrToSorry (evalTactic stx)
     if (← IO.getEnv "KWALK_DEBUG").isSome then
       let d := (← IO.getNumHeartbeats) - hb0
       if d > 300000 then logInfo m!"kwalk runTac hb {d}: {stx.raw.reprint.getD ""}"
@@ -132,18 +133,17 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     let n := (← getLCtx).decls.size
     let jpName := Name.mkSimple s!"jp_{n}"
     let hName := Name.mkSimple s!"hjp_{n}"
-    let (mainM, hvM) ← withLocalDeclD jpName T fun jp => do
+    -- (rt180) the join point and its fact are LET-bound in the proof term (`let jp := v; let hj := hv; body`), not a beta-redex `(fun jp hj => body) v hv`:
+    -- `instantiateMVars` beta-reduces the redex and so copies `v` into every use of `jp` in `body` (nested join points: the final instantiation did not finish in 20 GB, H11)
+    let hvT ← forallTelescope T fun xs _ => mkForallFVars xs (mkApp hdr (mkAppN p.letValue! xs).headBeta)
+    let hvM ← mkFreshExprSyntheticOpaqueMVar hvT
+    let bodyM ← withLetDecl jpName T p.letValue! fun jp => do
       let hypT ← forallTelescope T fun xs _ => mkForallFVars xs (mkApp hdr (mkAppN jp xs))
-      let bodyT := mkApp hdr (p.letBody!.instantiate1 jp)
-      let mainT ← withLocalDeclD hName hypT fun hj => mkForallFVars #[jp, hj] bodyT
-      let hvT ← forallTelescope T fun xs _ => mkForallFVars xs (mkApp hdr (mkAppN p.letValue! xs).headBeta)
-      let mainM ← mkFreshExprSyntheticOpaqueMVar mainT
-      let hvM ← mkFreshExprSyntheticOpaqueMVar hvT
-      return (mainM, hvM)
-    g.assign (mkApp2 mainM p.letValue! hvM)
-    let (_, g1) ← mainM.mvarId!.intro jpName
-    let (_, g2) ← g1.intro hName
-    replaceMainGoal [g2, hvM.mvarId!]
+      withLetDecl hName hypT hvM fun hj => do
+        let bodyM ← mkFreshExprSyntheticOpaqueMVar (mkApp hdr (p.letBody!.instantiate1 jp))
+        g.assign (← mkLetFVars #[jp, hj] bodyM)
+        return bodyM
+    replaceMainGoal [bodyM.mvarId!, hvM.mvarId!]
     return true
   if p.isLet || p.isHeadBetaTarget then
     -- reduce the head `let`/`have` (zeta) or beta-redex in place: definitionally equal, and
@@ -403,10 +403,17 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     return false
   | _ => return false
 
+def traceRss (tag : String) : IO Unit := do
+  if let some path ← IO.getEnv "KWALK_TRACE" then
+    let sm ← IO.FS.readFile "/proc/self/statm"
+    let h ← IO.FS.Handle.mk path .append
+    h.putStrLn s!"KWT-RSS {tag} {((sm.splitOn " ").getD 1 "0").toNat! * 4 / 1024} MB t={← IO.monoMsNow}"
+    h.flush
+
 /-- Walk every open goal until no step applies (bounded). (rt176) A goal on which no step applies is set aside for
 good (`stuck`) and not retried in later rounds: retrying every stuck goal each round made the cost quadratic in the
 number of steps (H11: 1189 steps used 4M heartbeats). -/
-partial def kloop (rules : Array (Lean.Expr × Name × Syntax)) (fuel : Nat) (stuck : List MVarId := []) : TacticM Unit := do
+partial def kloop (rules : Array (Lean.Expr × Name × Syntax)) (fuel : Nat) (stuck : List MVarId := []) (root : Option MVarId := none) : TacticM Unit := do
   if fuel == 0 then return
   let gs ← getUnsolvedGoals
   let mut rest : List MVarId := []
@@ -442,15 +449,21 @@ partial def kloop (rules : Array (Lean.Expr × Name × Syntax)) (fuel : Nat) (st
       stuck' := g :: stuck'
       rest := rest ++ [g]
   setGoals rest
-  if progress then kloop rules (fuel - 1) stuck'
+  if (← IO.getEnv "KWALK_TRACE").isSome && (← IO.getEnv "KWALK_INST").isSome then
+    if let some r := root then
+      let t0 ← IO.monoMsNow
+      let e ← instantiateMVars (mkMVar r)
+      traceRss s!"round fuel {fuel} goals {rest.length} inst depth {e.approxDepth} took {(← IO.monoMsNow) - t0}ms"
+  if progress then kloop rules (fuel - 1) stuck' root
 
 def runKWalkN (ts : Array Syntax) (strict : Bool := false) : TacticM Unit := withMainContext do
+  let g0 ← getMainGoal
   let mut rules : Array (Lean.Expr × Name × Syntax) := #[]
   for t in ts do
     let e ← Term.withoutErrToSorry <| Tactic.elabTerm t none (mayPostpone := true)
     if let some h ← ruleHead e then
       rules := rules.push (e, h, t)
-  kloop rules 400
+  kloop rules 400 [] (some g0)
   -- (rt180) never leave stuck goals for the default "unsolved goals" error: printing them (the whole do-block in the goal) took > 20 GB
   let stuck ← getUnsolvedGoals
   if strict && !stuck.isEmpty then
@@ -461,6 +474,10 @@ def runKWalkN (ts : Array Syntax) (strict : Bool := false) : TacticM Unit := wit
         | some pp => s!"{pp.consumeMData.getAppFn.constName?.map toString |>.getD "<non-const>"} (depth {gty.approxDepth})"
         | none => s!"side {gty.getAppFn.constName?.map toString |>.getD "?"}"]
     throwError "kwalkN: {stuck.length} goal(s) stuck, first heads: {hs}"
+  traceRss "walk-done"
+  if (← IO.getEnv "KWALK_TRACE").isSome then
+    let e ← instantiateMVars (mkMVar g0)
+    traceRss s!"instantiated depth {e.approxDepth}"
   if let some path ← IO.getEnv "KWALK_TRACE" then
     let h ← IO.FS.Handle.mk path .append
     h.putStrLn s!"KWT-END unsolved {(← getUnsolvedGoals).length}"
