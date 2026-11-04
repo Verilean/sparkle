@@ -73,7 +73,7 @@ def runTac (stx : TSyntax `tactic) (sorryOk : Bool := false) : TacticM Bool := d
     if (← IO.getEnv "KWALK_DEBUG").isSome then
       let d := (← IO.getNumHeartbeats) - hb00
       let src := stx.raw.reprint.getD ""
-      let em := (← ex.toMessageData.toString).take 60
+      let em := (← ex.toMessageData.toString).take 300
       logInfo m!"kwalk runTac failed hb {d}: {src} :: {em}"
     return false
 

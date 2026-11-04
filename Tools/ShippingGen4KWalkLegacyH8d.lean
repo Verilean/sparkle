@@ -60,6 +60,16 @@ theorem keepsK_profLog (b : Bool) (s : String) :
   | ok a w1 => exact True.intro
   | error e' w1 => exact O.excOk hA _ (.diag (Diag.profLog b s)) w e' w1 hq hmm
 
+/-- The profile block as a `MetaM` program (the form the walk meets after the `CompilerM` lifts are opened). -/
+theorem keepsK_profBlock (s : String) :
+    Keeps mctx mref cctx cref I ((liftM (IO.eprintln s) : MetaM Unit) >>= fun _ =>
+      (liftM Sparkle.Compiler.flushStderr : MetaM Unit) >>= fun _ =>
+      (liftM (IO.FS.Handle.mk "/tmp/sparkle-profile.log" IO.FS.Mode.append) : MetaM IO.FS.Handle) >>= fun h =>
+      (liftM (h.putStrLn s) : MetaM Unit) >>= fun _ =>
+      (liftM h.flush : MetaM Unit)) := by
+  rw [profBlock_eq]
+  exact keepsK_profLog M hS hA true s
+
 /-- The profile block as ONE `CompilerM` unit, followed by the rest of the program. -/
 theorem profBlockCPk {β : Type} (s : String) (k : Unit → CompilerM β)
     (hk : ∀ u, KeepsCP mctx mref cctx cref I (k u)) :
