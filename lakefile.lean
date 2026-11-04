@@ -4976,3 +4976,10 @@ lean_lib «Tools.ShippingGen4KWalkLegacyH3» where
 
 lean_lib «Tools.ShippingGen4KWalkLegacyH4» where
   roots := #[`Tools.ShippingGen4KWalkLegacyH4]
+
+lean_lib «Tools.ShippingGen4KWalkLegacyH5» where
+  roots := #[`Tools.ShippingGen4KWalkLegacyH5]
+
+
+lean_lib «Tools.ShippingGen4KWalkLegacyH6» where
+  roots := #[`Tools.ShippingGen4KWalkLegacyH6]

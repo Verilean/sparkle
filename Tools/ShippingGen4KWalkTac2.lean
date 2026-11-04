@@ -186,10 +186,17 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     for d in ← getLCtx do
       if d.isImplementationDetail then continue
       let dty ← instantiateMVars d.type
-      if let some hp := progOf? dty then
+      let hp? ← forallTelescope dty fun _ concl => pure (progOf? concl)
+      if let some hp := hp? then
         if headConst? hp == some c then
           let id := mkIdent d.userName
           if ← runTac (← `(tactic| exact $id)) then return true
+          if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _ _ _)) then return true
+          if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _ _)) then return true
+          if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _)) then return true
+          if ← runTac (← `(tactic| exact $id _ _ (by assumption) _)) then return true
+          if ← runTac (← `(tactic| exact $id _ _ _ _)) then return true
+          if ← runTac (← `(tactic| exact $id _)) then return true
     -- unfold a definition once
     let id := mkIdent c
     runTac (← `(tactic| unfold $id:ident))
