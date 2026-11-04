@@ -208,3 +208,29 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 * 台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。`MemoFamily` を使う K walk 全体の受入（FG +1）は `LegacyImplK` と `MsgMvK` が閉じるまで起きない。
 
 **残り**: `LegacyImplK`（`Rec.translateExprToWireImpl` の各 handler。`PpMvK` は家族から出るようになり、`MsgMvK`（6605）が残る）。
+
+## rt174: LegacyImplK その 1（base b92c90f6。承認済み freeze の型のまま。新しい仮説・law・家族の文なし。sorry・axiom・native_decide なし）
+
+**vca の K 版**: `kwalk`（`Tools/ShippingChildKWalk.lean`）/ `kwalkM`（`Tools/ShippingGen4KWalkTac.lean`）は rt167-169 で既にあった。rt174 で `Tools/ShippingGen4KWalkTac2.lean`（`kwalkN`）を追加: `kwalkM` のコピーに (1) `Keeps` の FramedNM 操作を `keepsK_framedNM M hA hS (by constructor …)` で自動に閉じる、(2) context の読み（`getRef`/`getOptions`/`liftM` など）を `Keeps.of_ok`、(3) `CompilerM` の `liftM`/`liftIO`/`ST.Ref.*`/`read`/`bindRead`、(4) `throwE`（EarlyReturn）と `Except.rec`、(5) instance projection の reduce と `KeepsCP.forIn_*`、(6) 再帰呼び出しの局所仮説（∀ 付き）、(7) `tryInlineUnfold` の bind に `KeepsCP.bindCaught`（局所仮説 `htri`）を足した。`@[keepsK]` 属性は作らず、規則の一覧は `Tools/ShippingGen4KWalkLegacyRules.lean` の `kwAll`（タクティクマクロ）に置いた（rule 引数は M / hpp / hA / hS という名前の節変数を取る）。
+
+**済んだ handler（各モジュール別、`kjob lake build` 済みのもの。「BUILT」はコミット時点のビルド成功で、clean build は coder）**
+
+| モジュール | 内容 |
+|---|---|
+| `LegacyH1` | `snapshotWireCaches` / `restoreWireCaches`（exprCache の set は `FramedNM.localSetIO`）/ `handleErrorPatterns` |
+| `LegacyH2` | A 版 Helpers のうち K 版が無かったもの: `isTracingEnabledFor` / `addTrace`（`modifyTraces` を unfold、`keepsK_addMessageContext`）/ `extractNat`・`extractBitVecLiteral`・`extractNatLiteral`・`extractBitVecList`・`extractBitVecArray`（`fuelFixM_keepsCP`）/ `cachedInferType` / `getWireWidth(Dim)` / `lowerZeroExtendWire` |
+| `LegacyH4` | `CompilerM.withLocalDecl` / `withLetDecl`（`MemoTele.localDecl` / `letDecl` から） |
+| `LegacyRules` | 規則マクロ `kwAll` |
+| `LegacyH3` | `handleTupleProjections` / `handleBitVecOps` / `handleRegister`（EarlyReturn）/ `handleMux` / `handleMemory` / `handleCircuitMonad`（いずれも `tr`＋`htr` を取る） |
+| `LegacyH5` | `handleApplicative`（`lower` を signals の帰納）/ `translateShiftAmount` |
+| `LegacyH6` | `handleLoop`（`canonHardwareKeyK` を規則に追加） |
+| `LegacyH7` | `tryInlineUnfold` の `TripleCP` 版（`tryInlineUnfold_tripleCPK`） |
+
+**残り**
+* `handleDefinitionUnfold`（`LegacyH8`、`hchild`＝`childSynthEntry` の `Keeps` を引数に取る形）: 下に状況。
+* `translateExprToWireApp`（`normSpine` の fuel 帰納を含む）、`toIR`（`sizeOf` 帰納）、`getPrimitiveNameFromLambda`、そして本体 `Rec.translateExprToWireImpl`（Elab.lean 6930-7985 約 1050 行）と `LegacyImplK` の組立て。
+* **見つけた点（新しい仮説ではないが、組立てで必要）**: `handleDefinitionUnfold` は `childSynthEntry c` を呼ぶ。`LegacyImplK O (KWD K D)` の中でこれを閉じるには、A 版の `hchild` に当たる `ChildEntryK`（深さ D の子の入口）が要る。これは仮説として足さず、`Tools/ShippingGen4KWalkLegacyInduct.lean` の深さ帰納（`child_stepL` / `child_budgetL`）から、深さの上限（`sparkleSynthDepthLimit`）に向かう減少帰納で与える形になる見込み（この調査では、`LegacyImplK` を `hchild` なしに単独で立てる経路は見つからなかった）。この帰納の形（`LegacyImplK` の証明を `D` の帰納の中に入れるか、`hchild` を取る形の `LegacyImplK'` を作って最後に閉じるか）は次の rt で決める。
+* `MsgMvK`（Elab.lean 6605 の `msgToString`）は上のどの handler にもまだ登場していない（使うのは本体の該当箇所）。
+* その後: `topEntry_K_of_family` から `LegacyImplK` を外した版と Check（TYPE / MUTANT / AXIOMS / CLOSURE、閉包の仮説の一覧）。
+
+台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
