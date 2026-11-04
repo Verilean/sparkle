@@ -280,9 +280,10 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       let dty ← instantiateMVars d.type
       let isRule ← forallTelescope dty fun _ concl => pure (progOf? concl).isSome
       -- (rt175) a hypothesis about ANOTHER local function (another join point) is not for this call
+      -- (rt176) and a hypothesis about a CONSTANT (`hchild`: `childSynthEntry _`) is not for a call of a local function either (each such try is a failed elaboration)
       let other ← forallTelescope dty fun _ concl => pure <|
         match progOf? concl with
-        | some hp => hp.consumeMData.getAppFn.isFVar && hp.consumeMData.getAppFn.fvarId! != fid
+        | some hp => !(hp.consumeMData.getAppFn.isFVar && hp.consumeMData.getAppFn.fvarId! == fid)
         | none => false
       if isRule && !other then
         let id := mkIdent d.userName
@@ -297,22 +298,29 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     return false
   | _ => return false
 
-/-- Walk every open goal until no step applies (bounded). -/
-partial def kloop (rules : Array (Lean.Expr × Name × Syntax)) (fuel : Nat) : TacticM Unit := do
+/-- Walk every open goal until no step applies (bounded). (rt176) A goal on which no step applies is set aside for
+good (`stuck`) and not retried in later rounds: retrying every stuck goal each round made the cost quadratic in the
+number of steps (H11: 1189 steps used 4M heartbeats). -/
+partial def kloop (rules : Array (Lean.Expr × Name × Syntax)) (fuel : Nat) (stuck : List MVarId := []) : TacticM Unit := do
   if fuel == 0 then return
   let gs ← getUnsolvedGoals
   let mut rest : List MVarId := []
+  let mut stuck' : List MVarId := stuck
   let mut progress := false
   for g in gs do
     if ← g.isAssigned then continue
+    if stuck.contains g then
+      rest := rest ++ [g]
+      continue
     setGoals [g]
     if ← kstep rules then
       progress := true
       rest := rest ++ (← getUnsolvedGoals)
     else
+      stuck' := g :: stuck'
       rest := rest ++ [g]
   setGoals rest
-  if progress then kloop rules (fuel - 1)
+  if progress then kloop rules (fuel - 1) stuck'
 
 def runKWalkN (ts : Array Syntax) : TacticM Unit := withMainContext do
   let mut rules : Array (Lean.Expr × Name × Syntax) := #[]
