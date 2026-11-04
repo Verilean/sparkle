@@ -4953,6 +4953,9 @@ lean_lib «Tools.ShippingGen4KWalkDiag» where
 lean_lib «Tools.ShippingGen4KWalkLegacyArm» where
   roots := #[`Tools.ShippingGen4KWalkLegacyArm]
 
+lean_lib «Tools.ShippingGen4KWalkLegacyH1» where
+  roots := #[`Tools.ShippingGen4KWalkLegacyH1]
+
 lean_lib «Tools.ShippingGen4KWalkLegacyInduct» where
   roots := #[`Tools.ShippingGen4KWalkLegacyInduct]
 
