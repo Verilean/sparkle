@@ -189,3 +189,22 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 * 土台のみ証明。翻訳器の段（§2 の T1-T6、E1-E8）は**全て未証明**で、行数は推定。
 * mutant は signature / defeq での棄却で、意味的反例ではない。家族の真偽・`Laws` との無矛盾は主張しない。
 * Elab.lean の行番号は base のもの。§2 の「read」は私の読みで Lean では確認していない。
+
+## rt173: MemoFamily rev3 の実装と legacy 腕（hleg）（base c595b472、承認済み freeze MEMO_FAMILY_FREEZE rev3 の型のまま。全て `kjob lake build` 済み、sorry・axiom・native_decide なし、axioms は標準のみ。clean build は coder）
+
+**段 1（コミット 155e13c4、header c3df0603）**
+* `Tools/Assume/MemoFamily.lean` を rev3 の 15 文に差し替えた（`MvInert` / `OkEnvMv`、`MemoTele.lamTelescopeT`、`logProf` / `stderrLine` / `printersMv`）。旧 `MemoTele.lamTelescope` は同名・同型の導出定理として残した。構造の本体が freeze §2 のコードブロックと一致することは、freeze §2 のブロックと実装の diff（空白・`open` 行を除く）で**完全一致**を確かめた（TYPE の isDefEq とは別に実施）。
+* `Tests/Gen4/MemoFamilyCheck.lean` を rev3 に更新（scratch の `MemoFamilyRev3Check` は本体へ統合して削除、lakefile も差し替え）: TYPE 15/15 / MUTANT 19/19（18 ラベル。signature/defeq での棄却で、意味的反例ではない）/ OUTSIDE 18/18 / AXIOMS 19 / CLOSURE 7（+2 陽性対照）/ MODEL 1（vacuous、型の充足可能性のみ）。
+* **LogMvK / PpMvK の導出**: 新ファイル `Tools/ShippingGen4KWalkDiag.lean`（`MemoFamily` と Entry / Helpers の両方を import するため別ファイル）に `logMvK_of`（= `logProf`）、`ppExpr_mv` / `ppMvK_of`（`printersMv` + 既存の `frame`）、`profBlock_mv` / `stderrPair_mv`。`MsgMvK`（Elab.lean 6605）は家族に入れていないので、ここに仮説 `def` として置いた（まだどの定理にも使われていない: 使うのは `LegacyImplK` の中身）。
+* **K walk の定理から `LogMvK` / `PpMvK` を外したか**: 既存の S4-S6 の定理（`Entry` / `EntryArms` / `Depth*` など）の型は**変えていない**（`LogMvK` を仮説に取ったまま。導出定理 `logMvK_of` を置いただけ）。新しい `topEntry_K_of_family`（下）だけが `LogMvK` を `logMvK_of M` で自分で渡し、型から外れる。`PpMvK` は legacy 腕の中で `ppMvK_of M` として渡す。
+* KWalk の全 Check（KWalkCheck / Prims / Translate / Fallback / Entry / Depth）を rev3 の `MemoFamily` に対して `kjob lake build` で確認した（全て exit 0。出力の数は rev2 のときと同じ: TYPE 7/7・7/7・4/4・5/5・7/7・8/8、AXIOMS 24・14・6・10・27・26）。既存の利用側（`M.tele.lamTelescope`）は導出定理に解決され、本文は変更なし。
+
+**段 2（コミット 8f112bcc、header 206be00a）: legacy 腕**
+* `Tools/ShippingGen4KWalkLegacyArm.lean`: `legacy_windowD`（`synthesizeFromConst … [] false false ci isInst` = 両ゲートが外れ、certified front end OFF の legacy 腕。`KWD K D` から、成功は `KWD K_declName D`、失敗は `KWD K D ∧ OkExc`）。部品は rt169 のもの（`openRecordInputs_keepsK` / `splitReturnLeaves_keepsK` / `bindInputsLegacyKP` / `emitLeavesKP` / `finishSynthA`）に、`MemoTele.lamTelescopeT`（Triple 形: `P = KWD K D`、`Q _ = KWD K_declName D`、`R = KWD K D`）と memo 書き込み `triple_memoInsertD` を組み合わせた。memo hit は `kwdX_of_kwd`（K を K_declName に弱める）で扱った（`tripleK_memoGetD` は memo の `get` が `KWD K D` を保つ補題）。
+* **仮説**: `LogMvK`（`legacy_windowD` の型）と、翻訳器の前提 `htr : RecK O (KWD K D) translate`（**全ての admissible な文脈で**。telescope の中で文脈が変わるため、固定した `mctx cctx` では足りない）。`LegacyArmD`（旧 `hleg`）は**仮説ではなくなった**: 翻訳器の前提は深さ帰納の中の `translate_keepsK`（`LegacyImplK` から）で作られ、`legacy_windowD` に渡される。
+* `Tools/ShippingGen4KWalkLegacyInduct.lean`: `child_stepL` / `child_budgetL` / `synthesizeChild_depthKL`（`hleg` なしの深さ帰納）、`topEntry_KL`、`topEntry_K_of_family`（`LogMvK` も `logMvK_of M` で渡し、型に現れる仮説は **`LegacyImplK`（D ≠ 0 ごと）だけ**）。旧版（`Depth*` の `hleg` 付き）は変えていない。
+* `Tests/Gen4/KWalkLegacyCheck.lean`: KWALKLEGACY CHECK: TYPE 4/4 / MUTANT 6/6（signature/defeq での棄却で意味的反例ではない）/ AXIOMS 8/8 / CLOSURE 8/8 clean（+2 陽性対照）。`topEntry_K_of_family` の型の仮説は `LegacyImplK` のみ、閉包に `LegacyArmD` は無い。閉包には `LogMvK` / `PpMvK` が出るが、型には無い（家族から導かれたもの）。**`MsgMvK` は閉包に入らない**（これを使うのは `LegacyImplK` の中身で、`LegacyImplK` 自体はまだ仮説のため。`LegacyImplK` を証明するときに初めて入る見込み）。
+* **指示と違った点（正直に）**: 「残る仮説は LegacyImplK と MsgMvK だけ」としていたが、現時点の閉包に入る仮説は **LegacyImplK だけ**（`MsgMvK` は、`LegacyImplK` の証明側に属し、まだ使われていない）。新しい仮説・law・家族の文は増えていない。
+* 台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。`MemoFamily` を使う K walk 全体の受入（FG +1）は `LegacyImplK` と `MsgMvK` が閉じるまで起きない。
+
+**残り**: `LegacyImplK`（`Rec.translateExprToWireImpl` の各 handler。`PpMvK` は家族から出るようになり、`MsgMvK`（6605）が残る）。
