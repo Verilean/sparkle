@@ -157,3 +157,14 @@ hrow-gate の `servedShips0_run`（`hrow` なし）・`postFacts_of_run`（`hrow
   * (a) A.P-22 と同じ規則（T1 の行は T1 台帳で数え、FG に重ねて数えない）を当てるなら、増える行は 0 で、A.P-24 が消えて −1。
   * (b) FG の束縛変数ごとに数えるなら、`hrows` が FG の非リーフに 1 行増え、純差分は 0。
 * どちらでも、この定理は FG の closingRun 系から T1 の帰納法の結論（`IHAt` / `ChildKeepsInv`）を仮定として取り除く。循環はない: `ih_allPF` は closingRun 系の定理を使わない（ClosingRun4Check は型の検査だけ。閉包の検査は §4 の REACH に無い。必要なら足す）。
+
+## 7. 検証の結果（coder）
+
+| build | SHA | 結果 |
+|---|---|---|
+| hrb1-057be2b1 | 057be2b1（候補 1） | exit 0、761 jobs。`HORD RUN COUNTS: TYPE 6 (+4 controls), MUTANT 9, BINDERS 4 + FIELDS 1, REACH 6, AXIOMS 7` |
+| hrb2-bb050d37 | bb050d37（候補 1 + A.P-24） | exit 0、769 jobs、source = base = end、dirty なし。上の行に加えて `HORD RUN T1 COUNTS: TYPE 3, MUTANT 5, BINDERS 2, AXIOMS 3` |
+
+* 警告は Check の Expected 定義の未使用変数の linter だけ。
+* Expected は本文書の字面だが、BINDERS は旧定理の束縛変数の列から機械的に作った期待値（旧 − `hord`/`hrow`、旧 − `hIH`/`hKI` + `hT`/`hrows`/`hStep`）と比べており、実装の字面の写しではない。
+* b71d0bf1 以降の commit は文書だけ（Lean は bb050d37 と同じ）。
