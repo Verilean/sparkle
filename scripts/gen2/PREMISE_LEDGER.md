@@ -1149,3 +1149,11 @@ reviewer の承認で、次の行を除く。
 
 - **現在値: FG 88**（91 − 3）。内訳（R0）: リーフ 62 / 非リーフ 26（§12.7 の 63 / 29 から、§12.8〜12.10 はリーフだけを動かした）。T1 は 57。
 - これは重ねて数えていた非リーフの行の除去で、証明の進捗（リーフ）ではない。FG の最終受理でもない。
+
+### 12.12 減算（2026-11-05、coder。文書のみ）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| RK1（Issue sparkle-ledger-rk1、調査 `scripts/gen5/BINDER_EXIT_CENSUS.md` §2.1 2ce38c69、freeze `scripts/gen5/RK1_FREEZE.md`） | C.RK-1（−1、リーフ） | `FGLedgerPremisesStmtR`・`readKeeps_of_cellPrem`・`fgLedgerPremisesStmtR_iff`（`Tools/ShippingGenFGLedgerPremisesR.lean`、d436536b、par/rk1）。`h_C_EN4 : CellPrem MkRefd mref cref` の 9 番目の連言 `ReadWorld cref` に `ReadWorld.readKeeps` を当てて `ReadKeeps cref` を出し、FG の前提の文から `h_C_RK1` の束縛変数を除いた（新旧の文は同値）。exact-head `rk1b-d436536b` exit 0（819 jobs、dirty なし）。Check: BINDERS 1（新 = 旧 − `h_C_RK1`、名前・info・型・結論を == で比較）+ 対照 2 / TYPE 2 / AXIOMS 2 は標準のみ。reviewer 承認（113cd51b） | 新しい前提 0。C.EN-4（`CellPrem`）は残り、その TRUSTED の判断（DG_ENV_FREEZE §4）は動かない。C.RR-2 は default route 限定の見込みだけで、一般 FG の減算には数えない（調査の裁定） |
+
+- **現在値: FG 87**（88 − 1）。内訳（R0）: リーフ 61 / 非リーフ 26。T1 は 57。FG の最終受理ではない。
