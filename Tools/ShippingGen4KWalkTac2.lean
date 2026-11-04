@@ -267,6 +267,11 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       replaceMainGoal [g']
       return true
     return false
+  | .lam .. =>
+    -- (rt175) a `Meta.Context` update that the instance reduction left as a lambda (`withTransparency`): `withReader f x`
+    if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
+      return ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.Keeps.withReaderA (by assumption) _ (fun _ => rfl) (fun _ => ?_)))
+    return false
   | .fvar fid =>
     for d in ← getLCtx do
       if d.isImplementationDetail then continue
