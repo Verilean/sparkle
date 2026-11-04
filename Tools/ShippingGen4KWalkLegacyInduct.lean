@@ -1,6 +1,6 @@
 import Tools.ShippingGen4KWalkLegacyArm
 import Tools.ShippingGen4KWalkDepthTop
--- NOT BUILT (rt173 wip): stage 2, the depth induction and the outermost entry of the K walk WITHOUT the hypothesis `hleg` (the legacy arm is
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyInduct exit 0 (part of the 768-job Tests.Gen4.KWalkLegacyCheck build); axioms standard only (rt173, source as of 8f112bcc). Clean build is the coder's.: stage 2, the depth induction and the outermost entry of the K walk WITHOUT the hypothesis `hleg` (the legacy arm is
 -- `legacy_windowD`, proved from the translator `htr` of the induction itself). Copy of `child_step` / `child_budget` / `synthesizeChild_depthK`
 -- (Tools/ShippingGen4KWalkDepthInduct.lean) and `topEntry_K` (Tools/ShippingGen4KWalkDepthTop.lean) with `hleg` replaced.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. Remaining hypotheses: `LegacyImplK` (and `LogMvK`, derived from `M` in the `_of_family` forms).

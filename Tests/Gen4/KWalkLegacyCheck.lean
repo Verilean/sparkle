@@ -3,7 +3,7 @@ import Tools.ShippingGen4KWalkLegacyInduct
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
 set_option autoImplicit false
--- NOT BUILT (rt173 wip). KWALKLEGACY CHECK: audit of Tools/ShippingGen4KWalkLegacyArm.lean and Tools/ShippingGen4KWalkLegacyInduct.lean.
+-- BUILT: kjob lake build Tests.Gen4.KWalkLegacyCheck exit 0 (768 jobs): KWALKLEGACY CHECK: TYPE 4/4 / MUTANT 6/6 (signature/defeq rejections, not semantic counterexamples) / AXIOMS 8/8 / CLOSURE 8/8 (+2 controls); topEntry_K_of_family has LegacyImplK as its only hypothesis in the type (rt173, source as of 8f112bcc). Clean build is the coder's. KWALKLEGACY CHECK: audit of Tools/ShippingGen4KWalkLegacyArm.lean and Tools/ShippingGen4KWalkLegacyInduct.lean.
 
 /-! # Audit of the legacy arm (`hleg`) and of the induction / outermost entry without it
 

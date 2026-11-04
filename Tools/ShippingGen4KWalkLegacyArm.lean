@@ -3,7 +3,7 @@ import Tools.ShippingGen4KWalkLegacyTail
 import Tools.ShippingGen4KWalkDiag
 import Tools.ShippingGen4KWalkEntryCore
 import Tools.ShippingGen4KWalkTranslate
--- NOT BUILT (rt173 wip): stage 2, the legacy arm (Elab.lean 5340-5389) for `KWD`.
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyArm exit 0 (part of the 768-job Tests.Gen4.KWalkLegacyCheck build) (rt173, source as of 8f112bcc). Clean build is the coder's.: stage 2, the legacy arm (Elab.lean 5340-5389) for `KWD`.
 namespace Tools.ShippingGen4KWalkLegacyArm
 open Lean Meta
 open Tools.ShippingEntrySoundness
