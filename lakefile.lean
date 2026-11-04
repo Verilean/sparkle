@@ -5044,3 +5044,9 @@ lean_lib «Tools.ShippingGen5ClosingRun4» where
 
 lean_lib «Tests.Gen5.ClosingRun4Check» where
   roots := #[`Tests.Gen5.ClosingRun4Check]
+
+lean_lib «Tools.ShippingGenFGLedgerPremisesR» where
+  roots := #[`Tools.ShippingGenFGLedgerPremisesR]
+
+lean_lib «Tests.Gen5.FGLedgerPremisesRCheck» where
+  roots := #[`Tests.Gen5.FGLedgerPremisesRCheck]
