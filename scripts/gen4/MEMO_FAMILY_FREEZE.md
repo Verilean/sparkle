@@ -267,7 +267,7 @@ theorem MemoTele.lamTelescope (T : MemoTele O) : -- rev2 のフィールド lamT
     (fun mctx' cctx' xs b hA' => keeps_iff.mp (hk mctx' cctx' xs b hA')))
 ```
 
-（完全な型は §2 の最後のブロック。）さらに `MemoFamilyR3.toRev2 : MemoFamilyR3 O → MemoFamily O`（rev3 の 15 文から rev2 の 12 文を全部作る）を elaborate した。したがって `M : MemoFamily O` を取る既存の定理（30 ファイル）は rev3 の家族をそのまま受ける。**置き換えで文は増えない**（旧版を足す必要がない）。フィールド名は、旧名 `lamTelescope` を導出定理に譲るため、Triple 形のフィールドを `lamTelescopeT` とする。
+（完全な型は §2 の最後のブロック。）さらに `MemoFamilyR3.toRev2 : MemoFamilyR3 O → MemoFamily O`（rev3 の 15 文から rev2 の 12 文を全部作る）を elaborate した。したがって `M : MemoFamily O` を取る既存の定理（`Tools/` 以下 22 ファイルに `MemoFamily` が現れる、数えた）は rev3 の家族をそのまま受ける。**置き換えで文は増えない**（旧版を足す必要がない）。フィールド名は、旧名 `lamTelescope` を導出定理に譲るため、Triple 形のフィールドを `lamTelescopeT` とする。
 
 ### R3.3 既存の利用側（grep で数えた）
 
