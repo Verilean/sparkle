@@ -2,7 +2,7 @@ import Tools.ShippingChildTranslateA
 import Tools.ShippingGen4KWalkPrims
 import Tools.ShippingChildWalkA
 import Tools.ShippingChildVC
--- BUILT: kjob lake build Tools.ShippingGen4KWalkTac2 exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. (copy of ShippingGen4KWalkTac + a generic FramedNM step). was: kjob lake build Tools.ShippingGen4KWalkTac exit 0 (rt169, source as of 9e5eb088). Clean build is the coder's. A TACTIC only (no law): copy for the K walk of Tools/ShippingChildKWalk.lean; `kwalkN` also walks plain `Keeps` goals (ite/dite/pure/throw, forIn, instance projections, local IH). No sorry (`sorryOk` is a flag name of the nested-elaboration mode).
+-- (rt175: + a rule for the fused stderr pair) was BUILT: kjob lake build Tools.ShippingGen4KWalkTac2 exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. (copy of ShippingGen4KWalkTac + a generic FramedNM step). was: kjob lake build Tools.ShippingGen4KWalkTac exit 0 (rt169, source as of 9e5eb088). Clean build is the coder's. A TACTIC only (no law): copy for the K walk of Tools/ShippingChildKWalk.lean; `kwalkN` also walks plain `Keeps` goals (ite/dite/pure/throw, forIn, instance projections, local IH). No sorry (`sorryOk` is a flag name of the nested-elaboration mode).
 -- BUILT by the integrator: kw1 exit 1 (names), kw2–kw6 (rule elaboration context, non-reducing telescope, syntax), used by FallbackA fb13 exit 0. Integrator-written (after fb1: the generic `repeat (first | exact … | kbase)` walk timed out —
 -- each failed `exact` unified a lemma's program against a bind by unfolding).
 -- No `sorry`, no `axiom`, no `native_decide`, no law: a TACTIC only; what it closes is a
@@ -103,6 +103,16 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       if (p.getArg! 4).consumeMData.isConstOf ``Sparkle.Compiler.Elab.CompilerM.getCompilerState then
         if ← runTac (← `(tactic| refine Tools.ShippingChildTranslateA.KeepsCP.bindCtx (fun _ _ => ?_))) then
           return true
+      -- (rt175) a FUSED pair `liftMetaM (liftM (IO.eprintln _)) >>= fun _ => liftMetaM _` (the stderr pair): a given rule with head `bind`
+      do
+        let a4 := (p.getArg! 4).consumeMData
+        if a4.isAppOf ``Sparkle.Compiler.Elab.CompilerM.liftMetaM then
+          let inner := a4.appArg!.consumeMData
+          if inner.isAppOf ``liftM && inner.appArg!.consumeMData.getAppFn.constName? == some ``IO.eprintln then
+            for (_, h, stx) in rules do
+              if h == ``Bind.bind then
+                if ← runTac ⟨← `(tactic| (apply $(⟨stx⟩) <;> first | assumption | skip))⟩ then
+                  return true
       if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
         return ← runTac (← `(tactic| refine Tools.ShippingChildInv.Keeps.bind ?_ (fun _ => ?_)))
       -- (rt174) the inline attempt: its caught exception goes to the continuation (hypothesis `htri`)
