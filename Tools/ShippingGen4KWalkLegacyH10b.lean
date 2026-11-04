@@ -58,8 +58,8 @@ theorem toIRK_bound (wireS : String) (fvarId : FVarId) :
   | 0, _, h => by omega
   | n + 1, e, h => by
     intro mctx cctx hA
-    have ih := fun e' (h' : sizeOf e' < n) (mctx : Meta.Context) (cctx : Core.Context)
-      (hA : AdmCtx O.quiet mctx cctx) => toIRK_bound wireS fvarId n e' h' mctx cctx hA
+    have ih := fun (mctx : Meta.Context) (cctx : Core.Context)
+      (hA : AdmCtx O.quiet mctx cctx) e' (h' : sizeOf e' < n) => toIRK_bound wireS fvarId n e' h' mctx cctx hA
     unfold Rec.translateExprToWireImpl.toIR
     kwAll3
 

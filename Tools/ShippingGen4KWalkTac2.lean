@@ -238,6 +238,8 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
         if headConst? hp == some c then
           let id := mkIdent d.userName
           if ← runTac (← `(tactic| exact $id)) then return true
+          -- (rt176) a size-bounded IH `∀ mctx cctx, AdmCtx → ∀ e', sizeOf e' < n → …` (toIR): the bound is discharged from the context
+          if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ (by simp_all <;> omega))) then return true
           if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _ _ _)) then return true
           if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _ _)) then return true
           if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _)) then return true
