@@ -72,6 +72,16 @@ theorem profBlockCPk {β : Type} (s : String) (k : Unit → CompilerM β)
   rw [profBlock_eq]
   exact KeepsCP.bind (KeepsCP.lift (keepsK_profLog M hS hA true s)) hk
 
+/-- The same block as it is elaborated in `CompilerM`: five `IO` actions lifted DIRECTLY (`liftM : IO → CompilerM`). -/
+theorem profBlockCPk2 {β : Type} (s : String) (k : Unit → CompilerM β)
+    (hk : ∀ u, KeepsCP mctx mref cctx cref I (k u)) :
+    KeepsCP mctx mref cctx cref I ((liftM (IO.eprintln s) : CompilerM Unit) >>= fun _ =>
+      (liftM Sparkle.Compiler.flushStderr : CompilerM Unit) >>= fun _ =>
+      (liftM (IO.FS.Handle.mk "/tmp/sparkle-profile.log" IO.FS.Mode.append) : CompilerM IO.FS.Handle) >>= fun h =>
+      (liftM (h.putStrLn s) : CompilerM Unit) >>= fun _ =>
+      (liftM h.flush : CompilerM Unit) >>= k) :=
+  profBlockCPk M hS hA s k hk
+
 end H8d
 
 end Tools.ShippingGen4KWalkLegacyH8d

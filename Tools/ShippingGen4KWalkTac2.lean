@@ -165,9 +165,17 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       if (p.getArg! 4).consumeMData.isConstOf ``Sparkle.Compiler.Elab.CompilerM.getCompilerState then
         if ← runTac (← `(tactic| refine Tools.ShippingChildTranslateA.KeepsCP.bindCtx (fun _ _ => ?_))) then
           return true
+      if (← IO.getEnv "KWALK_DEBUG").isSome then
+        let a4s := (← ppExpr (p.getArg! 4)).pretty
+        if (a4s.splitOn "eprintln").length > 1 && a4s.length < 300 then logInfo m!"kwalk bind-eprintln a4: {a4s} :: raw {(p.getArg! 4).consumeMData.getAppFn} / {(p.getArg! 4).consumeMData.getAppNumArgs}"
       -- (rt175) a FUSED pair `liftMetaM (liftM (IO.eprintln _)) >>= fun _ => liftMetaM _` (the stderr pair): a given rule with head `bind`
       do
         let a4 := (p.getArg! 4).consumeMData
+        if a4.isAppOf ``liftM && a4.appArg!.consumeMData.getAppFn.constName? == some ``IO.eprintln then
+          for (_, h, stx) in rules do
+            if h == ``Bind.bind then
+              if ← runTac ⟨← `(tactic| (apply $(⟨stx⟩) <;> first | assumption | skip))⟩ then
+                return true
         if a4.isAppOf ``Sparkle.Compiler.Elab.CompilerM.liftMetaM then
           let inner := a4.appArg!.consumeMData
           if inner.isAppOf ``liftM && inner.appArg!.consumeMData.getAppFn.constName? == some ``IO.eprintln then
@@ -310,7 +318,7 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
         if ← runTac (← `(tactic| exact Tools.ShippingGen4KWalkPrims.keepsK_framedNM $M (by assumption) $hS (by apply $k <;> first | assumption | constructor))) then
           return true
       if cands.isEmpty then
-        if (← IO.getEnv "KWALK_DEBUG").isSome then logInfo m!"kwalk framed-fallback: head {c} inner {ih} p {p.approxDepth}"
+        if (← IO.getEnv "KWALK_DEBUG").isSome then logInfo m!"kwalk framed-fallback: head {c} inner {ih} p {p.approxDepth} :: {(← ppExpr p).pretty.take 900}"
         if ← runTac (← `(tactic| exact Tools.ShippingGen4KWalkPrims.keepsK_framedNM $M (by assumption) $hS (by constructor <;> first | constructor | assumption))) then
           if (← IO.getEnv "KWALK_DEBUG").isSome then logInfo m!"kwalk framed-fallback OK: {ih}"
           return true
