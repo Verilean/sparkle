@@ -221,6 +221,18 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     if c == ``Except.rec then
       if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
         return ← runTac (← `(tactic| (rename_i x; cases x <;> exact Tools.ShippingChildInv.Keeps.pure _)))
+      -- (rt180) the general case: a constructor major is iota-reduced; an fvar major is `cases`-split (each arm is then walked; the arms need not be `pure`)
+      if p.getAppNumArgs ≥ 6 then
+        let major ← whnfCore (p.getArg! 5)
+        if major.isAppOf ``Except.error || major.isAppOf ``Except.ok then
+          let p' ← whnfCore p
+          if p' != p then
+            replaceMainGoal [← g.replaceTargetDefEq (mkApp ty.consumeMData.appFn! p')]
+            return true
+        else if major.isFVar then
+          let gs ← g.cases major.fvarId!
+          replaceMainGoal (gs.toList.map (·.mvarId))
+          return true
       return ← runTac (← `(tactic| (rename_i x; cases x <;> exact Tools.ShippingChildTranslateA.KeepsCP.pure _)))
     if c == ``get || c == ``MonadState.get || c == ``MonadStateOf.get then
       return ← runTac (← `(tactic| exact Tools.ShippingChildTranslateA.KeepsCP.get))
@@ -407,6 +419,19 @@ partial def kloop (rules : Array (Lean.Expr × Name × Syntax)) (fuel : Nat) (st
       continue
     setGoals [g]
     let hb0 ← IO.getNumHeartbeats
+    if (← IO.getEnv "KWALK_TRACE").isSome then
+      let gty ← instantiateMVars (← g.getType)
+      let hd := match progOf? gty with
+        | some pp => (pp.consumeMData.getAppFn.constName?.map toString).getD (if pp.consumeMData.isLet then "let" else if pp.consumeMData.isLambda then "lam" else "other")
+        | none => "side"
+      let sm ← IO.FS.readFile "/proc/self/statm"
+      let rssMB := ((sm.splitOn " ").getD 1 "0").toNat!  * 4 / 1024
+      let h ← IO.FS.Handle.mk (← IO.getEnv "KWALK_TRACE").get! .append
+      h.putStrLn s!"KWT goals {gs.length} head {hd} depth {gty.approxDepth} rssMB {rssMB}"
+      if hd == "Pure.pure" then
+        let pp := (progOf? gty).get!
+        h.putStrLn s!"  PP {((← ppExpr pp).pretty).take 600}"
+      h.flush
     let ok ← kstep rules
     if (← IO.getEnv "KWALK_DEBUG").isSome then
       logInfo m!"kwalk hb {(← IO.getNumHeartbeats) - hb0} goals {gs.length}"
@@ -419,15 +444,41 @@ partial def kloop (rules : Array (Lean.Expr × Name × Syntax)) (fuel : Nat) (st
   setGoals rest
   if progress then kloop rules (fuel - 1) stuck'
 
-def runKWalkN (ts : Array Syntax) : TacticM Unit := withMainContext do
+def runKWalkN (ts : Array Syntax) (strict : Bool := false) : TacticM Unit := withMainContext do
   let mut rules : Array (Lean.Expr × Name × Syntax) := #[]
   for t in ts do
     let e ← Term.withoutErrToSorry <| Tactic.elabTerm t none (mayPostpone := true)
     if let some h ← ruleHead e then
       rules := rules.push (e, h, t)
   kloop rules 400
+  -- (rt180) never leave stuck goals for the default "unsolved goals" error: printing them (the whole do-block in the goal) took > 20 GB
+  let stuck ← getUnsolvedGoals
+  if strict && !stuck.isEmpty then
+    let mut hs : List String := []
+    for g in stuck.take 5 do
+      let gty ← instantiateMVars (← g.getType)
+      hs := hs ++ [match progOf? gty with
+        | some pp => s!"{pp.consumeMData.getAppFn.constName?.map toString |>.getD "<non-const>"} (depth {gty.approxDepth})"
+        | none => s!"side {gty.getAppFn.constName?.map toString |>.getD "?"}"]
+    throwError "kwalkN: {stuck.length} goal(s) stuck, first heads: {hs}"
+  if let some path ← IO.getEnv "KWALK_TRACE" then
+    let h ← IO.FS.Handle.mk path .append
+    h.putStrLn s!"KWT-END unsolved {(← getUnsolvedGoals).length}"
+    for g in ← getUnsolvedGoals do
+      let gty ← instantiateMVars (← g.getType)
+      let hd := match progOf? gty with
+        | some pp => (pp.consumeMData.getAppFn.constName?.map toString).getD (if pp.consumeMData.isLet then "let" else if pp.consumeMData.isLambda then "lam" else if pp.consumeMData.getAppFn.isFVar then "fvar" else "other")
+        | none => "side:" ++ (gty.getAppFn.constName?.map toString).getD "?"
+      h.putStrLn s!"KWT-END goal head {hd} depth {gty.approxDepth} isForall {gty.isForall}"
+      if let some pp := progOf? gty then
+        h.putStrLn s!"  fn {pp.consumeMData.getAppFn} nargs {pp.consumeMData.getAppNumArgs}"
+        for a in pp.consumeMData.getAppArgs do
+          h.putStrLn s!"   arg depth {a.approxDepth} :: {a.dbgToString.take 200}"
+    h.flush
 
 elab "kwalkN" " [" ts:term,* "]" : tactic => runKWalkN (ts.getElems.map (·.raw))
 elab "kwalkN" : tactic => runKWalkN #[]
+/-- (rt180) `kwalkN`, but fails with a SHORT message when goals remain (the default "unsolved goals" error prints the goal: > 20 GB on H11). -/
+elab "kwalkS" " [" ts:term,* "]" : tactic => runKWalkN (ts.getElems.map (·.raw)) true
 
 end Tools.ShippingGen4KWalkTac2
