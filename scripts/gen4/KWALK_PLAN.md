@@ -249,3 +249,11 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 **ChildEntryK の形（rt175 で決めた）**: 仮説として足さない。A 版と同じく **`hchild`（= `ChildEntryK O I`）を取る形**で handler と本体を証明する（`handleDefinitionUnfoldK` は `hchild` を取る、H9 / H10 も同じ）。最後に `LegacyImplK` を `∀ D ≠ 0, ChildEntryK O (KWD O MemoKeysInChild D) → LegacyImplK O (KWD O MemoKeysInChild D)`（= `LegacyImplK'`）として立て、`Induct` の `child_stepL` / `topEntry_KL` の中で、`hEntry`（`IH` から `tripleK_synthGet` で作る `ChildEntryK`）を `hImpl` に渡す形に書き換えた版で深さ帰納を閉じる。`child_stepL` はすでに `hEntry` を `IH` から作ってから `hImpl (D+1)` を使うので、`hImpl` に `hEntry` を渡せば循環しない（次の rt）。
 
 **H9**（`Tools/ShippingGen4KWalkLegacyH9.lean`）: `normSpineK`（`fuel` の帰納）、`translateExprToWireAppK`（9 つの handler を規則として歩く）。`withTransparency` は kstep の「lambda になった Meta.Context の更新」規則（`Keeps.withReaderA`）で通る。`profHandler`（private）も unfold で歩けた。
+
+**rt175 の終わりの状態**
+* BUILT: `Tac2`（join point 規則ほか）、`LegacyH8a`、`LegacyH8`（handleDefinitionUnfold）、`LegacyH9`（`normSpineK`、`translateExprToWireAppK`）。lakefile 登録済み。
+* **未ビルド（lakefile 未登録、BUILT と書かない）**: `LegacyH10`（`getPrimK`、`toIRK`。`kjob lake build` が 9 分で終わらず自分の timeout で止めた。heartbeat エラーではなく、原因は未特定。getPrim と toIR のどちらが重いかも未分離）、`LegacyH11`（本体 `Rec.translateExprToWireImpl`。11 分 40 秒で終わらず止めた。H10 が未ビルドなので H11 は H10 に依存したまま未検証）、`LegacyInduct2`（`hImpl : ∀ D ≠ 0, ChildEntryK → LegacyImplK` の形の深さ帰納。ビルド未実行）。
+* 次: H10 の `getPrimK` と `toIRK` を別モジュールにして時間を測る（toIR は `sizeOf` の帰納で `kwAll3` を歩くので、`__do_jp` 以外の複製が残っていないか Dbg で数える）。H11 は coder が `kjob run` で長い上限を付けて回すか、本体を `Elab 6930-7985` の腕ごとに分ける。その後 `Induct2` をビルドし、`LegacyImplK'` を組んで `MsgMvK` だけが仮説の `topEntry` と Check（TYPE / MUTANT / AXIOMS / CLOSURE）。
+* `MsgMvK` 以外の新しい仮説は出ていない。
+
+台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
