@@ -158,3 +158,39 @@ Issue: `sparkle-gen4-fallback-supply`（項目 1・2・3）、`sparkle-gen4-para
 | 3 memo 法則 | C（parametric と fallback の memo hit で 1 家族を共有、`Laws` とは別構造）、数え方 R-1 | `memoModify` の導出補題を先に試し、家族の文（9 または 10）を freeze → reviewer。家族を使う証明が受入されたとき FG +1。純差分 −1 は F-kids 等が全部揃った後だけ |
 
 この判断で台帳は変わらない（FG 91 / T1 57）。
+
+## 8. ユーザーの判断（2026-11-04）: 項目 1 の (1c) を保留に上書き、memo 家族に 2 文
+
+経緯:
+* 2026-11-03 の 1c（再入したら失敗させるコンパイラ変更）を設計した（FB_CYCLE_FREEZE rev4）。
+* reviewer は、新しい cell の quiet 保存が要ると指摘した。
+* 判断資料: `FB_CYCLE_QUIET_DECISION.md`（a71a7340）、`KWALK_DIAG_DECISION.md`、`KWALK_LEGACY_WINDOW_DECISION.md`。
+* 相談: `M4_CONSULT_2026-11-04.md`（6cd45bc2、par/memo-kwalk9）。
+
+ユーザー: 「Diag は A、窓は A、quiet は C」。reviewer と相談したうえで「確定」。
+
+| 項目 | 決まった案 | 次 |
+|---|---|---|
+| 1 非循環 | **§7 の (1c) を上書きする。1c は保留。`hno` は未供給の義務のまま** | `htop` を供給する経路が見つかったときに再検討する。§7 の (ii)（保証は逐次の command に限る）は、1c を実装するときの条件として残す。`sparkle-gen4-fallback-supply` は todo にする（解除の条件: `htop` の供給経路の特定） |
+| Diag | `MemoFamily` に Diag の文を足す。reviewer の条件で狭める（下） | MEMO_FAMILY_FREEZE rev3 |
+| legacy 腕の窓 | `MemoTele` の `lamTelescope` を Triple 形にする。失敗側に `OkExc` を含める | 同上 |
+
+reviewer の条件（Diag）:
+* 今の Diag 全体を 1 文で包まない。
+* `ppExpr`: 任意の printer は memo の ref を書きうる。だから safe printer / `OkEnv` などの条件を完全型に含めるか、対象の経路から除く。
+* `IO.FS.Handle.mk` / `putStrLn` / `flush`: `profLogIO` が実際に使う、固定の path・mode・操作列に限る。任意の path・mode・Handle 一般については主張しない。
+* stderr 系（`IO.eprintln` / `flushStderr`）と、`OkMsg` の制約つきの `msgToString` は、別の文に分けてよい。
+
+reviewer の条件（窓）:
+* Triple 形が旧 `Keeps` 版を導ける完全型なら、旧版を置き換える。この場合、文の数は増えない。
+* 導出と、既存の全ての利用側が通ることを Check で確かめる。
+* できなければ追加する（暫定 14 文）と明記する。
+
+台帳: R-1（`MemoFamily` の 1 行）に束ねるかぎり、rev3 の承認だけでは FG は変わらない。
+
+| 時点 | FG |
+|---|---|
+| K walk 全体の受入 | 92（+1） |
+| parametric の残り（F-kids の残り、F-θ、F-top、F-post、shape、assembly）が全て閉じた後 | 90（B.P-8 −1、B.P-1 −1） |
+
+途中で仮説を独立の行として足すなら、数え直す。この判断で台帳は変わらない（FG 91 / T1 57）。
