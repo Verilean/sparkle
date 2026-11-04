@@ -29,7 +29,8 @@ open Tools.ShippingGen4KWalkDepthTop
 open Tools.ShippingGen4KWalkLegacyArm
 open Tools.ShippingGen4KWalkDiag
 
-variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+  {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
 section Induct
 variable {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hlog : LogMvK O)
@@ -78,7 +79,7 @@ theorem child_budgetL : ∀ (k D : Nat), D ≠ 0 → sparkleSynthDepthLimit ≤ 
 theorem synthesizeChild_depthKL (D : Nat) (hD : D ≠ 0) : ChildAt O D :=
   child_budgetL M hlog hImpl sparkleSynthDepthLimit D hD (Nat.le_add_left _ _)
 
-variable {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx O.quiet mctx cctx)
+variable (hA : AdmCtx O.quiet mctx cctx)
 include hA
 
 /-- **The outermost entry of the K walk, without `hleg`**. Hypotheses: `LogMvK`, `LegacyImplK`. -/
@@ -109,6 +110,7 @@ theorem topEntry_KL (declName : Name) :
     (fun e h t n => translateExprToWire env e h t n) b declName ci isInst (htr mctx cctx hA) hchild
     (fun _ _ => legacy_windowD M hA hlog 1 _ b declName ci isInst htr)
 
+omit hlog in
 /-- The same, with `LogMvK` derived from the family (`logProf`): the only hypothesis left is `LegacyImplK`. -/
 theorem topEntry_K_of_family (declName : Name) :
     Triple mctx mref cctx cref (KWD O (fun _ _ => True) 0)
