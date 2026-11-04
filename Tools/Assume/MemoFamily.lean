@@ -1,7 +1,7 @@
 import Tools.ShippingChildFresh
 import Tools.ShippingChildBndCore
 import Tools.ShippingChildKeeps
--- NOT BUILT (rt173, base c595b472): rev3 implementation; the build SHA is recorded in the next comment-only commit. Clean build is the coder's.
+-- BUILT: kjob lake build Tools.Assume.MemoFamily exit 0 (part of the 756-job Tests.Gen4.MemoFamilyCheck build) (rt173, source as of 155e13c4). Clean build is the coder's.
 -- TRUSTED: hypotheses about the RUNTIME behaviour of the memo / child-cache / depth cells and of the profile / stderr / printer calls
 -- (`@[extern]` opaque `ST.Ref.get/set/modify`, `lean_st_ref_*`, file and stream I/O); they are NOT proved and NOT axioms: `MemoFamily` is a
 -- `structure` passed as a HYPOTHESIS (R-1: one ledger row, `M4.MEMO-01`). The family is not claimed true of the runtime,

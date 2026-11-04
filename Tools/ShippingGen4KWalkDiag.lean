@@ -3,7 +3,7 @@ import Tools.ShippingGen4KWalkEntryArms
 set_option autoImplicit false
 set_option linter.unusedSimpArgs false
 set_option linter.unusedVariables false
--- NOT BUILT (rt173, base c595b472). Derivations of the two Diag hypotheses from the rev3 `MemoFamily` (scripts/gen4/MEMO_FAMILY_FREEZE.md rev3 §R2):
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkDiag exit 0 (part of the 756-job Tests.Gen4.MemoFamilyCheck build) (rt173, source as of 155e13c4). Clean build is the coder's.
 --   `LogMvK` is the field `logProf`; `PpMvK` follows from `printersMv` + the existing `frame` (`ppExpr_mv`).
 -- `MsgMvK` (Elab.lean 6605) is NOT a family statement: it stays a hypothesis `def`. No new law / TRUSTED statement. No sorry, no axiom, no native_decide.
 

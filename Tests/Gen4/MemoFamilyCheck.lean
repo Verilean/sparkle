@@ -3,7 +3,7 @@ import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
 import Tools.ShippingGen4KWalkDiag
 set_option autoImplicit false
--- NOT BUILT (rt173, base c595b472): rev3 Check; the build SHA is recorded in the next comment-only commit. Clean build is the coder's.
+-- BUILT: kjob lake build Tests.Gen4.MemoFamilyCheck exit 0 (756 jobs): MEMOFAMILY CHECK (rev3): TYPE 15/15 / MUTANT 19/19 variants of 18 labels / OUTSIDE 18/18 / AXIOMS 19 / CLOSURE 7 (+2 controls) / MODEL 1 (rt173, source as of 155e13c4). Clean build is the coder's.
 
 /-! # Audit of Tools/Assume/MemoFamily.lean (scripts/gen4/MEMO_FAMILY_FREEZE.md rev3, c595b472)
 
