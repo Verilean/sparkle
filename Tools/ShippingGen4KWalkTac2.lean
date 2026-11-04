@@ -105,6 +105,10 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
           return true
       if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
         return ← runTac (← `(tactic| refine Tools.ShippingChildInv.Keeps.bind ?_ (fun _ => ?_)))
+      -- (rt174) the inline attempt: its caught exception goes to the continuation (hypothesis `htri`)
+      if ((p.getArg! 4).consumeMData.getAppFn.constName?.map (·.toString.endsWith "tryInlineUnfold")).getD false then
+        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.bindCaught (by assumption) (fun _ _ => ?_))) then
+          return true
       if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.bindRead (fun _ _ => ?_))) then
         return true
       return ← runTac (← `(tactic| refine Tools.ShippingChildTranslateA.KeepsCP.bind ?_ (fun _ => ?_)))
