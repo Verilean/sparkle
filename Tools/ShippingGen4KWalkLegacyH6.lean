@@ -25,6 +25,7 @@ open Tools.ShippingGen4KWalkLegacyH2
 open Tools.ShippingGen4KWalkEmit
 open Tools.ShippingGen4KWalkLegacyRules
 open Tools.ShippingGen4KWalkLegacyH4
+open Tools.ShippingGen4KWalkCanon
 open Tools.ShippingGen4KWalkLegacyH1
 open Tools.ShippingGen4KWalkLegacyH2
 open Tools.ShippingGen4KWalkProjField
