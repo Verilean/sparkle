@@ -1,6 +1,7 @@
 import Tools.ShippingGen4KWalkLegacyH1
 import Tools.ShippingGen4KWalkLegacyH2
 import Tools.ShippingGen4KWalkEmit
+import Tools.ShippingGen4KWalkLegacyH4
 -- NOT BUILT (rt174 draft). LegacyImplK: the shared rule list `kwAll` of the K copies of the legacy handlers (a tactic macro only).
 -- NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkLegacyRules
@@ -24,6 +25,7 @@ open Tools.ShippingGen4KWalkHelpers
 open Tools.ShippingChildLegacyHelpersA
 open Tools.ShippingGen4KWalkLegacyH1
 open Tools.ShippingGen4KWalkLegacyH2
+open Tools.ShippingGen4KWalkLegacyH4
 open Tools.ShippingGen4KWalkEmit
 open Tools.ShippingGen4KWalkProjField
 
@@ -47,6 +49,7 @@ macro "kwAll" : tactic => `(tactic| kwalkN [keepsK_addMessageContext M hA hS _, 
   snapshotWireCaches_keepsK M hpp hS _, restoreWireCaches_keepsK M hpp hS _ _,
   makeWirePK M hA hS, addInputPK M hA hS, addOutputPK M hA hS, emitAssignP, bindSourceVariableP, lookupVarP,
   emitRegisterStmtA, emitRegisterK M hA hS, emitMemoryK M hA hS, freshNameA, emitInstanceA,
+  withLocalDeclPK M hA hS _ _ _, withLetDeclPK M hA hS _ _ _ _, M.tele.telescope I _ hS.1 hS.2 _ _,
   addModuleToDesignA, withVarMappingP, withDimVarMappingP, KeepsCP.tryCatch, KeepsCP.map _,
   keepsK_framedNM M hA hS (FramedNM.freshFVar (Fresh := MkRefd))])
 
