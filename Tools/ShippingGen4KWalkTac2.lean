@@ -56,7 +56,11 @@ def runTac (stx : TSyntax `tactic) (sorryOk : Bool := false) : TacticM Bool := d
     -- (no error-to-`sorry` recovery: a failed nested `by …` must fail the step; a nested
     -- `by` with unsolved goals only LOGS an error, so a new logged error also fails it)
     let n0 := (← Core.getMessageLog).toList.length
+    let hb0 ← IO.getNumHeartbeats
     if sorryOk then evalTactic stx else Term.withoutErrToSorry (evalTactic stx)
+    if (← IO.getEnv "KWALK_DEBUG").isSome then
+      let d := (← IO.getNumHeartbeats) - hb0
+      if d > 2000000 then logInfo m!"kwalk runTac hb {d}: {stx.raw.reprint.getD ""}"
     let msgs := (← Core.getMessageLog).toList.drop n0
     if msgs.any (·.severity == .error) then
       if (← IO.getEnv "KWALK_DEBUG").isSome then logInfo m!"kwalk runTac logged error: {← msgs.filter (·.severity == .error) |>.mapM (·.data.toString)}"
@@ -67,6 +71,22 @@ def runTac (stx : TSyntax `tactic) (sorryOk : Bool := false) : TacticM Bool := d
     s.restore
     if (← IO.getEnv "KWALK_DEBUG").isSome then logInfo m!"kwalk runTac failed: {ex.toMessageData}"
     return false
+
+/-- (rt176) `apply rule <;> first | assumption | skip`, except that `assumption` is not tried on a LARGE new goal
+(`∀ …, KeepsCP (k x)` for a big continuation `k`): the defeq test of such a goal against a hypothesis such as `htr`
+beta-reduces `k x` and runs `whnf` on the whole do-block (the H11 runaway at `CompilerM.withLocalDecl`). -/
+def applyRule (stx : Syntax) : TacticM Bool := do
+  unless ← runTac ⟨← `(tactic| apply $(⟨stx⟩))⟩ do return false
+  let mut rest : List MVarId := []
+  for g in ← getGoals do
+    if ← g.isAssigned then continue
+    let ty ← instantiateMVars (← g.getType)
+    if ty.approxDepth.toNat < 14 then
+      setGoals [g]
+      if ← runTac (← `(tactic| assumption)) then continue
+    rest := rest ++ [g]
+  setGoals rest
+  return true
 
 /-- One step on the main goal. Returns `false` if nothing applied. -/
 def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMainContext do
@@ -218,17 +238,17 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
         if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.refModify ?_)) then return true
       if c == ``MonadReader.read || c == ``read || c == ``MonadReaderOf.read then
         if ← runTac (← `(tactic| exact Tools.ShippingChildWalkA.KeepsCP.read)) then return true
-    -- (rt174) a lifted MetaM primitive under `Keeps`: a `FramedNM` operation of the section's `M`, `hA`, `hS`
+    -- a given rule for this head
+    for (_, h, stx) in rules do
+      if h == c then
+        if ← applyRule stx then
+          return true
+    -- (rt176: AFTER the given rules for the head: a failed attempt costs 13-35M heartbeats (H11), and `liftM` / `ST.Ref.modify` / `addMessageContext` have a rule) (rt174) a lifted MetaM primitive under `Keeps`: a `FramedNM` operation of the section's `M`, `hA`, `hS`
     -- (the constructor and its `SideRefNM` / `LocalRefType` side goals found by `constructor`)
     if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
       let M := mkIdent `M; let hS := mkIdent `hS
       if ← runTac (← `(tactic| exact Tools.ShippingGen4KWalkPrims.keepsK_framedNM $M (by assumption) $hS (by constructor <;> first | constructor | assumption))) then
         return true
-    -- a given rule for this head
-    for (_, h, stx) in rules do
-      if h == c then
-        if ← runTac ⟨← `(tactic| (apply $(⟨stx⟩) <;> first | assumption | skip))⟩ then
-          return true
     -- a local hypothesis about this very head (a recursive call's induction hypothesis)
     for d in ← getLCtx do
       if d.isImplementationDetail then continue
@@ -313,7 +333,11 @@ partial def kloop (rules : Array (Lean.Expr × Name × Syntax)) (fuel : Nat) (st
       rest := rest ++ [g]
       continue
     setGoals [g]
-    if ← kstep rules then
+    let hb0 ← IO.getNumHeartbeats
+    let ok ← kstep rules
+    if (← IO.getEnv "KWALK_DEBUG").isSome then
+      logInfo m!"kwalk hb {(← IO.getNumHeartbeats) - hb0} goals {gs.length}"
+    if ok then
       progress := true
       rest := rest ++ (← getUnsolvedGoals)
     else

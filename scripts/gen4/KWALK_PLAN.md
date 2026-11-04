@@ -257,3 +257,28 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 * `MsgMvK` 以外の新しい仮説は出ていない。
 
 台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## rt176: LegacyImplK その 3（base 67e3bef1。新しい仮説・law・家族の文なし。sorry・axiom・native_decide なし。Elab.lean は未編集）
+
+**H10 を分けて測った（BUILT・lakefile 登録済み）**
+* `Tools/ShippingGen4KWalkLegacyH10a.lean`（`getPrimK`）: 3.4 秒。
+* `Tools/ShippingGen4KWalkLegacyH10b.lean`（`toIRK_bound` / `toIRK`）: 重い方。分ける前は 9 分で終わらず、分けた後も 9 分で自分の timeout（`timeout 540`）で止めた。
+* **toIR の原因（この調査で特定）**: `__do_jp` ではなく、**帰納仮説が一度も当たっていなかった**。`toIRK_bound` の `ih` が `∀ e', sizeOf e' < n → ∀ mctx cctx, AdmCtx → …` の形で、Tac2 の「局所仮説（再帰呼び出しの IH）」の `exact ih _ _ (by assumption) …` の引数の並びのどれにも合わなかった。そのため再帰呼び出し `toIR a` / `toIR b` のたびに `toIR` を `unfold` し、Dbg では `toIR` の unfold が 103 回（match の継続のコピーではなく、同じ定義の再展開）。
+* **対処（Tac2 の規則、law なし）**: `ih` を `∀ mctx cctx, AdmCtx → ∀ e', sizeOf e' < n → …` の順にし、Tac2 に `exact ih _ _ (by assumption) _ (by simp_all <;> omega)` の規則を追加（サイズの条件は文脈から出す）。結果: Dbg（maxHeartbeats 400k）で H10b が通った。ステップ数は 2417（toIR の unfold は消えた）。H10b の本体の時間は 1 秒未満。
+* 「mutant」: 該当なし（この作業は証明だけで、型は変えていない）。
+
+**Tac2 のほかの変更（law なし、H1–H10 を現在の Tac2 で再ビルドして exit 0）**
+1. `.fvar` の呼び出し（join point など）に対して、**定数を頭にもつ仮説（`hchild`）と別の fvar の仮説は試さない**（失敗する elaboration の無駄打ち。H11 の runTac 失敗が 497 → 215 に減った）。
+2. `kloop`: step が当たらなかったゴール（stuck）は以後のラウンドで再試行しない（効果はステップ数に出なかったが害もない。安全側の変更）。
+3. 規則の `apply … <;> first | assumption | skip` を `applyRule` にし、**大きい新ゴール（approxDepth ≥ 14）には assumption を試さない**（継続 `k` が大きいときの `∀ …, KeepsCP (k x)` と `htr` などとの defeq が `k x` を beta して do ブロック全体を whnf するのを避ける）。H11 の状況は変わらなかった（下記）。
+4. 計測用: `KWALK_DEBUG` のとき、step ごとの heartbeat 差（`kwalk hb N goals G`）と、2M を超える `runTac` の構文を出す。
+
+**H11（本体 `Rec.translateExprToWireImpl`）: 終わっていない（BUILT と書かない・lakefile 未登録）**
+* `toIRK` の規則の引数の順が H11 の `kwMain` で `toIRK M hpp hS hmsg hA _ _ _` になっていた（実際は `wireS fvarId hA e`）→ `_ _ hA _` に直した。
+* 本体の `maxHeartbeats` 4M で、step 1055 件（Dbg で数えた）で `whnf` の deterministic timeout（約 5 分 40 秒）。400k のときは約 490 step。**ステップ数の増加と heartbeat の関係**: 1 ステップあたりの中央値は小さい（数十万）が、`@liftM` / `@monadLift` / `@MonadLift.monadLift` / `@ST.Ref.modifyGet` の step が 1 回 3000 万〜6800 万 heartbeat（全体の約 1/4 を占める）。runTac の計測では、その大半は **`keepsK_framedNM … (by constructor <;> first | constructor | assumption)`**（`FramedNM` の構成子を `constructor` で探す）が 1 回 1300 万〜3500 万。この試行を given rule の後ろに回しても step 数は変わらず、成功している試行のコストだった（失敗の無駄ではない）。
+* **最後に始まって終わらない step は `@CompilerM.withLocalDecl`**（ステップ 1055 件目）。ステップ末尾の `kwalk hb` 行が出ず、runTac の失敗も出ていない（heartbeat の例外は握りつぶされず上に抜ける）。同じ頭の step はそれ以前に成功している。なので「どの withLocalDecl か（束縛する型・継続の形）」で何かが異なる。**この調査では、その step の中のどの `apply`/`unify` が止まっているかまでは見つからなかった**。
+* **次の rt の候補**: (a) その withLocalDecl step の `p` の引数（型 `ty` と継続 `k`）を Dbg で出して、規則 `withLocalDeclPK` の `apply` の単一化が `k` の beta/whnf に落ちていないか確かめる（`withLocalDeclPK` の `k` を `fun x => ?_` でなく、`refine withLocalDeclPK … (fun _ _ _ x => ?_)` の形の専用 step にする）、(b) `framedNM` の試行を、頭が `liftM` / `monadLift` で引数が `FramedNM` の構成子に当たると分かる場合だけにする（`constructor` を使わず、`FramedNM` の各構成子に対応する `exact` の候補を直接並べる）、(c) 本体を腕ごとの別補題に分ける（`Elab 6930-7985` を `handleSynthesize…` ごとの `let rec` ではなく、モジュール境界で）— ただし本体は 1 つの定義なので、腕を別定理にするには腕の型を `Rec.translateExprToWireImpl` の `match` から取り出す補題（`unfold` 後の部分項の抽出）が要る。
+
+**Induct2 と組立て・Check は未着手**（H11 が通っていないため）。MsgMvK 以外の新しい仮説は出ていない。
+
+台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
