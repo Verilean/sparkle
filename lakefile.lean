@@ -4970,3 +4970,6 @@ lean_lib «Tests.Gen4.KWalkLegacyCheck» where
 
 lean_lib «Tools.ShippingGen4KWalkLegacyRules» where
   roots := #[`Tools.ShippingGen4KWalkLegacyRules]
+
+lean_lib «Tools.ShippingGen4KWalkLegacyH3» where
+  roots := #[`Tools.ShippingGen4KWalkLegacyH3]

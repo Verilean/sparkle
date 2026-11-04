@@ -124,7 +124,10 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     if c == ``Pure.pure then
       return ← runTac (← `(tactic| exact Tools.ShippingChildTranslateA.KeepsCP.pure _))
     if c == ``MonadExcept.throw || c == ``throw then
-      return ← runTac (← `(tactic| exact Tools.ShippingChildTranslateA.KeepsCP.throw _ (by okmsg)))
+      if ← runTac (← `(tactic| exact Tools.ShippingChildTranslateA.KeepsCP.throw _ (by okmsg))) then return true
+      return ← runTac (← `(tactic| exact Tools.ShippingChildWalkA.KeepsCP.throwE _))
+    if c == ``Except.rec then
+      return ← runTac (← `(tactic| (rename_i x; cases x <;> exact Tools.ShippingChildTranslateA.KeepsCP.pure _)))
     if c == ``get || c == ``MonadState.get || c == ``MonadStateOf.get then
       return ← runTac (← `(tactic| exact Tools.ShippingChildTranslateA.KeepsCP.get))
     if c == ``set || c == ``MonadStateOf.set then
@@ -171,8 +174,8 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     -- (rt174) a lifted MetaM primitive under `Keeps`: a `FramedNM` operation of the section's `M`, `hA`, `hS`
     -- (the constructor and its `SideRefNM` / `LocalRefType` side goals found by `constructor`)
     if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
-      let M := mkIdent `M; let hA := mkIdent `hA; let hS := mkIdent `hS
-      if ← runTac (← `(tactic| exact Tools.ShippingGen4KWalkPrims.keepsK_framedNM $M $hA $hS (by constructor <;> first | constructor | assumption))) then
+      let M := mkIdent `M; let hS := mkIdent `hS
+      if ← runTac (← `(tactic| exact Tools.ShippingGen4KWalkPrims.keepsK_framedNM $M (by assumption) $hS (by constructor <;> first | constructor | assumption))) then
         return true
     -- a given rule for this head
     for (_, h, stx) in rules do
@@ -195,13 +198,17 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       if ← runTac (← `(tactic| apply Tools.ShippingChildInv.Keeps.forIn_array)) true then return true
       if ← runTac (← `(tactic| apply Tools.ShippingChildInv.Keeps.forIn_list)) true then return true
       if ← runTac (← `(tactic| apply Tools.ShippingChildInv.Keeps.forIn_range)) true then return true
-      -- an instance projection (e.g. `withTransparency` through `MonadControlT`): reduce it, as `vca` does
-      let inst ← withTransparency .instances (whnf fn.projExpr!)
-      let p' ← whnfCore (mkAppN (fn.updateProj! inst) p.getAppArgs)
-      if p' != p then
-        let g' ← g.replaceTargetDefEq (mkApp ty.consumeMData.appFn! p')
-        replaceMainGoal [g']
-        return true
+    else
+      if ← runTac (← `(tactic| apply Tools.ShippingChildWalkA.KeepsCP.forIn_array)) true then return true
+      if ← runTac (← `(tactic| apply Tools.ShippingChildWalkA.KeepsCP.forIn_list)) true then return true
+      if ← runTac (← `(tactic| apply Tools.ShippingChildWalkA.KeepsCP.forIn_range)) true then return true
+    -- an instance projection (e.g. `withTransparency` through `MonadControlT`): reduce it, as `vca` does
+    let inst ← withTransparency .instances (whnf fn.projExpr!)
+    let p' ← whnfCore (mkAppN (fn.updateProj! inst) p.getAppArgs)
+    if p' != p then
+      let g' ← g.replaceTargetDefEq (mkApp ty.consumeMData.appFn! p')
+      replaceMainGoal [g']
+      return true
     return false
   | .fvar _ =>
     for d in ← getLCtx do
@@ -210,6 +217,8 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       let isRule ← forallTelescope dty fun _ concl => pure (progOf? concl).isSome
       if isRule then
         let id := mkIdent d.userName
+        if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _ _ _)) then return true
+        if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _ _)) then return true
         if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _)) then return true
         if ← runTac (← `(tactic| exact $id _ _ (by assumption) _)) then return true
         if ← runTac (← `(tactic| exact $id _ _ _ _)) then return true

@@ -47,7 +47,7 @@ macro "kwAll" : tactic => `(tactic| kwalkN [keepsK_addMessageContext M hA hS _, 
   snapshotWireCaches_keepsK M hpp hS _, restoreWireCaches_keepsK M hpp hS _ _,
   makeWirePK M hA hS, addInputPK M hA hS, addOutputPK M hA hS, emitAssignP, bindSourceVariableP, lookupVarP,
   emitRegisterStmtA, emitRegisterK M hA hS, emitMemoryK M hA hS, freshNameA, emitInstanceA,
-  addModuleToDesignA, withVarMappingP, withDimVarMappingP,
+  addModuleToDesignA, withVarMappingP, withDimVarMappingP, KeepsCP.tryCatch, KeepsCP.map _,
   keepsK_framedNM M hA hS (FramedNM.freshFVar (Fresh := MkRefd))])
 
 end Tools.ShippingGen4KWalkLegacyRules
