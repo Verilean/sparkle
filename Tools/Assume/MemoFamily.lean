@@ -1,12 +1,15 @@
 import Tools.ShippingChildFresh
 import Tools.ShippingChildBndCore
--- BUILT: kjob lake build Tools.Assume.MemoFamily exit 0 (rt163, base 496afcef; part of the 742-job Tests.Gen4.MemoFamilyCheck build, exit 0). Clean build is the coder's. TRUSTED: hypotheses about the RUNTIME behaviour of the memo / child-cache / depth cells
--- (`@[extern]` opaque `ST.Ref.get/set/modify`, `lean_st_ref_*`); they are NOT proved and NOT axioms: `MemoFamily` is a
+import Tools.ShippingChildKeeps
+-- NOT BUILT (rt173, base c595b472): rev3 implementation; the build SHA is recorded in the next comment-only commit. Clean build is the coder's.
+-- TRUSTED: hypotheses about the RUNTIME behaviour of the memo / child-cache / depth cells and of the profile / stderr / printer calls
+-- (`@[extern]` opaque `ST.Ref.get/set/modify`, `lean_st_ref_*`, file and stream I/O); they are NOT proved and NOT axioms: `MemoFamily` is a
 -- `structure` passed as a HYPOTHESIS (R-1: one ledger row, `M4.MEMO-01`). The family is not claimed true of the runtime,
 -- and not claimed consistent with `Laws` (ledger D.E-10 stays OPEN).
--- Frozen type: scripts/gen4/MEMO_FAMILY_FREEZE.md rev2 at f23b4bc7 (section 2), 12 statements:
+-- Frozen type: scripts/gen4/MEMO_FAMILY_FREEZE.md rev3 at c595b472 (section 2), 15 statements:
 --   frame, frameCacheSet, frameDepthSet, memoGet, memoSet, memoModify, frameCacheModify, frameDepthModify,
---   and MemoTele (telescope, lamTelescope, localDecl, letDecl).
+--   logProf, stderrLine, printersMv, and MemoTele (telescope, lamTelescopeT, localDecl, letDecl).
+-- The rev2 `lamTelescope` (Keeps form) is the derived theorem `MemoTele.lamTelescope` (same name, same type).
 -- Nothing here changes `Laws`, T1Hyp, T1HypND or any shared definition. No `sorry`, no `axiom`, no `native_decide`.
 -- Types copied verbatim from the freeze section 2 code block.
 
@@ -118,6 +121,18 @@ inductive FramedNM (Fresh : (σ : Type) → IO.Ref σ → Prop) : {α : Type} �
 
 variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
 
+/-- A `BaseIO` action leaves what the memo cell reads (from every world). -/
+def MvInert {α : Type} (x : BaseIO α) : Prop :=
+  ∀ w, match x w with
+    | .mk _ w' => readOf sparkleSubModuleCache w' = readOf sparkleSubModuleCache w
+
+/-- The memo version of `OkEnv`: the two printer entry points over this environment leave the memo as it was. -/
+def OkEnvMv (env : Environment) : Prop :=
+  ∀ ctx : PPContext, ctx.env = env →
+    (∀ e : Lean.Expr, MvInert (ppExprWithInfos ctx e)) ∧ (∀ n : Name, MvInert (ppConstNameWithInfos ctx n))
+
+
+
 structure MemoTele (O : RefLawsAOps MkRefd mref cref) : Prop where
   telescope : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
     (I : Void IO.RealWorld → Prop), AdmCtx O.quiet mctx cctx → (∀ w, I w → O.quiet w) →
@@ -127,14 +142,20 @@ structure MemoTele (O : RefLawsAOps MkRefd mref cref) : Prop where
     (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b, AdmCtx O.quiet mctx' cctx' →
       Keeps mctx' mref cctx' cref I (k xs b)) →
     Keeps mctx mref cctx cref I (Lean.Meta.forallTelescopeReducing ty k)
-  lamTelescope : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
-    (I : Void IO.RealWorld → Prop), AdmCtx O.quiet mctx cctx → (∀ w, I w → O.quiet w) →
+  lamTelescopeT : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
+    (P : Void IO.RealWorld → Prop) (Q : α → Void IO.RealWorld → Prop) (R : Void IO.RealWorld → Prop),
+    AdmCtx O.quiet mctx cctx →
+    (∀ w, P w → O.quiet w) → (∀ a w, Q a w → O.quiet w) → (∀ w, R w → O.quiet w) →
     (∀ w w', cv w' = cv w → sv w' = sv w → dv w' = dv w → mv w' = mv w → (O.quiet w → O.quiet w') →
-      I w → I w') →
+      P w → P w') →
+    (∀ a w w', cv w' = cv w → sv w' = sv w → dv w' = dv w → mv w' = mv w → (O.quiet w → O.quiet w') →
+      Q a w → Q a w') →
+    (∀ w w', cv w' = cv w → sv w' = sv w → dv w' = dv w → mv w' = mv w → (O.quiet w → O.quiet w') →
+      R w → R w') →
     ∀ (e : Lean.Expr) (k : Array Lean.Expr → Lean.Expr → MetaM α) (cleanup : Bool),
     (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b, AdmCtx O.quiet mctx' cctx' →
-      Keeps mctx' mref cctx' cref I (k xs b)) →
-    Keeps mctx mref cctx cref I (Lean.Meta.lambdaTelescope e k cleanup)
+      Triple mctx' mref cctx' cref P (k xs b) Q (fun ex w => R w ∧ OkExc ex)) →
+    Triple mctx mref cctx cref P (Lean.Meta.lambdaTelescope e k cleanup) Q (fun ex w => R w ∧ OkExc ex)
   localDecl : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
     (I : Void IO.RealWorld → Prop), AdmCtx O.quiet mctx cctx → (∀ w, I w → O.quiet w) →
     (∀ w w', cv w' = cv w → sv w' = sv w → dv w' = dv w → mv w' = mv w → (O.quiet w → O.quiet w') →
@@ -175,6 +196,29 @@ structure MemoFamily (O : RefLawsAOps MkRefd mref cref) : Prop where
     ∀ (f : Nat → Nat) w u w',
     RunsTo (ST.Ref.modify sparkleSynthDepth f : MetaM Unit) mctx mref cctx cref w u w' → O.quiet w →
     mv w' = mv w
+  logProf : ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ (b : Bool) (msg : String) w, O.quiet w →
+    mv (endW mctx mref cctx cref (liftM (profLogIO b msg) : MetaM Unit) w) = mv w
+  stderrLine : ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ (s : String) w, O.quiet w →
+    mv (endW mctx mref cctx cref ((liftM (IO.eprintln s) : MetaM Unit) >>= fun _ =>
+      (liftM Sparkle.Compiler.flushStderr : MetaM Unit)) w) = mv w
+  printersMv : ∀ w, O.quiet w → OkEnvMv (readOf cref w).env
   tele : MemoTele O
+
+variable {O : RefLawsAOps MkRefd mref cref}
+
+/-- Same statement as the rev2 field `MemoTele.lamTelescope`; derived from the Triple form (`Q = fun _ => I`, `R = I`). -/
+theorem MemoTele.lamTelescope (T : MemoTele O) : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}
+    (I : Void IO.RealWorld → Prop), AdmCtx O.quiet mctx cctx → (∀ w, I w → O.quiet w) →
+    (∀ w w', cv w' = cv w → sv w' = sv w → dv w' = dv w → mv w' = mv w → (O.quiet w → O.quiet w') →
+      I w → I w') →
+    ∀ (e : Lean.Expr) (k : Array Lean.Expr → Lean.Expr → MetaM α) (cleanup : Bool),
+    (∀ (mctx' : Meta.Context) (cctx' : Core.Context) xs b, AdmCtx O.quiet mctx' cctx' →
+      Keeps mctx' mref cctx' cref I (k xs b)) →
+    Keeps mctx mref cctx cref I (Lean.Meta.lambdaTelescope e k cleanup) := by
+  intro mctx cctx α I hA hIq htr e k cleanup hk
+  exact keeps_iff.mpr (T.lamTelescopeT I (fun _ => I) I hA hIq (fun _ => hIq) hIq htr (fun _ => htr) htr e k cleanup
+    (fun mctx' cctx' xs b hA' => keeps_iff.mp (hk mctx' cctx' xs b hA')))
 
 end Tools.Assume.MemoFamily
