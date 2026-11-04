@@ -1,7 +1,7 @@
 import Tools.ShippingGen4KWalkLegacyH1
 import Tools.ShippingGen4KWalkLegacyH2
 import Tools.ShippingGen4KWalkEmit
--- NOT BUILT (rt174 draft). LegacyImplK part 4: the CompilerM-level telescope shims (`CompilerM.withLocalDecl`, `CompilerM.withLetDecl`) from `MemoTele.localDecl` / `MemoTele.letDecl`.
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyH4 exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. LegacyImplK part 4: the CompilerM-level telescope shims (`CompilerM.withLocalDecl`, `CompilerM.withLetDecl`) from `MemoTele.localDecl` / `MemoTele.letDecl`.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkLegacyH4
 open Lean Meta

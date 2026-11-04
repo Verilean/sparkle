@@ -1,5 +1,5 @@
 import Tools.ShippingGen4KWalkLegacyH3
--- NOT BUILT (rt174 draft). LegacyImplK part 6: handleLoop, walked by `kwalkN` with `kwAll`.
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyH6 exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. LegacyImplK part 6: handleLoop, walked by `kwalkN` with `kwAll`.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkLegacyH6
 open Lean Meta

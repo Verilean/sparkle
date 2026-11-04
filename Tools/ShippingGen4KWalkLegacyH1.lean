@@ -2,7 +2,7 @@ import Tools.ShippingGen4KWalkHelpers
 import Tools.ShippingGen4KWalkDiag
 import Tools.ShippingGen4KWalkProjField
 import Tools.ShippingChildLegacyHandlersA
--- NOT BUILT (rt174 draft). LegacyImplK part 1: `snapshotWireCaches`, `restoreWireCaches`, `handleErrorPatterns` (copy of the first handlers of ShippingChildLegacyHandlersA, walked by `kwalkM`).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyH1 exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. LegacyImplK part 1: `snapshotWireCaches`, `restoreWireCaches`, `handleErrorPatterns` (copy of the first handlers of ShippingChildLegacyHandlersA, walked by `kwalkM`).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. `PpMvK` is derived by `ppMvK_of M` by the caller. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkLegacyH1
 open Lean Meta

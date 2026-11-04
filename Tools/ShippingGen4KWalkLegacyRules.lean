@@ -3,7 +3,7 @@ import Tools.ShippingGen4KWalkLegacyH2
 import Tools.ShippingGen4KWalkEmit
 import Tools.ShippingGen4KWalkLegacyH4
 import Tools.ShippingGen4KWalkCanon
--- NOT BUILT (rt174 draft). LegacyImplK: the shared rule list `kwAll` of the K copies of the legacy handlers (a tactic macro only).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyRules exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. LegacyImplK: the shared rule list `kwAll` of the K copies of the legacy handlers (a tactic macro only).
 -- NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkLegacyRules
 open Lean Meta

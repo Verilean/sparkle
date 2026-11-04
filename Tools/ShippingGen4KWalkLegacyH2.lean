@@ -3,7 +3,7 @@ import Tools.ShippingGen4KWalkDiag
 import Tools.ShippingGen4KWalkProjField
 import Tools.ShippingGen4KWalkTac2
 import Tools.ShippingChildLegacyHandlersA
--- NOT BUILT (rt174 draft). LegacyImplK part 2: the helpers of Helpers.lean's A copy that the K copy did not cover (tracing, extractNat family, cachedInferType, getWireWidth*, lowerZeroExtendWire), walked by `kwalkN` (Tac2).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyH2 exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. LegacyImplK part 2: the helpers of Helpers.lean's A copy that the K copy did not cover (tracing, extractNat family, cachedInferType, getWireWidth*, lowerZeroExtendWire), walked by `kwalkN` (Tac2).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkLegacyH2
 open Lean Meta

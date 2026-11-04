@@ -227,7 +227,7 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 | `LegacyH7` | `tryInlineUnfold` の `TripleCP` 版（`tryInlineUnfold_tripleCPK`） |
 
 **残り**
-* `handleDefinitionUnfold`（`LegacyH8`、`hchild`＝`childSynthEntry` の `Keeps` を引数に取る形）: 下に状況。
+* `handleDefinitionUnfold`（`Tools/ShippingGen4KWalkLegacyH8.lean`、`hchild`＝`childSynthEntry` の `Keeps` と `htri`＝`tryInlineUnfold_tripleCPK` を使う形）: **ビルド未成功**。`kjob lake build` が `whnf` の deterministic timeout（maxHeartbeats 4M と 20M の 2 回、20M で 18 分）。原因は特定できていない（`KWALK_DEBUG` の記録では約 1000 step 進んで止まる。この調査では、どの step で止まるかまでは見つからなかった）。lakefile には登録しておらず、BUILT とは書かない。次の rt の候補: (a) 腕（`hint` の分岐ごと）に分けて別定理にする、(b) `kloop` の fuel 400 と 1 step あたりの `exact … (by constructor)` の試行を減らす、(c) 子の呼び出しまわりを手で書く。
 * `translateExprToWireApp`（`normSpine` の fuel 帰納を含む）、`toIR`（`sizeOf` 帰納）、`getPrimitiveNameFromLambda`、そして本体 `Rec.translateExprToWireImpl`（Elab.lean 6930-7985 約 1050 行）と `LegacyImplK` の組立て。
 * **見つけた点（新しい仮説ではないが、組立てで必要）**: `handleDefinitionUnfold` は `childSynthEntry c` を呼ぶ。`LegacyImplK O (KWD K D)` の中でこれを閉じるには、A 版の `hchild` に当たる `ChildEntryK`（深さ D の子の入口）が要る。これは仮説として足さず、`Tools/ShippingGen4KWalkLegacyInduct.lean` の深さ帰納（`child_stepL` / `child_budgetL`）から、深さの上限（`sparkleSynthDepthLimit`）に向かう減少帰納で与える形になる見込み（この調査では、`LegacyImplK` を `hchild` なしに単独で立てる経路は見つからなかった）。この帰納の形（`LegacyImplK` の証明を `D` の帰納の中に入れるか、`hchild` を取る形の `LegacyImplK'` を作って最後に閉じるか）は次の rt で決める。
 * `MsgMvK`（Elab.lean 6605 の `msgToString`）は上のどの handler にもまだ登場していない（使うのは本体の該当箇所）。

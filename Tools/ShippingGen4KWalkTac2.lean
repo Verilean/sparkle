@@ -2,7 +2,7 @@ import Tools.ShippingChildTranslateA
 import Tools.ShippingGen4KWalkPrims
 import Tools.ShippingChildWalkA
 import Tools.ShippingChildVC
--- NOT BUILT (rt174; copy of ShippingGen4KWalkTac + a generic FramedNM step). was: kjob lake build Tools.ShippingGen4KWalkTac exit 0 (rt169, source as of 9e5eb088). Clean build is the coder's. A TACTIC only (no law): copy for the K walk of Tools/ShippingChildKWalk.lean; `kwalkN` also walks plain `Keeps` goals (ite/dite/pure/throw, forIn, instance projections, local IH). No sorry (`sorryOk` is a flag name of the nested-elaboration mode).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkTac2 exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. (copy of ShippingGen4KWalkTac + a generic FramedNM step). was: kjob lake build Tools.ShippingGen4KWalkTac exit 0 (rt169, source as of 9e5eb088). Clean build is the coder's. A TACTIC only (no law): copy for the K walk of Tools/ShippingChildKWalk.lean; `kwalkN` also walks plain `Keeps` goals (ite/dite/pure/throw, forIn, instance projections, local IH). No sorry (`sorryOk` is a flag name of the nested-elaboration mode).
 -- BUILT by the integrator: kw1 exit 1 (names), kw2–kw6 (rule elaboration context, non-reducing telescope, syntax), used by FallbackA fb13 exit 0. Integrator-written (after fb1: the generic `repeat (first | exact … | kbase)` walk timed out —
 -- each failed `exact` unified a lemma's program against a bind by unfolding).
 -- No `sorry`, no `axiom`, no `native_decide`, no law: a TACTIC only; what it closes is a
