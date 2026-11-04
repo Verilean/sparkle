@@ -8,7 +8,8 @@ import Tests.Gen4.MemoFamilyCheck
 set_option autoImplicit false
 set_option linter.unusedSimpArgs false
 set_option linter.unusedVariables false
--- NOT BUILT (scratch, rt172): scratch check for scripts/gen4/MEMO_FAMILY_FREEZE.md rev3.
+-- BUILT: kjob lake build Tests.Gen4.MemoFamilyRev3Check exit 0 (756 jobs, rt172, source as of 4dafaab4): MEMOFAMILY REV3 CHECK: TYPE 15/15 / MUTANT 11/11 / OUTSIDE 18/18 / AXIOMS 20 / CLOSURE 4 (+2 positive controls) / MODEL 1. Clean build is the coder's.
+-- Scratch check for scripts/gen4/MEMO_FAMILY_FREEZE.md rev3 (does NOT edit Tools/Assume/MemoFamily.lean; its MemoTeleR3 / MemoFamilyR3 are the proposed rev3 types). No sorry, no axiom, no native_decide.
 
 open Lean Elab Command Meta
 open Tools.ShippingEntrySoundness Tools.ShippingChildInv Tools.ShippingChildInvA Tools.ShippingChildFresh
