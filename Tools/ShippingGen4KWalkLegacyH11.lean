@@ -1,5 +1,6 @@
 import Tools.ShippingGen4KWalkLegacyH10a
 import Tools.ShippingGen4KWalkLegacyH10b
+import Tools.ShippingGen4KWalkLegacyH8d
 -- NOT BUILT, NOT IN THE LAKEFILE (rt176: the target build does not finish; the last step started is `CompilerM.withLocalDecl`, see KWALK_PLAN rt176): LegacyImplK part 11: the main body `Rec.translateExprToWireImpl`.
 namespace Tools.ShippingGen4KWalkLegacyH11
 open Lean Meta
@@ -32,6 +33,7 @@ open Tools.ShippingGen4KWalkLegacyH2
 open Tools.ShippingGen4KWalkProjField
 open Tools.ShippingGen4KWalkDiag
 open Tools.ShippingGen4KWalkLegacyH8a
+open Tools.ShippingGen4KWalkLegacyH8d
 open Tools.ShippingGen4KWalkLegacyH8
 open Tools.ShippingGen4KWalkLegacyH3
 open Tools.ShippingGen4KWalkLegacyH5
@@ -59,7 +61,7 @@ variable {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hpp : PpMvK O) {
 
 set_option hygiene false in
 -- (rt177) the context's `AdmCtx` is found by `assumption` (after a `withLocalDecl` the newest `hA` is an inaccessible name, and `hA` named the OUTER one: the rule then failed to unify and the walk unfolded the callee)
-macro "kwMain" : tactic => `(tactic| kwalkN [translateExprToWireAppK M hpp hS hmsg tr htr hchild (by assumption) _ _ _, getPrimK M hpp hS hmsg (by assumption) _, toIRK M hpp hS hmsg _ _ (by assumption) _, handleErrorPatternsK M hpp hS (by assumption) _ _ _ _ _, handleCircuitMonadK M hpp hS tr htr (by assumption) _ _ _ _ _, handleTupleProjectionsK M hpp hS tr htr (by assumption) _ _ _ _ _, handleApplicativeK M hpp hS tr htr (by assumption) _ _ _ _ _, handleBitVecOpsK M hpp hS tr htr (by assumption) _ _ _ _ _, handleRegisterK M hpp hS tr htr (by assumption) _ _ _ _ _, handleMuxK M hpp hS tr htr (by assumption) _ _ _ _ _, handleMemoryK M hpp hS tr htr (by assumption) _ _ _ _ _, handleLoopK M hpp hS tr htr (by assumption) _ _ _ _ _, handleDefinitionUnfoldK M hpp hS hmsg tr htr hchild (by assumption) _ _ _ _ _, stderrPairCPk M hS (by assumption) _ _, keepsK_msgToStringR M hS hmsg (by assumption) _ _, keepsK_addMessageContext M (by assumption) hS _, keepsK_ppExpr M hpp hS _ _,
+macro "kwMain" : tactic => `(tactic| kwalkN [translateExprToWireAppK M hpp hS hmsg tr htr hchild (by assumption) _ _ _, getPrimK M hpp hS hmsg (by assumption) _, toIRK M hpp hS hmsg _ _ (by assumption) _, handleErrorPatternsK M hpp hS (by assumption) _ _ _ _ _, handleCircuitMonadK M hpp hS tr htr (by assumption) _ _ _ _ _, handleTupleProjectionsK M hpp hS tr htr (by assumption) _ _ _ _ _, handleApplicativeK M hpp hS tr htr (by assumption) _ _ _ _ _, handleBitVecOpsK M hpp hS tr htr (by assumption) _ _ _ _ _, handleRegisterK M hpp hS tr htr (by assumption) _ _ _ _ _, handleMuxK M hpp hS tr htr (by assumption) _ _ _ _ _, handleMemoryK M hpp hS tr htr (by assumption) _ _ _ _ _, handleLoopK M hpp hS tr htr (by assumption) _ _ _ _ _, handleDefinitionUnfoldK M hpp hS hmsg tr htr hchild (by assumption) _ _ _ _ _, stderrPairCPk M hS (by assumption) _ _, profBlockCPk M hS (by assumption) _ _, keepsK_msgToStringR M hS hmsg (by assumption) _ _, keepsK_addMessageContext M (by assumption) hS _, keepsK_ppExpr M hpp hS _ _,
   keepsK_throwError M _ hS _ _, keepsK_getDecl M hpp hS _ _, Keeps.withReaderA (q := O.quiet) _ _,
   extractWidthK M hpp hS _ _, inferHWTypeK M hpp hS _ _, extractDimExprK M hpp hS _ _,
   inferHWTypeWithDimensionsK M hpp hS _ _, inferHWTypeFromSignalK M hpp hS _ _,
