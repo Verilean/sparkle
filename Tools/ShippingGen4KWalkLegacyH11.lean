@@ -1,4 +1,5 @@
-import Tools.ShippingGen4KWalkLegacyH10
+import Tools.ShippingGen4KWalkLegacyH10a
+import Tools.ShippingGen4KWalkLegacyH10b
 -- NOT BUILT, NOT IN THE LAKEFILE (rt175): `kjob lake build` of this file did not finish in 11 min 40 s (killed by my timeout 700 s; not a heartbeat error; cause not found). LegacyImplK part 11: the main body `Rec.translateExprToWireImpl`. Needs a coder run (kjob run) with a longer limit, or a split of the body.
 namespace Tools.ShippingGen4KWalkLegacyH11
 open Lean Meta
@@ -36,7 +37,8 @@ open Tools.ShippingGen4KWalkLegacyH3
 open Tools.ShippingGen4KWalkLegacyH5
 open Tools.ShippingGen4KWalkLegacyH6
 open Tools.ShippingGen4KWalkLegacyH9
-open Tools.ShippingGen4KWalkLegacyH10
+open Tools.ShippingGen4KWalkLegacyH10a
+open Tools.ShippingGen4KWalkLegacyH10b
 open Tools.ShippingGen4KWalkLegacyH7
 open Tools.ShippingGen4KWalkTranslate
 

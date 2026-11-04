@@ -1,7 +1,7 @@
 import Tools.ShippingGen4KWalkLegacyH9
--- NOT BUILT, NOT IN THE LAKEFILE (rt175; `kjob lake build` did not finish in 9 min, killed by my timeout; cause not found, getPrim vs toIR not separated): LegacyImplK part 10: `toIR` (induction on a size bound), `getPrimitiveNameFromLambda`.
+-- NOT BUILT, NOT IN THE LAKEFILE (rt176): LegacyImplK part 10b: `toIR` (induction on a size bound).
 -- Takes `MemoFamily` (TRUSTED, approved) and `MsgMvK` as HYPOTHESES; adds NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
-namespace Tools.ShippingGen4KWalkLegacyH10
+namespace Tools.ShippingGen4KWalkLegacyH10b
 open Lean Meta
 open Tools.ShippingEntrySoundness
 open Sparkle.Compiler.Elab
@@ -51,12 +51,6 @@ variable {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hpp : PpMvK O) {
   (hS : StableK O.quiet I) (hmsg : MsgMvK O)
 include M hpp hS hmsg
 
-theorem getPrimK (hA : AdmCtx O.quiet mctx cctx) (e : Lean.Expr) :
-    KeepsCP mctx mref cctx cref I (Rec.getPrimitiveNameFromLambda e) := by
-  induction e with
-  | lam _ _ body _ _ ih => unfold Rec.getPrimitiveNameFromLambda; exact ih
-  | _ => unfold Rec.getPrimitiveNameFromLambda; kwAll3
-
 theorem toIRK_bound (wireS : String) (fvarId : FVarId) :
     ∀ (n : Nat) (e : Lean.Expr), sizeOf e < n →
       ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
@@ -75,4 +69,4 @@ theorem toIRK (wireS : String) (fvarId : FVarId) (hA : AdmCtx O.quiet mctx cctx)
 
 end H10
 
-end Tools.ShippingGen4KWalkLegacyH10
+end Tools.ShippingGen4KWalkLegacyH10b
