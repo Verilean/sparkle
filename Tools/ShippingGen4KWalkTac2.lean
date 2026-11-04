@@ -1,5 +1,7 @@
 import Tools.ShippingChildTranslateA
-import Tools.ShippingGen4KWalk
+import Tools.ShippingGen4KWalkPrims
+import Tools.ShippingChildWalkA
+import Tools.ShippingChildVC
 -- NOT BUILT (rt174; copy of ShippingGen4KWalkTac + a generic FramedNM step). was: kjob lake build Tools.ShippingGen4KWalkTac exit 0 (rt169, source as of 9e5eb088). Clean build is the coder's. A TACTIC only (no law): copy for the K walk of Tools/ShippingChildKWalk.lean; `kwalkN` also walks plain `Keeps` goals (ite/dite/pure/throw, forIn, instance projections, local IH). No sorry (`sorryOk` is a flag name of the nested-elaboration mode).
 -- BUILT by the integrator: kw1 exit 1 (names), kw2–kw6 (rule elaboration context, non-reducing telescope, syntax), used by FallbackA fb13 exit 0. Integrator-written (after fb1: the generic `repeat (first | exact … | kbase)` walk timed out —
 -- each failed `exact` unified a lemma's program against a bind by unfolding).
@@ -103,6 +105,8 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
           return true
       if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
         return ← runTac (← `(tactic| refine Tools.ShippingChildInv.Keeps.bind ?_ (fun _ => ?_)))
+      if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.bindRead (fun _ _ => ?_))) then
+        return true
       return ← runTac (← `(tactic| refine Tools.ShippingChildTranslateA.KeepsCP.bind ?_ (fun _ => ?_)))
     if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
       if c == ``ite then
@@ -143,11 +147,32 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
         return true
     if c == ``Sparkle.Compiler.Elab.CompilerM.liftMetaM then
       return ← runTac (← `(tactic| refine Tools.ShippingChildTranslateA.KeepsCP.lift ?_))
+    -- (rt174) reads of the contexts: always succeed
+    if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
+      if [``read, ``readThe, ``MonadReader.read, ``MonadReaderOf.read, ``Lean.getLCtx,
+          ``Lean.MonadLCtx.getLCtx, ``Lean.getRef, ``Lean.MonadRef.getRef, ``Lean.getOptions,
+          ``Lean.MonadOptions.getOptions, ``liftM, ``monadLift, ``MonadLiftT.monadLift].contains c then
+        if ← runTac (← `(tactic| exact Tools.ShippingChildInv.Keeps.of_ok (fun w => ⟨_, rfl⟩))) then
+          return true
+    else
+      -- the `CompilerM` lifts of the A walker (law-free)
+      if c == ``liftM || c == ``monadLift || c == ``MonadLiftT.monadLift then
+        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.liftIO ?_)) then return true
+        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.liftBaseIO ?_)) then return true
+        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.liftM ?_)) then return true
+      if c == ``ST.Ref.get then
+        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.refGet ?_)) then return true
+      if c == ``ST.Ref.set then
+        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.refSet ?_)) then return true
+      if c == ``ST.Ref.modify then
+        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.refModify ?_)) then return true
+      if c == ``MonadReader.read || c == ``read || c == ``MonadReaderOf.read then
+        if ← runTac (← `(tactic| exact Tools.ShippingChildWalkA.KeepsCP.read)) then return true
     -- (rt174) a lifted MetaM primitive under `Keeps`: a `FramedNM` operation of the section's `M`, `hA`, `hS`
     -- (the constructor and its `SideRefNM` / `LocalRefType` side goals found by `constructor`)
     if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
       let M := mkIdent `M; let hA := mkIdent `hA; let hS := mkIdent `hS
-      if ← runTac (← `(tactic| exact Tools.ShippingGen4KWalk.keepsK_framedNM $M $hA $hS (by constructor <;> first | constructor | assumption))) then
+      if ← runTac (← `(tactic| exact Tools.ShippingGen4KWalkPrims.keepsK_framedNM $M $hA $hS (by constructor <;> first | constructor | assumption))) then
         return true
     -- a given rule for this head
     for (_, h, stx) in rules do
