@@ -1,5 +1,5 @@
 import Tools.ShippingGen4KWalkLegacyH8a
--- NOT BUILT (rt175 WIP): H8 does not build yet. LegacyImplK part 8: handleDefinitionUnfold, given the child entry `hchild` (= `ChildEntryK`, supplied by the depth induction).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyH8 exit 0 (rt175, source as of this commit; 40 s, maxHeartbeats 4M; axioms propext/Classical.choice/Quot.sound only); clean build is the coder's. LegacyImplK part 8: handleDefinitionUnfold, given the child entry `hchild` (= `ChildEntryK`, supplied by the depth induction) and `MsgMvK`.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4KWalkLegacyH8
 open Lean Meta
@@ -36,7 +36,7 @@ open Tools.ShippingGen4KWalkLegacyH8a
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-set_option maxHeartbeats 400000
+set_option maxHeartbeats 4000000
 set_option linter.unusedSectionVars false
 
 section H8
@@ -54,6 +54,7 @@ theorem handleDefinitionUnfoldK (hA : AdmCtx O.quiet mctx cctx)
   unfold Rec.handleDefinitionUnfold
   have htri := tryInlineUnfold_tripleCPK M hpp hS tr htr hA e hint named
   kwAll2
+  all_goals first | exact (‹OkOpt _›) _ rfl | skip
 
 end H8
 

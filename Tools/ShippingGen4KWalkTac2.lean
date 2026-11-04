@@ -2,7 +2,7 @@ import Tools.ShippingChildTranslateA
 import Tools.ShippingGen4KWalkPrims
 import Tools.ShippingChildWalkA
 import Tools.ShippingChildVC
--- (rt175: + a rule for the fused stderr pair) was BUILT: kjob lake build Tools.ShippingGen4KWalkTac2 exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. (copy of ShippingGen4KWalkTac + a generic FramedNM step). was: kjob lake build Tools.ShippingGen4KWalkTac exit 0 (rt169, source as of 9e5eb088). Clean build is the coder's. A TACTIC only (no law): copy for the K walk of Tools/ShippingChildKWalk.lean; `kwalkN` also walks plain `Keeps` goals (ite/dite/pure/throw, forIn, instance projections, local IH). No sorry (`sorryOk` is a flag name of the nested-elaboration mode).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyH8 exit 0 (rt175, source as of this commit; Tac2 and everything that imports it rebuilt); clean build is the coder's. rt175 additions to the tactic (no law): a rule for the fused stderr pair, `bindRead` only for a context read, a do-notation JOIN POINT `have __do_jp` is walked once (not copied into every branch: this was the H8 timeout), `tryCatch` / `Except.rec` / early-return `throw` under `Keeps`, the exception of a caught `some ex`. Earlier header: was BUILT: kjob lake build Tools.ShippingGen4KWalkTac2 exit 0 (rt174, source as of d8c3ec7b). (copy of ShippingGen4KWalkTac + a generic FramedNM step). was: kjob lake build Tools.ShippingGen4KWalkTac exit 0 (rt169, source as of 9e5eb088). A TACTIC only (no law): copy for the K walk of Tools/ShippingChildKWalk.lean; `kwalkN` also walks plain `Keeps` goals (ite/dite/pure/throw, forIn, instance projections, local IH). No sorry (`sorryOk` is a flag name of the nested-elaboration mode).
 -- BUILT by the integrator: kw1 exit 1 (names), kw2–kw6 (rule elaboration context, non-reducing telescope, syntax), used by FallbackA fb13 exit 0. Integrator-written (after fb1: the generic `repeat (first | exact … | kbase)` walk timed out —
 -- each failed `exact` unified a lemma's program against a bind by unfolding).
 -- No `sorry`, no `axiom`, no `native_decide`, no law: a TACTIC only; what it closes is a
@@ -82,9 +82,32 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     if h == ``Tools.ShippingChildInv.SideRef || h == ``Tools.ShippingChildInv.LocalRefType then
       return ← runTac (← `(tactic| constructor))
     if h == ``Tools.ShippingChildInv.OkMsg || h == ``Tools.ShippingChildInv.OkExc then
-      return ← runTac (← `(tactic| okmsg))
+      if ← runTac (← `(tactic| okmsg)) then return true
+      -- (rt175) the exception of a caught `some ex`, from `OkOpt (…, some ex).snd`
+      return ← runTac (← `(tactic| exact (‹Tools.ShippingChildInv.OkOpt _›) _ rfl))
     return false
   let p := p.consumeMData
+  -- (rt175) a do-notation JOIN POINT `have __do_jp := fun x̄ => v; b`: do NOT copy `v` into every use in `b` (that copies the continuation
+  -- once per branch: exponential). Prove `∀ x̄, KeepsCP (v x̄)` once and walk `b` with the join point an opaque local `jp` and that fact.
+  if p.isLet && p.letName!.toString.startsWith "__do_jp" && p.letValue!.isLambda then
+    let hdr := ty.consumeMData.appFn!
+    let T := p.letType!
+    let n := (← getLCtx).decls.size
+    let jpName := Name.mkSimple s!"jp_{n}"
+    let hName := Name.mkSimple s!"hjp_{n}"
+    let (mainM, hvM) ← withLocalDeclD jpName T fun jp => do
+      let hypT ← forallTelescope T fun xs _ => mkForallFVars xs (mkApp hdr (mkAppN jp xs))
+      let bodyT := mkApp hdr (p.letBody!.instantiate1 jp)
+      let mainT ← withLocalDeclD hName hypT fun hj => mkForallFVars #[jp, hj] bodyT
+      let hvT ← forallTelescope T fun xs _ => mkForallFVars xs (mkApp hdr (mkAppN p.letValue! xs).headBeta)
+      let mainM ← mkFreshExprSyntheticOpaqueMVar mainT
+      let hvM ← mkFreshExprSyntheticOpaqueMVar hvT
+      return (mainM, hvM)
+    g.assign (mkApp2 mainM p.letValue! hvM)
+    let (_, g1) ← mainM.mvarId!.intro jpName
+    let (_, g2) ← g1.intro hName
+    replaceMainGoal [g2, hvM.mvarId!]
+    return true
   if p.isLet || p.isHeadBetaTarget then
     -- reduce the head `let`/`have` (zeta) or beta-redex in place: definitionally equal, and
     -- cheap (a `dsimp only` here timed out on a large join point, fb10)
@@ -119,8 +142,11 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       if ((p.getArg! 4).consumeMData.getAppFn.constName?.map (·.toString.endsWith "tryInlineUnfold")).getD false then
         if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.bindCaught (by assumption) (fun _ _ => ?_))) then
           return true
-      if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.bindRead (fun _ _ => ?_))) then
-        return true
+      -- (rt175) only for a context read (the defeq test of `bindRead` against a large `tryCatch` program timed out)
+      if [``MonadReader.read, ``read, ``MonadReaderOf.read, ``readThe].contains
+          ((p.getArg! 4).consumeMData.getAppFn.constName?.getD .anonymous) then
+        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.bindRead (fun _ _ => ?_))) then
+          return true
       return ← runTac (← `(tactic| refine Tools.ShippingChildTranslateA.KeepsCP.bind ?_ (fun _ => ?_)))
     if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
       if c == ``ite then
@@ -130,7 +156,9 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       if c == ``Pure.pure then
         return ← runTac (← `(tactic| exact Tools.ShippingChildInv.Keeps.pure _))
       if c == ``MonadExcept.throw || c == ``throw then
-        return ← runTac (← `(tactic| exact Tools.ShippingChildInv.Keeps.throw _ (by okmsg)))
+        if ← runTac (← `(tactic| exact Tools.ShippingChildInv.Keeps.throw _ (by okmsg))) then return true
+        -- (rt175) an early return `throw r` in `ExceptT ρ MetaM`: a pure `Except.error r`
+        return ← runTac (← `(tactic| exact Tools.ShippingChildInv.Keeps.pure (Except.error _)))
     if c == ``ite then
       return ← runTac (← `(tactic| refine Tools.ShippingChildTranslateA.KeepsCP.ite (fun _ => ?_) (fun _ => ?_)))
     if c == ``dite then
@@ -140,7 +168,12 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     if c == ``MonadExcept.throw || c == ``throw then
       if ← runTac (← `(tactic| exact Tools.ShippingChildTranslateA.KeepsCP.throw _ (by okmsg))) then return true
       return ← runTac (← `(tactic| exact Tools.ShippingChildWalkA.KeepsCP.throwE _))
+    if (c == ``MonadExcept.tryCatch || c == ``tryCatchThe || c == ``MonadExceptOf.tryCatch) &&
+        ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
+      if ← runTac (← `(tactic| refine Tools.ShippingChildInv.Keeps.tryCatch ?_ (fun _ _ => ?_))) then return true
     if c == ``Except.rec then
+      if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
+        return ← runTac (← `(tactic| (rename_i x; cases x <;> exact Tools.ShippingChildInv.Keeps.pure _)))
       return ← runTac (← `(tactic| (rename_i x; cases x <;> exact Tools.ShippingChildTranslateA.KeepsCP.pure _)))
     if c == ``get || c == ``MonadState.get || c == ``MonadStateOf.get then
       return ← runTac (← `(tactic| exact Tools.ShippingChildTranslateA.KeepsCP.get))
@@ -214,7 +247,10 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     -- unfold a definition once
     let id := mkIdent c
     runTac (← `(tactic| unfold $id:ident))
-  | .proj .. =>
+  | .proj sn i _ =>
+    -- (rt175) `tryCatch` under `Keeps` (the `try … catch` of a `MetaM` block): the rule, before the instance is unfolded
+    if (sn == ``MonadExcept || sn == ``MonadExceptOf) && i == 1 && ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
+      if ← runTac (← `(tactic| refine Tools.ShippingChildInv.Keeps.tryCatch ?_ (fun _ _ => ?_))) then return true
     if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
       if ← runTac (← `(tactic| apply Tools.ShippingChildInv.Keeps.forIn_array)) true then return true
       if ← runTac (← `(tactic| apply Tools.ShippingChildInv.Keeps.forIn_list)) true then return true
@@ -231,13 +267,19 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       replaceMainGoal [g']
       return true
     return false
-  | .fvar _ =>
+  | .fvar fid =>
     for d in ← getLCtx do
       if d.isImplementationDetail then continue
       let dty ← instantiateMVars d.type
       let isRule ← forallTelescope dty fun _ concl => pure (progOf? concl).isSome
-      if isRule then
+      -- (rt175) a hypothesis about ANOTHER local function (another join point) is not for this call
+      let other ← forallTelescope dty fun _ concl => pure <|
+        match progOf? concl with
+        | some hp => hp.consumeMData.getAppFn.isFVar && hp.consumeMData.getAppFn.fvarId! != fid
+        | none => false
+      if isRule && !other then
         let id := mkIdent d.userName
+        if ← runTac (← `(tactic| apply $id)) then return true
         if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _ _ _)) then return true
         if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _ _)) then return true
         if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _)) then return true

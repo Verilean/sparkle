@@ -234,3 +234,14 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 * その後: `topEntry_K_of_family` から `LegacyImplK` を外した版と Check（TYPE / MUTANT / AXIOMS / CLOSURE、閉包の仮説の一覧）。
 
 台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## rt175: LegacyImplK その 2（base b59b08cd。承認済み freeze の型のまま。新しい仮説・law・家族の文なし。sorry・axiom・native_decide なし）
+
+**H8 `handleDefinitionUnfold` が通った**（`Tools/ShippingGen4KWalkLegacyH8.lean`、BUILT: `kjob lake build Tools.ShippingGen4KWalkLegacyH8` exit 0、H8 本体 40 秒、全体（Tac2 から H1-H7、Rules、H8a、H8 の再ビルド込み）約 2 分。`#print axioms` は propext / Classical.choice / Quot.sound のみ。clean build は coder）。
+
+**timeout の原因（この調査で特定できたもの）**: 腕に分ける必要はなかった。`kwalkN` の `kstep` は `have __do_jp := fun r => …; body`（do 記法の join point）を zeta で本体に**コピー**していた。`handleDefinitionUnfold` は `if` / `match` / `try` が多く、join point（継続全体）が分岐ごとに複製され、開いたゴールが 311 個になり、1 つの定理の中でステップ数が爆発して `maxHeartbeats` に当たっていた（Dbg 計測: 400k で約 2400 step、4M で 2739 step 時点でゴール 311 個）。「whnf の timeout」は予算が尽きた場所にすぎず、特定の step が止まっていたのではない（最後の step を RUNTAC で確かめた: 通常の `refine KeepsCP.bind`）。
+**対処（Tac2 の変更、law なし）**: `__do_jp` で始まる `have` の値が lambda のとき、`∀ x̄, KeepsCP (v x̄)` を**1 回だけ**証明し、本体は join point を不透明な局所 `jp_n` とその事実 `hjp_n` で歩く。`.fvar` の呼び出しは同じ fvar についての仮説だけを使う。ほかに、(1) 標準エラーの対（Elab 6423-6425）を 1 単位の規則 `stderrPairCPk`（`stderrLine`）にする（bind の規則枠 `Bind.bind` を追加）、(2) `bindRead` は context の読みにだけ試す、(3) `Keeps` の `tryCatch` / `Except.rec` / early return の `throw`、(4) catch した `some ex` の `OkMsg`（`OkOpt (…, some ex).snd` から）。
+**新モジュール** `Tools/ShippingGen4KWalkLegacyH8a.lean`（BUILT）: `stderrPairCPk`（`eprintln` + `flushStderr` を `stderrLine` と `O.diag` で `Keeps` に）、`keepsK_msgToStringR`（`msgToString`、Elab 6605。memo の法は仮説 `MsgMvK`）、規則マクロ `kwAll2`（= `kwAll` + 上の 2 規則）。**`MsgMvK` は H8 で初めて使われ、H8 の型の仮説 `hmsg : MsgMvK O` として現れる**（これは指示どおりの唯一の新しい仮説）。`hchild`（`childSynthEntry` の `Keeps`）も仮説として取る形（A 版と同じ）。
+**ヒント**: `maxHeartbeats` は H8 で 4M（1M では不足。時間は 40 秒なので「押し切り」ではなく、join point の抽象後の通常のコスト）。
+
+台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
