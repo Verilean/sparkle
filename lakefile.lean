@@ -4949,3 +4949,9 @@ lean_lib «Tests.Gen4.KWalkDepthCheck» where
 
 lean_lib «Tools.ShippingGen4KWalkDiag» where
   roots := #[`Tools.ShippingGen4KWalkDiag]
+
+lean_lib «Tools.ShippingGen4KWalkLegacyArm» where
+  roots := #[`Tools.ShippingGen4KWalkLegacyArm]
+
+lean_lib «Tools.ShippingGen4KWalkLegacyInduct» where
+  roots := #[`Tools.ShippingGen4KWalkLegacyInduct]
