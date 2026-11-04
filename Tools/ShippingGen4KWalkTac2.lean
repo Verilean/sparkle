@@ -52,6 +52,7 @@ def ruleHead (t : Lean.Expr) : MetaM (Option Name) := do
 
 def runTac (stx : TSyntax `tactic) (sorryOk : Bool := false) : TacticM Bool := do
   let s ← saveState
+  let hb00 ← IO.getNumHeartbeats
   try
     -- (no error-to-`sorry` recovery: a failed nested `by …` must fail the step; a nested
     -- `by` with unsolved goals only LOGS an error, so a new logged error also fails it)
@@ -60,7 +61,7 @@ def runTac (stx : TSyntax `tactic) (sorryOk : Bool := false) : TacticM Bool := d
     if sorryOk then evalTactic stx else Term.withoutErrToSorry (evalTactic stx)
     if (← IO.getEnv "KWALK_DEBUG").isSome then
       let d := (← IO.getNumHeartbeats) - hb0
-      if d > 2000000 then logInfo m!"kwalk runTac hb {d}: {stx.raw.reprint.getD ""}"
+      if d > 300000 then logInfo m!"kwalk runTac hb {d}: {stx.raw.reprint.getD ""}"
     let msgs := (← Core.getMessageLog).toList.drop n0
     if msgs.any (·.severity == .error) then
       if (← IO.getEnv "KWALK_DEBUG").isSome then logInfo m!"kwalk runTac logged error: {← msgs.filter (·.severity == .error) |>.mapM (·.data.toString)}"
@@ -69,8 +70,24 @@ def runTac (stx : TSyntax `tactic) (sorryOk : Bool := false) : TacticM Bool := d
     return true
   catch ex =>
     s.restore
-    if (← IO.getEnv "KWALK_DEBUG").isSome then logInfo m!"kwalk runTac failed: {ex.toMessageData}"
+    if (← IO.getEnv "KWALK_DEBUG").isSome then
+      let d := (← IO.getNumHeartbeats) - hb00
+      let src := stx.raw.reprint.getD ""
+      let em := (← ex.toMessageData.toString).take 60
+      logInfo m!"kwalk runTac failed hb {d}: {src} :: {em}"
     return false
+
+/-- (rt177) `runTac` with a heartbeat budget of its own (a runaway try is reported and the step goes on). -/
+def runTacLim (stx : TSyntax `tactic) (lim : Nat) : TacticM Bool := do
+  let s ← saveState
+  tryCatchRuntimeEx
+    (withCurrHeartbeats <| withTheReader Core.Context (fun c => { c with maxHeartbeats := lim }) (runTac stx))
+    (fun ex => do
+      s.restore
+      if (← IO.getEnv "KWALK_DEBUG").isSome then
+        let em := (← ex.toMessageData.toString).take 100
+        logInfo m!"kwalk runTacLim exceeded {lim}: {em}"
+      return false)
 
 /-- (rt176) `apply rule <;> first | assumption | skip`, except that `assumption` is not tried on a LARGE new goal
 (`∀ …, KeepsCP (k x)` for a big continuation `k`): the defeq test of such a goal against a hypothesis such as `htr`
@@ -229,9 +246,15 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     else
       -- the `CompilerM` lifts of the A walker (law-free)
       if c == ``liftM || c == ``monadLift || c == ``MonadLiftT.monadLift then
-        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.liftIO ?_)) then return true
-        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.liftBaseIO ?_)) then return true
-        if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.liftM ?_)) then return true
+        -- (rt177) by the type of the lifted action (a failed `liftIO` / `liftBaseIO` try costs 4-7M heartbeats)
+        let xty := (← whnfR (← inferType p.appArg!)).consumeMData
+        let xh := xty.getAppFn.constName?.getD .anonymous
+        if (← IO.getEnv "KWALK_DEBUG").isSome then logInfo m!"kwalk lift xh {xh} :: {xty}"
+        let order : List Name :=
+          if xh == ``IO || xh == ``EIO then [`liftIO] else if xh == ``BaseIO then [`liftBaseIO] else if xh == ``Lean.Meta.MetaM then [`liftM] else [`liftM]
+        for lm in order do
+          let t := mkIdent (`Tools.ShippingChildWalkA.KeepsCP ++ lm)
+          if ← runTac (← `(tactic| refine $t ?_)) then return true
       if c == ``ST.Ref.get then
         if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.refGet ?_)) then return true
       if c == ``ST.Ref.set then
@@ -240,6 +263,13 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
         if ← runTac (← `(tactic| refine Tools.ShippingChildWalkA.KeepsCP.refModify ?_)) then return true
       if c == ``MonadReader.read || c == ``read || c == ``MonadReaderOf.read then
         if ← runTac (← `(tactic| exact Tools.ShippingChildWalkA.KeepsCP.read)) then return true
+    -- (rt177) `withLocalDecl n ty k`: a dedicated step (first-order unification of `n ty k` only; the continuation
+    -- goal is opened with `fun _ _ _ x => ?_`, so no `assumption`/defeq test is run against the large `k`)
+    if c == ``Sparkle.Compiler.Elab.CompilerM.withLocalDecl && !ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
+      let M := mkIdent `M; let hS := mkIdent `hS; let hA := mkIdent `hA
+      let wl := mkIdent `Tools.ShippingGen4KWalkLegacyH4.withLocalDeclPK
+      if ← runTacLim (← `(tactic| refine $wl $M $hS (by assumption) _ _ _ (fun _ _ _ x => ?_))) 300000000 then
+        return true
     -- a given rule for this head
     for (_, h, stx) in rules do
       if h == c then
@@ -249,8 +279,41 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     -- (the constructor and its `SideRefNM` / `LocalRefType` side goals found by `constructor`)
     if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
       let M := mkIdent `M; let hS := mkIdent `hS
-      if ← runTac (← `(tactic| exact Tools.ShippingGen4KWalkPrims.keepsK_framedNM $M (by assumption) $hS (by constructor <;> first | constructor | assumption))) then
-        return true
+      -- (rt177) the `FramedNM` constructors that can match this head, tried directly (no `constructor` search over all ~50)
+      let inner := if [``liftM, ``monadLift, ``MonadLiftT.monadLift, ``MonadLift.monadLift].contains c then p.appArg!.consumeMData else p
+      let ih := inner.getAppFn.constName?.getD .anonymous
+      let cands : List Name :=
+        if ih == ``ST.Ref.modifyGet then [`sideModifyGetIO, `sideModifyGet]
+        else if ih == ``ST.Ref.get then [`sideGetIO, `exprCacheGetIO, `localGetIO, `sideGet, `cacheGet, `synthGet, `depthGet, `exprCacheGet, `localGet]
+        else if ih == ``ST.Ref.set then [`sideSetIO, `localSetIO, `sideSet, `localSet]
+        else if ih == ``ST.Ref.modify then [`sideModifyIO, `localModifyIO, `sideModify, `localModify, `exprCacheModify]
+        else if ih == ``Lean.Meta.whnf then [`whnf]
+        else if ih == ``Lean.Meta.inferType then [`inferType]
+        else if ih == ``Lean.Meta.isClass? then [`isClass?]
+        else if ih == ``Lean.Meta.whnfUntil then [`whnfUntil]
+        else if ih == ``Lean.Meta.instantiateForall then [`instantiateForall]
+        else if ih == ``Lean.Meta.mkLambdaFVars then [`mkLambdaFVars]
+        else if ih == ``Lean.Meta.mkAppM then [`mkAppM]
+        else if ih == ``Lean.Meta.unfoldDefinition? then [`unfoldDefinition?]
+        else if ih == ``Lean.Meta.reduce then [`reduce]
+        else if ih == ``Lean.getConstInfo then [`constInfo]
+        else if ih == ``Lean.MonadEnv.getEnv || ih == ``Lean.getEnv then [`env]
+        else if ih == ``Lean.mkFreshFVarId then [`freshFVar]
+        else if ih == ``Lean.FVarId.throwUnknown then [`fvarThrowUnknown]
+        else if ih == ``IO.getEnv then [`ioEnv]
+        else if ih == ``IO.monoMsNow then [`monoMs]
+        else if ih == ``modifyTraceState then [`coreModifyTrace]
+        else if ih == ``IO.mkRef then [`localMk, `mkExprCache]
+        else []
+      for cn in cands do
+        let k := mkIdent (`Tools.Assume.MemoFamily.FramedNM ++ cn)
+        if ← runTac (← `(tactic| exact Tools.ShippingGen4KWalkPrims.keepsK_framedNM $M (by assumption) $hS (by apply $k <;> first | assumption | constructor))) then
+          return true
+      if cands.isEmpty then
+        if (← IO.getEnv "KWALK_DEBUG").isSome then logInfo m!"kwalk framed-fallback: head {c} inner {ih} p {p.approxDepth}"
+        if ← runTac (← `(tactic| exact Tools.ShippingGen4KWalkPrims.keepsK_framedNM $M (by assumption) $hS (by constructor <;> first | constructor | assumption))) then
+          if (← IO.getEnv "KWALK_DEBUG").isSome then logInfo m!"kwalk framed-fallback OK: {ih}"
+          return true
     -- a local hypothesis about this very head (a recursive call's induction hypothesis)
     for d in ← getLCtx do
       if d.isImplementationDetail then continue

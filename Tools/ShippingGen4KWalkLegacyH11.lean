@@ -58,7 +58,8 @@ variable {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hpp : PpMvK O) {
     ∀ c, Keeps mctx mref cctx cref I (childSynthEntry c))
 
 set_option hygiene false in
-macro "kwMain" : tactic => `(tactic| kwalkN [translateExprToWireAppK M hpp hS hmsg tr htr hchild hA _ _ _, getPrimK M hpp hS hmsg hA _, toIRK M hpp hS hmsg _ _ hA _, handleErrorPatternsK M hpp hS hA _ _ _ _ _, handleCircuitMonadK M hpp hS tr htr hA _ _ _ _ _, handleTupleProjectionsK M hpp hS tr htr hA _ _ _ _ _, handleApplicativeK M hpp hS tr htr hA _ _ _ _ _, handleBitVecOpsK M hpp hS tr htr hA _ _ _ _ _, handleRegisterK M hpp hS tr htr hA _ _ _ _ _, handleMuxK M hpp hS tr htr hA _ _ _ _ _, handleMemoryK M hpp hS tr htr hA _ _ _ _ _, handleLoopK M hpp hS tr htr hA _ _ _ _ _, handleDefinitionUnfoldK M hpp hS hmsg tr htr hchild hA _ _ _ _ _, stderrPairCPk M hS hA _ _, keepsK_msgToStringR M hS hmsg hA _ _, keepsK_addMessageContext M hA hS _, keepsK_ppExpr M hpp hS _ _,
+-- (rt177) the context's `AdmCtx` is found by `assumption` (after a `withLocalDecl` the newest `hA` is an inaccessible name, and `hA` named the OUTER one: the rule then failed to unify and the walk unfolded the callee)
+macro "kwMain" : tactic => `(tactic| kwalkN [translateExprToWireAppK M hpp hS hmsg tr htr hchild (by assumption) _ _ _, getPrimK M hpp hS hmsg (by assumption) _, toIRK M hpp hS hmsg _ _ (by assumption) _, handleErrorPatternsK M hpp hS (by assumption) _ _ _ _ _, handleCircuitMonadK M hpp hS tr htr (by assumption) _ _ _ _ _, handleTupleProjectionsK M hpp hS tr htr (by assumption) _ _ _ _ _, handleApplicativeK M hpp hS tr htr (by assumption) _ _ _ _ _, handleBitVecOpsK M hpp hS tr htr (by assumption) _ _ _ _ _, handleRegisterK M hpp hS tr htr (by assumption) _ _ _ _ _, handleMuxK M hpp hS tr htr (by assumption) _ _ _ _ _, handleMemoryK M hpp hS tr htr (by assumption) _ _ _ _ _, handleLoopK M hpp hS tr htr (by assumption) _ _ _ _ _, handleDefinitionUnfoldK M hpp hS hmsg tr htr hchild (by assumption) _ _ _ _ _, stderrPairCPk M hS (by assumption) _ _, keepsK_msgToStringR M hS hmsg (by assumption) _ _, keepsK_addMessageContext M (by assumption) hS _, keepsK_ppExpr M hpp hS _ _,
   keepsK_throwError M _ hS _ _, keepsK_getDecl M hpp hS _ _, Keeps.withReaderA (q := O.quiet) _ _,
   extractWidthK M hpp hS _ _, inferHWTypeK M hpp hS _ _, extractDimExprK M hpp hS _ _,
   inferHWTypeWithDimensionsK M hpp hS _ _, inferHWTypeFromSignalK M hpp hS _ _,
@@ -68,11 +69,11 @@ macro "kwMain" : tactic => `(tactic| kwalkN [translateExprToWireAppK M hpp hS hm
   lowerZeroExtendWireK M hpp hS _ _ _ _ _,
   isTracingEnabledFor_keepsK M hpp hS _ _, addTrace_keepsK M hpp hS _ _ _,
   snapshotWireCaches_keepsK M hpp hS _, restoreWireCaches_keepsK M hpp hS _ _,
-  makeWirePK M hA hS, addInputPK M hA hS, addOutputPK M hA hS, emitAssignP, bindSourceVariableP, lookupVarP,
-  emitRegisterStmtA, emitRegisterK M hA hS, emitMemoryK M hA hS, freshNameA, emitInstanceA,
-  canonHardwareKeyK M hA hS _, withLocalDeclPK M hS hA _ _ _, withLetDeclPK M hS hA _ _ _ _, M.tele.telescope I _ hS.1 hS.2 _ _,
+  makeWirePK M (by assumption) hS, addInputPK M (by assumption) hS, addOutputPK M (by assumption) hS, emitAssignP, bindSourceVariableP, lookupVarP,
+  emitRegisterStmtA, emitRegisterK M (by assumption) hS, emitMemoryK M (by assumption) hS, freshNameA, emitInstanceA,
+  canonHardwareKeyK M (by assumption) hS _, withLocalDeclPK M hS (by assumption) _ _ _, withLetDeclPK M hS (by assumption) _ _ _ _, M.tele.telescope I _ hS.1 hS.2 _ _,
   addModuleToDesignA, withVarMappingP, withDimVarMappingP, KeepsCP.tryCatch, KeepsCP.map _,
-  keepsK_framedNM M hA hS (FramedNM.freshFVar (Fresh := MkRefd))])
+  keepsK_framedNM M (by assumption) hS (FramedNM.freshFVar (Fresh := MkRefd))])
 
 
 
