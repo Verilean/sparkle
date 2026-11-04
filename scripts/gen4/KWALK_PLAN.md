@@ -245,3 +245,7 @@ memo の使用箇所（`Elab.lean`、`grep` で数えた）: 読み取り 5335 /
 **ヒント**: `maxHeartbeats` は H8 で 4M（1M では不足。時間は 40 秒なので「押し切り」ではなく、join point の抽象後の通常のコスト）。
 
 台帳: FG 91 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+**ChildEntryK の形（rt175 で決めた）**: 仮説として足さない。A 版と同じく **`hchild`（= `ChildEntryK O I`）を取る形**で handler と本体を証明する（`handleDefinitionUnfoldK` は `hchild` を取る、H9 / H10 も同じ）。最後に `LegacyImplK` を `∀ D ≠ 0, ChildEntryK O (KWD O MemoKeysInChild D) → LegacyImplK O (KWD O MemoKeysInChild D)`（= `LegacyImplK'`）として立て、`Induct` の `child_stepL` / `topEntry_KL` の中で、`hEntry`（`IH` から `tripleK_synthGet` で作る `ChildEntryK`）を `hImpl` に渡す形に書き換えた版で深さ帰納を閉じる。`child_stepL` はすでに `hEntry` を `IH` から作ってから `hImpl (D+1)` を使うので、`hImpl` に `hEntry` を渡せば循環しない（次の rt）。
+
+**H9**（`Tools/ShippingGen4KWalkLegacyH9.lean`）: `normSpineK`（`fuel` の帰納）、`translateExprToWireAppK`（9 つの handler を規則として歩く）。`withTransparency` は kstep の「lambda になった Meta.Context の更新」規則（`Keeps.withReaderA`）で通る。`profHandler`（private）も unfold で歩けた。
