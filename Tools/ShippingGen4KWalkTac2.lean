@@ -268,7 +268,7 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     if c == ``Sparkle.Compiler.Elab.CompilerM.withLocalDecl && !ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
       let M := mkIdent `M; let hS := mkIdent `hS; let hA := mkIdent `hA
       let wl := mkIdent `Tools.ShippingGen4KWalkLegacyH4.withLocalDeclPK
-      if ← runTacLim (← `(tactic| refine $wl $M $hS (by assumption) _ _ _ (fun _ _ _ x => ?_))) 300000000 then
+      if ← runTacLim (← `(tactic| refine $wl $M $hS (by assumption) _ _ _ (fun _ _ _ x => ?_))) 100000000 then
         return true
     -- a given rule for this head
     for (_, h, stx) in rules do

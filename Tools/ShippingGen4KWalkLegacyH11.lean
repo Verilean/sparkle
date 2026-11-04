@@ -45,7 +45,7 @@ open Tools.ShippingGen4KWalkTranslate
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-set_option maxHeartbeats 4000000
+set_option maxHeartbeats 400000
 set_option linter.unusedSectionVars false
 
 
