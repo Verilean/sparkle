@@ -1139,3 +1139,13 @@ reviewer の承認で、次の行を除く。
 | B.F-4 の hS→hQ 橋（Issue sparkle-gen4-fallback-supply、調査 d2ac5d60、scratch e2186f49） | B.F-4（−1） | `hS_ifaceOf` と `firstLeaf_childRunN`（`Tools/ShippingGen4FbHsq.lean`、66d13eef、par/fb-hsq。base は d2ac5d60 と gate U-GC1 482ae0c9 の局所 merge b5a4c681）。`hS` は gate 側の `f.ifaceOf.S` について `gateS_get0` から導出され、FB-22 の `synthesizeCombinational_fragment_childRunN` に `RealChildA` の実 run と `EntryDefines` を渡して `ChildRunN … (f.ifaceOf.S i)` を得る。仮説は `RealChildA`、`EntryDefines` だけ。exact-head `fbhsqv-66d13eef` exit 0（821 jobs、dirty=false、ancestry_verified=true）、Check: TYPE 2 / MUTANT 8（型差分検査で意味的反例ではない）/ AXIOMS 2 標準のみ / controls 4 / REACH 2 / sorry 0。reviewer 承認 | first-gate fragment（`FirstLeaf`）の範囲だけ。`hQ : Q f.decl = some f.ifaceOf` は既存行 B.G-9（数は動かさない）。新しい前提 0。B.F-8（legacy / memo）と非 fragment の `hno`（D.E-12 の非 machine 分）は未解決 |
 
 - **現在値: FG 91**（92 − 1）。T1 は 57。
+
+### 12.11 減算（2026-11-05、coder。文書のみ。非リーフの除去で、リーフは動かない）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| HORD_RUN 候補 1（Issue sparkle-ledger-hord-run、freeze `scripts/gen5/HORD_RUN_FREEZE.md`、ユーザー判断 2026-11-05「候補 C を先行」） | A.P-26（−1）、C.CR-1（−1） | `closingShared_of_runR`・`closingRun0_of_runR`・`closingRun_of_runR`・`closingRun_of_run_gaR`・`ClosingPremisesR`（`Tools/ShippingGen5ClosingRun3.lean`、bb050d37、par/hord-run、base f5de62a0 = par/aud-ua4-hrowfree）。結論は旧定理と同じで、全パッケージ上の `hord` / `hrow` を取らない。run の `RunReadsAt.shapeEq` に hrow-gate の `machineShape?_noMemRow` を当てて、当該 `p` の `hord` を証明の中で出す（`hord_of_runReadsAt`）。exact-head `hrb2-bb050d37` exit 0（769 jobs、source=base=end、dirty なし）。Check: TYPE 6（+ 旧の文 4 本の対照）/ MUTANT 9 / BINDERS 4 + FIELDS 1 / REACH 6 / AXIOMS 7 は標準のみ。reviewer 承認（bca5746e） | 新しい前提 0。T1L-04 は T1 側で除去済み（§12.6 の多対一、2 行 → 1 行）。`hGen`（C.CR-2）、非空虚性、depth0 `stop` は残る。共有 tree への統合（hrow-gate と aud-ua4-hrowfree の merge、ユーザー）後に確認する |
+| 同（A.P-24） | A.P-24（−1、B.F-1・C.CR-3・C.AC-8 を統合済みの行） | `ihKI_of_rows`・`closingRun0_of_runT1`・`closingRun_of_runT1`（`Tools/ShippingGen5ClosingRun4.lean`、bb050d37）。`ih_allPF` に `keepChild_proved`・`limitStmt_proved`・`servedShips0_run`・`postFacts_of_run` を渡し、`hIH` / `hKI` を T1 の行 `T1Hyp`（`dec` = T1L-09 は既に A.P-17）・`hrows`（T1L-05）・`hStep`（T1L-03）で置き換える。同じ build。Check: TYPE 3 / MUTANT 5 / BINDERS 2 / AXIOMS 3。reviewer 承認: `hrows` / `hStep` は T1 台帳の既存の行なので、A.P-22（§12.7）と同じ規則で FG に重ねて数えない | 新しい FG 前提 0。T1 の数は変わらない（57） |
+
+- **現在値: FG 88**（91 − 3）。内訳（R0）: リーフ 62 / 非リーフ 26（§12.7 の 63 / 29 から、§12.8〜12.10 はリーフだけを動かした）。T1 は 57。
+- これは重ねて数えていた非リーフの行の除去で、証明の進捗（リーフ）ではない。FG の最終受理でもない。
