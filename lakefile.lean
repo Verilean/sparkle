@@ -6276,3 +6276,38 @@ lean_lib «Tools.ShippingGen5PConnect» where
 lean_lib «Tests.Gen5.ParamGen5Check» where
   roots := #[`Tests.Gen5.ParamGen5Check]
 
+
+-- FG circuit pilot (S1): CVEKV carrier cherry-picked from par/dd4-int fe106963 (files unchanged), plus the pilot modules
+lean_lib «Tools.ShippingGen5ConstValueE» where
+  roots := #[`Tools.ShippingGen5ConstValueE]
+
+lean_lib «Tools.ShippingGen5ConstValueELS» where
+  roots := #[`Tools.ShippingGen5ConstValueELS]
+
+lean_lib «Tools.ShippingGen5ConstValueESound» where
+  roots := #[`Tools.ShippingGen5ConstValueESound]
+
+lean_lib «Tools.ShippingGen5ConstValueEKey» where
+  roots := #[`Tools.ShippingGen5ConstValueEKey]
+
+lean_lib «Tools.ShippingGen5ConstValueESoundK» where
+  roots := #[`Tools.ShippingGen5ConstValueESoundK]
+
+lean_lib «Tools.ShippingGen5ConstValueES» where
+  roots := #[`Tools.ShippingGen5ConstValueES]
+
+lean_lib «Tools.ShippingGen5ConstValueESProof» where
+  roots := #[`Tools.ShippingGen5ConstValueESProof]
+
+lean_lib «Tools.ShippingGen5ConstValueEV» where
+  roots := #[`Tools.ShippingGen5ConstValueEV]
+
+lean_lib «Tools.ShippingFGCircuit» where
+  roots := #[`Tools.ShippingFGCircuit]
+
+lean_lib «Tools.ShippingFGCircuitRoots» where
+  roots := #[`Tools.ShippingFGCircuitRoots]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck]
+
