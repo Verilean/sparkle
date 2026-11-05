@@ -563,4 +563,80 @@ theorem cveks_subst {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env)
 
 end
 
+
+/-! ## §5 P1: `OblDenLits` / `OblDenBvar` / `OblDenSubst`, and `OblDenTyped` for the syntactic carrier -/
+
+/-- Valuation well-formedness: each entry's (lifted) type denotes the entry's semantic type, in the valuation itself. Empty valuations are well-formed. -/
+def WfValS (PT : PrimTableK) (env : Environment) (ρ : Val) : Prop :=
+  ∀ (i : Nat) (en : Entry), ρ[i]? = some en → TDenS PT env ρ (liftS en.τ 0 (i + 1)) en.d.ty
+
+theorem wfValS_nil (PT : PrimTableK) (env : Environment) : WfValS PT env [] := by
+  intro i en h; simp at h
+
+/-- Extension by a binder whose type denotes `TA` keeps the valuation well-formed (uses weakening). -/
+theorem wfValS_cons {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {ρ : Val} (hρ : WfValS PT env ρ)
+    {A : Expr} {TA : Type} (hA : TDenS PT env ρ A TA) (a : TA) : WfValS PT env (⟨A, ⟨TA, a⟩⟩ :: ρ) := by
+  intro i en h
+  cases i with
+  | zero =>
+    simp at h; subst h
+    exact tdens_wk hcl (InsV.here ρ (E := ⟨A, ⟨TA, a⟩⟩)) hA
+  | succ j =>
+    simp at h
+    have := tdens_wk hcl (InsV.here ρ (E := ⟨A, ⟨TA, a⟩⟩)) (hρ j en h)
+    rwa [liftS_liftS_add _ 0 0 (j + 1) 1 (Nat.le_refl _) (by omega)] at this
+
+/-- `OblDenBvar` (reviewer P1): for a well-formed valuation the `bvar` label denotes the entry's type. (Not for arbitrary valuations: an entry with a junk `τ` has none.) -/
+def OblDenBvarS (PT : PrimTableK) (env : Environment) : Prop :=
+  ∀ (ρ : Val) (i : Nat) (en : Entry), WfValS PT env ρ → ρ[i]? = some en → TDenS PT env ρ (liftS en.τ 0 (i + 1)) en.d.ty
+
+theorem oblDenBvarS (PT : PrimTableK) (env : Environment) : OblDenBvarS PT env := fun _ _ _ hρ h => hρ _ _ h
+
+/-- `OblDenLits`, as a lemma about rows (a condition on `PT`, so it is the premises): a nullary type row whose value is `T` denotes the constant. -/
+theorem tden_const_nullary {PT : PrimTableK} {env : Environment} {c : Name} {ls : List Level} {row : TyRow} {T : Type}
+    (hrow : PT.tys c ls = some row) (hnd : ¬ IsDefn env c) (hk : row.kinds = []) (hT : row.den [] = some T) (ρ : Val) :
+    TDenS PT env ρ (.const c ls) T :=
+  .tcon (args := []) (as := []) hrow hnd (by rw [hk]; exact .nil) hT rfl
+
+theorem oblDenLits_of_rows {PT : PrimTableK} {env : Environment} {rn rs : TyRow}
+    (hn : PT.tys `Nat [] = some rn) (hnnd : ¬ IsDefn env `Nat) (hnk : rn.kinds = []) (hnT : rn.den [] = some Nat)
+    (hs : PT.tys `String [] = some rs) (hsnd : ¬ IsDefn env `String) (hsk : rs.kinds = []) (hsT : rs.den [] = some String) :
+    (∀ ρ : Val, TDenS PT env ρ (.const `Nat []) Nat) ∧ (∀ ρ : Val, TDenS PT env ρ (.const `String []) String) :=
+  ⟨tden_const_nullary hn hnnd hnk hnT, tden_const_nullary hs hsnd hsk hsT⟩
+
+/-- `OblDenSubst`, general form (all `x`): NOT proved for the carrier. The restricted form for `SafeArg x` is `oblDenSubstS_safe`. -/
+def OblDenSubstS (PT : PrimTableK) (env : Environment) : Prop :=
+  ∀ (ρ : Val) (A B x : Expr) (TA : Type) (T : Type) (av : TA),
+    TDenS PT env (⟨A, ⟨TA, av⟩⟩ :: ρ) B T → CVEKS PT env ρ x A TA av → TDenS PT env ρ (substS B 0 x) T
+
+/-- `OblDenSubst`, proved for an argument that is not a `lam`, not a `forallE` and not const-headed (`SafeArg`). -/
+theorem oblDenSubstS_safe {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {ρ : Val} {A B x : Expr} {TA T : Type} {av : TA}
+    (hx : SafeArg x) (hB : TDenS PT env (⟨A, ⟨TA, av⟩⟩ :: ρ) B T) (hv : CVEKS PT env ρ x A TA av) : TDenS PT env ρ (substS B 0 x) T :=
+  tdens_subst hcl hx (SubV.here ρ hv) hB
+
+/-- `OblDenTyped` for the syntactic carrier: for every well-formed valuation, a derivation's syntactic type denotes its semantic type. -/
+def OblDenTypedS (PT : PrimTableK) (env : Environment) : Prop :=
+  ∀ (ρ : Val) (e τ : Expr) (α : Type) (v : α), WfValS PT env ρ → CVEKS PT env ρ e τ α v → TDenS PT env ρ τ α
+
+/-- All eight rules closed. The premises are the named, unresolved items: the two literal rows (`OblDenLits`, a condition on `PT`), `EnvClosedS` (a bridge on `instantiateLevelParams`),
+and `OblDenSubstS` for `app` / `letE` (proved only for `SafeArg` arguments, `oblDenSubstS_safe`). `bvar` uses well-formedness; `lam` / `prim` / `unfold` need nothing else. -/
+theorem denTypedS_aux {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env)
+    (hN : ∀ ρ : Val, TDenS PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenS PT env ρ (.const `String []) String)
+    (hsub : OblDenSubstS PT env) {ρ : Val} {e τ : Expr} {α : Type} {v : α} (hρ : WfValS PT env ρ) (h : CVEKS PT env ρ e τ α v) :
+    TDenS PT env ρ τ α :=
+  match h with
+  | .natLit => hN ρ
+  | .strLit => hS ρ
+  | .bvar h1 => hρ _ _ h1
+  | .lam hA TB f a0 hb => .pi hA TB fun a => denTypedS_aux hcl hN hS hsub (wfValS_cons hcl hρ hA a) (hb a)
+  | CVEKS.app (av := av) TB hA hB hf hx hnh => hsub _ _ _ _ _ _ _ (hB av) hx
+  | .letE (av := av) hA hv hb => hsub _ _ _ _ _ _ _ (denTypedS_aux hcl hN hS hsub (wfValS_cons hcl hρ hA av) hb) hv
+  | .unfold hd hb he => denTypedS_aux hcl hN hS hsub hρ hb
+  | .prim hci hrow hnd hargs hd hty he => hty
+
+theorem denTypedS {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env)
+    (hN : ∀ ρ : Val, TDenS PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenS PT env ρ (.const `String []) String)
+    (hsub : OblDenSubstS PT env) : OblDenTypedS PT env :=
+  fun _ _ _ _ _ hρ h => denTypedS_aux hcl hN hS hsub hρ h
+
 end Tools.ShippingGen5ConstValueES
