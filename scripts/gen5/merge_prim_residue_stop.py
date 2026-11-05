@@ -8,6 +8,7 @@ rp = sys.argv[1]; repo = sys.argv[2] if len(sys.argv) > 2 else "."
 def tsv(f): return [l.rstrip("\n").split("\t") for l in open(os.path.join(repo, "scripts/gen5", f))]
 rows = {(r[0], r[2]) for r in tsv("ptcorpus_keys.tsv")} | {(r[0], r[2]) for r in tsv("ptcorpus_closure.tsv")}
 miss = {(r[0], r[2]): r[3] for r in tsv("ptcorpus_missing.tsv")}
+rows -= set(miss)   # ptcorpus_keys.tsv lists all 204 K1 keys; a row exists only if the key is not in the missing list
 def short(w):
     for a, b in [("binder above", "binder above Type 0"), ("constant not in", "corpus declaration"), ("inductive family", "family not Type 0"),
                  ("proof binder", "proof binder"), ("recursor", "recursor"), ("result type", "result above Type 0")]:

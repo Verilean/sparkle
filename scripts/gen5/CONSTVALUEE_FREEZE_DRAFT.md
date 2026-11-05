@@ -758,3 +758,47 @@ reviewer の方針: PT を全称のままにせず具体的な PTcorpus へ進�
 - `PTcorpus` の採用、G-PRIM、TRUSTED、台帳の減算、最終保証。K1 の 204 key 以外の残余（`PRIM_RESIDUE_FULL.md` の 379 定数のうち 175 は未着手）。
 - `PTlit` の反駁が実際の `EntryWitness` などの充足可能性を含むこと。導出がないことの meta 評価は env の事実の監査であり、kernel の証明はその含意の側だけ。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §Stop: Signal の primitive で展開を止めたときの残余（Issue `sparkle-ledger-dd4-final` Q-A、土台 bc4e180f）
+
+測定だけ。設計の判断（G-PRIM / TRUSTED / carrier 拡張）は reviewer。TRUSTED・axiom・sorry・native_decide なし、定理なし。既存の `PrimResidueKey*` は変えていない。
+
+### 1. 測り方
+- `Tests/Gen5/PrimResidueStopLib.lean`（共有の meta）、driver `PrimResidueStop`（43 module）、`PrimResidueStopM1..M4`（隔離した 4 module）、`PrimResidueStopSig`（`Tests.SignalLoopTest` の 3 root。corpus の root ではない）。集計は `scripts/gen5/merge_prim_residue_stop.py`（`ptcorpus_{keys,missing}.tsv` で key を分類）。
+- 走査は `PrimResidueKey` と同じ（root = `machine_source` / `machine_sound` のある定義、`(c, ls)` を level 付きで展開、証明項は入らない、残余 = defn / thm 以外）。違いは停止集合だけ: 名前が `Sparkle.Core.Signal` の下にある **defn**（`Sparkle/Core/Signal.lean` の全 defn: `Signal.loop` / `register` / `mux` / `map` / `ap` / `pure` / `beq` / `memory` / `fst` / `snd` / `bundle2` / 演算子の instance ほか）に到達したら、その `(c, ls)` を記録して本体は展開しない。各 root を停止なし（= 今と同じ）と停止ありの 2 通りで測る。
+- fuel 400000。どちらの mode でも worklist が残れば `throwError`（部分結果なし）。負対照 `#prim_residue_stop_neg 50` は失敗することを確認（build 内で ok）。47/47 module（main43 + M1..M4。transitive import の root を含めて 48 module）、root 名 235（(root, module) の組 420）。
+- 生データ: `$KJOB_REPORT_PATH.stopkey.* / .stoppedrows.* / .stoproots.* / .stopreach.*`（tag = main43, M1..M4, Sig）と集計 `$KJOB_REPORT_PATH.stopmerge.txt`。
+
+### 2. 結果: corpus 全体（235 root 名の和集合）
+| | 停止なし | 停止あり | 差 |
+|---|---|---|---|
+| 残余 key | 204 | 201 | −3 |
+| 再帰子 | 15 | 15 | 0（同じ 15 key） |
+| 行がない key | 106 | 104 | −2 |
+| うち Type 0 に入らない束縛（binder above 25 + proof 6 + result above 4 + family 5） | 40 | 38 | −2（`Int.NonNeg` 族、結果が Type 0 外の ctor） |
+| うち corpus の宣言 key | 51 | 51 | 0 |
+| 行がある key | 98 | 97 | −1 |
+- 消えた 3 key は `Int.NonNeg`、`Int.NonNeg.mk`、`Signal.mk`（ctor）だけ。増えた key は 0。
+- root ごと: 再帰子に到達する root は 232 → 224（/235）、行がない key を持つ root は 232 → 224、1 root あたりの残余の最大は 136 → 112、行がない key の最大は 51 → 46。全 root が Signal の primitive のどれかで止まる（235/235）。
+- 停止した primitive は distinct `(name, ls)` で 39（corpus）。
+
+### 3. 3 つの Signal root（`Tests.SignalLoopTest`）
+| root | 到達 停止なし → あり | 行がない 停止なし → あり | 再帰子 |
+|---|---|---|---|
+| counterLoop | 75 → 59 | 29 → 20 | 9 → 9（`Bool.rec`×2、`Decidable.rec`、`Eq.rec`、`False.rec`×2、`Nat.le.rec`、`Nat.rec`×2） |
+| shift4Loop | 59 → 57 | 20 → 20 | 9 → 9 |
+| counterEnableLoop | 75 → 59 | 29 → 20 | 9 → 9 |
+- 消えたのは `Functor` / `Applicative` / `Pure` / `Seq` / `SeqLeft` / `SeqRight` の型と `.mk`（Type 0 に入らない束縛 9 → 0）と、`Signal` / `Signal.mk` など行がある key。
+- **残るもの**: 再帰子 9 key（`Bool.rec[0,1]`、`Decidable.rec[1]`、`Eq.rec[0,1]`、`False.rec[0,1]`、`Nat.le.rec[]`、`Nat.rec[1,2]`）は停止しても 1 つも減らない。ほかに証明の束縛 6（`Fin.mk`、`Decidable.isTrue/isFalse`、`Nat.le.step`、`HEq`、`HEq.refl`）、結果が Type 0 外 2、族が Type 0 外 3（`Eq`、`Nat.le`、`False` ほか）。行がない 20 key はすべてこの種類。
+- 再帰子が Signal の本体の外（root 本体と、停止しない `BitVec` / `Decidable` / `Nat` の定義）から来ることを示唆するが、**どの定義から来たかは追跡していない**（未測定）。
+
+### 4. 停止した primitive の型は `Dyn`（Type 0）に入るか
+宣言型を `ls` で具体化し、束縛がすべて `Type` か `Type 0` の型の項、結果が `Type` か `Type 0` の型の項、を検査（proof 束縛・`Type → Type` のような束縛は NO）。対照: `Nat.rec`・`Functor.map`・`Fin.mk` は NO、`Nat.succ` は YES（build 内で確認）。
+- **39 のうち 37 が YES**: `Signal.loop` `register` `mux` `map` `ap` `pure` `beq` `lit` `memory` `memoryComboRead` `fst` `snd` `proj3_*` `ashr` `slt` `ult` `bundle2` `bundle3` と instance 21 件（`HAdd` `HAnd` `HOr` `HXor` `HMul` `HSub` `HShift*` `HAppend` `Neg` `Complement`）。3 つの Signal root で停止した 5（`register` `loop` `mux` `pure` `instHAddSignalBitVec`）も YES。
+- **NO は 2**: `instFunctorSignal` と `instApplicativeSignal`（結果が `Functor (Signal dom)` / `Applicative (Signal dom)` ＝ `Type 1`）。この 2 つの行は `Dyn` に入らない。ただし停止すると `Functor` / `Applicative` の型と `.mk` の key は残余から消える（上の 9 → 0）。
+- 注意: これは宣言型が `Dyn` に入るか（行の型の側）の検査であり、`RowTypedAtV` / `RowTeleEvAt` が証明できるかは測っていない。
+
+### 5. 主張しないこと
+- 停止集合の採用、G-PRIM、TRUSTED、台帳の減算。停止集合は `Sparkle.Core.Signal` の全 defn（名前で決めた）で、より狭い集合は測っていない。
+- 再帰子の出所の特定。再帰子 15 key は停止で 1 つも減らなかった、という事実だけ。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
