@@ -31,8 +31,10 @@ partial def walkPos (old new : Expr) (skip : Option Nat) (i : Nat := 0) : MetaM 
   | _, _ => return old == new
 
 /-- Opens G's telescope; walks R's, substituting `GP := gpTerm xs` (or a fresh local when `subst = false`). -/
+abbrev Res := List Name × List Name × List Name × Bool × Bool
+
 partial def walkR (gFvars : Array (Name × BinderInfo × Expr × Expr)) (gpTerm : Expr) (subst : Bool) :
-    Expr → List Name → List Name → (Expr → List Name → List Name → MetaM α) → MetaM α
+    Expr → List Name → List Name → (Expr → List Name → List Name → MetaM Res) → MetaM Res
   | .forallE n d b bi, rm, ch, k =>
     if n == `GP then
       if subst then walkR gFvars gpTerm subst (b.instantiate1 gpTerm) (rm ++ [n]) ch k
@@ -45,7 +47,7 @@ partial def walkR (gFvars : Array (Name × BinderInfo × Expr × Expr)) (gpTerm 
   | body, rm, ch, k => k body rm ch
 
 /-- Runs the comparison; returns (removed, added, changed, first conjunct ==, inner result for `skip`). -/
-def compare (subst : Bool) (skip : Option Nat) : MetaM (List Name × List Name × List Name × Bool × Bool) := do
+def compare (subst : Bool) (skip : Option Nat) : MetaM Res := do
   let r ← unfoldDefinition (mkConst ``Tools.ShippingGenFGLedgerPremises.FGLedgerPremisesStmtR)
   let g ← unfoldDefinition (mkConst ``Tools.ShippingGenFGLedgerPremises.FGLedgerPremisesStmtG)
   let rNames ← forallTelescope r fun xs _ => xs.toList.mapM fun x => return (← x.fvarId!.getDecl).userName
