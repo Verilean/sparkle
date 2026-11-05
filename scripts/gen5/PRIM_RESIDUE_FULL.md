@@ -1,7 +1,73 @@
 # 残余の全コーパス測定と、再帰子の iota 規則化（D.D-4、Issue sparkle-ledger-dd4-res）
 
-土台 c63f2284（par/cvtop）。**G-PRIM は未承認。TRUSTED・axiom・仮定は入れていない。** 測定だけ。判断は reviewer。生データは KJOB_REPORT_PATH 側（`*.full.consts` / `*.full.roots` / `*.full.recsites` / `*.full.unresolved` / `*.iota` / `*.iotaprobe`）。ソースツリーには置いていない。
-測定用の meta: `Tests/Gen5/PrimResidueFull.lean`（build ok）、`Tests/Gen5/IotaStudy.lean`（build ok）。型の草案: `Tools/ShippingGen5IotaDraft.lean`（型だけ、build ok、定理なし）。`Tests/Gen5/PrimResidueCount.lean` は変更していない。
+土台 feb02bdf（par/dres、3 回目の改訂）。**G-PRIM / TRUSTED は未承認。axiom・仮定・sorry・native_decide は入れていない。** 測定だけ。判断は reviewer。生データは KJOB_REPORT_PATH 側（`res3/s0..s3/raw/*`（per-file）、`res3/agg*.json|tsv`、`res3/probe/*`）。ソースツリーには置いていない。
+測定の道具（すべて build ok）: `Tests/Gen5/PrimResidueLib.lean`（環境に依らない走査）、`scripts/gen5/prim_residue_dyn.sh`（ファイルごとに standalone で `lean` を実行して走査）、`scripts/gen5/prim_residue_agg.py`（集計）、`Tests/Gen5/IotaStudy.lean` と `scripts/gen5/iota_probe_batch.sh` / `iota_probe_agg.py`（iota の probe）、`scripts/gen5/lists/shard_*`（走査の対象ファイル一覧）。型の草案: `Tools/ShippingGen5IotaDraft.lean`（型だけ、定理なし）。
+
+## 0. 最終の数（3 回目の改訂。以降の §1〜§2.5、§3 は 2 回目までの AllTests 環境の測定で、**この節が優先する**）
+
+### 0.1 完了条件の範囲と分類
+
+完了条件は「**全成功コンパイルの残余全件**」。「成功したコンパイル」の定義: 合成コマンド（`run.sh` と同じ grep: `#synthesizeVerilog` `#writeDesign` `#writeVerilogDesign` `#synthesizeVerilogDesign` `#synthesize ` `synthesizeCombinational` `synthesizeHierarchical`）を含む 496 ファイル（と target-only の 1 ファイル）を、**1 ファイルごとに別プロセスの `lean FILE`（SPARKLE_PROFILE=1、timeout 900）で実行し、終了コード 0 だったもの**（その中でコンパイラのプロファイルログに出た宣言が root）。環境を 1 つにまとめる必要がないので、AllTests と衝突するモジュール（`Tests.SynthesisTests`、`Tests.Synthesis.SynthCatalog` など）も測れた。
+
+| 分類 | ファイル数 | 扱い | 根拠 |
+|---|---|---|---|
+| 実行が成功（rc 0）、AllTests の import 閉包の中 | 249 | **測った** | `Tests.AllTests` の import の推移的閉包（1253 モジュール）に含まれる |
+| 実行が成功（rc 0）、閉包の外 | 219（target-only の `MemNameCollisionGenTest` 1 を含む） | **測った**（別環境にできない対象を含む。各ファイルが自分の環境） | 同上の閉包に入らないが standalone で成功した |
+| target-only roots（`target_only_roots.txt` の 2 つ） | 2（`DesignTest` は 496 の中、`GenTest` は一覧に無く追加で実行。どちらも rc 0） | **測った** | `Tests.Compiler.MemNameCollisionGenTest` と `…DesignTest`。root は同名の 1 個（`SparkleMem.sync.4.8`）。残余は他に既にあるものに含まれ、定数は増えない |
+| import する olean がない（`Tests/Gen5/*Check` 16 ファイル） | 16 | **範囲外** | 先頭行で失敗（`object file … does not exist`）。コンパイラは走っていない。合成コマンドの語は説明文・補題の文字列に出るだけで、lean_lib に build できる対象ではない |
+| 実行が失敗（構文エラー、型エラー、`Cannot synthesise …`、検査の失敗、abort rc 134）| 13 | **範囲外** | コンパイルが成功していない。内訳: 構文エラー（`circuit` トークン 3。末尾が `unexpected token '#'` の 2 は、走査コマンドを末尾に足したことによる可能性があり原因は未調査）、型エラー 1（`Examples.VectorTest`）、`Cannot synthesise Sparkle.Core.runCircuitH: not inlinable`（`DeepElabReifyDemo`）、`omega` の失敗（`VerifyElabDemo`）、`Unknown identifier current`（`VerifyVerilog`、build 不通と同じ）、自分の検査の失敗（`SingleOutStaleProbe`、`ConeSharingPremises`）、abort（`ShippingMachineEntryTest` rc 134）、走査ライブラリ自身の再宣言（`PrimResidueLib`） |
+| legacy ルートの成功経路 | 上の rc 0 のファイルの中 | **測った**（root として数えた、§0.2） | プロファイルログに legacy と出た宣言を root にした。legacy の root は 396 個（うち certified の印のない legacy だけの root 248） |
+
+- ファイル総数 497（496 + target-only の `GenTest` 1）。rc 0 は 468、非成功 29（olean なし 16 + 失敗 13）。非成功 29 は**成功コンパイルでないので範囲外**で、その root は数えていない（走査が途中まで出した root があるファイルも数えない: `AGG_ALL=1` で数えると root 1402、定数 381 で、差は 33 root・2 定数）。
+- 「root」= そのファイルの実行でコンパイラのプロファイルログに出た宣言（front-end の dispatch を過ぎたもの）＋そのファイル内の route 印付き / `@[hardware_module]` の定義。ログには**子の宣言・補助の定義も出る**（出力構造体の射影 `X.Out.field`、`match_1`、`List.brecOn` など。legacy だけの 248 個にそれが含まれる）ので、root 数は「モジュールのトップ」の数ではなく「コンパイラが処理した宣言」の数。
+
+### 0.2 件数
+
+| 項目 | 値 |
+|---|---|
+| 測定したファイル（= module）| **468**（rc 0、うち AllTests 閉包内 249、閉包外 219。target-only 2 を含む） |
+| root（異なる宣言）| **1369**（certified front-end（S0 / mixed / machine / gate / design）の印を持つもの 1119、legacy だけ 248、印のみ 2） |
+| 残余の定数（異なる）| **379** = コンストラクタ 190 + 型の基本形 177 + 再帰子 12 |
+| ライブラリ（core / Sparkle.Core）| 142、ユーザー定義 237（宣言ごとの構造体、Tests / Examples / IP / local） |
+| quot / opaque / extern / axiom | 0 |
+| 再帰子 12 | `Bool.rec` `Decidable.rec` `Eq.rec` `Nat.rec` `False.rec` `Nat.le.rec` `BitVec.rec` `List.rec` `PSigma.rec` `Int.rec` `Prod.rec` + **`Sparkle.IP.BitNet.ArchMode.rec`（ユーザー定義、2 root、legacy だけの root）**。これまでの「ライブラリ 11」は閉じていなかった |
+| 部分適用された残余 | `Signal`（902 箇所、全適用 41534）と `Prod.mk`（1 箇所）。再帰子の部分適用は 0 |
+| 再帰子の箇所（主前提） | 3004 箇所すべて `bvar:def-parameter`（定義自身の仮引数）。コンストラクタの形の主前提は定義の中に出ない |
+| 1 root あたりの残余 | 最小 2、中央値 71、最大 148 |
+
+**範囲ごとの残余の和集合**: certified の root だけ 360（ctor 181 + type 168 + rec 11）。legacy だけの root 182（88 + 82 + 12）。AllTests 閉包内の root 354（176 + 166 + 12）。**legacy だけから来る定数 19**: `Append` `Append.mk` と `Sparkle.IP.BitNet.{ArchMode, ArchMode.HardwiredUnrolled, ArchMode.TimeMultiplexed, ArchMode.rec, LayerScales(.mk), LayerWeights(.mk), SoCConfig(.mk)}`、`Sparkle.IP.Net.{Ethernet.RxIn, TCP.TcpTxOut, UsbWebServer.TxSeqOut(.mk), UsbWebServer.WebServerOut(.mk)}`、`Tests.Compiler.SingleOutNestedRegressionTest.Two.mk`。**AllTests 閉包の外にしかない定数 25**（ほぼ宣言ごとの出力構造体 `XOut` とその `.mk`）。再帰子はこれらで 1 つだけ増える（`ArchMode.rec`）。
+
+### 0.3 用途・型・Signal 存在行への影響
+
+- **用途**: 残余の型の基本形は型（`Signal dom α`、`BitVec n`、`Decidable p`、`Eq …` など）、コンストラクタは値の構築（`Signal.mk`、`Bool.true` など）、再帰子は `if` / `match` / Nat・List の再帰・cast（`Eq.rec`）・矛盾（`False.rec`）。再帰子は root の本体に直接ではなくライブラリの補助定義（`casesOn` / `brecOn` / `ndrec` / `elim` など）の中だけに出る。
+- **型**: 残余に型の基本形が 177 ある（`Signal` / `BitVec` など。`Signal` は全 root の 1310 に出て、部分適用がある唯一の残余）。`TDen` の `tcon` が `Signal dom`（1 引数）をどう扱うかに別の規則が要る。rank-2 の型抽象は 61 個（16 定義）で範囲外のまま。
+- **Signal の存在行 `∃ v, CV env X sh.Ty v`**: 1 つでも残余の定数に行（または規則）がなければその root の存在行は払えない。root 1369 のうち**再帰子を 1 つも要さない root は 110**、残る 1259 は再帰子の行（または規則）が要る。root あたりの再帰子の必要数: `Bool.rec` 1252、`Decidable.rec` 1188、`Eq.rec` 1174、`Nat.rec` 1102、`False.rec` 1040、`Nat.le.rec` 1023、`BitVec.rec` 528、`List.rec` 421、`PSigma.rec` 386、`Int.rec` 58、`Prod.rec` 21、`ArchMode.rec` 2。定数ごとの到達 root 数が 3 以下の定数は 145 / 379（長い尾、ほとんどユーザー構造体）。**ユーザー構造体 237 は宣言ごとに行が要る**。
+- 一覧（定数ごとの root 数・部分適用・全適用）は `res3/agg_consts.tsv`（379 行）。root ごとの route と残余の数は `res3/agg_roots.tsv`。以降の §3 の表は AllTests 環境の 336 定数のもの（その上位の行の数字は同じ傾向）。
+
+### 0.4 iota の probe のやり直し（§4.2 の置き換え）
+
+方法: AllTests 環境の machine 根 **129 個**を **5 個ずつ 26 バッチ**（各バッチ `timeout 900`、実測 81〜103 秒、全バッチ rc 0）。1 root あたりの fuel は**小さく 50000 ステップ**。fuel を使い切った root は**失敗として名前を出し、その root は数に入れない**（部分結果なし）。簡約器は草案の `unfold`（構文的 β）+ iota（主前提が構文的コンストラクタまたは Nat リテラルのとき）+ 構文的な射影 + **カーネルの Nat リテラル加速**（`Nat.add/sub/mul/div/mod/pow/gcd/land/lor/xor/shiftLeft/shiftRight/log2/succ`、`Nat.beq/ble/decEq/decLt/decLe`）で、結果は**異なる項ごと**（メモ化）の数。root の仮引数は束縛変数のまま（開いた項）。
+
+| 項目 | 値 |
+|---|---|
+| root | 129 |
+| fuel 内に終わった | **112** |
+| fuel を使い切って失敗 | **17**（名前は下） |
+| 終わった root のうち stuck の再帰子を持つもの | **112 / 112** |
+| iota が発火した回数（終わった root の異なる項） | 185500: `Nat.rec` 177146、`List.rec` 6351、`Bool.rec` 1044、`Decidable.rec` 870、`PSigma.rec` 52、`BitVec.rec` 37 |
+| Nat リテラル加速の回数 | 27885 |
+| stuck の再帰子の箇所（主前提の形）| `const-app` 295400、`bvar` 68786、`proj` 5866 |
+
+失敗の 17 root: `Sparkle.IP.Crypto.EcdsaSignDemo.{wMulN, wTx}`、`Sparkle.IP.Crypto.P256SignDemo.{wMul, wMulN}`、`Sparkle.IP.USB.Fido2Demo.wTx`、`Sparkle.IP.RV32.Divider.dividerSignal`、`Sparkle.Tests.Compiler.{MultiInstance.pe, ShippingDesignSVMemTest.memWide, ShippingMachineLinkedTest.callerLN, ShippingMachineLoopTest.{accLoop, divQ, loopPair}, ShippingMachineNormTest.{nConst, nMapNot, nSlice}, ShippingMachineRawTest.tupReg, ShippingMachineTeleTest.divInLoop}`。fuel 50000 では終わらなかったというだけで、**fuel を増やした再測定はしていない**（1 回目と 2 回目の probe は fuel 大で 20 分を超えた。fuel 1000000 で 3 root は 900 秒の timeout で打ち切られた。その結果は使っていない）。
+
+読み方（**iota の健全性・関数性は未証明**。ここは構文的な簡約の測定だけ）:
+- **iota は発火する**（185500 回。ほぼ `Nat.rec` で、Nat の幅の算術を構文展開した跡）。**しかし終わった 112 root のすべてに、iota で外れない再帰子の箇所が残る**。
+- 残る箇所の主前提は 3 種: `const-app`（定数の適用で、構文的コンストラクタに簡約されないもの。例: 値が Signal 関数の結果や、リテラルに簡約できない `Decidable` のインスタンス）が 295400、`bvar`（λ に束縛された値、`if x then …`）が 68786、`proj` が 5866。**iota 規則は構文的コンストラクタにしか適用できず、bvar を主前提とする場合は止まる**ので、**再帰子の行は残す**。
+- したがって「再帰子を iota 規則にして TRUSTED の候補を 2 クラスに減らす」とは言えない。減らすには `lam` の規則の設計変更（代入意味論など）が要るが、今回は調べていない。
+
+---
+
+(以下は 2 回目までの記録。数字は §0 に置き換えられたものがある)
 
 ## 1. 範囲（何を全件と呼ぶか）
 
@@ -317,22 +383,9 @@ inductive IotaStep (env : Environment) : Expr → Expr → Prop
 - **ストラクチャ eta / `k`-like**（`Eq.rec`, `HEq.rec` は `k = true`）: `Eq.rec` の主前提は証明 `h : a = b`。`k` 規則は `h` が `Eq.refl` の形でなくても（`a ≡ b` なら）還元する。構文的な `ctor` の一致では書けない。`Eq.rec` / `Eq.ndrec` は残余に出るが、値としては**型の等式による cast**で、`cast` を使う項が型 `T` の値を `T'` として返す。`a ≡ b` の判定（定義的等価）を規則が持たなければ iota は発火しない。→ `Eq.rec` / `False.rec` / `Nat.le.rec`（Prop への除去）は**証明由来**で、値の意味にとっては別の扱い（証明無関係）が自然で、iota の対象にしない案が妥当。
 - **Nat リテラル**: 主前提が `lit n` のとき規則は `Nat.zero` / `Nat.succ (lit (n−1))` に変換する必要がある（カーネルの規則）。さらに `Nat.add` / `Nat.pow` などは**カーネルの GMP 加速**なしでは `Nat.rec` の単項展開になる（§4.2）。
 
-### 4.2 書けるかどうかの結論: **規則としては書ける。ただし主前提が構文的なコンストラクタの場合だけ。それでは足りない**
+### 4.2 （2 回目までの結論。§0.4 が置き換える）
 
-測定（`#iota_probe`、`Tests/Gen5/IotaStudy.lean`、AllTests 環境の machine 根 30 個、各 400000 ステップの fuel。草案どおりの `unfold`（構文的 β）+ iota + 射影の簡約器を、**根の仮引数を束縛変数のまま（開いた項）**に適用）:
-
-| 項目 | 値 |
-|---|---|
-| iota が発火した回数 | 501286（`Nat.rec` 490239、`Bool.rec` 8520、`List.rec` 2527） |
-| 詰まった（stuck）再帰子の箇所、主前提の形 | `bvar` 177411、`proj` 10559、`const-app` 9380 |
-| fuel を使い切った根 | 30 / 30 |
-| stuck の再帰子を持つ根 | 30 / 30 |
-
-- **発火の大半は `Nat.rec`（Nat のリテラル算術の単項展開）**: 幅や深さの計算（`2^256` など）が `Nat.rec` で展開される。カーネルは `Nat.add` などをリテラルで加速するが、草案の `unfold` / `iota` は加速を持たず、**30 根すべてで fuel（40 万ステップ）が尽きた**。実用上、導出の大きさが爆発する。規則に `Nat` のリテラル演算の組み込み（GMP 加速に相当）を足さなければ、Nat 算術を含む根は導出できない（これは再帰子を行にする案でも `Nat.add` などの行を要する点は同じ）。
-- **stuck の主前提の大半は `bvar`**（177411 / 197350 ≈ 90%）。`Signal.map (fun x => …)` の λ に束縛された値 `x` に対する `Bool.rec` / `Decidable.rec`（`if x then …`）など。`CVE.lam` の規則は**全称（`∀ a : TA`）**で本体を導出するため、`a` は構文を持たない Lean の値（`Dyn`）で、主前提が `bvar` の再帰子は**構文的には発火できない**。**この種の箇所は規則（iota）では扱えず、各再帰子の行（意味的な規則）か、別の設計が要る**。
-- 別の設計の候補（採用の提案ではない）: `ρ` の各エントリに**閉じた構文の項**を持たせ、`lam` の規則を「構文を持つ値すべて」に量化する（代入意味論）。構文を持たない値（`Signal` などの関数値）では本体が決まらず、関数性の証明の前提（`f` の一意性）が崩れる懸念があり、規模も大きい。今回は調べていない。
-
-**したがって「再帰子が表の行から外れて TRUSTED の候補が 型の基本形とコンストラクタの 2 クラスに減る」とは言えない。** 構文的な iota で外せるのは、主前提がコンストラクタ（またはリテラル）になる箇所だけで、λ に束縛された値への `rec`（回路の `if` / `match` の大半）が残る。再帰子を行に残すなら、行は**一様に生成できる**（`ConstantInfo` から、motive 引数付きで）。
+2 回目までの probe は「machine 根 30 個・fuel 400000 で 30 / 30 が fuel 切れ」で、数は傾向にとどまっていた。**数値は §0.4（129 root・fuel 50000・失敗は名前を出して数に入れない）に置き換えた**。結論（構文的 iota は主前提が構文的コンストラクタの場合だけ、bvar を主前提とする箇所で止まる、再帰子の行は残す）は §0.4 でも変わらない。以下の手順の説明（4.1 と、Nat リテラルの加速が要る理由、別設計の候補）は参考として残す。
 
 ### 4.3 書けた場合の残余の数（参考）
 
@@ -340,15 +393,16 @@ inductive IotaStep (env : Environment) : Expr → Expr → Prop
 
 ## 5. 結論
 
-1. **残余の全件**（AllTests 環境、根 477、machine / gate / design / tagged / synth）: 336 定数 = コンストラクタ 169 + 再帰子 11 + 型の基本形 156、quot / opaque / extern / axiom は 0。ライブラリ由来 140（頭打ち）、ユーザー構造体由来 196（宣言ごとに増える）。AllTests に入らない 35 モジュールをモジュールごとの別環境で足すと、新しい根 93、新しい定数 23（コンストラクタ 12 + 型 11、再帰子は増えない）で **359 定数**（§2.5）。**未測定**: `Tests.SynthesisTests`（環境が作れない）、`Examples.HierarchicalCPU`（build 不可）、`Tests.VerifyVerilog`（build 不通）、legacy ルートの成功そのもの、target-only root。
-2. **存在行への影響**: 再帰子 11 のうち 6 は 455〜472 根（ほぼ全部）に要る。再帰子を持たない根は 5 / 477。**再帰子の行（または規則）が決定的**。型・コンストラクタはユーザー構造体が長い尾（1 根専用）を作る。
-3. **部分適用の prim**: `Signal dom` の型の部分適用だけ（3653 箇所）。コンストラクタ・再帰子は 0。**rank-2**: 頭でない位置の型抽象 61 個（16 定義）、頭の型抽象は 265（180 定義、rank-1 多相）。
-4. **再帰子の iota 規則**: 構文的な規則は書ける（`Tools/ShippingGen5IotaDraft.lean`、motive の `Sort u` と `Dyn` の `Type 0` の制約は規則では出ない）。ただし**主前提が構文的コンストラクタの箇所だけ**で、λ 束縛値に対する `rec` が stuck 箇所の約 90%。したがって **TRUSTED の候補は 3 クラス（型の基本形・コンストラクタ・再帰子）のまま**で、2 クラスには減らせない。減らすには `lam` の規則の設計変更が要る（§4.2）。さらに Nat のリテラル算術に GMP 相当の組み込みがなければ導出が爆発する。
-5. **G-PRIM**: 判断は reviewer。判断材料として、(a) 再帰子の行は一様に機械生成できるが名前の対応が TRUSTED、(b) ユーザー構造体 196 は宣言ごとに行が要る（生成は機械的）、(c) iota で外せる再帰子の割合は小さい、を挙げる。
+1. **残余の全件**（§0）: 全成功コンパイル（497 ファイルのうち rc 0 の 468、root 1369）の残余は 379 定数 = コンストラクタ 190 + 型の基本形 177 + 再帰子 12。ライブラリ由来 142（ほぼ閉じている）、ユーザー構造体由来 237（宣言ごとに増える）。非成功 29 ファイルは範囲外（理由は §0.1）。
+2. **存在行への影響**: root 1369 のうち 1259 が再帰子の行を要する（再帰子を要さない root は 110）。再帰子の行（または規則）が決定的。型・コンストラクタはユーザー構造体が長い尾（3 root 以下の定数が 145）を作る。
+3. **部分適用の prim**: `Signal`（902 箇所）と `Prod.mk`（1 箇所）。再帰子の部分適用は 0。rank-2 の型抽象は 61 個（16 定義）で範囲外。
+4. **再帰子の iota 規則**: 構文的な規則は書ける（型の草案）。129 root の probe で iota は発火する（185500 回）が、**終わった 112 root のすべてに stuck の再帰子が残る**（bvar 68786、const-app 295400、proj 5866）。17 root は fuel 50000 で終わらず、名前を §0.4 に出した。**iota は構文的 constructor にしか適用できず、bvar を主前提とする場合は止まる。よって再帰子の行は残す**。iota の健全性・関数性は未証明。
+5. **G-PRIM / TRUSTED は未承認**。判断は reviewer。材料: (a) 再帰子の行は ConstantInfo から一様に機械生成できるが、名前の対応が信頼の対象、(b) ユーザー構造体 237 は宣言ごとに行が要る（生成は機械的）、(c) iota で外せる再帰子は一部で、全 root に stuck が残る。
 
 ## 6. 主張しないこと
 
-- 残余の数がコーパスの真の全件であること（§1 の未測定）。
+- 範囲外にした 29 ファイル（olean なし 16、失敗 13）のコンパイル。
+- fuel 50000 で終わらなかった 17 root の iota 簡約の結果。
 - iota の規則の健全性・関数性（未証明。型の草案だけ）。
-- `#iota_probe` の数が根全体の性質であること（machine 根 30 個、fuel 切れ。「stuck の大半が bvar」は傾向で、定量の根拠は弱い）。
-- 新しい TRUSTED の採用・必要性。台帳の数の変更（FG 75 / T1 57 のまま。今回 FG -0 +0 / T1 -0 +0）。
+- 新しい TRUSTED の採用・必要性、G-PRIM の判断。台帳の数の変更（FG 75 / T1 57 のまま。今回 FG -0 +0 / T1 -0 +0）。
+- 証明項を数えない近似（`Eq.rec` などは証明由来のものを数えうる）は §1 と同じ。
