@@ -109,3 +109,37 @@ for g in ["sig", "corpus"]:
             tally(sp, "stopped definitions that fit Dyn (a new row each)")
             print(f"   stopped definitions that do NOT fit Dyn (no row possible without U/P): {sum(1 for d,f in stopped[st].values() if d!='fits')}")
             tally(ctor_rows + sp, "TOTAL rows to type")
+
+# ---- per option: what happens to the residue keys of each stage (join with the PTcorpus row status and the reason a row is missing) ----
+miss_reason = {(r[0], r[2]): r[3] for r in tsv("ptcorpus_missing.tsv")}
+def reason_class(rs):
+    if rs.startswith("recursor"): return "rec"
+    if rs.startswith("constant not in the import closure"): return "decl"
+    return "type"
+print("\n==================== residue keys per option ====================")
+print("status per key: ROW = PTcorpus has the row (same under every option) | DECL = corpus declaration outside the import closure of Tools (orthogonal to every option) |")
+print("NEW = type-blocked key whose declared type fits the option's Dyn (a row can be generated) | REC+ = recursor whose type fits the option but whose motive is a function into a Sort (needs a type-valued term rule too) | BLOCKED = still does not fit")
+for g in ["sig", "corpus"]:
+    ts = group(g)
+    keys = collections.defaultdict(dict)
+    for t in ts:
+        for r in rows("cmpkeys", t): keys[int(r[0])][(r[1], r[3])] = (r[2], pf(r[5:]))
+    for st in (0, 1, 2, 3, 5):
+        ks = keys[st]
+        base = collections.Counter()
+        for (n, lv), (kind, f) in ks.items():
+            if (n, lv) in has_row: base["ROW"] += 1; continue
+            rc = reason_class(miss_reason.get((n, lv), "type"))
+            if rc == "decl": base["DECL"] += 1; continue
+            # keys without row because of the type
+            base["typeblocked"] += 1
+        print(f"{g} stage {st} ({STAGES[st]}): residue {len(ks)} = ROW {base['ROW']} + DECL {base['DECL']} + type-blocked {base['typeblocked']}")
+        for o in ["U1", "Uany", "P", "U1+P", "Uany+P"]:
+            c = collections.Counter()
+            for (n, lv), (kind, f) in ks.items():
+                if (n, lv) in has_row: continue
+                if reason_class(miss_reason.get((n, lv), "type")) == "decl": continue
+                fits = o in opts(f)
+                if kind == "rec": c["REC+" if fits else "BLOCKED(rec)"] += 1
+                else: c["NEW" if fits else "BLOCKED"] += 1
+            print(f"      option {o:7}: NEW {c['NEW']}, REC+ {c['REC+']}, BLOCKED(non-rec) {c['BLOCKED']}, BLOCKED(rec) {c['BLOCKED(rec)']}")

@@ -359,4 +359,22 @@ theorem conv_between_props {PT : PrimTableK} {env : Environment} {ρ : Val} {e �
     (hd : CVPB PT env ρ e τ0 PUnit PUnit.unit) (h0 : TDenP PT env ρ τ0 PUnit) (h1 : TDenP PT env ρ τ PUnit) :
     CVP PT env ρ e τ PUnit PUnit.unit := .conv hd h0 h1
 
+/-! ## Erasing PROPOSITIONS (not only proofs) loses types that depend on them
+
+`Decidable p`, `Subtype`-like families and `if p then A else B` mention the proposition itself. If a Prop argument of a row were erased to `PUnit` as well (`Arg.ty PUnit`), the row could not tell
+two propositions apart: whatever `den` is, it cannot produce both `Nat` (for `p := True`) and `PUnit` (for `p := False`). So a Prop-sorted TYPE argument must be kept (as data of sort `Prop`), only PROOFS are erased. -/
+
+open Classical in
+theorem erased_prop_arg_collision (den : List Arg → Option Type)
+    (h : ∀ p : Prop, den [.ty PUnit] = some (if p then Nat else PUnit)) : False := by
+  have h1 := h True
+  have h2 := h False
+  rw [h1] at h2
+  simp only [if_pos trivial, if_neg not_false] at h2
+  have e : Nat = PUnit := Option.some.inj h2
+  have : (0 : Nat) = 1 := by
+    have h0 : (cast e 0 : PUnit) = cast e 1 := rfl
+    simpa using congrArg (cast e.symm) h0
+  exact absurd this (by decide)
+
 end Tools.ShippingGen5CarrierP
