@@ -5855,3 +5855,30 @@ lean_lib «Tools.ShippingGen5RowTypedS» where
 
 lean_lib «Tests.Gen5.SoundS2Check» where
   roots := #[`Tests.Gen5.SoundS2Check]
+
+lean_lib «Tools.ShippingGen5ConstValueELProof» where
+  roots := #[`Tools.ShippingGen5ConstValueELProof]
+
+lean_lib «Tests.Gen5.EnvDeclClosedAuditLib» where
+  roots := #[`Tests.Gen5.EnvDeclClosedAuditLib]
+
+lean_lib «Tests.Gen5.EnvDeclClosedAudit» where
+  roots := #[`Tests.Gen5.EnvDeclClosedAudit]
+
+lean_lib «Tests.Gen5.EnvDeclClosedAuditM1» where
+  roots := #[`Tests.Gen5.EnvDeclClosedAuditM1]
+
+lean_lib «Tests.Gen5.EnvDeclClosedAuditM2» where
+  roots := #[`Tests.Gen5.EnvDeclClosedAuditM2]
+
+lean_lib «Tests.Gen5.EnvDeclClosedAuditM3» where
+  roots := #[`Tests.Gen5.EnvDeclClosedAuditM3]
+
+lean_lib «Tests.Gen5.EnvDeclClosedAuditM4» where
+  roots := #[`Tests.Gen5.EnvDeclClosedAuditM4]
+
+lean_lib «Tools.ShippingGen5EnvDeclClosed» where
+  roots := #[`Tools.ShippingGen5EnvDeclClosed]
+
+lean_lib «Tests.Gen5.SoundS3Check» where
+  roots := #[`Tests.Gen5.SoundS3Check]
