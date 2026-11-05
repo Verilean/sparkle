@@ -104,6 +104,42 @@ def SourceDenotes (env : Environment) (source : Name) (params : List (String × 
 
 variable {ι : Type} {dom : ι → DomainConfig}
 
+
+/-! ## 3b. Domain-monomorphic roots
+
+The existing recognizer `shapeOf` only accepts declarations whose type begins with a `(dom : DomainConfig)` binder. The three Signal roots of
+`Tests.SignalLoopTest` are fixed at `defaultDomain`, so the pilot adds the monomorphic twin: same `SigShape`, positions counted from 0 (no domain
+binder: this is the position convention of the generated `machineSource`, `bools 0` / `bits 0 8`), the domain fixed. -/
+
+def monoScalar? : Lean.Expr → Option Scalar
+  | .app (.app (.const ``Sparkle.Core.Signal.Signal _) (.const ``Sparkle.Core.Domain.defaultDomain [])) (.const ``Bool _) => some .bool
+  | .app (.app (.const ``Sparkle.Core.Signal.Signal _) (.const ``Sparkle.Core.Domain.defaultDomain [])) (.app (.const ``BitVec _) wE) =>
+    (canonicalNatLitValue? wE).bind fun n => if 0 < n then some (.bits n) else none
+  | _ => none
+def monoGo : List Scalar → Lean.Expr → Option SigShape
+  | acc, .forallE _ ty b _ => if b.hasLooseBVars then none else (monoScalar? ty).bind fun k => monoGo (acc ++ [k]) b
+  | acc, e => (monoScalar? e).map fun k => { args := acc, res := .one k }
+def monoShapeOf (ci : ConstantInfo) : Option SigShape := if ci.levelParams.isEmpty then monoGo [] ci.type else none
+
+/-- the source meaning of a monomorphic declaration: a function of the argument streams at `defaultDomain` -/
+def MonoTy (sh : SigShape) : Type := ArgsTy defaultDomain sh.args (sh.res.Ty defaultDomain)
+
+def monoObs (sh : SigShape) (m : MonoTy sh) (bools : Nat → Signal defaultDomain Bool)
+    (bits : (j : Nat) → (n : Nat) → Signal defaultDomain (BitVec n)) : List (Nat → Nat) :=
+  sh.res.obs (applyArgs bools bits sh.args 0 (sh.res.Ty defaultDomain) m)
+
+def SourceDenotesMono (env : Environment) (source : Name) (params : List (String × Nat)) (sh : SigShape) (m : MonoTy sh) : Prop :=
+  params = [] ∧ ∃ d : DefinitionVal, env.find? source = some (.defnInfo d) ∧ d.levelParams = [] ∧
+    monoShapeOf (.defnInfo d) = some sh ∧ CD [] d.value (MonoTy sh) m
+
+def ShapeMatchesMono (sh : SigShape) (d : Tools.ShippingMachineAuto.MachineData) (kD : Nat) : Prop :=
+  (d.bsIn.take kD).map (·.2) = sh.args.map Scalar.binder ∧
+  d.shape.layout.outs.map (fun o => (o.name, o.ty, o.width)) = sh.res.outPorts
+
+/-- the same observation correspondence for a package over the fixed domain (`ι` arbitrary, `dom = fun _ => defaultDomain`) -/
+def ObservationsEqualMono {ι : Type} (sh : SigShape) (m : MonoTy sh) (p : Pkg ι (fun _ => defaultDomain)) : Prop :=
+  ShapeMatchesMono sh p.d p.kD ∧ ∀ i bools bits, monoObs sh m bools bits = p.src i bools bits
+
 /-- The artifact side: the package, its height, the raw module — `TopShips` (the run of the printed module `b` under `runModuleTG`). -/
 def HasConcretePackage (p : Pkg ι dom) (n : Nat) (declName : Name) (b raw : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) : Prop :=
   p.decl = declName ∧ TopShips p n declName b raw D
