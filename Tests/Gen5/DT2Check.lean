@@ -38,7 +38,7 @@ run_meta do
   let old ← bindersMentioning ``Tools.ShippingGen2.callTie_of_served ``Tools.ShippingGen2.CallOutRange
   unless old == [`hDG_SEM_range] do throwError "CONTROL: callTie_of_served should take exactly hDG_SEM_range, got {old}"
   logInfo m!"CONTROL callTie_of_served CallOutRange binders: {old}"
-  let mut n := 0
+  let mut n : Nat := 0
   for r in roots do
     let a ← bindersMentioning r ``Tools.ShippingGen2.CallOutRange
     let b ← bindersMentioning r ``Tools.ShippingGen2.CallOutWidthAt
