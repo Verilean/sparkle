@@ -240,6 +240,8 @@ theorem core_symbolic_reads {declName : Name} {parameters : List (String × Nat)
     obtain ⟨_, h⟩ := RunsTo.try_finally h
     obtain ⟨ci, w2, hget, h⟩ := RunsTo.bind h
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
+    -- gen5 Elab: the fuel guard of `doSynth` is off in symbolic mode
+    rw [if_neg (by simp [entryInlinerError?, entryInlinerErrorWith?])] at h
     rw [entryConst_off _ _ _ _ _ _ _ (by simp)] at h
     exact ⟨_, env, ci, _, w2, _, _, _, _, hget, henv, h⟩)
 
