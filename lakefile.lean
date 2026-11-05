@@ -5167,5 +5167,17 @@ lean_lib «Tools.ShippingGen4FKidsOblig» where
 lean_lib «Tools.ShippingGen4FKids» where
   roots := #[`Tools.ShippingGen4FKids]
 
+lean_lib «Tools.ShippingGen4FKidsParams» where
+  roots := #[`Tools.ShippingGen4FKidsParams]
+
+lean_lib «Tools.ShippingGen4FKidsObl» where
+  roots := #[`Tools.ShippingGen4FKidsObl]
+
+lean_lib «Tools.ShippingGen4FKidsName» where
+  roots := #[`Tools.ShippingGen4FKidsName]
+
+lean_lib «Tests.Gen4.FKidsOblCheck» where
+  roots := #[`Tests.Gen4.FKidsOblCheck]
+
 lean_lib «Tests.Gen4.FKidsCheck» where
   roots := #[`Tests.Gen4.FKidsCheck]
