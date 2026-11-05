@@ -352,4 +352,27 @@ theorem teleEv_DomainConfig_mk (hr : ArgsTySpec PT `Sparkle.Core.Domain.DomainCo
 
 end teles
 
+/-! ## §5 The old carrier `CVEKS` against `CVEKVL`: what is and is not mapped (item 4)
+
+A MAP of derivations `CVEKS ⇒ CVEKVL` is not built (reasons in draft §V2: the `lam` rule shares one body label for all `a`, the `app` / `letE` labels differ, label uniformity needs derivations at valuations whose Lean types differ).
+What IS proved is the rule-level correspondence: the conclusion of the OLD `app` / `letE` rules is a `conv` of the new rules' conclusion, exactly when the substituted label denotes the same Lean type
+(`hsub`: the V form of one instance of `OblDenSubstS`). So the old rule is derivable from the new rule plus that instance; no more, and no less, is needed. -/
+
+/-- Old `app` conclusion (label `substS B 0 x`) from the new rule and one instance of the substitution fact `hsub`. The premises other than `hsub` are those of `CVEKVB.app`. -/
+theorem cvekv_app_old_of_new {PT : PrimTableK} {env : Environment} {ρ : Val} {fe x A B : Expr} {n : Name} {bi : BinderInfo} {TA : Type} (TB : TA → Type)
+    {fv : (a : TA) → TB a} {av : TA}
+    (hA : TDenV PT env ρ A TA) (hB : ∀ a : TA, TDenV PT env (⟨A, ⟨TA, a⟩⟩ :: ρ) B (TB a))
+    (hf : CVEKVB PT env ρ fe (.forallE n A B bi) ((a : TA) → TB a) fv) (hx : CVEKV PT env ρ x A TA av)
+    (hnh : ¬ ∃ (c : Name) (ls : List Level), fe.getAppFn = .const c ls)
+    (hsub : TDenV PT env ρ (substS B 0 x) (TB av)) :
+    CVEKV PT env ρ (.app fe x) (substS B 0 x) (TB av) (fv av) :=
+  .conv (CVEKVB.app TB hA hB hf hx hnh) (.tlet hA hx (hB av)) hsub
+
+/-- Old `letE` conclusion (label `substS B 0 v`) from the new rule and the substitution fact. -/
+theorem cvekv_letE_old_of_new {PT : PrimTableK} {env : Environment} {ρ : Val} {n : Name} {A v b B : Expr} {nd : Bool} {TA : Type} {TB : Type} {av : TA} {bv : TB}
+    (hA : TDenV PT env ρ A TA) (hv : CVEKV PT env ρ v A TA av) (hb : CVEKVB PT env (⟨A, ⟨TA, av⟩⟩ :: ρ) b B TB bv)
+    (hB : TDenV PT env (⟨A, ⟨TA, av⟩⟩ :: ρ) B TB) (hsub : TDenV PT env ρ (substS B 0 v) TB) :
+    CVEKV PT env ρ (.letE n A v b nd) (substS B 0 v) TB bv :=
+  .conv (CVEKVB.letE hA hv hb) (.tlet hA hv hB) hsub
+
 end Tools.ShippingGen5RowTypedV
