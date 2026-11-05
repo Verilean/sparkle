@@ -5760,3 +5760,6 @@ lean_lib «Tests.Gen5.CR4Check» where
 
 lean_lib «Tests.Gen5.CVTopCheck» where
   roots := #[`Tests.Gen5.CVTopCheck]
+
+lean_lib «Tests.Gen5.PrimResidueCount» where
+  roots := #[`Tests.Gen5.PrimResidueCount]
