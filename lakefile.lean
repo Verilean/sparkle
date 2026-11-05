@@ -4805,6 +4805,7 @@ lean_lib «Tools.ShippingGen5EnvFrame2» where
 
 lean_lib «Tests.Gen5.EnvFrame2Check» where
   roots := #[`Tests.Gen5.EnvFrame2Check]
+
 lean_lib «Tools.ShippingGen2T1» where
   roots := #[`Tools.ShippingGen2T1]
 
@@ -5173,6 +5174,21 @@ lean_lib «Tools.ShippingGen5DataOfDims» where
 lean_lib «Tests.Gen5.DataOfCheck4» where
   roots := #[`Tests.Gen5.DataOfCheck4]
 
+lean_lib «Tests.Gen5.ClosingRun2Check» where
+  roots := #[`Tests.Gen5.ClosingRun2Check]
+
+lean_lib «Tools.ShippingGen5T2TieCR» where
+  roots := #[`Tools.ShippingGen5T2TieCR]
+
+lean_lib «Tests.Gen5.T2TieCRCheck» where
+  roots := #[`Tests.Gen5.T2TieCRCheck]
+
+lean_lib «Tools.ShippingGen5T2TieCR2» where
+  roots := #[`Tools.ShippingGen5T2TieCR2]
+
+lean_lib «Tests.Gen5.T2TieCR2Check» where
+  roots := #[`Tests.Gen5.T2TieCR2Check]
+
 lean_lib «Tools.ShippingGen5ReadKindsU5» where
   roots := #[`Tools.ShippingGen5ReadKindsU5]
 
@@ -5502,9 +5518,6 @@ lean_lib «Tests.Gen5.ClosingRunCheck» where
 lean_lib «Tools.ShippingGen5ClosingRun2» where
   roots := #[`Tools.ShippingGen5ClosingRun2]
 
-lean_lib «Tests.Gen5.ClosingRun2Check» where
-  roots := #[`Tests.Gen5.ClosingRun2Check]
-
 lean_lib «Tools.ShippingGen5EnvFrame3» where
   roots := #[`Tools.ShippingGen5EnvFrame3]
 
@@ -5711,3 +5724,15 @@ lean_lib «Tools.ShippingGen5SM7» where
 
 lean_lib «Tests.Gen5.SM7Check» where
   roots := #[`Tests.Gen5.SM7Check]
+
+lean_lib «Tools.ShippingGen5Flow1Tie» where
+  roots := #[`Tools.ShippingGen5Flow1Tie]
+
+lean_lib «Tests.Gen5.Flow1TieCheck» where
+  roots := #[`Tests.Gen5.Flow1TieCheck]
+
+lean_lib «Tools.ShippingGen5Flow1Reads» where
+  roots := #[`Tools.ShippingGen5Flow1Reads]
+
+lean_lib «Tests.Gen5.Flow1ReadsCheck» where
+  roots := #[`Tests.Gen5.Flow1ReadsCheck]
