@@ -5186,3 +5186,8 @@ lean_lib «Tools.ShippingGen4FTop» where
 
 lean_lib «Tests.Gen4.FTopCheck» where
   roots := #[`Tests.Gen4.FTopCheck]
+lean_lib «Tools.ShippingGen4FPost» where
+  roots := #[`Tools.ShippingGen4FPost]
+
+lean_lib «Tests.Gen4.FPostCheck» where
+  roots := #[`Tests.Gen4.FPostCheck]
