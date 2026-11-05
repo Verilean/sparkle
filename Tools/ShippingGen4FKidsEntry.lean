@@ -494,8 +494,81 @@ theorem kwalkX_of_kwalkS {n : Name} {w : Void IO.RealWorld} (h : KWalk O w) : KW
 
 end Window
 
+
+/-! ## The PF world: the K world with both caches `PairPF` -/
+
+/-- every entry of a cache map is a `PairPF` pair -/
+def CachePF (m : Std.HashMap Name Res) : Prop := ∀ n r, m.get? n = some r → PairPF r
+
+theorem cachePF_empty : CachePF ({} : Std.HashMap Name Res) := by
+  intro n r h; simp at h
+
+theorem cachePF_insert {m : Std.HashMap Name Res} (n : Name) (r : Res) (hm : CachePF m) (hr : PairPF r) :
+    CachePF (m.insert n r) := by
+  intro k v h
+  rw [Std.HashMap.get?_eq_getElem?, Std.HashMap.getElem?_insert] at h
+  split at h
+  · cases h; exact hr
+  · exact hm k v (by rw [Std.HashMap.get?_eq_getElem?]; exact h)
+
+/-- K with the caches `PairPF` -/
+def KPF (O : RefLawsAOps MkRefd mref cref) (w : Void IO.RealWorld) : Prop :=
+  KW O (fun m c => MemoKeysInChild m c ∧ CachePF m ∧ CachePF c) w
+
+/-- K_n with the caches `PairPF` -/
+def KPFX (O : RefLawsAOps MkRefd mref cref) (n : Name) (w : Void IO.RealWorld) : Prop :=
+  KW O (fun m c => MemoKeysExc n m c ∧ CachePF m ∧ CachePF c) w
+
+theorem stableK_KPF (O : RefLawsAOps MkRefd mref cref) : StableK O.quiet (KPF O) := stableK_KW O _
+
+section WindowPF
+variable {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hA : AdmCtx O.quiet mctx cctx)
+include M hA
+
+/-- The memo write of a `PairPF` result opens the window: from KPF, returns in KPFX n. -/
+theorem triple_memoInsertPS (n : Name) (r : Res) (hr : PairPF r) :
+    Triple mctx mref cctx cref (KPF O)
+      (sparkleSubModuleCache.modify (·.insert n r) : MetaM Unit)
+      (fun _ => KPFX O n) (fun e w => KPF O w ∧ OkExc e) := by
+  intro w hw
+  obtain ⟨a, w', hr'⟩ := refModify_runs (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref)
+    sparkleSubModuleCache (·.insert n r) w
+  have e := hr'
+  unfold RunsTo at e
+  rw [e]
+  obtain ⟨hq, hc, hs, hm⟩ := memoModify_ctx M hA _ hr' hw.1
+  refine ⟨hq, hs.trans hw.2.1, ?_⟩
+  obtain ⟨h1, h2, h3⟩ := hw.2.2
+  rw [hm, hc]
+  exact ⟨memoKeysExc_insert n r h1, cachePF_insert n r h2 hr, h3⟩
+
+/-- The child-cache write of a `PairPF` result closes the window: from KPFX n, returns in KPF. -/
+theorem triple_childInsertPS (n : Name) (r : Res) (hr : PairPF r) :
+    Triple mctx mref cctx cref (KPFX O n)
+      (sparkleChildCache.modify (·.insert n r) : MetaM Unit)
+      (fun _ => KPF O) (fun e w => KPFX O n w ∧ OkExc e) := by
+  intro w hw
+  obtain ⟨a, w', hr'⟩ := refModify_runs (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref)
+    sparkleChildCache (·.insert n r) w
+  have e := hr'
+  unfold RunsTo at e
+  rw [e]
+  obtain ⟨hq, hc, hs, hm⟩ := childModify_ctx M hA _ hr' hw.1
+  refine ⟨hq, hs.trans hw.2.1, ?_⟩
+  obtain ⟨h1, h2, h3⟩ := hw.2.2
+  rw [hm, hc]
+  exact ⟨memoKeysInChild_of_exc_insert n r h1, h2, cachePF_insert n r h3 hr⟩
+
+omit M hA in
+theorem kpfx_of_kpf {n : Name} {w : Void IO.RealWorld} (h : KPF O w) : KPFX O n w :=
+  ⟨h.1, h.2.1, memoKeysInChild_exc n h.2.2.1, h.2.2.2⟩
+
+end WindowPF
+
 end Tools.ShippingGen4FKidsEntry
 
 #print axioms Tools.ShippingGen4FKidsEntry.certified_keepsKS
 #print axioms Tools.ShippingGen4FKidsEntry.machineCert_keepsKS
 #print axioms Tools.ShippingGen4FKidsEntry.triple_memoInsertS
+#print axioms Tools.ShippingGen4FKidsEntry.triple_memoInsertPS
+#print axioms Tools.ShippingGen4FKidsEntry.triple_childInsertPS
