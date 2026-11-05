@@ -790,6 +790,6 @@ reviewer の判断 Q-B: corpus の宣言（output 構造体など）を Tools �
 ### 4. 主張しないこと / 残り
 
 - shard の行は `TmSpec` / 結果型の事実（`…_run`）までで、**`RowTypedAtV` / `RowTeleEvAt` は shard の行について出していない**。output 構造体の constructor は結果型が第 1 引数（`dom : DomainConfig`）に依存する（`KOut dom`）項の依存で、`PTcorpus` で開いている `Signal.mk` と同じ型の義務。51 key を「払えた」は**行を置けた**であって、行の健全性（`OblRowTypedV` / `RowTeleEvAt` の 2 つの名前付き前提）は変わらない。台帳は動かさない。
-- 4 つの同時に import できない module（§Final2）の shard は、この 23 本には含まれていない（個別の shard なら同じ仕組みで作れる。組み合わせ不能な shard 同士の合成は、1 つの root が両方を import できないので問題にならない）。
+- §Final2 の「4 つは同時に import できない」の 4 つがどれかは特定していない。この 23 本は 1 つの Check に同時に import できたので、少なくともこの組合せには衝突がない。衝突する組があれば、各 root は両方を import できないので、その root は片方の shard だけを合成する（shard が module 単位に分かれている理由）。
 - 再帰子 15 / `Type 0` 外 25 / 証明の束縛 6 / 結果が Prop か `Type 0` 外 4 / 族が Prop か `Type 0` 外 5 は shard では払えない（行の形が `Dyn` に入らない）。Q-A の領分。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
