@@ -181,7 +181,7 @@ elab "#prim_residue_trace_ctl" : command => do
   let chk (stage : Nat) (n : Name) (want : Bool) : CommandElabM Unit := do
     if stopAt env stage n != want then throwError "stage control failed: stage {stage} {n} expected {want}"
   chk 0 ``Nat.add false
-  chk 1 `Sparkle.Core.Signal.register true
+  chk 1 `Sparkle.Core.Signal.Signal.register true
   chk 1 ``Nat.add false
   chk 2 ``BitVec.add true
   chk 3 ``Nat.add true
@@ -189,7 +189,7 @@ elab "#prim_residue_trace_ctl" : command => do
   chk 4 ``instDecidableEqNat true
   chk 4 ``List.map false
   chk 5 ``List.map true
-  chk 5 `Sparkle.Core.Signal.register true
+  chk 5 `Sparkle.Core.Signal.Signal.register true
   -- chain control: `Nat.add` unfolds to `Nat.rec` at stage 0; the recursor's direct parent is a definition in Init
   let (nodes, _, left) := traceReach env ``Nat.add 1000 0
   if left != 0 then throwError "ctl: worklist left"
