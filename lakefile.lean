@@ -5203,3 +5203,9 @@ lean_lib «Tools.ShippingGen4ParamAssembly» where
 
 lean_lib «Tests.Gen4.ParamAssemblyCheck» where
   roots := #[`Tests.Gen4.ParamAssemblyCheck]
+
+lean_lib «Tools.ShippingGen4ParamFinal» where
+  roots := #[`Tools.ShippingGen4ParamFinal]
+
+lean_lib «Tests.Gen4.ParamFinalCheck» where
+  roots := #[`Tests.Gen4.ParamFinalCheck]
