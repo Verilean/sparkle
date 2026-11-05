@@ -2,14 +2,14 @@ import Lean
 import Sparkle
 import Tools.ShippingGen5ConstValueELS
 /-! # Residue count under the level-indexed key `Name × List Level` (issue sparkle-ledger-dd4-key): shared measurement
-Measurement only. Corpus: every module that runs `#machine_endpoint`, every `X` with `X.machine_source`.
+Measurement only. Corpus: every module that runs `#machine_endpoint`; roots = every `X` with `X.machine_source`, plus every `X` with `X.machine_sound` and no `X.machine_source`.
 The 47 modules cannot all be imported into one environment (4 `MemNameCollision*` modules conflict with a transitive import),
 so the measurement is a command run once per driver (`PrimResidueKey` = 43 modules, `PrimResidueKeyM1..M4` = one module each)
 and the raw rows are merged by `scripts/gen5/merge_prim_residue_key.py`.
 Traversal from `(X, LS env X)` as in `LSCorpus`: unfold `defnInfo` at the instantiated levels, record each reached `(c, ls)` (levels `normalize`d);
 proof terms (theorem-headed applications) are not entered. RESIDUE = reached constants that are not `defnInfo`/`thmInfo`
 (constructor, recursor, quot, inductive type former, axiom, opaque).
-Fuel check: the traversal stops after `fuel` pops; if a worklist remains the command fails (`throwError`) with the number of
+Fuel check: the traversal stops after `fuel` pops (each distinct `(name, ls)` is pushed at most once); if a worklist remains the command fails (`throwError`) with the number of
 leftover items and the root. `#prim_residue_key_neg tag fuel` is the negative control: it must fail.
 Raw rows go to `$KJOB_REPORT_PATH.key.<tag>` (residue rows) and `.roots.<tag>` (root, module, leftover). No theorem, no sorry. -/
 open Lean Meta Elab Command
@@ -45,40 +45,49 @@ def kindOf (env : Environment) (n : Name) : String :=
 /-- reached `(c, key)` pairs from `(root, LS env root)` (with whether the levels are closed) and the worklist left when fuel ran out -/
 def reach (env : Environment) (root : Name) (fuel0 : Nat) :
     Std.HashMap (Name × String) Bool × Array (Name × List Level) := Id.run do
-  let mut seen : Std.HashMap (Name × String) Bool := {}
-  let mut todo : Array (Name × List Level) := #[(root, LS env root)]
+  let closedL (ls : List Level) := ls.all (fun l => !l.hasParam && !l.hasMVar)
+  let r0 := LS env root
+  -- a node is marked seen when pushed (each `(name, ls)` is pushed once), so the worklist is bounded by the number of distinct nodes
+  let mut seen : Std.HashMap (Name × String) Bool := ({} : Std.HashMap (Name × String) Bool).insert (root, lvlKey r0) (closedL r0)
+  let mut todo : Array (Name × List Level) := #[(root, r0)]
   let mut fuel := fuel0
   while fuel > 0 && todo.size > 0 do
     fuel := fuel - 1
     let (n, ls) := todo.back!
     todo := todo.pop
-    let k := (n, lvlKey ls)
-    if seen.contains k then continue
-    seen := seen.insert k (ls.all (fun l => !l.hasParam && !l.hasMVar))
     match env.find? n with
     | some (.defnInfo d) =>
       let body := d.value.instantiateLevelParams d.levelParams ls
-      todo := (occs env body #[]).foldl (fun a x => a.push x) todo
+      for (c, cl) in occs env body #[] do
+        let k := (c, lvlKey cl)
+        if !seen.contains k then
+          seen := seen.insert k (closedL cl)
+          todo := todo.push (c, cl)
     | _ => pure ()
   return (seen, todo)
 
-def machineRoots (env : Environment) : Array Name := Id.run do
-  let mut roots : Array Name := #[]
+/-- roots: every definition `X` with `X.machine_source`, plus every definition `X` with `X.machine_sound` but no `X.machine_source`
+(the `_of_regs` / `_of_comb` / surface branches of `#machine_endpoint` generate `machine_sound` without a `machine_source`) -/
+def machineRoots (env : Environment) : Array (Name × Bool) := Id.run do
+  let mut roots : Array (Name × Bool) := #[]
   for (n, _) in env.constants.toList do
-    if isMachineSource n then
+    let isSrc := isMachineSource n
+    let isSound := match n with | .str _ "machine_sound" => true | _ => false
+    if isSrc || isSound then
       let x := n.getPrefix
-      if (env.find? x).any (·.isDefinition) then roots := roots.push x
-  return roots.qsort (fun a b => a.toString < b.toString)
+      if (env.find? x).any (·.isDefinition) && (isSrc || !env.contains (x ++ `machine_source)) then roots := roots.push (x, isSrc)
+  return roots.qsort (fun a b => a.1.toString < b.1.toString)
 
 def rootModule (env : Environment) (root : Name) : Name :=
-  match env.getModuleIdxFor? (root ++ `machine_source) with
+  let c := if env.contains (root ++ `machine_source) then root ++ `machine_source else root ++ `machine_sound
+  match env.getModuleIdxFor? c with
   | some i => env.header.moduleNames[i.toNat]!
   | none => `_current
 
 /-- fuel check: every root's traversal must finish (empty worklist), else `throwError` with leftover count and root -/
-def checkFuel (env : Environment) (roots : Array Name) (fuel : Nat) : CommandElabM Unit := do
+def checkFuel (env : Environment) (roots : Array (Name × Bool)) (fuel : Nat) : CommandElabM Unit := do
   let mut bad : Array String := #[]
-  for r in roots do
+  for (r, _) in roots do
     let (_, todo) := reach env r fuel
     if todo.size > 0 then bad := bad.push s!"{r}: {todo.size} todo left"
   if bad.size > 0 then
@@ -97,11 +106,11 @@ elab "#prim_residue_key " tag:str fuel:num : command => do
   let mut rootPoly := 0
   let mut mods : Std.HashSet Name := {}
   let mut rootRows := ""
-  for r in roots do
+  for (r, isSrc) in roots do
     if (env.find? r).any (fun ci => !ci.levelParams.isEmpty) then rootPoly := rootPoly + 1
     let m := rootModule env r
     mods := mods.insert m
-    rootRows := rootRows ++ s!"{r}\t{m}\t0\n"
+    rootRows := rootRows ++ s!"{r}\t{m}\t0\t{if isSrc then "source" else "sound-only"}\n"
     let (seen, _) := reach env r fuel
     let mut cnt := 0
     let mut nm : Std.HashSet Name := {}
@@ -115,7 +124,7 @@ elab "#prim_residue_key " tag:str fuel:num : command => do
     perRootMax := max perRootMax cnt
     perRootNameMax := max perRootNameMax nm.size
   let kinds := ["ctor", "rec", "induct", "quot", "axiom", "opaque"]
-  let mut msg := s!"[{tag}] count: {roots.size} roots, {mods.size} modules with `X.machine_source` (modules: {mods.toList.map toString}); fuel {fuel}: all worklists empty; roots whose own decl has levelParams: {rootPoly}\n"
+  let mut msg := s!"[{tag}] count: {roots.size} roots ({(roots.filter (·.2)).size} with `X.machine_source`, {(roots.filter (!·.2)).size} with only `X.machine_sound`), {mods.size} modules (modules: {mods.toList.map toString}); fuel {fuel}: all worklists empty; roots whose own decl has levelParams: {rootPoly}\n"
   msg := msg ++ s!"residue rows, Name-only key (PrimTable): {names.size}; level-indexed key (PrimTableK): {keys.size}\n"
   for k in kinds do
     let nk := (names.toList.filter (fun (n, _) => kindOf env n == k)).length
