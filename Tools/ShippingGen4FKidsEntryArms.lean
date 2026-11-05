@@ -59,7 +59,7 @@ theorem fromConst_certified_windowKS
     (htr : ∀ e hint top named, KeepsCS mctx mref cctx cref (KPF O) (translate e hint top named)) :
     Triple mctx mref cctx cref (KPF O)
       (synthesizeFromConst translate (profLogIO b) declName [] false true constInfo isInst)
-      (fun _ => KPFX O declName) (fun e w => KPF O w ∧ OkExc e) := by
+      (fun r w => KPFX O declName w ∧ PairPF r) (fun e w => KPF O w ∧ OkExc e) := by
   have hd : (if true = true then certifiedShape? false [] constInfo else none) = some (bs, body) := by
     first
       | exact (if_pos rfl).trans hshape
@@ -75,7 +75,7 @@ theorem fromConst_certified_windowKS
   intro result hresult
   refine Triple.bind (triple_memoInsertPS M hA declName result hresult) ?_
   intro _
-  exact Triple.pure fun _ hw => hw
+  exact Triple.pure fun _ hw => ⟨hw, hresult⟩
 
 /-- **Mixed arm**. -/
 theorem fromConst_mixed_windowKS
@@ -86,7 +86,7 @@ theorem fromConst_mixed_windowKS
     (htr : ∀ e hint top named, KeepsCS mctx mref cctx cref (KPF O) (translate e hint top named)) :
     Triple mctx mref cctx cref (KPF O)
       (synthesizeFromConst translate (profLogIO b) declName [] false true constInfo isInst)
-      (fun _ => KPFX O declName) (fun e w => KPF O w ∧ OkExc e) := by
+      (fun r w => KPFX O declName w ∧ PairPF r) (fun e w => KPF O w ∧ OkExc e) := by
   have hd1 : (if true = true then certifiedShape? false [] constInfo else none) = none := by
     first
       | exact (if_pos rfl).trans hc
@@ -108,7 +108,7 @@ theorem fromConst_mixed_windowKS
   intro result hresult
   refine Triple.bind (triple_memoInsertPS M hA declName result hresult) ?_
   intro _
-  exact Triple.pure fun _ hw => hw
+  exact Triple.pure fun _ hw => ⟨hw, hresult⟩
 
 /-- **Both gates miss: the machine arm, and the fall-through to the legacy tail** (`hlegacy`: the entry with the
 certified front end OFF, which runs the same tail, from K to K_n). -/
@@ -122,10 +122,10 @@ theorem fromConst_machine_windowKS
       (fun r w => KPF O w ∧ PairPF r) (fun e w => KPF O w ∧ OkExc e))
     (hlegacy : Triple mctx mref cctx cref (KPF O)
       (synthesizeFromConst translate (profLogIO b) declName [] false false constInfo isInst)
-      (fun _ => KPFX O declName) (fun e w => KPF O w ∧ OkExc e)) :
+      (fun r w => KPFX O declName w ∧ PairPF r) (fun e w => KPF O w ∧ OkExc e)) :
     Triple mctx mref cctx cref (KPF O)
       (synthesizeFromConst translate (profLogIO b) declName [] false true constInfo isInst)
-      (fun _ => KPFX O declName) (fun e w => KPF O w ∧ OkExc e) := by
+      (fun r w => KPFX O declName w ∧ PairPF r) (fun e w => KPF O w ∧ OkExc e) := by
   have hd1 : (if true = true then certifiedShape? false [] constInfo else none) = none := by
     first
       | exact (if_pos rfl).trans hc
@@ -161,7 +161,7 @@ theorem fromConst_machine_windowKS
       intro _
       refine Triple.bind (triple_memoInsertPS M hA declName result (hr result rfl)) ?_
       intro _
-      exact Triple.pure fun _ hw => hw
+      exact Triple.pure fun _ hw => ⟨hw, hr result rfl⟩
     | none => exact h
 
 /-- **The three front-end arms together** (certified / mixed / machine); the legacy tail is `hlegacy`, asked only of
@@ -176,10 +176,10 @@ theorem fromConst_frontends_windowKS
       mixedCertifiedShape? false [] constInfo isInst = none →
       Triple mctx mref cctx cref (KPF O)
         (synthesizeFromConst translate (profLogIO b) declName [] false false constInfo isInst)
-        (fun _ => KPFX O declName) (fun e w => KPF O w ∧ OkExc e)) :
+        (fun r w => KPFX O declName w ∧ PairPF r) (fun e w => KPF O w ∧ OkExc e)) :
     Triple mctx mref cctx cref (KPF O)
       (synthesizeFromConst translate (profLogIO b) declName [] false true constInfo isInst)
-      (fun _ => KPFX O declName) (fun e w => KPF O w ∧ OkExc e) := by
+      (fun r w => KPFX O declName w ∧ PairPF r) (fun e w => KPF O w ∧ OkExc e) := by
   cases hc : certifiedShape? false [] constInfo with
   | some p =>
     obtain ⟨bs, body⟩ := p
