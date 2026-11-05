@@ -5965,3 +5965,37 @@ lean_lib «Tools.ShippingGen5PTCorpus» where
 
 lean_lib «Tests.Gen5.PTCorpusCheck» where
   roots := #[`Tests.Gen5.PTCorpusCheck]
+
+lean_lib «Tests.Gen5.PrimResidueCmpLib» where
+  roots := #[`Tests.Gen5.PrimResidueCmpLib]
+
+lean_lib «Tests.Gen5.PrimResidueCmp» where
+  roots := #[`Tests.Gen5.PrimResidueCmp]
+
+lean_lib «Tests.Gen5.PrimResidueCmpM1» where
+  roots := #[`Tests.Gen5.PrimResidueCmpM1]
+
+lean_lib «Tests.Gen5.PrimResidueCmpM2» where
+  roots := #[`Tests.Gen5.PrimResidueCmpM2]
+
+lean_lib «Tests.Gen5.PrimResidueCmpM3» where
+  roots := #[`Tests.Gen5.PrimResidueCmpM3]
+
+lean_lib «Tests.Gen5.PrimResidueCmpM4» where
+  roots := #[`Tests.Gen5.PrimResidueCmpM4]
+
+lean_lib «Tests.Gen5.PrimResidueCmpSig» where
+  roots := #[`Tests.Gen5.PrimResidueCmpSig]
+
+lean_lib «Tools.ShippingGen5CarrierU» where
+  roots := #[`Tools.ShippingGen5CarrierU]
+
+lean_lib «Tools.ShippingGen5CarrierP» where
+  roots := #[`Tools.ShippingGen5CarrierP]
+
+lean_lib «Tools.ShippingGen5CarrierI» where
+  roots := #[`Tools.ShippingGen5CarrierI]
+
+lean_lib «Tests.Gen5.CarrierCmpCheck» where
+  roots := #[`Tests.Gen5.CarrierCmpCheck]
+
