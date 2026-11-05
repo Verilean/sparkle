@@ -57,13 +57,22 @@ def worse (a b : String) : String :=
 /-- one key: `name \t kind \t lsKey \t arity \t const \t spine \t sort \t binders` -/
 def auditKey (n : Name) (ls : List Level) (shift : Bool := false) : MetaM String := do
   let env ← getEnv
-  let some ci := env.find? n | return s!"{n}\t{kindOf env n}\t{lvlKey ls}\tabsent\t-\t-\t-\t0"
+  let some ci := env.find? n | return s!"{n}\t{kindOf env n}\t{lvlKey ls}\tabsent\t-\t-\t-\t0\t-\t-"
   let arity := if ls.length == ci.levelParams.length then "ok" else "bad"
   let ls' := if shift then ls.map Level.succ else ls
   let T0 := ci.type.instantiateLevelParams ci.levelParams ls'
   let t1 ← try inferType (mkConst n ls) catch _ => pure (mkConst `inferTypeFailed)
   let c1 ← cmpExpr t1 T0
   let sc ← try (do let s ← whnf (← inferType T0); match s with | .sort l => pure (sortClass l) | _ => pure "nonsort") catch _ => pure "err"
+  let shape ← try (forallTelescope T0 fun xs r => do
+      if xs.isEmpty then pure "nullary" else
+      -- dependent: some binder variable occurs in a later binder type or in the result
+      let mut dep := false
+      for i in [0:xs.size] do
+        if r.containsFVar xs[i]!.fvarId! then dep := true
+        for j in [i+1:xs.size] do
+          if (← inferType xs[j]!).containsFVar xs[i]!.fvarId! then dep := true
+      pure (if dep then "dep" else "nondep")) catch _ => pure "err"
   let (c2, nb) ← try (forallTelescope T0 fun xs _ => do
       let mut acc := "syn"
       for j in [0:xs.size + 1] do
@@ -71,7 +80,7 @@ def auditKey (n : Name) (ls : List Level) (shift : Bool := false) : MetaM String
         let t ← try instantiateMVars (← inferType (mkAppN (mkConst n ls) pre)) catch _ => pure (mkConst `inferTypeFailed)
         acc := worse acc (← cmpExpr t (instForall T0 pre.toList))
       pure (acc, xs.size)) catch _ => pure ("err", 0)
-  return s!"{n}\t{kindOf env n}\t{lvlKey ls}\t{arity}\t{c1}\t{c2}\t{sc}\t{nb}"
+  return s!"{n}\t{kindOf env n}\t{lvlKey ls}\t{arity}\t{c1}\t{c2}\t{sc}\t{nb}\t{shape}\t{T0}"
 
 def collectKeys (env : Environment) (fuel : Nat) : CommandElabM (Std.HashMap (Name × String) (List Level)) := do
   let roots := machineRoots env
