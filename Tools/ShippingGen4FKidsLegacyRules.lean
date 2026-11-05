@@ -52,6 +52,7 @@ open Tools.ShippingGen4FKidsCalc
 open Tools.ShippingGen4FKidsPrims
 open Tools.ShippingGen4FKidsTac
 open Tools.ShippingGen4FKidsTele
+open Tools.ShippingGen4FKidsEntry
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -71,10 +72,10 @@ macro "kwAll" : tactic => `(tactic| swalkN [keepsK_addMessageContextS M hA hS _,
   lowerZeroExtendWireKS M hpp hS _ _ _ _ _,
   isTracingEnabledFor_keepsKS M hpp hS _ _, addTrace_keepsKS M hpp hS _ _ _,
   snapshotWireCaches_keepsKS M hpp hS _, restoreWireCaches_keepsKS M hpp hS _ _,
-  makeWirePS M hA hS, addInputPS M hA hS, addOutputPS M hA hS, emitAssignP, bindSourceVariableP, lookupVarP,
-  emitRegisterStmtA, emitRegisterK M hA hS, emitMemoryK M hA hS, freshNameA, emitInstanceA,
+  makeWirePS M hA hS, addInputPS M hA hS, addOutputPS M hA hS, emitAssignPS, bindSourceVariablePS, lookupVarPS,
+  emitRegisterStmtPS, emitRegisterPS M hA hS, emitMemoryPS M hA hS, freshNamePS, emitInstancePS,
   canonHardwareKeyKS M hA hS _, withLocalDeclPKS M hS hA _ _ _, withLetDeclPKS M hS hA _ _ _ _, M.tele.telescope I _ hS.1 hS.2 _ _,
-  addModuleToDesignA, withVarMappingP, withDimVarMappingPS, KeepsCS.tryCatch, KeepsCS.map _,
+  addModuleToDesignPS, withVarMappingPS, withDimVarMappingPS, KeepsCS.tryCatch, KeepsCS.map _,
   keepsK_framedNM M hA hS (FramedNM.freshFVar (Fresh := MkRefd))])
 
 end Tools.ShippingGen4FKidsLegacyRules

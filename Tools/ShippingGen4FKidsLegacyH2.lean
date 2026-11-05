@@ -40,6 +40,7 @@ open Tools.ShippingGen4FKidsCalc
 open Tools.ShippingGen4FKidsPrims
 open Tools.ShippingGen4FKidsTac
 open Tools.ShippingGen4FKidsTele
+open Tools.ShippingGen4FKidsEntry
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -57,14 +58,14 @@ macro "kwL0" : tactic => `(tactic| swalkN [keepsK_addMessageContextS M hA hS _, 
   extractWidthKS M hpp hS _ _, inferHWTypeKS M hpp hS _ _, extractDimExprKS M hpp hS _ _,
   inferHWTypeWithDimensionsKS M hpp hS _ _, inferHWTypeFromSignalKS M hpp hS _ _,
   keepsK_getDeclS M hpp hS _ _, Keeps.withReaderA (q := O.quiet) _ _,
-  makeWirePS M hA hS, addInputPS M hA hS, emitAssignP, bindSourceVariableP, lookupVarP])
+  makeWirePS M hA hS, addInputPS M hA hS, emitAssignPS, bindSourceVariablePS, lookupVarPS])
 
 set_option hygiene false in
 macro "kwL" : tactic => `(tactic| swalkN [keepsK_addMessageContextS M hA hS _, keepsK_ppExprS M hpp hS _ _, keepsK_throwErrorS M _ hS _ _,
   extractWidthKS M hpp hS _ _, inferHWTypeKS M hpp hS _ _, extractDimExprKS M hpp hS _ _,
   inferHWTypeWithDimensionsKS M hpp hS _ _, inferHWTypeFromSignalKS M hpp hS _ _,
   keepsK_getDeclS M hpp hS _ _, Keeps.withReaderA (q := O.quiet) _ _,
-  makeWirePS M hA hS, addInputPS M hA hS, emitAssignP, bindSourceVariableP, lookupVarP,
+  makeWirePS M hA hS, addInputPS M hA hS, emitAssignPS, bindSourceVariablePS, lookupVarPS,
   extractNatKS M hpp hS _ _])
 
 theorem isTracingEnabledFor_keepsKS (hA : AdmCtx O.quiet mctx cctx) (cls : Name) :

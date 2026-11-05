@@ -56,6 +56,7 @@ open Tools.ShippingGen4FKidsCalc
 open Tools.ShippingGen4FKidsPrims
 open Tools.ShippingGen4FKidsTac
 open Tools.ShippingGen4FKidsTele
+open Tools.ShippingGen4FKidsEntry
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
