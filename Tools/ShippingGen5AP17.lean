@@ -27,7 +27,7 @@ open Tools.ShippingEntrySoundness
 open Sparkle.IR.AST (Stmt Design)
 open Tools.ShippingMachineEntry (CloseCalls MemChildren instOrigin_child?_mem)
 open Tools.ShippingGenFGLedgerPremises Tools.ShippingGen5Sem
-open Tools.ShippingGen5ClosingRun2 Tools.ShippingGen5ClosingRun3
+open Tools.ShippingGen5ClosingRun2 Tools.ShippingGen5ClosingRun3 Tools.ShippingGen5RunReads Tools.ShippingGen5ClosingRun
 
 variable {ι : Type} {dom : ι → DomainConfig}
   {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
@@ -186,12 +186,14 @@ def HKidWRow {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) (Reach : Name �
         (q.d.shape.binders[q.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) =
           some pt.ty.bitWidth
 
-section GP
+section APGen
 variable (lvl : Lean.Expr → Nat) {initsOf : (d : Tools.ShippingMachineAuto.MachineData) → HList (tys d.ss)}
   (hs : DataOfSound (Tools.ShippingGen5DataOf.dataOfAt lvl) initsOf)
   (genData₀ : (env : Environment) → (E : ConstantInfo) →
     Option (GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (Sparkle.Compiler.Elab.structEnv env)))
   (env : Environment)
+
+local notation "GP" => genGP (ι := ι) (dom := dom) lvl hs genData₀ env
 
 /-- **`dec` of the run's own package** (the content of `T1Hyp.dec` at `q`): `stepDec_of_ties` with `hT2_TIE` from
 `hT2Tie_of_genGP`, whose `hDG_CLOSINGRUN` is the run's `ClosingShared` (`closingShared_of_runR`; premises `IHAt` / `ChildKeepsInv`
@@ -269,6 +271,110 @@ theorem ihAt_stepPF_ND (L : Laws mref cref) {Reach : Name → Prop} {DataOk : Pk
     (by rw [hdv]; exact hu) hIH' hKI' hr hcore hb htop hmods htaken
   exact ⟨hreal, ⟨q, n, hPq, rfl, childShips_congr q n M' (hmods hnt).symm hCS⟩, hic⟩
 
-end GP
+/-- **The depth induction (ND)**: `ih_allPF` from `T1HypND`; `dec` is built at every level by `ihAt_stepPF_ND`. -/
+theorem ih_allPF_ND (L : Laws mref cref) {Reach : Name → Prop} {DataOk : Pkg ι dom → Prop}
+    (H : T1HypND L GP Reach DataOk)
+    (hStep : StepStmt L GP DataOk)
+    (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
+    (hMEM : HMemRow GP Reach) (hARGS : HArgsRow GP Reach)
+    (hOW : HOWRow GP Reach) (hkidW : HKidWRow L GP Reach) :
+    ∀ D, 1 ≤ D → IHAt L GP Reach D ∧ ChildKeepsInv L GP Reach D := by
+  have key : ∀ k D, sparkleSynthDepthLimit - D = k → 1 ≤ D →
+      IHAt L GP Reach D ∧ ChildKeepsInv L GP Reach D := by
+    intro k
+    induction k with
+    | zero =>
+      intro D hk hD1
+      have hle : sparkleSynthDepthLimit ≤ D := by omega
+      have hI : IHAt L GP Reach D := ihAt_limit L GP Reach (limitStmt_proved L) hle
+      exact ⟨hI, keepChild_proved L GP Reach D hD1 (fun hlt => absurd hle (by omega)) hI⟩
+    | succ k ih =>
+      intro D hk hD1
+      have hN := ih (D + 1) (by omega) (by omega)
+      have hI : IHAt L GP Reach D :=
+        ihAt_stepPF_ND lvl hs genData₀ env L H hStep hrows hMEM hARGS hOW hkidW D hN.1 hN.2
+      exact ⟨hI, keepChild_proved L GP Reach D hD1 (fun _ => keepBody L GP Reach (D + 1) hN.2) hI⟩
+  intro D hD1
+  exact key _ D rfl hD1
+
+/-- **T1 (ND)**: `t1_of_stepPF` from `T1HypND`; the top's `dec` is `decAt_ND` at depth `0`. -/
+theorem t1_of_stepPF_ND (L : Laws mref cref) {Reach : Name → Prop} {DataOk : Pkg ι dom → Prop}
+    (H : T1HypND L GP Reach DataOk)
+    (hStep : StepStmt L GP DataOk)
+    (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
+    (hMEM : HMemRow GP Reach) (hARGS : HArgsRow GP Reach)
+    (hOW : HOWRow GP Reach) (hkidW : HKidWRow L GP Reach) :
+    ∀ (c : Name) (mctx : Meta.Context) (cctx : Core.Context) (w w1 : Void IO.RealWorld)
+      (raw b : Sparkle.IR.AST.Module) (Dg : Design),
+      Reach c → Start L mctx cctx w →
+      RunsTo (synthesizeCombinationalCore c [] false) mctx mref cctx cref w (raw, Dg) w1 →
+      (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+        b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) →
+      ∃ q n, GP c = some q ∧ TopShips q n c b raw Dg := by
+  intro c mctx cctx w w1 raw b Dg hc hS hr hb
+  obtain ⟨hA, hj0⟩ := hS
+  obtain ⟨q, hPq, hqd, hDq⟩ := H.pkg c hc
+  subst hqd
+  have hdv : dv w = 0 := hj0.1.2.2
+  obtain ⟨hI1, hK1⟩ := ih_allPF_ND lvl hs genData₀ env L H hStep hrows hMEM hARGS hOW hkidW 1 (Nat.le_refl 1)
+  have hjqc : JQC L.O (dv w) w := by rw [hdv]; exact hj0
+  have hI1' : IHAt L GP Reach (dv w + 1) := by rw [hdv]; exact hI1
+  have hK1' : ChildKeepsInv L GP Reach (dv w + 1) := by rw [hdv]; exact hK1
+  have hdef : MachineDefines mctx mref cctx cref q.decl q.d.shape := H.defines q.decl hc q hPq mctx cctx hA
+  have hcl : MachineClosesAtA L.O mctx cctx q.decl q.d.shape := H.closes q.decl hc q hPq mctx cctx hA
+  have hsrv := servedShips0_runND L GP Reach DataOk H q mctx cctx w w1 raw Dg hc hPq hA hjqc (Or.inl hdv) hI1' hK1' hr
+  have htaken : MachineTaken L mctx cctx (dv w + 1) q.decl q.d.shape raw Dg :=
+    Tools.ShippingServedRealA.machineRunJQC_of_closesA L.O hA hr hdef hcl hjqc.1 (Or.inl hdv)
+  have hdec := decAt_ND lvl hs genData₀ env L H hrows hMEM hARGS hOW hkidW hA hc hPq hDq hjqc (Or.inl hdv) hI1' hK1' hr
+  obtain ⟨n, hTop, -⟩ := hStep q mctx cctx w w1 raw b Dg hPq hDq hA hjqc hr hb hdef htaken hdec hsrv
+  exact ⟨q, n, hPq, hTop⟩
+
+/-- `closingRun0_of_runT1` (`Tools.ShippingGen5ClosingRun4`) with `T1HypND` and `ih_allPF_ND`. -/
+theorem closingRun0_of_runT1_ND (L : Laws mref cref) {Reach : Name → Prop} {DataOk : Pkg ι dom → Prop}
+    (H : T1HypND L GP Reach DataOk)
+    (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
+    (hStep : StepStmt L GP DataOk)
+    (hMEM : HMemRow GP Reach) (hARGS : HArgsRow GP Reach)
+    (hOW : HOWRow GP Reach) (hkidW : HKidWRow L GP Reach)
+    {mctx : Meta.Context} {cctx : Core.Context}
+    {X : Name} {p : Pkg ι dom} (hR : Reach X) (hP : GP X = some p)
+    {w w' : Void IO.RealWorld} {raw : Sparkle.IR.AST.Module} {D : Design}
+    (hs0 : Start L mctx cctx w) (hd0 : dv w = 0)
+    (hrun : RunsTo (synthesizeCombinationalCore X [] false) mctx mref cctx cref w (raw, D) w')
+    (Gen : ConstantInfo → Environment → Environment → Prop)
+    (hGen : ∀ b ci envR envR' w5 w6,
+      RunReadsAt mctx mref cctx cref X w w' raw D b ci envR envR' p.d.shape w5 w6 → Gen ci envR envR') :
+    ClosingRun0 L GP Reach mctx cctx X p Gen w w' raw D :=
+  have h := ih_allPF_ND lvl hs genData₀ env L H hStep hrows hMEM hARGS hOW hkidW 1 (Nat.le_refl 1)
+  Tools.ShippingGen5ClosingRun3.closingRun0_of_runR L GP Reach DataOk H hR hP hs0 hd0 h.1 h.2 hrun Gen hGen
+
+/-- `closingRun_of_runT1` (`Tools.ShippingGen5ClosingRun4`) with `T1HypND` and `ih_allPF_ND`. -/
+theorem closingRun_of_runT1_ND (L : Laws mref cref) {Reach : Name → Prop} {DataOk : Pkg ι dom → Prop}
+    (H : T1HypND L GP Reach DataOk)
+    (hrows : ∀ q : Pkg ι dom, DataOk q → DataRows q)
+    (hStep : StepStmt L GP DataOk)
+    (hMEM : HMemRow GP Reach) (hARGS : HArgsRow GP Reach)
+    (hOW : HOWRow GP Reach) (hkidW : HKidWRow L GP Reach)
+    {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx L.O.quiet mctx cctx)
+    {X : Name} {p : Pkg ι dom} (hR : Reach X) (hP : GP X = some p)
+    {w w' : Void IO.RealWorld} {raw : Sparkle.IR.AST.Module} {D : Design}
+    (hst : InvAt L GP Reach (dv w) w)
+    (h1 : 1 ≤ dv w)
+    (hrun : RunsTo (synthesizeCombinationalCore X [] false) mctx mref cctx cref w (raw, D) w')
+    (Gen : ConstantInfo → Environment → Environment → Prop)
+    (hGen : ∀ b ci envR envR' w5 w6,
+      RunReadsAt mctx mref cctx cref X w w' raw D b ci envR envR' p.d.shape w5 w6 → Gen ci envR envR') :
+    ClosingRun L GP Reach mctx cctx X p Gen w w' raw D :=
+  have h := ih_allPF_ND lvl hs genData₀ env L H hStep hrows hMEM hARGS hOW hkidW (dv w + 1) (Nat.succ_pos _)
+  Tools.ShippingGen5ClosingRun3.closingRun_of_runR L GP Reach DataOk H hA hR hP hst h.1 h.2 h1 hrun Gen hGen
+
+end APGen
 
 end Tools.ShippingGen2
+
+#print axioms Tools.ShippingGen2.decAt_ND
+#print axioms Tools.ShippingGen2.ihAt_stepPF_ND
+#print axioms Tools.ShippingGen2.ih_allPF_ND
+#print axioms Tools.ShippingGen2.t1_of_stepPF_ND
+#print axioms Tools.ShippingGen2.closingRun0_of_runT1_ND
+#print axioms Tools.ShippingGen2.closingRun_of_runT1_ND
