@@ -47,6 +47,11 @@ def hasBinder (c nm : Name) : MetaM Bool := do
   let (o, _) ← binders c
   return o.any (·.name == nm)
 
+/-- some binder (named or anonymous arrow premise) of `c` has a `NoRawBelow` type -/
+def hasNoRawBinder (c : Name) : MetaM Bool := do
+  let (o, _) ← binders c
+  return o.any fun b => (b.ty.splitOn "NoRawBelow").length > 1
+
 /-- the type of binder `a` of `c₁` equals the type of binder `b` of `c₂` -/
 def sameTy (c₁ : Name) (a : Name) (c₂ : Name) (b : Name) : MetaM Bool := do
   let (o, _) ← binders c₁
@@ -62,7 +67,7 @@ open Tools.ShippingGen5DCEntryV in
 def rootsAdded : List Name :=
   [`ι, `dom, `mref, `cref, `L, `mctx, `cctx, `w, `w1, `declName, `p, `hS, `hr, `hpost, `hdef, `hcl, `hdata]
 
-/-- `resetNk_transport` (old, has `hno`) vs `resetNk_transportR` (new) -/
+-- `resetNk_transport` (old, has `hno`) vs `resetNk_transportR` (new)
 run_meta do
   let old := `Tools.ShippingGen5DCEntryR.resetNk_transport
   let new := `Tools.ShippingGen5DCEntryV.resetNk_transportR
@@ -77,16 +82,16 @@ run_meta do
   if matches' d [`h, `hno] (rootsAdded.drop 1) [] true then throwError "NEG2: comparison missing an added row passed"
   if matches' d [`h, `hno] rootsAdded [] false then throwError "NEG3: wrong conclusion flag passed"
 
-/-- `runModuleTG_transport` (old, has `hno`) and U `coreRun_transport` vs `coreRun_transportAll` (new) -/
+-- `runModuleTG_transport` (old, has the anonymous `NoRawBelow … →` premise) and U `coreRun_transport` vs `coreRun_transportAll` (new)
 run_meta do
   let oldT := `Tools.ShippingGen5DCEntryT.runModuleTG_transport
   let oldU := `Tools.ShippingGen5DCEntryU.coreRun_transport
   let new := `Tools.ShippingGen5DCEntryV.coreRun_transportAll
-  unless ← hasBinder oldT `hno do throwError "OLD runModuleTG_transport lacks hno (check is vacuous)"
+  unless ← hasNoRawBinder oldT do throwError "OLD runModuleTG_transport lacks the NoRawBelow premise (check is vacuous)"
   if ← hasBinder new `hno then throwError "NEW coreRun_transportAll still has hno"
   let dT ← diff oldT new
   logInfo m!"vs runModuleTG_transport: removed {dT.removed} added {dT.added} changed {dT.changed}"
-  unless dT.removed.contains `hno && dT.noRaw do throwError "coreRun_transportAll vs runModuleTG_transport unexpected"
+  unless dT.noRaw && !(← hasNoRawBinder new) do throwError "coreRun_transportAll vs runModuleTG_transport unexpected"
   let dU ← diff oldU new
   logInfo m!"vs U.coreRun_transport: removed {dU.removed} added {dU.added} changed {dU.changed} sameConcl {dU.sameConcl}"
   -- d : MachineData is replaced by the package p (d := p.d); hins/hf are gone; hdata is the DataOk row
@@ -100,7 +105,7 @@ run_meta do
   if matches' dU [`d, `hins, `hf] [`ι, `dom, `p] [`hdef, `hcl] true then throwError "NEG5 (hdata not listed) passed"
   if matches' dU [`d, `hins, `hf] [`ι, `dom, `p, `hdata] [] true then throwError "NEG6 passed"
 
-/-- (a3) root at `checkedOptimize b` -/
+-- (a3) root at `checkedOptimize b`
 run_meta do
   let new := `Tools.ShippingGen5DCEntryV.coreRun_transportOpt
   if ← hasBinder new `hno then throwError "NEW coreRun_transportOpt still has hno"
