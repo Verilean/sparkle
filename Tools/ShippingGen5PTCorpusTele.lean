@@ -837,4 +837,42 @@ theorem ptcorpus_rowTeleEvAt (env : Environment) (F : PTCorpusTeleFacts env) (O 
   · exact ptc_tele_Sub_mk env F.closedL F.teleT_Sub_mk
   · exact ptc_tele_XorOp_mk env F.closedL F.teleT_XorOp_mk
 
+
+/-! ## §7 Over `envAt cref w` (the environment of the FG statement) and the four named obligations -/
+
+section envat
+open Sparkle.Compiler.Elab Sparkle.IR.Semantics
+open Tools.ShippingEntryReadsLinked (envAt)
+open Tools.ShippingGen5ConstValueESoundK (OblLbrZero)
+open Tools.ShippingGen5EnvDeclClosed (KernelClosedInvariant envDeclClosed_of_kernel)
+
+/-- `OblRowTypedV PTcorpus (envAt cref w)` from the named env facts about `envAt cref w`. -/
+theorem ptcorpus_oblRowTypedV_envAt (cref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld)
+    (F : PTCorpusEnvFacts (envAt cref w)) : OblRowTypedV PTcorpus (envAt cref w) := ptcorpus_oblRowTypedV _ F
+
+/-- `∀ c ls, RowTeleEvAt PTcorpus (envAt cref w) c ls` from the named env facts and the named residue (the 17 rows without a theorem). -/
+theorem ptcorpus_rowTeleEvAt_envAt (cref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld)
+    (F : PTCorpusTeleFacts (envAt cref w)) (O : PTCorpusTeleOpen (envAt cref w)) :
+    ∀ (c : Name) (ls : List Level), RowTeleEvAt PTcorpus (envAt cref w) c ls := ptcorpus_rowTeleEvAt _ F O
+
+/-- The field `closedL` of `PTCorpusTeleFacts` follows from the two named premises of the FG statement. -/
+theorem closedL_envAt (cref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld) (hz : OblLbrZero)
+    (hK : KernelClosedInvariant (envAt cref w)) : EnvClosedL (envAt cref w) :=
+  envClosedL_of_declClosed (envDeclClosed_of_kernel hz hK)
+
+end envat
+
+/-- `Fin.mk`, `Decidable.isTrue`, `Decidable.isFalse` have no row in `PTcorpus` (`MissingWhy.propBinder`): their `RowTeleEvAt` and `RowTypedAtV` hold with no hypothesis. NOT a typed row: no derivation reaches the key. -/
+theorem oblTeleEv_Fin_mk_PTcorpus (env : Environment) : OblTeleEv_Fin_mk PTcorpus env := rowTeleEvAt_of_none PTcorpus env _ _ rfl
+theorem oblTeleEv_Decidable_isTrue_PTcorpus (env : Environment) : OblTeleEv_Decidable_isTrue PTcorpus env := rowTeleEvAt_of_none PTcorpus env _ _ rfl
+theorem oblTeleEv_Decidable_isFalse_PTcorpus (env : Environment) : OblTeleEv_Decidable_isFalse PTcorpus env := rowTeleEvAt_of_none PTcorpus env _ _ rfl
+theorem rowTypedV_Fin_mk_PTcorpus (env : Environment) : RowTypedAtV PTcorpus env ``Fin.mk [] := rowTypedAtV_of_none PTcorpus env _ _ rfl
+theorem rowTypedV_Decidable_isTrue_PTcorpus (env : Environment) : RowTypedAtV PTcorpus env ``Decidable.isTrue [] := rowTypedAtV_of_none PTcorpus env _ _ rfl
+theorem rowTypedV_Decidable_isFalse_PTcorpus (env : Environment) : RowTypedAtV PTcorpus env ``Decidable.isFalse [] := rowTypedAtV_of_none PTcorpus env _ _ rfl
+
+/-- NEGATIVE CONTROL: the vacuity is by absence of the row, not by a proof about it: `BitVec.ofFin` HAS a row, and `PTcorpus.tms` of it is not `none`. -/
+theorem control_bitVec_ofFin_has_row : PTcorpus.tms `BitVec.ofFin [] ≠ none := by
+  intro h; have : PTcorpus.tms `BitVec.ofFin [] = some tm_4.row := rfl
+  rw [this] at h; cases h
+
 end Tools.ShippingGen5PTCorpusTele
