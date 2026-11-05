@@ -666,3 +666,38 @@ Q1/Q2 のあとの証明の形（**未証明の計画**）:
 残った義務: `OblDenSubstL` 一般形（Q1）、`OblPrimArgsL` / `RowArgsAtL`（Q2）、`OblRowTypedS` の依存 30 行（Q1/Q2 後）、`KernelClosedInvariant`（カーネルの不変量、監査が証拠）、`OblLbrZero`（ブリッジ）。Lean の opaque な `instantiateLevelParams` との一致、kernel typing との一致は主張しない。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §EnvCl: `EnvDeclClosed` を構造だけで述べる定式化と、`OblLbrZero` に残る義務（Issue `sparkle-ledger-dd4-envcl`、土台 fe106963）
+
+TRUSTED・axiom・sorry・native_decide なし。`PT` は明示パラメータのまま。G-PRIM の採用や TRUSTED 化は先取りしていない。既存ファイルは書き換えていない。新ファイル: `Tools/ShippingGen5EnvClosedS.lean`、`Tests/Gen5/EnvClosedSCheck.lean`（lean_lib 登録は最初の commit で 1 回）。`dd4-final` / `dd4-deprows` のファイルには触っていない。
+
+### 1. 定式化（opaque な `looseBVarRange` を通さない）
+
+`SoundK.lbr` の定義は `max` と `Nat` の切り捨て引き算（`lbr b - 1`）を使う。そこで引き算も `max` も持たない構造再帰の `Bool` を置く: `closedAtB e k`（`bvar i ↦ i < k`、`lam/forallE/letE` の本体だけ `k+1`、他は子へ）。
+- `closedAtB_iff : closedAtB e k = true ↔ lbr e ≤ k`（証明済み）。`ClosedS e := closedAtB e 0 = true`、`closedS_iff : ClosedS e ↔ lbr e = 0`、`Decidable (ClosedS e)`。
+- `EnvDeclClosedS env`: 保存された `ci.type` と `defnInfo` の `value` が `ClosedS`。`envDeclClosedS_iff : EnvDeclClosedS ↔ EnvDeclClosed`、`envDeclClosedS_iff_closedL : ↔ EnvClosedL`（証明済み）。局所化 `EnvDeclClosedSOn`（`↔ EnvDeclClosedOn`）、`envDeclClosedS_of_on`。
+- 元の `EnvDeclClosed` はすでに構造的 `lbr` だけで述べられていた。したがって「`EnvDeclClosed` に `looseBVarRange` が入っている」わけではなく、`looseBVarRange` が入るのは **kernel の不変量を `EnvDeclClosed` に変換する側**（`KernelClosedInvariant` と `OblLbrZero`）だけである。この定式化は、その経路を最終 carrier の前提から外す（`EnvDeclClosedS` が唯一の環境前提）。
+
+**最終 carrier が要求する形が足りること**: carrier の weakening / subst が環境について使うのは、`unfold` の `d.value` と `prim` の `ci.type` の `lbr = 0`（`hcl.2` / `hcl.1`、`liftS_closed` / `substS_of_lbr_le`）だけで、`EnvClosedL` はその level 代入後の形、`EnvClosedL ↔ EnvDeclClosed`（§SoundS2）。よって `EnvDeclClosedS` から次が出る（Check で型を照合）: `denTypedL_S`（`CVEKL`）、`denTypedVL_S`（最終 carrier `CVEKVL`）、`denTypedVL_of_rows_S`（literal の 2 行だけを `PT` の仕様として加える）。環境の前提はどれも `EnvDeclClosedS` 1 つ。Check の run_meta は、これらの statement が定義を通して `Expr.looseBVarRange` を含まないこと（検出器の正対照: `OblLbrZero` / `KernelClosedInvariant` / `OblLbrZeroOn` は含むと判定される）を確かめる。
+
+### 2. `envDeclClosed_of_kernel` を Lean の API で証明できるか
+
+結論: **今の API では証明できない。名前付きの義務として残す**。根拠（Check の run_meta が機械的に確かめる。API が変われば build が落ちる）:
+- `Expr.looseBVarRange e := e.data.looseBVarRange.toNat` は通常の `def`。`Expr.data` は `Expr.mkData` / `Expr.mkAppData` で組まれ、この 2 つは **`opaque`**。`(Expr.bvar 3).looseBVarRange` は `rfl` / `decide` / defeq（transparency `.all`）のどれでも 4 にも 0 にも簡約されない（正対照: `Nat.add 1 2 = 3` は簡約される）。
+- core / Std / Init に `Expr.looseBVarRange` を含む定理は 0 件。`hasLooseBVar` / `instantiate1` / `liftLooseBVars` も `opaque`。
+- kernel の不変量（環境に入る宣言は閉じた項）は `Environment.addDecl` の性質で、`Environment` に対する well-formed の述語や定理が core に無いので、`Environment` の値から導く道が無い。
+- 補足（断定しない）: `mkData` は範囲が `2^20` を超えると panic する設計なので、`∀ e, looseBVarRange e = 0 → lbr e = 0`（`OblLbrZero`）は全称の形では強すぎる可能性がある。ただし `mkData` が opaque なので、Lean の中で真偽のどちらも示せない。
+- 少なくとも言えること: 必要な橋は全称の `OblLbrZero` ではなく、保存された項だけの `OblLbrZeroOn env`（`oblLbrZeroOn_of_global : OblLbrZero → OblLbrZeroOn env`、`envDeclClosedS_of_kernel : OblLbrZeroOn env → KernelClosedInvariant env → EnvDeclClosedS env`）。しかも最終 carrier が要るのは `EnvDeclClosedS` そのものであり、`(KernelClosedInvariant, OblLbrZeroOn)` はその 1 つの経路にすぎない。
+- 証拠: 5 driver（main43 + M1..M4）の監査（§SoundS3）。REACHED 反例 0、ALL 反例 0（256129 / 238065 / 238368 / 239490 / 238218 constant）、かつ `lbr` と Lean の `looseBVarRange` の不一致 0。これは各 build 環境の有限な証拠で、将来の環境への一般の証明ではない。
+
+### 3. 残った義務
+
+| 名前 | 状態 | 備考 |
+|---|---|---|
+| `EnvDeclClosedS`（= `EnvDeclClosed`） | 名前付き仮説（通常の前提）。証明も axiom もしない | carrier が要る唯一の環境前提。証拠は 5 driver の監査 |
+| `KernelClosedInvariant` + `OblLbrZeroOn` | 未解決（API で証明不能、上記） | `EnvDeclClosedS` への経路の 1 つ。後者は `OblLbrZero` より弱い |
+| `OblLbrZero` | 未解決 | 全称の形。必要なら `OblLbrZeroOn` に置き換える |
+
+条件付きの成果であり、全体の健全性としては主張しない。G-PRIM の採用 / TRUSTED 化は、上の残余の一覧を見て reviewer が別途判断する。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
