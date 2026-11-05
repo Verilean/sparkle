@@ -5841,3 +5841,8 @@ lean_lib «Tools.ShippingGen5ConstValueESProof» where
 
 lean_lib «Tests.Gen5.SoundSCheck» where
   roots := #[`Tests.Gen5.SoundSCheck]
+lean_lib «Tools.ShippingGen5RowTypedK» where
+  roots := #[`Tools.ShippingGen5RowTypedK]
+
+lean_lib «Tests.Gen5.RowTypedKCheck» where
+  roots := #[`Tests.Gen5.RowTypedKCheck]
