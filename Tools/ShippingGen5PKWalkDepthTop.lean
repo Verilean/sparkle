@@ -125,6 +125,10 @@ theorem entryTop_windowD (hlog : LogMvK O) (translate : Lean.Environment → Tra
             (do
               let constInfo ← getConstInfo declName
               let env ← getEnv
+              if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+                throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true
+                  false [] constInfo (instancePredicate env)).getD ""}")
+              else
               synthesizeFromConst (translate env) (profLogIO prof.isSome) declName [] false true
                 (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
                   (structEnv env))
@@ -154,7 +158,11 @@ theorem entryTop_windowD (hlog : LogMvK O) (translate : Lean.Environment → Tra
       refine Triple.bind (keeps_iff.mp (keepsK_framedNM M hA (stableK_KWD O MemoKeysInChild 1)
         FramedNM.env)) ?_
       intro env
-      exact hbody hlt prof.isSome env _ _
+      refine Triple.ite (fun _ => ?_) (fun _ => ?_)
+      · exact tripleK_throwErr M hA (stableK_KWD O MemoKeysInChild 1)
+          (stringToMessageData s!"{declName}: {(entryInlinerError? env true
+            false [] ci (instancePredicate env)).getD ""}") (OkMsg.str _)
+      · exact hbody hlt prof.isSome env _ _
     exact body _ _ _ _ _ _ _
 
 variable (hlog : LogMvK O)
