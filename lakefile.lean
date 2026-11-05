@@ -5899,3 +5899,6 @@ lean_lib «Tests.Gen5.SoundS3Check» where
 
 lean_lib «Tools.ShippingGen5DepRows» where
   roots := #[`Tools.ShippingGen5DepRows]
+
+lean_lib «Tests.Gen5.DepRowsCheck» where
+  roots := #[`Tests.Gen5.DepRowsCheck]
