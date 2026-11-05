@@ -5469,3 +5469,9 @@ lean_lib «Tools.ShippingGen5AccRouteR» where
 
 lean_lib «Tests.Gen5.AC9TopCheck» where
   roots := #[`Tests.Gen5.AC9TopCheck]
+
+lean_lib «Tools.ShippingGen5AccKit» where
+  roots := #[`Tools.ShippingGen5AccKit]
+
+lean_lib «Tests.Gen5.AC9KitCheck» where
+  roots := #[`Tests.Gen5.AC9KitCheck]
