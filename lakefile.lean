@@ -6185,3 +6185,6 @@ lean_lib «Tools.ShippingGen4ParamFinal» where
 
 lean_lib «Tests.Gen4.ParamFinalCheck» where
   roots := #[`Tests.Gen4.ParamFinalCheck]
+
+lean_lib «Tests.Gen5.ParamFinalScan» where
+  roots := #[`Tests.Gen5.ParamFinalScan]
