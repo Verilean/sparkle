@@ -5699,3 +5699,9 @@ lean_lib «Tools.ShippingGenFGLedgerPremisesR» where
 
 lean_lib «Tests.Gen5.FGLedgerPremisesRCheck» where
   roots := #[`Tests.Gen5.FGLedgerPremisesRCheck]
+
+lean_lib «Tools.ShippingGenFGLedgerPremisesG» where
+  roots := #[`Tools.ShippingGenFGLedgerPremisesG]
+
+lean_lib «Tests.Gen5.GPFixCheck» where
+  roots := #[`Tests.Gen5.GPFixCheck]
