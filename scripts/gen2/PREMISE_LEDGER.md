@@ -1236,3 +1236,14 @@ reviewer の判断（Issue sparkle-gen4-param-ftheta、2026-11-05）: parametric
 | CR4（Issue sparkle-ledger-cr4） | C.CR-4（−1、PA 非リーフ、`H : T1HypND`。D.T-6 はこの行に統合済み） | `Tools/ShippingGen5CR4.lean`（f9dbc699、par/cr4、土台 72e2b9ff）: `t1HypND_of_rows` は、`Reach := TgtRun P declName` のとき `hpkg`（A.P-08）・`hA6`（FG の文の `h_A_P06`）・`hcl`（A.P-07）から `T1HypND` を作る。`closed` は `TgtRun.call` から得る。ND 根 7 本の行版を置いた。`Tests/Gen5/CR4Check.lean` は構造的な Expr 比較で、7 根すべてについて H が除かれ、追加された binder が既存の行と Expr == で、結論が一致することを確かめる。新しい型と値は T1HypND を使わない（`t1HypND_of_rows` の値の中だけ）。負対照は自己比較、H を除去と見なさない比較、組の取り違え。exact-head build 成功。reviewer 承認（f9dbc699） | 新しい前提 0。入る束縛変数は既存の行（A.P-08、A.P-07、h_A_P06）。FG の組み立てでは行版の根を選ぶ |
 
 - **現在値: FG 77**（78 − 1）。内訳（R0）: リーフ 56 / 非リーフ 21。T1 は 57。FG の最終受理ではない。共有前提の候補 N4-a（§12.17）は数えていない（入れると見込み FG 78）。
+
+### 12.22 調査記録（2026-11-05、coder。文書のみ。数は変えない）
+
+- **D.D-4（CV）の欠陥を認定（reviewer）。** `Tests/Gen5/CVTopCheck.lean`（40b176fe、par/cvtop、土台 f9dbc699。`kjob-run-src-cvtop-8246` exit 0、axioms は標準のみ）。FGLedgerPremisesStmtR / G は `CV : ConstValueRel` を前提なしで全称束縛しているのに、`ConstValueFunctional CV` が結論にある。このため次の 2 点が成り立つ。
+  - `cvTop := fun _ _ _ _ => True` では関数性が偽になる（`cvTop_not_functional`）。G から「どの carrier でも h_C_EN4 ∧ h_C_RK6 ∧ h_C_CV4 → False」が出る（`fgG_refutes_outer`）。
+  - 空の relation では、`not_declConnect_of_empty` により DeclConnect の存在要求が偽になる。
+- よって今の目標のままでは、(b)（ConstValueFunctional を前提へ移す）も (c)（CV を存在量化する）も採らない。**組立の前に CV を `ConstValueE PT` に固定する必要がある**（DC_CONNECT_FREEZE rev5 §C.6）。primitive table の選択肢（DC_CONNECT_PRIM_TABLE_DECISION.md rev5 の A〜D）はユーザー判断に回す。新しい TRUSTED はユーザーの承認前には入れない。ConstValueFunctional を使う証明は `dcImp_of_dcGen`（Tools/ShippingGen5DeclConnectAbs.lean:64）だけ。
+- leaf 行の再調査（reviewer の判断）:
+  - D.D-1 はまだ減算しない。実際の route predicate に固定した最終 root の型比較が要る。
+  - C.DG-1 と C.SM-1 は構造比較の Check を作って調査する。Check が通ったときだけ −1 の候補になる。
+- **現在値は変わらず FG 77 / T1 57**（§12.21）。
