@@ -84,4 +84,27 @@ constant named by its mangled name as in `specValidateBindings`. No `sorry`/axio
 
 ## 6. Record of attempts / failures
 
-(none yet)
+* `List.Forall₂` is not in the core of this toolchain (Lean 4.32.1): replaced by a local inductive `Rel2`.
+* `validateParameterDeclarations` is also private: named by its mangled constant (`specValidateDecl`, same mechanism as
+  `specValidateBindings`); the `forIn` congruence is `forIn_rel` (bodies equal on related elements).
+* `fpost_run` has no `topModule` conjunct and the existential `(M, D)` of two separate inversions is not shown equal
+  (no determinism lemma): `fpost_run_top` is `fpost_run`'s proof with one more `rfl` conjunct; `fpost_run` is unchanged.
+* In `ShapeCheck`, `Expr ==` ignores binder names, so a "mutant" differing only by binder names is (rightly) not rejected;
+  the definition `SpecDesign` is checked by value `==` and by value mutants.
+
+## 7. Result (BUILT)
+
+`Tools/ShippingGen4Shape.lean` (lean_lib `Tools.ShippingGen4Shape`) and `Tests/Gen4/ShapeCheck.lean` (lean_lib
+`Tests.Gen4.ShapeCheck`) build; no `sorry`; axioms standard three. Proved: `legalBinding_congr`, `specDesign_eq_addModule`,
+`specDesign_keys`, `fpost_run_top`, `shape_run` (all as §2 plus the two helpers named here).
+
+Findings (which design is read):
+* The specialization reads `SpecDesign M' D'` (the elaborators' `design'`), not `D` and not unconditionally `D'.addModule M'`.
+* `finishSynth` returns the design WITHOUT the top module, so in the normal case `D.modules` has no module named `M.name`
+  and `SpecDesign M D = D.addModule M`, `SpecDesign M' D' = D'.addModule M'` (the form `ParamTopShips` quantifies over).
+  That `D.modules` has no module named `M.name` is NOT shown here (`ModuleNameCheck.check` uses `eraseDups`; showing it
+  needs the walk's `addModuleToDesign` invariant): it is F-top's conclusion `NoTopCollision`, and every use of the
+  `D'.addModule M'` form must take it from F-top. In the collision case `ParamTopShips b D` is stated on a design with a
+  duplicated top, which is not what is specialized (and `LegalBinding` of it fails if the top has parameters).
+* Legality transfers from the core output's design to the specialized one (`shape_run`, 5th conjunct) with no extra premise.
+* Nothing past the `lambdaTelescope` was used: no `LamTelescopeN`.
