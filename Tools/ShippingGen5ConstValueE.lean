@@ -168,6 +168,169 @@ inductive CVE (PT : PrimTable) (env : Environment) : Val → Expr → Expr → (
 
 end
 
+/-! ### DCF-2/3: functionality, for every `PT` and `env` -/
+
+theorem pi_inj_fun {A : Type} {TB TB' : A → Type} (h : ∀ a, TB a = TB' a) :
+    ((a : A) → TB a) = ((a : A) → TB' a) := by
+  have : TB = TB' := funext h
+  subst this; rfl
+
+/-- A non-const head cannot be a const-headed spine. -/
+theorem spine_ne {e : Expr} {c : Name} {ls : List Level} {args : List Expr}
+    (h : e = mkAppN (.const c ls) args.toArray) (hn : ∀ c ls, e.getAppFn ≠ .const c ls) : False :=
+  hn c ls (by rw [h, spine_fn])
+
+theorem spine_app {fe x : Expr} {c : Name} {ls : List Level} {args : List Expr}
+    (h : Expr.app fe x = mkAppN (.const c ls) args.toArray)
+    (hnh : ¬ ∃ (c : Name) (ls : List Level), fe.getAppFn = .const c ls) : False :=
+  hnh ⟨c, ls, by have := congrArg Expr.getAppFn h; rwa [spine_fn] at this⟩
+
+mutual
+
+theorem tden_fun {PT : PrimTable} {env : Environment} {ρ : Val} {τ : Expr} {T : Type}
+    (h : TDen PT env ρ τ T) {T' : Type} (h' : TDen PT env ρ τ T') : T = T' :=
+  match h with
+  | .pi hA TB hB =>
+    match h' with
+    | .pi hA' TB' hB' => by
+        have e1 := tden_fun hA hA'
+        subst e1
+        exact pi_inj_fun fun a => tden_fun (hB a) (hB' a)
+    | .tcon _ _ _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+    | .tunfold _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+  | .tcon hrow hnd hargs hT he =>
+    match h' with
+    | .pi .. => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+    | .tcon hrow' hnd' hargs' hT' he' => by
+        obtain ⟨rfl, rfl, rfl⟩ := spine_inj (he.symm.trans he')
+        rw [hrow] at hrow'; cases hrow'
+        have := argsden_fun hargs hargs'
+        subst this
+        rw [hT] at hT'; cases hT'; rfl
+    | .tunfold hd' _ he' => by
+        obtain ⟨rfl, rfl, rfl⟩ := spine_inj (he.symm.trans he')
+        exact absurd ⟨_, hd'⟩ hnd
+  | .tunfold hd hb he =>
+    match h' with
+    | .pi .. => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+    | .tcon _ hnd' _ _ he' => by
+        obtain ⟨rfl, rfl, rfl⟩ := spine_inj (he.symm.trans he')
+        exact absurd ⟨_, hd⟩ hnd'
+    | .tunfold hd' hb' he' => by
+        obtain ⟨rfl, rfl, rfl⟩ := spine_inj (he.symm.trans he')
+        rw [hd] at hd'; cases hd'
+        exact tden_fun hb hb'
+
+theorem argsden_fun {PT : PrimTable} {env : Environment} {ρ : Val} {ks : List Bool} {es : List Expr} {as : List Arg}
+    (h : ArgsDen PT env ρ ks es as) {as' : List Arg} (h' : ArgsDen PT env ρ ks es as') : as = as' :=
+  match h, h' with
+  | .nil, .nil => rfl
+  | .ty hT hs, .ty hT' hs' => by
+      have e1 := tden_fun hT hT'
+      subst e1
+      rw [argsden_fun hs hs']
+  | .tm hv hs, .tm hv' hs' => by
+      obtain ⟨_, rfl, hw⟩ := cve_fun hv hv'
+      have := eq_of_heq hw
+      subst this
+      rw [argsden_fun hs hs']
+
+theorem cve_fun {PT : PrimTable} {env : Environment} {ρ : Val} {e τ : Expr} {α : Type} {v : α}
+    (h : CVE PT env ρ e τ α v) {τ' : Expr} {β : Type} {w : β} (h' : CVE PT env ρ e τ' β w) :
+    τ = τ' ∧ α = β ∧ HEq v w :=
+  match h with
+  | .natLit =>
+    match h' with
+    | .natLit => ⟨rfl, rfl, HEq.rfl⟩
+    | .unfold _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+    | .prim _ _ _ _ _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+  | .strLit =>
+    match h' with
+    | .strLit => ⟨rfl, rfl, HEq.rfl⟩
+    | .unfold _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+    | .prim _ _ _ _ _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+  | .bvar h1 =>
+    match h' with
+    | .bvar h2 => by
+        have := Option.some.inj (h1.symm.trans h2)
+        subst this
+        exact ⟨rfl, rfl, HEq.rfl⟩
+    | .unfold _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+    | .prim _ _ _ _ _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+  | .lam hA TB f a0 hb =>
+    match h' with
+    | .lam hA' TB' f' a0' hb' => by
+        have e1 := tden_fun hA hA'
+        subst e1
+        obtain ⟨hB1, -, -⟩ := cve_fun (hb a0) (hb' a0)
+        subst hB1
+        have hTB : TB = TB' := funext fun a => (cve_fun (hb a) (hb' a)).2.1
+        subst hTB
+        have hf : f = f' := funext fun a => eq_of_heq (cve_fun (hb a) (hb' a)).2.2
+        subst hf
+        exact ⟨rfl, rfl, HEq.rfl⟩
+    | .unfold _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+    | .prim _ _ _ _ _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+  | CVE.app TB hA hB hf hx hnh =>
+    match h' with
+    | CVE.app TB' hA' hB' hf' hx' hnh' => by
+        obtain ⟨ht, -, hfv⟩ := cve_fun hf hf'
+        injection ht with h2 h3 h4 h5
+        subst h3 h4 h5
+        have e1 := tden_fun hA hA'
+        subst e1
+        have hTB : TB = TB' := funext fun a => tden_fun (hB a) (hB' a)
+        subst hTB
+        have hfv := eq_of_heq hfv
+        subst hfv
+        obtain ⟨-, -, hav⟩ := cve_fun hx hx'
+        have hav := eq_of_heq hav
+        subst hav
+        exact ⟨rfl, rfl, HEq.rfl⟩
+    | .unfold _ _ he => (spine_app he hnh).elim
+    | .prim _ _ _ _ _ _ he => (spine_app he hnh).elim
+  | .letE hA hv hb =>
+    match h' with
+    | .letE hA' hv' hb' => by
+        have e1 := tden_fun hA hA'
+        subst e1
+        obtain ⟨-, -, hav⟩ := cve_fun hv hv'
+        have hav := eq_of_heq hav
+        subst hav
+        obtain ⟨hB, hTB, hbv⟩ := cve_fun hb hb'
+        subst hB hTB
+        exact ⟨rfl, rfl, hbv⟩
+    | .unfold _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+    | .prim _ _ _ _ _ _ he => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+  | .unfold hd hb he =>
+    match h' with
+    | .unfold hd' hb' he' => by
+        obtain ⟨rfl, rfl, rfl⟩ := spine_inj (he.symm.trans he')
+        rw [hd] at hd'; cases hd'
+        exact cve_fun hb hb'
+    | .prim _ _ hnd' _ _ _ he' => by
+        obtain ⟨rfl, rfl, rfl⟩ := spine_inj (he.symm.trans he')
+        exact absurd ⟨_, hd⟩ hnd'
+    | .natLit | .strLit | .bvar _ | .lam .. | .letE .. => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+    | CVE.app _ _ _ _ _ hnh' => (spine_app he hnh').elim
+  | .prim hci hrow hnd hargs hd hty he =>
+    match h' with
+    | .prim hci' hrow' _ hargs' hd' _ he' => by
+        obtain ⟨rfl, rfl, rfl⟩ := spine_inj (he.symm.trans he')
+        rw [hci] at hci'; cases hci'
+        rw [hrow] at hrow'; cases hrow'
+        have := argsden_fun hargs hargs'
+        subst this
+        rw [hd] at hd'; cases hd'
+        exact ⟨rfl, rfl, HEq.rfl⟩
+    | .unfold hd' _ he' => by
+        obtain ⟨rfl, rfl, rfl⟩ := spine_inj (he.symm.trans he')
+        exact absurd ⟨_, hd'⟩ hnd
+    | .natLit | .strLit | .bvar _ | .lam .. | .letE .. => (spine_ne he (by intros; simp [Expr.getAppFn])).elim
+    | CVE.app _ _ _ _ _ hnh' => (spine_app he hnh').elim
+
+end
+
 /-- The relation `CV` that `ConstValueRel` asks for (`Tools.ShippingGen5DeclConnect`): `X` at the empty valuation, some levels, some syntactic type. -/
 def ConstValueE (PT : PrimTable) (env : Environment) (X : Name) (α : Type) (v : α) : Prop :=
   ∃ (ls : List Level) (τ : Expr), CVE PT env [] (.const X ls) τ α v
