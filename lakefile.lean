@@ -5049,3 +5049,15 @@ lean_lib «Tools.ShippingGen4FKidsTranslate» where
 
 lean_lib «Tools.ShippingGen4FKidsEmit» where
   roots := #[`Tools.ShippingGen4FKidsEmit]
+
+lean_lib «Tools.ShippingGen4FKidsInst» where
+  roots := #[`Tools.ShippingGen4FKidsInst]
+
+lean_lib «Tools.ShippingGen4FKidsProjField» where
+  roots := #[`Tools.ShippingGen4FKidsProjField]
+
+lean_lib «Tools.ShippingGen4FKidsCanon» where
+  roots := #[`Tools.ShippingGen4FKidsCanon]
+
+lean_lib «Tools.ShippingGen4FKidsFallback» where
+  roots := #[`Tools.ShippingGen4FKidsFallback]

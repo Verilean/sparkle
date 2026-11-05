@@ -64,6 +64,14 @@ theorem KCS.bindLiftQ {α β : Type} {I : Void IO.RealWorld → Prop} {st : Circ
     subst hst'
     exact (h2 a hφ ctx hc hs) w hI
 
+/-- the unpointed form of `KCS.bindLiftQ` -/
+theorem KeepsCS.bindLiftQ {α β : Type} {I : Void IO.RealWorld → Prop} {m : MetaM α} {φ : α → Prop}
+    {f : α → CompilerM β}
+    (h1 : Triple mctx mref cctx cref I m (fun a w => I w ∧ φ a) (fun e w => I w ∧ OkExc e))
+    (h2 : ∀ a, φ a → KeepsCS mctx mref cctx cref I (f a)) :
+    KeepsCS mctx mref cctx cref I (CompilerM.liftMetaM m >>= f) :=
+  fun st => KCS.bindLiftQ (fun _ => h1) (fun a ha => h2 a ha st)
+
 section Laws
 variable {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hA : AdmCtx O.quiet mctx cctx)
   {I : Void IO.RealWorld → Prop} (hS : StableK O.quiet I)
