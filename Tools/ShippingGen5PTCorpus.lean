@@ -410,7 +410,85 @@ theorem ptc_rowTypedV_Int_ofNat (env : Environment) (hnd : ¬ IsDefn env ``Int) 
 theorem ptc_rowTypedV_Int_negSucc (env : Environment) (hnd : ¬ IsDefn env ``Int) (hT : EnvClosedPiL env ``Int.negSucc [] 1 (.const ``Int [])) :
     RowTypedAtV PTcorpus env ``Int.negSucc [] := rowTypedV_Int_negSucc PTcorpus env spec_Int_negSucc tyspec_Int hnd hT
 
+/-! ### `RowTeleEvAt PTcorpus` for the closed rows (argument typing) -/
+
+/-- The telescope has exactly the term arguments of the Lean types `Ts`. -/
+def TmTele.TeleTys : {ks : List Bool} → TmTele ks → List Type → Prop
+  | _, .done _ _, Ts => Ts = []
+  | _, .tm A k, Ts => ∃ Ts', Ts = A :: Ts' ∧ ∀ a, (k a).TeleTys Ts'
+  | _, .ty _, _ => False
+
+theorem TmTele.run_argsTy : ∀ {ks : List Bool} (t : TmTele ks) (Ts : List Type), t.TeleTys Ts → ∀ (xs : List Arg) (d : Dyn), t.run xs = some d → ArgsAreTys xs Ts
+  | _, .done R v, Ts, h, [], d, hd => by simp only [TmTele.TeleTys] at h; subst h; trivial
+  | _, .done _ _, _, _, _ :: _, _, hd => by simp [TmTele.run] at hd
+  | _, .tm A k, Ts, h, [], d, hd => by simp [TmTele.run] at hd
+  | _, .tm A k, Ts, h, .ty _ :: xs, d, hd => by simp [TmTele.run] at hd
+  | _, .tm A k, Ts, h, .tm ⟨α, a⟩ :: xs, d, hd => by
+      obtain ⟨Ts', rfl, hk⟩ := h
+      simp only [TmTele.run] at hd
+      split at hd
+      · rename_i heq
+        exact ⟨heq, TmTele.run_argsTy (k _) Ts' (hk _) xs d hd⟩
+      · cases hd
+  | _, .ty k, Ts, h, _, d, hd => h.elim
+
+theorem TmTele.argsTySpec {ks : List Bool} (t : TmTele ks) (Ts : List Type) (h : t.TeleTys Ts) (hk : ks = List.replicate Ts.length true)
+    {PT : PrimTableK} {c : Name} {ls : List Level} (hrow : PT.tms c ls = some t.row) : ArgsTySpec PT c ls Ts :=
+  ⟨t.row, hrow, hk, fun xs d hd => TmTele.run_argsTy t Ts h xs d hd⟩
+
+theorem argsTySpec_Nat_succ : ArgsTySpec PTcorpus ``Nat.succ [] [Nat] :=
+  TmTele.argsTySpec (.tm Nat fun n => .done Nat (Nat.succ n)) [Nat] ⟨[], rfl, fun _ => rfl⟩ rfl tms_Nat_succ
+theorem argsTySpec_Int_ofNat : ArgsTySpec PTcorpus ``Int.ofNat [] [Nat] :=
+  TmTele.argsTySpec (.tm Nat fun n => .done Int (Int.ofNat n)) [Nat] ⟨[], rfl, fun _ => rfl⟩ rfl tms_Int_ofNat
+theorem argsTySpec_Int_negSucc : ArgsTySpec PTcorpus ``Int.negSucc [] [Nat] :=
+  TmTele.argsTySpec (.tm Nat fun n => .done Int (Int.negSucc n)) [Nat] ⟨[], rfl, fun _ => rfl⟩ rfl tms_Int_negSucc
+
+theorem bindersDen_Nat (env : Environment) (hnd : ¬ IsDefn env ``Nat) : BindersDen PTcorpus env [(``Nat, [])] [Nat] :=
+  ⟨fun _ => tdenv_const_nullary tys_Nat hnd rfl rfl, trivial⟩
+
+theorem ptc_teleEv_Nat_succ (env : Environment) (hnd : ¬ IsDefn env ``Nat) (hT : EnvConstPi env ``Nat.succ [] [(``Nat, [])] (.const ``Nat [])) :
+    RowTeleEvAt PTcorpus env ``Nat.succ [] := teleEv_Nat_succ PTcorpus env argsTySpec_Nat_succ (bindersDen_Nat env hnd) hT
+theorem ptc_teleEv_Int_ofNat (env : Environment) (hnd : ¬ IsDefn env ``Nat) (hT : EnvConstPi env ``Int.ofNat [] [(``Nat, [])] (.const ``Int [])) :
+    RowTeleEvAt PTcorpus env ``Int.ofNat [] := teleEv_Int_ofNat PTcorpus env argsTySpec_Int_ofNat (bindersDen_Nat env hnd) hT
+theorem ptc_teleEv_Int_negSucc (env : Environment) (hnd : ¬ IsDefn env ``Nat) (hT : EnvConstPi env ``Int.negSucc [] [(``Nat, [])] (.const ``Int [])) :
+    RowTeleEvAt PTcorpus env ``Int.negSucc [] := teleEv_Int_negSucc PTcorpus env argsTySpec_Int_negSucc (bindersDen_Nat env hnd) hT
+
+theorem tms_DomainConfig_mk : PTcorpus.tms `Sparkle.Core.Domain.DomainConfig.mk [] =
+    some (TmTele.tm Nat fun x1 => TmTele.tm Sparkle.Core.Domain.ActiveEdge fun x2 => TmTele.tm Sparkle.IR.Type.ResetKind fun x3 =>
+      TmTele.done Sparkle.Core.Domain.DomainConfig (Sparkle.Core.Domain.DomainConfig.mk x1 x2 x3)).row := rfl
+
+theorem spec_DomainConfig_mk : TmSpec PTcorpus `Sparkle.Core.Domain.DomainConfig.mk [] [true, true, true] Sparkle.Core.Domain.DomainConfig :=
+  TmTele.spec (.tm Nat fun x1 => .tm Sparkle.Core.Domain.ActiveEdge fun x2 => .tm Sparkle.IR.Type.ResetKind fun x3 =>
+      .done Sparkle.Core.Domain.DomainConfig (Sparkle.Core.Domain.DomainConfig.mk x1 x2 x3)) _ (fun _ _ _ => rfl) tms_DomainConfig_mk
+
+theorem argsTySpec_DomainConfig_mk :
+    ArgsTySpec PTcorpus `Sparkle.Core.Domain.DomainConfig.mk [] [Nat, Sparkle.Core.Domain.ActiveEdge, Sparkle.IR.Type.ResetKind] :=
+  TmTele.argsTySpec (.tm Nat fun x1 => .tm Sparkle.Core.Domain.ActiveEdge fun x2 => .tm Sparkle.IR.Type.ResetKind fun x3 =>
+      .done Sparkle.Core.Domain.DomainConfig (Sparkle.Core.Domain.DomainConfig.mk x1 x2 x3)) _
+    ⟨[_, _], rfl, fun _ => ⟨[_], rfl, fun _ => ⟨[], rfl, fun _ => rfl⟩⟩⟩ rfl tms_DomainConfig_mk
+
+theorem ptc_rowTypedV_DomainConfig_mk (env : Environment) (hnd : ¬ IsDefn env `Sparkle.Core.Domain.DomainConfig)
+    (hT : EnvClosedPiL env `Sparkle.Core.Domain.DomainConfig.mk [] 3 (.const `Sparkle.Core.Domain.DomainConfig [])) :
+    RowTypedAtV PTcorpus env `Sparkle.Core.Domain.DomainConfig.mk [] :=
+  rowTypedV_DomainConfig_mk PTcorpus env spec_DomainConfig_mk tyspec_DomainConfig hnd hT
+
+/-- The binders of `DomainConfig.mk` are `Nat`, `ActiveEdge` and `ResetKind` (an ALIAS of an inductive: its denotation goes through the `unfold`, an env fact stays a hypothesis `hRK`). -/
+theorem ptc_teleEv_DomainConfig_mk (env : Environment) (hN : ¬ IsDefn env ``Nat)
+    (hbd : BindersDen PTcorpus env [(``Nat, []), (`Sparkle.Core.Domain.ActiveEdge, []), (`Sparkle.Core.Domain.ResetKind, [])]
+      [Nat, Sparkle.Core.Domain.ActiveEdge, Sparkle.IR.Type.ResetKind])
+    (hT : EnvConstPi env `Sparkle.Core.Domain.DomainConfig.mk [] [(``Nat, []), (`Sparkle.Core.Domain.ActiveEdge, []), (`Sparkle.Core.Domain.ResetKind, [])]
+      (.const `Sparkle.Core.Domain.DomainConfig [])) : RowTeleEvAt PTcorpus env `Sparkle.Core.Domain.DomainConfig.mk [] :=
+  teleEv_DomainConfig_mk PTcorpus env argsTySpec_DomainConfig_mk hbd hT
+
+/-- A key without a `tms` row is trivially typed (no derivation uses it). -/
+theorem ptc_rowTypedV_of_none (env : Environment) (c : Name) (ls : List Level) (h : PTcorpus.tms c ls = none) : RowTypedAtV PTcorpus env c ls :=
+  rowTypedAtV_of_none PTcorpus env c ls h
+
+theorem ptc_rowTeleEv_of_none (env : Environment) (c : Name) (ls : List Level) (h : PTcorpus.tms c ls = none) : RowTeleEvAt PTcorpus env c ls :=
+  rowTeleEvAt_of_none PTcorpus env c ls h
+
 end Tools.ShippingGen5PTCorpus
 
 #print axioms Tools.ShippingGen5PTCorpus.ptc_rowTypedV_Nat_zero
 #print axioms Tools.ShippingGen5PTCorpus.ptc_rowTypedV_Nat_succ
+#print axioms Tools.ShippingGen5PTCorpus.ptc_teleEv_Nat_succ
