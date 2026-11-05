@@ -35,7 +35,7 @@ noncomputable def genKit (lvl : Lean.Expr → Nat) {initsOf : (d : MachineData) 
     (g₀ : (E : ConstantInfo) → Option (GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (structEnv env))) :
     AssignKit ι dom env :=
   mkKit (Tools.ShippingGen5DataOf.dataOfAt lvl) (fun E => GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (structEnv env))
-    (fun {E} g => g.d) g₀ ordCallees₀ (fun Q X {E} g => GenData.genSem hs Q X g) ordCallees₀_mem
+    (fun {_} g => g.d) g₀ ordCallees₀ (fun Q X {_} g => GenData.genSem hs Q X g) ordCallees₀_mem
     (genData_gdEvidence _) (genData_genSem_local hs) (genData_genSem_decl hs) (genData_genSem_d hs)
 
 /-- The generated package table at every environment. -/
@@ -103,7 +103,7 @@ def FGLedgerPremisesStmtG : Prop :=
 /-- `FGLedgerPremisesStmtG` follows from `FGLedgerPremisesStmtR` at `GP := genGP lvl hs genData₀` (`h_D_T1` by `hDT1_of_genGP`). -/
 theorem fgLedgerPremisesStmtG_of_R : FGLedgerPremisesStmtR → FGLedgerPremisesStmtG := by
   unfold FGLedgerPremisesStmtR FGLedgerPremisesStmtG
-  intro h ι dom mref cref ReflectsAll Post CV L lvl initsOf hs genData₀ h_C_EN4 h_C_RK6 h_C_CV4
+  intro h ι dom mref cref ReflectsAll Post lvl initsOf hs genData₀ CV L h_C_EN4 h_C_RK6 h_C_CV4
   obtain ⟨hcv, hmain⟩ := h ReflectsAll Post (genGP lvl hs genData₀) CV L h_C_EN4 h_C_RK6 h_C_CV4
   refine ⟨hcv, fun declName parameters mctx cctx w w' b D hw hA6 hT4 => ?_⟩
   exact hmain declName parameters mctx cctx w w' b D hw hA6
