@@ -246,7 +246,8 @@ def probeRoots (env : Environment) : IO (Array Name) := do
 elab "#iota_probe" fuel:num take:num : command => do
   let env ← getEnv
   let roots := (← liftIO (probeRoots env))
-  let roots := if take.getNat == 0 then roots else roots.extract 0 take.getNat
+  let start := (← liftIO (IO.getEnv "PRIM_PROBE_FROM")).bind String.toNat? |>.getD 0
+  let roots := if take.getNat == 0 then roots else roots.extract start (start + take.getNat)
   let mut tot : St := { fuel := 0 }
   let mut finished := 0
   let mut failed : Array String := #[]
@@ -265,8 +266,8 @@ elab "#iota_probe" fuel:num take:num : command => do
       for (k, v) in st.stuck.toList do tot := { tot with stuck := tot.stuck.insert k (tot.stuck.getD k 0 + v) }
       for (k, v) in st.firedBy.toList do tot := { tot with firedBy := tot.firedBy.insert k (tot.firedBy.getD k 0 + v) }
       raw := raw ++ s!"{r}\tOK steps={st.steps}\tfired={st.fired}\tnatAccel={st.natAccel}\tstuck={st.stuck.toList}\tfiredBy={st.firedBy.toList}\n"
-  logInfo s!"IOTA PROBE: {roots.size} roots, fuel {fuel.getNat} reduction steps each. FINISHED within fuel: {finished}; FAILED (out of fuel, no partial result): {failed.size}; finished roots with a stuck recursor site: {rootsStuck}\nfailed roots: {failed.toList}\nover the FINISHED roots only (per distinct reduced term): steps {tot.steps}, Nat-literal accelerations {tot.natAccel}, iota fired {tot.fired} by {tot.firedBy.toList}\nstuck recursor sites by major shape: {tot.stuck.toList}"
+  logInfo s!"IOTA PROBE: roots {start}..{start + roots.size}, fuel {fuel.getNat} reduction steps each. FINISHED within fuel: {finished}; FAILED (out of fuel, no partial result): {failed.size}; finished roots with a stuck recursor site: {rootsStuck}\nfailed roots: {failed.toList}\nover the FINISHED roots only (per distinct reduced term): steps {tot.steps}, Nat-literal accelerations {tot.natAccel}, iota fired {tot.fired} by {tot.firedBy.toList}\nstuck recursor sites by major shape: {tot.stuck.toList}"
   if let some path ← (IO.getEnv "KJOB_REPORT_PATH") then
-    IO.FS.writeFile (path ++ ".iotaprobe") raw
+    IO.FS.writeFile (path ++ s!".iotaprobe.{start}") raw
 
 end Tests.Gen5.IotaStudy
