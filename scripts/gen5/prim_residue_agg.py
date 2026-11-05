@@ -23,6 +23,7 @@ missing = collections.Counter()
 file_roots = collections.defaultdict(set)
 for f, (rc, secs, nout, nerr) in status.items():
     t = tag(f)
+    if rc != 0 and not os.environ.get("AGG_ALL"): continue   # only files whose standalone run succeeded (rc 0) count as successful compiles
     d = glob.glob(f"{root}/out*/raw/{t}")
     base = None
     for b in glob.glob(f"{root}/out*/raw/{t}.roots"):
@@ -86,13 +87,30 @@ for (rn, lv, m), k in recsites.items(): mj[m] += k
 out["recsites_major"] = dict(mj)
 out["prof_status"] = dict(prof_status)
 out["missing_names"] = sorted(set(f"{f}: {n}" for (f, n) in missing))[:200]
-json.dump(out, open(f"{root}/agg.json", "w"), indent=1, ensure_ascii=False, default=list)
+suffix = "_all" if os.environ.get("AGG_ALL") else ""
+def union(rs): 
+    u = set()
+    for r in rs: u |= r["residue"]
+    return u
+cert = [r for r in roots.values() if r["routes"] & fe]
+leg = [r for r in roots.values() if "legacy" in r["routes"] and not (r["routes"] & fe)]
+inc = [r for r in roots.values() if any(modof(f) in closure for f in r["files"])]
+def kc(u):
+    c = collections.Counter(consts.get(x, ("?",))[0] for x in u); return dict(c)
+out["residue_certified_roots"] = (len(union(cert)), kc(union(cert)))
+out["residue_legacy_only_roots"] = (len(union(leg)), kc(union(leg)))
+out["residue_closure_roots"] = (len(union(inc)), kc(union(inc)))
+out["residue_all"] = (len(union(roots.values())), kc(union(roots.values())))
+out["only_legacy"] = sorted(union(leg) - union(cert))
+out["only_outside_closure"] = sorted(union(roots.values()) - union(inc))
+out["roots_per_residue_size"] = [min(len(r["residue"]) for r in roots.values() if r["residue"]), sorted(len(r["residue"]) for r in roots.values())[len(roots)//2], max(len(r["residue"]) for r in roots.values())]
+json.dump(out, open(f"{root}/agg{suffix}.json", "w"), indent=1, ensure_ascii=False, default=list)
 # per-const table for the report
-with open(f"{root}/agg_consts.tsv", "w") as w:
+with open(f"{root}/agg_consts{suffix}.tsv", "w") as w:
     w.write("name\tkind\tarity\tmodule\troots\tpartial\tfull\n")
     for c, v in sorted(consts.items(), key=lambda kv: (-need[kv[0]], kv[0])):
         w.write(f"{c}\t{v[0]}\t{v[1]}\t{v[2]}\t{need[c]}\t{partial[c]}\t{full[c]}\n")
-with open(f"{root}/agg_roots.tsv", "w") as w:
+with open(f"{root}/agg_roots{suffix}.tsv", "w") as w:
     w.write("root\troutes\tfiles\tresidue\n")
     for n, r in sorted(roots.items()):
         w.write(f"{n}\t{','.join(sorted(r['routes']))}\t{len(r['files'])}\t{len(r['residue'])}\n")
