@@ -230,6 +230,10 @@ theorem core_triple0 (L : RefLaws mref cref) (hA : L.aux {}) (declName : Name) :
           (do
             let constInfo ← getConstInfo declName
             let env ← getEnv
+            if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+              throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
+                constInfo (instancePredicate env)).getD ""}")
+            else
             synthesizeFromConst (fun e h t n => translateExprToWire env e h t n)
               (profLogIO prof.isSome) declName [] false true
               (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
@@ -255,6 +259,8 @@ theorem core_triple0 (L : RefLaws mref cref) (hA : L.aux {}) (declName : Name) :
     refine Triple.bind (Triple.frame L Framed.env (d + 1)) ?_
     intro env
     have hC : ChildKeeps L (d + 1) := childKeeps L (d + 1) (fun h => absurd h (Nat.succ_ne_zero _))
+    refine Triple.ite (fun _ => ?_) (fun _ => ?_)
+    · exact Triple.throwErr L _ (by first | exact .str _ | exact .fmt _) (d + 1)
     -- (writing-time guess G6: the `entry_keeps` application pattern; fallback `body_keeps`)
     first
       | exact keeps_iff.mp (bodyRel L (d + 1) hC mctx cctx prof.isSome declName _ _)

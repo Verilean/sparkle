@@ -1,0 +1,95 @@
+import Tools.PassPh.Defs
+set_option autoImplicit false
+namespace Tools.PassPhL
+open Lean Tools.ShippingLetsReaderInv Tools.ShippingGen5ReaderTrace Tools.Assume.AbbrevExtern Sparkle.Compiler.MachRecUnfold
+open Tools.PassPh (RecRulePhU BetaNonTargetAgrees)
+
+def GL (L : Nat) (e : Lean.Expr) : Prop := NoPh e = true ∧ BvarLt L e = true
+
+def HeadBetaAgreesL : Prop :=
+  ∀ (L : Nat) (e : Lean.Expr), NoPh e = true → BvarLt L e = true → e.headBeta = headBetaSpec e
+
+theorem headBetaAgreesL_zero : HeadBetaAgreesL → HeadBetaAgrees0 := fun h e hn hb => h 0 e hn hb
+
+theorem betaAll_goodL (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel L : Nat) (e r : Lean.Expr), GL L e → betaAll fuel e = .ok r → GL L r := by
+  sorry
+theorem betaSpine_goodL (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel L : Nat) (e h : Lean.Expr) (args : Array Lean.Expr), GL L e → betaSpine fuel e = .ok (h, args) →
+      GL L h ∧ ∀ a ∈ args, GL L a := by
+  sorry
+theorem ctorApp_goodL : ∀ (L : Nat) (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (e : Lean.Expr)
+    (cv : Lean.ConstructorVal) (fs : Array Lean.Expr), GL L e →
+    ctorApp? env natLit? e = some (cv, fs) → ∀ f ∈ fs, GL L f := by
+  sorry
+theorem rec_arm_goodUL : ReplaceAgrees →
+    ∀ (env : Lean.Environment), RecRulePhU env →
+    ∀ (p : Lean.Name) (rv : Lean.RecursorVal), env.find? (p.str "rec") = some (Lean.ConstantInfo.recInfo rv) →
+    ∀ (c : Lean.Name) (rule : Lean.RecursorRule), rv.rules.find? (fun x => x.ctor == c) = some rule →
+    ∀ (L : Nat) (ls : List Lean.Level) (pre fields rest : Array Lean.Expr),
+      (∀ a ∈ pre, GL L a) → (∀ a ∈ fields, GL L a) → (∀ a ∈ rest, GL L a) →
+      GL L (mkAppN (mkAppN (mkAppN (rule.rhs.instantiateLevelParams rv.levelParams ls) pre) fields) rest) := by
+  sorry
+theorem iota_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
+    (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
+    (hrep : ReplaceAgrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel L : Nat) (e r : Lean.Expr), GL L e → iota env natLit? fuel e = ExceptT.mk (some (.ok r)) → GL L r := by
+  sorry
+theorem reduceMatcher?_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
+    (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
+    (hrep : ReplaceAgrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (L : Nat) (e r : Lean.Expr), GL L e → reduceMatcher? env natLit? e = ExceptT.mk (some (.ok r)) → GL L r := by
+  sorry
+theorem reduceHead_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat)
+    (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
+    (hrep : ReplaceAgrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel L : Nat) (e r : Lean.Expr), GL L e → reduceHead env natLit? fuel e = ExceptT.mk (some (.ok r)) → GL L r := by
+  sorry
+theorem listLit?_goodL (hi1 : Inst1Agrees) (natLit? : Lean.Expr → Option Nat) :
+    ∀ (fuel L : Nat) (e α : Lean.Expr) (xs : List Lean.Expr), GL L e →
+      listLit? natLit? fuel e = ExceptT.mk (some (.ok (α, xs))) → GL L α ∧ ∀ x ∈ xs, GL L x := by
+  sorry
+theorem evalNode?_goodL (hi1 : Inst1Agrees) (natLit? : Lean.Expr → Option Nat) :
+    ∀ (L : Nat) (e r : Lean.Expr), GL L e → evalNode? natLit? e = ExceptT.mk (some (.ok r)) → GL L r := by
+  sorry
+theorem unfoldCall?_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
+    (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
+    (hrep : ReplaceAgrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (L : Nat) (e r : Lean.Expr), GL L e → unfoldCall? env natLit? isUser e = ExceptT.mk (some (.ok r)) → GL L r := by
+  sorry
+
+def MemoGoodL (s : Std.HashMap Lean.Expr Lean.Expr) : Prop :=
+  ∀ (k v : Lean.Expr), s.get? k = some v → ∀ L, GL L k → GL L v
+
+theorem passM_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
+    (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
+    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel : Nat) (e r : Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr), MemoGoodL s →
+      (passM env natLit? isUser fuel e).run.run s = (Except.ok r, s') → MemoGoodL s' ∧ ∀ L, GL L e → GL L r := by
+  sorry
+theorem passStep_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
+    (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
+    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel : Nat) (e r : Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr), MemoGoodL s →
+      (passStep env natLit? isUser fuel e).run.run s = (Except.ok r, s') → MemoGoodL s' ∧ ∀ L, GL L e → GL L r := by
+  sorry
+theorem passSpine_goodL (env : Lean.Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Lean.Name → Bool)
+    (hd : Tools.Assume.EnvDeclValue.DeclValuePh env) (hr : RecRulePhU env)
+    (hrep : ReplaceAgrees) (hi1 : Inst1Agrees) (hh : HeadBetaAgreesL) (hbt : BetaNonTargetAgrees) :
+    ∀ (fuel : Nat) (e h : Lean.Expr) (args : Array Lean.Expr) (s s' : Std.HashMap Lean.Expr Lean.Expr),
+      MemoGoodL s → (passSpine env natLit? isUser fuel e).run.run s = (Except.ok (h, args), s') →
+      MemoGoodL s' ∧ ∀ L, GL L e → GL L h ∧ ∀ a ∈ args, GL L a := by
+  sorry
+theorem passWith_ph (natLit? : Lean.Expr → Option Nat) :
+    ∀ (env : Lean.Environment), Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePhU env →
+    ReplaceAgrees → Inst1Agrees → HeadBetaAgreesL → BetaNonTargetAgrees →
+    ∀ (fuel : Nat) (isUser : Lean.Name → Bool) (e r : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
+      passWith fuel env natLit? isUser e = .ok r → NoPh r = true ∧ BvarLt 0 r = true := by
+  sorry
+theorem pass_ph (natLit? : Lean.Expr → Option Nat) :
+    ∀ (env : Lean.Environment), Tools.Assume.EnvDeclValue.DeclValuePh env → RecRulePhU env →
+    ReplaceAgrees → Inst1Agrees → HeadBetaAgreesL → BetaNonTargetAgrees →
+    ∀ (isUser : Lean.Name → Bool) (e r : Lean.Expr), NoPh e = true → BvarLt 0 e = true →
+      pass env natLit? isUser e = .ok r → NoPh r = true ∧ BvarLt 0 r = true := by
+  sorry
+end Tools.PassPhL

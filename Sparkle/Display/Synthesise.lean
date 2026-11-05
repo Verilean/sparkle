@@ -65,6 +65,7 @@ open Sparkle.Display.Diagram
 elab "#showDiagram" id:ident : command => do
   let declName ← liftCoreM do Lean.resolveGlobalConstNoOverload id
   liftTermElabM do
+    inlinerFuelGuard declName
     let (module, _) ← synthesizeCombinational declName
     -- Use `logSvg`, not `svg`, so the MIME marker reaches the cell
     -- under both the native kernel (which captures stdout) AND the
@@ -80,6 +81,7 @@ elab "#showDiagram" id:ident : command => do
 elab "#showDesign" id:ident : command => do
   let declName ← liftCoreM do Lean.resolveGlobalConstNoOverload id
   liftTermElabM do
+    inlinerFuelGuard declName
     let design ← synthesizeHierarchical declName
     for m in design.modules do
       Sparkle.Display.Mime.logSvg (toSvg (fromModule m))

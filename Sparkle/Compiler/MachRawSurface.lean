@@ -195,16 +195,36 @@ of a `let`'s value:
 `f (let x := v; b)` is `let x := v; f b` (zeta on both sides) — a projection
 of a `let` block (`(let s := Signal.loop …; bundle2 r d).fst`, an unfolded
 `projN! (dividerQ …) 2 0`) becomes a block whose root is the projection. -/
-partial def rootFloat : Lean.Expr → Lean.Expr
-  -- `let x := (let y := v; w); b` is `let y := v; let x := w; b`
+-- Termination measure of rootFloatF: the value of a `let` / the argument of an application counts double.
+def rootFloatNsz : Lean.Expr → Nat
+  | .app f a => rootFloatNsz f + rootFloatNsz a + 1
+  | .lam _ t b _ => rootFloatNsz t + rootFloatNsz b + 1
+  | .forallE _ t b _ => rootFloatNsz t + rootFloatNsz b + 1
+  | .letE _ t v b _ => rootFloatNsz t + rootFloatNsz v + rootFloatNsz b + 1
+  | .mdata _ e => rootFloatNsz e + 1
+  | .proj _ _ e => rootFloatNsz e + 1
+  | _ => 1
+
+def rootFloatNu : Lean.Expr → Nat
+  | .letE _ _ v b _ => 2 * rootFloatNsz v + rootFloatNu b + 1
+  | .app f a => rootFloatNsz f + rootFloatNu a + 1
+  | _ => 0
+
+/-- `rootFloat` with a fuel (the same arms and results). -/
+def rootFloatF : Nat → Lean.Expr → Lean.Expr
+  | 0, e => e
+  | k + 1, e =>
+  match e with
   | .letE n t (.letE n2 t2 v2 w nd2) b nd =>
-    rootFloat (.letE n2 t2 v2 (.letE n (t.liftLooseBVars 0 1) w (b.liftLooseBVars 1 1) nd) nd2)
-  | .letE n t v b nd => .letE n t v (rootFloat b) nd
+    rootFloatF k (.letE n2 t2 v2 (.letE n (t.liftLooseBVars 0 1) w (b.liftLooseBVars 1 1) nd) nd2)
+  | .letE n t v b nd => .letE n t v (rootFloatF k b) nd
   | e@(.app f a) =>
     match a with
-    | .letE n t v b nd => .letE n t v (rootFloat (.app (f.liftLooseBVars 0 1) b)) nd
+    | .letE n t v b nd => .letE n t v (rootFloatF k (.app (f.liftLooseBVars 0 1) b)) nd
     | _ => e
   | e => e
+
+def rootFloat (e : Lean.Expr) : Lean.Expr := rootFloatF (rootFloatNu e + 1) e
 
 /-- `BitVec.zero n` at a literal width is the literal `BitVec.ofNat n 0` (the
 canonical literal form; both reduce to the same value). -/

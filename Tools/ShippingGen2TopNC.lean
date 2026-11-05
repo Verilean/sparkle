@@ -1,33 +1,34 @@
 import Tools.ShippingGen2Defs
+import Tools.ShippingGen2TopContract
 import Tools.ShippingGen2SlotlessLeaf
 set_option autoImplicit false
--- Built: g2nc3-ba4334f8 (clean snapshot, exit 0, standard axioms).
+-- NOT BUILT after the U-TOP-DEF switch (previous build: g2nc3-ba4334f8 / g2nc4-36342cb8 against the OLD Defs `TopShips`).
 -- No `sorry`, no `axiom`, no `native_decide`.
 
-/-! # The no-clock top contract `TopShipsNC`, the proposed R-G contract, L1-L4 and U-TOP-S2
+/-! # The no-clock top contract `TopShipsNC`, L3/L4 against the R-G `TopShips`, and U-TOP-S2
 
 Specifications: scripts/gen2/S5_SLOTLESS_FREEZE.md rev1 §5 C2 (+ rev1.1 notes) and
-scripts/gen2/TOP_CONTRACT_REVISION.md §2, §3 (+ rev1.1 notes: NC suppliers and L1-L4 FIRST, in new files).
-Shared definitions are NOT edited: `Tools/ShippingGen2Defs.lean` is unchanged; R-G is stated here as a LOCAL copy
-`TopShipsRG` of the proposed text, for L1-L4 only (the Defs switch, U-TOP-DEF, comes later, serially).
+scripts/gen2/TOP_CONTRACT_REVISION.md §2, §3 (+ rev1.1 notes, rev2).
+**After U-TOP-DEF (Defs switched to R-G): `Tools.ShippingGen2.TopShips` IS the R-G contract; the local copy `TopShipsRG` of the
+earlier build is deleted.** The OLD text is `TopShipsOld` (Tools/ShippingGen2TopContract.lean), which also holds L1
+(`topShips_toOld`) and L2 (`topShips_ofOld`).
 
-* C2 `TopShipsNC`: `TopShips` (Defs:273-295) with line :283 deleted. That one line holds BOTH premises
-  (`∀ t, ins t "rst" = 0` and `∀ t st, seedIn b ins t st "clk" = 0`), so both are gone. Every other line verbatim.
-* `TopShipsRG`: `TopShips` with line :283 replaced by the two guarded premises (TOP_CONTRACT_REVISION §2 R-G):
-  `("rst" ∈ b.inputs.map (·.name) → ∀ t, ins t "rst" = 0) → ("clk" ∈ b.inputs.map (·.name) → ∀ t, ins t "clk" = 0)`.
-* L1 `topShips_of_RG` (new ⇒ old, no hypothesis); L2 `topShipsRG_of_old` (old ⇒ new, given BOTH "rst" and "clk"
-  inputs); L3 `topShipsRG_of_NC` (NC ⇒ new, no hypothesis); L4 `topShipsNC_of_RG` (new ⇒ NC, given NEITHER is an
-  input). Same witnesses throughout. R-G coincides with `TopShipsNC` only when neither "rst" nor "clk" is an input
-  (rev1.1 note 3); old ⇒ new without the clk membership is NOT claimed.
-* `topShips_of_NC` (C2's weakening, = L1 ∘ L3): recorded as a projection only. Its target's inner part is vacuous
-  without a clock input (Tools/ShippingGen2TopVacuity.lean), so it is NOT a slotless top guarantee; the stage-C
-  theorems must not reach it (audit in Tests/Gen2/TopNCCheck.lean).
+* C2 `TopShipsNC`: the PRE-switch `TopShips` (Defs:273-295 of the earlier base) with the line holding BOTH premises
+  (`∀ t, ins t "rst" = 0` and `∀ t st, seedIn b ins t st "clk" = 0`) deleted. Every other line verbatim. Text unchanged.
+* L3 `topShips_of_NC` (NC ⇒ R-G `TopShips`, no hypothesis); L4 `topShipsNC_of_topShips` (R-G `TopShips` ⇒ NC, given NEITHER
+  "rst" nor "clk" is an input). Same witnesses throughout. R-G coincides with `TopShipsNC` only when neither "rst" nor "clk"
+  is an input (rev1.1 note 3); old ⇒ new without the clk membership is NOT claimed.
+* `topShipsOld_of_NC` (= L1 ∘ L3; the earlier `topShips_of_NC`): a PROJECTION ONLY into the history text. Its target's inner
+  part is vacuous without a clock input (Tools/ShippingGen2TopVacuity.lean), so it is NOT a slotless top guarantee; the
+  stage-C theorems must not reach it (audit in Tests/Gen2/TopNCCheck.lean).
 * U-TOP-S2 `slotlessLeaf_topShipsNC_of_LB` / `slotlessLeaf_topShipsNC`: the slotless leaf's top WITHOUT the rst/clk
   premises. Copy of `slotlessLeaf_topShips_of_LB` (SlotlessLeaf:180-281): the reset premise of the trace at the
   zeroed seed `sllSeedZ` comes from the module's ACTUAL inputs (`"rst"` ∉ `b.inputs`, the inputs are allocated:
   `slotless_inputs_alloc_ofRun`, SlotlessLeaf:397), not from `ins t "rst" = 0`; `runModule_rst_irrel` moves the run
   to `seedIn` (the `"rst"`-input branch of the original is impossible here). The run-level form supplies every
-  premise from the run, as `slotlessLeaf_ships` (SlotlessLeaf:438) does. `slotlessLeaf_topShipsRG` = L3 of it. -/
+  premise from the run, as `slotlessLeaf_ships` (SlotlessLeaf:438) does. `slotlessLeaf_topShips_of_NC` = L3 of it
+  (the earlier `slotlessLeaf_topShipsRG`). After U-TOP-DEF the original `slotlessLeaf_topShips_of_LB` itself proves the R-G
+  `TopShips` (its seed lemma `sll_seedZ_rst` was already guarded on membership). -/
 
 /-! ## 1. The contracts and L1-L4 (ambient: the opens of Tools/ShippingGen2Defs.lean) -/
 namespace Tools.ShippingGen2
@@ -69,81 +70,13 @@ def TopShipsNC {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat
         ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
           p.d.shape.layout.outs[k]? = some o → (p.src i bools bits)[k]? = some f → (envsO[j]'hj) o.name = f j
 
-/-- **The proposed R-G contract, LOCAL copy** (TOP_CONTRACT_REVISION.md §2): `TopShips` with line :283 replaced by
-the two premises guarded on the module's actual inputs; every other line verbatim. -/
-def TopShipsRG {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
-    (b raw : Sparkle.IR.AST.Module) (D : Design) : Prop :=
-  ∃ ids : List FVarId, ids.Nodup ∧ ids.length = p.d.shape.binders.length ∧
-  ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
-    regs.Nodup ∧ regs.length = p.d.ss.length ∧
-    ∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
-      (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv) (kids : String → KT n),
-      (∀ t st, t < T → SourceInputs declName (p.d.bsIn.take p.kD) ids cache
-        (fun j => (p.extBS i bools bits j).val (T - 1 - t))
-        (fun j n => (p.extS i bools bits j n).val (T - 1 - t)) (seedIn b ins t st)) →
-      (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
-      ("rst" ∈ b.inputs.map (·.name) → ∀ t, ins t "rst" = 0) →
-      ("clk" ∈ b.inputs.map (·.name) → ∀ t, ins t "clk" = 0) →
-      (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
-        p.d.shape.layout.slots[k]? = some f → st0 r = f.init) →
-      ResetNk n raw D kids →
-      (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) →
-      (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (childMap D.modules) b.body →
-        st0 x < 2 ^ declWidth b x) →
-      ∃ envsO, runModuleTG (KSn (childMap D.modules) n) (declWidth (checkedOptimize b))
-          (childMap D.modules) (checkedOptimize b).body (seedIn b ins) T ⟨st0, mems, kids⟩ = some envsO ∧
-        envsO.length = T ∧
-        ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
-          p.d.shape.layout.outs[k]? = some o → (p.src i bools bits)[k]? = some f → (envsO[j]'hj) o.name = f j
-
-/-- `seedIn` at an input reads the stream (local copy of `sll_seedIn_in`, SlotlessLeaf:70). -/
-theorem tnc_seedIn_in {m : Sparkle.IR.AST.Module} {ins : Nat → String → Nat} {t : Nat} {st : String → Nat}
-    {x : String} (hx : x ∈ m.inputs.map (·.name)) : seedIn m ins t st x = ins t x := by
-  have hc : (m.inputs.map (·.name)).contains x = true := List.contains_iff_mem.mpr hx
-  show (if (m.inputs.map (·.name)).contains x then ins t x else st x) = ins t x
-  rw [if_pos hc]
-
-/-- **L1 (new ⇒ old)**, no hypothesis: the old antecedents give the guarded ones (rst trivially; clk through
-`seedIn` at an input). Same witnesses. -/
-theorem topShips_of_RG {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
-    (b raw : Sparkle.IR.AST.Module) (D : Design) :
-    TopShipsRG p n declName b raw D → TopShips p n declName b raw D := by
-  intro h
-  unfold TopShipsRG at h
-  unfold TopShips
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := h
-  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
-  intro i bools bits T ins st0 mems kids hsrc hpass hrst hclk hinit hreset hfit hst
-  refine H i bools bits T ins st0 mems kids hsrc hpass (fun _ => hrst) ?_ hinit hreset hfit hst
-  intro hc t
-  have h0 := hclk t (fun _ => 0)
-  rw [tnc_seedIn_in hc] at h0
-  exact h0
-
-/-- **L2 (old ⇒ new)**, given BOTH `"rst"` and `"clk"` inputs: the guarded premises with the memberships give
-Defs:283 (`seedIn` reads `ins t "clk"`). Same witnesses. -/
-theorem topShipsRG_of_old {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
-    (b raw : Sparkle.IR.AST.Module) (D : Design)
-    (hr : "rst" ∈ b.inputs.map (·.name)) (hc : "clk" ∈ b.inputs.map (·.name)) :
-    TopShips p n declName b raw D → TopShipsRG p n declName b raw D := by
-  intro h
-  unfold TopShips at h
-  unfold TopShipsRG
-  obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := h
-  refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
-  intro i bools bits T ins st0 mems kids hsrc hpass hrstG hclkG hinit hreset hfit hst
-  refine H i bools bits T ins st0 mems kids hsrc hpass (hrstG hr) ?_ hinit hreset hfit hst
-  intro t st
-  rw [tnc_seedIn_in hc]
-  exact hclkG hc t
-
 /-- **L3 (NC ⇒ new)**, no hypothesis: drop the two guarded antecedents. Same witnesses. -/
-theorem topShipsRG_of_NC {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
+theorem topShips_of_NC {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design) :
-    TopShipsNC p n declName b raw D → TopShipsRG p n declName b raw D := by
+    TopShipsNC p n declName b raw D → TopShips p n declName b raw D := by
   intro h
   unfold TopShipsNC at h
-  unfold TopShipsRG
+  unfold TopShips
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := h
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
   intro i bools bits T ins st0 mems kids hsrc hpass _ _ hinit hreset hfit hst
@@ -151,12 +84,12 @@ theorem topShipsRG_of_NC {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom
 
 /-- **L4 (new ⇒ NC)**, given that NEITHER `"rst"` nor `"clk"` is an input: each guard is supplied by its own
 hypothesis's refutation (not an execution premise). Same witnesses. -/
-theorem topShipsNC_of_RG {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
+theorem topShipsNC_of_topShips {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design)
     (hr : "rst" ∉ b.inputs.map (·.name)) (hc : "clk" ∉ b.inputs.map (·.name)) :
-    TopShipsRG p n declName b raw D → TopShipsNC p n declName b raw D := by
+    TopShips p n declName b raw D → TopShipsNC p n declName b raw D := by
   intro h
-  unfold TopShipsRG at h
+  unfold TopShips at h
   unfold TopShipsNC
   obtain ⟨ids, nd, len, cache, regs, rnd, rlen, H⟩ := h
   refine ⟨ids, nd, len, cache, regs, rnd, rlen, ?_⟩
@@ -164,12 +97,12 @@ theorem topShipsNC_of_RG {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom
   exact H i bools bits T ins st0 mems kids hsrc hpass (fun h' => absurd h' hr) (fun h' => absurd h' hc)
     hinit hreset hfit hst
 
-/-- C2's weakening `topShips_of_NC` (= L1 ∘ L3). A PROJECTION ONLY: without a clock input its target's inner part
-is vacuous (Tools/ShippingGen2TopVacuity.lean), so this is NOT the slotless top guarantee. -/
-theorem topShips_of_NC {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
+/-- The earlier `topShips_of_NC` (= L1 ∘ L3), now into the HISTORY text `TopShipsOld`. A PROJECTION ONLY: without a clock
+input its target's inner part is vacuous (Tools/ShippingGen2TopVacuity.lean), so this is NOT the slotless top guarantee. -/
+theorem topShipsOld_of_NC {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design) :
-    TopShipsNC p n declName b raw D → TopShips p n declName b raw D :=
-  fun h => topShips_of_RG p n declName b raw D (topShipsRG_of_NC p n declName b raw D h)
+    TopShipsNC p n declName b raw D → TopShipsOld p n declName b raw D :=
+  fun h => topShips_toOld p n declName b raw D (topShips_of_NC p n declName b raw D h)
 
 end Tools.ShippingGen2
 
@@ -322,8 +255,8 @@ theorem slotlessLeaf_topShipsNC {ι : Type} {dom : ι → DomainConfig}
   have hinA := slotless_inputs_alloc_ofRun L p hdata hnoI hsl0 htake ran
   exact slotlessLeaf_topShipsNC_of_LB p hL hnoI hsl0 hok hSS houtTy htake hclosed0 hinA hpost n
 
-/-- U-TOP-S2 read through L3: the slotless leaf's R-G top (local `TopShipsRG`). -/
-theorem slotlessLeaf_topShipsRG {ι : Type} {dom : ι → DomainConfig}
+/-- U-TOP-S2 read through L3: the slotless leaf's R-G `TopShips` (Defs). -/
+theorem slotlessLeaf_topShips_of_NC {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (p : Pkg ι dom)
     {mctx : Meta.Context} {cctx : Core.Context} {w : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module}
@@ -333,7 +266,7 @@ theorem slotlessLeaf_topShipsRG {ι : Type} {dom : ι → DomainConfig}
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
     (ran : MachineTaken L mctx cctx (dv w + 1) p.decl p.d.shape raw D) (n : Nat) :
-    TopShipsRG p n p.decl b raw D :=
-  topShipsRG_of_NC p n p.decl b raw D (slotlessLeaf_topShipsNC L p hdata hnoI hsl0 hA hpost ran n)
+    TopShips p n p.decl b raw D :=
+  topShips_of_NC p n p.decl b raw D (slotlessLeaf_topShipsNC L p hdata hnoI hsl0 hA hpost ran n)
 
 end Tools.ShippingGen2

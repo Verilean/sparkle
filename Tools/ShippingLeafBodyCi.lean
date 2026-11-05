@@ -256,6 +256,83 @@ theorem leaf_body_triple (declName : Name) (shape : MachineShape) (b : Bool)
     exact Keeps.pure _
 
 
+/-- **`leaf_body_triple` with the `doSynth` fuel check in front of `synthesizeFromConst`**: the throw branch
+is closed by `tripleA_throwErr`, the other branch is `leaf_body_triple`'s proof. (The statement of `leaf_body_triple` is unchanged.)
+
+**The body of the entry, for the real leaf's constant.** The run reads `ci` (`getConstInfo declName`) and
+the environment `env` (`getEnv`), and hands `synthesizeFromConst` the constant `entryConst … ci …`. The run
+facts that pin it are those of `MachineDefines` (both gates refuse it, `machineShape?` of the structure
+facts of the environment the run reads is `shape`); `MachineCloses` (`synthesizeMachineCertified` of this
+shape does not return `none`, so the legacy tail is not reached); `shape.insts = []` (no calls: the machine
+branch closes no instances, so no `synthesizeChild`). What remains is the translator at the leaf expression. -/
+theorem leaf_body_triple_fuel (declName : Name) (shape : MachineShape) (b : Bool)
+    (hno : shape.insts = [])
+    (entry : MachineDefines mctx mref cctx cref declName shape)
+    (closes : MachineCloses mctx mref cctx cref declName shape)
+    (htr : LeafTranslatorKeeps (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref) I shape) :
+    Triple mctx mref cctx cref I
+      (do
+        let constInfo ← getConstInfo declName
+        let env ← getEnv
+        if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+          throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
+            constInfo (instancePredicate env)).getD ""}")
+        else
+        synthesizeFromConst (fun e h t n => translateExprToWire env e h t n) (profLogIO b)
+          declName [] false true
+          (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
+            (structEnv env))
+          (instancePredicate env))
+      (fun _ => I) (fun e w => I w ∧ OkExc e) := by
+  refine Triple.bind (tripleWithRun (keeps_iff.mp (keepsA_framed O hA hS (FramedA.constInfo _)))) ?_
+  intro ci
+  refine Triple.bind (tripleWithRun (Triple.conseq (keeps_iff.mp (keepsA_framed O hA hS FramedA.env))
+    (fun _ h => h.1) (fun _ _ h => h) (fun _ _ h => h))) ?_
+  intro env
+  refine Triple.ite (fun _ => ?_) (fun _ => ?_)
+  · exact Triple.conseq (tripleA_throwErr O hA hS _ (by first | exact .str _ | exact .fmt _))
+      (fun _ h => h.1) (fun _ _ h => h) (fun _ _ h => h)
+  refine tripleOfPointwise fun w2 hw2 => ?_
+  obtain ⟨hI2, w1, ⟨hI1, w0, hI0, hrun1⟩, hrun2⟩ := hw2
+  have hf := entry w0 ci w1 w1 env w2 w1 env w2 hrun1 hrun2 hrun2
+  have hd1 : (if true = true then certifiedShape? false []
+      (entryConst true false [] ci (instancePredicate env) (userInliner env) (structEnv env))
+      else none) = none := by simpa using hf.1
+  have hd2 : (if true = true then mixedCertifiedShape? false []
+      (entryConst true false [] ci (instancePredicate env) (userInliner env) (structEnv env))
+      (instancePredicate env) else none) = none := by simpa using hf.2.1
+  first | delta synthesizeFromConst | unfold synthesizeFromConst
+  rw [hd1, hd2]
+  simp only [Bool.false_eq_true, ↓reduceIte, Bool.not_false, Bool.and_true, List.isEmpty_nil]
+  refine Triple.bind (tripleWithRun (Triple.conseq (keeps_iff.mp (keepsA_framed O hA hS FramedA.env))
+    (fun w h => by subst h; exact hI2) (fun _ _ h => h) (fun _ _ h => h))) ?_
+  intro env'
+  refine tripleOfPointwise fun w4 hw4 => ?_
+  obtain ⟨hI4, w3, hw3, hrun3⟩ := hw4
+  have hsh := (entry w0 ci w1 w1 env w2 w3 env' w4 hrun1 hrun2 hrun3).2.2
+  rw [hsh]
+  refine tripleBindPure ?_
+  dsimp only
+  refine Triple.bind (tripleWithRun (Triple.conseq
+    (keeps_iff.mp (machineCert_keepsLeaf O hA hS _ b declName shape hno (htr env)))
+    (fun w h => by subst h; exact hI4) (fun _ _ h => h) (fun _ _ h => h))) ?_
+  intro r
+  refine tripleOfPointwise fun w5 hw5 => ?_
+  obtain ⟨hI5, w', hw', hrun⟩ := hw5
+  have hne := closes (profLogIO b) w' r w5 hrun
+  cases r with
+  | none => exact absurd rfl hne
+  | some result =>
+    dsimp only
+    refine Triple.conseq (keeps_iff.mp ?_) (fun w h => by subst h; exact hI5) (fun _ _ h => h)
+      (fun _ _ h => h)
+    refine Keeps.bind (keepsA_diag O hA hS (Diag.profLog b _)) ?_
+    intro _
+    refine Keeps.bind (keepsA_framed O hA hS (FramedA.sideModify _ .subModule)) ?_
+    intro _
+    exact Keeps.pure _
+
+
 end Walk
 
 section Core
@@ -299,6 +376,10 @@ theorem core_tripleKL (D : Nat) (hD : D ≠ 0) (c0 : Std.HashMap Name Res) (decl
             (do
               let constInfo ← getConstInfo declName
               let env ← getEnv
+              if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+                throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
+                  constInfo (instancePredicate env)).getD ""}")
+              else
               synthesizeFromConst (fun e h t n => translateExprToWire env e h t n)
                 (profLogIO prof.isSome) declName [] false true
                 (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
@@ -319,7 +400,7 @@ theorem core_tripleKL (D : Nat) (hD : D ≠ 0) (c0 : Std.HashMap Name Res) (decl
       intro m1 m2 m3 m4 m5 m6 m7
       refine Triple.tryFinally (M := JK O (d + 1) c0) (E := OkExc) ?_
         (finK O hA d c0 m1 m2 m3 m4 m5 m6 m7)
-      exact leaf_body_triple O hA (stableK O (d + 1) c0) declName shape prof.isSome hno entry closes htr
+      exact leaf_body_triple_fuel O hA (stableK O (d + 1) c0) declName shape prof.isSome hno entry closes htr
     have h0 : ¬ ((d == 0) = true) := by
       intro h; apply hD; simpa using h
     simp only [h0, Bool.false_eq_true, ↓reduceIte]
@@ -366,6 +447,10 @@ theorem core_tripleK0L (declName : Name)
             (do
               let constInfo ← getConstInfo declName
               let env ← getEnv
+              if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+                throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
+                  constInfo (instancePredicate env)).getD ""}")
+              else
               synthesizeFromConst (fun e h t n => translateExprToWire env e h t n)
                 (profLogIO prof.isSome) declName [] false true
                 (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
@@ -386,7 +471,7 @@ theorem core_tripleK0L (declName : Name)
       intro m1 m2 m3 m4 m5 m6 m7
       refine Triple.tryFinally (M := JK O (0 + 1) {}) (E := OkExc) ?_
         (finK O hA 0 {} m1 m2 m3 m4 m5 m6 m7)
-      exact leaf_body_triple O hA (stableK O (0 + 1) {}) declName shape prof.isSome hno entry closes htr
+      exact leaf_body_triple_fuel O hA (stableK O (0 + 1) {}) declName shape prof.isSome hno entry closes htr
     simp only [h0, ↓reduceIte]
     qpure O 0; qpure O 0; qpure O 0; qpure O 0; qpure O 0; qpure O 0; qpure O 0
     qset O hA 0; qset O hA 0; qset O hA 0; qset O hA 0

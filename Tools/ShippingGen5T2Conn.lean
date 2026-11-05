@@ -1,6 +1,7 @@
 import Tools.ShippingGen5T2Range
 set_option autoImplicit false
 -- Built in g5tc2-8b445072 (clean, exit 0, 740 jobs; §7.7 part first in g5tc-f72cedf6). No sorry / axiom / native_decide.
+-- S1 combined: re-elaborated at 02e828fc in s1c-02e828fc (clean, exit 0, standard axioms).
 
 /-! # T2-TIE connection to the range supplier (DGEN_FREEZE.md §7.3 / §7.7)
 
@@ -110,10 +111,10 @@ theorem callOutRange_of_closing_kidW {mref cref} (L : Laws mref cref) (P : Pkgs 
   intro i
   obtain ⟨r, dsn, hS, hDc, hmc, -⟩ := hDG_CLOSINGRUN
   have hy : Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 r := hS.1
-  obtain ⟨-, q0, n, hq0, -, hCS⟩ := hS
+  obtain ⟨-, ⟨q0, n, hq0, -, hCS⟩, -⟩ := hS
   rw [hDG_GENP] at hq0
   obtain rfl : q = q0 := Option.some.inj hq0
-  have hout := childRunN_outputs (hCS dsn hDc hmc i)
+  have hout := childRunN_outputs (hCS.2 dsn hDc hmc i)
   exact callOutRange_of_widths p q k hk houtTy (callOutWidthAt_of_kidW L.O p q k hk hG hy hout hkidW) i
 
 /-- **Group parents, closing form**: `callTie_of_served_kidW` with `hy`/`hout` taken from the closing witness. -/
