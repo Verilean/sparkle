@@ -83,12 +83,16 @@ pt_missing = {(r[0], r[2]) for r in tsv("ptcorpus_missing.tsv")}
 pt_closure = {(r[0], r[2]) for r in tsv("ptcorpus_closure.tsv")}
 has_row = (pt_keys - pt_missing) | pt_closure
 PAID_R = {"R0", "R1", "R2"}; PAID_T = {"T0", "T1"}
+def paid_r(r, t):
+    """RowTypedAtV: shape of an existing lemma. R0 = rowTypedAtV_nullary_const, R1 with no dependent binder = rowTypedAtV_closedPi (ClosedPi needs every body closed), R2 = rowTypedAtV_depFirst."""
+    return r in ("R0", "R2") or (r == "R1" and t != "T3")
 def tally(items, title):
-    """items: list of (R, T). Returns the printed split."""
+    """items: list of (R, T)."""
     cr = collections.Counter(r for r, t in items); ct = collections.Counter(t for r, t in items)
-    pr = sum(c for k, c in cr.items() if k in PAID_R); pt = sum(c for k, c in ct.items() if k in PAID_T)
+    pr = sum(1 for r, t in items if paid_r(r, t)); pt = sum(c for k, c in ct.items() if k in PAID_T)
+    r1d = sum(1 for r, t in items if r == "R1" and t == "T3")
     n = len(items)
-    print(f"   {title}: {n} rows | RowTypedAtV: shape of an existing lemma {pr} (R0/R1/R2), R3a {cr['R3a']}, R0x/R1x {cr['R0x']+cr['R1x']}, R3 {cr['R3']} | RowTeleEvAt: shape of an existing lemma {pt} (T0/T1), T2 {ct['T2']}, T3 {ct['T3']}")
+    print(f"   {title}: {n} rows | RowTypedAtV: shape of an existing lemma {pr} (R0/R1 closed Pi/R2), closed codomain but dependent binders R1d {r1d}, R3a {cr['R3a']}, R0x/R1x {cr['R0x']+cr['R1x']}, R3 {cr['R3']} | RowTeleEvAt: shape of an existing lemma {pt} (T0/T1), T2 {ct['T2']}, T3 {ct['T3']}")
 print("\n==================== row obligations ====================")
 for g in ["sig", "corpus"]:
     ts = group(g)
