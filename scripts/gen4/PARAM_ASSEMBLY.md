@@ -80,3 +80,76 @@ expected effect is B.P-8 -1 and B.P-1 -1 with +1 for N4-a at the final FG (net -
 * `legal_assembly` takes the run's own θ; legality for another θ' is not claimed.
 * Collision with `θ ≠ []` is a failing command, not a legal binding: stated, not hidden.
 * Success of specialization (B.P-5, `SpecSuccessAllPositive`) is not touched.
+
+## Final: connection to the gen5 final statement (Issue sparkle-gen4-param-assembly, second step)
+
+Status: built, awaiting reviewer. Nothing here is accepted by this document. No new assumption, no TRUSTED, no frozen text changed, no existing
+file edited. Ledger: FG 75 / T1 57 (this unit: FG -0 +0 / T1 -0 +0). The subtraction is the reviewer's call.
+
+Two branches, because the two lineages do not build together (§F.4):
+* gen4 branch (this one): `Tools/ShippingGen4ParamFinal.lean`, `Tests/Gen4/ParamFinalCheck.lean` (`kjob lake build Tests.Gen4.ParamFinalCheck` exit 0).
+* gen5 branch `kjob/passm2-g5scan` (= `par/sm1` 0fceecd7 merged, + `Tests/Gen5/ParamFinalScan.lean`, `kjob lake build` exit 0, 863 jobs).
+
+### F.1 Where B.P-8 / B.P-1 appear in the gen5 final root (the scan)
+
+`Tests/Gen5/ParamFinalScan.lean` walks the constants reachable from the TYPES (and definition values) of `FGLedgerPremisesStmtG` (13136 constants)
+and `FGLedgerPremisesStmtH` (13486). Reached: none of `LegalBinding`, `AllPos`, `MemoFamily`, `MsgMvK`, `LamTelescopeN`. Positive controls: `Start`, `Laws`,
+`synthesizeCombinationalWithParameters` are reached from H. So **B.P-8 and B.P-1 are not binders of G or H**: the ledger says so itself (Q-F3, §8.3: they
+are registry rows, "UN-C", not hypotheses of the statement). The binders of H are `ι dom mref cref ReflectsAll Post lvl genData₀ CV L h_C_EN4 h_C_RK6 h_C_CV4`
+(plus the inner hypotheses). The only place the final root meets the parametric route is `EntryWitness`: `Start L mctx cctx w ∧ (RunsTo (synthesizeCombinational ..) ∨
+RunsTo (synthesizeCombinationalWithParameters declName parameters) ..) ∧ ReflectsAll ..`.
+So "removing the binder from the final root" means: the parametric disjunct of the FG conclusion, once typed, is a statement over `L`, `Start` and the run; the row
+version of that statement would carry `LegalBinding` and `AllPos` as obligations (as `ParamTopShips` does: `∀ θ, LegalBinding (D.addModule b) θ → ..`), and the run version does not.
+
+### F.2 The row-form root over the FG binders
+
+* `start_kwd`: `Start L mctx cctx w → AdmCtx L.O.quiet mctx cctx ∧ KWD L.O (fun _ _ => True) 0 w` (`Start = AdmCtx ∧ JQC`, `JQC ⊇ JQ = quiet ∧ sv ∧ dv`). No new assumption.
+* `paramFinal_old {L} (hS : Start ..) (h : RunsTo (synthesizeCombinationalWithParameters ..) ..) (hL : LegalBinding (SpecDesign M' D') θ) (hpos : AllPos θ) (hok)` : `RootConcl`.
+* `paramFinal_run {L} (M : MemoFamily L.O) (hmsg : MsgMvK L.O) (htel : LamTelescopeN) (hS : Start ..) (h : RunsTo ..) (hok)` : `RootConcl`.
+`O`, `hA`, `hw` of `paramRoot_run` are no longer binders: `O := L.O`, and `hA`, `hw` come from `Start`.
+
+### F.3 Crosswalk (premise of the assembly theorem → FG ledger)
+
+| premise of `paramRoot_run` | FG ledger row | type match | bridge |
+|---|---|---|---|
+| `O : RefLawsAOps ..` | A.P-01 `L : Laws` (`L.O`, = T1L-01) | `L : Laws mref cref` is a binder of H (scan) and of `paramFinal_*`; `Laws`/`Start`/`AdmCtx`/`JQC` have equal type and value hashes in both environments (FINGERPRINT lines of the two Checks) | `O := L.O` (field) |
+| `hA : AdmCtx O.quiet mctx cctx` | A.P-02 `Start` (1st conjunct of `EntryWitness`; merged: A.P-03, C.RR-1, B.F-2, D.E-11, D.D-6) | Check: conjunct 1 of `start_kwd` `==` type of `hA` at `O := L.O` | `(start_kwd hS).1` |
+| `hw : KWD O (fun _ _ => True) 0 w` | A.P-02 `Start` (2nd conjunct, `JQC.1 = JQ`) | Check: conjunct 2 `==` type of `hw` at `O := L.O`; depth mutation 0→1 rejected | `(start_kwd hS).2` (`KW` with `P := True`) |
+| the run `h` | A.P-04, 2nd disjunct of `EntryWitness` | canonical form of `h` (free variables renamed, `parameters`/`b`/`D` ↔ `θ`/`M'`/`D'`): hash 327093931 in both Checks | none |
+| `hS : Start L mctx cctx w` | A.P-02 | canonical hash 1541700807 in both Checks | none |
+| `M : MemoFamily O` (rev3) | **no row in the FG ledger 75.** It is M4.MEMO-01, a proposed FG row (+1 "when the K walk is accepted", KWALK_PLAN, MEMO_FAMILY_FREEZE §R7). Not reached from G/H. | — | not derivable from `L.T` (`RefLawsATele`) in the tree |
+| `hmsg : MsgMvK O` | conditional leaf, no row (MEMO_FAMILY_FREEZE §R2.6) | not reached from G/H | none; stays conditional |
+| `htel : LamTelescopeN` | N4-a (ledger §12.17), **new shared row, +1 once** | not reached from G/H | none |
+| `ExprOK θ e` | the property of the source expression of the consumer, not a premise of the ledger; binder of the conclusion of `RootConcl` | — | — |
+
+So the answer to "which premises are existing rows": O, hA, hw, the run and Start are existing (A.P-01, A.P-02, A.P-04) with equal types and a bridge lemma;
+`LamTelescopeN` is N4-a (+1); `MemoFamily` is NOT an existing row of the 75 (M4.MEMO-01, pending); `MsgMvK` is the conditional leaf.
+
+### F.4 What does not hold together: the gen4 chain does not build on the gen5 `Elab.lean`
+
+Merging `par/sm1` (0fceecd7) into this lineage changes `Sparkle/Compiler/Elab.lean` (the `userInliner` / `MachRecUnfold` fuel: `userInlinerEWith`, `doSynth` fuel error, rt40-rt83).
+`kjob lake build Tools.ShippingGen4ParamFinal` on the merge then fails: `Tools/ShippingGen4ParamEntry.lean:216` (whnf, 1600000 heartbeats) and
+`Tools/ShippingGen4KWalkEntryCore.lean:229, 368` (whnf / isDefEq, 200000 heartbeats). Existing files were not repaired (rule). Hence a single theorem that has the gen5 final
+statement and the parametric assembly in one environment does not exist yet; the gen4 side (`paramFinal_run`) and the gen5 side (G/H scan) are connected by the shared
+`Laws` / `Start` / `RunsTo` definitions, whose fingerprints and canonical forms agree. Porting F-θ / F-top / F-kids / K walk to the gen5 `Elab` is separate work.
+
+### F.5 Binder difference (Tests/Gen4/ParamFinalCheck.lean)
+
+    PARAM-FINAL COUNTS: removed 2 [hL, hpos] (B.P-8, B.P-1), added 3 [M, hmsg, htel], changed 0, concl true; L (A.P-01) and hS : Start (A.P-02) shared; O, hA, hw not binders
+    CROSSWALK: start_kwd conjuncts == types of hA / hw at O := L.O; premise head Start; depth-mutation and unrenamed controls rejected
+    NEG: self empty, keep-hL rejected (removed [hpos]), extra binder rejected, other conclusion rejected, reversed rejected, free-carrier root (paramRoot_run, added 6) rejected
+    HYPS: paramFinal_run binds exactly Start, MemoFamily, MsgMvK, LamTelescopeN, RunsTo, ExprOK; axioms propext, Classical.choice, Quot.sound; closure reaches no T1Hyp / T1HypND
+
+### F.6 Net delta (not recorded; the basis for the reviewer)
+
+| item | effect | basis |
+|---|---|---|
+| B.P-8 `LegalBinding` | -1 (registry row, UN-C) | binder `hL` removed (Check); not a binder of G/H (scan), so the row leaves when the typed parametric route is part of the final statement |
+| B.P-1 `AllPos` | -1 (registry row, UN-C) | binder `hpos` removed (Check); `legalBinding_allPos` also gives it from B.P-8 |
+| N4-a `LamTelescopeN` | +1 once (§12.17) | `htel` added, shared with F-θ / F-top / F-kids |
+| M4.MEMO-01 `MemoFamily` | +1 pending (K-walk acceptance), **not in the reviewer's -2 +1** | `M` added; no row in FG 75 |
+| `MsgMvK` | 0, conditional leaf | `hmsg` added |
+| O, hA, hw | 0 | existing rows A.P-01 / A.P-02 through `start_kwd` |
+| **net** | **-2 +1 = -1 with M4.MEMO-01 not counted; 0 when it is counted** | the ledger count stays FG 75 / T1 57 until the reviewer accepts F.4 and the mapping |
+
+KWALK_PLAN already states the three conditional entries together (M4.MEMO-01 +1, B.P-8 -1, B.P-1 -1). The reviewer's forecast (-2, +1 N4-a, net -1) leaves MEMO-01 out.
