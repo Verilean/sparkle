@@ -76,4 +76,12 @@ elaborated statement), mutants/negative controls, `#print axioms` (standard thre
 
 ## 6. Record of attempts / failures
 
-(none yet)
+* First build failed: `Module` is ambiguous with `Lean.Module` under `open Lean` (fixed by qualifying
+  `Sparkle.IR.AST.Module`); the `neg` case of `topMap_keys` needed `Bool.false_eq_true`/`↓reduceIte` rather than `if_false`.
+  No statement changed.
+* `synthesizeCombinationalWithParameters_designTop` gives `D'.modules = D.modules` only under a name-disjointness
+  premise, so `fpost_run` redoes the same `bind`/`ite`/`pure` unfolding and states the key-lists form instead (no premise).
+* The optional transfer `LegalBinding D θ → LegalBinding D' θ` (via private `validateBindings`) is NOT proved here;
+  the assembly can use the key-list equalities directly.
+* Result: `Tools/ShippingGen4FPost.lean` and `Tests/Gen4/FPostCheck.lean` build (axioms: propext, Classical.choice,
+  Quot.sound); TYPE checks are structural `Expr ==`, 4 mutants rejected.
