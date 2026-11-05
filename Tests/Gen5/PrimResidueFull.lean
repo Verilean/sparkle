@@ -44,6 +44,7 @@ structure Sites where
   fullUse : NameMap Nat := {}
   /-- recursor sites by (recursor, motive level class, major class) -/
   recSites : Array (Name × String × String) := #[]
+  recSiteDefs : Array Name := #[]
   /-- type-abstractions: lambdas whose binder is a Sort/type-former, at the head telescope of a definition
   (rank-1 polymorphism) and nested (inside the body or as an argument). -/
   tyLamHead : Nat := 0
@@ -112,7 +113,7 @@ partial def sites (env : Environment) (hn : Nat) (e : Expr) (s : Sites) (depth :
     match f with
     | .const n ls =>
       if (env.find? n).any (·.isTheorem) then s
-      else
+      else Id.run do
         let mut s := s
         if let some k := Kind.ofConst? env n then
           let a := arity env n
@@ -143,7 +144,7 @@ partial def sites (env : Environment) (hn : Nat) (e : Expr) (s : Sites) (depth :
                   | x => x
                 else "partial(no major)"
               s := { s with recSites := s.recSites.push (n, lc, mc) }
-        args.foldl (fun a x => sites env hn x a depth) s
+        return args.foldl (fun a x => sites env hn x a depth) s
     | _ => args.foldl (fun a x => sites env hn x a depth) (sites env hn f s depth)
   | .lam _ t b _ =>
     let s := if isSortLike t then
@@ -188,6 +189,41 @@ elab "#prim_residue_full" : command => do
   for (n, ci) in env.constants.toList do
     if ci.isDefinition && Sparkle.Compiler.isHardwareModule env n && !(rootRoutes.contains n) then
       rootRoutes := rootRoutes.insert n ["tagged"]
+  -- roots named by `#synthesizeVerilog X`-like commands in the corpus files (list: `$KJOB_REPORT_PATH.tops`, lines `Module<TAB>name`)
+  let mut topsTotal := 0
+  let mut topsResolved := 0
+  let mut topsUnresolved : Array String := #[]
+  if let some path ← (IO.getEnv "KJOB_REPORT_PATH") then
+    if (← System.FilePath.pathExists (path ++ ".tops")) then
+      let lines ← IO.FS.lines (path ++ ".tops")
+      -- index the definitions of the modules named in the list (module -> definitions), one pass over the environment
+      let mut wanted : Std.HashSet String := {}
+      for l in lines do
+        match l.splitOn "\t" with
+        | [m, _] => wanted := wanted.insert m
+        | _ => pure ()
+      let mut byMod : Std.HashMap String (Array Name) := {}
+      for (n, ci) in env.constants.toList do
+        if ci.isDefinition then
+          match env.getModuleIdxFor? n with
+          | some i =>
+            let m := (env.header.moduleNames[i.toNat]?).map toString |>.getD "?"
+            if wanted.contains m then byMod := byMod.insert m ((byMod.getD m #[]).push n)
+          | none => pure ()
+      for l in lines do
+        match l.splitOn "\t" with
+        | [m, nm] =>
+          topsTotal := topsTotal + 1
+          let cands := (byMod.getD m #[]).toList.filter fun d => d.toString == nm || d.toString.endsWith ("." ++ nm)
+          if cands.isEmpty then
+            let inEnv := env.header.moduleNames.any (fun x => toString x == m)
+            topsUnresolved := topsUnresolved.push (s!"{m}\t{nm}\t" ++ (if inEnv then "module-imported-name-not-found" else "module-not-imported"))
+          else
+            topsResolved := topsResolved + 1
+            for d in cands do
+              let cur := rootRoutes.getD d []
+              unless cur.contains "synth" do rootRoutes := rootRoutes.insert d ("synth" :: cur)
+        | _ => pure ()
   let roots := rootRoutes.toList.toArray.qsort (fun a b => a.1.toString < b.1.toString)
   -- direct constants cache and per-root closure
   let mut direct : NameMap (Array Name) := {}
@@ -217,6 +253,7 @@ elab "#prim_residue_full" : command => do
           defsSeen := defsSeen.insert n
           let before := siteAcc
           let s2 := sites env (headLams d.value) d.value siteAcc 0
+          let s2 := { s2 with recSiteDefs := s2.recSiteDefs ++ (Array.replicate (s2.recSites.size - siteAcc.recSites.size) n) }
           let headPoly := s2.tyLamHead > before.tyLamHead
           let nestPoly := s2.tyLamNested > before.tyLamNested
           siteAcc := { s2 with defsHeadPoly := s2.defsHeadPoly + (if headPoly then 1 else 0),
@@ -237,8 +274,9 @@ elab "#prim_residue_full" : command => do
   -- aggregate counts
   let allRes := byConst.toList.toArray
   let kindCount (k : Kind) := (allRes.filter (fun (n, _) => Kind.ofConst? env n == some k)).size
-  let routeNames := ["machine", "gate", "design", "tagged"]
-  let mut msg := s!"FULL corpus scan of the Tests.AllTests environment (target-only roots, IP/, Examples/ outside it are NOT included)\n"
+  let routeNames := ["machine", "gate", "design", "tagged", "synth"]
+  let mut msg := s!"FULL corpus scan of the Tests.AllTests environment (IP/ and Examples/ modules it imports are included; target-only roots are NOT)\n"
+  msg := msg ++ s!"synthesize-command names: {topsTotal}, resolved to a definition of their own module: {topsResolved}, unresolved: {topsUnresolved.size} (module not imported: {(topsUnresolved.filter (·.endsWith "module-not-imported")).size}, module imported but name not found: {(topsUnresolved.filter (·.endsWith "name-not-found")).size})\n"
   msg := msg ++ s!"roots (definitions with a route marker or @[hardware_module]): {roots.size}\n"
   for rt in routeNames do
     msg := msg ++ s!"  route {rt}: {(roots.filter (fun (_, rs) => rs.contains rt)).size}\n"
@@ -266,11 +304,11 @@ elab "#prim_residue_full" : command => do
   msg := msg ++ s!"type-abstraction lambdas: head-telescope {siteAcc.tyLamHead}, nested/argument {siteAcc.tyLamNested}; definitions with head type-abstraction {siteAcc.defsHeadPoly}, with a nested one {siteAcc.defsNestedPoly}\n"
   -- recursor site classes
   let mut recStat : NameMap Nat := {}
-  let mut lvStat : NameMap Nat := {}
-  let mut majStat : NameMap Nat := {}
+  let mut lvStat : Std.HashMap String Nat := {}
+  let mut majStat : Std.HashMap String Nat := {}
   for (_, lc, mc) in siteAcc.recSites do
-    lvStat := lvStat.insert lc.toName (lvStat.getD lc.toName 0 + 1)
-    majStat := majStat.insert mc.toName (majStat.getD mc.toName 0 + 1)
+    lvStat := lvStat.insert lc (lvStat.getD lc 0 + 1)
+    majStat := majStat.insert mc (majStat.getD mc 0 + 1)
   for (n, _, _) in siteAcc.recSites do recStat := recStat.insert n (recStat.getD n 0 + 1)
   msg := msg ++ s!"recursor sites: {siteAcc.recSites.size} over {recStat.toList.length} recursors\n  motive level: {lvStat.toList.map (fun (k, v) => s!"{k}={v}")}\n  major premise: {majStat.toList.map (fun (k, v) => s!"{k}={v}")}\n"
   -- coverage: roots whose residue has no recursor / only ctor+type
@@ -301,7 +339,11 @@ elab "#prim_residue_full" : command => do
       rr := rr ++ s!"{r}\t{",".intercalate rts}\t{u}\t{res.size}\t{nrec}\t{" ".intercalate (res.toList.map toString)}\n"
     IO.FS.writeFile (path ++ ".full.roots") rr
     let mut rs := "rec\tmotive-level\tmajor\n"
-    for (n, lc, mc) in siteAcc.recSites do rs := rs ++ s!"{n}\t{lc}\t{mc}\n"
+    let mut ri := 0
+    for (n, lc, mc) in siteAcc.recSites do
+      rs := rs ++ s!"{n}\t{lc}\t{mc}\t{siteAcc.recSiteDefs[ri]!}\n"
+      ri := ri + 1
+    IO.FS.writeFile (path ++ ".full.unresolved") ("\n".intercalate topsUnresolved.toList)
     IO.FS.writeFile (path ++ ".full.recsites") rs
 
 #prim_residue_full
