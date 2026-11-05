@@ -320,4 +320,171 @@ theorem rowTeleEvAt_of_forms {PT : PrimTableK} {env : Environment} (hcl : EnvClo
   cases hrow'
   exact teleEv_forms hcl bs [] [] [] _ args xs0 rfl rfl (fun p hp => by simp at hp) hgood hwf (hT ci hci) hargs (run_forms t bs [] xs0 d hF hd)
 
+
+/-! ## §3 The rows
+
+The forms that occur: `T`, `T → T → T`, `T → T`, `T → T → Bool`, `Nat → T`, `T → Nat → T`, `List T`, `Nat`, `T₀ → T₁ → T₀` (over the type arguments `T`, `T₀`, `T₁`). -/
+
+section forms
+variable {env : Environment}
+
+def v0 : Form := .var 0
+def v1 : Form := .var 1
+def fNat : Form := .cst `Nat [] Nat
+def fBool : Form := .cst `Bool [] Bool
+def fList : Form := .app1 `List [.zero] List v0
+def fA2 : Form := .arrow v0 (.arrow v0 v0)
+def fA1 : Form := .arrow v0 v0
+def fBEq : Form := .arrow v0 (.arrow v0 fBool)
+def fNatC : Form := .arrow fNat v0
+def fNatP : Form := .arrow v0 (.arrow fNat v0)
+def fPow : Form := .arrow v0 (.arrow v1 v0)
+
+theorem goodNat (hN : ¬ IsDefn env `Nat) : fNat.Good PTcorpus env := fun _ => tdenv_const_nullary tys_Nat hN rfl rfl
+theorem goodBool (hB : ¬ IsDefn env `Bool) : fBool.Good PTcorpus env := fun _ => tdenv_const_nullary tys_Bool hB rfl rfl
+theorem goodList (hL : ¬ IsDefn env `List) : fList.Good PTcorpus env :=
+  ⟨fun _ e X h => .tcon (c := `List) (ls := [.zero]) (args := [e]) («as» := [.ty X]) (row := ty_26.row) rfl hL (.ty h .nil) rfl (by simp [mkAppN, mkApp]), trivial⟩
+
+macro "forms_tac" : tactic => `(tactic| (repeat (first | exact rfl | (refine ⟨_, rfl, fun _ => ?_⟩) | (refine ⟨_, _, rfl, rfl, fun _ => ?_⟩))))
+
+end forms
+
+def bs_A2 : List Binder := [.ty, .tm fA2]
+def bs_A1 : List Binder := [.ty, .tm fA1]
+def bs_BEq : List Binder := [.ty, .tm fBEq]
+def bs_NatC : List Binder := [.ty, .tm fNatC]
+def bs_NatP : List Binder := [.ty, .tm fNatP]
+def bs_List : List Binder := [.ty, .tm fList]
+def bs_V : List Binder := [.ty, .tm v0]
+def bs_Wire : List Binder := [.ty, .tm fNat]
+def bs_Nil : List Binder := [.ty]
+def bs_Cons : List Binder := [.ty, .tm v0, .tm fList]
+def bs_OfNat : List Binder := [.ty, .tm fNat, .tm v0]
+def bs_Pow : List Binder := [.ty, .ty, .tm fPow]
+def bs_Prod : List Binder := [.ty, .ty, .tm v0, .tm v1]
+
+section goods
+variable {env : Environment}
+theorem good_A2 : GoodB PTcorpus env bs_A2 := by simp [bs_A2, GoodB, Form.Good, fA2, v0]
+theorem good_A1 : GoodB PTcorpus env bs_A1 := by simp [bs_A1, GoodB, Form.Good, fA1, v0]
+theorem good_V : GoodB PTcorpus env bs_V := by simp [bs_V, GoodB, Form.Good, v0]
+theorem good_Nil : GoodB PTcorpus env bs_Nil := by simp [bs_Nil, GoodB]
+theorem good_Pow : GoodB PTcorpus env bs_Pow := by simp [bs_Pow, GoodB, Form.Good, fPow, v0, v1]
+theorem good_Prod : GoodB PTcorpus env bs_Prod := by simp [bs_Prod, GoodB, Form.Good, v0, v1]
+theorem good_BEq (hB : ¬ IsDefn env `Bool) : GoodB PTcorpus env bs_BEq := by
+  simp only [bs_BEq, GoodB, Form.Good, fBEq, v0]; exact ⟨⟨trivial, trivial, goodBool hB⟩, trivial⟩
+theorem good_NatC (hN : ¬ IsDefn env `Nat) : GoodB PTcorpus env bs_NatC := by
+  simp only [bs_NatC, GoodB, Form.Good, fNatC, v0]; exact ⟨⟨goodNat hN, trivial⟩, trivial⟩
+theorem good_NatP (hN : ¬ IsDefn env `Nat) : GoodB PTcorpus env bs_NatP := by
+  simp only [bs_NatP, GoodB, Form.Good, fNatP, v0]; exact ⟨⟨trivial, goodNat hN, trivial⟩, trivial⟩
+theorem good_List (hL : ¬ IsDefn env `List) : GoodB PTcorpus env bs_List := by
+  simp only [bs_List, GoodB, Form.Good, fList, v0]; exact ⟨goodList hL, trivial⟩
+theorem good_Wire (hN : ¬ IsDefn env `Nat) : GoodB PTcorpus env bs_Wire := by
+  simp only [bs_Wire, GoodB]; exact ⟨goodNat hN, trivial⟩
+theorem good_Cons (hL : ¬ IsDefn env `List) : GoodB PTcorpus env bs_Cons := by
+  simp only [bs_Cons, GoodB, Form.Good, v0]; exact ⟨trivial, goodList hL, trivial⟩
+theorem good_OfNat (hN : ¬ IsDefn env `Nat) : GoodB PTcorpus env bs_OfNat := by
+  simp only [bs_OfNat, GoodB, Form.Good, v0]; exact ⟨goodNat hN, trivial, trivial⟩
+end goods
+
+section rows
+variable (env : Environment)
+theorem ptc_tele_Add_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `Add.mk [.zero] bs_A2) : RowTeleEvAt PTcorpus env `Add.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A2 tm_0 rfl (by forms_tac) (by decide) (good_A2) hT
+
+theorem ptc_tele_AndOp_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `AndOp.mk [.zero] bs_A2) : RowTeleEvAt PTcorpus env `AndOp.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A2 tm_1 rfl (by forms_tac) (by decide) (good_A2) hT
+
+theorem ptc_tele_Complement_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `Complement.mk [.zero] bs_A1) : RowTeleEvAt PTcorpus env `Complement.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A1 tm_7 rfl (by forms_tac) (by decide) (good_A1) hT
+
+theorem ptc_tele_Div_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `Div.mk [.zero] bs_A2) : RowTeleEvAt PTcorpus env `Div.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A2 tm_8 rfl (by forms_tac) (by decide) (good_A2) hT
+
+theorem ptc_tele_Mod_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `Mod.mk [.zero] bs_A2) : RowTeleEvAt PTcorpus env `Mod.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A2 tm_28 rfl (by forms_tac) (by decide) (good_A2) hT
+
+theorem ptc_tele_Mul_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `Mul.mk [.zero] bs_A2) : RowTeleEvAt PTcorpus env `Mul.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A2 tm_29 rfl (by forms_tac) (by decide) (good_A2) hT
+
+theorem ptc_tele_OrOp_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `OrOp.mk [.zero] bs_A2) : RowTeleEvAt PTcorpus env `OrOp.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A2 tm_36 rfl (by forms_tac) (by decide) (good_A2) hT
+
+theorem ptc_tele_ShiftLeft_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `ShiftLeft.mk [.zero] bs_A2) : RowTeleEvAt PTcorpus env `ShiftLeft.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A2 tm_41 rfl (by forms_tac) (by decide) (good_A2) hT
+
+theorem ptc_tele_ShiftRight_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `ShiftRight.mk [.zero] bs_A2) : RowTeleEvAt PTcorpus env `ShiftRight.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A2 tm_42 rfl (by forms_tac) (by decide) (good_A2) hT
+
+theorem ptc_tele_Sub_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `Sub.mk [.zero] bs_A2) : RowTeleEvAt PTcorpus env `Sub.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A2 tm_49 rfl (by forms_tac) (by decide) (good_A2) hT
+
+theorem ptc_tele_XorOp_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `XorOp.mk [.zero] bs_A2) : RowTeleEvAt PTcorpus env `XorOp.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A2 tm_50 rfl (by forms_tac) (by decide) (good_A2) hT
+
+theorem ptc_tele_Neg_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `Neg.mk [.zero] bs_A1) : RowTeleEvAt PTcorpus env `Neg.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_A1 tm_34 rfl (by forms_tac) (by decide) (good_A1) hT
+
+theorem ptc_tele_BEq_mk (hcl : EnvClosedL env) (hB : ¬ IsDefn env `Bool)
+    (hT : EnvForms env `BEq.mk [.zero] bs_BEq) : RowTeleEvAt PTcorpus env `BEq.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_BEq tm_3 rfl (by forms_tac) (by decide) (good_BEq hB) hT
+
+theorem ptc_tele_NatCast_mk (hcl : EnvClosedL env) (hN : ¬ IsDefn env `Nat)
+    (hT : EnvForms env `NatCast.mk [.zero] bs_NatC) : RowTeleEvAt PTcorpus env `NatCast.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_NatC tm_32 rfl (by forms_tac) (by decide) (good_NatC hN) hT
+
+theorem ptc_tele_NatPow_mk (hcl : EnvClosedL env) (hN : ¬ IsDefn env `Nat)
+    (hT : EnvForms env `NatPow.mk [.zero] bs_NatP) : RowTeleEvAt PTcorpus env `NatPow.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_NatP tm_33 rfl (by forms_tac) (by decide) (good_NatP hN) hT
+
+theorem ptc_tele_Array_mk (hcl : EnvClosedL env) (hL : ¬ IsDefn env `List)
+    (hT : EnvForms env `Array.mk [.zero] bs_List) : RowTeleEvAt PTcorpus env `Array.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_List tm_2 rfl (by forms_tac) (by decide) (good_List hL) hT
+
+theorem ptc_tele_Inhabited_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `Inhabited.mk [.succ .zero] bs_V) : RowTeleEvAt PTcorpus env `Inhabited.mk [.succ .zero] :=
+  rowTeleEvAt_of_forms hcl bs_V tm_21 rfl (by forms_tac) (by decide) (good_V) hT
+
+theorem ptc_tele_Sparkle_Core_Wireable_mk (hcl : EnvClosedL env) (hN : ¬ IsDefn env `Nat)
+    (hT : EnvForms env `Sparkle.Core.Wireable.mk [] bs_Wire) : RowTeleEvAt PTcorpus env `Sparkle.Core.Wireable.mk [] :=
+  rowTeleEvAt_of_forms hcl bs_Wire tm_47 rfl (by forms_tac) (by decide) (good_Wire hN) hT
+
+theorem ptc_tele_List_nil (hcl : EnvClosedL env)
+    (hT : EnvForms env `List.nil [.zero] bs_Nil) : RowTeleEvAt PTcorpus env `List.nil [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_Nil tm_27 rfl (by forms_tac) (by decide) (good_Nil) hT
+
+theorem ptc_tele_List_cons (hcl : EnvClosedL env) (hL : ¬ IsDefn env `List)
+    (hT : EnvForms env `List.cons [.zero] bs_Cons) : RowTeleEvAt PTcorpus env `List.cons [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_Cons tm_26 rfl (by forms_tac) (by decide) (good_Cons hL) hT
+
+theorem ptc_tele_OfNat_mk (hcl : EnvClosedL env) (hN : ¬ IsDefn env `Nat)
+    (hT : EnvForms env `OfNat.mk [.zero] bs_OfNat) : RowTeleEvAt PTcorpus env `OfNat.mk [.zero] :=
+  rowTeleEvAt_of_forms hcl bs_OfNat tm_35 rfl (by forms_tac) (by decide) (good_OfNat hN) hT
+
+theorem ptc_tele_Pow_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `Pow.mk [.zero, .zero] bs_Pow) : RowTeleEvAt PTcorpus env `Pow.mk [.zero, .zero] :=
+  rowTeleEvAt_of_forms hcl bs_Pow tm_39 rfl (by forms_tac) (by decide) (good_Pow) hT
+
+theorem ptc_tele_Prod_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `Prod.mk [.zero, .zero] bs_Prod) : RowTeleEvAt PTcorpus env `Prod.mk [.zero, .zero] :=
+  rowTeleEvAt_of_forms hcl bs_Prod tm_40 rfl (by forms_tac) (by decide) (good_Prod) hT
+
+theorem ptc_tele_PProd_mk (hcl : EnvClosedL env)
+    (hT : EnvForms env `PProd.mk [.succ .zero, .succ .zero] bs_Prod) : RowTeleEvAt PTcorpus env `PProd.mk [.succ .zero, .succ .zero] :=
+  rowTeleEvAt_of_forms hcl bs_Prod tm_37 rfl (by forms_tac) (by decide) (good_Prod) hT
+
+end rows
+
 end Tools.ShippingGen5PTCorpusTele
