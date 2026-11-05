@@ -5940,3 +5940,9 @@ lean_lib «Tests.Gen5.PTRootShardCheck» where
 lean_lib «Tests.Gen5.PTShard» where
   roots := #[]
   globs := #[.submodules `Tests.Gen5.PTShard]
+
+lean_lib «Tools.ShippingGen5PTRootShardNamed» where
+  roots := #[`Tools.ShippingGen5PTRootShardNamed]
+
+lean_lib «Tests.Gen5.PTRootShardNamedCheck» where
+  roots := #[`Tests.Gen5.PTRootShardNamedCheck]
