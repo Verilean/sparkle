@@ -11,7 +11,7 @@ No TRUSTED, axiom, `sorry`, `native_decide`. `PT` is an arbitrary parameter; eve
 namespace Tools.ShippingGen5DepRows
 open Lean Tools.ShippingGen5ConstValueE Tools.ShippingGen5ConstValueEKey Tools.ShippingGen5ConstValueESoundK Tools.ShippingGen5ConstValueES
   Tools.ShippingGen5ConstValueESL Tools.ShippingGen5ConstValueEVL Tools.ShippingGen5RowTypedV
-open Tools.ShippingGen5ConstValueESProof (substS_liftS_in)
+open Tools.ShippingGen5ConstValueES (substS_liftS_in)
 
 /-! ## §1 `RowTypedAtV`, one theorem per output-structure key -/
 section rows
@@ -261,7 +261,7 @@ theorem rowTeleEvAt_domFields (PT : PrimTableK) (env : Environment) (c : Name) (
     RowTeleEvAt PT env c ls := by
   obtain ⟨row0, hrow0, hk, hden⟩ := hr
   have hlen : αs.length = As.length := by
-    clear hT hsig hr hnd hdc hden hk hrow0
+    clear hT hsig hnd hdc hden hk hrow0
     induction αs generalizing As with
     | nil => cases As with | nil => rfl | cons _ _ => exact False.elim hAs
     | cons α αs ih => cases As with
@@ -459,7 +459,7 @@ def OblTeleEv_BitVec_ofFin (PT : PrimTableK) (env : Environment) : Prop := RowTe
 def OblTeleEv_Decidable_isTrue (PT : PrimTableK) (env : Environment) : Prop := RowTeleEvAt PT env ``Decidable.isTrue []
 def OblTeleEv_Decidable_isFalse (PT : PrimTableK) (env : Environment) : Prop := RowTeleEvAt PT env ``Decidable.isFalse []
 
-/-- The four named dependent keys of V2 (`RowTypedAtV` per key). -/
+/- The four named dependent keys of V2 (`RowTypedAtV` per key). -/
 section named
 variable (PT : PrimTableK) (env : Environment)
 
