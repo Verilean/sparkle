@@ -6188,3 +6188,91 @@ lean_lib «Tests.Gen4.ParamFinalCheck» where
 
 lean_lib «Tests.Gen5.ParamFinalScan» where
   roots := #[`Tests.Gen5.ParamFinalScan]
+
+lean_lib «Tools.ShippingGen5PKWalkEntryCore» where
+  roots := #[`Tools.ShippingGen5PKWalkEntryCore]
+
+lean_lib «Tools.ShippingGen5PKWalkDepth» where
+  roots := #[`Tools.ShippingGen5PKWalkDepth]
+
+lean_lib «Tools.ShippingGen5PFKidsDepth» where
+  roots := #[`Tools.ShippingGen5PFKidsDepth]
+
+lean_lib «Tools.ShippingGen5PFKidsDepthArms» where
+  roots := #[`Tools.ShippingGen5PFKidsDepthArms]
+
+lean_lib «Tools.ShippingGen5PKWalkDepthArms» where
+  roots := #[`Tools.ShippingGen5PKWalkDepthArms]
+
+lean_lib «Tools.ShippingGen5PKWalkDepthEntry» where
+  roots := #[`Tools.ShippingGen5PKWalkDepthEntry]
+
+lean_lib «Tools.ShippingGen5PFKidsEntryCore» where
+  roots := #[`Tools.ShippingGen5PFKidsEntryCore]
+
+lean_lib «Tools.ShippingGen5PFKidsDepthEntry» where
+  roots := #[`Tools.ShippingGen5PFKidsDepthEntry]
+
+lean_lib «Tools.ShippingGen5PFKidsLegacyArm» where
+  roots := #[`Tools.ShippingGen5PFKidsLegacyArm]
+
+lean_lib «Tools.ShippingGen5PFKidsDepthInduct» where
+  roots := #[`Tools.ShippingGen5PFKidsDepthInduct]
+
+lean_lib «Tools.ShippingGen5PParamEntry» where
+  roots := #[`Tools.ShippingGen5PParamEntry]
+
+lean_lib «Tools.ShippingGen5PKWalkDepthInduct» where
+  roots := #[`Tools.ShippingGen5PKWalkDepthInduct]
+
+lean_lib «Tools.ShippingGen5PKWalkDepthTop» where
+  roots := #[`Tools.ShippingGen5PKWalkDepthTop]
+
+lean_lib «Tools.ShippingGen5PFKidsDepthTop» where
+  roots := #[`Tools.ShippingGen5PFKidsDepthTop]
+
+lean_lib «Tools.ShippingGen5PFKids» where
+  roots := #[`Tools.ShippingGen5PFKids]
+
+lean_lib «Tools.ShippingGen5PFKidsParams» where
+  roots := #[`Tools.ShippingGen5PFKidsParams]
+
+lean_lib «Tools.ShippingGen5PFKidsObl» where
+  roots := #[`Tools.ShippingGen5PFKidsObl]
+
+lean_lib «Tools.ShippingGen5PFTheta» where
+  roots := #[`Tools.ShippingGen5PFTheta]
+
+lean_lib «Tools.ShippingGen5PFThetaTele» where
+  roots := #[`Tools.ShippingGen5PFThetaTele]
+
+lean_lib «Tools.ShippingGen5PFTop» where
+  roots := #[`Tools.ShippingGen5PFTop]
+
+lean_lib «Tools.ShippingGen5PParamIface» where
+  roots := #[`Tools.ShippingGen5PParamIface]
+
+lean_lib «Tools.ShippingGen5PFPost» where
+  roots := #[`Tools.ShippingGen5PFPost]
+
+lean_lib «Tools.ShippingGen5PParamBridgeLegal» where
+  roots := #[`Tools.ShippingGen5PParamBridgeLegal]
+
+lean_lib «Tools.ShippingGen5PShape» where
+  roots := #[`Tools.ShippingGen5PShape]
+
+lean_lib «Tools.ShippingGen5PParamAssembly» where
+  roots := #[`Tools.ShippingGen5PParamAssembly]
+
+lean_lib «Tools.ShippingGen5PParamFinal» where
+  roots := #[`Tools.ShippingGen5PParamFinal]
+
+lean_lib «Tools.ShippingGen5PMinRoot» where
+  roots := #[`Tools.ShippingGen5PMinRoot]
+
+lean_lib «Tools.ShippingGen5PConnect» where
+  roots := #[`Tools.ShippingGen5PConnect]
+
+lean_lib «Tests.Gen5.ParamGen5Check» where
+  roots := #[`Tests.Gen5.ParamGen5Check]
+
