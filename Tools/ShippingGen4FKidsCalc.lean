@@ -1,0 +1,226 @@
+import Tools.ShippingGen4FKidsDefs
+import Tools.ShippingChildWalkA
+set_option autoImplicit false
+-- F-kids StatePF walk, part 1: the calculus `KCS` (a `CompilerM` action keeps `Keeps`-world invariant `I` AND takes a state
+-- with `StatePF` to a state with `StatePF` and the same `module.parameters`). No sorry / axiom / native_decide; no law.
+
+/-! # `KCS`: `KeepsCP` with the circuit state tracked
+
+`KCS I st c`: from every compiler context with provenance (`CtxOk`) and a world satisfying `I`, the run `c ctx st` returns in `I` with
+a final state `st'` with `GoodS st st'` (both `StatePF`, same `module.parameters`), and throws in `I` with the exception in the class.
+`KeepsCS I c := ∀ st, KCS I st c`. The state is a parameter of `KCS` (pointed), so that `get >>= f` and `set s` relate `s` to the
+state of the run (`KCS.bindGet`, `KCS.set`). A lifted `MetaM` action leaves the state: its leaf is a plain `Keeps` goal. -/
+
+namespace Tools.ShippingGen4FKidsCalc
+open Lean Meta
+open Tools.ShippingEntrySoundness
+open Sparkle.Compiler.Elab
+open Tools.ShippingChildInv
+open Tools.ShippingChildTranslateA
+open Tools.ShippingGen4FKids
+open Sparkle.IR.Builder (CircuitState)
+
+variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+  {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+
+/-- the state relation of the walk: both states satisfy `StatePF` and the module keeps its `parameters` -/
+def GoodS (st st' : CircuitState) : Prop :=
+  StatePF st ∧ StatePF st' ∧ st.module.parameters = st'.module.parameters
+
+theorem GoodS.refl {st : CircuitState} (h : StatePF st) : GoodS st st := ⟨h, h, rfl⟩
+theorem GoodS.symm {a b : CircuitState} (h : GoodS a b) : GoodS b a := ⟨h.2.1, h.1, h.2.2.symm⟩
+theorem GoodS.trans {a b c : CircuitState} (h1 : GoodS a b) (h2 : GoodS b c) : GoodS a c :=
+  ⟨h1.1, h2.2.1, h1.2.2.trans h2.2.2⟩
+
+/-- a state with the same view (design and module parameters) is `GoodS` to a `StatePF` state -/
+theorem GoodS.of_view {a b : CircuitState} (h : StatePF a) (hv : View b = View a) : GoodS a b := by
+  have h1 : b.design = a.design := congrArg Prod.fst hv
+  have h2 : b.module.parameters = a.module.parameters := congrArg Prod.snd hv
+  exact ⟨h, by unfold StatePF at *; rw [h1]; exact h, h2.symm⟩
+
+section Defs
+variable (mctx mref cctx cref)
+
+/-- the pointed statement -/
+def KCS {α : Type} (I : Void IO.RealWorld → Prop) (st : CircuitState) (c : CompilerM α) : Prop :=
+  ∀ (ctx : CompilerState), CtxOk ctx → StatePF st →
+    Triple mctx mref cctx cref I (c ctx st) (fun p w => I w ∧ GoodS st p.2) (fun e w => I w ∧ OkExc e)
+
+/-- from every `StatePF` state -/
+def KeepsCS {α : Type} (I : Void IO.RealWorld → Prop) (c : CompilerM α) : Prop :=
+  ∀ st : CircuitState, KCS mctx mref cctx cref I st c
+
+end Defs
+
+section Rules
+variable {I : Void IO.RealWorld → Prop} {st : CircuitState}
+
+theorem KeepsCS.at {α : Type} {c : CompilerM α} (h : KeepsCS mctx mref cctx cref I c) (st : CircuitState) :
+    KCS mctx mref cctx cref I st c := h st
+
+theorem KCS.pure {α : Type} (a : α) : KCS mctx mref cctx cref I st (Pure.pure a : CompilerM α) :=
+  fun _ _ hs => Triple.pure (a := (a, st)) fun _ hw => ⟨hw, GoodS.refl hs⟩
+
+theorem KCS.bind {α β : Type} {c : CompilerM α} {f : α → CompilerM β}
+    (h1 : KCS mctx mref cctx cref I st c)
+    (h2 : ∀ a st', GoodS st st' → KCS mctx mref cctx cref I st' (f a)) :
+    KCS mctx mref cctx cref I st (c >>= f) := by
+  intro ctx hc hs
+  refine Triple.bind (h1 ctx hc hs) (fun p => ?_)
+  obtain ⟨a, s⟩ := p
+  intro w hw
+  have hg : GoodS st s := hw.2
+  exact (Triple.conseq (P' := fun w => I w ∧ GoodS st s) (h2 a s hg ctx hc hg.2.1) (fun w hw => hw.1)
+    (fun p w hq => ⟨hq.1, GoodS.trans hg hq.2⟩) (fun e w h => h)) w hw
+
+theorem KCS.ite {α : Type} {c : Prop} [Decidable c] {a b : CompilerM α}
+    (ha : c → KCS mctx mref cctx cref I st a) (hb : ¬c → KCS mctx mref cctx cref I st b) :
+    KCS mctx mref cctx cref I st (if c then a else b) := by
+  by_cases hc : c
+  · rw [if_pos hc]; exact ha hc
+  · rw [if_neg hc]; exact hb hc
+
+theorem KCS.dite {α : Type} {c : Prop} [Decidable c] {a : c → CompilerM α} {b : ¬c → CompilerM α}
+    (ha : ∀ h, KCS mctx mref cctx cref I st (a h)) (hb : ∀ h, KCS mctx mref cctx cref I st (b h)) :
+    KCS mctx mref cctx cref I st (if h : c then a h else b h) := by
+  by_cases hc : c
+  · rw [dif_pos hc]; exact ha hc
+  · rw [dif_neg hc]; exact hb hc
+
+theorem KCS.throw {α : Type} (e : Exception) (he : OkExc e) :
+    KCS mctx mref cctx cref I st (MonadExcept.throw e : CompilerM α) :=
+  fun _ _ _ => Triple.throw e fun w hw => ⟨hw, he⟩
+
+/-- `throw e >>= k`: the continuation never runs. -/
+theorem KCS.throwBind {α β : Type} (e : Exception) (he : OkExc e) (k : α → CompilerM β) :
+    KCS mctx mref cctx cref I st ((MonadExcept.throw e : CompilerM α) >>= k) :=
+  fun ctx _ _ => by
+    refine Triple.bind (m := (MonadExcept.throw e : MetaM (α × CircuitState))) (f := fun p => k p.1 ctx p.2)
+      (Q := fun _ _ => False) ?_ ?_
+    · exact Triple.throw e fun w hw => ⟨hw, he⟩
+    · intro p w hf
+      exact hf.elim
+
+theorem KCS.lift {α : Type} {m : MetaM α} (h : Keeps mctx mref cctx cref I m) :
+    KCS mctx mref cctx cref I st (CompilerM.liftMetaM m) :=
+  fun _ _ hs => Triple.bind (keeps_iff.mp h) fun a => Triple.pure (a := (a, st)) fun _ hw => ⟨hw, GoodS.refl hs⟩
+
+theorem KCS.liftM {α : Type} {m : MetaM α} (h : Keeps mctx mref cctx cref I m) :
+    KCS mctx mref cctx cref I st (_root_.liftM m : CompilerM α) :=
+  KCS.lift h
+
+theorem KCS.liftIO {α : Type} {x : IO α} (h : Keeps mctx mref cctx cref I (_root_.liftM x : MetaM α)) :
+    KCS mctx mref cctx cref I st (_root_.liftM x : CompilerM α) :=
+  KCS.lift h
+
+theorem KCS.liftBaseIO {α : Type} {x : BaseIO α} (h : Keeps mctx mref cctx cref I (_root_.liftM x : MetaM α)) :
+    KCS mctx mref cctx cref I st (_root_.liftM x : CompilerM α) :=
+  KCS.lift h
+
+theorem KCS.refGet {σ : Type} {r : IO.Ref σ} (h : Keeps mctx mref cctx cref I (ST.Ref.get r : MetaM σ)) :
+    KCS mctx mref cctx cref I st (ST.Ref.get r : CompilerM σ) :=
+  KCS.lift h
+
+theorem KCS.refSet {σ : Type} {r : IO.Ref σ} {v : σ} (h : Keeps mctx mref cctx cref I (ST.Ref.set r v : MetaM Unit)) :
+    KCS mctx mref cctx cref I st (ST.Ref.set r v : CompilerM Unit) :=
+  KCS.lift h
+
+theorem KCS.refModify {σ : Type} {r : IO.Ref σ} {f : σ → σ}
+    (h : Keeps mctx mref cctx cref I (ST.Ref.modify r f : MetaM Unit)) :
+    KCS mctx mref cctx cref I st (ST.Ref.modify r f : CompilerM Unit) :=
+  KCS.lift h
+
+/-- `get` followed by the continuation: the continuation is run from the very state read -/
+theorem KCS.bindGet {β : Type} {f : CircuitState → CompilerM β} (h : KCS mctx mref cctx cref I st (f st)) :
+    KCS mctx mref cctx cref I st ((get : CompilerM CircuitState) >>= f) :=
+  fun ctx hc hs => h ctx hc hs
+
+theorem KCS.get : KCS mctx mref cctx cref I st (get : CompilerM CircuitState) :=
+  fun _ _ hs => Triple.pure (a := (st, st)) fun _ hw => ⟨hw, GoodS.refl hs⟩
+
+theorem KCS.set (s : CircuitState) (hs : GoodS st s) : KCS mctx mref cctx cref I st (set s : CompilerM PUnit) :=
+  fun _ _ _ => Triple.pure (a := (PUnit.unit, s)) fun _ hw => ⟨hw, hs⟩
+
+theorem KCS.modify (f : CircuitState → CircuitState) (hs : GoodS st (f st)) :
+    KCS mctx mref cctx cref I st (modify f : CompilerM PUnit) :=
+  fun _ _ _ => Triple.pure (a := (PUnit.unit, f st)) fun _ hw => ⟨hw, hs⟩
+
+theorem KCS.getCompilerState : KCS mctx mref cctx cref I st CompilerM.getCompilerState :=
+  fun ctx _ hs => Triple.pure (a := (ctx, st)) fun _ hw => ⟨hw, GoodS.refl hs⟩
+
+theorem KCS.read : KCS mctx mref cctx cref I st (MonadReader.read : CompilerM CompilerState) :=
+  fun ctx _ hs => Triple.pure (a := (ctx, st)) fun _ hw => ⟨hw, GoodS.refl hs⟩
+
+/-- **The read context has provenance**: its continuation is asked only for contexts with `CtxOk`. -/
+theorem KCS.bindCtx {β : Type} {f : CompilerState → CompilerM β}
+    (h : ∀ cs, CtxOk cs → KCS mctx mref cctx cref I st (f cs)) :
+    KCS mctx mref cctx cref I st (CompilerM.getCompilerState >>= f) :=
+  fun ctx hc hs => h ctx hc ctx hc hs
+
+theorem KCS.bindRead {β : Type} {f : CompilerState → CompilerM β}
+    (h : ∀ cs, CtxOk cs → KCS mctx mref cctx cref I st (f cs)) :
+    KCS mctx mref cctx cref I st ((MonadReader.read : CompilerM CompilerState) >>= f) :=
+  fun ctx hc hs => h ctx hc ctx hc hs
+
+theorem KCS.withReader {α : Type} {k : CompilerM α} (f : CompilerState → CompilerState)
+    (hf : ∀ ctx, CtxOk ctx → CtxOk (f ctx)) (h : KCS mctx mref cctx cref I st k) :
+    KCS mctx mref cctx cref I st (withReader f k) :=
+  fun ctx hc hs => h (f ctx) (hf ctx hc) hs
+
+theorem KCS.tryCatch {α : Type} {x : CompilerM α} {h : Exception → CompilerM α}
+    (hx : KCS mctx mref cctx cref I st x) (hh : ∀ e, OkExc e → KCS mctx mref cctx cref I st (h e)) :
+    KCS mctx mref cctx cref I st (MonadExcept.tryCatch x h) :=
+  fun ctx hc hs => Triple.tryCatchQ (hx ctx hc hs) fun e he => hh e he ctx hc hs
+
+theorem KCS.map {α β : Type} {c : CompilerM α} (f : α → β) (h : KCS mctx mref cctx cref I st c) :
+    KCS mctx mref cctx cref I st (f <$> c) :=
+  KCS.bind h fun a _ _ => KCS.pure (f a)
+
+
+theorem KCS.forIn_list {α β : Type} (f : α → β → CompilerM (ForInStep β))
+    (hf : ∀ a b, KeepsCS mctx mref cctx cref I (f a b)) :
+    ∀ (l : List α) (b : β) (st : CircuitState), KCS mctx mref cctx cref I st (forIn l b f)
+  | [], b, st => by
+    rw [List.forIn_nil]
+    exact KCS.pure b
+  | a :: l, b, st => by
+    rw [List.forIn_cons]
+    refine KCS.bind (hf a b st) (fun r st' _ => ?_)
+    cases r with
+    | done b' => exact KCS.pure b'
+    | yield b' => exact KCS.forIn_list f hf l b' st'
+
+theorem KCS.forIn_array {α β : Type} (f : α → β → CompilerM (ForInStep β))
+    (hf : ∀ a b, KeepsCS mctx mref cctx cref I (f a b)) (as : Array α) (b : β) (st : CircuitState) :
+    KCS mctx mref cctx cref I st (forIn as b f) := by
+  rw [← Array.forIn_toList]
+  exact KCS.forIn_list f hf _ b st
+
+theorem KCS.forIn_range {β : Type} (f : Nat → β → CompilerM (ForInStep β))
+    (hf : ∀ a b, KeepsCS mctx mref cctx cref I (f a b)) (r : Std.Legacy.Range) (b : β) (st : CircuitState) :
+    KCS mctx mref cctx cref I st (forIn r b f) := by
+  rw [Std.Legacy.Range.forIn_eq_forIn_range']
+  exact KCS.forIn_list f hf _ b st
+
+theorem KCS.pureE {ρ α : Type} (a : α) : KCS mctx mref cctx cref I st (Pure.pure a : ExceptT ρ CompilerM α) :=
+  KCS.pure (Except.ok a)
+
+theorem KCS.throwE {ρ α : Type} (r : ρ) : KCS mctx mref cctx cref I st (throwThe ρ r : ExceptT ρ CompilerM α) :=
+  KCS.pure (Except.error r)
+
+theorem KCS.bindE {ρ α β : Type} {m : ExceptT ρ CompilerM α} {f : α → ExceptT ρ CompilerM β}
+    (h1 : KCS mctx mref cctx cref I st m)
+    (h2 : ∀ a st', GoodS st st' → KCS mctx mref cctx cref I st' (f a)) :
+    KCS mctx mref cctx cref I st (m >>= f : ExceptT ρ CompilerM β) :=
+  KCS.bind (c := (m : CompilerM (Except ρ α))) h1 fun r st' hg => by
+    cases r with
+    | ok a => exact h2 a st' hg
+    | error e => exact KCS.pure (Except.error e)
+
+theorem KCS.liftE {ρ α : Type} {c : CompilerM α} (h : KCS mctx mref cctx cref I st c) :
+    KCS mctx mref cctx cref I st (_root_.liftM c : ExceptT ρ CompilerM α) :=
+  KCS.bind h fun a _ _ => KCS.pure (Except.ok a)
+
+end Rules
+
+end Tools.ShippingGen4FKidsCalc
