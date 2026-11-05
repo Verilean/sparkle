@@ -1,5 +1,7 @@
 import Tools.ShippingGen4FKidsLegacyTail
 import Tools.ShippingGen4FKidsDepthInduct
+import Tools.ShippingGen4FKidsLegacyArm
+import Tools.ShippingGen4ParamEntry
 -- F-kids DepthTop, part 1: the design-only walk (`KD`) of the symbolic binder walk `bindInputsLegacy` with `θ ≠ []`
 -- (FKIDS_FREEZE §7.6): `addParameter` writes `module`, not `design`, so `StatePF` is all the walk keeps.
 -- Takes `MemoFamily` and `PpMvKS` as hypotheses only; adds NO premise, NO axiom. No `sorry`.
@@ -25,6 +27,15 @@ open Tools.ShippingGen4FKidsEntry
 open Tools.ShippingGen4FKidsHelpers
 open Tools.ShippingGen4FKidsLegacyTail
 open Tools.ShippingGen4FKidsProjField
+open Tools.ShippingGen4KWalkDepth
+open Tools.ShippingGen4FKidsDepth
+open Tools.ShippingGen4FKidsTranslate
+open Tools.ShippingGen4FKidsLegacyArm
+open Tools.ShippingGen4FKidsEntryArms
+open Tools.ShippingGen4ParamEntry
+open Tools.ShippingGen4KWalkDiag
+open Tools.ShippingGen4KWalkEntryCore
+open Tools.ShippingChildInv
 open Sparkle.IR.Builder (CircuitState)
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
@@ -170,5 +181,100 @@ termination_by xs.size - i
 decreasing_by omega
 
 end Walk
+
+section Sym
+variable {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hA : AdmCtx O.quiet mctx cctx)
+include M hA
+
+/-- `finishSynth` in symbolic mode of a `StatePF` state: the returned design is the state's design. -/
+theorem finishSynthSym {I : Void IO.RealWorld → Prop} (hS : StableK O.quiet I) (declName : Name)
+    (θ : List (String × Nat)) (st : CircuitState) (hst : StatePF st) :
+    Triple mctx mref cctx cref I (finishSynth declName θ true st)
+      (fun r w => I w ∧ DesignPF r.2) (fun e w => I w ∧ OkExc e) := by
+  unfold finishSynth
+  simp only [↓reduceIte]
+  split
+  · refine Triple.bind (R := fun e w => I w ∧ OkExc e) (Q := fun _ w => I w)
+      (keeps_iff.mp (keepsK_throwErrorS M hA hS _ (by okmsg))) (fun _ => ?_)
+    refine Triple.bind (R := fun e w => I w ∧ OkExc e) (Q := fun _ w => I w) (keeps_iff.mp ?_) (fun _ => ?_)
+    · swalkN [keepsK_throwErrorS M hA hS _ _, Keeps.forIn_list]
+    · exact Triple.ite (fun _ => Triple.pure fun _ hw => ⟨hw, hst⟩)
+        (fun _ => Triple.throw _ fun _ hw => ⟨hw, by okmsg⟩)
+  · refine Triple.bind (R := fun e w => I w ∧ OkExc e) (Q := fun _ w => I w) (keeps_iff.mp ?_) (fun _ => ?_)
+    · swalkN [keepsK_throwErrorS M hA hS _ _, Keeps.forIn_list]
+    · exact Triple.ite (fun _ => Triple.pure fun _ hw => ⟨hw, hst⟩)
+        (fun _ => Triple.throw _ fun _ hw => ⟨hw, by okmsg⟩)
+
+/-- **The legacy arm at the symbolic top** (`symbolicMode = true`, retained parameters `θ`): the entry constant goes through the legacy
+tail (all three front ends are off), no memo is read or written, and the returned design is `StatePF`. -/
+theorem legacySym_windowDP (hlog : LogMvKS O) (D : Nat)
+    (translate : TranslateFn) (b : Bool) (declName : Name) (θ : List (String × Nat)) (constInfo : ConstantInfo)
+    (isInst : Lean.Expr → Bool)
+    (htr : RecKS O (WPF O D) translate) :
+    Triple mctx mref cctx cref (WPF O D)
+      (synthesizeFromConst translate (profLogIO b) declName θ true true constInfo isInst)
+      (fun r w => WPF O D w ∧ DesignPF r.2) (fun e w => WPF O D w ∧ OkExc e) := by
+  have hS := stableK_KWD O PPF D
+  have hpp : PpMvKS O := ppMvK_of M
+  first | delta synthesizeFromConst | unfold synthesizeFromConst
+  simp only [↓reduceIte, certifiedShape_off, mixedCertifiedShape_off, Bool.true_or, Bool.not_true,
+    Bool.and_false, Bool.false_and, Bool.false_eq_true]
+  refine triple_pure_bind_ofS ?_
+  dsimp only
+  refine triple_pure_bind_ofS ?_
+  dsimp only
+  refine Triple.bind (keeps_iff.mp (keepsK_profLogS M hA hS hlog b _)) ?_
+  intro _
+  cases constInfo with
+  | defnInfo di =>
+    dsimp only
+    refine Triple.bind (keeps_iff.mp (keepsK_profLogS M hA hS hlog b _)) ?_
+    intro _
+    refine Triple.bind (keeps_iff.mp (keepsK_framedNM M hA hS FramedNM.monoMs)) ?_
+    intro t0
+    refine Triple.bind (keeps_iff.mp (keepsK_profLogS M hA hS hlog b _)) ?_
+    intro _
+    refine Triple.bind (keeps_iff.mp (openRecordInputs_keepsKS M hS hA _)) ?_
+    intro body0
+    refine Triple.bind (keeps_iff.mp (keepsK_framedNM M hA hS FramedNM.monoMs)) ?_
+    intro t1
+    refine Triple.bind (keeps_iff.mp (keepsK_profLogS M hA hS hlog b _)) ?_
+    intro _
+    refine M.tele.lamTelescopeT (WPF O D) (fun (r : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) w => WPF O D w ∧ DesignPF r.2)
+      (WPF O D) hA (fun _ h => h.1.1) (fun _ _ h => h.1.1.1) (fun _ h => h.1.1)
+      (stableK_KWD O PPF D).2
+      (fun _ w w' h1 h2 h3 h4 hq hw => ⟨(stableK_KWD O PPF D).2 w w' h1 h2 h3 h4 hq hw.1, hw.2⟩)
+      (stableK_KWD O PPF D).2 _ _ _ ?_
+    intro mctx' cctx' xs innerBody hA'
+    refine Triple.bind (keeps_iff.mp (keepsK_profLogS M hA' hS hlog b _)) ?_
+    intro _
+    refine Triple.bind (keeps_iff.mp ?_) ?_
+    · swalkN [keepsK_framedNM M hA' hS (FramedNM.whnf _), keepsK_getDeclS M hpp hS hA',
+        keepsK_throwErrorS M hA' hS _ _, Keeps.forIn_list, Keeps.forIn_array]
+    intro _
+    refine Triple.bind (keeps_iff.mp (splitReturnLeaves_keepsKS M hS hA' _ _)) ?_
+    intro leaves
+    refine Triple.bind (keeps_iff.mp (keepsK_framedNM M hA' hS FramedNM.monoMs)) ?_
+    intro t2
+    refine Triple.bind (keeps_iff.mp (keepsK_profLogS M hA' hS hlog b _)) ?_
+    intro _
+    refine Triple.bindQ (φ := MkRefd _) (tripleK_mkExprCacheS M hA' hS _) ?_
+    intro cacheRef hr
+    have hi := init_ok (Sparkle.IR.ModuleName.ofDecl declName)
+    refine Triple.bindQ (P' := WPF O D) (φ := fun p => StatePF p.2) ?hh ?_
+    case hh =>
+      exact (bindInputsLegacyKD M hpp hS hA' θ true xs _
+        (KD.of_keeps (emitLeavesKPS M hA' hS hlog translate b cacheRef hr (htr mctx' cctx' hA') _ _ _)) 0) _
+        (ctxOk_entry true hr) _ hi.1
+    rintro ⟨_, fs⟩ hg
+    refine Triple.bindQ (P' := WPF O D) (φ := fun r => DesignPF r.2)
+      (finishSynthSym M hA' hS declName θ fs hg) ?_
+    intro result hres
+    exact Triple.pure fun _ hw => ⟨hw, hres⟩
+  | _ =>
+    dsimp only
+    exact tripleK_throwErr M hA hS _ (by okmsg)
+
+end Sym
 
 end Tools.ShippingGen4FKidsDepthTop
