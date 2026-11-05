@@ -5928,3 +5928,6 @@ lean_lib «Tools.ShippingGen5DepRows» where
 
 lean_lib «Tests.Gen5.DepRowsCheck» where
   roots := #[`Tests.Gen5.DepRowsCheck]
+
+lean_lib «Tools.ShippingGen5PTCorpusSpec» where
+  roots := #[`Tools.ShippingGen5PTCorpusSpec]
