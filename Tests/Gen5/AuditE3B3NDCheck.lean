@@ -13,13 +13,17 @@ namespace Tests.Gen5.AuditE3B3NDCheck
 
 abbrev Res := List Name × List Name × List Name × Bool
 
-partial def walkOld (ys : Array (Name × BinderInfo × Expr × Expr)) :
+/-- Binders are matched by name; repeated names (e.g. the hygienic name of anonymous `→` premises) are matched in order:
+the `j`-th old binder of a name with the `j`-th new binder of that name (`used` counts the old binders seen per name). -/
+partial def walkOld (ys : Array (Name × BinderInfo × Expr × Expr)) (used : List (Name × Nat)) :
     Expr → List Name → List Name → (Expr → List Name → List Name → MetaM Res) → MetaM Res
   | .forallE n d b bi, rm, ch, k =>
-    match ys.find? (·.1 == n) with
+    let j := (used.lookup n).getD 0
+    let used' := (n, j + 1) :: used.filter (·.1 != n)
+    match (ys.toList.filter (·.1 == n))[j]? with
     | some (_, bi', fv, ty') =>
-      walkOld ys (b.instantiate1 fv) rm (if bi == bi' && d == ty' then ch else ch ++ [n]) k
-    | none => withLocalDecl n bi d fun x => walkOld ys (b.instantiate1 x) (rm ++ [n]) ch k
+      walkOld ys used' (b.instantiate1 fv) rm (if bi == bi' && d == ty' then ch else ch ++ [n]) k
+    | none => withLocalDecl n bi d fun x => walkOld ys used' (b.instantiate1 x) (rm ++ [n]) ch k
   | body, rm, ch, k => k body rm ch
 
 def diff (old new : Name) : MetaM Res := do
@@ -32,7 +36,7 @@ def diff (old new : Name) : MetaM Res := do
       let d ← x.fvarId!.getDecl
       ys := ys.push (d.userName, d.binderInfo, x, d.type)
     let ys' := ys
-    walkOld ys' oci.type [] [] fun obody rm ch => do
+    walkOld ys' [] oci.type [] [] fun obody rm ch => do
       let added := (ys'.toList.filter fun y => !oNames.contains y.1).map (·.1)
       return (rm, added, ch, obody == nbody)
 

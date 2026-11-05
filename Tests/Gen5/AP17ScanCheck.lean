@@ -14,11 +14,11 @@ open Lean Meta
 namespace Tests.Gen5.AP17ScanCheck
 
 def ndOf : List (Name × Name) :=
-  [(``Tools.ShippingGen2.ihAt_stepPF, ``Tools.ShippingGen5AP17.ihAt_stepPF_ND),
-   (``Tools.ShippingGen2.ih_allPF, ``Tools.ShippingGen5AP17.ih_allPF_ND),
-   (``Tools.ShippingGen2.t1_of_stepPF, ``Tools.ShippingGen5AP17.t1_of_stepPF_ND),
-   (``Tools.ShippingGen5ClosingRun4.closingRun0_of_runT1, ``Tools.ShippingGen5AP17.closingRun0_of_runT1_ND),
-   (``Tools.ShippingGen5ClosingRun4.closingRun_of_runT1, ``Tools.ShippingGen5AP17.closingRun_of_runT1_ND),
+  [(``Tools.ShippingGen2.ihAt_stepPF, ``Tools.ShippingGen2.ihAt_stepPF_ND),
+   (``Tools.ShippingGen2.ih_allPF, ``Tools.ShippingGen2.ih_allPF_ND),
+   (``Tools.ShippingGen2.t1_of_stepPF, ``Tools.ShippingGen2.t1_of_stepPF_ND),
+   (``Tools.ShippingGen5ClosingRun4.closingRun0_of_runT1, ``Tools.ShippingGen2.closingRun0_of_runT1_ND),
+   (``Tools.ShippingGen5ClosingRun4.closingRun_of_runT1, ``Tools.ShippingGen2.closingRun_of_runT1_ND),
    (``Tools.ShippingGen2.houtTy_of_realChild, ``Tools.ShippingGen2.houtTy_of_realChildND),
    (``Tools.ShippingGen2.reach_callee_of_t1, ``Tools.ShippingGen2.reach_callee_of_t1ND),
    (``Tools.ShippingGen2.houtTy_of_closing, ``Tools.ShippingGen2.houtTy_of_closingND),
