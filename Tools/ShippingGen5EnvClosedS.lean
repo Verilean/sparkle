@@ -1,4 +1,5 @@
 import Tools.ShippingGen5EnvDeclClosed
+import Tools.ShippingGen5ConstValueELProof
 import Tools.ShippingGen5ConstValueEVL
 import Tools.ShippingGen5RowTypedV
 set_option autoImplicit false
@@ -29,8 +30,8 @@ def closedAtB : Expr → Nat → Bool
   | .fvar _, _ | .mvar _, _ | .sort _, _ | .const _ _, _ | .lit _, _ => true
 
 theorem closedAtB_iff : ∀ (e : Expr) (k : Nat), closedAtB e k = true ↔ lbr e ≤ k
-  | .bvar i, k => by simp [closedAtB, lbr]; omega
-  | .app f a, k => by simp [closedAtB, lbr, closedAtB_iff f k, closedAtB_iff a k]
+  | .bvar i, k => by simp only [closedAtB, lbr, decide_eq_true_eq]; omega
+  | .app f a, k => by simp [closedAtB, lbr, closedAtB_iff f k, closedAtB_iff a k]; omega
   | .lam _ A b _, k => by simp [closedAtB, lbr, closedAtB_iff A k, closedAtB_iff b (k + 1)]; omega
   | .forallE _ A b _, k => by simp [closedAtB, lbr, closedAtB_iff A k, closedAtB_iff b (k + 1)]; omega
   | .letE _ A v b _, k => by simp [closedAtB, lbr, closedAtB_iff A k, closedAtB_iff v k, closedAtB_iff b (k + 1), and_assoc]; omega
@@ -76,23 +77,22 @@ theorem envDeclClosedSOn_iff (env : Environment) (R : Name → Prop) : EnvDeclCl
 theorem envDeclClosedS_of_on {env : Environment} {R : Name → Prop} (h : EnvDeclClosedSOn env R) (hall : ∀ c ci, env.find? c = some ci → R c) : EnvDeclClosedS env :=
   ⟨fun c ci hci => (h c (hall c ci hci)).1 ci hci, fun c d hd => (h c (hall c _ hd)).2 d hd⟩
 
+open Tools.ShippingGen5ConstValueE Tools.ShippingGen5ConstValueEKey Tools.ShippingGen5ConstValueES Tools.ShippingGen5ConstValueELProof Tools.ShippingGen5ConstValueEVL
+
 /-! ## §3 The final carrier needs exactly `EnvDeclClosedS` (and nothing about `looseBVarRange`) -/
 
-open Tools.ShippingGen5ConstValueE Tools.ShippingGen5ConstValueES Tools.ShippingGen5ConstValueEKey in
 /-- `CVEKL` soundness of the eight rules, environment hypothesis `EnvDeclClosedS` only (besides the two literal-type facts). -/
 theorem denTypedL_S {PT : PrimTableK} {env : Environment} (hcl : EnvDeclClosedS env)
     (hN : ∀ ρ : Val, TDenL PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenL PT env ρ (.const `String []) String)
     (hsub : OblDenSubstL PT env) : OblDenTypedL PT env :=
   Tools.ShippingGen5ConstValueELProof.denTypedL_of_declClosed ((envDeclClosedS_iff env).1 hcl) hN hS hsub
 
-open Tools.ShippingGen5ConstValueE Tools.ShippingGen5ConstValueES Tools.ShippingGen5ConstValueEKey in
 /-- The final carrier `CVEKVL`: soundness of all rules from `EnvDeclClosedS` and the two literal rows (a spec on `PT`). -/
 theorem denTypedVL_S {PT : PrimTableK} {env : Environment} (hcl : EnvDeclClosedS env)
     (hN : ∀ ρ : Val, TDenV PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenV PT env ρ (.const `String []) String) :
     OblDenTypedV PT env :=
   Tools.ShippingGen5ConstValueEVL.denTypedVL ((envDeclClosedS_iff env).1 hcl) hN hS
 
-open Tools.ShippingGen5ConstValueE Tools.ShippingGen5ConstValueES Tools.ShippingGen5ConstValueEKey in
 theorem denTypedVL_of_rows_S {PT : PrimTableK} {env : Environment} (hcl : EnvDeclClosedS env) {rn rs : TyRow}
     (hn : PT.tys `Nat [] = some rn) (hnnd : ¬ IsDefn env `Nat) (hnk : rn.kinds = []) (hnT : rn.den [] = some Nat)
     (hs : PT.tys `String [] = some rs) (hsnd : ¬ IsDefn env `String) (hsk : rs.kinds = []) (hsT : rs.den [] = some String) :
@@ -108,7 +108,7 @@ def OblLbrZeroOn (env : Environment) : Prop :=
 
 /-- the old global bridge implies the restricted one (so the restricted one is the weaker obligation) -/
 theorem oblLbrZeroOn_of_global (env : Environment) (hz : OblLbrZero) : OblLbrZeroOn env :=
-  ⟨fun _ ci _ h => hz _ h, fun _ d _ h => hz _ h⟩
+  ⟨fun _ _ _ h => hz _ h, fun _ _ _ h => hz _ h⟩
 
 /-- Kernel invariant (on `looseBVarRange`) + the restricted bridge give `EnvDeclClosedS`. An implication between named `Prop`s. -/
 theorem envDeclClosedS_of_kernel {env : Environment} (hz : OblLbrZeroOn env) (h : KernelClosedInvariant env) : EnvDeclClosedS env :=
