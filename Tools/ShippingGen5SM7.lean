@@ -26,15 +26,15 @@ theorem hT2Tie_of_genGP {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConf
       Option (GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (Sparkle.Compiler.Elab.structEnv env)))
     (env : Environment) (L : Laws mref cref) {Reach : Name → Prop} {DataOk : Pkg ι dom → Prop}
     (H : T1HypND L (genGP (ι := ι) (dom := dom) lvl hs genData₀ env) Reach DataOk)
-    (p : Pkg ι dom) (hRp : Reach p.decl) (hPp : genGP lvl hs genData₀ env p.decl = some p)
+    (p : Pkg ι dom) (hRp : Reach p.decl) (hPp : genGP (ι := ι) (dom := dom) lvl hs genData₀ env p.decl = some p)
     (hDG_CLOSINGRUN : ∀ (k : Nat) (hk : k < p.d.shape.insts.length),
       (p.d.shape.instOrigins.getD k .ord).child? = none →
-      ∀ q : Pkg ι dom, genGP lvl hs genData₀ env (p.d.shape.insts[k]).1 = some q →
+      ∀ q : Pkg ι dom, genGP (ι := ι) (dom := dom) lvl hs genData₀ env (p.d.shape.insts[k]).1 = some q →
       ∃ (r : Tools.ShippingChildInv.Res) (dsn : Sparkle.IR.AST.Design),
-        ShipsRes L (genGP lvl hs genData₀ env) (p.d.shape.insts[k]'hk).1 r ∧
+        ShipsRes L (genGP (ι := ι) (dom := dom) lvl hs genData₀ env) (p.d.shape.insts[k]'hk).1 r ∧
         (∀ g ∈ r.2.modules, Sparkle.IR.Machine.moduleByName dsn.modules g.name = some g) ∧
         Sparkle.IR.Machine.moduleByName dsn.modules r.1.name = some r.1 ∧ FieldRowAt p k r.1)
-    (hOW : p.d.shape.instFields = [] → ∀ k, OneOutWidth (genGP lvl hs genData₀ env) p k)
+    (hOW : p.d.shape.instFields = [] → ∀ k, OneOutWidth (genGP (ι := ι) (dom := dom) lvl hs genData₀ env) p k)
     (hkidW : p.d.shape.instFields ≠ [] →
       ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
         Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
@@ -42,9 +42,9 @@ theorem hT2Tie_of_genGP {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConf
           (p.d.shape.binders[p.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth) =
             some pt.ty.bitWidth) :
     ∀ k (hk : k < p.d.shape.insts.length), (p.d.shape.instOrigins.getD k .ord).child? = none →
-      ∀ q, genGP lvl hs genData₀ env (p.d.shape.insts[k]).1 = some q → CallTie p q k hk := by
+      ∀ q, genGP (ι := ι) (dom := dom) lvl hs genData₀ env (p.d.shape.insts[k]).1 = some q → CallTie p q k hk := by
   intro k hk hord q hq
-  have hsem := hDT1_of_genGP lvl hs genData₀ env p.decl p hPp k hk hord q hq
+  have hsem := hDT1_of_genGP (ι := ι) (dom := dom) lvl hs genData₀ env p.decl p hPp k hk hord q hq
   by_cases h1 : p.d.shape.instFields = []
   · exact callTie_of_served_oneOut_t1ND L _ p q k hk H hRp hPp hord hq (hDG_CLOSINGRUN k hk hord q hq) hsem h1
       (hOW h1 k)
