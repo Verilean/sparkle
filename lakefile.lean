@@ -5061,3 +5061,111 @@ lean_lib «Tools.ShippingGen4FKidsCanon» where
 
 lean_lib «Tools.ShippingGen4FKidsFallback» where
   roots := #[`Tools.ShippingGen4FKidsFallback]
+
+lean_lib «Tools.ShippingGen4FKidsHelpers» where
+  roots := #[`Tools.ShippingGen4FKidsHelpers]
+
+lean_lib «Tools.ShippingGen4FKidsDiag» where
+  roots := #[`Tools.ShippingGen4FKidsDiag]
+
+lean_lib «Tools.ShippingGen4FKidsEnv» where
+  roots := #[`Tools.ShippingGen4FKidsEnv]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH1» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH1]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH2» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH2]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH3» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH3]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH4» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH4]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH5» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH5]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH6» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH6]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH7» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH7]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH8a» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH8a]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH8» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH8]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH8d» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH8d]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH9» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH9]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH10a» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH10a]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH10b» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH10b]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyH11» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyH11]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyRules» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyRules]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyTail» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyTail]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyCached» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyCached]
+
+lean_lib «Tools.ShippingGen4FKidsEntry» where
+  roots := #[`Tools.ShippingGen4FKidsEntry]
+
+lean_lib «Tools.ShippingGen4FKidsEntryArms» where
+  roots := #[`Tools.ShippingGen4FKidsEntryArms]
+
+lean_lib «Tools.ShippingGen4FKidsEntryCore» where
+  roots := #[`Tools.ShippingGen4FKidsEntryCore]
+
+lean_lib «Tools.ShippingGen4FKidsChild» where
+  roots := #[`Tools.ShippingGen4FKidsChild]
+
+lean_lib «Tools.ShippingGen4FKidsDepth» where
+  roots := #[`Tools.ShippingGen4FKidsDepth]
+
+lean_lib «Tools.ShippingGen4FKidsDepthArms» where
+  roots := #[`Tools.ShippingGen4FKidsDepthArms]
+
+lean_lib «Tools.ShippingGen4FKidsDepthEntry» where
+  roots := #[`Tools.ShippingGen4FKidsDepthEntry]
+
+lean_lib «Tools.ShippingGen4FKidsDepthInduct» where
+  roots := #[`Tools.ShippingGen4FKidsDepthInduct]
+
+lean_lib «Tools.ShippingGen4FKidsDepthTop» where
+  roots := #[`Tools.ShippingGen4FKidsDepthTop]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyArm» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyArm]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyInduct» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyInduct]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyInduct2» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyInduct2]
+
+lean_lib «Tools.ShippingGen4FKidsLegacyFinal» where
+  roots := #[`Tools.ShippingGen4FKidsLegacyFinal]
+
+lean_lib «Tools.ShippingGen4FKidsOblig» where
+  roots := #[`Tools.ShippingGen4FKidsOblig]
+
+lean_lib «Tools.ShippingGen4FKids» where
+  roots := #[`Tools.ShippingGen4FKids]
+
+lean_lib «Tests.Gen4.FKidsCheck» where
+  roots := #[`Tests.Gen4.FKidsCheck]
