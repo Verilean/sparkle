@@ -91,13 +91,18 @@ unsafe def main (args : List String) : IO UInt32 := do
   let mut nTy := 0; let mut nTm := 0
   let ctx : Core.Context := { fileName := "<gen>", fileMap := default, options := Options.empty |>.setBool `pp.fullNames true |>.setBool `pp.universes true }
   let mut seenKeys : Std.HashSet (String × String) := {}
+  let mut closureKeys : Array String := #["String\tinduct\t[]\t(closure: the string literal rule types a literal by `String`; LitRows)"]
   let mut work : Array (String × String × String) := #[]
   for l in lines do
     match l.splitOn "\t" with
     | [n, kind, lv] => work := work.push (n, kind, lv); seenKeys := seenKeys.insert (n, lv)
     | _ => pure ()
+  -- the literal rules of the carrier type a string literal by `String` (a `Nat` literal by `Nat`)
+  for lit in ["Nat", "String"] do
+    if !seenKeys.contains (lit, "[]") then
+      seenKeys := seenKeys.insert (lit, "[]")
+      work := work.push (lit, "induct", "[]")
   let mut wi := 0
-  let mut closureKeys : Array String := #[]
   while wi < work.size do
     let (n, kind, lv) := work[wi]!
     wi := wi + 1
