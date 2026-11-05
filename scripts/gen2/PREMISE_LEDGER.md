@@ -1174,3 +1174,12 @@ reviewer の承認で、次の行を除く。
 | AC9KIT（Issue sparkle-ledger-ac9、費用比較 `scripts/gen5/ASSEMBLY_COST.md` aa638b35 の単位 1、freeze `scripts/gen5/AC9KIT_FREEZE.md`） | C.AC-9（−1、リーフ） | `accServed0_of_cover_gatesK`（`Tools/ShippingGen5AccKit.lean`、04db3763、kjob/rt187）。Acc 系の最上位 `accServed0_of_cover_gates` の kit を `mkKit (dataOfAt lvl) …` に固定し（mkKit の引数は CKIT の既存定理で供給）、`hDS` と `hK` を束縛変数から除いた（`dataOfShape_of_dataOfAt`、`mkKit_dataOf` は rfl）。追加の束縛変数は `lvl`・`initsOf`・`genData₀`（非 Prop）と `hs`（`DataOfSound (dataOfAt lvl) initsOf`、`factsOf_genS_assembled''` の `hs` と型が ==、既存行 C.SM-1）。前提の修正: `Tools/ShippingGen5AccKeep.lean` を doSynth の燃料切れ throw に合わせた（4191960a、文は変えない）。exact-head `ac9kv-04db3763` exit 0。Check: 共通の束縛変数 12 個が == / HS / 対照 2 / AXIOMS は標準のみ。reviewer 承認（04db3763） | 新しい前提 0。C.AC-4（ReachCover）・C.AC-5（GatesNoneAt）・C.AC-6（ClosesOfShape、= A.P-07）・C.AC-7（ReadsSupplyAt）の供給と FG の組み立ては残る |
 
 - **現在値: FG 84**（85 − 1）。内訳（R0）: リーフ 58 / 非リーフ 26。T1 は 57。FG の最終受理ではない。
+
+### 12.15 減算（2026-11-05、coder。文書のみ。非リーフの除去で、リーフは動かない）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| DT2（Issue sparkle-ledger-dt2、文書 `scripts/gen5/DT2_NOTE.md`） | D.T-2（−1、PA 非リーフ） | ND root の `callTie_of_served_oneOut_t1ND`・`callTie_of_served_kidW_closing_t1ND`（`Tools/ShippingGen5T1ND.lean:90,107`）は `CallTie` を結論し、`hDG_SEM_range : CallOutRange` を束縛変数に取らない。`callOutRange_of_widths` の材料は既存の行（`T1HypND` の `houtTy` = D.T-9、`OneOutWidth` = A.P-25/D.T-3、`hkidW` = D.T-4）で Lean の中で供給される。残りの束縛変数も既存の行（T1HypND、Reach/pkg、ordinary guard、D.T-7、ClosingRun の行、D.T-1）。Check `Tests/Gen5/DT2Check.lean`（8d0e5ad8、par/dt2、base kjob/flow1-b e6d8e55b）: 対照の旧 `callTie_of_served` は CallOutRange を使う束縛変数として `[hDG_SEM_range]` を持つ。root は `CallOutRange` も `CallOutWidthAt` も束縛変数の型の使用定数（`Expr.getUsedConstants`）に持たない。axioms は標準の 3 つだけ。exact-head `kjob-run-src-dt2-3adb` exit 0（758 jobs、dirty なし）。reviewer 承認（8d0e5ad8） | 新しい前提 0。U1 の補足 root（`callTie_of_run_*`）は旧 `hord`（A.P-26）を含むので、減算の根拠に入れていない。A.P-24（§12.11）と同じ型 |
+
+- **現在値: FG 83**（84 − 1）。内訳（R0）: リーフ 58 / 非リーフ 25。T1 は 57。FG の最終受理ではない。
+- 同じ日の D.D-7（Issue sparkle-ledger-dd7、par/dd7 2f1e665c）は default route の条件付き部品で、parametric route は machine route を通らない（symbolicMode で `machineShape?` が none）。全経路の減算は parametric の橋が揃うまで 0。
