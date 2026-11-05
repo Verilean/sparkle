@@ -5025,3 +5025,6 @@ lean_lib «Tests.Gen4.FThetaCheck» where
 
 lean_lib «Tools.ShippingGen4FThetaTele» where
   roots := #[`Tools.ShippingGen4FThetaTele]
+
+lean_lib «Tests.Gen4.FThetaTeleCheck» where
+  roots := #[`Tests.Gen4.FThetaTeleCheck]
