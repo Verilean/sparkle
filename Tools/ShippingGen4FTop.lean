@@ -57,4 +57,52 @@ theorem fTop_finish (htel : LamTelescopeN)
   obtain ⟨hb, hp, hc, hM, hD⟩ := finishSynth_symbolic hrun
   exact ⟨fcs, hM, hD, hc, hp, hb⟩
 
+theorem seqFree_filterMap {m : Sparkle.IR.AST.Module} (h : SeqFree m) :
+    (m.body.filterMap fun st => match st with
+      | .inst target _ _ => some target
+      | _ => none) = [] := by
+  unfold SeqFree at h
+  apply List.filterMap_eq_nil_iff.mpr
+  intro s hs
+  have := List.any_eq_false.mp h s hs
+  cases s <;> simp at this ⊢
+
+theorem namesOf_seqFree {m : Sparkle.IR.AST.Module} (h : SeqFree m) (l : List Sparkle.IR.AST.Module) :
+    Sparkle.IR.ModuleNameCheck.namesOf (m :: l) = m.name :: Sparkle.IR.ModuleNameCheck.namesOf l := by
+  show (m.name :: (m.body.filterMap fun st => match st with
+      | .inst target _ _ => some target
+      | _ => none)) ++ Sparkle.IR.ModuleNameCheck.namesOf l = _
+  rw [seqFree_filterMap h]
+  rfl
+
+theorem seqFree_finalize {m : Sparkle.IR.AST.Module} (h : SeqFree m) : SeqFree m.finalize := by
+  unfold SeqFree at h ⊢
+  simpa [Sparkle.IR.AST.Module.finalize] using h
+
+theorem namesOf_finalize {m : Sparkle.IR.AST.Module} (h : SeqFree m) (l : List Sparkle.IR.AST.Module) :
+    Sparkle.IR.ModuleNameCheck.namesOf (m.finalize :: l) = Sparkle.IR.ModuleNameCheck.namesOf (m :: l) := by
+  rw [namesOf_seqFree (seqFree_finalize h), namesOf_seqFree h]
+  rfl
+
+theorem fTop_out (htel : LamTelescopeN)
+    {translate : TranslateFn} {logProf : String → IO Unit}
+    {declName : Name} {parameters : List (String × Nat)} {cfe : Bool}
+    {dv : DefinitionVal} {isInst : Lean.Expr → Bool} {M : Sparkle.IR.AST.Module} {D : Design}
+    (hr : MReturns (synthesizeFromConst translate logProf declName parameters true cfe
+      (.defnInfo dv) isInst) (M, D)) :
+    Sparkle.IR.ModuleNameCheck.check (M :: D.modules) = true ∧
+    (∀ p ∈ parameters, ∃ q ∈ M.parameters, q.name = p.1) ∧
+    SeqFree M := by
+  obtain ⟨fcs, rfl, rfl, hc, hp, hs⟩ := fTop_finish htel hr
+  refine ⟨?_, ?_, seqFree_finalize hs⟩
+  · unfold Sparkle.IR.ModuleNameCheck.check at hc ⊢
+    rw [namesOf_finalize hs]
+    exact hc
+  · intro p hpm
+    obtain ⟨q, hq, hqn⟩ := hp p hpm
+    exact ⟨q, by simpa [Sparkle.IR.AST.Module.finalize] using hq, hqn⟩
+
 end Tools.ShippingGen4FTop
+
+#print axioms Tools.ShippingGen4FTop.fTop_finish
+#print axioms Tools.ShippingGen4FTop.fTop_out
