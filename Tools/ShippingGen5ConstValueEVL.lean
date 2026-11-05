@@ -1,7 +1,9 @@
 import Tools.ShippingGen5ConstValueESProof
 import Tools.ShippingGen5ConstValueESL
 set_option autoImplicit false
-/-! # `ConstValueE` with a VALUATION carrier `CVEKV` (issue sparkle-ledger-dd4-val, reviewer decisions Q1 = a, Q2 = a; draft: scripts/gen5/CONSTVALUEE_FREEZE_DRAFT.md §Val)
+/-! # `CVEKVL`: the valuation carrier `CVEKV` over the SYNTACTIC level instantiation (issue sparkle-ledger-dd4-v2; draft §V2). A copy of `Tools.ShippingGen5ConstValueEV` in which the only change is
+`Expr.instantiateLevelParams ps ls e` ↦ `instantiateLevelParamsS ps ls e` (unfold body, prim declared type) and `EnvClosedS` ↦ `EnvClosedL`; the end of the file proves `EnvClosedL` from `EnvDeclClosed`.
+Original header of `CVEKV` (issue sparkle-ledger-dd4-val, reviewer decisions Q1 = a, Q2 = a; draft: scripts/gen5/CONSTVALUEE_FREEZE_DRAFT.md §Val)
 
 `CVEKV` is `CVEKS` (`Tools.ShippingGen5ConstValueES`) with two changes. Existing files are unchanged. `PT` stays an arbitrary parameter; no axiom, no `sorry`, no `native_decide`, no TRUSTED.
 
