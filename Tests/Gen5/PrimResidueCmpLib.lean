@@ -11,7 +11,7 @@ stopped key, at every stage, the declared type (instantiated at the key's levels
   a type binder `α : Sort l` is the same with `s := l`); `0` is today's `Dyn`. `nEra`: the number of binders whose sort is `Prop` (proofs, `p : Prop`), erased by a Prop rule;
   `resEra`: the result is Prop-sorted. `sym`: a level that is not a numeral (never expected: levels are closed).
 * row-obligation shape classes on the instantiated declared type (syntactic, no unfolding): codomain class `R0` (no binder, constant result) / `R1` (constant result without loose bvars)
-  / `R2` (`D (bvar n-1)`: a type former applied to the FIRST binder, the shape of `rowTypedAtV_depFirst`) / `R1x` (closed result, not a constant) / `R3` (other);
+  / `R2` (`D (bvar n-1)`: a type former applied to the FIRST binder, the shape of `rowTypedAtV_depFirst`) / `R3a` (a type former applied to bound variables only, e.g. `Signal dom α`: the generalization of `R2` to several binders) / `R1x` (closed result, not a constant) / `R3` (other: the head or an argument is not a bound variable, e.g. `f α`);
   telescope class `T0` (no binder) / `T1` (every binder a bare constant, nothing depends on a binder: the shape of `ConstPi`) / `T2` (closed, but some binder is not a bare constant)
   / `T3` (some binder or the result depends on an earlier binder).
 * recursor occurrences: in the unfolded body of every reached, non-stopped definition, an application of a recursor whose MAJOR premise is a constructor application / literal / bound variable / other
@@ -58,9 +58,13 @@ def shapeClasses (ty : Expr) : String × String :=
   let rc :=
     if n == 0 then (if r.isConst then "R0" else "R0x")
     else if !r.hasLooseBVars && r.isConst then "R1"
-    else match r with
-      | .app (.const _ _) (.bvar i) => if i + 1 == n then "R2" else "R3"
-      | _ => if !r.hasLooseBVars then "R1x" else "R3"
+    else
+      let args := r.getAppArgs
+      if r.getAppFn.isConst && args.size > 0 && args.all (·.isBVar) then
+        (match args[0]! with
+         | .bvar i => if args.size == 1 && i + 1 == n then "R2" else "R3a"
+         | _ => "R3a")
+      else if !r.hasLooseBVars then "R1x" else "R3"
   let tc := if n == 0 then "T0" else if !anyDep && allConst then "T1" else if !anyDep then "T2" else "T3"
   (rc, tc)
 
