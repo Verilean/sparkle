@@ -12,7 +12,7 @@
 - **「コンパイラが成功した」の代用**: 印の存在。`#synthesizeVerilog` が legacy ルートで成功しただけの宣言は印を持たないので、`synth`（名前が grep で拾え、定義に解決できたもの）で補った。**legacy ルートの成功そのものは測っていない**（プロファイルログが要る。run.sh 全体の再実行は重く、今回は行っていない）。
 - **範囲外・未測定（正直に）**:
   1. 合成コマンドの名前 327 のうち **112 は根にできていない**: 109 は AllTests が import しないモジュール（`Tests.Synthesis.SynthCatalog` 29、`Tests.TestCompilerExtensions` 10、`Tests.SynthesisTests` 7 など 39 モジュール）、3 は import されているが名前が見つからない（局所定義）。
-  2. 39 モジュールは同じ環境に入れられない（`Tests.SynthesisTests` が `test_hierarchical_alu` を `Tests.TestCircuits` と二重定義する等。`lake env lean` で import がエラー）。**モジュールごとの別環境**で測る（§2.5）。`Examples.HierarchicalCPU` は lean_lib に属さず build できない。`Tests.VerifyVerilog` は build が通らない（`Unknown identifier current`）ので、コンパイラが成功する対象ではない。
+  2. 39 モジュールは同じ環境に入れられない（`Tests.SynthesisTests` が `test_hierarchical_alu` を `Tests.TestCircuits` と二重定義する等。`lake env lean` で import がエラー）。**モジュールごとの別環境**（AllTests + そのモジュール 1 つ）で測った（§2.5）。`Examples.HierarchicalCPU` は lean_lib に属さず build できない。`Tests.VerifyVerilog` は build が通らない（`Unknown identifier current`）ので、コンパイラが成功する対象ではない。
   3. target-only の root（`scripts/shipping-coverage/target_only_roots.txt` の 2 つ）は AllTests と同じ環境に入れられないので入っていない。
   4. 証明項を数えない近似は前回と同じ（`Eq.rec` などは証明由来のものを数えうる）。
 
@@ -53,7 +53,9 @@
 
 ### 2.5 AllTests に入らないモジュール（モジュールごとの別環境）
 
-モジュール別の別環境（AllTests + そのモジュール）で測れたもの: 9 / 36 モジュール（時間切れで残りは未測定）。新しい根の合計 11、それらの残余の和集合 109、AllTests 環境の残余に無い定数 0。
+モジュール別の別環境（AllTests + そのモジュール）で測れたもの: 35 / 36 モジュール（`Tests.SynthesisTests` は AllTests とも衝突して環境を作れず未測定）。新しい根の合計 91、それらの残余の和集合 168、AllTests 環境の残余に無い定数 23。
+
+新しい定数の種別: {'type-former': 11, 'constructor': 12}。再帰子は増えない（11 のまま）。全体では 336 + 23 = 359 定数。
 
 | モジュール | 新しい根 | 残余（異なる） | AllTests の残余に無い定数 |
 |---|---|---|---|
@@ -65,7 +67,33 @@
 | `IP.RV32.CSR.File` | 1 | 99 | 0 |
 | `IP.RV32.CSR.Supervisor` | 1 | 109 | 0 |
 | `IP.RV32.MMU.Top` | 1 | 103 | 0 |
+| `IP.RV32.Pipeline` | 1 | 119 | 0 |
+| `IP.RV32.SoCVerilog` | 1 | 135 | 9 |
+| `IP.RV32.Trap` | 1 | 109 | 0 |
+| `IP.RV32.UART` | 1 | 103 | 0 |
+| `IP.Video.H264.CAVLCSynth` | 1 | 105 | 0 |
+| `IP.Video.H264.FrameEncoderSynth` | 1 | 105 | 0 |
+| `IP.Video.H264.MP4EncoderSynth` | 1 | 105 | 0 |
+| `IP.Video.H264.NALSynth` | 1 | 101 | 0 |
+| `IP.Video.H264.QuantRoundtripSynth` | 1 | 101 | 0 |
+| `IP.YOLOv8.ActivationBuffer` | 1 | 70 | 0 |
+| `IP.YOLOv8.TextEmbedding` | 1 | 101 | 0 |
+| `IP.YOLOv8.Top` | 2 | 101 | 0 |
+| `Tests.Compiler.MultiOutputSubModuleHangRepro` | 4 | 103 | 2 |
+| `Tests.CompilerTests` | 6 | 90 | 0 |
+| `Tests.IP.Bus.CANHWTest` | 1 | 114 | 2 |
+| `Tests.IP.Crypto.GHASHHWSynth` | 2 | 118 | 2 |
+| `Tests.IP.Net.SLIPTest` | 2 | 97 | 4 |
+| `Tests.IP.Net.UARTTest` | 2 | 122 | 0 |
+| `Tests.IP.Net.UsbWebServerSynth` | 2 | 140 | 8 |
+| `Tests.SymbolicParameterEmit` | 0 | 0 | 0 |
+| `Tests.Synthesis.SynthCatalog` | 29 | 122 | 0 |
+| `Tests.TestCompilerExtensions` | 10 | 104 | 0 |
+| `Tests.TestConditionals` | 2 | 67 | 0 |
 | `Tests.TestDRC` | 2 | 67 | 0 |
+| `Tests.TestErrorDetection` | 3 | 68 | 0 |
+| `Tests.TestUnbundle2` | 2 | 90 | 0 |
+| `Tests.TupleProjectionTest` | 2 | 86 | 0 |
 
 ## 3. 残余の定数ごとの一覧
 
@@ -312,7 +340,7 @@ inductive IotaStep (env : Environment) : Expr → Expr → Prop
 
 ## 5. 結論
 
-1. **残余の全件**（AllTests 環境、根 477、machine / gate / design / tagged / synth）: 336 定数 = コンストラクタ 169 + 再帰子 11 + 型の基本形 156、quot / opaque / extern / axiom は 0。ライブラリ由来 140（頭打ち）、ユーザー構造体由来 196（宣言ごとに増える）。**未測定**: AllTests に入らない 39 モジュール（§2.5）、legacy ルートの成功そのもの、target-only root。
+1. **残余の全件**（AllTests 環境、根 477、machine / gate / design / tagged / synth）: 336 定数 = コンストラクタ 169 + 再帰子 11 + 型の基本形 156、quot / opaque / extern / axiom は 0。ライブラリ由来 140（頭打ち）、ユーザー構造体由来 196（宣言ごとに増える）。AllTests に入らない 35 モジュールをモジュールごとの別環境で足すと、新しい根 93、新しい定数 23（コンストラクタ 12 + 型 11、再帰子は増えない）で **359 定数**（§2.5）。**未測定**: `Tests.SynthesisTests`（環境が作れない）、`Examples.HierarchicalCPU`（build 不可）、`Tests.VerifyVerilog`（build 不通）、legacy ルートの成功そのもの、target-only root。
 2. **存在行への影響**: 再帰子 11 のうち 6 は 455〜472 根（ほぼ全部）に要る。再帰子を持たない根は 5 / 477。**再帰子の行（または規則）が決定的**。型・コンストラクタはユーザー構造体が長い尾（1 根専用）を作る。
 3. **部分適用の prim**: `Signal dom` の型の部分適用だけ（3653 箇所）。コンストラクタ・再帰子は 0。**rank-2**: 頭でない位置の型抽象 61 個（16 定義）、頭の型抽象は 265（180 定義、rank-1 多相）。
 4. **再帰子の iota 規則**: 構文的な規則は書ける（`Tools/ShippingGen5IotaDraft.lean`、motive の `Sort u` と `Dyn` の `Type 0` の制約は規則では出ない）。ただし**主前提が構文的コンストラクタの箇所だけ**で、λ 束縛値に対する `rec` が stuck 箇所の約 90%。したがって **TRUSTED の候補は 3 クラス（型の基本形・コンストラクタ・再帰子）のまま**で、2 クラスには減らせない。減らすには `lam` の規則の設計変更が要る（§4.2）。さらに Nat のリテラル算術に GMP 相当の組み込みがなければ導出が爆発する。
