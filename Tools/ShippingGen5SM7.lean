@@ -16,6 +16,7 @@ namespace Tools.ShippingGen5SM7
 open Lean Tools.ShippingGen2 Tools.ShippingGenFGLedgerPremises Tools.ShippingGen5Sem
 open Tools.ShippingMachineAuto (MachineData)
 open Tools.ShippingMachineDenote Tools.ShippingMachineSource
+open Sparkle.IR.Semantics Sparkle.IR.Machine Sparkle.Core Sparkle.Core.Signal
 
 theorem hT2Tie_of_genGP {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
