@@ -5751,3 +5751,6 @@ lean_lib «Tests.Gen5.AuditE3B3NDCheck» where
 
 lean_lib «Tests.Gen5.AP17ScanCheck» where
   roots := #[`Tests.Gen5.AP17ScanCheck]
+
+lean_lib «Tests.Gen5.AP12ScanCheck» where
+  roots := #[`Tests.Gen5.AP12ScanCheck]
