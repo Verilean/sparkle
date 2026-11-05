@@ -30,15 +30,21 @@ structure TyRow where
   kinds : List Bool
   den : List Arg → Option Type
 
-/-- Row of a term constant that is not a `defnInfo`: a Lean constant with its Lean type (`Dyn`) and its syntactic type. -/
+/-- Row of a term constant that is not a `defnInfo` (constructor, recursor, quot, opaque, axiom). Polymorphic constants take
+type arguments, so a row is a function of the argument list of the FULL spine (a `Dyn` would be `Type 1`): `kinds` as in `TyRow`. -/
 structure TmRow where
-  τ : Expr
-  d : Dyn
+  kinds : List Bool
+  den : List Arg → Option Dyn
 
 /-- The primitive table (one row per `Name`, by construction of `Option`). Plain `def`s; no axiom. -/
 structure PrimTable where
   tys : Name → Option TyRow
   tms : Name → Option TmRow
+
+/-- The kernel's `instantiateForall` on an explicit argument list (the syntactic result type of a spine). -/
+def instForall : Expr → List Expr → Expr
+  | .forallE _ _ b _, a :: as => instForall (b.instantiate1 a) as
+  | e, _ => e
 
 /-- The kind test of the exclusivity condition: unfold applies exactly to `defnInfo`, prim exactly to the rest. -/
 def IsDefn (env : Environment) (c : Name) : Prop := ∃ d : DefinitionVal, env.find? c = some (.defnInfo d)
@@ -84,8 +90,8 @@ inductive CVE (PT : PrimTable) (env : Environment) : Val → Expr → Expr → (
       {fv : (a : TA) → TB a} {av : TA}
       (hA : TDen PT env ρ A TA) (hB : ∀ a : TA, TDen PT env (⟨A, ⟨TA, a⟩⟩ :: ρ) B (TB a))
       (hf : CVE PT env ρ fe (.forallE n A B bi) ((a : TA) → TB a) fv) (hx : CVE PT env ρ x A TA av)
-      -- exclusive with `unfold` on a defn-headed spine (otherwise a spine has an `app` derivation and an `unfold` derivation)
-      (hnh : ¬ ∃ (c : Name) (ls : List Level), fe.getAppFn = .const c ls ∧ IsDefn env c) :
+      -- exclusive with `unfold`/`prim`: a const-headed spine is derived ONLY by `unfold`/`prim` on the whole spine
+      (hnh : ¬ ∃ (c : Name) (ls : List Level), fe.getAppFn = .const c ls) :
       CVE PT env ρ (.app fe x) (B.instantiate1 x) (TB av) (fv av)
   | letE {ρ : Val} {n : Name} {A v b B : Expr} {nd : Bool} {TA : Type} {TB : Type} {av : TA} {bv : TB}
       (hA : TDen PT env ρ A TA) (hv : CVE PT env ρ v A TA av)
@@ -96,10 +102,13 @@ inductive CVE (PT : PrimTable) (env : Environment) : Val → Expr → Expr → (
       (hd : env.find? c = some (.defnInfo d))
       (hb : CVE PT env ρ ((d.value.instantiateLevelParams d.levelParams ls).beta args.toArray) τ α v) :
       CVE PT env ρ (mkAppN (.const c ls) args.toArray) τ α v
-  /-- prim: the head is NOT a `defnInfo` (exclusive with `unfold`) and has a row. -/
-  | prim {ρ : Val} {c : Name} {ls : List Level} {row : TmRow}
-      (hrow : PT.tms c = some row) (hnd : ¬ IsDefn env c) :
-      CVE PT env ρ (.const c ls) row.τ row.d.ty row.d.val
+  /-- prim: the head is NOT a `defnInfo` (exclusive with `unfold`), has a row, and the FULL spine is given. The syntactic type is the
+  kernel's `instantiateForall` of the declared type from `env` (not from the table). `hty` is the row-typing obligation (provable per row). -/
+  | prim {ρ : Val} {c : Name} {ls : List Level} {args : List Expr} {ci : ConstantInfo} {row : TmRow} {as : List Arg} {d : Dyn}
+      (hci : env.find? c = some ci) (hrow : PT.tms c = some row) (hnd : ¬ IsDefn env c)
+      (hargs : ArgsDen PT env ρ row.kinds args as) (hd : row.den as = some d)
+      (hty : TDen PT env ρ (instForall (ci.type.instantiateLevelParams ci.levelParams ls) args) d.ty) :
+      CVE PT env ρ (mkAppN (.const c ls) args.toArray) (instForall (ci.type.instantiateLevelParams ci.levelParams ls) args) d.ty d.val
 
 end
 
