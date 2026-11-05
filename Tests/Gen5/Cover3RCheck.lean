@@ -1,7 +1,7 @@
 import Tools.ShippingGen5Cover3R
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT (rt183). No sorry / axiom / native_decide.
+-- NOT BUILT by a clean build (agent build exit 0: Tests.Gen5.Cover3RCheck, TYPE 2+1 control, MUTANT 3, BINDERS 1, AXIOMS 2; clean build is the coder's). No sorry / axiom / native_decide.
 /-! # C.CV-6 checks (Tools/ShippingGen5Cover3R.lean; scripts/gen5/CV6_FREEZE.md)
 
 TYPE: Expected statements are written from the freeze text (`FullInv` / `ShapeAgree` are shared definitions, as in the old statement).

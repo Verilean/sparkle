@@ -2,7 +2,7 @@ import Tools.ShippingGen5Cover3
 import Tools.ShippingGen5DataOfDims
 import Tools.ShippingMachineShapeTail
 set_option autoImplicit false
--- NOT BUILT (written in rt183 from base aab355f2). No sorry / axiom / native_decide.
+-- NOT BUILT by a clean build (agent build exit 0 at 4754ae8a: Tools.ShippingGen5Cover3R; clean build is the coder's). No sorry / axiom / native_decide.
 
 /-! # C.CV-6: `rowB1_of_inv` without `hcb` (`scripts/gen5/CV6_FREEZE.md`)
 
