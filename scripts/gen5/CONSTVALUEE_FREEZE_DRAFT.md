@@ -371,3 +371,44 @@ K1 の key 204 件（ctor 100 / rec 15 / induct 89。§Key と同数）につい
 ### 5. Check と台帳
 
 `Tests/Gen5/SoundKCheck.lean`（証明した補題の型の構造照合、負対照、39 宣言の axiom 検査と検出器の負対照、残った義務 20 件の一覧、`#print axioms`）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §SoundS: 構文版 carrier `CVEKS` と健全性（Issue `sparkle-ledger-dd4-sound`、土台 c9ca68a2）
+
+reviewer の判断 D1 = 案 a（opaque 演算を構文版に置換）、D2 = 案 a（`TyRKS` は carrier 内の構文的な型付け判定）。TRUSTED・axiom・sorry・native_decide なし。`PT` は任意のパラメータ。既存ファイルは書き換えていない。
+新ファイル: `Tools/ShippingGen5ConstValueES.lean`（carrier）、`Tools/ShippingGen5ConstValueESProof.lean`（証明）、`Tests/Gen5/SoundSCheck.lean`。P3（行ごとの `RowTypedAt`）は `sparkle-ledger-dd4-rows` の担当で、ここでは触っていない。
+
+### 1. carrier `CVEKS`（`ShippingGen5ConstValueES`）
+
+`CVEK` の規則のうち、`bvar` の型は `liftS en.τ 0 (i+1)`、`app` / `letE` は `substS B 0 x`、`unfold` は `betaS`（構造再帰、新規定義）、`prim` の型は `instForallS`（`substS` で定義）にした。`Expr.beta` / `Expr.instantiate1` / `Expr.liftLooseBVars` は carrier に現れない。
+`cveks_fun`（`tdens_fun` / `argsdens_fun` を含む）は `cvek_fun` の証明がそのまま通った（`spine_inj` / 排他条件 `hnh` / `IsDefn` は同じ）。`ConstValueEAtS`、`CVLSKS`（`LS` env の固定レベル）に対して関数性 `constValueEAtS_functional` / `cvlsks_functional`。
+carrier に残る Lean の `Expr` API は `Expr.instantiateLevelParams`（unfold の本体と prim の宣言型）、`Expr.getAppFn`（構造的）、`env.find?`。`instantiateLevelParams` は構文版に置換していない（§3 の `EnvClosedS`）。
+
+### 2. 証明したもの（axiom は propext / Classical.choice / Quot.sound のみ。`SoundSCheck` で 48 宣言を検査）
+
+- **構文演算の補題**: `liftS_liftS_le/add`、`liftS_substS`、`substS_liftS_in/ge`、`substS_substS`（2 回の代入の可換）、`liftS_betaS` / `liftS_instForallS` / `liftS_mkAppN`、`substS_betaS` / `substS_instForallS` / `substS_mkAppN`、`getAppFn_liftS` / `getAppFn_substS`。
+- **弱化**（`tdens_wk` / `argsdens_wk` / `cveks_wk`）: 位置 `s` に 1 つ挿入した valuation（`InsV`）について、導出が `liftS … s 1` に写る。全規則（`pi/tcon/tunfold`、`natLit … prim`）。
+- **P1 `OblDenBvar`**: valuation の整合性 `WfValS`（各 entry の型が、その valuation で `en.d.ty` を表す）の下で `oblDenBvarS`。`wfValS_cons`（弱化を使う）で binder を足しても整合性が保たれる。**任意の valuation では成り立たない**（entry の `τ` が無関係な式なら表す型がない）ので、主張は `WfValS` 付き。ルートの `ρ = []` は整合（`wfValS_nil`）。
+- **P1 `OblDenLits`**: 行の形の補題 `oblDenLits_of_rows`（`Nat` / `String` の nullary な `tys` 行と `¬IsDefn` が前提）。`PT` の中身の条件なので、行があるときだけの補題。
+- **P1 `OblDenSubst`**: 代入補題 `tdens_subst` / `argsdens_subst` / `cveks_subst`（valuation の関係 `SubV`、全規則）と、`oblDenSubstS_safe`（`SafeArg x` のとき）。**一般の x では未証明**（§3）。
+- **`OblDenTyped`（`CVEKS ⇒ TDenS τ α`）**: `denTypedS` が 8 規則すべてを閉じる。前提は名前付きの 3 つ（`Nat`/`String` の行、`EnvClosedS`、`OblDenSubstS`）。`natLit`/`strLit` は行、`bvar` は `WfValS`、`lam` は `wfValS_cons` と `.pi`、`unfold` は本体、`prim` は `hty`、`app`/`letE` は `OblDenSubstS`。
+- **P2 `TyRKS`**（`TyRK` の構文版）: `natLit/strLit/bvar/const/app/lam/letE/unfold/prim`。`prim` は強い形（引数を宣言型の telescope に対して型付ける `TyArgsS`）。`OblBvarS/OblAppS/OblLetS/OblUnfoldS/OblPrimKS` と束 `KernelRulesKS`。`kernelRulesKS_TyRKS`（束は `TyRKSJ` で充足可能）、`tyRKS_sub` / `tyArgsS_sub`、`cveks_tyRKS`、`cveks_sound`（前提 `OblPrimArgsS`）。`OblUnfoldS`（β/δ での型保存）は `TyRKS` の `unfold` 規則そのもの。**カーネルの型付けとの一致は主張しない**。
+
+### 3. 最終 carrier に残るもの（名前付き `Prop`。仮定にも axiom にもしていない）
+
+| 残り | 内容 | 理由 |
+|---|---|---|
+| `OblDenSubstS`（一般の x） | `app` / `letE` が行う代入と `TDenS` の可換 | 証明は `SafeArg x`（`lam` でも `forallE` でも const 頭でもない）に限る。(a) `x` が const 頭のとき、置換後の `bvar k y` は const 頭の spine になり、`app` 規則の排他条件 `hnh` が禁じる（その spine は `prim` / `unfold` の全 spine でしか導出できず、行の arity が合わなければ導出が存在しない）。(b) `x` が `lam` のとき `substS` と `betaS` が可換でない、`forallE` のとき `instForallS` と可換でない（負対照 `substS_betaS_needs_nonlam` / `substS_instForallS_needs_nonforall`）。すなわち、現在の排他条件と構文 β の下で、一般の代入補題は偽になりうる（反例の形は上記。具体の `PT` での導出の反例までは構成していない） |
+| `EnvClosedS` | 環境の宣言型・定義本体が `instantiateLevelParams` 後も閉じている（`lbr = 0`） | `instantiateLevelParams` は `Expr` API の関数（`replace`）で、`lbr` を保つ補題を置いていない。unfold / prim の弱化・代入に必要 |
+| `OblDenLits` の行 | `Nat` / `String` の nullary な `tys` 行 | `PT` の中身。`oblDenLits_of_rows` はその行があるときの補題 |
+| `RowArgsAt` / `OblPrimArgsS` | prim の引数が宣言型の telescope に型付く（型引数を含む） | `ArgsDenS` からは出ない。項引数の導出ラベル `τ` が telescope の binder 型と構文的に一致する保証がなく（型変換規則を持たない）、型引数は `TDenS`（表す型）しか持たず型付けの根拠がない。nullary の行は `rowArgsAt_nullary` で義務なし。行ごとの有限・局所な義務 |
+| `OblRowTypedS`（S 版の行型付け） | `RowTypedAt` の `ArgsDenS` / `TDenS` / `instForallS` 版 | P3（`sparkle-ledger-dd4-rows`）の担当。このブランチでは定義していない |
+| カーネルの `Ty` | `KernelRulesKS Ty` が実際のカーネルで成り立つこと | core に `Prop` の判定がなく述べられない。`TyRKS` は carrier 内の構文判定でカーネルと一致を主張しない |
+
+`OblLevelErase` は最終 carrier を固定 LS env の `CVLSKS` / `ConstValueEAtS` に統一すれば不要。**主張は各 root の zero-level instance（`LS env X`）に限る**。全 universe instance への一般化はしない。`∃ ls` の `ConstValueE` を残す場合は `OblLevelErase` の橋が要る。
+
+### 4. 旧 opaque 版との違い（`SoundSCheck` の負対照）
+
+- 旧: `bvar_type_closed` は `OblLiftClosed`（opaque `liftLooseBVars`）を仮説に取る。新: `liftS_closed` は `lbr = 0` だけ。elaborator の `isDefEq` で `Expr.instantiate1 (.bvar 0) c` は `c` と等しいと示せず（stuck）、`substS (.bvar 0) 0 c` は計算できる。
+- `SafeArg` の必要性（上の負対照 2 件）、`liftS` / `substS` が恒等でないこと、何も導かない `Ty` が束 `KernelRulesKS` を満たさないこと。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
