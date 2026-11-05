@@ -297,4 +297,157 @@ theorem substS_liftS_ge (B : Expr) : ∀ (a m k : Nat) (x : Expr), a + m ≤ k �
   | proj c' i e ih => intro a m k x h; simp [liftS, substS, ih a m k x h]
   | _ => intros; rfl
 
+
+/-- Two substitutions commute (the outer one acts on the substituted argument too). -/
+theorem substS_substS (B : Expr) : ∀ (m k : Nat) (y x : Expr), m ≤ k →
+    substS (substS B m y) k x = substS (substS B (k + 1) x) m (substS y (k - m) x) := by
+  induction B with
+  | bvar j =>
+    intro m k y x h
+    by_cases h1 : j < m
+    · have h2 : j < k + 1 := by omega
+      have h3 : j < k := by omega
+      simp [substS, h1, h2, h3]
+    · by_cases h2 : j = m
+      · subst h2
+        have h3 : j < k + 1 := by omega
+        simp only [substS, Nat.lt_irrefl, if_false, if_true, h3]
+        rw [substS_liftS_ge y 0 j k x (by omega)]
+      · by_cases h3 : j < k + 1
+        · have h4 : j - 1 < k := by omega
+          simp [substS, h1, h2, h3, h4]
+        · by_cases h4 : j = k + 1
+          · subst h4
+            have h5 : ¬ k + 1 < m := by omega
+            have h6 : ¬ k + 1 = m := by omega
+            have h7 : ¬ k + 1 < k + 1 := by omega
+            have h8 : ¬ k < m := by omega
+            simp only [substS, h5, h6, h7, h8, if_true, if_false, Nat.add_sub_cancel, Nat.lt_irrefl]
+            rw [substS_liftS_in x 0 (k + 1) m (substS y (k - m) x) (Nat.zero_le _) (by omega)]
+            simp
+          · have h5 : ¬ j - 1 < k := by omega
+            have h6 : ¬ j - 1 = k := by omega
+            have h7 : ¬ j < k + 1 := h3
+            have h8 : ¬ j = k + 1 := h4
+            have h9 : ¬ j - 1 < m := by omega
+            have h10 : ¬ j - 1 = m := by omega
+            simp [substS, h1, h2, h5, h6, h7, h8, h9, h10]
+  | app f a ihf iha => intro m k y x h; simp [substS, ihf m k y x h, iha m k y x h]
+  | lam n A b bi ihA ihb =>
+    intro m k y x h
+    simp only [substS]
+    rw [ihA m k y x h, ihb (m + 1) (k + 1) y x (by omega), show k + 1 - (m + 1) = k - m by omega]
+  | forallE n A b bi ihA ihb =>
+    intro m k y x h
+    simp only [substS]
+    rw [ihA m k y x h, ihb (m + 1) (k + 1) y x (by omega), show k + 1 - (m + 1) = k - m by omega]
+  | letE n A v b nd ihA ihv ihb =>
+    intro m k y x h
+    simp only [substS]
+    rw [ihA m k y x h, ihv m k y x h, ihb (m + 1) (k + 1) y x (by omega), show k + 1 - (m + 1) = k - m by omega]
+  | mdata d e ih => intro m k y x h; simp [substS, ih m k y x h]
+  | proj c i e ih => intro m k y x h; simp [substS, ih m k y x h]
+  | _ => intros; rfl
+
+
+/-- The substituted argument is stable under the carrier's two syntactic tests: it is not a `lam` (`betaS` would fire on it), not a `forallE` (`instForallS` would fire on it)
+and not const-headed (the `app` rule's exclusivity `hnh`). -/
+def SafeArg (x : Expr) : Prop := x.isLambda = false ∧ x.isForall = false ∧ ¬ ∃ (c : Name) (ls : List Level), x.getAppFn = .const c ls
+
+theorem liftS_isLambda (e : Expr) (s n : Nat) : (liftS e s n).isLambda = e.isLambda := by
+  cases e with
+  | bvar i => by_cases h : i < s <;> simp [liftS, h, Expr.isLambda]
+  | _ => simp [liftS, Expr.isLambda]
+
+theorem liftS_isForall (e : Expr) (s n : Nat) : (liftS e s n).isForall = e.isForall := by
+  cases e with
+  | bvar i => by_cases h : i < s <;> simp [liftS, h, Expr.isForall]
+  | _ => simp [liftS, Expr.isForall]
+
+theorem substS_isLambda (f : Expr) (k : Nat) {x : Expr} (hx : SafeArg x) (hf : f.isLambda = false) : (substS f k x).isLambda = false := by
+  cases f with
+  | bvar j =>
+    by_cases h1 : j < k
+    · simp [substS, h1, Expr.isLambda]
+    · by_cases h2 : j = k
+      · subst h2; simp only [substS, Nat.lt_irrefl, if_false, if_true, liftS_isLambda]; exact hx.1
+      · simp [substS, h1, h2, Expr.isLambda]
+  | _ => simp [substS, Expr.isLambda] at hf ⊢
+
+theorem substS_isForall (f : Expr) (k : Nat) {x : Expr} (hx : SafeArg x) (hf : f.isForall = false) : (substS f k x).isForall = false := by
+  cases f with
+  | bvar j =>
+    by_cases h1 : j < k
+    · simp [substS, h1, Expr.isForall]
+    · by_cases h2 : j = k
+      · subst h2; simp only [substS, Nat.lt_irrefl, if_false, if_true, liftS_isForall]; exact hx.2.1
+      · simp [substS, h1, h2, Expr.isForall]
+  | _ => simp [substS, Expr.isForall] at hf ⊢
+
+theorem getAppFn_substS (f : Expr) (k : Nat) {x : Expr} (hx : SafeArg x) (c : Name) (ls : List Level) :
+    (substS f k x).getAppFn = .const c ls ↔ f.getAppFn = .const c ls := by
+  induction f with
+  | app g a ihg iha => simpa [substS, Expr.getAppFn] using ihg
+  | bvar j =>
+    by_cases h1 : j < k
+    · simp [substS, h1, Expr.getAppFn]
+    · by_cases h2 : j = k
+      · subst h2
+        simp only [substS, Nat.lt_irrefl, if_false, if_true, getAppFn_liftS, Expr.getAppFn]
+        constructor
+        · intro h; exact absurd ⟨c, ls, h⟩ hx.2.2
+        · intro h; cases h
+      · simp [substS, h1, h2, Expr.getAppFn]
+  | _ => simp [substS, Expr.getAppFn]
+
+theorem substS_foldl_app (as : List Expr) : ∀ (f : Expr) (k : Nat) (x : Expr),
+    substS (as.foldl Expr.app f) k x = (as.map (fun a => substS a k x)).foldl Expr.app (substS f k x) := by
+  induction as with
+  | nil => intros; rfl
+  | cons a as ih => intro f k x; simp only [List.foldl, List.map, ih, substS]
+
+theorem substS_mkAppN (f : Expr) (as : List Expr) (k : Nat) (x : Expr) :
+    substS (mkAppN f as.toArray) k x = mkAppN (substS f k x) (as.map (fun a => substS a k x)).toArray := by
+  rw [mkAppN_toList, mkAppN_toList, substS_foldl_app]
+
+theorem betaS_of_not_lam (f : Expr) (hf : f.isLambda = false) (as : List Expr) : betaS f as = as.foldl Expr.app f := by
+  cases as with
+  | nil => simp [betaS_nil]
+  | cons a as => cases f <;> simp [betaS, Expr.isLambda] at hf ⊢
+
+theorem substS_betaS {x : Expr} (hx : SafeArg x) (as : List Expr) : ∀ (f : Expr) (k : Nat),
+    substS (betaS f as) k x = betaS (substS f k x) (as.map (fun a => substS a k x)) := by
+  induction as with
+  | nil => intro f k; simp [betaS_nil]
+  | cons a as ih =>
+    intro f k
+    by_cases hl : f.isLambda = true
+    · cases f <;> simp [Expr.isLambda] at hl
+      rename_i y A b bi
+      simp only [betaS, substS, List.map]
+      rw [ih, substS_substS b 0 k a x (Nat.zero_le _)]
+      simp
+    · have hl' : f.isLambda = false := by simpa using hl
+      have h2 := substS_isLambda f k hx hl'
+      rw [betaS_of_not_lam f hl', betaS_of_not_lam _ h2, List.map_cons, substS_foldl_app]
+      simp
+
+theorem substS_instForallS {x : Expr} (hx : SafeArg x) (as : List Expr) : ∀ (T : Expr) (k : Nat),
+    substS (instForallS T as) k x = instForallS (substS T k x) (as.map (fun a => substS a k x)) := by
+  induction as with
+  | nil => intro T k; simp [instForallS_nil]
+  | cons a as ih =>
+    intro T k
+    by_cases hl : T.isForall = true
+    · cases T <;> simp [Expr.isForall] at hl
+      simp only [instForallS, substS, List.map]
+      rw [ih, substS_substS _ 0 k a x (Nat.zero_le _)]
+      simp
+    · have hl' : T.isForall = false := by simpa using hl
+      have h2 := substS_isForall T k hx hl'
+      have e1 : instForallS T (a :: as) = T := by cases T <;> simp [Expr.isForall] at hl' ⊢ <;> simp [instForallS]
+      have e2 : instForallS (substS T k x) (substS a k x :: as.map (fun a => substS a k x)) = substS T k x := by
+        cases h : substS T k x <;> simp [Expr.isForall, h] at h2 ⊢ <;> simp [instForallS]
+      rw [e1, List.map_cons, e2]
+
 end Tools.ShippingGen5ConstValueES
