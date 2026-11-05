@@ -682,20 +682,20 @@ TRUSTED・axiom・sorry・native_decide なし。`PT` は明示パラメータ�
 
 ### 2. `envDeclClosed_of_kernel` を Lean の API で証明できるか
 
-結論: **今の API では証明できない。名前付きの義務として残す**。根拠（Check の run_meta が機械的に確かめる。API が変われば build が落ちる）:
+結論: **kernel から closedAtB への橋は、今の API では未解決。名前付きの義務（条件付きの名前付き仮説 `EnvDeclClosedS`）として残す**。以下は、今の API で使える導出の経路が見つからない根拠であって、数学的に不可能であることの証明ではない（Check の run_meta が機械的に確かめる。API が変われば build が落ちる）:
 - `Expr.looseBVarRange e := e.data.looseBVarRange.toNat` は通常の `def`。`Expr.data` は `Expr.mkData` / `Expr.mkAppData` で組まれ、この 2 つは **`opaque`**。`(Expr.bvar 3).looseBVarRange` は `rfl` / `decide` / defeq（transparency `.all`）のどれでも 4 にも 0 にも簡約されない（正対照: `Nat.add 1 2 = 3` は簡約される）。
 - core / Std / Init に `Expr.looseBVarRange` を含む定理は 0 件。`hasLooseBVar` / `instantiate1` / `liftLooseBVars` も `opaque`。
 - kernel の不変量（環境に入る宣言は閉じた項）は `Environment.addDecl` の性質で、`Environment` に対する well-formed の述語や定理が core に無いので、`Environment` の値から導く道が無い。
 - 補足（断定しない）: `mkData` は範囲が `2^20` を超えると panic する設計なので、`∀ e, looseBVarRange e = 0 → lbr e = 0`（`OblLbrZero`）は全称の形では強すぎる可能性がある。ただし `mkData` が opaque なので、Lean の中で真偽のどちらも示せない。
 - 少なくとも言えること: 必要な橋は全称の `OblLbrZero` ではなく、保存された項だけの `OblLbrZeroOn env`（`oblLbrZeroOn_of_global : OblLbrZero → OblLbrZeroOn env`、`envDeclClosedS_of_kernel : OblLbrZeroOn env → KernelClosedInvariant env → EnvDeclClosedS env`）。しかも最終 carrier が要るのは `EnvDeclClosedS` そのものであり、`(KernelClosedInvariant, OblLbrZeroOn)` はその 1 つの経路にすぎない。
-- 証拠: 5 driver（main43 + M1..M4）の監査（§SoundS3）。REACHED 反例 0、ALL 反例 0（256129 / 238065 / 238368 / 239490 / 238218 constant）、かつ `lbr` と Lean の `looseBVarRange` の不一致 0。これは各 build 環境の有限な証拠で、将来の環境への一般の証明ではない。
+- 証拠: 5 driver（main43 + M1..M4）の監査（§SoundS3）。REACHED 反例 0、ALL 反例 0（256129 / 238065 / 238368 / 239490 / 238218 constant）、かつ `lbr` と Lean の `looseBVarRange` の不一致 0。これは監査した 5 つの build 環境についての有限な証拠である。全環境の証明でも、将来の環境への一般の証明でもない。
 
 ### 3. 残った義務
 
 | 名前 | 状態 | 備考 |
 |---|---|---|
 | `EnvDeclClosedS`（= `EnvDeclClosed`） | 名前付き仮説（通常の前提）。証明も axiom もしない | carrier が要る唯一の環境前提。証拠は 5 driver の監査 |
-| `KernelClosedInvariant` + `OblLbrZeroOn` | 未解決（API で証明不能、上記） | `EnvDeclClosedS` への経路の 1 つ。後者は `OblLbrZero` より弱い |
+| `KernelClosedInvariant` + `OblLbrZeroOn` | 未解決（今の API では導出の経路が見つからない。上記。不可能の証明ではない） | `EnvDeclClosedS` への経路の 1 つ。後者は `OblLbrZero` より弱い |
 | `OblLbrZero` | 未解決 | 全称の形。必要なら `OblLbrZeroOn` に置き換える |
 
 条件付きの成果であり、全体の健全性としては主張しない。G-PRIM の採用 / TRUSTED 化は、上の残余の一覧を見て reviewer が別途判断する。
