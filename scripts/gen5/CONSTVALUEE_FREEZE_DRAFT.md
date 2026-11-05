@@ -861,3 +861,127 @@ corpus（235 root 名の和集合）。「Type 0 外」は binder above / result
 ### 4. 主張しないこと
 - 停止集合の採用、G-PRIM、TRUSTED、台帳の減算。段階の境界は名前と module の由来で決めたもので、より狭い集合（例: `Bool.not` / `Int.toNat` / `Sparkle.Core.HList` の個別の扱い）は測っていない。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §Compare: carrier の拡張案の比較（Issue `sparkle-ledger-dd4-final` Q-A (ii)、土台 e37da005）
+
+**比較資料であって、どの案の採用・G-PRIM・TRUSTED・台帳の減算の承認でもない**（reviewer の方針）。TRUSTED・axiom・sorry・native_decide なし。既存のファイルは書き換えていない（lakefile に lean_lib を 1 回、草案は末尾追記）。
+`RowTypedAtV` / `RowTeleEvAt` は**どの行についても未測定・未証明**（下の「形が既存補題に合う」は宣言型の構文の形の分類で、行の仕様 `TmSpec` / `FirstArgSpec` / `ArgsTySpec` と env の事実は別に要る）。
+新ファイル: `Tests/Gen5/PrimResidueCmpLib.lean`（共有の meta）、driver `PrimResidueCmp`（43 module）/ `PrimResidueCmpM1..M4` / `PrimResidueCmpSig`、`scripts/gen5/merge_prim_residue_cmp.py`、
+試作 `Tools/ShippingGen5CarrierU.lean` / `CarrierP.lean` / `CarrierI.lean`、`Tests/Gen5/CarrierCmpCheck.lean`。生データ: `$KJOB_REPORT_PATH.cmpkeys.* / .cmpstopped.* / .cmprec.* / .cmpclos.*`（tag = main43, M1..M4, Sig）、集計 `$KJOB_REPORT_PATH.cmpmerge.txt`。
+
+### 1. 測り方（§Trace に足したもの）
+- 走査・root・段階 0..5・停止集合は §Trace と同じ（`traceReach` / `stopAt` を再利用）。fuel 400000、尽きたら `throwError`（負対照 `#prim_residue_cmp_neg 50` は失敗 = ok）。件数は §Trace と一致（corpus の残余 204/201/179/157/156/86、再帰子 15/15/13/5/5/0、停止 0/39/63/75/76/126。Signal root の残余 75/59/10/10/10/7、停止 0/5/7/7/7/10）。
+- **プロファイル**（key の宣言型を key の level で具体化して、構文と `inferType` で測る。`#prim_residue_cmp_ctl` に既知の型 7 つの対照）: `need` = 全ての束縛と結果が収まる最小の `k`（`Dyn.{k}`、`ty : Type k`。今の `Dyn` は `k = 0`）、`nEra` / `resEra` = Prop 値の束縛・結果の数（証明と命題。(P) が消す対象）。
+  行の義務の形: 結果の形 `R0`（引数なし・定数）/ `R1`（結果が閉じた定数）/ `R2`（結果が**最初の束縛**に型構成子を適用した `D (bvar n-1)`＝`rowTypedAtV_depFirst` の形）/ `R3a`（型構成子を束縛変数だけに適用、`Signal dom α` など。R2 の複数引数版）/ `R0x` `R1x`（閉じているが定数でない）/ `R3v`（結果が型変数）/ `R3c`（定数の head に束縛変数でない引数、`Inhabited (BitVec n)` など）/ `R3`（head が束縛変数、`motive t`）、
+  束縛の形 `T0`（引数なし）/ `T1`（束縛の型が全て素の定数で何も依存しない＝`ConstPi` の形）/ `T2`（閉じているが素の定数でない）/ `T3`（前の束縛に依存する）。
+  既存補題との対応: `R0` ↔ `rowTypedAtV_nullary_const`、`R1` で束縛が依存しない（T≠T3）↔ `rowTypedAtV_closedPi`（`ClosedPi` は全ての本体が閉じていることを要求する。**結果が閉じていても束縛が依存する `R1` + `T3` は当たらない**: 「R1d」として分ける）、`R2` ↔ `rowTypedAtV_depFirst`、`T0` ↔ `rowTeleEvAt_nullary`、`T1` ↔ `rowTeleEvAt_constPi`。
+- **再帰子の major 前提**: 到達した（停止していない）定義の本体で、再帰子の適用の major が constructor 適用 / リテラル / 束縛変数 / 他のどれか（本体に書かれたまま。呼び出し側の引数を代入する前＝(I) の効きの見積り）。
+- **停止した定義の宣言型の閉包**: 停止した定義の行の `hty` に現れる型構成子（走査は本体だけを辿るので残余に出ない）。
+
+### 2. 案の定義（比べる 4 つ）
+- **(S)** 停止集合: 段階 2（Signal + BitVec の defn）と、corpus 全体のための段階 3〜5（§Trace）。停止した定義は `PT` の `prim` の行（`den` = その定数そのもの）になる。carrier の規則は変えない。
+- **(U)** `Dyn` の宇宙: (U1) `Type 1` 化（`Dyn.{1}`、`Type 0` の値は `ULift`）、(Uany) 宇宙多相（`Dyn.{u}`）。
+- **(P)** Prop の証明項: 定理 head の spine を `PUnit.unit : PUnit` で消す規則 `thm`（試作）。
+- **(I)** constructor に限った再帰子の iota 規則（試作の `iota`、`iotaS`）。
+
+### 3. 試作の結果（関数性と soundness への影響）
+どれも `CVEKV` の calculus の複製に規則を 1 つ足したもの（型と最小の補題だけ。`PTcorpus` には繋いでいない）。`CarrierCmpCheck`: 3 ファイルの 265 宣言の axiom は propext / Classical.choice / Quot.sound のみ、検出器の対照 ok。
+- **(U)** `Tools/ShippingGen5CarrierU.lean`: `Dyn` / `Entry` / `Arg` / `TyRow` / `TmRow` / `PrimTableK` を `Type u` にした複製。**`cvu_fun` / `cvub_fun` / `tdenu_fun` / `argsdenu_fun` の帰納は証明本文がそのまま通る**（`pi_inj_fun` だけ宇宙多相版を足した。`#check` で u = 0, 1, 2 の instance）。変わるのは literal の規則（`ULift.{u} Nat` / `ULift.{u} String`）だけ。
+  ただし**単一の宇宙に寄せる案は、動機だった行を書けない**: `#must_fail` で `f : Type → Type` に持ち上げた `α : Type 1` を適用できないこと、`ULift A = A` が成り立たないことを確認した（`Functor.map` の `α β` は `Type 0`、`f` と `Functor f` は `Type 1`）。
+  `Functor.map` の行は 2 層（引数が `tm0 / ty0 / tm1 / ty1`）なら書ける（`functorMapRow2` とその仕様 `functorMapRow2_spec`）。つまり (U) の実体は「`ULift` で全部を 1 つ上げる」ではなく**引数と `Dyn` の 2 層化**（`kinds` が 4 値、`TDen` / `CV` の規則が層ごと）。weakening / `denTyped` / `RowTypedAtV` の複製は**していない**（関数性だけ確認）。
+- **(P)** `Tools/ShippingGen5CarrierP.lean`: 規則 `CVPB.thm`（定理 head の spine ↦ `PUnit.unit`、label は宣言型で `PUnit` を表すこと、`PT.tms c ls = none` と `thmInfo` が前提）を足した。**`cvp_fun` は通る**（新しい場合分け 3 つ: thm–thm、thm–unfold、thm–prim。排他性の前提 `PT.tms c ls = none` を使う）。
+  - `Fin.mk` の行 `finMkRow`（`isLt` は消えた引数）は**命題を自分で検査する**: 真なら `⟨Fin n, ⟨v, h⟩⟩`（`finMkRow_spec`）、偽なら `none`（`finMkRow_false`）。偽の命題には値がなく、junk は出ない。
+  - **ただし `conv` は証明の label を `PUnit` を表す任意の label へ替えられる**（`conv_between_props`）ので、導出の label は kernel の型付けと一致しない（`Fin.mk 5 7 (2<3 の定理)` の導出は行の検査で落ちるが、label の整合では落ちない）。これは §Val / §V2 で既に「kernel `Ty` との一致は主張しない」としている範囲。
+  - **命題そのものを `PUnit` に消すと壊れる**: `erased_prop_arg_collision`（命題引数を `Arg.ty PUnit` に消した行は、`if p then Nat else PUnit` のように命題に依存する型を、`p := True` と `False` で区別できない）。`Decidable p` / `Subtype` 系がこれに当たる。(P) は**証明だけを消し、Prop 値の型引数は `Prop` のデータとして残す**必要がある（`Arg` に Prop の引数が要る）。この試作はそこまでは作っていない。
+- **(I)** `Tools/ShippingGen5CarrierI.lean`: 規則 `CVIB.iota`（`iotaS env e = some e'`、`e'` の導出から `e` の導出。`PT.tms c ls = none` と `recInfo` が前提）。**`cvi_fun` は通る**（`iotaS` は関数なので同じ spine は同じ reduct、新しい場合分け 3 つ）。
+  `#iota_checks`（実 env、`Meta`）: `Nat.rec` on `Nat.succ 3` / `Nat.zero`、`List.rec` on `List.cons`（parameter 付き）で `iotaS` の reduct が `whnfCore`（kernel 側の iota）と beta までで同じ head normal form（数値 field の表現が `OfNat.ofNat Nat 3 _` か生のリテラルかだけ違う）、変数・リテラルの major は reduce しない（対照）。
+  soundness（`iotaS e` と `e` が env で defeq）は**証明していない**: `Environment` は論理の外なので、Lean の中の定理にならない。corpus の再帰子 15 個ごとの meta 監査か名前付きの仮定になる。weakening（`iotaS` と `liftS` の可換）も未作成。
+
+### 4. Signal root（`Tests.SignalLoopTest` の 3 つ、和集合）での比較
+段階ごとの残余（行 = `PTcorpus` に行がある。表せない = 型の制約で行が作れない key）:
+| 段階 | 残余 | 行あり | 表せない key | うち再帰子 | 停止（distinct） | 停止のうち Dyn に入らない |
+|---|---|---|---|---|---|---|
+| 0 なし | 75 | 46 | 29 | 9 | 0 | - |
+| 1 Signal | 59 | 39 | 20 | 9 | 5 | 0 |
+| **2 +BitVec** | **10** | **10** | **0** | **0** | **7** | **0** |
+| 3 / 4 | 10 | 10 | 0 | 0 | 7 | 0 |
+| 5 | 7 | 7 | 0 | 0 | 10 | 0 |
+停止 7（段階 2）: `Signal.register[0]` `Signal.loop` `Signal.mux[0]` `Signal.pure[0]`（R3a / T3）、`BitVec.ofNat`（R2 / T3）、`BitVec.instInhabited` `Signal.instHAddSignalBitVec`（R3c / T3）。停止した定義の宣言型の閉包で足りない型構成子は `Inhabited[1]` と `DomainConfig` の 2 つ（どちらも `PTcorpus` に行がある）。
+
+| 案 | 到達した実際の key を表せるか | 関数性 | kernel soundness | 要る行と仮定 | 実装量 |
+|---|---|---|---|---|---|
+| **(S) 段階 2** | **表せる**（残余 10 全部に行あり、再帰子 0、証明の束縛 0、Type 0 外 0、停止 7 全部 Dyn に入る）。到達集合は近似（§Final2 5）。段階 1 は不足（表せない 20、再帰子 9） | **変更なし**（`cvFinal_functional` は任意の `PT`） | 規則は変えない。`hty` の義務が行の数だけ増える。停止した関数の値は `den` = その定数そのもの（振る舞いの証明は要らないが、`den` が定数であることは生成器と kernel の検査の範囲） | 新しい行 **7**（定義）、型構成子の行 +2（既存）、行の義務は §6 の表（合計 11 行: `RowTypedAtV` は既存の形 4 / R3a 5 / R3c 2、`RowTeleEvAt` は既存の形 3 / T3 8）。`OblLbrZero` `KernelClosedInvariant` `LitRows` は従来どおり | 小: 生成器に停止集合と 7 行、型の閉包 2 を足す。carrier の証明は変えない |
+| (U1) Type 1 化 / (Uany) | **単独では足りない**。段階 0 の表せない 29 のうち U1 で行を作れる非再帰 key は 9、再帰子 9 のうち型が収まるのは 2〜3（段階 1 では非再帰 0 / 再帰子 2〜3、非再帰 11 が残る）。(S) 段階 2 と組むと不要 | 試作で**通る**（同じ証明）。ただし 2 層化が要る（上 3） | 宇宙は規則の健全性に現れない。複製の weakening / denTyped は未作成 | 全 ~100 行が `ULift` か 2 層。行に `Functor` 系が入る | 大（`Dyn` / `Arg` / `TyRow` / `TmRow` / 全規則 / PTcorpus 1100 行 / RowTypedV 385 行 / CVFinal 181 行に及ぶ） |
+| (P) 証明項 | **単独では足りない**。段階 1 で非再帰の表せない key は P で全て行が作れる（11）が、再帰子 9 のうち 5 は残る（型が収まる 4 も下の注） | 試作で**通る**（`thm` の新しい場合分け 3） | label が証明の間で入れ替わる（`conv_between_props`）。行が命題を検査する（`finMkRow_false`）。命題を消す案は壊れる（`erased_prop_arg_collision`） | `thm` の規則、Prop 形成子の行（`den = PUnit`）、命題を検査する行（`Classical.propDecidable`）、`Arg` に Prop の引数 | 中 |
+| (I) constructor の iota | **効かない**: 再帰子の major が constructor 適用の箇所は **0 / 11**（全て束縛変数、本体に書かれたまま） | 試作で**通る** | `iotaS` と kernel の iota の一致は証明できない（meta の監査か仮定） | 再帰子ごとの一致の監査 | 小〜中（`iotaS` ~25 行 + 規則 + weakening の可換補題） |
+- 注（再帰子と U/P）: 型が収まる再帰子の行（`Nat.rec[1]` は `Dyn.{1}`、`False.rec[0]` は P）も、`hty` の label が `motive t`（head が束縛変数または `lam` の適用）になり、`TDenV` に head が定数でも `forallE` でも `letE` でもない label の規則がない（読んで確認。`tcon` は `mkAppN (.const c ls) args`、`tunfold` は定数）。**再帰子の行には (U)(P) の他に beta / 変数 head の型の規則が要る**（試作していない）。
+- 結論（Signal root）: **(S) 段階 2 だけで足りる**（測った範囲で）。U / P / I は要らない。要るのは (S) 段階 2 の 11 行の義務（§6）。
+
+### 5. corpus 全体（235 root 名の和集合）での比較
+| 段階 | 残余 | 行あり | corpus の宣言（import 不可） | 表せない key | うち再帰子 | 停止 | 停止のうち Dyn 外 |
+|---|---|---|---|---|---|---|---|
+| 0 | 204 | 98 | 51 | 55 | 15 | 0 | - |
+| 2 +BitVec | 179 | 80 | 51 | 48 | 13 | 63 | 2 |
+| 3 +Decidable/Nat | 157 | 73 | 51 | 33 | 5 | 75 | 6 |
+| 5 +Init/Std/Lean | 86 | 22 | 51 | 13 | 0 | 126 | 18 |
+「表せない key」を各案が行にできる数（NEW、再帰子は型が収まる数 REC+、非再帰で残る BLOCKED）:
+| 段階 | U1 | Uany | P | U1+P | Uany+P |
+|---|---|---|---|---|---|
+| 0 | NEW 27 / REC+ 6 / BLOCKED 13 | 27 / 9 / 13 | 13 / 4 / 27 | 40 / 12 / 0 | 40 / 15 / 0 |
+| 2 | 25 / 4 / 10 | 25 / 7 / 10 | 10 / 4 / 25 | 35 / 10 / 0 | 35 / 13 / 0 |
+| 3 | 25 / 3 / 3 | 25 / 5 / 3 | 3 / 0 / 25 | 28 / 3 / 0 | 28 / 5 / 0 |
+| 5 | 13 / 0 / 0 | 13 / 0 / 0 | 0 / 0 / 13 | 13 / 0 / 0 | 13 / 0 / 0 |
+（再帰子の BLOCKED は段階 0 で U1 9、U1+P 3、Uany+P 0。`need` の最大は段階 0..4 で 3、段階 5 で 1。）
+停止した定義が Dyn に入らない数（段階 5 の 18）: U1 で 13、P で 2（`LT.lt`、`Decidable.decide`）、U1+P で 15、残り 3（`List.below` / `List.brecOn` / `List.casesOn` の `[2,1]`）は `Dyn.{2}` が要る。
+再帰子の major（本体に書かれたまま、段階 0）: 20 箇所で constructor **0**、リテラル 0、束縛変数 **20**（段階 2: 17、段階 3: 8、段階 5: 0）。
+
+| 案 | 到達した実際の key を表せるか | 関数性 | kernel soundness | 要る行と仮定 | 実装量 |
+|---|---|---|---|---|---|
+| **(S) 段階 5** | 再帰子 0。ただし停止 126 のうち **18 は Dyn に入らず行が作れない**、残余の表せない 13 が残り、corpus の宣言 51 は import 不可のまま（どの案とも独立の別の壁） | 変更なし | 規則は変えない | 行の義務は §6。新しい行 108＋ctor 行 11＝119 行、`RowTypedAtV` の開いた分が現在の 18 から **95**、`RowTeleEvAt` の開いた分が 41 から **99** | 中: 生成器。ただし 119 行の `hty` / 引数の義務は (S) 単独では減らない |
+| (S) 段階 2 | 再帰子 13 が残る（表せない 48） | 変更なし | 同上 | 99 行（開いた `RowTypedAtV` 69、`RowTeleEvAt` 89） | 小 |
+| (S) 段階 3/4 | 再帰子 5 が残る（`Bool.rec[1]` `Int.rec[1]` `List.rec` `Prod.rec`）、表せない 33 | 変更なし | 同上 | 103 行 | 小〜中 |
+| (U) | 単独では表せない key が段階 0 で 13+9 残る。(S) 段階 5 と組むと残余 13 と停止 18 のうち 15 を U1 / U1+P が行にできる（3 つは `Dyn.{2}`） | 通る（試作） | 同上 | 2 層化 | 大 |
+| (P) | 単独では段階 0 で 27 が残る。(S) 段階 5 では 13 に効かない（P で 2 つの停止だけ） | 通る（試作） | 上 | 命題を残す `Arg` | 中 |
+| (I) | major が constructor の箇所 0 / 20。再帰子 15 のうち到達したものは本体の major が変数なので**効かない**。値の水準の iota（motive を持つ再帰子の行）は (U) + beta の規則と同じ作業 | 通る（試作） | 監査 | - | 小〜中 |
+- 結論（corpus 全体）: 再帰子を 0 にするには **(S) 段階 5** が測った範囲で唯一（段階 3/4 は 5 が残る）。(I) は構文上の constructor major が 0 なので再帰子を減らさない。(P) / (U) は停止集合と組んで残りの 31 key（停止 18 + 残余 13）を行にするための補助で、(S) 段階 5 + (U 2 層化) + (P、Prop 値は残す) が全部要る。**どの組み合わせでも、119 行の `RowTypedAtV` / `RowTeleEvAt` は未測定・未証明のまま**で、corpus の宣言 51 の import の壁は別に残る。
+
+### 6. (S) で不透明にする定数が負う行の義務（`RowTypedAtV` / `RowTeleEvAt`）
+行の義務は定数 1 つにつき `RowTypedAtV`（`hty`）と `RowTeleEvAt`（引数）の 2 件。**段階 2（Signal root）**: 停止 7（定義の新しい行）＋ 到達する constructor の行 4（`ActiveEdge.rising`、`ResetKind.synchronous`、`DomainConfig.mk`、`OfNat.mk`＝既存の `PTcorpus` の行）＝ 11 行。
+| 行（11） | 種類 | `RowTypedAtV` | `RowTeleEvAt` |
+|---|---|---|---|
+| `ActiveEdge.rising` `ResetKind.synchronous`（引数なし 2） | ctor | 証明済み（§Final2、`nullary_const`） | 証明済み（`nullary`） |
+| `DomainConfig.mk` | ctor | 証明済み（closedPi） | 証明済み（constPi） |
+| `OfNat.mk` | ctor | **開**（R3a、§Final2 の 19 行の 1 つ） | **開**（T3） |
+| `BitVec.ofNat` | 停止（定義） | 形が `rowTypedAtV_depFirst` に合う（R2）。行の仕様 `FirstArgSpec` と env の事実が要る | **開**（T3: `BitVec n` の `n` に依存） |
+| `Signal.register[0]` `Signal.loop` `Signal.mux[0]` `Signal.pure[0]` | 停止 4 | **開**（R3a: 結果 `Signal dom α` が 2 引数。`depFirst` の複数引数版が要る＝新しい補題） | **開**（T3） |
+| `BitVec.instInhabited` `Signal.instHAddSignalBitVec` | 停止 2 | **開**（R3c: 結果に束縛変数でない引数 `BitVec n`） | **開**（T3） |
+集計: `RowTypedAtV` は 11 行のうち証明済み 3、形が既存補題に合う 1（`BitVec.ofNat`）、新しい補題が要る 7（R3a 5 ＝ 停止 4 ＋ `OfNat.mk`、R3c 2）。`RowTeleEvAt` は証明済み 3、開 8（全て T3）。
+既存の `deprows` / `PTcorpus` の結果で**払える見込み**は 4 件（`RowTypedAtV` の `BitVec.ofNat` ＋ 証明済みの 3）と 3 件（`RowTeleEvAt` は証明済みの 3 だけ）。停止 7 の `RowTeleEvAt` は 1 件も既存の補題に当たらない。
+
+**段階 5（corpus 全体）**: 停止 126 のうち Dyn に入って行が作れるのは 108（18 は不可）。108 行の内訳:
+| 結果の形 | 件数 | 既存の結果で払える見込み |
+|---|---|---|
+| R0（引数なし・定数） | 1 | 払える（`nullary_const`） |
+| R1 かつ T1（閉じた Pi） | 3 | 払える（`closedPi`: `Bool.not` `Bool.or` `Bool.and`） |
+| R2（最初の束縛に適用） | 7 | 形が合う（`depFirst`。仕様と env の事実が行ごとに要る） |
+| R1 かつ T3（結果は閉じているが束縛が依存） | 4 | `closedPi` を「結果が閉じている」に一般化すれば払える見込み（新しい補題・小） |
+| R0x / R1x（閉じた定数でない型） | 11 | `nullary_const` の閉じた型版（新しい補題・小） |
+| R3a（束縛変数だけに適用、複数引数） | 21 | `depFirst` の複数引数版（新しい補題） |
+| R3v（結果が型変数、`Prod.snd` など） | 17 | 未検討（引数の型の証拠 `ArgsDenV.ty` から出る見込みだが、補題は未作成） |
+| R3c（定数 head に束縛変数でない引数） | 44 | 未検討（行ごとの個別の型構成子の評価） |
+`RowTeleEvAt` は T0/T1 が 15（12 + 3、払える見込み）、T3 が 93（既存の補題に当たらない。`PTcorpus` の開いた 41 と同じ種類）。
+段階 2（corpus）: 61 行（Dyn に入る停止）: `RowTypedAtV` は既存の形 5（R2）、R1d 3、R3a 14、R3c 39。`RowTeleEvAt` は T3 61。
+停止した定義の宣言型の閉包で足りない型構成子: Signal root は 2（行あり）、corpus 段階 2 は 0、段階 5 は 48（行あり 34、行なし 14）。
+
+### 7. 推奨
+1. **Signal root（3 つ）は (S) 段階 2 だけを採る候補にする。** 測った範囲で、再帰子 0・証明の束縛 0・Type 0 外 0・行がない key 0 で、(U)(P)(I) は要らない。carrier の規則も関数性の証明も変わらない（任意の `PT`）。負うのは 11 行の義務（`RowTypedAtV` の開 7（R3a 5・R3c 2）＋ `RowTeleEvAt` の開 8）と、行の仕様（`den` = 定数そのもの）。次に測るのは、この 11 行の `RowTypedAtV` / `RowTeleEvAt` の実際の評価（pilot）。**停止集合の採用ではない**（reviewer の判断）。
+2. **corpus 全体は今は 1 つの案に決めない。** 再帰子 0 は (S) 段階 5 だけだが、119 行の義務で開いた `RowTypedAtV` が 18 → 95、`RowTeleEvAt` が 41 → 99 に増え、非 Dyn 18 と残余 13 が (U) の 2 層化と (P)（命題を残す）を要求し、corpus の宣言 51 の import の壁は別に残る。Signal root の pilot の 11 行の実測（`RowTeleEvAt` の T3 を証明する手間）を見てから、(S) 段階 5 + (U) + (P) の組を判断するのが妥当。
+3. **(I) は推さない**: 構文上の constructor major が 0 / 20 で再帰子を減らさず、soundness は証明できない（監査か仮定）。値の水準の再帰子は行（(U) + beta の規則）の作業になる。
+4. **(P) を採るなら「証明だけを消し、命題の型引数は残す」形に限る**（`erased_prop_arg_collision`）。**(U) を採るなら 2 層化**（`ULift` 一律は `Functor.map` を書けない）で、関数性は試作で通るが weakening / `denTyped` の複製と PTcorpus の書き直し（~2500 行規模）が要る。
+5. 組み合わせの例: Signal root = (S2)。corpus 全体 = (S5) + (U 2 層) + (P、命題を残す)、(I) は入れない。
+
+### 8. 主張しないこと
+- どの案の採用、G-PRIM、TRUSTED、停止集合の採用、台帳の減算。段階の境界は名前と module の由来で決めたもので、より狭い停止集合は測っていない。
+- 行の `RowTypedAtV` / `RowTeleEvAt` が証明できること（形の分類だけ）。`PTcorpus` が 3 つの Signal root を実際に導出すること（到達集合は近似）。再帰子の major が評価時に constructor になる割合（本体に書かれたままの構文の測定のみ）。
+- (U)(P)(I) の試作は関数性だけ（weakening / `denTyped` / `RowTypedAtV` の複製は未作成）。(I) の `iotaS` の一般の正しさ。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
