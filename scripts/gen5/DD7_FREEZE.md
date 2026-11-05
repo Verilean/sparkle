@@ -18,5 +18,29 @@
 2. `resetNk_transportR`, `coreRun_transportAll` = the old conclusions with `hno` discharged by 1.
 3. §(a3): `checkedOptimize b` instance statements are a subset of `raw`'s (module names only).
 
-## §Leaf / §(a3)
-(to be filled in by the following commits with the exact obstacle or the closing lemma)
+## Binders (as written in `Tools/ShippingGen5DCEntryV.lean`)
+Common: `{ι dom mref cref} {L : Laws mref cref} {mctx cctx} {w w1} {declName} {b raw D D'} (p : Pkg ι dom)`,
+`hS : Start L mctx cctx w` (A.P-02), `hr : RunsTo (synthesizeCombinationalCore declName [] false) … (raw, D) w1` (real core run),
+`hpost : PostEntry b raw D D'`, `hdef : MachineDefines mctx mref cctx cref declName p.d.shape` (A.P-06 / `T1Hyp.defines`),
+`hcl : MachineClosesAtA L.O mctx cctx declName p.d.shape` (`T1Hyp.closes`), `hdata : LeafDataOk p ∨ MemParentDataOk p` (the package `p` is
+`T1Hyp.pkg`'s `q`, `hdata` its `DataOk`). Removed from U `coreRun_transport`: `d : MachineData` (now `p.d`), `hins`, `hf`.
+- `noRawBelow_of_coreRunAll … : ∀ k, NoRawBelow D raw.name k raw`
+- `resetNk_transportR … (n) (kids) : ResetNk n raw D kids ↔ ResetNk n raw D' kids`
+- `coreRun_transportAll … (n we seed T s) : runModuleTG … D' … raw.body … = runModuleTG … D … raw.body …`
+- (a3) `coreRun_transportOpt` (with `hdata : MemParentDataOk p`): the same at `(checkedOptimize b).body`.
+
+## §Leaf
+`MachineRanA` leaf branch: raw = `closeMachine layout t'`, D = `d₀`. `closedBody_kinds_of_run` (needs `Pkg.ok p`, `Pkg.body_eq p`, `callsOk p.kD`,
+`ss.length`, and `hdomB`) gives the body is `seqStmtOk` and `d₀.modules = []`; `noInstOfB_of_seqOk` + `noInstOf_of_B` +
+`noRawBelow_of_noInstOf`. The data used: `Pkg.ok`/`Pkg.body_eq` (properties of every package, no binder), `callsOk`, `ss.length` (fields of
+`LeafDataOk` and of `MemParentDataOk`, both listed in the ledger as DataOk), and `hdomB`, DERIVED for a leaf (`hdomB_of_leaf`: `callsOk` gives
+`kD = nIn` when `insts = []`, then `ok` gives slot/let binders non-domain). Nothing is assumed beyond those rows.
+
+## §(a3)
+Closed (conditional on the same rows, but `hdata : MemParentDataOk p`, because for a parent `hdomB` (`binders.drop kD` has no domain binder) is
+the `domB` field of `MemParentDataOk`; it is not derivable from `ok`/`callsOk`).
+`checkedOptimize_inst_subset_of_coreRun`: every `inst` in `(checkedOptimize b).body` is in `raw.body`.
+leaf: `raw.body` is `seqOk`, hence `b` (`dropZeroWidth_seqOk`, `mergeChecked_seqOk`), hence `checkedOptimize b` (`checkedOptimize_seqOk_all`),
+which has no `inst`. Parent: `hierGate b` (`core_hierGate_anyO`) and `b.body = raw.body` (`core_bodyEq_ranO`), then
+`checkedOptimize_inst_iff_gate`. The side conditions (hierGate/hierBinds) are derived from the run, not binders.
+`noRawBelow_mono` transfers `NoRawBelow` along an instance-subset. The unchecked last branch of `checkedOptimize` (`else o`) is excluded by the gate.
