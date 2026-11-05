@@ -5911,3 +5911,15 @@ lean_lib «Tests.Gen5.CVFinalCheck» where
 
 lean_lib «Tests.Gen5.CVFinalScan» where
   roots := #[`Tests.Gen5.CVFinalScan]
+
+lean_lib «Tools.ShippingGen5PTLit» where
+  roots := #[`Tools.ShippingGen5PTLit]
+
+lean_lib «Tests.Gen5.PTLitCheck» where
+  roots := #[`Tests.Gen5.PTLitCheck]
+
+lean_lib «Tools.ShippingGen5PTCorpus» where
+  roots := #[`Tools.ShippingGen5PTCorpus]
+
+lean_lib «Tests.Gen5.PTCorpusCheck» where
+  roots := #[`Tests.Gen5.PTCorpusCheck]
