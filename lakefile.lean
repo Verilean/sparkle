@@ -5793,3 +5793,18 @@ lean_lib «Tests.Gen5.KeyCheck» where
 
 lean_lib «Tests.Gen5.PrimResidueKey» where
   roots := #[`Tests.Gen5.PrimResidueKey]
+
+lean_lib «Tests.Gen5.PrimResidueKeyLib» where
+  roots := #[`Tests.Gen5.PrimResidueKeyLib]
+
+lean_lib «Tests.Gen5.PrimResidueKeyM1» where
+  roots := #[`Tests.Gen5.PrimResidueKeyM1]
+
+lean_lib «Tests.Gen5.PrimResidueKeyM2» where
+  roots := #[`Tests.Gen5.PrimResidueKeyM2]
+
+lean_lib «Tests.Gen5.PrimResidueKeyM3» where
+  roots := #[`Tests.Gen5.PrimResidueKeyM3]
+
+lean_lib «Tests.Gen5.PrimResidueKeyM4» where
+  roots := #[`Tests.Gen5.PrimResidueKeyM4]
