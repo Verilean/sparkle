@@ -32,7 +32,7 @@ def guardBinders (c : Name) : MetaM (List Name) := do
     return out
 
 /-- Opens the binders of `ty` up to and including the one named `last`, then runs `k` on the fvars and the rest. -/
-partial def openUntil (last : Name) (ty : Expr) (acc : Array Expr) (k : Array Expr → Expr → MetaM α) : MetaM α := do
+partial def openUntil (last : Name) (ty : Expr) (acc : Array Expr) (k : Array Expr → Expr → MetaM Unit) : MetaM Unit := do
   match ty with
   | .forallE n d b bi =>
     withLocalDecl n bi d fun x => do
