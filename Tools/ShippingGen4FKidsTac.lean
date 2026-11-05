@@ -252,8 +252,10 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
         return ← runTac (← `(tactic| refine Tools.ShippingChildInv.Keeps.bind ?_ (fun _ => ?_)))
       -- (fkids3) `try (some <$> liftMetaM (childSynthEntry n)) catch h` with a handler that never returns: the child pair's `PairPF` reaches the continuation
+      -- (fkids4) only when the try body mentions `childSynthEntry` (an unrelated `try … catch` made the unifier run away in H8: `whnf` timeout at this step)
       if ty.consumeMData.isAppOf ``Tools.ShippingGen4FKidsCalc.KCS && (← hasChild) &&
-          [``MonadExcept.tryCatch, ``tryCatchThe, ``MonadExceptOf.tryCatch].contains ((p.getArg! 4).consumeMData.getAppFn.constName?.getD .anonymous) then
+          [``MonadExcept.tryCatch, ``tryCatchThe, ``MonadExceptOf.tryCatch].contains ((p.getArg! 4).consumeMData.getAppFn.constName?.getD .anonymous) &&
+          ((p.getArg! 4).find? (fun x => x.isConstOf ``Sparkle.Compiler.Elab.childSynthEntry || x.isConstOf ``Sparkle.Compiler.Elab.Rec.synthesizeCombinational)).isSome then
         let hchild := mkIdent `hchild; let hA := mkIdent `hA
         if ← runTac (← `(tactic| refine Tools.ShippingGen4FKidsCalc.KCS.bindTryChild ($hchild _ _ $hA _) (fun _ _ => ?_) (fun _ _ _ _ => ?_))) then
           return true
