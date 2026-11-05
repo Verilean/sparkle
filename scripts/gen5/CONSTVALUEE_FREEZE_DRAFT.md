@@ -371,3 +371,56 @@ K1 の key 204 件（ctor 100 / rec 15 / induct 89。§Key と同数）につい
 ### 5. Check と台帳
 
 `Tests/Gen5/SoundKCheck.lean`（証明した補題の型の構造照合、負対照、39 宣言の axiom 検査と検出器の負対照、残った義務 20 件の一覧、`#print axioms`）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §Rows: 行ごとの `RowTypedAt`（Issue `sparkle-ledger-dd4-rows`、土台 c9ca68a2）
+
+reviewer の方針: 健全性の完了は差し戻し。D1（opaque な演算とのブリッジ）と D2（カーネルの `Ty` の意味）は設計判断待ち。TRUSTED・axiom・sorry・native_decide なし。`PT` は任意のパラメータのまま。既存ファイルは書き換えていない。
+新ファイル: `Tools/ShippingGen5RowTypedK.lean`、`Tests/Gen5/RowTypedKCheck.lean`。`Tests/Gen5/RowTypedKAuditLib.lean` に列を 2 つ（shape、型の文字列）足し、`scripts/gen5/merge_row_typed_audit.py` に分類を足した。
+
+### 1. K1 の term key 115 件の分類（meta。`RowTypedKAudit*` の 5 driver を合算、driver 間の不一致 0）
+
+| 分類 | 件数 | 扱い |
+|---|---|---|
+| `Type 0`、引数なし | 6 | **証明した**（下の 2） |
+| `Type 0`、引数あり、codomain が閉じている | 4 | D1 待ち。案 (a) の証明の形は書いた（下の 3） |
+| `Type 0`、依存型（codomain が引数を使う） | 30 | D1 待ち（さらに `OblDenSubst`） |
+| `den = none` で逃げる key（宣言型の sort が `Type 1` 以上） | 66 | `rowTypedAt_of_den_none`（行が `den = none` という PT の仕様のとき義務なし） |
+| Prop（宣言型が Prop） | 9 | 同上 |
+
+合計 6 + 4 + 30 + 66 + 9 = 115。`Type 0` は 40 件（6 + 4 + 30）で、§Sound §3 の数と一致。
+- 引数なし 6: `Nat.zero`、`Bool.false`、`Bool.true`、`PUnit.unit.{1}`、`ActiveEdge.rising`、`ResetKind.synchronous`。
+- 閉じた codomain 4: `Nat.succ`、`Int.ofNat`、`Int.negSucc`、`DomainConfig.mk`（3 引数）。
+- 依存型 30: `Fin.mk`、`BitVec.ofFin`、`Decidable.isTrue/isFalse`（型引数や命題引数に依存）と、`{dom : DomainConfig}` を取る出力 structure の `*.mk` 26 件（フィールドが `Signal dom _`）。
+- 「依存」は、binder の変数が後ろの binder の型または結果型に現れること（fvar で判定）。`PUnit.unit.{2}` は higher の 1 件に入る（`PUnit.{2} : Type 1`）。
+
+### 2. 引数なしの行（ブリッジ不要、`RowTypedAt` を証明）
+
+`rowTypedAt_nullary_const`: 行が `kinds = []` で、宣言型を `ls` で instantiate したものが閉じた定数 `.const D Ls` のとき、`RowTypedAt`。使う前提は 3 組。
+- `TmSpec PT c ls [] T`: この key の行が `kinds = []` で、`den` の値の型は常に `T`（PT の行の仕様。PT は任意のまま、行の仕様を前提にする）。
+- `TyConSpec PT D Ls T`: 型 `D` の `tys` の行が引数なしで `T` を表す（`tcon` 規則に使う）。
+- env の事実: `EnvType env c ls (.const D Ls)`（宣言型の instantiate 結果）と `¬ IsDefn env D`。`rowTyped_natZero` と同様に補題の仮定にした。
+
+6 key それぞれの定理は `rowTyped_Nat_zero` など 6 件（Tools）。各 1 行で、補題に仮定を渡すだけ。実際の env でこの仮定が成り立つことは `RowTypedKCheck` の meta 検査（10 key の `EnvType`/`EnvClosedPi` と、型が `defnInfo` でないこと）で示す。生成器は使わず、手書き。
+
+**限界（正直に）**: 実際の `PT`（行の中身）はこのリポジトリにない。したがって「実際の PT の行がこの仕様を満たすこと」は未確認で、Check では仕様を満たす模型の表 `PTm` でだけ補題を使っている（仕様が充足可能で、定理が空疎でないことの確認）。D1/D2 とは独立に、本物の PT ができたときに、行ごとに `TmSpec`/`TyConSpec` の証明が要る。
+
+### 3. ブリッジ待ち（D1）の行 34 件と、案 (a) の証明の形
+
+`instForall` は `Expr.instantiate1`（opaque）で書かれているので、引数ありの行は、`instantiate1` の結果が分からないと `TDenK` の対象の式が決まらない。
+- D1 が案 (a)（構文的な `liftS`/`substS` に書き換える）のとき、引数あり・閉じた codomain の行は次の形で閉じる。`instForallS`（`substS` 版）と、それを使う `RowTypedAtS`。`ClosedPi T n R`（`n` 個の binder で、各 body が閉じていて、結果が `R`）のとき `instForallS T args = R`（`instForallS_closedPi`、`substS_closed` を使う）。続いて `rowTypedAtS_closedPi` が、`kinds.length` を binder 数として `RowTypedAtS` を与える。4 key（上の表の 2 行目）の定理が `rowTypedS_Nat_succ`、`rowTypedS_Int_ofNat`、`rowTypedS_Int_negSucc`、`rowTypedS_DomainConfig_mk`。**これは `instForallS` についての定理で、`RowTypedAt` ではない。**
+- `RowTypedAt` に戻す道は `rowTypedAt_of_S : OblInst1Agree → RowTypedAtS → RowTypedAt`（`instForallS_eq` 経由）。`OblInst1Agree` は名前付きの `Prop` で、どこでも仮定していない。案 (a) は carrier の `RowTypedAt` の定義自体を `instForallS` に変えるので、`rowTypedAt_of_S` は不要になる（定義を変えない案のときの橋）。
+- 依存型 30 件は、案 (a) でも閉じない。codomain への代入が実際に起こるので、(i) `substS` の具体的な結果と、(ii) `TDenK` の代入補題（`OblDenSubst`）の両方が要る。ここは証明していない。
+- 案 (a) 以外のとき（`instantiate1` との一致を別の道で示す、など）は、4 key の定理の形はそのまま使えて、`OblInst1Agree` に相当する橋だけが変わる。
+
+### 4. Check（`Tests/Gen5/RowTypedKCheck.lean`）
+
+- 証明した行（`RowTypedAt`）**6**、ブリッジ待ち **34**（うち案 (a) の形を証明したもの 4、依存型 30）、`den = none` と Prop **75**。合計 115。
+- env の事実の meta 検査: 10 key で `EnvType`/`EnvClosedPi` と `¬ IsDefn` が実環境で成り立つ。
+- 負対照: (a) 誤った型の仕様は充足できない（`Bool` の行は `Unit` を表さない）、(b) 依存した codomain は `ClosedPi` でない、(c) `instForallS` は依存した codomain では代入を行い、閉じた codomain では行わない、(d) `Fin.mk`・`Decidable.isTrue`（依存）、誤った結果型、`defnInfo`（`Nat.add`）は meta の検査で弾かれる、(e) axiom 検出器は fresh axiom を検出する。
+- `#print axioms`: 証明した 21 宣言は propext / Classical.choice / Quot.sound のみ。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+### 5. 主張しないこと
+
+- `OblRowTypedK` の完了。34 件が D1 待ち、75 件が PT の仕様（`den = none`）待ちで、証明した 6 件も仕様と env の事実を仮定している。
+- 実際の `PT` の行が仕様を満たすこと。D1 / D2 の決定。引数の型付け（`OblPrimK`）。

@@ -32,3 +32,21 @@ if keyfiles:
         for l in open(p):
             f = l.split("\t"); exp.add((f[0], f[2]))
     print(f"cross-check against PrimResidueKey key rows: {len(exp)} keys; only in audit {len(set(rows)-exp)}; only in residue {len(exp-set(rows))}")
+# --- D.D-4 Rows: classification of the term keys (columns 8 = shape nullary/nondep/dep, 6 = sort class of the declared type)
+def cls(r):
+    if r[6] == "Prop": return "Prop"
+    if r[6] == "Type0": return "Type0/" + r[8]
+    return "den=none (higher)"
+cc = collections.Counter(cls(r) for r in term)
+print("term keys by class: " + ", ".join(f"{k} {v}" for k, v in sorted(cc.items())))
+proved = {"Nat.zero", "Bool.false", "Bool.true", "PUnit.unit", "Sparkle.Core.Domain.ActiveEdge.rising", "Sparkle.IR.Type.ResetKind.synchronous"}
+shape = {"Nat.succ", "Int.ofNat", "Int.negSucc", "Sparkle.Core.Domain.DomainConfig.mk"}
+t0 = [r for r in term if r[6] == "Type0"]
+print("Type0 nullary keys: " + ", ".join(sorted(r[0] for r in t0 if r[8] == "nullary")))
+print("Type0 nondep keys: " + ", ".join(sorted(r[0] for r in t0 if r[8] == "nondep")))
+pn = sorted(r[0] for r in t0 if r[8] == "nullary" and r[0] not in proved)
+sn = sorted(r[0] for r in t0 if r[8] == "nondep" and r[0] not in shape)
+print(f"proved-set keys missing from the Type0 nullary class: {sorted(proved - {r[0] for r in t0 if r[8]=='nullary'})}; nullary not proved: {pn}")
+print(f"shape-set keys missing from the Type0 nondep class: {sorted(shape - {r[0] for r in t0 if r[8]=='nondep'})}; nondep without a shape proof: {sn}")
+print(f"proved {len([r for r in t0 if r[8]=='nullary' and r[0] in proved])}; bridge-waiting {len([r for r in t0 if r[8]!='nullary'])} (nondep {len([r for r in t0 if r[8]=='nondep'])}, dep {len([r for r in t0 if r[8]=='dep'])}); den=none/Prop {len(term)-len(t0)}")
+print("dependent Type0 keys: " + ", ".join(sorted(r[0] for r in t0 if r[8] == "dep")))
