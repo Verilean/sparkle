@@ -5860,3 +5860,12 @@ lean_lib «Tools.ShippingGen5ConstValueEV» where
 
 lean_lib «Tests.Gen5.ValCheck» where
   roots := #[`Tests.Gen5.ValCheck]
+
+lean_lib «Tools.ShippingGen5ConstValueEVL» where
+  roots := #[`Tools.ShippingGen5ConstValueEVL]
+
+lean_lib «Tools.ShippingGen5RowTypedV» where
+  roots := #[`Tools.ShippingGen5RowTypedV]
+
+lean_lib «Tests.Gen5.V2Check» where
+  roots := #[`Tests.Gen5.V2Check]
