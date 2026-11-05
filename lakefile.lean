@@ -5808,3 +5808,27 @@ lean_lib «Tests.Gen5.PrimResidueKeyM3» where
 
 lean_lib «Tests.Gen5.PrimResidueKeyM4» where
   roots := #[`Tests.Gen5.PrimResidueKeyM4]
+
+lean_lib «Tools.ShippingGen5ConstValueESoundK» where
+  roots := #[`Tools.ShippingGen5ConstValueESoundK]
+
+lean_lib «Tests.Gen5.SoundKCheck» where
+  roots := #[`Tests.Gen5.SoundKCheck]
+
+lean_lib «Tests.Gen5.RowTypedKAudit» where
+  roots := #[`Tests.Gen5.RowTypedKAudit]
+
+lean_lib «Tests.Gen5.RowTypedKAuditLib» where
+  roots := #[`Tests.Gen5.RowTypedKAuditLib]
+
+lean_lib «Tests.Gen5.RowTypedKAuditM1» where
+  roots := #[`Tests.Gen5.RowTypedKAuditM1]
+
+lean_lib «Tests.Gen5.RowTypedKAuditM2» where
+  roots := #[`Tests.Gen5.RowTypedKAuditM2]
+
+lean_lib «Tests.Gen5.RowTypedKAuditM3» where
+  roots := #[`Tests.Gen5.RowTypedKAuditM3]
+
+lean_lib «Tests.Gen5.RowTypedKAuditM4» where
+  roots := #[`Tests.Gen5.RowTypedKAuditM4]
