@@ -12,7 +12,7 @@ import Tools.ShippingChecksDepthGate
 import Tools.ShippingClosedKinds
 import Tools.ShippingCallsSeqKids
 set_option autoImplicit false
--- D.D-7, scripts/gen5/DD7_FREEZE.md. NOT BUILT (agent incremental build only; clean build is the coder's).
+-- D.D-7, scripts/gen5/DD7_FREEZE.md. Agent build `kjob lake build Tests.Gen5.DD7Check` exit 0 (744 jobs, incremental); NOT clean-built.
 
 /-! # D.D-7: `NoRawBelow` for a real core run in all three cases (no `hins`/`hf`/`hno`)
 
