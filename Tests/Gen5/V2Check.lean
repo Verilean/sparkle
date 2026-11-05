@@ -387,7 +387,7 @@ run_meta do
   let total : Nat := rowsNullary + rowsClosed + depTotal + denNone
   let depListed : Nat := depTotal - depShapeChecked
   unless total == 115 do throwError "partition of the 115 term keys fails"
-  logInfo m!"RowTypedAtV proved per key: {teleProved} (argument-free {rowsNullary}, closed codomain {rowsClosed}); dependent {depTotal}: shape theorem proved (specs about PT), shape confirmed on the real types of {depShapeChecked} named keys, the other {depListed} (output structures) listed; den = none / Prop {denNone}; total {total}"
+  logInfo m!"RowTypedAtV proved per key: {teleProved} (argument-free {rowsNullary}, closed codomain {rowsClosed}); dependent {depTotal}: shape theorem proved (specs about PT), shape confirmed on the real types of {depShapeChecked} named keys, the other {depListed} (output structures) have the same first-argument shape by the corpus audit rerun (type strings), not recomputed here; den = none / Prop {denNone}; total {total}"
   logInfo m!"RowTeleEvAt proved per key: {teleProved} (argument-free {rowsNullary}, closed {rowsClosed}); remaining {depTotal} dependent (binder types mention earlier arguments; see the draft §V2 for the reasons); den = none / Prop {denNone} (no row)"
 
 end Tests.Gen5.V2Check
