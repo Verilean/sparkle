@@ -27,6 +27,14 @@ def ndOf : List (Name × Name) :=
    (``Tools.ShippingGen5AuditE3B3.machPrem3R_of_t1hyp, ``Tools.ShippingGen5AuditE3B3.machPrem3R_of_t1hypND),
    (``Tools.ShippingGen5AuditE3B3.auditE3B3_of_t1hyp_run, ``Tools.ShippingGen5AuditE3B3.auditE3B3_of_t1hypND_run)]
 
+/-- Users superseded by a mapped theorem (not on the final path): the pre-run D.E-3 versions (replaced by
+`auditE3B3_of_t1hyp_run`, accepted for D.E-3) and `ihKI_of_rows` (used only by the original `closingRun*_of_runT1`). -/
+def superseded : List (Name × Name) :=
+  [(``Tools.ShippingGen5AuditE3B3.auditE3B3_of_t1hyp, ``Tools.ShippingGen5AuditE3B3.auditE3B3_of_t1hyp_run),
+   (``Tools.ShippingGen5AuditE3B3.auditE3_of_t1hyp3, ``Tools.ShippingGen5AuditE3B3.auditE3B3_of_t1hyp_run),
+   (``Tools.ShippingGen5AuditE3B3.machPrem3_of_t1hyp, ``Tools.ShippingGen5AuditE3B3.machPrem3R_of_t1hyp),
+   (``Tools.ShippingGen5ClosingRun4.ihKI_of_rows, ``Tools.ShippingGen5ClosingRun4.closingRun0_of_runT1)]
+
 def usesT1Hyp (ty : Expr) : MetaM Bool :=
   forallTelescope ty fun xs _ => xs.anyM fun x => do
     return (← x.fvarId!.getDecl).type.getUsedConstants.contains ``Tools.ShippingGen2.T1Hyp
@@ -43,12 +51,26 @@ run_meta do
   let mut unmapped : List Name := []
   for u in users do
     if allowed.contains u then continue
+    if let some succ := superseded.lookup u then
+      unless (ndOf.lookup succ).isSome do throwError "superseded {u}: successor {succ} has no ND counterpart"
+      continue
     match ndOf.lookup u with
     | some nd =>
       let ci ← getConstInfo nd
       if ← usesT1Hyp ci.type then throwError "{nd} (ND of {u}) still has a T1Hyp binder"
     | none => unmapped := unmapped ++ [u]
-  logInfo m!"T1Hyp users: {users.length}; mapped {ndOf.length}; unmapped {unmapped}"
+  logInfo m!"T1Hyp users: {users.length}; mapped {ndOf.length}; superseded {superseded.length}; unmapped {unmapped}"
   unless unmapped.isEmpty do throwError "unmapped T1Hyp users: {unmapped}"
+  -- VALUES: no ND counterpart's proof uses `T1Hyp` or any `T1Hyp` user (so the ND chain does not route through T1Hyp)
+  for (_, nd) in ndOf do
+    let some v := (← getConstInfo nd).value? (allowOpaque := true) | throwError "{nd} has no value"
+    let cs := v.getUsedConstants
+    if cs.contains ``Tools.ShippingGen2.T1Hyp then throwError "{nd}: its proof uses T1Hyp"
+    for u in users do
+      if cs.contains u then throwError "{nd}: its proof uses the T1Hyp user {u}"
+  -- control for VALUES: the original ih_allPF's proof uses a T1Hyp user (ihAt_stepPF)
+  let some v0 := (← getConstInfo ``Tools.ShippingGen2.ih_allPF).value? (allowOpaque := true) | throwError "no value"
+  unless v0.getUsedConstants.contains ``Tools.ShippingGen2.ihAt_stepPF do throwError "CONTROL: ih_allPF does not use ihAt_stepPF"
+  logInfo m!"AP17 SCAN: every T1Hyp user mapped or superseded; ND proofs free of T1Hyp and its users ({ndOf.length} checked)"
 
 end Tests.Gen5.AP17ScanCheck
