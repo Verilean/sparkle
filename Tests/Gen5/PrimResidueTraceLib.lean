@@ -46,15 +46,16 @@ def stopAt (env : Environment) (stage : Nat) (n : Name) : Bool :=
     || (stage ≥ 5 && fromCoreLib env n)
   | _ => false
 
-structure Node where
+structure TNode where
   name : Name
   ls : List Level
   parent : Option Nat  -- index into the node array
+  deriving Inhabited
 
 /-- breadth first from `(root, LS root)`; returns all nodes (in discovery order, with first parent), stopped flags, leftover worklist size -/
-def traceReach (env : Environment) (root : Name) (fuel0 : Nat) (stage : Nat) : Array Node × Array Bool × Nat := Id.run do
+def traceReach (env : Environment) (root : Name) (fuel0 : Nat) (stage : Nat) : Array TNode × Array Bool × Nat := Id.run do
   let r0 := LS env root
-  let mut nodes : Array Node := #[⟨root, r0, none⟩]
+  let mut nodes : Array TNode := #[(⟨root, r0, none⟩ : TNode)]
   let mut stopped : Array Bool := #[false]
   let mut seen : Std.HashSet (Name × String) := ({} : Std.HashSet (Name × String)).insert (root, lvlKey r0)
   let mut head := 0
@@ -63,7 +64,7 @@ def traceReach (env : Environment) (root : Name) (fuel0 : Nat) (stage : Nat) : A
     fuel := fuel - 1
     let i := head
     head := head + 1
-    let nd := nodes[i]!
+    let nd : TNode := nodes[i]!
     if stage > 0 && stopAt env stage nd.name then
       stopped := stopped.set! i true
       continue
@@ -74,21 +75,21 @@ def traceReach (env : Environment) (root : Name) (fuel0 : Nat) (stage : Nat) : A
         let k := (c, lvlKey cl)
         if !seen.contains k then
           seen := seen.insert k
-          nodes := nodes.push ⟨c, cl, some i⟩
+          nodes := nodes.push (⟨c, cl, some i⟩ : TNode)
           stopped := stopped.push false
     | _ => pure ()
   return (nodes, stopped, nodes.size - head)
 
 def keyStr (n : Name) (ls : List Level) : String := s!"{n}{lvlKey ls}"
 
-def chainOf (nodes : Array Node) (i : Nat) : String := Id.run do
+def chainOf (nodes : Array TNode) (i : Nat) : String := Id.run do
   let mut out : List String := []
   let mut cur : Option Nat := some i
   let mut guard := nodes.size + 1
   while guard > 0 do
     guard := guard - 1
     match cur with
-    | some j => out := keyStr nodes[j]!.name nodes[j]!.ls :: out; cur := nodes[j]!.parent
+    | some j => let q : TNode := nodes[j]!; out := keyStr q.name q.ls :: out; cur := q.parent
     | none => break
   return " > ".intercalate out
 
@@ -113,11 +114,11 @@ def measureT (tag : String) (fuel : Nat) (rootList : Array (Name × String)) : C
     let mut keys : Std.HashMap (Name × String) (Nat × List Level) := {}
     let mut stoppedAgg : Std.HashMap (Name × String) (Nat × List Level) := {}
     for (r, m) in rootList do
-      let (nodes, stopped, _) := traceReach env r fuel st
+      let (nodes, stopped, _) : Array TNode × Array Bool × Nat := traceReach env r fuel st
       let mut cnt := 0
       let mut scnt := 0
       for i in [0:nodes.size] do
-        let nd := nodes[i]!
+        let nd : TNode := nodes[i]!
         let k := (nd.name, lvlKey nd.ls)
         if stopped[i]! then
           scnt := scnt + 1
@@ -126,7 +127,7 @@ def measureT (tag : String) (fuel : Nat) (rootList : Array (Name × String)) : C
           cnt := cnt + 1
           keys := keys.insert k ((keys.getD k (0, nd.ls)).1 + 1, nd.ls)
           if kindOf env nd.name == "rec" then
-            let par := match nd.parent with | some p => keyStr nodes[p]!.name nodes[p]!.ls | none => "-"
+            let par := match nd.parent with | some p => (let q : TNode := nodes[p]!; keyStr q.name q.ls) | none => "-"
             recRows := recRows ++ s!"{st}\t{r}\t{keyStr nd.name nd.ls}\t{par}\t{chainOf nodes i}\n"
       rootRows := rootRows ++ s!"{st}\t{r}\t{m}\t{cnt}\t{scnt}\n"
     for ((n, k), (c, ls)) in keys.toList do
