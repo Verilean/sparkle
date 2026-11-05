@@ -5775,3 +5775,12 @@ lean_lib «Tools.ShippingGen5ConstValueESound» where
 
 lean_lib «Tests.Gen5.DCF4Check» where
   roots := #[`Tests.Gen5.DCF4Check]
+
+lean_lib «Tools.ShippingGen5ConstValueELS» where
+  roots := #[`Tools.ShippingGen5ConstValueELS]
+
+lean_lib «Tests.Gen5.LSCorpus» where
+  roots := #[`Tests.Gen5.LSCorpus]
+
+lean_lib «Tests.Gen5.LSCheck» where
+  roots := #[`Tests.Gen5.LSCheck]
