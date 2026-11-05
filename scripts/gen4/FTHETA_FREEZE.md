@@ -33,10 +33,15 @@ theorem fTheta_natBinder
       (.defnInfo dv) isInst) (M, D)) :
     ∃ (body0 : Lean.Expr) (mctx : Meta.Context) (xs : Array Lean.Expr),
       MReturns (openRecordInputs dv.value) body0 ∧
-      ∀ p ∈ parameters, ∃ x ∈ xs, ∃ (decl : LocalDecl) (t : Lean.Expr),
-        MRunsIn x.fvarId!.getDecl mctx decl ∧ decl.userName.toString = p.1 ∧
-        MRunsIn (Meta.whnf decl.type) mctx t ∧ t.isConstOf ``Nat = true
+      ∀ p ∈ parameters, ∃ x ∈ xs, NatBinderAt mctx p.1 x
+
+def NatBinderAt (mctx : Meta.Context) (nm : String) (x : Lean.Expr) : Prop :=
+  ∃ (decl : LocalDecl) (t : Lean.Expr),
+    MRunsIn x.fvarId!.getDecl mctx decl ∧ decl.userName.toString = nm ∧
+    MRunsIn (Meta.whnf decl.type) mctx t ∧ t.isConstOf ``Nat = true
 ```
+(`NatBinderAt` was introduced when the proof was written, to keep the type readable; the Check compares its value
+structurally to the clause above, so the text is unchanged in meaning.)
 
 plus the telescope-free half, restated for the assembly (already proved, `core_symbolic_prologue`):
 `RunsTo (synthesizeCombinationalCoreWith translate declName parameters true cfe) … (M, D) … →
@@ -68,4 +73,11 @@ Finding for the other parts: F-top, F-kids and (c)/(e) all sit behind the same t
 for the reviewer; this study does not decide it.
 
 ## 5. Failed attempts / notes
-(filled in as units build)
+* BUILT: Tools/ShippingGen4FTheta.lean (`fTheta_natBinder`, with `inner_list`/`outer_list` loop inversions in `MRunsIn`)
+  and Tests/Gen4/FThetaCheck.lean (structural `Expr ==` TYPE check, 5 mutants, 1 comparator control, axioms = propext,
+  Classical.choice, Quot.sound). Both targets built with `kjob lake build`, exit 0. No sorry/native_decide.
+* Failed attempt: deriving the Nat-binder fact (or any fact past `lambdaTelescope`) from the run alone. Cause:
+  `lambdaTelescopeImp.process` is opaque (ShippingChildTeleLocalA.lean header), so a returning run does not yield a
+  continuation run without a Meta-library premise; hence `htele` (existing `TelescopeIn` shape).
+* Not covered: the `whnf` result is an oracle (the conclusion says what the run returned, not what Lean's `whnf` is).
+  Check binder infos are not compared (`Expr ==` ignores them).

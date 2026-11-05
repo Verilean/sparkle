@@ -5019,3 +5019,6 @@ lean_lib «Tests.Gen4.KWalkLegacyFinalCheck» where
 
 lean_lib «Tools.ShippingGen4FTheta» where
   roots := #[`Tools.ShippingGen4FTheta]
+
+lean_lib «Tests.Gen4.FThetaCheck» where
+  roots := #[`Tests.Gen4.FThetaCheck]
