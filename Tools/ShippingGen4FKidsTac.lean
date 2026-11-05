@@ -420,7 +420,7 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
           let id := mkIdent d.userName
           -- (fkids5) every IH attempt has a heartbeat budget of its own (an `exact ih …` of the wrong arity
           -- must not unfold the whole do-block into a runtime heartbeat exception), pointed state first
-          let ihLim := 2000
+          let ihLim := 10000000
           let mut stId : Option Ident := none
           for d' in ← getLCtx do
             if d'.isImplementationDetail then continue
