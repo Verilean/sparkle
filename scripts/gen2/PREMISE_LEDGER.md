@@ -1204,3 +1204,11 @@ reviewer の判断（Issue sparkle-gen4-param-ftheta、2026-11-05）: parametric
 
 - 今の受入値は変えない: **FG 81 / T1 57**。候補の見込み: FG 82（N4-a を足した場合）。
 - 解除の道: `lambdaTelescopeImp` は Lean core の `private partial def` なので、今の Lean からは展開できない（現時点では一般定理から支払い不可）。Lean core の全域化か、Meta の実装の検証が要る。
+
+### 12.18 減算（2026-11-05、coder。文書のみ。非リーフの除去で、リーフは動かない）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| SM7（Issue sparkle-ledger-sm7） | C.SM-7（−1、PA 非リーフ） | `hT2Tie_of_genGP`（`Tools/ShippingGen5SM7.lean`、7a3779e6、par/gpfix）。CallTie の最上位の消費者 `stepDec_of_ties` の前提 `hT2_TIE`（`∀ k hk, (…).child? = none → ∀ q, genGP … = some q → CallTie p q k hk`）を、既存の行（T1HypND、p の pkg、ClosingRun の行、OneOutWidth = A.P-25 / D.T-3、hkidW = D.T-4）だけから出す。`GenExtAtCall` は `hDT1_of_genGP`（§12.16）で、その `hord` は `hT2_TIE` の guard として消費者から渡る。Check `Tests/Gen5/SM7Check.lean`: GUARD（前提に guard の束縛変数が無い。対照の ND root には `hord`）、CONSUMER（結論が `hT2_TIE` の型と Expr の ==、別の env では不一致）、USES（`genExtAtCall_of_genSem` を使う Tools の定数は `hDT1_of_genGP` だけ。import 先も走査し、正の対照つき）。axioms は標準の 3 つだけ。exact-head `kjob-run-src-gpfix-a3d9` exit 0（863 jobs、dirty なし）。reviewer 承認（7a3779e6。source 全体の grep でも直接の消費者は `hDT1_of_genGP` だけ） | 新しい前提 0。§12.16 と同じく `GP := genGP` の範囲 |
+
+- **現在値: FG 80**（81 − 1）。内訳（R0）: リーフ 56 / 非リーフ 24。T1 は 57。FG の最終受理ではない。共有前提の候補 N4-a（§12.17）は数えていない（見込み FG 81）。
