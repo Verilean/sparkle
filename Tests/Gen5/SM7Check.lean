@@ -92,9 +92,15 @@ run_meta do
   -- 3. USES
   let env ← getEnv
   let mut users : List Name := []
-  for (n, c) in env.constants.toList do
+  -- positive control: the known user is found (its value uses the lemma)
+  let some hv := (← getConstInfo ``Tools.ShippingGenFGLedgerPremises.hDT1_of_genGP).value? (allowOpaque := true)
+    | throwError "CONTROL: hDT1_of_genGP has no value"
+  unless hv.getUsedConstants.contains ``Tools.ShippingGen5Sem.genExtAtCall_of_genSem do
+    throwError "CONTROL: hDT1_of_genGP's value does not use genExtAtCall_of_genSem"
+  -- imported constants are in `map₁`, the ones of this file in `map₂`
+  for (n, c) in env.constants.map₁.toList ++ env.constants.map₂.toList do
     if (`Tools).isPrefixOf n then
-      if let some v := c.value? then
+      if let some v := c.value? (allowOpaque := true) then
         if v.getUsedConstants.contains ``Tools.ShippingGen5Sem.genExtAtCall_of_genSem then users := users ++ [n]
   logInfo m!"USES of genExtAtCall_of_genSem in Tools.*: {users}"
   unless users == [``Tools.ShippingGenFGLedgerPremises.hDT1_of_genGP] do throwError "unexpected users {users}"
