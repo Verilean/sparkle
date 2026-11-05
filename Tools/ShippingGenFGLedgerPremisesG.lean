@@ -3,6 +3,7 @@ import Tools.ShippingGen5AccGenDataKit
 import Tools.ShippingGen5AccGenP
 import Tools.ShippingGen5AccOrdCallees
 import Tools.ShippingGen5SemExtPkg
+import Tools.ShippingGen5DataOf
 set_option autoImplicit false
 -- GPFIX (scripts/gen5/GPFIX_FREEZE.md). No `sorry`, no `axiom`, no `native_decide`.
 
@@ -22,6 +23,7 @@ open Tools.ShippingEntrySoundness (RunsTo)
 open Tools.ShippingGen5Acc Tools.ShippingGen5Sem
 open Tools.ShippingMachineAuto (MachineData)
 open Tools.ShippingMachineDenote Tools.ShippingMachineSource
+open Sparkle.IR.Semantics Sparkle.IR.Machine Sparkle.Core Sparkle.Core.Signal
 open Tools.ShippingEntryReadsLinked (envAt)
 
 section
