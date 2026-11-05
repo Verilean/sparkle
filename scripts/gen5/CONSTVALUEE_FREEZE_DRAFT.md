@@ -498,3 +498,58 @@ reviewer の部分受理（P1/P2 は D1a/D2a に沿う。`TyRKS` は構文的判
 構造照合（`instantiateLevelParamsS` の定義の展開、`cvekl_fun` ほかの形、`lbr_instantiateLevelParamsS`、`EnvClosedL ↔ EnvDeclClosed`、4 行の定理をモデル表 `PTm` で具体化）、負対照（instantiate が恒等でなく param 名を区別する、opaque 版は stuck・構文版は計算できる、依存した codomain と arity 違いは `ClosedPi` でない、誤った型の仕様はない、axiom 検出器の検出）、`#print axioms` と 24 宣言の axiom 検査（propext / Classical.choice / Quot.sound のみ）、残った義務 8 件が定理でも axiom でもなく `Prop` の定義であることの確認、115 件の区分（4 + 30 + 6 + 75）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §SoundS3: `EnvDeclClosed` の実環境の監査と、ESProof の `CVEKL` への移植（Issue `sparkle-ledger-dd4-sound`、土台 6ee3a1ae）
+
+reviewer の部分受理（§SoundS2 の範囲: lbr 保存、`EnvClosedL ↔ EnvDeclClosed`、`CVEKL` の関数性、明示条件つき 4 行。Lean の opaque な `instantiateLevelParams` との一致は未証明で主張しない）の続き。TRUSTED・axiom・sorry・native_decide なし。`PT` は任意のパラメータのまま。Q1（valuation 化）/ Q2（型変換規則）は `sparkle-ledger-dd4-val` の担当で、そのファイルには触っていない。既存ファイルは書き換えていない。
+新ファイル: `Tools/ShippingGen5ConstValueELProof.lean`、`Tools/ShippingGen5EnvDeclClosed.lean`、`Tests/Gen5/EnvDeclClosedAudit{Lib,,M1..M4}.lean`、`Tests/Gen5/SoundS3Check.lean`。lakefile への lean_lib 登録は最初の commit で 1 回。
+
+### 1. `EnvDeclClosed` の実環境の監査（meta。**監査であって証明ではない**）
+
+`EnvDeclClosed env`（保存された `ci.type` と `defnInfo` の `value` が `lbr = 0`）を、実環境の宣言で評価した。`lbr` は `SoundK.lbr` と同じ節の memo 付き転記 `lbrM`（`Nat` の引き算も同じ）で、Lean 自身の `Expr.looseBVarRange` とも照合した（食い違いも反例として数える）。範囲は 2 つ。
+- REACHED: PrimResidueKey と同じ root・同じ traversal（`reach`、`checkFuel`）で到達する宣言。47 modules（`PrimResidueKey` と同じ driver 分割: main43 + M1..M4）。
+- ALL: その driver の環境の全 constant（`EnvDeclClosed` そのもの）。
+
+| driver | root | module | REACHED（名前 / env にある / defnInfo / 反例） | ALL（constant / 反例） |
+|---|---|---|---|---|
+| main43 | 232 | 47（推移 import を含む） | 925 / 925 / 734 / **0** | 256129 / **0** |
+| M1 | 46 | 14 | 485 / 485 / 349 / **0** | 238065 / **0** |
+| M2 | 46 | 14 | 487 / 487 / 351 / **0** | 238368 / **0** |
+| M3 | 49 | 15 | 491 / 491 / 355 / **0** | 239490 / **0** |
+| M4 | 47 | 14 | 486 / 486 / 350 / **0** | 238218 / **0** |
+
+count 行: `main43: 232 roots / 47 modules, M1..M4 は各 1 つの MemNameCollision module + 共通 import。REACHED 反例 0（5 driver）、ALL 反例 0（5 driver）、env に無い到達名 0`。反例は 0 件なので列挙は空（反例があれば `COUNTEREXAMPLE name part lbr` の行で全件出る形）。
+- **fuel / timeout**: `checkFuel` は全 root の worklist が空になることを確かめ、残れば `throwError`（部分結果は返さない）。timeout（heartbeat）も例外で build が失敗する。負対照: fuel=50 では検査が失敗する（`negative control (fuel) ok`）、検出器は `lbr ≠ 0` の type / value を持つ `ConstantInfo` を弾く（`negative control (detector) ok`: 閉じた宣言 `#[]`、開いた value `#[(value,1)]`、開いた type `#[(type,1)]`）。
+- 生データは `KJOB_REPORT_PATH`（`report.md.dcl.*`）。ソースツリーには置いていない。
+- **限界**: 到達集合は PrimResidueKey の近似（theorem の中は入らない）。ALL は driver ごとの環境で、47 module の合併環境ではない（衝突する 4 module は別環境）。`lbrM` が `lbr` の転記であること自体は構造照合ではなく読んで確認した（`looseBVarRange` との一致 0 不一致がその独立な傍証）。
+
+### 2. 証明として言えること（`ShippingGen5EnvDeclClosed`、仮定として明示）
+
+- Lean のカーネルは閉じた項だけを宣言として受理する、という不変量は `Environment` が core で不透明なので、Lean の中では導出できない。そこで `KernelClosedInvariant env`（`looseBVarRange = 0` の形）を **仮定の形の `Prop`** として置き、`envDeclClosed_of_kernel : OblLbrZero → KernelClosedInvariant env → EnvDeclClosed env` を証明した（名前付き `Prop` 間の含意。`OblLbrZero` は未解決のブリッジで、どこでも仮定していない）。
+- 局所化: `EnvDeclClosedOn env R`、`envDeclClosedOn_univ_iff`（全体と同値）、`envDeclClosedOn_mono`、`envDeclClosedOn_of_list`、`envDeclClosed_of_on`（env の全保存名が `R` に入れば全体）。監査（有限の名前集合）が与えるのは `EnvDeclClosedOn` の形で、**全体の `EnvDeclClosed` は ALL 側の driver 環境ごとの検査**が与える。
+- 仮定を満たす証拠は meta の検査（上）であって証明ではない。
+
+### 3. ESProof の `CVEKL` への移植（`ShippingGen5ConstValueELProof`、axiom は propext / Classical.choice / Quot.sound のみ）
+
+構文だけの補題（`liftS` / `substS` / `betaS` / `instForallS` の可換、`InsV`、`SafeArg`、`lbl_*`）は carrier を含まないのでそのまま再利用。carrier を含む補題を `CVEKS` → `CVEKL` に移した: `tdenl_wk` / `argsdenl_wk` / `cvekl_wk`、`SubVL` / `subvl_get` / `subvl_wk`、`tdenl_subst` / `argsdenl_subst` / `cvekl_subst`、`WfValL`、`oblDenBvarL`、`oblDenLitsL_of_rows`、`oblDenSubstL_safe`、`denTypedL`、`TyRKL` / `TyArgsL`、`KernelRulesKL`（`OblConstL` を新設）、`kernelRulesKL_TyRKL`、`tyRKL_sub`、`cvekl_tyRKS` / `cvekl_sound`。変更点は仮定 `EnvClosedS` → `EnvClosedL` だけで、証明は機械的に通った。さらに `cvekl_wk_of_declClosed` / `cvekl_subst_of_declClosed` / `denTypedL_of_declClosed` で、環境についての仮定が素の `EnvDeclClosed` だけになる形に言い直した。
+未移植・未解決は変わらず: `OblDenSubstL` の一般形（Q1）、`RowArgsAtL` / `OblPrimArgsL`（Q2）。
+
+### 4. 依存した codomain の 30 行（Q1/Q2 の承認後。今回は一覧と証明の形だけ）
+
+`merge_row_typed_audit.py` を再実行した一覧（K1 の term key 115 件中、`Type 0`・引数あり・依存型。§Rows と同数）:
+- 型・命題引数に依存: `Fin.mk`、`BitVec.ofFin`、`Decidable.isTrue`、`Decidable.isFalse`。
+- `{dom : DomainConfig}` を取る出力 structure の `*.mk` 26 件: `Sparkle.IP.Bus.LINHW.ChkOut`、`Sparkle.IP.Crypto.Keccak256HW.KeccakFOut`、`Sparkle.IP.Crypto.Keccak256Sponge.SpongeOut`、`Sparkle.IP.Crypto.P256FieldHW.MulOut`、`Sparkle.IP.Crypto.P256OrderHW.MulOut`、`Sparkle.IP.Crypto.Secp256k1OrderHW.MulOut`、`Sparkle.IP.Net.HFTStrategy.HFTOut`、`Sparkle.IP.Net.HTTP.HttpEmitOut`、`Sparkle.IP.Net.HTTP.HttpRequestParserOut`、`Sparkle.IP.Net.UART.TxOut`、`Sparkle.Tests.Compiler.MultiInstance.PeOut`、`Sparkle.Tests.Compiler.NoPortsMemKidTest.KOut`、`Sparkle.Tests.Compiler.ShippingChildBoundaryTest.AccOut`、`Sparkle.Tests.Compiler.ShippingMachineEntryTest.TwoOut`、`Sparkle.Tests.Compiler.ShippingMachineNestTest.Out` / `.Pair`、`Sparkle.Tests.Compiler.ShippingMachineSeqTest.CntOut`、`Sparkle.Tests.Compiler.ShippingMachineTeleTest.CountOut` / `.PulseOut`、`Tests.Compiler.KaryGenTest.KOut`、`Tests.Compiler.KaryThreeTest.KOut`、`Tests.Compiler.SharedLeafGenDefaultHbTest.Acc16Out` / `.AccOutD`、`Tests.Compiler.SharedLeafGenFallbackTest.AccOutF`、`Tests.Compiler.SharedLeafGenTest.Acc16Out`、`Tests.Compiler.SharedLeafMemKidTest.MOut`（各 `.mk`）。
+
+Q1/Q2 のあとの証明の形（**未証明の計画**）:
+1. 宣言型 `T = Π (x₁:A₁)…(xₙ:Aₙ), D Ls (bvar 添字…)`（結果が `D` の spine で、引数が binder の bvar）について、`instForallS T args` を `n = args.length` で計算する補題: 各段の代入は本体の index 0 だけなので、`D Ls (args の対応する要素)` になる（binder の型 `Aᵢ` は `instForallS` が捨てる）。`ClosedPi` の一般化（`DepPi`）。
+2. 結果の `TDenL` は `tcon` 規則で作る。型引数の `ArgsDenL` は `hargs` の対応位置から取り出す（`dom` は項引数なので `.tm`）。ここで行の仕様 `TmSpec`/`TyConSpec` を、引数の値に依存する形（`den as` の型が `as` の値の関数）に一般化する。
+3. Q1 が要る箇所: `hargs` の導出と結果型の `TDenL` が同じ valuation・同じ引数式で閉じることと、`substS` が引数に lam / forall / const 頭を許すときの `TDenL` の代入（`OblDenSubstL` 一般形）。Q2 が要る箇所: 型引数・項引数が宣言型の binder 型に型付くこと（`RowArgsAtL`）。
+観察（未証明、断定しない）: 1. の spine 計算自体は `SafeArg` を要求しないように見える。Q1 が実質必要になるのは 3 の代入の部分で、これは val 側の設計を見て確定する。
+
+### 5. Check（`Tests/Gen5/SoundS3Check.lean`）と台帳
+
+構造照合（移植した補題の型が `CVEKL` / `EnvClosedL` の形、`denTypedL_of_declClosed`、`kernelRulesKL_TyRKL` による束の充足可能性、局所化の同値）、負対照（空の表で junk entry の valuation は `WfValL` でない `junk_not_wf`、`Sort` は `TDenL` を持たない `sort_not_tden`、`lbr_bvar_not_closed`、`lam_not_safe`、空集合の `EnvDeclClosedOn` は自明、axiom 検出器）、37 宣言の axiom 検査（propext / Classical.choice / Quot.sound のみ）、`#print axioms` 5 件、残った義務 9 件が定理でも axiom でもなく `Prop` の定義であることの確認。
+
+残った義務: `OblDenSubstL` 一般形（Q1）、`OblPrimArgsL` / `RowArgsAtL`（Q2）、`OblRowTypedS` の依存 30 行（Q1/Q2 後）、`KernelClosedInvariant`（カーネルの不変量、監査が証拠）、`OblLbrZero`（ブリッジ）。Lean の opaque な `instantiateLevelParams` との一致、kernel typing との一致は主張しない。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
