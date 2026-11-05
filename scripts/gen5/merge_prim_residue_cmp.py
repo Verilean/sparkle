@@ -73,3 +73,39 @@ for g in ["corpus", "sig"]:
         print(f"stage {st}: occurrences {sum(c.values())} in {nodes} nodes: {dict(c)}")
         if st in (0, 2, 5):
             for rn in sorted(byrec): print(f"     {rn}: {dict(byrec[rn])}")
+
+# ---- row obligations (RowTypedAtV / RowTeleEvAt) of the rows that a stop set needs, joined with the PTcorpus row status ----
+import os
+here = os.path.dirname(os.path.abspath(__file__))
+def tsv(p): return [l.rstrip("\n").split("\t") for l in open(os.path.join(here, p)) if l.strip()]
+pt_keys = {(r[0], r[2]) for r in tsv("ptcorpus_keys.tsv")}
+pt_missing = {(r[0], r[2]) for r in tsv("ptcorpus_missing.tsv")}
+pt_closure = {(r[0], r[2]) for r in tsv("ptcorpus_closure.tsv")}
+has_row = (pt_keys - pt_missing) | pt_closure
+PAID_R = {"R0", "R1", "R2"}; PAID_T = {"T0", "T1"}
+def tally(items, title):
+    """items: list of (R, T). Returns the printed split."""
+    cr = collections.Counter(r for r, t in items); ct = collections.Counter(t for r, t in items)
+    pr = sum(c for k, c in cr.items() if k in PAID_R); pt = sum(c for k, c in ct.items() if k in PAID_T)
+    n = len(items)
+    print(f"   {title}: {n} rows | RowTypedAtV: shape of an existing lemma {pr} (R0/R1/R2), R3a {cr['R3a']}, R0x/R1x {cr['R0x']+cr['R1x']}, R3 {cr['R3']} | RowTeleEvAt: shape of an existing lemma {pt} (T0/T1), T2 {ct['T2']}, T3 {ct['T3']}")
+print("\n==================== row obligations ====================")
+for g in ["sig", "corpus"]:
+    ts = group(g)
+    keys = collections.defaultdict(dict); stopped = collections.defaultdict(dict)
+    for t in ts:
+        for r in rows("cmpkeys", t):
+            keys[int(r[0])][(r[1], r[3])] = (r[2], pf(r[5:]))
+        for r in rows("cmpstopped", t):
+            stopped[int(r[0])][(r[1], r[2])] = (r[4], pf(r[5:]))
+    for st in (0, 1, 2, 3, 5):
+        print(f"{g} stage {st} ({STAGES[st]}):")
+        ctor_rows = [(f["R"], f["T"]) for (n, lv), (k, f) in keys[st].items() if k == "ctor" and (n, lv) in has_row]
+        ctor_norow = [n + lv for (n, lv), (k, f) in keys[st].items() if k == "ctor" and (n, lv) not in has_row]
+        tally(ctor_rows, "residue constructor rows (PTcorpus has the row)")
+        print(f"   residue constructors WITHOUT a PTcorpus row: {len(ctor_norow)}")
+        if st:
+            sp = [(f["R"], f["T"]) for d, f in stopped[st].values() if d == "fits"]
+            tally(sp, "stopped definitions that fit Dyn (a new row each)")
+            print(f"   stopped definitions that do NOT fit Dyn (no row possible without U/P): {sum(1 for d,f in stopped[st].values() if d!='fits')}")
+            tally(ctor_rows + sp, "TOTAL rows to type")
