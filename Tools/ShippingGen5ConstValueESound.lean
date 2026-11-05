@@ -4,7 +4,7 @@ set_option autoImplicit false
 
 Proved here: the syntactic helper `instForall` is well behaved (pure structural recursion, no kernel function).
 NOT proved, written as `def ... : Prop` (a type only: never assumed, no `sorry`, no axiom, no TRUSTED): the facts about
-`Expr.instantiate1` / `Expr.liftLooseBVars`, which are `opaque` (extern C) in Lean, so no theorem about them exists in the logic. -/
+`Expr.instantiate1` / `Expr.liftLooseBVars`, which are `opaque` (extern C) in Lean, so no theorem about them is available with the current API and derivations (unresolved, not shown impossible). -/
 namespace Tools.ShippingGen5ConstValueE
 open Lean
 
@@ -33,7 +33,7 @@ theorem instForall_length_zero (e : Expr) {as : List Expr} (h : as.length = 0) :
 
 /-! ## Named obligations (types only). `Ty env Γ e τ` is the kernel typing judgment, a PARAMETER (core has no `Prop`-valued one). -/
 
-/-- O-lift-closed (bvar): lifting a closed type is the identity. Opaque `liftLooseBVars`: unprovable in the logic. -/
+/-- O-lift-closed (bvar): lifting a closed type is the identity. Opaque `liftLooseBVars`: no commutation lemma is available with the current API (unresolved). -/
 def OblLiftClosed : Prop := ∀ (e : Expr) (s n : Nat), e.looseBVarRange = 0 → e.liftLooseBVars s n = e
 
 /-- O-bvar (bvar rule): the kernel type of `bvar i` in context `Γ` is `Γ[i]` lifted by `i+1`. -/
@@ -63,7 +63,7 @@ def OblRowTyped (PT : PrimTable) (env : Environment) : Prop :=
     TDen PT env ρ (instForall (ci.type.instantiateLevelParams ci.levelParams ls) args) d.ty
 
 /-- O-level-erasure (`∃ ls` functionality): `instantiateLevelParams` / `instantiate1` / `beta` commute with erasing levels.
-Both sides involve an `opaque` function, so this is unprovable here (see the draft). -/
+Both sides involve an `opaque` function, so no commutation lemma is available here with the current API (unresolved; see the draft). -/
 def OblLevelErase (erase : Expr → Expr) : Prop :=
   (∀ (e : Expr) (ps : List Name) (ls : List Level), erase (e.instantiateLevelParams ps ls) = erase e) ∧
   (∀ (b x : Expr), erase (b.instantiate1 x) = (erase b).instantiate1 (erase x))

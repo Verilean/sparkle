@@ -175,15 +175,15 @@ Issue `sparkle-ledger-dd4-dcf`。土台 c63f2284。PT は任意のパラメー�
 
 TRUSTED・axiom・sorry なし。PT は任意のまま。**設計の変更は reviewer の判断**（下の 1.3）。
 
-### 1. `∃ ls` の `ConstValueE` の関数性 — できない（現設計では）
+### 1. `∃ ls` の `ConstValueE` の関数性 — 現設計では未解決（`LS env X` で迂回、§LS）
 
 1.1 **理由（確認済み）**: level を消す対応の証明には、`instantiateLevelParams`・`instantiate1`・`beta` が level の消去と可換であることが要る。
 `Lean.Expr.instantiate1` / `instantiate` / `instantiateRange` / `liftLooseBVars` は **`opaque`（extern C）**で、論理の中に展開がない（`#print` で確認、`Tests/Gen5/DCF4Check.lean`）。
-したがって「`erase (b.instantiate1 x) = (erase b).instantiate1 (erase x)`」型の補題は、Lean の論理では**証明できず**、axiom（=TRUSTED）にするしかない。大きさの問題ではなく原理的な制約。
+したがって「`erase (b.instantiate1 x) = (erase b).instantiate1 (erase x)`」型の補題は、**現在の API と導出では可換補題が得られず、未解決**（`opaque` の展開がないので、Lean の論理の中の定義から導けない）。証明不能と断定するものではない。可換補題を別の道（`instantiate1` を使わない再定義など）で得られるかは未調査。axiom（=TRUSTED）にする案は reviewer が承認していないので入れない。
 （`instantiateLevelParams` 自体は Lean 側の定義 `replace` だが、unfold の本体が `beta` を通るので、`beta` で止まる。）
 補題の型は `OblLevelErase`（`Tools/ShippingGen5ConstValueESound.lean`、`Prop` の def。仮定していない）。
 
-1.2 同じ制約で、`ConstValueE`（`∃ ls`）の関数性は、`const X ls` と `const X ls'` の導出の対応が取れず証明できない。`ls` を固定した `constValueEAt_functional`（承認済み）は成り立つ。
+1.2 同じ制約で、`ConstValueE`（`∃ ls`）の関数性は、`const X ls` と `const X ls'` の導出の対応が取れず、現在の API と導出では未解決。`ls` を固定した `constValueEAt_functional`（承認済み）は成り立つ。
 
 1.3 **ls を固定する設計案**（採用は reviewer）:
 - `ConstValueE PT env X α v := ConstValueEAt PT env X [] α v`（`ls = []`、`∃ ls` を消す）。または `ls` を定数ごとの関数 `LS : Name → List Level` として `PrimTable` の外に取り `ConstValueEAt PT env X (LS X) α v`。
@@ -197,18 +197,47 @@ TRUSTED・axiom・sorry なし。PT は任意のまま。**設計の変更は re
 
 **名前付きの義務**（型は書いた。`Prop` の def。仮定も sorry もない。カーネルの型付け `Ty env Γ e τ` は core に Prop がないのでパラメータ）:
 
-| 義務 | 内容 | なぜ証明できないか |
+| 義務 | 内容 | 未解決の理由 |
 |---|---|---|
-| `OblLiftClosed` | 閉じた型の `liftLooseBVars` は恒等 | `liftLooseBVars` が opaque |
+| `OblLiftClosed` | 閉じた型の `liftLooseBVars` は恒等 | `liftLooseBVars` が opaque（現在の API では補題が得られず未解決） |
 | `OblBvar Ty` | bvar の型 = `Γ[i]` の `liftLooseBVars 0 (i+1)` | カーネルの bvar 規則。`Ty` と `liftLooseBVars` |
-| `OblApp Ty` | app の型 = `B.instantiate1 x` | `instantiate1` が opaque、`Ty` はカーネル |
+| `OblApp Ty` | app の型 = `B.instantiate1 x` | `instantiate1` が opaque（未解決）、`Ty` はカーネル |
 | `OblLam Ty` | lam: body の型 `B` が codomain | `Ty`（カーネル）。規則側の `B`/`TB` の対応は `CVE.lam` の前提 |
 | `OblConst Ty` | 定数の型 = `ci.type.instantiateLevelParams ci.levelParams ls` | `Ty`（カーネル）。unfold の型保存は defeq 側 |
 | `OblRowTyped PT env` | prim の `hty`（表の行ごと） | 行ごとの義務（reviewer の許可どおり表の行に残す） |
-| `OblLevelErase erase` | 1.1 の level 消去の可換 | 1.1 |
+| `OblLevelErase erase` | 1.1 の level 消去の可換 | 1.1（未解決。ls を固定して迂回する。§LS） |
 
-健全性の定理（`CVE … → Ty env (ρ.map τ) e τ`）はこれらの義務を仮定にして書けるが、仮定つきの定理は入れない（指示）。また unfold の型保存は β/δ 同値（defeq）を含み、`Ty` に変換規則が要る（規模が大きい）。**まとめ: 健全性のうち証明できるのは `instForall` の構文部分だけで、残りは opaque なカーネル関数と `Ty` に起因する名前付き義務。**
+健全性の定理（`CVE … → Ty env (ρ.map τ) e τ`）はこれらの義務を仮定にして書けるが、仮定つきの定理は入れない（指示）。また unfold の型保存は β/δ 同値（defeq）を含み、`Ty` に変換規則が要る（規模が大きい）。**まとめ: 健全性のうち現時点で証明できたのは `instForall` の構文部分だけで、残りは opaque なカーネル関数と `Ty` に起因する名前付き義務。**
 
 ### 3. Check と台帳
 
 `Tests/Gen5/DCF4Check.lean`（構造照合・負対照・`#print axioms`・opaque の確認）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §LS: 決定的な level 選択 `LS env X`（Issue `sparkle-ledger-dd4-ls`、土台 458993c6）
+
+reviewer の判断: `ls = []` にはしない。各 `(env, X)` に決定的な level 列 `LS env X` を選び、`ConstValueEAt PT env X (LS env X)` を `CV` にする（universe-polymorphic な定数を最初から排除しない）。`OblLevelErase` は仮定にも axiom にもしない（ls を固定して迂回）。健全性の義務（`OblLiftClosed` / `OblBvar` / `OblApp` / `OblLam` / `OblConst` / `OblRowTyped`）は未証明・未仮定のまま。TRUSTED・axiom・sorry なし。`PT` は任意。
+
+### 定義と定理（`Tools/ShippingGen5ConstValueELS.lean`）
+
+- `LS env X := match env.find? X with | some ci => ci.levelParams.map (fun _ => Level.zero) | none => []`。
+- `CVLS PT := fun env X α v => ConstValueEAt PT env X (LS env X) α v`。型は `ConstValueRel`（`Environment → Name → (α : Type) → α → Prop`）のまま、`PT` 以外の引数・仮定なし。
+- `cvls_functional`: `constValueEAt_functional` から。`∀ PT, ConstValueFunctional (CVLS PT)` が出る。補題 `LS_length`（`ls` の長さ = `levelParams` の長さ）、`LS_none`。
+- 選択の理由: `Level.zero` は値の型 `Type 0`（`Dyn`）と合う。levelParams の長さが合うので `instantiateLevelParams` が全 param を置換する。別の選択（param をそのまま残すなど）にしても、定理は `LS` の中身に依存しないので差し替えられる。
+- 限界: 規則は `const X ls` の `ls` を `instantiateLevelParams` 以外で見ないので関数性は通るが、`LS` が選ぶ level が `Type 0` の制約を満たさない定数（`ULift.{u}` で `u ≠ 0` が要る使い方など）では導出が止まる。止まることは `DeclConnect` の存在行が作れない（`CVLS` が成り立たない）ことを意味し、矛盾ではない。
+
+### 実コーパスの測定（`Tests/Gen5/LSCorpus.lean`、**59 宣言のサンプル**、PrimResidueCount と同じ root）
+
+測定 (B) は忠実な走査: `(X, LS env X)` から始め、`defnInfo` を `instantiateLevelParams` で展開し、到達した `(const, ls)` を数える（証明項は入れない近似、`Level.normalize` で同一視）。
+
+- **root 自身の levelParams を持つ宣言: 0 / 59**。よって `LS env X = []` で、`∃ ls` の選択と一致する。DeclConnect の存在行（`X` は root）に効く `ls` の選択は、このサンプルでは `[]` に決まる。
+- (A) 到達した定義の本体にある `const c ls` の `ls`（生、のべ）: 空 112117 / すべて zero 30233 / 閉じた非零 20387 / param のみ 10015 / param を含む式 3008。ライブラリ定数の使用は、そのまま展開の中で具体的な level に置換されるので、`LS` が選ぶのは root の level だけで足りる。
+- (B) 到達した異なる `(const, ls)` は のべ 15396。**同じ名前が異なる ls で到達する箇所**: 13 名、全 59 root で何かは起きる。例（root 数、ls の種類）: `Bool.rec`/`Bool.casesOn`（59, `[0]` と `[1]`）、`Nat.rec`（59, `[1]` `[2]`）、`False.elim`/`False.rec`（56）、`List.rec`/`List.below`/`List.brecOn`（44）、`PProd`/`PProd.mk`（44, 3 種）、`PUnit`/`PUnit.unit`（44）。
+  - これは **`LS env X` の選択の問題ではない**。`X` ごとの level を `LS` が選ぶのは root（と `DeclConnect` が参照する名前）だけで、内部の使用は本体の `const c ls` が持つ `ls`（式の側の情報）。複数の ls を持つのは、同じ再帰子・型が motive の宇宙の違う箇所で使われるから。規則は `ls` を式から受け取る（`CVE.const` の `ls` は式の一部）ので、複数の ls を持つこと自体は関数性に影響しない。
+  - **効く点**: 型の基本形・コンストラクタ・再帰子（残余、§5）の行 `PT` は、`(Name, ls)` ごとの行になる。`Name` だけの行では足りないので、行の鍵は `Name` ではなく `Name × List Level`（または level 全称の行）にする必要がある（表の設計への示唆。未決定）。
+  - DeclConnect の存在行には効かない（root は monomorphic）。
+- 限界: 59 宣言のサンプル（`design`/`gate` ルート、他の Test モジュールは入っていない）。到達先の `TgtRun` の呼び出し先を root 以外まで調べていない。polymorphic な root を持つコーパスでは再測定が要る。
+
+### 主張しないこと
+
+- 規則の健全性、`OblLevelErase` の解決。台帳の数は変わらない（FG 75 / T1 57、今回 FG -0 +0 / T1 -0 +0）。
+- Check: `Tests/Gen5/LSCheck.lean`（`CVLS PT : ConstValueRel`、追加仮定なし、負対照、`#print axioms` は propext / Classical.choice / Quot.sound のみ）。
