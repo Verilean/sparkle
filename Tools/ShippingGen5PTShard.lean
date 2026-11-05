@@ -207,7 +207,7 @@ theorem FreshAgainst.excl {PT : PrimTableK} {S : PTShard} (h : FreshAgainst PT S
 theorem FreshAgainst.shard_excl {S T : PTShard} (h : FreshAgainst S.toPT T) : Excl S.toPT T.toPT := h.excl
 
 /-- No key occurs twice inside one shard. -/
-def Nodup (S : PTShard) : Prop := S.tyKeys.Nodup ∧ S.tmKeys.Nodup
+def PTShard.Nodup (S : PTShard) : Prop := S.tyKeys.Nodup ∧ S.tmKeys.Nodup
 
 
 /-! ## The generator: `#pt_shard C₁ C₂ …`
@@ -290,15 +290,8 @@ private def runCmdText (txt : String) : CommandElabM Unit := do
   | .ok stx => elabCommand stx
   | .error e => throwError "pt_shard: generated text does not parse: {e}\n{txt}"
 
-elab "#pt_shard " ids:ident+ : command => do
-  let mut wanted : Array (Name × Bool) := #[]
-  for id in ids do
-    let c ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo id
-    match (← getEnv).find? c with
-    | some (.inductInfo iv) =>
-      wanted := wanted.push (c, true)
-      for k in iv.ctors do wanted := wanted.push (k, false)
-    | _ => throwErrorAt id "#pt_shard: {c} is not an inductive type"
+/-- The generator proper: `wanted` lists each requested inductive type (`true`) and constructor (`false`). -/
+private def runShard (wanted : Array (Name × Bool)) : CommandElabM Unit := do
   let mut nTy := 0; let mut nTm := 0
   let mut tyRows : Array String := #[]; let mut tmRows : Array String := #[]
   let mut missing : Array String := #[]
@@ -328,7 +321,7 @@ elab "#pt_shard " ids:ident+ : command => do
         tmRows := tmRows.push s!"(`{c}, {numsSrc lsN}, ⟨_, {id}⟩)"
         keyTheorems := keyTheorems.push s!"theorem {id}_key : ptShard.toPT.tms `{c} {lvsSrc lsN} = some {id}.row := rfl"
         keyTheorems := keyTheorems.push s!"theorem {id}_comp : ({ns}.PTcore ⊕ₚ ptShard.toPT).tms `{c} {lvsSrc lsN} = some {id}.row :=\n  {ns}.comp_tms_right_excl ptShard_excl {id}_key"
-        keyTheorems := keyTheorems.push s!"theorem {id}_run {binders} :\n    {id}.run [{args}] = some (⟨{r.res}, {r.head} {" ".intercalate (r.xs.toList.map (·.1))}⟩ : Tools.ShippingGen5ConstValueE.Dyn) := by\n  simp [{id}, Tools.ShippingGen5PTCorpus.TmTele.run]"
+        keyTheorems := keyTheorems.push s!"theorem {id}_run {binders} :\n    {id}.run [{args}] = some (⟨{r.res}, {r.head}⟩ : Tools.ShippingGen5ConstValueE.Dyn) := by\n  simp [{id}, Tools.ShippingGen5PTCorpus.TmTele.run]"
         nTm := nTm + 1
   for t in perKey do runCmdText t
   runCmdText s!"def ptShard : {ns}.PTShard := \{ tys := [{", ".intercalate tyRows.toList}], tms := [{", ".intercalate tmRows.toList}] }"
@@ -343,6 +336,33 @@ elab "#pt_shard " ids:ident+ : command => do
   runCmdText s!"theorem ptShard_n_missing : ptShardMissing.length = {missing.size} := rfl"
   runCmdText s!"theorem ptShard_functional : Tools.ShippingGen5FG.ConstValueFunctional (Tools.ShippingGen5CVFinal.CVFinal ({ns}.PTcore ⊕ₚ ptShard.toPT)) :=\n  {ns}.cvFinal_comp_functional _ _"
   for t in keyTheorems do runCmdText t
+
+private def inductWanted (c : Name) : CommandElabM (Option (Array (Name × Bool))) := do
+  match (← getEnv).find? c with
+  | some (.inductInfo iv) => return some ((#[(c, true)] : Array (Name × Bool)) ++ (iv.ctors.toArray.map fun k => (k, false)))
+  | _ => return none
+
+/-- `#pt_shard S₁ S₂ …`: the shard of the named inductive types (type former and constructors). -/
+elab "#pt_shard " ids:ident+ : command => do
+  let mut wanted : Array (Name × Bool) := #[]
+  for id in ids do
+    let c ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo id
+    let some w ← inductWanted c | throwErrorAt id "#pt_shard: {c} is not an inductive type"
+    wanted := wanted ++ w
+  runShard wanted
+
+/-- `#pt_shard_module M`: the shard of every inductive type declared by the imported module `M` (internal and private names skipped), in name order. -/
+elab "#pt_shard_module " m:ident : command => do
+  let env ← getEnv
+  let some idx := env.header.moduleNames.findIdx? (· == m.getId) | throwErrorAt m "#pt_shard_module: {m.getId} is not an imported module"
+  let mut cs : Array Name := #[]
+  for (c, ci) in env.constants.map₁.toList do
+    if ci matches .inductInfo _ && !c.isInternal && !isPrivateName c && env.getModuleIdxFor? c == some idx then cs := cs.push c
+  cs := cs.qsort Name.lt
+  let mut wanted : Array (Name × Bool) := #[]
+  for c in cs do
+    if let some w ← inductWanted c then wanted := wanted ++ w
+  runShard wanted
 
 end gen
 
