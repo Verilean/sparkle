@@ -160,6 +160,10 @@ theorem core_tripleAcc (L : Laws mref cref) (Reach : Name → Prop)
             (do
               let constInfo ← getConstInfo declName
               let env ← getEnv
+              if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+                throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
+                  constInfo (instancePredicate env)).getD ""}")
+              else
               synthesizeFromConst (fun e h t n => translateExprToWire env e h t n)
                 (profLogIO prof.isSome) declName [] false true
                 (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
@@ -186,6 +190,8 @@ theorem core_tripleAcc (L : Laws mref cref) (Reach : Name → Prop)
       refine Triple.bind (keeps_iff.mp (keepsA_framed L.O hA (stableA_accInvAt K L Reach (d + 1))
         FramedA.env)) ?_
       intro env
+      refine Triple.ite (fun _ => ?_) (fun _ => ?_)
+      · exact tripleA_throwErr L.O hA (stableA_accInvAt K L Reach (d + 1)) _ (by first | exact .str _ | exact .fmt _)
       exact keeps_iff.mp (hbody hlt prof.isSome _ _)
     have h0 : ¬ ((d == 0) = true) := by
       intro h; simp at h; omega
