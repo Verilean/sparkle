@@ -312,7 +312,7 @@ theorem certRest_keepsKS (hlog : LogMvKS O)
     exact bindCertifiedInputsKPS M hA hS _
       (emitLeavesKPS M hA hS hlog translate b r hr htr _ _ _) _ _ _ (ctxOk_entry false hr) hi.1
   rintro ⟨_, fs⟩ hg
-  exact finishSynthPS declName fs hg.2.1 (hg.2.2.mp hi.2)
+  exact finishSynthPS declName fs hg.2.1 (hg.2.2.symm.trans hi.2)
 
 /-- `synthesizeCertified` (copy of `certified_keepsA`), returning a `PairPF` pair. -/
 theorem certified_keepsKS (hlog : LogMvKS O)
@@ -358,7 +358,7 @@ theorem mixed_keepsKS (hlog : LogMvKS O)
       exact bindMixedCertifiedInputsKPS M hA hS _
         (emitLeavesKPS M hA hS hlog translate b cacheRef hr htr _ _ _) _ _ _ (ctxOk_entry false hr) hi.1
     rintro ⟨_, fs⟩ hg
-    exact finishSynthPS declName fs hg.2.1 (hg.2.2.mp hi.2)
+    exact finishSynthPS declName fs hg.2.1 (hg.2.2.symm.trans hi.2)
   · exact Triple.throw _ fun _ hw => ⟨hw, by okmsg⟩
 
 /-! ## The machine synthesis -/

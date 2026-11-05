@@ -138,7 +138,7 @@ theorem legacy_windowDP (hlog : LogMvKS O) (D : Nat)
           (ctxOk_entry false hr) hi.1
       rintro ⟨_, fs⟩ hg
       refine Triple.bindQ (P' := WPF O D) (φ := PairPF)
-        (finishSynthPS declName fs hg.2.1 (hg.2.2.mp hi.2)) ?_
+        (finishSynthPS declName fs hg.2.1 (hg.2.2.symm.trans hi.2)) ?_
       intro result hres
       refine Triple.bind (triple_memoInsertDP M hA' D declName result hres) ?_
       intro _

@@ -23,13 +23,13 @@ open Sparkle.IR.Builder (CircuitState)
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-- the state relation of the walk: design-only part `StatePF a ∧ StatePF b` (`GoodS.design`; `addParameter` writes `module`, not `design`) plus the child's separate invariant `parameters = []` is kept (an iff, so `bindInputsLegacy θ` with `θ = []`, which never reaches `addParameter`, satisfies it; the symbolic top uses the design part only) -/
+/-- the state relation of the walk: design-only part `StatePF a ∧ StatePF b` (`GoodS.design`; `addParameter` writes `module`, not `design`) plus `module.parameters` is kept EQUAL (fkids7: was an iff `= [] ↔ = []`; the equality is what the obligations (2) names ⊆ θ and (3) Nodup read; `bindInputsLegacy θ` with `θ = []` never reaches `addParameter`; the symbolic top walks its binders with `GoodS.design`) -/
 def GoodS (st st' : CircuitState) : Prop :=
-  StatePF st ∧ StatePF st' ∧ (st.module.parameters = [] ↔ st'.module.parameters = [])
+  StatePF st ∧ StatePF st' ∧ (st.module.parameters = st'.module.parameters)
 
 theorem GoodS.design {a b : CircuitState} (h : GoodS a b) : StatePF a ∧ StatePF b := ⟨h.1, h.2.1⟩
 theorem GoodS.symm {a b : CircuitState} (h : GoodS a b) : GoodS b a := ⟨h.2.1, h.1, h.2.2.symm⟩
-theorem GoodS.refl {st : CircuitState} (h : StatePF st) : GoodS st st := ⟨h, h, Iff.rfl⟩
+theorem GoodS.refl {st : CircuitState} (h : StatePF st) : GoodS st st := ⟨h, h, rfl⟩
 theorem GoodS.trans {a b c : CircuitState} (h1 : GoodS a b) (h2 : GoodS b c) : GoodS a c :=
   ⟨h1.1, h2.2.1, h1.2.2.trans h2.2.2⟩
 
@@ -37,7 +37,7 @@ theorem GoodS.trans {a b c : CircuitState} (h1 : GoodS a b) (h2 : GoodS b c) : G
 theorem GoodS.of_view {a b : CircuitState} (h : StatePF a) (hv : View b = View a) : GoodS a b := by
   have h1 : b.design = a.design := congrArg Prod.fst hv
   have h2 : b.module.parameters = a.module.parameters := congrArg Prod.snd hv
-  exact ⟨h, by unfold StatePF at *; rw [h1]; exact h, by rw [h2]⟩
+  exact ⟨h, by unfold StatePF at *; rw [h1]; exact h, h2.symm⟩
 
 section Defs
 variable (mctx mref cctx cref)
