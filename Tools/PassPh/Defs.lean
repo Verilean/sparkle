@@ -1,0 +1,57 @@
+import Tools.ShippingGen5ReaderTraceAbbrevS1
+import Tools.ShippingGen5ReaderTraceInst1
+import Sparkle.Compiler.MachRecUnfold
+set_option autoImplicit false
+-- freeze rev2 + rev3 (scripts/gen5/RT_PASS_PH_FREEZE.md). Built in Pod (kjob lake build Tools.PassPh.Pass Tests.Gen5.PassPhCheck Tools.ShippingGen5ReaderTraceAbbrevS1 Tests.Gen5.ReaderTraceAbbrevS1Check, exit 0) on the tree of 18fa57ac6bdb999e9ac4747bbe7ad43143004dfd (Lean content identical; header comment-only). No sorry / axiom / native_decide in source (all of Tools/PassPh/*.lean). Conditional on BetaNonTargetAgrees, ExprEqvLaws (T1 +1 candidates), HeadBetaAgreesL (replaces T1L-74), RecRulePhU (hypothesis definition); none accepted. Clean build is the coder's.
+
+/-! # pass_ph skeleton: common definitions (freeze §1)
+`RecRulePhU` is a hypothesis definition only (not registered). `BetaNonTargetAgrees` is an UNPROVEN T1 +1 candidate (not accepted, not counted). -/
+
+namespace Tools.PassPh
+open Lean Tools.ShippingLetsReaderInv Tools.ShippingGen5ReaderTrace Tools.Assume.AbbrevExtern
+
+/-- the invariant carried by the pass -/
+def G (e : Lean.Expr) : Prop := NoPh e = true ∧ BvarLt 0 e = true
+
+/-- (hypothesis only; approved freeze RT_RECRULE_FREEZE §1.2, bab003d9) -/
+def RecRulePhU (env : Lean.Environment) : Prop :=
+  ∀ (p : Lean.Name) (rv : Lean.RecursorVal) (c : Lean.Name) (r : Lean.RecursorRule),
+    env.find? (.str p "rec") = some (.recInfo rv) → rv.rules.find? (·.ctor == c) = some r →
+    NoPh r.rhs = true ∧ BvarLt 0 r.rhs = true
+
+/-- (NEW T1 candidate, unproven) `Expr.beta` agrees with `mkAppN` on heads that are not `headBeta` targets -/
+def BetaNonTargetAgrees : Prop :=
+  ∀ (f : Lean.Expr) (args : Array Lean.Expr), f.isHeadBetaTargetFn false = false → f.beta args = mkAppN f args
+
+/-- rev2 invariant: no placeholders and loose bvars below `L` -/
+def GL (L : Nat) (e : Lean.Expr) : Prop := NoPh e = true ∧ BvarLt L e = true
+
+/-- rev2 memo invariant: each entry preserves `GL L` for every `L` -/
+def MemoGoodL (s : Std.HashMap Lean.Expr Lean.Expr) : Prop :=
+  ∀ (k v : Lean.Expr), s.get? k = some v → ∀ L, GL L k → GL L v
+
+theorem headBetaAgreesL_zero : HeadBetaAgreesL → HeadBetaAgrees0 := fun h e hn hb => h 0 e hn hb
+
+theorem GL_zero (e : Lean.Expr) : GL 0 e ↔ G e := Iff.rfl
+
+theorem GL_mono {L L' : Nat} {e : Lean.Expr} (hL : L ≤ L') (h : GL L e) : GL L' e := ⟨h.1, bvarLt_mono hL h.2⟩
+
+theorem mkAppN_goodL : ∀ (L : Nat) (f : Lean.Expr) (as : Array Lean.Expr), GL L f → (∀ a ∈ as, GL L a) → GL L (mkAppN f as) := by
+  intro L f as hf has
+  unfold mkAppN
+  rw [← Array.foldl_toList]
+  have key : ∀ (l : List Lean.Expr) (f : Lean.Expr), GL L f → (∀ a ∈ l, GL L a) → GL L (l.foldl mkApp f) := by
+    intro l
+    induction l with
+    | nil => intro f hf _; exact hf
+    | cons a t ih =>
+      intro f hf hl
+      refine ih _ ?_ (fun x hx => hl x (List.mem_cons_of_mem _ hx))
+      have ha := hl a List.mem_cons_self
+      simp only [GL, NoPh, BvarLt, Bool.and_eq_true] at hf ha ⊢
+      exact ⟨⟨hf.1, ha.1⟩, ⟨hf.2, ha.2⟩⟩
+  exact key as.toList f hf (fun a ha => has a (Array.mem_toList_iff.mp ha))
+
+theorem G_iff (e : Lean.Expr) : G e ↔ (NoPh e = true ∧ BvarLt 0 e = true) := Iff.rfl
+
+end Tools.PassPh

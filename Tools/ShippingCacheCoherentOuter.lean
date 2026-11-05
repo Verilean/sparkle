@@ -153,6 +153,8 @@ theorem core_reads_val0 (L : RefLaws mref cref) (hB : ∀ L' : RefLaws mref cref
   have hwE := invE_framed L hget hwE (Op.framed (.constInfo _))
   obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
   have hwE := invE_framed L henv hwE (Op.framed .env)
+  rcases RunsTo.ite h with h | h
+  · exact (throwError_not_runs _ h).elim
   have hw3 := invV_of_invC L hwE.1
   have hd3 := hwE.1.2.2.2 (Nat.succ_ne_zero _)
   have hv3 := hwE.2 trivial

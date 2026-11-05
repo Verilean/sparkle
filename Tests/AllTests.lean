@@ -373,6 +373,7 @@ import Tests.Compiler.ChildVertAuditTest
 import Tests.Compiler.LeafDesignClosedFamilyTest
 import Tests.Compiler.HeapProvenanceRegressTest
 import Tests.Compiler.InlCandAuditTest
+import Tests.Compiler.MachRecUnfoldFuelTest
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
 import Tests.RoundTrip.IRVerilogIR

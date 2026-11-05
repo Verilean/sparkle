@@ -144,6 +144,10 @@ theorem core_tripleAC (O : RefLawsAOps Fresh mref cref) (hA : AdmCtx O.quiet mct
             (do
               let constInfo ← getConstInfo declName
               let env ← getEnv
+              if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+                throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
+                  constInfo (instancePredicate env)).getD ""}")
+              else
               synthesizeFromConst (fun e h t n => translateExprToWire env e h t n)
                 (profLogIO prof.isSome) declName [] false true
                 (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
@@ -170,7 +174,9 @@ theorem core_tripleAC (O : RefLawsAOps Fresh mref cref) (hA : AdmCtx O.quiet mct
       refine Triple.bind (keeps_iff.mp (keepsA_framed O hA (stableA_JQC O (d + 1))
         FramedA.env)) ?_
       intro env
-      exact keeps_iff.mp (hbodyC hlt prof.isSome _ _)
+      refine Triple.ite (fun _ => ?_) (fun _ => ?_)
+      · exact tripleA_throwErr O hA (stableA_JQC O (d + 1)) _ (by first | exact .str _ | exact .fmt _)
+      · exact keeps_iff.mp (hbodyC hlt prof.isSome _ _)
     by_cases h0 : (d == 0) = true
     · -- outermost: the cache is cleared, the cache half re-established
       simp only [h0, ↓reduceIte]

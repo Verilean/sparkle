@@ -87,6 +87,7 @@ Functions to generate Verilog and prepare for Verilator compilation.
 
 /-- Generate Verilog file from a Sparkle module definition -/
 def generateVerilogFile (declName : Lean.Name) (outputPath : String) : Lean.Meta.MetaM Unit := do
+  inlinerFuelGuard declName
   let design ← synthesizeHierarchical declName
   let verilog := toVerilogDesign design
   IO.FS.writeFile outputPath verilog

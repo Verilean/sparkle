@@ -414,6 +414,10 @@ theorem core_keeps (D : Nat) (declName : Name) (hA0 : D = 0 → L.aux {})
             (do
               let constInfo ← getConstInfo declName
               let env ← getEnv
+              if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+                throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
+                  constInfo (instancePredicate env)).getD ""}")
+              else
               synthesizeFromConst (fun e h t n => translateExprToWire env e h t n)
                 (profLogIO prof.isSome) declName [] false true
                 (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
@@ -438,7 +442,9 @@ theorem core_keeps (D : Nat) (declName : Name) (hA0 : D = 0 → L.aux {})
       intro ci
       refine Triple.bind (Triple.frame L Framed.env (d + 1)) ?_
       intro env
-      exact keeps_iff.mp (hbody hlt prof.isSome _ _)
+      refine Triple.ite (fun _ => ?_) (fun _ => ?_)
+      · exact Triple.throwErr L _ (by first | exact .str _ | exact .fmt _) (d + 1)
+      · exact keeps_iff.mp (hbody hlt prof.isSome _ _)
     by_cases h0 : (d == 0) = true
     · simp only [h0, ↓reduceIte]
       tpure L d; tpure L d; tpure L d; tpure L d; tpure L d; tpure L d; tpure L d

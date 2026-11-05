@@ -117,11 +117,15 @@ def coreHead (declName : Name) : MetaM CoreSaved := do
   pure ⟨profile, depth, savedFvarMap, savedWireWidthCache, savedLetWireCache, savedLoopWireCache,
     savedWireCanon, savedSubInstanceOutputs, savedSingleOutInstanceCache⟩
 
-/-- `try doSynth finally …`, `doSynth` = `getConstInfo`, `getEnv`, `synthesizeFromConst` on the entry constant. -/
+/-- `try doSynth finally …`, `doSynth` = `getConstInfo`, `getEnv`, the fuel check, `synthesizeFromConst` on the entry constant. -/
 def coreRest (declName : Name) (s : CoreSaved) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
   let doSynth : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let constInfo ← getConstInfo declName
     let env ← getEnv
+    if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+      throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
+        constInfo (instancePredicate env)).getD ""}")
+    else
     synthesizeFromConst (fun e h t n => translateExprToWire env e h t n) (profLogIO s.profile) declName [] false true
       (entryConst true false [] constInfo
         (instancePredicate env) (userInliner env) (structEnv env))
@@ -182,6 +186,8 @@ theorem core_chain {declName : Name} {w w' : Void IO.RealWorld} {M : Sparkle.IR.
   cases u
   obtain ⟨ci, w2, hget, hx⟩ := RunsTo.bind hx
   obtain ⟨envR, w3, henv, hx⟩ := RunsTo.bind hx
+  rcases RunsTo.ite hx with hx | hx
+  · exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false hx).elim
   exact ⟨s, w1, envR, ci, w2, w3, w4, hh, hget, henv, hx, hfin⟩
 
 /-! ## The boundary, restated against the linked chain -/

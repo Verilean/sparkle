@@ -76,7 +76,7 @@ def ExpectedOneOutSl : Prop :=
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsRes L P) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc)
     (n : Nat),
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b
+    Tools.ShippingGen2.ChildPortWidths p b
 
 /-- §R3.1 `groupSl_childPortWidths`, transcribed. -/
 def ExpectedGroupSl : Prop :=
@@ -92,7 +92,7 @@ def ExpectedGroupSl : Prop :=
     (n : Nat)
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsAt L P n) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc),
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b
+    Tools.ShippingGen2.ChildPortWidths p b
 
 /-! ### Mutants (each must be REJECTED) -/
 
@@ -159,7 +159,7 @@ def MutOneOutSlNoHsl0 : Prop :=
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsRes L P) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc)
     (n : Nat),
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b
+    Tools.ShippingGen2.ChildPortWidths p b
 
 /-- B2 corollary with the compat premise `hpw` (NOT taken by the producers). -/
 def MutOneOutSlHpw : Prop :=
@@ -175,8 +175,8 @@ def MutOneOutSlHpw : Prop :=
     (hdec : ∀ k (hk : k < p.d.shape.insts.length), ∃ q, P (p.d.shape.insts[k]).1 = some q ∧ CallDec p q k)
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsRes L P) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc)
-    (n : Nat) (hpw : Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b),
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b
+    (n : Nat) (hpw : Tools.ShippingGen2.ChildPortWidths p b),
+    Tools.ShippingGen2.ChildPortWidths p b
 
 /-- B2 corollary concluding the TYPE form (candidate T; stronger, not what is proved). -/
 def MutOneOutSlTys : Prop :=
@@ -209,7 +209,7 @@ def MutGroupSlNoHsl0 : Prop :=
     (n : Nat)
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsAt L P n) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc),
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b
+    Tools.ShippingGen2.ChildPortWidths p b
 
 /-- B3 corollary with `hsimple : instFields = []` in place of `hfe` (the one-output case, not the group case). -/
 def MutGroupSlSimple : Prop :=
@@ -225,7 +225,7 @@ def MutGroupSlSimple : Prop :=
     (n : Nat)
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsAt L P n) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc),
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b
+    Tools.ShippingGen2.ChildPortWidths p b
 
 /-- B3 corollary with the compat premise `hpw` (NOT taken by the producers). -/
 def MutGroupSlHpw : Prop :=
@@ -241,8 +241,8 @@ def MutGroupSlHpw : Prop :=
     (n : Nat)
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsAt L P n) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc)
-    (hpw : Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b),
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b
+    (hpw : Tools.ShippingGen2.ChildPortWidths p b),
+    Tools.ShippingGen2.ChildPortWidths p b
 
 end Expected
 

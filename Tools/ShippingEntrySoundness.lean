@@ -954,6 +954,13 @@ theorem RunsTo.bind {α β : Type} {m : MetaM α} {f : α → MetaM β} {mctx mr
     exact ⟨a, w1, heq, h⟩
   · cases h
 
+theorem RunsTo.throwError_false {α : Type} {msg : MessageData} {mctx mref cctx cref w} {a : α} {w'}
+    (h : RunsTo (Lean.throwError msg : MetaM α) mctx mref cctx cref w a w') : False := by
+  unfold Lean.throwError at h
+  obtain ⟨_, _, -, h⟩ := RunsTo.bind h
+  obtain ⟨_, _, -, h⟩ := RunsTo.bind h
+  exact MReturns.throw h.mreturns
+
 theorem RunsTo.ite {α : Type} {c : Prop} [Decidable c] {a b : MetaM α} {mctx mref cctx cref w r w'}
     (h : RunsTo (if c then a else b) mctx mref cctx cref w r w') :
     RunsTo a mctx mref cctx cref w r w' ∨ RunsTo b mctx mref cctx cref w r w' := by
@@ -1109,7 +1116,9 @@ theorem synthesizeCombinationalCore_reads {declName : Name} {mctx : Meta.Context
     obtain ⟨_, h⟩ := RunsTo.try_finally h
     obtain ⟨ci, w2, hget, h⟩ := RunsTo.bind h
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
-    exact ⟨_, env, ci, _, w2, _, _, _, _, hget, henv, h⟩)
+    rcases RunsTo.ite h with h | h
+    · exact (RunsTo.throwError_false h).elim
+    · exact ⟨_, env, ci, _, w2, _, _, _, _, hget, henv, h⟩)
 
 /-- **The entry theorem.** A successful run of the real entry read SOME
 constant `ci` with `getConstInfo declName` in the same contexts and state

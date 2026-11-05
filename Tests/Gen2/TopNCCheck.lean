@@ -4,8 +4,8 @@ import Tools.ShippingSlotlessClk
 import Tools.ShippingSlotlessKidFacts
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- Built: g2nc3-ba4334f8 (clean snapshot, exit 0, standard axioms).
--- R1/R2 additions (§2b PAIR checks, §2c second closure audit, their fixtures): built in g2nc4-36342cb8 (clean, exit 0).
+-- NOT BUILT after the U-TOP-DEF switch (Defs `TopShips` is R-G; previous builds g2nc3-ba4334f8 / g2nc4-36342cb8 were against the OLD `TopShips`).
+-- U-TOP-DEF edits: `TopShipsRG` (local copy) is now Defs `TopShips`; the old text is `TopShipsOld`; L1/L2 live in TopContract.
 -- No `sorry`, no `axiom`, no `native_decide`.
 
 /-! # Checks for the NC suppliers, L1-L4 and S5 stage C (S5_SLOTLESS_FREEZE.md rev1 §5, §7, §8 + rev1.1;
@@ -13,12 +13,14 @@ TOP_CONTRACT_REVISION.md §3 + rev1.1)
 
 1. **Expected types** (`Tests.Gen3.ExpectedType.checkExpected`: binder by binder, names, binder infos, types,
    conclusion) against independent `Exp…` statements written from the freeze telescopes: C2 `TopShipsNC` (definition
-   value), the local R-G copy `TopShipsRG` (definition value), L1-L4, `topShips_of_NC`, U-TOP-S2 (pure and run
+   value), the R-G `TopShips` of Defs (definition value; U-TOP-DEF), the frozen old text `TopShipsOld` (definition value), L1-L4,
+   `topShipsOld_of_NC`, U-TOP-S2 (pure and run
    level), C1, C3's projection, the `outNameOk` supplier, C4, C5a. Meaning-changing MUTANTS must be REJECTED.
 2. **Audit, full reachable closure** (`ncReach`, as `s5Reach`/`s3Reach`: type and explicit body of every reached
-   constant): C4, C5a and the U-TOP-S2 producers do not reach `Tools.ShippingGen2.TopShips` or
-   `Tools.ShippingGen2.topShips_of_NC`. Detector controls with the SAME search: a direct use of `TopShips`, a use
-   through two helpers in other namespaces, a direct use of `topShips_of_NC` are found; an unrelated theorem is not.
+   constant): C4, C5a and the U-TOP-S2 producers do not reach `TopShips` (R-G), the old text `TopShipsOld`, L1-L3
+   (`topShips_toOld`, `topShips_ofOld`, `topShips_of_NC`) or `topShipsOld_of_NC`. Detector controls with the SAME search: a direct
+   use of `TopShips`, a use through two helpers in other namespaces, a direct use of `topShips_of_NC`, a direct use of
+   `TopShipsOld` are found; an unrelated theorem is not.
 3. **P3-core** (rev1.1 note 1: an execution control of A2 ONLY; it does not check `SourceInputs`, the outer
    ids/cache/regs witness, C4 or C5a): a concrete clock-free module `m0` (input `a`, an instance of the comb child
    `c0 : y := i` reading `a` into `x`, `o := x`) in the design `d0`, at depth 1, `T = 2`, `ins t "a" = (t+3) % 256`,
@@ -58,6 +60,8 @@ theorem badDirect : True := (fun _ => trivial) @Tools.ShippingGen2.TopShips
 theorem badIndirect : True := Tests.Gen2.TopNCReachHelperB.helperB
 /-- closure-detector control: direct use of `topShips_of_NC` -/
 theorem badNC : True := (fun _ => trivial) @Tools.ShippingGen2.topShips_of_NC
+/-- closure-detector control: direct use of the old text `TopShipsOld` -/
+theorem badOld : True := (fun _ => trivial) @Tools.ShippingGen2.TopShipsOld
 /-- closure-detector control: unrelated (must NOT be flagged) -/
 theorem goodUnrelated : True := trivial
 end Tests.Gen2.TopNCReachFixture
@@ -103,7 +107,7 @@ open Tools.ShippingMachineLinked Tools.ShippingMachineDepth
 open Tools.ShippingSeqOptSoundness (seedIn)
 open Tools.ShippingMachineSource Tools.ShippingMachineDenote
 open Tools.ShippingMachineShipsDepth (ResetNk)
-open Tools.ShippingGen2 (Pkg TopShips TopShipsNC TopShipsRG)
+open Tools.ShippingGen2 (Pkg TopShips TopShipsOld TopShipsNC)
 
 /-- C2 (S5 freeze §5): Defs:273-295 with line :283 deleted. -/
 def ExpTopShipsNC {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
@@ -154,7 +158,8 @@ def MutTopShipsNCrst {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n
         ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
           p.d.shape.layout.outs[k]? = some o → (p.src i bools bits)[k]? = some f → (envsO[j]'hj) o.name = f j
 
-/-- R-G (TOP_CONTRACT_REVISION §2): Defs:283 replaced by the two guarded premises. -/
+/-- R-G (TOP_CONTRACT_REVISION §2): the line holding the rst and clk premises replaced by the two guarded premises
+(U-TOP-DEF: this is now the text of Defs `TopShips`). -/
 def ExpTopShipsRG {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design) : Prop :=
   ∃ ids : List FVarId, ids.Nodup ∧ ids.length = p.d.shape.binders.length ∧
@@ -168,6 +173,31 @@ def ExpTopShipsRG {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : 
       (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
       ("rst" ∈ b.inputs.map (·.name) → ∀ t, ins t "rst" = 0) →
       ("clk" ∈ b.inputs.map (·.name) → ∀ t, ins t "clk" = 0) →
+      (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
+        p.d.shape.layout.slots[k]? = some f → st0 r = f.init) →
+      ResetNk n raw D kids →
+      (∀ t x, x ∈ b.inputs.map (·.name) → ins t x < 2 ^ declWidth b x) →
+      (∀ x ∈ (openIns b).map (·.name), x ∉ bodyInstOuts (childMap D.modules) b.body →
+        st0 x < 2 ^ declWidth b x) →
+      ∃ envsO, runModuleTG (KSn (childMap D.modules) n) (declWidth (checkedOptimize b))
+          (childMap D.modules) (checkedOptimize b).body (seedIn b ins) T ⟨st0, mems, kids⟩ = some envsO ∧
+        envsO.length = T ∧
+        ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
+          p.d.shape.layout.outs[k]? = some o → (p.src i bools bits)[k]? = some f → (envsO[j]'hj) o.name = f j
+
+/-- The PRE-R-G text (history pin): the unguarded rst premise and the `seedIn … "clk"` premise. -/
+def ExpTopShipsOld {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
+    (b raw : Sparkle.IR.AST.Module) (D : Design) : Prop :=
+  ∃ ids : List FVarId, ids.Nodup ∧ ids.length = p.d.shape.binders.length ∧
+  ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
+    regs.Nodup ∧ regs.length = p.d.ss.length ∧
+    ∀ (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+      (T : Nat) (ins : Nat → String → Nat) (st0 : String → Nat) (mems : MEnv) (kids : String → KT n),
+      (∀ t st, t < T → SourceInputs declName (p.d.bsIn.take p.kD) ids cache
+        (fun j => (p.extBS i bools bits j).val (T - 1 - t))
+        (fun j n => (p.extS i bools bits j n).val (T - 1 - t)) (seedIn b ins t st)) →
+      (∀ t st r, r ∈ regs → seedIn b ins t st r = st r) →
+      (∀ t, ins t "rst" = 0) → (∀ t st, seedIn b ins t st "clk" = 0) →
       (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r →
         p.d.shape.layout.slots[k]? = some f → st0 r = f.init) →
       ResetNk n raw D kids →
@@ -206,51 +236,51 @@ def MutTopShipsRGclk {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n
         ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
           p.d.shape.layout.outs[k]? = some o → (p.src i bools bits)[k]? = some f → (envsO[j]'hj) o.name = f j
 
-/-- L1 `topShips_of_RG`: new ⇒ old, no hypothesis. -/
+/-- L1 `topShips_toOld`: new ⇒ old, no hypothesis. -/
 def ExpL1 : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design),
-    TopShipsRG p n declName b raw D → TopShips p n declName b raw D
+    TopShips p n declName b raw D → TopShipsOld p n declName b raw D
 
-/-- L2 `topShipsRG_of_old`: old ⇒ new, given both inputs. -/
+/-- L2 `topShips_ofOld`: old ⇒ new, given both inputs. -/
 def ExpL2 : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design)
     (hr : "rst" ∈ b.inputs.map (·.name)) (hc : "clk" ∈ b.inputs.map (·.name)),
-    TopShips p n declName b raw D → TopShipsRG p n declName b raw D
+    TopShipsOld p n declName b raw D → TopShips p n declName b raw D
 
 /-- MUTANT of L2: without the clock membership (old ⇒ new for clock-free modules is NOT claimed). -/
 def MutL2noClk : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design)
     (hr : "rst" ∈ b.inputs.map (·.name)),
-    TopShips p n declName b raw D → TopShipsRG p n declName b raw D
+    TopShipsOld p n declName b raw D → TopShips p n declName b raw D
 
-/-- L3 `topShipsRG_of_NC`: NC ⇒ new, no hypothesis. -/
+/-- L3 `topShips_of_NC`: NC ⇒ new, no hypothesis. -/
 def ExpL3 : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design),
-    TopShipsNC p n declName b raw D → TopShipsRG p n declName b raw D
+    TopShipsNC p n declName b raw D → TopShips p n declName b raw D
 
-/-- L4 `topShipsNC_of_RG`: new ⇒ NC, given neither input. -/
+/-- L4 `topShipsNC_of_topShips`: new ⇒ NC, given neither input. -/
 def ExpL4 : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design)
     (hr : "rst" ∉ b.inputs.map (·.name)) (hc : "clk" ∉ b.inputs.map (·.name)),
-    TopShipsRG p n declName b raw D → TopShipsNC p n declName b raw D
+    TopShips p n declName b raw D → TopShipsNC p n declName b raw D
 
 /-- MUTANT of L4: only the clock absent (rev1.1 note 3: "no clk" alone is not claimed sufficient). -/
 def MutL4noRst : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design)
     (hc : "clk" ∉ b.inputs.map (·.name)),
-    TopShipsRG p n declName b raw D → TopShipsNC p n declName b raw D
+    TopShips p n declName b raw D → TopShipsNC p n declName b raw D
 
-/-- C2's weakening `topShips_of_NC`. -/
-def ExpTopShipsOfNC : Prop :=
+/-- The earlier `topShips_of_NC` (NC ⇒ old text), now `topShipsOld_of_NC`. -/
+def ExpTopShipsOldOfNC : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) (n : Nat) (declName : Name)
     (b raw : Sparkle.IR.AST.Module) (D : Design),
-    TopShipsNC p n declName b raw D → TopShips p n declName b raw D
+    TopShipsNC p n declName b raw D → TopShipsOld p n declName b raw D
 
 end ExpContracts
 
@@ -269,7 +299,7 @@ open Tools.ShippingMachineLinked Tools.ShippingMachineDepth
 open Tools.ShippingSeqOptSoundness (seedIn)
 open Tools.ShippingChildInvA (AdmCtx)
 open Tools.ShippingChildBndCore (dv)
-open Tools.ShippingGen2 (Pkg Laws LeafDataOk MachineTaken TopShipsNC TopShipsRG)
+open Tools.ShippingGen2 (Pkg Laws LeafDataOk MachineTaken TopShipsNC TopShips)
 
 /-- U-TOP-S2, pure: `slotlessLeaf_topShips_of_LB`'s binders + `hinA`, conclusion `TopShipsNC`. -/
 def ExpS2LB : Prop :=
@@ -301,7 +331,7 @@ def ExpS2Run : Prop :=
     (ran : MachineTaken L mctx cctx (dv w + 1) p.decl p.d.shape raw D) (n : Nat),
     TopShipsNC p n p.decl b raw D
 
-/-- MUTANT of U-TOP-S2 (run level): conclusion `TopShipsRG` in place of `TopShipsNC`. -/
+/-- MUTANT of U-TOP-S2 (run level): conclusion R-G `TopShips` in place of `TopShipsNC`. -/
 def MutS2RunRG : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
@@ -313,7 +343,7 @@ def MutS2RunRG : Prop :=
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
     (ran : MachineTaken L mctx cctx (dv w + 1) p.decl p.d.shape raw D) (n : Nat),
-    TopShipsRG p n p.decl b raw D
+    TopShips p n p.decl b raw D
 
 end ExpS2
 
@@ -591,7 +621,7 @@ open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
 open Tools.ShippingChildInvA (AdmCtx)
 open Tools.ShippingChildBndCore (dv)
 open Tools.ShippingGen2 (Pkg Pkgs Laws MemParentDataOk MachineTaken CallDec ServedP ShipsRes OneOutWidth
-  TopShips TopShipsNC)
+  TopShips TopShipsOld TopShipsNC)
 
 /-- C5a (S5 freeze §5): `oneOut_topShipsO`'s binders, `hsl` → `hsl0`, `hrst` added, conclusion `TopShipsNC`. -/
 def ExpC5a : Prop :=
@@ -618,7 +648,7 @@ def ExpC5a : Prop :=
     (n : Nat),
     TopShipsNC p (n + 1) p.decl b raw D
 
-/-- MUTANT of C5a: conclusion the OLD `TopShips` (vacuous in its inner part for case C). -/
+/-- MUTANT of C5a: conclusion the OLD text `TopShipsOld` (vacuous in its inner part for case C). -/
 def MutC5aOld : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig}
     {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
@@ -641,7 +671,7 @@ def MutC5aOld : Prop :=
     (hW : ∀ k, OneOutWidth P p k)
     (hrst : "rst" ∉ raw.inputs.map (·.name))
     (n : Nat),
-    TopShips p (n + 1) p.decl b raw D
+    TopShipsOld p (n + 1) p.decl b raw D
 
 /-- MUTANT of C5a: the case binder `hrst` dropped (case S has clock/reset inputs). -/
 def MutC5aNoRst : Prop :=
@@ -675,12 +705,13 @@ set_option maxHeartbeats 0 in
 run_cmd Lean.Elab.Command.liftTermElabM do
   -- definitions (values) and theorems (types)
   checkExpected ``Tools.ShippingGen2.TopShipsNC ``ExpTopShipsNC
-  checkExpected ``Tools.ShippingGen2.TopShipsRG ``ExpTopShipsRG
-  checkExpected ``Tools.ShippingGen2.topShips_of_RG ``ExpL1
-  checkExpected ``Tools.ShippingGen2.topShipsRG_of_old ``ExpL2
-  checkExpected ``Tools.ShippingGen2.topShipsRG_of_NC ``ExpL3
-  checkExpected ``Tools.ShippingGen2.topShipsNC_of_RG ``ExpL4
-  checkExpected ``Tools.ShippingGen2.topShips_of_NC ``ExpTopShipsOfNC
+  checkExpected ``Tools.ShippingGen2.TopShips ``ExpTopShipsRG
+  checkExpected ``Tools.ShippingGen2.TopShipsOld ``ExpTopShipsOld
+  checkExpected ``Tools.ShippingGen2.topShips_toOld ``ExpL1
+  checkExpected ``Tools.ShippingGen2.topShips_ofOld ``ExpL2
+  checkExpected ``Tools.ShippingGen2.topShips_of_NC ``ExpL3
+  checkExpected ``Tools.ShippingGen2.topShipsNC_of_topShips ``ExpL4
+  checkExpected ``Tools.ShippingGen2.topShipsOld_of_NC ``ExpTopShipsOldOfNC
   checkExpected ``Tools.ShippingGen2.slotlessLeaf_topShipsNC_of_LB ``ExpS2LB
   checkExpected ``Tools.ShippingGen2.slotlessLeaf_topShipsNC ``ExpS2Run
   checkExpected ``Tools.ShippingGen2SlotlessTop.hierRefineCheck_linked_noRst ``ExpC1
@@ -690,20 +721,23 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   checkExpected ``Tools.ShippingGen2.oneOutSl_topShipsNC ``ExpC5a
   -- mutants
   checkMutant ``Tools.ShippingGen2.TopShipsNC ``MutTopShipsNCrst
-  checkMutant ``Tools.ShippingGen2.TopShipsRG ``MutTopShipsRGclk
-  checkMutant ``Tools.ShippingGen2.topShipsRG_of_old ``MutL2noClk
-  checkMutant ``Tools.ShippingGen2.topShipsNC_of_RG ``MutL4noRst
+  checkMutant ``Tools.ShippingGen2.TopShips ``MutTopShipsRGclk
+  checkMutant ``Tools.ShippingGen2.topShips_ofOld ``MutL2noClk
+  checkMutant ``Tools.ShippingGen2.topShipsNC_of_topShips ``MutL4noRst
   checkMutant ``Tools.ShippingGen2.slotlessLeaf_topShipsNC ``MutS2RunRG
   checkMutant ``Tools.ShippingGen2SlotlessTop.hierRefineCheck_linked_noRst ``MutC1noR
   checkMutant ``Tools.ShippingGen2SlotlessTop.machine_ships_hierC_runNR ``MutC4noZ
   checkMutant ``Tools.ShippingGen2.oneOutSl_topShipsNC ``MutC5aOld
   checkMutant ``Tools.ShippingGen2.oneOutSl_topShipsNC ``MutC5aNoRst
 
-/-! ## 2. Audit: full reachable closure (no `TopShips`, no `topShips_of_NC`) -/
+/-! ## 2. Audit: full reachable closure (none of `TopShips`, `TopShipsOld`, L1-L3, `topShipsOld_of_NC`) -/
 
-/-- The forbidden constants (S5 freeze §8.3 rev1; TOP_CONTRACT_REVISION §5 "no back door"). -/
+/-- The forbidden constants (S5 freeze §8.3 rev1; TOP_CONTRACT_REVISION §5 "no back door"). Since U-TOP-DEF `TopShips` is the R-G
+contract and `TopShipsOld` the history text; the NC roots audited here are stated and proved without either, and without L1-L3. -/
 def ncForbidden (n : Name) : Bool :=
-  n == ``Tools.ShippingGen2.TopShips || n == ``Tools.ShippingGen2.topShips_of_NC
+  n == ``Tools.ShippingGen2.TopShips || n == ``Tools.ShippingGen2.TopShipsOld ||
+  n == ``Tools.ShippingGen2.topShips_of_NC || n == ``Tools.ShippingGen2.topShipsOld_of_NC ||
+  n == ``Tools.ShippingGen2.topShips_toOld || n == ``Tools.ShippingGen2.topShips_ofOld
 
 /-- The body of a constant, read EXPLICITLY per kind (as `s5Body?`). -/
 def ncBody? : ConstantInfo → Option Lean.Expr
@@ -757,6 +791,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   -- detector controls with the SAME search
   for (c, bad) in [(``Tests.Gen2.TopNCReachFixture.badDirect, true),
       (``Tests.Gen2.TopNCReachFixture.badIndirect, true), (``Tests.Gen2.TopNCReachFixture.badNC, true),
+      (``Tests.Gen2.TopNCReachFixture.badOld, true),
       (``Tests.Gen2.TopNCReachFixture.goodUnrelated, false)] do
     let r ← ncReach c
     if bad && r.hit.isNone then throwError "NC AUDIT FAILED: the closure detector misses {c}"
@@ -765,8 +800,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   for c in ncAudited do
     let r ← ncReach c
     if let some p := r.hit then
-      throwError "NC AUDIT FAILED {c}: reaches TopShips / topShips_of_NC via {p}"
-    logInfo m!"NC REACH {c}: neither Tools.ShippingGen2.TopShips nor Tools.ShippingGen2.topShips_of_NC in the closure (visited {r.visited}, no-body {r.noBody}, opaque {r.opaques.size}: implementations of opaque/partial constants are not kernel terms and are not followed)"
+      throwError "NC AUDIT FAILED {c}: reaches TopShips / TopShipsOld / L1-L3 via {p}"
+    logInfo m!"NC REACH {c}: none of TopShips, TopShipsOld, topShips_toOld, topShips_ofOld, topShips_of_NC, topShipsOld_of_NC in the closure (visited {r.visited}, no-body {r.noBody}, opaque {r.opaques.size}: implementations of opaque/partial constants are not kernel terms and are not followed)"
 
 /-! ## 2b. PAIR checks against the ORIGINAL declarations (S5 freeze §8 item 1; reviewer R1)
 
@@ -1232,14 +1267,15 @@ theorem p3_old_clk_refuted : ¬ (∀ t st, seedIn m0 ins0 t st "clk" = 0) :=
 end Tests.Gen2.TopNCControl
 
 /-! ## 4. Axioms -/
-#print axioms Tools.ShippingGen2.topShips_of_RG
-#print axioms Tools.ShippingGen2.topShipsRG_of_old
-#print axioms Tools.ShippingGen2.topShipsRG_of_NC
-#print axioms Tools.ShippingGen2.topShipsNC_of_RG
+#print axioms Tools.ShippingGen2.topShips_toOld
+#print axioms Tools.ShippingGen2.topShips_ofOld
+#print axioms Tools.ShippingGen2.topShips_ofOld_wired
 #print axioms Tools.ShippingGen2.topShips_of_NC
+#print axioms Tools.ShippingGen2.topShipsNC_of_topShips
+#print axioms Tools.ShippingGen2.topShipsOld_of_NC
 #print axioms Tools.ShippingGen2.slotlessLeaf_topShipsNC_of_LB
 #print axioms Tools.ShippingGen2.slotlessLeaf_topShipsNC
-#print axioms Tools.ShippingGen2.slotlessLeaf_topShipsRG
+#print axioms Tools.ShippingGen2.slotlessLeaf_topShips_of_NC
 #print axioms Tools.ShippingGen2SlotlessTop.hierRefineCheck_linked_noRst
 #print axioms Tools.ShippingGen2SlotlessTop.RunFacts.toNR
 #print axioms Tools.ShippingGen2SlotlessTop.outNameOk_of_run
@@ -1254,11 +1290,13 @@ end Tests.Gen2.TopNCControl
 #print axioms Tests.Gen2.TopNCControl.p3_old_clk_refuted
 
 run_cmd Lean.Elab.Command.liftTermElabM do
-  for c in [``Tools.ShippingGen2.TopShipsNC, ``Tools.ShippingGen2.TopShipsRG, ``Tools.ShippingGen2.tnc_seedIn_in,
-      ``Tools.ShippingGen2.topShips_of_RG, ``Tools.ShippingGen2.topShipsRG_of_old,
-      ``Tools.ShippingGen2.topShipsRG_of_NC, ``Tools.ShippingGen2.topShipsNC_of_RG,
-      ``Tools.ShippingGen2.topShips_of_NC, ``Tools.ShippingGen2.slotlessLeaf_topShipsNC_of_LB,
-      ``Tools.ShippingGen2.slotlessLeaf_topShipsNC, ``Tools.ShippingGen2.slotlessLeaf_topShipsRG,
+  for c in [``Tools.ShippingGen2.TopShipsNC, ``Tools.ShippingGen2.TopShipsOld, ``Tools.ShippingGen2.tc_seedIn_in,
+      ``Tools.ShippingGen2.topShips_toOld, ``Tools.ShippingGen2.topShips_ofOld, ``Tools.ShippingGen2.topShips_ofOld_wired,
+      ``Tools.ShippingGen2.topShips_of_NC, ``Tools.ShippingGen2.topShipsNC_of_topShips,
+      ``Tools.ShippingGen2.topShipsOld_of_NC, ``Tools.ShippingGen2.slotlessLeaf_topShipsNC_of_LB,
+      ``Tools.ShippingGen2.slotlessLeaf_topShipsNC, ``Tools.ShippingGen2.slotlessLeaf_topShips_of_NC,
+      ``Tools.ShippingGen2.machineWired_clk_rst_in, ``Tools.ShippingGen2.clk_rst_in_b_of_wired,
+      ``Tools.ShippingGen2.b_inputs_of_hpost,
       ``Tools.ShippingGen2SlotlessTop.hierRefineCheck_linked_noRst, ``Tools.ShippingGen2SlotlessTop.RunFacts.toNR,
       ``Tools.ShippingGen2SlotlessTop.outNameOk_of_run, ``Tools.ShippingGen2SlotlessTop.seqRegsL_nil_of_noTouch,
       ``Tools.ShippingGen2SlotlessTop.machine_ships_hierC_runNR, ``Tools.ShippingGen2.oneOutSl_topShipsNC,

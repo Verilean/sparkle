@@ -169,6 +169,10 @@ theorem coreN_keepsA (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mct
             (do
               let constInfo ← getConstInfo declName
               let env ← getEnv
+              if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+                throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
+                  constInfo (instancePredicate env)).getD ""}")
+              else
               synthesizeFromConst (fun e h t n => translateExprToWire env e h t n)
                 (profLogIO prof.isSome) declName [] false true
                 (entryConst true false [] constInfo (instancePredicate env) (userInliner env)
@@ -196,6 +200,8 @@ theorem coreN_keepsA (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.quiet mct
         FramedA.env)) ?_
       intro env
       subst hd
+      refine Triple.ite (fun _ => ?_) (fun _ => ?_)
+      · exact tripleA_throwErr O hA (stableA_JQ _ (d + 1)) _ (by first | exact .str _ | exact .fmt _)
       exact keeps_iff.mp (hbody hl env prof.isSome _ _)
     have h0 : (d == 0) = false := by
       first

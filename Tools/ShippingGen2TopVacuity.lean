@@ -1,4 +1,5 @@
 import Tools.ShippingGen2Defs
+import Tools.ShippingGen2TopContract
 
 set_option autoImplicit false
 
@@ -6,8 +7,10 @@ set_option autoImplicit false
 
 Built: g2s5-f7e42988 (clean snapshot, exit 0, standard axioms).
 
-This file documents the PRE-R-G `TopShips` contract; after the R-G change it must be pinned to a frozen
-copy of the old definition.
+This file documents the PRE-R-G `TopShips` contract. After U-TOP-DEF (Defs switched to R-G) its statements are about the frozen
+copy `TopShipsOld` (Tools/ShippingGen2TopContract.lean; theorems renamed `topShipsOld_iff_inner`, `topShipsOld_iff_outer_of_noClk`).
+`TopShips` below in the prose means the OLD text; Defs `TopShips` is now the R-G contract and is NOT vacuous for a clock-free
+module (its clk premise is guarded on membership).
 
 `TopShips` (Tools/ShippingGen2Defs.lean:273-295) has two parts:
 - the OUTER existence: `∃ ids, ids.Nodup ∧ ids.length = … ∧ ∃ cache regs, regs.Nodup ∧ regs.length = …`;
@@ -18,7 +21,7 @@ copy of the old definition.
 When `"clk" ∉ b.inputs.map (·.name)`, the clock premise (Defs:283) is refutable (`seedIn` reads the state at
 `"clk"`, and `st := fun _ => 1` gives 1), so the INNER guarantee holds for EVERY `ids`/`cache`/`regs`
 (`topShipsInner_of_noClk`). Hence for such `b`, `TopShips` is EQUIVALENT to the OUTER existence alone
-(`topShips_iff_outer_of_noClk`): it says nothing about any run. The outer existence (`ids.Nodup`, the lengths) is
+(`topShipsOld_iff_outer_of_noClk`): it says nothing about any run. The outer existence (`ids.Nodup`, the lengths) is
 NOT vacuous and is not claimed or discharged here.
 
 This file is a kernel statement of the vacuity; it is not non-vacuity evidence for anything. -/
@@ -73,10 +76,10 @@ def TopShipsInner (p : Pkg ι dom) (n : Nat) (declName : Name) (b raw : Sparkle.
         ∀ j (hj : j < envsO.length) (k : Nat) (o : OutField) (f : Nat → Nat),
           p.d.shape.layout.outs[k]? = some o → (p.src i bools bits)[k]? = some f → (envsO[j]'hj) o.name = f j
 
-/-- `TopShips` = OUTER existence ∧ INNER guarantee (definitional; checks that `TopShipsInner` is the verbatim body). -/
-theorem topShips_iff_inner (p : Pkg ι dom) (n : Nat) (declName : Name) (b raw : Sparkle.IR.AST.Module)
+/-- `TopShipsOld` = OUTER existence ∧ INNER guarantee (definitional; checks that `TopShipsInner` is the verbatim body). -/
+theorem topShipsOld_iff_inner (p : Pkg ι dom) (n : Nat) (declName : Name) (b raw : Sparkle.IR.AST.Module)
     (D : Design) :
-    TopShips p n declName b raw D ↔
+    TopShipsOld p n declName b raw D ↔
       ∃ ids : List FVarId, ids.Nodup ∧ ids.length = p.d.shape.binders.length ∧
       ∃ (cache : IO.Ref (ExprStructMap String)) (regs : List String),
         regs.Nodup ∧ regs.length = p.d.ss.length ∧ TopShipsInner p n declName b raw D ids cache regs :=
@@ -91,15 +94,15 @@ theorem topShipsInner_of_noClk (p : Pkg ι dom) (n : Nat) (declName : Name) (b r
   intro i bools bits T ins st0 mems kids _ _ _ hclk
   exact absurd hclk (not_seedIn_clk_zero ins h)
 
-/-- **Corollary (D1).** Without a clock input, `TopShips` is exactly its OUTER existence (`ids.Nodup`, the
+/-- **Corollary (D1).** Without a clock input, `TopShipsOld` is exactly its OUTER existence (`ids.Nodup`, the
 lengths): the run part carries no information. The OUTER part is not vacuous and is not claimed here. -/
-theorem topShips_iff_outer_of_noClk (p : Pkg ι dom) (n : Nat) (declName : Name) (b raw : Sparkle.IR.AST.Module)
+theorem topShipsOld_iff_outer_of_noClk (p : Pkg ι dom) (n : Nat) (declName : Name) (b raw : Sparkle.IR.AST.Module)
     (D : Design) (h : "clk" ∉ b.inputs.map (·.name)) :
-    TopShips p n declName b raw D ↔
+    TopShipsOld p n declName b raw D ↔
       ∃ ids : List FVarId, ids.Nodup ∧ ids.length = p.d.shape.binders.length ∧
       ∃ (_cache : IO.Ref (ExprStructMap String)) (regs : List String),
         regs.Nodup ∧ regs.length = p.d.ss.length := by
-  rw [topShips_iff_inner]
+  rw [topShipsOld_iff_inner]
   constructor
   · rintro ⟨ids, hnd, hlen, cache, regs, hrnd, hrlen, _⟩
     exact ⟨ids, hnd, hlen, cache, regs, hrnd, hrlen⟩

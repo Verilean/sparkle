@@ -110,6 +110,8 @@ theorem core_run_tracked0' (O : RefLawsAOps MkRefd mref cref) (hA : AdmCtx O.qui
   obtain ⟨env, w2b, henv, hbody⟩ := RunsTo.bind hbody
   have hw2b := triple_runs (keeps_iff.mp (keepsA_framed O hA (stableK O (0 + 1) {})
     FramedA.env)) hw2 henv
+  rcases RunsTo.ite hbody with hbody | hbody
+  · exact (throwError_not_runs _ hbody).elim
   obtain ⟨old, miss, _⟩ := entry _ _ _ _ _ _ _ _ _ hget henv henv
   unfold synthesizeFromConst at hbody
   simp only [↓reduceIte, old, miss, Bool.not_false, Bool.and_self, List.isEmpty_nil] at hbody

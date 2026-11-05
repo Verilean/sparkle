@@ -31,7 +31,13 @@ list. -/
 namespace Tools.ShippingInlCand
 open Lean
 open Sparkle.Compiler.Elab
-open Sparkle.Compiler.MachRecUnfold (passM relevantClosure evalNode? unfoldCall? listLit?)
+open Sparkle.Compiler.MachRecUnfold (relevantClosure evalNode? unfoldCall? listLit? listLitLimit)
+
+/-- The result of a `MachRecUnfold` step that reduced (stuck and fuel exhaustion are `none`). -/
+def stepOk? {α : Type} (x : Sparkle.Compiler.MachRecUnfold.M α) : Option α :=
+  match x.run with
+  | some (.ok a) => some a
+  | _ => none
 
 /-! ## `passM` with fuel; at fuel 0 the ORIGINAL `partial` `passM` -/
 
@@ -44,7 +50,7 @@ as `passM e s` for every `n`, including exhaustion (which runs `passM` itself). 
 is opaque and only `passF (n+1)` has an equation. -/
 def passF (env : Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Name → Bool) :
     Nat → Lean.Expr → StateM (Std.HashMap Lean.Expr Lean.Expr) Lean.Expr
-  | 0, e => passM env natLit? isUser e
+  | 0, e => pure e
   | n + 1, e => do
     if let some r := (← get).get? e then return r
     let r ← match e with
@@ -52,16 +58,16 @@ def passF (env : Environment) (natLit? : Lean.Expr → Option Nat) (isUser : Nam
         let f ← passF env natLit? isUser n e.getAppFn
         let args ← e.getAppArgs.mapM (passF env natLit? isUser n)  -- (writing-time guess, accepted by build ic5): structural through `mapM` (else WF; the proofs only use the equation lemmas)
         let e' := mkAppN f args
-        match evalNode? natLit? e' with
+        match stepOk? (evalNode? natLit? e') with
         | some r => passF env natLit? isUser n r
         | none =>
-        match unfoldCall? env natLit? isUser e' with
+        match stepOk? (unfoldCall? env natLit? isUser e') with
         | some r => passF env natLit? isUser n r
         | none => pure e'
       | .lam nm t b bi => return .lam nm t (← passF env natLit? isUser n b) bi
       | .letE nm t v b nd => do
         let v' ← passF env natLit? isUser n v
-        if !v'.hasLooseBVars && !v'.hasFVar && (listLit? natLit? v').isSome then
+        if !v'.hasLooseBVars && !v'.hasFVar && (stepOk? (listLit? natLit? listLitLimit v')).isSome then
           passF env natLit? isUser n (b.instantiate1 v')
         else return .letE nm t v' (← passF env natLit? isUser n b) nd
       | .mdata m b => return .mdata m (← passF env natLit? isUser n b)

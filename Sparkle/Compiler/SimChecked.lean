@@ -74,6 +74,7 @@ elab "#simChecked" id:ident : command => do
     Lean.resolveGlobalConstNoOverload id
   -- Phase 1: Synthesize + generate JIT C++ AND Verilog .sv (in TermElabM)
   let (ns, jitPath, svPath, topName, userInputs, outputs, allInputs) ← Lean.Elab.Command.liftTermElabM do
+    inlinerFuelGuard declName
     let design ← synthesizeHierarchical declName
     -- ONE artifact for the text and for the JIT C: the design writer's modules
     let art := simArtifact design

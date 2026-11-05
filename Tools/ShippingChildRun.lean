@@ -175,6 +175,8 @@ theorem core_reads_inv (L : RefLaws mref cref) {declName : Name}
     have hw := invC_framed L (.constInfo _) hget hw
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
     have hw := invC_framed L .env henv hw
+    rcases RunsTo.ite h with h | h
+    · exact (throwError_not_runs _ h).elim
     exact ⟨prof.isSome, env, ci, _, w2, _, _, _, _, hget, henv, h, invV_of_invC L hw,
       hw.2.2.2 (Nat.succ_ne_zero _)⟩
   · -- nested: the start condition's cache half is inherited
@@ -190,6 +192,8 @@ theorem core_reads_inv (L : RefLaws mref cref) {declName : Name}
     have hw := invC_framed L (.constInfo _) hget hw
     obtain ⟨env, w2b, henv, h⟩ := RunsTo.bind h
     have hw := invC_framed L .env henv hw
+    rcases RunsTo.ite h with h | h
+    · exact (throwError_not_runs _ h).elim
     exact ⟨prof.isSome, env, ci, _, w2, _, _, _, _, hget, henv, h, invV_of_invC L hw,
       hw.2.2.2 (Nat.succ_ne_zero _)⟩
 

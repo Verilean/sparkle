@@ -1,3 +1,4 @@
+import Tools.ShippingGen3PortWidthsCore
 import Tools.ShippingGen2SlotlessClosed
 import Tools.ShippingGen2CombKid
 import Tools.ShippingGen2MemData
@@ -199,7 +200,7 @@ theorem slotlessLeaf_topShips_of_LB (p : Pkg ι dom) {raw b : Module} {D : Desig
   obtain ⟨hcl0, hall0⟩ := hclosed0
   obtain ⟨hbi, hbo, _, hallB, hevB⟩ := sll_post hall0 hpost
   refine ⟨ids, nd, len, cache, [], rnd, rlen, ?_⟩
-  intro i bools bits T ins st0 mems kids hinp _ hrstZ _ _ _ hinsB _
+  intro i bools bits T ins st0 mems kids hinp _ hrstG _ _ _ hinsB _
   -- the core module's run, at the canonical seed with the state held at 0 on `"rst"`
   obtain ⟨envs, hrun, hlen, hobs, _⟩ := tr i bools bits T (sllSeedZ b ins) st0 mems
     (fun t st ht => by
@@ -207,7 +208,7 @@ theorem slotlessLeaf_topShips_of_LB (p : Pkg ι dom) {raw b : Module} {D : Desig
       rw [htake] at h
       exact h)
     (fun t st r hr => by simp at hr)
-    (fun t st => sll_seedZ_rst (fun _ => hrstZ t))
+    (fun t st => sll_seedZ_rst (fun hm => hrstG hm t))
     (fun k r f hr _ => by simp at hr)
   have hrun0 : runModule (declWidth r0) r0.body (sllSeedZ b ins) T st0 mems = some envs := by
     rw [hb, show declWidth r0 = weOf r0 from rfl, hw]; exact hrun
@@ -294,6 +295,7 @@ theorem slotlessLeaf_childShips_of_LB (p : Pkg ι dom) {raw b : Module} {D : Des
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) (n : Nat) :
     ChildShips p n b D := by
+  refine ⟨Tools.ShippingGen3PortWidthsCore.noCalls_childPortWidths p hL hnoI hok hSS houtTy htake hpost, ?_⟩
   have hkD : p.d.bsIn.length ≤ p.kD := by
     have h := congrArg List.length htake
     rw [List.length_take] at h

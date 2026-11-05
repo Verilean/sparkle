@@ -1,4 +1,5 @@
 import Tools.ShippingGen2MemData
+import Tools.ShippingGen2TopContract
 import Tools.ShippingGen2MemBd
 import Tools.ShippingGen2MemKids
 import Tools.ShippingSrm33Core
@@ -97,7 +98,9 @@ theorem memParent_topShips (L : Laws mref cref) (p : Pkg ι dom)
       intro ids cache regs lets _ _ hW
       exact Tools.ShippingSrm32.hWd_of_wired hpb (factsB hpb).gate houtTy hW)
     houtTy (Tools.ShippingC4InitW.hinitW_of_ok p.d hok) hcore hpost entry trivial (fun _ => factsB hpost)
-  exact key ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
-    (core_kidsMem_ranAM L.O p.d hok (Pkg.body_eq p) hco hslots hdomB hins hfe hmemO hpost houtTy ranA)
+  -- R-G: `key` has the consumer-1 (old) premises; L2 with both memberships from the run (U-TOP-CLKIN)
+  obtain ⟨_, _, _, _, _, _, _, _, _, wired, _⟩ := id (Pkg.trace L.O L.T hA p ran).toLB
+  exact topShips_ofOld_wired p (n + 1) wired hsl hpost (key ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+    (core_kidsMem_ranAM L.O p.d hok (Pkg.body_eq p) hco hslots hdomB hins hfe hmemO hpost houtTy ranA))
 
 end Tools.ShippingGen2

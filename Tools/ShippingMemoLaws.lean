@@ -227,6 +227,8 @@ theorem outer_reset_reaches (L : RefLawsM mref cref) {declName : Name}
   have m9 : L.mval x9 = {} := (L.setOther MemoOther.synthDepth e9).trans m8
   have m10 : L.mval y1 = {} := (L.constInfoSame hget).trans m9
   have m11 : L.mval y2 = {} := (L.envSame henv).trans m10
+  rcases RunsTo.ite h with h | h
+  · exact (throwError_not_runs _ h).elim
   exact ⟨prof.isSome, env, ci, _, y1, _, _, _, _, hget, henv, h, m11⟩
 
 /-- **The entry constant of this run is the definition `dv`**: whatever
