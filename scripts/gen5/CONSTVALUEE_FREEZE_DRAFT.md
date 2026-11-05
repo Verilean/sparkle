@@ -544,3 +544,70 @@ reviewer の判断 Q1 = (a)、Q2 = (a)。TRUSTED・axiom・sorry・native_decide
 - 全 universe instance への一般化（`OblLevelErase`）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §V2: `CVEKVL`、literal の行、`RowTypedAtV` / `RowTeleEvAt`、旧 `CVEKS` との関係（Issue `sparkle-ledger-dd4-v2`、土台 10112fb6）
+
+reviewer: CVEKV は承認済み。範囲外だった残り（`EnvClosedS`、literal の行、`RowTeleEvAt` / `OblRowTypedS`、旧 `CVEKS` との写像）を扱う。kernel `Ty` との一致は D2a のとおり主張しない。TRUSTED・axiom・sorry・native_decide なし。`PT` は任意のパラメータのまま。既存ファイルは書き換えていない（lakefile と草案は末尾追記のみ）。
+新ファイル: `Tools/ShippingGen5ConstValueEVL.lean`、`Tools/ShippingGen5RowTypedV.lean`、`Tests/Gen5/V2Check.lean`。土台は `kjob lake build Tests.Gen5.ValCheck Tests.Gen5.SoundS2Check` が通ることを先に確認した（merge 後そのまま通った）。
+
+### 1. `CVEKVL`: CVEKV の level の構文版、`EnvClosedS` を示した
+
+- `CVEKVL`（`ShippingGen5ConstValueEVL`）は `CVEKV` の複製で、`unfold` の本体と `prim` の宣言型の `Expr.instantiateLevelParams` だけを `instantiateLevelParamsS`（SoundS2）に替えた。`EnvClosedS` は `EnvClosedL` に替わる。`CVEKV` の証明（関数性 `cvekv_fun` / `cvekvb_fun` / `tdenv_fun`、弱化、`denTypedV`、`argsTeleV_of_ev` ほか）が名前の置換だけでそのまま通った。
+- **`EnvClosedS` に当たるもの**: `envClosedL_cvekvl : EnvDeclClosed env → EnvClosedL env`（SoundS2 の `envClosedL_of_declClosed`、`lbr_instantiateLevelParamsS` を使う）。`tdenv_wk_decl` / `cvekv_wk_decl` / `wfValV_cons_decl` / `denTypedVL` は前提が `EnvDeclClosed`（保存された宣言型・本体の `lbr = 0`）だけになった。**`instantiateLevelParams` の橋は消えた**。残るのは env の事実 `EnvDeclClosed`（名前付き `Prop`、仮定にも axiom にもしていない。別 Issue `sparkle-ledger-dd4-sound` が実環境で監査している）。
+- `Expr.instantiateLevelParams` との一致は主張しない（SoundS2 のとおり）。`V2Check` は `CVEKVB.prim` / `unfold` / `TDenV.tunfold` が `instantiateLevelParamsS` だけを含み、`CVEKV` 側の `prim` は opaque 版を含むことを meta で確かめる。
+
+### 2. literal の行（`oblDenLits` の V 版）
+
+`oblDenLitsV_of_rows`: `Nat` / `String` の nullary な `tys` 行（`kinds = []`、値が `Nat` / `String`、定義でない）があれば、どの valuation でも `TDenV ρ (.const `Nat []) Nat` / `String`。`natLit_typed` / `strLit_typed` は literal の規則のラベルが型付くこと。`denTypedVL_of_rows` は `EnvDeclClosed` と 2 行だけから `OblDenTypedV`（`CVEKVL ⇒ TDenV`）を閉じる。**`PT` の中身の条件はこの 2 行（`PT` の仕様）だけ**。
+
+### 3. `RowTypedAtV`（`hty` の義務）と `RowTeleEvAt`（引数の型付け）
+
+`RowTypedAtV PT env c ls`: `prim` の `hty`（宣言型を `instantiateLevelParamsS` で instantiate し、`instForallS` で引数に適用した式が `d.ty` を表す）。`OblRowTypedV` はその全 key。`instantiate1` / `liftLooseBVars` / `OblInst1Agree` は現れない。
+
+| 分類 | 件数 | 状態 |
+|---|---|---|
+| 引数なし | 6 | **証明**（`rowTypedAtV_nullary_const`、`rowTypedV_Nat_zero` ほか 6 件） |
+| codomain が閉じている | 4 | **証明**（`rowTypedAtV_closedPi`、`rowTypedV_Nat_succ` / `Int_ofNat` / `Int_negSucc` / `DomainConfig_mk`） |
+| 依存した codomain | 30 | **形が合うものは証明**（下の 3.1）。`PT` の行の仕様（`FirstArgSpec`）を前提にする |
+| `den = none` / Prop | 75 | 行が `den = none` という `PT` の仕様のとき義務なし（`rowTypedAtV_of_den_none`） |
+
+**3.1 依存した codomain**: 宣言型が `n+1` 個の binder（binder の型・本体は何でもよい。`instForallS` は見ない）で、結果が `D (bvar n)`（最初の引数に型構成子 `D` を適用した式）のとき、`instForallS T (a0 :: as) = D a0`（`instForallS_depFirst`。`substS` を実際に計算し、`substS_liftS_in` で持ち上げが相殺することを使う）。`rowTypedAtV_depFirst`: 行の仕様 `FirstArgSpec`（その行の値の型は、`D` の `tys` 行の `den` を最初の引数に適用したもの）と `¬ IsDefn env D`、env の事実 `EnvDepFirst` から `RowTypedAtV`。**`OblDenSubstS` は出ない**。結果の型 `D a0` は `D` の行と、最初の引数自身の `CVEKV` の導出（`ArgsDenV` の先頭）で型付く（`V2Check` が `rowTypedAtV_depFirst` 等から届く宣言を meta で数え、`OblDenSubstS` / `tdens_subst` / `SafeArg` などが含まれないことを確認。検出器の対照: 旧 `denTypedS` は届く）。
+- 実環境で形を確認したもの: `Fin.mk`（`Fin (bvar 2)`）、`BitVec.ofFin`、`Decidable.isTrue` / `isFalse`、出力 structure の複製 `KOutM.mk`（`KOutM (bvar n)`）。`instForallS` を実際の型に適用した結果も確認（`Fin.mk [5,3,0] = Fin 5`、`[7,3,0]` なら `Fin 7`: 結果が最初の引数に依存する）。
+- `Sparkle` 全体の `DomainConfig` 先頭の constructor は 9 件で、7 件がこの形、残り 2 件（`Signal.mk`、`AsSignal.mk`）は `Signal dom α` のように引数を 2 つ取る型構成子を結果に持ち、この定理の範囲外（corpus の出力 structure ではない）。
+- corpus の 26 件（`{dom : DomainConfig}` を取る出力 structure の `*.mk`）の名前は corpus 監査（`merge_row_typed_audit.py`）にあり、ここでは再計算していない。AUDIT_26_PLACEHOLDER
+
+**`RowTeleEvAt`（引数の型付けを行ごとの義務に整理）**: `OblPrimArgsV` は `RowTeleEvAt`（項引数は binder 型が引数の Lean 型を表す、型引数は binder が `sort`）から `rowArgsAtV_of_ev` で出る（CVEKV で証明済み）。項引数は証拠つきの `conv` で binder 型をラベルにでき、引数自身のラベルの証拠は `denTypedV` が出す。ここでは行ごとの義務を次の 2 つの事実に分けた。
+- 行の仕様 `ArgsTySpec`（その行が受け付ける引数の Lean 型は `Ts`）。
+- binder の定数が各 valuation で `Ts` を表すこと `BindersDen`（`tys` の行なら `tdenv_const_nullary`、alias なら `tdenv_const_unfold`）。
+`rowTeleEvAt_constPi`（`teleEv_constPi`）: binder が定数 `bs` で本体が閉じた telescope（`ConstPi`）なら、この 2 つと env の事実 `EnvConstPi` から `RowTeleEvAt`。**証明した行**: 引数なし 6（`rowTeleEvAt_nullary`、CVEKV）、codomain が閉じた 4（`teleEv_Nat_succ` / `Int_ofNat` / `Int_negSucc` / `DomainConfig_mk`）。`DomainConfig.mk` の 3 つ目の binder は `Sparkle.Core.Domain.ResetKind`（`abbrev`、`defnInfo`）なので alias の展開で扱う（`V2Check` が env でこれを確認）。
+
+### 4. 証明できなかった行の一覧と理由
+
+| 残り | 件数 | 理由 |
+|---|---|---|
+| 依存 30 行の `RowTeleEvAt` | 30 | 後ろの binder の型が前の引数を含む（`Signal dom α` の `dom`、`Fin.mk` の `val < n`、`Decidable.isTrue` の `p`）。`TeleEv.tm` は代入後の binder 型（`substS B 0 a`）の `TDenV` を要求する。(i) `Signal`・`BitVec` などの型構成子の `tys` 行は `PT` の中身で、任意の `PT` からは出ない。(ii) 命題の引数（`val < n`、`p` の証明）は `Dyn`（`ty : Type`）にならず、行の `kinds`（`Bool`）でどう扱うかが `PT` 側の決め事。(iii) 型引数（`α`）は carrier の中で型付けされない（`tyRKS_no_forallE`）。行ごとに `PT` の仕様が要る |
+| 依存 30 行の `FirstArgSpec` / `EnvDepFirst` | 30 | 定理は証明済みだが、仕様は `PT` の中身（実際の `PT` はこのリポジトリにない）。26 件の env の事実は corpus の名前で個別に確認が要る |
+| 引数なし 6 / 閉じた 4 の仕様 | 10 | `TmSpec` / `TyConSpec` / `ArgsTySpec`（`PT` の仕様）と env の事実。モデル表 `PTm` / `PTs` でだけ充足を示した |
+| `den = none` / Prop | 75 | `PT` が `den = none` と仕様を満たすこと |
+| `EnvDeclClosed` | 1 | env の事実（実環境の監査は別 Issue） |
+| kernel の `Ty` | - | 主張しない（D2a） |
+
+### 5. 旧 `CVEKS` との写像: 導出の写像は作れない。規則の対応は証明した
+
+`CVEKS ⇒ CVEKVL` の導出の写像（`SafeArg` の範囲でも）は**作っていない**。理由:
+1. **ラベルが違う**: 旧 `app` / `letE` のラベルは `substS B 0 x`、新しい規則のラベルは `letE n A x B false`（構文として別の式。`V2Check` の具体例）。写像は導出の結論を変えるので「同じラベルの導出」にはならず、`conv` が要る。
+2. **`conv` に要る証拠が旧導出から出ない**: `conv` は `TDenV ρ (substS B 0 x) α` の証拠を要求する。これは `OblDenSubstS` の V 版の 1 つの instance そのもの。旧 `tdens_subst` は `SafeArg x` でだけ証明済みだが、`SubV` の仕掛けは `TDenS` 用で、`TDenV` 用の代入補題は作っていない（`TDenV` の `tlet` の本体が valuation を伸ばすため `SubV` の再定義が要る）。
+3. **`lam` の本体のラベルが全 `a` で共通**: 旧 `lam` の `hb : ∀ a, CVEKS … body B (TB a) (f a)` は `a` ごとに別の導出でよく、新しい `lam` は `a` ごとの `CVEKVB`（ラベル共通）。新しいラベルを選ぶには「ラベルは valuation の値によらない」補題が要る。これは Lean 型 `TA` が値に依存しうる valuation（`Fin n` を表す `TA` など）同士で 2 つの導出を比べる補題で、`HEq` を伴う同時帰納になる。
+**証明したもの（規則の対応）**: `cvekv_app_old_of_new` / `cvekv_letE_old_of_new`: 新しい `app` / `letE` の結論に `hsub : TDenV ρ (substS B 0 x) (TB av)`（1 つの代入 instance）を足せば、旧規則の結論 `CVEKV ρ (app fe x) (substS B 0 x) (TB av) (fv av)` が `conv` で得られる。すなわち旧規則は新規則と代入の事実 1 つから導ける。値と Lean 型は同じ規則で一致する（関数性が両 carrier で成り立つ）。
+
+### 6. Check（`Tests/Gen5/V2Check.lean`）
+
+構造照合（`CVEKVL` が `instantiateLevelParamsS` だけを含む、`RowTypedAtV` の形、`instForallS_depFirst`、規則の対応）、モデル表 `PTm` / `PTd` / `PTs`（仕様が充足可能、per-key の定理が instantiate する）、実環境の事実（引数なし 6 の `EnvTypeL`、閉じた 4 の `EnvClosedPiL` と `EnvConstPi`、依存 5 の `EnvDepFirst`、`instForallS` の計算）、負対照（`Fin.mk` は閉じた Pi でない／別の型構成子や別の binder 数を拒む／`Nat.succ` は依存でない／定義 `Nat.add` を拒む／最後の引数に依存する telescope は形に合わない `piN_last_not_first`／`Unit` を受ける行は `ArgsTySpec [Nat]` を満たさない／`FirstArgSpec` の誤った型構成子と kinds を拒む／axiom 検出器の検出）、代入義務に届かないこと、`#print axioms` と 49 宣言の axiom 検査（propext / Classical.choice / Quot.sound のみ）、残った義務が定理でも axiom でもなく `Prop` の定義であること、件数。
+
+### 7. 主張しないこと
+
+- 実際の `PT` が仕様（`TmSpec` / `FirstArgSpec` / `ArgsTySpec` / `BindersDen`）を満たすこと。kernel `Ty` との一致。
+- 依存 30 行の `RowTeleEvAt`。旧 `CVEKS` の導出から `CVEKVL` の導出への写像。
+- `Expr.instantiateLevelParams` と `instantiateLevelParamsS` の一致。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
