@@ -464,3 +464,37 @@ reviewer の方針: 健全性の完了は差し戻し。D1（opaque な演算と
 
 - `OblRowTypedK` の完了。34 件が D1 待ち、75 件が PT の仕様（`den = none`）待ちで、証明した 6 件も仕様と env の事実を仮定している。
 - 実際の `PT` の行が仕様を満たすこと。D1 / D2 の決定。引数の型付け（`OblPrimK`）。
+
+## §SoundS2: 構文版の level 代入 `instantiateLevelParamsS` と 4 行の `OblRowTypedS`（Issue `sparkle-ledger-dd4-sound`、土台 7c05d998）
+
+reviewer の部分受理（P1/P2 は D1a/D2a に沿う。`TyRKS` は構文的判定で、kernel typing との一致を意味しない）の続き。TRUSTED・axiom・sorry・native_decide なし。`PT` は任意のパラメータのまま。既存ファイルは書き換えていない。
+新ファイル: `Tools/ShippingGen5ConstValueESL.lean`、`Tools/ShippingGen5RowTypedS.lean`、`Tests/Gen5/SoundS2Check.lean`。Q1（`OblDenSubstS` の一般形）と Q2（`RowArgsAt` の型変換）は reviewer 相談中で、ここでは触っていない。
+
+### 1. `EnvClosedS` と `instantiateLevelParamsS`（`ShippingGen5ConstValueESL`）
+
+- `instantiateLevelParamsS ps ls : Expr → Expr`（`Level` は `instLevelS`、`Expr` は構造再帰。`sort` / `const` の level を置換し、他は全 constructor を再帰）。**Lean の opaque な `Expr.instantiateLevelParams` との一致は主張しない**（`SoundS2Check` の負対照: 後者はエラボレータで stuck、前者は計算できる）。
+- carrier `CVEKL`: `CVEKS` の `unfold` の本体と `prim` の宣言型の `instantiateLevelParams` だけを `instantiateLevelParamsS` に替えた複製。`tdenl_fun` / `argsdenl_fun` / `cvekl_fun`（証明は `cveks_fun` と同じ形でそのまま通った）、`constValueEAtL_functional`、`cvlskl_functional`。
+- **`EnvClosedS` が構文版の上で要求するもの**: `EnvClosedL`（宣言型・定義本体が、どの level 列で instantiate しても `lbr = 0`）。`lbr_instantiateLevelParamsS`（level 置換は `lbr` を変えない）を証明したので、`EnvClosedL` は素の宣言の閉性 `EnvDeclClosed`（保存された `ci.type` / `d.value` の `lbr = 0`）と同値（`envClosedL_of_declClosed` / `envDeclClosed_of_closedL`）。**instantiate の橋は消え、残るのは環境の宣言が閉じているという env の事実だけ**。
+- 残るもの: (i) `EnvDeclClosed` は env についての名前付き `Prop`（仮定にも axiom にもしていない。kernel が受理した宣言の性質）。(ii) `ESProof` の補題群（弱化・代入・`denTypedS`）は `CVEKS` の上で `EnvClosedS`（Lean の instantiate）を仮定する形のまま。`CVEKL` への移植（`EnvClosedL` を仮定する版）は機械的だが、このブランチではしていない。`CVEKL` では関数性のみを証明した。
+
+### 2. `OblRowTypedS`（`ShippingGen5RowTypedS`）
+
+- `RowTypedAtES PT env c ls`: `RowTypedAt` の S 版（`ArgsDenS` / `TDenS` / `instForallS`）。`OblRowTypedS PT env := ∀ c ls, RowTypedAtES PT env c ls`。`instantiate1` / `liftLooseBVars` / `OblInst1Agree` は現れない。`rowTypedAtES_of_none` / `_of_den_none` / `oblRowTypedS_of_keys`（有限表の分解）。
+- **codomain が閉じた 4 行を証明**: `rowTypedES_Nat_succ` / `_Int_ofNat` / `_Int_negSucc` / `_DomainConfig_mk`。道具は `instForallS_closedPi`（`substS_closed`）と `argsdens_length`、行の仕様 `TmSpec` / `TyConSpec`（`PT` は任意、仕様を前提にする）、env の事実 `EnvClosedPi` / `¬ IsDefn`（実環境では `RowTypedKCheck` の meta 検査で確認済み）。
+
+### 3. 残った義務の一覧
+
+| 残り | 状態 |
+|---|---|
+| `OblRowTypedS` の依存した codomain 30 件（`Fin.mk`、`BitVec.ofFin`、`Decidable.isTrue/isFalse`、`{dom : DomainConfig}` を取る出力 structure の `*.mk` 26 件） | **Q1 待ち**。`substS` の具体的な結果と `OblDenSubstS` の一般形が要る。名前の全件は `merge_row_typed_audit.py` の最終行（コーパス監査、ここでは再計算しない） |
+| `OblRowTypedS` の `den = none` / Prop 75 件、引数なし 6 件 | `rowTypedAtES_of_den_none`（行が `den = none` という `PT` の仕様のとき）／`RowTypedAt` で既に証明（S 版の引数なし 6 件は `ArgsDenS` の長さ 0 で同様に閉じるが、ここでは定理にしていない） |
+| `OblDenSubstS` の一般形 | Q1 待ち（変更なし） |
+| `RowArgsAt` / `OblPrimArgsS` | Q2 待ち（変更なし） |
+| `EnvDeclClosed` | env の事実（名前付き `Prop`、未仮定） |
+| `ESProof` の `CVEKL` への移植 | 未着手（機械的） |
+
+### 4. Check（`Tests/Gen5/SoundS2Check.lean`）
+
+構造照合（`instantiateLevelParamsS` の定義の展開、`cvekl_fun` ほかの形、`lbr_instantiateLevelParamsS`、`EnvClosedL ↔ EnvDeclClosed`、4 行の定理をモデル表 `PTm` で具体化）、負対照（instantiate が恒等でなく param 名を区別する、opaque 版は stuck・構文版は計算できる、依存した codomain と arity 違いは `ClosedPi` でない、誤った型の仕様はない、axiom 検出器の検出）、`#print axioms` と 24 宣言の axiom 検査（propext / Classical.choice / Quot.sound のみ）、残った義務 8 件が定理でも axiom でもなく `Prop` の定義であることの確認、115 件の区分（4 + 30 + 6 + 75）。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
