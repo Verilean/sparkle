@@ -5766,3 +5766,12 @@ lean_lib «Tests.Gen5.PrimResidueCount» where
 
 lean_lib «Tools.ShippingGen5ConstValueE» where
   roots := #[`Tools.ShippingGen5ConstValueE]
+
+lean_lib «Tests.Gen5.PrimResidueFull» where
+  roots := #[`Tests.Gen5.PrimResidueFull]
+
+lean_lib «Tests.Gen5.IotaStudy» where
+  roots := #[`Tests.Gen5.IotaStudy]
+
+lean_lib «Tools.ShippingGen5IotaDraft» where
+  roots := #[`Tools.ShippingGen5IotaDraft]
