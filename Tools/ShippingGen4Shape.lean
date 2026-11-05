@@ -92,4 +92,96 @@ theorem legalBinding_congr {D₁ D₂ : Design} {θ : List (String × Nat)}
   unfold LegalBinding
   rw [hv]
 
+theorem specDesign_eq_addModule {M : Sparkle.IR.AST.Module} {D : Design}
+    (h : ∀ x ∈ D.modules, x.name ≠ M.name) : SpecDesign M D = D.addModule M := by
+  unfold SpecDesign
+  have : (D.modules.any (·.name == M.name)) = false := by
+    rw [List.any_eq_false]
+    intro x hx hb
+    exact h x hx (by simpa using hb)
+  rw [this]; rfl
+
+theorem specDesign_keys {M₁ M₂ : Sparkle.IR.AST.Module} {D₁ D₂ : Design}
+    (hMn : M₁.name = M₂.name) (hMp : M₁.parameters = M₂.parameters)
+    (hp : D₁.modules.map (·.parameters) = D₂.modules.map (·.parameters))
+    (hn : D₁.modules.map (·.name) = D₂.modules.map (·.name)) :
+    (SpecDesign M₁ D₁).modules.map (·.parameters) = (SpecDesign M₂ D₂).modules.map (·.parameters) ∧
+    (SpecDesign M₁ D₁).modules.map (·.name) = (SpecDesign M₂ D₂).modules.map (·.name) := by
+  have hany : D₁.modules.any (·.name == M₁.name) = D₂.modules.any (·.name == M₂.name) := by
+    have := congrArg (fun l => l.any (· == M₁.name)) hn
+    simpa [List.any_map, Function.comp_def, hMn] using this
+  unfold SpecDesign
+  rw [hany]
+  split
+  · exact ⟨hp, hn⟩
+  · simp [Design.addModule, hp, hn, hMn, hMp]
+
+/-- `fpost_run` with the top-module name of the design as well (same proof, one more `rfl`). -/
+theorem fpost_run_top {declName : Name} {parameters : List (String × Nat)} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M' : Sparkle.IR.AST.Module} {D' : Design}
+    (h : RunsTo (synthesizeCombinationalWithParameters declName parameters)
+      mctx mref cctx cref w (M', D') w') :
+    ∃ (M : Sparkle.IR.AST.Module) (D : Design) (w1 : Void IO.RealWorld),
+      RunsTo (synthesizeCombinationalCoreWith Tsyn declName parameters true true)
+        mctx mref cctx cref w (M, D) w1 ∧
+      M'.parameters = M.parameters ∧ M'.name = M.name ∧
+      D'.modules.map (·.parameters) = D.modules.map (·.parameters) ∧
+      D'.modules.map (·.name) = D.modules.map (·.name) ∧ D'.topModule = D.topModule := by
+  unfold synthesizeCombinationalWithParameters at h
+  obtain ⟨⟨M, D⟩, w1, hcore, h⟩ := RunsTo.bind h
+  refine ⟨M, D, w1, hcore, ?_⟩
+  dsimp only at h
+  obtain ⟨_, _, -, h⟩ := RunsTo.bind h
+  have hd := topMap_keys Sparkle.IR.ZeroWidth.dropZeroWidthModule M.name
+    Tools.ShippingMachineDepthRun.dropZW_name dropZW_parameters D.modules
+  have hm := topMap_keys Sparkle.IR.RefineCheck.mergeChecked M.name
+    Tools.ShippingMachineDepthRun.mergeChecked_name mergeChecked_parameters
+    (D.modules.map fun x => if x.name == M.name then Sparkle.IR.ZeroWidth.dropZeroWidthModule x else x)
+  rcases RunsTo.ite h with h | h
+  · have := Tools.ShippingPostSoundness.RunsTo.pure h
+    simp only [Prod.mk.injEq] at this
+    obtain ⟨h1, h2⟩ := this
+    subst h1 h2
+    exact ⟨dropZW_parameters M, Tools.ShippingMachineDepthRun.dropZW_name M, hd.1, hd.2, rfl⟩
+  · have := Tools.ShippingPostSoundness.RunsTo.pure h
+    simp only [Prod.mk.injEq] at this
+    obtain ⟨h1, h2⟩ := this
+    subst h1 h2
+    refine ⟨?_, ?_, ?_, ?_, rfl⟩
+    · exact (mergeChecked_parameters _).trans (dropZW_parameters M)
+    · exact (Tools.ShippingMachineDepthRun.mergeChecked_name _).trans
+        (Tools.ShippingMachineDepthRun.dropZW_name M)
+    · exact hm.1.trans hd.1
+    · exact hm.2.trans hd.2
+
+theorem shape_run {declName : Name} {parameters : List (String × Nat)} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M' : Sparkle.IR.AST.Module} {D' : Design}
+    (h : RunsTo (synthesizeCombinationalWithParameters declName parameters)
+      mctx mref cctx cref w (M', D') w') :
+    ∃ (M : Sparkle.IR.AST.Module) (D : Design) (w1 : Void IO.RealWorld),
+      RunsTo (synthesizeCombinationalCoreWith Tsyn declName parameters true true)
+        mctx mref cctx cref w (M, D) w1 ∧
+      (SpecDesign M' D').topModule = D.topModule ∧
+      (SpecDesign M' D').modules.map (·.parameters) = (SpecDesign M D).modules.map (·.parameters) ∧
+      (SpecDesign M' D').modules.map (·.name) = (SpecDesign M D).modules.map (·.name) ∧
+      (∀ θ, LegalBinding (SpecDesign M' D') θ ↔ LegalBinding (SpecDesign M D) θ) ∧
+      ((∀ x ∈ D.modules, x.name ≠ M.name) →
+        SpecDesign M' D' = D'.addModule M' ∧ SpecDesign M D = D.addModule M) := by
+  obtain ⟨M, D, w1, hcore, hMp, hMn, hp, hn, ht⟩ := fpost_run_top h
+  obtain ⟨k1, k2⟩ := specDesign_keys hMn hMp hp hn
+  refine ⟨M, D, w1, hcore, ?_, k1, k2, fun θ => legalBinding_congr k1 k2, fun hf => ?_⟩
+  · unfold SpecDesign
+    split <;> simp [Design.addModule, ht]
+  · have hf' : ∀ x ∈ D'.modules, x.name ≠ M'.name := by
+      intro x hx
+      have hx' : x.name ∈ D.modules.map (·.name) := hn ▸ List.mem_map_of_mem hx
+      obtain ⟨y, hy, hyx⟩ := List.mem_map.mp hx'
+      rw [hMn, ← hyx]
+      exact hf y hy
+    exact ⟨specDesign_eq_addModule hf', specDesign_eq_addModule hf⟩
+
 end Tools.ShippingGen4Shape
