@@ -209,6 +209,143 @@ theorem FreshAgainst.shard_excl {S T : PTShard} (h : FreshAgainst S.toPT T) : Ex
 /-- No key occurs twice inside one shard. -/
 def Nodup (S : PTShard) : Prop := S.tyKeys.Nodup ∧ S.tmKeys.Nodup
 
+
+/-! ## The generator: `#pt_shard C₁ C₂ …`
+
+`#pt_shard S` takes inductive types `S` (an output structure of a corpus module) and, for the type former and for each constructor, builds the row from the DECLARED TYPE in the environment
+(a binder `A : Type` is a type argument, a binder with `A : Type` a term argument; a proof binder, a binder above `Type 0`, a result above `Type 0` have no row and are listed in `ptShardMissing`).
+It then elaborates ordinary declarations in the current namespace:
+
+* `ptShardTy<i>` / `ptShardTm<j>`: the row as a `TyTele` / `TmTele` term (type-checked against the real constructor: the kernel checks `@S.mk x₁ … xₙ : S x₁`).
+* `ptShard : PTShard`: the table; `ptShardWanted` / `ptShardMissing`: the keys requested and the keys without a row (with the reason).
+* per key: `ptShard…_key` (the lookup of `ptShard.toPT` at the key is that row, `rfl`), `…_run` (the row run on arguments of the declared binder types returns exactly the constructor application with its declared type),
+  `…_comp` (the row is still found in `PTcore ⊕ₚ ptShard.toPT`).
+* per shard: `ptShard_fresh` (`FreshAgainst PTcore ptShard`, `rfl`), `ptShard_excl`, `ptShard_nodup`, `ptShard_n_tys` / `ptShard_n_tms` (counts), `ptShard_functional` (`cvFinal_comp_functional`).
+
+The command only PRINTS source text and elaborates it; all checking is by the kernel on the ordinary declarations it produces. -/
+
+section gen
+open Lean Meta Elab Command
+
+private structure GenRow where
+  ks : List Bool
+  xs : Array (String × String × Bool)   -- name, type text, isTypeArg
+  res : String
+  head : String
+  tele : String
+
+private def sortLevel? (t : Expr) : MetaM (Option Level) := do
+  match ← whnf (← inferType t) with
+  | .sort l => return some l.normalize
+  | _ => return none
+
+private def isNum (l : Level) (n : Nat) : Bool := l.normalize == natLv n
+
+private partial def genGo (isTy : Bool) (headS : String) (e : Expr) (i : Nat) (xs : Array (String × String × Bool)) (openers : Array String) :
+    MetaM (Except String GenRow) := do
+  let e ← whnfD e
+  let op := if isTy then "Tools.ShippingGen5PTCorpus.TyTele" else "Tools.ShippingGen5PTCorpus.TmTele"
+  match e with
+  | .forallE _ A B bi =>
+    let some s := (← sortLevel? A) | return .error "binder type is not a type"
+    let x := s!"x{i}"
+    let aStr := toString (← ppExpr A)
+    if (← whnfR A) == Expr.sort (Level.succ Level.zero) then
+      withLocalDecl (Name.mkSimple x) bi A fun fv =>
+        genGo isTy headS (B.instantiate1 fv) (i + 1) (xs.push (x, "Type", true)) (openers.push s!"{op}.ty fun ({x} : Type) =>")
+    else if isNum s 1 then
+      withLocalDecl (Name.mkSimple x) bi A fun fv =>
+        genGo isTy headS (B.instantiate1 fv) (i + 1) (xs.push (x, aStr, false)) (openers.push s!"{op}.tm ({aStr}) fun ({x} : {aStr}) =>")
+    else if isNum s 0 then return .error "proof binder (a Prop argument has no Dyn form)"
+    else return .error "binder above Type 0 (a motive / universe-valued argument has no Arg form)"
+  | R =>
+    let some s := (← sortLevel? R) | return .error "result is not a type"
+    let args := " ".intercalate (xs.toList.map (·.1))
+    let app := s!"({headS} {args})"
+    let ks := xs.toList.map fun x => !x.2.2
+    if isTy then
+      if (← whnfR R) == Expr.sort (Level.succ Level.zero) then
+        return .ok ⟨ks, xs, "", app, "(" ++ " ".intercalate (openers.toList ++ [s!"{op}.done {app}"]) ++ ")"⟩
+      else return .error "inductive family not in Type 0 (Prop or Type u, u > 0)"
+    else
+      if isNum s 1 then
+        let Rs := toString (← ppExpr R)
+        return .ok ⟨ks, xs, Rs, app, "(" ++ " ".intercalate (openers.toList ++ [s!"{op}.done ({Rs}) {app}"]) ++ ")"⟩
+      else return .error "result type above Type 0 (or a Prop)"
+
+private def genKey (isTy : Bool) (c : Name) : MetaM (Except String (List Nat × GenRow)) := do
+  let some ci := (← getEnv).find? c | return .error "constant not in the environment"
+  let ls : List Level := ci.levelParams.map fun _ => Level.zero
+  let headS := if ls.isEmpty then s!"@{c}" else s!"@{c}.\{{", ".intercalate (ls.map fun _ => "0")}}"
+  match ← genGo isTy headS (ci.type.instantiateLevelParams ci.levelParams ls) 1 #[] #[] with
+  | .ok r => return .ok (ls.map fun _ => 0, r)
+  | .error e => return .error e
+
+private def lvsSrc (ns : List Nat) : String :=
+  "[" ++ ", ".intercalate (ns.map fun n => Nat.repeat (fun s => s!"Lean.Level.succ ({s})") n "Lean.Level.zero") ++ "]"
+private def numsSrc (ns : List Nat) : String := "[" ++ ", ".intercalate (ns.map toString) ++ "]"
+
+private def runCmdText (txt : String) : CommandElabM Unit := do
+  match Parser.runParserCategory (← getEnv) `command txt "<pt_shard>" with
+  | .ok stx => elabCommand stx
+  | .error e => throwError "pt_shard: generated text does not parse: {e}\n{txt}"
+
+elab "#pt_shard " ids:ident+ : command => do
+  let mut wanted : Array (Name × Bool) := #[]
+  for id in ids do
+    let c ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo id
+    match (← getEnv).find? c with
+    | some (.inductInfo iv) =>
+      wanted := wanted.push (c, true)
+      for k in iv.ctors do wanted := wanted.push (k, false)
+    | _ => throwErrorAt id "#pt_shard: {c} is not an inductive type"
+  let mut nTy := 0; let mut nTm := 0
+  let mut tyRows : Array String := #[]; let mut tmRows : Array String := #[]
+  let mut missing : Array String := #[]
+  let mut perKey : Array String := #[]
+  let mut keyTheorems : Array String := #[]
+  let ns := "Tools.ShippingGen5PTShard"
+  for (c, isTy) in wanted do
+    match ← liftTermElabM (genKey isTy c) with
+    | .error e =>
+      missing := missing.push s!"(`{c}, \"{e}\")"
+      logWarning m!"#pt_shard: {c}: no row ({e})"
+    | .ok (lsN, r) =>
+      let id := if isTy then s!"ptShardTy{nTy}" else s!"ptShardTm{nTm}"
+      let teleTy := if isTy then "TyTele" else "TmTele"
+      let ksS := "[" ++ ", ".intercalate (r.ks.map toString) ++ "]"
+      perKey := perKey.push s!"def {id} : Tools.ShippingGen5PTCorpus.{teleTy} {ksS} := {r.tele}"
+      let binders := " ".intercalate (r.xs.toList.map fun (x, t, _) => s!"({x} : {t})")
+      let args := ", ".intercalate (r.xs.toList.map fun (x, t, isT) =>
+        if isT then s!"Tools.ShippingGen5ConstValueE.Arg.ty {x}" else s!"Tools.ShippingGen5ConstValueE.Arg.tm ⟨{t}, {x}⟩")
+      if isTy then
+        tyRows := tyRows.push s!"(`{c}, {numsSrc lsN}, ⟨_, {id}⟩)"
+        keyTheorems := keyTheorems.push s!"theorem {id}_key : ptShard.toPT.tys `{c} {lvsSrc lsN} = some {id}.row := rfl"
+        keyTheorems := keyTheorems.push s!"theorem {id}_comp : ({ns}.PTcore ⊕ₚ ptShard.toPT).tys `{c} {lvsSrc lsN} = some {id}.row :=\n  {ns}.comp_tys_right_excl ptShard_excl {id}_key"
+        keyTheorems := keyTheorems.push s!"theorem {id}_run {binders} :\n    {id}.run [{args}] = some {r.head} := by\n  simp [{id}, Tools.ShippingGen5PTCorpus.TyTele.run]"
+        nTy := nTy + 1
+      else
+        tmRows := tmRows.push s!"(`{c}, {numsSrc lsN}, ⟨_, {id}⟩)"
+        keyTheorems := keyTheorems.push s!"theorem {id}_key : ptShard.toPT.tms `{c} {lvsSrc lsN} = some {id}.row := rfl"
+        keyTheorems := keyTheorems.push s!"theorem {id}_comp : ({ns}.PTcore ⊕ₚ ptShard.toPT).tms `{c} {lvsSrc lsN} = some {id}.row :=\n  {ns}.comp_tms_right_excl ptShard_excl {id}_key"
+        keyTheorems := keyTheorems.push s!"theorem {id}_run {binders} :\n    {id}.run [{args}] = some (⟨{r.res}, {r.head} {" ".intercalate (r.xs.toList.map (·.1))}⟩ : Tools.ShippingGen5ConstValueE.Dyn) := by\n  simp [{id}, Tools.ShippingGen5PTCorpus.TmTele.run]"
+        nTm := nTm + 1
+  for t in perKey do runCmdText t
+  runCmdText s!"def ptShard : {ns}.PTShard := \{ tys := [{", ".intercalate tyRows.toList}], tms := [{", ".intercalate tmRows.toList}] }"
+  runCmdText s!"def ptShardWanted : List (Lean.Name × Bool) := [{", ".intercalate (wanted.toList.map fun (c, b) => s!"(`{c}, {b})")}]"
+  runCmdText s!"def ptShardMissing : List (Lean.Name × String) := [{", ".intercalate missing.toList}]"
+  runCmdText s!"theorem ptShard_fresh : {ns}.FreshAgainst {ns}.PTcore ptShard := ⟨rfl, rfl⟩"
+  runCmdText s!"theorem ptShard_excl : {ns}.Excl {ns}.PTcore ptShard.toPT := ptShard_fresh.excl"
+  runCmdText s!"theorem ptShard_nodup : ptShard.Nodup := ⟨by decide, by decide⟩"
+  runCmdText s!"theorem ptShard_n_tys : ptShard.tys.length = {nTy} := rfl"
+  runCmdText s!"theorem ptShard_n_tms : ptShard.tms.length = {nTm} := rfl"
+  runCmdText s!"theorem ptShard_n_wanted : ptShardWanted.length = {wanted.size} := rfl"
+  runCmdText s!"theorem ptShard_n_missing : ptShardMissing.length = {missing.size} := rfl"
+  runCmdText s!"theorem ptShard_functional : Tools.ShippingGen5FG.ConstValueFunctional (Tools.ShippingGen5CVFinal.CVFinal ({ns}.PTcore ⊕ₚ ptShard.toPT)) :=\n  {ns}.cvFinal_comp_functional _ _"
+  for t in keyTheorems do runCmdText t
+
+end gen
+
 end Tools.ShippingGen5PTShard
 
 #print axioms Tools.ShippingGen5PTShard.cvFinal_comp_functional
