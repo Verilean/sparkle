@@ -1247,3 +1247,11 @@ reviewer の判断（Issue sparkle-gen4-param-ftheta、2026-11-05）: parametric
   - D.D-1 はまだ減算しない。実際の route predicate に固定した最終 root の型比較が要る。
   - C.DG-1 と C.SM-1 は構造比較の Check を作って調査する。Check が通ったときだけ −1 の候補になる。
 - **現在値は変わらず FG 77 / T1 57**（§12.21）。
+
+### 12.23 減算（2026-11-05、coder。文書のみ。リーフの除去）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| DG1（Issue sparkle-ledger-dg1） | C.DG-1（−1、リーフ、design text の `GeneratedAt`） | `Tools/ShippingGen5DG1.lean`（f4b9a3e0 / 5c65a5cb、par/dg1、土台 f9dbc699）: `genGP_fields`（genGP から GenData の wf / hshape / hdata / GeneratedAtK）、`hpkg_tgtRun_of_cover`、`pkgAssign_of_cover`、`callEdge_of_genGP`。`Tests/Gen5/DG1Check.lean` は genGP を固定した 19 root を走査し、次を確かめる。GeneratedAt の語彙が最終 root の文に独立して現れない。C.AC-4 の ReachCover が glue（hpkg / pkgAssign）の hcov として残る。hpkg は T1HypND.pkg と、pkgAssign は stepDec_of_ties.hDG_PKGASSIGN と Expr == で一致する。対照は汎用の P、hcov なし、pkg / closes の不一致。issue-linked の Job の end_head は 5c65a5cb、dirty=false、ancestry_verified=true。reviewer 承認（5c65a5cb） | 新しい前提 0。既存の C.AC-4（と C.AC-8、DataOk）から C.DG-1 を導く統合として数える。C.AC-4 / C.AC-8 / DataOk は残る。coverage の実 run からの供給は未証明 |
+
+- **現在値: FG 76**（77 − 1）。内訳（R0）: リーフ 55 / 非リーフ 21。T1 は 57。FG の最終受理ではない。D.D-4 は §12.22 のとおりユーザー判断待ち（sparkle-ledger-dd4）。共有前提の候補 N4-a（§12.17）は数えていない（入れると見込み FG 77）。
