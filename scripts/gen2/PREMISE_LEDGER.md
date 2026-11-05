@@ -1157,3 +1157,12 @@ reviewer の承認で、次の行を除く。
 | RK1（Issue sparkle-ledger-rk1、調査 `scripts/gen5/BINDER_EXIT_CENSUS.md` §2.1 2ce38c69、freeze `scripts/gen5/RK1_FREEZE.md`） | C.RK-1（−1、リーフ） | `FGLedgerPremisesStmtR`・`readKeeps_of_cellPrem`・`fgLedgerPremisesStmtR_iff`（`Tools/ShippingGenFGLedgerPremisesR.lean`、d436536b、par/rk1）。`h_C_EN4 : CellPrem MkRefd mref cref` の 9 番目の連言 `ReadWorld cref` に `ReadWorld.readKeeps` を当てて `ReadKeeps cref` を出し、FG の前提の文から `h_C_RK1` の束縛変数を除いた（新旧の文は同値）。exact-head `rk1b-d436536b` exit 0（819 jobs、dirty なし）。Check: BINDERS 1（新 = 旧 − `h_C_RK1`、名前・info・型・結論を == で比較）+ 対照 2 / TYPE 2 / AXIOMS 2 は標準のみ。reviewer 承認（113cd51b） | 新しい前提 0。C.EN-4（`CellPrem`）は残り、その TRUSTED の判断（DG_ENV_FREEZE §4）は動かない。C.RR-2 は default route 限定の見込みだけで、一般 FG の減算には数えない（調査の裁定） |
 
 - **現在値: FG 87**（88 − 1）。内訳（R0）: リーフ 61 / 非リーフ 26。T1 は 57。FG の最終受理ではない。
+
+### 12.13 減算（2026-11-05、coder。文書のみ）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| CV56（Issue sparkle-ledger-ac9cv5、C.CV-6 の差し戻し sparkle-ledger-cv6 への回答を兼ねる。freeze `scripts/gen5/CV56_FREEZE.md`） | C.CV-5（−1、リーフ） | reader の root `readerTrace_final`（`Tools/ShippingGen5ReaderTraceFinal.lean`、§12.8 で前提を計上した root）は、`hsp hss hls hn` を自分の `hd : dataOfAt lvl E (structEnv env) sp = some d` から `dims_of_dataOfAt` で出しており、束縛変数に無い | 新しい前提 0 |
+| 同 | C.CV-6（−1、リーフ） | `readerTrace_final_b1`（`Tools/ShippingGen5ReaderTraceFinalB1.lean`、9ab07ab8、par/cv56）。束縛変数 28 個は `readerTrace_final` と同じで、結論に GenWF b1（`∀ k < insts.length, callKind d k ≠ .domain`）を足す。b1 は `rowB1_of_dataE`（`Tools/ShippingGen5Cover3R.lean`、0d9da1ce）に root の `h`（`machineShape?`）と `hd`（同じ `E`・`sp`）を渡して出すので、`hcb` は要らない。exact-head `cv56b-9ab07ab8` exit 0（843 jobs）。Check: BINDERS（名前・info・型を == で比較）、結論の比較、対照 2、AXIOMS は標準のみ。reviewer 承認（3cd32441） | 新しい前提 0。GenWF の他の行（a1〜a4、b23、c）は C.SM-6 に残る。C.AC-9 は別の単位（sparkle-ledger-ac9、AccKeep の base 破損が先） |
+
+- **現在値: FG 85**（87 − 2）。内訳（R0）: リーフ 59 / 非リーフ 26。T1 は 57。FG の最終受理ではない。
