@@ -1,7 +1,7 @@
 import Tools.ShippingGen5AccServed
 import Tools.ShippingGen5DataOfDims
 set_option autoImplicit false
--- NOT BUILT (skeleton; build result is added by a comment-only commit). No sorry / axiom / native_decide.
+-- NOT BUILT: Tools.ShippingGen5AccKeep (an import of AccServed) does not elaborate on this base (Gen2KeepChild change 00c93ab7), so this file was never elaborated. No sorry / axiom / native_decide.
 
 /-! # C.AC-9: `accServed0_of_cover` with the carrier fixed to `dataOfAt lvl` (`scripts/gen5/AC9CV5_FREEZE.md`)
 
