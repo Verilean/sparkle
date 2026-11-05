@@ -418,15 +418,30 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       if let some hp := hp? then
         if headConst? hp == some c then
           let id := mkIdent d.userName
-          if ← runTac (← `(tactic| exact $id)) then return true
+          -- (fkids5) every IH attempt has a heartbeat budget of its own (an `exact ih …` of the wrong arity
+          -- must not unfold the whole do-block into a runtime heartbeat exception), pointed state first
+          let ihLim := 2000
+          let mut stId : Option Ident := none
+          for d' in ← getLCtx do
+            if d'.isImplementationDetail then continue
+            if (← instantiateMVars d'.type).isConstOf ``Sparkle.IR.Builder.CircuitState then stId := some (mkIdent d'.userName)
+          if let some st := stId then
+            if ← runTacLim (← `(tactic| exact $id _ _ (by assumption) _ (by simp_all <;> omega) $st)) ihLim then return true
+            if ← runTacLim (← `(tactic| exact $id _ _ (by assumption) _ _ _ _ $st)) ihLim then return true
+            if ← runTacLim (← `(tactic| exact $id _ _ (by assumption) _ _ _ $st)) ihLim then return true
+            if ← runTacLim (← `(tactic| exact $id _ _ (by assumption) _ _ $st)) ihLim then return true
+            if ← runTacLim (← `(tactic| exact $id _ _ (by assumption) _ $st)) ihLim then return true
+            if ← runTacLim (← `(tactic| exact $id _ _ _ _ $st)) ihLim then return true
+            if ← runTacLim (← `(tactic| exact $id _ $st)) ihLim then return true
+          if ← runTacLim (← `(tactic| exact $id)) ihLim then return true
           -- (rt176) a size-bounded IH `∀ mctx cctx, AdmCtx → ∀ e', sizeOf e' < n → …` (toIR): the bound is discharged from the context
-          if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ (by simp_all <;> omega))) then return true
-          if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _ _ _)) then return true
-          if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _ _)) then return true
-          if ← runTac (← `(tactic| exact $id _ _ (by assumption) _ _)) then return true
-          if ← runTac (← `(tactic| exact $id _ _ (by assumption) _)) then return true
-          if ← runTac (← `(tactic| exact $id _ _ _ _)) then return true
-          if ← runTac (← `(tactic| exact $id _)) then return true
+          if ← runTacLim (← `(tactic| exact $id _ _ (by assumption) _ (by simp_all <;> omega))) ihLim then return true
+          if ← runTacLim (← `(tactic| exact $id _ _ (by assumption) _ _ _ _)) ihLim then return true
+          if ← runTacLim (← `(tactic| exact $id _ _ (by assumption) _ _ _)) ihLim then return true
+          if ← runTacLim (← `(tactic| exact $id _ _ (by assumption) _ _)) ihLim then return true
+          if ← runTacLim (← `(tactic| exact $id _ _ (by assumption) _)) ihLim then return true
+          if ← runTacLim (← `(tactic| exact $id _ _ _ _)) ihLim then return true
+          if ← runTacLim (← `(tactic| exact $id _)) ihLim then return true
     -- unfold a definition once
     let id := mkIdent c
     runTac (← `(tactic| unfold $id:ident))
