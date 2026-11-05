@@ -7,7 +7,7 @@ set_option autoImplicit false
 /-! # `KCS`: `KeepsCP` with the circuit state tracked
 
 `KCS I st c`: from every compiler context with provenance (`CtxOk`) and a world satisfying `I`, the run `c ctx st` returns in `I` with
-a final state `st'` with `GoodS st st'` (both `StatePF`, same `module.parameters`), and throws in `I` with the exception in the class.
+a final state `st'` with `GoodS st st'` (both `StatePF`, and `parameters = []` is kept: the child's separate invariant. `GoodS.design` is the design-only part), and throws in `I` with the exception in the class.
 `KeepsCS I c := ∀ st, KCS I st c`. The state is a parameter of `KCS` (pointed), so that `get >>= f` and `set s` relate `s` to the
 state of the run (`KCS.bindGet`, `KCS.set`). A lifted `MetaM` action leaves the state: its leaf is a plain `Keeps` goal. -/
 
@@ -23,20 +23,20 @@ open Sparkle.IR.Builder (CircuitState)
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-- the state relation of the walk: both states satisfy `StatePF` and the module keeps its `parameters` -/
+/-- the state relation of the walk: design-only part `StatePF a ∧ StatePF b` (`GoodS.design`; `addParameter` writes `module`, not `design`) plus the child's separate invariant `parameters = []` is kept (an implication, so `bindInputsLegacy θ` with `θ = []`, which never reaches `addParameter`, satisfies it; the symbolic top uses the design part only) -/
 def GoodS (st st' : CircuitState) : Prop :=
-  StatePF st ∧ StatePF st' ∧ st.module.parameters = st'.module.parameters
+  StatePF st ∧ StatePF st' ∧ (st.module.parameters = [] → st'.module.parameters = [])
 
-theorem GoodS.refl {st : CircuitState} (h : StatePF st) : GoodS st st := ⟨h, h, rfl⟩
-theorem GoodS.symm {a b : CircuitState} (h : GoodS a b) : GoodS b a := ⟨h.2.1, h.1, h.2.2.symm⟩
+theorem GoodS.design {a b : CircuitState} (h : GoodS a b) : StatePF a ∧ StatePF b := ⟨h.1, h.2.1⟩
+theorem GoodS.refl {st : CircuitState} (h : StatePF st) : GoodS st st := ⟨h, h, id⟩
 theorem GoodS.trans {a b c : CircuitState} (h1 : GoodS a b) (h2 : GoodS b c) : GoodS a c :=
-  ⟨h1.1, h2.2.1, h1.2.2.trans h2.2.2⟩
+  ⟨h1.1, h2.2.1, fun h => h2.2.2 (h1.2.2 h)⟩
 
 /-- a state with the same view (design and module parameters) is `GoodS` to a `StatePF` state -/
 theorem GoodS.of_view {a b : CircuitState} (h : StatePF a) (hv : View b = View a) : GoodS a b := by
   have h1 : b.design = a.design := congrArg Prod.fst hv
   have h2 : b.module.parameters = a.module.parameters := congrArg Prod.snd hv
-  exact ⟨h, by unfold StatePF at *; rw [h1]; exact h, h2.symm⟩
+  exact ⟨h, by unfold StatePF at *; rw [h1]; exact h, fun h' => h2.trans h'⟩
 
 section Defs
 variable (mctx mref cctx cref)
