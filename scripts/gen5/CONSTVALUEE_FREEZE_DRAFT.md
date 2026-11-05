@@ -282,3 +282,26 @@ reviewer の方針: LS env X は承認済み。最終 carrier と健全性は未
 - 実環境で `Bool.rec` / `Nat.rec` / `List.rec` / `PProd.mk` / `PUnit.unit` / `False.rec` の宣言された型が `[0]` と `[1]` で異なる（meta）。
 - `#print axioms`: 関数性・橋は propext / Classical.choice / Quot.sound のみ。表の例は propext のみ。sorryAx なし。
 
+### 5. 全コーパスでの残余（新しい key、`Tests/Gen5/PrimResidueKey.lean`、meta）
+
+対象: `#machine_endpoint` を持つ 47 モジュールのうち **43 モジュール**（`MemNameCollision{Design,GateDesign,GateTypedAll,Gen}Test` の 4 つは、推移 import の `Tests.Compiler.MemNameCollisionCertTest` と環境が衝突して同時に import できないため除外）。`X.machine_source` を持つ **194 root**（root 自身が levelParams を持つもの 0）。`(X, LS env X)` から `defnInfo` を instantiateLevelParams で展開、証明項は入れない近似。生データは書いていない（集計のみ）。
+
+| 項目 | 数 |
+|---|---|
+| 残余の行数、Name-only key（= K2 level-polymorphic も同数） | 188 |
+| 残余の行数、`Name × List Level`（K1） | **201**（追加 13 行） |
+| 内訳（name / (name, ls)）: コンストラクタ | 94 / 99 |
+| 再帰子 | 11 / 15 |
+| 型の基本形 | 83 / 87 |
+| quot / axiom / opaque | 0 / 0 / 0 |
+| 複数の ls で現れる名前 | 11 / 188（最大 3 種: `PProd`, `PProd.mk`。2 種: `Bool.rec`, `False.rec`, `Nat.rec`, `List`/`List.cons`/`List.nil`/`List.rec`, `PUnit`/`PUnit.unit`） |
+| level が閉じていない key | 0 |
+| 1 root あたりの残余の最大 | 134 key / 124 name |
+
+- 59 宣言のサンプル（153 名）から全コーパスで 188 名・201 key に増えた。LSCorpus の「13 名」は defn を含む全到達名で、残余（ctor/rec/induct）に限ると 11 名。
+- 残余の key はすべて閉じた level なので、K1 の `(name, ls)` は具体的な数の level 列。行数の増分は 13（約 7%）。
+- 限界: 4 モジュール除外。証明項を数えない近似。`Type 0` の `Dyn` に収まらない key（例 `Bool.rec` の motive が `Sort 2` 以上）が何件かは未測定。健全性（`OblRowTypedK`）は未証明・未仮定。
+
+### 6. 主張しないこと
+
+最終 carrier の決定、健全性、TRUSTED の要否。台帳の数は変わらない（FG 75 / T1 57、今回 FG -0 +0 / T1 -0 +0）。
