@@ -5896,3 +5896,9 @@ lean_lib «Tools.ShippingGen5EnvDeclClosed» where
 
 lean_lib «Tests.Gen5.SoundS3Check» where
   roots := #[`Tests.Gen5.SoundS3Check]
+
+lean_lib «Tools.ShippingGen5EnvClosedS» where
+  roots := #[`Tools.ShippingGen5EnvClosedS]
+
+lean_lib «Tests.Gen5.EnvClosedSCheck» where
+  roots := #[`Tests.Gen5.EnvClosedSCheck]
