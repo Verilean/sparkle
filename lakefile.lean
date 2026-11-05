@@ -5775,3 +5775,6 @@ lean_lib «Tests.Gen5.IotaStudy» where
 
 lean_lib «Tools.ShippingGen5IotaDraft» where
   roots := #[`Tools.ShippingGen5IotaDraft]
+
+lean_lib «Tests.Gen5.PrimResidueLib» where
+  roots := #[`Tests.Gen5.PrimResidueLib]
