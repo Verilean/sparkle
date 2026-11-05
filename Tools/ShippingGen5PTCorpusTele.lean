@@ -11,6 +11,7 @@ namespace Tools.ShippingGen5PTCorpusTele
 universe u
 open Lean Tools.ShippingGen5ConstValueE Tools.ShippingGen5ConstValueEKey Tools.ShippingGen5ConstValueESoundK Tools.ShippingGen5ConstValueES
   Tools.ShippingGen5ConstValueESL Tools.ShippingGen5ConstValueEVL Tools.ShippingGen5RowTypedV Tools.ShippingGen5PTCorpus
+open Tools.ShippingGen5PTCorpusSpec Tools.ShippingGen5DepRows
 
 /-! ## §1 Binder forms -/
 
@@ -486,5 +487,354 @@ theorem ptc_tele_PProd_mk (hcl : EnvClosedL env)
   rowTeleEvAt_of_forms hcl bs_Prod tm_37 rfl (by forms_tac) (by decide) (good_Prod) hT
 
 end rows
+
+
+/-! ## §4 The keys of `PTcorpus` -/
+
+def natLevel : Nat → Level
+  | 0 => .zero
+  | n + 1 => .succ (natLevel n)
+
+theorem lvNat_eq : ∀ (l : Level) (n : Nat), lvNat l = some n → l = natLevel n
+  | .zero, n, h => by
+    simp only [lvNat, Option.some.injEq] at h
+    subst h; rfl
+  | .succ l, n, h => by
+    simp only [lvNat, Option.map_eq_some_iff] at h
+    obtain ⟨a, ha, rfl⟩ := h
+    simp [natLevel, lvNat_eq l a ha]
+  | .max _ _, n, h => by simp [lvNat] at h
+  | .imax _ _, n, h => by simp [lvNat] at h
+  | .param _, n, h => by simp [lvNat] at h
+  | .mvar _, n, h => by simp [lvNat] at h
+
+theorem lvNats_eq : ∀ (ls : List Level) (ns : List Nat), lvNats ls = some ns → ls = ns.map natLevel
+  | [], ns, h => by
+    simp only [lvNats, Option.some.injEq] at h
+    subst h; rfl
+  | l :: ls, ns, h => by
+    simp only [lvNats] at h
+    cases h1 : lvNat l with
+    | none => simp [h1] at h
+    | some a =>
+      cases h2 : lvNats ls with
+      | none => simp [h1, h2] at h
+      | some b =>
+        simp only [h1, h2, Option.some.injEq] at h
+        subst h
+        simp [lvNat_eq l a h1, lvNats_eq ls b h2]
+
+/-- A key with a `tms` row is one of the 51 table keys (the levels are numerals). -/
+theorem tms_mem (c : Name) (ls : List Level) (h : PTcorpus.tms c ls ≠ none) :
+    ∃ e ∈ tmsTable, e.1 = c ∧ ls = e.2.1.map natLevel := by
+  have h' : (match lvNats ls with
+      | none => none
+      | some ns => (tmsTable.find? fun e => e.1 == c && e.2.1 == ns).map fun e => e.2.2.2.row) ≠ none := h
+  cases hn : lvNats ls with
+  | none => simp [hn] at h'
+  | some ns =>
+    simp only [hn] at h'
+    cases hf : tmsTable.find? (fun e => e.1 == c && e.2.1 == ns) with
+    | none => simp [hf] at h'
+    | some e =>
+      have hm := List.mem_of_find?_eq_some hf
+      have hp := List.find?_some hf
+      simp only [Bool.and_eq_true, beq_iff_eq] at hp
+      refine ⟨e, hm, hp.1, ?_⟩
+      rw [lvNats_eq ls ns hn, hp.2]
+
+
+/-! ## §5 `OblRowTypedV PTcorpus` over one environment
+
+`PTCorpusEnvFacts env` names every env fact that the 51 per-row theorems of `RowTypedAtV PTcorpus` take as hypotheses (`¬ IsDefn env D`, `EnvTypeL` / `EnvClosedPiL` / `EnvDepFirst` / `EnvDepSpine`). It is a `Prop` structure: nothing is assumed anywhere, the Check evaluates each field in the real environment. -/
+
+structure PTCorpusEnvFacts (env : Environment) : Prop where
+  hnd_Add_mk : ¬ IsDefn env `Add
+  hT_Add_mk : EnvDepFirst env `Add.mk [.zero] 1 `Add [.zero]
+  hnd_AndOp_mk : ¬ IsDefn env `AndOp
+  hT_AndOp_mk : EnvDepFirst env `AndOp.mk [.zero] 1 `AndOp [.zero]
+  hnd_Array_mk : ¬ IsDefn env `Array
+  hT_Array_mk : EnvDepFirst env `Array.mk [.zero] 1 `Array [.zero]
+  hnd_BEq_mk : ¬ IsDefn env `BEq
+  hT_BEq_mk : EnvDepFirst env `BEq.mk [.zero] 1 `BEq [.zero]
+  hnd_BitVec_ofFin : ¬ IsDefn env `BitVec
+  hT_BitVec_ofFin : EnvDepSpine env `BitVec.ofFin [] 2 1 `BitVec []
+  hnd_Bool_false : ¬ IsDefn env ``Bool
+  hT_Bool_false : EnvTypeL env ``Bool.false [] (.const ``Bool [])
+  hnd_Bool_true : ¬ IsDefn env ``Bool
+  hT_Bool_true : EnvTypeL env ``Bool.true [] (.const ``Bool [])
+  hnd_Complement_mk : ¬ IsDefn env `Complement
+  hT_Complement_mk : EnvDepFirst env `Complement.mk [.zero] 1 `Complement [.zero]
+  hnd_Div_mk : ¬ IsDefn env `Div
+  hT_Div_mk : EnvDepFirst env `Div.mk [.zero] 1 `Div [.zero]
+  hnd_HAdd_mk : ¬ IsDefn env `HAdd
+  hT_HAdd_mk : EnvDepSpine env `HAdd.mk [.zero, .zero, .zero] 4 3 `HAdd [.zero, .zero, .zero]
+  hnd_HAnd_mk : ¬ IsDefn env `HAnd
+  hT_HAnd_mk : EnvDepSpine env `HAnd.mk [.zero, .zero, .zero] 4 3 `HAnd [.zero, .zero, .zero]
+  hnd_HAppend_mk : ¬ IsDefn env `HAppend
+  hT_HAppend_mk : EnvDepSpine env `HAppend.mk [.zero, .zero, .zero] 4 3 `HAppend [.zero, .zero, .zero]
+  hnd_HDiv_mk : ¬ IsDefn env `HDiv
+  hT_HDiv_mk : EnvDepSpine env `HDiv.mk [.zero, .zero, .zero] 4 3 `HDiv [.zero, .zero, .zero]
+  hnd_HMod_mk : ¬ IsDefn env `HMod
+  hT_HMod_mk : EnvDepSpine env `HMod.mk [.zero, .zero, .zero] 4 3 `HMod [.zero, .zero, .zero]
+  hnd_HMul_mk : ¬ IsDefn env `HMul
+  hT_HMul_mk : EnvDepSpine env `HMul.mk [.zero, .zero, .zero] 4 3 `HMul [.zero, .zero, .zero]
+  hnd_HOr_mk : ¬ IsDefn env `HOr
+  hT_HOr_mk : EnvDepSpine env `HOr.mk [.zero, .zero, .zero] 4 3 `HOr [.zero, .zero, .zero]
+  hnd_HPow_mk : ¬ IsDefn env `HPow
+  hT_HPow_mk : EnvDepSpine env `HPow.mk [.zero, .zero, .zero] 4 3 `HPow [.zero, .zero, .zero]
+  hnd_HShiftLeft_mk : ¬ IsDefn env `HShiftLeft
+  hT_HShiftLeft_mk : EnvDepSpine env `HShiftLeft.mk [.zero, .zero, .zero] 4 3 `HShiftLeft [.zero, .zero, .zero]
+  hnd_HShiftRight_mk : ¬ IsDefn env `HShiftRight
+  hT_HShiftRight_mk : EnvDepSpine env `HShiftRight.mk [.zero, .zero, .zero] 4 3 `HShiftRight [.zero, .zero, .zero]
+  hnd_HSub_mk : ¬ IsDefn env `HSub
+  hT_HSub_mk : EnvDepSpine env `HSub.mk [.zero, .zero, .zero] 4 3 `HSub [.zero, .zero, .zero]
+  hnd_HXor_mk : ¬ IsDefn env `HXor
+  hT_HXor_mk : EnvDepSpine env `HXor.mk [.zero, .zero, .zero] 4 3 `HXor [.zero, .zero, .zero]
+  hnd_Inhabited_mk : ¬ IsDefn env `Inhabited
+  hT_Inhabited_mk : EnvDepFirst env `Inhabited.mk [.succ (.zero)] 1 `Inhabited [.succ (.zero)]
+  hnd_Int_negSucc : ¬ IsDefn env ``Int
+  hT_Int_negSucc : EnvClosedPiL env ``Int.negSucc [] 1 (.const ``Int [])
+  hnd_Int_ofNat : ¬ IsDefn env ``Int
+  hT_Int_ofNat : EnvClosedPiL env ``Int.ofNat [] 1 (.const ``Int [])
+  hnd_LE_mk : ¬ IsDefn env `LE
+  hT_LE_mk : EnvDepFirst env `LE.mk [.zero] 1 `LE [.zero]
+  hnd_LT_mk : ¬ IsDefn env `LT
+  hT_LT_mk : EnvDepFirst env `LT.mk [.zero] 1 `LT [.zero]
+  hnd_List_cons : ¬ IsDefn env `List
+  hT_List_cons : EnvDepFirst env `List.cons [.zero] 2 `List [.zero]
+  hnd_List_nil : ¬ IsDefn env `List
+  hT_List_nil : EnvDepFirst env `List.nil [.zero] 0 `List [.zero]
+  hnd_Mod_mk : ¬ IsDefn env `Mod
+  hT_Mod_mk : EnvDepFirst env `Mod.mk [.zero] 1 `Mod [.zero]
+  hnd_Mul_mk : ¬ IsDefn env `Mul
+  hT_Mul_mk : EnvDepFirst env `Mul.mk [.zero] 1 `Mul [.zero]
+  hnd_Nat_succ : ¬ IsDefn env ``Nat
+  hT_Nat_succ : EnvClosedPiL env ``Nat.succ [] 1 (.const ``Nat [])
+  hnd_Nat_zero : ¬ IsDefn env ``Nat
+  hT_Nat_zero : EnvTypeL env ``Nat.zero [] (.const ``Nat [])
+  hnd_NatCast_mk : ¬ IsDefn env `NatCast
+  hT_NatCast_mk : EnvDepFirst env `NatCast.mk [.zero] 1 `NatCast [.zero]
+  hnd_NatPow_mk : ¬ IsDefn env `NatPow
+  hT_NatPow_mk : EnvDepFirst env `NatPow.mk [.zero] 1 `NatPow [.zero]
+  hnd_Neg_mk : ¬ IsDefn env `Neg
+  hT_Neg_mk : EnvDepFirst env `Neg.mk [.zero] 1 `Neg [.zero]
+  hnd_OfNat_mk : ¬ IsDefn env `OfNat
+  hT_OfNat_mk : EnvDepSpine env `OfNat.mk [.zero] 3 2 `OfNat [.zero]
+  hnd_OrOp_mk : ¬ IsDefn env `OrOp
+  hT_OrOp_mk : EnvDepFirst env `OrOp.mk [.zero] 1 `OrOp [.zero]
+  hnd_PProd_mk : ¬ IsDefn env `PProd
+  hT_PProd_mk : EnvDepSpine env `PProd.mk [.succ .zero, .succ .zero] 4 2 `PProd [.succ .zero, .succ .zero]
+  hnd_PUnit_unit : ¬ IsDefn env ``PUnit
+  hT_PUnit_unit : EnvTypeL env ``PUnit.unit [.succ .zero] (.const ``PUnit [.succ .zero])
+  hnd_Pow_mk : ¬ IsDefn env `Pow
+  hT_Pow_mk : EnvDepSpine env `Pow.mk [.zero, .zero] 3 2 `Pow [.zero, .zero]
+  hnd_Prod_mk : ¬ IsDefn env `Prod
+  hT_Prod_mk : EnvDepSpine env `Prod.mk [.zero, .zero] 4 2 `Prod [.zero, .zero]
+  hnd_ShiftLeft_mk : ¬ IsDefn env `ShiftLeft
+  hT_ShiftLeft_mk : EnvDepFirst env `ShiftLeft.mk [.zero] 1 `ShiftLeft [.zero]
+  hnd_ShiftRight_mk : ¬ IsDefn env `ShiftRight
+  hT_ShiftRight_mk : EnvDepFirst env `ShiftRight.mk [.zero] 1 `ShiftRight [.zero]
+  hnd_Sparkle_Core_Domain_ActiveEdge_rising : ¬ IsDefn env `Sparkle.Core.Domain.ActiveEdge
+  hT_Sparkle_Core_Domain_ActiveEdge_rising : EnvTypeL env `Sparkle.Core.Domain.ActiveEdge.rising [] (.const `Sparkle.Core.Domain.ActiveEdge [])
+  hnd_Sparkle_Core_Domain_DomainConfig_mk : ¬ IsDefn env `Sparkle.Core.Domain.DomainConfig
+  hT_Sparkle_Core_Domain_DomainConfig_mk : EnvClosedPiL env `Sparkle.Core.Domain.DomainConfig.mk [] 3 (.const `Sparkle.Core.Domain.DomainConfig [])
+  hnd_Sparkle_Core_HasDomain_mk : ¬ IsDefn env `Sparkle.Core.HasDomain
+  hT_Sparkle_Core_HasDomain_mk : EnvDepSpine env `Sparkle.Core.HasDomain.mk [] 2 2 `Sparkle.Core.HasDomain []
+  hnd_Sparkle_Core_Signal_Signal_mk : ¬ IsDefn env `Sparkle.Core.Signal.Signal
+  hT_Sparkle_Core_Signal_Signal_mk : EnvDepSpine env `Sparkle.Core.Signal.Signal.mk [.zero] 3 2 `Sparkle.Core.Signal.Signal [.zero]
+  hnd_Sparkle_Core_Wireable_mk : ¬ IsDefn env `Sparkle.Core.Wireable
+  hT_Sparkle_Core_Wireable_mk : EnvDepFirst env `Sparkle.Core.Wireable.mk [] 1 `Sparkle.Core.Wireable []
+  hnd_Sparkle_IR_Type_ResetKind_synchronous : ¬ IsDefn env `Sparkle.IR.Type.ResetKind
+  hT_Sparkle_IR_Type_ResetKind_synchronous : EnvTypeL env `Sparkle.IR.Type.ResetKind.synchronous [] (.const `Sparkle.IR.Type.ResetKind [])
+  hnd_Sub_mk : ¬ IsDefn env `Sub
+  hT_Sub_mk : EnvDepFirst env `Sub.mk [.zero] 1 `Sub [.zero]
+  hnd_XorOp_mk : ¬ IsDefn env `XorOp
+  hT_XorOp_mk : EnvDepFirst env `XorOp.mk [.zero] 1 `XorOp [.zero]
+
+theorem ptcorpus_oblRowTypedV (env : Environment) (F : PTCorpusEnvFacts env) : OblRowTypedV PTcorpus env := by
+  refine oblRowTypedV_of_keys PTcorpus env (tmsTable.map fun e => (e.1, e.2.1.map natLevel)) ?_ ?_
+  · intro c ls h
+    obtain ⟨e, he, h1, h2⟩ := tms_mem c ls h
+    exact List.mem_map.2 ⟨e, he, by rw [h1, h2]⟩
+  · intro k hk
+    obtain ⟨e, he, rfl⟩ := List.mem_map.1 hk
+    simp only [tmsTable, List.mem_cons, List.not_mem_nil, or_false] at he
+    rcases he with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_0 env F.hnd_Add_mk F.hT_Add_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_1 env F.hnd_AndOp_mk F.hT_AndOp_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_2 env F.hnd_Array_mk F.hT_Array_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_3 env F.hnd_BEq_mk F.hT_BEq_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_BitVec_ofFin env F.hnd_BitVec_ofFin F.hT_BitVec_ofFin
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_Bool_false env F.hnd_Bool_false F.hT_Bool_false
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_Bool_true env F.hnd_Bool_true F.hT_Bool_true
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_7 env F.hnd_Complement_mk F.hT_Complement_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_8 env F.hnd_Div_mk F.hT_Div_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HAdd_mk env F.hnd_HAdd_mk F.hT_HAdd_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HAnd_mk env F.hnd_HAnd_mk F.hT_HAnd_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HAppend_mk env F.hnd_HAppend_mk F.hT_HAppend_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HDiv_mk env F.hnd_HDiv_mk F.hT_HDiv_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HMod_mk env F.hnd_HMod_mk F.hT_HMod_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HMul_mk env F.hnd_HMul_mk F.hT_HMul_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HOr_mk env F.hnd_HOr_mk F.hT_HOr_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HPow_mk env F.hnd_HPow_mk F.hT_HPow_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HShiftLeft_mk env F.hnd_HShiftLeft_mk F.hT_HShiftLeft_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HShiftRight_mk env F.hnd_HShiftRight_mk F.hT_HShiftRight_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HSub_mk env F.hnd_HSub_mk F.hT_HSub_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_HXor_mk env F.hnd_HXor_mk F.hT_HXor_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_21 env F.hnd_Inhabited_mk F.hT_Inhabited_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_Int_negSucc env F.hnd_Int_negSucc F.hT_Int_negSucc
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_Int_ofNat env F.hnd_Int_ofNat F.hT_Int_ofNat
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_24 env F.hnd_LE_mk F.hT_LE_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_25 env F.hnd_LT_mk F.hT_LT_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_26 env F.hnd_List_cons F.hT_List_cons
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_27 env F.hnd_List_nil F.hT_List_nil
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_28 env F.hnd_Mod_mk F.hT_Mod_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_29 env F.hnd_Mul_mk F.hT_Mul_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_Nat_succ env F.hnd_Nat_succ F.hT_Nat_succ
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_Nat_zero env F.hnd_Nat_zero F.hT_Nat_zero
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_32 env F.hnd_NatCast_mk F.hT_NatCast_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_33 env F.hnd_NatPow_mk F.hT_NatPow_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_34 env F.hnd_Neg_mk F.hT_Neg_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_OfNat_mk env F.hnd_OfNat_mk F.hT_OfNat_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_36 env F.hnd_OrOp_mk F.hT_OrOp_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_PProd_mk env F.hnd_PProd_mk F.hT_PProd_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_PUnit_unit1 env F.hnd_PUnit_unit F.hT_PUnit_unit
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_Pow_mk env F.hnd_Pow_mk F.hT_Pow_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_Prod_mk env F.hnd_Prod_mk F.hT_Prod_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_41 env F.hnd_ShiftLeft_mk F.hT_ShiftLeft_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_42 env F.hnd_ShiftRight_mk F.hT_ShiftRight_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_ActiveEdge_rising env F.hnd_Sparkle_Core_Domain_ActiveEdge_rising F.hT_Sparkle_Core_Domain_ActiveEdge_rising
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_DomainConfig_mk env F.hnd_Sparkle_Core_Domain_DomainConfig_mk F.hT_Sparkle_Core_Domain_DomainConfig_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_Sparkle_Core_HasDomain_mk env F.hnd_Sparkle_Core_HasDomain_mk F.hT_Sparkle_Core_HasDomain_mk
+    · exact Tools.ShippingGen5PTCorpusSpec.ptc_spine_rowTypedV_Sparkle_Core_Signal_Signal_mk env F.hnd_Sparkle_Core_Signal_Signal_mk F.hT_Sparkle_Core_Signal_Signal_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_47 env F.hnd_Sparkle_Core_Wireable_mk F.hT_Sparkle_Core_Wireable_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_ResetKind_synchronous env F.hnd_Sparkle_IR_Type_ResetKind_synchronous F.hT_Sparkle_IR_Type_ResetKind_synchronous
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_49 env F.hnd_Sub_mk F.hT_Sub_mk
+    · exact Tools.ShippingGen5PTCorpus.ptc_rowTypedV_tm_50 env F.hnd_XorOp_mk F.hT_XorOp_mk
+
+/-! ## §6 `RowTeleEvAt PTcorpus` over one environment
+
+`PTCorpusTeleFacts env` names the env facts of the 34 rows that have a theorem (`ptc_teleEv_*`, `ptc_tele_*`, `rowTeleEvAt_nullary`). `PTCorpusTeleOpen env` is the list of the 17 rows that have none, as named `Prop`s (`RowTeleEvAt PTcorpus env c ls` itself): they are not assumed, they are the residue.
+The other keys of the table are the 106 keys without a row (`rowTeleEvAt_of_none`). -/
+
+structure PTCorpusTeleFacts (env : Environment) : Prop where
+  closedL : EnvClosedL env
+  nd_Nat : ¬ IsDefn env `Nat
+  nd_Bool : ¬ IsDefn env `Bool
+  nd_List : ¬ IsDefn env `List
+  teleT_Add_mk : EnvForms env `Add.mk [.zero] bs_A2
+  teleT_AndOp_mk : EnvForms env `AndOp.mk [.zero] bs_A2
+  teleT_Array_mk : EnvForms env `Array.mk [.zero] bs_List
+  teleT_BEq_mk : EnvForms env `BEq.mk [.zero] bs_BEq
+  teleT_Complement_mk : EnvForms env `Complement.mk [.zero] bs_A1
+  teleT_Div_mk : EnvForms env `Div.mk [.zero] bs_A2
+  teleT_Inhabited_mk : EnvForms env `Inhabited.mk [.succ .zero] bs_V
+  hnd_tele_Int_negSucc : ¬ IsDefn env ``Nat
+  hT_tele_Int_negSucc : EnvConstPi env ``Int.negSucc [] [(``Nat, [])] (.const ``Int [])
+  hnd_tele_Int_ofNat : ¬ IsDefn env ``Nat
+  hT_tele_Int_ofNat : EnvConstPi env ``Int.ofNat [] [(``Nat, [])] (.const ``Int [])
+  teleT_List_cons : EnvForms env `List.cons [.zero] bs_Cons
+  teleT_List_nil : EnvForms env `List.nil [.zero] bs_Nil
+  teleT_Mod_mk : EnvForms env `Mod.mk [.zero] bs_A2
+  teleT_Mul_mk : EnvForms env `Mul.mk [.zero] bs_A2
+  hnd_tele_Nat_succ : ¬ IsDefn env ``Nat
+  hT_tele_Nat_succ : EnvConstPi env ``Nat.succ [] [(``Nat, [])] (.const ``Nat [])
+  teleT_NatCast_mk : EnvForms env `NatCast.mk [.zero] bs_NatC
+  teleT_NatPow_mk : EnvForms env `NatPow.mk [.zero] bs_NatP
+  teleT_Neg_mk : EnvForms env `Neg.mk [.zero] bs_A1
+  teleT_OfNat_mk : EnvForms env `OfNat.mk [.zero] bs_OfNat
+  teleT_OrOp_mk : EnvForms env `OrOp.mk [.zero] bs_A2
+  teleT_PProd_mk : EnvForms env `PProd.mk [.succ .zero, .succ .zero] bs_Prod
+  teleT_Pow_mk : EnvForms env `Pow.mk [.zero, .zero] bs_Pow
+  teleT_Prod_mk : EnvForms env `Prod.mk [.zero, .zero] bs_Prod
+  teleT_ShiftLeft_mk : EnvForms env `ShiftLeft.mk [.zero] bs_A2
+  teleT_ShiftRight_mk : EnvForms env `ShiftRight.mk [.zero] bs_A2
+  hN_tele_Sparkle_Core_Domain_DomainConfig_mk : ¬ IsDefn env ``Nat
+  hbd_tele_Sparkle_Core_Domain_DomainConfig_mk : BindersDen PTcorpus env [(``Nat, []), (`Sparkle.Core.Domain.ActiveEdge, []), (`Sparkle.Core.Domain.ResetKind, [])] [Nat, Sparkle.Core.Domain.ActiveEdge, Sparkle.IR.Type.ResetKind]
+  hT_tele_Sparkle_Core_Domain_DomainConfig_mk : EnvConstPi env `Sparkle.Core.Domain.DomainConfig.mk [] [(``Nat, []), (`Sparkle.Core.Domain.ActiveEdge, []), (`Sparkle.Core.Domain.ResetKind, [])] (.const `Sparkle.Core.Domain.DomainConfig [])
+  teleT_Sparkle_Core_Wireable_mk : EnvForms env `Sparkle.Core.Wireable.mk [] bs_Wire
+  teleT_Sub_mk : EnvForms env `Sub.mk [.zero] bs_A2
+  teleT_XorOp_mk : EnvForms env `XorOp.mk [.zero] bs_A2
+
+structure PTCorpusTeleOpen (env : Environment) : Prop where
+  open_BitVec_ofFin : RowTeleEvAt PTcorpus env `BitVec.ofFin []
+  open_HAdd_mk : RowTeleEvAt PTcorpus env `HAdd.mk [.zero, .zero, .zero]
+  open_HAnd_mk : RowTeleEvAt PTcorpus env `HAnd.mk [.zero, .zero, .zero]
+  open_HAppend_mk : RowTeleEvAt PTcorpus env `HAppend.mk [.zero, .zero, .zero]
+  open_HDiv_mk : RowTeleEvAt PTcorpus env `HDiv.mk [.zero, .zero, .zero]
+  open_HMod_mk : RowTeleEvAt PTcorpus env `HMod.mk [.zero, .zero, .zero]
+  open_HMul_mk : RowTeleEvAt PTcorpus env `HMul.mk [.zero, .zero, .zero]
+  open_HOr_mk : RowTeleEvAt PTcorpus env `HOr.mk [.zero, .zero, .zero]
+  open_HPow_mk : RowTeleEvAt PTcorpus env `HPow.mk [.zero, .zero, .zero]
+  open_HShiftLeft_mk : RowTeleEvAt PTcorpus env `HShiftLeft.mk [.zero, .zero, .zero]
+  open_HShiftRight_mk : RowTeleEvAt PTcorpus env `HShiftRight.mk [.zero, .zero, .zero]
+  open_HSub_mk : RowTeleEvAt PTcorpus env `HSub.mk [.zero, .zero, .zero]
+  open_HXor_mk : RowTeleEvAt PTcorpus env `HXor.mk [.zero, .zero, .zero]
+  open_LE_mk : RowTeleEvAt PTcorpus env `LE.mk [.zero]
+  open_LT_mk : RowTeleEvAt PTcorpus env `LT.mk [.zero]
+  open_Sparkle_Core_HasDomain_mk : RowTeleEvAt PTcorpus env `Sparkle.Core.HasDomain.mk []
+  open_Sparkle_Core_Signal_Signal_mk : RowTeleEvAt PTcorpus env `Sparkle.Core.Signal.Signal.mk [.zero]
+
+theorem ptcorpus_rowTeleEvAt (env : Environment) (F : PTCorpusTeleFacts env) (O : PTCorpusTeleOpen env) :
+    ∀ (c : Name) (ls : List Level), RowTeleEvAt PTcorpus env c ls := by
+  intro c ls
+  by_cases hn : PTcorpus.tms c ls = none
+  · exact rowTeleEvAt_of_none PTcorpus env c ls hn
+  obtain ⟨e, he, h1, h2⟩ := tms_mem c ls hn
+  subst h1 h2
+  simp only [tmsTable, List.mem_cons, List.not_mem_nil, or_false] at he
+  rcases he with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact ptc_tele_Add_mk env F.closedL F.teleT_Add_mk
+  · exact ptc_tele_AndOp_mk env F.closedL F.teleT_AndOp_mk
+  · exact ptc_tele_Array_mk env F.closedL F.nd_List F.teleT_Array_mk
+  · exact ptc_tele_BEq_mk env F.closedL F.nd_Bool F.teleT_BEq_mk
+  · exact O.open_BitVec_ofFin
+  · exact Tools.ShippingGen5PTCorpus.ptc_teleEv_nullary env (t := tm_5) rfl
+  · exact Tools.ShippingGen5PTCorpus.ptc_teleEv_nullary env (t := tm_6) rfl
+  · exact ptc_tele_Complement_mk env F.closedL F.teleT_Complement_mk
+  · exact ptc_tele_Div_mk env F.closedL F.teleT_Div_mk
+  · exact O.open_HAdd_mk
+  · exact O.open_HAnd_mk
+  · exact O.open_HAppend_mk
+  · exact O.open_HDiv_mk
+  · exact O.open_HMod_mk
+  · exact O.open_HMul_mk
+  · exact O.open_HOr_mk
+  · exact O.open_HPow_mk
+  · exact O.open_HShiftLeft_mk
+  · exact O.open_HShiftRight_mk
+  · exact O.open_HSub_mk
+  · exact O.open_HXor_mk
+  · exact ptc_tele_Inhabited_mk env F.closedL F.teleT_Inhabited_mk
+  · exact Tools.ShippingGen5PTCorpus.ptc_teleEv_Int_negSucc env F.hnd_tele_Int_negSucc F.hT_tele_Int_negSucc
+  · exact Tools.ShippingGen5PTCorpus.ptc_teleEv_Int_ofNat env F.hnd_tele_Int_ofNat F.hT_tele_Int_ofNat
+  · exact O.open_LE_mk
+  · exact O.open_LT_mk
+  · exact ptc_tele_List_cons env F.closedL F.nd_List F.teleT_List_cons
+  · exact ptc_tele_List_nil env F.closedL F.teleT_List_nil
+  · exact ptc_tele_Mod_mk env F.closedL F.teleT_Mod_mk
+  · exact ptc_tele_Mul_mk env F.closedL F.teleT_Mul_mk
+  · exact Tools.ShippingGen5PTCorpus.ptc_teleEv_Nat_succ env F.hnd_tele_Nat_succ F.hT_tele_Nat_succ
+  · exact Tools.ShippingGen5PTCorpus.ptc_teleEv_nullary env (t := tm_31) rfl
+  · exact ptc_tele_NatCast_mk env F.closedL F.nd_Nat F.teleT_NatCast_mk
+  · exact ptc_tele_NatPow_mk env F.closedL F.nd_Nat F.teleT_NatPow_mk
+  · exact ptc_tele_Neg_mk env F.closedL F.teleT_Neg_mk
+  · exact ptc_tele_OfNat_mk env F.closedL F.nd_Nat F.teleT_OfNat_mk
+  · exact ptc_tele_OrOp_mk env F.closedL F.teleT_OrOp_mk
+  · exact ptc_tele_PProd_mk env F.closedL F.teleT_PProd_mk
+  · exact Tools.ShippingGen5PTCorpus.ptc_teleEv_nullary env (t := tm_38) rfl
+  · exact ptc_tele_Pow_mk env F.closedL F.teleT_Pow_mk
+  · exact ptc_tele_Prod_mk env F.closedL F.teleT_Prod_mk
+  · exact ptc_tele_ShiftLeft_mk env F.closedL F.teleT_ShiftLeft_mk
+  · exact ptc_tele_ShiftRight_mk env F.closedL F.teleT_ShiftRight_mk
+  · exact Tools.ShippingGen5PTCorpus.ptc_teleEv_nullary env (t := tm_43) rfl
+  · exact Tools.ShippingGen5PTCorpus.ptc_teleEv_DomainConfig_mk env F.hN_tele_Sparkle_Core_Domain_DomainConfig_mk F.hbd_tele_Sparkle_Core_Domain_DomainConfig_mk F.hT_tele_Sparkle_Core_Domain_DomainConfig_mk
+  · exact O.open_Sparkle_Core_HasDomain_mk
+  · exact O.open_Sparkle_Core_Signal_Signal_mk
+  · exact ptc_tele_Sparkle_Core_Wireable_mk env F.closedL F.nd_Nat F.teleT_Sparkle_Core_Wireable_mk
+  · exact Tools.ShippingGen5PTCorpus.ptc_teleEv_nullary env (t := tm_48) rfl
+  · exact ptc_tele_Sub_mk env F.closedL F.teleT_Sub_mk
+  · exact ptc_tele_XorOp_mk env F.closedL F.teleT_XorOp_mk
 
 end Tools.ShippingGen5PTCorpusTele
