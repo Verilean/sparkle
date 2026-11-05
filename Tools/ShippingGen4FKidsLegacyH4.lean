@@ -60,21 +60,15 @@ theorem withLocalDeclPKS (hA : AdmCtx O.quiet mctx cctx) {α : Type} (n : Name) 
     (k : Lean.Expr → CompilerM α)
     (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context), AdmCtx O.quiet mctx' cctx' → ∀ x,
       KeepsCS mctx' mref cctx' cref I (k x)) :
-    KeepsCS mctx mref cctx cref I (CompilerM.withLocalDecl n ty k) := by
-  intro ctx st hc
-  unfold CompilerM.withLocalDecl
-  exact Keeps.bind (KeepsCS.lift (M.tele.localDecl I hA hS.1 hS.2 n ty (fun fvar => (k fvar ctx).run st)
-    (fun mctx' cctx' x hA' => hk mctx' cctx' hA' x ctx st hc)) ctx st hc) (fun p => Keeps.pure _)
+    KeepsCS mctx mref cctx cref I (CompilerM.withLocalDecl n ty k) :=
+  withLocalDeclPS M hA hS n ty k hk
 
 theorem withLetDeclPKS (hA : AdmCtx O.quiet mctx cctx) {α : Type} (n : Name) (ty v : Lean.Expr)
     (k : Lean.Expr → CompilerM α)
     (hk : ∀ (mctx' : Meta.Context) (cctx' : Core.Context), AdmCtx O.quiet mctx' cctx' → ∀ x,
       KeepsCS mctx' mref cctx' cref I (k x)) :
-    KeepsCS mctx mref cctx cref I (CompilerM.withLetDecl n ty v k) := by
-  intro ctx st hc
-  unfold CompilerM.withLetDecl
-  exact Keeps.bind (KeepsCS.lift (M.tele.letDecl I hA hS.1 hS.2 n ty v (fun fvar => (k fvar ctx).run st)
-    (fun mctx' cctx' x hA' => hk mctx' cctx' hA' x ctx st hc)) ctx st hc) (fun p => Keeps.pure _)
+    KeepsCS mctx mref cctx cref I (CompilerM.withLetDecl n ty v k) :=
+  withLetDeclPS M hA hS n ty v k hk
 
 end H4
 
