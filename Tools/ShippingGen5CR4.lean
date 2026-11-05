@@ -16,7 +16,10 @@ Existing theorems are not edited. In the `_rows` roots the `Reach` binder is rep
 namespace Tools.ShippingGen5CR4
 open Lean Tools.ShippingGen2 Tools.ShippingGen5FG Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
-open Tools.ShippingChildInvA Tools.ShippingChildBndCore (dv cv)
+open Tools.ShippingChildInvA
+open Tools.ShippingChildBndCore (dv cv)
+open Sparkle.IR.OptCheck Sparkle.IR.RefineCheck Sparkle.IR.HierCheck
+open Tools.ShippingMachineDenote Tools.ShippingMachineSource
 open Tools.ShippingChildCacheA (JQC)
 open Tools.ShippingChildRunAKids (MachineClosesAtA)
 open Tools.ShippingEntrySoundness
@@ -197,7 +200,7 @@ theorem auditE3B3_of_t1hypND_run_rows {mref : ST.Ref IO.RealWorld Lean.Meta.Stat
         Tools.ShippingMachineEntry.MachineDefines mctx' mref cctx' cref c q.d.shape)
     (hcl : ∀ c, TgtRun P declName c → ∀ q : Pkg ι dom, P c = some q → ∀ mctx cctx, AdmCtx L.O.quiet mctx cctx →
       MachineClosesAtA L.O mctx cctx c q.d.shape)
-    (hMemRow : ∀ q : Pkg ι dom, DataOk q → Tools.ShippingGen5AuditE3B3.MemParentDataOk q ∧ Tools.ShippingGen5AuditE3B3.ExtInS q)
+    (hMemRow : ∀ q : Pkg ι dom, DataOk q → MemParentDataOk q ∧ ExtInS q)
     (hLeafAlias : ∀ q : Pkg ι dom, DataOk q → q.d.shape.insts = [] → q.d.letsAliasOk = true)
     (hA : AdmCtx L.O.quiet mctx cctx)
     {g : Tools.ShippingSrm7Rank.CallGraph} {B : Nat} {top : Name}
