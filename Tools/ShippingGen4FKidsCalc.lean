@@ -138,12 +138,13 @@ theorem KCS.bindGet {β : Type} {f : CircuitState → CompilerM β} (h : KCS mct
 theorem KCS.get : KCS mctx mref cctx cref I st (get : CompilerM CircuitState) :=
   fun _ _ hs => Triple.pure (a := (st, st)) fun _ hw => ⟨hw, GoodS.refl hs⟩
 
-theorem KCS.set (s : CircuitState) (hs : GoodS st s) : KCS mctx mref cctx cref I st (set s : CompilerM PUnit) :=
-  fun _ _ _ => Triple.pure (a := (PUnit.unit, s)) fun _ hw => ⟨hw, hs⟩
+theorem KCS.set (s : CircuitState) (hs : StatePF st → GoodS st s) :
+    KCS mctx mref cctx cref I st (set s : CompilerM PUnit) :=
+  fun _ _ h => Triple.pure (a := (PUnit.unit, s)) fun _ hw => ⟨hw, hs h⟩
 
-theorem KCS.modify (f : CircuitState → CircuitState) (hs : GoodS st (f st)) :
+theorem KCS.modify (f : CircuitState → CircuitState) (hs : StatePF st → GoodS st (f st)) :
     KCS mctx mref cctx cref I st (modify f : CompilerM PUnit) :=
-  fun _ _ _ => Triple.pure (a := (PUnit.unit, f st)) fun _ hw => ⟨hw, hs⟩
+  fun _ _ h => Triple.pure (a := (PUnit.unit, f st)) fun _ hw => ⟨hw, hs h⟩
 
 theorem KCS.getCompilerState : KCS mctx mref cctx cref I st CompilerM.getCompilerState :=
   fun ctx _ hs => Triple.pure (a := (ctx, st)) fun _ hw => ⟨hw, GoodS.refl hs⟩
@@ -222,5 +223,155 @@ theorem KCS.liftE {ρ α : Type} {c : CompilerM α} (h : KCS mctx mref cctx cref
   KCS.bind h fun a _ _ => KCS.pure (Except.ok a)
 
 end Rules
+
+/-! ## The unpointed API: the same names as `KeepsCP` (a copy of a `KeepsCP` proof script ports by renaming) -/
+
+section Unpointed
+variable {I : Void IO.RealWorld → Prop}
+
+theorem KeepsCS.pure {α : Type} (a : α) : KeepsCS mctx mref cctx cref I (Pure.pure a : CompilerM α) :=
+  fun _ => KCS.pure a
+
+theorem KeepsCS.bind {α β : Type} {c : CompilerM α} {f : α → CompilerM β}
+    (h1 : KeepsCS mctx mref cctx cref I c) (h2 : ∀ a, KeepsCS mctx mref cctx cref I (f a)) :
+    KeepsCS mctx mref cctx cref I (c >>= f) :=
+  fun st => KCS.bind (h1 st) fun a st' _ => h2 a st'
+
+theorem KeepsCS.ite {α : Type} {c : Prop} [Decidable c] {a b : CompilerM α}
+    (ha : c → KeepsCS mctx mref cctx cref I a) (hb : ¬c → KeepsCS mctx mref cctx cref I b) :
+    KeepsCS mctx mref cctx cref I (if c then a else b) :=
+  fun st => KCS.ite (fun h => ha h st) (fun h => hb h st)
+
+theorem KeepsCS.dite {α : Type} {c : Prop} [Decidable c] {a : c → CompilerM α} {b : ¬c → CompilerM α}
+    (ha : ∀ h, KeepsCS mctx mref cctx cref I (a h)) (hb : ∀ h, KeepsCS mctx mref cctx cref I (b h)) :
+    KeepsCS mctx mref cctx cref I (if h : c then a h else b h) :=
+  fun st => KCS.dite (fun h => ha h st) (fun h => hb h st)
+
+theorem KeepsCS.throw {α : Type} (e : Exception) (he : OkExc e) :
+    KeepsCS mctx mref cctx cref I (MonadExcept.throw e : CompilerM α) :=
+  fun _ => KCS.throw e he
+
+theorem KeepsCS.throwBind {α β : Type} (e : Exception) (he : OkExc e) (k : α → CompilerM β) :
+    KeepsCS mctx mref cctx cref I ((MonadExcept.throw e : CompilerM α) >>= k) :=
+  fun _ => KCS.throwBind e he k
+
+theorem KeepsCS.lift {α : Type} {m : MetaM α} (h : Keeps mctx mref cctx cref I m) :
+    KeepsCS mctx mref cctx cref I (CompilerM.liftMetaM m) :=
+  fun _ => KCS.lift h
+
+theorem KeepsCS.liftM {α : Type} {m : MetaM α} (h : Keeps mctx mref cctx cref I m) :
+    KeepsCS mctx mref cctx cref I (_root_.liftM m : CompilerM α) :=
+  fun _ => KCS.liftM h
+
+theorem KeepsCS.liftIO {α : Type} {x : IO α} (h : Keeps mctx mref cctx cref I (_root_.liftM x : MetaM α)) :
+    KeepsCS mctx mref cctx cref I (_root_.liftM x : CompilerM α) :=
+  fun _ => KCS.liftIO h
+
+theorem KeepsCS.liftBaseIO {α : Type} {x : BaseIO α}
+    (h : Keeps mctx mref cctx cref I (_root_.liftM x : MetaM α)) :
+    KeepsCS mctx mref cctx cref I (_root_.liftM x : CompilerM α) :=
+  fun _ => KCS.liftBaseIO h
+
+theorem KeepsCS.refGet {σ : Type} {r : IO.Ref σ} (h : Keeps mctx mref cctx cref I (ST.Ref.get r : MetaM σ)) :
+    KeepsCS mctx mref cctx cref I (ST.Ref.get r : CompilerM σ) :=
+  fun _ => KCS.refGet h
+
+theorem KeepsCS.refSet {σ : Type} {r : IO.Ref σ} {v : σ}
+    (h : Keeps mctx mref cctx cref I (ST.Ref.set r v : MetaM Unit)) :
+    KeepsCS mctx mref cctx cref I (ST.Ref.set r v : CompilerM Unit) :=
+  fun _ => KCS.refSet h
+
+theorem KeepsCS.refModify {σ : Type} {r : IO.Ref σ} {f : σ → σ}
+    (h : Keeps mctx mref cctx cref I (ST.Ref.modify r f : MetaM Unit)) :
+    KeepsCS mctx mref cctx cref I (ST.Ref.modify r f : CompilerM Unit) :=
+  fun _ => KCS.refModify h
+
+theorem KeepsCS.get : KeepsCS mctx mref cctx cref I (MonadState.get : CompilerM CircuitState) := fun _ => KCS.get
+
+/-- `get >>= f`: the continuation is asked about the state read (pointed) -/
+theorem KeepsCS.bindGet {β : Type} {f : CircuitState → CompilerM β}
+    (h : ∀ st, KCS mctx mref cctx cref I st (f st)) :
+    KeepsCS mctx mref cctx cref I ((MonadState.get : CompilerM CircuitState) >>= f) :=
+  fun st => KCS.bindGet (h st)
+
+theorem KeepsCS.getCompilerState : KeepsCS mctx mref cctx cref I CompilerM.getCompilerState :=
+  fun _ => KCS.getCompilerState
+
+theorem KeepsCS.read : KeepsCS mctx mref cctx cref I (MonadReader.read : CompilerM CompilerState) :=
+  fun _ => KCS.read
+
+theorem KeepsCS.bindCtx {β : Type} {f : CompilerState → CompilerM β}
+    (h : ∀ cs, CtxOk cs → KeepsCS mctx mref cctx cref I (f cs)) :
+    KeepsCS mctx mref cctx cref I (CompilerM.getCompilerState >>= f) :=
+  fun st => KCS.bindCtx fun cs hc => h cs hc st
+
+theorem KeepsCS.bindRead {β : Type} {f : CompilerState → CompilerM β}
+    (h : ∀ cs, CtxOk cs → KeepsCS mctx mref cctx cref I (f cs)) :
+    KeepsCS mctx mref cctx cref I ((MonadReader.read : CompilerM CompilerState) >>= f) :=
+  fun st => KCS.bindRead fun cs hc => h cs hc st
+
+theorem KeepsCS.withReader {α : Type} {k : CompilerM α} (f : CompilerState → CompilerState)
+    (hf : ∀ ctx, CtxOk ctx → CtxOk (f ctx)) (h : KeepsCS mctx mref cctx cref I k) :
+    KeepsCS mctx mref cctx cref I (withReader f k) :=
+  fun st => KCS.withReader f hf (h st)
+
+theorem KeepsCS.tryCatch {α : Type} {x : CompilerM α} {h : Exception → CompilerM α}
+    (hx : KeepsCS mctx mref cctx cref I x) (hh : ∀ e, OkExc e → KeepsCS mctx mref cctx cref I (h e)) :
+    KeepsCS mctx mref cctx cref I (MonadExcept.tryCatch x h) :=
+  fun st => KCS.tryCatch (hx st) fun e he => hh e he st
+
+theorem KeepsCS.map {α β : Type} {c : CompilerM α} (f : α → β) (h : KeepsCS mctx mref cctx cref I c) :
+    KeepsCS mctx mref cctx cref I (f <$> c) :=
+  fun st => KCS.map f (h st)
+
+theorem KeepsCS.forIn_list {α β : Type} (f : α → β → CompilerM (ForInStep β))
+    (hf : ∀ a b, KeepsCS mctx mref cctx cref I (f a b)) (l : List α) (b : β) :
+    KeepsCS mctx mref cctx cref I (forIn l b f) :=
+  fun st => KCS.forIn_list f hf l b st
+
+theorem KeepsCS.forIn_array {α β : Type} (f : α → β → CompilerM (ForInStep β))
+    (hf : ∀ a b, KeepsCS mctx mref cctx cref I (f a b)) (as : Array α) (b : β) :
+    KeepsCS mctx mref cctx cref I (forIn as b f) :=
+  fun st => KCS.forIn_array f hf as b st
+
+theorem KeepsCS.forIn_range {β : Type} (f : Nat → β → CompilerM (ForInStep β))
+    (hf : ∀ a b, KeepsCS mctx mref cctx cref I (f a b)) (r : Std.Legacy.Range) (b : β) :
+    KeepsCS mctx mref cctx cref I (forIn r b f) :=
+  fun st => KCS.forIn_range f hf r b st
+
+theorem KeepsCS.pureE {ρ α : Type} (a : α) :
+    KeepsCS mctx mref cctx cref I (Pure.pure a : ExceptT ρ CompilerM α) := fun _ => KCS.pureE a
+
+theorem KeepsCS.throwE {ρ α : Type} (r : ρ) :
+    KeepsCS mctx mref cctx cref I (throwThe ρ r : ExceptT ρ CompilerM α) := fun _ => KCS.throwE r
+
+theorem KeepsCS.bindE {ρ α β : Type} {m : ExceptT ρ CompilerM α} {f : α → ExceptT ρ CompilerM β}
+    (h1 : KeepsCS mctx mref cctx cref I m) (h2 : ∀ a, KeepsCS mctx mref cctx cref I (f a)) :
+    KeepsCS mctx mref cctx cref I (m >>= f : ExceptT ρ CompilerM β) :=
+  fun st => KCS.bindE (h1 st) fun a st' _ => h2 a st'
+
+theorem KeepsCS.liftE {ρ α : Type} {c : CompilerM α} (h : KeepsCS mctx mref cctx cref I c) :
+    KeepsCS mctx mref cctx cref I (_root_.liftM c : ExceptT ρ CompilerM α) :=
+  fun st => KCS.liftE (h st)
+
+/-- a state-neutral action (final state = initial) whose world behaviour is `KeepsCP` -/
+theorem KCS.ofKeepsCP_neutral {α : Type} {c : CompilerM α}
+    (h : KeepsCP mctx mref cctx cref I c) (hn : ∀ ctx st a st' w w', (c ctx st) mctx mref cctx cref w = .ok (a, st') w' → st' = st) :
+    KeepsCS mctx mref cctx cref I c := by
+  intro st ctx hc hs
+  intro w hw
+  have h1 := h ctx st hc w hw
+  unfold endW ErrOk at h1
+  cases hm : (c ctx st) mctx mref cctx cref w with
+  | ok p w' =>
+    rw [hm] at h1
+    show I w' ∧ GoodS st p.2
+    rw [hn ctx st p.1 p.2 w w' (by simpa using hm)]
+    exact ⟨h1.1, GoodS.refl hs⟩
+  | error e w' =>
+    rw [hm] at h1
+    exact h1
+
+end Unpointed
 
 end Tools.ShippingGen4FKidsCalc
