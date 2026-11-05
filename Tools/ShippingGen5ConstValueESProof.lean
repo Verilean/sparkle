@@ -232,4 +232,69 @@ theorem cveks_wk {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {E
 
 end
 
+
+/-! ## §3 Substitution lemmas -/
+
+/-- Substituting inside a lifted block removes one lifted position. -/
+theorem substS_liftS_in (B : Expr) : ∀ (a n c : Nat) (x : Expr), a ≤ c → c < a + n → substS (liftS B a n) c x = liftS B a (n - 1) := by
+  induction B with
+  | bvar i =>
+    intro a n c x h1 h2
+    by_cases h : i < a
+    · have h3 : i < c := by omega
+      simp [liftS, substS, h, h3]
+    · have h3 : ¬ i + n < c := by omega
+      have h4 : ¬ i + n = c := by omega
+      simp [liftS, substS, h, h3, h4]; omega
+  | app f a ihf iha => intro a' n c x h1 h2; simp [liftS, substS, ihf a' n c x h1 h2, iha a' n c x h1 h2]
+  | lam y A b bi ihA ihb => intro a n c x h1 h2; simp [liftS, substS, ihA a n c x h1 h2, ihb (a + 1) n (c + 1) x (by omega) (by omega)]
+  | forallE y A b bi ihA ihb => intro a n c x h1 h2; simp [liftS, substS, ihA a n c x h1 h2, ihb (a + 1) n (c + 1) x (by omega) (by omega)]
+  | letE y A v b nd ihA ihv ihb =>
+    intro a n c x h1 h2; simp [liftS, substS, ihA a n c x h1 h2, ihv a n c x h1 h2, ihb (a + 1) n (c + 1) x (by omega) (by omega)]
+  | mdata d e ih => intro a n c x h1 h2; simp [liftS, substS, ih a n c x h1 h2]
+  | proj c' i e ih => intro a n c x h1 h2; simp [liftS, substS, ih a n c x h1 h2]
+  | _ => intros; rfl
+
+/-- Substituting above a lifted block: substitute first (at the shifted index), then lift. -/
+theorem substS_liftS_ge (B : Expr) : ∀ (a m k : Nat) (x : Expr), a + m ≤ k →
+    substS (liftS B a m) k x = liftS (substS B (k - m) x) a m := by
+  induction B with
+  | bvar i =>
+    intro a m k x h
+    by_cases h1 : i < a
+    · have h2 : i < k - m := by omega
+      have h3 : i < k := by omega
+      simp [liftS, substS, h1, h2, h3]
+    · by_cases h2 : i + m < k
+      · have h3 : i < k - m := by omega
+        simp [liftS, substS, h1, h2, h3]
+      · by_cases h3 : i + m = k
+        · have h4 : i = k - m := by omega
+          have h5 : ¬ i < k - m := by omega
+          subst h4
+          have h6 := liftS_liftS_add x 0 a (k - m) m (Nat.zero_le _) (by omega)
+          simp [liftS, substS, h1, h3]
+          rw [h6]; congr 1; omega
+        · have h4 : ¬ i < k - m := by omega
+          have h5 : ¬ i = k - m := by omega
+          have h6 : ¬ i - 1 < a := by omega
+          simp [liftS, substS, h1, h2, h3, h4, h5, h6]
+          omega
+  | app f a ihf iha => intro a' m k x h; simp [liftS, substS, ihf a' m k x h, iha a' m k x h]
+  | lam y A b bi ihA ihb =>
+    intro a m k x h
+    simp only [liftS, substS]
+    rw [ihA a m k x h, ihb (a + 1) m (k + 1) x (by omega), show k + 1 - m = (k - m) + 1 by omega]
+  | forallE y A b bi ihA ihb =>
+    intro a m k x h
+    simp only [liftS, substS]
+    rw [ihA a m k x h, ihb (a + 1) m (k + 1) x (by omega), show k + 1 - m = (k - m) + 1 by omega]
+  | letE y A v b nd ihA ihv ihb =>
+    intro a m k x h
+    simp only [liftS, substS]
+    rw [ihA a m k x h, ihv a m k x h, ihb (a + 1) m (k + 1) x (by omega), show k + 1 - m = (k - m) + 1 by omega]
+  | mdata d e ih => intro a m k x h; simp [liftS, substS, ih a m k x h]
+  | proj c' i e ih => intro a m k x h; simp [liftS, substS, ih a m k x h]
+  | _ => intros; rfl
+
 end Tools.ShippingGen5ConstValueES
