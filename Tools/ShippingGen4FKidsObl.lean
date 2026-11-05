@@ -109,7 +109,38 @@ theorem fKidsObl_params {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (h
     subst h1
     simpa only [mergeChecked_pf, dropZero_pf] using hP
 
+/-- Obligation (1), the part that IS provable: every module of the returned design declares no parameter, with NO name guard.
+So a design module that collides with the top name (`x.name = M'.name`, which the walk cannot exclude, FKIDS_FREEZE §7.9) is a
+parameter-free concrete module, never the symbolic top. The frozen `fKids` is this theorem restricted to `x.name ≠ M'.name`. -/
+theorem fKidsObl_noGuard {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hmsg : MsgMvK O)
+    {mctx cctx} (hA : AdmCtx O.quiet mctx cctx) {declName : Name} {θ : List (String × Nat)}
+    {w w' : Void IO.RealWorld} {M' : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hw : KWD O (fun _ _ => True) 0 w)
+    (h : RunsTo (synthesizeCombinationalWithParameters declName θ) mctx mref cctx cref w (M', D') w') :
+    ∀ x ∈ D'.modules, x.parameters = [] := by
+  unfold synthesizeCombinationalWithParameters at h
+  obtain ⟨⟨M0, D0⟩, w1, hcore, h⟩ := RunsTo.bind h
+  have hD0 : DesignPF D0 := fKids_statePF M hmsg hA hw hcore
+  dsimp only at h
+  obtain ⟨_, _, -, h⟩ := RunsTo.bind h
+  have hall : DesignPF D' := by
+    rcases RunsTo.ite h with h | h
+    · have := Tools.ShippingPostSoundness.RunsTo.pure h
+      simp only [Prod.mk.injEq] at this
+      obtain ⟨h1, h2⟩ := this
+      subst h1 h2
+      exact designPF_top _ (fun x hx => by unfold ParamFree at *; rw [dropZero_pf]; exact hx) M0 hD0
+    · have := Tools.ShippingPostSoundness.RunsTo.pure h
+      simp only [Prod.mk.injEq] at this
+      obtain ⟨h1, h2⟩ := this
+      subst h1 h2
+      exact designPF_top _ (fun x hx => by unfold ParamFree at *; rw [mergeChecked_pf]; exact hx) M0
+        (designPF_top _ (fun x hx => by unfold ParamFree at *; rw [dropZero_pf]; exact hx) M0 hD0)
+  intro x hx
+  exact hall x hx
+
 end Tools.ShippingGen4FKidsObl
 
 #print axioms Tools.ShippingGen4FKidsObl.fKidsObl_params_core
 #print axioms Tools.ShippingGen4FKidsObl.fKidsObl_params
+#print axioms Tools.ShippingGen4FKidsObl.fKidsObl_noGuard
