@@ -1,3 +1,4 @@
+import Tools.ShippingGen4FKidsEntry
 import Tools.ShippingGen4FKidsTac
 import Tools.ShippingGen4FKidsTele
 import Tools.ShippingGen4FKidsCanon
@@ -96,4 +97,4 @@ theorem legacyCachedK_of_implS {O : RefLawsAOps MkRefd mref cref} (M : MemoFamil
 
 end Tools.ShippingGen4FKidsLegacyCached
 
-#print axioms Tools.ShippingGen4FKidsLegacyCached.legacyCachedK_of_impl
+#print axioms Tools.ShippingGen4FKidsLegacyCached.legacyCachedK_of_implS
