@@ -13,17 +13,20 @@ set_option autoImplicit false
 namespace Tools.ShippingGen5Acc
 open Lean Meta Sparkle.Compiler.Elab Tools.ShippingGen2 Tools.ShippingGen5Sem
 open Tools.ShippingMachineAuto (MachineData)
+open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.IR.Machine Sparkle.IR.Semantics
+open Tools.ShippingMachineDenote Tools.ShippingMachineSource
 
 variable {ι : Type} {dom : ι → Sparkle.Core.Domain.DomainConfig} {env₀ : Environment}
 variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
 
+set_option hygiene false in
 local macro "accKit%" : term =>
-  `(mkKit (Tools.ShippingGen5DataOf.dataOfAt lvl) (fun E => GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (structEnv env₀))
+  `(mkKit (ι := ι) (dom := dom) (Tools.ShippingGen5DataOf.dataOfAt lvl) (fun E => GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (structEnv env₀))
     (fun {E} g => g.d) genData₀ ordCallees₀ (fun Q X {E} g => GenData.genSem hs Q X g) ordCallees₀_mem
     (genData_gdEvidence _) (genData_genSem_local hs) (genData_genSem_decl hs) (genData_genSem_d hs))
 
 theorem accServed0_of_cover_gatesK (lvl : Lean.Expr → Nat)
-    {initsOf : (d : MachineData) → HList (Tools.ShippingMachineDenote.tys d.ss)}
+    {initsOf : (d : MachineData) → HList (tys d.ss)}
     (hs : DataOfSound (Tools.ShippingGen5DataOf.dataOfAt lvl) initsOf)
     (genData₀ : (E : ConstantInfo) → Option (GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (structEnv env₀)))
     (L : Laws mref cref) (Reach : Name → Prop)
