@@ -40,8 +40,10 @@ def port(m):
         s=re.sub(rf"(?<![A-Za-z0-9_'.]){re.escape(d)}(?![A-Za-z0-9_'])",rename[d],s)
     s=re.sub(r"fuelFixM_keepsCP\s+(\w+)\s*\(fun rec hrec mctx cctx hA a => (\w+) (.*?) rec \(hrec mctx cctx hA\) a\) _ mctx cctx hA e",
              lambda mo:f"Tools.ShippingGen4FKidsCanon.KeepsCS.fuelFixM {mo.group(1)} (fun rec hrec a => {mo.group(2)} {mo.group(3)} rec hrec a) _ e",s,flags=re.S)
+    for a,b in [("emitAssignP","emitAssignPS"),("bindSourceVariableP","bindSourceVariablePS"),("lookupVarP","lookupVarPS"),("emitRegisterStmtA","emitRegisterStmtPS"),("emitRegisterK","emitRegisterPS"),("emitMemoryK","emitMemoryPS"),("freshNameA","freshNamePS"),("emitInstanceA","emitInstancePS"),("addModuleToDesignA","addModuleToDesignPS"),("withVarMappingP","withVarMappingPS"),("makeWireK","makeWirePS")]:
+        s=re.sub(rf"(?<![A-Za-z0-9_'.]){a}(?![A-Za-z0-9_'])",b,s)
     # opens
-    hdr="open Tools.ShippingGen4FKids\nopen Tools.ShippingGen4FKidsCalc\nopen Tools.ShippingGen4FKidsPrims\nopen Tools.ShippingGen4FKidsTac\nopen Tools.ShippingGen4FKidsTele\n"
+    hdr="open Tools.ShippingGen4FKids\nopen Tools.ShippingGen4FKidsCalc\nopen Tools.ShippingGen4FKidsPrims\nopen Tools.ShippingGen4FKidsTac\nopen Tools.ShippingGen4FKidsTele\nopen Tools.ShippingGen4FKidsEntry\n"
     s=s.replace("\nvariable",f"\n{hdr}\nvariable",1) if "\nvariable" in s else s
     imp="import Tools.ShippingGen4FKidsTac\nimport Tools.ShippingGen4FKidsTele\nimport Tools.ShippingGen4FKidsCanon\n"
     if "import Tools.ShippingGen4FKidsTac\n" not in s: s=imp+s

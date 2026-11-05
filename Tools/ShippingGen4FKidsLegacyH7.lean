@@ -129,6 +129,20 @@ theorem KeepsCS.bindCaught {σ β : Type}
         (fun _ _ hh => ⟨hh.1, GoodS.trans hg.1 hh.2⟩) (fun _ _ h => h)))
       (fun w hw => ⟨hw.1.1, hw.2, hw.1.2⟩) (fun _ _ h => h) (fun _ _ h => h)
 
+
+theorem KCS.bindCaught {σ β : Type} {st : Sparkle.IR.Builder.CircuitState}
+    {c : CompilerM (σ × Option Exception)} {f : σ × Option Exception → CompilerM β}
+    (h1 : TripleCS mctx mref cctx cref I c (fun a w => I w ∧ OkOpt a.2)
+      (fun e w => I w ∧ OkExc e))
+    (h2 : ∀ a s, OkOpt a.2 → GoodS st s → KCS mctx mref cctx cref I s (f a)) :
+    KCS mctx mref cctx cref I st (c >>= f) :=
+  fun ctx hc hs => Triple.bind (h1 st ctx hc hs) fun p => by
+    obtain ⟨a, s⟩ := p
+    exact Triple.conseq (triple_ofPre (P := I) (φ := GoodS st s ∧ OkOpt a.2) (fun hg =>
+      Triple.conseq (h2 a s hg.2 hg.1 ctx hc hg.1.2.1) (fun w hw => hw)
+        (fun _ _ hh => ⟨hh.1, GoodS.trans hg.1 hh.2⟩) (fun _ _ h => h)))
+      (fun w hw => ⟨hw.1.1, hw.2, hw.1.2⟩) (fun _ _ h => h) (fun _ _ h => h)
+
 end TripleCSRules
 
 section H7
