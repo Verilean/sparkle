@@ -666,3 +666,59 @@ Q1/Q2 のあとの証明の形（**未証明の計画**）:
 残った義務: `OblDenSubstL` 一般形（Q1）、`OblPrimArgsL` / `RowArgsAtL`（Q2）、`OblRowTypedS` の依存 30 行（Q1/Q2 後）、`KernelClosedInvariant`（カーネルの不変量、監査が証拠）、`OblLbrZero`（ブリッジ）。Lean の opaque な `instantiateLevelParams` との一致、kernel typing との一致は主張しない。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §Final: 最終 carrier `CVFinal PT` と `FGLedgerPremisesStmtCV`（Issue `sparkle-ledger-dd4-final`、土台 fe106963 + par/sm1）
+
+reviewer の方針: TRUSTED・axiom・sorry・native_decide なし。`PT` は明示的なパラメータのまま。G-PRIM の採用や TRUSTED 化は残余の一覧を見て別途判断するので、仮定に入れない。未解決のものは名前付きの前提（通常の仮説）にして条件付きで進める。**条件付きの成果は全体の健全性として主張しない。** net delta は決めない（census と対応の表だけ）。既存ファイルは書き換えていない。
+土台: `FGLedgerPremisesStmtH`（SM1）が fe106963 に無かったので `par/sm1`（0fceecd7）を merge した（lakefile の append-only 衝突のみ、両方残した）。
+新ファイル: `Tools/ShippingGen5CVFinal.lean`、`Tests/Gen5/CVFinalScan.lean`、`Tests/Gen5/CVFinalCheck.lean`。lakefile への lean_lib 登録は最初の commit で 1 回。
+
+### 1. 最終 carrier と関数性（証明済み、axiom は propext / Classical.choice / Quot.sound のみ）
+
+- `CVFinal PT : ConstValueRel := fun env X α v => CVLSKV PT env X α v`。すなわち `∃ τ, CVEKVL PT env [] (.const X (LS env X)) τ α v`（`CVEKVL` = `ShippingGen5ConstValueEVL.CVEKV`、固定 `LS env X`、valuation は `[]`）。
+- `cvFinal_functional PT : ConstValueFunctional (CVFinal PT)`。**任意の `PT`、仮定なし**（排他性は env の kind で決まる）。`cvFinal_value_unique`（同じ型なら値も等しい）。
+- `cvFinal_ne_top`: `CVFinal PT` は全関係 `fun _ _ _ _ => True` ではない（全関係は関数的でない `not_functional_top`）。
+- `cvFinal_typed`: `EnvDeclClosed env` と `LitRows PT env`（`Nat` / `String` の 2 行）から、`CVFinal PT env X α v` の導出の型ラベルは `TDenV` で型付く（`denTypedVL_of_rows`、valuation `[]` は `wfValV_nil`）。`OblDenSubstS` は出ない。
+
+### 2. `FGLedgerPremisesStmtCV`: H の CV binder を `PT` と名前付き前提に置き換えた文
+
+- binder `CV : ConstValueRel` を `PT : PrimTableK` に替え、`CV := CVFinal PT`。第 1 conjunct は `ConstValueFunctional (CVFinal PT)`（**定理で、もう結論の仮定ではない**）。
+- 名前付き前提（通常の仮説。axiom ではない）:
+  - 外側（閉じた Prop）: `h_D_LBR : OblLbrZero`。
+  - `EntryWitness` の直後（`envAt cref w` について）: `KernelClosedInvariant`（`EnvDeclClosed` は `envDeclClosed_of_premises` で `OblLbrZero` から出る）、`LitRows PT`、`OblRowTypedV PT`（`RowTypedAtV` の全 key。依存した 30 行を含む）、`∀ c ls, RowTeleEvAt PT`（引数の型付け。依存した 30 行を含む）。
+- 橋: `fgLedgerPremisesStmtCV_of_H : H → CV 版`、`fgLedgerPremisesStmtCV_of_G : G → CV 版`（`CV := CVFinal PT` で特殊化し、余分な前提は捨てる）。
+- **CVTopCheck の反駁は CV 版では成り立たない**: 反駁は `CV` が自由な全称 binder で `CV := ⊤` を代入できることに依る。CV 版には `ConstValueRel` の binder がない（Check で H 1 → CV 0）。第 1 conjunct は `cvFinal_functional`、`CVFinal PT ≠ cvTop`（`cv_not_top`）。ただし**これは文が真であることを示さない**（下の 5）。
+
+### 3. `DeclConnect (CVFinal PT)` の意味
+
+- `declConnect_cvFinal_iff`（定義の展開）: 各 target `X` と package `p` について、`env.find? X = some ci`、`shapeOf ci = some sh`、`ShapeMatches sh p.d p.kD`、**`∃ τ, CVEKVL PT env [] (.const X (LS env X)) τ sh.Ty v`**、`sh.obs v = p.src` を満たす `v`。
+- 証明できた部分: 値の一意性（`declConnect_cvFinal_unique`、関数性から）、`EnvDeclClosed` と `LitRows` の下での型ラベルの型付け（`declConnect_cvFinal_typed`）、`declConnect_mono` は DeclConnect.lean のまま使える。
+- 残り（名前付き前提 / 未証明）: **存在**（`∃ v, CVFinal PT env X sh.Ty v`: `prim` の `hty` / `hargs` を作る行 = `RowTypedAtV` / `RowTeleEvAt` と `PT` の中身、`unfold` の本体の導出）、`obs v = p.src`（`DeclConnect` の rows = D.D-5）。
+
+### 4. 入った前提と台帳の行 ID の対応（`CVFinalCheck` が `scripts/gen2/PREMISE_LEDGER.md` を読んで確認）
+
+| 前提 | 型 | 台帳の既存行 | 判定 |
+|---|---|---|---|
+| `PT`（binder） | `PrimTableK` | D.D-4（carrier `CV`）の置き換え。D.D-4 の「ConstValue の定義が未記述」は `CVFinal` で書けた。**`PT` の中身の行は台帳にない** | 既存行を置き換える。PT の行は新規（G-PRIM の判断待ち） |
+| `h_D_LBR` | `OblLbrZero` | なし（台帳に 0 件） | **新しい行** |
+| `KernelClosedInvariant` / `EnvDeclClosed` | env の事実 | なし（0 件） | **新しい行** |
+| `LitRows PT` | `PT` の条件 | なし（0 件） | **新しい行**（`PT` の仕様） |
+| `OblRowTypedV PT`（`RowTypedAtV`） | 行ごとの `hty` | なし（0 件） | **新しい行** |
+| `∀ c ls, RowTeleEvAt PT` | 行ごとの引数の型付け | なし（0 件） | **新しい行** |
+| `DeclConnect` の存在・`obs` | 結論 | D.D-5（DeclConnect の rows）のまま | 既存行 |
+
+対応は census と台帳の文字列照合の結果であって、行の数え直しではない。**台帳の数（FG 75 / T1 57）は変えていない**。新しい行を台帳に足すか、既存の D.D-4 / D.D-5 に合算するかは reviewer の判断（net delta は決めない）。
+
+### 5. census と Check（`Tests/Gen5/CVFinalCheck.lean`、`CVFinalScan.lean`）
+
+- H と CV 版の構造比較: removed `[CV]`、added `[PT, h_D_LBR]`、changed `[]`、第 1 conjunct `==`、内側の仮説は removed 0・added 4（`KernelClosedInvariant`、`LitRows`、`OblRowTypedV`、`RowTeleEvAt`）、結論は `CV := CVFinal PT` の代入後 `==`。`ConstValueRel` の binder は H 1 → CV 0。外側 binder 13 → 14、内側の仮説 11 → 15。G と比べると removed は `[initsOf, hs, CV]`。
+- 負対照: 代入しない比較は失敗、`CV := cvTop` は失敗、H と H は空、CV と H（逆向き）は失敗、axiom 検出器は利用者 axiom とそれを使う定理を検出。`not_litRows_nil`（空の表は `LitRows` を満たさない）、`litRows_lit`（`Nat` / `String` だけの表は満たす）、`rows_nil`（**行の前提は空の表も満たす**: `OblRowTypedV PTnil`・`RowTeleEvAt PTnil`）。
+- Scan（`CVFinalScan`）: 旧 carrier の帰納型 16 個（`CVE` / `CVEKS` / `CVEKL` / `CVEK` と EV の opaque 版、およびその `TDen*` / `ArgsDen*`）。最終 root 13 件の閉包（到達 5897 定数）と consumer 7 件（`DeclConnect`、`ConstValueFunctional`、H、G、`genGP` ほか。到達 5552）は旧 carrier に**到達しない**（hits 0）。旧 root 5 件（`cvlsks_functional`、`cvls_functional`、`cvlskl_functional`、EV の `cvlskv_functional`、`CVLSK`）は検出される。旧理論は履歴と比較のために残してある。
+
+### 6. 主張しないこと / 残り
+
+- **条件付きの成果であり、全体の健全性は主張しない。** 名前付き前提 5 つは解いていない（`OblLbrZero`、`KernelClosedInvariant`、`LitRows`、`OblRowTypedV` の依存 30 行ほか、`RowTeleEvAt` の依存 30 行）。
+- **`PT` を全称のまま残した文の限界（観察。証明はしていない）**: 行の前提は空の表 `PTnil` も満たす（`rows_nil`）。`LitRows` だけが空の表を除く。`DeclConnect (CVFinal PT)` の存在は `PT` の中身に依るので、`∀ PT` の文が真であるには前提が足りない可能性が高い。これが G-PRIM（`PT` の固定または TRUSTED 化）の判断材料。今回は仮定に入れていない。
+- 旧 `CVEKS` の導出からの写像、kernel typing との一致、`Expr.instantiateLevelParams` と `instantiateLevelParamsS` の一致、実際の `PT` が仕様を満たすこと。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
