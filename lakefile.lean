@@ -5739,3 +5739,6 @@ lean_lib «Tests.Gen5.Flow1ReadsCheck» where
 
 lean_lib «Tools.ShippingGen5AP17» where
   roots := #[`Tools.ShippingGen5AP17]
+
+lean_lib «Tests.Gen5.AP17Check» where
+  roots := #[`Tests.Gen5.AP17Check]
