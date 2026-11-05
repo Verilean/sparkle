@@ -303,12 +303,16 @@ def OblPrimKL (Ty : TyJ) : Prop :=
     env.find? c = some ci → ¬ IsDefn env c →
     TyArgsG Ty env Γ (instantiateLevelParamsS ci.levelParams ls ci.type) args R → Ty env Γ (mkAppN (.const c ls) args.toArray) R
 
-structure KernelRulesKL (Ty : TyJ) : Prop where
+/-- `OblConst` with the syntactic level instantiation. -/
+def OblConstL (Ty : TyJ) : Prop :=
+  ∀ (env : Environment) (Γ : List Expr) (c : Name) (ls : List Level) (ci : ConstantInfo), env.find? c = some ci →
+    Ty env Γ (.const c ls) (instantiateLevelParamsS ci.levelParams ls ci.type)
 
+structure KernelRulesKL (Ty : TyJ) : Prop where
   bvar : OblBvarS Ty
   app : OblAppS Ty
   lam : OblLam Ty
-  const : OblConst Ty
+  const : OblConstL Ty
   lit : OblLit Ty
   letE : OblLetS Ty
   unfold : OblUnfoldL Ty
@@ -404,4 +408,23 @@ theorem cvekl_tyRKS {PT : PrimTableK} {env : Environment} (hP : OblPrimArgsL PT 
 /-- Soundness of the `CVEKL` rules against any `Ty` satisfying the bundle: an implication between named `Prop`s (assumed nowhere). -/
 theorem cvekl_sound {PT : PrimTableK} {env : Environment} {Ty : TyJ} (R : KernelRulesKL Ty) (hP : OblPrimArgsL PT env)
     {ρ : Val} {e τ : Expr} {α : Type} {v : α} (h : CVEKL PT env ρ e τ α v) : Ty env (ρ.map Entry.τ) e τ :=
-  tyRKL_sub R (cvekl_tyRKS hP h)end Tools.ShippingGen5ConstValueELProof
+  tyRKL_sub R (cvekl_tyRKS hP h)/-! ## The plain environment fact `EnvDeclClosed` is the only environment hypothesis
+
+`EnvClosedL` follows from `EnvDeclClosed` (`envClosedL_of_declClosed`, `lbr` is preserved by level instantiation). Restated with the plain fact; `EnvDeclClosed` is a NAMED `Prop`, assumed nowhere
+(its evidence on the corpus is the meta audit `Tests/Gen5/EnvDeclClosedAudit*.lean`). -/
+
+theorem cvekl_wk_of_declClosed {PT : PrimTableK} {env : Environment} (hcl : EnvDeclClosed env) {E : Entry} {s : Nat} {ρ ρ' : Val} (hI : InsV E s ρ ρ')
+    {e τ : Expr} {α : Type} {v : α} (h : CVEKL PT env ρ e τ α v) : CVEKL PT env ρ' (liftS e s 1) (liftS τ s 1) α v :=
+  cvekl_wk (envClosedL_of_declClosed hcl) hI h
+
+theorem cvekl_subst_of_declClosed {PT : PrimTableK} {env : Environment} (hcl : EnvDeclClosed env) {A : Expr} {TA : Type} {av : TA} {x : Expr} (hx : SafeArg x)
+    {k : Nat} {ρ ρ' : Val} (hS : SubVL PT env A TA av x k ρ ρ') {e τ : Expr} {α : Type} {v : α} (h : CVEKL PT env ρ e τ α v) :
+    CVEKL PT env ρ' (substS e k x) (substS τ k x) α v :=
+  cvekl_subst (envClosedL_of_declClosed hcl) hx hS h
+
+theorem denTypedL_of_declClosed {PT : PrimTableK} {env : Environment} (hcl : EnvDeclClosed env)
+    (hN : ∀ ρ : Val, TDenL PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenL PT env ρ (.const `String []) String)
+    (hsub : OblDenSubstL PT env) : OblDenTypedL PT env :=
+  denTypedL (envClosedL_of_declClosed hcl) hN hS hsub
+
+end Tools.ShippingGen5ConstValueELProof
