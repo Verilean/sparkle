@@ -805,3 +805,37 @@ G-PRIM の採用や TRUSTED 化は、この残余の一覧を見て別途判断�
 - 実際の `PT` が `FirstArgSpec` / `DomFieldsSpec` / `SigRowSpec` / `AlphaDen` を満たすこと。kernel `Ty` との一致。
 - 「30 行を無条件に証明した」こと。行ごとの定理は仕様と env の事実を前提にする条件付きの成果で、全体の健全性としては数えない。
 - 残る 4 行の `RowTeleEvAt`。
+
+## §Spec: `PTcorpus` に deprows の Spec を key ごとに供給する（Issue `sparkle-ledger-dd4-deprows`、Q-C、土台 de819c95 = bc4e180f + par/d4deprows 7a2686a4）
+
+reviewer の判断 Q-C に従う。`Tools/ShippingGen5PTCorpusSpec.lean`（新規。既存ファイルは変更なし）、`Tests/Gen5/PTCorpusSpecCheck.lean`。TRUSTED・axiom・sorry・native_decide なし。PTcorpus の採用、G-PRIM、TRUSTED、D.D-4 の減算、最終保証は未承認のまま。
+
+### 1. 結果の区別（Spec の型があることと、行を払ったことは別）
+
+| 項目 | 前 | 後 | 備考 |
+|---|---|---|---|
+| `RowTypedAtV PTcorpus` の定理がある行 | 32/51 | 51/51 | 新規 19 行は `ptc_spine_rowTypedV_*`。env の事実（`¬ IsDefn env D` と `EnvDepSpine`）は定理の仮定。Check が 19 件すべてを実環境で評価して成立を確認 |
+| `RowTeleEvAt PTcorpus` の定理がある行 | 10/51 | 10/51 | 今回 0 行。開いている 41 は未解消 |
+| deprows の 26 key | — | 供給できない | PTcorpus に行がない（`notImportable`）。`FirstArgSpec` / `DomFieldsSpec` は行についての文なので供給できないことを証明（`deprows_noFirstArgSpec`） |
+| 名前付き義務 4（`Fin.mk` / `BitVec.ofFin` / `Decidable.isTrue` / `Decidable.isFalse`） | 残 | 残 | `Fin.mk` と `Decidable.*` は PTcorpus に行がない（`propBinder`）。`BitVec.ofFin` は行があり `RowTypedAtV` は今回閉じたが `RowTeleEvAt` は未解消 |
+
+「51/51」は行ごとの定理の件数である。`OblRowTypedV PTcorpus`（全 `(c, ls)` についての 1 つの文）の組み立て（env の事実を `envAt cref w` で量化して束ねること）は今回していない。env の事実は実環境（Check の環境）での評価で、`envAt cref w` 上の証明ではない。
+
+### 2. 何を供給したか
+
+- deprows の `FirstArgSpec` は「結果の型形式が第 1 引数だけに掛かる」行の形で、PTcorpus では既に 22 行（`ptc_rowTypedV_tm_*`）が使っている。残る 19 行（`HAdd.mk` など 12、`Pow.mk`、`Prod.mk`、`PProd.mk`、`OfNat.mk`、`HasDomain.mk`、`Signal.mk`、`BitVec.ofFin`）は結果が第 1..m 引数に掛かる（`HAdd α β γ` など）か、第 1 引数が項（`BitVec w`、`Signal dom α`）で、`FirstArgSpec` では書けない。
+- そこで `FirstArgSpec` を一般化した `SpineSpec PT c ls kp kq D Ls`（行の kinds が `kp ++ kq`、結果の型は `D` の行を先頭 `kp.length` 引数で評価したもの）と、env の事実 `EnvDepSpine`（型が `n` 個の binder の後 `D Ls` を先頭 `m` 個の bvar に適用した形）を定義した。`m = 1` が `FirstArgSpec` / `EnvDepFirst`。
+- `instForallS_spine`: `instForallS` を計算する補題（`instForallS_depFirst` の一般化。`substS_liftS_in` で先に代入した引数の lift を戻す帰納法）。`rowTypedAtV_spine`: `OblDenSubstS` を使わず、先頭 `m` 引数の導出（`ArgsDenV` の take）と `tcon` で閉じる。
+- `SpineSpec` は構成から出る: `Refines kp kq t u`（値の telescope `t` と型の telescope `u` が先頭 `kp` で同じ引数を受け、`t` の結果の型が `u` の結果）から `refines_run` で `spineSpec_of_refines`。19 行すべて `refines_tac`（1 つの tactic）で通る。
+- 負対照: kinds の違う `SpineSpec` は否定できる（`control_spineSpec_wrongKinds`）。env の事実の評価器は、m / n / D を誤ると false、定義の key（`Sparkle.Core.Domain.ResetKind`）で `IsDefn` を検出、存在しない定数で false。
+
+### 3. 供給できない key と理由
+
+- deprows の 26 key（`Sparkle.IP.* .Out.mk` など）: PTcorpus に行がない。corpus モジュールの宣言は `Tools` から import できない（Q-B の局所 shard が決まるまで行を置けない）。行ができたとき、deprows の `rowTypedDep_*` / `teleEvDep_*` を当てはめる。
+- `RowTeleEvAt` の開いている 41 行: 26 件の `teleEvDep_*` は `DomFieldsSpec`（`(dom) (fields : Signal dom α)` の形）が前提で、41 行はその形ではない。binder の型が前の型引数を含む（`α → α → α`、`List α`、`Fin (2 ^ w)`、`Stream α`）ため、代入後の binder 型の `TDenV` 導出（`tdenv_wk` と `EnvClosedL`）が key ごとに必要。今回は供給していない。
+- 4 つの名前付き義務は上表のとおり継続。
+
+### 4. 主張しないこと
+
+- `RowTeleEvAt` の 41 行、`Fin.mk` / `Decidable.isTrue` / `Decidable.isFalse` の行。deprows の 26 key の行。
+- 「51/51」が `OblRowTypedV PTcorpus` を無条件に与えること。台帳は動かさない（FG 75 / T1 57、今回 FG -0 +0 / T1 -0 +0）。
