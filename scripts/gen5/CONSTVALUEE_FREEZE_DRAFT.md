@@ -496,5 +496,51 @@ reviewer の部分受理（P1/P2 は D1a/D2a に沿う。`TyRKS` は構文的判
 ### 4. Check（`Tests/Gen5/SoundS2Check.lean`）
 
 構造照合（`instantiateLevelParamsS` の定義の展開、`cvekl_fun` ほかの形、`lbr_instantiateLevelParamsS`、`EnvClosedL ↔ EnvDeclClosed`、4 行の定理をモデル表 `PTm` で具体化）、負対照（instantiate が恒等でなく param 名を区別する、opaque 版は stuck・構文版は計算できる、依存した codomain と arity 違いは `ClosedPi` でない、誤った型の仕様はない、axiom 検出器の検出）、`#print axioms` と 24 宣言の axiom 検査（propext / Classical.choice / Quot.sound のみ）、残った義務 8 件が定理でも axiom でもなく `Prop` の定義であることの確認、115 件の区分（4 + 30 + 6 + 75）。
+## §Val: valuation carrier `CVEKV` と証拠つきの型変換（Issue `sparkle-ledger-dd4-val`、土台 7c05d998）
+
+reviewer の判断 Q1 = (a)、Q2 = (a)。TRUSTED・axiom・sorry・native_decide なし。`PT` は任意のパラメータ。`TyRKS` は kernel typing との一致を主張しない。既存ファイルは書き換えていない（lakefile と草案は末尾追記のみ）。
+新ファイル: `Tools/ShippingGen5ConstValueEV.lean`（carrier と証明）、`Tests/Gen5/ValCheck.lean`。土台は `kjob lake build Tests.Gen5.SoundSCheck` で通ることを先に確認した。
+
+### 1. carrier（Q1: valuation 経由、Q2: 証拠つきの変換）
+
+- `CVEKVB`（規則）: `CVEKS` の規則のうち `app` / `letE` を変えた。引数を `CVEKV` で先に意味へ評価して valuation に積む。結果の型ラベルは構文代入ではなく **`letE` ラベル**:
+  `app` は `.letE n A x B false`、`letE` は `.letE n A v B nd`。それを表す規則 `TDenV.tlet`（`x` を評価して valuation を伸ばし、`B` を表す）を足した。`substS` は `app` / `letE` / `tlet` の型に現れない。
+- `CVEKV`（外から見る導出）: `core`（規則そのまま）か、`conv`（規則の導出 1 つの型ラベルを `τ0 → τ` に替える）。**`conv` は `TDenV ρ τ0 α` と `TDenV ρ τ α` の両方（同じ Lean 型 `α` を表す証拠）がある場合だけ**。無条件ではない。`cvekv_conv` で 1 段にまとめられる。
+- `conv` を許す位置と許さない位置。許す: 引数（`ArgsDenV.tm`、`app` の `hx`、`letE` の `hv`）とルート。許さない（`CVEKVB` を持つ）: `app` の関数、`lam` / `letE` の本体、`unfold` の本体。
+  理由: `lam` の本体のラベルを替えたいなら `lam` 全体を `conv` すればよい（`pi` 規則で同じ証拠になる）ので表現力は落ちない。**関数位置**でラベルを `forallE A B` に替えると、同じ `Π` の分解 `(A, B)` が複数でき、結果型 `TB av` の一意性に `Π` の単射性（`((a:TA)→TB a) = ((a:TA')→TB' a) → …`）が要る。Lean で証明できないので、関数位置はラベルを一意にする（規則だけ）。
+  `ValCheck` の対照 6 に、同じ `Nat → Nat` を表す異なる 2 つの `Π` ラベルを置いた。
+- `prim` / `unfold` は `CVEKS` と同じ（`instForallS` / `betaS` はラベルの構文演算として残る。`hty` は P3 の `OblRowTypedS` の形のまま）。root は `ConstValueEAtV` / `CVLSKV`（`CVLSKS` と同じ `LS env X`、`ρ = []`、`const X ls`）。
+
+### 2. 証明したもの（axiom は propext / Classical.choice / Quot.sound のみ。`ValCheck` で 29 宣言を検査）
+
+- **関数性（変換を含む同時帰納）**: `tdenv_fun` / `argsdenv_fun` / `cvekv_fun` / `cvekvb_fun`、`constValueEAtV_functional`、`cvlskv_functional`。`cvekvb_fun` は規則だけの導出でラベルまで一意（`τ = τ' ∧ α = β ∧ HEq v w`）。`cvekv_fun` は `conv` があっても**値と Lean 型が一意**（`α = β ∧ HEq v w`。ラベルは一意でない）。`CVEKS` の証明がほぼそのまま通った（`conv` は外側 1 段だけなので、構造再帰が通る）。
+- **弱化**: `tdenv_wk` / `argsdenv_wk` / `cvekv_wk` / `cvekvb_wk`（`tlet` と `conv` を含む全規則。`EnvClosedS` は `CVEKS` と同じ名前付きの前提）。
+- **soundness `denTypedV`（`CVEKV ⇒ TDenV τ α`）**: 全規則と `conv` を閉じた。前提は `EnvClosedS`（弱化に使う）、`Nat` / `String` の行（`OblDenLits`、`PT` の条件）、valuation の整合 `WfValV` だけ。**`OblDenSubstS` は前提にも証明の中にも出ない**（`app` は `tlet hA hx (hB av)`、`letE` は `tlet hA hv (本体の soundness)`、`conv` は証拠 `h1`）。`ValCheck` が `denTypedV` から届く宣言を meta で数え、`OblDenSubstS` / `tdens_subst` / `SafeArg` などが含まれないこと、`CVEKVB.app` / `letE` / `TDenV.tlet` / `CVEKV.conv` の型に `substS` が出ないことを確かめる（検出器の対照: 旧 `denTypedS` は `OblDenSubstS` に届く、旧 `CVEKS.app` / `letE` は `substS` を含む）。
+- **`RowArgsAt` / `OblPrimArgsS` を変換規則で供給できる範囲**: `ArgsTeleV`（引数を telescope に対して、変換後のラベルで型付ける）と、行が出す証拠 `TeleEv`。
+  - **項引数**: binder 型が引数の Lean 型を表す（`TeleEv.tm` は `TDenV` の証拠）なら、`conv` で引数のラベルを binder 型にできる。引数自身のラベルの証拠は `denTypedV` が出すので、生産者は要らない（`argsTeleV_of_ev`。`WfValV` 付き）。
+  - **型引数**: carrier の中では型付けされない（`TyRKS` に `forallE` / `sort` の規則がない。`tyRKS_no_forallE`）。telescope 側の binder が `sort` であること（種類の検査、`TeleEv.ty`）だけを求める。型引数に対する型付けの根拠は `TDenV`（表す型）のみ。
+  - 結論 `rowArgsAtV_of_ev` / `oblPrimArgsV_of_ev`: 行ごとの `RowTeleEvAt`（証拠）から `RowArgsAtV` が出る。nullary の行と、`tms` に行がない key は証拠なし（`rowTeleEvAt_nullary` / `rowTeleEvAt_of_none`）。
+
+### 3. 負対照（`Tests/Gen5/ValCheck.lean`）
+
+- 正の例: 模型の表 `PTv`（`Nat ↦ Nat`、別名 `Tst.M ↦ Nat`、`Tst.U ↦ Unit`）で、`lit 0 : Nat` を別名ラベル `Tst.M` に `conv` できる（両方の証拠がある）。
+- **証拠なしの変換は壊れる**: `Tst.U`（`Unit` を表す）は `Nat` を表さない（`tden_U_not_Nat`）。ゆえに `lit 0` を `Tst.U` に替えようとしても `conv` の `h1` が作れない。無条件の変換なら `OblDenTyped` の結論が任意のラベルで成り立つはずだが、それは偽（`uncond_conv_unsound`）。型の不一致（`Unit` と `Nat` は 1 点と無限）が具体的な反例。
+- `WfValV` は本当の前提（`not_wfValV_junk`）、`TeleEv` も本当の前提（`teleEv_mismatch`: `Nat` の引数を `Tst.U` の binder に当てられない）。
+- 無条件の変換が**関数性**を壊すかは、関数位置を `CVEKVB` に限ったため、この carrier では起きない。関数位置を許すと `Π` の単射性が要る（上の理由）。これは具体的な反例ではなく、証明できない仮定の指摘である。
+
+### 4. 残った義務（名前付き `Prop`。仮定にも axiom にもしていない）
+
+| 残り | 内容 |
+|---|---|
+| `EnvClosedS` | 環境の宣言型・本体が `instantiateLevelParams` 後も閉じている。別 Issue（`instantiateLevelParams`）が担当。弱化と soundness の `bvar` が使う |
+| `Nat` / `String` の行 | `OblDenLits`。`PT` の中身の条件 |
+| `RowTeleEvAt`（行ごと） | 項引数の binder 型が引数の Lean 型を表すという証拠、型引数の binder が `sort`。`ArgsDenV` からは出ない。行ごとの有限・局所な義務 |
+| `OblRowTypedS` | 行の `hty`（`prim` の `hty` と同じ形）。P3 / 別 Issue |
+| カーネルの `Ty` | `TyRKS` は carrier 内の構文判定。kernel typing との一致は主張しない。core に `Prop` の判定がなく述べられない |
+
+### 5. 主張しないこと
+
+- 旧 carrier `CVEKS` の導出から `CVEKV` の導出への写像は作っていない。`lam` の本体のラベルを全 `a` で共通にする必要があり、旧導出の形（`a` ごとに異なりうる）から共通のラベルを選べない。比較は規則のレベルで述べた（値と Lean 型は同じ規則、違いは `app` / `letE` のラベルと `conv`）。
+- 全 universe instance への一般化（`OblLevelErase`）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
