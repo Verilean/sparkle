@@ -5832,3 +5832,9 @@ lean_lib «Tests.Gen5.RowTypedKAuditM3» where
 
 lean_lib «Tests.Gen5.RowTypedKAuditM4» where
   roots := #[`Tests.Gen5.RowTypedKAuditM4]
+
+lean_lib «Tools.ShippingGen5RowTypedK» where
+  roots := #[`Tools.ShippingGen5RowTypedK]
+
+lean_lib «Tests.Gen5.RowTypedKCheck» where
+  roots := #[`Tests.Gen5.RowTypedKCheck]
