@@ -124,8 +124,8 @@ def natAccelStep (c : Name) (args : Array Expr) : Option Expr :=
           match natDec? c with
           | some f =>
             let pf := Expr.const `Tests.Gen5.IotaStudy.opaqueProof []
-            if f a b then some (mkApp2 (.const ``Decidable.isTrue []) (.sort levelZero) pf)
-            else some (mkApp2 (.const ``Decidable.isFalse []) (.sort levelZero) pf)
+            if f a b then some (mkApp2 (.const ``Decidable.isTrue []) (.sort Level.zero) pf)
+            else some (mkApp2 (.const ``Decidable.isFalse []) (.sort Level.zero) pf)
           | none => none
     | _, _ => none
   else if args.size == 1 && c == ``Nat.succ then
