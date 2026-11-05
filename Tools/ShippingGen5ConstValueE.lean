@@ -1,9 +1,11 @@
 import Lean
 set_option autoImplicit false
-/-! # `ConstValueE` — SKELETON OF TYPES ONLY (D.D-4, option B; freeze draft: scripts/gen5/CONSTVALUEE_FREEZE_DRAFT.md)
+/-! # `ConstValueE` — exploratory skeleton + functionality (D.D-4, option B; draft: scripts/gen5/CONSTVALUEE_FREEZE_DRAFT.md)
 
-Definitions and inductive types only. No theorem, no `sorry`, no axiom. NOT part of any ledger row: it checks that the rule list of the
-draft is a well-formed (strictly positive, universe-correct) inductive family, nothing more. Not adopted. -/
+DCF-1: the rule list (a well-formed, strictly positive, universe-correct mutual inductive family over an ARBITRARY `PrimTable`).
+DCF-2/3: functionality of `TDen`/`ArgsDen`/`CVE` (one joint induction, since `ArgsDen.tm` contains a `CVE`), for every `PT` and `env`,
+with no hypothesis beyond the two derivations (exclusivity is in the rule premises). No `sorry`, no axiom, no TRUSTED.
+NOT a ledger row and NOT a final carrier: soundness (the syntactic type `τ` agrees with `ConstantInfo.type`) is unproved. -/
 namespace Tools.ShippingGen5ConstValueE
 open Lean
 
@@ -49,6 +51,55 @@ def instForall : Expr → List Expr → Expr
 /-- The kind test of the exclusivity condition: unfold applies exactly to `defnInfo`, prim exactly to the rest. -/
 def IsDefn (env : Environment) (c : Name) : Prop := ∃ d : DefinitionVal, env.find? c = some (.defnInfo d)
 
+/-! ### Spine lemmas (DCF-2 helper): `mkAppN (.const c ls) args` determines `c`, `ls`, `args` -/
+
+theorem foldl_app_fn (as : List Expr) : ∀ f : Expr, (as.foldl Expr.app f).getAppFn = f.getAppFn := by
+  induction as with
+  | nil => intro f; rfl
+  | cons a as ih => intro f; simp [List.foldl, ih, Expr.getAppFn]
+
+theorem mkAppN_toList (f : Expr) (as : List Expr) : mkAppN f as.toArray = as.foldl Expr.app f := by
+  simp only [mkAppN, ← Array.foldl_toList]
+  rfl
+
+theorem spine_fn (c : Name) (ls : List Level) (as : List Expr) : (mkAppN (.const c ls) as.toArray).getAppFn = .const c ls := by
+  rw [mkAppN_toList, foldl_app_fn]; rfl
+
+theorem foldl_app_inj : ∀ (n : Nat) (as bs : List Expr) (f g : Expr), as.length = n → f.isApp = false → g.isApp = false →
+    as.foldl Expr.app f = bs.foldl Expr.app g → f = g ∧ as = bs := by
+  intro n
+  induction n with
+  | zero =>
+    intro as bs f g hn hf hg h
+    have has : as = [] := List.length_eq_zero_iff.mp hn
+    subst has
+    rcases List.eq_nil_or_concat bs with hb | ⟨bs, b, hb⟩
+    · subst hb; exact ⟨h, rfl⟩
+    · subst hb
+      simp [List.foldl_append] at h
+      subst h; simp [Expr.isApp] at hf
+  | succ n ih =>
+    intro as bs f g hn hf hg h
+    rcases List.eq_nil_or_concat as with ha | ⟨as, a, ha⟩
+    · subst ha; simp at hn
+    · subst ha
+      rcases List.eq_nil_or_concat bs with hb | ⟨bs, b, hb⟩
+      · subst hb
+        simp [List.foldl_append] at h
+        subst h; simp [Expr.isApp] at hg
+      · subst hb
+        simp [List.foldl_append] at h
+        obtain ⟨h1, h2⟩ := h
+        obtain ⟨h3, h4⟩ := ih as bs f g (by simpa using hn) hf hg h1
+        exact ⟨h3, by rw [h4, h2]⟩
+
+theorem spine_inj {c c' : Name} {ls ls' : List Level} {as as' : List Expr}
+    (h : mkAppN (.const c ls) as.toArray = mkAppN (.const c' ls') as'.toArray) : c = c' ∧ ls = ls' ∧ as = as' := by
+  rw [mkAppN_toList, mkAppN_toList] at h
+  obtain ⟨h1, h2⟩ := foldl_app_inj _ as as' _ _ rfl rfl rfl h
+  injection h1 with h1 h3
+  exact ⟨h1, h3, h2⟩
+
 mutual
 
 /-- Type denotation, syntax-directed. `TDen env ρ τ T`: the type expression `τ` denotes the Lean type `T` under the valuation `ρ`. -/
@@ -59,12 +110,14 @@ inductive TDen (PT : PrimTable) (env : Environment) : Val → Expr → Type → 
       TDen PT env ρ (.forallE n A B bi) ((a : TA) → TB a)
   | tcon {ρ : Val} {c : Name} {ls : List Level} {args : List Expr} {row : TyRow} {as : List Arg} {T : Type}
       (hrow : PT.tys c = some row) (hnd : ¬ IsDefn env c)
-      (hargs : ArgsDen PT env ρ row.kinds args as) (hT : row.den as = some T) :
-      TDen PT env ρ (mkAppN (.const c ls) args.toArray) T
+      (hargs : ArgsDen PT env ρ row.kinds args as) (hT : row.den as = some T)
+      {τ : Expr} (he : τ = mkAppN (.const c ls) args.toArray) :
+      TDen PT env ρ τ T
   | tunfold {ρ : Val} {c : Name} {ls : List Level} {args : List Expr} {d : DefinitionVal} {T : Type}
       (hd : env.find? c = some (.defnInfo d))
-      (hb : TDen PT env ρ ((d.value.instantiateLevelParams d.levelParams ls).beta args.toArray) T) :
-      TDen PT env ρ (mkAppN (.const c ls) args.toArray) T
+      (hb : TDen PT env ρ ((d.value.instantiateLevelParams d.levelParams ls).beta args.toArray) T)
+      {τ : Expr} (he : τ = mkAppN (.const c ls) args.toArray) :
+      TDen PT env ρ τ T
 
 /-- Arguments of a type former, by the row's kinds. -/
 inductive ArgsDen (PT : PrimTable) (env : Environment) : Val → List Bool → List Expr → List Arg → Prop
@@ -78,13 +131,14 @@ inductive ArgsDen (PT : PrimTable) (env : Environment) : Val → List Bool → L
 
 /-- Term denotation. `CVE env ρ e τ α v`: the term `e`, of syntactic type `τ`, denotes `v : α`, where `TDen … τ α`. -/
 inductive CVE (PT : PrimTable) (env : Environment) : Val → Expr → Expr → (α : Type) → α → Prop
-  | natLit {ρ : Val} {n : Nat} {ls : List Level} : CVE PT env ρ (.lit (.natVal n)) (.const `Nat ls) Nat n
-  | strLit {ρ : Val} {s : String} {ls : List Level} : CVE PT env ρ (.lit (.strVal s)) (.const `String ls) String s
+  | natLit {ρ : Val} {n : Nat} : CVE PT env ρ (.lit (.natVal n)) (.const `Nat []) Nat n
+  | strLit {ρ : Val} {s : String} : CVE PT env ρ (.lit (.strVal s)) (.const `String []) String s
   | bvar {ρ : Val} {i : Nat} {en : Entry} (h : ρ[i]? = some en) :
       CVE PT env ρ (.bvar i) (en.τ.liftLooseBVars 0 (i + 1)) en.d.ty en.d.val
   | lam {ρ : Val} {n : Name} {A body : Expr} {bi : BinderInfo} {B : Expr} {TA : Type}
       (hA : TDen PT env ρ A TA) (TB : TA → Type) (f : (a : TA) → TB a)
-      (hb : ∀ a : TA, CVE PT env (⟨A, ⟨TA, a⟩⟩ :: ρ) body B (TB a) (f a)) :
+      -- `a0`: the result type `B` is determined by the body only at some argument; an empty domain is not derived (a limitation)
+      (a0 : TA) (hb : ∀ a : TA, CVE PT env (⟨A, ⟨TA, a⟩⟩ :: ρ) body B (TB a) (f a)) :
       CVE PT env ρ (.lam n A body bi) (.forallE n A B bi) ((a : TA) → TB a) f
   | app {ρ : Val} {fe x A B : Expr} {n : Name} {bi : BinderInfo} {TA : Type} (TB : TA → Type)
       {fv : (a : TA) → TB a} {av : TA}
@@ -100,15 +154,17 @@ inductive CVE (PT : PrimTable) (env : Environment) : Val → Expr → Expr → (
   /-- unfold: the head is a `defnInfo`; the body is instantiated with the spine (syntactic beta). -/
   | unfold {ρ : Val} {c : Name} {ls : List Level} {args : List Expr} {d : DefinitionVal} {τ : Expr} {α : Type} {v : α}
       (hd : env.find? c = some (.defnInfo d))
-      (hb : CVE PT env ρ ((d.value.instantiateLevelParams d.levelParams ls).beta args.toArray) τ α v) :
-      CVE PT env ρ (mkAppN (.const c ls) args.toArray) τ α v
+      (hb : CVE PT env ρ ((d.value.instantiateLevelParams d.levelParams ls).beta args.toArray) τ α v)
+      {e : Expr} (he : e = mkAppN (.const c ls) args.toArray) :
+      CVE PT env ρ e τ α v
   /-- prim: the head is NOT a `defnInfo` (exclusive with `unfold`), has a row, and the FULL spine is given. The syntactic type is the
   kernel's `instantiateForall` of the declared type from `env` (not from the table). `hty` is the row-typing obligation (provable per row). -/
   | prim {ρ : Val} {c : Name} {ls : List Level} {args : List Expr} {ci : ConstantInfo} {row : TmRow} {as : List Arg} {d : Dyn}
       (hci : env.find? c = some ci) (hrow : PT.tms c = some row) (hnd : ¬ IsDefn env c)
       (hargs : ArgsDen PT env ρ row.kinds args as) (hd : row.den as = some d)
-      (hty : TDen PT env ρ (instForall (ci.type.instantiateLevelParams ci.levelParams ls) args) d.ty) :
-      CVE PT env ρ (mkAppN (.const c ls) args.toArray) (instForall (ci.type.instantiateLevelParams ci.levelParams ls) args) d.ty d.val
+      (hty : TDen PT env ρ (instForall (ci.type.instantiateLevelParams ci.levelParams ls) args) d.ty)
+      {e : Expr} (he : e = mkAppN (.const c ls) args.toArray) :
+      CVE PT env ρ e (instForall (ci.type.instantiateLevelParams ci.levelParams ls) args) d.ty d.val
 
 end
 

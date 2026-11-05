@@ -5766,3 +5766,6 @@ lean_lib «Tests.Gen5.PrimResidueCount» where
 
 lean_lib «Tools.ShippingGen5ConstValueE» where
   roots := #[`Tools.ShippingGen5ConstValueE]
+
+lean_lib «Tests.Gen5.DCFCheck» where
+  roots := #[`Tests.Gen5.DCFCheck]
