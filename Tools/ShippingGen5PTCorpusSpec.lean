@@ -76,4 +76,39 @@ theorem instForallS_spine (D : Name) (Ls : List Level) :
         have := instForallS_spine D Ls n m _ (pre ++ [b]) xs (by omega) h1 hl'
         simpa using this
 
+theorem argsDenV_take {PT : PrimTableK} {env : Environment} {ρ : Val} :
+    ∀ (kp kq : List Bool) {args : List Expr} {xs : List Arg}, ArgsDenV PT env ρ (kp ++ kq) args xs →
+      ArgsDenV PT env ρ kp (args.take kp.length) (xs.take kp.length)
+  | [], _, _, _, _ => .nil
+  | false :: kp, kq, _, _, .ty hT hs => .ty hT (argsDenV_take kp kq hs)
+  | true :: kp, kq, _, _, .tm hv hs => .tm hv (argsDenV_take kp kq hs)
+
+/-- ENV FACT: the instantiated declared type of `c` is `n` binders and then `D Ls` applied to the first `m` of them. -/
+def EnvDepSpine (env : Environment) (c : Name) (ls : List Level) (n m : Nat) (D : Name) (Ls : List Level) : Prop :=
+  ∀ ci : ConstantInfo, env.find? c = some ci →
+    PiN (instantiateLevelParamsS ci.levelParams ls ci.type) n (mkAppN (.const D Ls) (spine n m).toArray)
+
+/-- Spec of a row (about `PT`): the argument kinds are `kp ++ kq`, and the value type it produces is the denotation of the type former `D` at the first `kp.length` arguments. `FirstArgSpec` is `kp = [k0]`. -/
+def SpineSpec (PT : PrimTableK) (c : Name) (ls : List Level) (kp kq : List Bool) (D : Name) (Ls : List Level) : Prop :=
+  ∃ (row : TmRow) (trow : TyRow), PT.tms c ls = some row ∧ row.kinds = kp ++ kq ∧ PT.tys D Ls = some trow ∧ trow.kinds = kp ∧
+    ∀ (ys : List Arg) (d : Dyn), row.den ys = some d → trow.den (ys.take kp.length) = some d.ty
+
+/-- `RowTypedAtV` of a row whose result is a type former applied to the first `m` arguments. NO `OblDenSubstS`: the first `m` arguments' own derivations type the result. -/
+theorem rowTypedAtV_spine (PT : PrimTableK) (env : Environment) (c : Name) (ls : List Level) (kp kq : List Bool) (D : Name) (Ls : List Level)
+    (hs : SpineSpec PT c ls kp kq D Ls) (hnd : ¬ IsDefn env D) (hT : EnvDepSpine env c ls (kp ++ kq).length kp.length D Ls) :
+    RowTypedAtV PT env c ls := by
+  obtain ⟨row, trow, hrow, hk, htrow, htk, hden⟩ := hs
+  intro ci row' ρ args ys d hci hrow' hargs hd
+  rw [hrow] at hrow'; cases hrow'
+  rw [hk] at hargs
+  have hl : args.length = (kp ++ kq).length := by have := (argsdenv_length hargs).1; simpa using this
+  have hm : kp.length ≤ (kp ++ kq).length := by simp
+  have hT' := hT ci hci
+  have hT'' : PiN (instantiateLevelParamsS ci.levelParams ls ci.type) (kp ++ kq).length
+      (mkAppN (.const D Ls) (([] : List Expr).map (fun e => liftS e 0 (kp ++ kq).length) ++ spine (kp ++ kq).length kp.length).toArray) := by
+    simpa using hT'
+  rw [instForallS_spine D Ls _ _ _ [] args hm hT'' hl]
+  have hargs' : ArgsDenV PT env ρ trow.kinds (args.take kp.length) (ys.take kp.length) := by rw [htk]; exact argsDenV_take kp kq hargs
+  exact .tcon htrow hnd hargs' (hden ys d hd) (by simp)
+
 end Tools.ShippingGen5PTCorpusSpec
