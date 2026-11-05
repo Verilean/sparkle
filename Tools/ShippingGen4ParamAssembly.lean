@@ -323,8 +323,51 @@ theorem legal_assembly {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hm
       · intro m hm; rw [hfree m hm]; exact List.nodup_nil
       · intro m hm q hq; rw [hfree m hm] at hq; cases hq
 
+
+/-! ## 4. The roots: ledger-binder form and run form
+
+`RootConcl` is what the in-tree users of B.P-8 (`legalBinding_covers`, ParamIface:91) and B.P-1 (`specExprM_ok`, ParamLayerA:43)
+conclude together: every declared parameter of every module of the specialized design is bound by θ, and a source expression
+satisfying `ExprOK` specializes. `paramRoot_old` takes `LegalBinding` and `AllPos` as binders (the shape that carried B.P-8 and
+B.P-1); `paramRoot_run` takes the run instead (`legal_assembly`) and has no such binder. -/
+
+/-- the shared conclusion of both roots -/
+def RootConcl (M' : Sparkle.IR.AST.Module) (D' : Sparkle.IR.AST.Design) (θ : List (String × Nat))
+    (e : Sparkle.IR.AST.Expr) : Prop :=
+  (∀ m ∈ (SpecDesign M' D').modules, ∀ q ∈ m.parameters, ∃ v, θ.lookup q.name = some v) ∧
+    ∃ e', Tools.ShippingGen4ParamBridgeSpecExpr.specExprM θ e = .ok e'
+
+/-- ledger-binder form: B.P-8 (`hL`) and B.P-1 (`hpos`) are binders. -/
+theorem paramRoot_old {mctx : Lean.Meta.Context} {cctx : Lean.Core.Context} {declName : Name}
+    {θ : List (String × Nat)} {w w' : Void IO.RealWorld} {M' : Sparkle.IR.AST.Module}
+    {D' : Sparkle.IR.AST.Design} {e : Sparkle.IR.AST.Expr}
+    (h : RunsTo (synthesizeCombinationalWithParameters declName θ) mctx mref cctx cref w (M', D') w')
+    (hL : LegalBinding (SpecDesign M' D') θ) (hpos : AllPos θ)
+    (hok : Tools.ShippingGen4ParamBridgeSpecExpr.ExprOK θ e) : RootConcl M' D' θ e :=
+  ⟨legalBinding_covers hL, Tools.ShippingGen4ParamBridgeSpecExpr.specExprM_ok hok hpos⟩
+
+/-- run form: the same conclusion from the run, `LegalBinding` and `AllPos` are not binders. -/
+theorem paramRoot_run {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hmsg : MsgMvK O) (htel : LamTelescopeN)
+    {mctx : Lean.Meta.Context} {cctx : Lean.Core.Context} (hA : AdmCtx O.quiet mctx cctx) {declName : Name}
+    {θ : List (String × Nat)} {w w' : Void IO.RealWorld} {M' : Sparkle.IR.AST.Module}
+    {D' : Sparkle.IR.AST.Design} {e : Sparkle.IR.AST.Expr}
+    (hw : KWD O (fun _ _ => True) 0 w)
+    (h : RunsTo (synthesizeCombinationalWithParameters declName θ) mctx mref cctx cref w (M', D') w')
+    (hok : Tools.ShippingGen4ParamBridgeSpecExpr.ExprOK θ e) : RootConcl M' D' θ e := by
+  obtain ⟨hpos, hnc, -⟩ := legal_assembly M hmsg htel hA hw h
+  refine ⟨?_, Tools.ShippingGen4ParamBridgeSpecExpr.specExprM_ok hok hpos⟩
+  by_cases hc : Collides M' D'
+  · obtain ⟨-, -, -, -, -, hfree⟩ := run_facts M hmsg htel hA hw h
+    rw [specDesign_of_collides hc]
+    intro m hm q hq
+    rw [hfree m hm] at hq
+    cases hq
+  · exact legalBinding_covers (hnc hc)
+
 end Tools.ShippingGen4ParamAssembly
 
 #print axioms Tools.ShippingGen4ParamAssembly.legal_of_facts
 #print axioms Tools.ShippingGen4ParamAssembly.run_facts
 #print axioms Tools.ShippingGen4ParamAssembly.legal_assembly
+#print axioms Tools.ShippingGen4ParamAssembly.paramRoot_old
+#print axioms Tools.ShippingGen4ParamAssembly.paramRoot_run
