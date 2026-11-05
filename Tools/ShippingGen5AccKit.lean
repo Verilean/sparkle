@@ -2,7 +2,7 @@ import Tools.ShippingGen5AccRouteR
 import Tools.ShippingGen5AccGenDataKit
 import Tools.ShippingGen5AccOrdCallees
 set_option autoImplicit false
--- NOT BUILT (scripts/gen5/AC9KIT_FREEZE.md). No sorry / axiom / native_decide.
+-- Pod target build OK at 424e27a6 (Tools.ShippingGen5AccKit, 764 jobs); clean issue-linked build is the coder's. (scripts/gen5/AC9KIT_FREEZE.md) No sorry / axiom / native_decide.
 
 /-! # C.AC-9 assembled: the Acc kit fixed to `mkKit (dataOfAt lvl) …` (scripts/gen5/AC9KIT_FREEZE.md)
 

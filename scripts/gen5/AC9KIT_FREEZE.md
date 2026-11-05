@@ -2,7 +2,7 @@
 
 Issue: `sparkle-ledger-ac9`（親 `sparkle-ledger-shorten`）。base: 9a63e144（par/ac9）。計画: aa638b35 の `scripts/gen5/ASSEMBLY_COST.md` §1（reviewer 承認済み）。
 実装: `Tools/ShippingGen5AccKit.lean`。検査: `Tests/Gen5/AC9KitCheck.lean`。台帳（受入済み）: FG 85 / T1 57。この文書は台帳の数を変えない。
-状態: 未 build（この文書の時点）。build 結果は Issue の note に書く。
+状態: Pod の target build 通過（424e27a6: Tools.ShippingGen5AccKit 764 jobs、Tests.Gen5.AC9KitCheck 766 jobs、Check の出力は §4 の項目すべて合格）。clean build は coder。
 
 ## 0. 減算表
 
@@ -61,4 +61,4 @@ mutant は signature / `==` による棄却で、意味的な反例ではない�
 
 * `genData₀`・`ReachCover`・`GatesNoneAt`・`ClosesOfShape`・`ReadsSupplyAt`・`hs` の供給（この調査では供給元・経路が見つからなかったものは束縛変数のまま）。C.AC-7 の `L'` は扱わない。
 * 台帳の数の変更、FG の縮小、新しい law / TRUSTED。`hK` を行と数えるかは reviewer の裁定（承認済み: carrier 固定で、行ではない）。
-* build 前は何も elaborate していない。
+* clean issue-linked build はまだ。Check の出力: 共通の束縛変数 12 個が一致、除去 K hDS、追加 lvl initsOf hs genData₀、対照 2、AXIOMS 標準 3 つ。

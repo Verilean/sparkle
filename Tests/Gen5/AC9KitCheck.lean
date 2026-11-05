@@ -1,7 +1,7 @@
 import Tools.ShippingGen5AccKit
 import Tests.Gen3.ExpectedType
 set_option autoImplicit false
--- NOT BUILT. No sorry / axiom / native_decide.
+-- Pod target build OK at 424e27a6 (Tests.Gen5.AC9KitCheck, 766 jobs); clean issue-linked build is the coder's. No sorry / axiom / native_decide.
 
 /-! # Check for `accServed0_of_cover_gatesK` (scripts/gen5/AC9KIT_FREEZE.md)
 
