@@ -153,3 +153,78 @@ statement and the parametric assembly in one environment does not exist yet; the
 | **net** | **-2 +1 = -1 with M4.MEMO-01 not counted; 0 when it is counted** | the ledger count stays FG 75 / T1 57 until the reviewer accepts F.4 and the mapping |
 
 KWALK_PLAN already states the three conditional entries together (M4.MEMO-01 +1, B.P-8 -1, B.P-1 -1). The reviewer's forecast (-2, +1 N4-a, net -1) leaves MEMO-01 out.
+
+## Gen5: the assembly on the gen5 `Elab` (Issue sparkle-gen4-param-assembly, third step)
+
+Status: built, awaiting reviewer. Nothing here is accepted by this document. Ledger: FG 75 / T1 57 (this unit: FG -0 +0 / T1 -0 +0). The subtraction is the
+reviewer's call. No new assumption, no TRUSTED, no frozen text changed, no existing file edited, heartbeat limit unchanged (4M; the copies keep the
+`set_option maxHeartbeats` lines of their originals).
+
+### G.1 Port (new modules, base `1d6e0f78`)
+
+`kjob lake build Tools.ShippingGen4ParamFinal` on `1d6e0f78` fails (822 jobs): `ParamEntry:216` (whnf, 1600000), `KWalkEntryCore:229,368` (whnf / isDefEq, 200000).
+Cause: the gen5 `Elab` `doSynth` has a new branch `if (entryInlinerError? env cfe sym params ci (instancePredicate env)).isSome then throwError .. else synthesizeFromConst ..`
+(the fuel guard of `MachRecUnfold`), so the proofs that peel `getConstInfo; getEnv; synthesizeFromConst` no longer match.
+The 26 modules above the two failing ones are copied verbatim as `Tools/ShippingGen5P<Name>.lean` (imports renamed, namespaces unchanged; old and new are never imported
+together). Registered once in the lakefile (first commit `ac7bed61`). Only these differ from their originals:
+
+| module | change |
+|---|---|
+| `Gen5PParamEntry` (`core_symbolic_reads`) | `rw [if_neg (by simp [entryInlinerError?, entryInlinerErrorWith?])]`: in symbolic mode (`!symbolicMode` false) the guard is off |
+| `Gen5PKWalkEntryCore`, `Gen5PKWalkDepthEntry`, `Gen5PKWalkDepthTop`, `Gen5PFKidsEntryCore`, `Gen5PFKidsDepthEntry` | the `body` statement gets the guard branch; the proof splits it with `Triple.ite`: the throw arm by `tripleK_throwErr .. (OkMsg.str _)`, the other arm by the original `hbody` |
+
+The non-parametric entry walks (parameters `[]`, `symbolicMode false`) do reach the guard; its exception is in `OkExc` (a `stringToMessageData`), so the K / KWD invariants
+are kept on the failing arm. `kjob lake build Tools.ShippingGen5PParamFinal` exit 0 (822 jobs), one module at a time for the changed ones.
+
+### G.2 Minimal old root (`Tools/ShippingGen5PMinRoot.lean`)
+
+`paramFinal_min`: `hS`, the run, `hL : LegalBinding (SpecDesign M' D') θ`, `hok`; `hpos` is `legalBinding_allPos hL` (used in its proof, checked). Binder difference (Check):
+old (`hL`, `hpos`) -> min: removed `[hpos]` only. min -> run root (`paramFinal_run`): removed `[hL]`, added `[M, hmsg, htel]`, changed `[]`, conclusion `==`. So `[hL, hpos]` is not counted as
+two independent subtractions.
+
+### G.3 Assembly from the witness (`Tools/ShippingGen5PConnect.lean`)
+
+* `entry_param_assembly (M) (hmsg) (htel) (hE : EntryWitness ReflectsAll L declName θ mctx cctx w w' b D) (hpar : RunsTo (synthesizeCombinationalWithParameters ..)) : AssemblyConcl b D θ`
+  (`start_kwd hE.1` gives `hA`, `hw`; then `legal_assembly`). `AssemblyConcl = AllPos θ ∧ (¬Collides → LegalBinding (SpecDesign b D) θ) ∧ (Collides → (LegalBinding .. ↔ θ = []))`.
+* `entry_route`: a witness is on the default route or on the parametric route with `AssemblyConcl`.
+* `collision_not_legal`: same-name collision with `θ ≠ []`: `SpecDesign = D'` and `¬LegalBinding`, so the real `specializeDesign` cannot succeed (it is a failing command, not a hole).
+* `FGParamRoot R L` / `fgParamRoot (M) (hmsg) (htel)`: over the witness binders of `FGLedgerPremisesStmtH` (`declName parameters mctx cctx w w' b D`, `EntryWitness`), the parametric route gives `RootConcl`.
+  `FGParamRootMin` / `fgParamRootMin`: the same with the binder `hL` and no `hpos`.
+
+### G.4 Check (`Tests/Gen5/ParamGen5Check.lean`, `kjob lake build` exit 0)
+
+    MIN:  old -> min removed 1 [hpos]; min -> run removed 1 [hL], added 3 [M, hmsg, htel], changed 0, concl true
+    ROOT: the 9 witness binders of the run root == the inner binders of FGLedgerPremisesStmtH by Expr == (types compared with H's fvars);
+          12 binders; minimal root = run root + [hL : LegalBinding], no AllPos binder
+    SCAN: H reaches EntryWitness and none of LegalBinding / AllPos / MemoFamily / MsgMvK / LamTelescopeN; fgParamRoot reaches all five (detector positive)
+    CANON: Start hash 1541700807 and parametric RunsTo hash 327093931 == the corresponding parts of EntryWitness, by Expr == in one environment (before: hash equality across two)
+    COLLISION: AssemblyConcl has both branches (Collides occurs 2 times); collision_not_legal uses specDesign_of_collides
+    NEG: self empty, keep-hL rejected, extra binder rejected, other conclusion rejected, reversed rejected, old (hL, hpos) not accepted as the minimal form
+    HYPS: fgParamRoot binds exactly MemoFamily, MsgMvK, LamTelescopeN; entry_param_assembly adds EntryWitness and the parametric RunsTo; axioms propext, Classical.choice, Quot.sound; closure reaches no T1Hyp / T1HypND
+
+What this is and is not: the run-side conclusion is now derived from the real `EntryWitness` of the gen5 `Elab` environment, in the same environment as `FGLedgerPremisesStmtH`. It is still the
+conclusion `RootConcl` (coverage, `specExprM` success), not a new conjunct of G/H: G/H contain no B.P-8 / B.P-1 binder (the registry holds them), and this unit does not change G/H.
+
+### G.5 Premises that enter `added`, and their ledger treatment
+
+| premise | ledger | treatment (reviewer decides) |
+|---|---|---|
+| `M : MemoFamily L.O` | no row in FG 75 (M4.MEMO-01) | new +1 candidate, pending K-walk acceptance |
+| `hmsg : MsgMvK L.O` | no row (MEMO_FAMILY_FREEZE §R2.6) | conditional leaf, not counted |
+| `htel : LamTelescopeN` | N4-a, ledger §12.17: a registered candidate, not yet counted | +1 once |
+| carrier `O := L.O` | A.P-01 (`L`, binder of H) | existing |
+| `hA`, `hw` | A.P-02 `Start` (conjunct 1 of `EntryWitness`) via `start_kwd` | existing |
+| the run | A.P-04, second disjunct of `EntryWitness` | existing |
+
+### G.6 Net delta, recomputed (not recorded)
+
+| item | effect | basis |
+|---|---|---|
+| B.P-8 `LegalBinding` | -1 | binder `hL` removed (G.2) |
+| B.P-1 `AllPos` | 0 as an independent subtraction | `hpos` is `legalBinding_allPos hL`; it leaves only if the reviewer counts the row as dependent on B.P-8's removal (then -1) |
+| N4-a `LamTelescopeN` | +1 | candidate in §12.17, counted once when this route is accepted |
+| M4.MEMO-01 `MemoFamily` | +1 | no row in FG 75 |
+| `MsgMvK` | 0 | conditional |
+| **net** | **+1** (B.P-1 not counted) / **0** (B.P-1 counted -1) | The earlier "net -1" is withdrawn |
+
+Counts stay FG 75 / T1 57 (this unit FG -0 +0 / T1 -0 +0).
