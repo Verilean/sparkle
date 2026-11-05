@@ -130,6 +130,7 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
           | exact Tools.ShippingGen4FKidsCalc.GoodS.refl ‹_›
           | exact Tools.ShippingGen4FKidsCalc.GoodS.of_view ‹_› rfl
           | good_tac
+          | exact Tools.ShippingGen4FKidsCalc.GoodS.symm ‹_›
           | exact Tools.ShippingGen4FKidsCalc.GoodS.trans ‹_› ‹_›)) then return true
     -- (fkids3) a child pair's `ParamFree` facts (from `OptPF` / `PairPF` / a member of its design) and `OptPF (some r)`
     if ty.getAppFn.constName? == some ``Tools.ShippingGen4FKids.ParamFree && (← hasPFHyp) then

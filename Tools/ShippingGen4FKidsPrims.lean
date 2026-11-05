@@ -177,7 +177,7 @@ theorem addModuleToDesignPS (m : Sparkle.IR.AST.Module) (hm : ParamFree m) :
       have := params_addModuleToDesign st m
       rw [heq] at this
       exact this
-    refine ⟨hs, ?_, fun h' => h2.trans h'⟩
+    refine ⟨hs, ?_, by rw [h2]⟩
     unfold StatePF
     rw [h1]
     exact designPF_addModule hs hm
