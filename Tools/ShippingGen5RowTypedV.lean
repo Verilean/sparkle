@@ -253,7 +253,7 @@ theorem rowTypedAtV_depFirst (PT : PrimTableK) (env : Environment) (c : Name) (l
 /-! ## §4 Argument typing per row: `RowTeleEvAt` for a closed telescope of constant term binders
 
 `RowTeleEvAt` (in `ShippingGen5ConstValueEVL`) is the residual of `OblPrimArgsV` after the conversion rule: per term binder, the binder type denotes the argument's Lean type; per type binder, the binder is a sort.
-For a closed telescope whose binders are the constants `bs` (term arguments), it follows from two per-row facts: the row accepts only arguments of the Lean types `Ts` (`ArgsTySpec`), and each binder constant denotes its `T` (`BindersDen`). -/
+For a closed telescope whose binders are the constants `bs` (term arguments), it follows from two per-row facts: the row accepts only arguments of the Lean types `Ts` (`ArgsTySpec`), and each binder constant denotes its `T` at every valuation (`BindersDen`; `Sparkle.Core.Domain.ResetKind` is an alias, so its binder goes through `tdenv_const_unfold`). -/
 
 def ConstPi : Expr → List (Name × List Level) → Expr → Prop
   | T, [], R => T = R
@@ -262,9 +262,16 @@ def ConstPi : Expr → List (Name × List Level) → Expr → Prop
 def EnvConstPi (env : Environment) (c : Name) (ls : List Level) (bs : List (Name × List Level)) (R : Expr) : Prop :=
   ∀ ci : ConstantInfo, env.find? c = some ci → ConstPi (instantiateLevelParamsS ci.levelParams ls ci.type) bs R
 
+/-- A nullary constant that is a DEFINITION (an alias such as `abbrev ResetKind := …`) denotes what its body denotes (`tunfold` with no arguments). -/
+theorem tdenv_const_unfold {PT : PrimTableK} {env : Environment} {ρ : Val} {c : Name} {ls : List Level} {d : DefinitionVal} {T : Type}
+    (hd : env.find? c = some (.defnInfo d)) (hb : TDenV PT env ρ (instantiateLevelParamsS d.levelParams ls d.value) T) :
+    TDenV PT env ρ (.const c ls) T :=
+  .tunfold (args := []) hd (by rw [betaS_nil]; exact hb) rfl
+
+/-- Each binder constant denotes its Lean type at every valuation (by a `tys` row: `tdenv_const_nullary`, or, for an alias, by unfolding: `tdenv_const_unfold`). -/
 def BindersDen (PT : PrimTableK) (env : Environment) : List (Name × List Level) → List Type → Prop
   | [], [] => True
-  | b :: bs, T :: Ts => (∃ trow : TyRow, PT.tys b.1 b.2 = some trow ∧ trow.kinds = [] ∧ trow.den [] = some T) ∧ ¬ IsDefn env b.1 ∧ BindersDen PT env bs Ts
+  | b :: bs, T :: Ts => (∀ ρ : Val, TDenV PT env ρ (.const b.1 b.2) T) ∧ BindersDen PT env bs Ts
   | _, _ => False
 
 def ArgsAreTys : List Arg → List Type → Prop
@@ -276,7 +283,7 @@ theorem bindersDen_length {PT : PrimTableK} {env : Environment} : ∀ {bs : List
   | [], [], _ => rfl
   | [], _ :: _, h => False.elim h
   | _ :: _, [], h => False.elim h
-  | _ :: bs, _ :: Ts, h => by have := bindersDen_length (bs := bs) (Ts := Ts) h.2.2; simp [this]
+  | _ :: bs, _ :: Ts, h => by have := bindersDen_length (bs := bs) (Ts := Ts) h.2; simp [this]
 
 /-- Spec of a row (about `PT`): one term argument per entry of `Ts`, and every accepted argument list consists of values of the Lean types `Ts`. -/
 def ArgsTySpec (PT : PrimTableK) (c : Name) (ls : List Level) (Ts : List Type) : Prop :=
@@ -297,7 +304,7 @@ theorem teleEv_constPi (PT : PrimTableK) (env : Environment) (ρ : Val) : ∀ (b
     cases Ts with
     | nil => exact False.elim hb
     | cons T0 Ts =>
-      obtain ⟨⟨trow, htrow, htk, htd⟩, hnd, hb'⟩ := hb
+      obtain ⟨hden, hb'⟩ := hb
       obtain ⟨x, B, bi, rfl, hB, hT'⟩ := hT
       cases es with
       | nil => simp at hl
@@ -312,7 +319,7 @@ theorem teleEv_constPi (PT : PrimTableK) (env : Environment) (ρ : Val) : ∀ (b
             obtain ⟨TA, av⟩ := d
             simp only at hd
             subst hd
-            have hA : TDenV PT env ρ (.const b.1 b.2) TA := .tcon (args := []) (as := []) htrow hnd (by rw [htk]; exact .nil) htd rfl
+            have hA : TDenV PT env ρ (.const b.1 b.2) TA := hden ρ
             have ih := teleEv_constPi PT env ρ bs Ts B R es as hb' hT' (by simpa using hl) ha'
             exact .tm hA (by rw [substS_closed B hB a]; exact ih)
 
@@ -344,9 +351,9 @@ theorem teleEv_Int_negSucc (hr : ArgsTySpec PT ``Int.negSucc [] [Nat]) (hb : Bin
   rowTeleEvAt_constPi PT env _ _ _ _ _ hr hb hT
 
 theorem teleEv_DomainConfig_mk (hr : ArgsTySpec PT `Sparkle.Core.Domain.DomainConfig.mk [] [Nat, Sparkle.Core.Domain.ActiveEdge, Sparkle.IR.Type.ResetKind])
-    (hb : BindersDen PT env [(``Nat, []), (`Sparkle.Core.Domain.ActiveEdge, []), (`Sparkle.IR.Type.ResetKind, [])]
+    (hb : BindersDen PT env [(``Nat, []), (`Sparkle.Core.Domain.ActiveEdge, []), (`Sparkle.Core.Domain.ResetKind, [])]
       [Nat, Sparkle.Core.Domain.ActiveEdge, Sparkle.IR.Type.ResetKind])
-    (hT : EnvConstPi env `Sparkle.Core.Domain.DomainConfig.mk [] [(``Nat, []), (`Sparkle.Core.Domain.ActiveEdge, []), (`Sparkle.IR.Type.ResetKind, [])]
+    (hT : EnvConstPi env `Sparkle.Core.Domain.DomainConfig.mk [] [(``Nat, []), (`Sparkle.Core.Domain.ActiveEdge, []), (`Sparkle.Core.Domain.ResetKind, [])]
       (.const `Sparkle.Core.Domain.DomainConfig [])) : RowTeleEvAt PT env `Sparkle.Core.Domain.DomainConfig.mk [] :=
   rowTeleEvAt_constPi PT env _ _ _ _ _ hr hb hT
 
