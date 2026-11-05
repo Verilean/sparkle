@@ -296,4 +296,126 @@ theorem cvlskv_functional (PT : PrimTableK) (env : Environment) (X : Name) {α �
     (h : CVLSKV PT env X α v) (h' : CVLSKV PT env X β w) : α = β ∧ HEq v w :=
   constValueEAtV_functional PT env X _ h h'
 
+
+/-! ## Weakening (needed only for the well-formedness of valuations, as in `§SoundS`)
+
+`InsV`, `insV_get`, `lbl_lt` / `lbl_ge` are reused from `ShippingGen5ConstValueESProof`. `EnvClosedS` is the same NAMED hypothesis (a bridge on `instantiateLevelParams`), used only here. -/
+
+mutual
+
+theorem tdenv_wk {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {E : Entry} {s : Nat} {ρ ρ' : Val} (hI : InsV E s ρ ρ')
+    {τ : Expr} {T : Type} (h : TDenV PT env ρ τ T) : TDenV PT env ρ' (liftS τ s 1) T :=
+  match h with
+  | .pi hA TB hB =>
+    .pi (tdenv_wk hcl hI hA) TB fun a => tdenv_wk hcl (.there ⟨_, ⟨_, a⟩⟩ hI) (hB a)
+  | .tcon hrow hnd hargs hT he =>
+    .tcon hrow hnd (argsdenv_wk hcl hI hargs) hT (by rw [he, liftS_mkAppN]; rfl)
+  | .tunfold hd hb he => by
+    have hb' := tdenv_wk hcl hI hb
+    rw [liftS_betaS, liftS_closed _ (hcl.2 _ _ _ hd)] at hb'
+    exact .tunfold hd hb' (by rw [he, liftS_mkAppN]; rfl)
+  | .tlet hA hv hB =>
+    .tlet (tdenv_wk hcl hI hA) (cvekv_wk hcl hI hv) (tdenv_wk hcl (.there ⟨_, ⟨_, _⟩⟩ hI) hB)
+termination_by structural h
+
+theorem argsdenv_wk {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {E : Entry} {s : Nat} {ρ ρ' : Val} (hI : InsV E s ρ ρ')
+    {ks : List Bool} {es : List Expr} {as : List Arg} (h : ArgsDenV PT env ρ ks es as) :
+    ArgsDenV PT env ρ' ks (es.map (fun a => liftS a s 1)) as :=
+  match h with
+  | .nil => .nil
+  | .ty hT hs => .ty (tdenv_wk hcl hI hT) (argsdenv_wk hcl hI hs)
+  | .tm hv hs => .tm (cvekv_wk hcl hI hv) (argsdenv_wk hcl hI hs)
+termination_by structural h
+
+theorem cvekv_wk {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {E : Entry} {s : Nat} {ρ ρ' : Val} (hI : InsV E s ρ ρ')
+    {e τ : Expr} {α : Type} {v : α} (h : CVEKV PT env ρ e τ α v) :
+    CVEKV PT env ρ' (liftS e s 1) (liftS τ s 1) α v :=
+  match h with
+  | .core b => .core (cvekvb_wk hcl hI b)
+  | .conv b h0 h1 => .conv (cvekvb_wk hcl hI b) (tdenv_wk hcl hI h0) (tdenv_wk hcl hI h1)
+termination_by structural h
+
+theorem cvekvb_wk {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {E : Entry} {s : Nat} {ρ ρ' : Val} (hI : InsV E s ρ ρ')
+    {e τ : Expr} {α : Type} {v : α} (h : CVEKVB PT env ρ e τ α v) :
+    CVEKVB PT env ρ' (liftS e s 1) (liftS τ s 1) α v :=
+  match h with
+  | .natLit => .natLit
+  | .strLit => .strLit
+  | .bvar (i := i) (en := en) h1 => by
+    rcases insV_get hI i en h1 with ⟨h2, h3⟩ | ⟨h2, h3⟩
+    · rw [← lbl_lt en.τ i s h2]
+      simp only [liftS, h2, if_true]
+      exact .bvar h3
+    · rw [← lbl_ge en.τ i s h2]
+      simp only [liftS, show ¬ i < s by omega, if_false]
+      exact .bvar h3
+  | .lam hA TB f a0 hb =>
+    .lam (tdenv_wk hcl hI hA) TB f a0 fun a => cvekvb_wk hcl (.there ⟨_, ⟨_, a⟩⟩ hI) (hb a)
+  | CVEKVB.app TB hA hB hf hx hnh => by
+    refine CVEKVB.app TB (tdenv_wk hcl hI hA) (fun a => tdenv_wk hcl (.there ⟨_, ⟨_, a⟩⟩ hI) (hB a)) (cvekvb_wk hcl hI hf) (cvekv_wk hcl hI hx) ?_
+    rintro ⟨c, ls, hc⟩
+    exact hnh ⟨c, ls, (getAppFn_liftS _ _ _ _ _).1 hc⟩
+  | .letE hA hv hb =>
+    .letE (tdenv_wk hcl hI hA) (cvekv_wk hcl hI hv) (cvekvb_wk hcl (.there ⟨_, ⟨_, _⟩⟩ hI) hb)
+  | .unfold hd hb he => by
+    have hb' := cvekvb_wk hcl hI hb
+    rw [liftS_betaS, liftS_closed _ (hcl.2 _ _ _ hd)] at hb'
+    exact .unfold hd hb' (by rw [he, liftS_mkAppN]; rfl)
+  | .prim hci hrow hnd hargs hd hty he => by
+    have hty' := tdenv_wk hcl hI hty
+    rw [liftS_instForallS, liftS_closed _ (hcl.1 _ _ _ hci)] at hty' ⊢
+    exact .prim hci hrow hnd (argsdenv_wk hcl hI hargs) hd hty' (by rw [he, liftS_mkAppN]; rfl)
+termination_by structural h
+
+end
+
+/-! ## Soundness: `OblDenTyped` (`CVEKV ⇒ TDenV τ α`) closes every rule, with NO substitution obligation -/
+
+/-- Valuation well-formedness (same shape as `WfValS`): each entry's lifted type denotes the entry's semantic type, in the valuation itself. -/
+def WfValV (PT : PrimTableK) (env : Environment) (ρ : Val) : Prop :=
+  ∀ (i : Nat) (en : Entry), ρ[i]? = some en → TDenV PT env ρ (liftS en.τ 0 (i + 1)) en.d.ty
+
+theorem wfValV_nil (PT : PrimTableK) (env : Environment) : WfValV PT env [] := by
+  intro i en h; simp at h
+
+theorem wfValV_cons {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {ρ : Val} (hρ : WfValV PT env ρ)
+    {A : Expr} {TA : Type} (hA : TDenV PT env ρ A TA) (a : TA) : WfValV PT env (⟨A, ⟨TA, a⟩⟩ :: ρ) := by
+  intro i en h
+  cases i with
+  | zero =>
+    simp at h; subst h
+    exact tdenv_wk hcl (InsV.here ρ (E := ⟨A, ⟨TA, a⟩⟩)) hA
+  | succ j =>
+    simp at h
+    have := tdenv_wk hcl (InsV.here ρ (E := ⟨A, ⟨TA, a⟩⟩)) (hρ j en h)
+    rwa [liftS_liftS_add _ 0 0 (j + 1) 1 (Nat.le_refl _) (by omega)] at this
+
+def OblDenTypedV (PT : PrimTableK) (env : Environment) : Prop :=
+  ∀ (ρ : Val) (e τ : Expr) (α : Type) (v : α), WfValV PT env ρ → CVEKV PT env ρ e τ α v → TDenV PT env ρ τ α
+
+/-- All eight rules (and `conv`) closed. Premises: the two literal rows (`OblDenLits`, a condition on `PT`) and `EnvClosedS` (bridge on `instantiateLevelParams`, used by weakening).
+There is no `OblDenSubstS`: `app` / `letE` push the evaluated argument on the valuation and the label is a `tlet`. -/
+theorem denTypedVB {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env)
+    (hN : ∀ ρ : Val, TDenV PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenV PT env ρ (.const `String []) String)
+    {ρ : Val} {e τ : Expr} {α : Type} {v : α} (hρ : WfValV PT env ρ) (h : CVEKVB PT env ρ e τ α v) :
+    TDenV PT env ρ τ α :=
+  match h with
+  | .natLit => hN ρ
+  | .strLit => hS ρ
+  | .bvar h1 => hρ _ _ h1
+  | .lam hA TB f a0 hb => .pi hA TB fun a => denTypedVB hcl hN hS (wfValV_cons hcl hρ hA a) (hb a)
+  | CVEKVB.app (av := av) TB hA hB hf hx hnh => .tlet hA hx (hB av)
+  | .letE (av := av) hA hv hb => .tlet hA hv (denTypedVB hcl hN hS (wfValV_cons hcl hρ hA av) hb)
+  | .unfold hd hb he => denTypedVB hcl hN hS hρ hb
+  | .prim hci hrow hnd hargs hd hty he => hty
+termination_by structural h
+
+theorem denTypedV {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env)
+    (hN : ∀ ρ : Val, TDenV PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenV PT env ρ (.const `String []) String) :
+    OblDenTypedV PT env :=
+  fun _ _ _ _ _ hρ h =>
+    match h with
+    | .core b => denTypedVB hcl hN hS hρ b
+    | .conv _ _ h1 => h1
+
 end Tools.ShippingGen5ConstValueEV
