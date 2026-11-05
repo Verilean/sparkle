@@ -141,8 +141,7 @@ theorem servedShipsStmt_of_0 {mref cref} (L : Laws mref cref) (P : Pkgs ι dom) 
 /-- `ChildShips` reads `Dc.modules` only. -/
 theorem childShips_congr (q : Pkg ι dom) (n : Nat) (mc : Sparkle.IR.AST.Module) {D1 D2 : Design}
     (h : D1.modules = D2.modules) (hc : ChildShips q n mc D1) : ChildShips q n mc D2 := by
-  intro dsn hg hmc i
-  exact hc dsn (by rw [h]; exact hg) hmc i
+  exact ⟨hc.1, fun dsn hg hmc i => hc.2 dsn (by rw [h]; exact hg) hmc i⟩
 
 /-- **Base case**: at or above the depth limit `IHAt` holds vacuously (the full entry contains a core run, which
 throws there). -/

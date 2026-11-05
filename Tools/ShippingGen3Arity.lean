@@ -84,7 +84,7 @@ theorem argLen_of_shipsRes {ι : Type} {dom : ι → DomainConfig}
   obtain ⟨_, ⟨q', n', hq', _, hCS⟩, _⟩ := hship
   have hqq : q' = q := Option.some.inj (hq'.symm.trans hP)
   subst hqq
-  exact childRunN_argLen (hCS D hDc hmod i)
+  exact childRunN_argLen (hCS.2 D hDc hmod i)
 
 /-- **(A5) U-ARITY, one-output parent, fixed witnesses.** `hS` is `hx.2` of the trace's own `ids`/`cache`; `(k, args, mc,
 st)` is the call's instance from the SAME `MachineWired`. The second conjunct exposes the successful `mapM`. -/

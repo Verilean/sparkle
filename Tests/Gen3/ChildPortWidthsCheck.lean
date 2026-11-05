@@ -18,7 +18,7 @@ set_option autoImplicit false
 3. Axioms: `checkAxioms` (standard only) and `#print axioms`. -/
 
 namespace Tests.Gen3.ChildPortWidthsCheck
-open Tools.ShippingGen3ChildPortWidths
+open Tools.ShippingGen3ChildPortWidths Tools.ShippingGen3PortWidthsCore
 open Tests.Gen3.ExpectedType
 
 section Expected
@@ -47,7 +47,7 @@ def ExpectedWidthsOfEq : Prop :=
 def ExpectedOfTys : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (q : Pkg ι dom) (mc : Module)
     (h : (argPorts mc).map (fun p => p.ty) = q.ports.map (fun b => kindTy b.2)),
-    ChildPortWidths q mc
+    (argPorts mc).map (fun p => p.ty.bitWidth) = q.ports.map (fun b => (kindTy b.2).bitWidth)
 
 def ExpectedNA : Prop :=
   ∀ {declName : Name} {d : MachineData} {ids : List FVarId}
@@ -100,7 +100,7 @@ def ExpectedNoCalls : Prop :=
     (htake : p.d.bsIn.take p.kD = p.d.bsIn)
     (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
       b = mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)),
-    ChildPortWidths p b
+    (argPorts b).map (fun x => x.ty.bitWidth) = p.ports.map (fun b => (kindTy b.2).bitWidth)
 
 def ExpectedP1 : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (p : Pkg ι dom) {raw b : Module} {D : Design}
@@ -231,27 +231,28 @@ end Expected
 
 set_option maxHeartbeats 0 in
 run_cmd Lean.Elab.Command.liftTermElabM do
-  checkExpected ``ChildPortWidths ``ExpectedCPW
+  checkExpected ``Tools.ShippingGen2.ChildPortWidths ``ExpectedCPW
   checkExpected ``argPortWidths_of_eq ``ExpectedWidthsOfEq
   checkExpected ``childPortWidths_of_tys ``ExpectedOfTys
   checkExpected ``argPorts_noCalls_of_wired ``ExpectedNA
   checkExpected ``argPorts_noCalls_post ``ExpectedNApost
-  checkExpected ``childPortWidths_of_composedNW ``ExpectedNB
+  checkExpected ``Tools.ShippingGen3PortWidthsCore.childPortWidths_of_composedNW ``ExpectedNB
   checkExpected ``noCalls_childPortWidths ``ExpectedNoCalls
   checkExpected ``leaf_childPortWidths ``ExpectedP1
   checkExpected ``slotlessLeaf_childPortWidths ``ExpectedP2
   checkExpected ``memParent_childPortWidths ``ExpectedP3
   checkExpected ``oneOut_childPortWidths ``ExpectedP4
-  checkMutant ``ChildPortWidths ``MutCPWbsIn
-  checkMutant ``ChildPortWidths ``MutCPWinputs
+  checkMutant ``Tools.ShippingGen2.ChildPortWidths ``MutCPWbsIn
+  checkMutant ``Tools.ShippingGen2.ChildPortWidths ``MutCPWinputs
   checkMutant ``argPorts_noCalls_of_wired ``MutNA
-  checkMutant ``childPortWidths_of_composedNW ``MutNBnoPost
+  checkMutant ``Tools.ShippingGen3PortWidthsCore.childPortWidths_of_composedNW ``MutNBnoPost
   checkMutant ``oneOut_childPortWidths ``MutP4
   checkMutant ``memParent_childPortWidths ``MutP3tys
 
 /-! ## Data controls (data only) -/
 
 open Sparkle.Tests.Compiler.ShippingMachineLinkedTest
+open Tools.ShippingGen2 (ChildPortWidths)
 
 abbrev U := fun _ : Unit => Sparkle.Core.Domain.defaultDomain
 

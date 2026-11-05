@@ -946,7 +946,7 @@ theorem machine_linked_callsServed1F (L : Laws mref cref) (P : Pkgs ι dom) (p :
     · obtain ⟨_, ⟨q', n', hq', _, hcs'⟩, _⟩ := hship
       have hqq : q' = q := Option.some.inj (hq'.symm.trans hq)
       subst hqq
-      exact ⟨n', combChildRunN_of_noClk (callStmt_noClk hcs).1 (hcs' D hDc hmod i)⟩
+      exact ⟨n', combChildRunN_of_noClk (callStmt_noClk hcs).1 (hcs'.2 D hDc hmod i)⟩
   -- d2: the call modules' output widths, on THIS witness (`ids`, `cache`), at the intro's `i`
   have hWid : Tools.ShippingGen2Fit.CallOutWidths p.decl p.d p.kD ids cache raw D := by
     intro k args mc st hargs hst hcs hmod outP hout

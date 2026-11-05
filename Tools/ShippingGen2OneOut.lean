@@ -200,7 +200,7 @@ theorem machine_linked_callsServed1 (L : Laws mref cref) (P : Pkgs ι dom) (p : 
     · obtain ⟨_, ⟨q', n', hq', _, hcs'⟩, _⟩ := hship
       have hqq : q' = q := Option.some.inj (hq'.symm.trans hq)
       subst hqq
-      exact ⟨n', combChildRunN_of_noClk (callStmt_noClk hcs).1 (hcs' D hDc hmod i)⟩
+      exact ⟨n', combChildRunN_of_noClk (callStmt_noClk hcs).1 (hcs'.2 D hDc hmod i)⟩
   -- AUDIT 2/3: `trace` whole; `F := oneF P p i` after `intro i`
   refine Tools.ShippingMachineCompose.machine_linked_ofB (ι := ι) (dom := dom)
     (declName := p.decl) (d := p.d) (m := raw) (dsn := D)
@@ -318,6 +318,8 @@ theorem oneOut_childShips (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg ι dom
     cases h : p.d.shape.insts with
     | nil => exact absurd h hins
     | cons _ _ => simp
+  refine ⟨Tools.ShippingGen3PortWidthsCore.childPortWidths_of_composedNW n houtTy (ok_outNameOk p.d hok) hsl hI0 hkD hIlen hSL hSlen hLlen hNIn
+    hNW hpost, ?_⟩
   intro dsn hcons _ i
   have hEA : Tools.ShippingHierMono.ExtendsAway raw.name (childMap D.modules) (childMap dsn.modules) := by
     refine ⟨?_, ?_⟩

@@ -1,7 +1,6 @@
 import Tools.ShippingGen2SlotlessParent
 import Tools.ShippingGen3PortWidthsCore
 import Tools.ShippingGen2GroupServed
-import Tools.ShippingGen3ChildPortWidths
 set_option autoImplicit false
 -- Built: g3nc-ce4c32a4 (clean snapshot, exit 0, standard axioms). No `sorry`, no `axiom`, no `native_decide`.
 
@@ -19,7 +18,7 @@ change:** `ChildShips`, `ChildRunN`, Defs, FG, the compiler and GEN2_DEFS are un
   (clock/reset inputs) and case C (neither). The other steps (`hInst` from `calls1`/`gCalls`, `hmc`, `hargsMc`,
   `hlenIn`) are N-B's verbatim; none uses `hsl`.
 * **Corollaries** (namespace `Tools.ShippingGen2.SlotlessPortWidths`, conclusion
-  `Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b`): `oneOutSl_childPortWidths` (B2's premises that the fact
+  `Tools.ShippingGen2.ChildPortWidths p b` (Defs)): `oneOutSl_childPortWidths` (B2's premises that the fact
   uses; `hNW` = `oneOut_composedNW …`, SlotlessParentRun:311) and `groupSl_childPortWidths` (B3's; `hNW` =
   `group_composedNW …`, :361). `hI0` from `hins` as B2/B3. Left out (unused by the width fact): `hext` (both), and for
   B3 `hA`, `ran` (with `mctx`, `cctx`, `w`).
@@ -128,7 +127,7 @@ theorem oneOutSl_childPortWidths (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsRes L P) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc)
     (n : Nat) :
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b := by
+    ChildPortWidths p b := by
   -- SlotlessParentRun:304-311 verbatim
   obtain ⟨hok, hco, hslots, houtTy, -⟩ := hdata.rows
   have hkD := data_hkD p.d p.kD hok hco
@@ -160,7 +159,7 @@ theorem groupSl_childPortWidths (L : Laws mref cref) (P : Pkgs ι dom) (p : Pkg 
     (n : Nat)
     (h : Tools.ShippingMachineTraceX.MachineTraceLBX (ServedP (ShipsAt L P n) p.decl p.d.shape raw D)
       p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc) :
-    Tools.ShippingGen3ChildPortWidths.ChildPortWidths p b := by
+    ChildPortWidths p b := by
   -- SlotlessParentRun:354-361 verbatim
   obtain ⟨hok, hco, hslots, houtTy, -⟩ := hdata.rows
   have hkD := data_hkD p.d p.kD hok hco
