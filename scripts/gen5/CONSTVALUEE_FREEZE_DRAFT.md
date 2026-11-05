@@ -314,3 +314,60 @@ root = `X.machine_source` を持つ定義 X（194 + 隔離 module 由来 5）に
 ### 6. 主張しないこと
 
 最終 carrier の決定、健全性、TRUSTED の要否。台帳の数は変わらない（FG 75 / T1 57、今回 FG -0 +0 / T1 -0 +0）。
+
+## §Sound: 規則の健全性（Issue `sparkle-ledger-dd4-sound`、土台 66b2aada）
+
+reviewer の方針: K1 の key、LS env X、level 固定の関数性は承認済み。最終 carrier、規則の健全性、`OblRowTypedK`、G-PRIM/TRUSTED は未承認。`OblLevelErase` は仮定にも axiom にもしない。TRUSTED・axiom・sorry・native_decide なし。`PT` は任意のパラメータ。既存ファイルは書き換えていない。
+新ファイル: `Tools/ShippingGen5ConstValueESoundK.lean`、`Tests/Gen5/SoundKCheck.lean`、`Tests/Gen5/RowTypedKAudit{Lib,,M1..M4}.lean`、`scripts/gen5/merge_row_typed_audit.py`。
+
+### 1. 証明できたもの（`ShippingGen5ConstValueESoundK`、axiom は propext / Classical.choice / Quot.sound のみ）
+
+- **構文だけの `lift` / `subst`**。`Expr.liftLooseBVars` / `Expr.instantiate1` / `Expr.looseBVarRange` は `opaque`（extern）なので、補題が得られない。そこで構造再帰の `liftS` / `substS` / `lbr` を置き、これについて証明した: `liftS_closed`（閉じた式の lift は恒等。`OblLiftClosed` の構文版）、`liftS_zero`、`substS_closed`（閉じた codomain への代入は恒等）、`substS_bvar_lt/eq/gt`、`instForall_nondep_closed`。
+- **規則の判定 `TyRK`**（`CVEK` の規則ごとに 1 つ、`natLit/strLit/bvar/const/app/lam/letE/unfold/prim`）と、その上での義務の充足: `OblBvar` / `OblApp` / `OblLam` / `OblConst`（既存）と新設の `OblLit` / `OblLet` / `OblUnfold` / `OblPrimK` が `TyRKJ PT` について**無条件に**成り立つ（`oblBvar_TyRK` 〜 `oblPrimK_TyRK`、束 `kernelRulesK_TyRK`）。意味: 義務の束は充足可能で、空疎ではない（負対照: 何も導かない `Ty` は束を満たさない）。`TyRK` はカーネルの判定ではない。
+- **`cvek_tyRK`**: `CVEK PT env ρ e τ α v → TyRK PT env (ρ.map Entry.τ) e τ`。規則ごとの対応は、bvar（`map_getElem?_entry` で `ρ[i]? = some en → (ρ.map τ)[i]? = some en.τ`、型は `en.τ.liftLooseBVars 0 (i+1)`）、lam（文脈の拡張 `⟨A,d⟩ :: ρ` の `map τ` が `A :: ρ.map τ`: `map_cons_entry`。body は `a0` での導出から）、app、letE、unfold、prim。
+- **`tyRK_sub` / `cvek_sound`**: 束 `KernelRulesK PT Ty` が成り立つ任意の `Ty` について `TyRK ⊆ Ty`、したがって `CVEK → Ty env (ρ.map τ) e τ`。これは**名前付き Prop 間の含意**で、どこでも仮定として使っていない（reviewer が不要と見るなら削除してよい）。
+- **`instForall` と app 規則の対応**: `TyArgs`（引数ごとの型付け）について `instForall T as = R`（`tyArgs_instForall`）、`TyRK` の spine（`tyRK_spine`）。
+- **lam の B と TB**: `TDenK` の `pi` 規則から、body の型 `B` が各 `a` で `TB a` を表すなら `∀ a, B` は `(a : TA) → TB a` を表す（`denTyped_lam`、`denTyped_lam_of_body`）。prim は `hty` そのもの、unfold は body の `τ α` をそのまま使うので、`OblDenTyped`（`CVEK ⇒ TDenK τ α`）の lam / prim / unfold の 3 規則は証明できている。
+- **`OblRowTypedK` の整理**: key ごとの義務 `RowTypedAt PT env c ls`（`ci`、`row`、`ρ`、`args`、`as`、`d` について `TDenK … (instForall (ci.type.instantiateLevelParams ci.levelParams ls) args) d.ty`）。`oblRowTypedK_iff`（`OblRowTypedK ↔ ∀ c ls, RowTypedAt`）、有限表の場合の `oblRowTypedK_of_keys`、行のない key（`rowTypedAt_of_none`）と `den` が常に `none` の行（`rowTypedAt_of_den_none`: `Type 0` に収まらない key の逃げ道）は義務なし、引数なしの行（`kinds = []`）は「宣言型を `ls` で instantiate したものが `d.ty` を表す」に帰着（`rowTypedAt_nullary`）、`argsDenK_length`（`args.length = kinds.length`）。
+- **実際の 1 行の証明**: `Tests/Gen5/SoundKCheck.lean` の `rowTyped_natZero`。`Nat.zero` の行が `RowTypedAt` を満たす。env の事実（`Nat.zero` の `ci.type = Nat`、`levelParams = []`、`Nat` が `defnInfo` でない）は補題の仮定にした（環境についての事実であって `PT` についての仮定ではない）。引数ありの行（`Nat.succ` など）は `instantiate1` が `opaque` なので、閉じた codomain への `instantiate1` の恒等（ブリッジ）が要る。
+
+### 2. 残った義務（名前付き `Prop` の定義。仮定にも axiom にもしていない）
+
+| 義務 | 内容 | 現状 |
+|---|---|---|
+| `OblLiftAgree` | `e.liftLooseBVars s n = liftS e s n` | `liftLooseBVars` は opaque（extern）。**現在の API と導出では得られず未解決** |
+| `OblInst1Agree` | `b.instantiate1 x = substS b 0 x` | 同上（`instantiate1`） |
+| `OblLbrZero` | `e.looseBVarRange = 0 → lbr e = 0` | `looseBVarRange` は `Expr.data` の 20 bit 欄。`mkData` が範囲超過で panic する点も含め未解決 |
+| `OblLiftClosed`（既存） | 閉じた式の lift は恒等 | 上の 2 つのブリッジに**還元**（`oblLiftClosed_of_bridges`）。構文版は証明済み |
+| `OblBvar/OblApp/OblLam/OblConst Ty`（既存、`Ty` はカーネルの型付け） | 各規則 | `TyRK` については証明済み。**カーネルの `Ty` がこれらを満たすこと**は、Lean core に `Prop` の型付け判定がないので述べられない（`Ty` はパラメータのまま） |
+| `OblLit` / `OblLet` / `OblUnfold` / `OblPrimK` | 新設。`CVEK` の lit / let / unfold / prim 規則 | 同上。`OblUnfold` は β/δ 同値での型保存、`OblPrimK` は引数の型付け（`ArgsDenK` から各引数が telescope に型付く。型引数は `TDenK` を通すだけで `tcon` に `hty` がない）を含む |
+| `OblDenLits` | `Nat` / `String` の `tys` 行がある | `PT` の中身の条件 |
+| `OblDenSubst` | `app` / `letE` が行う代入と `TDenK` の可換 | 未解決（`OblInst1Agree` と、`TDenK` の代入補題が要る） |
+| `OblDenBvar` | valuation の整合と weakening（bvar） | 未解決（`OblLiftAgree` と weakening が要る） |
+| `OblDenTyped` | `CVEK ⇒ TDenK τ α` | lam / prim / unfold は証明済み。残りは上の 3 つ |
+| `OblRowTypedK` | 表の行ごと（`RowTypedAt`） | 行ごとの有限・局所な義務。1 行（`Nat.zero`）を証明。他は行ごとに証明する |
+| `OblLevelErase` | 仮定にも axiom にもしない（`LS` で迂回） | 既存のとおり未解決 |
+
+`opaque` について: 「原理的に証明不能」とは言わない。「現在の API と導出では得られず未解決」。
+
+### 3. `OblRowTypedK` の行ごとの監査（`Tests/Gen5/RowTypedKAudit*.lean`。**監査であって証明ではない**）
+
+K1 の key 204 件（ctor 100 / rec 15 / induct 89。§Key と同数）について meta で機械的に確かめた（5 driver、`scripts/gen5/merge_row_typed_audit.py` で合算、driver 間で行の不一致 0）。確かめた内容:
+- arity: `ls.length = ci.levelParams.length` が **204 / 204**。
+- const: `inferType (mkConst c ls)` が `ci.type.instantiateLevelParams ci.levelParams ls` と構文的に一致が **204 / 204**（defeq のみ 0、不一致 0）。
+- spine: 宣言型の binder telescope（fresh fvar）のすべての prefix について、`inferType (mkAppN (const c ls) xs[:j])` が `instForall T0 xs[:j]` と構文的に一致が **204 / 204**。
+- 負対照: `ls` を `succ` でずらした型と比べると、level 多相の 120 key すべてで不一致（検査が通るだけの検査ではないことの確認）。
+- 参考（宣言型の sort、`ls` で instantiate した型の `inferType`）: Prop 9 / Type 0 44 / higher 151。項の key（ctor/rec、115 件）では Prop 9 / Type 0 40 / higher 66。`d.ty : Type` に入るのは `Type 0` の型を持つ key で、higher の key は `row.den` が `none` を返す形で逃げる必要がある（上の `rowTypedAt_of_den_none`）。applied した結果の sort はまだ測っていない。
+- **限界**: これは `ConstantInfo.type` と `instForall` が Lean 自身の `inferType` と一致することの確認で、ほぼ自明な側（定数の型は宣言型）。`row.den`、`ArgsDenK`、`TDenK` には触れていないので、`RowTypedAt` の証明にはならない。引数の型付け（`OblPrimK`）も確かめていない。
+
+### 4. 最終 carrier に必要な残り
+
+1. `liftLooseBVars` / `instantiate1` / `looseBVarRange` の構文版との一致（3 つのブリッジ）、またはこれらを使わない構文への carrier の書き換え。
+2. カーネルの型付け `Ty` の側: core に `Prop` の判定がないので、(a) `Ty` を `TyRK` のような規則判定として carrier に入れる（この場合 `OblUnfold` / `OblPrimK` が実質の義務）、または (b) 実際のカーネルとの一致を meta の検査で扱う、の選択が要る。reviewer の判断。
+3. `OblPrimK`（引数の型付け、とくに型引数）と `OblDenTyped` の残り 3 つ（`OblDenLits` / `OblDenSubst` / `OblDenBvar`）。
+4. `OblRowTypedK`: 実際に置く行ごとの証明（K1 の term key 115 件のうち、`Type 0` に収まる 40 件が実質の対象。ほかは `den = none` か Prop）。
+5. `OblLevelErase` は引き続き未解決（`LS` による level 固定のまま）。
+
+### 5. Check と台帳
+
+`Tests/Gen5/SoundKCheck.lean`（証明した補題の型の構造照合、負対照、39 宣言の axiom 検査と検出器の負対照、残った義務 20 件の一覧、`#print axioms`）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
