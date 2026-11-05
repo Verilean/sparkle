@@ -1212,3 +1212,11 @@ reviewer の判断（Issue sparkle-gen4-param-ftheta、2026-11-05）: parametric
 | SM7（Issue sparkle-ledger-sm7） | C.SM-7（−1、PA 非リーフ） | `hT2Tie_of_genGP`（`Tools/ShippingGen5SM7.lean`、7a3779e6、par/gpfix）。CallTie の最上位の消費者 `stepDec_of_ties` の前提 `hT2_TIE`（`∀ k hk, (…).child? = none → ∀ q, genGP … = some q → CallTie p q k hk`）を、既存の行（T1HypND、p の pkg、ClosingRun の行、OneOutWidth = A.P-25 / D.T-3、hkidW = D.T-4）だけから出す。`GenExtAtCall` は `hDT1_of_genGP`（§12.16）で、その `hord` は `hT2_TIE` の guard として消費者から渡る。Check `Tests/Gen5/SM7Check.lean`: GUARD（前提に guard の束縛変数が無い。対照の ND root には `hord`）、CONSUMER（結論が `hT2_TIE` の型と Expr の ==、別の env では不一致）、USES（`genExtAtCall_of_genSem` を使う Tools の定数は `hDT1_of_genGP` だけ。import 先も走査し、正の対照つき）。axioms は標準の 3 つだけ。exact-head `kjob-run-src-gpfix-a3d9` exit 0（863 jobs、dirty なし）。reviewer 承認（7a3779e6。source 全体の grep でも直接の消費者は `hDT1_of_genGP` だけ） | 新しい前提 0。§12.16 と同じく `GP := genGP` の範囲 |
 
 - **現在値: FG 80**（81 − 1）。内訳（R0）: リーフ 56 / 非リーフ 24。T1 は 57。FG の最終受理ではない。共有前提の候補 N4-a（§12.17）は数えていない（見込み FG 81）。
+
+### 12.19 減算（2026-11-05、coder。文書のみ。非リーフの除去で、リーフは動かない）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| AP17（Issue sparkle-ledger-ap17） | A.P-17（−1、PA 非リーフ、`T1Hyp.dec`） | ND 部品（7b2a4797、reviewer 承認）: `decAt_ND`・`ihAt_stepPF_ND`・`ih_allPF_ND`・`t1_of_stepPF_ND`・`closingRun0_of_runT1_ND`・`closingRun_of_runT1_ND`（`Tools/ShippingGen5AP17.lean`）。`dec` を深さの帰納法の各段で `stepDec_of_ties` と `hT2Tie_of_genGP`（§12.18）から出し、同じ段の `dec` を使う循環はない。下流の再配線（72e2b9ff、par/ap17）: `AuditE3B3ND`（D.E-3 の run 版を `H : T1HypND` で写した 2 本）と `AP17ScanCheck`（Tools で T1Hyp を束縛変数に使う 15 件のうち、12 件は ND 版、4 件は ND 版のある後継に置き換わった古い版、対応の無いもの 0 件。ND 版の証明の値は T1Hyp も T1Hyp の利用者も使わない）。exact-head `kjob-run-src-ap17-5d8e` exit 0（901 jobs、dirty なし）。reviewer 承認（72e2b9ff） | 新しい前提 0。入る束縛変数は既存の行（T1HypND、hrows = T1L-05、hStep = T1L-03、A.P-19 / A.P-09 の data 行、A.P-16 の MemDec、OneOutWidth / hkidW）。FG の組み立てでは ND 版を選ぶ。旧 T1Hyp / T1Stmt の互換の定義は残るが、選んだ経路には入れない。base は par/gpfix（§12.16、§12.18）に kjob/flow1-b を局所 merge したもの |
+
+- **現在値: FG 79**（80 − 1）。内訳（R0）: リーフ 56 / 非リーフ 23。T1 は 57。FG の最終受理ではない。共有前提の候補 N4-a（§12.17）は数えていない（見込み FG 80）。
