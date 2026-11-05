@@ -1,0 +1,5 @@
+import Tools.ShippingGen5ConstValueES
+import Tools.ShippingGen5RowTypedK
+set_option autoImplicit false
+namespace Tools.ShippingGen5RowTypedS
+end Tools.ShippingGen5RowTypedS

@@ -5846,3 +5846,12 @@ lean_lib «Tools.ShippingGen5RowTypedK» where
 
 lean_lib «Tests.Gen5.RowTypedKCheck» where
   roots := #[`Tests.Gen5.RowTypedKCheck]
+
+lean_lib «Tools.ShippingGen5ConstValueESL» where
+  roots := #[`Tools.ShippingGen5ConstValueESL]
+
+lean_lib «Tools.ShippingGen5RowTypedS» where
+  roots := #[`Tools.ShippingGen5RowTypedS]
+
+lean_lib «Tests.Gen5.SoundS2Check» where
+  roots := #[`Tests.Gen5.SoundS2Check]
