@@ -162,14 +162,14 @@ run_meta do
     let some ci := env.find? (``PTCorpusEnvFacts ++ fld) | continue
     let t := ci.type
     -- `∀ env, ¬ IsDefn env D`: peel the binder, match `Not (IsDefn env (const D))`
-    let body := match t with
-      | .forallE _ _ b _ => b
-      | b => b
+    let mut body := t
+    for _ in [0, 1] do
+      match body with
+      | .forallE _ _ b _ => body := b
+      | _ => pure ()
     match body with
-    | .forallE _ (.app (.app (.const ``Tools.ShippingGen5ConstValueE.IsDefn _) _) (.const d _)) _ _ =>
-      nd := nd + 1
-      if isDefnB env d then ndFail := ndFail.push s!"{fld}: {d}"
-    | .app (.const ``Not _) (.app (.app (.const ``Tools.ShippingGen5ConstValueE.IsDefn _) _) (.const d _)) =>
+    | .app (.const ``Not _) (.app (.app (.const ``Tools.ShippingGen5ConstValueE.IsDefn _) _) dE) =>
+      let d ← unsafe evalExpr Name (mkConst ``Name) dE
       nd := nd + 1
       if isDefnB env d then ndFail := ndFail.push s!"{fld}: {d}"
     | _ => pure ()
