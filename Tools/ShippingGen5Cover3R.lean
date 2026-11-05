@@ -13,7 +13,7 @@ and the same `mixedGatePeel`). The `senv` / `allow` / `sym` / `params` of `machi
 are unrelated here (not needed). Not supplied: that `machineShape?` / `dataOfAt` are `some` on a run, `ShapeAgree`, `FullInv`. -/
 namespace Tools.ShippingGen5Cover3R
 open Lean Sparkle.Compiler.Elab Tools.ShippingGen5Cover3 Tools.ShippingGen5Sem Tools.ShippingGen5Cover
-open Tools.ShippingMachineShapeUnfold Tools.ShippingGen5DataOf Tools.ShippingUnifiedSource
+open Tools.ShippingMachineShapeUnfold Tools.ShippingGen5DataOf Tools.ShippingUnifiedSource Tools.ShippingMachineAuto
 
 theorem hcb_of_data {sym : Bool} {params : List (String × Nat)} {dd : DefinitionVal} {senv senv' : StructEnv}
     {allow : Bool} {sp : MachineShape} {lvl : Lean.Expr → Nat} {d : MachineData}
@@ -32,18 +32,16 @@ theorem hcb_of_data {sym : Bool} {params : List (String × Nat)} {dd : Definitio
   have hbs : bs.length = p.1.length := by
     have := Option.some.inj hp
     rw [← this]
+  subst hsh
   intro k hk
-  have hk' : k < sp.insts.length := by rw [hsh] at hk; exact hk
   have hkd : kDOf d = bs.length := by
     unfold kDOf
-    rw [hn, hsh]; omega
-  have := hb k hk'
-  rw [hkd, hsh]
-  simp only [List.getElem?_map] at this ⊢
-  rw [List.getElem?_map] at this
-  simp only [hsh] at hk
-  rw [List.getElem?_eq_getElem hk'] at this
-  simpa [List.getElem?_map] using this
+    omega
+  have h1 := hb k hk
+  rw [hkd]
+  rw [List.getElem?_map, List.getElem?_map] at h1
+  rw [List.getElem?_eq_getElem hk] at h1
+  simpa using h1
 
 theorem rowB1_of_data {d : MachineData} {nDecl : Nat} {st : MachRead} (hag : ShapeAgree d st) (hi : FullInv nDecl st)
     {sym : Bool} {params : List (String × Nat)} {dd : DefinitionVal} {senv senv' : StructEnv}
