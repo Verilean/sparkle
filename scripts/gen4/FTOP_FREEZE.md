@@ -87,4 +87,15 @@ mutants (drop a conjunct, `check` on `D.modules` alone, `∀ q ∈ M.parameters`
 equal-name modules passing `check` (the §4 finding); `#print axioms` (standard 3).
 
 ## 7. Failed attempts / notes
-(none yet)
+* BUILT: Tools/ShippingGen4FTop.lean (`fTop_finish`, `fTop_out`, `SeqFree`, helpers `seqFree_filterMap`, `namesOf_seqFree`,
+  `seqFree_finalize`, `namesOf_finalize`) and Tests/Gen4/FTopCheck.lean (structural `Expr ==` TYPE check of both
+  statements, 6+3 mutants, comparator control, `check_dup_name` control, axioms = propext, Classical.choice, Quot.sound).
+  Both built with `kjob lake build`, exit 0. lean_lib entries registered. No sorry/axiom/native_decide.
+* `SeqFree` is compared to the freeze text by `rfl` (not `Expr ==`): the `match` in the text elaborates to a different
+  matcher constant than the one in the definition, so structural equality of the VALUE fails; the theorem TYPES (which
+  mention `SeqFree` by name) are compared structurally.
+* Failed attempt: control `check [m, m] = true` for a concrete module by `decide`. Cause: `sanitizeName`/`legal` on a
+  string literal does not reduce under `decide`. Replaced by `check_dup_name` (generic in the name: for a body-free
+  module `check [m, m] = check [m]`), which shows the duplicate-name case without evaluating strings.
+* Finding recorded in §4: the `x.name ≠ M'.name` guard of `synthesizeCombinationalWithParameters_designTop` is NOT
+  discharged by `check`; it needs a fact about `fcs.design.modules` (F-kids / translator walk). Not claimed here.
