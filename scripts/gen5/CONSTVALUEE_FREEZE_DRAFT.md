@@ -839,3 +839,56 @@ reviewer の判断 Q-C に従う。`Tools/ShippingGen5PTCorpusSpec.lean`（新�
 
 - `RowTeleEvAt` の 41 行、`Fin.mk` / `Decidable.isTrue` / `Decidable.isFalse` の行。deprows の 26 key の行。
 - 「51/51」が `OblRowTypedV PTcorpus` を無条件に与えること。台帳は動かさない（FG 75 / T1 57、今回 FG -0 +0 / T1 -0 +0）。
+
+## §Tele: `RowTeleEvAt PTcorpus` の 24 行と、`envAt` 上の束ね（Issue `sparkle-ledger-dd4-deprows`、Q-C の 2 段目、土台 3616089c）
+
+reviewer: Q-C は条件付き受理。次は `RowTeleEvAt` の 41 行の key ごとの `TDenV` 導出（`tdenv_wk` と `EnvClosedL`）、`envAt` 上の `OblRowTypedV` の束ね、名前付き義務 4 の再分類。TRUSTED・axiom・sorry・native_decide なし。既存ファイルは書き換えていない（lakefile と草案は末尾追記のみ）。ファイル: `Tools/ShippingGen5PTCorpusTele.lean`、`Tests/Gen5/PTCorpusTeleCheck.lean`。
+
+### 1. 結果
+
+| 項目 | 前 | 後 | 備考 |
+|---|---|---|---|
+| `RowTeleEvAt PTcorpus` の定理がある行 | 10/51 | **34/51** | 新規 24 行は `ptc_tele_*`。env の事実（`EnvForms`、`¬ IsDefn env Nat/Bool/List`、`EnvClosedL env`）は定理の仮定。Check が 24 件の `EnvForms` を実環境で評価して成立を確認（構造は `FE` と `instantiateLevelParamsS` で定理と同じ、binder 名は入れ子の矢印だけ厳密比較）。 |
+| 開いている行 | 41 | 17 | 下の表。いずれも理由を実環境の型から出力。 |
+| `OblRowTypedV PTcorpus (envAt cref w)` | 束ねなし | 1 つの定理 | `ptcorpus_oblRowTypedV_envAt`。env の事実 102 件は名前付きの `Prop` 構造 `PTCorpusEnvFacts`（仮定にはしていない）。うち `¬ IsDefn env D` の 51 件は Check が実環境で評価。他の 51 件（`EnvTypeL` など）は PTCorpusCheck / PTCorpusSpecCheck の評価。 |
+| `∀ c ls, RowTeleEvAt PTcorpus (envAt cref w) c ls` | — | 1 つの定理 | `ptcorpus_rowTeleEvAt_envAt`。環境の事実は `PTCorpusTeleFacts`（37 件）、定理のない 17 行は名前付きの残余 `PTCorpusTeleOpen`（`RowTeleEvAt PTcorpus env c ls` そのもの。仮定でも axiom でもない）。`EnvClosedL` は `closedL_envAt`（`OblLbrZero` と `KernelClosedInvariant` から）。 |
+| 名前付き義務 4 | 残 | 再分類（下） | |
+
+「34/51」は行ごとの定理の件数である。全体の `RowTeleEvAt` は残余 17 行が開いている間は無条件にならない。台帳は動かさない（FG 75 / T1 57、今回 FG -0 +0 / T1 -0 +0）。
+
+### 2. 証明の形
+
+- `Form`: 型引数 `var p`、閉じた型定数 `cst`（`Nat`、`Bool`）、1 引数の型構成子 `app1`（`List`）、矢印 `arrow`。`FE es i j F` は「先頭 `i` 個の binder を `es` で置換したあとの binder `j` の式」（置換済みの引数は間の `j - i` 個の binder 分だけ `liftS`、未置換は bvar）。
+- `FE_subst` / `post_subst`: `TeleEv.tm` / `TeleEv.ty` が取る `substS B 0 a` を、telescope 全体の形 `Post es i j T bs` の上で計算する（`substS_liftS_in` で lift を戻す）。形が `Post` を保つので、行ごとに `substS` を展開する必要がない。
+- `tdenF`: 置換後の binder 式 `FE es i i F` の `TDenV` を、置換した引数の `TDenV`（`ArgsDenV.ty` が与える）から導く。矢印の本体は `pi` で、lift した引数の `TDenV` は `tdenv_liftN`（`tdenv_wk` を `EnvClosedL` のもとで繰り返す）。
+- `teleEv_forms`: binder 列についての帰納法で `TeleEv`。項引数の Lean 型が形の型であること（`TmTele.FormsAre`、telescope の構成から `rfl` で出る）を `run_forms` で `row.den = some d` から取り出す。`rowTeleEvAt_of_forms` が結論。
+- 24 行: `Add.mk` 型 11（`T → T → T`: `Add` `AndOp` `Div` `Mod` `Mul` `OrOp` `ShiftLeft` `ShiftRight` `Sub` `XorOp`、`Complement`/`Neg` は `T → T`）、`BEq.mk`（`T → T → Bool`）、`NatCast.mk`（`Nat → T`）、`NatPow.mk`（`T → Nat → T`）、`Array.mk`（`List T`）、`Inhabited.mk`（`T`）、`Wireable.mk`（`Nat`）、`List.nil`、`List.cons`、`OfNat.mk`、`Pow.mk`（`T₀ → T₁ → T₀`）、`Prod.mk`、`PProd.mk`。
+
+### 3. 開いている 17 行と理由（Check が実環境の型から出力）
+
+| 行 | 理由 |
+|---|---|
+| `H*.mk` 12（`HAdd` `HAnd` `HAppend` `HDiv` `HMod` `HMul` `HOr` `HPow` `HShiftLeft` `HShiftRight` `HSub` `HXor`） | 3 つ目の型 binder が `outParam (Sort _)`。`TeleEv.ty` は binder が `Sort` そのもの（`A = .sort u`）であることを要求し、`outParam` の包みは該当しない。`RowTeleEvAt` の定義の側の制約 |
+| `LE.mk` / `LT.mk` | 項 binder の型 `α → α → Prop` の余域が `Sort 0`。`TDenV` の規則（`pi` / `tcon` / `tunfold` / `tlet`）に sort の規則がなく、導出できない |
+| `BitVec.ofFin` | binder 型 `Fin (2 ^ w)` が項引数 `w` に `HPow.hPow` を通して依存する。`HPow.hPow` は射影関数で、展開すると `Expr.proj`。`CVEKVB` に `proj` の規則がなく、`2 ^ w` の `CVEKV` 導出が作れない |
+| `HasDomain.mk` | 項 binder の型 `outParam DomainConfig`。`outParam` は定義で、`tunfold` に本体の env の事実が要る（今回は供給していない。作れる見込みだが未実施） |
+| `Signal.mk` | 項 binder の型 `Stream α`。PTcorpus に `Stream` の `tys` 行がなく、`Stream` は定義（`tunfold` で本体の env の事実が要る）。未実施 |
+
+### 4. 名前付き義務 4 の再分類（Prop の証明項・`Type 0` 外の束縛）
+
+| key | 分類 | 結果 |
+|---|---|---|
+| `Fin.mk (n val : Nat) (isLt : val < n)` | 証明の束縛（`isLt` は Prop の項。`Dyn.ty : Type` に入らない） | PTcorpus に行がない（`propBinder`）。`OblTeleEv_Fin_mk PTcorpus env` と `RowTypedAtV` が仮定なしで成立（`oblTeleEv_Fin_mk_PTcorpus`、`rowTypedV_Fin_mk_PTcorpus`）。行がないことによる成立で、型付いた行としては数えない（導出は key で止まる） |
+| `Decidable.isTrue/isFalse {p : Prop} (h : p)` | 型引数 `p : Prop` が `Type 0` の外（`Sort 0`）、`h` は証明 | 同上（行なし。`oblTeleEv_Decidable_*_PTcorpus`、`rowTypedV_Decidable_*_PTcorpus`） |
+| `BitVec.ofFin` | 行はある（`control_bitVec_ofFin_has_row`）。`RowTypedAtV` は spine で閉じている。`RowTeleEvAt` は binder `Fin (2 ^ w)` が項引数に依存（`Type 0` の束縛だが、`2 ^ w` の導出に `proj` が要る） | 開いたまま（上の表） |
+
+3 件は「証明した」のではなく「行がない」ことの帰結である。これが §Compare の (P) の案（命題の束縛を kind として扱うか、行を置かないか）の判断材料になる: 行を置かない限り、導出は止まるだけで健全性を損なわない。
+
+### 5. Check（`Tests/Gen5/PTCorpusTeleCheck.lean`）
+
+`RowTeleEvAt` 10 → 34/51、24 件の env の事実が実環境で成立（`EnvForms` 24、`¬ IsDefn` の 3 定数）、51 行の宣言型が閉じている（`EnvClosedL` の標本）、`PTCorpusEnvFacts` の 51 件の `¬ IsDefn env D` を実環境で評価、束ねの定理の型、17 行の理由、負対照（誤った形・余域・存在しない定数・`outParam` を sort とみなす・Pow と Prod の取り違えを evaluator が拒否、`wfB` が項 binder への参照と未来の binder への参照を拒否: `decide` で証明）、`#print axioms`（propext / Classical.choice / Quot.sound のみ）。
+
+### 6. 主張しないこと
+
+- 17 行の `RowTeleEvAt`。deprows の 26 key の行。`PTcorpus` の採用・G-PRIM・TRUSTED。
+- `PTCorpusEnvFacts` / `PTCorpusTeleFacts` の各 field が `envAt cref w` で成り立つこと（束ねは名前付き前提の整理で、評価は Check の環境）。
