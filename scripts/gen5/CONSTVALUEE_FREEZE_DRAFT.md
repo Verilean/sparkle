@@ -802,3 +802,62 @@ reviewer の方針: PT を全称のままにせず具体的な PTcorpus へ進�
 - 停止集合の採用、G-PRIM、TRUSTED、台帳の減算。停止集合は `Sparkle.Core.Signal` の全 defn（名前で決めた）で、より狭い集合は測っていない。
 - 再帰子の出所の特定。再帰子 15 key は停止で 1 つも減らなかった、という事実だけ。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §Trace: 再帰子の出所と、段階的に広げた停止集合（Issue `sparkle-ledger-dd4-final` Q-A 続き (i)、土台 6fd58e9e）
+
+測定だけ。設計の判断（G-PRIM / TRUSTED / carrier 拡張）は reviewer。TRUSTED・axiom・sorry・native_decide・定理なし。既存ファイルは変えていない（lakefile に lean_lib を 1 回追加しただけ）。
+
+### 1. 測り方
+- `Tests/Gen5/PrimResidueTraceLib.lean`（`PrimResidueKeyLib` / `PrimResidueStopLib` の `occs` `LS` `dynFit` を再利用）、driver `PrimResidueTrace`（43 module）、`PrimResidueTraceM1..M4`（隔離した 4 module）、`PrimResidueTraceSig`（`Tests.SignalLoopTest` の 3 root）。47/47 module は §Stop と同じ形。集計は `scripts/gen5/merge_prim_residue_trace.py`。
+- trace: 走査を幅優先にし、各 `(c, ls)` を最初に到達させた親を覚える。再帰子ごとに `root > … > 親 > 再帰子` の連鎖（呼び出しグラフでの最短）と直接の親を出す。
+- 段階（入れ子、停止した定義は記録して展開しない）: 0 なし / 1 `Sparkle.Core.Signal` の defn / 2 +BitVec（`BitVec.*` と名前に BitVec を含む defn）/ 3 +`Decidable.*` と `Nat.*` の defn / 4 +名前に `Decidable` `decEq` `decLe` `decLt` `decide` を含む defn（instDecidableEq 系）/ 5 +Init・Std・Lean の module 由来のほかの全 defn（Sparkle 自身の定義だけ展開する）。
+- fuel 400000、どの段階でも worklist が残れば `throwError`。負対照 `#prim_residue_trace_neg 50` は失敗（ok）、段階の所属と連鎖の対照 `#prim_residue_trace_ctl`（`Nat.add > Nat.brecOn > Nat.below > Nat.rec`）は ok。
+- 生データ: `$KJOB_REPORT_PATH.trkeys.* / .trstopped.* / .trrec.* / .trroots.*`（tag = main43, M1..M4, Sig）、集計 `$KJOB_REPORT_PATH.trmerge.txt`。
+
+### 2. 再帰子の直接の親（段階 0、corpus 235 root 名）
+再帰子は、定義の本体が書く関数ではなく、**定義のコンパイル産物（`casesOn` / `brecOn` / `below` / `noConfusion` / `ndrec` / `elim` / `match_N`）の展開**から来る。直接の親 → 再帰子（root 数）:
+| 再帰子 | 直接の親 | 連鎖の途中にある定義（例） |
+|---|---|---|
+| `Bool.rec[0,1]` | `Bool.casesOn`（417） | `instDecidableEqBool > Bool.decEq > Bool.noConfusion / decEq.match_1`（Signal.mux・Signal.loopGo から）、`Bool.not > cond.match_1` |
+| `Decidable.rec[1]` | `Decidable.casesOn`（417） | `ite` / `dite` / `Decidable.decide`（Signal.mux、loopGo、`instBEqOfDecidableEq`） |
+| `Eq.rec[0,1]` | `Eq.ndrec`（417） | `Bool.noConfusion` |
+| `False.rec[0,1]` | `False.elim`（412/416） | `BitVec.ofNat > Fin.Internal.ofNat > Nat.mod > Nat.modCore > Nat.div.go.match_1`、`WellFounded.Nat.fix.go` |
+| `Nat.le.rec[]` | `Nat.le.casesOn`（412） | `Nat.div.go.match_1`（同上） |
+| `Nat.rec[1]` | `WellFounded.Nat.fix.go`（266）/ `Nat.brecOn.go`（79）/ `Nat.casesOn`（72） | `Signal.loopGo > WellFounded.Nat.fix`、`BitVec.ofNat > instNatPowNat > Nat.pow`、`Signal.register.match_1` |
+| `Nat.rec[2]` | `Nat.below`（417） | `Nat.pow > Nat.brecOn` |
+| `BitVec.rec[1]` | `BitVec.casesOn`（337） | `instDecidableEqBitVec > BitVec.decEq.match_1` |
+| `Int.rec[1]` | `Int.casesOn`（7） | `BitVec.ofInt > Int.toNat.match_1` |
+| `List.rec[2,1]` `[3,1]` | `List.brecOn.go` / `List.below`（307） | **`Sparkle.Core.HList`**（Sparkle 自身の定義）→ `List.brecOn` |
+| `PSigma.rec[1,1,1]` | `PSigma.casesOn`（130） | `BitVec.or > Nat.lor > Nat.bitwise._unary` |
+| `Prod.rec[1,0,0]` | `Prod.casesOn`（5） | `RunCircuitHTest.counterH.match_1`（Sparkle 側の matcher） |
+- 連鎖で最後に現れる Sparkle の定義は、段階 0 では `Signal.mux`（908 連鎖）、`Signal.loopGo`（898）、`Sparkle.Core.HList`（614）、`Signal.memState._f`（167）、`instHXorSignalBitVec`（114）など。つまり再帰子は **Signal の primitive の本体（`Signal.mux` の `ite`/`==`、`loopGo` の `WellFounded.Nat.fix`/`dite`）と `BitVec.ofNat` / `BitVec` の decEq・演算子、Init の `Bool`/`Nat` の決定性・整除の定義**から来る。Signal の primitive を停止集合に入れても `Signal.*` の外（BitVec・Nat・Decidable）に同じ再帰子がある、というのが §Stop で 15 key が減らなかった理由。
+- 3 つの Signal root（9 key）: 直接の親は corpus と同じ。連鎖は `Signal.loop > loopGo > dite/WellFounded.Nat.fix` と `BitVec.ofNat > Fin.Internal.ofNat > Nat.mod …`、`BitVec.ofNat > instNatPowNat > Nat.pow`、`Signal.register.match_1 > Nat.casesOn`。
+
+### 3. 停止集合を広げた表
+corpus（235 root 名の和集合）。「Type 0 外」は binder above / result / family / universe-valued の key、「停止が Dyn 外」は停止した distinct `(name, ls)` のうち §Stop 4 の検査に落ちたもの:
+| 段階 | 残余 key | 再帰子 | 証明の束縛 | Type 0 外 | 停止 distinct | 停止が Dyn 外 |
+|---|---|---|---|---|---|---|
+| 0 なし | 204 | 15 | 2 | 39 | 0 | 0 |
+| 1 Signal | 201 | 15 | 2 | 37 | 39 | 2 |
+| 2 +BitVec | 179 | 13 | 1 | 35 | 63 | 2 |
+| 3 +Decidable/Nat | 157 | 5 | 0 | 29 | 75 | 6 |
+| 4 +instDecidableEq 系 | 156 | 5 | 0 | 29 | 76 | 6 |
+| 5 +Init/Std/Lean の全 defn | 86 | **0** | 0 | 13 | 126 | 18 |
+3 つの Signal root:
+| 段階 | 残余 key | 再帰子 | 証明の束縛 | Type 0 外 | 停止 distinct | 停止が Dyn 外 |
+|---|---|---|---|---|---|---|
+| 0 | 75 | 9 | 2 | 19 | 0 | 0 |
+| 1 | 59 | 9 | 2 | 10 | 5 | 0 |
+| 2 +BitVec | 10 | **0** | 0 | 0 | 7 | 0 |
+| 3 | 10 | 0 | 0 | 0 | 7 | 0 |
+| 4 | 10 | 0 | 0 | 0 | 7 | 0 |
+| 5 | 7 | 0 | 0 | 0 | 10 | 0 |
+- 段階 3・4 で残る corpus の再帰子 5 key（`Bool.rec[1]`、`Int.rec[1]`、`List.rec[2,1]`/`[3,1]`、`Prod.rec[1,0,0]`）の親: `Bool.not > cond.match_1`（Bool.not は Init の `Bool` の defn で段階 3・4 の集合に入らない）、`Int.toNat.match_1`、`Sparkle.Core.HList > List.brecOn`（Sparkle の定義 `HList` が 614 連鎖）、`counterH.match_1 > Prod.casesOn`。`instDecidableEq` 系を足しても（段階 4）1 key しか減らない（残余 157 → 156、再帰子は同じ 5）。
+- 段階 3・4 の再帰子 0 を妨げるのは `Bool` / `Int` / `List` / `Prod` の Init の defn。段階 5 で Init の defn を全部止めると 0 になる。
+- **再帰子 0 になる停止集合**: 3 つの Signal root では段階 2（Signal + BitVec の defn）で十分で、停止した 7 は全て Dyn に入る（Dyn に入らない 0）。corpus 全体では段階 5（Signal + Init/Std/Lean の全 defn）が最初で、停止 126 のうち **18 は Dyn に入らない**（`Applicative.toPure` `Applicative.toSeq` `Bind.bind` `Functor.map` `Monad.toApplicative` `Monad.toBind` `Pure.pure` `Seq.seq`＝`Type → Type` の束縛、`Decidable.decide` `LT.lt`＝Prop 値、`List.below[1,1]` `[2,1]` `List.brecOn[1,1]` `[2,1]` `List.casesOn[2,1]` `Prod.casesOn`＝Type を返す関数の束縛、`instFunctorSignal` `instApplicativeSignal`＝`Type 1`）。段階 3・4 は再帰子 5 が残る。
+- 段階 5 でも残る Type 0 外の key 13 は再帰子ではなく型の族や証明の束縛（Type 0 外の族）。段階 5 の 86 key の内訳は trmerge.txt。
+- 注意: 段階 5 は「Sparkle の定義以外を全て不透明にする」ので、その停止した定数の意味（BitVec・Nat の演算の振る舞い）は PT の行（G-PRIM）に別途入れる必要がある。これは測定であり、その採用は reviewer の判断。Dyn の検査は宣言型の側だけで、`RowTypedAtV` / `RowTeleEvAt` の証明可能性は測っていない。
+
+### 4. 主張しないこと
+- 停止集合の採用、G-PRIM、TRUSTED、台帳の減算。段階の境界は名前と module の由来で決めたもので、より狭い集合（例: `Bool.not` / `Int.toNat` / `Sparkle.Core.HList` の個別の扱い）は測っていない。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
