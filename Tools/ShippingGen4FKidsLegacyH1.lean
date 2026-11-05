@@ -1,10 +1,14 @@
 import Tools.ShippingGen4FKidsTac
 import Tools.ShippingGen4FKidsTele
+import Tools.ShippingGen4FKidsCanon
+import Tools.ShippingGen4KWalkHelpers
 import Tools.ShippingGen4FKidsHelpers
+import Tools.ShippingGen4KWalkDiag
 import Tools.ShippingGen4FKidsDiag
+import Tools.ShippingGen4KWalkProjField
 import Tools.ShippingGen4FKidsProjField
 import Tools.ShippingChildLegacyHandlersA
--- BUILT: kjob lake build Tools.ShippingGen4FKidsLegacyH1 exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. LegacyImplKS part 1: `snapshotWireCaches`, `restoreWireCaches`, `handleErrorPatterns` (copy of the first handlers of ShippingChildLegacyHandlersA, walked by `swalkN`).
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkLegacyH1 exit 0 (rt174, source as of d8c3ec7b); clean build is the coder's. LegacyImplKS part 1: `snapshotWireCaches`, `restoreWireCaches`, `handleErrorPatterns` (copy of the first handlers of ShippingChildLegacyHandlersA, walked by `swalkN`).
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom. `PpMvKS` is derived by `ppMvK_of M` by the caller. No `sorry`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4FKidsLegacyH1
 open Lean Meta
@@ -18,12 +22,16 @@ open Tools.ShippingChildFresh
 open Tools.ShippingChildVCA
 open Tools.ShippingChildPathA
 open Tools.ShippingChildTranslateA
+open Tools.ShippingGen4KWalkTac
 open Tools.ShippingGen4FKidsTac
 open Tools.ShippingChildWalkA
 open Tools.Assume.MemoFamily
 open Tools.ShippingGen4KWalk
+open Tools.ShippingGen4KWalkPrims
 open Tools.ShippingGen4FKidsPrims
+open Tools.ShippingGen4KWalkHelpers
 open Tools.ShippingGen4FKidsHelpers
+open Tools.ShippingGen4KWalkProjField
 open Tools.ShippingGen4FKidsProjField
 
 open Tools.ShippingGen4FKids

@@ -1,11 +1,14 @@
 import Tools.ShippingGen4FKidsTac
 import Tools.ShippingGen4FKidsTele
+import Tools.ShippingGen4FKidsCanon
+import Tools.ShippingGen4KWalkHelpers
 import Tools.ShippingGen4FKidsHelpers
+import Tools.ShippingGen4KWalkEntryArms
 import Tools.ShippingGen4FKidsEntryArms
 set_option autoImplicit false
 set_option linter.unusedSimpArgs false
 set_option linter.unusedVariables false
--- BUILT: kjob lake build Tools.ShippingGen4FKidsDiag exit 0 (part of the 756-job Tests.Gen4.MemoFamilyCheck build) (rt173, source as of 155e13c4). Clean build is the coder's.
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkDiag exit 0 (part of the 756-job Tests.Gen4.MemoFamilyCheck build) (rt173, source as of 155e13c4). Clean build is the coder's.
 --   `LogMvKS` is the field `logProf`; `PpMvKS` follows from `printersMv` + the existing `frame` (`ppExpr_mv`).
 -- `MsgMvK` (Elab.lean 6605) is NOT a family statement: it stays a hypothesis `def`. No new law / TRUSTED statement. No sorry, no axiom, no native_decide.
 
@@ -60,7 +63,7 @@ theorem profBlock_eq (s : String) :
 
 /-! ## Diag: `LogMvKS` is the field `logProf`; the 6973-6977 block and the 6423-6425 pair -/
 
-theorem logMvK_of (M : MemoFamily O) : Tools.ShippingGen4FKidsEntry.LogMvK O :=
+theorem logMvK_of (M : MemoFamily O) : Tools.ShippingGen4KWalkEntry.LogMvK O :=
   fun _ _ hA b msg w hq => M.logProf hA b msg w hq
 
 theorem profBlock_mv (M : MemoFamily O) {mctx : Meta.Context} {cctx : Core.Context} (hA : AdmCtx O.quiet mctx cctx)
@@ -190,7 +193,7 @@ theorem ppExpr_mv (M : MemoFamily O)
 
 end PpDerive
 
-theorem ppMvK_of (M : MemoFamily O) : Tools.ShippingGen4FKidsHelpers.PpMvK O :=
+theorem ppMvK_of (M : MemoFamily O) : Tools.ShippingGen4KWalkHelpers.PpMvK O :=
   fun mctx cctx hA e w hq => ppExpr_mv mctx cctx M hA e w hq
 
 

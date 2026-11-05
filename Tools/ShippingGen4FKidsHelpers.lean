@@ -1,7 +1,9 @@
+import Tools.ShippingGen4KWalkEntryArms
 import Tools.ShippingGen4FKidsEntryArms
 import Tools.ShippingChildLegacyTailA
+import Tools.ShippingGen4KWalkTac
 import Tools.ShippingGen4FKidsTac
--- BUILT: kjob lake build Tools.ShippingGen4FKidsHelpers exit 0 (rt169, source as of 9e5eb088); axioms standard only. Clean build is the coder's. S4 part 3a of scripts/gen4/KWALK_PLAN.md: the translator's helpers (`extractWidth`, `inferHWType`, `extractDimExpr`, `inferHWTypeWithDimensions`, `inferHWTypeFromSignal`, `isSignalBinderType`) for `StableK`
+-- BUILT: kjob lake build Tools.ShippingGen4KWalkHelpers exit 0 (rt169, source as of 9e5eb088); axioms standard only. Clean build is the coder's. S4 part 3a of scripts/gen4/KWALK_PLAN.md: the translator's helpers (`extractWidth`, `inferHWType`, `extractDimExpr`, `inferHWTypeWithDimensions`, `inferHWTypeFromSignal`, `isSignalBinderType`) for `StableK`
 -- (copy of ShippingChildLegacyHelpersA, walked by `swalkN`). DIAG-PENDING hypothesis `PpMvKS` (one `ppExpr` leaves the memo as it was): the helpers render an error message with `ppExpr` (Elab.lean 681, 686, 715) before they `throwError`.
 -- Takes `MemoFamily` (TRUSTED, approved) as a HYPOTHESIS `M`; adds NO premise, NO law, NO axiom to the family. No `sorry`, no `axiom`, no `native_decide`. Ledger delta: FG -0 +0 / T1 -0 +0.
 namespace Tools.ShippingGen4FKidsHelpers
@@ -16,14 +18,18 @@ open Tools.ShippingChildFresh
 open Tools.ShippingChildVCA
 open Tools.ShippingChildPathA
 open Tools.ShippingChildTranslateA
+open Tools.ShippingGen4KWalkTac
 open Tools.ShippingGen4FKidsTac
 open Tools.ShippingChildWalkA
 open Tools.ShippingChildLegacyTailA
 open Tools.ShippingChildLegacyHelpersA
 open Tools.Assume.MemoFamily
 open Tools.ShippingGen4KWalk
+open Tools.ShippingGen4KWalkPrims
 open Tools.ShippingGen4FKidsPrims
+open Tools.ShippingGen4KWalkProjField
 open Tools.ShippingGen4FKidsProjField
+open Tools.ShippingGen4KWalkEntry
 open Tools.ShippingGen4FKidsEntry
 
 open Tools.ShippingGen4FKids
@@ -115,8 +121,7 @@ theorem extractDimExprStepKS (hA : AdmCtx O.quiet mctx cctx) (rec : Lean.Expr â†
 theorem extractDimExprKS (hA : AdmCtx O.quiet mctx cctx) (e : Lean.Expr) :
     KeepsCS mctx mref cctx cref I (extractDimExpr e) := by
   unfold extractDimExpr
-  exact fuelFixM_keepsCP extractDimExprStep
-    (fun rec hrec mctx cctx hA a => extractDimExprStepKS M hpp hS hA rec (hrec mctx cctx hA) a) _ mctx cctx hA e
+  exact Tools.ShippingGen4FKidsCanon.KeepsCS.fuelFixM extractDimExprStep (fun rec hrec a => extractDimExprStepKS M hpp hS hA rec hrec a) _ e
 
 theorem inferHWTypeWithDimensionsStepKS (hA : AdmCtx O.quiet mctx cctx)
     (rec : Lean.Expr â†’ CompilerM (Option Sparkle.IR.Type.HWType))
@@ -129,8 +134,7 @@ theorem inferHWTypeWithDimensionsStepKS (hA : AdmCtx O.quiet mctx cctx)
 theorem inferHWTypeWithDimensionsKS (hA : AdmCtx O.quiet mctx cctx) (e : Lean.Expr) :
     KeepsCS mctx mref cctx cref I (inferHWTypeWithDimensions e) := by
   unfold inferHWTypeWithDimensions
-  exact fuelFixM_keepsCP inferHWTypeWithDimensionsStep
-    (fun rec hrec mctx cctx hA a => inferHWTypeWithDimensionsStepKS M hpp hS hA rec (hrec mctx cctx hA) a) _ mctx cctx hA e
+  exact Tools.ShippingGen4FKidsCanon.KeepsCS.fuelFixM inferHWTypeWithDimensionsStep (fun rec hrec a => inferHWTypeWithDimensionsStepKS M hpp hS hA rec hrec a) _ e
 
 theorem inferHWTypeFromSignalKS (hA : AdmCtx O.quiet mctx cctx) (e : Lean.Expr) :
     KeepsCS mctx mref cctx cref I (inferHWTypeFromSignal e) := by
