@@ -5197,3 +5197,9 @@ lean_lib «Tools.ShippingGen4Shape» where
 
 lean_lib «Tests.Gen4.ShapeCheck» where
   roots := #[`Tests.Gen4.ShapeCheck]
+
+lean_lib «Tools.ShippingGen4ParamAssembly» where
+  roots := #[`Tools.ShippingGen4ParamAssembly]
+
+lean_lib «Tests.Gen4.ParamAssemblyCheck» where
+  roots := #[`Tests.Gen4.ParamAssemblyCheck]
