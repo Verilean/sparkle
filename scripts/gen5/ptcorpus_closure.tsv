@@ -1,0 +1,2 @@
+Sparkle.Core.Domain.ActiveEdge	induct	[]	(closure: occurs in the declared type of Sparkle.Core.Domain.ActiveEdge.rising)
+Sparkle.IR.Type.ResetKind	induct	[]	(closure: occurs in the declared type of Sparkle.IR.Type.ResetKind.synchronous)
