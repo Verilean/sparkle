@@ -374,4 +374,127 @@ theorem KCS.ofKeepsCP_neutral {α : Type} {c : CompilerM α}
 
 end Unpointed
 
+
+/-! ## (fkids3) results that carry a fact: the child pair of `handleDefinitionUnfold`
+
+`OptPFc`: an optional child pair is `PairPF` when present. `NoRetS st c`: the run of `c` from `st` never RETURNS (it throws, in the class).
+`KCS.bindTryChild` is the one rule that lets the child pair's `PairPF` reach the continuation through `try (some <$> liftMetaM (childSynthEntry n)) catch h`
+when the handler `h` always throws. Pure calculus: no law, no premise. -/
+
+def OptPFc (o : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) : Prop := ∀ r, o = some r → PairPF r
+
+theorem OptPFc.some' {r : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design} (h : PairPF r) : OptPFc (some r) := by
+  intro r' h'
+  cases h'
+  exact h
+
+section NoRet
+variable (mctx mref cctx cref)
+
+def NoRetS {α : Type} (I : Void IO.RealWorld → Prop) (st : CircuitState) (c : CompilerM α) : Prop :=
+  ∀ (ctx : CompilerState), CtxOk ctx → StatePF st →
+    Triple mctx mref cctx cref I (c ctx st) (fun _ _ => False) (fun e w => I w ∧ OkExc e)
+
+def NoRetSA {α : Type} (I : Void IO.RealWorld → Prop) (c : CompilerM α) : Prop :=
+  ∀ st : CircuitState, NoRetS mctx mref cctx cref I st c
+
+end NoRet
+
+section NoRetRules
+variable {I : Void IO.RealWorld → Prop} {st : CircuitState}
+
+theorem NoRetS.throw {α : Type} (e : Exception) (he : OkExc e) :
+    NoRetS mctx mref cctx cref I st (MonadExcept.throw e : CompilerM α) :=
+  fun _ _ _ => Triple.throw e fun w hw => ⟨hw, he⟩
+
+theorem NoRetS.bind {α β : Type} {c : CompilerM α} {f : α → CompilerM β}
+    (h1 : KCS mctx mref cctx cref I st c)
+    (h2 : ∀ a st', GoodS st st' → NoRetS mctx mref cctx cref I st' (f a)) :
+    NoRetS mctx mref cctx cref I st (c >>= f) := by
+  intro ctx hc hs
+  refine Triple.bind (h1 ctx hc hs) (fun p => ?_)
+  obtain ⟨a, s⟩ := p
+  intro w hw
+  have hg : GoodS st s := hw.2
+  exact (h2 a s hg ctx hc hg.2.1) w hw.1
+
+theorem NoRetS.ite {α : Type} {c : Prop} [Decidable c] {a b : CompilerM α}
+    (ha : c → NoRetS mctx mref cctx cref I st a) (hb : ¬c → NoRetS mctx mref cctx cref I st b) :
+    NoRetS mctx mref cctx cref I st (if c then a else b) := by
+  by_cases hc : c
+  · rw [if_pos hc]; exact ha hc
+  · rw [if_neg hc]; exact hb hc
+
+theorem NoRetS.dite {α : Type} {c : Prop} [Decidable c] {a : c → CompilerM α} {b : ¬c → CompilerM α}
+    (ha : ∀ h, NoRetS mctx mref cctx cref I st (a h)) (hb : ∀ h, NoRetS mctx mref cctx cref I st (b h)) :
+    NoRetS mctx mref cctx cref I st (if h : c then a h else b h) := by
+  by_cases hc : c
+  · rw [dif_pos hc]; exact ha hc
+  · rw [dif_neg hc]; exact hb hc
+
+theorem Triple.liftC {α : Type} {m : MetaM α} {Q : α → Void IO.RealWorld → Prop}
+    {R : Exception → Void IO.RealWorld → Prop} {ctx : CompilerState} {st : CircuitState}
+    (h : Triple mctx mref cctx cref I m Q R) :
+    Triple mctx mref cctx cref I (CompilerM.liftMetaM m ctx st) (fun p w => Q p.1 w ∧ p.2 = st) R :=
+  Triple.bind h fun a => Triple.pure (a := (a, st)) fun w hw => ⟨hw, rfl⟩
+
+/-- a lifted `throwError`: it keeps the invariant (`hk`) and never returns (`throwError_not_runs`) -/
+theorem NoRetS.liftThrowError {α : Type} (msg : MessageData)
+    (hk : Keeps mctx mref cctx cref I (Lean.throwError msg : MetaM α)) :
+    NoRetS mctx mref cctx cref I st (CompilerM.liftMetaM (Lean.throwError msg : MetaM α)) := by
+  intro ctx hc hs
+  have h0 : Triple mctx mref cctx cref I (Lean.throwError msg : MetaM α) (fun _ _ => False)
+      (fun e w => I w ∧ OkExc e) := by
+    intro w hw
+    have h := keeps_iff.mp hk w hw
+    cases hm : (Lean.throwError msg : MetaM α) mctx mref cctx cref w with
+    | ok a w1 => exact (throwError_not_runs msg hm).elim
+    | error e w1 => rw [hm] at h; exact h
+  exact Triple.conseq (Triple.liftC h0) (fun w hw => hw) (fun _ _ h => h.1.elim) (fun _ _ h => h)
+
+theorem NoRetS.tryCatch {α : Type} {x h : _} (hx : NoRetS mctx mref cctx cref I st x)
+    (hh : ∀ e, OkExc e → NoRetS mctx mref cctx cref I st (h e)) :
+    NoRetS mctx mref cctx cref I st (MonadExcept.tryCatch (α := α) x h) :=
+  fun ctx hc hs => Triple.tryCatchQ (hx ctx hc hs) fun e he => hh e he ctx hc hs
+
+/-- **The child pair reaches the continuation**: `try (some <$> liftMetaM (childSynthEntry n)) catch h` with a handler that never
+returns, followed by `f`: `f` is asked only for `some r` with `PairPF r`. -/
+theorem KCS.bindTryChild {β : Type} {n : Name} {h : Exception → CompilerM (Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design))}
+    {f : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) → CompilerM β}
+    (hc : Triple mctx mref cctx cref I (childSynthEntry n) (fun r w => I w ∧ PairPF r) (fun e w => I w ∧ OkExc e))
+    (hh : ∀ e, OkExc e → NoRetS mctx mref cctx cref I st (h e))
+    (hf : ∀ r st', PairPF r → GoodS st st' → KCS mctx mref cctx cref I st' (f (some r))) :
+    KCS mctx mref cctx cref I st
+      (MonadExcept.tryCatch (some <$> CompilerM.liftMetaM (childSynthEntry n)) h >>= f) := by
+  intro ctx hc' hs
+  have hl : Triple mctx mref cctx cref I ((some <$> CompilerM.liftMetaM (childSynthEntry n) : CompilerM _) ctx st)
+      (fun p w => I w ∧ ∃ r, p.1 = some r ∧ PairPF r ∧ p.2 = st) (fun e w => I w ∧ OkExc e) :=
+    Triple.bind (Triple.liftC hc (ctx := ctx) (st := st)) fun p =>
+      Triple.pure (a := (some p.1, p.2)) fun w hw => ⟨hw.1.1, p.1, rfl, hw.1.2, hw.2⟩
+  refine Triple.bind (Q := fun p w => I w ∧ ∃ r, p.1 = some r ∧ PairPF r ∧ p.2 = st)
+    (Triple.tryCatchQ hl fun e he => Triple.conseq (hh e he ctx hc' hs) (fun w hw => hw)
+      (fun _ _ hf => hf.elim) (fun _ _ hR => hR)) (fun p => ?_)
+  obtain ⟨a, s⟩ := p
+  intro w hw
+  obtain ⟨hI, r, har, hr, hsr⟩ := hw
+  have har' : a = some r := har
+  have hsr' : s = st := hsr
+  subst har' hsr'
+  exact hf r s hr (GoodS.refl hs) ctx hc' hs w hI
+
+theorem KCS.forIn_list_mem {α β : Type} (f : α → β → CompilerM (ForInStep β)) :
+    ∀ (l : List α), (∀ a ∈ l, ∀ b, KeepsCS mctx mref cctx cref I (f a b)) →
+    ∀ (b : β) (st : CircuitState), KCS mctx mref cctx cref I st (forIn l b f)
+  | [], _, b, st => by
+    rw [List.forIn_nil]
+    exact KCS.pure b
+  | a :: l, hf, b, st => by
+    rw [List.forIn_cons]
+    refine KCS.bind (hf a (List.mem_cons_self ..) b st) (fun r st' _ => ?_)
+    cases r with
+    | done b' => exact KCS.pure b'
+    | yield b' => exact KCS.forIn_list_mem f l (fun a ha => hf a (List.mem_cons_of_mem _ ha)) b' st'
+
+end NoRetRules
+
 end Tools.ShippingGen4FKidsCalc

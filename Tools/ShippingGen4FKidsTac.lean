@@ -29,6 +29,7 @@ open Lean Elab Tactic Meta
 def progOf? (t : Lean.Expr) : Option Lean.Expr :=
   let t := t.consumeMData
   if t.isAppOf ``Tools.ShippingGen4FKidsCalc.KCS || t.isAppOf ``Tools.ShippingGen4FKidsCalc.KeepsCS ||
+      t.isAppOf ``Tools.ShippingGen4FKidsCalc.NoRetS || t.isAppOf ``Tools.ShippingGen4FKidsCalc.NoRetSA ||
       t.isAppOf ``Tools.ShippingChildInv.Keeps then
     some t.appArg!
   else none
@@ -101,6 +102,19 @@ def applyRule (stx : Syntax) : TacticM Bool := do
   setGoals rest
   return true
 
+/-- (fkids3) is a `PairPF` / `OptPFc` fact in the local context (a child pair is in scope)? Gates the rules that exist only for it, so that
+every other module's walk is unchanged. -/
+def hasPFHyp : MetaM Bool := do
+  let mut r := false
+  for d in ← getLCtx do
+    let hd := (← instantiateMVars d.type).consumeMData.getAppFn.constName?
+    if hd == some ``Tools.ShippingGen4FKidsCalc.OptPFc || hd == some ``Tools.ShippingGen4FKids.PairPF then r := true
+  pure r
+
+/-- (fkids3) is the child-synthesis hypothesis `hchild` in scope? Gates the child-pair rules (join-point premise, `bindTryChild`) to the modules that have it. -/
+def hasChild : MetaM Bool := do
+  return ((← getLCtx).findFromUserName? `hchild).isSome
+
 /-- One step on the main goal. Returns `false` if nothing applied. -/
 def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMainContext do
   let g ← getMainGoal
@@ -108,7 +122,7 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
   if ty.isForall then
     return ← runTac (← `(tactic| intros))
   -- the unpointed statement: point it at a fresh state
-  if ty.consumeMData.isAppOf ``Tools.ShippingGen4FKidsCalc.KeepsCS then
+  if ty.consumeMData.isAppOf ``Tools.ShippingGen4FKidsCalc.KeepsCS || ty.consumeMData.isAppOf ``Tools.ShippingGen4FKidsCalc.NoRetSA then
     return ← runTac (← `(tactic| intro st))
   let some p := progOf? ty | do
     if ty.getAppFn.constName? == some ``Tools.ShippingGen4FKidsCalc.GoodS then
@@ -118,6 +132,18 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
           | good_tac
           | exact Tools.ShippingGen4FKidsCalc.GoodS.symm ‹_›
           | exact Tools.ShippingGen4FKidsCalc.GoodS.trans ‹_› ‹_›)) then return true
+    -- (fkids3) a child pair's `ParamFree` facts (from `OptPF` / `PairPF` / a member of its design) and `OptPF (some r)`
+    if ty.getAppFn.constName? == some ``Tools.ShippingGen4FKids.ParamFree && (← hasPFHyp) then
+      if ← runTac (← `(tactic| first
+          | assumption
+          | exact (‹Tools.ShippingGen4FKidsCalc.OptPFc (some _)› _ rfl).1
+          | exact (‹Tools.ShippingGen4FKidsCalc.OptPFc (some _)› _ rfl).2 _ ‹_›
+          | exact (‹Tools.ShippingGen4FKids.PairPF _›).1
+          | exact (‹Tools.ShippingGen4FKids.PairPF _›).2 _ ‹_›)) then return true
+    if ty.getAppFn.constName? == some ``Tools.ShippingGen4FKidsCalc.OptPFc then
+      if ← runTac (← `(tactic| first
+          | assumption
+          | exact Tools.ShippingGen4FKidsCalc.OptPFc.some' ‹_›)) then return true
     -- side goals left by a rule (`SideRef`, `LocalRefType`, a message class, a hypothesis)
     if ← runTac (← `(tactic| assumption)) then return true
     if ← runTac (← `(tactic| rfl)) then return true
@@ -136,17 +162,28 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     let hdr := ty.consumeMData.appFn!
     -- (F-kids) a join point is called at whatever state is current there: its fact is the UNPOINTED `KeepsCS`
     let hdrU : Lean.Expr := if ty.consumeMData.isAppOf ``Tools.ShippingGen4FKidsCalc.KCS then
-        mkAppN (mkConst ``Tools.ShippingGen4FKidsCalc.KeepsCS) (ty.consumeMData.getAppArgs.extract 0 6) else hdr
+        mkAppN (mkConst ``Tools.ShippingGen4FKidsCalc.KeepsCS) (ty.consumeMData.getAppArgs.extract 0 6)
+      else if ty.consumeMData.isAppOf ``Tools.ShippingGen4FKidsCalc.NoRetS then
+        mkAppN (mkConst ``Tools.ShippingGen4FKidsCalc.NoRetSA) (ty.consumeMData.getAppArgs.extract 0 6) else hdr
+    -- (fkids3) a join point over an optional child pair is called only with `OptPF` pairs: its fact has that premise
+    let isOptMD (t : Lean.Expr) : Bool :=
+      let t := t.consumeMData
+      t.isAppOf ``Option && t.appArg!.consumeMData.isAppOf ``Prod && t.appArg!.consumeMData.getAppArgs[0]!.consumeMData.isConstOf ``Sparkle.IR.AST.Module
+    let withPrem (xs : Array Lean.Expr) (body : Lean.Expr) : MetaM Lean.Expr := do
+      let mut b := body
+      for x in xs.reverse do
+        if (← hasChild) && isOptMD (← inferType x) then b := mkForall `hpf .default (mkApp (mkConst ``Tools.ShippingGen4FKidsCalc.OptPFc) x) b
+      return b
     let T := p.letType!
     let n := (← getLCtx).decls.size
     let jpName := Name.mkSimple s!"jp_{n}"
     let hName := Name.mkSimple s!"hjp_{n}"
     -- (rt180) the join point and its fact are LET-bound in the proof term (`let jp := v; let hj := hv; body`), not a beta-redex `(fun jp hj => body) v hv`:
     -- `instantiateMVars` beta-reduces the redex and so copies `v` into every use of `jp` in `body` (nested join points: the final instantiation did not finish in 20 GB, H11)
-    let hvT ← forallTelescope T fun xs _ => mkForallFVars xs (mkApp hdrU (mkAppN p.letValue! xs).headBeta)
+    let hvT ← forallTelescope T fun xs _ => do mkForallFVars xs (← withPrem xs (mkApp hdrU (mkAppN p.letValue! xs).headBeta))
     let hvM ← mkFreshExprSyntheticOpaqueMVar hvT
     let bodyM ← withLetDecl jpName T p.letValue! fun jp => do
-      let hypT ← forallTelescope T fun xs _ => mkForallFVars xs (mkApp hdrU (mkAppN jp xs))
+      let hypT ← forallTelescope T fun xs _ => do mkForallFVars xs (← withPrem xs (mkApp hdrU (mkAppN jp xs)))
       withLetDecl hName hypT hvM fun hj => do
         let bodyM ← mkFreshExprSyntheticOpaqueMVar (mkApp hdr (p.letBody!.instantiate1 jp))
         g.assign (← mkLetFVars #[jp, hj] bodyM)
@@ -166,6 +203,21 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
     logInfo m!"kwalk step: head {fn}; rules {rules.map (·.2.1)}"
     if fn.constName? == some `Sparkle.Compiler.Elab.CompilerM.withLocalDecl then
       logInfo m!"kwalk wld: n {p.getArg! 1} ty {p.getArg! 2} goalDepth {p.approxDepth}"
+  -- (fkids3) a goal that never returns: bind (the first part is a `KCS` goal), ite, dite, a lifted `throwError`, a `throw`, a match
+  if ty.consumeMData.isAppOf ``Tools.ShippingGen4FKidsCalc.NoRetS then
+    if let .const c _ := fn then
+      if c == ``Bind.bind then
+        return ← runTac (← `(tactic| refine Tools.ShippingGen4FKidsCalc.NoRetS.bind ?_ (fun _ _ _ => ?_)))
+      if c == ``ite then
+        return ← runTac (← `(tactic| refine Tools.ShippingGen4FKidsCalc.NoRetS.ite (fun _ => ?_) (fun _ => ?_)))
+      if c == ``dite then
+        return ← runTac (← `(tactic| refine Tools.ShippingGen4FKidsCalc.NoRetS.dite (fun _ => ?_) (fun _ => ?_)))
+      if c == ``Sparkle.Compiler.Elab.CompilerM.liftMetaM then
+        return ← runTac (← `(tactic| refine Tools.ShippingGen4FKidsCalc.NoRetS.liftThrowError _ ?_))
+      if c == ``MonadExcept.throw || c == ``throw then
+        return ← runTac (← `(tactic| exact Tools.ShippingGen4FKidsCalc.NoRetS.throw _ (by okmsg)))
+      if (← Meta.isMatcher c) then
+        return ← runTac (← `(tactic| split))
   match fn with
   | .const c _ =>
     if c == ``Bind.bind then
@@ -199,9 +251,17 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
                   return true
       if ty.consumeMData.isAppOf ``Tools.ShippingChildInv.Keeps then
         return ← runTac (← `(tactic| refine Tools.ShippingChildInv.Keeps.bind ?_ (fun _ => ?_)))
+      -- (fkids3) `try (some <$> liftMetaM (childSynthEntry n)) catch h` with a handler that never returns: the child pair's `PairPF` reaches the continuation
+      if ty.consumeMData.isAppOf ``Tools.ShippingGen4FKidsCalc.KCS && (← hasChild) &&
+          [``MonadExcept.tryCatch, ``tryCatchThe, ``MonadExceptOf.tryCatch].contains ((p.getArg! 4).consumeMData.getAppFn.constName?.getD .anonymous) then
+        let hchild := mkIdent `hchild; let hA := mkIdent `hA
+        if ← runTac (← `(tactic| refine Tools.ShippingGen4FKidsCalc.KCS.bindTryChild ($hchild _ _ $hA _) (fun _ _ => ?_) (fun _ _ _ _ => ?_))) then
+          return true
       -- (rt174) the inline attempt: its caught exception goes to the continuation (hypothesis `htri`)
       if ((p.getArg! 4).consumeMData.getAppFn.constName?.map (·.toString.endsWith "tryInlineUnfold")).getD false then
-        if ← runTac (← `(tactic| refine Tools.ShippingGen4FKidsLegacyH7.KCS.bindCaught (by assumption) (fun _ _ _ _ => ?_))) then
+        -- (fkids3) the lemma is declared LATER (LegacyH7), so its name cannot be resolved inside a quotation here (hygiene): build the identifier
+        let bc := mkIdent `Tools.ShippingGen4FKidsLegacyH7.KCS.bindCaught
+        if ← runTac (← `(tactic| refine $bc (by assumption) (fun _ _ _ _ => ?_))) then
           return true
       -- (rt175) only for a context read (the defeq test of `bindRead` against a large `tryCatch` program timed out)
       if [``MonadReader.read, ``read, ``MonadReaderOf.read, ``readThe].contains
@@ -378,6 +438,8 @@ def kstep (rules : Array (Lean.Expr × Name × Syntax)) : TacticM Bool := withMa
       if ← runTac (← `(tactic| apply Tools.ShippingChildInv.Keeps.forIn_range)) true then return true
     else
       if ← runTac (← `(tactic| apply Tools.ShippingGen4FKidsCalc.KCS.forIn_array)) true then return true
+      if (← hasPFHyp) then
+        if ← runTac (← `(tactic| apply Tools.ShippingGen4FKidsCalc.KCS.forIn_list_mem)) true then return true
       if ← runTac (← `(tactic| apply Tools.ShippingGen4FKidsCalc.KCS.forIn_list)) true then return true
       if ← runTac (← `(tactic| apply Tools.ShippingGen4FKidsCalc.KCS.forIn_range)) true then return true
     -- an instance projection (e.g. `withTransparency` through `MonadControlT`): reduce it, as `vca` does
