@@ -147,3 +147,23 @@ for g in ["sig", "corpus"]:
                 if kind == "rec": c["REC+" if fits else "BLOCKED(rec)"] += 1
                 else: c["NEW" if fits else "BLOCKED"] += 1
             print(f"      option {o:7}: NEW {c['NEW']}, REC+ {c['REC+']}, BLOCKED(non-rec) {c['BLOCKED']}, BLOCKED(rec) {c['BLOCKED(rec)']}")
+
+# ---- the type formers that the DECLARED TYPES of the stopped definitions need (not reached by the traversal: the traversal enters bodies only) ----
+print("\n==================== type closure of the stopped definitions ====================")
+for g in ["sig", "corpus"]:
+    ts = group(g)
+    for st in (1, 2, 3, 5):
+        clos = {}; resid = {}
+        for t in ts:
+            for r in rows("cmpclos", t):
+                if int(r[0]) == st: clos[(r[1], r[3])] = (r[2], r[4])
+            for r in rows("cmpkeys", t):
+                if int(r[0]) == st: resid[(r[1], r[3])] = r[2]
+        extra = {k: v for k, v in clos.items() if k not in resid}
+        er = collections.Counter(("row" if k in has_row else ("decl" if reason_class(miss_reason.get(k, "type")) == "decl" else "no row (type)")) for k in extra)
+        kinds = collections.Counter(v[0] for v in extra.values())
+        print(f"{g} stage {st}: type-closure keys {len(clos)} (already in the residue {len(clos)-len(extra)}), EXTRA {len(extra)}: kinds {dict(kinds)}; PTcorpus: {dict(er)}")
+        if len(extra) <= 20:
+            print("     extra:", sorted(n + lv for (n, lv) in extra))
+        else:
+            print("     extra (first 25):", sorted(n + lv for (n, lv) in extra)[:25])

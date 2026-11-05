@@ -17,7 +17,7 @@ stopped key, at every stage, the declared type (instantiated at the key's levels
 * recursor occurrences: in the unfolded body of every reached, non-stopped definition, an application of a recursor whose MAJOR premise is a constructor application / literal / bound variable / other
   (as written in the body, before the caller's arguments are substituted: an UPPER-bound style estimate for an iota rule restricted to constructors).
 Fuel exhausted => `throwError`. No axiom, no sorry, no theorem.
-Raw rows: `$KJOB_REPORT_PATH.cmpkeys.<tag>` (stage, name, kind, lvl, roots, profile), `.cmpstopped.<tag>` (stage, name, lvl, roots, dyn verdict, profile), `.cmprec.<tag>` (stage, node, recursor, major class). -/
+Raw rows: `$KJOB_REPORT_PATH.cmpkeys.<tag>` (stage, name, kind, lvl, roots, profile), `.cmpstopped.<tag>` (stage, name, lvl, roots, dyn verdict, profile), `.cmprec.<tag>` (stage, node, recursor, major class), `.cmpclos.<tag>` (stage, name, kind, lvl, in the residue of that stage / extra: the residue constants in the declared types of the stopped definitions). -/
 open Lean Meta Elab Command
 open Tests.Gen5.PrimResidueKey
 open Tests.Gen5.PrimResidueTrace
@@ -124,11 +124,36 @@ partial def recOccs (env : Environment) (e : Expr) (acc : Array (Name × String)
   | .mdata _ b | .proj _ _ b => recOccs env b acc
   | _ => acc
 
+/-- the residue constants (kind /= none) in the closure of the DECLARED TYPE of `(c, ls)`: constants of the type, and (for definitions) of their unfolded bodies. These are the type formers a row for `c` needs in `hty`. -/
+def typeClosure (env : Environment) (c : Name) (ls : List Level) (fuel0 : Nat) : Array (Name × List Level) × Nat := Id.run do
+  let some ci := env.find? c | return (#[], 0)
+  if ls.length != ci.levelParams.length then return (#[], 0)
+  let ty := ci.type.instantiateLevelParams ci.levelParams ls
+  let mut seen : Std.HashSet (Name × String) := {}
+  let mut todo : Array (Name × List Level) := #[]
+  let mut out : Array (Name × List Level) := #[]
+  for (n, nl) in occs env ty #[] do
+    if !seen.contains (n, lvlKey nl) then seen := seen.insert (n, lvlKey nl); todo := todo.push (n, nl)
+  let mut fuel := fuel0
+  while fuel > 0 && todo.size > 0 do
+    fuel := fuel - 1
+    let (n, nl) := todo.back!
+    todo := todo.pop
+    if kindOf env n != "none" then out := out.push (n, nl)
+    match env.find? n with
+    | some (.defnInfo d) =>
+      let body := d.value.instantiateLevelParams d.levelParams nl
+      for (m, ml) in occs env body #[] do
+        if !seen.contains (m, lvlKey ml) then seen := seen.insert (m, lvlKey ml); todo := todo.push (m, ml)
+    | _ => pure ()
+  return (out, todo.size)
+
 def measureC (tag : String) (fuel : Nat) (rootList : Array (Name × String)) : CommandElabM Unit := do
   let env ← getEnv
   let mut keyRows := ""
   let mut stoppedRows := ""
   let mut recRows := ""
+  let mut closRows := ""
   let mut profCache : Std.HashMap (Name × String) String := {}
   let prof (n : Name) (k : String) (ls : List Level) (cache : Std.HashMap (Name × String) String) :
       CommandElabM (String × Std.HashMap (Name × String) String) := do
@@ -165,6 +190,13 @@ def measureC (tag : String) (fuel : Nat) (rootList : Array (Name × String)) : C
       let (p, cache) ← prof n k ls profCache
       profCache := cache
       keyRows := keyRows ++ s!"{st}\t{n}\t{kindOf env n}\t{k}\t{c}\t{p}\n"
+    let mut clos : Std.HashMap (Name × String) (List Level) := {}
+    for ((n, _), (_, ls)) in stoppedAgg.toList do
+      let (ks, left) := typeClosure env n ls fuel
+      if left > 0 then throwError "fuel={fuel} exhausted in the type closure of {n}"
+      for (m, ml) in ks do clos := clos.insert (m, lvlKey ml) ml
+    for ((m, k), _) in clos.toList do
+      closRows := closRows ++ s!"{st}\t{m}\t{kindOf env m}\t{k}\t{if keys.contains (m, k) then "inresidue" else "extra"}\n"
     for ((n, k), (c, ls)) in stoppedAgg.toList do
       let (p, cache) ← prof n k ls profCache
       profCache := cache
@@ -175,6 +207,7 @@ def measureC (tag : String) (fuel : Nat) (rootList : Array (Name × String)) : C
     IO.FS.writeFile (path ++ ".cmpkeys." ++ tag) keyRows
     IO.FS.writeFile (path ++ ".cmpstopped." ++ tag) stoppedRows
     IO.FS.writeFile (path ++ ".cmprec." ++ tag) recRows
+    IO.FS.writeFile (path ++ ".cmpclos." ++ tag) closRows
 
 elab "#prim_residue_cmp " tag:str fuel:num : command => do
   let env ← getEnv
@@ -207,7 +240,7 @@ elab "#prim_residue_cmp_ctl" : command => do
   chk ``Fin.mk [] "0\tfalse\t1\tfalse\t3\t0\tR2\tT3"
   chk ``Nat.rec [Level.one] "1\tfalse\t0\tfalse\t4\t0\tR3\tT3"
   chk ``Functor.map [Level.zero, Level.zero] "1\tfalse\t0\tfalse\t6\t2\tR3\tT3"
-  chk ``Eq.refl [Level.one] "0\tfalse\t0\ttrue\t2\t1\tR3\tT3"
+  chk ``Eq.refl [Level.one] "0\tfalse\t0\ttrue\t2\t1\tR3a\tT3"
   chk ``BitVec.ofNat [] "0\tfalse\t0\tfalse\t2\t0\tR2\tT3"
 
 end Tests.Gen5.PrimResidueCmp
