@@ -758,3 +758,38 @@ reviewer の方針: PT を全称のままにせず具体的な PTcorpus へ進�
 - `PTcorpus` の採用、G-PRIM、TRUSTED、台帳の減算、最終保証。K1 の 204 key 以外の残余（`PRIM_RESIDUE_FULL.md` の 379 定数のうち 175 は未着手）。
 - `PTlit` の反駁が実際の `EntryWitness` などの充足可能性を含むこと。導出がないことの meta 評価は env の事実の監査であり、kernel の証明はその含意の側だけ。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §Shard: 共有 PT core + 宣言・module ごとの extension shard（Issue `sparkle-ledger-dd4-shard`、土台 bc4e180f）
+
+reviewer の判断 Q-B: corpus の宣言（output 構造体など）を Tools の共通表に押し込まず、共有の core（`PTcorpus`＝`PTcore`）に、宣言または module 単位で生成する shard を足し、各 root は要る shard だけを合成する。**PTcorpus の採用・G-PRIM・TRUSTED・D.D-4 の減算・最終保証は未承認のまま。** TRUSTED・axiom・sorry・native_decide なし（axiom は propext / Classical.choice / Quot.sound のみ）。既存ファイルは書き換えていない。
+新ファイル: `Tools/ShippingGen5PTShard.lean`、`Tests/Gen5/PTShard/*.lean`（生成された shard 23 本）、`Tests/Gen5/PTShardCheck.lean`。lakefile は lean_lib 3 つ（`Tools.ShippingGen5PTShard`、`Tests.Gen5.PTShardCheck`、`Tests.Gen5.PTShard`＝submodules）。
+
+### 1. shard の型と合成（`Tools/ShippingGen5PTShard.lean`、kernel 検査済み）
+
+- `PTShard`: `tys` / `tms` の表（`PTcorpus` の `tysTable` / `tmsTable` と同じ形: key = 名前 × 数値の level、行 = `TyTele ks` / `TmTele ks`）。`PTShard.toPT : PrimTableK` は `PTcorpus` と同じ検索。core は表 2 つからなる shard（`ptcore_eq : PTcore = PTcoreShard.toPT` は `rfl`）。
+- 合成 `A ⊕ₚ B`（`comp`）は左優先の和。**排他** `Excl A B` は「どの key でも片方は行がない」。`comp_tys_left`/`comp_tms_left`（左の行は常に残る）、`comp_*_right_excl`（`Excl` なら右の行も残る）、`comp_comm`（`Excl` なら順序によらない）、`comp_assoc`、`Excl.comp_left`（合成を左に持つ排他）。
+- `FreshAgainst PT S`: shard `S` の key（数値 level）すべてで `PT` に行がない、という `Bool` の文。`FreshAgainst.excl : FreshAgainst PT S → Excl PT S.toPT`（shard の行は自分の key にしかない、が `toPT_*_some`）。生成物ごとに `rfl` で払う。
+- **`cvFinal_comp_functional : ConstValueFunctional (CVFinal (A ⊕ₚ B))`**。これは任意の `PrimTableK` で成り立つ `cvFinal_functional` の特殊化で、`Excl` を使わない（関数性は合成に対して無条件に保たれる。`Excl` が保証するのは、両側の行が欠けも変わりもしないこと）。
+- 補足: 合成したのは表であって、`FGLedgerPremisesStmtPTC` の `PT := PTcorpus` を root ごとの `PT := PTcore ⊕ shards` にした文は**まだ作っていない**（`FGLedgerPremisesStmtCV` は `PT` を束縛するので `PT := PTcore ⊕ₚ …` への特殊化は同じ手で作れる。今回はしていない）。
+
+### 2. 生成の仕組み（`#pt_shard`、`#pt_shard_module`）
+
+- `#pt_shard S₁ S₂ …`（宣言ごと）と `#pt_shard_module M`（module ごと: `M` が宣言する帰納型を名前順に、internal / private を除いて）。型 former と各 constructor について、**環境にある宣言型**から行を作る（`A : Type` の束縛は型引数、`A : Type` の項は項引数。証明の束縛・`Type 0` 外の束縛・結果が `Type 0` 外は行なし＝`ptShardMissing` に理由つきで残す）。生成したソースを parse して elaborate する通常の宣言なので、型検査は kernel が行う。
+- 生成物（shard ごとの namespace）: `ptShardTy<i>` / `ptShardTm<j>`（行の項。`@S.mk x₁ … xₙ` は実際の constructor として型検査される）、`ptShard : PTShard`、`ptShardWanted` / `ptShardMissing`（要求した key / 行がない key と理由）。
+- **key ごとの theorem**: `…_key`（`ptShard.toPT` の検索が行そのもの、`rfl`）、`…_run`（行を宣言型の束縛の型の引数で走らせると、constructor の適用と宣言どおりの結果型が返る。型 former は `some (@S x₁…)`、constructor は `some ⟨R, @S.mk x₁…⟩`。`simp` で kernel が検査）、`…_comp`（`PTcore ⊕ₚ ptShard.toPT` でも同じ行が見つかる）。
+- shard ごとの theorem: `ptShard_fresh`（core に対する `FreshAgainst`、`⟨rfl, rfl⟩`）、`ptShard_excl`、`ptShard_nodup`（shard 内の key 重複なし、`decide`）、`ptShard_n_tys` / `n_tms` / `n_wanted` / `n_missing`（件数、`rfl`）、`ptShard_functional`。
+
+### 3. 生成した shard と Check（`Tests/Gen5/PTShardCheck.lean`、build exit 0）
+
+- 生成した shard: 23 本（`Tests.SignalLoopTest`、corpus の宣言 51 key を持つ 22 module。`Tests/Gen5/PTShard/*.lean` は各 5 行ほど: import と `#pt_shard_module M` だけ）。23 本とも 1 つの Check に同時に import できた（個別 build も exit 0）。
+- **`Tests.SignalLoopTest` の shard は空**（0 型・0 項）。この module は帰納型を宣言しないので、3 つの Signal root（`counterLoop`、`counterEnableLoop`、`shift4Loop`）が必要とする行は core にあるか、**core にも shard にも置けない key**（再帰子・Prop の束縛・`Functor` 系）のどちらかで、shard では何も増えない。§Final2 の 29/75・20/59・29/75 は shard で変わらない。
+- 件数（kernel の `decide` / `rfl`）: 型 30 + 項 30 = 60 key（shard の行がない key は 0）。**`PTcorpus` の `notImportable` 51 key のうち 51 件を shard で払えた**（`n_paid`、axiom なし）。`unpaid = []`。余分の 9 key（`Pair`、`PidOut`、`Lanes25`、`HttpStatusParserOut`、`RxOut` とそれらの `mk`）は K1 のリストにはなく、module の宣言として生成されたもの（payment には数えない）。key は shard 間で重複せず（`paid_nodup`）、core の key とも重ならない（`paid_not_in_core`）。
+- root の合成の例: `rootPT := PTcore ⊕ₚ KaryGen ⊕ₚ MachineTele ⊕ₚ MachineNest ⊕ₚ SignalLoop`。各段の shard が直前までの合成に対して `FreshAgainst`（`fresh_step1`〜`4`、`rfl`）、core の行が残る（`rootPT_keeps_core_tys`）、`MachineNest` の行が残る（`rootPT_keeps_nest_ty0`）、`rootPT_functional`。負対照: core 自身を shard とみなすと `FreshAgainst` は偽（`not_fresh_core_shard`）。
+- env の監査（meta。**kernel の証明ではない**）: 60 key すべてで定数が環境にあり、行の kinds の数が宣言型の束縛の数と一致（不一致 0）。
+
+### 4. 主張しないこと / 残り
+
+- shard の行は `TmSpec` / 結果型の事実（`…_run`）までで、**`RowTypedAtV` / `RowTeleEvAt` は shard の行について出していない**。output 構造体の constructor は結果型が第 1 引数（`dom : DomainConfig`）に依存する（`KOut dom`）項の依存で、`PTcorpus` で開いている `Signal.mk` と同じ型の義務。51 key を「払えた」は**行を置けた**であって、行の健全性（`OblRowTypedV` / `RowTeleEvAt` の 2 つの名前付き前提）は変わらない。台帳は動かさない。
+- 4 つの同時に import できない module（§Final2）の shard は、この 23 本には含まれていない（個別の shard なら同じ仕組みで作れる。組み合わせ不能な shard 同士の合成は、1 つの root が両方を import できないので問題にならない）。
+- 再帰子 15 / `Type 0` 外 25 / 証明の束縛 6 / 結果が Prop か `Type 0` 外 4 / 族が Prop か `Type 0` 外 5 は shard では払えない（行の形が `Dyn` に入らない）。Q-A の領分。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
