@@ -115,6 +115,26 @@ run_meta do
       | _ => 0
     logInfo m!"FINGERPRINT {n}: type {toString ci.type.hash} value {toString v}"
 
+-- canonical forms of the FG binders `hS` and `h` (free variables replaced by constants named after the variables; the gen5 names
+-- `parameters`, `b`, `D` of `EntryWitness` are aliases of `θ`, `M'`, `D'`); Tests/Gen5/ParamFinalScan.lean prints the same for
+-- the corresponding parts of `EntryWitness`, the hashes must agree
+def canonName (n : Name) : Name :=
+  if n == `parameters then `θ else if n == `b then `M' else if n == `D then `D' else n
+
+def canon (e : Expr) : MetaM Expr :=
+  Meta.transform e (pre := fun x => do
+    if x.isFVar then return .done (mkConst (Name.mkSimple ("fv_" ++ (canonName (← x.fvarId!.getDecl).userName).toString)))
+    else return .continue)
+
+run_meta do
+  let nci ← getConstInfo ``Tools.ShippingGen4ParamFinal.paramFinal_run
+  forallTelescope nci.type fun xs _ => do
+    for x in xs do
+      let d ← x.fvarId!.getDecl
+      if [`hS, `h].contains d.userName then
+        let c ← canon d.type
+        logInfo m!"CANON {d.userName}: hash {toString c.hash} {c}"
+
 -- NEGATIVE controls for the difference
 run_meta do
   let oci ← getConstInfo ``Tools.ShippingGen4ParamFinal.paramFinal_old
