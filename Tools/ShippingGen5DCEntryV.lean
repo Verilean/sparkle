@@ -160,8 +160,8 @@ theorem dropZeroWidth_seqOk {m : Sparkle.IR.AST.Module}
     | register o c rs i iv =>
       simp only [Sparkle.IR.ZeroWidth.dzStmt, Option.some.injEq] at hst
       subst hst; rfl
-    | memory .. => simp [Sparkle.IR.OptCheck.seqStmtOk] at hs'
-    | inst .. => simp [Sparkle.IR.OptCheck.seqStmtOk] at hs'
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [Sparkle.IR.OptCheck.seqStmtOk] at hs'
+    | inst _ _ _ => simp [Sparkle.IR.OptCheck.seqStmtOk] at hs'
 
 theorem noRawBelow_mono {D : Sparkle.IR.AST.Design} {rn : String} {mc mc' : Sparkle.IR.AST.Module}
     (hsub : ∀ (mn iname : String) (conns : List (String × Sparkle.IR.AST.Expr)),
