@@ -8,21 +8,17 @@ import Tests.Compiler.ShippingSignOpsTest
 import Tests.Compiler.ShippingMachineNormTest
 import Tests.Compiler.ShippingCallsCloseTest
 import Tests.Compiler.NoPortsMemSeqGenNew2Test
-import Tests.Compiler.MemNameCollisionDesignTest
 import Tests.Compiler.SeqDeepGenKeyTest
-import Tests.Compiler.MemNameCollisionGateDesignTest
 import Tests.Compiler.KaryThreeTest
 import Tests.Compiler.ShippingMachineLoopTest
 import Tests.Compiler.ShippingMachineSeqLinkedTest
 import Tests.Compiler.ShippingPremiseEvalTest
-import Tests.Compiler.MemNameCollisionGateTypedAllTest
 import Tests.Compiler.ShippingMachineRawTest
 import Tests.Compiler.ShippingMachineCombTest
 import Tests.Compiler.LeafDeadInitTest
 import Tests.Compiler.DepthSwitchSpongeTest
 import Tests.Compiler.ShippingMachineLinkedTest
 import Tests.Compiler.OneOutWKeccakFTest
-import Tests.Compiler.MemNameCollisionGenTest
 import Tests.Compiler.NoPortsMemKidTest
 import Tests.Compiler.ShippingMachineClosesTest
 import Tests.Compiler.NonzeroInitParentTest
@@ -49,7 +45,7 @@ import Tests.Compiler.ShippingMachineTeleTest
 import Tests.Compiler.SeqDeepGenDiffTest
 import Tools.ShippingGen5ConstValueELS
 /-! # Residue count under the level-indexed key `Name × List Level` (issue sparkle-ledger-dd4-key)
-Measurement only. Corpus: every module that runs `#machine_endpoint` (47 modules imported above), every `X` with `X.machine_source`.
+Measurement only. Corpus: every module that runs `#machine_endpoint` (43 modules imported above: the 4 MemNameCollision* modules are left out, they conflict with a transitive import), every `X` with `X.machine_source`.
 Traversal from `(X, LS env X)` as in `LSCorpus`: unfold `defnInfo` at the instantiated levels, record each reached `(c, ls)` (levels `normalize`d);
 proof terms (theorem-headed applications) are not entered. RESIDUE = reached constants that are not `defnInfo`/`thmInfo`
 (constructor, recursor, quot, inductive type former, axiom, opaque). Rows under three keys: Name-only (`PrimTable`, one row per name),
@@ -132,7 +128,7 @@ elab "#prim_residue_key" : command => do
     perRootMax := max perRootMax cnt
     perRootNameMax := max perRootNameMax nm.size
   let kinds := ["ctor", "rec", "induct", "quot", "axiom", "opaque"]
-  let mut msg := s!"CORPUS: {roots.size} roots with `X.machine_source` (47 modules); roots whose own decl has levelParams: {rootPoly}\n"
+  let mut msg := s!"CORPUS: {roots.size} roots with `X.machine_source` (43 modules); roots whose own decl has levelParams: {rootPoly}\n"
   msg := msg ++ s!"residue rows, Name-only key (PrimTable): {names.size}\n"
   msg := msg ++ s!"residue rows, level-indexed key (PrimTableK, Name x List Level): {keys.size}\n"
   msg := msg ++ s!"residue rows, level-polymorphic (one per name, ls an argument): {names.size} (same count as Name-only)\n"
