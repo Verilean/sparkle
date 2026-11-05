@@ -56,7 +56,8 @@ run_meta do
   for (o, n) in pairs do
     let (rm, ad, ch, same) ← diff o n
     logInfo m!"{n}: removed {rm} added {ad} changed {ch} sameConcl {same}"
-    unless rm == [] && ad == [] && ch == [`H] && same do throwError "{n}: unexpected diff"
+    unless rm == [] && ad == [] && ch == [`H] && same do
+      throwError "{n}: unexpected diff: removed {rm} added {ad} changed {ch} sameConcl {same}"
     unless (← headOf o `H) == some ``Tools.ShippingGen2.T1Hyp do throwError "CONTROL: {o}.H is not T1Hyp"
     unless (← headOf n `H) == some ``Tools.ShippingGen2.T1HypND do throwError "{n}.H is not T1HypND"
     if ← usesT1Hyp n then throwError "{n}: a binder still uses T1Hyp"
