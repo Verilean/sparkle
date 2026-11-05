@@ -5,7 +5,7 @@ set_option autoImplicit false
 
 /-! # C.SM-7: no top-level ordinary-guard binder; the guard comes from `stepDec_of_ties`'s `hT2_TIE`
 
-1. GUARD: a binder is a "guard binder" when its type is `Eq (… .child?) none` at the top (not under a `∀`/`→`), detected by the
+1. GUARD (premises only, up to `hkidW`): a binder is a "guard binder" when its type is `Eq (… .child?) none` at the top (not under a `∀`/`→`), detected by the
    constant `InstOrigin.child?` in the left side of an `Eq`. `hT2Tie_of_genGP` must have NONE; the ND root
    `callTie_of_served_oneOut_t1ND` (control) must have one (`hord`).
 2. CONSUMER: the conclusion of `hT2Tie_of_genGP` is `==` (structural Expr) to the type of the `hT2_TIE` premise of
@@ -22,13 +22,18 @@ def isGuard (ty : Expr) : Bool :=
   | some (_, lhs, _) => lhs.getUsedConstants.contains ``Sparkle.Compiler.MachInstOrigin.InstOrigin.child?
   | none => false
 
-def guardBinders (c : Name) : MetaM (List Name) := do
+/-- Guard binders among the PREMISES of `c`: the binders up to and including `last` (the conclusion's own `∀ k hk, guard → …`
+is not a premise), or all binders when `last = none`. -/
+def guardBinders (c : Name) (last : Option Name := none) : MetaM (List Name) := do
   let ci ← getConstInfo c
   forallTelescope ci.type fun xs _ => do
     let mut out := []
+    let mut stop := false
     for x in xs do
+      if stop then break
       let d ← x.fvarId!.getDecl
       if isGuard (← instantiateMVars d.type) then out := out ++ [d.userName]
+      if some d.userName == last then stop := true
     return out
 
 /-- Opens the binders of `ty` up to and including the one named `last`, then runs `k` on the fvars and the rest. -/
@@ -59,9 +64,12 @@ def hT2TieTy (ι dom P p : Expr) : MetaM Expr := do
 
 run_meta do
   -- 1. GUARD
-  let g ← guardBinders ``Tools.ShippingGen5SM7.hT2Tie_of_genGP
+  let g ← guardBinders ``Tools.ShippingGen5SM7.hT2Tie_of_genGP (some `hkidW)
+  -- control for the cut: without it, the conclusion's own guard is (correctly) seen
+  let gAll ← guardBinders ``Tools.ShippingGen5SM7.hT2Tie_of_genGP
+  if gAll.isEmpty then throwError "CONTROL: the conclusion's guard of hT2Tie_of_genGP is not seen without the cut"
   let gc ← guardBinders ``Tools.ShippingGen2.callTie_of_served_oneOut_t1ND
-  logInfo m!"GUARD binders: hT2Tie_of_genGP {g}; control callTie_of_served_oneOut_t1ND {gc}"
+  logInfo m!"GUARD binders (premises): hT2Tie_of_genGP {g}; whole telescope {gAll.length}; control callTie_of_served_oneOut_t1ND {gc}"
   unless g.isEmpty do throwError "hT2Tie_of_genGP has a guard binder {g}"
   unless gc == [`hord] do throwError "CONTROL: the ND root should have exactly the guard binder hord, got {gc}"
   -- 2. CONSUMER
