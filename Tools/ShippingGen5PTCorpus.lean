@@ -1005,6 +1005,10 @@ theorem ptc_teleEv_DomainConfig_mk (env : Environment) (hN : ¬ IsDefn env ``Nat
       (.const `Sparkle.Core.Domain.DomainConfig [])) : RowTeleEvAt PTcorpus env `Sparkle.Core.Domain.DomainConfig.mk [] :=
   teleEv_DomainConfig_mk PTcorpus env argsTySpec_DomainConfig_mk hbd hT
 
+/-- A nullary row (`kinds = []`) has `RowTeleEvAt` for free (`rowTeleEvAt_nullary`): six keys. -/
+theorem ptc_teleEv_nullary (env : Environment) {c : Name} {ls : List Level} {t : TmTele []} (h : PTcorpus.tms c ls = some t.row) :
+    RowTeleEvAt PTcorpus env c ls := rowTeleEvAt_nullary PTcorpus env c ls t.row h rfl
+
 /-- A key without a `tms` row is trivially typed (no derivation uses it). -/
 theorem ptc_rowTypedV_of_none (env : Environment) (c : Name) (ls : List Level) (h : PTcorpus.tms c ls = none) : RowTypedAtV PTcorpus env c ls :=
   rowTypedAtV_of_none PTcorpus env c ls h
