@@ -111,4 +111,185 @@ theorem rowTypedAtV_spine (PT : PrimTableK) (env : Environment) (c : Name) (ls :
   have hargs' : ArgsDenV PT env ρ trow.kinds (args.take kp.length) (ys.take kp.length) := by rw [htk]; exact argsDenV_take kp kq hargs
   exact .tcon htrow hnd hargs' (hden ys d hd) (by simp)
 
+/-! ## §2 `SpineSpec` of a `PTcorpus` row by construction
+
+`Refines kp kq t u`: the value telescope `t` (kinds `kp ++ kq`) and the type telescope `u` (kinds `kp`) take the same arguments in the first `kp.length` places, and `t` produces a value of the type that `u` produces. -/
+open Classical in
+def Refines : (kp kq : List Bool) → TmTele (kp ++ kq) → TyTele kp → Prop
+  | [], _, t, .done T => t.ResTy T
+  | true :: kp, kq, .tm A k, .tm A' k' => ∃ h : A = A', ∀ a, Refines kp kq (k a) (k' (cast h a))
+  | false :: kp, kq, .ty k, .ty k' => ∀ X, Refines kp kq (k X) (k' X)
+
+theorem refines_run : ∀ (kp kq : List Bool) (t : TmTele (kp ++ kq)) (u : TyTele kp), Refines kp kq t u →
+    ∀ (ys : List Arg) (d : Dyn), t.run ys = some d → u.run (ys.take kp.length) = some d.ty
+  | [], _, t, .done T, h, ys, d, hd => by
+    simp only [List.length_nil, List.take_zero, TyTele.run]
+    rw [TmTele.run_ty t T h ys d hd]
+  | true :: kp, kq, .tm A k, .tm A' k', ⟨hA, h⟩, ys, d, hd => by
+    cases hA
+    cases ys with
+    | nil => simp [TmTele.run] at hd
+    | cons y ys =>
+      cases y with
+      | ty _ => simp [TmTele.run] at hd
+      | tm p =>
+        obtain ⟨α, a⟩ := p
+        simp only [TmTele.run] at hd
+        by_cases hα : α = A
+        · subst hα
+          simp only [dif_pos] at hd
+          have := refines_run kp kq _ _ (h (cast rfl a)) ys d hd
+          simpa [TyTele.run] using this
+        · simp [hα] at hd
+  | false :: kp, kq, .ty k, .ty k', h, ys, d, hd => by
+    cases ys with
+    | nil => simp [TmTele.run] at hd
+    | cons y ys =>
+      cases y with
+      | tm _ => simp [TmTele.run] at hd
+      | ty T =>
+        simp only [TmTele.run] at hd
+        simpa [TyTele.run] using refines_run kp kq _ _ (h T) ys d hd
+
+theorem spineSpec_of_refines {PT : PrimTableK} {c : Name} {ls : List Level} {kp kq : List Bool} {D : Name} {Ls : List Level}
+    {t : TmTele (kp ++ kq)} {u : TyTele kp} (hr : Refines kp kq t u)
+    (h1 : PT.tms c ls = some t.row) (h2 : PT.tys D Ls = some u.row) : SpineSpec PT c ls kp kq D Ls :=
+  ⟨_, _, h1, rfl, h2, rfl, fun ys d hd => refines_run kp kq t u hr ys d hd⟩
+
+macro "refines_tac" : tactic => `(tactic| (repeat (first | refine ⟨rfl, ?_⟩ | intro _); try rfl))
+
+/-- `RowTypedAtV PTcorpus` of the 19 rows that the first-argument theorems do not reach (type former applied to the first `m` arguments), one pair of theorems per key: the `SpineSpec` of the row, and the row theorem with the env fact as hypothesis. -/
+theorem spec_BitVec_ofFin : SpineSpec PTcorpus `BitVec.ofFin [] [true] [true] `BitVec [] :=
+  spineSpec_of_refines (t := tm_4) (u := ty_4) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_BitVec_ofFin (env : Environment) (hnd : ¬ IsDefn env `BitVec)
+    (hT : EnvDepSpine env `BitVec.ofFin [] 2 1 `BitVec []) : RowTypedAtV PTcorpus env `BitVec.ofFin [] :=
+  rowTypedAtV_spine PTcorpus env _ _ [true] [true] _ _ spec_BitVec_ofFin hnd hT
+
+theorem spec_HAdd_mk : SpineSpec PTcorpus `HAdd.mk [.zero, .zero, .zero] [false, false, false] [true] `HAdd [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_9) (u := ty_10) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HAdd_mk (env : Environment) (hnd : ¬ IsDefn env `HAdd)
+    (hT : EnvDepSpine env `HAdd.mk [.zero, .zero, .zero] 4 3 `HAdd [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HAdd.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HAdd_mk hnd hT
+
+theorem spec_HAnd_mk : SpineSpec PTcorpus `HAnd.mk [.zero, .zero, .zero] [false, false, false] [true] `HAnd [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_10) (u := ty_11) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HAnd_mk (env : Environment) (hnd : ¬ IsDefn env `HAnd)
+    (hT : EnvDepSpine env `HAnd.mk [.zero, .zero, .zero] 4 3 `HAnd [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HAnd.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HAnd_mk hnd hT
+
+theorem spec_HAppend_mk : SpineSpec PTcorpus `HAppend.mk [.zero, .zero, .zero] [false, false, false] [true] `HAppend [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_11) (u := ty_12) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HAppend_mk (env : Environment) (hnd : ¬ IsDefn env `HAppend)
+    (hT : EnvDepSpine env `HAppend.mk [.zero, .zero, .zero] 4 3 `HAppend [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HAppend.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HAppend_mk hnd hT
+
+theorem spec_HDiv_mk : SpineSpec PTcorpus `HDiv.mk [.zero, .zero, .zero] [false, false, false] [true] `HDiv [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_12) (u := ty_13) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HDiv_mk (env : Environment) (hnd : ¬ IsDefn env `HDiv)
+    (hT : EnvDepSpine env `HDiv.mk [.zero, .zero, .zero] 4 3 `HDiv [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HDiv.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HDiv_mk hnd hT
+
+theorem spec_HMod_mk : SpineSpec PTcorpus `HMod.mk [.zero, .zero, .zero] [false, false, false] [true] `HMod [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_13) (u := ty_14) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HMod_mk (env : Environment) (hnd : ¬ IsDefn env `HMod)
+    (hT : EnvDepSpine env `HMod.mk [.zero, .zero, .zero] 4 3 `HMod [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HMod.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HMod_mk hnd hT
+
+theorem spec_HMul_mk : SpineSpec PTcorpus `HMul.mk [.zero, .zero, .zero] [false, false, false] [true] `HMul [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_14) (u := ty_15) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HMul_mk (env : Environment) (hnd : ¬ IsDefn env `HMul)
+    (hT : EnvDepSpine env `HMul.mk [.zero, .zero, .zero] 4 3 `HMul [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HMul.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HMul_mk hnd hT
+
+theorem spec_HOr_mk : SpineSpec PTcorpus `HOr.mk [.zero, .zero, .zero] [false, false, false] [true] `HOr [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_15) (u := ty_16) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HOr_mk (env : Environment) (hnd : ¬ IsDefn env `HOr)
+    (hT : EnvDepSpine env `HOr.mk [.zero, .zero, .zero] 4 3 `HOr [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HOr.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HOr_mk hnd hT
+
+theorem spec_HPow_mk : SpineSpec PTcorpus `HPow.mk [.zero, .zero, .zero] [false, false, false] [true] `HPow [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_16) (u := ty_17) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HPow_mk (env : Environment) (hnd : ¬ IsDefn env `HPow)
+    (hT : EnvDepSpine env `HPow.mk [.zero, .zero, .zero] 4 3 `HPow [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HPow.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HPow_mk hnd hT
+
+theorem spec_HShiftLeft_mk : SpineSpec PTcorpus `HShiftLeft.mk [.zero, .zero, .zero] [false, false, false] [true] `HShiftLeft [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_17) (u := ty_18) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HShiftLeft_mk (env : Environment) (hnd : ¬ IsDefn env `HShiftLeft)
+    (hT : EnvDepSpine env `HShiftLeft.mk [.zero, .zero, .zero] 4 3 `HShiftLeft [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HShiftLeft.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HShiftLeft_mk hnd hT
+
+theorem spec_HShiftRight_mk : SpineSpec PTcorpus `HShiftRight.mk [.zero, .zero, .zero] [false, false, false] [true] `HShiftRight [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_18) (u := ty_19) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HShiftRight_mk (env : Environment) (hnd : ¬ IsDefn env `HShiftRight)
+    (hT : EnvDepSpine env `HShiftRight.mk [.zero, .zero, .zero] 4 3 `HShiftRight [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HShiftRight.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HShiftRight_mk hnd hT
+
+theorem spec_HSub_mk : SpineSpec PTcorpus `HSub.mk [.zero, .zero, .zero] [false, false, false] [true] `HSub [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_19) (u := ty_20) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HSub_mk (env : Environment) (hnd : ¬ IsDefn env `HSub)
+    (hT : EnvDepSpine env `HSub.mk [.zero, .zero, .zero] 4 3 `HSub [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HSub.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HSub_mk hnd hT
+
+theorem spec_HXor_mk : SpineSpec PTcorpus `HXor.mk [.zero, .zero, .zero] [false, false, false] [true] `HXor [.zero, .zero, .zero] :=
+  spineSpec_of_refines (t := tm_20) (u := ty_21) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_HXor_mk (env : Environment) (hnd : ¬ IsDefn env `HXor)
+    (hT : EnvDepSpine env `HXor.mk [.zero, .zero, .zero] 4 3 `HXor [.zero, .zero, .zero]) : RowTypedAtV PTcorpus env `HXor.mk [.zero, .zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false, false] [true] _ _ spec_HXor_mk hnd hT
+
+theorem spec_OfNat_mk : SpineSpec PTcorpus `OfNat.mk [.zero] [false, true] [true] `OfNat [.zero] :=
+  spineSpec_of_refines (t := tm_35) (u := ty_33) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_OfNat_mk (env : Environment) (hnd : ¬ IsDefn env `OfNat)
+    (hT : EnvDepSpine env `OfNat.mk [.zero] 3 2 `OfNat [.zero]) : RowTypedAtV PTcorpus env `OfNat.mk [.zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, true] [true] _ _ spec_OfNat_mk hnd hT
+
+theorem spec_PProd_mk : SpineSpec PTcorpus `PProd.mk [.succ .zero, .succ .zero] [false, false] [true, true] `PProd [.succ .zero, .succ .zero] :=
+  spineSpec_of_refines (t := tm_37) (u := ty_35) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_PProd_mk (env : Environment) (hnd : ¬ IsDefn env `PProd)
+    (hT : EnvDepSpine env `PProd.mk [.succ .zero, .succ .zero] 4 2 `PProd [.succ .zero, .succ .zero]) : RowTypedAtV PTcorpus env `PProd.mk [.succ .zero, .succ .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false] [true, true] _ _ spec_PProd_mk hnd hT
+
+theorem spec_Pow_mk : SpineSpec PTcorpus `Pow.mk [.zero, .zero] [false, false] [true] `Pow [.zero, .zero] :=
+  spineSpec_of_refines (t := tm_39) (u := ty_37) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_Pow_mk (env : Environment) (hnd : ¬ IsDefn env `Pow)
+    (hT : EnvDepSpine env `Pow.mk [.zero, .zero] 3 2 `Pow [.zero, .zero]) : RowTypedAtV PTcorpus env `Pow.mk [.zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false] [true] _ _ spec_Pow_mk hnd hT
+
+theorem spec_Prod_mk : SpineSpec PTcorpus `Prod.mk [.zero, .zero] [false, false] [true, true] `Prod [.zero, .zero] :=
+  spineSpec_of_refines (t := tm_40) (u := ty_38) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_Prod_mk (env : Environment) (hnd : ¬ IsDefn env `Prod)
+    (hT : EnvDepSpine env `Prod.mk [.zero, .zero] 4 2 `Prod [.zero, .zero]) : RowTypedAtV PTcorpus env `Prod.mk [.zero, .zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, false] [true, true] _ _ spec_Prod_mk hnd hT
+
+theorem spec_Sparkle_Core_HasDomain_mk : SpineSpec PTcorpus `Sparkle.Core.HasDomain.mk [] [false, true] [] `Sparkle.Core.HasDomain [] :=
+  spineSpec_of_refines (t := tm_45) (u := ty_42) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_Sparkle_Core_HasDomain_mk (env : Environment) (hnd : ¬ IsDefn env `Sparkle.Core.HasDomain)
+    (hT : EnvDepSpine env `Sparkle.Core.HasDomain.mk [] 2 2 `Sparkle.Core.HasDomain []) : RowTypedAtV PTcorpus env `Sparkle.Core.HasDomain.mk [] :=
+  rowTypedAtV_spine PTcorpus env _ _ [false, true] [] _ _ spec_Sparkle_Core_HasDomain_mk hnd hT
+
+theorem spec_Sparkle_Core_Signal_Signal_mk : SpineSpec PTcorpus `Sparkle.Core.Signal.Signal.mk [.zero] [true, false] [true] `Sparkle.Core.Signal.Signal [.zero] :=
+  spineSpec_of_refines (t := tm_46) (u := ty_43) (by refines_tac) rfl rfl
+
+theorem ptc_spine_rowTypedV_Sparkle_Core_Signal_Signal_mk (env : Environment) (hnd : ¬ IsDefn env `Sparkle.Core.Signal.Signal)
+    (hT : EnvDepSpine env `Sparkle.Core.Signal.Signal.mk [.zero] 3 2 `Sparkle.Core.Signal.Signal [.zero]) : RowTypedAtV PTcorpus env `Sparkle.Core.Signal.Signal.mk [.zero] :=
+  rowTypedAtV_spine PTcorpus env _ _ [true, false] [true] _ _ spec_Sparkle_Core_Signal_Signal_mk hnd hT
+
 end Tools.ShippingGen5PTCorpusSpec
