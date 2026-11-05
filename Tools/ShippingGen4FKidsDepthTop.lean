@@ -2,6 +2,8 @@ import Tools.ShippingGen4FKidsLegacyTail
 import Tools.ShippingGen4FKidsDepthInduct
 import Tools.ShippingGen4FKidsLegacyArm
 import Tools.ShippingGen4ParamEntry
+import Tools.ShippingGen4KWalkDepthTop
+import Tools.ShippingGen4FKidsEntryCore
 -- F-kids DepthTop, part 1: the design-only walk (`KD`) of the symbolic binder walk `bindInputsLegacy` with `θ ≠ []`
 -- (FKIDS_FREEZE §7.6): `addParameter` writes `module`, not `design`, so `StatePF` is all the walk keeps.
 -- Takes `MemoFamily` and `PpMvKS` as hypotheses only; adds NO premise, NO axiom. No `sorry`.
@@ -34,6 +36,9 @@ open Tools.ShippingGen4FKidsLegacyArm
 open Tools.ShippingGen4FKidsEntryArms
 open Tools.ShippingGen4ParamEntry
 open Tools.ShippingGen4KWalkDiag
+open Tools.ShippingGen4KWalkDepthTop
+open Tools.ShippingGen4FKidsDepthEntry
+open Tools.ShippingGen4KWalkEntry
 open Tools.ShippingGen4KWalkEntryCore
 open Tools.ShippingChildInv
 open Sparkle.IR.Builder (CircuitState)
@@ -274,6 +279,119 @@ theorem legacySym_windowDP (hlog : LogMvKS O) (D : Nat)
   | _ =>
     dsimp only
     exact tripleK_throwErr M hA hS _ (by okmsg)
+
+/-- The child-cache reset `set v` from a world with an empty memo: depth kept, the cache is `v`. -/
+theorem triple_childResetDPF (D : Nat) (v : Std.HashMap Name Res) {R : Exception → Void IO.RealWorld → Prop} :
+    Triple mctx mref cctx cref (KWD O (fun m _ => m = {}) D) (sparkleChildCache.set v : MetaM Unit)
+      (fun _ => KWD O (fun m c => m = {} ∧ c = v) D) R :=
+  Triple.of_runs (refSet_runs _ _) fun w u w' hw h => by
+    have hk := O.cacheSet hA v w u w' h hw.1.1
+    have hm := M.frameCacheSet hA v w u w' h hw.1.1
+    refine ⟨⟨O.cacheSetQ hA v w u w' h hw.1.1, hk.2.1.trans hw.1.2.1, ?_⟩, by rw [hk.2.2]; exact hw.2⟩
+    rw [hm]
+    exact ⟨hw.1.2.2, hk.1⟩
+
+theorem entryTopSym_windowD (hlog : LogMvK O) (translate : Lean.Environment → TranslateFn) (declName : Name)
+    (θ : List (String × Nat))
+    (hbody : 0 < sparkleSynthDepthLimit → ∀ (b : Bool) (env : Lean.Environment) (ci : ConstantInfo)
+        (isInst : Lean.Expr → Bool),
+      Triple mctx mref cctx cref (WPF O 1)
+        (synthesizeFromConst (translate env) (profLogIO b) declName θ true true ci isInst)
+        (fun r w => WPF O 1 w ∧ DesignPF r.2) (fun e w => WPF O 1 w ∧ OkExc e)) :
+    Triple mctx mref cctx cref (KWD O (fun _ _ => True) 0)
+      (synthesizeCombinationalCoreWith translate declName θ true true)
+      (fun (r : (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) _ => DesignPF r.2) (fun e w => KW O (fun _ _ => True) w ∧ OkExc e) := by
+  unfold synthesizeCombinationalCoreWith
+  simp only [↓reduceIte]
+  refine Triple.ite (fun _ => ?_) (fun _ => ?_)
+  · refine Triple.bind (Q := fun _ _ => False)
+      (Triple.conseq (tripleK_throwErr M hA (stableK_KWD O (fun _ _ => True) 0) _
+        (by first | exact .str _ | exact .fmt _)) (fun _ h => h) (fun _ _ h => h) (fun _ _ h => ⟨h.1.1, h.2⟩)) ?_
+    intro _ w hf
+    exact hf.elim
+  · refine Triple.bind (R := fun e w => KW O (fun _ _ => True) w ∧ OkExc e) (Q := fun _ w => KWD O (fun _ _ => True) 0 w)
+      (Triple.conseq (keeps_iff.mp ?_) (fun _ h => h) (fun _ _ h => h) (fun _ _ h => ⟨h.1.1, h.2⟩)) ?_
+    · swalkN [keepsK_throwErrorS M hA (stableK_KWD O (fun _ _ => True) 0) _ _, Keeps.forIn_list]
+    intro _
+    refine Triple.bind (R := fun e w => KW O (fun _ _ => True) w ∧ OkExc e) (Q := fun _ w => KWD O (fun _ _ => True) 0 w)
+      (Triple.conseq (keeps_iff.mp (keepsK_framedNM M hA (stableK_KWD O (fun _ _ => True) 0) (FramedNM.ioEnv _)))
+        (fun _ h => h) (fun _ _ h => h) (fun _ _ h => ⟨h.1.1, h.2⟩)) ?_
+    intro prof
+    refine Triple.bind (R := fun e w => KW O (fun _ _ => True) w ∧ OkExc e) (Q := fun _ w => KWD O (fun _ _ => True) 0 w)
+      (Triple.conseq (keeps_iff.mp (keepsK_profLog M hA (stableK_KWD O (fun _ _ => True) 0) hlog prof.isSome _))
+        (fun _ h => h) (fun _ _ h => h) (fun _ _ h => ⟨h.1.1, h.2⟩)) ?_
+    intro _
+    refine Triple.bindQ (φ := fun d => d = 0) (tripleK_depthGetD M hA (fun _ _ => True) 0) ?_
+    intro d hd
+    subst hd
+    refine Triple.ite (fun _ => ?_) (fun hc => ?_)
+    · refine Triple.bind (Q := fun _ _ => False)
+        (Triple.conseq (tripleK_throwErr M hA (stableK_KWD O (fun _ _ => True) 0) _
+          (by first | exact .str _ | exact .fmt _)) (fun _ h => h) (fun _ _ h => h) (fun _ _ h => ⟨h.1.1, h.2⟩)) ?_
+      intro _ w hf
+      exact hf.elim
+    · have hlt : 0 < sparkleSynthDepthLimit := Nat.not_le.mp hc
+      have h0 : (0 == 0) = true := rfl
+      simp only [h0, ↓reduceIte]
+      kpureT (fun _ _ => True); kpureT (fun _ _ => True); kpureT (fun _ _ => True); kpureT (fun _ _ => True)
+      kpureT (fun _ _ => True); kpureT (fun _ _ => True); kpureT (fun _ _ => True)
+      ksetT (fun _ _ => True); ksetT (fun _ _ => True); ksetT (fun _ _ => True)
+      refine Triple.bind (R := fun e w => KW O (fun _ _ => True) w ∧ OkExc e) (Triple.conseq (R := fun _ _ => False) (triple_memoResetD M hA (fun _ _ => True) 0)
+        (fun _ h => h) (fun _ _ h => h) (fun _ _ h => h.elim)) ?_
+      intro _
+      refine Triple.bind (R := fun e w => KW O (fun _ _ => True) w ∧ OkExc e) (Triple.conseq
+        (triple_childResetDPF M hA 0 _ (R := fun _ _ => False))
+        (fun _ h => h) (fun _ _ h => h) (fun _ _ h => h.elim)) ?_
+      intro _
+      ksetT (fun m c => m = {} ∧ c = {}); ksetT (fun m c => m = {} ∧ c = {}); ksetT (fun m c => m = {} ∧ c = {})
+      ksetT (fun m c => m = {} ∧ c = {}); ksetT (fun m c => m = {} ∧ c = {}); ksetT (fun m c => m = {} ∧ c = {})
+      ksetT (fun m c => m = {} ∧ c = {})
+      refine Triple.bind (R := fun e w => KW O (fun _ _ => True) w ∧ OkExc e)
+        (Triple.conseq (R := fun _ _ => False) (triple_depthSetD M hA PPF 0 1)
+          (fun (w : Void IO.RealWorld) (h : KWD O (fun m c => m = {} ∧ c = {}) 0 w) =>
+            ⟨⟨h.1.1, h.1.2.1, by rw [h.1.2.2.1, h.1.2.2.2]; exact ⟨memoKeysInChild_empty _, cachePF_empty, cachePF_empty⟩⟩, h.2⟩)
+          (fun _ _ h => h) (fun _ _ h => h.elim)) ?_
+      intro _
+      have body : ∀ (m1 : Std.HashMap Lean.Name Lean.Expr) (m2 : Std.HashMap String Nat)
+          (m3 m4 m5 : Std.HashMap String String) (m6 : Std.HashMap (UInt64 × String) String)
+          (m7 : Std.HashMap String String),
+          Triple mctx mref cctx cref (WPF O 1)
+            (_root_.tryFinally
+              (do
+                let constInfo ← getConstInfo declName
+                let env ← getEnv
+                synthesizeFromConst (translate env) (profLogIO prof.isSome) declName θ true true
+                  (entryConst true true θ constInfo (instancePredicate env) (userInliner env)
+                    (structEnv env))
+                  (instancePredicate env))
+              (do
+                ST.Ref.modify sparkleSynthDepth fun x => x - 1
+                if (0 != 0) = true then do
+                    ST.Ref.set sparkleFvarValueMap m1
+                    ST.Ref.set sparkleWireWidthCache m2
+                    ST.Ref.set sparkleLetWireCache m3
+                    ST.Ref.set sparkleLoopWireCache m4
+                    ST.Ref.set sparkleWireCanon m5
+                    ST.Ref.set sparkleSubInstanceOutputs m6
+                    ST.Ref.set sparkleSingleOutInstanceCache m7
+                  else pure () : MetaM Unit))
+            (fun (r : (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) _ => DesignPF r.2) (fun e w => KW O (fun _ _ => True) w ∧ OkExc e) := by
+        intro m1 m2 m3 m4 m5 m6 m7
+        refine Triple.conseq (R := fun e w => KWD O PPF 0 w ∧ OkExc e) ?_ (fun _ h => h) (fun _ _ h => h)
+          (fun _ _ h => ⟨kw_weak h.1.1, h.2⟩)
+        refine tryFinallySplit2Q (Q1 := fun (r : (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) w => WPF O 1 w ∧ DesignPF r.2) (Q2 := fun (r : (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) _ => DesignPF r.2)
+          (Me := WPF O 1) (Me' := KWD O PPF 0) (E := OkExc) ?_
+          (fun a => Triple.conseq (Tools.ShippingGen4FKidsEntryCore.triple_constConj (DesignPF a.2) (fin_totalD M hA PPF 0 m1 m2 m3 m4 m5 m6 m7))
+            (fun _ h => h) (fun _ _ h => h.2) (fun _ _ h => h))
+          (fin_totalD M hA PPF 0 m1 m2 m3 m4 m5 m6 m7)
+        · refine Triple.bind (keeps_iff.mp (keepsK_framedNM M hA (stableK_KWD O PPF 1)
+            (FramedNM.constInfo _))) ?_
+          intro ci
+          refine Triple.bind (keeps_iff.mp (keepsK_framedNM M hA (stableK_KWD O PPF 1)
+            FramedNM.env)) ?_
+          intro env
+          exact hbody hlt prof.isSome env _ _
+      exact body _ _ _ _ _ _ _
 
 end Sym
 
