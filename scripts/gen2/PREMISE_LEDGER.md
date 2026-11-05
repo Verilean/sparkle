@@ -1183,3 +1183,13 @@ reviewer の承認で、次の行を除く。
 
 - **現在値: FG 83**（84 − 1）。内訳（R0）: リーフ 58 / 非リーフ 25。T1 は 57。FG の最終受理ではない。
 - 同じ日の D.D-7（Issue sparkle-ledger-dd7、par/dd7 2f1e665c）は default route の条件付き部品で、parametric route は machine route を通らない（symbolicMode で `machineShape?` が none）。全経路の減算は parametric の橋が揃うまで 0。
+
+### 12.16 減算（2026-11-05、coder。文書のみ。scoped intermediate）
+
+ユーザー判断（2026-11-05「Aで進めて」、`scripts/gen5/GP_FIX_DECISION.md` 案 A）: FG のパッケージ carrier `GP` を生成器の表に固定する。
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| GPFIX（Issue sparkle-ledger-gpfix、freeze `scripts/gen5/GPFIX_FREEZE.md`） | D.T-1（−1、リーフ TY-I）、D.D-3（−1、carrier、リーフ UN-K） | `FGLedgerPremisesStmtG`・`genGP`・`hDT1_of_genGP`・`fgLedgerPremisesStmtG_of_R`（`Tools/ShippingGenFGLedgerPremisesG.lean`、ad239809、par/gpfix。base は kjob/rt187 04db3763（AC9KIT）に par/rk1 113cd51b を局所 merge した 67d8e441）。`GP := genGP lvl hs genData₀`（AC9KIT の kit を env の関数にした `genKit` 上の `genP`）。`h_D_T1` は `genP_generated` と `genExtAtCall_of_genSem` から導出され、束縛変数から消えた。任意の `GP` の carrier も外れた。入った束縛変数は `lvl`・`initsOf`・`genData₀`（非 Prop の値）と `hs`（C.SM-1、既存の行）。exact-head `kjob-run-src-gpfix-ee59` exit 0（862 jobs、dirty なし）。Check `Tests/Gen5/GPFixCheck.lean`（Expr の構造比較）: removed [GP]、added [lvl, initsOf, hs, genData₀]、changed []、内側は h_D_T1 だけが消える。負例 4 つは不一致。axioms は標準の 3 つだけ。reviewer 承認（ad239809、scoped intermediate） | 範囲は `GP` を `genGP` に固定した文。任意の `GP` 版との同値、O2（`genP` の実際の被覆）、`genData₀` の供給は示していない。C.SM-7 は減算保留（`hord` は `hDT1_of_genGP` の引数に残る。R-clo が供給するという対応は、全消費箇所を監査してから数える）。C.DG-1 は数えていない |
+
+- **現在値: FG 81**（83 − 2）。内訳（R0）: リーフ 56 / 非リーフ 25。T1 は 57。FG の最終受理ではない。
