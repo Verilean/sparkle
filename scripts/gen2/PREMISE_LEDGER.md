@@ -1193,3 +1193,14 @@ reviewer の承認で、次の行を除く。
 | GPFIX（Issue sparkle-ledger-gpfix、freeze `scripts/gen5/GPFIX_FREEZE.md`） | D.T-1（−1、リーフ TY-I）、D.D-3（−1、carrier、リーフ UN-K） | `FGLedgerPremisesStmtG`・`genGP`・`hDT1_of_genGP`・`fgLedgerPremisesStmtG_of_R`（`Tools/ShippingGenFGLedgerPremisesG.lean`、ad239809、par/gpfix。base は kjob/rt187 04db3763（AC9KIT）に par/rk1 113cd51b を局所 merge した 67d8e441）。`GP := genGP lvl hs genData₀`（AC9KIT の kit を env の関数にした `genKit` 上の `genP`）。`h_D_T1` は `genP_generated` と `genExtAtCall_of_genSem` から導出され、束縛変数から消えた。任意の `GP` の carrier も外れた。入った束縛変数は `lvl`・`initsOf`・`genData₀`（非 Prop の値）と `hs`（C.SM-1、既存の行）。exact-head `kjob-run-src-gpfix-ee59` exit 0（862 jobs、dirty なし）。Check `Tests/Gen5/GPFixCheck.lean`（Expr の構造比較）: removed [GP]、added [lvl, initsOf, hs, genData₀]、changed []、内側は h_D_T1 だけが消える。負例 4 つは不一致。axioms は標準の 3 つだけ。reviewer 承認（ad239809、scoped intermediate） | 範囲は `GP` を `genGP` に固定した文。任意の `GP` 版との同値、O2（`genP` の実際の被覆）、`genData₀` の供給は示していない。C.SM-7 は減算保留（`hord` は `hDT1_of_genGP` の引数に残る。R-clo が供給するという対応は、全消費箇所を監査してから数える）。C.DG-1 は数えていない |
 
 - **現在値: FG 81**（83 − 2）。内訳（R0）: リーフ 56 / 非リーフ 25。T1 は 57。FG の最終受理ではない。
+
+### 12.17 共有前提の候補の登録（2026-11-05、coder。文書のみ。数は変えない）
+
+reviewer の判断（Issue sparkle-gen4-param-ftheta、2026-11-05）: parametric route の F-θ / F-top / F-kids に共通の前提 `LamTelescopeN` を、最終 FG の**新しい共有前提 1 行**として登録する。
+
+| 行（候補） | 文 | 根拠・使う所 | 数え方 |
+|---|---|---|---|
+| N4-a `LamTelescopeN`（Meta ライブラリの事実、`Tools/ShippingLegacySemTelescopeN.lean:58`） | `lambdaTelescope (lams sp b) k` が `r` を返したなら、`DeclsOpen mctx sp ids #[]` を満たす変数 `ids` で継続 `k` が `r` を返した（`b.isLambda = false`） | F-θ の `fTheta_natBinderN`（par/ftheta 9562f44c、`htele` を `lams_split` と `telescopeIn_of_lamTelescopeN` でこの前提から導いた）。F-top / F-kids も `synthesizeFromConst` の同じ telescope の内側にある。legacy walk の既存の定理（`telescopeIn_of_lams` ほか）も同じ前提を取る | 最終 FG（parametric route を含む組み立て）でこの前提が束縛変数として入るときに **+1**（共有の 1 行。F-θ / F-top / F-kids で重ねて数えない。既存の行にも含めない）。A.P-01 の `RefLawsATele.lamTelescope`（Keeps の法則）では代わりにならない。Lean / Meta の実装から証明できたら、この行を除く対象にする |
+
+- 今の受入値は変えない: **FG 81 / T1 57**。候補の見込み: FG 82（N4-a を足した場合）。
+- 解除の道: `lambdaTelescopeImp` は Lean core の `private partial def` なので、今の Lean からは展開できない（現時点では一般定理から支払い不可）。Lean core の全域化か、Meta の実装の検証が要る。
