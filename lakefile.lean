@@ -5043,3 +5043,9 @@ lean_lib «Tools.ShippingGen4FKidsTac» where
 
 lean_lib «Tools.ShippingGen4FKidsTele» where
   roots := #[`Tools.ShippingGen4FKidsTele]
+
+lean_lib «Tools.ShippingGen4FKidsTranslate» where
+  roots := #[`Tools.ShippingGen4FKidsTranslate]
+
+lean_lib «Tools.ShippingGen4FKidsEmit» where
+  roots := #[`Tools.ShippingGen4FKidsEmit]
