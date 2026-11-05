@@ -5902,3 +5902,12 @@ lean_lib «Tools.ShippingGen5SM1» where
 
 lean_lib «Tests.Gen5.SM1Check» where
   roots := #[`Tests.Gen5.SM1Check]
+
+lean_lib «Tools.ShippingGen5CVFinal» where
+  roots := #[`Tools.ShippingGen5CVFinal]
+
+lean_lib «Tests.Gen5.CVFinalCheck» where
+  roots := #[`Tests.Gen5.CVFinalCheck]
+
+lean_lib «Tests.Gen5.CVFinalScan» where
+  roots := #[`Tests.Gen5.CVFinalScan]
