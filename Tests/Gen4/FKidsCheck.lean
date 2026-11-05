@@ -2,8 +2,7 @@ import Tools.ShippingGen4FKids
 import Tools.ShippingGen2Defs
 import Tools.ShippingGen5T1ND
 set_option autoImplicit false
--- FKIDS CHECK: audit of `Tools.ShippingGen4FKids.fKids_memoHit` (FKIDS_FREEZE.md §2 (1)). Only theorem (1) exists so far;
--- (2) `fKids_statePF` and (3) `fKids` are added with their proofs.
+-- FKIDS CHECK: audit of the three frozen theorems `fKids_memoHit`, `fKids_statePF`, `fKids` (FKIDS_FREEZE.md §2), each verified separately.
 
 /-! # Audit of `fKids_memoHit`
 
@@ -30,6 +29,29 @@ def memoHit : Prop :=
     ∀ (D : Nat), D ≠ 0 → ∀ (c : Name),
     Triple mctx mref cctx cref (WorldPF O D) (synthesizeChild c)
       (fun r w => WorldPF O D w ∧ PairPF r) (fun e w => WorldPF O D w ∧ OkExc e)
+
+def statePF : Prop :=
+  ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {O : RefLawsAOps MkRefd mref cref}, Tools.Assume.MemoFamily.MemoFamily O →
+    Tools.ShippingGen4KWalkDiag.MsgMvK O →
+    ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ {declName : Name} {θ : List (String × Nat)} {w w' : Void IO.RealWorld}
+      {M0 : Sparkle.IR.AST.Module} {D0 : Sparkle.IR.AST.Design},
+    Tools.ShippingGen4KWalkDepth.KWD O (fun _ _ => True) 0 w →
+    RunsTo (synthesizeCombinationalCoreWith Tools.ShippingGen4ParamEntry.Tsyn declName θ true true)
+      mctx mref cctx cref w (M0, D0) w' →
+    Tools.ShippingGen4FKids.DesignPF D0
+
+def fKids : Prop :=
+  ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {O : RefLawsAOps MkRefd mref cref}, Tools.Assume.MemoFamily.MemoFamily O →
+    Tools.ShippingGen4KWalkDiag.MsgMvK O →
+    ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ {declName : Name} {θ : List (String × Nat)} {w w' : Void IO.RealWorld}
+      {M' : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
+    Tools.ShippingGen4KWalkDepth.KWD O (fun _ _ => True) 0 w →
+    RunsTo (synthesizeCombinationalWithParameters declName θ) mctx mref cctx cref w (M', D') w' →
+    ∀ x ∈ D'.modules, x.name ≠ M'.name → x.parameters = []
 
 end Expected
 
@@ -84,6 +106,102 @@ def M5 : Prop :=
     Triple mctx mref cctx cref (WorldPF O D) (synthesizeChild c)
       (fun r w => WorldPF O D w ∧ PairPF r) (fun _ w => WorldPF O D w)
 
+/-- S1: no `MsgMvK`. -/
+def S1 : Prop :=
+  ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {O : RefLawsAOps MkRefd mref cref}, Tools.Assume.MemoFamily.MemoFamily O →
+    ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ {declName : Name} {θ : List (String × Nat)} {w w' : Void IO.RealWorld}
+      {M0 : Sparkle.IR.AST.Module} {D0 : Sparkle.IR.AST.Design},
+    Tools.ShippingGen4KWalkDepth.KWD O (fun _ _ => True) 0 w →
+    RunsTo (synthesizeCombinationalCoreWith Tools.ShippingGen4ParamEntry.Tsyn declName θ true true)
+      mctx mref cctx cref w (M0, D0) w' →
+    Tools.ShippingGen4FKids.DesignPF D0
+
+/-- S2: the top module is claimed parameter free too. -/
+def S2 : Prop :=
+  ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {O : RefLawsAOps MkRefd mref cref}, Tools.Assume.MemoFamily.MemoFamily O →
+    Tools.ShippingGen4KWalkDiag.MsgMvK O →
+    ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ {declName : Name} {θ : List (String × Nat)} {w w' : Void IO.RealWorld}
+      {M0 : Sparkle.IR.AST.Module} {D0 : Sparkle.IR.AST.Design},
+    Tools.ShippingGen4KWalkDepth.KWD O (fun _ _ => True) 0 w →
+    RunsTo (synthesizeCombinationalCoreWith Tools.ShippingGen4ParamEntry.Tsyn declName θ true true)
+      mctx mref cctx cref w (M0, D0) w' →
+    Tools.ShippingGen4FKids.DesignPF D0 ∧ Tools.ShippingGen4FKids.ParamFree M0
+
+/-- S3: no start-world hypothesis. -/
+def S3 : Prop :=
+  ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {O : RefLawsAOps MkRefd mref cref}, Tools.Assume.MemoFamily.MemoFamily O →
+    Tools.ShippingGen4KWalkDiag.MsgMvK O →
+    ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ {declName : Name} {θ : List (String × Nat)} {w w' : Void IO.RealWorld}
+      {M0 : Sparkle.IR.AST.Module} {D0 : Sparkle.IR.AST.Design},
+    RunsTo (synthesizeCombinationalCoreWith Tools.ShippingGen4ParamEntry.Tsyn declName θ true true)
+      mctx mref cctx cref w (M0, D0) w' →
+    Tools.ShippingGen4FKids.DesignPF D0
+
+/-- S4: the non-symbolic entry. -/
+def S4 : Prop :=
+  ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {O : RefLawsAOps MkRefd mref cref}, Tools.Assume.MemoFamily.MemoFamily O →
+    Tools.ShippingGen4KWalkDiag.MsgMvK O →
+    ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ {declName : Name} {θ : List (String × Nat)} {w w' : Void IO.RealWorld}
+      {M0 : Sparkle.IR.AST.Module} {D0 : Sparkle.IR.AST.Design},
+    Tools.ShippingGen4KWalkDepth.KWD O (fun _ _ => True) 0 w →
+    RunsTo (synthesizeCombinationalCoreWith Tools.ShippingGen4ParamEntry.Tsyn declName θ false true)
+      mctx mref cctx cref w (M0, D0) w' →
+    Tools.ShippingGen4FKids.DesignPF D0
+
+/-- F1: no `MsgMvK`. -/
+def F1 : Prop :=
+  ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {O : RefLawsAOps MkRefd mref cref}, Tools.Assume.MemoFamily.MemoFamily O →
+    ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ {declName : Name} {θ : List (String × Nat)} {w w' : Void IO.RealWorld}
+      {M' : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
+    Tools.ShippingGen4KWalkDepth.KWD O (fun _ _ => True) 0 w →
+    RunsTo (synthesizeCombinationalWithParameters declName θ) mctx mref cctx cref w (M', D') w' →
+    ∀ x ∈ D'.modules, x.name ≠ M'.name → x.parameters = []
+
+/-- F2: the guard is dropped (the top module is claimed parameter free too). -/
+def F2 : Prop :=
+  ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {O : RefLawsAOps MkRefd mref cref}, Tools.Assume.MemoFamily.MemoFamily O →
+    Tools.ShippingGen4KWalkDiag.MsgMvK O →
+    ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ {declName : Name} {θ : List (String × Nat)} {w w' : Void IO.RealWorld}
+      {M' : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
+    Tools.ShippingGen4KWalkDepth.KWD O (fun _ _ => True) 0 w →
+    RunsTo (synthesizeCombinationalWithParameters declName θ) mctx mref cctx cref w (M', D') w' →
+    ∀ x ∈ D'.modules, x.parameters = []
+
+/-- F3: no start-world hypothesis. -/
+def F3 : Prop :=
+  ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {O : RefLawsAOps MkRefd mref cref}, Tools.Assume.MemoFamily.MemoFamily O →
+    Tools.ShippingGen4KWalkDiag.MsgMvK O →
+    ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ {declName : Name} {θ : List (String × Nat)} {w w' : Void IO.RealWorld}
+      {M' : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
+    RunsTo (synthesizeCombinationalWithParameters declName θ) mctx mref cctx cref w (M', D') w' →
+    ∀ x ∈ D'.modules, x.name ≠ M'.name → x.parameters = []
+
+/-- F4: the guard is `=` instead of `≠`. -/
+def F4 : Prop :=
+  ∀ {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {O : RefLawsAOps MkRefd mref cref}, Tools.Assume.MemoFamily.MemoFamily O →
+    Tools.ShippingGen4KWalkDiag.MsgMvK O →
+    ∀ {mctx : Meta.Context} {cctx : Core.Context}, AdmCtx O.quiet mctx cctx →
+    ∀ {declName : Name} {θ : List (String × Nat)} {w w' : Void IO.RealWorld}
+      {M' : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
+    Tools.ShippingGen4KWalkDepth.KWD O (fun _ _ => True) 0 w →
+    RunsTo (synthesizeCombinationalWithParameters declName θ) mctx mref cctx cref w (M', D') w' →
+    ∀ x ∈ D'.modules, x.name = M'.name → x.parameters = []
+
 end Mutant
 
 private partial def closure (env : Environment) (todo : List Name) (seen : NameSet) : NameSet :=
@@ -108,17 +226,17 @@ private def closureBad (n : Name) : CoreM (List Name) := do
   let seen := closure (← getEnv) [n] {}
   return seen.toList.filter fun m => forbidden.any fun f => f.isPrefixOf m
 
-elab "#fkids_check" : command => liftTermElabM do
-  let t := `Tools.ShippingGen4FKids.fKids_memoHit
+private def checkOne (t : Name) (expName : Name) (muts : List Name) : TermElabM String := do
   let pre := `Tests.Gen4.FKidsCheck
   let ti ← getConstInfo t
-  let expC ← getConstInfo (pre ++ `Expected ++ `memoHit)
-  let some expV := expC.value? | throwError "Expected.memoHit has no value"
+  let expC ← getConstInfo (pre ++ `Expected ++ expName)
+  let some expV := expC.value? | throwError "Expected.{expName} has no value"
   let structural := Expr.eqv ti.type expV
-  unless ← isDefEq ti.type (mkConst (pre ++ `Expected ++ `memoHit)) do throwError "TYPE mismatch (isDefEq) for {t}"
+  unless structural do throwError "TYPE mismatch (structural) for {t}"
+  unless ← isDefEq ti.type (mkConst (pre ++ `Expected ++ expName)) do throwError "TYPE mismatch (isDefEq) for {t}"
   let mut rej : Nat := 0
   let mut structRej : Nat := 0
-  for m in [`M1, `M2, `M3, `M4, `M5] do
+  for m in muts do
     let mc ← getConstInfo (pre ++ `Mutant ++ m)
     if ← isDefEq ti.type (mkConst (pre ++ `Mutant ++ m)) then throwError "mutant {m} NOT rejected"
     rej := rej + 1
@@ -130,18 +248,25 @@ elab "#fkids_check" : command => liftTermElabM do
   unless bad.isEmpty do throwError "{t}: axioms {bad}"
   let badC ← closureBad t
   unless badC.isEmpty do throwError "{t}: forbidden constants {badC}"
-  for c in [`Tools.ShippingGen2.T1Hyp, `Tools.ShippingGen2.T1HypND] do
-    let b ← closureBad c
-    if b.isEmpty then throwError "closure detector MISSED {c}"
   let hypNames : List Name :=
     [`Tools.ShippingGen4KWalkEntry.LogMvK, `Tools.ShippingGen4FKidsEntry.LogMvKS, `Tools.ShippingGen4FKidsFallback.LegacyImplKS,
      `Tools.ShippingGen4FKidsHelpers.PpMvKS, `Tools.ShippingGen4KWalkDiag.MsgMvK, `Tools.ShippingGen4FKidsFallback.LegacyCachedKS,
-     `Tools.ShippingGen4FKidsFallback.ChildEntryKS, `Tools.Assume.MemoFamily.MemoFamily]
+     `Tools.ShippingGen4FKidsFallback.ChildEntryKS, `Tools.Assume.MemoFamily.MemoFamily,
+     `Tools.ShippingLegacySemTelescopeN.LamTelescopeN]
   let inType := hypNames.filter ti.type.getUsedConstants.contains
   unless inType == [`Tools.ShippingGen4KWalkDiag.MsgMvK, `Tools.Assume.MemoFamily.MemoFamily] ||
       inType == [`Tools.Assume.MemoFamily.MemoFamily, `Tools.ShippingGen4KWalkDiag.MsgMvK] do
     throwError "hypotheses in type {inType}, expected exactly MsgMvK and MemoFamily"
-  logInfo m!"FKIDS CHECK: TYPE isDefEq ok / structural(Expr.eqv) {structural} / MUTANT {rej}/5 isDefEq-rejected, {structRej}/5 structurally rejected (signature rejections, not semantic counterexamples) / AXIOMS standard-only / CLOSURE clean (+2 positive controls) / HYPOTHESES in type {inType}"
+  return s!"{t}: TYPE isDefEq ok / structural(Expr.eqv) {structural} / MUTANT {rej}/{muts.length} isDefEq-rejected, {structRej}/{muts.length} structurally rejected (signature rejections, not semantic counterexamples) / AXIOMS standard-only / CLOSURE clean / HYPOTHESES in type {inType}"
+
+elab "#fkids_check" : command => liftTermElabM do
+  let r1 ← checkOne `Tools.ShippingGen4FKids.fKids_memoHit `memoHit [`M1, `M2, `M3, `M4, `M5]
+  let r2 ← checkOne `Tools.ShippingGen4FKids.fKids_statePF `statePF [`S1, `S2, `S3, `S4]
+  let r3 ← checkOne `Tools.ShippingGen4FKids.fKids `fKids [`F1, `F2, `F3, `F4]
+  for c in [`Tools.ShippingGen2.T1Hyp, `Tools.ShippingGen2.T1HypND] do
+    let b ← closureBad c
+    if b.isEmpty then throwError "closure detector MISSED {c}"
+  logInfo m!"FKIDS CHECK (3 theorems, verified separately; closure detector positive controls ok):\n{r1}\n{r2}\n{r3}"
 
 #fkids_check
 
