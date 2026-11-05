@@ -1228,3 +1228,11 @@ reviewer の判断（Issue sparkle-gen4-param-ftheta、2026-11-05）: parametric
 | AP12（Issue sparkle-ledger-ap12） | A.P-12（−1、`ExtInS`） | §9.3 の対応表では A.P-10 / A.P-11 / A.P-12 の 3 行を T1L-11/12 の 2 行に束ねている。`ExtInS` は束ねた行の連言の射影としてだけ使われる（§12.7 の A.P-22 と同じ扱い）。`Tests/Gen5/AP12ScanCheck.lean`（59e43393、par/ap12、土台 72e2b9ff）は、最終 FG の root 21 件（FG の文 R / G と橋、ND 鎖、D.E-3 の audit root、SM7 root、`stepDec_of_ties`）の telescope と連言の binder を全部走査する。Check の出力は「AP12 COUNTS: roots 21, standalone 0, bundled 1, controls 3」。正対照: 束ねた `hMemRow` を検出。負対照: `hext : ExtInS q` を追加した型と `memParent_childShips` の `hext` を、どちらも独立 binder として検出。exact-head `kjob-run-src-ap12-fc02` exit 0（901 jobs）。reviewer 承認（59e43393） | 新しい前提 0。T1 は変わらない（T1L-11/12 で数えている）。Lean の証明は変えていない |
 
 - **現在値: FG 78**（79 − 1）。内訳（R0）: リーフ 56 / 非リーフ 22。T1 は 57。FG の最終受理ではない。共有前提の候補 N4-a（§12.17）は数えていない（入れると見込み FG 79）。
+
+### 12.21 減算（2026-11-05、coder。文書のみ。非リーフの除去で、リーフは動かない）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| CR4（Issue sparkle-ledger-cr4） | C.CR-4（−1、PA 非リーフ、`H : T1HypND`。D.T-6 はこの行に統合済み） | `Tools/ShippingGen5CR4.lean`（f9dbc699、par/cr4、土台 72e2b9ff）: `t1HypND_of_rows` は、`Reach := TgtRun P declName` のとき `hpkg`（A.P-08）・`hA6`（FG の文の `h_A_P06`）・`hcl`（A.P-07）から `T1HypND` を作る。`closed` は `TgtRun.call` から得る。ND 根 7 本の行版を置いた。`Tests/Gen5/CR4Check.lean` は構造的な Expr 比較で、7 根すべてについて H が除かれ、追加された binder が既存の行と Expr == で、結論が一致することを確かめる。新しい型と値は T1HypND を使わない（`t1HypND_of_rows` の値の中だけ）。負対照は自己比較、H を除去と見なさない比較、組の取り違え。exact-head build 成功。reviewer 承認（f9dbc699） | 新しい前提 0。入る束縛変数は既存の行（A.P-08、A.P-07、h_A_P06）。FG の組み立てでは行版の根を選ぶ |
+
+- **現在値: FG 77**（78 − 1）。内訳（R0）: リーフ 56 / 非リーフ 21。T1 は 57。FG の最終受理ではない。共有前提の候補 N4-a（§12.17）は数えていない（入れると見込み FG 78）。
