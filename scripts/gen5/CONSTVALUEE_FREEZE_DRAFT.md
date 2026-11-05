@@ -758,3 +758,50 @@ reviewer の方針: PT を全称のままにせず具体的な PTcorpus へ進�
 - `PTcorpus` の採用、G-PRIM、TRUSTED、台帳の減算、最終保証。K1 の 204 key 以外の残余（`PRIM_RESIDUE_FULL.md` の 379 定数のうち 175 は未着手）。
 - `PTlit` の反駁が実際の `EntryWitness` などの充足可能性を含むこと。導出がないことの meta 評価は env の事実の監査であり、kernel の証明はその含意の側だけ。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+## §DepRows: 依存 codomain の 30 行（Issue `sparkle-ledger-dd4-deprows`、土台 fe106963）
+
+reviewer の方針: V2 で「corpus の型文字列の監査」だけだった 26 行を行ごとの定理にし、`RowTeleEvAt` の依存 30 行は PT ごとの証拠の形を定める。TRUSTED・axiom・sorry・native_decide なし。`PT` は明示的なパラメータのまま、G-PRIM は採用しない。条件付きの成果は全体の健全性として主張しない。既存ファイルは書き換えていない（lakefile と草案は末尾追記のみ）。
+新ファイル: `Tools/ShippingGen5DepRows.lean`、`Tests/Gen5/DepRowsCheck.lean`。
+
+### 1. `RowTypedAtV`: 26 行を行ごとの定理にした（+ 名前付き 4 件）
+
+`rowTypedDep_<Mod>_<Out>`（26 件）: `Foo.mk {dom : DomainConfig} fields : Foo dom` の key ごとに、`rowTypedAtV_depFirst` を key の名前で具体化した定理。仮定は `FirstArgSpec PT (Foo.mk) [] true ks' Foo []`（`PT` の行の仕様）、`¬ IsDefn env Foo`、`EnvDepFirst env (Foo.mk) [] ks'.length Foo []`（env の事実）。`ks'`（フィールド数）は仕様から決まる全称のパラメータ。`rowTypedDep_Fin_mk` / `BitVec_ofFin` / `Decidable_isTrue` / `Decidable_isFalse` の 4 件も同じ形で行ごとに置いた。合計 **RowTypedAtV 30 / 30 を行ごとの定理に**（仕様と env の事実は仮定。`PT` の実体がこのリポジトリにないため）。
+env の事実は実環境で確認した（`DepRowsCheck`、meta）: 26 件すべてで `.mk` の宣言型が「`DomainConfig` の binder → `Signal.{0} (bvar k) αₖ` の field が並ぶ → `Foo (bvar n)`」（`αₖ` は閉じた式）で、`Foo` は定義でない。**これは型の文字列の監査ではなく、実環境の `ConstantInfo` を読む検査**（`EnvDepFirst` と下の `EnvDomFields` の鏡）。26 件で field は計 82、`Signal` の level は全件 `[0]`、`Signal` 以外の former はない。
+
+### 2. `RowTeleEvAt`: 証拠の形（dom + `Signal` fields）
+
+`rowTeleEvAt_domFields`（一般形、`teleEv_fields`・`fieldsPiB_subst`・`fieldsPi_subst` で `substS` を実際に計算）: 宣言型が `(dom : dc) (f₀ : S dom α₀) … (fₙ : S dom αₙ) : R`（`αᵢ` は閉じた式）のとき、`RowTeleEvAt` は次の 5 つから出る。
+- `DomFieldsSpec`: 行の `kinds` は `true` が `1 + n` 個、受け付ける引数は「domain の値 `dv`、続いて型 `SigT dv Aᵢ` の値 n 個」。（`PT` の行の仕様）
+- `SigRowSpec`: `S` の `tys` 行は `kinds = [true, false]` で、`den [dv, A] = SigT dv A`。（`PT` の `Signal` 行の仕様）
+- `¬ IsDefn env S`、`dc` の定数が全 valuation で `DCT` を表す（`tdenv_const_nullary`）。
+- `AlphaDen`: payload の式 `αᵢ` が全 valuation で `Aᵢ` を表す。
+- env の事実 `EnvDomFields`（宣言型が `DomPi` の形）。
+binder の型は代入後 `S a₀ αᵢ`（`a₀` は第 1 引数の式そのもの）になる。`a₀` の型付けは `ArgsDenV` の先頭の導出（`CVEKV`）から取る。**`OblDenSubstS` / `SafeArg` は出ない**（Check が到達を meta で確認、検出器の対照つき）。
+`teleEvDep_<Mod>_<Out>`（26 件）: key ごとの定理（`dc := DomainConfig`）。**RowTeleEvAt 26 / 30 を行ごとの定理に**。条件（PT の仕様）は上の 5 つで、PT の形を確定した。
+
+**残る PT の証拠（名前付き義務ではなく、定理の仮定。PT ができたとき行ごとに必要）**: 26 件の payload の式は 7 種類 — `Bool` と `BitVec 5/8/16/32/64/256`（`BitVec (OfNat.ofNat Nat n (instOfNatNat n))`）。`AlphaDen` のうち `Bool` は `tys` 行（`tdenv_const_nullary`）で足りる。`BitVec n` は `BitVec` の `tys` 行に加えて、引数 `OfNat.ofNat Nat n (instOfNatNat n)` の `CVEKV` 導出（`OfNat.ofNat` / `instOfNatNat` の `prim` 行）が要る。これは `PT` の中身で、ここでは仮定のまま。
+
+### 3. 証明していない行（名前付き義務、仮定しない）
+
+`RowTeleEvAt` の 4 件は `Prop` の定義 `OblTeleEv_Fin_mk` / `OblTeleEv_BitVec_ofFin` / `OblTeleEv_Decidable_isTrue` / `OblTeleEv_Decidable_isFalse`（仮定にも axiom にもしていない）として残す。理由:
+| key | 理由 |
+|---|---|
+| `Fin.mk (n val : Nat) (isLt : val < n)` | 第 3 binder `val < n` が命題。`Arg.tm` は `ty : Type` を持つので、命題の引数に `Dyn` がない。`PT` が証明引数をどう扱うか（kind か、引数なしか）は carrier が決めていない |
+| `BitVec.ofFin {w} (toFin : Fin (2 ^ w))` | binder 型 `Fin (2 ^ w)` に `HPow.hPow`（instance 付き）の項が入る。`Fin` の `tys` 行に加え、項 `2 ^ w` の `CVEKV` 導出（`HPow`/`Nat.pow` の `prim` 行を `w` で）が要る。`PT` の中身 |
+| `Decidable.isTrue {p : Prop} (h : p)` / `isFalse` | 最初の binder が `Prop` の型引数（`sort 0`）。`TeleEv.ty` は `Type` の型引数を想定し、`p` は `Type` でない。`h : p` は証明 |
+G-PRIM の採用や TRUSTED 化は、この残余の一覧を見て別途判断する（先に仮定に入れていない）。
+
+### 4. Check（`Tests/Gen5/DepRowsCheck.lean`）の出力
+
+- model 表 `PTq`（`Tst.Out.mk (dom) (f : Tst.Sig dom Nat)`）で `DomFieldsSpec` / `SigRowSpec` が充足でき、`rowTeleEvAt_domFields` が具体化できる。
+- 負対照（証明済み）: `Nat` の field を受ける行は `[Empty]` を主張する仕様を満たさない（`domFieldsSpec_wrong`）、引数の数が合わない（`argsAreSig_length` / `alphaDen_length`）、payload が開いた式（`fieldsPiB_open_payload`）、field が domain でなく別の binder を指す（`fieldsPiB_wrong_index`）、domain binder が別の型（`domPi_wrong_dom`）、axiom 検出器（`negControlAxiom` を検出）、代入義務の検出器の対照（`denTypedS` は `OblDenSubstS` に届く）。
+- 実環境の事実（26 件、meta）: 上の §1 のとおり。`env facts ok for 26 output-structure keys`。
+- 件数行: `RowTypedAtV per-key theorems 30 / 30（残り 0。FirstArgSpec と EnvDepFirst は仮定）。RowTeleEvAt per-key theorems 26 / 30、残り 4（Fin.mk、BitVec.ofFin、Decidable.isTrue、Decidable.isFalse。OblTeleEv_*）`。
+- `#print axioms`: 68 宣言（行ごとの 52 件を含む）が propext / Classical.choice / Quot.sound のみ。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+### 5. 主張しないこと
+
+- 実際の `PT` が `FirstArgSpec` / `DomFieldsSpec` / `SigRowSpec` / `AlphaDen` を満たすこと。kernel `Ty` との一致。
+- 「30 行を無条件に証明した」こと。行ごとの定理は仕様と env の事実を前提にする条件付きの成果で、全体の健全性としては数えない。
+- 残る 4 行の `RowTeleEvAt`。
