@@ -418,4 +418,99 @@ theorem denTypedV {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env)
     | .core b => denTypedVB hcl hN hS hρ b
     | .conv _ _ h1 => h1
 
+
+/-! ## What the conversion rule supplies of `RowArgsAt` / `OblPrimArgsS` (Q2)
+
+In `§SoundS` the per-key obligation `RowArgsAt` asks that a prim's arguments are typed (`TyArgsS`) against the declared telescope. A term argument's derivation has its OWN label `τ`, which need not be the telescope's binder type,
+and a type argument has only a denotation. With `conv`:
+* a TERM argument can be given the binder type as its label exactly when the binder type denotes the argument's Lean type (`TeleEv.tm`, a `TDenV` evidence on the binder);
+  the argument's own label then needs no evidence from the producer: `denTypedV` gives it (this needs a well-formed valuation).
+* a TYPE argument is not typed by anything in the carrier: `TyRKS` has no `forallE` / `sort` rule. What the telescope can check of it is its kind: the binder is a `sort` (`TeleEv.ty`).
+So the residual per-row obligation is `RowTeleEvAt` (a semantic evidence about binder types, no kernel typing). -/
+
+/-- Arguments typed against a telescope with the CONVERTED labels: each term argument has exactly the (instantiated) binder type as its label; each type argument sits at a `sort` binder. The result is `R`. -/
+inductive ArgsTeleV (PT : PrimTableK) (env : Environment) (ρ : Val) : Expr → List Bool → List Expr → List Arg → Expr → Prop
+  | nil {T : Expr} : ArgsTeleV PT env ρ T [] [] [] T
+  | tm {n : Name} {A B : Expr} {bi : BinderInfo} {a : Expr} {es : List Expr} {ks : List Bool} {as : List Arg} {R : Expr} {TA : Type} {av : TA}
+      (hx : CVEKV PT env ρ a A TA av) (hs : ArgsTeleV PT env ρ (substS B 0 a) ks es as R) :
+      ArgsTeleV PT env ρ (.forallE n A B bi) (true :: ks) (a :: es) (.tm ⟨TA, av⟩ :: as) R
+  | ty {n : Name} {A B : Expr} {bi : BinderInfo} {a : Expr} {es : List Expr} {ks : List Bool} {as : List Arg} {R : Expr} {T : Type} {u : Level}
+      (hA : A = .sort u) (hs : ArgsTeleV PT env ρ (substS B 0 a) ks es as R) :
+      ArgsTeleV PT env ρ (.forallE n A B bi) (false :: ks) (a :: es) (.ty T :: as) R
+
+/-- The evidence a row must supply: term binders denote the argument's type, type binders are sorts. -/
+inductive TeleEv (PT : PrimTableK) (env : Environment) (ρ : Val) : Expr → List Bool → List Expr → List Arg → Prop
+  | nil {T : Expr} : TeleEv PT env ρ T [] [] []
+  | tm {n : Name} {A B : Expr} {bi : BinderInfo} {a : Expr} {es : List Expr} {ks : List Bool} {as : List Arg} {TA : Type} {av : TA}
+      (hA : TDenV PT env ρ A TA) (hs : TeleEv PT env ρ (substS B 0 a) ks es as) :
+      TeleEv PT env ρ (.forallE n A B bi) (true :: ks) (a :: es) (.tm ⟨TA, av⟩ :: as)
+  | ty {n : Name} {A B : Expr} {bi : BinderInfo} {a : Expr} {es : List Expr} {ks : List Bool} {as : List Arg} {T : Type} {u : Level}
+      (hA : A = .sort u) (hs : TeleEv PT env ρ (substS B 0 a) ks es as) :
+      TeleEv PT env ρ (.forallE n A B bi) (false :: ks) (a :: es) (.ty T :: as)
+
+theorem argsTeleV_of_ev {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env)
+    (hN : ∀ ρ : Val, TDenV PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenV PT env ρ (.const `String []) String)
+    {ρ : Val} (hρ : WfValV PT env ρ) {ks : List Bool} {es : List Expr} {as : List Arg} (hargs : ArgsDenV PT env ρ ks es as)
+    {T : Expr} (h : TeleEv PT env ρ T ks es as) : ArgsTeleV PT env ρ T ks es as (instForallS T es) :=
+  match hargs, h with
+  | .nil, .nil => by rw [instForallS_nil]; exact .nil
+  | .ty _ hs, .ty hA hs' => by rw [instForallS_cons_forallE]; exact .ty hA (argsTeleV_of_ev hcl hN hS hρ hs hs')
+  | .tm hv hs, .tm hA hs' => by
+      rw [instForallS_cons_forallE]
+      exact .tm (cvekv_conv hv (denTypedV hcl hN hS _ _ _ _ _ hρ hv) hA) (argsTeleV_of_ev hcl hN hS hρ hs hs')
+termination_by structural hargs
+
+/-- The per-row residual obligation (named; assumed nowhere): for every argument list a row accepts, the telescope evidence. -/
+def RowTeleEvAt (PT : PrimTableK) (env : Environment) (c : Name) (ls : List Level) : Prop :=
+  ∀ (ρ : Val) (args : List Expr) (ci : ConstantInfo) (row : TmRow) (as : List Arg) (d : Dyn),
+    env.find? c = some ci → PT.tms c ls = some row → ArgsDenV PT env ρ row.kinds args as → row.den as = some d →
+    TeleEv PT env ρ (ci.type.instantiateLevelParams ci.levelParams ls) row.kinds args as
+
+/-- The V version of `RowArgsAt`: the arguments are typed against the telescope (converted labels). -/
+def RowArgsAtV (PT : PrimTableK) (env : Environment) (c : Name) (ls : List Level) : Prop :=
+  ∀ (ρ : Val) (args : List Expr) (ci : ConstantInfo) (row : TmRow) (as : List Arg) (d : Dyn),
+    WfValV PT env ρ → env.find? c = some ci → PT.tms c ls = some row → ArgsDenV PT env ρ row.kinds args as → row.den as = some d →
+    ArgsTeleV PT env ρ (ci.type.instantiateLevelParams ci.levelParams ls) row.kinds args as
+      (instForallS (ci.type.instantiateLevelParams ci.levelParams ls) args)
+
+def OblPrimArgsV (PT : PrimTableK) (env : Environment) : Prop := ∀ (c : Name) (ls : List Level), RowArgsAtV PT env c ls
+
+/-- `RowArgsAtV` follows from the row's telescope evidence: the conversion rule supplies the rest. -/
+theorem rowArgsAtV_of_ev {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env)
+    (hN : ∀ ρ : Val, TDenV PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenV PT env ρ (.const `String []) String)
+    {c : Name} {ls : List Level} (hev : RowTeleEvAt PT env c ls) : RowArgsAtV PT env c ls :=
+  fun _ _ _ _ _ _ hρ hci hrow hargs hd => argsTeleV_of_ev hcl hN hS hρ hargs (hev _ _ _ _ _ _ hci hrow hargs hd)
+
+theorem oblPrimArgsV_of_ev {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env)
+    (hN : ∀ ρ : Val, TDenV PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenV PT env ρ (.const `String []) String)
+    (hev : ∀ (c : Name) (ls : List Level), RowTeleEvAt PT env c ls) : OblPrimArgsV PT env :=
+  fun c ls => rowArgsAtV_of_ev hcl hN hS (hev c ls)
+
+theorem rowTeleEvAt_of_none (PT : PrimTableK) (env : Environment) (c : Name) (ls : List Level) (h : PT.tms c ls = none) : RowTeleEvAt PT env c ls := by
+  intro ρ args ci row as d _ hrow; rw [h] at hrow; cases hrow
+
+theorem argsdenv_length {PT : PrimTableK} {env : Environment} {ρ : Val} {ks : List Bool} {es : List Expr} {as : List Arg}
+    (h : ArgsDenV PT env ρ ks es as) : es.length = ks.length ∧ as.length = ks.length :=
+  match h with
+  | .nil => ⟨rfl, rfl⟩
+  | .ty _ hs => by have := argsdenv_length hs; simp [this.1, this.2]
+  | .tm _ hs => by have := argsdenv_length hs; simp [this.1, this.2]
+termination_by structural h
+
+/-- A key whose row takes no arguments has no telescope obligation. -/
+theorem rowTeleEvAt_nullary (PT : PrimTableK) (env : Environment) (c : Name) (ls : List Level) (row : TmRow)
+    (hrow : PT.tms c ls = some row) (hk : row.kinds = []) : RowTeleEvAt PT env c ls := by
+  intro ρ args ci row' as d _ hrow' hargs _
+  rw [hrow] at hrow'; cases hrow'
+  rw [hk] at hargs ⊢
+  cases hargs
+  exact .nil
+
+/-- The conversion rule also gives the old statement's shape: with the telescope evidence, `RowArgsAt`'s typing of term arguments holds at the binder labels. -/
+theorem rowArgsAtV_nullary (PT : PrimTableK) (env : Environment) (c : Name) (ls : List Level) (row : TmRow)
+    (hrow : PT.tms c ls = some row) (hk : row.kinds = [])
+    (hcl : EnvClosedS env) (hN : ∀ ρ : Val, TDenV PT env ρ (.const `Nat []) Nat) (hS : ∀ ρ : Val, TDenV PT env ρ (.const `String []) String) :
+    RowArgsAtV PT env c ls :=
+  rowArgsAtV_of_ev hcl hN hS (rowTeleEvAt_nullary PT env c ls row hrow hk)
+
 end Tools.ShippingGen5ConstValueEV
