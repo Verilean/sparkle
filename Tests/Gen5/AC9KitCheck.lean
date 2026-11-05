@@ -30,8 +30,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   forallTelescope a fun xa ca => forallTelescope e fun xe ce => do
     let na ← xa.mapM fun x => do pure (← x.fvarId!.getUserName).eraseMacroScopes
     let ne ← xe.mapM fun x => do pure (← x.fvarId!.getUserName).eraseMacroScopes
-    for n in [`hDS, `hK, `K] do
-      if na.contains n then throwError "AC9KIT CHECK FAILED: {n} is a binder of the new theorem"
+    for nm in [`hDS, `hK, `K] do
+      if na.contains nm then throwError "AC9KIT CHECK FAILED: {nm} is a binder of the new theorem"
     let added := na.filter (!ne.contains ·)
     let removed := ne.filter (!na.contains ·)
     unless added == #[`lvl, `initsOf, `hs, `genData₀] do throwError "AC9KIT CHECK FAILED: added binders {added}"
@@ -48,15 +48,15 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     for i in [0:xe.size] do
       if ne[i]! == `K then from_ := from_.push xe[i]!; to_ := to_.push kit
       else if ne[i]! != `hDS then from_ := from_.push xe[i]!; to_ := to_.push xa[idx ne[i]!]!
-    let mut n := 0
+    let mut cnt : Nat := 0
     for i in [0:xe.size] do
       if ne[i]! == `K || ne[i]! == `hDS then continue
       let te := (← inferType xe[i]!).replaceFVars from_ to_
       let ta ← inferType xa[idx ne[i]!]!
       unless te == ta do throwError "AC9KIT CHECK FAILED: binder {ne[i]!} type"
-      n := n + 1
+      cnt := cnt + 1
     unless (ce.replaceFVars from_ to_) == ca do throwError "AC9KIT CHECK FAILED: conclusion differs from the old one at K := mkKit …"
-    logInfo m!"AC9KIT BINDERS: {n} common binders == after K := mkKit …; removed {removed}; added {added}; conclusion AccServed0Stmt (mkKit …) L Reach"
+    logInfo m!"AC9KIT BINDERS: {cnt} common binders == after K := mkKit …; removed {removed}; added {added}; conclusion AccServed0Stmt (mkKit …) L Reach"
     -- control: the type of `hcov` without substituting K is not the new one
     let i := (ne.findIdx? (· == `hcov)).getD 0
     let mut from2 : Array Expr := #[]
@@ -78,7 +78,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
       | `dataOf => df := some x
       | `initsOf => io := some x
       | _ => pure ()
-    let (some hs0, some df, some io) := (hs0, df, io) | throwError "AC9KIT CHECK FAILED: factsOf_genS_assembled'' binders"
+    let (some hs1, some df1, some io1) := (hs0, df, io) | throwError "AC9KIT CHECK FAILED: factsOf_genS_assembled'' binders"
     forallTelescope (← stmtOf ``Tools.ShippingGen5Acc.accServed0_of_cover_gatesK) fun ys _ => do
       let mut lvl? := none
       let mut ini? := none
@@ -88,7 +88,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
         | `initsOf => ini? := some y
         | _ => pure ()
       let (some lvl, some ini) := (lvl?, ini?) | throwError "AC9KIT CHECK FAILED: lvl/initsOf"
-      let want := (← inferType hs0).replaceFVars #[df, io] #[mkApp (mkConst ``Tools.ShippingGen5DataOf.dataOfAt) lvl, ini]
+      let want := (← inferType hs1).replaceFVars #[df1, io1] #[mkApp (mkConst ``Tools.ShippingGen5DataOf.dataOfAt) lvl, ini]
       let some hsY ← ys.findM? fun y => do pure ((← y.fvarId!.getUserName).eraseMacroScopes == `hs) | throwError "no hs"
       unless (← inferType hsY) == want do throwError "AC9KIT CHECK FAILED: hs type differs from C.SM-1's DataOfSound (factsOf_genS_assembled'')"
       unless (← inferType hsY).isAppOf ``Tools.ShippingGen5Sem.DataOfSound do throwError "AC9KIT CHECK FAILED: hs is not DataOfSound"
