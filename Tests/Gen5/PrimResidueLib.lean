@@ -174,7 +174,7 @@ def isUserModule (m : String) : Bool :=
   m.startsWith "Tests." || m.startsWith "Examples" || m.startsWith "IP." || m.startsWith "Tools.Test" || m == "<local>"
 
 /-- Scan the residue of the roots selected by the environment variables; one line per root, one line per constant. -/
-def scanEnv (env : Environment) (rootNames : Array Name) (mods : List String) (onlyNames : Bool) :
+def scanEnv (env : Environment) (rootNames : Array (Name × List String)) (mods : List String) (onlyNames : Bool) :
     IO (Array (Name × List String × NameSet × Nat) × Sites) := do
   let allMods := mods.contains "*"
   let mut rootRoutes : NameMap (List String) := {}
@@ -191,10 +191,12 @@ def scanEnv (env : Environment) (rootNames : Array Name) (mods : List String) (o
       if ci.isDefinition && (allMods || mods.contains (moduleOf env n)) && Sparkle.Compiler.isHardwareModule env n
           && !(rootRoutes.contains n) then
         rootRoutes := rootRoutes.insert n ["tagged"]
-  for n in rootNames do
+  for (n, tags) in rootNames do
     if (env.find? n).any (·.isDefinition) then
-      let cur := rootRoutes.getD n []
-      unless cur.contains "synth" do rootRoutes := rootRoutes.insert n ("synth" :: cur)
+      let mut cur := rootRoutes.getD n []
+      for t in "synth" :: tags do
+        unless cur.contains t do cur := t :: cur
+      rootRoutes := rootRoutes.insert n cur
   let roots := rootRoutes.toList.toArray.qsort (fun a b => a.1.toString < b.1.toString)
   let mut direct : NameMap (Array Name) := {}
   let mut siteAcc : Sites := {}
@@ -238,14 +240,60 @@ elab "#prim_residue_scan" : command => do
   let some out ← IO.getEnv "PRIM_RES_OUT" | throwError "PRIM_RES_OUT not set"
   let mods := ((← IO.getEnv "PRIM_RES_MODS").getD "").splitOn "," |>.filter (· ≠ "")
   let onlyNames := (← IO.getEnv "PRIM_RES_ONLY").isSome
-  let mut names : Array Name := #[]
+  let mut names : Array (Name × List String) := #[]
   let mut missing : Array String := #[]
   if let some f ← IO.getEnv "PRIM_RES_ROOTS" then
     for l in ← IO.FS.lines f do
       let l := l.trimAscii.toString
       if l.isEmpty then continue
       let n := l.toName
-      if (env.find? n).any (·.isDefinition) then names := names.push n else missing := missing.push l
+      if (env.find? n).any (·.isDefinition) then names := names.push (n, []) else missing := missing.push l
+  -- roots named by the compiler's own profile log (slice of this run): every declaration whose synthesis
+  -- got past the dispatch, with the front end it took
+  if let some lf ← IO.getEnv "PRIM_RES_PROFILE" then
+    let off := ((← IO.getEnv "PRIM_RES_PROFOFF").bind String.toNat?).getD 0
+    if (← System.FilePath.pathExists lf) then
+      let bytes ← IO.FS.readBinFile lf
+      let txt := (String.fromUTF8? (bytes.extract off bytes.size)).getD ""
+      let mut routes : Std.HashMap String (List String) := {}
+      let mut order : Array String := #[]
+      let mut entered : Std.HashSet String := {}
+      for l in txt.splitOn "\n" do
+        if l.startsWith "[profile] declName resolved: " then
+          let n := (l.drop 29).toString.trimAscii.toString
+          unless routes.contains n do
+            routes := routes.insert n []
+            order := order.push n
+          routes := routes.insert n (if (routes.getD n []).contains "cmd" then routes.getD n [] else "cmd" :: routes.getD n [])
+        else if l.startsWith "[profile] synthesizeCombinational " then
+          match (l.drop 34).toString.splitOn " " with
+          | n :: rest =>
+            let what := " ".intercalate rest
+            let r? : Option String :=
+              if what == "certified front end" then some "S0"
+              else if what == "mixed certified front end" then some "mixed"
+              else if what == "machine certified front end" then some "machine"
+              else if what == "MEMO HIT" then some "memo"
+              else if what.startsWith "starting" then some "legacy"
+              else none
+            if what == "entering" then entered := entered.insert n
+            if let some r := r? then
+              unless routes.contains n do
+                routes := routes.insert n []
+                order := order.push n
+              let cur := routes.getD n []
+              unless cur.contains r do routes := routes.insert n (r :: cur)
+          | _ => pure ()
+      let mut prof := "name\troutes\tstatus\n"
+      for n in order do
+        let rs := routes.getD n []
+        let nm := n.toName
+        let isDef := (env.find? nm).any (·.isDefinition)
+        let past := rs.any (· ≠ "cmd")
+        prof := prof ++ s!"{n}\t{",".intercalate rs}\t{if !isDef then "not-a-definition" else if past then "ok" else "no-dispatch"}\n"
+        if isDef && past then names := names.push (nm, rs.filter (· ≠ "cmd"))
+        else if !isDef then missing := missing.push n
+      IO.FS.writeFile (out ++ ".prof") prof
   let (perRoot, siteAcc) ← scanEnv env names mods onlyNames
   let mut rr := "root\troutes\tmodule\tunfolded\tresidue\tnrec\tresidue-names\n"
   let mut allRes : NameSet := {}
