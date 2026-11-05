@@ -396,3 +396,8 @@ theorem entryTopSym_windowD (hlog : LogMvK O) (translate : Lean.Environment → 
 end Sym
 
 end Tools.ShippingGen4FKidsDepthTop
+
+#print axioms Tools.ShippingGen4FKidsDepthTop.bindInputsLegacyKD
+#print axioms Tools.ShippingGen4FKidsDepthTop.finishSynthSym
+#print axioms Tools.ShippingGen4FKidsDepthTop.legacySym_windowDP
+#print axioms Tools.ShippingGen4FKidsDepthTop.entryTopSym_windowD
