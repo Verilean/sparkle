@@ -5830,6 +5830,27 @@ lean_lib «Tests.Gen5.PrimResidueStopM4» where
 lean_lib «Tests.Gen5.PrimResidueStopSig» where
   roots := #[`Tests.Gen5.PrimResidueStopSig]
 
+lean_lib «Tests.Gen5.PrimResidueTraceLib» where
+  roots := #[`Tests.Gen5.PrimResidueTraceLib]
+
+lean_lib «Tests.Gen5.PrimResidueTrace» where
+  roots := #[`Tests.Gen5.PrimResidueTrace]
+
+lean_lib «Tests.Gen5.PrimResidueTraceM1» where
+  roots := #[`Tests.Gen5.PrimResidueTraceM1]
+
+lean_lib «Tests.Gen5.PrimResidueTraceM2» where
+  roots := #[`Tests.Gen5.PrimResidueTraceM2]
+
+lean_lib «Tests.Gen5.PrimResidueTraceM3» where
+  roots := #[`Tests.Gen5.PrimResidueTraceM3]
+
+lean_lib «Tests.Gen5.PrimResidueTraceM4» where
+  roots := #[`Tests.Gen5.PrimResidueTraceM4]
+
+lean_lib «Tests.Gen5.PrimResidueTraceSig» where
+  roots := #[`Tests.Gen5.PrimResidueTraceSig]
+
 lean_lib «Tools.ShippingGen5ConstValueESoundK» where
   roots := #[`Tools.ShippingGen5ConstValueESoundK]
 
