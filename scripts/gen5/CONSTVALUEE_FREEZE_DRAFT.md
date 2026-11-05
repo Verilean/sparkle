@@ -241,3 +241,44 @@ reviewer の判断: `ls = []` にはしない。各 `(env, X)` に決定的な l
 
 - 規則の健全性、`OblLevelErase` の解決。台帳の数は変わらない（FG 75 / T1 57、今回 FG -0 +0 / T1 -0 +0）。
 - Check: `Tests/Gen5/LSCheck.lean`（`CVLS PT : ConstValueRel`、追加仮定なし、負対照、`#print axioms` は propext / Classical.choice / Quot.sound のみ）。
+
+## §Key: `PrimTable` の key（Issue `sparkle-ledger-dd4-key`、土台 68acad1e）
+
+reviewer の方針: LS env X は承認済み。最終 carrier と健全性は未承認。TRUSTED・axiom・sorry なし。`PT` は任意のパラメータのまま。
+現行 `PrimTable` は `Name` だけが key なので、同じ名前が異なる ls で現れる 13 名（§LS）を表せない。2 案を比べる。
+
+### 1. 2 案の比較
+
+| 項目 | 案 K1: key = `Name × List Level` | 案 K2: level-polymorphic row（row が `List Level` を引数に取る） |
+|---|---|---|
+| 型 | `tms : Name → List Level → Option TmRow`（`tys` も同様） | `tms : Name → Option (List Level → TmRow)` |
+| 関数性の証明への影響 | `prim`/`tcon` の前提が `PT.tms c ls = some row` になるだけ。`spine_inj` が `c = c' ∧ ls = ls' ∧ args = args'` を既に返すので、証明は `cve_fun` と**同じ形**で通る（`cvek_fun`、書き換えは型名と `PT.tms c ls` のみ）。 | 前提は `PT.tms c = some f`、row は `f ls`。`spine_inj` のあと `f ls` が同一になるので同様に通る。 |
+| 排他条件（unfold と prim） | 変更なし。kind（`IsDefn env c` と `¬ IsDefn env c`）と app の `hnh` が担う。key が増えても `IsDefn` は `Name` だけで決まる。 | 変更なし。 |
+| 表の行数 | **(name, ls) の組ごとに 1 行**。コーパスで現れる組の数だけ（有限、下の測定）。`ls` ごとに別の row を書ける。 | **name ごとに 1 行**（Name-only と同数）。1 行の中で `ls` を引数に取る。 |
+| 健全性の義務 `OblRowTyped` の形 | key ごと: `∀ c ls ci row … , env.find? c = some ci → PT.tms c ls = some row → … → TDenK … (instForall (ci.type.instantiateLevelParams ci.levelParams ls) args) d.ty`（`OblRowTypedK`、`Prop` の def、仮定していない）。行は有限個の key に対して個別に確かめる。 | `ls` を全称にした義務: `∀ ls, …`。`ls` がどの長さ・値でも成り立つ row を書く必要があり、`Type 0` の `Dyn` に収まらない level（`Bool.rec.{2}` など）では `row.den` が `none` を返すことで義務を逃がす形になる。row を書く側の負担が大きい。 |
+| 13 名の扱い | `(Bool.rec,[0])` と `(Bool.rec,[1])` を**別の key・別の row**で表す。他の ls には行を置かない（導出が止まる = 存在行が作れない。矛盾ではない）。 | 1 つの row が `ls` を見て振る舞いを分ける。 |
+| 相互の関係 | K2 は K1 の特殊形（`PrimTableK.ofPoly`）。Name-only は K1 の特殊形（`PrimTable.toK`）。 | 同左。 |
+
+### 2. 推奨: K1（`Name × List Level`）
+
+1. **一般性**: K1 は K2 と現行 `PrimTable` の両方を含む（`PrimTableK.ofPoly`、`PrimTable.toK`。後者は `cve_toK` で導出が移る）。逆は成り立たない（K2 は全 `ls` で row が存在する形）。
+2. **義務が有限・局所**: `OblRowTypedK` は key ごと。`ls` を全称にする K2 の義務は、`Type 0` の `Dyn` に収まらない level を `row.den = none` で逃がす書き方を強いる。K1 では置いた key にだけ義務が生じ、置かない key は導出が止まるだけ。
+3. **meta で行を生成しやすい**: 行は `(name, ls)` の組を列挙して作れる（測定がそのまま行の一覧になる）。
+4. **代償**: 行数が増える（下の測定: Name-only との差が追加行）。`ls` が `Level.param` を含む組が出るとキーが開くが、`LS` が root の level を閉じた値にするので、測定では閉じていない key の数を数えた。
+5. 関数性・排他は K2 でも同様に通るので、決め手は義務の形と行の局所性。最終 carrier の決定は reviewer。
+
+### 3. Lean（`Tools/ShippingGen5ConstValueEKey.lean`、既存ファイルは書き換えていない）
+
+- `PrimTableK := { tys tms : Name → List Level → Option Row }`、`TDenK` / `ArgsDenK` / `CVEK`（`CVE` の写し。`prim`/`tcon` の lookup だけ `c ls`）。
+- 定理: `tdenk_fun` / `argsdenk_fun` / `cvek_fun`（`∀ PT env`、前提は二つの導出だけ）、`constValueEKAt_functional`、`CVLSK PT : ConstValueRel`。
+- 橋: `cve_toK`（`CVE PT … → CVEK PT.toK …`）、`PrimTableK.ofPoly`、`OblRowTypedK`（型だけ。仮定も証明もしていない）。
+- 不変: `Dyn`（`Type 0`）、`TyRow`/`TmRow`、規則、排他条件、`LS`。
+
+### 4. Check（`Tests/Gen5/KeyCheck.lean`）
+
+- 型の構造照合: `CVLSK PT : ConstValueRel`、`ConstValueFunctional (CVLSK PT)`、`cvek_fun` / `tdenk_fun` の型、`cve_toK`。
+- 13 名の一部（`Bool.rec`: `[0]`/`[1]`、`Nat.rec`: `[1]`/`[2]`）について、異なる ls の 2 つの row が衝突せずに表せる（`TK_two_rows`、`TK_two_rows_nat`）。
+- 負対照: `Name` だけの key では 2 つの row が衝突する（`nameKey_collides`、`TK_not_nameKeyed`、`toK_level_blind`）。
+- 実環境で `Bool.rec` / `Nat.rec` / `List.rec` / `PProd.mk` / `PUnit.unit` / `False.rec` の宣言された型が `[0]` と `[1]` で異なる（meta）。
+- `#print axioms`: 関数性・橋は propext / Classical.choice / Quot.sound のみ。表の例は propext のみ。sorryAx なし。
+
