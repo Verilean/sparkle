@@ -1,4 +1,4 @@
-# `ConstValueE PT` — freeze 草案（D.D-4、案 B）。草案であり、採用ではない
+# `ConstValueE PT` — freeze 草案（D.D-4、案 B）。草案であり、採用ではない（DCF-1〜3 反映済み、§DCF-4 を末尾に追記）
 
 Issue `sparkle-ledger-dd4`。土台 f00da0d5（par/cvtop）。担当 agent は調査と草案のみ。**TRUSTED も新しい仮定も入れていない。** 判断は reviewer。
 Lean の型の骨格: `Tools/ShippingGen5ConstValueE.lean`（定義と型だけ。定理なし、sorry なし、axiom なし。build ok）。
@@ -147,3 +147,26 @@ Lean の型の骨格: `Tools/ShippingGen5ConstValueE.lean`（定義と型だけ�
 - 残余の数がコーパス全体の数であること（59 宣言のサンプル）。
 - 新しい TRUSTED の採用・必要性（行の一覧は候補。採否は別判断）。
 - 台帳の数の変更（FG 75 / T1 57 のまま。今回 FG -0 +0 / T1 -0 +0）。
+
+## DCF-1〜3 の結果と §DCF-4（健全性）に向けて気づいたこと
+
+Issue `sparkle-ledger-dd4-dcf`。土台 c63f2284。PT は任意のパラメータのまま、TRUSTED・axiom・sorry なし。
+
+### 済んだこと
+
+- 定理（`Tools/ShippingGen5ConstValueE.lean`）: `tden_fun` / `argsden_fun` / `cve_fun`。`∀ PT env`、前提は二つの導出だけ。排他性は規則の前提（`IsDefn` / `¬IsDefn`、app の `hnh`）が担うので PT の中身に依存しない。結論は `τ = τ' ∧ α = β ∧ HEq v w`（τ の一意性を含める。理由は下）。系 `constValueEAt_functional`（`ls` を固定した `ConstValueE`）。
+- 骨格に入れた変更（§1 の表からの差分）: (1) natLit/strLit の型の level を `[]` に固定（任意の `ls` だと τ が一意にならない）。(2) lam に `a0 : TA`（定義域の元）を要求。(3) unfold/prim/tcon/tunfold の結論の添字を変数にして `he : e = mkAppN …` の等式を前提に持つ（`cases` で一致させるため。意味は同じ）。
+- `TDen`/`ArgsDen` の関数性は単独では示せない。`ArgsDen.tm` が `CVE` を含み、`CVE.app` が `TDen` を使うので、3 つの同時帰納（相互再帰）。DCF-2 と DCF-3 は実質 1 つの定理。
+- Check: `Tests/Gen5/DCFCheck.lean`（型の構造照合、負対照、`#print axioms` は propext / Classical.choice / Quot.sound のみ）。
+
+### §DCF-4 に書くこと（未着手。気づいた点）
+
+1. **τ の一意性が関数性に必須**。固定した τ だけで関数性を言うと app が通らない（結論の τ = `B.instantiate1 x` から `A`、`B` が決まらず、`fe` の IH が使えない）。そこで `cve_fun` は τ の一意性を結論に含める。これを成り立たせるために (1)(2) の規則変更が要った。(2) の代償: 空の型を定義域とする lam は導出できない。
+2. **`∃ ls` の `ConstValueE` の関数性は未証明**。`ConstValueRel`/`ConstValueFunctional` は level が存在量化で、`const X ls` と `const X ls'` は別の式なので `cve_fun` は直接使えない。規則は level を `instantiateLevelParams` 以外で見ないので、level を消す対応（書き換えの下で導出が保たれる補題）で示せるはずだが、`instantiateLevelParams` と `beta`/`instantiate1` の可換が要る。`ConstValueE` を `ls` 固定（または `ls = []`）にする選択肢もある。DeclConnect に差し込む前に決める必要がある。
+3. **健全性は未証明**: 構文上の型 τ と `ConstantInfo.type` の整合（`bvar` の `liftLooseBVars`、app の `instantiate1`、prim の `instForall`、`hty` が表の行の義務のままでよいか）。lam の `B` と `TB` の対応は規則が前提として持つだけで、カーネルの型付けとの一致は未確認。
+4. **`Dyn` が `Type 0` のみ**の制約と、型引数を値にしない設計は変えていない（§1.2）。
+5. `cve_fun` は `hty`（prim の型付け義務）を使わない。つまり `hty` は関数性には不要で、健全性の側の義務。
+
+### 主張しないこと（追加）
+
+- 規則の健全性、`ls` が存在量化の `ConstValueE` の関数性、`DeclConnect` への接続。台帳の数は変わらない（FG 75 / T1 57、今回 FG -0 +0 / T1 -0 +0）。

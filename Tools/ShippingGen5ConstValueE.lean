@@ -335,4 +335,15 @@ end
 def ConstValueE (PT : PrimTable) (env : Environment) (X : Name) (α : Type) (v : α) : Prop :=
   ∃ (ls : List Level) (τ : Expr), CVE PT env [] (.const X ls) τ α v
 
+/-- `ConstValueE` at a FIXED level list (the functionality below is stated here; with `∃ ls` it is open, see DCF-4 in the draft). -/
+def ConstValueEAt (PT : PrimTable) (env : Environment) (X : Name) (ls : List Level) (α : Type) (v : α) : Prop :=
+  ∃ τ : Expr, CVE PT env [] (.const X ls) τ α v
+
+theorem constValueEAt_functional (PT : PrimTable) (env : Environment) (X : Name) (ls : List Level)
+    {α β : Type} {v : α} {w : β} (h : ConstValueEAt PT env X ls α v) (h' : ConstValueEAt PT env X ls β w) :
+    α = β ∧ HEq v w :=
+  let ⟨_, hv⟩ := h
+  let ⟨_, hw⟩ := h'
+  (cve_fun hv hw).2
+
 end Tools.ShippingGen5ConstValueE
