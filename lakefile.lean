@@ -5022,3 +5022,6 @@ lean_lib «Tools.ShippingGen4FPost» where
 
 lean_lib «Tests.Gen4.FPostCheck» where
   roots := #[`Tests.Gen4.FPostCheck]
+
+lean_lib «Tools.ShippingGen4Shape» where
+  roots := #[`Tools.ShippingGen4Shape]
