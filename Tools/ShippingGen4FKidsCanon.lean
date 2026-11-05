@@ -30,6 +30,20 @@ macro "ctailK" : tactic => `(tactic|
   (refine KeepsCS.bind (KeepsCS.forIn_array _ (fun fv repl => ?_) _ _) (fun _ => KeepsCS.pure _)
    refine KeepsCS.bind (lookupVarPS fv) (fun _ => KeepsCS.pure _)))
 
+/-- `fuelFixM` for `KeepsCS` (as `KeepsCP.fuelFixM`, Tools/ShippingChildLoopsCP.lean). -/
+theorem KeepsCS.fuelFixM {I : Void IO.RealWorld → Prop} {α β : Type}
+    (step : (α → CompilerM β) → α → CompilerM β)
+    (hstep : ∀ rec : α → CompilerM β,
+      (∀ a, KeepsCS mctx mref cctx cref I (rec a)) →
+      ∀ a, KeepsCS mctx mref cctx cref I (step rec a)) :
+    ∀ (k : Nat) (a : α), KeepsCS mctx mref cctx cref I (Sparkle.Compiler.Elab.fuelFixM step k a)
+  | 0, a => by
+    unfold Sparkle.Compiler.Elab.fuelFixM
+    exact KeepsCS.throw _ (by okmsg)
+  | k + 1, a => by
+    unfold Sparkle.Compiler.Elab.fuelFixM
+    exact hstep _ (KeepsCS.fuelFixM step hstep k) a
+
 section Step
 variable {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hA : AdmCtx O.quiet mctx cctx)
   {I : Void IO.RealWorld → Prop} (hS : StableK O.quiet I)
@@ -82,6 +96,6 @@ theorem canonHardwareKeyKS (value : Lean.Expr) :
 
 end Step
 
-#print axioms .canonHardwareKeyKS
+#print axioms canonHardwareKeyKS
 
 end Tools.ShippingGen4FKidsCanon
