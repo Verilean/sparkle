@@ -170,3 +170,45 @@ Issue `sparkle-ledger-dd4-dcf`。土台 c63f2284。PT は任意のパラメー�
 ### 主張しないこと（追加）
 
 - 規則の健全性、`ls` が存在量化の `ConstValueE` の関数性、`DeclConnect` への接続。台帳の数は変わらない（FG 75 / T1 57、今回 FG -0 +0 / T1 -0 +0）。
+
+## §DCF-4 の結果（Issue `sparkle-ledger-dd4-dcf4`、土台 5f4edce4）
+
+TRUSTED・axiom・sorry なし。PT は任意のまま。**設計の変更は reviewer の判断**（下の 1.3）。
+
+### 1. `∃ ls` の `ConstValueE` の関数性 — できない（現設計では）
+
+1.1 **理由（確認済み）**: level を消す対応の証明には、`instantiateLevelParams`・`instantiate1`・`beta` が level の消去と可換であることが要る。
+`Lean.Expr.instantiate1` / `instantiate` / `instantiateRange` / `liftLooseBVars` は **`opaque`（extern C）**で、論理の中に展開がない（`#print` で確認、`Tests/Gen5/DCF4Check.lean`）。
+したがって「`erase (b.instantiate1 x) = (erase b).instantiate1 (erase x)`」型の補題は、Lean の論理では**証明できず**、axiom（=TRUSTED）にするしかない。大きさの問題ではなく原理的な制約。
+（`instantiateLevelParams` 自体は Lean 側の定義 `replace` だが、unfold の本体が `beta` を通るので、`beta` で止まる。）
+補題の型は `OblLevelErase`（`Tools/ShippingGen5ConstValueESound.lean`、`Prop` の def。仮定していない）。
+
+1.2 同じ制約で、`ConstValueE`（`∃ ls`）の関数性は、`const X ls` と `const X ls'` の導出の対応が取れず証明できない。`ls` を固定した `constValueEAt_functional`（承認済み）は成り立つ。
+
+1.3 **ls を固定する設計案**（採用は reviewer）:
+- `ConstValueE PT env X α v := ConstValueEAt PT env X [] α v`（`ls = []`、`∃ ls` を消す）。または `ls` を定数ごとの関数 `LS : Name → List Level` として `PrimTable` の外に取り `ConstValueEAt PT env X (LS X) α v`。
+- 型への影響: `ConstValueRel := Environment → Name → (α : Type) → α → Prop` は **変わらない**（`ls` は定義の内側にあり、型に出ない）。`ConstValueFunctional (ConstValueE PT)` は `constValueEAt_functional` からそのまま出る。`DeclConnect` / `declConnect_eq` / `declConnect_of_rows` は `CV` を引数に取るだけなので**変更なし**。
+- 意味への影響: universe 多相の定数を `ls = []` で使うので、level パラメータを持つ定数は `instantiateLevelParams` で全 level が潜在的に未置換（`Level.param` のまま）になる。`Type 0` の `Dyn` と `row.den`（level を見ない）では、level の違いは値に現れないので、`ls = []` で導出が止まるのは `ls` が値の型 `Type 0` への制約として働く定義だけ（例: `ULift.{u}` の `u` を 0 以外で使う）。コーパスでの頻度は未測定。`LS` を関数にする案は、この場合を呼び出し側が選べる。
+- 代替（不採用の見込み）: level 消去の補題を **axiom** で入れる。reviewer が TRUSTED を承認していない（G-PRIM と同様）ので入れない。
+
+### 2. 規則の健全性（τ と `ConstantInfo.type` の整合）
+
+証明した（`Tools/ShippingGen5ConstValueESound.lean`、axiom は `propext` のみ）: `instForall_nil` / `instForall_cons_forallE` / `instForall_of_not_forallE` / `instForall_append` / `instForall_length_zero`（prim の型 `instForall (ci.type.instantiateLevelParams …) args` の純構文部分）。
+
+**名前付きの義務**（型は書いた。`Prop` の def。仮定も sorry もない。カーネルの型付け `Ty env Γ e τ` は core に Prop がないのでパラメータ）:
+
+| 義務 | 内容 | なぜ証明できないか |
+|---|---|---|
+| `OblLiftClosed` | 閉じた型の `liftLooseBVars` は恒等 | `liftLooseBVars` が opaque |
+| `OblBvar Ty` | bvar の型 = `Γ[i]` の `liftLooseBVars 0 (i+1)` | カーネルの bvar 規則。`Ty` と `liftLooseBVars` |
+| `OblApp Ty` | app の型 = `B.instantiate1 x` | `instantiate1` が opaque、`Ty` はカーネル |
+| `OblLam Ty` | lam: body の型 `B` が codomain | `Ty`（カーネル）。規則側の `B`/`TB` の対応は `CVE.lam` の前提 |
+| `OblConst Ty` | 定数の型 = `ci.type.instantiateLevelParams ci.levelParams ls` | `Ty`（カーネル）。unfold の型保存は defeq 側 |
+| `OblRowTyped PT env` | prim の `hty`（表の行ごと） | 行ごとの義務（reviewer の許可どおり表の行に残す） |
+| `OblLevelErase erase` | 1.1 の level 消去の可換 | 1.1 |
+
+健全性の定理（`CVE … → Ty env (ρ.map τ) e τ`）はこれらの義務を仮定にして書けるが、仮定つきの定理は入れない（指示）。また unfold の型保存は β/δ 同値（defeq）を含み、`Ty` に変換規則が要る（規模が大きい）。**まとめ: 健全性のうち証明できるのは `instForall` の構文部分だけで、残りは opaque なカーネル関数と `Ty` に起因する名前付き義務。**
+
+### 3. Check と台帳
+
+`Tests/Gen5/DCF4Check.lean`（構造照合・負対照・`#print axioms`・opaque の確認）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
