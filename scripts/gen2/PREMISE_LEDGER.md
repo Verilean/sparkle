@@ -1166,3 +1166,11 @@ reviewer の承認で、次の行を除く。
 | 同 | C.CV-6（−1、リーフ） | `readerTrace_final_b1`（`Tools/ShippingGen5ReaderTraceFinalB1.lean`、9ab07ab8、par/cv56）。束縛変数 28 個は `readerTrace_final` と同じで、結論に GenWF b1（`∀ k < insts.length, callKind d k ≠ .domain`）を足す。b1 は `rowB1_of_dataE`（`Tools/ShippingGen5Cover3R.lean`、0d9da1ce）に root の `h`（`machineShape?`）と `hd`（同じ `E`・`sp`）を渡して出すので、`hcb` は要らない。exact-head `cv56b-9ab07ab8` exit 0（843 jobs）。Check: BINDERS（名前・info・型を == で比較）、結論の比較、対照 2、AXIOMS は標準のみ。reviewer 承認（3cd32441） | 新しい前提 0。GenWF の他の行（a1〜a4、b23、c）は C.SM-6 に残る。C.AC-9 は別の単位（sparkle-ledger-ac9、AccKeep の base 破損が先） |
 
 - **現在値: FG 85**（87 − 2）。内訳（R0）: リーフ 59 / 非リーフ 26。T1 は 57。FG の最終受理ではない。
+
+### 12.14 減算（2026-11-05、coder。文書のみ）
+
+| 単位 | 消えた FG 行 | 根拠 | 条件・残るもの |
+|---|---|---|---|
+| AC9KIT（Issue sparkle-ledger-ac9、費用比較 `scripts/gen5/ASSEMBLY_COST.md` aa638b35 の単位 1、freeze `scripts/gen5/AC9KIT_FREEZE.md`） | C.AC-9（−1、リーフ） | `accServed0_of_cover_gatesK`（`Tools/ShippingGen5AccKit.lean`、04db3763、kjob/rt187）。Acc 系の最上位 `accServed0_of_cover_gates` の kit を `mkKit (dataOfAt lvl) …` に固定し（mkKit の引数は CKIT の既存定理で供給）、`hDS` と `hK` を束縛変数から除いた（`dataOfShape_of_dataOfAt`、`mkKit_dataOf` は rfl）。追加の束縛変数は `lvl`・`initsOf`・`genData₀`（非 Prop）と `hs`（`DataOfSound (dataOfAt lvl) initsOf`、`factsOf_genS_assembled''` の `hs` と型が ==、既存行 C.SM-1）。前提の修正: `Tools/ShippingGen5AccKeep.lean` を doSynth の燃料切れ throw に合わせた（4191960a、文は変えない）。exact-head `ac9kv-04db3763` exit 0。Check: 共通の束縛変数 12 個が == / HS / 対照 2 / AXIOMS は標準のみ。reviewer 承認（04db3763） | 新しい前提 0。C.AC-4（ReachCover）・C.AC-5（GatesNoneAt）・C.AC-6（ClosesOfShape、= A.P-07）・C.AC-7（ReadsSupplyAt）の供給と FG の組み立ては残る |
+
+- **現在値: FG 84**（85 − 1）。内訳（R0）: リーフ 58 / 非リーフ 26。T1 は 57。FG の最終受理ではない。
