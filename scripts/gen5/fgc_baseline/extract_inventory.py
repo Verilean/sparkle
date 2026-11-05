@@ -59,11 +59,25 @@ for p in files:
     pending_opts = []
     n_api = len(re.findall(r'synthesizeCombinational|synthesizeHierarchical', '\n'.join(lines)))
     n_cmd = 0
+    depth = 0
     for i, ln in enumerate(lines, 1):
+        # block comments (doc comments hold commented-out examples)
+        was = depth
+        j = 0
+        while True:
+            a, b = ln.find('/-', j), ln.find('-/', j)
+            if depth == 0 and a >= 0 and (b < 0 or a < b): depth += 1; j = a + 2
+            elif depth > 0 and b >= 0 and (a < 0 or b < a or a + 1 == b): depth -= 1; j = b + 2
+            elif depth > 0 and a >= 0 and a < b: depth += 1; j = a + 2
+            else: break
+        if was > 0: continue
         m = re.match(r'^(?:noncomputable\s+)?namespace\s+([A-Za-z0-9_.]+)', ln)
         if m: ns.append(m.group(1)); continue
         m = re.match(r'^end\s+([A-Za-z0-9_.]+)\s*$', ln)
         if m and ns and ns[-1] == m.group(1): ns.pop(); continue
+        if re.match(r'^(?:/--.*?-/\s*)?#guard_msgs\b.*\bin\s*$', ln):
+            pending_opts = pending_opts + ['guard_msgs=expected-diagnostic']
+            continue
         # `set_option X V in` on the same line or the line before a command
         so = re.findall(r'set_option\s+(\S+)\s+(\S+)\s+in', ln)
         if so and not ln.lstrip().startswith('--'):

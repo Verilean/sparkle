@@ -1,0 +1,2 @@
+file	top	cause	fix_target
+Tests/Compiler/MultiOutputSubModuleHangRepro.lean	reproKvHw2Reg	documented elaborator hang: circuit-do with >=2 registers calling a large @[hardware_module] (file header lines 1-50; bug repro, not a delivered IP; baselineNoSubmodule and baselineKvHw1Reg of the same file are NOT excluded)	Sparkle/Compiler/Elab.lean sub-module walk (separate issue; a timeout here is expected and must be recorded as KNOWN-HANG, never as pass)

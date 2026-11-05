@@ -20,6 +20,14 @@ env = dict(l.strip().split('=', 1) for l in open(f'{out}/env.txt') if '=' in l)
 lines = open(f'{out}/inventory.tsv').read().split('\n')
 hdr = lines[0].split('\t')
 inv = [dict(zip(hdr, l.split('\t'))) for l in lines[1:] if l]
+excl = {}
+if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'exclusions.tsv')):
+    for l in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'exclusions.tsv')).read().split('\n')[1:]:
+        if l.strip():
+            f_, t_, c_, x_ = l.split('\t'); excl[(f_, t_)] = (c_, x_)
+def tier(area, f):
+    # A: shipped IP (IP/, Examples/, Tests/IP/ synthesis of IP); B: compiler feature / regression tests
+    return 'A-ip' if area.startswith(('IP/', 'Examples/', 'Tests/IP')) else 'B-feature'
 key = lambda f: f.replace('/', '_')
 
 MOD = re.compile(r'^module\s+(\S+?)\s*(?:#\(.*?\)\s*)?\(', re.M | re.S)
@@ -74,7 +82,8 @@ for f in sorted(byfile):
     if f not in status:
         for r in byfile[f]:
             cmds.append(dict(file=f, line=r['line'], command=r['command'], top=r['top'], params=r['params'],
-                options=r['options'], result='NOT-RUN', route='', module='', sha256='', method='', file_exit='', area=r['area'], in_alltests=r['in_alltests_closure']))
+                options=r['options'], result='NOT-RUN', route='', module='', sha256='', method='', file_exit='', area=r['area'], in_alltests=r['in_alltests_closure'], tier=tier(r['area'], f),
+            excluded=excl.get((f, r['top']), ('', ''))[0][:60], fix_target=excl.get((f, r['top']), ('', ''))[1][:60]))
         continue
     rc, secs = status[f]
     txt = open(f'{out}/out/{key(f)}.txt', errors='replace').read()
@@ -111,7 +120,8 @@ for f in sorted(byfile):
         cmds.append(dict(file=f, line=r['line'], command=r['command'], top=r['top'], params=r['params'],
             options=r['options'], result=res, route=route, module=pool[hit][0] if hit is not None else '',
             sha256=pool[hit][1] if hit is not None else '', method=method if hit is not None else '', file_exit=rc,
-            area=r['area'], in_alltests=r['in_alltests_closure']))
+            area=r['area'], in_alltests=r['in_alltests_closure'], tier=tier(r['area'], f),
+            excluded=excl.get((f, r['top']), ('', ''))[0][:60], fix_target=excl.get((f, r['top']), ('', ''))[1][:60]))
 
 def dump(name, rows):
     if not rows: open(f'{out}/{name}', 'w').write(''); return
@@ -121,6 +131,9 @@ def dump(name, rows):
         for r in rows: fh.write('\t'.join(str(r[c]).replace('\t', ' ').replace('\n', ' ') for c in cols) + '\n')
 dump('baseline_files.tsv', files); dump('baseline_modules.tsv', mods); dump('baseline_commands.tsv', cmds)
 
+for r in cmds:
+    if r['excluded'] and r['result'] in ('FAIL', 'UNATTRIBUTED'): r['result'] = 'KNOWN-' + r['result']
+unexplained = [r for r in cmds if r['result'] in ('FAIL', 'UNATTRIBUTED') and not r['excluded']]
 c = collections.Counter(r['result'] for r in cmds)
 ca = collections.Counter(r['result'] for r in cmds if r['in_alltests'] == 'Y')
 with open(f'{out}/summary.txt', 'w') as s:
@@ -130,4 +143,8 @@ with open(f'{out}/summary.txt', 'w') as s:
     s.write(f"commands in AllTests closure: {dict(ca)}\n")
     s.write(f"routes (OK commands): {dict(collections.Counter(r['route'] or 'none' for r in cmds if r['result']=='OK'))}\n")
     s.write(f"modules {len(mods)}\n")
+    for t in ('A-ip', 'B-feature'):
+        s.write(f"tier {t}: {dict(collections.Counter(r['result'] for r in cmds if r['tier']==t))}\n")
+    s.write(f"unexplained failures (must be 0 before fixing the baseline): {len(unexplained)}\n")
+    for r in unexplained: s.write(f"  {r['file']}:{r['line']} {r['top']} {r['result']} exit={r['file_exit']}\n")
 print(open(f'{out}/summary.txt').read())
