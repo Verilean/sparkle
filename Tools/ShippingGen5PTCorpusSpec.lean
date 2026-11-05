@@ -292,4 +292,43 @@ theorem ptc_spine_rowTypedV_Sparkle_Core_Signal_Signal_mk (env : Environment) (h
     (hT : EnvDepSpine env `Sparkle.Core.Signal.Signal.mk [.zero] 3 2 `Sparkle.Core.Signal.Signal [.zero]) : RowTypedAtV PTcorpus env `Sparkle.Core.Signal.Signal.mk [.zero] :=
   rowTypedAtV_spine PTcorpus env _ _ [true, false] [true] _ _ spec_Sparkle_Core_Signal_Signal_mk hnd hT
 
+/-! ## §3 The 26 output-structure keys of `DepRows`: no row in `PTcorpus`
+
+They are declarations of the corpus modules (`MissingWhy.notImportable`: a `Tools` module cannot import them). A `FirstArgSpec` / `DomFieldsSpec` / `SpineSpec` is a statement ABOUT a row, so none can be supplied: proved below.
+(`ptc_rowTypedV_of_none` makes `RowTypedAtV` hold for them vacuously, which does not pay anything: the derivation of a root that reaches one of them is stuck at that key; it is counted under "no row", not here.) -/
+
+/-- The `.mk` keys of the 26 output structures of `Tools.ShippingGen5DepRows`. -/
+def deprowKeys : List Name := [`Sparkle.IP.Bus.LINHW.ChkOut.mk, `Sparkle.IP.Crypto.Keccak256HW.KeccakFOut.mk, `Sparkle.IP.Crypto.Keccak256Sponge.SpongeOut.mk, `Sparkle.IP.Crypto.P256FieldHW.MulOut.mk, `Sparkle.IP.Crypto.P256OrderHW.MulOut.mk, `Sparkle.IP.Crypto.Secp256k1OrderHW.MulOut.mk, `Sparkle.IP.Net.HFTStrategy.HFTOut.mk, `Sparkle.IP.Net.HTTP.HttpEmitOut.mk, `Sparkle.IP.Net.HTTP.HttpRequestParserOut.mk, `Sparkle.IP.Net.UART.TxOut.mk, `Sparkle.Tests.Compiler.MultiInstance.PeOut.mk, `Sparkle.Tests.Compiler.NoPortsMemKidTest.KOut.mk, `Sparkle.Tests.Compiler.ShippingChildBoundaryTest.AccOut.mk, `Sparkle.Tests.Compiler.ShippingMachineEntryTest.TwoOut.mk, `Sparkle.Tests.Compiler.ShippingMachineNestTest.Out.mk, `Sparkle.Tests.Compiler.ShippingMachineNestTest.Pair.mk, `Sparkle.Tests.Compiler.ShippingMachineSeqTest.CntOut.mk, `Sparkle.Tests.Compiler.ShippingMachineTeleTest.CountOut.mk, `Sparkle.Tests.Compiler.ShippingMachineTeleTest.PulseOut.mk, `Tests.Compiler.KaryGenTest.KOut.mk, `Tests.Compiler.KaryThreeTest.KOut.mk, `Tests.Compiler.SharedLeafGenDefaultHbTest.Acc16Out.mk, `Tests.Compiler.SharedLeafGenDefaultHbTest.AccOutD.mk, `Tests.Compiler.SharedLeafGenFallbackTest.AccOutF.mk, `Tests.Compiler.SharedLeafGenTest.Acc16Out.mk, `Tests.Compiler.SharedLeafMemKidTest.MOut.mk]
+
+theorem deprowKeys_length : deprowKeys.length = 26 := rfl
+
+theorem deprowKeys_noRow : ∀ c ∈ deprowKeys, PTcorpus.tms c [] = none := by
+  intro c hc
+  simp only [deprowKeys, List.mem_cons, List.not_mem_nil, or_false] at hc
+  rcases hc with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+
+theorem not_firstArgSpec_of_noRow {PT : PrimTableK} {c : Name} {ls : List Level} (h : PT.tms c ls = none) (k0 : Bool) (ks' : List Bool) (D : Name) (Ls : List Level) :
+    ¬ FirstArgSpec PT c ls k0 ks' D Ls := by
+  rintro ⟨row, _, hr, _⟩; rw [h] at hr; cases hr
+
+theorem not_spineSpec_of_noRow {PT : PrimTableK} {c : Name} {ls : List Level} (h : PT.tms c ls = none) (kp kq : List Bool) (D : Name) (Ls : List Level) :
+    ¬ SpineSpec PT c ls kp kq D Ls := by
+  rintro ⟨row, _, hr, _⟩; rw [h] at hr; cases hr
+
+theorem not_domFieldsSpec_of_noRow {PT : PrimTableK} {c : Name} {ls : List Level} (h : PT.tms c ls = none) (DCT : Type) (SigT : DCT → Type → Type) (As : List Type) :
+    ¬ Tools.ShippingGen5DepRows.DomFieldsSpec PT c ls DCT SigT As := by
+  rintro ⟨row, hr, _⟩; rw [h] at hr; cases hr
+
+/-- No `FirstArgSpec` of `PTcorpus` exists for any of the 26 keys. -/
+theorem deprows_noFirstArgSpec (c : Name) (hc : c ∈ deprowKeys) (k0 : Bool) (ks' : List Bool) (D : Name) (Ls : List Level) :
+    ¬ FirstArgSpec PTcorpus c [] k0 ks' D Ls := not_firstArgSpec_of_noRow (deprowKeys_noRow c hc) k0 ks' D Ls
+
+/-- NEGATIVE CONTROL: a `SpineSpec` with kinds other than the row's is refuted (HAdd.mk has kinds `[false, false, false, true]`). -/
+theorem control_spineSpec_wrongKinds :
+    ¬ SpineSpec PTcorpus `HAdd.mk [.zero, .zero, .zero] [false, false] [true, true] `HAdd [.zero, .zero, .zero] := by
+  rintro ⟨row, _, hr, hk, _⟩
+  have h1 : PTcorpus.tms `HAdd.mk [.zero, .zero, .zero] = some tm_9.row := rfl
+  rw [h1] at hr; cases hr
+  exact absurd hk (by decide)
+
 end Tools.ShippingGen5PTCorpusSpec
