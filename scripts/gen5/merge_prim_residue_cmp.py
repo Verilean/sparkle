@@ -92,7 +92,7 @@ def tally(items, title):
     pr = sum(1 for r, t in items if paid_r(r, t)); pt = sum(c for k, c in ct.items() if k in PAID_T)
     r1d = sum(1 for r, t in items if r == "R1" and t == "T3")
     n = len(items)
-    print(f"   {title}: {n} rows | RowTypedAtV: shape of an existing lemma {pr} (R0/R1 closed Pi/R2), closed codomain but dependent binders R1d {r1d}, R3a {cr['R3a']}, R0x/R1x {cr['R0x']+cr['R1x']}, R3 {cr['R3']} | RowTeleEvAt: shape of an existing lemma {pt} (T0/T1), T2 {ct['T2']}, T3 {ct['T3']}")
+    print(f"   {title}: {n} rows | RowTypedAtV: shape of an existing lemma {pr} (R0/R1 closed Pi/R2), closed codomain but dependent binders R1d {r1d}, R3a {cr['R3a']}, R0x/R1x {cr['R0x']+cr['R1x']}, R3v {cr['R3v']}, R3p {cr['R3p']}, R3c {cr['R3c']}, R3 {cr['R3']} | RowTeleEvAt: shape of an existing lemma {pt} (T0/T1), T2 {ct['T2']}, T3 {ct['T3']}")
 print("\n==================== row obligations ====================")
 for g in ["sig", "corpus"]:
     ts = group(g)
