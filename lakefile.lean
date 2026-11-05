@@ -5784,3 +5784,12 @@ lean_lib «Tests.Gen5.LSCorpus» where
 
 lean_lib «Tests.Gen5.LSCheck» where
   roots := #[`Tests.Gen5.LSCheck]
+
+lean_lib «Tools.ShippingGen5ConstValueEKey» where
+  roots := #[`Tools.ShippingGen5ConstValueEKey]
+
+lean_lib «Tests.Gen5.KeyCheck» where
+  roots := #[`Tests.Gen5.KeyCheck]
+
+lean_lib «Tests.Gen5.PrimResidueKey» where
+  roots := #[`Tests.Gen5.PrimResidueKey]
