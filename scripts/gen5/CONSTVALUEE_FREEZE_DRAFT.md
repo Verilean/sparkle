@@ -793,3 +793,60 @@ reviewer の判断 Q-B: corpus の宣言（output 構造体など）を Tools �
 - §Final2 の「4 つは同時に import できない」の 4 つがどれかは特定していない。この 23 本は 1 つの Check に同時に import できたので、少なくともこの組合せには衝突がない。衝突する組があれば、各 root は両方を import できないので、その root は片方の shard だけを合成する（shard が module 単位に分かれている理由）。
 - 再帰子 15 / `Type 0` 外 25 / 証明の束縛 6 / 結果が Prop か `Type 0` 外 4 / 族が Prop か `Type 0` 外 5 は shard では払えない（行の形が `Dyn` に入らない）。Q-A の領分。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## §RootShard: root ごとの `PT := PTcore ⊕ shards` の文と、名前付き前提の分け方（Issue `sparkle-ledger-dd4-shard`、土台 20772d29）
+
+reviewer の受理範囲: shard は条件付きで受理済み。範囲は**行の置き場の解決まで**で、shard の行の `RowTypedAtV` / `RowTeleEvAt` は未解決。env の 60 key の監査は kernel の証明に数えない。**PTcorpus の採用・G-PRIM・TRUSTED・D.D-4 の減算・最終保証は未承認のまま。** TRUSTED・axiom・sorry・native_decide なし（axiom は propext / Classical.choice / Quot.sound のみ）。既存ファイルは書き換えていない。
+新ファイル: `Tools/ShippingGen5PTRootShard.lean`、`Tests/Gen5/PTRootShardCheck.lean`。lakefile は lean_lib 2 つ。
+
+### 1. root ごとの文（`Tools/ShippingGen5PTRootShard.lean`、kernel 検査済み）
+
+- `compAll A Ss`（`A ⊕ₚ S₁ ⊕ₚ … ⊕ₚ Sₙ` を左から）、`rootPT Ss := compAll PTcore Ss`。`rootPT [] = PTcore`（`rfl`）、空の shard を足しても表は変わらない（`comp_empty`、`rootPT_empty`）。
+- `FGLedgerPremisesStmtRootAt PT`: `FGLedgerPremisesStmtPTC` の本文で `PTcorpus` を表 `PT` に替えただけ。`FGLedgerPremisesStmtRoot Ss := RootAt (rootPT Ss)`。
+- **橋**: `FGLedgerPremisesStmtCV → ∀ PT, RootAt PT`（`PT` を特殊化するだけ）、したがって `∀ Ss, Root Ss`。`H` からも同様（`…_of_H`）。`Root [] ↔ FGLedgerPremisesStmtPTC` と `RootAt PTcorpus ↔ PTC` は `Iff.rfl`。`Root [empty] ↔ PTC`（`fgLedgerPremisesStmtRoot_empty_iff`）。
+  逆向き（`PTC → Root Ss`）は**主張しない**: 表が大きくなると `DeclConnect (CVFinal PT)` と 3 つの行の前提が変わる。
+- 合成の性質: core の行は常に残る（`rootPT_keeps_core_tys/tms`）。shard の行は、shard ごとの鮮度の連鎖 `FreshChain PTcore Ss`（各 shard が直前までの合成に対して `FreshAgainst`、root ごとに `⟨rfl, rfl⟩`）の下で残る（`rootPT_keeps_shard_tys/tms`）。
+  表は関数的な carrier のまま（`cvFinal_rootPT_functional`、`Excl` は使わない）。
+
+### 2. 5 つの名前付き前提の分け方
+
+文の名前付き前提は 5 つ: `OblLbrZero`（外側）、`KernelClosedInvariant`、`LitRows PT`、`OblRowTypedV PT`、`∀ c ls, RowTeleEvAt PT`。表に依らないのは前 2 つ。表に依る 3 つを `PT = rootPT Ss` で分ける（`rootNamed_iff`、kernel 検査済み）:
+
+| 前提 | 分け方 | 根拠 |
+|---|---|---|
+| `LitRows (rootPT Ss)` | core の `LitRows`（`Nat` / `String` の行は core の行）。2 つの env 事実 `¬IsDefn env Nat` / `String` に還元 | `litRows_rootPT`、`litRows_rootPT_of_env` |
+| `OblRowTypedV (rootPT Ss)` | **core の行**: core に `tms` の行がある key の `RowTypedAtV`（`CoreRowTypedV`）＋ **shard ごと**: その shard の `tms` の key の `RowTypedAtV`（`ShardRowTypedV S`） | `oblRowTypedV_split`。key に行がなければ `rowTypedAtV_of_none` |
+| `RowTeleEvAt (rootPT Ss)` | **core の行**（`CoreRowTeleEv`）＋ **shard ごと**（`ShardRowTeleEv S`） | `rowTeleEv_split`。key に行がなければ `rowTeleEvAt_of_none` |
+
+- shard ごとの名前付き前提は `ShardPremises S PT env := ShardRowTypedV ∧ ShardRowTeleEv`（`Prop` の定義。**仮定にも定理にもしていない**）。root の 3 つの前提は `RootNamed Ss env`（`lit` / `coreTyped` / `coreTele` / `shards : ∀ S ∈ Ss, ShardPremises S …`）と同値。
+- 分けただけで、**core の行の前提も shard の行の前提も供給していない**。core 側の未解決（`PTcorpus` の `RowTypedAtV` 19 行、`RowTeleEvAt` 41 行）は §Final2 のまま。shard 側の件数（term 行 = 前提の対の数）は root ごとに下表。
+- 表の分割は表自体の `Option` の検索だけを使う。分割した前提は合成した表 `rootPT Ss` の上の文のまま（`TDenV (rootPT Ss)` など）で、core の表の上の前提を持ち上げてはいない（持ち上げには導出の単調性が要り、今回は扱わない）。
+
+### 3. root と shard の対応（key から決める）と Check（`Tests/Gen5/PTRootShardCheck.lean`、build exit 0）
+
+- 対応の決め方: root から定義の本体をたどって届く定数（`PrimResidueKey.reach`）のうち、生成した shard の key（型 former・constructor の名前）に当たるものの shard が、その root が要る shard。Check が全 23 shard の key 集合から導出し、kernel の文が使う `ssXxx` の一覧と**一致**を確かめる（不一致は error）。各 shard に届いた key が 1 つ以上あること（最小性）も確かめる。meta の監査で、kernel の証明ではない。
+- 代表の 8 root（`rootTable`）:
+
+| root | 要る shard | shard の行（型, term） |
+|---|---|---|
+| `Sparkle.Tests.SignalLoopTest.counterLoop` | なし（module の shard は空） | (0, 0) |
+| `Tests.Compiler.KaryGenTest.topshare3` | KaryGen | (1, 1) |
+| `…ShippingMachineNestTest.consumer` | MachineNest | (2, 2) |
+| `Sparkle.IP.Bus.LINHW.checksumHW` | LINHW | (2, 2) |
+| `…ShippingChildBoundaryTest.two` | ChildBoundary, MachineSeq（子の module の shard） | (2, 2) |
+| `…ShippingMachineTeleTest.hftByte` | HFTStrategy, HTTP（**自分の module の shard は要らない**） | (4, 4) |
+| `Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW` | Keccak256HW, Keccak256Sponge | (3, 3) |
+| `…ShippingMachineTeleTest.divInLoop` | なし（shard を持つ module の root） | (0, 0) |
+
+- **census**（文を unfold して調べた。meta）: 8 root とも、文の本文は `FGLedgerPremisesStmtPTC` の `PTcorpus` を `rootPT ssXxx` に替えたものと**構文として一致**（`==`）。外側の binder 13、内側の仮説 15（PTC と同じ）、`PrimTableK` の binder 0、内側の名前付き前提 4（`KernelClosedInvariant`、`LitRows`、`OblRowTypedV`、`RowTeleEvAt`）、外側の `OblLbrZero` で合計 5。文に現れる `ptShard` の定数の集合が要る shard の一覧と一致。
+  対照: shard を持つ root の文は `PTcorpus` の文と一致しない（置換なしでは census が通らない）。
+- **kernel**（`rfl` / `decide`）: 連鎖の鮮度（`chain_*`）、同一 root の shard 間の排他（`excl_child`、`excl_hft`、`excl_sponge`）、全 23 shard の key が重ならない（`keys_disjoint`＝`paid_nodup`）、`Covers`（要る shard の全 key に root の表で行がある、`covers_*`）、
+  **負対照**（`lack_*`: shard を 1 つ欠いた合成はその shard の key を覆わない。`Covers (rootPT []) KaryGen.ptShard = false` など、2 shard の root は両方向）、`lack_core_vs_comp`（core だけでは覆わず、合成すると覆う）、
+  `hft_row_kept`（`HTTP` の行が `hftByte` の表で見つかる）、`signalLoop_stmt_iff`（`Tests.SignalLoopTest` の空の shard を足しても文は PTC と同じ）、`stmt_*`（`CV` / `H` からの橋）、`split_*`（前提の分割）、`rowCounts_eq`。`#print axioms` はすべて標準のみ。
+
+### 4. 主張しないこと / 残り
+
+- shard の行の `RowTypedAtV` / `RowTeleEvAt`（上表の対の数だけ）は**未解決のまま**。`ShardPremises` は名前を付けただけ。Q-C（`sparkle-ledger-dd4-deprows`）が供給する行の証明との接続は、供給された行を `ShardRowTypedV` などに差す形になる（このファイルは Q-C の `PTcorpus` の Spec に触れていない）。
+- root と shard の対応は代表の 8 root の導出（`reach` の近似: 定義の本体から届く定数。型の宣言や `instance` の解決は入らない）。全 root の対応表ではない。env の key 集合との照合は kernel の証明に数えない。
+- 再帰子・`Type 0` 外の束縛・証明の束縛など、shard で払えない key は §Shard のとおり変わらない（`Tests.SignalLoopTest` の 3 root は 29/75、20/59、29/75 のまま）。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
