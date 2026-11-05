@@ -59,7 +59,7 @@ open Tools.ShippingGen4FKidsTele
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-set_option maxHeartbeats 1000000
+set_option maxHeartbeats 4000000
 set_option linter.unusedSectionVars false
 
 theorem metaM_bind_assocS {α β γ : Type} (x : MetaM α) (f : α → MetaM β) (g : β → MetaM γ) :

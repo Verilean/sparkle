@@ -42,7 +42,7 @@ open Tools.ShippingGen4FKidsTele
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-set_option maxHeartbeats 1000000
+set_option maxHeartbeats 4000000
 
 /-- Two lifts then a continuation, with the second depending on the first result. -/
 theorem liftMetaM_bind_depS {α β : Type} (a : MetaM α) (f : α → MetaM Unit) (k : Unit → CompilerM β) :
