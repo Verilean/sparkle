@@ -63,14 +63,14 @@ def dynFit (c : Name) (ls : List Level) : MetaM (Option String) := do
   forallTelescope ty fun xs r => do
     for x in xs do
       let t ← inferType x
-      match ← sortOf t with
-      | some l =>
-        if l == Level.zero then return some s!"proof binder ({t})"
-        else if l != Level.one then return some s!"binder above Type 0 ({t} : Sort {l})"
-      | none =>
-        match (← whnf t) with
-        | .sort l => if l.normalize != Level.one then return some s!"universe-valued binder Sort {l.normalize}" 
-        | _ => return some s!"binder type has no sort ({t})"
+      match (← whnf t) with
+      | .sort l => if l.normalize != Level.one then return some s!"universe-valued binder Sort {l.normalize}"
+      | _ =>
+        match ← sortOf t with
+        | some l =>
+          if l == Level.zero then return some s!"proof binder ({t})"
+          else if l != Level.one then return some s!"binder above Type 0 ({t} : Sort {l})"
+        | none => return some s!"binder type has no sort ({t})"
     match (← whnf r) with
     | .sort l => if l.normalize != Level.one then return some s!"result is Sort {l.normalize}" else return none
     | _ =>
@@ -145,5 +145,16 @@ elab "#prim_residue_stop_neg " fuel:num : command => do
   match failed with
   | some m => logInfo s!"negative control ok: fuel={fuel.getNat} fails as required; first lines:\n{"\n".intercalate (m.splitOn "\n" |>.take 3)}"
   | none => throwError "negative control FAILED: fuel={fuel.getNat} did not exhaust"
+
+/-- negative control for the `Dyn` fit check: a recursor, a `Functor` method and a proof-binder constructor must NOT fit, `Nat.succ` must fit -/
+elab "#prim_residue_stop_dyn_ctl" : command => do
+  let chk (c : Name) (ls : List Level) (want : Bool) : CommandElabM Unit := do
+    let v ← liftTermElabM (dynFit c ls)
+    if v.isNone != want then throwError "dyn control failed for {c}: got {v}"
+    logInfo m!"dyn control {c}: {match v with | none => "fits" | some w => "NO: " ++ w}"
+  chk ``Nat.rec [Level.one] false
+  chk ``Functor.map [Level.zero, Level.zero] false
+  chk ``Fin.mk [] false
+  chk ``Nat.succ [] true
 
 end Tests.Gen5.PrimResidueStop
