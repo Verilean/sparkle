@@ -47,7 +47,8 @@ def LegacyCachedKS (O : RefLawsAOps MkRefd mref cref) (I : Void IO.RealWorld →
 /-- `childSynthEntry` (the child recursion). HYPOTHESIS of `translateFallbackKS`. -/
 def ChildEntryKS (O : RefLawsAOps MkRefd mref cref) (I : Void IO.RealWorld → Prop) : Prop :=
   ∀ (mctx : Meta.Context) (cctx : Core.Context), AdmCtx O.quiet mctx cctx →
-    ∀ c, Keeps mctx mref cctx cref I (childSynthEntry c)
+    ∀ c, Triple mctx mref cctx cref I (childSynthEntry c)
+      (fun r w => I w ∧ PairPF r) (fun e w => I w ∧ OkExc e)
 
 /-- **The fallback, one arm per `fallbackKind`**, for `StableK`. -/
 theorem translateFallbackKS {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O)
