@@ -29,6 +29,14 @@ def ExpRowB1 : Prop :=
     (hd : Tools.ShippingGen5DataOf.dataOfAt lvl (.defnInfo dd) senv' sp = some d),
     ∀ k, k < d.shape.insts.length → callKind d k ≠ .domain
 
+def ExpRowB1E : Prop :=
+  ∀ {d : MachineData} {nDecl : Nat} {st : MachRead} (hag : ShapeAgree d st) (hi : FullInv nDecl st)
+    {sym : Bool} {params : List (String × Nat)} {E : Lean.ConstantInfo} {senv senv' : StructEnv}
+    {allow : Bool} {sp : MachineShape} {lvl : Lean.Expr → Nat}
+    (hms : machineShape? sym params E senv allow = some sp)
+    (hd : Tools.ShippingGen5DataOf.dataOfAt lvl E senv' sp = some d),
+    ∀ k, k < d.shape.insts.length → callKind d k ≠ .domain
+
 /-- Mutant: `hms` dropped (nothing ties `sp` to `dd`'s peel). -/
 def MutNoHms : Prop :=
   ∀ {d : MachineData} {nDecl : Nat} {st : MachRead} (hag : ShapeAgree d st) (hi : FullInv nDecl st)
@@ -55,7 +63,8 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   checkExpected ``hcb_of_data ``ExpHcb
   checkExpected ``rowB1_of_data ``ExpRowB1
   checkExpected ``Tools.ShippingGen5Cover3.rowB1_of_inv ``MutOld  -- control: comparator accepts the old statement for the old theorem
-  logInfo m!"CV6 TYPE: 2 theorems against Expected; 1 control"
+  checkExpected ``rowB1_of_dataE ``ExpRowB1E
+  logInfo m!"CV6 TYPE: 3 theorems against Expected; 1 control"
 
 run_cmd Lean.Elab.Command.liftTermElabM do
   checkMutant ``rowB1_of_data ``MutNoHms
@@ -83,5 +92,7 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   if got.contains `hcb then throwError "CV6 BINDERS FAILED: hcb present"
   logInfo m!"CV6 BINDERS: {got} = rowB1_of_inv binders {old} minus hcb plus [hms, hd]"
   for n in [``hcb_of_data, ``rowB1_of_data] do checkAxioms n
-  logInfo m!"CV6 COUNTS: TYPE 2 (+1 control), MUTANT 3, BINDERS 1, AXIOMS 2"
+  for n in [``hcb_of_dataE, ``rowB1_of_dataE] do
+    Tests.Gen3.ExpectedType.checkAxioms n
+  logInfo m!"CV6 COUNTS: TYPE 3 (+1 control), MUTANT 3, BINDERS 1, AXIOMS 4"
 end Tests.Gen5.Cover3RCheck

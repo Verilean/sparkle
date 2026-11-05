@@ -51,4 +51,24 @@ theorem rowB1_of_data {d : MachineData} {nDecl : Nat} {st : MachRead} (hag : Sha
     ∀ k, k < d.shape.insts.length → callKind d k ≠ .domain :=
   rowB1_of_inv hag hi (hcb_of_data hms hd)
 
+/-- `hcb_of_data` for any constant `E` (the run's `RunReadsAt.shapeEq` is stated on `entryConst …`): `machineShape?` is `none`
+off `.defnInfo`, so `some sp` forces the definition case. -/
+theorem hcb_of_dataE {sym : Bool} {params : List (String × Nat)} {E : ConstantInfo} {senv senv' : StructEnv}
+    {allow : Bool} {sp : MachineShape} {lvl : Lean.Expr → Nat} {d : MachineData}
+    (hms : machineShape? sym params E senv allow = some sp)
+    (hd : dataOfAt lvl E senv' sp = some d) :
+    ∀ k (hk : k < d.shape.insts.length),
+      (d.shape.binders[kDOf d + k]?).map (·.2) = some (d.shape.insts[k]'hk).2.2 := by
+  cases E <;> first
+    | exact hcb_of_data hms hd
+    | (unfold machineShape? at hms; cases hms)
+
+theorem rowB1_of_dataE {d : MachineData} {nDecl : Nat} {st : MachRead} (hag : ShapeAgree d st) (hi : FullInv nDecl st)
+    {sym : Bool} {params : List (String × Nat)} {E : ConstantInfo} {senv senv' : StructEnv}
+    {allow : Bool} {sp : MachineShape} {lvl : Lean.Expr → Nat}
+    (hms : machineShape? sym params E senv allow = some sp)
+    (hd : dataOfAt lvl E senv' sp = some d) :
+    ∀ k, k < d.shape.insts.length → callKind d k ≠ .domain :=
+  rowB1_of_inv hag hi (hcb_of_dataE hms hd)
+
 end Tools.ShippingGen5Cover3R

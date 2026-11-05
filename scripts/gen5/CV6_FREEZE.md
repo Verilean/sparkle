@@ -58,3 +58,10 @@ TYPE（Expected は §2 の字面、`Tests.Gen3.ExpectedType.checkExpected`）�
 * `machineShape?` / `dataOfAt` が実際の run で `some` であること、両者が同じ `dd` `sp` に対して走ること（readerTrace_final 側で供給する必要があるかを含め、この調査では供給元・経路を確認していない）。
 * `ShapeAgree`・`FullInv` の供給、R-in / R-dom、FG 台帳の数の変更。
 * 非空虚性（`hms` `hd` を満たす具体例の構成）。
+
+## 6. 追加（coder、2026-11-05）: 任意の定数 `E` の版
+
+run の `RunReadsAt.shapeEq` は `machineShape? false [] (entryConst …) (structEnv envR') = some p.d.shape` で、定数は `entryConst …`（`.defnInfo` とは限らない形）。
+`machineShape?` は `.defnInfo` 以外で `none` なので、`some sp` なら定義の場合だけが残る（`machineShape?_noMemRow` と同じ場合分け）。
+そこで `hcb_of_dataE` / `rowB1_of_dataE` は `hms : machineShape? sym params E senv allow = some sp`、`hd : dataOfAt lvl E senv' sp = some d` を任意の `E` で取る（他は §2 と同じ）。
+これで `hms` は run の `shapeEq` をそのまま当てられる形になる。`hd`（同じ `E`・`sp` の `dataOfAt`）は C.SM-1 の被覆半分（既存の行）。
