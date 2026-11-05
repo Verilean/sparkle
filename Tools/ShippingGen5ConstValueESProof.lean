@@ -639,4 +639,176 @@ theorem denTypedS {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env)
     (hsub : OblDenSubstS PT env) : OblDenTypedS PT env :=
   fun _ _ _ _ _ hρ h => denTypedS_aux hcl hN hS hsub hρ h
 
+
+/-! ## §6 P2: the rule judgment `TyRKS` and the obligations `OblUnfoldS` / `OblPrimKS`
+
+`TyRKS` is a SYNTACTIC typing judgment inside the carrier (reviewer decision D2 = a). It is NOT Lean's kernel typing and nothing here claims agreement with the kernel.
+Its `prim` rule is the strong one: the spine's arguments are typed against the declared telescope (`TyArgsS`). -/
+
+mutual
+
+inductive TyRKS (PT : PrimTableK) (env : Environment) : List Expr → Expr → Expr → Prop
+  | natLit {Γ : List Expr} {n : Nat} : TyRKS PT env Γ (.lit (.natVal n)) (.const `Nat [])
+  | strLit {Γ : List Expr} {s : String} : TyRKS PT env Γ (.lit (.strVal s)) (.const `String [])
+  | bvar {Γ : List Expr} {i : Nat} {T : Expr} (h : Γ[i]? = some T) : TyRKS PT env Γ (.bvar i) (liftS T 0 (i + 1))
+  | const {Γ : List Expr} {c : Name} {ls : List Level} {ci : ConstantInfo} (h : env.find? c = some ci) :
+      TyRKS PT env Γ (.const c ls) (ci.type.instantiateLevelParams ci.levelParams ls)
+  | app {Γ : List Expr} {f x A B : Expr} {n : Name} {bi : BinderInfo}
+      (hf : TyRKS PT env Γ f (.forallE n A B bi)) (hx : TyRKS PT env Γ x A) : TyRKS PT env Γ (.app f x) (substS B 0 x)
+  | lam {Γ : List Expr} {A b B : Expr} {n : Name} {bi : BinderInfo}
+      (hb : TyRKS PT env (A :: Γ) b B) : TyRKS PT env Γ (.lam n A b bi) (.forallE n A B bi)
+  | letE {Γ : List Expr} {n : Name} {A v b B : Expr} {nd : Bool}
+      (hv : TyRKS PT env Γ v A) (hb : TyRKS PT env (A :: Γ) b B) : TyRKS PT env Γ (.letE n A v b nd) (substS B 0 v)
+  | unfold {Γ : List Expr} {c : Name} {ls : List Level} {args : List Expr} {d : DefinitionVal} {τ : Expr}
+      (hd : env.find? c = some (.defnInfo d))
+      (hb : TyRKS PT env Γ (betaS (d.value.instantiateLevelParams d.levelParams ls) args) τ) :
+      TyRKS PT env Γ (mkAppN (.const c ls) args.toArray) τ
+  | prim {Γ : List Expr} {c : Name} {ls : List Level} {args : List Expr} {ci : ConstantInfo} {R : Expr}
+      (hci : env.find? c = some ci) (hnd : ¬ IsDefn env c)
+      (hargs : TyArgsS PT env Γ (ci.type.instantiateLevelParams ci.levelParams ls) args R) :
+      TyRKS PT env Γ (mkAppN (.const c ls) args.toArray) R
+
+/-- A spine typed against a telescope: each argument has the (instantiated) binder type; the result is `R`. -/
+inductive TyArgsS (PT : PrimTableK) (env : Environment) : List Expr → Expr → List Expr → Expr → Prop
+  | nil {Γ : List Expr} {T : Expr} : TyArgsS PT env Γ T [] T
+  | cons {Γ : List Expr} {n : Name} {A B : Expr} {bi : BinderInfo} {a : Expr} {as : List Expr} {R : Expr}
+      (ha : TyRKS PT env Γ a A) (hs : TyArgsS PT env Γ (substS B 0 a) as R) : TyArgsS PT env Γ (.forallE n A B bi) (a :: as) R
+
+end
+
+theorem tyArgsS_instForallS {PT : PrimTableK} {env : Environment} {Γ : List Expr} {T R : Expr} {as : List Expr}
+    (h : TyArgsS PT env Γ T as R) : instForallS T as = R :=
+  match h with
+  | .nil => instForallS_nil _
+  | .cons _ hs => by rw [instForallS_cons_forallE]; exact tyArgsS_instForallS hs
+
+/-- The rule obligations for an arbitrary typing judgment `Ty` (the kernel's, a parameter), in the syntactic operations. -/
+def OblBvarS (Ty : TyJ) : Prop := ∀ (env : Environment) (Γ : List Expr) (i : Nat) (T : Expr), Γ[i]? = some T → Ty env Γ (.bvar i) (liftS T 0 (i + 1))
+def OblAppS (Ty : TyJ) : Prop :=
+  ∀ (env : Environment) (Γ : List Expr) (f x A B : Expr) (n : Name) (bi : BinderInfo),
+    Ty env Γ f (.forallE n A B bi) → Ty env Γ x A → Ty env Γ (.app f x) (substS B 0 x)
+def OblLetS (Ty : TyJ) : Prop :=
+  ∀ (env : Environment) (Γ : List Expr) (n : Name) (A v b B : Expr) (nd : Bool),
+    Ty env Γ v A → Ty env (A :: Γ) b B → Ty env Γ (.letE n A v b nd) (substS B 0 v)
+/-- `OblUnfoldS` (β/δ type preservation, in `betaS`): the type of a `defnInfo`-headed spine is the type of its instantiated, β-reduced body. For `TyRKS` this is the `unfold` rule
+(`oblUnfoldS_TyRKS`); that the KERNEL typing satisfies it is not stated (no `Prop`-valued kernel judgment in core). -/
+def OblUnfoldS (Ty : TyJ) : Prop :=
+  ∀ (env : Environment) (Γ : List Expr) (c : Name) (ls : List Level) (args : List Expr) (d : DefinitionVal) (τ : Expr),
+    env.find? c = some (.defnInfo d) →
+    Ty env Γ (betaS (d.value.instantiateLevelParams d.levelParams ls) args) τ → Ty env Γ (mkAppN (.const c ls) args.toArray) τ
+/-- A spine typed against a telescope by an ARBITRARY judgment `Ty` (the kernel's, a parameter). -/
+inductive TyArgsG (Ty : TyJ) (env : Environment) (Γ : List Expr) : Expr → List Expr → Expr → Prop
+  | nil {T : Expr} : TyArgsG Ty env Γ T [] T
+  | cons {n : Name} {A B : Expr} {bi : BinderInfo} {a : Expr} {as : List Expr} {R : Expr}
+      (ha : Ty env Γ a A) (hs : TyArgsG Ty env Γ (substS B 0 a) as R) : TyArgsG Ty env Γ (.forallE n A B bi) (a :: as) R
+
+/-- `OblPrimKS`: a spine headed by a non-`defnInfo` constant whose arguments are typed against the declared telescope (type arguments included: they are terms of the telescope's `Sort`s)
+has the telescope's result type. -/
+def OblPrimKS (Ty : TyJ) : Prop :=
+  ∀ (env : Environment) (Γ : List Expr) (c : Name) (ls : List Level) (args : List Expr) (ci : ConstantInfo) (R : Expr),
+    env.find? c = some ci → ¬ IsDefn env c →
+    TyArgsG Ty env Γ (ci.type.instantiateLevelParams ci.levelParams ls) args R → Ty env Γ (mkAppN (.const c ls) args.toArray) R
+
+structure KernelRulesKS (Ty : TyJ) : Prop where
+  bvar : OblBvarS Ty
+  app : OblAppS Ty
+  lam : OblLam Ty
+  const : OblConst Ty
+  lit : OblLit Ty
+  letE : OblLetS Ty
+  unfold : OblUnfoldS Ty
+  prim : OblPrimKS Ty
+
+def TyRKSJ (PT : PrimTableK) : TyJ := fun env => TyRKS PT env
+
+/-- The bundle is satisfiable by `TyRKSJ` (unfold and the strong prim are rules of the judgment). -/
+theorem kernelRulesKS_TyRKS (PT : PrimTableK) : KernelRulesKS (TyRKSJ PT) where
+  bvar := fun _ _ _ _ h => .bvar h
+  app := fun _ _ _ _ _ _ _ _ hf hx => .app hf hx
+  lam := fun _ _ _ _ _ _ _ hb => .lam hb
+  const := fun _ _ _ _ _ h => .const h
+  lit := ⟨fun _ _ _ => .natLit, fun _ _ _ => .strLit⟩
+  letE := fun _ _ _ _ _ _ _ _ hv hb => .letE hv hb
+  unfold := fun _ _ _ _ _ _ _ hd hb => .unfold hd hb
+  prim := fun env Γ c ls args ci R hci hnd hs => by
+    -- `TyArgsG (TyRKSJ PT)` is `TyArgsS`
+    have : ∀ (T : Expr) (as : List Expr) (R : Expr), TyArgsG (TyRKSJ PT) env Γ T as R → TyArgsS PT env Γ T as R := by
+      intro T as R h
+      induction h with
+      | nil => exact .nil
+      | cons ha _ ih => exact .cons ha ih
+    exact .prim hci hnd (this _ _ _ hs)
+
+mutual
+
+theorem tyRKS_sub {PT : PrimTableK} {Ty : TyJ} (R : KernelRulesKS Ty) {env : Environment} {Γ : List Expr} {e τ : Expr}
+    (h : TyRKS PT env Γ e τ) : Ty env Γ e τ :=
+  match h with
+  | .natLit => R.lit.1 _ _ _
+  | .strLit => R.lit.2 _ _ _
+  | .bvar h => R.bvar _ _ _ _ h
+  | .const h => R.const _ _ _ _ _ h
+  | .app hf hx => R.app _ _ _ _ _ _ _ _ (tyRKS_sub R hf) (tyRKS_sub R hx)
+  | .lam hb => R.lam _ _ _ _ _ _ _ (tyRKS_sub R hb)
+  | .letE hv hb => R.letE _ _ _ _ _ _ _ _ (tyRKS_sub R hv) (tyRKS_sub R hb)
+  | .unfold hd hb => R.unfold _ _ _ _ _ _ _ hd (tyRKS_sub R hb)
+  | .prim hci hnd hargs => R.prim _ _ _ _ _ _ _ hci hnd (tyArgsS_sub R hargs)
+
+theorem tyArgsS_sub {PT : PrimTableK} {Ty : TyJ} (R : KernelRulesKS Ty) {env : Environment} {Γ : List Expr} {T : Expr} {as : List Expr} {R' : Expr}
+    (h : TyArgsS PT env Γ T as R') : TyArgsG Ty env Γ T as R' :=
+  match h with
+  | .nil => .nil
+  | .cons ha hs => .cons (tyRKS_sub R ha) (tyArgsS_sub R hs)
+
+end
+
+/-- The per-key argument-typing obligation (named; NOT assumed anywhere): for a row-carrying key, every argument list the row accepts is typed against the declared telescope.
+It is not a consequence of `ArgsDenS`: a term argument's derivation fixes its label `τ` but nothing forces `τ` to be (syntactically) the telescope's binder type, and a type argument
+is only given a denotation (`TDenS`), never a typing. So it is a genuine row-level obligation, like `RowTypedAt`. -/
+def RowArgsAt (PT : PrimTableK) (env : Environment) (c : Name) (ls : List Level) : Prop :=
+  ∀ (ρ : Val) (args : List Expr) (ci : ConstantInfo) (row : TmRow) (as : List Arg) (d : Dyn),
+    env.find? c = some ci → PT.tms c ls = some row → ArgsDenS PT env ρ row.kinds args as → row.den as = some d →
+    TyArgsS PT env (ρ.map Entry.τ) (ci.type.instantiateLevelParams ci.levelParams ls) args
+      (instForallS (ci.type.instantiateLevelParams ci.levelParams ls) args)
+
+def OblPrimArgsS (PT : PrimTableK) (env : Environment) : Prop := ∀ (c : Name) (ls : List Level), RowArgsAt PT env c ls
+
+theorem rowArgsAt_of_none (PT : PrimTableK) (env : Environment) (c : Name) (ls : List Level) (h : PT.tms c ls = none) : RowArgsAt PT env c ls := by
+  intro ρ args ci row as d _ hrow; rw [h] at hrow; cases hrow
+
+theorem argsdens_length {PT : PrimTableK} {env : Environment} {ρ : Val} {ks : List Bool} {es : List Expr} {as : List Arg}
+    (h : ArgsDenS PT env ρ ks es as) : es.length = ks.length ∧ as.length = ks.length :=
+  match h with
+  | .nil => ⟨rfl, rfl⟩
+  | .ty _ hs => by have := argsdens_length hs; simp [this.1, this.2]
+  | .tm _ hs => by have := argsdens_length hs; simp [this.1, this.2]
+
+/-- A key whose row takes no arguments has no argument-typing obligation. -/
+theorem rowArgsAt_nullary (PT : PrimTableK) (env : Environment) (c : Name) (ls : List Level) (row : TmRow)
+    (hrow : PT.tms c ls = some row) (hk : row.kinds = []) : RowArgsAt PT env c ls := by
+  intro ρ args ci row' as d _ hrow' hargs _
+  rw [hrow] at hrow'; cases hrow'
+  rw [hk] at hargs
+  have : args = [] := List.length_eq_zero_iff.mp (by simpa using (argsdens_length hargs).1)
+  subst this
+  rw [instForallS_nil]; exact .nil
+
+/-- Every `CVEKS` derivation is a `TyRKS` derivation at `ρ.map Entry.τ`, given the per-key argument typing of the rows it uses. -/
+theorem cveks_tyRKS {PT : PrimTableK} {env : Environment} (hP : OblPrimArgsS PT env) {ρ : Val} {e τ : Expr} {α : Type} {v : α}
+    (h : CVEKS PT env ρ e τ α v) : TyRKS PT env (ρ.map Entry.τ) e τ :=
+  match h with
+  | .natLit => .natLit
+  | .strLit => .strLit
+  | .bvar h1 => .bvar (map_getElem?_entry _ _ _ h1)
+  | .lam _ _ _ a0 hb => .lam (cveks_tyRKS hP (hb a0))
+  | CVEKS.app _ _ _ hf hx _ => .app (cveks_tyRKS hP hf) (cveks_tyRKS hP hx)
+  | .letE _ hv hb => .letE (cveks_tyRKS hP hv) (cveks_tyRKS hP hb)
+  | .unfold hd hb he => he ▸ .unfold hd (cveks_tyRKS hP hb)
+  | .prim hci hrow hnd hargs hd hty he => he ▸ .prim hci hnd (hP _ _ _ _ _ _ _ _ hci hrow hargs hd)
+
+/-- Soundness of the `CVEKS` rules against any `Ty` satisfying the bundle: an implication between named `Prop`s (assumed nowhere). -/
+theorem cveks_sound {PT : PrimTableK} {env : Environment} {Ty : TyJ} (R : KernelRulesKS Ty) (hP : OblPrimArgsS PT env)
+    {ρ : Val} {e τ : Expr} {α : Type} {v : α} (h : CVEKS PT env ρ e τ α v) : Ty env (ρ.map Entry.τ) e τ :=
+  tyRKS_sub R (cveks_tyRKS hP h)
+
 end Tools.ShippingGen5ConstValueES
