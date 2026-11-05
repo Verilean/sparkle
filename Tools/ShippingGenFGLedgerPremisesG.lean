@@ -66,7 +66,7 @@ def FGLedgerPremisesStmtG : Prop :=
     -- carriers (binders, NOT hypotheses; their characterizing rows are in the registry)
     (ReflectsAll : Laws mref cref → Name → List (String × Nat) → Prop)        -- D.D-1
     (Post : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module → Prop)             -- A.P-05
-    -- D.D-3 fixed (user decision 2026-11-05, GP_FIX_DECISION A): GP := genGP lvl hs genData₀
+    -- D.D-3 fixed (user decision 2026-11-05, GP_FIX_DECISION A): GP := genGP (ι := ι) (dom := dom) lvl hs genData₀
     (lvl : Lean.Expr → Nat) {initsOf : (d : MachineData) → HList (tys d.ss)}
     (hs : DataOfSound (Tools.ShippingGen5DataOf.dataOfAt lvl) initsOf)                          -- C.SM-1 (existing row)
     (genData₀ : (env : Environment) → (E : ConstantInfo) →
@@ -83,11 +83,11 @@ def FGLedgerPremisesStmtG : Prop :=
     ∀ (declName : Name) (parameters : List (String × Nat)) (mctx : Meta.Context) (cctx : Core.Context)
       (w w' : Void IO.RealWorld) (b : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design),
       EntryWitness ReflectsAll L declName parameters mctx cctx w w' b D →     -- A.P-02 Start, A.P-04 run, D.D-1 ReflectsAll
-      -- inner hypotheses; P := genGP lvl hs genData₀ (envAt cref w), Reach := TgtRun P declName  (Q-F2)
-      (∀ c, TgtRun (genGP lvl hs genData₀ (envAt cref w)) declName c → ∀ q : Pkg ι dom, genGP lvl hs genData₀ (envAt cref w) c = some q →      -- h_A_P06
+      -- inner hypotheses; P := genGP (ι := ι) (dom := dom) lvl hs genData₀ (envAt cref w), Reach := TgtRun P declName  (Q-F2)
+      (∀ c, TgtRun (genGP (ι := ι) (dom := dom) lvl hs genData₀ (envAt cref w)) declName c → ∀ q : Pkg ι dom, genGP (ι := ι) (dom := dom) lvl hs genData₀ (envAt cref w) c = some q →      -- h_A_P06
         ∀ (mctx' : Meta.Context) (cctx' : Core.Context), Tools.ShippingChildInvA.AdmCtx L.O.quiet mctx' cctx' →
           Tools.ShippingMachineEntry.MachineDefines mctx' mref cctx' cref c q.d.shape) →
-      (∀ c, TgtRun (genGP lvl hs genData₀ (envAt cref w)) declName c → ∀ p : Pkg ι dom, genGP lvl hs genData₀ (envAt cref w) c = some p →      -- h_D_T4
+      (∀ c, TgtRun (genGP (ι := ι) (dom := dom) lvl hs genData₀ (envAt cref w)) declName c → ∀ p : Pkg ι dom, genGP (ι := ι) (dom := dom) lvl hs genData₀ (envAt cref w) c = some p →      -- h_D_T4
         ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
           Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
           ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
@@ -95,10 +95,10 @@ def FGLedgerPremisesStmtG : Prop :=
               = some pt.ty.bitWidth) →
       -- conclusion: the tail of the FG_CONNECT body (FG.lean), unchanged
       (∃ raw, Post b raw) ∧
-      (∃ p : Pkg ι dom, genGP lvl hs genData₀ (envAt cref w) declName = some p) ∧
+      (∃ p : Pkg ι dom, genGP (ι := ι) (dom := dom) lvl hs genData₀ (envAt cref w) declName = some p) ∧
       (∀ raw, Post b raw → ∃ (p : Pkg ι dom) (n : Nat),
-          genGP lvl hs genData₀ (envAt cref w) declName = some p ∧ TopShips p n declName b raw D) ∧
-      DeclConnect CV (envAt cref w) (genGP lvl hs genData₀ (envAt cref w)) (TgtRun (genGP lvl hs genData₀ (envAt cref w)) declName)
+          genGP (ι := ι) (dom := dom) lvl hs genData₀ (envAt cref w) declName = some p ∧ TopShips p n declName b raw D) ∧
+      DeclConnect CV (envAt cref w) (genGP (ι := ι) (dom := dom) lvl hs genData₀ (envAt cref w)) (TgtRun (genGP (ι := ι) (dom := dom) lvl hs genData₀ (envAt cref w)) declName)
 
 /-- `FGLedgerPremisesStmtG` follows from `FGLedgerPremisesStmtR` at `GP := genGP lvl hs genData₀` (`h_D_T1` by `hDT1_of_genGP`). -/
 theorem fgLedgerPremisesStmtG_of_R : FGLedgerPremisesStmtR → FGLedgerPremisesStmtG := by
