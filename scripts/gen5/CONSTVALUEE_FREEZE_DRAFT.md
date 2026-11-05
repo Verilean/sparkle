@@ -722,3 +722,39 @@ reviewer の方針: TRUSTED・axiom・sorry・native_decide なし。`PT` は明
 - 旧 `CVEKS` の導出からの写像、kernel typing との一致、`Expr.instantiateLevelParams` と `instantiateLevelParamsS` の一致、実際の `PT` が仕様を満たすこと。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+
+## §Final2: `PTlit` による ∀ PT の反駁と、具体的な `PTcorpus`（Issue `sparkle-ledger-dd4-final`、土台 18af4bc3）
+
+reviewer の方針: PT を全称のままにせず具体的な PTcorpus へ進む。PTnil は LitRows を満たさないので反例ではない。PTcorpus の採用・新 TRUSTED・台帳の減算・最終保証は承認されていない。5 つの名前付き前提のまま条件付きで続ける。TRUSTED・axiom・sorry・native_decide なし（axiom は propext / Classical.choice / Quot.sound のみ）。既存ファイルは書き換えていない。
+新ファイル: `Tools/ShippingGen5PTLit.lean`、`Tests/Gen5/PTLitCheck.lean`、`Tools/ShippingGen5PTCorpus.lean`、`Tests/Gen5/PTCorpusCheck.lean`、`scripts/gen5/GenPTCorpus.lean`（生成器。出力を読んで commit し、kernel が検査する）、`scripts/gen5/ptcorpus_{keys,missing,closure}.tsv`。
+
+### 1. 反駁: `PTlit`（Nat / String の literal 行だけ）では Signal の root が導出できない
+
+- `PTnil`: `LitRows PTnil env` は偽（`ptnil_not_litRows`）。ゆえに `PTnil` は最終文の反例ではない（§Final 6 の記述を修正する: `rows_nil` が示すのは行の前提 2 つが `PTnil` で満たされることだけ）。
+- `PTlit`（`natRow` / `strRow`、`tms` は全部 `none`）: `LitRows PTlit env` は env の事実 `¬IsDefn env Nat` / `String` から（`ptlit_litRows`）、`OblRowTypedV PTlit env` と `∀ c ls, RowTeleEvAt PTlit env c ls` は `tms` に行がないので無条件（`ptlit_oblRowTypedV`、`ptlit_rowTeleEvAt`）。残る 2 つの前提 `OblLbrZero`・`KernelClosedInvariant` は `PT` に依らないので、そのまま仮定として残る。**補助の前提 4 つ（のうち PT に依るもの）は PTlit で満たされる。**
+- 導出に `prim` は使えない（`tms = none`）。`StuckB env e`（head が定義でない定数 / 定義の展開が stuck / 束縛型の head が Nat・String 以外で定義でない `lam` / body が stuck の `lam`）なら、どの valuation でも `CVEKVB PTlit env ρ e …` はない（`stuckB_no_cvekvb`、`cvekvb_const_head`、`tdenv_const_head`）。
+- 帰結（kernel 検査済み）: `StuckB env (const X (LS env X))` かつ `P X = some p` なら `¬ DeclConnect (CVFinal PTlit) env P Tgt`（`ptlit_not_declConnect`）。`stmtCV_ptlit_refutes_entry`: `FGLedgerPremisesStmtCV` ＋ entry run の仮定 ＋ 上の補助前提 ＋ `StuckB`（`declName` 自身。`TgtRun.top`）から `False`。
+- 具体の root（`Tests/Gen5/PTLitCheck.lean`、meta。**env の事実の評価であって、その env についての kernel の証明ではない**。含意は kernel の `stuckChk_sound`）: `Sparkle.Tests.SignalLoopTest.counterLoop`（`Signal.loop` に展開され、head が `Signal.mk`＝定義でない）、`shift4Loop` と `counterEnableLoop`（`lam` の束縛型の head が `Signal`）。3 つとも `stuckChk … = true`。`Nat` / `String` は定義でないことも評価。負対照: literal・`bvar`・`fun (x : Nat) => x` は stuck でない。`PTlit` が空でない確認: `natLit` / `strLit` の導出がある。
+- **結論**: `∀ PT` の文は `PTlit` で偽（entry run の仮定が充足可能なら）か空虚（充足不能なら）。どちらかは示していない（`EntryWitness` などの充足可能性は未確認）。ゆえに PT を任意のまま最終形にできない。
+
+### 2. `PTcorpus`（`Tools/ShippingGen5PTCorpus.lean`）
+
+- 行は Lean の項: `TmTele ks` / `TyTele ks`（kinds を添字にした値の telescope: `tm A (fun a => …)`、`ty (fun T => …)`、`done R v`）。コンストラクタ行はコンストラクタそのもの（`Nat.succ` は `tm Nat (fun n => done Nat (Nat.succ n))`）。`run` は項引数を型 `A` のときだけ受ける（cast は `Classical.propDecidable`）。表は `tysTable` / `tmsTable`（key = 名前 × 数値の level）、`PTcorpus : PrimTableK` は表の検索。生成器が K1 の 204 key（ctor 100 / rec 15 / induct 89。`PrimResidueKey*` の再実行で復元、`scripts/gen5/ptcorpus_keys.tsv`）の宣言型から行を作る。
+- 行ができた key: **型 50 + 項 51**（K1 の 98 ＋ 閉包 3: `String`（literal の規則が使う）、`ActiveEdge`、`ResetKind`（行の宣言型に現れる）。K1 の残余の表は型の行の閉包になっていなかった）。
+- 行がない key: **106**（理由別、各 key は `missingTable`）: 再帰子 15（motive が `Sort` への関数で `Arg` / `Dyn.ty : Type` に入らない）、corpus の宣言 51（output 構造体と test の型。`Tools` から 47 module を import できない、うち 4 つは同時に import できない）、`Type 0` に入らない束縛 25（`f : Type → Type` の型クラス `Functor` / `Monad`、`PProd.{1,_}` ほか）、証明の束縛 6（`Fin.mk`、`Decidable.isTrue/isFalse`、`Nat.le.step`、`HEq`、`HEq.refl`）、結果が Prop か `Type 0` の外 4、族が Prop か `Type 0` の外 5。
+- 行ごとの証明（env の事実は仮定のまま。`PTCorpusCheck` が実環境で評価）: `TmSpec` / `TyConSpec` は構成から（`TmTele.spec`）。**`RowTypedAtV` を 32 / 51 行**: 引数なし 6、閉じた codomain 3（`Nat.succ`、`Int.ofNat`、`Int.negSucc`）、`DomainConfig.mk`、第 1 引数に依存する 22（`Add.mk` などの型クラス構造体、`List.nil/cons`、`Array.mk`、`Wireable.mk`。`firstArgSpec_ty` + `rowTypedAtV_depFirst`）。**`RowTeleEvAt` を 10 / 51 行**（引数なし 6 ＋ 定数の telescope 4）。`LitRows PTcorpus` は 2 つの env 事実だけから（`ptcorpus_litRows`）。
+- 開いた義務（行ごとの名前付き。`PTCorpusCheck` が一覧を出す）: `RowTypedAtV` 19 行（`H*.mk` 12、`Pow.mk`、`OfNat.mk`、`Prod.mk`、`PProd.mk`、`HasDomain.mk`、`Signal.mk`、`BitVec.ofFin`＝引数に依存する結果が第 2 引数以降か Prop の束縛）、`RowTeleEvAt` 41 行、行がない key 106。
+- DeclConnect の存在の脚: `Tests.SignalLoopTest` の 3 つの Signal root が到達する残余 key のうち行がないのは **29 / 75、20 / 59、29 / 75**（再帰子 `Bool.rec` / `Nat.rec` / `Decidable.rec` / `Eq.rec` / `False.rec` / `Nat.le.rec`、Prop の束縛、`Functor` 系）。到達集合は `PrimResidueKey` の近似（導出が必ず通るとは限らないが、本体の構成要素はすべて評価される）。**したがって `PTcorpus` でも、再帰子を使う root（K1 の roots の大半）の `DeclConnect` の存在は払えない**。再帰子の行は `Dyn`（`Type 0`）に入らず、行の追加では解決しない。TRUSTED か carrier の拡張（motive を持てる値の型）が要る。これは reviewer の判断であり、ここでは採用していない。
+
+### 3. `PT := PTcorpus` の文と census（`Tests/Gen5/PTCorpusCheck.lean`）
+
+- `FGLedgerPremisesStmtPTC`（`FGLedgerPremisesStmtCV` から binder `PT` を除き `PTcorpus` を固定）。`fgLedgerPremisesStmtPTC_of_CV`、`_of_H`（kernel 検査済み）。
+- census: CV → PTC は removed `[PT]`、added `[]`、内側の仮説 15 → 15（変更なし）、外側 binder 14 → 13、`PrimTableK` の binder は 0。H → PTC は removed `[CV]`、added `[h_D_LBR]`、内側 +4（`KernelClosedInvariant`、`LitRows`、`OblRowTypedV`、`RowTeleEvAt`）、外側 13 → 13。負対照: `PT := PTcorpus` の置換なしでは census が通らない。
+- 残った義務の数と種類: 名前付き前提 5（`OblLbrZero`、`KernelClosedInvariant`、`LitRows PTcorpus`＝2 つの env 事実に還元できる、`OblRowTypedV PTcorpus`＝上の 19 行が開いている、`RowTeleEvAt PTcorpus`＝41 行が開いている）＋ 行がない key 106（うち再帰子 15）。**net delta は決めない。**
+
+### 4. 主張しないこと
+
+- `PTcorpus` の採用、G-PRIM、TRUSTED、台帳の減算、最終保証。K1 の 204 key 以外の残余（`PRIM_RESIDUE_FULL.md` の 379 定数のうち 175 は未着手）。
+- `PTlit` の反駁が実際の `EntryWitness` などの充足可能性を含むこと。導出がないことの meta 評価は env の事実の監査であり、kernel の証明はその含意の側だけ。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
