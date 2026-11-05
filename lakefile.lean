@@ -5930,6 +5930,12 @@ lean_lib «Tools.ShippingGen5PTShard» where
 lean_lib «Tests.Gen5.PTShardCheck» where
   roots := #[`Tests.Gen5.PTShardCheck]
 
+lean_lib «Tools.ShippingGen5PTRootShard» where
+  roots := #[`Tools.ShippingGen5PTRootShard]
+
+lean_lib «Tests.Gen5.PTRootShardCheck» where
+  roots := #[`Tests.Gen5.PTRootShardCheck]
+
 -- one generated shard per corpus module (`#pt_shard`), each importing only its owner module
 lean_lib «Tests.Gen5.PTShard» where
   roots := #[]
