@@ -1,3 +1,4 @@
+import Sparkle.Core.Domain
 import Tools.ShippingGen5ConstValueESoundK
 set_option autoImplicit false
 /-! # Per-row `RowTypedAt` proofs (issue sparkle-ledger-dd4-rows; draft: scripts/gen5/CONSTVALUEE_FREEZE_DRAFT.md §Rows)
