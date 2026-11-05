@@ -794,7 +794,7 @@ reviewer の方針: PT を全称のままにせず具体的な PTcorpus へ進�
 
 ### 4. 停止した primitive の型は `Dyn`（Type 0）に入るか
 宣言型を `ls` で具体化し、束縛がすべて `Type` か `Type 0` の型の項、結果が `Type` か `Type 0` の型の項、を検査（proof 束縛・`Type → Type` のような束縛は NO）。対照: `Nat.rec`・`Functor.map`・`Fin.mk` は NO、`Nat.succ` は YES（build 内で確認）。
-- **39 のうち 37 が YES**: `Signal.loop` `register` `mux` `map` `ap` `pure` `beq` `lit` `memory` `memoryComboRead` `fst` `snd` `proj3_*` `ashr` `slt` `ult` `bundle2` `bundle3` と instance 21 件（`HAdd` `HAnd` `HOr` `HXor` `HMul` `HSub` `HShift*` `HAppend` `Neg` `Complement`）。3 つの Signal root で停止した 5（`register` `loop` `mux` `pure` `instHAddSignalBitVec`）も YES。
+- **39 のうち 37 が YES**: `Signal.loop` `register` `mux` `map` `ap` `pure` `beq` `lit` `memory` `memoryComboRead` `fst` `snd` `proj3_*` `ashr` `slt` `ult` `bundle2` `bundle3`（20 件）と instance 17 件（`HAdd` `HAnd` `HOr` `HXor` `HMul` `HSub` `HShift*` `HAppend` `Neg` `Complement`）。3 つの Signal root で停止した 5（`register` `loop` `mux` `pure` `instHAddSignalBitVec`）も YES。
 - **NO は 2**: `instFunctorSignal` と `instApplicativeSignal`（結果が `Functor (Signal dom)` / `Applicative (Signal dom)` ＝ `Type 1`）。この 2 つの行は `Dyn` に入らない。ただし停止すると `Functor` / `Applicative` の型と `.mk` の key は残余から消える（上の 9 → 0）。
 - 注意: これは宣言型が `Dyn` に入るか（行の型の側）の検査であり、`RowTypedAtV` / `RowTeleEvAt` が証明できるかは測っていない。
 
