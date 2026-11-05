@@ -1,5 +1,6 @@
 import Lean
 import Sparkle
+import Tools.ShippingGen5ConstValueELS
 import Tests.Gen5.PrimResidueKeyLib
 /-! # Residue under a STOP SET (issue sparkle-ledger-dd4-final, Q-A): shared measurement
 Measurement only. Same traversal, roots and residue as `PrimResidueKey` (unchanged, reused), plus a stop set:
@@ -13,6 +14,7 @@ Raw rows: `$KJOB_REPORT_PATH.stopkey.<tag>` (mode, name, kind, ls, closed, roots
 No theorem, no sorry. -/
 open Lean Meta Elab Command
 open Tests.Gen5.PrimResidueKey
+open Tools.ShippingGen5ConstValueE (LS)
 
 namespace Tests.Gen5.PrimResidueStop
 
