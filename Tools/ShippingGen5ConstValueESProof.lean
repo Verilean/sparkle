@@ -450,4 +450,117 @@ theorem substS_instForallS {x : Expr} (hx : SafeArg x) (as : List Expr) : ∀ (T
         cases h : substS T k x <;> simp [Expr.isForall, h] at h2 ⊢ <;> simp [instForallS]
       rw [e1, List.map_cons, e2]
 
+
+/-! ## §4 Substitution of one entry by a derivable argument (restricted to `SafeArg`)
+
+`SubV PT env A TA av x k ρ ρ'`: `ρ` has the entry `⟨A, ⟨TA, av⟩⟩` at position `k`; `ρ'` is `ρ` without it, the entries below it carrying their types
+substituted; `x` is derivable in the base valuation with type `A` and value `av`. -/
+
+inductive SubV (PT : PrimTableK) (env : Environment) (A : Expr) (TA : Type) (av : TA) (x : Expr) : Nat → Val → Val → Prop
+  | here (ρ0 : Val) (hx : CVEKS PT env ρ0 x A TA av) : SubV PT env A TA av x 0 (⟨A, ⟨TA, av⟩⟩ :: ρ0) ρ0
+  | there {k : Nat} {ρ ρ' : Val} (en : Entry) : SubV PT env A TA av x k ρ ρ' → SubV PT env A TA av x (k + 1) (en :: ρ) (⟨substS en.τ k x, en.d⟩ :: ρ')
+
+theorem subv_get {PT : PrimTableK} {env : Environment} {A : Expr} {TA : Type} {av : TA} {x : Expr} {k : Nat} {ρ ρ' : Val}
+    (hS : SubV PT env A TA av x k ρ ρ') :
+    ∀ (i : Nat) (en : Entry), ρ[i]? = some en →
+      (i < k ∧ ρ'[i]? = some ⟨substS en.τ (k - i - 1) x, en.d⟩) ∨ (i = k ∧ en = ⟨A, ⟨TA, av⟩⟩) ∨ (k < i ∧ ρ'[i - 1]? = some en) := by
+  induction hS with
+  | here ρ0 hx =>
+    intro i en h
+    cases i with
+    | zero => simp at h; right; left; exact ⟨rfl, h.symm⟩
+    | succ j => right; right; simpa using h
+  | there en0 _ ih =>
+    intro i en h
+    cases i with
+    | zero => simp at h; subst h; left; simp
+    | succ j =>
+      simp at h
+      rcases ih j en h with ⟨h1, h2⟩ | ⟨h1, h2⟩ | ⟨h1, h2⟩
+      · left; refine ⟨by omega, ?_⟩
+        simp only [List.getElem?_cons_succ]; rw [h2]; congr 3; omega
+      · right; left; exact ⟨by omega, h2⟩
+      · right; right
+        refine ⟨by omega, ?_⟩
+        cases j with
+        | zero => omega
+        | succ j' => simpa using h2
+
+/-- Under `SubV` the argument is derivable in the lifted block: weakening of `hx` by the `k` entries below the removed one. -/
+theorem subv_wk {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {A : Expr} {TA : Type} {av : TA} {x : Expr} {k : Nat} {ρ ρ' : Val}
+    (hS : SubV PT env A TA av x k ρ ρ') : CVEKS PT env ρ' (liftS x 0 k) (liftS A 0 k) TA av := by
+  induction hS with
+  | here ρ0 hx => simpa [liftS_zero] using hx
+  | @there k0 ρ0 ρ0' en _ ih =>
+    have := cveks_wk hcl (InsV.here ρ0' (E := ⟨substS en.τ k0 x, en.d⟩) ) ih
+    rwa [liftS_liftS_add _ 0 0 _ 1 (Nat.le_refl _) (by omega), liftS_liftS_add _ 0 0 _ 1 (Nat.le_refl _) (by omega)] at this
+
+theorem lbr_le_of_zero {e : Expr} (h : lbr e = 0) (k : Nat) : lbr e ≤ k := by omega
+
+mutual
+
+theorem tdens_subst {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {A : Expr} {TA : Type} {av : TA} {x : Expr} (hx : SafeArg x)
+    {k : Nat} {ρ ρ' : Val} (hS : SubV PT env A TA av x k ρ ρ') {τ : Expr} {T : Type} (h : TDenS PT env ρ τ T) :
+    TDenS PT env ρ' (substS τ k x) T :=
+  match h with
+  | .pi hA TB hB =>
+    .pi (tdens_subst hcl hx hS hA) TB fun a => tdens_subst hcl hx (.there ⟨_, ⟨_, a⟩⟩ hS) (hB a)
+  | .tcon hrow hnd hargs hT he =>
+    .tcon hrow hnd (argsdens_subst hcl hx hS hargs) hT (by rw [he, substS_mkAppN]; rfl)
+  | .tunfold hd hb he => by
+    have hb' := tdens_subst hcl hx hS hb
+    rw [substS_betaS hx, substS_of_lbr_le _ k x (lbr_le_of_zero (hcl.2 _ _ _ hd) k)] at hb'
+    exact .tunfold hd hb' (by rw [he, substS_mkAppN]; rfl)
+
+theorem argsdens_subst {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {A : Expr} {TA : Type} {av : TA} {x : Expr} (hx : SafeArg x)
+    {k : Nat} {ρ ρ' : Val} (hS : SubV PT env A TA av x k ρ ρ') {ks : List Bool} {es : List Expr} {as : List Arg}
+    (h : ArgsDenS PT env ρ ks es as) : ArgsDenS PT env ρ' ks (es.map (fun a => substS a k x)) as :=
+  match h with
+  | .nil => .nil
+  | .ty hT hs => .ty (tdens_subst hcl hx hS hT) (argsdens_subst hcl hx hS hs)
+  | .tm hv hs => .tm (cveks_subst hcl hx hS hv) (argsdens_subst hcl hx hS hs)
+
+theorem cveks_subst {PT : PrimTableK} {env : Environment} (hcl : EnvClosedS env) {A : Expr} {TA : Type} {av : TA} {x : Expr} (hx : SafeArg x)
+    {k : Nat} {ρ ρ' : Val} (hS : SubV PT env A TA av x k ρ ρ') {e τ : Expr} {α : Type} {v : α} (h : CVEKS PT env ρ e τ α v) :
+    CVEKS PT env ρ' (substS e k x) (substS τ k x) α v :=
+  match h with
+  | .natLit => .natLit
+  | .strLit => .strLit
+  | .bvar (i := i) (en := en) h1 => by
+    rcases subv_get hS i en h1 with ⟨h2, h3⟩ | ⟨h2, h3⟩ | ⟨h2, h3⟩
+    · rw [substS_liftS_ge en.τ 0 (i + 1) k x (by omega), show k - (i + 1) = k - i - 1 by omega]
+      simp only [substS, h2, if_true]
+      exact .bvar h3
+    · subst h2; subst h3
+      rw [substS_liftS_in A 0 (i + 1) i x (Nat.zero_le _) (by omega)]
+      simp only [substS, Nat.lt_irrefl, if_false, if_true, Nat.add_sub_cancel]
+      exact subv_wk hcl hS
+    · rw [substS_liftS_in en.τ 0 (i + 1) k x (Nat.zero_le _) (by omega)]
+      have h4 : ¬ i < k := by omega
+      have h5 : ¬ i = k := by omega
+      simp only [substS, h4, h5, if_false, Nat.add_sub_cancel]
+      have := CVEKS.bvar (PT := PT) (env := env) h3
+      rwa [show i - 1 + 1 = i by omega] at this
+  | .lam hA TB f a0 hb =>
+    .lam (tdens_subst hcl hx hS hA) TB f a0 fun a => cveks_subst hcl hx (.there ⟨_, ⟨_, a⟩⟩ hS) (hb a)
+  | CVEKS.app TB hA hB hf hx' hnh => by
+    rw [substS_substS _ 0 k _ x (Nat.zero_le _), Nat.sub_zero]
+    refine CVEKS.app TB (tdens_subst hcl hx hS hA) (fun a => tdens_subst hcl hx (.there ⟨_, ⟨_, a⟩⟩ hS) (hB a))
+      (cveks_subst hcl hx hS hf) (cveks_subst hcl hx hS hx') ?_
+    rintro ⟨c, ls, hc⟩
+    exact hnh ⟨c, ls, (getAppFn_substS _ k hx c ls).1 hc⟩
+  | .letE hA hv hb => by
+    rw [substS_substS _ 0 k _ x (Nat.zero_le _), Nat.sub_zero]
+    exact .letE (tdens_subst hcl hx hS hA) (cveks_subst hcl hx hS hv) (cveks_subst hcl hx (.there ⟨_, ⟨_, _⟩⟩ hS) hb)
+  | .unfold hd hb he => by
+    have hb' := cveks_subst hcl hx hS hb
+    rw [substS_betaS hx, substS_of_lbr_le _ k x (lbr_le_of_zero (hcl.2 _ _ _ hd) k)] at hb'
+    exact .unfold hd hb' (by rw [he, substS_mkAppN]; rfl)
+  | .prim hci hrow hnd hargs hd hty he => by
+    have hty' := tdens_subst hcl hx hS hty
+    rw [substS_instForallS hx, substS_of_lbr_le _ k x (lbr_le_of_zero (hcl.1 _ _ _ hci) k)] at hty' ⊢
+    exact .prim hci hrow hnd (argsdens_subst hcl hx hS hargs) hd hty' (by rw [he, substS_mkAppN]; rfl)
+
+end
+
 end Tools.ShippingGen5ConstValueES
