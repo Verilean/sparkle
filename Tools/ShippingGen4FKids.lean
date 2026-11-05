@@ -97,12 +97,42 @@ theorem fKids_statePF {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hms
     subst hs
     dsimp only
     exact IH mctx' cctx' hA' c
-  have htr : ∀ env : Lean.Environment, RecKS O (WPF O 1) (Tsyn env) := fun env =>
+  have htr : ∀ env : Lean.Environment, RecKS O (WPF O 1) (Tsyn env) := fun env => show RecKS O (WPF O 1) (fun e h t n => translateExprToWire env e h t n) from
     translate_keepsKS M hS env (hImpl 1 hD1 hEntry) (legacyCachedK_of_implS M hS (hImpl 1 hD1 hEntry)) hEntry
   have htop := entryTopSym_windowD M hA (logMvK_of M) Tsyn declName θ
     (fun _ b env ci isInst => legacySym_windowDP M hA hlog 1 (Tsyn env) b declName θ ci isInst (htr env))
   exact runsTo_of_triple htop hw h
 
+/-- (3) F-kids, in the form the `LegalBinding` assembly consumes (guard form of §1); in fact `DesignPF D'` is proved, the guard is not used. -/
+theorem fKids {O : RefLawsAOps MkRefd mref cref} (M : MemoFamily O) (hmsg : MsgMvK O)
+    {mctx cctx} (hA : AdmCtx O.quiet mctx cctx) {declName : Name} {θ : List (String × Nat)}
+    {w w' : Void IO.RealWorld} {M' : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hw : KWD O (fun _ _ => True) 0 w)
+    (h : RunsTo (synthesizeCombinationalWithParameters declName θ) mctx mref cctx cref w (M', D') w') :
+    ∀ x ∈ D'.modules, x.name ≠ M'.name → x.parameters = [] := by
+  unfold synthesizeCombinationalWithParameters at h
+  obtain ⟨⟨M0, D0⟩, w1, hcore, h⟩ := RunsTo.bind h
+  have hD0 : DesignPF D0 := fKids_statePF M hmsg hA hw hcore
+  dsimp only at h
+  obtain ⟨_, _, -, h⟩ := RunsTo.bind h
+  have hall : DesignPF D' := by
+    rcases RunsTo.ite h with h | h
+    · have := Tools.ShippingPostSoundness.RunsTo.pure h
+      simp only [Prod.mk.injEq] at this
+      obtain ⟨h1, h2⟩ := this
+      subst h1 h2
+      exact designPF_top _ (fun x hx => by unfold ParamFree at *; rw [dropZero_pf]; exact hx) M0 hD0
+    · have := Tools.ShippingPostSoundness.RunsTo.pure h
+      simp only [Prod.mk.injEq] at this
+      obtain ⟨h1, h2⟩ := this
+      subst h1 h2
+      exact designPF_top _ (fun x hx => by unfold ParamFree at *; rw [mergeChecked_pf]; exact hx) M0
+        (designPF_top _ (fun x hx => by unfold ParamFree at *; rw [dropZero_pf]; exact hx) M0 hD0)
+  intro x hx _
+  exact hall x hx
+
 end Tools.ShippingGen4FKids
 
 #print axioms Tools.ShippingGen4FKids.fKids_memoHit
+#print axioms Tools.ShippingGen4FKids.fKids_statePF
+#print axioms Tools.ShippingGen4FKids.fKids
