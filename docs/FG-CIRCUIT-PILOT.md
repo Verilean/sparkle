@@ -860,15 +860,22 @@ def synthesizeEntry (declName : Name) : MetaM (Module × Design) := do
 
 消える前提: `GetEnvProfileAt`、`HeadIO`（getEnv の `EnvFrame` 1 件と、profile ログの `EnvFrame` ∀msg の 1 件）、`hhead`。**置き換わる前提**: なし（`CellPrem` は既に S1o の `final9P` にあった）。つまり前提の数は減るが、`GetEnvProfileAt` の `unset` は「消えた」のであって「供給された」のではない: 保証は `SPARKLE_PROFILE` 未設定のコマンド経路（`synthesizeEntry` の `else` 枝）についてだけで、設定時の経路（診断）は保証の外。この区別は `synthesizeEntry` の `if` が入口の**外**にあることで型に出る（`X_final12` は `synthesizeCombinationalOff` の run について語り、`synthesizeEntry` の run については語らない）。`synthesizeEntry` の `else` 枝が実際に実行されたことは、`IO.getEnv` の結果 `none` の観測でありこの束では供給しない（run 局所の観測。名前付きのまま）。
 
-残る名前付き仮説（不変）: `RootExtern`/`RootEnvFacts`/`hlvl`/`ReadsAt`（`hlink`）、`Laws`/`Start`/`hr`、`CellPrem`、arbiter の `BoundaryRowsInEnv`/`ContainsAt`。非 leaf の `hcd`/`hsrc`/`htop`/`hnoraw` は未供給。`EnvDefs`/`EnvCtorsは実 run 環境については未供給（S1m の裁定どおり）。
+残る名前付き仮説（不変）: `RootExtern`/`RootEnvFacts`/`hlvl`/`ReadsAt`（`hlink`）、`Laws`/`Start`/`hr`、`CellPrem`、arbiter の `BoundaryRowsInEnv`/`ContainsAt`。非 leaf の `hcd`/`hsrc`/`htop`/`hnoraw` は未供給。`EnvDefs`/`EnvCtors` は実 run 環境については未供給（S1m の裁定どおり）。
 
-### 21.5 測定: 既存 Tools への影響
+### 21.5 実装と測定（compiler diff・既存 Tools への影響）
 
-（実装後に記入）
+**compiler diff（`Sparkle/Compiler/Elab.lean` のみ、追加 106 行・変更 3 行）**: 追加は `synthesizeCombinationalCoreOff`（`synthesizeCombinationalCoreWith … [] false true` の `profile := false` 固定の特殊化。`IO.getEnv "SPARKLE_PROFILE"` も `IO.eprintln`/`flushStderr`/`Handle.mk` も無く、`logProf := fun _ => pure ()`）、`synthesizeCombinationalOff`（`synthesizeCombinationalWith` と同じ後処理）、`synthesizeEntry`（`SPARKLE_PROFILE` を入口の**外**で読み、設定時は従来の `synthesizeCombinational`＝診断経路、未設定時は `synthesizeCombinationalOff`）。変更は `#synthesize`/`#synthesizeVerilog`/`#showVerilog` の 3 箇所の呼び出し（`synthesizeCombinational declName` → `synthesizeEntry declName`）だけ。既存の定義・`initialize`・他のコマンドは 1 文字も変えていない。新ファイルにしなかった理由: `Off` は翻訳器の結び目（`translateExprToWire`/`synthesizeFromConst`）の後でないと書けず、`Elab` のコマンドが呼ぶので、`Elab` が import する側のファイルには置けない。
+
+**Tools 側（新ファイルのみ）**: `Tools/ShippingFGCircuitS1qLinked.lean`（`coreHeadOff`/`coreRestOff`、`core_eqOff`: `synthesizeCombinationalCoreOff = coreHeadOff >>= coreRestOff` が `rfl` で閉じる、`core_chainOff`、`coreHeadOff_jqcA`、`MachineDefinesLinkedOff`、`machine_run_of_coreCOff`、`machineRunJQC_of_closesCOff`、`synthesizeCombinationalCore_machine_soundCOff`）、`Tools/ShippingFGCircuitS1qEndpoint.lean`（`Linked2`/`Final4`/`Roots4`/`S1iRoots` の写し: stream/loop/wired endpoint、`hTop_of_leaf4Off`、`X_artifact_atCOff`、`X_final4DOff`、`PostRunOff`、`postEntryOff`、`synthesizeCombinationalOff_checked`。証明本体は機械的な改名のみで編集していない）、`Tools/ShippingFGCircuitS1qHead.lean`（`envFrame_coreHeadOff`・`headAtOff_of_cellPrem`: **`CellPrem` だけ**から。`X_final10Off`、`X_final12`）。
+
+- **`HeadAt` は `CellPrem` だけから証明できた**（新しい head には getEnv もログも無く、S1i の `ef_step` 分解がそのまま通る）。`HeadIO`/`GetEnvProfileAt`/`hhead` は不要。
+- 4 root の最終定理 `X_final12`: 前提は `L lvl env₀ hstart hr hcell hlvl hx hf hlink`（arbiter は `hB0 hcont` も）、`hr` は `synthesizeCombinationalOff` の run、`hcell : CellPrem MkRefd mref cref`。差分は §21.4。
+- 既存の定理への影響: **既存の定義・定理は変更なし**。`Elab.lean` が変わるので全依存モジュールが再ビルドされる。再ビルドして成功を確認した既存ターゲットは §21.7 に列挙。壊れたものはない（測定）。`synthesizeCombinationalCore`/`…Core`/`coreHead` を `unfold` する約 30 の Tools ファイルは、それらの定義が不変なので影響を受けない（これが「既存の head を残す」案を採った理由）。
+- `Off` と従来経路の同一性: Lean の定理としては `core_eqOff`（`Off` の構造）と、§21.6 の出力比較（5 root の IR/SV が完全一致）で確認する。従来の `coreHead` で `getEnv` の結果が `none` のときと `Off` が同じ run になる、という形の定理は置かない（`IO.getEnv` の結果が `none` である run の存在を使うことになり、`GetEnvProfileAt` を別の名前で戻すことになるため）。
 
 ### 21.6 出力比較（4 root + hftPcie、IR と SV のテキスト）
 
-`Tests.Gen5.FGCircuitPilotCompare15` は 5 つの root（counterLoop、shift4Loop、counterEnableLoop、arbiterSignal、hftPcieLoop.outByte）に `#synthesize`（IR）と `#synthesizeVerilog`（SV）を実行する。`scripts/gen5/fgc_s1q/extract.sh` でビルドログからこのモジュールの出力だけを取り出す。変更前（土台 `e2301cd4`）の出力は取得済み（1312 行）。変更後との `diff` の結果は §21.7 に記入。
+`Tests.Gen5.FGCircuitPilotCompare15`（5 つの root: counterLoop、shift4Loop、counterEnableLoop、arbiterSignal、hftPcieLoop.outByte に `#synthesize`＝IR と `#synthesizeVerilog`＝SV）のビルドログから、`scripts/gen5/fgc_s1q/extract.sh` でこのモジュールの出力だけを取り出して比べた。変更前（土台 `e2301cd4`）と変更後（`SPARKLE_PROFILE` 未設定の pod）で **1312 行が完全に一致**（`diff` 空）。hftPcie は非 leaf で、子の入口は従来の診断入口のまま（上位だけ `Off`）で、出力は同じ。
 
 ### 21.7 結果・S0 baseline で比べるもの
 
