@@ -132,9 +132,9 @@ run_cmd liftTermElabM do
   -- embedding, functionality
   same (S ++ `dy_to_dz) (← q `ExpEmbedZ #[toExpr false])
   differs (S ++ `dy_to_dz) (← q `ExpEmbedZ #[toExpr true]); nm := nm + 1
-  same (S ++ `cdz_fun) (mkConst (Q ++ `FunZ))
+  same (S ++ `cdz_fun) (Lean.mkConst (Q ++ `FunZ))
   for mu in ["FunZOtherEnv", "FunZNoHEq"] do
-    differs (S ++ `cdz_fun) (mkConst (Q ++ Name.mkSimple mu)); nm := nm + 1
+    differs (S ++ `cdz_fun) (Lean.mkConst (Q ++ Name.mkSimple mu)); nm := nm + 1
   -- carrier and obligations
   let cvDef := (← getConstInfo (S ++ `CircCVZ)).value!
   unless ← withDefault (isDefEq cvDef (← q `ExpCircCVZ #[nat 0])) do throwError "CircCVZ: definition is NOT the expected one"
@@ -164,24 +164,24 @@ run_cmd liftTermElabM do
   for c in [`nat, `bool, `domainConfig, `bitvec, `signal, `bvar, `natLit, `domDefault, `bvOfNat, `bvInhabited, `boolInhabited, `sigPure, `sigRegister, `sigMux, `sigAddBV, `sigLoop, `lam, `sigBeqBV, `sigAndBool, `sigOrBool, `sigNotBool, `bvAbbrev, `zeta] do
     let a ← getConstInfo (`Tools.ShippingFGCircuitS1pCD ++ `DY ++ c)
     let b ← getConstInfo (S ++ `DZ ++ c)
-    let rn (e : Expr) : Expr := e.replace fun x => if x.isConstOf `Tools.ShippingFGCircuitS1pCD.DY then some (mkConst (S ++ `DZ) x.constLevels!) else none
+    let rn (e : Expr) : Expr := e.replace fun x => if x.isConstOf `Tools.ShippingFGCircuitS1pCD.DY then some (Lean.mkConst (S ++ `DZ) x.constLevels!) else none
     unless ← withDefault (isDefEq (rn a.type) b.type) do throwError "{c}: DZ rule differs from the DY rule"
     nOld := nOld + 1
   do
     let a ← getConstInfo (`Tools.ShippingFGCircuitS1pCD ++ `DY ++ `sigPure)
     let b ← getConstInfo (S ++ `DZ ++ `sigMux)
-    let rn (e : Expr) : Expr := e.replace fun x => if x.isConstOf `Tools.ShippingFGCircuitS1pCD.DY then some (mkConst (S ++ `DZ) x.constLevels!) else none
+    let rn (e : Expr) : Expr := e.replace fun x => if x.isConstOf `Tools.ShippingFGCircuitS1pCD.DY then some (Lean.mkConst (S ++ `DZ) x.constLevels!) else none
     if ← withDefault (isDefEq (rn a.type) b.type) then throwError "control: sigMux accepted as sigPure"
   logInfo m!"FGCIRCUIT16 OLD RULES: {nOld} constructors of DY are the same in DZ (unf, letE, beta, projStep, projCtor, recIota changed on purpose and compared above or by dy_to_dz); a control rejects a changed rule"
 
 /-! ## 2. PATTERN: the rule patterns are the Expr Lean's elaborator produces for the source terms -/
 
 run_cmd liftTermElabM do
-  let natE := mkConst ``Nat
-  let boolE := mkConst ``Bool
-  let dT := mkConst ``Sparkle.Core.Domain.DomainConfig
-  let pairT := mkApp2 (mkConst ``Prod [.zero, .zero]) natE boolE
-  let sigT (d t : Expr) := mkApp2 (mkConst ``Signal [.zero]) d t
+  let natE := Lean.mkConst ``Nat
+  let boolE := Lean.mkConst ``Bool
+  let dT := Lean.mkConst ``Sparkle.Core.Domain.DomainConfig
+  let pairT := mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) natE boolE
+  let sigT (d t : Expr) := mkApp2 (Lean.mkConst ``Signal [.zero]) d t
   withLocalDecl `D .default dT fun D => withLocalDecl `s .default (sigT D pairT) fun s => do
     let stx1 ← `(Sparkle.Core.Signal.Signal.map Prod.fst $(← Term.exprToSyntax s))
     let stx2 ← `(Sparkle.Core.Signal.Signal.map Prod.snd $(← Term.exprToSyntax s))
@@ -227,7 +227,7 @@ def Audit.verdict (a : Audit) : Except String Unit :=
   else .ok ()
 
 partial def withFVs {α : Type} (n : Nat) (k : Array Lean.Expr → MetaM α) (acc : Array Lean.Expr := #[]) : MetaM α :=
-  if acc.size == n then k acc else withLocalDecl `x .default (mkConst ``Nat) fun f => withFVs n k (acc.push f)
+  if acc.size == n then k acc else withLocalDecl `x .default (Lean.mkConst ``Nat) fun f => withFVs n k (acc.push f)
 
 /-- close the loose bvars of `a`, `b` by fresh fvars (a junk type: the check is of the reduction, not of typing) and ask Lean's `isDefEq` (default transparency) -/
 def auditPairs (pairs : List (Lean.Expr × Lean.Expr)) (traceMismatch : Nat) : MetaM Audit := do
@@ -241,11 +241,11 @@ def auditPairs (pairs : List (Lean.Expr × Lean.Expr)) (traceMismatch : Nat) : M
   pure a
 
 run_cmd liftTermElabM do
-  let natE := mkConst ``Nat
-  let boolE := mkConst ``Bool
-  let dT := mkConst ``Sparkle.Core.Domain.DomainConfig
-  let pairT := mkApp2 (mkConst ``Prod [.zero, .zero]) natE natE
-  let sigT (d t : Expr) := mkApp2 (mkConst ``Signal [.zero]) d t
+  let natE := Lean.mkConst ``Nat
+  let boolE := Lean.mkConst ``Bool
+  let dT := Lean.mkConst ``Sparkle.Core.Domain.DomainConfig
+  let pairT := mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) natE natE
+  let sigT (d t : Expr) := mkApp2 (Lean.mkConst ``Signal [.zero]) d t
   -- negative controls: the verdict function REJECTS each failure mode
   let expectReject (what : String) (a : Audit) : MetaM Unit :=
     match a.verdict with
@@ -484,8 +484,8 @@ partial def recog (ty : Bool) (env : Environment) (fuel : Nat) (e : Lean.Expr) :
         else if c == ``Signal.map && ls == [.zero] && args.length == 5 && (projFn? args[3]!).isSome && mapStuckB env e then
           -- the new rules `mapFst`/`mapSnd`
           let some (isFst, a, b) := projFn? args[3]! | pure ()
-          modify fun s => { s with mapFstSites := if isFst then s.mapFstSites + 1 else s.mapFstSites, mapSndSites := if isFst then s.mapSndSites else s.mapSndSites + 1,
-            mapPairs := if s.mapPairs.any (·.1 == e) then s.mapPairs else (match unfoldAt env e with | some u => s.mapPairs ++ [(e, u)] | none => s.mapPairs) }
+          let pr : List (Lean.Expr × Lean.Expr) := match unfoldAt env e with | some u => [(e, u)] | none => []
+          modify fun s => { s with mapFstSites := (if isFst then s.mapFstSites + 1 else s.mapFstSites), mapSndSites := (if isFst then s.mapSndSites else s.mapSndSites + 1), mapPairs := (if s.mapPairs.any (·.1 == e) then s.mapPairs else s.mapPairs ++ pr) }
           sub [0]; tys [1, 2]; recog true env fuel a; recog true env fuel b; sub [4]
         else if c == ``Signal.map && ls == [.zero] && args.length == 5 && (projFn? args[3]!).isSome then
           modify fun s => { s with mapStuckFail := s.mapStuckFail + 1 }
