@@ -19,7 +19,8 @@ open Tools.ShippingMachineEntry
 open Sparkle.Compiler.Elab
 open Tools.ShippingChildInv Tools.ShippingChildBndInit Tools.ShippingChildBndCore Tools.ShippingChildInvA Tools.ShippingChildFresh
 open Tools.ShippingChildVCA Tools.ShippingChildCacheA Tools.ShippingChildVertA Tools.ShippingChildCoreC Tools.ShippingChildRunA
-open Tools.ShippingServedRealA
+open Tools.ShippingServedRealA Tools.ShippingChildRunAKids Tools.ShippingMachineClose Tools.ShippingMixedEntrySoundness Sparkle.IR.AST Sparkle.IR.Machine
+open Tools.ShippingMachineClose (Zip₂)
 
 /-- the machine boundary of the core run `hr`-triple `w (M, D) w'`: the entry constant of the `ci`/`envR` the run's body was called with is refused by both gates, and the shape read from the body's own first `getEnv` is `shape`. -/
 def MachineDefinesRun (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
