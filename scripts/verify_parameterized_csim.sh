@@ -19,7 +19,13 @@ for width in 3 17 65; do
     -e "s|@OUTPUT_C@|${generated_c}|g" \
     "$template" > "$lean_source"
 
-  lake env lean "$lean_source"
+  # Inside `kjob lake env` LEAN / LEAN_PATH are already set and a nested `lake env` cannot
+  # start lean, so use them directly; otherwise fall back to `lake env lean`.
+  if [[ -n "${LEAN:-}" && -n "${LEAN_PATH:-}" ]]; then
+    "$LEAN" "$lean_source"
+  else
+    lake env lean "$lean_source"
+  fi
   if [[ ! -s "$generated_c" ]]; then
     echo "parameterized CSim did not generate W=${width}" >&2
     exit 1

@@ -109,3 +109,21 @@ SKIP_BUILD=1 $S/sim_checks.sh $OUT [EXES.txt]
 - 1 回目の取得の失敗（lakefile の `lean_lib «IP.Crypto»` の root `IP/Crypto.lean` がどの commit にも存在しない）は既存の lakefile の欠陥。IP/Crypto/* の合成コマンドは file ごとの実行ですべて成功した。修正先: lakefile の `IP.Crypto` の root。
 
 したがって必要 IP = P1 の 327 コマンドで、除外は 0。成功 327 / 327。シミュレーションと vector の検査（手順 5）はまだで、別の job で取得する。
+
+## シミュレーションの検査
+
+取得: kjob-run-src-fgc-s0run-babb（147 件: AllTests の build 1、exe 144、`lake exe test`、verify_parameterized_csim）。**136 件が exit 0、11 件が exit 0 ではない**。生の log は `.kjob-state` の下（ソースツリーの外）。再実行は `scripts/gen5/fgc_baseline/sim_rerun.sh GROUP OUT`（GROUP = env / h264 / test / toplevel）。
+
+| # | 検査 | 分類 | 根拠（log の行） | 状態 |
+|---|---|---|---|---|
+| 1 | rv32-flow-test | (a) 環境 | `[skip] Verilator not found`、`rv32-lean-sim-runner not built`。失敗した `generated_soc.sv exists` 等は `verilator/generated_soc.sv`（`IP.RV32.SoCVerilog` の `#writeDesign` の出力）が未生成のため | `lake build IP.RV32.SoCVerilog` で再実行（env）。Verilator の軸は、Verilator のあるノードがあればそこで再実行 |
+| 2 | cdc-multi-clock-test | (a) 環境 | `failed to load cdc_runner shared library. Build it with: make -C c_src/cdc cdc_runner.so` | `make -C c_src/cdc cdc_runner.so` の後に再実行（env） |
+| 3 | sim-runner-test | (a) 環境 | 同上（A1 A2 は PASS、cdc の段で停止） | 同上 |
+| 4 | bitnet-soc-test | (a) 環境（前提 build の順序） | 失敗した軸は Axis 2 のみ: `verilator/generated_soc.sv missing — run lake build IP.RV32.SoCVerilog first`。Axis 1 functional と Axis 3 firmware は ✅ | `lake build IP.RV32.SoCVerilog` の後に再実行（env） |
+| 5 | verify-parameterized-csim | (a) 環境 | `could not execute external process 'lean'`（入れ子の `lake env lean`） | `scripts/verify_parameterized_csim.sh` を修正: `LEAN` と `LEAN_PATH` があれば直接使う（env） |
+| 6 | toplevel-sim-test | (b) 既存の不具合（性能） | exe の build 後、900 秒出力なし（timeout 124）。lakefile.lean の `toplevel-sim-jit-test` の注: pure-Lean の Signal 評価は O(t²) で CI でも timeout する | 長い timeout では直らない。同じ刺激を JIT で流す `toplevel-sim-jit-test` を baseline の行にする。exclusions.tsv に記録。`sim_rerun.sh toplevel` で JIT 版の通過を確認 |
+| 7 | exe-test（2 回目、exit 124） | (a) 環境（timeout） | 900 秒で停止（log は 29 万行、AllTests の build と実行の途中） | 1 回目と同じ名前の log を上書きしていた。`sim_rerun.sh test` で別名の log に取り直し、timeout が足りるか判断 |
+| 8 | exe-test（1 回目、exit 1、65 秒） | 未確定 | 同名の log を 2 回目が上書きし、原因の行が残っていない | `sim_rerun.sh test` で再取得して分類する |
+| 9-11 | h264-bitstream-test / h264-playable-test / h264-frame-encoder-test | (b) 候補（再実行で確認） | `uncaught exception: JIT: wire '_gen_done' not found`（frame-encoder は `_gen_cavlcBitBuffer`）。ただし log では `Written JIT wrapper to .lake/build/gen/h264/*_jit.c` が同じ run の中で出ており、古い gen ではない。`EncoderSynth` `CAVLCSynth` `FrameEncoderSynth` は `#writeDesign … observableWires` で当該 wire を宣言している | `sim_rerun.sh h264`（gen を消して再生成、生成した `_jit.c` の wire 名を記録、3 本を再実行）。それでも失敗なら (b): 修正先は `Sparkle/Backend/CSim.lean` の `toCJITUnchecked`（`_gen_*` の member 化）と `Sparkle/IR/Optimize.lean` の observable の扱い |
+
+件数: (a) 環境 7（1-5、7 は timeout、うち 8 は下記）、(b) 既存の不具合 1 確定（6）+ 3 候補（9-11）、未確定 1（8）。**未説明のものは 8 と 9-11 の再実行結果待ち**で、それまで baseline の sim 側は固定しない。(c)（新経路の問題）は 0。
