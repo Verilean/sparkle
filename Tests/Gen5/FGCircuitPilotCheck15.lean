@@ -246,7 +246,9 @@ run_cmd liftTermElabM do
     let ci ← getConstInfo thm
     let a ← norm ci.type
     let e ← norm (mkConst mu0)
-    if ← withDefault (isDefEq a e) then throwError "{thm}: the MUTANT {mu0} was accepted"
+    -- a mutant differs structurally after normalization, and is not reducible-defeq (a default-transparency search through the compiler entries is not attempted)
+    if a == e then throwError "{thm}: the MUTANT {mu0} is the same expression"
+    if ← withReducible (isDefEq a e) then throwError "{thm}: the MUTANT {mu0} was accepted"
   let L := `Tools.ShippingFGCircuitS1qLinked
   let H := `Tools.ShippingFGCircuitS1qHead
   let mut nm : Nat := 0
