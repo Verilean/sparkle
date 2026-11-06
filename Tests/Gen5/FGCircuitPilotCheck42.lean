@@ -12,19 +12,22 @@ set_option autoImplicit false
 4. AXIOMS. -/
 namespace Tests.Gen5.FGCircuitPilotCheck42
 open Lean Meta Elab Command Term
-open Sparkle.Compiler.Elab Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.IR.Semantics Sparkle.IR.Machine
-open Tools.ShippingMachineDenote Tools.ShippingMachineAuto Tools.ShippingMachineSource
+open Sparkle.Compiler.Elab Sparkle.IR.Semantics Sparkle.IR.Machine
+open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.ShippingUnifiedSource Tools.ShippingUnifiedMeaning
+open Tools.ShippingMachineEntry Tools.ShippingMachineSource Tools.ShippingMachineDenote
+open Tools.ShippingMachineAuto Tools.ShippingMachineFuse
+open Tools.ShippingMachineNest (happendT splitL splitR splitL_happendT splitR_happendT happendT_split castSS)
 open Tools.ShippingMachineTele Tools.ShippingMachineTeleNest Tools.ShippingMachineTeleStates
-open Tools.ShippingMachineNest (happendT castSS)
-open Tools.ShippingUnifiedSource (eval)
+open Tools.ShippingMixedEntrySoundness Tools.ShippingMixedSourceBridge
+open Tools.ShippingEntrySoundness
 open Tools.ShippingGen5Sem Tools.ShippingGen2
 open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1uSrc
 open Tools.ShippingFGCircuit (monoObs)
-open Tools.ShippingFGCircuitS1tFinal (cdvZ cdvY CDRel)
-open Tools.ShippingFGCircuitS1rCD (HftObCDZ)
+open Tools.ShippingFGCircuitS1tFinal (cdvZ cdvY cdvX CDRel)
+open Tools.ShippingFGCircuitS1pCD (HftObCDX)
+open Tools.ShippingFGCircuitS1rCD (HftObCDZ HftObCDY)
 open Tools.ShippingFGCircuitS2vLink
-
-variable {ι₀ : Type}
 
 /-! ## independently written statements -/
 
@@ -402,8 +405,8 @@ def ExpRoot : Prop :=
     ∃ (S₂ : Signal defaultDomain (HList (tys [SType.bits 6]))) (Ss : Tele.Sigs (synth_hftPcieOutByte.machineInners.at i bools bits))
       (X : Nat → HList (tys synth_hftPcieOutByte.machineData.ss)),
       (∀ t, X t = teleState synth_hftPcieOutByte.machineInners
-        (show [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss from rfl) i bools bits S₂ Ss t) ∧
-      X 0 = castSS (show [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss from rfl)
+        Tools.ShippingFGCircuitS2vLink.root_hss i bools bits S₂ Ss t) ∧
+      X 0 = castSS Tools.ShippingFGCircuitS2vLink.root_hss
         (happendT [SType.bits 6] synth_hftPcieOutByte.machineInners.sss synth_hftPcieOutByte.machineInits synth_hftPcieOutByte.machineInners.initsT) ∧
       (∀ t, X (t + 1) = evalTerms
         (fun j => (typedVal synth_hftPcieOutByte.machineData.nIn synth_hftPcieOutByte.machineData.bpos synth_hftPcieOutByte.machineData.vpos
@@ -424,8 +427,8 @@ def MuRootStep : Prop :=
     ∃ (S₂ : Signal defaultDomain (HList (tys [SType.bits 6]))) (Ss : Tele.Sigs (synth_hftPcieOutByte.machineInners.at i bools bits))
       (X : Nat → HList (tys synth_hftPcieOutByte.machineData.ss)),
       (∀ t, X t = teleState synth_hftPcieOutByte.machineInners
-        (show [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss from rfl) i bools bits S₂ Ss t) ∧
-      X 0 = castSS (show [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss from rfl)
+        Tools.ShippingFGCircuitS2vLink.root_hss i bools bits S₂ Ss t) ∧
+      X 0 = castSS Tools.ShippingFGCircuitS2vLink.root_hss
         (happendT [SType.bits 6] synth_hftPcieOutByte.machineInners.sss synth_hftPcieOutByte.machineInits synth_hftPcieOutByte.machineInners.initsT) ∧
       (∀ t, X t = evalTerms
         (fun j => (typedVal synth_hftPcieOutByte.machineData.nIn synth_hftPcieOutByte.machineData.bpos synth_hftPcieOutByte.machineData.vpos
@@ -446,8 +449,8 @@ def MuRootInit : Prop :=
     ∃ (S₂ : Signal defaultDomain (HList (tys [SType.bits 6]))) (Ss : Tele.Sigs (synth_hftPcieOutByte.machineInners.at i bools bits))
       (X : Nat → HList (tys synth_hftPcieOutByte.machineData.ss)),
       (∀ t, X t = teleState synth_hftPcieOutByte.machineInners
-        (show [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss from rfl) i bools bits S₂ Ss t) ∧
-      X 1 = castSS (show [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss from rfl)
+        Tools.ShippingFGCircuitS2vLink.root_hss i bools bits S₂ Ss t) ∧
+      X 1 = castSS Tools.ShippingFGCircuitS2vLink.root_hss
         (happendT [SType.bits 6] synth_hftPcieOutByte.machineInners.sss synth_hftPcieOutByte.machineInits synth_hftPcieOutByte.machineInners.initsT) ∧
       (∀ t, X (t + 1) = evalTerms
         (fun j => (typedVal synth_hftPcieOutByte.machineData.nIn synth_hftPcieOutByte.machineData.bpos synth_hftPcieOutByte.machineData.vpos
@@ -468,8 +471,8 @@ def MuRootSrc : Prop :=
     ∃ (S₂ : Signal defaultDomain (HList (tys [SType.bits 6]))) (Ss : Tele.Sigs (synth_hftPcieOutByte.machineInners.at i bools bits))
       (X : Nat → HList (tys synth_hftPcieOutByte.machineData.ss)),
       (∀ t, X t = teleState synth_hftPcieOutByte.machineInners
-        (show [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss from rfl) i bools bits S₂ Ss t) ∧
-      X 0 = castSS (show [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss from rfl)
+        Tools.ShippingFGCircuitS2vLink.root_hss i bools bits S₂ Ss t) ∧
+      X 0 = castSS Tools.ShippingFGCircuitS2vLink.root_hss
         (happendT [SType.bits 6] synth_hftPcieOutByte.machineInners.sss synth_hftPcieOutByte.machineInits synth_hftPcieOutByte.machineInners.initsT) ∧
       (∀ t, X (t + 1) = evalTerms
         (fun j => (typedVal synth_hftPcieOutByte.machineData.nIn synth_hftPcieOutByte.machineData.bpos synth_hftPcieOutByte.machineData.vpos
@@ -501,8 +504,16 @@ def unfoldLink (e : Lean.Expr) : MetaM Lean.Expr :=
       if let some e' ← unfoldDefinition? e then return .done e'
     return .done e)
 
-def sameC (what : String) (a exp : Lean.Expr) : MetaM Unit := Tests.Gen5.FGCircuitCmp.checkSame what a (← norm37 exp)
-def diffC (what : String) (a exp : Lean.Expr) : MetaM Unit := Tests.Gen5.FGCircuitCmp.checkDiff what a (← norm37 exp)
+/-- Check37's normalisation, after the new final statement's own definition is unfolded (the older ones are unfolded by `norm37`) -/
+def norm42 (e : Lean.Expr) : MetaM Lean.Expr := do
+  let e ← Meta.transform e (post := fun e => do
+    let e := e.headBeta
+    if let .const c _ := e.getAppFn then
+      if c == ``HftFinalStmtOffCombined3 then
+        if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
+    return .done e)
+  norm37 e
+
 
 set_option maxHeartbeats 64000000 in
 set_option maxRecDepth 100000 in
@@ -510,12 +521,12 @@ run_cmd liftTermElabM do
   let C (n : Name) : Lean.Expr := Lean.mkConst n
   let q37 (n : String) : Lean.Expr := Lean.mkConst (`Tests.Gen5.FGCircuitPilotCheck37 ++ Name.mkSimple n)
   let exp3 (mu : String) (ob cv : Name) : MetaM Lean.Expr := do pure (dropLink (← norm37 (mkApp2 (q37 mu) (C ob) (C cv))))
-  let finZ ← norm37 (← tyOf ``synth_hftPcieOutByte_finalOffCombined3_Z)
+  let finZ ← norm42 (← tyOf ``synth_hftPcieOutByte_finalOffCombined3_Z)
   Tests.Gen5.FGCircuitCmp.checkSame "finalOffCombined3_Z" finZ (dropLink (← norm37 (mkApp2 (q37 "FD_real") (C ``HftObCDZ) (C ``cdvZ))))
-  let finY ← norm37 (← tyOf ``synth_hftPcieOutByte_finalOffCombined3_Y)
+  let finY ← norm42 (← tyOf ``synth_hftPcieOutByte_finalOffCombined3_Y)
   Tests.Gen5.FGCircuitCmp.checkSame "finalOffCombined3_Y" finY (dropLink (← norm37 (mkApp2 (q37 "FD_real") (C ``Tools.ShippingFGCircuitS1rCD.HftObCDY) (C ``cdvY))))
-  let finX ← norm37 (← tyOf ``synth_hftPcieOutByte_finalOffCombined3_X)
-  Tests.Gen5.FGCircuitCmp.checkSame "finalOffCombined3_X" finX (dropLink (← norm37 (mkApp2 (q37 "FD_real") (C ``Tools.ShippingFGCircuitS1rCD.HftObCDX) (C ``Tools.ShippingFGCircuitS1tFinal.cdvX))))
+  let finX ← norm42 (← tyOf ``synth_hftPcieOutByte_finalOffCombined3_X)
+  Tests.Gen5.FGCircuitCmp.checkSame "finalOffCombined3_X" finX (dropLink (← norm37 (mkApp2 (q37 "FD_real") (C ``Tools.ShippingFGCircuitS1pCD.HftObCDX) (C ``Tools.ShippingFGCircuitS1tFinal.cdvX))))
   let mut nm : Nat := 0
   for mu in ["FD_no_Adm", "FD_no_Down", "FD_no_D", "FD_no_G", "FD_no_T", "FD_no_S", "FD_no_0", "FD_no_Kgf", "FD_no_Hcd", "FD_hfind", "FD_hdec", "FD_hdecTrue", "FD_hmiss", "FD_hdecAndHmiss", "FD_hmissAndHfind", "FD_profOn", "FD_dNoReach", "FD_dNoReads", "FD_dStart", "FD_gNoReach", "FD_gAsD", "FD_tPlain", "FD_tNoReach", "FD_downUp", "FD_downId", "FD_psNoReach", "FD_psStart", "FD_psAny", "FD_adm_envEnd", "FD_adm_env0", "FD_adm_envIndep", "FD_reach_fromEnd", "FD_reach_fromIndep", "FD_prof_atEnd", "FD_prof_atIndep", "FD_kgf_envEnd", "FD_kgf_env0", "FD_kgf_envIndep", "FD_hcd_envEnd", "FD_hcd_env0", "FD_concl_envEnd", "FD_concl_env0", "FD_kgfSwap", "FD_kgfSwapName", "FD_kgfHttpTwice", "FD_kgfTlpTwice", "FD_kgfHttpOnly", "FD_kgfTlpOnly", "FD_kgfWholeBoth", "FD_kgfTrue", "FD_readersSwapped", "FD_readerShapes", "FD_diag", "FD_oldArt", "FD_noC1", "FD_noC2", "FD_noConcl", "FD_root", "FD_postRoot", "FD_output", "FD_refM", "FD_refC", "FD_ctxM", "FD_ctxC", "FD_design"] do
     Tests.Gen5.FGCircuitCmp.checkDiff s!"finalOffCombined3_Z vs {mu} (hlink removed)" finZ (← exp3 mu ``HftObCDZ ``cdvZ); nm := nm + 1
@@ -533,11 +544,11 @@ run_cmd liftTermElabM do
 run_cmd liftTermElabM do
   let C (n : Name) : Lean.Expr := Lean.mkConst n
   let Q (n : String) : Lean.Expr := Lean.mkConst (`Tests.Gen5.FGCircuitPilotCheck42 ++ Name.mkSimple n)
-  let a ← norm37 (← unfoldLink (← tyOf ``hftRootLink))
+  let a ← norm37 (← unfoldLink (← tyOf ``Tools.ShippingFGCircuitS2kLink.hftRootLink))
   Tests.Gen5.FGCircuitCmp.checkSame "hftRootLink" a (← norm37 (Q "ExpLink"))
   let a2 ← norm37 (← unfoldLink (← tyOf ``Tools.ShippingFGCircuitS2kLink.hftRootLink))
   Tests.Gen5.FGCircuitCmp.checkSame "S2kLink.hftRootLink" a2 (← norm37 (Q "ExpLink"))
-  let mut nm := 0
+  let mut nm : Nat := 0
   for mu in ["MuLinkNoInit", "MuLinkNoGi", "MuLinkSucc"] do
     Tests.Gen5.FGCircuitCmp.checkDiff s!"hftRootLink vs {mu}" a (← norm37 (Q mu)); nm := nm + 1
   logInfo m!"FGCIRCUIT42 SIGNATURES-LINK: the type of Tools.ShippingFGCircuitS2kLink.hftRootLink (HftRootLink, now a THEOREM) equals the independently written ExpLink under the same criterion; {nm} mutants rejected (no initial-state premise, no GenIn-data premise, observation at t+1)"
@@ -549,7 +560,7 @@ run_cmd liftTermElabM do
   let Q (n : String) : Lean.Expr := Lean.mkConst (`Tests.Gen5.FGCircuitPilotCheck42 ++ Name.mkSimple n)
   let g ← norm37 (← tyOf ``Tools.ShippingMachineTeleStates.machine_states_of_tele_ext)
   Tests.Gen5.FGCircuitCmp.checkSame "machine_states_of_tele_ext" g (← norm37 (Q "ExpStatesGen"))
-  let mut nm := 0
+  let mut nm : Nat := 0
   for mu in ["MuGenStep", "MuGenInit", "MuGenSrc"] do
     Tests.Gen5.FGCircuitCmp.checkDiff s!"machine_states_of_tele_ext vs {mu}" g (← norm37 (Q mu)); nm := nm + 1
   let r ← norm37 (← tyOf ``root_states)
@@ -584,6 +595,6 @@ run_cmd liftTermElabM do
     | none => pure ()
   let bad := axs.toList.filter fun n => ![``propext, ``Classical.choice, ``Quot.sound].contains n
   unless bad.isEmpty do throwError "non-standard axioms: {bad}"
-  logInfo m!"FGCIRCUIT42 AXIOMS: the final statement 3 (Z/Y/X), hftRootLink, link_concl, states_abs and root_states depend on standard axioms only ({axs.toList}); no sorryAx, no native_decide"
+  logInfo m!"FGCIRCUIT42 AXIOMS: the final statement 3 (Z/Y/X), hftRootLink, link_concl, states_abs and root_states depend on standard axioms only (the axioms reached: {axs.toList}); no sorryAx, no native_decide"
 
 end Tests.Gen5.FGCircuitPilotCheck42

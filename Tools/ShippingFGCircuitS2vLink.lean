@@ -69,13 +69,16 @@ open Tools.ShippingMachineTele Tools.ShippingMachineTeleNest
 open Tools.ShippingMachineNest (happendT castSS)
 open Tools.ShippingMachineDenote Tools.ShippingMachineAuto
 
+/-- the fused state's slot list is the enclosing registers then the chain's -/
+theorem root_hss : [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss := rfl
+
 /-- **`machine_states` of the root, specialised**: for every inputs there are the Lean state signals `S₂` (the enclosing registers) and `Ss` (the chain's), and a state stream `X` (the fused state at each cycle: `teleState machineInners … t`) that starts at the reset tuple of the root and its chain, steps by the data's `nexts` over the Lean extension `machineExt`, and shows the data's `outs` as the declaration's observation `machineSource`. -/
 theorem root_states (i : Unit) (bools : Nat → Signal defaultDomain Bool) (bits : (j n : Nat) → Signal defaultDomain (BitVec n)) :
     ∃ (S₂ : Signal defaultDomain (HList (tys [SType.bits 6]))) (Ss : Tele.Sigs (synth_hftPcieOutByte.machineInners.at i bools bits))
       (X : Nat → HList (tys synth_hftPcieOutByte.machineData.ss)),
       (∀ t, X t = teleState synth_hftPcieOutByte.machineInners
-        (show [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss from rfl) i bools bits S₂ Ss t) ∧
-      X 0 = castSS (show [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss from rfl)
+        root_hss i bools bits S₂ Ss t) ∧
+      X 0 = castSS root_hss
         (happendT [SType.bits 6] synth_hftPcieOutByte.machineInners.sss synth_hftPcieOutByte.machineInits synth_hftPcieOutByte.machineInners.initsT) ∧
       (∀ t, X (t + 1) = evalTerms
         (fun j => (typedVal synth_hftPcieOutByte.machineData.nIn synth_hftPcieOutByte.machineData.bpos synth_hftPcieOutByte.machineData.vpos
