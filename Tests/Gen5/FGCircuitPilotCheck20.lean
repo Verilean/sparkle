@@ -79,14 +79,13 @@ def ClosedOldCore : Prop :=
     (_hI : shape.insts ≠ []),
     NoInstOf m.name m.body ∧ ∀ g ∈ d.modules, NoInstOf m.name g.body
 
-def whitelist : List Name := [``GateTrue, ``GateOtherRoot, ``GateBinds, ``GateConst, ``GateNoPE, ``ExpGate, ``ExpClosed, ``ClosedNoCl, ``ClosedNoI, ``ClosedBodyOnly, ``ClosedOldCore,
-  ``RootShape, ``OtherShape, ``ExpRun, ``RunTrue, ``RunOtherD, ``RunOtherC, ``RunHttpC, ``RunHttpD, ``RunNoGate, ``RunConstGate, ``ExpFLN, ``ClT, ``ClOther, ``ClNone, ``GtT, ``GtNone, ``GtConst, ``GtOther, ``FZ,
-  ``HftPostGate, ``HftFinalStmtOffLN, ``HftFinalStmtOffL]
+def whitelist : List Name := [``HftPostGate, ``HftFinalStmtOffLN, ``HftFinalStmtOffL]
+def inQ (c : Name) : Bool := (`Tests.Gen5.FGCircuitPilotCheck20).isPrefixOf c
 def normOnce (e : Lean.Expr) : MetaM Lean.Expr :=
   Meta.transform e (post := fun e => do
     let e := e.headBeta
     if let .const c _ := e.getAppFn then
-      if whitelist.contains c then
+      if whitelist.contains c || inQ c then
         if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
     return .done e)
 def norm (e : Lean.Expr) : MetaM Lean.Expr := do
