@@ -6529,3 +6529,39 @@ lean_lib «Tools.ShippingFGCircuitS2hHist3» where
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck28» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck28]
+
+lean_lib «Tools.ShippingFGCircuitS1sCD» where
+  roots := #[`Tools.ShippingFGCircuitS1sCD]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck17» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck17]
+
+lean_lib «Tools.ShippingFGCircuitS1wTbl» where
+  roots := #[`Tools.ShippingFGCircuitS1wTbl]
+
+lean_lib «Tools.ShippingFGCircuitS1wGen» where
+  roots := #[`Tools.ShippingFGCircuitS1wGen]
+
+lean_lib «Tools.ShippingFGCircuitS1wRun» where
+  roots := #[`Tools.ShippingFGCircuitS1wRun]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck22» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck22]
+
+lean_lib «Tools.ShippingFGCircuitS2bGen» where
+  roots := #[`Tools.ShippingFGCircuitS2bGen]
+
+lean_lib «Tools.ShippingFGCircuitS2bShare» where
+  roots := #[`Tools.ShippingFGCircuitS2bShare]
+
+lean_lib «Tools.ShippingFGCircuitS2bRun» where
+  roots := #[`Tools.ShippingFGCircuitS2bRun]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck25» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck25]
+
+lean_lib «Tools.ShippingFGCircuitS2bMachine» where
+  roots := #[`Tools.ShippingFGCircuitS2bMachine]
+
+lean_lib «Tools.ShippingFGCircuitS2bNative» where
+  roots := #[`Tools.ShippingFGCircuitS2bNative]
