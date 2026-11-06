@@ -13,8 +13,8 @@ open Lean Meta Elab Command Term Sparkle.Core Sparkle.Core.Domain Tools.Shipping
 open Tools.ShippingFGCircuit Tools.ShippingFGCircuitRoots Tools.ShippingFGCircuitArtifact Tools.ShippingFGCircuitCover Tools.ShippingFGCircuitBridge
 open Tools.ShippingFGCircuitLinked Tools.ShippingFGCircuitFinal4 Tools.ShippingFGCircuitRoots4
 open Tools.ShippingFGCircuitS1hGates Tools.ShippingFGCircuitS1hQuote Tools.ShippingFGCircuitS1iHead Tools.ShippingFGCircuitS1oHead
-open Tools.ShippingFGCircuitFinal (Laws Start)
 open Tools.ShippingEntrySoundness (RunsTo)
+open Tools.ShippingEnvSnapshot (EnvFrame)
 open Tools.ShippingEntryReadsLinked (envAt CoreSaved coreHead)
 open Tools.ShippingGen5Env (ReadsAt)
 open Tools.ShippingGen5EnvFrame3 (CellPrem)
