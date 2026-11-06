@@ -16,6 +16,7 @@ open Lean Sparkle.Compiler.Elab Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.ShippingMachineDenote Tools.ShippingMachineAuto Tools.ShippingMachineSource
 open Tools.ShippingGen5Sem Tools.ShippingGen2
+open Tools.ShippingUnifiedSource (eval)
 
 section Generic
 variable {ι : Type} {dom : ι → DomainConfig}
@@ -70,5 +71,57 @@ theorem genSemGen_agree_tables (Q Q' : Name → Option (SemPkg ι dom)) (hQ : Ta
   unfold genSemGen; rw [hb, hv]
 
 end Generic
+
+/-! # S1u (part B): the generated source of a package with calls, from a link to the declaration
+
+`src_eq_of_states` (the leaf case) has `ExtStage … 0 = id`, so the loop body does not read the state through the call streams. With calls the body's writes at `t` read the callee streams at `t`, which read the state at the cycles `≤ t`: the loop
+recurrence is `loop_state_causal`, and the causality of the call streams is `extCausal_of_genSem` (from `CalleesCausal`). The link `hlink` is what the declaration side must supply: every state signal that starts at `inits` and follows the generated
+recurrence over the generated call streams has the declaration's observation at the outputs. -/
+section Rec
+variable {ι : Type} {dom : ι → DomainConfig}
+open Tools.ShippingFGCircuitSrc (list_ext_of_map_eval)
+
+theorem genSemGen_src_eq_of_link (Q : Name → Option (SemPkg ι dom)) (X : Name) (g : GenIn) (hQ : CalleesCausal Q g.d) (i : ι)
+    (bools : Nat → Signal (dom i) Bool) (bits : (j n : Nat) → Signal (dom i) (BitVec n)) (obs : List (Nat → Nat))
+    (hlink : ∀ S : Signal (dom i) (HList (tys g.d.ss)), S.val 0 = g.inits →
+      (∀ t, S.val (t + 1) = evalTerms
+        (fun j => (typedVal g.d.nIn g.d.bpos g.d.vpos g.d.ss g.d.ls (extBOf Q g i bools bits S) (extOf Q g i bools bits S) t (S.val t)).b (g.d.bpos j))
+        (fun j w => (typedVal g.d.nIn g.d.bpos g.d.vpos g.d.ss g.d.ls (extBOf Q g i bools bits S) (extOf Q g i bools bits S) t (S.val t)).v (g.d.vpos j) w) g.d.nexts) →
+      ∀ t, obs.map (fun f => f t) = g.d.outs.map fun o => enc o.1 (eval
+        (fun j => (typedVal g.d.nIn g.d.bpos g.d.vpos g.d.ss g.d.ls (extBOf Q g i bools bits S) (extOf Q g i bools bits S) t (S.val t)).b (g.d.bpos j))
+        (fun j w => (typedVal g.d.nIn g.d.bpos g.d.vpos g.d.ss g.d.ls (extBOf Q g i bools bits S) (extOf Q g i bools bits S) t (S.val t)).v (g.d.vpos j) w) o.2)) :
+    (genSemGen Q X g).src i bools bits = obs := by
+  letI : Inhabited (HList (tys g.d.ss)) := ⟨g.inits⟩
+  let eb := extBOf Q g
+  let ev := extOf Q g
+  let Sl : Signal (dom i) (HList (tys g.d.ss)) :=
+    @stateLoop (dom i) _ _ ⟨g.inits⟩ g.inits (refBodyE g eb ev i bools bits)
+  have hW : ∀ (l l' : Signal (dom i) (HList (tys g.d.ss))) (t : Nat), (∀ c, c ≤ t → l.val c = l'.val c) →
+      valsAt (tys g.d.ss)
+        (refBodyE g eb ev i bools bits (mkRegList l (tys g.d.ss) (fun s => s) (fun f => f)) (mkHolds (tys g.d.ss) l)).snd t =
+      valsAt (tys g.d.ss)
+        (refBodyE g eb ev i bools bits (mkRegList l' (tys g.d.ss) (fun s => s) (fun f => f)) (mkHolds (tys g.d.ss) l')).snd t := by
+    intro l l' t h
+    rw [genSemGenE_writes X g eb ev i bools bits l t, genSemGenE_writes X g eb ev i bools bits l' t]
+    obtain ⟨hv, hb⟩ := extCausal_of_genSem Q g hQ i bools bits l l' t h
+    have key := Tools.ShippingMachineCausal.typedVal_congrB g.d.nIn g.d.bpos g.d.vpos g.d.ss g.d.ls (eb i bools bits l) (eb i bools bits l')
+      (ev i bools bits l) (ev i bools bits l') t (l.val t) hb hv
+    rw [key, h t (Nat.le_refl t)]
+  obtain ⟨hS0, hSs⟩ := Tools.ShippingMachineFuse.loop_state_causal (dom := dom i) (tys g.d.ss) g.inits
+    (fun live => (refBodyE g eb ev i bools bits (mkRegList live (tys g.d.ss) (fun s => s) (fun f => f))
+          (mkHolds (tys g.d.ss) live)).snd) hW
+  have hrec : ∀ t, Sl.val (t + 1) = evalTerms
+      (fun j => (typedVal g.d.nIn g.d.bpos g.d.vpos g.d.ss g.d.ls (eb i bools bits Sl) (ev i bools bits Sl) t (Sl.val t)).b (g.d.bpos j))
+      (fun j w => (typedVal g.d.nIn g.d.bpos g.d.vpos g.d.ss g.d.ls (eb i bools bits Sl) (ev i bools bits Sl) t (Sl.val t)).v (g.d.vpos j) w) g.d.nexts := by
+    intro t
+    exact (hSs t).trans (genSemGenE_writes X g eb ev i bools bits Sl t)
+  apply list_ext_of_map_eval
+  intro t
+  show (refBodyE g eb ev i bools bits (mkRegList Sl (tys g.d.ss) (fun s => s) (fun f => f))
+      (mkHolds (tys g.d.ss) Sl)).fst.map (fun f => f t) = _
+  rw [genSemGenE_result X g eb ev i bools bits Sl t]
+  exact (hlink Sl hS0 hrec t).symm
+
+end Rec
 
 end Tools.ShippingFGCircuitS1uSrc
