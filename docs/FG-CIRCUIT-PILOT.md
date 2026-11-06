@@ -1100,3 +1100,65 @@ HftFinalStmtOff (Ob : Environment → Prop) (CV : CDRel) : Prop :=
 - **名前付き仮説・未供給**: `hcd`（`HftObCDX/Y/Z` と S1s の family。導出が未供給）、`hsrc`（`ExtStage … 2` の帰納）、`htop`（machine 経路の `TopShips`、子の package/`ChildShips`/`ResetNk`、root の closing）、`hnoraw`（run から出す補題が無い）、`hreadH/hreadT`、`hchk`、`CellPrem`、`Laws/Start/hr`。子の入口 `synthesizeChild` の `profile` 固定は未実施（`initialize` の模型 `ShippingInitFrame`/`ShippingStartAtLoad` との対応を保つ設計が要る。§21.2）。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。条件付きは減算しない。
 - **次**: (1) `hcd` の導出（S1s の DW family / `bundle2`・`Inhabited` の規則）。(2) `hsrc`（`ExtStage` 帰納）。(3) `htop`/`hnoraw`。(4) 子の入口の `profile` 固定（`HftObTopCoreOff` の中の子の IO を縮約するため）。
+
+## 25. S1u（Issue `sparkle-fg-circuit-pilot` の次の束）: 非 leaf root `synth_hftPcieOutByte` の `hsrc` — `ExtStage` 帰納、子の `src`、残る root 側の 1 文
+
+土台 `90d5ec10`（par/fgc-s1）。追加ファイル（既存は書き換えていない。lakefile 登録は各 1 回）: `Tools/ShippingFGCircuitS1uSrc.lean`、`Tests/Gen5/FGCircuitPilotCheck19.lean`。TRUSTED・axiom・sorry・native_decide・新しい law はない。S1s の領域（`Tools/ShippingFGCircuitS1sCD.lean`、Check17、§23）には触れていない。Issue の状態は変えていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**で台帳に数えない。
+
+### 25.1 手順 1: 文の固定（完全な型を先に）
+
+`HftObSrc`（S1k §15.2、`Tools/ShippingFGCircuitS1kStmt.lean`）は**そのまま**（Check19 が S1k の文面と同じ独立文面 `ExpObSrc` と `isDefEq`）:
+```
+HftObSrc lvl env := ∀ p : Pkg ι (fun _ => defaultDomain), GPt lvl env hftRoot = some p →
+  ∀ i bools bits, p.src i bools bits = monoObs shHft synth_hftPcieOutByte bools bits
+```
+`HftObSrc` を run 非依存の部分と子の事実に**分けた**。分割の全体の型（`Tools/ShippingFGCircuitS1uSrc.lean`）:
+
+1. **子の `src`（証明した。仮説にしない）**: 子 `httpGetByte`/`tlpCplByte` は 2 つとも `ss = []`・`insts = []` の組合せ leaf（`genSemI` の `comb` 腕）。`genSemI_comb_src`: `gi.d = d`、`d.ss = []`、`d.shape.insts = []`、`machine_result` 型の式（任意の `x : HList (tys d.ss)` で成り立つ）から `(genSemI Q X gi).src = obs`。子の `obs` は宣言側の観測 `child.machineSource defaultDomain bools bits`（kernel の `Eq.refl` で出た生成済み endpoint の項: `fun t => ((httpGetByte (bits 1 6)).val t).toNat`、`tlpCplByte (bits 1 16) … (bits 6 5)`）。
+2. **`ExtStage` 帰納（証明した）**: `callee` は package の `d`/`kD`/`src` しか読まない（`calleeOut`）。そこで `CalleeAgree q q' := q.d = q'.d ∧ q.kD = q'.kD ∧ q.src = q'.src`、`AgreeAt Q Q' c`、`TablesAgree Q Q' d`（`d` の callee 名の各点でだけ）を置き、`calleeOut_agree_tables` → `callOut_agree_tables` → **`ExtStage_agree_tables`**（段数 `n` についての帰納）→ `genSemGen_agree_tables`。有限リスト一般: callee 表が `d.shape.insts` の名前で `CalleeAgree` なら全段の `ExtStage` が一致する（HFT の `k = 2` は `d.shape.insts.length`）。
+3. **表側（証明した）**: `genGP_root_kids_src`（S1k の `genGP_root_kids` の拡張）: root の callee が全て leaf 行なら、`genGP` の package の `src` は `genSemI (genS K) root (g.toIn hs)` の `src`、かつ各 callee 名 `c` で `genS K c = some (genSemI (genS K) c (gc.toIn hs))`（`genS_leaf_eq`）。
+4. **root 側の 1 文（名前付き仮説 `HftRootLink`）**: 静的な 2 子の表 `hftKids`（`kidSem`: 子の `d`、`kDOf d`、`initsOf d`、`src := machineSource`）、完全な型:
+```
+HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.machineData →
+  ∀ (i : ι) (bools : Nat → Signal defaultDomain Bool) (bits : (j n : Nat) → Signal defaultDomain (BitVec n)) (S : Signal defaultDomain (HList (tys gi.d.ss))),
+    S.val 0 = gi.inits →
+    (∀ t, S.val (t+1) = evalTerms (… typedVal gi.d.nIn … (extBOf hftKids gi i bools bits S) (extOf hftKids gi i bools bits S) t (S.val t) …) gi.d.nexts) →
+    ∀ t, (monoObs shHft synth_hftPcieOutByte bools bits).map (fun f => f t) = gi.d.outs.map fun o => enc o.1 (eval … (extBOf hftKids gi i bools bits S) (extOf hftKids gi i bools bits S) … o.2)
+```
+`extBOf/extOf hftKids gi` = `ExtStage hftKids gi … gi.d.shape.insts.length`（root は callee 2 個）。run・環境・table に依存しない（root 宣言と子の宣言の観測だけの文）。`hftGenIn : GenIn`（`machine_ok`/`machine_body`/`initOk` の kernel 事実から）があるので量化は空でない。
+
+組み立て `hftObSrc_of_rootLink : HftRootLink → ∀ {ι} lvl env, RootReader … root → RootReader … http → RootReader … tlp → HftObSrc lvl env`。証明: `canon_row` ×3、`genGP_root_kids_src`、`gi.d.ss` が空でない（kernel: `insts.isEmpty = false`）ので `genSemI` は `gen` 腕、`TablesAgree (genS K) hftKids gi.d`（子は `genSemI_comb_src` と `genSemI_d`/`genSemI_kD`）、`CalleesCausal (genS K) gi.d`（子は `comb` 腕: `genSemI_srcCausal`）、`ExtStage_agree_tables` で `genS K` から `hftKids` に移し、`genSemGen_src_eq_of_link`（下）と `HftRootLink`。
+
+`genSemGen_src_eq_of_link`（一般、証明した）: `src_eq_of_states`（leaf: `ExtStage … 0 = id`）の非 leaf 版。loop の再帰は `loop_state_causal`（呼び出しの値は過去の状態にも依存するので pointwise でなく causal）、causal 性は `extCausal_of_genSem`（`CalleesCausal`）。仮定は「生成された再帰に従う任意の状態列について、宣言の観測 = データの `outs` の評価」（`hlink`）の 1 つ。
+
+### 25.2 `synth_hftPcieOutByte_finalOffL`: `hsrc` を落とした最終文（`HftFinalStmtOffL Ob CV`）
+
+`HftFinalStmtOff Ob CV`（S1t）から `hsrc` を除き、前に `(hlink : HftRootLink)` を置いたもの。`hsrc` は `hchk` と 2 つの子の reader から `hftObSrc_of_rootLink` で導く（`startFacts_of_checked` で root の reader を出す）。インスタンス `_Z/_Y/_X/_of`。**束縛の一覧（Check19 HYPS）**:
+
+| | 明示仮説 |
+|---|---|
+| S1t `HftFinalStmtOff` | `L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd hsrc htop hnoraw`（13） |
+| S1u `HftFinalStmtOffL` | `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hnoraw`（13） |
+
+`hsrc`（`lvl`・環境・table に依存する文）が `hlink`（`HftRootLink`: run・環境非依存、root 宣言の 1 文）に**置き換わった**。仮説の個数は同じ（「1 つ減った」とは言わない）。変わったのは種類: 子の `src`・`ExtStage` 帰納・table 側の `genS`/`genGP` の扱いは仮説でなくなり、root 側の宣言の事実 1 文だけが残る。
+
+### 25.3 何が残っているか（`HftRootLink`、FG D.D-3 / DG-SEM）と、なぜ閉じなかったか
+
+`HftRootLink` は次の 2 つの事実を合わせたもの。どちらも root 固有で、この束では証明していない（impossible とは言わない）:
+- **(a) 呼び出しの引数**: `ExtStage hftKids` の段 `k` は引数を `lsrcAt gi.d …`（データの `ls` 項の評価）から取る。一方 Lean 側の root は引数を Lean の Signal 式（レジスタの値）で渡す。`ls` の評価 = Lean の引数 Signal の値、という等式は root の生成済み endpoint に**無い**（`machine_writes`/`machine_result` は `nexts`/`outs` だけ、`machineExt` は `ls` を通らず Lean の呼び出しを直接使う。`machine_causal_k` は因果性だけ）。per-call の kernel 事実として生成するか、`ls` の項と Lean の引数式の対応を作る必要がある。
+- **(b) fused 状態**: root は `Tele` で融合した状態（外側 `tys [bits 6]` と内側の `Sigs`）を持ち、endpoint の `machine_writes`/`machine_result` は `castSS (TeleT.fstate …)` 上の文。`GenIn` の `d.ss` 上の状態列 `S` を Lean 側の融合状態と同一視する帰納が要る（leaf root は `machineSigma` があるが、この root には `machineSigma` が無い）。
+
+したがって前提の分類: 子の `src`・`ExtStage` 帰納・table 側（証明）/ `HftRootLink`（名前付き仮説）/ `hcd`（`Ob`）・`htop`・`hnoraw`・`hreadH/T`・`hchk`・`CellPrem`・`Laws/Start/hr`（S1t §24.2 のまま、供給していない）。S1s の領域（`hcd` の導出）は触れていない。
+
+### 25.4 Check19 の出力
+
+`kjob lake build Tools.ShippingFGCircuitS1uSrc`（exit 0、`#print axioms` は `propext`・`Classical.choice`・`Quot.sound` のみ）、`kjob lake build Tests.Gen5.FGCircuitPilotCheck19`（exit 0、922 jobs、error 0）。
+
+- `FGCIRCUIT19 SIGNATURES`: `HftObSrc`（応用定義として）、`HftRootLink`、`hftObSrc_of_rootLink`、`ExtStage_agree_tables`、`genSemI_comb_src`、`synth_hftPcieOutByte_finalOffL` と `_Z` の完全な型を、独立に書いた文面（`ExpObSrc`/`ExpLink`/`ExpSrcThm`/`ExpStageAgree`/`ExpCombSrc`/`ExpFinalL`/`ExpThmL`）を正規化（定義の展開と literal Bool の `if` の選択）したものと `isDefEq`（default）で照合し、binder の種類も一致。**67 mutant 棄却**（正規化後の式が構文的に異なり、かつ reducible 透過度で defeq でない）: `HftRootLink` について 子の入れ替え（名前ごと／`src` だけ／`data` だけ）、http の `src` が tlp の観測、表が空、段数 `k = 0/1/3`、start 前提なし、再帰前提なし、結論が別の観測、別の root の `data`（12）。`HftObSrc` は観測なし／別の宣言（2）。`hftObSrc_of_rootLink` は link 欠落、root/http/tlp の reader の欠落、root の reader が別 data、結論が別宣言（6）。`ExtStage_agree_tables` は `d`/`kD`/`src` 一致の欠落（3）。`genSemI_comb_src` は `ss = []`/`insts = []`/観測式の欠落（3）。`synth_hftPcieOutByte_finalOffL`（全 carrier）は 20、`_Z` インスタンスは別 carrier（`cdvY`/`cdvOld`）・別 `Ob`（3）と、各 knob（link 欠落、**`hsrc` を残したもの**、診断入口の `hr`、旧 carrier の結論、`hcell`/`hchk`/`hreadH`/`hreadT`/`hcd`/`htop`/`hnoraw`/`htop` 内の `hdRun` の欠落、別の root、別の post root、別宣言の data の `hchk`、reader / `hcd` / 結論が end world）（18）。
+- `FGCIRCUIT19 HYPS`: `synth_hftPcieOutByte_finalOffL_Z` の明示仮説は `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hnoraw`（13。名前と順序を検査）。`hsrc`・`hhead`・`hdRun`・`hquiet`・`hg`・`hio`・`hgates`・`hRead`・`hE`・`hP` は仮説に無い。どの仮説の型（`S1t`/`S1kStmt`/`S1u` の定義を 1 段展開）にも `HftObSrc`・診断入口・旧 `MachineDefinesLinked`・旧 `PostRun`・`coreHead`・`synthesizeChild`・`sorryAx` は現れない。`hlink` は run・環境・world・`MachineDefinesLinked` に触れない（run 非依存）。定理の明示引数は `CV Ob hOb`。
+- `FGCIRCUIT19 AXIOMS`: 19 名、標準 axiom のみ。
+- `FGCIRCUIT19 SNAPSHOT19`: 2 つの子の `machineSource` は宣言の観測（kernel `rfl`: `fun t => ((httpGetByte (bits 1 6)).val t).toNat`、`tlpCplByte (bits 1 16) … (bits 6 5)`）、`hftKids` は 2 つの子だけ（root 名では `none`）、`hftGenIn : GenIn` が root の data 上にある（量化は空でない）、root の `insts` は `[httpGetByte, tlpCplByte]`（段数 2）、root には `machineExt` があり `machineSigma` が無い（`HftRootLink` の (b) は endpoint の事実でない）。2 つの子には `machine_next`（組合せ leaf）。
+
+### 25.5 次
+
+(1) `HftRootLink` を (a) 呼び出し引数の対応（per-call の kernel 事実）と (b) fused 状態の同一視に分けて閉じる（(a) は `#machine_endpoint` 側の生成に近い）。(2) `htop`/`hnoraw`、`hcd`（S1s）。
