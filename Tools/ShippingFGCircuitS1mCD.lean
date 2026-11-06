@@ -114,6 +114,12 @@ def primHeads : List Name :=
 /-- `c` is not unfolded by `unf`: a primitive head, or a `bvAbbrev` row -/
 def stopC (c : Name) : Bool := primHeads.contains c || (bvAbbrevRow c).isSome
 
+/-- the head of `e` is a stop constant -/
+def headStop (e : Expr) : Bool :=
+  match appFn e with
+  | .const c _ => stopC c
+  | _ => false
+
 /-- the type heads `TD` knows; `zeta` is for a `let` whose type has another head -/
 def coreHead (A : Expr) : Bool :=
   match appFn A with
@@ -128,8 +134,8 @@ inductive Res : Type 1
   | val (α : Type) (v : α) : Res
 
 section
-local macro "CDx " env:term:max ρ:term:max e:term:max α:term:max v:term:max : term => `(DX $env $ρ $e (Res.val $α $v))
-local macro "TDx " env:term:max ρ:term:max e:term:max T:term:max : term => `(DX $env $ρ $e (Res.ty $T))
+local macro "CDx " env:term:max ρ:term:max e:term:max α:term:max v:term:max : term => `($(Lean.mkIdent `Tools.ShippingFGCircuitS1mCD.DX) $env $ρ $e (Res.val $α $v))
+local macro "TDx " env:term:max ρ:term:max e:term:max T:term:max : term => `($(Lean.mkIdent `Tools.ShippingFGCircuitS1mCD.DX) $env $ρ $e (Res.ty $T))
 inductive DX (env : Environment) : Val → Expr → Res → Prop
   | nat {ρ : Val} {e : Expr} (he : e = .const ``Nat []) : TDx env ρ e Nat
   | bool {ρ : Val} {e : Expr} (he : e = .const ``Bool []) : TDx env ρ e Bool
@@ -201,10 +207,9 @@ inductive DX (env : Environment) : Val → Expr → Res → Prop
       CDx env ρ e (Signal D Bool) (@Complement.complement _ (@Sparkle.Core.Signal.instComplementSignalBool D) av)
   | bvAbbrev {ρ : Val} {e : Expr} {c : Name} {n : Nat} {v : BitVec n} (he : e = .const c []) (h : bvAbbrevRow c = some ⟨n, v⟩) :
       CDx env ρ e (BitVec n) v
-  /-- NEW. delta + beta of a user definition of `env` (not a primitive head). The value is the value of the unfolded expression. -/
-  | unf {ρ : Val} {e e' : Expr} {c : Name} {ls : List Level} {d : DefinitionVal} {α : Type} {v : α}
-      (hh : appFn e = .const c ls) (hs : stopC c = false) (hd : env.find? c = some (.defnInfo d)) (hl : d.levelParams.length = ls.length)
-      (hu : unfoldAt env e = some e') (h : CDx env ρ e' α v) : CDx env ρ e α v
+  /-- NEW. delta + beta of a user definition of `env` (`unfoldAt`: the head is a `defnInfo` of `env` with matching universe arity), the head not a stop constant. The value is the value of the unfolded expression. -/
+  | unf {ρ : Val} {e e' : Expr} {α : Type} {v : α}
+      (hs : headStop e = false) (hu : unfoldAt env e = some e') (h : CDx env ρ e' α v) : CDx env ρ e α v
   /-- NEW. `let` of a non-core type: substitute (the old `letE` handles core types). -/
   | zeta {ρ : Val} {e A v body : Expr} {n : Name} {nd : Bool} {α : Type} {r : α}
       (he : e = .letE n A v body nd) (hA : coreHead A = false) (h : CDx env ρ (instE body v 0) α r) : CDx env ρ e α r
@@ -308,211 +313,230 @@ theorem coreHead_td {env : Environment} {ρ : Val} {A : Expr} {T : Type} (h : TD
   | bitvec he hw => subst he; simp [coreHead, appFn_appN]
   | signal he hd ht => subst he; simp [coreHead, appFn_appN]
 
+/-- the kind of a judgement: a type or a value (functionality is per kind: an expression is not both) -/
+def Res.kind : Res → Bool
+  | .ty _ => false
+  | .val _ _ => true
+
 theorem val_inj {α α' : Type} {v : α} {v' : α'} (h : Res.val α v = Res.val α' v') : α = α' ∧ HEq v v' := by
   injection h with h1 h2; exact ⟨h1, h2⟩
 theorem val_eq {α : Type} {v v' : α} (h : Res.val α v = Res.val α v') : v = v' := eq_of_heq (val_inj h).2
 theorem ty_eq {T T' : Type} (h : Res.ty T = Res.ty T') : T = T' := by injection h
 
+theorem unfoldAt_bvar (env : Environment) (i : Nat) : unfoldAt env (.bvar i) = none := by simp [unfoldAt, appFn]
+theorem unfoldAt_lam (env : Environment) (n : Name) (A b : Expr) (bi : BinderInfo) : unfoldAt env (.lam n A b bi) = none := by simp [unfoldAt, appFn]
+theorem unfoldAt_letE (env : Environment) (n : Name) (A v b : Expr) (nd : Bool) : unfoldAt env (.letE n A v b nd) = none := by simp [unfoldAt, appFn]
+theorem unfoldAt_proj (env : Environment) (S : Name) (i : Nat) (x : Expr) : unfoldAt env (.proj S i x) = none := by simp [unfoldAt, appFn]
+
 macro "clashx" : tactic =>
-  `(tactic| (exfalso; (try subst_vars); simp_all [appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, appFn, stopC_ofNat, stopC_defaultDomain, stopC_bvOfNat, stopC_bvInh,
-    stopC_boolInh, stopC_pure, stopC_register, stopC_mux, stopC_hadd, stopC_loop, stopC_beq, stopC_hand, stopC_hor, stopC_compl, bvAbbrevRow_defaultDomain,
-    bvAbbrevRow_instInhabitedBool, stopC_of_row]))
+  `(tactic| (exfalso
+             try subst_vars
+             try simp_all [Res.kind, headStop, appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, appFn, stopC_ofNat, stopC_defaultDomain, stopC_bvOfNat, stopC_bvInh,
+               stopC_boolInh, stopC_pure, stopC_register, stopC_mux, stopC_hadd, stopC_loop, stopC_beq, stopC_hand, stopC_hor, stopC_compl, bvAbbrevRow_defaultDomain,
+               bvAbbrevRow_instInhabitedBool, stopC_of_row, unfoldAt_bvar, unfoldAt_lam, unfoldAt_letE, unfoldAt_proj]))
+
+theorem whStep_ctor {env : Environment} {x : Expr} {ctor : Name} {ls : List Level} {cv : ConstructorVal}
+    (hh : appFn x = .const ctor ls) (hc : env.find? ctor = some (.ctorInfo cv)) : whStep env x = none := by
+  unfold whStep
+  split
+  · simp [appFn] at hh
+  · simp [hh, unfoldAt, hc]
 
 macro "injx" he:ident he':ident : tactic =>
   `(tactic| (have h := Eq.trans (Eq.symm $he) $he'; revert h; simp only [appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, Expr.app.injEq, Expr.const.injEq, Expr.lam.injEq, Expr.letE.injEq, Expr.proj.injEq, Expr.lit.injEq, Literal.natVal.injEq, List.cons.injEq, and_true, true_and, and_imp, true_implies]; intros; subst_vars))
 
 set_option maxHeartbeats 8000000 in
 set_option maxRecDepth 20000 in
-/-- **functionality** of the relation: two derivations of the same expression in the same valuation have the same result (type, or type and value). -/
-theorem dx_fun {env : Environment} {ρ : Val} {e : Expr} {r : Res} (h : DX env ρ e r) : ∀ {r' : Res}, DX env ρ e r' → r = r' := by
+/-- **functionality** of the relation: two derivations of the same expression in the same valuation, of the same kind (both a type, or both a value), have the same result (the type; or the type and the value). -/
+theorem dx_fun {env : Environment} {ρ : Val} {e : Expr} {r : Res} (h : DX env ρ e r) : ∀ {r' : Res}, DX env ρ e r' → r.kind = r'.kind → r = r' := by
   induction h with
-  | nat he => intro r' h'; cases h' with
+  | nat he => intro r' h' hk; cases h' with
     | nat he' => rfl
     | _ => clashx
-  | bool he => intro r' h'; cases h' with
+  | bool he => intro r' h' hk; cases h' with
     | bool he' => rfl
     | _ => clashx
-  | domainConfig he => intro r' h'; cases h' with
+  | domainConfig he => intro r' h' hk; cases h' with
     | domainConfig he' => rfl
     | _ => clashx
-  | bitvec he hw ihw => intro r' h'; cases h' with
+  | bitvec he hw ihw => intro r' h' hk; cases h' with
     | bitvec he' hw' =>
       injx he he'
-      have := val_eq (ihw hw')
+      have := val_eq (ihw hw' rfl)
       subst this; rfl
     | _ => clashx
-  | signal he hd ht ihd iht => intro r' h'; cases h' with
+  | signal he hd ht ihd iht => intro r' h' hk; cases h' with
     | signal he' hd' ht' =>
       injx he he'
-      have h1 := val_eq (ihd hd')
+      have h1 := val_eq (ihd hd' rfl)
       subst h1
-      have h2 := ty_eq (iht ht')
+      have h2 := ty_eq (iht ht' rfl)
       subst h2; rfl
     | _ => clashx
-  | bvar hb => intro r' h'; cases h' with
+  | bvar hb => intro r' h' hk; cases h' with
     | bvar hb' =>
       have := Option.some.inj (hb.symm.trans hb')
       cases this
       rfl
     | _ => clashx
-  | natLit he => intro r' h'; cases h' with
+  | natLit he => intro r' h' hk; cases h' with
     | natLit he' =>
       injx he he'
       rfl
     | _ => clashx
-  | domDefault he => intro r' h'; cases h' with
+  | domDefault he => intro r' h' hk; cases h' with
     | domDefault he' => rfl
     | bvAbbrev he' hr' =>
       have h := he.symm.trans he'
       injection h with h1 h2
       subst h1; rw [bvAbbrevRow_defaultDomain] at hr'; cases hr'
     | _ => clashx
-  | bvOfNat he hw hk ihw ihk => intro r' h'; cases h' with
+  | bvOfNat he hw hk ihw ihk => intro r' h' hk; cases h' with
     | bvOfNat he' hw' hk' =>
       injx he he'
-      have h1 := val_eq (ihw hw')
+      have h1 := val_eq (ihw hw' rfl)
       subst h1
-      have h2 := val_eq (ihk hk')
+      have h2 := val_eq (ihk hk' rfl)
       subst h2; rfl
     | _ => clashx
-  | bvInhabited he hw ihw => intro r' h'; cases h' with
+  | bvInhabited he hw ihw => intro r' h' hk; cases h' with
     | bvInhabited he' hw' =>
       injx he he'
-      have h1 := val_eq (ihw hw')
+      have h1 := val_eq (ihw hw' rfl)
       subst h1; rfl
     | _ => clashx
-  | boolInhabited he => intro r' h'; cases h' with
+  | boolInhabited he => intro r' h' hk; cases h' with
     | boolInhabited he' => rfl
     | bvAbbrev he' hr' =>
       have h := he.symm.trans he'
       injection h with h1 h2
       subst h1; rw [bvAbbrevRow_instInhabitedBool] at hr'; cases hr'
     | _ => clashx
-  | sigPure he hd ht hx ihd iht ihx => intro r' h'; cases h' with
+  | sigPure he hd ht hx ihd iht ihx => intro r' h' hk; cases h' with
     | sigPure he' hd' ht' hx' =>
       injx he he'
-      have h1 := val_eq (ihd hd')
+      have h1 := val_eq (ihd hd' rfl)
       subst h1
-      have h2 := ty_eq (iht ht')
+      have h2 := ty_eq (iht ht' rfl)
       subst h2
-      have h3 := val_eq (ihx hx')
+      have h3 := val_eq (ihx hx' rfl)
       subst h3; rfl
     | _ => clashx
-  | sigRegister he hd ht hi hs ihd iht ihi ihs => intro r' h'; cases h' with
+  | sigRegister he hd ht hi hs ihd iht ihi ihs => intro r' h' hk; cases h' with
     | sigRegister he' hd' ht' hi' hs' =>
       injx he he'
-      have h1 := val_eq (ihd hd')
+      have h1 := val_eq (ihd hd' rfl)
       subst h1
-      have h2 := ty_eq (iht ht')
+      have h2 := ty_eq (iht ht' rfl)
       subst h2
-      have h3 := val_eq (ihi hi')
+      have h3 := val_eq (ihi hi' rfl)
       subst h3
-      have h4 := val_eq (ihs hs')
+      have h4 := val_eq (ihs hs' rfl)
       subst h4; rfl
     | _ => clashx
-  | sigMux he hd ht hc ha hb ihd iht ihc iha ihb => intro r' h'; cases h' with
+  | sigMux he hd ht hc ha hb ihd iht ihc iha ihb => intro r' h' hk; cases h' with
     | sigMux he' hd' ht' hc' ha' hb' =>
       injx he he'
-      have h1 := val_eq (ihd hd')
+      have h1 := val_eq (ihd hd' rfl)
       subst h1
-      have h2 := ty_eq (iht ht')
+      have h2 := ty_eq (iht ht' rfl)
       subst h2
-      have h3 := val_eq (ihc hc')
+      have h3 := val_eq (ihc hc' rfl)
       subst h3
-      have h4 := val_eq (iha ha')
+      have h4 := val_eq (iha ha' rfl)
       subst h4
-      have h5 := val_eq (ihb hb')
+      have h5 := val_eq (ihb hb' rfl)
       subst h5; rfl
     | _ => clashx
-  | sigAddBV he hd hw ha hb ihd ihw iha ihb => intro r' h'; cases h' with
+  | sigAddBV he hd hw ha hb ihd ihw iha ihb => intro r' h' hk; cases h' with
     | sigAddBV he' hd' hw' ha' hb' =>
       injx he he'
-      have h1 := val_eq (ihd hd')
+      have h1 := val_eq (ihd hd' rfl)
       subst h1
-      have h2 := val_eq (ihw hw')
+      have h2 := val_eq (ihw hw' rfl)
       subst h2
-      have h3 := val_eq (iha ha')
+      have h3 := val_eq (iha ha' rfl)
       subst h3
-      have h4 := val_eq (ihb hb')
+      have h4 := val_eq (ihb hb' rfl)
       subst h4; rfl
     | _ => clashx
-  | sigLoop he hd ht hi hf ihd iht ihi ihf => intro r' h'; cases h' with
+  | sigLoop he hd ht hi hf ihd iht ihi ihf => intro r' h' hk; cases h' with
     | sigLoop he' hd' ht' hi' hf' =>
       injx he he'
-      have h1 := val_eq (ihd hd')
+      have h1 := val_eq (ihd hd' rfl)
       subst h1
-      have h2 := ty_eq (iht ht')
+      have h2 := ty_eq (iht ht' rfl)
       subst h2
-      have h3 := val_eq (ihi hi')
+      have h3 := val_eq (ihi hi' rfl)
       subst h3
-      have h4 := val_eq (ihf hf')
+      have h4 := val_eq (ihf hf' rfl)
       subst h4; rfl
     | _ => clashx
-  | lam he hA hb ihA ihb => intro r' h'; cases h' with
+  | lam he hA hb ihA ihb => intro r' h' hk; cases h' with
     | lam he' hA' hb' =>
       injx he he'
-      have h1 := ty_eq (ihA hA')
+      have h1 := ty_eq (ihA hA' rfl)
       subst h1
-      have h2 : ∀ a, _ = _ := fun a => (val_inj (ihb a (hb' a))).1
+      have h2 : ∀ a, _ = _ := fun a => (val_inj (ihb a (hb' a) rfl)).1
       have h2' := funext h2
       subst h2'
-      have h3 : _ = _ := funext fun a => eq_of_heq (val_inj (ihb a (hb' a))).2
+      have h3 : _ = _ := funext fun a => eq_of_heq (val_inj (ihb a (hb' a) rfl)).2
       subst h3; rfl
     | _ => clashx
-  | letE he hA hv hb ihA ihv ihb => intro r' h'; cases h' with
+  | letE he hA hv hb ihA ihv ihb => intro r' h' hk; cases h' with
     | letE he' hA' hv' hb' =>
       injx he he'
-      have h1 := ty_eq (ihA hA')
+      have h1 := ty_eq (ihA hA' rfl)
       subst h1
-      have h2 := val_eq (ihv hv')
+      have h2 := val_eq (ihv hv' rfl)
       subst h2
-      exact ihb hb'
+      exact ihb hb' rfl
     | zeta he' hA' h2 =>
       injx he he'
       have := coreHead_td hA
       simp_all
     | _ => clashx
-  | sigBeqBV he hd hw ha hb ihd ihw iha ihb => intro r' h'; cases h' with
+  | sigBeqBV he hd hw ha hb ihd ihw iha ihb => intro r' h' hk; cases h' with
     | sigBeqBV he' hd' hw' ha' hb' =>
       injx he he'
-      have h1 := val_eq (ihd hd')
+      have h1 := val_eq (ihd hd' rfl)
       subst h1
-      have h2 := val_eq (ihw hw')
+      have h2 := val_eq (ihw hw' rfl)
       subst h2
-      have h3 := val_eq (iha ha')
+      have h3 := val_eq (iha ha' rfl)
       subst h3
-      have h4 := val_eq (ihb hb')
+      have h4 := val_eq (ihb hb' rfl)
       subst h4; rfl
     | _ => clashx
-  | sigAndBool he hd ha hb ihd iha ihb => intro r' h'; cases h' with
+  | sigAndBool he hd ha hb ihd iha ihb => intro r' h' hk; cases h' with
     | sigAndBool he' hd' ha' hb' =>
       injx he he'
-      have h1 := val_eq (ihd hd')
+      have h1 := val_eq (ihd hd' rfl)
       subst h1
-      have h3 := val_eq (iha ha')
+      have h3 := val_eq (iha ha' rfl)
       subst h3
-      have h4 := val_eq (ihb hb')
+      have h4 := val_eq (ihb hb' rfl)
       subst h4; rfl
     | _ => clashx
-  | sigOrBool he hd ha hb ihd iha ihb => intro r' h'; cases h' with
+  | sigOrBool he hd ha hb ihd iha ihb => intro r' h' hk; cases h' with
     | sigOrBool he' hd' ha' hb' =>
       injx he he'
-      have h1 := val_eq (ihd hd')
+      have h1 := val_eq (ihd hd' rfl)
       subst h1
-      have h3 := val_eq (iha ha')
+      have h3 := val_eq (iha ha' rfl)
       subst h3
-      have h4 := val_eq (ihb hb')
+      have h4 := val_eq (ihb hb' rfl)
       subst h4; rfl
     | _ => clashx
-  | sigNotBool he hd ha ihd iha => intro r' h'; cases h' with
+  | sigNotBool he hd ha ihd iha => intro r' h' hk; cases h' with
     | sigNotBool he' hd' ha' =>
       injx he he'
-      have h1 := val_eq (ihd hd')
+      have h1 := val_eq (ihd hd' rfl)
       subst h1
-      have h3 := val_eq (iha ha')
+      have h3 := val_eq (iha ha' rfl)
       subst h3; rfl
     | _ => clashx
-  | bvAbbrev he hr => intro r' h'; cases h' with
+  | bvAbbrev he hr => intro r' h' hk; cases h' with
     | bvAbbrev he' hr' =>
       have hc : _ := (Expr.const.inj (he.symm.trans he')).1
       subst hc
@@ -527,40 +551,38 @@ theorem dx_fun {env : Environment} {ρ : Val} {e : Expr} {r : Res} (h : DX env �
       have h := he.symm.trans he'
       injection h with h1 h2
       subst h1; rw [bvAbbrevRow_instInhabitedBool] at hr; cases hr
-    | unf hh' hs' _ _ _ _ =>
+    | unf hs' _ _ =>
       subst he
       have := stopC_of_row hr
-      simp_all [appFn]
+      simp_all [headStop, appFn]
     | _ => clashx
-  | unf hh hs hd hl hu h ih => intro r' h'; cases h' with
-    | unf hh' hs' hd' hl' hu' h' =>
+  | unf hs hu h ih => intro r' h' hk; cases h' with
+    | unf hs' hu' h' =>
       have e1 := Option.some.inj (hu.symm.trans hu')
       subst e1
-      exact ih h'
+      exact ih h' rfl
     | _ => clashx
-  | zeta he hA h ih => intro r' h'; cases h' with
+  | zeta he hA h ih => intro r' h' hk; cases h' with
     | zeta he' hA' h' =>
       injx he he'
-      exact ih h'
+      exact ih h' rfl
     | letE he' hA' hv' hb' =>
       injx he he'
       have := coreHead_td hA'
       simp_all
     | _ => clashx
-  | projStep he hx h ih => intro r' h'; cases h' with
+  | projStep he hx h ih => intro r' h' hk; cases h' with
     | projStep he' hx' h' =>
       injx he he'
       have e1 := Option.some.inj (hx.symm.trans hx')
       subst e1
-      exact ih h'
+      exact ih h' rfl
     | projCtor he' hh' hc' hS' hn' hf' h' =>
       injx he he'
-      exfalso
-      cases x with
-      | letE _ _ _ _ _ => simp [whStep, appFn] at hx hh'
-      | _ => simp [whStep, unfoldAt, hh', hc'] at hx
+      have := whStep_ctor hh' hc'
+      rw [hx] at this; cases this
     | _ => clashx
-  | projCtor he hh hc hS hn hf h ih => intro r' h'; cases h' with
+  | projCtor he hh hc hS hn hf h ih => intro r' h' hk; cases h' with
     | projCtor he' hh' hc' hS' hn' hf' h' =>
       injx he he'
       have h1 := Expr.const.inj (hh.symm.trans hh')
@@ -569,19 +591,17 @@ theorem dx_fun {env : Environment} {ρ : Val} {e : Expr} {r : Res} (h : DX env �
       subst h2
       have h3 := Option.some.inj (hf.symm.trans hf')
       subst h3
-      exact ih h'
+      exact ih h' rfl
     | projStep he' hx' h' =>
       injx he he'
-      exfalso
-      cases x with
-      | letE _ _ _ _ _ => simp [whStep, appFn] at hx' hh
-      | _ => simp [whStep, unfoldAt, hh, hc] at hx'
+      have := whStep_ctor hh hc
+      rw [hx'] at this; cases this
     | _ => clashx
 
 theorem cdx_fun {env : Environment} {ρ : Val} {e : Expr} {α α' : Type} {v : α} {v' : α'} (h : CDX env ρ e α v) (h' : CDX env ρ e α' v') :
-    α = α' ∧ HEq v v' := val_inj (dx_fun h h')
+    α = α' ∧ HEq v v' := val_inj (dx_fun h h' rfl)
 
-theorem tdx_fun {env : Environment} {ρ : Val} {e : Expr} {T T' : Type} (h : TDX env ρ e T) (h' : TDX env ρ e T') : T = T' := ty_eq (dx_fun h h')
+theorem tdx_fun {env : Environment} {ρ : Val} {e : Expr} {T T' : Type} (h : TDX env ρ e T) (h' : TDX env ρ e T') : T = T' := ty_eq (dx_fun h h' rfl)
 
 theorem cdx_eq {env : Environment} {ρ : Val} {e : Expr} {α : Type} {v v' : α} (h : CDX env ρ e α v) (h' : CDX env ρ e α v') : v = v' :=
   eq_of_heq (cdx_fun h h').2
@@ -618,14 +638,14 @@ theorem cdx_unf_tbl {env : Environment} {Δ : Name → Option DefRow} (hΔ : Env
     {α : Type} {v : α} (hh : appFn e = .const c ls) (hs : stopC c = false) (hr : Δ c = some r) (hl : r.lps.length = ls.length)
     (he' : e' = betaApp (instLE r.lps ls r.value) (appArgs e)) (h : CDX env ρ e' α v) : CDX env ρ e α v := by
   obtain ⟨d, hd, hlp, hv⟩ := hΔ c r hr
-  refine CDX.unf hh hs hd (by rw [hlp]; exact hl) ?_ h
+  refine DX.unf (by simp [headStop, hh, hs]) ?_ h
   simp [unfoldAt, hh, hd, hlp, hv, hl, he']
 
 theorem cdx_projCtor_tbl {env : Environment} {Γ : Name → Option CtorRow} (hΓ : EnvCtors env Γ) {ρ : Val} {e x fld : Expr} {S ctor : Name} {ls : List Level}
     {r : CtorRow} {i : Nat} {α : Type} {v : α} (he : e = .proj S i x) (hh : appFn x = .const ctor ls) (hr : Γ ctor = some r) (hS : r.induct = S)
     (hn : (appArgs x).length = r.numParams + r.numFields) (hf : (appArgs x)[r.numParams + i]? = some fld) (h : CDX env ρ fld α v) : CDX env ρ e α v := by
   obtain ⟨cv, hc, h1, h2, h3⟩ := hΓ ctor r hr
-  refine CDX.projCtor he hh hc (by rw [h1, hS]) (by rw [h2, h3]; exact hn) (by rw [h2]; exact hf) h
+  refine DX.projCtor he hh hc (by rw [h1, hS]) (by rw [h2, h3]; exact hn) (by rw [h2]; exact hf) h
 
 end Tools.ShippingFGCircuitS1mCD
 
