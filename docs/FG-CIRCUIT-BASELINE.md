@@ -126,4 +126,4 @@ SKIP_BUILD=1 $S/sim_checks.sh $OUT [EXES.txt]
 | 8 | exe-test（1 回目、exit 1、65 秒） | 未確定 | 同名の log を 2 回目が上書きし、原因の行が残っていない | `sim_rerun.sh test` で再取得して分類する |
 | 9-11 | h264-bitstream-test / h264-playable-test / h264-frame-encoder-test | (b) 候補（再実行で確認） | `uncaught exception: JIT: wire '_gen_done' not found`（frame-encoder は `_gen_cavlcBitBuffer`）。ただし log では `Written JIT wrapper to .lake/build/gen/h264/*_jit.c` が同じ run の中で出ており、古い gen ではない。`EncoderSynth` `CAVLCSynth` `FrameEncoderSynth` は `#writeDesign … observableWires` で当該 wire を宣言している | `sim_rerun.sh h264`（gen を消して再生成、生成した `_jit.c` の wire 名を記録、3 本を再実行）。それでも失敗なら (b): 修正先は `Sparkle/Backend/CSim.lean` の `toCJITUnchecked`（`_gen_*` の member 化）と `Sparkle/IR/Optimize.lean` の observable の扱い |
 
-件数: (a) 環境 7（1-5、7 は timeout、うち 8 は下記）、(b) 既存の不具合 1 確定（6）+ 3 候補（9-11）、未確定 1（8）。**未説明のものは 8 と 9-11 の再実行結果待ち**で、それまで baseline の sim 側は固定しない。(c)（新経路の問題）は 0。
+件数: (a) 環境 6（1-5 と 7）、(b) 既存の不具合 1 確定（6）+ 3 候補（9-11）、未確定 1（8）。合計 11。**未説明のものは 8 と 9-11 の再実行結果待ち**で、それまで baseline の sim 側は固定しない。(c)（新経路の問題）は 0。
