@@ -1222,3 +1222,71 @@ Check の出力行は 8（SIGNATURES-A/B1/B2、REMAINING ×2、HYPS、AXIOMS、S
 ### 26.6 次
 
 (1) `hcl`: 閉じる段の検査（`closeInstsG` の各 `Bool`）を、root の 2 つの子の実出力に対して評価し、`MachineCloses`（run の `none` を排除）にする。(2) `hgate`: 閉じた body の形から `hierGate`。(3) `htop`、`hcd`（S1s）、`HftRootLink`。
+
+## 28. S1z（Issue `sparkle-fg-circuit-pilot` の次の束）: `hcl` を対象 run の閉じる成功へ局所化し、`hgate` を閉じた body の形から導く
+
+土台 `a8a007e5`。追加ファイル: `Tools/ShippingFGCircuitS1zClose.lean`、`Tests/Gen5/FGCircuitPilotCheck23.lean`（lakefile 登録は各 1 回）。S1w2（`ShippingFGCircuitS1w*`、Check17/22、§23）と S1y（`ShippingFGCircuitS1yLink`、Check19/21、§25/§27）には触れていない。新しい law・axiom・TRUSTED・sorry・native_decide はない。Issue の状態は変えていない。成果は**条件付き**で台帳に数えない。
+
+### 28.1 方針（先に型を決める。証明は 28.3 以降）
+
+- **`hcl` の局所化**（レビュー裁定）。`MachineCloses`（`∀ tenv logProf w r w′`）を新たに全 world で仮定するのをやめる。仮定するのは**対象 `core_chainOff` が実際に通った経路の中の 1 回の machine run**（`synthesizeMachineCertified`）の閉じる成功だけ。その run は (a) 対象 core run `RunsTo (synthesizeCombinationalCoreOff declName) … w (raw, D₀) w1` の分解（`coreHeadOff`・`getConstInfo`・`getEnv`・`synthesizeFromConst` の run が結果 `(raw, D₀)` を返す）に紐づき、(b) `tenv` はその分解の `envR`、logger は `profLogIO false`、(c) 開始 world はその `synthesizeFromConst` が 2 回目に読む `getEnv` の終了 world `w8`（`w3` から読んだ `envR'`）、(d) shape は root の `machineData.shape`。この run の中で `closeInstsGM` が子の `synth c` を実行し、その**実出力**（`children`）に対して閉じる検査（`woCheck`/`linkedOk`/`kidsCombB` …）が評価される。別の子の出力ではない。
+- **`hgate` の導出**。`HftPostGate` を仮説にせず、同じ局所化された閉じる成功から、`MachineRanA`（既存。その run が `some (raw, D₀)` を返し、`closeLets`、`CloseCalls`、`ChildrenRealA` を持つ）を作り、既存の `core_hierGate_anyA`（閉じた body は「instance + `closeMachine` の `seqStmtOk` 文」、後処理 `dropZeroWidth`／`mergeChecked` が文の種類を保つ）に渡す。snapshot は供給にしない。
+- 仮説の個数: `hcl`＋`hgate`（14 個中の 2 つ）が **`hclL` の 1 つ**になる（明示仮説 13）。
+
+### 28.2 完全な型
+
+```lean
+/-- 局所化した hcl: 対象 core run が通った machine run は `none` を返さない -/
+def CoreCloses (declName : Name) (shape : MachineShape)
+    (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
+    (w : Void IO.RealWorld) : Prop :=
+  ∀ (raw : Module) (D₀ : Design) (w1 : Void IO.RealWorld),
+    RunsTo (synthesizeCombinationalCoreOff declName) mctx mref cctx cref w (raw, D₀) w1 →
+    ∀ (s : CoreSaved) (wh w2 w3 w4 : Void IO.RealWorld) (envR : Environment) (ci : ConstantInfo),
+      RunsTo (coreHeadOff declName) mctx mref cctx cref w s wh →
+      RunsTo (getConstInfo declName) mctx mref cctx cref wh ci w2 →
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w2 envR w3 →
+      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) (profLogIO false) declName [] false true
+        (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (instancePredicate envR))
+        mctx mref cctx cref w3 (raw, D₀) w4 →
+      ∀ (envR' : Environment) (w8 w10 : Void IO.RealWorld) (r : Option Res),
+        RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w3 envR' w8 →
+        RunsTo (synthesizeMachineCertified (fun e hint top named => translateExprToWire envR e hint top named)
+          (profLogIO false) declName shape) mctx mref cctx cref w8 r w10 →
+        r ≠ none
+
+abbrev HftCoreCloses mctx mref cctx cref w := CoreCloses hftRoot synth_hftPcieOutByte.machineData.shape mctx mref cctx cref w
+```
+
+`hgate` は仮説でなく定理: `hftPostGate_of_local`
+
+```lean
+theorem hftPostGate_of_local {mref cref} (L : Laws mref cref) {mctx cctx w b D'}
+    (hstart : Start L mctx cctx w)
+    (hdRun : ∀ raw D₀ w1, MachineDefinesLinkedOff mctx mref cctx cref hftRoot synth_hftPcieOutByte.machineData.shape w raw D₀ w1)
+    (hclL : HftCoreCloses mctx mref cctx cref w) :
+    HftPostGate mctx mref cctx cref w b D'
+```
+
+最終文（`hcl hgate` を `hclL` 1 つに替える）:
+
+```lean
+def HftFinalStmtOffLNL (Ob) (CV) : Prop :=
+  ∀ (hlink : HftRootLink) {ι} {mref} {cref} (L : Laws mref cref) (lvl) (env₀) {mctx cctx w w' b D'}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (synthesizeCombinationalOff hftRoot) mctx mref cctx cref w (b, D') w')
+    (hcell : CellPrem MkRefd mref cref) (hchk : CheckedStart …) (hreadH : …) (hreadT : …)
+    (hcd : Ob (envAt cref w))
+    (htop : ∀ p, GPt lvl (envAt cref w) hftRoot = some p → HftObTopCoreOff mctx mref cctx cref w b D' p)
+    (hclL : HftCoreCloses mctx mref cctx cref w),
+    (∃ raw, PostRunOff …) ∧ ∃ mm p, RootArtifactMonoV CV …
+```
+
+明示仮説（13）: `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hclL`。
+
+### 28.3 対照（Check23 が `isDefEq`＋独立に書いた文面で、次のそれぞれが**同じでない**ことを確認する）
+
+- 別の world: `w8` の代わりに `w3`（getEnv を読む前の world）／`w`（対象 run の開始 world）で machine run を始める。
+- 別の shape: root の shape の代わりに `counterLoop` の shape／`httpGetByte` の shape。
+- 別の出力: 結論が `r ≠ none` でなく `r = none`／`r = some (raw, D₀)`（強すぎる）／`r ≠ some (raw, D₀)`。
+- 別の run: 対象 core run に紐づかない（`RunsTo core … (raw, D₀) w1` の前提なし）、分解を fresh な `tenv logProf` で量化した旧 `MachineCloses` の形。
