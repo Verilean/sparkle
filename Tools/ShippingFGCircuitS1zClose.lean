@@ -173,4 +173,50 @@ theorem hftObNoRawOff_of_local (L : Laws mref cref) {w : Void IO.RealWorld} {b :
 
 end Proofs
 
+/-! ## the final statement: `hcl` and `hgate` replaced by the one localised `hclL` -/
+section Final
+open Sparkle.Compiler.Elab (synthesizeCombinationalCoreOff)
+
+/-- `HftFinalStmtOffLN` (S1x) with `hcl hgate` replaced by `hclL : HftCoreCloses …` (13 explicit hypotheses) -/
+def HftFinalStmtOffLNL (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ (hlink : HftRootLink) {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (synthesizeCombinationalOff hftRoot) mctx mref cctx cref w (b, D') w')
+    (hcell : CellPrem Tools.ShippingChildFresh.MkRefd mref cref)
+    (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+    (hreadH : RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData)
+    (hreadT : RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData)
+    (hcd : Ob (envAt cref w))
+    (htop : ∀ p : Pkg ι (fun _ => defaultDomain), GPt (ι := ι) lvl (envAt cref w) hftRoot = some p → HftObTopCoreOff mctx mref cctx cref w b D' p)
+    (hclL : HftCoreCloses mctx mref cctx cref w),
+    (∃ raw, PostRunOff mctx mref cctx cref w hftRoot D' b raw) ∧
+    ∃ (mm : MonoTy shHft) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMonoV CV (envAt cref w) (GPt (ι := ι) lvl (envAt cref w))
+        (PostRunOff mctx mref cctx cref w hftRoot D') hftRoot shHft mm b D' p
+
+theorem synth_hftPcieOutByte_finalOffLNL (CV : CDRel) (Ob : Environment → Prop) (hOb : ∀ env, Ob env → HftObOf CV env) :
+    HftFinalStmtOffLNL Ob CV := by
+  intro hlink ι mref cref L lvl env₀ mctx cctx w w' b D' hstart hr hcell hchk hRdH hRdT hCD hTop hclL
+  have hhead : HeadAtOff hftRoot mctx mref cctx cref w := headAtOff_of_cellPrem _ hcell
+  obtain ⟨raw, D₀, w1, hc, hpe⟩ := postEntryOff hr
+  obtain ⟨hgates, ⟨d, hE⟩, hRead⟩ := startFacts_of_checked hchk (root_find_of_headAtOff hhead hc)
+  have hdRun : ∀ raw D₀ w1, MachineDefinesLinkedOff mctx mref cctx cref hftRoot synth_hftPcieOutByte.machineData.shape w raw D₀ w1 :=
+    fun _ _ _ => machineDefinesLinked_of_reader_headAtOff hhead (Tools.ShippingFGCircuitS1hFrame.getEnvFrame_of_readWorld hcell.2.2.2.2.2.2.2.2.1) hE hRead hgates
+  exact synth_hftPcieOutByte_finalOffL CV Ob hOb hlink L lvl env₀ hstart hr hcell hchk hRdH hRdT hCD hTop
+    (hftObNoRawOff_of_local L hstart hdRun hclL)
+
+theorem synth_hftPcieOutByte_finalOffLNL_Z : HftFinalStmtOffLNL HftObCDZ cdvZ := synth_hftPcieOutByte_finalOffLNL cdvZ _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffLNL_Y : HftFinalStmtOffLNL HftObCDY cdvY := synth_hftPcieOutByte_finalOffLNL cdvY _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffLNL_X : HftFinalStmtOffLNL HftObCDX cdvX := synth_hftPcieOutByte_finalOffLNL cdvX _ (fun _ h => h)
+
+end Final
+
 end Tools.ShippingFGCircuitS1zClose
+
+#print axioms Tools.ShippingFGCircuitS1zClose.coreOff_ranA
+#print axioms Tools.ShippingFGCircuitS1zClose.closed_of_ranA
+#print axioms Tools.ShippingFGCircuitS1zClose.hftPostGate_of_local
+#print axioms Tools.ShippingFGCircuitS1zClose.hftObNoRawOff_of_local
+#print axioms Tools.ShippingFGCircuitS1zClose.synth_hftPcieOutByte_finalOffLNL_Z
