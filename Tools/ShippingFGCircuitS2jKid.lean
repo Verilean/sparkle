@@ -1,6 +1,7 @@
 import Tools.ShippingFGCircuitS2dKids
 import Tools.ShippingGen2SlotlessLeaf
 import Tools.ShippingFGCircuitS2jCopy
+import Tools.ShippingFGCircuitS1uSrc
 set_option autoImplicit false
 -- FG circuit pilot S2j, unit 2: a combinational leaf child's `ShipsRes` from its own run (the children of the non-leaf root). No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law. docs/FG-CIRCUIT-PILOT.md §36.
 
@@ -137,6 +138,40 @@ theorem kidRunK (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATele O.quiet mre
     hclosedT ready.typed ready.wiresNodup pb.wires outsOk outTy hsl houts (hMeq ▸ hpost)
   have hD0 : D.modules = [] := by rw [hDeq, hD, hdes]; rfl
   exact ⟨M, D, w1, hcore, hpost, ⟨tenv, bb, w9, w10, hrun9, hw9⟩, hD0, hC, by rw [hI, hPI], by rw [hN, hname], hdesM hD0⟩
+
+/-! ## the package of a combinational leaf row is a `.comb` package -/
+section Pkg
+open Tools.ShippingGen5Acc Tools.ShippingGen5DataOf Tools.ShippingGenFGLedgerPremises Tools.ShippingGen5SM1 Tools.ShippingGen5Sem
+open Tools.ShippingGen5Sem (kDOf GenWF)
+open Tools.ShippingFGCircuitS1uSrc Tools.ShippingFGCircuitS1kPkg
+open Sparkle.Core.Domain
+
+/-- **a combinational leaf row's package is `.comb`** (`ss = []`, `insts = []`): the table `genGP` at the canonical rows returns `.comb cp` with the row's declaration, data and `kD` -/
+theorem kid_pkg {ι : Type} (lvl : Lean.Expr → Nat) (env : Environment) {X : Name} {d : MachineData}
+    (hR : RootReader lvl env X d) (hwf : GenWF d = true) (hleaf : d.shape.insts = []) (hss : d.ss = []) :
+    ∃ cp : CombPkg ι (fun _ => defaultDomain),
+      genGP (ι := ι) (dom := fun _ => defaultDomain) lvl (dataOfSound_initsOf lvl) (canonGD lvl) env X = some (.comb cp) ∧
+      cp.decl = X ∧ cp.d = d ∧ cp.kD = kDOf d := by
+  obtain ⟨E, hE, hsh, hdat⟩ := hR
+  obtain ⟨g, hg, hgd⟩ := canon_row (lvl := lvl) (env := env) hwf hsh hdat
+  have hleaf' : g.d.shape.insts = [] := by rw [hgd]; exact hleaf
+  obtain ⟨p, hp, hdecl, hpd, hkD⟩ := Tools.ShippingFGCircuitCover.genGP_root (ι := ι) (dom := fun _ => defaultDomain) lvl (dataOfSound_initsOf lvl) (canonGD lvl) env hE hg hleaf'
+  have hF := factsOf_genS_assembled'' (ι := ι) (dom := fun _ => defaultDomain) (dataOfSound_initsOf lvl) (canonGD lvl env)
+  obtain ⟨s, hs, hps⟩ := genP_some_inv (genKit (ι := ι) (dom := fun _ => defaultDomain) lvl (dataOfSound_initsOf lvl) env (canonGD lvl env)) hF hp
+  have hsE := genS_leaf_eq (ι := ι) (dom := fun _ => defaultDomain) lvl (dataOfSound_initsOf lvl) (canonGD lvl) env hE hg hleaf'
+  rw [hsE] at hs
+  have hs' := Option.some.inj hs
+  have hc : ((g.toIn (dataOfSound_initsOf lvl)).d.ss.isEmpty && (g.toIn (dataOfSound_initsOf lvl)).d.shape.insts.isEmpty) = true := by
+    show (g.d.ss.isEmpty && g.d.shape.insts.isEmpty) = true
+    rw [hgd, hss, hleaf]; rfl
+  have hps' : p.toSem = SemPkg.comb (genSemComb X (g.toIn (dataOfSound_initsOf lvl))) := by
+    rw [hps, ← hs']; unfold genSemI; rw [if_pos hc]
+  cases p with
+  | comb cp => exact ⟨cp, hp, hdecl, hpd.trans hgd, hkD.trans (by rw [hgd])⟩
+  | gen q => simp only [Pkg.toSem] at hps'; cases hps'
+  | loop q => simp only [Pkg.toSem] at hps'; cases hps'
+
+end Pkg
 
 end Tools.ShippingFGCircuitS2jKid
 
