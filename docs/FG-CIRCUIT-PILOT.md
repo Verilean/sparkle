@@ -1169,11 +1169,11 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 
 ### 26.1 手順 1: 評価（先に記録する）
 
-`HftObNoRawOff`（S1t）は、core run `(raw, D₀)` と印字後 `(b, D')` について (i) `∀ n, NoRawBelow D₀ raw.name (n+1) raw`、(ii) `∀ n, NoRawBelow D₀ raw.name (n+1) (checkedOptimize b)`、(iii) `b.body` のどの instance も `raw.name` を指さない、の 3 つ。`NoRawBelow` は「top に戻らない」ことで、グラフ全体の非循環は十分条件の 1 つにすぎず、要らない。`designTransport_of_noRawBelow` は全 `n` を要し、深さ 1..6 の snapshot は供給にならない。評価した結果:
+`HftObNoRawOff`（S1t）は、core run `(raw, D₀)` と後処理後（IR design、SV の印字ではない）`(b, D')` について (i) `∀ n, NoRawBelow D₀ raw.name (n+1) raw`、(ii) `∀ n, NoRawBelow D₀ raw.name (n+1) (checkedOptimize b)`、(iii) `b.body` のどの instance も `raw.name` を指さない、の 3 つ。`NoRawBelow` は「top に戻らない」ことで、グラフ全体の非循環は十分条件の 1 つにすぎず、要らない。`designTransport_of_noRawBelow` は全 `n` を要し、深さ 1..6 の snapshot は供給にならない。評価した結果:
 
 1. **run が instance の target について与えるもの**: 子の module 名は子宣言から作られる（`synth c` が返す module の名前）が、**top と名前が違うことを名前の作り方（`ofDecl` の単射性）から出す道は取っていない**。代わりに、machine 経路の最後の `closeInsts`/`closeInstsG`（`Sparkle/IR/Machine.lean`、`MachineInstG.lean`）が **実行時に** 検査している: `noInstOfB m.name body && d'.modules.all (fun g => noInstOfB m.name g.body)`（「閉じる module の instance を、その module 自身と設計の全 module が持たない」）。結果 `(raw, D₀)` はこの検査を通った値なので、`raw` の body にも `D₀` の**全 module** にも `raw.name` を target にする instance は無い。既存の `closeInsts_acyclic`/`closeInstsG_acyclic`（`ShippingChildServe`）と `noRawBelow_of_noInstOf`（`ShippingGen5DCEntryS`、U-NORAW）がこれを `NoRawBelow`（全深さ）にしていたが、**core run とこの等式の接続**（S1x 以前の「Does NOT link a given core run's (raw, D)」）が無かった。
 2. **`D'`（後処理済み）が top を自分の下に含み得るか**: `D' = topMap f raw D₀`（`PostEntry`）は名前が `raw.name` の module だけを差し替える。top 以外の module は `D₀` のままなので 1. の検査で自由。差し替えた top `b` は `dropZeroWidthModule raw` か、その `mergeChecked`。前者は instance 文の target を保つ（`dropZeroWidth_inst_target`: `dzStmt` は `.inst mn i conns` を `.inst mn i conns'` にするだけ）。後者は instance を含むなら `mergeChecked_inst`（`ShippingMachineShipsHier`）で `= dropZeroWidth raw`。よって `b` の instance の target は `raw` のそれに含まれ、`raw.name` ではない（`post_inst_target`、`noB_of_post`、(iii)）。`checkedOptimize b` は `hierGate b` の下で `b` と同じ instance 文を持つ（`checkedOptimize_inst_iff_gate`）。したがって `D'` は top を自分の下に含まない（`hgate` の下で）。
-3. **最小の run-local な事実**: (a) 閉じる検査の結果 `NoInstOf raw.name raw.body ∧ ∀ g ∈ D₀.modules, NoInstOf raw.name g.body`（`coreOff_closed` で run から証明）、(b) 印字 top の文の gate `hierGate b = true`（`optimizeModule` が instance 文を保つ補題が木に無い枝（`checkedOptimize` の最後の `else o`）を避けるため。名前付きのまま）。
+3. **最小の run-local な事実**: (a) 閉じる検査の結果 `NoInstOf raw.name raw.body ∧ ∀ g ∈ D₀.modules, NoInstOf raw.name g.body`（`coreOff_closed` で run から証明）、(b) 後処理後の top の文の gate `hierGate b = true`（`optimizeModule` が instance 文を保つ補題が木に無い枝（`checkedOptimize` の最後の `else o`）を避けるため。名前付きのまま）。
 
 ### 26.2 証明したもの（`Tools/ShippingFGCircuitS1xNoRaw.lean`、`kjob lake build` exit 0、標準 axiom のみ）
 
@@ -1202,7 +1202,7 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 ### 26.4 残っているもの（名前付き仮説。impossible とは言わない）
 
 - **`hcl : MachineCloses … hftRoot synth_hftPcieOutByte.machineData.shape`**（FG D.T-4）: machine 経路の閉じる段が `none` を返さない。4 leaf root には生成済みの `machine_closes` がある（導出可能）が、この root には**無い**（Check19/Check20 SNAPSHOT が存在しないことを検査）。root は 2 つの call を持ち `closeInstsM/GM` を通る。`MachineCloses` は `closeInsts*` の `some` を要求するので、閉じる検査（`woCheck`・`linkedOk`・`kidsCombB` など）を子の実出力で評価する必要がある。S1iChild の `noRawBelowB` のような計算検査器で実出力を評価する道はあるが、run の結果に結ぶ部分は今回していない。
-- **`hgate : HftPostGate`**（FG D.T-4）: 印字 top `b` が `hierGate` を満たす。`b` が `dropZeroWidth raw`（または merge）で、`raw.body` が instance と `seqStmtOk` な文だけなら成り立つはずだが、`raw` の body の形（closing が作る body）を run から導く補題は未作成。
+- **`hgate : HftPostGate`**（FG D.T-4）: 後処理後の top `b` が `hierGate` を満たす。`b` が `dropZeroWidth raw`（または merge）で、`raw.body` が instance と `seqStmtOk` な文だけなら成り立つはずだが、`raw` の body の形（closing が作る body）を run から導く補題は未作成。
 - 子の合成中の IO（`synthesizeChild`・`sparkleChildSynth`）は `hr`/`htop` の中の仮説のまま（S1t §24.2）。`closeInstsGM` が使う `children` は `synth c`（診断入口）の結果だが、`coreOff_closed` は `CloseCalls` の存在量化だけを使い、子の run の内容には立ち入らない。
 
 ### 26.5 Check20 の出力
