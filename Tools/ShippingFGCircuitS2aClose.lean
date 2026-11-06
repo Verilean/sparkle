@@ -23,7 +23,7 @@ open Tools.ShippingInlineSoundness (EntryDefines)
 open Tools.ShippingMachineChildComb Tools.ShippingTransitionClosed Tools.ShippingCallsGate
 open Tools.ShippingChildInvA Tools.ShippingChildVCA Tools.ShippingChildCacheA Tools.ShippingChildFresh
 open Tools.ShippingChildRunA Tools.ShippingChildRunAKids Tools.ShippingChildRunAMain Tools.ShippingChildComposeC
-open Tools.ShippingGen2 Tools.ShippingChildBndCore
+open Tools.ShippingGen2 Tools.ShippingChildBndCore Tools.ShippingFGCircuitS1qLinked Tools.ShippingFGCircuitS1qHead Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
@@ -211,4 +211,68 @@ theorem hft_closesAtA (O : RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
     (Tools.ShippingNameDischarge.parent_ne _ _ hft_noparent)
     (fun k _ o ho => Tools.ShippingCallsGate.instName_ne_of_head (hft_outs_head o ho) k _)
 
+/-- **`hclL` from `Start L` and the children's reflection**: for every decomposition of the target core run, the machine run embedded in it (started at `w8`, the world of the second `getEnv`) does not return `none`. The `JQC (0+1)` invariant is carried to `w3` by the core chain (as in `coreOff_ranA`) and to `w8` by the `getEnv` frame; then `hft_closesAtA`. -/
+theorem hftCoreCloses_of_kids (L : Laws mref cref) {w : Void IO.RealWorld}
+    (hstart : Start L mctx cctx w) (hk : HftKidsDefine mctx mref cctx cref) :
+    HftCoreCloses mctx mref cctx cref w := by
+  intro raw D₀ w1 hr s wh w2 w3 w4 envR ci hh hget henv hbody envR' w8 w10 r henv' hrun
+  have hw1 := coreHeadOff_jqcA L.O hstart.1 hstart.2.1 (Or.inl rfl) hh
+  have hw2 := triple_runs (keeps_iff.mp (keepsA_framed L.O hstart.1 (stableA_JQC L.O (0 + 1)) (FramedA.constInfo _))) hw1 hget
+  have hw3 := triple_runs (keeps_iff.mp (keepsA_framed L.O hstart.1 (stableA_JQC L.O (0 + 1)) FramedA.env)) hw2 henv
+  have hw8 := triple_runs (keeps_iff.mp (keepsA_framed L.O hstart.1 (stableA_JQC L.O (0 + 1)) FramedA.env)) hw3 henv'
+  exact hft_closesAtA L.O L.T hstart.1 hk false (0 + 1) w8 r w10 hw8 (by omega) hrun
+
+/-! ## the final statement: `hclL` replaced by the children's reflection `hkids` -/
+section Final
+
+open Lean Sparkle.Compiler.Elab Sparkle.Core Sparkle.Core.Domain Tools.ShippingGen2 Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG
+open Tools.ShippingFGCircuit Tools.ShippingFGCircuitRoots Tools.ShippingFGCircuitArtifact Tools.ShippingFGCircuitCover Tools.ShippingFGCircuitBridge
+open Tools.ShippingGenFGLedgerPremises Tools.ShippingFGCircuitS1iHead Tools.ShippingFGCircuitS1iEnv
+open Tools.ShippingEntrySoundness (RunsTo)
+open Tools.ShippingEntryReadsLinked (envAt CoreSaved)
+open Tools.ShippingGen5EnvFrame3 (CellPrem)
+open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kPkg
+open Tools.ShippingFGCircuitS1qLinked Tools.ShippingFGCircuitS1qEndpoint Tools.ShippingFGCircuitS1qHead
+open Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD
+open Tools.ShippingFGCircuitS1tFinal Tools.ShippingFGCircuitS1uSrc Tools.ShippingFGCircuitS1xNoRaw
+open Tools.ShippingHierMono (NoInstOf)
+open Tools.ShippingGen5DCEntryD (PostEntry)
+open Tools.ShippingMachineEntry Tools.ShippingFGCircuitRunLocal
+
+/-- `HftFinalStmtOffLNL` (S1z) with `hclL : HftCoreCloses …` replaced by `hkids : HftKidsDefine …` (13 explicit hypotheses) -/
+def HftFinalStmtOffLNK (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ (hlink : HftRootLink) {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (synthesizeCombinationalOff hftRoot) mctx mref cctx cref w (b, D') w')
+    (hcell : CellPrem Tools.ShippingChildFresh.MkRefd mref cref)
+    (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+    (hreadH : RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData)
+    (hreadT : RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData)
+    (hcd : Ob (envAt cref w))
+    (htop : ∀ p : Pkg ι (fun _ => defaultDomain), GPt (ι := ι) lvl (envAt cref w) hftRoot = some p → HftObTopCoreOff mctx mref cctx cref w b D' p)
+    (hkids : HftKidsDefine mctx mref cctx cref),
+    (∃ raw, PostRunOff mctx mref cctx cref w hftRoot D' b raw) ∧
+    ∃ (mm : MonoTy shHft) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMonoV CV (envAt cref w) (GPt (ι := ι) lvl (envAt cref w))
+        (PostRunOff mctx mref cctx cref w hftRoot D') hftRoot shHft mm b D' p
+
+theorem synth_hftPcieOutByte_finalOffLNK (CV : CDRel) (Ob : Environment → Prop) (hOb : ∀ env, Ob env → HftObOf CV env) :
+    HftFinalStmtOffLNK Ob CV := by
+  intro hlink ι mref cref L lvl env₀ mctx cctx w w' b D' hstart hr hcell hchk hRdH hRdT hCD hTop hkids
+  exact synth_hftPcieOutByte_finalOffLNL CV Ob hOb hlink L lvl env₀ hstart hr hcell hchk hRdH hRdT hCD hTop
+    (hftCoreCloses_of_kids L hstart hkids)
+
+theorem synth_hftPcieOutByte_finalOffLNK_Z : HftFinalStmtOffLNK HftObCDZ cdvZ := synth_hftPcieOutByte_finalOffLNK cdvZ _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffLNK_Y : HftFinalStmtOffLNK HftObCDY cdvY := synth_hftPcieOutByte_finalOffLNK cdvY _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffLNK_X : HftFinalStmtOffLNK HftObCDX cdvX := synth_hftPcieOutByte_finalOffLNK cdvX _ (fun _ h => h)
+
+end Final
+
 end Tools.ShippingFGCircuitS2aClose
+
+#print axioms Tools.ShippingFGCircuitS2aClose.machineChild_ifaceA
+#print axioms Tools.ShippingFGCircuitS2aClose.hft_closesAtA
+#print axioms Tools.ShippingFGCircuitS2aClose.hftCoreCloses_of_kids
+#print axioms Tools.ShippingFGCircuitS2aClose.synth_hftPcieOutByte_finalOffLNK_Z
