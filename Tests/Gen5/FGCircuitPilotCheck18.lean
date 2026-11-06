@@ -420,7 +420,7 @@ run_cmd liftTermElabM do
   let ce := valueConsts env ``synthesizeCombinationalOff
   if ce.contains ``synthesizeChild || ce.contains ``synthesizeEntry then throwError "synthesizeCombinationalOff mentions synthesizeChild/synthesizeEntry"
   let allNames := names ++ [F ++ `synth_hftPcieOutByte_finalOff_Y, F ++ `synth_hftPcieOutByte_finalOff_X, F ++ `synth_hftPcieOutByte_finalOff_old, F ++ `synth_hftPcieOutByte_finalOff_of, F ++ `hftFinalStmtOff_mono,
-      F ++ `cdvOld_to_Z, F ++ `cdvZ_functional, F ++ `sourceDenotesMonoV_unique, F ++ `sourceDenotesMonoV_eq, F ++ `observationsEqualMono_of_denotes, F ++ `rootArtifactMonoV_mono,
+      F ++ `cdvOld_to_Z, F ++ `cdvZ_functional, F ++ `sourceDenotesMonoV_unique, F ++ `sourceDenotesMonoV_eq, F ++ `observationsEqualMono_of_denotes, F ++ `rootArtifactMonoV_mono, F ++ `rootArtifactMono_to_Z,
       F ++ `fgCircuitConclusionMonoV_of_artifact, F ++ `declConnectMonoV_of_rootArtifact, F ++ `declConnectMonoV_mono, F ++ `sourceDenotesMonoV_mono, F ++ `observationsEqualMono_congr,
       F ++ `cdvX_functional, F ++ `cdvY_functional, F ++ `cdvOld_functional, F ++ `cdvOld_to_X, F ++ `cdvX_to_Y, F ++ `cdvY_to_Z]
   for nm in allNames do

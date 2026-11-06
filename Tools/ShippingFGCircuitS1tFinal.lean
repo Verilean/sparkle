@@ -160,6 +160,13 @@ theorem declConnectMonoV_mono (hCV : ∀ env e α v, CV env e α v → CV' env e
 
 end Generic
 
+/-- the old artifact statement (every leaf root's final, S1q `X_final12`) gives the same statement over the `DZ` carrier in the same environment -/
+theorem rootArtifactMono_to_Z {ι : Type} {env : Environment} {P : Pkgs ι (fun _ => defaultDomain)}
+    {Post : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module → Prop} {X : Name} {sh : SigShape} {mm : MonoTy sh}
+    {b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design} {p : Pkg ι (fun _ => defaultDomain)}
+    (h : RootArtifactMono env P Post X sh mm b D p) : RootArtifactMonoV cdvZ env P Post X sh mm b D p :=
+  rootArtifactMonoV_mono (CV := cdvOld) cdvOld_to_Z (by exact h)
+
 /-! ## 2. the obligations on the profile-free entry -/
 
 /-- **O-CD (carrier-generic)**: the root's value expression is derived by `CV`, read in the environment `env` -/
@@ -277,6 +284,7 @@ end Tools.ShippingFGCircuitS1tFinal
 #print axioms Tools.ShippingFGCircuitS1tFinal.sourceDenotesMonoV_eq
 #print axioms Tools.ShippingFGCircuitS1tFinal.observationsEqualMono_of_denotes
 #print axioms Tools.ShippingFGCircuitS1tFinal.rootArtifactMonoV_mono
+#print axioms Tools.ShippingFGCircuitS1tFinal.rootArtifactMono_to_Z
 #print axioms Tools.ShippingFGCircuitS1tFinal.fgCircuitConclusionMonoV_of_artifact
 #print axioms Tools.ShippingFGCircuitS1tFinal.declConnectMonoV_of_rootArtifact
 #print axioms Tools.ShippingFGCircuitS1tFinal.synth_hftPcieOutByte_finalOff
