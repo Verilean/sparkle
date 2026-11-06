@@ -186,7 +186,10 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
       have h2 := val_eq (ihv hv' rfl)
       subst h2
       exact ihb hb' rfl
-    | viaSh hv' hsh' hsp' hcan' h'' =>
+    | viaSh hv' hnv' hsh' hsp' hcan' h'' =>
+      subst he
+      simp [viaOK, appFn, hc] at hv'
+    | viaVar hv' hsh' h'' =>
       subst he
       simp [viaOK, appFn, hc] at hv'
     | _ => clashT
@@ -245,7 +248,11 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
       have h := he.symm.trans he'
       injection h with h1 h2
       subst h1; rw [bvAbbrevRow_instInhabitedBool] at hr; cases hr
-    | viaSh hv' hsh' hsp' hcan' h'' =>
+    | viaSh hv' hnv' hsh' hsp' hcan' h'' =>
+      subst he
+      have h0 := stopC_of_row hr
+      simp [viaOK, appFn, directHead, stopD, h0] at hv'
+    | viaVar hv' hsh' h'' =>
       subst he
       have h0 := stopC_of_row hr
       simp [viaOK, appFn, directHead, stopD, h0] at hv'
@@ -353,8 +360,8 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
       exact ih h' hk
     | bvar hb' => rw [hb] at hb'; cases hb'
     | _ => clashT
-  | viaSh hv hsh hsp hcan h ih => intro r' h' hk; cases h' with
-    | viaSh hv' hsh' hsp' hcan' h' =>
+  | viaSh hv hnv hsh hsp hcan h ih => intro r' h' hk; cases h' with
+    | viaSh hv' hnv' hsh' hsp' hcan' h' =>
       have e1 := sh_fun hsh hsh'
       subst e1
       rcases map_clo_eq (hsp.symm.trans hsp') with ⟨h0, h0'⟩ | ⟨h1, h2⟩
@@ -364,6 +371,28 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
         exact ih h' hk
       · subst h1; subst h2
         exact ih h' hk
+    | viaVar hv' hsh' h' =>
+      have e1 := sh_fun hsh hsh'
+      subst e1
+      simp [Hn.isVar] at hnv
+    | letE he' hA' hc' hv' hb' =>
+      subst he'
+      simp [viaOK, appFn, hc'] at hv
+    | bvAbbrev he' hr' =>
+      subst he'
+      have h0 := stopC_of_row hr'
+      simp [viaOK, appFn, directHead, stopD, h0] at hv
+    | _ => clashT
+  | viaVar hv hsh h ih => intro r' h' hk; cases h' with
+    | viaVar hv' hsh' h' =>
+      have e1 := sh_fun hsh hsh'
+      injection e1 with e2 e3
+      subst e2; subst e3
+      exact ih h' hk
+    | viaSh hv' hnv' hsh' hsp' hcan' h' =>
+      have e1 := sh_fun hsh hsh'
+      subst e1
+      simp [Hn.isVar] at hnv'
     | letE he' hA' hc' hv' hb' =>
       subst he'
       simp [viaOK, appFn, hc'] at hv

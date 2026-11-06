@@ -40,10 +40,18 @@ abbrev Cx := List Ent
 inductive Hn : Type 1
   | ctor (c : Name) (ls : List Level) (np : Nat) (sp : List Ent)
   | stuck (c : Name) (ls : List Level) (sp : List Ent)
+  /-- NEW (S2p). the evaluation ended at a bare VALUE entry: the variable `i` of the environment `ρ` (empty spine) -/
+  | var (ρ : List Ent) (i : Nat)
 
 def Hn.head : Hn → Name × List Level × List Ent
   | .ctor c ls _ sp => (c, ls, sp)
   | .stuck c ls sp => (c, ls, sp)
+  | .var _ _ => (.anonymous, [], [])
+
+/-- the result is a bare value variable (it has no constructor / stuck head) -/
+def Hn.isVar : Hn → Bool
+  | .var .. => true
+  | _ => false
 
 /-- heads that are never unfolded: the primitive value heads, the new stop heads, the core type heads, and `Signal.map` (the narrow wiring rules) -/
 def stopD (c : Name) : Bool := stopC c || newStopC c || tyStopC c || c == ``Signal.map
@@ -60,6 +68,8 @@ inductive Sh (env : Environment) : Cx → Expr → List Ent → Hn → Prop
   | letZ {ρ : Cx} {n : Name} {A v b : Expr} {nd : Bool} {sp : List Ent} {hn : Hn} (h : Sh env (.clo v ρ :: ρ) b sp hn) :
       Sh env ρ (.letE n A v b nd) sp hn
   | bvarC {ρ : Cx} {i : Nat} {e' : Expr} {ρ' : Cx} {sp : List Ent} {hn : Hn} (hb : ρ[i]? = some (.clo e' ρ')) (h : Sh env ρ' e' sp hn) : Sh env ρ (.bvar i) sp hn
+  /-- NEW (S2p). a variable bound to a VALUE entry, with an EMPTY spine, is itself the result (a value entry is never applied) -/
+  | bvarV {ρ : Cx} {i : Nat} {en : Entry} (hb : ρ[i]? = some (.val en)) : Sh env ρ (.bvar i) [] (.var ρ i)
   | unf {ρ : Cx} {c : Name} {ls : List Level} {d : DefinitionVal} {sp : List Ent} {hn : Hn} (hd : env.find? c = some (.defnInfo d))
       (hl : d.levelParams.length = ls.length) (hs : stopD c = false) (h : Sh env [] (instLE d.levelParams ls d.value) sp hn) : Sh env ρ (.const c ls) sp hn
   | ctor {ρ : Cx} {c : Name} {ls : List Level} {cv : ConstructorVal} {sp : List Ent} (hc : env.find? c = some (.ctorInfo cv)) (hs : stopD c = false)
@@ -108,6 +118,11 @@ theorem sh_fun {env : Environment} {ρ : Cx} {e : Expr} {sp : List Ent} {hn : Hn
       injection this with h1 h2
       subst h1; subst h2
       exact ih h'
+    | bvarV hb' => rw [hb] at hb'; cases hb'
+  | bvarV hb =>
+    intro hn' h'; cases h' with
+    | bvarC hb' h' => rw [hb] at hb'; cases hb'
+    | bvarV hb' => rfl
   | unf hd hl hs h ih =>
     intro hn' h'; cases h' with
     | unf hd' hl' hs' h' =>

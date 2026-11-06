@@ -150,7 +150,7 @@ where
       | none => throwError "Sh: bvar {i} is not bound (environment too short)"
       | some ent =>
         match parseClo ent with
-        | none => throwError "Sh: bvar {i} is bound to a value entry in head position"
+        | none => throwError "Sh: bvar {i} is bound to a value entry in head position (spine {sp.length}; entry {(toString ent).take 700})"
         | some (eq', ρ') =>
           bumpSh "bvarC"
           let e' ← unq eq'

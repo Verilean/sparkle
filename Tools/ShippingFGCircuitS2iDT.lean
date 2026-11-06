@@ -152,8 +152,11 @@ inductive DT (env : Environment) : Cx → Expr → Res → Prop
   /-- NEW (S2i), the BRIDGE. `e` weak-head evaluates in the closure environment machine `Sh` (empty spine) to a constructor / stuck head `c ls` whose spine is `args` xs closures over ONE common environment `ρ₀`
       (so the arguments are ordinary expressions of `ρ₀`); then the meaning of `e` is the meaning of `c ls args` in `ρ₀`, which is a primitive/constructor rule of this family (`viaOK`: `e` itself is not such a form).
       `hcan` makes `ρ₀` canonical when there are no arguments. -/
-  | viaSh {ρ : Cx} {e : Expr} {hn : Hn} {args : List Expr} {ρ₀ : Cx} {r : Res} (hv : viaOK e = true) (hsh : Sh env ρ e [] hn)
+  | viaSh {ρ : Cx} {e : Expr} {hn : Hn} {args : List Expr} {ρ₀ : Cx} {r : Res} (hv : viaOK e = true) (hnv : hn.isVar = false) (hsh : Sh env ρ e [] hn)
       (hsp : hn.head.2.2 = args.map (fun a => Ent.clo a ρ₀)) (hcan : args = [] → ρ₀ = []) (h : DT env ρ₀ (appN hn.head.1 hn.head.2.1 args) r) : DT env ρ e r
+  /-- NEW (S2p), the VALUE-HEAD bridge. `e` (not a bare variable: `viaOK`) evaluates in `Sh` (empty spine) to a bare VALUE entry, the variable `i` of `ρ₀`: the meaning of `e` is the meaning of `#i` in `ρ₀`
+      (which is the `bvar` rule: the entry's own value). Exclusive with `viaSh` by `hnv` (that rule needs a constructor / stuck head). -/
+  | viaVar {ρ : Cx} {e : Expr} {ρ₀ : Cx} {i : Nat} {r : Res} (hv : viaOK e = true) (hsh : Sh env ρ e [] (Hn.var ρ₀ i)) (h : DT env ρ₀ (.bvar i) r) : DT env ρ e r
 end
 
 abbrev TDT (env : Environment) (ρ : Cx) (e : Expr) (T : Type) : Prop := DT env ρ e (.ty T)
