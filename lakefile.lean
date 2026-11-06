@@ -6487,3 +6487,9 @@ lean_lib «Tools.ShippingFGCircuitS1wTbl» where
 
 lean_lib «Tools.ShippingFGCircuitS1wGen» where
   roots := #[`Tools.ShippingFGCircuitS1wGen]
+
+lean_lib «Tools.ShippingFGCircuitS1wRun» where
+  roots := #[`Tools.ShippingFGCircuitS1wRun]
+
+lean_lib «Tools.ShippingFGCircuitS1wDerive» where
+  roots := #[`Tools.ShippingFGCircuitS1wDerive]
