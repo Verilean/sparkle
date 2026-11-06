@@ -879,3 +879,52 @@ S1m の `CircCVX env := fun env' X α v => … env'.find? X … CDX env [] d.val
 ### 20.7 次
 
 (1) `Signal.map`／`Signal.mk` の規則の設計（reviewer）。(2) その後 `hcd` の導出が `HftObCDX` に届くか走査し直す（各ステップの等式は経路 (b) でカーネルに渡す）。(3) `HftObSrc`/`HftObTopCore`/`HftObNoRaw` は別。
+
+## 22. S1r（Issue `sparkle-fg-circuit-pilot` の次の束）: `Signal.map Prod.fst/snd` の狭い配線規則、CDY/CDZ の単一 env 接続、Check の fail-closed 化
+
+土台 `9a2ef5cd`（par/fgc-s1）。追加ファイル（既存は書き換えていない。lakefile 登録は各 1 回）: `Tools/ShippingFGCircuitS1rCD.lean`、`Tests/Gen5/FGCircuitPilotCheck16.lean`。TRUSTED・axiom・sorry・native_decide・新しい law はない（`FGCIRCUIT16 AXIOMS`: 37 名、標準 axiom のみ）。Issue の状態は変えていない。S1q の領域（Compiler profile、S1qHead、Check15、§21）には触れていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は**条件付き**。
+
+### 22.1 設計（reviewer 裁定に従う）
+
+`Signal.mk` 一般則・`Signal.map` 本体の解釈・汎用高階関数・universe 拡張は**入れていない**。新しい帰納族 `DZ env`（`DY` + 下記）。`dy_to_dz`（したがって `DX`/`CD`）で埋め込む。`DY`/`DX` は編集していない。
+
+- 値の規則: `mapFst`（`Signal.map.{0} D (A×B) A (Prod.fst.{0,0} a b) s`、値は Lean の `Signal.map Prod.fst sv`）、`mapSnd`、`prodMk`、`unitVal`。型の規則: `prodTy`、`punitTy`。
+- `unf`/`beta`/`projStep`/`projCtor`/`recIota` を**結果 `r : Res`（型または値）について一般化**（`HList αs` のような型を同じ delta/beta/射影/`List.rec` で展開するため）。`unf` の停止条件は `stopR r e`（値: 従来の `headStop`、型: 核の型頭 `Nat/Bool/DomainConfig/BitVec/Signal/Prod/PUnit` は展開しない）。`letE` に前提 `coreHead A = true` を追加（以前は型判定から出た。`zeta` との排他のため明示）。
+- `projRec`: 構造体引数が `List.rec` の redex である射影を、その場で `recStep`（`whStepR` は別の射影/適用の下でしか進めないため。型位置の `PProd#0 (List.rec …)` で必要になった）。
+- **排他性**: `mapFst`/`mapSnd` は前提 `MapStuck env e`（`e` の `unfoldAt` が `Signal.mk` 頭の項になり、`Signal.mk` が `env` の `ctorInfo`）を持つ。`unf` が同じ式に適用されても `Signal.mk` 頭の項に導出が無いこと（`dz_signalMk_false`、`mapStuck_unf_false`）で衝突しない。`prodMk`/`unitVal` は `ctorInfo` を前提にして `unf` と衝突しない。
+- **Lean の等式（全信号・全時刻、`rfl`）**: `signal_map_fst_at`/`signal_map_snd_at`（`(Signal.map Prod.fst sv).val t = (sv.val t).1` 等）、`signal_map_eq`、`signal_mk_fst_eq`/`snd_eq`（展開後の `Signal.mk` 本体が規則の値）、`signal_map_pair_at`、`signal_ext'`。値は元のソースの `Signal.map` から作り、生成 IR から定義していない。
+- **関数性**: `dz_fun`/`cdz_fun`/`tdz_fun`/`cdz_eq`（導出に関する `induction`、仮定なし。`whStepR_listRec` ほか新しい衝突補題）。`circCVZ_functional`。
+
+### 22.2 CDY/CDZ の単一 env 接続（CDX は埋めない）
+
+`HftObCDX`（S1p §20.7）は `CDX` であり、`recIota` を持つ導出では埋まらない。DX→DY→DZ の橋だけがあり、**CDY→CDX は仮定しない・証明もしない**（`HftObCDX` と `HftObCDY` が定義的に別であることを Check16 が検査）。
+
+`CircCVY`（S1p）、`CircCVZ`、`HftObCDY env`、`HftObCDZ env`、`circCVY_to_Z`、`circCVS_to_Z`、`SourceDenotesY/Z`、`sourceDenotesS_to_Y`/`Y_to_Z`、`declConnect_of_cv`、`declConnect_S_to_Y`/`Y_to_Z`、`circCVY_hft_of_obCDY`/`circCVZ_hft_of_obCDZ`、run 側 `circCVY_at_of_getEnv`/`circCVZ_at_of_getEnv`（**開始 world `envAt cref w`**）、`circCVY_hft_run`/`circCVZ_hft_run`。消費側の完全型: `HftFinalStmtWith Ob`（S1k の `HftFinalStmt` の写しで `hcd : Ob (envAt cref w)`）、`HftFinalStmtY`/`HftFinalStmtZ`、`hftFinalStmtWith_const`（`Ob := fun _ => HftObCD` で `HftFinalStmt` に一致 = 写しの忠実性、`rfl`）。いずれも**型のみで未供給**（`hcd` の供給ではない）。
+
+### 22.3 Check16 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck16`、exit 0）
+
+- `SIGNATURES`: 新規則・変更した規則・`dy_to_dz`・`cdz_fun`・`CircCVZ`・`HftObCDY/Z`・`circCVZ_at_of_getEnv`・`signal_map_*_at` を独立に書いた文面と `isDefEq`（default）で照合。**31 mutant 棄却**（関数の入替、型引数の取り違え、`MapStuck` 欠落、結論の取り違え、ctor 条件欠落、stop 条件の入替、`coreHead` の欠落/反転、`recInfo` 欠落、別 env、`HEq` 欠落、DX/DY の取り違え、終了 world、時刻のずれ ほか）。`OLD RULES`: 23 コンストラクタが DY と DZ で同一。
+- `PATTERN`: 実際の Lean の elaborator が `Signal.map Prod.fst s`/`Prod.snd s` に作る Expr が規則の型と一致（レベル・引数順）。展開が `Signal.mk` 頭になり `MapStuck` が成立。入替は棄却。
+- `AUDIT CONTROLS`: 判定関数 `Audit.verdict` が、不一致ペア（map fst と map snd、正しいペア混在でも）、空の対象集合、traceMismatch、例外、ok≠total、Nat と Bool を**棄却**し、正しい一歩と全 ok を受理。
+- **fail-closed**: 実走査の等式監査は `bad = err = traceMismatch = 0` かつ対象ペア非空でなければ `throwError`（build が落ちる）。結果: **9 ペア（`List.rec` 8 distinct + `Signal.map` 1 distinct）、ok 9、bad 0、err 0、traceMismatch 0**。Check14 の logInfo 止まりを置換。**これは監査**: 閉じていない束縛変数を型 `Nat` の junk fvar で閉じた `isDefEq` であり、型付きの導出ではない。§17.8(b) を使っても、元の root 値への型付きの導出/等式がカーネルで完成するまで**意味保存済みとは呼ばない**。
+- `AXIOMS`: 37 名、標準のみ。
+
+### 22.4 SNAPSHOT16（hftRootValue、1 環境の値。走査であり証明ではない）
+
+2388 節点。`List.rec` の iota 272 回（distinct 8、うち `projRec` 102 回）、`mapFst` 17 箇所（distinct 1）、`mapSnd` 0、`MapStuck` 不成立 0、`prodTy` 51、型レベルの展開 510（`HList`、`List.brecOn`、`List.casesOn`、`HList.match_1` ほか）。S1p の stuck（`Signal.mk` ×17、型位置の `PProd#0 (List.rec …)`）のうち、`Signal.map Prod.fst` 由来の `Signal.mk` と `HList` の型展開は進んだ。
+
+**次の stuck（今回の走査はここで停止、導出は未供給）**:
+1. `Signal.mk [constructor]` ×17: `(fun x1 x2 => (x1, x2)) <$> Signal.register … <*> …`（`packRegister` の `bundle2`＝`Signal.seq`/`Signal.ap` の展開）。2 引数関数の `Signal.map`/`ap` で、Prod.fst/snd の狭い規則の外。reviewer の「汎用高階関数にしない」に照らし、`bundle2`（2 つの `Signal` から `Signal (A×B)` を作る配線）を同じ狭さの規則にするか、reviewer 判断。
+2. `Inhabited.mk [constructor]` ×17: `instInhabitedProd` ＝ `⟨(default, default)⟩`（`Signal.loop` の `inst` 引数）。`Inhabited` 構造体値の規則（と `default` の射影）が要る。
+
+したがって `HftObCDZ`（`hcd`）は**今回も供給していない**。
+
+### 22.5 証明したもの / 名前付き仮説・未供給
+
+- **証明した**: 22.1/22.2 の定理（`dy_to_dz`、`dx_to_dz`、`dz_fun` ほか、`signal_map_*`、`circCVZ_functional`、`declConnect_*`、`hftFinalStmtWith_const` など）。
+- **名前付き仮説/未供給**: `HftObCDX`/`HftObCDY`/`HftObCDZ`（型のみ）、`EnvDefs`/`EnvCtors`、規則と元ソースの意味の接続（`recStep`/`MapStuck` 等の Expr 書き換えの意味保存は定理ではなく監査）、非 leaf の `hsrc`/`htop`/`hnoraw`。上記 2 つの stuck。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。条件付きは減算しない。
+
+### 22.6 次
+
+(1) `bundle2`/`Signal.ap` の狭い規則と `Inhabited` 構造体値の規則の設計（reviewer）。(2) その後 `HftObCDZ` に届くか走査し直す。
