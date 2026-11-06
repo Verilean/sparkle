@@ -379,4 +379,41 @@ theorem callOut_bits (Q : Name → Option (SemPkg ι dom)) (g : GenIn) (i : ι)
 
 end Call
 
+/-! # S2c (part F): the stages of `ExtStage hftKids` against the Lean extension, at a cycle -/
+section Stages
+open Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1uSrc
+open Tools.ShippingMachineCausal (extendBits_self extendBits_ne)
+open Tools.ShippingMachineTeleStates (callArgVals callArgsOf)
+
+theorem root_inst0 : ∃ a, synth_hftPcieOutByte.machineData.shape.insts[0]? = some (hftHttp, a, .bits 8) := ⟨_, rfl⟩
+theorem root_inst1 : ∃ a, synth_hftPcieOutByte.machineData.shape.insts[1]? = some (hftTlp, a, .bits 8) := ⟨_, rfl⟩
+theorem root_or0 : originOf synth_hftPcieOutByte.machineData 0 = .ord := by decide +kernel
+theorem root_or1 : originOf synth_hftPcieOutByte.machineData 1 = .ord := by decide +kernel
+theorem root_kind0 : callKind synth_hftPcieOutByte.machineData 0 = .bits 8 := by decide +kernel
+theorem root_kind1 : callKind synth_hftPcieOutByte.machineData 1 = .bits 8 := by decide +kernel
+theorem root_kD : kDOf synth_hftPcieOutByte.machineData = 5 := by decide +kernel
+theorem root_nIn : synth_hftPcieOutByte.machineData.nIn = 7 := by decide +kernel
+theorem root_K5 : synth_hftPcieOutByte.machineData.K 5 = some (.bits 8) := by decide +kernel
+theorem root_K6 : synth_hftPcieOutByte.machineData.K 6 = some (.bits 8) := by decide +kernel
+theorem root_instFields : synth_hftPcieOutByte.machineData.shape.instFields = [] := by decide +kernel
+
+theorem valsOf_lsrcAt (d : MachineData) {D : DomainConfig} (bs : Nat → Signal D Bool)
+    (vs : (j n : Nat) → Signal D (BitVec n)) (S : Signal D (HList (tys d.ss))) (args : List Nat) (τ : Nat) :
+    Tools.ShippingMachineCallsLinkedT.valsOf (lsrcAt d bs vs S) args τ = callArgVals d bs vs τ (S.val τ) args := by
+  unfold Tools.ShippingMachineCallsLinkedT.valsOf lsrcAt callArgVals
+  simp only [List.getElem?_map]
+  apply List.map_congr_left
+  intro l _
+  cases d.ls[l]? <;> rfl
+
+theorem hftKids_http {ι : Type} : hftKids (ι := ι) hftHttp = some (kidSem hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData
+    (fun _ bools bits => Sparkle.IP.Net.HTTP.httpGetByte.machineSource defaultDomain bools bits)) := by
+  simp [hftKids]
+
+theorem hftKids_tlp {ι : Type} : hftKids (ι := ι) hftTlp = some (kidSem hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData
+    (fun _ bools bits => Sparkle.IP.Bus.PCIe.tlpCplByte.machineSource defaultDomain bools bits)) := by
+  simp [hftKids, hftTlp_ne_http]
+
+end Stages
+
 end Tools.ShippingFGCircuitS2cLink
