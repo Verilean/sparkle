@@ -34,7 +34,7 @@ macro "clashT" : tactic =>
                directHead_boolFalse, directHead_boolTrue, directHead_prodMk, directHead_unit, directHead_inhMk, bvAbbrevRow_boolFalse, bvAbbrevRow_boolTrue,
                newStopC_bundle2, newStopC_default, tyHeadStop, headStop, appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, appFn, stopC_ofNat, stopC_defaultDomain, stopC_bvOfNat, stopC_bvInh,
                stopC_boolInh, stopC_pure, stopC_register, stopC_mux, stopC_hadd, stopC_loop, stopC_beq, stopC_hand, stopC_hor, stopC_compl, bvAbbrevRow_defaultDomain,
-               bvAbbrevRow_instInhabitedBool, stopC_of_row, stopD_signalMap, tyStopC_nat, tyStopC_bool, tyStopC_dc, tyStopC_bitvec, tyStopC_signal, tyStopC_prod, tyStopC_punit]))
+               bvAbbrevRow_instInhabitedBool, stopC_of_row, stopD_signalMap, stopD_shl, stopD_append, tyStopC_nat, tyStopC_bool, tyStopC_dc, tyStopC_bitvec, tyStopC_signal, tyStopC_prod, tyStopC_punit]))
 
 macro "injsT" he:ident he':ident : tactic =>
   `(tactic| (have h := Eq.trans (Eq.symm $he) $he'; revert h; simp only [appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, Expr.app.injEq, Expr.const.injEq, Expr.lam.injEq, Expr.letE.injEq, Expr.proj.injEq, Expr.lit.injEq, Literal.natVal.injEq, List.cons.injEq, and_true, true_and, and_imp, true_implies]; intros; subst_vars))
@@ -306,6 +306,46 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
       subst h3
       have h4 := val_eq (ihs hs' rfl)
       subst h4; rfl
+    | _ => clashT
+  | mapExtract he hd hw hl hn hlo hlen hs ihd ihw ihl ihn ihlo ihlen ihs => intro r' h' hk; cases h' with
+    | mapExtract he' hd' hw' hl' hn' hlo' hlen' hs' =>
+      injsT he he'
+      have h1 := val_eq (ihd hd' rfl)
+      subst h1
+      have h2 := val_eq (ihw hw' rfl)
+      subst h2
+      have h3 := val_eq (ihl hl' rfl)
+      subst h3
+      have h4 := val_eq (ihlo 0#_ (hlo' 0#_) rfl)
+      subst h4
+      have h5 := val_eq (ihs hs' rfl)
+      subst h5; rfl
+    | _ => clashT
+  | sigShlBV he hd hw ha hb ihd ihw iha ihb => intro r' h' hk; cases h' with
+    | sigShlBV he' hd' hw' ha' hb' =>
+      injsT he he'
+      have h1 := val_eq (ihd hd' rfl)
+      subst h1
+      have h2 := val_eq (ihw hw' rfl)
+      subst h2
+      have h3 := val_eq (iha ha' rfl)
+      subst h3
+      have h4 := val_eq (ihb hb' rfl)
+      subst h4; rfl
+    | _ => clashT
+  | sigAppendCL he hd hm hn ha hb ihd ihm ihn iha ihb => intro r' h' hk; cases h' with
+    | sigAppendCL he' hd' hm' hn' ha' hb' =>
+      injsT he he'
+      have h1 := val_eq (ihd hd' rfl)
+      subst h1
+      have h2 := val_eq (ihm hm' rfl)
+      subst h2
+      have h3 := val_eq (ihn hn' rfl)
+      subst h3
+      have h4 := val_eq (iha ha' rfl)
+      subst h4
+      have h5 := val_eq (ihb hb' rfl)
+      subst h5; rfl
     | _ => clashT
   | inhMk he hu0 hc ht hx iht ihx => intro r' h' hk; cases h' with
     | inhMk he' hu' hc' ht' hx' =>

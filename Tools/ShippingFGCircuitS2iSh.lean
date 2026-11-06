@@ -54,10 +54,12 @@ def Hn.isVar : Hn → Bool
   | _ => false
 
 /-- heads that are never unfolded: the primitive value heads, the new stop heads, the core type heads, and `Signal.map` (the narrow wiring rules) -/
-def stopD (c : Name) : Bool := stopC c || newStopC c || tyStopC c || c == ``Signal.map
+def stopD (c : Name) : Bool := stopC c || newStopC c || tyStopC c || c == ``Signal.map || c == ``HShiftLeft.hShiftLeft || c == ``HAppend.hAppend
 
 theorem stopD_listRec : stopD ``List.rec = false := by decide
 theorem stopD_signalMap : stopD ``Signal.map = true := by decide
+theorem stopD_shl : stopD ``HShiftLeft.hShiftLeft = true := by decide
+theorem stopD_append : stopD ``HAppend.hAppend = true := by decide
 
 /-- the recursive call of `List.rec.{ls}` as a closure expression over the environment `[tl, consc, nilc, mot, a0]` -/
 def recCallE (ls : List Level) : Expr := mkApps (.const ``List.rec ls) [.bvar 4, .bvar 3, .bvar 2, .bvar 1, .bvar 0]

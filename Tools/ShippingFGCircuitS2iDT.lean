@@ -133,6 +133,39 @@ inductive DT (env : Environment) : Cx → Expr → Res → Prop
       (he : e = appN ``Signal.map [.zero] [d, tp, tb, appN ``Prod.snd [.zero, .zero] [a, b], s])
       (hd : CDt env ρ d DomainConfig D) (hp : TDt env ρ tp (A × B)) (ht : TDt env ρ tb B) (ha : TDt env ρ a A) (hb : TDt env ρ b B)
       (hs : CDt env ρ s (Signal D (A × B)) sv) : CDt env ρ e (Signal D B) (Signal.map Prod.snd sv)
+  /-- NEW (S2q). the `extractLsb'`-ONLY map rule: `Signal.map (fun x : BitVec W => BitVec.extractLsb' lo len x) s`. The binder type and the input type are `BitVec wE` (`wE ↦ W`), the result type is `BitVec lE` (`lE ↦ L`),
+      the width argument of `extractLsb'` derives to the SAME `W`, its length argument to the SAME `L` (that is the result width), `lo` to any `LO`; the three numerals are derived under the binder (for every `x`),
+      the domain is one `D` for the input signal `s : Signal D (BitVec W)`. The value is Lean's `Signal.map (fun x => extractLsb' LO L x) sv`; `Tools.ShippingFGCircuitS2qBits.extract_at` is its per-time equation.
+      NOT a rule for an arbitrary function. -/
+  | mapExtract {ρ : Cx} {e d wE lE nE loE lenE s : Expr} {n : Name} {bi : BinderInfo} {D : DomainConfig} {W LO L : Nat} {sv : Signal D (BitVec W)}
+      (he : e = appN ``Signal.map [.zero] [d, appN ``BitVec [] [wE], appN ``BitVec [] [lE],
+        .lam n (appN ``BitVec [] [wE]) (appN ``BitVec.extractLsb' [] [nE, loE, lenE, .bvar 0]) bi, s])
+      (hd : CDt env ρ d DomainConfig D) (hw : CDt env ρ wE Nat W) (hl : CDt env ρ lE Nat L)
+      (hn : ∀ x : BitVec W, CDt env (Ent.val ⟨appN ``BitVec [] [wE], ⟨BitVec W, x⟩⟩ :: ρ) nE Nat W)
+      (hlo : ∀ x : BitVec W, CDt env (Ent.val ⟨appN ``BitVec [] [wE], ⟨BitVec W, x⟩⟩ :: ρ) loE Nat LO)
+      (hlen : ∀ x : BitVec W, CDt env (Ent.val ⟨appN ``BitVec [] [wE], ⟨BitVec W, x⟩⟩ :: ρ) lenE Nat L)
+      (hs : CDt env ρ s (Signal D (BitVec W)) sv) :
+      CDt env ρ e (Signal D (BitVec L)) (Signal.map (fun x : BitVec W => BitVec.extractLsb' LO L x) sv)
+  /-- NEW (S2q). `Signal <<< BitVec` (the instance `instHShiftLeftSignalBitVec`, a STATIC constant shift amount on the RIGHT): both the signal and the constant derive at the SAME width `W` and domain `D`.
+      The value is Lean's `HShiftLeft.hShiftLeft` of that instance; `Tools.ShippingFGCircuitS2qBits.shl_at` is its per-time equation (`BitVec`'s own `<<<`). -/
+  | sigShlBV {ρ : Cx} {e d w a b : Expr} {D : DomainConfig} {W : Nat} {av : Signal D (BitVec W)} {bv : BitVec W}
+      (he : e = appN ``HShiftLeft.hShiftLeft [.zero, .zero, .zero]
+        [appN ``Signal [.zero] [d, appN ``BitVec [] [w]], appN ``BitVec [] [w], appN ``Signal [.zero] [d, appN ``BitVec [] [w]],
+         appN ``Sparkle.Core.Signal.instHShiftLeftSignalBitVec [] [d, w], a, b])
+      (hd : CDt env ρ d DomainConfig D) (hw : CDt env ρ w Nat W)
+      (ha : CDt env ρ a (Signal D (BitVec W)) av) (hb : CDt env ρ b (BitVec W) bv) :
+      CDt env ρ e (Signal D (BitVec W)) (@HShiftLeft.hShiftLeft _ _ _ (@Sparkle.Core.Signal.instHShiftLeftSignalBitVec D W) av bv)
+  /-- NEW (S2q). `BitVec m ++ Signal (BitVec n)` (the instance `instHAppendBitVecSignalHAddNat`: the constant on the LEFT, the signal on the right; output width `m + n`, order preserved).
+      `Tools.ShippingFGCircuitS2qBits.append_at` is its per-time equation. -/
+  | sigAppendCL {ρ : Cx} {e d m n a b : Expr} {D : DomainConfig} {M N : Nat} {av : BitVec M} {bv : Signal D (BitVec N)}
+      (he : e = appN ``HAppend.hAppend [.zero, .zero, .zero]
+        [appN ``BitVec [] [m], appN ``Signal [.zero] [d, appN ``BitVec [] [n]],
+         appN ``Signal [.zero] [d, appN ``BitVec [] [appN ``HAdd.hAdd [.zero, .zero, .zero]
+           [.const ``Nat [], .const ``Nat [], .const ``Nat [], appN ``instHAdd [.zero] [.const ``Nat [], .const ``instAddNat []], m, n]]],
+         appN ``Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat [] [m, d, n], a, b])
+      (hd : CDt env ρ d DomainConfig D) (hm : CDt env ρ m Nat M) (hn : CDt env ρ n Nat N)
+      (ha : CDt env ρ a (BitVec M) av) (hb : CDt env ρ b (Signal D (BitVec N)) bv) :
+      CDt env ρ e (Signal D (BitVec (M + N))) (@HAppend.hAppend _ _ _ (@Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat M D N) av bv)
   /-- NEW (S2b). `Inhabited.mk.{u} T x` with ONE level `u` whose closed value is `1` (`lvlNatT u = some 1`, evidence by `Eq.refl`, no `Level.normalize`: that is `opaque`, the kernel cannot run it):
       the instance VALUE `⟨v⟩` from the derivation of the field `x ↦ v`; a constructor of `env` (so no other rule applies). `T : Type` stays; the old rule is the case `u = 1`. -/
   | inhMk {ρ : Cx} {e t x : Expr} {u : Level} {T : Type} {v : T} {cv : ConstructorVal} (he : e = appN ``Inhabited.mk [u] [t, x]) (hu : lvlNatT u = some 1)
