@@ -88,10 +88,10 @@ def shS : SigShape := { args := [.bits 8], res := .one (.bits 8) }
 def shE : SigShape := { args := [.bool], res := .one (.bits 8) }
 def shA : SigShape := { args := [.bool, .bool], res := .one (.bits 2) }
 
-def dC : MachineData := counterLoop.machineData
-def dS : MachineData := shift4Loop.machineData
-def dE : MachineData := counterEnableLoop.machineData
-def dA : MachineData := Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData
+noncomputable def dC : Tools.ShippingMachineAuto.MachineData := counterLoop.machineData
+noncomputable def dS : Tools.ShippingMachineAuto.MachineData := shift4Loop.machineData
+noncomputable def dE : Tools.ShippingMachineAuto.MachineData := counterEnableLoop.machineData
+noncomputable def dA : Tools.ShippingMachineAuto.MachineData := Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData
 
 def nC : Name := ``Sparkle.Tests.SignalLoopTest.counterLoop
 def nS : Name := ``Sparkle.Tests.SignalLoopTest.shift4Loop
@@ -124,18 +124,42 @@ def MutArbBoundaryEnv : Prop := ExpPolyRoot eS eS eE selM nA arbiterType arbiter
 def MutArbDenEnv : Prop := ExpPolyRoot eS eE eS selM nA arbiterType arbiterValue shA dA
 def MutArbShipsModule : Prop := ExpPolyShips eS eS eS selX nA arbiterType arbiterValue shA dA
 def MutClosesName : Prop := ExpCloses nS dC
+def ExpClosesC : Prop := ExpCloses nC dC
+def ExpClosesS : Prop := ExpCloses nS dS
+def ExpClosesE : Prop := ExpCloses nE dE
+def ExpClosesA : Prop := ExpCloses nA dA
 
 /-! ## the comparison (MetaM): actual theorem type vs expected, and mutants rejected -/
 
+/-- unfold ONLY the check's own definitions and the implementation's shape constants (never `machineData`, which would evaluate): the comparison is
+then structural, so a mutant differing in one constant is rejected cheaply and a match is an actual identity of statements. -/
+def whitelist : List Name := [``ExpMonoRoot, ``ExpMonoShips, ``ExpPolyRoot, ``ExpPolyShips, ``ExpCloses,
+  ``ExpCounterRoot, ``ExpShift4Root, ``ExpEnableRoot, ``ExpArbiterRoot, ``ExpCounterShips, ``ExpShift4Ships, ``ExpEnableShips, ``ExpArbiterShips,
+  ``MutName, ``MutValue, ``MutShape, ``MutData, ``MutHypEnv, ``MutDenEnv, ``MutModule, ``MutShipsName, ``MutShipsDenEnv, ``MutShipsModule,
+  ``MutArbName, ``MutArbShape, ``MutArbBoundaryEnv, ``MutArbDenEnv, ``MutArbShipsModule, ``MutClosesName, ``ExpClosesC, ``ExpClosesS, ``ExpClosesE, ``ExpClosesA,
+  ``eS, ``eE, ``selM, ``selX, ``emptyModule, ``shC, ``shS, ``shE, ``shA, ``dC, ``dS, ``dE, ``dA, ``nC, ``nS, ``nE, ``nA,
+  ``shCounter, ``shShift4, ``shEnable, ``shArbiter]
+
+def norm (e : Lean.Expr) : MetaM Lean.Expr :=
+  Meta.transform e (post := fun e => do
+    if let .const c _ := e.getAppFn then
+      if whitelist.contains c then
+        if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
+    return .done e)
+
+set_option maxHeartbeats 4000000 in
 run_cmd liftTermElabM do
   let same (thm exp : Name) : MetaM Unit := do
     let ci ← getConstInfo thm
-    let ei ← getConstInfo exp
-    unless ← isDefEq ci.type (mkConst exp) do throwError "{thm}: type is NOT the expected statement {exp}"
-    unless ei.levelParams.isEmpty && ci.levelParams.isEmpty do throwError "{thm}: level parameters"
-  let differs (thm mut : Name) : MetaM Unit := do
+    unless ci.levelParams.isEmpty do throwError "{thm}: level parameters"
+    let a ← norm ci.type
+    let e ← norm (mkConst exp)
+    unless ← withReducible (isDefEq a e) do throwError "{thm}: type is NOT the expected statement {exp}"
+  let differs (thm mu0 : Name) : MetaM Unit := do
     let ci ← getConstInfo thm
-    if ← isDefEq ci.type (mkConst mut) then throwError "{thm}: the MUTANT {mut} was accepted"
+    let a ← norm ci.type
+    let e ← norm (mkConst mu0)
+    if ← withReducible (isDefEq a e) then throwError "{thm}: the MUTANT {mu0} was accepted"
   let R := `Tools.ShippingFGCircuitRoots
   let roots : List (Name × Name) := [(R ++ `counterLoop_root_at, ``ExpCounterRoot), (R ++ `shift4Loop_root_at, ``ExpShift4Root),
     (R ++ `counterEnableLoop_root_at, ``ExpEnableRoot), (R ++ `arbiterSignal_root_at, ``ExpArbiterRoot),
@@ -146,14 +170,10 @@ run_cmd liftTermElabM do
   for (t, _) in roots do
     let ci ← getConstInfo t
     if (ci.type.find? (·.isConstOf ``MachineCloses)).isSome then throwError "{t}: still has a MachineCloses premise"
-  let closes : List (Name × Name × Name) := [(nC, nC, ``dC), (nS, nS, ``dS), (nE, nE, ``dE), (nA, nA, ``dA)]
-  for (c, _, dd) in closes do
-    let ci ← getConstInfo (c ++ `machine_closes)
-    let expected ← mkAppM ``ExpCloses #[toExpr c, mkConst dd]
-    unless ← isDefEq ci.type expected do throwError "{c}.machine_closes: not the expected statement"
-  let cc ← getConstInfo (nC ++ `machine_closes)
-  if ← isDefEq cc.type (← mkAppM ``ExpCloses #[toExpr nS, mkConst ``dC]) then throwError "mutant ExpCloses accepted"
-  let mut nm := 0
+  for (c, e) in [(nC, ``ExpClosesC), (nS, ``ExpClosesS), (nE, ``ExpClosesE), (nA, ``ExpClosesA)] do
+    same (c ++ `machine_closes) e
+  differs (nC ++ `machine_closes) ``MutClosesName
+  let mut nm : Nat := 0
   for (t, mu) in [(R ++ `counterLoop_root_at, ``MutName), (R ++ `counterLoop_root_at, ``MutValue), (R ++ `counterLoop_root_at, ``MutShape),
       (R ++ `counterLoop_root_at, ``MutData), (R ++ `counterLoop_root_at, ``MutHypEnv), (R ++ `counterLoop_root_at, ``MutDenEnv),
       (R ++ `counterLoop_root_at, ``MutModule), (R ++ `counterLoop_ships_at, ``MutShipsName), (R ++ `counterLoop_ships_at, ``MutShipsDenEnv),
