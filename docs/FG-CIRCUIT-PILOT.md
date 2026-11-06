@@ -1894,7 +1894,7 @@ def ProfOffW mref cref w := ∀ mctx cctx, GetEnvProfileAt mctx mref cctx cref w
 
 **量化範囲（S2n 訂正。各仮説ごと）**: `DRowEnvR`/`DiagEnvR` だけが quiet + `ReadsAt e` + `Reached` の world に限られる。`ProfStepR` が要るのは `Reached` + `LeafStep` + `ProfOffW` だけで、quiet も `ReadsAt` も要らない。`ProfOffW` は 1 つの world についてだが、全 `mctx`/`cctx` に対する。`TeleR` は任意の不変条件・任意の継続についての法則である（`quietR` を quiet として持つが、world の範囲は不変条件が決める）。`hadm`/`AdmDownR` は world ではなく callback（文脈）の性質で、他と同じ量化範囲ではない。`Reached` は、許可された任意の葉・文脈・引数（任意の cache 書き込みを含む）についての閉包であり、特定の run の実トレースではない。この過大近似の上で保存を示すのは問題ない。
 
-`DRow` の 13 行と `Diag` の 9 行と telescope の 4 行、profile、文脈は、`CellPrem` からも `Laws` からも導けない（S2d §32.3 と同じ理由。`QuietStrength` の構成は class-D・`diag`・telescope を含まない）。ここで要るのは全 world の frame law ではなく、**root の開始 world から葉の step で到達した quiet な world で、その行が `ReadsAt e` を保つ**という run 局所の事実だけ。不可能とは言わない。
+`DRow` の 13 行と `Diag` の 9 行と telescope の 4 行、profile、文脈は、`CellPrem` からも `Laws` からも導けない（S2d §32.3 と同じ理由。`QuietStrength` の構成は class-D・`diag`・telescope を含まない）。`DRow`/`Diag` の行について要るのは全 world の frame law ではなく、**root の開始 world から葉の step で到達した quiet な world で、その行が `ReadsAt e` を保つ**という run 局所の事実（DRow/Diag に限る。telescope・文脈・profile は別。S2s 訂正）。不可能とは言わない。
 
 ### 39.5 `hftCoreCloses_of_kidsR` の前提リスト
 
@@ -1957,7 +1957,7 @@ def AdmBoth (O) (e) (w₀) (mctx) (cctx) : Prop :=
 def QuietCover (O : RefLawsAOps MkRefd mref cref) (e) (w₀) : Prop :=
   ∀ w, O.quiet w → ReadsAt e cref w ∧ Reached O.quiet mref cref w₀ w
 
-structure OpsB (O) (e) (w₀) : Prop   -- RefLawsAOps の 10 field を quiet := quietR、文脈の前提を AdmBoth にしたもの
+structure OpsB (O) (e) (w₀) : Prop   -- RefLawsAOps の 6 field（diag/frameT/excOk/frameQ/cacheSetQ/depthSetQ）を quiet := quietR、文脈の前提を AdmBoth にしたもの。frame/cacheSet/depthSet は未実装（AdmBoth.plain で O から再利用できるが、この構造体には数えない）
 theorem opsB (hcell : CellPrem MkRefd mref cref) (hD : DRowEnvR O e w₀) (hG : DiagEnvR O e w₀) : OpsB O e w₀      -- hdown なし
 theorem admBoth_of_down (hdown : AdmDownR O e w₀) (h : AdmCtx (quietR …) mctx cctx) : AdmBoth O e w₀ mctx cctx
 
@@ -1978,7 +1978,7 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 | `AdmBoth` | 文脈に持たせる形: 元の `AdmCtx O.quiet` と強めた `AdmCtx (quietR …)` の**両方**（どちらからも他方を導かない） |
 | `admBoth_none`, `admBoth_mkMetaContext` | 確立（root）: `canUnfold? = none`（`mkMetaContext_canUnfold`）の文脈は `AdmBoth` |
 | `AdmBoth.lctx/localInsts/lctx_insts/config/coreCtx` | 保存: 本体の帰納が行う文脈の更新（lctx・localInstances・config・Core 文脈）で `AdmBoth` が保たれる（`admCtx_*` を両成分に） |
-| **`opsB`** | `ropsR` の 10 field を `AdmBoth` 文脈の上で、**`hdown` なしで**導出（元の half を `O` の field に、強めた half は使わない。class-D と診断は名前付き仮説 `hD`, `hG`） |
+| **`opsB`** | `ropsR` の 6 field（diag/frameT/excOk/frameQ/cacheSetQ/depthSetQ。他の 3 field は未実装）を `AdmBoth` 文脈の上で、**`hdown` なしで**導出（元の half を `O` の field に、強めた half は使わない。class-D と診断は名前付き仮説 `hD`, `hG`） |
 | `admBoth_of_down` | `AdmDownR` が入る**唯一**の場所: bundle の文脈（`AdmCtx quietR`）を `AdmBoth` に直す変換 |
 | `QuietCover`, `quietR_eq_of_cover` | 世界レベルの置換: `O.quiet` の world がすべて `e` を読み root から到達している。すると `quietR = O.quiet` |
 | `admDownR_of_cover`, `drowEnvR_of_cover`, `diagEnvR_of_cover`, `teleR_of_cover` | `QuietCover` の下で `AdmDownR`, `DRowEnvR`, `DiagEnvR`, `TeleR`（`L.T` そのもの）は**定理** |
@@ -1999,7 +1999,7 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 - `FGCIRCUIT34 DEFS`: `AdmBoth`・`QuietCover` を独立に書いた文面と照合。**10 mutant 棄却**（片方の half のみ、含意 `AdmDownR` を組の代わりに、選言、別の環境; 到達なし、`ReadsAt` なし、自明な逆向き包含、別の環境、別の world からの到達）。
 - `FGCIRCUIT34 SIGNATURES`: `hftCoreCloses_of_kidsR'`・`hftCoreCloses_of_cover` の完全な型（binder の名前・kind も）。`hftCoreCloses_of_kidsR'` **19 mutant**（各前提の脱落 12、`QuietCover` を到達なし/`ReadsAt` なし/逆向きに 3、profile ON、別の root 環境、root から到達しない world、end world）、`hftCoreCloses_of_cover` **15 mutant**（脱落 8 と同じ対照 7）。binder 名 `mctx mref cctx cref L w hstart hcell lvl hrH hrT hg hadm hcover hD hG hT hs h0`（kidsR'）・`… hg hcover hs h0`（cover）。
 - `FGCIRCUIT34 STEPS`（20 構造検査）: 新しい 2 定理は `AdmDownR`・`MissE` を含まない。`opsB` は `AdmDownR` を含まず `AdmBoth` を使う。`AdmDownR` を取るのは `admBoth_of_down` だけ。
-- `FGCIRCUIT34 REMAINING`（4 行: `hs`, `h0`, `hcover`, 未実施の `AdmBoth` 鎖）、`FGCIRCUIT34 AXIOMS`（18 名、標準 axiom のみ）。
+- `FGCIRCUIT34 REMAINING`（4 行: `hs`, `h0`, `hcover`, 未実施の `AdmBoth` 鎖）、`FGCIRCUIT34 AXIOMS`（報告は18名だが `AdmBoth.cctx` は存在しない名前だった。S2s で `AdmBoth.coreCtx` に直し、存在確認を入れた。§44）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き。
 

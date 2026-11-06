@@ -216,7 +216,7 @@ run_cmd liftTermElabM do
   let u4 ← usesOf `admBoth_of_down
   unless u4.contains ``AdmDownR do throwError "admBoth_of_down does not take AdmDownR"
   c := c + 10
-  logInfo m!"FGCIRCUIT34 STEPS: hftCoreCloses_of_kidsR' and hftCoreCloses_of_cover do not mention AdmDownR (nor MissE); the cover route also drops DRowEnvR / DiagEnvR / TeleR; opsB (the ten strengthened operation laws, the ropsR fields) is stated on AdmBoth contexts and does not mention AdmDownR; the only statement of the file that takes AdmDownR is admBoth_of_down, the conversion from a bundle context to an AdmBoth one (the entry point into the S2h chain, which takes ONE bundle); {c} structural checks"
+  logInfo m!"FGCIRCUIT34 STEPS: hftCoreCloses_of_kidsR' and hftCoreCloses_of_cover do not mention AdmDownR (nor MissE); the cover route also drops DRowEnvR / DiagEnvR / TeleR; opsB (six of the ropsR fields: diag, frameT, excOk, frameQ, cacheSetQ, depthSetQ) is stated on AdmBoth contexts and does not mention AdmDownR; the only statement of the file that takes AdmDownR is admBoth_of_down, the conversion from a bundle context to an AdmBoth one (the entry point into the S2h chain, which takes ONE bundle); {c} structural checks (surface types only: the constants occurring in the statement's type, NOT the closure of the proofs)"
 
 run_cmd liftTermElabM do
   let lines := [
@@ -228,10 +228,13 @@ run_cmd liftTermElabM do
 
 run_cmd liftTermElabM do
   let X := `Tools.ShippingFGCircuitS2nAdm
-  let names : List Name := [`admBoth_none, `admBoth_mkMetaContext, `AdmBoth.lctx, `AdmBoth.localInsts, `AdmBoth.lctx_insts, `AdmBoth.config, `AdmBoth.cctx,
+  let names : List Name := [`admBoth_none, `admBoth_mkMetaContext, `AdmBoth.lctx, `AdmBoth.localInsts, `AdmBoth.lctx_insts, `AdmBoth.config, `AdmBoth.coreCtx,
     `AdmBoth.plain, `admBoth_of_down, `opsB, `quietR_eq_of_cover, `admDownR_of_cover, `drow_toFramedA, `drowEnvR_of_cover, `diagEnvR_of_cover, `teleR_of_cover,
     `hftCoreCloses_of_kidsR', `hftCoreCloses_of_cover].map (X ++ ·)
+  let env ← getEnv
   for nm in names do
+    -- every name must exist before collectAxioms (a missing name is an error, never "checked")
+    unless env.contains nm do throwError "AXIOMS: {nm} does not exist"
     for ax in ← Lean.collectAxioms nm do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do throwError "{nm} uses {ax}"
   logInfo m!"FGCIRCUIT34 AXIOMS: {names.length} names, standard axioms only (no sorryAx, no native_decide)"

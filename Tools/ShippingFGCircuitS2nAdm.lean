@@ -72,7 +72,7 @@ theorem AdmBoth.plain (h : AdmBoth O e w₀ mctx cctx) : AdmCtx O.quiet mctx cct
 
 /-! ## the strengthened operations laws on `AdmBoth` contexts (the `ropsR` fields without `hdown`) -/
 
-/-- **The strengthened operations laws, indexed by `AdmBoth` contexts.** The ten fields of `RefLawsAOps` at `quiet := quietR O.quiet mref cref e w₀`, with the context hypothesis `AdmBoth` in place of `AdmCtx quietR`. (A `Prop`: the laws, not a bundle for the S2h chain; see `opsB_toStd`.) -/
+/-- **The strengthened operations laws, indexed by `AdmBoth` contexts.** SIX fields (diag/frameT/excOk/frameQ/cacheSetQ/depthSetQ) of `RefLawsAOps` at `quiet := quietR O.quiet mref cref e w₀`, with the context hypothesis `AdmBoth` in place of `AdmCtx quietR`. The remaining fields of the bundle (frame/cacheSet/depthSet) are NOT implemented here (they can be reused from `O` via `AdmBoth.plain`). A `Prop`: the laws, not a bundle for the S2h chain. -/
 structure OpsB (O : RefLawsAOps MkRefd mref cref) (e : Environment) (w₀ : Void IO.RealWorld) : Prop where
   diag : ∀ {mctx : Meta.Context} {cctx : Core.Context} {α : Type}, AdmBoth O e w₀ mctx cctx →
     ∀ (p : MetaM α), Diag p → ∀ w, quietR O.quiet mref cref e w₀ w →
