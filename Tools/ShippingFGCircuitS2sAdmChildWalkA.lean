@@ -135,6 +135,18 @@ theorem Keeps.withReaderAX {Fresh : (σ : Type) → IO.Ref σ → Prop} (O : Ref
   fun w hw => h (O.adm_closed.canUnfold hA f hf) w hw
 
 -- the circuit-state primitives and the calculus, registered for the walker
+open Lean Elab in
+/-- Theorems `vcaX` may apply at a call of the constant their conclusion is about. -/
+initialize keepsAExtX : SimpleScopedEnvExtension (Name × Name) (Std.HashMap Name (Array Name)) ←
+  registerSimpleScopedEnvExtension {
+    addEntry := fun m (k, v) => m.insert k ((m.getD k #[]).push v)
+    initial := {} }
+
+def keepsProgA?X (t : Expr) : Option (Bool × Expr) :=
+  if t.isAppOfArity ``Keeps 7 then some (false, t.appArg!)
+  else if t.isAppOfArity ``KeepsCP 7 then some (true, t.appArg!)
+  else none
+
 syntax (name := keepsAAttrX) "keepsAX" : attr
 
 initialize registerBuiltinAttribute {
@@ -143,13 +155,13 @@ initialize registerBuiltinAttribute {
   add := fun decl _ kind => do
     let info ← getConstInfo decl
     let key ← MetaM.run' <| forallTelescope info.type fun _ body => do
-      match keepsProgA? body with
+      match keepsProgA?X body with
       | some (_, p) =>
         match p.getAppFn with
         | .const c _ => pure c
         | _ => throwError "@[keepsAX]: the program's head is not a constant"
       | none => throwError "@[keepsAX]: not a Keeps / KeepsCP statement"
-    keepsAExt.add (key, decl) kind }
+    keepsAExtX.add (key, decl) kind }
 
 namespace VCA
 open Tools.ShippingChildInv.VC (attempt closeBy mayMatch timed vcNote simpHead? absurdBranch readOnly opaqueHeads statsLine)
@@ -169,6 +181,16 @@ def fillLawsX (ms : Array Expr) : MetaM Unit := do
               if ← isDefEq m q then break
               s.restore
             catch _ => s.restore
+      if ty.isConstOf ``CtxPred then
+        for d in ← getLCtx do
+          if d.isImplementationDetail then continue
+          if (← instantiateMVars d.type).isAppOf ``RefLawsAOpsX then
+            let s ← saveState
+            try
+              let a ← mkAppM ``RefLawsAOpsX.adm #[d.toExpr]
+              if ← isDefEq m a then break
+              s.restore
+            catch _ => s.restore
       if ty.isAppOf ``RefLawsAOpsX then
         for d in ← getLCtx do
           if d.isImplementationDetail then continue
@@ -181,7 +203,7 @@ def fillLawsX (ms : Array Expr) : MetaM Unit := do
 def applyExactAX (g : MVarId) (e : Expr) : MetaM (List MVarId) := g.withContext do
   let (ms, bis, concl) ← forallMetaTelescope (← instantiateMVars (← inferType e))
   let gT ← instantiateMVars (← g.getType)
-  let ok ← match keepsProgA? concl.cleanupAnnotations, keepsProgA? gT.cleanupAnnotations with
+  let ok ← match keepsProgA?X concl.cleanupAnnotations, keepsProgA?X gT.cleanupAnnotations with
     | some (c1, _), some (c2, _) =>
       if c1 != c2 then pure false
       else
@@ -293,10 +315,10 @@ partial def walkX (g : MVarId) (fuel : Nat) : MetaM Unit := do
     try walkCoreX g (fuel - 1)
     finally vcStack.modify (·.shrink depth)
   catch e =>
-    let isProg := (keepsProgA? (← instantiateMVars (← g.getType)).cleanupAnnotations).isSome
+    let isProg := (keepsProgA?X (← instantiateMVars (← g.getType)).cleanupAnnotations).isSome
     vcNote fun _ => return s!"  failed: {((← e.toMessageData.toString).take 300)}"
     if e.toMessageData.hasTag (· == `vcFinal) then throw e
-    let headName := match keepsProgA? (← instantiateMVars (← g.getType)).cleanupAnnotations with
+    let headName := match keepsProgA?X (← instantiateMVars (← g.getType)).cleanupAnnotations with
       | some (_, q) => toString q.getAppFn.constName?
       | none => "sideX"
     let closed ← if isProg then timed s!"absurd@{headName}" (attempt (absurdBranch g)) else pure false
@@ -306,7 +328,7 @@ partial def walkX (g : MVarId) (fuel : Nat) : MetaM Unit := do
 partial def walkCoreX (g : MVarId) (fuel : Nat) : MetaM Unit := do
   g.withContext do
   let t := (← instantiateMVars (← g.getType)).cleanupAnnotations
-  let some (isC, p) := keepsProgA? t | sideX g
+  let some (isC, p) := keepsProgA?X t | sideX g
   let pm0 := p.consumeMData
   if vc.stats.get (← getOptions) || vc.budgetMs.get (← getOptions) != 0 then
     let h := p.getAppFn
@@ -478,7 +500,7 @@ partial def walkCoreX (g : MVarId) (fuel : Nat) : MetaM Unit := do
     if d.isImplementationDetail then continue
     let ty ← instantiateMVars d.type
     let fits ← forallTelescope ty fun _ body => pure <|
-      match keepsProgA? body with
+      match keepsProgA?X body with
       | some (c, q) => c == isC && q.getAppFn == fn
       | none => false
     if fits then
@@ -568,7 +590,7 @@ partial def walkCoreX (g : MVarId) (fuel : Nat) : MetaM Unit := do
       return ← rule2 ``Keeps.throw ``Tools.ShippingChildTranslateA.KeepsCP.throw ``Tools.ShippingChildInv.Keeps.throwE
         ``Tools.ShippingChildWalkA.KeepsCP.throwE
     -- registered theorems
-    for lem in (keepsAExt.getState (← getEnv)).getD c #[] do
+    for lem in (keepsAExtX.getState (← getEnv)).getD c #[] do
       if ← commitApplyX g (← mkConstWithFreshMVarLevels lem) fuel then return
     if isC && c == ``CompilerM.liftMetaM then
       return ← applyThenX g (← mkConstWithFreshMVarLevels ``Tools.ShippingChildTranslateA.KeepsCP.lift) fuel
@@ -630,7 +652,7 @@ partial def walkCoreX (g : MVarId) (fuel : Nat) : MetaM Unit := do
     let g' ← timed "unfold" (try Lean.Meta.unfoldTarget g c catch _ => throwError "vcaX: cannot unfold {c} in {p}")
     let t' ← instantiateMVars (← g'.getType)
     if t' == t then throwError "vcaX: {c} is opaque (no rule, no law, no theorem)"
-    if let some (_, p') := keepsProgA? t' then
+    if let some (_, p') := keepsProgA?X t' then
       if (p'.find? (·.isConstOf c)).isSome then
         throwError "vcaX: {c} is recursive and has no @[keepsAX] theorem"
     walkX g' fuel
@@ -647,7 +669,7 @@ elab "vcaX" : tactic => Lean.Elab.Tactic.liftMetaTactic fun g => do
   vcFirstPath.set {}
   vcDup.set none
   vcStart.set (← IO.monoMsNow)
-  VCA.walk g 2000
+  VCA.walkX g 2000
   if vc.stats.get (← getOptions) then
     logInfo m!"vcaX: {(← IO.monoMsNow) - (← vcStart.get)} ms — {← Tools.ShippingChildInv.VC.statsLine}"
   return []
