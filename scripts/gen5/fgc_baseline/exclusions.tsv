@@ -1,0 +1,4 @@
+file	top	cause	fix_target
+# (none) — the previously excluded Tests/Compiler/MultiOutputSubModuleHangRepro.lean reproKvHw2Reg compiled OK (machine route) in the 2026-11-06 baseline (kjob-run-src-fgc-s0run-0474, 46874da9); it is back in the required set.
+# simulation checks (sim_checks.sh rows, not synthesis commands)
+exe-toplevel-sim-test	-	pure-Lean Signal evaluation is O(t^2) (lakefile.lean comment above toplevel-sim-jit-test); no output for 900 s in kjob-run-src-fgc-s0run-babb	use exe-toplevel-sim-jit-test (same 50-cycle stimulus via JIT) as the baseline row; confirm with sim_rerun.sh toplevel
