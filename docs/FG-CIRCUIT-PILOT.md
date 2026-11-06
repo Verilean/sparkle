@@ -2404,3 +2404,8 @@ Check21 / 26 / 27 / 28 / 30 / 31 / 32 / 37、すべて build 成功、AXIOMS は
 
 ### 47.4 文言
 Check37 の REMAINING と docstring、§42 の「7 run-local」を一括で `quiet+ReadsAt+Reached` と呼ばない形に直した（量化範囲は DRow/Diag、ProfStep、ProfOff、Tele、admissibility で違う）。
+
+### 47.5 S2x: `litBool?` の標準 `BEq Nat` を固定した定義に（reviewer 変更依頼）
+- **変更**: `litBool?` は `synthInstance (BEq Nat)` を使わない。標準 instance は定数項 `stdBEqNat := instBEqOfDecidableEq Nat instDecidableEqNat` の引用（`FGCircuitCmp`）で、local/global の instance 登録に依存しない。`isStdInst`（構造一致、または default の `isDefEq`）で比較する。`OfNat` は従来どおり `instOfNatNat n` の引用。標準判定のどこにも環境依存の instance 検索はない。
+- **回帰対照**（`FGCircuitCmpRegress`）: 非標準の `badBEq`（常に `false`）を `attribute [local instance 2000] badBEq` で section 内に**登録**する。前提として `synthInstance (BEq Nat)` が `badBEq` を返すことを確認し、検索で得た instance での `3 == 3` は then 枝を選ばず、固定した標準 instance では then（`3 == 3`）／else（`3 == 4`）が選ばれる。section の外では `stdBEqNat` が検索結果と一致することも確認（引用が正しい標準 instance である証拠）。出力: `FGCIRCUITCMPREGRESS controls: all passed (... standard/always-false BEq (also with it registered as a local instance), ...)`。
+- **再 build**（修正版 Cmp、全 966 jobs 成功、AXIOMS は標準のみ）: Check21 3、26 SIG-A 8、27 SIG-A 13／SIG-C 35、28 CORE 28／FINAL 35、30 SIG-A 9／SIG-B 8、31 FINAL 62、32 9、37 FINAL 73 の mutant を棄却。変更前と同数。
