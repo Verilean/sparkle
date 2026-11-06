@@ -90,4 +90,16 @@ elab "derive_expr_t " n:ident " := " t:term : command => do
     unsafe evalExpr Lean.Expr (Lean.mkConst ``Lean.Expr) (← instantiateMVars tm)
   deriveTerm (Name.mkStr (← getCurrNamespace) n.getId.toString) e
 
+unsafe def runHftImpl (tag : String) : CommandElabM Unit := do
+  let env ← getEnv
+  let some ci := env.find? ``Tools.ShippingFGCircuitS1kStmt.hftRootValue | throwError "hftRootValue"
+  let some v := ci.value? | throwError "hftRootValue value"
+  let root ← liftTermElabM (do let r ← unsafe evalExpr Lean.Expr (Lean.mkConst ``Lean.Expr) v; pure r)
+  discard <| deriveRootT root (Name.mkStr (← getCurrNamespace) s!"hftObCDT_of_tables{tag}")
+
+@[implemented_by runHftImpl] opaque runHft (tag : String) : CommandElabM Unit
+
+/-- derive the typed `DT` derivation of `hftRootValue` (the S2i attempt); not used by the light checks -/
+elab "derive_hft_t " tag:str : command => runHft tag.getString
+
 end Tools.ShippingFGCircuitS2iRun

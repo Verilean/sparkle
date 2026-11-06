@@ -350,6 +350,15 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
         exact ih h' hk
       · subst h1; subst h2
         exact ih h' hk
+    | letE he' hA' hc' hv' hb' =>
+      subst he'
+      cases hsh with
+      | letZ hA0 _ => rw [hc'] at hA0; cases hA0
+    | bvAbbrev he' hr' =>
+      subst he'
+      have h0 := stopC_of_row hr'
+      have hd : directHead _ = true := by simp [directHead, stopD, h0]
+      simp [viaOK, appFn, hd] at hv
     | _ => clashT
 
 
