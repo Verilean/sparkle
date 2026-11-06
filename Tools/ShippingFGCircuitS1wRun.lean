@@ -18,7 +18,7 @@ def listE (α : Lean.Expr) : List Lean.Expr → Lean.Expr
 
 def pairE (α β a b : Lean.Expr) : Lean.Expr := mkApp4 (Lean.mkConst ``Prod.mk [Level.zero, Level.zero]) α β a b
 
-unsafe def runImpl (tag : String) : CommandElabM Unit := do
+unsafe def runImpl (tag : String) (probe : Bool := false) : CommandElabM Unit := do
   let env ← getEnv
   let some ci := env.find? ``Tools.ShippingFGCircuitS1kStmt.hftRootValue | throwError "hftRootValue"
   let some v := ci.value? | throwError "hftRootValue value"
@@ -30,10 +30,14 @@ unsafe def runImpl (tag : String) : CommandElabM Unit := do
     withLocalDeclD `lk (Lean.mkConst ``Look) fun lkV => do
     withLocalDeclD `hlk (mkApp2 (Lean.mkConst ``EnvLk) envV lkV) fun hlkV => do
       let K : Kx := { env := envV, hlk := hlkV, lk := lkV }
-      let (p, st) ← (derive K false [] root).run {}
+      let (p, st) ← (derive K false [] root).run { probe := probe }
       pure ((p, envV, lkV, hlkV), st)
   let t1 ← IO.monoMsNow
   logInfo m!"derive: {st.nodes} nodes, {st.defs.size} defs, {st.ctors.size} ctors, hasRec {st.hasRec}, misses {st.misses}, {t1 - t0} ms\nsteps: {st.steps.toList}"
+  if probe then
+    let uniq := st.stops.toList.eraseDups
+    logInfo m!"PROBE: {st.stops.size} stuck sub-derivations, {uniq.length} distinct:\n{String.intercalate "\n" uniq}"
+    return
   let (p, envV, lkV, hlkV) := res
   -- tables
   let dRow := Lean.mkConst ``DefRow
@@ -74,8 +78,9 @@ unsafe def runImpl (tag : String) : CommandElabM Unit := do
       let t4 ← IO.monoMsNow
       logInfo m!"{thmName} kernel-checked ({t4 - t3} ms)"
 
-@[implemented_by runImpl] opaque run (tag : String) : CommandElabM Unit
+@[implemented_by runImpl] opaque run (tag : String) (probe : Bool := false) : CommandElabM Unit
 
 elab "derive_hft_ob " tag:str : command => run tag.getString
+elab "probe_hft_ob" : command => run "" true
 
 end Tools.ShippingFGCircuitS1wRun

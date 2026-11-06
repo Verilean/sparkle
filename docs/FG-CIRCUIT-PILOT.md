@@ -1047,3 +1047,12 @@ S1r の走査で止まっていた 2 種（`Signal.mk` ×17 = `bundle2`→`Seq.s
 - `Tools/ShippingFGCircuitS1sCD.lean`: `lean` 直接実行（S1r までの olean に対して）で **エラー 0、sorry 0**、`dw_fun` の axiom は propext/Classical.choice/Quot.sound のみ（約 5 分）。lakefile 登録後の `kjob lake build Tools.ShippingFGCircuitS1sCD` は未実行（lakefile 変更はキャッシュ鍵を変え、冷間 build が約 70 分かかるため）。
 - `Tests/Gen5/FGCircuitPilotCheck17.lean`: 草稿をコミットしたが、**未検証**。同じ olean に対する単独実行は 880 秒の timeout で出力なしに終了した（最初の SIGNATURES ブロックが重い。Check16 の同種ブロックも全体で約 10 分）。したがって Check17 の「棄却した mutant 数」「SNAPSHOT17 の件数」「#print axioms」は今回報告できない。次の束: SIGNATURES を分割（`ExpUnfW`/`ExpCircCVW` の mutant を別 run_cmd にする）して再実行。
 - `hcd`（`HftObCDW` の型付き導出）は**未導出**（§23.3）。
+
+### 23.6 S1w2: 型付き導出 `hftObCDW_of_tables` を試みた結果（**未導出**、2 つの止まりを特定）
+
+追加: `Tools/ShippingFGCircuitS1wRun.lean`（生成器を `hftRootValue` に走らせ、表 `Δ`/`Γ` をリテラルの `Name → Option DefRow/CtorRow` として引用し、`theorem hftObCDW_of_tables (env) (hΔ : EnvDefs env Δ) (hΓ : EnvCtors env Γ) (hrec : RecFact env) : HftObCDW env` を `addDecl` で出す elab。`probe_hft_ob` は止まりを数えるだけ）、`Tools/ShippingFGCircuitS1wDerive.lean`（手動実行用。lakefile には入れていない）、`Tests/Gen5/FGCircuitPilotCheck22.lean`。生成器の修正: 評価器が問い合わせた名前の記録が `unsafeBaseIO` の順序で落ちていた（`IO.lazyPure` で修正）。TRUSTED・axiom・sorry・native_decide・新しい law はない。成果は条件付き（`hcd` は**未導出**）。
+
+- **止まり 1（規則の水準の一般化が要る）**: `instInhabitedProd` を `unf` で展開すると `Inhabited.mk.{max 1 1}`（`instLE` は水準を正規化しない）が出る。`DW.inhMk` の頭は `[.succ .zero]` 固定なので型付けできない（生成器: `Inhabited.mk: stuck (value)`、Check22 STOP-1 が `[[max 1 1]]` を確認）。直すには `DW` に水準の同値（正規化）を許す規則を足す＝既存の族への一般化。今回は足していない。
+- **止まり 2（評価の規模。有限な配線では済まない）**: 止まり 1 を probe で飛ばして進めると、`hftPcieLoop` の弱頭正規化は `whStepR` を 1 歩ずつ `DW.projStep` の導出節点にするため、約 29 000 節点（導出の深さ 49、`instE` が共有を壊すため式の木のサイズは 10⁵〜1.5×10⁶）で次の 1 歩の評価（`instE` の複製）が 28 GB を使い切って bad_alloc（`ulimit -v 28000000`）。各節点は途中の式全体を `Expr` リテラルとして項に埋め込む設計なので、導出項のサイズも同じ規模になる。部分項ごとの補題（子ごと・let ごと）に分けても、1 歩の評価が木の複製である点は変わらない。直すには共有を保つ評価規則（`let` を値として残す／環境つきの評価＝call-by-need）か、より大きい step を持つ規則が要り、規則の追加（汎用化）になる。
+- 確認: Check22 の AXIOMS-A/B（評価器の健全性と表版規則は標準 axiom のみ）、FAIL-CLOSED（`hftObCDW_of_tables` は定数として存在しない）、STOP-1。Check 行数: info 4 行（AXIOMS-A, AXIOMS-B, FAIL-CLOSED, STOP-1）。
+- 最終定理への接続: `HftObCDW` と `HftFinalStmtW`（§23.2）は型のみで、`hcd` は引き続き仮説。表の仮説（`EnvDefs`/`EnvCtors`/`RecFact`）への置換は導出が無いので行えない。

@@ -30,6 +30,8 @@ structure St where
   misses : Array Name := #[]
   nodes : Nat := 0
   steps : Array (String × Nat) := #[]
+  probe : Bool := false
+  stops : Array String := #[]
 
 abbrev G := StateRefT St MetaM
 
@@ -107,7 +109,7 @@ def record (qs : Array (Name × Option Lk)) : G Unit := do
 unsafe def ev (f : Look → Option (Option Lean.Expr)) (what : String) : G (Option Lean.Expr) := do
   let env ← getEnv
   let ref ← IO.mkRef (#[] : Array (Name × Option Lk))
-  let r := f (recLook env ref)
+  let r ← IO.lazyPure fun _ => f (recLook env ref)
   let r ← match r with
     | some (some x) => pure (some (some x))
     | some none => pure (some none)
@@ -216,7 +218,19 @@ unsafe def derive (K : Kx) (ty : Bool) (cx : List CEntry) (e : Lean.Expr) : G Le
   let key := (ty, ρE, e)
   if let some p := (← get).memo[key]? then return p
   modify fun s => { s with nodes := s.nodes + 1 }
-  let p ← deriveCore K ty cx ρE e
+  let p ← if (← get).probe then
+      try deriveCore K ty cx ρE e
+      catch ex =>
+        let msg ← ex.toMessageData.toString
+        modify fun s => { s with stops := s.stops.push msg }
+        -- probe only: a metavariable stands for the stuck sub-derivation (never added to the environment)
+        let tv ← mkFreshExprMVar (some (mkSort (.succ .zero)))
+        let r ← if ty then pure (mkApp (mkConst ``Res.ty) tv)
+          else do
+            let vv ← mkFreshExprMVar (some tv)
+            pure (mkApp2 (mkConst ``Res.val) tv vv)
+        mkFreshExprMVar (some (mkAppN (mkConst ``DW) #[K.env, ρE, ← qE e, r]))
+    else deriveCore K ty cx ρE e
   modify fun s => { s with memo := s.memo.insert key p }
   pure p
 
@@ -355,7 +369,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
         bump s!"unf"
         mkN ``dw_unf_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("e'", ← qE e'), ("r", r),
           ("hs", reflT boolT (mkConst ``false)), ("hu", reflT (optT (optT exprT)) (someE (optT exprT) (someE exprT (← qE e')))), ("h", h)]
-      | none => throwError "{c}: stuck ({if ty then "type" else "value"}): not unfoldable (head {c}, {args.length} args)"
+      | none => throwError "{c}: stuck ({if ty then "type" else "value"}): not unfoldable (head {c}, levels {ls}, {args.length} args)"
   if ty then
     if c == ``Nat then bump "nat"; mkN ``DW.nat [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
     else if c == ``Bool then bump "bool"; mkN ``DW.bool [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
