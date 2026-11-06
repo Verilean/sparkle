@@ -165,14 +165,108 @@ theorem unfoldAt_rec {env : Environment} {e : Expr} {ls : List Level} {ri : Recu
     (hi : env.find? ``List.rec = some (.recInfo ri)) : unfoldAt env e = none := by
   simp [unfoldAt, hf, hi]
 
-theorem headRedex_rec {env : Environment} {e : Expr} {ls : List Level} (hf : appFn e = .const ``List.rec ls) : headRedex env e = none := by
-  simp [headRedex, hf]
-
 theorem stopC_rec : stopC ``List.rec = false := by decide
 theorem bvAbbrevRow_rec : bvAbbrevRow ``List.rec = none := by
   cases h : bvAbbrevRow ``List.rec with
   | none => rfl
   | some r => have := stopC_of_row h; rw [stopC_rec] at this; cases this
+
+/-- `whStep` with one more case: a projection whose structure argument is a `List.rec` redex (`recStep`) steps inside the projection (after the old cases `whStep`/`iotaAt` found nothing) -/
+def whStepR (env : Environment) : Expr → Option Expr
+  | .letE _ _ v b _ => some (instE b v 0)
+  | .proj s j y =>
+    match whStepR env y with
+    | some y' => some (.proj s j y')
+    | none =>
+      match iotaAt env s j y with
+      | some r => some r
+      | none => (recStep env y).map fun y' => .proj s j y'
+  | .app f a =>
+    match f with
+    | .lam _ _ b _ => some (instE b a 0)
+    | .letE _ _ v b _ => some (.app (instE b v 0) a)
+    | _ => (whStepR env f).map fun f' => .app f' a
+  | x => unfoldAt env x
+
+/-- `headRedex` over `whStepR` -/
+def headRedexR (env : Environment) (e : Expr) : Option Expr :=
+  match appFn e, appArgs e with
+  | .lam .., _ :: _ => some (betaApp (appFn e) (appArgs e))
+  | .letE _ _ v b _, _ :: _ => some (mkApps (instE b v 0) (appArgs e))
+  | .proj s j y, _ :: _ => (whStepR env (.proj s j y)).map fun h' => mkApps h' (appArgs e)
+  | _, _ => none
+
+theorem whStepR_ctor {env : Environment} {ctor : Name} {ls : List Level} {cv : ConstructorVal} (hc : env.find? ctor = some (.ctorInfo cv)) :
+    ∀ x : Expr, appFn x = .const ctor ls → whStepR env x = none := by
+  intro x
+  induction x with
+  | const c l =>
+    intro hh
+    simp only [appFn, Expr.const.injEq] at hh
+    obtain ⟨rfl, rfl⟩ := hh
+    simp [whStepR, unfoldAt, appFn, hc]
+  | app f a ihf _ =>
+    intro hh
+    have hf : appFn f = .const ctor ls := by simpa [appFn] using hh
+    have := ihf hf
+    cases f <;> first | (simp [appFn] at hf; done) | simp_all [whStepR]
+  | _ => intro hh; simp [appFn] at hh
+
+theorem iotaAt_ctor {env : Environment} {s : Name} {j : Nat} {y r : Expr} (h : iotaAt env s j y = some r) :
+    ∃ (ctor : Name) (ls : List Level) (cv : ConstructorVal), env.find? ctor = some (.ctorInfo cv) ∧ appFn y = .const ctor ls := by
+  unfold iotaAt at h
+  split at h
+  · rename_i c ls hf
+    split at h
+    · rename_i cv hcv; exact ⟨c, ls, cv, hcv, hf⟩
+    · simp at h
+  · simp at h
+
+theorem whStepR_of_whStep (env : Environment) : ∀ x y : Expr, whStep env x = some y → whStepR env x = some y := by
+  intro x
+  induction x with
+  | proj s j z ih =>
+    intro y h
+    simp only [whStep] at h
+    cases hz : whStep env z with
+    | some z' =>
+      rw [hz] at h
+      simp only [Option.some.injEq] at h
+      subst h
+      simp [whStepR, ih _ hz]
+    | none =>
+      rw [hz] at h
+      obtain ⟨ctor, ls, cv, hc, hf⟩ := iotaAt_ctor h
+      have hn := whStepR_ctor hc z hf
+      simp [whStepR, hn, h]
+  | app f a ihf _ =>
+    intro y h
+    by_cases hl : ∃ n t b bi, f = Expr.lam n t b bi
+    · obtain ⟨n, t, b, bi, rfl⟩ := hl; simpa [whStep, whStepR] using h
+    by_cases hlet : ∃ n t v b nd, f = Expr.letE n t v b nd
+    · obtain ⟨n, t, v, b, nd, rfl⟩ := hlet; simpa [whStep, whStepR] using h
+    have e1 : whStep env (.app f a) = (whStep env f).map fun f' => .app f' a := by cases f <;> simp_all [whStep]
+    have e2 : whStepR env (.app f a) = (whStepR env f).map fun f' => .app f' a := by cases f <;> simp_all [whStepR]
+    rw [e1] at h
+    rw [e2]
+    obtain ⟨f', hf', rfl⟩ := Option.map_eq_some_iff.mp h
+    simp [ihf _ hf']
+  | _ => intro y h; simpa [whStep, whStepR] using h
+
+theorem headRedexR_of_headRedex {env : Environment} {e e' : Expr} (h : headRedex env e = some e') : headRedexR env e = some e' := by
+  unfold headRedex at h
+  unfold headRedexR
+  split at h <;> first
+    | (simp_all; done)
+    | (rename_i _ _ s j y hd tl hf1 hf2
+       obtain ⟨a, ha, rfl⟩ := Option.map_eq_some_iff.mp h
+       simp only [headRedexR, hf1, hf2, whStepR_of_whStep env _ _ ha, Option.map_some])
+
+theorem unfoldAt_none_of_betaR {env : Environment} {e : Expr} (h : (headRedexR env e).isSome = true) : unfoldAt env e = none := by
+  cases hf : appFn e <;> simp [headRedexR, unfoldAt, hf] at h ⊢
+
+theorem headRedexR_rec {env : Environment} {e : Expr} {ls : List Level} (hf : appFn e = .const ``List.rec ls) : headRedexR env e = none := by
+  simp [headRedexR, hf]
 
 section
 local macro "CDy " env:term:max ρ:term:max e:term:max α:term:max v:term:max : term => `($(Lean.mkIdent `Tools.ShippingFGCircuitS1pCD.DY) $env $ρ $e (Res.val $α $v))
@@ -253,13 +347,13 @@ inductive DY (env : Environment) : Val → Expr → Res → Prop
       (hs : headStop e = false) (hu : unfoldAt env e = some e') (h : CDy env ρ e' α v) : CDy env ρ e α v
   /-- NEW. a head redex (`headRedex`: beta, let-application, projection-application) of the expression itself (arguments substituted by `unf` can create it). -/
   | beta {ρ : Val} {e e' : Expr} {α : Type} {v : α}
-      (hb : headRedex env e = some e') (h : CDy env ρ e' α v) : CDy env ρ e α v
+      (hb : headRedexR env e = some e') (h : CDy env ρ e' α v) : CDy env ρ e α v
   /-- NEW. `let` of a non-core type: substitute (the old `letE` handles core types). -/
   | zeta {ρ : Val} {e A v body : Expr} {n : Name} {nd : Bool} {α : Type} {r : α}
       (he : e = .letE n A v body nd) (hA : coreHead A = false) (h : CDy env ρ (instE body v 0) α r) : CDy env ρ e α r
   /-- NEW. a weak-head step of the structure argument of a projection. -/
   | projStep {ρ : Val} {e x x' : Expr} {S : Name} {i : Nat} {α : Type} {v : α}
-      (he : e = .proj S i x) (hx : whStep env x = some x') (h : CDy env ρ (.proj S i x') α v) : CDy env ρ e α v
+      (he : e = .proj S i x) (hx : whStepR env x = some x') (h : CDy env ρ (.proj S i x') α v) : CDy env ρ e α v
   /-- NEW. projection of a constructor application (iota); `ctor` is a `ctorInfo` of `env` of the inductive `S`. -/
   | projCtor {ρ : Val} {e x fld : Expr} {S ctor : Name} {ls : List Level} {cv : ConstructorVal} {i : Nat} {α : Type} {v : α}
       (he : e = .proj S i x) (hh : appFn x = .const ctor ls) (hc : env.find? ctor = some (.ctorInfo cv)) (hS : cv.induct = S)
@@ -309,9 +403,9 @@ theorem dx_to_dy {env : Environment} {ρ : Val} {e : Expr} {r : Res} (h : DX env
   | sigNotBool he _ _ ih1 ih2 => exact .sigNotBool he ih1 ih2
   | bvAbbrev he hr => exact .bvAbbrev he hr
   | unf hs hu _ ih => exact .unf hs hu ih
-  | beta hb _ ih => exact .beta hb ih
+  | beta hb _ ih => exact .beta (headRedexR_of_headRedex hb) ih
   | zeta he hA _ ih => exact .zeta he hA ih
-  | projStep he hx _ ih => exact .projStep he hx ih
+  | projStep he hx _ ih => exact .projStep he (whStepR_of_whStep _ _ _ hx) ih
   | projCtor he hh hc hS hn hf _ ih => exact .projCtor he hh hc hS hn hf ih
 
 macro "clashy" : tactic =>
@@ -319,8 +413,8 @@ macro "clashy" : tactic =>
              try subst_vars
              try simp_all [Res.kind, headStop, appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, appFn, stopC_ofNat, stopC_defaultDomain, stopC_bvOfNat, stopC_bvInh,
                stopC_boolInh, stopC_pure, stopC_register, stopC_mux, stopC_hadd, stopC_loop, stopC_beq, stopC_hand, stopC_hor, stopC_compl, bvAbbrevRow_defaultDomain,
-               bvAbbrevRow_instInhabitedBool, stopC_of_row, unfoldAt_bvar, unfoldAt_lam, unfoldAt_letE, unfoldAt_proj, unfoldAt_rec, headRedex_rec, stopC_rec, bvAbbrevRow_rec]
-             try simp_all [Res.kind, headStop, headRedex, appArgs, appFn, appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, unfoldAt_none_of_beta, unfoldAt_rec, headRedex_rec]))
+               bvAbbrevRow_instInhabitedBool, stopC_of_row, unfoldAt_bvar, unfoldAt_lam, unfoldAt_letE, unfoldAt_proj, unfoldAt_rec, headRedexR_rec, stopC_rec, bvAbbrevRow_rec]
+             try simp_all [Res.kind, headStop, headRedexR, appArgs, appFn, appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, unfoldAt_none_of_betaR, unfoldAt_rec, headRedexR_rec]))
 
 macro "injy" he:ident he':ident : tactic =>
   `(tactic| (have h := Eq.trans (Eq.symm $he) $he'; revert h; simp only [appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, Expr.app.injEq, Expr.const.injEq, Expr.lam.injEq, Expr.letE.injEq, Expr.proj.injEq, Expr.lit.injEq, Literal.natVal.injEq, List.cons.injEq, and_true, true_and, and_imp, true_implies]; intros; subst_vars))
@@ -565,7 +659,7 @@ theorem dy_fun {env : Environment} {ρ : Val} {e : Expr} {r : Res} (h : DY env �
       exact ih h' rfl
     | projCtor he' hh' hc' hS' hn' hf' h' =>
       injy he he'
-      have := whStep_ctor hc' _ hh'
+      have := whStepR_ctor hc' _ hh'
       rw [hx] at this; cases this
     | _ => clashy
   | projCtor he hh hc hS hn hf h ih => intro r' h' hk; cases h' with
@@ -580,7 +674,7 @@ theorem dy_fun {env : Environment} {ρ : Val} {e : Expr} {r : Res} (h : DY env �
       exact ih h' rfl
     | projStep he' hx' h' =>
       injy he he'
-      have := whStep_ctor hc _ hh
+      have := whStepR_ctor hc _ hh
       rw [hx'] at this; cases this
     | _ => clashy
   | recIota hf hi hr h ih => intro r' h' hk; cases h' with
