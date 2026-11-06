@@ -79,16 +79,16 @@ the readers of the two children (DG-DATAOF / DG-COVER / DG-ENV, at the start env
 def HftFinalStmt : Prop :=
   ∀ {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
-    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
-    Start L mctx cctx w →
-    RunsTo (synthesizeCombinational hftRoot) mctx mref cctx cref w (b, D') w' →
-    HeadAt hftRoot mctx mref cctx cref w → ReadWorld cref →
-    CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData →
-    RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData →
-    RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData →
-    HftObCD → HftObSrc (ι := ι) lvl (envAt cref w) →
-    (∀ p : Pkg ι (fun _ => defaultDomain), GPt (ι := ι) lvl (envAt cref w) hftRoot = some p → HftObTopCore mctx mref cctx cref w b D' p) →
-    HftObNoRaw mctx mref cctx cref w b D' →
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (synthesizeCombinational hftRoot) mctx mref cctx cref w (b, D') w')
+    (hhead : HeadAt hftRoot mctx mref cctx cref w) (hcell : ReadWorld cref)
+    (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+    (hreadH : RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData)
+    (hreadT : RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData)
+    (hcd : HftObCD) (hsrc : HftObSrc (ι := ι) lvl (envAt cref w))
+    (htop : ∀ p : Pkg ι (fun _ => defaultDomain), GPt (ι := ι) lvl (envAt cref w) hftRoot = some p → HftObTopCore mctx mref cctx cref w b D' p)
+    (hnoraw : HftObNoRaw mctx mref cctx cref w b D'),
     (∃ raw, PostRun mctx mref cctx cref w hftRoot D' b raw) ∧
     ∃ (mm : MonoTy shHft) (p : Pkg ι (fun _ => defaultDomain)),
       RootArtifactMono (envAt cref w) (GPt (ι := ι) lvl (envAt cref w))
