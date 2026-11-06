@@ -89,10 +89,14 @@ theorem dropZeroWidth_inst_target (raw : Sparkle.IR.AST.Module) {mn iname : Stri
     obtain ⟨a, ha, hsa⟩ := List.mem_filterMap.mp h
     cases a with
     | assign l r =>
-      unfold Sparkle.IR.ZeroWidth.dzStmt at hsa
-      split at hsa <;> simp at hsa
+      exfalso
+      simp only [Sparkle.IR.ZeroWidth.dzStmt] at hsa
+      generalize (Sparkle.IR.Optimize.buildWidthMap raw).get? l = x at hsa
+      rcases x with _ | k
+      · simp at hsa
+      · rcases k with _ | k <;> simp at hsa
     | register o c rs i iv => simp [Sparkle.IR.ZeroWidth.dzStmt] at hsa
-    | memory .. => simp [Sparkle.IR.ZeroWidth.dzStmt] at hsa
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [Sparkle.IR.ZeroWidth.dzStmt] at hsa
     | inst mn' i' c' =>
       simp only [Sparkle.IR.ZeroWidth.dzStmt, Option.some.injEq, Sparkle.IR.AST.Stmt.inst.injEq] at hsa
       obtain ⟨rfl, -, -⟩ := hsa
