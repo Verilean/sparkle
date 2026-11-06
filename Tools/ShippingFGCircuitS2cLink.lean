@@ -617,4 +617,24 @@ theorem stage2 {ι : Type} (gi : GenIn) (hgi : gi.d = synth_hftPcieOutByte.machi
 
 end Stages4
 
+/-! # S2c (part G): `HftRootLink` -/
+section Link
+open Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1uSrc
+open Tools.ShippingMachineTeleStates (callArgVals callArgsOf teleState)
+open Tools.ShippingFGCircuit (monoObs)
+
+theorem root_outs_len : synth_hftPcieOutByte.machineData.outs.length = synth_hftPcieOutByte.machineData.shape.layout.outs.length := by
+  decide +kernel
+theorem root_insts_len : synth_hftPcieOutByte.machineData.shape.insts.length = 2 := by decide +kernel
+
+theorem monoObs_root (bools : Nat → Signal defaultDomain Bool) (bits : (j n : Nat) → Signal defaultDomain (BitVec n)) :
+    monoObs shHft synth_hftPcieOutByte bools bits = synth_hftPcieOutByte.machineSource () bools bits := by
+  have h1 : synth_hftPcieOutByte.machineSource () bools bits =
+      [fun t => ((synth_hftPcieOutByte (bits 0 8) (bools 1) (bools 2) (bits 3 32) (bits 4 16)).val t).toNat] := rfl
+  have h2 : monoObs shHft synth_hftPcieOutByte bools bits =
+      [fun t => ((synth_hftPcieOutByte (bits 0 8) (bools 1) (bools 2) (bits 3 32) (bits 4 16)).val t).toNat] := rfl
+  exact h2.trans h1.symm
+
+end Link
+
 end Tools.ShippingFGCircuitS2cLink
