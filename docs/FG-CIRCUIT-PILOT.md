@@ -1385,3 +1385,62 @@ Check の出力行は 6、棄却した mutant は 8（SIGNATURES-A）、制御�
 ### 29.6 ビルド環境の注記
 
 `ulimit -v 20000000 … kjob lake build` は、この Pod では大きな既存モジュールのビルドで `failed to create thread`（Lean が確保する仮想メモリ）になるため、`timeout 1500 kjob lake build TARGET` のみで実行した。メモリの上限は kjob 側（`-m`）に任せた。
+
+## 32. S2d（Issue `sparkle-fg-circuit-pilot` の次の束）: `hkids` の run 局所化 — 子の run の開始 world の環境の 2 つの事実
+
+土台 `b7984ea2`（par/fgc-s1）。追加ファイル: `Tools/ShippingFGCircuitS2dKids.lean`、`Tests/Gen5/FGCircuitPilotCheck26.lean`（lakefile 登録は各 1 回）。S2a（§29）・S2b・S2c のファイルには触れていない（S2a の定義・定理を import して使う）。新しい law・axiom・TRUSTED・sorry・native_decide はない。Issue の状態は変えていない。成果は**条件付き**で台帳に数えない。
+
+### 32.1 何が `HftKidsDefine` の代わりに要るか（完全な型を先に）
+
+`HftKidsDefine`（§29.3）は 2 つの被呼び出し宣言の `MachineDefines`（全 world、子の run の `mctx cctx` で）。子の run は `RealChildA.run` の `adm/cache/synth/quiet/hr`（深さと cache だけ）で任意の admissible world で走り、環境セル `envAt cref w` は持たない。根では `CheckedStart`（`ReadsAt env₀ cref w`）と `HeadAt`/`GetEnvProfileAt` で `MachineDefinesLinkedOff` を run 局所に作った（S1q）。子も同じ形で作れるが、**子の run の開始 world の環境が開始 world のそれと一致すること**は `Laws` からも `CellPrem` からも導けない（`quiet` は不透明、class-D の `whnf`/`inferType` 等は env frame を持たない、§21）。最小の run 局所の事実として次の 2 つに分けて名前を付けた（各 `RealChildA.run` が運ぶ前件のもとで、その子の full-entry run の開始 world `w` について）。
+
+```lean
+/-- NAMED HYPOTHESIS (FG D.T-4k) -/
+def KidStartEnv (O : RefLawsAOps MkRefd mref cref) (e : Environment) (c : Name) : Prop :=
+  ∀ (mctx' : Meta.Context) (cctx' : Core.Context) (w w' : Void IO.RealWorld) (y : Res),
+    AdmCtx O.quiet mctx' cctx' → (∀ c' r', (cv w).get? c' = some r' → RealChildA O c' r') →
+    sv w = some synthesizeChild → O.quiet w →
+    RunsTo (synthesizeCombinational c) mctx' mref cctx' cref w y w' →
+    ReadsAt e cref w ∧ GetEnvProfileAt mctx' mref cctx' cref w
+
+def HftKidsStartEnv O e := KidStartEnv O e hftHttp ∧ KidStartEnv O e hftTlp     -- FG D.T-4k
+def HftKidsGates e := EntryGates e hftHttp ∧ EntryGates e hftTlp                 -- FG D.T-4g
+```
+
+- (A) `ReadsAt e cref w`: 子の開始 world の Core 環境は `e = envAt cref w₀`（開始 world）と一致（find の包含と `instancePredicate/userInliner/structEnv` の等式）。根から子までの world の連鎖の環境 frame の事実。
+- (B) `GetEnvProfileAt mctx' … w`: 子の `synthesizeChild` → `synthesizeCombinational` が `coreHead` で読む `IO.getEnv "SPARKLE_PROFILE"` は `none` を返し環境を変えない（根の S1o と同じ profile 無効の枝。診断入口は取らない）。
+- `HftKidsGates e`: 2 つの被呼び出し宣言の entry 定数の 2 つの拒否（`certifiedShape?`/`mixedCertifiedShape?` = `none`）。根の `hchk` の gate 部に当たる。`machineShape?` の部分は既存の `hreadH`/`hreadT`（`RootReader`）がそのまま運ぶ。
+- 全 world の `MachineDefines` は消え、`HftKidsStartEnv`/`HftKidsGates` から `MachineDefines`/`HftKidsDefine`/`MachineCloses` は到達不能（Check26 SIGNATURES-B）。`KidStartEnv` は shape も閉じる成功も言わない。
+
+### 32.2 証明したこと
+
+| 名前 | 内容 |
+|---|---|
+| `machineChild_ifaceK` | `machineChild_ifaceA` の `entry : MachineDefines` を「この子の core run の開始 world `w` だけに対する `MachineDefinesLinked`」に替えたもの。機械 run は `machine_run_of_coreC`（run 自身の `core_chain`）。それ以外の証明は `machineChild_ifaceA` と同一（コピー） |
+| `machineDefinesLinked_of_readerE` | `ReadsAt e cref w`、`HeadAt X w`、`GetEnvFrame`、`RootReader lvl e X dd`、`EntryGates e X` から `MachineDefinesLinked … X dd.shape w M D w'`。`machineDefinesLinked_of_headAt` と同じ証明だが、定数の lookup は run 自身の `getConstInfo`（`ci_of_readsAt`）から取り、`RootInEnv` を要さない |
+| `machineChild_of_realK` | `machineChild_of_realA` の `entry` を `KidStartEnv` ＋ reader ＋ gates ＋ `CellPrem` に替えたもの。`HeadAt` は `headAt_of_profileOff`（`CellPrem` ＋ (B)）、`GetEnvFrame` は `getEnvFrame_of_cellPrem` |
+| `hft_kid_ifaceK`、`hft_closesAtK`、`hftCoreCloses_of_kidsK` | S2a の `hft_kid_iface`、`hft_closesAtA`、`hftCoreCloses_of_kids` の `hk : HftKidsDefine` を `hcell hrH hrT hg hke` に替えたもの |
+| `HftFinalStmtOffLNKK`、`synth_hftPcieOutByte_finalOffLNKK`（`_Z/_Y/_X`） | S2a の最終文の `hkids` を `hkenv : HftKidsStartEnv L.O (envAt cref w)`、`hkgates : HftKidsGates (envAt cref w)` に替えたもの |
+
+**binder 一覧（`finalOffLNKK_Z`、明示仮説 14）**: `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hkenv hkgates`（S2a は 13 個で最後が `hkids`）。`hcell`（`CellPrem`）、`hreadH`/`hreadT` は既存の仮説で、子のために新しく足したのは `hkenv`（D.T-4k）と `hkgates`（D.T-4g）だけ。標準 axiom のみ（`#print axioms` と Check26 AXIOMS）。
+
+### 32.3 残る名前付き仮説（impossible とは言わない）
+
+`hkenv`（FG D.T-4k: 子の開始 world の環境の `ReadsAt` と profile 無効）、`hkgates`（FG D.T-4g: 子の entry 定数の gate 2 つ、環境 `envAt cref w` 上の計算）、および S2a から変わらない `HftRootLink`（S2c）、`hcd`（S2b）、`htop`、`hreadH`/`hreadT`、`hchk`、`CellPrem`、`Laws`/`Start`/`hr`。`hkgates` は `entryGatesB` と同種の評価検査（MetaM）で、kernel では計算していない。`hkenv` の (A) は `QuietStrength`（強めた `L'`）の構成が `diag` と `RefLawsATele` の `telescope` を含まないため `Laws` から導いていない（`frameQ_plus` 等は class-D 行を除く、S1i）。(A) を `RealChildA` の world の連鎖から導くには、根の機械 run 全体の環境 frame（class-D の `whnf` 等を含む）が要る。
+
+### 32.4 Check26 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck26`、exit 0、932 jobs）
+
+- `FGCIRCUIT26 SIGNATURES-A`: `KidStartEnv` を独立に書いた `ExpKS` と `isDefEq` で照合。**8 mutant 棄却**（ReadsAt のみ、profile のみ、ReadsAt を終了 world で、profile を終了 world で、`ReadsAt` の代わりに環境等式、cache 前件を落とす、profile 無効入口 `synthesizeCombinationalOff`、`True`）。
+- `FGCIRCUIT26 SIGNATURES-B`: `hftCoreCloses_of_kidsK` の binder と使う定数、`finalOffLNKK_Z` の 14 仮説（`hkids`/`hclL` が無い、`hkenv`/`hkgates` が最後、`MachineDefines`/`HftKidsDefine`/`MachineCloses` が新仮説から到達不能、S2a の文と違う）。**8 構造検査**。`FGCIRCUIT26 HYPS`（14 個）。
+- `FGCIRCUIT26 CONTROLS`: kernel 判定 6 件（`hftHttp`/`hftTlp` が 2 つの被呼び出し宣言、互いに異なり根とも異なる、入れ替えは不成立）。
+- `FGCIRCUIT26 REMAINING`（2 行: `hkenv`、`hkgates`）。`FGCIRCUIT26 AXIOMS`: 10 名、標準 axiom のみ。
+
+Check の出力行は 8（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、CONTROLS 1、REMAINING 2、AXIOMS 1 + 構造検査 8 / mutant 8 / 制御 6）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き。
+
+### 32.5 次
+
+(1) `hkgates`: 2 つの被呼び出し宣言の gate 検査（`entryGatesB` 相当）を `envAt cref w` 上で評価する Check（FG D.T-4g）。(2) `hkenv` (A): `RealChildA` の開始 world の環境が根の開始 world のそれと一致すること（機械 run の class-D 行の環境 frame、または run 局所の world の連鎖）、(B): 子の `synthesizeCombinational` の profile lookup が `none`。(3) `htop`、`hcd`（S2b）、`HftRootLink`（S2c）。
+
+### 32.6 ビルド環境の注記
+
+`timeout 1500 kjob lake build TARGET` のみ（`ulimit -v` なし）。`Tools.ShippingFGCircuitS2dKids` は約 3 分（初回、S2a の import 込み）。
