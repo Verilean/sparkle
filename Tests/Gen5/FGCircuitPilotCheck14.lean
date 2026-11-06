@@ -13,35 +13,38 @@ set_option autoImplicit false
 5. SNAPSHOT14 (ONE environment: the build's): how far the root's value goes with the new rule. -/
 namespace Tests.Gen5.FGCircuitPilotCheck14
 open Lean Meta Elab Command Term Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD
-open Tools.ShippingGen5ConstValueE Tools.ShippingGen5DeclConnect
+open Tools.ShippingGen5ConstValueE Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG
 open Tools.ShippingEntryReadsLinked (envAt)
 open Tools.ShippingEntrySoundness (RunsTo)
 
 /-! ## 1. expected statements, written independently -/
 
-/-- the carrier. mut 0 = expected; 1 = the quote environment is a FIXED default one; 2 = a non-empty valuation; 3 = universe parameters not required; 4 = the environment of `CDX` is existentially quantified -/
-def ExpCircCVS (mut : Nat) : ConstValueRel := fun env X α v =>
-  if mut == 4 then ∃ (d : DefinitionVal) (env2 : Environment), env.find? X = some (.defnInfo d) ∧ d.levelParams = [] ∧ CDX env2 [] d.value α v
-  else ∃ d : DefinitionVal, env.find? X = some (.defnInfo d) ∧ (if mut == 3 then True else d.levelParams = []) ∧
-    CDX (if mut == 1 then default else env) (if mut == 2 then [⟨.const ``Nat [], ⟨Nat, 0⟩⟩] else []) d.value α v
+noncomputable instance : Inhabited Environment := ⟨Classical.ofNonempty⟩
 
-def ExpToS (mut : Nat) : Prop := ∀ (env : Environment) {X : Name} {α : Type} {v : α},
-  CircCV env X α v → (if mut == 1 then CircCVS default X α v else CircCVS env X α v)
 
-/-- the run side: the carrier is read in the environment of the Core state at the START world `w` (mut 1: at the end world `w'`) -/
-def ExpRunIff (mut : Nat) : Prop :=
+/-- the carrier. mu 0 = expected; 1 = the quote environment is a FIXED default one; 2 = a non-empty valuation; 3 = universe parameters not required; 4 = the environment of `CDX` is existentially quantified -/
+def ExpCircCVS (mu : Nat) : ConstValueRel := fun env X α v =>
+  if mu == 4 then ∃ (d : DefinitionVal) (env2 : Environment), env.find? X = some (.defnInfo d) ∧ d.levelParams = [] ∧ CDX env2 [] d.value α v
+  else ∃ d : DefinitionVal, env.find? X = some (.defnInfo d) ∧ (if mu == 3 then True else d.levelParams = []) ∧
+    CDX (if mu == 1 then default else env) (if mu == 2 then [⟨.const ``Nat [], ⟨Nat, 0⟩⟩] else []) d.value α v
+
+def ExpToS (mu : Nat) : Prop := ∀ (env : Environment) {X : Name} {α : Type} {v : α},
+  CircCV env X α v → (if mu == 1 then CircCVS default X α v else CircCVS env X α v)
+
+/-- the run side: the carrier is read in the environment of the Core state at the START world `w` (mu 1: at the end world `w'`) -/
+def ExpRunIff (mu : Nat) : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {e : Environment}, RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w e w' → ∀ {X : Name} {α : Type} {v : α},
-    CircCVS e X α v ↔ CircCVS (envAt cref (if mut == 1 then w' else w)) X α v
+    CircCVS e X α v ↔ CircCVS (envAt cref (if mu == 1 then w' else w)) X α v
 
-/-- the S1m carrier is the single-environment one only if the two environments agree (mut 1: no hypothesis) -/
-def ExpIffS (mut : Nat) : Prop := ∀ (env env' : Environment) (X : Name) (α : Type) (v : α), (if mut == 1 then True else env' = env) → (CircCVX env env' X α v ↔ CircCVS env' X α v)
+/-- the S1m carrier is the single-environment one only if the two environments agree (mu 1: no hypothesis) -/
+def ExpIffS (mu : Nat) : Prop := ∀ (env env' : Environment) (X : Name) (α : Type) (v : α), (if mu == 1 then True else env' = env) → (CircCVX env env' X α v ↔ CircCVS env' X α v)
 
-def ExpMixed (mut : Nat) : Prop :=
+def ExpMixed (mu : Nat) : Prop :=
   ∀ {env env' : Environment} {X : Name} {d : DefinitionVal}, EnvDefs env (Δn 5) → env'.find? X = some (.defnInfo d) → d.levelParams = [] → d.value = .const miniN [] →
-    CircCVX env env' X (Signal defaultDomain Nat) (Signal.pure (if mut == 1 then 6 else 5))
-def ExpRejects (mut : Nat) : Prop :=
-  ∀ {env' : Environment} {X : Name} {d : DefinitionVal}, EnvDefs env' (Δn (if mut == 1 then 5 else 6)) → env'.find? X = some (.defnInfo d) → d.value = .const miniN [] →
+    CircCVX env env' X (Signal defaultDomain Nat) (Signal.pure (if mu == 1 then 6 else 5))
+def ExpRejects (mu : Nat) : Prop :=
+  ∀ {env' : Environment} {X : Name} {d : DefinitionVal}, EnvDefs env' (Δn (if mu == 1 then 5 else 6)) → env'.find? X = some (.defnInfo d) → d.value = .const miniN [] →
     ¬ CircCVS env' X (Signal defaultDomain Nat) (Signal.pure 5)
 
 /-- the new rule. knobs: head (0 = `List.rec`, 1 = `Nat.rec`), requires the recInfo of the environment (false: dropped), conclusion (true: e), step function (0 = recStep, 1 = unfoldAt) -/
@@ -149,10 +152,12 @@ run_cmd liftTermElabM do
   let env0 ← getEnv
   let sigT : Lean.Expr := appN ``Signal [.zero] [.const ``Sparkle.Core.Domain.defaultDomain [], .const ``Nat []]
   let mkEnv (n : Nat) : MetaM Environment := do
-    let e1 ← match env0.addDecl {} (declFor miniN (miniVal n) sigT) with
-      | .ok e => pure e | .error e => throwError "addDecl mini: {e.toMessageData {}}"
-    match e1.addDecl {} (declFor `Tests.negX (.const miniN []) sigT) with
-      | .ok e => pure e | .error e => throwError "addDecl X: {e.toMessageData {}}"
+    setEnv env0
+    addDecl (declFor miniN (miniVal n) sigT)
+    addDecl (declFor `Tests.negX (.const miniN []) sigT)
+    let e ← getEnv
+    setEnv env0
+    pure e
   let envA ← mkEnv 5
   let envB ← mkEnv 6
   -- the facts the theorems ask for, checked on the concrete environments (a meta check of `EnvDefs`: one row)
@@ -241,6 +246,8 @@ structure Stuck where
   recSteps : Nat := 0
   recPairs : List (Lean.Expr × Lean.Expr) := []
   maxDepth : Nat := 0
+  sample : List (String × Lean.Expr) := []
+  traceMismatch : Nat := 0
 
 def bump (l : List (String × Nat)) (k : String) : List (String × Nat) :=
   if l.any (·.1 == k) then l.map fun (a, n) => if a == k then (a, n + 1) else (a, n) else l ++ [(k, 1)]
@@ -269,6 +276,33 @@ def describeRecStuck (env : Environment) (e : Lean.Expr) : String :=
     | some m => s!"List.rec: major reaches {describe env m} but the shape is not nil/cons"
     | none => s!"List.rec: major not static: {describe env major}"
   | args => s!"List.rec: {args.length} arguments (<5)"
+
+/-- `whStepR` in the traversal monad: the same steps, recording each `List.rec` iota taken inside a projection; `traceMismatch` counts any disagreement with `whStepR` -/
+partial def whStepT (env : Environment) : Lean.Expr → M (Option Lean.Expr)
+  | .letE _ _ v b _ => pure (some (instE b v 0))
+  | .proj s j y => do
+    match ← whStepT env y with
+    | some y' => pure (some (.proj s j y'))
+    | none =>
+      match iotaAt env s j y with
+      | some r => pure (some r)
+      | none =>
+        match recStep env y with
+        | some y' => do
+            modify fun st => { st with recSteps := st.recSteps + 1, recPairs := if st.recPairs.any (·.1 == y) then st.recPairs else st.recPairs ++ [(y, y')] }
+            pure (some (.proj s j y'))
+        | none => pure none
+  | .app f a =>
+    match f with
+    | .lam _ _ b _ => pure (some (instE b a 0))
+    | .letE _ _ v b _ => pure (some (.app (instE b v 0) a))
+    | _ => do pure ((← whStepT env f).map fun f' => .app f' a)
+  | x => pure (unfoldAt env x)
+
+def whStepChecked (env : Environment) (x : Lean.Expr) : M (Option Lean.Expr) := do
+  let r ← whStepT env x
+  if r != whStepR env x then modify fun st => { st with traceMismatch := st.traceMismatch + 1 }
+  pure r
 
 mutual
 partial def tdOk (env : Environment) (A : Lean.Expr) : M Unit := do
@@ -300,14 +334,14 @@ partial def recogProj (env : Environment) (fuel : Nat) (S : Name) (i : Nat) (x :
           | none => modify fun s => { s with heads := bump s.heads "<projCtor: no field>" }
         else modify fun s => { s with heads := bump s.heads "<projCtor: shape>" }
       | _ =>
-        match whStepR env x with
+        match ← whStepChecked env x with
         | some x' => do
             modify fun s => { s with unfolded := bump s.unfolded ("proj-arg:" ++ ctor.toString) }; recogProj env fuel S i x'
         | none =>
           let why := if ctor == ``List.rec then describeRecStuck env x else describe env x
           modify fun s => { s with heads := bump s.heads s!"proj {S}#{i} of {why}" }
     | _ =>
-      match whStepR env x with
+      match ← whStepChecked env x with
       | some x' => recogProj env fuel S i x'
       | none => modify fun s => { s with heads := bump s.heads s!"proj {S}#{i} of {describe env x}" }
 
@@ -327,7 +361,13 @@ partial def recog (env : Environment) (fuel : Nat) (e : Lean.Expr) : M Unit := d
   | _ =>
     match appFn e with
     | .lam .. | .letE .. | .proj .. =>
-      match headRedexR env e with
+      let r ← (match appFn e, appArgs e with
+        | .lam .., _ :: _ => pure (some (betaApp (appFn e) (appArgs e)))
+        | .letE _ _ v b _, _ :: _ => pure (some (mkApps (instE b v 0) (appArgs e)))
+        | .proj s j y, _ :: _ => do pure ((← whStepChecked env (.proj s j y)).map fun h' => mkApps h' (appArgs e))
+        | _, _ => pure none)
+      if r != headRedexR env e then modify fun st => { st with traceMismatch := st.traceMismatch + 1 }
+      match r with
       | some e' => recog env fuel e'
       | none => modify fun s => { s with heads := bump s.heads "<redex without args>" }
     | .const c _ =>
@@ -357,10 +397,12 @@ partial def recog (env : Environment) (fuel : Nat) (e : Lean.Expr) : M Unit := d
       else
         match unfoldAt env e with
         | some e' => do modify fun s => { s with unfolded := bump s.unfolded c.toString }; recog env fuel e'
-        | none => modify fun s => { s with heads := bump s.heads (c.toString ++ (match env.find? c with
+        | none =>
+          let kind := match env.find? c with
             | some (.inductInfo _) => " [inductive]" | some (.ctorInfo _) => " [constructor]" | some (.recInfo _) => " [recursor]"
             | some (.opaqueInfo _) => " [opaque]" | some (.thmInfo _) => " [theorem]" | some (.axiomInfo _) => " [axiom]"
-            | some (.defnInfo _) => " [defn: level mismatch]" | some (.quotInfo _) => " [quot]" | none => " [missing]")) }
+            | some (.defnInfo _) => " [defn: level mismatch]" | some (.quotInfo _) => " [quot]" | none => " [missing]"
+          modify fun s => { s with heads := bump s.heads (c.toString ++ kind), sample := if s.sample.any (·.1 == c.toString) then s.sample else s.sample ++ [(c.toString, e)] }
     | h => modify fun s => { s with heads := bump s.heads s!"<{h.ctorName}> application" }
 end
 
@@ -376,9 +418,9 @@ run_cmd liftTermElabM do
   let st := (recog env 4000 ci.value!).run {} |>.2
   let top (l : List (String × Nat)) := (l.toArray.qsort (fun a b => a.2 > b.2)).toList
   -- the equation check: Lean's isDefEq on (input, output) of each distinct recStep taken
-  let mut ok := 0
-  let mut bad := 0
-  let mut err := 0
+  let mut ok : Nat := 0
+  let mut bad : Nat := 0
+  let mut err : Nat := 0
   for (a, b) in st.recPairs do
     let n := max a.looseBVarRange b.looseBVarRange
     try
@@ -398,6 +440,10 @@ run_cmd liftTermElabM do
   logInfo m!"FGCIRCUIT14 SNAPSHOT14 (one environment): {st.nodes} nodes visited; {st.recSteps} List.rec iota steps taken ({st.recPairs.length} distinct); unfolded definitions (distinct {st.unfolded.length}): {(top st.unfolded).take 40}"
   logInfo m!"FGCIRCUIT14 SNAPSHOT14 equation check (Lean isDefEq, default transparency, loose bvars closed by junk-typed fvars): {ok} of {st.recPairs.length} distinct (List.rec spine, iota result) pairs are definitionally equal; {bad} not; {err} threw"
   logInfo m!"FGCIRCUIT14 MISSING (heads with no rule, stuck): {top st.heads}"
+  for (c, e) in st.sample do
+    let t := toString (← ppExpr e)
+    logInfo m!"FGCIRCUIT14 MISSING sample (first stuck {c}, loose bvars are #n): {t.take 700}"
+  logInfo m!"FGCIRCUIT14 TRACE: the traversal's own steps agree with whStepR/headRedexR in all cases ({st.traceMismatch} mismatches)"
   logInfo m!"FGCIRCUIT14 MISSING (binder/let types outside TD): {top st.tdFail}"
 
 end Tests.Gen5.FGCircuitPilotCheck14
