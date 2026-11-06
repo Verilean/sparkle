@@ -22,6 +22,12 @@ def ExpUnf (stopKnob : Nat) (keepRho : Bool) (concl : Bool) (swapUnf : Bool) : P
     CDX env (if keepRho then ρ else []) e' α v →
     (if concl then CDX env ρ e α v else CDX env ρ e' α v)
 
+def ExpBeta (useBeta : Bool) (concl : Bool) : Prop :=
+  ∀ {env : Environment} {ρ : Val} {e e' : Expr} {α : Type} {v : α},
+    (if useBeta then headRedex env e = some e' else unfoldAt env e = some e') →
+    CDX env ρ e' α v →
+    (if concl then CDX env ρ e α v else CDX env ρ e' α v)
+
 def ExpZeta (needCore : Bool) (substBody : Bool) (coreVal : Bool) : Prop :=
   ∀ {env : Environment} {ρ : Val} {e A v body : Expr} {n : Name} {nd : Bool} {α : Type} {r : α},
     e = .letE n A v body nd →
@@ -53,6 +59,10 @@ def UnfStopTrue := ExpUnf 1 true true false
 def UnfResetRho := ExpUnf 0 false true false
 def UnfConclE' := ExpUnf 0 true false false
 def UnfSwapped := ExpUnf 0 true true true
+
+def BetaTrue := ExpBeta true true
+def BetaUnfoldInstead := ExpBeta false true
+def BetaConclE' := ExpBeta true false
 
 def ZetaTrue := ExpZeta true true false
 def ZetaNoCore := ExpZeta false true false
@@ -119,6 +129,9 @@ run_cmd liftTermElabM do
   let mut nm : Nat := 0
   -- the four new rules
   same (S ++ `DX.unf) (Q ++ `UnfTrue)
+  same (S ++ `DX.beta) (Q ++ `BetaTrue)
+  for mu in ["BetaUnfoldInstead", "BetaConclE'"] do
+    differs (S ++ `DX.beta) (Q ++ Name.mkSimple mu); nm := nm + 1
   same (S ++ `DX.zeta) (Q ++ `ZetaTrue)
   same (S ++ `DX.projStep) (Q ++ `StepTrue)
   same (S ++ `DX.projCtor) (Q ++ `CtorTrue)
@@ -166,7 +179,7 @@ run_cmd liftTermElabM do
     let some body := (match er with | .forallE _ _ b _ => some b | _ => none) | throwError "x"
     if ← withDefault (isDefEq (body.instantiate1 (mkConst ``Nat)) oi.type) then throwError "control: sigMux accepted as sigPure"
     nm := nm + 1
-  logInfo m!"FGCIRCUIT11 SIGNATURES: the four new rules (CDX.unf/zeta/projStep/projCtor), the embeddings cdx_of_cd/tdx_of_td, the functionality theorems cdx_fun/tdx_fun match the independently written statements; {nOld} old rules of CD/TD are in CDX unchanged (environment threaded); {nm} mutants rejected"
+  logInfo m!"FGCIRCUIT11 SIGNATURES: the five new rules (DX.unf/beta/zeta/projStep/projCtor), the embeddings cdx_of_cd/tdx_of_td, the functionality theorems cdx_fun/tdx_fun match the independently written statements; {nOld} old rules of CD/TD are in CDX unchanged (environment threaded); {nm} mutants rejected"
 
 /-! ## 2. OPS: the own Expr operations against Lean's -/
 
@@ -196,6 +209,7 @@ structure Stuck where
   tdFail : List (String × Nat) := []
   nodes : Nat := 0
   unfolded : List (String × Nat) := []
+  names : List Name := []
 
 def bump (l : List (String × Nat)) (k : String) : List (String × Nat) :=
   if l.any (·.1 == k) then l.map fun (a, n) => if a == k then (a, n + 1) else (a, n) else l ++ [(k, 1)]
@@ -212,6 +226,9 @@ partial def describe (env : Environment) : Lean.Expr → String
         | some (.inductInfo _) => "inductive" | some (.ctorInfo _) => "ctor" | some (.recInfo _) => "recursor" | some (.opaqueInfo _) => "opaque"
         | some (.thmInfo _) => "theorem" | some (.axiomInfo _) => "axiom" | some (.defnInfo _) => "defn" | some (.quotInfo _) => "quot" | none => "missing"
       s!"{c}[{k}]/{(appArgs x).length}"
+    | .proj s j y => s!"[proj {s}#{j} ({describe env y})]/{(appArgs x).length}"
+    | .lam .. => s!"<lam>/{(appArgs x).length}"
+    | .letE .. => s!"<let>/{(appArgs x).length}"
     | h => s!"<{h.ctorName}>/{(appArgs x).length}"
 
 mutual
@@ -245,7 +262,7 @@ partial def recogProj (env : Environment) (fuel : Nat) (S : Name) (i : Nat) (x :
         else modify fun s => { s with heads := bump s.heads "<projCtor: shape>" }
       | _ =>
         match whStep env x with
-        | some x' => do modify fun s => { s with unfolded := bump s.unfolded ("proj-arg:" ++ ctor.toString) }; recogProj env fuel S i x'
+        | some x' => do modify fun s => { s with unfolded := bump s.unfolded ("proj-arg:" ++ ctor.toString), names := ctor :: s.names }; recogProj env fuel S i x'
         | none => modify fun s => { s with heads := bump s.heads s!"proj {S}#{i} of {describe env x}" }
     | h =>
       match whStep env x with
@@ -267,7 +284,10 @@ partial def recog (env : Environment) (fuel : Nat) (e : Lean.Expr) : M Unit := d
   | .mdata _ e => recog env fuel e
   | _ =>
     match appFn e with
-    | .lam .. => recog env fuel (betaApp (appFn e) (appArgs e))
+    | .lam .. | .letE .. | .proj .. =>
+      match headRedex env e with
+      | some e' => recog env fuel e'
+      | none => modify fun s => { s with heads := bump s.heads "<redex without args>" }
     | .const c _ =>
       let args := appArgs e
       let sub (ixs : List Nat) : M Unit := do
@@ -290,7 +310,7 @@ partial def recog (env : Environment) (fuel : Nat) (e : Lean.Expr) : M Unit := d
       else if (bvAbbrevRow c).isSome then pure ()
       else
         match unfoldAt env e with
-        | some e' => do modify fun s => { s with unfolded := bump s.unfolded c.toString }; recog env fuel e'
+        | some e' => do modify fun s => { s with unfolded := bump s.unfolded c.toString, names := c :: s.names }; recog env fuel e'
         | none => modify fun s => { s with heads := bump s.heads (c.toString ++ (match env.find? c with
             | some (.inductInfo _) => " [inductive]" | some (.ctorInfo _) => " [constructor]" | some (.recInfo _) => " [recursor]"
             | some (.opaqueInfo _) => " [opaque]" | some (.thmInfo _) => " [theorem]" | some (.axiomInfo _) => " [axiom]"
@@ -335,8 +355,25 @@ run_cmd liftTermElabM do
   let steps := trace
   -- the recognizer on the whole value (5 lambdas, then the body)
   let st := (recog env 4000 ci.value!).run {} |>.2
+  -- OPS on every definition the recognizer unfolded (with universe parameters instantiated at sample levels)
+  let mut checkedU : Nat := 0
+  let mut seenU : List Name := []
+  for c in st.names do
+    unless seenU.contains c do
+      seenU := c :: seenU
+      if let some (.defnInfo d) := env.find? c then
+        let ls : List Level := d.levelParams.map fun _ => Level.succ Level.zero
+        unless instLE d.levelParams ls d.value == d.value.instantiateLevelParams d.levelParams ls do throwError "{c}: instLE differs from instantiateLevelParams"
+        let v := instLE d.levelParams ls d.value
+        let args := [Lean.Expr.bvar 0, .bvar 3, .bvar 5]
+        unless betaApp v args == (Lean.Expr.beta v args.toArray) do throwError "{c}: betaApp differs from Expr.beta"
+        if let .lam _ _ b _ := v then
+          for sarg in [Lean.Expr.bvar 2, .app (.bvar 1) (.bvar 0), .lam `x (.const ``Nat []) (.bvar 1) .default] do
+            unless instE b sarg 0 == b.instantiate1 sarg do throwError "{c}: instE differs from instantiate1"
+        checkedU := checkedU + 1
+  if checkedU == 0 then throwError "OPS: nothing was checked"
   let top (l : List (String × Nat)) := (l.toArray.qsort (fun a b => a.2 > b.2)).toList
-  logInfo m!"FGCIRCUIT11 OPS: betaApp agrees with Expr.beta on {checked} user definitions in the body of the root (loose-bvar arguments), instLE [] is the identity, controls reject a wrong substitution"
+  logInfo m!"FGCIRCUIT11 OPS: betaApp agrees with Expr.beta on {checked} user definitions in the body of the root, and betaApp / instE / instLE agree with Expr.beta / instantiate1 / instantiateLevelParams on all {checkedU} definitions the recognizer unfolded (loose-bvar arguments, sample levels); a control rejects a wrong substitution"
   logInfo m!"FGCIRCUIT11 SNAPSHOT11 (one environment): the first steps of the root body by unfoldAt: {steps}"
   logInfo m!"FGCIRCUIT11 SNAPSHOT11 recognizer: {st.nodes} nodes visited; unfolded definitions (distinct {st.unfolded.length}): {(top st.unfolded).take 40}"
   logInfo m!"FGCIRCUIT11 MISSING (heads with no rule, stuck): {top st.heads}"
