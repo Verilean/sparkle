@@ -175,69 +175,63 @@ def headRedexRL (lk : Look) (e : Expr) : Option (Option Expr) :=
 theorem unfoldL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) {e : Expr} {o : Option Expr} (ho : unfoldL lk e = some o) : unfoldAt env e = o := by
   unfold unfoldL at ho
   unfold unfoldAt
-  split at ho
-  · rename_i c ls hc
-    rw [hc]
-    simp only
-    split at ho
-    · simp at ho
-    · rename_i r hk
-      obtain ⟨d, hd, hl, hv⟩ := h c _ hk
-      simp only [hd, hl, hv]
-      exact Option.some.inj ho
-    · rename_i k hk hnd
+  revert ho
+  cases hc : appFn e with
+  | const c ls =>
+    intro ho
+    simp only at ho ⊢
+    cases hk : lk c with
+    | none => rw [hk] at ho; simp at ho
+    | some k =>
+      rw [hk] at ho
+      have hok := h c k hk
       cases k with
-      | defn r => exact absurd rfl (hnd r)
+      | defn r =>
+        obtain ⟨d, hd, hl, hv⟩ := hok
+        simp only [hd, hl, hv]
+        exact Option.some.inj ho
       | ctor r =>
-        obtain ⟨cv, hd, _⟩ := h c _ hk
+        obtain ⟨cv, hd, _⟩ := hok
         simp only [hd]
-        exact (Option.some.inj ho).symm ▸ rfl
+        exact Option.some.inj ho
       | recl =>
-        obtain ⟨ri, hd⟩ := h c _ hk
+        obtain ⟨ri, hd⟩ := hok
         simp only [hd]
-        exact (Option.some.inj ho).symm ▸ rfl
-  · rename_i hne
-    have : o = none := (Option.some.inj ho).symm
-    subst this
-    split
-    · rename_i c ls hc; exact absurd hc (hne c ls)
-    · rfl
+        exact Option.some.inj ho
+  | _ => intro ho; simp only at ho ⊢; exact Option.some.inj ho
 
 theorem iotaL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) {s : Name} {j : Nat} {y : Expr} {o : Option Expr} (ho : iotaL lk s j y = some o) : iotaAt env s j y = o := by
   unfold iotaL at ho
   unfold iotaAt
-  split at ho
-  · rename_i c ls hc
-    rw [hc]
-    simp only
-    split at ho
-    · simp at ho
-    · rename_i r hk
-      obtain ⟨cv, hd, h1, h2, h3⟩ := h c _ hk
-      simp only [hd, h1, h2, h3]
-      exact Option.some.inj ho
-    · rename_i k hk hnc
+  revert ho
+  cases hc : appFn y with
+  | const c ls =>
+    intro ho
+    simp only at ho ⊢
+    cases hk : lk c with
+    | none => rw [hk] at ho; simp at ho
+    | some k =>
+      rw [hk] at ho
+      have hok := h c k hk
       cases k with
-      | ctor r => exact absurd rfl (hnc r)
+      | ctor r =>
+        obtain ⟨cv, hd, h1, h2, h3⟩ := hok
+        simp only [hd, h1, h2, h3]
+        exact Option.some.inj ho
       | defn r =>
-        obtain ⟨d, hd, _⟩ := h c _ hk
+        obtain ⟨d, hd, _⟩ := hok
         simp only [hd]
-        exact (Option.some.inj ho).symm ▸ rfl
+        exact Option.some.inj ho
       | recl =>
-        obtain ⟨ri, hd⟩ := h c _ hk
+        obtain ⟨ri, hd⟩ := hok
         simp only [hd]
-        exact (Option.some.inj ho).symm ▸ rfl
-  · rename_i hne
-    have : o = none := (Option.some.inj ho).symm
-    subst this
-    split
-    · rename_i c ls hc; exact absurd hc (hne c ls)
-    · rfl
+        exact Option.some.inj ho
+  | _ => intro ho; simp only at ho ⊢; exact Option.some.inj ho
 
 theorem whStepL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) : ∀ (e : Expr) {o : Option Expr}, whStepL lk e = some o → whStep env e = o := by
   intro e
   induction e with
-  | letE n t v b nd _ _ _ => intro o ho; simp only [whStepL] at ho; simp only [whStep]; exact (Option.some.inj ho).symm
+  | letE n t v b nd _ _ _ => intro o ho; simp only [whStepL] at ho; simp only [whStep]; exact Option.some.inj ho
   | proj s j y ih =>
     intro o ho
     simp only [whStepL] at ho
