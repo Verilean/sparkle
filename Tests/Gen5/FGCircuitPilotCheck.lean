@@ -103,7 +103,12 @@ run_cmd liftTermElabM do
     let ci ← getConstInfo (privAbbrev nm)
     unless ci.value! == eBVLit 2 k do throwError "{nm}: not the literal {k}#2"
     unless ci.type == eBV 2 do throwError "{nm}: type is not BitVec 2"
-  logInfo "FGCIRCUIT META: 4 quoted roots equal the environment; 3 abbreviation rows equal their literals"
+  -- the endpoints' `machine_closes` (derivable `MachineCloses`) exist for the four roots
+  let env ← getEnv
+  for n in [``counterLoop, ``shift4Loop, ``counterEnableLoop, ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal] do
+    unless env.contains (n ++ `machine_closes) do throwError "{n}: no machine_closes"
+    unless env.contains (n ++ `machine_ships_wired) do throwError "{n}: no machine_ships_wired"
+  logInfo "FGCIRCUIT META: 4 quoted roots equal the environment; 3 abbreviation rows equal their literals; machine_closes and machine_ships_wired exist for the 4 roots"
 
 /-! ## 4. Primitive table: every listed proof exists; axiom audit -/
 
