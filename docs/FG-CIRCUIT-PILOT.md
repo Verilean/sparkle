@@ -1015,3 +1015,82 @@ def synthesizeEntry (declName : Name) : MetaM (Module × Design) := do
 ### 22.6 次
 
 (1) `bundle2`/`Signal.ap` の狭い規則と `Inhabited` 構造体値の規則の設計（reviewer）。(2) その後 `HftObCDZ` に届くか走査し直す。
+
+## 24. S1t（Issue `sparkle-fg-circuit-pilot` の次の束）: 非 leaf root `synth_hftPcieOutByte` の `Off` 入口上の最終文、新 carrier の結論、組み立ての証明
+
+土台 `ba83ec10`（par/fgc-s1）。追加ファイル（既存は書き換えていない。lakefile 登録は各 1 回）: `Tools/ShippingFGCircuitS1tFinal.lean`、`Tests/Gen5/FGCircuitPilotCheck18.lean`。TRUSTED・axiom・sorry・native_decide・新しい law はない。S1s の領域（`Tools/ShippingFGCircuitS1sCD.lean`、Check17、§23）には触れていない。Issue の状態は変えていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**（名前付き仮説を残す）で、台帳に数えない。
+
+### 24.1 reviewer 裁定への答え
+
+裁定: `HftFinalStmtY/Z`（S1r §22.2）は型定義だけで、結論は旧 `RootArtifactMono`（`CD [] d.value`、環境なし）、run は旧 `synthesizeCombinational`。型を定義しても `CDZ → 旧 CD` も非 leaf の `Off` 接続も得られない。
+
+この束でしたこと:
+1. **結論側を明示的に更新した**。`SourceDenotesMonoV CV`/`RootArtifactMonoV CV`/`DeclConnectMonoV CV`/`FGCircuitConclusionMonoV CV`（`CV : CDRel := Environment → Expr → (α : Type) → α → Prop`、**環境を読む**単一 env の導出関係）。`CV := cdvOld`（`fun _ e α v => CD [] e α v`）のときは**旧定義と定義的に等しい**（`sourceDenotesMonoV_old`/`rootArtifactMonoV_old` は `Iff.rfl`）。`cdvX`/`cdvY`/`cdvZ` は `CDX/CDY/CDZ env []`。S1s の将来の family は `CDRel` を 1 つ足すだけで差し込める。
+2. **run 側を `Off` に更新した**（上位 run = `synthesizeCombinationalOff`、コア義務は `synthesizeCombinationalCoreOff` と `MachineDefinesLinkedOff`、post は `PostRunOff`）。
+3. **接続を証明した**（§24.3）: 名前付き義務から結論までの組み立て `synth_hftPcieOutByte_finalOff`。S1k の `synth_hftPcieOutByte_final` の `Off` + 新 carrier 版。
+4. **`CDZ → 旧 CD` は作らない/作れない**: `DZ` の規則（`recIota`・`mapFst` ほか）は `CD` に無い。方向は `cdvOld → cdvX → cdvY → cdvZ` だけ（`cdvOld_to_X/X_to_Y/Y_to_Z/Old_to_Z`）。旧 carrier の結論は新 carrier の結論を**含意しない**（逆向きは存在しない）。逆に旧 carrier の結論は新 carrier の結論になる（`rootArtifactMono_to_Z`: 4 leaf root の `X_final12` の結論をそのまま `DZ` 版に移せる）。
+
+### 24.2 最終文の完全な型（`HftFinalStmtOff Ob CV`）と、保証する範囲
+
+```
+HftFinalStmtOff (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {ι} {mref} {cref} (L : Laws mref cref) (lvl) (env₀) {mctx cctx w w' b D'}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (synthesizeCombinationalOff hftRoot) mctx mref cctx cref w (b, D') w')
+    (hcell : CellPrem MkRefd mref cref)
+    (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+    (hreadH : RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData)
+    (hreadT : RootReader lvl (envAt cref w) hftTlp tlpCplByte.machineData)
+    (hcd : Ob (envAt cref w))
+    (hsrc : HftObSrc lvl (envAt cref w))
+    (htop : ∀ p, GPt lvl (envAt cref w) hftRoot = some p → HftObTopCoreOff mctx mref cctx cref w b D' p)
+    (hnoraw : HftObNoRawOff mctx mref cctx cref w b D'),
+    (∃ raw, PostRunOff mctx mref cctx cref w hftRoot D' b raw) ∧
+    ∃ (mm : MonoTy shHft) p, RootArtifactMonoV CV (envAt cref w) (GPt lvl (envAt cref w)) (PostRunOff … hftRoot D') hftRoot shHft mm b D' p
+```
+- `Ob` は carrier 義務（`HftObCDX/Y/Z` または S1s の family。型は `Environment → Prop`）、`CV` は結論の導出関係。両者の対応は文ではなく**定理の前提** `hOb : ∀ env, Ob env → HftObOf CV env`（`HftObOf CV env := CV env hftRootValue (MonoTy shHft) synth_hftPcieOutByte`）。`hftObOf_Y/Z`（`rfl`）で `HftObOf cdvY = HftObCDY`、`HftObOf cdvZ = HftObCDZ`。
+- 上位 run は `Off`（保証対象の入口）。`hhead` は無い: `hcell : CellPrem` から `HeadAtOff`（S1q の `headAtOff_of_cellPrem`）と `ReadWorld` を出す。
+- `HftObTopCoreOff`/`HftObNoRawOff` は S1k の `HftObTopCore`/`HftObNoRaw` の `Off` 版（`synthesizeCombinationalCore … [] false` → `synthesizeCombinationalCoreOff`、`MachineDefinesLinked` → `MachineDefinesLinkedOff`）。`hdRun` は `hchk`/`hcell` から導いて `htop` に渡す（前提ではない）。
+
+**この文が保証すること**（4 義務と子の reader が与えられたとき）: `synthesizeCombinationalOff hftRoot` の run `(b, D')` について、(i) post を満たす `raw` が存在する、(ii) 開始 world の環境 `envAt cref w` の表から取れる package `p` があり、`p` は root の `machineData`（kD = 5）を持ち、(iii) root 宣言の値が**新 carrier の導出** `CV (envAt cref w) d.value (MonoTy shHft) mm` を持ち（`mm = synth_hftPcieOutByte`）、(iv) `p.src` の観測が `monoObs shHft mm` に等しく、(v) post を満たす任意の `raw` について印刷後の design `D'` 上で `TopShips p n` が成り立つ。
+
+**保証しないこと**:
+1. **子の入口**。`synthesizeChild`（`sparkleChildSynth` が指す診断入口）は変えていない。子は `profile` を読み、ログを出し得る。文は子の入口を型に出さない（`hr` は上位 `Off` の run だけ）。子の合成中の IO（`IO.getEnv`・ログ・環境の変化）は `htop`/`hnoraw` の中の仮説であり、証明していない。Check18 `SCOPE` が、最終定理から `synthesizeChild`/`sparkleChildSynth`/`synthesizeEntry`/診断入口に到達しないこと、`synthesizeChild` が `synthesizeCombinational`（`Off` ではない）を呼ぶことを検査する。
+2. **自動で非 leaf へ広げない**。4 leaf root の保証入口は `synthesizeCombinationalOff`（§21）。非 leaf の保証は上の仮説が全て供給されて初めて成り立つ条件付きの文であり、`synthesizeEntry`・旧 API・診断経路は旧入口のまま保証の外。`SPARKLE_PROFILE` 未設定で `else` 枝が選ばれたこと（§21.4）も供給していない。
+3. `hcd`（`Ob`）・`hsrc`・`htop`・`hnoraw`・`hreadH/T`・`hchk`・`CellPrem`・`Laws/Start/hr` は**名前付き仮説のまま**（供給も縮約もしていない）。
+
+### 24.3 組み立ての証明（`synth_hftPcieOutByte_finalOff`）
+
+型: `∀ (CV : CDRel) (Ob : Environment → Prop), (∀ env, Ob env → HftObOf CV env) → HftFinalStmtOff Ob CV`。証明は S1k の `synth_hftPcieOutByte_final` と同じ形で、名前付き義務から結論を作る。インスタンス: `_Z`（`HftObCDZ`/`cdvZ`）、`_Y`、`_X`、`_old`（`fun _ => HftObCD`/`cdvOld`、旧 carrier の義務）、`_of`（`Ob := HftObOf CV`）。`hftFinalStmtOff_mono`（`CV ⊆ CV'` なら結論を移せる）。
+
+**S1k の証明からそのまま持ち越せたもの**（carrier にも入口にも依らない）: `genGP_root_kids`（root の callee が全て leaf 行 ⇒ 表が `some p`、`p.decl`/`p.d`/`p.kD`）、kernel の事実（`root_wf/http_wf/tlp_wf`、`http_leaf/tlp_leaf`、`root_insts`、`root_kD`、`root_shape`）、`canon_row`、`startFacts_of_checked`、`EndpointLink` の組み立てと `observationsEqualMono_of_link`、`topShips_transport`、`hftRootType_shape`。
+
+**入口の名前を替えた版が要ったもの**（S1q で作成済み。今回は使うだけ）: `postEntry` → `postEntryOff`、`root_find_of_headAt` → `root_find_of_headAtOff`、`machineDefinesLinked_of_reader_headAt` → `…_headAtOff`、`HeadAt` → `HeadAtOff`（`CellPrem` だけから）、`PostRun` → `PostRunOff`、`MachineDefinesLinked` → `…Off`。今回新たに書いたもの: `HftObTopCoreOff`/`HftObNoRawOff`（`Off` 版の義務）。
+
+**CD 固有（旧 carrier）で新 carrier 版が要るもの**と、証明できたもの:
+| 旧 | 新 | 状態 |
+|---|---|---|
+| `SourceDenotesMono`（`CD [] d.value`） | `SourceDenotesMonoV CV`（`CV env d.value`） | 定義。`cdvOld` で旧と `Iff.rfl` |
+| `RootArtifactMono` | `RootArtifactMonoV CV` | 定義。`rootArtifactMonoV_mono`（`CV ⊆ CV'`）、`rootArtifactMono_to_Z` を証明 |
+| `FGCircuitConclusionMono`/`fgCircuitConclusionMono_of_artifact` | `FGCircuitConclusionMonoV`/`fgCircuitConclusionMonoV_of_artifact` | 証明 |
+| `DeclConnect`（`shapeOf` = domain binder 付きだけ） | `DeclConnectMonoV CV`（`monoShapeOf`）、`declConnectMonoV_of_rootArtifact`（root のみ）、`declConnectMonoV_mono` | 証明（callee は target にしない） |
+| `sourceDenotesMono_unique`（`cd_fun`） | `sourceDenotesMonoV_unique`/`_eq`（`CDFunctional CV` が前提） | 証明。`cdvOld/X/Y/Z_functional` |
+| `ObservationsEqualMono`（CD に依らない） | `observationsEqualMono_congr`、`observationsEqualMono_of_denotes` | 証明（意味の等式に沿って移る） |
+| 4 leaf の `*_denotes`（`RootInEnv` + `CD` 導出 ⇒ `SourceDenotesMono`） | `sourceDenotesMonoV_mono cdvOld_to_Z` で移る | 証明（個別の新導出は不要） |
+| `circCV` の `CDZ → CD` | **作れない**（`DZ` の規則が `CD` に無い） | 不在 |
+
+### 24.4 関数性と、元ソースの値への導出の区別
+
+- **関数性**（`CDFunctional`、`cdz_fun`、`sourceDenotesMonoV_unique`）: 同じ式・環境に対し、`CV` が導く型と値は**高々 1 つ**。これは関係が関数であるという性質で、証明済み（`cdvX/Y/Z/Old_functional`）。
+- **元ソースの値への導出**: 導出 `CDZ env [] hftRootValue (MonoTy shHft) m` の索引 `m` を、元ソースの Lean 値 `synth_hftPcieOutByte` に**等しくする**ことは別の義務。`HftObCDZ` はこの導出そのもの（`m := synth_hftPcieOutByte` を索引に取る）で、**未供給**（S1r §22.4 の stuck: `bundle2`/`Signal.ap`、`Inhabited.mk`）。関数性があっても導出は得られず、導出があっても「規則の値が Lean 自身の定義である」ことは規則表の監査であり、`Expr` の書き換え（`recStep`/`MapStuck` 等）の意味保存は定理ではない（§22.3）。この束の文は、導出が**与えられたときに**結論へ接続する部分だけを証明する。
+
+### 24.5 Check18 の出力
+
+(未記入: ビルド後に追記)
+
+### 24.6 証明したもの / 名前付き仮説・未供給 / 次
+
+- **証明した**: `synth_hftPcieOutByte_finalOff`（と `_Z/_Y/_X/_old/_of`、`hftFinalStmtOff_mono`）、`cdvOld_to_X/X_to_Y/Y_to_Z/Old_to_Z`、`cdv*_functional`、`sourceDenotesMonoV_mono/unique/eq`、`observationsEqualMono_congr/of_denotes`、`rootArtifactMonoV_mono`、`rootArtifactMono_to_Z`、`fgCircuitConclusionMonoV_of_artifact`、`declConnectMonoV_of_rootArtifact/mono`。
+- **名前付き仮説・未供給**: `hcd`（`HftObCDX/Y/Z` と S1s の family。導出が未供給）、`hsrc`（`ExtStage … 2` の帰納）、`htop`（machine 経路の `TopShips`、子の package/`ChildShips`/`ResetNk`、root の closing）、`hnoraw`（run から出す補題が無い）、`hreadH/hreadT`、`hchk`、`CellPrem`、`Laws/Start/hr`。子の入口 `synthesizeChild` の `profile` 固定は未実施（`initialize` の模型 `ShippingInitFrame`/`ShippingStartAtLoad` との対応を保つ設計が要る。§21.2）。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。条件付きは減算しない。
+- **次**: (1) `hcd` の導出（S1s の DW family / `bundle2`・`Inhabited` の規則）。(2) `hsrc`（`ExtStage` 帰納）。(3) `htop`/`hnoraw`。(4) 子の入口の `profile` 固定（`HftObTopCoreOff` の中の子の IO を縮約するため）。
