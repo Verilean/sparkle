@@ -27,16 +27,25 @@ if ! command -v lean >/dev/null 2>&1; then
 fi
 command -v lean >/dev/null 2>&1 || { echo "capture.sh: lean not found on PATH" >&2; exit 2; }
 lean --version > /dev/null || { echo "capture.sh: lean does not run" >&2; exit 2; }
-{ echo "sha=${FGC_SHA:-$(git rev-parse HEAD 2>/dev/null)}"; echo "lean=$(command -v lean)"; echo "toolchain=$(cat lean-toolchain)"; echo "date=$(date -u +%FT%TZ)"; } > "$OUT/env.txt"
+# `lake env lean` does not find lean through the caller's PATH inside the job (second run failed the same way),
+# so take the search path from lake once and call the resolved lean binary directly.
+LEAN_BIN="$(command -v lean)"
+LEAN_PATH="$(lake env printenv LEAN_PATH)" || { echo "capture.sh: lake env printenv LEAN_PATH failed" >&2; exit 2; }
+export LEAN_PATH
+[ -n "$LEAN_PATH" ] || { echo "capture.sh: empty LEAN_PATH" >&2; exit 2; }
+{ echo "sha=${FGC_SHA:-$(git rev-parse HEAD 2>/dev/null)}"; echo "lean=$(command -v lean)"; echo "lean_path=$LEAN_PATH"; echo "toolchain=$(cat lean-toolchain)"; echo "date=$(date -u +%FT%TZ)"; } > "$OUT/env.txt"
 while read -r f; do
   [ -z "$f" ] && continue
   key="$(echo "$f" | tr '/' '_')"
   [ -f "$OUT/status/$key.txt" ] && [ "${REDO:-0}" != 1 ] && continue
   rm -f /tmp/sparkle-profile.log
   t0=$(date +%s)
-  SPARKLE_PROFILE=1 timeout -k 5 "$TMO" lake env lean --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so "$f" \
+  SPARKLE_PROFILE=1 timeout -k 5 "$TMO" "$LEAN_BIN" --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so "$f" \
     > "$OUT/out/$key.txt" 2> "$OUT/out/$key.err"
   rc=$?
+  if grep -qi "could not execute external process" "$OUT/out/$key.err"; then
+    echo "capture.sh: tool failure on $f (could not execute external process); stopping, not a baseline result" >&2; exit 3
+  fi
   t1=$(date +%s)
   cp /tmp/sparkle-profile.log "$OUT/prof/$key.log" 2>/dev/null || : > "$OUT/prof/$key.log"
   echo "$f $rc $((t1 - t0))" > "$OUT/status/$key.txt"
