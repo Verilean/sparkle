@@ -1778,6 +1778,31 @@ Check の出力行は 7（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、QUOTES 1、
 
 `timeout 1500 kjob lake build TARGET`（`ulimit -v` なし）。S2jCopy/S2jKid/S2jTop/Check30 はそれぞれ数十秒〜1 分程度（依存は cache）。
 
+## 37. S2k（Issue `sparkle-fg-circuit-pilot` の次の束）: 統合最終文 `HftFinalStmtOffCombined` — `hmiss`（S2h）・`hkgfacts`（S2g）・`hdec`（S2j）を 1 つの最終文に（**§37 は S2k では書かれなかった。S2r が事後に記す**）
+
+土台 `6c9f2dcf`（par/fgc-s1）。追加ファイル: `Tools/ShippingFGCircuitS2kRun.lean`（履歴 world `JQH` からの root の機械 run と served instance の複製）、`Tools/ShippingFGCircuitS2kFinal.lean`（`kid_shipsResE`、`hftTop_of_runH`、最終文）、`Tests/Gen5/FGCircuitPilotCheck31.lean`、Check27 の更新（SIGNATURES-B/C）、`Tools/ShippingFGCircuitS2kLink.lean`（**草稿。S2k の時点ではコンパイルしていない**、§42.5 参照）。新しい law・axiom・TRUSTED・sorry・native_decide はない。成果は**条件付き**で台帳に数えない。
+
+### 37.1 内容
+
+- `MachineRunJQH`、`machine_run_of_coreHOff`、`machineRunJQH_of_closesHOff`、`synthesizeMachineCertified_runsH`、`soundX_served_E`（S2kRun）: `machine_run_of_coreCOff` 以下の `JQC`/`RealChildA` を `JQH`/`RealChildE` に替えた複製。root の頭（深さ 0）が cache を `{}` にするので、root の run は履歴 world から取れ、served instance は `RealChildE`（自分の run の読みを持つ）。
+- `kid_shipsResE`: 子（slotless 組合せ callee）の実結果が `ShipsRes` を満たす。S2j の `kid_shipsRes` の全 world 前提 `KidStartEnv` を、履歴の entry が保存した証拠（`KidEv`）に替えた。
+- `hftTop_of_runH`: S2j の `hftTop_of_run` を履歴前提に適合させた版（`hkenv` → `hmiss`、`hkgates` → `hkgfacts`）。
+- **`HftFinalStmtOffCombined`**（明示仮説 14）: S2d の最終文の `hkenv` を `hmiss`（FG D.T-4h）、`hkgates` を `hkgfacts`（FG D.T-4g）、`htop` を `hdec`（FG D.D-4）に、それぞれ同じ位置で替えた。`synth_hftPcieOutByte_finalOffCombined(_Z/_Y/_X)`。
+
+### 37.2 binder 一覧（`synth_hftPcieOutByte_finalOffCombined_Z`、明示 14）
+
+`hlink hstart hr hcell hchk hreadH hreadT hcd hdec hmiss hkgfacts`（+ `L lvl env₀`。`hlink` が先頭）。
+
+### 37.3 Check（S2k の時点）
+
+- Check27: SIGNATURES-A、SIGNATURES-B（構造 17）、SIGNATURES-C（`finalOffLNKKG_Z` の完全型）、QUOTES、CONTROLS、REMAINING（`hkgfacts`）、AXIOMS 12。
+- Check31: SIGNATURES-TOP（`hftTop_of_runH`）、SIGNATURES-FINAL（`finalOffCombined_Z` の 14 仮説の完全型が独立文面と一致）、HYPS、REMAINING（`hmiss` D.T-4h、`hkgfacts`、…）、AXIOMS 13（標準 axiom のみ）。
+- **既知の不備（レビュアー指摘、S2r §42.2 で解消）**: 一部の mutant ブロックは正例を default、mutant を reducible/instances で比較していた（同じ基準でない）。
+
+### 37.4 残る前提と位置づけ
+
+`hdec` は §38（S2l）で `hftCallDec_of_checked` により供給できる、`hmiss` は §39（S2m）で `hftCoreCloses_of_kidsR` の 7 仮説に替えられる、と S2k の時点で分かっていたが、この最終文はまだ `hdec` と `hmiss` を持つ。それを外した最終文が §42（S2r）の `HftFinalStmtOffCombined2`。
+
 ## 38. S2l（Issue `sparkle-fg-circuit-pilot` の次の束）: `hdec` — 非 leaf root の `HftCallDec` を 3 つの reader から証明
 
 土台 `86230111`（par/fgc-s1）。追加ファイル（既存は書き換えていない。lakefile 登録は各 1 回）: `Tools/ShippingFGCircuitS2lDec.lean`、`Tests/Gen5/FGCircuitPilotCheck32.lean`。TRUSTED・axiom・sorry・native_decide・新しい law はない（標準 axiom のみ）。S2k（最終文、Check27/31、§33/§37）と S2i（`hcd`、Check29、§35）の領域には触れていない。Issue の状態は変えていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**で台帳に数えない。
