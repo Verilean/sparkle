@@ -247,7 +247,7 @@ end Table
 section Hft
 open Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kPkg
 open Tools.ShippingFGCircuit (monoObs)
-open Tools.ShippingFGCircuitCover Tools.ShippingGenFGLedgerPremises Tools.ShippingGen5SM1
+open Tools.ShippingFGCircuitCover Tools.ShippingGenFGLedgerPremises Tools.ShippingGen5SM1 Tools.ShippingGen5Acc Tools.ShippingGen5DataOf
 open Tools.ShippingGen5Sem (kDOf GenWF)
 
 /-- a combinational callee's package, at the declaration level: its data and its observation -/
@@ -281,6 +281,115 @@ def HftRootLink : Prop :=
       (fun j w => (typedVal gi.d.nIn gi.d.bpos gi.d.vpos gi.d.ss gi.d.ls (extBOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S)
         (extOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S) t (S.val t)).v (gi.d.vpos j) w) o.2)
 
+theorem hftTlp_ne_http : hftTlp ≠ hftHttp := by decide
+theorem root_insts_nonempty : synth_hftPcieOutByte.machineData.shape.insts.isEmpty = false := by decide +kernel
+theorem http_ss : Sparkle.IP.Net.HTTP.httpGetByte.machineData.ss = [] := by decide +kernel
+theorem tlp_ss : Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.ss = [] := by decide +kernel
+
+/-- **`hsrc` of the non-leaf root, from the root link**: with the readers of the root and of the two children at the table's environment, every package `genGP` returns for the root observes the declaration, given `HftRootLink`.
+The children's `src` and the `ExtStage` induction are proved (not hypotheses). -/
+theorem hftObSrc_of_rootLink (hlink : HftRootLink) {ι : Type} (lvl : Lean.Expr → Nat) (env : Environment)
+    (hRd : RootReader lvl env hftRoot synth_hftPcieOutByte.machineData)
+    (hRdH : RootReader lvl env hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData)
+    (hRdT : RootReader lvl env hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData) :
+    HftObSrc (ι := ι) lvl env := by
+  intro p hp i bools bits
+  obtain ⟨E, hEnt, hsh, hdat⟩ := hRd
+  obtain ⟨g, hg, hgd⟩ := canon_row (lvl := lvl) (env := env) root_wf hsh hdat
+  obtain ⟨Eh, hEh, hshh, hdath⟩ := hRdH
+  obtain ⟨gh, hgh, hghd⟩ := canon_row (lvl := lvl) (env := env) http_wf hshh hdath
+  obtain ⟨Et, hEt, hsht, hdatt⟩ := hRdT
+  obtain ⟨gt, hgt, hgtd⟩ := canon_row (lvl := lvl) (env := env) tlp_wf hsht hdatt
+  have hkids : ∀ c ∈ g.d.shape.insts.map (·.1), ∃ (Ec : ConstantInfo) (gc : GenData (dataOfAt lvl) Ec (structEnv env)),
+      entry₀ env c = some Ec ∧ canonGD lvl env Ec = some gc ∧ gc.d.shape.insts = [] := by
+    intro c hc
+    rw [hgd, root_insts] at hc
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+    rcases hc with rfl | rfl
+    · exact ⟨Eh, gh, hEh, hgh, by rw [hghd]; exact http_leaf⟩
+    · exact ⟨Et, gt, hEt, hgt, by rw [hgtd]; exact tlp_leaf⟩
+  obtain ⟨p0, hP, -, -, -, hsrc0, hrows⟩ := genGP_root_kids_src (ι := ι) (dom := fun _ => defaultDomain) lvl
+    (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl) (canonGD lvl) env hEnt hg hkids
+  have hpe : p = p0 := Option.some.inj (hp.symm.trans hP)
+  subst hpe
+  rw [congrFun (congrFun (congrFun hsrc0 i) bools) bits]
+  generalize genS (genKit (ι := ι) (dom := fun _ => defaultDomain) lvl (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl) env (canonGD lvl env)) = Q at hrows ⊢
+  let gi := g.toIn (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl)
+  have hgi : gi.d = synth_hftPcieOutByte.machineData := hgd
+  have hn : (gi.d.ss.isEmpty && gi.d.shape.insts.isEmpty) = false := by
+    have h1 : gi.d.shape.insts.isEmpty = false := by rw [hgi]; exact root_insts_nonempty
+    simp [h1]
+  have harm : (genSemI Q hftRoot gi).src = (genSemGen Q hftRoot gi).src := by
+    unfold genSemI; rw [hn]; rfl
+  have hag : TablesAgree Q hftKids gi.d := by
+    intro k c a κ hk
+    have hc : c ∈ gi.d.shape.insts.map (·.1) := List.mem_map.2 ⟨(c, a, κ), List.mem_of_getElem? hk, rfl⟩
+    obtain ⟨Ec, gc, hEc, hgc, hl, hQc⟩ := hrows c hc
+    have hc2 : c = hftHttp ∨ c = hftTlp := by
+      have hc' := hc
+      rw [show gi.d = g.d from rfl, hgd, root_insts] at hc'
+      simpa using hc'
+    rcases hc2 with rfl | rfl
+    · have e1 : Ec = Eh := Option.some.inj (hEc.symm.trans hEh)
+      subst e1
+      have e2 : gc = gh := Option.some.inj (hgc.symm.trans hgh)
+      subst e2
+      right
+      refine ⟨_, kidSem hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData
+        (fun _ bools bits => Sparkle.IP.Net.HTTP.httpGetByte.machineSource defaultDomain bools bits), hQc, by simp [hftKids], ?_, ?_, ?_⟩
+      · show (genSemI Q hftHttp (gc.toIn _)).d = _
+        rw [genSemI_d]; exact hghd
+      · show (genSemI Q hftHttp (gc.toIn _)).kD = kDOf _
+        rw [genSemI_kD, show (gc.toIn (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl)).d = _ from hghd]
+      · exact genSemI_comb_src Q hftHttp (gc.toIn _) (d := Sparkle.IP.Net.HTTP.httpGetByte.machineData) hghd http_ss http_leaf
+          (fun _ bools bits => Sparkle.IP.Net.HTTP.httpGetByte.machineSource defaultDomain bools bits)
+          (fun _ bools bits t x => by
+            have h := Sparkle.IP.Net.HTTP.httpGetByte.machine_result defaultDomain bools bits t
+            rw [hlist_nil_subsingleton _ http_ss x Sparkle.IP.Net.HTTP.httpGetByte.machineInits]
+            exact h)
+    · have e1 : Ec = Et := Option.some.inj (hEc.symm.trans hEt)
+      subst e1
+      have e2 : gc = gt := Option.some.inj (hgc.symm.trans hgt)
+      subst e2
+      right
+      refine ⟨_, kidSem hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData
+        (fun _ bools bits => Sparkle.IP.Bus.PCIe.tlpCplByte.machineSource defaultDomain bools bits), hQc, by simp [hftKids, hftTlp_ne_http], ?_, ?_, ?_⟩
+      · show (genSemI Q hftTlp (gc.toIn _)).d = _
+        rw [genSemI_d]; exact hgtd
+      · show (genSemI Q hftTlp (gc.toIn _)).kD = kDOf _
+        rw [genSemI_kD, show (gc.toIn (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl)).d = _ from hgtd]
+      · exact genSemI_comb_src Q hftTlp (gc.toIn _) (d := Sparkle.IP.Bus.PCIe.tlpCplByte.machineData) hgtd tlp_ss tlp_leaf
+          (fun _ bools bits => Sparkle.IP.Bus.PCIe.tlpCplByte.machineSource defaultDomain bools bits)
+          (fun _ bools bits t x => by
+            have h := Sparkle.IP.Bus.PCIe.tlpCplByte.machine_result defaultDomain bools bits t
+            rw [hlist_nil_subsingleton _ tlp_ss x Sparkle.IP.Bus.PCIe.tlpCplByte.machineInits]
+            exact h)
+  have hcaus : CalleesCausal Q gi.d := by
+    intro k _ s hs
+    have hc : (gi.d.shape.insts[k]).1 ∈ gi.d.shape.insts.map (·.1) := List.mem_map.2 ⟨_, List.getElem_mem k.2, rfl⟩
+    obtain ⟨Ec, gc, hEc, hgc, hl, hQc⟩ := hrows _ hc
+    rw [hQc] at hs
+    cases hs
+    refine genSemI_srcCausal Q _ (gc.toIn _) ?_
+    intro k' _ s' _
+    have h0 : (gc.toIn (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl)).d.shape.insts.length = 0 := congrArg List.length hl
+    have h1 := k'.2
+    omega
+  rw [harm]
+  have hb : extBOf Q gi = extBOf hftKids gi := by
+    funext i bools bits S; unfold extBOf; rw [ExtStage_agree_tables Q hftKids gi hag]
+  have hv : extOf Q gi = extOf hftKids gi := by
+    funext i bools bits S; unfold extOf; rw [ExtStage_agree_tables Q hftKids gi hag]
+  refine genSemGen_src_eq_of_link Q hftRoot gi hcaus i bools bits _ ?_
+  intro S h0 hrec t
+  rw [hb, hv] at hrec ⊢
+  exact hlink gi hgi i bools bits S h0 hrec t
+
 end Hft
 
 end Tools.ShippingFGCircuitS1uSrc
+
+#print axioms Tools.ShippingFGCircuitS1uSrc.ExtStage_agree_tables
+#print axioms Tools.ShippingFGCircuitS1uSrc.genSemGen_src_eq_of_link
+#print axioms Tools.ShippingFGCircuitS1uSrc.genGP_root_kids_src
+#print axioms Tools.ShippingFGCircuitS1uSrc.hftObSrc_of_rootLink
