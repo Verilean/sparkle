@@ -509,3 +509,47 @@ run が実際に到達する地点は 3 つ: `getConstInfo X`（world `w1`）、
 
 4 root の final10 の仮説: `Laws L`・`hstart`（A.P-02）、`hr`（A.P-04）、`hhead : HeadAt`（C.EN-4: `coreHead` の IO 2 件の環境枠。`CellPrem` + `HeadIO` から）、`hcell : ReadWorld cref`（CellPrem）、`hchk : CheckedStart`（`root` = 型の文、`gates`/`reader` = 1 環境の評価、`link` = DG-ENV C0）、arbiter は `hB0`/`hcont`。
 次: (1) `HeadIO` の 2 件（IO 枠）。(2) `reader`/`gates` の評価を kernel の文に（`dataOfAt` の `partial` helper の外出し）。(3) 非 leaf: `NoRawBelow` を run から出す補題と `TopShips` の machine 経路（insts 付き）、`hsrc` の `ExtStage` 帰納。
+
+## 15. S1k（Issue `sparkle-fg-circuit-pilot` の次の束）: 非 leaf root `synth_hftPcieOutByte` の最終定理の型の固定と、証明できた部分
+
+土台 `8b4c135b`（par/fgc-s1）。追加ファイル（既存は書き換えていない。lakefile 登録は各 lib 1 回）: `Tools/ShippingFGCircuitS1kRoot.lean`、`S1kStmt.lean`、`S1kPkg.lean`、`Tests/Gen5/FGCircuitPilotCheck9.lean`。TRUSTED・axiom・sorry・native_decide・新しい law はない（`FGCIRCUIT9 AXIOMS`: 12 名、標準 axiom のみ）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は**条件付き**で、閉じた経路ではない。Issue の状態は変えていない。
+注: root は `Tests/IP/Bus/PCIeHFTTest.lean:89` の `private def` なので名前を指せない。同じ本体の公開版 `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte` を新ファイルに置いた（Check8 の `hftOutProbe` と型・値が同一であることを SNAPSHOT9 で検査）。元の private 定義そのものについての定理ではない。
+
+### 15.1 手順 1: プローブ（`kjob lake build Tools.ShippingFGCircuitS1kRoot`、exit 0）
+
+- 子 2 個の endpoint は**既にある**: `httpGetByte`（`Tests/Compiler/ShippingMachineCombTest.lean` の `#machine_endpoint`）と `tlpCplByte`（今回 `#machine_endpoint` で生成。通った）。どちらも `machineData`/`machine_ok`/`machine_body`/`machine_closes`/`machine_sound`/`machine_ships`/`machine_ships_comb` を持つ。
+- root は `#machine_endpoint` が通り、`machineData`/`machine_ok`/`machine_body`/`machine_sound` はあるが、**`machine_closes`・`machine_ships` は生成されない**（instance を持つ module には出ない。コマンドの設計）。root の closing は未供給。
+- reader の接続: `dataOfAt`（fuel 1000000）は 3 宣言とも `machineData` リテラルと**全構造で等しい**値を返す（`dataExprOf d == literalExpr`）。root の `insts` = [`httpGetByte`, `tlpCplByte`]（2 個）、子は `insts = []`。3 宣言とも `entryGatesB` true、machine 経路（certified none、mixed none、`machineShape?` some）。1 環境の値であり、任意の run の kernel の文ではない。
+- `CD`（`SourceDenotesMono` の核）には**利用者定義定数の適用規則も構造体射影の規則もない**。root の値 `fun … => HFTPcieOut.outByte (hftPcieLoop …)` に `CD` の導出を作れない（未供給。規則の追加は既存ファイルの変更）。
+
+### 15.2 手順 2: 完全な型（`HftFinalStmt`、`synth_hftPcieOutByte_final : HftFinalStmt`）
+
+`X_final10` と同じ結論 `(∃ raw, PostRun …) ∧ ∃ mm p, RootArtifactMono (envAt cref w) (genGP …) (PostRun …) root shHft mm b D' p` で、前提は:
+`L lvl env₀`、`hstart`（A.P-02）、`hr`（A.P-04）、`hhead : HeadAt`（C.EN-4）、`hcell : ReadWorld cref`、`hchk : CheckedStart`（root の `machineData`、型 `hftRootType`・値 `hftRootValue`）に、**子の package の前提** `hreadH`/`hreadT : RootReader lvl (envAt cref w) child child.machineData`（DG-DATAOF/COVER/ENV）、**名前付きの 4 obligation**:
+
+| 前提 | 内容 | FG 行 | 状態 |
+|---|---|---|---|
+| `hcd : HftObCD` | `CD [] hftRootValue (MonoTy shHft) synth_hftPcieOutByte` | D.D-1 / D.D-4（`CircCV`） | 未供給（`CD` に規則がない） |
+| `hsrc : HftObSrc` | `genGP` が返す package の `src` が宣言の観測 | D.D-3 / DG-SEM | 未実装（`ExtStage … 2` を子の package の `src` に結ぶ帰納。`src_eq_of_states` は `ExtStage … 0 = id`） |
+| `htop : ∀ p, genGP … = some p → HftObTopCore …` | run の `raw` が核の設計 `D₀` で `TopShips p n`（`hdRun` を前提に取る） | D.D-4（T1 の machine 経路、insts 付き） | 未実装（`LeafFacts` は leaf 専用。子の package と `ChildShips`） |
+| `hnoraw : HftObNoRaw` | `raw`/`checkedOptimize b`/`b` の instance が top を指さない | D.T-4 | 未実装（run から出す補題がない。1 回の compile では `noRawBelowB` が true: Check8 SNAPSHOT8b） |
+
+`hdRun`（`MachineDefinesLinked`）は前提ではなく、`hchk`/`hhead`/`hcell` から導出して `htop` に渡す。`hgates`/`hRead`/`hE` も `hchk` から出る。`hsrc`・`hcd` は root 固有の文、`htop`/`hnoraw` は run についての文。
+
+### 15.3 手順 3: 証明した部分
+
+- `genGP_root_kids`（`genGP_root` の一般化）: root の callee が全て table の leaf 行なら `genGP … root = some p`、`p.decl = root`、`p.d = g.d`、`p.kD = kDOf g.d`（`Acc (CallRel K) root` を子の leaf 行から、`genS_leaf_isSome`）。
+- kernel の事実（`decide +kernel`）: 3 宣言の `GenWF`、子の `insts = []`、root の `insts.map (·.1) = [httpGetByte, tlpCplByte]`、`kDOf = 5`、`ShapeMatchesMono shHft … 5`、`monoGo [] hftRootType = some shHft`。
+- `synth_hftPcieOutByte_final`: 上の 4 obligation と子の reader から、`genGP` の被覆・`EndpointLink`・`SourceDenotesMono`（`RootInEnv` + `hcd`）・`ObservationsEqualMono`・`HasConcretePackage`（`htop` + `hnoraw` から `topShips_transport` で `D'` へ）を導く。**`DesignTransport` は前提でなく証明**になった（`hnoraw` が前提）。
+- 証明していない（上表の 4 件）。子の `MachineDefines`/`closes`、`ResetNk` は `htop` の中身として残る。
+
+### 15.4 Check9 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck9`、916 jobs、exit 0）
+
+- `FGCIRCUIT9 SIGNATURES`: 最終定理と `HftFinalStmt` の完全な型、4 obligation、root の kernel 事実、`genGP_root_kids` を独立に書いた文面と `isDefEq`（default 透過度）で照合。**41 mutant 棄却**（検査ごとに数える: 最終定理と `HftFinalStmt` の各 14 = 28、`HftObCD` 1、他の 3 obligation 4、kernel 事実 7、`genGP_root_kids` 1）: run の root / head / post が別、`hchk` が別宣言の data、head・cell・子 reader・4 obligation の各欠落、core obligation の `hdRun` 欠落、子 reader や結論が end world、instance 順の入れ替え、`kD = 4`、別の shape、callee 欠落、`TopShips` を印刷後の設計で述べたもの。注: `GenWF d = true` のように両辺が評価で `true` になる命題は `isDefEq` が同一視するため、wf/leaf の対照は偽の文（`= false`、`≠ []`）にした。
+- `FGCIRCUIT9 HYPS`/`REMAINING`: 前提名 `L lvl env₀ hstart hr hhead hcell hchk hreadH hreadT hcd hsrc htop hnoraw` と型。`hquiet`・`GetEnvFrame`・全 world の `EnvFrame`・`hdRun`・`hgates`/`hRead`/`hE`・`hP`・`DesignTransport`・`EntryWitness` は前提に無いことを検査。
+- `FGCIRCUIT9 AXIOMS`: 12 名、標準 axiom のみ。
+- `FGCIRCUIT9 SNAPSHOT9`: 上の 15.1（1 環境の値）。`machine_closes` が root に**無い**ことも検査（生成されたら更新が必要）。
+
+### 15.5 残り
+
+`hcd`（`CD` の規則）、`hsrc`（`ExtStage` 帰納）、`htop`（machine 経路 `TopShips`、子の package/`ChildShips`/`ResetNk`、root の closing の供給）、`hnoraw`（run から非巡回を出す）、`hreadH`/`hreadT` の `ReaderAt env₀` + `ContainsAt` への還元（S1i の root と同様）、S1i までの `HeadIO`・`reader`/`gates` の kernel 化。
