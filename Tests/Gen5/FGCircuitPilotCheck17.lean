@@ -109,61 +109,111 @@ def ExpProdInh (mu : Nat) : Prop :=
     env.find? ``Inhabited.mk = some (.ctorInfo cv) → env.find? ``Prod.mk = some (.ctorInfo cp) → DW env ρ a (.ty A) → DW env ρ b (.ty B) → DW env ρ x (.val A xv) → DW env ρ y (.val B yv) →
     DW env ρ (appN ``Inhabited.mk [.succ .zero] [appN ``Prod [.zero, .zero] [a, b], appN ``Prod.mk [.zero, .zero] [a, b, x, y]]) (.val (Inhabited (A × B)) ⟨(xv, yv)⟩)
 
+def sameT (thm : Name) (exp : Expr) : MetaM Unit := do
+  let ci ← getConstInfo thm
+  unless ci.levelParams.isEmpty do throwError "{thm}: level parameters"
+  unless ← withDefault (isDefEq ci.type exp) do throwError "{thm}: type is NOT the expected statement"
+def differsT (thm : Name) (mu : Expr) : MetaM Unit := do
+  let ci ← getConstInfo thm
+  if ← withDefault (isDefEq ci.type mu) then throwError "{thm}: a MUTANT was accepted"
+def qT (n : Name) (args : Array Expr) : MetaM Expr := mkAppM (`Tests.Gen5.FGCircuitPilotCheck17 ++ n) args
+def natT (n : Nat) : Expr := toExpr n
+
+/-- Each SIGNATURES block is its own run_cmd (the single block timed out at 880 s); each counts its own successful checks (`same` = statement equal, `rej` = mutant rejected) and logs them; a failed check throws (fail closed). -/
 run_cmd liftTermElabM do
   let S := `Tools.ShippingFGCircuitS1sCD
   let Q := `Tests.Gen5.FGCircuitPilotCheck17
-  let same (thm : Name) (exp : Expr) : MetaM Unit := do
-    let ci ← getConstInfo thm
-    unless ci.levelParams.isEmpty do throwError "{thm}: level parameters"
-    unless ← withDefault (isDefEq ci.type exp) do throwError "{thm}: type is NOT the expected statement"
-  let differs (thm : Name) (mu : Expr) : MetaM Unit := do
-    let ci ← getConstInfo thm
-    if ← withDefault (isDefEq ci.type mu) then throwError "{thm}: a MUTANT was accepted"
   let mut nm : Nat := 0
-  let nat (n : Nat) : Expr := toExpr n
-  let q (n : Name) (args : Array Expr) : MetaM Expr := mkAppM (Q ++ n) args
-  same (S ++ `DW.bundle2) (← q `ExpBundle2 #[nat 0])
-  for m in [1, 2, 3, 4, 5] do differs (S ++ `DW.bundle2) (← q `ExpBundle2 #[nat m]); nm := nm + 1
-  -- the swapped value (left/right) against the real rule specialised to equal types
-  differs (S ++ `DW.bundle2) (Lean.mkConst (Q ++ `ExpBundle2Swapped)); nm := nm + 1
+  let mut ns : Nat := 0
+  sameT (S ++ `DW.bundle2) (← qT `ExpBundle2 #[natT 0]); ns := ns + 1
+  for m in [1, 2, 3, 4, 5] do differsT (S ++ `DW.bundle2) (← qT `ExpBundle2 #[natT m]); nm := nm + 1
+  differsT (S ++ `DW.bundle2) (Lean.mkConst (Q ++ `ExpBundle2Swapped)); nm := nm + 1
   if ← withDefault (isDefEq (Lean.mkConst (Q ++ `ExpBundle2Swapped)) (Lean.mkConst (Q ++ `ExpBundle2Spec))) then throwError "control: swapped value equals the specialised rule"
   nm := nm + 1
-  same (S ++ `DW.inhMk) (← q `ExpInhMk #[nat 0])
-  for m in [1, 2, 3, 4] do differs (S ++ `DW.inhMk) (← q `ExpInhMk #[nat m]); nm := nm + 1
-  differs (S ++ `DW.inhMk) (Lean.mkConst (Q ++ `ExpInhMkCanon)); nm := nm + 1
-  same (S ++ `DW.inhDefault) (Lean.mkConst (Q ++ `ExpInhDefault0))
-  differs (S ++ `DW.inhDefault) (Lean.mkConst (Q ++ `ExpInhDefaultCanon)); nm := nm + 1
+  logInfo m!"FGCIRCUIT17 SIG-bundle2: {ns} statement equal, {nm} mutants rejected"
+
+run_cmd liftTermElabM do
+  let S := `Tools.ShippingFGCircuitS1sCD
+  let Q := `Tests.Gen5.FGCircuitPilotCheck17
+  let mut nm : Nat := 0
+  let mut ns : Nat := 0
+  sameT (S ++ `DW.inhMk) (← qT `ExpInhMk #[natT 0]); ns := ns + 1
+  for m in [1, 2, 3, 4] do differsT (S ++ `DW.inhMk) (← qT `ExpInhMk #[natT m]); nm := nm + 1
+  differsT (S ++ `DW.inhMk) (Lean.mkConst (Q ++ `ExpInhMkCanon)); nm := nm + 1
+  sameT (S ++ `DW.inhDefault) (Lean.mkConst (Q ++ `ExpInhDefault0)); ns := ns + 1
+  differsT (S ++ `DW.inhDefault) (Lean.mkConst (Q ++ `ExpInhDefaultCanon)); nm := nm + 1
   for m in [1, 2, 3, 4] do
     -- the mutants carry one more (unused) instance binder, so they differ from the real rule at once; that alone proves nothing, therefore the real rule is compared to the 0-shape above
-    differs (S ++ `DW.inhDefault) (← q `ExpInhDefault #[nat m]); nm := nm + 1
-  same (S ++ `DW.unf) (← q `ExpUnfW #[nat 0])
-  for m in [1, 2] do differs (S ++ `DW.unf) (← q `ExpUnfW #[nat m]); nm := nm + 1
-  same (S ++ `cdw_fun) (Lean.mkConst (Q ++ `FunW))
+    differsT (S ++ `DW.inhDefault) (← qT `ExpInhDefault #[natT m]); nm := nm + 1
+  logInfo m!"FGCIRCUIT17 SIG-inh: {ns} statements equal, {nm} mutants rejected"
+
+run_cmd liftTermElabM do
+  let S := `Tools.ShippingFGCircuitS1sCD
+  sameT (S ++ `DW.unf) (← qT `ExpUnfW #[natT 0])
+  logInfo m!"FGCIRCUIT17 SIG-unf: DW.unf statement equal (0 mutants here)"
+
+run_cmd liftTermElabM do
+  let S := `Tools.ShippingFGCircuitS1sCD
+  let mut nm : Nat := 0
+  differsT (S ++ `DW.unf) (← qT `ExpUnfW #[natT 1]); nm := nm + 1
+  logInfo m!"FGCIRCUIT17 SIG-unf-mutant1: {nm} mutant rejected"
+
+run_cmd liftTermElabM do
+  let S := `Tools.ShippingFGCircuitS1sCD
+  let mut nm : Nat := 0
+  differsT (S ++ `DW.unf) (← qT `ExpUnfW #[natT 2]); nm := nm + 1
+  logInfo m!"FGCIRCUIT17 SIG-unf-mutant2: {nm} mutant rejected"
+
+run_cmd liftTermElabM do
+  let S := `Tools.ShippingFGCircuitS1sCD
+  let Q := `Tests.Gen5.FGCircuitPilotCheck17
+  let mut nm : Nat := 0
+  sameT (S ++ `cdw_fun) (Lean.mkConst (Q ++ `FunW))
   for mu in ["FunWOtherEnv", "FunWNoHEq"] do
-    differs (S ++ `cdw_fun) (Lean.mkConst (Q ++ Name.mkSimple mu)); nm := nm + 1
+    differsT (S ++ `cdw_fun) (Lean.mkConst (Q ++ Name.mkSimple mu)); nm := nm + 1
+  logInfo m!"FGCIRCUIT17 SIG-fun: cdw_fun statement equal, {nm} mutants rejected"
+
+run_cmd liftTermElabM do
+  let S := `Tools.ShippingFGCircuitS1sCD
+  let mut nm : Nat := 0
   let cvDef := (← getConstInfo (S ++ `CircCVW)).value!
-  unless ← withDefault (isDefEq cvDef (← q `ExpCircCVW #[nat 0])) do throwError "CircCVW: definition is NOT the expected one"
+  unless ← withDefault (isDefEq cvDef (← qT `ExpCircCVW #[natT 0])) do throwError "CircCVW: definition is NOT the expected one"
   for m in [1, 2, 3] do
-    if ← withDefault (isDefEq cvDef (← q `ExpCircCVW #[nat m])) then throwError "CircCVW: MUTANT {m} accepted"
+    if ← withDefault (isDefEq cvDef (← qT `ExpCircCVW #[natT m])) then throwError "CircCVW: MUTANT {m} accepted"
     nm := nm + 1
+  logInfo m!"FGCIRCUIT17 SIG-circcvw: definition equal, {nm} mutants rejected"
+
+run_cmd liftTermElabM do
+  let S := `Tools.ShippingFGCircuitS1sCD
+  let mut nm : Nat := 0
   let obW := (← getConstInfo (S ++ `HftObCDW)).value!
-  unless ← withDefault (isDefEq obW (← q `ExpHftObW #[nat 0])) do throwError "HftObCDW: definition is NOT the expected one"
-  if ← withDefault (isDefEq obW (← q `ExpHftObW #[nat 1])) then throwError "HftObCDW: MUTANT accepted"
+  unless ← withDefault (isDefEq obW (← qT `ExpHftObW #[natT 0])) do throwError "HftObCDW: definition is NOT the expected one"
+  if ← withDefault (isDefEq obW (← qT `ExpHftObW #[natT 1])) then throwError "HftObCDW: MUTANT accepted"
   nm := nm + 1
   -- HftObCDW is a different obligation from HftObCDZ (new family)
   let obZ := (← getConstInfo (`Tools.ShippingFGCircuitS1rCD ++ `HftObCDZ)).value!
   if ← withDefault (isDefEq obW obZ) then throwError "HftObCDW and HftObCDZ are the same"
+  nm := nm + 1
   -- the final consumer is the S1k statement with hcd replaced by HftObCDW (explicit connection)
   let cons := (← getConstInfo (S ++ `HftFinalStmtW)).value!
   let expCons ← mkAppM `Tools.ShippingFGCircuitS1rCD.Stmt.HftFinalStmtWith #[Lean.mkConst (S ++ `HftObCDW)]
   unless ← withDefault (isDefEq cons expCons) do throwError "HftFinalStmtW is NOT HftFinalStmtWith HftObCDW"
-  same (S ++ `bundle2_val_at) (← q `ExpBundle2At #[nat 0])
-  differs (S ++ `bundle2_val_at) (← q `ExpBundle2At #[nat 1]); nm := nm + 1
-  differs (S ++ `bundle2_val_at) (Lean.mkConst (Q ++ `ExpBundle2Swap)); nm := nm + 1
-  same (S ++ `dw_default_of_mk) (← q `ExpDefaultOfMk #[nat 0])
-  differs (S ++ `dw_default_of_mk) (← q `ExpDefaultOfMk #[nat 2]); nm := nm + 1
-  same (S ++ `dw_prod_inhabited) (← q `ExpProdInh #[nat 0])
-  logInfo m!"FGCIRCUIT17 SIGNATURES: DW.bundle2/inhMk/inhDefault/unf, cdw_fun, CircCVW, HftObCDW (not HftObCDZ), HftFinalStmtW = HftFinalStmtWith HftObCDW, bundle2_val_at, dw_default_of_mk, dw_prod_inhabited match the independently written statements; {nm} mutants rejected"
+  logInfo m!"FGCIRCUIT17 SIG-ob: HftObCDW definition equal, HftFinalStmtW = HftFinalStmtWith HftObCDW, {nm} mutants/controls rejected"
+
+run_cmd liftTermElabM do
+  let S := `Tools.ShippingFGCircuitS1sCD
+  let Q := `Tests.Gen5.FGCircuitPilotCheck17
+  let mut nm : Nat := 0
+  sameT (S ++ `bundle2_val_at) (← qT `ExpBundle2At #[natT 0])
+  differsT (S ++ `bundle2_val_at) (← qT `ExpBundle2At #[natT 1]); nm := nm + 1
+  differsT (S ++ `bundle2_val_at) (Lean.mkConst (Q ++ `ExpBundle2Swap)); nm := nm + 1
+  sameT (S ++ `dw_default_of_mk) (← qT `ExpDefaultOfMk #[natT 0])
+  differsT (S ++ `dw_default_of_mk) (← qT `ExpDefaultOfMk #[natT 2]); nm := nm + 1
+  sameT (S ++ `dw_prod_inhabited) (← qT `ExpProdInh #[natT 0])
+  logInfo m!"FGCIRCUIT17 SIG-derived: bundle2_val_at, dw_default_of_mk, dw_prod_inhabited statements equal, {nm} mutants rejected"
+
+run_cmd liftTermElabM do
+  let S := `Tools.ShippingFGCircuitS1sCD
   -- OLD RULES: every DZ constructor other than `unf` is the same in DW
   let mut nOld : Nat := 0
   let rn (e : Expr) : Expr := e.replace fun x => if x.isConstOf `Tools.ShippingFGCircuitS1rCD.DZ then some (Lean.mkConst (S ++ `DW) x.constLevels!) else none
