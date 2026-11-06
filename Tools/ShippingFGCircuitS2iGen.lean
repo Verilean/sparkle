@@ -558,7 +558,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Nam
       unless lax do
         agree "HOr BV: the left operand is not a Signal of the instance's domain and width" αa (sigTyE D (bvTyE W))
         agree "HOr BV: the right operand is not a Signal of the instance's domain and width" αb (sigTyE D (bvTyE W))
-        unless natEvalE wbq == (← Meta.evalNat W) do
+        unless natEvalE wbq == (← (Meta.evalNat W).run) do
           throwError "HOr BV: the second type argument's width does not evaluate to the instance's width"
       bump "sigOrBV"
       mkN ``DT.sigOrBV (env0 ++ [("d", ← qU dq), ("w", ← qU wq), ("wb", ← qU wbq), ("a", ← q 4), ("b", ← q 5), ("D", D), ("W", W), ("av", av), ("bv", bv),

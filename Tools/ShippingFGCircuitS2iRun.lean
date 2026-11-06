@@ -31,14 +31,14 @@ def hwmKb : IO Nat := do
   | [] => pure 0
 
 /-- derive `DT env [] root r` (r inferred) for a closed `root : Expr`, add the tables and the theorem `thm`; `cap > 0` stops after that many nodes (probe) -/
-unsafe def deriveRootT (root : Lean.Expr) (thmName : Name) (cap : Nat := 0) : CommandElabM RootStats := do
+unsafe def deriveRootT (root : Lean.Expr) (thmName : Name) (cap : Nat := 0) (lax : Bool := false) : CommandElabM RootStats := do
   let t0 ← IO.monoMsNow
   let (res, st, st2) ← liftTermElabM do
     withLocalDeclD `env (Lean.mkConst ``Environment) fun envV => do
     withLocalDeclD `lk (Lean.mkConst ``Look) fun lkV => do
     withLocalDeclD `hlk (mkApp2 (Lean.mkConst ``EnvLk) envV lkV) fun hlkV => do
       let K : Kx := { env := envV, hlk := hlkV, lk := lkV }
-      let ((p, st2), st) ← ((deriveT K false nilCx root).run {}).run { cap := cap }
+      let ((p, st2), st) ← ((deriveT K false nilCx root).run { lax := lax }).run { cap := cap }
       pure ((p, envV, lkV, hlkV), st, st2)
   let t1 ← IO.monoMsNow
   let (p, envV, lkV, hlkV) := res
@@ -88,6 +88,9 @@ unsafe def deriveRootT (root : Lean.Expr) (thmName : Name) (cap : Nat := 0) : Co
 
 unsafe def deriveTermT (name : Name) (e : Lean.Expr) : CommandElabM Unit := discard <| deriveRootT e name
 @[implemented_by deriveTermT] opaque deriveTerm (name : Name) (e : Lean.Expr) : CommandElabM Unit
+/-- TEST ONLY (S2t, Check40): the generator's own `sigOrBV` checks are skipped so that a wrong request is stopped by the KERNEL only -/
+unsafe def deriveTermLaxT (name : Name) (e : Lean.Expr) : CommandElabM Unit := discard <| deriveRootT e name 0 true
+@[implemented_by deriveTermLaxT] opaque deriveTermLax (name : Name) (e : Lean.Expr) : CommandElabM Unit
 
 elab "derive_expr_t " n:ident " := " t:term : command => do
   let e ← liftTermElabM do
