@@ -1,4 +1,5 @@
 import Tools.ShippingFGCircuitS2bShare
+import Tools.ShippingFGCircuitS2bNative
 set_option autoImplicit false
 -- FG circuit pilot S1w: the metaprogram that builds the `DW` derivation term (docs/FG-CIRCUIT-PILOT.md §26).
 -- Nothing here is trusted: the term it emits is checked by the kernel (`addDecl`); a wrong term is rejected, a wrong generator can only fail.
@@ -33,6 +34,7 @@ structure St where
   probe : Bool := false
   stops : Array String := #[]
   cap : Nat := 0
+  native : Bool := false
   heavy : Array (Nat × Nat × Lean.Expr × Lean.Expr) := #[]
   log : Array String := #[]
 
@@ -300,7 +302,7 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
       mkN ``DS.letE [("env", K.env), ("ρ", ρE), ("e", eQ), ("A", ← qE A), ("v", ← qE v), ("body", ← qE b), ("n", toExpr n), ("nd", toExpr nd),
         ("TA", TA), ("T", T), ("a", a), ("r", r), ("he", reflT exprT eQ), ("hA", hA), ("hc", reflT boolT (mkConst ``true)), ("hv", hv), ("hb", hb)]
     else
-      let h ← derive K false cx (instE b v 0)
+      let h ← derive K false cx (if (← get).native then b.instantiate1 v else instE b v 0)
       let (α, r) ← valOf h
       logSz "zeta" e; bump "zeta"
       mkN ``DS.zeta [("env", K.env), ("ρ", ρE), ("e", eQ), ("A", ← qE A), ("v", ← qE v), ("body", ← qE b), ("n", toExpr n), ("nd", toExpr nd),
@@ -310,7 +312,8 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
   | _ =>
     match appFn e with
     | .lam .. | .letE .. | .proj .. =>
-      let some e' ← ev (fun lk => headRedexRL lk e) "headRedexRL" | throwError "beta: no redex"
+      let natv := (← get).native
+      let some e' ← ev (fun lk => if natv then Tools.ShippingFGCircuitS2bNative.headRedexN lk e else headRedexRL lk e) "headRedexRL" | throwError "beta: no redex"
       let h ← derive K ty cx e'
       let (_, r) ← dwOf h
       logSz "beta" e; bump "beta"
@@ -320,6 +323,7 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
     | h => throwError "head {h.ctorName} application"
 
 unsafe def deriveProj (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) (e : Lean.Expr) (S : Name) (i : Nat) (x : Lean.Expr) : G Lean.Expr := do
+  let nat := (← get).native
   let eQ ← qE e
   let xQ ← qE x
   let recCase : G (Option Lean.Expr) := do
@@ -359,7 +363,7 @@ unsafe def deriveProj (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
       | _ => pure none
     | _ => pure none
   if let some p ← ctorCase then return p
-  match ← ev (fun lk => whStepRL lk x) "whStepRL(proj)" with
+  match ← ev (fun lk => if nat then Tools.ShippingFGCircuitS2bNative.whStepN lk x else whStepRL lk x) "whStepRL(proj)" with
   | some x' =>
     if (← get).cap > 0 then
       let (d, t) := dagTree x
@@ -373,6 +377,7 @@ unsafe def deriveProj (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
   | none => throwError "proj {S}#{i}: stuck on {repr (appFn x).ctorName} {(appFn x)}"
 
 unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) (e : Lean.Expr) (c : Name) (ls : List Level) : G Lean.Expr := do
+  let nat := (← get).native
   let eQ ← qE e
   let args := appArgs e
   let a (i : Nat) : G Lean.Expr := do
@@ -394,7 +399,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
           ("hf", reflT exprT (← qE (appFn e))), ("hrec", recFact), ("hr", reflT (optT (optT exprT)) (someE (optT exprT) (someE exprT (← qE e')))), ("h", h)]
       | none => throwError "List.rec: no step"
     else
-      match ← ev (fun lk => unfoldL lk e) "unfoldL" with
+      match ← ev (fun lk => if nat then Tools.ShippingFGCircuitS2bNative.unfoldN lk e else unfoldL lk e) "unfoldL" with
       | some e' =>
         let h ← derive K ty cx e'
         let (_, r) ← dwOf h
