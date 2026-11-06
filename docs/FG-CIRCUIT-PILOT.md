@@ -2017,4 +2017,8 @@ hftCoreCloses_of_kidsR (L : Laws mref cref) {w} (hstart : Start L mctx cctx w) (
 
 ### 42.5 S2kLink（`HftRootLink` の組立、タスク 4）
 
-（記録は 42.6 に続ける）
+**未着手（時間切れ）**: 2 時間の pod 制限のため、タスク 4（`S2kLink` の `HftRootLink` 結論部を抽象 `TVal` の独立補題として閉じる、S2c §31.5）には着手していない。`Tools/ShippingFGCircuitS2kLink.lean` は S2k の草稿のまま（**コンパイルしない**、lakefile 登録済み、この束では書き換えていない）。したがって v2 の `hlink : HftRootLink` は仮説のまま（`hlink` 供給版の v2 は無い）。次の束の最初の作業。
+
+### 42.6 台帳
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。条件付き成果は減算しない。
