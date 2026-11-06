@@ -497,4 +497,93 @@ run_cmd liftTermElabM do
   unless sh.insts.length == 0 do throwError "counterLoop has instances"
   logInfo "FGCIRCUIT8 SNAPSHOT8c: counterLoop (leaf) has insts = [] (LeafFacts' condition), hftOutProbe has 2"
 
+/-! ## 5. MachineDefinesLinked: controls on the definition BODY (S1h review item 2) -/
+
+/-- the body of `MachineDefinesLinked` with its three starting worlds as knobs: `u1` = where `coreHead` starts, `u2` = where the body (`synthesizeFromConst`) starts -/
+def MDLBody (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
+    (declName : Name) (shape : MachineShape) (w : W) (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w' : W) : Prop :=
+  RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w' →
+  ∀ (s : CoreSaved) (w1 w2 w3 w4 : W) (envR : Environment) (ci : ConstantInfo),
+    RunsTo (coreHead declName) mctx mref cctx cref w s w1 →
+    RunsTo (Lean.getConstInfo declName) mctx mref cctx cref w1 ci w2 →
+    RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w2 envR w3 →
+    RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) (Tools.ShippingChildInv.profLogIO s.profile) declName [] false true
+      (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (instancePredicate envR))
+      mctx mref cctx cref w3 (M, D) w4 →
+    certifiedShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) = none ∧
+    mixedCertifiedShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (instancePredicate envR) = none ∧
+    ∀ (envR' : Environment) (w8 : W), RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w3 envR' w8 →
+      machineShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (structEnv envR') = some shape
+
+/-- (a) the chain prefix (coreHead / getConstInfo / getEnv) removed entirely: `ci`, `envR` and the body's start world are free -/
+def MutMDLNoPrefix (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
+    (declName : Name) (shape : MachineShape) (w : W) (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w' : W) : Prop :=
+  RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w' →
+  ∀ (s : CoreSaved) (w3 w4 : W) (envR : Environment) (ci : ConstantInfo),
+    RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) (Tools.ShippingChildInv.profLogIO s.profile) declName [] false true
+      (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (instancePredicate envR))
+      mctx mref cctx cref w3 (M, D) w4 →
+    certifiedShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) = none ∧
+    mixedCertifiedShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (instancePredicate envR) = none ∧
+    ∀ (envR' : Environment) (w8 : W), RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w3 envR' w8 →
+      machineShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (structEnv envR') = some shape
+
+/-- (b) `coreHead` started from an independent world `u` instead of `w` -/
+def MutMDLHeadU (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
+    (declName : Name) (shape : MachineShape) (w : W) (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w' : W) : Prop :=
+  RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w' →
+  ∀ (u : W) (s : CoreSaved) (w1 w2 w3 w4 : W) (envR : Environment) (ci : ConstantInfo),
+    RunsTo (coreHead declName) mctx mref cctx cref u s w1 →
+    RunsTo (Lean.getConstInfo declName) mctx mref cctx cref w1 ci w2 →
+    RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w2 envR w3 →
+    RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) (Tools.ShippingChildInv.profLogIO s.profile) declName [] false true
+      (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (instancePredicate envR))
+      mctx mref cctx cref w3 (M, D) w4 →
+    certifiedShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) = none ∧
+    mixedCertifiedShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (instancePredicate envR) = none ∧
+    ∀ (envR' : Environment) (w8 : W), RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w3 envR' w8 →
+      machineShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (structEnv envR') = some shape
+
+/-- (c) the body (`synthesizeFromConst`) started from an independent world `u` instead of `w3` -/
+def MutMDLBodyU (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
+    (declName : Name) (shape : MachineShape) (w : W) (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w' : W) : Prop :=
+  RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w' →
+  ∀ (u : W) (s : CoreSaved) (w1 w2 w3 w4 : W) (envR : Environment) (ci : ConstantInfo),
+    RunsTo (coreHead declName) mctx mref cctx cref w s w1 →
+    RunsTo (Lean.getConstInfo declName) mctx mref cctx cref w1 ci w2 →
+    RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w2 envR w3 →
+    RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) (Tools.ShippingChildInv.profLogIO s.profile) declName [] false true
+      (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (instancePredicate envR))
+      mctx mref cctx cref u (M, D) w4 →
+    certifiedShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) = none ∧
+    mixedCertifiedShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (instancePredicate envR) = none ∧
+    ∀ (envR' : Environment) (w8 : W), RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w3 envR' w8 →
+      machineShape? false [] (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (structEnv envR') = some shape
+
+set_option maxHeartbeats 8000000 in
+run_cmd liftTermElabM do
+  let unf : List Name := [``MachineDefinesLinked, ``MDLBody, ``MutMDLNoPrefix, ``MutMDLHeadU, ``MutMDLBodyU]
+  let normB (e : Lean.Expr) : MetaM Lean.Expr :=
+    Meta.transform e (post := fun e => do
+      let e := e.headBeta
+      if let .const c _ := e.getAppFn then
+        if unf.contains c then
+          if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
+      return .done e)
+  let ci ← getConstInfo ``MachineDefinesLinked
+  let appl (c : Name) : MetaM Lean.Expr := do
+    let r ← forallTelescope ci.type fun xs _ => do
+      let b ← normB (mkAppN (mkConst c) xs)
+      mkForallFVars xs b
+    normB r
+  let a ← appl ``MachineDefinesLinked
+  -- positive control: a copy of the body with the same knobs is the definition (the comparison is not vacuous)
+  unless ← withReducible (isDefEq a (← appl ``MDLBody)) do throwError "MachineDefinesLinked is NOT its body copy MDLBody"
+  let mut nb : Nat := 0
+  for mu in [``MutMDLNoPrefix, ``MutMDLHeadU, ``MutMDLBodyU] do
+    if ← withReducible (isDefEq a (← appl mu)) then throwError "the MUTANT {mu} of the MachineDefinesLinked body was accepted"
+    nb := nb + 1
+    logInfo m!"FGCIRCUIT8 MDLBODY {mu}: differs from the definition body"
+  logInfo m!"FGCIRCUIT8 MDLBODY: MachineDefinesLinked = its independent body copy; {nb} body mutants rejected (a: chain prefix removed entirely, b: coreHead from an independent world u, c: body from an independent world u)"
+
 end Tests.Gen5.FGCircuitPilotCheck8

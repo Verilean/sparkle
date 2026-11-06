@@ -5,7 +5,7 @@ set_option autoImplicit false
 
 /-! # FGCircuitPilotCheck7
 
-1. SIGNATURES: complete expected types written independently of the theorems (compared by `isDefEq` after unfolding only the whitelisted definitions) for
+1. SIGNATURES: complete expected types written independently of the theorems (compared by `isDefEq` at default transparency after `norm` unfolds the whitelisted definitions; `isDefEq` itself may unfold further definitions, so the whitelist does not bound what is unfolded) for
    `getEnvFrame_of_readWorld`, `machineDefinesLinked_of_head`, `root_find_of_head`, `counterLoop_final6/7/8`, `entryGatesB_sound/complete`, `entryGatesB_of_readsAt`, `quoteAt_of_readsAt`, `readerAt_of_readsAt`.
    MUTANTS: a cut connection (the head frame of another root; `ReadsAt` at the end world; a premise dropped), another run's world, another env / root / Post / data, the transfer in the wrong direction.
 2. HYPS: the explicit hypotheses of the final theorems, by name and type (no `hquiet`, no `GetEnvFrame`, no `hw`/`hsrc`/`hdRun`).
@@ -267,13 +267,13 @@ run_cmd liftTermElabM do
   same (Q ++ `entryGatesB_of_readsAt) ``ExpXferGatesTrue
   same (Q ++ `quoteAt_of_readsAt) ``ExpXferQuote
   same (Q ++ `readerAt_of_readsAt) ``ExpXferReader
-  differs (G ++ `entryGatesB_sound) ``MutSoundFalse; differs (G ++ `entryGatesB_sound) ``MutSoundOtherX; differs (G ++ `entryGatesB_sound) ``ExpComplete
-  differs (G ++ `entryGatesB_complete) ``ExpSound
-  differs (Q ++ `entryGatesB_of_readsAt) ``MutXferGatesRev; differs (Q ++ `quoteAt_of_readsAt) ``MutXferQuoteRev; differs (Q ++ `readerAt_of_readsAt) ``MutXferReaderRev
-  nm := nm + 8
+  for mu in [``MutSoundFalse, ``MutSoundOtherX, ``ExpComplete] do differs (G ++ `entryGatesB_sound) mu; nm := nm + 1
+  differs (G ++ `entryGatesB_complete) ``ExpSound; nm := nm + 1
+  differs (Q ++ `entryGatesB_of_readsAt) ``MutXferGatesRev; nm := nm + 1
+  differs (Q ++ `quoteAt_of_readsAt) ``MutXferQuoteRev; nm := nm + 1
+  differs (Q ++ `readerAt_of_readsAt) ``MutXferReaderRev; nm := nm + 1
   -- cross-version mutants: the final6 statement is not final7's / final8's
-  differs (S ++ `counterLoop_final6) ``F7True; differs (G ++ `counterLoop_final7) ``F6True; differs (Q ++ `counterLoop_final8) ``F7True
-  nm := nm + 3
+  for (t, mu) in [(S ++ `counterLoop_final6, ``F7True), (G ++ `counterLoop_final7, ``F6True), (Q ++ `counterLoop_final8, ``F7True)] do differs t mu; nm := nm + 1
   logInfo m!"FGCIRCUIT7 SIGNATURES: getEnvFrame_of_readWorld, machineDefinesLinked_of_head, root_find_of_head, counterLoop_final6/7/8, entryGatesB_sound/complete, entryGatesB_of_readsAt, quoteAt_of_readsAt, readerAt_of_readsAt: complete types match the independently written statements; {nm} mutants rejected (head frame of another root, ReadsAt at the end world, dropped head / cell / read premises, another env / root / Post / data, checker vs prop, S1g premises in place of env₀ premises)"
 
 /-! ## 2. the hypotheses that remain -/
