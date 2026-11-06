@@ -139,12 +139,11 @@ where
         pure { r with pf }
       | [] => throwError "Sh: a lambda with an empty spine (a function value, not a head)"
     | .letE n A v b nd =>
-      if coreHead A then throwError "Sh: a core-type let in head position"
       bumpSh "letZ"
       let vQ ← qU v
       let r ← evalSh K (consL (entCloE vQ ρ) ρ) b sp
       let pf ← mkN ``Sh.letZ [("env", K.env), ("ρ", ρ), ("n", toExpr n), ("A", ← qU A), ("v", vQ), ("b", ← qU b), ("nd", toExpr nd), ("sp", spT), ("hn", r.hn),
-        ("hA", reflT boolT (Lean.mkConst ``false)), ("h", r.pf)]
+        ("h", r.pf)]
       pure { r with pf }
     | .bvar i =>
       match cxGet ρ i with
@@ -285,7 +284,7 @@ unsafe def deriveT (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean.Ex
       catch ex =>
         let msg ← ex.toMessageData.toString
         if msg.startsWith "CAPHIT" then throw ex
-        modifyThe St fun s => { s with stops := s.stops.push msg }
+        modifyThe St fun s => { s with stops := s.stops.push (msg ++ " @ " ++ (toString e).take 1500) }
         let tv ← mkFreshExprMVar (some (mkSort (.succ .zero)))
         let r ← if ty then pure (mkApp (Lean.mkConst ``Res.ty) tv)
           else do

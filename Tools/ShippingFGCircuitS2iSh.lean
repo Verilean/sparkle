@@ -57,7 +57,7 @@ def recCallE (ls : List Level) : Expr := mkApps (.const ``List.rec ls) [.bvar 4,
 inductive Sh (env : Environment) : Cx → Expr → List Ent → Hn → Prop
   | app {ρ : Cx} {f a : Expr} {sp : List Ent} {hn : Hn} (h : Sh env ρ f (.clo a ρ :: sp) hn) : Sh env ρ (.app f a) sp hn
   | lam {ρ : Cx} {n : Name} {A b : Expr} {bi : BinderInfo} {c : Ent} {sp : List Ent} {hn : Hn} (h : Sh env (c :: ρ) b sp hn) : Sh env ρ (.lam n A b bi) (c :: sp) hn
-  | letZ {ρ : Cx} {n : Name} {A v b : Expr} {nd : Bool} {sp : List Ent} {hn : Hn} (hA : coreHead A = false) (h : Sh env (.clo v ρ :: ρ) b sp hn) :
+  | letZ {ρ : Cx} {n : Name} {A v b : Expr} {nd : Bool} {sp : List Ent} {hn : Hn} (h : Sh env (.clo v ρ :: ρ) b sp hn) :
       Sh env ρ (.letE n A v b nd) sp hn
   | bvarC {ρ : Cx} {i : Nat} {e' : Expr} {ρ' : Cx} {sp : List Ent} {hn : Hn} (hb : ρ[i]? = some (.clo e' ρ')) (h : Sh env ρ' e' sp hn) : Sh env ρ (.bvar i) sp hn
   | unf {ρ : Cx} {c : Name} {ls : List Level} {d : DefinitionVal} {sp : List Ent} {hn : Hn} (hd : env.find? c = some (.defnInfo d))
@@ -99,7 +99,7 @@ theorem sh_fun {env : Environment} {ρ : Cx} {e : Expr} {sp : List Ent} {hn : Hn
   induction h with
   | app h ih => intro hn' h'; cases h' with | app h' => exact ih h'
   | lam h ih => intro hn' h'; cases h' with | lam h' => exact ih h'
-  | letZ hA h ih => intro hn' h'; cases h' with | letZ hA' h' => exact ih h'
+  | letZ h ih => intro hn' h'; cases h' with | letZ h' => exact ih h'
   | bvarC hb h ih =>
     intro hn' h'; cases h' with
     | bvarC hb' h' =>

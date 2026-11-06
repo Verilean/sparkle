@@ -25,6 +25,7 @@ def viaOK (e : Expr) : Bool :=
   | .const c _ => !directHead c
   | .bvar _ => !(appArgs e).isEmpty
   | .lam .. => !(appArgs e).isEmpty
+  | .letE _ A .. => !coreHead A
   | _ => true
 
 theorem viaOK_bvar (i : Nat) : viaOK (.bvar i) = false := rfl

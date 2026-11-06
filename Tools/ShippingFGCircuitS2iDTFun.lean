@@ -188,8 +188,7 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
       exact ihb hb' rfl
     | viaSh hv' hsh' hsp' hcan' h'' =>
       subst he
-      cases hsh' with
-      | letZ hA0 _ => rw [hc] at hA0; cases hA0
+      simp [viaOK, appFn, hc] at hv'
     | _ => clashT
   | sigBeqBV he hd hw ha hb ihd ihw iha ihb => intro r' h' hk; cases h' with
     | sigBeqBV he' hd' hw' ha' hb' =>
@@ -367,8 +366,7 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
         exact ih h' hk
     | letE he' hA' hc' hv' hb' =>
       subst he'
-      cases hsh with
-      | letZ hA0 _ => rw [hc'] at hA0; cases hA0
+      simp [viaOK, appFn, hc'] at hv
     | bvAbbrev he' hr' =>
       subst he'
       have h0 := stopC_of_row hr'

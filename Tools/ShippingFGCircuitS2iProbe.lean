@@ -18,7 +18,9 @@ unsafe def runProbe (cap : Nat) : CommandElabM Unit := do
     withLocalDeclD `hlk (mkApp2 (Lean.mkConst ``EnvLk) envV lkV) fun hlkV => do
       let K : Kx := { env := envV, hlk := hlkV, lk := lkV }
       let act : G2 Unit := do
-        try discard (deriveT K false nilCx root) catch ex => modifyThe St fun s => { s with stops := s.stops.push s!"TOP: {← ex.toMessageData.toString}" }
+        try discard (deriveT K false nilCx root) catch ex => do
+          let m ← ex.toMessageData.toString
+          modifyThe St fun s => { s with stops := s.stops.push s!"TOP: {m}" }
       let (((), st2), st) ← ((act.run {}).run { probe := true, cap := cap })
       pure (st, st2)
   IO.eprintln s!"PROBE cap={cap}: DT nodes={st.nodes} Sh steps={st2.shSteps} viaSh={st2.viaN} {(← IO.monoMsNow) - t0} ms peakRSS={← hwmKb} kB stops={st.stops.size}"
