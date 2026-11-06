@@ -6493,3 +6493,6 @@ lean_lib «Tools.ShippingMachineTeleStates» where
 
 lean_lib «Tools.ShippingFGCircuitS2cProbe» where
   roots := #[`Tools.ShippingFGCircuitS2cProbe]
+
+lean_lib «Tools.ShippingFGCircuitS2cLink» where
+  roots := #[`Tools.ShippingFGCircuitS2cLink]
