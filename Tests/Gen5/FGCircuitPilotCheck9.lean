@@ -18,7 +18,7 @@ open Tools.ShippingEntrySoundness (RunsTo)
 open Tools.ShippingEntryReadsLinked (envAt CoreSaved coreHead)
 open Tools.ShippingMachineAuto (MachineData)
 open Tools.ShippingStRefCorrespondence (ReadWorld)
-open Tools.ShippingGenFGLedgerPremises Tools.ShippingFGCircuitLinked
+open Tools.ShippingGenFGLedgerPremises Tools.ShippingFGCircuitLinked Sparkle.Compiler.Elab
 open Tests.Gen5.FGCircuitPilotCheck5 (W GPd explicitBinders binderInfos dataExprOf literalExpr)
 
 /-! ## 1. expected statements, written independently -/
@@ -119,6 +119,8 @@ def WfHttp := ExpWf Sparkle.IP.Net.HTTP.httpGetByte.machineData
 def WfTlp := ExpWf Sparkle.IP.Bus.PCIe.tlpCplByte.machineData
 def LeafHttp := ExpLeaf Sparkle.IP.Net.HTTP.httpGetByte.machineData
 def LeafTlp := ExpLeaf Sparkle.IP.Bus.PCIe.tlpCplByte.machineData
+def WfFalse : Prop := Tools.ShippingGen5Sem.GenWF synth_hftPcieOutByte.machineData = false
+def LeafNe : Prop := Sparkle.IP.Net.HTTP.httpGetByte.machineData.shape.insts ≠ []
 def ShapeTrue := ExpShape ShE 5
 def ShapeBad := ExpShape ShBad 5
 def ShapeK4 := ExpShape ShE 4
@@ -126,11 +128,11 @@ def ShapeK4 := ExpShape ShE 4
 /-- `genGP_root_kids`. Knobs: the callees are asked of the list `insts.map (·.1)` (true) or of nothing (false) -/
 def ExpKids (needKids : Bool) : Prop :=
   ∀ {ι : Type} {dom : ι → DomainConfig} (lvl : Lean.Expr → Nat) {initsOf : (d : MachineData) → HList (Tools.ShippingMachineDenote.tys d.ss)}
-    (hs : Tools.ShippingGen5DataOf.DataOfSound (Tools.ShippingGen5DataOf.dataOfAt lvl) initsOf)
-    (genData₀ : (env : Environment) → (E : ConstantInfo) → Option (Tools.ShippingGen5DataOf.GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (structEnv env)))
-    (env : Environment) {X : Name} {E : ConstantInfo} {g : Tools.ShippingGen5DataOf.GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (structEnv env)},
+    (hs : Tools.ShippingGen5Sem.DataOfSound (Tools.ShippingGen5DataOf.dataOfAt lvl) initsOf)
+    (genData₀ : (env : Environment) → (E : ConstantInfo) → Option (Tools.ShippingGen5Sem.GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (structEnv env)))
+    (env : Environment) {X : Name} {E : ConstantInfo} {g : Tools.ShippingGen5Sem.GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (structEnv env)},
     Tools.ShippingGen5Acc.entry₀ env X = some E → genData₀ env E = some g →
-    (if needKids then (∀ c ∈ g.d.shape.insts.map (·.1), ∃ (Ec : ConstantInfo) (gc : Tools.ShippingGen5DataOf.GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) Ec (structEnv env)),
+    (if needKids then (∀ c ∈ g.d.shape.insts.map (·.1), ∃ (Ec : ConstantInfo) (gc : Tools.ShippingGen5Sem.GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) Ec (structEnv env)),
       Tools.ShippingGen5Acc.entry₀ env c = some Ec ∧ genData₀ env Ec = some gc ∧ gc.d.shape.insts = []) else True) →
     ∃ p : Pkg ι dom, genGP (ι := ι) (dom := dom) lvl hs genData₀ env X = some p ∧ p.decl = X ∧ p.d = g.d ∧ p.kD = Tools.ShippingGen5Sem.kDOf g.d
 
@@ -153,10 +155,10 @@ run_cmd liftTermElabM do
   let mut nm : Nat := 0
   -- the final theorem, and the statement it proves
   same (P ++ `synth_hftPcieOutByte_final) (Q ++ `HftTrue)
-  same (S ++ `HftFinalStmt) (Q ++ `HftTrue)
+  unless ← withDefault (isDefEq (mkConst (S ++ `HftFinalStmt)) (mkConst (Q ++ `HftTrue))) do throwError "HftFinalStmt differs from the expected statement"
   for mu in ["MutRootInRun", "MutChkData", "MutPostRoot", "MutNoHead", "MutNoCell", "MutNoRdH", "MutNoRdT", "MutNoCD", "MutNoSrc", "MutNoTop", "MutNoNoRaw", "MutNoHdRun", "MutRdEnd", "MutConclEnd"] do
     differs (P ++ `synth_hftPcieOutByte_final) (Q ++ Name.mkSimple mu)
-    differs (S ++ `HftFinalStmt) (Q ++ Name.mkSimple mu)
+    if ← withDefault (isDefEq (mkConst (S ++ `HftFinalStmt)) (mkConst (Q ++ Name.mkSimple mu))) then throwError "HftFinalStmt: the MUTANT {mu} was accepted"
     nm := nm + 2
   -- the obligations
   let defeq (a b : Lean.Expr) : MetaM Bool := withDefault (isDefEq a b)
@@ -164,9 +166,9 @@ run_cmd liftTermElabM do
   unless ← defeq (ob `HftObCD) (mkApp (mkConst (Q ++ `ExpObCD)) (mkConst (S ++ `hftRootValue))) do throwError "HftObCD differs from the expected statement"
   if ← defeq (ob `HftObCD) (mkApp (mkConst (Q ++ `ExpObCD)) (mkConst (Q ++ `varBad))) then throwError "HftObCD: mutant (another value) accepted"
   nm := nm + 1
-  let q (n : Name) (args : List Lean.Expr) : Lean.Expr := mkAppN (mkConst (Q ++ n)) args
-  let tt := mkConst ``true
-  let ff := mkConst ``false
+  let q (n : Name) (args : List Lean.Expr) : Lean.Expr := mkAppN (Lean.mkConst (Q ++ n)) args.toArray
+  let tt := Lean.mkConst ``true
+  let ff := Lean.mkConst ``false
   unless ← defeq (ob `HftObSrc) (q `ExpObSrc [tt]) do throwError "HftObSrc differs from the expected statement"
   if ← defeq (ob `HftObSrc) (q `ExpObSrc [ff]) then throwError "HftObSrc: mutant (no observation) accepted"
   unless ← defeq (ob `HftObTopCore) (q `ExpObTop [tt, tt]) do throwError "HftObTopCore differs from the expected statement"
@@ -184,7 +186,7 @@ run_cmd liftTermElabM do
   same (P ++ `http_leaf) (Q ++ `LeafHttp)
   same (P ++ `tlp_leaf) (Q ++ `LeafTlp)
   same (P ++ `root_shape) (Q ++ `ShapeTrue)
-  for (t, mu) in [(`root_insts, `InstsSwapped), (`root_insts, `InstsOne), (`root_kD, `KD4), (`root_wf, `WfHttp), (`http_leaf, `LeafTlp), (`root_shape, `ShapeBad), (`root_shape, `ShapeK4)] do
+  for (t, mu) in [(`root_insts, `InstsSwapped), (`root_insts, `InstsOne), (`root_kD, `KD4), (`root_wf, `WfFalse), (`http_leaf, `LeafNe), (`root_shape, `ShapeBad), (`root_shape, `ShapeK4)] do
     differs (P ++ t) (Q ++ mu); nm := nm + 1
   same (P ++ `genGP_root_kids) (Q ++ `KidsTrue)
   differs (P ++ `genGP_root_kids) (Q ++ `KidsNone); nm := nm + 1
