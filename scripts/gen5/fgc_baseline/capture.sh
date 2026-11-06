@@ -18,7 +18,16 @@ OUT="$1"; mkdir -p "$OUT/out" "$OUT/prof" "$OUT/status"
 TMO="${CAP_TMO:-900}"
 if [ $# -ge 2 ]; then cp "$2" "$OUT/files_run.txt"
 else tail -n +2 "$OUT/inventory.tsv" | cut -f1 | sort -u > "$OUT/files_run.txt"; fi
-{ echo "sha=$(git rev-parse HEAD)"; echo "toolchain=$(cat lean-toolchain)"; echo "date=$(date -u +%FT%TZ)"; } > "$OUT/env.txt"
+# `lean` must be the toolchain's own binary: inside `kjob lake env` only `lake` is on PATH
+# (first run: every file failed with "could not execute external process 'lean'").
+if ! command -v lean >/dev/null 2>&1; then
+  LB="$( (elan which lean 2>/dev/null) || true)"
+  [ -z "$LB" ] && LB="$(dirname "$(readlink -f "$(command -v lake)")")/lean"
+  [ -x "$LB" ] && export PATH="$(dirname "$LB"):$PATH"
+fi
+command -v lean >/dev/null 2>&1 || { echo "capture.sh: lean not found on PATH" >&2; exit 2; }
+lean --version > /dev/null || { echo "capture.sh: lean does not run" >&2; exit 2; }
+{ echo "sha=${FGC_SHA:-$(git rev-parse HEAD 2>/dev/null)}"; echo "lean=$(command -v lean)"; echo "toolchain=$(cat lean-toolchain)"; echo "date=$(date -u +%FT%TZ)"; } > "$OUT/env.txt"
 while read -r f; do
   [ -z "$f" ] && continue
   key="$(echo "$f" | tr '/' '_')"
