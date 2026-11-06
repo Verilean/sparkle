@@ -335,4 +335,48 @@ theorem tlp_pw {D : DomainConfig} (a1 b1 a2 b2 : Signal D (BitVec 16)) (a3 b3 a4
 
 end Tlp
 
+/-! # S2c (part E): one call of `ExtStage` over a combinational child -/
+section Call
+variable {ι : Type} {dom : ι → DomainConfig}
+
+theorem calleeOut_eq (Q : Name → Option (SemPkg ι dom)) (g : GenIn) (i : ι)
+    (S : Signal (dom i) (HList (tys g.d.ss))) (bs : Nat → Signal (dom i) Bool)
+    (vs : (j n : Nat) → Signal (dom i) (BitVec n)) (k : Nat) (c : Name) (a : List Nat) (κ : MixedGateBinder)
+    (q : SemPkg ι dom) (k' : Nat) (hk : g.d.shape.insts[k]? = some (c, a, κ)) (hq : Q c = some q)
+    (hsel : selIdx g.d q k = some k') :
+    calleeOut Q g i S bs vs k =
+      ((q.src i (Tools.ShippingMachineChild.boolsOf (D := dom i) (q.d.bsIn.take q.kD)
+          (Tools.ShippingMachineCallsLinkedT.valsOf (lsrcAt g.d bs vs S) (callArgs g.d k)))
+        (Tools.ShippingMachineChild.bitsOf (D := dom i) (q.d.bsIn.take q.kD)
+          (Tools.ShippingMachineCallsLinkedT.valsOf (lsrcAt g.d bs vs S) (callArgs g.d k))))[k']?).getD (fun _ => 0) := by
+  unfold calleeOut
+  rw [hk]
+  dsimp only
+  rw [hq]
+  dsimp only
+  rw [hsel]
+
+theorem callOut_bits (Q : Name → Option (SemPkg ι dom)) (g : GenIn) (i : ι)
+    (S : Signal (dom i) (HList (tys g.d.ss))) (k : Nat)
+    (st : (Nat → Signal (dom i) Bool) × ((j n : Nat) → Signal (dom i) (BitVec n)))
+    (c : Name) (a : List Nat) (w : Nat) (hk : g.d.shape.insts[k]? = some (c, a, .bits w))
+    (hor : originOf g.d k = .ord) (hkind : callKind g.d k = .bits w) :
+    (callOut Q g i S k st).1 = st.1 ∧
+    (∀ n τ, (((callOut Q g i S k st).2 (kDOf g.d + k) n).val τ) =
+      BitVec.ofNat n (calleeOut Q g i S st.1 st.2 k τ)) ∧
+    (∀ p n, p ≠ kDOf g.d + k → (callOut Q g i S k st).2 p n = st.2 p n) := by
+  have hc : callOut Q g i S k st = withCall g i k (.bits w) (calleeOut Q g i S st.1 st.2 k) st.1 st.2 := by
+    unfold callOut
+    rw [hk]
+    dsimp only
+    rw [hor]
+    dsimp only
+    rw [hkind]
+  rw [hc]
+  refine ⟨rfl, fun n τ => ?_, fun p n hp => ?_⟩
+  · simp [withCall]
+  · simp [withCall, hp]
+
+end Call
+
 end Tools.ShippingFGCircuitS2cLink
