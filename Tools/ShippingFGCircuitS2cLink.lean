@@ -232,4 +232,34 @@ theorem kid_pw1 (dc : MachineData) (hok : dc.ok = true) (hlen : dc.outs.length =
     bools bools bits bits' t (fun _ _ => rfl) hv
   simpa using h
 
+/-! # S2c (part D): the two children of the root as functions of their argument signals, at a cycle -/
+section Kids
+open Tools.ShippingMachineCausal (extendBits_self extendBits_ne)
+
+theorem http_nIn : Sparkle.IP.Net.HTTP.httpGetByte.machineData.nIn = 2 := by decide +kernel
+theorem http_K : ∀ p w, p < 2 → Sparkle.IP.Net.HTTP.httpGetByte.machineData.K p = some (.bits w) → p = 1 ∧ w = 6 := by
+  intro p w hp hK
+  have h0 : Sparkle.IP.Net.HTTP.httpGetByte.machineData.K 0 = none := by decide +kernel
+  have h1 : Sparkle.IP.Net.HTTP.httpGetByte.machineData.K 1 = some (.bits 6) := by decide +kernel
+  rcases (show p = 0 ∨ p = 1 by omega) with rfl | rfl
+  · rw [h0] at hK; cases hK
+  · rw [h1] at hK; cases hK; exact ⟨rfl, rfl⟩
+
+/-- `httpGetByte` at a cycle depends on its argument's value at that cycle -/
+theorem http_pw {D : DomainConfig} (x y : Signal D (BitVec 6)) (t : Nat) (h : x.val t = y.val t) :
+    (Sparkle.IP.Net.HTTP.httpGetByte x).val t = (Sparkle.IP.Net.HTTP.httpGetByte y).val t := by
+  let z : (j n : Nat) → Signal D (BitVec n) := fun _ _ => ⟨fun _ => 0⟩
+  have key := kid_pw1 Sparkle.IP.Net.HTTP.httpGetByte.machineData Sparkle.IP.Net.HTTP.httpGetByte.machine_ok
+    (by decide +kernel) Sparkle.IP.Net.HTTP.httpGetByte.machineInits
+    (fun {D} bits t => ((Sparkle.IP.Net.HTTP.httpGetByte (bits 1 6)).val t).toNat)
+    (fun D bools bits t => Sparkle.IP.Net.HTTP.httpGetByte.machine_result D bools bits t)
+    (fun _ => ⟨fun _ => false⟩) (extendBits z 1 6 x) (extendBits z 1 6 y) t
+    (fun p w hp hK => by
+      obtain ⟨rfl, rfl⟩ := http_K p w (by rw [← http_nIn]; exact hp) hK
+      rw [extendBits_self, extendBits_self]; exact h)
+  simp only [extendBits_self] at key
+  exact BitVec.eq_of_toNat_eq key
+
+end Kids
+
 end Tools.ShippingFGCircuitS2cLink
