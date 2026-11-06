@@ -87,7 +87,7 @@ theorem checkedEnv_of_inl {lvl : Lean.Expr → Nat} {env₀ : Environment} {X : 
   · unfold ReaderOnDecl; rw [he]; exact ⟨hshape, hdata⟩
 
 /-- the data from the two evaluated pieces of the reader (`dataOfFront`, `dataOfCore`) -/
-theorem dataOfAt_of_pieces {lvl : Lean.Expr → Nat} {d : DefinitionVal} {se : StructEnv} {dd : MachineData} {V' T D : Lean.Expr} {nI : Nat}
+theorem dataOfAt_of_pieces {lvl : Lean.Expr → Nat} {d : DefinitionVal} {se : StructEnv} {dd : MachineData} {V' D : Lean.Expr} {nI : Nat}
     (hval : d.value = V') (hx : RootExtern V')
     (hfront : dataOfFront (.defnInfo d) se dd.shape V' Sparkle.Compiler.MachRawSurface.rootFloat = some (nI, D))
     (hcore : dataOfCore lvl dd.shape nI D = some dd) :
@@ -105,7 +105,7 @@ theorem machRoot_of_head (f : Name → Option (Name × Nat × Nat)) {B : Lean.Ex
   obtain ⟨a, b, hab⟩ := happ
   unfold machRoot
   split
-  · rename_i heq; rw [hab] at heq; cases heq
+  · cases hab
   · simp [hm, hs, hf]
 
 set_option maxRecDepth 100000
