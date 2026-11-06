@@ -282,6 +282,12 @@ def HftRootLink : Prop :=
       (fun j w => (typedVal gi.d.nIn gi.d.bpos gi.d.vpos gi.d.ss gi.d.ls (extBOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S)
         (extOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S) t (S.val t)).v (gi.d.vpos j) w) o.2)
 
+/-- non-vacuity of `HftRootLink`'s quantifier over `GenIn`: a `GenIn` over the root's data exists (from the endpoint's own facts), so the statement is not vacuous -/
+noncomputable def hftGenIn : GenIn :=
+  ⟨synth_hftPcieOutByte.machineData, root_wf, Tools.ShippingGen5DataOfPure.initsOf synth_hftPcieOutByte.machineData,
+    synth_hftPcieOutByte.machine_ok, synth_hftPcieOutByte.machine_body, by decide +kernel⟩
+theorem hftGenIn_d : hftGenIn.d = synth_hftPcieOutByte.machineData := rfl
+
 theorem hftTlp_ne_http : hftTlp ≠ hftHttp := by decide
 theorem root_insts_nonempty : synth_hftPcieOutByte.machineData.shape.insts.isEmpty = false := by decide +kernel
 theorem http_ss : Sparkle.IP.Net.HTTP.httpGetByte.machineData.ss = [] := by decide +kernel
@@ -405,8 +411,7 @@ open Tools.ShippingFGCircuitS1qEndpoint Tools.ShippingFGCircuitS1mCD Tools.Shipp
 open Tools.ShippingStRefCorrespondence (ReadWorld)
 
 def HftFinalStmtOffL (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  HftRootLink →
-  ∀ {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+  ∀ (hlink : HftRootLink) {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
     {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
     (hstart : Start L mctx cctx w)
