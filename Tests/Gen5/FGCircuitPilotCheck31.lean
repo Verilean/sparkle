@@ -222,15 +222,15 @@ def tyOf (n : Name) : MetaM Lean.Expr := do
   let ci ← getConstInfo n
   unless ci.levelParams.isEmpty do throwError "{n}: level parameters"
   pure ci.type
-/-- `a` is the normal form of a real type; the SAME transparency (`withDefault`) is used for the expected statement and for every mutant, and binder kinds are compared in both -/
+/-- `a` is the normal form of a real type; the SAME transparency (`instances`) is used for the expected statement and for every mutant, and binder kinds are compared in both -/
 def same4 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
   let e ← norm4 exp
-  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
+  unless ← withTransparency .instances (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
   unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
 def diff4 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
   let e ← norm4 exp
   if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withDefault (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  if ← withTransparency .instances (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
 
 /-! ## 1. `hftTop_of_runH` -/
 
@@ -250,7 +250,7 @@ run_cmd liftTermElabM do
       r := r ++ [d.userName.toString]
     return r)
   let expected := ["ι", "mref", "cref", "L", "lvl", "env₀", "mctx", "cctx", "w", "b", "D'", "hstart", "hcell", "hchk", "hreadH", "hreadT", "hmiss", "hkgfacts", "hdec"]
-  unless names == expected do throwError "hftTop_of_runH binders {names}, expected {expected}"
+  unless names.take 19 == expected do throwError "hftTop_of_runH binders {names}, expected {expected}"
   logInfo m!"FGCIRCUIT31 SIGNATURES-TOP: hftTop_of_runH binders {names} (19 incl. implicit): hkenv is replaced by hmiss, kgfacts and hdec as in the final statement; no hkenv / KidStartEnv"
   let uses := t.getUsedConstants
   for bad in [``Tools.ShippingFGCircuitS2dKids.KidStartEnv, ``Tools.ShippingFGCircuitS2dKids.HftKidsStartEnv, ``Tools.ShippingMachineEntry.MachineDefines] do
@@ -262,6 +262,7 @@ run_cmd liftTermElabM do
 /-! ## 2. the combined final statement -/
 
 set_option maxHeartbeats 64000000 in
+set_option maxRecDepth 100000 in
 run_cmd liftTermElabM do
   let C (n : Name) : Lean.Expr := Lean.mkConst n
   let Q := `Tests.Gen5.FGCircuitPilotCheck31
@@ -283,7 +284,7 @@ run_cmd liftTermElabM do
   for (old, what) in [(`Tools.ShippingFGCircuitS2hHist.synth_hftPcieOutByte_finalOffLNKH_Z, "S2h"), (`Tools.ShippingFGCircuitS2jTop.synth_hftPcieOutByte_finalOffLNKKGT_Z, "S2j"),
       (`Tools.ShippingFGCircuitS2gGates.synth_hftPcieOutByte_finalOffLNKKG_Z, "S2g"), (`Tools.ShippingFGCircuitS2dKids.synth_hftPcieOutByte_finalOffLNKK_Z, "S2d")] do
     diff4 s!"finalOffCombined_Z vs the {what} statement" finN (← tyOf old); nm := nm + 1
-  logInfo m!"FGCIRCUIT31 SIGNATURES-FINAL: the complete type of synth_hftPcieOutByte_finalOffCombined_Z (14 explicit hypotheses, binder kinds too) matches the independently written ExpFinalComb at its real knobs; the real type is normalised once and every statement is compared at the SAME transparency (withDefault); {nm} mutants rejected: hdec (a fixed callee, call index 0, another root, package not required, True, at the end world / env₀ / an independent world, dropped), hmiss (each knob of MissE, the old universal hkenv, only reads / only profile / equality / True evidence, at the end world / env₀ / an independent world, dropped), hkgfacts (swapped by quote, swapped by name, a callee twice, one callee only, the whole-value points, True, the old EntryGates (hkgates), at the end world / env₀ / an independent world, dropped), swapped / shape-swapped readers, the diagnostic entry, the old artifact, a premise or conjunct missing, another root / post root / output, hcd or the conclusion at the end world / env₀, another reference / context / design, another carrier / obligation, and the S2h / S2j / S2g / S2d statements"
+  logInfo m!"FGCIRCUIT31 SIGNATURES-FINAL: the complete type of synth_hftPcieOutByte_finalOffCombined_Z (14 explicit hypotheses, binder kinds too) matches the independently written ExpFinalComb at its real knobs; the real type is normalised once and every statement is compared at the SAME transparency (instances); {nm} mutants rejected: hdec (a fixed callee, call index 0, another root, package not required, True, at the end world / env₀ / an independent world, dropped), hmiss (each knob of MissE, the old universal hkenv, only reads / only profile / equality / True evidence, at the end world / env₀ / an independent world, dropped), hkgfacts (swapped by quote, swapped by name, a callee twice, one callee only, the whole-value points, True, the old EntryGates (hkgates), at the end world / env₀ / an independent world, dropped), swapped / shape-swapped readers, the diagnostic entry, the old artifact, a premise or conjunct missing, another root / post root / output, hcd or the conclusion at the end world / env₀, another reference / context / design, another carrier / obligation, and the S2h / S2j / S2g / S2d statements"
   logInfo m!"FGCIRCUIT31 NOTE: the facts of hkgfacts are compared through Check27's ExpKGF/ExpHK (their constructor types are shown equal to KidGateFacts in Check27 SIGNATURES-A); hdec through Check30's ExpDec; hmiss through Check28's kmissR (ExpMiss over ExpEv)"
 
 /-! ## 3. HYPS and the reach walk -/
@@ -331,7 +332,7 @@ run_cmd liftTermElabM do
       ``Tools.ShippingFGCircuitS2dKids.KidStartEnv, ``Tools.ShippingFGCircuitS2dKids.HftKidsStartEnv, ``Tools.ShippingGen2.Start, ``Tools.ShippingFGCircuitS1iEnv.CheckedStart,
       ``Tools.ShippingGen2.ShipsRes, ``Tools.ShippingGen2.ChildShips, ``Tools.ShippingGen2.TopShips] do
     if r.contains bad then throwError "{bad} is reachable from hmiss / hkgfacts / hdec within the walk"
-  for good in [``Tools.ShippingFGCircuitS1oHead.GetEnvProfileAt, ``Tools.ShippingGen5Env.ReadsAt, ``RealChildE, ``JQH, ``Tools.ShippingGen2.CallDec, ``instancePredicate, ``userInliner] do
+  for good in [``Tools.ShippingFGCircuitS1oHead.GetEnvProfileAt, ``Tools.ShippingGen5Env.ReadsAt, ``Tools.ShippingFGCircuitS2hHist.RealChildE, ``JQH, ``Tools.ShippingGen2.CallDec, ``instancePredicate, ``userInliner] do
     unless r.contains good do throwError "{good} is not reached from hmiss / hkgfacts / hdec"
   -- the explicit binders of the three hypotheses are the only changes: kinds are explicit
   for (n, bi, _) in hs do

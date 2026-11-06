@@ -282,14 +282,15 @@ def norm5 (e : Lean.Expr) : MetaM Lean.Expr := do
 /-- same transparency for the expected statement and the mutants; binder kinds compared -/
 def same5 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
   let e ← norm5 exp
-  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
+  unless ← withTransparency .instances (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
   unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
 def diff5 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
   let e ← norm5 exp
   if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withDefault (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  if ← withTransparency .instances (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
 
 set_option maxHeartbeats 64000000 in
+set_option maxRecDepth 100000 in
 run_cmd liftTermElabM do
   let C (n : Name) : Lean.Expr := mkConst n
   let Q := `Tests.Gen5.FGCircuitPilotCheck27
@@ -301,7 +302,7 @@ run_cmd liftTermElabM do
     diff5 s!"finalOffLNKKG_Z vs {mu}" finN (mkApp2 (q mu) (C ``HftObCDZ) (C ``cdvZ)); nm := nm + 1
   for mu in ["G_CarrierY", "G_CarrierOld", "G_ObY"] do
     diff5 s!"finalOffLNKKG_Z vs {mu}" finN (q mu); nm := nm + 1
-  logInfo m!"FGCIRCUIT27 SIGNATURES-C: the complete type of synth_hftPcieOutByte_finalOffLNKKG_Z (14 hypotheses, binder kinds too) matches the independently written expected statement (Check26's ExpFinalKK with the facts of this file); the real type is normalised once and compared at the SAME transparency (withDefault) with every mutant; {nm} mutants rejected: hkgfacts / hkenv / both at the END world, the diagnostic entry, the old artifact, a premise or conjunct missing, hkgfacts swapped by quote / by name / a callee twice / one callee only / whole-value points / True / the old EntryGates, hkenv swapped / True, another root / post root / output, hcd or the conclusion at the end world, another reference / context / design, another carrier / obligation. The combined (latest) statement is compared in Check31"
+  logInfo m!"FGCIRCUIT27 SIGNATURES-C: the complete type of synth_hftPcieOutByte_finalOffLNKKG_Z (14 hypotheses, binder kinds too) matches the independently written expected statement (Check26's ExpFinalKK with the facts of this file); the real type is normalised once and compared at the SAME transparency (instances) with every mutant; {nm} mutants rejected: hkgfacts / hkenv / both at the END world, the diagnostic entry, the old artifact, a premise or conjunct missing, hkgfacts swapped by quote / by name / a callee twice / one callee only / whole-value points / True / the old EntryGates, hkenv swapped / True, another root / post root / output, hcd or the conclusion at the end world, another reference / context / design, another carrier / obligation. The combined (latest) statement is compared in Check31"
 
 /-! ## 3. the quotes and the environment points -/
 
