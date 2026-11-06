@@ -11,7 +11,7 @@ Issue `sparkle-fg-circuit-baseline`（S0、親 `sparkle-fg-circuit-strategy`）�
 |---|---|
 | 静的な一覧 | 完了: `scripts/gen5/fgc_baseline/inventory.tsv`（327 コマンド）, `files.tsv` |
 | 合成の成功 | **327 / 327 成功**（OK 309 + OK-nostdout 18）。135 / 136 file が exit 0（`Tests/VerifyVerilog.lean` は合成と無関係の既存エラー）。除外 0、未説明 0。記録: kjob-run-src-fgc-s0run-0474（土台 46874da9）。保存した raw を今の `summarize.py` で別の場所に再集計し、数が一致することを確認した（下「再集計」） |
-| 出力の baseline（`#writeDesign` / `#writeVerilogDesign` の 18 件） | **未固定**。stdout に module が出ないので、書かれた file（sv / cppsim.h / jit.c、計 50 file）の実体・パス・hash が要る。保存した raw には stdout しかなく、file は残っていない。再取得: `capture_outputs.sh`（下）。固定されるまで、この 18 件は「成功の回数」だけで、出力の比較の基準ではない |
+| 出力の baseline（`#writeDesign` / `#writeVerilogDesign` の 18 件） | **固定済み**（2026-11-06、kjob-run-src-fgc-s0d-4c68）。書かれた 50 file（sv 18 / cppsim.h 16 / jit.c 16）の実体はソースの外に保存し、パスと sha256 を `scripts/gen5/fgc_baseline/output_baseline.tsv` に固定した。すべて OK（欠落・空・失敗 0）。詳しくは下の「出力の baseline」の節 |
 | シミュレーション・vector 検査 | 確定: `scripts/gen5/fgc_baseline/sim_final.tsv`（147 行 = ユニークな検査 146 + 置き換えの JIT 版 1）。PASS 143、KNOWN-FAIL 3（h264、既存の不具合のまま残す）、REPLACED-BY-JIT 1 |
 | 除外 | 0（`exclusions.tsv` には synthesis の除外はない。シミュレーション側の 1 件の置き換えがコメントで記録されている） |
 
@@ -23,11 +23,11 @@ Issue `sparkle-fg-circuit-baseline`（S0、親 `sparkle-fg-circuit-strategy`）�
 
 ### 出力 18 件の扱い（レビュー指摘 2）
 
-- 既存の artifact: **ない**。保存した raw（0474）には各 file の stdout と profile しかなく、書かれた file は Pod のコピーと一緒に消えた。他の `KJOB_INPUT_DIR` にも該当する file はなかった。
-- 再取得が必要（この 18 件が入る 16 file だけ、同じコンパイラの版で）: `capture_outputs.sh OUT`。file 毎に elaborate し、`collect_outputs.py` が書かれた file を hash して `OUT/output_store/`（ソースの外）に複製し、`output_baseline.tsv`（file, line, command, top, kind, declared_path, path, status, sha256, bytes, stored）を作る。
+- 既存の artifact: なかった。保存した raw（0474）には各 file の stdout と profile しかなく、書かれた file は Pod のコピーと一緒に消えていた。そのため下の手順で再取得した（kjob-run-src-fgc-s0d-4c68）。
+- 再取得した（この 18 件が入る 16 file だけ、同じコンパイラの版で）: `capture_outputs.sh OUT`。file 毎に elaborate し、`collect_outputs.py` が書かれた file を hash して `OUT/output_store/`（ソースの外）に複製し、`output_baseline.tsv`（file, line, command, top, kind, declared_path, path, status, sha256, bytes, stored）を作る。
 - 割り当ては順番ではなくパスで行う: ソースのコマンドの最初の文字列リテラル（.sv のパス）と一致する stdout の `Written N modules to <path>` から始まる 3 行（cppsim.h、jit.c）だけを、そのコマンドの出力とする。stdout の中のほかのコマンドの出力は混ざらない。
 - 欠落は失敗: file がない（MISSING）、stdout にない（NOT-IN-STDOUT）、空（EMPTY）はどれも `status != OK`。`collect_outputs.py` は exit 1、`summarize.py --outputs output_baseline.tsv` はその command を FAIL にして unexplained に数える。
-- hash が固定されたら、`output_baseline.tsv`（hash とパスだけ。file の実体は載せない）を commit する。これは再取得の後の作業である。
+- `output_baseline.tsv`（hash とパスだけ。file の実体は載せない）は commit 済み（9c9623a0）。
 - 注意: `Tests/Tutorial/HierarchyTest.lean` の 2 件は `/tmp/sparkle_hier_test_x2*.sv` に書く（絶対パス）。`IP/RV32/SoCVerilog.lean` は `verilator/generated_soc.sv`（`*.sv` は .gitignore）。いずれもソースツリーには残らない。
 
 ## 母集団の区別（同一視しない）
@@ -71,13 +71,13 @@ lake build Tests.AllTests
 lake build IP.RV32 IP.YOLOv8 IP.Video IP.Bus IP.Arbiter Examples.CDC
 
 # 3. 合成の取得（重い。ファイル毎 timeout 900、直列、再開可能。$OUT/files_run.txt を分割して複数 job にしてよい）
-timeout 900 $S/capture.sh $OUT [part.txt]       # CAP_TMO=秒, REDO=1
+$S/capture.sh $OUT [part.txt]                   # ファイル毎の timeout は CAP_TMO（既定 900 秒）。全体を timeout で包まない。REDO=1
 # 3b. 出力 18 件の baseline（上の「出力 18 件の扱い」）
-timeout 900 $S/capture_outputs.sh $OUT
+$S/capture_outputs.sh $OUT                      # 16 file。ファイル毎の timeout は capture.sh の CAP_TMO
 # 4. 表にまとめる（軽い）。RAW は読むだけ
 python3 -I $S/summarize.py $OUT [DEST] --outputs $OUT/output_store/output_baseline.tsv
 # 5. シミュレーション・vector 検査（重い）。GROUP = env / h264 / test / toplevel
-timeout 900 $S/sim_rerun.sh GROUP $OUT          # 各 check の exit は $OUT/sim_rerun/GROUP.tsv
+$S/sim_rerun.sh GROUP $OUT                      # check 毎の timeout は SIM_TMO（既定 900 秒、test は 3600）。各 check の exit は $OUT/sim_rerun/GROUP.tsv
 # 6. 最終の表（sim_final.tsv）は、最初の実行の sim_results.tsv と 5 の結果から make_sim_final.py で作る
 ```
 
@@ -139,7 +139,7 @@ timeout 900 $S/sim_rerun.sh GROUP $OUT          # 各 check の exit は $OUT/si
 | 8 | exe-test（1 回目、exit 1、65 秒） | 未確定 | 同名の log を 2 回目が上書きし、原因の行が残っていない | `sim_rerun.sh test` で再取得して分類する |
 | 9-11 | h264-bitstream-test / h264-playable-test / h264-frame-encoder-test | (b) 候補（再実行で確認） | `uncaught exception: JIT: wire '_gen_done' not found`（frame-encoder は `_gen_cavlcBitBuffer`）。ただし log では `Written JIT wrapper to .lake/build/gen/h264/*_jit.c` が同じ run の中で出ており、古い gen ではない。`EncoderSynth` `CAVLCSynth` `FrameEncoderSynth` は `#writeDesign … observableWires` で当該 wire を宣言している | `sim_rerun.sh h264`（gen を消して再生成、生成した `_jit.c` の wire 名を記録、3 本を再実行）。それでも失敗なら (b): 修正先は `Sparkle/Backend/CSim.lean` の `toCJITUnchecked`（`_gen_*` の member 化）と `Sparkle/IR/Optimize.lean` の observable の扱い |
 
-件数: (a) 環境 6（1-5 と 7）、(b) 既存の不具合 1 確定（6）+ 3 候補（9-11）、未確定 1（8）。合計 11。**未説明のものは 8 と 9-11 の再実行結果待ち**で、それまで baseline の sim 側は固定しない。(c)（新経路の問題）は 0。
+件数（この表は分類した時点 fbaf7427 の記録で、履歴として残す）: (a) 環境 6（1-5 と 7）、(b) 既存の不具合 1 確定（6）+ 3 候補（9-11）、未確定 1（8）。合計 11。(c)（新経路の問題）は 0。**再実行のあとの確定した結果は、下の「シミュレーションの検査の確定」の節と `scripts/gen5/fgc_baseline/sim_final.tsv`**（8 は成功、9-11 は既存の不具合で確定、6 は JIT 版で置き換え）。
 
 ## シミュレーションの検査の確定（2026-11-06、coder。機械可読な表は sim_final.tsv）
 
