@@ -1777,3 +1777,61 @@ Check の出力行は 7（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、QUOTES 1、
 ### 36.7 ビルド環境の注記
 
 `timeout 1500 kjob lake build TARGET`（`ulimit -v` なし）。S2jCopy/S2jKid/S2jTop/Check30 はそれぞれ数十秒〜1 分程度（依存は cache）。
+
+## 38. S2l（Issue `sparkle-fg-circuit-pilot` の次の束）: `hdec` — 非 leaf root の `HftCallDec` を 3 つの reader から証明
+
+土台 `86230111`（par/fgc-s1）。追加ファイル（既存は書き換えていない。lakefile 登録は各 1 回）: `Tools/ShippingFGCircuitS2lDec.lean`、`Tests/Gen5/FGCircuitPilotCheck32.lean`。TRUSTED・axiom・sorry・native_decide・新しい law はない（標準 axiom のみ）。S2k（最終文、Check27/31、§33/§37）と S2i（`hcd`、Check29、§35）の領域には触れていない。Issue の状態は変えていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**で台帳に数えない。
+
+### 38.1 手順 1: 完全な型（先に固定）
+
+```
+theorem callDec_of_oneOutCall {ι} {dom} (P : Pkgs ι dom) (p q : Pkg ι dom) (k) (hk : k < p.d.shape.insts.length) :
+  P (p.d.shape.insts[k]'hk).1 = some q → (p.d.shape.instOrigins.getD k .ord).child? = none →
+  GenExtAtCall p q k hk → p.d.shape.instFields = [] →
+  p.d.callsOk p.kD = true → p.d.ss.length = p.d.shape.layout.slots.length →
+  callArgsOkAt p.d p.kD k q.portWidths = true → (p.d.shape.insts[k]'hk).2.1.length = q.ports.length →
+  (∃ o, q.d.shape.layout.outs = [o]) → (∀ o ∈ q.d.shape.layout.outs, o.ty.bitWidth = o.width) →
+  (∀ o, q.d.shape.layout.outs = [o] → (p.d.shape.binders[p.kD + k]?).map (fun bn => (kindTy bn.2).bitWidth) = some o.ty.bitWidth) →
+  CallDec p q k
+
+theorem hftCallDec_of_readers {ι} (lvl : Expr → Nat) (env : Environment)
+  (hreadR : RootReader lvl env hftRoot synth_hftPcieOutByte.machineData)
+  (hreadH : RootReader lvl env hftHttp httpGetByte.machineData)
+  (hreadT : RootReader lvl env hftTlp tlpCplByte.machineData) : HftCallDec (ι := ι) lvl env
+
+theorem hftCallDec_of_checked {ι} {mref} {cref} (lvl) (env₀) {w} (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+  (hfind : ∃ ci, (envAt cref w).find? hftRoot = some ci) (hreadH : RootReader lvl (envAt cref w) hftHttp …) (hreadT : …) : HftCallDec (ι := ι) lvl (envAt cref w)
+```
+
+独立文面は Check32 が `isDefEq` で照合する。
+
+### 38.2 分解（`callDec_of_callTie` ← `CallTie` ← …）の各部の供給
+
+| 部品 | 供給 |
+|---|---|
+| `GenExtAtCall p q k`（`k = 0, 1`） | **証明**: `hDT1_of_genGP`（table `GPt = genGP …` に接続。`hord`＝`child? = none` は kernel の `hft_ord`） |
+| `CallOutRange` | **証明**（予定の未供給を解消）: `callOutRange_of_widths` = `Pkg.src_range`（callee の source 出力は自身の layout 幅未満）+ callee の `o.ty.bitWidth = o.width`（`http_outTy`/`tlp_outTy`、kernel）+ 親の call 結果 binder の幅（`hft_width0/1`、kernel）。run も子の実出力も不要 |
+| T2-FIELD（callee は出力 1 つ） | **証明**: root は `instFields = []`（`hft_instFields`）なので `callField_one` が `CallField ↔ q.outs = [o]` を与え、callee の layout の出力が 1 つであること（`http_outsLen`/`tlp_outsLen`、kernel）から。`callField_at`（`ShipsRes` 経由）は使わない = **run を要しない** |
+| 静的 data | **証明**（kernel）: `hft_callsOk`、`hft_slotsLen`、`hft_args0/1`（`callArgsOkAt`）、`hft_len0'/1'`（引数個数＝callee の port 数） |
+| callee の package | `kid_pkg`（S2j、table の leaf 行は `.comb`、`cp.d = d`、`cp.kD = kDOf d`） |
+
+### 38.3 残る前提（`hdec` の供給に要るもの）
+
+`hftCallDec_of_readers` の前提は 3 つの `RootReader` のみ: root（`hftCallDec_of_checked` では `hchk` と「root が開始環境にある」から `startFacts_of_checked`）、`hreadH`、`hreadT`。最終文には root の `hchk` と `hreadH/T` が既にあるので、**`hdec` は新しい前提を足さずに最終文の前提から出る**（S2k が `hdec` を仮説から外して `hftCallDec_of_checked` で置換できる。root が環境にある事実は `root_find_of_headAtOff`（`hr` と `hcell`）から run 局所に得られる）。run・世界・`Start`・`ShipsRes`・`TopShips` はこの文から到達不能（Check32 HYPS）。
+
+### 38.4 Check32 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck32`、exit 0、945 jobs）
+
+- `FGCIRCUIT32 SIGNATURES`: 3 定理の完全な型を独立に書いた文面と照合。**9 mutant 棄却**（callee の reader の入れ替え、別の root、reader の欠落、call index 0 固定、callee 固定、見つかる宣言が違う、終端 world の環境、range の行の欠落、callee の package が親自身）。
+- `FGCIRCUIT32 CONTROLS`（kernel）: 入れ替えた callee・誤った call index の `callArgsOkAt` は `false`、正しい組は `true`。
+- `FGCIRCUIT32 HYPS`、`FGCIRCUIT32 REMAINING`、`FGCIRCUIT32 AXIOMS`（13 名、標準 axiom のみ）。Check の出力行は 5。
+
+### 38.5 証明した / 名前付き仮説 / 次
+
+- **証明**: `callDec_of_oneOutCall`、`hftCallDec_of_readers`、`hftCallDec_of_checked`、kernel の静的 data 11 件。`GenExtAtCall`（`hDT1_of_genGP` 接続）、`CallOutRange`（`callOutRange_of_widths`）、T2-FIELD（`callField_one`）、`callArgsOkAt` はすべて供給済み。FG D.D-4 `G-CALLDEC` はこの root について仮説でなくなる。
+- **名前付き仮説（S2l で新設なし）**: `hdec` を `hftCallDec_of_checked` で置き換えたあとに残る前提は S2j/S2g のまま: `hkenv`（D.T-4k）、`hkgfacts`（D.T-4g）、`hlink`（S2c）、`hcd`（S2b/S2i）、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`。
+- 次: S2k が最終文の `hdec` を `hftCallDec_of_checked` で置き換える（`hfind` は `root_find_of_headAtOff` と `hr`・`hcell` から）。最終文は S2l では変えていない。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。条件付きは減算しない。
+
+### 38.6 ビルド環境の注記
+
+`kjob lake build TARGET`（短い timeout なし）。S2lDec は依存が cache で数十秒、Check32 も軽い。
