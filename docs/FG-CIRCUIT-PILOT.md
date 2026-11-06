@@ -1127,7 +1127,7 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 ```
 `extBOf/extOf hftKids gi` = `ExtStage hftKids gi … gi.d.shape.insts.length`（root は callee 2 個）。run・環境・table に依存しない（root 宣言と子の宣言の観測だけの文）。`hftGenIn : GenIn`（`machine_ok`/`machine_body`/`initOk` の kernel 事実から）があるので量化は空でない。
 
-組み立て `hftObSrc_of_rootLink : HftRootLink → ∀ {ι} lvl env, RootReader … root → RootReader … http → RootReader … tlp → HftObSrc lvl env`。証明: `canon_row` ×3、`genGP_root_kids_src`、`gi.d.ss` が空でない（kernel: `insts.isEmpty = false`）ので `genSemI` は `gen` 腕、`TablesAgree (genS K) hftKids gi.d`（子は `genSemI_comb_src` と `genSemI_d`/`genSemI_kD`）、`CalleesCausal (genS K) gi.d`（子は `comb` 腕: `genSemI_srcCausal`）、`ExtStage_agree_tables` で `genS K` から `hftKids` に移し、`genSemGen_src_eq_of_link`（下）と `HftRootLink`。
+組み立て `hftObSrc_of_rootLink : HftRootLink → ∀ {ι} lvl env, RootReader … root → RootReader … http → RootReader … tlp → HftObSrc lvl env`。証明: `canon_row` ×3、`genGP_root_kids_src`、`genSemI` の腕の選択は `ss.isEmpty && insts.isEmpty`（両方空なら `comb` 腕）なので、root が `gen` 腕になる根拠は **`insts` が空でないこと**（kernel: `root_insts_nonempty : insts.isEmpty = false`。`ss` の中身には依らない）、したがって `genSemI` は `gen` 腕（`genSemGen`）、`TablesAgree (genS K) hftKids gi.d`（子は `genSemI_comb_src` と `genSemI_d`/`genSemI_kD`）、`CalleesCausal (genS K) gi.d`（子は `comb` 腕: `genSemI_srcCausal`）、`ExtStage_agree_tables` で `genS K` から `hftKids` に移し、`genSemGen_src_eq_of_link`（下）と `HftRootLink`。
 
 `genSemGen_src_eq_of_link`（一般、証明した）: `src_eq_of_states`（leaf: `ExtStage … 0 = id`）の非 leaf 版。loop の再帰は `loop_state_causal`（呼び出しの値は過去の状態にも依存するので pointwise でなく causal）、causal 性は `extCausal_of_genSem`（`CalleesCausal`）。仮定は「生成された再帰に従う任意の状態列について、宣言の観測 = データの `outs` の評価」（`hlink`）の 1 つ。
 
