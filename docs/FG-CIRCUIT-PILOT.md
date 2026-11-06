@@ -1500,3 +1500,64 @@ Check の出力行は 7（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、QUOTES 1、
 ### 33.6 ビルド環境の注記
 
 `timeout 1500 kjob lake build TARGET`（`ulimit -v` なし）。`Tools.ShippingFGCircuitS2gGates` は約 1 分（S2d の build 込みで）、Check27 も約 1 分。
+
+## 36. S2j（Issue `sparkle-fg-circuit-pilot` の次の束）: `htop` — 非 leaf root の `TopShips` を、同じ run の事実から
+
+土台 `6b5ba9a8`（par/fgc-s1）。追加ファイル（既存は書き換えていない。lakefile 登録は各 1 回）: `Tools/ShippingFGCircuitS2jCopy.lean`、`Tools/ShippingFGCircuitS2jKid.lean`、`Tools/ShippingFGCircuitS2jTop.lean`、`Tests/Gen5/FGCircuitPilotCheck30.lean`。TRUSTED・axiom・sorry・native_decide・新しい law はない（標準 axiom のみ）。S2c/S2f/S2h/S2i の領域（`HftRootLink`/endpoint 生成器、Check17、kids 履歴、`hcd`）には触れていない。Issue の状態は変えていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**で台帳に数えない。
+
+### 36.1 手順 1: instance を持つ module の `TopShips` が要る部品の完全な型（先に固定）
+
+`htop : ∀ p, GPt lvl (envAt cref w) hftRoot = some p → HftObTopCoreOff mctx mref cctx cref w b D' p` の中身は、core run `(raw, D₀)`（`synthesizeCombinationalCoreOff hftRoot`）と `PostEntry b raw D₀ D'` に対する `∃ n, TopShips p n hftRoot b raw D₀`。`TopShips`（`Tools/ShippingGen2Defs.lean:288`）は `p` のデータ、`ids`/`cache`/`regs`、入力の `SourceInputs`、`ResetNk n raw D kids`（**子の reset は TopShips の前提**で、`kids` は全称）、`bodyInstOuts (childMap D.modules) b.body`、`runModuleTG (KSn (childMap D.modules) n) …` の実行と出力の一致を述べる。instance を持つ root では次の部品が要り、**1 本の経路 `oneOut_topShipsO`（`Tools/ShippingGen2OneOutTopO.lean:336`、1 出力の親）**がこれを全て取る:
+
+| 部品 | 完全な型（`oneOut_topShipsOff` の前提、`P := GPt lvl (envAt cref w)`、`p ∈ P hftRoot`） | 供給 |
+|---|---|---|
+| 親のデータ | `MemParentDataOk p`、`∀ k < insts.length, (instOrigins.getD k ord).child? = none`、`insts ≠ []`、`instFields = []`、`slots ≠ []` | **証明**（`p.d = synth_hftPcieOutByte.machineData`、`p.kD = 5` を `genGP_root_kids` と `RootReader` から、`hft_memData`/`hft_ord`/`hft_instFields`/`hft_slots_ne`/`hft_insts_ne` は kernel） |
+| run の入口 | `RunsTo (synthesizeCombinationalCoreOff p.decl) … (raw, D) w1`、`b = dropZeroWidth raw ∨ mergeChecked (dropZeroWidth raw)`、`MachineDefinesLinkedOff … p.decl p.d.shape w raw D w1` | **証明**（`htop` の仮説の run・`hdRun`・`PostEntry`） |
+| root の closing | `MachineTaken L mctx cctx (dv w + 1) p.decl p.d.shape raw D`（= `MachineRunJQC`: certified machine run が `some (raw, D)` を返す）。この中で `closeLets`・`CloseCalls`・`ChildrenRealA`（`coreOff_ranA`/`MachineRanA`）と `closeInsts` の `kidsCombB` が出る | **証明**（`machineRunJQC_of_closesCOff` に S2d の `hft_closesAtK`（`hkenv`・`hkgfacts`・readers・`CellPrem` から）。`dv w = 0` は `Start`） |
+| 子の package | `P (insts[k]).1 = some q`（`k = 0,1`）、`q` は `.comb` 行（`ss = []`、`insts = []`） | **証明**（`kid_pkg`: canonical table の leaf 行の `genSemI` は `ss = ∧ insts = []` で `.comb`） |
+| 子の `ChildShips` | `ShipsRes L P c y := RealChildA L.O c y ∧ (∃ q n, P c = some q ∧ q.decl = c ∧ ChildShips q n y.1 y.2) ∧ InstClosed y`（呼ばれた子の**実際の出力** `y`） | **証明**（`kid_shipsRes`: `RealChildA` の run から `kidRunK`（S2d の `machineChild_ifaceK` の結論を core run・machine run・`D.modules = []` まで拡張した複製）で machine run を取り、`slotlessLeaf_childShips_of_ran`（`slotlessLeaf_ships` の `ChildShips` 部分、未使用の all-world `MachineDefines` を外した複製）で `ChildShips`。`InstClosed` は子の設計が空） |
+| served の trace | `MachineTraceLBX (ServedP (ShipsRes L P) p.decl p.d.shape raw D) p.decl p.d raw D dom p.src p.extS p.extBS p.lsrc` | **証明**（`Pkg.trace`（`ServedRealA`）を `servedP_of_real` + `traceLBX_mono` で `ServedP (ShipsRes L P)` に。子の名前は `root_insts`） |
+| 幅 | `∀ k, OneOutWidth P p k`（親の call 結果 binder の幅 = 子の 1 出力の幅） | **証明**（`hft_width0/1` は kernel、子の package は `kid_pkg`） |
+| 呼び出しの decoding | `∀ k (hk : k < p.d.shape.insts.length), ∃ q, P (p.d.shape.insts[k]).1 = some q ∧ CallDec p q k` | **名前付き仮説 `hdec : HftCallDec lvl (envAt cref w)`**（§36.3） |
+
+`ResetNk` は `TopShips` の前提であって供給物ではない（`kids` は全称）。`TopShips` の n は `oneOut_topShipsOff` が `n+1` を返すので `∃ n` は `0 + 1`。
+
+**独立した文面との照合**: Check30 が `HftCallDec`、`oneOut_topShipsOff` の完全な型、`hftTop_of_run`、最終文を、別に書いた文面と `isDefEq` で照合する（§36.5）。
+
+### 36.2 手順 2: 証明できたもの（標準 axiom のみ）
+
+| 名前 | 内容 |
+|---|---|
+| `machine_ships_hierC_runOff`、`oneOut_topShipsOff`（`S2jCopy`） | `machine_ships_hierC_run`（FitChain:1073）と `oneOut_topShipsO` の複製。**変えたのは binder の型だけ**（`synthesizeCombinationalCore X [] false` → `synthesizeCombinationalCoreOff X`、`MachineDefines …` → `MachineDefinesLinkedOff … w raw D w1`、名前）。run と entry は `soundL`/`composed` の lambda が読まないので証明本体は逐語のまま |
+| `kidRunK`（`S2jKid`） | `machineChild_ifaceK`（S2d）の複製。結論を `∃ M D w1, core run ∧ post ∧ MachineRunJQC ∧ D.modules = [] ∧ (ChildComb ∧ …)` に拡張 |
+| `kid_pkg` | 組合せ leaf 行（`ss = []`、`insts = []`、`RootReader`）の table の package は `.comb cp`（`cp.decl = X`、`cp.d = d`、`cp.kD = kDOf d`）。`CombPkg.extS/extBS` は恒等なので `ExtInS` は `rfl` |
+| `slotlessLeaf_childShips_of_ran` | `slotlessLeaf_ships` の `ChildShips` 部分を machine run だけから |
+| `kid_shipsRes` | 組合せ leaf の子の**実出力**の `ShipsRes`（上記） |
+| `servedP_of_real`、`traceLBX_mono` | 一般補題 |
+| `hftTop_of_run` | `htop` を `hdec` と run の事実から。13 仮説（`L lvl env₀ hstart hcell hchk hreadH hreadT hkenv hkgfacts hdec` + 暗黙 6） |
+| `HftFinalStmtOffLNKKGT`、`synth_hftPcieOutByte_finalOffLNKKGT`（`_Z/_Y/_X`） | S2g の最終文の `htop` を `hdec` に替えたもの |
+
+### 36.3 名前付き仮説 `hdec : HftCallDec lvl (envAt cref w)`（FG D.D-4 `G-CALLDEC` / T2-TIE。run 局所でなく**package の文**）
+
+`∀ p, GPt … hftRoot = some p → ∀ k (hk : k < p.d.shape.insts.length), ∃ q, GPt … (p.d.shape.insts[k]).1 = some q ∧ CallDec p q k`。`CallDec p q k`（`Gen2Defs.lean:211`）は、親の call `k` の引数が親の `lets` にあり、callee の port 範囲にあり、親の call 結果信号が callee の source 出力に一致する、という package の文。run も全 world も含まない（Check30 HYPS: `hdec` から `RunsTo`/`MachineDefines`/`Start`/`ShipsRes`/`TopShips` は到達不能）。既存の分解（`Tools/ShippingGen5T2Tie.lean`）: `callDec_of_callTie` ← `CallTie` ← `GenExtAtCall`（table `genGP` について **`hDT1_of_genGP` が与える**。本束では未接続）+ `CallOutRange`（`hDG_SEM_range`、**未供給**）+ T2-FIELD（callee の module が 1 出力、`callField_at`。本束で得た `ShipsRes` と run の `CallStmt` から出る）+ 静的な data 検査（`callArgsOkAt`、kernel）。次の束は `hDT1_of_genGP` の接続と `CallOutRange`。
+
+### 36.4 最終文の binder 一覧（`synth_hftPcieOutByte_finalOffLNKKGT_Z`、明示仮説 14）
+
+`hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd hdec hkenv hkgfacts`（S2g の `finalOffLNKKG_Z` の `htop` が `hdec` に替わった。個数は同じで位置も同じ）。`htop` は仮説でなくなった。`hnoraw`・`hclL`・`hkgates`・`hsrc`・`hhead` は仮説に無い（S2g まで）。
+
+### 36.5 Check30 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck30`、exit 0、943 jobs）
+
+- `FGCIRCUIT30 SIGNATURES-A`: `HftCallDec` と `oneOut_topShipsOff`（profile-free core run、run-local entry、`ShipsRes` の trace）の完全な型を独立に書いた文面と照合。**9 mutant 棄却**（呼び出しごとの callee を 1 つに固定 = 別の子の出力、call index 0 固定、別の root、callee の package を要求しない、old entry（診断 core run + all-world `MachineDefines`）、decoding の欠落、`ServedRealA`、別の design）。旧 `oneOut_topShipsO` が old-entry mutant と一致することも検査。
+- `FGCIRCUIT30 SIGNATURES-B`: `hftTop_of_run` と `finalOffLNKKGT_Z` の完全な型を照合。**8 mutant 棄却**（印刷後の design `D'` 上の `TopShips`、old core run、別の宣言の top、end world の decoding、old entry の `hr`、carrier `cdvY`、`htop` を残した S2g の文、`hdec` の欠落）。
+- `FGCIRCUIT30 HYPS`、`FGCIRCUIT30 REMAINING`、`FGCIRCUIT30 AXIOMS`（13 名、標準 axiom のみ）。Check の出力行は 5。
+
+### 36.6 証明した / 名前付き仮説 / 次
+
+- **証明**: §36.2 の表。`htop` は `hdec` だけを残して run の事実（`coreOff_ranA` の系の `MachineTaken`、`closed_of_ranA` の系の `kidsComb`（`oneOut` 内）、子の実出力の `ChildIface`/`ChildShips`、`KidStartEnv`、`hreadH/T`、`kid_pkg`）から導けた。
+- **名前付き仮説（run 局所または package の文。all-world law・snapshot の供給ではない）**: `hdec`（D.D-4 G-CALLDEC）。S2g から不変: `hkenv`（D.T-4k）、`hkgfacts`（D.T-4g）、`hlink`（S2c）、`hcd`（S2b/S2i）、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。条件付きは減算しない。
+- 次: `hdec` の分解（`hDT1_of_genGP` の接続、`CallOutRange`、T2-FIELD、静的 data）。
+
+### 36.7 ビルド環境の注記
+
+`timeout 1500 kjob lake build TARGET`（`ulimit -v` なし）。S2jCopy/S2jKid/S2jTop/Check30 はそれぞれ数十秒〜1 分程度（依存は cache）。
