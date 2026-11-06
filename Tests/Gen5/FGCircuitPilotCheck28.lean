@@ -21,7 +21,7 @@ open Tools.ShippingGen2 (Laws Start)
 open Tools.ShippingGen5EnvFrame3 (CellPrem)
 open Tools.ShippingFGCircuitS1qLinked (coreHeadOff)
 open Tests.Gen5.FGCircuitPilotCheck26 (W Cx Cc Rf1 Rf2 Mod ZS ZE idF idW sameN diffN tyOf binderInfos HttpData TlpData RootData ExpFinalKK ExpCoreK ExpKidsEnv ExpKidsGates kgReal kgSwapped kgHttp kgTrue NmRoot NmHttp NmTlp ShE reach litBool iteStep Pre EntryOf)
-open Tools.ShippingFGCircuitS1tFinal (cdvZ CDRel)
+open Tools.ShippingFGCircuitS1tFinal (cdvZ cdvY cdvOld CDRel)
 open Tools.ShippingFGCircuitS1rCD (HftObCDZ)
 open Sparkle.Compiler.Elab
 
@@ -158,7 +158,7 @@ def kmissOnHit {mref : Rf1} {cref : Rf2} (O : RefLawsAOps MkRefd mref cref) (e :
 def kmissOtherCtx {mref : Rf1} {cref : Rf2} (O : RefLawsAOps MkRefd mref cref) (e : Environment) : Prop :=
   MissOtherCtx O (ExpEv (mref := mref) (cref := cref) e)
 def kmissOnlyReads {mref : Rf1} {cref : Rf2} (O : RefLawsAOps MkRefd mref cref) (e : Environment) : Prop :=
-  ExpMiss O (EvOnlyReads (mref := mref) (cref := cref) e) true true true
+  ExpMiss O (EvOnlyReads (cref := cref) e) true true true
 def kmissOnlyProf {mref : Rf1} {cref : Rf2} (O : RefLawsAOps MkRefd mref cref) (e : Environment) : Prop :=
   ExpMiss O (EvOnlyProf (mref := mref) (cref := cref) e) true true true
 def kmissEq {mref : Rf1} {cref : Rf2} (O : RefLawsAOps MkRefd mref cref) (e : Environment) : Prop :=
@@ -199,71 +199,71 @@ def CH_RefC : Prop := ∀ {a : Rf2}, ExpCoreK kmissR NmHttp NmTlp HttpData TlpDa
 
 -- the final statement
 def FH (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_missNoDepth (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissNoDepth kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissNoDepth kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_missNoMiss (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissNoMiss kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissNoMiss kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_missNoHist (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissNoHist kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissNoHist kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_missOnHit (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissOnHit kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissOnHit kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_missOtherCtx (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissOtherCtx kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissOtherCtx kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_missOnlyReads (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissOnlyReads kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissOnlyReads kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_missOnlyProf (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissOnlyProf kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissOnlyProf kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_missEq (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissEq kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissEq kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_missTrue (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissTrue kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissTrue kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_OldKenv (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV ExpKidsEnv kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV ExpKidsEnv kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_KenvEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZE NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZE NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_GatesEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZE ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZE ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_BothEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZE ZE NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZE ZE NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_Diag (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal true false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal true false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_OldArt (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false true true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_NoHcd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false false true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_NoTop (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true false true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true false true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_NoKenv (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true false true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true false true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_NoKg (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true true false true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true true false true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_KgSwapped (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgSwapped false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgSwapped false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_KgHttp (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgHttp false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgHttp false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_KgTrue (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgTrue false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgTrue false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_Root (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmHttp NmRoot (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmHttp NmRoot (ShE) ZS ZS idF idF idF idF idF
 def FH_PostRoot (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmRoot NmHttp (ShE) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmRoot NmHttp (ShE) ZS ZS idF idF idF idF idF
 def FH_Output (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmRoot NmRoot ({ ShE with res := .one (.bits 16) }) ZS ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmRoot NmRoot ({ ShE with res := .one (.bits 16) }) ZS ZS idF idF idF idF idF
 def FH_HcdEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZE ZS idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZE ZS idF idF idF idF idF
 def FH_ConclEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZE idF idF idF idF idF
+  ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZE idF idF idF idF idF
 def FH_RefM (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ∀ {a : Rf1}, ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF (fun _ => a) idF idF idF
+  ∀ {a : Rf1}, ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF (fun _ => a) idF idF idF
 def FH_RefC (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ∀ {a : Rf2}, ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF (fun _ => a) idF
+  ∀ {a : Rf2}, ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF (fun _ => a) idF
 def FH_CtxM (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ∀ {a : Cx}, ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS (fun _ => a) idF idF idF idF
+  ∀ {a : Cx}, ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS (fun _ => a) idF idF idF idF
 def FH_CtxC (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ∀ {a : Cc}, ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF (fun _ => a) idF idF
+  ∀ {a : Cc}, ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF (fun _ => a) idF idF
 def FH_Design (Ob : Environment → Prop) (CV : CDRel) : Prop :=
-  ∀ {a : Design}, ExpFinalKK Ob CV kmissR kgReal false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF (fun _ => a)
+  ∀ {a : Sparkle.IR.AST.Design}, ExpFinalKK Ob CV kmissR kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF (fun _ => a)
 def FH_CarrierY : Prop := FH HftObCDZ cdvY
 def FH_CarrierOld : Prop := FH HftObCDZ Tools.ShippingFGCircuitS1tFinal.cdvOld
 def FH_ObY : Prop := FH Tools.ShippingFGCircuitS1rCD.HftObCDY cdvZ
@@ -275,7 +275,7 @@ set_option maxHeartbeats 8000000 in
 run_cmd liftTermElabM do
   let X := `Tools.ShippingFGCircuitS2hHist
   let Q := `Tests.Gen5.FGCircuitPilotCheck28
-  let q (n : String) : Lean.Expr := mkConst (Q ++ Name.mkSimple n)
+  let q (n : String) : Lean.Expr := Lean.mkConst (Q ++ Name.mkSimple n)
   let mut nm : Nat := 0
   -- the constructor of the history entry
   let runN ← norm3 (← tyOf (X ++ `RealChildE.run))
@@ -288,13 +288,13 @@ set_option maxHeartbeats 8000000 in
 run_cmd liftTermElabM do
   let X := `Tools.ShippingFGCircuitS2hHist
   let Q := `Tests.Gen5.FGCircuitPilotCheck28
-  let q (n : String) : Lean.Expr := mkConst (Q ++ Name.mkSimple n)
+  let q (n : String) : Lean.Expr := Lean.mkConst (Q ++ Name.mkSimple n)
   let mut nm : Nat := 0
   -- MissE : the type of a function; compare the bodies after instantiating the arguments with free variables
   let miss ← norm3 (← (do
     let t ← tyOf (X ++ `MissE)
     forallTelescope t fun xs _ => do
-      let app := mkAppN (mkConst (X ++ `MissE)) xs
+      let app := mkAppN (Lean.mkConst (X ++ `MissE)) xs
       let r ← norm3 app
       mkLambdaFVars xs r))
   let expM ← norm3 (← (do
@@ -302,7 +302,7 @@ run_cmd liftTermElabM do
     forallTelescope t fun xs _ => do
       -- ExpMiss O E true true true
       let n := xs.size
-      let app := mkAppN (mkConst (Q ++ `ExpMiss)) (xs.extract 0 (n - 3) ++ #[mkConst ``Bool.true, mkConst ``Bool.true, mkConst ``Bool.true])
+      let app := mkAppN (Lean.mkConst (Q ++ `ExpMiss)) (xs.extract 0 (n - 3) ++ #[Lean.mkConst ``Bool.true, Lean.mkConst ``Bool.true, Lean.mkConst ``Bool.true])
       let r ← norm3 app
       mkLambdaFVars (xs.extract 0 (n - 3)) r))
   unless ← withDefault (isDefEq miss expM) do throwError "MissE is not the expected statement"
@@ -311,7 +311,7 @@ run_cmd liftTermElabM do
       let t ← tyOf (Q ++ `ExpMiss)
       forallTelescope t fun xs _ => do
         let n := xs.size
-        let app := mkAppN (mkConst (Q ++ `ExpMiss)) (xs.extract 0 (n - 3) ++ args.map mkConst)
+        let app := mkAppN (Lean.mkConst (Q ++ `ExpMiss)) (xs.extract 0 (n - 3) ++ args.map Lean.mkConst)
         let r ← norm3 app
         mkLambdaFVars (xs.extract 0 (n - 3)) r))
     if ← withDefault (isDefEq miss m) then throwError "MissE vs the no-{mu} mutant was accepted"
@@ -324,10 +324,10 @@ run_cmd liftTermElabM do
   let Q := `Tests.Gen5.FGCircuitPilotCheck28
   let jqh ← norm3 (← (do
     let t ← tyOf (X ++ `JQH)
-    forallTelescope t fun xs _ => do mkLambdaFVars xs (← norm3 (mkAppN (mkConst (X ++ `JQH)) xs))))
+    forallTelescope t fun xs _ => do mkLambdaFVars xs (← norm3 (mkAppN (Lean.mkConst (X ++ `JQH)) xs))))
   let mk (n : Name) : MetaM Lean.Expr := do
     let t ← tyOf n
-    forallTelescope t fun xs _ => do mkLambdaFVars xs (← norm3 (mkAppN (mkConst n) xs))
+    forallTelescope t fun xs _ => do mkLambdaFVars xs (← norm3 (mkAppN (Lean.mkConst n) xs))
   let e ← norm3 (← mk (Q ++ `ExpJQH))
   unless ← withDefault (isDefEq jqh e) do throwError "JQH is not the expected invariant"
   let mut nm : Nat := 0
@@ -341,10 +341,10 @@ run_cmd liftTermElabM do
 
 set_option maxHeartbeats 32000000 in
 run_cmd liftTermElabM do
-  let C (n : Name) : Lean.Expr := mkConst n
+  let C (n : Name) : Lean.Expr := Lean.mkConst n
   let X := `Tools.ShippingFGCircuitS2hHist
   let Q := `Tests.Gen5.FGCircuitPilotCheck28
-  let q (n : String) : Lean.Expr := mkConst (Q ++ Name.mkSimple n)
+  let q (n : String) : Lean.Expr := Lean.mkConst (Q ++ Name.mkSimple n)
   -- cache initialisation
   let headN ← norm3 (← tyOf (X ++ `coreHeadOff_jqhA))
   same3 "coreHeadOff_jqhA" headN (q "HeadReal")
@@ -361,10 +361,10 @@ run_cmd liftTermElabM do
 
 set_option maxHeartbeats 32000000 in
 run_cmd liftTermElabM do
-  let C (n : Name) : Lean.Expr := mkConst n
+  let C (n : Name) : Lean.Expr := Lean.mkConst n
   let X := `Tools.ShippingFGCircuitS2hHist
   let Q := `Tests.Gen5.FGCircuitPilotCheck28
-  let q (n : String) : Lean.Expr := mkConst (Q ++ Name.mkSimple n)
+  let q (n : String) : Lean.Expr := Lean.mkConst (Q ++ Name.mkSimple n)
   let coreN ← norm3 (← tyOf (X ++ `hftCoreCloses_of_kidsH))
   same3 "hftCoreCloses_of_kidsH" coreN (q "CH_True")
   let mut nm1 : Nat := 0
@@ -374,10 +374,10 @@ run_cmd liftTermElabM do
 
 set_option maxHeartbeats 32000000 in
 run_cmd liftTermElabM do
-  let C (n : Name) : Lean.Expr := mkConst n
+  let C (n : Name) : Lean.Expr := Lean.mkConst n
   let X := `Tools.ShippingFGCircuitS2hHist
   let Q := `Tests.Gen5.FGCircuitPilotCheck28
-  let q (n : String) : Lean.Expr := mkConst (Q ++ Name.mkSimple n)
+  let q (n : String) : Lean.Expr := Lean.mkConst (Q ++ Name.mkSimple n)
   let finN ← norm3 (← tyOf (X ++ `synth_hftPcieOutByte_finalOffLNKH_Z))
   same3 "synth_hftPcieOutByte_finalOffLNKH_Z" finN (mkApp2 (q "FH") (C ``HftObCDZ) (C ``cdvZ))
   let mut nm2 : Nat := 0
@@ -408,7 +408,9 @@ run_cmd liftTermElabM do
   -- the final statement and the core lemma do not mention the universal premise
   for n in [`hftCoreCloses_of_kidsH, `synth_hftPcieOutByte_finalOffLNKH_Z] do
     let t ← tyOf (X ++ n)
-    let t ← if n == `synth_hftPcieOutByte_finalOffLNKH_Z then (do let some t' ← unfoldDefinition? t | throwError "not a definition"; pure t') else pure t
+    let t ← if n == `synth_hftPcieOutByte_finalOffLNKH_Z then (do
+        let some t' ← unfoldDefinition? t | throwError "not a definition"
+        pure t') else pure t
     let uses := t.getUsedConstants
     for bad in [``Tools.ShippingFGCircuitS2dKids.KidStartEnv, ``Tools.ShippingFGCircuitS2dKids.HftKidsStartEnv, ``Tools.ShippingFGCircuitS2aClose.HftKidsDefine, ``Tools.ShippingMachineEntry.MachineDefines, ``Tools.ShippingMachineEntry.MachineCloses] do
       if uses.contains bad then throwError "{n} mentions {bad}"
