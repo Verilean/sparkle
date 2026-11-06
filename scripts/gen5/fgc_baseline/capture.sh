@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# S0 capture: elaborate each inventory file once, keep raw stdout (generated
+# Verilog + Lean messages), the profile log lines (route per declaration),
+# exit code and wall time.  Raw output goes to OUT (use $KJOB_REPORT_PATH's
+# directory), never into the source tree.
+#
+#   scripts/gen5/fgc_baseline/capture.sh OUT [FILES.txt]
+#
+# FILES.txt: one repo-relative path per line (default: files with >= 1 synthesis
+# command in OUT/inventory.tsv, produced by extract_inventory.py).  Resumable:
+# a file with OUT/status/<key>.txt is skipped (REDO=1 to rerun).
+# CAP_PROFILE=0 runs with SPARKLE_PROFILE unset (the guaranteed, profile-free entry); default 1 (diagnostic path,
+# the route per declaration comes from its log).
+# Serial on purpose (the compiler's profile log path /tmp/sparkle-profile.log is
+# global).  Requires `lake build Tests.AllTests` (and the IP libs for IP/ files)
+# to have completed; do not run next to a `lake build`.
+set -u
+cd "$(dirname "$0")/../../.."
+OUT="$1"; mkdir -p "$OUT/out" "$OUT/prof" "$OUT/status"
+TMO="${CAP_TMO:-900}"
+if [ $# -ge 2 ]; then cp "$2" "$OUT/files_run.txt"
+else tail -n +2 "$OUT/inventory.tsv" | cut -f1 | sort -u > "$OUT/files_run.txt"; fi
+# `lean` must be the toolchain's own binary: inside `kjob lake env` only `lake` is on PATH
+# (first run: every file failed with "could not execute external process 'lean'").
+if ! command -v lean >/dev/null 2>&1; then
+  LB="$( (elan which lean 2>/dev/null) || true)"
+  [ -z "$LB" ] && LB="$(dirname "$(readlink -f "$(command -v lake)")")/lean"
+  [ -x "$LB" ] && export PATH="$(dirname "$LB"):$PATH"
+fi
+command -v lean >/dev/null 2>&1 || { echo "capture.sh: lean not found on PATH" >&2; exit 2; }
+lean --version > /dev/null || { echo "capture.sh: lean does not run" >&2; exit 2; }
+# `lake env lean` does not find lean through the caller's PATH inside the job (second run failed the same way),
+# so take the search path from lake once and call the resolved lean binary directly.
+# Inside `kjob lake env` the environment is already set (LEAN, LEAN_PATH, PATH with the toolchain bin);
+# a nested `lake env` fails there (diagnostic run kjob-run-src-fgc-s0run, 2026-11-06). Use what is given.
+LEAN_BIN="${LEAN:-$(command -v lean)}"
+if [ -z "${LEAN_PATH:-}" ]; then
+  LEAN_PATH="$(lake env printenv LEAN_PATH)" || { echo "capture.sh: no LEAN_PATH and lake env printenv failed" >&2; exit 2; }
+fi
+export LEAN_PATH
+[ -x "$LEAN_BIN" ] || { echo "capture.sh: $LEAN_BIN is not executable" >&2; exit 2; }
+[ -n "$LEAN_PATH" ] || { echo "capture.sh: empty LEAN_PATH" >&2; exit 2; }
+{ echo "sha=${FGC_SHA:-$(git rev-parse HEAD 2>/dev/null)}"; echo "lean=$(command -v lean)"; echo "lean_path=$LEAN_PATH"; echo "toolchain=$(cat lean-toolchain)"; echo "date=$(date -u +%FT%TZ)"; } > "$OUT/env.txt"
+while read -r f; do
+  [ -z "$f" ] && continue
+  key="$(echo "$f" | tr '/' '_')"
+  [ -f "$OUT/status/$key.txt" ] && [ "${REDO:-0}" != 1 ] && continue
+  rm -f /tmp/sparkle-profile.log
+  t0=$(date +%s)
+  if [ "${CAP_PROFILE:-1}" = 0 ]; then PROFENV="env -u SPARKLE_PROFILE"; else PROFENV="env SPARKLE_PROFILE=1"; fi
+  $PROFENV timeout -k 5 "$TMO" "$LEAN_BIN" --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so "$f" \
+    > "$OUT/out/$key.txt" 2> "$OUT/out/$key.err"
+  rc=$?
+  if grep -qi "could not execute external process" "$OUT/out/$key.err"; then
+    echo "capture.sh: tool failure on $f (could not execute external process); stopping, not a baseline result" >&2; exit 3
+  fi
+  t1=$(date +%s)
+  cp /tmp/sparkle-profile.log "$OUT/prof/$key.log" 2>/dev/null || : > "$OUT/prof/$key.log"
+  echo "$f $rc $((t1 - t0))" > "$OUT/status/$key.txt"
+done < "$OUT/files_run.txt"
+echo "capture done: $(cat "$OUT"/status/*.txt | wc -l) files"

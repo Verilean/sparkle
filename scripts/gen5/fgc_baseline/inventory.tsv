@@ -1,0 +1,328 @@
+file	line	command	ns	top	qualified	params	options	args	in_alltests_closure	area
+Examples/CDC/MultiClockSim.lean	62	#writeDesign	Examples.CDC.MultiClockSim	domainACounter	Examples.CDC.MultiClockSim.domainACounter				N	Examples/CDC
+Examples/CDC/MultiClockSim.lean	94	#writeDesign	Examples.CDC.MultiClockSim	domainBAccumulator	Examples.CDC.MultiClockSim.domainBAccumulator				N	Examples/CDC
+Examples/HierarchicalCPU.lean	110	#synthesizeVerilog		adder16	adder16				N	Examples/HierarchicalCPU.lean
+Examples/HierarchicalCPU.lean	117	#synthesizeVerilogDesign		registerFile2	registerFile2				N	Examples/HierarchicalCPU.lean
+Examples/HierarchicalCPU.lean	135	#synthesizeVerilogDesign		twoStageAdder	twoStageAdder				N	Examples/HierarchicalCPU.lean
+IP/Arbiter/RoundRobin.lean	79	#synthesizeVerilog	Sparkle.IP.Arbiter.RoundRobin	arbiterSignal	Sparkle.IP.Arbiter.RoundRobin.arbiterSignal				N	IP/Arbiter
+IP/Bus/AXI4Lite/Master.lean	139	#synthesizeVerilog	Sparkle.IP.Bus.AXI4Lite.Master	axi4LiteMaster	Sparkle.IP.Bus.AXI4Lite.Master.axi4LiteMaster				N	IP/Bus
+IP/Bus/AXI4Lite/Slave.lean	135	#synthesizeVerilog	Sparkle.IP.Bus.AXI4Lite.Slave	axi4LiteSlave	Sparkle.IP.Bus.AXI4Lite.Slave.axi4LiteSlave				Y	IP/Bus
+IP/Crypto/AESHW.lean	564	#synthesizeVerilog	Sparkle.IP.Crypto.AESHW	synth_aesSbox	Sparkle.IP.Crypto.AESHW.synth_aesSbox				Y	IP/Crypto
+IP/Crypto/AESHW.lean	570	#synthesizeVerilog	Sparkle.IP.Crypto.AESHW	synth_aesRcon	Sparkle.IP.Crypto.AESHW.synth_aesRcon				Y	IP/Crypto
+IP/RV32/Bus.lean	89	#synthesizeVerilog	Sparkle.IP.RV32.Bus	busDecoderSignal	Sparkle.IP.RV32.Bus.busDecoderSignal				N	IP/RV32
+IP/RV32/CLINT.lean	111	#synthesizeVerilog	Sparkle.IP.RV32.CLINT	clintSignal	Sparkle.IP.RV32.CLINT.clintSignal				N	IP/RV32
+IP/RV32/CSR/File.lean	179	#synthesizeVerilog	Sparkle.IP.RV32.CSR.File	csrFileSignal	Sparkle.IP.RV32.CSR.File.csrFileSignal				N	IP/RV32
+IP/RV32/CSR/Supervisor.lean	180	#synthesizeVerilog	Sparkle.IP.RV32.CSR.Supervisor	supervisorCsrSignal	Sparkle.IP.RV32.CSR.Supervisor.supervisorCsrSignal				N	IP/RV32
+IP/RV32/Core.lean	81	#synthesizeVerilog	Sparkle.IP.RV32	aluSignal	Sparkle.IP.RV32.aluSignal				Y	IP/RV32
+IP/RV32/Core.lean	119	#synthesizeVerilog	Sparkle.IP.RV32	branchCompSignal	Sparkle.IP.RV32.branchCompSignal				Y	IP/RV32
+IP/RV32/Core.lean	143	#synthesizeVerilog	Sparkle.IP.RV32	hazardSignal	Sparkle.IP.RV32.hazardSignal				Y	IP/RV32
+IP/RV32/Core.lean	168	#synthesizeVerilog	Sparkle.IP.RV32	decoderFieldsSignal	Sparkle.IP.RV32.decoderFieldsSignal				Y	IP/RV32
+IP/RV32/Core.lean	249	#synthesizeVerilog	Sparkle.IP.RV32	immGenSignal	Sparkle.IP.RV32.immGenSignal				Y	IP/RV32
+IP/RV32/Core.lean	315	#synthesizeVerilog	Sparkle.IP.RV32	aluControlSignal	Sparkle.IP.RV32.aluControlSignal				Y	IP/RV32
+IP/RV32/Core.lean	377	#synthesizeVerilog	Sparkle.IP.RV32	controlSignalsSignal	Sparkle.IP.RV32.controlSignalsSignal				Y	IP/RV32
+IP/RV32/Divider.lean	262	#synthesizeVerilog	Sparkle.IP.RV32.Divider	dividerSignal	Sparkle.IP.RV32.Divider.dividerSignal				Y	IP/RV32
+IP/RV32/MMU/Top.lean	396	#synthesizeVerilog	Sparkle.IP.RV32.MMU	mmuTopSignal	Sparkle.IP.RV32.MMU.mmuTopSignal				N	IP/RV32
+IP/RV32/Pipeline.lean	312	#synthesizeVerilog	Sparkle.IP.RV32	rv32iCore	Sparkle.IP.RV32.rv32iCore				N	IP/RV32
+IP/RV32/SoCVerilog.lean	80	#writeDesign	Sparkle.IP.RV32.SoCVerilog	rv32iSoCSynth	Sparkle.IP.RV32.SoCVerilog.rv32iSoCSynth			"verilator/generated_soc.sv" "verilator/generated_soc_cppsim.h" SoCOutput.wireNames	N	IP/RV32
+IP/RV32/Trap.lean	134	#synthesizeVerilog	Sparkle.IP.RV32.Trap	trapDelegSignal	Sparkle.IP.RV32.Trap.trapDelegSignal				N	IP/RV32
+IP/RV32/UART.lean	101	#synthesizeVerilog	Sparkle.IP.RV32.UART	uartSignal	Sparkle.IP.RV32.UART.uartSignal				N	IP/RV32
+IP/Video/H264/CAVLCSynth.lean	799	#writeDesign	Sparkle.IP.Video.H264.CAVLCSynth	cavlcSynthModule	Sparkle.IP.Video.H264.CAVLCSynth.cavlcSynthModule			".lake/build/gen/h264/cavlc_synth.sv" ".lake/build/gen/h264/cavlc_synth_cppsim.h" cavlcObservableWires	N	IP/Video
+IP/Video/H264/DecoderSynth.lean	370	#writeDesign	Sparkle.IP.Video.H264.DecoderSynth	decoderPipeline	Sparkle.IP.Video.H264.DecoderSynth.decoderPipeline			".lake/build/gen/h264/decoder_pipeline.sv" ".lake/build/gen/h264/decoder_pipeline_cppsim.h" decoderObservableWires	Y	IP/Video
+IP/Video/H264/DequantSynth.lean	216	#writeDesign	Sparkle.IP.Video.H264.DequantSynth	dequantModule	Sparkle.IP.Video.H264.DequantSynth.dequantModule			".lake/build/gen/h264/dequant.sv" ".lake/build/gen/h264/dequant_cppsim.h"	Y	IP/Video
+IP/Video/H264/EncoderSynth.lean	355	#writeDesign	Sparkle.IP.Video.H264.EncoderSynth	encoderPipeline	Sparkle.IP.Video.H264.EncoderSynth.encoderPipeline			".lake/build/gen/h264/encoder_pipeline.sv" ".lake/build/gen/h264/encoder_pipeline_cppsim.h" encoderObservableWires	Y	IP/Video
+IP/Video/H264/ForwardDCTSynth.lean	239	#writeDesign	Sparkle.IP.Video.H264.ForwardDCTSynth	fwdDCTModule	Sparkle.IP.Video.H264.ForwardDCTSynth.fwdDCTModule			".lake/build/gen/h264/fwd_dct.sv" ".lake/build/gen/h264/fwd_dct_cppsim.h"	Y	IP/Video
+IP/Video/H264/FrameEncoderSynth.lean	37	#writeDesign	Sparkle.IP.Video.H264.FrameEncoderSynth	h264FrameEncoder	Sparkle.IP.Video.H264.FrameEncoderSynth.h264FrameEncoder			".lake/build/gen/h264/frame_encoder.sv" ".lake/build/gen/h264/frame_encoder_cppsim.h" frameEncoderObservableWires	N	IP/Video
+IP/Video/H264/IDCTSynth.lean	269	#writeDesign	Sparkle.IP.Video.H264.IDCTSynth	idctModule	Sparkle.IP.Video.H264.IDCTSynth.idctModule			".lake/build/gen/h264/idct.sv" ".lake/build/gen/h264/idct_cppsim.h"	Y	IP/Video
+IP/Video/H264/MP4EncoderSynth.lean	34	#writeDesign	Sparkle.IP.Video.H264.MP4EncoderSynth	h264MP4Encoder	Sparkle.IP.Video.H264.MP4EncoderSynth.h264MP4Encoder			".lake/build/gen/h264/mp4_encoder.sv" ".lake/build/gen/h264/mp4_encoder_cppsim.h" mp4EncoderObservableWires	N	IP/Video
+IP/Video/H264/NALSynth.lean	187	#writeDesign	Sparkle.IP.Video.H264.NALSynth	nalStreamModule	Sparkle.IP.Video.H264.NALSynth.nalStreamModule			".lake/build/gen/h264/nal_stream.sv" ".lake/build/gen/h264/nal_stream_cppsim.h"	N	IP/Video
+IP/Video/H264/QuantRoundtripSynth.lean	159	#writeDesign	Sparkle.IP.Video.H264.QuantRoundtripSynth	quantDequantSynth	Sparkle.IP.Video.H264.QuantRoundtripSynth.quantDequantSynth			".lake/build/gen/h264/quant_roundtrip.sv" ".lake/build/gen/h264/quant_roundtrip_cppsim.h" quantRoundtripObservableWires	N	IP/Video
+IP/Video/H264/QuantSynth.lean	209	#writeDesign	Sparkle.IP.Video.H264.QuantSynth	quantModule	Sparkle.IP.Video.H264.QuantSynth.quantModule			".lake/build/gen/h264/fwd_quant.sv" ".lake/build/gen/h264/fwd_quant_cppsim.h"	Y	IP/Video
+IP/Video/H264/ReconstructSynth.lean	162	#writeDesign	Sparkle.IP.Video.H264.ReconstructSynth	reconstructModule	Sparkle.IP.Video.H264.ReconstructSynth.reconstructModule			".lake/build/gen/h264/reconstruct.sv" ".lake/build/gen/h264/reconstruct_cppsim.h"	Y	IP/Video
+IP/YOLOv8/ActivationBuffer.lean	52	#synthesizeVerilog	Sparkle.IP.YOLOv8.ActivationBuffer	activationDoubleBuffer	Sparkle.IP.YOLOv8.ActivationBuffer.activationDoubleBuffer				N	IP/YOLOv8
+IP/YOLOv8/Backbone.lean	202	#synthesizeVerilog	Sparkle.IP.YOLOv8.Backbone	backboneController	Sparkle.IP.YOLOv8.Backbone.backboneController				Y	IP/YOLOv8
+IP/YOLOv8/Blocks/Bottleneck.lean	129	#synthesizeVerilog	Sparkle.IP.YOLOv8.Blocks.Bottleneck	bottleneckController	Sparkle.IP.YOLOv8.Blocks.Bottleneck.bottleneckController				Y	IP/YOLOv8
+IP/YOLOv8/Blocks/C2f.lean	148	#synthesizeVerilog	Sparkle.IP.YOLOv8.Blocks.C2f	c2fController	Sparkle.IP.YOLOv8.Blocks.C2f.c2fController				Y	IP/YOLOv8
+IP/YOLOv8/Blocks/ConvBnSiLU.lean	68	#synthesizeVerilog	Sparkle.IP.YOLOv8.Blocks.ConvBnSiLU	convBnSiLU	Sparkle.IP.YOLOv8.Blocks.ConvBnSiLU.convBnSiLU				Y	IP/YOLOv8
+IP/YOLOv8/Blocks/SPPF.lean	130	#synthesizeVerilog	Sparkle.IP.YOLOv8.Blocks.SPPF	sppfController	Sparkle.IP.YOLOv8.Blocks.SPPF.sppfController				Y	IP/YOLOv8
+IP/YOLOv8/Head.lean	167	#synthesizeVerilog	Sparkle.IP.YOLOv8.Head	headController	Sparkle.IP.YOLOv8.Head.headController				Y	IP/YOLOv8
+IP/YOLOv8/Neck.lean	165	#synthesizeVerilog	Sparkle.IP.YOLOv8.Neck	neckController	Sparkle.IP.YOLOv8.Neck.neckController				Y	IP/YOLOv8
+IP/YOLOv8/Primitives/Activation.lean	35	#synthesizeVerilog	Sparkle.IP.YOLOv8.Primitives.Activation	relu	Sparkle.IP.YOLOv8.Primitives.Activation.relu				Y	IP/YOLOv8
+IP/YOLOv8/Primitives/Conv2DEngine.lean	159	#synthesizeVerilog	Sparkle.IP.YOLOv8.Primitives.Conv2DEngine	conv2DEngine	Sparkle.IP.YOLOv8.Primitives.Conv2DEngine.conv2DEngine				Y	IP/YOLOv8
+IP/YOLOv8/Primitives/Dequant.lean	65	#synthesizeVerilog	Sparkle.IP.YOLOv8.Primitives.Dequant	dequantPacked	Sparkle.IP.YOLOv8.Primitives.Dequant.dequantPacked				Y	IP/YOLOv8
+IP/YOLOv8/Primitives/MaxPool.lean	49	#synthesizeVerilog	Sparkle.IP.YOLOv8.Primitives.MaxPool	maxPool2x2	Sparkle.IP.YOLOv8.Primitives.MaxPool.maxPool2x2				Y	IP/YOLOv8
+IP/YOLOv8/Primitives/Requantize.lean	69	#synthesizeVerilog	Sparkle.IP.YOLOv8.Primitives.Requantize	requantize	Sparkle.IP.YOLOv8.Primitives.Requantize.requantize				Y	IP/YOLOv8
+IP/YOLOv8/Primitives/Upsample.lean	93	#synthesizeVerilog	Sparkle.IP.YOLOv8.Primitives.Upsample	upsample2x	Sparkle.IP.YOLOv8.Primitives.Upsample.upsample2x				Y	IP/YOLOv8
+IP/YOLOv8/TextEmbedding.lean	107	#synthesizeVerilog	Sparkle.IP.YOLOv8.TextEmbedding	dotProductEngine	Sparkle.IP.YOLOv8.TextEmbedding.dotProductEngine				N	IP/YOLOv8
+IP/YOLOv8/Top.lean	171	#synthesizeVerilog	Sparkle.IP.YOLOv8.Top	yolov8nTop	Sparkle.IP.YOLOv8.Top.yolov8nTop				N	IP/YOLOv8
+Tests/CircuitDoTest.lean	181	#synthesizeVerilog		counterCdo	counterCdo				Y	Tests/CircuitDoTest.lean
+Tests/CircuitDoTest.lean	182	#synthesizeVerilog		resetCounterCdo	resetCounterCdo				Y	Tests/CircuitDoTest.lean
+Tests/CircuitDoTest.lean	183	#synthesizeVerilog		twoRegResetCdo	twoRegResetCdo				Y	Tests/CircuitDoTest.lean
+Tests/CircuitDoTest.lean	184	#synthesizeVerilog		heldRegCdo	heldRegCdo				Y	Tests/CircuitDoTest.lean
+Tests/CircuitDoTest.lean	185	#synthesizeVerilog		fsm3Cdo	fsm3Cdo				Y	Tests/CircuitDoTest.lean
+Tests/CircuitDoTest.lean	186	#synthesizeVerilog		fsmHoldCdo	fsmHoldCdo				Y	Tests/CircuitDoTest.lean
+Tests/CircuitDoTest.lean	187	#synthesizeVerilog		fourCounterCdo	fourCounterCdo				Y	Tests/CircuitDoTest.lean
+Tests/CircuitDoTest.lean	192	#synthesizeVerilog		pairCounterCdo	pairCounterCdo				Y	Tests/CircuitDoTest.lean
+Tests/CircuitDoTest.lean	193	#synthesizeVerilog		pairRecordCdo	pairRecordCdo				Y	Tests/CircuitDoTest.lean
+Tests/Compiler/MultiInstanceTest.lean	175	#synthesizeVerilog	Sparkle.Tests.Compiler.MultiInstance	mesh2x2	Sparkle.Tests.Compiler.MultiInstance.mesh2x2				Y	Tests/Compiler
+Tests/Compiler/MultiOutputSubModuleHangRepro.lean	80	#synthesizeVerilog	Sparkle.Tests.Compiler.MultiOutputSubModuleHangRepro	baselineNoSubmodule	Sparkle.Tests.Compiler.MultiOutputSubModuleHangRepro.baselineNoSubmodule				N	Tests/Compiler
+Tests/Compiler/MultiOutputSubModuleHangRepro.lean	103	#synthesizeVerilog	Sparkle.Tests.Compiler.MultiOutputSubModuleHangRepro	baselineKvHw1Reg	Sparkle.Tests.Compiler.MultiOutputSubModuleHangRepro.baselineKvHw1Reg				N	Tests/Compiler
+Tests/Compiler/MultiOutputSubModuleHangRepro.lean	154	#synthesizeVerilog	Sparkle.Tests.Compiler.MultiOutputSubModuleHangRepro	reproKvHw2Reg	Sparkle.Tests.Compiler.MultiOutputSubModuleHangRepro.reproKvHw2Reg				N	Tests/Compiler
+Tests/Compiler/ShippingMachineFuseTest.lean	53	#synthesizeVerilog	Sparkle.Tests.Compiler.ShippingMachineFuseTest	outer	Sparkle.Tests.Compiler.ShippingMachineFuseTest.outer				Y	Tests/Compiler
+Tests/Compiler/ShippingMachineFuseTest.lean	54	#synthesizeVerilog	Sparkle.Tests.Compiler.ShippingMachineFuseTest	siblings	Sparkle.Tests.Compiler.ShippingMachineFuseTest.siblings				Y	Tests/Compiler
+Tests/Compiler/ShippingMachineFuseTest.lean	55	#synthesizeVerilog	Sparkle.Tests.Compiler.ShippingMachineFuseTest	withMemory	Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory				Y	Tests/Compiler
+Tests/Compiler/SimNamesTest.lean	138	#writeDesign		SimNamesTestA.snDup	SimNamesTestA.snDup				Y	Tests/Compiler
+Tests/CompilerTests.lean	31	#synthesizeVerilog	Tests.CompilerTests	testComplement8	Tests.CompilerTests.testComplement8				N	Tests/CompilerTests.lean
+Tests/CompilerTests.lean	39	#synthesizeVerilog	Tests.CompilerTests	testComplement32	Tests.CompilerTests.testComplement32				N	Tests/CompilerTests.lean
+Tests/CompilerTests.lean	51	#synthesizeVerilog	Tests.CompilerTests	testLambdaConcat	Tests.CompilerTests.testLambdaConcat				N	Tests/CompilerTests.lean
+Tests/CompilerTests.lean	59	#synthesizeVerilog	Tests.CompilerTests	testLambdaAddConst	Tests.CompilerTests.testLambdaAddConst				N	Tests/CompilerTests.lean
+Tests/CompilerTests.lean	72	#synthesizeVerilog	Tests.CompilerTests	testHwLet2	Tests.CompilerTests.testHwLet2				N	Tests/CompilerTests.lean
+Tests/CompilerTests.lean	81	#synthesizeVerilog	Tests.CompilerTests	testHwLet3	Tests.CompilerTests.testHwLet3				N	Tests/CompilerTests.lean
+Tests/IP/Bus/CANHWTest.lean	97	#synthesizeVerilog		synth_canCrc15	synth_canCrc15				N	Tests/IP
+Tests/IP/Bus/CANopenHWTest.lean	123	#synthesizeVerilog		synth_canopenFc	synth_canopenFc				Y	Tests/IP
+Tests/IP/Bus/CANopenHWTest.lean	130	#synthesizeVerilog		synth_canopenIsNmt	synth_canopenIsNmt				Y	Tests/IP
+Tests/IP/Bus/CANopenHWTest.lean	139	#synthesizeVerilog		synth_canopenNmtState	synth_canopenNmtState				Y	Tests/IP
+Tests/IP/Bus/CRSFHWTest.lean	93	#synthesizeVerilog		synth_crsfCrc8	synth_crsfCrc8				Y	Tests/IP
+Tests/IP/Bus/DroneCANHWTest.lean	106	#synthesizeVerilog		synth_droneCanCrc16	synth_droneCanCrc16				Y	Tests/IP
+Tests/IP/Bus/DroneCANHWTest.lean	113	#synthesizeVerilog		synth_droneCanNodeFilter	synth_droneCanNodeFilter				Y	Tests/IP
+Tests/IP/Bus/DroneCANHWTest.lean	121	#synthesizeVerilog		synth_droneCanTidError	synth_droneCanTidError				Y	Tests/IP
+Tests/IP/Bus/I2CHWTest.lean	79	#synthesizeVerilog		synth_i2cMasterState	synth_i2cMasterState				Y	Tests/IP
+Tests/IP/Bus/LINHWTest.lean	86	#synthesizeVerilog		synth_linPidParity	synth_linPidParity				Y	Tests/IP
+Tests/IP/Bus/LINHWTest.lean	95	#synthesizeVerilog		synth_linChecksum	synth_linChecksum				Y	Tests/IP
+Tests/IP/Bus/MIL1553HWTest.lean	93	#synthesizeVerilog		synth_mil1553Parity	synth_mil1553Parity				Y	Tests/IP
+Tests/IP/Bus/MIL1553HWTest.lean	100	#synthesizeVerilog		synth_mil1553Manchester	synth_mil1553Manchester				Y	Tests/IP
+Tests/IP/Bus/PCIeHFTTest.lean	97	#synthesizeVerilog		synth_hftPcieOutByte	synth_hftPcieOutByte				Y	Tests/IP
+Tests/IP/Bus/PCIeHFTTest.lean	107	#synthesizeVerilog		synth_hftPciePulse	synth_hftPciePulse				Y	Tests/IP
+Tests/IP/Bus/PCIeTest.lean	135	#synthesizeVerilog		synth_tlpHeaderByte	synth_tlpHeaderByte				Y	Tests/IP
+Tests/IP/Bus/PCIeTest.lean	143	#synthesizeVerilog		synth_tlpRxAddr	synth_tlpRxAddr				Y	Tests/IP
+Tests/IP/Bus/PCIeTest.lean	151	#synthesizeVerilog		synth_tlpRxIsWrite	synth_tlpRxIsWrite				Y	Tests/IP
+Tests/IP/Bus/SBUSHWTest.lean	98	#synthesizeVerilog		synth_sbusIdx	synth_sbusIdx				Y	Tests/IP
+Tests/IP/Bus/SBUSHWTest.lean	107	#synthesizeVerilog		synth_sbusCh0	synth_sbusCh0				Y	Tests/IP
+Tests/IP/Bus/SPIHWTest.lean	86	#synthesizeVerilog		synth_spiSclk	synth_spiSclk				Y	Tests/IP
+Tests/IP/Bus/SPIHWTest.lean	98	#synthesizeVerilog		synth_spiMisoByte	synth_spiMisoByte				Y	Tests/IP
+Tests/IP/Control/IIRBiquadTest.lean	94	#synthesizeVerilog	Sparkle.Tests.IP.Control.IIRBiquadTest	stableTop	Sparkle.Tests.IP.Control.IIRBiquadTest.stableTop				Y	Tests/IP
+Tests/IP/Control/IIRBiquadTest.lean	95	#synthesizeVerilog	Sparkle.Tests.IP.Control.IIRBiquadTest	naiveTop	Sparkle.Tests.IP.Control.IIRBiquadTest.naiveTop				Y	Tests/IP
+Tests/IP/Control/LQRTest.lean	102	#synthesizeVerilog	Sparkle.Tests.IP.Control.LQRTest	lqrLoopTop	Sparkle.Tests.IP.Control.LQRTest.lqrLoopTop				Y	Tests/IP
+Tests/IP/Control/LQRTest.lean	103	#synthesizeVerilog	Sparkle.Tests.IP.Control.LQRTest	lqrCtrlTop	Sparkle.Tests.IP.Control.LQRTest.lqrCtrlTop				Y	Tests/IP
+Tests/IP/Control/ObserverTest.lean	257	#synthesizeVerilog	Sparkle.Tests.IP.Control.ObserverTest	kalmanTop	Sparkle.Tests.IP.Control.ObserverTest.kalmanTop				Y	Tests/IP
+Tests/IP/Control/ObserverTest.lean	258	#synthesizeVerilog	Sparkle.Tests.IP.Control.ObserverTest	hinfTop	Sparkle.Tests.IP.Control.ObserverTest.hinfTop				Y	Tests/IP
+Tests/IP/Control/ObserverTest.lean	259	#synthesizeVerilog	Sparkle.Tests.IP.Control.ObserverTest	dividerTop	Sparkle.Tests.IP.Control.ObserverTest.dividerTop				Y	Tests/IP
+Tests/IP/Control/ObserverTest.lean	260	#synthesizeVerilog	Sparkle.Tests.IP.Control.ObserverTest	tvKalmanTop	Sparkle.Tests.IP.Control.ObserverTest.tvKalmanTop				Y	Tests/IP
+Tests/IP/Control/PIDTest.lean	103	#synthesizeVerilog	Sparkle.Tests.IP.Control.PIDTest	pidTop	Sparkle.Tests.IP.Control.PIDTest.pidTop				Y	Tests/IP
+Tests/IP/Control/PIDTest.lean	104	#synthesizeVerilog	Sparkle.Tests.IP.Control.PIDTest	pidLoopTop	Sparkle.Tests.IP.Control.PIDTest.pidLoopTop				Y	Tests/IP
+Tests/IP/Control/PrecisionSweepTest.lean	361	#synthesizeVerilog	Sparkle.Tests.IP.Control.PrecisionSweepTest	sweepQ7_8	Sparkle.Tests.IP.Control.PrecisionSweepTest.sweepQ7_8				Y	Tests/IP
+Tests/IP/Control/PrecisionSweepTest.lean	362	#synthesizeVerilog	Sparkle.Tests.IP.Control.PrecisionSweepTest	sweepQ15_16	Sparkle.Tests.IP.Control.PrecisionSweepTest.sweepQ15_16				Y	Tests/IP
+Tests/IP/Control/PrecisionSweepTest.lean	363	#synthesizeVerilog	Sparkle.Tests.IP.Control.PrecisionSweepTest	sweepQ23_8	Sparkle.Tests.IP.Control.PrecisionSweepTest.sweepQ23_8				Y	Tests/IP
+Tests/IP/Control/PrecisionSweepTest.lean	364	#synthesizeVerilog	Sparkle.Tests.IP.Control.PrecisionSweepTest	sweepMarginalQ7_8	Sparkle.Tests.IP.Control.PrecisionSweepTest.sweepMarginalQ7_8				Y	Tests/IP
+Tests/IP/Control/PrecisionSweepTest.lean	365	#synthesizeVerilog	Sparkle.Tests.IP.Control.PrecisionSweepTest	sweepMarginalQ15_16	Sparkle.Tests.IP.Control.PrecisionSweepTest.sweepMarginalQ15_16				Y	Tests/IP
+Tests/IP/Crypto/AESGCMHWTest.lean	161	#synthesizeVerilog		synth_gcmCounter	synth_gcmCounter				Y	Tests/IP
+Tests/IP/Crypto/AESGCMHWTest.lean	169	#synthesizeVerilog		synth_gcmTagY	synth_gcmTagY				Y	Tests/IP
+Tests/IP/Crypto/AESGCMHWTest.lean	177	#synthesizeVerilog		synth_gcmTagFire	synth_gcmTagFire				Y	Tests/IP
+Tests/IP/Crypto/BIP32CKDHWTest.lean	94	#synthesizeVerilog		synth_ckd_childKey	synth_ckd_childKey				Y	Tests/IP
+Tests/IP/Crypto/BIP32CKDHWTest.lean	103	#synthesizeVerilog		synth_ckd_cc0	synth_ckd_cc0				Y	Tests/IP
+Tests/IP/Crypto/BIP32CKDHWTest.lean	112	#synthesizeVerilog		synth_ckd_done	synth_ckd_done				Y	Tests/IP
+Tests/IP/Crypto/BIP32CKDHWTest.lean	121	#synthesizeVerilog		synth_ckd_blkStart	synth_ckd_blkStart				Y	Tests/IP
+Tests/IP/Crypto/BLS12MillerHWTest.lean	48	#synthesizeVerilog		synth_millerStep_fNum	synth_millerStep_fNum				Y	Tests/IP
+Tests/IP/Crypto/BLS12MillerHWTest.lean	58	#synthesizeVerilog		synth_millerStep_done	synth_millerStep_done				Y	Tests/IP
+Tests/IP/Crypto/BLS12MillerHWTest.lean	68	#synthesizeVerilog		synth_millerStep_f12start	synth_millerStep_f12start				Y	Tests/IP
+Tests/IP/Crypto/EcdsaSignDemoTest.lean	105	#synthesizeVerilog		synth_signCore	synth_signCore				Y	Tests/IP
+Tests/IP/Crypto/EcdsaSignDemoTest.lean	117	#synthesizeVerilog		synth_demoTx	synth_demoTx				Y	Tests/IP
+Tests/IP/Crypto/Ed25519FieldHWTest.lean	89	#synthesizeVerilog		synth_ed25519MulResult	synth_ed25519MulResult				Y	Tests/IP
+Tests/IP/Crypto/Ed25519FieldHWTest.lean	97	#synthesizeVerilog		synth_ed25519MulDone	synth_ed25519MulDone				Y	Tests/IP
+Tests/IP/Crypto/Ed25519PointOpHWTest.lean	135	#synthesizeVerilog		synth_ed25519PointOpX	synth_ed25519PointOpX				Y	Tests/IP
+Tests/IP/Crypto/Ed25519PointOpHWTest.lean	144	#synthesizeVerilog		synth_ed25519PointOpDone	synth_ed25519PointOpDone				Y	Tests/IP
+Tests/IP/Crypto/Ed25519ScalarMulHWTest.lean	68	#synthesizeVerilog		synth_ed25519ScalarMulX	synth_ed25519ScalarMulX				Y	Tests/IP
+Tests/IP/Crypto/Ed25519ScalarMulHWTest.lean	77	#synthesizeVerilog		synth_ed25519ScalarMulDone	synth_ed25519ScalarMulDone				Y	Tests/IP
+Tests/IP/Crypto/Ed25519SignHWTest.lean	67	#synthesizeVerilog		synth_ed25519SignS	synth_ed25519SignS				Y	Tests/IP
+Tests/IP/Crypto/Ed25519SignHWTest.lean	75	#synthesizeVerilog		synth_ed25519SignDone	synth_ed25519SignDone				Y	Tests/IP
+Tests/IP/Crypto/Eip1559EnvelopeHWTest.lean	95	#synthesizeVerilog		synth_envByte	synth_envByte				Y	Tests/IP
+Tests/IP/Crypto/Eip1559EnvelopeHWTest.lean	103	#synthesizeVerilog		synth_envValid	synth_envValid				Y	Tests/IP
+Tests/IP/Crypto/Eip1559EnvelopeHWTest.lean	111	#synthesizeVerilog		synth_envDone	synth_envDone				Y	Tests/IP
+Tests/IP/Crypto/Fp12MulHWTest.lean	112	#synthesizeVerilog		synth_fp12MulC00a	synth_fp12MulC00a				Y	Tests/IP
+Tests/IP/Crypto/Fp12MulHWTest.lean	127	#synthesizeVerilog		synth_fp12MulDone	synth_fp12MulDone				Y	Tests/IP
+Tests/IP/Crypto/Fp2MulHWTest.lean	100	#synthesizeVerilog		synth_fp2MulC0	synth_fp2MulC0				Y	Tests/IP
+Tests/IP/Crypto/Fp2MulHWTest.lean	110	#synthesizeVerilog		synth_fp2MulC1	synth_fp2MulC1				Y	Tests/IP
+Tests/IP/Crypto/Fp2MulHWTest.lean	120	#synthesizeVerilog		synth_fp2MulDone	synth_fp2MulDone				Y	Tests/IP
+Tests/IP/Crypto/Fp381MontMulHWTest.lean	112	#synthesizeVerilog		synth_fp381MontMulResult	synth_fp381MontMulResult				Y	Tests/IP
+Tests/IP/Crypto/Fp381MontMulHWTest.lean	120	#synthesizeVerilog		synth_fp381MontMulDone	synth_fp381MontMulDone				Y	Tests/IP
+Tests/IP/Crypto/Fp6MulHWTest.lean	104	#synthesizeVerilog		synth_fp6MulC0a	synth_fp6MulC0a				Y	Tests/IP
+Tests/IP/Crypto/Fp6MulHWTest.lean	115	#synthesizeVerilog		synth_fp6MulDone	synth_fp6MulDone				Y	Tests/IP
+Tests/IP/Crypto/G2PointOpHWTest.lean	168	#synthesizeVerilog		synth_g2PointOp_x0	synth_g2PointOp_x0				Y	Tests/IP
+Tests/IP/Crypto/G2ScalarMulHWTest.lean	106	#synthesizeVerilog		synth_g2ScalarMul_x0	synth_g2ScalarMul_x0				Y	Tests/IP
+Tests/IP/Crypto/G2ScalarMulHWTest.lean	115	#synthesizeVerilog		synth_g2ScalarMul_done	synth_g2ScalarMul_done				Y	Tests/IP
+Tests/IP/Crypto/GHASHHWSynth.lean	18	#synthesizeVerilog		synth_gmulHWResult	synth_gmulHWResult				N	Tests/IP
+Tests/IP/Crypto/GHASHHWSynth.lean	26	#synthesizeVerilog		synth_gmulHWDone	synth_gmulHWDone				N	Tests/IP
+Tests/IP/Crypto/GoldilocksHWTest.lean	90	#synthesizeVerilog		synth_goldilocksMulResult	synth_goldilocksMulResult				Y	Tests/IP
+Tests/IP/Crypto/GoldilocksHWTest.lean	98	#synthesizeVerilog		synth_goldilocksMulDone	synth_goldilocksMulDone				Y	Tests/IP
+Tests/IP/Crypto/HKDFHWTest.lean	170	#synthesizeVerilog		synth_hkdfCounter	synth_hkdfCounter				Y	Tests/IP
+Tests/IP/Crypto/HKDFHWTest.lean	180	#synthesizeVerilog		synth_hkdfDone	synth_hkdfDone				Y	Tests/IP
+Tests/IP/Crypto/HKDFHWTest.lean	190	#synthesizeVerilog		synth_hkdfTrig	synth_hkdfTrig				Y	Tests/IP
+Tests/IP/Crypto/HMACSHA512HWTest.lean	109	#synthesizeVerilog		synth_hmac_out0	synth_hmac_out0				Y	Tests/IP
+Tests/IP/Crypto/HMACSHA512HWTest.lean	118	#synthesizeVerilog		synth_hmac_blkStart	synth_hmac_blkStart				Y	Tests/IP
+Tests/IP/Crypto/HMACSHA512HWTest.lean	127	#synthesizeVerilog		synth_hmac_bWin15	synth_hmac_bWin15				Y	Tests/IP
+Tests/IP/Crypto/HMACSHA512HWTest.lean	136	#synthesizeVerilog		synth_hmac_done	synth_hmac_done				Y	Tests/IP
+Tests/IP/Crypto/Keccak256HWTest.lean	112	#synthesizeVerilog		synth_keccakRc	synth_keccakRc				Y	Tests/IP
+Tests/IP/Crypto/Keccak256SpongeTest.lean	151	#synthesizeVerilog		synth_spongeD0	synth_spongeD0				Y	Tests/IP
+Tests/IP/Crypto/Keccak256SpongeTest.lean	165	#synthesizeVerilog		synth_spongeDone	synth_spongeDone				Y	Tests/IP
+Tests/IP/Crypto/MerkleHWTest.lean	167	#synthesizeVerilog		synth_merkleSlot0	synth_merkleSlot0				Y	Tests/IP
+Tests/IP/Crypto/MerkleHWTest.lean	176	#synthesizeVerilog		synth_merkleOcc	synth_merkleOcc				Y	Tests/IP
+Tests/IP/Crypto/MerkleHWTest.lean	185	#synthesizeVerilog		synth_merkleCombineReq	synth_merkleCombineReq				Y	Tests/IP
+Tests/IP/Crypto/ModInvHWTest.lean	115	#synthesizeVerilog		synth_modInvResult	synth_modInvResult				Y	Tests/IP
+Tests/IP/Crypto/ModInvHWTest.lean	125	#synthesizeVerilog		synth_modInvDone	synth_modInvDone				Y	Tests/IP
+Tests/IP/Crypto/ModInvHWTest.lean	135	#synthesizeVerilog		synth_modInvMulStart	synth_modInvMulStart				Y	Tests/IP
+Tests/IP/Crypto/P256ECDSAHWTest.lean	128	#synthesizeVerilog		synth_ecdsaR	synth_ecdsaR				Y	Tests/IP
+Tests/IP/Crypto/P256ECDSAHWTest.lean	142	#synthesizeVerilog		synth_ecdsaS	synth_ecdsaS				Y	Tests/IP
+Tests/IP/Crypto/P256ECDSAHWTest.lean	156	#synthesizeVerilog		synth_ecdsaDone	synth_ecdsaDone				Y	Tests/IP
+Tests/IP/Crypto/P256FieldHWTest.lean	89	#synthesizeVerilog		synth_p256MulResult	synth_p256MulResult				Y	Tests/IP
+Tests/IP/Crypto/P256FieldHWTest.lean	97	#synthesizeVerilog		synth_p256MulDone	synth_p256MulDone				Y	Tests/IP
+Tests/IP/Crypto/P256OrderHWTest.lean	89	#synthesizeVerilog		synth_p256OrderMulResult	synth_p256OrderMulResult				Y	Tests/IP
+Tests/IP/Crypto/P256OrderHWTest.lean	97	#synthesizeVerilog		synth_p256OrderMulDone	synth_p256OrderMulDone				Y	Tests/IP
+Tests/IP/Crypto/P256PointOpHWTest.lean	147	#synthesizeVerilog		synth_p256PointOpX	synth_p256PointOpX				Y	Tests/IP
+Tests/IP/Crypto/P256PointOpHWTest.lean	158	#synthesizeVerilog		synth_p256PointOpDone	synth_p256PointOpDone				Y	Tests/IP
+Tests/IP/Crypto/P256PointOpHWTest.lean	169	#synthesizeVerilog		synth_p256PointOpMulStart	synth_p256PointOpMulStart				Y	Tests/IP
+Tests/IP/Crypto/P256ScalarMulHWTest.lean	135	#synthesizeVerilog		synth_p256ScalarMulX	synth_p256ScalarMulX				Y	Tests/IP
+Tests/IP/Crypto/P256ScalarMulHWTest.lean	146	#synthesizeVerilog		synth_p256ScalarMulDone	synth_p256ScalarMulDone				Y	Tests/IP
+Tests/IP/Crypto/P256ScalarMulHWTest.lean	157	#synthesizeVerilog		synth_p256ScalarMulPoStart	synth_p256ScalarMulPoStart				Y	Tests/IP
+Tests/IP/Crypto/P256SignDemoTest.lean	98	#synthesizeVerilog		synth_p256SignCore	synth_p256SignCore				Y	Tests/IP
+Tests/IP/Crypto/PolicySignDemoM2Test.lean	103	#synthesizeVerilog		synth_policyM2Tx	synth_policyM2Tx				Y	Tests/IP
+Tests/IP/Crypto/PolicySignDemoM2Test.lean	111	#synthesizeVerilog		synth_policyM2Reject	synth_policyM2Reject				Y	Tests/IP
+Tests/IP/Crypto/PolicySignDemoTest.lean	120	#synthesizeVerilog		synth_policyDemoTx	synth_policyDemoTx				Y	Tests/IP
+Tests/IP/Crypto/PolicySignDemoTest.lean	129	#synthesizeVerilog		synth_policyDemoReject	synth_policyDemoReject				Y	Tests/IP
+Tests/IP/Crypto/RLPHWTest.lean	132	#synthesizeVerilog		synth_rlpHeaderByte	synth_rlpHeaderByte				Y	Tests/IP
+Tests/IP/Crypto/RLPHWTest.lean	141	#synthesizeVerilog		synth_rlpHeaderValid	synth_rlpHeaderValid				Y	Tests/IP
+Tests/IP/Crypto/RLPHWTest.lean	150	#synthesizeVerilog		synth_rlpHeaderDone	synth_rlpHeaderDone				Y	Tests/IP
+Tests/IP/Crypto/SHA256Test.lean	120	#synthesizeVerilog		synth_sha256KMux	synth_sha256KMux				Y	Tests/IP
+Tests/IP/Crypto/SHA512BlockHWTest.lean	153	#synthesizeVerilog		synth_sha512Block_out0	synth_sha512Block_out0				Y	Tests/IP
+Tests/IP/Crypto/SHA512BlockHWTest.lean	164	#synthesizeVerilog		synth_sha512Block_done	synth_sha512Block_done				Y	Tests/IP
+Tests/IP/Crypto/SHA512HWTest.lean	149	#synthesizeVerilog		synth_sha512KMux	synth_sha512KMux				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1ECDSAHWTest.lean	128	#synthesizeVerilog		synth_ecdsaR	synth_ecdsaR				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1ECDSAHWTest.lean	142	#synthesizeVerilog		synth_ecdsaS	synth_ecdsaS				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1ECDSAHWTest.lean	156	#synthesizeVerilog		synth_ecdsaDone	synth_ecdsaDone				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1FieldHWTest.lean	89	#synthesizeVerilog		synth_secp256k1MulResult	synth_secp256k1MulResult				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1FieldHWTest.lean	97	#synthesizeVerilog		synth_secp256k1MulDone	synth_secp256k1MulDone				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1OrderHWTest.lean	89	#synthesizeVerilog		synth_secp256k1OrderMulResult	synth_secp256k1OrderMulResult				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1OrderHWTest.lean	97	#synthesizeVerilog		synth_secp256k1OrderMulDone	synth_secp256k1OrderMulDone				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1PointOpHWTest.lean	163	#synthesizeVerilog		synth_secp256k1PointOpX	synth_secp256k1PointOpX				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1PointOpHWTest.lean	174	#synthesizeVerilog		synth_secp256k1PointOpDone	synth_secp256k1PointOpDone				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1PointOpHWTest.lean	185	#synthesizeVerilog		synth_secp256k1PointOpMulStart	synth_secp256k1PointOpMulStart				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1ScalarMulHWTest.lean	135	#synthesizeVerilog		synth_secp256k1ScalarMulX	synth_secp256k1ScalarMulX				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1ScalarMulHWTest.lean	146	#synthesizeVerilog		synth_secp256k1ScalarMulDone	synth_secp256k1ScalarMulDone				Y	Tests/IP
+Tests/IP/Crypto/Secp256k1ScalarMulHWTest.lean	157	#synthesizeVerilog		synth_secp256k1ScalarMulPoStart	synth_secp256k1ScalarMulPoStart				Y	Tests/IP
+Tests/IP/Crypto/TxPolicyTest.lean	83	#synthesizeVerilog		synth_txPolicy	synth_txPolicy				Y	Tests/IP
+Tests/IP/Net/ARPTest.lean	201	#synthesizeVerilog		synth_arpResponderByte	synth_arpResponderByte				Y	Tests/IP
+Tests/IP/Net/ARPTest.lean	213	#synthesizeVerilog		synth_arpRequesterByte	synth_arpRequesterByte				Y	Tests/IP
+Tests/IP/Net/CRC32Test.lean	33	#synthesizeVerilog	SynthesisChecks	crc32EngineTop	SynthesisChecks.crc32EngineTop				Y	Tests/IP
+Tests/IP/Net/EthernetTest.lean	124	#synthesizeVerilog		synth_dmacOnly	synth_dmacOnly				Y	Tests/IP
+Tests/IP/Net/EthernetTest.lean	138	#synthesizeVerilog		synth_rxFramerAll	synth_rxFramerAll				Y	Tests/IP
+Tests/IP/Net/EthernetTxTest.lean	134	#synthesizeVerilog		synth_txByteOnly	synth_txByteOnly				Y	Tests/IP
+Tests/IP/Net/EthernetTxTest.lean	147	#synthesizeVerilog		synth_txFramerAll	synth_txFramerAll				Y	Tests/IP
+Tests/IP/Net/HFTQuoteTest.lean	91	#synthesizeVerilog		quoteBid	quoteBid				Y	Tests/IP
+Tests/IP/Net/HFTQuoteTest.lean	92	#synthesizeVerilog		quoteAsk	quoteAsk				Y	Tests/IP
+Tests/IP/Net/HFTQuoteTest.lean	93	#synthesizeVerilog		quoteInv	quoteInv				Y	Tests/IP
+Tests/IP/Net/HFTStrategyTest.lean	96	#synthesizeVerilog		synth_hftOutByte	synth_hftOutByte				Y	Tests/IP
+Tests/IP/Net/HFTStrategyTest.lean	104	#synthesizeVerilog		synth_hftEmitCount	synth_hftEmitCount				Y	Tests/IP
+Tests/IP/Net/HFTStrategyTest.lean	112	#synthesizeVerilog		synth_hftTriggerSeen	synth_hftTriggerSeen				Y	Tests/IP
+Tests/IP/Net/HTTPTest.lean	138	#synthesizeVerilog		synth_httpGetByte	synth_httpGetByte				Y	Tests/IP
+Tests/IP/Net/HTTPTest.lean	145	#synthesizeVerilog		synth_httpRespByte	synth_httpRespByte				Y	Tests/IP
+Tests/IP/Net/HTTPTest.lean	153	#synthesizeVerilog		synth_httpRequestParser	synth_httpRequestParser				Y	Tests/IP
+Tests/IP/Net/HTTPTest.lean	161	#synthesizeVerilog		synth_httpStatus	synth_httpStatus				Y	Tests/IP
+Tests/IP/Net/ICMPTest.lean	148	#synthesizeVerilog		synth_icmpResponderByte	synth_icmpResponderByte				Y	Tests/IP
+Tests/IP/Net/ICMPTest.lean	158	#synthesizeVerilog		synth_icmpRequesterByte	synth_icmpRequesterByte				Y	Tests/IP
+Tests/IP/Net/ICMPTest.lean	168	#synthesizeVerilog		synth_icmpRequesterReplyOk	synth_icmpRequesterReplyOk				Y	Tests/IP
+Tests/IP/Net/IPv4Test.lean	153	#synthesizeVerilog		synth_ipv4TxByte	synth_ipv4TxByte				Y	Tests/IP
+Tests/IP/Net/IPv4Test.lean	161	#synthesizeVerilog		synth_ipv4RxSrcIp	synth_ipv4RxSrcIp				Y	Tests/IP
+Tests/IP/Net/IPv4Test.lean	169	#synthesizeVerilog		synth_ipv4RxHeaderOk	synth_ipv4RxHeaderOk				Y	Tests/IP
+Tests/IP/Net/SLIPTest.lean	191	#synthesizeVerilog		synth_slipFramerByte	synth_slipFramerByte				N	Tests/IP
+Tests/IP/Net/SLIPTest.lean	192	#synthesizeVerilog		synth_slipDeframerByte	synth_slipDeframerByte				N	Tests/IP
+Tests/IP/Net/TCPHeaderTest.lean	117	#synthesizeVerilog		synth_tcpHeaderByte	synth_tcpHeaderByte				Y	Tests/IP
+Tests/IP/Net/TCPHeaderTest.lean	131	#synthesizeVerilog		synth_tcpChecksum	synth_tcpChecksum				Y	Tests/IP
+Tests/IP/Net/TCPHeaderTest.lean	140	#synthesizeVerilog		synth_tcpRxSeq	synth_tcpRxSeq				Y	Tests/IP
+Tests/IP/Net/TCPHeaderTest.lean	148	#synthesizeVerilog		synth_tcpRxFlags	synth_tcpRxFlags				Y	Tests/IP
+Tests/IP/Net/TCPStateTest.lean	201	#synthesizeVerilog		synth_serverFsmState	synth_serverFsmState				Y	Tests/IP
+Tests/IP/Net/TCPStateTest.lean	210	#synthesizeVerilog		synth_serverFsmEstablished	synth_serverFsmEstablished				Y	Tests/IP
+Tests/IP/Net/TCPStateTest.lean	219	#synthesizeVerilog		synth_serverFsmTxReq	synth_serverFsmTxReq				Y	Tests/IP
+Tests/IP/Net/TCPStateTest.lean	229	#synthesizeVerilog		synth_clientFsmState	synth_clientFsmState				Y	Tests/IP
+Tests/IP/Net/TCPStateTest.lean	239	#synthesizeVerilog		synth_clientFsmEstablished	synth_clientFsmEstablished				Y	Tests/IP
+Tests/IP/Net/UARTTest.lean	135	#synthesizeVerilog		synth_uartTx	synth_uartTx				N	Tests/IP
+Tests/IP/Net/UARTTest.lean	136	#synthesizeVerilog		synth_uartRx	synth_uartRx				N	Tests/IP
+Tests/IP/Net/UsbWebServerSynth.lean	22	#synthesizeVerilog	Sparkle.Tests.IP.Net.UsbWebServerSynth	synth_usbWebServer	Sparkle.Tests.IP.Net.UsbWebServerSynth.synth_usbWebServer		maxHeartbeats=4000000		N	Tests/IP
+Tests/IP/USB/Fido2DemoTest.lean	102	#synthesizeVerilog		synth_fido2Tx	synth_fido2Tx				Y	Tests/IP
+Tests/IP/USB/Fido2DemoTest.lean	106	#synthesizeVerilog		synth_fido2Done	synth_fido2Done				Y	Tests/IP
+Tests/RunCircuitHTest.lean	104	#synthesizeVerilog		counterH	counterH				Y	Tests/RunCircuitHTest.lean
+Tests/RunCircuitHTest.lean	105	#synthesizeVerilog		twoCountH	twoCountH				Y	Tests/RunCircuitHTest.lean
+Tests/RunCircuitHTest.lean	106	#synthesizeVerilog		mixedWidthH	mixedWidthH				Y	Tests/RunCircuitHTest.lean
+Tests/RunCircuitHTest.lean	107	#synthesizeVerilog		tripleCountH	tripleCountH				Y	Tests/RunCircuitHTest.lean
+Tests/RunCircuitHTest.lean	108	#synthesizeVerilog		fourCountH	fourCountH				Y	Tests/RunCircuitHTest.lean
+Tests/RunCircuitHTest.lean	109	#synthesizeVerilog		threeCountForM	threeCountForM				Y	Tests/RunCircuitHTest.lean
+Tests/SignalLoopTest.lean	115	#synthesizeVerilog		counterLoop	counterLoop				Y	Tests/SignalLoopTest.lean
+Tests/SignalLoopTest.lean	116	#synthesizeVerilog		counterDSL	counterDSL				Y	Tests/SignalLoopTest.lean
+Tests/SignalLoopTest.lean	117	#synthesizeVerilog		counterEnableLoop	counterEnableLoop				Y	Tests/SignalLoopTest.lean
+Tests/SignalLoopTest.lean	118	#synthesizeVerilog		counterEnableDSL	counterEnableDSL				Y	Tests/SignalLoopTest.lean
+Tests/SignalLoopTest.lean	119	#synthesizeVerilog		shift4Loop	shift4Loop				Y	Tests/SignalLoopTest.lean
+Tests/SymbolicParameterEmit.lean	4	#synthesizeParameterizedVerilog		symbolicXor	symbolicXor	W := 8	symbolicMode=true		N	Tests/SymbolicParameterEmit.lean
+Tests/SymbolicParameterEmit.lean	5	#synthesizeParameterizedVerilog		symbolicConcat	symbolicConcat	HI := 5, LO := 3	symbolicMode=true		N	Tests/SymbolicParameterEmit.lean
+Tests/SymbolicParameterEmit.lean	6	#synthesizeParameterizedVerilog		symbolicSliceLow	symbolicSliceLow	W := 8	symbolicMode=true		N	Tests/SymbolicParameterEmit.lean
+Tests/SymbolicParameterEmit.lean	7	#synthesizeParameterizedVerilog		symbolicZeroExtend	symbolicZeroExtend	W := 8	symbolicMode=true		N	Tests/SymbolicParameterEmit.lean
+Tests/Synthesis/SynthCatalog.lean	22	#synthesizeVerilog		synth_pure	synth_pure				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	30	#synthesizeVerilog		synth_add	synth_add				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	35	#synthesizeVerilog		synth_sub	synth_sub				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	40	#synthesizeVerilog		synth_mul	synth_mul				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	48	#synthesizeVerilog		synth_and	synth_and				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	53	#synthesizeVerilog		synth_or	synth_or				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	58	#synthesizeVerilog		synth_xor	synth_xor				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	66	#synthesizeVerilog		synth_shl	synth_shl				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	71	#synthesizeVerilog		synth_shr	synth_shr				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	80	#synthesizeVerilog		synth_mux	synth_mux				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	88	#synthesizeVerilog		synth_reg	synth_reg				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	96	#synthesizeVerilog		synth_eq	synth_eq				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	104	#synthesizeVerilog		synth_slice	synth_slice				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	112	#synthesizeVerilog		synth_neg	synth_neg				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	121	#synthesizeVerilog		synth_concat	synth_concat				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	131	#synthesizeVerilog		synth_let	synth_let				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	139	#synthesizeVerilog		synth_sext	synth_sext				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	151	#synthesizeVerilog		synth_scale	synth_scale				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	171	#synthesizeVerilog		synth_tree	synth_tree				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	181	#synthesizeVerilog		synth_mux_eq	synth_mux_eq				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	194	#synthesizeVerilog		synth_bus_split	synth_bus_split				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	203	#synthesizeVerilog		synth_bus_pack	synth_bus_pack				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	215	#synthesizeVerilog		synth_bundle	synth_bundle				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	227	#synthesizeVerilog		synth_field_write	synth_field_write				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	240	#synthesizeVerilog		synth_mmio_mux	synth_mmio_mux				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	250	#synthesizeVerilog		synth_loop_counter	synth_loop_counter				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	271	#synthesizeVerilog		synth_loop_fsm	synth_loop_fsm				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	292	#synthesizeVerilog		synth_loop_bram	synth_loop_bram				N	Tests/Synthesis
+Tests/Synthesis/SynthCatalog.lean	300	#synthesizeVerilog		synth_ashr	synth_ashr				N	Tests/Synthesis
+Tests/SynthesisTests.lean	64	#synthesizeVerilog		test_add	test_add				N	Tests/SynthesisTests.lean
+Tests/SynthesisTests.lean	65	#synthesizeVerilog		test_sub	test_sub				N	Tests/SynthesisTests.lean
+Tests/SynthesisTests.lean	68	#synthesizeVerilogDesign		test_hierarchical_alu	test_hierarchical_alu				N	Tests/SynthesisTests.lean
+Tests/SynthesisTests.lean	71	#synthesizeVerilog		test_tuple	test_tuple				N	Tests/SynthesisTests.lean
+Tests/SynthesisTests.lean	72	#synthesizeVerilog		test_tuple_extract	test_tuple_extract				N	Tests/SynthesisTests.lean
+Tests/SynthesisTests.lean	78	#synthesizeVerilog		test_mux2	test_mux2				N	Tests/SynthesisTests.lean
+Tests/SynthesisTests.lean	93	#synthesizeVerilog		test_simple_register	test_simple_register				N	Tests/SynthesisTests.lean
+Tests/TestCompilerExtensions.lean	26	#synthesizeVerilog		test_shl	test_shl				N	Tests/TestCompilerExtensions.lean
+Tests/TestCompilerExtensions.lean	35	#synthesizeVerilog		test_shr	test_shr				N	Tests/TestCompilerExtensions.lean
+Tests/TestCompilerExtensions.lean	44	#synthesizeVerilog		test_neg	test_neg				N	Tests/TestCompilerExtensions.lean
+Tests/TestCompilerExtensions.lean	53	#synthesizeVerilog		test_not	test_not				N	Tests/TestCompilerExtensions.lean
+Tests/TestCompilerExtensions.lean	63	#synthesizeVerilog		test_slice_map	test_slice_map				N	Tests/TestCompilerExtensions.lean
+Tests/TestCompilerExtensions.lean	72	#synthesizeVerilog		test_slice_upper	test_slice_upper				N	Tests/TestCompilerExtensions.lean
+Tests/TestCompilerExtensions.lean	82	#synthesizeVerilog		test_concat	test_concat				N	Tests/TestCompilerExtensions.lean
+Tests/TestCompilerExtensions.lean	92	#synthesizeVerilog		test_reg_enable	test_reg_enable				N	Tests/TestCompilerExtensions.lean
+Tests/TestCompilerExtensions.lean	102	#synthesizeVerilog		test_extract_opcode	test_extract_opcode				N	Tests/TestCompilerExtensions.lean
+Tests/TestCompilerExtensions.lean	114	#synthesizeVerilog		test_decoder_fields	test_decoder_fields				N	Tests/TestCompilerExtensions.lean
+Tests/TestConditionals.lean	52	#synthesizeVerilog		test_mux_RIGHT	test_mux_RIGHT				N	Tests/TestConditionals.lean
+Tests/TestConditionals.lean	53	#synthesizeVerilog		add_or_sub	add_or_sub				N	Tests/TestConditionals.lean
+Tests/TestDRC.lean	17	#synthesizeVerilog		drc_combo_output	drc_combo_output				N	Tests/TestDRC.lean
+Tests/TestDRC.lean	23	#synthesizeVerilog		drc_registered_output	drc_registered_output				N	Tests/TestDRC.lean
+Tests/TestErrorDetection.lean	68	#synthesizeVerilog		test_mux_works	test_mux_works				N	Tests/TestErrorDetection.lean
+Tests/TestErrorDetection.lean	69	#synthesizeVerilog		test_fst_snd_works	test_fst_snd_works				N	Tests/TestErrorDetection.lean
+Tests/TestErrorDetection.lean	70	#synthesizeVerilog		test_proj3_works	test_proj3_works				N	Tests/TestErrorDetection.lean
+Tests/TestUnbundle2.lean	66	#synthesizeVerilog		test_projection_RIGHT	test_projection_RIGHT				N	Tests/TestUnbundle2.lean
+Tests/TestUnbundle2.lean	67	#synthesizeVerilog		useHalfAdder	useHalfAdder				N	Tests/TestUnbundle2.lean
+Tests/TupleProjectionTest.lean	72	#synthesizeVerilog		example_2tuple_fst	example_2tuple_fst				N	Tests/TupleProjectionTest.lean
+Tests/TupleProjectionTest.lean	73	#synthesizeVerilog		addThreeNumbers	addThreeNumbers				N	Tests/TupleProjectionTest.lean
+Tests/Tutorial/HierarchyTest.lean	68	#writeVerilogDesign		latch8x2	latch8x2			"/tmp/sparkle_hier_test_x2.sv"	N	Tests/Tutorial
+Tests/Tutorial/HierarchyTest.lean	69	#writeVerilogDesign		latch8modx2	latch8modx2			"/tmp/sparkle_hier_test_x2_mod.sv"	N	Tests/Tutorial
+Tests/VerifyVerilog.lean	52	#synthesizeVerilog		test_add	test_add				N	Tests/VerifyVerilog.lean
+Tests/VerifyVerilog.lean	68	#synthesizeVerilog		test_and	test_and				N	Tests/VerifyVerilog.lean
+Tests/VerifyVerilog.lean	82	#synthesizeVerilog		test_mux	test_mux				N	Tests/VerifyVerilog.lean
+Tests/VerifyVerilog.lean	95	#synthesizeVerilogDesign		test_hierarchical_alu	test_hierarchical_alu				N	Tests/VerifyVerilog.lean
+Tests/VerifyVerilog.lean	112	#synthesizeVerilog		test_flipflop	test_flipflop				N	Tests/VerifyVerilog.lean
