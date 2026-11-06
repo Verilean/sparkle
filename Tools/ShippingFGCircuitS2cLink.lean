@@ -200,4 +200,36 @@ theorem callArgVals_tagree (d : MachineData) (hok : d.ok = true) {D : DomainConf
     simp only [Option.map_some, Option.getD_some]
     rw [eval_tagree d hok (typedVal_tagree d hok bs bs' vs vs' t x hb hv) lt.2 (hargs l hl lt hls)]
 
+/-! # S2c (part C): a combinational child's observation at a cycle depends on its inputs at that cycle, at the declared sorts -/
+
+/-- the observation of a machine `dc` (its `machine_result`), at a cycle, depends on the inputs at that cycle at the declared sorts -/
+theorem kid_pw (dc : MachineData) (hok : dc.ok = true) (hlen : dc.outs.length = dc.shape.layout.outs.length)
+    (x0 : HList (tys dc.ss))
+    (src : (D : DomainConfig) → (Nat → Signal D Bool) → ((j n : Nat) → Signal D (BitVec n)) → List (Nat → Nat))
+    (hres : ∀ (D : DomainConfig) (bools : Nat → Signal D Bool) (bits : (j n : Nat) → Signal D (BitVec n)) (t : Nat),
+      (src D bools bits).map (fun g => g t) = dc.outs.map fun o => enc o.1 (eval
+        (fun k => (typedVal dc.nIn dc.bpos dc.vpos dc.ss dc.ls bools bits t x0).b (dc.bpos k))
+        (fun k w => (typedVal dc.nIn dc.bpos dc.vpos dc.ss dc.ls bools bits t x0).v (dc.vpos k) w) o.2))
+    {D : DomainConfig} (bools bools' : Nat → Signal D Bool) (bits bits' : (j n : Nat) → Signal D (BitVec n)) (t : Nat)
+    (hb : ∀ p, p < dc.nIn → (bools p).val t = (bools' p).val t)
+    (hv : ∀ p w, p < dc.nIn → dc.K p = some (.bits w) → (bits p w).val t = (bits' p w).val t) :
+    (src D bools bits).map (fun g => g t) = (src D bools' bits').map (fun g => g t) := by
+  rw [hres, hres]
+  exact outs_tagree dc hok (outs_wf dc hok hlen) (typedVal_tagree dc hok bools bools' bits bits' t x0 hb hv)
+
+/-- the value of a combinational child's output at a cycle is determined by its input signals' values at that cycle:
+the single-output case, the output being `f` of the input family -/
+theorem kid_pw1 (dc : MachineData) (hok : dc.ok = true) (hlen : dc.outs.length = dc.shape.layout.outs.length)
+    (x0 : HList (tys dc.ss)) (fn : {D : DomainConfig} → ((j n : Nat) → Signal D (BitVec n)) → Nat → Nat)
+    (hres : ∀ (D : DomainConfig) (bools : Nat → Signal D Bool) (bits : (j n : Nat) → Signal D (BitVec n)) (t : Nat),
+      [fn bits t] = dc.outs.map fun o => enc o.1 (eval
+        (fun k => (typedVal dc.nIn dc.bpos dc.vpos dc.ss dc.ls bools bits t x0).b (dc.bpos k))
+        (fun k w => (typedVal dc.nIn dc.bpos dc.vpos dc.ss dc.ls bools bits t x0).v (dc.vpos k) w) o.2))
+    {D : DomainConfig} (bools : Nat → Signal D Bool) (bits bits' : (j n : Nat) → Signal D (BitVec n)) (t : Nat)
+    (hv : ∀ p w, p < dc.nIn → dc.K p = some (.bits w) → (bits p w).val t = (bits' p w).val t) :
+    fn bits t = fn bits' t := by
+  have h := kid_pw dc hok hlen x0 (fun D _ bits => [fn bits]) (fun D bools bits t => hres D bools bits t)
+    bools bools bits bits' t (fun _ _ => rfl) hv
+  simpa using h
+
 end Tools.ShippingFGCircuitS2cLink
