@@ -1447,3 +1447,56 @@ Check の出力行は 8（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、CONTROLS 1�
 ### 32.6 ビルド環境の注記
 
 `timeout 1500 kjob lake build TARGET` のみ（`ulimit -v` なし）。`Tools.ShippingFGCircuitS2dKids` は約 3 分（初回、S2a の import 込み）。
+
+## 33. S2g（Issue `sparkle-fg-circuit-pilot` の次の束）: `hkgates` — 2 つの被呼び出し宣言の gate を閉じた宣言と有限個の環境問い合わせに還元
+
+土台 `6bfe8328`（par/fgc-s1）。追加ファイル（既存の定理は書き換えていない。lakefile 登録 2 件）: `Tools/ShippingFGCircuitS2gGates.lean`、`Tests/Gen5/FGCircuitPilotCheck27.lean`。sorry・axiom・native_decide・TRUSTED・新しい law はない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**で、approved/done ではない。
+
+### 33.1 完全な型（先に固定。Check27 が独立に書いた文面と `isDefEq`）
+
+```
+structure KidGateFacts (env : Environment) (X : Name) (T V Vi : Lean.Expr) : Prop where
+  root   : ∃ d : DefinitionVal, RootInEnv env X T V d
+  ui_val : userInliner env V = Vi
+  ui_ty  : userInliner env T = T
+  ip_val : instancePredicate env (peeled V) = false
+  ip_inl : instancePredicate env (peeled Vi) = false
+
+def HftKidsGateFacts (e : Environment) : Prop :=
+  KidGateFacts e hftHttp httpType httpValue httpInlValue ∧ KidGateFacts e hftTlp tlpType tlpValue tlpInlValue
+```
+
+`T`/`V` は被呼び出し宣言（`httpGetByte`、`tlpCplByte`）の型/値の**閉じた `Lean.Expr` の quote**（`quote_decl%`、`exprToE`）、`Vi` は `userInliner env V` の quote（`arbiterInlinedValue` と同じ、この build の環境の **SNAPSHOT**。それが環境の inliner の返す値であるという事実は名前付き仮説 `ui_val`）。`peeled e` は `mixedGatePeel` で剥がした本体（インスタンス述語が最初に問われる点）。
+
+### 33.2 証明できたもの（標準 axiom のみ。`http_gates_V`/`tlp_gates_Vi` は propext のみ）
+
+| 名前 | 内容 |
+|---|---|
+| `http_gates_V`、`http_gates_Vi`、`tlp_gates_V`、`tlp_gates_Vi` | 閉じた宣言（型 `T`、値 `V` または inliner 後の `Vi`）上で `certifiedShape?` と `mixedCertifiedShape?` が `none`。**kernel 評価**（`with_unfolding_all rfl`）。インスタンス述語 `ip` は抽象のままで、`ip (peeled V) = false` の 1 点だけを使う（他の点は問われない: 証明が通ったことが根拠） |
+| `entryGates_of_two` | `RootInEnv`、inliner の 2 事実、「宣言上の gate」と「inliner 後の宣言上の gate」から `EntryGates env X`。`entryConst` はどちらを返しても gate が通る（`machineShape?` の評価は不要。S1l の `entryOfDecl_inl` の `hs` を要さない） |
+| `httpGate_of_facts`、`tlpGate_of_facts`、`hftKidsGates_of_facts` | `KidGateFacts` から `EntryGates`、`HftKidsGateFacts e → HftKidsGates e` |
+| `HftFinalStmtOffLNKKG`、`synth_hftPcieOutByte_finalOffLNKKG`（`_Z/_Y/_X`） | S2d の最終文の `hkgates : HftKidsGates (envAt cref w)` を `hkgfacts : HftKidsGateFacts (envAt cref w)` に替えたもの |
+
+**binder 一覧（`finalOffLNKKG_Z`、明示仮説 14）**: `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hkenv hkgfacts`（S2d の `hkgates` だけが `hkgfacts` に替わった。個数は同じ）。`hreadH`/`hreadT`（`RootReader`、`machineShape?`/`dataOfAt` の部分）は既存の仮説のまま。
+
+### 33.3 残る名前付き仮説（impossible とは言わない）
+
+`hkgfacts : HftKidsGateFacts (envAt cref w)`（FG D.T-4g）: 被呼び出し 2 つ × 5 事実 = **10 の環境の事実**（`envAt cref w` の 1 つの環境に対し、各事実は 1 つの閉じた項または 1 つの名前での問い合わせ）。all-world の law ではなく、`ReadsAt`/`Start`/`CheckedStart` は含まない。Check27 が build の環境で 10 事実すべてを観測（MetaM、供給ではない）。残りは S2d から変わらない `hkenv`（D.T-4k）、`HftRootLink`（S2c）、`hcd`（S2b）、`htop`、`hreadH`/`hreadT`、`hchk`、`CellPrem`、`Laws`/`Start`/`hr`。
+
+### 33.4 Check27 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck27`、exit 0、933 jobs）
+
+- `FGCIRCUIT27 SIGNATURES-A`: `KidGateFacts` の構成子の型と `HftKidsGateFacts` を独立に書いた `ExpKGF`/`ExpHK` と照合。**13 mutant 棄却**（点を値全体に、inliner 後の点を落とす、root を落とす、inliner の型の事実を落とす、値を宣言に結ばない、quote の入れ替え、名前の入れ替え、片方の被呼び出しを 2 回、片方のみ、値全体の点、`True`）。
+- `FGCIRCUIT27 SIGNATURES-B`: `finalOffLNKKG_Z` の 14 仮説、`hkgfacts` が最後、`hkenv`/`hreadH`/`hreadT` は不変、`MachineDefines`/`HftKidsDefine`/`MachineCloses`/`Start`/`ReadsAt`/`CheckedStart` が `hkgfacts` から到達不能、S2d の文と違う。**17 構造検査**。`FGCIRCUIT27 HYPS`（14 個）。
+- `FGCIRCUIT27 QUOTES`: 4 つの quote が宣言の型/値と `Expr.equal`、http ≠ tlp、10 事実が環境点 1（この build）と点 2（無関係な宣言を足した後）の両方で成立（**25 検査**、観測）。
+- `FGCIRCUIT27 CONTROLS`（7 件）: 入れ替えた被呼び出しは事実を破る（root が両方向で偽）、gate が通らない宣言（`gateFail`: `certifiedShape?` が `some`）の検出、インスタンス述語が問い合わせに敏感（`kidWrap`: 本物の述語では mixed gate が `some`、常に false では `none`）、本物の entry 定数は両方 gate が通る。
+- `FGCIRCUIT27 REMAINING`（1 行: `hkgfacts`）、`FGCIRCUIT27 AXIOMS`: 12 名、標準 axiom のみ。
+
+Check の出力行は 7（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、QUOTES 1、CONTROLS 1、REMAINING 1、AXIOMS 1）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き。
+
+### 33.5 次
+
+`hkenv` (A)/(B)（D.T-4k）、`htop`、`hcd`（S2b）、`HftRootLink`（S2c）。`ui_val` の snapshot `Vi` を `userInliner` の kernel 評価に置き換える道は未調査（`userInliner` が `partial`/extern を含むため現時点で見つかっていない）。
+
+### 33.6 ビルド環境の注記
+
+`timeout 1500 kjob lake build TARGET`（`ulimit -v` なし）。`Tools.ShippingFGCircuitS2gGates` は約 1 分（S2d の build 込みで）、Check27 も約 1 分。
