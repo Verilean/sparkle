@@ -24,6 +24,29 @@ open Tools.ShippingCallsShape Tools.ShippingCallsRun Tools.ShippingCallsAssembly
 open Tools.ShippingChildBndInit Tools.ShippingChildBndCore Tools.ShippingMixedEntrySoundness
 open Tools.ShippingChildFresh Tools.ShippingChildVCA Tools.ShippingChildComposeC
 
+open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
+open Tools.ShippingUnifiedSource Tools.ShippingMixedSourceBridge
+open Tools.ShippingMachineAuto Tools.ShippingMachineClosesData Tools.ShippingMachineCloses
+open Tools.ShippingMixedEntrySoundness
+open Tools.ShippingCallsShape Tools.ShippingCallsRun Tools.ShippingCallsAssembly
+open Tools.ShippingGateChildComb Tools.ShippingChildInv Tools.ShippingRankRun
+open Tools.ShippingMachineChildComb Tools.ShippingTransitionClosed Tools.ShippingCallsGate
+open Tools.ShippingChildInvA Tools.ShippingChildVCA Tools.ShippingChildCacheA Tools.ShippingChildFresh
+open Tools.ShippingChildRunA Tools.ShippingChildRunAKids Tools.ShippingChildRunAMain Tools.ShippingChildComposeC
+open Tools.ShippingGen2 Tools.ShippingChildBndCore Tools.ShippingFGCircuitS1qLinked Tools.ShippingFGCircuitS1qHead
+open Tools.ShippingFGCircuitLinked
+open Tools.ShippingFGCircuitS1iHead (HeadAt)
+open Tools.ShippingFGCircuitS1oHead (GetEnvProfileAt headAt_of_profileOff)
+open Tools.ShippingFGCircuitCover Tools.ShippingFGCircuitFinal4
+open Tools.ShippingEntryReadsLinked (envAt)
+open Tools.ShippingGen5Env (ReadsAt)
+open Tools.ShippingGen5EnvFrame3 (CellPrem)
+open Tools.ShippingFGCircuitS1hFrame (getEnvFrame_of_cellPrem)
+open Tools.ShippingFGCircuitS2dKids
+open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1zClose Tools.ShippingFGCircuitS2aClose
+open Sparkle.IP.Net.HTTP Sparkle.IP.Bus.PCIe
+open Tools.ShippingFGCircuitS2hHist
+
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
@@ -95,4 +118,33 @@ theorem jqhr_core (hT : TeleR O e w₀) (h0 : ProfOffW mref cref w₀) (hs : Pro
 
 end Steps
 
+/-- **`hftCoreCloses_of_kidsH` with the miss premise `MissE` replaced by the reachability / environment invariant** `JQHR` from the start world `w` of the target root run. Premise list, replacing `hmiss : MissE L.O (KidEv mref cref (envAt cref w))`:
+`hadm` (FG D.T-4m6: the root context is admissible for the strengthened quiet predicate), `hdown` (D.T-4m7), `hD` (D.T-4m1, class-D rows), `hG` (D.T-4m2, diagnostic rows), `hT` (D.T-4m3, telescope rows), `hs` (D.T-4m4, profile lookup along leaf steps), `h0` (D.T-4m5, profile lookup unset at the root start world). `L.T` is not used. -/
+theorem hftCoreCloses_of_kidsR (L : Laws mref cref) {w : Void IO.RealWorld}
+    (hstart : Start L mctx cctx w) (hcell : CellPrem MkRefd mref cref) {lvl : Lean.Expr → Nat}
+    (hrH : RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData)
+    (hrT : RootReader lvl (envAt cref w) hftTlp tlpCplByte.machineData)
+    (hg : HftKidsGates (envAt cref w))
+    (hadm : AdmCtx (quietR L.O.quiet mref cref (envAt cref w) w) mctx cctx)
+    (hdown : AdmDownR L.O (envAt cref w) w) (hD : DRowEnvR L.O (envAt cref w) w)
+    (hG : DiagEnvR L.O (envAt cref w) w) (hT : TeleR L.O (envAt cref w) w)
+    (hs : ProfStepR L.O w) (h0 : ProfOffW mref cref w) :
+    HftCoreCloses mctx mref cctx cref w := by
+  intro raw D₀ w1 hr s wh w2 w3 w4 envR ci hh hget henv hbody envR' w8 w10 r henv' hrun
+  have hw1 := jqhr_head (hcell := hcell) (hdown := hdown) (hD := hD) (hG := hG) hadm hstart.2.1 hh
+  have hw2 := triple_runs (keeps_iff.mp (keepsA_framed (ropsR L.O hcell (envAt cref w) w hdown hD hG) hadm
+    (stableA_JQH _ _ (0 + 1)) (FramedA.constInfo _))) hw1 hget
+  have hw3 := triple_runs (keeps_iff.mp (keepsA_framed (ropsR L.O hcell (envAt cref w) w hdown hD hG) hadm
+    (stableA_JQH _ _ (0 + 1)) FramedA.env)) hw2 henv
+  have hw8 := triple_runs (keeps_iff.mp (keepsA_framed (ropsR L.O hcell (envAt cref w) w hdown hD hG) hadm
+    (stableA_JQH _ _ (0 + 1)) FramedA.env)) hw3 henv'
+  exact hft_closesAtH (ropsR L.O hcell (envAt cref w) w hdown hD hG) hT hadm hcell hrH hrT hg
+    (missR h0 hs) false (0 + 1) w8 r w10 hw8 (by omega) hrun
+
 end Tools.ShippingFGCircuitS2mReach
+
+#print axioms Tools.ShippingFGCircuitS2mReach.jqhr_synthesizeChild
+#print axioms Tools.ShippingFGCircuitS2mReach.jqhr_closeInstsM
+#print axioms Tools.ShippingFGCircuitS2mReach.jqhr_closeInstsGM
+#print axioms Tools.ShippingFGCircuitS2mReach.jqhr_core
+#print axioms Tools.ShippingFGCircuitS2mReach.hftCoreCloses_of_kidsR
