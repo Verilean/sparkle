@@ -152,4 +152,44 @@ theorem machineChild_of_realA (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATe
     exact machineChild_ifaceA O T adm d ok hbody hS hK hno hsl houts outTy ⟨⟨quiet, synth, rfl⟩, cache⟩ hr
       (Tools.ShippingReflectCtx.MachineDefines.ctx entry) (closes mctx' cctx')
 
+/-! ## the root: both calls are slotless machine children -/
+open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1zClose
+open Sparkle.IP.Net.HTTP Sparkle.IP.Bus.PCIe
+
+/-- **`HftKidsDefine`** (NAMED HYPOTHESIS; FG D.T-4, the children's part): the reflection of the two called declarations in the run's contexts — the `MachineDefines` premise that the generated endpoints already take for each called declaration (`machine_closes_at`'s `hR`). Run-local to the contexts `mctx cctx` (and the ref cells) of the target run; not a closing fact. -/
+def HftKidsDefine (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) : Prop :=
+  MachineDefines mctx mref cctx cref ``Sparkle.IP.Net.HTTP.httpGetByte httpGetByte.machineData.shape ∧
+  MachineDefines mctx mref cctx cref ``Sparkle.IP.Bus.PCIe.tlpCplByte tlpCplByte.machineData.shape
+
+/-- the number of ports of a called child -/
+noncomputable def nkOf (c : Name) : Nat :=
+  if c = ``Sparkle.IP.Net.HTTP.httpGetByte then
+    ((httpGetByte.machineData.shape.binders.take httpGetByte.machineData.nIn).filter fun x => x.2 != .domain).length
+  else
+    ((tlpCplByte.machineData.shape.binders.take tlpCplByte.machineData.nIn).filter fun x => x.2 != .domain).length
+
+theorem hft_kids_names : ∀ x ∈ synth_hftPcieOutByte.machineData.shape.insts,
+    x.1 = ``Sparkle.IP.Net.HTTP.httpGetByte ∨ x.1 = ``Sparkle.IP.Bus.PCIe.tlpCplByte := by decide +kernel
+theorem hft_gateCalls : synth_hftPcieOutByte.machineData.gateCallsOk (Tools.ShippingGen5Sem.kDOf synth_hftPcieOutByte.machineData) = true := by decide +kernel
+theorem hft_alias : synth_hftPcieOutByte.machineData.letsAliasOk = true := by decide +kernel
+theorem hft_argsN : ∀ x ∈ synth_hftPcieOutByte.machineData.shape.insts, nkOf x.1 = x.2.1.length := by decide +kernel
+theorem hft_noparent : ∀ c ∈ synth_hftPcieOutByte.machineData.shape.insts, c.1 ≠ hftRoot := by decide +kernel
+theorem hft_outs_head : ∀ o ∈ synth_hftPcieOutByte.machineData.shape.layout.outs, o.name.toList.head? ≠ some 'i' := by decide +kernel
+
+
+/-- **the child-side fact for the ACTUAL output**: a `RealChildA` of either called declaration has the interface the closing reads (`ChildComb`, port count, the declaration's module name, an empty design) -/
+theorem hft_kid_iface (O : RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) (T : RefLawsATele O.quiet mref cref) (hk : HftKidsDefine mctx mref cctx cref) {c : Name}
+    (hc : c = ``Sparkle.IP.Net.HTTP.httpGetByte ∨ c = ``Sparkle.IP.Bus.PCIe.tlpCplByte) {y : Res}
+    (h : RealChildA O c y) : ChildIface c (nkOf c) y.1 y.2 := by
+  rcases hc with rfl | rfl
+  · have := machineChild_of_realA O T (nDecl := httpGetByte.machineData.nIn) httpGetByte.machineData httpGetByte.machine_ok httpGetByte.machine_body
+      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) ⟨_, rfl, rfl⟩ (by decide +kernel)
+      hk.1 (fun mc cc => httpGetByte.machine_closes mc _ cc _) h
+    simpa [nkOf] using this
+  · have := machineChild_of_realA O T (nDecl := tlpCplByte.machineData.nIn) tlpCplByte.machineData tlpCplByte.machine_ok tlpCplByte.machine_body
+      (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel) ⟨_, rfl, rfl⟩ (by decide +kernel)
+      hk.2 (fun mc cc => tlpCplByte.machine_closes mc _ cc _) h
+    simpa [nkOf] using this
+
 end Tools.ShippingFGCircuitS2aClose
