@@ -198,3 +198,97 @@ run_cmd liftTermElabM do
   for (what, m) in muts2 do
     diffTy s!"hftObNoRawOff_of_local vs {what}" t2 m; nm := nm + 1
   logInfo m!"FGCIRCUIT23 SIGNATURES-B: hftPostGate_of_local (hgate DERIVED: premises Start L, the machine boundary of the core run, HftCoreCloses; conclusion HftPostGate) and hftObNoRawOff_of_local match independently written statements; {nm} mutants rejected (another world / shape / output of the closing; no closing; boundary of another shape; constant or hierBinds gate; no Start)"
+
+/-! ## 3. the final statement -/
+
+noncomputable def ExpFLNL (Ob : Environment → Prop) (CV : CDRel) (Cl : Cx → Rf1 → Cc → Rf2 → W → Prop) : Prop :=
+  ∀ (hlink : HftRootLink) {ι : Type} {mref : Rf1} {cref : Rf2}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
+    {mctx : Cx} {cctx : Cc} {w w' : W} {b : Md} {D' : Dg}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (synthesizeCombinationalOff hftRoot) mctx mref cctx cref w (b, D') w')
+    (hcell : CellPrem Tools.ShippingChildFresh.MkRefd mref cref)
+    (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+    (hreadH : RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData)
+    (hreadT : RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData)
+    (hcd : Ob (envAt cref w))
+    (htop : ∀ p : Pkg ι (fun _ => defaultDomain), GPt (ι := ι) lvl (envAt cref w) hftRoot = some p → HftObTopCoreOff mctx mref cctx cref w b D' p)
+    (hclL : Cl mctx mref cctx cref w),
+    (∃ raw, PostRunOff mctx mref cctx cref w hftRoot D' b raw) ∧
+    ∃ (mm : MonoTy shHft) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMonoV CV (envAt cref w) (GPt (ι := ι) lvl (envAt cref w))
+        (PostRunOff mctx mref cctx cref w hftRoot D') hftRoot shHft mm b D' p
+noncomputable def FZL := ExpFLNL HftObCDZ cdvZ CCRoot
+
+set_option maxHeartbeats 4000000 in
+run_cmd liftTermElabM do
+  let C (n : Name) : Lean.Expr := mkConst n
+  let X := `Tools.ShippingFGCircuitS1zClose
+  let Q := `Tests.Gen5.FGCircuitPilotCheck23
+  let Y := `Tools.ShippingFGCircuitS1xNoRaw
+  let mut nm : Nat := 0
+  let t ← tyOf (X ++ `synth_hftPcieOutByte_finalOffLNL_Z)
+  sameTy "finalOffLNL_Z" t (C (Q ++ `FZL))
+  unless binderInfos (← norm t) == binderInfos (← norm (C (Q ++ `FZL))) do throwError "finalOffLNL_Z: binder kinds differ"
+  let ap (ob cv cl : Lean.Expr) : Lean.Expr := mkApp3 (C (Q ++ `ExpFLNL)) ob cv cl
+  let ob := C ``HftObCDZ
+  let cvZ := C ``cdvZ
+  let cl := C (Q ++ `CCRoot)
+  let muts : List (String × Lean.Expr) := [
+    ("no closing premise", ap ob cvZ (C (Q ++ `ClNoneC))), ("closing of another world (w3)", ap ob cvZ (C (Q ++ `CCOtherW3))),
+    ("closing of another world (w0)", ap ob cvZ (C (Q ++ `CCOtherW0))), ("closing of another shape", ap ob cvZ (C (Q ++ `CCOtherShape))),
+    ("closing of another output (= none)", ap ob cvZ (C (Q ++ `CCOutNone))), ("closing of another output (exact)", ap ob cvZ (C (Q ++ `CCOutExact))),
+    ("the all-world MachineCloses as hclL", ap ob cvZ (C (Q ++ `CCAllWorlds))), ("closing of another root", ap ob cvZ (C (Q ++ `CCOtherRoot))),
+    ("carrier Y", ap ob (C ``cdvY) cl), ("carrier old", ap ob (C ``cdvOld) cl), ("obligation Y", ap (C ``HftObCDY) cvZ cl),
+    ("hcl + hgate kept (S1x statement)", mkApp2 (C (Y ++ `HftFinalStmtOffLN)) ob cvZ)]
+  for (what, m) in muts do
+    diffTy s!"finalOffLNL_Z vs {what}" t m; nm := nm + 1
+  logInfo m!"FGCIRCUIT23 SIGNATURES-C: synth_hftPcieOutByte_finalOffLNL_Z (hcl and hgate replaced by the one localised hclL) matches the independently written ExpFLNL; {nm} mutants rejected (no closing / another world / shape / output / root; all-world MachineCloses; carrier Y, old; obligation Y; hcl + hgate kept)"
+
+/-! ## 4. HYPS, REMAINING -/
+
+run_cmd liftTermElabM do
+  let env ← getEnv
+  let X := `Tools.ShippingFGCircuitS1zClose
+  let ci ← getConstInfo (X ++ `synth_hftPcieOutByte_finalOffLNL_Z)
+  let some ty ← unfoldDefinition? ci.type | throwError "the instance's type is not a definition"
+  let names ← forallTelescope ty fun xs _ => do
+    let mut hs : List (String × Lean.Expr) := []
+    for x in xs do
+      let d ← x.fvarId!.getDecl
+      if d.binderInfo.isExplicit then hs := hs ++ [(d.userName.toString, ← instantiateMVars d.type)]
+    return hs
+  let expected := ["hlink", "L", "lvl", "env₀", "hstart", "hr", "hcell", "hchk", "hreadH", "hreadT", "hcd", "htop", "hclL"]
+  unless names.map (·.1) == expected do throwError "hypotheses are {names.map (·.1)}, expected {expected}"
+  for gone in ["hnoraw", "hcl", "hgate", "hsrc", "hhead", "hdRun", "hquiet", "hg", "hio", "hgates", "hRead", "hE", "hP", "hdesign"] do
+    if (names.map (·.1)).contains gone then throwError "{gone} is a hypothesis"
+  -- the limited scan: the type's constants and a ONE-level unfolding of the S1t/S1kStmt/S1u/S1x/S1z definitions (NOT the dependency closure)
+  let diag : List Name := [``synthesizeCombinational, ``synthesizeCombinationalCore, ``synthesizeEntry, ``Tools.ShippingFGCircuitLinked.MachineDefinesLinked, ``Tools.ShippingFGCircuitBridge.PostRun,
+    ``Tools.ShippingEntryReadsLinked.coreHead, ``synthesizeChild, ``HftObSrc, ``sorryAx, ``Tools.ShippingMachineEntry.MachineCloses, ``Tools.ShippingChildRunAKids.MachineClosesAtA, ``HftPostGate]
+  for (n, t) in names do
+    let mut used := t.getUsedConstants
+    for c in t.getUsedConstants do
+      if c.toString.startsWith "Tools.ShippingFGCircuitS1t" || c.toString.startsWith "Tools.ShippingFGCircuitS1kStmt" || c.toString.startsWith "Tools.ShippingFGCircuitS1u" || c.toString.startsWith "Tools.ShippingFGCircuitS1x" || c.toString.startsWith "Tools.ShippingFGCircuitS1z" then
+        match env.find? c with
+        | some (.defnInfo dd) => used := used ++ dd.value.getUsedConstants
+        | _ => pure ()
+    for b in diag do
+      if used.contains b then throwError "hypothesis {n} mentions {b} (one-level scan)"
+  let some (_, h) := names.find? (·.1 == "hclL") | throwError "hclL missing"
+  unless h.getUsedConstants.contains (X ++ `HftCoreCloses) do throwError "hclL is not HftCoreCloses"
+  let pp ← try pure (toString (← ppExpr h)) catch _ => pure s!"<constants: {h.getUsedConstants.toList.map (·.toString)}>"
+  logInfo m!"FGCIRCUIT23 REMAINING hclL : {pp}  (the closing success of the machine run embedded in the target core run: closeLets accepts the transition and closeInstsGM's checks pass on the children's actual outputs; D.T-4; not derived here: the core run's result alone does not exclude the fallback route, which also returns a (Module × Design))"
+  logInfo m!"FGCIRCUIT23 HYPS: HftFinalStmtOffLNL Ob CV = hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hclL: {names.length} explicit hypotheses (S1x had 14: hcl and hgate are replaced by hclL; hgate is DERIVED by hftPostGate_of_local, hnoraw by hftObNoRawOff_of_local). The scan is the LIMITED one (the types, and a one-level unfolding of the pilot definitions); it does not show that no diagnostic entry occurs in the whole dependency closure"
+
+/-! ## 5. AXIOMS -/
+
+run_cmd liftTermElabM do
+  let X := `Tools.ShippingFGCircuitS1zClose
+  let names : List Name := [X ++ `coreCloses_of_machineCloses, X ++ `synthesizeFromConst_machine_invW, X ++ `coreOff_ranA, X ++ `closed_of_ranA, X ++ `hft_callsOk, X ++ `hft_slots, X ++ `hft_domB, X ++ `hft_outTy, X ++ `hft_nomem,
+    X ++ `hftPostGate_of_local, X ++ `hftObNoRawOff_of_local, X ++ `synth_hftPcieOutByte_finalOffLNL, X ++ `synth_hftPcieOutByte_finalOffLNL_Z, X ++ `synth_hftPcieOutByte_finalOffLNL_Y, X ++ `synth_hftPcieOutByte_finalOffLNL_X]
+  for nm in names do
+    for ax in ← Lean.collectAxioms nm do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do throwError "{nm} uses {ax}"
+  logInfo m!"FGCIRCUIT23 AXIOMS: {names.length} names, standard axioms only (no sorryAx, no native_decide)"
+
+end Tests.Gen5.FGCircuitPilotCheck23

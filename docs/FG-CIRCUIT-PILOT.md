@@ -1290,3 +1290,39 @@ def HftFinalStmtOffLNL (Ob) (CV) : Prop :=
 - 別の shape: root の shape の代わりに `counterLoop` の shape／`httpGetByte` の shape。
 - 別の出力: 結論が `r ≠ none` でなく `r = none`／`r = some (raw, D₀)`（強すぎる）／`r ≠ some (raw, D₀)`。
 - 別の run: 対象 core run に紐づかない（`RunsTo core … (raw, D₀) w1` の前提なし）、分解を fresh な `tenv logProf` で量化した旧 `MachineCloses` の形。
+
+### 28.4 証明したもの（`Tools/ShippingFGCircuitS1zClose.lean`、`kjob lake build` exit 0、標準 axiom のみ）
+
+| 名前 | 内容 |
+|---|---|
+| `CoreCloses`、`HftCoreCloses` | 28.2 の型（局所化した `hcl`） |
+| `coreCloses_of_machineCloses` | 全 world の `MachineCloses` ⇒ `CoreCloses`（局所化は**弱い**前提。強い前提を新たに足したのではない） |
+| `synthesizeFromConst_machine_invW` | 既存 `…_invR` の写し。machine run の**開始 world を露出**（本体の `getEnv` が読む `w6`）。証明は `invR` と同じ |
+| `coreOff_ranA` | `Start L`、core run、`MachineDefinesLinkedOff`、`CoreCloses` ⇒ `MachineRanA L.O …`（run が `some (raw, D₀)`、`closeLets`、`CloseCalls`、`ChildrenRealA`）。`core_chainOff` → `coreHeadOff_jqcA`/framed で `JQC (0+1)` を `w3` まで運び、`invW` で `w8` へ、`CoreCloses` で `r ≠ none` |
+| `closed_of_ranA` | `MachineRanA` ⇒ `NoInstOf m.name m.body ∧ ∀ g ∈ d.modules, …`（`closeInsts_acyclic`/`closeInstsG_acyclic`） |
+| `hft_callsOk`、`hft_slots`、`hft_domB`、`hft_outTy`、`hft_nomem` | root の `machineData` の事実（kernel `decide`） |
+| `hftPostGate_of_local` | **`hgate` の導出**: `coreOff_ranA` ＋ 既存 `core_hierGate_anyA`（閉じた body ＝ instance ＋ `closeMachine` の `seqStmtOk` 文、後処理の 2 枝）。`HftPostGate` は仮説でなくなった |
+| `hftObNoRawOff_of_local` | `HftObNoRawOff` を `Start L`・`hdRun`・`HftCoreCloses` から |
+| `HftFinalStmtOffLNL`、`synth_hftPcieOutByte_finalOffLNL`（`_Z/_Y/_X`） | 28.2 の最終文。**明示仮説 13**: `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hclL`（S1x の 14 から `hcl hgate` が `hclL` 1 つに） |
+
+`hdRun` は S1x と同じく `hchk`/`hcell` から内部で導く。
+
+### 28.5 残るもの（名前付き仮説。impossible とは言わない）
+
+- **`hclL : HftCoreCloses`**（FG D.T-4）。対象 run が通った `synthesizeMachineCertified` が `none` を返さない: `closeLets` が root の transition を受理し、`closeInstsGM` の閉じる検査（`woCheck`・`linkedOk`・`kidsCombB` など）が**同じ run の中で実行された子の実出力**（`synth c`）に対して成り立つ。ここでは証明していない。対象 core run の結果 `(raw, D₀)` だけでは、machine 経路が `none` を返して fallback 経路が同じ型の `(Module × Design)` を返した場合を除外できない（`synthesizeFromConst` の定義）。証明には子の run の実出力（`hr`/`htop` の内側の IO、§24.2）に対する検査の評価が要る。
+- 他の仮説（`HftRootLink`、`hcd`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws`/`Start`/`hr`）は S1x のまま。`hgate` と `hnoraw` は仮説から消えた。
+- 仮説走査（Check23 HYPS）は S1w2/S1y と同じ限定走査（型の定数と、パイロットの定義の 1 段展開）。依存閉包全体に診断入口が現れないことの検査ではない。
+
+### 28.6 Check23 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck23`、exit 0、924 jobs）
+
+- `FGCIRCUIT23 SIGNATURES-A`: `HftCoreCloses` を独立に書いた `ExpCC`（world・env・logger・shape・出力・root を引数にしたもの）と `isDefEq`（default）で照合。**14 mutant 棄却**（別 world: `w3`／開始 world `w`、別 shape: `counterLoop`／`httpGetByte`、別出力: `= none`／`= some (raw, D₀)`／`≠ some (raw, D₀)`／`True`、別 env、別 logger、別 root、全 world の `MachineCloses`、core run なし、`synthesizeFromConst` との連結なし）。
+- `FGCIRCUIT23 SIGNATURES-B`: `hftPostGate_of_local`・`hftObNoRawOff_of_local` を照合。**13 mutant 棄却**。
+- `FGCIRCUIT23 SIGNATURES-C`: `synth_hftPcieOutByte_finalOffLNL_Z` を `ExpFLNL` と照合。**12 mutant 棄却**（`hcl`＋`hgate` を残した S1x の文を含む）。
+- `FGCIRCUIT23 REMAINING`（1 行）: `hclL`。`FGCIRCUIT23 HYPS`: 13 個の名前と順序、`hnoraw`/`hcl`/`hgate`/`hdRun` ほかは仮説に無い、限定走査の注記つき。
+- `FGCIRCUIT23 AXIOMS`: 15 名、標準 axiom のみ。
+
+Check の出力行は 6、棄却した mutant は計 39。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き（`hclL` ほか）。
+
+### 28.7 次
+
+(1) `hclL`: root の 2 つの子（`httpGetByte`、`tlpCplByte`）の実出力に対し、`closeInstsGM` の検査を評価する計算検査器（S1iChild の `noRawBelowB` の型）を run の結果に結ぶ。(2) `htop`、`hcd`（S1s／S1w2）、`HftRootLink`（S1y）。
