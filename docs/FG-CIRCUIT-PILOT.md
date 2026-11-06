@@ -1880,7 +1880,7 @@ def ProfOffW mref cref w := ∀ mctx cctx, GetEnvProfileAt mctx mref cctx cref w
 | `jqhr_synthesizeChild`、`jqhr_core`、`jqhr_closeInstsM`、`jqhr_closeInstsGM`（保存） | `synthesizeChild` の triple（結果は保存した読みを持つ `RealChildE`）、core の entry、1 出力/一般の closing が `JQHR` を保つ |
 | **`hftCoreCloses_of_kidsR`** | `hftCoreCloses_of_kidsH` の `hmiss : MissE …` を下の 7 仮説で置換（§39.5） |
 
-### 39.4 名前付き仮説（完全な型。all-world law ではなく、到達した quiet world の上だけ）
+### 39.4 名前付き仮説（完全な型。量化範囲は仮説ごとに異なる。S2n で訂正: 「7 件とも到達した quiet world の上だけ」は撤回した）
 
 | 仮説 | FG 行 | 型（要旨） | 必要な所 |
 |---|---|---|---|
@@ -1891,6 +1891,8 @@ def ProfOffW mref cref w := ∀ mctx cctx, GetEnvProfileAt mctx mref cctx cref w
 | `ProfOffW mref cref w`（root の開始 world） | D.T-4m5 | root の開始 world で profile lookup が unset | 同上（帰納の基底） |
 | `AdmCtx (quietR O.quiet mref cref (envAt cref w) w) mctx cctx`（`hadm`） | D.T-4m6 | root の文脈が強めた quiet で admissible | `jqhr_head` 以降 |
 | `AdmDownR O e w₀` | D.T-4m7 | `∀ mctx cctx, AdmCtx (quietR …) mctx cctx → AdmCtx O.quiet mctx cctx` | `ropsR` の全 field（`O` の field を使う箇所） |
+
+**量化範囲（S2n 訂正。各仮説ごと）**: `DRowEnvR`/`DiagEnvR` だけが quiet + `ReadsAt e` + `Reached` の world に限られる。`ProfStepR` が要るのは `Reached` + `LeafStep` + `ProfOffW` だけで、quiet も `ReadsAt` も要らない。`ProfOffW` は 1 つの world についてだが、全 `mctx`/`cctx` に対する。`TeleR` は任意の不変条件・任意の継続についての法則である（`quietR` を quiet として持つが、world の範囲は不変条件が決める）。`hadm`/`AdmDownR` は world ではなく callback（文脈）の性質で、他と同じ量化範囲ではない。`Reached` は、許可された任意の葉・文脈・引数（任意の cache 書き込みを含む）についての閉包であり、特定の run の実トレースではない。この過大近似の上で保存を示すのは問題ない。
 
 `DRow` の 13 行と `Diag` の 9 行と telescope の 4 行、profile、文脈は、`CellPrem` からも `Laws` からも導けない（S2d §32.3 と同じ理由。`QuietStrength` の構成は class-D・`diag`・telescope を含まない）。ここで要るのは全 world の frame law ではなく、**root の開始 world から葉の step で到達した quiet な world で、その行が `ReadsAt e` を保つ**という run 局所の事実だけ。不可能とは言わない。
 
@@ -1909,9 +1911,9 @@ hftCoreCloses_of_kidsR (L : Laws mref cref) {w} (hstart : Start L mctx cctx w) (
 
 ### 39.6 正直な範囲
 
-- `Reached` は「root の run の実行トレース」ではなく、`w₀` から法則の葉の操作で作れる world の閉包。run のトレースは `RunsTo`（大きいステップの述語）しかなく持てないため。各仮説は「到達した quiet で `ReadsAt e` を読む world」の上で全称（全 world や任意の `JQH` world ではない）。
+- `Reached` は「root の run の実行トレース」ではなく、`w₀` から法則の葉の操作で（任意の許可された文脈・引数・cache 書き込みで）作れる world の閉包。トレースは現状定義していない。量化範囲は仮説ごとに違う（§39.4 の訂正参照: `DRowEnvR`/`DiagEnvR` は quiet+`ReadsAt`+`Reached`、`ProfStepR` は `Reached`+`LeafStep`+`ProfOffW` のみ、`TeleR` は任意の不変条件の法則、`hadm`/`AdmDownR` は callback の性質）。
 - `TeleR` は `RefLawsATele` の形（`I` について全称・継続の仮定つき）の仮説で、`L.T` を `quietR` に強めたもの。telescope 行の `ReadsAt` frame を継続の仮定から切り離して小さくする道は取っていない（`L.T` からは導けない: 不変条件に cache の証拠 `RealChildE` が入り、継続が cache を伸ばすため）。
-- `hadm`/`hdown` は `canUnfold?` の callback の事実で、文脈が `none` なら自明（`admCtx_none`）。
+- `hadm`/`hdown` は `canUnfold?` の callback の事実。**S2n で訂正**: 「文脈が `none` なら自明」（`admCtx_none`）は個々の `AdmCtx` についてだけで、全称の `AdmDownR`（∀ mctx cctx. `AdmCtx (quietR …)` → `AdmCtx O.quiet`）は root の `canUnfold? = none` からは出ない（`InertUnfold` は quietR 上でだけ inert な callback から O.quiet の全 world の inert を与えない）。§40 参照。
 - `ProfOffW`（D.T-4m5）は root の run が profile-free の入口（`synthesizeCombinationalOff`）なので root 側では今まで要らなかった。子の `synthesizeCombinational` の lookup のために新しく root の開始 world で要る。
 - `MissE`（D.T-4h）は**導出した**（`missR`）。ただし導出の前提が上の仮説で、それらは未供給。`hkgates`（S2g）、`HftRootLink`（S2c）、`hcd`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr` は変わらない。
 
