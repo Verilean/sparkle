@@ -192,4 +192,23 @@ theorem hft_kid_iface (O : RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref
       hk.2 (fun mc cc => tlpCplByte.machine_closes mc _ cc _) h
     simpa [nkOf] using this
 
+/-- **`MachineClosesAtA` of the root**: the machine run does not return `none` from any `JQC O n` world with `1 ≤ n` (`closeLets` by `letsClose_of_data`; `closeInsts` by the pinned gate-kids closing, whose child-side premise is `hft_kid_iface` on the ACTUAL outputs) -/
+theorem hft_closesAtA (O : RefLawsAOps Tools.ShippingChildFresh.MkRefd mref cref) (T : RefLawsATele O.quiet mref cref)
+    (hA : AdmCtx O.quiet mctx cctx) (hk : HftKidsDefine mctx mref cctx cref) :
+    MachineClosesAtA (mref := mref) (cref := cref) O mctx cctx hftRoot synth_hftPcieOutByte.machineData.shape :=
+  Tools.ShippingCallsGatePinned.machineClosesAtA_of_gateKids' O T hA synth_hftPcieOutByte.machineData
+    synth_hftPcieOutByte.machine_ok synth_hftPcieOutByte.machine_body hft_alias hft_gateCalls
+    (fun k => nkOf ((synth_hftPcieOutByte.machineData.shape.insts[k]?.map (·.1)).getD Name.anonymous))
+    (fun x hx => (hft_nomem x hx).1)
+    (fun k hk' y h => by
+      have hmem := hft_kids_names _ (List.getElem_mem hk')
+      have := hft_kid_iface O T hk hmem h
+      simpa [List.getElem?_eq_getElem hk'] using this)
+    (fun k hk' => by
+      have := hft_argsN _ (List.getElem_mem hk')
+      simpa [List.getElem?_eq_getElem hk'] using this)
+    (Tools.ShippingNameDischarge.names_inj _)
+    (Tools.ShippingNameDischarge.parent_ne _ _ hft_noparent)
+    (fun k _ o ho => Tools.ShippingCallsGate.instName_ne_of_head (hft_outs_head o ho) k _)
+
 end Tools.ShippingFGCircuitS2aClose
