@@ -395,6 +395,8 @@ structure Stuck where
   bundle2Sites : Nat := 0
   inhMkSites : Nat := 0
   inhDefSites : Nat := 0
+  /-- the judged (kind, expression) pairs: the traversal is over a DAG whose unfolding is exponential as a tree, so each pair is judged once (sites are counted per distinct pair) -/
+  seen : Std.HashSet (Bool × Lean.Expr) := {}
 
 def bump (l : List (String × Nat)) (k : String) : List (String × Nat) :=
   if l.any (·.1 == k) then l.map fun (a, n) => if a == k then (a, n + 1) else (a, n) else l ++ [(k, 1)]
@@ -500,7 +502,8 @@ partial def recogProj (ty : Bool) (env : Environment) (fuel : Nat) (S : Name) (i
       | none => modify fun s => { s with heads := bump s.heads s!"{pre0 ty}proj {S}#{i} of {describe env x}" }
 
 partial def recog (ty : Bool) (env : Environment) (fuel : Nat) (e : Lean.Expr) : M Unit := do
-  modify fun s => { s with nodes := s.nodes + 1, maxDepth := max s.maxDepth (4000 - fuel) }
+  if (← get).seen.contains (ty, e) then return
+  modify fun s => { s with seen := s.seen.insert (ty, e), nodes := s.nodes + 1, maxDepth := max s.maxDepth (4000 - fuel) }
   match fuel with
   | 0 => modify fun s => { s with heads := bump s.heads "<fuel>" }
   | fuel + 1 =>
