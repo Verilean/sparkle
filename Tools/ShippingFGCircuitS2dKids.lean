@@ -256,4 +256,56 @@ theorem hftCoreCloses_of_kidsK (L : Laws mref cref) {w : Void IO.RealWorld}
   have hw8 := triple_runs (keeps_iff.mp (keepsA_framed L.O hstart.1 (stableA_JQC L.O (0 + 1)) FramedA.env)) hw3 henv'
   exact hft_closesAtK L.O L.T hstart.1 hcell hrH hrT hg hke false (0 + 1) w8 r w10 hw8 (by omega) hrun
 
+/-! ## the final statement: `hkids` replaced by the run-local children's facts -/
+section Final
+
+open Lean Sparkle.Compiler.Elab Sparkle.Core Sparkle.Core.Domain Tools.ShippingGen2 Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG
+open Tools.ShippingFGCircuit Tools.ShippingFGCircuitRoots Tools.ShippingFGCircuitArtifact Tools.ShippingFGCircuitCover Tools.ShippingFGCircuitBridge
+open Tools.ShippingGenFGLedgerPremises Tools.ShippingFGCircuitS1iEnv
+open Tools.ShippingEntrySoundness (RunsTo)
+open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kPkg
+open Tools.ShippingFGCircuitS1qEndpoint
+open Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD
+open Tools.ShippingFGCircuitS1tFinal Tools.ShippingFGCircuitS1uSrc Tools.ShippingFGCircuitS1xNoRaw
+open Tools.ShippingFGCircuitRunLocal
+
+/-- `HftFinalStmtOffLNK` (S2a) with `hkids : HftKidsDefine …` replaced by `hkenv : HftKidsStartEnv L.O (envAt cref w)` (FG D.T-4k) and `hkgates : HftKidsGates (envAt cref w)` (FG D.T-4g) (14 explicit hypotheses; `hcell`, `hreadH`, `hreadT` are the existing ones) -/
+def HftFinalStmtOffLNKK (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ (hlink : HftRootLink) {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (synthesizeCombinationalOff hftRoot) mctx mref cctx cref w (b, D') w')
+    (hcell : CellPrem Tools.ShippingChildFresh.MkRefd mref cref)
+    (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+    (hreadH : RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData)
+    (hreadT : RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData)
+    (hcd : Ob (envAt cref w))
+    (htop : ∀ p : Pkg ι (fun _ => defaultDomain), GPt (ι := ι) lvl (envAt cref w) hftRoot = some p → HftObTopCoreOff mctx mref cctx cref w b D' p)
+    (hkenv : HftKidsStartEnv L.O (envAt cref w))
+    (hkgates : HftKidsGates (envAt cref w)),
+    (∃ raw, PostRunOff mctx mref cctx cref w hftRoot D' b raw) ∧
+    ∃ (mm : MonoTy shHft) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMonoV CV (envAt cref w) (GPt (ι := ι) lvl (envAt cref w))
+        (PostRunOff mctx mref cctx cref w hftRoot D') hftRoot shHft mm b D' p
+
+theorem synth_hftPcieOutByte_finalOffLNKK (CV : CDRel) (Ob : Environment → Prop) (hOb : ∀ env, Ob env → HftObOf CV env) :
+    HftFinalStmtOffLNKK Ob CV := by
+  intro hlink ι mref cref L lvl env₀ mctx cctx w w' b D' hstart hr hcell hchk hRdH hRdT hCD hTop hkenv hkgates
+  exact synth_hftPcieOutByte_finalOffLNL CV Ob hOb hlink L lvl env₀ hstart hr hcell hchk hRdH hRdT hCD hTop
+    (hftCoreCloses_of_kidsK L hstart hcell hRdH hRdT hkgates hkenv)
+
+theorem synth_hftPcieOutByte_finalOffLNKK_Z : HftFinalStmtOffLNKK HftObCDZ cdvZ := synth_hftPcieOutByte_finalOffLNKK cdvZ _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffLNKK_Y : HftFinalStmtOffLNKK HftObCDY cdvY := synth_hftPcieOutByte_finalOffLNKK cdvY _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffLNKK_X : HftFinalStmtOffLNKK HftObCDX cdvX := synth_hftPcieOutByte_finalOffLNKK cdvX _ (fun _ h => h)
+
+end Final
+
 end Tools.ShippingFGCircuitS2dKids
+
+#print axioms Tools.ShippingFGCircuitS2dKids.machineDefinesLinked_of_readerE
+#print axioms Tools.ShippingFGCircuitS2dKids.machineChild_ifaceK
+#print axioms Tools.ShippingFGCircuitS2dKids.machineChild_of_realK
+#print axioms Tools.ShippingFGCircuitS2dKids.hft_closesAtK
+#print axioms Tools.ShippingFGCircuitS2dKids.hftCoreCloses_of_kidsK
+#print axioms Tools.ShippingFGCircuitS2dKids.synth_hftPcieOutByte_finalOffLNKK_Z
