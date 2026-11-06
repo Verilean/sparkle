@@ -101,11 +101,11 @@ def expectErr (tag : String) (n : Name) (e : Lean.Expr) (needle : String) : Comm
 
 -- (fun f => f false) (Prod.mk true): the spine of the stuck/ctor head mixes two captured environments
 run_cmd expectErr "CTRL-ENVS" `Tests.Gen5.FGCircuitPilotCheck29.ctrlEnvs
-  (Lean.Expr.app (lamT (.forallE `a bl pBB .default) (.app (.bvar 0) bF)) (appN ``Prod.mk [.zero, .zero] [bl, bl, bT]))
-  "different environments"
+          (Lean.Expr.app (lamT (.forallE `a bl pBB .default) (.app (.bvar 0) bF)) (appN ``Prod.mk [.zero, .zero] [bl, bl, bT]))
+          "different environments"
 -- Signal.mk is a value head without a rule
 run_cmd expectErr "CTRL-SIGNALMK" `Tests.Gen5.FGCircuitPilotCheck29.ctrlMk
-  (appN ``Sparkle.Core.Signal.Signal.mk [.zero] [.const ``Sparkle.Core.Domain.defaultDomain [], bl, .lam `t (.const ``Nat []) bF .default]) "has no rule"
+          (appN ``Sparkle.Core.Signal.Signal.mk [.zero] [.const ``Sparkle.Core.Domain.defaultDomain [], bl, .lam `t (.const ``Nat []) bF .default]) "has no rule"
 -- an unbound variable
 run_cmd expectErr "CTRL-UNBOUND" `Tests.Gen5.FGCircuitPilotCheck29.ctrlUnbound (.bvar 3) "not bound"
 -- a non-static major premise of List.rec (a variable of the empty environment)

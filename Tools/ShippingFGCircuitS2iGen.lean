@@ -374,7 +374,7 @@ unsafe def viaShRoute (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean
     | [] => pure (Lean.mkConst ``canon_nil)
     | a :: xs => do pure (mkAppN (Lean.mkConst ``canon_cons) #[ρ0, ← qU a, listExprE (← xs.mapM qU)])
   mkN ``DT.viaSh [("env", K.env), ("ρ", ρ), ("e", ← qU e), ("hn", r.hn), ("args", listExprE (← argl.mapM qU)), ("ρ₀", ρ0), ("r", res),
-    ("hv", reflT boolT (Lean.mkConst ``true)), ("hsh", r.pf), ("hsp", reflT (mkApp (Lean.mkConst ``List [lvl1]) entT) (listEnt r.sp)), ("hcan", hcan), ("h", p)]
+    ("hv", reflT boolT (Lean.mkConst ``true)), ("hsh", r.pf), ("hsp", mkApp2 (Lean.mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (Lean.mkConst ``List [lvl1]) entT) (listEnt r.sp)), ("hcan", hcan), ("h", p)]
 
 unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Name) (ls : List Level) : G2 Lean.Expr := do
   let eQ ← qU e
