@@ -181,7 +181,7 @@ run_cmd liftTermElabM do
   unless binderInfos (← norm t) == binderInfos (← norm (C (Q ++ `RunTrue))) do throwError "hftObNoRawOff_of_run: binder kinds differ"
   for mu in ["RunOtherD", "RunOtherC", "RunHttpC", "RunHttpD", "RunNoGate", "RunConstGate"] do
     diffTy s!"hftObNoRawOff_of_run vs {mu}" t (C (Q ++ Name.mkSimple mu)); nm := nm + 1
-  logInfo m!"FGCIRCUIT20 SIGNATURES-B1: hftObNoRawOff_of_run (premises: the machine boundary of the core run, MachineCloses of the root's shape, the gate of the printed top; conclusion HftObNoRawOff) matches; {nm} mutants rejected"
+  logInfo m!"FGCIRCUIT20 SIGNATURES-B1: hftObNoRawOff_of_run (premises: the machine boundary of the core run, MachineCloses of the root's shape, the gate of the post-processed IR top; conclusion HftObNoRawOff) matches; {nm} mutants rejected"
 
 set_option maxHeartbeats 4000000 in
 run_cmd liftTermElabM do
@@ -244,7 +244,7 @@ run_cmd liftTermElabM do
   unless hcl.getUsedConstants.contains ``Tools.ShippingMachineEntry.MachineCloses do throwError "hcl is not MachineCloses"
   let some (_, hg) := names.find? (·.1 == "hgate") | throwError "hgate missing"
   unless hg.getUsedConstants.contains (X ++ `HftPostGate) do throwError "hgate is not HftPostGate"
-  logInfo m!"FGCIRCUIT20 HYPS: HftFinalStmtOffLN Ob CV = hlink L lvl env₀ hstart hr(synthesizeCombinationalOff) hcell hchk hreadH hreadT hcd htop(HftObTopCoreOff) hcl(MachineCloses of the root's shape: the closing is not none; D.T-4) hgate(HftPostGate: hierGate of the printed top; D.T-4): {names.length} explicit hypotheses (S1u: hnoraw is gone, hcl and hgate in its place). hnoraw is DERIVED (hftObNoRawOff_of_run) from the machine boundary of the core run (derived inside from hchk/hcell as in S1t), hcl and hgate; neither mentions a diagnostic entry"
+  logInfo m!"FGCIRCUIT20 HYPS: HftFinalStmtOffLN Ob CV = hlink L lvl env₀ hstart hr(synthesizeCombinationalOff) hcell hchk hreadH hreadT hcd htop(HftObTopCoreOff) hcl(MachineCloses of the root's shape: the closing is not none; D.T-4) hgate(HftPostGate: hierGate of the post-processed IR top; D.T-4): {names.length} explicit hypotheses (S1u: hnoraw is gone, hcl and hgate in its place). hnoraw is DERIVED (hftObNoRawOff_of_run) from the machine boundary of the core run (derived inside from hchk/hcell as in S1t), hcl and hgate; neither mentions a diagnostic entry in the limited scan (the types and a one-level unfolding of the S1t/S1kStmt/S1u/S1x definitions; NOT the whole dependency closure)"
 
 /-! ## 4. AXIOMS -/
 

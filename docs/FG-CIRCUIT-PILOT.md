@@ -1197,7 +1197,7 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 | S1u `HftFinalStmtOffL` | `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hnoraw`（13） |
 | S1x `HftFinalStmtOffLN` | `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hcl hgate`（14） |
 
-仮説の数は 1 つ増えた（`hnoraw` が `hcl` と `hgate` の 2 つに分かれた）。変わったのは種類: `hnoraw`（`NoRawBelow` を全深さで。run から出す補題が無かった）は証明に変わり、残るのは run の 2 つの事実だけ。
+仮説の数は 1 つ増えた（`hnoraw` が `hcl` と `hgate` の 2 つに分かれた）。変わったのは種類: `hnoraw`（`NoRawBelow` を全深さで）は、`hcl` と `hgate` から証明される形になった。**ただし `hcl : MachineCloses …` は `∀ tenv logProf w r w′` を量化する既存の強い未供給前提であり、これは対象 run だけから `hnoraw` を閉じたことではない**（対象 run 単独の事実は `RunsTo` と `MachineDefinesLinkedOff` までで、閉じる段が `none` を返さないことは全 world 前提のまま）。`hgate` も未供給。局所化は §28。
 
 ### 26.4 残っているもの（名前付き仮説。impossible とは言わない）
 
@@ -1213,7 +1213,7 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 - `FGCIRCUIT20 SIGNATURES-B1`: `hftObNoRawOff_of_run`（`ExpRun`）に **6 mutant 棄却**（`hdRun` の shape が別、`hcl` の shape が別、`hcl` が別の宣言、`hdRun` が別の root、gate なし、定数 gate）。
 - `FGCIRCUIT20 SIGNATURES-B2`: `synth_hftPcieOutByte_finalOffLN_Z` を独立に書いた `ExpFLN` と照合。**9 mutant 棄却**（`hcl` なし、別の shape、`hgate` なし、定数 gate、別 root の gate、carrier `cdvY`/`cdvOld`、obligation `HftObCDY`、`hnoraw` を残した S1u の文）。
 - `FGCIRCUIT20 REMAINING`（2 行）: `hcl : MachineCloses … hftRoot synth_hftPcieOutByte.machineData.shape`、`hgate : HftPostGate …`。
-- `FGCIRCUIT20 HYPS`: 14 個の明示仮説の名前と順序、`hnoraw`・`hsrc`・`hdRun` ほかは仮説に無い、どの仮説も診断入口・旧 `MachineDefinesLinked`・旧 `PostRun`・`sorryAx` を直接参照しない、`hcl` は `MachineCloses`、`hgate` は `HftPostGate`。
+- `FGCIRCUIT20 HYPS`: 14 個の明示仮説の名前と順序、`hnoraw`・`hsrc`・`hdRun` ほかは仮説に無い、`hcl` は `MachineCloses`、`hgate` は `HftPostGate`。仮説の「診断入口を直接参照しない」走査は、**仮説の型の定数と、`Tools.ShippingFGCircuitS1{t,kStmt,u,x}` の定義を 1 段だけ展開した定数**に対する限定的な走査であり、依存閉包全体に診断入口（`synthesizeChild` など）が現れないことの検査ではない。
 - `FGCIRCUIT20 AXIOMS`: 12 名、標準 axiom のみ。
 - `FGCIRCUIT20 SNAPSHOT20`: root は call 2 つ（kernel `decide`）、root に `machine_closes` は無く leaf root にはある。
 

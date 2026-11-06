@@ -6,7 +6,7 @@ set_option autoImplicit false
 
 /-! # S1x: `NoRawBelow` (at every depth) from the run
 
-`HftObNoRawOff` (S1t) asks, for the core run `(raw, D₀)` and the printed pair `(b, D')`:
+`HftObNoRawOff` (S1t) asks, for the core run `(raw, D₀)` and the post-processed IR `(b, D')`:
 (1) `∀ n, NoRawBelow D₀ raw.name (n+1) raw`, (2) `∀ n, NoRawBelow D₀ raw.name (n+1) (checkedOptimize b)`, (3) no instance of `b.body` names `raw.name`.
 
 * **Part A (the run)**: the core run of a machine with calls ends in `closeInsts`/`closeInstsG`, whose last check is `noInstOfB m.name body && d'.modules.all (noInstOfB m.name ·.body)`.
@@ -102,7 +102,7 @@ theorem dropZeroWidth_inst_target (raw : Sparkle.IR.AST.Module) {mn iname : Stri
       obtain ⟨rfl, -, -⟩ := hsa
       exact ⟨i', c', ha⟩
 
-/-- **the printed top keeps the instance targets of the core module** -/
+/-- **the post-processed IR top keeps the instance targets of the core module** -/
 theorem post_inst_target {b raw : Sparkle.IR.AST.Module} {D D' : Sparkle.IR.AST.Design} (hpe : PostEntry b raw D D')
     {mn iname : String} {conns : List (String × Sparkle.IR.AST.Expr)}
     (h : Sparkle.IR.AST.Stmt.inst mn iname conns ∈ b.body) :
@@ -123,7 +123,7 @@ theorem noB_of_post {b raw : Sparkle.IR.AST.Module} {D D' : Sparkle.IR.AST.Desig
   obtain ⟨i', c', h'⟩ := post_inst_target hpe h
   exact hraw mn i' c' h'
 
-/-- `NoRawBelow` for the printed module `checkedOptimize b`, under the statement gate of `b` -/
+/-- `NoRawBelow` for the post-processed module `checkedOptimize b`, under the statement gate of `b` -/
 theorem noRawBelow_opt {b raw : Sparkle.IR.AST.Module} {D D₀ D' : Sparkle.IR.AST.Design} (hpe : PostEntry b raw D₀ D')
     (hraw : NoInstOf raw.name raw.body) (hD : ∀ g ∈ D.modules, NoInstOf raw.name g.body)
     (hg : Sparkle.IR.RefineCheck.hierGate b = true) :
@@ -137,7 +137,7 @@ theorem noRawBelow_opt {b raw : Sparkle.IR.AST.Module} {D D₀ D' : Sparkle.IR.A
 section Supply
 open Sparkle.Compiler.Elab (synthesizeCombinationalCoreOff)
 
-/-- **the one premise on the post-processing**: the printed top `b` passes the statement gate of `checkedOptimize` (`hierGate b`: some statement is an instance and every statement is an instance or a normal-form one). Run-local, named (FG D.T-4) -/
+/-- **the one premise on the post-processing**: the post-processed IR top `b` passes the statement gate of `checkedOptimize` (`hierGate b`: some statement is an instance and every statement is an instance or a normal-form one). Run-local, named (FG D.T-4) -/
 def HftPostGate (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
     (w : Void IO.RealWorld) (b : Sparkle.IR.AST.Module) (D' : Sparkle.IR.AST.Design) : Prop :=
   ∀ (raw : Sparkle.IR.AST.Module) (D₀ : Sparkle.IR.AST.Design) (w1 : Void IO.RealWorld),
@@ -150,7 +150,7 @@ theorem hftShape_insts_ne : synth_hftPcieOutByte.machineData.shape.insts ≠ [] 
   rw [h] at this
   exact absurd this (by decide)
 
-/-- **`HftObNoRawOff` from the run**: the machine boundary of the core run (`MachineDefinesLinkedOff`), `MachineCloses` of the root's shape, and the gate of the printed top -/
+/-- **`HftObNoRawOff` from the run**: the machine boundary of the core run (`MachineDefinesLinkedOff`), `MachineCloses` of the root's shape, and the gate of the post-processed IR top -/
 theorem hftObNoRawOff_of_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
     (hdRun : ∀ raw D₀ w1, MachineDefinesLinkedOff mctx mref cctx cref hftRoot synth_hftPcieOutByte.machineData.shape w raw D₀ w1)
