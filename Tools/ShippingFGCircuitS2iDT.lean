@@ -37,6 +37,24 @@ theorem viaOK_appN {c : Name} (ls : List Level) (args : List Expr) (hd : directH
 theorem viaOK_const {c : Name} (ls : List Level) (hd : directHead c = true) : viaOK (.const c ls) = false := by
   simp [viaOK, appFn, hd]
 
+/-- NEW (S2t). the value of a CLOSED `Nat` width expression, kernel-evaluable (no `Meta`, no `whnf`): `OfNat.ofNat Nat n (instOfNatNat n)` and `HAdd.hAdd Nat Nat Nat (instHAdd Nat instAddNat) x y`;
+    `none` for a variable, another function or another instance. It is the EVIDENCE that the syntactic width `8 + 8` of a `++` result is the width `16` (the rule `sigOrBV` ties its second type argument to `W` by `natEvalE wb = some W`, proved by `Eq.refl`). -/
+def natEvalE : Expr → Option Nat
+  | .app (.app (.app (.const ``OfNat.ofNat [.zero]) (.const ``Nat [])) (.lit (.natVal n))) (.app (.const ``instOfNatNat []) (.lit (.natVal m))) =>
+    if n = m then some n else none
+  | .app (.app (.app (.app (.app (.app (.const ``HAdd.hAdd [.zero, .zero, .zero]) (.const ``Nat [])) (.const ``Nat [])) (.const ``Nat []))
+      (.app (.app (.const ``instHAdd [.zero]) (.const ``Nat [])) (.const ``instAddNat []))) x) y =>
+    match natEvalE x, natEvalE y with
+    | some a, some b => some (a + b)
+    | _, _ => none
+  | _ => none
+
+theorem natEvalE_8 : natEvalE (appN ``OfNat.ofNat [.zero] [.const ``Nat [], .lit (.natVal 8), appN ``instOfNatNat [] [.lit (.natVal 8)]]) = some 8 := rfl
+theorem natEvalE_add88 : natEvalE (appN ``HAdd.hAdd [.zero, .zero, .zero] [.const ``Nat [], .const ``Nat [], .const ``Nat [],
+    appN ``instHAdd [.zero] [.const ``Nat [], .const ``instAddNat []],
+    appN ``OfNat.ofNat [.zero] [.const ``Nat [], .lit (.natVal 8), appN ``instOfNatNat [] [.lit (.natVal 8)]],
+    appN ``OfNat.ofNat [.zero] [.const ``Nat [], .lit (.natVal 8), appN ``instOfNatNat [] [.lit (.natVal 8)]]]) = some 16 := rfl
+
 section
 local macro "CDt " env:term:max ρ:term:max e:term:max α:term:max v:term:max : term => `($(Lean.mkIdent `Tools.ShippingFGCircuitS2iDT.DT) $env $ρ $e (Res.val $α $v))
 local macro "TDt " env:term:max ρ:term:max e:term:max T:term:max : term => `($(Lean.mkIdent `Tools.ShippingFGCircuitS2iDT.DT) $env $ρ $e (Res.ty $T))
@@ -166,6 +184,16 @@ inductive DT (env : Environment) : Cx → Expr → Res → Prop
       (hd : CDt env ρ d DomainConfig D) (hm : CDt env ρ m Nat M) (hn : CDt env ρ n Nat N)
       (ha : CDt env ρ a (BitVec M) av) (hb : CDt env ρ b (Signal D (BitVec N)) bv) :
       CDt env ρ e (Signal D (BitVec (M + N))) (@HAppend.hAppend _ _ _ (@Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat M D N) av bv)
+  /-- NEW (S2t). `Signal D (BitVec W) ||| Signal D (BitVec W)` (the instance `instHOrSignalBitVec`, bitwise OR per time; NOT the Bool instance, NOT the mixed-constant instances). The domain `d` and the width `w` are derived in the SAME `ρ`
+      (`D`, `W`); both operands derive at `Signal D (BitVec W)`; the instance arguments, the first and the result type arguments are `d`/`w` themselves. The SECOND type argument of `HOr.hOr` is `Signal d (BitVec wb)` with the SAME `d`
+      and a closed width expression `wb` whose kernel-evaluated value is `W` (`natEvalE wb = some W`, `Eq.refl`): `8 + 8` and `16` are both accepted for `W = 16`, a different width is not. `Tools.ShippingFGCircuitS2qBits.or_at` is its per-time equation. -/
+  | sigOrBV {ρ : Cx} {e d w wb a b : Expr} {D : DomainConfig} {W : Nat} {av bv : Signal D (BitVec W)}
+      (he : e = appN ``HOr.hOr [.zero, .zero, .zero]
+        [appN ``Signal [.zero] [d, appN ``BitVec [] [w]], appN ``Signal [.zero] [d, appN ``BitVec [] [wb]], appN ``Signal [.zero] [d, appN ``BitVec [] [w]],
+         appN ``Sparkle.Core.Signal.instHOrSignalBitVec [] [d, w], a, b])
+      (hd : CDt env ρ d DomainConfig D) (hw : CDt env ρ w Nat W) (hwb : natEvalE wb = some W)
+      (ha : CDt env ρ a (Signal D (BitVec W)) av) (hb : CDt env ρ b (Signal D (BitVec W)) bv) :
+      CDt env ρ e (Signal D (BitVec W)) (@HOr.hOr _ _ _ (@Sparkle.Core.Signal.instHOrSignalBitVec D W) av bv)
   /-- NEW (S2b). `Inhabited.mk.{u} T x` with ONE level `u` whose closed value is `1` (`lvlNatT u = some 1`, evidence by `Eq.refl`, no `Level.normalize`: that is `opaque`, the kernel cannot run it):
       the instance VALUE `⟨v⟩` from the derivation of the field `x ↦ v`; a constructor of `env` (so no other rule applies). `T : Type` stays; the old rule is the case `u = 1`. -/
   | inhMk {ρ : Cx} {e t x : Expr} {u : Level} {T : Type} {v : T} {cv : ConstructorVal} (he : e = appN ``Inhabited.mk [u] [t, x]) (hu : lvlNatT u = some 1)

@@ -68,6 +68,8 @@ structure St2 where
   shKinds : Array (String × Nat) := #[]
   viaN : Nat := 0
   poly : Array (Name × Nat × Nat) := #[]
+  /-- TEST ONLY (S2t, Check40): skip the generator's own width/domain/form checks of `sigOrBV` so that a wrong request reaches the KERNEL (the kernel's rejection is then the only barrier) -/
+  lax : Bool := false
 
 abbrev G2 := StateRefT St2 G
 
@@ -530,6 +532,37 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Nam
       bump "sigAddBV"
       mkN ``DT.sigAddBV (env0 ++ [("d", ← qU dq), ("w", ← qU wq), ("a", ← q 4), ("b", ← q 5), ("D", D), ("W", W), ("av", av), ("bv", bv),
         ("hd", hd), ("hw", hw), ("ha", ha), ("hb", hb)])
+    else if c == ``HOr.hOr && (appFn (args[3]!)).isConstOf ``Sparkle.Core.Signal.instHOrSignalBitVec && (appArgs (args[3]!)).length == 2 then
+      -- S2t: the evidence-carrying bitwise OR of `Signal D (BitVec W)`. `d`/`w` come from the instance; the second type argument must be `Signal d (BitVec wb)` with a closed `wb` that evaluates to `W`
+      let lax := (← get).lax
+      let some dq := (appArgs (args[3]!))[0]? | throwError "unreachable"
+      let some wq := (appArgs (args[3]!))[1]? | throwError "unreachable"
+      let tb ← a 1
+      let sgT (t : Expr) : Expr := appN ``Signal [.zero] [dq, t]
+      let bvw := appN ``BitVec [] [wq]
+      -- the second type argument: its width expression `wb` (in lax mode any shape is passed on to the kernel)
+      let wbq : Expr ← match tb with
+        | .app (.app (.const ``Signal [.zero]) d2) (.app (.const ``BitVec []) wb) =>
+          if d2 == dq || lax then pure wb else throwError "HOr BV: the second type argument is over another domain"
+        | _ => if lax then pure wq else throwError "HOr BV: the second type argument is not Signal d (BitVec wb)"
+      unless lax || (appArgs e).length == 6 && e == appN ``HOr.hOr [.zero, .zero, .zero] [sgT bvw, sgT (appN ``BitVec [] [wbq]), sgT bvw, appN ``Sparkle.Core.Signal.instHOrSignalBitVec [] [dq, wq], args[4]!, args[5]!] do
+        throwError "HOr BV: no direct rule (the type arguments are not Signal d (BitVec w), Signal d (BitVec wb), Signal d (BitVec w) of the instance's d and w)"
+      let hd ← deriveT K false ρ dq
+      let hw ← deriveT K false ρ wq
+      let ha ← v 4
+      let hb ← v 5
+      let (_, D) ← dtVal hd
+      let (_, W) ← dtVal hw
+      let (αa, av) ← dtVal ha
+      let (αb, bv) ← dtVal hb
+      unless lax do
+        agree "HOr BV: the left operand is not a Signal of the instance's domain and width" αa (sigTyE D (bvTyE W))
+        agree "HOr BV: the right operand is not a Signal of the instance's domain and width" αb (sigTyE D (bvTyE W))
+        unless natEvalE wbq == (← Meta.evalNat W) do
+          throwError "HOr BV: the second type argument's width does not evaluate to the instance's width"
+      bump "sigOrBV"
+      mkN ``DT.sigOrBV (env0 ++ [("d", ← qU dq), ("w", ← qU wq), ("wb", ← qU wbq), ("a", ← q 4), ("b", ← q 5), ("D", D), ("W", W), ("av", av), ("bv", bv),
+        ("hd", hd), ("hw", hw), ("hwb", reflT (optT natT) (someE natT W)), ("ha", ha), ("hb", hb)])
     else if c == ``HAnd.hAnd || c == ``HOr.hOr then
       let inst ← a 3
       let some dq := (appArgs inst)[0]? | throwError "HAnd/HOr: instance args"

@@ -39,6 +39,10 @@ theorem append_at_toNat {D : DomainConfig} {M N : Nat} (c : BitVec M) (bv : Sign
       = c.toNat * 2 ^ N + (bv.val t).toNat := by
   rw [append_at, BitVec.toNat_append, ← Nat.shiftLeft_add_eq_or_of_lt (bv.val t).isLt, Nat.shiftLeft_eq]
 
+/-- NEW (S2t): bitwise OR of two `Signal D (BitVec W)`: at every time `t` the output is `av.val t ||| bv.val t` (the instance is `(· ||| ·) <$> a <*> b`). Separate from the `Bool` OR and the mixed-constant instances. -/
+theorem or_at {D : DomainConfig} {W : Nat} (av bv : Signal D (BitVec W)) (t : Nat) :
+    (@HOr.hOr _ _ _ (@Sparkle.Core.Signal.instHOrSignalBitVec D W) av bv).val t = (av.val t ||| bv.val t) := rfl
+
 end Tools.ShippingFGCircuitS2qBits
 
 #print axioms Tools.ShippingFGCircuitS2qBits.extract_at
@@ -47,3 +51,4 @@ end Tools.ShippingFGCircuitS2qBits
 #print axioms Tools.ShippingFGCircuitS2qBits.shl_at_big
 #print axioms Tools.ShippingFGCircuitS2qBits.append_at
 #print axioms Tools.ShippingFGCircuitS2qBits.append_at_toNat
+#print axioms Tools.ShippingFGCircuitS2qBits.or_at

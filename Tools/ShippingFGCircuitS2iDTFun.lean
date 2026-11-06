@@ -347,6 +347,18 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
       have h5 := val_eq (ihb hb' rfl)
       subst h5; rfl
     | _ => clashT
+  | sigOrBV he hd hw hwb ha hb ihd ihw iha ihb => intro r' h' hk; cases h' with
+    | sigOrBV he' hd' hw' hwb' ha' hb' =>
+      injsT he he'
+      have h1 := val_eq (ihd hd' rfl)
+      subst h1
+      have h2 := val_eq (ihw hw' rfl)
+      subst h2
+      have h3 := val_eq (iha ha' rfl)
+      subst h3
+      have h4 := val_eq (ihb hb' rfl)
+      subst h4; rfl
+    | _ => clashT
   | inhMk he hu0 hc ht hx iht ihx => intro r' h' hk; cases h' with
     | inhMk he' hu' hc' ht' hx' =>
       injsT he he'
