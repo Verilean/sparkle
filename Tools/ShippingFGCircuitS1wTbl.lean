@@ -368,4 +368,98 @@ theorem recStepL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) {e : E
       exact Option.some.inj ho
   | _ => intro ho; simp only at ho ⊢; exact Option.some.inj ho
 
+theorem whStepRL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) : ∀ (e : Expr) {o : Option Expr}, whStepRL lk e = some o → whStepR env e = o := by
+  intro e
+  induction e with
+  | letE n t v b nd _ _ _ => intro o ho; simp only [whStepRL] at ho; simp only [whStepR]; exact Option.some.inj ho
+  | proj s j y ih =>
+    intro o ho
+    simp only [whStepRL] at ho
+    simp only [whStepR]
+    cases hy : whStepRL lk y with
+    | none => rw [hy] at ho; simp at ho
+    | some oy =>
+      rw [hy] at ho
+      have := ih hy
+      rw [this]
+      cases oy with
+      | some y' => simp at ho; simp [← ho]
+      | none =>
+        simp only at ho
+        cases hi : iotaL lk s j y with
+        | none => rw [hi] at ho; simp at ho
+        | some oi =>
+          rw [hi] at ho
+          have := iotaL_sound h hi
+          rw [this]
+          cases oi with
+          | some r => simp at ho; simp [← ho]
+          | none =>
+            simp only at ho ⊢
+            cases hrs : recStepL lk y with
+            | none => rw [hrs] at ho; simp at ho
+            | some orr =>
+              rw [hrs] at ho
+              have := recStepL_sound h hrs
+              rw [this]
+              simp at ho; simp [← ho]
+  | app f a ihf _ =>
+    intro o ho
+    simp only [whStepRL] at ho
+    simp only [whStepR]
+    cases f with
+    | lam n t b bi => simp at ho; simp [← ho]
+    | letE n t v b nd => simp at ho; simp [← ho]
+    | bvar i => cases hf : whStepRL lk (.bvar i) <;> simp [hf] at ho <;> (rename_i oo; have := ihf hf; simp [this, ← ho])
+    | fvar i => cases hf : whStepRL lk (.fvar i) <;> simp [hf] at ho <;> (rename_i oo; have := ihf hf; simp [this, ← ho])
+    | mvar i => cases hf : whStepRL lk (.mvar i) <;> simp [hf] at ho <;> (rename_i oo; have := ihf hf; simp [this, ← ho])
+    | sort i => cases hf : whStepRL lk (.sort i) <;> simp [hf] at ho <;> (rename_i oo; have := ihf hf; simp [this, ← ho])
+    | const i l => cases hf : whStepRL lk (.const i l) <;> simp [hf] at ho <;> (rename_i oo; have := ihf hf; simp [this, ← ho])
+    | app g b => cases hf : whStepRL lk (.app g b) <;> simp [hf] at ho <;> (rename_i oo; have := ihf hf; simp [this, ← ho])
+    | forallE n t b bi => cases hf : whStepRL lk (.forallE n t b bi) <;> simp [hf] at ho <;> (rename_i oo; have := ihf hf; simp [this, ← ho])
+    | lit l => cases hf : whStepRL lk (.lit l) <;> simp [hf] at ho <;> (rename_i oo; have := ihf hf; simp [this, ← ho])
+    | mdata m b => cases hf : whStepRL lk (.mdata m b) <;> simp [hf] at ho <;> (rename_i oo; have := ihf hf; simp [this, ← ho])
+    | proj s j y => cases hf : whStepRL lk (.proj s j y) <;> simp [hf] at ho <;> (rename_i oo; have := ihf hf; simp [this, ← ho])
+  | bvar i => intro o ho; exact unfoldL_sound h ho
+  | fvar i => intro o ho; exact unfoldL_sound h ho
+  | mvar i => intro o ho; exact unfoldL_sound h ho
+  | sort i => intro o ho; exact unfoldL_sound h ho
+  | const i l => intro o ho; exact unfoldL_sound h ho
+  | lam n t b bi _ _ => intro o ho; exact unfoldL_sound h ho
+  | forallE n t b bi _ _ => intro o ho; exact unfoldL_sound h ho
+  | lit l => intro o ho; exact unfoldL_sound h ho
+  | mdata m b _ => intro o ho; exact unfoldL_sound h ho
+
+
+
+theorem headRedexRL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) {e : Expr} {o : Option Expr} (ho : headRedexRL lk e = some o) : headRedexR env e = o := by
+  unfold headRedexRL at ho
+  unfold headRedexR
+  generalize appFn e = f at ho ⊢
+  generalize appArgs e = xs at ho ⊢
+  cases f with
+  | lam n t b bi => cases xs <;> simp at ho ⊢ <;> simp [← ho]
+  | letE n t v b nd => cases xs <;> simp at ho ⊢ <;> simp [← ho]
+  | proj s j y =>
+    cases xs with
+    | nil => simp at ho ⊢; simp [← ho]
+    | cons a xs =>
+      simp only at ho ⊢
+      cases hw : whStepRL lk (.proj s j y) with
+      | none => rw [hw] at ho; simp at ho
+      | some ow =>
+        rw [hw] at ho
+        have := whStepRL_sound h _ hw
+        rw [this]
+        simp at ho; simp [← ho]
+  | bvar i => simp at ho ⊢; simp [← ho]
+  | fvar i => simp at ho ⊢; simp [← ho]
+  | mvar i => simp at ho ⊢; simp [← ho]
+  | sort i => simp at ho ⊢; simp [← ho]
+  | const i l => simp at ho ⊢; simp [← ho]
+  | app g b => simp at ho ⊢; simp [← ho]
+  | forallE n t b bi => simp at ho ⊢; simp [← ho]
+  | lit l => simp at ho ⊢; simp [← ho]
+  | mdata m b => simp at ho ⊢; simp [← ho]
+
 end Tools.ShippingFGCircuitS1wTbl
