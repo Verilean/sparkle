@@ -23,17 +23,29 @@ partial def allBinderInfos : Lean.Expr → List BinderInfo
   | _ => []
 
 /-- literal data the real statements name by a constant (the output shape of the root); unfolded on both sides -/
-def commonUnfold : List Name := [`Tools.ShippingFGCircuitS1kStmt.shHft, `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte.machineInners]
+def commonUnfold : List Name := [`Tools.ShippingFGCircuitS1kStmt.shHft, `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte.machineInners, `Tools.ShippingFGCircuitS2hHist.StartEv]
+
+/-- a literal Boolean: `true`, `false`, or `n == m` for two `Nat` numerals -/
+def litBool? (c : Lean.Expr) : Option Bool :=
+  match c with
+  | .const ``Bool.true _ => some true
+  | .const ``Bool.false _ => some false
+  | _ =>
+    if c.isAppOfArity ``BEq.beq 4 && (c.getArg! 0).isConstOf ``Nat then
+      match c.getArg! 2, c.getArg! 3 with
+      | .lit (.natVal a), .lit (.natVal b) => some (a == b)
+      | _, _ => none
+    else none
 
 /-- `if b then x else y` with a literal Boolean test: the chosen branch -/
 def iteLit (e : Lean.Expr) : Option Lean.Expr :=
   if e.isAppOfArity ``ite 5 then
     let c := e.getArg! 1
-    if c.isAppOfArity ``Eq 3 then
-      match c.getArg! 1, c.getArg! 2 with
-      | .const ``Bool.true _, .const ``Bool.true _ => some (e.getArg! 3)
-      | .const ``Bool.false _, .const ``Bool.true _ => some (e.getArg! 4)
-      | _, _ => none
+    if c.isAppOfArity ``Eq 3 && (c.getArg! 2).isConstOf ``Bool.true then
+      match litBool? (c.getArg! 1) with
+      | some true => some (e.getArg! 3)
+      | some false => some (e.getArg! 4)
+      | none => none
     else none
   else none
 
