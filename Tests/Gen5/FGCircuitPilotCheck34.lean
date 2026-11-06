@@ -23,8 +23,24 @@ open Tools.ShippingGen2 (Laws Start)
 open Tools.ShippingGen5EnvFrame3 (CellPrem DRow)
 open Tools.ShippingFGCircuitS1zClose (HftCoreCloses)
 open Tools.ShippingFGCircuitCover (RootReader)
-open Tests.Gen5.FGCircuitPilotCheck26 (W Cx Cc Rf1 Rf2 NmHttp NmTlp HttpData TlpData Pre ExpKidsGates tyOf binderNames idW)
+open Tests.Gen5.FGCircuitPilotCheck26 (W Cx Cc Rf1 Rf2 NmHttp NmTlp HttpData TlpData Pre ExpKidsGates tyOf binderNames idW iteStep)
 open Tests.Gen5.FGCircuitPilotCheck33 (cmp agree differ binderKinds checkDef norm4 ExpQuiet ExpD ExpG ExpT ExpPS ExpProfOff ProfOnW)
+
+/-- the normalisation of Check33, also unfolding this file's own independent definitions (used for the binder kinds) -/
+def normOnce5 (e : Lean.Expr) : MetaM Lean.Expr :=
+  Meta.transform e (post := fun e => do
+    let e := e.headBeta
+    if let some e' := iteStep e then return .visit e'
+    if let .const c _ := e.getAppFn then
+      if (`Tests.Gen5.FGCircuitPilotCheck34).isPrefixOf c || (`Tests.Gen5.FGCircuitPilotCheck33).isPrefixOf c ||
+          c == ``Tests.Gen5.FGCircuitPilotCheck26.Pre || c == ``Tests.Gen5.FGCircuitPilotCheck26.ExpKidsGates then
+        if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
+    return .done e)
+def norm5 (e : Lean.Expr) : MetaM Lean.Expr := do
+  let mut e := e
+  for _ in [0:6] do
+    e ← normOnce5 e
+  return e
 
 /-! ## independently written statements -/
 
@@ -78,7 +94,7 @@ def ExpKR (needStart needCell needR needG needAdm needCov needD needGd needT nee
     Pre needT (ExpT L.O (envAt cref (fEnv w)) (fRoot w)) (
     Pre needS (ExpPS L.O (fRoot w)) (
     Pre need0 (if profOn then ProfOnW mref cref (fProf w) else ExpProfOff mref cref (fProf w)) (
-    if concl then HftCoreCloses mctx mref cctx cref (fW w) else True)))))))))))))
+    if concl then HftCoreCloses mctx mref cctx cref (fW w) else True))))))))))))
 def KR_real : Prop := ExpKR true true true true true true true true true true true true false 0 idW idW idW idW
 def KR_noStart : Prop := ExpKR false true true true true true true true true true true true false 0 idW idW idW idW
 def KR_noCell : Prop := ExpKR true false true true true true true true true true true true false 0 idW idW idW idW
@@ -152,7 +168,7 @@ run_cmd liftTermElabM do
   let q (n : String) : Lean.Expr := Lean.mkConst (Q ++ Name.mkSimple n)
   let t1 ← tyOf (X ++ `hftCoreCloses_of_kidsR')
   agree "hftCoreCloses_of_kidsR'" t1 (q "KR_real")
-  unless binderKinds (← norm4 t1) == binderKinds (← norm4 (q "KR_real")) do throwError "hftCoreCloses_of_kidsR': binder kinds differ"
+  unless binderKinds (← norm5 t1) == binderKinds (← norm5 (q "KR_real")) do throwError "hftCoreCloses_of_kidsR': binder kinds differ {repr (binderKinds (← norm5 t1))} vs {repr (binderKinds (← norm5 (q "KR_real")))}"
   let names1 := binderNames (← instantiateMVars t1) |>.map (·.toString)
   let exp1 := ["mctx", "mref", "cctx", "cref", "L", "w", "hstart", "hcell", "lvl", "hrH", "hrT", "hg", "hadm", "hcover", "hD", "hG", "hT", "hs", "h0"]
   unless names1 == exp1 do throwError "hftCoreCloses_of_kidsR' binders: {names1}"
@@ -162,7 +178,7 @@ run_cmd liftTermElabM do
     differ s!"hftCoreCloses_of_kidsR' vs {mu}" t1 (q mu); n1 := n1 + 1
   let t2 ← tyOf (X ++ `hftCoreCloses_of_cover)
   agree "hftCoreCloses_of_cover" t2 (q "CC_real")
-  unless binderKinds (← norm4 t2) == binderKinds (← norm4 (q "CC_real")) do throwError "hftCoreCloses_of_cover: binder kinds differ"
+  unless binderKinds (← norm5 t2) == binderKinds (← norm5 (q "CC_real")) do throwError "hftCoreCloses_of_cover: binder kinds differ"
   let names2 := binderNames (← instantiateMVars t2) |>.map (·.toString)
   let exp2 := ["mctx", "mref", "cctx", "cref", "L", "w", "hstart", "hcell", "lvl", "hrH", "hrT", "hg", "hcover", "hs", "h0"]
   unless names2 == exp2 do throwError "hftCoreCloses_of_cover binders: {names2}"
@@ -192,12 +208,14 @@ run_cmd liftTermElabM do
   unless u2.contains ``ProfStepR do throwError "hftCoreCloses_of_cover does not take ProfStepR"
   c := c + 7
   -- the strengthened laws on AdmBoth contexts do not take AdmDownR; the only statement that does is the conversion
-  let u3 ← usesOf `opsB
-  if u3.contains ``AdmDownR then throwError "opsB mentions AdmDownR"
-  unless u3.contains ``AdmBoth do throwError "opsB does not use AdmBoth"
+  for f in [`opsB, `OpsB.diag, `OpsB.frameT, `OpsB.excOk, `OpsB.frameQ, `OpsB.cacheSetQ, `OpsB.depthSetQ] do
+    let u3 ← usesOf f
+    if u3.contains ``AdmDownR then throwError "{f} mentions AdmDownR"
+    if f != `opsB && f != `OpsB.excOk && !u3.contains ``AdmBoth then throwError "{f} does not use AdmBoth"
+    if f == `OpsB.excOk && !u3.contains ``AdmBoth then throwError "{f} does not use AdmBoth"
   let u4 ← usesOf `admBoth_of_down
   unless u4.contains ``AdmDownR do throwError "admBoth_of_down does not take AdmDownR"
-  c := c + 3
+  c := c + 10
   logInfo m!"FGCIRCUIT34 STEPS: hftCoreCloses_of_kidsR' and hftCoreCloses_of_cover do not mention AdmDownR (nor MissE); the cover route also drops DRowEnvR / DiagEnvR / TeleR; opsB (the ten strengthened operation laws, the ropsR fields) is stated on AdmBoth contexts and does not mention AdmDownR; the only statement of the file that takes AdmDownR is admBoth_of_down, the conversion from a bundle context to an AdmBoth one (the entry point into the S2h chain, which takes ONE bundle); {c} structural checks"
 
 run_cmd liftTermElabM do
