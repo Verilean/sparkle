@@ -87,3 +87,25 @@ SKIP_BUILD=1 $S/sim_checks.sh $OUT [EXES.txt]
 ## 再現に必要な固定値
 
 `env.txt`（`capture.sh` が書く）に SHA・toolchain・日付を残す。比較は同じ SHA で取り直した 2 つの `baseline_commands.tsv` を `file,line,top` で結合して `result` `route` `sha256` の差を見る。hash が変わる場合は、戦略 §3-3 のとおり差分理由と意味の同値、既存の sim/vector 検査の通過を示す。
+
+## 動的な baseline の結果（2026-11-06、coder）
+
+取得: kjob-run-src-fgc-s0run-0474（土台 46874da9 = a618db86 の上の capture.sh の修正 3 件）。生の出力は `/home/junji-hashimoto/git/.kjob-state/namespaces/sparkle-dev/kjob-run-src-fgc-s0run-0474/fgc_baseline_raw`（ソースツリーの外）。ここには集計の数だけを書く。
+
+| 項目 | 結果 |
+|---|---|
+| 取得したファイル | 136 / 136（exit 0 は 135） |
+| コマンド（必要 IP の候補、P1） | **327 / 327 が成功**（OK 309、OK-nostdout 18。後者は stdout に出さず、ファイルに書く命令） |
+| AllTests の閉包の中 | 218（OK 210、OK-nostdout 8） |
+| 層 A 出荷 IP | 225 / 225 成功（OK 210、OK-nostdout 15） |
+| 層 B 機能・回帰 | 102 / 102 成功（OK 99、OK-nostdout 3） |
+| route（OK のコマンド） | machine 252、mixed 32、certified 18、legacy 7 |
+| 生成 module | 309 |
+| unexplained failures | **0** |
+
+見つかったこと:
+- `Tests/VerifyVerilog.lean` は exit 1。原因は 44 行目の `Unknown identifier 'current'` で、合成コマンドではない部分のエラー。この file の合成コマンド 5 件はすべて成功している。必要 IP の失敗ではなく、file そのものの既存の不具合（修正先: Tests/VerifyVerilog.lean の 44 行目）。
+- 事前に除外した `Tests/Compiler/MultiOutputSubModuleHangRepro.lean` の `reproKvHw2Reg`（記録された elaborator の hang）は、この土台では **OK（machine route）** だった。exclusions.tsv の除外は古いので、「この土台では hang しない」と注記し、必要 IP の対象に戻す。
+- 1 回目の取得の失敗（lakefile の `lean_lib «IP.Crypto»` の root `IP/Crypto.lean` がどの commit にも存在しない）は既存の lakefile の欠陥。IP/Crypto/* の合成コマンドは file ごとの実行ですべて成功した。修正先: lakefile の `IP.Crypto` の root。
+
+したがって必要 IP = P1 の 327 コマンドで、除外は 0。成功 327 / 327。シミュレーションと vector の検査（手順 5）はまだで、別の job で取得する。
