@@ -43,7 +43,9 @@ case "$G" in
     for e in h264-bitstream-test h264-playable-test h264-frame-encoder-test; do xrun "exe-$e" "$e"; done ;;
   test)
     # the test driver also checks verilator/generated_soc{.sv,_cppsim.h} (RV32 SoC flow): write them first, as in env
+    run build-SoCVerilog lake build IP.RV32.SoCVerilog
     run write-SoCVerilog "${LEAN:-lean}" --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so IP/RV32/SoCVerilog.lean
+    run check-generated_soc test -s verilator/generated_soc.sv
     xrun exe-test-rerun test ;;
   toplevel) xrun exe-toplevel-sim-test toplevel-sim-test; xrun exe-toplevel-sim-jit-test toplevel-sim-jit-test ;;
   *) echo "unknown group $G" >&2; exit 2 ;;
