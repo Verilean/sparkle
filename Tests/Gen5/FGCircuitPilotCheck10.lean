@@ -227,16 +227,20 @@ def envFactsOk (env : Environment) : Bool :=
     instancePredicate env counterLoopValue == false && ((structEnv env).proj ``Sparkle.Core.Signal.Signal.loop).isNone
   | none => false
 
-run_cmd liftTermElabM do
+def snapA : MetaM Unit := do
   let env ← getEnv
   unless externOk do throwError "CounterLoopExtern fact false"
   unless envFactsOk env do throwError "CounterLoopEnvFacts (except machineShape?) false"
   let some d := rootD env | throwError "no root"
   let some s := machineShape? false [] (.defnInfo d) (structEnv env) | throwError "machineShape? none"
-  unless (← shapeExprOf s) == (← shapeExprOf counterLoop.machineData.shape) do throwError "machineShape? ≠ the data's shape"
-  logInfo "FGCIRCUIT10 SNAPSHOT10a: on this build's ONE environment (an EVALUATION, not a supply of the hypotheses): CounterLoopExtern (packTupleInputs / rootFloat / Expr.find? on counterLoopValue) and CounterLoopEnvFacts (root, machineShape? = the data's shape, userInliner at value and type, instancePredicate at the value = false, proj at Signal.loop = none) hold"
+  -- the shape is compared with the data's through the whole data below (the data contains its shape)
+  let some dd := Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) (.defnInfo d) (structEnv env) s | throwError "dataOfAt none"
+  let e1 ← dataExprOf dd
+  let lit ← literalExpr ``counterLoop.machineData
+  unless e1 == lit do throwError "machineShape? / dataOfAt: the data (with its shape) differs from counterLoop.machineData"
+  logInfo "FGCIRCUIT10 SNAPSHOT10a: on this build's ONE environment (an EVALUATION, not a supply of the hypotheses): CounterLoopExtern (packTupleInputs / rootFloat / Expr.find? on counterLoopValue) and CounterLoopEnvFacts (root, machineShape? read by dataOfAt gives the whole data = counterLoop.machineData, userInliner at value and type, instancePredicate at the value = false, proj at Signal.loop = none) hold"
 
-run_cmd liftTermElabM do
+def snapB : MetaM Unit := do
   let env ← getEnv
   let some E := Tools.ShippingGen5Acc.entry₀ env ``counterLoop | throwError "no entry"
   let se := structEnv env
@@ -245,7 +249,8 @@ run_cmd liftTermElabM do
   let projAlt : Name → Option (Name × Nat × Nat) := fun n => if n == ``Sparkle.Core.Signal.Signal.loop then se.proj n else some (`x, 1, 0)
   let seAlt : StructEnv := { se with proj := projAlt, fields := fun n => some (n, []) }
   unless (certifiedShape? false [] E).isNone && (mixedCertifiedShape? false [] E ipAlt).isNone do throwError "gates depend on the instance predicate off the value"
-  let r := Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E seAlt counterLoop.machineData.shape
+  let some s := machineShape? false [] E se | throwError "machineShape? none"
+  let r := Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E seAlt s
   let lit ← literalExpr ``counterLoop.machineData
   match r with
   | none => throwError "dataOfAt none under altered proj/fields"
@@ -254,21 +259,26 @@ run_cmd liftTermElabM do
     unless e == lit do throwError "dataOfAt (altered proj/fields) differs from machineData"
   logInfo "FGCIRCUIT10 SNAPSHOT10b: the gates (mixedCertifiedShape? with the instance predicate true everywhere except at the value) and dataOfAt (proj answering `some` off Signal.loop, fields answering `some` everywhere) are unchanged on this build's one environment — consistent with the finite-input claim (the only places the evaluation looked); a probe, not a proof of independence"
 
-run_cmd liftTermElabM do
+def snapC : MetaM Unit := do
   let env ← getEnv
   let se := structEnv env
   -- negative control (a): another root's value gives other data (the reader is sensitive to the value)
   let some d := rootD env | throwError "no root"
   let E2 := ConstantInfo.defnInfo { d with value := shift4LoopValue, type := shift4LoopType }
   let lit ← literalExpr ``counterLoop.machineData
-  match Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E2 se counterLoop.machineData.shape with
+  let some E1 := Tools.ShippingGen5Acc.entry₀ env ``counterLoop | throwError "no entry"
+  let some s := machineShape? false [] E1 se | throwError "machineShape? none"
+  match Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E2 se s with
   | none => pure ()
   | some dd2 =>
     let e2 ← dataExprOf dd2
     if e2 == lit then throwError "negative control: another value gave the same data"
-  -- negative control (b): the instance predicate is true on some sub-term of the hierarchical probe's body
-  let hftBody := (env.find? ``Tests.Gen5.FGCircuitPilotCheck8.hftOutProbe).bind (·.value?)
-  let ctrl : Bool := match hftBody with | some v => (v.find? fun e => instancePredicate env e).isSome | none => false
-  logInfo m!"FGCIRCUIT10 SNAPSHOT10c: controls: another root's value gives other data or none; the instance predicate is true on a sub-term of the hierarchical probe's body: {ctrl} (so it is not constantly false)"
+  -- negative control (b): the instance predicate is not constantly false: it holds on a call of a `@[hardware_module]` constant (a child of the hierarchical probe)
+  unless instancePredicate env (.const ``Sparkle.IP.Net.HTTP.httpGetByte []) do throwError "negative control: the instance predicate is false on httpGetByte"
+  logInfo "FGCIRCUIT10 SNAPSHOT10c: controls: another root's value gives other data or none; the instance predicate is true on `httpGetByte` (a @[hardware_module] child), so ip_val = false at counterLoopValue is not vacuous"
+
+run_cmd liftTermElabM snapA
+run_cmd liftTermElabM snapB
+run_cmd liftTermElabM snapC
 
 end Tests.Gen5.FGCircuitPilotCheck10
