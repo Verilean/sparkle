@@ -30,7 +30,7 @@ def axiomsOk (n : Name) : CoreM Unit := do
 syntax (name := fixedDT) "fixed_dt " (&"accept" <|> &"reject") str ident term:max term:max term:max : command
 
 @[command_elab fixedDT] def elabFixedDT : CommandElab := fun stx => do
-  let acc := stx[1].getAtomVal == "accept"
+  let acc := ((toString stx[1]).splitOn "accept").length > 1
   let tag := stx[2].isStrLit?.getD ""
   let thm ← liftCoreM (realizeGlobalConstNoOverloadWithInfo stx[3])
   let tyStx ← `(∀ (env : Lean.Environment) (hΔ : EnvDefs env $(mkIdent (Name.str thm "Delta"))) (hΓ : EnvCtors env $(mkIdent (Name.str thm "Gamma"))) (hrec : RecFact env),
@@ -116,7 +116,8 @@ def app (d : Lean.Expr) (m n : Nat) (a b : Lean.Expr) : Lean.Expr :=
 derive_expr_t extA := (ext 8 6 1 5 : Lean.Expr)      -- bit 6 of 5#8 = 0
 derive_expr_t extB := (ext 16 3 10 1021 : Lean.Expr) -- 1021 = 0b1111111101; bits 3..12 = 0b0001111111 = 127
 derive_expr_t shlA := (shl dom 16 (sigC dom 16 3) (bvLit 16 8) : Lean.Expr)    -- 3 <<< 8 = 768
-derive_expr_t shlB := (shl dom 32 (sigC dom 32 3) (bvLit 32 40) : Lean.Expr)   -- amount ≥ width: 0
+derive_expr_t shlB := (shl dom 16 (sigC dom 16 3) (bvLit 16 20) : Lean.Expr)   -- amount ≥ width: 0
+derive_expr_t shlC := (shl dom 32 (sigC dom 32 3) (bvLit 32 4) : Lean.Expr)    -- 3 <<< 4 = 48
 derive_expr_t appA := (app dom 8 8 (bvLit 8 1) (sigC dom 8 2) : Lean.Expr)      -- 1#8 ++ 2#8 = 258#16
 derive_expr_t appB := (app dom 8 16 (bvLit 8 1) (sigC dom 16 2) : Lean.Expr)    -- 1#8 ++ 2#16 = 65538#24
 
@@ -224,7 +225,8 @@ fixed_dt accept "EXTRACT 8/6/1 of 5 = 0#1" extA (qExt 8 6 1 5) (S 1) (P (BitVec.
 fixed_dt accept "EXTRACT 16/3/10 of 1021 = 127#10" extB (qExt 16 3 10 1021) (S 10) (P (BitVec.ofNat 10 127))
 -- shift: `k#w <<< a#w`
 fixed_dt accept "SHL 16: 3 <<< 8 = 768#16" shlA (qShl 16 3 8) (S 16) (P (BitVec.ofNat 16 768))
-fixed_dt accept "SHL 32: 3 <<< 40 = 0#32" shlB (qShl 32 3 40) (S 32) (P (BitVec.ofNat 32 0))
+fixed_dt accept "SHL 16: 3 <<< 20 = 0#16 (amount ≥ width)" shlB (qShl 16 3 20) (S 16) (P (BitVec.ofNat 16 0))
+fixed_dt accept "SHL 32: 3 <<< 4 = 48#32" shlC (qShl 32 3 4) (S 32) (P (BitVec.ofNat 32 48))
 -- append: `a#m ++ b#n`
 fixed_dt accept "APPEND 8+8: 1#8 ++ 2#8 = 258#16" appA (qApp 8 8 1 2) (S (8 + 8)) (P (BitVec.ofNat (8 + 8) 258))
 fixed_dt accept "APPEND 8+16: 1#8 ++ 2#16 = 65538#24" appB (qApp 8 16 1 2) (S (8 + 16)) (P (BitVec.ofNat (8 + 16) 65538))
@@ -297,7 +299,8 @@ fixed_dt reject "CTRL EXTRACT offset 2 instead of 6" extA (qExt 8 2 1 5) (S 1) (
 fixed_dt reject "CTRL EXTRACT theorem 16/3/10 as 126#10" extB (qExt 16 3 10 1021) (S 10) (P (BitVec.ofNat 10 126))
 fixed_dt reject "CTRL SHL value 3#16" shlA (qShl 16 3 8) (S 16) (P (BitVec.ofNat 16 3))
 fixed_dt reject "CTRL SHL amount 7 instead of 8" shlA (qShl 16 3 7) (S 16) (P (BitVec.ofNat 16 768))
-fixed_dt reject "CTRL SHL 32 big amount as 3#32" shlB (qShl 32 3 40) (S 32) (P (BitVec.ofNat 32 3))
+fixed_dt reject "CTRL SHL 16 big amount as 3#16" shlB (qShl 16 3 20) (S 16) (P (BitVec.ofNat 16 3))
+fixed_dt reject "CTRL SHL 32 as 3#32" shlC (qShl 32 3 4) (S 32) (P (BitVec.ofNat 32 3))
 fixed_dt reject "CTRL APPEND value 513#16 (operands swapped)" appA (qApp 8 8 1 2) (S (8 + 8)) (P (BitVec.ofNat (8 + 8) 513))
 fixed_dt reject "CTRL APPEND width 8+8 for the 8+16 theorem" appB (qApp 8 16 1 2) (S (8 + 8)) (P (BitVec.ofNat (8 + 8) 258))
 fixed_dt reject "CTRL APPEND operands 2#8 ++ 1#16" appB (qApp 8 16 2 1) (S (8 + 16)) (P (BitVec.ofNat (8 + 16) 65538))
