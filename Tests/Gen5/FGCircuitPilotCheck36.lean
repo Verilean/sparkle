@@ -10,7 +10,7 @@ set_option autoImplicit false
 3. NEGATIVE CONTROLS (fail-closed, EXPECTED error text; a generator failure is NOT a non-derivability theorem): a value entry in head position WITH arguments (not added), `Signal.mk` (still no rule), an unbound variable.
 The positive and the negative cases go through the same generator and are reported with the same text. -/
 namespace Tests.Gen5.FGCircuitPilotCheck36
-open Lean Meta Elab Command Term Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1sCD Tools.ShippingFGCircuitS1wTbl
+open Lean Meta Elab Command Term Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1sCD Tools.ShippingFGCircuitS1wTbl
 open Tools.ShippingFGCircuitS2iSh Tools.ShippingFGCircuitS2iDT Tools.ShippingFGCircuitS2iTbl Tools.ShippingFGCircuitS2iRun
 
 def standardAxioms : List Name := [``propext, ``Classical.choice, ``Quot.sound]
