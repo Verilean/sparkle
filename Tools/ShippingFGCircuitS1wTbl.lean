@@ -272,4 +272,100 @@ theorem whStepL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) : ∀ (
   | lit l => intro o ho; exact unfoldL_sound h ho
   | mdata m b _ => intro o ho; exact unfoldL_sound h ho
 
+theorem recMajorL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) :
+    ∀ (n : Nat) (x : Expr) {o : Option Expr}, recMajorL lk n x = some o → recMajorWh env n x = o := by
+  intro n
+  induction n with
+  | zero => intro x o ho; simp only [recMajorL] at ho; simp only [recMajorWh]; exact Option.some.inj ho
+  | succ n ih =>
+    intro x o ho
+    unfold recMajorL at ho
+    unfold recMajorWh
+    revert ho
+    cases hc : appFn x with
+    | const c ls =>
+      intro ho
+      simp only at ho ⊢
+      by_cases hnc : (c == ``List.nil || c == ``List.cons) = true
+      · simp only [hnc, if_true] at ho ⊢
+        exact Option.some.inj ho
+      · simp only [hnc, if_false] at ho ⊢
+        cases hw : whStepL lk x with
+        | none => rw [hw] at ho; simp at ho
+        | some ow =>
+          rw [hw] at ho
+          have := whStepL_sound h x hw
+          rw [this]
+          cases ow with
+          | none => simp only at ho ⊢; exact Option.some.inj ho
+          | some x' => simp only at ho ⊢; exact ih x' ho
+    | _ =>
+      all_goals
+        intro ho
+        simp only at ho ⊢
+        cases hw : whStepL lk x with
+        | none => rw [hw] at ho; simp at ho
+        | some ow =>
+          rw [hw] at ho
+          have := whStepL_sound h x hw
+          rw [this]
+          cases ow with
+          | none => simp only at ho ⊢; exact Option.some.inj ho
+          | some x' => simp only at ho ⊢; exact ih x' ho
+
+theorem recStepCoreL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) (c : Name) (ls : List Level) :
+    ∀ (args : List Expr) {o : Option Expr}, recStepCoreL lk c ls args = some o → recStepCore env c ls args = o := by
+  intro args o ho
+  match args with
+  | a0 :: mot :: nilc :: consc :: major :: extra =>
+    unfold recStepCoreL at ho
+    unfold recStepCore
+    simp only at ho ⊢
+    cases hm : recMajorL lk 256 major with
+    | none => rw [hm] at ho; simp at ho
+    | some om =>
+      rw [hm] at ho
+      have := recMajorL_sound h 256 major hm
+      rw [this]
+      cases om with
+      | none => simp only at ho ⊢; exact Option.some.inj ho
+      | some m => simp only at ho ⊢; exact Option.some.inj ho
+  | [] => simp only [recStepCoreL] at ho; simp only [recStepCore]; exact Option.some.inj ho
+  | [_] => simp only [recStepCoreL] at ho; simp only [recStepCore]; exact Option.some.inj ho
+  | [_, _] => simp only [recStepCoreL] at ho; simp only [recStepCore]; exact Option.some.inj ho
+  | [_, _, _] => simp only [recStepCoreL] at ho; simp only [recStepCore]; exact Option.some.inj ho
+  | [_, _, _, _] => simp only [recStepCoreL] at ho; simp only [recStepCore]; exact Option.some.inj ho
+
+theorem recStepL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) {e : Expr} {o : Option Expr} (ho : recStepL lk e = some o) : recStep env e = o := by
+  unfold recStepL at ho
+  unfold recStep
+  revert ho
+  cases hc : appFn e with
+  | const c ls =>
+    intro ho
+    simp only at ho ⊢
+    by_cases hr : (c == ``List.rec) = true
+    · simp only [hr, if_true] at ho ⊢
+      cases hk : lk c with
+      | none => rw [hk] at ho; simp at ho
+      | some k =>
+        rw [hk] at ho
+        have hok := h c k hk
+        cases k with
+        | recl =>
+          obtain ⟨ri, hd⟩ := hok
+          simp only [hd]
+          exact recStepCoreL_sound h c ls _ ho
+        | defn r =>
+          obtain ⟨d, hd, _⟩ := hok
+          simp only [hd]
+          exact Option.some.inj ho
+        | ctor r =>
+          obtain ⟨cv, hd, _⟩ := hok
+          simp only [hd]
+          exact Option.some.inj ho
+    · simp only [hr, if_false] at ho ⊢
+      exact Option.some.inj ho
+  | _ => intro ho; simp only at ho ⊢; exact Option.some.inj ho
+
 end Tools.ShippingFGCircuitS1wTbl
