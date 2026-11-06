@@ -1977,7 +1977,7 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 |---|---|
 | `AdmBoth` | 文脈に持たせる形: 元の `AdmCtx O.quiet` と強めた `AdmCtx (quietR …)` の**両方**（どちらからも他方を導かない） |
 | `admBoth_none`, `admBoth_mkMetaContext` | 確立（root）: `canUnfold? = none`（`mkMetaContext_canUnfold`）の文脈は `AdmBoth` |
-| `AdmBoth.lctx/localInsts/lctx_insts/config/cctx` | 保存: 本体の帰納が行う文脈の更新（lctx・localInstances・config・Core 文脈）で `AdmBoth` が保たれる（`admCtx_*` を両成分に） |
+| `AdmBoth.lctx/localInsts/lctx_insts/config/coreCtx` | 保存: 本体の帰納が行う文脈の更新（lctx・localInstances・config・Core 文脈）で `AdmBoth` が保たれる（`admCtx_*` を両成分に） |
 | **`opsB`** | `ropsR` の 10 field を `AdmBoth` 文脈の上で、**`hdown` なしで**導出（元の half を `O` の field に、強めた half は使わない。class-D と診断は名前付き仮説 `hD`, `hG`） |
 | `admBoth_of_down` | `AdmDownR` が入る**唯一**の場所: bundle の文脈（`AdmCtx quietR`）を `AdmBoth` に直す変換 |
 | `QuietCover`, `quietR_eq_of_cover` | 世界レベルの置換: `O.quiet` の world がすべて `e` を読み root から到達している。すると `quietR = O.quiet` |

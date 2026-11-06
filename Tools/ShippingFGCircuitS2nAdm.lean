@@ -1,4 +1,5 @@
 import Tools.ShippingFGCircuitS2mReach3
+import Tools.ShippingStartWorldA
 set_option autoImplicit false
 -- FG circuit pilot S2n: the callback-admissibility bridge `AdmDownR` of S2m. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law. Results: docs/FG-CIRCUIT-PILOT.md §40.
 -- (A) the context-carried form `AdmBoth` (original AND strengthened admissibility), established at the root and preserved by the context updates, and the strengthened operations laws `OpsB` derived on `AdmBoth` contexts WITHOUT `AdmDownR` (`opsB`, the S2m `ropsR` fields with `hdown` gone);
@@ -59,7 +60,7 @@ theorem AdmBoth.lctx_insts (h : AdmBoth O e w₀ mctx cctx) (l : LocalContext) (
 theorem AdmBoth.config (h : AdmBoth O e w₀ mctx cctx) (c : ConfigWithKey) :
     AdmBoth O e w₀ { mctx with keyedConfig := c } cctx := ⟨admCtx_config h.1 c, admCtx_config h.2 c⟩
 
-theorem AdmBoth.cctx (h : AdmBoth O e w₀ mctx cctx) (cctx' : Core.Context) :
+theorem AdmBoth.coreCtx (h : AdmBoth O e w₀ mctx cctx) (cctx' : Core.Context) :
     AdmBoth O e w₀ mctx cctx' := h
 
 /-- **the only place `AdmDownR` enters**: it turns a context admissible for the strengthened bundle into an `AdmBoth` one (so S2m's `ropsR` is `opsB` + this conversion) -/
