@@ -366,8 +366,8 @@ run_cmd liftTermElabM do
   -- (3) Inhabited: two instances of the same type with different defaults give different defaults (typed, closed)
   let i0 ← mkAppM ``Inhabited.mk #[toExpr (0 : Nat)]
   let i5 ← mkAppM ``Inhabited.mk #[toExpr (5 : Nat)]
-  let d0 ← mkAppM ``Inhabited.default #[i0]
-  let d5 ← mkAppM ``Inhabited.default #[i5]
+  let d0 ← mkAppOptM ``Inhabited.default #[some natE, some i0]
+  let d5 ← mkAppOptM ``Inhabited.default #[some natE, some i5]
   expectReject "default of ⟨0⟩ vs default of ⟨5⟩" (← auditPairs [(d0, d5)] 0)
   unless (← auditPairs [(d0, toExpr (0 : Nat)), (d5, toExpr (5 : Nat))] 0).verdict matches .ok _ do throwError "AUDIT control: default of ⟨v⟩ is not v"
   logInfo m!"FGCIRCUIT17 AUDIT CONTROLS: the verdict rejects a swapped bundle2 (also among correct ones), an empty target set, a trace mismatch, a thrown pair, ok ≠ total, Nat vs Bool, default of ⟨0⟩ vs ⟨5⟩; accepts the Signal.mk pairing of bundle2, and `default ⟨v⟩ = v`"
