@@ -8,11 +8,10 @@ set_option autoImplicit false
 `CD` (Tools/ShippingFGCircuit.lean) has no rule for a user constant and none for `Expr.proj`. This file defines a NEW pair `TDX`/`CDX`, parameterised by a FIXED
 `env : Environment`, that contains every rule of `TD`/`CD` unchanged (`cdx_of_cd`) and four new rules. Nothing in the existing files is edited.
 
-New rules (each is a definitional equality of Lean, so the denoted Lean value is unchanged):
+New rules (each mirrors a Lean operation: delta/beta/zeta/projection/iota. That the rewrite preserves the meaning of the original Lean term is NOT proved here; see docs §17.8):
 
 * `unf`      delta + beta: `e = c.{ls} args` with `c` a `defnInfo` of `env` that is NOT a primitive head of `CD`; the denotation of `e` is the denotation of
-             `(d.value)[levelParams := ls] args` (beta). Termination: a derivation is a finite tree (inductive `Prop`); a recursive or cyclic definition simply has no
-             derivation. There is no fuel and no size measure; functionality is proved by recursion on the derivation, not on the expression.
+             `(d.value)[levelParams := ls] args` (beta). Termination: a derivation is a finite tree (inductive `Prop`); for a recursive or cyclic definition `unf` alone does not close a derivation (a traversal stops there; the derivation is unsupplied, which is not a non-existence proof). There is no fuel and no size measure; functionality is proved by recursion on the derivation, not on the expression.
 * `zeta`     `let x : A := v; b` with `A` not a core type head: denote `b[x := v]`. (For a core type `A` the old `letE` rule applies; the two never overlap.)
 * `projStep` `e = Expr.proj S i x`, one weak-head step of the structure argument `x` (`whStep`: zeta, beta, or delta of a `defnInfo`): denote `Expr.proj S i x'`.
 * `projCtor` `e = Expr.proj S i x` with `x = ctor params fields`, `ctor` a `ctorInfo` of `env` whose inductive is `S`: denote the `i`-th field (iota).

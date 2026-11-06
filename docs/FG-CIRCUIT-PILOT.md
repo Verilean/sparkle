@@ -654,13 +654,13 @@ IOHeadFrame (draft, UNAPPROVED, not used):
 
 - `CDX env ρ e α v` / `TDX env ρ e T` は**固定の `env : Environment`** をパラメータに持つ。実体は 1 つの帰納族 `DX env : Val → Expr → Res → Prop`（`Res.ty T` / `Res.val α v`）で、`TDX`/`CDX` はその `abbrev`。1 つの族にしたのは、関数性の証明を**導出に関する `induction`** にするため（§17.4）。
 - `CD`/`TD` の 18+5 規則は**同じ型のまま** `DX` に入っている（`env` を通すだけ。Check11 が構造比較）。埋め込み `cdx_of_cd : CD ρ e α v → CDX env ρ e α v`、`tdx_of_td` を証明した（任意の `env`）。`circCV_to_X : CircCV env X α v → CircCVX env env X α v`。
-- 表示対象は従来どおり **Lean の値そのもの**（各規則の値は同じ Lean 定数で組む。新規則は値を変えない: 下の定義的等式）。
+- 表示対象は従来どおり **Lean の値そのもの**（各規則の値は同じ Lean 定数で組む）。新規則は値を `v` のまま次の導出へ渡す（`unf`: 結論の `v` は前提の `v`）。**新規則が元の Lean 式の意味を保つこと自体は S1m では証明していない**（下 17.2 の「対応する Lean の操作」は監査対象。S1p の訂正は §17.8）。
 
 ### 17.2 新しい 5 規則の完全な型（`Tools/ShippingFGCircuitS1mCD.lean`、`DX` のコンストラクタ）
 
-記法: `CDX env ρ e α v` = `DX env ρ e (Res.val α v)`。以下の関数は全て Lean で書いた**カーネルが評価できる**構造再帰（`Expr.instantiate` は opaque extern なので使えない。自前の `instE`/`betaApp`/`instLE`。Check11 OPS が Lean の `instantiate1`/`Expr.beta`/`instantiateLevelParams` と一致することを実環境の定義 21 件で検査）。
+記法: `CDX env ρ e α v` = `DX env ρ e (Res.val α v)`。以下の関数は全て Lean で書いた**カーネルが評価できる**構造再帰（`Expr.instantiate` は opaque extern なので使えない。自前の `instE`/`betaApp`/`instLE`。Check11 OPS が Lean の `instantiate1`/`Expr.beta`/`instantiateLevelParams` と一致することを実環境の定義 21 件で比較した。**これは監査であり、規則の意味保存の証明ではない**: §17.8）。
 
-| 規則 | 型（前提 → 結論） | 健全性（定義的等式） |
+| 規則 | 型（前提 → 結論） | 対応する Lean の操作（監査対象。意味保存は今回証明していない: §17.8） |
 |---|---|---|
 | `unf` | `headStop e = false` → `unfoldAt env e = some e'` → `CDX env ρ e' α v` → `CDX env ρ e α v` | delta + beta。`unfoldAt env e`: `e` の頭が定数 `c`、`env.find? c = some (.defnInfo d)`、`d.levelParams.length = ls.length` のとき `betaApp (instLE d.levelParams ls d.value) (args)`。`headStop e` は頭が `CD` の primitive（`Signal.pure/register/mux/loop`、`HAdd/HAnd/HOr/Complement`、`Signal.beq`、`BitVec.ofNat` 他 14 頭）か `bvAbbrevRow` の行のときだけ true（primitive の規則が意味であり、展開しない） |
 | `beta` | `headRedex env e = some e'` → `CDX env ρ e' α v` → `CDX env ρ e α v` | 頭がラムダ/`let`/射影の適用（`(fun x => b) a …`、`(let x := v; b) a …`、`(p.i) a …` で頭が `whStep` で進む）。`unf` が引数を代入して作る redex を縮める。beta/zeta/射影の頭の一歩 |
@@ -670,22 +670,22 @@ IOHeadFrame (draft, UNAPPROVED, not used):
 
 構造体射影 `HFTPcieOut.outByte dom x` は射影関数（`defnInfo`、値は `fun dom self => self.1` の `Expr.proj`）なので、`unf` で `Expr.proj` になり、`projStep`/`projCtor` が扱う。**型の付いた Lean 構造体値**（構造体型の値そのものを `ρ` に束縛する）は今回の規則に入れていない（構造体ごとに Lean の型と射影関数の行が要り、境界の行が増えるため。必要なら次の束で reviewer に諮る）。
 
-**停止性・整礎性**: 導出は有限の木（帰納 `Prop`）であり、`unf` を使った導出が存在するとは**その導出が有限に閉じる**ことと同じ。再帰・相互再帰の定義は `unf` を繰り返すだけでは導出が閉じない（`brecOn`/`rec` に規則が無い）ので**導出が存在しない**だけで、健全性は損なわれない。燃料もサイズ尺度も使わない（`CD` の関数性は `sizeOf e` による整礎再帰だったが、`unf` は式を大きくするので使えない。S1m の関数性は導出の `induction`）。
+**停止性・整礎性**: 導出は有限の木（帰納 `Prop`）であり、`unf` を使った導出が存在するとは**その導出が有限に閉じる**ことと同じ。再帰・相互再帰の定義は `unf` を繰り返すだけでは導出が閉じない（`brecOn`/`rec` に規則が無い）。**今回の走査はそこで停止する。導出は未供給**（走査は導出の不存在証明ではない）。燃料もサイズ尺度も使わない（`CD` の関数性は `sizeOf e` による整礎再帰だったが、`unf` は式を大きくするので使えない。S1m の関数性は導出の `induction`）。
 
 ### 17.3 環境との結び付き（ReadsAt / CheckedStart 流）
 
-`CDX` の `env` は固定のパラメータである。run の環境との結び付きは**仮定**として足す: 具体的な導出は有限表 `Δ : Name → Option DefRow`（定数名 → 宇宙パラメータと値の `Expr`）と `Γ : Name → Option CtorRow` を使い、`EnvDefs env Δ`（`Δ c = some r` なら `env.find? c = some (.defnInfo d)`、`d.levelParams = r.lps`、`d.value = r.value`）と `EnvCtors env Γ` を**仮定**する。補題 `cdx_unf_tbl`（`unf` の表版）と `cdx_projCtor_tbl`（`projCtor` の表版）が、表の行から規則の前提を作る。`env := envAt cref w`（`CheckedStart` と同じ world）として、`EnvDefs`/`EnvCtors` は `hchk` 流の「表と環境の一致」で、**meta 検査（Check の SNAPSHOT: 表と環境の `ConstantInfo` の一致）**であり kernel は環境を見ない。これは `RootInEnv` と同じ種類の境界で、新しい信頼境界ではない（§6）。
+`CDX` の `env` は固定のパラメータである。run の環境との結び付きは**仮定**として足す: 具体的な導出は有限表 `Δ : Name → Option DefRow`（定数名 → 宇宙パラメータと値の `Expr`）と `Γ : Name → Option CtorRow` を使い、`EnvDefs env Δ`（`Δ c = some r` なら `env.find? c = some (.defnInfo d)`、`d.levelParams = r.lps`、`d.value = r.value`）と `EnvCtors env Γ` を**仮定**する。補題 `cdx_unf_tbl`（`unf` の表版）と `cdx_projCtor_tbl`（`projCtor` の表版）が、表の行から規則の前提を作る。`env := envAt cref w`（`CheckedStart` と同じ world）として、`EnvDefs`/`EnvCtors` は `hchk` 流の「表と環境の一致」で、**meta 検査（Check の SNAPSHOT: 表と環境の `ConstantInfo` の一致）**であり kernel は環境を見ない。これは `RootInEnv` と同じ種類の境界だが、**`EnvDefs`/`EnvCtors` は実 run 環境について追加の未供給内容**であり、meta 照合で支払い済みとは扱わない（S1p 訂正: §17.8）。
 
 ### 17.4 関数性（証明した）
 
-`dx_fun : DX env ρ e r → DX env ρ e r' → r.kind = r'.kind → r = r'`（導出に関する `induction`。`kind` は型/値の別）。系: `cdx_fun : CDX env ρ e α v → CDX env ρ e α' v' → α = α' ∧ HEq v v'`、`tdx_fun`、`cdx_eq`（同じ型なら値が等しい）、`circCVX_functional : ConstValueFunctional (CircCVX env)`。規則の衝突は頭の定数・構造の違いで反駁する（`unf` と primitive は `headStop`、`unf` と `beta` は `unfoldAt_none_of_beta`、`projStep` と `projCtor` は `whStep_ctor`、`zeta` と `letE` は `coreHead_td`）。**関数性は仮定を置かずに成り立つ**（`EnvDefs` 等を使わない。`unfoldAt env e` は `env` と `e` の関数）。`ty` と `val` の導出が同じ式にあり得るので、statement は同じ kind に限る（`env` が任意なので式の頭が型であり値でもあり得る）。
+`dx_fun : DX env ρ e r → DX env ρ e r' → r.kind = r'.kind → r = r'`（導出に関する `induction`。`kind` は型/値の別）。系: `cdx_fun : CDX env ρ e α v → CDX env ρ e α' v' → α = α' ∧ HEq v v'`、`tdx_fun`、`cdx_eq`（同じ型なら値が等しい）、`circCVX_functional : ConstValueFunctional (CircCVX env)`。規則の衝突は頭の定数・構造の違いで反駁する（`unf` と primitive は `headStop`、`unf` と `beta` は `unfoldAt_none_of_beta`、`projStep` と `projCtor` は `whStep_ctor`、`zeta` と `letE` は `coreHead_td`）。**関数性は仮定を置かずに成り立つ**。ただし `cdx_fun` は**新しい関係 `CDX` の一意性**であり、元の Lean 式との一致ではない（§17.8）（`EnvDefs` 等を使わない。`unfoldAt env e` は `env` と `e` の関数）。`ty` と `val` の導出が同じ式にあり得るので、statement は同じ kind に限る（`env` が任意なので式の頭が型であり値でもあり得る）。
 
 ### 17.5 hftPcie のどの部分項が何を要するか（Check11 SNAPSHOT11、1 環境の値）
 
 `Check11` の recognizer は規則の関数（`unfoldAt`/`headRedex`/`whStep`/`instE`）をそのまま使い、`root` の値を走査して**規則が尽きる所**を出力する（証明ではなく走査）。観測（`hftRootValue` から）:
 
 - 5 つのラムダの本体 `HFTPcieOut.outByte dom (hftPcieLoop dom rx v s d c)`: `unf`（射影関数 `outByte` → `Expr.proj`）→ `projStep`（`hftPcieLoop` の delta）→ `zeta` 2 回（`let ep := mmioEndpoint …; let emit := httpGetEmitter ep.writePulse`。型は構造体なので `zeta`）→ `projCtor`（`HFTPcieOut.mk` 適用、`outByte` の項）→ `HttpEmitOut.byte dom (httpGetEmitter …)` → `unf`/`projStep`（`httpGetEmitter` → `burstEmit` → `runCircuitH …`）。ここまでは新規則で**進む**（走査が 454 節点、定義 22 個を展開: `Prod.fst`、`eqK`、`httpGetByte`、バイト定数 `cG…`、`runCircuitH`、`burstEmit`）。
-- **規則が尽きる所**（`MISSING`、走査の stuck）: `Expr.proj Prod 0 (… (PProd#0 (List.rec …) …))` ×17。つまり `circuit do` の状態を持つ `runCircuitH` の中の **`List.rec`（再帰子。`List.brecOn` による構造再帰）の適用**。`CDX` に再帰子の規則（コンストラクタ引数の iota）が無い。これを足すか（`List` の具体値が必要）、`circuit do` のモナド（`Circuit` 型、`Signal.reg` と `<~`）を別の規則にするかが次の設計問題。
+- **規則が尽きる所**（`MISSING`、走査の stuck。S1p 時点の更新は §20.4）: `Expr.proj Prod 0 (… (PProd#0 (List.rec …) …))` ×17。つまり `circuit do` の状態を持つ `runCircuitH` の中の **`List.rec`（再帰子。`List.brecOn` による構造再帰）の適用**。`CDX` に再帰子の規則（コンストラクタ引数の iota）が無い。これを足すか（`List` の具体値が必要）、`circuit do` のモナド（`Circuit` 型、`Signal.reg` と `<~`）を別の規則にするかが次の設計問題。
 - `tdFail`（`TD` に無い束縛/let の型）: なし。
 
 したがって **`hcd` は今回の `CDX` でも導出できない**（供給しない）。`HftObCD` は未供給のまま。次に要るのは (a) `List.rec` 等の再帰子 iota（`env` の `recInfo` の規則を読む）と、(b) 構造体値の型付き規則（必要なら）。いずれも reviewer の判断を仰ぐ（本書は設計の草案）。
@@ -703,6 +703,21 @@ IOHeadFrame (draft, UNAPPROVED, not used):
 - `FGCIRCUIT11 OPS`: `betaApp`/`instE`/`instLE` が Lean の `Expr.beta`/`instantiate1`/`instantiateLevelParams` と、recognizer が展開した実環境の定義 21 個（引数は loose bvar、宇宙は sample）で一致。誤った代入を検出する control あり。
 - `FGCIRCUIT11 AXIOMS`: 16 名、標準 axiom のみ。使える導出の例 `ex_projCtor`（`(3,4).1 ⇓ 3`）、`ex_unf`（`mini := Signal.pure 5` の展開）、`ex_zeta`（構造体型の `let`）が通る。
 - `FGCIRCUIT11 SNAPSHOT11`/`MISSING`: 17.5 の走査結果。
+
+### 17.8 訂正（S1p、reviewer 裁定 M2）と意味保存の経路
+
+S1m の以下の文言は今回の証明結果ではなかったので撤回・言い換える。
+
+1. 「健全性（定義的等式）」「各規則は定義的等式」「新規則は値を変えない」: **証明していない**。`Expr` に意味論が無いので、`unfoldAt`/`betaApp`/`instE`/`whStep` が元の Lean 項を保つことは Lean の定理として述べられていない。Check11 OPS の 21 件（`instE`/`instLE`/`betaApp` と Lean の `instantiate1`/`instantiateLevelParams`/`Expr.beta` の比較）は**監査**である。
+2. `cdx_fun`/`dx_fun` は**新しい関係 `CDX` の関数性（導出の一意性）**であって、導出の値が元の Lean 項に一致することではない。
+3. `projCtor` は**生の `Expr` に対する規則**である。`ctorInfo` の読み取りは、Lean の構造体射影の型の正しさ（その `Expr.proj S i x` が型付けされていること）を保証しない。同じ境界である。
+4. `EnvDefs`/`EnvCtors`（実 run 環境の表）は**追加の未供給内容**である。既存の境界（`RootInEnv` 等）と同種だが、meta 照合（Check の比較）で支払い済みとは扱わない。
+5. 再帰定義について「導出が存在しない」と書いた箇所（§17.2 停止性、§17.5）は「今回の走査はここで停止する。導出は未供給」に直した。走査は不存在の証明ではない。
+
+**意味保存の経路（2 つ。どちらか）**:
+- (a) 型の正しい入力・環境に対して縮約（delta/beta/zeta/射影/iota）が意味を保つこと自体を証明する。`Expr` の型付き意味論が要り、今回も未実装。
+- (b) **対象 root で等式証明をカーネルに渡す**: 導出 `h : CDX env [] e α v` を組むとき `v` は規則の値から**構成される** Lean の値であり、結論の型 `HftObCD`（`v := synth_hftPcieOutByte`、元の Lean 定数）は `v` と構成された値が**カーネルの定義的等式**で一致する場合にのみ型検査を通る。つまり (b) は元の Lean 項と展開後の項の等式証明をカーネルに検査させる経路で、**規則の健全性を一般には要らない**（その root について導出が受理された時点で等式が検査済み）。ただし受理される導出が未供給の間、(b) も供給されていない。
+S1p の再帰子単位は (b) で扱う（§20.3）。
 
 ## 18. S1n（Issue `sparkle-fg-circuit-pilot` の次の束）: 他の 3 leaf root への `X_final11` の持ち上げ
 
@@ -810,3 +825,57 @@ structure LogBranchDraft (mctx mref cctx cref) : Prop where
 ### 19.6 次
 
 (1) `hg` の供給（`IO.getEnv` の run の結果・環境保存。コンパイル時の切替案 19.2-2 を採れば `unset` は消える）。(2) draft の採否（reviewer）。(3) 他の 3 root への `final9P` 相当の持ち上げ（counterLoop と同手順）。
+
+## 20. S1p（Issue `sparkle-fg-circuit-pilot` の次の束）: 単一環境の carrier（M1）、意味保存の経路（M2）、`List.rec` の最初の小単位
+
+土台 `e2301cd4`（par/fgc-s1）。追加ファイル（既存の定理は書き換えていない。コメント 2 箇所のみ訂正: `Tools/ShippingFGCircuitS1mCD.lean` 冒頭の「definitional equality」「has no derivation」）: `Tools/ShippingFGCircuitS1pCD.lean`、`Tests/Gen5/FGCircuitPilotCheck14.lean`（lakefile 登録は各 1 回）。TRUSTED・axiom・sorry・native_decide・新しい law はない（`FGCIRCUIT14 AXIOMS`: 29 名、標準 axiom のみ）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。Issue の状態は変えていない。`Sparkle/Compiler/*` と HeadIO 関連ファイルには触れていない。
+
+### 20.1 M1: 公開 carrier を 1 環境にした
+
+S1m の `CircCVX env := fun env' X α v => … env'.find? X … CDX env [] d.value …` は引用を `env'` で読み、展開を `env` で行うため、**型の上では別環境を許す**（`circCV_to_X` だけが同じ `env`）。S1p:
+
+- `CircCVS : ConstValueRel := fun env X α v => ∃ d, env.find? X = some (.defnInfo d) ∧ d.levelParams = [] ∧ CDX env [] d.value α v`。引用と展開が**同じ変数 `env`**。
+- 橋: `circCV_to_S : CircCV env X α v → CircCVS env X α v`（`cdx_of_cd`）、`circCVS_to_X`、`circCVX_iff_S`（`env' = env` の下で `CircCVX env env'` と `CircCVS env'` が同値。仮定が要る）、`circCVS_functional : ConstValueFunctional CircCVS`（`cdx_fun`）、`sourceDenotes_to_S`、`declConnect_to_S : DeclConnect CircCV env₀ P Tgt → DeclConnect CircCVS env₀ P Tgt`。
+- **run 側**: `CircCVSAt cref w X α v := CircCVS (envAt cref w) X α v`。`circCVS_at_of_getEnv`: `RunsTo getEnv … w e w'` から `CircCVS e X α v ↔ CircCVS (envAt cref w) X α v`（`getEnv_value`。**開始 world `w`** であって終了 world `w'` ではない）。`HftObCDX env := CDX env [] hftRootValue (MonoTy shHft) synth_hftPcieOutByte`、`circCVS_hft_of_obCDX`、`circCVS_hft_run`（`env := envAt cref w`）。`HftObCDX` は**型だけで未供給**（`hcd` の供給ではない）。
+- **別 env の負対照**（kernel の定理）: `circCVX_mixed`: `EnvDefs env (Δn 5)`（`mini := pure 5`）、`env'` が `X := mini` を宣言していれば、`env'` が何であれ `CircCVX env env' X (pure 5)` が成り立つ。`circCVS_rejects_mixed`: `EnvDefs env' (Δn 6)`（`env'` の `mini := pure 6`）なら `¬ CircCVS env' X (pure 5)`（`cdx_eq` と `Signal.pure` の単射性）。`miniDen 6` で `CircCVS env' X (pure 6)` は導出できる（Check14 の `circCVS_pos`）。つまり S1m の carrier は混在対を通し、単一環境の carrier は通さない。
+
+### 20.2 M2: 意味保存の経路（§17.8 に書いた）
+
+§17 の「健全性（定義的等式）」「新規則は値を変えない」「導出が存在しない」を撤回し、§17.8 に (a) 型の正しい入力に対する縮約の意味保存、(b) 対象 root で元の Lean 項と展開後の項の等式証明をカーネルに渡す、の 2 経路を明記した。`cdx_fun` は新関係の一意性、21 件の比較は監査、`projCtor` は raw `Expr` 規則、`EnvDefs`/`EnvCtors` は追加の未供給内容。
+
+### 20.3 再帰子の最初の小単位（`List.rec` だけ）
+
+方針（reviewer）: 汎用 `recInfo` 解釈・universe の拡張はしない。`runCircuitH` の `List.rec` で major が静的に `nil`/`cons` に展開できる範囲だけ。有限の回路構築リストを展開する。実行時の無制限 `List` を回路にしない。新 TRUSTED なし。
+
+- `recStep env e`: 頭が定数 `List.rec`、`env.find? List.rec = some (.recInfo _)`、引数が 5 個以上（`α motive nilc consc major extra…`）、`major` が `recMajorWh`（`whStep` を最大 256 回）で `List.nil _` / `List.cons _ h t` に至るとき: nil なら `betaApp nilc extra`、cons なら `betaApp consc ([h, t, List.rec.{ls} α motive nilc consc t] ++ extra)`。**宇宙の水準 `ls` は入力のまま**（拡張なし）。他の再帰子（`Nat.rec`）、`casesOn`、部分適用、変数の major（`bvar`）では `none`（Check14 RECSTEP の対照）。major が constructor まで出ない箇所は `none` で止まり、`MISSING` にその major の形が出る（`describeRecStuck`）。
+- 規則: 新しい帰納族 `DY env`（`DX` の全規則 + `recIota`。`DX` は編集していない。`dx_to_dy : DX env ρ e r → DY env ρ e r`）。`recIota`: `appFn e = List.rec ls`、`env.find? List.rec = recInfo ri`、`recStep env e = some e'`、`CDY env ρ e' α v` → `CDY env ρ e α v`。**`beta` と `projStep` は `headRedexR`/`whStepR` 上に置いた**（`whStep` に「射影の引数が `List.rec` の redex のとき射影の内側で `recStep`」を足しただけ。`whStepR_of_whStep`・`headRedexR_of_headRedex` で `DX` の導出はそのまま入る）。`List.rec` が射影の引数にだけ現れる hftPcie の形（`brecOn` の `PProd#0`）に必要。
+- 関数性: `dy_fun`、`cdy_fun`、`tdy_fun`、`cdy_eq`、`circCVY_functional`（導出に関する `induction`。衝突の反駁に `recStep_head`、`unfoldAt_rec`、`headRedexR_rec`、`whStepR_ctor`）。仮定なし。
+- **元の項との証明（経路 (b)）**: 規則 `recIota` の値は展開後の式の値であり、元の項との一致は**最終の型付けで検査される**: `HftObCDX` の `v` は `synth_hftPcieOutByte`（元の Lean 定数）で、規則が組む値がこれとカーネルで定義的に等しい導出だけが型検査を通る。その際 `List.rec` の iota は Lean の等式として **すべての引数に対して `rfl`**: `listRec_nil_eq : List.rec n c [] = n`、`listRec_cons_eq : List.rec n c (a :: xs) = c a xs (List.rec n c xs)`（universe 多相のまま）。これらは**一般の意味保存定理ではない**（`Expr` の書き換えを意味に結ぶ定理は無い）。Check14 は走査が取った各ステップ（入力の `List.rec` spine、`recStep` の結果）を Lean の `isDefEq`（default 透過度）で照合する: **2 件（distinct）すべて定義的に等しい**（loose bvar は junk 型の fvar で閉じた。型付けの検査ではなく縮約の検査）。
+- **フォールバック（`Circuit` の pure/bind/next の展開補題）**: iota が constructor に届かない部分項に備え、`Circuit.pure'`/`bind`/`next` の定義から `rfl` で証明した展開補題 `circuit_pure_eq`、`circuit_bind_eq`、`circuit_next_eq` を置いた。**今回のルートでは使っていない**（`List.rec` はすべて静的 major だった）。
+
+### 20.4 hftRootValue の走査（Check14 SNAPSHOT14、1 環境の値）
+
+`Check14` の recognizer は規則の関数（`unfoldAt`/`headRedexR`/`whStepR`/`recStep`/`instE`）そのままで root の値を走査する（証明ではなく走査）。
+
+- **走査は 505 節点、`List.rec` の iota を 34 回（distinct 2: 17 箇所 × `cons`、`nil` の 2 段）取る**。S1m の stuck（`proj Prod#0 of proj Prod#0 (proj PProd#0 (List.rec …))` ×17）は消えた。走査の記録と `whStepR`/`headRedexR` の一致（不一致 0）。
+- **新しい stuck（今回の走査はここで停止、導出は未供給）**: `Sparkle.Core.Signal.Signal.mk [constructor]` ×17。`mkRegList` の読み出し lens `Signal.map Prod.fst (readSig s)`（`Signal.map` を `unf` した `Signal.mk { val := fun t => … }` の構造体リテラル）。`CD` の primitive 14 頭に `Signal.map` も `Signal.mk` も無い。次の設計問題は「`Signal.map` を primitive とするか（`Prod.fst`/`Prod.snd` の関数値の `CD` が要る）、`Signal.mk` を `Signal` の値の規則にするか」で reviewer の判断を仰ぐ。`tdFail`: なし。
+- したがって `HftObCDX`（`hcd`）は**今回も供給していない**。
+
+### 20.5 Check14 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck14`、912 jobs、exit 0）
+
+- `FGCIRCUIT14 SIGNATURES`: `CircCVS` の定義、`circCV_to_S`、`circCVS_at_of_getEnv`（`envAt cref w`）、`circCVX_iff_S`、`circCVS_functional`、`circCVX_mixed`/`circCVS_rejects_mixed`、`DY.recIota`、`DY.beta`/`DY.projStep`（`whStepR`/`headRedexR`）、`dx_to_dy`、`cdy_fun` を独立に書いた文面と `isDefEq`（default 透過度）で照合。**19 mutant 棄却**（carrier: 固定の環境、非空の valuation、宇宙パラメータ条件なし、`CDX` の環境の存在量化; 橋: 固定の環境; run: 終了 world `w'`; `iff_S`: 環境の一致なし; 関数性: `CircCV`; 混在対: 値の入替、`Δn` の入替; `recIota`: `Nat.rec`、recInfo なし、結論が `e'`、`unfoldAt`; `beta`/`projStep`: 旧 `headRedex`/`whStep`; 埋め込み: 逆向き; `cdy_fun`: 別 env、`HEq` なし）。
+- `FGCIRCUIT14 OLD RULES`: `DX` の 26 コンストラクタ（`beta`・`projStep` 以外）が `DY` で同一。対照（`sigMux` を `sigPure` と見る）は棄却。
+- `FGCIRCUIT14 NEGATIVE CONTROL (different env)`: 2 つの具体環境（`mini := pure 5` / `pure 6`、`X := mini`）を `addDecl` で作り、同じ引用が `unfoldAt` で別の値に展開されることと、`EnvDefs` の行の一致（meta 評価）を確認。
+- `FGCIRCUIT14 RECSTEP`: nil/cons/ih/2 段/extra 引数/beta した major の各ケースが期待どおり。変数の major、`Nat.rec`、部分適用、`List.casesOn` は step しない。水準は保たれる。
+- `FGCIRCUIT14 AXIOMS`: 29 名、標準 axiom のみ。
+- `FGCIRCUIT14 SNAPSHOT14`/`MISSING`/`TRACE`: 20.4 のとおり。equation check（Lean `isDefEq`）: 2 件中 2 件、不一致 0、例外 0。
+
+### 20.6 証明したもの / 名前付きの仮説・未供給 / 数え方
+
+- **証明した**: `circCV_to_S`、`circCVS_to_X`、`circCVX_iff_S`、`circCVS_functional`、`sourceDenotes_to_S`、`declConnect_to_S`、`circCVS_at_of_getEnv`、`circCVS_hft_of_obCDX`、`circCVS_hft_run`、`circCVX_mixed`、`circCVS_rejects_mixed`、`dx_to_dy`、`dy_fun`/`cdy_fun`/`tdy_fun`/`cdy_eq`、`circCVS_to_Y`、`circCVY_functional`、`whStepR_of_whStep`、`headRedexR_of_headRedex`、`whStepR_ctor`、`listRec_nil_eq`、`listRec_cons_eq`、`circuit_pure_eq`/`circuit_bind_eq`/`circuit_next_eq`。
+- **名前付き仮説／未供給（新規に増えたもの・変わらないもの）**: `HftObCDX`（型のみ、`hcd` 未供給）。`EnvDefs`/`EnvCtors`（実 run 環境について追加の未供給内容）。規則の意味保存（§17.8 の経路 (a)/(b)。(b) は受理される導出が未供給の間は未供給）。`recStep` と Lean の `List.rec` の対応は、Check14 の `isDefEq` による走査ステップの監査であって定理ではない。`Signal.mk`/`Signal.map` の規則（20.4）。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。条件付きは減算しない。
+
+### 20.7 次
+
+(1) `Signal.map`／`Signal.mk` の規則の設計（reviewer）。(2) その後 `hcd` の導出が `HftObCDX` に届くか走査し直す（各ステップの等式は経路 (b) でカーネルに渡す）。(3) `HftObSrc`/`HftObTopCore`/`HftObNoRaw` は別。
