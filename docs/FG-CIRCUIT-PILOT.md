@@ -1176,4 +1176,4 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 ### 27.2 Check19 の高速化
 `FGCircuitPilotCheck19` の署名ブロックは、同じ実型を mutant ごとに `norm`（定義の展開 6 回）し直していた（例: `synth_hftPcieOutByte_finalOffL` は 20 回）。実型の正規形を型ごとに 1 回だけ計算してキャッシュする（`normC`）。mutant 側の `norm` は式が違うので残る。ファイル分割は未実施。
 
-ビルド時間（`kjob lake build Tests.Gen5.FGCircuitPilotCheck19`、依存は構築済みでこのモジュールのみ）: 前 約 13 分（S1u の記録）／後 下記（Job の `builds/ID.json` の値）。
+ビルド時間: 前 約 13 分（S1u の記録）／後 **未計測**（kjob lake build はこの Pod で毎回 922 job を最初から構築し、計測が時間内に終わらなかった。キャッシュ変更が Check19 で通ること自体も未確認）。次の束で計測する。
