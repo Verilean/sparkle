@@ -462,4 +462,70 @@ theorem headRedexRL_sound {env : Environment} {lk : Look} (h : EnvLk env lk) {e 
   | lit l => simp at ho ⊢; simp [← ho]
   | mdata m b => simp at ho ⊢; simp [← ho]
 
+/-! ## the table versions of the rules that read the environment -/
+
+section Rules
+variable {env : Environment} {lk : Look} (hlk : EnvLk env lk) {ρ : Val}
+include hlk
+
+theorem dw_unf_t {e e' : Expr} {r : Res} (hs : stopW r e = false) (hu : unfoldL lk e = some (some e')) (h : DW env ρ e' r) : DW env ρ e r :=
+  DW.unf hs (unfoldL_sound hlk hu) h
+
+theorem dw_beta_t {e e' : Expr} {r : Res} (hb : headRedexRL lk e = some (some e')) (h : DW env ρ e' r) : DW env ρ e r :=
+  DW.beta (headRedexRL_sound hlk hb) h
+
+theorem dw_projStep_t {e x x' : Expr} {S : Name} {i : Nat} {r : Res} (he : e = .proj S i x) (hx : whStepRL lk x = some (some x'))
+    (h : DW env ρ (.proj S i x') r) : DW env ρ e r :=
+  DW.projStep he (whStepRL_sound hlk x hx) h
+
+theorem dw_projCtor_t {e x fld : Expr} {S ctor : Name} {ls : List Level} {cw : CtorRow} {i : Nat} {r : Res}
+    (he : e = .proj S i x) (hh : appFn x = .const ctor ls) (hr : lk ctor = some (.ctor cw)) (hS : cw.induct = S)
+    (hn : (appArgs x).length = cw.numParams + cw.numFields) (hf : (appArgs x)[cw.numParams + i]? = some fld) (h : DW env ρ fld r) : DW env ρ e r := by
+  obtain ⟨cv, hc, h1, h2, h3⟩ := hlk ctor _ hr
+  exact DW.projCtor he hh hc (by rw [h1, hS]) (by rw [h2, h3]; exact hn) (by rw [h2]; exact hf) h
+
+theorem dw_recIota_t {e e' : Expr} {ls : List Level} {r : Res} (hf : appFn e = .const ``List.rec ls) (hrec : lk ``List.rec = some .recl)
+    (hr : recStepL lk e = some (some e')) (h : DW env ρ e' r) : DW env ρ e r := by
+  obtain ⟨ri, hi⟩ := hlk _ _ hrec
+  exact DW.recIota hf hi (recStepL_sound hlk hr) h
+
+theorem dw_projRec_t {e x x' : Expr} {S : Name} {i : Nat} {ls : List Level} {r : Res} (he : e = .proj S i x) (hf : appFn x = .const ``List.rec ls)
+    (hrec : lk ``List.rec = some .recl) (hr : recStepL lk x = some (some x')) (h : DW env ρ (.proj S i x') r) : DW env ρ e r := by
+  obtain ⟨ri, hi⟩ := hlk _ _ hrec
+  exact DW.projRec he hf hi (recStepL_sound hlk hr) h
+
+theorem dw_unitVal_t {e : Expr} {cw : CtorRow} (he : e = .const ``PUnit.unit [.succ .zero]) (hr : lk ``PUnit.unit = some (.ctor cw)) :
+    CDW env ρ e Unit () := by
+  obtain ⟨cv, hc, _⟩ := hlk _ _ hr
+  exact DW.unitVal he hc
+
+theorem dw_prodMk_t {e a b x y : Expr} {A B : Type} {xv : A} {yv : B} {cw : CtorRow}
+    (he : e = appN ``Prod.mk [.zero, .zero] [a, b, x, y]) (hr : lk ``Prod.mk = some (.ctor cw))
+    (ha : TDW env ρ a A) (hb : TDW env ρ b B) (hx : CDW env ρ x A xv) (hy : CDW env ρ y B yv) : CDW env ρ e (A × B) (xv, yv) := by
+  obtain ⟨cv, hc, _⟩ := hlk _ _ hr
+  exact DW.prodMk he hc ha hb hx hy
+
+theorem dw_inhMk_t {e t x : Expr} {T : Type} {v : T} {cw : CtorRow} (he : e = appN ``Inhabited.mk [.succ .zero] [t, x])
+    (hr : lk ``Inhabited.mk = some (.ctor cw)) (ht : TDW env ρ t T) (hx : CDW env ρ x T v) : CDW env ρ e (Inhabited T) (⟨v⟩ : Inhabited T) := by
+  obtain ⟨cv, hc, _⟩ := hlk _ _ hr
+  exact DW.inhMk he hc ht hx
+
+theorem dw_mapFst_t {e d tp ta a b s u : Expr} {D : DomainConfig} {A B : Type} {sv : Signal D (A × B)} {ls' : List Level} {cw : CtorRow}
+    (he : e = appN ``Signal.map [.zero] [d, tp, ta, appN ``Prod.fst [.zero, .zero] [a, b], s])
+    (hd : CDW env ρ d DomainConfig D) (hp : TDW env ρ tp (A × B)) (ht : TDW env ρ ta A) (ha : TDW env ρ a A) (hb : TDW env ρ b B)
+    (hs : CDW env ρ s (Signal D (A × B)) sv) (hu : unfoldL lk e = some (some u)) (hm : appFn u = .const ``Signal.mk ls')
+    (hr : lk ``Signal.mk = some (.ctor cw)) : CDW env ρ e (Signal D A) (Signal.map Prod.fst sv) := by
+  obtain ⟨cv, hc, _⟩ := hlk _ _ hr
+  exact DW.mapFst he hd hp ht ha hb hs ⟨u, ls', cv, unfoldL_sound hlk hu, hm, hc⟩
+
+theorem dw_mapSnd_t {e d tp tb a b s u : Expr} {D : DomainConfig} {A B : Type} {sv : Signal D (A × B)} {ls' : List Level} {cw : CtorRow}
+    (he : e = appN ``Signal.map [.zero] [d, tp, tb, appN ``Prod.snd [.zero, .zero] [a, b], s])
+    (hd : CDW env ρ d DomainConfig D) (hp : TDW env ρ tp (A × B)) (ht : TDW env ρ tb B) (ha : TDW env ρ a A) (hb : TDW env ρ b B)
+    (hs : CDW env ρ s (Signal D (A × B)) sv) (hu : unfoldL lk e = some (some u)) (hm : appFn u = .const ``Signal.mk ls')
+    (hr : lk ``Signal.mk = some (.ctor cw)) : CDW env ρ e (Signal D B) (Signal.map Prod.snd sv) := by
+  obtain ⟨cv, hc, _⟩ := hlk _ _ hr
+  exact DW.mapSnd he hd hp ht ha hb hs ⟨u, ls', cv, unfoldL_sound hlk hu, hm, hc⟩
+
+end Rules
+
 end Tools.ShippingFGCircuitS1wTbl
