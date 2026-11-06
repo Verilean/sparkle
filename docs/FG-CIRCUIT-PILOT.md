@@ -1151,7 +1151,12 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 
 ### 25.4 Check19 の出力
 
-CHECK19_PLACEHOLDER
+`kjob lake build Tools.ShippingFGCircuitS1uSrc`（exit 0、`#print axioms` は `propext`・`Classical.choice`・`Quot.sound` のみ）、`kjob lake build Tests.Gen5.FGCircuitPilotCheck19`（exit 0、922 jobs、error 0）。
+
+- `FGCIRCUIT19 SIGNATURES`: `HftObSrc`（応用定義として）、`HftRootLink`、`hftObSrc_of_rootLink`、`ExtStage_agree_tables`、`genSemI_comb_src`、`synth_hftPcieOutByte_finalOffL` と `_Z` の完全な型を、独立に書いた文面（`ExpObSrc`/`ExpLink`/`ExpSrcThm`/`ExpStageAgree`/`ExpCombSrc`/`ExpFinalL`/`ExpThmL`）を正規化（定義の展開と literal Bool の `if` の選択）したものと `isDefEq`（default）で照合し、binder の種類も一致。**67 mutant 棄却**（正規化後の式が構文的に異なり、かつ reducible 透過度で defeq でない）: `HftRootLink` について 子の入れ替え（名前ごと／`src` だけ／`data` だけ）、http の `src` が tlp の観測、表が空、段数 `k = 0/1/3`、start 前提なし、再帰前提なし、結論が別の観測、別の root の `data`（12）。`HftObSrc` は観測なし／別の宣言（2）。`hftObSrc_of_rootLink` は link 欠落、root/http/tlp の reader の欠落、root の reader が別 data、結論が別宣言（6）。`ExtStage_agree_tables` は `d`/`kD`/`src` 一致の欠落（3）。`genSemI_comb_src` は `ss = []`/`insts = []`/観測式の欠落（3）。`synth_hftPcieOutByte_finalOffL`（全 carrier）は 20、`_Z` インスタンスは別 carrier（`cdvY`/`cdvOld`）・別 `Ob`（3）と、各 knob（link 欠落、**`hsrc` を残したもの**、診断入口の `hr`、旧 carrier の結論、`hcell`/`hchk`/`hreadH`/`hreadT`/`hcd`/`htop`/`hnoraw`/`htop` 内の `hdRun` の欠落、別の root、別の post root、別宣言の data の `hchk`、reader / `hcd` / 結論が end world）（18）。
+- `FGCIRCUIT19 HYPS`: `synth_hftPcieOutByte_finalOffL_Z` の明示仮説は `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hnoraw`（13。名前と順序を検査）。`hsrc`・`hhead`・`hdRun`・`hquiet`・`hg`・`hio`・`hgates`・`hRead`・`hE`・`hP` は仮説に無い。どの仮説の型（`S1t`/`S1kStmt`/`S1u` の定義を 1 段展開）にも `HftObSrc`・診断入口・旧 `MachineDefinesLinked`・旧 `PostRun`・`coreHead`・`synthesizeChild`・`sorryAx` は現れない。`hlink` は run・環境・world・`MachineDefinesLinked` に触れない（run 非依存）。定理の明示引数は `CV Ob hOb`。
+- `FGCIRCUIT19 AXIOMS`: 19 名、標準 axiom のみ。
+- `FGCIRCUIT19 SNAPSHOT19`: 2 つの子の `machineSource` は宣言の観測（kernel `rfl`: `fun t => ((httpGetByte (bits 1 6)).val t).toNat`、`tlpCplByte (bits 1 16) … (bits 6 5)`）、`hftKids` は 2 つの子だけ（root 名では `none`）、`hftGenIn : GenIn` が root の data 上にある（量化は空でない）、root の `insts` は `[httpGetByte, tlpCplByte]`（段数 2）、root には `machineExt` があり `machineSigma` が無い（`HftRootLink` の (b) は endpoint の事実でない）。2 つの子には `machine_next`（組合せ leaf）。
 
 ### 25.5 次
 
