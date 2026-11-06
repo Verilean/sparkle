@@ -6670,3 +6670,9 @@ lean_lib «Tools.ShippingFGCircuitS2sAdmChildFrontA» where
 
 lean_lib «Tools.ShippingFGCircuitS2sAdmChildTranslatePathA» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmChildTranslatePathA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildProjFieldA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildProjFieldA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildLegacyHelpersA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildLegacyHelpersA]

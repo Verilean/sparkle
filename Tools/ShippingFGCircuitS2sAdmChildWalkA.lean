@@ -126,6 +126,14 @@ theorem keepsA_forallTelescopeReducingX (T : ForallTelescopeLawAX O.quiet O.adm 
 
 end Laws
 
+theorem Keeps.withReaderAX {Fresh : (σ : Type) → IO.Ref σ → Prop} (O : RefLawsAOpsX Fresh mref cref)
+    (hA : O.adm mctx cctx) {I : Void IO.RealWorld → Prop}
+    {α : Type} {x : MetaM α} (f : Meta.Context → Meta.Context)
+    (hf : ∀ m, (f m).canUnfold? = m.canUnfold?)
+    (h : O.adm (f mctx) cctx → Keeps (f mctx) mref cctx cref I x) :
+    Keeps mctx mref cctx cref I (withReader f x) :=
+  fun w hw => h (O.adm_closed.canUnfold hA f hf) w hw
+
 -- the circuit-state primitives and the calculus, registered for the walker
 syntax (name := keepsAAttrX) "keepsAX" : attr
 
@@ -352,9 +360,9 @@ partial def walkCoreX (g : MVarId) (fuel : Nat) : MetaM Unit := do
         for d in ← getLCtx do
           if d.isImplementationDetail then continue
           let ty ← instantiateMVars d.type
-          if ty.isAppOf ``AdmCtx && ty.getAppNumArgs == 3 then
-            if (← isDefEq (ty.getArg! 1) ka[0]!) && (← isDefEq (ty.getArg! 2) ka[2]!) then
-              r := some (ty.getArg! 0)
+          if ty.isAppOf ``RefLawsAOpsX.adm && ty.getAppNumArgs == 6 then
+            if (← isDefEq (ty.getArg! 4) ka[0]!) && (← isDefEq (ty.getArg! 5) ka[2]!) then
+              r := some (mkAppN ty.getAppFn (ty.getAppArgs.extract 0 4))
               break
         pure r
       let mkK (xsApp : Expr) (α' mc cc : Expr) : Expr := mkAppN (mkConst (if jC then ``KeepsCP else ``Keeps))
@@ -369,7 +377,7 @@ partial def walkCoreX (g : MVarId) (fuel : Nat) : MetaM Unit := do
                 | some q =>
                   withLocalDeclD `mctx' (mkConst ``Lean.Meta.Context) fun mc =>
                     withLocalDeclD `cctx' (mkConst ``Lean.Core.Context) fun cc => do
-                      withLocalDeclD `hA' (mkApp3 (mkConst ``AdmCtx) q mc cc) fun hA' =>
+                      withLocalDeclD `hA' (mkApp2 q mc cc) fun hA' =>
                         mkForallFVars (#[mc, cc, hA'] ++ xs) (mkK (mkAppN f xs).headBeta α' mc cc)
                 | none => throwError "vcaX: no admissibility hypothesis"
               else mkForallFVars xs (mkK (mkAppN f xs).headBeta α' ka[0]! ka[2]!)
@@ -408,7 +416,7 @@ partial def walkCoreX (g : MVarId) (fuel : Nat) : MetaM Unit := do
             | some q =>
               withLocalDeclD `mctx' (mkConst ``Lean.Meta.Context) fun mc =>
                 withLocalDeclD `cctx' (mkConst ``Lean.Core.Context) fun cc =>
-                  withLocalDeclD `hA' (mkApp3 (mkConst ``AdmCtx) q mc cc) fun hA' => do
+                  withLocalDeclD `hA' (mkApp2 q mc cc) fun hA' => do
                     mkForallFVars (#[mc, cc, hA'] ++ xs) (mkK (mkAppN (mkFVar jp) xs) α' mc cc)
             | none => throwError "vcaX: no admissibility hypothesis"
           else mkForallFVars xs (mkK (mkAppN (mkFVar jp) xs) α' ka[0]! ka[2]!)
@@ -584,7 +592,7 @@ partial def walkCoreX (g : MVarId) (fuel : Nat) : MetaM Unit := do
         if ← timed "readOnly" (attempt (readOnly g)) then return
       if [``withReader, ``MonadWithReaderOf.withReader, ``MonadWithReader.withReader].contains c then
         if ← attempt (do
-            applyThenX g (← mkConstWithFreshMVarLevels ``Tools.ShippingChildWalkA.Keeps.withReaderA) fuel) then
+            applyThenX g (← mkConstWithFreshMVarLevels ``Tools.ShippingChildWalkA.Keeps.withReaderAX) fuel) then
           return
       if c == ``liftM || c == ``monadLift || c == ``MonadLiftT.monadLift then
         if ← timed "readOnly" (attempt (readOnly g)) then return
