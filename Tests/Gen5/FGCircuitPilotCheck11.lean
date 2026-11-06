@@ -15,13 +15,10 @@ open Lean Meta Elab Command Term Sparkle.Core Sparkle.Core.Domain Sparkle.Core.S
 
 /-! ## 1. expected statements, written independently (knobs: one per mutant) -/
 
-def ExpUnf (needHead needStop needFind needLvl : Bool) (keepRho : Bool) (concl : Bool) : Prop :=
-  ∀ {env : Environment} {ρ : Val} {e e' : Expr} {c : Name} {ls : List Level} {d : DefinitionVal} {α : Type} {v : α},
-    (if needHead then appFn e = .const c ls else True) →
-    (if needStop then stopC c = false else True) →
-    (if needFind then env.find? c = some (.defnInfo d) else True) →
-    (if needLvl then d.levelParams.length = ls.length else True) →
-    unfoldAt env e = some e' →
+def ExpUnf (stopKnob : Nat) (keepRho : Bool) (concl : Bool) (swapUnf : Bool) : Prop :=
+  ∀ {env : Environment} {ρ : Val} {e e' : Expr} {α : Type} {v : α},
+    (if stopKnob == 0 then headStop e = false else if stopKnob == 1 then headStop e = true else True) →
+    (if swapUnf then unfoldAt env e' = some e else unfoldAt env e = some e') →
     CDX env (if keepRho then ρ else []) e' α v →
     (if concl then CDX env ρ e α v else CDX env ρ e' α v)
 
@@ -50,13 +47,12 @@ def ExpProjCtor (needInd needCount : Bool) (fieldIdx : Nat → Nat → Nat) : Pr
     CDX env ρ fld α v →
     CDX env ρ e α v
 
-def UnfTrue := ExpUnf true true true true true true
-def UnfNoHead := ExpUnf false true true true true true
-def UnfNoStop := ExpUnf true false true true true true
-def UnfNoFind := ExpUnf true true false true true true
-def UnfNoLvl := ExpUnf true true true false true true
-def UnfResetRho := ExpUnf true true true true false true
-def UnfConclE' := ExpUnf true true true true true false
+def UnfTrue := ExpUnf 0 true true false
+def UnfNoStop := ExpUnf 2 true true false
+def UnfStopTrue := ExpUnf 1 true true false
+def UnfResetRho := ExpUnf 0 false true false
+def UnfConclE' := ExpUnf 0 true false false
+def UnfSwapped := ExpUnf 0 true true true
 
 def ZetaTrue := ExpZeta true true false
 def ZetaNoCore := ExpZeta false true false
@@ -93,13 +89,17 @@ def FunNoHEq := ExpFun false false false
 
 def varBad : Expr := .lam `x (.const ``Nat []) (.bvar 0) .default
 
-/-- erase the environment of `TDX`/`CDX` to get `TD`/`CD` -/
+/-- erase the environment and the result index of `DX` to get `TD`/`CD` -/
 def eraseEnv (e : Lean.Expr) : MetaM Lean.Expr :=
   Core.transform e (post := fun e => do
-    if e.getAppFn.isConstOf ``CDX && e.getAppNumArgs ≥ 1 then
-      return .done (mkAppN (mkConst ``CD) (e.getAppArgs.extract 1 e.getAppNumArgs))
-    else if e.getAppFn.isConstOf ``TDX && e.getAppNumArgs ≥ 1 then
-      return .done (mkAppN (mkConst ``TD) (e.getAppArgs.extract 1 e.getAppNumArgs))
+    if e.getAppFn.isConstOf ``DX && e.getAppNumArgs == 4 then
+      let a := e.getAppArgs
+      let r := a[3]!
+      if r.getAppFn.isConstOf ``Res.val && r.getAppNumArgs == 2 then
+        return .done (mkAppN (mkConst ``CD) #[a[1]!, a[2]!, r.getAppArgs[0]!, r.getAppArgs[1]!])
+      else if r.getAppFn.isConstOf ``Res.ty && r.getAppNumArgs == 1 then
+        return .done (mkAppN (mkConst ``TD) #[a[1]!, a[2]!, r.getAppArgs[0]!])
+      else return .done e
     else return .done e)
 
 set_option maxHeartbeats 16000000 in
@@ -115,18 +115,18 @@ run_cmd liftTermElabM do
   let Q := `Tests.Gen5.FGCircuitPilotCheck11
   let mut nm : Nat := 0
   -- the four new rules
-  same (S ++ `CDX.unf) (Q ++ `UnfTrue)
-  same (S ++ `CDX.zeta) (Q ++ `ZetaTrue)
-  same (S ++ `CDX.projStep) (Q ++ `StepTrue)
-  same (S ++ `CDX.projCtor) (Q ++ `CtorTrue)
-  for mu in ["UnfNoHead", "UnfNoStop", "UnfNoFind", "UnfNoLvl", "UnfResetRho", "UnfConclE'"] do
-    differs (S ++ `CDX.unf) (Q ++ Name.mkSimple mu); nm := nm + 1
+  same (S ++ `DX.unf) (Q ++ `UnfTrue)
+  same (S ++ `DX.zeta) (Q ++ `ZetaTrue)
+  same (S ++ `DX.projStep) (Q ++ `StepTrue)
+  same (S ++ `DX.projCtor) (Q ++ `CtorTrue)
+  for mu in ["UnfNoStop", "UnfStopTrue", "UnfResetRho", "UnfConclE'", "UnfSwapped"] do
+    differs (S ++ `DX.unf) (Q ++ Name.mkSimple mu); nm := nm + 1
   for mu in ["ZetaNoCore", "ZetaNoSubst", "ZetaCoreTrue"] do
-    differs (S ++ `CDX.zeta) (Q ++ Name.mkSimple mu); nm := nm + 1
+    differs (S ++ `DX.zeta) (Q ++ Name.mkSimple mu); nm := nm + 1
   for mu in ["StepUnfoldOnly", "StepDropsProj"] do
-    differs (S ++ `CDX.projStep) (Q ++ Name.mkSimple mu); nm := nm + 1
+    differs (S ++ `DX.projStep) (Q ++ Name.mkSimple mu); nm := nm + 1
   for mu in ["CtorNoInd", "CtorNoCount", "CtorFieldI", "CtorParamsOnly"] do
-    differs (S ++ `CDX.projCtor) (Q ++ Name.mkSimple mu); nm := nm + 1
+    differs (S ++ `DX.projCtor) (Q ++ Name.mkSimple mu); nm := nm + 1
   -- the embedding
   let e1 ← mkAppM ``ExpEmbedCD #[mkConst ``false, mkConst ``false]
   let ci ← getConstInfo (S ++ `cdx_of_cd)
@@ -147,8 +147,8 @@ run_cmd liftTermElabM do
   nm := nm + 1
   -- the 14 old rules of CDX (+ 5 of TDX) are the old rules with the environment threaded
   let mut nOld : Nat := 0
-  for (oldT, newT, ctors) in [(``CD, ``CDX, [`bvar, `natLit, `domDefault, `bvOfNat, `bvInhabited, `boolInhabited, `sigPure, `sigRegister, `sigMux, `sigAddBV, `sigLoop, `lam, `letE, `sigBeqBV, `sigAndBool, `sigOrBool, `sigNotBool, `bvAbbrev]),
-      (``TD, ``TDX, [`nat, `bool, `domainConfig, `bitvec, `signal])] do
+  for (oldT, newT, ctors) in [(``CD, ``DX, [`bvar, `natLit, `domDefault, `bvOfNat, `bvInhabited, `boolInhabited, `sigPure, `sigRegister, `sigMux, `sigAddBV, `sigLoop, `lam, `letE, `sigBeqBV, `sigAndBool, `sigOrBool, `sigNotBool, `bvAbbrev]),
+      (``TD, ``DX, [`nat, `bool, `domainConfig, `bitvec, `signal])] do
     for c in ctors do
       let oi ← getConstInfo (oldT ++ c)
       let ni ← getConstInfo (newT ++ c)
