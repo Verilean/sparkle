@@ -1,4 +1,5 @@
 import Tools.ShippingFGCircuitS2dKids
+import Tests.Gen5.FGCircuitCmp
 set_option autoImplicit false
 -- FG circuit pilot S2d check. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED. Results: docs/FG-CIRCUIT-PILOT.md §32.
 
@@ -97,7 +98,7 @@ def norm (e : Lean.Expr) : MetaM Lean.Expr := do
   let mut e := e
   for _ in [0:5] do
     e ← normOnce e
-  return e
+  Tests.Gen5.FGCircuitCmp.normCommon e
 
 def litBool : Lean.Expr → Option Bool
   | .const ``Bool.true _ => some true
@@ -125,16 +126,12 @@ def norm2 (e : Lean.Expr) : MetaM Lean.Expr := do
   let mut e := e
   for _ in [0:6] do
     e ← normOnce2 e
-  return e
+  Tests.Gen5.FGCircuitCmp.normCommon e
+/-- ONE criterion (`FGCircuitCmp.stmtEq`) for the expected statement and for every mutant; both sides go through the same `norm` -/
 def sameTy (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
-  let a ← norm ty
-  let e ← norm exp
-  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
+  Tests.Gen5.FGCircuitCmp.checkSame what (← norm ty) (← norm exp)
 def diffTy (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
-  let a ← norm ty
-  let e ← norm exp
-  if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  Tests.Gen5.FGCircuitCmp.checkDiff what (← norm ty) (← norm exp)
 def tyOf (n : Name) : MetaM Lean.Expr := do
   let ci ← getConstInfo n
   unless ci.levelParams.isEmpty do throwError "{n}: level parameters"
@@ -439,13 +436,9 @@ partial def binderInfos : Lean.Expr → List BinderInfo
 
 /-- `a` is the normal form of a real type, computed once and compared with every expected statement / mutant -/
 def sameN (what : String) (a exp : Lean.Expr) : MetaM Unit := do
-  let e ← norm2 exp
-  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
-  unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
+  Tests.Gen5.FGCircuitCmp.checkSame what a (← norm2 exp)
 def diffN (what : String) (a exp : Lean.Expr) : MetaM Unit := do
-  let e ← norm2 exp
-  if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  Tests.Gen5.FGCircuitCmp.checkDiff what a (← norm2 exp)
 
 set_option maxHeartbeats 32000000 in
 run_cmd liftTermElabM do

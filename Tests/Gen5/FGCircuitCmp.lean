@@ -23,26 +23,61 @@ partial def allBinderInfos : Lean.Expr → List BinderInfo
   | _ => []
 
 /-- literal data the real statements name by a constant (the output shape of the root); unfolded on both sides -/
-def commonUnfold : List Name := [`Tools.ShippingFGCircuitS1kStmt.shHft]
+def commonUnfold : List Name := [`Tools.ShippingFGCircuitS1kStmt.shHft, `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte.machineInners]
 
-/-- the shared tail of every check's normalisation: metavariables instantiated, metadata erased, the constants of the checks' own namespaces (`Tests.Gen5.FGCircuitPilotCheck*`: the expected statements, their abbreviations and knobs) unfolded, the constants that are `Name` literals (`hftRoot`, `hftHttp`, ...) unfolded, beta reduced -/
-def normCommon (e : Lean.Expr) : MetaM Lean.Expr := do
+/-- `if b then x else y` with a literal Boolean test: the chosen branch -/
+def iteLit (e : Lean.Expr) : Option Lean.Expr :=
+  if e.isAppOfArity ``ite 5 then
+    let c := e.getArg! 1
+    if c.isAppOfArity ``Eq 3 then
+      match c.getArg! 1, c.getArg! 2 with
+      | .const ``Bool.true _, .const ``Bool.true _ => some (e.getArg! 3)
+      | .const ``Bool.false _, .const ``Bool.true _ => some (e.getArg! 4)
+      | _, _ => none
+    else none
+  else none
+
+/-- the shared tail of every check's normalisation (`reduceHeads`: heads of computed types evaluated by `whnf`, the same list for every statement): metavariables instantiated, metadata erased, the constants of the checks' own namespaces (`Tests.Gen5.FGCircuitPilotCheck*`: the expected statements, their abbreviations and knobs) unfolded, `if` on a literal Boolean selected, applications of theorems (proofs) replaced by one constant, the constants that are `Name` literals (`hftRoot`, `hftHttp`, ...) unfolded, beta reduced -/
+def normCommon (e : Lean.Expr) (reduceHeads : List Name := []) : MetaM Lean.Expr := do
   let e ← instantiateMVars e
   let e := e.replace fun x => match x with | .mdata _ y => some y | _ => none
   let step (e : Lean.Expr) : MetaM Lean.Expr :=
     Meta.transform e (post := fun e => do
       let e := e.headBeta
+      -- a `Nat` numeral is the same whether it was elaborated as `OfNat.ofNat Nat n _` or kept as the raw literal
+      if e.isAppOfArity ``OfNat.ofNat 3 && (e.getArg! 0).isConstOf ``Nat then
+        if let .lit (.natVal n) := e.getArg! 1 then return .done (.lit (.natVal n))
+      if let some e' := iteLit e then return .visit e'
+      -- a structure projection is the same whether it was elaborated as `Prod.fst x` or as the primitive `x.1`: both become the primitive projection
       if let .const c _ := e.getAppFn then
+        if let some info ← getProjectionFnInfo? c then
+          if !info.fromClass && e.getAppNumArgs > info.numParams then
+            let args := e.getAppArgs
+            let ctor ← getConstInfoCtor info.ctorName
+            return .visit (mkAppN (Lean.Expr.proj ctor.induct info.i args[info.numParams]!) (args.extract (info.numParams + 1) args.size))
+      -- computed types / lists named by the caller (`SType.Type (.bits 6)`, `List.take 6 [...]`): evaluated by `whnf` (default transparency), the same for every statement
+      if let .const c _ := e.getAppFn then
+        if reduceHeads.contains c then
+          let r ← withTransparency .all (whnf e)
+          if r != e then return .visit r
         let isNameConst : Bool := match (← getEnv).find? c with
           | some ci => ci.type.isConstOf ``Lean.Name
           | none => false
         if (`Tests.Gen5).isPrefixOf c || isNameConst || commonUnfold.contains c then
           if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
       return .done e)
-  let mut e := e
+  -- proofs are irrelevant: an application of a theorem (or `Eq.refl`) is replaced as a whole (before its arguments are visited) by one constant
+  let proofs (e : Lean.Expr) : MetaM Lean.Expr :=
+    Meta.transform e (pre := fun e => do
+      if let .const c _ := e.getAppFn then
+        let isProof : Bool := c == ``Eq.refl || c == ``rfl || (match (← getEnv).find? c with | some (.thmInfo _) => true | _ => false) ||
+          ((c.isStr) && ((c.getString!).startsWith "_proof_"))
+        if isProof then return .done (.const `proofIrrelevant [])
+      return .continue)
+  let mut e ← proofs e
   for _ in [0:4] do
     e ← step e
-  return e
+  proofs e
 
 /-- THE criterion (positive and negative cases alike) -/
 def stmtEq (a e : Lean.Expr) : Bool := a.eqv e && allBinderInfos a == allBinderInfos e
