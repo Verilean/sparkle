@@ -1878,7 +1878,7 @@ Check の出力行は 7（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、QUOTES 1、
 | 20 | 252 | 48 | 9 | 0 | 3268 | 1.5e15 |
 | 24 | 350 | 56 | 13 | 0 | 4252 | 4.7e17 |
 
-DAG は n に対して**二次**（差分が 128 ずつ増える: 612, 1084, 1684, …）で、tree は指数。kernel は 0 ms と表示された（**訂正（S2q）: 「kernel 0 ms」は「共有を再走査していない」ことの証拠ではない。さらに S2q で、この `kernel ms` は定理の `addDecl` が非同期（またはディスパッチのみ）で、実際の検査時間を測っていなかったと分かった（同じ生成物で、同期の `Environment.addDeclCore` に替えると 32 ms → 7283 ms、§43.4）。したがって S2o/S2p までの `kernel ms` の数字（0〜52 ms）は検査時間の測定として無効**。DAG が n に対して二次であることと、tree が指数であることだけが、項の形についての事実）。Check29 の小例（SHARE/SHADOW/HIGHER/REC-*/DEFAULT）でも kernel 0 ms（同じく分解能以下）、DAG 80〜662。**区別（S2q）: (a)「S2b の外挿（1 歩ごとの DAG 再走査で 2〜2.5 h）が小さい例で再現しなかった」ことは測定済み（上の表）。(b)「根そのものの kernel 時間・項サイズ」は、この節の時点では未測定**（止まりのため根の項を作れなかった。S2q で根の項が作れた: §43）。(a) は (b) の結論を与えない。probe の生成側だけの数字（5282 節点、72012 歩、2.5 s）は上に記録した。
+DAG は n に対して**二次**（差分が 128 ずつ増える: 612, 1084, 1684, …）で、tree は指数。kernel は 0 ms と表示された（**訂正（S2q）: 「kernel 0 ms」は「共有を再走査していない」ことの証拠ではない。さらに S2q で、この `kernel ms` は定理の `addDecl` が非同期（またはディスパッチのみ）で、実際の検査時間を測っていなかったと分かった（同じ生成物で、同期の `Environment.addDeclCore` に替えると 32 ms → 7283 ms、§43.4）。したがって S2o/S2p までの `kernel ms` の数字（0〜52 ms）は検査時間の測定として無効**。DAG が n に対して二次であることと、tree が指数であることだけが、項の形についての事実）。Check29 の小例（SHARE/SHADOW/HIGHER/REC-*/DEFAULT）でも kernel 0 ms（同じく分解能以下）、DAG 80〜662。**区別（S2q、S2t で訂正）: 上の表の `kernel ms`（0〜52 ms）は非同期の `addDecl` の数字なので、小例（この表と Check29 の SHARE/SHADOW/…）の検査時間は同期では再測定しておらず「不明」である。「S2b の外挿（2〜2.5 h）が小さい例で再現しなかった」とは言えない（「測定済み」「分解能以下」と書いたのは誤り）。同期で確かめたのは §45 の根（検査 約 7 s）だけ。これと独立に、項の DAG サイズ（n に対し二次、tree は指数）は表のとおりの観測で、検査時間とは別の事実。**「根そのものの kernel 時間・項サイズ」はこの節の時点では未測定（S2q で根の項が作れた: §43、承認済み規則での再導出と同期測定は §45）。probe の生成側だけの数字（5282 節点、72012 歩、2.5 s）は上に記録した。
 
 ### 36.5 仮説・次
 
@@ -2302,3 +2302,44 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 
 - 名前付き仮説（未供給）: `hcd`（承認済みブランチでは未導出）、`EnvDefs/EnvCtors/RecFact`（`hftObCDT_Q` では仮定として残る）、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査）。`stopD` の追加（`HShiftLeft.hShiftLeft`/`HAppend.hAppend` が `Sh` で展開されなくなった）も監査対象。
 - 次（reviewer 判断）: `Signal (BitVec n) ||| Signal (BitVec n)`（§43.3）を許すか。許されれば副ブランチの `sigOrBV`（第 2 型引数を無制約にした実験版）を、第 2 型引数の束縛つきの規則に直し、`dt_fun` と Check を足して承認済みブランチに入れる。
+
+## 45. S2t（Issue `sparkle-fg-circuit-pilot` の次の束）: 証拠付き `sigOrBV`、`dt_fun` の再証明、Check40、根 `hftObCDT` の再導出と同期測定
+
+土台 `ea597627`。TRUSTED・axiom・sorry・native_decide・新しい law はない。Issue の状態は変えていない。S2r（最終文 v2）・S2s（AdmBoth）のファイル名は作っていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**（`EnvDefs`/`EnvCtors`/`RecFact` は未供給: 下）。副ブランチ `s2q-exp-or` の無制約な第 2 型引数はコピーしていない（参照のみ）。
+
+### 45.1 規則 `DT.sigOrBV`（reviewer 設計裁定のとおり）と証拠 `natEvalE`
+
+- `HOr.hOr` の型引数 3 つ: 第 1・第 3 は `Signal d (BitVec w)`、インスタンス `instHOrSignalBitVec d w`、**第 2 は `Signal d (BitVec wb)`（同じ `d`）で、`wb` は閉じた Nat 式、証拠 `hwb : natEvalE wb = some W`（`Eq.refl`、カーネルが評価）**。`d`/`w` は同じ `ρ` で `D`/`W` に導出（`hd`, `hw`）、両 operand は `Signal D (BitVec W)` に導出。
+- `natEvalE`（`S2iDT`）: `OfNat.ofNat Nat n (instOfNatNat n)` と `HAdd.hAdd Nat Nat Nat (instHAdd Nat instAddNat) x y` だけを評価（変数・他の関数・他のインスタンスは `none`）。`natEvalE_8`、`natEvalE_add88`（`8+8 ↦ 16`）は `rfl`。**`8+8` と `16`、`24+8` と `32` の表記差は許し、幅の違いは `some W` の等式でカーネルが拒否する**（meta の `isDefEq` は証拠ではない: 生成器の `Meta.evalNat` は事前検査のみで、証拠はカーネルが検査する `Eq.refl`）。
+- 意味: `Tools.ShippingFGCircuitS2qBits.or_at`（`rfl`、任意の `t` で `(av ||| bv).val t = av.val t ||| bv.val t`、axiom は propext/Quot.sound のみ）。Bool の OR（`sigOrBool`）や混合定数インスタンス（`instHOrSignalBitVec_1`、`instHOrBitVecSignal`）とは別規則。
+- `dt_fun` を再証明（`sigOrBV` の 1 ケース。`sigOrBool` とはインスタンス名・型引数の `injsT`/`clashT` で重ならない。`viaSh`/`viaVar` とは `HOr.hOr` が `stopD` の頭（`directHead`）なので `viaOK` が偽で重ならない）。標準 axiom のみ。
+- 生成器（`S2iGen`）: `HOr.hOr` かつインスタンスが `instHOrSignalBitVec` のとき、第 2 型引数を `Signal d (BitVec wb)` に分解し（同じ `d` でなければ失敗）、全体を期待する式との等式で検査し、operand の型と `W` の一致、`wb` の評価値と `W` の一致を検査してから規則に渡す。生成器が構文を正規化することはない（`wb` は元の式のまま引用して規則に渡す）。テスト用に `St2.lax`（`deriveTermLax`）で生成器自身の検査を切り、誤った要求をカーネルに直接渡せる。
+
+### 45.2 Check40（`Tests/Gen5/FGCircuitPilotCheck40.lean`、軽量、`kjob lake build`）
+
+出力 28 行（`ok` を含む行）: AXIOMS 1、正 6（`8+8` vs `16`、`24+8` vs `32`、`16` vs `16`、`2+3` vs `5`、領域の束縛変数の下、Bool OR は別規則 `sigOrBool`）、**G（生成器の拒否）12、K（生成器の検査を切ってカーネルが拒否）9**。正と負は同じ報告文（`expectErr`: 導出されない・定理が追加されない・期待した文字列）。
+- G と K の両方: 相違幅（operand）、`8+8` vs 32、別領域（第 2 型引数）、別領域（operand）、第 2 型引数が `Nat`、`Signal Bool`、結果幅の変更、第 1 型引数の変更、開いた幅（変数）。K の行は `(kernel)` のエラーで終わる（カーネルの型検査が止めている。生成器の不具合では通らない）。
+- G のみ（インスタンスの名前が別なので規則の入口に入らない）: 混合定数 2 種、Bool インスタンスを BitVec operand に。
+- Check29（正 8 + 制御 4 + AXIOMS）、Check36、Check38 は変わらず通る（再実行済み）。
+
+### 45.3 根 `hftObCDT` の再導出（承認済み規則のみ、`Tools/ShippingFGCircuitS2tHft.lean` / `S2tHftOb.lean`、`kjob lake build`、timeout なし）
+
+| 項目 | 値 |
+|---|---|
+| 止まり | **0**（S2q の `HOr` 2 件は `sigOrBV` で解けた） |
+| DT 節点 / Sh 歩数 / viaSh | 5533 / 74392 / 980 |
+| 生成時間 / 表 | 2599 ms / 55 defs・11 ctors（53 ms） |
+| **kernel（同期 `addDeclCore`）** | **6882 ms** |
+| 項 DAG / tree | **737 294** / 約 7.08×10^76 |
+| ピーク RSS（カーネル検査後、Lean 環境込み） | 3 279 072 kB |
+
+`#print axioms`: `hftObCDT_of_tablesT`・`hftObCDT_T` ともに propext/Classical.choice/Quot.sound のみ。`hftObCDT_T : ∀ env (hΔ : EnvDefs env Delta) (hΓ : EnvCtors env Gamma) (hrec : RecFact env), HftObCDT env`。副ブランチの数字（7283 ms、DAG 737 288）と同じ桁で、この作業ブランチ上で独立に測り直した値。
+**`hcd` は無条件には解けていない**: `HftObCDT env` の導出は `EnvDefs env Delta`（55 defs）、`EnvCtors env Gamma`（11 ctors）、`RecFact env`（`env` がこれらの定義・構成子・`rec` の事実を持つこと）に条件付き。
+
+### 45.4 §36.4 の訂正
+
+§36.4 の「小例で再現しなかったことは測定済み」「同じく分解能以下」は撤回した。同期で再測定していない小例の検査時間は**不明**で、DAG サイズの観測（二次）とは別。同期で測ったのは根のみ（§43.4 と §45.3）。
+
+### 45.5 仮説・次
+
+名前付き仮説（未供給）: `EnvDefs/EnvCtors/RecFact`（`hftObCDT_T` の前提）、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査）。次: 新 Off 入口・同一 env の最終 carrier への接続（`HftFinalStmtS` は型別名のまま）。
