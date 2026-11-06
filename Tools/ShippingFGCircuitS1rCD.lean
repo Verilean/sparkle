@@ -37,8 +37,8 @@ theorem signal_ext' {D : DomainConfig} {A : Type} {s s' : Signal D A} (h : ∀ t
 theorem signal_map_pair_at {D : DomainConfig} {A B : Type} (sv : Signal D (A × B)) (t : Nat) :
     ((Signal.map Prod.fst sv).val t, (Signal.map Prod.snd sv).val t) = sv.val t := rfl
 /-- pointwise equation of the rule value with the source `Signal.map` of the projection, at a pair-valued signal built by `Signal.pure` -/
-theorem signal_map_fst_pure {D : DomainConfig} {A B : Type} (a : A) (b : B) : Signal.map Prod.fst (Signal.pure (D := D) (a, b)) = Signal.pure a := rfl
-theorem signal_map_snd_pure {D : DomainConfig} {A B : Type} (a : A) (b : B) : Signal.map Prod.snd (Signal.pure (D := D) (a, b)) = Signal.pure b := rfl
+theorem signal_map_fst_pure {D : DomainConfig} {A B : Type} (a : A) (b : B) : Signal.map Prod.fst (Signal.pure (dom := D) (a, b)) = Signal.pure a := rfl
+theorem signal_map_snd_pure {D : DomainConfig} {A B : Type} (a : A) (b : B) : Signal.map Prod.snd (Signal.pure (dom := D) (a, b)) = Signal.pure b := rfl
 
 /-! ## 2. stops, side conditions -/
 
@@ -694,6 +694,48 @@ theorem circCVY_hft_run (cref : ST.Ref IO.RealWorld Core.State) (w : Void IO.Rea
     CircCVYAt cref w Tools.ShippingFGCircuitS1kStmt.hftRoot (MonoTy Tools.ShippingFGCircuitS1kStmt.shHft) Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte :=
   circCVY_hft_of_obCDY hd hl hv h
 
+/-! ## 8. the S1k final statement with the obligation `hcd` replaced (the complete type of the consumer)
+
+`HftFinalStmtWith Ob` is `HftFinalStmt` (S1k) with the premise `hcd : HftObCD` replaced by `hcd : Ob (envAt cref w)`: the root's value expression is denoted in the START world's environment, the same environment the
+other premises (`hsrc`, `hchk`, the readers) are read in. Every other premise and the conclusion are copied. `hftFinalStmtWith_const` records that the copy is faithful (with `Ob := fun _ => HftObCD` it IS `HftFinalStmt`). -/
+end Tools.ShippingFGCircuitS1rCD
+
+namespace Tools.ShippingFGCircuitS1rCD.Stmt
+open Lean Sparkle.Compiler.Elab Sparkle.Core Sparkle.Core.Domain Tools.ShippingGen2 Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG
+open Tools.ShippingFGCircuit Tools.ShippingFGCircuitRoots Tools.ShippingFGCircuitArtifact Tools.ShippingFGCircuitCover Tools.ShippingFGCircuitBridge
+open Tools.ShippingGenFGLedgerPremises Tools.ShippingFGCircuitS1iHead Tools.ShippingFGCircuitS1iEnv
+open Tools.ShippingEntrySoundness (RunsTo)
+open Tools.ShippingEntryReadsLinked (envAt)
+open Tools.ShippingStRefCorrespondence (ReadWorld)
+open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt
+open Tools.ShippingFGCircuitLinked (MachineDefinesLinked)
+
+def HftFinalStmtWith (Ob : Environment → Prop) : Prop :=
+  ∀ {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (synthesizeCombinational hftRoot) mctx mref cctx cref w (b, D') w')
+    (hhead : HeadAt hftRoot mctx mref cctx cref w) (hcell : ReadWorld cref)
+    (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+    (hreadH : RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData)
+    (hreadT : RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData)
+    (hcd : Ob (envAt cref w)) (hsrc : HftObSrc (ι := ι) lvl (envAt cref w))
+    (htop : ∀ p : Pkg ι (fun _ => defaultDomain), GPt (ι := ι) lvl (envAt cref w) hftRoot = some p → HftObTopCore mctx mref cctx cref w b D' p)
+    (hnoraw : HftObNoRaw mctx mref cctx cref w b D'),
+    (∃ raw, PostRun mctx mref cctx cref w hftRoot D' b raw) ∧
+    ∃ (mm : MonoTy shHft) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMono (envAt cref w) (GPt (ι := ι) lvl (envAt cref w))
+        (PostRun mctx mref cctx cref w hftRoot D' b) hftRoot shHft mm b D' p
+
+end Tools.ShippingFGCircuitS1rCD.Stmt
+
+namespace Tools.ShippingFGCircuitS1rCD
+/-- the S1k final statement with `hcd` over `DY` / `DZ` in the start environment -/
+def HftFinalStmtY : Prop := Stmt.HftFinalStmtWith HftObCDY
+def HftFinalStmtZ : Prop := Stmt.HftFinalStmtWith HftObCDZ
+/-- the copy is faithful: with the old obligation (no environment) it is `HftFinalStmt` -/
+theorem hftFinalStmtWith_const : Stmt.HftFinalStmtWith (fun _ => Tools.ShippingFGCircuitS1kStmt.HftObCD) = Tools.ShippingFGCircuitS1kStmt.HftFinalStmt := rfl
 end Tools.ShippingFGCircuitS1rCD
 
 #print axioms Tools.ShippingFGCircuitS1rCD.dy_to_dz
