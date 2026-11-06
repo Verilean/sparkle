@@ -3,6 +3,7 @@ import Tools.ShippingGen5SemExtPkg
 import Tools.ShippingGen5SemSrcCausal
 import Tools.ShippingFGCircuitRoots4
 import Tools.ShippingMachineFuse
+import Tools.ShippingFGCircuitS1tFinal
 set_option autoImplicit false
 -- FG circuit pilot S1u: `hsrc` for the non-leaf root `synth_hftPcieOutByte`. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law. Results: docs/FG-CIRCUIT-PILOT.md §25.
 
@@ -387,9 +388,63 @@ theorem hftObSrc_of_rootLink (hlink : HftRootLink) {ι : Type} (lvl : Lean.Expr 
 
 end Hft
 
+/-! # S1u (part E): `synth_hftPcieOutByte_finalOff` with `hsrc` discharged
+
+`HftFinalStmtOffL Ob CV` is `HftFinalStmtOff Ob CV` with the premise `hsrc : HftObSrc lvl (envAt cref w)` removed (derived inside, from `hchk` and the two child readers by `hftObSrc_of_rootLink`) and the run-independent premise `HftRootLink` put in front.
+All the other premises are as in S1t: `L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hnoraw`. -/
+section Final
+open Tools.ShippingFGCircuitS1tFinal
+open Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kPkg
+open Tools.ShippingFGCircuitS1iHead Tools.ShippingFGCircuitS1iEnv Tools.ShippingFGCircuitS1qHead Tools.ShippingFGCircuitS1qLinked
+open Tools.ShippingEntrySoundness (RunsTo)
+open Tools.ShippingEntryReadsLinked (envAt)
+open Tools.ShippingGen5EnvFrame3 (CellPrem)
+open Tools.ShippingFGCircuitCover Tools.ShippingGenFGLedgerPremises Tools.ShippingFGCircuitArtifact Tools.ShippingGen5FG
+open Tools.ShippingFGCircuit Tools.ShippingFGCircuitRoots Tools.ShippingFGCircuitBridge Tools.ShippingGen5DeclConnect
+open Tools.ShippingFGCircuitS1qEndpoint Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD
+open Tools.ShippingStRefCorrespondence (ReadWorld)
+
+def HftFinalStmtOffL (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  HftRootLink →
+  ∀ {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (synthesizeCombinationalOff hftRoot) mctx mref cctx cref w (b, D') w')
+    (hcell : CellPrem Tools.ShippingChildFresh.MkRefd mref cref)
+    (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+    (hreadH : RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData)
+    (hreadT : RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData)
+    (hcd : Ob (envAt cref w))
+    (htop : ∀ p : Pkg ι (fun _ => defaultDomain), GPt (ι := ι) lvl (envAt cref w) hftRoot = some p → HftObTopCoreOff mctx mref cctx cref w b D' p)
+    (hnoraw : HftObNoRawOff mctx mref cctx cref w b D'),
+    (∃ raw, PostRunOff mctx mref cctx cref w hftRoot D' b raw) ∧
+    ∃ (mm : MonoTy shHft) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMonoV CV (envAt cref w) (GPt (ι := ι) lvl (envAt cref w))
+        (PostRunOff mctx mref cctx cref w hftRoot D') hftRoot shHft mm b D' p
+
+/-- **`synth_hftPcieOutByte_finalOffL`**: S1t's assembly with `hsrc` supplied by `hftObSrc_of_rootLink` -/
+theorem synth_hftPcieOutByte_finalOffL (CV : CDRel) (Ob : Environment → Prop) (hOb : ∀ env, Ob env → HftObOf CV env) :
+    HftFinalStmtOffL Ob CV := by
+  intro hlink ι mref cref L lvl env₀ mctx cctx w w' b D' hstart hr hcell hchk hRdH hRdT hCD hTop hNoRaw
+  have hhead : HeadAtOff hftRoot mctx mref cctx cref w := headAtOff_of_cellPrem _ hcell
+  obtain ⟨raw, D₀, w1, hc, hpe⟩ := postEntryOff hr
+  obtain ⟨hgates, ⟨d, hE⟩, hRead⟩ := startFacts_of_checked hchk (root_find_of_headAtOff hhead hc)
+  exact synth_hftPcieOutByte_finalOff CV Ob hOb L lvl env₀ hstart hr hcell hchk hRdH hRdT hCD
+    (hftObSrc_of_rootLink hlink lvl (envAt cref w) hRead hRdH hRdT) hTop hNoRaw
+
+theorem synth_hftPcieOutByte_finalOffL_Z : HftFinalStmtOffL HftObCDZ cdvZ := synth_hftPcieOutByte_finalOffL cdvZ _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffL_Y : HftFinalStmtOffL HftObCDY cdvY := synth_hftPcieOutByte_finalOffL cdvY _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffL_X : HftFinalStmtOffL HftObCDX cdvX := synth_hftPcieOutByte_finalOffL cdvX _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffL_of (CV : CDRel) : HftFinalStmtOffL (HftObOf CV) CV := synth_hftPcieOutByte_finalOffL CV _ (fun _ h => h)
+
+end Final
+
 end Tools.ShippingFGCircuitS1uSrc
 
 #print axioms Tools.ShippingFGCircuitS1uSrc.ExtStage_agree_tables
 #print axioms Tools.ShippingFGCircuitS1uSrc.genSemGen_src_eq_of_link
 #print axioms Tools.ShippingFGCircuitS1uSrc.genGP_root_kids_src
 #print axioms Tools.ShippingFGCircuitS1uSrc.hftObSrc_of_rootLink
+#print axioms Tools.ShippingFGCircuitS1uSrc.synth_hftPcieOutByte_finalOffL
+#print axioms Tools.ShippingFGCircuitS1uSrc.synth_hftPcieOutByte_finalOffL_Z
