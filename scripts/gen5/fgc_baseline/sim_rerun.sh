@@ -25,7 +25,11 @@ xrun() { local n="$1" e="$2"; lake build "$e" > "$D/build-$e.log" 2>&1 || { echo
 case "$G" in
   env)
     run make-cdc_runner make -C c_src/cdc cdc_runner.so
+    # verilator/generated_soc.sv is written by #writeDesign while IP/RV32/SoCVerilog.lean elaborates; a cached
+    # lake build only replays the .olean and does not write it (bitnet-soc / rv32-flow failed on that, 2026-11-06).
     run build-SoCVerilog lake build IP.RV32.SoCVerilog
+    run write-SoCVerilog "${LEAN:-lean}" --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so IP/RV32/SoCVerilog.lean
+    run check-generated_soc test -s verilator/generated_soc.sv
     for e in cdc-multi-clock-test sim-runner-test bitnet-soc-test rv32-flow-test; do xrun "exe-$e" "$e"; done
     lake build Tests.SymbolicParameterCircuits > "$D/build-symbolic.log" 2>&1
     run verify-parameterized-csim bash scripts/verify_parameterized_csim.sh ;;
