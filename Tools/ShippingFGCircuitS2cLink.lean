@@ -262,4 +262,77 @@ theorem http_pw {D : DomainConfig} (x y : Signal D (BitVec 6)) (t : Nat) (h : x.
 
 end Kids
 
+section Tlp
+open Tools.ShippingMachineCausal (extendBits_self extendBits_ne)
+
+/-- the input family of `tlpCplByte` carrying the six argument signals at their positions -/
+def tlpFam {D : DomainConfig} (a1 a2 : Signal D (BitVec 16)) (a3 a4 : Signal D (BitVec 8))
+    (a5 : Signal D (BitVec 32)) (a6 : Signal D (BitVec 5)) : (j n : Nat) → Signal D (BitVec n) :=
+  extendBits (extendBits (extendBits (extendBits (extendBits (extendBits (fun _ _ => ⟨fun _ => 0⟩) 1 16 a1) 2 16 a2)
+    3 8 a3) 4 8 a4) 5 32 a5) 6 5 a6
+
+theorem tlpFam_1 {D : DomainConfig} (a1 a2 : Signal D (BitVec 16)) (a3 a4 : Signal D (BitVec 8))
+    (a5 : Signal D (BitVec 32)) (a6 : Signal D (BitVec 5)) : tlpFam a1 a2 a3 a4 a5 a6 1 16 = a1 := by
+  simp [tlpFam, extendBits]
+theorem tlpFam_2 {D : DomainConfig} (a1 a2 : Signal D (BitVec 16)) (a3 a4 : Signal D (BitVec 8))
+    (a5 : Signal D (BitVec 32)) (a6 : Signal D (BitVec 5)) : tlpFam a1 a2 a3 a4 a5 a6 2 16 = a2 := by
+  simp [tlpFam, extendBits]
+theorem tlpFam_3 {D : DomainConfig} (a1 a2 : Signal D (BitVec 16)) (a3 a4 : Signal D (BitVec 8))
+    (a5 : Signal D (BitVec 32)) (a6 : Signal D (BitVec 5)) : tlpFam a1 a2 a3 a4 a5 a6 3 8 = a3 := by
+  simp [tlpFam, extendBits]
+theorem tlpFam_4 {D : DomainConfig} (a1 a2 : Signal D (BitVec 16)) (a3 a4 : Signal D (BitVec 8))
+    (a5 : Signal D (BitVec 32)) (a6 : Signal D (BitVec 5)) : tlpFam a1 a2 a3 a4 a5 a6 4 8 = a4 := by
+  simp [tlpFam, extendBits]
+theorem tlpFam_5 {D : DomainConfig} (a1 a2 : Signal D (BitVec 16)) (a3 a4 : Signal D (BitVec 8))
+    (a5 : Signal D (BitVec 32)) (a6 : Signal D (BitVec 5)) : tlpFam a1 a2 a3 a4 a5 a6 5 32 = a5 := by
+  simp [tlpFam, extendBits]
+theorem tlpFam_6 {D : DomainConfig} (a1 a2 : Signal D (BitVec 16)) (a3 a4 : Signal D (BitVec 8))
+    (a5 : Signal D (BitVec 32)) (a6 : Signal D (BitVec 5)) : tlpFam a1 a2 a3 a4 a5 a6 6 5 = a6 := by
+  simp [tlpFam, extendBits]
+
+theorem tlp_nIn : Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.nIn = 7 := by decide +kernel
+theorem tlp_K : ∀ p w, p < 7 → Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.K p = some (.bits w) →
+    (p = 1 ∧ w = 16) ∨ (p = 2 ∧ w = 16) ∨ (p = 3 ∧ w = 8) ∨ (p = 4 ∧ w = 8) ∨ (p = 5 ∧ w = 32) ∨ (p = 6 ∧ w = 5) := by
+  intro p w hp hK
+  have h0 : Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.K 0 = none := by decide +kernel
+  have h1 : Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.K 1 = some (.bits 16) := by decide +kernel
+  have h2 : Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.K 2 = some (.bits 16) := by decide +kernel
+  have h3 : Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.K 3 = some (.bits 8) := by decide +kernel
+  have h4 : Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.K 4 = some (.bits 8) := by decide +kernel
+  have h5 : Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.K 5 = some (.bits 32) := by decide +kernel
+  have h6 : Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.K 6 = some (.bits 5) := by decide +kernel
+  rcases (show p = 0 ∨ p = 1 ∨ p = 2 ∨ p = 3 ∨ p = 4 ∨ p = 5 ∨ p = 6 by omega) with rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · rw [h0] at hK; cases hK
+  · rw [h1] at hK; cases hK; exact Or.inl ⟨rfl, rfl⟩
+  · rw [h2] at hK; cases hK; exact Or.inr (Or.inl ⟨rfl, rfl⟩)
+  · rw [h3] at hK; cases hK; exact Or.inr (Or.inr (Or.inl ⟨rfl, rfl⟩))
+  · rw [h4] at hK; cases hK; exact Or.inr (Or.inr (Or.inr (Or.inl ⟨rfl, rfl⟩)))
+  · rw [h5] at hK; cases hK; exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨rfl, rfl⟩))))
+  · rw [h6] at hK; cases hK; exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr ⟨rfl, rfl⟩))))
+
+/-- `tlpCplByte` at a cycle depends on its six arguments' values at that cycle -/
+theorem tlp_pw {D : DomainConfig} (a1 b1 a2 b2 : Signal D (BitVec 16)) (a3 b3 a4 b4 : Signal D (BitVec 8))
+    (a5 b5 : Signal D (BitVec 32)) (a6 b6 : Signal D (BitVec 5)) (t : Nat)
+    (h1 : a1.val t = b1.val t) (h2 : a2.val t = b2.val t) (h3 : a3.val t = b3.val t) (h4 : a4.val t = b4.val t)
+    (h5 : a5.val t = b5.val t) (h6 : a6.val t = b6.val t) :
+    (Sparkle.IP.Bus.PCIe.tlpCplByte a1 a2 a3 a4 a5 a6).val t = (Sparkle.IP.Bus.PCIe.tlpCplByte b1 b2 b3 b4 b5 b6).val t := by
+  have key := kid_pw1 Sparkle.IP.Bus.PCIe.tlpCplByte.machineData Sparkle.IP.Bus.PCIe.tlpCplByte.machine_ok
+    (by decide +kernel) Sparkle.IP.Bus.PCIe.tlpCplByte.machineInits
+    (fun {D} bits t => ((Sparkle.IP.Bus.PCIe.tlpCplByte (bits 1 16) (bits 2 16) (bits 3 8) (bits 4 8) (bits 5 32)
+      (bits 6 5)).val t).toNat)
+    (fun D bools bits t => Sparkle.IP.Bus.PCIe.tlpCplByte.machine_result D bools bits t)
+    (fun _ => ⟨fun _ => false⟩) (tlpFam a1 a2 a3 a4 a5 a6) (tlpFam b1 b2 b3 b4 b5 b6) t
+    (fun p w hp hK => by
+      rcases tlp_K p w (by rw [← tlp_nIn]; exact hp) hK with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+      · rw [tlpFam_1, tlpFam_1]; exact h1
+      · rw [tlpFam_2, tlpFam_2]; exact h2
+      · rw [tlpFam_3, tlpFam_3]; exact h3
+      · rw [tlpFam_4, tlpFam_4]; exact h4
+      · rw [tlpFam_5, tlpFam_5]; exact h5
+      · rw [tlpFam_6, tlpFam_6]; exact h6)
+  simp only [tlpFam_1, tlpFam_2, tlpFam_3, tlpFam_4, tlpFam_5, tlpFam_6] at key
+  exact BitVec.eq_of_toNat_eq key
+
+end Tlp
+
 end Tools.ShippingFGCircuitS2cLink
