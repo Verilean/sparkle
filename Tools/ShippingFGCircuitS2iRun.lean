@@ -76,7 +76,7 @@ unsafe def deriveRootT (root : Lean.Expr) (thmName : Name) (cap : Nat := 0) : Co
       let t4 ← IO.monoMsNow
       let rss ← hwmKb
       let stats : RootStats := { nodes := st.nodes, shSteps := st2.shSteps, viaN := st2.viaN, msGen := t1 - t0, msTables := t2 - t1, msKernel := t4 - t3,
-        dagNodes := dag, treeNodes := tree, defs := st.defs.size, ctors := st.ctors.size, kinds := st2.shKinds, steps := st.steps }
+                                  dagNodes := dag, treeNodes := tree, defs := st.defs.size, ctors := st.ctors.size, kinds := st2.shKinds, steps := st.steps }
       logInfo m!"{thmName}: derive {st.nodes} DT nodes, {st2.shSteps} Sh steps ({st2.viaN} viaSh) in {t1 - t0} ms, tables {st.defs.size} defs {st.ctors.size} ctors ({t2 - t1} ms), kernel {t4 - t3} ms, term dag {dag} tree {tree}, peak RSS {rss} kB"
       pure stats
 
