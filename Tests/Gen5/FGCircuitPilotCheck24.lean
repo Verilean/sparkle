@@ -7,13 +7,21 @@ set_option autoImplicit false
 1. SIGNATURES-A: `HftKidsDefine` against an independently written `ExpKD`; controls: another child, swapped, both the same, another shape, one conjunct only.
 2. SIGNATURES-B: `hftCoreCloses_of_kids`, `synth_hftPcieOutByte_finalOffLNK_Z`; HYPS (13 names; `hclL` is not a hypothesis, `hkids` is last).
 3. CONTROLS: the pure closing checks on small modules (a combinational child passes; a sequential child, an unconnected input, an instance of the parent fail) and the root's data checks (another `nDecl`, another argument count fail).
-4. REMAINING, AXIOMS. -/
+4. SIGNATURES-C: the COMPLETE types of `hftCoreCloses_of_kids` and of `synth_hftPcieOutByte_finalOffLNK_Z` (the shared final statement) against independently written expected types (`isDefEq`, binder kinds too); controls with the binder names kept: another world / reference / context, another root, the old entry, another carrier / obligation, another output / design, a missing conclusion, a changed or missing last hypothesis.
+5. REMAINING, AXIOMS. -/
 namespace Tests.Gen5.FGCircuitPilotCheck24
 open Lean Meta Elab Command Term
 open Tools.ShippingEntrySoundness (RunsTo)
 open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1zClose Tools.ShippingFGCircuitS2aClose
 open Tools.ShippingMachineEntry
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
+open Sparkle.Core Sparkle.Core.Domain Tools.ShippingGen2 Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG
+open Tools.ShippingFGCircuit Tools.ShippingFGCircuitRoots Tools.ShippingFGCircuitArtifact Tools.ShippingFGCircuitCover Tools.ShippingFGCircuitBridge
+open Tools.ShippingGenFGLedgerPremises Tools.ShippingFGCircuitS1iHead Tools.ShippingFGCircuitS1iEnv
+open Tools.ShippingEntryReadsLinked (envAt CoreSaved)
+open Tools.ShippingGen5EnvFrame3 (CellPrem)
+open Tools.ShippingFGCircuitS1kPkg Tools.ShippingFGCircuitS1qLinked Tools.ShippingFGCircuitS1qEndpoint Tools.ShippingFGCircuitS1qHead
+open Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1tFinal
 
 abbrev Cx := Meta.Context
 abbrev Rf1 := ST.Ref IO.RealWorld Meta.State
@@ -41,11 +49,30 @@ noncomputable def KDOtherChild : Cx → Rf1 → Cc → Rf2 → Prop := ExpKD htt
 noncomputable def KDOne : Cx → Rf1 → Cc → Rf2 → Prop := fun mctx mref cctx cref => MachineDefines mctx mref cctx cref http HttpShape
 noncomputable def KDTrue : Cx → Rf1 → Cc → Rf2 → Prop := fun _ _ _ _ => True
 
+/-- a literal Boolean (`true`, `false`) -/
+def litBool : Lean.Expr → Option Bool
+  | .const ``Bool.true _ => some true
+  | .const ``Bool.false _ => some false
+  | _ => none
+
+/-- `if b then x else y` with a literal Boolean `b`: the chosen branch -/
+def iteStep (e : Lean.Expr) : Option Lean.Expr :=
+  if e.isAppOfArity ``ite 5 then
+    let c := e.getArg! 1
+    if c.isAppOfArity ``Eq 3 then
+      match litBool (c.getArg! 1), c.getArg! 2 with
+      | some true, .const ``Bool.true _ => some (e.getArg! 3)
+      | some false, .const ``Bool.true _ => some (e.getArg! 4)
+      | _, _ => none
+    else none
+  else none
+
 def normOnce (e : Lean.Expr) : MetaM Lean.Expr :=
   Meta.transform e (post := fun e => do
     let e := e.headBeta
+    if let some e' := iteStep e then return .visit e'
     if let .const c _ := e.getAppFn then
-      if c == ``HftKidsDefine || (`Tests.Gen5.FGCircuitPilotCheck24).isPrefixOf c then
+      if c == ``HftKidsDefine || c == ``HftFinalStmtOffLNK || (`Tests.Gen5.FGCircuitPilotCheck24).isPrefixOf c then
         if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
     return .done e)
 def norm (e : Lean.Expr) : MetaM Lean.Expr := do
@@ -121,6 +148,164 @@ run_cmd liftTermElabM do
   nm := nm + 2
   logInfo m!"FGCIRCUIT24 SIGNATURES-B: hftCoreCloses_of_kids (premises Start L, HftKidsDefine; conclusion HftCoreCloses; no MachineCloses / MachineClosesAtA / CoreCloses premise) and synth_hftPcieOutByte_finalOffLNK_Z: {nm} structural checks; hypotheses {expected} (13, hclL replaced by hkids, which is HftKidsDefine and does not mention HftCoreCloses)"
   logInfo m!"FGCIRCUIT24 HYPS: HftFinalStmtOffLNK Ob CV = {expected}: {hs.length} explicit hypotheses"
+
+/-! ## 2b. the complete expected types, written independently (SIGNATURES-C) -/
+
+abbrev W := Void IO.RealWorld
+def NmRoot : Name := `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte
+def NmHttp : Name := `Sparkle.IP.Net.HTTP.httpGetByte
+def ShE : SigShape := { args := [.bits 8, .bool, .bool, .bits 32, .bits 16], res := .one (.bits 8) }
+def ShOther : SigShape := { args := [.bits 8, .bool, .bool, .bits 32, .bits 16], res := .one (.bits 16) }
+noncomputable def RootData : MachineData := synth_hftPcieOutByte.machineData
+noncomputable def HttpData : MachineData := Sparkle.IP.Net.HTTP.httpGetByte.machineData
+noncomputable def TlpData : MachineData := Sparkle.IP.Bus.PCIe.tlpCplByte.machineData
+/-- the real children's reflection, written again -/
+noncomputable def KDReal : Cx → Rf1 → Cc → Rf2 → Prop := ExpKD http tlp HttpShape TlpShape
+/-- `P` is a premise iff `b` (no vacuous `True →` when it is absent) -/
+def Pre (b : Bool) (P R : Prop) : Prop := if b then (P → R) else R
+def EntryOf (diag : Bool) (X : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
+  if diag then synthesizeCombinational X else synthesizeCombinationalOff X
+
+/-- `hftCoreCloses_of_kids`. Knobs (each mutant turns one): the children's hypothesis, the root, its shape, the premises, the conclusion, and the world / reference / context
+the conclusion (`fW fM fR fC fF`) and the start premise (`sW`) are stated at. -/
+def ExpCore (kid : Cx → Rf1 → Cc → Rf2 → Prop) (root : Name) (sh : MachineShape) (needStart needKid concl : Bool)
+    (sW fW : W → W) (fM : Cx → Cx) (fR : Rf1 → Rf1) (fC : Cc → Cc) (fF : Rf2 → Rf2) : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : Laws mref cref) {w : W},
+    Pre needStart (Start L mctx cctx (sW w)) (
+    Pre needKid (kid mctx mref cctx cref) (
+    if concl then CoreCloses root sh (fM mctx) (fR mref) (fC cctx) (fF cref) (fW w) else True))
+
+def CoreTrue : Prop := ExpCore KDReal NmRoot RootShape true true true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreKidSwapped : Prop := ExpCore KDSwapped NmRoot RootShape true true true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreKidOne : Prop := ExpCore KDOne NmRoot RootShape true true true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreKidTrue : Prop := ExpCore KDTrue NmRoot RootShape true true true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreKidOtherChild : Prop := ExpCore KDOtherChild NmRoot RootShape true true true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreNoKid : Prop := ExpCore KDReal NmRoot RootShape true false true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreNoStart : Prop := ExpCore KDReal NmRoot RootShape false true true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreNoConcl : Prop := ExpCore KDReal NmRoot RootShape true true false (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreOtherRoot : Prop := ExpCore KDReal NmHttp RootShape true true true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreOtherShape : Prop := ExpCore KDReal NmRoot HttpShape true true true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+/-- another world / reference / context: a fresh one is quantified, the conclusion (or the start premise) is stated at it -/
+def CoreWorld : Prop := ∀ {a : W}, ExpCore KDReal NmRoot RootShape true true true (fun w => w) (fun _ => a) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreStartWorld : Prop := ∀ {a : W}, ExpCore KDReal NmRoot RootShape true true true (fun _ => a) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def CoreCtxM : Prop := ∀ {a : Cx}, ExpCore KDReal NmRoot RootShape true true true (fun w => w) (fun w => w) (fun _ => a) (fun x => x) (fun x => x) (fun x => x)
+def CoreCtxC : Prop := ∀ {a : Cc}, ExpCore KDReal NmRoot RootShape true true true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun _ => a) (fun x => x)
+def CoreRefM : Prop := ∀ {a : Rf1}, ExpCore KDReal NmRoot RootShape true true true (fun w => w) (fun w => w) (fun x => x) (fun _ => a) (fun x => x) (fun x => x)
+def CoreRefC : Prop := ∀ {a : Rf2}, ExpCore KDReal NmRoot RootShape true true true (fun w => w) (fun w => w) (fun x => x) (fun x => x) (fun x => x) (fun _ => a)
+
+/-- `HftFinalStmtOffLNK`. Knobs (each mutant turns one): the entry (`diag`), the carrier of the artifact (`oldArt`), the premises, the children's hypothesis, the root / post root / output shape,
+the world of `hcd` / of the conclusion, the reference / context / design the post run is stated at, and which conjunct of the conclusion is present. -/
+def ExpFinalK (Ob : Environment → Prop) (CV : CDRel) (kid : Cx → Rf1 → Cc → Rf2 → Prop) (diag oldArt needHcd needTop needKid c1 c2 : Bool)
+    (root postRoot : Name) (sh : SigShape) (hw cw : W → W → W)
+    (fM : Cx → Cx) (fR : Rf1 → Rf1) (fC : Cc → Cc) (fF : Rf2 → Rf2) (fD : Sparkle.IR.AST.Design → Sparkle.IR.AST.Design) : Prop :=
+  HftRootLink →
+  ∀ {ι : Type} {mref : Rf1} {cref : Rf2}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
+    {mctx : Cx} {cctx : Cc} {w w' : W} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
+    Start L mctx cctx w →
+    RunsTo (EntryOf diag root) mctx mref cctx cref w (b, D') w' →
+    CellPrem Tools.ShippingChildFresh.MkRefd mref cref →
+    CheckedStart lvl env₀ cref w root hftRootType hftRootValue RootData →
+    RootReader lvl (envAt cref w) NmHttp HttpData →
+    RootReader lvl (envAt cref w) `Sparkle.IP.Bus.PCIe.tlpCplByte TlpData →
+    Pre needHcd (Ob (envAt cref (hw w w'))) (
+    Pre needTop (∀ p : Pkg ι (fun _ => defaultDomain), GPt (ι := ι) lvl (envAt cref w) NmRoot = some p → HftObTopCoreOff mctx mref cctx cref w b D' p) (
+    Pre needKid (kid mctx mref cctx cref) (
+    (if c1 then (∃ raw, PostRunOff (fM mctx) (fR mref) (fC cctx) (fF cref) w postRoot (fD D') b raw) else True) ∧
+    (if c2 then (∃ (mm : MonoTy sh) (p : Pkg ι (fun _ => defaultDomain)),
+      (if oldArt then RootArtifactMono (envAt cref (cw w w')) (GPt (ι := ι) lvl (envAt cref (cw w w'))) (PostRunOff (fM mctx) (fR mref) (fC cctx) (fF cref) w postRoot (fD D')) NmRoot sh mm b (fD D') p
+       else RootArtifactMonoV CV (envAt cref (cw w w')) (GPt (ι := ι) lvl (envAt cref (cw w w'))) (PostRunOff (fM mctx) (fR mref) (fC cctx) (fF cref) w postRoot (fD D')) NmRoot sh mm b (fD D') p)) else True))))
+
+def FKTrue (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKDiag (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal true false true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKOldArt (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false true true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKNoHcd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false false true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKNoTop (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true false true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKNoKid (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true true false true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKNoC1 (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true true true false true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKNoC2 (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true true true true false NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKNoConcl (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true true true false false NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKKidSwapped (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDSwapped false false true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKKidOne (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDOne false false true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKKidTrue (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDTrue false false true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKKidOtherChild (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDOtherChild false false true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKRoot (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true true true true true NmHttp NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKPostRoot (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true true true true true NmRoot NmHttp ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKOutput (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true true true true true NmRoot NmRoot ShOther ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKHcdEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true true true true true NmRoot NmRoot ShE ZE ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKConclEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalK Ob CV KDReal false false true true true true true NmRoot NmRoot ShE ZS ZE (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+/-- another reference / context / design for the post run: a fresh one is quantified in front (`∀ {a}`) and the post run is stated at it -/
+def FKRefM (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {a : Rf1}, ExpFinalK Ob CV KDReal false false true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun _ => a) (fun x => x) (fun x => x) (fun x => x)
+def FKRefC (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {a : Rf2}, ExpFinalK Ob CV KDReal false false true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun _ => a) (fun x => x)
+def FKCtxM (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {a : Cx}, ExpFinalK Ob CV KDReal false false true true true true true NmRoot NmRoot ShE ZS ZS (fun _ => a) (fun x => x) (fun x => x) (fun x => x) (fun x => x)
+def FKCtxC (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {a : Cc}, ExpFinalK Ob CV KDReal false false true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun _ => a) (fun x => x) (fun x => x)
+def FKDesign (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {a : Sparkle.IR.AST.Design}, ExpFinalK Ob CV KDReal false false true true true true true NmRoot NmRoot ShE ZS ZS (fun x => x) (fun x => x) (fun x => x) (fun x => x) (fun _ => a)
+
+def FZTrue : Prop := FKTrue HftObCDZ cdvZ
+def FZCarrierY : Prop := FKTrue HftObCDZ cdvY
+def FZCarrierOld : Prop := FKTrue HftObCDZ cdvOld
+def FZObY : Prop := FKTrue HftObCDY cdvZ
+
+partial def binderInfos : Lean.Expr → List BinderInfo
+  | .forallE _ _ b bi => bi :: binderInfos b
+  | _ => []
+
+/-- `a` is the normal form of a real type, computed once and compared with every expected statement / mutant -/
+def sameN (what : String) (a exp : Lean.Expr) : MetaM Unit := do
+  let e ← norm exp
+  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
+  unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
+def diffN (what : String) (a exp : Lean.Expr) : MetaM Unit := do
+  let e ← norm exp
+  if a == e then throwError "{what}: the MUTANT is the same expression"
+  if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+
+set_option maxHeartbeats 32000000 in
+run_cmd liftTermElabM do
+  let C (n : Name) : Lean.Expr := mkConst n
+  let X := `Tools.ShippingFGCircuitS2aClose
+  let Q := `Tests.Gen5.FGCircuitPilotCheck24
+  let q (n : String) : Lean.Expr := mkConst (Q ++ Name.mkSimple n)
+  let mut nm1 : Nat := 0
+  -- hftCoreCloses_of_kids: the whole type, normalised once
+  let coreN ← norm (← tyOf (X ++ `hftCoreCloses_of_kids))
+  sameN "hftCoreCloses_of_kids" coreN (q "CoreTrue")
+  for mu in ["CoreKidSwapped", "CoreKidOne", "CoreKidTrue", "CoreKidOtherChild", "CoreNoKid", "CoreNoStart", "CoreNoConcl", "CoreOtherRoot", "CoreOtherShape",
+      "CoreWorld", "CoreStartWorld", "CoreCtxM", "CoreCtxC", "CoreRefM", "CoreRefC"] do
+    diffN s!"hftCoreCloses_of_kids vs {mu}" coreN (q mu); nm1 := nm1 + 1
+  -- the shared final statement, normalised once
+  let finN ← norm (← tyOf (X ++ `synth_hftPcieOutByte_finalOffLNK_Z))
+  sameN "synth_hftPcieOutByte_finalOffLNK_Z" finN (q "FZTrue")
+  let mut nm2 : Nat := 0
+  for mu in ["FZCarrierY", "FZCarrierOld", "FZObY"] do
+    diffN s!"finalOffLNK_Z vs {mu}" finN (q mu); nm2 := nm2 + 1
+  for mu in ["FKDiag", "FKOldArt", "FKNoHcd", "FKNoTop", "FKNoKid", "FKNoC1", "FKNoC2", "FKNoConcl", "FKKidSwapped", "FKKidOne", "FKKidTrue", "FKKidOtherChild",
+      "FKRoot", "FKPostRoot", "FKOutput", "FKHcdEnd", "FKConclEnd", "FKRefM", "FKRefC", "FKCtxM", "FKCtxC", "FKDesign"] do
+    diffN s!"finalOffLNK_Z vs {mu}" finN (mkApp2 (q mu) (C ``HftObCDZ) (C (`Tools.ShippingFGCircuitS1tFinal ++ `cdvZ))); nm2 := nm2 + 1
+  logInfo m!"FGCIRCUIT24 SIGNATURES-C: the complete types of hftCoreCloses_of_kids and of synth_hftPcieOutByte_finalOffLNK_Z (the shared final statement) match the independently written expected types (isDefEq, binder kinds too; the real types normalised once); mutants with the binder names kept rejected: hftCoreCloses_of_kids {nm1} (another child / swapped / one conjunct / True, premise missing, conclusion missing, another root, another shape, another world, start world, context, reference), final statement {nm2} (another carrier, obligation, old entry, old artifact, premise missing, another children hypothesis, another root, post root, output, hcd / conclusion world, another reference / context / design, a missing conclusion)"
 
 /-! ## 3. CONTROLS: the pure closing checks on small modules (kernel-decided; the build fails if one flips) -/
 
