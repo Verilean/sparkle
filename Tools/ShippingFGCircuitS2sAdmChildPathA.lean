@@ -76,15 +76,6 @@ theorem addOutputAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
   · exact wireWidthAX O hA hS _
   · exact TripleC.pure fun _ hw => hw
 
-theorem emitAssignAX {I : Void IO.RealWorld → Prop} (lhs : String) (rhs : Sparkle.IR.AST.Expr) :
-    TripleC mctx mref cctx cref I (CompilerM.emitAssign lhs rhs)
-      (fun _ => I) (fun e w => I w ∧ OkExc e) := by
-  unfold CompilerM.emitAssign
-  refine TripleC.bind TripleC.get ?_
-  intro cs
-  split
-  exact TripleC.set _
-
 theorem bindInputPortAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
     {I : Void IO.RealWorld → Prop} (hS : StableA O.quiet I) {α : Type}
     (fv : FVarId) (bn : String) (ty : Sparkle.IR.Type.HWType) (k : CompilerM α)
@@ -169,18 +160,9 @@ theorem emitLeavesAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
       · try dsimp only
         refine TripleC.bind (addOutputAX O hA hS _ _) ?_
         intro _
-        refine TripleC.bind (emitAssignAX _ _) ?_
+        refine TripleC.bind (emitAssignA _ _) ?_
         intro _
         exact emitLeavesAX O hA hS translate b r hr htr rest _ _
-
-theorem finishSynthAX {I : Void IO.RealWorld → Prop} (declName : Name)
-    (st : Sparkle.IR.Builder.CircuitState) :
-    Triple mctx mref cctx cref I (finishSynth declName [] false st)
-      (fun _ => I) (fun e w => I w ∧ OkExc e) := by
-  unfold finishSynth
-  simp only [Bool.false_eq_true, ↓reduceIte]
-  exact Triple.ite (fun _ => Triple.pure fun _ hw => hw)
-    (fun _ => Triple.throw _ fun _ hw => ⟨hw, by okmsg⟩)
 
 theorem certRest_keepsAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
     {I : Void IO.RealWorld → Prop} (hS : StableA O.quiet I)
@@ -188,14 +170,14 @@ theorem certRest_keepsAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cc
     (bs : List (Name × GateBinder)) (body : Lean.Expr)
     (htr : ∀ e hint top named, KeepsC mctx mref cctx cref I (translate e hint top named))
     (ids : List FVarId) (r : IO.Ref (Lean.ExprStructMap String)) (hr : MkRefd _ r) :
-    Keeps mctx mref cctx cref I (certRestX translate (profLogIO b) declName bs body ids r) := by
-  unfold certRestX
+    Keeps mctx mref cctx cref I (certRest translate (profLogIO b) declName bs body ids r) := by
+  unfold certRest
   refine keeps_iff.mpr ?_
   try dsimp only  -- guess: P3
   refine Triple.bind
     (bindCertifiedInputsAX O hA hS _ (emitLeavesAX O hA hS translate b r hr htr _ _ _) _ _ _) ?_
   rintro ⟨_, fs⟩
-  exact finishSynthAX declName fs
+  exact finishSynthA declName fs
 
 theorem certified_keepsA_of_translateX (O : RefLawsAOpsX MkRefd mref cref)
     (hA : O.adm mctx cctx) {I : Void IO.RealWorld → Prop} (hS : StableA O.quiet I)

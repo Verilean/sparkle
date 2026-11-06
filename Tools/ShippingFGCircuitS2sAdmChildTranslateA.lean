@@ -22,53 +22,10 @@ open Tools.ShippingChildPathA
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-def CtxOkX (ctx : CompilerState) : Prop :=
-  ∀ r, ctx.exprCache = some r → MkRefd (Lean.ExprStructMap String) r
-
-def KeepsCPX (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
-    (cref : ST.Ref IO.RealWorld Core.State) {α : Type} (I : Void IO.RealWorld → Prop)
-    (c : CompilerM α) : Prop :=
-  ∀ (ctx : CompilerState) (st : Sparkle.IR.Builder.CircuitState), CtxOkX ctx →
-    Keeps mctx mref cctx cref I (c ctx st)
-
-theorem ctxOk_entryX (b : Bool) {r : IO.Ref (Lean.ExprStructMap String)}
-    (hr : MkRefd (Lean.ExprStructMap String) r) : CtxOkX (entryCompilerState b r) := by
-  intro r' h
-  have h' : some r = some r' := h  -- guess: T2
-  cases h'
-  exact hr
-
-theorem ctxOk_noneX (ctx : CompilerState) (h : ctx.exprCache = none) : CtxOkX ctx := by
-  intro r hr
-  rw [h] at hr
-  cases hr
-
 section Calculus
 variable {I : Void IO.RealWorld → Prop}
 
 end Calculus
-
-theorem withVarMappingPX {I : Void IO.RealWorld → Prop} {α : Type} (fv : FVarId) (wn : String)
-    {k : CompilerM α} (hk : KeepsCPX mctx mref cctx cref I k) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.withVarMapping fv wn k) := by
-  unfold CompilerM.withVarMapping
-  refine KeepsCP.bindCtx (fun old hold => ?_)
-  refine KeepsCP.withReader _ ?_ hk
-  intro _ _ r h
-  exact hold r h
-
-macro "kbaseX" : tactic => `(tactic| first
-  | exact Tools.ShippingChildTranslateA.KeepsCP.pure _
-  | exact Tools.ShippingChildTranslateA.KeepsCP.get
-  | exact Tools.ShippingChildTranslateA.KeepsCP.set _
-  | exact Tools.ShippingChildTranslateA.KeepsCP.modify _
-  | exact Tools.ShippingChildTranslateA.KeepsCP.throw _ (by okmsg)
-  | exact Tools.ShippingChildTranslateA.KeepsCP.throwBind _ (by okmsg) _
-  | refine Tools.ShippingChildTranslateA.KeepsCP.ite (fun _ => ?_) (fun _ => ?_)
-  | refine Tools.ShippingChildTranslateA.KeepsCP.dite (fun _ => ?_) (fun _ => ?_)
-  | refine Tools.ShippingChildTranslateA.KeepsCP.bindCtx (fun _ _ => ?_)
-  | refine Tools.ShippingChildTranslateA.KeepsCP.bind ?_ (fun _ => ?_)
-  | split)
 
 section Prims
 variable (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
@@ -76,25 +33,25 @@ variable (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
 include O hA hS
 
 theorem makeWirePX (hint : String) (ty : Sparkle.IR.Type.HWType) (named : Bool) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.makeWire hint ty named) :=
+    KeepsCP mctx mref cctx cref I (CompilerM.makeWire hint ty named) :=
   KeepsCP.ofT (makeWireAX O hA hS hint ty named)
 
 theorem addInputPX (name : String) (ty : Sparkle.IR.Type.HWType) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.addInput name ty) :=
+    KeepsCP mctx mref cctx cref I (CompilerM.addInput name ty) :=
   KeepsCP.ofT (addInputAX O hA hS name ty)
 
 theorem addOutputPX (name : String) (ty : Sparkle.IR.Type.HWType) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.addOutput name ty) :=
+    KeepsCP mctx mref cctx cref I (CompilerM.addOutput name ty) :=
   KeepsCP.ofT (addOutputAX O hA hS name ty)
 
 omit O hA hS in
 theorem emitAssignPX (lhs : String) (rhs : Sparkle.IR.AST.Expr) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.emitAssign lhs rhs) :=
-  KeepsCP.ofT (emitAssignAX lhs rhs)
+    KeepsCP mctx mref cctx cref I (CompilerM.emitAssign lhs rhs) :=
+  KeepsCP.ofT (emitAssignA lhs rhs)
 
 theorem emitRegisterAX (hint clk rst : String) (input : Sparkle.IR.AST.Expr) (initVal : Nat)
     (ty : Sparkle.IR.Type.HWType) (named : Bool) (rk : Sparkle.IR.Type.ResetKind) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.emitRegister hint clk rst input initVal ty named rk) := by
+    KeepsCP mctx mref cctx cref I (CompilerM.emitRegister hint clk rst input initVal ty named rk) := by
   refine KeepsCP.ofT ?_
   unfold CompilerM.emitRegister  -- guess: T11
   refine TripleC.bind TripleC.get ?_
@@ -111,7 +68,7 @@ theorem emitRegisterAX (hint clk rst : String) (input : Sparkle.IR.AST.Expr) (in
 
 theorem emitMemoryAX (hint : String) (aw dw : Nat) (clk : String)
     (wa wd we ra : Sparkle.IR.AST.Expr) (named : Bool) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.emitMemory hint aw dw clk wa wd we ra named) := by
+    KeepsCP mctx mref cctx cref I (CompilerM.emitMemory hint aw dw clk wa wd we ra named) := by
   refine KeepsCP.ofT ?_
   unfold CompilerM.emitMemory  -- guess: T11
   refine TripleC.bind TripleC.get ?_
@@ -128,57 +85,6 @@ end Prims
 section LawFree
 variable {I : Void IO.RealWorld → Prop}
 
-theorem emitRegisterStmtAX (out clk rst : String) (input : Sparkle.IR.AST.Expr) (initVal : Nat)
-    (rk : Sparkle.IR.Type.ResetKind) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.emitRegisterStmt out clk rst input initVal rk) := by
-  refine KeepsCP.ofT ?_
-  unfold CompilerM.emitRegisterStmt
-  refine TripleC.bind TripleC.get ?_
-  intro cs
-  split
-  exact TripleC.set _
-
-theorem emitInstanceAX (mn instName : String) (conns : List (String × Sparkle.IR.AST.Expr)) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.emitInstance mn instName conns) := by
-  refine KeepsCP.ofT ?_
-  unfold CompilerM.emitInstance
-  refine TripleC.bind TripleC.get ?_
-  intro cs
-  split
-  exact TripleC.set _
-
-theorem addModuleToDesignAX (m : Sparkle.IR.AST.Module) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.addModuleToDesign m) := by
-  refine KeepsCP.ofT ?_
-  unfold CompilerM.addModuleToDesign
-  refine TripleC.bind TripleC.get ?_
-  intro cs
-  split
-  exact TripleC.set _
-
-theorem freshNameAX (hint : String) (named : Bool) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.freshName hint named) := by
-  refine KeepsCP.ofT ?_
-  unfold CompilerM.freshName
-  refine TripleC.bind TripleC.get ?_
-  intro cs
-  split
-  refine TripleC.bind (TripleC.set _) ?_
-  intro _
-  exact TripleC.pure fun _ hw => hw
-
-theorem lookupVarPX (id : FVarId) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.lookupVar id) := by
-  intro ctx st _
-  unfold CompilerM.lookupVar  -- guess: T10
-  exact Keeps.pure _
-
-theorem bindSourceVariablePX (id : FVarId) (w : String) :
-    KeepsCPX mctx mref cctx cref I (CompilerM.bindSourceVariable id w) := by
-  intro ctx st _
-  unfold CompilerM.bindSourceVariable  -- guess: T10
-  exact Keeps.pure _
-
 end LawFree
 
 section Cache
@@ -187,7 +93,7 @@ variable (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
 include O hA hS
 
 theorem cacheLookupValidatedAX (e : Lean.Expr) :
-    KeepsCPX mctx mref cctx cref I (cacheLookupValidated e) := by
+    KeepsCP mctx mref cctx cref I (cacheLookupValidated e) := by
   unfold cacheLookupValidated
   refine KeepsCP.bindCtx (fun cs hcs => ?_)
   try dsimp only  -- guess: T3
@@ -206,7 +112,7 @@ theorem cacheLookupValidatedAX (e : Lean.Expr) :
         split <;> exact KeepsCP.pure _
 
 theorem recordTranslationAX (e : Lean.Expr) (w : String) (cacheable : Bool) :
-    KeepsCPX mctx mref cctx cref I (recordTranslation e w cacheable) := by
+    KeepsCP mctx mref cctx cref I (recordTranslation e w cacheable) := by
   unfold recordTranslation
   refine KeepsCP.bind (KeepsCP.modify _) (fun _ => ?_)
   refine KeepsCP.ite (fun _ => ?_) (fun _ => KeepsCP.pure _)  -- guess: T5
@@ -224,7 +130,7 @@ variable (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
 include O hA hS
 
 theorem translateSignalPureLiteralAX (args : Array Lean.Expr) (hint : String) (named : Bool) :
-    KeepsCPX mctx mref cctx cref I (translateSignalPureLiteral? args hint named) := by
+    KeepsCP mctx mref cctx cref I (translateSignalPureLiteral? args hint named) := by
   unfold translateSignalPureLiteral?
   split
   · refine KeepsCP.bind (makeWirePX O hA hS _ _ _) (fun _ => ?_)
@@ -233,10 +139,10 @@ theorem translateSignalPureLiteralAX (args : Array Lean.Expr) (hint : String) (n
   · exact KeepsCP.pure _
 
 theorem translateCanonicalSignalBinaryAX (rec : TranslateFn)
-    (hrec : ∀ e hint top named, KeepsCPX mctx mref cctx cref I (rec e hint top named))
+    (hrec : ∀ e hint top named, KeepsCP mctx mref cctx cref I (rec e hint top named))
     (e : Lean.Expr) (op : Sparkle.IR.AST.Operator) (args : Array Lean.Expr) (hint : String)
     (named : Bool) (n : Nat) (hw : canonicalSignalBitVecWidth args = some n) :
-    KeepsCPX mctx mref cctx cref I
+    KeepsCP mctx mref cctx cref I
       (translateCanonicalSignalBinary rec e op args true true hint named) := by
   unfold translateCanonicalSignalBinary
   first | rw [hw] | simp only [hw]  -- guess: T6
@@ -254,12 +160,12 @@ theorem translateCanonicalSignalBinaryAX (rec : TranslateFn)
   exact KeepsCP.pure _
 
 theorem translateCoreAX (rec : TranslateFn)
-    (hrec : ∀ e hint top named, KeepsCPX mctx mref cctx cref I (rec e hint top named))
+    (hrec : ∀ e hint top named, KeepsCP mctx mref cctx cref I (rec e hint top named))
     (e : Lean.Expr) (hint : String) (top named : Bool) :
-    KeepsCPX mctx mref cctx cref I (translateCore rec e hint top named) := by
+    KeepsCP mctx mref cctx cref I (translateCore rec e hint top named) := by
   unfold translateCore
   split
-  · exact lookupVarPX _
+  · exact lookupVarP _
   · split
     · refine KeepsCP.ite (fun _ => translateSignalPureLiteralAX O hA hS _ _ _) (fun _ => ?_)
       split
@@ -271,10 +177,10 @@ theorem translateCoreAX (rec : TranslateFn)
     · exact KeepsCP.pure _
 
 theorem translateStepWithAX (fallback : TranslateFn → TranslateFn) (rec : TranslateFn)
-    (hrec : ∀ e hint top named, KeepsCPX mctx mref cctx cref I (rec e hint top named))
-    (hfb : ∀ e hint top named, KeepsCPX mctx mref cctx cref I (fallback rec e hint top named))
+    (hrec : ∀ e hint top named, KeepsCP mctx mref cctx cref I (rec e hint top named))
+    (hfb : ∀ e hint top named, KeepsCP mctx mref cctx cref I (fallback rec e hint top named))
     (e : Lean.Expr) (hint : String) (top named : Bool) :
-    KeepsCPX mctx mref cctx cref I (translateStepWith fallback rec e hint top named) := by
+    KeepsCP mctx mref cctx cref I (translateStepWith fallback rec e hint top named) := by
   unfold translateStepWith
   -- (integrator, after tr2 timed out on the generic walk: the elaborated term, printed by
   -- `#print` (run pr1), is a join point `__do_jp` used by both branches of the cache test)
@@ -302,16 +208,7 @@ end Core
 def RecAX (O : RefLawsAOpsX MkRefd mref cref) (I : Void IO.RealWorld → Prop) (rec : TranslateFn) :
     Prop :=
   ∀ (mctx : Meta.Context) (cctx : Core.Context), O.adm mctx cctx →
-    ∀ e hint top named, KeepsCPX mctx mref cctx cref I (rec e hint top named)
-
-theorem fuelFix_ofX {P : TranslateFn → Prop} (step : TranslateFn → TranslateFn)
-    (h0 : P (translateFuelFix step 0)) (hs : ∀ rec, P rec → P (step rec)) :
-    ∀ k, P (translateFuelFix step k)
-  | 0 => h0
-  | k + 1 => by
-    first  -- guess: T9
-      | exact hs _ (fuelFix_ofX step h0 hs k)
-      | (unfold translateFuelFix; exact hs _ (fuelFix_ofX step h0 hs k))
+    ∀ e hint top named, KeepsCP mctx mref cctx cref I (rec e hint top named)
 
 theorem fuelZeroAX (O : RefLawsAOpsX MkRefd mref cref) (I : Void IO.RealWorld → Prop)
     (step : TranslateFn → TranslateFn) : RecAX O I (translateFuelFix step 0) := by
@@ -324,7 +221,7 @@ theorem translateA_of_fallbackX (O : RefLawsAOpsX MkRefd mref cref) {I : Void IO
     (hF : ∀ rec, RecAX O I rec → RecAX O I (translateFallback tenv rec)) :
     RecAX O I (fun e h t n => translateExprToWire tenv e h t n) := by
   have hfix : RecAX O I (translateFuelFix (translateStep tenv) translateFuelLimit) := by
-    refine fuelFix_ofX (P := RecAX O I) (translateStep tenv) (fuelZeroAX O I _) ?_ _
+    refine fuelFix_of (P := RecAX O I) (translateStep tenv) (fuelZeroAX O I _) ?_ _
     intro rec hrec mctx cctx hA e hint top named
     unfold translateStep
     exact translateStepWithAX O hA hS (translateFallback tenv) rec (hrec mctx cctx hA)

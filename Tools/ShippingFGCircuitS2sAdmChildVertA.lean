@@ -23,9 +23,6 @@ macro "asetX " O:term:max hA:term:max D:term:max : tactic => `(tactic|
       (FramedA.sideSet _ ?s))) ?_
    case s => constructor
    intro _))
-macro "apureX " q:term:max D:term:max : tactic => `(tactic|
-  (refine Triple.bind (Triple.pure (Q := fun _ => JQ $q $D) (fun w hw => hw)) ?_; intro _))
-
 theorem finAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx) (d : Nat)
     (m1 : Std.HashMap Lean.Name Lean.Expr) (m2 : Std.HashMap String Nat)
     (m3 m4 m5 : Std.HashMap String String) (m6 : Std.HashMap (UInt64 × String) String)
@@ -127,8 +124,8 @@ theorem core_tripleAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
     exact hf.elim
   · have h0 : (d == 0) = true := by subst hd; first | rfl | decide | simp
     simp only [h0, ↓reduceIte]
-    apureX O.quiet 0; apureX O.quiet 0; apureX O.quiet 0; apureX O.quiet 0; apureX O.quiet 0
-    apureX O.quiet 0; apureX O.quiet 0
+    apure O.quiet 0; apure O.quiet 0; apure O.quiet 0; apure O.quiet 0; apure O.quiet 0
+    apure O.quiet 0; apure O.quiet 0
     asetX O hA 0; asetX O hA 0; asetX O hA 0; asetX O hA 0
     refine Triple.bind (tripleJ_clearX O hA 0) ?_
     intro _
@@ -141,24 +138,12 @@ theorem core_tripleAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
     subst hd
     exact body _ _ _ _ _ _ _
 
-def certRestX (translate : TranslateFn) (logProf : String → IO Unit) (declName : Name)
-    (bs : List (Name × GateBinder)) (body : Lean.Expr) (ids : List FVarId)
-    (r : IO.Ref (Lean.ExprStructMap String)) :
-    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
-  let compiler := bindCertifiedInputs
-    (emitLeaves translate r logProf [("out", instFVars (ids.map Lean.Expr.fvar).toArray 0 body)]
-      none 0) (bs.zip ids)
-  let (_, finalCircuitState) ←
-    (compiler.run (entryCompilerState false r)).run
-      (Sparkle.IR.Builder.CircuitM.init (Sparkle.IR.ModuleName.ofDecl declName))
-  finishSynth declName [] false finalCircuitState
-
 theorem certified_keepsAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx)
     {I : Void IO.RealWorld → Prop} (hS : StableA O.quiet I)
     (translate : TranslateFn) (logProf : String → IO Unit) (declName : Name)
     (bs : List (Name × GateBinder)) (body : Lean.Expr)
     (hrest : ∀ (ids : List FVarId) (r : IO.Ref (Lean.ExprStructMap String)), MkRefd _ r →
-      Keeps mctx mref cctx cref I (certRestX translate logProf declName bs body ids r)) :
+      Keeps mctx mref cctx cref I (certRest translate logProf declName bs body ids r)) :
     Keeps mctx mref cctx cref I (synthesizeCertified translate logProf declName bs body) := by
   unfold synthesizeCertified
   refine Keeps.bind (Keeps.mapM _ (fun _ => keepsA_framedX O hA hS FramedA.freshFVar) _) ?_
@@ -167,7 +152,7 @@ theorem certified_keepsAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx c
   · -- (writing-time guess W5)
     show Keeps mctx mref cctx cref I
       ((IO.mkRef ({} : Lean.ExprStructMap String) : MetaM (IO.Ref (Lean.ExprStructMap String)))
-        >>= fun r => certRestX translate logProf declName bs body ids r)
+        >>= fun r => certRest translate logProf declName bs body ids r)
     exact keepsA_mkExprCache_bindX O hA hS {} (fun r hr => hrest ids r hr)
   · -- (writing-time guess W6)
     first
