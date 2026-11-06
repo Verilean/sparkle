@@ -127,3 +127,32 @@ SKIP_BUILD=1 $S/sim_checks.sh $OUT [EXES.txt]
 | 9-11 | h264-bitstream-test / h264-playable-test / h264-frame-encoder-test | (b) 候補（再実行で確認） | `uncaught exception: JIT: wire '_gen_done' not found`（frame-encoder は `_gen_cavlcBitBuffer`）。ただし log では `Written JIT wrapper to .lake/build/gen/h264/*_jit.c` が同じ run の中で出ており、古い gen ではない。`EncoderSynth` `CAVLCSynth` `FrameEncoderSynth` は `#writeDesign … observableWires` で当該 wire を宣言している | `sim_rerun.sh h264`（gen を消して再生成、生成した `_jit.c` の wire 名を記録、3 本を再実行）。それでも失敗なら (b): 修正先は `Sparkle/Backend/CSim.lean` の `toCJITUnchecked`（`_gen_*` の member 化）と `Sparkle/IR/Optimize.lean` の observable の扱い |
 
 件数: (a) 環境 6（1-5 と 7）、(b) 既存の不具合 1 確定（6）+ 3 候補（9-11）、未確定 1（8）。合計 11。**未説明のものは 8 と 9-11 の再実行結果待ち**で、それまで baseline の sim 側は固定しない。(c)（新経路の問題）は 0。
+
+## シミュレーションの検査の確定（2026-11-06、coder）
+
+最初の実行（kjob-run-src-fgc-s0run-babb、147 件）では 136 件が exit 0、11 件がそうでなかった。分類（fbaf7427）のあと、取得の手順を直して再実行した（sim_rerun.sh、生の log はソースツリーの外）。
+
+| 件 | 確定した結果 | 根拠の Job |
+|---|---|---|
+| cdc-multi-clock-test、sim-runner-test | 成功 | kjob-run-src-fgc-s0r-5120 / 0a87 |
+| bitnet-soc-test、rv32-flow-test | 成功（原因は verilator/generated_soc.sv がないことだけで、Verilator がないことではなかった） | kjob-run-src-fgc-s0r-0a87 |
+| verify-parameterized-csim | 成功 | kjob-run-src-fgc-s0r-5120 / 0a87 |
+| toplevel-sim-test | 置き換え: 純粋な Lean の評価が O(t²) で 900 秒で timeout。同じ 50 cycle の刺激の toplevel-sim-jit-test が ALL PASS（exclusions.tsv） | kjob-run-src-fgc-s0r-38fb |
+| test（1 回目の exit 1 と、2 回目の timeout） | 成功（失敗した 15 個の assertion は、すべて RV32 SoC Flow の generated_soc.sv / _cppsim.h がないことだった） | kjob-run-src-fgc-s0r-249c |
+| h264-bitstream-test、h264-playable-test | **既存の不具合**: JIT: wire `_gen_done` not found | kjob-run-src-fgc-s0r-bd46 |
+| h264-frame-encoder-test | **既存の不具合**: JIT: wire `_gen_cavlcBitBuffer` not found | kjob-run-src-fgc-s0r-bd46 |
+
+h264 の 3 件について:
+- 生成した CAVLC の module（`cavlc_synth_jit.c`、wire 100 本）に、`IP/Video/H264/CAVLCSynth.lean:794` が残す指定をした wire がない。
+- poc fea429da でも同じく `_gen_done` がない（kjob-run-src-cavlc-poc-bc79）ので、この土台の新しい経路の問題ではない。
+- 修正先は、名前を指定した wire を残すコンパイラの処理（keep-wire の一覧と、JIT の wire の出力）。
+
+取得の手順で直したこと（すべて par/fgc-s0）:
+- 46874da9: capture.sh は kjob lake env が設定した LEAN / LEAN_PATH を使う（入れ子の lake env は失敗する）。
+- 8d15caa9: exe は lake build で作り、binary を直接実行する（入れ子の lake exe は binary を起動できない）。
+- d24963dd / 9b58713d / 86e3a86b: verilator/generated_soc.sv は #writeDesign が elaborate 中に書くので、SoC の import を build してから lean で直接 elaborate する（キャッシュからの lake build は olean を再生するだけで書かない）。
+
+まとめ:
+- 合成の必要 IP: 327 / 327 が成功、除外 0、未説明 0。
+- シミュレーション: 147 件のうち、既存の不具合が 3 件（h264）、JIT 版への置き換えが 1 件（toplevel）、それ以外はすべて成功。
+- 未説明: 0。
