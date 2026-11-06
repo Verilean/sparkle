@@ -149,6 +149,105 @@ def HasConcretePackage (p : Pkg ι dom) (n : Nat) (declName : Name) (b raw : Spa
 def ObservationsEqual (sh : SigShape) (m : sh.Ty) (p : Pkg ι dom) : Prop :=
   ShapeMatches sh p.d p.kD ∧ ∀ i bools bits, sh.obs (dom := dom) m i bools bits = p.src i bools bits
 
+
+/-! ## 4. The concretized primitives: value meaning, IR operation, temporal/reset mapping — PROVED, not tabulated
+
+Each `CD` rule's value is the Lean constant itself, so "the meaning of the primitive" is Lean's own definition. What the pilot proves per primitive is
+(a) its pointwise-in-time meaning (the equation the IR semantics must match) and (b) the agreement with the IR operation's semantics
+(`Sparkle.IR.Semantics.evalExpr` / `regNexts`) on masked values. The per-cycle composition of these (state threading, `Signal.loop` as a register
+feedback, the cycle order of `runModuleTG`) is the existing generator theorem `machine_trace_of_loop` / `machine_trace_of_data`, which the endpoints
+instantiate (named in `docs/FG-CIRCUIT-PILOT.md` §Primitives). -/
+
+section Prims
+open Sparkle.IR.Semantics Sparkle.IR.AST
+
+-- (a) value meaning
+theorem pure_val {D : DomainConfig} {T : Type} (a : T) (t : Nat) : (Signal.pure a : Signal D T).val t = a := rfl
+theorem register_val_zero {D : DomainConfig} {T : Type} (i : T) (s : Signal D T) : (Signal.register i s).val 0 = i := rfl
+theorem register_val_succ {D : DomainConfig} {T : Type} (i : T) (s : Signal D T) (t : Nat) :
+    (Signal.register i s).val (t + 1) = s.val t := rfl
+theorem mux_val {D : DomainConfig} {T : Type} (c : Signal D Bool) (a b : Signal D T) (t : Nat) :
+    (Signal.mux c a b).val t = if c.val t then a.val t else b.val t := rfl
+theorem addBV_val {D : DomainConfig} {W : Nat} (a b : Signal D (BitVec W)) (t : Nat) :
+    (@HAdd.hAdd _ _ _ (@Sparkle.Core.Signal.instHAddSignalBitVec D W) a b).val t = a.val t + b.val t := rfl
+theorem loop_val_zero {D : DomainConfig} {T : Type} [Inhabited T] (i : T) (g : Signal D T → Signal D T) :
+    (Signal.loop fun s => Signal.register i (g s)).val 0 = i := by
+  show Signal.loopGo _ 0 = i
+  rw [Signal.loopGo_eq]; rfl
+/-- the feedback loop of a register over a pointwise next-state function steps by that function (the register-feedback reading of `Signal.loop`) -/
+theorem loop_register_map_succ {D : DomainConfig} {T : Type} [Inhabited T] (i : T) (h : T → T) (t : Nat) :
+    (Signal.loop (dom := D) fun s => Signal.register i (Signal.map h s)).val (t + 1) = h ((Signal.loop (dom := D) fun s => Signal.register i (Signal.map h s)).val t) := by
+  show Signal.loopGo _ (t + 1) = h (Signal.loopGo _ t)
+  rw [Signal.loopGo_eq]
+  simp [Signal.register, Signal.map]
+
+-- (b) agreement with the IR operations
+theorem ir_const_agrees (we : WEnv) (env : Env) (w n : Nat) :
+    evalExpr we env (.const (n : Int) w) = some (BitVec.ofNat w n).toNat := by
+  have hk : 0 < 2 ^ w := Nat.two_pow_pos w
+  simp only [evalExpr, mask, BitVec.toNat_ofNat]
+  congr 1
+  generalize 2 ^ w = k at hk ⊢
+  have h1 : (((n:Int) % (k:Int) + (k:Int)) % (k:Int)) = ((n % k : Nat) : Int) := by
+    have : ((n:Int) % (k:Int) + (k:Int)) = (n:Int) % (k:Int) + 1 * (k:Int) := by rw [Int.one_mul]
+    rw [this, Int.add_mul_emod_self_right, Int.emod_emod_of_dvd _ (Int.dvd_refl _)]
+    exact (by norm_cast : (n:Int) % (k:Int) = ((n % k : Nat) : Int))
+  rw [h1, Int.toNat_natCast, Nat.mod_mod]
+
+theorem ir_add_agrees {W : Nat} (x y : BitVec W) : mask W (x.toNat + y.toNat) = (x + y).toNat := by
+  simp [mask, BitVec.toNat_add]
+
+theorem ir_mux_agrees {T : Type} (c : Bool) (a b : T) :
+    (if Tools.ShippingMuxLoweringSoundness.encodeBool c ≠ 0 then a else b) = if c then a else b := by
+  cases c <;> simp [Tools.ShippingMuxLoweringSoundness.encodeBool]
+
+/-- the IR register at reset low (`rst = 0`, the `TopShips` premise on `rst`) latches the masked input: the source `Signal.register`'s `s.val t` at `t+1` -/
+theorem ir_register_step_rst0 (we : WEnv) (mems : MEnv) (out clk rst : String) (k : Sparkle.IR.Type.ResetKind) (input : Sparkle.IR.AST.Expr)
+    (init : Int) (env : Env) (v : Nat) (hv : evalExpr we env input = some v) (hr : env rst = 0) :
+    regNexts we mems [.register out clk (rst, k) input init] env = some [(out, mask (we out) v)] := by
+  simp [regNexts, hv, hr]
+
+/-- reset mapping: the reset VALUE of the IR register is the source `Signal.register`'s `init` at cycle 0 (`TopShips`: `st0 r = f.init`, the slot's init) -/
+theorem ir_register_reset_value (we : WEnv) (mems : MEnv) (out clk rst : String) (k : Sparkle.IR.Type.ResetKind) (input : Sparkle.IR.AST.Expr)
+    (init : Int) (env : Env) (v : Nat) (hv : evalExpr we env input = some v) (hr : env rst ≠ 0) :
+    regNexts we mems [.register out clk (rst, k) input init] env = some [(out, encodeInit init (we out))] := by
+  simp [regNexts, hv, hr]
+
+end Prims
+
+/-- One row per concretized primitive unit. The proofs listed are the semantic agreement (value + IR operation); the table itself carries no meaning. -/
+structure PrimSpec where
+  decl : Name
+  levels : Nat
+  args : String
+  result : String
+  valueMeaning : String
+  irOp : String
+  temporalReset : String
+  proofs : List Name
+
+def primTable : List PrimSpec := [
+  { decl := ``OfNat.ofNat, levels := 1, args := "Nat, lit n, instOfNatNat n", result := "Nat", valueMeaning := "n",
+    irOp := "none (compile-time width/value)", temporalReset := "static", proofs := [] },
+  { decl := ``BitVec.ofNat, levels := 0, args := "w, n", result := "BitVec w", valueMeaning := "BitVec.ofNat w n",
+    irOp := "Expr.const n w", temporalReset := "static", proofs := [``ir_const_agrees] },
+  { decl := ``Signal.pure, levels := 1, args := "dom, T, a", result := "Signal dom T", valueMeaning := "fun _ => a",
+    irOp := "Expr.const / ref", temporalReset := "same value at every cycle", proofs := [``pure_val, ``ir_const_agrees] },
+  { decl := ``Signal.register, levels := 1, args := "dom, T, init, s", result := "Signal dom T",
+    valueMeaning := "t=0: init; t+1: s t", irOp := "Stmt.register out clk (rst,k) in init",
+    temporalReset := "cycle t ↔ IR cycle t; IR rst held 0 (TopShips); register starts at init (slot init)",
+    proofs := [``register_val_zero, ``register_val_succ, ``ir_register_step_rst0, ``ir_register_reset_value] },
+  { decl := ``Signal.mux, levels := 1, args := "dom, T, c, a, b", result := "Signal dom T",
+    valueMeaning := "if c t then a t else b t", irOp := "Expr.op .mux [c,a,b] (Bool as 0/1)", temporalReset := "combinational",
+    proofs := [``mux_val, ``ir_mux_agrees] },
+  { decl := ``HAdd.hAdd, levels := 3, args := "S,S,S,instHAddSignalBitVec dom w,a,b (S = Signal dom (BitVec w))",
+    result := "Signal dom (BitVec w)", valueMeaning := "a t + b t (BitVec add, mod 2^w)", irOp := "Expr.op .add [a,b] masked to w",
+    temporalReset := "combinational", proofs := [``addBV_val, ``ir_add_agrees] },
+  { decl := ``Signal.loop, levels := 0, args := "dom, T, Inhabited T, f", result := "Signal dom T",
+    valueMeaning := "loopGo f (strong recursion on t; fixpoint for strictly causal f)",
+    irOp := "register feedback: the loop variable is the register output wire",
+    temporalReset := "t=0 is the register init; t+1 reads cycle t", proofs := [``loop_val_zero, ``loop_register_map_succ] } ]
+
 /-- The FG-circuit conclusion at one entry `(b, D)` of the world `w`, with the package supplied by `P` (the generated table). -/
 def FGCircuitConclusion (env : Environment) (P : Pkgs ι dom) (Post : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module → Prop)
     (declName : Name) (parameters : List (String × Nat)) (b : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) : Prop :=
