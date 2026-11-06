@@ -460,4 +460,67 @@ theorem calleeOut_http {ι : Type} (gi : GenIn) (hgi : gi.d = synth_hftPcieOutBy
 
 end Stages2
 
+section Stages3
+open Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1uSrc
+open Tools.ShippingMachineCausal (extendBits_self extendBits_ne)
+open Tools.ShippingMachineTeleStates (callArgVals callArgsOf)
+open Tools.ShippingMachineChild (portIdx decV)
+
+theorem ofNat_toNat' {w : Nat} (x : BitVec w) : BitVec.ofNat w x.toNat = x := by simp
+
+theorem tlp_portIdx : (List.range 6).map (fun j => portIdx (Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.bsIn.take
+    (kDOf Sparkle.IP.Bus.PCIe.tlpCplByte.machineData)) (j + 1)) = [0, 1, 2, 3, 4, 5] := by decide +kernel
+
+theorem root_sel1 {ι : Type} (gi : GenIn) (hgi : gi.d = synth_hftPcieOutByte.machineData) :
+    selIdx gi.d (kidSem (ι := ι) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData
+      (fun _ bools bits => Sparkle.IP.Bus.PCIe.tlpCplByte.machineSource defaultDomain bools bits)) 1 = some 0 := by
+  unfold selIdx
+  rw [hgi, if_pos root_instFields]
+  have : Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.shape.layout.outs.length = 1 := by decide +kernel
+  simp [kidSem, SemPkg.d, this]
+
+theorem calleeOut_tlp {ι : Type} (gi : GenIn) (hgi : gi.d = synth_hftPcieOutByte.machineData) (i : ι)
+    (bs : Nat → Signal defaultDomain Bool) (vs : (j n : Nat) → Signal defaultDomain (BitVec n))
+    (S : Signal defaultDomain (HList (tys gi.d.ss))) (t : Nat) (a : List Nat)
+    (hk : gi.d.shape.insts[1]? = some (hftTlp, a, .bits 8))
+    (l1 l2 : Signal defaultDomain (BitVec 16)) (l3 l4 : Signal defaultDomain (BitVec 8))
+    (l5 : Signal defaultDomain (BitVec 32)) (l6 : Signal defaultDomain (BitVec 5))
+    (ha1 : callArgVals gi.d bs vs t (S.val t) (callArgsOf gi.d 1) =
+      [(l1.val t).toNat, (l2.val t).toNat, (l3.val t).toNat, (l4.val t).toNat, (l5.val t).toNat, (l6.val t).toNat]) :
+    calleeOut (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i S bs vs 1 t =
+      ((Sparkle.IP.Bus.PCIe.tlpCplByte l1 l2 l3 l4 l5 l6).val t).toNat := by
+  rw [calleeOut_eq (hftKids (ι := ι)) gi i S bs vs 1 hftTlp a (.bits 8) _ 0 hk hftKids_tlp (root_sel1 gi hgi)]
+  have hv : (Tools.ShippingMachineCallsLinkedT.valsOf (lsrcAt gi.d bs vs S) (callArgs gi.d 1)) t =
+      [(l1.val t).toNat, (l2.val t).toNat, (l3.val t).toNat, (l4.val t).toNat, (l5.val t).toNat, (l6.val t).toNat] := by
+    rw [valsOf_lsrcAt]; exact ha1
+  have hp := tlp_portIdx
+  simp only [List.range_succ, List.range_zero, List.nil_append, List.map_cons, List.map_nil, List.cons_append,
+    List.cons.injEq, and_true] at hp
+  obtain ⟨p1, p2, p3, p4, p5, p6⟩ := hp
+  let B := Tools.ShippingMachineChild.bitsOf (D := defaultDomain) (Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.bsIn.take
+      (kDOf Sparkle.IP.Bus.PCIe.tlpCplByte.machineData))
+      (Tools.ShippingMachineCallsLinkedT.valsOf (lsrcAt gi.d bs vs S) (callArgs gi.d 1))
+  show ((Sparkle.IP.Bus.PCIe.tlpCplByte (B 1 16) (B 2 16) (B 3 8) (B 4 8) (B 5 32) (B 6 5)).val t).toNat = _
+  have e1 : (B 1 16).val t = l1.val t := by
+    show decV _ _ 1 16 = _
+    rw [hv]; unfold decV; rw [p1]; simp [ofNat_toNat']
+  have e2 : (B 2 16).val t = l2.val t := by
+    show decV _ _ 2 16 = _
+    rw [hv]; unfold decV; rw [p2]; simp [ofNat_toNat']
+  have e3 : (B 3 8).val t = l3.val t := by
+    show decV _ _ 3 8 = _
+    rw [hv]; unfold decV; rw [p3]; simp [ofNat_toNat']
+  have e4 : (B 4 8).val t = l4.val t := by
+    show decV _ _ 4 8 = _
+    rw [hv]; unfold decV; rw [p4]; simp [ofNat_toNat']
+  have e5 : (B 5 32).val t = l5.val t := by
+    show decV _ _ 5 32 = _
+    rw [hv]; unfold decV; rw [p5]; simp [ofNat_toNat']
+  have e6 : (B 6 5).val t = l6.val t := by
+    show decV _ _ 6 5 = _
+    rw [hv]; unfold decV; rw [p6]; simp [ofNat_toNat']
+  rw [tlp_pw _ l1 _ l2 _ l3 _ l4 _ l5 _ l6 t e1 e2 e3 e4 e5 e6]
+
+end Stages3
+
 end Tools.ShippingFGCircuitS2cLink
