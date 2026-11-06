@@ -1168,3 +1168,48 @@ AXIOMS（ds_fun 他）/ LEVEL-CONTROLS / SMALL-DERIVE（数値行 + ok の 2 行
 - 証明（コンパイル済み、標準 axiom のみ）: `sh_fun`、`DT` の定義と排他補題（`viaOK_*`、`map_clo_eq`）。`dt_fun` はコンパイル済み（35.5）。
 - 名前付き仮説（未供給）: `HftObCDS`（`hcd`、新族 `DT` 版の義務 `HftObCDT` は**まだ定義していない**）、`EnvDefs/EnvCtors/RecFact`、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査）、Expr 書き換えの意味保存。**`hcd` は導出していない。最終結論への接続（新 Off 入口/新 carrier）は未実施**（`HftFinalStmtS` は型別名に過ぎない、という reviewer の指摘のまま）。
 - 次: FG 連鎖を 1 回の長い build で通し（`timeout` を 3300 秒以上にする、または連鎖を持つキャッシュを温める）、`S2iTbl`/`S2iGen`/`S2iRun`/`Check29` をコンパイル、probe で止まりの正確な部分項（`Signal.mk` の有無）、`HftObCDT` の型を `S2iDT` に足し、`hftRootValue` の導出を測定。
+
+## 36. S2o（Issue `sparkle-fg-circuit-pilot` の次の束）: S2i の残りのコンパイル、`HftObCDT`、probe の止まり、共有の測定
+
+土台 `a0903cd8`（S2i）。TRUSTED・axiom・sorry・native_decide・新しい law はない。Issue の状態は変えていない。成果は**条件付き**（**`hcd` は未導出**）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。S2k（最終文）・S2n（AdmDownR）の範囲には触れていない。
+
+### 36.1 コンパイル（すべて `kjob lake build`、timeout なし、温間キャッシュ）
+
+- `S2iTbl`: import の誤り（`Tools.ShippingFGCircuitS1wTbl` を import していなかった）を直しコンパイル（4 分、冷間分を含む）。
+- `S2iGen`: `open …S2iTbl`、`mkConst` の曖昧さ（`Term.mkConst`）、`Eq.refl` の宇宙（`List Ent : Type 1`、`hsp` は `Eq.refl.{2}`）を直しコンパイル。
+- `S2iRun`: 構造体リテラルの桁下げ（フィールドは `{` の桁以上）と `open …S2iTbl` を直しコンパイル。
+- `Check29`: 通過（AXIOMS ok 1 行、SHARE/SHADOW/HIGHER/REC-NIL/REC-CONS/REC-IH/DEFAULT/BOOL の 8 つが kernel 検査済み・標準 axiom のみ、制御 4 つ（CTRL-ENVS/SIGNALMK/UNBOUND/REC-MAJOR）は期待したエラー文で失敗、定理は追加されない）。
+- `Sh`/`DT`/`dt_fun` は標準 axiom のみ（`#print axioms`、再 build でも同じ）。
+
+### 36.2 `HftObCDT`（`Tools/ShippingFGCircuitS2oOb.lean`）
+
+`HftObCDT env := CDT env [] hftRootValue (MonoTy shHft) synth_hftPcieOutByte`（単一の env、元の `hftRootValue`）。補題 `hftObCDT_unique`（`cdt_eq` から値の一意性）。**定義のみ。`HftFinalStmtS` は型別名のままで、新しい Off 入口/新 carrier への接続は主張しない。**
+
+### 36.3 probe（`Tools/ShippingFGCircuitS2iProbe.lean`、lakefile に登録して `kjob lake build` で実行）
+
+- 最初の止まりは `Sh.letZ` が核の型の `let` を頭に置けないこと（`HFTPcieOut.outByte dom (hftPcieLoop dom …)` を評価すると、`hftPcieLoop` の本体が核の型の `let`）。**直した**: `Sh.letZ` から `coreHead A = false` を外し、`DT.letE` との排他を `viaOK (.letE _ A ..) = !coreHead A` で取り直した（`sh_fun`/`dt_fun` を再コンパイル、標準 axiom のみ、Check29 は変わらず通る）。
+- 直した後の probe（cap なし）: **DT 節点 5282、Sh 歩数 72012（app 30965 / lam 19459 / bvarC 12527 / unfPoly 2095 / ctor 1738 / recCons 1228 / unf 1209 / proj 1078 / prim 731 / letZ 726 / recNil 256）、viaSh 920、生成 2.5 s、ピーク RSS 約 2.37 GB（Lean 環境込み）**。止まりは**重複除去後 13 件、3 種類**:
+  1. `Signal.map` の一般関数（`Prod.fst/snd` ではない）: 値 `Signal.map #k (BitVec 8) (BitVec 1) (fun x => BitVec.extractLsb' 8 6 1 x) #17`、および `Signal.map … (BitVec 32) (BitVec 2) (fun x => BitVec.extractLsb' 32 2 2 x) (TlpRxOut.addr #35 #29)`（`#36`〜`#38`、`#43` も同形）と `(BitVec 32)(BitVec 8)(fun x => extractLsb' 32 0 8 x) (TlpRxOut.addr #50 #44)`（計 7 件。`IP.Bus.PCIe` のビット切り出し）。**許可済みの狭い配線（`Prod.fst/snd`）の外**。
+  2. `Signal.mk`（4 件、`viaSh: the head Signal.mk reached by evaluation has no rule (constructor; 3 arguments)`）: `HShiftLeft.hShiftLeft (Signal dom (BitVec 16)) (BitVec 16) … (instHShiftLeftSignalBitVec …) #1 (BitVec.ofNat 16 8)`、同 32 ビット版、`HAppend.hAppend (BitVec 8) (Signal (BitVec 8)) (Signal (BitVec (8+8))) (instHAppendBitVecSignalHAddNat 8 …)`、同 24 ビット版。つまり **`hftRootValue` は `Signal` の `<<<` と `++`（インスタンスが `Signal.mk` に展開される）を要する。一般の `Signal.mk` 規則は許されないので、ここで止める**（正確な部分項は上のとおり）。
+  3. `Sh: bvar 0 is bound to a value entry in head position @ #3 #0` / `#4 #0`（2 件）: `DT.lam` が積んだ値の項を頭として関数適用している部分項。DT 側の規則（値 entry を頭にした適用）が要る。`Signal.mk` とは別件。
+- よって **型付き導出（`hcd`）は試みていない**（止まりがあるため `derive_hft_t` は成功しえず、成功したように見せない）。必要な規則の方針（reviewer 判断待ち）: (1) 切り出しの `Signal.map` は `extractLsb'` に限った狭い規則を許すか、(2) `<<<`/`++` の狭い規則（`Signal.mk` を一般に開けずにインスタンスごと）を許すか。どちらも許可範囲外なので足していない。
+
+### 36.4 測定（共有、`Tests/Gen5/FGCircuitPilotCheck35.lean`、`kjob lake build`）
+
+共有連鎖 n: `(fun x0 => (fun x1 : T0×T0.. ) … ) false`、各変数を 2 回参照、`T(k+1) = T k × T k`、値は木で 2^n 葉。
+
+| n | DT 節点 | Sh 歩数 | 生成 ms | kernel ms | 項 DAG | 項 tree |
+|---|---|---|---|---|---|---|
+| 4 | 20 | 16 | 3 | 0 | 612 | 2.3e5 |
+| 8 | 54 | 24 | 3 | 0 | 1084 | 4.0e7 |
+| 12 | 104 | 32 | 5 | 0 | 1684 | 1.4e10 |
+| 16 | 170 | 40 | 7 | 0 | 2412 | 4.6e12 |
+| 20 | 252 | 48 | 9 | 0 | 3268 | 1.5e15 |
+| 24 | 350 | 56 | 13 | 0 | 4252 | 4.7e17 |
+
+DAG は n に対して**二次未満（ほぼ線形〜緩い二次）**で、tree は指数。カーネルは 0 ms（共有を再走査していない）。Check29 の小例（SHARE/SHADOW/HIGHER/REC-*/DEFAULT）でも kernel 0 ms、DAG 80〜662。**S2b の外挿（1 歩ごとの DAG 再走査で 2〜2.5 h）は、この共有・捕捉環境の例では再現しない**（`Sh` は置換せず、閉包は同じ環境を指す）。ただし**根そのものの kernel 時間・項サイズは未測定**（止まりのため根の項を作れない）。probe の生成側だけの数字（5282 節点、72012 歩、2.5 s）は上に記録した。
+
+### 36.5 仮説・次
+
+- 名前付き仮説（未供給）: `hcd`（`HftObCDT`）、`EnvDefs/EnvCtors/RecFact`、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査）。
+- 次（判断が要る）: 36.3 の 1・2・3 の規則。1・2 は reviewer の許可（狭い規則の範囲）が前提。3 は `DT` の規則の追加（許可範囲内の見込みだが未実装）。根が通ってから kernel 時間・ピークメモリ・項サイズを測る。
