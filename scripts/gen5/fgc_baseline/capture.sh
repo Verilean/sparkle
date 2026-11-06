@@ -29,9 +29,14 @@ command -v lean >/dev/null 2>&1 || { echo "capture.sh: lean not found on PATH" >
 lean --version > /dev/null || { echo "capture.sh: lean does not run" >&2; exit 2; }
 # `lake env lean` does not find lean through the caller's PATH inside the job (second run failed the same way),
 # so take the search path from lake once and call the resolved lean binary directly.
-LEAN_BIN="$(command -v lean)"
-LEAN_PATH="$(lake env printenv LEAN_PATH)" || { echo "capture.sh: lake env printenv LEAN_PATH failed" >&2; exit 2; }
+# Inside `kjob lake env` the environment is already set (LEAN, LEAN_PATH, PATH with the toolchain bin);
+# a nested `lake env` fails there (diagnostic run kjob-run-src-fgc-s0run, 2026-11-06). Use what is given.
+LEAN_BIN="${LEAN:-$(command -v lean)}"
+if [ -z "${LEAN_PATH:-}" ]; then
+  LEAN_PATH="$(lake env printenv LEAN_PATH)" || { echo "capture.sh: no LEAN_PATH and lake env printenv failed" >&2; exit 2; }
+fi
 export LEAN_PATH
+[ -x "$LEAN_BIN" ] || { echo "capture.sh: $LEAN_BIN is not executable" >&2; exit 2; }
 [ -n "$LEAN_PATH" ] || { echo "capture.sh: empty LEAN_PATH" >&2; exit 2; }
 { echo "sha=${FGC_SHA:-$(git rev-parse HEAD 2>/dev/null)}"; echo "lean=$(command -v lean)"; echo "lean_path=$LEAN_PATH"; echo "toolchain=$(cat lean-toolchain)"; echo "date=$(date -u +%FT%TZ)"; } > "$OUT/env.txt"
 while read -r f; do
