@@ -131,3 +131,70 @@ run_cmd liftTermElabM do
   for mu in ["CCOtherW3", "CCOtherW0", "CCOtherShape", "CCHttpShape", "CCOutNone", "CCOutExact", "CCOutNotExact", "CCOutTrue", "CCOtherEnv", "CCOtherLog", "CCOtherRoot", "CCAllWorlds", "CCNoCore", "CCNoSfc"] do
     diffTy s!"HftCoreCloses vs {mu}" (C (X ++ `HftCoreCloses)) (C (Q ++ Name.mkSimple mu)); nm := nm + 1
   logInfo m!"FGCIRCUIT23 SIGNATURES-A: HftCoreCloses matches the independently written ExpCC (isDefEq, default); {nm} mutants rejected (another world: w3 / the run's start world; another shape: counterLoop / httpGetByte; another output: = none / = some (raw, D₀) / ≠ some (raw, D₀) / True; another env; another logger; another root; the all-world MachineCloses; no core run; no synthesizeFromConst link)"
+
+/-! ## 2. the derived gate and `HftObNoRawOff` -/
+
+noncomputable def GateT : Cx → Rf1 → Cc → Rf2 → W → Md → Dg → Prop := fun mctx mref cctx cref w b D' =>
+  ∀ (raw : Md) (D₀ : Dg) (w1 : W), RunsTo (synthesizeCombinationalCoreOff hftRoot) mctx mref cctx cref w (raw, D₀) w1 →
+    Tools.ShippingGen5DCEntryD.PostEntry b raw D₀ D' → Sparkle.IR.RefineCheck.hierGate b = true
+noncomputable def GateConstC : Cx → Rf1 → Cc → Rf2 → W → Md → Dg → Prop := fun mctx mref cctx cref w b D' =>
+  ∀ (raw : Md) (D₀ : Dg) (w1 : W), RunsTo (synthesizeCombinationalCoreOff hftRoot) mctx mref cctx cref w (raw, D₀) w1 →
+    Tools.ShippingGen5DCEntryD.PostEntry b raw D₀ D' → True
+noncomputable def GateBindsC : Cx → Rf1 → Cc → Rf2 → W → Md → Dg → Prop := fun mctx mref cctx cref w b D' =>
+  ∀ (raw : Md) (D₀ : Dg) (w1 : W), RunsTo (synthesizeCombinationalCoreOff hftRoot) mctx mref cctx cref w (raw, D₀) w1 →
+    Tools.ShippingGen5DCEntryD.PostEntry b raw D₀ D' → Sparkle.IR.RefineCheck.hierBinds b = true
+
+/-- `hftPostGate_of_local`: the conclusion gate is a parameter; the closing premise is a parameter -/
+noncomputable def ExpPG (Cl : Cx → Rf1 → Cc → Rf2 → W → Prop) (Shd : MachineShape) (Gt : Cx → Rf1 → Cc → Rf2 → W → Md → Dg → Prop) : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : Laws mref cref) {w : W} {b : Md} {D' : Dg}
+    (_hstart : Start L mctx cctx w)
+    (_hdRun : ∀ (raw : Md) (D₀ : Dg) (w1 : W), MachineDefinesLinkedOff mctx mref cctx cref hftRoot Shd w raw D₀ w1)
+    (_hclL : Cl mctx mref cctx cref w),
+    Gt mctx mref cctx cref w b D'
+noncomputable def ExpPG0 (Cl : Cx → Rf1 → Cc → Rf2 → W → Prop) (Gt : Cx → Rf1 → Cc → Rf2 → W → Md → Dg → Prop) : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : Laws mref cref) {w : W} {b : Md} {D' : Dg}
+    (_hdRun : ∀ (raw : Md) (D₀ : Dg) (w1 : W), MachineDefinesLinkedOff mctx mref cctx cref hftRoot RootShape w raw D₀ w1)
+    (_hclL : Cl mctx mref cctx cref w),
+    Gt mctx mref cctx cref w b D'
+noncomputable def ExpNR (Cl : Cx → Rf1 → Cc → Rf2 → W → Prop) (Shd : MachineShape) : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : Laws mref cref) {w : W} {b : Md} {D' : Dg}
+    (_hstart : Start L mctx cctx w)
+    (_hdRun : ∀ (raw : Md) (D₀ : Dg) (w1 : W), MachineDefinesLinkedOff mctx mref cctx cref hftRoot Shd w raw D₀ w1)
+    (_hclL : Cl mctx mref cctx cref w),
+    HftObNoRawOff mctx mref cctx cref w b D'
+noncomputable def ClNoneC : Cx → Rf1 → Cc → Rf2 → W → Prop := fun _ _ _ _ _ => True
+
+set_option maxHeartbeats 4000000 in
+run_cmd liftTermElabM do
+  let C (n : Name) : Lean.Expr := mkConst n
+  let X := `Tools.ShippingFGCircuitS1zClose
+  let Q := `Tests.Gen5.FGCircuitPilotCheck23
+  let mut nm : Nat := 0
+  let t ← tyOf (X ++ `hftPostGate_of_local)
+  let ok := mkApp3 (C (Q ++ `ExpPG)) (C (Q ++ `CCRoot)) (C (Q ++ `RootShape)) (C (Q ++ `GateT))
+  sameTy "hftPostGate_of_local" t ok
+  unless binderInfos (← norm t) == binderInfos (← norm ok) do throwError "hftPostGate_of_local: binder kinds differ"
+  let muts : List (String × Lean.Expr) := [
+    ("closing of another world (w3)", mkApp3 (C (Q ++ `ExpPG)) (C (Q ++ `CCOtherW3)) (C (Q ++ `RootShape)) (C (Q ++ `GateT))),
+    ("closing of another shape", mkApp3 (C (Q ++ `ExpPG)) (C (Q ++ `CCOtherShape)) (C (Q ++ `RootShape)) (C (Q ++ `GateT))),
+    ("closing with another output (= none)", mkApp3 (C (Q ++ `ExpPG)) (C (Q ++ `CCOutNone)) (C (Q ++ `RootShape)) (C (Q ++ `GateT))),
+    ("no closing premise", mkApp3 (C (Q ++ `ExpPG)) (C (Q ++ `ClNoneC)) (C (Q ++ `RootShape)) (C (Q ++ `GateT))),
+    ("machine boundary of another shape", mkApp3 (C (Q ++ `ExpPG)) (C (Q ++ `CCRoot)) (C (Q ++ `OtherShape)) (C (Q ++ `GateT))),
+    ("constant gate", mkApp3 (C (Q ++ `ExpPG)) (C (Q ++ `CCRoot)) (C (Q ++ `RootShape)) (C (Q ++ `GateConstC))),
+    ("hierBinds gate", mkApp3 (C (Q ++ `ExpPG)) (C (Q ++ `CCRoot)) (C (Q ++ `RootShape)) (C (Q ++ `GateBindsC))),
+    ("no Start premise", mkApp2 (C (Q ++ `ExpPG0)) (C (Q ++ `CCRoot)) (C (Q ++ `GateT)))]
+  for (what, m) in muts do
+    diffTy s!"hftPostGate_of_local vs {what}" t m; nm := nm + 1
+  let t2 ← tyOf (X ++ `hftObNoRawOff_of_local)
+  let ok2 := mkApp2 (C (Q ++ `ExpNR)) (C (Q ++ `CCRoot)) (C (Q ++ `RootShape))
+  sameTy "hftObNoRawOff_of_local" t2 ok2
+  unless binderInfos (← norm t2) == binderInfos (← norm ok2) do throwError "hftObNoRawOff_of_local: binder kinds differ"
+  let muts2 : List (String × Lean.Expr) := [
+    ("closing of another world (w0)", mkApp2 (C (Q ++ `ExpNR)) (C (Q ++ `CCOtherW0)) (C (Q ++ `RootShape))),
+    ("closing of another shape", mkApp2 (C (Q ++ `ExpNR)) (C (Q ++ `CCHttpShape)) (C (Q ++ `RootShape))),
+    ("closing with another output (exact)", mkApp2 (C (Q ++ `ExpNR)) (C (Q ++ `CCOutExact)) (C (Q ++ `RootShape))),
+    ("no closing premise", mkApp2 (C (Q ++ `ExpNR)) (C (Q ++ `ClNoneC)) (C (Q ++ `RootShape))),
+    ("machine boundary of another shape", mkApp2 (C (Q ++ `ExpNR)) (C (Q ++ `CCRoot)) (C (Q ++ `OtherShape)))]
+  for (what, m) in muts2 do
+    diffTy s!"hftObNoRawOff_of_local vs {what}" t2 m; nm := nm + 1
+  logInfo m!"FGCIRCUIT23 SIGNATURES-B: hftPostGate_of_local (hgate DERIVED: premises Start L, the machine boundary of the core run, HftCoreCloses; conclusion HftPostGate) and hftObNoRawOff_of_local match independently written statements; {nm} mutants rejected (another world / shape / output of the closing; no closing; boundary of another shape; constant or hierBinds gate; no Start)"
