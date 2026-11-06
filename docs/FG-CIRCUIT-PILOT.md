@@ -1056,3 +1056,9 @@ S1r の走査で止まっていた 2 種（`Signal.mk` ×17 = `bundle2`→`Seq.s
 - **止まり 2（評価の規模。有限な配線では済まない）**: 止まり 1 を probe で飛ばして進めると、`hftPcieLoop` の弱頭正規化は `whStepR` を 1 歩ずつ `DW.projStep` の導出節点にするため、約 29 000 節点（導出の深さ 49、`instE` が共有を壊すため式の木のサイズは 10⁵〜1.5×10⁶）で次の 1 歩の評価（`instE` の複製）が 28 GB を使い切って bad_alloc（`ulimit -v 28000000`）。各節点は途中の式全体を `Expr` リテラルとして項に埋め込む設計なので、導出項のサイズも同じ規模になる。部分項ごとの補題（子ごと・let ごと）に分けても、1 歩の評価が木の複製である点は変わらない。直すには共有を保つ評価規則（`let` を値として残す／環境つきの評価＝call-by-need）か、より大きい step を持つ規則が要り、規則の追加（汎用化）になる。
 - 確認: Check22 の AXIOMS-A/B（評価器の健全性と表版規則は標準 axiom のみ）、FAIL-CLOSED（`hftObCDW_of_tables` は定数として存在しない）、STOP-1。Check 行数: info 4 行（AXIOMS-A, AXIOMS-B, FAIL-CLOSED, STOP-1）。
 - 最終定理への接続: `HftObCDW` と `HftFinalStmtW`（§23.2）は型のみで、`hcd` は引き続き仮説。表の仮説（`EnvDefs`/`EnvCtors`/`RecFact`）への置換は導出が無いので行えない。
+
+### 23.7 Check17 repaired (S2f)
+
+- Line 203 failure: the **Check** was wrong, not `dw_default_of_mk`. `ExpDefaultOfMk` had an extra unused binder `{v v' : T}` (for a mutant), so even mutant 0 could not equal the theorem. The theorem states exactly the §23.1 rule (`x ↦ v`, `default (Inhabited.mk x) ↦ v`, with the `Inhabited.mk` constructor condition and `TDW t`); the expected text is unchanged in meaning, the mutants are now same-binder variants plus a `Canon` mutant.
+- Other repairs: `Inhabited Environment` instance declared before use, `.{1}` escaped in `m!`, `mkAppOptM` for `Inhabited.default`, `ExpBundle2Swap` typed at one type (with a control), doc-comment before `run_cmd` removed, expected sides normalised (Exp definitions unfolded, `if mu == k` decided) before `isDefEq`.
+- The snapshot traversal was exponential (a tree walk of a DAG); each (kind, expr) is now judged once, so site counts are per distinct pair. Check17's own build: 214 s. Result: 1892 nodes, audit 386/386, 0 trace mismatches, stuck: `<fuel>` 12, `Signal.mk` 10, `Inhabited.mk` 3, `Bool.false` 1 (the `<fuel>` entries are open and not explained here).
