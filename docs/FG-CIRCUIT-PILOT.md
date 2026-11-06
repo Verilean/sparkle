@@ -1162,3 +1162,63 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 ### 25.5 次
 
 (1) `HftRootLink` を (a) 呼び出し引数の対応（per-call の kernel 事実）と (b) fused 状態の同一視に分けて閉じる（(a) は `#machine_endpoint` 側の生成に近い）。(2) `htop`/`hnoraw`、`hcd`（S1s）。
+
+## 26. S1x（Issue `sparkle-fg-circuit-pilot` の次の束）: `hnoraw : HftObNoRawOff` を run から供給する（`NoRawBelow` を全深さで）
+
+土台 `15fb4615`（par/fgc-s1: S1v + S1u のマージ）。追加ファイル（既存は書き換えていない。lakefile 登録は各 1 回）: `Tools/ShippingFGCircuitS1xNoRaw.lean`、`Tests/Gen5/FGCircuitPilotCheck20.lean`。TRUSTED・axiom・sorry・native_decide・新しい law はない。S1s の領域（`Tools/ShippingFGCircuitS1sCD.lean`、Check17、§23）には触れていない。Issue の状態は変えていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**で台帳に数えない。
+
+### 26.1 手順 1: 評価（先に記録する）
+
+`HftObNoRawOff`（S1t）は、core run `(raw, D₀)` と印字後 `(b, D')` について (i) `∀ n, NoRawBelow D₀ raw.name (n+1) raw`、(ii) `∀ n, NoRawBelow D₀ raw.name (n+1) (checkedOptimize b)`、(iii) `b.body` のどの instance も `raw.name` を指さない、の 3 つ。`NoRawBelow` は「top に戻らない」ことで、グラフ全体の非循環は十分条件の 1 つにすぎず、要らない。`designTransport_of_noRawBelow` は全 `n` を要し、深さ 1..6 の snapshot は供給にならない。評価した結果:
+
+1. **run が instance の target について与えるもの**: 子の module 名は子宣言から作られる（`synth c` が返す module の名前）が、**top と名前が違うことを名前の作り方（`ofDecl` の単射性）から出す道は取っていない**。代わりに、machine 経路の最後の `closeInsts`/`closeInstsG`（`Sparkle/IR/Machine.lean`、`MachineInstG.lean`）が **実行時に** 検査している: `noInstOfB m.name body && d'.modules.all (fun g => noInstOfB m.name g.body)`（「閉じる module の instance を、その module 自身と設計の全 module が持たない」）。結果 `(raw, D₀)` はこの検査を通った値なので、`raw` の body にも `D₀` の**全 module** にも `raw.name` を target にする instance は無い。既存の `closeInsts_acyclic`/`closeInstsG_acyclic`（`ShippingChildServe`）と `noRawBelow_of_noInstOf`（`ShippingGen5DCEntryS`、U-NORAW）がこれを `NoRawBelow`（全深さ）にしていたが、**core run とこの等式の接続**（S1x 以前の「Does NOT link a given core run's (raw, D)」）が無かった。
+2. **`D'`（後処理済み）が top を自分の下に含み得るか**: `D' = topMap f raw D₀`（`PostEntry`）は名前が `raw.name` の module だけを差し替える。top 以外の module は `D₀` のままなので 1. の検査で自由。差し替えた top `b` は `dropZeroWidthModule raw` か、その `mergeChecked`。前者は instance 文の target を保つ（`dropZeroWidth_inst_target`: `dzStmt` は `.inst mn i conns` を `.inst mn i conns'` にするだけ）。後者は instance を含むなら `mergeChecked_inst`（`ShippingMachineShipsHier`）で `= dropZeroWidth raw`。よって `b` の instance の target は `raw` のそれに含まれ、`raw.name` ではない（`post_inst_target`、`noB_of_post`、(iii)）。`checkedOptimize b` は `hierGate b` の下で `b` と同じ instance 文を持つ（`checkedOptimize_inst_iff_gate`）。したがって `D'` は top を自分の下に含まない（`hgate` の下で）。
+3. **最小の run-local な事実**: (a) 閉じる検査の結果 `NoInstOf raw.name raw.body ∧ ∀ g ∈ D₀.modules, NoInstOf raw.name g.body`（`coreOff_closed` で run から証明）、(b) 印字 top の文の gate `hierGate b = true`（`optimizeModule` が instance 文を保つ補題が木に無い枝（`checkedOptimize` の最後の `else o`）を避けるため。名前付きのまま）。
+
+### 26.2 証明したもの（`Tools/ShippingFGCircuitS1xNoRaw.lean`、`kjob lake build` exit 0、標準 axiom のみ）
+
+| 名前 | 内容 |
+|---|---|
+| `coreOff_closed` | `RunsTo (synthesizeCombinationalCoreOff X) … (m, d)`、`MachineDefinesLinkedOff … shape`、`MachineCloses … shape`、`shape.insts ≠ []` ⇒ `NoInstOf m.name m.body ∧ ∀ g ∈ d.modules, NoInstOf m.name g.body`。`core_chainOff` → `synthesizeFromConst_machineR` → `synthesizeMachineCertified_returns`（`CloseCalls`）→ `closeInsts_acyclic`/`closeInstsG_acyclic`。法則 `Laws`・`JQ` は使わない |
+| `coreOff_noRawBelow` | 上から `∀ k, NoRawBelow d m.name k m`（全深さ） |
+| `dropZeroWidth_inst_target`、`post_inst_target`、`noB_of_post` | 後処理は instance の target を増やさない。(iii) |
+| `noRawBelow_opt` | `hierGate b = true` の下で `∀ k, NoRawBelow D raw.name k (checkedOptimize b)`（(ii)） |
+| `hftShape_insts_ne` | root の `shape.insts ≠ []`（S1u の kernel 事実から） |
+| `hftObNoRawOff_of_run` | `hdRun`（core run の `MachineDefinesLinkedOff`）、`hcl : MachineCloses … hftRoot shape`、`hgate : HftPostGate …` ⇒ `HftObNoRawOff mctx mref cctx cref w b D'` |
+
+`HftPostGate`（完全な型）: `∀ raw D₀ w1, RunsTo (synthesizeCombinationalCoreOff hftRoot) mctx mref cctx cref w (raw, D₀) w1 → PostEntry b raw D₀ D' → Sparkle.IR.RefineCheck.hierGate b = true`。
+
+### 26.3 `hnoraw` を置き換えた最終文（束縛の一覧）
+
+`HftFinalStmtOffLN Ob CV`（S1u の `HftFinalStmtOffL` の `hnoraw` を `hcl`・`hgate` に替えたもの）、`synth_hftPcieOutByte_finalOffLN`（全 `CV Ob hOb`）、インスタンス `_Z/_Y/_X`。**明示仮説（14）**: `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hcl hgate`（`hnoraw` は無い）。`hdRun`（core run の `MachineDefinesLinkedOff`）は S1t と同じく `hchk`/`hcell` から**内部で導く**（仮説にしない）。証明は `hftObNoRawOff_of_run hdRun hcl hgate` を `synth_hftPcieOutByte_finalOffL` の `hnoraw` に渡すだけ。
+
+| | 明示仮説 |
+|---|---|
+| S1u `HftFinalStmtOffL` | `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hnoraw`（13） |
+| S1x `HftFinalStmtOffLN` | `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hcl hgate`（14） |
+
+仮説の数は 1 つ増えた（`hnoraw` が `hcl` と `hgate` の 2 つに分かれた）。変わったのは種類: `hnoraw`（`NoRawBelow` を全深さで。run から出す補題が無かった）は証明に変わり、残るのは run の 2 つの事実だけ。
+
+### 26.4 残っているもの（名前付き仮説。impossible とは言わない）
+
+- **`hcl : MachineCloses … hftRoot synth_hftPcieOutByte.machineData.shape`**（FG D.T-4）: machine 経路の閉じる段が `none` を返さない。4 leaf root には生成済みの `machine_closes` がある（導出可能）が、この root には**無い**（Check19/Check20 SNAPSHOT が存在しないことを検査）。root は 2 つの call を持ち `closeInstsM/GM` を通る。`MachineCloses` は `closeInsts*` の `some` を要求するので、閉じる検査（`woCheck`・`linkedOk`・`kidsCombB` など）を子の実出力で評価する必要がある。S1iChild の `noRawBelowB` のような計算検査器で実出力を評価する道はあるが、run の結果に結ぶ部分は今回していない。
+- **`hgate : HftPostGate`**（FG D.T-4）: 印字 top `b` が `hierGate` を満たす。`b` が `dropZeroWidth raw`（または merge）で、`raw.body` が instance と `seqStmtOk` な文だけなら成り立つはずだが、`raw` の body の形（closing が作る body）を run から導く補題は未作成。
+- 子の合成中の IO（`synthesizeChild`・`sparkleChildSynth`）は `hr`/`htop` の中の仮説のまま（S1t §24.2）。`closeInstsGM` が使う `children` は `synth c`（診断入口）の結果だが、`coreOff_closed` は `CloseCalls` の存在量化だけを使い、子の run の内容には立ち入らない。
+
+### 26.5 Check20 の出力
+
+`kjob lake build Tools.ShippingFGCircuitS1xNoRaw`（exit 0）、`kjob lake build Tests.Gen5.FGCircuitPilotCheck20`（exit 0、923 jobs。作りを軽くした: 署名の照合を小さい `run_cmd` に分割。標準の `isDefEq`＋`whitelist` 展開の正規化）。
+
+- `FGCIRCUIT20 SIGNATURES-A`: `HftPostGate`、`coreOff_closed` を独立に書いた文面（`GateTrue`/`ExpClosed`）と `isDefEq`（default）で照合し、binder の種類も一致。**8 mutant 棄却**（gate: 別の root／`hierBinds`／定数 true／`PostEntry` なし、closed: 閉じる前提なし／instance の前提なし／body だけの結論／旧 core の run）。
+- `FGCIRCUIT20 SIGNATURES-B1`: `hftObNoRawOff_of_run`（`ExpRun`）に **6 mutant 棄却**（`hdRun` の shape が別、`hcl` の shape が別、`hcl` が別の宣言、`hdRun` が別の root、gate なし、定数 gate）。
+- `FGCIRCUIT20 SIGNATURES-B2`: `synth_hftPcieOutByte_finalOffLN_Z` を独立に書いた `ExpFLN` と照合。**9 mutant 棄却**（`hcl` なし、別の shape、`hgate` なし、定数 gate、別 root の gate、carrier `cdvY`/`cdvOld`、obligation `HftObCDY`、`hnoraw` を残した S1u の文）。
+- `FGCIRCUIT20 REMAINING`（2 行）: `hcl : MachineCloses … hftRoot synth_hftPcieOutByte.machineData.shape`、`hgate : HftPostGate …`。
+- `FGCIRCUIT20 HYPS`: 14 個の明示仮説の名前と順序、`hnoraw`・`hsrc`・`hdRun` ほかは仮説に無い、どの仮説も診断入口・旧 `MachineDefinesLinked`・旧 `PostRun`・`sorryAx` を直接参照しない、`hcl` は `MachineCloses`、`hgate` は `HftPostGate`。
+- `FGCIRCUIT20 AXIOMS`: 12 名、標準 axiom のみ。
+- `FGCIRCUIT20 SNAPSHOT20`: root は call 2 つ（kernel `decide`）、root に `machine_closes` は無く leaf root にはある。
+
+Check の出力行は 8（SIGNATURES-A/B1/B2、REMAINING ×2、HYPS、AXIOMS、SNAPSHOT20）、棄却した mutant は計 23。
+
+### 26.6 次
+
+(1) `hcl`: 閉じる段の検査（`closeInstsG` の各 `Bool`）を、root の 2 つの子の実出力に対して評価し、`MachineCloses`（run の `none` を排除）にする。(2) `hgate`: 閉じた body の形から `hierGate`。(3) `htop`、`hcd`（S1s）、`HftRootLink`。
