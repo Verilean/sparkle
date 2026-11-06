@@ -1213,3 +1213,46 @@ DAG は n に対して**二次**（差分が 128 ずつ増える: 612, 1084, 168
 
 - 名前付き仮説（未供給）: `hcd`（`HftObCDT`）、`EnvDefs/EnvCtors/RecFact`、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査）。
 - 次（判断が要る）: 36.3 の 1・2・3 の規則。1・2 は reviewer の許可（狭い規則の範囲）が前提。3 は `DT` の規則の追加（許可範囲内の見込みだが未実装）。根が通ってから kernel 時間・ピークメモリ・項サイズを測る。
+
+## 41. S2p（Issue `sparkle-fg-circuit-pilot` の次の束）: probe の止まり 3（値 entry を頭にした項）の DT 規則
+
+土台 `9191f88b`（S2o）。TRUSTED・axiom・sorry・native_decide・新しい law はない。Issue の状態は変えていない。成果は**条件付き**（`hcd` は未導出）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。S2k・S2n の範囲には触れていない。止まり 1（`Signal.map` の `extractLsb'`）・2（`<<<`/`++` の `Signal.mk`）の規則は足していない（reviewer 待ち）。
+
+### 41.1 止まり 3 の正体（先に）
+
+- 止まり 3 の 2 件（`@ #3 #0` / `@ #4 #0`）を、エラー文に spine の長さと entry を足して調べた: **spine は 0**、entry は `Signal dom (HList …)` 型の**値 entry**（`DT.lam`/`DT.letE` が積んだもの）。つまり「値 entry が**適用される**」のではなく、`Sh` が頭の項を評価した結果が**裸の値変数**（空の spine）に至る（`(fun s => … s) arg` のような恒等的な受け渡し）形。関数値 entry が適用される例は probe に**無い**（`TDt` に関数型が無く、`lam`/`letE` が積む entry は関数型にならない）。したがって規則は「値 entry を頭にした**適用**」ではなく、**空の spine の値変数を結果にする**狭い規則。
+- 狭い規則: **spine 空・値 entry のときだけ**。spine が空でない値 entry（関数値の適用）は引き続き「value entry applied」で失敗（足していない。Check36 の CTRL-VALAPP）。
+
+### 41.2 規則（変更は最小）
+
+- `Tools/ShippingFGCircuitS2iSh.lean`: `Hn.var (ρ) (i)`（結果が環境 `ρ` の値変数 `i`）、`Hn.isVar`、`Sh.bvarV`（`ρ[i]? = some (.val en)`、spine 空、結果 `Hn.var ρ i`）。`Hn.head` は `.var` に対し `(anonymous, [], [])`（`viaSh` は `hnv : hn.isVar = false` で除外）。`sh_fun` を再証明（`bvarC` と `bvarV` は `ρ[i]?` が `clo`/`val` で排他）。
+- `Tools/ShippingFGCircuitS2iDT.lean`: `viaSh` に前提 `hnv : hn.isVar = false` を足し、新規則 `viaVar (hv : viaOK e = true) (hsh : Sh env ρ e [] (Hn.var ρ₀ i)) (h : DT env ρ₀ (.bvar i) r) : DT env ρ e r`（`e` の意味は、評価が至った値変数 `#i` の `ρ₀` での意味 = `bvar` 規則）。一般の高階規則・`Signal.mk` 規則・宇宙の拡張・TRUSTED は無い。
+- 排他性/関数性: `viaVar` は `viaOK e` が真の `e` だけ（直接頭・裸の `bvar`/`lam` は偽）、`viaSh` とは `hnv` で排他（同じ `Sh` 評価 → `sh_fun` で同じ `hn` → `isVar` が真と偽で矛盾）、`bvarClo`/`bvar` は `e` が裸の `bvar` のため `viaOK` が偽で排他。`dt_fun` を**再証明**（`viaVar` の自己ケースと、`viaSh`/`letE`/`bvAbbrev` との排他ケースを追加、再 build 42 s）。`#print axioms`: `sh_fun`・`dt_fun` とも propext/Classical.choice/Quot.sound のみ。
+- 新ファイル `Tools/ShippingFGCircuitS2pValHead.lean`: `sh_var_val`（`Hn.var ρ₀ i` で終わる評価は `ρ₀[i]?` が値 entry）、`bvarV_spine`（値 entry の変数は空でない spine と `Hn.var` に至らない）、`var_not_head`。標準 axiom のみ。
+- 生成器（`S2iGen`）: `Sh.bvarV` と `DT.viaVar` を生成（`ShRes.var`）。値 entry に spine が付くときは「value entry applied」で失敗（fail-closed）。`viaSh` に `hnv` を渡す。`viaN` は viaSh と viaVar の合計。
+
+### 41.3 probe の再実行と測定（`kjob lake build Tools.ShippingFGCircuitS2iProbe`、cap なし）
+
+| 項目 | S2o（§36.3） | S2p |
+|---|---|---|
+| DT 節点 | 5282 | 5285（`viaVar` 15 件を含む） |
+| Sh 歩数 | 72012 | 72003（`bvarV` 3） |
+| viaSh（+viaVar） | 920 | 935（viaSh 920 + viaVar 15） |
+| 生成時間 | 2.5 s | 約 2.0 s |
+| ピーク RSS | 約 2.37 GB | 約 2.38 GB（2376552 kB、Lean 環境込み） |
+| 止まり（重複除去後） | 13 | **11** |
+
+- 残る止まり 11 件: 1（`Signal.map` の `extractLsb'`）7 件、2（`Signal.mk`、`<<<` 2 件と `++` 2 件）4 件、**3（値 entry）0 件**。
+- よって `derive_hft_t` はまだ成功しえず、`hcd`（`HftObCDT`）は**未導出**。根の kernel 時間・項サイズは**未測定**（止まりのため根の項が作れない）。
+
+### 41.4 Check36（`Tests/Gen5/FGCircuitPilotCheck36.lean`、軽量）
+
+- AXIOMS ok 1 行（`sh_fun`/`dt_fun`/`cdt_fun`/`tdt_fun`/`cdt_eq`/`sh_var_val`/`bvarV_spine` は標準 axiom のみ）。
+- 正の例 3 つ（生成器が出した項を kernel が検査、同じ報告文）: VALHEAD（`let x := false; (fun y => y) x`）、VALHEAD-PAIR、VALHEAD-NEST（2 つの値束縛、異なる entry）。DAG 219 / 283 / 372、kernel 0 ms。
+- 負の対照 3 つ（期待したエラー文で失敗、定理は追加されない。生成器の失敗であって導出不能の定理ではない）: CTRL-VALAPP（値 entry に引数: «value entry applied»）、CTRL-SIGNALMK（`Signal.mk` はなお規則なし: «has no rule»）、CTRL-UNBOUND（«not bound»）。
+- Check29 も変わらず通る（AXIOMS ok 1 行、正 8、対照 4）。
+
+### 41.5 仮説・次
+
+- 名前付き仮説（未供給）は §36.5 のまま（`hcd`、`EnvDefs/EnvCtors/RecFact`、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査））。`Sh.bvarV` も監査対象（値変数が結果のときの意味は `bvar` 規則に委ねる）。
+- 次（reviewer 判断）: 止まり 1・2 の狭い規則を許すか。許されれば残り 11 件が解け、根の導出と kernel 時間・項サイズの測定に進める。
