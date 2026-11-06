@@ -88,7 +88,7 @@ def ExpCheckedInl (needShape needG1 needG2 needData : Bool) (dataInl : Bool) : P
     (if needG1 then (certifiedShape? false [] (.defnInfo d)).isNone = true ∧ (mixedCertifiedShape? false [] (.defnInfo d) (instancePredicate env₀)).isNone = true else True) →
     (if needG2 then (certifiedShape? false [] (.defnInfo { d with value := V', type := T })).isNone = true ∧
       (mixedCertifiedShape? false [] (.defnInfo { d with value := V', type := T }) (instancePredicate env₀)).isNone = true else True) →
-    (if needData then dataOfAt lvl (.defnInfo (if dataInl then { d with value := V', type := T } else d)) (structEnv env₀) dd.shape = some dd else True) →
+    (if needData then Tools.ShippingGen5DataOf.dataOfAt lvl (.defnInfo (if dataInl then { d with value := V', type := T } else d)) (structEnv env₀) dd.shape = some dd else True) →
     CheckedEnv lvl env₀ X T V dd
 def CheckedInlTrue := ExpCheckedInl true true true true true
 def MutCInlNoShape := ExpCheckedInl false true true true true
@@ -152,10 +152,10 @@ def ExpCheckedFin (X : Name) (T V Vi : Lean.Expr) (dd ddBody : MachineData) (pn 
   ∀ (lvl : Lean.Expr → Nat) (env₀ : Environment), lvl ddBody.shape.body = fuel →
     (if needX then RootExtern xV else True) → (if needF then RootEnvFacts env₀ X T V Vi dd pn else True) →
       CheckedEnv lvl env₀ X T V dd
-abbrev S4M := shift4Loop.machineData
-abbrev ENM := counterEnableLoop.machineData
-abbrev ARM := Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData
-abbrev ARN := Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
+noncomputable abbrev S4M := shift4Loop.machineData
+noncomputable abbrev ENM := counterEnableLoop.machineData
+noncomputable abbrev ARM := Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData
+def ARN : Name := ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
 def CFS4True := ExpCheckedFin ``shift4Loop shift4LoopType shift4LoopValue shift4LoopValue S4M S4M ``Sparkle.Core.Signal.Signal.register 1000000 shift4LoopValue true true
 def MutCFS4Data := ExpCheckedFin ``shift4Loop shift4LoopType shift4LoopValue shift4LoopValue ENM S4M ``Sparkle.Core.Signal.Signal.register 1000000 shift4LoopValue true true
 def MutCFS4Val := ExpCheckedFin ``shift4Loop shift4LoopType counterEnableLoopValue shift4LoopValue S4M S4M ``Sparkle.Core.Signal.Signal.register 1000000 shift4LoopValue true true
@@ -170,14 +170,14 @@ def MutCFENName := ExpCheckedFin ``counterEnableLoop counterEnableLoopType count
 def MutCFENFuel := ExpCheckedFin ``counterEnableLoop counterEnableLoopType counterEnableLoopValue counterEnableLoopValue ENM ENM ``Sparkle.Core.Signal.Signal.loop 999999 counterEnableLoopValue true true
 def MutCFENNoX := ExpCheckedFin ``counterEnableLoop counterEnableLoopType counterEnableLoopValue counterEnableLoopValue ENM ENM ``Sparkle.Core.Signal.Signal.loop 1000000 counterEnableLoopValue false true
 def MutCFENNoF := ExpCheckedFin ``counterEnableLoop counterEnableLoopType counterEnableLoopValue counterEnableLoopValue ENM ENM ``Sparkle.Core.Signal.Signal.loop 1000000 counterEnableLoopValue true false
-def CFATrue := ExpCheckedFin ``ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterInlinedValue true true
-def MutCFAData := ExpCheckedFin ``ARN arbiterType arbiterValue arbiterInlinedValue ENM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterInlinedValue true true
-def MutCFAUninlined := ExpCheckedFin ``ARN arbiterType arbiterValue arbiterValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterValue true true
-def MutCFAExternOnValue := ExpCheckedFin ``ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterValue true true
-def MutCFAName := ExpCheckedFin ``ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.register 1000000 arbiterInlinedValue true true
-def MutCFAFuel := ExpCheckedFin ``ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 999999 arbiterInlinedValue true true
-def MutCFANoX := ExpCheckedFin ``ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterInlinedValue false true
-def MutCFANoF := ExpCheckedFin ``ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterInlinedValue true false
+def CFATrue := ExpCheckedFin ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterInlinedValue true true
+def MutCFAData := ExpCheckedFin ARN arbiterType arbiterValue arbiterInlinedValue ENM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterInlinedValue true true
+def MutCFAUninlined := ExpCheckedFin ARN arbiterType arbiterValue arbiterValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterValue true true
+def MutCFAExternOnValue := ExpCheckedFin ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterValue true true
+def MutCFAName := ExpCheckedFin ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.register 1000000 arbiterInlinedValue true true
+def MutCFAFuel := ExpCheckedFin ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 999999 arbiterInlinedValue true true
+def MutCFANoX := ExpCheckedFin ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterInlinedValue false true
+def MutCFANoF := ExpCheckedFin ARN arbiterType arbiterValue arbiterInlinedValue ARM ARM ``Sparkle.Core.Signal.Signal.loop 1000000 arbiterInlinedValue true false
 
 /-- `X_final11` (the three roots share the hypotheses of the structures; knobs as in `counterLoop_final11`, plus the root of the head, the extern value, the facts' arguments) -/
 def ExpF11S (hhw rdw : W → W → W) (eC : Environment → ST.Ref IO.RealWorld Core.State → W → W → Environment) (headRoot : Name) (lvlBody : Lean.Expr) (postRoot : Name)
@@ -299,7 +299,7 @@ def M11ANoB := ExpF11A (fun w _ => w) (fun w _ => w) ZS ``Sparkle.IP.Arbiter.Rou
 def M11ANoCont := ExpF11A (fun w _ => w) (fun w _ => w) ZS ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal ARM.shape.body ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal true true true arbiterInlinedValue arbiterType arbiterValue arbiterInlinedValue ARM ``Sparkle.Core.Signal.Signal.loop true false
 def M11AFactsUninlined := ExpF11A (fun w _ => w) (fun w _ => w) ZS ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal ARM.shape.body ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal true true true arbiterInlinedValue arbiterType arbiterValue arbiterValue ARM ``Sparkle.Core.Signal.Signal.loop true true
 
-def whitelistExtra : List Name := [``PB, ``idE, ``S4M, ``ENM, ``ARM, ``ARN, ``Tests.Gen5.FGCircuitPilotCheck7.ZS, ``Tests.Gen5.FGCircuitPilotCheck7.ZE, ``Tests.Gen5.FGCircuitPilotCheck5.GPd,
+def whitelistExtra : List Name := [``PB, ``idE, ``S4M, ``ENM, ``ARM, ARN, ``Tests.Gen5.FGCircuitPilotCheck7.ZS, ``Tests.Gen5.FGCircuitPilotCheck7.ZE, ``Tests.Gen5.FGCircuitPilotCheck5.GPd, ``ARN,
   -- definitions under test
   ``HeadAt, ``RootInEnv, ``GatesOnDecl, ``ReaderOnDecl, ``EntryOfDecl, ``peeledBody]
 
