@@ -142,9 +142,21 @@ theorem hftCallDec_of_readers (lvl : Lean.Expr → Nat) (env : Environment)
       rw [hpd, hkD]
       exact hft_width1 o (by have : cpT.d.shape.layout.outs = [o] := ho; rw [hdT] at this; rw [this]; exact List.mem_singleton_self o)
 
+open Tools.ShippingFGCircuitS1iEnv Tools.ShippingEntryReadsLinked in
+/-- **`hdec` from the checked start** (the form S2k consumes): the root's reader is `startFacts_of_checked` of `hchk` and the root being found in the start environment (from the run, `root_find_of_headAtOff`); the children's readers `hreadH/T` are the existing premises of the final statement. -/
+theorem hftCallDec_of_checked {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (lvl : Lean.Expr → Nat) (env₀ : Environment) {w : Void IO.RealWorld}
+    (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+    (hfind : ∃ ci : ConstantInfo, (envAt cref w).find? hftRoot = some ci)
+    (hreadH : RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData)
+    (hreadT : RootReader lvl (envAt cref w) hftTlp tlpCplByte.machineData) :
+    HftCallDec (ι := ι) lvl (envAt cref w) :=
+  hftCallDec_of_readers lvl _ (startFacts_of_checked hchk hfind).2.2 hreadH hreadT
+
 end Main
 
 end Tools.ShippingFGCircuitS2lDec
 
 #print axioms Tools.ShippingFGCircuitS2lDec.callDec_of_oneOutCall
 #print axioms Tools.ShippingFGCircuitS2lDec.hftCallDec_of_readers
+#print axioms Tools.ShippingFGCircuitS2lDec.hftCallDec_of_checked
