@@ -1647,7 +1647,7 @@ def HftKidsGateFacts (e : Environment) : Prop :=
 
 | 名前 | 内容 |
 |---|---|
-| `http_gates_V`、`http_gates_Vi`、`tlp_gates_V`、`tlp_gates_Vi` | 閉じた宣言（型 `T`、値 `V` または inliner 後の `Vi`）上で `certifiedShape?` と `mixedCertifiedShape?` が `none`。**kernel 評価**（`with_unfolding_all rfl`）。インスタンス述語 `ip` は抽象のままで、`ip (peeled V) = false` の 1 点だけを使う（他の点は問われない: 証明が通ったことが根拠） |
+| `http_gates_V`、`http_gates_Vi`、`tlp_gates_V`、`tlp_gates_Vi` | 閉じた宣言（型 `T`、値 `V` または inliner 後の `Vi`）上で `certifiedShape?` と `mixedCertifiedShape?` が `none`。**kernel 評価**（`with_unfolding_all rfl`）。インスタンス述語 `ip` は抽象のままで、証明が必要とする `ip` に関する仮説は `ip (peeled V) = false` のその 1 点だけである（証明が通ったことが根拠。「他の点は問われない」という主張ではない） |
 | `entryGates_of_two` | `RootInEnv`、inliner の 2 事実、「宣言上の gate」と「inliner 後の宣言上の gate」から `EntryGates env X`。`entryConst` はどちらを返しても gate が通る（`machineShape?` の評価は不要。S1l の `entryOfDecl_inl` の `hs` を要さない） |
 | `httpGate_of_facts`、`tlpGate_of_facts`、`hftKidsGates_of_facts` | `KidGateFacts` から `EntryGates`、`HftKidsGateFacts e → HftKidsGates e` |
 | `HftFinalStmtOffLNKKG`、`synth_hftPcieOutByte_finalOffLNKKG`（`_Z/_Y/_X`） | S2d の最終文の `hkgates : HftKidsGates (envAt cref w)` を `hkgfacts : HftKidsGateFacts (envAt cref w)` に替えたもの |
@@ -1658,7 +1658,7 @@ def HftKidsGateFacts (e : Environment) : Prop :=
 
 `hkgfacts : HftKidsGateFacts (envAt cref w)`（FG D.T-4g）: 被呼び出し 2 つ × 5 事実 = **10 の環境の事実**（`envAt cref w` の 1 つの環境に対し、各事実は 1 つの閉じた項または 1 つの名前での問い合わせ）。all-world の law ではなく、`ReadsAt`/`Start`/`CheckedStart` は含まない。Check27 が build の環境で 10 事実すべてを観測（MetaM、供給ではない）。残りは S2d から変わらない `hkenv`（D.T-4k）、`HftRootLink`（S2c）、`hcd`（S2b）、`htop`、`hreadH`/`hreadT`、`hchk`、`CellPrem`、`Laws`/`Start`/`hr`。
 
-### 33.4 Check27 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck27`、exit 0、933 jobs）
+### 33.4 Check27 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck27`、exit 0。**933 jobs は S2g の作業中のビルドの job 数**。提出 SHA を再検証したビルドは別の実行で **934 jobs**（レビュアーの再検証の数。S2k で区別を明記）。二つを同じ実行として読まない）
 
 - `FGCIRCUIT27 SIGNATURES-A`: `KidGateFacts` の構成子の型と `HftKidsGateFacts` を独立に書いた `ExpKGF`/`ExpHK` と照合。**13 mutant 棄却**（点を値全体に、inliner 後の点を落とす、root を落とす、inliner の型の事実を落とす、値を宣言に結ばない、quote の入れ替え、名前の入れ替え、片方の被呼び出しを 2 回、片方のみ、値全体の点、`True`）。
 - `FGCIRCUIT27 SIGNATURES-B`: `finalOffLNKKG_Z` の 14 仮説、`hkgfacts` が最後、`hkenv`/`hreadH`/`hreadT` は不変、`MachineDefines`/`HftKidsDefine`/`MachineCloses`/`Start`/`ReadsAt`/`CheckedStart` が `hkgfacts` から到達不能、S2d の文と違う。**17 構造検査**。`FGCIRCUIT27 HYPS`（14 個）。
