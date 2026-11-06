@@ -1847,7 +1847,7 @@ hftCoreCloses_of_kidsR (L : Laws mref cref) {w} (hstart : Start L mctx cctx w) (
   (hT : TeleR L.O (envAt cref w) w) (hs : ProfStepR L.O w) (h0 : ProfOffW mref cref w) : HftCoreCloses mctx mref cctx cref w
 ```
 
-`hftCoreCloses_of_kidsH`（19 binder 中 13）の `hmiss : MissE L.O (KidEv mref cref (envAt cref w))` が、上の 7 仮説（`hadm hdown hD hG hT hs h0`）に替わった。`L.T` は使っていない（`TeleR` が代わる）。`hstart.2.1`（`JQ L.O.quiet 0 w`）が root の `JQ (quietR …) 0 w` を作る。最終文（`finalOffLNKH` 系）には**接続していない**（S2k が持つ。この定理を `hftCoreCloses_of_kidsH` の代わりに入れれば、`hmiss` が上の 7 仮説に替わる）。
+`hftCoreCloses_of_kidsH`（binder 13）の `hmiss : MissE L.O (KidEv mref cref (envAt cref w))` が、上の 7 仮説（`hadm hdown hD hG hT hs h0`）に替わった。`L.T` は使っていない（`TeleR` が代わる）。`hstart.2.1`（`JQ L.O.quiet 0 w`）が root の `JQ (quietR …) 0 w` を作る。最終文（`finalOffLNKH` 系）には**接続していない**（S2k が持つ。この定理を `hftCoreCloses_of_kidsH` の代わりに入れれば、`hmiss` が上の 7 仮説に替わる）。
 
 ### 39.6 正直な範囲
 
