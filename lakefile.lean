@@ -6511,3 +6511,24 @@ lean_lib «Tools.ShippingFGCircuitS2bMachine» where
 
 lean_lib «Tools.ShippingFGCircuitS2bNative» where
   roots := #[`Tools.ShippingFGCircuitS2bNative]
+
+lean_lib «Tools.ShippingFGCircuitS2iSh» where
+  roots := #[`Tools.ShippingFGCircuitS2iSh]
+
+lean_lib «Tools.ShippingFGCircuitS2iDT» where
+  roots := #[`Tools.ShippingFGCircuitS2iDT]
+
+lean_lib «Tools.ShippingFGCircuitS2iDTFun» where
+  roots := #[`Tools.ShippingFGCircuitS2iDTFun]
+
+lean_lib «Tools.ShippingFGCircuitS2iTbl» where
+  roots := #[`Tools.ShippingFGCircuitS2iTbl]
+
+lean_lib «Tools.ShippingFGCircuitS2iGen» where
+  roots := #[`Tools.ShippingFGCircuitS2iGen]
+
+lean_lib «Tools.ShippingFGCircuitS2iRun» where
+  roots := #[`Tools.ShippingFGCircuitS2iRun]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck29» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck29]
