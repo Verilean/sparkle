@@ -12,7 +12,7 @@ With child instances the design is NOT irrelevant: `TopShips` reads `D` through 
 The printed design is `D' = topMap … D` (`PostEntry`): the top module (named `raw.name`) is replaced, every other module is looked up as before.  So the transport holds when no instance below the top, in `raw`, in `b` and in `checkedOptimize b`, names the top module (`NoRawBelow`):
 * `topShips_transport`: `TopShips p n X b raw D → TopShips p n X b raw D'` from `PostEntry`, `NoRawBelow D raw.name (n+1) raw`, `NoRawBelow D raw.name (n+1) (checkedOptimize b)` and "no instance of `b.body` names the top".
   The pieces are the existing conditional lemmas (`resetNk_transport`, `runModuleTG_transport`, `postEntry_lookup_ne`); what is new is the lift to `TopShips` and `bodyInstOuts`.
-* `noRawBelowB` is a computable checker for `NoRawBelow` (`noRawBelowB_sound`); the premises of `topShips_transport` are then evaluated on the design a real compile produced (Check8 SNAPSHOT8, `synth_hftPcieOutByte`'s own design), instead of being assumed.
+* `noRawBelowB` is a computable checker for `NoRawBelow` (`noRawBelowB_sound`); the premises of `topShips_transport` can be evaluated on the design of a compile of the probe `hftOutProbe` (Check8 SNAPSHOT8b). That evaluation is a MetaM observation of one run; it is not a kernel supply of the hypotheses, which stay hypotheses.
 What this does NOT supply: `TopShips p n X b raw D` itself for a non-leaf (the machine route with `insts ≠ []`: `LeafFacts` is leaf-only), the child packages, `hsrc` (`ExtStage` induction instead of `ExtStage … 0 = id`). -/
 namespace Tools.ShippingFGCircuitS1iChild
 open Lean Sparkle.Core Sparkle.Core.Domain Tools.ShippingGen2 Tools.ShippingGen5FG

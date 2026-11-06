@@ -474,9 +474,9 @@ run が実際に到達する地点は 3 つ: `getConstInfo X`（world `w1`）、
 
 `coreHead X` は一直線の MetaM 動作: `IO.getEnv "SPARKLE_PROFILE"`、（変数があるときだけ）stderr とファイルへのログ IO、副キャッシュ（`SideRef`）と `sparkleSynthDepth`/`sparkleChildCache` の `ST.Ref.get/set`、深さ制限の `throwError`。
 - **導けた部分**: `envFrame_coreHead X (hcell : CellPrem MkRefd mref cref) (hio : HeadIO …) : EnvFrame (coreHead X)`。`ST.Ref` の get/set と `throwError` は `CellPrem`（`ReadWorld` と `CellOK`）から出る（join point を含む do ブロック全体を、構文に沿った小さな tactic `ef_step` で分解。`letFun`/`ite`/`bind`/`pure`/get/set/throwError の 7 種）。
-- **導けない部分 = `HeadIO`（名前付きの 2 つの IO 事実）**: (1) `EnvFrame (liftM (IO.getEnv "SPARKLE_PROFILE"))`、(2) `∀ msg, EnvFrame (liftM (profLogIO true msg))`（`profLogIO false` は `pure ()` として証明済み）。足りないもの: 既存の法則はどれも IO 動作の `envAt cref` を語らない。`Laws` の `frame`/`frameQ`/`same`（`FramedA.ioEnv`）は `cv`/`sv`/`dv`/quiet だけ、`QuietStrength` は強化した `L'` の連言として `ReadsAt` を足すだけで、`frameQ_plus` は class-D の行（`DRow.ioEnv`）を `¬ DRow p` で除外している。`ReadWorld` は `ST.Ref` の get の法則。つまり「IO.getEnv とログ IO は `cref` のセルを変えない」は不透明な 2 つの IO primitive の性質で、`Laws`/`CellPrem`/`QuietStrength`/`ReadWorld` から出ない。
+- **現時点で供給経路が見つかっていない部分 = `HeadIO`（2件のIO動作の義務）**: (1) `EnvFrame (liftM (IO.getEnv "SPARKLE_PROFILE"))`、(2) `∀ msg, EnvFrame (liftM (profLogIO true msg))`（`profLogIO false` は `pure ()` として証明済み）。足りないもの: 既存の法則はどれも IO 動作の `envAt cref` を語らない。`Laws` の `frame`/`frameQ`/`same`（`FramedA.ioEnv`）は `cv`/`sv`/`dv`/quiet だけ、`QuietStrength` は強化した `L'` の連言として `ReadsAt` を足すだけで、`frameQ_plus` は class-D の行（`DRow.ioEnv`）を `¬ DRow p` で除外している。`ReadWorld` は `ST.Ref` の get の法則。つまり「IO.getEnv とログ IO は `cref` のセルを変えない」は、(1) は `IO.getEnv` 1 件、(2) は profile ログ（複数の IO 動作の合成。「2 個の primitive」ではない）についての義務で、`Laws`/`CellPrem`/`QuietStrength`/`ReadWorld` からは**供給経路が今のところ見つかっていない**（導出不能の証明はない）。
 - **最小の形**: `HeadAt X mctx mref cctx cref w`（`coreHead` の run が開始 world `w` から到達する world だけ: `∀ s w1, RunsTo (coreHead X) … w s w1 → envAt cref w1 = envAt cref w`）。`headAt_of_frame`（`EnvFrame` から）、`headAt_of_cellPrem`（`CellPrem` + `HeadIO` から）。`readsAt_after_headAt`、`root_find_of_headAt`、`machineDefinesLinked_of_headAt`/`_of_reader_headAt`、`counterLoop_final9`（final8 の `hhead : EnvFrame` を `HeadAt X w` に）、`counterLoop_final9C`（`CellPrem` + `HeadIO` から）。
-- 減ったもの: 全 world の `EnvFrame (coreHead X)` が、run の開始 world 1 点の `HeadAt`、あるいは（`CellPrem` が供給される前提で）2 つの IO 事実になった。`hr` は前件のまま。
+- 減ったもの: 全 world の `EnvFrame (coreHead X)` が、run の開始 world 1 点の `HeadAt`、あるいは（`CellPrem` が供給される前提で）2件のIO動作の義務（`HeadIO`）になった。`hr` は前件のまま。
 
 ### 14.2 作業 2: `CheckedStart`（env₀ と開始環境を 1 つの名前付き前提に）
 
@@ -493,17 +493,18 @@ run が実際に到達する地点は 3 つ: `getConstInfo X`（world `w1`）、
 ### 14.4 作業 4: 非 leaf の root（`synth_hftPcieOutByte`）
 
 - 実装: `topShips_transport`（`S1iChild.lean`）: `TopShips p n X b raw D → TopShips p n X b raw D'` を、`PostEntry b raw D D'`、`NoRawBelow D raw.name (n+1) raw`、`NoRawBelow D raw.name (n+1) (checkedOptimize b)`、「`b.body` の instance は top を指さない」から導く。既存の `resetNk_transport`、`runModuleTG_transport`、`postEntry_lookup_ne` を使い、新しいのは `TopShips` への持ち上げと `bodyInstOuts_congr`。`designTransport_of_noRawBelow`（`DesignTransport` の形）。計算できる検査器 `noRawBelowB`（`noRawBelowB_sound`）と `instsNeB`（`instsNeB_sound`）で、側条件を実際の出力で評価できる。
-- leaf の補題で済まないもの（実装で確かめた）: `topShips_design_irrel`/`designTransport_of_leaf` は `raw`/`b`/`checkedOptimize b` が instance-free であることで設計 `D` を無視する。instance があると `TopShips` は `childMap D.modules`、`ResetNk n raw D kids`、`bodyInstOuts (childMap D.modules) b.body` を通して `D` を読む。`D' = topMap … D` は top（`raw.name`）だけを置き換えるので、移送は「top を指す instance が下にない」（`NoRawBelow`）に帰着する。この文は `raw`/`b` の中身（instance の targets）についての事実で、leaf では機械 trace から instFree を読んだ（`leaf_instFree_of_run`）が、非 leaf では**読む補題がない**ので、`topShips_transport` の仮説として残る。
-- SNAPSHOT8b（`synth_hftPcieOutByte` の本体、実際の compile）: machine 経路（certified none、mixed none、`machineShape?` some、insts 2、slots 17）。raw の instance は `httpGetByte` と `tlpCplByte`、`D₀`/`D'` の modules は等しい（top は含まれない）、`b = dropZeroWidth raw`（PostEntry の第 1 項）。`noRawBelowB` は raw と `checkedOptimize b` で深さ 1〜6 すべて true、`instsNeB` true。対照（子を top に見立てる）は false。これは**1 回の compile の値**で、任意の run の kernel の文ではない。
-- 残る（未実装）: (1) `TopShips p n X b raw D` 自体（machine 経路で `insts ≠ []`。`LeafFacts` が leaf 専用）、`NoRawBelow` を run から出す補題（instance の module 名の分離。階層が非巡回であることが要る）。(2) 子ごとの package（`genGP` の `Acc (CallRel K) X`）、`RootReader`/`machine_closes`/`MachineDefines`。(3) `hsrc`: `src_eq_of_states` は `ExtStage … 0 = id`（`insts = []`）を使う。非 leaf は `ExtStage … k` を子の package の `src` に結ぶ帰納が要る（`ShippingGen5SemExt` の `calleeOut`/`ExtStage_succ` が材料）。(4) `machineData` が `insts` 付きで正しいか（`dataOfAt` の評価）。
+- leaf の補題で済まないもの（実装で確かめた）: `topShips_design_irrel`/`designTransport_of_leaf` は `raw`/`b`/`checkedOptimize b` が instance-free であることで設計 `D` を無視する。instance があると `TopShips` は `childMap D.modules`、`ResetNk n raw D kids`、`bodyInstOuts (childMap D.modules) b.body` を通して `D` を読む。`D' = topMap … D` は top（`raw.name`）だけを置き換えるので、移送は「top を指す instance が下にない」（`NoRawBelow`）に帰着する。この文は `raw`/`b` の中身（instance の targets）についての事実で、leaf では機械 trace から instFree を読んだ（`leaf_instFree_of_run`）が、非 leaf では**読む補題が今のところ見つかっていない**ので、`topShips_transport` の仮説として残る。`NoRawBelow` は「top に戻らない」条件で、グラフ全体の非巡回性は十分条件の一候補にすぎず、必須とは言わない。`designTransport_of_noRawBelow` は**全 n** の `NoRawBelow` を要求し、SNAPSHOT8b の深さ 1〜6 の評価はそれを供給しない。
+- SNAPSHOT8b（**プローブ `hftOutProbe`**＝`(hftPcieLoop ..).outByte` の compile。private な `synth_hftPcieOutByte` 自身ではない。S1l で記録訂正）: machine 経路（certified none、mixed none、`machineShape?` some、insts 2、slots 17）。raw の instance は `httpGetByte` と `tlpCplByte`、`D₀`/`D'` の modules は等しい（top は含まれない）、`raw` は `synthesizeCombinationalCore`、`b`/`D'` は外側の `synthesizeCombinational` の**別々の 2 回の実行**で、比べたもの。PostEntry は `dropZeroWidth` **または** `mergeChecked` の選言で、どちらの枝が成り立ったかは Check8 が計算してログに出す（S1l）。同一 run の PostEntry の証拠とは数えない。`noRawBelowB` は raw と `checkedOptimize b` で深さ 1〜6 すべて true、`instsNeB` true。対照（子を top に見立てる）は false。これは**プローブの 2 回の実行の値**で、任意の run の kernel の文ではない。
+- `CheckedStart`（root/gates/reader/link を 1 つの binder に束ねたもの）は束ねただけで、前提の**減算ではない**（台帳に数えない）。
+- 残る（未実装）: (1) `TopShips p n X b raw D` 自体（machine 経路で `insts ≠ []`。`LeafFacts` が leaf 専用）、`NoRawBelow` を run から出す補題（instance の module 名の分離。非巡回性は十分条件の一候補で必須とは断言しない）。(2) 子ごとの package（`genGP` の `Acc (CallRel K) X`）、`RootReader`/`machine_closes`/`MachineDefines`。(3) `hsrc`: `src_eq_of_states` は `ExtStage … 0 = id`（`insts = []`）を使う。非 leaf は `ExtStage … k` を子の package の `src` に結ぶ帰納が要る（`ShippingGen5SemExt` の `calleeOut`/`ExtStage_succ` が材料）。(4) `machineData` が `insts` 付きで正しいか（`dataOfAt` の評価）。
 
 ### 14.5 Check8 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck8`、909 jobs、exit 0）
 
-- `FGCIRCUIT8 SIGNATURES`: `envFrame_coreHead`、`root_find_of_headAt`、`machineDefinesLinked_of_headAt`、`counterLoop_final9`/`9C`、`CheckedEnv.mk`、`CheckedStart.mk`、`HeadIO.mk`、`startFacts_of_checked`、4 root の `X_final10`、`boundaryRows_of_contains`、`topShips_transport`、`noRawBelowB_sound`、`instsNeB_sound` の完全型（仮説・結論・binder の種類）を独立に書いて `isDefEq` で照合。66 mutant 棄却: 別の root の head、別の run の world（end world）での head / `ReadsAt` / `CheckedStart`、接続を切ったもの（head 事実・cell・IO 事実・link・`NoRawBelow` の欠落）、別の env / root / Post / data、別の root の final 定理、移送の逆向き。
-- `FGCIRCUIT8 MDLBODY`（S1j、S1h 指摘 2）: `MachineDefinesLinked` の定義の本文の独立な写し `MDLBody` と一致することを確認した上で、本文を比べる対照 3 件を、SIGNATURES の 66 とは別に数えて棄却（3 mutant）: (a) 連鎖の前半（coreHead / getConstInfo / getEnv）の全削除、(b) `coreHead` の開始を独立した world `u` に替えたもの、(c) 本文（`synthesizeFromConst`）の開始を独立した world `u` に替えたもの。
+- `FGCIRCUIT8 SIGNATURES`（66 mutant。head/ReadsAt/CheckedStart の「end world」対照は**同じ run の終点 w'** で、MDLBODY の独立 world `u` 対照とは別物）: `envFrame_coreHead`、`root_find_of_headAt`、`machineDefinesLinked_of_headAt`、`counterLoop_final9`/`9C`、`CheckedEnv.mk`、`CheckedStart.mk`、`HeadIO.mk`、`startFacts_of_checked`、4 root の `X_final10`、`boundaryRows_of_contains`、`topShips_transport`、`noRawBelowB_sound`、`instsNeB_sound` の完全型（仮説・結論・binder の種類）を独立に書いて `isDefEq` で照合。66 mutant 棄却: 別の root の head、同じ run の終点（end world w'）での head / `ReadsAt` / `CheckedStart`、接続を切ったもの（head 事実・cell・IO 事実・link・`NoRawBelow` の欠落）、別の env / root / Post / data、別の root の final 定理、移送の逆向き。
+- `FGCIRCUIT8 MDLBODY`（S1j、S1h 指摘 2）: `MachineDefinesLinked` の定義の本文の独立な写し `MDLBody` と一致することを確認した上で、本文を比べる対照 3 件を、SIGNATURES の 66 とは別に数えて棄却（3 mutant）: (a) 連鎖の前半（coreHead / getConstInfo / getEnv）の全削除、(b) `coreHead` の開始を独立した world `u` に替えたもの（独立 u 対照）、(c) 本文（`synthesizeFromConst`）の開始を独立した world `u` に替えたもの。
 - `FGCIRCUIT8 HYPS` / `REMAINING`: 各 final の仮説名と型。`hquiet`・`GetEnvFrame`・全 world の `EnvFrame`・`hdRun`・`MachineDefinesLinked`・`hsrc`・`DesignTransport`・`hw` は仮説に無い。
 - `FGCIRCUIT8 AXIOMS`: 27 名、標準 axiom のみ。
-- `FGCIRCUIT8 SNAPSHOT8a/8b/8c`: 上のとおり。1 環境・1 compile の値で、全前提が同時に成り立つ例ではない。
+- `FGCIRCUIT8 SNAPSHOT8a/8b/8c`: 上のとおり（8b はプローブ `hftOutProbe` の 2 回の実行）。1 環境・プローブの実行の値で、全前提が同時に成り立つ例ではない。
 
 ### 14.6 残る仮説と次の束
 
@@ -552,4 +553,93 @@ run が実際に到達する地点は 3 つ: `getConstInfo X`（world `w1`）、
 
 ### 15.5 残り
 
-`hcd`（`CD` の規則）、`hsrc`（`ExtStage` 帰納）、`htop`（machine 経路 `TopShips`、子の package/`ChildShips`/`ResetNk`、root の closing の供給）、`hnoraw`（run から非巡回を出す）、`hreadH`/`hreadT` の `ReaderAt env₀` + `ContainsAt` への還元（S1i の root と同様）、S1i までの `HeadIO`・`reader`/`gates` の kernel 化。
+`hcd`（`CD` の規則）、`hsrc`（`ExtStage` 帰納）、`htop`（machine 経路 `TopShips`、子の package/`ChildShips`/`ResetNk`、root の closing の供給）、`hnoraw`（run から「top に戻らない」を出す。全体の非巡回性は十分条件の一候補で、必須とは言わない）、`hreadH`/`hreadT` の `ReaderAt env₀` + `ContainsAt` への還元（S1i の root と同様）、S1i までの `HeadIO`・`reader`/`gates` の kernel 化。
+
+4 root の final10 の仮説: `Laws L`・`hstart`（A.P-02）、`hr`（A.P-04）、`hhead : HeadAt`（C.EN-4: `coreHead` の 2件のIO動作の義務。`CellPrem` + `HeadIO` から）、`hcell : ReadWorld cref`（CellPrem）、`hchk : CheckedStart`（`root` = 型の文、`gates`/`reader` = 1 環境の評価、`link` = DG-ENV C0）、arbiter は `hB0`/`hcont`。
+次: (1) `HeadIO`（2件のIO動作の義務）。(2) `reader`/`gates` の評価を kernel の文に（`dataOfAt` の `partial` helper の外出し）。(3) 非 leaf: `NoRawBelow` を run から出す補題と `TopShips` の machine 経路（insts 付き）、`hsrc` の `ExtStage` 帰納。
+
+## 16. S1l（Issue `sparkle-fg-circuit-pilot` の次の束）: S1i/S1j の記録訂正、counterLoop の CheckedStart を有限入力に接続、HeadIO の完全型
+
+土台 `8b4c135b`（par/fgc-s1）。追加ファイル（既存の定理は書き換えていない。lakefile 登録は 1 回）: `Tools/ShippingFGCircuitS1lReader.lean`、`Tests/Gen5/FGCircuitPilotCheck10.lean`。既存ファイルの変更は記録訂正のみ（`Tests/Gen5/FGCircuitPilotCheck8.lean` の SNAPSHOT8b とラベル、`Tools/ShippingFGCircuitS1iChild.lean` の冒頭コメント、本書 §14）。sorry・axiom・native_decide・TRUSTED・新しい law はない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**で、approved/done ではない。非 leaf の root と §15 は触っていない（S1k）。
+
+### 16.1 作業 A: 記録訂正
+
+- **SNAPSHOT8b**（Check8）: コンパイルしたのは private な `synth_hftPcieOutByte` 自身ではなくプローブ `hftOutProbe`（`(hftPcieLoop ..).outByte`）で、`synthesizeCombinationalCore` と外側の `synthesizeCombinational` を**別々に 2 回**実行して比べている。「ONE compile」「本体 = synth_hftPcieOutByte の」「first disjunct」の断言は外した。`PostEntry` は `dropZeroWidth` **または** `mergeChecked` の選言で、どちらの枝が成り立ったかを計算してログに出すようにした（この build: 両方 true、つまり `mergeChecked` はこの run で恒等）。**同一 run の PostEntry の証拠とは数えない**（`b` と `raw` は別の run）。
+- **`S1iChild` 冒頭**: 「evaluated instead of assumed」を、評価は MetaM での観測で仮説の kernel 供給ではない、に訂正。
+- **Check8 の対照の呼び分け**: SIGNATURES の head/`ReadsAt`/`CheckedStart`/find の対照は**同じ run の終点 w'**（end-world 対照）。MDLBODY の (b)(c) は無関係な独立 world `u`（independent-u 対照）。二つは別物としてラベルを付けた（SIGNATURES の 66 件は end-world 対照を含み、MDLBODY の 3 件は別集計）。
+- **§14 の語**: `HeadIO` は「2件のIO動作の義務」（profile ログは複数の IO 動作の合成）、「導けない」は「現時点で供給経路が見つかっていない」、`NoRawBelow` の非巡回性は十分条件の一候補、`designTransport_of_noRawBelow` は全 n を要求し深さ 1〜6 の snapshot は供給しない、`CheckedStart` の 1 binder への束ねは減算ではない、に直した。
+
+### 16.2 作業 B: counterLoop の CheckedStart（gates / reader）を有限入力に接続
+
+**完全な型（Check10 で独立に書いた文面と isDefEq）。**
+- 一般（どの root でも）: `EntryOfDecl d ip ui se := entryConst true false [] (.defnInfo d) ip ui se`、`GatesOnDecl d ip ui se`（`certifiedShape?` と `mixedCertifiedShape? … ip` が none）、`ReaderOnDecl lvl d ip ui se dd`（`machineShape? … = some dd.shape ∧ dataOfAt lvl … = some dd`）。`checkedEnv_of_decl : RootInEnv env₀ X ty val d → GatesOnDecl d (instancePredicate env₀) (userInliner env₀) (structEnv env₀) → ReaderOnDecl lvl d … dd → CheckedEnv lvl env₀ X ty val dd`。つまり `CheckedEnv.gates`/`reader` は、**閉じた宣言 `d`（`RootInEnv`）と環境由来の 3 引数**についての文になった。
+- counterLoop: 名前付き Prop 2 つ。
+  - `CounterLoopExtern`（環境に依らない閉じた 3 事実）: `packTupleInputs counterLoopValue = counterLoopValue`、`rootFloat counterLoopValue = counterLoopValue`、`counterLoopValue.find? (isAppOfArity runCircuitH 8) = none`。
+  - `CounterLoopEnvFacts env₀`: `∃ d, RootInEnv env₀ counterLoop counterLoopType counterLoopValue d ∧ machineShape? false [] (.defnInfo d) (structEnv env₀) = some counterLoop.machineData.shape`、`userInliner env₀ counterLoopValue = counterLoopValue`、`userInliner env₀ counterLoopType = counterLoopType`、`instancePredicate env₀ counterLoopValue = false`、`(structEnv env₀).proj Signal.loop = none`。
+  - 加えて `hlvl : lvl counterLoop.machineData.shape.body = 1000000`（`ReaderAt` は `lvl` を量化する。これまでの snapshot の fuel の前提を明示した）。
+- `counterLoop_checkedEnv_of_finite lvl env₀ hlvl hx hf : CheckedEnv lvl env₀ counterLoop counterLoopType counterLoopValue counterLoop.machineData`、`counterLoop_final11`（`counterLoop_final10` の `hchk : CheckedStart` を `hlvl hx hf hlink` に替えた形。仮説: `L lvl env₀ hstart hr hhead hcell hlvl hx hf hlink`）。
+
+**kernel が評価したもの（証明済み、標準 axiom のみ）。**
+- gates: `certifiedShape?` は閉じた宣言に対して kernel が評価（`counterLoop_gates`）。`mixedCertifiedShape?` は `instancePredicate` を**値の 1 点だけ**で引く（`unifiedInstanceRoot`/`hierInstRoot` が `isInst e`）ので、`ip counterLoopValue = false` があれば none。`entryConst` が宣言自身になること（`entryOfDecl_eq`: `userInliner` が値と型を固定すれば、`machineShape?` を評価せずに `inlinedConst` が宣言に戻る）。
+- reader のデータ: `mixedGatePeel`、`machRoot`（`proj Signal.loop = none` のとき）、`srcDomOf`（`Expr.find?` の事実のとき）、`machDom?`、`machOuts?`、`dataOfCore`（fuel 1000000）を経て**構造全体** `counterLoop.machineData` まで kernel が評価（`counterLoop_dataOfAt`）。これは DG_DATAOF_FREEZE が「evidence-only」とした kernel instance の 1 件に当たる（ただし 4 つの閉じた事実と `proj` の 1 点を仮説に取った条件付き）。
+- 問い合わせ先の調査: `mixedCertifiedShape?` が `ip` を引くのは値の 1 点のみ、`dataOfAt` が `structEnv` を引くのは `proj Signal.loop` のみ（MetaM で引数にログを付けて実行して確認。`machineShape?` は `prodMatch` 等を多数引くが、これは仮説側）。
+
+**行 ID ごとの残り義務（供給していない。評価は Check10 SNAPSHOT10 で 1 環境について確認しただけ）。**
+
+| 義務 | 内容 | FG 行 |
+|---|---|---|
+| `hx.pack` / `hx.rootFloat` | `partial` の `packTupleInputs` / `rootFloat`（extern の `liftLooseBVars` を呼ぶ）の値。kernel は評価できない | DG-DATAOF T-X、DG-COVER S-COV-FLOAT |
+| `hx.find` | `Expr.find?` は `opaque` の extern。`runCircuitH` を含まない | 行 ID 未割当（T-X と同種の extern 振る舞い。新しい行が要るなら reviewer 判断） |
+| `hf.root` の `machineShape?` | `partial` の機械リーダ（`machConv` 等）。kernel は評価できない | DG-COVER、C.RK-6、C.CV-4（h_A_P06 の shape 部分） |
+| `hf.root` の `RootInEnv` | `env₀` の `X` が型・値の閉じた宣言 | C.EN-4 QuoteFact、DG-ENV |
+| `hf.ui_val` / `ui_ty` | `userInliner env₀` が値・型を固定（`userInliner` は環境を展開する） | DG-ENV |
+| `hf.ip_val` | `instancePredicate env₀`（`@[hardware_module]` 属性表）が値で false | DG-ENV |
+| `hf.proj_loop` | `userProjection? env₀ Signal.loop = none` | DG-ENV |
+| `hlvl` | `lvl` の fuel | DG-DATAOF（Q5） |
+| `hlink` | `ReadsAt env₀ cref w` | DG-ENV C0 |
+| 変更なし | `hstart`（A.P-02）、`hr`（A.P-04）、`hhead`（C.EN-4、§16.3）、`hcell`（C.EN-4 CellPrem） | |
+
+**減ったもの / 減っていないもの。** `CheckedEnv.gates`（`entryGatesB env₀ X = true`）と `reader`（`ReaderAt`）という env₀ 全体への評価文が、閉じた宣言と 3 引数の 1 点ずつの事実（上表）に分かれ、gates と reader のデータ部分は kernel の計算になった。`machineShape?`・`pack`・`rootFloat`・`find?` は kernel で評価できない（現在の方式では未供給。不可能性は証明していない）。仮説の個数は増えた（1 つの `CheckedStart` が 9 つの個別事実になった）ので、台帳には数えない（FG -0 +0 / T1 -0 +0）。
+
+### 16.3 作業 C: HeadIO の完全型と許容する実行範囲
+
+**型（`Tools/ShippingFGCircuitS1iHead.lean` の定義そのまま）。**
+```lean
+structure HeadIO (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
+    (cref : ST.Ref IO.RealWorld Core.State) : Prop where
+  getEnv : EnvFrame (liftM (IO.getEnv "SPARKLE_PROFILE") : MetaM (Option String)) mctx mref cctx cref
+  log : ∀ msg, EnvFrame (liftM (profLogIO true msg : IO Unit) : MetaM Unit) mctx mref cctx cref
+-- EnvFrame x mctx mref cctx cref := ∀ w a w', RunsTo x mctx mref cctx cref w a w' → envAt cref w' = envAt cref w
+```
+2 件の IO 動作の義務: (1) `IO.getEnv "SPARKLE_PROFILE"`、(2) `profLogIO true msg`（`msg` は全ての文字列。複数の IO 動作の合成）。`profLogIO false msg = pure ()` は証明済み（`ef_prof_false`）。成功した run（`RunsTo` は `EST.Out.ok`）だけを問うので、IO 例外で終わる run は対象外。
+
+**許容する実行範囲（この義務が許す IO 動作。これ以外を含む `coreHead` には使えない）。**
+- `IO.getEnv "SPARKLE_PROFILE"`: プロセス環境変数 `SPARKLE_PROFILE` の**読み取りのみ**。他の環境変数の読み書き、`setenv` は含まない。
+- `SPARKLE_PROFILE` が**未設定**のとき: ログ動作は `pure ()`（IO なし）。
+- `SPARKLE_PROFILE` が**設定されている**とき（`profLogIO true msg`）: (a) `IO.eprintln msg`（stderr への書き込み）、(b) `Sparkle.Compiler.flushStderr`（`(← IO.getStderr).flush`）、(c) `IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append`（固定パスのファイルを追記で開く）、(d) `h.putStrLn msg`、(e) `h.flush`。他のファイル・ネットワーク・サブプロセスは含まない。
+- どの動作も `ST.Ref`（`cref`、`mref`）に触れず、`Core.State` の `env` を変えない、が義務の内容。
+
+**必要になる新しい law の凍結ドラフト（【未承認・凍結前のドラフト】。供給済みとして使っていない。コードにも入れていない）。**
+```
+IOHeadFrame (draft, UNAPPROVED, not used):
+  IOHeadAct : (α : Type) → IO α → Prop   -- 閉じた inductive。生成規則は次の 3 つの原始 + 閉包のみ
+    | getEnvProfile : IOHeadAct _ (IO.getEnv "SPARKLE_PROFILE")
+    | profLog       : IOHeadAct _ (profLogIO true msg)   -- ∀ msg
+    | bind / pure   : 上記の bind と pure で閉じる（制御は ite のみ）
+  law IOHeadFrame (mctx mref cctx cref) :
+    ∀ α (x : IO α), IOHeadAct α x → EnvFrame (liftM x : MetaM α) mctx mref cctx cref
+```
+意味: 「列挙した IO 動作を `liftM` した MetaM は `envAt cref` を変えない」。実ランタイムでは `cref` は `ST.Ref` のセルで、列挙した動作は stderr・固定パスのファイル・環境変数の読み取りしか行わず、そのセルを参照しない、という実行モデルの主張（Lean の `IO.getEnv`/`IO.FS.Handle` は外部関数で、kernel の中身が無い）。既存の C.EN-4 `CellPrem`/`QuietStrength`/`Laws` に吸収されるか、新しい行になるかは reviewer の判断。**これが承認されるまで `HeadIO` は仮説のまま**で、`hhead`（`HeadAt`）は引き続き final の仮説である。
+
+### 16.4 Check の出力
+
+`kjob lake build Tests.Gen5.FGCircuitPilotCheck10`（911 jobs、exit 0。Check8 も同じ build で再実行）:
+- `FGCIRCUIT10 SIGNATURES`: `checkedEnv_of_decl`、`CounterLoopExtern.mk`、`CounterLoopEnvFacts.mk`、`counterLoop_dataOfAt`、`counterLoop_gates`、`counterLoop_checkedEnv_of_finite`、`counterLoop_final11` の完全型を独立に書いて `isDefEq` で照合。**27 mutant 棄却**（ゲート/reader/lvl/extern/環境事実の欠落、別の値・型・データ・post root、`ip` の極性、`proj` を引く名前、`runCircuitH` の arity、fuel、end-world 対照＝同じ run の終点 w' での head 開始・link・結論の環境）。
+- `FGCIRCUIT10 HYPS`/`REMAINING`: `counterLoop_final11` の仮説名と型。`hchk : CheckedStart`・`hgatesB`・`hquote`・`hreader` は仮説に無い。
+- `FGCIRCUIT10 AXIOMS`: 13 名、標準 axiom のみ。
+- `FGCIRCUIT10 SNAPSHOT10a/b/c`: 1 環境の評価（仮説の供給ではない）。(a) `CounterLoopExtern` と `CounterLoopEnvFacts` の各事実、`machineShape?` が読んだ `dataOfAt` の全体が `counterLoop.machineData`。(b) `ip` を値以外で全て true、`proj`/`fields` を `Signal.loop` 以外で何か返すように替えてもゲートとデータは不変（問い合わせ先の確認で、独立性の証明ではない）。(c) 別 root の値では別のデータ（または none）、`instancePredicate` は `httpGetByte` で true（`ip_val = false` は空虚ではない）。
+- Check8（再実行）: 66 mutant（SIGNATURES）、MDLBODY 3 mutant、AXIOMS 27 名、SNAPSHOT8b は上記の訂正後の文言。
+
+### 16.5 次
+
+(1) `hx` の 3 事実と `machineShape?` の kernel 供給（`partial` 本体の外出しか、対応する law の凍結）。(2) `CounterLoopEnvFacts` の環境側 4 点（`ui`/`ip`/`proj`/`RootInEnv`）を `ReadsAt`＋属性表の文に落とす。(3) `HeadIO` の凍結ドラフト（§16.3）の reviewer 判断。(4) 他の 3 root（shift4Loop/counterEnableLoop/arbiterSignal）へ `X_final11` を持ち上げる（counterLoop と同じ手順。問い合わせ先は root ごとに調べ直す）。
