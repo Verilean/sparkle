@@ -1211,3 +1211,26 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 - 新しい補助 `Tools/ShippingMachineTeleStates.lean`: `callArgVals`、`callArgsOf`、`teleState`、`machine_states_of_tele_ext`（axiom は標準のみ）。
 
 `kjob lake build Tools.ShippingFGCircuitS1kRoot`（exit 0）で `synth_hftPcieOutByte.machine_arg_0/1`、`machine_states` が生成された（`SPARKLE_MACHINE_PROGRESS` の記録に `not generated` なし）。
+
+### 31.3 手順 3: 証明の分割（`Tools/ShippingFGCircuitS2cLink.lean`）
+
+`HftRootLink` を (a) 呼び出しごと、(b) fused 状態、に次のように分けて使う。
+
+- **型の一致（`ExtStage` 対 Lean の拡張）— 証明済み**: 2 つの入力族は、入力位置 `p < nIn` の宣言された sort（`d.K p`）で一致すれば、`typedVal` が（sort を見て）全位置で一致し、整形な項は同じ値になる（`partial_tagree`、`typedVal_tagree`、`eval_tagree`、`nexts_tagree`、`outs_tagree`、`callArgVals_tagree`）。`ExtStage` は呼び出し結果を位置 `kD + k` の**全ての幅**に置く（`withCall`）が、Lean の `machineExt`（`extendBits`）はその呼び出しの幅にだけ置く。データの項は宣言された幅でしか読まないので、一致するのは宣言された sort だけでよい（既存の `typedVal_let_agree` は全幅の一致を要求するので使えない。新しく証明した）。
+- **子の観測は入力の（その時刻・宣言された sort の）値だけで決まる — 証明済み**: `kid_pw`（子の `machine_result` と上の一致から）、`http_pw`、`tlp_pw`（`httpGetByte`/`tlpCplByte` の Lean の呼び出しの値は、引数の Signal のその時刻の値だけで決まる）。
+- **1 回の呼び出し — 証明済み**: `calleeOut_eq`、`callOut_bits`（`ExtStage` の段 `k` は位置 `kD + k` に `BitVec.ofNat n (calleeOut …)` を置き、他の位置は変えない）、`calleeOut_http`/`calleeOut_tlp`（(a) の `machine_arg_k` を使うと、子に渡る `valsOf (lsrcAt …)` は引数 Signal の `toNat`、子の観測は Lean の呼び出しの値）、`stage1`/`stage2`（段 1, 2 で宣言された sort の位置が Lean の拡張 `extendBits (extendBits bits 5 8 c₀) 6 8 c₁` と一致）。
+- **初期状態の一意性 — 証明済み**: `inits_unique`（`initOk` を満たす状態は 1 つ。`GenIn` の `inits` と `machine_inits` の状態が一致）。
+- **組み立て `hftRootLink`**: `machine_states` の `S₂, Ss` から Lean の融合状態列 `sg t := teleState … t` を取り、`S.val t = sg t` を `t` の帰納法で示す（初期値: `inits_unique`、遷移: `hrec` と `machine_states` の遷移の右辺が `nexts_tagree` で一致）。観測は `machine_states` の第 3 成分（`machineSource` = `monoObs`）と `outs_tagree`。
+
+### 31.4 出力比較（IR/SV 不変）
+
+生成器の変更は新しい `addDecl` の定理（と補助 def `machineCall_k` は既存）だけ。`#synthesize`/`#synthesizeVerilog` は `Tools/*` を import しない（`Tests/Gen5/FGCircuitPilotCompare15.lean` の import は `Sparkle`・`Tests.SignalLoopTest`・`IP.*` のみ）。`git diff f30cb9fe..HEAD -- Sparkle IP Tests/SignalLoopTest.lean Tests/Gen5/FGCircuitPilotCompare15.lean` は空（変更は `Tools/ShippingMachineCommand.lean`・`Tools/ShippingMachineTeleStates.lean`・`Tools/ShippingFGCircuitS2cLink.lean`・Check21・docs・lakefile のみ）。`kjob lake build Tests.Gen5.FGCircuitPilotCompare15`（exit 0、232 jobs）。**前後のビルドログのテキスト比較はしていない**（import の分離による論証。S0 の基準線は coder が再実行する）。
+
+### 31.5 結果（正直に）: `HftRootLink` は**証明が完了していない**
+- **証明した部品**（`Tools/ShippingFGCircuitS2cLink.lean`、`kjob lake build` exit 0、axiom は標準のみ）: `partial_tagree`/`typedVal_tagree`/`eval_tagree`/`nexts_tagree`/`outs_tagree`/`callArgVals_tagree`（sort 付き一致）、`inits_unique`、`kid_pw`/`http_pw`/`tlp_pw`、`calleeOut_eq`/`callOut_bits`/`calleeOut_http`/`calleeOut_tlp`、`stage1`/`stage2`（`ExtStage hftKids` の段 1, 2 が `machine_arg_0/1` を使って Lean の拡張と宣言された sort で一致）。さらに組み立ての途中（Lean 状態列 `sg t` に対する `ExtStage` 族の一致 `hext`、`typedVal` の一致 `hagree`、状態列 `S.val t = sg t` の帰納 `hSg`）は通った（`docs/FG-CIRCUIT-PILOT-S2c-hftRootLink-draft.lean.txt` に最終版の下書きを残す。lake には載せていない）。
+- **閉じていない 1 点**: 最後の観測の式 `monoObs … = outs（ExtStage 族の typedVal）`（`machine_states` の第 3 成分から `outs_tagree` で移す）は、定理全体の組み立てで `whnf` が heartbeat 上限（200000、8000000 でも 14 分で）に達した。部分ごと（`outs_tagree` の適用、`monoObs_root`）は通るので、不可能ではなく、巨大な `machineInners`/`machineData` を含む項の定義的同一視の経路の問題と見る（次は `HftRootLink` の結論部だけを独立補題にして、`TVal` を抽象変数にして呼ぶ）。したがって `synth_hftPcieOutByte_finalOffL` に `hlink` を落とした版は**作っていない**（`hlink` は名前付き仮説のまま、`HftFinalStmtOffL` の 13 個）。
+- `machine_states` の型を独立文面と `isDefEq` で照合する試みも heartbeat 上限に達したため Check21 には入れていない（`machine_arg_0/1` は照合した）。
+- 名前付き仮説: `HftRootLink` のみ（S1u と同じ）。新しい law/TRUSTED/sorry/native_decide/axiom はない。
+
+### 31.6 Check21 の出力
+`kjob lake build Tests.Gen5.FGCircuitPilotCheck21`（exit 0）。`FGCIRCUIT21 SIGNATURES`: `machine_arg_0`、`machine_arg_1` は独立文面と `isDefEq`（default）で一致、mutant（別の呼び出し・先行呼び出しの拡張欠落・引数の欠落）3/3 棄却（`instances` 透過度）。`FGCIRCUIT21 AXIOMS`: 12 名、標準 axiom のみ。
