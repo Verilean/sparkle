@@ -267,4 +267,53 @@ theorem conclusion_of_declConnect {env : Environment} {P : Pkgs ι dom} {declNam
   obtain ⟨ci, sh, v, hf, hs, hm, hcv, hobs⟩ := hDC declName rfl p hP
   exact ⟨sh, v, p, n, hP, ⟨hparams, ci, hf, hs, hcv⟩, ⟨hdecl, hT⟩, hm, hobs⟩
 
+/-! ## 5. Correspondence to the existing FG type `FGLedgerPremisesStmtH` (Tools/ShippingGen5SM1.lean)
+
+`FGLedgerPremisesStmtH` has the carrier binder `CV : ConstValueRel` (D.D-4). With `CV := CircCV` its tail conjunct
+`DeclConnect CV env (genGP …) (TgtRun …)` becomes `DeclConnect CircCV …`, whose content at the top is `SourceDenotes` (source meaning from the
+declaration's value by `CD`) and `ObservationsEqual` (`sh.obs m = p.src`). `fgCircuit_of_H` is that instantiation together with `genP_decl`:
+the S1 conclusion follows from `FGLedgerPremisesStmtH` and ONLY these further named conditions: `parameters = []` (S1 has no symbolic parameter),
+the outer binders `ReflectsAll Post lvl genData₀ L h_C_EN4 h_C_RK6 h_C_CV4`, the inner `h_A_P06` / `h_D_T4`, and `FGLedgerPremisesStmtH` itself
+(all hypotheses of the existing statement, none new). The new FG content is therefore: `CV` is no longer a binder but the concrete `CircCV`. -/
+
+open Tools.ShippingGen5SM1 Tools.ShippingGenFGLedgerPremises in
+theorem fgCircuit_of_H (hH : FGLedgerPremisesStmtH) {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (ReflectsAll : Laws mref cref → Name → List (String × Nat) → Prop)
+    (Post : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module → Prop)
+    (lvl : Lean.Expr → Nat)
+    (genData₀ : (env : Environment) → (E : ConstantInfo) →
+      Option (Tools.ShippingGen5Sem.GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) E (structEnv env)))
+    (L : Laws mref cref)
+    (h_C_EN4 : Tools.ShippingGen5EnvFrame3.CellPrem Tools.ShippingChildFresh.MkRefd mref cref)
+    (h_C_RK6 : Tools.Prototype.DGenStored2.ReflExprAgree)
+    (h_C_CV4 : ∀ (E : ConstantInfo) (senv : StructEnv) (sp : MachineShape),
+        machineShape? false [] E senv = some sp →
+        ∃ n, Tools.ShippingReaderFuel.machineShapeF n false [] E senv true = some (some sp))
+    (declName : Name) (parameters : List (String × Nat)) (mctx : Meta.Context) (cctx : Core.Context)
+    (w w' : Void IO.RealWorld) (b : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design)
+    (hparams : parameters = [])
+    (hw : EntryWitness ReflectsAll L declName parameters mctx cctx w w' b D)
+    (hA : ∀ c, TgtRun (genGP (ι := ι) (dom := dom) lvl (dataOfSound_initsOf lvl) genData₀ (envAt cref w)) declName c →
+      ∀ q : Pkg ι dom, genGP (ι := ι) (dom := dom) lvl (dataOfSound_initsOf lvl) genData₀ (envAt cref w) c = some q →
+        ∀ (mctx' : Meta.Context) (cctx' : Core.Context), Tools.ShippingChildInvA.AdmCtx L.O.quiet mctx' cctx' →
+          Tools.ShippingMachineEntry.MachineDefines mctx' mref cctx' cref c q.d.shape)
+    (hD : ∀ c, TgtRun (genGP (ι := ι) (dom := dom) lvl (dataOfSound_initsOf lvl) genData₀ (envAt cref w)) declName c →
+      ∀ p : Pkg ι dom, genGP (ι := ι) (dom := dom) lvl (dataOfSound_initsOf lvl) genData₀ (envAt cref w) c = some p →
+        ∀ (k : Nat) (hk : k < p.d.shape.insts.length) (y : Tools.ShippingChildInv.Res),
+          Tools.ShippingChildCacheA.RealChildA L.O (p.d.shape.insts[k]).1 y →
+          ∀ pt ∈ y.1.outputs, pt.name = p.d.shape.instFields.getD k "" →
+            (p.d.shape.binders[p.kD + k]?).map (fun bn => (Tools.ShippingMachineEntry.kindTy bn.2).bitWidth)
+              = some pt.ty.bitWidth) :
+    FGCircuitConclusion (envAt cref w) (genGP (ι := ι) (dom := dom) lvl (dataOfSound_initsOf lvl) genData₀ (envAt cref w)) Post
+      declName parameters b D := by
+  obtain ⟨_, hmain⟩ := hH ReflectsAll Post lvl genData₀ CircCV L h_C_EN4 h_C_RK6 h_C_CV4
+  obtain ⟨o1, _, o3, hDC⟩ := hmain declName parameters mctx cctx w w' b D hw hA hD
+  refine ⟨o1, fun raw hraw => ?_⟩
+  obtain ⟨p, n, hp, hts⟩ := o3 raw hraw
+  have hdecl : p.decl = declName :=
+    Tools.ShippingGen5Acc.genP_decl (genKit lvl (dataOfSound_initsOf lvl) (envAt cref w) (genData₀ (envAt cref w)))
+      (Tools.ShippingGen5Acc.factsOf_genS_assembled'' (dataOfSound_initsOf lvl) (genData₀ (envAt cref w))) hp
+  exact conclusion_of_declConnect hparams hp
+    (declConnect_mono _ _ _ (fun X hX => by rw [hX]; exact TgtRun.top) hDC) hts hdecl
+
 end Tools.ShippingFGCircuit
