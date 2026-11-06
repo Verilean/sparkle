@@ -34,6 +34,9 @@ def PR (old : Bool) (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State
     (w : W) (X : Name) (D' : Sparkle.IR.AST.Design) (b raw : Sparkle.IR.AST.Module) : Prop :=
   if old then PostRun mctx mref cctx cref w X D' b raw else PostRunOff mctx mref cctx cref w X D' b raw
 
+/-- an extra premise `Q` in front of `P` (a mutant adds back a removed premise); with `extra = false` the statement is `P` itself, no arrow -/
+def With (extra : Bool) (Q P : Prop) : Prop := if extra then (Q → P) else P
+
 /-- the entry whose run the final speaks about -/
 def Ent (diag : Bool) (X : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
   if diag then synthesizeCombinational X else synthesizeCombinationalOff X
@@ -50,7 +53,7 @@ def ExpFC (diag cellRW extraG postOld needCell needLvl needX needF : Bool) (rdw 
     {mctx : Meta.Context} {cctx : Core.Context} {w w' : W} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
     Start L mctx cctx w →
     RunsTo (Ent diag ``counterLoop) mctx mref cctx cref w (b, D') w' →
-    (if extraG then GetEnvProfileAt mctx mref cctx cref w else True) →
+    With extraG (GetEnvProfileAt mctx mref cctx cref w) (
     CellP needCell cellRW mref cref →
     (if needLvl then lvl counterLoop.machineData.shape.body = 1000000 else True) →
     (if needX then CounterLoopExtern else True) →
@@ -59,7 +62,7 @@ def ExpFC (diag cellRW extraG postOld needCell needLvl needX needF : Bool) (rdw 
     (∃ raw, PR postOld mctx mref cctx cref w postRoot D' b raw) ∧
     ∃ (mm : MonoTy shCounter) (p : Pkg ι (fun _ => defaultDomain)),
       RootArtifactMono (eC env₀ cref w w') (GPd (ι := ι) lvl (eC env₀ cref w w'))
-        (PR postOld mctx mref cctx cref w postRoot D') ``counterLoop shCounter mm b D' p
+        (PR postOld mctx mref cctx cref w postRoot D') ``counterLoop shCounter mm b D' p)
 def FCTrue := ExpFC false false false false true true true true (fun w _ => w) ZS ``counterLoop
 def MCDiag := ExpFC true false false false true true true true (fun w _ => w) ZS ``counterLoop
 def MCCellRW := ExpFC false true false false true true true true (fun w _ => w) ZS ``counterLoop
@@ -80,7 +83,7 @@ def ExpFS (diag cellRW extraG postOld needCell needLvl needX needF : Bool) (rdw 
     {mctx : Meta.Context} {cctx : Core.Context} {w w' : W} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
     Start L mctx cctx w →
     RunsTo (Ent diag ``shift4Loop) mctx mref cctx cref w (b, D') w' →
-    (if extraG then GetEnvProfileAt mctx mref cctx cref w else True) →
+    With extraG (GetEnvProfileAt mctx mref cctx cref w) (
     CellP needCell cellRW mref cref →
     (if needLvl then lvl shift4Loop.machineData.shape.body = 1000000 else True) →
     (if needX then RootExtern shift4LoopValue else True) →
@@ -89,7 +92,7 @@ def ExpFS (diag cellRW extraG postOld needCell needLvl needX needF : Bool) (rdw 
     (∃ raw, PR postOld mctx mref cctx cref w postRoot D' b raw) ∧
     ∃ (mm : MonoTy shShift4) (p : Pkg ι (fun _ => defaultDomain)),
       RootArtifactMono (eC env₀ cref w w') (GPd (ι := ι) lvl (eC env₀ cref w w'))
-        (PR postOld mctx mref cctx cref w postRoot D') ``shift4Loop shShift4 mm b D' p
+        (PR postOld mctx mref cctx cref w postRoot D') ``shift4Loop shShift4 mm b D' p)
 def FSTrue := ExpFS false false false false true true true true (fun w _ => w) ZS ``shift4Loop
 def MSDiag := ExpFS true false false false true true true true (fun w _ => w) ZS ``shift4Loop
 def MSCellRW := ExpFS false true false false true true true true (fun w _ => w) ZS ``shift4Loop
@@ -107,7 +110,7 @@ def ExpFE (diag cellRW extraG postOld needCell needLvl needX needF : Bool) (rdw 
     {mctx : Meta.Context} {cctx : Core.Context} {w w' : W} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
     Start L mctx cctx w →
     RunsTo (Ent diag ``counterEnableLoop) mctx mref cctx cref w (b, D') w' →
-    (if extraG then GetEnvProfileAt mctx mref cctx cref w else True) →
+    With extraG (GetEnvProfileAt mctx mref cctx cref w) (
     CellP needCell cellRW mref cref →
     (if needLvl then lvl counterEnableLoop.machineData.shape.body = 1000000 else True) →
     (if needX then RootExtern counterEnableLoopValue else True) →
@@ -116,7 +119,7 @@ def ExpFE (diag cellRW extraG postOld needCell needLvl needX needF : Bool) (rdw 
     (∃ raw, PR postOld mctx mref cctx cref w postRoot D' b raw) ∧
     ∃ (mm : MonoTy shEnable) (p : Pkg ι (fun _ => defaultDomain)),
       RootArtifactMono (eC env₀ cref w w') (GPd (ι := ι) lvl (eC env₀ cref w w'))
-        (PR postOld mctx mref cctx cref w postRoot D') ``counterEnableLoop shEnable mm b D' p
+        (PR postOld mctx mref cctx cref w postRoot D') ``counterEnableLoop shEnable mm b D' p)
 def FETrue := ExpFE false false false false true true true true (fun w _ => w) ZS ``counterEnableLoop
 def MEDiag := ExpFE true false false false true true true true (fun w _ => w) ZS ``counterEnableLoop
 def MECellRW := ExpFE false true false false true true true true (fun w _ => w) ZS ``counterEnableLoop
@@ -134,7 +137,7 @@ def ExpFA (diag cellRW extraG postOld needCell needLvl needX needF needB needC :
     {mctx : Meta.Context} {cctx : Core.Context} {w w' : W} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
     Start L mctx cctx w →
     RunsTo (Ent diag ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal) mctx mref cctx cref w (b, D') w' →
-    (if extraG then GetEnvProfileAt mctx mref cctx cref w else True) →
+    With extraG (GetEnvProfileAt mctx mref cctx cref w) (
     CellP needCell cellRW mref cref →
     (if needLvl then lvl Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData.shape.body = 1000000 else True) →
     (if needX then RootExtern arbiterInlinedValue else True) →
@@ -144,7 +147,7 @@ def ExpFA (diag cellRW extraG postOld needCell needLvl needX needF needB needC :
     (∃ raw, PR postOld mctx mref cctx cref w postRoot D' b raw) ∧
     ∃ (mm : shArbiter.Ty) (p : Pkg DomainConfig (fun i => i)),
       RootArtifact (eC env₀ cref w w') (genGP (ι := DomainConfig) (dom := fun i => i) lvl (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl) (canonGD lvl) (eC env₀ cref w w'))
-        (PR postOld mctx mref cctx cref w postRoot D') ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal shArbiter mm b D' p
+        (PR postOld mctx mref cctx cref w postRoot D') ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal shArbiter mm b D' p)
 def FATrue := ExpFA false false false false true true true true true true (fun w _ => w) ZS ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
 def MADiag := ExpFA true false false false true true true true true true (fun w _ => w) ZS ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
 def MACellRW := ExpFA false true false false true true true true true true (fun w _ => w) ZS ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
@@ -161,9 +164,9 @@ def MANoC := ExpFA false false false false true true true true true false (fun w
 def ExpEF (oldHead : Bool) (needCell extraIO : Bool) : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
     (X : Lean.Name),
+    With extraIO (HeadIO mctx mref cctx cref) (
     (if needCell then CellPrem Tools.ShippingChildFresh.MkRefd mref cref else True) →
-    (if extraIO then HeadIO mctx mref cctx cref else True) →
-    EnvFrame (if oldHead then coreHead X else coreHeadOff X) mctx mref cctx cref
+    EnvFrame (if oldHead then coreHead X else coreHeadOff X) mctx mref cctx cref)
 def EFTrue := ExpEF false true false
 def MEFOld := ExpEF true true false
 def MEFNoCell := ExpEF false false false
@@ -173,9 +176,9 @@ def MEFHeadIO := ExpEF false true true
 def ExpHA (oldHead : Bool) (needCell extraG : Bool) (cw : W → W → W) : Prop :=
   ∀ {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
     {w : W} (X : Lean.Name),
+    With extraG (GetEnvProfileAt mctx mref cctx cref w) (
     (if needCell then CellPrem Tools.ShippingChildFresh.MkRefd mref cref else True) →
-    (if extraG then GetEnvProfileAt mctx mref cctx cref w else True) →
-    ∀ (s : CoreSaved) (w1 : W), RunsTo (if oldHead then coreHead X else coreHeadOff X) mctx mref cctx cref w s w1 → envAt cref w1 = envAt cref (cw w w1)
+    ∀ (s : CoreSaved) (w1 : W), RunsTo (if oldHead then coreHead X else coreHeadOff X) mctx mref cctx cref w s w1 → envAt cref w1 = envAt cref (cw w w1))
 def HATrue := ExpHA false true false (fun w _ => w)
 def MHAOld := ExpHA true true false (fun w _ => w)
 def MHANoCell := ExpHA false false false (fun w _ => w)
@@ -190,7 +193,7 @@ def ExpEq (oldHead : Bool) : Prop :=
 def EqTrue := ExpEq false
 def MEqOld := ExpEq true
 
-def whitelist : List Name := [``PR, ``Ent, ``CellP,
+def whitelist : List Name := [``PR, ``With, ``Ent, ``CellP,
   ``ExpFC, ``FCTrue, ``MCDiag, ``MCCellRW, ``MCExtraG, ``MCNoCell, ``MCPostOld, ``MCLinkEnd, ``MCConclEnd, ``MCPostRoot, ``MCNoLvl, ``MCNoX, ``MCNoF,
   ``ExpFS, ``FSTrue, ``MSDiag, ``MSCellRW, ``MSExtraG, ``MSNoCell, ``MSPostOld, ``MSLinkEnd, ``MSConclEnd, ``MSPostRoot,
   ``ExpFE, ``FETrue, ``MEDiag, ``MECellRW, ``MEExtraG, ``MENoCell, ``MEPostOld, ``MELinkEnd, ``MEConclEnd, ``MEPostRoot,
@@ -200,13 +203,33 @@ def whitelist : List Name := [``PR, ``Ent, ``CellP,
   -- definitions under test
   ``HeadAtOff]
 
-def norm (e : Lean.Expr) : MetaM Lean.Expr :=
+/-- `if b then x else y` with a literal Boolean `b`: the chosen branch -/
+def iteStep (e : Lean.Expr) : Option Lean.Expr :=
+  if e.isAppOfArity ``ite 5 then
+    let c := e.getArg! 1
+    if c.isAppOfArity ``Eq 3 then
+      match c.getArg! 1, c.getArg! 2 with
+      | .const ``Bool.true _, .const ``Bool.true _ => some (e.getArg! 3)
+      | .const ``Bool.false _, .const ``Bool.true _ => some (e.getArg! 4)
+      | _, _ => none
+    else none
+  else none
+
+def normOnce (e : Lean.Expr) : MetaM Lean.Expr :=
   Meta.transform e (post := fun e => do
     let e := e.headBeta
+    if let some e' := iteStep e then return .visit e'
     if let .const c _ := e.getAppFn then
       if whitelist.contains c then
         if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
     return .done e)
+
+/-- unfold the whitelisted definitions and select the literal Boolean branches (a few passes, until no `ite` on a literal remains) -/
+def norm (e : Lean.Expr) : MetaM Lean.Expr := do
+  let mut e := e
+  for _ in [0:4] do
+    e ← normOnce e
+  return e
 
 set_option maxHeartbeats 32000000 in
 run_cmd liftTermElabM do
@@ -271,18 +294,21 @@ run_cmd liftTermElabM do
 /-! ## 3. NOGETENV: the compiler-level fact -/
 
 /-- constants a definition's value refers to -/
-def valueConsts (env : Environment) (n : Name) : Array Name :=
+def valueOf? (env : Environment) (n : Name) : Option Lean.Expr :=
   match env.find? n with
-  | some ci => match ci.value? with
-    | some v => v.getUsedConstants
-    | none => #[]
+  | some (.defnInfo d) => some d.value
+  | some (.thmInfo t) => some t.value
+  | some (.opaqueInfo o) => some o.value
+  | _ => none
+
+def valueConsts (env : Environment) (n : Name) : Array Name :=
+  match valueOf? env n with
+  | some v => v.getUsedConstants
   | none => #[]
 
 def hasStr (env : Environment) (n : Name) (s : String) : Bool :=
-  match env.find? n with
-  | some ci => match ci.value? with
-    | some v => (v.find? fun t => match t with | .lit (.strVal x) => x == s | _ => false).isSome
-    | none => false
+  match valueOf? env n with
+  | some v => (v.find? fun t => match t with | .lit (.strVal x) => x == s | _ => false).isSome
   | none => false
 
 /-- everything reachable from `roots` through values of constants with a name prefix in `pref`; also returns every referenced name -/
@@ -342,16 +368,25 @@ run_cmd liftTermElabM do
   let banned : List Name := [``Tools.ShippingEntryReadsLinked.coreHead, ``HeadIO, ``GetEnvProfileAt, ``Tools.ShippingFGCircuitS1oHead.headAt_of_profileOff, ``Tools.ShippingFGCircuitS1iHead.envFrame_coreHead,
     ``Tools.ShippingFGCircuitS1iHead.headAt_of_cellPrem, ``Sparkle.Compiler.Elab.synthesizeCombinationalCore, ``Sparkle.Compiler.Elab.synthesizeCombinationalCoreWith,
     ``Sparkle.Compiler.Elab.synthesizeCombinational, ``Sparkle.Compiler.Elab.synthesizeCombinationalWith, ``Sparkle.Compiler.Elab.synthesizeEntry]
-  let (vis, refd) := reach env ["Tools."] names
-  for b in banned do
+  let (vis, refd) := reach env ["Tools.ShippingFGCircuit"] names
+  let bannedHead : List Name := [``Tools.ShippingEntryReadsLinked.coreHead, ``HeadIO, ``GetEnvProfileAt, ``Tools.ShippingFGCircuitS1oHead.headAt_of_profileOff, ``Tools.ShippingFGCircuitS1iHead.envFrame_coreHead,
+    ``Tools.ShippingFGCircuitS1iHead.headAt_of_cellPrem]
+  for b in bannedHead do
     if refd.contains b then
-      -- find a witness constant that mentions it
       let wit := vis.toList.filter fun n => (valueConsts env n).contains b
       throwError "a value reachable from the finals mentions {b}; first witnesses {wit.take 5}"
+  -- the entries: through the S1q files only (generic lemmas elsewhere speak about the old entry in their own statements)
+  let (visQ, refdQ) := reach env ["Tools.ShippingFGCircuitS1q"] names
+  let bannedEntry : List Name := [``Sparkle.Compiler.Elab.synthesizeCombinationalCore, ``Sparkle.Compiler.Elab.synthesizeCombinationalCoreWith,
+    ``Sparkle.Compiler.Elab.synthesizeCombinational, ``Sparkle.Compiler.Elab.synthesizeCombinationalWith, ``Sparkle.Compiler.Elab.synthesizeEntry]
+  for b in bannedEntry do
+    if refdQ.contains b then
+      let wit := visQ.toList.filter fun n => (valueConsts env n).contains b
+      throwError "a value of the S1q files reachable from the finals mentions {b}; first witnesses {wit.take 5}"
   for nm in names do
     for ax in ← Lean.collectAxioms nm do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do throwError "{nm} uses {ax}"
-  logInfo m!"FGCIRCUIT15 NOTUSED: the {names.length} names reach {vis.size} Tools.* constants through values, none of which mentions coreHead / HeadIO / GetEnvProfileAt / headAt_of_profileOff / envFrame_coreHead / synthesizeCombinationalCore / …With / synthesizeCombinational / synthesizeEntry"
+  logInfo m!"FGCIRCUIT15 NOTUSED: the {names.length} names reach {vis.size} Tools.ShippingFGCircuit* constants through values, none of which mentions coreHead / HeadIO / GetEnvProfileAt / headAt_of_profileOff / envFrame_coreHead; the {visQ.size} S1q constants reachable among them mention none of synthesizeCombinationalCore / …With / synthesizeCombinational / synthesizeCombinationalWith / synthesizeEntry (the old and the diagnostic entries)"
   logInfo m!"FGCIRCUIT15 AXIOMS: {names.length} names, standard axioms only (no sorryAx, no native_decide)"
 
 end Tests.Gen5.FGCircuitPilotCheck15
