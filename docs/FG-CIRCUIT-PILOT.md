@@ -1395,7 +1395,7 @@ Check の出力行は 7、棄却した mutant は 8（SIGNATURES-A）＋15＋25�
 
 ### 32.1 何が `HftKidsDefine` の代わりに要るか（完全な型を先に）
 
-`HftKidsDefine`（§29.3）は 2 つの被呼び出し宣言の `MachineDefines`（全 world、子の run の `mctx cctx` で）。子の run は `RealChildA.run` の `adm/cache/synth/quiet/hr`（深さと cache だけ）で任意の admissible world で走り、環境セル `envAt cref w` は持たない。根では `CheckedStart`（`ReadsAt env₀ cref w`）と `HeadAt`/`GetEnvProfileAt` で `MachineDefinesLinkedOff` を run 局所に作った（S1q）。子も同じ形で作れるが、**子の run の開始 world の環境が開始 world のそれと一致すること**は `Laws` からも `CellPrem` からも導けない（`quiet` は不透明、class-D の `whnf`/`inferType` 等は env frame を持たない、§21）。最小の run 局所の事実として次の 2 つに分けて名前を付けた（各 `RealChildA.run` が運ぶ前件のもとで、その子の full-entry run の開始 world `w` について）。
+`HftKidsDefine`（§29.3）は 2 つの被呼び出し宣言の `MachineDefines`（全 world、子の run の `mctx cctx` で）。子の run は `RealChildA.run` の `adm/cache/synth/quiet/hr`（深さと cache だけ）で任意の admissible world で走り、環境セル `envAt cref w` は持たない。根では `CheckedStart`（`ReadsAt env₀ cref w`）と `HeadAt`/`GetEnvProfileAt` で `MachineDefinesLinkedOff` を run 局所に作った（S1q）。子も同じ形で作れるが、**子の run の開始 world の環境が開始 world のそれと一致すること**は `Laws` からも `CellPrem` からも導けない（`quiet` は不透明、class-D の `whnf`/`inferType` 等は env frame を持たない、§21）。次の 2 つに分けて名前を付けた。**「run 局所」「根から子までの連鎖で供給」という言い方は不正確だった（S2h の訂正、§32.7）**: `KidStartEnv` は根の開始 world も、到達関係も、cache の履歴への所属条件も持たず、`RealChildA.run` の前件（`adm/cache/synth/quiet/hr`）を満たす**あらゆる**子の run の開始 world `w` が同じ `e` を読む、と仮定する全称命題である（過去の run にも及ぶ。cache hit の元の run の環境を追跡・証明するものではない）。
 
 ```lean
 /-- NAMED HYPOTHESIS (FG D.T-4k) -/
@@ -1410,10 +1410,10 @@ def HftKidsStartEnv O e := KidStartEnv O e hftHttp ∧ KidStartEnv O e hftTlp   
 def HftKidsGates e := EntryGates e hftHttp ∧ EntryGates e hftTlp                 -- FG D.T-4g
 ```
 
-- (A) `ReadsAt e cref w`: 子の開始 world の Core 環境は `e = envAt cref w₀`（開始 world）と一致（find の包含と `instancePredicate/userInliner/structEnv` の等式）。根から子までの world の連鎖の環境 frame の事実。
+- (A) `ReadsAt e cref w`: 子の開始 world の Core 環境は `e = envAt cref w₀`（開始 world）と一致（find の包含と `instancePredicate/userInliner/structEnv` の等式）。`ReadsAt` は環境全体の等式より狭いが、**範囲は上記の全称のまま**（根の run の frame だけでは供給できない: 無関係な run まで含むため）。
 - (B) `GetEnvProfileAt mctx' … w`: 子の `synthesizeChild` → `synthesizeCombinational` が `coreHead` で読む `IO.getEnv "SPARKLE_PROFILE"` は `none` を返し環境を変えない（根の S1o と同じ profile 無効の枝。診断入口は取らない）。
 - `HftKidsGates e`: 2 つの被呼び出し宣言の entry 定数の 2 つの拒否（`certifiedShape?`/`mixedCertifiedShape?` = `none`）。根の `hchk` の gate 部に当たる。`machineShape?` の部分は既存の `hreadH`/`hreadT`（`RootReader`）がそのまま運ぶ。
-- 全 world の `MachineDefines` は消え、`HftKidsStartEnv`/`HftKidsGates` から `MachineDefines`/`HftKidsDefine`/`MachineCloses` は到達不能（Check26 SIGNATURES-B）。`KidStartEnv` は shape も閉じる成功も言わない。
+- 全 world の `MachineDefines` は消えた。`HftKidsStartEnv`/`HftKidsGates` から `MachineDefines`/`HftKidsDefine`/`MachineCloses` は、Check26 の reach 走査（`Tools`/`Sparkle` 下の `defnInfo` の型と値を辿る。帰納型の構成子と定理は展開しない）の範囲では到達されない。依存閉包全体・全 world 前提についての不在は主張しない。`KidStartEnv` は shape も閉じる成功も言わない。ただし**単に `MachineDefines` を弱めたものでもない**: profile 無効（`GetEnvProfileAt`）という条件を新たに要求する（`synthesizeCombinational` の profile 無効の枝を通る条件であり、「診断入口を通らない」という説明は不正確）。
 
 ### 32.2 証明したこと
 
@@ -1443,6 +1443,12 @@ Check の出力行は 8（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、CONTROLS 1�
 ### 32.5 次
 
 (1) `hkgates`: 2 つの被呼び出し宣言の gate 検査（`entryGatesB` 相当）を `envAt cref w` 上で評価する Check（FG D.T-4g）。(2) `hkenv` (A): `RealChildA` の開始 world の環境が根の開始 world のそれと一致すること（機械 run の class-D 行の環境 frame、または run 局所の world の連鎖）、(B): 子の `synthesizeCombinational` の profile lookup が `none`。(3) `htop`、`hcd`（S2b）、`HftRootLink`（S2c）。
+
+### 32.7 S2h による訂正（レビュアー裁定）
+
+1. `KidStartEnv`（`hkenv`）は、`RealChildA` の前件を満たすすべての子の run の開始 world が同じ `e` を読むという全称命題で、根の開始 world・到達関係・cache 履歴への所属条件を持たない。したがって「run 局所」でも「根から子までの frame で供給される」でもない。供給の道は §34 の履歴つき述語（cache の初期化、miss で保存する子の run の読み、hit での取り出し）に移した。`KidStartEnv` 版の補題（`machineChild_of_realK` など）は条件つきの部品として残してある。
+2. Check26 の SIGNATURES-B は旧 Check24 と同じく束縛名と定数の出現だけを見ていたので、SIGNATURES-C（`machineDefinesLinked_of_readerE`、`hftCoreCloses_of_kidsK`、`synth_hftPcieOutByte_finalOffLNKK_Z` の完全な型を独立に書いた期待型と照合）を足した（§34.5）。
+3. reach 走査は `Tools`/`Sparkle` 下の `defnInfo` の型と値を辿るだけで、帰納型の構成子と定理は展開しない。「3 つの名前に到達しない」はこの走査の範囲に限る。
 
 ### 32.6 ビルド環境の注記
 
