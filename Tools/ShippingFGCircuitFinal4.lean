@@ -183,9 +183,70 @@ theorem counterLoop_final4 {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {
   counterLoop_final4D L lvl hstart hr
     (fun _ _ _ => machineDefinesLinked_of_reader (lvl := lvl) L hstart hquiet hg hE hRead hgates) hRead hE
 
+/-! ## the run supplies the root's existence (S1g, work 2)
+
+With `hquiet` and the chain of the core run, the `getConstInfo X` the run performs reads `X` at a world carrying `ReadsAt (envAt cref w)`, so `X` IS in the start environment (`root_find_of_run`: no `QuoteFact`, only `hquiet`).
+What the run does NOT supply is the CONTENT of that constant (`QuoteAt`: it is the quoted definition) and the reader's outputs (`ReaderAt`: the shape read from the entry constant, and `dataOfAt` = the literal data). Both are stated conditionally on the lookup the run provides. -/
+
+/-- the root of the core run is a constant of the START environment (`ci_of_readsAt` at the `getConstInfo` world of the run's own chain) -/
+theorem root_find_of_run {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) {mctx : Meta.Context} {cctx : Core.Context} {X : Name}
+    {w w' : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hquiet : ∀ u, L.O.quiet u → Tools.ShippingGen5Env.ReadsAt (envAt cref w) cref u)
+    (hc : RunsTo (synthesizeCombinationalCore X [] false) mctx mref cctx cref w (M, D) w') :
+    ∃ ci : ConstantInfo, (envAt cref w).find? X = some ci := by
+  obtain ⟨s, w1, envR, ci, w2, w3, w4, hh, hget, -, -, -⟩ := Tools.ShippingEntryReadsLinked.core_chain hc
+  have hj1 := Tools.ShippingGen5RunReads.coreHead_jqcA L.O hstart.1 hstart.2.1 (Or.inl rfl) hh
+  exact ⟨ci, Tools.ShippingGen5Env.ci_of_readsAt hget (hquiet _ hj1.1.1)⟩
+
+/-- the content of the root: whatever constant the environment holds under `X` is the quoted definition (C.EN-4 `QuoteFact`, conditional on the lookup) -/
+def QuoteAt (env : Environment) (X : Name) (ty val : Lean.Expr) : Prop :=
+  ∀ ci : ConstantInfo, env.find? X = some ci → ∃ d : DefinitionVal, ci = .defnInfo d ∧ d.levelParams = [] ∧ d.type = ty ∧ d.value = val
+
+/-- the reader's outputs on the entry constant of `X` (DG-DATAOF / DG-COVER / DG-ENV, conditional on the lookup) -/
+def ReaderAt (lvl : Lean.Expr → Nat) (env : Environment) (X : Name) (dd : Tools.ShippingMachineAuto.MachineData) : Prop :=
+  ∀ E : ConstantInfo, Tools.ShippingGen5Acc.entry₀ env X = some E →
+    machineShape? false [] E (structEnv env) = some dd.shape ∧
+    Tools.ShippingGen5DataOf.dataOfAt lvl E (structEnv env) dd.shape = some dd
+
+/-- `hE` and `hRead` from the run's lookup, `QuoteAt` and `ReaderAt` -/
+theorem rootEnv_of_lookup {lvl : Lean.Expr → Nat} {X : Name} {ty val : Lean.Expr} {dd : Tools.ShippingMachineAuto.MachineData} {env : Environment}
+    (hq : QuoteAt env X ty val) (hrd : ReaderAt lvl env X dd) (hfind : ∃ ci : ConstantInfo, env.find? X = some ci) :
+    (∃ d : DefinitionVal, RootInEnv env X ty val d) ∧ RootReader lvl env X dd := by
+  obtain ⟨ci, hci⟩ := hfind
+  obtain ⟨d, rfl, hl, ht, hv⟩ := hq ci hci
+  have hent : Tools.ShippingGen5Acc.entry₀ env X = some (entryConst true false [] (.defnInfo d) (instancePredicate env) (userInliner env) (structEnv env)) := by
+    unfold Tools.ShippingGen5Acc.entry₀; rw [hci]; rfl
+  obtain ⟨hsh, hdat⟩ := hrd _ hent
+  exact ⟨⟨d, hci, hl, ht, hv⟩, _, hent, hsh, hdat⟩
+
+/-- **`counterLoop_final5`.** `hE` / `hRead` replaced by `QuoteAt` / `ReaderAt` (conditional on the lookup the run supplies). Premises: `Laws L`, `hstart`, `hr`, `hquiet`, `GetEnvFrame`, `hgates`, `hquote`, `hreader`. -/
+theorem counterLoop_final5 {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``counterLoop) mctx mref cctx cref w (b, D') w')
+    (hquiet : ∀ u, L.O.quiet u → Tools.ShippingGen5Env.ReadsAt (envAt cref w) cref u)
+    (hg : Tools.ShippingEnvSnapshot.GetEnvFrame mctx mref cctx cref)
+    (hgates : EntryGates (envAt cref w) ``counterLoop)
+    (hquote : QuoteAt (envAt cref w) ``counterLoop counterLoopType counterLoopValue)
+    (hreader : ReaderAt lvl (envAt cref w) ``counterLoop counterLoop.machineData) :
+    (∃ raw, PostRun mctx mref cctx cref w ``counterLoop D' b raw) ∧
+    ∃ (mm : MonoTy shCounter) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMono (envAt cref w)
+        (genGP (ι := ι) (dom := fun _ => defaultDomain) lvl (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl) (canonGD lvl) (envAt cref w))
+        (PostRun mctx mref cctx cref w ``counterLoop D') ``counterLoop shCounter mm b D' p := by
+  obtain ⟨raw, D₀, w1, hc, -⟩ := Tools.ShippingGen5DCEntryD.synthesizeCombinational_postEntry hr
+  obtain ⟨⟨d, hE⟩, hRead⟩ := rootEnv_of_lookup hquote hreader (root_find_of_run L hstart hquiet hc)
+  exact counterLoop_final4 L lvl hstart hr hquiet hg hgates hRead hE
+
 end Tools.ShippingFGCircuitFinal4
 
 #print axioms Tools.ShippingFGCircuitFinal4.hTop_of_leaf4
 #print axioms Tools.ShippingFGCircuitFinal4.counterLoop_final4D
 #print axioms Tools.ShippingFGCircuitFinal4.machineDefinesLinked_of_reader
 #print axioms Tools.ShippingFGCircuitFinal4.counterLoop_final4
+#print axioms Tools.ShippingFGCircuitFinal4.root_find_of_run
+#print axioms Tools.ShippingFGCircuitFinal4.rootEnv_of_lookup
+#print axioms Tools.ShippingFGCircuitFinal4.counterLoop_final5
