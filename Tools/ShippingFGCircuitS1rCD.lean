@@ -726,7 +726,7 @@ def HftFinalStmtWith (Ob : Environment → Prop) : Prop :=
     (∃ raw, PostRun mctx mref cctx cref w hftRoot D' b raw) ∧
     ∃ (mm : MonoTy shHft) (p : Pkg ι (fun _ => defaultDomain)),
       RootArtifactMono (envAt cref w) (GPt (ι := ι) lvl (envAt cref w))
-        (PostRun mctx mref cctx cref w hftRoot D' b) hftRoot shHft mm b D' p
+        (PostRun mctx mref cctx cref w hftRoot D') hftRoot shHft mm b D' p
 
 end Tools.ShippingFGCircuitS1rCD.Stmt
 
