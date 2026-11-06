@@ -1162,3 +1162,18 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 ### 25.5 次
 
 (1) `HftRootLink` を (a) 呼び出し引数の対応（per-call の kernel 事実）と (b) fused 状態の同一視に分けて閉じる（(a) は `#machine_endpoint` 側の生成に近い）。(2) `htop`/`hnoraw`、`hcd`（S1s）。
+
+
+## 27. S1y（Issue `sparkle-fg-circuit-pilot` の次の束）: `HftRootLink` の分割の調査と Check19 の高速化（**未完: `HftRootLink` は証明していない**）
+
+土台 `15fb4615`。Issue の状態は変えていない。S1w/S1x の領域には触れていない。TRUSTED・axiom・sorry・native_decide・新しい law はない。台帳の変更なし（FG 75 / T1 57、今回 ±0）。
+
+### 27.1 結果（正直に）
+- **`HftRootLink` は証明していない**。仮説の個数は S1u と同じ（`HftFinalStmtOffL` の 13、`hlink` を含む）。`synth_hftPcieOutByte_finalOffL` に `hlink` を落とした版はまだ無い。`Tools/ShippingFGCircuitS1yLink.lean` と Check21 は作っていない（この束では時間切れ。impossible とは言わない）。
+- 調査（root の生成済み endpoint の事実、`kjob lake build` した探査で確認）: root の `machineData.ss = [bits 6]`、`machine_writes`/`machine_result` は `castSS (TeleT.fstate … (TeleT.cons [bits 4, bits 8, bits 16, bits 8, bits 32, bool] …))` 上の文で、`S : Signal (HList (tys [bits 6]))` に加えて融合状態 `Ss` を取る。`machineExt : Unit → bools → bits → Signal (HList (tys [bits 6])) → (Nat → (n:Nat) → Signal (BitVec n))`（Lean の呼び出しを状態 Signal 上で直接評価する形）。`machineExtB`・`machine_causal_k`・`machine_call_k`・`machine_ext_causal`・`machineSigma` は**無い**。
+- したがって (a)（`ls` 項の評価 = Lean の引数 Signal）には、`machineExt` と `d.ls` の対応を言う per-call の事実が要る。(b)（`d.ss` の状態列 = 融合状態）には、`Ss` と `S` を結ぶ `machineSigma` 相当の事実が要る。どちらも既存の endpoint 機構（`ShippingMachineCommand.lean` の非 loop の Tele 経路、約 1924 行）に狭い証拠として足す案で、生成される IR/SV は変えない（新しい `addDecl` の定理だけを足す）方針。実装は次の束。
+
+### 27.2 Check19 の高速化
+`FGCircuitPilotCheck19` の署名ブロックは、同じ実型を mutant ごとに `norm`（定義の展開 6 回）し直していた（例: `synth_hftPcieOutByte_finalOffL` は 20 回）。実型の正規形を型ごとに 1 回だけ計算してキャッシュする（`normC`）。mutant 側の `norm` は式が違うので残る。ファイル分割は未実施。
+
+ビルド時間（`kjob lake build Tests.Gen5.FGCircuitPilotCheck19`、依存は構築済みでこのモジュールのみ）: 前 約 13 分（S1u の記録）／後 下記（Job の `builds/ID.json` の値）。
