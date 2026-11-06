@@ -58,6 +58,8 @@ structure ShRes where
   sp : List Lean.Expr
   isCtor : Bool
   np : Nat
+  /-- NEW (S2p): the evaluation ended at a bare value entry, the variable `i` of the environment term `ρ` -/
+  var : Option (Lean.Expr × Nat) := none
 
 structure St2 where
   unq : Std.HashMap Lean.Expr Expr := {}
@@ -150,7 +152,13 @@ where
       | none => throwError "Sh: bvar {i} is not bound (environment too short)"
       | some ent =>
         match parseClo ent with
-        | none => throwError "Sh: bvar {i} is bound to a value entry in head position (spine {sp.length}; entry {(toString ent).take 700})"
+        | none =>
+          unless sp.isEmpty do throwError "Sh: bvar {i} is a value entry applied to {sp.length} arguments (a function value in head position)"
+          unless ent.isAppOfArity ``Ent.val 1 do throwError "Sh: bvar {i}: not an entry"
+          bumpSh "bvarV"
+          let hb := mkApp2 (Lean.mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (Lean.mkConst ``Option [lvl1]) entT) (mkApp2 (Lean.mkConst ``Option.some [lvl1]) entT ent)
+          let pf ← mkN ``Sh.bvarV [("env", K.env), ("ρ", ρ), ("i", toExpr i), ("en", ent.getAppArgs[0]!), ("hb", hb)]
+          pure { pf, hn := mkApp2 (Lean.mkConst ``Hn.var) ρ (toExpr i), c := .anonymous, ls := [], sp := [], isCtor := false, np := 0, var := some (ρ, i) }
         | some (eq', ρ') =>
           bumpSh "bvarC"
           let e' ← unq eq'
@@ -350,6 +358,13 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean
 
 unsafe def viaShRoute (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean.Expr := do
   let r ← evalSh K ρ e []
+  if let some (ρv, iv) := r.var then
+    let p ← deriveT K ty ρv (.bvar iv)
+    let (_, res) ← dtOf p
+    modify fun s => { s with viaN := s.viaN + 1 }
+    bump "viaVar"
+    return ← mkN ``DT.viaVar [("env", K.env), ("ρ", ρ), ("e", ← qU e), ("ρ₀", ρv), ("i", toExpr iv), ("r", res),
+      ("hv", reflT boolT (Lean.mkConst ``true)), ("hsh", r.pf), ("h", p)]
   -- one common environment for the spine
   let mut args : Array Expr := #[]
   let mut ρ₀ : Option Lean.Expr := none
@@ -373,7 +388,7 @@ unsafe def viaShRoute (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean
     | [] => pure (Lean.mkConst ``canon_nil)
     | a :: xs => do pure (mkAppN (Lean.mkConst ``canon_cons) #[ρ0, ← qU a, listExprE (← xs.mapM qU)])
   mkN ``DT.viaSh [("env", K.env), ("ρ", ρ), ("e", ← qU e), ("hn", r.hn), ("args", listExprE (← argl.mapM qU)), ("ρ₀", ρ0), ("r", res),
-    ("hv", reflT boolT (Lean.mkConst ``true)), ("hsh", r.pf), ("hsp", mkApp2 (Lean.mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (Lean.mkConst ``List [lvl1]) entT) (listEnt r.sp)), ("hcan", hcan), ("h", p)]
+    ("hv", reflT boolT (Lean.mkConst ``true)), ("hnv", reflT boolT (Lean.mkConst ``false)), ("hsh", r.pf), ("hsp", mkApp2 (Lean.mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (Lean.mkConst ``List [lvl1]) entT) (listEnt r.sp)), ("hcan", hcan), ("h", p)]
 
 unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Name) (ls : List Level) : G2 Lean.Expr := do
   let eQ ← qU e
