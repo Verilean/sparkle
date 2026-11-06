@@ -6661,3 +6661,12 @@ lean_lib «Tools.ShippingFGCircuitS2sAdmChildLegacyCachedA» where
 
 lean_lib «Tools.ShippingFGCircuitS2sAdmChildWalkA» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmChildWalkA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildTeleCP» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildTeleCP]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildFrontA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildFrontA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildTranslatePathA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildTranslatePathA]
