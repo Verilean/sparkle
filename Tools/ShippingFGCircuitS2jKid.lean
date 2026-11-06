@@ -5,6 +5,36 @@ import Tools.ShippingFGCircuitS1uSrc
 set_option autoImplicit false
 -- FG circuit pilot S2j, unit 2: a combinational leaf child's `ShipsRes` from its own run (the children of the non-leaf root). No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law. docs/FG-CIRCUIT-PILOT.md §36.
 
+/-! ## `ChildShips` of a slotless leaf from the machine run alone (no all-world `MachineDefines`) -/
+namespace Tools.ShippingGen2
+open Lean Meta Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
+open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
+open Tools.ShippingChildInvA (RefLawsAOps RefLawsATele AdmCtx)
+open Tools.ShippingChildBndCore (cv dv)
+open Sparkle.Core Sparkle.Core.Domain
+variable {ι : Type} {dom : ι → DomainConfig}
+variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+
+/-- `slotlessLeaf_ships`' `ChildShips` conjunct with the (unused) all-world `MachineDefines` and `JQC` and the core run dropped: the proof body is `slotlessLeaf_ships`' verbatim -/
+theorem slotlessLeaf_childShips_of_ran (L : Laws mref cref) (p : Pkg ι dom)
+    {mctx : Meta.Context} {cctx : Core.Context} {w : Void IO.RealWorld} {raw b : Sparkle.IR.AST.Module} {D : Design}
+    (hdata : LeafDataOk p) (hext : ExtInS p) (hnoI : p.d.shape.insts = []) (hsl0 : p.d.shape.layout.slots = [])
+    (hA : AdmCtx L.O.quiet mctx cctx)
+    (hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw))
+    (ran : MachineTaken L mctx cctx (dv w + 1) p.decl p.d.shape raw D) (n : Nat) :
+    ChildShips p n b D := by
+  obtain ⟨hok, hco, hSS, houtTy⟩ := hdata.rows
+  have htake := leaf_take p.d p.kD hok hco hnoI
+  have hL := (Pkg.trace L.O L.T hA p ran).toLB
+  have hclosed0 := slotless_closed_ofRun L p (b := Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)
+    hdata hnoI hsl0 hA (Or.inl rfl) ran
+  have hclosedB := slotless_closed_ofRun L p hdata hnoI hsl0 hA hpost ran
+  have hinA := slotless_inputs_alloc_ofRun L p hdata hnoI hsl0 htake ran
+  exact slotlessLeaf_childShips_of_LB p hL hext hnoI hsl0 hok hSS houtTy htake hclosed0 hclosedB hinA hpost n
+
+end Tools.ShippingGen2
+
 namespace Tools.ShippingFGCircuitS2jKid
 open Lean Meta Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
 open Tools.ShippingEntrySoundness Tools.ShippingMachineEntry
@@ -149,7 +179,7 @@ open Sparkle.Core.Domain
 /-- **a combinational leaf row's package is `.comb`** (`ss = []`, `insts = []`): the table `genGP` at the canonical rows returns `.comb cp` with the row's declaration, data and `kD` -/
 theorem kid_pkg {ι : Type} (lvl : Lean.Expr → Nat) (env : Environment) {X : Name} {d : MachineData}
     (hR : RootReader lvl env X d) (hwf : GenWF d = true) (hleaf : d.shape.insts = []) (hss : d.ss = []) :
-    ∃ cp : CombPkg ι (fun _ => defaultDomain),
+    ∃ cp : CombPkg ι (fun _ => Sparkle.Core.Domain.defaultDomain),
       genGP (ι := ι) (dom := fun _ => defaultDomain) lvl (dataOfSound_initsOf lvl) (canonGD lvl) env X = some (.comb cp) ∧
       cp.decl = X ∧ cp.d = d ∧ cp.kD = kDOf d := by
   obtain ⟨E, hE, hsh, hdat⟩ := hR
@@ -173,6 +203,59 @@ theorem kid_pkg {ι : Type} (lvl : Lean.Expr → Nat) (env : Environment) {X : N
 
 end Pkg
 
+open Tools.ShippingFGCircuitS2dKids (KidStartEnv machineDefinesLinked_of_readerE)
+open Tools.ShippingGen2 (ShipsRes InstClosed ChildShips LeafDataOk LeafDataOkB ExtInS CombPkg Pkg Pkgs Laws MachineTaken childShips_congr)
+
+/-- the leaf data check of a `.comb` package from the Boolean of its row (kernel-decided at the two children) -/
+theorem leafDataOk_comb {ι : Type} (cp : CombPkg ι (fun _ => Sparkle.Core.Domain.defaultDomain)) {d : MachineData}
+    (hcd : cp.d = d) (hkD : cp.kD = Tools.ShippingGen5Sem.kDOf d)
+    (h : (d.ok && d.callsOk (Tools.ShippingGen5Sem.kDOf d) && decide (d.ss.length = d.shape.layout.slots.length) &&
+      decide (∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)) = true) : LeafDataOk (Pkg.comb cp) := by
+  unfold LeafDataOk LeafDataOkB
+  show (cp.d.ok && cp.d.callsOk cp.kD && decide (cp.d.ss.length = cp.d.shape.layout.slots.length) &&
+      decide (∀ o ∈ cp.d.shape.layout.outs, o.ty.bitWidth = o.width)) = true
+  rw [hcd, hkD]; exact h
+
+/-- **a slotless combinational callee's actual result ships** (`ShipsRes`), from its own run: the machine run by `kidRunK` (run-local entry), `ChildShips` by `slotlessLeaf_childShips_of_ran`, the design is empty -/
+theorem kid_shipsRes {ι : Type} (L : Laws mref cref) (hcell : CellPrem MkRefd mref cref) {lvl : Lean.Expr → Nat} {e : Environment}
+    {c : Name} (d : MachineData) (ok : d.ok = true)
+    (hbody : d.shape.body = quote d.dom
+      (fun j => inputExpr d.shape.binders.length (d.bpos j))
+      (fun j => inputExpr d.shape.binders.length (d.vpos j)) d.packed)
+    {nDecl : Nat} (hS : d.gateCallsOk nDecl = true) (hK : d.shape.layout.lets ≠ 0)
+    (hno : d.shape.insts = []) (hsl : d.shape.layout.slots = [])
+    (houts : ∃ o, d.shape.layout.outs = [o] ∧ o.name = "out")
+    (outTy : ∀ o ∈ d.shape.layout.outs, o.ty.bitWidth = o.width)
+    (hRead : RootReader lvl e c d) (hgates : EntryGates e c) (hk : KidStartEnv L.O e c)
+    (closes : ∀ (mctx' : Meta.Context) (cctx' : Core.Context), MachineCloses mctx' mref cctx' cref c d.shape)
+    (P : Pkgs ι (fun _ => Sparkle.Core.Domain.defaultDomain)) (cp : CombPkg ι (fun _ => Sparkle.Core.Domain.defaultDomain))
+    (hP : P c = some (Pkg.comb cp)) (hdecl : cp.decl = c) (hcd : cp.d = d)
+    (hdata : LeafDataOk (Pkg.comb cp))
+    {y : Res} (h : RealChildA L.O c y) : ShipsRes L P c y := by
+  have h0 := h
+  cases h with
+  | run mctx' cctx' w w' adm cache synth quiet hr =>
+    obtain ⟨b, design⟩ := y
+    obtain ⟨hRA, hprof⟩ := hk mctx' cctx' w w' _ adm cache synth quiet hr
+    obtain ⟨M, D, w1, hcore, hpost, hran, hD0, -, -, -, hdes⟩ :=
+      kidRunK L.O L.T adm d ok hbody hS hK hno hsl houts outTy ⟨⟨quiet, synth, rfl⟩, cache⟩ hr
+        (fun _ => machineDefinesLinked_of_readerE hRA (headAt_of_profileOff c hcell hprof) (getEnvFrame_of_cellPrem hcell) hRead hgates)
+        (closes mctx' cctx')
+    have hran' : MachineTaken L mctx' cctx' (dv w + 1) (Pkg.comb cp).decl (Pkg.comb cp).d.shape M D := by
+      show Tools.ShippingServedRealA.MachineRunJQC L.O mctx' cctx' (dv w + 1) cp.decl cp.d.shape M D
+      rw [hdecl, hcd]; exact hran
+    refine ⟨h0, ⟨Pkg.comb cp, 0, hP, hdecl, ?_⟩, ?_⟩
+    · exact childShips_congr _ 0 b (by rw [hD0, hdes])
+        (Tools.ShippingGen2.slotlessLeaf_childShips_of_ran L (Pkg.comb cp) hdata
+          ⟨fun _ _ _ _ _ => rfl, fun _ _ _ _ _ _ => rfl⟩ (by show cp.d.shape.insts = []; rw [hcd]; exact hno)
+          (by show cp.d.shape.layout.slots = []; rw [hcd]; exact hsl) adm hpost hran' 0)
+    · intro g hg
+      rw [show (b, design).2 = design from rfl, hdes] at hg
+      cases hg
+
+
 end Tools.ShippingFGCircuitS2jKid
 
 #print axioms Tools.ShippingFGCircuitS2jKid.kidRunK
+#print axioms Tools.ShippingFGCircuitS2jKid.kid_pkg
+#print axioms Tools.ShippingFGCircuitS2jKid.kid_shipsRes
