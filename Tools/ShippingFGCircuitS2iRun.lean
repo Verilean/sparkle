@@ -72,8 +72,14 @@ unsafe def deriveRootT (root : Lean.Expr) (thmName : Name) (cap : Nat := 0) : Co
       let ty ← mkForallFVars #[e2, hΔ, hΓ, hrec] (← inferType body)
       let (dag, tree) := dagTree pf
       let t3 ← IO.monoMsNow
-      addDecl (.thmDecl { name := thmName, levelParams := [], type := ty, value := pf })
+      -- the kernel call is made SYNCHRONOUSLY (`Environment.addDecl`, forced by `IO.lazyPure`) so that `kernel ms` is the real check time; `addDecl` of a theorem may run asynchronously (its time would then read ~0)
+      let env0 ← getEnv
+      let decl : Declaration := .thmDecl { name := thmName, levelParams := [], type := ty, value := pf }
+      let r ← IO.lazyPure (fun _ => Lean.Environment.addDeclCore env0 0 decl none)
       let t4 ← IO.monoMsNow
+      match r with
+      | Except.ok env' => setEnv env'
+      | Except.error ex => throwError "(kernel) {ex.toMessageData (← getOptions)}"
       let rss ← hwmKb
       let stats : RootStats := { nodes := st.nodes, shSteps := st2.shSteps, viaN := st2.viaN, msGen := t1 - t0, msTables := t2 - t1, msKernel := t4 - t3,
                                   dagNodes := dag, treeNodes := tree, defs := st.defs.size, ctors := st.ctors.size, kinds := st2.shKinds, steps := st.steps }
