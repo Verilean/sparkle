@@ -108,3 +108,68 @@ theorem counterEnableLoop_cd :
       dReg8 (CD.sigMux rfl dDom tBV8 dVar1 (dAdd8 dVar0 dPure1) dVar0))
 
 end Tools.ShippingFGCircuitRoots
+
+/-! ## the existing reader/genData endpoints (kernel-checked per declaration by `#machine_endpoint`) -/
+#machine_endpoint Sparkle.Tests.SignalLoopTest.counterLoop
+#machine_endpoint Sparkle.Tests.SignalLoopTest.shift4Loop
+#machine_endpoint Sparkle.Tests.SignalLoopTest.counterEnableLoop
+
+namespace Tools.ShippingFGCircuitRoots
+open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingGen5DeclConnect
+open Tools.ShippingFGCircuit Sparkle.Tests.SignalLoopTest
+open Tools.ShippingEntrySoundness (RunsTo)
+open Tools.ShippingMachineEntry (MachineDefines MachineCloses)
+
+theorem shCounter_of_type : monoGo [] counterLoopType = some shCounter := by decide
+theorem shShift4_of_type : monoGo [] shift4LoopType = some shShift4 := by decide
+theorem shEnable_of_type : monoGo [] counterEnableLoopType = some shEnable := by decide
+
+/-- `counterLoop`: SourceDenotes (kernel) and the existing endpoint's trace, with the trace's source being the observation of the denoted meaning. -/
+theorem counterLoop_root {env : Environment} {d : DefinitionVal} (hE : RootInEnv env ``counterLoop counterLoopType counterLoopValue d)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``counterLoop [] false) mctx mref cctx cref w (m, design) w')
+    (hd : MachineDefines mctx mref cctx cref ``counterLoop counterLoop.machineData.shape)
+    (hc : MachineCloses mctx mref cctx cref ``counterLoop counterLoop.machineData.shape) :
+    ∃ (mm : MonoTy shCounter), SourceDenotesMono env ``counterLoop [] shCounter mm ∧
+      Tools.ShippingMachineAuto.MachineTrace ``counterLoop counterLoop.machineData m (fun _ : Unit => defaultDomain)
+        (fun _ bools bits => monoObs shCounter mm bools bits) := by
+  obtain ⟨hf, hl, ht, hv⟩ := hE
+  refine ⟨counterLoop, ⟨rfl, d, hf, hl, ?_, ?_⟩, counterLoop.machine_sound hr hd hc⟩
+  · show (if d.levelParams.isEmpty = true then monoGo [] d.type else none) = some shCounter
+    rw [hl, ht]; simpa using shCounter_of_type
+  · rw [hv]; exact counterLoop_cd
+
+/-- `shift4Loop`: same (kernel) and the existing endpoint's trace, with the trace's source being the observation of the denoted meaning. -/
+theorem shift4Loop_root {env : Environment} {d : DefinitionVal} (hE : RootInEnv env ``shift4Loop shift4LoopType shift4LoopValue d)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``shift4Loop [] false) mctx mref cctx cref w (m, design) w')
+    (hd : MachineDefines mctx mref cctx cref ``shift4Loop shift4Loop.machineData.shape)
+    (hc : MachineCloses mctx mref cctx cref ``shift4Loop shift4Loop.machineData.shape) :
+    ∃ (mm : MonoTy shShift4), SourceDenotesMono env ``shift4Loop [] shShift4 mm ∧
+      Tools.ShippingMachineAuto.MachineTrace ``shift4Loop shift4Loop.machineData m (fun _ : Unit => defaultDomain)
+        (fun _ bools bits => monoObs shShift4 mm bools bits) := by
+  obtain ⟨hf, hl, ht, hv⟩ := hE
+  refine ⟨shift4Loop, ⟨rfl, d, hf, hl, ?_, ?_⟩, shift4Loop.machine_sound hr hd hc⟩
+  · show (if d.levelParams.isEmpty = true then monoGo [] d.type else none) = some shShift4
+    rw [hl, ht]; simpa using shShift4_of_type
+  · rw [hv]; exact shift4Loop_cd
+
+/-- `counterEnableLoop`: same (kernel) and the existing endpoint's trace, with the trace's source being the observation of the denoted meaning. -/
+theorem counterEnableLoop_root {env : Environment} {d : DefinitionVal} (hE : RootInEnv env ``counterEnableLoop counterEnableLoopType counterEnableLoopValue d)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``counterEnableLoop [] false) mctx mref cctx cref w (m, design) w')
+    (hd : MachineDefines mctx mref cctx cref ``counterEnableLoop counterEnableLoop.machineData.shape)
+    (hc : MachineCloses mctx mref cctx cref ``counterEnableLoop counterEnableLoop.machineData.shape) :
+    ∃ (mm : MonoTy shEnable), SourceDenotesMono env ``counterEnableLoop [] shEnable mm ∧
+      Tools.ShippingMachineAuto.MachineTrace ``counterEnableLoop counterEnableLoop.machineData m (fun _ : Unit => defaultDomain)
+        (fun _ bools bits => monoObs shEnable mm bools bits) := by
+  obtain ⟨hf, hl, ht, hv⟩ := hE
+  refine ⟨counterEnableLoop, ⟨rfl, d, hf, hl, ?_, ?_⟩, counterEnableLoop.machine_sound hr hd hc⟩
+  · show (if d.levelParams.isEmpty = true then monoGo [] d.type else none) = some shEnable
+    rw [hl, ht]; simpa using shEnable_of_type
+  · rw [hv]; exact counterEnableLoop_cd
+
+end Tools.ShippingFGCircuitRoots

@@ -117,7 +117,7 @@ def monoScalar? : Lean.Expr → Option Scalar
     (canonicalNatLitValue? wE).bind fun n => if 0 < n then some (.bits n) else none
   | _ => none
 def monoGo : List Scalar → Lean.Expr → Option SigShape
-  | acc, .forallE _ ty b _ => if b.hasLooseBVars then none else (monoScalar? ty).bind fun k => monoGo (acc ++ [k]) b
+  | acc, .forallE _ ty b _ => (monoScalar? ty).bind fun k => monoGo (acc ++ [k]) b
   | acc, e => (monoScalar? e).map fun k => { args := acc, res := .one k }
 def monoShapeOf (ci : ConstantInfo) : Option SigShape := if ci.levelParams.isEmpty then monoGo [] ci.type else none
 
