@@ -28,7 +28,7 @@ open Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGC
 /-! ## 1. carrier-generic source meaning -/
 
 /-- a single-environment derivation relation for a value expression (no valuation: closed at `[]`) -/
-abbrev CDRel : Type := Environment → Lean.Expr → (α : Type) → α → Prop
+abbrev CDRel : Type 1 := Environment → Lean.Expr → (α : Type) → α → Prop
 
 /-- the S1k carrier (no environment) -/
 def cdvOld : CDRel := fun _ e α v => CD [] e α v
@@ -236,7 +236,7 @@ theorem synth_hftPcieOutByte_finalOff (CV : CDRel) (Ob : Environment → Prop) (
   obtain ⟨gh, hgh, hghd⟩ := canon_row (lvl := lvl) (env := envAt cref w) http_wf hshh hdath
   obtain ⟨Et, hEt, hsht, hdatt⟩ := hRdT
   obtain ⟨gt, hgt, hgtd⟩ := canon_row (lvl := lvl) (env := envAt cref w) tlp_wf hsht hdatt
-  have hkids : ∀ c ∈ g.d.shape.insts.map (·.1), ∃ (Ec : ConstantInfo) (gc : GenData (Tools.ShippingGen5Acc.dataOfAt lvl) Ec (structEnv (envAt cref w))),
+  have hkids : ∀ c ∈ g.d.shape.insts.map (·.1), ∃ (Ec : ConstantInfo) (gc : Tools.ShippingGen5Sem.GenData (Tools.ShippingGen5DataOf.dataOfAt lvl) Ec (structEnv (envAt cref w))),
       Tools.ShippingGen5Acc.entry₀ (envAt cref w) c = some Ec ∧ canonGD lvl (envAt cref w) Ec = some gc ∧ gc.d.shape.insts = [] := by
     intro c hc
     rw [hgd, root_insts] at hc
@@ -259,7 +259,7 @@ theorem synth_hftPcieOutByte_finalOff (CV : CDRel) (Ob : Environment → Prop) (
   · intro raw' ⟨D₀', w1', hr', hpe'⟩
     obtain ⟨n, hn⟩ := hTop p hP hdRun raw' D₀' w1' hr' hpe'
     obtain ⟨h1, h2, h3⟩ := hNoRaw raw' D₀' w1' hr' hpe'
-    exact ⟨n, hdecl, topShips_transport p n hftRoot hpe' (h1 n) (h2 n) h3 hn⟩
+    exact ⟨n, hdecl, Tools.ShippingFGCircuitS1iChild.topShips_transport p n hftRoot hpe' (h1 n) (h2 n) h3 hn⟩
 
 /-- the instances: each is the assembly at `Ob := HftObOf CV` (or the named S1p/S1r obligation) -/
 theorem synth_hftPcieOutByte_finalOff_of (CV : CDRel) : HftFinalStmtOff (HftObOf CV) CV := synth_hftPcieOutByte_finalOff CV _ (fun _ h => h)
