@@ -251,4 +251,48 @@ theorem arbiterSignal_cd :
       (fun D => @Sparkle.IP.Arbiter.RoundRobin.arbiterSignal D) := by
   cdt
 
+
+/-! ### the arbiter's endpoint and root theorem -/
+end Tools.ShippingFGCircuitRoots
+
+#machine_endpoint Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
+
+namespace Tools.ShippingFGCircuitRoots
+open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingGen5DeclConnect
+open Tools.ShippingFGCircuit
+open Tools.ShippingEntrySoundness (RunsTo)
+open Tools.ShippingMachineEntry (MachineDefines MachineCloses)
+
+def eSigD (d t : Expr) : Expr := appN ``Signal [.zero] [d, t]
+def arbiterType : Expr :=
+  .forallE `dom (.const ``Sparkle.Core.Domain.DomainConfig []) 
+    (.forallE `reqA (eSigD (.bvar 0) (.const ``Bool []))
+      (.forallE `reqB (eSigD (.bvar 1) (.const ``Bool [])) (eSigD (.bvar 2) (eBV 2)) .default) .default) .implicit
+def shArbiter : SigShape := { args := [.bool, .bool], res := .one (.bits 2) }
+
+theorem shArbiter_of_type : sigShape? arbiterType = some shArbiter := by decide
+
+/-- the arbiter: `SourceDenotes` (kernel, by `CD` on the value) with the denoted meaning `arbiterSignal` itself, and the existing endpoint's trace
+whose source is the observation of that meaning (domain-polymorphic: `dom := fun i => i`). -/
+theorem arbiterSignal_root {env : Environment} {d : DefinitionVal}
+    (hE : RootInEnv env ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal arbiterType arbiterValue d)
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCore ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal [] false)
+      mctx mref cctx cref w (m, design) w')
+    (hd : MachineDefines mctx mref cctx cref ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
+      Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData.shape)
+    (hc : MachineCloses mctx mref cctx cref ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
+      Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData.shape) :
+    ∃ (mm : shArbiter.Ty), SourceDenotes env ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal [] shArbiter mm ∧
+      Tools.ShippingMachineAuto.MachineTrace ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
+        Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData m (fun i : DomainConfig => i)
+        (fun i bools bits => shArbiter.obs (dom := fun i : DomainConfig => i) mm i bools bits) := by
+  obtain ⟨hf, hl, ht, hv⟩ := hE
+  refine ⟨fun D => @Sparkle.IP.Arbiter.RoundRobin.arbiterSignal D, ⟨rfl, .defnInfo d, hf, ?_, d, hf, hl, ?_⟩,
+    Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machine_sound hr hd hc⟩
+  · show (if d.levelParams.isEmpty = true then sigShape? d.type else none) = some shArbiter
+    rw [hl, ht]; simpa using shArbiter_of_type
+  · rw [hv]; exact arbiterSignal_cd
+
 end Tools.ShippingFGCircuitRoots
