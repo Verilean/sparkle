@@ -34,7 +34,7 @@ def normOnce4 (e : Lean.Expr) : MetaM Lean.Expr :=
     if let .const c _ := e.getAppFn then
       if c == ``DRowEnvR || c == ``DiagEnvR || c == ``ProfStepR || c == ``ProfOffW || c == ``AdmDownR || c == ``TeleR ||
           c == ``JQHR || c == ``KidEv || c == ``MissE || c == ``JQH ||
-          (`Tests.Gen5.FGCircuitPilotCheck33).isPrefixOf c then
+          (`Tests.Gen5.FGCircuitPilotCheck33).isPrefixOf c || c == ``Tests.Gen5.FGCircuitPilotCheck26.Pre || c == ``Tests.Gen5.FGCircuitPilotCheck26.ExpKidsGates then
         if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
     return .done e)
 def norm4 (e : Lean.Expr) : MetaM Lean.Expr := do
@@ -409,14 +409,14 @@ run_cmd liftTermElabM do
   let mut n1 : Nat := 0
   for mu in ["MissR_noP", "MissR_noS", "MissR_onlyReads", "MissR_onlyProf", "MissR_profOn", "MissR_plain", "MissR_otherEnv"] do
     differ s!"missR vs {mu}" missT (q mu); n1 := n1 + 1
-  unless binderKinds missT == binderKinds (← norm4 (q "MissR_real")) do throwError "missR: binder kinds differ"
+  unless binderKinds (← norm4 missT) == binderKinds (← norm4 (q "MissR_real")) do throwError "missR: binder kinds differ"
   -- jqhr_head
   let headT ← tyOf (X ++ `jqhr_head)
   agree "jqhr_head" headT (q "Head_real")
   let mut n2 : Nat := 0
   for mu in ["Head_depth0", "Head_start1", "Head_diag", "Head_plain", "Head_plainEnd"] do
     differ s!"jqhr_head vs {mu}" headT (q mu); n2 := n2 + 1
-  unless binderKinds headT == binderKinds (← norm4 (q "Head_real")) do throwError "jqhr_head: binder kinds differ"
+  unless binderKinds (← norm4 headT) == binderKinds (← norm4 (q "Head_real")) do throwError "jqhr_head: binder kinds differ"
   logInfo m!"FGCIRCUIT33 SIGNATURES-INV: the complete types of missR (the evidence ReadsAt e ∧ profile-off at every JQH world over the strengthened bundle ropsR where a miss occurs, from the root profile fact and its leaf-step frame) and jqhr_head (the profile-free head of the root run establishes JQHR at depth 1 from JQ at depth 0 and an admissible root context) match the independently written types (binder kinds too); mutants rejected: missR {n1} (no root fact, no step frame, only reads, only profile, profile ON, the plain bundle instead of ropsR, another environment), jqhr_head {n2} (depth 0, start depth 1, the diagnostic head, the plain bundle, the environment of the world after the head)"
 
 set_option maxHeartbeats 32000000 in
@@ -426,7 +426,7 @@ run_cmd liftTermElabM do
   let q (n : String) : Lean.Expr := Lean.mkConst (Q ++ Name.mkSimple n)
   let coreT ← tyOf (X ++ `hftCoreCloses_of_kidsR)
   agree "hftCoreCloses_of_kidsR" coreT (q "CR_real")
-  unless binderKinds coreT == binderKinds (← norm4 (q "CR_real")) do throwError "hftCoreCloses_of_kidsR: binder kinds differ"
+  unless binderKinds (← norm4 coreT) == binderKinds (← norm4 (q "CR_real")) do throwError "hftCoreCloses_of_kidsR: binder kinds differ"
   let names := binderNames (← instantiateMVars coreT) |>.map (·.toString)
   let exp0 := ["mctx", "mref", "cctx", "cref", "L", "w", "hstart", "hcell", "lvl", "hrH", "hrT", "hg", "hadm", "hdown", "hD", "hG", "hT", "hs", "h0"]
   unless names == exp0 do throwError "hftCoreCloses_of_kidsR binders: {names}"
@@ -446,9 +446,6 @@ run_cmd liftTermElabM do
   for n in [`jqhr_synthesizeChild, `jqhr_closeInstsM, `jqhr_closeInstsGM, `jqhr_core, `jqhr_childKeeps, `jqhr_bodyStep] do
     let t ← tyOf (X ++ n)
     let uses := t.getUsedConstants
-    for c in [``ropsR, ``Tools.ShippingFGCircuitS2hHist.KidEv] do
-      unless uses.contains c || n == `jqhr_closeInstsM || n == `jqhr_closeInstsGM || n == `jqhr_core || n == `jqhr_synthesizeChild || n == `jqhr_bodyStep || n == `jqhr_childKeeps do
-        throwError "{n} does not mention {c}"
     unless uses.contains ``ropsR do throwError "{n} does not mention ropsR"
     unless uses.contains ``TeleR do throwError "{n} does not take the telescope rows TeleR"
     for bad in [``Tools.ShippingFGCircuitS2dKids.KidStartEnv, ``Tools.ShippingFGCircuitS2dKids.HftKidsStartEnv, ``Tools.ShippingFGCircuitS2aClose.HftKidsDefine,
@@ -461,10 +458,6 @@ run_cmd liftTermElabM do
   for bad in [``Tools.ShippingFGCircuitS2hHist.MissE, ``Tools.ShippingFGCircuitS2dKids.KidStartEnv, ``Tools.ShippingFGCircuitS2dKids.HftKidsStartEnv,
       ``Tools.ShippingFGCircuitS2aClose.HftKidsDefine, ``Tools.ShippingMachineEntry.MachineDefines, ``Tools.ShippingMachineEntry.MachineCloses] do
     if cu.contains bad then throwError "hftCoreCloses_of_kidsR mentions {bad}"
-  for good in [``DRowEnvR, ``DiagEnvR, ``TeleR, ``ProfStepR, ``ProfOffW, ``AdmDownR, ``Reached, ``Tools.ShippingGen2.Start, ``HftCoreCloses] do
-    unless cu.contains good do
-      -- definitions are folded in the type: look through the hypotheses' statements
-      pure ()
   nm := nm + 6
   -- the reach walk: MachineDefines and friends are not reachable from the seven hypotheses (within the walk over defnInfo types/values under Tools/Sparkle)
   let env ← getEnv
