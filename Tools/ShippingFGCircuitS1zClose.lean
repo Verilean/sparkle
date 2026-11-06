@@ -59,6 +59,11 @@ open Tools.ShippingServedRealA Tools.ShippingChildRunAKids Tools.ShippingMachine
 open Tools.ShippingChildComposeC Tools.ShippingChildRunAMain Tools.ShippingParentRanA
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
+/-- the localised closing is implied by the all-world `MachineCloses` (so it is a weaker premise, not a stronger one) -/
+theorem coreCloses_of_machineCloses {declName : Name} {shape : MachineShape} {w : Void IO.RealWorld}
+    (h : MachineCloses mctx mref cctx cref declName shape) : CoreCloses declName shape mctx mref cctx cref w :=
+  fun _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ w8 w10 r _ hrun => h _ w8 r w10 hrun
+
 /-- `synthesizeFromConst_machine_invR` with the START WORLD of the machine run exposed: it is the world `w6` read by the `getEnv` of the body -/
 theorem synthesizeFromConst_machine_invW (O : RefLawsAOps MkRefd mref cref)
     (hA : AdmCtx O.quiet mctx cctx) {tenv : Lean.Environment}
@@ -215,6 +220,7 @@ end Final
 
 end Tools.ShippingFGCircuitS1zClose
 
+#print axioms Tools.ShippingFGCircuitS1zClose.coreCloses_of_machineCloses
 #print axioms Tools.ShippingFGCircuitS1zClose.coreOff_ranA
 #print axioms Tools.ShippingFGCircuitS1zClose.closed_of_ranA
 #print axioms Tools.ShippingFGCircuitS1zClose.hftPostGate_of_local
