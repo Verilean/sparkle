@@ -82,44 +82,73 @@ def FunWOtherEnv : Prop :=
 def FunWNoHEq : Prop :=
   ∀ {env : Environment} {ρ : Val} {e : Expr} {α α' : Type} {v : α} {v' : α'}, CDW env ρ e α v → CDW env ρ e α' v' → α = α'
 
+noncomputable instance : Inhabited Environment := ⟨Classical.ofNonempty⟩
+
 def ExpCircCVW (mu : Nat) : ConstValueRel := fun env X α v =>
   ∃ d : DefinitionVal, env.find? X = some (.defnInfo d) ∧ (if mu == 3 then True else d.levelParams = []) ∧
     DW (if mu == 1 then default else env) (if mu == 2 then [⟨.const ``Nat [], ⟨Nat, 0⟩⟩] else []) d.value (.val α v)
-noncomputable instance : Inhabited Environment := ⟨Classical.ofNonempty⟩
-
 def ExpHftObW (mu : Nat) : Environment → Prop := fun env =>
   DW env (if mu == 1 then [⟨.const ``Nat [], ⟨Nat, 0⟩⟩] else []) Tools.ShippingFGCircuitS1kStmt.hftRootValue
     (.val (MonoTy Tools.ShippingFGCircuitS1kStmt.shHft) Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte)
 
+/-- `dw_default_of_mk`. mu: 1 the outer head is `Inhabited.mk`; 2 the outer level is `0`; 3 the inner field is the type `t` (not `x`); 4 the type judgement `t` is dropped -/
 def ExpDefaultOfMk (mu : Nat) : Prop :=
-  ∀ {env : Environment} {ρ : Val} {t x : Expr} {T : Type} {v v' : T} {cv : ConstructorVal},
+  ∀ {env : Environment} {ρ : Val} {t x : Expr} {T : Type} {v : T} {cv : ConstructorVal},
+    env.find? ``Inhabited.mk = some (.ctorInfo cv) → (if mu == 4 then True else DW env ρ t (.ty T)) → DW env ρ x (.val T v) →
+    DW env ρ (appN (if mu == 1 then ``Inhabited.mk else ``Inhabited.default) [if mu == 2 then .zero else .succ .zero] [t, appN ``Inhabited.mk [.succ .zero] [t, if mu == 3 then t else x]]) (.val T v)
+/-- mutant: the conclusion's value is an arbitrary `d0` -/
+def ExpDefaultOfMkCanon : Prop :=
+  ∀ {env : Environment} {ρ : Val} {t x : Expr} {T : Type} {v : T} {cv : ConstructorVal} (d0 : T),
     env.find? ``Inhabited.mk = some (.ctorInfo cv) → DW env ρ t (.ty T) → DW env ρ x (.val T v) →
-    DW env ρ (appN ``Inhabited.default [.succ .zero] [t, appN ``Inhabited.mk [.succ .zero] [t, if mu == 1 then x else x]]) (.val T (if mu == 2 then v' else v))
+    DW env ρ (appN ``Inhabited.default [.succ .zero] [t, appN ``Inhabited.mk [.succ .zero] [t, x]]) (.val T d0)
 
 def ExpBundle2At (mu : Nat) : Prop :=
   ∀ {D : DomainConfig} {A B : Type} (a : Signal D A) (b : Signal D B) (t : Nat),
     (Sparkle.Core.Signal.bundle2 a b).val t = (if mu == 1 then (a.val (t + 1), b.val t) else (a.val t, b.val t))
 
+/-- the swapped pair is only well-typed at one type `A`; `ExpBundle2AtSpec` is the correct statement at that shape (a control: the two differ) -/
 def ExpBundle2Swap : Prop :=
-  ∀ {D : DomainConfig} {A B : Type} (a : Signal D A) (b : Signal D B) (t : Nat),
+  ∀ {D : DomainConfig} {A : Type} (a b : Signal D A) (t : Nat),
     (Sparkle.Core.Signal.bundle2 a b).val t = (b.val t, a.val t)
+def ExpBundle2AtSpec : Prop :=
+  ∀ {D : DomainConfig} {A : Type} (a b : Signal D A) (t : Nat),
+    (Sparkle.Core.Signal.bundle2 a b).val t = (a.val t, b.val t)
 
 def ExpProdInh (mu : Nat) : Prop :=
   ∀ {env : Environment} {ρ : Val} {a b x y : Expr} {A B : Type} {xv : A} {yv : B} {cv cp : ConstructorVal},
     env.find? ``Inhabited.mk = some (.ctorInfo cv) → env.find? ``Prod.mk = some (.ctorInfo cp) → DW env ρ a (.ty A) → DW env ρ b (.ty B) → DW env ρ x (.val A xv) → DW env ρ y (.val B yv) →
     DW env ρ (appN ``Inhabited.mk [.succ .zero] [appN ``Prod [.zero, .zero] [a, b], appN ``Prod.mk [.zero, .zero] [a, b, x, y]]) (.val (Inhabited (A × B)) ⟨(xv, yv)⟩)
 
+/-- the expected side is normalised first: this file's `Exp*` definitions are unfolded and the closed knob conditions `if mu == k then ..` are decided, so that `isDefEq` compares two concrete statements -/
+def iteStep? (e : Expr) : MetaM (Option Expr) := do
+  if e.isAppOfArity ``ite 5 && !(e.getArg! 1).hasLooseBVars && !(e.getArg! 1).hasFVar then
+    let r ← withDefault (whnf (e.getArg! 2))
+    if r.isAppOf ``isTrue then return some (e.getArg! 3)
+    if r.isAppOf ``isFalse then return some (e.getArg! 4)
+  return none
+
+def normExp (e : Expr) : MetaM Expr :=
+  Meta.transform e (post := fun e => do
+    let e := e.headBeta
+    if let some e' ← iteStep? e then return .visit e'
+    if let .const c _ := e.getAppFn then
+      if (`Tests.Gen5.FGCircuitPilotCheck17).isPrefixOf c then
+        if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
+    return .done e)
+
 def sameT (thm : Name) (exp : Expr) : MetaM Unit := do
   let ci ← getConstInfo thm
   unless ci.levelParams.isEmpty do throwError "{thm}: level parameters"
-  unless ← withDefault (isDefEq ci.type exp) do throwError "{thm}: type is NOT the expected statement"
+  unless ← withDefault (isDefEq ci.type (← normExp exp)) do throwError "{thm}: type is NOT the expected statement"
 def differsT (thm : Name) (mu : Expr) : MetaM Unit := do
   let ci ← getConstInfo thm
-  if ← withDefault (isDefEq ci.type mu) then throwError "{thm}: a MUTANT was accepted"
+  let m ← normExp mu
+  if ci.type == m then throwError "{thm}: the MUTANT is the same expression"
+  if ← withDefault (isDefEq ci.type m) then throwError "{thm}: a MUTANT was accepted"
 def qT (n : Name) (args : Array Expr) : MetaM Expr := mkAppM (`Tests.Gen5.FGCircuitPilotCheck17 ++ n) args
 def natT (n : Nat) : Expr := toExpr n
 
-/-- Each SIGNATURES block is its own run_cmd (the single block timed out at 880 s); each counts its own successful checks (`same` = statement equal, `rej` = mutant rejected) and logs them; a failed check throws (fail closed). -/
+-- Each SIGNATURES block is its own run_cmd (the single block timed out at 880 s); each counts its own successful checks (`same` = statement equal, `rej` = mutant rejected) and logs them; a failed check throws (fail closed).
 run_cmd liftTermElabM do
   let S := `Tools.ShippingFGCircuitS1sCD
   let Q := `Tests.Gen5.FGCircuitPilotCheck17
@@ -207,8 +236,11 @@ run_cmd liftTermElabM do
   sameT (S ++ `bundle2_val_at) (← qT `ExpBundle2At #[natT 0])
   differsT (S ++ `bundle2_val_at) (← qT `ExpBundle2At #[natT 1]); nm := nm + 1
   differsT (S ++ `bundle2_val_at) (Lean.mkConst (Q ++ `ExpBundle2Swap)); nm := nm + 1
+  if ← withDefault (isDefEq (Lean.mkConst (Q ++ `ExpBundle2Swap)) (Lean.mkConst (Q ++ `ExpBundle2AtSpec))) then throwError "control: swapped bundle2_val_at equals the correct statement"
+  nm := nm + 1
   sameT (S ++ `dw_default_of_mk) (← qT `ExpDefaultOfMk #[natT 0])
-  differsT (S ++ `dw_default_of_mk) (← qT `ExpDefaultOfMk #[natT 2]); nm := nm + 1
+  for m in [1, 2, 3, 4] do differsT (S ++ `dw_default_of_mk) (← qT `ExpDefaultOfMk #[natT m]); nm := nm + 1
+  differsT (S ++ `dw_default_of_mk) (Lean.mkConst (Q ++ `ExpDefaultOfMkCanon)); nm := nm + 1
   sameT (S ++ `dw_prod_inhabited) (← qT `ExpProdInh #[natT 0])
   logInfo m!"FGCIRCUIT17 SIG-derived: bundle2_val_at, dw_default_of_mk, dw_prod_inhabited statements equal, {nm} mutants rejected"
 
@@ -269,7 +301,7 @@ run_cmd liftTermElabM do
     unless (appFn u).isConstOf ``Inhabited.mk do logInfo m!"FGCIRCUIT17 PATTERN: note: the first unfolding of the instance is headed by {appFn u}"
     pure ()
   | none => throwError "PATTERN: the instance does not unfold"
-  logInfo m!"FGCIRCUIT17 PATTERN: `default : Nat × Bool` elaborates to `Inhabited.default.{1} T inst` (2 arguments, level 1): the rule's pattern; the instance argument is kept"
+  logInfo m!"FGCIRCUIT17 PATTERN: `default : Nat × Bool` elaborates to `Inhabited.default.\{1} T inst` (2 arguments, level 1): the rule's pattern; the instance argument is kept"
 
 /-! ## 3. AUDIT: the fail-closed verdict (copy of the Check16 verdict) -/
 
@@ -334,8 +366,8 @@ run_cmd liftTermElabM do
   -- (3) Inhabited: two instances of the same type with different defaults give different defaults (typed, closed)
   let i0 ← mkAppM ``Inhabited.mk #[toExpr (0 : Nat)]
   let i5 ← mkAppM ``Inhabited.mk #[toExpr (5 : Nat)]
-  let d0 ← mkAppM ``Inhabited.default #[natE, i0]
-  let d5 ← mkAppM ``Inhabited.default #[natE, i5]
+  let d0 ← mkAppOptM ``Inhabited.default #[some natE, some i0]
+  let d5 ← mkAppOptM ``Inhabited.default #[some natE, some i5]
   expectReject "default of ⟨0⟩ vs default of ⟨5⟩" (← auditPairs [(d0, d5)] 0)
   unless (← auditPairs [(d0, toExpr (0 : Nat)), (d5, toExpr (5 : Nat))] 0).verdict matches .ok _ do throwError "AUDIT control: default of ⟨v⟩ is not v"
   logInfo m!"FGCIRCUIT17 AUDIT CONTROLS: the verdict rejects a swapped bundle2 (also among correct ones), an empty target set, a trace mismatch, a thrown pair, ok ≠ total, Nat vs Bool, default of ⟨0⟩ vs ⟨5⟩; accepts the Signal.mk pairing of bundle2, and `default ⟨v⟩ = v`"
@@ -363,6 +395,8 @@ structure Stuck where
   bundle2Sites : Nat := 0
   inhMkSites : Nat := 0
   inhDefSites : Nat := 0
+  /-- the judged (kind, expression) pairs: the traversal is over a DAG whose unfolding is exponential as a tree, so each pair is judged once (sites are counted per distinct pair) -/
+  seen : Std.HashSet (Bool × Lean.Expr) := {}
 
 def bump (l : List (String × Nat)) (k : String) : List (String × Nat) :=
   if l.any (·.1 == k) then l.map fun (a, n) => if a == k then (a, n + 1) else (a, n) else l ++ [(k, 1)]
@@ -468,7 +502,8 @@ partial def recogProj (ty : Bool) (env : Environment) (fuel : Nat) (S : Name) (i
       | none => modify fun s => { s with heads := bump s.heads s!"{pre0 ty}proj {S}#{i} of {describe env x}" }
 
 partial def recog (ty : Bool) (env : Environment) (fuel : Nat) (e : Lean.Expr) : M Unit := do
-  modify fun s => { s with nodes := s.nodes + 1, maxDepth := max s.maxDepth (4000 - fuel) }
+  if (← get).seen.contains (ty, e) then return
+  modify fun s => { s with seen := s.seen.insert (ty, e), nodes := s.nodes + 1, maxDepth := max s.maxDepth (4000 - fuel) }
   match fuel with
   | 0 => modify fun s => { s with heads := bump s.heads "<fuel>" }
   | fuel + 1 =>
@@ -569,6 +604,7 @@ partial def recog (ty : Bool) (env : Environment) (fuel : Nat) (e : Lean.Expr) :
     | h => modify fun s => { s with heads := bump s.heads s!"{pre}<{h.ctorName}> application" }
 end
 
+set_option maxHeartbeats 32000000 in
 run_cmd liftTermElabM do
   let env ← getEnv
   let some ci := env.find? `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte | throwError "root missing"

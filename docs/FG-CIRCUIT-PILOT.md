@@ -1057,6 +1057,11 @@ S1r の走査で止まっていた 2 種（`Signal.mk` ×17 = `bundle2`→`Seq.s
 - 確認: Check22 の AXIOMS-A/B（評価器の健全性と表版規則は標準 axiom のみ）、FAIL-CLOSED（`hftObCDW_of_tables` は定数として存在しない）、STOP-1。Check 行数: info 4 行（AXIOMS-A, AXIOMS-B, FAIL-CLOSED, STOP-1）。
 - 最終定理への接続: `HftObCDW` と `HftFinalStmtW`（§23.2）は型のみで、`hcd` は引き続き仮説。表の仮説（`EnvDefs`/`EnvCtors`/`RecFact`）への置換は導出が無いので行えない。
 
+### 23.7 Check17 repaired (S2f)
+
+- Line 203 failure: the **Check** was wrong, not `dw_default_of_mk`. `ExpDefaultOfMk` had an extra unused binder `{v v' : T}` (for a mutant), so even mutant 0 could not equal the theorem. The theorem states exactly the §23.1 rule (`x ↦ v`, `default (Inhabited.mk x) ↦ v`, with the `Inhabited.mk` constructor condition and `TDW t`); the expected text is unchanged in meaning, the mutants are now same-binder variants plus a `Canon` mutant.
+- Other repairs: `Inhabited Environment` instance declared before use, `.{1}` escaped in `m!`, `mkAppOptM` for `Inhabited.default`, `ExpBundle2Swap` typed at one type (with a control), doc-comment before `run_cmd` removed, expected sides normalised (Exp definitions unfolded, `if mu == k` decided) before `isDefEq`.
+- The snapshot traversal was exponential (a tree walk of a DAG); each (kind, expr) is now judged once, so site counts are per distinct pair. Check17's own build: 214 s. Result: 1892 nodes, audit 386/386, 0 trace mismatches, stuck: `<fuel>` 12, `Signal.mk` 10, `Inhabited.mk` 3, `Bool.false` 1 (the `<fuel>` entries are open and not explained here).
 
 ## 30. S2b（Issue `sparkle-fg-circuit-pilot` の次の束）: `Inhabited.mk` の狭い水準規則（族 `DS`）、共有を保つ評価の測定、閉包環境の関係 `Sh`
 
