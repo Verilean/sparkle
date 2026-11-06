@@ -97,7 +97,7 @@ def ExpRunIffZ (mu : Nat) : Prop :=
 
 def ExpMapAt (fst : Bool) (mu : Nat) : Prop :=
   ∀ {D : DomainConfig} {A B : Type} (sv : Signal D (A × B)) (t : Nat),
-    (if fst then (Signal.map Prod.fst sv).val t = (sv.val t).1 else (Signal.map Prod.snd sv).val t = (if mu == 1 then (sv.val t).1 else (sv.val t).2))
+    (if fst then (Signal.map Prod.fst sv).val t = (sv.val t).1 else (Signal.map Prod.snd sv).val t = (if mu == 1 then (sv.val (t + 1)).2 else (sv.val t).2))
 
 run_cmd liftTermElabM do
   let S := `Tools.ShippingFGCircuitS1rCD
@@ -206,7 +206,7 @@ run_cmd liftTermElabM do
     match unfoldAt env pu with
     | some u => if (appFn u).isConstOf ``Signal.pure then throwError "PATTERN control: unfolding returned itself"
     | none => pure ()
-    logInfo m!"FGCIRCUIT16 PATTERN: the elaborated `Signal.map Prod.fst s` / `Signal.map Prod.snd s` are exactly the rules' patterns (Signal.map.{0} D (Nat × Bool) Nat (Prod.fst.{0,0} Nat Bool) s); unfolding them in this environment reaches the constructor Signal.mk (MapStuck holds); a swapped pattern is rejected"
+    logInfo m!"FGCIRCUIT16 PATTERN: the elaborated `Signal.map Prod.fst s` / `Signal.map Prod.snd s` are exactly the rules' patterns (Signal.map at level 0, D, Nat × Bool, Nat, Prod.fst at levels 0 0, s); unfolding them in this environment reaches the constructor Signal.mk (MapStuck holds); a swapped pattern is rejected"
 
 /-! ## 3. AUDIT: the fail-closed verdict -/
 
@@ -317,6 +317,8 @@ def bump (l : List (String × Nat)) (k : String) : List (String × Nat) :=
 
 abbrev M := StateM Stuck
 
+def pre0 (ty : Bool) : String := if ty then "ty:" else ""
+
 def kindOf (env : Environment) (c : Name) : String :=
   match env.find? c with
   | some (.inductInfo _) => "inductive" | some (.ctorInfo _) => "ctor" | some (.recInfo _) => "recursor" | some (.opaqueInfo _) => "opaque"
@@ -399,11 +401,11 @@ partial def recogProj (ty : Bool) (env : Environment) (fuel : Nat) (S : Name) (i
             modify fun s => { s with unfolded := bump s.unfolded ("proj-arg:" ++ ctor.toString) }; recogProj ty env fuel S i x'
         | none =>
           let why := if ctor == ``List.rec then describeRecStuck env x else describe env x
-          modify fun s => { s with heads := bump s.heads s!"{if ty then "ty:" else ""}proj {S}#{i} of {why}" }
+          modify fun s => { s with heads := bump s.heads s!"{pre0 ty}proj {S}#{i} of {why}" }
     | _ =>
       match ← whStepChecked env x with
       | some x' => recogProj ty env fuel S i x'
-      | none => modify fun s => { s with heads := bump s.heads s!"{if ty then "ty:" else ""}proj {S}#{i} of {describe env x}" }
+      | none => modify fun s => { s with heads := bump s.heads s!"{pre0 ty}proj {S}#{i} of {describe env x}" }
 
 partial def recog (ty : Bool) (env : Environment) (fuel : Nat) (e : Lean.Expr) : M Unit := do
   modify fun s => { s with nodes := s.nodes + 1, maxDepth := max s.maxDepth (4000 - fuel) }
