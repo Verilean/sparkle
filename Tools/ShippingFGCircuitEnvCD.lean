@@ -31,9 +31,6 @@ theorem cd_eBV (w : Nat) : TD [] (eBV w) (BitVec w) :=
 theorem cd_eBVLit (n k : Nat) : CD [] (eBVLit n k) (BitVec n) (BitVec.ofNat n k) :=
   CD.bvOfNat rfl (CD.natLit rfl) (CD.natLit rfl)
 
-/-- the three table rows, as `(name, width, value)` -/
-def boundaryRow : List (Name × Nat × Nat) := [(`stIdle, 2, 0), (`stGrantA, 2, 1), (`stGrantB, 2, 2)]
-
 theorem abbrevDenotes_of_boundary {env : Environment} (hB : BoundaryRowsInEnv env) {nm : Name} {k : Nat}
     (hk : (nm, k) ∈ [(`stIdle, 0), (`stGrantA, 1), (`stGrantB, 2)]) :
     AbbrevDenotes env (privAbbrev nm) 2 (BitVec.ofNat 2 k) := by
