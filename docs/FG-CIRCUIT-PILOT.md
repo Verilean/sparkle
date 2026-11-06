@@ -1880,7 +1880,7 @@ def ProfOffW mref cref w := ∀ mctx cctx, GetEnvProfileAt mctx mref cctx cref w
 | `jqhr_synthesizeChild`、`jqhr_core`、`jqhr_closeInstsM`、`jqhr_closeInstsGM`（保存） | `synthesizeChild` の triple（結果は保存した読みを持つ `RealChildE`）、core の entry、1 出力/一般の closing が `JQHR` を保つ |
 | **`hftCoreCloses_of_kidsR`** | `hftCoreCloses_of_kidsH` の `hmiss : MissE …` を下の 7 仮説で置換（§39.5） |
 
-### 39.4 名前付き仮説（完全な型。all-world law ではなく、到達した quiet world の上だけ）
+### 39.4 名前付き仮説（完全な型。量化範囲は仮説ごとに異なる。S2n で訂正: 「7 件とも到達した quiet world の上だけ」は撤回した）
 
 | 仮説 | FG 行 | 型（要旨） | 必要な所 |
 |---|---|---|---|
@@ -1891,6 +1891,8 @@ def ProfOffW mref cref w := ∀ mctx cctx, GetEnvProfileAt mctx mref cctx cref w
 | `ProfOffW mref cref w`（root の開始 world） | D.T-4m5 | root の開始 world で profile lookup が unset | 同上（帰納の基底） |
 | `AdmCtx (quietR O.quiet mref cref (envAt cref w) w) mctx cctx`（`hadm`） | D.T-4m6 | root の文脈が強めた quiet で admissible | `jqhr_head` 以降 |
 | `AdmDownR O e w₀` | D.T-4m7 | `∀ mctx cctx, AdmCtx (quietR …) mctx cctx → AdmCtx O.quiet mctx cctx` | `ropsR` の全 field（`O` の field を使う箇所） |
+
+**量化範囲（S2n 訂正。各仮説ごと）**: `DRowEnvR`/`DiagEnvR` だけが quiet + `ReadsAt e` + `Reached` の world に限られる。`ProfStepR` が要るのは `Reached` + `LeafStep` + `ProfOffW` だけで、quiet も `ReadsAt` も要らない。`ProfOffW` は 1 つの world についてだが、全 `mctx`/`cctx` に対する。`TeleR` は任意の不変条件・任意の継続についての法則である（`quietR` を quiet として持つが、world の範囲は不変条件が決める）。`hadm`/`AdmDownR` は world ではなく callback（文脈）の性質で、他と同じ量化範囲ではない。`Reached` は、許可された任意の葉・文脈・引数（任意の cache 書き込みを含む）についての閉包であり、特定の run の実トレースではない。この過大近似の上で保存を示すのは問題ない。
 
 `DRow` の 13 行と `Diag` の 9 行と telescope の 4 行、profile、文脈は、`CellPrem` からも `Laws` からも導けない（S2d §32.3 と同じ理由。`QuietStrength` の構成は class-D・`diag`・telescope を含まない）。ここで要るのは全 world の frame law ではなく、**root の開始 world から葉の step で到達した quiet な world で、その行が `ReadsAt e` を保つ**という run 局所の事実だけ。不可能とは言わない。
 
@@ -1909,9 +1911,9 @@ hftCoreCloses_of_kidsR (L : Laws mref cref) {w} (hstart : Start L mctx cctx w) (
 
 ### 39.6 正直な範囲
 
-- `Reached` は「root の run の実行トレース」ではなく、`w₀` から法則の葉の操作で作れる world の閉包。run のトレースは `RunsTo`（大きいステップの述語）しかなく持てないため。各仮説は「到達した quiet で `ReadsAt e` を読む world」の上で全称（全 world や任意の `JQH` world ではない）。
+- `Reached` は「root の run の実行トレース」ではなく、`w₀` から法則の葉の操作で（任意の許可された文脈・引数・cache 書き込みで）作れる world の閉包。トレースは現状定義していない。量化範囲は仮説ごとに違う（§39.4 の訂正参照: `DRowEnvR`/`DiagEnvR` は quiet+`ReadsAt`+`Reached`、`ProfStepR` は `Reached`+`LeafStep`+`ProfOffW` のみ、`TeleR` は任意の不変条件の法則、`hadm`/`AdmDownR` は callback の性質）。
 - `TeleR` は `RefLawsATele` の形（`I` について全称・継続の仮定つき）の仮説で、`L.T` を `quietR` に強めたもの。telescope 行の `ReadsAt` frame を継続の仮定から切り離して小さくする道は取っていない（`L.T` からは導けない: 不変条件に cache の証拠 `RealChildE` が入り、継続が cache を伸ばすため）。
-- `hadm`/`hdown` は `canUnfold?` の callback の事実で、文脈が `none` なら自明（`admCtx_none`）。
+- `hadm`/`hdown` は `canUnfold?` の callback の事実。**S2n で訂正**: 「文脈が `none` なら自明」（`admCtx_none`）は個々の `AdmCtx` についてだけで、全称の `AdmDownR`（∀ mctx cctx. `AdmCtx (quietR …)` → `AdmCtx O.quiet`）は root の `canUnfold? = none` からは出ない（`InertUnfold` は quietR 上でだけ inert な callback から O.quiet の全 world の inert を与えない）。§40 参照。
 - `ProfOffW`（D.T-4m5）は root の run が profile-free の入口（`synthesizeCombinationalOff`）なので root 側では今まで要らなかった。子の `synthesizeCombinational` の lookup のために新しく root の開始 world で要る。
 - `MissE`（D.T-4h）は**導出した**（`missR`）。ただし導出の前提が上の仮説で、それらは未供給。`hkgates`（S2g）、`HftRootLink`（S2c）、`hcd`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr` は変わらない。
 
@@ -1937,3 +1939,74 @@ hftCoreCloses_of_kidsR (L : Laws mref cref) {w} (hstart : Start L mctx cctx w) (
 ### 39.9 ビルド環境の注記
 
 `kjob lake build TARGET` を 1 つずつ（`Tools.ShippingFGCircuitS2mReach` → `Reach2` → `Reach3` → `Tests.Gen5.FGCircuitPilotCheck33`）。各 Tools ファイルは数十秒（S2h の cache 込み）、Check33 は約 1 分。
+
+## 40. S2n（Issue `sparkle-fg-circuit-pilot` の次の束）: `AdmDownR` の橋 — 文脈に持たせる形 `AdmBoth`、橋なしの強めた法則 `opsB`、世界レベルの置換 `QuietCover`
+
+土台 `6c9f2dcf`（par/fgc-s1）。追加ファイル（既存の定理は書き換えていない。lakefile 登録 2 件）: `Tools/ShippingFGCircuitS2nAdm.lean`、`Tests/Gen5/FGCircuitPilotCheck34.lean`。S2k・S2i のファイルには触れていない。新しい law・axiom・TRUSTED・sorry・native_decide はない。Issue の状態は変えていない。最終文は変えていない。成果は**条件付き**で台帳に数えない。`AdmDownR` を新しい TRUSTED として通してはいない。
+
+### 40.1 レビュアー裁定と §39 の訂正
+
+`AdmDownR O e w₀ := ∀ mctx cctx, AdmCtx (quietR …) mctx cctx → AdmCtx O.quiet mctx cctx` は含意で、`InertUnfold q f` は `q` の world 上の inert だけを言う。`quietR` 上でだけ inert な callback から `O.quiet` の全 world の inert は一般には出ない。root の `canUnfold? = none` は**その個別の** `AdmCtx`（`admCtx_none`）を与えるだけで、全称の `AdmDownR` を与えない。§39.6 の「文脈が `none` なら自明」はこの意味に訂正した（§39.6 本文を直した）。§39.4/§39.6 の量化範囲の記述（「7 件とも到達した quiet world の上だけ」）も撤回し、仮説ごとの範囲に直した（`DRowEnvR`/`DiagEnvR` = quiet+`ReadsAt`+`Reached`、`ProfStepR` = `Reached`+`LeafStep`+`ProfOffW` のみ、`ProfOffW` = 1 world・全 `mctx`/`cctx`、`TeleR` = 任意の不変条件・継続の法則、`hadm`/`AdmDownR` = callback の性質）。`Reached` は任意の許可された葉・文脈・引数（任意の cache 書き込みを含む）の閉包で、特定の run の実トレースではない（トレースは現状定義していない）。
+
+### 40.2 完全な型（先に）
+
+```lean
+def AdmBoth (O) (e) (w₀) (mctx) (cctx) : Prop :=
+  AdmCtx O.quiet mctx cctx ∧ AdmCtx (quietR O.quiet mref cref e w₀) mctx cctx
+
+def QuietCover (O : RefLawsAOps MkRefd mref cref) (e) (w₀) : Prop :=
+  ∀ w, O.quiet w → ReadsAt e cref w ∧ Reached O.quiet mref cref w₀ w
+
+structure OpsB (O) (e) (w₀) : Prop   -- RefLawsAOps の 10 field を quiet := quietR、文脈の前提を AdmBoth にしたもの
+theorem opsB (hcell : CellPrem MkRefd mref cref) (hD : DRowEnvR O e w₀) (hG : DiagEnvR O e w₀) : OpsB O e w₀      -- hdown なし
+theorem admBoth_of_down (hdown : AdmDownR O e w₀) (h : AdmCtx (quietR …) mctx cctx) : AdmBoth O e w₀ mctx cctx
+
+theorem hftCoreCloses_of_kidsR' (L : Laws mref cref) {w} (hstart : Start L mctx cctx w) (hcell : CellPrem MkRefd mref cref) {lvl}
+  (hrH …) (hrT …) (hg : HftKidsGates (envAt cref w))
+  (hadm : AdmCtx (quietR L.O.quiet mref cref (envAt cref w) w) mctx cctx)
+  (hcover : QuietCover L.O (envAt cref w) w)
+  (hD : DRowEnvR …) (hG : DiagEnvR …) (hT : TeleR …) (hs : ProfStepR L.O w) (h0 : ProfOffW mref cref w) :
+  HftCoreCloses mctx mref cctx cref w
+theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
+  (hcover : QuietCover L.O (envAt cref w) w) (hs : ProfStepR L.O w) (h0 : ProfOffW mref cref w) : HftCoreCloses mctx mref cctx cref w
+```
+
+### 40.3 証明したこと（標準 axiom のみ）
+
+| 名前 | 内容 |
+|---|---|
+| `AdmBoth` | 文脈に持たせる形: 元の `AdmCtx O.quiet` と強めた `AdmCtx (quietR …)` の**両方**（どちらからも他方を導かない） |
+| `admBoth_none`, `admBoth_mkMetaContext` | 確立（root）: `canUnfold? = none`（`mkMetaContext_canUnfold`）の文脈は `AdmBoth` |
+| `AdmBoth.lctx/localInsts/lctx_insts/config/coreCtx` | 保存: 本体の帰納が行う文脈の更新（lctx・localInstances・config・Core 文脈）で `AdmBoth` が保たれる（`admCtx_*` を両成分に） |
+| **`opsB`** | `ropsR` の 10 field を `AdmBoth` 文脈の上で、**`hdown` なしで**導出（元の half を `O` の field に、強めた half は使わない。class-D と診断は名前付き仮説 `hD`, `hG`） |
+| `admBoth_of_down` | `AdmDownR` が入る**唯一**の場所: bundle の文脈（`AdmCtx quietR`）を `AdmBoth` に直す変換 |
+| `QuietCover`, `quietR_eq_of_cover` | 世界レベルの置換: `O.quiet` の world がすべて `e` を読み root から到達している。すると `quietR = O.quiet` |
+| `admDownR_of_cover`, `drowEnvR_of_cover`, `diagEnvR_of_cover`, `teleR_of_cover` | `QuietCover` の下で `AdmDownR`, `DRowEnvR`, `DiagEnvR`, `TeleR`（`L.T` そのもの）は**定理** |
+| **`hftCoreCloses_of_kidsR'`** | `hftCoreCloses_of_kidsR` の `hdown` を `hcover` に替えた（他の前提は S2m のまま） |
+| **`hftCoreCloses_of_cover`** | 7 前提 `hadm hdown hD hG hT hs h0` を `hcover hs h0` に替えた（`hadm` は `hstart.1`） |
+
+### 40.4 正直な範囲（何をしていないか）
+
+- **文脈に持たせる形は bundle の外までしか通していない。** `opsB` は `AdmBoth` 文脈の上の法則を `AdmDownR` なしで与える。しかし S2h の鎖（`hft_closesAtH` 以下、`RefLawsAOps`・`RefLawsATele`・`Keeps`・`translate_keepsA…` など 80k 行の基盤）は**1 つの bundle** `R` を取り、文脈の量化は `AdmCtx R.quiet` である。`R.quiet := quietR` の bundle の文脈は `AdmCtx quietR` だけで、`AdmBoth` ではない。`AdmBoth` を文脈の型とする鎖は作っていない。したがって `AdmDownR` を使わずに `hftCoreCloses_of_kidsR'` を `AdmBoth` 形で与えることは**まだできていない**（不可能とは言わない: 鎖を文脈の述語について一般化するか、`RealChildE.adm`・`RefLawsATele` の文脈の量化を `AdmBoth` に替えた版を作る道がある。範囲が大きく、この束では作っていない）。
+- `quietR ⊊ O.quiet` のとき `AdmDownR` は callback 全体への全称なので、`O.quiet` の world で `quietR` の外のものがあるなら一般に成り立たない。`AdmDownR` を世界レベルで言い換えると `QuietCover`（の十分条件）になる（`admDownR_of_cover`）。
+- `QuietCover` は callback ではなく**法則の quiet 述語**についての前提で、`L` の取り方（法則を run に到達する world の集合で述べること）に依る。供給していない。`hftCoreCloses_of_kidsR'` は `hD hG hT` を残してあるが、`QuietCover` の下では冗長（`hftCoreCloses_of_cover` で外した）。`QuietCover` は S2h §34.4 のレビュアー裁定が退けた全称 `MissE` より強い形（`O.quiet` の**全** world）ではあるが、callback に関する全称ではなく、`L` の選び方の条件である。採用するかどうかは S2k / レビュアーの判断に残す。
+- `ProfStepR`/`ProfOffW`、`HftRootLink`、`hkgates`、`hcd`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr` は変わらない。
+
+### 40.5 Check34（`kjob lake build Tests.Gen5.FGCircuitPilotCheck34`）
+
+`kjob lake build Tests.Gen5.FGCircuitPilotCheck34`: exit 0、943 jobs（Reach3 を含む初回ビルド）。同一の比較関数（`Check33.cmp`: 同じ定数集合を正規化し `isDefEq` を default 透明度で、肯定と全 mutant で同じ）。出力 10 行（DEFS 1、SIGNATURES 1、STEPS 1、REMAINING 4、AXIOMS 1 + Check33 の既存行）。
+
+- `FGCIRCUIT34 DEFS`: `AdmBoth`・`QuietCover` を独立に書いた文面と照合。**10 mutant 棄却**（片方の half のみ、含意 `AdmDownR` を組の代わりに、選言、別の環境; 到達なし、`ReadsAt` なし、自明な逆向き包含、別の環境、別の world からの到達）。
+- `FGCIRCUIT34 SIGNATURES`: `hftCoreCloses_of_kidsR'`・`hftCoreCloses_of_cover` の完全な型（binder の名前・kind も）。`hftCoreCloses_of_kidsR'` **19 mutant**（各前提の脱落 12、`QuietCover` を到達なし/`ReadsAt` なし/逆向きに 3、profile ON、別の root 環境、root から到達しない world、end world）、`hftCoreCloses_of_cover` **15 mutant**（脱落 8 と同じ対照 7）。binder 名 `mctx mref cctx cref L w hstart hcell lvl hrH hrT hg hadm hcover hD hG hT hs h0`（kidsR'）・`… hg hcover hs h0`（cover）。
+- `FGCIRCUIT34 STEPS`（20 構造検査）: 新しい 2 定理は `AdmDownR`・`MissE` を含まない。`opsB` は `AdmDownR` を含まず `AdmBoth` を使う。`AdmDownR` を取るのは `admBoth_of_down` だけ。
+- `FGCIRCUIT34 REMAINING`（4 行: `hs`, `h0`, `hcover`, 未実施の `AdmBoth` 鎖）、`FGCIRCUIT34 AXIOMS`（18 名、標準 axiom のみ）。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き。
+
+### 40.6 次
+
+(1) S2k: `hftCoreCloses_of_kidsR'`/`hftCoreCloses_of_cover` の採否（`QuietCover` を `L` の条件として採るか）。(2) 採らないなら鎖の文脈一般化: `RealChildE.adm`・`RefLawsATele`・`Keeps` 系を `AdmBoth` 形の文脈の述語で一般化し、`opsB` から直接 bundle 相当を作る。(3) `hD hG hT hs h0` の供給（S2m §39.8 と同じ）。
+
+### 40.7 ビルド環境の注記
+
+`kjob lake build Tools.ShippingFGCircuitS2nAdm` → `Tests.Gen5.FGCircuitPilotCheck34` を 1 つずつ。S2m の鎖（`Tools.ShippingFGCircuitS2mReach3`）が未ビルドの cache だと 900 job 超の初回ビルドになる。
