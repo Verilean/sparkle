@@ -1041,3 +1041,9 @@ S1r の走査で止まっていた 2 種（`Signal.mk` ×17 = `bundle2`→`Seq.s
 ### 23.4 名前付き仮説・未供給
 
 `HftObCDW`（型のみ）、`EnvDefs`/`EnvCtors`（導出時の表）、Expr 書き換えの意味保存は定理ではなく監査、`bundle2` の unsafe 実装、非 leaf の `hsrc`/`htop`/`hnoraw`。
+
+### 23.5 検証の状況（正直な記録）
+
+- `Tools/ShippingFGCircuitS1sCD.lean`: `lean` 直接実行（S1r までの olean に対して）で **エラー 0、sorry 0**、`dw_fun` の axiom は propext/Classical.choice/Quot.sound のみ（約 5 分）。lakefile 登録後の `kjob lake build Tools.ShippingFGCircuitS1sCD` は未実行（lakefile 変更はキャッシュ鍵を変え、冷間 build が約 70 分かかるため）。
+- `Tests/Gen5/FGCircuitPilotCheck17.lean`: 草稿をコミットしたが、**未検証**。同じ olean に対する単独実行は 880 秒の timeout で出力なしに終了した（最初の SIGNATURES ブロックが重い。Check16 の同種ブロックも全体で約 10 分）。したがって Check17 の「棄却した mutant 数」「SNAPSHOT17 の件数」「#print axioms」は今回報告できない。次の束: SIGNATURES を分割（`ExpUnfW`/`ExpCircCVW` の mutant を別 run_cmd にする）して再実行。
+- `hcd`（`HftObCDW` の型付き導出）は**未導出**（§23.3）。
