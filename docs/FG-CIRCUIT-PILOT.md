@@ -1835,3 +1835,105 @@ theorem hftCallDec_of_checked {ι} {mref} {cref} (lvl) (env₀) {w} (hchk : Chec
 ### 38.6 ビルド環境の注記
 
 `kjob lake build TARGET`（短い timeout なし）。S2lDec は依存が cache で数十秒、Check32 も軽い。
+
+## 39. S2m（Issue `sparkle-fg-circuit-pilot` の次の束）: `MissE` の置換 — 対象 root の開始 world から到達する環境の不変条件 `JQHR` を本体帰納に通す
+
+土台 `86230111`（par/fgc-s1）。追加ファイル（既存の定理は書き換えていない。lakefile 登録 4 件）: `Tools/ShippingFGCircuitS2mReach.lean`（到達関係・強めた quiet・`ropsR`）、`S2mReach2.lean`（`JQHR`・`missR`・`jqhr_head`）、`S2mReach3.lean`（各ステップの保存・`hftCoreCloses_of_kidsR`）、`Tests/Gen5/FGCircuitPilotCheck33.lean`。S2k（最終文 §33/§37）・S2i（hcd §35）・S2l（hdec §38）のファイルには触れていない。新しい law・axiom・TRUSTED・sorry・native_decide はない。Issue の状態は変えていない。成果は**条件付き**で台帳に数えない。最終文は変えていない（定理とその前提リストだけを提供する）。
+
+### 39.1 レビュアー裁定（S2h §34.4 への）
+
+`MissE` は root からの到達性述語ではない: 任意の `AdmCtx`・`D ≥ 1`・`n`・`JQH` world で miss が起きる所に対する全称である。cache が空なら `JQH` の cache 条件は自明で、履歴条件だけからは固定した root 環境への `ReadsAt` は出ない。次の一歩は、**対象 root から**の到達・環境の不変条件を本体帰納に通すこと。強い `MissE` を root の frame から導かない。新しい law は足さない。
+
+### 39.2 設計と定義（完全な型を先に）
+
+不変条件は `quiet` 述語そのものに入れた（`StableA`/`Keeps`/`Triple` の既存の一般補題が `RefLawsAOps` に対して書かれているため、`JQH` から `hftCoreCloses` までの S2h の定理が**そのまま**使える）。
+
+```lean
+inductive LeafStep (quiet) (mref) (cref) : World → World → Prop      -- 法則が語る葉の操作 1 回
+  | frame   (mctx cctx) (p : MetaM α) (w) : AdmCtx quiet mctx cctx → FramedA MkRefd p → LeafStep quiet mref cref w (endW mctx mref cctx cref p w)
+  | diag    …  Diag p …       | throws … Throws p …
+  | cacheSet (mctx cctx) v w u w' : AdmCtx quiet mctx cctx → RunsTo (sparkleChildCache.set v) mctx mref cctx cref w u w' → LeafStep quiet mref cref w w'
+  | depthSet … (ST.Ref.set sparkleSynthDepth v) …
+inductive Reached (quiet) (mref) (cref) (w₀) : World → Prop
+  | start : Reached … w₀ w₀
+  | step  : Reached … w₀ w → LeafStep quiet mref cref w w' → Reached … w₀ w'
+abbrev quietR quiet mref cref e w₀ := fun w => quiet w ∧ ReadsAt e cref w ∧ Reached quiet mref cref w₀ w
+def ropsR (O : RefLawsAOps MkRefd mref cref) hcell e w₀ hdown hD hG : RefLawsAOps MkRefd mref cref   -- quiet := quietR O.quiet …
+def JQHR O hcell e w₀ hdown hD hG D w := JQH (ropsR O hcell e w₀ hdown hD hG) (KidEv mref cref e) D w
+def ProfOffW mref cref w := ∀ mctx cctx, GetEnvProfileAt mctx mref cctx cref w
+```
+
+- `Reached` は**任意の MetaM コード**の終了 world ではなく、法則の葉の操作（`FramedA` の行、診断、`throwError`、cache/depth の書き込み、いずれも admissible な文脈）だけで root の開始 world `w₀` から作られる world。任意コード（環境変数を書くもの等）を許すと下の `ProfOffW` の仮説が偽になるので葉に限った。
+- `JQHR` の world は、quiet で、Core 環境が `e = envAt cref w₀` を `ReadsAt` で読み、`w₀` から到達し、cache の entry は自分の作った run の開始 world の読み（`KidEv`）を持つ。`KidEv`（S2h）の第 2 成分（profile lookup が off）は `ProfOffW` と下の `ProfStepR` から出る。
+- `ropsR` の各 field: `RefLawsAOps` の field 9 個。`ReadsAt` は、非 class-D の `FramedA` の行・`throwError`・cache/depth の書き込みでは `CellPrem` から（`envFrameEnd_framedA/throws/set`、既存）、`DRow` の行と診断では名前付き仮説から、到達は `Reached.step`（構成子）、quiet は `O` の field（文脈は `hdown` 経由）。
+
+### 39.3 証明したこと（標準 axiom のみ）
+
+| 名前 | 内容 |
+|---|---|
+| `ropsR` | 強めた `RefLawsAOps`。`quiet`, `diag`, `frameT`, `excOk`, `frameQ`, `cacheSetQ`, `depthSetQ`, `frame`, `cacheSet`, `depthSet` を `O` と `CellPrem` と下の仮説から構成 |
+| `profOffW_of_reached` | root の `ProfOffW` と葉の step の frame (`ProfStepR`) から、到達した全 world で `ProfOffW`（`Reached` の帰納） |
+| `jqhr_facts` | `JQHR` の world は `O.quiet ∧ ReadsAt e ∧ Reached ∧ ProfOffW` |
+| **`missR`** | `MissE (ropsR …) (KidEv mref cref e)`: **不変条件そのものから** miss 時の証拠が出る。`ReadsAt e` は quiet 述語に入っているので world から、profile は `ProfOffW`（到達 world） |
+| **`jqhr_head`**（確立） | root の run の頭 `coreHeadOff`（depth 0 で cache を `{}` にする）の後の world は `JQHR` depth `0+1`。開始 world は `readsAt_self`・`Reached.start` で `JQ (quietR …) 0 w₀`（`coreHeadOff_jqhA` を `ropsR` で使う） |
+| `jqhr_bodyStep`、`jqhr_childKeeps`（保存） | 機械本体の各 step、`synthesizeChild` の miss/hit（`D ≥ 1`）が `JQHR` を保つ。S2h の `bodyStepH_of_tele`、`childKeepsH_all_of_tele` を `ropsR` と `TeleR` で |
+| `jqhr_synthesizeChild`、`jqhr_core`、`jqhr_closeInstsM`、`jqhr_closeInstsGM`（保存） | `synthesizeChild` の triple（結果は保存した読みを持つ `RealChildE`）、core の entry、1 出力/一般の closing が `JQHR` を保つ |
+| **`hftCoreCloses_of_kidsR`** | `hftCoreCloses_of_kidsH` の `hmiss : MissE …` を下の 7 仮説で置換（§39.5） |
+
+### 39.4 名前付き仮説（完全な型。all-world law ではなく、到達した quiet world の上だけ）
+
+| 仮説 | FG 行 | 型（要旨） | 必要な所 |
+|---|---|---|---|
+| `DRowEnvR O e w₀` | D.T-4m1 | `∀ mctx cctx p, AdmCtx O.quiet mctx cctx → DRow p → ∀ w, O.quiet w → ReadsAt e cref w → Reached O.quiet mref cref w₀ w → ReadsAt e cref (endW mctx mref cctx cref p w)` | `ropsR.frameQ` の class-D 13 行（`whnf`/`inferType`/`isClass?`/`whnfUntil`/`instantiateForall`/`mkLambdaFVars`/`mkAppM`/`unfoldDefinition?`/`reduce`/`ioEnv`/`monoMs`/`mkExprCache`/`localMk`） |
+| `DiagEnvR O e w₀` | D.T-4m2 | 同上で `Diag p` | `ropsR.diag`（診断 9 行） |
+| `TeleR O e w₀` | D.T-4m3 | `RefLawsATele (quietR O.quiet mref cref e w₀) mref cref`（4 行: `forallTelescopeReducing`/`lambdaTelescope`/`withLocalDeclD`/`withLetDecl`。不変条件が quiet・`ReadsAt e`・`w₀` から到達する world に限られる） | `jqhr_bodyStep` 以降の本体（telescope 行） |
+| `ProfStepR O w₀` | D.T-4m4 | `∀ w w', Reached O.quiet mref cref w₀ w → LeafStep O.quiet mref cref w w' → ProfOffW mref cref w → ProfOffW mref cref w'` | `missR` の profile（`profOffW_of_reached`） |
+| `ProfOffW mref cref w`（root の開始 world） | D.T-4m5 | root の開始 world で profile lookup が unset | 同上（帰納の基底） |
+| `AdmCtx (quietR O.quiet mref cref (envAt cref w) w) mctx cctx`（`hadm`） | D.T-4m6 | root の文脈が強めた quiet で admissible | `jqhr_head` 以降 |
+| `AdmDownR O e w₀` | D.T-4m7 | `∀ mctx cctx, AdmCtx (quietR …) mctx cctx → AdmCtx O.quiet mctx cctx` | `ropsR` の全 field（`O` の field を使う箇所） |
+
+`DRow` の 13 行と `Diag` の 9 行と telescope の 4 行、profile、文脈は、`CellPrem` からも `Laws` からも導けない（S2d §32.3 と同じ理由。`QuietStrength` の構成は class-D・`diag`・telescope を含まない）。ここで要るのは全 world の frame law ではなく、**root の開始 world から葉の step で到達した quiet な world で、その行が `ReadsAt e` を保つ**という run 局所の事実だけ。不可能とは言わない。
+
+### 39.5 `hftCoreCloses_of_kidsR` の前提リスト
+
+```
+hftCoreCloses_of_kidsR (L : Laws mref cref) {w} (hstart : Start L mctx cctx w) (hcell : CellPrem MkRefd mref cref) {lvl}
+  (hrH : RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData) (hrT : RootReader lvl (envAt cref w) hftTlp tlpCplByte.machineData)
+  (hg : HftKidsGates (envAt cref w))
+  (hadm : AdmCtx (quietR L.O.quiet mref cref (envAt cref w) w) mctx cctx)
+  (hdown : AdmDownR L.O (envAt cref w) w) (hD : DRowEnvR L.O (envAt cref w) w) (hG : DiagEnvR L.O (envAt cref w) w)
+  (hT : TeleR L.O (envAt cref w) w) (hs : ProfStepR L.O w) (h0 : ProfOffW mref cref w) : HftCoreCloses mctx mref cctx cref w
+```
+
+`hftCoreCloses_of_kidsH`（binder 13）の `hmiss : MissE L.O (KidEv mref cref (envAt cref w))` が、上の 7 仮説（`hadm hdown hD hG hT hs h0`）に替わった。`L.T` は使っていない（`TeleR` が代わる）。`hstart.2.1`（`JQ L.O.quiet 0 w`）が root の `JQ (quietR …) 0 w` を作る。最終文（`finalOffLNKH` 系）には**接続していない**（S2k が持つ。この定理を `hftCoreCloses_of_kidsH` の代わりに入れれば、`hmiss` が上の 7 仮説に替わる）。
+
+### 39.6 正直な範囲
+
+- `Reached` は「root の run の実行トレース」ではなく、`w₀` から法則の葉の操作で作れる world の閉包。run のトレースは `RunsTo`（大きいステップの述語）しかなく持てないため。各仮説は「到達した quiet で `ReadsAt e` を読む world」の上で全称（全 world や任意の `JQH` world ではない）。
+- `TeleR` は `RefLawsATele` の形（`I` について全称・継続の仮定つき）の仮説で、`L.T` を `quietR` に強めたもの。telescope 行の `ReadsAt` frame を継続の仮定から切り離して小さくする道は取っていない（`L.T` からは導けない: 不変条件に cache の証拠 `RealChildE` が入り、継続が cache を伸ばすため）。
+- `hadm`/`hdown` は `canUnfold?` の callback の事実で、文脈が `none` なら自明（`admCtx_none`）。
+- `ProfOffW`（D.T-4m5）は root の run が profile-free の入口（`synthesizeCombinationalOff`）なので root 側では今まで要らなかった。子の `synthesizeCombinational` の lookup のために新しく root の開始 world で要る。
+- `MissE`（D.T-4h）は**導出した**（`missR`）。ただし導出の前提が上の仮説で、それらは未供給。`hkgates`（S2g）、`HftRootLink`（S2c）、`hcd`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr` は変わらない。
+
+### 39.7 Check33（`kjob lake build Tests.Gen5.FGCircuitPilotCheck33`、exit 0、940 jobs）
+
+同一の比較関数（unfold する定数の集合も `isDefEq` の透明度（default）も、肯定と全 mutant で同じ）。出力 15 行。
+
+- `FGCIRCUIT33 DEFS-REACH`: `LeafStep` の 5 構成子と `Reached.start/step` の型を独立に書いた文面と照合。**12 mutant 棄却**（admissible なし、任意コードを step に、診断/throw を framed の構成子に、cache 書き込みと depth 書き込みの入れ替え、別の world からの start、leaf のない step、前の到達のない step）。
+- `FGCIRCUIT33 DEFS-QUIET`: `quietR` を `ExpQuiet` と照合。**6 mutant**（到達なし、`ReadsAt` なし、quiet なし、別の root 環境、別の world からの到達、別の world の環境）。
+- `FGCIRCUIT33 HYPS`: `DRowEnvR`・`DiagEnvR`・`ProfStepR`・`ProfOffW`・`AdmDownR`・`TeleR` の型を照合。**27 mutant**（結論が開始 world、前提が end world、到達/`ReadsAt`/admissible の前提なし、class を全 framed 行へ広げる/診断へ狭める、別の root 環境、別 world からの到達、葉でない任意の step、profile lookup が ON、profile の片方の成分、文脈の law の逆/自明/別環境、telescope の law を plain/到達なし/別環境の quiet で）。
+- `FGCIRCUIT33 SIGNATURES-INV`: `missR`、`jqhr_head` の完全な型（binder kind も）。**12 mutant**（root の profile 事実なし、step の frame なし、reads のみ、profile のみ、profile ON、`ropsR` でなく plain な bundle、別環境、depth 0、開始 depth 1、診断の頭、plain、頭の後の world の環境）。
+- `FGCIRCUIT33 SIGNATURES-CORE`: `hftCoreCloses_of_kidsR` の完全な型（binder `mctx mref cctx cref L w hstart hcell lvl hrH hrT hg hadm hdown hD hG hT hs h0`）。**17 mutant**: 各前提の脱落（13）と 4 つの対照（**profile lookup が ON**、**別の root 環境**、**root の開始 world から到達しない world（独立した world からの到達）**、**end world（結論/profile 事実が独立した world）**）。
+- `FGCIRCUIT33 STEPS`: 保存補題が `ropsR`・`TeleR` を使い、`MissE`/`KidStartEnv`/`HftKidsDefine`/`MachineDefines`/`MachineCloses` を含まない（**69 構造検査**）。reach 走査の範囲（`Tools`/`Sparkle` 下の `defnInfo`、帰納型の構成子と定理は展開しない、reach set 2979）でそれらに到達しない。依存閉包全体は主張しない。
+- `FGCIRCUIT33 CONTROLS`: kernel 判定 5 件（`ctl_notReached`: 到達しない world は強めた quiet の外、`ctl_reads`、`ctl_root`、`ctl_step`、`ctl_profile`: profile が off と on の両方にはならない）と、4 つの文面レベルの対照への対応表。
+- `FGCIRCUIT33 REMAINING`（7 行: `hadm hdown hD hG hT hs h0`）、`FGCIRCUIT33 AXIOMS`（13 名、標準 axiom のみ）。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き。
+
+### 39.8 次
+
+(1) S2k: `hftCoreCloses_of_kidsR` を最終文に接続（`hmiss` を 7 仮説に替える）。(2) 7 仮説の供給: `DRowEnvR`/`DiagEnvR`（class-D・診断行の環境 frame）、`TeleR`（telescope 行）、`ProfStepR`/`ProfOffW`（process 環境）、`hadm`/`hdown`（callback）。(3) `Reached` を `RunsTo` のトレースに結ぶ道（未調査）。
+
+### 39.9 ビルド環境の注記
+
+`kjob lake build TARGET` を 1 つずつ（`Tools.ShippingFGCircuitS2mReach` → `Reach2` → `Reach3` → `Tests.Gen5.FGCircuitPilotCheck33`）。各 Tools ファイルは数十秒（S2h の cache 込み）、Check33 は約 1 分。
