@@ -1962,3 +1962,59 @@ hftCoreCloses_of_kidsR (L : Laws mref cref) {w} (hstart : Start L mctx cctx w) (
 ### 39.9 ビルド環境の注記
 
 `kjob lake build TARGET` を 1 つずつ（`Tools.ShippingFGCircuitS2mReach` → `Reach2` → `Reach3` → `Tests.Gen5.FGCircuitPilotCheck33`）。各 Tools ファイルは数十秒（S2h の cache 込み）、Check33 は約 1 分。
+
+## 42. S2r（Issue `sparkle-fg-circuit-pilot` の次の束）: 統合最終文 v2 `HftFinalStmtOffCombined2`、Check の比較方式の統一、Check37
+
+土台 `294821af`（par/fgc-s1）。追加ファイル（既存の定理は書き換えていない。lakefile 登録は各 1 回）: `Tools/ShippingFGCircuitS2rFinal.lean`、`Tests/Gen5/FGCircuitCmp.lean`（比較の共通関数）、`Tests/Gen5/FGCircuitPilotCheck37.lean`。更新: Check21/26/27/28/30/31/32 の比較関数（定理の文面は不変）、§39 の文言、§37 の新設。S2n（AdmDownR、`S2nAdm`/`Check34`/§40）・S2p（hcd の DT 規則、§41）のファイルには触れていない。新しい law・axiom・TRUSTED・sorry・native_decide はない。Issue の状態は変えていない。成果は引き続き**条件付き**で台帳に数えない。
+
+### 42.1 統合最終文 v2
+
+- **(a) `hdec` を仮説から除去**: `hftTop_of_runR` の中で、実際の `hr` の core run `hrun`（`HftObTopCoreOff` の束縛）と `hcell` から作る `HeadAtOff` を `root_find_of_headAtOff` に渡して `hfind` を得て、`hftCallDec_of_checked`（§38）に入れる。**`hfind` は新しい仮説ではない**（Check37 の HYPS で `hfind` は仮説でないことと、証明項が `hftCallDec_of_checked` と `root_find_of_headAtOff` を使うことを検査）。
+- **(b) `hmiss` を S2m の 7 仮説に置換**: `hftCoreCloses_of_kidsR`（§39）の前提 `hadm hdown hD hG hT hs h0`（FG D.T-4m6, m7, m1, m2, m3, m4, m5。完全な型で、未供給のまま）。子の `ShipsRes`／served 側は**同じ履歴**（`ropsR` の `RealChildE`）で運ぶ: `kid_shipsResW`（`kid_shipsResE` を強めた bundle `O'` に一般化: `O'.quiet → L.O.quiet`、admissible の下げ（`hdown`）を渡す）、`soundX_served_E (ropsR …) hT (missR h0 hs) hadm`、`machineRunJQH_of_closesHOff (ropsR …)`（開始 world の `JQ (quietR …) 0 w` は `readsAt_self`・`Reached.start`）。`MissE`・`KidStartEnv`・全 world `MachineDefines` は仮説に戻していない（`MissE` は `missR` の**導出結果**の型として証明項に現れるだけ）。`ProfStepR`/`TeleR` が `L.T` から出るとは扱っていない（`L.T` は使っていない）。
+- 補助: `realChildA_weak`（`RealChildA O' → RealChildA O`、`RealChildA` の帰納）、`jqc_weak`。いずれも標準 axiom のみ。
+
+#### binder 一覧（`synth_hftPcieOutByte_finalOffCombined(2)_Z`、明示仮説）
+
+| | 一覧 |
+|---|---|
+| 前（S2k `HftFinalStmtOffCombined`、14） | `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd hdec hmiss hkgfacts` |
+| 後（v2 `HftFinalStmtOffCombined2`、19） | `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd hadm hdown hD hG hT hs h0 hkgfacts` |
+
+（`hdec` が消え、`hmiss` が同じ位置で 7 仮説に替わった: 14 − 2 + 7 = 19。）
+
+`hftTop_of_runH`（19 binder、implicit 含む）→ `hftTop_of_runR`（24 binder: `hmiss hdec` が消え、`hkgfacts hadm hdown hD hG hT hs h0` となった）。
+
+#### 名前付き仮説（v2 に残るもの。いずれも未供給）
+
+`hadm`（D.T-4m6: `AdmCtx (quietR L.O.quiet mref cref (envAt cref w) w) mctx cctx`）、`hdown`（D.T-4m7: `AdmDownR`）、`hD`（D.T-4m1: `DRowEnvR`）、`hG`（D.T-4m2: `DiagEnvR`）、`hT`（D.T-4m3: `TeleR`）、`hs`（D.T-4m4: `ProfStepR L.O w`）、`h0`（D.T-4m5: `ProfOffW mref cref w`）、`hkgfacts`（D.T-4g）、`hlink`（`HftRootLink`、S2c）、`hcd`（S2b/S2i）、`hreadH/hreadT`、`hchk`、`CellPrem`、`Laws/Start/hr`。除去: `hdec`（供給済み）、`hmiss`（導出 `missR`）。
+
+### 42.2 Check の比較方式の統一（レビュアー指摘）
+
+指摘: Check21/26/27/28/30/31/32 では正例を default の `isDefEq`、mutant を instances/reducible で比べており、同じ基準ではなかった。
+
+**方式**（`Tests/Gen5/FGCircuitCmp.lean`、全 Check 共通）: 正例も全 mutant も**同じ関数** `stmtEq` を通る。呼び出し側が両辺を**同じ正規化**にかける（実型は 1 回だけ正規化して cache、期待文面と各 mutant は同じ `norm`）。`normCommon` が共通の末尾: 型の `instantiateMVars`、metadata の除去、`Tests.Gen5` 下の期待文面・略記の unfold、literal Bool の `if`（`true`/`false`、2 つの `Nat` 数値の `==`）の選択、`Nat` 数値の `OfNat.ofNat Nat n _` と raw literal の同一視、構造体射影 `Prod.fst x` と `x.1` の同一視、定理の適用（証明項）を 1 定数に置換（証明無関係）、`Name` literal の定数（`hftRoot` 等）と出力 shape `shHft` の unfold。`stmtEq a e` は `Expr.eqv`（alpha 同値、**unfold も `isDefEq` もしない**ので透明度設定に依存しない）**かつ**全深さの全 binder の kind が一致。`checkSame`（正例）は `stmtEq` が偽なら、`checkDiff`（mutant）は真なら失敗する。正例が失敗した場合は最初の相違箇所を出す。
+
+- Check21 だけは型が計算を含む（`SType.Type (.bits n)` と `BitVec n`、`tys`、`List.take`/`List.map`）ため、呼び出し側が**全文面で同じ**評価対象 `reduceH`（`SType.Type`/`match_1`/`casesOn`/`rec`、`tys`、`List.take`、`List.map`）を `normCommon` に渡して whnf（`.all`）で評価する。基準は同じ `stmtEq`。
+- Check26/27/28/30/31/32: `same*/diff*` を `checkSame/checkDiff` に差し替え、実型側の `norm*` の末尾に `normCommon` を足した。Check28 の `MissE`/`JQH` の直接比較（`isDefEq` default）も同じ関数に。Check27 は real 側にも `KidStartEnv` の unfold を足した。
+- 定理の文面・mutant の集合は変えていない。全 mutant は同じ関数で棄却される（出力行数も変わらない）。
+- 不変の方針: 実型の正規化は 1 回（Check19 と同様に cache）。ビルドは短い（各 Check 1〜2 分）。
+- 範囲外: Check33 は元から正例も mutant も同一の `cmp`（default `isDefEq`）を使っており、今回は替えていない（§39.7）。Check19 の `sameE/diffE`（default 対 reducible）は今回の指摘の 7 本の外で、替えていない。
+
+### 42.3 Check37（`kjob lake build Tests.Gen5.FGCircuitPilotCheck37`）
+
+出力 6 行（SIGNATURES-FINAL、NOTE、HYPS、SIGNATURES-TOP、REMAINING、AXIOMS）:
+
+- `FGCIRCUIT37 SIGNATURES-FINAL`: `synth_hftPcieOutByte_finalOffCombined2_Z` の**完全な型**（明示 19、binder kind を全深さで）を独立に書いた `ExpFinal2` と `stmtEq` で照合。mutant **73** を同じ基準で棄却: 別の world（`hcd`/5 つの reach 前提/ゲート事実/結論の環境を end world・`env₀`・独立 world に、reach の開始 world を end/独立に、profile の事実の world を end/独立に）、別の reference/context/design、別の root/post root/出力、別の carrier（`cdvY`/`cdvOld`）/obligation、結論の脱落（片方・両方）、各前提の脱落（9）、**`hfind` を追加の仮説に**、旧 `hdec`/`hmiss`（単独・同時・`hfind` との組）、profile lookup ON、各前提の形（class-D 行の frame なし/`ReadsAt` なし/開始 world の結論、診断を class-D と同じに、telescope を plain/到達なし、文脈の law の逆/自明、profile 保存を到達なし/開始/任意 step）、ゲート事実の入れ替え・重複・片方だけ・全体 reflection・True、reader の入れ替え、Diag 入口、旧 carrier、旧い最終文 5 件（S2k/S2h/S2j/S2g/S2d）。
+- `FGCIRCUIT37 HYPS`: binder 一覧（19）、仮説でないもの（`hfind hdec hmiss htop hkenv hkgates …`）、7 前提がどれも `MissE/KidStartEnv/HftKidsStartEnv/MachineDefines/HftCallDec` を含まないこと、reach 走査（7 前提とゲート事実から。定義・`Tools` 帰納型の構成子・構成子の型だけを辿る。`MissE/MachineDefines/HftKidsDefine/MachineCloses/KidStartEnv/Start/CheckedStart/ShipsRes/ChildShips/TopShips/HftCallDec` に到達しない）、証明項（`hftTop_of_runR` が `hftCallDec_of_checked`・`root_find_of_headAtOff`・`ropsR`・`missR`・`kid_shipsResW`・`soundX_served_E`・`hft_closesAtH`・`machineRunJQH_of_closesHOff` を使い、`kid_shipsResE`・`hftTop_of_runH`・`KidStartEnv`・`MachineDefines` を使わないこと、ラッパーが `hftCoreCloses_of_kidsR` を使い `hftCoreCloses_of_kidsH` を使わないこと）。
+- `FGCIRCUIT37 SIGNATURES-TOP`（`hftTop_of_runR` の binder 24）、`FGCIRCUIT37 REMAINING`（上の名前付き仮説）、`FGCIRCUIT37 AXIOMS`（8 名、標準 axiom のみ）。
+
+### 42.4 正直な範囲
+
+- 7 仮説はすべて未供給。v2 は §39 の前提リストを最終文に**接続**しただけで、仮説を減らしたのは `hdec` だけ（`hdec` と `hfind` は実際の `hr` から）。
+- 最終文の `Ob`/`CV` の carrier、`hlink`（`HftRootLink`）は変わらない。
+- `Reached` は閉包であり、run のトレースではない（§39.6 の文言を修正）。
+- Check の「独立に書いた文面」は同じ人が書いており、独立性は文面の別記述に限る。
+
+### 42.5 S2kLink（`HftRootLink` の組立、タスク 4）
+
+（記録は 42.6 に続ける）
