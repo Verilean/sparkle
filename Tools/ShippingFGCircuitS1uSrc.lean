@@ -237,4 +237,50 @@ theorem genGP_root_kids_src (lvl : Lean.Expr → Nat) {initsOf : (d : MachineDat
 
 end Table
 
+
+/-! # S1u (part D): the non-leaf root `synth_hftPcieOutByte`
+
+**The statement** (docs §25.1). `HftObSrc` is unchanged (S1k). It is split into
+* the children's `src` (PROVED here, no hypothesis): `genSemI_comb_src` at the two combinational leaf rows, from the endpoints' `machine_result` (`hftKids` is the table of the children's declaration-level observations `machineSource`),
+* the `ExtStage` induction (PROVED: `ExtStage_agree_tables`): the generated call streams over the table `genS K` are those over `hftKids`,
+* the root's own run-independent fact `HftRootLink` (NAMED HYPOTHESIS, FG D.D-3 / DG-SEM): a state sequence that starts at the data's inits and follows the data's recurrence over the call streams of `hftKids` has the root declaration's observation at its outputs. -/
+section Hft
+open Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kPkg
+open Tools.ShippingFGCircuit (monoObs)
+open Tools.ShippingFGCircuitCover Tools.ShippingGenFGLedgerPremises Tools.ShippingGen5SM1
+open Tools.ShippingGen5Sem (kDOf GenWF)
+
+/-- a combinational callee's package, at the declaration level: its data and its observation -/
+noncomputable def kidSem {ι : Type} (decl : Name) (d : MachineData)
+    (src : (i : ι) → (Nat → Signal defaultDomain Bool) → ((j n : Nat) → Signal defaultDomain (BitVec n)) → List (Nat → Nat)) :
+    SemPkg ι (fun _ => defaultDomain) :=
+  .comb ⟨decl, d, kDOf d, Tools.ShippingGen5DataOfPure.initsOf d, src⟩
+
+/-- the callee table of the root's two children `httpGetByte`, `tlpCplByte`: each child is its declaration's observation (`machineSource` at the default domain). Static, two entries. -/
+noncomputable def hftKids {ι : Type} : Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun c =>
+  if c = hftHttp then some (kidSem hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData
+      (fun _ bools bits => Sparkle.IP.Net.HTTP.httpGetByte.machineSource defaultDomain bools bits))
+  else if c = hftTlp then some (kidSem hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData
+      (fun _ bools bits => Sparkle.IP.Bus.PCIe.tlpCplByte.machineSource defaultDomain bools bits))
+  else none
+
+/-- **`HftRootLink`** (NAMED HYPOTHESIS; FG D.D-3 / DG-SEM, the non-leaf root's own `hsrc` fact, run-independent): for every `GenIn` over the root's data, every inputs and every state sequence that starts at the generated inits and follows the
+generated recurrence over the call streams `ExtStage hftKids` of the children's declaration-level observations, the root declaration's observation `monoObs shHft synth_hftPcieOutByte` is the data's outputs evaluated on that sequence. -/
+def HftRootLink : Prop :=
+  ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.machineData → ∀ (i : ι) (bools : Nat → Signal defaultDomain Bool)
+    (bits : (j n : Nat) → Signal defaultDomain (BitVec n)) (S : Signal defaultDomain (HList (tys gi.d.ss))),
+    S.val 0 = gi.inits →
+    (∀ t, S.val (t + 1) = evalTerms
+      (fun j => (typedVal gi.d.nIn gi.d.bpos gi.d.vpos gi.d.ss gi.d.ls (extBOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S)
+        (extOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S) t (S.val t)).b (gi.d.bpos j))
+      (fun j w => (typedVal gi.d.nIn gi.d.bpos gi.d.vpos gi.d.ss gi.d.ls (extBOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S)
+        (extOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S) t (S.val t)).v (gi.d.vpos j) w) gi.d.nexts) →
+    ∀ t, (monoObs shHft synth_hftPcieOutByte bools bits).map (fun f => f t) = gi.d.outs.map fun o => enc o.1 (eval
+      (fun j => (typedVal gi.d.nIn gi.d.bpos gi.d.vpos gi.d.ss gi.d.ls (extBOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S)
+        (extOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S) t (S.val t)).b (gi.d.bpos j))
+      (fun j w => (typedVal gi.d.nIn gi.d.bpos gi.d.vpos gi.d.ss gi.d.ls (extBOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S)
+        (extOf (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S) t (S.val t)).v (gi.d.vpos j) w) o.2)
+
+end Hft
+
 end Tools.ShippingFGCircuitS1uSrc
