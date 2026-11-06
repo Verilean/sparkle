@@ -6652,3 +6652,12 @@ lean_lib «Tools.ShippingFGCircuitS2sAdmChildFallbackA» where
 
 lean_lib «Tools.ShippingFGCircuitS2sAdmKWalk» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmKWalk]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildCanonKeyA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildCanonKeyA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildLegacyCachedA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildLegacyCachedA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildWalkA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildWalkA]

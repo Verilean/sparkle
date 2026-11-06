@@ -23,6 +23,9 @@ structure CtxClosed (C : CtxPred) : Prop where
   config : ∀ {mctx : Meta.Context} {cctx : Core.Context}, C mctx cctx → ∀ c : ConfigWithKey,
     C { mctx with keyedConfig := c } cctx
   coreCtx : ∀ {mctx : Meta.Context} {cctx : Core.Context}, C mctx cctx → ∀ cctx' : Core.Context, C mctx cctx'
+  /-- any update of the Meta context that keeps the unfolding callback (`withReader`) -/
+  canUnfold : ∀ {mctx : Meta.Context} {cctx : Core.Context}, C mctx cctx → ∀ f : Meta.Context → Meta.Context,
+    (∀ m, (f m).canUnfold? = m.canUnfold?) → C (f mctx) cctx
 
 theorem admCtx_closed (quiet : Void IO.RealWorld → Prop) : CtxClosed (AdmCtx quiet) where
   lctx := fun h l => admCtx_lctx h l
@@ -30,6 +33,7 @@ theorem admCtx_closed (quiet : Void IO.RealWorld → Prop) : CtxClosed (AdmCtx q
   lctx_insts := fun h l li => admCtx_lctx_insts h l li
   config := fun h c => admCtx_config h c
   coreCtx := fun h c => admCtx_cctx h c
+  canUnfold := fun h f hf g hg => h g ((hf _).symm.trans hg)
 
 /-- `RefLawsAOps` with the context predicate `adm` in place of `AdmCtx quiet` -/
 structure RefLawsAOpsX (Fresh : (σ : Type) → IO.Ref σ → Prop)
