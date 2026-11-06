@@ -1,3 +1,4 @@
+import Tools.ShippingFGCircuitS1wTbl
 import Tools.ShippingFGCircuitS2iDTFun
 set_option autoImplicit false
 -- FG circuit pilot S2i: the TABLE versions of the rules of `Sh` / `DT` that read the environment (as S1wTbl / S2bShare `Rules` for `DS`), docs/FG-CIRCUIT-PILOT.md §35.
