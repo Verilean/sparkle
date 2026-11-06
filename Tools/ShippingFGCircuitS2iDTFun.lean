@@ -333,9 +333,17 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
     | _ => clashT
   | boolFalse he hc => intro r' h' hk; cases h' with
     | boolFalse he' hc' => rfl
+    | bvAbbrev he' hr' =>
+      have h := he.symm.trans he'
+      injection h with h1 h2
+      subst h1; rw [bvAbbrevRow_boolFalse] at hr'; cases hr'
     | _ => clashT
   | boolTrue he hc => intro r' h' hk; cases h' with
     | boolTrue he' hc' => rfl
+    | bvAbbrev he' hr' =>
+      have h := he.symm.trans he'
+      injection h with h1 h2
+      subst h1; rw [bvAbbrevRow_boolTrue] at hr'; cases hr'
     | _ => clashT
   | bvarClo hb h ih => intro r' h' hk; cases h' with
     | bvarClo hb' h' =>

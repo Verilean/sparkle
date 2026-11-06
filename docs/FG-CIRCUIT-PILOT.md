@@ -1151,7 +1151,7 @@ AXIOMS（ds_fun 他）/ LEVEL-CONTROLS / SMALL-DERIVE（数値行 + ok の 2 行
 ### 35.5 検証の状況（正直な記録）
 
 - コンパイル済み（`lean` 直接、olean は build ディレクトリへ）: `S2iSh`（3〜4 s、`sh_fun` は propext/Classical.choice/Quot.sound のみ）、`S2iDT`（4 s）。
-- `S2iDTFun`（`dt_fun`）: 1 回目のコンパイルで 5 件の未解決（`Bool.false` と `bvAbbrev` の排他に要る `bvAbbrevRow` の補題と、プレースホルダ）まで詰めた。補題を足して再コンパイル中（結果は末尾の「DTFun 結果」）。
+- `S2iDTFun`（`dt_fun`）: **コンパイル済み（約 240 s、エラー 0、sorry 0）。`dt_fun` は propext/Classical.choice/Quot.sound のみ**（`#print axioms`）。
 - `S2iTbl`/`S2iGen`/`S2iRun`/`Check29`: 未コンパイル（FG 連鎖の build が間に合わなかった）。lakefile への登録は追記のみ（キャッシュ鍵が変わるので build は未実行）。
 
 ### 35.6 測定表
@@ -1165,6 +1165,6 @@ AXIOMS（ds_fun 他）/ LEVEL-CONTROLS / SMALL-DERIVE（数値行 + ok の 2 行
 
 ### 35.7 証明したもの / 名前付き仮説 / 次
 
-- 証明（コンパイル済み、標準 axiom のみ）: `sh_fun`、`DT` の定義と排他補題（`viaOK_*`、`map_clo_eq`）。`dt_fun` は 35.5。
+- 証明（コンパイル済み、標準 axiom のみ）: `sh_fun`、`DT` の定義と排他補題（`viaOK_*`、`map_clo_eq`）。`dt_fun` はコンパイル済み（35.5）。
 - 名前付き仮説（未供給）: `HftObCDS`（`hcd`、新族 `DT` 版の義務 `HftObCDT` は**まだ定義していない**）、`EnvDefs/EnvCtors/RecFact`、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査）、Expr 書き換えの意味保存。**`hcd` は導出していない。最終結論への接続（新 Off 入口/新 carrier）は未実施**（`HftFinalStmtS` は型別名に過ぎない、という reviewer の指摘のまま）。
 - 次: FG 連鎖を 1 回の長い build で通し（`timeout` を 3300 秒以上にする、または連鎖を持つキャッシュを温める）、`S2iTbl`/`S2iGen`/`S2iRun`/`Check29` をコンパイル、probe で止まりの正確な部分項（`Signal.mk` の有無）、`HftObCDT` の型を `S2iDT` に足し、`hftRootValue` の導出を測定。
