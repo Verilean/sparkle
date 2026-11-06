@@ -153,7 +153,7 @@ where
       | some ent =>
         match parseClo ent with
         | none =>
-          unless sp.isEmpty do throwError "Sh: bvar {i} is a value entry applied to {sp.length} arguments (a function value in head position)"
+          unless sp.isEmpty do throwError "Sh: bvar {i} is a value entry applied to {sp.length} arguments (value entry applied: a function value in head position, no rule)"
           unless ent.isAppOfArity ``Ent.val 1 do throwError "Sh: bvar {i}: not an entry"
           bumpSh "bvarV"
           let hb := mkApp2 (Lean.mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (Lean.mkConst ``Option [lvl1]) entT) (mkApp2 (Lean.mkConst ``Option.some [lvl1]) entT ent)
