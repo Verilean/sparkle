@@ -447,7 +447,7 @@ theorem dw_fun {env : Environment} {Ï : Val} {e : Expr} {r : Res} (h : DW env Ï
     | unf hs' _ _ =>
       subst he
       have := stopC_of_row hr
-      simp_all [stopR, Res.kind, headStop, appFn]
+      simp_all [stopW, stopR, newStop, Res.kind, headStop, appFn]
     | _ => clashw
   | unf hs hu h ih => intro r' h' hk; cases h' with
     | unf hs' hu' h' =>
