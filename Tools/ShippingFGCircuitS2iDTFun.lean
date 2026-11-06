@@ -4,10 +4,8 @@ set_option autoImplicit false
 -- No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law.
 namespace Tools.ShippingFGCircuitS2iDT
 open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingGen5ConstValueE Tools.ShippingGen2 Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG
-open Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD Tools.ShippingFGCircuitS1wTbl
-open Tools.ShippingFGCircuitS2bShare Tools.ShippingFGCircuitS2iSh
-open Tools.ShippingEntryReadsLinked (envAt)
-open Tools.ShippingEntrySoundness (RunsTo)
+open Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD
+open Tools.ShippingFGCircuitS2iSh
 
 theorem directHead_boolFalse : directHead ``Bool.false = true := by decide
 theorem directHead_boolTrue : directHead ``Bool.true = true := by decide

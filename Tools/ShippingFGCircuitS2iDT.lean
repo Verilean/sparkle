@@ -13,10 +13,8 @@ Exclusivity is by head: `viaOK e` is false for a `bvar`, a `lam`, and an applica
 There is NO general `Signal.mk` rule and no rule that derives an arbitrary stream. `Sh` correspondence with substitution is not a theorem (audit); `DT` is a family of its own with its own functionality `dt_fun`. -/
 namespace Tools.ShippingFGCircuitS2iDT
 open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingGen5ConstValueE Tools.ShippingGen2 Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG
-open Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD Tools.ShippingFGCircuitS1wTbl
-open Tools.ShippingFGCircuitS2bShare Tools.ShippingFGCircuitS2iSh
-open Tools.ShippingEntryReadsLinked (envAt)
-open Tools.ShippingEntrySoundness (RunsTo)
+open Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD
+open Tools.ShippingFGCircuitS2iSh
 
 /-- the heads with a DIRECT rule of `DT` (the stop heads of `Sh`, and the constructors that have a value rule) -/
 def directHead (c : Name) : Bool := stopD c || [``Prod.mk, ``PUnit.unit, ``Inhabited.mk, ``Bool.false, ``Bool.true].contains c
@@ -134,9 +132,9 @@ inductive DT (env : Environment) : Cx → Expr → Res → Prop
       (he : e = appN ``Signal.map [.zero] [d, tp, tb, appN ``Prod.snd [.zero, .zero] [a, b], s])
       (hd : CDt env ρ d DomainConfig D) (hp : TDt env ρ tp (A × B)) (ht : TDt env ρ tb B) (ha : TDt env ρ a A) (hb : TDt env ρ b B)
       (hs : CDt env ρ s (Signal D (A × B)) sv) : CDt env ρ e (Signal D B) (Signal.map Prod.snd sv)
-  /-- NEW (S2b). `Inhabited.mk.{u} T x` with ONE level `u` whose closed value is `1` (`lvlNat u = some 1`, evidence by `Eq.refl`, no `Level.normalize`: that is `opaque`, the kernel cannot run it):
+  /-- NEW (S2b). `Inhabited.mk.{u} T x` with ONE level `u` whose closed value is `1` (`lvlNatT u = some 1`, evidence by `Eq.refl`, no `Level.normalize`: that is `opaque`, the kernel cannot run it):
       the instance VALUE `⟨v⟩` from the derivation of the field `x ↦ v`; a constructor of `env` (so no other rule applies). `T : Type` stays; the old rule is the case `u = 1`. -/
-  | inhMk {ρ : Cx} {e t x : Expr} {u : Level} {T : Type} {v : T} {cv : ConstructorVal} (he : e = appN ``Inhabited.mk [u] [t, x]) (hu : lvlNat u = some 1)
+  | inhMk {ρ : Cx} {e t x : Expr} {u : Level} {T : Type} {v : T} {cv : ConstructorVal} (he : e = appN ``Inhabited.mk [u] [t, x]) (hu : lvlNatT u = some 1)
       (hc : env.find? ``Inhabited.mk = some (.ctorInfo cv)) (ht : TDt env ρ t T) (hx : CDt env ρ x T v) : CDt env ρ e (Inhabited T) (⟨v⟩ : Inhabited T)
   /-- NEW (S1s). `Inhabited.default.{1} T inst`: the default of the SAME instance, `iv.default`. `Inhabited.default` is a stop head of `unf` (`newStopS`) -/
   | inhDefault {ρ : Cx} {e t inst : Expr} {T : Type} {iv : Inhabited T} (he : e = appN ``Inhabited.default [.succ .zero] [t, inst])

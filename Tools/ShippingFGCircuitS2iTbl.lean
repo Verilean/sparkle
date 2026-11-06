@@ -4,7 +4,7 @@ set_option autoImplicit false
 -- No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law.
 namespace Tools.ShippingFGCircuitS2iTbl
 open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingGen5ConstValueE Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD
-open Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD Tools.ShippingFGCircuitS1wTbl Tools.ShippingFGCircuitS2bShare Tools.ShippingFGCircuitS2iSh Tools.ShippingFGCircuitS2iDT
+open Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD Tools.ShippingFGCircuitS1wTbl Tools.ShippingFGCircuitS2iSh Tools.ShippingFGCircuitS2iDT
 
 theorem instL_nil : ∀ l : Level, instL [] [] l = l
   | .zero => rfl
@@ -97,7 +97,7 @@ theorem dt_prodMk_t {ρ : Cx} {e a b x y : Expr} {A B : Type} {xv : A} {yv : B} 
   obtain ⟨cv, hc, _⟩ := hlk _ _ hr
   exact DT.prodMk he hc ha hb hx hy
 
-theorem dt_inhMk_t {ρ : Cx} {e t x : Expr} {u : Level} {T : Type} {v : T} {cw : CtorRow} (he : e = appN ``Inhabited.mk [u] [t, x]) (hu : lvlNat u = some 1)
+theorem dt_inhMk_t {ρ : Cx} {e t x : Expr} {u : Level} {T : Type} {v : T} {cw : CtorRow} (he : e = appN ``Inhabited.mk [u] [t, x]) (hu : lvlNatT u = some 1)
     (hr : lk ``Inhabited.mk = some (.ctor cw)) (ht : TDT env ρ t T) (hx : CDT env ρ x T v) : CDT env ρ e (Inhabited T) (⟨v⟩ : Inhabited T) := by
   obtain ⟨cv, hc, _⟩ := hlk _ _ hr
   exact DT.inhMk he hu hc ht hx

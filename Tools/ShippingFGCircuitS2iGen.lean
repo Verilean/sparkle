@@ -551,7 +551,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Nam
       bump "bundle2"
       mkN ``DT.bundle2 (env0 ++ [("d", ← q 0), ("ta", ← q 1), ("tb", ← q 2), ("a", ← q 3), ("b", ← q 4), ("D", D), ("A", ← dtTy hta), ("B", ← dtTy htb),
         ("av", av), ("bv", bv), ("hd", hd), ("hta", hta), ("htb", htb), ("ha", ha), ("hb", hb)])
-    else if c == ``Inhabited.mk && ls.length == 1 && args.length == 2 && lvlNat (ls.head!) == some 1 then
+    else if c == ``Inhabited.mk && ls.length == 1 && args.length == 2 && lvlNatT (ls.head!) == some 1 then
       let ht ← t 0
       let hx ← v 1
       let (_, xv) ← dtVal hx

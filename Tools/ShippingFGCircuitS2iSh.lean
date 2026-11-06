@@ -1,4 +1,4 @@
-import Tools.ShippingFGCircuitS2bShare
+import Tools.ShippingFGCircuitS1sCD
 set_option autoImplicit false
 -- FG circuit pilot S2i: the closure-environment weak-head relation `Sh` (S2b `Sh` + the static `List.rec` rule, constructor levels kept in `Hn`), docs/FG-CIRCUIT-PILOT.md §35.
 -- No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law.
@@ -15,6 +15,21 @@ Differences from the S2b `Sh` (Tools/ShippingFGCircuitS2bMachine.lean):
 namespace Tools.ShippingFGCircuitS2iSh
 open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingGen5ConstValueE Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD
 open Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD
+
+/-- the value of a CLOSED level (kernel-evaluable; `none` for a parameter or a metavariable); the same definition as `lvlNat` of S2b (copied so that this file does not import `S2bShare`) -/
+def lvlNatT : Level → Option Nat
+  | .zero => some 0
+  | .succ l => (lvlNatT l).map (· + 1)
+  | .max a b => match lvlNatT a, lvlNatT b with
+    | some x, some y => some (if x ≤ y then y else x)
+    | _, _ => none
+  | .imax a b => match lvlNatT a, lvlNatT b with
+    | some x, some y => some (if y = 0 then 0 else if x ≤ y then y else x)
+    | _, _ => none
+  | _ => none
+
+theorem lvlNatT_one : lvlNatT (.succ .zero) = some 1 := rfl
+theorem lvlNatT_max11 : lvlNatT (.max (.succ .zero) (.succ .zero)) = some 1 := rfl
 
 inductive Ent : Type 1
   | val (en : Entry)
