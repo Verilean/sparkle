@@ -5,7 +5,7 @@ set_option autoImplicit false
 
 /-! # `DT`
 
-`DT` = the VALUE/TYPE rules of `DS` (S2b) over a closure environment `Cx` (a variable bound to `Ent.val` is read as before; `Ent.clo` is new: `bvarClo`),
+`DT` = the VALUE/TYPE rules of `DS` (S2b) over a closure environment `Cx` (a variable bound to `Ent.val` is read xs before; `Ent.clo` is new: `bvarClo`),
 WITHOUT the substitution rules `unf`/`beta`/`zeta`/`projStep`/`projCtor`/`recIota`/`projRec` (their work is done by the closure machine `Sh`, which has no substitution), plus:
 * `viaSh` (the bridge, above), `bvarClo`, `boolFalse`/`boolTrue` (ctor values of `Bool`);
 * the narrow wiring rules `mapFst`/`mapSnd` WITHOUT the `MapStuck` premise (it only separated them from `unf`, which `DT` does not have; `Signal.map` is a stop head of `Sh`).
@@ -148,7 +148,7 @@ inductive DT (env : Environment) : Cx → Expr → Res → Prop
   | boolTrue {ρ : Cx} {e : Expr} {cv : ConstructorVal} (he : e = .const ``Bool.true []) (hc : env.find? ``Bool.true = some (.ctorInfo cv)) : CDt env ρ e Bool true
   /-- NEW (S2i). a variable bound to a CLOSURE (call-by-name): its meaning is the meaning of the closure's expression in the captured environment -/
   | bvarClo {ρ : Cx} {i : Nat} {e' : Expr} {ρ' : Cx} {r : Res} (hb : ρ[i]? = some (Ent.clo e' ρ')) (h : DT env ρ' e' r) : DT env ρ (.bvar i) r
-  /-- NEW (S2i), the BRIDGE. `e` weak-head evaluates in the closure environment machine `Sh` (empty spine) to a constructor / stuck head `c ls` whose spine is `args` as closures over ONE common environment `ρ₀`
+  /-- NEW (S2i), the BRIDGE. `e` weak-head evaluates in the closure environment machine `Sh` (empty spine) to a constructor / stuck head `c ls` whose spine is `args` xs closures over ONE common environment `ρ₀`
       (so the arguments are ordinary expressions of `ρ₀`); then the meaning of `e` is the meaning of `c ls args` in `ρ₀`, which is a primitive/constructor rule of this family (`viaOK`: `e` itself is not such a form).
       `hcan` makes `ρ₀` canonical when there are no arguments. -/
   | viaSh {ρ : Cx} {e : Expr} {hn : Hn} {args : List Expr} {ρ₀ : Cx} {r : Res} (hv : viaOK e = true) (hsh : Sh env ρ e [] hn)
@@ -163,7 +163,7 @@ theorem map_clo_eq : ∀ {args args' : List Expr} {ρ ρ' : Cx}, args.map (fun a
   | [], [], _, _, _ => Or.inl ⟨rfl, rfl⟩
   | [], _ :: _, _, _, h => by simp at h
   | _ :: _, [], _, _, h => by simp at h
-  | a :: as, a' :: as', ρ, ρ', h => by
+  | a :: xs, a' :: xs', ρ, ρ', h => by
     simp only [List.map_cons, List.cons.injEq] at h
     obtain ⟨h1, h2⟩ := h
     obtain ⟨e1, e2⟩ := Ent.clo_inj h1

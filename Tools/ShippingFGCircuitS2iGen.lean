@@ -371,7 +371,7 @@ unsafe def viaShRoute (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean
   bump "viaSh"
   let hcan ← match argl with
     | [] => pure (mkConst ``canon_nil)
-    | a :: as => do pure (mkAppN (mkConst ``canon_cons) #[ρ0, ← qU a, listExprE (← as.mapM qU)])
+    | a :: xs => do pure (mkAppN (mkConst ``canon_cons) #[ρ0, ← qU a, listExprE (← xs.mapM qU)])
   mkN ``DT.viaSh [("env", K.env), ("ρ", ρ), ("e", ← qU e), ("hn", r.hn), ("args", listExprE (← argl.mapM qU)), ("ρ₀", ρ0), ("r", res),
     ("hv", reflT boolT (mkConst ``true)), ("hsh", r.pf), ("hsp", reflT (mkApp (mkConst ``List [lvl1]) entT) (listEnt r.sp)), ("hcan", hcan), ("h", p)]
 

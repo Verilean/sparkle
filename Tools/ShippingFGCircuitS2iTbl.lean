@@ -31,7 +31,7 @@ theorem instLE_nil : ∀ e : Expr, instLE [] [] e = e
   | .proj s i e => by simp [instLE, instLE_nil e]
 
 theorem canon_nil : ([] : List Expr) = [] → ([] : Cx) = [] := fun _ => rfl
-theorem canon_cons (ρ : Cx) (a : Expr) (as : List Expr) : (a :: as = []) → ρ = [] := fun h => nomatch h
+theorem canon_cons (ρ : Cx) (a : Expr) (xs : List Expr) : (a :: xs = []) → ρ = [] := fun h => nomatch h
 
 section Rules
 variable {env : Environment} {lk : Look} (hlk : EnvLk env lk)
