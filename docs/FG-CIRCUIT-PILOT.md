@@ -1177,3 +1177,37 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 `FGCircuitPilotCheck19` の署名ブロックは、同じ実型を mutant ごとに `norm`（定義の展開 6 回）し直していた（例: `synth_hftPcieOutByte_finalOffL` は 20 回）。実型の正規形を型ごとに 1 回だけ計算してキャッシュする（`normC`）。mutant 側の `norm` は式が違うので残る。ファイル分割は未実施。
 
 ビルド時間: 前 約 13 分（S1u の記録）／後 **未計測**（kjob lake build はこの Pod で毎回 922 job を最初から構築し、計測が時間内に終わらなかった。キャッシュ変更が Check19 で通ること自体も未確認）。次の束で計測する。
+
+
+## 31. S2c（Issue `sparkle-fg-circuit-pilot` の次の束）: `HftRootLink` の (a) 呼び出し引数と (b) fused 状態の endpoint 証拠、分割した証明
+
+土台 `f30cb9fe`（S1y）。Issue の状態は変えていない。S2b の領域（`Tools/ShippingFGCircuitS2bShare.lean`、Check25、§30）には触れていない。TRUSTED・axiom・sorry・native_decide・新しい law はない。
+
+### 31.1 手順 1: (a)/(b) の事実の完全な型（先に固定）
+
+全て `synth_hftPcieOutByte`（`Tools/ShippingFGCircuitS1kRoot.lean`、公開コピー）の鎖（`Tele`）endpoint に対する。`L := synth_hftPcieOutByte.machineInners`（`TeleT`）、`d := synth_hftPcieOutByte.machineData`、`teleState L hss i bools bits S₂ Ss t := castSS hss (L.fstate i bools bits (S₂.val t) (Tele.valsOf (L.at i bools bits) Ss t))`（融合状態、`d.ss = [bits 6] ++ L.sss`）。`callArgsOf d k := ((d.shape.insts.map (·.2.1))[k]?).getD []`（`Gen5Sem.callArgs` と同じ並び）。`callArgVals d bools bits t x args := args.map fun l => ((d.ls[l]?).map fun lt => enc lt.1 (eval (typedVal … bools bits t x の b/v) lt.2)).getD 0`（`valsOf (lsrcAt d bools bits S) args t` の `x = S.val t` での値）。
+
+**(a) 呼び出しごと `machine_arg_k`（k = 0, 1）**:
+```
+∀ (i : Unit) bools bits (S : Signal defaultDomain (HList (tys [bits 6]))) (Ss : (L.at i bools bits).Sigs) (t : Nat),
+  callArgVals d bools (extPre_k i bools bits S Ss) t (teleState L hss i bools bits S Ss t) (callArgsOf d k) = [Lean 側の引数の値の列]
+```
+`extPre_0 = bits`、`extPre_1 = extendBits bits 5 8 (machineCall_0 i bools bits S Ss)`（= `machineExt` の最初の 1 呼び出し分）。右辺は呼び出し `k` の Lean の引数 Signal の `BitVec.toNat (… .val t)`（Bool なら `encodeBool`）の列: k = 0 は `[(regsOf (tys [bits 6]) S).fst.fst.val t].toNat`、k = 1 は `[(bits 4 16).val t, Ss.2.1 の第 5/6/7/8/4 レジスタ].toNat`（`tlpCplByte` の 6 引数）。**意味**: ExtStage の段 `k` が `lsrcAt` で得る引数の値（`ls` 項の評価）は、Lean の呼び出しが渡す引数 Signal の値。
+
+**(b) 融合状態 `machine_states`**（`Tools.ShippingMachineTeleStates.machine_states_of_tele_ext` を endpoint の事実で埋めたもの）:
+```
+∀ (i : Unit) bools bits, ∃ (S₂ : Signal defaultDomain (HList (tys [bits 6]))) (Ss : (L.at i bools bits).Sigs),
+  teleState L hss i bools bits S₂ Ss 0 = castSS hss (happendT [bits 6] L.sss machineInits L.initsT) ∧
+  (∀ t, teleState … (t+1) = evalTerms (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (machineExt i bools bits S₂ Ss) t (teleState … t) の b/v) d.nexts) ∧
+  ∀ t, (machineSource i bools bits).map (fun f => f t) = d.outs.map fun o => enc o.1 (eval (同じ typedVal の b/v) o.2)
+```
+**意味**: 初期値（1 つ目）、遷移（2 つ目）、観測（3 つ目、`machineSource` = 宣言の観測）が、`GenIn` の `d.ss` の状態列と同じ形（`typedVal`/`evalTerms`）で、Lean 側の状態 Signal `(S₂, Ss)` と Lean の拡張 `machineExt` について成り立つ。
+
+### 31.2 手順 2: endpoint 生成器の変更（小さな commit）
+
+`Tools/ShippingMachineCommand.lean`（鎖 endpoint の経路 `nestedProof` と `generateCore`）に **新しい `addDecl` の定理だけ**を足した（既存の def・定理・生成される IR/SV は変えない）:
+- `machine_arg_k`（k < `insts.length`）: 呼び出し `k` の引数 wire の評価 = Lean の引数 Signal の値、`reflProof` で kernel が `Eq.refl` を検査（失敗しても endpoint は元のまま: `try`/`setEnv`）。
+- `machine_states`: 新しい一般定理 `machine_states_of_tele_ext`（`Tools/ShippingMachineTeleStates.lean`、`machine_trace_of_tele_ext` と同じ前提、結論はその証明が内部で作る状態列）を、`machine_sound` を作るのと同じ引数で適用（`pPre.getAppArgs`）。
+- 新しい補助 `Tools/ShippingMachineTeleStates.lean`: `callArgVals`、`callArgsOf`、`teleState`、`machine_states_of_tele_ext`（axiom は標準のみ）。
+
+`kjob lake build Tools.ShippingFGCircuitS1kRoot`（exit 0）で `synth_hftPcieOutByte.machine_arg_0/1`、`machine_states` が生成された（`SPARKLE_MACHINE_PROGRESS` の記録に `not generated` なし）。
