@@ -1395,7 +1395,7 @@ Check の出力行は 7、棄却した mutant は 8（SIGNATURES-A）＋15＋25�
 
 ### 32.1 何が `HftKidsDefine` の代わりに要るか（完全な型を先に）
 
-`HftKidsDefine`（§29.3）は 2 つの被呼び出し宣言の `MachineDefines`（全 world、子の run の `mctx cctx` で）。子の run は `RealChildA.run` の `adm/cache/synth/quiet/hr`（深さと cache だけ）で任意の admissible world で走り、環境セル `envAt cref w` は持たない。根では `CheckedStart`（`ReadsAt env₀ cref w`）と `HeadAt`/`GetEnvProfileAt` で `MachineDefinesLinkedOff` を run 局所に作った（S1q）。子も同じ形で作れるが、**子の run の開始 world の環境が開始 world のそれと一致すること**は `Laws` からも `CellPrem` からも導けない（`quiet` は不透明、class-D の `whnf`/`inferType` 等は env frame を持たない、§21）。最小の run 局所の事実として次の 2 つに分けて名前を付けた（各 `RealChildA.run` が運ぶ前件のもとで、その子の full-entry run の開始 world `w` について）。
+`HftKidsDefine`（§29.3）は 2 つの被呼び出し宣言の `MachineDefines`（全 world、子の run の `mctx cctx` で）。子の run は `RealChildA.run` の `adm/cache/synth/quiet/hr`（深さと cache だけ）で任意の admissible world で走り、環境セル `envAt cref w` は持たない。根では `CheckedStart`（`ReadsAt env₀ cref w`）と `HeadAt`/`GetEnvProfileAt` で `MachineDefinesLinkedOff` を run 局所に作った（S1q）。子も同じ形で作れるが、**子の run の開始 world の環境が開始 world のそれと一致すること**は `Laws` からも `CellPrem` からも導けない（`quiet` は不透明、class-D の `whnf`/`inferType` 等は env frame を持たない、§21）。次の 2 つに分けて名前を付けた。**「run 局所」「根から子までの連鎖で供給」という言い方は不正確だった（S2h の訂正、§32.7）**: `KidStartEnv` は根の開始 world も、到達関係も、cache の履歴への所属条件も持たず、`RealChildA.run` の前件（`adm/cache/synth/quiet/hr`）を満たす**あらゆる**子の run の開始 world `w` が同じ `e` を読む、と仮定する全称命題である（過去の run にも及ぶ。cache hit の元の run の環境を追跡・証明するものではない）。
 
 ```lean
 /-- NAMED HYPOTHESIS (FG D.T-4k) -/
@@ -1410,10 +1410,10 @@ def HftKidsStartEnv O e := KidStartEnv O e hftHttp ∧ KidStartEnv O e hftTlp   
 def HftKidsGates e := EntryGates e hftHttp ∧ EntryGates e hftTlp                 -- FG D.T-4g
 ```
 
-- (A) `ReadsAt e cref w`: 子の開始 world の Core 環境は `e = envAt cref w₀`（開始 world）と一致（find の包含と `instancePredicate/userInliner/structEnv` の等式）。根から子までの world の連鎖の環境 frame の事実。
+- (A) `ReadsAt e cref w`: 子の開始 world の Core 環境は `e = envAt cref w₀`（開始 world）と一致（find の包含と `instancePredicate/userInliner/structEnv` の等式）。`ReadsAt` は環境全体の等式より狭いが、**範囲は上記の全称のまま**（根の run の frame だけでは供給できない: 無関係な run まで含むため）。
 - (B) `GetEnvProfileAt mctx' … w`: 子の `synthesizeChild` → `synthesizeCombinational` が `coreHead` で読む `IO.getEnv "SPARKLE_PROFILE"` は `none` を返し環境を変えない（根の S1o と同じ profile 無効の枝。診断入口は取らない）。
 - `HftKidsGates e`: 2 つの被呼び出し宣言の entry 定数の 2 つの拒否（`certifiedShape?`/`mixedCertifiedShape?` = `none`）。根の `hchk` の gate 部に当たる。`machineShape?` の部分は既存の `hreadH`/`hreadT`（`RootReader`）がそのまま運ぶ。
-- 全 world の `MachineDefines` は消え、`HftKidsStartEnv`/`HftKidsGates` から `MachineDefines`/`HftKidsDefine`/`MachineCloses` は到達不能（Check26 SIGNATURES-B）。`KidStartEnv` は shape も閉じる成功も言わない。
+- 全 world の `MachineDefines` は消えた。`HftKidsStartEnv`/`HftKidsGates` から `MachineDefines`/`HftKidsDefine`/`MachineCloses` は、Check26 の reach 走査（`Tools`/`Sparkle` 下の `defnInfo` の型と値を辿る。帰納型の構成子と定理は展開しない）の範囲では到達されない。依存閉包全体・全 world 前提についての不在は主張しない。`KidStartEnv` は shape も閉じる成功も言わない。ただし**単に `MachineDefines` を弱めたものでもない**: profile 無効（`GetEnvProfileAt`）という条件を新たに要求する（`synthesizeCombinational` の profile 無効の枝を通る条件であり、「診断入口を通らない」という説明は不正確）。
 
 ### 32.2 証明したこと
 
@@ -1443,6 +1443,12 @@ Check の出力行は 8（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、CONTROLS 1�
 ### 32.5 次
 
 (1) `hkgates`: 2 つの被呼び出し宣言の gate 検査（`entryGatesB` 相当）を `envAt cref w` 上で評価する Check（FG D.T-4g）。(2) `hkenv` (A): `RealChildA` の開始 world の環境が根の開始 world のそれと一致すること（機械 run の class-D 行の環境 frame、または run 局所の world の連鎖）、(B): 子の `synthesizeCombinational` の profile lookup が `none`。(3) `htop`、`hcd`（S2b）、`HftRootLink`（S2c）。
+
+### 32.7 S2h による訂正（レビュアー裁定）
+
+1. `KidStartEnv`（`hkenv`）は、`RealChildA` の前件を満たすすべての子の run の開始 world が同じ `e` を読むという全称命題で、根の開始 world・到達関係・cache 履歴への所属条件を持たない。したがって「run 局所」でも「根から子までの frame で供給される」でもない。供給の道は §34 の履歴つき述語（cache の初期化、miss で保存する子の run の読み、hit での取り出し）に移した。`KidStartEnv` 版の補題（`machineChild_of_realK` など）は条件つきの部品として残してある。
+2. Check26 の SIGNATURES-B は旧 Check24 と同じく束縛名と定数の出現だけを見ていたので、SIGNATURES-C（`machineDefinesLinked_of_readerE`、`hftCoreCloses_of_kidsK`、`synth_hftPcieOutByte_finalOffLNKK_Z` の完全な型を独立に書いた期待型と照合）を足した（§34.5）。
+3. reach 走査は `Tools`/`Sparkle` 下の `defnInfo` の型と値を辿るだけで、帰納型の構成子と定理は展開しない。「3 つの名前に到達しない」はこの走査の範囲に限る。
 
 ### 32.6 ビルド環境の注記
 
@@ -1500,3 +1506,44 @@ Check の出力行は 7（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、QUOTES 1、
 ### 33.6 ビルド環境の注記
 
 `timeout 1500 kjob lake build TARGET`（`ulimit -v` なし）。`Tools.ShippingFGCircuitS2gGates` は約 1 分（S2d の build 込みで）、Check27 も約 1 分。
+
+## 34. S2h（Issue `sparkle-fg-circuit-pilot` の次の束）: 履歴つき述語 — 子の run の読みを miss で保存し hit で取り出す
+
+土台 `6bfe8328`（par/fgc-s1）。追加ファイル: `Tools/ShippingFGCircuitS2hHist.lean`（履歴述語・不変条件・`synthesizeChild`・core）、`S2hHist2.lean`（深さ帰納・本体・closing・`MachineClosesAtH`）、`S2hHist3.lean`（消費側・cache 初期化・`hftCoreCloses_of_kidsH`・最終文）、`Tests/Gen5/FGCircuitPilotCheck28.lean`、Check26 の SIGNATURES-C、docs §32.7。共有の `RealChildA`/`JQC`/`CacheInvA` と既存補題は**変更していない**（コピーに `JQC`→`JQH O E`、`RealChildA`→`RealChildE O E` を入れた版を足した）。S2b/S2c/S2f/S2g のファイルには触れていない。新しい law・axiom・TRUSTED・sorry・native_decide はない。Issue の状態は変えていない。成果は**条件付き**で台帳に数えない。
+
+### 34.1 定義
+
+- `RealChildE O E c r`（帰納）: `RealChildA.run` と同じ欄 ＋ `ev : E mctx cctx w`（その結果を作った run の開始 world の証拠）、cache 欄は再び `RealChildE`（その entry を作った履歴）。`RealChildE.toA` で `RealChildA` に戻る。
+- `CacheE`、`JQH O E D w := JQ O.quiet D w ∧ CacheE O E (cv w)`、`JQH.toC : JQH → JQC`。
+- `KidEv mref cref e := fun mctx cctx w => ReadsAt e cref w ∧ GetEnvProfileAt mctx mref cctx cref w`（証拠。profile 無効の枝を含む）。
+- **`MissE O E`**（名前付き仮説 FG D.T-4h）: 深さ `D ≥ 1` の `JQH` world で、callee の entry が cache に無いとき、呼び出しの文脈 `mctx cctx` で `E mctx cctx w`。
+
+### 34.2 三つの接続（レビュアー指定）
+
+| 接続 | 名前 | 内容 |
+|---|---|---|
+| cache 初期化 | `tripleH_clear`、`coreHeadOff_jqhA` | 根の run の頭（深さ 0）が cache を `{}` にするので、任意の `E` で `JQ O.quiet 0 w → JQH O E 1 w1`（`cacheE_empty`） |
+| miss で保存 | `synthesizeChild_tripleH`、`jqh_insert_runs` | 入れ子の run の開始 world で `MissE` から `E` を得て `RealChildE.run … ev` を作り、挿入しても `JQH` は保たれる |
+| hit で取り出し | 同上（hit 枝）、`machineChild_of_realE` | 返る値は cache の entry で、その `RealChildE` が自分の証拠を持つ。消費側は `ev` から `ReadsAt`/`GetEnvProfileAt` を取り出す（普遍前提 `KidStartEnv` を使わない） |
+
+深さ帰納・本体・closing も `JQH` で作り直した: `childKeepsH_all`、`bodyStepH_of_tele`、`htrH_of_tele`、`closeInstsM_runH`/`closeInstsGM_runH`（子は `ChildrenRealE`）、`machineClosesAtH_of_pure`、`callsPureE_of_gateKids`、`machineClosesAtH_of_gateKids`。`hft_kid_ifaceH`、`hft_closesAtH`（`hft_nodup` を kernel `decide` で足した。pin 版ではなく distinct-callee 版）、`hftCoreCloses_of_kidsH`。
+
+### 34.3 最終文
+
+`HftFinalStmtOffLNKH`（`synth_hftPcieOutByte_finalOffLNKH_{Z,Y,X}`、標準 axiom のみ）: S2d の `hkenv : HftKidsStartEnv …` を `hmiss : MissE L.O (KidEv mref cref (envAt cref w))` に替えたもの（明示仮説 14、`hkgates` は S2g のまま）。`hkenv` 版（S2d）は条件つきの部品として残る。
+
+### 34.4 何が変わり、何が残るか（正直な範囲）
+
+- 変わったこと: 子の run の証拠は、無関係な run まで含む全称ではなく、**cache の全 entry が自分の証拠を持つ履歴の world** で、**run が作られる miss の時点だけ**に要求する。hit は何も要求しない（保存された証拠を使う）。profile 条件も同じ履歴の上で扱う。
+- 残ること: `MissE` はその履歴 world の上ではなお全称で、world の環境が根の run に結び付いていない。つまり `hmiss` を根の run の frame から導くには、不変条件に環境（`ReadsAt e`、profile）を足して全ステップ（class-D の `whnf` 等の行と telescope 行）で保つ必要があり、これは未証明（S2d §32.3 と同じ理由）。不可能とは言わない。次の一歩は、`JQH` に環境成分を足した版と、その各行の保存補題。
+- `hkgates`（S2g）、`HftRootLink`（S2c）、`hcd`（S2b/S2i）、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr` は変わらない。
+
+### 34.5 Check
+
+- **Check26 SIGNATURES-C**（追加）: `machineDefinesLinked_of_readerE`、`hftCoreCloses_of_kidsK`、`synth_hftPcieOutByte_finalOffLNKK_Z` の完全な型を独立に書いた期待型と `isDefEq`（binder kind も）で照合。実型の正規形は 1 回。棄却した mutant: readerE 13、core 25、final 34（hkenv/hkgates の環境を終了 world・独立 world に、別の ref/context、子の名前・shape の入れ替え、profile 条件なし、旧入口、別の artifact/output/design/結論 …）。reach 走査の文言は「走査の範囲」に限定。最終ラッパーが変わったらこの Check も同時に更新する。
+- **Check28**（新規、出力 11 行）: DEFS-RUN（`RealChildE.run`、mutant 7）、DEFS-MISS（`MissE`、3）、DEFS-JQH（2）、SIGNATURES-INV（`coreHeadOff_jqhA` 5 + `synthesizeChild_tripleH` 6）、SIGNATURES-CORE（`hftCoreCloses_of_kidsH`、28）、SIGNATURES-FINAL（`finalOffLNKH_Z`、35）、REACH（reach 走査の範囲で `MachineDefines`/`HftKidsDefine`/`MachineCloses`/`KidStartEnv` は到達されない。依存閉包全体については主張しない）、REMAINING 3、AXIOMS（31 名、標準のみ）。
+- mutant の判定は `withReducible` の `isDefEq`（`withDefault` は 25 分以上かかったので採らなかった）。
+
+### 34.6 ビルド
+
+`timeout 1500 kjob lake build TARGET` を 1 つずつ。各 Hist ファイルは数分以内、Check26/28 は 1〜2 分。
