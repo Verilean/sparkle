@@ -18,11 +18,16 @@ run() {  # name, command...
   timeout -k 5 "$TMO" "$@" > "$D/$n.log" 2>&1; rc=$?
   echo -e "$n\t$rc\t$(( $(date +%s) - t0 ))" | tee -a "$D/$G.tsv"
 }
+# Inside `kjob lake env`, a nested `lake exe` cannot start the built binary ("could not execute external
+# process .../.lake/build/bin/<exe>", first rerun 2026-11-06), so build with `lake build` and run the binary
+# directly.  Each `kjob lake` invocation is a fresh job copy, so everything a check needs is built here.
+xrun() { local n="$1" e="$2"; lake build "$e" > "$D/build-$e.log" 2>&1 || { echo -e "$n\t1\t0" >> "$D/$G.tsv"; return; }; run "$n" "./.lake/build/bin/$e"; }
 case "$G" in
   env)
     run make-cdc_runner make -C c_src/cdc cdc_runner.so
     run build-SoCVerilog lake build IP.RV32.SoCVerilog
-    for e in cdc-multi-clock-test sim-runner-test bitnet-soc-test rv32-flow-test; do run "exe-$e" lake exe "$e"; done
+    for e in cdc-multi-clock-test sim-runner-test bitnet-soc-test rv32-flow-test; do xrun "exe-$e" "$e"; done
+    lake build Tests.SymbolicParameterCircuits > "$D/build-symbolic.log" 2>&1
     run verify-parameterized-csim bash scripts/verify_parameterized_csim.sh ;;
   h264)
     rm -rf .lake/build/gen/h264
@@ -31,8 +36,8 @@ case "$G" in
       echo "== $f: wires in generated JIT" > "$D/jitwires-$f.log"
       grep -o '"_gen_[A-Za-z0-9_]*"' ".lake/build/gen/h264/${f}_jit.c" | sort -u >> "$D/jitwires-$f.log" 2>&1
     done
-    for e in h264-bitstream-test h264-playable-test h264-frame-encoder-test; do run "exe-$e" lake exe "$e"; done ;;
-  test) run exe-test-rerun lake exe test ;;
-  toplevel) run exe-toplevel-sim-test lake exe toplevel-sim-test; run exe-toplevel-sim-jit-test lake exe toplevel-sim-jit-test ;;
+    for e in h264-bitstream-test h264-playable-test h264-frame-encoder-test; do xrun "exe-$e" "$e"; done ;;
+  test) xrun exe-test-rerun test ;;
+  toplevel) xrun exe-toplevel-sim-test toplevel-sim-test; xrun exe-toplevel-sim-jit-test toplevel-sim-jit-test ;;
   *) echo "unknown group $G" >&2; exit 2 ;;
 esac
