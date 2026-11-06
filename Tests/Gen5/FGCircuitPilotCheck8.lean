@@ -7,7 +7,7 @@ set_option autoImplicit false
 /-! # FGCircuitPilotCheck8
 
 1. SIGNATURES: complete expected types written independently of the theorems for `envFrame_coreHead`, `root_find_of_headAt`, `machineDefinesLinked_of_headAt`, `counterLoop_final9`/`9C`, `startFacts_of_checked`, the structure constructors of `CheckedEnv`/`CheckedStart`/`HeadIO`,
-   `X_final10` for the four roots, `boundaryRows_of_contains`, `topShips_transport`, the two checker soundness lemmas.  MUTANTS: a cut connection (no head fact, the head fact at another run's world, `ReadsAt`/`CheckedStart` at the end world), another env / root / Post / data,
+   `X_final10` for the four roots, `boundaryRows_of_contains`, `topShips_transport`, the two checker soundness lemmas.  MUTANTS: a cut connection (no head fact; END-WORLD controls = the same run's end world: the head fact at the end world, `ReadsAt`/`CheckedStart` at the end world; these differ from the independent-u controls of MDLBODY, where the start world is an unrelated u), another env / root / Post / data,
    a premise dropped (cell, IO fact, `NoRawBelow`), the transport in the wrong direction.
 2. HYPS: the explicit hypotheses of the final theorems, by name and type.  Not hypotheses: `hquiet`, `GetEnvFrame`, `EnvFrame (coreHead X)` over all worlds, `hdRun`, `MachineDefinesLinked`, `hsrc`, `DesignTransport`, `hw`.
 3. AXIOMS of every new name.
@@ -359,7 +359,7 @@ run_cmd liftTermElabM do
     -- another root's statement
     for r' in [`counterLoop, `shift4Loop, `counterEnableLoop, `arbiterSignal] do
       if r' != r then differs t (`Tests.Gen5.FGCircuitPilotCheck8 ++ Name.mkSimple ("F10True_" ++ r'.toString)); nm := nm + 1
-  logInfo m!"FGCIRCUIT8 SIGNATURES: envFrame_coreHead, root_find_of_headAt, machineDefinesLinked_of_headAt, counterLoop_final9/9C, CheckedEnv.mk, CheckedStart.mk, HeadIO.mk, startFacts_of_checked, X_final10 (4 roots), boundaryRows_of_contains, topShips_transport, noRawBelowB_sound, instsNeB_sound: complete types match the independently written statements; {nm} mutants rejected (head fact for another root / at another run's world / at the end world, ReadsAt and CheckedStart at the end world, dropped head / cell / IO / read / NoRawBelow premises, another env / root / Post / data, another root's final theorem, transport reversed)"
+  logInfo m!"FGCIRCUIT8 SIGNATURES: envFrame_coreHead, root_find_of_headAt, machineDefinesLinked_of_headAt, counterLoop_final9/9C, CheckedEnv.mk, CheckedStart.mk, HeadIO.mk, startFacts_of_checked, X_final10 (4 roots), boundaryRows_of_contains, topShips_transport, noRawBelowB_sound, instsNeB_sound: complete types match the independently written statements; {nm} mutants rejected (head fact for another root / END-WORLD controls (the same run's end world w', not an independent u: head fact, ReadsAt, CheckedStart, find), dropped head / cell / IO / read / NoRawBelow premises, another env / root / Post / data, another root's final theorem, transport reversed)"
 
 /-! ## 2. the hypotheses that remain -/
 
@@ -470,23 +470,27 @@ run_cmd liftTermElabM do
   unless entryGatesB env x do throwError "hftOutProbe: entryGatesB false"
   -- the leaf lemma does not apply: LeafFacts requires insts = []
   -- a real compile
+  -- TWO separate runs (core, then the outer synthesizeCombinational), each from the build's own state; NOT one run, so not PostEntry evidence of a single run
   let (raw, D₀) ← synthesizeCombinationalCore x [] false
   let (b, D') ← synthesizeCombinational x
   let kids := instNames raw
   unless kids.length == 2 do throwError "raw has {kids.length} instances"
-  -- PostEntry on this output (the first disjunct, identity merge): b = dropZeroWidth raw, D' = topMap … D₀ (D₀ does not contain the top module)
-  unless b == Sparkle.IR.ZeroWidth.dropZeroWidthModule raw || b == Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw) do throwError "b is neither disjunct of PostEntry"
+  -- PostEntry is dropZeroWidth OR mergeChecked; compute which branch actually held on these two runs
+  let dz := Sparkle.IR.ZeroWidth.dropZeroWidthModule raw
+  let firstBranch := b == dz
+  let secondBranch := b == Sparkle.IR.RefineCheck.mergeChecked dz
+  unless firstBranch || secondBranch do throwError "b is neither disjunct of PostEntry"
   unless D'.modules == D₀.modules do throwError "D'.modules ≠ D₀.modules"
   -- the side conditions of topShips_transport, evaluated on this design for several depths n
   for n in [0, 1, 2, 3, 4, 5] do
     unless noRawBelowB D₀ raw.name (n + 1) raw do throwError "NoRawBelow raw fails at depth {n}"
     unless noRawBelowB D₀ raw.name (n + 1) (Sparkle.IR.OptCheck.checkedOptimize b) do throwError "NoRawBelow (checkedOptimize b) fails at depth {n}"
   unless instsNeB raw.name b.body do throwError "an instance of b names the top"
-  -- negative controls: the checkers can reject (a child named as the top)
+  -- negative controls (independent-input controls: the checkers are run on the same design with a child renamed as the top)
   for k in kids do
     if noRawBelowB D₀ k 2 raw then throwError "noRawBelowB accepted a design whose child is the 'top' {k}"
     if instsNeB k raw.body then throwError "instsNeB accepted"
-  logInfo m!"FGCIRCUIT8 SNAPSHOT8b (non-leaf, hftPcie body = synth_hftPcieOutByte's): machine route (certified none, mixed none, machineShape? some, insts {sh.insts.length}, slots {sh.layout.slots.length}); real compile: raw instances {kids}, D₀ modules {D₀.modules.map (·.name)}, D' modules equal; NoRawBelow of raw and of checkedOptimize b hold for depths 1..6 and no instance of b names the top (checker true); controls (child as top) false. PostEntry: b = dropZeroWidth raw (first disjunct). This is ONE compile, not a kernel statement about every run"
+  logInfo m!"FGCIRCUIT8 SNAPSHOT8b (non-leaf probe `hftOutProbe` = (hftPcieLoop ..).outByte, the probe's compile, NOT the private synth_hftPcieOutByte itself): machine route (certified none, mixed none, machineShape? some, insts {sh.insts.length}, slots {sh.layout.slots.length}); TWO runs on the probe (synthesizeCombinationalCore, then the outer synthesizeCombinational), compared: raw instances {kids}, D₀ modules {D₀.modules.map (·.name)}, D' modules equal; NoRawBelow of raw and of checkedOptimize b hold for depths 1..6 and no instance of b names the top (checker true); controls (child as top) false. PostEntry is dropZeroWidth OR mergeChecked; branch that held on these runs: dropZeroWidth {firstBranch}, mergeChecked∘dropZeroWidth {secondBranch}. This is NOT same-run PostEntry evidence (b and raw come from different runs) and not a kernel statement about every run"
 
 -- a leaf for contrast: the leaf lemma's condition insts = []
 run_cmd liftTermElabM do
