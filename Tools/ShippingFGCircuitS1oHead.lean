@@ -39,6 +39,57 @@ theorem headAt_of_profileOff (X : Name) {w : Void IO.RealWorld} (hcell : CellPre
   have he := hg.env o w0 h0
   subst ho
   refine Eq.trans ((?_ : EnvFrame _ mctx mref cctx cref) w0 s w1 h1) he
-  sorry
+  repeat' ((try dsimp -zeta only); ef_step)
+  rw [if_neg (by simp)]
+  exact EnvFrame.pure ()
+
+section Finals
+open Sparkle.Core Sparkle.Core.Domain Tools.ShippingGen2 Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG
+open Tools.ShippingFGCircuit Tools.ShippingFGCircuitRoots Tools.ShippingFGCircuitArtifact Tools.ShippingFGCircuitSupply2 Tools.ShippingFGCircuitCover Tools.ShippingFGCircuitBridge
+open Tools.ShippingFGCircuitApply Tools.ShippingFGCircuitTransport Tools.ShippingFGCircuitSrc Tools.ShippingFGCircuitFinal Tools.ShippingFGCircuitLinked Tools.ShippingFGCircuitFinal4
+open Sparkle.Tests.SignalLoopTest Tools.ShippingGenFGLedgerPremises Tools.ShippingFGCircuitS1hGates Tools.ShippingFGCircuitS1hQuote
+open Tools.ShippingGen5Env (ReadsAt)
+open Tools.ShippingStRefCorrespondence (ReadWorld)
+
+/-- **`counterLoop_final9P`**: `counterLoop_final9` with the head fact supplied on the profile-disabled run form: `CellPrem` + `GetEnvProfileAt` at the start world (instead of `HeadIO`; no log obligation) -/
+theorem counterLoop_final9P {ι : Type} (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
+    {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``counterLoop) mctx mref cctx cref w (b, D') w')
+    (hcell : CellPrem Tools.ShippingChildFresh.MkRefd mref cref) (hg : GetEnvProfileAt mctx mref cctx cref w)
+    (hread : ReadsAt env₀ cref w)
+    (hgatesB : entryGatesB env₀ ``counterLoop = true)
+    (hquote : QuoteAt env₀ ``counterLoop counterLoopType counterLoopValue)
+    (hreader : ReaderAt lvl env₀ ``counterLoop counterLoop.machineData) :
+    (∃ raw, PostRun mctx mref cctx cref w ``counterLoop D' b raw) ∧
+    ∃ (mm : MonoTy shCounter) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMono (envAt cref w)
+        (genGP (ι := ι) (dom := fun _ => defaultDomain) lvl (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl) (canonGD lvl) (envAt cref w))
+        (PostRun mctx mref cctx cref w ``counterLoop D') ``counterLoop shCounter mm b D' p :=
+  counterLoop_final9 L lvl env₀ hstart hr (headAt_of_profileOff _ hcell hg) hcell.2.2.2.2.2.2.2.2.1 hread hgatesB hquote hreader
+
+end Finals
+
+/-! ## FREEZE DRAFT — UNAPPROVED, NOT COUNTED, NOT ABSORBED INTO C.EN-4 / Laws, USED BY NO THEOREM ABOVE
+
+The log branch (`profile = true`) obligation, if the log is kept in scope, with the stderr callback separated from the fixed Handle operations.
+`StderrPreserves`: `IO.eprintln msg; flushStderr` write to the CURRENT stderr stream (`setStderr` may have installed an arbitrary `putStr`/`flush` callback), so the env-preservation is an explicit condition about that callback, never a general runtime law.
+`FixedHandlePreserves`: `IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append; putStrLn; flush` (fixed path, fixed `Handle` primitives). -/
+def logTailAct (msg : String) : IO Unit := do
+  let h ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
+  h.putStrLn msg
+  h.flush
+
+def logStderrAct (msg : String) : IO Unit := do
+  IO.eprintln msg
+  Sparkle.Compiler.flushStderr
+
+structure LogBranchDraft (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
+    (cref : ST.Ref IO.RealWorld Core.State) : Prop where
+  stderrPreserves : ∀ msg, EnvFrame (liftM (logStderrAct msg) : MetaM Unit) mctx mref cctx cref
+  fixedHandlePreserves : ∀ msg, EnvFrame (liftM (logTailAct msg) : MetaM Unit) mctx mref cctx cref
 
 end Tools.ShippingFGCircuitS1oHead
+
+#print axioms Tools.ShippingFGCircuitS1oHead.headAt_of_profileOff
+#print axioms Tools.ShippingFGCircuitS1oHead.counterLoop_final9P
