@@ -2,6 +2,7 @@ import Tools.ShippingMachineAuto
 import Tools.ShippingMachineClosesGen
 import Tools.ShippingMachineNest
 import Tools.ShippingMachineTeleNest
+import Tools.ShippingMachineTeleStates
 import Tools.ShippingMachineLoop
 import Tools.ShippingMachineShipping
 import Tools.ShippingSignOps
@@ -1107,7 +1108,7 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
   let resultsOnE (regs Ss : Lean.Expr) : MetaM Lean.Expr :=
     if chain then mkAppM ``Tools.ShippingMachineTele.Tele.resultsOn #[regs, atsE, mkConst ``Unit.unit, Ss]
     else pure (mkApp5 (mkConst ``Tools.ShippingMachineFuse.resultsOn) D (tysE ss₂E) regs atsE Ss)
-  let (extE, hextE) ← withLocalDeclD `S (mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D
+  let (extE, hextE, argRhs) ← withLocalDeclD `S (mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D
       (hlistE (tysE ss₂E))) fun S =>
     withLocalDeclD `Ss sigsT fun Ss => withLocalDeclD `t nat fun t => do
       let regsS := mkApp3 (mkConst ``Tools.ShippingMachineFuse.regsOf) D (tysE ss₂E) S
@@ -1144,7 +1145,35 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
             id != bools.fvarId! && id != bits.fvarId!) then
           throwError "{declName}: a hardware-module call reads a variable the endpoint does not cover"
       let (extS, hext) ← instExtension declName r D #[i, bools, bits, S, Ss] t bits calls subst substC
-      pure (← mkLambdaFVars #[i, bools, bits, S, Ss] extS, ← mkLambdaFVars #[i, bools, bits, S, Ss, t] hext)
+      -- (a chain endpoint) the call's argument wires as the Lean arguments' values, for the per-call
+      -- facts `machine_arg_k`: one `List Nat` per call, over `i bools bits S Ss t`; none where a call is
+      -- not a plain `@[hardware_module]` application
+      let mut argRhs : Array Lean.Expr := #[]
+      if chain && hasInsts then
+        try
+          let mut acc : Array Lean.Expr := #[]
+          for k in [0:calls.size] do
+            let cS := subst k calls[k]!
+            let some (_, kinds, _, args) := machInstCall? senv0 cS
+              | throwError "{declName}: call {k} is not a plain module application"
+            let mut rs : List Lean.Expr := []
+            for (kd, a) in kinds.zip args do
+              match kd with
+              | .domain => pure ()
+              | .bits w =>
+                let wE := mkNatLit w
+                rs := rs ++ [mkApp2 (mkConst ``BitVec.toNat) wE
+                  (mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D
+                    (mkApp (mkConst ``BitVec) wE) a) t)]
+              | .bool =>
+                rs := rs ++ [mkApp (mkConst ``Tools.ShippingMuxLoweringSoundness.encodeBool)
+                  (mkApp (mkApp3 (mkConst ``Sparkle.Core.Signal.Signal.val [.zero]) D
+                    (mkConst ``Bool) a) t)]
+            acc := acc.push (← mkLambdaFVars #[i, bools, bits, S, Ss, t] (listE nat rs))
+          argRhs := acc
+        catch _ => argRhs := #[]
+      pure (← mkLambdaFVars #[i, bools, bits, S, Ss] extS, ← mkLambdaFVars #[i, bools, bits, S, Ss, t] hext,
+        argRhs)
   -- the generic theorem, applied step by step; the binder types name the facts
   let mut p := if chain then
       mkAppN (mkConst ``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext)
@@ -1174,6 +1203,36 @@ def nestedProof (declName : Name) (r : Read) (data ι i D bools bits src inst : 
     let extName := declName ++ `machineExt
     addDef extName (← inferType p).bindingDomain! extE
     p := mkApp p (mkConst extName)
+  -- (a chain endpoint) the per-call facts: the values of call `k`'s argument wires, read off the typed
+  -- valuation of the fused state over the extension of the calls before it, are the Lean arguments'
+  -- values (an `Eq.refl` the kernel checks; a failure leaves the endpoint as it was)
+  if chain && hasInsts && argRhs.size == r.shape.insts.length then
+    let saved ← getEnv
+    try
+      let hssE := mkApp2 (mkConst ``Eq.refl [.one]) α lhs
+      let sigS := mkApp2 (mkConst ``Sparkle.Core.Signal.Signal [.zero]) D (hlistE (tysE ss₂E))
+      withLocalDeclD `S sigS fun S => withLocalDeclD `Ss sigsT fun Ss => withLocalDeclD `t nat fun t => do
+        let x := mkAppN (mkConst ``Tools.ShippingMachineTeleStates.teleState)
+          #[ι, domF, ss₂E, data, teleE, hssE, i, bools, bits, S, Ss, t]
+        for k in [0:r.shape.insts.length] do
+          let mut ePre := bits
+          for j in [0:k] do
+            let some (_, _, .bits w) := r.shape.insts[j]? | throwError "{declName}: call {j} is not a BitVec"
+            ePre := mkAppN (mkConst ``Tools.ShippingMachineAuto.extendBits)
+              #[D, ePre, mkNatLit (r.nDecl + j), mkNatLit w,
+                mkAppN (mkConst (declName ++ Name.mkSimple s!"machineCall_{j}")) #[i, bools, bits, S, Ss]]
+          let lhsK := mkAppN (mkConst ``Tools.ShippingMachineTeleStates.callArgVals)
+            #[D, data, bools, ePre, t, x,
+              mkApp2 (mkConst ``Tools.ShippingMachineTeleStates.callArgsOf) data (mkNatLit k)]
+          let rhsK := (argRhs[k]!).beta #[i, bools, bits, S, Ss, t]
+          let stmt ← mkForallFVars #[i, bools, bits, S, Ss, t] (← mkEq lhsK rhsK)
+          let name := declName ++ Name.mkSimple s!"machine_arg_{k}"
+          let proof ← reflProof stmt true
+          progress s!"{name}: checking"
+          addDecl (.thmDecl { name, levelParams := [], type := stmt, value := proof })
+    catch ex =>
+      setEnv saved
+      progress s!"{declName}: machine_arg_k not generated: {← ex.toMessageData.toString}"
   let srcName := declName ++ `machineSource
   let fieldNames : List (Option Name) :=
     if r.ctor?.isNone then [none] else r.outNames.map fun nm => some (outFieldName r nm)
@@ -2652,6 +2711,18 @@ partial def generateCore (declName : Name) (checkCloses : Bool) (defsOnly : Bool
         let motT ← kabstract T (mkConst old)
         let hT ← mkCongrArg (.lam `s (← inferType (mkConst old)) motT .default) heq
         mkEqMPR hT e
+    -- (a chain endpoint) the fused state stream, with the Lean state signals it is read from
+    if pPre.isAppOf ``Tools.ShippingMachineTeleNest.machine_trace_of_tele_ext then
+      let saved ← getEnv
+      try
+        let st ← retarget (mkAppN (mkConst ``Tools.ShippingMachineTeleStates.machine_states_of_tele_ext)
+          pPre.getAppArgs)
+        let name := declName ++ `machine_states
+        addDecl (.thmDecl { name, levelParams := [], type := ← inferType st, value := st })
+        names := names ++ [name]
+      catch ex =>
+        setEnv saved
+        progress s!"{declName}: machine_states not generated: {← ex.toMessageData.toString}"
     -- to the emitted Verilog, at the full entry (gates as premises); not for
     -- a module with instances (the gates are for assign + register modules)
     if r.shape.insts.isEmpty then

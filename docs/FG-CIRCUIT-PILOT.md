@@ -1174,7 +1174,7 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 ```
 `extBOf/extOf hftKids gi` = `ExtStage hftKids gi … gi.d.shape.insts.length`（root は callee 2 個）。run・環境・table に依存しない（root 宣言と子の宣言の観測だけの文）。`hftGenIn : GenIn`（`machine_ok`/`machine_body`/`initOk` の kernel 事実から）があるので量化は空でない。
 
-組み立て `hftObSrc_of_rootLink : HftRootLink → ∀ {ι} lvl env, RootReader … root → RootReader … http → RootReader … tlp → HftObSrc lvl env`。証明: `canon_row` ×3、`genGP_root_kids_src`、`gi.d.ss` が空でない（kernel: `insts.isEmpty = false`）ので `genSemI` は `gen` 腕、`TablesAgree (genS K) hftKids gi.d`（子は `genSemI_comb_src` と `genSemI_d`/`genSemI_kD`）、`CalleesCausal (genS K) gi.d`（子は `comb` 腕: `genSemI_srcCausal`）、`ExtStage_agree_tables` で `genS K` から `hftKids` に移し、`genSemGen_src_eq_of_link`（下）と `HftRootLink`。
+組み立て `hftObSrc_of_rootLink : HftRootLink → ∀ {ι} lvl env, RootReader … root → RootReader … http → RootReader … tlp → HftObSrc lvl env`。証明: `canon_row` ×3、`genGP_root_kids_src`、`genSemI` の腕の選択は `ss.isEmpty && insts.isEmpty`（両方空なら `comb` 腕）なので、root が `gen` 腕になる根拠は **`insts` が空でないこと**（kernel: `root_insts_nonempty : insts.isEmpty = false`。`ss` の中身には依らない）、したがって `genSemI` は `gen` 腕（`genSemGen`）、`TablesAgree (genS K) hftKids gi.d`（子は `genSemI_comb_src` と `genSemI_d`/`genSemI_kD`）、`CalleesCausal (genS K) gi.d`（子は `comb` 腕: `genSemI_srcCausal`）、`ExtStage_agree_tables` で `genS K` から `hftKids` に移し、`genSemGen_src_eq_of_link`（下）と `HftRootLink`。
 
 `genSemGen_src_eq_of_link`（一般、証明した）: `src_eq_of_states`（leaf: `ExtStage … 0 = id`）の非 leaf 版。loop の再帰は `loop_state_causal`（呼び出しの値は過去の状態にも依存するので pointwise でなく causal）、causal 性は `extCausal_of_genSem`（`CalleesCausal`）。仮定は「生成された再帰に従う任意の状態列について、宣言の観測 = データの `outs` の評価」（`hlink`）の 1 つ。
 
@@ -1209,6 +1209,7 @@ HftRootLink : Prop := ∀ {ι : Type} (gi : GenIn), gi.d = synth_hftPcieOutByte.
 ### 25.5 次
 
 (1) `HftRootLink` を (a) 呼び出し引数の対応（per-call の kernel 事実）と (b) fused 状態の同一視に分けて閉じる（(a) は `#machine_endpoint` 側の生成に近い）。(2) `htop`/`hnoraw`、`hcd`（S1s）。
+
 
 ## 26. S1x（Issue `sparkle-fg-circuit-pilot` の次の束）: `hnoraw : HftObNoRawOff` を run から供給する（`NoRawBelow` を全深さで）
 
@@ -1269,6 +1270,21 @@ Check の出力行は 8（SIGNATURES-A/B1/B2、REMAINING ×2、HYPS、AXIOMS、S
 ### 26.6 次
 
 (1) `hcl`: 閉じる段の検査（`closeInstsG` の各 `Bool`）を、root の 2 つの子の実出力に対して評価し、`MachineCloses`（run の `none` を排除）にする。(2) `hgate`: 閉じた body の形から `hierGate`。(3) `htop`、`hcd`（S1s）、`HftRootLink`。
+
+## 27. S1y（Issue `sparkle-fg-circuit-pilot` の次の束）: `HftRootLink` の分割の調査と Check19 の高速化（**未完: `HftRootLink` は証明していない**）
+
+土台 `15fb4615`。Issue の状態は変えていない。S1w/S1x の領域には触れていない。TRUSTED・axiom・sorry・native_decide・新しい law はない。台帳の変更なし（FG 75 / T1 57、今回 ±0）。
+
+### 27.1 結果（正直に）
+- **`HftRootLink` は証明していない**。仮説の個数は S1u と同じ（`HftFinalStmtOffL` の 13、`hlink` を含む）。`synth_hftPcieOutByte_finalOffL` に `hlink` を落とした版はまだ無い。`Tools/ShippingFGCircuitS1yLink.lean` と Check21 は作っていない（この束では時間切れ。impossible とは言わない）。
+- 調査（root の生成済み endpoint の事実、`kjob lake build` した探査で確認）: root の `machineData.ss = [bits 6]`、`machine_writes`/`machine_result` は `castSS (TeleT.fstate … (TeleT.cons [bits 4, bits 8, bits 16, bits 8, bits 32, bool] …))` 上の文で、`S : Signal (HList (tys [bits 6]))` に加えて融合状態 `Ss` を取る。`machineExt : Unit → bools → bits → Signal (HList (tys [bits 6])) → (Nat → (n:Nat) → Signal (BitVec n))`（Lean の呼び出しを状態 Signal 上で直接評価する形）。`machineExtB`・`machine_causal_k`・`machine_call_k`・`machine_ext_causal`・`machineSigma` は**無い**。
+- したがって (a)（`ls` 項の評価 = Lean の引数 Signal）には、`machineExt` と `d.ls` の対応を言う per-call の事実が要る。(b)（`d.ss` の状態列 = 融合状態）には、`Ss` と `S` を結ぶ `machineSigma` 相当の事実が要る。どちらも既存の endpoint 機構（`ShippingMachineCommand.lean` の非 loop の Tele 経路、約 1924 行）に狭い証拠として足す案で、生成される IR/SV は変えない（新しい `addDecl` の定理だけを足す）方針。実装は次の束。
+
+### 27.2 Check19 の高速化
+`FGCircuitPilotCheck19` の署名ブロックは、同じ実型を mutant ごとに `norm`（定義の展開 6 回）し直していた（例: `synth_hftPcieOutByte_finalOffL` は 20 回）。実型の正規形を型ごとに 1 回だけ計算してキャッシュする（`normC`）。mutant 側の `norm` は式が違うので残る。ファイル分割は未実施。
+
+ビルド時間: 前 約 13 分（S1u の記録）／後 **未計測**（kjob lake build はこの Pod で毎回 922 job を最初から構築し、計測が時間内に終わらなかった。キャッシュ変更が Check19 で通ること自体も未確認）。次の束で計測する。
+
 
 ## 28. S1z（Issue `sparkle-fg-circuit-pilot` の次の束）: `hcl` を対象 run の閉じる成功へ局所化し、`hgate` を閉じた body の形から導く
 
@@ -1487,6 +1503,61 @@ AXIOMS（ds_fun 他）/ LEVEL-CONTROLS / SMALL-DERIVE（数値行 + ok の 2 行
 - 証明: `ds_fun`/`cds_fun`/`tds_fun`/`cds_eq`、`circCVS_functional`、`ds_inhMk_one`、`ds_default_of_mk`、`sh_fun`、表版規則 `ds_*_t`（`ds_inhMk_t` は水準証拠つき）、`lvlNat` の対照。すべて標準 axiom のみ。
 - 名前付き仮説（未供給）: `HftObCDS`（`hcd`）、`EnvDefs`/`EnvCtors`/`RecFact`、`hclL`、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`。Expr 書き換えの意味保存（水準の同値を含む）は監査。`bundle2` の unsafe 実装。
 - 次: `Sh` の `List.rec` 規則と `DS` への橋渡し（`DT` 族）、閉包環境つき生成器、`Signal.mk` と `Bool.false` の規則、その後 `hftRootValue` の型付き導出。
+## 31. S2c（Issue `sparkle-fg-circuit-pilot` の次の束）: `HftRootLink` の (a) 呼び出し引数と (b) fused 状態の endpoint 証拠、分割した証明
+
+土台 `f30cb9fe`（S1y）。Issue の状態は変えていない。S2b の領域（`Tools/ShippingFGCircuitS2bShare.lean`、Check25、§30）には触れていない。TRUSTED・axiom・sorry・native_decide・新しい law はない。
+
+### 31.1 手順 1: (a)/(b) の事実の完全な型（先に固定）
+
+全て `synth_hftPcieOutByte`（`Tools/ShippingFGCircuitS1kRoot.lean`、公開コピー）の鎖（`Tele`）endpoint に対する。`L := synth_hftPcieOutByte.machineInners`（`TeleT`）、`d := synth_hftPcieOutByte.machineData`、`teleState L hss i bools bits S₂ Ss t := castSS hss (L.fstate i bools bits (S₂.val t) (Tele.valsOf (L.at i bools bits) Ss t))`（融合状態、`d.ss = [bits 6] ++ L.sss`）。`callArgsOf d k := ((d.shape.insts.map (·.2.1))[k]?).getD []`（`Gen5Sem.callArgs` と同じ並び）。`callArgVals d bools bits t x args := args.map fun l => ((d.ls[l]?).map fun lt => enc lt.1 (eval (typedVal … bools bits t x の b/v) lt.2)).getD 0`（`valsOf (lsrcAt d bools bits S) args t` の `x = S.val t` での値）。
+
+**(a) 呼び出しごと `machine_arg_k`（k = 0, 1）**:
+```
+∀ (i : Unit) bools bits (S : Signal defaultDomain (HList (tys [bits 6]))) (Ss : (L.at i bools bits).Sigs) (t : Nat),
+  callArgVals d bools (extPre_k i bools bits S Ss) t (teleState L hss i bools bits S Ss t) (callArgsOf d k) = [Lean 側の引数の値の列]
+```
+`extPre_0 = bits`、`extPre_1 = extendBits bits 5 8 (machineCall_0 i bools bits S Ss)`（= `machineExt` の最初の 1 呼び出し分）。右辺は呼び出し `k` の Lean の引数 Signal の `BitVec.toNat (… .val t)`（Bool なら `encodeBool`）の列: k = 0 は `[(regsOf (tys [bits 6]) S).fst.fst.val t].toNat`、k = 1 は `[(bits 4 16).val t, Ss.2.1 の第 5/6/7/8/4 レジスタ].toNat`（`tlpCplByte` の 6 引数）。**意味**: ExtStage の段 `k` が `lsrcAt` で得る引数の値（`ls` 項の評価）は、Lean の呼び出しが渡す引数 Signal の値。
+
+**(b) 融合状態 `machine_states`**（`Tools.ShippingMachineTeleStates.machine_states_of_tele_ext` を endpoint の事実で埋めたもの）:
+```
+∀ (i : Unit) bools bits, ∃ (S₂ : Signal defaultDomain (HList (tys [bits 6]))) (Ss : (L.at i bools bits).Sigs),
+  teleState L hss i bools bits S₂ Ss 0 = castSS hss (happendT [bits 6] L.sss machineInits L.initsT) ∧
+  (∀ t, teleState … (t+1) = evalTerms (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (machineExt i bools bits S₂ Ss) t (teleState … t) の b/v) d.nexts) ∧
+  ∀ t, (machineSource i bools bits).map (fun f => f t) = d.outs.map fun o => enc o.1 (eval (同じ typedVal の b/v) o.2)
+```
+**意味**: 初期値（1 つ目）、遷移（2 つ目）、観測（3 つ目、`machineSource` = 宣言の観測）が、`GenIn` の `d.ss` の状態列と同じ形（`typedVal`/`evalTerms`）で、Lean 側の状態 Signal `(S₂, Ss)` と Lean の拡張 `machineExt` について成り立つ。
+
+### 31.2 手順 2: endpoint 生成器の変更（小さな commit）
+
+`Tools/ShippingMachineCommand.lean`（鎖 endpoint の経路 `nestedProof` と `generateCore`）に **新しい `addDecl` の定理だけ**を足した（既存の def・定理・生成される IR/SV は変えない）:
+- `machine_arg_k`（k < `insts.length`）: 呼び出し `k` の引数 wire の評価 = Lean の引数 Signal の値、`reflProof` で kernel が `Eq.refl` を検査（失敗しても endpoint は元のまま: `try`/`setEnv`）。
+- `machine_states`: 新しい一般定理 `machine_states_of_tele_ext`（`Tools/ShippingMachineTeleStates.lean`、`machine_trace_of_tele_ext` と同じ前提、結論はその証明が内部で作る状態列）を、`machine_sound` を作るのと同じ引数で適用（`pPre.getAppArgs`）。
+- 新しい補助 `Tools/ShippingMachineTeleStates.lean`: `callArgVals`、`callArgsOf`、`teleState`、`machine_states_of_tele_ext`（axiom は標準のみ）。
+
+`kjob lake build Tools.ShippingFGCircuitS1kRoot`（exit 0）で `synth_hftPcieOutByte.machine_arg_0/1`、`machine_states` が生成された（`SPARKLE_MACHINE_PROGRESS` の記録に `not generated` なし）。
+
+### 31.3 手順 3: 証明の分割（`Tools/ShippingFGCircuitS2cLink.lean`）
+
+`HftRootLink` を (a) 呼び出しごと、(b) fused 状態、に次のように分けて使う。
+
+- **型の一致（`ExtStage` 対 Lean の拡張）— 証明済み**: 2 つの入力族は、入力位置 `p < nIn` の宣言された sort（`d.K p`）で一致すれば、`typedVal` が（sort を見て）全位置で一致し、整形な項は同じ値になる（`partial_tagree`、`typedVal_tagree`、`eval_tagree`、`nexts_tagree`、`outs_tagree`、`callArgVals_tagree`）。`ExtStage` は呼び出し結果を位置 `kD + k` の**全ての幅**に置く（`withCall`）が、Lean の `machineExt`（`extendBits`）はその呼び出しの幅にだけ置く。データの項は宣言された幅でしか読まないので、一致するのは宣言された sort だけでよい（既存の `typedVal_let_agree` は全幅の一致を要求するので使えない。新しく証明した）。
+- **子の観測は入力の（その時刻・宣言された sort の）値だけで決まる — 証明済み**: `kid_pw`（子の `machine_result` と上の一致から）、`http_pw`、`tlp_pw`（`httpGetByte`/`tlpCplByte` の Lean の呼び出しの値は、引数の Signal のその時刻の値だけで決まる）。
+- **1 回の呼び出し — 証明済み**: `calleeOut_eq`、`callOut_bits`（`ExtStage` の段 `k` は位置 `kD + k` に `BitVec.ofNat n (calleeOut …)` を置き、他の位置は変えない）、`calleeOut_http`/`calleeOut_tlp`（(a) の `machine_arg_k` を使うと、子に渡る `valsOf (lsrcAt …)` は引数 Signal の `toNat`、子の観測は Lean の呼び出しの値）、`stage1`/`stage2`（段 1, 2 で宣言された sort の位置が Lean の拡張 `extendBits (extendBits bits 5 8 c₀) 6 8 c₁` と一致）。
+- **初期状態の一意性 — 証明済み**: `inits_unique`（`initOk` を満たす状態は 1 つ。`GenIn` の `inits` と `machine_inits` の状態が一致）。
+- **組み立て `hftRootLink`**: `machine_states` の `S₂, Ss` から Lean の融合状態列 `sg t := teleState … t` を取り、`S.val t = sg t` を `t` の帰納法で示す（初期値: `inits_unique`、遷移: `hrec` と `machine_states` の遷移の右辺が `nexts_tagree` で一致）。観測は `machine_states` の第 3 成分（`machineSource` = `monoObs`）と `outs_tagree`。
+
+### 31.4 出力比較（IR/SV 不変）
+
+生成器の変更は新しい `addDecl` の定理（と補助 def `machineCall_k` は既存）だけ。`#synthesize`/`#synthesizeVerilog` は `Tools/*` を import しない（`Tests/Gen5/FGCircuitPilotCompare15.lean` の import は `Sparkle`・`Tests.SignalLoopTest`・`IP.*` のみ）。`git diff f30cb9fe..HEAD -- Sparkle IP Tests/SignalLoopTest.lean Tests/Gen5/FGCircuitPilotCompare15.lean` は空（変更は `Tools/ShippingMachineCommand.lean`・`Tools/ShippingMachineTeleStates.lean`・`Tools/ShippingFGCircuitS2cLink.lean`・Check21・docs・lakefile のみ）。`kjob lake build Tests.Gen5.FGCircuitPilotCompare15`（exit 0、232 jobs）。**前後のビルドログのテキスト比較はしていない**（import の分離による論証。S0 の基準線は coder が再実行する）。
+
+### 31.5 結果（正直に）: `HftRootLink` は**証明が完了していない**
+- **証明した部品**（`Tools/ShippingFGCircuitS2cLink.lean`、`kjob lake build` exit 0、axiom は標準のみ）: `partial_tagree`/`typedVal_tagree`/`eval_tagree`/`nexts_tagree`/`outs_tagree`/`callArgVals_tagree`（sort 付き一致）、`inits_unique`、`kid_pw`/`http_pw`/`tlp_pw`、`calleeOut_eq`/`callOut_bits`/`calleeOut_http`/`calleeOut_tlp`、`stage1`/`stage2`（`ExtStage hftKids` の段 1, 2 が `machine_arg_0/1` を使って Lean の拡張と宣言された sort で一致）。さらに組み立ての途中（Lean 状態列 `sg t` に対する `ExtStage` 族の一致 `hext`、`typedVal` の一致 `hagree`、状態列 `S.val t = sg t` の帰納 `hSg`）は通った（`docs/FG-CIRCUIT-PILOT-S2c-hftRootLink-draft.lean.txt` に最終版の下書きを残す。lake には載せていない）。
+- **閉じていない 1 点**: 最後の観測の式 `monoObs … = outs（ExtStage 族の typedVal）`（`machine_states` の第 3 成分から `outs_tagree` で移す）は、定理全体の組み立てで `whnf` が heartbeat 上限（200000、8000000 でも 14 分で）に達した。部分ごと（`outs_tagree` の適用、`monoObs_root`）は通るので、不可能ではなく、巨大な `machineInners`/`machineData` を含む項の定義的同一視の経路の問題と見る（次は `HftRootLink` の結論部だけを独立補題にして、`TVal` を抽象変数にして呼ぶ）。したがって `synth_hftPcieOutByte_finalOffL` に `hlink` を落とした版は**作っていない**（`hlink` は名前付き仮説のまま、`HftFinalStmtOffL` の 13 個）。
+- `machine_states` の型を独立文面と `isDefEq` で照合する試みも heartbeat 上限に達したため Check21 には入れていない（`machine_arg_0/1` は照合した）。
+- 名前付き仮説: `HftRootLink` のみ（S1u と同じ）。新しい law/TRUSTED/sorry/native_decide/axiom はない。
+
+### 31.6 Check21 の出力
+`kjob lake build Tests.Gen5.FGCircuitPilotCheck21`（exit 0）。`FGCIRCUIT21 SIGNATURES`: `machine_arg_0`、`machine_arg_1` は独立文面と `isDefEq`（default）で一致、mutant（別の呼び出し・先行呼び出しの拡張欠落・引数の欠落）3/3 棄却（`instances` 透過度）。`FGCIRCUIT21 AXIOMS`: 12 名、標準 axiom のみ。
 ## 32. S2d（Issue `sparkle-fg-circuit-pilot` の次の束）: `hkids` の run 局所化 — 子の run の開始 world の環境の 2 つの事実
 
 土台 `b7984ea2`（par/fgc-s1）。追加ファイル: `Tools/ShippingFGCircuitS2dKids.lean`、`Tests/Gen5/FGCircuitPilotCheck26.lean`（lakefile 登録は各 1 回）。S2a（§29）・S2b・S2c のファイルには触れていない（S2a の定義・定理を import して使う）。新しい law・axiom・TRUSTED・sorry・native_decide はない。Issue の状態は変えていない。成果は**条件付き**で台帳に数えない。

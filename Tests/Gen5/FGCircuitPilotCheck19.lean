@@ -304,13 +304,20 @@ partial def binderInfos : Lean.Expr → List BinderInfo
 
 set_option maxHeartbeats 32000000 in
 run_cmd liftTermElabM do
-  let sameE (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
+  -- the normal form of the real type is computed once per type (the mutants of one statement share it)
+  let cache ← IO.mkRef (∅ : Std.HashMap Lean.Expr Lean.Expr)
+  let normC (ty : Lean.Expr) : MetaM Lean.Expr := do
+    if let some a := (← cache.get)[ty]? then return a
     let a ← norm ty
+    cache.modify (·.insert ty a)
+    return a
+  let sameE (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
+    let a ← normC ty
     let e ← norm exp
     unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
     unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
   let diffE (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
-    let a ← norm ty
+    let a ← normC ty
     let e ← norm exp
     if a == e then throwError "{what}: the MUTANT is the same expression"
     if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
