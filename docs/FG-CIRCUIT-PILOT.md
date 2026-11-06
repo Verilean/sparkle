@@ -1909,7 +1909,7 @@ hftCoreCloses_of_kidsR (L : Laws mref cref) {w} (hstart : Start L mctx cctx w) (
 
 ### 39.6 正直な範囲
 
-- `Reached` は「root の run の実行トレース」ではなく、`w₀` から法則の葉の操作で作れる world の閉包。run のトレースは `RunsTo`（大きいステップの述語）しかなく持てないため。各仮説は「到達した quiet で `ReadsAt e` を読む world」の上で全称（全 world や任意の `JQH` world ではない）。
+- `Reached` は**閉包**であって、root の run の実行トレース（その run が実際に通った world の列）ではない: `w₀` から法則の葉の操作で作れる world の集合。run のトレースは `RunsTo`（大きいステップの述語）しかなく持てないため。したがって `Reached w₀ w` は「w は root の run が通った world」を意味せず、「w は w₀ から葉の step だけで作れる」を意味する。量化範囲は**仮説ごとに違う**（一括して「到達した world の上で全称」ではない）: `DRowEnvR`/`DiagEnvR` は（admissible な文脈、`DRow`/`Diag` の行 `p`）× `quiet ∧ ReadsAt e ∧ Reached w₀` を満たす全 world `w`、`ProfStepR` は `Reached w₀ w ∧ LeafStep w w'` の全対 `(w, w')`（`ProfOffW w` の下）、`AdmDownR` は強めた quiet で admissible な全文脈、`TeleR` は `RefLawsATele` の形（強めた quiet 上の全 `I` と継続）、`ProfOffW`（h0）は root の開始 world 1 つ、`hadm` は root の文脈 1 つ。いずれも全 world や任意の `JQH` world 上の全称ではない。
 - `TeleR` は `RefLawsATele` の形（`I` について全称・継続の仮定つき）の仮説で、`L.T` を `quietR` に強めたもの。telescope 行の `ReadsAt` frame を継続の仮定から切り離して小さくする道は取っていない（`L.T` からは導けない: 不変条件に cache の証拠 `RealChildE` が入り、継続が cache を伸ばすため）。
 - `hadm`/`hdown` は `canUnfold?` の callback の事実で、文脈が `none` なら自明（`admCtx_none`）。
 - `ProfOffW`（D.T-4m5）は root の run が profile-free の入口（`synthesizeCombinationalOff`）なので root 側では今まで要らなかった。子の `synthesizeCombinational` の lookup のために新しく root の開始 world で要る。
@@ -1924,7 +1924,7 @@ hftCoreCloses_of_kidsR (L : Laws mref cref) {w} (hstart : Start L mctx cctx w) (
 - `FGCIRCUIT33 HYPS`: `DRowEnvR`・`DiagEnvR`・`ProfStepR`・`ProfOffW`・`AdmDownR`・`TeleR` の型を照合。**27 mutant**（結論が開始 world、前提が end world、到達/`ReadsAt`/admissible の前提なし、class を全 framed 行へ広げる/診断へ狭める、別の root 環境、別 world からの到達、葉でない任意の step、profile lookup が ON、profile の片方の成分、文脈の law の逆/自明/別環境、telescope の law を plain/到達なし/別環境の quiet で）。
 - `FGCIRCUIT33 SIGNATURES-INV`: `missR`、`jqhr_head` の完全な型（binder kind も）。**12 mutant**（root の profile 事実なし、step の frame なし、reads のみ、profile のみ、profile ON、`ropsR` でなく plain な bundle、別環境、depth 0、開始 depth 1、診断の頭、plain、頭の後の world の環境）。
 - `FGCIRCUIT33 SIGNATURES-CORE`: `hftCoreCloses_of_kidsR` の完全な型（binder `mctx mref cctx cref L w hstart hcell lvl hrH hrT hg hadm hdown hD hG hT hs h0`）。**17 mutant**: 各前提の脱落（13）と 4 つの対照（**profile lookup が ON**、**別の root 環境**、**root の開始 world から到達しない world（独立した world からの到達）**、**end world（結論/profile 事実が独立した world）**）。
-- `FGCIRCUIT33 STEPS`: 保存補題が `ropsR`・`TeleR` を使い、`MissE`/`KidStartEnv`/`HftKidsDefine`/`MachineDefines`/`MachineCloses` を含まない（**69 構造検査**）。reach 走査の範囲（`Tools`/`Sparkle` 下の `defnInfo`、帰納型の構成子と定理は展開しない、reach set 2979）でそれらに到達しない。依存閉包全体は主張しない。
+- `FGCIRCUIT33 STEPS`: 保存補題が `ropsR`・`TeleR` を使い、`MissE`/`KidStartEnv`/`HftKidsDefine`/`MachineDefines`/`MachineCloses` を含まない（**69 構造検査**）。reach 走査の範囲（辿るのは (i) `Tools`/`Sparkle` 下の**定義**（`defnInfo` の型と値）、(ii) `Tools` 下の**帰納型の構成子**、(iii) **構成子の型**だけ。定理・axiom・opaque・`Tools`/`Sparkle` の外の定数・`Sparkle` の帰納型は辿らない、reach set 2979）でそれらに到達しない。**依存閉包全体は主張しない**（定理の証明項の中は見ていない）。
 - `FGCIRCUIT33 CONTROLS`: kernel 判定 5 件（`ctl_notReached`: 到達しない world は強めた quiet の外、`ctl_reads`、`ctl_root`、`ctl_step`、`ctl_profile`: profile が off と on の両方にはならない）と、4 つの文面レベルの対照への対応表。
 - `FGCIRCUIT33 REMAINING`（7 行: `hadm hdown hD hG hT hs h0`）、`FGCIRCUIT33 AXIOMS`（13 名、標準 axiom のみ）。
 
