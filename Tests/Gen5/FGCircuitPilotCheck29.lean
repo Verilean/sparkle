@@ -34,11 +34,12 @@ def mkP (x y : Lean.Expr) : Lean.Expr := appN ``Prod.mk [.zero, .zero] [bl, bl, 
 def lamB (b : Lean.Expr) : Lean.Expr := .lam `x bl b .default
 def lamT (T b : Lean.Expr) : Lean.Expr := .lam `x T b .default
 
-/-- the numbers of one derivation; `want` are the counters that must be positive (the rule is exercised) -/
+/-- existence + standard axioms of one derivation. `want` is an INFORMATIONAL label (the rules the example is meant to exercise); it is NOT asserted here (the counters are not available to this check).
+Which input / which result a theorem is about is checked in Check41 (fixed expected types). -/
 def report (tag : String) (n : Name) (want : List String) : CommandElabM Unit := do
   unless (← getEnv).contains n do throwError "{tag}: {n} missing"
   liftTermElabM (axiomsOk n)
-  logInfo m!"{tag} ok: {n} kernel-checked, standard axioms only (rules wanted: {want})"
+  logInfo m!"{tag} ok: {n} kernel-checked, standard axioms only (rules meant to be exercised, informational, not asserted: {want})"
 
 -- SHARE: `(fun x : Bool => Prod.mk x x) false`
 derive_expr_t share := (Lean.Expr.app (lamB (mkP (.bvar 0) (.bvar 0))) bF : Lean.Expr)
