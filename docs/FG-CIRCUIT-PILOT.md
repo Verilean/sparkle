@@ -1272,7 +1272,7 @@ DAG は n に対して**二次**（差分が 128 ずつ増える: 612, 1084, 168
 
 ### 43.2 生成器の修正（`S2iGen`/`S2iRun`、生成器は信頼しない: カーネルが検査する）
 
-- 厳格な形の検査: `HAdd`/`HAnd`/`HOr`/`Complement`/`Signal.beq` の枝は、頭の定数だけで選んでいた（インスタンスを見ていなかった）。根の生成物をカーネルに出したとき `HOr.hOr` の `Signal (BitVec 16)` オペランドを Bool 専用の `sigOrBV`でない規則に当てた「application type mismatch」で初めて分かった。各枝を「期待する式の全体との等式」に直し、外れたら「no direct rule」で失敗する（probe の止まりとして現れる）。
+- 厳格な形の検査: `HAdd`/`HAnd`/`HOr`/`Complement`/`Signal.beq` の枝は、頭の定数だけで選んでいた（インスタンスを見ていなかった）。根の生成物をカーネルに出したとき、`HOr.hOr` の `Signal (BitVec 16)` オペランドを Bool 専用の `sigOrBool` 規則に当てた「application type mismatch」で初めて分かった（カーネルが止めた）。各枝を「期待する式の全体との等式」に直し、外れたら「no direct rule」で失敗する（probe の止まりとして現れる）。
 - **束縛名の取り違え（生成器の不具合、修正済み）**: 引用の cache（`qE`/`unq`）は `Expr` の `BEq`（α 同値、束縛名を無視）で引くので、束縛名だけが違う `lam` が同じ引用を返し、規則に `toExpr n`（生の名前）を渡すと `Eq.refl` の両辺で名前が食い違う（根の `fun x._@…_hyg.384` と `_hyg.626`）。`Sh.lam`/`Sh.letZ`/`DT.lam`/`DT.letE`/`mapExtract` の `n`/`bi`/`nd` を、**引用した項の引数**から取るように直した。
 - 測定の修正: `deriveRootT` の `kernel ms` を同期の `Environment.addDeclCore`（`IO.lazyPure` で強制）に替えた。以前の `addDecl` は非同期で、検査時間を測っていなかった（§36.4 訂正）。
 
