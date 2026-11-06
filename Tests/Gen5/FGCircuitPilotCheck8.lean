@@ -488,7 +488,7 @@ run_cmd liftTermElabM do
     if instsNeB k raw.body then throwError "instsNeB accepted"
   logInfo m!"FGCIRCUIT8 SNAPSHOT8b (non-leaf, hftPcie body = synth_hftPcieOutByte's): machine route (certified none, mixed none, machineShape? some, insts {sh.insts.length}, slots {sh.layout.slots.length}); real compile: raw instances {kids}, D₀ modules {D₀.modules.map (·.name)}, D' modules equal; NoRawBelow of raw and of checkedOptimize b hold for depths 1..6 and no instance of b names the top (checker true); controls (child as top) false. PostEntry: b = dropZeroWidth raw (first disjunct). This is ONE compile, not a kernel statement about every run"
 
-/-- a leaf for contrast: the leaf lemma's condition `insts = []` -/
+-- a leaf for contrast: the leaf lemma's condition insts = []
 run_cmd liftTermElabM do
   let env ← getEnv
   let some ci := env.find? ``counterLoop | throwError "missing"
