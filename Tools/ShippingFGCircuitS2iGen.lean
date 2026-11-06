@@ -515,6 +515,10 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Nam
       let ia := appArgs inst
       let some dq := ia[0]? | throwError "HAdd: instance args"
       let some wq := ia[1]? | throwError "HAdd: instance args"
+      let sgT (t : Expr) : Expr := appN ``Signal [.zero] [dq, t]
+      let bvw := appN ``BitVec [] [wq]
+      unless e == appN ``HAdd.hAdd [.zero, .zero, .zero] [sgT bvw, sgT bvw, sgT bvw, appN ``Sparkle.Core.Signal.instHAddSignalBitVec [] [dq, wq], args[4]!, args[5]!] do
+        throwError "HAdd: no direct rule (not the Signal (BitVec w) + Signal (BitVec w) instance form)"
       let hd ← deriveT K false ρ dq
       let hw ← deriveT K false ρ wq
       let ha ← v 4
@@ -529,6 +533,10 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Nam
     else if c == ``HAnd.hAnd || c == ``HOr.hOr then
       let inst ← a 3
       let some dq := (appArgs inst)[0]? | throwError "HAnd/HOr: instance args"
+      let sgB := appN ``Signal [.zero] [dq, .const ``Bool []]
+      let instN := if c == ``HAnd.hAnd then ``Sparkle.Core.Signal.instHAndSignalBool else ``Sparkle.Core.Signal.instHOrSignalBool
+      unless e == appN c [.zero, .zero, .zero] [sgB, sgB, sgB, appN instN [] [dq], args[4]!, args[5]!] do
+        throwError "{c}: no direct rule (not the Signal Bool instance form)"
       let hd ← deriveT K false ρ dq
       let ha ← v 4
       let hb ← v 5
@@ -541,6 +549,9 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Nam
     else if c == ``Complement.complement then
       let inst ← a 1
       let some dq := (appArgs inst)[0]? | throwError "Complement: instance args"
+      let sgB := appN ``Signal [.zero] [dq, .const ``Bool []]
+      unless e == appN ``Complement.complement [.zero] [sgB, appN ``Sparkle.Core.Signal.instComplementSignalBool [] [dq], args[2]!] do
+        throwError "Complement: no direct rule (not the Signal Bool instance form)"
       let hd ← deriveT K false ρ dq
       let ha ← v 2
       let (_, D) ← dtVal hd
@@ -550,6 +561,8 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Nam
     else if c == ``Sparkle.Core.Signal.Signal.beq then
       let bvT ← a 0
       let some wq := (appArgs bvT)[0]? | throwError "beq: BitVec arg"
+      unless e == appN ``Sparkle.Core.Signal.Signal.beq [] [appN ``BitVec [] [wq], args[1]!, appN ``instBEqOfDecidableEq [.zero] [appN ``BitVec [] [wq], appN ``instDecidableEqBitVec [] [wq]], args[3]!, args[4]!] do
+        throwError "Signal.beq: no direct rule (not the BitVec instance form)"
       let hd ← v 1
       let hw ← deriveT K false ρ wq
       let ha ← v 3
