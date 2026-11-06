@@ -22,7 +22,7 @@ structure CEntry where
   val : Lean.Expr
 
 structure St where
-  q : Std.HashMap Lean.Expr Lean.Expr := {}
+  q : Std.HashMap Lean.Expr (Lean.Expr × Lean.Expr) := {}
   memo : Std.HashMap (Bool × Lean.Expr × Lean.Expr) Lean.Expr := {}
   defs : Array (Name × List Name × Lean.Expr) := #[]
   ctors : Array (Name × Name × Nat × Nat) := #[]
@@ -89,7 +89,9 @@ def biE (bi : BinderInfo) : Lean.Expr :=
   | .instImplicit => mkConst ``BinderInfo.instImplicit
 
 partial def qE (e : Lean.Expr) : G Lean.Expr := do
-  if let some r := (← get).q[e]? then return r
+  -- the cache key `Expr` equality ignores binder names (α-equivalence): a hit counts only if the stored original is EXACTLY equal (`Expr.equal`: names and binder infos), else the literal would change
+  if let some (e0, r) := (← get).q[e]? then
+    if Lean.Expr.equal e0 e then return r
   let r ← match e with
     | .bvar i => pure (mkApp (mkConst ``Lean.Expr.bvar) (toExpr i))
     | .const n ls => pure (mkApp2 (mkConst ``Lean.Expr.const) (toExpr n) (qLs ls))
@@ -104,7 +106,7 @@ partial def qE (e : Lean.Expr) : G Lean.Expr := do
     | .mdata .. => throwError "quote: mdata"
     | .fvar .. => throwError "quote: fvar"
     | .mvar .. => throwError "quote: mvar"
-  modify fun s => { s with q := s.q.insert e r }
+  modify fun s => { s with q := s.q.insert e (e, r) }
   pure r
 
 /-! ## the lookup, recording what the evaluators ask -/

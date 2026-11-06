@@ -39,7 +39,7 @@ syntax (name := fixedDT) "fixed_dt " (&"accept" <|> &"reject") str ident term:ma
     let t ← Term.elabType tyStx
     Term.synthesizeSyntheticMVarsNoPostponing
     instantiateMVars t
-  let fixedName := Name.str thm "fixed"
+  let fixedName := Name.num (Name.str thm "fixed") (stx.getPos?.map (·.byteIdx) |>.getD 0)
   let decl : Declaration := .thmDecl { name := fixedName, levelParams := [], type := ty, value := Lean.mkConst thm }
   let env0 ← getEnv
   let r ← IO.lazyPure (fun _ => Lean.Environment.addDeclCore env0 0 decl none)
