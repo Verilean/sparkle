@@ -8,6 +8,8 @@ set_option autoImplicit false
 1. DEFS: the constructors of `LeafStep` / `Reached`, the strengthened quiet predicate `quietR`, against independently written expected statements, with mutants (arbitrary code as a step, a start at another world, no reach, no `ReadsAt`, another environment, reach from another world).
 2. HYPS: the named run-local hypotheses (`DRowEnvR`, `DiagEnvR`, `ProfStepR`, `ProfOffW`, `AdmDownR`, `TeleR`) against independently written types; mutants: the conclusion at the START world, the premise at the END world, no reach premise, no `ReadsAt` premise, another root environment, reach from another world, no admissibility, the class widened, the profile lookup ON instead of off.
 3. SIGNATURES: the complete types of `missR`, `jqhr_head` and `hftCoreCloses_of_kidsR` (binder kinds too) against independently written expected types, with the four controls (world not reached from the root, another root environment, end world, profile on) and every premise dropped.
+Quantifier ranges (S2n correction; the earlier wording "all seven hold only on reached quiet worlds" is withdrawn): `DRowEnvR`/`DiagEnvR` are limited to quiet + `ReadsAt e` + `Reached` worlds; `ProfStepR` needs only `Reached` + `LeafStep` + `ProfOffW` (no quiet, no `ReadsAt`); `ProfOffW` is about one world but all `mctx`/`cctx`; `TeleR` is a law over an arbitrary invariant / continuation; `hadm`/`AdmDownR` are properties of the callback (the context), not a world quantifier. `Reached` is the closure over arbitrary permitted leaves, contexts and arguments (including arbitrary cache writes), not the actual trace of one run (traces are not defined at present).
+
 4. STEPS (structural), CONTROLS (kernel-checked consequences), REMAINING, AXIOMS. WHENEVER `hftCoreCloses_of_kidsR` or one of the hypotheses changes, this check must be updated in the same commit. -/
 namespace Tests.Gen5.FGCircuitPilotCheck33
 open Lean Meta Elab Command Term
@@ -503,11 +505,11 @@ run_cmd liftTermElabM do
 run_cmd liftTermElabM do
   let lines := [
     "hadm : AdmCtx (quietR L.O.quiet mref cref (envAt cref w) w) mctx cctx [FG D.T-4m6] (the root context is admissible for the strengthened quiet predicate)",
-    "hdown : AdmDownR L.O (envAt cref w) w [FG D.T-4m7] (a context admissible for the strengthened quiet predicate is admissible for the plain one)",
-    "hD : DRowEnvR L.O (envAt cref w) w [FG D.T-4m1] (class-D rows keep ReadsAt on quiet worlds reached from w)",
-    "hG : DiagEnvR L.O (envAt cref w) w [FG D.T-4m2] (diagnostic rows keep ReadsAt on quiet worlds reached from w)",
-    "hT : TeleR L.O (envAt cref w) w [FG D.T-4m3] (the four telescope rows of RefLawsATele at the strengthened quiet predicate)",
-    "hs : ProfStepR L.O w [FG D.T-4m4] (a leaf step from a reached world keeps the profile lookup unset)",
+    "hdown : AdmDownR L.O (envAt cref w) w [FG D.T-4m7] (callback property, a universal implication over contexts, not a world quantifier: a context admissible for the strengthened quiet predicate is admissible for the plain one; NOT supplied by canUnfold? = none at the root alone; see §40)",
+    "hD : DRowEnvR L.O (envAt cref w) w [FG D.T-4m1] (class-D rows keep ReadsAt; quiet + ReadsAt + Reached worlds only)",
+    "hG : DiagEnvR L.O (envAt cref w) w [FG D.T-4m2] (diagnostic rows keep ReadsAt; quiet + ReadsAt + Reached worlds only)",
+    "hT : TeleR L.O (envAt cref w) w [FG D.T-4m3] (the four telescope rows of RefLawsATele at the strengthened quiet predicate; a law over an arbitrary invariant / continuation)",
+    "hs : ProfStepR L.O w [FG D.T-4m4] (a leaf step from a reached world keeps the profile lookup unset; needs only Reached + LeafStep + ProfOffW, no quiet / ReadsAt)",
     "h0 : ProfOffW mref cref w [FG D.T-4m5] (the profile lookup is unset at the root start world)"]
   for l in lines do logInfo m!"FGCIRCUIT33 REMAINING {l}"
 
