@@ -6424,3 +6424,6 @@ lean_lib «Tools.ShippingFGCircuitS1kPkg» where
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck9» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck9]
+
+lean_lib «Tools.ShippingFGCircuitS1mCD» where
+  roots := #[`Tools.ShippingFGCircuitS1mCD]
