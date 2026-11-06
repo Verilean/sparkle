@@ -343,7 +343,7 @@ run_cmd liftTermElabM do
   let diag : List Name := [``synthesizeCombinational, ``synthesizeCombinationalCore, ``synthesizeCombinationalWith, ``synthesizeCombinationalCoreWith, ``synthesizeEntry,
     ``MachineDefinesLinked, ``PostRun, ``Tools.ShippingEntryReadsLinked.coreHead, ``HeadIO, ``HeadAt, ``synthesizeChild]
   -- constants a hypothesis type mentions, one level into the S1t/S1k obligations
-  let mut cnt := 0
+  let mut cnt : Nat := 0
   for (n, t) in names do
     let mut used := t.getUsedConstants
     for c in t.getUsedConstants do
@@ -403,14 +403,23 @@ run_cmd liftTermElabM do
   let F := `Tools.ShippingFGCircuitS1tFinal
   let names : List Name := [F ++ `synth_hftPcieOutByte_finalOff, F ++ `synth_hftPcieOutByte_finalOff_Z, F ++ `HftFinalStmtOff, F ++ `HftObTopCoreOff, F ++ `HftObNoRawOff]
   let pref := ["Tools.ShippingFGCircuitS1t", "Tools.ShippingFGCircuitS1q", "Tools.ShippingFGCircuitS1kStmt"]
+  let diagBanned : List Name := [``synthesizeCombinational, ``synthesizeCombinationalCore, ``synthesizeCombinationalWith, ``synthesizeCombinationalCoreWith, ``synthesizeEntry,
+    ``Tools.ShippingFGCircuitLinked.MachineDefinesLinked, ``PostRun, ``Tools.ShippingEntryReadsLinked.coreHead, ``HeadIO, ``HeadAt]
+  let childBanned : List Name := [``synthesizeChild, ``sparkleChildSynth, ``childSynthEntry]
+  -- (a) the STATEMENT (the definitions the type is built from): neither the diagnostic entries nor the children's entry
+  let (visS, refdS) := reach env pref [F ++ `HftFinalStmtOff, F ++ `HftObTopCoreOff, F ++ `HftObNoRawOff]
+  for b in diagBanned ++ childBanned do
+    if refdS.contains b then
+      let wit := visS.toList.filter fun n => (valueConsts env n).contains b
+      throwError "the final statement mentions {b}; first witnesses {wit.take 5}"
+  -- (b) the PROOFS: no diagnostic entry. (The S1q frame proof `envFrame_coreHeadOff` mentions the cell `sparkleChildSynth` through `CellPrem`; reported, not banned.)
   let (vis, refd) := reach env pref names
-  let banned : List Name := [``synthesizeCombinational, ``synthesizeCombinationalCore, ``synthesizeCombinationalWith, ``synthesizeCombinationalCoreWith, ``synthesizeEntry,
-    ``Tools.ShippingFGCircuitLinked.MachineDefinesLinked, ``PostRun, ``Tools.ShippingEntryReadsLinked.coreHead, ``HeadIO, ``HeadAt,
-    ``synthesizeChild, ``sparkleChildSynth, ``childSynthEntry]
-  for b in banned do
+  for b in diagBanned do
     if refd.contains b then
       let wit := vis.toList.filter fun n => (valueConsts env n).contains b
       throwError "a value reachable from the final theorem mentions {b}; first witnesses {wit.take 5}"
+  let childWit := vis.toList.filter fun n => childBanned.any fun b => (valueConsts env n).contains b
+  logInfo m!"FGCIRCUIT18 SCOPE-INFO: values reachable from the final theorem that mention the children's entry cell (sparkleChildSynth / synthesizeChild / childSynthEntry): {childWit}"
   -- controls: the S1k final DOES reach the diagnostic entry; synthesizeChild runs the diagnostic entry (so the children are not guaranteed)
   let (visK, refdK) := reach env ["Tools.ShippingFGCircuitS1k"] [`Tools.ShippingFGCircuitS1kPkg.synth_hftPcieOutByte_final]
   unless refdK.contains ``synthesizeCombinationalCore && refdK.contains ``PostRun do throwError "control: the S1k final does not reach the diagnostic entry"
@@ -426,7 +435,7 @@ run_cmd liftTermElabM do
   for nm in allNames do
     for ax in ← Lean.collectAxioms nm do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do throwError "{nm} uses {ax}"
-  logInfo m!"FGCIRCUIT18 SCOPE: the final theorem and its statement reach {vis.size} S1t/S1q/S1k-statement constants and mention none of synthesizeCombinational / …Core / …With / synthesizeEntry / MachineDefinesLinked / PostRun / coreHead / HeadIO / HeadAt / synthesizeChild / sparkleChildSynth / childSynthEntry; controls: the S1k final reaches the diagnostic entry; synthesizeChild calls synthesizeCombinational and not synthesizeCombinationalOff; synthesizeCombinationalOff mentions neither synthesizeChild nor synthesizeEntry. The children's entry is NOT guaranteed by this statement (docs §24.2)."
+  logInfo m!"FGCIRCUIT18 SCOPE: the statement (HftFinalStmtOff, HftObTopCoreOff, HftObNoRawOff: {visS.size} constants) mentions none of synthesizeCombinational / …Core / …With / synthesizeEntry / MachineDefinesLinked / PostRun / coreHead / HeadIO / HeadAt / synthesizeChild / sparkleChildSynth / childSynthEntry; the proofs ({vis.size} constants) mention none of the diagnostic entries; controls: the S1k final reaches the diagnostic entry; synthesizeChild calls synthesizeCombinational and not synthesizeCombinationalOff; synthesizeCombinationalOff mentions neither synthesizeChild nor synthesizeEntry. The children's entry is NOT guaranteed by this statement (docs §24.2)."
   logInfo m!"FGCIRCUIT18 AXIOMS: {allNames.length} names, standard axioms only (no sorryAx, no native_decide)"
 
 end Tests.Gen5.FGCircuitPilotCheck18

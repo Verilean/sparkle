@@ -1055,7 +1055,7 @@ HftFinalStmtOff (Ob : Environment → Prop) (CV : CDRel) : Prop :=
 **この文が保証すること**（4 義務と子の reader が与えられたとき）: `synthesizeCombinationalOff hftRoot` の run `(b, D')` について、(i) post を満たす `raw` が存在する、(ii) 開始 world の環境 `envAt cref w` の表から取れる package `p` があり、`p` は root の `machineData`（kD = 5）を持ち、(iii) root 宣言の値が**新 carrier の導出** `CV (envAt cref w) d.value (MonoTy shHft) mm` を持ち（`mm = synth_hftPcieOutByte`）、(iv) `p.src` の観測が `monoObs shHft mm` に等しく、(v) post を満たす任意の `raw` について印刷後の design `D'` 上で `TopShips p n` が成り立つ。
 
 **保証しないこと**:
-1. **子の入口**。`synthesizeChild`（`sparkleChildSynth` が指す診断入口）は変えていない。子は `profile` を読み、ログを出し得る。文は子の入口を型に出さない（`hr` は上位 `Off` の run だけ）。子の合成中の IO（`IO.getEnv`・ログ・環境の変化）は `htop`/`hnoraw` の中の仮説であり、証明していない。Check18 `SCOPE` が、最終定理から `synthesizeChild`/`sparkleChildSynth`/`synthesizeEntry`/診断入口に到達しないこと、`synthesizeChild` が `synthesizeCombinational`（`Off` ではない）を呼ぶことを検査する。
+1. **子の入口**。`synthesizeChild`（`sparkleChildSynth` が指す診断入口）は変えていない。子は `profile` を読み、ログを出し得る。文は子の入口を型に出さない（`hr` は上位 `Off` の run だけ）。子の合成中の IO（`IO.getEnv`・ログ・環境の変化）は `htop`/`hnoraw` の中の仮説であり、証明していない。Check18 `SCOPE` が、**文**（`HftFinalStmtOff`/`HftObTopCoreOff`/`HftObNoRawOff` の定義）から `synthesizeChild`/`sparkleChildSynth`/`childSynthEntry`/`synthesizeEntry`/診断入口に到達しないこと、**証明**から診断入口に到達しないこと、`synthesizeChild` が `synthesizeCombinational`（`Off` ではない）を呼ぶことを検査する。注: 証明（`envFrame_coreHeadOff` と最終定理の値）は `CellPrem`（子の入口を保持する cell の状態の前提）を通じて `sparkleChildSynth` に触れる（`SCOPE-INFO` に列挙）。これは cell の内容についての**前提**であり、保証ではない。
 2. **自動で非 leaf へ広げない**。4 leaf root の保証入口は `synthesizeCombinationalOff`（§21）。非 leaf の保証は上の仮説が全て供給されて初めて成り立つ条件付きの文であり、`synthesizeEntry`・旧 API・診断経路は旧入口のまま保証の外。`SPARKLE_PROFILE` 未設定で `else` 枝が選ばれたこと（§21.4）も供給していない。
 3. `hcd`（`Ob`）・`hsrc`・`htop`・`hnoraw`・`hreadH/T`・`hchk`・`CellPrem`・`Laws/Start/hr` は**名前付き仮説のまま**（供給も縮約もしていない）。
 
@@ -1086,7 +1086,12 @@ HftFinalStmtOff (Ob : Environment → Prop) (CV : CDRel) : Prop :=
 
 ### 24.5 Check18 の出力
 
-(未記入: ビルド後に追記)
+`kjob lake build Tools.ShippingFGCircuitS1tFinal`（exit 0）、`kjob lake build Tests.Gen5.FGCircuitPilotCheck18`（exit 0。土台の依存 919 jobs は冷たいビルド）。
+
+- `FGCIRCUIT18 SIGNATURES`: `synth_hftPcieOutByte_finalOff`（全 carrier `CV`・全 `Ob` と橋 `hOb`）、インスタンス `_Z/_Y/_X/_old`、`cdvOld_to_Z`、`cdvZ_functional`、`sourceDenotesMonoV_unique`、定義 `SourceDenotesMonoV`/`RootArtifactMonoV`/`DeclConnectMonoV` の完全な型を独立に書いた文面（`ExpStmt`/`ExpThm`/…）と `isDefEq`（default）で照合し、binder の種類も一致。**60 mutant 棄却**（正規化後の式が構文的に異なり、かつ reducible 透過度で defeq でない）: `hr` が診断入口、コア義務が旧入口＋旧境界、旧 `PostRun`、旧 carrier の結論（`RootArtifactMono`）、reader / `hcd` / 結論が end world、各前提の欠落（`hcell`・`hchk`・`hreadH`・`hreadT`・`hcd`・`hsrc`・`htop`・`hnoraw`・`htop` 内の `hdRun`・橋 `hOb`）、別の root、別の post root、別宣言の data の `hchk`、carrier/義務の組の取り違え（`_Z` に `cdvY`/`cdvOld`/`HftObCDY`、`_old` に `cdvZ`、`_Y` と `_X` の入替）、`CD→CDZ` の逆向き、混在 carrier の関数性、形だけの一意性、定義から旧 carrier / params / levelParams / 形 / 観測 / post / `ShapeMatchesMono` を外したもの。`_Z` 文に対し 19 個の knob mutant も別に検査。
+- `FGCIRCUIT18 HYPS`: 13 個の明示仮説 `L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd hsrc htop hnoraw`（名前と順序を検査）。`hhead`/`hdRun`/`hquiet`/`hg`/`hio`/`hgates`/`hRead`/`hE` は仮説に無い。どの仮説の型（`S1t`/`S1kStmt` の定義を 1 段展開）にも診断入口・旧 `MachineDefinesLinked`・旧 `PostRun`・`coreHead`・`HeadIO`・`HeadAt`・`synthesizeChild` は現れない。定理の明示引数は `CV Ob hOb`。
+- `FGCIRCUIT18 SCOPE`: 文（17 定数）は診断入口・子の入口のどれにも触れない。証明（37 定数）は診断入口に触れない。対照: S1k の最終定理は診断入口（`synthesizeCombinationalCore`、`PostRun`）に到達する。`synthesizeChild` は `synthesizeCombinational` を呼び `synthesizeCombinationalOff` を呼ばない。`synthesizeCombinationalOff` は `synthesizeChild`/`synthesizeEntry` に触れない。`SCOPE-INFO`: 子の cell（`sparkleChildSynth`）に触れる値は `envFrame_coreHeadOff` と `synth_hftPcieOutByte_finalOff`（`CellPrem` の前提経由）。
+- `FGCIRCUIT18 AXIOMS`: 28 名、標準 axiom のみ。`#print axioms` も同様（`propext`・`Classical.choice`・`Quot.sound`）。
 
 ### 24.6 証明したもの / 名前付き仮説・未供給 / 次
 
