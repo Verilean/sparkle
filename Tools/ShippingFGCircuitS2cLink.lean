@@ -416,4 +416,48 @@ theorem hftKids_tlp {ι : Type} : hftKids (ι := ι) hftTlp = some (kidSem hftTl
 
 end Stages
 
+section Stages2
+open Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1uSrc
+open Tools.ShippingMachineCausal (extendBits_self extendBits_ne)
+open Tools.ShippingMachineTeleStates (callArgVals callArgsOf)
+open Tools.ShippingMachineChild (portIdx decV)
+
+theorem http_portIdx : portIdx (Sparkle.IP.Net.HTTP.httpGetByte.machineData.bsIn.take
+    (kDOf Sparkle.IP.Net.HTTP.httpGetByte.machineData)) 1 = 0 := by decide +kernel
+
+theorem root_sel0 {ι : Type} (gi : GenIn) (hgi : gi.d = synth_hftPcieOutByte.machineData) :
+    selIdx gi.d (kidSem (ι := ι) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData
+      (fun _ bools bits => Sparkle.IP.Net.HTTP.httpGetByte.machineSource defaultDomain bools bits)) 0 = some 0 := by
+  unfold selIdx
+  rw [hgi, if_pos root_instFields]
+  have : Sparkle.IP.Net.HTTP.httpGetByte.machineData.shape.layout.outs.length = 1 := by decide +kernel
+  simp [kidSem, SemPkg.d, this]
+
+/-- the value call 0 of `ExtStage hftKids` hands out at the cycle `t`: the Lean call's value, given the argument fact -/
+theorem calleeOut_http {ι : Type} (gi : GenIn) (hgi : gi.d = synth_hftPcieOutByte.machineData) (i : ι)
+    (bs : Nat → Signal defaultDomain Bool) (vs : (j n : Nat) → Signal defaultDomain (BitVec n))
+    (S : Signal defaultDomain (HList (tys gi.d.ss))) (t : Nat) (a : List Nat)
+    (hk : gi.d.shape.insts[0]? = some (hftHttp, a, .bits 8)) (r : Signal defaultDomain (BitVec 6))
+    (ha0 : callArgVals gi.d bs vs t (S.val t) (callArgsOf gi.d 0) = [(r.val t).toNat]) :
+    calleeOut (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i S bs vs 0 t =
+      ((Sparkle.IP.Net.HTTP.httpGetByte r).val t).toNat := by
+  rw [calleeOut_eq (hftKids (ι := ι)) gi i S bs vs 0 hftHttp a (.bits 8) _ 0 hk hftKids_http (root_sel0 gi hgi)]
+  have hv : (Tools.ShippingMachineCallsLinkedT.valsOf (lsrcAt gi.d bs vs S) (callArgs gi.d 0)) t = [(r.val t).toNat] := by
+    rw [valsOf_lsrcAt]; exact ha0
+  show ((Sparkle.IP.Net.HTTP.httpGetByte
+    ((Tools.ShippingMachineChild.bitsOf (D := defaultDomain) (Sparkle.IP.Net.HTTP.httpGetByte.machineData.bsIn.take
+      (kDOf Sparkle.IP.Net.HTTP.httpGetByte.machineData))
+      (Tools.ShippingMachineCallsLinkedT.valsOf (lsrcAt gi.d bs vs S) (callArgs gi.d 0))) 1 6)).val t).toNat = _
+  have hB : ((Tools.ShippingMachineChild.bitsOf (D := defaultDomain) (Sparkle.IP.Net.HTTP.httpGetByte.machineData.bsIn.take
+      (kDOf Sparkle.IP.Net.HTTP.httpGetByte.machineData))
+      (Tools.ShippingMachineCallsLinkedT.valsOf (lsrcAt gi.d bs vs S) (callArgs gi.d 0))) 1 6).val t = r.val t := by
+    show decV _ _ 1 6 = _
+    rw [hv]
+    unfold decV
+    rw [http_portIdx]
+    simp
+  rw [http_pw _ r t hB]
+
+end Stages2
+
 end Tools.ShippingFGCircuitS2cLink
