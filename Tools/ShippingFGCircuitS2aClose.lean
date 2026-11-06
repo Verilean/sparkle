@@ -156,7 +156,7 @@ theorem machineChild_of_realA (O : RefLawsAOps MkRefd mref cref) (T : RefLawsATe
 open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1zClose
 open Sparkle.IP.Net.HTTP Sparkle.IP.Bus.PCIe
 
-/-- **`HftKidsDefine`** (NAMED HYPOTHESIS; FG D.T-4, the children's part): the reflection of the two called declarations in the run's contexts — the `MachineDefines` premise that the generated endpoints already take for each called declaration (`machine_closes_at`'s `hR`). Run-local to the contexts `mctx cctx` (and the ref cells) of the target run; not a closing fact. -/
+/-- **`HftKidsDefine`** (NAMED HYPOTHESIS; FG D.T-4, the children's part): the reflection of the two called declarations in the run's contexts — the `MachineDefines` premise that the generated endpoints already take for each called declaration (`machine_closes_at`'s `hR`). "Run-local" means only that the contexts `mctx cctx` (and the ref cells) are fixed to those of the target run; the world is NOT fixed — `MachineDefines` is universally quantified over every world (including the children's own run worlds), so this is a strong, all-world premise, not a closing fact. -/
 def HftKidsDefine (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
     (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) : Prop :=
   MachineDefines mctx mref cctx cref ``Sparkle.IP.Net.HTTP.httpGetByte httpGetByte.machineData.shape ∧

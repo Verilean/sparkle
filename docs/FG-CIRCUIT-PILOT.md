@@ -1376,7 +1376,10 @@ def HftKidsDefine (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
 - `FGCIRCUIT24 HYPS`（13 個）、`FGCIRCUIT24 CONTROLS`（小さな module 上の純粋検査 14 件を kernel で判定、ビルドが失敗すれば反転）: 組合せ的な子は `kidsCombB` を通る／順序回路の子・入力が配線されていない子・出力が書かれない子（別の子出力）・子が無いは落ちる／親の instance は `noInstOfB` で落ちる／`closeLets` は packed wire の無い module を拒否／根の `gateCallsOk` は本来の `nDecl` で成立し別の `nDecl` で不成立／別の引数数の読みは不成立。
 - `FGCIRCUIT24 REMAINING`（1 行）: `hkids`。`FGCIRCUIT24 AXIOMS`: 15 名、標準 axiom のみ。
 
-Check の出力行は 6、棄却した mutant は 8（SIGNATURES-A）、制御は 14（CONTROLS）＋構造検査 5。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き（`hkids` ほか）。
+- `FGCIRCUIT24 SIGNATURES-C`（S2e で追加）: `hftCoreCloses_of_kids` と共通の最終文 `synth_hftPcieOutByte_finalOffLNK_Z` の**完全な型**を、独立に書いた期待型（`ExpCore`、`ExpFinalK`；world/ref/context、entry、carrier/obligation、出力、結論まで）と `isDefEq`（binder kind も）で照合。実型の正規形は 1 回だけ計算して使い回す（Check19 と同じ）。束縛名を維持したまま棄却した mutant: `hftCoreCloses_of_kids` 15（別の子・入れ替え・片方だけ・`True`、前提の欠落（Start／hk）、結論の欠落、別 root、別 shape、別 world、Start の world、別 context（Meta/Core）、別 ref（Meta/Core））、最終文 25（別 carrier／別 obligation／旧 carrier、旧 entry（診断版）、旧 artifact、前提 hcd／htop／hkids の欠落、別の子仮説 4 種、別 root／post root、別出力、hcd／結論を終了 world に、別 ref／context（各 2）、別 design、結論の片方または両方の欠落）。これで「最後の仮説だけ違う」ことを型全体で機械的に示す（SIGNATURES-B の構造検査は補助）。
+- 注: 上の SIGNATURES-A の `HftKidsDefine` docstring の「run-local」は contexts（と ref セル）が固定という意味だけで、world は全称（子の run の world を含む全 world 前提）。
+
+Check の出力行は 7、棄却した mutant は 8（SIGNATURES-A）＋15＋25（SIGNATURES-C）、制御は 14（CONTROLS）＋構造検査 5。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き（`hkids` ほか）。
 
 ### 29.5 次
 

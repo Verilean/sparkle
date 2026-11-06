@@ -14,6 +14,8 @@ open Lean Meta Elab Command Term
 open Tools.ShippingEntrySoundness (RunsTo)
 open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1zClose Tools.ShippingFGCircuitS2aClose
 open Tools.ShippingMachineEntry
+open Tools.ShippingMachineAuto (MachineData)
+open Tools.ShippingFGCircuitS1uSrc (HftRootLink)
 open Sparkle.Compiler.Elab Sparkle.IR.AST Sparkle.IR.Machine
 open Sparkle.Core Sparkle.Core.Domain Tools.ShippingGen2 Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG
 open Tools.ShippingFGCircuit Tools.ShippingFGCircuitRoots Tools.ShippingFGCircuitArtifact Tools.ShippingFGCircuitCover Tools.ShippingFGCircuitBridge
@@ -153,6 +155,8 @@ run_cmd liftTermElabM do
 
 abbrev W := Void IO.RealWorld
 def NmRoot : Name := `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte
+def ZS : W → W → W := fun w _ => w
+def ZE : W → W → W := fun _ w' => w'
 def NmHttp : Name := `Sparkle.IP.Net.HTTP.httpGetByte
 def ShE : SigShape := { args := [.bits 8, .bool, .bool, .bits 32, .bits 16], res := .one (.bits 8) }
 def ShOther : SigShape := { args := [.bits 8, .bool, .bool, .bits 32, .bits 16], res := .one (.bits 16) }
