@@ -2232,7 +2232,7 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 
 ### 42.4 正直な範囲
 
-- 7 仮説はすべて未供給。v2 は §39 の前提リストを最終文に**接続**しただけで、仮説を減らしたのは `hdec` だけ（`hdec` と `hfind` は実際の `hr` から）。
+- 7 仮説はすべて未供給（量化範囲は一様ではない: `hD/hG` は DRow/Diag の行、`hT` は Tele、`hs` は ProfStep、`h0` は ProfOff、`hadm/hdown` は admissibility。§39 訂正版。一括で「quiet+ReadsAt+Reached」とは呼ばない）。v2 は §39 の前提リストを最終文に**接続**しただけで、仮説を減らしたのは `hdec` だけ（`hdec` と `hfind` は実際の `hr` から）。
 - 最終文の `Ob`/`CV` の carrier、`hlink`（`HftRootLink`）は変わらない。
 - `Reached` は閉包であり、run のトレースではない（§39.6 の文言を修正）。
 - Check の「独立に書いた文面」は同じ人が書いており、独立性は文面の別記述に限る。
@@ -2302,3 +2302,24 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 
 - 名前付き仮説（未供給）: `hcd`（承認済みブランチでは未導出）、`EnvDefs/EnvCtors/RecFact`（`hftObCDT_Q` では仮定として残る）、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査）。`stopD` の追加（`HShiftLeft.hShiftLeft`/`HAppend.hAppend` が `Sh` で展開されなくなった）も監査対象。
 - 次（reviewer 判断）: `Signal (BitVec n) ||| Signal (BitVec n)`（§43.3）を許すか。許されれば副ブランチの `sigOrBV`（第 2 型引数を無制約にした実験版）を、第 2 型引数の束縛つきの規則に直し、`dt_fun` と Check を足して承認済みブランチに入れる。
+
+## 47. S2w（Issue `sparkle-fg-circuit-pilot`）: 共通比較器 `FGCircuitCmp` の修正（reviewer 変更依頼 1・2）と回帰対照
+
+土台 `cb405fd8`。変更: `Tests/Gen5/FGCircuitCmp.lean`、新規 `Tests/Gen5/FGCircuitCmpRegress.lean`（lakefile 登録 1 回）、Check37 の文言、§42 の文言。定理・Check の mutant 集合は不変。新しい law・axiom・TRUSTED・sorry・native_decide はない。Issue の状態は変えていない。
+
+### 47.1 比較器の変更
+- **証明無関係を型で決める**: 旧版は定数名が `_proof_` で始まるだけの項を `proofIrrelevant` に置換していた（`def _proof_a : Nat := 0` と `def _proof_b : Nat := 1` が同じ項に消える偽陽性。Lean kernel の欠陥ではなく期待型照合の偽陽性）。名前判定を**削除**。置換は、頭が定理（`thmInfo`）または `Eq.refl`/`rfl` の適用で、かつ `Meta.isProof`（型が `Prop`）が成り立つ項だけ。置換先は `proofIrrelevant P`（`P` はその型。命題の情報を保つ）なので、別の命題の証明は別の項のまま。`Meta.transform` は束縛変数を fvar で開くので `inferType` が未束縛 bvar を見ない（推論が失敗した項は保持）。型で正当化できないもの（データの `def`）は保持。
+- **`litBool?` と `OfNat`**: `BEq.beq Nat inst a b` は `inst` が `synthInstance (BEq Nat)` と構造一致または default の `isDefEq` で一致する場合だけ数値の `==` として評価。`OfNat.ofNat Nat n inst` は `inst` が `instOfNatNat n` と一致する場合だけ raw literal に。非標準（常に `false` の `BEq Nat`、別の `OfNat` instance）は標準と同一視せず、項を保持する（`if` は選ばない）。`litBool?`/`iteLit` は MetaM になった。
+- `stmtEq` 本体は unfold も `isDefEq` もしない（`Expr.eqv` と全深さの binder kind）。unfold/whnf/instance 確認は前段の `normCommon`（両辺に同じに適用）が行う。この区別を `FGCircuitCmp` と §42 の説明に明記した。
+
+### 47.2 回帰対照（`FGCircuitCmpRegress`、`run_cmd` 内）
+- `_proof_a`/`_proof_b`（Nat、値 0/1）は**別**（単独でも `Nat.succ` の下でも）。
+- 同じ命題の証明 2 つ（`rfl` / `by decide`）は**等しい**。別の命題の証明は**別**。束縛変数の下の証明（型が束縛変数を含む）も同様に動く。
+- 標準 `BEq Nat`: `if 3 == 3` は then、`3 == 4` は else。常に `false` の `BEq Nat` は標準扱いされず（`3 == 3` を選ばない）。標準 `OfNat Nat` は raw literal、`⟨n+1⟩` の custom instance は raw literal と**別**。
+- 出力: `FGCIRCUITCMPREGRESS controls: all passed`。
+
+### 47.3 再実行した Check（同じ修正版の比較器、提出 SHA で 1 つずつ `kjob lake build`）
+Check21 / 26 / 27 / 28 / 30 / 31 / 32 / 37、すべて build 成功、AXIOMS は標準のみ。mutant 棄却数は変更前と同じ（Check21 は 3/3、Check37 は完全型 73 ほか）。
+
+### 47.4 文言
+Check37 の REMAINING と docstring、§42 の「7 run-local」を一括で `quiet+ReadsAt+Reached` と呼ばない形に直した（量化範囲は DRow/Diag、ProfStep、ProfOff、Tele、admissibility で違う）。

@@ -7,7 +7,7 @@ set_option autoImplicit false
 Reviewer finding (S2r): in Check21/26/27/28/30/31/32 the positive case was compared at the default transparency, while the mutants were compared at reducible/instances: not the same criterion.
 
 Here positive and negative cases go through ONE function, `stmtEq`. The caller normalises both sides with the same normalisation (its own whitelist, applied to the real type once and cached, and to every expected statement and mutant; `normCommon` below is applied on top of it for both).
-`stmtEq a e` holds iff the two normal forms are structurally equal (`Expr.eqv`: alpha equivalence, no unfolding, no `isDefEq`, so the answer does not depend on a transparency setting) AND the binder kinds of EVERY binder at every depth agree (not only the top-level telescope).
+`stmtEq a e` holds iff the two normal forms are structurally equal (`Expr.eqv`: alpha equivalence; `stmtEq` ITSELF does not unfold and does not call `isDefEq`, so its answer does not depend on a transparency setting; the unfolding / `whnf` / instance checks happen in the preceding `normCommon`, for both sides alike) AND the binder kinds of EVERY binder at every depth agree (not only the top-level telescope).
 `checkSame` throws when `stmtEq` is false (positive case); `checkDiff` throws when `stmtEq` is true (mutant). -/
 namespace Tests.Gen5.FGCircuitCmp
 open Lean Meta
