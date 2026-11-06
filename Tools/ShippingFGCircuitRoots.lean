@@ -295,4 +295,65 @@ theorem arbiterSignal_root {env : Environment} {d : DefinitionVal}
     rw [hl, ht]; simpa using shArbiter_of_type
   · rw [hv]; exact arbiterSignal_cd
 
+
+open Sparkle.Tests.SignalLoopTest
+
+/-! ### the printed module: `machine_ships_wired` of the same endpoints
+
+`Tools.ShippingMachineShips…` ships the printer's module: the run's raw module is cleaned (`dropZeroWidthModule`, `mergeChecked`), the optimizer is
+checked (`checkedOptimize`), and the emitted-Verilog sequential check holds; `MachineShips` then states the source observation on the printed module.
+Here the source is again the observation of the denoted meaning. -/
+def WiredConclusion (declName : Name) (d : Tools.ShippingMachineAuto.MachineData) {ι : Type} (dom : ι → DomainConfig)
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) → ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (b : Sparkle.IR.AST.Module) : Prop :=
+  ∃ raw, (b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw)) ∧
+    ∀ (wof : String → Option Nat),
+      Sparkle.IR.OptCheck.simpleBody b = false →
+        Tools.SVParser.EmitSem.seqCheck wof (Tools.SVParser.EmitSem.weOf wof) (Sparkle.IR.OptCheck.checkedOptimize b).body = true →
+          ((Tools.ShippingSeqSVSoundness.seqNames (Sparkle.IR.OptCheck.checkedOptimize b).body).all fun n =>
+              Sparkle.IR.RegDedup.declWidth (Sparkle.IR.OptCheck.checkedOptimize b) n == Tools.SVParser.EmitSem.weOf wof n) = true →
+            Tools.ShippingMachineShipping.MachineShips declName d (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw) b
+              (Sparkle.IR.OptCheck.checkedOptimize b) wof dom src
+
+theorem counterLoop_ships {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``counterLoop) mctx mref cctx cref w (b, design) w')
+    (hd : MachineDefines mctx mref cctx cref ``counterLoop counterLoop.machineData.shape)
+    (hc : MachineCloses mctx mref cctx cref ``counterLoop counterLoop.machineData.shape) :
+    WiredConclusion ``counterLoop counterLoop.machineData (fun _ : Unit => defaultDomain)
+      (fun _ bools bits => monoObs shCounter counterLoop bools bits) b :=
+  counterLoop.machine_ships_wired hr hd hc
+
+theorem shift4Loop_ships {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``shift4Loop) mctx mref cctx cref w (b, design) w')
+    (hd : MachineDefines mctx mref cctx cref ``shift4Loop shift4Loop.machineData.shape)
+    (hc : MachineCloses mctx mref cctx cref ``shift4Loop shift4Loop.machineData.shape) :
+    WiredConclusion ``shift4Loop shift4Loop.machineData (fun _ : Unit => defaultDomain)
+      (fun _ bools bits => monoObs shShift4 shift4Loop bools bits) b :=
+  shift4Loop.machine_ships_wired hr hd hc
+
+theorem counterEnableLoop_ships {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``counterEnableLoop) mctx mref cctx cref w (b, design) w')
+    (hd : MachineDefines mctx mref cctx cref ``counterEnableLoop counterEnableLoop.machineData.shape)
+    (hc : MachineCloses mctx mref cctx cref ``counterEnableLoop counterEnableLoop.machineData.shape) :
+    WiredConclusion ``counterEnableLoop counterEnableLoop.machineData (fun _ : Unit => defaultDomain)
+      (fun _ bools bits => monoObs shEnable counterEnableLoop bools bits) b :=
+  counterEnableLoop.machine_ships_wired hr hd hc
+
+theorem arbiterSignal_ships {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {design : Sparkle.IR.AST.Design}
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal) mctx mref cctx cref w
+      (b, design) w')
+    (hd : MachineDefines mctx mref cctx cref ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
+      Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData.shape)
+    (hc : MachineCloses mctx mref cctx cref ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal
+      Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData.shape) :
+    WiredConclusion ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData
+      (fun i : DomainConfig => i)
+      (fun i bools bits => shArbiter.obs (dom := fun i : DomainConfig => i) (fun D => @Sparkle.IP.Arbiter.RoundRobin.arbiterSignal D) i bools bits) b :=
+  Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machine_ships_wired hr hd hc
+
 end Tools.ShippingFGCircuitRoots

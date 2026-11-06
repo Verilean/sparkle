@@ -34,6 +34,8 @@ example : @counterLoop_root = @counterLoop_root := rfl
 #check @shift4Loop_root
 #check @counterEnableLoop_root
 #check @arbiterSignal_root
+#check @counterLoop_ships
+#check @arbiterSignal_ships
 #check @fgCircuit_of_H
 -- the denoted value is the Lean constant (statement shape of the three kernel derivations)
 example : CD [] counterLoopValue (Signal defaultDomain (BitVec 8)) counterLoop := counterLoop_cd
@@ -117,7 +119,8 @@ run_cmd liftTermElabM do
 
 run_cmd liftTermElabM do
   let names : List Name := [``counterLoop_cd, ``shift4Loop_cd, ``counterEnableLoop_cd, ``arbiterSignal_cd,
-    ``counterLoop_root, ``shift4Loop_root, ``counterEnableLoop_root, ``arbiterSignal_root, ``fgCircuit_of_H, ``conclusion_of_declConnect,
+    ``counterLoop_root, ``shift4Loop_root, ``counterEnableLoop_root, ``arbiterSignal_root,
+    ``counterLoop_ships, ``shift4Loop_ships, ``counterEnableLoop_ships, ``arbiterSignal_ships, ``fgCircuit_of_H, ``conclusion_of_declConnect,
     ``ir_const_agrees, ``ir_add_agrees, ``ir_mux_agrees, ``ir_register_step_rst0, ``ir_register_reset_value,
     ``loop_val_zero, ``loop_register_map_succ, ``register_val_zero, ``register_val_succ, ``mux_val, ``addBV_val, ``pure_val,
     ``wrong_meaning_refused,
@@ -133,6 +136,7 @@ run_cmd liftTermElabM do
 #print axioms shift4Loop_root
 #print axioms counterEnableLoop_root
 #print axioms arbiterSignal_root
+#print axioms arbiterSignal_ships
 #print axioms fgCircuit_of_H
 #print axioms wrong_meaning_refused
 
