@@ -1,5 +1,6 @@
 import Tools.ShippingFGCircuitS2hHist3
 import Tests.Gen5.FGCircuitPilotCheck26
+import Tests.Gen5.FGCircuitCmp
 set_option autoImplicit false
 -- FG circuit pilot S2h check. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED. Results: docs/FG-CIRCUIT-PILOT.md §34.
 
@@ -38,16 +39,12 @@ def norm3 (e : Lean.Expr) : MetaM Lean.Expr := do
   let mut e := e
   for _ in [0:7] do
     e ← normOnce3 e
-  return e
+  Tests.Gen5.FGCircuitCmp.normCommon e
 /-- `a` is the normal form of a real type, computed once and compared with the expected statement / every mutant -/
 def same3 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
-  let e ← norm3 exp
-  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
-  unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
+  Tests.Gen5.FGCircuitCmp.checkSame what a (← norm3 exp)
 def diff3 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
-  let e ← norm3 exp
-  if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  Tests.Gen5.FGCircuitCmp.checkDiff what a (← norm3 exp)
 
 /-! ## 1. DEFS -/
 
@@ -305,7 +302,7 @@ run_cmd liftTermElabM do
       let app := mkAppN (Lean.mkConst (Q ++ `ExpMiss)) (xs.extract 0 (n - 3) ++ #[Lean.mkConst ``Bool.true, Lean.mkConst ``Bool.true, Lean.mkConst ``Bool.true])
       let r ← norm3 app
       mkLambdaFVars (xs.extract 0 (n - 3)) r))
-  unless ← withDefault (isDefEq miss expM) do throwError "MissE is not the expected statement"
+  Tests.Gen5.FGCircuitCmp.checkSame "MissE" miss expM
   for (mu, args) in [("depth", #[``Bool.false, ``Bool.true, ``Bool.true]), ("miss", #[``Bool.true, ``Bool.false, ``Bool.true]), ("hist", #[``Bool.true, ``Bool.true, ``Bool.false])] do
     let m ← norm3 (← (do
       let t ← tyOf (Q ++ `ExpMiss)
@@ -314,7 +311,7 @@ run_cmd liftTermElabM do
         let app := mkAppN (Lean.mkConst (Q ++ `ExpMiss)) (xs.extract 0 (n - 3) ++ args.map Lean.mkConst)
         let r ← norm3 app
         mkLambdaFVars (xs.extract 0 (n - 3)) r))
-    if ← withDefault (isDefEq miss m) then throwError "MissE vs the no-{mu} mutant was accepted"
+    Tests.Gen5.FGCircuitCmp.checkDiff s!"MissE vs the no-{mu} mutant" miss m
     nm := nm + 1
   logInfo m!"FGCIRCUIT28 DEFS-MISS: MissE matches the independently written ExpMiss (depth D ≥ 1, a JQ world whose cache entries are all RealChildE, no entry for the callee ⇒ the evidence at the call's contexts); {nm} mutants rejected (no depth bound, no miss condition, no history invariant)"
 
@@ -329,11 +326,11 @@ run_cmd liftTermElabM do
     let t ← tyOf n
     forallTelescope t fun xs _ => do mkLambdaFVars xs (← norm3 (mkAppN (Lean.mkConst n) xs))
   let e ← norm3 (← mk (Q ++ `ExpJQH))
-  unless ← withDefault (isDefEq jqh e) do throwError "JQH is not the expected invariant"
+  Tests.Gen5.FGCircuitCmp.checkSame "JQH" jqh e
   let mut nm : Nat := 0
   for mu in ["JQHOld", "JQHNoCache"] do
     let m ← norm3 (← mk (Q ++ Name.mkSimple mu))
-    if ← withDefault (isDefEq jqh m) then throwError "JQH vs {mu} was accepted"
+    Tests.Gen5.FGCircuitCmp.checkDiff s!"JQH vs {mu}" jqh m
     nm := nm + 1
   logInfo m!"FGCIRCUIT28 DEFS-JQH: JQH matches the independently written ExpJQH (JQ plus a cache whose every entry is a RealChildE); {nm} mutants rejected (the old RealChildA cache, no cache)"
 

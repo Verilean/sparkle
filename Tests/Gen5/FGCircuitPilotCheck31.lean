@@ -2,6 +2,7 @@ import Tools.ShippingFGCircuitS2kFinal
 import Tests.Gen5.FGCircuitPilotCheck28
 import Tests.Gen5.FGCircuitPilotCheck27
 import Tests.Gen5.FGCircuitPilotCheck30
+import Tests.Gen5.FGCircuitCmp
 set_option autoImplicit false
 -- FG circuit pilot S2k check. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED. Results: docs/FG-CIRCUIT-PILOT.md §37.
 
@@ -217,20 +218,16 @@ def norm4 (e : Lean.Expr) : MetaM Lean.Expr := do
   for _ in [0:8] do
     e ← normOnce4 e
   -- `ExpKGF` was shown (Check27 SIGNATURES-A) to have the constructor type of `KidGateFacts`; here it is read as that structure
-  return e.replace fun x => if x.isConstOf `Tests.Gen5.FGCircuitPilotCheck27.ExpKGF then some (mkConst `Tools.ShippingFGCircuitS2gGates.KidGateFacts) else none
+  Tests.Gen5.FGCircuitCmp.normCommon (e.replace fun x => if x.isConstOf `Tests.Gen5.FGCircuitPilotCheck27.ExpKGF then some (mkConst `Tools.ShippingFGCircuitS2gGates.KidGateFacts) else none)
 def tyOf (n : Name) : MetaM Lean.Expr := do
   let ci ← getConstInfo n
   unless ci.levelParams.isEmpty do throwError "{n}: level parameters"
   pure ci.type
-/-- `a` is the normal form of a real type; the default transparency for the expected statement, reducible for the mutants is used for the expected statement and for every mutant, and binder kinds are compared in both -/
+/-- `a` is the normal form of a real type (once); ONE criterion (`FGCircuitCmp.stmtEq`) for the expected statement and for every mutant, both normalised by `norm4` -/
 def same4 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
-  let e ← norm4 exp
-  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
-  unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
+  Tests.Gen5.FGCircuitCmp.checkSame what a (← norm4 exp)
 def diff4 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
-  let e ← norm4 exp
-  if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  Tests.Gen5.FGCircuitCmp.checkDiff what a (← norm4 exp)
 
 /-! ## 1. `hftTop_of_runH` -/
 

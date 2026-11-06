@@ -1,5 +1,6 @@
 import Tools.ShippingFGCircuitS2gGates
 import Tests.Gen5.FGCircuitPilotCheck26
+import Tests.Gen5.FGCircuitCmp
 set_option autoImplicit false
 -- FG circuit pilot S2g check. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED. Results: docs/FG-CIRCUIT-PILOT.md §33.
 
@@ -89,17 +90,11 @@ def norm (e : Lean.Expr) : MetaM Lean.Expr := do
 partial def binderInfos : Lean.Expr → List BinderInfo
   | .forallE _ _ b bi => bi :: binderInfos b
   | _ => []
-/-- positive and negative examples are compared at the SAME transparency (`withDefault`), and binder kinds are compared too -/
+/-- positive and negative examples go through ONE criterion (`FGCircuitCmp.stmtEq`: both normalised the same way, structural equality + the kinds of all binders), see §42 -/
 def sameTy (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
-  let a ← norm ty
-  let e ← norm exp
-  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
-  unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
+  Tests.Gen5.FGCircuitCmp.checkSame what (← Tests.Gen5.FGCircuitCmp.normCommon (← norm ty)) (← Tests.Gen5.FGCircuitCmp.normCommon (← norm exp))
 def diffTy (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
-  let a ← norm ty
-  let e ← norm exp
-  if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withDefault (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  Tests.Gen5.FGCircuitCmp.checkDiff what (← Tests.Gen5.FGCircuitCmp.normCommon (← norm ty)) (← Tests.Gen5.FGCircuitCmp.normCommon (← norm exp))
 def tyOf (n : Name) : MetaM Lean.Expr := do
   let ci ← getConstInfo n
   unless ci.levelParams.isEmpty do throwError "{n}: level parameters"
@@ -125,7 +120,7 @@ run_cmd liftTermElabM do
   sameTy "HftKidsGateFacts" hk (C (Q ++ `ExpHK))
   for mu in ["MuSwap", "MuSwapName", "MuHttpTwice", "MuTlpTwice", "MuHttpOnly", "MuTlpOnly", "MuWholeBoth", "MuTrue"] do
     diffTy s!"HftKidsGateFacts vs {mu}" hk (C (Q ++ Name.mkSimple mu)); nm := nm + 1
-  logInfo m!"FGCIRCUIT27 SIGNATURES-A (same transparency withDefault for the positive and the negative examples, binder kinds compared): KidGateFacts (5 fields: root, ui_val, ui_ty, ip at peeled V, ip at peeled Vi) and HftKidsGateFacts (http ∧ tlp at their own closed quotes) match the independently written ExpKGF / ExpHK; {nm} mutants rejected (point at the whole value, inlined point dropped, root dropped, inliner type fact dropped, value not tied to the declaration; callees swapped by quote, swapped by name, one callee twice, one callee only, whole-value points, True)"
+  logInfo m!"FGCIRCUIT27 SIGNATURES-A (ONE criterion, FGCircuitCmp.stmtEq, for the positive and the negative examples: the same normal form, structural equality, the binder kinds at all depths): KidGateFacts (5 fields: root, ui_val, ui_ty, ip at peeled V, ip at peeled Vi) and HftKidsGateFacts (http ∧ tlp at their own closed quotes) match the independently written ExpKGF / ExpHK; {nm} mutants rejected (point at the whole value, inlined point dropped, root dropped, inliner type fact dropped, value not tied to the declaration; callees swapped by quote, swapped by name, one callee twice, one callee only, whole-value points, True)"
 
 /-! ## 2. the final statement -/
 
@@ -270,7 +265,7 @@ def normOnce5 (e : Lean.Expr) : MetaM Lean.Expr :=
     let e := e.headBeta
     if let some e' := iteStep e then return .visit e'
     if let .const c _ := e.getAppFn then
-      if c == ``HftKidsGateFacts || c == ``Tools.ShippingFGCircuitS2gGates.HftFinalStmtOffLNKKG || c == ``Tools.ShippingFGCircuitS2dKids.HftKidsGates || c == ``Tools.ShippingFGCircuitS2dKids.HftKidsStartEnv ||
+      if c == ``HftKidsGateFacts || c == ``Tools.ShippingFGCircuitS2gGates.HftFinalStmtOffLNKKG || c == ``Tools.ShippingFGCircuitS2dKids.HftKidsGates || c == ``Tools.ShippingFGCircuitS2dKids.HftKidsStartEnv || c == ``Tools.ShippingFGCircuitS2dKids.KidStartEnv ||
           (`Tests.Gen5.FGCircuitPilotCheck27).isPrefixOf c || (`Tests.Gen5.FGCircuitPilotCheck26).isPrefixOf c then
         if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
     return .done e)
@@ -279,15 +274,11 @@ def norm5 (e : Lean.Expr) : MetaM Lean.Expr := do
   for _ in [0:7] do
     e ← normOnce5 e
   return e.replace fun x => if x.isConstOf `Tests.Gen5.FGCircuitPilotCheck27.ExpKGF then some (mkConst `Tools.ShippingFGCircuitS2gGates.KidGateFacts) else none
-/-- same transparency for the expected statement and the mutants; binder kinds compared -/
+/-- ONE criterion for the expected statement and the mutants (`a` is the real type, already normalised by `norm5` and `normCommon`, once) -/
 def same5 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
-  let e ← norm5 exp
-  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
-  unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
+  Tests.Gen5.FGCircuitCmp.checkSame what a (← Tests.Gen5.FGCircuitCmp.normCommon (← norm5 exp))
 def diff5 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
-  let e ← norm5 exp
-  if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  Tests.Gen5.FGCircuitCmp.checkDiff what a (← Tests.Gen5.FGCircuitCmp.normCommon (← norm5 exp))
 
 set_option maxHeartbeats 64000000 in
 set_option maxRecDepth 100000 in
@@ -295,7 +286,7 @@ run_cmd liftTermElabM do
   let C (n : Name) : Lean.Expr := mkConst n
   let Q := `Tests.Gen5.FGCircuitPilotCheck27
   let q (n : String) : Lean.Expr := mkConst (Q ++ Name.mkSimple n)
-  let finN ← norm5 (← tyOf `Tools.ShippingFGCircuitS2gGates.synth_hftPcieOutByte_finalOffLNKKG_Z)
+  let finN ← Tests.Gen5.FGCircuitCmp.normCommon (← norm5 (← tyOf `Tools.ShippingFGCircuitS2gGates.synth_hftPcieOutByte_finalOffLNKKG_Z))
   same5 "synth_hftPcieOutByte_finalOffLNKKG_Z" finN (mkApp2 (q "G_Real") (C ``HftObCDZ) (C ``cdvZ))
   let mut nm : Nat := 0
   for mu in ["G_kgEnd", "G_kenvEnd", "G_bothEnd", "G_Diag", "G_OldArt", "G_NoHcd", "G_NoTop", "G_NoKenv", "G_NoKg", "G_NoC1", "G_NoC2", "G_kgSwap", "G_kgSwapName", "G_kgHttpTwice", "G_kgTlpTwice", "G_kgHttpOnly", "G_kgTlpOnly", "G_kgWhole", "G_kgTrue", "G_kgGates", "G_kenvSwapped", "G_kenvTrue", "G_Root", "G_PostRoot", "G_Output", "G_HcdEnd", "G_ConclEnd", "G_RefM", "G_RefC", "G_CtxM", "G_CtxC", "G_Design"] do

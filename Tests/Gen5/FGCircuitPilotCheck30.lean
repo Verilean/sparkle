@@ -1,4 +1,5 @@
 import Tools.ShippingFGCircuitS2jTop
+import Tests.Gen5.FGCircuitCmp
 set_option autoImplicit false
 -- FG circuit pilot S2j check. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED. Results: docs/FG-CIRCUIT-PILOT.md §36.
 
@@ -272,16 +273,12 @@ def norm (e : Lean.Expr) : MetaM Lean.Expr := do
   let mut e := e
   for _ in [0:6] do
     e ← normOnce e
-  return e
+  Tests.Gen5.FGCircuitCmp.normCommon e
+/-- ONE criterion (`FGCircuitCmp.stmtEq`) for the expected statement and every mutant; both sides go through the same `norm` -/
 def sameTy (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
-  let a ← norm ty
-  let e ← norm exp
-  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
+  Tests.Gen5.FGCircuitCmp.checkSame what (← norm ty) (← norm exp)
 def diffTy (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
-  let a ← norm ty
-  let e ← norm exp
-  if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  Tests.Gen5.FGCircuitCmp.checkDiff what (← norm ty) (← norm exp)
 def tyOf (n : Name) : MetaM Lean.Expr := do
   let ci ← getConstInfo n
   unless ci.levelParams.isEmpty do throwError "{n}: level parameters"

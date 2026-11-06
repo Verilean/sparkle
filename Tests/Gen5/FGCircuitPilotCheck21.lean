@@ -1,4 +1,5 @@
 import Tools.ShippingFGCircuitS2cLink
+import Tests.Gen5.FGCircuitCmp
 set_option autoImplicit false
 -- FG circuit pilot S2c check. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED. Results: docs/FG-CIRCUIT-PILOT.md §31.
 
@@ -64,10 +65,14 @@ def mkE (n : Name) (args : List Bool) (nat : Option Nat := none) : MetaM Lean.Ex
   for b in args do e := mkApp e (toExpr b)
   pure e
 
-def sameType (thm : Name) (exp : Lean.Expr) (tr : TransparencyMode := .default) : MetaM Bool := do
+/-- ONE criterion (`FGCircuitCmp.stmtEq`, structural) for the real statements and for EVERY mutant: the expected statement's definition is unfolded, then both sides are normalised by `normCommon` with the same evaluated heads (the computed types `SType.Type (.bits n)` and `List.take`) -/
+def reduceH : List Name := [`Tools.ShippingUnifiedSource.SType.Type, `Tools.ShippingUnifiedSource.SType.Type.match_1, `Tools.ShippingUnifiedSource.SType.casesOn, `Tools.ShippingUnifiedSource.SType.rec, `Tools.ShippingMachineDenote.tys, `List.take, `List.map]
+def sameType (thm : Name) (exp : Lean.Expr) : MetaM Bool := do
   let some ci := (← getEnv).find? thm | throwError "{thm} missing"
-  Meta.withTransparency tr <| Meta.isDefEq ci.type (← do let u ← Meta.unfoldDefinition? exp; pure (u.getD exp))
+  let e ← Meta.unfoldDefinition? exp
+  pure (Tests.Gen5.FGCircuitCmp.stmtEq (← Tests.Gen5.FGCircuitCmp.normCommon ci.type reduceH) (← Tests.Gen5.FGCircuitCmp.normCommon (e.getD exp) reduceH))
 
+set_option maxHeartbeats 4000000 in
 run_cmd liftTermElabM do
   let p := `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte
   let mut ok := true
@@ -76,12 +81,17 @@ run_cmd liftTermElabM do
   -- the real statements
   for (nm, e) in [(p ++ `machine_arg_0, ← mkE ``ExpArg0 [] (some 0)), (p ++ `machine_arg_1, ← mkE ``ExpArg1 [true, false])] do
     let b ← sameType nm e
-    logInfo m!"FGCIRCUIT21 SIGNATURES {nm}: defeq expected = {b}"
+    logInfo m!"FGCIRCUIT21 SIGNATURES {nm}: matches expected (stmtEq) = {b}"
+    if !b then
+      let some ci := (← getEnv).find? nm | throwError "{nm} missing"
+      let a ← Tests.Gen5.FGCircuitCmp.normCommon ci.type reduceH
+      let x ← Tests.Gen5.FGCircuitCmp.normCommon ((← Meta.unfoldDefinition? e).getD e) reduceH
+      logInfo m!"DIFF binderInfos equal {Tests.Gen5.FGCircuitCmp.allBinderInfos a == Tests.Gen5.FGCircuitCmp.allBinderInfos x}; first {(Tests.Gen5.FGCircuitCmp.firstDiff a x).map fun (u, v) => ((toString u).take 900, (toString v).take 900)}"
     ok := ok && b
   -- the mutants must be rejected
   for (nm, e) in [(p ++ `machine_arg_0, ← mkE ``ExpArg0 [] (some 1)),
       (p ++ `machine_arg_1, ← mkE ``ExpArg1 [false, false]), (p ++ `machine_arg_1, ← mkE ``ExpArg1 [true, true])] do
-    let b ← sameType nm e .instances
+    let b ← sameType nm e
     tot := tot + 1
     if !b then rej := rej + 1
   logInfo m!"FGCIRCUIT21 SIGNATURES mutants rejected {rej} / {tot}; real statements all defeq: {ok}"
