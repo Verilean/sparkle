@@ -38,17 +38,28 @@ arguments are consumed by `TD`, never turned into values; `Dyn` stays in `Type 0
 
 def appN (c : Name) (ls : List Level) (args : List Expr) : Expr := mkAppN (.const c ls) args.toArray
 
+/-- Boundary rows for `abbrev c : BitVec n := k#n` constants that occur as `Signal.pure c` (the round-robin arbiter's state encodings).
+Each row's value must equal the declaration's literal body; that equality is the meta check of the pilot, one row per name, no other use. -/
+def arbiterNs : Name := `IP.Arbiter.RoundRobin
+def privAbbrev (base : Name) : Name := mkPrivateNameCore arbiterNs (`Sparkle.IP.Arbiter.RoundRobin ++ base)
+def bvAbbrevRow (c : Name) : Option (Σ n : Nat, BitVec n) :=
+  if c == privAbbrev `stIdle then some ⟨2, 0#2⟩
+  else if c == privAbbrev `stGrantA then some ⟨2, 1#2⟩
+  else if c == privAbbrev `stGrantB then some ⟨2, 2#2⟩
+  else none
+
 -- the syntactic types that occur at the core: `Nat`, `Bool`, `BitVec w`, `Signal dom T`.
 mutual
 inductive TD : Val → Expr → Type → Prop
   | nat {ρ : Val} {e : Expr} (he : e = .const ``Nat []) : TD ρ e Nat
   | bool {ρ : Val} {e : Expr} (he : e = .const ``Bool []) : TD ρ e Bool
+  | domainConfig {ρ : Val} {e : Expr} (he : e = .const ``Sparkle.Core.Domain.DomainConfig []) : TD ρ e DomainConfig
   | bitvec {ρ : Val} {e w : Expr} {n : Nat} (he : e = appN ``BitVec [] [w]) (hw : CD ρ w Nat n) : TD ρ e (BitVec n)
   | signal {ρ : Val} {e d t : Expr} {D : DomainConfig} {T : Type} (he : e = appN ``Signal [.zero] [d, t])
       (hd : CD ρ d DomainConfig D) (ht : TD ρ t T) : TD ρ e (Signal D T)
 
 inductive CD : Val → Expr → (α : Type) → α → Prop
-  | bvar {ρ : Val} {i : Nat} {en : Entry} (h : ρ[i]? = some en) : CD ρ (.bvar i) en.d.ty en.d.val
+  | bvar {ρ : Val} {i : Nat} {τ : Expr} {T : Type} {a : T} (h : ρ[i]? = some ⟨τ, ⟨T, a⟩⟩) : CD ρ (.bvar i) T a
   /-- `(n : Nat)` as `@OfNat.ofNat Nat n (instOfNatNat n)`. -/
   | natLit {ρ : Val} {e : Expr} {n : Nat}
       (he : e = appN ``OfNat.ofNat [.zero] [.const ``Nat [], .lit (.natVal n), appN ``instOfNatNat [] [.lit (.natVal n)]]) :
@@ -84,9 +95,42 @@ inductive CD : Val → Expr → (α : Type) → α → Prop
       (he : e = appN ``Signal.loop [] [d, t, inst, f]) (hd : CD ρ d DomainConfig D) (ht : TD ρ t T)
       (hi : CD ρ inst (Inhabited T) iv) (hf : CD ρ f (Signal D T → Signal D T) g) :
       CD ρ e (Signal D T) (@Signal.loop D T iv g)
-  | lam {ρ : Val} {e A body : Expr} {n : Name} {bi : BinderInfo} {TA T : Type} {f : TA → T}
-      (he : e = .lam n A body bi) (hA : TD ρ A TA) (hb : ∀ a : TA, CD (⟨A, ⟨TA, a⟩⟩ :: ρ) body T (f a)) :
-      CD ρ e (TA → T) f
+  /-- dependent lambda (the result type may mention the bound variable: `(dom : DomainConfig) → Signal dom Bool → …`) -/
+  | lam {ρ : Val} {e A body : Expr} {n : Name} {bi : BinderInfo} {TA : Type} {TB : TA → Type} {f : (a : TA) → TB a}
+      (he : e = .lam n A body bi) (hA : TD ρ A TA) (hb : ∀ a : TA, CD (⟨A, ⟨TA, a⟩⟩ :: ρ) body (TB a) (f a)) :
+      CD ρ e ((a : TA) → TB a) f
+  /-- `let` / `have`: the bound value is evaluated, the body is denoted in the extended valuation. -/
+  | letE {ρ : Val} {e A v body : Expr} {n : Name} {nd : Bool} {TA T : Type} {a : TA} {r : T}
+      (he : e = .letE n A v body nd) (hA : TD ρ A TA) (hv : CD ρ v TA a) (hb : CD (⟨A, ⟨TA, a⟩⟩ :: ρ) body T r) : CD ρ e T r
+  /-- `a === b` on `Signal dom (BitVec w)` with the `BEq` of the decidable equality of `BitVec`. -/
+  | sigBeqBV {ρ : Val} {e d w a b : Expr} {D : DomainConfig} {W : Nat} {av bv : Signal D (BitVec W)}
+      (he : e = appN ``Sparkle.Core.Signal.Signal.beq []
+        [appN ``BitVec [] [w], d, appN ``instBEqOfDecidableEq [.zero] [appN ``BitVec [] [w], appN ``instDecidableEqBitVec [] [w]], a, b])
+      (hd : CD ρ d DomainConfig D) (hw : CD ρ w Nat W)
+      (ha : CD ρ a (Signal D (BitVec W)) av) (hb : CD ρ b (Signal D (BitVec W)) bv) :
+      CD ρ e (Signal D Bool) (@Signal.beq (BitVec W) D (@instBEqOfDecidableEq (BitVec W) (@instDecidableEqBitVec W)) av bv)
+  /-- `&&&`, `|||`, `~~~` on `Signal dom Bool` -/
+  | sigAndBool {ρ : Val} {e d a b : Expr} {D : DomainConfig} {av bv : Signal D Bool}
+      (he : e = appN ``HAnd.hAnd [.zero, .zero, .zero]
+        [appN ``Signal [.zero] [d, .const ``Bool []], appN ``Signal [.zero] [d, .const ``Bool []],
+         appN ``Signal [.zero] [d, .const ``Bool []], appN ``Sparkle.Core.Signal.instHAndSignalBool [] [d], a, b])
+      (hd : CD ρ d DomainConfig D) (ha : CD ρ a (Signal D Bool) av) (hb : CD ρ b (Signal D Bool) bv) :
+      CD ρ e (Signal D Bool) (@HAnd.hAnd _ _ _ (@Sparkle.Core.Signal.instHAndSignalBool D) av bv)
+  | sigOrBool {ρ : Val} {e d a b : Expr} {D : DomainConfig} {av bv : Signal D Bool}
+      (he : e = appN ``HOr.hOr [.zero, .zero, .zero]
+        [appN ``Signal [.zero] [d, .const ``Bool []], appN ``Signal [.zero] [d, .const ``Bool []],
+         appN ``Signal [.zero] [d, .const ``Bool []], appN ``Sparkle.Core.Signal.instHOrSignalBool [] [d], a, b])
+      (hd : CD ρ d DomainConfig D) (ha : CD ρ a (Signal D Bool) av) (hb : CD ρ b (Signal D Bool) bv) :
+      CD ρ e (Signal D Bool) (@HOr.hOr _ _ _ (@Sparkle.Core.Signal.instHOrSignalBool D) av bv)
+  | sigNotBool {ρ : Val} {e d a : Expr} {D : DomainConfig} {av : Signal D Bool}
+      (he : e = appN ``Complement.complement [.zero]
+        [appN ``Signal [.zero] [d, .const ``Bool []], appN ``Sparkle.Core.Signal.instComplementSignalBool [] [d], a])
+      (hd : CD ρ d DomainConfig D) (ha : CD ρ a (Signal D Bool) av) :
+      CD ρ e (Signal D Bool) (@Complement.complement _ (@Sparkle.Core.Signal.instComplementSignalBool D) av)
+  /-- a NAMED constant-abbreviation row (`bvAbbrevRow`, a concrete boundary: the declaration's body is the literal; matched against the environment by
+  the meta check of `FGCircuitPilotCheck`, not proved in the kernel). -/
+  | bvAbbrev {ρ : Val} {e : Expr} {c : Name} {n : Nat} {v : BitVec n} (he : e = .const c []) (h : bvAbbrevRow c = some ⟨n, v⟩) :
+      CD ρ e (BitVec n) v
 end
 
 /-- The concrete `ConstValueRel` of the circuit core: the declaration `X` of `env` is a (level-monomorphic) definition whose value `Expr` is

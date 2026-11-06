@@ -1,6 +1,7 @@
 import Tools.ShippingFGCircuit
 import Tools.ShippingMachineCommand
 import Tests.SignalLoopTest
+import IP.Arbiter.RoundRobin
 set_option autoImplicit false
 -- FG circuit pilot S1, step 3: the three Signal roots. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED.
 
@@ -88,10 +89,10 @@ private theorem dLoop8 {ρ : Val} {f : Expr} {g : Signal defaultDomain (BitVec 8
   CD.sigLoop rfl dDom tBV8 (CD.bvInhabited rfl (dN 8)) hf
 
 private theorem dVar0 {A : Expr} {T : Type} {a : T} {rest : Val} : CD (⟨A, ⟨T, a⟩⟩ :: rest) (.bvar 0) T a :=
-  CD.bvar (en := ⟨A, ⟨T, a⟩⟩) rfl
+  CD.bvar rfl
 private theorem dVar1 {A B : Expr} {T U : Type} {a : T} {b : U} {rest : Val} :
     CD (⟨A, ⟨T, a⟩⟩ :: ⟨B, ⟨U, b⟩⟩ :: rest) (.bvar 1) U b :=
-  CD.bvar (en := ⟨B, ⟨U, b⟩⟩) rfl
+  CD.bvar rfl
 
 /-- the quoted value of `counterLoop` is denoted, and the denoted value is `counterLoop` itself -/
 theorem counterLoop_cd : CD [] counterLoopValue (Signal defaultDomain (BitVec 8)) counterLoop :=
@@ -171,5 +172,83 @@ theorem counterEnableLoop_root {env : Environment} {d : DefinitionVal} (hE : Roo
   · show (if d.levelParams.isEmpty = true then monoGo [] d.type else none) = some shEnable
     rw [hl, ht]; simpa using shEnable_of_type
   · rw [hv]; exact counterEnableLoop_cd
+
+
+/-! ## Real IP: the round-robin arbiter (IP/Arbiter/RoundRobin.lean), domain-polymorphic, two Bool inputs
+
+Chosen because it is a shipped IP written only with the Signal/BitVec core (`Signal.loop`, `Signal.register`, `Signal.mux`, `===`, `&&&`, `|||`, `~~~`,
+`let`), domain-polymorphic (the existing `shapeOf` path, not the mono twin), with inputs, a state loop and a 2-bit output. The S0 list was not available at
+the time (no S0 commit in the base), so this is the stated fallback choice. -/
+
+/-- level/expr quoting as a term of type `Expr` (so the kernel can match it); `quote_value%` checks nothing itself: the equality with the
+environment's value is the meta check of `Tests/Gen5/FGCircuitPilotCheck.lean` (`quotedEqualsEnv`). -/
+partial def lvlToE : Level → Lean.Expr
+  | .zero => mkConst ``Level.zero
+  | .succ l => mkApp (mkConst ``Level.succ) (lvlToE l)
+  | .max a b => mkApp2 (mkConst ``Level.max) (lvlToE a) (lvlToE b)
+  | .imax a b => mkApp2 (mkConst ``Level.imax) (lvlToE a) (lvlToE b)
+  | .param n => mkApp (mkConst ``Level.param) (toExpr n)
+  | .mvar _ => mkConst ``Level.zero
+def biToE : BinderInfo → Lean.Expr
+  | .default => mkConst ``BinderInfo.default
+  | .implicit => mkConst ``BinderInfo.implicit
+  | .strictImplicit => mkConst ``BinderInfo.strictImplicit
+  | .instImplicit => mkConst ``BinderInfo.instImplicit
+def listE (ty : Lean.Expr) (xs : List Lean.Expr) : Lean.Expr :=
+  xs.foldr (fun x acc => mkApp3 (mkConst ``List.cons [.zero]) ty x acc) (mkApp (mkConst ``List.nil [.zero]) ty)
+partial def exprToE : Lean.Expr → Lean.Expr
+  | .bvar i => mkApp (mkConst ``Lean.Expr.bvar) (toExpr i)
+  | .const n ls => mkApp2 (mkConst ``Lean.Expr.const) (toExpr n) (listE (mkConst ``Level) (ls.map lvlToE))
+  | .app f a => mkApp2 (mkConst ``Lean.Expr.app) (exprToE f) (exprToE a)
+  | .lam n t b bi => mkApp4 (mkConst ``Lean.Expr.lam) (toExpr n) (exprToE t) (exprToE b) (biToE bi)
+  | .forallE n t b bi => mkApp4 (mkConst ``Lean.Expr.forallE) (toExpr n) (exprToE t) (exprToE b) (biToE bi)
+  | .letE n t v b nd => mkApp5 (mkConst ``Lean.Expr.letE) (toExpr n) (exprToE t) (exprToE v) (exprToE b) (toExpr nd)
+  | .lit (.natVal n) => mkApp (mkConst ``Lean.Expr.lit) (mkApp (mkConst ``Lean.Literal.natVal) (toExpr n))
+  | .lit (.strVal s) => mkApp (mkConst ``Lean.Expr.lit) (mkApp (mkConst ``Lean.Literal.strVal) (toExpr s))
+  | _ => mkConst ``Lean.Expr.bvar  -- not produced for these declarations; `quotedEqualsEnv` would fail
+
+open Lean Elab Command Meta in
+elab "quote_value% " c:ident " as " n:ident : command => do
+  let declName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo c
+  liftTermElabM do
+    let ci ← getConstInfo declName
+    let v := exprToE ci.value!
+    addAndCompile (.defnDecl { name := n.getId, levelParams := [], type := mkConst ``Lean.Expr, value := v, hints := .abbrev, safety := .safe })
+
+quote_value% Sparkle.IP.Arbiter.RoundRobin.arbiterSignal as arbiterValue
+
+syntax "cdt" : tactic
+macro_rules
+  | `(tactic| cdt) => `(tactic| first
+    | (intro _; cdt)
+    | apply TD.nat (he := by rfl)
+    | apply TD.bool (he := by rfl)
+    | apply TD.domainConfig (he := by rfl)
+    | (apply TD.bitvec (he := by rfl) <;> cdt)
+    | (apply TD.signal (he := by rfl) <;> cdt)
+    | apply CD.bvar (h := by rfl)
+    | apply CD.natLit (he := by rfl)
+    | apply CD.domDefault (he := by rfl)
+    | apply CD.boolInhabited (he := by rfl)
+    | apply CD.bvAbbrev (he := by rfl) (h := by rfl)
+    | (apply CD.bvOfNat (he := by rfl) <;> cdt)
+    | (apply CD.bvInhabited (he := by rfl) <;> cdt)
+    | (apply CD.sigPure (he := by rfl) <;> cdt)
+    | (apply CD.sigRegister (he := by rfl) <;> cdt)
+    | (apply CD.sigMux (he := by rfl) <;> cdt)
+    | (apply CD.sigAddBV (he := by rfl) <;> cdt)
+    | (apply CD.sigBeqBV (he := by rfl) <;> cdt)
+    | (apply CD.sigAndBool (he := by rfl) <;> cdt)
+    | (apply CD.sigOrBool (he := by rfl) <;> cdt)
+    | (apply CD.sigNotBool (he := by rfl) <;> cdt)
+    | (apply CD.sigLoop (he := by rfl) <;> cdt)
+    | (apply CD.letE (he := by rfl) <;> cdt)
+    | (apply CD.lam (he := by rfl) <;> cdt))
+
+set_option maxRecDepth 20000 in
+theorem arbiterSignal_cd :
+    CD [] arbiterValue ((D : DomainConfig) → Signal D Bool → Signal D Bool → Signal D (BitVec 2))
+      (fun D => @Sparkle.IP.Arbiter.RoundRobin.arbiterSignal D) := by
+  cdt
 
 end Tools.ShippingFGCircuitRoots
