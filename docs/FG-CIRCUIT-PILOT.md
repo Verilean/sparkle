@@ -783,6 +783,7 @@ S1p の再帰子単位は (b) で扱う（§20.3）。
 評価した 2 案:
 1. **run 局所の前提（採用）**: 開始 world `w` で `IO.getEnv "SPARKLE_PROFILE"` を走らせた結果が `none` で、環境 `envAt cref` を保つ、という run の前提。実環境変数が未設定という Meta の観測は**供給に使わない**（名前付き仮説のまま）。
 2. **コンパイル時/オプションの切替**（提案のみ。Elab は変更していない）: `SPARKLE_PROFILE` の読み取りとログ枝を `register_option`/`Options` の値に移す（`Core.Context.options` から読む）と、`coreHead` から `IO.getEnv` と `logProf` が消え、`profile` は純粋な値になる。baseline 保存の論拠: 既定値 `false` では `profile = false` の枝が今と同一（出力 IR・`CoreSaved` の `profile` 欄は同じ）で、IP の出力・成功の run は変わらない。ただし `SPARKLE_PROFILE` を使う既存の運用（環境変数でログを出す）は、オプション指定に変わる（または変数→オプションの橋渡しが別に要る）ので、利用者に見える変更になる。これは compiler の変更なので S1o では実装しない。reviewer 判断。
+   **訂正（S1q, §21）**: 上の「`coreHead` から `IO.getEnv` と `logProf` が消え」は誤り。`Options` に移しても `profile` が真の枝（`IO.eprintln`/`flushStderr`/`Handle.mk`/`putStrLn`/`flush`）は `coreHead` に残る。消えるのは `IO.getEnv` だけで、ログ枝は `profile = false` を**純粋な設定/引数で固定**したときにだけ消える。§21 は後者を実装する。
 
 **最小の getEnvProfile frame の正確な型**（`Tools/ShippingFGCircuitS1oHead.lean`）:
 ```lean
@@ -811,7 +812,7 @@ structure LogBranchDraft (mctx mref cctx cref) : Prop where
   stderrPreserves      : ∀ msg, EnvFrame (liftM (logStderrAct msg) : MetaM Unit) mctx mref cctx cref
   fixedHandlePreserves : ∀ msg, EnvFrame (liftM (logTailAct msg) : MetaM Unit) mctx mref cctx cref
 ```
-- `stderrPreserves` は**現在の stderr stream** の `putStr`/`flush` callback（`setStderr` で差し替え可能、`eprintln` は現 stream の `putStr` を呼ぶ）が成功する限り env を書き換えない、という条件で、一般法則ではなく callback ごとの条件として明示する（所見C）。`fixedHandlePreserves` は固定パス・固定 Handle primitive だけの義務。
+- `stderrPreserves` は**現在の stderr stream** の `putStr`/`flush` callback（`setStderr` で差し替え可能、`eprintln` は現 stream の `putStr` を呼ぶ）が成功する限り env を書き換えない、という条件で、一般法則ではなく callback ごとの条件として明示する（所見C）。**訂正（S1q）**: 上記は意図の記述で、型としては `stderrPreserves : ∀ msg, EnvFrame (liftM (logStderrAct msg))` は特定の callback/world の条件を持たず、`EnvFrame` は ∀ world なので、「callback ごとの条件」にはなっていない。draft は**記述専用**で、型は条件を表さない。`fixedHandlePreserves` は固定パス・固定 Handle primitive だけの義務。
 - 旧 `HeadIO.log`（`∀ msg, EnvFrame (liftM (profLogIO true msg))`）は上の 2 つの連言に分かれるが、`liftM` が IO の bind を MetaM の bind に写す等式（lift の法則）は証明できていないので、同値の定理は置かない（試したが未達。新しい law を足さないため）。
 - 採用する場合は追加の未払い義務として差分を再照合する。現在は計上しない。
 
@@ -879,3 +880,89 @@ S1m の `CircCVX env := fun env' X α v => … env'.find? X … CDX env [] d.val
 ### 20.7 次
 
 (1) `Signal.map`／`Signal.mk` の規則の設計（reviewer）。(2) その後 `hcd` の導出が `HftObCDX` に届くか走査し直す（各ステップの等式は経路 (b) でカーネルに渡す）。(3) `HftObSrc`/`HftObTopCore`/`HftObNoRaw` は別。
+
+## 21. S1q（Issue `sparkle-fg-circuit-pilot` の次の束）: プロファイル無効の入口（`profile = false` を純粋に固定）— 設計と 4 leaf root の前提差分
+
+土台 `e2301cd4`（par/fgc-s1）。Issue の状態は変えていない。S1p のファイル（`Tools/ShippingFGCircuitS1pCD.lean`、§17/§20、Check14）には触れない。reviewer 裁定（§19.2-2 の実装）: `GetEnvProfileAt` は名前付きの run 局所条件のまま（供給でも縮約でもない）。この束は compiler 変更で、**保証対象の入口**の `profile` を `false` に固定し、その `coreHead` に `IO.getEnv` もログ実行も無い形にする。成果は引き続き**条件付き**。台帳に数えない。
+
+### 21.1 訂正（§19.2-2 / §19.4）
+
+- §19.2-2: `Options` へ移すだけでは `profile = true` 枝のログは `coreHead` に残る（消えるのは `IO.getEnv` の 1 件だけ）。ログ枝が消えるのは `profile` が `false` に**固定**されたときだけ。§19.2 本文に訂正を入れた。
+- §19.4: `LogBranchDraft` は記述専用。`stderrPreserves` は `∀ msg, EnvFrame (liftM (logStderrAct msg))` で、`EnvFrame` は ∀ world。特定 callback/world の条件を型に持たないので「callback ごとの条件」ではない。`fixedHandlePreserves` も同様に ∀ world。draft は採否の判断対象に上げず、無効経路を優先する。
+
+### 21.2 compiler の設計（実装は §21.4 の後。`Sparkle/Compiler/Elab.lean` に小さく追加、既存の定義は 1 文字も変えない）
+
+`Elab.lean` の既存定義（`synthesizeCombinationalCoreWith`/`…Core`/`synthesizeCombinationalWith`/`synthesizeCombinational`/`synthesizeChild`/`sparkleChildSynth` の `initialize`）は**そのまま**。約 30 本の既存 Tools 定理が `unfold synthesizeCombinationalCore synthesizeCombinationalCoreWith` で展開するので、引数追加や wrapper 化は避ける（測定: 展開側 30 ファイル超）。追加するのは 3 定義（翻訳器の結び目の後でないと書けないので `Elab.lean` 内、`synthesizeChild` の直前）:
+
+```lean
+/-- the guaranteed entry: `synthesizeCombinationalCoreWith … declName [] false true` with `profile := false` FIXED (no IO.getEnv, no log) -/
+def synthesizeCombinationalCoreOff (declName : Name) : MetaM (Module × Design)
+/-- `synthesizeCombinationalWith` over it (same post-processing) -/
+def synthesizeCombinationalOff (declName : Name) : MetaM (Module × Design)
+/-- command level: the setting is read OUTSIDE the entry; the guarantee starts after it -/
+def synthesizeEntry (declName : Name) : MetaM (Module × Design) := do
+  if (← IO.getEnv "SPARKLE_PROFILE").isSome then synthesizeCombinational declName   -- diagnostic path: OUTSIDE the guarantee
+  else synthesizeCombinationalOff declName                                         -- guaranteed path
+```
+- `#synthesize`/`#synthesizeVerilog`/`#showVerilog` は `synthesizeCombinational` の代わりに `synthesizeEntry` を呼ぶ（3 箇所）。`SPARKLE_PROFILE` 設定時は従来と**完全に同じ**経路（診断経路。保証の外と明記）。未設定時は `profile = false` の従来経路と同じ出力（§21.6 の比較で確認）。通常の IP の成功範囲は狭めない（ログ枝は未設定時に実行されないので、成功・出力は同じ）。
+- `Off` の本体は `synthesizeCombinationalCoreWith` の `parameters := []`, `symbolicMode := false`, `certifiedFrontEnd := true`, `profile := false` の特殊化で、`logProf := fun _ => pure ()`。`IO.getEnv "SPARKLE_PROFILE"` も、`IO.eprintln`/`flushStderr`/`Handle.mk` も出てこない。`synthesizeFromConst` に渡す `logProf` は no-op。
+- 範囲外（変更しない）: `synthesizeHierarchical`（`#synthesizeDesign` 等）、`synthesizeCombinationalWithParameters`、`synthesizeChild`/`sparkleChildSynth` の `initialize`。子の入口は引き続き診断入口（`profile` を読む）。これは `ShippingInitFrame`/`ShippingStartAtLoad` が `initialize … (some synthesizeChild)` を手で模型化しているため、`initialize` を変えると模型との対応が崩れるからで、**非 leaf root（`synth_hftPcieOutByte`）の子**はこの束の保証対象の外のまま（子の profile 読み取りは `HeadIO`/`GetEnvProfileAt` の問題としてそのまま残る）。4 leaf root は子を持たない。
+- 副作用: `Elab.lean` が変わるので、依存する全モジュールが再ビルドされる。
+
+### 21.3 Tools 側（新ファイルだけ。既存の定理・定義は変えない）
+
+- `Tools/ShippingFGCircuitS1qLinked.lean`: `coreHeadOff`/`coreRestOff`（`coreHead`/`coreRest` から `IO.getEnv` と `logProf` を除いた鏡像。`CoreSaved.profile := false`）、`core_eqOff`/`core_splitOff`/`core_chainOff`、`MachineDefinesLinkedOff`（`profLogIO s.profile` の所を no-op に）、`synthesizeCombinationalCore_machine_soundCOff`、`machineRunJQC_of_closesCOff`（`coreHeadOff_jqcA` を含む）、`Linked2` の 5 本の写し、`postEntryOff`/`synthesizeCombinational_checkedOff`、`PostRunOff`、`leaf_*_of_runCOff`、`hTop_of_leaf4Off`、`X_artifact_atCOff`、`X_final4DOff`。写しは証明本体を変えず、`synthesizeCombinationalCore`→`…Off`、`coreHead`→`coreHeadOff`、`MachineDefinesLinked`→`…Off`、`PostRun`→`…Off` の置換のみ（機械的）。
+- `Tools/ShippingFGCircuitS1qHead.lean`: `HeadAtOff`、`envFrame_coreHeadOff`（**`CellPrem` だけ**から。`HeadIO` も `GetEnvProfileAt` も使わない）、`headAtOff_of_cellPrem`、`X_final10Off`、`X_final12`（4 root）。
+- `Tests/Gen5/FGCircuitPilotCheck15.lean`: 独立に書いた完全型の `isDefEq`、mutant、HYPS、NOTUSED、AXIOMS。`Tests/Gen5/FGCircuitPilotCompare15.lean`: 出力比較用（§21.6）。
+
+### 21.4 新しい head に載せた 4 leaf root の最終定理の型と前提の差分
+
+最終定理は `X_final12`（X = counterLoop / shift4Loop / counterEnableLoop / arbiterSignal）。`X_final11`（S1l/S1n）との差分（counterLoop の例。他 3 root も同じ形、arbiter は `hB0 hcont` が加わるのは `X_final10` と同じ）:
+
+| | `X_final11` + `headAt_of_profileOff`（S1o の `final9P` 系） | `X_final12`（S1q） |
+|---|---|---|
+| 入口の run `hr` | `RunsTo (synthesizeCombinational ``X)` | `RunsTo (synthesizeCombinationalOff ``X)` |
+| head の前提 | `hhead : HeadAt X w`。供給は `CellPrem` + `GetEnvProfileAt mctx mref cctx cref w`（`unset`: getEnv の結果が `none`、`env`: getEnv が env を保つ）、または `CellPrem` + `HeadIO`（S1i） | **無い**。`HeadAtOff` は `CellPrem` だけから証明する |
+| cell の前提 | `hcell : ReadWorld cref`（`CellPrem` の 1 成分） | `hcell : CellPrem MkRefd mref cref`（C.EN-4 の既存の束。`ReadWorld cref` を含む） |
+| 結論の post | `PostRun mctx mref cctx cref w ``X D' b raw`（`synthesizeCombinationalCore` の run を含む） | `PostRunOff …`（`synthesizeCombinationalCoreOff` の run を含む） |
+| その他 | `L lvl env₀ hstart hlvl hx hf hlink`（arbiter は `hB0 hcont` も） | **同じ**（`L lvl env₀ hstart hlvl hx hf hlink`、arbiter は `hB0 hcont` も） |
+
+消える前提: `GetEnvProfileAt`、`HeadIO`（getEnv の `EnvFrame` 1 件と、profile ログの `EnvFrame` ∀msg の 1 件）、`hhead`。**置き換わる前提**: なし（`CellPrem` は既に S1o の `final9P` にあった）。つまり前提の数は減るが、`GetEnvProfileAt` の `unset` は「消えた」のであって「供給された」のではない: 保証は `SPARKLE_PROFILE` 未設定のコマンド経路（`synthesizeEntry` の `else` 枝）についてだけで、設定時の経路（診断）は保証の外。この区別は `synthesizeEntry` の `if` が入口の**外**にあることで型に出る（`X_final12` は `synthesizeCombinationalOff` の run について語り、`synthesizeEntry` の run については語らない）。`synthesizeEntry` の `else` 枝が実際に実行されたことは、`IO.getEnv` の結果 `none` の観測でありこの束では供給しない（run 局所の観測。名前付きのまま）。
+
+残る名前付き仮説（不変）: `RootExtern`/`RootEnvFacts`/`hlvl`/`ReadsAt`（`hlink`）、`Laws`/`Start`/`hr`、`CellPrem`、arbiter の `BoundaryRowsInEnv`/`ContainsAt`。非 leaf の `hcd`/`hsrc`/`htop`/`hnoraw` は未供給。`EnvDefs`/`EnvCtors` は実 run 環境については未供給（S1m の裁定どおり）。
+
+### 21.5 実装と測定（compiler diff・既存 Tools への影響）
+
+**compiler diff（`Sparkle/Compiler/Elab.lean` のみ、追加 106 行・変更 3 行）**: 追加は `synthesizeCombinationalCoreOff`（`synthesizeCombinationalCoreWith … [] false true` の `profile := false` 固定の特殊化。`IO.getEnv "SPARKLE_PROFILE"` も `IO.eprintln`/`flushStderr`/`Handle.mk` も無く、`logProf := fun _ => pure ()`）、`synthesizeCombinationalOff`（`synthesizeCombinationalWith` と同じ後処理）、`synthesizeEntry`（`SPARKLE_PROFILE` を入口の**外**で読み、設定時は従来の `synthesizeCombinational`＝診断経路、未設定時は `synthesizeCombinationalOff`）。変更は `#synthesize`/`#synthesizeVerilog`/`#showVerilog` の 3 箇所の呼び出し（`synthesizeCombinational declName` → `synthesizeEntry declName`）だけ。既存の定義・`initialize`・他のコマンドは 1 文字も変えていない。新ファイルにしなかった理由: `Off` は翻訳器の結び目（`translateExprToWire`/`synthesizeFromConst`）の後でないと書けず、`Elab` のコマンドが呼ぶので、`Elab` が import する側のファイルには置けない。
+
+**Tools 側（新ファイルのみ）**: `Tools/ShippingFGCircuitS1qLinked.lean`（`coreHeadOff`/`coreRestOff`、`core_eqOff`: `synthesizeCombinationalCoreOff = coreHeadOff >>= coreRestOff` が `rfl` で閉じる、`core_chainOff`、`coreHeadOff_jqcA`、`MachineDefinesLinkedOff`、`machine_run_of_coreCOff`、`machineRunJQC_of_closesCOff`、`synthesizeCombinationalCore_machine_soundCOff`）、`Tools/ShippingFGCircuitS1qEndpoint.lean`（`Linked2`/`Final4`/`Roots4`/`S1iRoots` の写し: stream/loop/wired endpoint、`hTop_of_leaf4Off`、`X_artifact_atCOff`、`X_final4DOff`、`PostRunOff`、`postEntryOff`、`synthesizeCombinationalOff_checked`。証明本体は機械的な改名のみで編集していない）、`Tools/ShippingFGCircuitS1qHead.lean`（`envFrame_coreHeadOff`・`headAtOff_of_cellPrem`: **`CellPrem` だけ**から。`X_final10Off`、`X_final12`）。
+
+- **`HeadAt` は `CellPrem` だけから証明できた**（新しい head には getEnv もログも無く、S1i の `ef_step` 分解がそのまま通る）。`HeadIO`/`GetEnvProfileAt`/`hhead` は不要。
+- 4 root の最終定理 `X_final12`: 前提は `L lvl env₀ hstart hr hcell hlvl hx hf hlink`（arbiter は `hB0 hcont` も）、`hr` は `synthesizeCombinationalOff` の run、`hcell : CellPrem MkRefd mref cref`。差分は §21.4。
+- 既存の定理への影響: **既存の定義・定理は変更なし**。`Elab.lean` が変わるので全依存モジュールが再ビルドされる。再ビルドした既存ターゲット（`kjob lake build`、Elab 変更後）: `Tests.Gen5.FGCircuitPilotCheck13`（913 jobs）、`Check12`（913）、`Check11`（911）、`Check10`（911）、`Check9`（916）、`Check8`（909）、`ClosingRunCheck`（756）、`RunReadsCheck`（748）、`Flow1ReadsCheck`（843）、`DCEntryCheck`（746）、`Tools.ShippingEntrySoundness`（248）、`Tools.ShippingMachineOutcomeA3`（349）、`Tools.ShippingChildPinC`（339）、`Tools.ShippingLeafKeepCache`（599）、`Tools.ShippingMemoLawsWith`（318）— すべて exit 0。保存ログの Check 行は変更前と同じ（Check10 AXIOMS 13、Check11 16、Check12 24、Check13 2）。**失敗が 1 件**: `Tools.ShippingGen4ParamEntry` が `core_symbolic_reads`（216 行）で `(deterministic) timeout at whnf, maximum number of heartbeats (1600000)`。**土台 `e2301cd4` の単独ビルドでも同じ行で同じ失敗**なので、この束の変更による退行ではなく既存の問題（未対処。S1q では触れない）。`synthesizeCombinationalCore`/`…Core`/`coreHead` を `unfold` する約 30 の Tools ファイルは、それらの定義が不変なので影響を受けない（これが「既存の head を残す」案を採った理由）。
+- `Off` と従来経路の同一性: Lean の定理としては `core_eqOff`（`Off` の構造）と、§21.6 の出力比較（5 root の IR/SV が完全一致）で確認する。従来の `coreHead` で `getEnv` の結果が `none` のときと `Off` が同じ run になる、という形の定理は置かない（`IO.getEnv` の結果が `none` である run の存在を使うことになり、`GetEnvProfileAt` を別の名前で戻すことになるため）。
+
+### 21.6 出力比較（4 root + hftPcie、IR と SV のテキスト）
+
+`Tests.Gen5.FGCircuitPilotCompare15`（5 つの root: counterLoop、shift4Loop、counterEnableLoop、arbiterSignal、hftPcieLoop.outByte に `#synthesize`＝IR と `#synthesizeVerilog`＝SV）のビルドログから、`scripts/gen5/fgc_s1q/extract.sh` でこのモジュールの出力だけを取り出して比べた。変更前（土台 `e2301cd4`）と変更後（`SPARKLE_PROFILE` 未設定の pod）で **1312 行が完全に一致**（`diff` 空）。hftPcie は非 leaf で、子の入口は従来の診断入口のまま（上位だけ `Off`）で、出力は同じ。
+
+### 21.7 結果・S0 baseline で比べるもの
+
+**Check15**（`kjob lake build Tests.Gen5.FGCircuitPilotCheck15`、918 jobs、exit 0）:
+- `FGCIRCUIT15 SIGNATURES`: `core_eqOff`、`envFrame_coreHeadOff`、`headAtOff_of_cellPrem`、`counterLoop_final12`、`shift4Loop_final12`、`counterEnableLoop_final12`、`arbiterSignal_final12` の完全型を独立に書いて `isDefEq`（default 透過度）で照合し、binder の種類も一致。**45 mutant 棄却**（診断入口 `synthesizeCombinational` の run、旧 `PostRun`、`CellPrem` の代わりに `ReadWorld` だけ、cell 前提の欠落、取り除いた `GetEnvProfileAt`/`HeadIO` を戻したもの、旧 `coreHead`、end world の link/結論/frame、別 root の post、lvl/extern/facts/boundary 前提の欠落）。mutant は正規化後の式が構文的に異なり、かつ reducible 透過度で defeq でないことで棄却している（default 透過度の探索は両入口の定義を深く展開して終わらないので行わない。`same` 側は default）。
+- `FGCIRCUIT15 HYPS`: 4 本の `X_final12` = `L lvl env₀ hstart hr hcell hlvl hx hf hlink`（arbiter は `hB0 hcont` も）、`headAtOff_of_cellPrem`/`envFrame_coreHeadOff` = `X hcell`。`hhead`/`hg`/`hio`/`HeadIO`/`GetEnvProfileAt` は前提に無い。
+- `FGCIRCUIT15 NOGETENV`: `coreHeadOff` が `Sparkle.*`/`Tools.*` で到達する 26 個の定数に `IO.getEnv`・`IO.eprintln`・`IO.FS.Handle.mk`・`flushStderr`・`profLogIO`・文字列 `"SPARKLE_PROFILE"`・`"/tmp/sparkle-profile.log"` が無い。`synthesizeCombinationalCoreOff` と `coreRestOff` の値にも無い。対照: 旧 `coreHead` はこれらに到達し、`synthesizeCombinationalCoreWith` は文字列を持ち、`synthesizeEntry` は `SPARKLE_PROFILE` を入口の外で読んで 2 つの入口を振り分ける。
+- `FGCIRCUIT15 NOTUSED`: 4 本の最終定理 + `headAtOff_of_cellPrem` + `envFrame_coreHeadOff` の値が `Tools.ShippingFGCircuit*` で到達する 293 個の定数のどれも `coreHead`/`HeadIO`/`GetEnvProfileAt`/`headAt_of_profileOff`/`envFrame_coreHead`/`headAt_of_cellPrem` に触れない。うち S1q の 51 個は旧入口・診断入口（`synthesizeCombinationalCore`/`…With`/`synthesizeCombinational`/`synthesizeCombinationalWith`/`synthesizeEntry`）に触れない。（`Tools.*` 全体への走査（4793 個）でも同じ結果を得たが、ビルドに 10 分かかるので範囲を狭めた。）
+- `FGCIRCUIT15 AXIOMS`: 6 名、標準 axiom のみ。
+
+**出力比較**: §21.6。**証明できたもの**: `HeadAt` の新しい head 版 `headAtOff_of_cellPrem`（`CellPrem` だけ）、4 root の最終定理 `X_final12`。**名前付き仮説のまま**: §21.4 末尾。**追加で名前付きにしたもの**: なし（`GetEnvProfileAt`/`HeadIO` は消えた。実環境で `else` 枝が選ばれたこと（`SPARKLE_PROFILE` 未設定）は保証の仮説ではなく、保証は `synthesizeCombinationalOff` について）。
+
+**S0 の必要 IP baseline（`scripts/gen5/fgc_baseline/capture.sh`、327 コマンド）で比べるもの**（coder が別に実行）:
+1. `SPARKLE_PROFILE` 未設定で、各コマンドの終了コード・stdout の IR/SV テキスト・stderr の警告（DRC など）を、土台 `e2301cd4` の capture と**バイト単位で比べる**。違いが出るはずがないもの: `#synthesize`/`#synthesizeVerilog`/`#showVerilog` は `Off` を通るが、本体は `profile = false` の従来経路と同じ。
+2. `#synthesizeDesign`/`#writeVerilogDesign`/パラメータ付きコマンド等（`synthesizeHierarchical`/`synthesizeCombinationalWithParameters` を通るもの）は診断入口のまま（コードは不変）。これらも同じ出力のはず。
+3. `SPARKLE_PROFILE=1` を付けた数本（`counterLoop`、hftPcie）で、stderr と `/tmp/sparkle-profile.log` の `[profile] …` 行の列が土台と同じ（診断経路が不変であること）。`#synthesizeVerilog` 自身が最初に出す `[profile] #synthesizeVerilog entry …` の行は従来どおり、`[profile] synthesizeCombinational … entering` 以降は診断入口が出す。
+4. 実行時間: `Off` は `getEnv` 1 回とログ no-op クロージャの呼び出しを減らすだけで、差はノイズの範囲のはず（遅くなっていないこと）。
+5. 失敗するコマンド（意図したエラー）も、メッセージが同じこと。`Off` の `throwError` は従来と同じ文言（`hardware modules nested deeper …`、`entryInlinerError?`）。
+6. 非 leaf（子を持つ）root: 上位は `Off`、子は `sparkleChildSynth`＝`synthesizeChild`＝診断入口のまま。子の `profile` 読み取りは残る（§21.2）。出力は同じはず。
+
+**次**: (1) `X_final12` の非 leaf root への持ち上げと、子の入口（`synthesizeChild`）の profile 固定（`initialize` の模型 `ShippingInitFrame`/`ShippingStartAtLoad` との対応を保つ形で）、(2) `synthesizeEntry` の `if` が `else` に落ちること（`SPARKLE_PROFILE` 未設定）を、保証の外の run 観測として明記し続けること、(3) 既存 Tools の `coreHead` 系定理を `Off` 版へ一般化する案（head を引数にした一般化）は、Check の固定した型を変えるので採らなかった。
