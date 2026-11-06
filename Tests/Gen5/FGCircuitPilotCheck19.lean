@@ -36,9 +36,9 @@ def ShE : SigShape := { args := [.bits 8, .bool, .bool, .bits 32, .bits 16], res
 def varBad : Lean.Expr := .lam `x (.const ``Nat []) (.bvar 0) .default
 def ZS : W → W → W := fun w _ => w
 def ZE : W → W → W := fun _ w' => w'
-def RootData : MachineData := synth_hftPcieOutByte.machineData
-def HttpData : MachineData := Sparkle.IP.Net.HTTP.httpGetByte.machineData
-def TlpData : MachineData := Sparkle.IP.Bus.PCIe.tlpCplByte.machineData
+noncomputable def RootData : MachineData := synth_hftPcieOutByte.machineData
+noncomputable def HttpData : MachineData := Sparkle.IP.Net.HTTP.httpGetByte.machineData
+noncomputable def TlpData : MachineData := Sparkle.IP.Bus.PCIe.tlpCplByte.machineData
 
 noncomputable def GPx {ι : Type} (lvl : Lean.Expr → Nat) (env : Environment) : Pkgs ι (fun _ => defaultDomain) :=
   genGP (ι := ι) (dom := fun _ => defaultDomain) lvl (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl) (canonGD lvl) env
@@ -76,12 +76,12 @@ def ExpLink (kids : (ι : Type) → Name → Option (SemPkg ι (fun _ => default
       (fun j w => (typedVal gi.d.nIn gi.d.bpos gi.d.vpos gi.d.ss gi.d.ls (ExtStage (dom := fun _ => defaultDomain) (kids ι) gi i bools bits S (StageK gi k)).1
         (ExtStage (dom := fun _ => defaultDomain) (kids ι) gi i bools bits S (StageK gi k)).2 t (S.val t)).v (gi.d.vpos j) w) o.2)
 
-def KidsTrue : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun ι => KidsE (ι := ι) false false false false
-def KidsSwapAll : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun ι => KidsE (ι := ι) true false false false
-def KidsSwapSrc : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun ι => KidsE (ι := ι) false true false false
-def KidsHttpOfTlp : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun ι => KidsE (ι := ι) false false true false
-def KidsDataSwap : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun ι => KidsE (ι := ι) false false false true
-def KidsNone : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun _ _ => none
+noncomputable def KidsTrue : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun ι => KidsE (ι := ι) false false false false
+noncomputable def KidsSwapAll : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun ι => KidsE (ι := ι) true false false false
+noncomputable def KidsSwapSrc : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun ι => KidsE (ι := ι) false true false false
+noncomputable def KidsHttpOfTlp : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun ι => KidsE (ι := ι) false false true false
+noncomputable def KidsDataSwap : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun ι => KidsE (ι := ι) false false false true
+noncomputable def KidsNone : (ι : Type) → Name → Option (SemPkg ι (fun _ => defaultDomain)) := fun _ _ => none
 def LinkTrue := ExpLink KidsTrue none true true true RootData
 def LinkSwapAll := ExpLink KidsSwapAll none true true true RootData
 def LinkSwapSrc := ExpLink KidsSwapSrc none true true true RootData
@@ -249,55 +249,221 @@ def ZCarrierY : Prop := FL HftObCDZ cdvY
 def ZCarrierOld : Prop := FL HftObCDZ cdvOld
 def ZObY : Prop := FL HftObCDY cdvZ
 
-set_option maxHeartbeats 16000000 in
+def whitelist : List Name := [``StageK, ``ExpLink, ``KidsE, ``KidsTrue, ``KidsSwapAll, ``KidsSwapSrc, ``KidsHttpOfTlp, ``KidsDataSwap, ``KidsNone,
+  ``LinkTrue, ``LinkSwapAll, ``LinkSwapSrc, ``LinkHttpOfTlp, ``LinkDataSwap, ``LinkNoKids, ``LinkK1, ``LinkK3, ``LinkK0, ``LinkNoStart, ``LinkNoRec, ``LinkObsOther, ``LinkHttpData,
+  ``ExpObSrc, ``ExpSrcThm, ``SrcThmTrue, ``SrcThmNoLink, ``SrcThmNoRd, ``SrcThmNoRdH, ``SrcThmNoRdT, ``SrcThmRdData, ``SrcThmOtherDecl,
+  ``ExpStageAgree, ``StageTrue, ``StageNoSrc, ``StageNoKD, ``StageNoD, ``ExpCombSrc, ``CombTrue, ``CombNoSs, ``CombNoIn, ``CombNoRes,
+  ``EntryOf, ``ExpFinalL, ``FL, ``MNoLink, ``MKeepSrc, ``MDiag, ``MOldArt, ``MNoCell, ``MNoChk, ``MNoRdH, ``MNoRdT, ``MNoCD, ``MNoTop, ``MNoNoRaw, ``MNoHdRun, ``MRoot, ``MPostRoot, ``MChk,
+  ``MRdEnd, ``MHcdEnd, ``MConclEnd, ``ExpThmL, ``ThmLTrue, ``TLNoH, ``TLHOther, ``TLNoLink, ``TLKeepSrc, ``TLDiag, ``TLOldArt, ``TLNoCell, ``TLNoChk, ``TLNoRdH, ``TLNoRdT, ``TLNoCD,
+  ``TLNoTop, ``TLNoNoRaw, ``TLNoHdRun, ``TLRoot, ``TLPostRoot, ``TLChk, ``TLRdEnd, ``TLHcdEnd, ``TLConclEnd, ``ZTrue, ``ZCarrierY, ``ZCarrierOld, ``ZObY, ``ZS, ``ZE, ``GPx,
+  ``RootData, ``HttpData, ``TlpData,
+  -- definitions under test (unfolded on the theorem side)
+  ``HftRootLink, ``HftFinalStmtOffL, ``HftObTopCoreOff, ``HftObNoRawOff, ``HftObSrc, ``GPt, ``HftObOf, ``cdvOld, ``cdvX, ``cdvY, ``cdvZ, ``hftKids]
+
+/-- a literal Boolean (`true`, `false`, `or`/`and` of literals) -/
+partial def litBool : Lean.Expr → Option Bool
+  | .const ``Bool.true _ => some true
+  | .const ``Bool.false _ => some false
+  | e => if e.isAppOfArity ``or 2 then (do let a ← litBool (e.getArg! 0); let b ← litBool (e.getArg! 1); pure (a || b))
+         else if e.isAppOfArity ``and 2 then (do let a ← litBool (e.getArg! 0); let b ← litBool (e.getArg! 1); pure (a && b))
+         else none
+
+/-- `if b then x else y` with a literal Boolean `b`: the chosen branch -/
+def iteStep (e : Lean.Expr) : Option Lean.Expr :=
+  if e.isAppOfArity ``ite 5 then
+    let c := e.getArg! 1
+    if c.isAppOfArity ``Eq 3 then
+      match litBool (c.getArg! 1), c.getArg! 2 with
+      | some true, .const ``Bool.true _ => some (e.getArg! 3)
+      | some false, .const ``Bool.true _ => some (e.getArg! 4)
+      | _, _ => none
+    else none
+  else none
+
+def normOnce (e : Lean.Expr) : MetaM Lean.Expr :=
+  Meta.transform e (post := fun e => do
+    let e := e.headBeta
+    if let some e' := iteStep e then return .visit e'
+    if let .const c _ := e.getAppFn then
+      if whitelist.contains c then
+        if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
+    return .done e)
+
+/-- unfold the whitelisted definitions and select the literal Boolean branches -/
+def norm (e : Lean.Expr) : MetaM Lean.Expr := do
+  let mut e := e
+  for _ in [0:6] do
+    e ← normOnce e
+  return e
+
+partial def binderInfos : Lean.Expr → List BinderInfo
+  | .forallE _ _ b bi => bi :: binderInfos b
+  | _ => []
+
+set_option maxHeartbeats 32000000 in
 run_cmd liftTermElabM do
-  let same (thm exp : Lean.Expr) : MetaM Unit := do
-    let ci ← getConstInfo thm.constName!
-    unless ci.levelParams.isEmpty do throwError "{thm}: level parameters"
-    unless ← withDefault (isDefEq ci.type exp) do throwError "{thm}: type is NOT the expected statement {exp}"
-  let sameT (a b : Lean.Expr) (what : String) : MetaM Unit := do
-    unless ← withDefault (isDefEq a b) do throwError "{what}: differs from the expected statement"
-  let diffT (a b : Lean.Expr) (what : String) : MetaM Unit := do
-    if ← withDefault (isDefEq a b) then throwError "{what}: the MUTANT was accepted"
+  let sameE (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
+    let a ← norm ty
+    let e ← norm exp
+    unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
+    unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
+  let diffE (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
+    let a ← norm ty
+    let e ← norm exp
+    if a == e then throwError "{what}: the MUTANT is the same expression"
+    if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
   let C (n : Name) : Lean.Expr := mkConst n
   let Q := `Tests.Gen5.FGCircuitPilotCheck19
   let U := `Tools.ShippingFGCircuitS1uSrc
   let q (n : String) : Lean.Expr := mkConst (Q ++ Name.mkSimple n)
+  let tyOf (n : Name) : MetaM Lean.Expr := do
+    let ci ← getConstInfo n
+    unless ci.levelParams.isEmpty do throwError "{n}: level parameters"
+    pure ci.type
   let mut nm : Nat := 0
   -- HftRootLink
-  sameT (C (U ++ `HftRootLink)) (q "LinkTrue") "HftRootLink"
+  sameE "HftRootLink" (C (U ++ `HftRootLink)) (q "LinkTrue")
   for mu in ["LinkSwapAll", "LinkSwapSrc", "LinkHttpOfTlp", "LinkDataSwap", "LinkNoKids", "LinkK1", "LinkK3", "LinkK0", "LinkNoStart", "LinkNoRec", "LinkObsOther", "LinkHttpData"] do
-    diffT (C (U ++ `HftRootLink)) (q mu) s!"HftRootLink vs {mu}"; nm := nm + 1
-  -- HftObSrc (unchanged)
+    diffE s!"HftRootLink vs {mu}" (C (U ++ `HftRootLink)) (q mu); nm := nm + 1
+  -- HftObSrc (unchanged), compared as an applied definition
   let tt := C ``true
   let ff := C ``false
-  let obsrc (obs : Lean.Expr) (n : Name) : Lean.Expr := mkAppN (q "ExpObSrc") #[obs, toExpr n]
-  sameT (C (`Tools.ShippingFGCircuitS1kStmt ++ `HftObSrc)) (obsrc tt NmRoot) "HftObSrc"
-  diffT (C (`Tools.ShippingFGCircuitS1kStmt ++ `HftObSrc)) (obsrc ff NmRoot) "HftObSrc vs no observation"; nm := nm + 1
-  diffT (C (`Tools.ShippingFGCircuitS1kStmt ++ `HftObSrc)) (obsrc tt NmHttp) "HftObSrc vs another declaration"; nm := nm + 1
+  let hsrcT := C (`Tools.ShippingFGCircuitS1kStmt ++ `HftObSrc)
+  let appliedObSrc (obs : Lean.Expr) (n : Name) : MetaM (Lean.Expr × Lean.Expr) := do
+    forallTelescope (← inferType hsrcT) fun xs _ => do
+      let a ← mkLambdaFVars xs (mkAppN hsrcT xs)
+      let b ← mkLambdaFVars xs (mkAppN (q "ExpObSrc") (#[obs, toExpr n] ++ xs))
+      pure (a, b)
+  let (a1, b1) ← appliedObSrc tt NmRoot
+  sameE "HftObSrc" a1 b1
+  let (a2, b2) ← appliedObSrc ff NmRoot
+  diffE "HftObSrc vs no observation" a2 b2; nm := nm + 1
+  let (a3, b3) ← appliedObSrc tt NmHttp
+  diffE "HftObSrc vs another declaration" a3 b3; nm := nm + 1
   -- hftObSrc_of_rootLink
-  same (C (U ++ `hftObSrc_of_rootLink)) (q "SrcThmTrue")
+  let srcThm ← tyOf (U ++ `hftObSrc_of_rootLink)
+  sameE "hftObSrc_of_rootLink" srcThm (q "SrcThmTrue")
   for mu in ["SrcThmNoLink", "SrcThmNoRd", "SrcThmNoRdH", "SrcThmNoRdT", "SrcThmRdData", "SrcThmOtherDecl"] do
-    diffT (← getConstInfo (U ++ `hftObSrc_of_rootLink)).type (q mu) s!"hftObSrc_of_rootLink vs {mu}"; nm := nm + 1
+    diffE s!"hftObSrc_of_rootLink vs {mu}" srcThm (q mu); nm := nm + 1
   -- the ExtStage induction and the combinational leaf
-  same (C (U ++ `ExtStage_agree_tables)) (q "StageTrue")
+  let stageThm ← tyOf (U ++ `ExtStage_agree_tables)
+  sameE "ExtStage_agree_tables" stageThm (q "StageTrue")
   for mu in ["StageNoSrc", "StageNoKD", "StageNoD"] do
-    diffT (← getConstInfo (U ++ `ExtStage_agree_tables)).type (q mu) s!"ExtStage_agree_tables vs {mu}"; nm := nm + 1
-  same (C (U ++ `genSemI_comb_src)) (q "CombTrue")
+    diffE s!"ExtStage_agree_tables vs {mu}" stageThm (q mu); nm := nm + 1
+  let combThm ← tyOf (U ++ `genSemI_comb_src)
+  sameE "genSemI_comb_src" combThm (q "CombTrue")
   for mu in ["CombNoSs", "CombNoIn", "CombNoRes"] do
-    diffT (← getConstInfo (U ++ `genSemI_comb_src)).type (q mu) s!"genSemI_comb_src vs {mu}"; nm := nm + 1
-  -- the final statement and the assembly theorem
-  let S1t := `Tools.ShippingFGCircuitS1tFinal
-  let mkL (Ob CV : Lean.Expr) (f : String) : Lean.Expr := mkAppN (q f) #[Ob, CV]
-  let genericThm := (← getConstInfo (U ++ `synth_hftPcieOutByte_finalOffL)).type
-  sameT genericThm (q "ThmLTrue") "synth_hftPcieOutByte_finalOffL"
+    diffE s!"genSemI_comb_src vs {mu}" combThm (q mu); nm := nm + 1
+  -- the assembly theorem, over every carrier and obligation
+  let genericThm ← tyOf (U ++ `synth_hftPcieOutByte_finalOffL)
+  sameE "synth_hftPcieOutByte_finalOffL" genericThm (q "ThmLTrue")
   for mu in ["TLNoH", "TLHOther", "TLNoLink", "TLKeepSrc", "TLDiag", "TLOldArt", "TLNoCell", "TLNoChk", "TLNoRdH", "TLNoRdT", "TLNoCD", "TLNoTop", "TLNoNoRaw", "TLNoHdRun", "TLRoot", "TLPostRoot", "TLChk", "TLRdEnd", "TLHcdEnd", "TLConclEnd"] do
-    diffT genericThm (q mu) s!"synth_hftPcieOutByte_finalOffL vs {mu}"; nm := nm + 1
-  -- HftFinalStmtOffL (the statement itself), at the Z carrier
-  same (C (U ++ `synth_hftPcieOutByte_finalOffL_Z)) (q "ZTrue")
-  diffT (← getConstInfo (U ++ `synth_hftPcieOutByte_finalOffL_Z)).type (q "ZCarrierY") "finalOffL_Z vs cdvY"; nm := nm + 1
-  diffT (← getConstInfo (U ++ `synth_hftPcieOutByte_finalOffL_Z)).type (q "ZCarrierOld") "finalOffL_Z vs cdvOld"; nm := nm + 1
-  diffT (← getConstInfo (U ++ `synth_hftPcieOutByte_finalOffL_Z)).type (q "ZObY") "finalOffL_Z vs HftObCDY"; nm := nm + 1
-  logInfo m!"FGCIRCUIT19 SIGNATURES: HftObSrc (unchanged), HftRootLink, hftObSrc_of_rootLink, ExtStage_agree_tables, genSemI_comb_src, synth_hftPcieOutByte_finalOffL and _Z match the independently written statements; {nm} mutants rejected"
+    diffE s!"synth_hftPcieOutByte_finalOffL vs {mu}" genericThm (q mu); nm := nm + 1
+  -- the instance at the Z carrier is the statement `HftFinalStmtOffL HftObCDZ cdvZ`
+  let zThm ← tyOf (U ++ `synth_hftPcieOutByte_finalOffL_Z)
+  sameE "synth_hftPcieOutByte_finalOffL_Z" zThm (q "ZTrue")
+  for mu in ["ZCarrierY", "ZCarrierOld", "ZObY"] do
+    diffE s!"finalOffL_Z vs {mu}" zThm (q mu); nm := nm + 1
+  let mutZ := [`MNoLink, `MKeepSrc, `MDiag, `MOldArt, `MNoCell, `MNoChk, `MNoRdH, `MNoRdT, `MNoCD, `MNoTop, `MNoNoRaw, `MNoHdRun, `MRoot, `MPostRoot, `MChk, `MRdEnd, `MHcdEnd, `MConclEnd]
+  for mu in mutZ do
+    diffE s!"finalOffL_Z vs {mu}" zThm (mkApp2 (mkConst (Q ++ mu)) (C ``HftObCDZ) (C (`Tools.ShippingFGCircuitS1tFinal ++ `cdvZ))); nm := nm + 1
+  logInfo m!"FGCIRCUIT19 SIGNATURES: HftObSrc (unchanged), HftRootLink, hftObSrc_of_rootLink, ExtStage_agree_tables, genSemI_comb_src, synth_hftPcieOutByte_finalOffL and its Z instance match the independently written statements (binder kinds too); {nm} mutants rejected (normalised expression different and not reducible-defeq)"
+
+/-! ## 2. the hypotheses -/
+
+run_cmd liftTermElabM do
+  let env ← getEnv
+  let U := `Tools.ShippingFGCircuitS1uSrc
+  let ci ← getConstInfo (U ++ `synth_hftPcieOutByte_finalOffL_Z)
+  let some ty ← unfoldDefinition? ci.type | throwError "the instance's type is not a definition"
+  let names ← forallTelescope ty fun xs _ => do
+    let mut hs : List (String × Lean.Expr) := []
+    for x in xs do
+      let d ← x.fvarId!.getDecl
+      if d.binderInfo.isExplicit then hs := hs ++ [(d.userName.toString, ← instantiateMVars d.type)]
+    return hs
+  let expected := ["hlink", "L", "lvl", "env₀", "hstart", "hr", "hcell", "hchk", "hreadH", "hreadT", "hcd", "htop", "hnoraw"]
+  unless names.map (·.1) == expected do throwError "hypotheses are {names.map (·.1)}, expected {expected}"
+  for gone in ["hsrc", "hhead", "hdRun", "hquiet", "hg", "hio", "hgates", "hRead", "hE", "hP", "hdesign", "hcdOld"] do
+    if (names.map (·.1)).contains gone then throwError "{gone} is a hypothesis"
+  -- no hypothesis mentions the (removed) `HftObSrc`, a diagnostic entry, or sorry
+  let diag : List Name := [``synthesizeCombinational, ``synthesizeCombinationalCore, ``synthesizeEntry, ``Tools.ShippingFGCircuitLinked.MachineDefinesLinked, ``Tools.ShippingFGCircuitS1qEndpoint.PostRun,
+    ``Tools.ShippingEntryReadsLinked.coreHead, ``synthesizeChild, ``HftObSrc, ``sorryAx]
+  for (n, t) in names do
+    let mut used := t.getUsedConstants
+    for c in t.getUsedConstants do
+      if c.toString.startsWith "Tools.ShippingFGCircuitS1t" || c.toString.startsWith "Tools.ShippingFGCircuitS1kStmt" || c.toString.startsWith "Tools.ShippingFGCircuitS1u" then
+        match env.find? c with
+        | some (.defnInfo dd) => used := used ++ dd.value.getUsedConstants
+        | _ => pure ()
+    for b in diag do
+      if used.contains b then throwError "hypothesis {n} mentions {b}"
+    let pp ← try pure (toString (← ppExpr t)) catch _ => pure s!"<unprintable; constants: {t.getUsedConstants.toList.map (·.toString)}>"
+    logInfo m!"FGCIRCUIT19 REMAINING {n} : {pp}"
+  -- hlink is run-independent: it mentions no world, no context, no environment
+  let some (_, hl) := names.find? (·.1 == "hlink") | throwError "hlink missing"
+  let mut used := hl.getUsedConstants
+  for c in hl.getUsedConstants do
+    if c.toString.startsWith "Tools.ShippingFGCircuitS1u" then
+      match env.find? c with
+      | some (.defnInfo dd) => used := used ++ dd.value.getUsedConstants
+      | _ => pure ()
+  for b in [``RunsTo, ``Lean.Environment, ``Lean.Core.Context, ``Lean.Meta.Context, ``Tools.ShippingFGCircuitLinked.MachineDefinesLinked, ``Tools.ShippingEntryReadsLinked.envAt] do
+    if used.contains b then throwError "hlink mentions {b}"
+  -- the assembly theorem's explicit arguments
+  let ci2 ← getConstInfo (U ++ `synth_hftPcieOutByte_finalOffL)
+  let bs ← forallTelescope ci2.type fun xs _ => do
+    let mut r : List String := []
+    for x in xs do
+      let dd ← x.fvarId!.getDecl
+      if dd.binderInfo.isExplicit then r := r ++ [dd.userName.toString]
+    return r
+  unless bs == ["CV", "Ob", "hOb"] do throwError "synth_hftPcieOutByte_finalOffL: explicit arguments are {bs}"
+  logInfo m!"FGCIRCUIT19 HYPS: HftFinalStmtOffL Ob CV = hlink(HftRootLink: run-independent, D.D-3 / DG-SEM) L lvl env₀ hstart hr(synthesizeCombinationalOff) hcell(CellPrem) hchk hreadH hreadT hcd(Ob (envAt cref w)) htop(HftObTopCoreOff) hnoraw(HftObNoRawOff): {names.length} explicit hypotheses (S1t: 13 with hsrc; here hsrc is replaced by hlink, count unchanged). NOT hypotheses: hsrc, hhead, hdRun, hquiet, hg, hio, hgates, hRead, hE, hP. The theorem's explicit arguments: CV Ob hOb."
+
+/-! ## 3. axioms -/
+
+run_cmd liftTermElabM do
+  let U := `Tools.ShippingFGCircuitS1uSrc
+  let names : List Name := [U ++ `ExtStage_agree_tables, U ++ `calleeOut_agree_tables, U ++ `callOut_agree_tables, U ++ `genSemGen_agree_tables, U ++ `genSemGen_src_eq_of_link,
+    U ++ `genSemI_comb_src, U ++ `genS_leaf_eq, U ++ `genGP_root_kids_src, U ++ `hftObSrc_of_rootLink, U ++ `hftGenIn, U ++ `hftGenIn_d, U ++ `root_insts_nonempty, U ++ `http_ss, U ++ `tlp_ss,
+    U ++ `synth_hftPcieOutByte_finalOffL, U ++ `synth_hftPcieOutByte_finalOffL_Z, U ++ `synth_hftPcieOutByte_finalOffL_Y, U ++ `synth_hftPcieOutByte_finalOffL_X, U ++ `synth_hftPcieOutByte_finalOffL_of]
+  for nm in names do
+    for ax in ← Lean.collectAxioms nm do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do throwError "{nm} uses {ax}"
+  logInfo m!"FGCIRCUIT19 AXIOMS: {names.length} names, standard axioms only (no sorryAx, no native_decide)"
+
+/-! ## 4. SNAPSHOT19: the callee table and the children's observations -/
+
+/-- the children's declaration-level observations, spelled out in Lean (kernel `rfl`) -/
+example (bools : Nat → Signal defaultDomain Bool) (bits : (j n : Nat) → Signal defaultDomain (BitVec n)) :
+    Sparkle.IP.Net.HTTP.httpGetByte.machineSource defaultDomain bools bits = [fun t => ((Sparkle.IP.Net.HTTP.httpGetByte (bits 1 6)).val t).toNat] := rfl
+example (bools : Nat → Signal defaultDomain Bool) (bits : (j n : Nat) → Signal defaultDomain (BitVec n)) :
+    Sparkle.IP.Bus.PCIe.tlpCplByte.machineSource defaultDomain bools bits =
+      [fun t => ((Sparkle.IP.Bus.PCIe.tlpCplByte (bits 1 16) (bits 2 16) (bits 3 8) (bits 4 8) (bits 5 32) (bits 6 5)).val t).toNat] := rfl
+/-- the static table has exactly the two children: both present, nothing else -/
+example {ι : Type} : (hftKids (ι := ι) hftHttp).isSome = true := by simp [hftKids]
+example {ι : Type} : (hftKids (ι := ι) hftTlp).isSome = true := by simp [hftKids, hftTlp_ne_http]
+example {ι : Type} : hftKids (ι := ι) `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte = none := by
+  simp [hftKids, hftHttp, hftTlp, hftRoot]
+/-- the quantifier over `GenIn` in `HftRootLink` is not empty -/
+example : hftGenIn.d = synth_hftPcieOutByte.machineData := rfl
+/-- the root's callees are the two children, in this order; the stage count is `insts.length = 2` -/
+example : synth_hftPcieOutByte.machineData.shape.insts.length = 2 := by decide +kernel
+example : synth_hftPcieOutByte.machineData.shape.insts.map (·.1) = [hftHttp, hftTlp] := by decide +kernel
+
+run_cmd liftTermElabM do
+  let env ← getEnv
+  -- the two children are combinational leaves (no state, no calls) on the machine route; the root has two calls and states
+  for (x, leaf) in [(NmHttp, true), (NmTlp, true), (NmRoot, false)] do
+    unless env.contains (x ++ `machine_result) do throwError "{x}: no machine_result"
+    unless env.contains (x ++ `machineSource) do throwError "{x}: no machineSource"
+    if leaf then
+      unless env.contains (x ++ `machine_next) do throwError "{x}: a combinational leaf has machine_next"
+  -- the root has machineExt (the call streams as the Lean calls over the state), no machineSigma: the fused-state link is not an endpoint fact
+  unless env.contains (NmRoot ++ `machineExt) do throwError "the root has no machineExt"
+  if env.contains (NmRoot ++ `machineSigma) then throwError "the root now has machineSigma: update §25.3 (b)"
+  if env.contains (NmRoot ++ `machine_closes) then throwError "the root now has machine_closes: update §15/§25"
+  logInfo m!"FGCIRCUIT19 SNAPSHOT19: the children's machineSource are the declarations' observations (kernel rfl); hftKids has exactly the two children; hftGenIn : GenIn over the root's data exists; the root has machineExt and no machineSigma (the fused-state link and the call-argument link are not endpoint facts: HftRootLink stays a named hypothesis)"
 
 end Tests.Gen5.FGCircuitPilotCheck19
