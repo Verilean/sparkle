@@ -8,7 +8,7 @@ set_option autoImplicit false
    `isDefEq` (default) for the match, and for every MUTANT: structurally different after normalisation and not reducible-defeq. Mutants: the old (diagnostic) entry in `hr`, the old core entry/boundary in the core obligations, the old `PostRun`, the old carrier in the conclusion
    (`RootArtifactMono`), a conclusion/obligation/reader at the END world, each dropped premise (`hcell`, `hchk`, both child readers, `hcd`, `hsrc`, `htop`, `hnoraw`, `hdRun` inside `htop`, `hOb`), another root, another post root, another declaration's data in `hchk`, another carrier.
 2. HYPS: the explicit hypotheses of the final statement by name and the list of what is NOT a hypothesis; no hypothesis mentions a diagnostic-entry constant.
-3. SCOPE: nothing reachable from the final theorem mentions `synthesizeChild`/`sparkleChildSynth`/`childSynthEntry`/`synthesizeEntry`/the diagnostic entries (controls: the old S1k final does reach the diagnostic entry; `synthesizeChild` itself calls `synthesizeCombinational`, not `…Off`).
+3. SCOPE: within the walk over the given prefixes (S1t / S1q / S1kStmt; the walk follows the values of constants under those prefixes only, not the compiler body and not the full dependency closure), no visited value directly references `synthesizeChild`/`sparkleChildSynth`/`childSynthEntry`/`synthesizeEntry`/the diagnostic entries. This is NOT a check that no child execution happens. The walk FAILS (throwError) if any todo is left unprocessed (fuel exhausted); negative control: the walk with tiny fuel must fail. Controls: the old S1k final does directly reference the diagnostic entry; `synthesizeChild` itself calls `synthesizeCombinational`, not `…Off`.
 4. AXIOMS. -/
 namespace Tests.Gen5.FGCircuitPilotCheck18
 open Lean Meta Elab Command Term Sparkle.Core Sparkle.Core.Domain Tools.ShippingGen2 Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG
@@ -381,12 +381,13 @@ def valueConsts (env : Environment) (n : Name) : Array Name :=
   | some v => v.getUsedConstants
   | none => #[]
 
-/-- everything reachable from `roots` through values of constants with a name prefix in `pref`; also returns every referenced name -/
-partial def reach (env : Environment) (pref : List String) (roots : List Name) : NameSet × NameSet :=
-  let rec go (todo : List Name) (visited refd : NameSet) (fuel : Nat) : NameSet × NameSet :=
+/-- the walk from `roots` through values of constants with a name prefix in `pref` (only those prefixes are followed); also returns every directly referenced name.
+    Returns `none` if the fuel runs out with a todo left unprocessed (a partial result is never a success). -/
+partial def reach (env : Environment) (pref : List String) (roots : List Name) (fuel0 : Nat := 2000000) : Option (NameSet × NameSet) :=
+  let rec go (todo : List Name) (visited refd : NameSet) (fuel : Nat) : Option (NameSet × NameSet) :=
     match fuel, todo with
-    | 0, _ => (visited, refd)
-    | _, [] => (visited, refd)
+    | _, [] => some (visited, refd)
+    | 0, _ => none
     | fuel+1, n :: rest =>
       if visited.contains n then go rest visited refd fuel
       else
@@ -395,7 +396,7 @@ partial def reach (env : Environment) (pref : List String) (roots : List Name) :
         let refd := cs.foldl (fun s c => s.insert c) refd
         let next := cs.toList.filter fun c => !visited.contains c && (pref.any fun p => (c.toString).startsWith p)
         go (next ++ rest) visited refd fuel
-  go roots {} {} 2000000
+  go roots {} {} fuel0
 
 set_option maxHeartbeats 32000000 in
 run_cmd liftTermElabM do
@@ -407,13 +408,21 @@ run_cmd liftTermElabM do
     ``Tools.ShippingFGCircuitLinked.MachineDefinesLinked, ``PostRun, ``Tools.ShippingEntryReadsLinked.coreHead, ``HeadIO, ``HeadAt]
   let childBanned : List Name := [``synthesizeChild, ``sparkleChildSynth, ``childSynthEntry]
   -- (a) the STATEMENT (the definitions the type is built from): neither the diagnostic entries nor the children's entry
-  let (visS, refdS) := reach env pref [F ++ `HftFinalStmtOff, F ++ `HftObTopCoreOff, F ++ `HftObNoRawOff]
+  let some (visS, refdS) := reach env pref [F ++ `HftFinalStmtOff, F ++ `HftObTopCoreOff, F ++ `HftObNoRawOff]
+    | throwError "reach (statement): fuel exhausted with todo left unprocessed"
+  -- negative control: a tiny fuel must FAIL (never a partial success)
+  if (reach env pref [F ++ `HftFinalStmtOff, F ++ `HftObTopCoreOff, F ++ `HftObNoRawOff] 3).isSome then
+    throwError "low-fuel control: the walk with fuel 3 returned a result"
+  if (reach env pref names 3).isSome then throwError "low-fuel control (proofs): the walk with fuel 3 returned a result"
+  logInfo m!"FGCIRCUIT18 LOWFUEL: the walk with fuel 3 fails (2 walks: statement, proofs); the real walks complete with no todo left"
+
   for b in diagBanned ++ childBanned do
     if refdS.contains b then
       let wit := visS.toList.filter fun n => (valueConsts env n).contains b
       throwError "the final statement mentions {b}; first witnesses {wit.take 5}"
   -- (b) the PROOFS: no diagnostic entry. (The S1q frame proof `envFrame_coreHeadOff` mentions the cell `sparkleChildSynth` through `CellPrem`; reported, not banned.)
-  let (vis, refd) := reach env pref names
+  let some (vis, refd) := reach env pref names
+    | throwError "reach (proofs): fuel exhausted with todo left unprocessed"
   for b in diagBanned do
     if refd.contains b then
       let wit := vis.toList.filter fun n => (valueConsts env n).contains b
@@ -421,7 +430,8 @@ run_cmd liftTermElabM do
   let childWit := vis.toList.filter fun n => childBanned.any fun b => (valueConsts env n).contains b
   logInfo m!"FGCIRCUIT18 SCOPE-INFO: values reachable from the final theorem that mention the children's entry cell (sparkleChildSynth / synthesizeChild / childSynthEntry): {childWit}"
   -- controls: the S1k final DOES reach the diagnostic entry; synthesizeChild runs the diagnostic entry (so the children are not guaranteed)
-  let (visK, refdK) := reach env ["Tools.ShippingFGCircuitS1k"] [`Tools.ShippingFGCircuitS1kPkg.synth_hftPcieOutByte_final]
+  let some (visK, refdK) := reach env ["Tools.ShippingFGCircuitS1k"] [`Tools.ShippingFGCircuitS1kPkg.synth_hftPcieOutByte_final]
+    | throwError "reach (S1k control): fuel exhausted with todo left unprocessed"
   unless refdK.contains ``synthesizeCombinationalCore && refdK.contains ``PostRun do throwError "control: the S1k final does not reach the diagnostic entry"
   let cc := valueConsts env ``synthesizeChild
   unless cc.contains ``synthesizeCombinational do throwError "control: synthesizeChild does not call synthesizeCombinational"
@@ -435,7 +445,7 @@ run_cmd liftTermElabM do
   for nm in allNames do
     for ax in ← Lean.collectAxioms nm do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do throwError "{nm} uses {ax}"
-  logInfo m!"FGCIRCUIT18 SCOPE: the statement (HftFinalStmtOff, HftObTopCoreOff, HftObNoRawOff: {visS.size} constants) mentions none of synthesizeCombinational / …Core / …With / synthesizeEntry / MachineDefinesLinked / PostRun / coreHead / HeadIO / HeadAt / synthesizeChild / sparkleChildSynth / childSynthEntry; the proofs ({vis.size} constants) mention none of the diagnostic entries; controls: the S1k final reaches the diagnostic entry; synthesizeChild calls synthesizeCombinational and not synthesizeCombinationalOff; synthesizeCombinationalOff mentions neither synthesizeChild nor synthesizeEntry. The children's entry is NOT guaranteed by this statement (docs §24.2)."
+  logInfo m!"FGCIRCUIT18 SCOPE: within the walk over the prefixes S1t/S1q/S1kStmt (not the compiler body, not the full dependency closure; not a check that no child execution happens), the statement (HftFinalStmtOff, HftObTopCoreOff, HftObNoRawOff: {visS.size} constants) directly references none of synthesizeCombinational / …Core / …With / synthesizeEntry / MachineDefinesLinked / PostRun / coreHead / HeadIO / HeadAt / synthesizeChild / sparkleChildSynth / childSynthEntry; the proofs ({vis.size} constants walked) directly reference none of the diagnostic entries; controls: the S1k final directly references the diagnostic entry; synthesizeChild calls synthesizeCombinational and not synthesizeCombinationalOff; synthesizeCombinationalOff mentions neither synthesizeChild nor synthesizeEntry. The children's entry is NOT guaranteed by this statement (docs §24.2)."
   logInfo m!"FGCIRCUIT18 AXIOMS: {allNames.length} names, standard axioms only (no sorryAx, no native_decide)"
 
 end Tests.Gen5.FGCircuitPilotCheck18
