@@ -599,7 +599,7 @@ run が実際に到達する地点は 3 つ: `getConstInfo X`（world `w1`）、
 | `hlink` | `ReadsAt env₀ cref w` | DG-ENV C0 |
 | 変更なし | `hstart`（A.P-02）、`hr`（A.P-04）、`hhead`（C.EN-4、§16.3）、`hcell`（C.EN-4 CellPrem） | |
 
-**減ったもの / 減っていないもの。** `CheckedEnv.gates`（`entryGatesB env₀ X = true`）と `reader`（`ReaderAt`）という env₀ 全体への評価文が、閉じた宣言と 3 引数の 1 点ずつの事実（上表）に分かれ、gates と reader のデータ部分は kernel の計算になった。`machineShape?`・`pack`・`rootFloat`・`find?` は kernel で評価できない（現在の方式では未供給。不可能性は証明していない）。仮説の個数は増えた（1 つの `CheckedStart` が 9 つの個別事実になった）ので、台帳には数えない（FG -0 +0 / T1 -0 +0）。
+**減ったもの / 減っていないもの。** `CheckedEnv.gates`（`entryGatesB env₀ X = true`）と `reader`（`ReaderAt`）という env₀ 全体への評価文が、閉じた宣言と 3 引数の 1 点ずつの事実（上表）に分かれ、gates と reader のデータ部分は kernel の計算になった。`machineShape?`・`pack`・`rootFloat`・`find?` は kernel で評価できない（現在の方式では未供給。不可能性は証明していない）。仮説の個数は増えた（1 つの `CheckedStart` が 9 つの個別事実になった。内訳は `hx` 3 + `hf` 5 + `hlvl` 1 で、`hlink` は別掲（9 に含めない）。`hf.root` 自身も存在証人と複数の事実を含む 1 件なので、9 は仮説の最小単位の数ではない）ので、台帳には数えない（FG -0 +0 / T1 -0 +0）。
 
 ### 16.3 作業 C: HeadIO の完全型と許容する実行範囲
 
