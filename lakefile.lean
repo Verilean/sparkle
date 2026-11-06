@@ -6517,3 +6517,9 @@ lean_lib «Tools.ShippingFGCircuitS2gGates» where
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck27» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck27]
+
+lean_lib «Tools.ShippingFGCircuitS2jTop» where
+  roots := #[`Tools.ShippingFGCircuitS2jTop]
+
+lean_lib «Tools.ShippingFGCircuitS2jCopy» where
+  roots := #[`Tools.ShippingFGCircuitS2jCopy]
