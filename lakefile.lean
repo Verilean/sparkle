@@ -6622,3 +6622,45 @@ lean_lib «Tools.ShippingFGCircuitS2nAdm» where
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck34» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck34]
+
+lean_lib «Tools.ShippingFGCircuitS2iSh» where
+  roots := #[`Tools.ShippingFGCircuitS2iSh]
+
+lean_lib «Tools.ShippingFGCircuitS2iDT» where
+  roots := #[`Tools.ShippingFGCircuitS2iDT]
+
+lean_lib «Tools.ShippingFGCircuitS2iDTFun» where
+  roots := #[`Tools.ShippingFGCircuitS2iDTFun]
+
+lean_lib «Tools.ShippingFGCircuitS2iTbl» where
+  roots := #[`Tools.ShippingFGCircuitS2iTbl]
+
+lean_lib «Tools.ShippingFGCircuitS2iGen» where
+  roots := #[`Tools.ShippingFGCircuitS2iGen]
+
+lean_lib «Tools.ShippingFGCircuitS2iRun» where
+  roots := #[`Tools.ShippingFGCircuitS2iRun]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck29» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck29]
+
+lean_lib «Tools.ShippingFGCircuitS2oOb» where
+  roots := #[`Tools.ShippingFGCircuitS2oOb]
+
+lean_lib «Tools.ShippingFGCircuitS2iProbe» where
+  roots := #[`Tools.ShippingFGCircuitS2iProbe]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck35» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck35]
+
+lean_lib «Tools.ShippingFGCircuitS2pValHead» where
+  roots := #[`Tools.ShippingFGCircuitS2pValHead]
+
+lean_lib «Tools.ShippingFGCircuitS2qBits» where
+  roots := #[`Tools.ShippingFGCircuitS2qBits]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck36» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck36]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck38» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck38]
