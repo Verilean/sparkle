@@ -140,7 +140,93 @@ theorem counterLoop_final3 {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {
     hE hr hdRun hP hdecl hl (fun raw hraw => (hTop raw hraw).imp fun _ hn => hn.2)
   exact ⟨hpost, mm, p', hart⟩
 
+/-! ## `hRead` / `hE` at the points the run reaches
+
+The core run reads the root with `getConstInfo X` (world `w1`), the environment with `getEnv` (world `w5`, the one the entry constant is computed from) and, inside `synthesizeFromConst`, again with `getEnv` (world `w3`, the one the machine shape is read from).
+`OnRunReads` states a property of exactly these reads (the same decomposition `MachineDefinesRun` uses). Three named obligations, each local to the reads of the run from `w`:
+`RunSnap` (the three read worlds carry the start world's environment: run-local `EnvSnapshot`, C.EN-4 / ENV cache), `RunQuote` (the constant the run read is the quoted definition: `QuoteFact` at the run's `ci`), `RunReader` (the reader `dataOfAt`, applied to the entry
+constant of the run's `ci`/`envR` and to the start environment's `structEnv`, returns the literal data: DG-DATAOF / DG-COVER / DG-ENV). They replace `hRead : RootReader (envAt cref w)` and `hE : RootInEnv (envAt cref w)`; the `machineShape?` conjunct of `RootReader` is no longer
+assumed (it is the third fact of `MachineDefinesRun`, moved to the start environment by `RunSnap`). -/
+
+/-- a property of the reads of the core run from `w` (`ci`, `envR`, and the read worlds `w1` (getConstInfo), `w3` (second getEnv), `w5` (first getEnv)) -/
+def OnRunReads (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
+    (declName : Name) (w : Void IO.RealWorld) (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w' : Void IO.RealWorld)
+    (Q : Environment → ConstantInfo → Void IO.RealWorld → Void IO.RealWorld → Void IO.RealWorld → Prop) : Prop :=
+  RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w' →
+  ∀ (logProf : String → IO Unit) (envR : Environment) (ci : ConstantInfo) (w1 w2 w3 w4 w5 w6 : Void IO.RealWorld),
+    RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 →
+    RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w5 envR w6 →
+    RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire envR e h t n) logProf declName [] false true
+      (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR)) (instancePredicate envR))
+      mctx mref cctx cref w3 (M, D) w4 → Q envR ci w1 w3 w5
+
+def RunSnap (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
+    (X : Name) (w : Void IO.RealWorld) (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w' : Void IO.RealWorld) : Prop :=
+  OnRunReads mctx mref cctx cref X w M D w' fun _ _ w1 w3 w5 =>
+    envAt cref w1 = envAt cref w ∧ envAt cref w5 = envAt cref w ∧ envAt cref w3 = envAt cref w
+
+def RunQuote (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
+    (X : Name) (ty val : Lean.Expr) (w : Void IO.RealWorld) (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w' : Void IO.RealWorld) : Prop :=
+  OnRunReads mctx mref cctx cref X w M D w' fun _ ci _ _ _ =>
+    ∃ d : DefinitionVal, ci = .defnInfo d ∧ d.levelParams = [] ∧ d.type = ty ∧ d.value = val
+
+def RunReader (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State)
+    (lvl : Lean.Expr → Nat) (X : Name) (dd : Tools.ShippingMachineAuto.MachineData)
+    (w : Void IO.RealWorld) (M : Sparkle.IR.AST.Module) (D : Sparkle.IR.AST.Design) (w' : Void IO.RealWorld) : Prop :=
+  OnRunReads mctx mref cctx cref X w M D w' fun envR ci _ _ _ =>
+    Tools.ShippingGen5DataOf.dataOfAt lvl (entryConst true false [] ci (instancePredicate envR) (userInliner envR) (structEnv envR))
+      (structEnv (envAt cref w)) dd.shape = some dd
+
+/-- from the three run-local facts and the run-local boundary: `RootInEnv` and `RootReader` at the START environment -/
+theorem rootEnv_of_run {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {lvl : Lean.Expr → Nat} {X : Name} {ty val : Lean.Expr} {dd : Tools.ShippingMachineAuto.MachineData}
+    {w w' : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hr : RunsTo (synthesizeCombinationalCore X [] false) mctx mref cctx cref w (M, D) w')
+    (hdRun : MachineDefinesRun mctx mref cctx cref X dd.shape w M D w')
+    (hsnap : RunSnap mctx mref cctx cref X w M D w') (hq : RunQuote mctx mref cctx cref X ty val w M D w')
+    (hrd : RunReader mctx mref cctx cref lvl X dd w M D w') :
+    (∃ d : DefinitionVal, RootInEnv (envAt cref w) X ty val d) ∧ RootReader lvl (envAt cref w) X dd := by
+  obtain ⟨logProf, envR, ci, w1, w2, w3, w4, w5, w6, hget, henv, run⟩ := Tools.ShippingEntrySoundness.synthesizeCombinationalCore_reads hr
+  obtain ⟨s1, s5, s3⟩ := hsnap hr logProf envR ci w1 w2 w3 w4 w5 w6 hget henv run
+  obtain ⟨d, hci, hl, ht, hv⟩ := hq hr logProf envR ci w1 w2 w3 w4 w5 w6 hget henv run
+  have hrd' := hrd hr logProf envR ci w1 w2 w3 w4 w5 w6 hget henv run
+  obtain ⟨old, miss, hshape⟩ := hdRun hr logProf envR _ w1 w2 w3 w4 w5 w6 hget henv run
+  have hfind : (envAt cref w).find? X = some (.defnInfo d) := by
+    rw [← s1, ← hci]; exact Tools.ShippingEntryReadsLinked.getConstInfo_value hget
+  have henvR : envR = envAt cref w := by rw [Tools.ShippingEntryReadsLinked.getEnv_value henv, s5]
+  subst henvR
+  refine ⟨⟨d, hfind, hl, ht, hv⟩, _, ?_, ?_, hrd'⟩
+  · unfold Tools.ShippingGen5Acc.entry₀
+    rw [hfind, hci]; rfl
+  · obtain ⟨envR', w8, henv', -⟩ := synthesizeFromConst_machineR old miss run
+    have h3 : envR' = envAt cref w := by rw [Tools.ShippingEntryReadsLinked.getEnv_value henv', s3]
+    have := hshape envR' w8 henv'
+    rw [h3] at this
+    exact this
+
+/-- **`counterLoop_final3L`**: `counterLoop_final3` with `hRead` / `hE` replaced by the three run-local facts at the points the run reaches
+(`RunSnap`, `RunQuote`, `RunReader`; each `∀ raw D₀ w1` over the core run from `w`). The premises are `Laws L`, `hstart`, `hr`, `hdRun`, `hsnap`, `hquote`, `hreader`. -/
+theorem counterLoop_final3L {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``counterLoop) mctx mref cctx cref w (b, D') w')
+    (hdRun : ∀ raw D₀ w1, MachineDefinesRun mctx mref cctx cref ``counterLoop counterLoop.machineData.shape w raw D₀ w1)
+    (hsnap : ∀ raw D₀ w1, RunSnap mctx mref cctx cref ``counterLoop w raw D₀ w1)
+    (hquote : ∀ raw D₀ w1, RunQuote mctx mref cctx cref ``counterLoop counterLoopType counterLoopValue w raw D₀ w1)
+    (hreader : ∀ raw D₀ w1, RunReader mctx mref cctx cref lvl ``counterLoop counterLoop.machineData w raw D₀ w1) :
+    (∃ raw, PostRun mctx mref cctx cref w ``counterLoop D' b raw) ∧
+    ∃ (mm : MonoTy shCounter) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMono (envAt cref w)
+        (genGP (ι := ι) (dom := fun _ => defaultDomain) lvl (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl) (canonGD lvl) (envAt cref w))
+        (PostRun mctx mref cctx cref w ``counterLoop D') ``counterLoop shCounter mm b D' p := by
+  obtain ⟨raw, D₀, w1, hc, -⟩ := Tools.ShippingGen5DCEntryD.synthesizeCombinational_postEntry hr
+  obtain ⟨⟨d, hE⟩, hRead⟩ := rootEnv_of_run hc (hdRun raw D₀ w1) (hsnap raw D₀ w1) (hquote raw D₀ w1) (hreader raw D₀ w1)
+  exact counterLoop_final3 L lvl hstart hr hdRun hRead hE
+
 end Tools.ShippingFGCircuitFinal3
 
 #print axioms Tools.ShippingFGCircuitFinal3.hTop_of_leaf3
 #print axioms Tools.ShippingFGCircuitFinal3.counterLoop_final3
+#print axioms Tools.ShippingFGCircuitFinal3.rootEnv_of_run
+#print axioms Tools.ShippingFGCircuitFinal3.counterLoop_final3L
