@@ -243,7 +243,10 @@ run_cmd liftTermElabM do
   let E2 := ConstantInfo.defnInfo { d with value := shift4LoopValue, type := shift4LoopType }
   let other := Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E2 se counterLoop.machineData.shape
   let lit ← literalExpr ``counterLoop.machineData
-  let ctrl2 : Bool ← match other with | some dd2 => do pure ((← dataExprOf dd2) != lit) | none => pure true
+  let mut ctrl2 : Bool := true
+  if let some dd2 := other then
+    let e2 ← dataExprOf dd2
+    ctrl2 := e2 != lit
   unless ctrl2 do throwError "negative control: another value gave the same data"
   logInfo m!"FGCIRCUIT10 SNAPSHOT10: on this build's ONE environment (an EVALUATION, not a supply of the hypotheses): CounterLoopExtern (pack / rootFloat / Expr.find?) and CounterLoopEnvFacts (root, machineShape? = the data's shape, userInliner at value and type, instancePredicate at value = false, proj at Signal.loop = none) hold; entry₀ is the declaration; the gates (mixedCertifiedShape? with the instance predicate true everywhere except the value) and dataOfAt (proj / fields answering something else off Signal.loop) are unchanged — the only places the evaluation looked. Controls: another root's value gives other data; the instance predicate is true on some sub-term of the hierarchical probe's body: {ctrl1} (informative: false only if the probe's body has no instance sub-term)"
 
