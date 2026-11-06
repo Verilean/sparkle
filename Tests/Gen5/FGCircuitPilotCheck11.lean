@@ -191,11 +191,34 @@ example : betaApp (.const ``Nat []) [.bvar 3] = .app (.const ``Nat []) (.bvar 3)
 example : appFn (appN ``Signal.pure [.zero] [.bvar 0, .bvar 1, .bvar 2]) = .const ``Signal.pure [.zero] := appFn_appN _ _ _
 example : appArgs (appN ``Signal.pure [.zero] [.bvar 0, .bvar 1, .bvar 2]) = [.bvar 0, .bvar 1, .bvar 2] := rfl
 
+/-! ## 2b. the new rules are usable: small derivations from table facts (not vacuous) -/
+
+def natE (n : Nat) : Lean.Expr := appN ``OfNat.ofNat [.zero] [.const ``Nat [], .lit (.natVal n), appN ``instOfNatNat [] [.lit (.natVal n)]]
+def pairE : Lean.Expr := appN ``Prod.mk [.zero, .zero] [.const ``Nat [], .const ``Nat [], natE 3, natE 4]
+def Γp : Name → Option CtorRow := fun c => if c == ``Prod.mk then some ⟨``Prod, 2, 2⟩ else none
+def miniName : Name := `Tests.mini
+def miniValue : Lean.Expr := appN ``Signal.pure [.zero] [.const ``Sparkle.Core.Domain.defaultDomain [], .const ``Nat [], natE 5]
+def Δm : Name → Option DefRow := fun c => if c == miniName then some ⟨[], miniValue⟩ else none
+
+/-- `(3, 4).1` denotes `3`: `projCtor` from the constructor row of `Prod.mk` -/
+theorem ex_projCtor (env : Environment) (hΓ : EnvCtors env Γp) : CDX env [] (.proj ``Prod 0 pairE) Nat 3 :=
+  cdx_projCtor_tbl hΓ (r := ⟨``Prod, 2, 2⟩) (i := 0) rfl (appFn_appN _ _ _) rfl rfl (by decide) rfl (.natLit rfl)
+
+/-- a user definition `mini := Signal.pure 5` denotes `Signal.pure 5`: `unf` from the definition row -/
+theorem ex_unf (env : Environment) (hΔ : EnvDefs env Δm) :
+    CDX env [] (.const miniName []) (Signal defaultDomain Nat) (Signal.pure 5) :=
+  cdx_unf_tbl hΔ (r := ⟨[], miniValue⟩) rfl (by decide) rfl rfl rfl (.sigPure rfl (.domDefault rfl) (.nat rfl) (.natLit rfl))
+
+/-- a `let` of a non-core type is substituted: `let p : Prod Nat Nat := (3,4); p.1` denotes `3` (`zeta`, then `projCtor`) -/
+theorem ex_zeta (env : Environment) (hΓ : EnvCtors env Γp) :
+    CDX env [] (.letE `p (appN ``Prod [.zero, .zero] [.const ``Nat [], .const ``Nat []]) pairE (.proj ``Prod 0 (.bvar 0)) false) Nat 3 :=
+  .zeta rfl (by decide) (cdx_projCtor_tbl hΓ (r := ⟨``Prod, 2, 2⟩) (i := 0) (x := pairE) rfl (appFn_appN _ _ _) rfl rfl (by decide) rfl (.natLit rfl))
+
 /-! ## 3. AXIOMS -/
 run_cmd liftTermElabM do
   let S := `Tools.ShippingFGCircuitS1mCD
   let names : List Name := [S ++ `tdx_of_td, S ++ `cdx_of_cd, S ++ `circCV_to_X, S ++ `tdx_fun, S ++ `cdx_fun, S ++ `cdx_eq, S ++ `circCVX_functional,
-    S ++ `cdx_unf_tbl, S ++ `cdx_projCtor_tbl, S ++ `appFn_appN, S ++ `coreHead_td]
+    S ++ `cdx_unf_tbl, S ++ `cdx_projCtor_tbl, S ++ `appFn_appN, S ++ `coreHead_td, S ++ `dx_fun, S ++ `whStep_ctor, `Tests.Gen5.FGCircuitPilotCheck11.ex_projCtor, `Tests.Gen5.FGCircuitPilotCheck11.ex_unf, `Tests.Gen5.FGCircuitPilotCheck11.ex_zeta]
   for nm in names do
     for ax in ← Lean.collectAxioms nm do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do throwError "{nm} uses {ax}"
