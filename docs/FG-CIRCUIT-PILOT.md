@@ -1994,12 +1994,12 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 
 ### 40.5 Check34（`kjob lake build Tests.Gen5.FGCircuitPilotCheck34`）
 
-同一の比較関数（`Check33.cmp`: 同じ定数集合を正規化し `isDefEq` を default 透明度で、肯定と全 mutant で同じ）。結果行は下に記す（ビルド後に更新）。
+`kjob lake build Tests.Gen5.FGCircuitPilotCheck34`: exit 0、943 jobs（Reach3 を含む初回ビルド）。同一の比較関数（`Check33.cmp`: 同じ定数集合を正規化し `isDefEq` を default 透明度で、肯定と全 mutant で同じ）。出力 10 行（DEFS 1、SIGNATURES 1、STEPS 1、REMAINING 4、AXIOMS 1 + Check33 の既存行）。
 
-- `FGCIRCUIT34 DEFS`: `AdmBoth`・`QuietCover` を独立に書いた文面と照合。mutant（片方の half のみ、含意 `AdmDownR` を組の代わりに、選言、別の環境; 到達なし、`ReadsAt` なし、自明な逆向き包含、別の環境、別の world からの到達）。
-- `FGCIRCUIT34 SIGNATURES`: `hftCoreCloses_of_kidsR'`・`hftCoreCloses_of_cover` の完全な型（binder の名前・kind も）。各前提の脱落、`QuietCover` を到達なし/`ReadsAt` なし/逆向きに、profile ON、別の root 環境、root から到達しない world、end world の対照。
-- `FGCIRCUIT34 STEPS`: 新しい 2 定理は `AdmDownR`・`MissE` を含まない。`opsB` は `AdmDownR` を含まず `AdmBoth` を使う。`AdmDownR` を取るのは `admBoth_of_down` だけ。
-- `FGCIRCUIT34 REMAINING`、`FGCIRCUIT34 AXIOMS`（標準 axiom のみ）。
+- `FGCIRCUIT34 DEFS`: `AdmBoth`・`QuietCover` を独立に書いた文面と照合。**10 mutant 棄却**（片方の half のみ、含意 `AdmDownR` を組の代わりに、選言、別の環境; 到達なし、`ReadsAt` なし、自明な逆向き包含、別の環境、別の world からの到達）。
+- `FGCIRCUIT34 SIGNATURES`: `hftCoreCloses_of_kidsR'`・`hftCoreCloses_of_cover` の完全な型（binder の名前・kind も）。`hftCoreCloses_of_kidsR'` **19 mutant**（各前提の脱落 12、`QuietCover` を到達なし/`ReadsAt` なし/逆向きに 3、profile ON、別の root 環境、root から到達しない world、end world）、`hftCoreCloses_of_cover` **15 mutant**（脱落 8 と同じ対照 7）。binder 名 `mctx mref cctx cref L w hstart hcell lvl hrH hrT hg hadm hcover hD hG hT hs h0`（kidsR'）・`… hg hcover hs h0`（cover）。
+- `FGCIRCUIT34 STEPS`（20 構造検査）: 新しい 2 定理は `AdmDownR`・`MissE` を含まない。`opsB` は `AdmDownR` を含まず `AdmBoth` を使う。`AdmDownR` を取るのは `admBoth_of_down` だけ。
+- `FGCIRCUIT34 REMAINING`（4 行: `hs`, `h0`, `hcover`, 未実施の `AdmBoth` 鎖）、`FGCIRCUIT34 AXIOMS`（18 名、標準 axiom のみ）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き。
 
