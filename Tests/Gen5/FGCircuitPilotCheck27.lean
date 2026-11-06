@@ -1,11 +1,12 @@
 import Tools.ShippingFGCircuitS2gGates
+import Tests.Gen5.FGCircuitPilotCheck26
 set_option autoImplicit false
 -- FG circuit pilot S2g check. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED. Results: docs/FG-CIRCUIT-PILOT.md §33.
 
 /-! # FGCircuitPilotCheck27 (light: each part is a small `run_cmd`)
 
 1. SIGNATURES-A: `KidGateFacts` / `HftKidsGateFacts` against independently written structures (constructor types, isDefEq); mutants: swapped callees, one callee twice, the instance-predicate point at the whole value instead of the peeled body, a dropped query, a dropped root fact.
-2. SIGNATURES-B: `synth_hftPcieOutByte_finalOffLNKKG_Z` (14 hypotheses, `hkgfacts` last, no all-world reflection reachable from it).
+2. SIGNATURES-B: `synth_hftPcieOutByte_finalOffLNKKG_Z` (14 hypotheses, `hkgfacts` last, no all-world reflection reachable from it) AND (S2k) its COMPLETE type against an independently written expected type (`ExpFinalKK` of Check26 with `kg := ExpHK`; binder kinds too; negative controls: `hkgfacts` or `hkenv` moved to the end world, swapped callee names / quotes, a changed Off entry / carrier / output / conclusion, ...). The LATEST final statement (the combined one, S2k) is compared in Check31 SIGNATURES-FINAL, which imports this file.
 3. QUOTES / ENV: the closed quotes equal the declarations; the named facts evaluated in two environment points (observation only); controls: swapped callees, another declaration whose gate fails, an instance-predicate-sensitive wrapper.
 4. REMAINING, AXIOMS. -/
 namespace Tests.Gen5.FGCircuitPilotCheck27
@@ -85,15 +86,20 @@ def norm (e : Lean.Expr) : MetaM Lean.Expr := do
     e ← normOnce e
   -- `ExpKGF` was proved to have the constructor type of `KidGateFacts` (SIGNATURES-A, first check); here it is read as that structure
   return e.replace fun x => if x.isConstOf `Tests.Gen5.FGCircuitPilotCheck27.ExpKGF then some (mkConst `Tools.ShippingFGCircuitS2gGates.KidGateFacts) else none
+partial def binderInfos : Lean.Expr → List BinderInfo
+  | .forallE _ _ b bi => bi :: binderInfos b
+  | _ => []
+/-- positive and negative examples are compared at the SAME transparency (`withDefault`), and binder kinds are compared too -/
 def sameTy (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
   let a ← norm ty
   let e ← norm exp
   unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
+  unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
 def diffTy (what : String) (ty exp : Lean.Expr) : MetaM Unit := do
   let a ← norm ty
   let e ← norm exp
   if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  if ← withDefault (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
 def tyOf (n : Name) : MetaM Lean.Expr := do
   let ci ← getConstInfo n
   unless ci.levelParams.isEmpty do throwError "{n}: level parameters"
@@ -119,7 +125,7 @@ run_cmd liftTermElabM do
   sameTy "HftKidsGateFacts" hk (C (Q ++ `ExpHK))
   for mu in ["MuSwap", "MuSwapName", "MuHttpTwice", "MuTlpTwice", "MuHttpOnly", "MuTlpOnly", "MuWholeBoth", "MuTrue"] do
     diffTy s!"HftKidsGateFacts vs {mu}" hk (C (Q ++ Name.mkSimple mu)); nm := nm + 1
-  logInfo m!"FGCIRCUIT27 SIGNATURES-A: KidGateFacts (5 fields: root, ui_val, ui_ty, ip at peeled V, ip at peeled Vi) and HftKidsGateFacts (http ∧ tlp at their own closed quotes) match the independently written ExpKGF / ExpHK; {nm} mutants rejected (point at the whole value, inlined point dropped, root dropped, inliner type fact dropped, value not tied to the declaration; callees swapped by quote, swapped by name, one callee twice, one callee only, whole-value points, True)"
+  logInfo m!"FGCIRCUIT27 SIGNATURES-A (same transparency withDefault for the positive and the negative examples, binder kinds compared): KidGateFacts (5 fields: root, ui_val, ui_ty, ip at peeled V, ip at peeled Vi) and HftKidsGateFacts (http ∧ tlp at their own closed quotes) match the independently written ExpKGF / ExpHK; {nm} mutants rejected (point at the whole value, inlined point dropped, root dropped, inliner type fact dropped, value not tied to the declaration; callees swapped by quote, swapped by name, one callee twice, one callee only, whole-value points, True)"
 
 /-! ## 2. the final statement -/
 
@@ -180,8 +186,122 @@ run_cmd liftTermElabM do
   let t0 ← tyOf (`Tools.ShippingFGCircuitS2dKids ++ `synth_hftPcieOutByte_finalOffLNKK_Z)
   unless (← norm t0) != (← norm t2) do throwError "finalOffLNKKG_Z is the finalOffLNKK_Z statement"
   nm := nm + 1
-  logInfo m!"FGCIRCUIT27 SIGNATURES-B: synth_hftPcieOutByte_finalOffLNKKG_Z: {nm} structural checks; hkgates is replaced by hkgfacts (last of {hs.length}), hkenv/hreadH/hreadT unchanged; no MachineDefines / HftKidsDefine / MachineCloses / Start / ReadsAt / CheckedStart reachable from hkgfacts (reach set {r.size})"
+  logInfo m!"FGCIRCUIT27 SIGNATURES-B: synth_hftPcieOutByte_finalOffLNKKG_Z: {nm} structural checks; hkgates is replaced by hkgfacts (last of {hs.length}), hkenv/hreadH/hreadT unchanged; no MachineDefines / HftKidsDefine / MachineCloses / Start / ReadsAt / CheckedStart reachable from hkgfacts WITHIN the reach walk (reach set {r.size}; the walk goes through the types and values of defnInfo under Tools/Sparkle and the constructors of Tools inductives and does NOT unfold theorems, so this is not a claim about the whole dependency closure)"
   logInfo m!"FGCIRCUIT27 HYPS: HftFinalStmtOffLNKKG Ob CV = {expected}: {hs.length} explicit hypotheses"
+
+/-! ## 2b. the COMPLETE type of the final statement (S2k): Check26's `ExpFinalKK` with the facts of this file -/
+
+open Tests.Gen5.FGCircuitPilotCheck26 (W Cx Cc Rf1 Rf2 ZS ZE idF NmRoot NmHttp NmTlp ShE ExpFinalKK ExpKidsEnv ExpKidsEnvSwapped ExpKidsEnvTrue kgReal iteStep)
+open Tools.ShippingFGCircuitS1tFinal (cdvZ cdvY cdvOld CDRel)
+open Tools.ShippingFGCircuitS1rCD (HftObCDZ)
+
+def G_Real (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kgEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZE ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kenvEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZE NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_bothEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZE ZE NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_Diag (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK true false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_OldArt (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false true true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_NoHcd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false false true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_NoTop (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true false true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_NoKenv (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true false true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_NoKg (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true false true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_NoC1 (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true false true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_NoC2 (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true false ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kgSwap (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv Tests.Gen5.FGCircuitPilotCheck27.MuSwap false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kgSwapName (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv MuSwapName false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kgHttpTwice (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv MuHttpTwice false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kgTlpTwice (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv MuTlpTwice false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kgHttpOnly (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv MuHttpOnly false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kgTlpOnly (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv MuTlpOnly false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kgWhole (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv MuWholeBoth false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kgTrue (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv MuTrue false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kgGates (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv kgReal false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kenvSwapped (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnvSwapped ExpHK false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_kenvTrue (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnvTrue ExpHK false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_Root (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmHttp NmRoot (ShE) ZS ZS idF idF idF idF idF
+def G_PostRoot (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmRoot NmHttp (ShE) ZS ZS idF idF idF idF idF
+def G_Output (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmRoot NmRoot ({ ShE with res := .one (.bits 16) }) ZS ZS idF idF idF idF idF
+def G_HcdEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZE ZS idF idF idF idF idF
+def G_ConclEnd (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZE idF idF idF idF idF
+def G_RefM (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {a : Rf1}, ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF (fun _ => a) idF idF idF
+def G_RefC (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {a : Rf2}, ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF (fun _ => a) idF
+def G_CtxM (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {a : Cx}, ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS (fun _ => a) idF idF idF idF
+def G_CtxC (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {a : Cc}, ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF (fun _ => a) idF idF
+def G_Design (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ {a : Sparkle.IR.AST.Design}, ExpFinalKK Ob CV ExpKidsEnv ExpHK false false true true true true true true ZS ZS NmRoot NmRoot (ShE) ZS ZS idF idF idF idF (fun _ => a)
+def G_CarrierY : Prop := G_Real HftObCDZ cdvY
+def G_CarrierOld : Prop := G_Real HftObCDZ cdvOld
+def G_ObY : Prop := G_Real Tools.ShippingFGCircuitS1rCD.HftObCDY cdvZ
+
+def normOnce5 (e : Lean.Expr) : MetaM Lean.Expr :=
+  Meta.transform e (post := fun e => do
+    let e := e.headBeta
+    if let some e' := iteStep e then return .visit e'
+    if let .const c _ := e.getAppFn then
+      if c == ``HftKidsGateFacts || c == ``Tools.ShippingFGCircuitS2gGates.HftFinalStmtOffLNKKG || c == ``Tools.ShippingFGCircuitS2dKids.HftKidsGates || c == ``Tools.ShippingFGCircuitS2dKids.HftKidsStartEnv ||
+          (`Tests.Gen5.FGCircuitPilotCheck27).isPrefixOf c || (`Tests.Gen5.FGCircuitPilotCheck26).isPrefixOf c then
+        if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
+    return .done e)
+def norm5 (e : Lean.Expr) : MetaM Lean.Expr := do
+  let mut e := e
+  for _ in [0:7] do
+    e ← normOnce5 e
+  return e.replace fun x => if x.isConstOf `Tests.Gen5.FGCircuitPilotCheck27.ExpKGF then some (mkConst `Tools.ShippingFGCircuitS2gGates.KidGateFacts) else none
+/-- same transparency for the expected statement and the mutants; binder kinds compared -/
+def same5 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
+  let e ← norm5 exp
+  unless ← withDefault (isDefEq a e) do throwError "{what}: type is NOT the expected statement"
+  unless binderInfos a == binderInfos e do throwError "{what}: binder kinds differ"
+def diff5 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
+  let e ← norm5 exp
+  if a == e then throwError "{what}: the MUTANT is the same expression"
+  if ← withDefault (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+
+set_option maxHeartbeats 64000000 in
+run_cmd liftTermElabM do
+  let C (n : Name) : Lean.Expr := mkConst n
+  let Q := `Tests.Gen5.FGCircuitPilotCheck27
+  let q (n : String) : Lean.Expr := mkConst (Q ++ Name.mkSimple n)
+  let finN ← norm5 (← tyOf `Tools.ShippingFGCircuitS2gGates.synth_hftPcieOutByte_finalOffLNKKG_Z)
+  same5 "synth_hftPcieOutByte_finalOffLNKKG_Z" finN (mkApp2 (q "G_Real") (C ``HftObCDZ) (C ``cdvZ))
+  let mut nm : Nat := 0
+  for mu in ["G_kgEnd", "G_kenvEnd", "G_bothEnd", "G_Diag", "G_OldArt", "G_NoHcd", "G_NoTop", "G_NoKenv", "G_NoKg", "G_NoC1", "G_NoC2", "G_kgSwap", "G_kgSwapName", "G_kgHttpTwice", "G_kgTlpTwice", "G_kgHttpOnly", "G_kgTlpOnly", "G_kgWhole", "G_kgTrue", "G_kgGates", "G_kenvSwapped", "G_kenvTrue", "G_Root", "G_PostRoot", "G_Output", "G_HcdEnd", "G_ConclEnd", "G_RefM", "G_RefC", "G_CtxM", "G_CtxC", "G_Design"] do
+    diff5 s!"finalOffLNKKG_Z vs {mu}" finN (mkApp2 (q mu) (C ``HftObCDZ) (C ``cdvZ)); nm := nm + 1
+  for mu in ["G_CarrierY", "G_CarrierOld", "G_ObY"] do
+    diff5 s!"finalOffLNKKG_Z vs {mu}" finN (q mu); nm := nm + 1
+  logInfo m!"FGCIRCUIT27 SIGNATURES-C: the complete type of synth_hftPcieOutByte_finalOffLNKKG_Z (14 hypotheses, binder kinds too) matches the independently written expected statement (Check26's ExpFinalKK with the facts of this file); the real type is normalised once and compared at the SAME transparency (withDefault) with every mutant; {nm} mutants rejected: hkgfacts / hkenv / both at the END world, the diagnostic entry, the old artifact, a premise or conjunct missing, hkgfacts swapped by quote / by name / a callee twice / one callee only / whole-value points / True / the old EntryGates, hkenv swapped / True, another root / post root / output, hcd or the conclusion at the end world, another reference / context / design, another carrier / obligation. The combined (latest) statement is compared in Check31"
 
 /-! ## 3. the quotes and the environment points -/
 
