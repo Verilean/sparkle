@@ -103,7 +103,7 @@ def MutCFNoX := ExpCheckedFin counterLoop.machineData counterLoopType counterLoo
 def MutCFNoF := ExpCheckedFin counterLoop.machineData counterLoopType counterLoopValue 1000000 true false
 
 /-- `counterLoop_final11`: knobs: where `HeadAt` starts, where the link `ReadsAt` is read, the environment of the conclusion, the data, the post root, and which finite premise is present -/
-def ExpF11 (hhw rdw : W → W → W) (eC : Environment → ST.Ref IO.RealWorld Core.State → W → W → Environment) (dd : MachineData) (postRoot : Name)
+def ExpF11 (hhw rdw : W → W → W) (eC : Environment → ST.Ref IO.RealWorld Core.State → W → W → Environment) (lvlBody : Lean.Expr) (postRoot : Name)
     (needLvl needX needF : Bool) : Prop :=
   ∀ {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
@@ -112,7 +112,7 @@ def ExpF11 (hhw rdw : W → W → W) (eC : Environment → ST.Ref IO.RealWorld C
     RunsTo (synthesizeCombinational ``counterLoop) mctx mref cctx cref w (b, D') w' →
     (∀ (s : CoreSaved) (w1 : W), RunsTo (coreHead ``counterLoop) mctx mref cctx cref (hhw w w') s w1 → envAt cref w1 = envAt cref (hhw w w')) →
     ReadWorld cref →
-    (if needLvl then lvl counterLoop.machineData.shape.body = 1000000 else True) →
+    (if needLvl then lvl lvlBody = 1000000 else True) →
     (if needX then CounterLoopExtern else True) →
     (if needF then CounterLoopEnvFacts env₀ else True) →
     ReadsAt env₀ cref (rdw w w') →
@@ -120,15 +120,15 @@ def ExpF11 (hhw rdw : W → W → W) (eC : Environment → ST.Ref IO.RealWorld C
     ∃ (mm : MonoTy shCounter) (p : Pkg ι (fun _ => defaultDomain)),
       RootArtifactMono (eC env₀ cref w w') (GPd (ι := ι) lvl (eC env₀ cref w w'))
         (PostRun mctx mref cctx cref w postRoot D') ``counterLoop shCounter mm b D' p
-def F11True := ExpF11 (fun w _ => w) (fun w _ => w) ZS counterLoop.machineData ``counterLoop true true true
-def M11HeadEnd := ExpF11 (fun _ w' => w') (fun w _ => w) ZS counterLoop.machineData ``counterLoop true true true
-def M11LinkEnd := ExpF11 (fun w _ => w) (fun _ w' => w') ZS counterLoop.machineData ``counterLoop true true true
-def M11ConclEnd := ExpF11 (fun w _ => w) (fun w _ => w) ZE counterLoop.machineData ``counterLoop true true true
-def M11Data := ExpF11 (fun w _ => w) (fun w _ => w) ZS shift4Loop.machineData ``counterLoop true true true
-def M11Post := ExpF11 (fun w _ => w) (fun w _ => w) ZS counterLoop.machineData ``shift4Loop true true true
-def M11NoLvl := ExpF11 (fun w _ => w) (fun w _ => w) ZS counterLoop.machineData ``counterLoop false true true
-def M11NoX := ExpF11 (fun w _ => w) (fun w _ => w) ZS counterLoop.machineData ``counterLoop true false true
-def M11NoF := ExpF11 (fun w _ => w) (fun w _ => w) ZS counterLoop.machineData ``counterLoop true true false
+def F11True := ExpF11 (fun w _ => w) (fun w _ => w) ZS counterLoop.machineData.shape.body ``counterLoop true true true
+def M11HeadEnd := ExpF11 (fun _ w' => w') (fun w _ => w) ZS counterLoop.machineData.shape.body ``counterLoop true true true
+def M11LinkEnd := ExpF11 (fun w _ => w) (fun _ w' => w') ZS counterLoop.machineData.shape.body ``counterLoop true true true
+def M11ConclEnd := ExpF11 (fun w _ => w) (fun w _ => w) ZE counterLoop.machineData.shape.body ``counterLoop true true true
+def M11Data := ExpF11 (fun w _ => w) (fun w _ => w) ZS shift4Loop.machineData.shape.body ``counterLoop true true true
+def M11Post := ExpF11 (fun w _ => w) (fun w _ => w) ZS counterLoop.machineData.shape.body ``shift4Loop true true true
+def M11NoLvl := ExpF11 (fun w _ => w) (fun w _ => w) ZS counterLoop.machineData.shape.body ``counterLoop false true true
+def M11NoX := ExpF11 (fun w _ => w) (fun w _ => w) ZS counterLoop.machineData.shape.body ``counterLoop true false true
+def M11NoF := ExpF11 (fun w _ => w) (fun w _ => w) ZS counterLoop.machineData.shape.body ``counterLoop true true false
 
 def whitelist : List Name := [``ExpOfDecl, ``OfDeclTrue, ``MutOfDeclNoGates, ``MutOfDeclNoReader, ``ExpExternMk, ``ExternMkTrue, ``MutExternValue, ``MutExternArity,
   ``ExpEnvFactsMk, ``EnvFactsMkTrue, ``MutEnvValue, ``MutEnvTy, ``MutEnvData, ``MutEnvPolarity, ``MutEnvName,
@@ -179,7 +179,7 @@ run_cmd liftTermElabM do
   for mu in [``MutCFData, ``MutCFVal, ``MutCFFuel, ``MutCFNoX, ``MutCFNoF] do differs (S ++ `counterLoop_checkedEnv_of_finite) mu; nm := nm + 1
   same (S ++ `counterLoop_final11) ``F11True
   for mu in [``M11HeadEnd, ``M11LinkEnd, ``M11ConclEnd, ``M11Data, ``M11Post, ``M11NoLvl, ``M11NoX, ``M11NoF] do differs (S ++ `counterLoop_final11) mu; nm := nm + 1
-  logInfo m!"FGCIRCUIT10 SIGNATURES: checkedEnv_of_decl, CounterLoopExtern.mk, CounterLoopEnvFacts.mk, counterLoop_dataOfAt, counterLoop_gates, counterLoop_checkedEnv_of_finite, counterLoop_final11: complete types match the independently written statements; {nm} mutants rejected (each counted per check: dropped gate / reader / lvl / extern / env-facts premise, another value / type / data / post root, the instance predicate with the wrong polarity, `proj` asked at another name, the arity of the runCircuitH test, the fuel, END-WORLD controls = the same run's end world w' (head start, link, conclusion environment))"
+  logInfo m!"FGCIRCUIT10 SIGNATURES: checkedEnv_of_decl, CounterLoopExtern.mk, CounterLoopEnvFacts.mk, counterLoop_dataOfAt, counterLoop_gates, counterLoop_checkedEnv_of_finite, counterLoop_final11: complete types match the independently written statements; {nm} mutants rejected (each counted per check: dropped gate / reader / lvl / extern / env-facts premise, another value / type / data (EnvFacts.mk, dataOfAt, the fuel body of final11) / post root, the instance predicate with the wrong polarity, `proj` asked at another name, the arity of the runCircuitH test, the fuel, END-WORLD controls = the same run's end world w' (head start, link, conclusion environment))"
 
 /-! ## 2. the hypotheses that remain -/
 
@@ -242,7 +242,8 @@ run_cmd liftTermElabM do
   -- (2) the data reader is sensitive to the value: another root's value changes the result
   let E2 := ConstantInfo.defnInfo { d with value := shift4LoopValue, type := shift4LoopType }
   let other := Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E2 se counterLoop.machineData.shape
-  let ctrl2 : Bool := match other with | some dd2 => (← dataExprOf dd2) != (← literalExpr ``counterLoop.machineData) | none => true
+  let lit ← literalExpr ``counterLoop.machineData
+  let ctrl2 : Bool ← match other with | some dd2 => do pure ((← dataExprOf dd2) != lit) | none => pure true
   unless ctrl2 do throwError "negative control: another value gave the same data"
   logInfo m!"FGCIRCUIT10 SNAPSHOT10: on this build's ONE environment (an EVALUATION, not a supply of the hypotheses): CounterLoopExtern (pack / rootFloat / Expr.find?) and CounterLoopEnvFacts (root, machineShape? = the data's shape, userInliner at value and type, instancePredicate at value = false, proj at Signal.loop = none) hold; entry₀ is the declaration; the gates (mixedCertifiedShape? with the instance predicate true everywhere except the value) and dataOfAt (proj / fields answering something else off Signal.loop) are unchanged — the only places the evaluation looked. Controls: another root's value gives other data; the instance predicate is true on some sub-term of the hierarchical probe's body: {ctrl1} (informative: false only if the probe's body has no instance sub-term)"
 
