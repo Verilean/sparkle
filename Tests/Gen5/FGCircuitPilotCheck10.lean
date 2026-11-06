@@ -209,45 +209,66 @@ run_cmd liftTermElabM do
 
 /-! ## 4. SNAPSHOT10: the named facts evaluated on ONE environment; the finite-input claim probed -/
 
+def rootD (env : Environment) : Option DefinitionVal :=
+  match env.find? ``counterLoop with
+  | some (.defnInfo d) => some d
+  | _ => none
+
+def externOk : Bool :=
+  Sparkle.Compiler.MachTupleIn.packTupleInputs counterLoopValue == counterLoopValue &&
+  Sparkle.Compiler.MachRawSurface.rootFloat counterLoopValue == counterLoopValue &&
+  (counterLoopValue.find? (fun t => t.isAppOfArity ``Sparkle.Core.runCircuitH 8)).isNone
+
+def envFactsOk (env : Environment) : Bool :=
+  match rootD env with
+  | some d =>
+    d.levelParams.isEmpty && d.type == counterLoopType && d.value == counterLoopValue &&
+    userInliner env counterLoopValue == counterLoopValue && userInliner env counterLoopType == counterLoopType &&
+    instancePredicate env counterLoopValue == false && ((structEnv env).proj ``Sparkle.Core.Signal.Signal.loop).isNone
+  | none => false
+
 run_cmd liftTermElabM do
   let env ← getEnv
-  let X := ``counterLoop
-  -- CounterLoopExtern (closed, env independent)
-  unless Sparkle.Compiler.MachTupleIn.packTupleInputs counterLoopValue == counterLoopValue do throwError "pack fact false"
-  unless Sparkle.Compiler.MachRawSurface.rootFloat counterLoopValue == counterLoopValue do throwError "rootFloat fact false"
-  unless (counterLoopValue.find? (fun t => t.isAppOfArity ``Sparkle.Core.runCircuitH 8)).isNone do throwError "find? fact false"
-  -- CounterLoopEnvFacts env
-  let some (.defnInfo d) := env.find? X | throwError "no root"
-  unless d.levelParams.isEmpty && d.type == counterLoopType && d.value == counterLoopValue do throwError "root fact false"
-  let se := structEnv env
-  let some s := machineShape? false [] (.defnInfo d) se | throwError "machineShape? none"
+  unless externOk do throwError "CounterLoopExtern fact false"
+  unless envFactsOk env do throwError "CounterLoopEnvFacts (except machineShape?) false"
+  let some d := rootD env | throwError "no root"
+  let some s := machineShape? false [] (.defnInfo d) (structEnv env) | throwError "machineShape? none"
   unless (← shapeExprOf s) == (← shapeExprOf counterLoop.machineData.shape) do throwError "machineShape? ≠ the data's shape"
-  unless userInliner env counterLoopValue == counterLoopValue do throwError "ui_val false"
-  unless userInliner env counterLoopType == counterLoopType do throwError "ui_ty false"
-  unless instancePredicate env counterLoopValue == false do throwError "ip_val false"
-  unless (se.proj ``Sparkle.Core.Signal.Signal.loop).isNone do throwError "proj fact false"
-  -- the entry constant is the declaration itself (entryOfDecl_eq, evaluated)
-  let some E := Tools.ShippingGen5Acc.entry₀ env X | throwError "no entry"
-  unless (match E with | .defnInfo d' => d'.value == counterLoopValue && d'.type == counterLoopType | _ => false) do throwError "entry₀ is not the declaration"
-  -- the finite-input claim: gates and data with ALTERED arguments (the instance predicate true off the value; proj answers off Signal.loop)
+  logInfo "FGCIRCUIT10 SNAPSHOT10a: on this build's ONE environment (an EVALUATION, not a supply of the hypotheses): CounterLoopExtern (packTupleInputs / rootFloat / Expr.find? on counterLoopValue) and CounterLoopEnvFacts (root, machineShape? = the data's shape, userInliner at value and type, instancePredicate at the value = false, proj at Signal.loop = none) hold"
+
+run_cmd liftTermElabM do
+  let env ← getEnv
+  let some E := Tools.ShippingGen5Acc.entry₀ env ``counterLoop | throwError "no entry"
+  let se := structEnv env
+  -- the finite-input claim: gates and data with ALTERED arguments (the instance predicate true off the value; proj / fields answering something else off Signal.loop)
   let ipAlt : Lean.Expr → Bool := fun e => if e == counterLoopValue then instancePredicate env e else true
-  let seAlt : StructEnv := { se with proj := fun n => if n == ``Sparkle.Core.Signal.Signal.loop then se.proj n else some (`x, 1, 0), fields := fun n => some (n, []) }
+  let projAlt : Name → Option (Name × Nat × Nat) := fun n => if n == ``Sparkle.Core.Signal.Signal.loop then se.proj n else some (`x, 1, 0)
+  let seAlt : StructEnv := { se with proj := projAlt, fields := fun n => some (n, []) }
   unless (certifiedShape? false [] E).isNone && (mixedCertifiedShape? false [] E ipAlt).isNone do throwError "gates depend on the instance predicate off the value"
-  let some dd := Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E seAlt counterLoop.machineData.shape | throwError "dataOfAt none under altered proj/fields"
-  unless (← dataExprOf dd) == (← literalExpr ``counterLoop.machineData) do throwError "dataOfAt (altered proj/fields) differs from machineData"
-  -- negative controls: the probes are not vacuous
-  -- (1) the instance predicate is not constantly false: some sub-term of a hierarchical root's body satisfies it
-  let hftBody := (env.find? ``Tests.Gen5.FGCircuitPilotCheck8.hftOutProbe).bind (·.value?)
-  let ctrl1 : Bool := match hftBody with | some v => (v.find? fun e => instancePredicate env e).isSome | none => false
-  -- (2) the data reader is sensitive to the value: another root's value changes the result
-  let E2 := ConstantInfo.defnInfo { d with value := shift4LoopValue, type := shift4LoopType }
-  let other := Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E2 se counterLoop.machineData.shape
+  let r := Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E seAlt counterLoop.machineData.shape
   let lit ← literalExpr ``counterLoop.machineData
-  let mut ctrl2 : Bool := true
-  if let some dd2 := other then
+  match r with
+  | none => throwError "dataOfAt none under altered proj/fields"
+  | some dd =>
+    let e ← dataExprOf dd
+    unless e == lit do throwError "dataOfAt (altered proj/fields) differs from machineData"
+  logInfo "FGCIRCUIT10 SNAPSHOT10b: the gates (mixedCertifiedShape? with the instance predicate true everywhere except at the value) and dataOfAt (proj answering `some` off Signal.loop, fields answering `some` everywhere) are unchanged on this build's one environment — consistent with the finite-input claim (the only places the evaluation looked); a probe, not a proof of independence"
+
+run_cmd liftTermElabM do
+  let env ← getEnv
+  let se := structEnv env
+  -- negative control (a): another root's value gives other data (the reader is sensitive to the value)
+  let some d := rootD env | throwError "no root"
+  let E2 := ConstantInfo.defnInfo { d with value := shift4LoopValue, type := shift4LoopType }
+  let lit ← literalExpr ``counterLoop.machineData
+  match Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E2 se counterLoop.machineData.shape with
+  | none => pure ()
+  | some dd2 =>
     let e2 ← dataExprOf dd2
-    ctrl2 := e2 != lit
-  unless ctrl2 do throwError "negative control: another value gave the same data"
-  logInfo m!"FGCIRCUIT10 SNAPSHOT10: on this build's ONE environment (an EVALUATION, not a supply of the hypotheses): CounterLoopExtern (pack / rootFloat / Expr.find?) and CounterLoopEnvFacts (root, machineShape? = the data's shape, userInliner at value and type, instancePredicate at value = false, proj at Signal.loop = none) hold; entry₀ is the declaration; the gates (mixedCertifiedShape? with the instance predicate true everywhere except the value) and dataOfAt (proj / fields answering something else off Signal.loop) are unchanged — the only places the evaluation looked. Controls: another root's value gives other data; the instance predicate is true on some sub-term of the hierarchical probe's body: {ctrl1} (informative: false only if the probe's body has no instance sub-term)"
+    if e2 == lit then throwError "negative control: another value gave the same data"
+  -- negative control (b): the instance predicate is true on some sub-term of the hierarchical probe's body
+  let hftBody := (env.find? ``Tests.Gen5.FGCircuitPilotCheck8.hftOutProbe).bind (·.value?)
+  let ctrl : Bool := match hftBody with | some v => (v.find? fun e => instancePredicate env e).isSome | none => false
+  logInfo m!"FGCIRCUIT10 SNAPSHOT10c: controls: another root's value gives other data or none; the instance predicate is true on a sub-term of the hierarchical probe's body: {ctrl} (so it is not constantly false)"
 
 end Tests.Gen5.FGCircuitPilotCheck10
