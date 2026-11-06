@@ -136,6 +136,41 @@ theorem closed_of_ranA {O : RefLawsAOps MkRefd mref cref} {c : Name} {shape : Ma
     · obtain ⟨-, h1, h2⟩ := Tools.ShippingChildServe.closeInstsG_acyclic hc
       exact ⟨h1, h2⟩
 
+/-! ## the root's data facts and `hgate` -/
+open Tools.ShippingGen5Sem (kDOf)
+
+theorem hft_callsOk : synth_hftPcieOutByte.machineData.callsOk (kDOf synth_hftPcieOutByte.machineData) = true := by decide +kernel
+theorem hft_slots : synth_hftPcieOutByte.machineData.ss.length = synth_hftPcieOutByte.machineData.shape.layout.slots.length := by decide +kernel
+theorem hft_domB : ∀ b ∈ synth_hftPcieOutByte.machineData.shape.binders.drop (kDOf synth_hftPcieOutByte.machineData), b.2 ≠ .domain := by decide +kernel
+theorem hft_outTy : ∀ o ∈ synth_hftPcieOutByte.machineData.shape.layout.outs, o.ty.bitWidth = o.width := by decide +kernel
+theorem hft_nomem : ∀ x ∈ synth_hftPcieOutByte.machineData.shape.instTagged,
+    x.2.child?.isNone = true ∧ (Sparkle.Compiler.MachMemory.memChild? x.1).isNone = true := by decide +kernel
+
+/-- **`HftPostGate` is derived** (it is no longer a hypothesis): the embedded closing run is a `MachineRanA`; the closed body is the instances plus the `seqStmtOk` statements of the closed machine, and the post-processing keeps that (`core_hierGate_anyA`) -/
+theorem hftPostGate_of_local (L : Laws mref cref) {w : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hdRun : ∀ raw D₀ w1, MachineDefinesLinkedOff mctx mref cctx cref hftRoot synth_hftPcieOutByte.machineData.shape w raw D₀ w1)
+    (hclL : HftCoreCloses mctx mref cctx cref w) :
+    HftPostGate mctx mref cctx cref w b D' := by
+  intro raw D₀ w1 hr hpe
+  have ran := coreOff_ranA L hstart hr (hdRun raw D₀ w1) hclL
+  have hpost : b = Sparkle.IR.ZeroWidth.dropZeroWidthModule raw ∨
+      b = Sparkle.IR.RefineCheck.mergeChecked (Sparkle.IR.ZeroWidth.dropZeroWidthModule raw) :=
+    hpe.imp And.left And.left
+  exact Tools.ShippingParentDesignA.core_hierGate_anyA L.O synth_hftPcieOutByte.machineData synth_hftPcieOutByte.machine_ok
+    synth_hftPcieOutByte.machine_body hft_callsOk hft_slots hft_domB hftShape_insts_ne hft_outTy hft_nomem hpost ran
+
+/-- **`HftObNoRawOff` from the localised closing alone** -/
+theorem hftObNoRawOff_of_local (L : Laws mref cref) {w : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hdRun : ∀ raw D₀ w1, MachineDefinesLinkedOff mctx mref cctx cref hftRoot synth_hftPcieOutByte.machineData.shape w raw D₀ w1)
+    (hclL : HftCoreCloses mctx mref cctx cref w) :
+    HftObNoRawOff mctx mref cctx cref w b D' := by
+  intro raw D₀ w1 hr hpe
+  obtain ⟨h1, h2⟩ := closed_of_ranA (coreOff_ranA L hstart hr (hdRun raw D₀ w1) hclL) hftShape_insts_ne
+  exact ⟨fun n => Tools.ShippingGen5DCEntryS.noRawBelow_of_noInstOf h2 (n + 1) raw h1,
+    fun n => noRawBelow_opt hpe h1 h2 (hftPostGate_of_local L hstart hdRun hclL raw D₀ w1 hr hpe) (n + 1), noB_of_post hpe h1⟩
+
 end Proofs
 
 end Tools.ShippingFGCircuitS1zClose
