@@ -169,3 +169,11 @@ h264 の 3 件について:
 - 合成の必要 IP: 327 / 327 が成功、除外 0、未説明 0。
 - シミュレーション: ユニークな 146 検査のうち、既存の不具合が 3 件（h264、成功扱いにしない）、JIT 版への置き換えが 1 件（toplevel）、それ以外はすべて成功。内訳は `sim_final.tsv`（検査名 → 使った Job / 結果 / 既存の失敗 / JIT による代替）。
 - 未説明: 0。
+
+## 出力の baseline（#writeDesign / #writeVerilogDesign の 18 コマンド、2026-11-06、coder）
+
+取得: kjob-run-src-fgc-s0d-4c68（土台 12237354、同じコンパイラ。toolchain leanprover/lean4:v4.32.1）。capture_outputs.sh で、16 ファイル・18 コマンドを elaborate し直し、書かれた出力の実体をソースの外（`/home/junji-hashimoto/git/.kjob-state/namespaces/sparkle-dev/kjob-run-src-fgc-s0d-4c68/fgc_outputs/output_store`）に保存した。
+
+- 結果: 出力 **50 ファイル**、すべて status OK（欠落 0、空 0、失敗 0）。18 / 18 コマンドに対応する出力がある。capture_outputs.sh は exit 0。
+- 表: `scripts/gen5/fgc_baseline/output_baseline.tsv`（file、line、command、top、kind、declared_path、path、status、sha256、bytes、stored）。出力の実体はソースツリーに置かず、sha256 とパスだけを commit する。
+- 合成の 327 コマンドは、stdout の module の hash（OK 309）と、この表の出力ファイルの hash（OK-nostdout 18 の 50 ファイル）で、出力の比較の baseline がそろった。
