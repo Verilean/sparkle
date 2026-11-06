@@ -11,7 +11,7 @@ set_option autoImplicit false
 3. AXIOMS.
 4. SNAPSHOT11 (ONE environment: the build's): the first reduction steps of the root's body by the rules' own functions, and the precise list of subterms (stuck heads) for which `CDX` still has no rule. -/
 namespace Tests.Gen5.FGCircuitPilotCheck11
-open Lean Meta Elab Command Term Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD
+open Lean Meta Elab Command Term Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingGen5ConstValueE
 
 /-! ## 1. expected statements, written independently (knobs: one per mutant) -/
 
@@ -76,16 +76,19 @@ def ExpEmbedCD (rev : Bool) (resetRho : Bool) : Prop :=
 def ExpEmbedTD : Prop :=
   ∀ {env : Environment} {ρ : Val} {e : Expr} {T : Type}, TD ρ e T → TDX env ρ e T
 
-/-- functionality. Knobs: the second derivation's environment / valuation / expression, the conclusion -/
-def ExpFun (env2 : Bool) (rho2 : Bool) (heq : Bool) : Prop :=
-  ∀ {env env' : Environment} {ρ ρ' : Val} {e : Expr} {α α' : Type} {v : α} {v' : α'},
-    CDX env ρ e α v → CDX (if env2 then env' else env) (if rho2 then ρ' else ρ) e α' v' → α = α' ∧ (if heq then HEq v v' else True)
-def ExpFunTD (env2 : Bool) : Prop :=
-  ∀ {env env' : Environment} {ρ : Val} {e : Expr} {T T' : Type}, TDX env ρ e T → TDX (if env2 then env' else env) ρ e T' → T = T'
-def FunTrue := ExpFun false false true
-def FunOtherEnv := ExpFun true false true
-def FunOtherRho := ExpFun false true true
-def FunNoHEq := ExpFun false false false
+/-- functionality, and mutants: the second derivation in another environment / valuation, no `HEq` of the values -/
+def FunTrue : Prop :=
+  ∀ {env : Environment} {ρ : Val} {e : Expr} {α α' : Type} {v : α} {v' : α'}, CDX env ρ e α v → CDX env ρ e α' v' → α = α' ∧ HEq v v'
+def FunOtherEnv : Prop :=
+  ∀ {env env' : Environment} {ρ : Val} {e : Expr} {α α' : Type} {v : α} {v' : α'}, CDX env ρ e α v → CDX env' ρ e α' v' → α = α' ∧ HEq v v'
+def FunOtherRho : Prop :=
+  ∀ {env : Environment} {ρ ρ' : Val} {e : Expr} {α α' : Type} {v : α} {v' : α'}, CDX env ρ e α v → CDX env ρ' e α' v' → α = α' ∧ HEq v v'
+def FunNoHEq : Prop :=
+  ∀ {env : Environment} {ρ : Val} {e : Expr} {α α' : Type} {v : α} {v' : α'}, CDX env ρ e α v → CDX env ρ e α' v' → α = α'
+def FunTDTrue : Prop :=
+  ∀ {env : Environment} {ρ : Val} {e : Expr} {T T' : Type}, TDX env ρ e T → TDX env ρ e T' → T = T'
+def FunTDOtherEnv : Prop :=
+  ∀ {env env' : Environment} {ρ : Val} {e : Expr} {T T' : Type}, TDX env ρ e T → TDX env' ρ e T' → T = T'
 
 def varBad : Expr := .lam `x (.const ``Nat []) (.bvar 0) .default
 
@@ -141,10 +144,8 @@ run_cmd liftTermElabM do
   same (S ++ `cdx_fun) (Q ++ `FunTrue)
   for mu in ["FunOtherEnv", "FunOtherRho", "FunNoHEq"] do
     differs (S ++ `cdx_fun) (Q ++ Name.mkSimple mu); nm := nm + 1
-  let ciF ← getConstInfo (S ++ `tdx_fun)
-  unless ← withDefault (isDefEq ciF.type (mkApp (mkConst (Q ++ `ExpFunTD)) (mkConst ``false))) do throwError "tdx_fun: type is NOT the expected statement"
-  if ← withDefault (isDefEq ciF.type (mkApp (mkConst (Q ++ `ExpFunTD)) (mkConst ``true))) then throwError "tdx_fun: the MUTANT (other environment) was accepted"
-  nm := nm + 1
+  same (S ++ `tdx_fun) (Q ++ `FunTDTrue)
+  differs (S ++ `tdx_fun) (Q ++ `FunTDOtherEnv); nm := nm + 1
   -- the 14 old rules of CDX (+ 5 of TDX) are the old rules with the environment threaded
   let mut nOld : Nat := 0
   for (oldT, newT, ctors) in [(``CD, ``DX, [`bvar, `natLit, `domDefault, `bvOfNat, `bvInhabited, `boolInhabited, `sigPure, `sigRegister, `sigMux, `sigAddBV, `sigLoop, `lam, `letE, `sigBeqBV, `sigAndBool, `sigOrBool, `sigNotBool, `bvAbbrev]),
@@ -160,7 +161,7 @@ run_cmd liftTermElabM do
   -- a control: the comparison rejects a changed rule (CDX.sigMux against CD.sigPure)
   do
     let oi ← getConstInfo (``CD ++ `sigPure)
-    let ni ← getConstInfo (``CDX ++ `sigMux)
+    let ni ← getConstInfo (``DX ++ `sigMux)
     let er ← eraseEnv ni.type
     let some body := (match er with | .forallE _ _ b _ => some b | _ => none) | throwError "x"
     if ← withDefault (isDefEq (body.instantiate1 (mkConst ``Nat)) oi.type) then throwError "control: sigMux accepted as sigPure"
@@ -169,13 +170,13 @@ run_cmd liftTermElabM do
 
 /-! ## 2. OPS: the own Expr operations against Lean's -/
 
-example : instE (.bvar 0) (.bvar 7) 0 = .bvar 7 := by decide
-example : instE (.lam `x (.const ``Nat []) (.bvar 1) .default) (.bvar 7) 0 = .lam `x (.const ``Nat []) (.bvar 8) .default := by decide
-example : instE (.app (.bvar 1) (.bvar 0)) (.const ``Nat []) 0 = .app (.bvar 0) (.const ``Nat []) := by decide
-example : betaApp (.lam `x (.const ``Nat []) (.lam `y (.const ``Nat []) (.app (.bvar 1) (.bvar 0)) .default) .default) [.bvar 3, .bvar 4] = .app (.bvar 3) (.bvar 4) := by decide
-example : betaApp (.const ``Nat []) [.bvar 3] = .app (.const ``Nat []) (.bvar 3) := by decide
+example : instE (.bvar 0) (.bvar 7) 0 = .bvar 7 := rfl
+example : instE (.lam `x (.const ``Nat []) (.bvar 1) .default) (.bvar 7) 0 = .lam `x (.const ``Nat []) (.bvar 8) .default := rfl
+example : instE (.app (.bvar 1) (.bvar 0)) (.const ``Nat []) 0 = .app (.bvar 0) (.const ``Nat []) := rfl
+example : betaApp (.lam `x (.const ``Nat []) (.lam `y (.const ``Nat []) (.app (.bvar 1) (.bvar 0)) .default) .default) [.bvar 3, .bvar 4] = .app (.bvar 3) (.bvar 4) := rfl
+example : betaApp (.const ``Nat []) [.bvar 3] = .app (.const ``Nat []) (.bvar 3) := rfl
 example : appFn (appN ``Signal.pure [.zero] [.bvar 0, .bvar 1, .bvar 2]) = .const ``Signal.pure [.zero] := appFn_appN _ _ _
-example : appArgs (appN ``Signal.pure [.zero] [.bvar 0, .bvar 1, .bvar 2]) = [.bvar 0, .bvar 1, .bvar 2] := by decide
+example : appArgs (appN ``Signal.pure [.zero] [.bvar 0, .bvar 1, .bvar 2]) = [.bvar 0, .bvar 1, .bvar 2] := rfl
 
 /-! ## 3. AXIOMS -/
 run_cmd liftTermElabM do
@@ -200,6 +201,18 @@ def bump (l : List (String × Nat)) (k : String) : List (String × Nat) :=
   if l.any (·.1 == k) then l.map fun (a, n) => if a == k then (a, n + 1) else (a, n) else l ++ [(k, 1)]
 
 abbrev M := StateM Stuck
+
+/-- a short description of a stuck term: heads of nested projections, the head constant with its kind -/
+partial def describe (env : Environment) : Lean.Expr → String
+  | .proj s j y => s!"proj {s}#{j} ({describe env y})"
+  | x =>
+    match appFn x with
+    | .const c _ =>
+      let k := match env.find? c with
+        | some (.inductInfo _) => "inductive" | some (.ctorInfo _) => "ctor" | some (.recInfo _) => "recursor" | some (.opaqueInfo _) => "opaque"
+        | some (.thmInfo _) => "theorem" | some (.axiomInfo _) => "axiom" | some (.defnInfo _) => "defn" | some (.quotInfo _) => "quot" | none => "missing"
+      s!"{c}[{k}]/{(appArgs x).length}"
+    | h => s!"<{h.ctorName}>/{(appArgs x).length}"
 
 mutual
 partial def tdOk (env : Environment) (A : Lean.Expr) : M Unit := do
@@ -233,11 +246,11 @@ partial def recogProj (env : Environment) (fuel : Nat) (S : Name) (i : Nat) (x :
       | _ =>
         match whStep env x with
         | some x' => do modify fun s => { s with unfolded := bump s.unfolded ("proj-arg:" ++ ctor.toString) }; recogProj env fuel S i x'
-        | none => modify fun s => { s with heads := bump s.heads s!"proj {S}#{i} of {ctor}" }
+        | none => modify fun s => { s with heads := bump s.heads s!"proj {S}#{i} of {describe env x}" }
     | h =>
       match whStep env x with
       | some x' => recogProj env fuel S i x'
-      | none => modify fun s => { s with heads := bump s.heads s!"proj {S}#{i} of <{h.ctorName}>" }
+      | none => modify fun s => { s with heads := bump s.heads s!"proj {S}#{i} of {describe env x}" }
 
 partial def recog (env : Environment) (fuel : Nat) (e : Lean.Expr) : M Unit := do
   modify fun s => { s with nodes := s.nodes + 1 }
@@ -257,8 +270,12 @@ partial def recog (env : Environment) (fuel : Nat) (e : Lean.Expr) : M Unit := d
     | .lam .. => recog env fuel (betaApp (appFn e) (appArgs e))
     | .const c _ =>
       let args := appArgs e
-      let sub (ixs : List Nat) : M Unit := do for i in ixs do (if let some a := args[i]? then recog env fuel a)
-      let tys (ixs : List Nat) : M Unit := do for i in ixs do (if let some a := args[i]? then tdOk env a)
+      let sub (ixs : List Nat) : M Unit := do
+        for i in ixs do
+          if let some a := args[i]? then recog env fuel a
+      let tys (ixs : List Nat) : M Unit := do
+        for i in ixs do
+          if let some a := args[i]? then tdOk env a
       if c == ``OfNat.ofNat then pure ()
       else if c == ``Sparkle.Core.Domain.defaultDomain then pure ()
       else if c == ``instInhabitedBool then pure ()
@@ -267,7 +284,7 @@ partial def recog (env : Environment) (fuel : Nat) (e : Lean.Expr) : M Unit := d
       else if c == ``Signal.register then do sub [0, 2, 3]; tys [1]
       else if c == ``Signal.mux then do sub [0, 2, 3, 4]; tys [1]
       else if c == ``Signal.loop then do sub [0, 2, 3]; tys [1]
-      else if c == ``HAdd.hAnd || c == ``HAdd.hAdd || c == ``HAnd.hAnd || c == ``HOr.hOr then sub [4, 5]
+      else if c == ``HAdd.hAdd || c == ``HAnd.hAnd || c == ``HOr.hOr then sub [4, 5]
       else if c == ``Complement.complement then sub [2]
       else if c == ``Sparkle.Core.Signal.Signal.beq then sub [1, 3, 4]
       else if (bvAbbrevRow c).isSome then pure ()
@@ -304,7 +321,7 @@ run_cmd liftTermElabM do
   -- a control: a wrong substitution is detected
   let c0 := ``Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte
   let some d0 := env.find? c0 | throwError "x"
-  if betaApp d0.value [.bvar 0] == Lean.Expr.beta d0.value #[.bvar 1] then throwError "control: betaApp ignores its argument"
+  if betaApp d0.value! [.bvar 0] == Lean.Expr.beta d0.value! #[.bvar 1] then throwError "control: betaApp ignores its argument"
   -- the first reduction steps of the body, by the rules' own functions
   let mut cur := body
   let mut trace : List String := []

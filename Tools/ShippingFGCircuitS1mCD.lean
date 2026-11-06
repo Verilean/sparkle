@@ -97,14 +97,34 @@ def unfoldAt (env : Environment) (e : Expr) : Option Expr :=
     | _ => none
   | _ => none
 
-/-- one weak-head step of a structure argument: zeta, beta, or delta -/
-def whStep (env : Environment) (x : Expr) : Option Expr :=
-  match x with
+/-- a head redex that is not a delta step: a beta redex `(fun x => b) a …`, or a `let` applied to arguments `(let x := v; b) a …` (zeta, then the application) -/
+def betaStep (e : Expr) : Option Expr :=
+  match appFn e, appArgs e with
+  | .lam .., _ :: _ => some (betaApp (appFn e) (appArgs e))
+  | .letE _ _ v b _, _ :: _ => some (mkApps (instE b v 0) (appArgs e))
+  | _, _ => none
+
+/-- iota for `Expr.proj s j y` when `y` is a saturated constructor application of the inductive `s` -/
+def iotaAt (env : Environment) (s : Name) (j : Nat) (y : Expr) : Option Expr :=
+  match appFn y with
+  | .const c _ =>
+    match env.find? c with
+    | some (.ctorInfo cv) =>
+      if cv.induct == s && (appArgs y).length == cv.numParams + cv.numFields then (appArgs y)[cv.numParams + j]? else none
+    | _ => none
+  | _ => none
+
+/-- one weak-head step of a structure argument: zeta, beta (`betaStep`), delta, a step under a projection, or iota of a projection -/
+def whStep (env : Environment) : Expr → Option Expr
   | .letE _ _ v b _ => some (instE b v 0)
-  | _ =>
-    match appFn x, appArgs x with
-    | .lam .., _ :: _ => some (betaApp (appFn x) (appArgs x))
-    | _, _ => unfoldAt env x
+  | .proj s j y =>
+    match whStep env y with
+    | some y' => some (.proj s j y')
+    | none => iotaAt env s j y
+  | x =>
+    match betaStep x with
+    | some y => some y
+    | none => unfoldAt env x
 
 /-- the heads of the primitive rules of `CD` (a `defnInfo` among them must not be unfolded: the primitive rule is the meaning) -/
 def primHeads : List Name :=
@@ -210,6 +230,9 @@ inductive DX (env : Environment) : Val → Expr → Res → Prop
   /-- NEW. delta + beta of a user definition of `env` (`unfoldAt`: the head is a `defnInfo` of `env` with matching universe arity), the head not a stop constant. The value is the value of the unfolded expression. -/
   | unf {ρ : Val} {e e' : Expr} {α : Type} {v : α}
       (hs : headStop e = false) (hu : unfoldAt env e = some e') (h : CDx env ρ e' α v) : CDx env ρ e α v
+  /-- NEW. a beta / let-application head redex (`betaStep`) of the expression itself (arguments substituted by `unf` can create it). -/
+  | beta {ρ : Val} {e e' : Expr} {α : Type} {v : α}
+      (hb : betaStep e = some e') (h : CDx env ρ e' α v) : CDx env ρ e α v
   /-- NEW. `let` of a non-core type: substitute (the old `letE` handles core types). -/
   | zeta {ρ : Val} {e A v body : Expr} {n : Name} {nd : Bool} {α : Type} {r : α}
       (he : e = .letE n A v body nd) (hA : coreHead A = false) (h : CDx env ρ (instE body v 0) α r) : CDx env ρ e α r
@@ -328,19 +351,27 @@ theorem unfoldAt_lam (env : Environment) (n : Name) (A b : Expr) (bi : BinderInf
 theorem unfoldAt_letE (env : Environment) (n : Name) (A v b : Expr) (nd : Bool) : unfoldAt env (.letE n A v b nd) = none := by simp [unfoldAt, appFn]
 theorem unfoldAt_proj (env : Environment) (S : Name) (i : Nat) (x : Expr) : unfoldAt env (.proj S i x) = none := by simp [unfoldAt, appFn]
 
+theorem betaStep_const {x : Expr} {c : Name} {ls : List Level} (hh : appFn x = .const c ls) : betaStep x = none := by
+  simp [betaStep, hh]
+
+theorem unfoldAt_none_of_beta {env : Environment} {e : Expr} (h : (betaStep e).isSome = true) : unfoldAt env e = none := by
+  cases hf : appFn e <;> simp [betaStep, unfoldAt, hf] at h ⊢
+
 macro "clashx" : tactic =>
   `(tactic| (exfalso
              try subst_vars
              try simp_all [Res.kind, headStop, appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, appFn, stopC_ofNat, stopC_defaultDomain, stopC_bvOfNat, stopC_bvInh,
                stopC_boolInh, stopC_pure, stopC_register, stopC_mux, stopC_hadd, stopC_loop, stopC_beq, stopC_hand, stopC_hor, stopC_compl, bvAbbrevRow_defaultDomain,
-               bvAbbrevRow_instInhabitedBool, stopC_of_row, unfoldAt_bvar, unfoldAt_lam, unfoldAt_letE, unfoldAt_proj]))
+               bvAbbrevRow_instInhabitedBool, stopC_of_row, unfoldAt_bvar, unfoldAt_lam, unfoldAt_letE, unfoldAt_proj]
+             try simp_all [Res.kind, headStop, betaStep, appArgs, appFn, appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, unfoldAt_none_of_beta]))
 
 theorem whStep_ctor {env : Environment} {x : Expr} {ctor : Name} {ls : List Level} {cv : ConstructorVal}
     (hh : appFn x = .const ctor ls) (hc : env.find? ctor = some (.ctorInfo cv)) : whStep env x = none := by
   unfold whStep
   split
   · simp [appFn] at hh
-  · simp [hh, unfoldAt, hc]
+  · simp [appFn] at hh
+  · simp [betaStep_const hh, unfoldAt, hh, hc]
 
 macro "injx" he:ident he':ident : tactic =>
   `(tactic| (have h := Eq.trans (Eq.symm $he) $he'; revert h; simp only [appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, Expr.app.injEq, Expr.const.injEq, Expr.lam.injEq, Expr.letE.injEq, Expr.proj.injEq, Expr.lit.injEq, Literal.natVal.injEq, List.cons.injEq, and_true, true_and, and_imp, true_implies]; intros; subst_vars))
@@ -559,6 +590,12 @@ theorem dx_fun {env : Environment} {ρ : Val} {e : Expr} {r : Res} (h : DX env �
   | unf hs hu h ih => intro r' h' hk; cases h' with
     | unf hs' hu' h' =>
       have e1 := Option.some.inj (hu.symm.trans hu')
+      subst e1
+      exact ih h' rfl
+    | _ => clashx
+  | beta hb h ih => intro r' h' hk; cases h' with
+    | beta hb' h' =>
+      have e1 := Option.some.inj (hb.symm.trans hb')
       subst e1
       exact ih h' rfl
     | _ => clashx
