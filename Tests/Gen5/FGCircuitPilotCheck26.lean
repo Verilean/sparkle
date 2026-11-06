@@ -445,7 +445,7 @@ def sameN (what : String) (a exp : Lean.Expr) : MetaM Unit := do
 def diffN (what : String) (a exp : Lean.Expr) : MetaM Unit := do
   let e ← norm2 exp
   if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withDefault (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
 
 set_option maxHeartbeats 32000000 in
 run_cmd liftTermElabM do

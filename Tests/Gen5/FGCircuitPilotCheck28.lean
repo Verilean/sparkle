@@ -47,7 +47,7 @@ def same3 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
 def diff3 (what : String) (a exp : Lean.Expr) : MetaM Unit := do
   let e ← norm3 exp
   if a == e then throwError "{what}: the MUTANT is the same expression"
-  if ← withDefault (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
+  if ← withReducible (isDefEq a e) then throwError "{what}: the MUTANT was accepted"
 
 /-! ## 1. DEFS -/
 
