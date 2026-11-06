@@ -20,6 +20,13 @@ def n (e : Lean.Expr) : MetaM Lean.Expr := normCommon e
 def ctl (what : String) (ok : Bool) : MetaM Unit := do
   unless ok do throwError "FGCIRCUITCMPREGRESS control failed: {what}"
 
+-- the quoted constant is what instance search gives when nothing non-standard is registered
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let found ← synthInstance (mkApp (.const ``BEq [0]) (.const ``Nat []))
+  ctl s!"stdBEqNat is what instance search gives in the default context (got {found})" (found.eqv stdBEqNat)
+
+section
+attribute [local instance 2000] badBEq
 run_cmd Lean.Elab.Command.liftTermElabM do
   -- 1. name-only data erasure: two `_proof_`-named Nat defs with different values stay DIFFERENT
   let a ← n (.const ``_proof_a [])
@@ -48,16 +55,23 @@ run_cmd Lean.Elab.Command.liftTermElabM do
     let b := mkApp4 (.const ``BEq.beq [0]) natT inst (lit x) (lit y)
     let c := mkApp3 (.const ``Eq [1]) (.const ``Bool []) b (.const ``Bool.true [])
     mkAppN (.const ``ite [1]) #[natT, c, mkApp2 (.const ``instDecidableEqBool []) b (.const ``Bool.true []), lit 10, lit 20]
-  let stdInst ← synthInstance (mkApp (.const ``BEq [0]) natT)
+  let stdInst := stdBEqNat
   let badInst := Lean.Expr.const ``badBEq []
   ctl "standard BEq: 3 == 3 selects then-branch" (stmtEq (← n (ite' stdInst 3 3)) (lit 10))
   ctl "standard BEq: 3 == 4 selects else-branch" (stmtEq (← n (ite' stdInst 3 4)) (lit 20))
   ctl "always-false BEq is NOT the standard one (3 == 3 not selected)" (!stmtEq (← n (ite' badInst 3 3)) (lit 10))
   ctl "always-false BEq: the if is left alone" (!stmtEq (← n (ite' badInst 3 3)) (lit 20))
+  -- 5b. the non-standard instance REGISTERED for instance search (section below): search now yields it, the comparator still must not take the then-branch
+  let searched ← synthInstance (mkApp (.const ``BEq [0]) natT)
+  ctl "control precondition: instance search now returns badBEq" (searched.isConstOf ``badBEq)
+  ctl "registered badBEq: search-found instance is not accepted (3 == 3 not selected)" (!stmtEq (← n (ite' searched 3 3)) (lit 10))
+  ctl "registered badBEq: the fixed standard instance still selects then-branch" (stmtEq (← n (ite' stdInst 3 3)) (lit 10))
+  ctl "registered badBEq: 3 == 4 with the standard instance still selects else-branch" (stmtEq (← n (ite' stdInst 3 4)) (lit 20))
   -- 6. OfNat
   let ofN (inst : Lean.Expr) : Lean.Expr := mkApp3 (.const ``OfNat.ofNat [0]) natT (lit 5) inst
   ctl "standard OfNat Nat is the raw literal" (stmtEq (← n (ofN (mkApp (.const ``instOfNatNat []) (lit 5)))) (lit 5))
   ctl "custom OfNat Nat instance is NOT the raw literal" (!stmtEq (← n (ofN (mkApp (.const ``badOfNat []) (lit 5)))) (lit 5))
-  logInfo "FGCIRCUITCMPREGRESS controls: all passed (name-only erasure, proof pair same/different proposition, proofs under binders, standard/always-false BEq, standard/custom OfNat)"
+  logInfo "FGCIRCUITCMPREGRESS controls: all passed (name-only erasure, proof pair same/different proposition, proofs under binders, standard/always-false BEq (also with it registered as a local instance), standard/custom OfNat)"
+end
 
 end Tests.Gen5.FGCircuitCmpRegress

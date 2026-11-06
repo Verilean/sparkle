@@ -30,7 +30,11 @@ def isStdInst (inst inst0 : Lean.Expr) : MetaM Bool := do
   if inst.eqv inst0 then return true
   withTransparency .default (isDefEq inst inst0)
 
-/-- a literal Boolean: `true`, `false`, or `n == m` for two `Nat` numerals, where the `BEq Nat` instance is the standard (synthesised) one -/
+/-- the FIXED standard `BEq Nat` instance (`instBEqOfDecidableEq` over `instDecidableEqNat`), quoted as a constant term: it does NOT depend on the instance registrations in force (a local or global instance choosing another `BEq Nat` cannot change it) -/
+def stdBEqNat : Lean.Expr :=
+  mkApp2 (.const ``instBEqOfDecidableEq [0]) (.const ``Nat []) (.const ``instDecidableEqNat [])
+
+/-- a literal Boolean: `true`, `false`, or `n == m` for two `Nat` numerals, where the `BEq Nat` instance is the fixed standard one (`stdBEqNat`; no instance search) -/
 def litBool? (c : Lean.Expr) : MetaM (Option Bool) := do
   match c with
   | .const ``Bool.true _ => return some true
@@ -39,8 +43,7 @@ def litBool? (c : Lean.Expr) : MetaM (Option Bool) := do
     if c.isAppOfArity ``BEq.beq 4 && (c.getArg! 0).isConstOf ``Nat then
       match c.getArg! 2, c.getArg! 3 with
       | .lit (.natVal a), .lit (.natVal b) =>
-        let std ← synthInstance (mkApp (.const ``BEq [0]) (.const ``Nat []))
-        if ← isStdInst (c.getArg! 1) std then return some (a == b) else return none
+        if ← isStdInst (c.getArg! 1) stdBEqNat then return some (a == b) else return none
       | _, _ => return none
     else return none
 
