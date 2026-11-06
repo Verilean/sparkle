@@ -523,4 +523,98 @@ theorem calleeOut_tlp {ι : Type} (gi : GenIn) (hgi : gi.d = synth_hftPcieOutByt
 
 end Stages3
 
+section Stages4
+open Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1uSrc
+open Tools.ShippingMachineCausal (extendBits_self extendBits_ne)
+open Tools.ShippingMachineTeleStates (callArgVals callArgsOf)
+
+/-- after call 0: `ExtStage` agrees with the Lean extension by the first call, at the cycle `t` and the declared sorts -/
+theorem stage1 {ι : Type} (gi : GenIn) (hgi : gi.d = synth_hftPcieOutByte.machineData) (i : ι)
+    (bools : Nat → Signal defaultDomain Bool) (bits : (j n : Nat) → Signal defaultDomain (BitVec n))
+    (S : Signal defaultDomain (HList (tys gi.d.ss))) (t : Nat) (r : Signal defaultDomain (BitVec 6))
+    (ha0 : callArgVals gi.d bools bits t (S.val t) (callArgsOf gi.d 0) = [(r.val t).toNat]) :
+    (ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 1).1 = bools ∧
+    ∀ p w, p < 7 → gi.d.K p = some (.bits w) →
+      ((ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 1).2 p w).val t =
+        (extendBits bits 5 8 (Sparkle.IP.Net.HTTP.httpGetByte r) p w).val t := by
+  obtain ⟨a, ha⟩ := root_inst0
+  have hk : gi.d.shape.insts[0]? = some (hftHttp, a, .bits 8) := by rw [hgi]; exact ha
+  have hor : originOf gi.d 0 = .ord := by rw [hgi]; exact root_or0
+  have hkind : callKind gi.d 0 = .bits 8 := by rw [hgi]; exact root_kind0
+  have hkD : kDOf gi.d = 5 := by rw [hgi]; exact root_kD
+  have e1 : ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 1 =
+      callOut (hftKids (ι := ι)) gi i S 0 (bools, bits) := rfl
+  obtain ⟨h1, h2, h3⟩ := callOut_bits (hftKids (ι := ι)) gi i S 0 (bools, bits) hftHttp a 8 hk hor hkind
+  rw [e1]
+  refine ⟨h1, fun p w hp hK => ?_⟩
+  by_cases hp5 : p = 5
+  · subst hp5
+    have hw : w = 8 := by
+      rw [hgi, root_K5] at hK
+      injection hK with h; injection h with h; exact h.symm
+    subst hw
+    rw [extendBits_self]
+    have h := h2 8 t
+    rw [hkD, Nat.add_zero] at h
+    rw [h, calleeOut_http gi hgi i bools bits S t a hk r ha0]
+    simp [ofNat_toNat']
+  · have h := h3 p w (by rw [hkD]; omega)
+    rw [h, extendBits_ne _ _ _ _ _ _ _ hp5]
+
+/-- after call 1: the same, given it after call 0 -/
+theorem stage2 {ι : Type} (gi : GenIn) (hgi : gi.d = synth_hftPcieOutByte.machineData) (i : ι)
+    (bools : Nat → Signal defaultDomain Bool) (bits : (j n : Nat) → Signal defaultDomain (BitVec n))
+    (S : Signal defaultDomain (HList (tys gi.d.ss))) (t : Nat) (c0 : Signal defaultDomain (BitVec 8))
+    (hb1 : (ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 1).1 = bools)
+    (ih : ∀ p w, p < 7 → gi.d.K p = some (.bits w) →
+      ((ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 1).2 p w).val t =
+        (extendBits bits 5 8 c0 p w).val t)
+    (l1 l2 : Signal defaultDomain (BitVec 16)) (l3 l4 : Signal defaultDomain (BitVec 8))
+    (l5 : Signal defaultDomain (BitVec 32)) (l6 : Signal defaultDomain (BitVec 5))
+    (ha1 : callArgVals gi.d bools (extendBits bits 5 8 c0) t (S.val t) (callArgsOf gi.d 1) =
+      [(l1.val t).toNat, (l2.val t).toNat, (l3.val t).toNat, (l4.val t).toNat, (l5.val t).toNat, (l6.val t).toNat]) :
+    (ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 2).1 = bools ∧
+    ∀ p w, p < 7 → gi.d.K p = some (.bits w) →
+      ((ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 2).2 p w).val t =
+        (extendBits (extendBits bits 5 8 c0) 6 8 (Sparkle.IP.Bus.PCIe.tlpCplByte l1 l2 l3 l4 l5 l6) p w).val t := by
+  obtain ⟨a, ha⟩ := root_inst1
+  have hk : gi.d.shape.insts[1]? = some (hftTlp, a, .bits 8) := by rw [hgi]; exact ha
+  have hor : originOf gi.d 1 = .ord := by rw [hgi]; exact root_or1
+  have hkind : callKind gi.d 1 = .bits 8 := by rw [hgi]; exact root_kind1
+  have hkD : kDOf gi.d = 5 := by rw [hgi]; exact root_kD
+  have hnIn : gi.d.nIn = 7 := by rw [hgi]; exact root_nIn
+  have e2 : ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 2 =
+      callOut (hftKids (ι := ι)) gi i S 1 (ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 1) := rfl
+  obtain ⟨h1, h2, h3⟩ := callOut_bits (hftKids (ι := ι)) gi i S 1
+    (ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 1) hftTlp a 8 hk hor hkind
+  -- the call's arguments under the stage-1 families are those under the Lean extension
+  have hargs : ∀ l ∈ callArgsOf gi.d 1, ∀ lt, gi.d.ls[l]? = some lt → lt.2.WF gi.d.kb gi.d.kv gi.d.vw := by
+    intro l _ lt hls
+    exact LetsTyped.get (Tools.ShippingQuadCalls.ok_letsTyped gi.d gi.ok) l lt hls
+  have hargsEq : callArgVals gi.d (ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 1).1
+      (ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) gi i bools bits S 1).2 t (S.val t) (callArgsOf gi.d 1) =
+      callArgVals gi.d bools (extendBits bits 5 8 c0) t (S.val t) (callArgsOf gi.d 1) := by
+    rw [hb1]
+    exact callArgVals_tagree gi.d gi.ok bools bools _ _ t (S.val t) (fun _ _ => rfl)
+      (fun p w hp hK => ih p w (by omega) hK) _ hargs
+  rw [e2]
+  refine ⟨by rw [h1, hb1], fun p w hp hK => ?_⟩
+  by_cases hp6 : p = 6
+  · subst hp6
+    have hw : w = 8 := by
+      rw [hgi, root_K6] at hK
+      injection hK with h; injection h with h; exact h.symm
+    subst hw
+    rw [extendBits_self]
+    have h := h2 8 t
+    rw [hkD] at h
+    simp only [show 5 + 1 = 6 from rfl] at h
+    rw [h, calleeOut_tlp gi hgi i _ _ S t a hk l1 l2 l3 l4 l5 l6 (hargsEq.trans ha1)]
+    simp [ofNat_toNat']
+  · have h := h3 p w (by rw [hkD]; omega)
+    rw [h, extendBits_ne _ _ _ _ _ _ _ hp6]
+    exact ih p w hp hK
+
+end Stages4
+
 end Tools.ShippingFGCircuitS2cLink
