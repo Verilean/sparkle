@@ -7,6 +7,16 @@ open Lean Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingGen
 open Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD
 open Tools.ShippingFGCircuitS2iSh
 
+theorem stopC_boolF : stopC ``Bool.false = false := by decide
+theorem stopC_boolT : stopC ``Bool.true = false := by decide
+theorem bvAbbrevRow_boolFalse : bvAbbrevRow ``Bool.false = none := by
+  cases h : bvAbbrevRow ``Bool.false with
+  | none => rfl
+  | some r => have := stopC_of_row h; rw [stopC_boolF] at this; cases this
+theorem bvAbbrevRow_boolTrue : bvAbbrevRow ``Bool.true = none := by
+  cases h : bvAbbrevRow ``Bool.true with
+  | none => rfl
+  | some r => have := stopC_of_row h; rw [stopC_boolT] at this; cases this
 theorem directHead_boolFalse : directHead ``Bool.false = true := by decide
 theorem directHead_boolTrue : directHead ``Bool.true = true := by decide
 theorem directHead_prodMk : directHead ``Prod.mk = true := by decide
@@ -20,8 +30,8 @@ theorem directHead_of_stopD {c : Name} (h : stopD c = true) : directHead c = tru
 macro "clashT" : tactic =>
   `(tactic| (exfalso
              try subst_vars
-             try simp_all [Res.kind, viaOK_appN, viaOK_bvar, viaOK_lam, directHead_of_stopD, stopD_of_stopC, stopD_of_newStopC, stopD_of_tyStopC,
-               directHead_boolFalse, directHead_boolTrue, directHead_prodMk, directHead_unit, directHead_inhMk,
+             try simp_all [Res.kind, viaOK, appArgs, viaOK_bvar, viaOK_lam, directHead_of_stopD, stopD_of_stopC, stopD_of_newStopC, stopD_of_tyStopC,
+               directHead_boolFalse, directHead_boolTrue, directHead_prodMk, directHead_unit, directHead_inhMk, bvAbbrevRow_boolFalse, bvAbbrevRow_boolTrue,
                newStopC_bundle2, newStopC_default, tyHeadStop, headStop, appN_1, appN_2, appN_3, appN_4, appN_5, appN_6, appFn, stopC_ofNat, stopC_defaultDomain, stopC_bvOfNat, stopC_bvInh,
                stopC_boolInh, stopC_pure, stopC_register, stopC_mux, stopC_hadd, stopC_loop, stopC_beq, stopC_hand, stopC_hor, stopC_compl, bvAbbrevRow_defaultDomain,
                bvAbbrevRow_instInhabitedBool, stopC_of_row, stopD_signalMap, tyStopC_nat, tyStopC_bool, tyStopC_dc, tyStopC_bitvec, tyStopC_signal, tyStopC_prod, tyStopC_punit]))
@@ -239,8 +249,7 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
     | viaSh hv' hsh' hsp' hcan' h'' =>
       subst he
       have h0 := stopC_of_row hr
-      have hd : directHead _ = true := by simp [directHead, stopD, h0]
-      simp [viaOK, appFn, hd] at hv'
+      simp [viaOK, appFn, directHead, stopD, h0] at hv'
     | _ => clashT
   | prodTy he ha hb iha ihb => intro r' h' hk; cases h' with
     | prodTy he' ha' hb' =>
@@ -355,8 +364,7 @@ theorem dt_fun {env : Environment} {ρ : Cx} {e : Expr} {r : Res} (h : DT env ρ
     | bvAbbrev he' hr' =>
       subst he'
       have h0 := stopC_of_row hr'
-      have hd : directHead _ = true := by simp [directHead, stopD, h0]
-      simp [viaOK, appFn, hd] at hv
+      simp [viaOK, appFn, directHead, stopD, h0] at hv
     | _ => clashT
 
 
