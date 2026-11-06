@@ -643,3 +643,50 @@ IOHeadFrame (draft, UNAPPROVED, not used):
 ### 16.5 次
 
 (1) `hx` の 3 事実と `machineShape?` の kernel 供給（`partial` 本体の外出しか、対応する law の凍結）。(2) `CounterLoopEnvFacts` の環境側 4 点（`ui`/`ip`/`proj`/`RootInEnv`）を `ReadsAt`＋属性表の文に落とす。(3) `HeadIO` の凍結ドラフト（§16.3）の reviewer 判断。(4) 他の 3 root（shift4Loop/counterEnableLoop/arbiterSignal）へ `X_final11` を持ち上げる（counterLoop と同じ手順。問い合わせ先は root ごとに調べ直す）。
+
+## 18. S1n（Issue `sparkle-fg-circuit-pilot` の次の束）: 他の 3 leaf root への `X_final11` の持ち上げ
+
+土台 `a24f49c4`（par/fgc-s1）。追加ファイル（既存は書き換えていない。lakefile 登録は各 lib 1 回）: `Tools/ShippingFGCircuitS1nRoots.lean`、`Tests/Gen5/FGCircuitPilotCheck12.lean`。sorry・axiom・native_decide・TRUSTED・新しい law はない。S1m の領域（`Tools/ShippingFGCircuitS1mCD.lean`、§17）は触っていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**で、approved/done ではない。
+
+### 18.1 証明したもの
+
+`shift4Loop_final11`、`counterEnableLoop_final11`、`arbiterSignal_final11`（`counterLoop_final11` と同じ形。仮説: `L lvl env₀ hstart hr hhead hcell hlvl hx hf hlink`、arbiter は更に `hB0 hcont`）。それぞれ `X_final10` の `hchk : CheckedStart` を `hlvl hx hf hlink` に替えたもの。途中の定理: `X_gates`（arbiter は `_orig`/`_inl` の 2 件）、`X_srcDomOf`、`X_dataOfCore`、`X_dataOfAt`、`X_checkedEnv_of_finite`。共通: `entryOfDecl_inl`（入口定数 = 値を `Vi`、型を `T` に書き換えた宣言）、`checkedEnv_of_inl`、`dataOfAt_of_pieces`、`machRoot_of_head`。標準 axiom のみ（`#print axioms`、Check12 の AXIOMS）。
+
+**kernel が評価したもの（`with_unfolding_all rfl`、最初の試行で全部通った）。** 3 root とも `certifiedShape?`／`mixedCertifiedShape?`（閉じた宣言、gate binder の剥離 `mixedGatePeel` を含む）、`machRoot`／`srcDomOf`、`dataOfFront`、`dataOfCore`（fuel 1000000）を経て**構造全体** `X.machineData` まで。arbiter の `dataOfCore`（binder 16、スロット含む）も通った。評価が止まった部分は**なかった**ので、「止まった部分」の記録はない。残るのは下の名前付き仮説だけ（kernel が評価できない `partial`/extern、環境への問い合わせ）。
+
+### 18.2 counterLoop との違い（root ごとに問い合わせ先を調べ直した結果）
+
+問い合わせ先は `dbgTrace` 付きの述語・`StructEnv` を MetaM で走らせて調べた（Check には入れていない調査。Check12 は「その点以外では不変」を確認する）。
+- **`instancePredicate`**: counterLoop は値（binder なし）だが、他 3 root の値は `fun` なので、問い合わせ点は `mixedGatePeel` で剥いだ**本体** `peeledBody V`。`rootFloat`／`Expr.find?` の引数も同じ本体。`packTupleInputs` は入口の値。
+- **`structEnv.proj`**: shift4Loop は `Signal.register`（本体の先頭定数）、counterEnableLoop と arbiterSignal は `Signal.loop`。`dataOfAt` が `proj` を引くのはこの 1 名だけ（`fields`／`inst`／`natOf` は `dataOfAt` では引かれない。`prodMatch` 等は `machineShape?`＝仮説側）。
+- **`userInliner`**: shift4Loop／counterEnableLoop は値と型を固定する（counterLoop と同じ）。**arbiterSignal は値を変える**（private の状態定数 `stIdle` 等がリテラルになる）ので入口定数は**インライン後の宣言** `{d with value := Vi, type := T}`。`entryConst` は「元の宣言のゲートが none ∧ インライン後で `machineShape?` が some」のとき `inlinedConst` を返す（`entryOfDecl_inl`）。そのため arbiter はゲートを元の値とインライン後の値の 2 つで評価し、`instancePredicate` も 2 点（`peeledBody V`、`peeledBody Vi`）で引かれる。
+- `Vi` の閉じた項: `arbiterInlinedValue`。コマンド `quote_inlined%` が**この build の `userInliner env` の出力**を `Expr` の項として定義する（`quote_value%` と同じ引用）。つまり**1 環境のスナップショット**で、`ui_val : userInliner env₀ arbiterValue = arbiterInlinedValue` が名前付き仮説。Check12 が「この build で等しい」「インライナーは arbiter の値を変える（ui_val は自明でない）」を確認する。
+
+### 18.3 名前付き仮説（root ごと）
+
+共通の 2 つの構造に整理した（因子化は下の 18.4）。
+- `RootExtern Vi : Prop`: `pack : packTupleInputs Vi = Vi`、`rootFloat : rootFloat (peeledBody Vi) = peeledBody Vi`、`find : (peeledBody Vi).find? (isAppOfArity runCircuitH 8) = none`。（DG-DATAOF T-X、DG-COVER S-COV-FLOAT、find は行 ID 未割当で S1l と同じ扱い。`partial`／`opaque` extern でkernel は評価できない。不可能性は主張しない。）
+- `RootEnvFacts env₀ X T V Vi dd projName : Prop`: `root : ∃ d, RootInEnv env₀ X T V d ∧ machineShape? false [] (.defnInfo {d with value := Vi, type := T}) (structEnv env₀) = some dd.shape`（DG-COVER、C.RK-6、C.CV-4、C.EN-4 QuoteFact。`machineShape?` は `partial` の機械リーダ）、`ui_val : userInliner env₀ V = Vi`、`ui_ty : userInliner env₀ T = T`、`ip_val : instancePredicate env₀ (peeledBody V) = false`、`ip_inl : instancePredicate env₀ (peeledBody Vi) = false`（DG-ENV）、`proj : (structEnv env₀).proj projName = none`（DG-ENV）。
+
+| root | `hx` | `hf`（`V` → `Vi`、`projName`） | 追加 |
+|---|---|---|---|
+| shift4Loop | `RootExtern shift4LoopValue` | `RootEnvFacts env₀ shift4Loop shift4LoopType shift4LoopValue shift4LoopValue shift4Loop.machineData Signal.register` | — |
+| counterEnableLoop | `RootExtern counterEnableLoopValue` | `… counterEnableLoopType counterEnableLoopValue counterEnableLoopValue counterEnableLoop.machineData Signal.loop` | — |
+| arbiterSignal | `RootExtern arbiterInlinedValue` | `… arbiterType arbiterValue arbiterInlinedValue arbiterSignal.machineData Signal.loop` | `hB0`（`BoundaryRowsInEnv env₀`）、`hcont`（`ContainsAt env₀ cref w boundaryNames`）— `ReadsAt` は存在を運ばない |
+
+共通: `hlvl : lvl X.machineData.shape.body = 1000000`（DG-DATAOF Q5）、`hlink : ReadsAt env₀ cref w`（DG-ENV C0）、`hstart`（A.P-02）、`hr`（A.P-04）、`hhead`（C.EN-4、`HeadIO` は §16.3 の凍結ドラフトのまま）、`hcell`（CellPrem）。shift4Loop／counterEnableLoop では `Vi = V` なので `ip_val` と `ip_inl` は同じ文の重複（弱めてはいない）。
+
+### 18.4 共通構造への因子化
+
+4 root の構造は同じ形（外部ヘルパ 3 事実、環境の 5 点＋root）なので、3 root 分を `RootExtern`／`RootEnvFacts` に因子化した。フィールドは**どれも落としていない**: counterLoop の `CounterLoopEnvFacts` の 5 点（root、`ui_val`、`ui_ty`、`ip_val`、`proj_loop`）に対応する全フィールドを持ち、インライナーが値を変える root のために `ip_inl` と `machineShape?` の対象宣言（インライン後）を追加しただけ（`Vi = V` のとき追加分は元と同じ文）。`counterLoop_final11` と S1l のファイルは書き換えていない（counterLoop 自身の構造は S1l のまま）。arbiter の `hx` は `arbiterInlinedValue`（入口の値）についての文で、元の値についての文ではない（Check12 の `MutCFAExternOnValue` で棄却）。
+
+### 18.5 Check12 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck12`、913 jobs、exit 0、error 0）
+
+- `FGCIRCUIT12 SIGNATURES`: 17 定理（`RootExtern.mk`、`RootEnvFacts.mk`、`entryOfDecl_inl`、`checkedEnv_of_inl`、ゲート 4 件、`dataOfAt` 3 件、`checkedEnv_of_finite` 3 件、3 つの `X_final11`）の完全型を独立に書いて `isDefEq`（default）で照合。**117 mutant 棄却**（検査ごとに数える）: `rootFloat`／`find?`／`packTupleInputs` の引数（本体でなく値）、`runCircuitH` の arity、`instancePredicate` を値で引いたもの（本体でない）、極性、`machineShape?` の対象（インライン前）、インライナーの引数、`proj` を引く名前、fuel、別 root の data／値／型／extern の値／head の root／post の root、arbiter のインライン前の値、fuel・extern・環境事実・`hB0`・`hcont` の欠落、end-world 対照（同じ run の終点 w' での head 開始・link・結論の環境）、他 root の最終定理。
+- `FGCIRCUIT12 HYPS`/`REMAINING`: 3 つの final の仮説名と型。`hchk`・`hquiet`・`GetEnvFrame`・`hdRun`・`hsrc`・`hcd`・`htop`・`hnoraw` は仮説に無い。構造のフィールド名も検査。
+- `FGCIRCUIT12 AXIOMS`: 24 名（`arbiterInlinedValue` を含む）、標準 axiom のみ。
+- `FGCIRCUIT12 SNAPSHOT12a/b/c`: 1 環境の評価（仮説の供給ではない）。(a) 3 root で `RootExtern` の 3 事実、`RootEnvFacts` の各点、`machineShape?` が読んだ `dataOfAt` の全体が `X.machineData`、`EntryOfDecl` がインライン後の宣言。(b) `ip` を 2 つの本体以外で全て true、`proj`／`fields` を 1 名以外で `some`、インライナーを値・型以外で任意の項にしても、ゲート・入口定数・データは不変（問い合わせ先の確認で、独立性の証明ではない。問い合わせ点が本体であることはロギング調査で見つけたもので Check の検査ではない。値だけで true にしてもゲートは不変）。(c) `arbiterInlinedValue = userInliner arbiterValue`、インライナーが arbiter の値を変え shift4Loop／counterEnableLoop を固定すること、shift4Loop の shape に arbiter の値（gate binder 3）を渡すと none か別データ、`httpGetByte` で述語が true。**注（訂正すべき期待）**: データは `machineShape?` が読んだ shape から出るので、gate binder 数とドメインが同じ別 root の値（counterEnableLoop を shift4Loop の shape に）は同じデータを返す。値が効くのは binder 数とドメインを通してで、「別の値は別のデータ」という対照は binder 数が違う root に限る。
+
+### 18.6 残り
+
+(1) `hx` の 3 事実と `machineShape?` の kernel 供給（`partial` 本体の外出しか対応する law の凍結）。(2) `RootEnvFacts` の環境側（`ui`／`ip`／`proj`／`RootInEnv`）を `ReadsAt`＋属性表の文に落とす。arbiter は `arbiterInlinedValue` が 1 環境のスナップショットなので、インライナーの出力の導出（`userInliner` の kernel 評価か名前付き law）も要る。(3) `HeadIO`（§16.3）の reviewer 判断。(4) 非 leaf（§15 の `hcd`／`hsrc`／`htop`／`hnoraw`、S1m の `hcd` 規則）。
