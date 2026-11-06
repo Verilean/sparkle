@@ -6668,3 +6668,9 @@ lean_lib «Tests.Gen5.FGCircuitPilotCheck38» where
 lean_lib «Tests.Gen5.FGCircuitPilotCheck40» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck40]
   moreLeancArgs := #["-O0"]
+
+lean_lib «Tools.ShippingFGCircuitS2tHft» where
+  roots := #[`Tools.ShippingFGCircuitS2tHft]
+
+lean_lib «Tools.ShippingFGCircuitS2tHftOb» where
+  roots := #[`Tools.ShippingFGCircuitS2tHftOb]
