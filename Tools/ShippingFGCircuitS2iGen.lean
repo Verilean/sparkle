@@ -137,14 +137,14 @@ where
       | c :: rest =>
         bumpSh "lam"
         let r ← evalSh K (consL c ρ) b rest
-        let pf ← mkN ``Sh.lam [("env", K.env), ("ρ", ρ), ("n", toExpr n), ("A", ← qU A), ("b", ← qU b), ("bi", biE bi), ("c", c), ("sp", listEnt rest), ("hn", r.hn), ("h", r.pf)]
+        let pf ← mkN ``Sh.lam [("env", K.env), ("ρ", ρ), ("n", eQ.getAppArgs[0]!), ("A", ← qU A), ("b", ← qU b), ("bi", eQ.getAppArgs[3]!), ("c", c), ("sp", listEnt rest), ("hn", r.hn), ("h", r.pf)]
         pure { r with pf }
       | [] => throwError "Sh: a lambda with an empty spine (a function value, not a head)"
     | .letE n A v b nd =>
       bumpSh "letZ"
       let vQ ← qU v
       let r ← evalSh K (consL (entCloE vQ ρ) ρ) b sp
-      let pf ← mkN ``Sh.letZ [("env", K.env), ("ρ", ρ), ("n", toExpr n), ("A", ← qU A), ("v", vQ), ("b", ← qU b), ("nd", toExpr nd), ("sp", spT), ("hn", r.hn),
+      let pf ← mkN ``Sh.letZ [("env", K.env), ("ρ", ρ), ("n", eQ.getAppArgs[0]!), ("A", ← qU A), ("v", vQ), ("b", ← qU b), ("nd", eQ.getAppArgs[4]!), ("sp", spT), ("hn", r.hn),
         ("h", r.pf)]
       pure { r with pf }
     | .bvar i =>
@@ -355,7 +355,7 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean
       let TB ← mkLambdaFVars #[av] αb
       let f ← mkLambdaFVars #[av] vb
       let hbL ← mkLambdaFVars #[av] hb
-      mkN ``DT.lam [("env", K.env), ("ρ", ρ), ("e", eQ), ("A", ← qU A), ("body", ← qU b), ("n", toExpr n), ("bi", biE bi),
+      mkN ``DT.lam [("env", K.env), ("ρ", ρ), ("e", eQ), ("A", ← qU A), ("body", ← qU b), ("n", eQ.getAppArgs[0]!), ("bi", eQ.getAppArgs[3]!),
         ("TA", TA), ("TB", TB), ("f", f), ("he", reflT exprT eQ), ("hA", hA), ("hb", hbL)]
   | .letE n A v b nd =>
     if coreHead A then
@@ -369,7 +369,7 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean
       let hb ← deriveT K false (consL (entValE c) ρ) b
       let (T, r) ← dtVal hb
       bump "letE"
-      mkN ``DT.letE [("env", K.env), ("ρ", ρ), ("e", eQ), ("A", ← qU A), ("v", ← qU v), ("body", ← qU b), ("n", toExpr n), ("nd", toExpr nd),
+      mkN ``DT.letE [("env", K.env), ("ρ", ρ), ("e", eQ), ("A", ← qU A), ("v", ← qU v), ("body", ← qU b), ("n", eQ.getAppArgs[0]!), ("nd", eQ.getAppArgs[4]!),
         ("TA", TA), ("T", T), ("a", a), ("r", r), ("he", reflT exprT eQ), ("hA", hA), ("hc", reflT boolT (Lean.mkConst ``true)), ("hv", hv), ("hb", hb)]
     else viaShRoute K ty ρ e
   | .mdata .. => throwError "mdata"
@@ -603,7 +603,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Nam
         agree "extractLsb': the length argument differs from the result width" Ln L
         bump "mapExtract"
         mkN ``DT.mapExtract (env0 ++ [("d", ← q 0), ("wE", ← qU wE), ("lE", ← qU lE), ("nE", ← qU nE), ("loE", ← qU loE), ("lenE", ← qU lenE), ("s", ← q 4),
-          ("n", toExpr n), ("bi", biE bi), ("D", D), ("W", W), ("LO", LO), ("L", L), ("sv", sv),
+          ("n", (← q 3).getAppArgs[0]!), ("bi", (← q 3).getAppArgs[3]!), ("D", D), ("W", W), ("LO", LO), ("L", L), ("sv", sv),
           ("hd", hd), ("hw", hw), ("hl", hl), ("hn", ← mkLambdaFVars #[xv] hn), ("hlo", ← mkLambdaFVars #[xv] hlo), ("hlen", ← mkLambdaFVars #[xv] hlen), ("hs", hs)])
     else if c == ``HShiftLeft.hShiftLeft && ls == [.zero, .zero, .zero] && args.length == 6 && (appFn (args[3]!)).isConstOf ``Sparkle.Core.Signal.instHShiftLeftSignalBitVec
         && (appArgs (args[3]!)).length == 2 then
