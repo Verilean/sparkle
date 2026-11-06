@@ -6457,3 +6457,6 @@ lean_lib «Tools.ShippingFGCircuitS1qLinked» where
 
 lean_lib «Tools.ShippingFGCircuitS1qEndpoint» where
   roots := #[`Tools.ShippingFGCircuitS1qEndpoint]
+
+lean_lib «Tools.ShippingFGCircuitS1qHead» where
+  roots := #[`Tools.ShippingFGCircuitS1qHead]
