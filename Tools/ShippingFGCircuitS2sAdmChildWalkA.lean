@@ -241,7 +241,7 @@ partial def sideX (g : MVarId) (depth : Nat := 4) : MetaM Unit := g.withContext 
   if tm.isAppOf ``Tools.ShippingChildWalkA.TripleCP then
     -- (the lemma is proved after this file: named by a plain identifier)
     if ← attempt (do closeBy g (← `(tactic|
-        exact $(mkIdent `Tools.ShippingChildLegacyHandlersA.tryInlineUnfold_tripleCP) (by assumption)
+        exact $(mkIdent `Tools.ShippingChildLegacyHandlersA.tryInlineUnfold_tripleCPX) (by assumption)
           (by assumption) _ (by assumption) (by assumption) _ _ _))) then return
     throwError "vcaX: no result fact for {tm}"
   if tm.isAppOf ``Tools.ShippingChildInv.OkMsg || tm.isAppOf ``Tools.ShippingChildInv.OkExc then
