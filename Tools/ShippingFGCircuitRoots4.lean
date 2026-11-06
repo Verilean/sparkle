@@ -449,6 +449,67 @@ theorem arbiterSignal_final4 {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.
     hE hB hr hdRun hP hdecl hl (fun raw hraw => (hTop raw hraw).imp fun _ hn => hn.2)
   exact ⟨hpost, mm, p', hart⟩
 
+/-- `shift4Loop_final4` with `hE` / `hRead` replaced by `QuoteAt` / `ReaderAt` (the lookup is supplied by the run, `root_find_of_run`) -/
+theorem shift4Loop_final5 {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``shift4Loop) mctx mref cctx cref w (b, D') w')
+    (hquiet : ∀ u, L.O.quiet u → Tools.ShippingGen5Env.ReadsAt (envAt cref w) cref u)
+    (hg : Tools.ShippingEnvSnapshot.GetEnvFrame mctx mref cctx cref)
+    (hgates : EntryGates (envAt cref w) ``shift4Loop)
+    (hquote : QuoteAt (envAt cref w) ``shift4Loop shift4LoopType shift4LoopValue)
+    (hreader : ReaderAt lvl (envAt cref w) ``shift4Loop shift4Loop.machineData) :
+    (∃ raw, PostRun mctx mref cctx cref w ``shift4Loop D' b raw) ∧
+    ∃ (mm : MonoTy shShift4) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMono (envAt cref w)
+        (genGP (ι := ι) (dom := fun _ => defaultDomain) lvl (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl) (canonGD lvl) (envAt cref w))
+        (PostRun mctx mref cctx cref w ``shift4Loop D') ``shift4Loop shShift4 mm b D' p := by
+  obtain ⟨raw, D₀, w1, hc, -⟩ := Tools.ShippingGen5DCEntryD.synthesizeCombinational_postEntry hr
+  obtain ⟨⟨d, hE⟩, hRead⟩ := rootEnv_of_lookup hquote hreader (root_find_of_run L hstart hquiet hc)
+  exact shift4Loop_final4 L lvl hstart hr hquiet hg hgates hRead hE
+
+/-- `counterEnableLoop_final4` with `hE` / `hRead` replaced by `QuoteAt` / `ReaderAt` (the lookup is supplied by the run, `root_find_of_run`) -/
+theorem counterEnableLoop_final5 {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``counterEnableLoop) mctx mref cctx cref w (b, D') w')
+    (hquiet : ∀ u, L.O.quiet u → Tools.ShippingGen5Env.ReadsAt (envAt cref w) cref u)
+    (hg : Tools.ShippingEnvSnapshot.GetEnvFrame mctx mref cctx cref)
+    (hgates : EntryGates (envAt cref w) ``counterEnableLoop)
+    (hquote : QuoteAt (envAt cref w) ``counterEnableLoop counterEnableLoopType counterEnableLoopValue)
+    (hreader : ReaderAt lvl (envAt cref w) ``counterEnableLoop counterEnableLoop.machineData) :
+    (∃ raw, PostRun mctx mref cctx cref w ``counterEnableLoop D' b raw) ∧
+    ∃ (mm : MonoTy shEnable) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMono (envAt cref w)
+        (genGP (ι := ι) (dom := fun _ => defaultDomain) lvl (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl) (canonGD lvl) (envAt cref w))
+        (PostRun mctx mref cctx cref w ``counterEnableLoop D') ``counterEnableLoop shEnable mm b D' p := by
+  obtain ⟨raw, D₀, w1, hc, -⟩ := Tools.ShippingGen5DCEntryD.synthesizeCombinational_postEntry hr
+  obtain ⟨⟨d, hE⟩, hRead⟩ := rootEnv_of_lookup hquote hreader (root_find_of_run L hstart hquiet hc)
+  exact counterEnableLoop_final4 L lvl hstart hr hquiet hg hgates hRead hE
+
+/-- `arbiterSignal_final4` with `hE` / `hRead` replaced by `QuoteAt` / `ReaderAt` (the lookup is supplied by the run, `root_find_of_run`) -/
+theorem arbiterSignal_final5 {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal) mctx mref cctx cref w (b, D') w')
+    (hquiet : ∀ u, L.O.quiet u → Tools.ShippingGen5Env.ReadsAt (envAt cref w) cref u)
+    (hg : Tools.ShippingEnvSnapshot.GetEnvFrame mctx mref cctx cref)
+    (hgates : EntryGates (envAt cref w) ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal)
+    (hB : BoundaryRowsInEnv (envAt cref w))
+    (hquote : QuoteAt (envAt cref w) ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal arbiterType arbiterValue)
+    (hreader : ReaderAt lvl (envAt cref w) ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal Sparkle.IP.Arbiter.RoundRobin.arbiterSignal.machineData) :
+    (∃ raw, PostRun mctx mref cctx cref w ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal D' b raw) ∧
+    ∃ (mm : shArbiter.Ty) (p : Pkg DomainConfig (fun i => i)),
+      RootArtifact (envAt cref w)
+        (genGP (ι := DomainConfig) (dom := fun i => i) lvl (Tools.ShippingGen5SM1.dataOfSound_initsOf lvl) (canonGD lvl) (envAt cref w))
+        (PostRun mctx mref cctx cref w ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal D') ``Sparkle.IP.Arbiter.RoundRobin.arbiterSignal shArbiter mm b D' p := by
+  obtain ⟨raw, D₀, w1, hc, -⟩ := Tools.ShippingGen5DCEntryD.synthesizeCombinational_postEntry hr
+  obtain ⟨⟨d, hE⟩, hRead⟩ := rootEnv_of_lookup hquote hreader (root_find_of_run L hstart hquiet hc)
+  exact arbiterSignal_final4 L lvl hstart hr hquiet hg hgates hRead hE hB
+
 end Finals
 
 end Tools.ShippingFGCircuitRoots4
@@ -463,3 +524,6 @@ end Tools.ShippingFGCircuitRoots4
 #print axioms Tools.ShippingFGCircuitRoots4.shift4Loop_final4
 #print axioms Tools.ShippingFGCircuitRoots4.counterEnableLoop_final4
 #print axioms Tools.ShippingFGCircuitRoots4.arbiterSignal_final4
+#print axioms Tools.ShippingFGCircuitRoots4.shift4Loop_final5
+#print axioms Tools.ShippingFGCircuitRoots4.counterEnableLoop_final5
+#print axioms Tools.ShippingFGCircuitRoots4.arbiterSignal_final5
