@@ -13,25 +13,26 @@ set_option autoImplicit false
 The memo of `derive` (key `(ty, ρ, e)`) is the S2b one. -/
 namespace Tools.ShippingFGCircuitS2iGen
 open Lean Meta Elab Command Term
+open Lean (mkApp mkApp2 mkApp3 mkApp4 mkAppN)
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingGen5ConstValueE Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD
 open Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD Tools.ShippingFGCircuitS1wTbl Tools.ShippingFGCircuitS2bShare Tools.ShippingFGCircuitS2bGen
-open Tools.ShippingFGCircuitS2iSh Tools.ShippingFGCircuitS2iDT
+open Tools.ShippingFGCircuitS2iSh Tools.ShippingFGCircuitS2iDT Tools.ShippingFGCircuitS2iTbl
 
 /-! ## kernel terms of the closure environments -/
 
-def entT : Lean.Expr := mkConst ``Ent
-def nilCx : Lean.Expr := mkApp (mkConst ``List.nil [lvl1]) entT
-def consL (hd tl : Lean.Expr) : Lean.Expr := mkApp3 (mkConst ``List.cons [lvl1]) entT hd tl
+def entT : Lean.Expr := Lean.mkConst ``Ent
+def nilCx : Lean.Expr := mkApp (Lean.mkConst ``List.nil [lvl1]) entT
+def consL (hd tl : Lean.Expr) : Lean.Expr := mkApp3 (Lean.mkConst ``List.cons [lvl1]) entT hd tl
 def listEnt : List Lean.Expr → Lean.Expr
   | [] => nilCx
   | x :: xs => consL x (listEnt xs)
-def entValE (c : CEntry) : Lean.Expr := mkApp (mkConst ``Ent.val) (entryE c)
-def entCloE (eQ ρ : Lean.Expr) : Lean.Expr := mkApp2 (mkConst ``Ent.clo) eQ ρ
+def entValE (c : CEntry) : Lean.Expr := mkApp (Lean.mkConst ``Ent.val) (entryE c)
+def entCloE (eQ ρ : Lean.Expr) : Lean.Expr := mkApp2 (Lean.mkConst ``Ent.clo) eQ ρ
 def listExprE : List Lean.Expr → Lean.Expr
-  | [] => mkApp (mkConst ``List.nil [Level.zero]) exprT
-  | x :: xs => mkApp3 (mkConst ``List.cons [Level.zero]) exprT x (listExprE xs)
-def hnCtorE (c : Name) (ls : List Level) (np : Nat) (sp : Lean.Expr) : Lean.Expr := mkApp4 (mkConst ``Hn.ctor) (toExpr c) (qLs ls) (toExpr np) sp
-def hnStuckE (c : Name) (ls : List Level) (sp : Lean.Expr) : Lean.Expr := mkApp3 (mkConst ``Hn.stuck) (toExpr c) (qLs ls) sp
+  | [] => mkApp (Lean.mkConst ``List.nil [Level.zero]) exprT
+  | x :: xs => mkApp3 (Lean.mkConst ``List.cons [Level.zero]) exprT x (listExprE xs)
+def hnCtorE (c : Name) (ls : List Level) (np : Nat) (sp : Lean.Expr) : Lean.Expr := mkApp4 (Lean.mkConst ``Hn.ctor) (toExpr c) (qLs ls) (toExpr np) sp
+def hnStuckE (c : Name) (ls : List Level) (sp : Lean.Expr) : Lean.Expr := mkApp3 (Lean.mkConst ``Hn.stuck) (toExpr c) (qLs ls) sp
 
 def parseCons (t : Lean.Expr) : Option (Lean.Expr × Lean.Expr) :=
   if t.isAppOfArity ``List.cons 3 then some (t.getAppArgs[1]!, t.getAppArgs[2]!) else none
@@ -143,7 +144,7 @@ where
       let vQ ← qU v
       let r ← evalSh K (consL (entCloE vQ ρ) ρ) b sp
       let pf ← mkN ``Sh.letZ [("env", K.env), ("ρ", ρ), ("n", toExpr n), ("A", ← qU A), ("v", vQ), ("b", ← qU b), ("nd", toExpr nd), ("sp", spT), ("hn", r.hn),
-        ("hA", reflT boolT (mkConst ``false)), ("h", r.pf)]
+        ("hA", reflT boolT (Lean.mkConst ``false)), ("h", r.pf)]
       pure { r with pf }
     | .bvar i =>
       match cxGet ρ i with
@@ -155,7 +156,7 @@ where
           bumpSh "bvarC"
           let e' ← unq eq'
           let r ← evalSh K ρ' e' sp
-          let hb := mkApp2 (mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (mkConst ``Option [lvl1]) entT) (mkApp2 (mkConst ``Option.some [lvl1]) entT ent)
+          let hb := mkApp2 (Lean.mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (Lean.mkConst ``Option [lvl1]) entT) (mkApp2 (Lean.mkConst ``Option.some [lvl1]) entT ent)
           let pf ← mkN ``Sh.bvarC [("env", K.env), ("ρ", ρ), ("i", toExpr i), ("e'", eq'), ("ρ'", ρ'), ("sp", spT), ("hn", r.hn), ("hb", hb), ("h", r.pf)]
           pure { r with pf }
     | .const c ls => evalConst K ρ e eQ c ls sp spT
@@ -172,10 +173,10 @@ where
       let r ← evalSh K fρ (← unq fe) sp
       let pf ← mkN ``sh_proj_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρ), ("S", toExpr S), ("i", toExpr i), ("x", ← qU x), ("sp", spT), ("hn", r.hn),
         ("c", toExpr rx.c), ("ls", qLs rx.ls), ("np", toExpr rx.np), ("args", listEnt rx.sp), ("e'", fe), ("ρ'", fρ),
-        ("r", mkApp3 (mkConst ``CtorRow.mk) (toExpr ctr.induct) (toExpr ctr.numParams) (toExpr ctr.numFields)),
-        ("hx", rx.pf), ("hr", reflT (optT lkT) (someE lkT (mkApp (mkConst ``Lk.ctor) (ctorRowE ctr.induct ctr.numParams ctr.numFields)))),
+        ("r", mkApp3 (Lean.mkConst ``CtorRow.mk) (toExpr ctr.induct) (toExpr ctr.numParams) (toExpr ctr.numFields)),
+        ("hx", rx.pf), ("hr", reflT (optT lkT) (someE lkT (mkApp (Lean.mkConst ``Lk.ctor) (ctorRowE ctr.induct ctr.numParams ctr.numFields)))),
         ("hS", reflT nameT (toExpr S)),
-        ("hf", mkApp2 (mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (mkConst ``Option [lvl1]) entT) (mkApp2 (mkConst ``Option.some [lvl1]) entT fld)), ("h", r.pf)]
+        ("hf", mkApp2 (Lean.mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (Lean.mkConst ``Option [lvl1]) entT) (mkApp2 (Lean.mkConst ``Option.some [lvl1]) entT fld)), ("h", r.pf)]
       pure { r with pf }
     | _ => throwError "Sh: head {e.ctorName} cannot be evaluated"
 
@@ -211,20 +212,20 @@ where
       | _ => throwError "Sh: List.rec with {sp.length} arguments (needs 5)"
     else if stopD c then
       bumpSh "prim"
-      let pf ← mkN ``Sh.prim [("env", K.env), ("ρ", ρ), ("c", toExpr c), ("ls", qLs ls), ("sp", spT), ("hs", reflT boolT (mkConst ``true))]
+      let pf ← mkN ``Sh.prim [("env", K.env), ("ρ", ρ), ("c", toExpr c), ("ls", qLs ls), ("sp", spT), ("hs", reflT boolT (Lean.mkConst ``true))]
       pure { pf, hn := hnStuckE c ls spT, c, ls, sp, isCtor := false, np := 0 }
     else
       match classify (← getEnv) c with
       | some (.defn r) =>
         record #[(c, some (.defn r))]
         unless r.lps.length == ls.length do throwError "Sh: {c}: {ls.length} levels for {r.lps.length} parameters"
-        let rowE := mkApp (mkConst ``Lk.defn) (mkApp2 (mkConst ``DefRow.mk) (toExpr r.lps) (← qU r.value))
+        let rowE := mkApp (Lean.mkConst ``Lk.defn) (mkApp2 (Lean.mkConst ``DefRow.mk) (toExpr r.lps) (← qU r.value))
         let hr := reflT (optT lkT) (someE lkT rowE)
         if r.lps.isEmpty then
           bumpSh "unf"
           let rb ← evalSh K nilCx r.value sp
           let pf ← mkN ``sh_unf0_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρ), ("c", toExpr c), ("v", ← qU r.value), ("sp", spT), ("hn", rb.hn),
-            ("hr", hr), ("hs", reflT boolT (mkConst ``false)), ("h", rb.pf)]
+            ("hr", hr), ("hs", reflT boolT (Lean.mkConst ``false)), ("h", rb.pf)]
           pure { rb with pf }
         else
           bumpSh "unfPoly"
@@ -232,8 +233,8 @@ where
           let body := instLEShared r.lps ls r.value
           let bodyQ ← qU body
           let rb ← evalSh K nilCx body sp
-          let pf ← mkN ``sh_unf_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρ), ("c", toExpr c), ("ls", qLs ls), ("r", mkApp2 (mkConst ``DefRow.mk) (toExpr r.lps) (← qU r.value)),
-            ("sp", spT), ("hn", rb.hn), ("e'", bodyQ), ("hr", hr), ("hl", reflT natT (toExpr ls.length)), ("hs", reflT boolT (mkConst ``false)),
+          let pf ← mkN ``sh_unf_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρ), ("c", toExpr c), ("ls", qLs ls), ("r", mkApp2 (Lean.mkConst ``DefRow.mk) (toExpr r.lps) (← qU r.value)),
+            ("sp", spT), ("hn", rb.hn), ("e'", bodyQ), ("hr", hr), ("hl", reflT natT (toExpr ls.length)), ("hs", reflT boolT (Lean.mkConst ``false)),
             ("he'", reflT exprT bodyQ), ("h", rb.pf)]
           pure { rb with pf }
       | some (.ctor r) =>
@@ -241,8 +242,8 @@ where
         unless sp.length == r.numParams + r.numFields do throwError "Sh: constructor {c} with {sp.length} arguments (needs {r.numParams + r.numFields})"
         bumpSh "ctor"
         let pf ← mkN ``sh_ctor_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρ), ("c", toExpr c), ("ls", qLs ls), ("r", ctorRowE r.induct r.numParams r.numFields),
-          ("sp", spT), ("hr", reflT (optT lkT) (someE lkT (mkApp (mkConst ``Lk.ctor) (ctorRowE r.induct r.numParams r.numFields)))),
-          ("hs", reflT boolT (mkConst ``false)), ("hn", reflT natT (toExpr sp.length))]
+          ("sp", spT), ("hr", reflT (optT lkT) (someE lkT (mkApp (Lean.mkConst ``Lk.ctor) (ctorRowE r.induct r.numParams r.numFields)))),
+          ("hs", reflT boolT (Lean.mkConst ``false)), ("hn", reflT natT (toExpr sp.length))]
         pure { pf, hn := hnCtorE c ls r.numParams spT, c, ls, sp, isCtor := true, np := r.numParams }
       | _ => throwError "Sh: {c} is neither a definition nor a constructor of the environment (a stop head is missing?)"
 
@@ -286,11 +287,11 @@ unsafe def deriveT (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean.Ex
         if msg.startsWith "CAPHIT" then throw ex
         modifyThe St fun s => { s with stops := s.stops.push msg }
         let tv ← mkFreshExprMVar (some (mkSort (.succ .zero)))
-        let r ← if ty then pure (mkApp (mkConst ``Res.ty) tv)
+        let r ← if ty then pure (mkApp (Lean.mkConst ``Res.ty) tv)
           else do
             let vv ← mkFreshExprMVar (some tv)
-            pure (mkApp2 (mkConst ``Res.val) tv vv)
-        mkFreshExprMVar (some (mkAppN (mkConst ``DT) #[K.env, ρ, ← qU e, r]))
+            pure (mkApp2 (Lean.mkConst ``Res.val) tv vv)
+        mkFreshExprMVar (some (mkAppN (Lean.mkConst ``DT) #[K.env, ρ, ← qU e, r]))
     else deriveCore K ty ρ e
   modifyThe St fun s => { s with memo := s.memo.insert key p }
   pure p
@@ -303,7 +304,7 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean
     | some (eq', ρ') =>
       let p ← deriveT K ty ρ' (← unq eq')
       let (_, r) ← dtOf p
-      let hb := mkApp2 (mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (mkConst ``Option [lvl1]) entT) (mkApp2 (mkConst ``Option.some [lvl1]) entT ent)
+      let hb := mkApp2 (Lean.mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (Lean.mkConst ``Option [lvl1]) entT) (mkApp2 (Lean.mkConst ``Option.some [lvl1]) entT ent)
       bump "bvarClo"
       mkN ``DT.bvarClo [("env", K.env), ("ρ", ρ), ("i", toExpr i), ("e'", eq'), ("ρ'", ρ'), ("r", r), ("hb", hb), ("h", p)]
     | none =>
@@ -311,7 +312,7 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean
       let some (τ, T, a) := parseVal ent | throwError "bvar {i}: an entry that is neither a closure nor a value"
       bump "bvar"
       mkN ``DT.bvar [("env", K.env), ("ρ", ρ), ("i", toExpr i), ("τ", τ), ("T", T), ("a", a),
-        ("h", mkApp2 (mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (mkConst ``Option [lvl1]) entT) (mkApp2 (mkConst ``Option.some [lvl1]) entT ent))]
+        ("h", mkApp2 (Lean.mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (Lean.mkConst ``Option [lvl1]) entT) (mkApp2 (Lean.mkConst ``Option.some [lvl1]) entT ent))]
   | .lam n A b bi =>
     if ty then throwError "lam judged as a type"
     let eQ ← qU e
@@ -340,7 +341,7 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean
       let (T, r) ← dtVal hb
       bump "letE"
       mkN ``DT.letE [("env", K.env), ("ρ", ρ), ("e", eQ), ("A", ← qU A), ("v", ← qU v), ("body", ← qU b), ("n", toExpr n), ("nd", toExpr nd),
-        ("TA", TA), ("T", T), ("a", a), ("r", r), ("he", reflT exprT eQ), ("hA", hA), ("hc", reflT boolT (mkConst ``true)), ("hv", hv), ("hb", hb)]
+        ("TA", TA), ("T", T), ("a", a), ("r", r), ("he", reflT exprT eQ), ("hA", hA), ("hc", reflT boolT (Lean.mkConst ``true)), ("hv", hv), ("hb", hb)]
     else viaShRoute K ty ρ e
   | .mdata .. => throwError "mdata"
   | _ =>
@@ -370,10 +371,10 @@ unsafe def viaShRoute (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean
   modify fun s => { s with viaN := s.viaN + 1 }
   bump "viaSh"
   let hcan ← match argl with
-    | [] => pure (mkConst ``canon_nil)
-    | a :: xs => do pure (mkAppN (mkConst ``canon_cons) #[ρ0, ← qU a, listExprE (← xs.mapM qU)])
+    | [] => pure (Lean.mkConst ``canon_nil)
+    | a :: xs => do pure (mkAppN (Lean.mkConst ``canon_cons) #[ρ0, ← qU a, listExprE (← xs.mapM qU)])
   mkN ``DT.viaSh [("env", K.env), ("ρ", ρ), ("e", ← qU e), ("hn", r.hn), ("args", listExprE (← argl.mapM qU)), ("ρ₀", ρ0), ("r", res),
-    ("hv", reflT boolT (mkConst ``true)), ("hsh", r.pf), ("hsp", reflT (mkApp (mkConst ``List [lvl1]) entT) (listEnt r.sp)), ("hcan", hcan), ("h", p)]
+    ("hv", reflT boolT (Lean.mkConst ``true)), ("hsh", r.pf), ("hsp", reflT (mkApp (Lean.mkConst ``List [lvl1]) entT) (listEnt r.sp)), ("hcan", hcan), ("h", p)]
 
 unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Name) (ls : List Level) : G2 Lean.Expr := do
   let eQ ← qU e

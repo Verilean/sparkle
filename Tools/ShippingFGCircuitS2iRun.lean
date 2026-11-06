@@ -8,7 +8,7 @@ open Lean Meta Elab Command
 open Lean (mkConst mkApp mkApp2 mkApp3 mkApp4 mkAppN)
 open Sparkle.Core Tools.ShippingGen5ConstValueE Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1sCD
 open Tools.ShippingFGCircuitS1wTbl Tools.ShippingFGCircuitS2bGen Tools.ShippingFGCircuitS2bShare Tools.ShippingFGCircuitS2bRun Tools.ShippingFGCircuitS2iSh
-open Tools.ShippingFGCircuitS2iDT Tools.ShippingFGCircuitS2iGen
+open Tools.ShippingFGCircuitS2iDT Tools.ShippingFGCircuitS2iTbl Tools.ShippingFGCircuitS2iGen
 
 structure RootStats where
   nodes : Nat
