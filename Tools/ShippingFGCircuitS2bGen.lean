@@ -1,4 +1,4 @@
-import Tools.ShippingFGCircuitS1wTbl
+import Tools.ShippingFGCircuitS2bShare
 set_option autoImplicit false
 -- FG circuit pilot S1w: the metaprogram that builds the `DW` derivation term (docs/FG-CIRCUIT-PILOT.md §26).
 -- Nothing here is trusted: the term it emits is checked by the kernel (`addDecl`); a wrong term is rejected, a wrong generator can only fail.
@@ -12,7 +12,7 @@ versions of Tools/ShippingFGCircuitS1wTbl. The environment-reading side conditio
 namespace Tools.ShippingFGCircuitS2bGen
 open Lean Meta Elab Command Term
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal Tools.ShippingGen5ConstValueE Tools.ShippingFGCircuit Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD
-open Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD Tools.ShippingFGCircuitS1wTbl
+open Tools.ShippingFGCircuitS1rCD Tools.ShippingFGCircuitS1sCD Tools.ShippingFGCircuitS1wTbl Tools.ShippingFGCircuitS2bShare
 
 /-- one entry of the valuation: the quoted syntactic type, the Lean type, the value (as `Expr`s of the term) -/
 structure CEntry where
@@ -171,7 +171,7 @@ def mkN (c : Name) (args : List (String × Lean.Expr)) : MetaM Lean.Expr := do
 /-- `DW env ρ e r` of a proof -/
 def dwOf (pf : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) := do
   let t ← whnfR (← inferType pf)
-  unless t.getAppFn.isConstOf ``DW do throwError "not a DW proof: {t}"
+  unless t.getAppFn.isConstOf ``DS do throwError "not a DW proof: {t}"
   let a := t.getAppArgs
   unless a.size == 4 do throwError "DW arity"
   pure (a[2]!, a[3]!)
@@ -202,8 +202,8 @@ def entryE (c : CEntry) : Lean.Expr :=
 def entryT : Lean.Expr := mkConst ``Entry
 
 def ctxE : List CEntry → Lean.Expr
-  | [] => mkApp (mkConst ``List.nil [Level.zero]) entryT
-  | c :: cs => mkApp3 (mkConst ``List.cons [Level.zero]) entryT (entryE c) (ctxE cs)
+  | [] => mkApp (mkConst ``List.nil [lvl1]) entryT
+  | c :: cs => mkApp3 (mkConst ``List.cons [lvl1]) entryT (entryE c) (ctxE cs)
 
 
 /-- what the derivation needs from the surroundings -/
@@ -257,7 +257,7 @@ unsafe def derive (K : Kx) (ty : Bool) (cx : List CEntry) (e : Lean.Expr) : G Le
           else do
             let vv ← mkFreshExprMVar (some tv)
             pure (mkApp2 (mkConst ``Res.val) tv vv)
-        mkFreshExprMVar (some (mkAppN (mkConst ``DW) #[K.env, ρE, ← qE e, r]))
+        mkFreshExprMVar (some (mkAppN (mkConst ``DS) #[K.env, ρE, ← qE e, r]))
     else deriveCore K ty cx ρE e
   modify fun s => { s with memo := s.memo.insert key p }
   pure p
@@ -268,8 +268,8 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
     if ty then throwError "bvar {i} judged as a type"
     let some c := nth cx i | throwError "bvar {i} is not bound (context has {cx.length})"
     bump "bvar"
-    mkN ``DW.bvar [("env", K.env), ("ρ", ρE), ("i", toExpr i), ("τ", c.tau), ("T", c.ty), ("a", c.val),
-      ("h", reflT (optT entryT) (someE entryT (entryE c)))]
+    mkN ``DS.bvar [("env", K.env), ("ρ", ρE), ("i", toExpr i), ("τ", c.tau), ("T", c.ty), ("a", c.val),
+      ("h", mkApp2 (mkConst ``Eq.refl [.succ (.succ .zero)]) (mkApp (mkConst ``Option [lvl1]) entryT) (mkApp2 (mkConst ``Option.some [lvl1]) entryT (entryE c)))]
   | .lam n A b bi =>
     if ty then throwError "lam judged as a type"
     let eQ ← qE e
@@ -283,7 +283,7 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
       let TB ← mkLambdaFVars #[av] αb
       let f ← mkLambdaFVars #[av] vb
       let hbL ← mkLambdaFVars #[av] hb
-      mkN ``DW.lam [("env", K.env), ("ρ", ρE), ("e", eQ), ("A", ← qE A), ("body", ← qE b), ("n", toExpr n), ("bi", biE bi),
+      mkN ``DS.lam [("env", K.env), ("ρ", ρE), ("e", eQ), ("A", ← qE A), ("body", ← qE b), ("n", toExpr n), ("bi", biE bi),
         ("TA", TA), ("TB", TB), ("f", f), ("he", reflT exprT eQ), ("hA", hA), ("hb", hbL)]
   | .letE n A v b nd =>
     if ty then throwError "let judged as a type"
@@ -297,13 +297,13 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
       let hb ← derive K false (c :: cx) b
       let (T, r) ← valOf hb
       logSz "letE" e; bump "letE"
-      mkN ``DW.letE [("env", K.env), ("ρ", ρE), ("e", eQ), ("A", ← qE A), ("v", ← qE v), ("body", ← qE b), ("n", toExpr n), ("nd", toExpr nd),
+      mkN ``DS.letE [("env", K.env), ("ρ", ρE), ("e", eQ), ("A", ← qE A), ("v", ← qE v), ("body", ← qE b), ("n", toExpr n), ("nd", toExpr nd),
         ("TA", TA), ("T", T), ("a", a), ("r", r), ("he", reflT exprT eQ), ("hA", hA), ("hc", reflT boolT (mkConst ``true)), ("hv", hv), ("hb", hb)]
     else
       let h ← derive K false cx (instE b v 0)
       let (α, r) ← valOf h
       logSz "zeta" e; bump "zeta"
-      mkN ``DW.zeta [("env", K.env), ("ρ", ρE), ("e", eQ), ("A", ← qE A), ("v", ← qE v), ("body", ← qE b), ("n", toExpr n), ("nd", toExpr nd),
+      mkN ``DS.zeta [("env", K.env), ("ρ", ρE), ("e", eQ), ("A", ← qE A), ("v", ← qE v), ("body", ← qE b), ("n", toExpr n), ("nd", toExpr nd),
         ("α", α), ("r", r), ("he", reflT exprT eQ), ("hA", reflT boolT (mkConst ``false)), ("h", h)]
   | .proj S i x => deriveProj K ty cx ρE e S i x
   | .mdata .. => throwError "mdata"
@@ -314,7 +314,7 @@ unsafe def deriveCore (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
       let h ← derive K ty cx e'
       let (_, r) ← dwOf h
       logSz "beta" e; bump "beta"
-      mkN ``dw_beta_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", ← qE e), ("e'", ← qE e'), ("r", r),
+      mkN ``ds_beta_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", ← qE e), ("e'", ← qE e'), ("r", r),
         ("hb", reflT (optT (optT exprT)) (someE (optT exprT) (someE exprT (← qE e')))), ("h", h)]
     | .const c ls => deriveConst K ty cx ρE e c ls
     | h => throwError "head {h.ctorName} application"
@@ -331,7 +331,7 @@ unsafe def deriveProj (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
           let h ← derive K ty cx (.proj S i x')
           let (_, r) ← dwOf h
           logSz "projRec" e; bump "projRec"
-          return some (← mkN ``dw_projRec_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("x", xQ), ("x'", ← qE x'), ("S", toExpr S),
+          return some (← mkN ``ds_projRec_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("x", xQ), ("x'", ← qE x'), ("S", toExpr S),
             ("i", toExpr i), ("ls", qLs ls), ("r", r), ("he", reflT exprT eQ), ("hf", reflT exprT (← qE (appFn x))), ("hrec", recFact),
             ("hr", reflT (optT (optT exprT)) (someE (optT exprT) (someE exprT (← qE x')))), ("h", h)])
         | none => pure none
@@ -350,7 +350,7 @@ unsafe def deriveProj (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
             let (_, res) ← dwOf h
             let hr ← ctorFact K ctor
             logSz "projCtor" e; bump "projCtor"
-            return some (← mkN ``dw_projCtor_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("x", xQ), ("fld", ← qE fld), ("S", toExpr S),
+            return some (← mkN ``ds_projCtor_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("x", xQ), ("fld", ← qE fld), ("S", toExpr S),
               ("ctor", toExpr ctor), ("ls", qLs ls), ("cw", ctorRowE r.induct r.numParams r.numFields), ("i", toExpr i), ("r", res),
               ("he", reflT exprT eQ), ("hh", reflT exprT (← qE (appFn x))), ("hr", hr), ("hS", reflT nameT (toExpr S)),
               ("hn", reflT natT (toExpr (appArgs x).length)), ("hf", reflT (optT exprT) (someE exprT (← qE fld))), ("h", h)])
@@ -368,7 +368,7 @@ unsafe def deriveProj (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr) 
     let h ← derive K ty cx (.proj S i x')
     let (_, r) ← dwOf h
     logSz "projStep" e; bump "projStep"
-    mkN ``dw_projStep_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("x", xQ), ("x'", ← qE x'), ("S", toExpr S), ("i", toExpr i), ("r", r),
+    mkN ``ds_projStep_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("x", xQ), ("x'", ← qE x'), ("S", toExpr S), ("i", toExpr i), ("r", r),
       ("he", reflT exprT eQ), ("hx", reflT (optT (optT exprT)) (someE (optT exprT) (someE exprT (← qE x')))), ("h", h)]
   | none => throwError "proj {S}#{i}: stuck on {repr (appFn x).ctorName} {(appFn x)}"
 
@@ -390,7 +390,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
         let h ← derive K ty cx e'
         let (_, r) ← dwOf h
         logSz "recIota" e; bump "recIota"
-        mkN ``dw_recIota_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("e'", ← qE e'), ("ls", qLs ls), ("r", r),
+        mkN ``ds_recIota_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("e'", ← qE e'), ("ls", qLs ls), ("r", r),
           ("hf", reflT exprT (← qE (appFn e))), ("hrec", recFact), ("hr", reflT (optT (optT exprT)) (someE (optT exprT) (someE exprT (← qE e')))), ("h", h)]
       | none => throwError "List.rec: no step"
     else
@@ -399,52 +399,52 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
         let h ← derive K ty cx e'
         let (_, r) ← dwOf h
         logSz s!"unf {c}" e; bump s!"unf"
-        mkN ``dw_unf_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("e'", ← qE e'), ("r", r),
+        mkN ``ds_unf_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("e'", ← qE e'), ("r", r),
           ("hs", reflT boolT (mkConst ``false)), ("hu", reflT (optT (optT exprT)) (someE (optT exprT) (someE exprT (← qE e')))), ("h", h)]
       | none => throwError "{c}: stuck ({if ty then "type" else "value"}): not unfoldable (head {c}, levels {ls}, {args.length} args)"
   if ty then
-    if c == ``Nat then bump "nat"; mkN ``DW.nat [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
-    else if c == ``Bool then bump "bool"; mkN ``DW.bool [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
-    else if c == ``Sparkle.Core.Domain.DomainConfig then bump "domainConfig"; mkN ``DW.domainConfig [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
+    if c == ``Nat then bump "nat"; mkN ``DS.nat [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
+    else if c == ``Bool then bump "bool"; mkN ``DS.bool [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
+    else if c == ``Sparkle.Core.Domain.DomainConfig then bump "domainConfig"; mkN ``DS.domainConfig [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
     else if c == ``BitVec then
       let hw ← v 0
       let (_, n) ← valOf hw
       bump "bitvec"
-      mkN ``DW.bitvec (env0 ++ [("w", ← q 0), ("n", n), ("hw", hw)])
+      mkN ``DS.bitvec (env0 ++ [("w", ← q 0), ("n", n), ("hw", hw)])
     else if c == ``Signal then
       let hd ← v 0
       let ht ← t 1
       let (_, D) ← valOf hd
       bump "signal"
-      mkN ``DW.signal (env0 ++ [("d", ← q 0), ("t", ← q 1), ("D", D), ("T", ← tyOf ht), ("hd", hd), ("ht", ht)])
+      mkN ``DS.signal (env0 ++ [("d", ← q 0), ("t", ← q 1), ("D", D), ("T", ← tyOf ht), ("hd", hd), ("ht", ht)])
     else if c == ``Prod && ls == [.zero, .zero] && args.length == 2 then
       let ha ← t 0
       let hb ← t 1
       bump "prodTy"
-      mkN ``DW.prodTy (env0 ++ [("a", ← q 0), ("b", ← q 1), ("A", ← tyOf ha), ("B", ← tyOf hb), ("ha", ha), ("hb", hb)])
+      mkN ``DS.prodTy (env0 ++ [("a", ← q 0), ("b", ← q 1), ("A", ← tyOf ha), ("B", ← tyOf hb), ("ha", ha), ("hb", hb)])
     else if c == ``PUnit && ls == [.succ .zero] && args.length == 0 then
       bump "punitTy"
-      mkN ``DW.punitTy [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
+      mkN ``DS.punitTy [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
     else generic
   else
     if c == ``OfNat.ofNat then
       match args[1]? with
-      | some (Lean.Expr.lit (.natVal n)) => bump "natLit"; mkN ``DW.natLit (env0 ++ [("n", toExpr n)])
+      | some (Lean.Expr.lit (.natVal n)) => bump "natLit"; mkN ``DS.natLit (env0 ++ [("n", toExpr n)])
       | _ => throwError "OfNat.ofNat: not a literal"
-    else if c == ``Sparkle.Core.Domain.defaultDomain then bump "domDefault"; mkN ``DW.domDefault [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
-    else if c == ``instInhabitedBool then bump "boolInhabited"; mkN ``DW.boolInhabited [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
+    else if c == ``Sparkle.Core.Domain.defaultDomain then bump "domDefault"; mkN ``DS.domDefault [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
+    else if c == ``instInhabitedBool then bump "boolInhabited"; mkN ``DS.boolInhabited [("env", K.env), ("ρ", ρE), ("e", eQ), ("he", heE)]
     else if c == ``BitVec.ofNat then
       let hw ← v 0
       let hk ← v 1
       let (_, W) ← valOf hw
       let (_, Kk) ← valOf hk
       bump "bvOfNat"
-      mkN ``DW.bvOfNat (env0 ++ [("w", ← q 0), ("k", ← q 1), ("W", W), ("K", Kk), ("hw", hw), ("hk", hk)])
+      mkN ``DS.bvOfNat (env0 ++ [("w", ← q 0), ("k", ← q 1), ("W", W), ("K", Kk), ("hw", hw), ("hk", hk)])
     else if c == ``BitVec.instInhabited then
       let hw ← v 0
       let (_, W) ← valOf hw
       bump "bvInhabited"
-      mkN ``DW.bvInhabited (env0 ++ [("w", ← q 0), ("W", W), ("hw", hw)])
+      mkN ``DS.bvInhabited (env0 ++ [("w", ← q 0), ("W", W), ("hw", hw)])
     else if c == ``Signal.pure then
       let hd ← v 0
       let ht ← t 1
@@ -452,7 +452,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
       let (_, D) ← valOf hd
       let (_, av) ← valOf hx
       bump "sigPure"
-      mkN ``DW.sigPure (env0 ++ [("d", ← q 0), ("t", ← q 1), ("x", ← q 2), ("D", D), ("T", ← tyOf ht), ("a", av), ("hd", hd), ("ht", ht), ("hx", hx)])
+      mkN ``DS.sigPure (env0 ++ [("d", ← q 0), ("t", ← q 1), ("x", ← q 2), ("D", D), ("T", ← tyOf ht), ("a", av), ("hd", hd), ("ht", ht), ("hx", hx)])
     else if c == ``Signal.register then
       let hd ← v 0
       let ht ← t 1
@@ -462,7 +462,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
       let (_, av) ← valOf hi
       let (_, sv) ← valOf hs
       bump "sigRegister"
-      mkN ``DW.sigRegister (env0 ++ [("d", ← q 0), ("t", ← q 1), ("i", ← q 2), ("s", ← q 3), ("D", D), ("T", ← tyOf ht), ("a", av), ("sv", sv),
+      mkN ``DS.sigRegister (env0 ++ [("d", ← q 0), ("t", ← q 1), ("i", ← q 2), ("s", ← q 3), ("D", D), ("T", ← tyOf ht), ("a", av), ("sv", sv),
         ("hd", hd), ("ht", ht), ("hi", hi), ("hs", hs)])
     else if c == ``Signal.mux then
       let hd ← v 0
@@ -475,7 +475,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
       let (_, av) ← valOf ha
       let (_, bv) ← valOf hb
       bump "sigMux"
-      mkN ``DW.sigMux (env0 ++ [("d", ← q 0), ("t", ← q 1), ("c", ← q 2), ("a", ← q 3), ("b", ← q 4), ("D", D), ("T", ← tyOf ht), ("cv", cv), ("av", av), ("bv", bv),
+      mkN ``DS.sigMux (env0 ++ [("d", ← q 0), ("t", ← q 1), ("c", ← q 2), ("a", ← q 3), ("b", ← q 4), ("D", D), ("T", ← tyOf ht), ("cv", cv), ("av", av), ("bv", bv),
         ("hd", hd), ("ht", ht), ("hc", hc), ("ha", ha), ("hb", hb)])
     else if c == ``Signal.loop then
       let hd ← v 0
@@ -486,7 +486,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
       let (_, iv) ← valOf hi
       let (_, g) ← valOf hf
       bump "sigLoop"
-      mkN ``DW.sigLoop (env0 ++ [("d", ← q 0), ("t", ← q 1), ("inst", ← q 2), ("f", ← q 3), ("D", D), ("T", ← tyOf ht), ("iv", iv), ("g", g),
+      mkN ``DS.sigLoop (env0 ++ [("d", ← q 0), ("t", ← q 1), ("inst", ← q 2), ("f", ← q 3), ("D", D), ("T", ← tyOf ht), ("iv", iv), ("g", g),
         ("hd", hd), ("ht", ht), ("hi", hi), ("hf", hf)])
     else if c == ``HAdd.hAdd then
       let inst ← a 3
@@ -502,7 +502,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
       let (_, av) ← valOf ha
       let (_, bv) ← valOf hb
       bump "sigAddBV"
-      mkN ``DW.sigAddBV (env0 ++ [("d", ← qE dq), ("w", ← qE wq), ("a", ← q 4), ("b", ← q 5), ("D", D), ("W", W), ("av", av), ("bv", bv),
+      mkN ``DS.sigAddBV (env0 ++ [("d", ← qE dq), ("w", ← qE wq), ("a", ← q 4), ("b", ← q 5), ("D", D), ("W", W), ("av", av), ("bv", bv),
         ("hd", hd), ("hw", hw), ("ha", ha), ("hb", hb)])
     else if c == ``HAnd.hAnd || c == ``HOr.hOr then
       let inst ← a 3
@@ -514,7 +514,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
       let (_, av) ← valOf ha
       let (_, bv) ← valOf hb
       bump (if c == ``HAnd.hAnd then "sigAndBool" else "sigOrBool")
-      mkN (if c == ``HAnd.hAnd then ``DW.sigAndBool else ``DW.sigOrBool) (env0 ++ [("d", ← qE dq), ("a", ← q 4), ("b", ← q 5), ("D", D), ("av", av), ("bv", bv),
+      mkN (if c == ``HAnd.hAnd then ``DS.sigAndBool else ``DS.sigOrBool) (env0 ++ [("d", ← qE dq), ("a", ← q 4), ("b", ← q 5), ("D", D), ("av", av), ("bv", bv),
         ("hd", hd), ("ha", ha), ("hb", hb)])
     else if c == ``Complement.complement then
       let inst ← a 1
@@ -524,7 +524,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
       let (_, D) ← valOf hd
       let (_, av) ← valOf ha
       bump "sigNotBool"
-      mkN ``DW.sigNotBool (env0 ++ [("d", ← qE dq), ("a", ← q 2), ("D", D), ("av", av), ("hd", hd), ("ha", ha)])
+      mkN ``DS.sigNotBool (env0 ++ [("d", ← qE dq), ("a", ← q 2), ("D", D), ("av", av), ("hd", hd), ("ha", ha)])
     else if c == ``Sparkle.Core.Signal.Signal.beq then
       let bvT ← a 0
       let some wq := (appArgs bvT)[0]? | throwError "beq: BitVec arg"
@@ -537,7 +537,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
       let (_, av) ← valOf ha
       let (_, bv) ← valOf hb
       bump "sigBeqBV"
-      mkN ``DW.sigBeqBV (env0 ++ [("d", ← q 1), ("w", ← qE wq), ("a", ← q 3), ("b", ← q 4), ("D", D), ("W", W), ("av", av), ("bv", bv),
+      mkN ``DS.sigBeqBV (env0 ++ [("d", ← q 1), ("w", ← qE wq), ("a", ← q 3), ("b", ← q 4), ("D", D), ("W", W), ("av", av), ("bv", bv),
         ("hd", hd), ("hw", hw), ("ha", ha), ("hb", hb)])
     else if (bvAbbrevRow c).isSome then throwError "bvAbbrev {c}: not supported by the generator"
     else if c == ``Signal.map && ls == [.zero] && args.length == 5 && (projFnG (args[3]!)).isSome then
@@ -557,7 +557,7 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
         let cw ← ctorRowOf ``Signal.mk
         let tyArg := if isFst then "ta" else "tb"
         bump (if isFst then "mapFst" else "mapSnd")
-        mkN (if isFst then ``dw_mapFst_t else ``dw_mapSnd_t) [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("d", ← q 0), ("tp", ← q 1),
+        mkN (if isFst then ``ds_mapFst_t else ``ds_mapSnd_t) [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("d", ← q 0), ("tp", ← q 1),
           (tyArg, ← q 2), ("a", ← qE pa), ("b", ← qE pb), ("s", ← q 4), ("u", ← qE u), ("D", D), ("A", ← tyOf (if isFst then ht else ha)), ("B", ← tyOf hb), ("sv", sv),
           ("ls'", qLs ls'), ("cw", ctorRowE cw.induct cw.numParams cw.numFields), ("he", heE), ("hd", hd), ("hp", hp), ("ht", ht), ("ha", ha), ("hb", hb), ("hs", hs),
           ("hu", reflT (optT (optT exprT)) (someE (optT exprT) (someE exprT (← qE u)))), ("hm", reflT exprT (← qE (appFn u))), ("hr", hr)]
@@ -572,23 +572,23 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
       let (_, av) ← valOf ha
       let (_, bv) ← valOf hb
       bump "bundle2"
-      mkN ``DW.bundle2 (env0 ++ [("d", ← q 0), ("ta", ← q 1), ("tb", ← q 2), ("a", ← q 3), ("b", ← q 4), ("D", D), ("A", ← tyOf hta), ("B", ← tyOf htb),
+      mkN ``DS.bundle2 (env0 ++ [("d", ← q 0), ("ta", ← q 1), ("tb", ← q 2), ("a", ← q 3), ("b", ← q 4), ("D", D), ("A", ← tyOf hta), ("B", ← tyOf htb),
         ("av", av), ("bv", bv), ("hd", hd), ("hta", hta), ("htb", htb), ("ha", ha), ("hb", hb)])
-    else if c == ``Inhabited.mk && ls == [.succ .zero] && args.length == 2 then
+    else if c == ``Inhabited.mk && ls.length == 1 && args.length == 2 && lvlNat (ls.head!) == some 1 then
       let ht ← t 0
       let hx ← v 1
       let (_, xv) ← valOf hx
       let hr ← ctorFact K ``Inhabited.mk
       let cw ← ctorRowOf ``Inhabited.mk
       bump "inhMk"
-      mkN ``dw_inhMk_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("t", ← q 0), ("x", ← q 1), ("T", ← tyOf ht), ("v", xv),
-        ("cw", ctorRowE cw.induct cw.numParams cw.numFields), ("he", heE), ("hr", hr), ("ht", ht), ("hx", hx)]
+      mkN ``ds_inhMk_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("t", ← q 0), ("x", ← q 1), ("u", qL ls.head!), ("T", ← tyOf ht), ("v", xv),
+        ("cw", ctorRowE cw.induct cw.numParams cw.numFields), ("he", heE), ("hu", reflT (optT natT) (someE natT (toExpr (1 : Nat)))), ("hr", hr), ("ht", ht), ("hx", hx)]
     else if c == ``Inhabited.default && ls == [.succ .zero] && args.length == 2 then
       let ht ← t 0
       let hi ← v 1
       let (_, iv) ← valOf hi
       bump "inhDefault"
-      mkN ``DW.inhDefault (env0 ++ [("t", ← q 0), ("inst", ← q 1), ("T", ← tyOf ht), ("iv", iv), ("ht", ht), ("hi", hi)])
+      mkN ``DS.inhDefault (env0 ++ [("t", ← q 0), ("inst", ← q 1), ("T", ← tyOf ht), ("iv", iv), ("ht", ht), ("hi", hi)])
     else if c == ``Prod.mk && ls == [.zero, .zero] && args.length == 4 then
       let ha ← t 0
       let hb ← t 1
@@ -599,14 +599,14 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (cx : List CEntry) (ρE : Lean.Expr)
       let hr ← ctorFact K ``Prod.mk
       let cw ← ctorRowOf ``Prod.mk
       bump "prodMk"
-      mkN ``dw_prodMk_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("a", ← q 0), ("b", ← q 1), ("x", ← q 2), ("y", ← q 3),
+      mkN ``ds_prodMk_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("a", ← q 0), ("b", ← q 1), ("x", ← q 2), ("y", ← q 3),
         ("A", ← tyOf ha), ("B", ← tyOf hb), ("xv", xv), ("yv", yv), ("cw", ctorRowE cw.induct cw.numParams cw.numFields), ("he", heE), ("hr", hr),
         ("ha", ha), ("hb", hb), ("hx", hx), ("hy", hy)]
     else if c == ``PUnit.unit && ls == [.succ .zero] && args.length == 0 then
       let hr ← ctorFact K ``PUnit.unit
       let cw ← ctorRowOf ``PUnit.unit
       bump "unitVal"
-      mkN ``dw_unitVal_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("cw", ctorRowE cw.induct cw.numParams cw.numFields), ("he", heE), ("hr", hr)]
+      mkN ``ds_unitVal_t [("env", K.env), ("lk", K.lk), ("hlk", K.hlk), ("ρ", ρE), ("e", eQ), ("cw", ctorRowE cw.induct cw.numParams cw.numFields), ("he", heE), ("hr", hr)]
     else generic
 end
 
