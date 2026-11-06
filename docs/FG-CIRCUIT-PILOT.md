@@ -1015,3 +1015,29 @@ def synthesizeEntry (declName : Name) : MetaM (Module × Design) := do
 ### 22.6 次
 
 (1) `bundle2`/`Signal.ap` の狭い規則と `Inhabited` 構造体値の規則の設計（reviewer）。(2) その後 `HftObCDZ` に届くか走査し直す。
+
+## 23. S1s（Issue `sparkle-fg-circuit-pilot` の次の束）: `bundle2` と `Inhabited.mk`/`default` の狭い規則（族 `DW`）
+
+土台 `ba83ec10`（par/fgc-s1pqr）。追加ファイル（既存は書き換えていない）: `Tools/ShippingFGCircuitS1sCD.lean`、`Tests/Gen5/FGCircuitPilotCheck17.lean`。TRUSTED・axiom・sorry・native_decide・新しい law はない。Issue の状態は変えていない。成果は**条件付き**。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+### 23.1 新しい族 `DW`（reviewer 裁定 S1r §22.6 に従う）
+
+`DW` = `DZ` の全コンストラクタ（`unf` の停止条件のみ変更）+ 3 規則。汎用 `ap` 規則・`Signal.mk` 一般則・型クラス探索・universe 拡張・新 TRUSTED は入れていない。
+
+- `bundle2`: `Sparkle.Core.Signal.bundle2.{0} d A B a b`（引数順・レベル・同一 `d` を `he` で固定）。`d : DomainConfig`、`A B` の型、`a : Signal D A`、`b : Signal D B` の導出から、値は Lean の `bundle2 av bv`。Lean の等式（全信号・全時刻、`rfl`）: `bundle2_val_at`（`(bundle2 a b).val t = (a.val t, b.val t)`）、`bundle2_eq_mk`、**`bundle2_eq_seq`（`Signal.seq (Signal.map (fun x y => (x,y)) a) (fun _ => b)`：`seq` の `Unit` thunk は具体形のまま）**、`bundle2_eq_ap`、`seq_val_at`/`ap_val_at`、`bundle2_fst_at`/`snd_at`。**`bundle2` は `@[implemented_by bundle2Impl]` を持つ。証明したのは論理定義 `(·,·) <$> a <*> b` との一致であり、unsafe 実装との一致は証明していない。**
+- `inhMk`: `Inhabited.mk.{1} T x`（`env` の `ctorInfo`）。`x ↦ v` の導出から instance 値 `⟨v⟩ : Inhabited T`。
+- `inhDefault`: `Inhabited.default.{1} T inst`。`inst ↦ iv` から `iv.default`（**同じ instance**。instance 引数は消さない・canonical default に置換しない）。導出補題: `dw_default_of_mk`（`x ↦ v` ⇒ `default (Inhabited.mk x) ↦ v`）、`dw_prod_inhabited`（`Prod` instance は両成分の実際の導出から `⟨(xv, yv)⟩`）。Lean の等式: `inhabited_default_mk`、`inhabited_prod_mk`、`inhabited_inst_prod`、`inhabited_instances_differ`（同型で default の異なる 2 instance）、`loop_val_eq`（`Signal.loop` の意味が**その instance の** `default` を読む）。
+- **排他性**: `bundle2` と `Inhabited.default` は `unf` の停止頭（`newStop`、`stopW r e = stopR r e || newStop e`）。`Inhabited.mk` は `ctorInfo` で `unf` と衝突しない。他の規則とは頭定数が異なる。**関数性**: `dw_fun`/`cdw_fun`/`tdw_fun`/`cdw_eq`（導出に関する `induction`、仮定なし、axiom は propext/Classical.choice/Quot.sound のみ）。
+- **埋め込みの限界（正直な記録）**: 全称の `DZ → DW` は**証明していない**（できない）。`DZ` の導出で `bundle2`/`Inhabited.default` の適用を `unf` で展開するものは `DW` に写らない（任意の `env` ではその展開が停止しない保証がない）。それ以外の 35 コンストラクタは `DZ` と同一（Check17 OLD RULES が 1 つずつ照合）。したがって `HftObCDW` は `HftObCDZ` から出ない（別の義務）。
+
+### 23.2 単一 env・consumer への接続
+
+`CircCVW`（`CDW env [] d.value`）、`circCVW_functional`、`HftObCDW env`、`circCVW_hft_of_obCDW`、`circCVW_at_of_getEnv`/`circCVW_hft_run`（開始 world `envAt cref w`）、`HftFinalStmtW := HftFinalStmtWith HftObCDW`（S1r の `hcd : Ob (envAt cref w)`。Check17 が `HftFinalStmtWith HftObCDW` との一致を検査）。いずれも型のみで **`hcd` は未供給**。
+
+### 23.3 走査（SNAPSHOT17）と `hcd` の状況
+
+S1r の走査で止まっていた 2 種（`Signal.mk` ×17 = `bundle2`→`Seq.seq`→`Signal.seq`→`Signal.ap` の展開、`Inhabited.mk` ×17 = `instInhabitedProd`）は、それぞれ `bundle2` 規則・`inhMk`/`inhDefault` 規則の対象になる（Check17 SNAPSHOT17 の件数を参照）。**`hftRootValue` に対する `HftObCDW` の型付き導出（カーネル検査済み項）は今回作っていない**: 2h の pod 制限内で冷間 build（913 モジュール、約 70 分）が支配的で、導出生成器（メタプログラムで `DW` の項を組み、`EnvDefs`/`EnvCtors` 表 [展開した定義 40 件] と `List.rec` の `recInfo` 事実を仮定に取る）に着手できなかった。前提追加・保証範囲の変更・汎用化が必要で止まったのではない。次の束はこの生成器。
+
+### 23.4 名前付き仮説・未供給
+
+`HftObCDW`（型のみ）、`EnvDefs`/`EnvCtors`（導出時の表）、Expr 書き換えの意味保存は定理ではなく監査、`bundle2` の unsafe 実装、非 leaf の `hsrc`/`htop`/`hnoraw`。
