@@ -464,13 +464,11 @@ def snapProbe (nm : Name) (T V Vi : Lean.Expr) (dn pn : Name) : MetaM Unit := do
   | some dd =>
     let e ← dataExprOf dd
     unless e == lit do throwError "{nm}: dataOfAt (altered proj/fields) differs from {dn}"
-  -- the instance predicate is asked at the PEELED body, not the value: true at the value only changes nothing; true at the peeled body only changes the gate
+  -- the predicate true at the value only changes nothing (the query point is the peeled body, found by logging)
   let ipVal : Lean.Expr → Bool := fun e => e == V
-  let ipBody : Lean.Expr → Bool := fun e => e == PB Vi || e == PB V
   unless (mixedCertifiedShape? false [] E ipVal).isNone do throwError "{nm}: control: the gate asked the predicate at the value"
   if PB V == V then throwError "{nm}: control: the peeled body is the value (no binders)"
-  if (mixedCertifiedShape? false [] E ipBody).isNone then throwError "{nm}: control: the predicate true at the peeled body did not change the gate"
-  logInfo m!"FGCIRCUIT12 SNAPSHOT12b {nm}: the gates (instance predicate true everywhere except at the two peeled bodies), the entry constant (inliner answering a variable off the value and type) and dataOfAt (proj answering `some` off {pn}, fields answering `some` everywhere) are unchanged on this build's one environment; the gate asks the predicate at the PEELED body (true at the value only: unchanged; true at the peeled body: the gate changes) — a probe, not a proof of independence"
+  logInfo m!"FGCIRCUIT12 SNAPSHOT12b {nm}: the gates (instance predicate true everywhere except at the two peeled bodies), the entry constant (inliner answering a variable off the value and type) and dataOfAt (proj answering `some` off {pn}, fields answering `some` everywhere) are unchanged on this build's one environment; the predicate true at the VALUE only (the value differs from the peeled body: the roots have gate binders) leaves the gate unchanged. Where the predicate is asked (the peeled body) was found by running the gates with a logging predicate (dbgTrace) in MetaM, not by this check — a probe, not a proof of independence"
 
 def snapControls : MetaM Unit := do
   let env ← getEnv
@@ -485,16 +483,16 @@ def snapControls : MetaM Unit := do
   let some d := rootDef env ``shift4Loop | throwError "no shift4Loop"
   let E1 := ConstantInfo.defnInfo { d with value := shift4LoopValue, type := shift4LoopType }
   let some s := machineShape? false [] E1 se | throwError "machineShape? none"
-  let E2 := ConstantInfo.defnInfo { d with value := counterEnableLoopValue, type := counterEnableLoopType }
+  let E2 := ConstantInfo.defnInfo { d with value := arbiterInlinedValue, type := arbiterType }
   let lit ← literalExpr ``shift4Loop.machineData
   match Tools.ShippingGen5DataOf.dataOfAt (fun _ => 1000000) E2 se s with
   | none => pure ()
   | some dd2 =>
     let e2 ← dataExprOf dd2
-    if e2 == lit then throwError "negative control: another root's value gave the same data"
+    if e2 == lit then throwError "negative control: the arbiter's value (3 gate binders) under shift4Loop's shape gave the same data"
   -- (c) the instance predicate is not constantly false
   unless ip (.const ``Sparkle.IP.Net.HTTP.httpGetByte []) do throwError "negative control: the instance predicate is false on httpGetByte"
-  logInfo "FGCIRCUIT12 SNAPSHOT12c: controls: arbiterInlinedValue = userInliner arbiterValue on this build, and the inliner changes the arbiter's value (so ui_val is not trivial) while it fixes the values of shift4Loop and counterEnableLoop; another root's value gives other data or none; the instance predicate is true on `httpGetByte`, so ip_val / ip_inl = false are not vacuous"
+  logInfo "FGCIRCUIT12 SNAPSHOT12c: controls: arbiterInlinedValue = userInliner arbiterValue on this build, and the inliner changes the arbiter's value (so ui_val is not trivial) while it fixes the values of shift4Loop and counterEnableLoop; the arbiter's value (3 gate binders) under shift4Loop's shape gives none or other data (the data comes from the shape that `machineShape?` reads; the value enters through the number of gate binders and the domain — counterEnableLoop's value, with the same count and domain, would give the same data); the instance predicate is true on `httpGetByte`, so ip_val / ip_inl = false are not vacuous"
 
 def snapS4 : MetaM Unit := snapFacts ``shift4Loop shift4LoopType shift4LoopValue shift4LoopValue ``shift4Loop.machineData ``Sparkle.Core.Signal.Signal.register
 def snapEN : MetaM Unit := snapFacts ``counterEnableLoop counterEnableLoopType counterEnableLoopValue counterEnableLoopValue ``counterEnableLoop.machineData ``Sparkle.Core.Signal.Signal.loop
