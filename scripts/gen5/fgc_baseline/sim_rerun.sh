@@ -41,7 +41,10 @@ case "$G" in
       grep -o '"_gen_[A-Za-z0-9_]*"' ".lake/build/gen/h264/${f}_jit.c" | sort -u >> "$D/jitwires-$f.log" 2>&1
     done
     for e in h264-bitstream-test h264-playable-test h264-frame-encoder-test; do xrun "exe-$e" "$e"; done ;;
-  test) xrun exe-test-rerun test ;;
+  test)
+    # the test driver also checks verilator/generated_soc{.sv,_cppsim.h} (RV32 SoC flow): write them first, as in env
+    run write-SoCVerilog "${LEAN:-lean}" --load-dynlib=.lake/build/lib/libsparkle_Sparkle.so IP/RV32/SoCVerilog.lean
+    xrun exe-test-rerun test ;;
   toplevel) xrun exe-toplevel-sim-test toplevel-sim-test; xrun exe-toplevel-sim-jit-test toplevel-sim-jit-test ;;
   *) echo "unknown group $G" >&2; exit 2 ;;
 esac
