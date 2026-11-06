@@ -68,6 +68,23 @@ theorem bvAbbrevRow_mk : bvAbbrevRow ``Signal.mk = none := by
   | none => rfl
   | some r => have := stopC_of_row h; rw [stopC_mk] at this; cases this
 
+/-- `whStepR` does not step an application whose head is the recursor `List.rec` (a `recInfo` of `env`) -/
+theorem whStepR_listRec {env : Environment} {ls : List Level} {ri : RecursorVal} (hi : env.find? ``List.rec = some (.recInfo ri)) :
+    ∀ x : Expr, appFn x = .const ``List.rec ls → whStepR env x = none := by
+  intro x
+  induction x with
+  | const c l =>
+    intro hh
+    simp only [appFn, Expr.const.injEq] at hh
+    obtain ⟨rfl, rfl⟩ := hh
+    simp [whStepR, unfoldAt, appFn, hi]
+  | app f a ihf _ =>
+    intro hh
+    have hf : appFn f = .const ``List.rec ls := by simpa [appFn] using hh
+    have := ihf hf
+    cases f <;> first | (simp [appFn] at hf; done) | simp_all [whStepR]
+  | _ => intro hh; simp [appFn] at hh
+
 /-! ## 3. the relation -/
 
 section
@@ -160,6 +177,10 @@ inductive DZ (env : Environment) : Val → Expr → Res → Prop
       (h : DZ env ρ fld r) : DZ env ρ e r
   | recIota {ρ : Val} {e e' : Expr} {ls : List Level} {ri : RecursorVal} {r : Res}
       (hf : appFn e = .const ``List.rec ls) (hi : env.find? ``List.rec = some (.recInfo ri)) (hr : recStep env e = some e') (h : DZ env ρ e' r) : DZ env ρ e r
+  /-- NEW (S1r). a projection whose structure argument is itself a `List.rec` redex (`recStep`): step inside (`whStepR` does this only under another projection/application) -/
+  | projRec {ρ : Val} {e x x' : Expr} {S : Name} {i : Nat} {ls : List Level} {ri : RecursorVal} {r : Res}
+      (he : e = .proj S i x) (hf : appFn x = .const ``List.rec ls) (hi : env.find? ``List.rec = some (.recInfo ri)) (hr : recStep env x = some x')
+      (h : DZ env ρ (.proj S i x') r) : DZ env ρ e r
   /-- NEW (S1r). `Prod a b` -/
   | prodTy {ρ : Val} {e a b : Expr} {A B : Type} (he : e = appN ``Prod [.zero, .zero] [a, b]) (ha : TDz env ρ a A) (hb : TDz env ρ b B) : TDz env ρ e (A × B)
   /-- NEW (S1r). `PUnit.{1}` (the type `Unit` unfolds to it by `unf`) -/
@@ -511,6 +532,10 @@ theorem dz_fun {env : Environment} {ρ : Val} {e : Expr} {r : Res} (h : DZ env �
       injz he he'
       have := whStepR_ctor hc' _ hh'
       rw [hx] at this; cases this
+    | projRec he' hf' hi' hr' h' =>
+      injz he he'
+      have := whStepR_listRec hi' _ hf'
+      rw [hx] at this; cases this
     | _ => clashz
   | projCtor he hh hc hS hn hf h ih => intro r' h' hk; cases h' with
     | projCtor he' hh' hc' hS' hn' hf' h' =>
@@ -526,12 +551,33 @@ theorem dz_fun {env : Environment} {ρ : Val} {e : Expr} {r : Res} (h : DZ env �
       injz he he'
       have := whStepR_ctor hc _ hh
       rw [hx'] at this; cases this
+    | projRec he' hf' hi' hr' h' =>
+      injz he he'
+      have h1 := Expr.const.inj (hh.symm.trans hf')
+      obtain ⟨rfl, rfl⟩ := h1
+      rw [hc] at hi'; cases hi'
     | _ => clashz
   | recIota hf hi hr h ih => intro r' h' hk; cases h' with
     | recIota hf' hi' hr' h' =>
       have e1 := Option.some.inj (hr.symm.trans hr')
       subst e1
       exact ih h' hk
+    | _ => clashz
+  | projRec he hf hi hr h ih => intro r' h' hk; cases h' with
+    | projRec he' hf' hi' hr' h' =>
+      injz he he'
+      have e1 := Option.some.inj (hr.symm.trans hr')
+      subst e1
+      exact ih h' hk
+    | projStep he' hx' h' =>
+      injz he he'
+      have := whStepR_listRec hi _ hf
+      rw [hx'] at this; cases this
+    | projCtor he' hh' hc' hS' hn' hf' h' =>
+      injz he he'
+      have h1 := Expr.const.inj (hh'.symm.trans hf)
+      obtain ⟨rfl, rfl⟩ := h1
+      rw [hc'] at hi; cases hi
     | _ => clashz
   | prodTy he ha hb iha ihb => intro r' h' hk; cases h' with
     | prodTy he' ha' hb' =>

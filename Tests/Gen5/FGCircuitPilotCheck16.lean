@@ -68,6 +68,12 @@ def ExpLetZ (mu : Nat) : Prop :=
     e = .letE n A v body nd → DZ env ρ A (.ty TA) → (if mu == 1 then True else coreHead A = (mu != 2)) → DZ env ρ v (.val TA a) →
     DZ env (⟨A, ⟨TA, a⟩⟩ :: ρ) body (.val T r) → DZ env ρ e (.val T r)
 
+/-- `projRec`. mu: 1 no recInfo condition; 2 the step is on the projection itself (`e`) -/
+def ExpProjRec (mu : Nat) : Prop :=
+  ∀ {env : Environment} {ρ : Val} {e x x' : Expr} {S : Name} {i : Nat} {ls : List Level} {ri : RecursorVal} {r : Res},
+    e = .proj S i x → appFn x = .const ``List.rec ls → (if mu == 1 then True else env.find? ``List.rec = some (.recInfo ri)) →
+    (if mu == 2 then recStep env e = some x' else recStep env x = some x') → DZ env ρ (.proj S i x') r → DZ env ρ e r
+
 def ExpEmbedZ (rev : Bool) : Prop :=
   ∀ {env : Environment} {ρ : Val} {e : Expr} {r : Res}, (if rev then DZ env ρ e r else DY env ρ e r) → (if rev then DY env ρ e r else DZ env ρ e r)
 
@@ -127,6 +133,8 @@ run_cmd liftTermElabM do
   differs (S ++ `DZ.punitTy) (← q `ExpPunitTy #[nat 1]); nm := nm + 1
   same (S ++ `DZ.unf) (← q `ExpUnfZ #[nat 0])
   for m in [1, 2, 3] do differs (S ++ `DZ.unf) (← q `ExpUnfZ #[nat m]); nm := nm + 1
+  same (S ++ `DZ.projRec) (← q `ExpProjRec #[nat 0])
+  for m in [1, 2] do differs (S ++ `DZ.projRec) (← q `ExpProjRec #[nat m]); nm := nm + 1
   same (S ++ `DZ.letE) (← q `ExpLetZ #[nat 0])
   for m in [1, 2] do differs (S ++ `DZ.letE) (← q `ExpLetZ #[nat m]); nm := nm + 1
   -- embedding, functionality
@@ -283,7 +291,7 @@ run_cmd liftTermElabM do
 run_cmd liftTermElabM do
   let S := `Tools.ShippingFGCircuitS1rCD
   let names : List Name := [S ++ `signal_map_eq, S ++ `signal_map_fst_at, S ++ `signal_map_snd_at, S ++ `signal_mk_fst_eq, S ++ `signal_mk_snd_eq, S ++ `signal_ext', S ++ `signal_map_pair_at,
-    S ++ `signal_map_fst_pure, S ++ `signal_map_snd_pure, S ++ `dy_to_dz, S ++ `dx_to_dz, S ++ `dz_signalMk_false, S ++ `mapStuck_unf_false, S ++ `dz_fun, S ++ `cdz_fun, S ++ `tdz_fun, S ++ `cdz_eq,
+    S ++ `signal_map_fst_pure, S ++ `signal_map_snd_pure, S ++ `dy_to_dz, S ++ `dx_to_dz, S ++ `dz_signalMk_false, S ++ `whStepR_listRec, S ++ `mapStuck_unf_false, S ++ `dz_fun, S ++ `cdz_fun, S ++ `tdz_fun, S ++ `cdz_eq,
     S ++ `cdz_of_cdy, S ++ `cdz_of_cdx, S ++ `circCVY_to_Z, S ++ `circCVS_to_Z, S ++ `circCVZ_functional, S ++ `sourceDenotesS_to_Y, S ++ `sourceDenotesY_to_Z, S ++ `declConnect_of_cv,
     S ++ `declConnect_S_to_Y, S ++ `declConnect_Y_to_Z, S ++ `hftObCDY_of_X, S ++ `hftObCDZ_of_Y, S ++ `circCVY_hft_of_obCDY, S ++ `circCVZ_hft_of_obCDZ, S ++ `circCVZ_at_of_getEnv,
     S ++ `circCVY_at_of_getEnv, S ++ `circCVZ_hft_run, S ++ `circCVY_hft_run, S ++ `hftFinalStmtWith_const]
@@ -305,6 +313,7 @@ structure Stuck where
   mapStuckFail : Nat := 0
   mapPairs : List (Lean.Expr × Lean.Expr) := []
   prodMkSites : Nat := 0
+  projRecSteps : Nat := 0
   unitSites : Nat := 0
   prodTySites : Nat := 0
   tyUnfolds : Nat := 0
@@ -388,6 +397,14 @@ partial def recogProj (ty : Bool) (env : Environment) (fuel : Nat) (S : Name) (i
   | fuel + 1 =>
     match appFn x with
     | .const ctor _ =>
+      if ctor == ``List.rec && (recStep env x).isSome then
+        -- the new rule `projRec`
+        match recStep env x with
+        | some x' => do
+            modify fun s => { s with recSteps := s.recSteps + 1, recPairs := if s.recPairs.any (·.1 == x) then s.recPairs else s.recPairs ++ [(x, x')], projRecSteps := s.projRecSteps + 1 }
+            recogProj ty env fuel S i x'
+        | none => pure ()
+      else
       match env.find? ctor with
       | some (.ctorInfo cv) =>
         if cv.induct == S && (appArgs x).length == cv.numParams + cv.numFields then
@@ -508,7 +525,7 @@ run_cmd liftTermElabM do
   -- the equation audit over EVERY step the traversal took (List.rec iota pairs and Signal.map unfolding pairs); the build fails unless the verdict accepts
   let pairs := st.recPairs ++ st.mapPairs
   let a ← auditPairs pairs st.traceMismatch
-  logInfo m!"FGCIRCUIT16 SNAPSHOT16 (one environment): {st.nodes} nodes visited; List.rec iota steps {st.recSteps} ({st.recPairs.length} distinct); mapFst sites {st.mapFstSites}, mapSnd sites {st.mapSndSites} ({st.mapPairs.length} distinct), MapStuck failed {st.mapStuckFail}; prodMk {st.prodMkSites}, unit {st.unitSites}, prodTy {st.prodTySites}; type-level unfoldings {st.tyUnfolds}; unfolded definitions (distinct {st.unfolded.length}): {(top st.unfolded).take 40}"
+  logInfo m!"FGCIRCUIT16 SNAPSHOT16 (one environment): {st.nodes} nodes visited; List.rec iota steps {st.recSteps} ({st.recPairs.length} distinct); mapFst sites {st.mapFstSites}, mapSnd sites {st.mapSndSites} ({st.mapPairs.length} distinct), MapStuck failed {st.mapStuckFail}; projRec {st.projRecSteps}, prodMk {st.prodMkSites}, unit {st.unitSites}, prodTy {st.prodTySites}; type-level unfoldings {st.tyUnfolds}; unfolded definitions (distinct {st.unfolded.length}): {(top st.unfolded).take 40}"
   logInfo m!"FGCIRCUIT16 EQUATION AUDIT (Lean isDefEq, default transparency, loose bvars closed by junk-typed fvars; an audit of the reduction, NOT a typed derivation): total {a.total}, ok {a.ok}, bad {a.bad}, err {a.err}, traceMismatch {a.traceMismatch}"
   match a.verdict with
   | .error msg => throwError "FGCIRCUIT16 EQUATION AUDIT FAILED (fail closed): {msg}"
