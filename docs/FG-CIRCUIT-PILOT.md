@@ -1326,3 +1326,62 @@ Check の出力行は 6、棄却した mutant は計 39。台帳: FG 75 / T1 57�
 ### 28.7 次
 
 (1) `hclL`: root の 2 つの子（`httpGetByte`、`tlpCplByte`）の実出力に対し、`closeInstsGM` の検査を評価する計算検査器（S1iChild の `noRawBelowB` の型）を run の結果に結ぶ。(2) `htop`、`hcd`（S1s／S1w2）、`HftRootLink`（S1y）。
+
+## 29. S2a（Issue `sparkle-fg-circuit-pilot` の次の束）: `hclL` — 対象 run の閉じる成功を、根のデータと子の実出力から供給する
+
+土台 `451e3467`（par/fgc-s1）。追加ファイル: `Tools/ShippingFGCircuitS2aClose.lean`、`Tests/Gen5/FGCircuitPilotCheck24.lean`（lakefile 登録は各 1 回）。S1w2（`ShippingFGCircuitS1w*`、Check17/22、§23）と S1y（`ShippingFGCircuitS1yLink`、Check19/21、§25/§27）、S1z のファイルには触れていない（S1z の定義・定理を import して使う）。新しい law・axiom・TRUSTED・sorry・native_decide はない。snapshot は供給にしていない。Issue の状態は変えていない。成果は**条件付き**で台帳に数えない。
+
+### 29.1 手順 1: `some`/`none` を決める Bool 検査（完全な型）
+
+`synthesizeMachineCertified translate logProf declName shape : MetaM (Option (Module × Design))`（`Sparkle/Compiler/Elab.lean`）は、`synthesizeMixedCertified` の結果 `(t, design)` に対し:
+
+1. `Sparkle.IR.Machine.closeLets (nLets : Nat) (t : Module) : Option Module`。`nLets = 0` なら `some t`。それ以外は `packedWire? t.body`、`letOperands` が通り、かつ `aliases.all (wireWidth t.wires pa.2 == pa.1.ty.bitWidth && 0 < pa.1.ty.bitWidth && pa.1.name != "out" && pa.2 != "out" && !(writesOf t.body).contains pa.1.name) && core != "out" && OptCheck.assignmentOrderCheck body'`。`none` なら run は `none`（fallback）。
+2. `shape.insts = []` なら `some (closeMachine …)`（検査なし）。`insts ≠ []` かつ `shape.instFields.isEmpty` なら `closeInstsM` → **`closeInsts`**、`instFields ≠ []` なら `closeInstsGM` → `closeInstsG`。**根 `synth_hftPcieOutByte` は `instFields = []` なので `closeInsts` の道**（kernel `decide`、`Check24`/ビルドで確認）。
+3. `closeInstsM` は `sparkleChildSynth.get` で子の `synth c`（MetaM、子ごとの実行）を走らせ `children : List (Module × Design)` を得て `closeInsts nIn kI n portNames insts children (m, d)` を評価する。`closeInsts : Option (Module × Design)` が `none` になる条件: (a) `instStmt` の各検査（`mc ← moduleByName d'.modules child.1.name`、引数数・ポート名・出力の重複 …）、(b) `topoBody m'.body` が `none`、(c) `stmts.all isInst && decide portNames.Nodup && woCheck [] m'.body && woCheck [] body && isPermOf m'.body body && decide (seqOf m'.body = seqOf body) && decide (nextKeys m'.body).Nodup && decide (m'.body.filterMap stmtMemName).Nodup && linkedOk (moduleByName d'.modules) body && children.all (fun c => decide (moduleByName d'.modules c.1.name = some c.1) && c.2.modules.all (…)) && noInstOfB m.name body && d'.modules.all (fun g => noInstOfB m.name g.body) && kidsCombB d'.modules body`。
+4. 子に依存するのは (a) と (c) の `linkedOk`、`children.all …`、`noInstOfB`、`kidsCombB`（子の module の形: `isAssign` だけ、入力から読む、出力が書かれる、入力が wire で接続される）。根だけに依存するのは `closeLets` と `topoBody`/`woCheck` 系の根の body の部分。
+
+### 29.2 手順 2/3: 何を、どこまで証明したか
+
+方針: 既存の `machineClosesAtA_of_gateKids'`（`ShippingCallsGatePinned`、cache pin 版。`closeLets` は `letsClose_of_data`、`closeInsts` は `callsPureP_of_gateKids`）を、根の `machineData` と**子の実出力**（`RealChildA`）に対して使う。子の側の前提 `RealChildA O c y → ChildIface c n y.1 y.2`（`ChildComb`、入力数、module 名 = `ofDecl c`、design の module が空）を、`RealChildA.run` が運ぶ**子自身の run**（`synthesizeCombinational c` が `(y.1, y.2)` を返す）から導く。
+
+| 名前 | 内容 |
+|---|---|
+| `machineChild_ifaceA` | `machineChild_iface`（`ShippingMachineChildRun`）の `RealChildA` 境界への移植。機械 run は `machine_run_of_coreA`、閉じは `synthesizeMachineCertified_runsA`（`BodyStepC O`、`htr_of_tele`）。以降の証明は旧版そのまま |
+| `machineChild_of_realA` | `RealChildA O c y` ⇒ `ChildIface c (…) y.1 y.2`（slotless な machine 子）。`RealChildA` の `adm/cache/synth/quiet/hr` から `JQC O (dv w) w` を作り、`MachineDefines.ctx` で反射を子の文脈に移す |
+| `hft_kid_iface` | 根の 2 つの子（`httpGetByte`、`tlpCplByte`）の実出力に `ChildIface c (nkOf c)`。子のデータ検査（`ok`、`machine_body`、`gateCallsOk`、`lets ≠ 0`、`insts = []`、`slots = []`、出力が `out` 1 つ、`outTy`）は kernel `decide`。子の `MachineCloses` は生成済み `X.machine_closes` |
+| `hft_gateCalls`、`hft_alias`、`hft_argsN`、`hft_kids_names`、`hft_noparent`、`hft_outs_head` | 根のデータの事実（kernel `decide +kernel`）: `gateCallsOk (kDOf …)`、`letsAliasOk`、呼び出しの引数数、呼び出し先が 2 つの子のどちらか、親の名前の呼び出しが無い、出力ポート名が `i` で始まらない |
+| `hft_closesAtA` | 根の `MachineClosesAtA`（任意の `JQC O n` world（`1 ≤ n`）から機械 run は `none` を返さない）。`machineClosesAtA_of_gateKids'` ＋ 上の事実。`names_inj`/`parent_ne`/`instName_ne_of_head` は既存 |
+| `hftCoreCloses_of_kids` | **`HftCoreCloses`（hclL）の導出**: `Start L mctx cctx w` と `HftKidsDefine` から。`JQC (0+1)` を core の連鎖（`coreHeadOff_jqcA`、`FramedA.constInfo/env`）で `w3`、`getEnv` の frame で `w8` へ運び（`coreOff_ranA` と同じ道）、`hft_closesAtA` を `w8` の機械 run に適用 |
+| `HftFinalStmtOffLNK`、`synth_hftPcieOutByte_finalOffLNK`（`_Z/_Y/_X`） | S1z の最終文の `hclL` を `hkids : HftKidsDefine …` に替えたもの。**明示仮説 13**: `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd htop hkids`（`hclL` は仮説でなくなった） |
+
+標準 axiom のみ（`#print axioms` と Check24 AXIOMS）。`hdRun`（根の `MachineDefinesLinkedOff`）は `hftCoreCloses_of_kids` には要らない（根の閉じる成功は shape の反射ではなく `JQC` と子の事実から出る）。
+
+### 29.3 残る名前付き仮説（impossible とは言わない）
+
+```lean
+/-- 2 つの被呼び出し宣言の反射（FG D.T-4、子の部分）。生成済み endpoint が各被呼び出し宣言について既に取っている `MachineDefines` の前提そのもの -/
+def HftKidsDefine (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) : Prop :=
+  MachineDefines mctx mref cctx cref ``Sparkle.IP.Net.HTTP.httpGetByte Sparkle.IP.Net.HTTP.httpGetByte.machineData.shape ∧
+  MachineDefines mctx mref cctx cref ``Sparkle.IP.Bus.PCIe.tlpCplByte Sparkle.IP.Bus.PCIe.tlpCplByte.machineData.shape
+```
+
+- `MachineDefines` は「その run の環境で `getConstInfo c` / `getEnv` を読んだとき、`entryConst` が証明済みの shape を与える」ことの全 world 版（`ShippingMachineEntry`）。**閉じる成功そのものではない**（`hclL` の「`none` を返さない」は上で導出済み）。根では同じ種類の事実を `CheckedStart`/`hcell` から run 局所の `MachineDefinesLinkedOff` に落としていた（S1q）。子では、子の run は `RealChildA` の任意の admissible world で走るため、環境セルが子の run の world でも同じことを `JQC` は言わない。子の反射を `hreadH`/`hreadT`（`RootReader`）と `CellPrem` から子の run の world へ運ぶには、子の run の world の環境セルが開始 world と等しいことが要る（`RealChildA` は深さと cache しか持たない）。これは次の一歩（29.5）。
+- 他の仮説（`HftRootLink`、`hcd`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws`/`Start`/`hr`）は S1z のまま。
+
+### 29.4 Check24 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck24`、exit 0、931 jobs）
+
+- `FGCIRCUIT24 SIGNATURES-A`: `HftKidsDefine` を独立に書いた `ExpKD`（2 つの (宣言名, shape)）と `isDefEq` で照合。**8 mutant 棄却**（名前の入れ替え、両方 `httpGetByte`、両方 `tlpCplByte`、別 shape（`counterLoop`）、根の shape、別の子、片方だけ、`True`）。
+- `FGCIRCUIT24 SIGNATURES-B`: `hftCoreCloses_of_kids` の束縛（`mctx mref cctx cref L w hstart hk`）と使う定数（`Start`、`HftKidsDefine`、`HftCoreCloses`；`MachineCloses`/`MachineClosesAtA`/`CoreCloses` を前提に持たない）、`synth_hftPcieOutByte_finalOffLNK_Z` の 13 仮説・`hkids` が最後・`hclL` が無い・S1z の文と違う。**5 構造検査**。
+- `FGCIRCUIT24 HYPS`（13 個）、`FGCIRCUIT24 CONTROLS`（小さな module 上の純粋検査 14 件を kernel で判定、ビルドが失敗すれば反転）: 組合せ的な子は `kidsCombB` を通る／順序回路の子・入力が配線されていない子・出力が書かれない子（別の子出力）・子が無いは落ちる／親の instance は `noInstOfB` で落ちる／`closeLets` は packed wire の無い module を拒否／根の `gateCallsOk` は本来の `nDecl` で成立し別の `nDecl` で不成立／別の引数数の読みは不成立。
+- `FGCIRCUIT24 REMAINING`（1 行）: `hkids`。`FGCIRCUIT24 AXIOMS`: 15 名、標準 axiom のみ。
+
+Check の出力行は 6、棄却した mutant は 8（SIGNATURES-A）、制御は 14（CONTROLS）＋構造検査 5。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き（`hkids` ほか）。
+
+### 29.5 次
+
+(1) `HftKidsDefine`: 子の run の world でも環境セルが開始 world と同じであること（`RealChildA` に環境の frame を足すのではなく、`Start` からの run 局所の連鎖で `getConstInfo c`/`getEnv` の読みを `hreadH`/`hreadT` に結ぶ）。(2) `htop`、`hcd`（S1s／S1w2）、`HftRootLink`（S1y）。
+
+### 29.6 ビルド環境の注記
+
+`ulimit -v 20000000 … kjob lake build` は、この Pod では大きな既存モジュールのビルドで `failed to create thread`（Lean が確保する仮想メモリ）になるため、`timeout 1500 kjob lake build TARGET` のみで実行した。メモリの上限は kjob 側（`-m`）に任せた。
