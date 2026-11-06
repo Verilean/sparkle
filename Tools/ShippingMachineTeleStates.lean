@@ -28,6 +28,9 @@ def callArgVals {D : DomainConfig} (d : MachineData) (bools : Nat → Signal D B
     (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t x).b (d.bpos j))
     (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t x).v (d.vpos j) w) lt.2)).getD 0
 
+/-- the argument wires of call `k` of the machine `d` (the compiler's reading order; the same list as `Tools.ShippingGen5Sem.callArgs`) -/
+def callArgsOf (d : MachineData) (k : Nat) : List Nat := ((d.shape.insts.map (·.2.1))[k]?).getD []
+
 /-- the machine's fused state at cycle `t` from the Lean state signals: the enclosing registers `S₂` then the chain's `Ss`, flattened and read at the machine's slot list -/
 def teleState {dom : ι → DomainConfig} {ss₂ : List SType} {d : MachineData}
     (l : TeleT ι dom ss₂ (fun _ => [])) (hss : ss₂ ++ l.sss = d.ss) (i : ι)
