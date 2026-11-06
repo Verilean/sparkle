@@ -6,9 +6,9 @@ set_option autoImplicit false
 
 `coreHead X` (the prefix of `synthesizeCombinationalCore`) is a straight-line `MetaM` program over: `IO.getEnv "SPARKLE_PROFILE"`, the profile logging `IO` action (stderr and `/tmp/sparkle-profile.log`, only when the variable is set),
 `ST.Ref.get/set` of the synthesis side caches (`SideRef`) and of `sparkleSynthDepth`/`sparkleChildCache`, and a `throwError` (depth limit).
-* `envFrame_coreHead` proves `EnvFrame (coreHead X)` from `CellPrem MkRefd mref cref` (the existing C.EN-4 premise bundle: `CellOK` of every ref touched, `ReadWorld mref`/`cref`) and **two** facts about `IO` primitives (`HeadIO`).
+* `envFrame_coreHead` proves `EnvFrame (coreHead X)` from `CellPrem MkRefd mref cref` (the existing C.EN-4 premise bundle: `CellOK` of every ref touched, `ReadWorld mref`/`cref`) and the IO obligation `HeadIO` (`IO.getEnv "SPARKLE_PROFILE"`, and the profile logging action `profLogIO true`, itself a composition of several IO actions, not "two primitives").
 * `HeadIO` is what the existing laws do not give: `Laws` (`frame`, `frameQ`, `same` for `FramedA.ioEnv`) speak of `cv`/`sv`/`dv`/quiet, not of `envAt cref`; `QuietStrength` adds `ReadsAt` only as a conjunct of the strengthened `L'`, and `frameQ_plus` excludes the class-D rows (`DRow.ioEnv`)
-  by hypothesis (`¬ DRow p`).  So the environment frame of `IO.getEnv n` and of the logging action is not derivable from `Laws`/`CellPrem`/`QuietStrength`/`ReadWorld`; it is a statement about two opaque `IO` primitives that never touch the `cref` cell.
+  by hypothesis (`¬ DRow p`).  So no supply path for the environment frame of `IO.getEnv n` and of the logging action has been found from `Laws`/`CellPrem`/`QuietStrength`/`ReadWorld` (no underivability is proved; docs §14, §16.3).  The log obligation as a universal law is NOT adopted (reviewer ruling, S1o): `FS.Stream.putStr` is an arbitrary `IO` callback (`setStderr`), so see `S1oHead` for the profile-disabled run form.
 * `HeadAt X w` is the smallest form the endpoint theorem uses: only the run's own start world `w` (not all worlds): any `coreHead` run from `w` ends in a world with the same Core environment.  `headAt_of_frame` gives it from `EnvFrame (coreHead X)`.
 Nothing here adds a law; `HeadIO` is a premise, not an axiom. -/
 namespace Tools.ShippingFGCircuitS1iHead

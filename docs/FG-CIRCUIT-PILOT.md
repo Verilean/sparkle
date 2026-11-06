@@ -599,7 +599,7 @@ run が実際に到達する地点は 3 つ: `getConstInfo X`（world `w1`）、
 | `hlink` | `ReadsAt env₀ cref w` | DG-ENV C0 |
 | 変更なし | `hstart`（A.P-02）、`hr`（A.P-04）、`hhead`（C.EN-4、§16.3）、`hcell`（C.EN-4 CellPrem） | |
 
-**減ったもの / 減っていないもの。** `CheckedEnv.gates`（`entryGatesB env₀ X = true`）と `reader`（`ReaderAt`）という env₀ 全体への評価文が、閉じた宣言と 3 引数の 1 点ずつの事実（上表）に分かれ、gates と reader のデータ部分は kernel の計算になった。`machineShape?`・`pack`・`rootFloat`・`find?` は kernel で評価できない（現在の方式では未供給。不可能性は証明していない）。仮説の個数は増えた（1 つの `CheckedStart` が 9 つの個別事実になった）ので、台帳には数えない（FG -0 +0 / T1 -0 +0）。
+**減ったもの / 減っていないもの。** `CheckedEnv.gates`（`entryGatesB env₀ X = true`）と `reader`（`ReaderAt`）という env₀ 全体への評価文が、閉じた宣言と 3 引数の 1 点ずつの事実（上表）に分かれ、gates と reader のデータ部分は kernel の計算になった。`machineShape?`・`pack`・`rootFloat`・`find?` は kernel で評価できない（現在の方式では未供給。不可能性は証明していない）。仮説の個数は増えた（1 つの `CheckedStart` が 9 つの個別事実になった。内訳は `hx` 3 + `hf` 5 + `hlvl` 1 で、`hlink` は別掲（9 に含めない）。`hf.root` 自身も存在証人と複数の事実を含む 1 件なので、9 は仮説の最小単位の数ではない）ので、台帳には数えない（FG -0 +0 / T1 -0 +0）。
 
 ### 16.3 作業 C: HeadIO の完全型と許容する実行範囲
 
@@ -690,3 +690,63 @@ IOHeadFrame (draft, UNAPPROVED, not used):
 ### 18.6 残り
 
 (1) `hx` の 3 事実と `machineShape?` の kernel 供給（`partial` 本体の外出しか対応する law の凍結）。(2) `RootEnvFacts` の環境側（`ui`／`ip`／`proj`／`RootInEnv`）を `ReadsAt`＋属性表の文に落とす。arbiter は `arbiterInlinedValue` が 1 環境のスナップショットなので、インライナーの出力の導出（`userInliner` の kernel 評価か名前付き law）も要る。(3) `HeadIO`（§16.3）の reviewer 判断。(4) 非 leaf（§15 の `hcd`／`hsrc`／`htop`／`hnoraw`、S1m の `hcd` 規則）。
+
+## 19. S1o（Issue `sparkle-fg-circuit-pilot` の次の束）: HeadIO の再設計（profile 無効の run 形を先に）
+
+土台 `a24f49c4`（par/fgc-s1）。追加ファイル: `Tools/ShippingFGCircuitS1oHead.lean`、`Tests/Gen5/FGCircuitPilotCheck13.lean`（lakefile 登録は各 1 回）。既存の定理は書き換えていない（記録訂正のみ: S1iHead 冒頭コメント、S1iChild 冒頭コメント、§16.2 の 9 の内訳）。sorry・axiom・native_decide・TRUSTED・新しい law はない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は引き続き**条件付き**。Issue の状態は変えていない。S1m/S1n のファイルには触れていない。
+
+### 19.1 記録訂正
+
+- S1iHead 冒頭: 旧「not derivable」「two opaque primitives」を §14 と同期（「供給経路が見つかっていない。導出不能の証明はない」「profile ログは複数の IO 動作の合成」）。∀world のログ義務を法則として採らない旨（所見C）を追記。
+- S1iChild 冒頭: 「compile of the probe の one run」を、`synthesizeCombinationalCore` と外側の `synthesizeCombinational` の**別々の 2 回の実行**の観測に同期。
+- §16.2 の「1 つの `CheckedStart` が 9 つの個別事実」は `hx` 3 + `hf` 5 + `hlvl` 1。`hlink` は別掲で 9 に含めない。`hf.root` 自身も存在証人と複数の事実を含む 1 件なので、9 は仮説の最小単位の数ではない。
+
+### 19.2 (a) `coreHead` が profile を決める箇所と、狭めた run 形
+
+`coreHead X` の**最初の動作**が `profile := (← IO.getEnv "SPARKLE_PROFILE").isSome`。ログ動作 `logProf` は `profile` が真のときだけ `IO.eprintln`、`flushStderr`、`IO.FS.Handle.mk`、`putStrLn`、`flush` を行う。`profile` は後で `CoreSaved.profile` にも入る（環境には触れない）。
+
+評価した 2 案:
+1. **run 局所の前提（採用）**: 開始 world `w` で `IO.getEnv "SPARKLE_PROFILE"` を走らせた結果が `none` で、環境 `envAt cref` を保つ、という run の前提。実環境変数が未設定という Meta の観測は**供給に使わない**（名前付き仮説のまま）。
+2. **コンパイル時/オプションの切替**（提案のみ。Elab は変更していない）: `SPARKLE_PROFILE` の読み取りとログ枝を `register_option`/`Options` の値に移す（`Core.Context.options` から読む）と、`coreHead` から `IO.getEnv` と `logProf` が消え、`profile` は純粋な値になる。baseline 保存の論拠: 既定値 `false` では `profile = false` の枝が今と同一（出力 IR・`CoreSaved` の `profile` 欄は同じ）で、IP の出力・成功の run は変わらない。ただし `SPARKLE_PROFILE` を使う既存の運用（環境変数でログを出す）は、オプション指定に変わる（または変数→オプションの橋渡しが別に要る）ので、利用者に見える変更になる。これは compiler の変更なので S1o では実装しない。reviewer 判断。
+
+**最小の getEnvProfile frame の正確な型**（`Tools/ShippingFGCircuitS1oHead.lean`）:
+```lean
+abbrev profileAct : MetaM (Option String) := liftM (IO.getEnv "SPARKLE_PROFILE")
+structure GetEnvProfileAt (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
+    (cref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld) : Prop where
+  unset : ∀ (o : Option String) (w1 : Void IO.RealWorld), RunsTo profileAct mctx mref cctx cref w o w1 → o = none
+  env   : ∀ (o : Option String) (w1 : Void IO.RealWorld), RunsTo profileAct mctx mref cctx cref w o w1 → envAt cref w1 = envAt cref w
+```
+全 world の `EnvFrame` ではなく run の開始 world 1 点で、結果を `none` に限る。
+
+### 19.3 (b) 既存の EnvFrame 補題だけでの定理
+
+- `headAt_of_profileOff (X) (hcell : CellPrem MkRefd mref cref) (hg : GetEnvProfileAt mctx mref cctx cref w) : HeadAt X mctx mref cctx cref w`。証明: `coreHead` の run を最初の動作で `RunsTo.bind` により分け、`hg` から `o = none` と `envAt w0 = envAt w`。残りは S1i の `ef_step`（`bind`/`pure`/`ite`/`letFun`/get/set/`throwError`、すべて既存の `EnvFrame` 補題と `CellPrem`）で閉じ、ログの `if none.isSome = true` を `if_neg` で `pure ()` にする。`HeadIO` は使わない。
+- `counterLoop_final9P`: `counterLoop_final9` の `hhead` を `CellPrem` + `GetEnvProfileAt` に替えた形（`HeadIO`/`hio` なし）。仮説: `L lvl env₀ hstart hr hcell hg hread hgatesB hquote hreader`。
+- 閉じていないこと: `hg` は仮説のまま（`unset` は実行時のプロセス環境、`env` は `IO.getEnv` の環境保存）。`hg` が供給できる経路は未確認で、不可能性も主張しない。profile 有効の run（`o = some _`）は、この形では**保証範囲外**。
+
+### 19.4 (c) FREEZE DRAFT（未承認。台帳に数えない。C.EN-4/Laws に吸収しない。どの定理も使わない）
+
+ログ枝を保証範囲に残す場合の義務。stderr callback と固定 Handle 操作を分ける:
+```lean
+def logStderrAct (msg : String) : IO Unit := do IO.eprintln msg; Sparkle.Compiler.flushStderr
+def logTailAct   (msg : String) : IO Unit := do
+  let h ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append; h.putStrLn msg; h.flush
+structure LogBranchDraft (mctx mref cctx cref) : Prop where
+  stderrPreserves      : ∀ msg, EnvFrame (liftM (logStderrAct msg) : MetaM Unit) mctx mref cctx cref
+  fixedHandlePreserves : ∀ msg, EnvFrame (liftM (logTailAct msg) : MetaM Unit) mctx mref cctx cref
+```
+- `stderrPreserves` は**現在の stderr stream** の `putStr`/`flush` callback（`setStderr` で差し替え可能、`eprintln` は現 stream の `putStr` を呼ぶ）が成功する限り env を書き換えない、という条件で、一般法則ではなく callback ごとの条件として明示する（所見C）。`fixedHandlePreserves` は固定パス・固定 Handle primitive だけの義務。
+- 旧 `HeadIO.log`（`∀ msg, EnvFrame (liftM (profLogIO true msg))`）は上の 2 つの連言に分かれるが、`liftM` が IO の bind を MetaM の bind に写す等式（lift の法則）は証明できていないので、同値の定理は置かない（試したが未達。新しい law を足さないため）。
+- 採用する場合は追加の未払い義務として差分を再照合する。現在は計上しない。
+
+### 19.5 Check13 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck13`、913 jobs、exit 0）
+
+- `FGCIRCUIT13 SIGNATURES`: `GetEnvProfileAt.mk`、`headAt_of_profileOff`、`counterLoop_final9P`、`LogBranchDraft.mk`（draft）の完全型を独立に書いて `isDefEq`（default 透過度）で照合し、binder の種類も一致。**21 mutant 棄却**: ログ枝を通る形（`o.isSome`）、独立 world からの lookup、end world で自明になる env 前提、unset/env/cell/frame の欠落、frame が無関係な world、結論が end world、旧 `HeadIO` を run 局所の frame の代わりにしたもの、final9P の frame/link/結論の end world、別 root の post、draft の stderr/handle 部分の欠落・flush 欠落・別パス。
+- `FGCIRCUIT13 HYPS`/`REMAINING`: `headAt_of_profileOff` = `X hcell hg`、`counterLoop_final9P` = `L lvl env₀ hstart hr hcell hg hread hgatesB hquote hreader`。`HeadIO`/`hhead`/`hio`/`hquiet`/`hdRun`/`hsrc` は前提に無い。
+- `FGCIRCUIT13 NOTUSED`: 2 定理の型と値が `HeadIO`・`LogBranchDraft`・`profLogIO`・`envFrame_coreHead`・`headAt_of_cellPrem` を直接参照しない。
+- `FGCIRCUIT13 AXIOMS`: 2 名、標準 axiom のみ。
+
+### 19.6 次
+
+(1) `hg` の供給（`IO.getEnv` の run の結果・環境保存。コンパイル時の切替案 19.2-2 を採れば `unset` は消える）。(2) draft の採否（reviewer）。(3) 他の 3 root への `final9P` 相当の持ち上げ（counterLoop と同手順）。
