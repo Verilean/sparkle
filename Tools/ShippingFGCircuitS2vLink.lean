@@ -63,7 +63,7 @@ theorem synth_hftPcieOutByte_finalOffCombined3_X : HftFinalStmtOffCombined3 HftO
 
 
 section States
-open Sparkle.IR.Semantics Sparkle.IR.Machine
+open Sparkle.IR.Semantics Sparkle.IR.Machine Sparkle.Core.Signal
 open Tools.ShippingMachineTeleStates (teleState)
 open Tools.ShippingMachineTele Tools.ShippingMachineTeleNest
 open Tools.ShippingMachineNest (happendT castSS)
@@ -91,8 +91,11 @@ theorem root_states (i : Unit) (bools : Nat → Signal defaultDomain Bool) (bits
         (fun k w => (typedVal synth_hftPcieOutByte.machineData.nIn synth_hftPcieOutByte.machineData.bpos synth_hftPcieOutByte.machineData.vpos
           synth_hftPcieOutByte.machineData.ss synth_hftPcieOutByte.machineData.ls bools (synth_hftPcieOutByte.machineExt i bools bits S₂ Ss) t (X t)).v
           (synth_hftPcieOutByte.machineData.vpos k) w) o.2) :=
-  Tools.ShippingFGCircuitS2kLink.states_abs (src := fun i b bi => synth_hftPcieOutByte.machineSource i b bi) _ _ _ _ i bools bits
+by
+  obtain ⟨S₂, Ss, X, hX, h0, hstep, hobs⟩ := Tools.ShippingFGCircuitS2kLink.states_abs
+    (src := fun i b bi => synth_hftPcieOutByte.machineSource i b bi) _ _ _ _ i bools bits
     (synth_hftPcieOutByte.machine_states i bools bits)
+  exact ⟨S₂, Ss, X, hX, h0, hstep, hobs⟩
 
 end States
 
