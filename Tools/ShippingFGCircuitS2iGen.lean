@@ -281,6 +281,28 @@ def parseVal (t : Lean.Expr) : Option (Lean.Expr × Lean.Expr × Lean.Expr) :=
     else none
   else none
 
+
+/-! ## (S2q) the three narrow bit rules: syntactic recognition and consistency checks (the kernel re-checks everything) -/
+
+/-- `fun (x : BitVec wE) => BitVec.extractLsb' nE loE lenE x` -/
+def parseExtractFn (f : Expr) : Option (Name × BinderInfo × Expr × Expr × Expr × Expr) :=
+  match f with
+  | .lam n A b bi =>
+    match appFn A, appArgs A, appFn b, appArgs b with
+    | .const ``BitVec [], [wE], .const ``BitVec.extractLsb' [], [nE, loE, lenE, .bvar 0] => some (n, bi, wE, nE, loE, lenE)
+    | _, _, _, _ => none
+  | _ => none
+
+def bvTyE (W : Lean.Expr) : Lean.Expr := mkApp (Lean.mkConst ``BitVec) W
+def sigTyE (D T : Lean.Expr) : Lean.Expr := mkApp2 (Lean.mkConst ``Signal [.zero]) D T
+
+/-- the two kernel terms (values of `Nat`, `DomainConfig`, a type …) must agree: otherwise the generator refuses with `what` -/
+def agree (what : String) (a b : Lean.Expr) : MetaM Unit := do
+  unless (← withTransparency .all (isDefEq a b)) do throwError "{what}: {← ppExpr a} differs from {← ppExpr b}"
+
+def natAddE (m n : Expr) : Expr :=
+  appN ``HAdd.hAdd [.zero, .zero, .zero] [.const ``Nat [], .const ``Nat [], .const ``Nat [], appN ``instHAdd [.zero] [.const ``Nat [], .const ``instAddNat []], m, n]
+
 mutual
 unsafe def deriveT (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) : G2 Lean.Expr := do
   let key := (ty, ρ, e)
@@ -540,6 +562,81 @@ unsafe def deriveConst (K : Kx) (ty : Bool) (ρ : Lean.Expr) (e : Expr) (c : Nam
       mkN ``DT.sigBeqBV (env0 ++ [("d", ← q 1), ("w", ← qU wq), ("a", ← q 3), ("b", ← q 4), ("D", D), ("W", W), ("av", av), ("bv", bv),
         ("hd", hd), ("hw", hw), ("ha", ha), ("hb", hb)])
     else if (bvAbbrevRow c).isSome then throwError "bvAbbrev {c}: not supported by the generator"
+    else if c == ``Signal.map && ls == [.zero] && args.length == 5 && (parseExtractFn (args[3]!)).isSome then
+      let some (n, bi, wE, nE, loE, lenE) := parseExtractFn (args[3]!) | throwError "unreachable"
+      unless args[1]! == appN ``BitVec [] [wE] do throwError "extractLsb' map: the input element type is not BitVec of the binder width"
+      let some lE := (appArgs (args[2]!))[0]? | throwError "extractLsb' map: the result type is not a BitVec"
+      unless args[2]! == appN ``BitVec [] [lE] do throwError "extractLsb' map: the result type is not BitVec lE"
+      let hd ← v 0
+      let hw ← deriveT K false ρ wE
+      let hl ← deriveT K false ρ lE
+      let (_, D) ← dtVal hd
+      let (_, W) ← dtVal hw
+      let (_, L) ← dtVal hl
+      let hs ← v 4
+      let (αs, sv) ← dtVal hs
+      agree "extractLsb' map: the input signal is not a Signal of the same domain and width" αs (sigTyE D (bvTyE W))
+      let A := appN ``BitVec [] [wE]
+      withLocalDeclD `x (bvTyE W) fun xv => do
+        let c : CEntry := { tau := ← qU A, ty := bvTyE W, val := xv }
+        let ρx := consL (entValE c) ρ
+        let hn ← deriveT K false ρx nE
+        let (_, Wn) ← dtVal hn
+        agree "extractLsb': the width argument differs from the input width" Wn W
+        let hlo ← deriveT K false ρx loE
+        let (_, LO) ← dtVal hlo
+        let hlen ← deriveT K false ρx lenE
+        let (_, Ln) ← dtVal hlen
+        agree "extractLsb': the length argument differs from the result width" Ln L
+        bump "mapExtract"
+        mkN ``DT.mapExtract (env0 ++ [("d", ← q 0), ("wE", ← qU wE), ("lE", ← qU lE), ("nE", ← qU nE), ("loE", ← qU loE), ("lenE", ← qU lenE), ("s", ← q 4),
+          ("n", toExpr n), ("bi", biE bi), ("D", D), ("W", W), ("LO", LO), ("L", L), ("sv", sv),
+          ("hd", hd), ("hw", hw), ("hl", hl), ("hn", ← mkLambdaFVars #[xv] hn), ("hlo", ← mkLambdaFVars #[xv] hlo), ("hlen", ← mkLambdaFVars #[xv] hlen), ("hs", hs)])
+    else if c == ``HShiftLeft.hShiftLeft && ls == [.zero, .zero, .zero] && args.length == 6 && (appFn (args[3]!)).isConstOf ``Sparkle.Core.Signal.instHShiftLeftSignalBitVec
+        && (appArgs (args[3]!)).length == 2 then
+      let some dE := (appArgs (args[3]!))[0]? | throwError "unreachable"
+      let some wE := (appArgs (args[3]!))[1]? | throwError "unreachable"
+      let expected := appN ``HShiftLeft.hShiftLeft [.zero, .zero, .zero]
+        [appN ``Signal [.zero] [dE, appN ``BitVec [] [wE]], appN ``BitVec [] [wE], appN ``Signal [.zero] [dE, appN ``BitVec [] [wE]],
+         appN ``Sparkle.Core.Signal.instHShiftLeftSignalBitVec [] [dE, wE], args[4]!, args[5]!]
+      unless e == expected do throwError "Signal <<< BitVec: the operand types / result type do not agree with the instance's domain and width"
+      let hd ← deriveT K false ρ dE
+      let hw ← deriveT K false ρ wE
+      let (_, D) ← dtVal hd
+      let (_, W) ← dtVal hw
+      let ha ← v 4
+      let hb ← v 5
+      let (αa, av) ← dtVal ha
+      let (αb, bv) ← dtVal hb
+      agree "Signal <<< BitVec: the signal operand is not a Signal of the instance's domain and width" αa (sigTyE D (bvTyE W))
+      agree "Signal <<< BitVec: the shift amount is not a BitVec of the signal's width" αb (bvTyE W)
+      bump "sigShlBV"
+      mkN ``DT.sigShlBV (env0 ++ [("d", ← qU dE), ("w", ← qU wE), ("a", ← q 4), ("b", ← q 5), ("D", D), ("W", W), ("av", av), ("bv", bv),
+        ("hd", hd), ("hw", hw), ("ha", ha), ("hb", hb)])
+    else if c == ``HAppend.hAppend && ls == [.zero, .zero, .zero] && args.length == 6 && (appFn (args[3]!)).isConstOf ``Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat
+        && (appArgs (args[3]!)).length == 3 then
+      let some mE := (appArgs (args[3]!))[0]? | throwError "unreachable"
+      let some dE := (appArgs (args[3]!))[1]? | throwError "unreachable"
+      let some nE := (appArgs (args[3]!))[2]? | throwError "unreachable"
+      let expected := appN ``HAppend.hAppend [.zero, .zero, .zero]
+        [appN ``BitVec [] [mE], appN ``Signal [.zero] [dE, appN ``BitVec [] [nE]], appN ``Signal [.zero] [dE, appN ``BitVec [] [natAddE mE nE]],
+         appN ``Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat [] [mE, dE, nE], args[4]!, args[5]!]
+      unless e == expected do throwError "BitVec ++ Signal: the operand types / output width do not agree with the instance (constant on the left, output width m + n)"
+      let hd ← deriveT K false ρ dE
+      let hm ← deriveT K false ρ mE
+      let hn ← deriveT K false ρ nE
+      let (_, D) ← dtVal hd
+      let (_, M) ← dtVal hm
+      let (_, N) ← dtVal hn
+      let ha ← v 4
+      let hb ← v 5
+      let (αa, av) ← dtVal ha
+      let (αb, bv) ← dtVal hb
+      agree "BitVec ++ Signal: the left operand is not a BitVec of the instance's width m" αa (bvTyE M)
+      agree "BitVec ++ Signal: the right operand is not a Signal of the instance's domain and width n" αb (sigTyE D (bvTyE N))
+      bump "sigAppendCL"
+      mkN ``DT.sigAppendCL (env0 ++ [("d", ← qU dE), ("m", ← qU mE), ("n", ← qU nE), ("a", ← q 4), ("b", ← q 5), ("D", D), ("M", M), ("N", N), ("av", av), ("bv", bv),
+        ("hd", hd), ("hm", hm), ("hn", hn), ("ha", ha), ("hb", hb)])
     else if c == ``Signal.map && ls == [.zero] && args.length == 5 && (projFnG (args[3]!)).isSome then
       let some (isFst, pa, pb) := projFnG (args[3]!) | throwError "unreachable"
       let hd ← v 0
