@@ -184,9 +184,46 @@ theorem hftTop_of_run (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : E
 
 end Main
 
+/-! ## 4. the final statement with `htop` replaced -/
+section Final
+open Tools.ShippingFGCircuitS1xNoRaw Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD
+
+/-- `HftFinalStmtOffLNKKG` (S2g) with `htop : ∀ p, GPt … = some p → HftObTopCoreOff … p` replaced by `hdec : HftCallDec lvl (envAt cref w)` (14 explicit hypotheses; the replaced one is at the same position) -/
+def HftFinalStmtOffLNKKGT (Ob : Environment → Prop) (CV : CDRel) : Prop :=
+  ∀ (hlink : HftRootLink) {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
+    {mctx : Meta.Context} {cctx : Core.Context} {w w' : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
+    (hstart : Start L mctx cctx w)
+    (hr : RunsTo (synthesizeCombinationalOff hftRoot) mctx mref cctx cref w (b, D') w')
+    (hcell : CellPrem Tools.ShippingChildFresh.MkRefd mref cref)
+    (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
+    (hreadH : RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData)
+    (hreadT : RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData)
+    (hcd : Ob (envAt cref w))
+    (hdec : HftCallDec (ι := ι) lvl (envAt cref w))
+    (hkenv : HftKidsStartEnv L.O (envAt cref w))
+    (hkgfacts : HftKidsGateFacts (envAt cref w)),
+    (∃ raw, PostRunOff mctx mref cctx cref w hftRoot D' b raw) ∧
+    ∃ (mm : MonoTy shHft) (p : Pkg ι (fun _ => defaultDomain)),
+      RootArtifactMonoV CV (envAt cref w) (GPt (ι := ι) lvl (envAt cref w))
+        (PostRunOff mctx mref cctx cref w hftRoot D') hftRoot shHft mm b D' p
+
+theorem synth_hftPcieOutByte_finalOffLNKKGT (CV : CDRel) (Ob : Environment → Prop) (hOb : ∀ env, Ob env → HftObOf CV env) :
+    HftFinalStmtOffLNKKGT Ob CV := by
+  intro hlink ι mref cref L lvl env₀ mctx cctx w w' b D' hstart hr hcell hchk hRdH hRdT hCD hdec hkenv hkgfacts
+  exact synth_hftPcieOutByte_finalOffLNKKG CV Ob hOb hlink L lvl env₀ hstart hr hcell hchk hRdH hRdT hCD
+    (hftTop_of_run L lvl env₀ hstart hcell hchk hRdH hRdT hkenv hkgfacts hdec) hkenv hkgfacts
+
+theorem synth_hftPcieOutByte_finalOffLNKKGT_Z : HftFinalStmtOffLNKKGT HftObCDZ cdvZ := synth_hftPcieOutByte_finalOffLNKKGT cdvZ _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffLNKKGT_Y : HftFinalStmtOffLNKKGT HftObCDY cdvY := synth_hftPcieOutByte_finalOffLNKKGT cdvY _ (fun _ h => h)
+theorem synth_hftPcieOutByte_finalOffLNKKGT_X : HftFinalStmtOffLNKKGT HftObCDX cdvX := synth_hftPcieOutByte_finalOffLNKKGT cdvX _ (fun _ h => h)
+
+end Final
+
 end Tools.ShippingFGCircuitS2jTop
 
 #print axioms Tools.ShippingFGCircuitS2jTop.servedP_of_real
 #print axioms Tools.ShippingFGCircuitS2jTop.traceLBX_mono
 #print axioms Tools.ShippingFGCircuitS2jTop.hft_width1
 #print axioms Tools.ShippingFGCircuitS2jTop.hftTop_of_run
+#print axioms Tools.ShippingFGCircuitS2jTop.synth_hftPcieOutByte_finalOffLNKKGT_Z
