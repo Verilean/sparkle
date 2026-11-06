@@ -1871,14 +1871,16 @@ Check の出力行は 7（SIGNATURES-A 1、SIGNATURES-B 1、HYPS 1、QUOTES 1、
 
 | n | DT 節点 | Sh 歩数 | 生成 ms | kernel ms | 項 DAG | 項 tree |
 |---|---|---|---|---|---|---|
-| 4 | 20 | 16 | 3 | 0 | 612 | 2.3e5 |
-| 8 | 54 | 24 | 3 | 0 | 1084 | 4.0e7 |
-| 12 | 104 | 32 | 5 | 0 | 1684 | 1.4e10 |
-| 16 | 170 | 40 | 7 | 0 | 2412 | 4.6e12 |
-| 20 | 252 | 48 | 9 | 0 | 3268 | 1.5e15 |
-| 24 | 350 | 56 | 13 | 0 | 4252 | 4.7e17 |
+| 4 | 20 | 16 | 3 | 37 | 612 | 2.3e5 |
+| 8 | 54 | 24 | 3 | 43 | 1084 | 4.0e7 |
+| 12 | 104 | 32 | 5 | 53 | 1684 | 1.4e10 |
+| 16 | 170 | 40 | 7 | 62 | 2412 | 4.6e12 |
+| 20 | 252 | 48 | 9 | 74 | 3268 | 1.5e15 |
+| 24 | 350 | 56 | 13 | 90 | 4252 | 4.7e17 |
 
-DAG は n に対して**二次**（差分が 128 ずつ増える: 612, 1084, 1684, …）で、tree は指数。kernel は 0 ms と表示された（**訂正（S2q）: 「kernel 0 ms」は「共有を再走査していない」ことの証拠ではない。さらに S2q で、この `kernel ms` は定理の `addDecl` が非同期（またはディスパッチのみ）で、実際の検査時間を測っていなかったと分かった（同じ生成物で、同期の `Environment.addDeclCore` に替えると 32 ms → 7283 ms、§43.4）。したがって S2o/S2p までの `kernel ms` の数字（0〜52 ms）は検査時間の測定として無効**。DAG が n に対して二次であることと、tree が指数であることだけが、項の形についての事実）。Check29 の小例（SHARE/SHADOW/HIGHER/REC-*/DEFAULT）でも kernel 0 ms（同じく分解能以下）、DAG 80〜662。**区別（S2q）: (a)「S2b の外挿（1 歩ごとの DAG 再走査で 2〜2.5 h）が小さい例で再現しなかった」ことは測定済み（上の表）。(b)「根そのものの kernel 時間・項サイズ」は、この節の時点では未測定**（止まりのため根の項を作れなかった。S2q で根の項が作れた: §43）。(a) は (b) の結論を与えない。probe の生成側だけの数字（5282 節点、72012 歩、2.5 s）は上に記録した。
+**訂正（S2u）: 上の表の `kernel ms` 列の旧「0」は無効な表示だった。S2q の同期 kernel 保存ログの n=4..24 は 37/43/53/62/74/90 ms。この列はその値に置き換えた。これは Check35 の小さな共有連鎖の kernel 時間であって、根（`hftRootValue`）の時間ではない（根は §43.4 の 7283 ms、副ブランチ・未承認 `sigOrBV` 前提）。二つを混同しない。** S2u の再実行（`Tests/Gen5/FGCircuitPilotCheck35.lean`、qE の exact 化後、同期、ウォームキャッシュ）は 43/40/60/59/67/82 ms（実行ごとにばらつく。単調性は保証しない）。項 DAG は 613/1085/1685/2413/3269/4253（旧表より各 +1: 引用 cache を厳密等価にしたため、§45.2）。
+
+DAG は n に対して**二次**（差分が 128 ずつ増える: 612, 1084, 1684, …）で、tree は指数。kernel は 0 ms と表示された（**訂正（S2q）: 「kernel 0 ms」は「共有を再走査していない」ことの証拠ではない。さらに S2q で、この `kernel ms` は定理の `addDecl` が非同期（またはディスパッチのみ）で、実際の検査時間を測っていなかったと分かった（同じ生成物で、同期の `Environment.addDeclCore` に替えると 32 ms → 7283 ms、§43.4）。したがって S2o/S2p までの `kernel ms` の数字（0〜52 ms）は検査時間の測定として無効**。DAG が n に対して二次であることと、tree が指数であることだけが、項の形についての事実）。Check29 の小例（SHARE/SHADOW/HIGHER/REC-*/DEFAULT）の旧「kernel 0 ms」も同じく無効（Check41 の同じ入力の同期測定は 32〜50 ms、§45.4）、DAG 80〜662。**区別（S2q）: (a)「S2b の外挿（1 歩ごとの DAG 再走査で 2〜2.5 h）が小さい例で再現しなかった」ことは測定済み（上の表）。(b)「根そのものの kernel 時間・項サイズ」は、この節の時点では未測定**（止まりのため根の項を作れなかった。S2q で根の項が作れた: §43）。(a) は (b) の結論を与えない。probe の生成側だけの数字（5282 節点、72012 歩、2.5 s）は上に記録した。
 
 ### 36.5 仮説・次
 
@@ -2151,7 +2153,7 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 ### 41.4 Check36（`Tests/Gen5/FGCircuitPilotCheck36.lean`、軽量）
 
 - AXIOMS ok 1 行（`sh_fun`/`dt_fun`/`cdt_fun`/`tdt_fun`/`cdt_eq`/`sh_var_val`/`bvarV_spine` は標準 axiom のみ）。
-- 正の例 3 つ（生成器が出した項を kernel が検査、同じ報告文）: VALHEAD（`let x := false; (fun y => y) x`）、VALHEAD-PAIR、VALHEAD-NEST（2 つの値束縛、異なる entry）。DAG 219 / 283 / 372、kernel 0 ms。
+- 正の例 3 つ（生成器が出した項を kernel が検査、同じ報告文）: VALHEAD（`let x := false; (fun y => y) x`）、VALHEAD-PAIR、VALHEAD-NEST（2 つの値束縛、異なる entry）。DAG 219 / 283 / 372。旧「kernel 0 ms」は無効（S2q の訂正）。同期測定は Check41 の同じ入力で VALHEAD 4 ms、VALHEAD-NEST 10 ms（§45.4）。
 - 負の対照 3 つ（期待したエラー文で失敗、定理は追加されない。生成器の失敗であって導出不能の定理ではない）: CTRL-VALAPP（値 entry に引数: «value entry applied»）、CTRL-SIGNALMK（`Signal.mk` はなお規則なし: «has no rule»）、CTRL-UNBOUND（«not bound»）。
 - Check29 も変わらず通る（AXIOMS ok 1 行、正 8、対照 4）。
 
@@ -2176,8 +2178,8 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 ### 43.2 生成器の修正（`S2iGen`/`S2iRun`、生成器は信頼しない: カーネルが検査する）
 
 - 厳格な形の検査: `HAdd`/`HAnd`/`HOr`/`Complement`/`Signal.beq` の枝は、頭の定数だけで選んでいた（インスタンスを見ていなかった）。根の生成物をカーネルに出したとき、`HOr.hOr` の `Signal (BitVec 16)` オペランドを Bool 専用の `sigOrBool` 規則に当てた「application type mismatch」で初めて分かった（カーネルが止めた）。各枝を「期待する式の全体との等式」に直し、外れたら「no direct rule」で失敗する（probe の止まりとして現れる）。
-- **束縛名の取り違え（生成器の不具合、修正済み）**: 引用の cache（`qE`/`unq`）は `Expr` の `BEq`（α 同値、束縛名を無視）で引くので、束縛名だけが違う `lam` が同じ引用を返し、規則に `toExpr n`（生の名前）を渡すと `Eq.refl` の両辺で名前が食い違う（根の `fun x._@…_hyg.384` と `_hyg.626`）。`Sh.lam`/`Sh.letZ`/`DT.lam`/`DT.letE`/`mapExtract` の `n`/`bi`/`nd` を、**引用した項の引数**から取るように直した。
-- 測定の修正: `deriveRootT` の `kernel ms` を同期の `Environment.addDeclCore`（`IO.lazyPure` で強制）に替えた。以前の `addDecl` は非同期で、検査時間を測っていなかった（§36.4 訂正）。
+- **束縛名の取り違え（生成器の不具合。S2q の修正は引数側だけで、根の引用そのものの cache は残っていた。S2u で修正: §45.2）**: 引用の cache（`qE`/`unq`）は `Expr` の `BEq`（α 同値、束縛名を無視）で引くので、束縛名だけが違う `lam` が同じ引用を返し、規則に `toExpr n`（生の名前）を渡すと `Eq.refl` の両辺で名前が食い違う（根の `fun x._@…_hyg.384` と `_hyg.626`）。`Sh.lam`/`Sh.letZ`/`DT.lam`/`DT.letE`/`mapExtract` の `n`/`bi`/`nd` を、**引用した項の引数**から取るように直した。
+- 測定の修正（**S2u 注記: 下の「束縛名の取り違え」の修正は不完全だった。§45.2**）: `deriveRootT` の `kernel ms` を同期の `Environment.addDeclCore`（`IO.lazyPure` で強制）に替えた。以前の `addDecl` は非同期で、検査時間を測っていなかった（§36.4 訂正）。
 
 ### 43.3 probe の再実行（承認済み規則、cap なし、`kjob lake build Tools.ShippingFGCircuitS2iProbe`）
 
@@ -2217,3 +2219,38 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 
 - 名前付き仮説（未供給）: `hcd`（承認済みブランチでは未導出）、`EnvDefs/EnvCtors/RecFact`（`hftObCDT_Q` では仮定として残る）、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査）。`stopD` の追加（`HShiftLeft.hShiftLeft`/`HAppend.hAppend` が `Sh` で展開されなくなった）も監査対象。
 - 次（reviewer 判断）: `Signal (BitVec n) ||| Signal (BitVec n)`（§43.3）を許すか。許されれば副ブランチの `sigOrBV`（第 2 型引数を無制約にした実験版）を、第 2 型引数の束縛つきの規則に直し、`dt_fun` と Check を足して承認済みブランチに入れる。
+
+## 45. S2u（Issue `sparkle-fg-circuit-pilot` の次の束）: 固定した期待型の kernel wrapper — 「どの入力の、どの結果の証明か」を独立に照合する
+
+土台 `ea597627`（par/fgc-s1）。追加: `Tests/Gen5/FGCircuitPilotCheck41.lean`（lakefile に登録 1 回）。変更: `Tools/ShippingFGCircuitS2bGen.lean`（引用 cache の厳密化、1 箇所）、`Tests/Gen5/FGCircuitPilotCheck29.lean`（`want` の文言）、本書。`S2iDT`/`S2iDTFun`/`S2iGen` は触れていない。TRUSTED・axiom・sorry・native_decide・新しい law はない。Issue の状態は変えていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付きのまま。
+
+### 45.1 何が問題だったか（reviewer 指摘）
+
+`deriveRootT` は定理の宣言型を **自分の本体の `inferType`** から作る。したがって kernel が受理しても、「その定理が**どの入力 `Expr` の、どの結果**についてか」は何も確かめられていない。Check29/36/38 の報告は存在と axiom だけで、別の入力・別の結果の正しい証明を返す生成器を検出できなかった。
+
+### 45.2 Check41 の方式（正と負で同じ手続き）
+
+- コマンド `fixed_dt accept|reject "TAG" T input α v`: 期待型 `∀ env (hΔ : EnvDefs env T.Delta) (hΓ : EnvCtors env T.Gamma) (hrec : RecFact env), DT env [] input (Res.val α v)` を**手で書き**、`theorem T.fixed : <期待型> := T` を **kernel**（同期の `Environment.addDeclCore`）に出す。型の不一致は kernel の「declaration type mismatch」。`accept` は受理、`reject` は拒否（と定理が追加されないこと）を要求し、報告文と kernel 呼出しは同じ。
+- 入力 `Expr` は生成器に渡した式（`appN` 等の補助）とは**別に**、生の `Lean.Expr.app/lam/const/…` の構成子で引用し直した。結果の型 `α` と値 `v` は普通の Lean の項（`BitVec` は `BitVec.ofNat`、`Signal` は `Signal.pure`）。結果は `Res.val α v` に入るので、結果の型の取り違えも拒否される。
+- **α 同値の引用 cache（修正）**: `S2bGen.qE` の cache は `Expr` の `BEq`（α 同値、束縛名を無視）で引いていたので、束縛名だけが違う式が同じ引用を返し、**生成物の入力の `lam` の名前が元の `Expr` と変わった**（Check41 の ALPHA 例 `Prod.mk ((fun x => x) false) ((fun y => y) true)` の accept が「declaration type mismatch」になり、この cache 以外に原因が無いことを確認した。§43.2 の「引数側の修正」は根の引用そのものには効いていなかった）。修正: cache は元の式を一緒に保存し、`Expr.equal`（束縛名・binder info まで厳密）が成り立つときだけ hit とする。厳密等価で扱う方針（証明された接続ではなく、等価の判定そのものを厳密にした）。ALPHA の accept（x / y）と reject（y / x に入れ替えた α 同値だが等しくない入力）が、同じ手続きで kernel に区別される。
+- 副作用: Check35 の項 DAG が各 n で +1（613/1085/…）。cache の hit が厳密になった分。
+
+### 45.3 確認したこと（`kjob lake build Tests.Gen5.FGCircuitPilotCheck41`、exit 0、928 jobs、エラー 0）
+
+- AXIOMS ok 1 行。生成 16 例、`accept` **16**、`reject` **25**。すべて標準 axiom のみ。
+- accept（固定した入力・結果）: SHARE = (false,false)、SHADOW = (true,false)、HIGHER = (true,false)、REC-NIL = false、REC-CONS = true、REC-IH = false、ALPHA = (false,true)（名前 x / y）、値頭 VALHEAD = false、VALHEAD-NEST = (true,false)、BitVec: EXTRACT 8/6/1 of 5 = 0#1、EXTRACT 16/3/10 of 1021 = 127#10、SHL 16: 3<<<8 = 768#16、SHL 16: 3<<<20 = 0#16（移動量 ≥ 幅）、SHL 32: 3<<<4 = 48#32、APPEND 8+8: 1#8 ++ 2#8 = 258#16、APPEND 8+16: 1#8 ++ 2#16 = 65538#24。
+- reject（同じ wrapper、同じ kernel 呼出し）: 別の値（SHARE を (true,true)/(false,true)、HIGHER を (false,true)、REC-NIL を true、REC-CONS を false、REC-IH を true、VALHEAD を true、EXTRACT/SHL/APPEND の値違い）、別の入力（SHARE に引数 true、EXTRACT の入力定数 4 / オフセット 2、SHL の移動量 7、APPEND のオペランド入れ替え）、捕捉環境の取り違え（SHADOW の内側/外側の入れ替え (false,true)、SHADOW の入力で `#1`→`#0`、VALHEAD-NEST の entry 入れ替え (false,true)）、結果の型違い（REC-NIL を (Bool×Bool)、EXTRACT の幅 2、APPEND の幅 8+8 / 8+16）、ALPHA の束縛名入れ替え。
+- Check29（13 行 ok）/ Check36（7）/ Check38（23）は S2bGen の修正後も変わらず通る（それぞれ exit 0、エラー 0）。
+- 限界（正直な記録）: 幅 32 の `3 <<< 40` を値として kernel に比較させると «deep recursion» になった（受理・拒否のどちらも判定できない）ので、32 ビットは移動量 4 の例にし、移動量 ≥ 幅は 16 ビットの例にした。32 ビット・移動量 ≥ 幅の固定期待型は**未確認**。
+- 生成器が出す定理の中身が「意図した」意味と一致するかは、ここでは**期待型として書いた私の値**が基準である（Lean の `BitVec`/`Signal` の演算の kernel 評価と定義等価であることを kernel が確かめる）。これは `Sh` と置換規則の対応（監査）や、`hftRootValue` 全体の意味保存の証明ではない。
+
+### 45.4 測定の訂正（S2u）
+
+- Check35 n = 4..24 の同期 kernel 保存ログは 37/43/53/62/74/90 ms。§36.4 の表の旧「0 ms」をこの値に置換した。再実行（S2u）は 43/40/60/59/67/82 ms（ばらつく）。これは**小さな共有連鎖**の時間であり、**根の時間（7283 ms、§43.4、副ブランチ・未承認 `sigOrBV` 前提）ではない**。
+- Check41 の同期 kernel 時間（生成器が定理を出すとき）: SHARE 33、SHADOW 32、HIGHER 43、REC-NIL/CONS/IH 42/42/50、ALPHA 38、VALHEAD 4、VALHEAD-NEST 10、EXTRACT 10/6、SHL 5/6、APPEND 7/8 ms。旧 §41.4/§36.4 の「kernel 0 ms」は無効。
+- Check29 の `want`（「必須 counter」と読める文言）は、実際には**表示のみ**で、カウンタは検査側に届いていない。assert はせず、文言を「情報としてのラベル、assert していない」に直した（`Tests/Gen5/FGCircuitPilotCheck29.lean`）。どの規則が使われたかの独立な確認は、Check41 の固定した期待型（結果が規則を通さないと得られない値）に置き換えた。
+
+### 45.5 残ること
+
+- **S2t の根（`hftRootValue`）には、元の `hftRootValue` と期待値を固定した `HftObCDT` wrapper（同じ `fixed_dt` 方式）を必須にする**。この束では根を扱っていない（S2t の担当）。
+- 名前付き仮説（未供給）は §43.6 のまま（`hcd`、`EnvDefs/EnvCtors/RecFact`、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査））。
