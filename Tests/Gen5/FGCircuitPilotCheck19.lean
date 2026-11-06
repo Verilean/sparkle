@@ -148,6 +148,8 @@ def CombNoRes := ExpCombSrc true true false
 the other premises; the root; the post root; the data in `hchk`; the world of the child readers / `hcd` / the conclusion -/
 def EntryOf (diag : Bool) (X : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
   if diag then synthesizeCombinational X else synthesizeCombinationalOff X
+/-- `Pre b P R`: the premise `P` is present iff `b` (no vacuous `True →` when it is absent) -/
+def Pre (b : Bool) (P R : Prop) : Prop := if b then (P → R) else R
 def ExpFinalL (Ob : Environment → Prop) (CV : CDRel) (needLink keepSrc diag oldArt needCell needChk needRdH needRdT needCD needTop needNoRaw hdRunIn : Bool)
     (root postRoot : Name) (chk : MachineData) (rdw hw cw : W → W → W) : Prop :=
   (if needLink then LinkTrue else True) →
@@ -161,7 +163,7 @@ def ExpFinalL (Ob : Environment → Prop) (CV : CDRel) (needLink keepSrc diag ol
     (if needRdH then RootReader lvl (envAt cref (rdw w w')) NmHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData else True) →
     (if needRdT then RootReader lvl (envAt cref (rdw w w')) NmTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData else True) →
     (if needCD then Ob (envAt cref (hw w w')) else True) →
-    (if keepSrc then ExpObSrc true NmRoot (ι := ι) lvl (envAt cref w) else True) →
+    Pre keepSrc (ExpObSrc true NmRoot (ι := ι) lvl (envAt cref w)) (
     (if needTop then (∀ p : Pkg ι (fun _ => defaultDomain), GPx (ι := ι) lvl (envAt cref w) NmRoot = some p →
         ((if hdRunIn then (∀ (raw : Sparkle.IR.AST.Module) (D₀ : Sparkle.IR.AST.Design) (w1 : W),
             MachineDefinesLinkedOff mctx mref cctx cref NmRoot synth_hftPcieOutByte.machineData.shape w raw D₀ w1) else True) →
@@ -177,7 +179,7 @@ def ExpFinalL (Ob : Environment → Prop) (CV : CDRel) (needLink keepSrc diag ol
     (∃ raw, PostRunOff mctx mref cctx cref w postRoot D' b raw) ∧
     ∃ (mm : MonoTy ShE) (p : Pkg ι (fun _ => defaultDomain)),
       (if oldArt then RootArtifactMono (envAt cref (cw w w')) (GPx (ι := ι) lvl (envAt cref (cw w w'))) (PostRunOff mctx mref cctx cref w postRoot D') NmRoot ShE mm b D' p
-       else RootArtifactMonoV CV (envAt cref (cw w w')) (GPx (ι := ι) lvl (envAt cref (cw w w'))) (PostRunOff mctx mref cctx cref w postRoot D') NmRoot ShE mm b D' p)
+       else RootArtifactMonoV CV (envAt cref (cw w w')) (GPx (ι := ι) lvl (envAt cref (cw w w'))) (PostRunOff mctx mref cctx cref w postRoot D') NmRoot ShE mm b D' p))
 
 def FL (Ob : Environment → Prop) (CV : CDRel) : Prop :=
   ExpFinalL Ob CV true false false false true true true true true true true true NmRoot NmRoot synth_hftPcieOutByte.machineData ZS ZS ZS
@@ -253,7 +255,7 @@ def whitelist : List Name := [``StageK, ``ExpLink, ``KidsE, ``KidsTrue, ``KidsSw
   ``LinkTrue, ``LinkSwapAll, ``LinkSwapSrc, ``LinkHttpOfTlp, ``LinkDataSwap, ``LinkNoKids, ``LinkK1, ``LinkK3, ``LinkK0, ``LinkNoStart, ``LinkNoRec, ``LinkObsOther, ``LinkHttpData,
   ``ExpObSrc, ``ExpSrcThm, ``SrcThmTrue, ``SrcThmNoLink, ``SrcThmNoRd, ``SrcThmNoRdH, ``SrcThmNoRdT, ``SrcThmRdData, ``SrcThmOtherDecl,
   ``ExpStageAgree, ``StageTrue, ``StageNoSrc, ``StageNoKD, ``StageNoD, ``ExpCombSrc, ``CombTrue, ``CombNoSs, ``CombNoIn, ``CombNoRes,
-  ``EntryOf, ``ExpFinalL, ``FL, ``MNoLink, ``MKeepSrc, ``MDiag, ``MOldArt, ``MNoCell, ``MNoChk, ``MNoRdH, ``MNoRdT, ``MNoCD, ``MNoTop, ``MNoNoRaw, ``MNoHdRun, ``MRoot, ``MPostRoot, ``MChk,
+  ``EntryOf, ``Pre, ``ExpFinalL, ``FL, ``MNoLink, ``MKeepSrc, ``MDiag, ``MOldArt, ``MNoCell, ``MNoChk, ``MNoRdH, ``MNoRdT, ``MNoCD, ``MNoTop, ``MNoNoRaw, ``MNoHdRun, ``MRoot, ``MPostRoot, ``MChk,
   ``MRdEnd, ``MHcdEnd, ``MConclEnd, ``ExpThmL, ``ThmLTrue, ``TLNoH, ``TLHOther, ``TLNoLink, ``TLKeepSrc, ``TLDiag, ``TLOldArt, ``TLNoCell, ``TLNoChk, ``TLNoRdH, ``TLNoRdT, ``TLNoCD,
   ``TLNoTop, ``TLNoNoRaw, ``TLNoHdRun, ``TLRoot, ``TLPostRoot, ``TLChk, ``TLRdEnd, ``TLHcdEnd, ``TLConclEnd, ``ZTrue, ``ZCarrierY, ``ZCarrierOld, ``ZObY, ``ZS, ``ZE, ``GPx,
   ``RootData, ``HttpData, ``TlpData,
@@ -387,7 +389,7 @@ run_cmd liftTermElabM do
   for gone in ["hsrc", "hhead", "hdRun", "hquiet", "hg", "hio", "hgates", "hRead", "hE", "hP", "hdesign", "hcdOld"] do
     if (names.map (·.1)).contains gone then throwError "{gone} is a hypothesis"
   -- no hypothesis mentions the (removed) `HftObSrc`, a diagnostic entry, or sorry
-  let diag : List Name := [``synthesizeCombinational, ``synthesizeCombinationalCore, ``synthesizeEntry, ``Tools.ShippingFGCircuitLinked.MachineDefinesLinked, ``Tools.ShippingFGCircuitS1qEndpoint.PostRun,
+  let diag : List Name := [``synthesizeCombinational, ``synthesizeCombinationalCore, ``synthesizeEntry, ``Tools.ShippingFGCircuitLinked.MachineDefinesLinked, ``Tools.ShippingFGCircuitBridge.PostRun,
     ``Tools.ShippingEntryReadsLinked.coreHead, ``synthesizeChild, ``HftObSrc, ``sorryAx]
   for (n, t) in names do
     let mut used := t.getUsedConstants
