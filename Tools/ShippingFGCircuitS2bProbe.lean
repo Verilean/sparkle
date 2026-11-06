@@ -25,10 +25,12 @@ unsafe def runProbe (cap : Nat) (nat : Bool) : CommandElabM Unit := do
       let ((), st) ← act.run { probe := true, cap := cap, native := nat }
       pure st
   IO.eprintln s!"PROBE native={nat} cap={cap}: nodes={r.nodes} {(← IO.monoMsNow) - t0} ms {← hwm} stops={r.stops.size}"
+  IO.eprintln s!"  steps={r.steps.toList}"
+  IO.eprintln s!"  stops: {r.stops.toList.eraseDups}"
   for (t, d, _, _) in r.heavy.toList do
     IO.eprintln s!"  heaviest structure argument: tree={t} dag={d}"
   let sumDag := r.log.foldl (fun a l => a + ((l.splitOn "dag=").getLast!.splitOn " ").head!.toNat!) 0
   IO.eprintln s!"  logged steps={r.log.size} sum(dag over completed steps)={sumDag}"
 @[implemented_by runProbe] opaque runP (cap : Nat) (nat : Bool) : CommandElabM Unit
 elab "probe_cap " n:num " native " b:ident : command => runP n.getNat (b.getId == `true)
-probe_cap 12000 native true
+probe_cap 0 native true

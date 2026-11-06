@@ -1056,3 +1056,56 @@ S1r の走査で止まっていた 2 種（`Signal.mk` ×17 = `bundle2`→`Seq.s
 - **止まり 2（評価の規模。有限な配線では済まない）**: 止まり 1 を probe で飛ばして進めると、`hftPcieLoop` の弱頭正規化は `whStepR` を 1 歩ずつ `DW.projStep` の導出節点にするため、約 29 000 節点（導出の深さ 49、`instE` が共有を壊すため式の木のサイズは 10⁵〜1.5×10⁶）で次の 1 歩の評価（`instE` の複製）が 28 GB を使い切って bad_alloc（`ulimit -v 28000000`）。各節点は途中の式全体を `Expr` リテラルとして項に埋め込む設計なので、導出項のサイズも同じ規模になる。部分項ごとの補題（子ごと・let ごと）に分けても、1 歩の評価が木の複製である点は変わらない。直すには共有を保つ評価規則（`let` を値として残す／環境つきの評価＝call-by-need）か、より大きい step を持つ規則が要り、規則の追加（汎用化）になる。
 - 確認: Check22 の AXIOMS-A/B（評価器の健全性と表版規則は標準 axiom のみ）、FAIL-CLOSED（`hftObCDW_of_tables` は定数として存在しない）、STOP-1。Check 行数: info 4 行（AXIOMS-A, AXIOMS-B, FAIL-CLOSED, STOP-1）。
 - 最終定理への接続: `HftObCDW` と `HftFinalStmtW`（§23.2）は型のみで、`hcd` は引き続き仮説。表の仮説（`EnvDefs`/`EnvCtors`/`RecFact`）への置換は導出が無いので行えない。
+
+
+## 30. S2b（Issue `sparkle-fg-circuit-pilot` の次の束）: `Inhabited.mk` の狭い水準規則（族 `DS`）、共有を保つ評価の測定、閉包環境の関係 `Sh`
+
+土台 `9e6556e9`。追加ファイル（既存は書き換えていない。lakefile は末尾に追記のみ）: `Tools/ShippingFGCircuitS2bShare.lean`（族 `DS`）、`Tools/ShippingFGCircuitS2bMachine.lean`（閉包環境の関係 `Sh`）、`Tools/ShippingFGCircuitS2bNative.lean`（共有を保つ評価器、生成器専用・非信頼）、`Tools/ShippingFGCircuitS2bGen.lean`（`DS` 向け生成器。S1wGen の複製に計測と cap を追加）、`Tools/ShippingFGCircuitS2bRun.lean`（`deriveRoot`、`derive_expr`、`derive_hft_ob`）、`Tools/ShippingFGCircuitS2bProbe.lean`（手動 probe。lakefile 外）、`Tests/Gen5/FGCircuitPilotCheck25.lean`。TRUSTED・axiom・sorry・native_decide・新しい law はない。Issue の状態は変えていない。成果は**条件付き**（`hcd` は**未導出**）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+### 30.1 (1) `inhMk` の水準規則（完了）
+
+- 族 `DS` = `DW` の全コンストラクタ（`ds_fun` で関数性、axiom は propext/Classical.choice/Quot.sound のみ）で、`inhMk` だけを `Inhabited.mk.{u} T x` + 証拠 `hu : lvlNat u = some 1` に一般化した。`T : Type`、同じ env の ctor 事実 `env.find? Inhabited.mk = some (.ctorInfo cv)`、`t`/`x` の型付き導出は維持。他の宇宙一般化・新 TRUSTED はない。旧規則は `u = 1` の場合（`ds_inhMk_one`、`ds_default_of_mk`）。
+- **訂正（裁定の文言からの差）**: 裁定は証拠を `u.normalize = Level.succ Level.zero` とした。`Lean.Level.normalize` は `opaque`（`#print` で確認）でカーネルが評価できないため証拠にならない。代わりに**自前の閉じた水準の評価器** `lvlNat`（`zero/succ/max/imax`、`param/mvar` は `none`）を定義し、証拠は `Eq.refl`。meta の正規化判定だけで証拠を省略していない。`lvlNat u = some 1` は「閉じた水準 `u` の値が 1」、すなわち Lean の水準同値で `1` と等しい水準であることの決定手続き。水準 `u` の定数と水準 `1` の定数が同じ宣言を指す意味の保存は、S1s と同じく Expr 書き換えの監査（定理ではない）。
+- 対照（Check25 LEVEL-CONTROLS / CONTROLS）: `1`, `max 1 1`, `imax 1 1` は受理。`0`, `max 1 2`, `imax 1 0`, 水準パラメータ, mvar は棄却。別 ctor（`Option.some`）と、一般化していない `Inhabited.default.{max 1 1}` は生成器が導出できない（`deriveTerm` が失敗）。
+- 小さい完全な導出（Check25 SMALL-DERIVE）: `default (Bool × Bool)`（`instInhabitedProd` の展開が `Inhabited.mk.{max 1 1}` を含む。S1w2 STOP-1 の再現）を生成器で導出し、`addDecl` でカーネル受理: 8 節点、導出項 288 DAG 節点、カーネル < 1 ms、標準 axiom のみ。旧 `DW` では導出できない。
+- `DS` は S1s 以降の最終文の別の義務: `HftObCDS`、`CircCVS`（`circCVS_functional`）、`circCVS_hft_run`、`HftFinalStmtS := HftFinalStmtWith HftObCDS`（`HftFinalStmtW` と同形。`hcd : HftObCDS (envAt cref w)` は**引き続き仮説**）。`DW → DS` の全称な埋め込みは証明していない（`DW.inhMk` は `ds_inhMk_one` に写るが、全構成子の写像は未証明）。
+
+### 30.2 (2) 膨張の経路（測定）
+
+`hftRootValue` の導出で、`projStep`（弱頭正規化を 1 歩ずつ節点にする規則）が支配する。導出の節点の内訳（native 評価器、全体 60 509 節点）: `projStep` 54 321、`unf` 1 529、`beta` 921、`letE` 561、`projCtor` 415、`recIota` 267、`projRec` 233、`zeta` 10 ほか。膨張する式の形は `proj Prod.0 (((fun _cdoK => …) a₁) a₂) a₃)`（`Circuit.bind` の継続の多引数 β。引数 `a₁ a₂ a₃` は構造体値の `have` と do 記法の束縛を含む）。最大の構造体引数: **木 17 055 208 節点 / DAG 4 598 節点**（約 3 700 倍）。つまり膨張は**式の木**の大きさで、DAG は小さい。旧評価器 `instE`（S1mCD、構造再帰で毎回木を作り直す）が各ステップで木を実体化し、memo に全ステップ分が残るため、28 GB を使い切っていた（§23.6 の「導出項も同じ規模」は未測定の推定で、下記のとおり導出項側は DAG 共有される）。
+
+### 30.3 比較: 旧評価器 vs 共有を保つ評価器（`Expr.instantiate1`、生成器側のみ。カーネルは同じ `Eq.refl` で再検査）
+
+小さい部分（cap 1 200 節点。OOM 直前までの同じ連鎖。`Tools/ShippingFGCircuitS2bProbe.lean`、`ulimit -v 24000000`）:
+
+| | 旧 `instE`（木） | 新 `instantiate1`（DAG） |
+|---|---|---|
+| 同じ連鎖（節点数 / 最大構造体引数） | 1 201 / 木 17 055 208・DAG 4 598 | 1 201 / 同一 |
+| 生成器の時間 | 37.6 s | 1.4 s |
+| ピーク RSS | 9.5 GB | 2.2 GB（import 基底を含む） |
+| 最大ステップのカーネル検査（`Eq.refl`、`dw_projStep_t`、DAG 4 598 の x） | 1.0 s、導出項 DAG 9 911 節点、受理 | 同じ項（生成器の結果は構造一致） |
+| cap 6 000 / 12 000 | （旧は 6 000 で 41 s、29k 付近で OOM） | 9.6 s・2.5 GB / 17.6 s・2.7 GB |
+
+全体（root、cap なし、native）: **60 509 節点、128 s、ピーク 4.2 GB、完走**（旧は 28 GB で bad_alloc）。完走した probe の止まりは 2 種: `Signal.mk` が値の頭（3 引数、`DS` に規則なし）、`Bool.false`（ctor 値の規則なし）。導出項の全体は止まりがあるので未生成。`Check25 SHARE-LADDER` は同じ現象の小規模再現（`let x := E; Prod.mk x x` の梯子 k = 16: `instE` は木 524 281 節点、`instantiate1` の結果は同じ式で DAG 38 節点）。
+
+**カーネル側の見積り（測定ではなく外挿）**: 1 ステップのカーネル検査は式の DAG 全体を走る（4 598 節点で 1.0 s）。完走した probe の完了ステップの DAG 節点数の合計は 3.98×10⁷。同じ係数（約 0.2 ms / 節点）なら約 2〜2.5 時間のカーネル時間になる。したがって**生成器の共有だけでは足りず**（メモリは解決）、1 ステップが式全体を再走査する設計自体を変える必要がある。これが (2a) の動機。
+
+### 30.4 決定: (2a) を継続（閉包環境）。(2b)/(2c) への切替はしない。実装は関係と関数性まで
+
+`Tools/ShippingFGCircuitS2bMachine.lean` に**閉包環境つきの弱頭評価の関係 `Sh`**（完全な型つき）を置き、関数性 `sh_fun`（標準 axiom のみ）を証明した。要点:
+
+- 環境の項 `Ent.val (en : Entry)`（既存の値で表せるものはそのまま）と `Ent.clo e ρ`（未評価の式 `e` と**捕捉した環境** `ρ`。de Bruijn 参照、複製なし）。`Sh env ρ e sp hn`: 環境 `ρ` の式 `e` を閉包の spine `sp` に適用し、頭正規形 `hn`（フィールドが閉包の ctor、または停止した原始頭 + 閉包引数）に達する。
+- 規則: `app`（引数は評価せず閉包として積む = call-by-name。**call-by-value ではない**）、`lam`（先頭の spine 閉包を束縛）、`letZ`（`coreHead A = false` の let。`DW.zeta` が代入で扱った場合。値は閉包）、`bvarC`（閉包を辿る）、`unf`（定義の本体は閉じているので空の環境で展開）、`ctor`/`prim`/`proj`（ctor のフィールド閉包を取り出して続ける）。**代入が無いので 1 ステップの大きさは局所的**で、同じ閉包は参照で共有される（call-by-need はこの共有を導出側の名前つき補題/メモ化に載せる。`derive` の `memo` が (環境, 式) で既にそうしている）。
+- 古い `zeta`/`beta`/`projStep` との重なりは、新族では**古い規則を取り除く**ことで排他（一致補題を要さない）。`DS` に載せる橋渡し規則（頭が `prim` で止まり、spine が共通環境 `ρ₀` の `args.map (clo · ρ₀)` のとき `DS ρ₀ (mkApps (const c ls) args) r` を使う、`bvarClo`、`viaSh`）の設計は上記だが**未実装**。パターンを見る原始規則（`sigAddBV` の型引数の形など）は、共通環境の場合に限って元の規則をそのまま使う。
+- 未実装（正直な記録）: (a) `Sh` の `List.rec` 規則（`recIota`/`projRec` の置換。spine の再帰呼出しは `[t, consc, nilc, mot, a0]` を環境とする閉包 `List.rec #4 #3 #2 #1 #0`）、(b) 橋渡し規則を持つ族と `dt_fun`、(c) 閉包環境を作る生成器（環境項は DAG 共有、名前つき定義）、(d) root の導出。したがって **`hcd` は導出していない**。(b)(c) は新しい大きい step ではなく、`Sh` の関数性の上に積む（生成器の `memo` と `Look` の記録はそのまま使える）。
+- (2b)/(2c): 上の比較は生成器のメモリが主因でカーネル時間が副因という結果で、定義本体と意味の等式を持つ再利用補題 (2b) は「ステップ数」自体を減らす補助として有望だが、今回は実装していない。(2c) は使っていない（DW の Expr 添字は置き換えていない）。
+
+### 30.5 Check25 の出力（`kjob lake build Tests.Gen5.FGCircuitPilotCheck25`、exit 0、info 8 行）
+
+AXIOMS（ds_fun 他）/ LEVEL-CONTROLS / SMALL-DERIVE（数値行 + ok の 2 行）/ SMALL-AXIOMS / CONTROLS / SHARE-LADDER / FAIL-CLOSED。
+
+### 30.6 証明したもの / 名前付き仮説・未供給 / 数え方
+
+- 証明: `ds_fun`/`cds_fun`/`tds_fun`/`cds_eq`、`circCVS_functional`、`ds_inhMk_one`、`ds_default_of_mk`、`sh_fun`、表版規則 `ds_*_t`（`ds_inhMk_t` は水準証拠つき）、`lvlNat` の対照。すべて標準 axiom のみ。
+- 名前付き仮説（未供給）: `HftObCDS`（`hcd`）、`EnvDefs`/`EnvCtors`/`RecFact`、`hclL`、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`。Expr 書き換えの意味保存（水準の同値を含む）は監査。`bundle2` の unsafe 実装。
+- 次: `Sh` の `List.rec` 規則と `DS` への橋渡し（`DT` 族）、閉包環境つき生成器、`Signal.mk` と `Bool.false` の規則、その後 `hftRootValue` の型付き導出。

@@ -60,6 +60,34 @@ run_cmd do
   unless r2 do throwError "Inhabited.default at max 1 1 was derived"
   logInfo "CONTROLS ok: Option.some and Inhabited.default.{max 1 1} are not derivable"
 
+
+/-! ## SHARE-LADDER: the let-ladder `E_k = let x := E_{k-1}; Prod.mk x x` (a shared structure, like the `have ep := …; have emit := …` bodies of `hftPcieLoop`):
+substitution by `instE` (the rule evaluators' own, structural) builds a tree of 2^k nodes, `Expr.instantiate1` keeps the DAG (k + 1 nodes). Same result (`==`), very different size. -/
+
+open Tools.ShippingFGCircuitS1mCD in
+def ladder : Nat → Lean.Expr
+  | 0 => .const `c []
+  | k + 1 => .letE `x (.const `Foo []) (ladder k) (appN ``Prod.mk [.zero, .zero] [.const `A [], .const `B [], .bvar 0, .bvar 0]) false
+
+open Tools.ShippingFGCircuitS1mCD in
+def zetaAllOld : Lean.Expr → Lean.Expr
+  | .letE _ _ v b _ => instE (zetaAllOld b) (zetaAllOld v) 0
+  | e => e
+
+def zetaAllNew : Lean.Expr → Lean.Expr
+  | .letE _ _ v b _ => (zetaAllNew b).instantiate1 (zetaAllNew v)
+  | e => e
+
+run_cmd do
+  let k := 16
+  let a := zetaAllOld (ladder k)
+  let ta := a.sizeWithoutSharing
+  let b := zetaAllNew (ladder k)
+  let tb := b.sizeWithoutSharing
+  unless a == b do throwError "the two substitutions disagree"
+  let dag := (Tools.ShippingFGCircuitS2bGen.dagTree b).1
+  logInfo m!"SHARE-LADDER ok (k={k}): same result (==); tree size {ta} (instE) / {tb} (instantiate1) nodes, but the instantiate1 result is a DAG of {dag} distinct nodes"
+
 run_cmd do
   if (← getEnv).contains `Tools.ShippingFGCircuitS2bRun.hftObCDS_of_tables then throwError "hftObCDS_of_tables is present: update docs §30"
   logInfo "FAIL-CLOSED ok: hftObCDS_of_tables is not a constant (hcd is a hypothesis)"
