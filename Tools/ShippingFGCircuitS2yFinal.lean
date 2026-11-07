@@ -38,7 +38,7 @@ open Tools.ShippingFGCircuitS1wTbl (RecFact)
 open Tools.ShippingFGCircuitS2iTbl
 
 /-- the carrier of `hftObCDT_T`: `CDT` in the empty closure environment -/
-def cdvT : CDRel := fun env e α v => Tools.ShippingFGCircuitS2bShare.CDT env [] e α v
+def cdvT : CDRel := fun env e α v => Tools.ShippingFGCircuitS2iDT.CDT env [] e α v
 
 def HftFinalStmtOffCombined4 : Prop :=
   ∀ {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
@@ -50,7 +50,7 @@ def HftFinalStmtOffCombined4 : Prop :=
     (hchk : CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData)
     (hreadH : RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData)
     (hreadT : RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData)
-    (hΔ : EnvDefs (envAt cref w) hftObCDT_of_tablesT.Delta) (hΓ : EnvCtors (envAt cref w) hftObCDT_of_tablesT.Gamma) (hrec : RecFact (envAt cref w))
+    (hΔ : EnvDefs (envAt cref w) Tools.ShippingFGCircuitS2tHft.hftObCDT_of_tablesT.Delta) (hΓ : EnvCtors (envAt cref w) Tools.ShippingFGCircuitS2tHft.hftObCDT_of_tablesT.Gamma) (hrec : RecFact (envAt cref w))
     (hadm : AdmCtx (quietR L.O.quiet mref cref (envAt cref w) w) mctx cctx)
     (hdown : AdmDownR L.O (envAt cref w) w) (hD : DRowEnvR L.O (envAt cref w) w)
     (hG : DiagEnvR L.O (envAt cref w) w) (hT : TeleR L.O (envAt cref w) w)
