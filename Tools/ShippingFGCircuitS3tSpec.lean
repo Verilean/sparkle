@@ -44,9 +44,37 @@ def kindW : MixedGateBinder → Nat
 def inWidths (bs : List (Name × MixedGateBinder)) : List Nat :=
   (bs.filter fun b => b.2 != .domain).map (fun b => kindW b.2)
 
+/-- the IR type of a root input port of that source kind: `bool` is one bit, `bits n` is `n` bits (a domain binder has no port: width 0, excluded by `SourceData.ok`) -/
+def kindTy : MixedGateBinder → HWType
+  | .bits n => .bitVector n
+  | .bool => .bit
+  | .domain => .bitVector 0
+
+/-- the top module's input ports the root's own inputs are: the FIRST `kD` claimed names, in order, each with the type of the source input binder of that position (`bsIn`).  Which claimed name is which external input, with which order and width, is exactly this list -/
+def srcInPorts (portNames : List String) (bsIn : List (Name × MixedGateBinder)) (kD : Nat) : List Port :=
+  (portNames.take kD).zip ((bsIn.take kD).map fun b => kindTy b.2) |>.map fun (n, ty) => ({ name := n, ty := ty } : Port)
+
+/-- the top module's whole input list: the source inputs, then `clk` and `rst`, one bit each -/
+def topInPorts (portNames : List String) (bsIn : List (Name × MixedGateBinder)) (kD : Nat) : List Port :=
+  srcInPorts portNames bsIn kD ++ [({ name := "clk", ty := .bit } : Port), ({ name := "rst", ty := .bit } : Port)]
+
+/-- the width the IR semantics reads for each top input name (`declWidth` reads the module's `wires`, not `inputs`): the source inputs by the kinds' widths, `clk` and `rst` one bit -/
+def topInWidths (portNames : List String) (bsIn : List (Name × MixedGateBinder)) (kD : Nat) : List (String × Nat) :=
+  (portNames.take kD).zip ((bsIn.take kD).map fun b => kindW b.2) ++ [("clk", 1), ("rst", 1)]
+
+/-- the top module's input declaration is the contract: ports `topInPorts` exactly (hence distinct names, clock and reset of one bit), and the `wires` declaration `declWidth` reads gives each the same width -/
+def topInOk (portNames : List String) (bsIn : List (Name × MixedGateBinder)) (kD : Nat) (b : Module) : Bool :=
+  decide (b.inputs = topInPorts portNames bsIn kD) &&
+  (topInWidths portNames bsIn kD).all fun (n, w) => Sparkle.IR.RegDedup.declWidth b n == w
+
+/-- the design's module table for the returned top: its top is `b`'s name, the module names are distinct, and no child is named like the top.  `moduleByName` is `find?` (the FIRST of a name); with distinct names it is the unique module of that name, and no lookup of a child name can return the top -/
+def designOk (b : Module) (D : Design) : Bool :=
+  decide (D.topModule = b.name) && decide (D.modules.map (·.name)).Nodup && D.modules.all fun m => m.name != b.name
+
 /-! ## SourceData -/
 
-/-- The source side for the pilot root, as data: the machine the front end read off the declaration, the declaration's own observation, the allocator's port names, the two children's module names and port widths, and the number `kD` of the root's own input binders.  This is a statement about THIS root: `SrcEq` pins every field to the root's generated constants.  `instFields = []` is required (`ok`), so the soundness statement covers no root with instance fields. -/
+/-- NOT every field is fixed by `SrcEq`: `declName`, `d`, `declObs`, `kidInW`, `kidOutW`, `kD` are pinned to the root's constants, but `portNames` and `kidMod` are CLAIMS (the validator checks them against the module; nothing relates them to the compiler's allocator).  The first `kD` of `portNames` are the root's own inputs in source order, with the kinds `d.bsIn` gives (`srcInPorts`).
+The source side for the pilot root, as data: the machine the front end read off the declaration, the declaration's own observation, the allocator's port names, the two children's module names and port widths, and the number `kD` of the root's own input binders.  This is a statement about THIS root: `SrcEq` pins every field to the root's generated constants.  `instFields = []` is required (`ok`), so the soundness statement covers no root with instance fields. -/
 structure SourceData where
   declName : Name
   d : MachineData
@@ -64,12 +92,13 @@ structure SourceData where
 
 namespace SourceData
 
-/-- the Bool checks on the data: the root has no instance fields, exactly two calls, the children are two, widths and names are present for both, the port names are one per binder, distinct, none is `rst`, and the root's own inputs are among them.  (Each is decided by `decide +kernel` for the root: `rootS_ok`.) -/
+/-- the Bool checks on the data: the root has no instance fields, exactly two calls, the children are two, widths and names are present for both, the port names are one per binder, distinct, none is `rst` or `clk`, the root's own inputs are among them, and none of the first `kD` binders is a domain binder (each has a port).  (Each is decided by `decide +kernel` for the root: `rootS_ok`.) -/
 def ok (S : SourceData) : Bool :=
   S.d.ok && S.d.shape.instFields.isEmpty && (S.d.shape.insts.length == 2) &&
   (S.kidMod.length == 2) && (S.kidInW.length == 2) && (S.kidOutW.length == 2) &&
   (S.portNames.length == S.d.shape.binders.length) && decide S.portNames.Nodup &&
-  (!S.portNames.contains "rst") && (S.kD ≤ S.portNames.length) && (S.kD ≤ S.d.nIn)
+  (!S.portNames.contains "rst") && (S.kD ≤ S.portNames.length) && (S.kD ≤ S.d.nIn) &&
+  (!S.portNames.contains "clk") && ((S.d.bsIn.take S.kD).all fun b => b.2 != .domain)
 
 /-- the state witnesses of the root's source: Lean state signals `S₂` (the enclosing registers) and `Ss` (the chain's) whose fused state starts at the reset tuple, steps by the data's `nexts` over the Lean extension `machineExt … S₂ Ss`, and shows the data's outputs as `machineSource` (the content of `machine_states`, `Tools.ShippingFGCircuitS2vLink.root_states`; it contains no IR) -/
 def Wit (i : Unit) (bools : Nat → Signal defaultDomain Bool)
@@ -146,9 +175,12 @@ end SourceData
 /-- The meaning a returned `(b, D)` has for the root.  Built from the shape of the generated `machine_composed` conclusion, with the children's `MachineRun` HYPOTHESIS moved into a conjunct of the conclusion (`ChildFn`), and with the compiler's allocator (`ids`, `cache`, `machPorts`) replaced by the names the data CLAIMS (`S.portNames`): the module's own ports and statements are what the statement is about.  The child conditions cover every call (`k < 2`: the call's statement is in the body, its module is what its name resolves to in `D`, and the module computes the child's source function on the child's range) and every `inst` statement of the body (each is one of the calls); a failed lookup makes the statement FALSE, not vacuous.  The run part is quantified over ALL inputs, the state witnesses, the run length `T`, `seed`, `st0`, `mems`, under the four exact premises `(a)`–`(d)` (their simultaneous satisfaction: `Tools.ShippingFGCircuitS3tSat.premises_satisfiable`). -/
 def RootShowsAt (S : SourceData) (b : Module) (D : Design) : Prop :=
   S.d.shape.instFields = [] ∧ S.d.shape.insts.length = 2 ∧
-  -- the top module's ports: the root's own inputs by the claimed names, clock and reset, the layout's outputs
-  (b.inputs.filter fun p => p.name != "clk" && p.name != "rst").map (·.name) = S.portNames.take S.kD ∧
-  "clk" ∈ b.inputs.map (·.name) ∧ "rst" ∈ b.inputs.map (·.name) ∧
+  -- the returned Design's top is `b`, module names are distinct, no child is named like the top (`moduleByName` is `find?`)
+  D.topModule = b.name ∧ (D.modules.map (·.name)).Nodup ∧ (∀ m ∈ D.modules, m.name ≠ b.name) ∧
+  -- the top module's inputs: the first `kD` claimed names in order, each of the type of the source input at that position (bool: 1 bit, bits n: n bits), then `clk` and `rst` of one bit; and the `wires` declaration that `declWidth` reads gives each of them that width
+  b.inputs = topInPorts S.portNames S.d.bsIn S.kD ∧
+  (∀ (n : String) (w : Nat), (n, w) ∈ topInWidths S.portNames S.d.bsIn S.kD → Sparkle.IR.RegDedup.declWidth b n = w) ∧
+  -- the layout's outputs
   b.outputs = S.d.shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) ∧
   -- the body is in the linked order
   linkedOk (moduleByName D.modules) b.body = true ∧
@@ -260,17 +292,15 @@ def regsOk (S : SourceData) (b : Module) (cert : Cert) : Bool :=
     | _, _ => false) &&
   ((b.body.filter isRegStmt).length == cert.regs.length)
 
-/-- the structural part of the validator (the coverage the freeze requires): no instance fields, two calls, both children found through `moduleByName` with the fixed widths, exactly those two `inst` statements, the registers (named by the cert, among the claimed names, with the slots' widths and inits), the ports (the root's own inputs by the claimed names, `clk`, `rst`, the layout's outputs), the linked order.  A missing, swapped, or width-changed child, an extra `inst`, a changed register init or width, a missing `rst`, a changed output port make it false. -/
+/-- the structural part of the validator (the coverage the freeze requires): no instance fields, two calls, both children found through `moduleByName` with the fixed widths, exactly those two `inst` statements, the registers (named by the cert, among the claimed names, with the slots' widths and inits), the design's top and module table (`designOk`), the input ports and the widths `declWidth` reads (`topInOk`), the layout's outputs, the linked order.  A missing, swapped, or width-changed child, an extra `inst`, a changed register init or width, a missing `rst`, a changed output port make it false. -/
 def structuralOk (S : SourceData) (b : Module) (D : Design) (cert : Cert) : Bool :=
-  S.ok && (cert.callAt.length == 2) && decide (cert.callAt.Nodup) &&
+  S.ok && designOk b D && topInOk S.portNames S.d.bsIn S.kD b && (cert.callAt.length == 2) && decide (cert.callAt.Nodup) &&
   callOk S b D cert 0 && callOk S b D cert 1 &&
   ((b.body.filter isInstStmt).length == 2) &&
   regsOk S b cert &&
   (cert.regs.all fun r => (S.portNames.drop (S.portNames.length - S.d.shape.layout.lets - S.d.shape.layout.slots.length)).contains r &&
     !(b.inputs.map (·.name)).contains r) &&
   decide (b.outputs = S.d.shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port))) &&
-  ((b.inputs.filter fun p => p.name != "clk" && p.name != "rst").map (·.name) == S.portNames.take S.kD) &&
-  ((b.inputs.map (·.name)).contains "clk") && ((b.inputs.map (·.name)).contains "rst") &&
   linkedOk (moduleByName D.modules) b.body
 
 /-- NOT WRITTEN YET (M1, the body validator): the statements of the body against the source terms (`checkComb` for a combinational child is the step-2 piece).  It is `false` for every input, so `CheckRoot` is false for every input and `certifiedReturn` refuses: the freeze fixes the statement and the structural part, not a claim that the body is validated. -/
@@ -294,7 +324,7 @@ def certifiedReturn (S : SourceData) (mk : Module → Design → Cert) (declName
   unless CheckRoot S b D (mk b D) do throwError "certificate check failed"
   pure (b, D)
 
-/-- the statement of `certifiedReturn_sound` (not proved here): a successful run returns a pair the validator accepted -/
+/-- the statement of `certifiedReturn_sound` (not proved here): a successful run returns a pair the validator accepted.  It only EXTRACTS the checker's acceptance: it says nothing relating `declName` to `S.declName` (the final user-facing wrapper must fix or check the same declaration) -/
 def CertifiedReturnSoundStmt : Prop :=
   ∀ (S : SourceData) (mk : Module → Design → Cert) (declName : Name) {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
