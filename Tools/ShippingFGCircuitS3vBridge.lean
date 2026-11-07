@@ -308,7 +308,7 @@ theorem ofData_sound (d : MachineData) (hss : d.ss.length = 0) (V : Nat → Nat)
       refine ⟨rfl, hl1, ?_⟩
       intro k o c ho hc
       have hf := hfo o (List.mem_of_getElem? ho)
-      exact tC_sound d hss V (letTV d x B W) ([] ++ d.ls) lc (by simp using fun k l h => h) hin1 hlet1 o.2 c hf
+      exact tC_sound d hss V (letTV d x B W) ([] ++ d.ls) lc (fun k l h => by simpa using h) hin1 hlet1 o.2 c hf
         (hl2 k o c ho hc)
   · cases h
 
