@@ -6952,3 +6952,6 @@ lean_lib «Tools.ShippingFGCircuitS3jStart» where
 
 lean_lib «Tools.ShippingFGCircuitS3jFinal» where
   roots := #[`Tools.ShippingFGCircuitS3jFinal]
+
+lean_lib «Tools.ShippingFGCircuitS3jThrows» where
+  roots := #[`Tools.ShippingFGCircuitS3jThrows]

@@ -81,6 +81,19 @@ theorem pilotEntry3_run {X : Name} {w w' : Void IO.RealWorld} {r : Sparkle.IR.AS
     obtain ⟨u3, w3, h3, -⟩ := Tools.ShippingEntrySoundness.RunsTo.bind hr
     exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false h3).elim
 
+/-- **negative control (another Meta context)**: a context WITH a `canUnfold?` callback has no successful run of the checked entry -/
+theorem pilotEntry3_refuses_canUnfold {f : Meta.Config → ConstantInfo → CoreM Bool} (hf : mctx.canUnfold? = some f)
+    {X : Name} {w w' : Void IO.RealWorld} {r : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design} :
+    ¬ RunsTo (pilotEntry3 X) mctx mref cctx cref w r w' := fun hr => by
+  have h := (pilotEntry3_run hr).1
+  rw [hf] at h
+  cases h
+
+/-- **negative control (depth not 0)**: a start world whose depth cell does not read 0 has no successful run of the checked entry -/
+theorem pilotEntry3_refuses_depth {X : Name} {w w' : Void IO.RealWorld} {r : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design}
+    (hd : readOf sparkleSynthDepth w ≠ 0) : ¬ RunsTo (pilotEntry3 X) mctx mref cctx cref w r w' :=
+  fun hr => hd (pilotEntry3_run hr).2.1
+
 /-- **S1, `AdmCtx` of `Start`**: from the run of the checked entry, for EVERY `quiet` (including the vacuous one, which the check does not use): `admCtx_none` at the run's own Meta context -/
 theorem admCtx_of_pilotEntry3 {X : Name} {w w' : Void IO.RealWorld} {r : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design}
     (hr : RunsTo (pilotEntry3 X) mctx mref cctx cref w r w') (quiet : Void IO.RealWorld → Prop) :
