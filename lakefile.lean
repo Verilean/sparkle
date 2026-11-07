@@ -6902,3 +6902,6 @@ lean_lib «Tools.ShippingFGCircuitS1uSrc» where
 lean_lib «Tools.ShippingFGCircuitS1zClose» where
   roots := #[`Tools.ShippingFGCircuitS1zClose]
 
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2kRun» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2kRun]
