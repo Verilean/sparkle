@@ -48,15 +48,18 @@ def SetCorr {σ : Type} (r : IO.Ref σ) (rm : Ref realSig σ) : Prop :=
 /-- HYPOTHESIS: the real `IO.getStderr` corresponds to the model's `getStderr`; the stream value is NOT compared -/
 def StderrCorr : Prop :=
   Corr mctx mref cctx cref (fun _ _ => True) (liftM IO.getStderr : MetaM IO.FS.Stream) (getStderrM (C := Std.HashMap Name Res) (S := Option (Name → MetaM Res)))
-/-- HYPOTHESIS: the real `IO.getEnv k` corresponds to the model's lookup in its environment component (this includes the claim that the model's environment component is the process environment) -/
+/-- REFUTED in S3o (`Tools.ShippingFGCircuitS3oFix.envCorr_inconsistent`): `Rel` does not bind the environment, so this is incompatible with any successful real `getEnv`.  Superseded by `EnvCorrE`.
+HYPOTHESIS: the real `IO.getEnv k` corresponds to the model's lookup in its environment component (this includes the claim that the model's environment component is the process environment) -/
 def EnvCorr (k : String) : Prop :=
   Corr mctx mref cctx cref (· = ·) (liftM (IO.getEnv k) : MetaM (Option String)) (getEnvM (C := Std.HashMap Name Res) (S := Option (Name → MetaM Res)) k)
 end Hyps
 
-/-- HYPOTHESIS (initial correspondence): the start world `w0` of the run is related to a model heap in which the concrete quiet holds -/
+/-- REFUTED as a restriction in S3o (`oldInit_any_world`): holds at every world.  Superseded by `InitCorrE`.
+HYPOTHESIS (initial correspondence): the start world `w0` of the run is related to a model heap in which the concrete quiet holds -/
 def InitCorr (w0 : Void IO.RealWorld) : Prop := ∃ h0 : Heap realSig, Rel h0 w0 ∧ quietM h0
 
-/-- the quiet induced on worlds by `Rel` and the model's quiet -/
+/-- REFUTED as a restriction in S3o (`oldQuietR_eq_true`: it equals `fun _ => True`).  Superseded by `quietRE`.
+the quiet induced on worlds by `Rel` and the model's quiet -/
 def quietR (w : Void IO.RealWorld) : Prop := ∃ h : Heap realSig, Rel h w ∧ quietM h
 
 section Bridge
