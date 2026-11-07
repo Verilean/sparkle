@@ -16,7 +16,7 @@ def seqOk (m : Sparkle.IR.AST.Module) : Bool :=
   Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof m)
     (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) m.body
 
-/-- re-run the entry; compare the returned `(b, D)` and the shipped form with the generated terms; negative controls: altered copies differ from the run; compiled `shipsHierCheck`/`seqCheck` on the returned values -/
+-- re-run the entry; compare the returned `(b, D)` and the shipped form with the generated terms; negative controls: altered copies differ from the run; compiled `shipsHierCheck`/`seqCheck` on the returned values
 run_cmd liftTermElabM do
   let (b, D) ← Tools.ShippingFGCircuitS3jStart.pilotEntry3 Tools.ShippingFGCircuitS1kStmt.hftRoot
   let s := Sparkle.IR.OptCheck.checkedOptimize b
