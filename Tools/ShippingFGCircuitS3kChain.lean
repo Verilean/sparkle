@@ -660,3 +660,15 @@ theorem synth_hftPcieOutByte_finalOffCombined9_k : HftFinalStmtOffCombined9_k :=
   exact synth_hftPcieOutByte_finalOffCombined7_k L lvl₀ (envAt cref w) hadm hjq (offR_to_off hr) hcell ⟨hCE, Tools.ShippingGen5Env.readsAt_self cref w⟩ hH hT' hD hG hT hs h0
 
 end Tools.ShippingFGCircuitS3f2Final
+
+#print axioms Tools.ShippingFGCircuitS1tFinal.synth_hftPcieOutByte_finalOffX_k
+#print axioms Tools.ShippingFGCircuitS1uSrc.synth_hftPcieOutByte_finalOffLX_k
+#print axioms Tools.ShippingFGCircuitS1zClose.coreOff_ranAX_k
+#print axioms Tools.ShippingFGCircuitS1zClose.hftPostGate_of_localX_k
+#print axioms Tools.ShippingFGCircuitS1zClose.hftObNoRawOff_of_localX_k
+#print axioms Tools.ShippingFGCircuitS1zClose.synth_hftPcieOutByte_finalOffLNLX_k
+#print axioms Tools.ShippingFGCircuitS2mReach.hftCoreCloses_of_kidsRX_k
+#print axioms Tools.ShippingFGCircuitS2sAdmS2nAdm.hftCoreCloses_of_kidsR''_k
+#print axioms Tools.ShippingFGCircuitS3cTop.hftTop_of_runRX_k
+#print axioms Tools.ShippingFGCircuitS3cFinal.synth_hftPcieOutByte_finalOffCombined7_k
+#print axioms Tools.ShippingFGCircuitS3f2Final.synth_hftPcieOutByte_finalOffCombined9_k
