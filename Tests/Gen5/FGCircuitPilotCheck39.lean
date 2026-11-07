@@ -1,6 +1,7 @@
 import Tools.ShippingFGCircuitS2sAdmChildTeleMainA
 import Tools.ShippingFGCircuitS2sAdmChildRunAMain
 import Tools.ShippingFGCircuitS2sAdmChildMainA
+import Tools.ShippingFGCircuitS2sAdmS2nAdm
 import Tests.Gen5.FGCircuitPilotCheck33
 set_option autoImplicit false
 -- FG circuit pilot S2s check. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED. Results: docs/FG-CIRCUIT-PILOT.md §44.
@@ -12,13 +13,23 @@ ONE comparison function (`Check33.cmp`: the same constants are normalised and `i
 1. SIGNATURE: the complete type of the ported main theorem `core_tripleA_mainX` (context predicate `O.adm` carried by the bundle, telescope family `RefLawsATeleX O.quiet O.adm`) against an independently written statement, with mutants (the old `AdmCtx O.quiet` context, the old telescope bundle, no exception fact, no telescope premise, the precondition dropped).
 2. STEPS (surface types only, NOT the closure of the proofs): the ported theorems mention `RefLawsAOpsX` and not the old `AdmCtx` / `RefLawsAOps`; the original theorem still mentions `AdmCtx` (control, so the test discriminates); the specialisation `RefLawsAOps.toX` mentions `AdmCtx`.
 3. AXIOMS (every name is looked up with `contains` BEFORE `collectAxioms`).
-This covers the ported development up to `core_tripleA_main` (S2s steps 1-17); the S2dKids / S2hHist3 / S2mReach3 / S2nAdm consumers and `hftCoreCloses_of_kidsR''` are NOT ported (docs §44). -/
+4. (S2s5) GOAL: the complete type of `hftCoreCloses_of_kidsR''` (no `hdown`, no `hadm`; premises `hD hG hT hs h0` named) against an independently written statement, 5 mutants rejected, structural checks, axioms.
+This covers the ported development up to `core_tripleA_main` (S2s steps 1-17) and the S2s4/S2s5 path (CallsGatePinned, S1zClose, S2dKids, S2hHist3, S2mReach/2/3, S2nAdm); the named premises of the goal stay unsupplied (docs §44). -/
 namespace Tests.Gen5.FGCircuitPilotCheck39
 open Lean Meta Elab Command Term
 open Tools.ShippingEntrySoundness (RunsTo)
 open Tools.ShippingChildInv Tools.ShippingChildBndCore Tools.ShippingChildInvA Tools.ShippingChildVCA Tools.ShippingChildCacheA Tools.ShippingChildFresh
 open Tests.Gen5.FGCircuitPilotCheck26 (W Cx Cc Rf1 Rf2 tyOf binderNames)
 open Tests.Gen5.FGCircuitPilotCheck33 (cmp agree differ binderKinds)
+open Tools.ShippingGen5EnvFrame3 (CellPrem)
+open Tools.ShippingEntryReadsLinked (envAt)
+open Tools.ShippingFGCircuitS2mReach
+open Tools.ShippingGen2 (LawsX StartX)
+open Tools.ShippingFGCircuitS1zClose (HftCoreCloses)
+open Tools.ShippingFGCircuitCover (RootReader)
+open Tools.ShippingFGCircuitS2dKids (HftKidsGates)
+open Tools.ShippingFGCircuitS1kStmt (hftHttp hftTlp)
+open Sparkle.IP.Net.HTTP Sparkle.IP.Bus.PCIe
 
 /-! ## independently written statements -/
 
@@ -72,6 +83,62 @@ def MainTrivPost : Prop :=
       (Sparkle.Compiler.Elab.synthesizeCombinationalCore declName [] false)
       (fun _ _ => True) (fun e w => OutQ O.quiet w ∧ OkExc e)
 
+/-! ## goal statements (S2s5) -/
+
+/-- the real one -/
+def ExpGoal : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : LawsX mref cref) {w : W},
+    StartX L mctx cctx w → CellPrem MkRefd mref cref → ∀ {lvl : Lean.Expr → Nat},
+    RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData →
+    RootReader lvl (envAt cref w) hftTlp tlpCplByte.machineData →
+    HftKidsGates (envAt cref w) →
+    DRowEnvRX L.O (envAt cref w) w → DiagEnvRX L.O (envAt cref w) w → TeleRX L.O (envAt cref w) w →
+    ProfStepRX L.O w → ProfOffW mref cref w → HftCoreCloses mctx mref cctx cref w
+/-- the start condition dropped -/
+def GoalNoStart : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : LawsX mref cref) {w : W},
+    CellPrem MkRefd mref cref → ∀ {lvl : Lean.Expr → Nat},
+    RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData →
+    RootReader lvl (envAt cref w) hftTlp tlpCplByte.machineData →
+    HftKidsGates (envAt cref w) →
+    DRowEnvRX L.O (envAt cref w) w → DiagEnvRX L.O (envAt cref w) w → TeleRX L.O (envAt cref w) w →
+    ProfStepRX L.O w → ProfOffW mref cref w → HftCoreCloses mctx mref cctx cref w
+/-- the telescope row premise dropped -/
+def GoalNoTele : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : LawsX mref cref) {w : W},
+    StartX L mctx cctx w → CellPrem MkRefd mref cref → ∀ {lvl : Lean.Expr → Nat},
+    RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData →
+    RootReader lvl (envAt cref w) hftTlp tlpCplByte.machineData →
+    HftKidsGates (envAt cref w) →
+    DRowEnvRX L.O (envAt cref w) w → DiagEnvRX L.O (envAt cref w) w →
+    ProfStepRX L.O w → ProfOffW mref cref w → HftCoreCloses mctx mref cctx cref w
+/-- the profile premise `h0` dropped -/
+def GoalNoProf : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : LawsX mref cref) {w : W},
+    StartX L mctx cctx w → CellPrem MkRefd mref cref → ∀ {lvl : Lean.Expr → Nat},
+    RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData →
+    RootReader lvl (envAt cref w) hftTlp tlpCplByte.machineData →
+    HftKidsGates (envAt cref w) →
+    DRowEnvRX L.O (envAt cref w) w → DiagEnvRX L.O (envAt cref w) w → TeleRX L.O (envAt cref w) w →
+    ProfStepRX L.O w → HftCoreCloses mctx mref cctx cref w
+/-- the conclusion trivialised -/
+def GoalTrivConcl : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : LawsX mref cref) {w : W},
+    StartX L mctx cctx w → CellPrem MkRefd mref cref → ∀ {lvl : Lean.Expr → Nat},
+    RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData →
+    RootReader lvl (envAt cref w) hftTlp tlpCplByte.machineData →
+    HftKidsGates (envAt cref w) →
+    DRowEnvRX L.O (envAt cref w) w → DiagEnvRX L.O (envAt cref w) w → TeleRX L.O (envAt cref w) w →
+    ProfStepRX L.O w → ProfOffW mref cref w → True
+/-- the kids' gates premise dropped -/
+def GoalNoGates : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : LawsX mref cref) {w : W},
+    StartX L mctx cctx w → CellPrem MkRefd mref cref → ∀ {lvl : Lean.Expr → Nat},
+    RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData →
+    RootReader lvl (envAt cref w) hftTlp tlpCplByte.machineData →
+    DRowEnvRX L.O (envAt cref w) w → DiagEnvRX L.O (envAt cref w) w → TeleRX L.O (envAt cref w) w →
+    ProfStepRX L.O w → ProfOffW mref cref w → HftCoreCloses mctx mref cctx cref w
+
 /-! ## 1. SIGNATURE -/
 
 set_option maxHeartbeats 8000000 in
@@ -122,8 +189,8 @@ run_cmd liftTermElabM do
 
 run_cmd liftTermElabM do
   for l in [
-    "NOT PORTED (S2s3 pod): S2dKids (machineChild_ifaceK), S2jKid, S1zClose/S1qLinked/Linked/RunLocal/S2aClose and the Laws / Start structures (Tools/ShippingGen2Defs.lean) onto the context-predicate bundle; S2hHist2's port is an early stale copy (needs regeneration); S2hHist3 hftCoreCloses_of_kidsH, S2mReach3 hftCoreCloses_of_kidsR, S2nAdm hftCoreCloses_of_kidsR'",
-    "hftCoreCloses_of_kidsR'' (without hdown) is therefore NOT stated or proved"] do
+    "NOT PORTED: ImplCorA, LinkA, LoopsCP (nothing on the path imports them); the premises hD hG hT hs h0 of hftCoreCloses_of_kidsR'' (DRowEnvRX, DiagEnvRX, TeleRX, ProfStepRX, ProfOffW) and the telescope family RefLawsATeleX are NAMED and unsupplied",
+    "ported, not rebuilt as part of the S2s3 closure: the S2s5 path files are listed in docs §44"] do
     logInfo m!"FGCIRCUIT39 REMAINING {l}"
 
 run_cmd liftTermElabM do
@@ -138,5 +205,47 @@ run_cmd liftTermElabM do
     for ax in ← Lean.collectAxioms nm do
       unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do throwError "{nm} uses {ax}"
   logInfo m!"FGCIRCUIT39 AXIOMS: {names.length} names, standard axioms only (no sorryAx, no native_decide)"
+
+/-! ## 4. GOAL (S2s5) -/
+
+set_option maxHeartbeats 8000000 in
+run_cmd liftTermElabM do
+  let Q := `Tests.Gen5.FGCircuitPilotCheck39
+  let q (n : String) : Lean.Expr := Lean.mkConst (Q ++ Name.mkSimple n)
+  let g := `Tools.ShippingFGCircuitS2sAdmS2nAdm.hftCoreCloses_of_kidsR''
+  unless (← getEnv).contains g do throwError "GOAL: {g} does not exist"
+  let t ← tyOf g
+  agree "hftCoreCloses_of_kidsR''" t (q "ExpGoal")
+  let mut n : Nat := 0
+  for mu in ["GoalNoStart", "GoalNoTele", "GoalNoProf", "GoalTrivConcl", "GoalNoGates"] do
+    differ s!"hftCoreCloses_of_kidsR'' vs {mu}" t (q mu); n := n + 1
+  let u := t.getUsedConstants
+  unless u.contains ``LawsX do throwError "GOAL: not stated for LawsX"
+  if u.contains ``AdmDownR then throwError "GOAL mentions AdmDownR"
+  if u.contains ``Tools.ShippingFGCircuitS2mReach.AdmDownR then throwError "GOAL mentions AdmDownR"
+  if u.contains ``AdmCtx then throwError "GOAL mentions AdmCtx"
+  -- control: the original S2m statement still has hdown
+  let old := (← tyOf `Tools.ShippingFGCircuitS2mReach.hftCoreCloses_of_kidsR).getUsedConstants
+  unless old.contains `Tools.ShippingFGCircuitS2mReach.AdmDownR do throwError "control: the original hftCoreCloses_of_kidsR lost AdmDownR"
+  logInfo m!"FGCIRCUIT39 GOAL: the complete type of hftCoreCloses_of_kidsR'' matches the independently written statement (LawsX bundle; no hdown, no hadm; named premises hD hG hT hs h0 and CellPrem / reader / gates); {n} mutants rejected (no start condition, no telescope premise, no profile premise, trivial conclusion, no kids gates); its type mentions LawsX and neither AdmDownR nor AdmCtx while the S2m original still mentions AdmDownR (control); surface types only, NOT the proof closure"
+
+run_cmd liftTermElabM do
+  let names : List Name := [
+    `Tools.ShippingFGCircuitS2sAdmS2nAdm.hftCoreCloses_of_kidsR'', `Tools.ShippingFGCircuitS2sAdmS2nAdm.hftCoreCloses_of_root,
+    `Tools.ShippingFGCircuitS2sAdmS2nAdm.admRootX_toX, `Tools.ShippingFGCircuitS2sAdmS2nAdm.startX_of_root,
+    `Tools.ShippingFGCircuitS2mReach.hftCoreCloses_of_kidsRX, `Tools.ShippingFGCircuitS2mReach.jqhr_coreX,
+    `Tools.ShippingFGCircuitS2mReach.ropsRX, `Tools.ShippingFGCircuitS2mReach.jqhr_headX,
+    `Tools.ShippingFGCircuitS2dKids.machineChild_ifaceKX, `Tools.ShippingFGCircuitS2dKids.hftCoreCloses_of_kidsKX,
+    `Tools.ShippingFGCircuitS2hHist.hftCoreCloses_of_kidsHX, `Tools.ShippingFGCircuitS1zClose.synth_hftPcieOutByte_finalOffLNLX,
+    `Tools.ShippingCallsGatePinned.machineClosesAtA_of_gateKids'X]
+  let env ← getEnv
+  let mut missing : List Name := []
+  for nm in names do
+    unless env.contains nm do missing := nm :: missing
+  unless missing.isEmpty do throwError "AXIOMS2: names that do not exist: {missing}"
+  for nm in names do
+    for ax in ← Lean.collectAxioms nm do
+      unless ax == ``propext || ax == ``Classical.choice || ax == ``Quot.sound do throwError "{nm} uses {ax}"
+  logInfo m!"FGCIRCUIT39 AXIOMS2: {names.length} names of the S2s5 path (looked up before collectAxioms), standard axioms only (no sorryAx, no native_decide)"
 
 end Tests.Gen5.FGCircuitPilotCheck39
