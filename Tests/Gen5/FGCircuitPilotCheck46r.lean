@@ -39,7 +39,7 @@ run_cmd liftTermElabM do
   let lvOk (k : Nat) : Bool := rootReaderB (fun _ => k) env hftHttp httpMD && rootReaderB (fun _ => k) env hftTlp tlpMD
   logInfo m!"FGCIRCUIT46R CONTROLS: ok (real env true; other root / child as root / swapped children / missing constant / 8 altered-data components / Init-only environment false); lvl: the check at constant levels 0, 1, 3, 10 and lvl₀ gives {[lvOk 0, lvOk 1, lvOk 3, lvOk 10, lvOk (lvl₀ (mkNatLit 0))]} (lvl is distinguished by the statements, section B)"
 
-/-- the REAL pilot entry against the existing entry and the existing core: the same Module and Design, and the printed text is the one of the Module THIS run returned -/
+-- the REAL pilot entry against the existing entry and the existing core: the same Module and Design, and the printed text is the one of the Module THIS run returned -/
 run_cmd liftTermElabM do
   let X := hftRoot
   let t0 ← IO.monoMsNow
@@ -87,6 +87,15 @@ open Tools.ShippingGen2 (Laws Start)
 open Tools.ShippingChildInvA (AdmCtx)
 open Sparkle.IR.AST (Design)
 open Sparkle.Compiler.Elab (synthesizeCombinationalOff synthesizeCombinationalOffR)
+open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1tFinal
+open Tools.ShippingFGCircuitCover Tools.ShippingFGCircuitArtifact Tools.ShippingFGCircuitS1iEnv Tools.ShippingGen2 Tools.ShippingFGCircuitS1qEndpoint
+open Tools.ShippingFGCircuitS1zClose Tools.ShippingFGCircuit
+open Sparkle.Compiler.Elab Sparkle.Core Sparkle.Core.Domain Sparkle.IR.AST
+open Tools.ShippingChildInv Tools.ShippingChildBndCore Tools.ShippingChildInvA Tools.ShippingChildVCA Tools.ShippingChildCacheA Tools.ShippingChildFresh
+open Tools.ShippingMachineEntry
+open Tools.ShippingMachineAuto (MachineData)
+open Tools.ShippingGen5DeclConnect Tools.ShippingGen5FG Tools.ShippingFGCircuitRoots Tools.ShippingFGCircuitBridge
+open Tools.ShippingGenFGLedgerPremises Tools.ShippingFGCircuitS1iHead
 
 def lvlZero : Lean.Expr → Nat := fun _ => 0
 def lvlSucc : Lean.Expr → Nat := fun e => Tools.ShippingFGCircuitS3b2Reader.lvl₀ e + 1
@@ -137,61 +146,61 @@ noncomputable def GuardMu_noCell : Prop := Guard (needCell := false)
 
 /-- (3) the bridge, written again: the checked entry's run is a run of the EXISTING entry with the same declaration, contexts, worlds, Module and Design -/
 noncomputable def Bridge_real : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' : W} {b : Mod} {D' : Design},
     RunsTo (synthesizeCombinationalOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (synthesizeCombinationalOff declName) mctx mref cctx cref w (b, D') w'
 noncomputable def BridgeMu_endW : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' w'' : W} {b : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' w'' : W} {b : Mod} {D' : Design},
     RunsTo (synthesizeCombinationalOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (synthesizeCombinationalOff declName) mctx mref cctx cref w (b, D') w''
 noncomputable def BridgeMu_startW : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w0 w' : W} {b : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w0 w' : W} {b : Mod} {D' : Design},
     RunsTo (synthesizeCombinationalOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (synthesizeCombinationalOff declName) mctx mref cctx cref w0 (b, D') w'
 noncomputable def BridgeMu_mod : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b b' : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' : W} {b b' : Mod} {D' : Design},
     RunsTo (synthesizeCombinationalOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (synthesizeCombinationalOff declName) mctx mref cctx cref w (b', D') w'
 noncomputable def BridgeMu_design : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b : Mod} {D' D'' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' : W} {b : Mod} {D' D'' : Design},
     RunsTo (synthesizeCombinationalOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (synthesizeCombinationalOff declName) mctx mref cctx cref w (b, D'') w'
 noncomputable def BridgeMu_decl : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName declName' : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName declName' : Name} {w w' : W} {b : Mod} {D' : Design},
     RunsTo (synthesizeCombinationalOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (synthesizeCombinationalOff declName') mctx mref cctx cref w (b, D') w'
 noncomputable def BridgeMu_diag : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' : W} {b : Mod} {D' : Design},
     RunsTo (synthesizeCombinationalOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (Sparkle.Compiler.Elab.synthesizeCombinational declName) mctx mref cctx cref w (b, D') w'
 noncomputable def BridgeMu_core : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' : W} {b : Mod} {D' : Design},
     RunsTo (synthesizeCombinationalOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCoreOff declName) mctx mref cctx cref w (b, D') w'
 noncomputable def BridgeMu_reverse : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' : W} {b : Mod} {D' : Design},
     RunsTo (synthesizeCombinationalOff declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (synthesizeCombinationalOffR readerOk declName) mctx mref cctx cref w (b, D') w'
 noncomputable def BridgeMu_ctx : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx mctx' : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b : Mod} {D' : Design},
+  ∀ {mctx mctx' : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' : W} {b : Mod} {D' : Design},
     RunsTo (synthesizeCombinationalOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (synthesizeCombinationalOff declName) mctx' mref cctx cref w (b, D') w'
 
 /-- the core bridge (3a) -/
 noncomputable def CoreBridge_real : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' : W} {b : Mod} {D' : Design},
     RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCoreOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCoreOff declName) mctx mref cctx cref w (b, D') w'
 noncomputable def CoreBridgeMu_endW : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' w'' : W} {b : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' w'' : W} {b : Mod} {D' : Design},
     RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCoreOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCoreOff declName) mctx mref cctx cref w (b, D') w''
 noncomputable def CoreBridgeMu_mod : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b b' : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w' : W} {b b' : Mod} {D' : Design},
     RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCoreOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCoreOff declName) mctx mref cctx cref w (b', D') w'
 noncomputable def CoreBridgeMu_startW : Prop :=
-  ∀ {readerOk : Environment → Name → Bool} {declName : Name} {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w0 w' : W} {b : Mod} {D' : Design},
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {readerOk : Environment → Name → Bool} {declName : Name} {w w0 w' : W} {b : Mod} {D' : Design},
     RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCoreOffR readerOk declName) mctx mref cctx cref w (b, D') w' →
     RunsTo (Sparkle.Compiler.Elab.synthesizeCombinationalCoreOff declName) mctx mref cctx cref w0 (b, D') w'
 
