@@ -4074,6 +4074,10 @@ S3t の §69.1 の文のうち `SourceData.ok`（`clk` を含まない、先頭 
 
 §69.5 に追記済み: `portNames`／`kidMod` は claim、Check57 の型 ascription は関数の型のみ、`CertifiedReturnSoundStmt` は `declName` と `S.declName` の対応を述べない。
 
+### 70.7 Check57 の出力（Check 自身の行）
+
+`FGCIRCUIT57 AXIOMS: 250 theorems of the S3t modules (Spec, Sat, Cert, Calls, Comb, CombRun), standard axioms only …`。`NEGATIVE CONTROLS: structural validator on the root 12 + 3 design-top … + 7 input-boundary …`。`kjob lake build Tests.Gen5.FGCircuitPilotCheck57` は exit 0（1073 job）。`structuralOk … = true` の fresh kernel 検査は約 3.7 秒、`rootS.ok` 約 2.3 秒（1 run）。Cert のビルドは約 65 秒。
+
 ### 70.6 まだ無いもの
 
 `bodyOk`、`checkRoot_sound` の証明（S3t と同じ）。`SourceData` の claimed name が allocator の名前と一致する保証は不要（Q1 裁定）だが、旧 `MachineWired`／FG 消費者との橋は別の互換性義務。
