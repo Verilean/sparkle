@@ -3188,3 +3188,47 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 - 変更: `Tools/ShippingFGCircuitS3kChain.lean`・`…S3kFinal.lean`・`Tests/Gen5/FGCircuitPilotCheck51.lean`（新規。`lakefile.lean` に `lean_lib` 3 件）と本節。`Sparkle/`・v9・v10・既存 Check・既存の文は**不変**。新 law・axiom・sorry・native_decide・TRUSTED なし。
 - 次の候補: `hsynth`（S3: `sparkleChildSynth` の `SetGet` を `hcell` に足す設計、§59.3、reviewer 判断）、`hquiet`（`quiet` の具体的な選択）。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。A.P-02（Start）は `quiet`・`sv` が残るので行は外さない（数え方は reviewer が決める）。
+
+## 62. S3l（Issue `sparkle-fg-circuit-pilot`）: Check50 の表現補修、`hsynth`・`hquiet` の供給経路の調査（供給できず、欠けている文を明示）
+
+土台 `c2362658`（S3k）。**変更**: `Tests/Gen5/FGCircuitPilotCheck50.lean`（表現と depth 検査の追加）、`Tools/ShippingFGCircuitS3jFinal.lean`（`vacuousLaws` の docstring のみ。文・定義は不変）、docs（§60 の訂正、本節）。`Sparkle/`・v9〜v11・既存の文は**不変**。新 law・axiom・sorry・native_decide・TRUSTED なし。**v12 と Check52 は作っていない**（`hsynth`・`hquiet` のどちらも供給できなかったため。下記）。
+
+### 62.1 Check50 の補修（Tests と docs のみ。文は不変）
+
+- OUTPUT の「非空の開始 cache でも artifact 不変」を **1 回の観測**に限定した。非空 cache も `CacheInvA` を満たし得るので、これは `CacheInvA` 不要の一般証明ではない。cache 半分の一般の除去根拠は `jqc_after_head` と S3k の最終接続（§61）。
+- depth: 復元しているのは**テスト側の `set savedDepth`**で、wrapper ではない。wrapper 自身の挙動を見るため、復元の**前**に depth が 1 のまま（wrapper は depth を書かない）ことを検査する行を足した。
+- `vacuousLaws` の docstring: 「`hquiet` が偽なので前件全体が充足不能」。`hsynth`・`hcache` が個別に偽とは示していない（§60.5 にも訂正を入れた）。
+
+### 62.2 `hsynth`: `sv w = some synthesizeChild`（`w` = wrapper の開始 world）
+
+`sv w` は `readOf sparkleChildSynth w`、型は `Option (Name → MetaM (Module × Design))`（Elab.lean:1042）。`initialize sparkleChildSynth.set (some synthesizeChild)`（Elab.lean:9222）が設定する。
+
+調べた経路と結果:
+
+1. **wrapper で読んで検査する**: 関数値は `BEq`/`DecidableEq` を持たない。取れる検査は `isSome`（`= some synthesizeChild` より弱い。`some f` の `f` が別の関数でも通る）まで。**不十分**。
+2. **ポインタ等価**（`ptrAddrUnsafe`/`ptrEq`）: 論理的には opaque で、`ptrEq a b = true → a = b` を与える定理は無い（与えれば axiom）。**採らない**（axiom 禁止）。
+3. **run から導く**: 成功した run は `sv w = none` や別関数でも成り得る（`sparkleChildSynth.get` が none のとき 5270・5293 は `return none` で、別の経路で成功する可能性を排除できない）。`hcell` の `CellOK cref sparkleChildSynth` は `ReadWorld`・`ref ≠ cref.ref`・`SetFrame` で、**値には何も言わない**。**出ない**。
+4. **initialize を通す構造的な経路**: 「開始 world は初期化後」は world についての主張であって、この run の `hr` からは出ない（§59.3 の注意のまま）。
+5. **wrapper が自分で `sparkleChildSynth.set (some synthesizeChild)` する**（Tools 側のみで実装できる唯一の経路）。出力は不変の見込み（初期化値と同じ値の再設定）。ただし:
+   - 設定後の world `ws := setW sparkleChildSynth (some synthesizeChild) w` で `sv ws = some synthesizeChild` を得るには **`SetGet sparkleChildSynth`**（`∀ v w, readOf r (setW r v w) = v`）が要る。`CellPrem` の 9 番目の `SetGet cref` は Core 状態 ref の話で、追跡 3 ref の `SetGet` は**無い**。
+   - `dv ws = 0`・`cv` の不変、`envAt cref ws = envAt cref w`、`hD hG hT hs h0` の world も `w` から `ws` に移る。`SetFrame sparkleChildSynth sparkleSynthDepth`・`SetFrame sparkleChildSynth sparkleChildCache`・`ReadWorld` 系の追加（および `hD hG hT hs h0` を `ws` で言い直すか、`ws = w` 相当の前提）が要る。
+   - これは **既存 `hcell` だけからは出ない新しい未供給内容の追加**であり、`hsynth` を `CellPrem` の新 field に置き換えるだけである。reviewer 指針（SetGet を足すだけの案は新しい未供給）に従い、**供給とは数えず実装していない**。
+
+**必要になる場合の完全な型と増減（実装していない）**: `CellPrem'` := `CellPrem` ∧ `SetGet sparkleChildSynth` ∧ `SetFrame sparkleChildSynth sparkleSynthDepth` ∧ `SetFrame sparkleChildSynth sparkleChildCache`（field +3）。wrapper `pilotEntry4 X := do (checks of pilotEntry3); sparkleChildSynth.set (some synthesizeChild); synthesizeCombinationalOffR pilotReaderOk2 X`。v12 の binder は `hsynth` が消え、`hcell` が `CellPrem'` に替わる（binder 数 10 → 9、ただし未供給の field が +3。**FG 行の減算にはならない**）。残りの premise は `ws` で言い直しが要る。compiler 変更（`Sparkle/` の ref の隣に tag を置く案: 例えば `sparkleChildSynthTag : IO.Ref Bool` を `initialize` で `synthesizeChild` と同時に設定し wrapper が読む）は**関数値の同一性を tag の同一性に置き換えるだけ**で、tag と ref が同時に書かれる不変量が新たに要る。かつ `Sparkle/` は今回の範囲外。**説明のみで、この項目はここで止めた。**
+
+### 62.3 `hquiet`: `L.O.quiet w`
+
+- `quiet : Void IO.RealWorld → Prop` は **`L : Laws` の field（データ）**で、v11 の `L` は全称の binder である。`hquiet` は「**その `L` が選んだ** `quiet` が `w` で成り立つ」であって、実世界の特定の述語ではない。
+- 操作的な意味（§59.1 W6、§59.2）: 追跡 3 ref（`sparkleChildCache`・`sparkleChildSynth`・`sparkleSynthDepth`）の `Δ` を保つ範囲で、run の各 leaf 操作（診断 `ioEprintln`・`Handle.mk`、`ppExpr`、side ref の set など）の後も保たれる述語。stderr が cell を書く stream に差し替えられていない、という世界の性質を含む（§57 の `hG` と同根）。この世界の性質は **ref の値ではなく IO の stream/handle の状態**で、wrapper が `MetaM` から読める ref ではない。
+- **wrapper の検査で同じ run の `quiet` を立てられるか: できない。** (a) `quiet` は `L` の抽象述語で、wrapper が読める量ではない。(b) `L` の他の 13 field（`diag`・`frameQ`・`cacheSetQ`・`depthSetQ`・`frame` ほか。§59.2）が同じ `quiet` で成り立つことも同時に要る。`quiet := fun _ => True` を選べば `hquiet` は自明だが `diag` が偽になり得（§59.2 `O.quiet` 行）、`quiet := fun _ => False` なら `hquiet` が偽（`vacuous_no_hquiet`）。**具体的な `quiet` と `Laws` の field の同時の証明が必要で、これは `L` 全体（A.P-01）の供給**であり、`hquiet` 単独の項目ではない。
+- したがって欠けている文: ある具体の `quiet₀ : Void IO.RealWorld → Prop` について `Laws mref cref` の値 `L₀`（`L₀.O.quiet = quiet₀`）が構成でき、かつ実 run の開始 world で `quiet₀ w` が成り立つこと。**未供給**。
+
+### 62.4 v12・Check52
+
+どちらも作っていない（供給された項目が無いため。「v12 は `hsynth` か `hquiet` のどちらかが供給されたときだけ」）。v11 の 10 binder `L hquiet hsynth hr hcell hD hG hT hs h0` のまま。
+
+### 62.5 範囲・台帳
+
+- **非空虚な Laws / CellPrem / quiet が実 run について同時に成り立つこと（`hquiet`・`hsynth`・`L`・`hcell`・`hD hG hT hs h0`）は、今回も未供給**。quiet=False の拒否と依存の走査（Check50/51）は、そうした充足例を与えたことにはならない。
+- compiler（`Sparkle/`）の変更: なし。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
