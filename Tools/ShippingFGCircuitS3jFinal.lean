@@ -94,7 +94,52 @@ theorem synth_hftPcieOutByte_finalOffCombined10 : HftFinalStmtOffCombined10 := b
   exact synth_hftPcieOutByte_finalOffCombined9 L (start_of_residual L hr hquiet hsynth hcache)
     (entry2_of_pilotEntry3 hcell.2.2.1.1 hr) hcell hD hG hT hs h0
 
+/-! ## the command of the S3j pilot entry: it prints the artifact THIS run returned (no second synthesis) -/
+
+def pilotArtifact3 (declName : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design × String) := do
+  let (module, design) ← pilotEntry3 declName
+  return (module, design, verilogOf module)
+
+open Lean Elab Command in
+elab "#synthesizeVerilogPilot3 " id:ident : command => do
+  let declName ← liftCoreM do Lean.resolveGlobalConstNoOverload id
+  liftTermElabM do
+    inlinerFuelGuard declName
+    let (module, _, verilog) ← pilotArtifact3 declName
+    let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
+    for w in warnings do
+      Lean.logWarning m!"{w}"
+    IO.println verilog
+    IO.println "\n-- Verilog successfully generated (pilot entry 3)!"
+
+/-! ## the vacuous `L` (`quiet := False`) is NOT a witness of the premises -/
+
+open Tools.ShippingChildInvA (RefLawsAOps RefLawsATele admCtx_quietFalse)
+
+/-- the degenerate `Laws` with `quiet := fun _ => False` (every field vacuous; `RefLawsAOps.quietFalse`, `RefLawsATele.quietFalse`).  It exists, so the quantifier `∀ L` of v9/v10 ranges over it; the point of the next theorems is that it satisfies NONE of the residual premises -/
+def vacuousLaws (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State) : Laws mref cref :=
+  ⟨RefLawsAOps.quietFalse Tools.ShippingChildFresh.MkRefd mref cref, RefLawsATele.quietFalse mref cref⟩
+
+/-- `hquiet` fails for the vacuous `L` at every world -/
+theorem vacuous_no_hquiet {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (w : Void IO.RealWorld) : ¬ (vacuousLaws mref cref).O.quiet w := fun h => h
+
+/-- so does v9's `hstart` (`Start` contains `quiet w`) -/
+theorem vacuous_no_start {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (mctx : Meta.Context) (cctx : Core.Context) (w : Void IO.RealWorld) : ¬ Start (vacuousLaws mref cref) mctx cctx w :=
+  fun h => h.2.1.1
+
+/-- the start check's `AdmCtx` is TRUE at the vacuous `quiet` (`admCtx_quietFalse`) — it carries no information about `quiet`, which is why `hquiet` stays a separate hypothesis and the check does not discharge it -/
+theorem vacuous_adm_trivial {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (mctx : Meta.Context) (cctx : Core.Context) : AdmCtx (vacuousLaws mref cref).O.quiet mctx cctx :=
+  admCtx_quietFalse mctx cctx
+
+/-- **v10 at the vacuous `L` has an unsatisfiable premise**: no hypotheses of v10 can be supplied at `vacuousLaws`, so v10 says nothing about it — the positive statement is about `L` with `hquiet` -/
+theorem v10_vacuous_premise {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    {w : Void IO.RealWorld} : ¬ (vacuousLaws mref cref).O.quiet w := vacuous_no_hquiet w
+
 end Tools.ShippingFGCircuitS3jFinal
 
 #print axioms Tools.ShippingFGCircuitS3jFinal.start_of_residual
 #print axioms Tools.ShippingFGCircuitS3jFinal.synth_hftPcieOutByte_finalOffCombined10
+#print axioms Tools.ShippingFGCircuitS3jFinal.vacuous_no_start
