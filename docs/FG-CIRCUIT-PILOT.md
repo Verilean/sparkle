@@ -3178,7 +3178,7 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 
 ### 61.5 何が供給され、何が残ったか
 
-- 今回供給した（文から消えた）: `CacheInvA L.O (cv w)`（開始 world の cache 半分、`hcache`）。head 後の `JQC 1` は `L.O.cacheSet`（`tripleC_clear`）から出る（`L` の field に依る。`L` は binder のまま）。
+- 今回不要化した（文から消えた）: `CacheInvA L.O (cv w)`（開始 world の cache 条件、`hcache`）。開始 world の cache 条件を証明したのではなく、それを必要としない定理に変えた。head 後の `JQC 1` は `L.O.cacheSet`（`tripleC_clear`）で head 後に確立する（`L` の field に依る。`L` は binder のまま）。（reviewer 指摘による訂正: 旧記述「今回供給した」）
 - 残った（名前付き・不変）: `hquiet`・`hsynth`（`Start` の JQ 部分。A.P-02）、`L`（A.P-01）、`hcell`（C.EN-4）、`hD hG hT hs h0`。いずれも「調査範囲では未供給」で、供給不能の主張ではない。
 - v11 の `hr` は v10 と同じ wrapper の run（`pilotEntry3`）。実行経路・出力は v10 と同じ（compiler `Sparkle/` は不変）。
 - 制約: 複製した鎖は元の証明の機械的置換で、元の `Start`（cache 付き）版は残っている（既存 Check の文は不変）。`hftCoreCloses_of_root` など鎖外の宣言は複製していない。

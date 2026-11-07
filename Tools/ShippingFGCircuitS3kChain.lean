@@ -298,7 +298,7 @@ open Tools.ShippingFGCircuitS2hHist
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 /-- **`hftCoreCloses_of_kidsHX` with the miss premise `MissEX` replaced by the reachability / environment invariant** `JQHRX` from the start world `w` of the target root run. Premise list, replacing `hmiss : MissEX L.O (KidEv mref cref (envAt cref w))`:
-`hadm` (FG D.T-4m6: the root context is admissible for the strengthened quiet predicate), (`hdown` (D.T-4m7) of the original S2m theorem is NOT a premise of this port: `L.O.adm` is kept by `ropsRX` as it is), `hD` (D.T-4m1, class-D rows), `hG` (D.T-4m2, diagnostic rows), `hT` (D.T-4m3, telescope rows), `hs` (D.T-4m4, profile lookup along leaf steps), `h0` (D.T-4m5, profile lookup unset at the root start world). `L.T` is not used. -/
+`hadm` (FG D.T-4m6: the root context is admissible, `L.O.adm = AdmCtx L.O.quiet` for the original quiet predicate), (`hdown` (D.T-4m7) of the original S2m theorem is NOT a premise of this port: `L.O.adm` is kept by `ropsRX` as it is), `hD` (D.T-4m1, class-D rows), `hG` (D.T-4m2, diagnostic rows), `hT` (D.T-4m3, telescope rows), `hs` (D.T-4m4, profile lookup along leaf steps), `h0` (D.T-4m5, profile lookup unset at the root start world). `L.T` is not used. -/
 theorem hftCoreCloses_of_kidsRX_k (L : LawsX mref cref) {w : Void IO.RealWorld}
     (hjq : JQ L.O.quiet 0 w) (hcell : CellPrem MkRefd mref cref) {lvl : Lean.Expr → Nat}
     (hrH : RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData)
@@ -340,7 +340,7 @@ open Sparkle.IP.Net.HTTP Sparkle.IP.Bus.PCIe
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-- **`hftCoreCloses_of_kidsR''_k`: `hftCoreCloses_of_kidsR` (S2m) WITHOUT `hdown` and WITHOUT `hadm`.** The context predicate `L.O.adm` is a field of the bundle, kept in every context update (`CtxClosed`), so the strengthened quiet predicate (`quietRX`) no longer needs `AdmDownR`; the root context is `hadm`. Remaining named premises: `hD` (class-D rows), `hG` (diagnostic rows), `hT` (telescope rows), `hs` (profile lookup along leaf steps), `h0` (profile lookup unset at the root start world). -/
+/-- **`hftCoreCloses_of_kidsR''_k`: `hftCoreCloses_of_kidsR` (S2m) WITHOUT `hdown`; `hadm` is its root-context argument (not a separate binder of the final statement).** The context predicate `L.O.adm` is a field of the bundle, kept in every context update (`CtxClosed`), so the strengthened quiet predicate (`quietRX`) no longer needs `AdmDownR`; the root context is `hadm`. Remaining named premises: `hD` (class-D rows), `hG` (diagnostic rows), `hT` (telescope rows), `hs` (profile lookup along leaf steps), `h0` (profile lookup unset at the root start world). -/
 theorem hftCoreCloses_of_kidsR''_k (L : LawsX mref cref) {w : Void IO.RealWorld}
     (hadm : L.O.adm mctx cctx) (hjq : JQ L.O.quiet 0 w) (hcell : CellPrem MkRefd mref cref) {lvl : Lean.Expr → Nat}
     (hrH : RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData)
@@ -637,7 +637,7 @@ open Tools.ShippingFGCircuitS3b2Final (pilotReaderOk pilotReaderOk_sound readerO
 open Tools.ShippingFGCircuitS3b2Core (offR_to_off)
 open Tools.ShippingFGCircuitS3cFinal (synth_hftPcieOutByte_finalOffCombined7_k)
 
-/-- **v9** (9 binders): the pilot entry `pilotReaderOk2` (`hr` is a run of `synthesizeCombinationalOffR pilotReaderOk2 hftRoot`) at the concrete `lvl₀`, WITHOUT `env₀` and `hchk`: `env₀` is `envAt cref w` and `hchk` is supplied by the run's own guard.  Binders: `L hadm hjq hr hcell hD hG hT hs h0`. -/
+/-- **v9, copied (`_k`)** (10 binders: v9 with `hstart` split into `hadm` and the JQ-only `hjq`): the pilot entry `pilotReaderOk2` (`hr` is a run of `synthesizeCombinationalOffR pilotReaderOk2 hftRoot`) at the concrete `lvl₀`, WITHOUT `env₀` and `hchk`: `env₀` is `envAt cref w` and `hchk` is supplied by the run's own guard.  Binders: `L hadm hjq hr hcell hD hG hT hs h0`. -/
 def HftFinalStmtOffCombined9_k : Prop :=
   ∀ {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
     (L : Laws mref cref)
