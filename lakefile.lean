@@ -6907,3 +6907,6 @@ lean_lib «Tools.ShippingFGCircuitS3b2Reader» where
 
 lean_lib «Tools.ShippingFGCircuitS3b2Exp» where
   roots := #[`Tools.ShippingFGCircuitS3b2Exp]
+
+lean_lib «Tools.ShippingFGCircuitS3b2Core» where
+  roots := #[`Tools.ShippingFGCircuitS3b2Core]
