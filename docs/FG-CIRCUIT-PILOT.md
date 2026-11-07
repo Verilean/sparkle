@@ -2734,7 +2734,7 @@ Check の行から引用:
 - `hstart : Start L mctx cctx w` は従来どおり任意 bundle `L` 上（`L.toX` への特殊化は v7 の証明内部で明示）。`hr` と `hstart` の mctx / cctx / w は同じ変数で型が固定される（Check47 の startCtx / startWorld 対照）。
 
 ### 54.4 Check47（`Tests/Gen5/FGCircuitPilotCheck47.lean`）
-- `FGCIRCUIT47 SIGNATURES`: v8 の完全型を独立に書いた `Exp8` と `FGCircuitCmp.stmtEq` で照合。再利用は `Check46.ExpTX`（TeleRX は quietRX / Laws.toX 経由でしか書けないため）のみ。32 個の mutant を拒否（各前提の欠落、検査 True の入口、通常 Off の入口、別 root／別 post root、start の context／world が run と別、TeleR、hadm／hdown／両方／reader を戻した版、`hchk`・`GPt` の別水準、到達環境、結論の一部欠落、別 carrier、v6／v7／v7r の型）。
+- `FGCIRCUIT47 SIGNATURES`: v8 の完全型を独立に書いた `Exp8` と `FGCircuitCmp.stmtEq` で照合。再利用は `Check46.ExpTX`（TeleRX は quietRX / Laws.toX 経由でしか書けないため）のみ、と当時は記した（**旧版・§55.1／§56 で置換**: 現在の Check47 は `Check46.ExpTX` を使わない）。32 個の mutant を拒否（各前提の欠落、検査 True の入口、通常 Off の入口、別 root／別 post root、start の context／world が run と別、TeleR、hadm／hdown／両方／reader を戻した版、`hchk`・`GPt` の別水準、到達環境、結論の一部欠落、別 carrier、v6／v7／v7r の型）。
 - `FGCIRCUIT47 BINDERS`: v6 25 / v7 23 / v7r 22 / v8 20（暗黙 9 を含む）。v8 = v7r − [hadm,hdown] = v7 − [lvl,hreadH,hreadT]、v7r = v6 − [lvl,hreadH,hreadT] を名前の列で検査。
 - `FGCIRCUIT47 AXIOMS`: 6 names、標準 axiom のみ。
 
@@ -2742,6 +2742,7 @@ Check の行から引用:
 
 ### 55.1 Check47 の変更（`Tests/Gen5/FGCircuitPilotCheck47.lean`。`Tools/` の定理の文は不変）
 - **hT の独立な期待型 `ExpTXind`/`ExpQuietX`**: `Check46.ExpTX` を使わない。`TeleRX` の命題を `RefLawsATeleX (ExpQuietX L.O.quiet (AdmCtx L.O.quiet) mref cref e w₀) (AdmCtx L.O.quiet) mref cref` と書いた。`adm` は `AdmCtx L.O.quiet`、強化 quiet は `quiet w ∧ ReadsAt e cref w ∧ ReachedX quiet adm mref cref w₀ w` と別に書き（`quietRX` ではない）、`Laws.toX`・`RefLawsAOps.toX` の射影は、実の型と期待型の**両方**に同じ正規化 `projToX`（定義の展開で `L.toX.O.quiet` を `L.O.quiet`、`L.toX.O.adm` を `AdmCtx L.O.quiet` に読む）をかける。肯定例も mutant も同一の比較 `FGCircuitCmp.stmtEq`。
+  - **訂正（S3e 補修）**: 初版の記述「両側に同じ `projToX`」は実装どおりでなかった（実の型は `norm47`、期待型 `F8_real` と mutant は `norm37` だけを通していた。現期待型には `toX` 射影が無いため v8 の証明の欠陥ではない）。補修後は実の型・`F8_real`・全 mutant・v6／v7／v7r の型が**同じ一つの関数 `normC`**（= `norm47` を 2 回、2 回目は展開後の期待文に現れる `toX` 射影も読む）を通る。再 build: exit 0、`55 mutants rejected`、BINDERS 20／AXIOMS 標準のみ（変更なし）。
 - hT の mutant（同じ比較で拒否）: 旧 `TeleR`（`RefLawsATele` の強化 quiet）／元の quiet だけの法則（`L.T` の型 `RefLawsATele L.O.quiet`、`L.T.toX` の型 `RefLawsATeleX L.O.quiet (AdmCtx L.O.quiet)`）／文脈を強化 quiet から作ったもの／強化 quiet から到達または `ReadsAt` を落としたもの。
 - 追加した対照（同じ比較）: 子 reader（入口の検査 `chkOf`: 子のデータの取り違え／名前の取り違え／片方の子を別水準／root 等式なし。reader を前提に戻した版の名前の取り違え／片方の子を別水準）、開始 env（`hchk` を run の開始 env／終了 env で、結論を `env₀`／終了 env で）、出力（結論が別の Module／別の Design／両方、別の artifact 名）、carrier（`cdvZ` に加え `cdvOld`）、旧入口（`synthesizeCombinationalOff`、検査 True。既存）。S3d の mutant は全て残した。
 - 結果の数は §55.4 に Check 自身の行から引用する。

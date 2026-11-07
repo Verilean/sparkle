@@ -2,7 +2,7 @@ import Tools.ShippingFGCircuitS3dFinal
 import Tests.Gen5.FGCircuitPilotCheck46
 import Tests.Gen5.FGCircuitPilotCheck46r
 set_option autoImplicit false
--- FG circuit pilot Check47 (S3d, S3e): the complete type of v8 (pilot entry, lvl₀, hadm/hdown/lvl/hreadH/hreadT removed, hT at TeleRX) against an independently written statement (Exp8; the only reuse is Check46.ExpTX = the TeleRX form via quietRX / Laws.toX, unavoidable since TeleRX is stated through them), mutants (each premise dropped; entry = True checker / ordinary Off run / another root; start world / context not the run's; TeleR instead of TeleRX; hadm/hdown/lvl/readers back; other level in hchk or GPt; weakened / other conclusion; other carrier), a binder-list comparison with v6, v7 and v7r, and standard axioms only.
+-- FG circuit pilot Check47 (S3d, S3e, S3e repair): the complete type of v8 (pilot entry, lvl₀, hadm/hdown/lvl/hreadH/hreadT removed, hT at TeleRX) against an independently written statement (Exp8; hT is written out again in this file (ExpTXind / ExpQuietX), not via Check46.ExpTX / quietRX / Laws.toX. SUPERSEDED: the earlier wording of this comment, \"the only reuse is Check46.ExpTX, unavoidable\" (draft a95cfacb), is out of date. S3e repair: the real type, F8_real and every mutant now go through ONE normalisation function, normC), mutants (each premise dropped; entry = True checker / ordinary Off run / another root; start world / context not the run's; TeleR instead of TeleRX; hadm/hdown/lvl/readers back; other level in hchk or GPt; weakened / other conclusion; other carrier), a binder-list comparison with v6, v7 and v7r, and standard axioms only.
 set_option maxHeartbeats 0
 set_option maxRecDepth 1000000
 
@@ -185,6 +185,8 @@ def norm47 (e0 : Lean.Expr) : MetaM Lean.Expr := do
         if let some e' ← unfoldDefinition? e then return .visit e'.headBeta
     return .done e)
   norm37 e
+/-- the ONE normalisation path of this Check: `norm47` (projToX, unfold the statement wrappers, `norm37`), then `norm47` again so that the `toX` projections exposed by the unfolding are read off as well. The real type, the expected `F8_real` and every mutant go through exactly this function. -/
+def normC (e : Lean.Expr) : MetaM Lean.Expr := do norm47 (← norm47 e)
 
 set_option maxHeartbeats 64000000 in
 set_option maxRecDepth 100000 in
@@ -192,8 +194,8 @@ run_cmd liftTermElabM do
   let Q (n : String) : Lean.Expr := Lean.mkConst (`Tests.Gen5.FGCircuitPilotCheck47 ++ Name.mkSimple n)
   let mut nm : Nat := 0
   let f8ty ← tyOf ``Tools.ShippingFGCircuitS3dFinal.synth_hftPcieOutByte_finalOffCombined8
-  let f8 ← norm47 f8ty
-  Tests.Gen5.FGCircuitCmp.checkSame "finalOffCombined8" f8 (← norm37 (Q "F8_real"))
+  let f8 ← normC f8ty
+  Tests.Gen5.FGCircuitCmp.checkSame "finalOffCombined8" f8 (← normC (Q "F8_real"))
   for mu in ["F8Mu_noStart", "F8Mu_noRun", "F8Mu_noCell", "F8Mu_noChk", "F8Mu_noD", "F8Mu_noG", "F8Mu_noT", "F8Mu_noPS",
       "F8Mu_noProf", "F8Mu_entTrue", "F8Mu_entOff", "F8Mu_root", "F8Mu_postRoot", "F8Mu_entSwapData", "F8Mu_entSwapName", "F8Mu_entHttpLvl",
       "F8Mu_entTlpLvl", "F8Mu_entNoRoot", "F8Mu_startCtx", "F8Mu_startWorld", "F8Mu_chkEnvStart", "F8Mu_chkEnvEnd", "F8Mu_conEnv0", "F8Mu_conEnvEnd",
@@ -201,14 +203,14 @@ run_cmd liftTermElabM do
       "F8Mu_addAdm", "F8Mu_addDown", "F8Mu_addBoth", "F8Mu_readersBack", "F8Mu_readersSwapName", "F8Mu_readersHttpLvl", "F8Mu_readersTlpLvl", "F8Mu_lvlChk0",
       "F8Mu_lvlChkSucc", "F8Mu_lvlGPt0", "F8Mu_lvlGPtSucc", "F8Mu_outModule", "F8Mu_outDesign", "F8Mu_outBoth", "F8Mu_artHttp", "F8Mu_artHttpX",
       "F8Mu_noC1", "F8Mu_noC2", "F8Mu_carrierZ", "F8Mu_carrierOld"] do
-    Tests.Gen5.FGCircuitCmp.checkDiff s!"finalOffCombined8 vs {mu}" f8 (← norm37 (Q mu)); nm := nm + 1
+    Tests.Gen5.FGCircuitCmp.checkDiff s!"finalOffCombined8 vs {mu}" f8 (← normC (Q mu)); nm := nm + 1
   -- v8 is none of v6, v7, v7r
   let f6ty ← tyOf ``Tools.ShippingFGCircuitS3aFinal.synth_hftPcieOutByte_finalOffCombined6
   let f7ty ← tyOf ``Tools.ShippingFGCircuitS3cFinal.synth_hftPcieOutByte_finalOffCombined7
   let f7rty ← tyOf ``Tools.ShippingFGCircuitS3b2Final.synth_hftPcieOutByte_finalOffCombined7R
-  Tests.Gen5.FGCircuitCmp.checkDiff "finalOffCombined8 vs the v6 theorem's type" f8 (← norm47 f6ty); nm := nm + 1
-  Tests.Gen5.FGCircuitCmp.checkDiff "finalOffCombined8 vs the v7 theorem's type" f8 (← norm47 f7ty); nm := nm + 1
-  Tests.Gen5.FGCircuitCmp.checkDiff "finalOffCombined8 vs the v7r theorem's type" f8 (← norm47 f7rty); nm := nm + 1
+  Tests.Gen5.FGCircuitCmp.checkDiff "finalOffCombined8 vs the v6 theorem's type" f8 (← normC f6ty); nm := nm + 1
+  Tests.Gen5.FGCircuitCmp.checkDiff "finalOffCombined8 vs the v7 theorem's type" f8 (← normC f7ty); nm := nm + 1
+  Tests.Gen5.FGCircuitCmp.checkDiff "finalOffCombined8 vs the v7r theorem's type" f8 (← normC f7rty); nm := nm + 1
   -- binder lists
   let bl (t : Lean.Expr) : MetaM (List Name) := do return binderNames ((← unfoldDefinition? t).getD t)
   let b6 ← bl f6ty
@@ -223,7 +225,7 @@ run_cmd liftTermElabM do
   for n in [`lvl, `hreadH, `hreadT, `hadm, `hdown] do
     unless !b8.contains n do throwError "v8 still has {n}"
   logInfo m!"FGCIRCUIT47 BINDERS (9 implicit + explicit): v6 ({b6.length} = 9 + 16) {b6}; v7 ({b7.length} = 9 + 14) {b7}; v7r ({b7r.length} = 9 + 13) {b7r}; v8 ({b8.length} = 9 + 11) {b8}; v8 = v7r minus [hadm, hdown] = v7 minus [lvl, hreadH, hreadT]; hT is stated at TeleRX (as v7), every other premise keeps its v6 proposition (docs S54)"
-  logInfo m!"FGCIRCUIT47 SIGNATURES: the complete type of synth_hftPcieOutByte_finalOffCombined8 equals the independently written Exp8 under ONE criterion (FGCircuitCmp.stmtEq; binder kinds at all depths; hT is written out in Check47 itself (ExpTXind / ExpQuietX: adm = AdmCtx L.O.quiet and the strengthened quiet spelled separately, not via quietRX / Laws.toX / Check46.ExpTX; both sides are read through the same projToX normalisation of L.toX)); {nm} mutants rejected (each premise dropped; True checker / ordinary Off run / other root / other post-run root; the entry's child reader check with the children's data swapped, names swapped, one child at another level, or no root equation; start context / world not the run's; hchk at the run's start / end environment; the conclusion at env₀ / the end environment; hT: the old TeleR, the original quiet's law alone (plain and X form), the context predicate from the strengthened quiet, no reach, no ReadsAt; hadm / hdown / both / the child readers back (also swapped / at another level); other level in hchk and in GPt; reach environment end / initial; a conclusion about another Module / Design / artifact name; weakened conclusion parts; carriers cdvZ and cdvOld; v6, v7, v7r)"
+  logInfo m!"FGCIRCUIT47 SIGNATURES: the complete type of synth_hftPcieOutByte_finalOffCombined8 equals the independently written Exp8 under ONE criterion (FGCircuitCmp.stmtEq; binder kinds at all depths; hT is written out in Check47 itself (ExpTXind / ExpQuietX: adm = AdmCtx L.O.quiet and the strengthened quiet spelled separately, not via quietRX / Laws.toX / Check46.ExpTX; the real type, the expected F8_real and every mutant are all read through the SAME function normC = norm47 applied twice, i.e. the same projToX normalisation of L.toX also after the expected statement is unfolded)); {nm} mutants rejected (each premise dropped; True checker / ordinary Off run / other root / other post-run root; the entry's child reader check with the children's data swapped, names swapped, one child at another level, or no root equation; start context / world not the run's; hchk at the run's start / end environment; the conclusion at env₀ / the end environment; hT: the old TeleR, the original quiet's law alone (plain and X form), the context predicate from the strengthened quiet, no reach, no ReadsAt; hadm / hdown / both / the child readers back (also swapped / at another level); other level in hchk and in GPt; reach environment end / initial; a conclusion about another Module / Design / artifact name; weakened conclusion parts; carriers cdvZ and cdvOld; v6, v7, v7r)"
 
 run_cmd liftTermElabM do
   let env ← getEnv
