@@ -57,8 +57,8 @@ theorem set_mref_frame (v : Nat) (h : Heap (sigOf C S)) :
     hget (rCache (S := S)) (hset (rMref (C := C)) v h) = hget rCache h ∧
     hget (rSynth (C := C)) (hset (rMref (S := S)) v h) = hget rSynth h ∧
     hget (rDepth (C := C) (S := S)) (hset rMref v h) = hget rDepth h :=
-  ⟨get_set_other _ _ _ _ (by decide), get_set_other _ _ _ _ (by decide), get_set_other _ _ _ _ (by decide),
-   get_set_other _ _ _ _ (by decide), get_set_other _ _ _ _ (by decide)⟩
+  ⟨get_set_other _ _ _ _ (by intro e; cases e), get_set_other _ _ _ _ (by intro e; cases e), get_set_other _ _ _ _ (by intro e; cases e),
+   get_set_other _ _ _ _ (by intro e; cases e), get_set_other _ _ _ _ (by intro e; cases e)⟩
 
 /-- a write of the depth cell leaves the cache, the synthesis ref, `mref` and `cref` -/
 theorem set_depth_frame (v : Nat) (h : Heap (sigOf C S)) :
@@ -66,8 +66,8 @@ theorem set_depth_frame (v : Nat) (h : Heap (sigOf C S)) :
     hget (rSynth (C := C)) (hset (rDepth (S := S)) v h) = hget rSynth h ∧
     hget (rMref (C := C) (S := S)) (hset rDepth v h) = hget rMref h ∧
     hget (rCref (C := C) (S := S)) (hset rDepth v h) = hget rCref h :=
-  ⟨get_set_other _ _ _ _ (by decide), get_set_other _ _ _ _ (by decide), get_set_other _ _ _ _ (by decide),
-   get_set_other _ _ _ _ (by decide)⟩
+  ⟨get_set_other _ _ _ _ (by intro e; cases e), get_set_other _ _ _ _ (by intro e; cases e), get_set_other _ _ _ _ (by intro e; cases e),
+   get_set_other _ _ _ _ (by intro e; cases e)⟩
 
 /-! ## the diagnostic leaves keep the tracked heap -/
 
@@ -119,7 +119,9 @@ theorem quiet_nonconst : (∃ h : Heap exSig, quietM h) ∧ (∃ h : Heap exSig,
 /-- the existing ref-only law bundle of `ShippingHeapModel` (over the model, NOT `RefLawsCore`) is satisfied with THIS quiet, in this start state: `quiet` of that witness is `quietM` -/
 theorem heapLaws_with_quietM :
     ∃ L : HeapLaws exSig (fun _ => True), (∀ h, L.quiet h ↔ quietM h) ∧ L.quiet s0 :=
-  ⟨HeapLaws.model (fun d => d.getEnv "SPARKLE_DEBUG" = none) (fun _ => True), fun _ => Iff.rfl, quiet_s0⟩
+  let L : HeapLaws exSig (fun _ => True) := HeapLaws.model (fun (d : DiagEnv) => d.getEnv "SPARKLE_DEBUG" = none) (fun _ => True)
+  have hq : ∀ h, L.quiet h ↔ quietM h := fun _ => Iff.rfl
+  ⟨L, hq, (hq s0).2 quiet_s0⟩
 
 /-- the short program: read the depth, write depth+1, push onto the cache, fetch stderr, write `mref`, read the environment, print a diagnostic, return (depth read, env value) -/
 def prog : M exSig (Nat × Option String) :=
