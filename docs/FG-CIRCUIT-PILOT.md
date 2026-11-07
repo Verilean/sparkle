@@ -2711,3 +2711,29 @@ Check の行から引用:
 1. 通常経路（`synthesizeEntry` → `Off`）への接続と、root 別の `readerOk` 表への一般化。
 2. 任意 lvl に対する保証（Bool 検査は lvl を区別しない。lvl₀ 以外については `readN` の段数の単調性が要る）。
 3. `hadm hdown hD hG hT hs h0`、`hchk`、`CellPrem`、`Laws/Start`。
+
+## 54. S3d（Issue `sparkle-fg-circuit-pilot`）: v7r と v7 の合成 v8（pilot 入口、`hadm`/`hdown`/`lvl`/`hreadH`/`hreadT` なし）、Check47
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。引数の変更は別記録（下記）で、判断は reviewer。
+
+### 54.1 文 v8（`Tools/ShippingFGCircuitS3dFinal.lean`、`synth_hftPcieOutByte_finalOffCombined8`）
+`hr` は `synthesizeCombinationalOffR pilotReaderOk hftRoot` の run（pilot 入口）。水準は全箇所 `lvl₀`（`hchk`・結論の `GPt`）。`hT` は `TeleRX`（v7 と同じ）。証明は `pilotReaderOk_sound (readerOk_of_run hcell hr)` から 2 つの `RootReader`（lvl₀）を得て、`offR_to_off hr` で通常 Off の run にし、v7 を `lvl := lvl₀` で適用するだけ。v7・v7r は無変更。
+
+### 54.2 引数の一覧（9 個の暗黙引数 ι mref cref mctx cctx w w' b D' を除く明示引数）
+- v6 (16): L lvl env₀ hstart hr hcell hchk hreadH hreadT hadm hdown hD hG hT hs h0（hT = TeleR）
+- v7 (14): L lvl env₀ hstart hr hcell hchk hreadH hreadT hD hG hT hs h0（hT = TeleRX、hr = 通常 Off）
+- v7r (13): L env₀ hstart hr hcell hchk hadm hdown hD hG hT hs h0（hT = TeleR、hr = pilot 入口、lvl₀）
+- **v8 (11)**: L env₀ hstart hr hcell hchk hD hG hT hs h0（hT = TeleRX、hr = pilot 入口、lvl₀）
+- v8 = v7r − [hadm, hdown] = v7 − [lvl, hreadH, hreadT]。
+
+### 54.3 何を供給し、何を供給していないか
+- 供給: `hreadH` / `hreadT`（pilot 入口の検査 `pilotReaderOk` が run で通ったこと → `pilotReaderOk_sound` + `readerOk_of_run`、lvl₀・同じ環境 `envAt cref w`）。`hadm` / `hdown`（v7 の文脈述語経路で不要）。`lvl`（lvl₀ に固定）。
+- 供給していない（残る前提）: `hstart`（`Start L ..`）、`hcell`、`hchk`、`hD hG hT hs h0`、`env₀`。
+- v7r ∪ v7 に無い新しい前提: なし。引数が増えた箇所もない。
+- 引き継いだ変更点: (a) `hT` は TeleR より広い `TeleRX`（S52 のとおり、`hdown` なしでは橋が無い）。(b) 保証は pilot 入口の run に限る（既存の Off や任意の `readerOk` の run には広げない）。(c) 水準は lvl₀ のみ（Bool 検査は lvl を区別しない、S53.6）。
+- `hstart : Start L mctx cctx w` は従来どおり任意 bundle `L` 上（`L.toX` への特殊化は v7 の証明内部で明示）。`hr` と `hstart` の mctx / cctx / w は同じ変数で型が固定される（Check47 の startCtx / startWorld 対照）。
+
+### 54.4 Check47（`Tests/Gen5/FGCircuitPilotCheck47.lean`）
+- `FGCIRCUIT47 SIGNATURES`: v8 の完全型を独立に書いた `Exp8` と `FGCircuitCmp.stmtEq` で照合。再利用は `Check46.ExpTX`（TeleRX は quietRX / Laws.toX 経由でしか書けないため）のみ。32 個の mutant を拒否（各前提の欠落、検査 True の入口、通常 Off の入口、別 root／別 post root、start の context／world が run と別、TeleR、hadm／hdown／両方／reader を戻した版、`hchk`・`GPt` の別水準、到達環境、結論の一部欠落、別 carrier、v6／v7／v7r の型）。
+- `FGCIRCUIT47 BINDERS`: v6 25 / v7 23 / v7r 22 / v8 20（暗黙 9 を含む）。v8 = v7r − [hadm,hdown] = v7 − [lvl,hreadH,hreadT]、v7r = v6 − [lvl,hreadH,hreadT] を名前の列で検査。
+- `FGCIRCUIT47 AXIOMS`: 6 names、標準 axiom のみ。
