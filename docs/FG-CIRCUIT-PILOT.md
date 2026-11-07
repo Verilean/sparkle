@@ -3924,3 +3924,123 @@ kernel 型検査の合計は 1 run で約 229 秒（Kernel モジュールのビ
 4. 採用入口 `certifiedReturn`（検査したその `(b, D)` だけを返す）は (c2) として後続。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 69. S3t（Issue `sparkle-fg-circuit-pilot`）: 案 (c) の M1 第 1 段 — 証明書設計の文の完全型検査（freeze 提案）と、組合せ子 1 つの validator の健全性
+
+土台 `b8fbe491`（S3r を `par/fgc-s1` に merge）。コミットは `62b1bc76`（freeze 草稿）から本節まで。`Sparkle/` は変更していない。既存の定理の文も変更していない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。**1 つの artifact、1 つの子の結果は局所成果で、台帳の減算ではない**（reviewer 裁定）。
+
+### 69.0 要約
+
+- **freeze 提案（Lean で型検査済み）**: `SourceData`／`SrcEq`／`RootShowsAt`／`CheckRoot`／`checkRoot_sound` の文（`def … : Prop`、証明は書いていない）／`certifiedReturn`（`CheckRoot` で守り、false なら拒否、fallback なし）。`Tools/ShippingFGCircuitS3tSpec.lean`。
+- **同時充足の例**: 具体の `rootS`（このルートの `SourceData`）について `rootS.ok = true`（kernel）、**`rootS.SrcEq` を証明**（IR を含まない）、`RootShowsAt` の seed 前提 4 つの同時充足（artifact の 17 register について、任意の入力値で）。`CheckRoot = true` は**示していない**（下の 69.5）。
+- **組合せ子の validator の健全性**: `checkComb`／`checkComb_sound`（`Tools/ShippingFGCircuitS3tComb.lean`）。任意の module・任意の入力について、`checkComb s m = true` なら module の IR 意味（`evalAssigns`、宣言幅）が成功し、各出力 port の値がソース項の値に等しい。覆う演算は `ref`／`const`／`eq`／`mux`／`slice`／`concat`（2 部）。**閉じた子 `pilotK0`（`httpGetByte`、88 文）を kernel（`decide +kernel`）で受理**し、9 つの負の対照を拒否。`pilotK1`（`tlpCplByte`）は**受理されない**（`checkK1 pilotK1 = false`。`ofData` は `some`、入力・出力の個数と幅・`stepT` は通るので、出力 port の項がソース項と食い違う。原因は未分析。健全性には影響しない不完全性）。
+- **Check57**（`Tests/Gen5/FGCircuitPilotCheck57.lean`）: 完全型の署名を独立に書いた期待型と照合、負の対照（構造 validator 12 + 組合せ validator 9）、同時充足、kernel 時間と大きさ、AXIOMS 標準のみ（226 定理）。**`kjob lake build Tests.Gen5.FGCircuitPilotCheck57` が成功（1073 job、exit 0）**。
+
+### 69.1 freeze 提案: 文の全体
+
+**`SourceData`**（このルートについての構造。`SrcEq` が全フィールドを root の生成定数に固定する）:
+
+```lean
+structure SourceData where
+  declName : Name                       -- = hftRoot
+  d : MachineData                       -- = synth_hftPcieOutByte.machineData
+  declObs : bools → bits → List (Nat → Nat)   -- 宣言自身の観測（monoObs shHft R）
+  portNames : List String               -- 各 binder の port／wire の名前（**検査される主張**、69.1 の注）
+  kidMod : List String                  -- 2 つの子の module 名（呼び出し順）
+  kidInW kidOutW : List (List Nat)      -- 子の入力幅（[[6], [16,16,8,8,32,5]]）と出力幅（[[8],[8]]）
+  kD : Nat                              -- root 自身の入力 binder の数（= 5）
+def SourceData.ok : SourceData → Bool   -- d.ok ∧ instFields = [] ∧ insts.length = 2 ∧ 子 2 つ ∧ portNames は
+                                        -- binder 数・相異・rst を含まない ∧ kD ≤ …
+```
+
+2 つの子は `kidData = [httpGetByte.machineData, tlpCplByte.machineData]`、`kidFs = [childValue …（各子の machineSource と bsIn）]` で**順序固定、長さ 2、`getD` の既定値なし**。`instFields = []` は `ok` が要求する（一般の `SourceData` についても、`instFields ≠ []` なら `ok = false`、すなわち被覆を証明していない場合は検査器が false を返す、という形で明示した）。
+
+**`SrcEq`**（**IR の正しさを含まない**。`b`／`D`／`MachineWired`／`ChildFn`／`runModuleH` は一切現れない）:
+`SrcCore ∧ CallsEq`。
+- `SrcCore`: `declName = hftRoot`、`d = machineData`、`declObs = machineSource`（`monoObs_root`、`rfl`）、**全入力について状態の証人 `S₂ Ss` が存在**（`machine_states`／`root_states`。`Wit` は状態が reset から始まり `nexts` で進み `machineSource` を示す、という命題）、子の幅、`kD = 5`。
+- `CallsEq`: 証人の状態で、call `k` の引数値が子の範囲に入り、子のソース関数 `kidFs[k]` の値が root の拡張 `machineExt` の対応する位置の値に等しい（`machine_linked` が `lsrc` について課す前提と同じ、ソースだけの文）。
+
+**`RootShowsAt S b D`**（run なし、全入力。`machine_composed` の結論の形から、子の `MachineRun` **仮説**を結論の連言 `ChildFn` に移した）:
+
+```lean
+def RootShowsAt (S : SourceData) (b : Module) (D : Design) : Prop :=
+  S.d.shape.instFields = [] ∧ S.d.shape.insts.length = 2 ∧
+  -- top の port: root 自身の入力（主張された名前）、clk、rst、layout の出力
+  (b.inputs.filter (clk/rst 以外)).map (·.name) = S.portNames.take S.kD ∧ "clk" ∈ … ∧ "rst" ∈ … ∧
+  b.outputs = S.d.shape.layout.outs.map (…) ∧ linkedOk (moduleByName D.modules) b.body = true ∧
+  ∃ regs, regs.Nodup ∧ regs.length = S.d.ss.length ∧ (∀ r ∈ regs, r ∈ portNames の register 範囲) ∧
+    (register k は slot k の幅・init の register 文で、入力でない) ∧ (全 register 文はどれかの slot のもの) ∧
+    -- 全 call の被覆（存在を結論に入れる）と ChildFn（結論の連言）
+    (∀ k < 2, ∃ args mc st kd f, insts[k] = args ∧ st ∈ b.body ∧ CallStmt … k args mc st ∧
+       moduleByName D.modules mc.name = some mc ∧ kidData[k]? = some kd ∧ kidFs[k]? = some f ∧
+       ChildFn mc (childRange kd) f) ∧
+    -- 全 inst 文の被覆（余分な inst は無い）
+    (∀ mn iname conns, .inst mn iname conns ∈ b.body → ∃ k < 2, …同じ結論…) ∧
+    -- run: 全入力、状態の証人、T、seed、st0、mems
+    ∀ i bools bits S₂ Ss, Wit … → ∀ T seed st0 mems,
+      (a) 入力 port（主張された名前）が源の入力 posEnc を運ぶ → (b) register は状態から読む →
+      (c) seed t st "rst" = 0 → (d) regs[k] = r ∧ slots[k] = f → st0 r = f.init →
+      ∃ envs, runModuleH … = some envs ∧ envs.length = T ∧ ∀ j k o f, outs[k] = o → machineSource[k] = f → envs[j] o.name = f j
+```
+
+reviewer 裁定2 との対応: (i) **被覆**: 全 `k < 2` の call と `b.body` の全 `inst` 文（検索の失敗は文を**偽**にする。空虚にならない）。(ii) **`moduleByName` の接続**: 各 call の `moduleByName D.modules mc.name = some mc`。(iii) **`instFields = []`**: `RootShowsAt` の最初の連言、および `SourceData.ok`。(iv) **2 子の範囲・順序・入力幅の固定**: `kidData`／`kidFs`（`childRange`／`childValue`）、`kidInW`。(v) **seed／初期値／reset = 0 の正確な前提と同時充足**: (a)–(d)、69.2。(vi) **`srcEq` に IR の正しさを入れない**: 上のとおり。
+
+**設計の変更（S3q の草稿からの差分と理由）**: S3q は `ids`／`cache`／`machPorts`（コンパイラの名前割り当て）を含む `MachineWired` をそのまま結論に置く案だった。S3t の最初の型検査版（`62b1bc76`）はそうしたが、**割り当て名が kernel で評価できない**ことが分かった（下の G1）。そこで `RootShowsAt` を、データが**主張する**名前 `S.portNames`（検査器が module と照合する）で述べる形に改めた。`SourceInputs`（`Admissible`、割り当て器に依存）は前提 (a) から外し、(a) は「主張された名前の port が源の入力 `posEnc` を運ぶ」という IR 側だけの文にした。`MachineWired` の他の連言（register 文、出力、linked 順、被覆）は同じ内容を `S.portNames` で述べ直した。コンパイラの割り当て器との対応（`names = machPorts …`）は、この検査器の健全性には不要で、消費者側の別の課題として残る。
+
+**`CheckRoot : SourceData → Module → Design → Cert → Bool`**（純粋）: `structuralOk ∧ bodyOk`。
+- `Cert`（信頼しないヒント）: 2 つの `inst` 文の body 内添字 `callAt`、register 名（slot 順）`regs`。
+- `structuralOk`（**書いた**）: `S.ok`、`callAt` は 2 つの相異な添字、各 call の `inst` 文の接続が `CallStmt` の形（子の引数 port ↔ 割り当て名の引数 wire、出力 port ↔ call の wire、clk/rst なし、port 幅が固定された幅）で `moduleByName` が見つけた module のもの、`inst` 文はちょうど 2 つ、register（cert の名前、slot の幅・init、clk・rst、他の register 文なし、入力でない）、top の port（入力・clk・rst・出力）、`linkedOk`。
+- **`bodyOk`（未実装、常に false）**: 文を源の項に照らす本体の検査（M1 本体）。**そのため `CheckRoot` は全入力で false で、`certifiedReturn` は今は常に拒否する**。freeze は「文と構造部分」を固定するもので、本体が検査済みという主張ではない。
+
+**`checkRoot_sound` の文**（`CheckRootSoundStmt : Prop`、証明は**書いていない**。`sorry` なし）: `∀ S b D cert, S.ok = true → S.SrcEq → CheckRoot S b D cert = true → RootShowsAt S b D`。現在は `bodyOk = false` なので、この文は（`CheckRoot = true` が起きないので）空虚に成り立つ。**空虚に成り立つ現状を、`bodyOk` を書いた後に実質的な文にするための固定点**として置く。
+
+**`certifiedReturn S mk declName`**: `pilotEntry3 declName` を走らせ、返った `(b, D)` について `CheckRoot S b D (mk b D)` が false なら `throwError "certificate check failed"`、true なら**その** `(b, D)` を返す。fallback なし（裁定）。`certifiedReturn_sound` の文（`CertifiedReturnSoundStmt`: `RunsTo (certifiedReturn …) … (b, D) … → ∃ cert, CheckRoot S b D cert = true`）も型検査だけ（証明なし）。
+
+### 69.2 同時充足の例（`Tools/ShippingFGCircuitS3tSpec.lean`／`…S3tSat.lean`／`…S3tCalls.lean`／`…S3tCert.lean`）
+
+| 事実 | 証明 |
+|---|---|
+| `rootS.ok = true`（`d.ok`、`instFields = []`、2 call、69 個の相異な名前など） | `decide +kernel` |
+| `rootS.SrcCore`: 各フィールドが root の定数、`monoObs_root`、全入力の証人（`root_states` から）、幅 | `rfl`／既存定理 |
+| `rootS.CallsEq`: call 0（`httpGetByte`）と call 1（`tlpCplByte`）の引数値が範囲内で、子の関数の値が拡張の値に等しい | `machine_arg_k`＋「decode は encode の逆」＋子の pointwise。定義の簡約は `kernel_rfl`（証明項 `Eq.refl lhs`、kernel が検査する未信頼の tactic、axiom なし） |
+| **`rootS.SrcEq`** | 上の 2 つから |
+| seed 前提 (a)–(d) の同時充足（一般: `premises_satisfiable`。`SourceData.ok` と、相異な `regs` が主張された名前の register 範囲にあることから、任意の入力値 `val t q` について `seed`、`st0` が存在） | 一般の補題（association list による seed、`regs` と入力名の分離） |
+| 具体例 `example_premises`: artifact の 17 register（`cert0.regs`）について、任意の入力値で (a)–(d) が同時に成り立つ | `cert0.regs` の相異と範囲は `decide +kernel` |
+| `structuralOk rootS pilotB0 pilotD0 cert0 = true`（閉じた artifact と証明書 `cert0`） | `decide +kernel`（約 4.6 秒、1 run） |
+
+`cert0` は信頼しない生成物（`pilotB0` の 2 つの `inst` 文の添字 173、238 と、17 個の register 名）。
+
+### 69.3 組合せ子の validator と健全性（`Tools/ShippingFGCircuitS3tComb.lean`、`…S3tCombRun.lean`）
+
+**ソース項** `CTerm`: `var p w`（ソース位置と幅）、`lit w v`、`eq a b`、`mux c a b`、`slice a hi lo`、`cat a b`。`den V : CTerm → Nat`（位置の値 `V` での値）、`width`、`wf`（`eq` の幅一致、`mux` の条件幅 1 と分岐幅一致、`slice` が範囲内）。補題 `den_lt`: `wf` な項の値は幅に収まる。
+
+**validator** `checkComb (s : CSrc) (m : Module) : Bool`（`CSrc` = 入力 port のソース位置と出力 port ごとの項）: 入力は相異・個数一致・各々が port 幅で宣言、body は assign のみ、body を順に翻訳して全て通る（assign 先の**宣言幅**が定義の幅に等しいこと（出力 port は例外）、`ref` は宣言幅が定義の幅に等しいこと、`slice` は全幅なら項そのもの・literal なら literal に畳む）、各出力 port の翻訳が**ソース項に等しく**、port 幅がその項の幅。
+
+**`checkComb_sound`**: `checkComb s m = true` なら、**任意の** `V`（ソース位置の値）・`mems`・`env`（入力 port が `V` の値を運ぶ）について、`∃ env', evalAssigns (declWidth m) mems m.body env = some env' ∧ ∀ i p c, outputs[i] = p → s.outs[i] = c → env' p.name = c.den V`。証明は、式の翻訳（`toC`、`toCList` の相互再帰）の健全性（幅の一致・値・`wf`）、文の列の翻訳 `stepT` の健全性、入力表の健全性。slice／concat／eq の補題は不足していなかった（`Sparkle.IR.Semantics` の `evalExpr`／`evalOp` の展開と `Nat` の補題だけで足りた）。
+
+**源との接続**: `ofData`（`MachineData` の `outs`／`ls` から、位置を `nIn` で入力と `let` に分け、`let` を代入して `CTerm` にする）。`httpGetByte` の `outs`／`ls` は `bitsInput`／`bitsLit`／`compare .eq`／`mux` だけで、`ofData` が `some`。**`ofData` の項が `typedVal` の与える値を表すこと（`CTerm.den` と `Term.eval` の対応）は証明していない**。証明したのは validator の健全性（ソース項 `CSrc` に対して）で、`MachineData` との橋は次の段。
+
+**kernel**: `checkK0 pilotK0 = true`（`httpGetByte` の `MachineData` から `ofData` で読んだ項に対する `checkComb`、閉じた子 88 文）は `decide +kernel`（Check57 の 1 run で約 7.0 秒、elaboration を含む）。負の対照（全て `decide +kernel`）: 先頭文を落とす、最後の文（出力の代入）を落とす、定数 71 → 72、全 mux の 2 つの分岐を入れ替える、wire `_gen_b0` の宣言幅を 9 にする、出力 port を 7 bit にする、出力 port の名前を変える、**もう一方の子**の module を入れる、誤った源の出力項。変更した項が元と異なること（`neg_distinct`）。
+
+### 69.4 構造 validator の負の対照（`Tools/ShippingFGCircuitS3tCert.lean`）
+
+`structuralOk rootS pilotB0 pilotD0 cert0 = true` に対し、次は全て false（kernel）: 子 1 つ目／2 つ目の欠落、子の名前の入れ替え（module を相手の名前で与える）、子 2 の入力幅を 15 にする、出力 port を 7 bit にする、全 register の reset 値を 1 にする、top から `rst` 入力を除く、証明書 `callAt = [238, 173]`（入れ替え）・`[173, 173]`（重複）・register 名の並べ替え（slot と幅が合わない）、データの子の入力幅を 7 にする、データの子の個数を 1 にする。`CheckRoot rootS pilotB0 pilotD0 cert0 = false`（`bodyOk` が未実装のため）も kernel で確認。
+
+初版の `regOk` は register の**幅**を見ておらず、register 名の並べ替え（全 init が 0）を受理した。slot の幅を照合するように直した（reviewer 裁定の「register／slot 添字の束縛」）。
+
+### 69.5 確立していないもの・欠けている文
+
+- **G1（allocator の名前）**: コンパイラの名前割り当て `machPorts …`（`inputWire`／`sanitizeName`／`NameHints.clean`）の結果は **kernel で評価できない**（`String.replace`／`String.all` が整礎再帰 `WellFounded.opaqueFix` で、`decide +kernel` が止まる。`CircuitM.sanitizeName "rxByte" = "rxByte"` ですら）。したがって、欠けている文は「`∃ ids cache, ids.Nodup ∧ ids.length = 69 ∧ (machPorts hftRoot ids cache binders).map (·.name) = rootPortNames`」。これを `RootShowsAt`／`SrcEq` に入れると同時充足の例が証明できないので、69.1 のとおり設計を改め、割り当て器への依存を外した。**割り当て器の名前との対応は未確立**（`SourceInputs`／`MachineWired` の名前を前提とする既存の定理との接続に必要。`Sparkle/` の `String` 関数を kernel で簡約できる形にするか、`String.replace`／`clean` の仕様補題を証明するかの選択）。
+- **`bodyOk`**（M1 本体）: root の 256 文（assign 237、register 17、inst 2）を源の項に照らす検査は書いていない。覆う形は 12 程度（§67.2）。組合せ子の validator（69.3）は、その assign のみの部分（`mux`／`eq`／`ref`／`slice`／`concat`／`const`）を子 1 つについて示したもので、root の top（`and`／`or`／`add`／`shl`、register の next、inst の出力 wire、状態の読み）は覆っていない。
+- **`checkRoot_sound` の証明**: 文だけ。`bodyOk = false` の間は空虚。
+- **`certifiedReturn_sound` の証明**: 文だけ。
+- **`CTerm` と `typedVal` の橋**、および `checkComb_sound` の結論と `ChildFn mc (childRange kd) (childValue …)` の接続: 未着手（`ChildFn` は `evalAssigns` を使い、`childValue` は子の `machineSource` を `decB`／`decV` で復号して読む）。
+- `pilotK1`（`tlpCplByte`）は `checkComb` に受理されない（69.0）。
+- **`kernel_rfl`**: `Tools/ShippingFGCircuitS3tCalls.lean` の未信頼の tactic（目標 `a = b` に証明項 `Eq.refl a` を割り当てる。kernel が `a ≡ b` を検査し、成り立たなければ定理の追加が失敗する）。elaborator の `rfl` が root の大きな生成項で終わらないため。新しい axiom／law／TRUSTED ではない（`Lean.ofReduceBool` なし、AXIOMS は標準のみ）。
+- 時間と大きさは 1 つのマシンの 1 run で、上限ではない: kernel 時間（Check57、elaboration を含む）`checkK0 pilotK0 = true` 約 7.0 秒、`structuralOk … = true` 約 4.6 秒、`rootS.ok = true` 約 2.3 秒。項の大きさ（`sizeWithoutSharing`）: `checkComb_sound` 18,251、`rootS_callsEq` 35,737、`premises_satisfiable` 14,378、`cert0` 139。閉じた子 `pilotK0` は 4,709（§68.2）。モジュールのビルド（1 run）: Spec 約 5 秒、Sat 約 1 秒、Calls 約 5 秒、Comb 約 3 秒、CombRun 約 37 秒、Cert 約 43 秒、Check57 は依存込みで約 2 分。
+
+### 69.6 Check57 の出力（Check 自身の行）
+
+`FGCIRCUIT57 AXIOMS: 226 theorems of the S3t modules (Spec, Sat, Cert, Calls, Comb, CombRun), standard axioms only ([Quot.sound, Classical.choice, propext]); no sorryAx, no Lean.ofReduceBool (no native_decide)`。`FGCIRCUIT57 NEGATIVE CONTROLS: structural validator on the root 12 … + CheckRoot refuses; combinational validator on pilotK0 9 …`。`FGCIRCUIT57 SIGNATURES: …`（署名は独立に書いた期待型と照合、`RootShowsAt` は独立に書き直した文と `Iff.rfl`）。`FGCIRCUIT57 SATISFIABILITY: rootS.ok = true; rootS.SrcEq proved; the four seed premises … at the artifact's 17 registers …; CheckRoot = true is NOT shown`。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
