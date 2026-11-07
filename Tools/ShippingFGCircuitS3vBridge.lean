@@ -8,6 +8,7 @@ namespace Tools.ShippingFGCircuitS3vBridge
 open Tools.ShippingFGCircuitS3tComb Tools.ShippingFGCircuitS3tCombRun Tools.ShippingUnifiedSource
 open Tools.ShippingMachineAuto Tools.ShippingMachineDenote
 open Tools.ShippingMuxLoweringSoundness (encodeBool)
+open Sparkle.Core (HList)
 
 /-- the bit width of a sort's encoding -/
 def sortW : SType → Nat
@@ -173,5 +174,142 @@ theorem tC_sound (d : MachineData) (hss : d.ss.length = 0) (V : Nat → Nat) (T 
   | _, .concatLitLo .., c, hf, h => by simp [tC] at h
   | _, .zextMap .., c, hf, h => by simp [tC] at h
   | _, .sliceF .., c, hf, h => by simp [tC] at h
+
+
+theorem letVal_lt (bpos vpos : Nat → Nat) : ∀ (rest : List (Σ s : SType, Term s)) (p : Nat) (T : TVal) (q : Nat),
+    q < p → (letVal bpos vpos rest p T).b q = T.b q ∧ ∀ n, (letVal bpos vpos rest p T).v q n = T.v q n
+  | [], _, _, _, _ => ⟨rfl, fun _ => rfl⟩
+  | l :: rest, p, T, q, h => by
+    obtain ⟨hb, hv⟩ := letVal_lt bpos vpos rest (p + 1)
+      (T.set p l.1 (eval (fun j => T.b (bpos j)) (fun j w => T.v (vpos j) w) l.2)) q (by omega)
+    exact ⟨hb.trans (set_b_ne (by omega)), fun n => (hv n).trans (set_v_ne (by omega) n)⟩
+
+theorem posRel_set (V : Nat → Nat) (T : TVal) (p : Nat) (s : SType) (x : s.Type) (c : CTerm)
+    (h : Rel V s x c) : PosRel V (T.set p s x) p s c := by
+  cases s with
+  | bool => simp only [PosRel]; rw [set_b_eq]; exact h
+  | bits w => simp only [PosRel]; rw [set_v_eq]; exact h
+
+theorem posRel_set_ne (V : Nat → Nat) (T : TVal) (p q : Nat) (s : SType) (x : s.Type) (s0 : SType) (c : CTerm)
+    (hq : q ≠ p) (h : PosRel V T q s0 c) : PosRel V (T.set p s x) q s0 c := by
+  cases s0 with
+  | bool => simp only [PosRel] at h ⊢; rw [set_b_ne hq]; exact h
+  | bits w => simp only [PosRel] at h ⊢; rw [set_v_ne hq]; exact h
+
+theorem letsC_sound (d : MachineData) (hss : d.ss.length = 0) (V : Nat → Nat) :
+    ∀ (rest pre : List (Σ s : SType, Term s)) (acc lc : List CTerm) (T : TVal),
+      pre ++ rest = d.ls → pre.length = acc.length →
+      (∀ p w, p < d.nIn → (T.v p w).toNat = V p % 2 ^ w) → LetInv d V T pre acc →
+      (∀ l ∈ rest, Frag d l.2 = true) → letsC d rest acc = some lc →
+      (∀ p w, p < d.nIn →
+        ((letVal d.bpos d.vpos rest (d.nIn + d.ss.length + acc.length) T).v p w).toNat = V p % 2 ^ w) ∧
+      LetInv d V (letVal d.bpos d.vpos rest (d.nIn + d.ss.length + acc.length) T) (pre ++ rest) lc
+  | [], pre, acc, lc, T, hd, hl, hin, hlet, hF, h => by
+    simp only [letsC, Option.some.injEq] at h
+    subst h
+    simpa [letVal] using ⟨hin, hlet⟩
+  | l :: rest, pre, acc, lc, T, hd, hl, hin, hlet, hF, h => by
+    simp only [letsC] at h
+    split at h
+    · rename_i c hc
+      have hfl : Frag d l.2 = true := hF l (by simp)
+      have hpre : ∀ (k : Nat) l', pre[k]? = some l' → d.ls[k]? = some l' := by
+        intro k l' hk
+        rw [← hd]
+        have hkl : k < pre.length := (List.getElem?_eq_some_iff.mp hk).1
+        rw [List.getElem?_append_left hkl]; exact hk
+      have rel := tC_sound d hss V T pre acc hpre hin hlet l.2 c hfl hc
+      have hT1 : ∀ p w, p < d.nIn →
+          (((T.set (d.nIn + d.ss.length + acc.length) l.1
+            (eval (fun j => T.b (d.bpos j)) (fun j w => T.v (d.vpos j) w) l.2)).v p w).toNat = V p % 2 ^ w) := by
+        intro p w hp
+        rw [set_v_ne (by omega)]
+        exact hin p w hp
+      have hlet1 : LetInv d V (T.set (d.nIn + d.ss.length + acc.length) l.1
+          (eval (fun j => T.b (d.bpos j)) (fun j w => T.v (d.vpos j) w) l.2)) (pre ++ [l]) (acc ++ [c]) := by
+        intro k c' hk
+        by_cases hka : k < acc.length
+        · rw [List.getElem?_append_left hka] at hk
+          obtain ⟨l', hl', hrel⟩ := hlet k c' hk
+          refine ⟨l', ?_, posRel_set_ne V T _ _ _ _ _ _ (by omega) hrel⟩
+          rw [List.getElem?_append_left (by omega)]; exact hl'
+        · have hke : k = acc.length := by
+            have := (List.getElem?_eq_some_iff.mp hk).1
+            simp at this; omega
+          subst hke
+          have hc' : c' = c := by simpa using hk.symm
+          subst hc'
+          refine ⟨l, ?_, posRel_set V T _ _ _ _ rel⟩
+          simp [hl]
+      have ih := letsC_sound d hss V rest (pre ++ [l]) (acc ++ [c]) lc _
+        (by simpa using hd) (by simp [hl]) hT1 hlet1 (fun l' hl' => hF l' (by simp [hl'])) h
+      have e : d.nIn + d.ss.length + (acc ++ [c]).length = d.nIn + d.ss.length + acc.length + 1 := by
+        simp; omega
+      rw [e] at ih
+      simpa [letVal] using ih
+    · cases h
+
+theorem mapM_some {α β : Type} (f : α → Option β) : ∀ (l : List α) (r : List β), l.mapM f = some r →
+    r.length = l.length ∧ ∀ (k : Nat) a c, l[k]? = some a → r[k]? = some c → f a = some c
+  | [], r, h => by simp [List.mapM_nil] at h; subst h; simp
+  | a :: l, r, h => by
+    simp only [List.mapM_cons] at h
+    cases hb : f a with
+    | none => simp [hb] at h
+    | some b =>
+      cases hr : List.mapM f l with
+      | none => simp [hb, hr] at h
+      | some bs =>
+        simp [hb, hr] at h
+        subst h
+        obtain ⟨h1, h2⟩ := mapM_some f l bs hr
+        refine ⟨by simp [h1], ?_⟩
+        intro k a' c ha hc
+        cases k with
+        | zero => simp at ha hc; subst ha; subst hc; exact hb
+        | succ k => exact h2 k a' c (by simpa using ha) (by simpa using hc)
+
+/-- the typed valuation of a cycle of the data's terms, at the input values `B`/`W` and state `x` (what `typedVal` is, at a time) -/
+def letTV (d : MachineData) (x : HList (tys d.ss)) (B : Nat → Bool) (W : (p w : Nat) → BitVec w) : TVal :=
+  letVal d.bpos d.vpos d.ls (d.nIn + d.ss.length) (slotVal d.nIn d.ss x 0 ⟨B, W⟩)
+
+theorem typedVal_eq {D : Sparkle.Core.Domain.DomainConfig} (d : MachineData)
+    (bools : Nat → Sparkle.Core.Signal.Signal D Bool)
+    (bits : (j : Nat) → (n : Nat) → Sparkle.Core.Signal.Signal D (BitVec n)) (t : Nat) (x : HList (tys d.ss)) :
+    typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t x =
+      letTV d x (fun p => (bools p).val t) (fun p w => (bits p w).val t) := rfl
+
+/-- **the bridge** (for data with no state, whose lets and outputs are in `Frag`): if `ofData d = some s`, then at any position valuation `V` that the input values `W` realise (`(W p w).toNat = V p % 2 ^ w` below `nIn`), every output's source term denotes the encoding of the value `Term.eval` gives the data's output term under the typed valuation (`typedVal`), with the sort's width -/
+theorem ofData_sound (d : MachineData) (hss : d.ss.length = 0) (V : Nat → Nat)
+    (x : HList (tys d.ss)) (B : Nat → Bool) (W : (p w : Nat) → BitVec w)
+    (hW : ∀ p w, p < d.nIn → (W p w).toNat = V p % 2 ^ w)
+    (hfl : ∀ l ∈ d.ls, Frag d l.2 = true) (hfo : ∀ o ∈ d.outs, Frag d o.2 = true)
+    (s : CSrc) (h : ofData d = some s) :
+    s.inPos = inputPositions d ∧ s.outs.length = d.outs.length ∧
+    ∀ (k : Nat) (o : Σ s : SType, Term s) (c : CTerm), d.outs[k]? = some o → s.outs[k]? = some c →
+      Rel V o.1 (eval (fun j => (letTV d x B W).b (d.bpos j)) (fun j w => (letTV d x B W).v (d.vpos j) w) o.2) c := by
+  simp only [ofData] at h
+  split at h
+  · rename_i lc hlc
+    cases hm : d.outs.mapM (fun o => tC d (fun l => lc[l]?) o.2) with
+    | none => rw [hm] at h; cases h
+    | some os =>
+      rw [hm] at h
+      simp only [Option.map_some, Option.some.injEq] at h
+      subst h
+      obtain ⟨hl1, hl2⟩ := mapM_some _ _ _ hm
+      have hin0 : ∀ p w, p < d.nIn →
+          ((slotVal d.nIn d.ss x 0 ⟨B, W⟩).v p w).toNat = V p % 2 ^ w := by
+        intro p w hp
+        rw [(slotVal_lt d.nIn d.ss x 0 ⟨B, W⟩ p (by omega)).2 w]
+        exact hW p w hp
+      obtain ⟨hin1, hlet1⟩ := letsC_sound d hss V d.ls [] [] lc _ (by simp) rfl hin0
+        (by intro k c hk; simp at hk) hfl hlc
+      refine ⟨rfl, hl1, ?_⟩
+      intro k o c ho hc
+      have hf := hfo o (List.mem_of_getElem? ho)
+      exact tC_sound d hss V (letTV d x B W) ([] ++ d.ls) lc (by simp using fun k l h => h) hin1 hlet1 o.2 c hf
+        (hl2 k o c ho hc)
+  · cases h
 
 end Tools.ShippingFGCircuitS3vBridge
