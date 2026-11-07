@@ -12,13 +12,18 @@ open Tools.ShippingEntrySoundness (RunsTo)
 open Tools.ShippingChildInv (readOf Res)
 open Tools.ShippingChildBndCore (cv sv dv)
 open Tools.ShippingStRefCorrespondence (ReadWorld SetGet SetFrame getW setW)
-open Tools.ShippingHeapModel
+open Tools.ShippingHeapModel (Sig Heap Ref M Out getM setM bindM pureM hget hset)
 open Tools.ShippingFGCircuitS3n
-open Tools.ShippingFGCircuitS3m (stderrW StderrKeeps)
+
 open Sparkle.Compiler.Elab
 
 /-- the model signature whose tracked contents are the REAL types of the three compiler refs -/
 abbrev realSig : Sig := sigOf (Std.HashMap Name Res) (Option (Name → MetaM Res))
+
+/-- the MODEL's successful run (`ShippingHeapModel.RunsTo`); the unqualified `RunsTo` below is the REAL one -/
+abbrev MRunsTo {α : Type} (p : M realSig α) (h : Heap realSig) (a : α) (h' : Heap realSig) : Prop :=
+  Tools.ShippingHeapModel.RunsTo p h a h'
+open Tools.ShippingFGCircuitS3m (stderrW StderrKeeps)
 
 /-- the correspondence of a model heap and a real world: the three tracked refs hold EXACTLY the model's contents.  Nothing is said about `mref`, `cref`, the side refs, the diagnostic output or the environment (their real counterparts are not Lean terms of the world). -/
 def Rel (h : Heap realSig) (w : Void IO.RealWorld) : Prop :=
@@ -28,7 +33,7 @@ def Rel (h : Heap realSig) (w : Void IO.RealWorld) : Prop :=
 def Corr (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
     (cref : ST.Ref IO.RealWorld Core.State) {α β : Type} (RA : α → β → Prop) (m : MetaM α) (p : M realSig β) : Prop :=
   ∀ (w w' : Void IO.RealWorld) (h : Heap realSig) (a : α),
-    Rel h w → RunsTo m mctx mref cctx cref w a w' → ∃ (b : β) (h' : Heap realSig), RunsTo p h b h' ∧ RA a b ∧ Rel h' w'
+    Rel h w → RunsTo m mctx mref cctx cref w a w' → ∃ (b : β) (h' : Heap realSig), MRunsTo p h b h' ∧ RA a b ∧ Rel h' w'
 
 section Hyps
 variable (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
@@ -99,9 +104,8 @@ theorem corr_bind {α β γ δ : Type} {RA : α → β → Prop} {RB : γ → δ
   obtain ⟨b, h1, hp1, hab, hrel1⟩ := hm w w1 h a hrel hm1
   obtain ⟨d, h2, hp2, hcd, hrel2⟩ := hf a b hab w1 w'' h1 c hrel1 hf1
   refine ⟨d, h2, ?_, hcd, hrel2⟩
-  unfold RunsTo at hp1 hp2 ⊢
-  change (match p h with | .ok a h' => g a h' | .error e h' => .error e h') = _
-  rw [hp1]
+  unfold MRunsTo Tools.ShippingHeapModel.RunsTo at hp1 hp2 ⊢
+  simp only [bindM, hp1]
   exact hp2
 
 /-! ### what the CellPrem fields give for the hypotheses (the hypotheses are WEAKER than those fields) -/
@@ -158,7 +162,7 @@ theorem bridge_small (hG : GetCorr mctx mref cctx cref sparkleSynthDepth rDepth)
   exact corr_pure _ d d rfl
 
 /-- the model run of `modelProg` returns the depth and writes depth+1, nothing else tracked changes -/
-theorem modelProg_spec {h h' : Heap realSig} {a : Nat} (hr : RunsTo modelProg h a h') :
+theorem modelProg_spec {h h' : Heap realSig} {a : Nat} (hr : MRunsTo modelProg h a h') :
     a = h.depth ∧ h'.depth = h.depth + 1 ∧ h'.cache = h.cache ∧ h'.synth = h.synth ∧ (quietM h' ↔ quietM h) := by
   change Out.ok h.depth (hset rDepth (h.depth + 1) h) = Out.ok a h' at hr
   injection hr with h1 h2
@@ -188,7 +192,7 @@ theorem stderrKeeps_of_corr (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Me
   intro w ⟨h, hrel, hq⟩
   obtain ⟨a, hr⟩ := runsTo_getStderr (mctx := mctx) (mref := mref) (cctx := cctx) (cref := cref) w
   obtain ⟨b, h', hp, -, hrel'⟩ := hE w (stderrW w) h a hrel hr
-  obtain ⟨e1, -, -, -, hqiff⟩ := getStderr_keeps hp
+  obtain ⟨e1, -, -, -, hqiff⟩ := getStderr_keeps (C := Std.HashMap Name Res) (S := Option (Name → MetaM Res)) hp
   subst e1
   exact ⟨⟨by rw [hrel'.1, hrel.1], by rw [hrel'.2.1, hrel.2.1], by rw [hrel'.2.2, hrel.2.2]⟩, h', hrel', hq⟩
 
