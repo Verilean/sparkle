@@ -3,7 +3,7 @@ import Tools.ShippingFGCircuitS2sAdmS2nAdm
 import Tools.ShippingFGCircuitS2sAdmS2kRun
 import Tools.ShippingFGCircuitS2sAdmS2jKid
 set_option autoImplicit false
--- FG circuit pilot S3c, part 1: the TOP route ( of S2r) on the context-predicate bundle, so that it needs no  and no . The Laws  stay as in v6 (, , ); the history bundle is , whose context predicate is  itself, so the weakening back to  is the identity on contexts. No sorry/axiom/native_decide/TRUSTED/law. docs/FG-CIRCUIT-PILOT.md S52.
+-- FG circuit pilot S3c, part 1: the TOP route (hftTop_of_runR of S2r) on the context-predicate bundle, so that it needs no hadm and no hdown. The laws L : Laws stay as in v6 (ShipsRes L, MachineTaken L, oneOut_topShipsOff); the history bundle is ropsRX L.toX.O, whose context predicate is AdmCtx L.O.quiet itself, so the weakening back to L.O is the identity on contexts. No sorry/axiom/native_decide/TRUSTED/law. docs/FG-CIRCUIT-PILOT.md S52.
 set_option maxHeartbeats 0
 set_option maxRecDepth 1000000
 
@@ -38,17 +38,14 @@ open Tools.ShippingChildVCA (JQ)
 open Tools.ShippingGen5Env (readsAt_self)
 
 open Tools.ShippingFGCircuitS2hHist Tools.ShippingFGCircuitS2kRun Tools.ShippingFGCircuitS2jKid
-open Tools.ShippingFGCircuitS2rFinal (jqc_weak kid_shipsResW)
-open Tools.ShippingGen2 (LawsX StartX)
+open Tools.ShippingGen2 (Laws LawsX Start StartX)
+open Tools.ShippingChildInvA Tools.ShippingChildCacheA
 open Tools.ShippingFGCircuitS2sAdmS2nAdm
 
 /-! ## 0.  and the weakening / bridge lemmas -/
-namespace Tools.ShippingGen2
-open Tools.ShippingChildInvA
 /-- the existing laws as the context-predicate laws at  -/
-def Laws.toX {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State} (L : Laws mref cref) : LawsX mref cref :=
+def _root_.Tools.ShippingGen2.Laws.toX {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State} (L : Laws mref cref) : LawsX mref cref :=
   ⟨L.O.toX, L.T.toX⟩
-end Tools.ShippingGen2
 
 section Weak
 variable {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
@@ -200,7 +197,7 @@ theorem hftTop_of_runRX (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ :
   have ranR : MachineTaken L mctx cctx (dv w + 1) hftRoot synth_hftPcieOutByte.machineData.shape raw D₀ := by
     rw [hdv]
     obtain ⟨tenv, b', w9, w10, hrun9, hw9⟩ := ranH.toCX
-    exact ⟨tenv, b', w9, w10, hrun9, jqc_weak (O' := ropsRX L.toX.O hcell (envAt cref w) w hD hG) (O := L.O) (fun _ h => h.1) (fun _ _ h => h) hw9⟩
+    exact ⟨tenv, b', w9, w10, hrun9, jqcX_weak (O' := ropsRX L.toX.O hcell (envAt cref w) w hD hG) (O := L.O) (fun _ h => h.1) (fun _ _ h => h) hw9⟩
   have ranP : MachineTaken L mctx cctx (dv w + 1) p'.decl p'.d.shape raw D₀ := by rw [hdecl, hpd]; exact ranR
   have ranHP : MachineRunJQHX (ropsRX L.toX.O hcell (envAt cref w) w hD hG) (KidEv mref cref (envAt cref w)) mctx cctx (0 + 1) p'.decl p'.d.shape raw D₀ := by rw [hdecl, hpd]; exact ranH
   -- the trace with the served children shipping
