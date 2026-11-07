@@ -9092,6 +9092,97 @@ def synthesizeCombinationalCoreOff (declName : Name) :
       sparkleSubInstanceOutputs.set savedSubInstanceOutputs
       sparkleSingleOutInstanceCache.set savedSingleOutInstanceCache
 
+/-- `synthesizeCombinationalCoreOff` with ONE more guard, after the two start guards and before the body: `readerOk env declName` at the same `env` (an explicit error on `false`, no fallback).  The check is an ARGUMENT, a pure function of the start environment (it cannot change the result: the body below is the body of the existing core).  The existing `synthesizeCombinationalCoreOff` / `synthesizeCombinationalOff` / `synthesizeEntry` are unchanged.  (docs/FG-CIRCUIT-PILOT.md §53.) -/
+def synthesizeCombinationalCoreOffR (readerOk : Environment → Name → Bool) (declName : Name) :
+    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+  let depth ← sparkleSynthDepth.get
+  if depth ≥ sparkleSynthDepthLimit then
+    throwError "hardware modules nested deeper than the synthesis depth limit"
+  let savedFvarMap ← if depth == 0 then pure ({} : Std.HashMap Lean.Name Lean.Expr)
+                     else sparkleFvarValueMap.get
+  let savedWireWidthCache ←
+    if depth == 0 then pure ({} : Std.HashMap String Nat)
+    else sparkleWireWidthCache.get
+  let savedLetWireCache ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleLetWireCache.get
+  let savedLoopWireCache ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleLoopWireCache.get
+  let savedWireCanon ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleWireCanon.get
+  let savedSubInstanceOutputs ←
+    if depth == 0 then pure ({} : Std.HashMap (UInt64 × String) String)
+    else sparkleSubInstanceOutputs.get
+  let savedSingleOutInstanceCache ←
+    if depth == 0 then pure ({} : Std.HashMap String String)
+    else sparkleSingleOutInstanceCache.get
+  if depth == 0 then
+    sparkleTypeCache.set {}
+    sparkleTypeCacheHits.set 0
+    sparkleTypeCacheMiss.set 0
+    sparkleSubModuleCache.set {}
+    sparkleChildCache.set {}
+    sparkleSubInstanceOutputs.set {}
+    sparkleSingleOutInstanceCache.set {}
+    sparkleFvarValueMap.set {}
+    sparkleWireWidthCache.set {}
+    sparkleLetWireCache.set {}
+    sparkleLoopWireCache.set {}
+    sparkleWireCanon.set {}
+  else
+    sparkleFvarValueMap.set {}
+    sparkleWireWidthCache.set {}
+    sparkleLetWireCache.set {}
+    sparkleLoopWireCache.set {}
+    sparkleWireCanon.set {}
+    sparkleSubInstanceOutputs.set {}
+    sparkleSingleOutInstanceCache.set {}
+  sparkleSynthDepth.set (depth + 1)
+  let doSynth : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+    let constInfo ← getConstInfo declName
+    let env ← getEnv
+    if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
+      throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
+        constInfo (instancePredicate env)).getD ""}")
+    else if !(Sparkle.Compiler.PilotEnvTables.startEnvOk declName env) then
+      throwError (stringToMessageData s!"{declName}: the start environment does not match the environment tables of the guarantee (definition bodies, constructors, List.rec); refusing to synthesize")
+    else if !(Sparkle.Compiler.PilotKidTables.startKidsOk declName env (userInliner env) (instancePredicate env) gatePeeledBody) then
+      throwError (stringToMessageData s!"{declName}: the start environment does not satisfy the callee facts of the guarantee (callee definitions, inliner, instance predicate); refusing to synthesize")
+    else if !(readerOk env declName) then
+      throwError (stringToMessageData s!"{declName}: the start environment does not pass the reader check of this entry; refusing to synthesize")
+    else
+    synthesizeFromConst (fun e h t n => translateExprToWire env e h t n) (fun _ => pure ())
+      declName [] false true
+      (entryConst true false [] constInfo
+        (instancePredicate env) (userInliner env) (structEnv env))
+      (instancePredicate env)
+  try
+    doSynth
+  finally
+    sparkleSynthDepth.modify (· - 1)
+    if depth != 0 then
+      sparkleFvarValueMap.set savedFvarMap
+      sparkleWireWidthCache.set savedWireWidthCache
+      sparkleLetWireCache.set savedLetWireCache
+      sparkleLoopWireCache.set savedLoopWireCache
+      sparkleWireCanon.set savedWireCanon
+      sparkleSubInstanceOutputs.set savedSubInstanceOutputs
+      sparkleSingleOutInstanceCache.set savedSingleOutInstanceCache
+
+/-- `synthesizeCombinationalOff` over `synthesizeCombinationalCoreOffR readerOk`: the same post-processing. -/
+def synthesizeCombinationalOffR (readerOk : Environment → Name → Bool) (declName : Name) :
+    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+  let (m, d) ← synthesizeCombinationalCoreOffR readerOk declName
+  let top (f : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module) (d : Sparkle.IR.AST.Design) :
+      Sparkle.IR.AST.Design :=
+    { d with modules := d.modules.map fun x => if x.name == m.name then f x else x }
+  let m' := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
+  let d := top Sparkle.IR.ZeroWidth.dropZeroWidthModule d
+  if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m', d)
+  return (Sparkle.IR.RefineCheck.mergeChecked m', top Sparkle.IR.RefineCheck.mergeChecked d)
+
 /-- `synthesizeCombinational` over `synthesizeCombinationalCoreOff`: the same
     two post-processing steps as `synthesizeCombinationalWith`. -/
 def synthesizeCombinationalOff (declName : Name) :
