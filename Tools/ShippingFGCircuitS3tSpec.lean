@@ -45,7 +45,7 @@ def inWidths (bs : List (Name × MixedGateBinder)) : List Nat :=
   (bs.filter fun b => b.2 != .domain).map (fun b => kindW b.2)
 
 /-- the IR type of a root input port of that source kind: `bool` is one bit, `bits n` is `n` bits (a domain binder has no port: width 0, excluded by `SourceData.ok`) -/
-def kindTy : MixedGateBinder → HWType
+def kindTy : MixedGateBinder → Sparkle.IR.Type.HWType
   | .bits n => .bitVector n
   | .bool => .bit
   | .domain => .bitVector 0
@@ -58,11 +58,11 @@ def srcInPorts (portNames : List String) (bsIn : List (Name × MixedGateBinder))
 def topInPorts (portNames : List String) (bsIn : List (Name × MixedGateBinder)) (kD : Nat) : List Port :=
   srcInPorts portNames bsIn kD ++ [({ name := "clk", ty := .bit } : Port), ({ name := "rst", ty := .bit } : Port)]
 
-/-- the width the IR semantics reads for each top input name (`declWidth` reads the module's `wires`, not `inputs`): the source inputs by the kinds' widths, `clk` and `rst` one bit -/
+/-- the width the IR semantics reads for each SOURCE input name (`declWidth` reads the module's `wires`, not `inputs`): the kinds' widths.  `clk` and `rst` are not data wires (the artifact declares neither in `wires`; their type is fixed by `topInPorts`) -/
 def topInWidths (portNames : List String) (bsIn : List (Name × MixedGateBinder)) (kD : Nat) : List (String × Nat) :=
-  (portNames.take kD).zip ((bsIn.take kD).map fun b => kindW b.2) ++ [("clk", 1), ("rst", 1)]
+  (portNames.take kD).zip ((bsIn.take kD).map fun b => kindW b.2)
 
-/-- the top module's input declaration is the contract: ports `topInPorts` exactly (hence distinct names, clock and reset of one bit), and the `wires` declaration `declWidth` reads gives each the same width -/
+/-- the top module's input declaration is the contract: ports `topInPorts` exactly (hence distinct names, clock and reset of one bit), and the `wires` declaration `declWidth` reads gives each source input the same width -/
 def topInOk (portNames : List String) (bsIn : List (Name × MixedGateBinder)) (kD : Nat) (b : Module) : Bool :=
   decide (b.inputs = topInPorts portNames bsIn kD) &&
   (topInWidths portNames bsIn kD).all fun (n, w) => Sparkle.IR.RegDedup.declWidth b n == w
@@ -177,7 +177,7 @@ def RootShowsAt (S : SourceData) (b : Module) (D : Design) : Prop :=
   S.d.shape.instFields = [] ∧ S.d.shape.insts.length = 2 ∧
   -- the returned Design's top is `b`, module names are distinct, no child is named like the top (`moduleByName` is `find?`)
   D.topModule = b.name ∧ (D.modules.map (·.name)).Nodup ∧ (∀ m ∈ D.modules, m.name ≠ b.name) ∧
-  -- the top module's inputs: the first `kD` claimed names in order, each of the type of the source input at that position (bool: 1 bit, bits n: n bits), then `clk` and `rst` of one bit; and the `wires` declaration that `declWidth` reads gives each of them that width
+  -- the top module's inputs: the first `kD` claimed names in order, each of the type of the source input at that position (bool: 1 bit, bits n: n bits), then `clk` and `rst` of one bit; and the `wires` declaration that `declWidth` reads gives each SOURCE input that width
   b.inputs = topInPorts S.portNames S.d.bsIn S.kD ∧
   (∀ (n : String) (w : Nat), (n, w) ∈ topInWidths S.portNames S.d.bsIn S.kD → Sparkle.IR.RegDedup.declWidth b n = w) ∧
   -- the layout's outputs

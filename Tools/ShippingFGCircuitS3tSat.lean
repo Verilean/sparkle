@@ -76,12 +76,12 @@ theorem ok_names {S : SourceData} (h : S.ok = true) :
 
 /-- the value premise (a) gives an input port FITS the width the port is declared with (`kindTy`/`kindW`): `posEnc` of a `bits n` binder is `< 2^n`, of a `bool` binder is `< 2`, so the seed premise is consistent with the declared width of `srcInPorts` -/
 theorem posEnc_fits (bools : Nat → Bool) (bits : (j : Nat) → (n : Nat) → BitVec n) (pos : Nat)
-    (k : Tools.ShippingUnifiedSource.MixedGateBinder) (hk : k ≠ .domain) :
+    (k : Sparkle.Compiler.Elab.MixedGateBinder) (hk : k ≠ .domain) :
     Tools.ShippingMachineEntry.posEnc bools bits pos k < 2 ^ kindW k := by
   cases k with
   | domain => exact absurd rfl hk
   | bits n => exact (bits pos n).isLt
-  | bool => cases h : bools pos <;> simp [Tools.ShippingMachineEntry.posEnc, Tools.ShippingMachineEntry.encodeBool, kindW, h]
+  | bool => cases h : bools pos <;> simp [Tools.ShippingMachineEntry.posEnc, ShippingMuxLoweringSoundness.encodeBool, kindW, h]
 
 /-- **the seed premises are simultaneously satisfiable.**  For every data accepted by `SourceData.ok`, every distinct `regs` in the claimed names' register range (after the root's own inputs), and every per-cycle source value `val t q` of the root's input `q`: there are `seed` and `st0` with `(a)` the claimed input port of input `q` carries `val t q` at every cycle and state, `(b)` a register reads the state, `(c)` reset is 0, `(d)` register `k`'s initial value is slot `k`'s init. -/
 theorem premises_satisfiable (S : SourceData) (hok : S.ok = true) (regs : List String) (hrn : regs.Nodup)

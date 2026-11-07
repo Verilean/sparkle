@@ -40,6 +40,51 @@ def flipInit (b : Module) : Module :=
 /-- the top module without its `rst` input -/
 def noRst (b : Module) : Module := { b with inputs := b.inputs.filter fun p => p.name != "rst" }
 
+/-- P1-1: the returned Design's top renamed (only `topModule` changes) -/
+def otherTop (D : Design) : Design := { D with topModule := "SomeOtherTop" }
+/-- P1-1: two modules of one name (the second child duplicated under the first's name) -/
+def dupModule (D : Design) : Design := { D with modules := D.modules ++ D.modules.take 1 }
+/-- P1-1: a child module named like the top -/
+def kidNamedTop (D : Design) (b : Module) : Design :=
+  { D with modules := match D.modules with
+      | [a, c] => [{ a with name := b.name }, c]
+      | ms => ms }
+/-- P1-2: a top input one bit narrower, in `inputs` AND in the `wires` declaration `declWidth` reads -/
+def narrowIn (b : Module) : Module :=
+  { b with inputs := b.inputs.map fun p => if p.name == "_gen_dataDword" then { p with ty := .bitVector 31 } else p
+           wires := b.wires.map fun p => if p.name == "_gen_dataDword" then { p with ty := .bitVector 31 } else p }
+/-- P1-2: only the `inputs` entry narrowed (the `wires` declaration, which the semantics reads, left alone) -/
+def narrowInPortOnly (b : Module) : Module :=
+  { b with inputs := b.inputs.map fun p => if p.name == "_gen_dataDword" then { p with ty := .bitVector 31 } else p }
+/-- P1-2: only the `wires` declaration narrowed -/
+def narrowInWireOnly (b : Module) : Module :=
+  { b with wires := b.wires.map fun p => if p.name == "_gen_dataDword" then { p with ty := .bitVector 31 } else p }
+/-- P1-2: two top inputs exchanged (names swapped, types stay in place) -/
+def swapInputs (b : Module) : Module :=
+  { b with inputs := match b.inputs with
+      | p0 :: p1 :: rest => p1 :: p0 :: rest
+      | ps => ps }
+/-- P1-2: a duplicate input name (`_gen_rxValid` renamed `_gen_rxByte`-twin: the second input gets the first's name) -/
+def dupInput (b : Module) : Module :=
+  { b with inputs := match b.inputs with
+      | p0 :: p1 :: rest => p0 :: { p1 with name := p0.name } :: rest
+      | ps => ps }
+/-- P1-2: `clk` two bits wide -/
+def wideClk (b : Module) : Module :=
+  { b with inputs := b.inputs.map fun p => if p.name == "clk" then { p with ty := .bitVector 2 } else p }
+
+theorem neg_other_top : structuralOk rootS pilotB0 (otherTop pilotD0) cert0 = false := by decide +kernel
+theorem neg_dup_module : structuralOk rootS pilotB0 (dupModule pilotD0) cert0 = false := by decide +kernel
+theorem neg_kid_named_top : structuralOk rootS pilotB0 (kidNamedTop pilotD0 pilotB0) cert0 = false := by decide +kernel
+theorem neg_narrow_in : structuralOk rootS (narrowIn pilotB0) pilotD0 cert0 = false := by decide +kernel
+theorem neg_narrow_in_port_only : structuralOk rootS (narrowInPortOnly pilotB0) pilotD0 cert0 = false := by decide +kernel
+theorem neg_narrow_in_wire_only : structuralOk rootS (narrowInWireOnly pilotB0) pilotD0 cert0 = false := by decide +kernel
+theorem neg_swap_inputs : structuralOk rootS (swapInputs pilotB0) pilotD0 cert0 = false := by decide +kernel
+theorem neg_dup_input : structuralOk rootS (dupInput pilotB0) pilotD0 cert0 = false := by decide +kernel
+theorem neg_wide_clk : structuralOk rootS (wideClk pilotB0) pilotD0 cert0 = false := by decide +kernel
+/-- the claimed-name side: a duplicate claimed name, a claimed `clk` -/
+theorem neg_claim_clk : structuralOk { rootS with portNames := "clk" :: rootS.portNames.tail } pilotB0 pilotD0 cert0 = false := by decide +kernel
+
 theorem neg_no_kid1 : structuralOk rootS pilotB0 (noKid1 pilotD0) cert0 = false := by decide +kernel
 theorem neg_no_kid0 : structuralOk rootS pilotB0 (noKid0 pilotD0) cert0 = false := by decide +kernel
 theorem neg_swap_names : structuralOk rootS pilotB0 (swapNames pilotD0) cert0 = false := by decide +kernel
