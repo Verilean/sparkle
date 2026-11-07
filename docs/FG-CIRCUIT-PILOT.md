@@ -2508,3 +2508,30 @@ v3 `HftFinalStmtOffCombined3` の `hcd : Ob (envAt cref w)` を、**同じ環境
 ### 48.5 台帳
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。台帳の行は減らしていない（reviewer が決める）。パイロット最終文の binder は 18 → 20（`hcd` 1 → `hΔ hΓ hrec` 3）。成果は引き続き**条件付き**。
+
+## 49. S2z（Issue `sparkle-fg-circuit-pilot`）: v4 の環境 3 条件を入口の検査から供給した v5、Check44
+
+土台 `f533cd16`。Issue の状態は変えていない。S2s*/Check39/§44/`hdown`/`AdmBoth` には触れていない。sorry・native_decide・axiom・TRUSTED・新しい law は無い（標準 axiom のみ）。
+
+### 49.1 検査（step 1、純粋）
+`Sparkle/Compiler/EnvTableCheck.lean`: `defsOkB`/`ctorsOkB`/`recOkB`。環境の `find?` を読み、定義の levelParams と value（`ExprDecEq.exprDecEq`）、構成子の `induct`/`numParams`/`numFields`、`List.rec` が recInfo であることを `EnvDefs`/`EnvCtors`/`RecFact` が述べるとおりに比べる。`Tools/ShippingFGCircuitS2zEnvCheck.lean`: `hftEnvCheckB_sound : hftEnvCheckB env = true → EnvDefs env Delta ∧ EnvCtors env Gamma ∧ RecFact env`（同じ `env`、`Delta`/`Gamma` は `hftObCDT_of_tablesT` の表、55 defs / 11 ctors）。Check44 A: 実環境（root を含む）で true、行の値・levelParams・存在しない定数・numFields・numParams・inductive・種類の取り違え・`Init` だけの環境で false。
+
+### 49.2 入口の検査（step 2）
+- `Sparkle/Compiler/PilotEnvTables.lean`（生成物・非信頼。生成器 `Tools/ShippingFGCircuitS2zGenTables.lean`）: 表の行を Lean のソースにしたもの、`startEnvOk declName env`（pilot root なら表と環境を照合、他の宣言は true）。
+- `Tools/ShippingFGCircuitS2zPin.lean`: 生成した行が `hftDeltaL`/`hftGammaL`（= `Delta`/`Gamma` の行）と一致することを kernel（`decide +kernel`）で証明。`startEnvOk_sound : startEnvOk hftRoot env = true → EnvDefs ∧ EnvCtors ∧ RecFact`。注: 生成器の初版は `Expr` の `BEq`/`Hashable`（束縛名を無視する）で共有を畳んでいて kernel の照合に落ちた。構造全体（束縛名を含む）で畳むように直した。
+- `Sparkle/Compiler/Elab.lean`（+3 行）: `synthesizeCombinationalCoreOff` の既存の `entryInlinerError?` の枝の後に `else if !(startEnvOk declName env) then throwError …`。失敗は誤り（黙った fallback なし）。`Tools/ShippingFGCircuitS1qLinked.lean` の写し `coreRestOff` と `core_chainOff` を同様に直し、`core_envOkOff`（成功した core run は `getEnv` の結果 `envR` で検査を通した）を追加。
+- `Tools/ShippingFGCircuitS2zFinal.lean`: `startEnvOk_of_run`（`hcell` と Off の run から `startEnvOk hftRoot (envAt cref w) = true`。head・`getConstInfo`・`getEnv` が Core の環境を保つ `headAtOff_of_cellPrem`/`envFrame_getConstInfo` を使う）。`HftFinalStmtOffCombined5` / `synth_hftPcieOutByte_finalOffCombined5` = v4 から `hΔ hΓ hrec` を除いた文。
+
+### 49.3 binder の前後
+v4（20）`… hreadT hΔ hΓ hrec hadm …` → v5（17）`L lvl env₀ hstart hr hcell hchk hreadH hreadT hadm hdown hD hG hT hs h0 hkgfacts`。`hΔ hΓ hrec` は仮説でなくなった。代わりに入口の検査が compile の成功の一部になった（pilot root 以外の宣言は検査なし）。台帳の減算は reviewer が決める。
+
+### 49.4 出力の同一性と時間
+同じ build の中で root に対し `synthesizeCombinationalOff`（検査あり）と変更していない `synthesizeCombinational` を走らせ、module と design の `repr` が一致（77654 / 89425 文字）。前者 315 ms、後者 307 ms（1 回の測定）。検査自体の時間は単独では測っていない。`scripts/gen5/fgc_baseline/` はこの branch に無く、327 コマンドの baseline 比較は**未実施**。Check15（NOGETENV）など `synthesizeCombinationalCoreOff` の形を見る既存 Check の再実行は**未実施**。
+
+### 49.5 Check44（`kjob lake build Tests.Gen5.FGCircuitPilotCheck44`、exit 0）
+`FGCIRCUIT44 CONTROLS: ok`、`FGCIRCUIT44 SIGNATURES …46 mutants rejected`、`FGCIRCUIT44 AXIOMS: 5 names, standard axioms only`。同じ `FGCircuitCmp.stmtEq`（正例も mutant も）。`hftEnvCheckB_sound`・`startEnvOk_sound`・`startEnvOk_of_run`・v5 の完全型を独立に書いた文と照合。mutant: 検査結果が別の環境・終了 world、表の行を落とす、3 条件のうち 1 つだけを結論にする、検査を別の関数に、root 違い、診断入口、`hcell` 欠落、v4（条件が残る）、条件 1 つだけ残した v5、`hcd` 併存など。
+
+### 49.6 範囲
+- pilot root 以外では検査は常に true で、保証は pilot root についてのみ。
+- 表の検査は環境の `find?` の事実で、`Environment` 全体の導出ではない。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
