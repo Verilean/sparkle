@@ -4,19 +4,14 @@ import Tools.ShippingHierSVSoundness
 set_option autoImplicit false
 -- FG circuit pilot S3r, step 3: the EXISTING pure checks, evaluated by the kernel (`decide +kernel`; no native_decide) on the closed artifact terms of `Tools.ShippingFGCircuitS3rArtifact` (generated, untrusted).
 -- These are facts about THE CLOSED TERMS `pilotB0`/`pilotD0`/`pilotS0`.  That those terms are what `pilotEntry3 hftRoot` returned (and that `pilotS0` is `checkedOptimize pilotB0`) is NOT a kernel fact (`Tools.ShippingFGCircuitS3rObs` observes it).  They are checker outputs on a term, not a semantic-preservation theorem (that needs `CheckRoot`, the next step).
--- The optimizer `Sparkle.IR.Optimize.optimizeModule` is a `partial def` (opaque to the kernel): `shipsHierCheck` (which calls `checkedOptimize`) and `checkedOptimize` itself do NOT reduce in the kernel (see `S3rKernel` docs §68); so the checks that mention `checkedOptimize b` are run with the shipped form supplied as the closed term `pilotS0`.
+-- NOT kernel-evaluable (measured, docs §68): `checkedOptimize`/`shipsHierCheck` (the optimizer `optimizeModule` is a `partial def`) and `seqCheck` (`sanitizeName` uses `String.all`, which the kernel does not reduce, even on "abc"); the checks that mention `checkedOptimize b` are run with the shipped form supplied as the closed term `pilotS0`.
 -- No sorry/axiom/native_decide/TRUSTED/law. docs/FG-CIRCUIT-PILOT.md §68.
 set_option maxHeartbeats 0
 set_option maxRecDepth 1000000
 
 namespace Tools.ShippingFGCircuitS3rKernel
 open Sparkle.IR.AST Sparkle.IR.RefineCheck Tools.ShippingFGCircuitS3rArtifact
-open Tools.ShippingHierPremisesBase Tools.ShippingMachineLinked Tools.ShippingHierOpen
-
-/-- the word-width map the emitter declares (as in `Tools.ShippingDesignSV.wofOf`) and the sequential-fragment check at it -/
-def seqOk (m : Module) : Bool :=
-  Tools.SVParser.EmitSem.seqCheck (Tools.SVParser.RoundtripProof.moduleWof m)
-    (Tools.SVParser.EmitSem.weOf (Tools.SVParser.RoundtripProof.moduleWof m)) m.body
+open Tools.ShippingHierPremisesBase Tools.ShippingMachineLinked Tools.ShippingHierOpen Tools.ShippingHierState (instNames)
 
 /-- the shape of the artifact: 256 top statements, shipped form 89, children of 88 and 159 -/
 theorem shape : pilotB0.body.length = 256 ∧ pilotS0.body.length = 89 ∧ pilotD0.modules.map (·.body.length) = [88, 159] := by decide +kernel
@@ -34,10 +29,6 @@ theorem refine_child1 : refineCheck pilotK1 pilotK1 = true := by decide +kernel
 /-- the children as returned are the children of the design -/
 theorem design_kids : pilotD0.modules = [pilotK0, pilotK1] := rfl
 
-theorem seq_child0 : seqOk pilotK0 = true := by decide +kernel
-
-theorem seq_child1 : seqOk pilotK1 = true := by decide +kernel
-
 /-- `mergeChecked` returns the returned module unchanged -/
 theorem merge_fixed : mergeChecked pilotB0 = pilotB0 := by decide +kernel
 
@@ -45,8 +36,6 @@ theorem merge_fixed : mergeChecked pilotB0 = pilotB0 := by decide +kernel
 
 /-- the optimizer's output, validated by the hierarchical check (the very check `checkedOptimize` runs) -/
 theorem hier_refine_shipped : hierRefineCheck pilotB0 pilotS0 = true := by decide +kernel
-
-theorem seq_shipped : seqOk pilotS0 = true := by decide +kernel
 
 /-- `shipsHierCheck` with `checkedOptimize pilotB0` replaced by the closed term `pilotS0`: the same conjuncts (`hierCheck`, `instOutWidthsOk`) written out from the existing components -/
 theorem ships_hier_shipped :
@@ -79,6 +68,6 @@ theorem neg_init : hierRefineCheck pilotB0 (flipInit pilotS0) = false := by deci
 theorem neg_child0 : refineCheck pilotK0 { pilotK0 with body := pilotK0.body.drop 1 } = false := by decide +kernel
 theorem neg_child1 : refineCheck pilotK1 { pilotK1 with body := pilotK1.body.drop 1 } = false := by decide +kernel
 /-- the altered module is a different term (so the control is not vacuous) -/
-theorem neg_distinct : (dropFirst pilotS0 == pilotS0) = false ∧ (flipInit pilotS0 == pilotS0) = false := by decide +kernel
+theorem neg_distinct : decide (dropFirst pilotS0 = pilotS0) = false ∧ decide (flipInit pilotS0 = pilotS0) = false := by decide +kernel
 
 end Tools.ShippingFGCircuitS3rKernel
