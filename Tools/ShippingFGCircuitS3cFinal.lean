@@ -50,7 +50,7 @@ open Tools.ShippingFGCircuitS3aFinal (startKidsOk_of_run)
 open Tools.ShippingFGCircuitS3cTop
 open Tools.ShippingFGCircuitS2sAdmS2nAdm
 open Tools.ShippingFGCircuitS2zFinal (startEnvOk_of_run)
-open Tools.ShippingFGCircuitS2sAdmS1zClose (synth_hftPcieOutByte_finalOffLNLX)
+open Tools.ShippingFGCircuitS1zClose (synth_hftPcieOutByte_finalOffLNLX)
 open Tools.ShippingGen2 (LawsX StartX)
 open Tools.ShippingChildInvA Tools.ShippingChildCacheA
 
