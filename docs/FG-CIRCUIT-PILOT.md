@@ -2539,3 +2539,41 @@ S2z agent の作業時点（e66f6d63 の commit 前）では、baseline 比較�
 - pilot root 以外では検査は常に true で、保証は pilot root についてのみ。
 - 表の検査は環境の `find?` の事実で、`Environment` 全体の導出ではない。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 50. S3a2（Issue `sparkle-fg-circuit-pilot`、状態は変えていない）: v5 の `hkgfacts` を入口の検査から供給した v6、Check45
+
+土台 `d64e65af`。S2s*/Check39/§44/`hdown`/`AdmBoth` には触れていない。sorry・native_decide・axiom・TRUSTED・新しい law は無い（標準 axiom のみ）。
+
+### 50.1 生成器の修正（S3a が 20 分以上終わらなかった原因）
+`Tools/ShippingFGCircuitS2zGenTables.lean` の `internE` は節点ごとに hash-cons するが部分項の cache が無く、共有された `Expr` の DAG を木として歩いていた。部分項そのものを鍵にした memo（`GS.memo`）を足した。鍵は `EKey`: 等号は `Expr.equal`（束縛名・binder info を含む完全な構造。`Expr` 自身の `BEq` = alpha 同値ではない）、hash は `Expr.hash`（束縛名を無視するので、等しい鍵は等しい hash）。ポインタ鍵は使っていない。memo は再計算を避けるだけで、節点の id は構造から決まるので出力は変わらない。確認: 新しい生成器の `genSource` は commit 済みの `Sparkle/Compiler/PilotEnvTables.lean` とバイト一致（184265 バイト、`cmp`）。S2zPin は変更なしに build 済み。
+単独 probe（scratch、timeout 付き）: `httpType` 25 節点 1 ms、`httpValue` 296 節点 2 ms、`httpInlValue` 382 節点 2 ms。`Tools.ShippingFGCircuitS3aGenKids` の build は 0.6 秒。生成物 `Sparkle/Compiler/PilotKidTables.lean` は 35781 バイト（6 項の再出力。名前付き定数との比較には切り替えなかった: `Elab.lean` は `Tools` の `httpType` などを import できず（循環）、定数を参照できないため。小さいので項を再出力するままにした）。
+
+### 50.2 (1) `hkgfacts` — 供給した
+- `Sparkle/Compiler/KidFactsCheck.lean`（S3a step1a）: `kidRowOkB env inl ip peel X T V Vi` と `kidRowOkB_sound`。`Expr` の等号は `ExprDecEq.exprDecEq`（束縛名を含む構造）。
+- `Sparkle/Compiler/PilotKidTables.lean`（生成物・非信頼）: 2 つの callee の型・値・inline 後の値、`kidsOkB`、`startKidsOk declName env inl ip peel`（root なら `kidsOkB`、他の宣言は true）。関数 3 つは引数で、Elab が実物を渡す。
+- `Sparkle/Compiler/Elab.lean`: `gatePeeledBody`（= `Tools…S2gGates.peeled`、`rfl`）、`import PilotKidTables`、`synthesizeCombinationalCoreOff` の `startEnvOk` の枝の後に `else if !(startKidsOk declName env (userInliner env) (instancePredicate env) gatePeeledBody) then throwError …`（+5 行程度。失敗は誤り、fallback なし。pilot root だけを縛る従来の形のまま）。`S1qLinked`: `coreRestOff` / `core_chainOff` を同様に直し、`core_kidsOkOff`（成功した core run は `getEnv` の結果 `envR` で `startKidsOk declName envR (userInliner envR) (instancePredicate envR) gatePeeledBody` を通した）を追加。
+- `Tools/ShippingFGCircuitS3aKids.lean`: 生成した 6 項が `httpType/httpValue/httpInlValue/tlp…` と一致することを kernel（`decide +kernel`）で pin、`startKidsOk_sound : startKidsOk hftRoot env (userInliner env) (instancePredicate env) gatePeeledBody = true → HftKidsGateFacts env`（同じ `env`）。
+- `Tools/ShippingFGCircuitS3aFinal.lean`: `startKidsOk_of_run`（`hcell` と Off の run から、`envAt cref w` で上の検査が true。`startEnvOk_of_run` と同じ head・`getConstInfo`・`getEnv` の環境保存の鎖）、`HftFinalStmtOffCombined6` / `synth_hftPcieOutByte_finalOffCombined6`。
+保証の範囲: pilot root の Off 入口のみ。他の root に対して検査が true でも保証ではない。生成表は kernel で pin（生成器は信頼しない）。
+
+### 50.3 binder の前後
+v5（17）`L lvl env₀ hstart hr hcell hchk hreadH hreadT hadm hdown hD hG hT hs h0 hkgfacts` → v6（16）`… h0`（`hkgfacts` を除いた）。
+
+### 50.4 (2) `hreadH` / `hreadT` — まだ供給していない（不可能とは言わない）
+`RootReader lvl env X d` は `entry₀` / `machineShape?` / `dataOfAt lvl E (structEnv env) d.shape = some d` で、`dataOfAt` は `partial` の `packTupleInputs` / `rootFloat` を呼ぶ。実行時の Bool 検査で同じ opaque 定数の結果を調べること自体はできる。供給できていない理由は 3 つで、いずれも未着手の仕事であって不可能の証明ではない:
+1. `lvl : Expr → Nat` は最終文の自由な binder で、`dataOfCore` が `readN` の段数 `lvl shape.body` として使う。run も `Elab` も `lvl` を計算しないので、検査はある具体的な `lvl₀` についてしか書けず、全ての `lvl` についての `RootReader lvl …` にするには `readN` の段数に関する一般の単調性が要る（`ShippingGen5ReadKinds` にあるのは quotation 上の `readN_mono_on_quotes` だけ）。または `lvl₀` に特化した v7（lvl binder を落とす）という文の変更になり、これは決めていない。
+2. `dataOfAt` / `machineShape?` / `entry₀` は `Tools` 側（`Elab` を import）にあり、`Elab.lean` の入口の guard から呼べない（循環）。guard に載せるには、それらを小さい新ファイルへ移す（`Tools.ShippingGen5DataOf` の依存は大きい）か、検査を入口の外（`Tools` 側の関数を呼ぶ後段）に置く必要がある。
+3. 期待値 `machineData`（`Term` を含む依存型の値）を表として生成し、構造等号とその健全性を証明する必要がある（`MachineData` の lawful な等号は未実装）。
+次の一歩の候補: (a) `readN` の単調性の一般化、または lvl₀ 特化の文にするかの判断（ユーザー/reviewer）、(b) `dataOfAt` の依存の切り出し。
+
+### 50.5 Check45（`kjob lake build Tests.Gen5.FGCircuitPilotCheck45`、exit 0）
+`FGCIRCUIT45 CONTROLS: ok`（実環境で true、型・値・inline 値の改変・callee 入れ替え・存在しない定数・何もしない inliner・型を固定しない inliner・instance predicate が全点/各点で true・2 つ目の callee・`Init` だけの環境で false）、`FGCIRCUIT45 REPR`、`FGCIRCUIT45 SIGNATURES …38 mutants rejected`、`FGCIRCUIT45 AXIOMS: 5 names, standard axioms only`。同じ `FGCircuitCmp.stmtEq`（正例も mutant も）。`startKidsOk_sound`・`startKidsOk_of_run`・v6 の完全型を独立に書いた文と照合。mutant: 別の root・結果 false・結論が別の環境・恒等 inliner・常に false の instance predicate・peel なし・callee 入れ替え/重複/片方のみ/全体値・`True`・検査が別の環境・終了 world・env₀・inliner が別の world・診断入口・`hcell` 欠落、kept hypotheses（v5 = binder を残した版、v4、`hcd` 併存、条件 1 つだけ残す）、carrier、premise の欠落。名前の存在確認つき。
+既存 Check: `Check15/18/19/20/23/24/26/28/30`（`synthesizeCombinationalCoreOff` の形を見るもの）を再 build、いずれも exit 0。それ以外の Check とベース出力 baseline（S1q 手順）の再実行は未実施。
+
+### 50.6 出力の同一性と時間
+同じ build の中で root に対し `synthesizeCombinationalOff`（2 つの検査あり）と変更していない `synthesizeCombinational` を走らせ、module と design の `repr` が一致（77654 / 89425 文字、§49.4 と同じ数）。前者 306–308 ms、後者 297–298 ms（2 回の build で各 1 回。検査単独の費用は測っていない。費用の主張ではない）。
+build の所要: Elab 変更後の依存全体の再 build（Check45 の前段）で 14 分（初回のキャッシュなし）。
+
+### 50.7 範囲
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。台帳の減算は reviewer が決める。
+- `hreadH` / `hreadT` は上のとおり未供給。残る義務: `hreadH hreadT hadm hdown hD hG hT hs h0`、`hchk`、`CellPrem`、`Laws/Start/hr`。
