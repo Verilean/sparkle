@@ -86,6 +86,10 @@ theorem core_chainOffX {declName : Name} {w w' : Void IO.RealWorld} {M : Sparkle
   obtain ⟨envR, w3, henv, hx⟩ := RunsTo.bind hx
   rcases RunsTo.ite hx with hx | hx
   · exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false hx).elim
+  rcases RunsTo.ite hx with hx | hx
+  · exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false hx).elim
+  rcases RunsTo.ite hx with hx | hx
+  · exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false hx).elim
   exact ⟨s, w1, envR, ci, w2, w3, w4, hh, hgetX, henv, hx, hfin⟩
 
 section Consumers
