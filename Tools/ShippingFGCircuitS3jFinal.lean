@@ -116,7 +116,7 @@ elab "#synthesizeVerilogPilot3 " id:ident : command => do
 
 open Tools.ShippingChildInvA (RefLawsAOps RefLawsATele admCtx_quietFalse)
 
-/-- the degenerate `Laws` with `quiet := fun _ => False` (every field vacuous; `RefLawsAOps.quietFalse`, `RefLawsATele.quietFalse`).  It exists, so the quantifier `∀ L` of v9/v10 ranges over it; the point of the next theorems is that it satisfies NONE of the residual premises -/
+/-- the degenerate `Laws` with `quiet := fun _ => False` (every field vacuous; `RefLawsAOps.quietFalse`, `RefLawsATele.quietFalse`).  It exists, so the quantifier `∀ L` of v9/v10 ranges over it; the point of the next theorems is that `hquiet` is false for it, so the whole premise set (a conjunction containing `hquiet`) is unsatisfiable at it; `hsynth` and `hcache` are NOT shown false individually -/
 def vacuousLaws (mref : ST.Ref IO.RealWorld Meta.State) (cref : ST.Ref IO.RealWorld Core.State) : Laws mref cref :=
   ⟨RefLawsAOps.quietFalse Tools.ShippingChildFresh.MkRefd mref cref, RefLawsATele.quietFalse mref cref⟩
 

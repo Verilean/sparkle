@@ -500,16 +500,18 @@ run_cmd liftTermElabM do
       discard <| Tools.ShippingFGCircuitS3jStart.pilotEntry3 X
       pure "NO ERROR"
     catch e => e.toMessageData.toString
+  -- the wrapper's own behaviour: it does not touch the depth cell (still 1 here); the restore below is THIS TEST's `set savedDepth`, not the wrapper's
+  ok ((← sparkleSynthDepth.get) == 1) "the wrapper left the depth cell at 1 (it does not write it)"
   sparkleSynthDepth.set savedDepth
   unless msgDepth.contains "depth" do throwError "FGCIRCUIT50 CONTROL (depth 1): {msgDepth}"
-  ok ((← sparkleSynthDepth.get) == savedDepth) "the depth cell restored"
-  -- a non-empty start cache: the entry still runs and returns the same artifact (the core head clears the cache; the cache half of Start is not what the run needs)
+  ok ((← sparkleSynthDepth.get) == savedDepth) "the depth cell is back at the saved value (restored by the test)"
+  -- a non-empty start cache: the entry still runs and returns the same artifact (the core head clears the cache).  This is ONE observation, not a general argument: a non-empty cache can also satisfy CacheInvA, so the artifact being the same here does not show CacheInvA unnecessary; the general removal is `jqc_after_head` plus S3k's chain (docs §61)
   let savedCache ← Sparkle.Compiler.Elab.sparkleChildCache.get
   Sparkle.Compiler.Elab.sparkleChildCache.set (({} : Std.HashMap Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)).insert hftHttp (mH, dH))
   let (mN, dN, vN) ← Tools.ShippingFGCircuitS3jFinal.pilotArtifact3 X
   Sparkle.Compiler.Elab.sparkleChildCache.set savedCache
   unless rp mN dN == rp m3 d3 && vN == v3 do throwError "FGCIRCUIT50 CONTROL (non-empty cache): the artifact changed"
-  logInfo m!"FGCIRCUIT50 OUTPUT: module+design repr of the S3j entry = the S3f2 entry = the ordinary Off entry ({(toString (repr m3)).length} / {(toString (repr d3)).length} chars); the printed text from the S3j run's own Module is identical ({v3.length} chars); controls: another declaration's artifact and an altered Module compare unequal; the real run_cmd context has no canUnfold? callback and depth 0; a canUnfold? callback in the Meta context gives an explicit error from the S3j entry while the S3f2 entry still runs; depth 1 gives an explicit error and the depth cell is restored; a NON-EMPTY start cache leaves the artifact unchanged (so the cache half of Start is not needed by the run)"
+  logInfo m!"FGCIRCUIT50 OUTPUT: module+design repr of the S3j entry = the S3f2 entry = the ordinary Off entry ({(toString (repr m3)).length} / {(toString (repr d3)).length} chars); the printed text from the S3j run's own Module is identical ({v3.length} chars); controls: another declaration's artifact and an altered Module compare unequal; the real run_cmd context has no canUnfold? callback and depth 0; a canUnfold? callback in the Meta context gives an explicit error from the S3j entry while the S3f2 entry still runs; depth 1 gives an explicit error, the wrapper itself leaves the depth cell at 1 (checked before the test's own `set savedDepth` restores it); in ONE run a NON-EMPTY start cache leaves the artifact unchanged (a single observation only; it is not the argument for removing the cache half, which is jqc_after_head plus S3k's chain, §61)"
 
 /-! ## (F) AXIOMS -/
 run_cmd liftTermElabM do
