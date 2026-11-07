@@ -3873,3 +3873,54 @@ theorem certifiedReturn_sound :
 **(8) 方針**: この文書は比較を示すもので、(a)／(b) の TRUSTED 採用を今求めるものではない。(c) の最小実験（S3r、続いて M1）は委任範囲で継続し、既知の費用を得てから、必要な保証変更・新 TRUSTED だけを具体的に判断に出す。E1 全面移植は保留、新 TRUSTED は未承認。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 68. S3r（Issue `sparkle-fg-circuit-pilot`）: 案 (c) の第 1 段 — 返却 artifact `(b₀, D₀)` を閉じた項にし、既存の純粋検査を kernel で評価する
+
+土台 `28dd20ff`（S3q）。新しい checker は書いていない。`Sparkle/` は未変更、既存の定理の文も未変更。追加は `Tools/ShippingFGCircuitS3r{Gen,Artifact,Kernel,Obs}.lean` と `Tests/Gen5/FGCircuitPilotCheck56.lean`（lakefile に各 `lean_lib`）。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。**1 artifact の証明書は局所成果であり、台帳の減算ではない。**
+
+### 68.1 作ったもの
+
+1. **生成器（信頼しない）** `Tools/ShippingFGCircuitS3rGen.lean`。`Module`／`Design` に `ToExpr` は無く、`Expr` は入れ子（`List Expr`）なので、**手書きのソース印字器**（`Module`／`Stmt`／`Expr`／`HWType`／`DimExpr`／`Operator`／`ResetKind` の各構成子と全フィールドを明示）にした。コマンド `#gen_pilot_artifact "path"` が elaboration 時に `pilotEntry3 hftRoot`（v11 が覆うのと同じ入口）を走らせ、返った `(b, D)` を `path` に書く。ビルドでは走らせない（1 回手で実行し、出力をコミット）。
+2. **生成物（信頼しない、コミット済み、先頭に明記）** `Tools/ShippingFGCircuitS3rArtifact.lean`（647 行）: `pilotB0 : Module`（top、256 文）、`pilotK0`／`pilotK1`（子、88／159 文）、`pilotD0 : Design`（`modules = [pilotK0, pilotK1]`）。**追加**: `pilotS0 : Module` = 同じ run で計算した出荷形 `checkedOptimize b`（89 文）。これは要求の `(b₀, D₀)` に加えた項で、理由は §68.3（optimizer が kernel で展開できない）。
+3. **観測** `Tools/ShippingFGCircuitS3rObs.lean`: `run_cmd` が入口をもう一度走らせ、`(b, D) == (pilotB0, pilotD0)`、`checkedOptimize b == pilotS0` を**コンパイル済みの `BEq`** で比較する（食い違えばビルド失敗）。改変した 3 つのコピー（先頭文を落とす、名前を変える、出荷形の body を逆順）が run と異なることも確認。**これは観測であって kernel の事実ではない**（実行されるコードの結果。1 環境・1 run）。同じ run の値に対するコンパイル済みの `shipsHierCheck` と `seqCheck`（子 2 つと出荷形）も観測として true を記録（kernel では評価できない、§68.3）。
+4. **kernel の事実** `Tools/ShippingFGCircuitS3rKernel.lean`（`decide +kernel` または `rfl`。`native_decide` なし）。
+
+### 68.2 kernel で通ったもの（閉じた項についての、既存の純粋検査の出力）
+
+| 事実 | 結果 | kernel 時間（1 run、profiler の差分） |
+|---|---|---|
+| 形: top 256 文、出荷形 89 文、子 88／159 文 | 通る | < 0.1 秒 |
+| `hierBinds pilotB0 = true` | 通る | 約 40 秒 |
+| `hierRefineCheck pilotB0 pilotB0 = true` | 通る | 約 37 秒 |
+| `refineCheck pilotK0 pilotK0 = true`（88 文） | 通る | 約 3.5 秒 |
+| `refineCheck pilotK1 pilotK1 = true`（159 文） | 通る | 約 16 秒 |
+| `mergeChecked pilotB0 = pilotB0` | 通る | 約 2 秒 |
+| `hierRefineCheck pilotB0 pilotS0 = true`（出荷形を optimizer の出力として検証する、`checkedOptimize` が実行するのと同じ検査） | 通る | 約 37 秒 |
+| `shipsHierCheck` の各 conjunct（`hierBinds`、`linkedWF`、`instNames` の `Nodup`、`noSelfRead`、`outsExtracted`、`rst` の存在、`instOutWidthsOk`）を、`checkedOptimize b` を閉じた項 `pilotS0` に置き換えて書き下した Bool 式 | 通る | 約 39 秒 |
+| `pilotD0.modules = [pilotK0, pilotK1]` | `rfl` | 無視できる |
+| 負の対照: 出荷形の先頭文を落とす、全 register の初期値を 1 にする → `hierRefineCheck pilotB0 _ = false`。子の先頭文を落とす → `refineCheck _ _ = false`。変更した項が元と異なる | 通る | 約 35、3、3、14、0 秒 |
+
+kernel 型検査の合計は 1 run で約 229 秒（Kernel モジュールのビルド全体は 230 秒前後。cold/warm の差は測っていない）。閉じた項の大きさ（`Expr.sizeWithoutSharing`、1 run）: `pilotB0` 14,071、`pilotS0` 7,417、`pilotK0` 4,709、`pilotK1` 8,767、`pilotD0` 19（子への参照のみ）。生成ファイル 647 行。Check56 内の新規の `decide +kernel`（別の型にして再評価させた）は `refineCheck K0 K0` が 5.0 秒、`hierRefineCheck b0 b0` が 41.0 秒（elaboration を含む、1 run）。**時間は 1 つのマシンの 1 run で、上限ではない**。
+
+### 68.3 kernel で評価できなかったもの（測定した事実。`native_decide` には切り替えていない）
+
+- **`checkedOptimize`／`shipsHierCheck`／`hierCheck`**: `decide +kernel` が「`Decidable` インスタンスが `isTrue`／`isFalse` に簡約されない」で止まる。原因は `Sparkle.IR.Optimize.optimizeModule` が `partial def`（および `HashMap`）で、kernel から不透明なこと。`checkedOptimize` は `optimizeModule` を呼ぶので同様。そのため **`shipsHierCheck (childMap D₀.modules) pilotB0 = true` は kernel の事実として得ていない**。代わりに §68.2 のとおり出荷形を閉じた項 `pilotS0` として与え、同じ conjunct を書き下して通した（`pilotS0 = checkedOptimize pilotB0` は観測であり kernel の事実ではない）。**要求の項目のうちこれは字面どおりには満たせていない**（reviewer の判断を仰ぐ点）。
+- **`seqCheck`**（子・出荷形）: `sf4Check` の `sanitizeName n == n` が `String.all` を使い、kernel は **`"abc".all (·.isAlphanum)` ですら簡約できない**（`decide +kernel` が止まる）。S3q が true を得たのはコンパイル済みの評価。kernel では評価できず、観測（Obs）として記録するに留める。
+- **派生 `BEq`（`Module`／`Expr`）の `==`**: kernel で簡約できない（止まる）。`DecidableEq`（`decide (a = b)`）は簡約できる。負の対照の「変更した項は異なる」は `decide (… = …) = false` で行った。
+
+したがって、**kernel の事実として得た既存検査は `refineCheck`／`hierBinds`／`hierRefineCheck`／`mergeChecked` と、optimizer を除いた `hierCheck` の conjunct**。SV 側（`seqCheck` 系）と optimizer を含む検査は、現行の `Sparkle/` の定義のままでは kernel では評価できない。次の段（M1）が出荷形・SV 側まで kernel で覆うなら、`String.all` を kernel で簡約できる形にする（`Sparkle/` の変更）か、`CheckRoot` を別に書く必要がある。
+
+### 68.4 何が確立し、何が観測のままか
+
+- **確立（kernel）**: 閉じた項 `pilotB0`／`pilotK0`／`pilotK1`／`pilotD0`／`pilotS0` について §68.2 の事実。AXIOMS は標準のみ（Check56）。
+- **観測のまま**: (i) その項が `pilotEntry3 hftRoot` の返した値であること、(ii) `pilotS0 = checkedOptimize pilotB0`、(iii) コンパイル済みの `shipsHierCheck`／`seqCheck` が true。1 環境・1 run の `BEq`。生成器は信頼せず、kernel が受理したのは項についての検査の出力である。
+- **確立していないもの**: 意味保存（`RootShows`）。§68.2 の事実は checker の出力であり、`CheckRoot` の健全性定理に結びついていない。SV 文字列の一致・SV の意味保存も含まない。源環境／宣言の固定（`R.machineData` と `b₀` の対応）も未着手。現行 FG の v11 の消費者には渡せず、FG 全体・全行の減算にはしない。
+
+### 68.5 次の段（M1: ソースから module への checker）に必要なもの
+
+1. `CheckRoot : SourceData → Module → Design → Cert → Bool` と `checkRoot_sound`（§67.3 の設計）。覆う形は §67.2 の 12 程度（`mux`・`eq`・`and`・`or`・`add`・`shl`・`slice`・`concat`・`const`・`ref`・`register`・`inst`）。
+2. kernel 評価できる検査器であること（§68.3）: `String.all`／`optimizeModule` に依存しない。出荷形の扱いは、(a) 返却形 `b₀`（raw）についてだけ証明して出荷形への移送を `hierRefineCheck_linkedH` に委ねる、(b) `pilotS0` を閉じた項として検査する、のどちらか。
+3. 子の検査（M3: `ChildFn`）と連結（M4）、`env` の宣言と kernel の定数 `R` の対応（S2z の `pin_*` の流儀）。
+4. 採用入口 `certifiedReturn`（検査したその `(b, D)` だけを返す）は (c2) として後続。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
