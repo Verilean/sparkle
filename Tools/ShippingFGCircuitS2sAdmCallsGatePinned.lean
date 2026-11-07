@@ -20,6 +20,7 @@ import Tools.ShippingFGCircuitS2sAdmChildLegacyImplA
 import Tools.ShippingFGCircuitS2sAdmChildLegacyTailA
 import Tools.ShippingFGCircuitS2sAdmChildMainA
 import Tools.ShippingFGCircuitS2sAdmChildPathA
+import Tools.ShippingFGCircuitS2sAdmChildPinC
 import Tools.ShippingFGCircuitS2sAdmChildProjFieldA
 import Tools.ShippingFGCircuitS2sAdmChildRunA
 import Tools.ShippingFGCircuitS2sAdmChildRunAKids
@@ -35,6 +36,8 @@ import Tools.ShippingFGCircuitS2sAdmChildWalkA
 import Tools.ShippingFGCircuitS2sAdmKWalk
 import Tools.ShippingChildRunAKids
 import Tools.ShippingChildComposeC
+import Tools.ShippingFGCircuitS2sAdmChildPinC
+import Tools.ShippingFGCircuitS2sAdmCallsGatePin
 -- FG circuit pilot S2s4: SELECTIVE port of ShippingCallsGatePinned.lean onto the context-predicate bundles (only the declarations that mention RefLawsAOps/AdmCtx/Laws/... or an already-ported name; the rest is taken from the imported original); rename-only script scripts/s2s_port2.py (suffix X, `AdmCtx O.quiet` -> `O.adm`). No sorry/axiom/native_decide/TRUSTED/law.
 -- BUILT (unit CN2): cn2j exit 0 (Tools.ShippingCallsGatePinned); axioms standard.
 -- No `sorry`, no `axiom`, no `native_decide`, no new law / field.
@@ -79,19 +82,19 @@ theorem mapM_loop_pinX (O : RefLawsAOpsX MkRefd mref cref) (T : RefLawsATeleX O.
     (hA : O.adm mctx cctx) {D : Nat} (hD : 1 ≤ D) {α : Type} (key : α → Name)
     (f : α → MetaM Res) (hf : ∀ x, f x = synthesizeChild (key x)) :
     ∀ (l : List α) (acc : List Res) (L : List (Name × Res)) (r : List Res)
-      (w w' : Void IO.RealWorld), JQP O D L w →
+      (w w' : Void IO.RealWorld), JQPX O D L w →
       RunsTo (List.mapM.loop f l acc) mctx mref cctx cref w r w' →
       ∃ ys, r = acc.reverse ++ ys ∧ ys.length = l.length ∧
         (∀ k (hk : k < l.length), ∃ y, ys[k]? = some y ∧ RealChildAX O (key l[k]) y ∧
-          (cv w').get? (key l[k]) = some y) ∧ JQP O D L w'
+          (cv w').get? (key l[k]) = some y) ∧ JQPX O D L w'
   | [], acc, L, r, w, w', hp, h => by
     obtain ⟨rfl, rfl⟩ := RunsTo.pure_world h
     exact ⟨[], by simp, rfl, fun k hk => absurd hk (Nat.not_lt_zero k), hp⟩
   | x :: xs, acc, L, r, w, w', hp, h => by
     obtain ⟨y, w1, hy, h⟩ := RunsTo.bind h
     rw [hf] at hy
-    obtain ⟨hreal, hjq, hgetX⟩ := triple_runsX (synthesizeChild_pinned O T hA hD L (key x)) hp hy
-    have hp1 : JQP O D ((key x, y) :: L) w1 := by
+    obtain ⟨hreal, hjq, hgetX⟩ := triple_runsX (synthesizeChild_pinnedX O T hA hD L (key x)) hp hy
+    have hp1 : JQPX O D ((key x, y) :: L) w1 := by
       refine ⟨hjq.1, fun p hp' => ?_⟩
       rcases List.mem_cons.mp hp' with rfl | hm
       · exact hgetX
@@ -141,13 +144,13 @@ theorem closeInstsM_runPX (O : RefLawsAOpsX MkRefd mref cref) (T : RefLawsATeleX
     exact congrArg some (Option.some.inj hc₂)
 
 
-/-- **`MachineClosesAtAX` from `LetsClose` and `CallsPureP`** (as `machineClosesAtA_of_pure`; the
+/-- **`MachineClosesAtAX` from `LetsClose` and `CallsPurePX`** (as `machineClosesAtA_of_pureX`; the
 pin comes from `closeInstsM_runPX`). -/
 theorem machineClosesAtA_of_pure_pinX (O : RefLawsAOpsX MkRefd mref cref)
     (T : RefLawsATeleX O.quiet O.adm mref cref) (hA : O.adm mctx cctx)
     {declName : Name} {shape : MachineShape}
     (hl : LetsClose mctx mref cctx cref declName shape)
-    (hp : CallsPureP O declName shape) :
+    (hp : CallsPurePX O declName shape) :
     MachineClosesAtAX (mref := mref) (cref := cref) O mctx cctx declName shape := by
   have hB := Tools.ShippingChildComposeC.bodyStepC_of_teleX O T
   have htr := fun (tenv : Lean.Environment) (D : Nat) =>
@@ -174,7 +177,7 @@ theorem machineClosesAtA_of_pure_pinX (O : RefLawsAOpsX MkRefd mref cref)
       rw [h] at this
       cases this
     · rename_i hf
-      obtain ⟨children, rfl, hmem, hreal, _⟩ := closeInstsGM_runC O hB hA hw1 hr
+      obtain ⟨children, rfl, hmem, hreal, _⟩ := closeInstsGM_runCX O hB hA hw1 hr
       have := (hp b t d' t' children run.mreturns ht' hreal).2
         (fun h => hf (List.isEmpty_iff.mpr h)) hmem
       intro h
@@ -183,7 +186,7 @@ theorem machineClosesAtA_of_pure_pinX (O : RefLawsAOpsX MkRefd mref cref)
 
 
 /-- **`MachineClosesAtAX` for one-output calls of gate children, repeated callees allowed**
-(`machineClosesAtA_of_gateKids` of CA with `hnodup` DROPPED; the same-callee ⇒ same-child fact is
+(`machineClosesAtA_of_gateKidsX` of CA with `hnodup` DROPPED; the same-callee ⇒ same-child fact is
 `closeInstsM_runPX`, from the cache pin). Premises: `O`, `hA`, `T`, and the data/name conditions
 of CA's lemma. -/
 theorem machineClosesAtA_of_gateKids'X (O : RefLawsAOpsX MkRefd mref cref)
@@ -208,7 +211,7 @@ theorem machineClosesAtA_of_gateKids'X (O : RefLawsAOpsX MkRefd mref cref)
     MachineClosesAtAX (mref := mref) (cref := cref) O mctx cctx declName d.shape :=
   machineClosesAtA_of_pure_pinX O T hA
     (letsClose_of_data d ok hbody halias mctx mref cctx cref)
-    (callsPureP_of_gateKids O d ok hbody hS nk hnomemO hkid hargsN hsep hparent hfresh)
+    (callsPureP_of_gateKidsX O d ok hbody hS nk hnomemO hkid hargsN hsep hparent hfresh)
 
 end Tools.ShippingCallsGatePinned
 
