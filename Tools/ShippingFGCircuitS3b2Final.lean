@@ -116,16 +116,21 @@ theorem synth_hftPcieOutByte_finalOffCombined7R : HftFinalStmtOffCombined7R := b
 
 /-! ## the command of the pilot entry: it prints the artifact THIS run returned (no second synthesis) -/
 
+/-- the pilot entry's ONE run and what the command prints from it: the Module and Design the run returned, and the Verilog text of THAT Module (`verilogOf`, as `#synthesizeVerilog`) -/
+def pilotArtifact (declName : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design × String) := do
+  let (module, design) ← pilotEntry declName
+  return (module, design, verilogOf module)
+
 open Lean Elab Command in
 elab "#synthesizeVerilogPilot " id:ident : command => do
   let declName ← liftCoreM do Lean.resolveGlobalConstNoOverload id
   liftTermElabM do
     inlinerFuelGuard declName
-    let (module, _) ← pilotEntry declName
+    let (module, _, verilog) ← pilotArtifact declName
     let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
     for w in warnings do
       Lean.logWarning m!"{w}"
-    IO.println (verilogOf module)
+    IO.println verilog
     IO.println "\n-- Verilog successfully generated (pilot entry)!"
 
 end Tools.ShippingFGCircuitS3b2Final
