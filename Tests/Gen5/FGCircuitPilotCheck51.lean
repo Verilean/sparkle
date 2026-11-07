@@ -45,23 +45,15 @@ open Tools.ShippingStRefCorrespondence (ReadWorld getW)
 open Tools.ShippingChildCacheA (JQC CacheInvA)
 open Tools.ShippingFGCircuitS1qLinked (coreHeadOff)
 open Tests.Gen5.FGCircuitPilotCheck48 (chk9 modOf desOf eX norm48 unfold48)
-
-def eX' : EnvK := eX
-
-/-- the wrapper variants (mutants of the ENTRY): 1 = no start checks (the S3f2 entry); 2 = only the `canUnfold?` check; 3 = only the depth check; 4 = the ordinary Off entry; 5 = the `canUnfold?` check reversed (requires a callback); 6 = the depth check against 1 -/
-def wrapCtxOnly (X : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
-  let ctx ← readThe Meta.Context
-  unless ctx.canUnfold?.isNone do
-    throwError "x"
-  synthesizeCombinationalOffR (chk9 0) X
-def wrapDepthOnly (X : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
 open Tests.Gen5.FGCircuitPilotCheck50 (F10 F10_real unfold50 norm50)
 open Tools.ShippingFGCircuitS3jStart (pilotEntry3)
 open Tools.ShippingChildVCA (JQ)
 open Tools.ShippingChildFresh (MkRefd)
 open Tools.ShippingGen2 (LawsX StartX)
 open Tools.ShippingFGCircuitS2mReach
-open Tools.ShippingFGCircuitS2aClose Tools.ShippingFGCircuitS2dKids
+open Tools.ShippingFGCircuitS2aClose Tools.ShippingFGCircuitS2dKids Tools.ShippingFGCircuitS2gGates
+open Tools.ShippingFGCircuitS1uSrc (HftRootLink)
+open Tools.ShippingFGCircuitS1zClose (CoreCloses)
 open Tools.ShippingFGCircuitS3f2Final (pilotReaderOk2)
 open Tools.ShippingFGCircuitS2yFinal (cdvT)
 open Tools.ShippingFGCircuitS3b2Reader (lvl₀)
@@ -95,7 +87,7 @@ noncomputable def StartKX {mref : Rf1} {cref : Rf2} (L : LawsX mref cref) (mctx 
 noncomputable def ExpV9k (k : Nat) : Prop :=
   ∀ {ι : Type} {mref : Rf1} {cref : Rf2} (L : Laws mref cref) {mctx : Cx} {cctx : Cc} {w w' : W} {b : Mod} {D' : Design},
     StartK L mctx cctx w w' k (
-    RunsTo (synthesizeCombinationalOffR pilotReaderOk2 hftRoot) mctx mref cctx cref w (b, D') w' →
+    RunsTo (synthesizeCombinationalOffR (chk9 0) hftRoot) mctx mref cctx cref w (b, D') w' →
     CellPrem MkRefd mref cref →
     DRowEnvR L.O (envAt cref w) w → DiagEnvR L.O (envAt cref w) w → TeleRX L.toX.O (envAt cref w) w → ProfStepR L.O w → ProfOffW mref cref w →
     (∃ raw, PostRunOff mctx mref cctx cref w hftRoot D' b raw) ∧
@@ -119,7 +111,7 @@ noncomputable def ExpV7k (k : Nat) : Prop :=
 
 /-- the `LawsX` final statement `HftFinalStmtOffLNLX`, with its start hypothesis as the knob -/
 noncomputable def ExpLNLXk (k : Nat) : Prop :=
-  ∀ (hlink : HftRootLink) {ι : Type} {mref : Rf1} {cref : Rf2} (L : LawsX mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
+  ∀ (CV : CDRel) (Ob : Environment → Prop) (_hOb : ∀ env, Ob env → HftObOf CV env) (hlink : HftRootLink) {ι : Type} {mref : Rf1} {cref : Rf2} (L : LawsX mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
     {mctx : Cx} {cctx : Cc} {w w' : W} {b : Mod} {D' : Design},
     StartKX L mctx cctx w w' k (
     RunsTo (synthesizeCombinationalOff hftRoot) mctx mref cctx cref w (b, D') w' →
@@ -127,12 +119,12 @@ noncomputable def ExpLNLXk (k : Nat) : Prop :=
     CheckedStart lvl env₀ cref w hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData →
     RootReader lvl (envAt cref w) hftHttp Sparkle.IP.Net.HTTP.httpGetByte.machineData →
     RootReader lvl (envAt cref w) hftTlp Sparkle.IP.Bus.PCIe.tlpCplByte.machineData →
-    Tools.ShippingFGCircuitS2oOb.HftObCDT (envAt cref w) →
+    Ob (envAt cref w) →
     (∀ p : Pkg ι (fun _ => defaultDomain), GPt (ι := ι) lvl (envAt cref w) hftRoot = some p → HftObTopCoreOff mctx mref cctx cref w b D' p) →
     HftCoreCloses mctx mref cctx cref w →
     (∃ raw, PostRunOff mctx mref cctx cref w hftRoot D' b raw) ∧
     ∃ (mm : MonoTy shHft) (p : Pkg ι (fun _ => defaultDomain)),
-      RootArtifactMonoV cdvT (envAt cref w) (GPt (ι := ι) lvl (envAt cref w)) (PostRunOff mctx mref cctx cref w hftRoot D') hftRoot shHft mm b D' p)
+      RootArtifactMonoV CV (envAt cref w) (GPt (ι := ι) lvl (envAt cref w)) (PostRunOff mctx mref cctx cref w hftRoot D') hftRoot shHft mm b D' p)
 
 noncomputable def R1 {mref : Rf1} {cref : Rf2} (L : LawsX mref cref) (mctx : Cx) (cctx : Cc) (w : W) : Prop :=
   ∀ (hcell : CellPrem MkRefd mref cref) {lvl : Lean.Expr → Nat},
@@ -144,7 +136,7 @@ noncomputable def R1 {mref : Rf1} {cref : Rf2} (L : LawsX mref cref) (mctx : Cx)
 
 /-- `coreOff_ranAX`'s statement -/
 noncomputable def ExpRanAXk (k : Nat) : Prop :=
-  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : LawsX mref cref) {declName : Name} {shape : Tools.ShippingMachineClose.MachineShape} {w w' : W}
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} (L : LawsX mref cref) {declName : Name} {shape : Sparkle.Compiler.Elab.MachineShape} {w w' : W}
     {m : Mod} {d : Design},
     StartKX L mctx cctx w w' k (
     RunsTo (synthesizeCombinationalCoreOff declName) mctx mref cctx cref w (m, d) w' →
@@ -211,9 +203,9 @@ noncomputable def ExpPostHead (D : Nat) (needQ needS needCell : Bool) (atStart a
     (if needQ then L.O.quiet w else True) → (if needS then sv w = some synthesizeChild else True) →
     RunsTo (pilotEntry3 hftRoot) mctx mref cctx cref w r w' →
     (if needCell then CellPrem MkRefd mref cref else True) →
-    (if addC then CacheInvA L.O (cv w) else True) →
-    ∃ (s : Tools.ShippingEntryReadsLinked.CoreSaved) (w1 : W),
-      RunsTo (coreHeadOff hftRoot) mctx mref cctx cref w s w1 ∧ JQC L.O D (if atStart then w else w1)
+    Pre addC (CacheInvA L.O (cv w))
+    (∃ (s : Tools.ShippingEntryReadsLinked.CoreSaved) (w1 : W),
+      RunsTo (coreHeadOff hftRoot) mctx mref cctx cref w s w1 ∧ JQC L.O D (if atStart then w else w1))
 noncomputable def ExpPostHead_real : Prop := ExpPostHead 1 true true true false false
 noncomputable def ExpPostHeadMu_depth0 : Prop := ExpPostHead 0 true true true false false
 noncomputable def ExpPostHeadMu_depth2 : Prop := ExpPostHead 2 true true true false false
@@ -278,7 +270,7 @@ noncomputable def F11Mu_carrierZ : Prop := F10 (nC := false) (CV := Tools.Shippi
 def unfold51 : List Name := unfold50 ++ [``Tools.ShippingFGCircuitS3kFinal.HftFinalStmtOffCombined11,
   ``Tools.ShippingFGCircuitS3f2Final.HftFinalStmtOffCombined9_k, ``Tools.ShippingFGCircuitS3cFinal.HftFinalStmtOffCombined7_k,
   ``Tools.ShippingFGCircuitS1zClose.HftFinalStmtOffLNLX_k, ``Tools.ShippingFGCircuitS1zClose.HftFinalStmtOffLNLX,
-  ``Tools.ShippingFGCircuitS3cFinal.HftFinalStmtOffCombined7, ``Tools.ShippingFGCircuitS1tFinal.cdvT]
+  ``Tools.ShippingFGCircuitS3cFinal.HftFinalStmtOffCombined7, ``Tools.ShippingFGCircuitS2yFinal.cdvT]
 def norm51 (e : Lean.Expr) : MetaM Lean.Expr := do
   let e ← Meta.transform e (post := fun e => do
     let e := e.headBeta
@@ -318,7 +310,7 @@ run_cmd liftTermElabM do
     (``Tools.ShippingFGCircuitS3cFinal.synth_hftPcieOutByte_finalOffCombined7_k, "ExpV7k", [1, 2, 3, 4, 5, 6, 7]),
     (``Tools.ShippingFGCircuitS1zClose.synth_hftPcieOutByte_finalOffLNLX_k, "ExpLNLXk", [1, 2, 3, 4, 5, 6, 7]),
     (``Tools.ShippingFGCircuitS1zClose.coreOff_ranAX_k, "ExpRanAXk", [1, 2, 3, 4, 5, 6, 7]),
-    (``Tools.ShippingFGCircuitS1zClose.hftObNoRawOff_of_localX_k, "ExpNoRawk", [1, 2, 3, 4, 5, 6, 7]),
+    (``Tools.ShippingFGCircuitS1zClose.hftObNoRawOff_of_localX_k, "ExpNoRawk", [1, 2, 3, 4, 6, 7]),
     (``Tools.ShippingFGCircuitS2sAdmS2nAdm.hftCoreCloses_of_kidsR''_k, "ExpKidsR2k", [1, 2, 3, 4, 6, 7]),
     (``Tools.ShippingFGCircuitS3cTop.hftTop_of_runRX_k, "ExpTopk", [1, 2, 3, 4, 6, 7]),
     (``Tools.ShippingFGCircuitS2mReach.hftCoreCloses_of_kidsRX_k, "ExpKidsRXk", [1, 2, 3, 4])]
