@@ -2,7 +2,7 @@ import Tools.ShippingFGCircuitS2zEnvCheck
 import Tools.ShippingFGCircuitS1kStmt
 import Sparkle.Compiler.PilotEnvTables
 set_option autoImplicit false
--- FG circuit pilot S2z step 2: the generated rows in `Sparkle/Compiler/PilotEnvTables.lean` ARE the rows of `hftObCDT_of_tablesT.Delta/Gamma` (kernel `rfl`), hence
+-- FG circuit pilot S2z step 2: the generated rows in `Sparkle/Compiler/PilotEnvTables.lean` ARE the rows of `hftObCDT_of_tablesT.Delta/Gamma` (`decide +kernel`: `pin_defs` / `pin_ctors`), hence
 -- the entry's check `startEnvOk hftRoot env = true` gives `EnvDefs ∧ EnvCtors ∧ RecFact` at the same `env`. docs/FG-CIRCUIT-PILOT.md §49. No sorry/axiom/native_decide/TRUSTED/law.
 set_option maxHeartbeats 0
 set_option maxRecDepth 1000000

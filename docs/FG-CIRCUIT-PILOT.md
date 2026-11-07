@@ -2526,7 +2526,11 @@ v3 `HftFinalStmtOffCombined3` の `hcd : Ob (envAt cref w)` を、**同じ環境
 v4（20）`… hreadT hΔ hΓ hrec hadm …` → v5（17）`L lvl env₀ hstart hr hcell hchk hreadH hreadT hadm hdown hD hG hT hs h0 hkgfacts`。`hΔ hΓ hrec` は仮説でなくなった。代わりに入口の検査が compile の成功の一部になった（pilot root 以外の宣言は検査なし）。台帳の減算は reviewer が決める。
 
 ### 49.4 出力の同一性と時間
-同じ build の中で root に対し `synthesizeCombinationalOff`（検査あり）と変更していない `synthesizeCombinational` を走らせ、module と design の `repr` が一致（77654 / 89425 文字）。前者 315 ms、後者 307 ms（1 回の測定）。検査自体の時間は単独では測っていない。`scripts/gen5/fgc_baseline/` はこの branch に無く、327 コマンドの baseline 比較は**未実施**。Check15（NOGETENV）など `synthesizeCombinationalCoreOff` の形を見る既存 Check の再実行は**未実施**。
+同じ build の中で root に対し `synthesizeCombinationalOff`（検査あり）と変更していない `synthesizeCombinational` を走らせ、module と design の `repr` が一致（77654 / 89425 文字）。前者 315 ms、後者 307 ms（1 回だけの測定で、検査単独の費用とは見なさない。検査自体の時間は測っていない）。
+
+S2z agent の作業時点（e66f6d63 の commit 前）では、baseline 比較と既存 Check の再実行は未実施だった。統合時（2026-11-07、e66f6d63）に次を行った:
+- 既存 Check: kjob-run-src-fgc-m2v-5e11 exit 0（1034 jobs）。S2zFinal と、登録済みの pilot Check 44 個すべて（Check15 など `synthesizeCombinationalCoreOff` の形を見るものを含む）。clean な worktree での Lean 検証（dirty=false）。
+- 出力 baseline: S1q と同じ手順（scripts は par/fgc-s1q-cmpnew の `scripts/gen5/fgc_baseline/` を未 commit で worktree に置いた。そのため比較用 Job は dirty=true で、未追跡はこの scripts だけ。主要な測定 script と inventory は par/fgc-s1q-cmpnew 版と同じ）。kjob-run-src-fgc-cmp2z-5d2f（AllTests と IP の build の後に `cmp_profile_off.sh`、CAP_PROFILE=0）を S1q で受理した cmpnew-c2ee と比べると、272 ファイル中 268 の出力がバイト一致、output_baseline.tsv の 50 行の 1–9 列（sha256 含む）が一致、exit は全ファイル一致。残り 4 ファイルは両方とも同じ『IP の olean が無い』エラー（path だけ違う）で、`cmp_rerun4.sh`（kjob-run-src-fgc-cmp2z-2a35）の再取得が cmpnew-3a92 の fgc_cmp_off4 とバイト一致（4 件とも exit 0）。
 
 ### 49.5 Check44（`kjob lake build Tests.Gen5.FGCircuitPilotCheck44`、exit 0）
 `FGCIRCUIT44 CONTROLS: ok`、`FGCIRCUIT44 SIGNATURES …46 mutants rejected`、`FGCIRCUIT44 AXIOMS: 5 names, standard axioms only`。同じ `FGCircuitCmp.stmtEq`（正例も mutant も）。`hftEnvCheckB_sound`・`startEnvOk_sound`・`startEnvOk_of_run`・v5 の完全型を独立に書いた文と照合。mutant: 検査結果が別の環境・終了 world、表の行を落とす、3 条件のうち 1 つだけを結論にする、検査を別の関数に、root 違い、診断入口、`hcell` 欠落、v4（条件が残る）、条件 1 つだけ残した v5、`hcd` 併存など。
