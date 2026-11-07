@@ -6979,3 +6979,6 @@ lean_lib «Tools.ShippingFGCircuitS3nModel» where
 
 lean_lib «Tools.ShippingFGCircuitS3nBridge» where
   roots := #[`Tools.ShippingFGCircuitS3nBridge]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck54» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck54]
