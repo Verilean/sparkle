@@ -2764,3 +2764,39 @@ Check の行から引用:
 - `FGCIRCUIT47 AXIOMS: 6 names, standard axioms only`。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 56. S3f2（Issue `sparkle-fg-circuit-pilot`）: `hchk` の供給 — `pilotReaderOk2`、v9（9 引数、`env₀`・`hchk` なし）、Check48
+
+S3e 補修（Check47 の実型・`F8_real`・全 mutant を同じ一つの正規化 `normC` に通す。§55.1・§54.4・Check47 冒頭コメント・`hftTop_of_runRX` の docstring を訂正）は別コミット（594e8e7b）。`Sparkle/` は変えていない。v7r・v8・`pilotReaderOk` は不変。
+
+### 56.1 構成（新規ファイルのみ。lakefile に lean_lib 3 件）
+- `Tools/ShippingFGCircuitS3f2Exp.lean`: ルートの `synth_hftPcieOutByte.machineData` の実行可能コピー `rootMD`（S3b2Exp と同じ `compile_data_copy`）。`rootMD_eq : rootMD = synth_hftPcieOutByte.machineData := rfl`（元の定数とのカーネル等式）。
+- `Tools/ShippingFGCircuitS3f2Final.lean`:
+  - `rootDefB env X ty val`: `env.find? X = some (.defnInfo d)` かつ `d.levelParams.isEmpty`、`d.type = ty`、`d.value = val`（`Expr` の構造的決定手続き `exprDecEq`）。`rootDefB_sound` は `∃ d, RootInEnv env X ty val d`。
+  - `readerAt_of_rootReader`: **RootReader → ReaderAt の橋**（定理。`entry₀` は関数なので見つかった entry のデータは同じ）。
+  - `pilotReaderOk2 env X := pilotReaderOk env X && rootDefB env X hftRootType hftRootValue && entryGatesB env X && rootReaderB lvl₀ env X rootMD`。
+  - `pilotReaderOk2_sound`: 真なら `X = hftRoot`、子 2 つの `RootReader`（従来どおり）、そして `CheckedEnv lvl₀ env hftRoot hftRootType hftRootValue synth_hftPcieOutByte.machineData`（`root` は `rootDefB_sound`、`gates` は `entryGatesB` そのもの、`reader` は `rootReaderB_sound` + `rootMD_eq` + 橋）。同じ環境、fallback なし、不一致・none は false。
+  - `pilotEntry2 := synthesizeCombinationalOffR pilotReaderOk2`、`#synthesizeVerilogPilot2`（run 自身の artifact を印字）。既存の `#synthesizeVerilogPilot` も残した。
+  - **v9** `HftFinalStmtOffCombined9` / `synth_hftPcieOutByte_finalOffCombined9`: 引数 `L hstart hr hcell hD hG hT hs h0`（暗黙 9 個を除く明示 9 個）。`hr` は `synthesizeCombinationalOffR pilotReaderOk2 hftRoot` の run。結論は v8 と同じ。
+- 証明: `readerOk_of_run`（任意の `readerOk`）で run の開始 env `envAt cref w` での `pilotReaderOk2 … = true` を得て、`pilotReaderOk2_sound` から `CheckedEnv` と子 reader を得る。**`env₀ := envAt cref w` に特殊化**し、`link : ReadsAt env₀ cref w` は `readsAt_self`。run は `offR_to_off` で既存 Off の run にして v7 に `lvl := lvl₀`、`hchk := ⟨CheckedEnv, readsAt_self⟩`、子 reader を渡す。
+
+### 56.2 引数の前後
+- v8（11 個）: `L env₀ hstart hr hcell hchk hD hG hT hs h0`（`hstart` `hr` `hcell` を含め 11）。
+- v9（9 個）: `L hstart hr hcell hD hG hT hs h0` = v8 − [`env₀`, `hchk`]（Check48 BINDERS で名前の列を検査）。
+
+### 56.3 何を供給し、何を供給していないか
+- 供給: `hchk` の `env`（root の `defnInfo`／`levelParams = []`／型／本体、`entryGatesB`、root の実 `dataOfAt` at `lvl₀` と `machineData`（`mdBeq`））は run の guard `pilotReaderOk2` から。`link` は `readsAt_self`（`env₀` を run の開始 env に特殊化）。`env₀` の外側 binder。
+- 新しい前提: なし（`CheckedStart.link` の新前提も、無関係な snapshot も、環境等式も足していない）。新 axiom／law／sorry／native_decide なし。
+- 既存 guard の再利用: `startEnvOk`／`startKidsOk` は root の表（`Delta` の `levelParams` と `value`、構成子、`List.rec`）を与えるが、root の**型**と `entryGatesB`、`dataOfAt` は与えない。表の行からの橋を作るより、`rootDefB` で root を 1 度直接検査する方が小さいので、`pilotReaderOk` との重複検査（root 名）以外は足している。`startEnvOk` の結果は v7 の経路で従来どおり使う。
+- 供給していない（残る前提）: `hstart`、`hr`（pilot 入口の run）、`hcell`、`hD hG hT(TeleRX) hs h0`。保証は新しい pilot 入口（`pilotReaderOk2`）の run に限る（既存 Off や任意 `readerOk` の run には広げない）。水準は `lvl₀` のみ（Bool 検査は水準を区別しない、Check48 CONTROLS に記録）。TeleRX／Laws／CellPrem を新 axiom で払ったことにはしていない。
+- 次の作業（この単位では未着手）: `hD/hG/hT/hs/h0` が実際に使う操作との対応づけ。まず profile 無効の `h0`/`hs` と診断の `hG` の供給可否、小さい実装変更の可否。
+
+### 56.4 Check48（`kjob lake build Tests.Gen5.FGCircuitPilotCheck48`、exit 0）— Check の行から
+- `FGCIRCUIT48 BINDERS`: v8 20 = 9 + 11、v9 18 = 9 + 9、v9 = v8 − [env₀, hchk]。
+- `FGCIRCUIT48 SIGNATURES`: v9 の完全型を独立に書いた `Exp9` と照合（実型・期待型・全 mutant を `norm48`＝Check47 の `normC` 一本に通す）。**50 mutant 拒否**（各前提の欠落、v8 の `pilotReaderOk`／通常 Off／True の検査／root reader・gates・root 定義・子の検査を欠いた版／root reader を別水準・別 `machineData` にした版、別 root、別 post-run root、開始 context／world、到達環境・結論の環境を終了／別 env、hT の各 mutant、`GPt` の別水準、別 Module／Design／artifact 名、結論の一部、carrier、`env₀`・`hchk`（開始／終了 env・別水準）を戻した版、`env₀` だけを戻した版、v6／v7／v7r／v8 の型）。`pilotReaderOk2_sound` と橋の型も独立な期待型と照合し、**19 mutant 拒否**（root 名・型・本体・データ、検査／子／root の環境、水準、子の取り違え、`CheckedEnv` なし、逆向きの橋など）。
+- `FGCIRCUIT48 CONTROLS`: 実環境で真（全体・各 conjunct）。負対照: 別の root 名／子を root／存在しない定数、root の型・本体の改変・入れ替え・入れ子の 1 箇所の改変、`levelParams = [u]`、theorem、gates が偽になる宣言（`fun a => a` の Bool gate）、root データの 8 成分の改変・別の `machineData`・別名、`Init` だけの環境。正の対照: root のコピー（別名・実の型と本体）は真。水準 0/1/3/10 と `lvl₀` で root reader は全て真（Bool 検査は水準を区別しない）。
+- `FGCIRCUIT48 OUTPUT`: 新入口の `Module`/`Design` の repr ＝ 既存 Off ＝ `pilotReaderOk` 入口（77654 / 89425 文字）、印字される Verilog は run 自身の Module のもの（11345 文字、既存入口と同一）。負対照（別宣言の artifact、Module 名の改変、Design の改変は不一致、別宣言は reader-check エラー）。
+- `FGCIRCUIT48 AXIOMS`: 6 names、標準 axiom のみ。
+- 出力 baseline（全体）は coder が merge 後に実行する（agent 時点では未実施）。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。引数の変更（v8 11 → v9 9）は別記録で、台帳の増減には数えない。reviewer の判断を待つ。
