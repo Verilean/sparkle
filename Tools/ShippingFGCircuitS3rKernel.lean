@@ -1,6 +1,5 @@
 import Tools.ShippingFGCircuitS3rArtifact
 import Tools.ShippingMachineShipsHier
-import Tools.ShippingHierSVSoundness
 set_option autoImplicit false
 -- FG circuit pilot S3r, step 3: the EXISTING pure checks, evaluated by the kernel (`decide +kernel`; no native_decide) on the closed artifact terms of `Tools.ShippingFGCircuitS3rArtifact` (generated, untrusted).
 -- These are facts about THE CLOSED TERMS `pilotB0`/`pilotD0`/`pilotS0`.  That those terms are what `pilotEntry3 hftRoot` returned (and that `pilotS0` is `checkedOptimize pilotB0`) is NOT a kernel fact (`Tools.ShippingFGCircuitS3rObs` observes it).  They are checker outputs on a term, not a semantic-preservation theorem (that needs `CheckRoot`, the next step).
@@ -8,10 +7,13 @@ set_option autoImplicit false
 -- No sorry/axiom/native_decide/TRUSTED/law. docs/FG-CIRCUIT-PILOT.md §68.
 set_option maxHeartbeats 0
 set_option maxRecDepth 1000000
+set_option profiler true
+set_option profiler.threshold 200
 
 namespace Tools.ShippingFGCircuitS3rKernel
 open Sparkle.IR.AST Sparkle.IR.RefineCheck Tools.ShippingFGCircuitS3rArtifact
-open Tools.ShippingHierPremisesBase Tools.ShippingMachineLinked Tools.ShippingHierOpen Tools.ShippingHierState (instNames)
+open Tools.ShippingHierPremisesBase Tools.ShippingMachineLinked Tools.ShippingHierOpen
+open Tools.ShippingHierState (instNames)
 
 /-- the shape of the artifact: 256 top statements, shipped form 89, children of 88 and 159 -/
 theorem shape : pilotB0.body.length = 256 ∧ pilotS0.body.length = 89 ∧ pilotD0.modules.map (·.body.length) = [88, 159] := by decide +kernel

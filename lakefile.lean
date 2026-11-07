@@ -6994,3 +6994,6 @@ lean_lib «Tools.ShippingFGCircuitS3rArtifact» where
 
 lean_lib «Tools.ShippingFGCircuitS3rKernel» where
   roots := #[`Tools.ShippingFGCircuitS3rKernel]
+
+lean_lib «Tools.ShippingFGCircuitS3rObs» where
+  roots := #[`Tools.ShippingFGCircuitS3rObs]
