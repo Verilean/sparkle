@@ -2576,7 +2576,7 @@ S2z agent の作業時点（e66f6d63 の commit 前）では、baseline 比較�
 土台 `d64e65af`。S2s*/Check39/§44/`hdown`/`AdmBoth` には触れていない。sorry・native_decide・axiom・TRUSTED・新しい law は無い（標準 axiom のみ）。
 
 ### 50.1 生成器の修正（S3a が 20 分以上終わらなかった原因）
-`Tools/ShippingFGCircuitS2zGenTables.lean` の `internE` は節点ごとに hash-cons するが部分項の cache が無く、共有された `Expr` の DAG を木として歩いていた。部分項そのものを鍵にした memo（`GS.memo`）を足した。鍵は `EKey`: 等号は `Expr.equal`（束縛名・binder info を含む完全な構造。`Expr` 自身の `BEq` = alpha 同値ではない）、hash は `Expr.hash`（束縛名を無視するので、等しい鍵は等しい hash）。ポインタ鍵は使っていない。memo は再計算を避けるだけで、節点の id は構造から決まるので出力は変わらない。確認: 新しい生成器の `genSource` は commit 済みの `Sparkle/Compiler/PilotEnvTables.lean` とバイト一致（184265 バイト、`cmp`）。S2zPin は変更なしに build 済み。
+`Tools/ShippingFGCircuitS2zGenTables.lean` の `internE` は節点ごとに hash-cons するが部分項の cache が無く、共有された `Expr` の DAG を木として歩いていた。部分項そのものを鍵にした memo（`GS.memo`）を足した。鍵は `EKey`: 等号は `Expr.equal`（束縛名・binder info を含む完全な構造。`Expr` 自身の `BEq` = alpha 同値ではない）、hash は `Expr.hash`（束縛名を無視するので、等しい鍵は等しい hash）。ポインタ鍵は使っていない。memo は再計算を避けるためのもの。ただし節点 ID は一般には構造だけで一意ではなく走査順にも依るので、「出力が変わらない」ことの根拠は構造の議論ではなく、今回の生成物のバイト一致と kernel pin（S3aKids）である。確認: 新しい生成器の `genSource` は commit 済みの `Sparkle/Compiler/PilotEnvTables.lean` とバイト一致（184265 バイト、`cmp`）。S2zPin は変更なしに build 済み。
 単独 probe（scratch、timeout 付き）: `httpType` 25 節点 1 ms、`httpValue` 296 節点 2 ms、`httpInlValue` 382 節点 2 ms。`Tools.ShippingFGCircuitS3aGenKids` の build は 0.6 秒。生成物 `Sparkle/Compiler/PilotKidTables.lean` は 35781 バイト（6 項の再出力。名前付き定数との比較には切り替えなかった: `Elab.lean` は `Tools` の `httpType` などを import できず（循環）、定数を参照できないため。小さいので項を再出力するままにした）。
 
 ### 50.2 (1) `hkgfacts` — 供給した
@@ -2599,13 +2599,38 @@ v5（17）`L lvl env₀ hstart hr hcell hchk hreadH hreadT hadm hdown hD hG hT h
 
 ### 50.5 Check45（`kjob lake build Tests.Gen5.FGCircuitPilotCheck45`、exit 0）
 `FGCIRCUIT45 CONTROLS: ok`（実環境で true、型・値・inline 値の改変・callee 入れ替え・存在しない定数・何もしない inliner・型を固定しない inliner・instance predicate が全点/各点で true・2 つ目の callee・`Init` だけの環境で false）、`FGCIRCUIT45 REPR`、`FGCIRCUIT45 SIGNATURES …38 mutants rejected`、`FGCIRCUIT45 AXIOMS: 5 names, standard axioms only`。同じ `FGCircuitCmp.stmtEq`（正例も mutant も）。`startKidsOk_sound`・`startKidsOk_of_run`・v6 の完全型を独立に書いた文と照合。mutant: 別の root・結果 false・結論が別の環境・恒等 inliner・常に false の instance predicate・peel なし・callee 入れ替え/重複/片方のみ/全体値・`True`・検査が別の環境・終了 world・env₀・inliner が別の world・診断入口・`hcell` 欠落、kept hypotheses（v5 = binder を残した版、v4、`hcd` 併存、条件 1 つだけ残す）、carrier、premise の欠落。名前の存在確認つき。
-既存 Check: `Check15/18/19/20/23/24/26/28/30`（`synthesizeCombinationalCoreOff` の形を見るもの）を再 build、いずれも exit 0。それ以外の Check とベース出力 baseline（S1q 手順）の再実行は未実施。
+既存 Check: `Check15/18/19/20/23/24/26/28/30`（`synthesizeCombinationalCoreOff` の形を見るもの）を再 build、いずれも exit 0。それ以外の Check とベース出力 baseline は、agent の作業時点では未実施だった。
+**対象 SHA `58328c91` での事後検証（coder、agent 作業後）**: `kjob-run-src-fgc-m3a-29b5` exit 0。S3aFinal・S3aKids・S2zFinal と `Tests.Gen5.FGCircuitPilotCheck*` 45 個すべてを build（"Build completed successfully (1045 jobs)"、各 AXIOMS 行は標準 axiom のみ）。
 
 ### 50.6 出力の同一性と時間
 同じ build の中で root に対し `synthesizeCombinationalOff`（2 つの検査あり）と変更していない `synthesizeCombinational` を走らせ、module と design の `repr` が一致（77654 / 89425 文字、§49.4 と同じ数）。前者 306–308 ms、後者 297–298 ms（2 回の build で各 1 回。検査単独の費用は測っていない。費用の主張ではない）。
+**出力 baseline（対象 SHA `58328c91`、coder の事後検証）**: `kjob-run-src-fgc-cmp3a-e696` exit 0。272 件中 268 件が cmpnew-c2ee とバイト一致、`output_baseline.tsv` の 1–9 列は 50 行で一致、136 個の終了コードはすべて一致。差のあった 4 件（MultiOutputSubModuleHangRepro・GHASHHWSynth・SLIPTest・UsbWebServerSynth）は再実行 `kjob-run-src-fgc-cmp3a-b263` で cmpnew-3a92 とバイト一致。よって 272/272。これは agent 作業時点の記録との差（当時は未実施）を埋める事後記録である。
 build の所要: Elab 変更後の依存全体の再 build（Check45 の前段）で 14 分（初回のキャッシュなし）。
 
 ### 50.7 範囲
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。台帳の減算は reviewer が決める。
 - `hreadH` / `hreadT` は上のとおり未供給。残る義務: `hreadH hreadT hadm hdown hD hG hT hs h0`、`hchk`、`CellPrem`、`Laws/Start/hr`。
 
+## 51. S3b（Issue `sparkle-fg-circuit-pilot`）: `hreadH` / `hreadT` の供給 — reader 移動量の測定と停止
+
+土台 `58328c91`。reviewer 判断 (b): 最終文を具体的な `lvl₀ : Expr → Nat` に特化してよい（任意 lvl の単調性は先行条件にしない）。`lvl₀` は「既存入口が固定している level」ではなく、追加する reader 検査が採用する決定的な検証用 fuel 設定として定義し、root の `hchk`・子 2 つの `RootReader`・結論の `GPt` に同じ `lvl₀` を使う。実装方針は reader/比較器を小さい compiler 側ファイルへ分離すること。ただし移動量が大きければ停止して最小依存範囲を書く、という条件に従った。
+
+### 51.1 測定（`dataOfAt ∪ machineShape?` の推移的な定数依存）
+`Tools.ShippingGen5DataOf` を build（`kjob lake build Tools.ShippingGen5DataOf`、exit 0、13m41s）後、scratch の `run_cmd`（源木には置かない）で `dataOfAt`・`machineShape?` から定義・型・値に現れる定数を推移的にたどった（定理は除く）。モジュール別の定数数:
+- `Sparkle.Compiler`: Elab 362、ExprDecEq 144、MachRawSurface 22、MachInstOrigin 10、MachMemory 1、MachTupleIn 1（これらは Elab 側／compiler 側で、移動不要）。
+- `Tools`（移動が要る）: ShippingReaderTerm 77、ShippingMachineAuto 55、ShippingUnifiedSource 54、ShippingReaderNodes2 41、ShippingGen5DataOf 35、ShippingGen5DataOfPure 28、ShippingReaderApp 23、ShippingReaderInputs 23、ShippingMachineDenote 19、ShippingMachineCommand 17、ShippingScalarSoundness 15、ShippingMachineRef 8、ShippingEntrySoundness 4、ShippingMachineEntry 3、ShippingMixedSourceBridge 1、ShippingMuxTypeSoundness 1。計 約 404 定数、16 モジュール。
+モジュール閉包で見ると `Term`/`SType` を含む `ShippingReaderTerm` だけで Tools 52 ファイル・約 34K 行、`ShippingGen5DataOf` は 140 ファイル・約 89K 行を import し、いずれも `Sparkle.Compiler.Elab` に到達する（Elab を import する Tools ファイルは 1034）。
+
+### 51.2 判断: 停止
+`Elab.lean` の入口 guard から `dataOfAt`（`readN`・`Term`・`MachineData`・`typedFields`・`splitLets`・`bitsBeq`・`d.ok` を含む）を呼ぶには、上の約 404 定数を `Sparkle/Compiler` 側の小ファイル群へ移し、名前空間（`Tools.ShippingReaderTerm` 等）を参照する後続の Tools 側の証明（`dataOfFrom_sound`、`RootReader`、`GenData` 系、その上の S1*–S3a の鎖）をすべて追従させる必要がある。これは「Tools 全体の移動を避ける」の範囲を超える大きさで、名前だけ似た複製（検査用に別 reader を書く）は reviewer の指示（旧 `dataOfAt` と一致の証明が要る）に反するので作っていない。よって deliverable 1–5（compiler 側 reader/比較器、一致と soundness、入口 guard、v7、Check46）は着手せず、ここで止めた。
+
+最小依存集合（再開時の出発点）:
+1. 型・構文: `SType`/`Term`/`AnyTerm`（ReaderTerm）、`MachineShape`/`MachineData`/`mkData`/`packed`/`ok`（MachineAuto・DataOfPure）、`MixedGateBinder`（UnifiedSource）。
+2. reader: `readN`・`kindsCfg`（ReaderApp・ReaderNodes2）、`typedFields`/`splitLets`/`splitFields`/`bitsBeq`（DataOf・DataOfPure）、`dataOfFront`（DataOf・MachineCommand）。
+3. `machineShape?`・`entryConst`・`structEnv` は既に Elab 側。
+4. 比較器: 方針は「Bool 比較 → `RootReader` の要求する `some d`」。`MachineData` 全体の LawfulBEq は不要。shape・dom・幅/型 index・各 `Term`・順序を落とさない。
+再開するなら 1–2 をまず証明を持たない定義だけ（約 404 定数のうち定義部）を `Sparkle/Compiler/PilotReader*.lean` へ移し、Tools 側は `abbrev`/`export` で同名を再公開して旧証明を保つ案が最小。その場合 `Term` 周りの `deriving`/instance の位置が壊れないかを先に確認する。これは未着手で、可否の確定ではない。
+
+### 51.3 範囲
+- 追加の Elab 変更・新しい Check・binder 変更は無い（v6 の 16 binder のまま）。供給していないもの: `hreadH` / `hreadT`（上のとおり）、`hadm hdown hD hG hT hs h0`、`hchk`、`CellPrem`、`Laws/Start/hr`。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
