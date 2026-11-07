@@ -6730,3 +6730,12 @@ lean_lib «Tools.ShippingFGCircuitS2sAdmLawsX» where
 
 lean_lib «Tools.ShippingFGCircuitS2sAdmRunReads» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmRunReads]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmLinked» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmLinked]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmRunLocal» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmRunLocal]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmServedRealA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmServedRealA]

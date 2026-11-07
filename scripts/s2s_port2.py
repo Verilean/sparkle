@@ -62,11 +62,21 @@ def main():
                 if re.search(r'(?<![\w\'])'+re.escape(n)+r'(?![\w\'X])',nocom(t)):
                     dirty[k]=True; ch=True; break
     res=[]
+    def struct_lines(t):
+        out=[];keep=False
+        for l in t.split('\n'):
+            if re.match(r'^(section|end|variable|open|namespace|universe)\b',l): out.append(l); keep=True
+            elif keep and re.match(r'^\s+\S',l): out.append(l)
+            else: keep=False
+        return '\n'.join(out)
     for k,t in enumerate(texts):
-        if not dirty[k]: continue
+        if not dirty[k]:
+            sl=struct_lines(t)
+            if sl: res.append(sl)
+            continue
         t=t.replace('RefLawsATele O.quiet mref cref','RefLawsATeleX O.quiet O.adm mref cref')
         t=re.sub(r'RefLawsATele (\w+)\.quiet mref cref',r'RefLawsATeleX \1.quiet \1.adm mref cref',t)
-        t=re.sub(r'AdmCtx (\w+)\.quiet',r'\1.adm',t)
+        t=re.sub(r'AdmCtx ([\w\.]+?)\.quiet',r'\1.adm',t)
         for n in sorted(cur,key=lambda x:-len(x)):
             t=re.sub(r'(?<![\w\'])'+re.escape(n)+r'(?![\w\'X])',cur[n],t)
         res.append(t)

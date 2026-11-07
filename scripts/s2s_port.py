@@ -35,7 +35,7 @@ def port(src,out,extra_imports,ren):
     body='\n'.join(rest)
     body=body.replace('RefLawsATele O.quiet mref cref','RefLawsATeleX O.quiet O.adm mref cref')
     body=re.sub(r'RefLawsATele (\w+)\.quiet mref cref',r'RefLawsATeleX \1.quiet \1.adm mref cref',body)
-    body=re.sub(r'AdmCtx (\w+)\.quiet',r'\1.adm',body)
+    body=re.sub(r'AdmCtx ([\w\.]+?)\.quiet',r'\1.adm',body)
     for n in sorted(ren,key=lambda x:-len(x)):
         body=re.sub(r'(?<![\w\'])'+re.escape(n)+r'(?![\w\'X])',ren[n],body)
         # qualified use  Foo.n
