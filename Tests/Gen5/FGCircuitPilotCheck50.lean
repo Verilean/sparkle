@@ -288,6 +288,51 @@ noncomputable def ExpFrameTMu_noQuietPre : Prop := ExpFrameT true true false 0
 noncomputable def ExpFrameTMu_noQuietPost : Prop := ExpFrameT true true true 1
 noncomputable def ExpFrameTMu_depthPlus1 : Prop := ExpFrameT true true true 2
 
+
+-- helpers: the Meta-context read and the ref read
+noncomputable def ExpReadThe (needCtx needW : Bool) (wrongW : Bool) : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {a : Cx},
+    RunsTo (readThe Meta.Context : MetaM Cx) mctx mref cctx cref w a w' →
+    (if needCtx then a = mctx else True) ∧ (if needW then w' = (if wrongW then getW cref w else w) else True)
+noncomputable def ExpReadThe_real : Prop := ExpReadThe true true false
+noncomputable def ExpReadTheMu_noCtx : Prop := ExpReadThe false true false
+noncomputable def ExpReadTheMu_noWorld : Prop := ExpReadThe true false false
+noncomputable def ExpReadTheMu_wrongWorld : Prop := ExpReadThe true true true
+noncomputable def ExpReadBind (atCtx : Nat) (stW : Nat) : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {β : Type} {f : Cx → MetaM β} {w w' : W} {r : β},
+    RunsTo ((readThe Meta.Context : MetaM Cx) >>= f) mctx mref cctx cref w r w' →
+    RunsTo (f (if atCtx == 0 then mctx else {})) mctx mref cctx cref (if stW == 0 then w else getW cref w) r w'
+noncomputable def ExpReadBind_real : Prop := ExpReadBind 0 0
+noncomputable def ExpReadBindMu_otherCtx : Prop := ExpReadBind 1 0
+noncomputable def ExpReadBindMu_otherWorld : Prop := ExpReadBind 0 1
+noncomputable def ExpGetRun (needVal needW : Bool) (valW : Bool) : Prop :=
+  ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {σ : Type} (r : IO.Ref σ) {w w' : W} {a : σ},
+    RunsTo (ST.Ref.get r : MetaM σ) mctx mref cctx cref w a w' →
+    (if needVal then a = readOf r (if valW then w' else w) else True) ∧ (if needW then w' = getW r w else True)
+noncomputable def ExpGetRun_real : Prop := ExpGetRun true true false
+noncomputable def ExpGetRunMu_noVal : Prop := ExpGetRun false true false
+noncomputable def ExpGetRunMu_noWorld : Prop := ExpGetRun true false false
+noncomputable def ExpGetRunMu_valAtEnd : Prop := ExpGetRun true true true
+
+-- the vacuous L
+noncomputable def ExpVacQuiet (neg : Bool) : Prop :=
+  ∀ {mref : Rf1} {cref : Rf2} (w : W),
+    (if neg then ¬ (Tools.ShippingFGCircuitS3jFinal.vacuousLaws mref cref).O.quiet w else (Tools.ShippingFGCircuitS3jFinal.vacuousLaws mref cref).O.quiet w)
+noncomputable def ExpVacQuiet_real : Prop := ExpVacQuiet true
+noncomputable def ExpVacQuietMu_pos : Prop := ExpVacQuiet false
+noncomputable def ExpVacStart (neg : Bool) (whole : Bool) : Prop :=
+  ∀ {mref : Rf1} {cref : Rf2} (mctx : Cx) (cctx : Cc) (w : W),
+    (if neg then ¬ (if whole then Start (Tools.ShippingFGCircuitS3jFinal.vacuousLaws mref cref) mctx cctx w else AdmCtx (Tools.ShippingFGCircuitS3jFinal.vacuousLaws mref cref).O.quiet mctx cctx)
+     else (if whole then Start (Tools.ShippingFGCircuitS3jFinal.vacuousLaws mref cref) mctx cctx w else AdmCtx (Tools.ShippingFGCircuitS3jFinal.vacuousLaws mref cref).O.quiet mctx cctx))
+noncomputable def ExpVacStart_real : Prop := ExpVacStart true true
+noncomputable def ExpVacStartMu_pos : Prop := ExpVacStart false true
+noncomputable def ExpVacStartMu_admNeg : Prop := ExpVacStart true false
+noncomputable def ExpVacAdm (neg : Bool) : Prop :=
+  ∀ {mref : Rf1} {cref : Rf2} (mctx : Cx) (cctx : Cc),
+    (if neg then ¬ AdmCtx (Tools.ShippingFGCircuitS3jFinal.vacuousLaws mref cref).O.quiet mctx cctx else AdmCtx (Tools.ShippingFGCircuitS3jFinal.vacuousLaws mref cref).O.quiet mctx cctx)
+noncomputable def ExpVacAdm_real : Prop := ExpVacAdm false
+noncomputable def ExpVacAdmMu_neg : Prop := ExpVacAdm true
+
 /-- the unfolding path of THIS Check: Check48's `norm48` list plus v10 -/
 def unfold50 : List Name := unfold48 ++ [``Tools.ShippingFGCircuitS3jFinal.HftFinalStmtOffCombined10]
 def norm50 (e : Lean.Expr) : MetaM Lean.Expr := do
@@ -325,6 +370,12 @@ run_cmd liftTermElabM do
   -- (B) the new lemmas, each against its expected type and its mutants
   let mut nmL : Nat := 0
   let lemmas : List (Name × String × List String) := [
+    (``Tools.ShippingFGCircuitS3jStart.runsTo_readThe, "ExpReadThe_real", ["ExpReadTheMu_noCtx", "ExpReadTheMu_noWorld", "ExpReadTheMu_wrongWorld"]),
+    (``Tools.ShippingFGCircuitS3jStart.runsTo_readThe_bind, "ExpReadBind_real", ["ExpReadBindMu_otherCtx", "ExpReadBindMu_otherWorld"]),
+    (``Tools.ShippingFGCircuitS3jStart.runsTo_get, "ExpGetRun_real", ["ExpGetRunMu_noVal", "ExpGetRunMu_noWorld", "ExpGetRunMu_valAtEnd"]),
+    (``Tools.ShippingFGCircuitS3jFinal.vacuous_no_hquiet, "ExpVacQuiet_real", ["ExpVacQuietMu_pos"]),
+    (``Tools.ShippingFGCircuitS3jFinal.vacuous_no_start, "ExpVacStart_real", ["ExpVacStartMu_pos", "ExpVacStartMu_admNeg"]),
+    (``Tools.ShippingFGCircuitS3jFinal.vacuous_adm_trivial, "ExpVacAdm_real", ["ExpVacAdmMu_neg"]),
     (``Tools.ShippingFGCircuitS3jStart.pilotEntry3_run, "ExpRun_real", ["ExpRunMu_ctxSome", "ExpRunMu_dep1", "ExpRunMu_startWorld", "ExpRunMu_v8chk", "ExpRunMu_noCtx", "ExpRunMu_noDep", "ExpRunMu_noRun"]),
     (``Tools.ShippingFGCircuitS3jStart.admCtx_of_pilotEntry3, "ExpAdm_real", ["ExpAdmMu_noChecks"]),
     (``Tools.ShippingFGCircuitS3jStart.dv_of_pilotEntry3, "ExpDv_real", ["ExpDvMu_noChecks", "ExpDvMu_dep1", "ExpDvMu_endWorld"]),
