@@ -2029,7 +2029,7 @@ def ProfOffW mref cref w := ∀ mctx cctx, GetEnvProfileAt mctx mref cctx cref w
 
 **量化範囲（S2n 訂正。各仮説ごと）**: `DRowEnvR`/`DiagEnvR` だけが quiet + `ReadsAt e` + `Reached` の world に限られる。`ProfStepR` が要るのは `Reached` + `LeafStep` + `ProfOffW` だけで、quiet も `ReadsAt` も要らない。`ProfOffW` は 1 つの world についてだが、全 `mctx`/`cctx` に対する。`TeleR` は任意の不変条件・任意の継続についての法則である（`quietR` を quiet として持つが、world の範囲は不変条件が決める）。`hadm`/`AdmDownR` は world ではなく callback（文脈）の性質で、他と同じ量化範囲ではない。`Reached` は、許可された任意の葉・文脈・引数（任意の cache 書き込みを含む）についての閉包であり、特定の run の実トレースではない。この過大近似の上で保存を示すのは問題ない。
 
-`DRow` の 13 行と `Diag` の 9 行と telescope の 4 行、profile、文脈は、`CellPrem` からも `Laws` からも導けない（S2d §32.3 と同じ理由。`QuietStrength` の構成は class-D・`diag`・telescope を含まない）。ここで要るのは全 world の frame law ではなく、**root の開始 world から葉の step で到達した quiet な world で、その行が `ReadsAt e` を保つ**という run 局所の事実だけ。不可能とは言わない。
+`DRow` の 13 行と `Diag` の 9 行と telescope の 4 行、profile、文脈は、`CellPrem` からも `Laws` からも導けない（S2d §32.3 と同じ理由。`QuietStrength` の構成は class-D・`diag`・telescope を含まない）。`DRow`/`Diag` の行について要るのは全 world の frame law ではなく、**root の開始 world から葉の step で到達した quiet な world で、その行が `ReadsAt e` を保つ**という run 局所の事実（DRow/Diag に限る。telescope・文脈・profile は別。S2s 訂正）。不可能とは言わない。
 
 ### 39.5 `hftCoreCloses_of_kidsR` の前提リスト
 
@@ -2092,7 +2092,7 @@ def AdmBoth (O) (e) (w₀) (mctx) (cctx) : Prop :=
 def QuietCover (O : RefLawsAOps MkRefd mref cref) (e) (w₀) : Prop :=
   ∀ w, O.quiet w → ReadsAt e cref w ∧ Reached O.quiet mref cref w₀ w
 
-structure OpsB (O) (e) (w₀) : Prop   -- RefLawsAOps の 10 field を quiet := quietR、文脈の前提を AdmBoth にしたもの
+structure OpsB (O) (e) (w₀) : Prop   -- RefLawsAOps の 6 field（diag/frameT/excOk/frameQ/cacheSetQ/depthSetQ）を quiet := quietR、文脈の前提を AdmBoth にしたもの。frame/cacheSet/depthSet は未実装（AdmBoth.plain で O から再利用できるが、この構造体には数えない）
 theorem opsB (hcell : CellPrem MkRefd mref cref) (hD : DRowEnvR O e w₀) (hG : DiagEnvR O e w₀) : OpsB O e w₀      -- hdown なし
 theorem admBoth_of_down (hdown : AdmDownR O e w₀) (h : AdmCtx (quietR …) mctx cctx) : AdmBoth O e w₀ mctx cctx
 
@@ -2113,7 +2113,7 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 | `AdmBoth` | 文脈に持たせる形: 元の `AdmCtx O.quiet` と強めた `AdmCtx (quietR …)` の**両方**（どちらからも他方を導かない） |
 | `admBoth_none`, `admBoth_mkMetaContext` | 確立（root）: `canUnfold? = none`（`mkMetaContext_canUnfold`）の文脈は `AdmBoth` |
 | `AdmBoth.lctx/localInsts/lctx_insts/config/coreCtx` | 保存: 本体の帰納が行う文脈の更新（lctx・localInstances・config・Core 文脈）で `AdmBoth` が保たれる（`admCtx_*` を両成分に） |
-| **`opsB`** | `ropsR` の 10 field を `AdmBoth` 文脈の上で、**`hdown` なしで**導出（元の half を `O` の field に、強めた half は使わない。class-D と診断は名前付き仮説 `hD`, `hG`） |
+| **`opsB`** | `ropsR` の 6 field（diag/frameT/excOk/frameQ/cacheSetQ/depthSetQ。他の 3 field は未実装）を `AdmBoth` 文脈の上で、**`hdown` なしで**導出（元の half を `O` の field に、強めた half は使わない。class-D と診断は名前付き仮説 `hD`, `hG`） |
 | `admBoth_of_down` | `AdmDownR` が入る**唯一**の場所: bundle の文脈（`AdmCtx quietR`）を `AdmBoth` に直す変換 |
 | `QuietCover`, `quietR_eq_of_cover` | 世界レベルの置換: `O.quiet` の world がすべて `e` を読み root から到達している。すると `quietR = O.quiet` |
 | `admDownR_of_cover`, `drowEnvR_of_cover`, `diagEnvR_of_cover`, `teleR_of_cover` | `QuietCover` の下で `AdmDownR`, `DRowEnvR`, `DiagEnvR`, `TeleR`（`L.T` そのもの）は**定理** |
@@ -2134,7 +2134,7 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 - `FGCIRCUIT34 DEFS`: `AdmBoth`・`QuietCover` を独立に書いた文面と照合。**10 mutant 棄却**（片方の half のみ、含意 `AdmDownR` を組の代わりに、選言、別の環境; 到達なし、`ReadsAt` なし、自明な逆向き包含、別の環境、別の world からの到達）。
 - `FGCIRCUIT34 SIGNATURES`: `hftCoreCloses_of_kidsR'`・`hftCoreCloses_of_cover` の完全な型（binder の名前・kind も）。`hftCoreCloses_of_kidsR'` **19 mutant**（各前提の脱落 12、`QuietCover` を到達なし/`ReadsAt` なし/逆向きに 3、profile ON、別の root 環境、root から到達しない world、end world）、`hftCoreCloses_of_cover` **15 mutant**（脱落 8 と同じ対照 7）。binder 名 `mctx mref cctx cref L w hstart hcell lvl hrH hrT hg hadm hcover hD hG hT hs h0`（kidsR'）・`… hg hcover hs h0`（cover）。
 - `FGCIRCUIT34 STEPS`（20 構造検査）: 新しい 2 定理は `AdmDownR`・`MissE` を含まない。`opsB` は `AdmDownR` を含まず `AdmBoth` を使う。`AdmDownR` を取るのは `admBoth_of_down` だけ。
-- `FGCIRCUIT34 REMAINING`（4 行: `hs`, `h0`, `hcover`, 未実施の `AdmBoth` 鎖）、`FGCIRCUIT34 AXIOMS`（18 名、標準 axiom のみ）。
+- `FGCIRCUIT34 REMAINING`（4 行: `hs`, `h0`, `hcover`, 未実施の `AdmBoth` 鎖）、`FGCIRCUIT34 AXIOMS`（報告は18名だが `AdmBoth.cctx` は存在しない名前だった。S2s で `AdmBoth.coreCtx` に直し、存在確認を入れた。§44）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。成果は条件付き。
 
@@ -2305,6 +2305,37 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 
 - 名前付き仮説（未供給）: `hcd`（承認済みブランチでは未導出）、`EnvDefs/EnvCtors/RecFact`（`hftObCDT_Q` では仮定として残る）、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査）。`stopD` の追加（`HShiftLeft.hShiftLeft`/`HAppend.hAppend` が `Sh` で展開されなくなった）も監査対象。
 - 次（reviewer 判断）: `Signal (BitVec n) ||| Signal (BitVec n)`（§43.3）を許すか。許されれば副ブランチの `sigOrBV`（第 2 型引数を無制約にした実験版）を、第 2 型引数の束縛つきの規則に直し、`dt_fun` と Check を足して承認済みブランチに入れる。
+
+## 44. S2s/S2s3（Issue `sparkle-fg-circuit-pilot`）: 文脈述語を quiet から分離した版（reviewer 裁定 (b)）— 依存経路に沿った限定的な移植。ここまでの到達点
+
+土台 `81c7bea0`（par/fgc-s1）。追加ファイルは `Tools/ShippingFGCircuitS2sAdm*.lean` と `Tests/Gen5/FGCircuitPilotCheck39.lean`。既存の定理・ファイルは書き換えていない（新しい law・axiom・TRUSTED・sorry・native_decide はない）。Issue の状態は変えていない。**S2s5 で目標 `hftCoreCloses_of_kidsR''`（`hdown` なし、`hadm` なし）を述べて証明した（下記 44.6）。** 残る名前付き前提 `hD hG hT hs h0` は未供給のままで、成果は条件付きで台帳に数えない。
+
+### 44.1 設計
+- `RefLawsAOpsX` / `RefLawsATeleX quiet adm` / `CtxClosed adm`（`S2sAdmChildInvA`）: 文脈の述語 `adm` を bundle が持ち、本体が行う文脈の更新（lctx・localInstances・config・Core 文脈・`canUnfold?` を保つ `withReader`）で閉じる。既存の bundle はその特殊化（`RefLawsAOps.toX`, `RefLawsATele.toX`: `adm := AdmCtx quiet`）。
+- 移植はリネームのみ（名前に接尾辞 `X`、`AdmCtx O.quiet` → `O.adm`、マクロ名にも接尾辞）。`withReader` の補題は `CtxClosed.canUnfold` を使う形に一般化（TeleLocalA のみ手書きの差分）。
+
+### 44.2 ビルド済み（各ステップで commit、`kjob lake build` exit 0）
+S2s の手順 1〜14（Check34/docs 修正、`RefLawsAOpsX/ATeleX`、VCA・CacheA(RealChildA)・VertA・PathA・TranslateA・FallbackA・CanonKeyA・LegacyCachedA・WalkA・TeleCP・FrontA・TranslatePathA・ProjFieldA・LegacyHelpersA・LegacyHandlersA・LegacyImplA・DepthA・FrontCP、KWalk）に加え、S2s3 で:
+- 15: `ChildLegacyTailA`（`legacyTailA_genericX`, `legacyTailA_of_stepX`）。draft は修正なしでビルドが通った。
+- 16〜: `ChildComposeA`, `ChildMainA`（`core_tripleA_mainX`）, `ChildTeleLocalA`, `ChildCacheA` の**全体**（これまでは `RealChildAX` のみで `JQC`・`EQC`・`synthesizeChild_tripleC`・`closeInstsM_realA` が未移植だった）, `ChildCoreC`, `ChildRunA`, `ChildDepthC`, `ChildRunAKids`, `ChildComposeC`, `ChildRunAMain`, `ChildTeleMainA`。`FrontCP` に `childEntryA_JQC_of_childSynthAX` を追加。
+標準 axiom のみ（各ファイル末尾の `#print axioms`）。
+
+### 44.3 移植済み（S2s4/S2s5）と、まだ移植していないもの
+- S2s4: `S2sAdmS2hHist2` を再生成（sorry なし）。`LawsX`/`StartX`（`O : RefLawsAOpsX`, `T : RefLawsATeleX O.quiet O.adm`, `StartX := O.adm ∧ JQCX O 0 w`）、`RunReads`、`ServedRealA`、`RunLocal`、`Linked`（選択的移植: `RefLawsAOps`/`AdmCtx`/`Laws`/… に触れる宣言と移植済み名に触れる宣言だけを接尾辞 `X` で移植し、残りは import した原本を使う。スクリプト `scripts/s2s_port2.py`）。
+- S2s5（すべて `kjob lake build` exit 0、sorry なし）: `ChildPinC`（self-import とマクロ `pssetX` の見出し欠落を修正）、`CallsCloseA`、`CallsGateA`、`CallsGatePin`、`CallsGatePinned`、`ParentRanA`、`ParentTailsA`、`ParentDesignA`、`S1qLinked`（`coreHeadOff_jqcA`）、`S1tFinal`、`S1uSrc`、`S1zClose`（`synth_hftPcieOutByte_finalOffLNLX`）、`S2dKids`（`machineChild_ifaceKX`, `hftCoreCloses_of_kidsKX`）、`S2hHist3`（`hftCoreCloses_of_kidsHX`）、`S2mReach`（手書き: `LeafStepX`/`ReachedX`/`quietRX` が `adm` を持ち、`ropsRX` は `O.adm` を保つ。`AdmDownR` は不要になり削除）、`S2mReach2`（`JQHRX`, `jqhr_headX`）、`S2mReach3`（`hftCoreCloses_of_kidsRX`）、`S2nAdm`（下記 44.6）。`scripts/s2s_step.sh` と `scripts/s2s_late.txt` が移植順の記録。
+- 未移植: `ImplCorA`、`LinkA`、`LoopsCP`（経路上のどのファイルも import しない）。`Bridge`・`EntryReadsLinked` は原本のまま使い、`RealChildAX` 等は移植済みの版を参照する。
+- 名前付きのまま未供給: `DRowEnvRX`、`DiagEnvRX`、`TeleRX`（テレスコープ族 `RefLawsATeleX` が追加された境界）、`ProfStepRX`、`ProfOffW`。
+
+### 44.4 Check39（`kjob lake build Tests.Gen5.FGCircuitPilotCheck39`）
+Check33 と同一の比較関数 `cmp`（肯定と全 mutant で同じ）。SIGNATURE: `core_tripleA_mainX` の完全な型（binder 名 `mctx mref cctx cref O hA T declName`）を独立に書いた文面と照合、6 mutant 棄却（`AdmCtx` の文脈、旧 telescope bundle、telescope 前提なし、exception 事実なし、事前条件自明、事後条件自明）。STEPS: 移植済み 7 定理の型は `RefLawsAOpsX` を含み `AdmCtx`・旧 `RefLawsAOps`/`RefLawsATele` を含まない（対照: 元の定理は含む、`RefLawsAOps.toX` は `adm := AdmCtx quiet`）。**構造検査は型の表面の定数だけで、証明の閉包ではない。** AXIOMS: 7 名、`contains` で存在を確かめてから `collectAxioms`（存在しない名前を検査済みと報告しない）。REMAINING: 上記の未移植リスト。
+
+### 44.6 目標 `hftCoreCloses_of_kidsR''`（S2s5）
+`Tools/ShippingFGCircuitS2sAdmS2nAdm.lean`:
+- `hftCoreCloses_of_kidsR'' (L : LawsX mref cref) (hstart : StartX L mctx cctx w) (hcell) (hrH hrT hg) (hD : DRowEnvRX L.O …) (hG : DiagEnvRX L.O …) (hT : TeleRX L.O …) (hs : ProfStepRX L.O w) (h0 : ProfOffW mref cref w) : HftCoreCloses mctx mref cctx cref w`。S2m の `hftCoreCloses_of_kidsR` から `hdown` を除き、`hadm` は `hstart.1`（`L.O.adm mctx cctx`）になった。理由: 文脈の述語 `L.O.adm` は bundle の欄で、文脈の更新で閉じている（`CtxClosed`）ので、強化した quiet 述語 `quietRX` の bundle `ropsRX` は `adm := O.adm` をそのまま使え、`quietR` の文脈から `O.quiet` の文脈への変換（`AdmDownR`）が要らない。
+- root の `mkMetaContext` の証拠と実際の run の文脈の結合: `AdmRootX O := ∀ cctx, O.adm mkMetaContext cctx`。既存の bundle の特殊化では `admRootX_toX`（`mkMetaContext_canUnfold` から証明）、一般の bundle では `admRootX_of_none`（`canUnfold? = none` の文脈をすべて許す `adm`）。`startX_of_root` が `StartX L mkMetaContext cctx w` を `AdmRootX` と深さ 0 のキャッシュ不変式から作り、`hftCoreCloses_of_root` は文脈を実際の root 文脈 `mkMetaContext` に固定した版。
+- 標準 axiom のみ（`#print axioms`）。
+- Check39 を拡張: 目標の完全な型を独立に書いた文面と同じ比較関数で照合し、mutant 5 件を棄却（開始条件なし・telescope 前提なし・profile 前提 `h0` なし・結論自明・kids の gates なし）。型が `LawsX` を含み `AdmDownR`・`AdmCtx` を含まないこと（対照: S2m の原本は `AdmDownR` を含む）、path 上の 13 名の axiom（存在確認後に `collectAxioms`）。構造検査は型の表面だけで、証明の閉包ではない。
+- 今後: `hD hG hT hs h0` の供給（`DRowEnvRX`/`DiagEnvRX` は run-local の事実、`TeleRX` は `RefLawsATeleX` の強化 quiet 版）。
 
 ## 45. S2t（Issue `sparkle-fg-circuit-pilot` の次の束）: 証拠付き `sigOrBV`、`dt_fun` の再証明、Check40、根 `hftObCDT` の再導出と同期測定
 
@@ -2577,3 +2608,4 @@ build の所要: Elab 変更後の依存全体の再 build（Check45 の前段�
 ### 50.7 範囲
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。台帳の減算は reviewer が決める。
 - `hreadH` / `hreadT` は上のとおり未供給。残る義務: `hreadH hreadT hadm hdown hD hG hT hs h0`、`hchk`、`CellPrem`、`Laws/Start/hr`。
+

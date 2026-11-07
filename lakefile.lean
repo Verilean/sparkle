@@ -6482,8 +6482,6 @@ lean_lib «Tools.ShippingFGCircuitS1tFinal» where
 lean_lib «Tests.Gen5.FGCircuitPilotCheck18» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck18]
 
-lean_lib «Tools.ShippingFGCircuitS1uSrc» where
-  roots := #[`Tools.ShippingFGCircuitS1uSrc]
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck19» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck19]
@@ -6494,8 +6492,6 @@ lean_lib «Tools.ShippingFGCircuitS1xNoRaw» where
 lean_lib «Tests.Gen5.FGCircuitPilotCheck20» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck20]
 
-lean_lib «Tools.ShippingFGCircuitS1zClose» where
-  roots := #[`Tools.ShippingFGCircuitS1zClose]
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck23» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck23]
@@ -6689,6 +6685,7 @@ lean_lib «Tests.Gen5.FGCircuitPilotCheck41» where
 
 lean_lib «Tests.Gen5.FGCircuitCmpRegress» where
   roots := #[`Tests.Gen5.FGCircuitCmpRegress]
+
 lean_lib «Tools.ShippingFGCircuitS2vLink» where
   roots := #[`Tools.ShippingFGCircuitS2vLink]
 
@@ -6727,3 +6724,175 @@ lean_lib «Tools.ShippingFGCircuitS3aFinal» where
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck45» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck45]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildInvA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildInvA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildVCA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildVCA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildCacheA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildCacheA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2hHist» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2hHist]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2hHist2» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2hHist2]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildVertA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildVertA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildPathA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildPathA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildTranslateA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildTranslateA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildFallbackA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildFallbackA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmKWalk» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmKWalk]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildCanonKeyA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildCanonKeyA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildLegacyCachedA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildLegacyCachedA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildWalkA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildWalkA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildTeleCP» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildTeleCP]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildFrontA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildFrontA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildTranslatePathA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildTranslatePathA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildProjFieldA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildProjFieldA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildLegacyHelpersA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildLegacyHelpersA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildLegacyHandlersA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildLegacyHandlersA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildLegacyImplA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildLegacyImplA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildDepthA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildDepthA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildFrontCP» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildFrontCP]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildLegacyTailA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildLegacyTailA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildComposeA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildComposeA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildMainA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildMainA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildTeleLocalA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildTeleLocalA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildCoreC» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildCoreC]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildRunA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildRunA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildDepthC» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildDepthC]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildRunAKids» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildRunAKids]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildComposeC» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildComposeC]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildRunAMain» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildRunAMain]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildTeleMainA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildTeleMainA]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck39» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck39]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmLawsX» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmLawsX]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmRunReads» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmRunReads]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmLinked» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmLinked]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmRunLocal» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmRunLocal]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmServedRealA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmServedRealA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2dKids» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2dKids]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmCallsGatePinned» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmCallsGatePinned]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildPinC» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildPinC]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmCallsCloseA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmCallsCloseA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmCallsGateA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmCallsGateA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmCallsGatePin» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmCallsGatePin]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmParentRanA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmParentRanA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmParentTailsA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmParentTailsA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmParentDesignA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmParentDesignA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS1qLinked» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS1qLinked]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS1tFinal» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS1tFinal]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS1uSrc» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS1uSrc]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS1zClose» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS1zClose]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2hHist3» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2hHist3]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2mReach» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2mReach]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2mReach2» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2mReach2]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2mReach3» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2mReach3]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2nAdm» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2nAdm]
+
