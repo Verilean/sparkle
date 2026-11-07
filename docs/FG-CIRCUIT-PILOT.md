@@ -2835,3 +2835,40 @@ S3e 補修（Check47 の実型・`F8_real`・全 mutant を同じ一つの正規
 - 上の「未供給」は調査範囲の記述で、非導出性（供給不能）の証明ではない。
 - よって v10・Check49 はこの時点では作らない（binder を減らす提供物がない。偽の v10 は作らない）。v9 は不変。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 58. S3h（Issue `sparkle-fg-circuit-pilot`）: 案 A（pilot 専用の profile-free 子経路）— 最小の関数境界の調査と停止（実装なし）
+
+土台 `a3e6912d`（= `5e456b5e` + docs §56/§57 訂正の 1 コミット）。`Sparkle/`・`Tools/`・`Tests/` は**変えていない**。新 law・axiom・sorry・native_decide・TRUSTED なし。共有 compiler 変更: **なし**（したがって通常 272/272 の再比較は今回は不要）。v10・Check49 は**作っていない**（偽の v10 は作らない）。
+
+### 58.1 子が pilot の根から呼ばれる経路は 2 本あり、どちらも大域 `IO.Ref sparkleChildSynth` を読む
+1. 機械経路: `synthesizeFromConst`（5368）→ `synthesizeMachineCertified`（5313）→ `closeInstsM`／`closeInstsGM`（5267／5290、`sparkleChildSynth.get`、5270／5293）。
+2. 翻訳器経路: `Rec.synthesizeCombinational`（6422、`childSynthEntry`＝5712 が `sparkleChildSynth.get`）→ `handleDefinitionUnfold`（6491、6507・6559 付近で `isHardwareModule`）と `translateInstanceOrFallback`（8796、`childSynthEntry` を 8802・8820）。呼び出し側は `translateExprToWire env`（8961）の knot の内側で、`Rec.*` の handler 群（8966–9002 のラッパ）が `translateExprToWire` を section variable として受ける（5793）。
+
+どちらの経路も呼ぶ先は `synthesizeChild`（9217）＝ `sparkleChildCache`（名前だけが key。9218）→ `synthesizeCombinational`（profile 版：`CoreWith` 5515 の `IO.getEnv "SPARKLE_PROFILE"`）。
+
+### 58.2 「明示的な child callback」を実装する場合の関数境界（測定）
+- 機械経路だけなら小さい: `closeInstsM`／`closeInstsGM`／`synthesizeMachineCertified`／`synthesizeFromConst` に `synth` 引数を足し、`CoreOffR` の変種から渡す（既存の定義は既定値＝`sparkleChildSynth.get` で不変にできる）。
+- **翻訳器経路は小さくない**: `Rec.synthesizeCombinational`（6422）は `Rec` の section の定義で、callback を渡すには section variable を 1 つ足す（5793）ことになる。使う def は `Rec.synthesizeCombinational` を呼ぶ `handleDefinitionUnfold`（6491）とその呼び出し側の連鎖（`translateExprToWireApp` 6894、`translateExprToWireImpl` 7020、8966–9002 のラッパ、`translateStep`／`translateInstanceOrFallback`）。これらは全て引数が 1 つ増え、定義の形が変わる。`Rec.handleDefinitionUnfold`／`Rec.synthesizeCombinational`／`Rec.translateExprToWireImpl` を参照する `Tools/`・`Tests/` は **54 ファイル**、`sparkleChildSynth`／`synthesizeChild`／`childSynthEntry` を参照する `Tools/` は **146 ファイル**（`grep -l`）。これらの定理の文・`rfl` 等式・`unfold` が影響を受ける。「共有 compiler は小さく」「通常 Off／synthesizeEntry／initialize は不変」の条件のもとで、翻訳器の knot（`translateExprToWire env`）を callback 付きで二重化する案は、`Rec` 全体の複製に近い。
+- 結論: **最小の関数境界は機械経路には切れるが、翻訳器経路には切れていない**。pilot の子は両経路から呼ばれ得る（`childKeepsH` 系は機械経路、`KidEv`／`missRX` は `synthesizeChild` 経由で両方を含む）ので、機械経路だけに callback を渡しても、翻訳器経路の子は profile 版のまま残る。この場合 `h0`／`hs` を外すことはできない。
+
+### 58.3 共有 `IO.Ref` を一時的に set する案（実装していない）— 採るなら証明すべきこと
+callback が翻訳器経路で小さく実現できないため、残る案はこの形になる。reviewer の条件（「そのまま承認するものではない」）のとおり、実装前に義務を書く:
+1. 例外: run が throw したとき `sparkleChildSynth` が元の値へ戻ること（`try … finally`）と、`MetaM` の例外・`catch` 経路（翻訳器の rollback `snapshotWireCaches` は ref を戻さない。5745 付近の注記）。
+2. 再入: 根の run 中に `synthesizeChild` が再入する（深さ ≥ 2）とき、pilot 用の値が子の中でも保たれ、`depth` 復元（`sparkleSynthDepth`）と干渉しないこと。
+3. 並行実行: 別の `#synthesizeVerilog` が並行して走ると ref を読み得る（Lean の `elab` は並行し得る）。この排他を証明するか、並行しない根拠が要る。
+4. 復元: 出口で ref が入口の値に等しい（成功・失敗の両方）。
+5. 読み取り world: `sparkleChildSynth.get` が読む world と、そこに入る関数が `Core` env を変えないこと。Hoare 三つ組の `ReadsAt` に ref の値を追加する必要があり、`CellPrem`／`Fresh` の枠組み（`hcell`）への影響を確かめる。
+6. cache: `sparkleChildCache` は名前だけが key で、通常経路（profile 版）と同じ cache を共有する。pilot の子 entry が新経路の実 run だけから来る（旧 diagnostic 経路の結果が混入しない）ことは、cache の初期値＝`{}`（depth 0 でクリア、9126）と、その間に別の entry が書かないこと（上の 3 と同根）から出す必要がある。
+7. 証明の再接続: 子を変えると `offR_to_off`（`Tools/ShippingFGCircuitS3b2Core.lean`）の「一般の OffR→旧 Off の橋」は使えない。新しい子の入口に対する `KidEv`／`missRX`（S2mReach2:109）・`childKeepsH`・`closeInstsM_runHX`・closing／top／最終 artifact を再接続する（§57.3 の見積り: 十数ファイル）。
+8. `h0`／`hs` が本当に消えるかは、実装後の完全型で判定する（`KidEv` の profile 成分を子の head に付け替えると、別の全称仮説が出る可能性がある。出たらその名前で報告し、`h0`／`hs` の付け替えとは数えない）。
+
+### 58.4 停止の理由と、reviewer に要る判断（実装前）
+- 欠けているもの（正確な文）: 「`Rec.synthesizeCombinational`（6422）が使う子の synthesizer を、`sparkleChildSynth`（大域 ref）ではなく呼び出し側の引数から受け取る」翻訳器 knot の定義と、それを使う `Tools/` の再証明。または 58.3 の 1–6 の義務を全て満たす ref 一時 set の定義と証明。どちらも、現在の「共有 compiler は小さく」の条件の外にある。
+- 選択肢（reviewer が選ぶ）:
+  1. 翻訳器の `Rec` 全体に callback の section variable を足す（共有 compiler の大きな変更、54＋ファイルの再証明、通常 272/272 の再比較）。
+  2. ref 一時 set（58.3 の義務を全て証明。小さな Elab 変更だが並行実行の義務が最も重い）。
+  3. 案 A を採らず、`h0`／`hs` を現行どおり明示の仮説として残す（v9 のまま）。
+- `hD`／`hG`／`hT` は今回も触れていない。`hG` は案 A が通っても解けたと数えない（翻訳器の tick／debug／`ppExpr` が残る）。TRUSTED・解決済み行にはしていない。
+- 追加の実行は不要な調査だった（コードの読み取りと `grep -l` のみ）。ビルド・Check は実行していない（`Sparkle/`・`Tools/`・`Tests/` が不変のため、§56 の記録と Check48 の結果がそのまま適用される）。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。binder の変更なし（v9 の 9 引数のまま）。
