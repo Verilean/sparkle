@@ -2757,6 +2757,9 @@ Check の行から引用:
 - `kjob-run-src-fgc-mg3c-57bc`: exit 0、5606b06a で 1115 jobs、pilot Check 48 本すべて。
 
 ### 55.4 結果（Check の行から）
-RESULTS_PLACEHOLDER
+`kjob lake build Tests.Gen5.FGCircuitPilotCheck47`、exit 0（S3cTop の docstring 変更後の再 build を含む）。Check の行から:
+- `FGCIRCUIT47 SIGNATURES: … equals the independently written Exp8 under ONE criterion (FGCircuitCmp.stmtEq …); 55 mutants rejected`（S3d の 32 から 55 に増加。hT の独立期待型は Check47 内の `ExpTXind`/`ExpQuietX`）。
+- `FGCIRCUIT47 BINDERS`: v6 25 / v7 23 / v7r 22 / v8 20（不変）。
+- `FGCIRCUIT47 AXIOMS: 6 names, standard axioms only`。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。

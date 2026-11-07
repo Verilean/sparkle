@@ -170,11 +170,14 @@ partial def projToX (e : Lean.Expr) : MetaM (Option Lean.Expr) := do
   let sh := s.getAppFn
   let isToX : Bool := match sh with | .const c _ => toXNames.contains c | _ => false
   unless isToX do return none
-  let some s' ← unfoldDefinition? s | return none
+  let s' ← withTransparency .all (whnf s)
+  unless s'.getAppFn.isConst do return none
   let r ← whnfCore (mkAppN (Lean.Expr.proj sName idx s'.headBeta) rest)
   return some r
-def norm47 (e : Lean.Expr) : MetaM Lean.Expr := do
-  let e ← Meta.transform e (post := fun e => do
+def norm47 (e0 : Lean.Expr) : MetaM Lean.Expr := do
+  let mut e := e0
+  for _ in [0:3] do
+   e ← Meta.transform e (post := fun e => do
     let e := e.headBeta
     if let some r ← projToX e then return .visit r
     if let .const c _ := e.getAppFn then
