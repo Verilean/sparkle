@@ -3313,3 +3313,89 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 - Check53（`Tests/Gen5/FGCircuitPilotCheck53.lean`）: (A) 構成した 5 定理の完全な型が独立に書いた型と一致し、mutant 9 件を拒否、(B) 10 の primitive が opaque 定数であり、第 1 field の文・`stderrW`・`StderrKeeps` が定義を辿って到達する opaque 定数の列挙（API の定理は探索しない。「API に定義式がない」「他に opaque はない」は走査の証明内容ではなく、調査範囲で未発見という意味。S3n で、fuel 切れで todo が残れば throwError に修正し、fuel=3 の負対照を追加）、(C) field の数（`CellPrem` 10/16、`RefLawsAOps` 10、`RefLawsATele` 4、`diag` が `quiet` の次）、(D) AXIOMS は標準のみ（9 名）、(E) MetaM の観測（(d)）。
 - 新しい証明範囲の対象（`Tools.ShippingFGCircuitS3mField`、`Tests.Gen5.FGCircuitPilotCheck53`）だけを build した。compiler（`Sparkle/`）は不変で、出力 baseline は再実行していない。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 64. S3n（Issue `sparkle-fg-circuit-pilot`）: Check53 修正（reviewer 修正依頼 1–3）と E1 の最小試作 — 明示状態モデル + 小さな接続（対応仮説は**書き出しただけ**で採用しない）
+
+土台 `cb923479`（S3m）。**変更**: Check53 / `Tools/ShippingFGCircuitS3mField.lean` のコメント・§63 の表現（先に 1 コミット、文は不変）、新規 `Tools/ShippingFGCircuitS3nModel.lean`・`Tools/ShippingFGCircuitS3nBridge.lean`・`Tests/Gen5/FGCircuitPilotCheck54.lean`、lakefile の lean_lib 3 件、本節。`Sparkle/`・v9〜v11・既存の定理の文は**不変**。新 law・axiom・sorry・native_decide・TRUSTED なし。対応仮説は名前付きの Prop（`def`）で、どれも採用していない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。モデル内の証明や対応仮説への置換は台帳の減算ではない。
+
+### 64.0 結果の要約
+
+- **Check53 修正**: `opaquesOf` は fuel 切れで todo が残れば `throwError`（部分結果を返さない）。fuel=3 の負対照を追加。OPAQUE の出力は「定義を辿る走査で調査範囲では定義式が見つからなかった」に限定し、「API に定義式がない」「他に opaque はない」は走査の証明内容にしない（API の定理は走査しない）。OBSERVATION は比較した観測量 3 つ（`cache.size`・`synth.isSome`・`depth`）の一致に限定（関数値・cache 全構造は比較していない。cache=0 なら空）。`stderrKeeps_of_id` は world 全体の同一性という強い十分条件で「最小」ではない、`diag_stderr_at_depth0` は `O.quiet w ↔ dv w = 0` と depth=0 を**仮定した**含意で非空虚な quiet の構成でも同値の証明でもない、`quiet = (dv = 0)` が `depthSetQ` による任意 depth への更新を保てるかも必要で `Laws` の具体候補として確立したとは書かない、相異なる 2 点は「調査範囲で未供給」（構成不能と断言しない）、`cellPrem_false_of_subsingleton` は条件付き反駁、とコメントと §63 を直した。
+- **E1 モデル**（`Tools/ShippingFGCircuitS3nModel.lean`）: 既存 `ShippingHeapModel` を再利用して、診断出力 + 環境変数の成分、`getStderr`/`getEnv`/`eprintln`、`mref`/`cref`/side の別位置、具体初期状態、非 `False` の quiet、成功実行を**モデルの定理**として証明した。
+- **接続**（`Tools/ShippingFGCircuitS3nBridge.lean`）: `Rel`、leaf ごとの対応仮説（`GetCorr`/`SetCorr`/`StderrCorr`/`EnvCorr`）、初期対応 `InitCorr` を書き出し、**向きは「実 run 成功 → 対応するモデル run 成功（同じ返却値・関連する終了状態）」**。仮説の下で `pure`・`bind` の合成と get/set/getStderr の小さな合成 `bridge_small` を証明した。最終結論を仮定する橋ではない。
+- これらは新モデルと対応仮説についての定理であり、既存の opaque な型の `CellPrem` / `Laws` そのものを得たとは呼ばない。`CellPrem`・`Laws`・v11 の前提は 1 つも減っていない。
+
+### 64.1 `ShippingHeapModel` を再利用するか — 再利用した（理由と限界）
+
+再利用した理由: (i) 追跡 3 cell（cache・synth・depth）が型付き `Ref`（`Ref.cache : Ref σ σ.C` 等）で、side cell `other n` と別の構成子（`hget`/`hset` の `get_set_same`・`get_set_other` が既に証明済）。(ii) `M σ α`（状態関数 + 例外）、`bindM`、`RunsTo`、`endW`、`cv/sv/dv` が実側の `RunsTo`/`endW`/`cv/sv/dv` と同じ形。(iii) 診断環境 `reg : σ.P` が既にある。(iv) `Sig` が内容型に対して一般なので、接続側では `C := Std.HashMap Name Res`、`S := Option (Name → MetaM Res)` と**実の型そのもの**を入れられ、`Rel` を抽象関数でなく**等式**にできる（抽象化が単射でない問題を避ける）。
+
+追加したもの: `P := DiagEnv`（出力の行リスト `stderr` と環境変数の連想リスト `env`）、`mref = other 0`・`cref = other 1`・side `= other 2` の別位置、`getStderrM`（ストリーム値は**モデル化せず** `Unit`）・`getEnvM`・`eprintlnM`、quiet `quietM h := (環境に SPARKLE_DEBUG が無い)`。
+
+限界（正直に）: 既存 `Sig` の `O` は 1 つなので、`mref`/`cref`/side の 3 位置は**同じ型 `Nat`**（位置は別だが型では区別されない。追跡 3 ref は `C`/`S`/`Nat` で型付き）。実の `Meta.State`/`Core.State` の中身はモデル化していない。
+
+### 64.2 モデル内で証明したこと（`Tools.ShippingFGCircuitS3n`）
+
+- 読戻し・非干渉: `readback_depth/cache/mref`、`set_mref_frame`（`mref` の write は `cref`・side・追跡 3 cell を変えない）、`set_depth_frame`（depth の write は cache・synth・`mref`・`cref` を変えない）。
+- 診断 leaf は追跡 heap を保つ: `getStderr_keeps`（終了 heap が同一）、`getEnv_keeps`（同一 heap + 返値は環境の lookup）、`eprintln_keeps`（追跡 3 cell・他 cell・環境・quiet を保ち、出力成分だけ末尾に 1 行増える）。
+- 具体初期状態 `s0`（cache `[10]`、synth `some 7`、depth 0、環境は `HOME` のみ）。`quiet_s0 : quietM s0`、`quiet_fails_sLoud : ¬ quietM sLoud`（`SPARKLE_DEBUG` を設定した状態）、`quiet_nonconst`（quiet は `False` でも `True` でもない）。`heapLaws_with_quietM`: 既存の ref のみの `HeapLaws`（モデル上のもの。`RefLawsCore` ではない）が**この quiet で**充足される。
+- 成功実行 `exec_ok`: `prog`（depth の get/set、cache の get/set、getStderr、`mref` の set、`getEnv "HOME"`、`eprintln "done"`）が `s0` から `(0, some "/root")` を返し、終了状態は depth 1、cache `[20, 10]`、synth `some 7`、`mref` 5、`cref` 0、出力 `["done"]`、quiet 保持。kernel の `rfl`/`decide`（閉じたデータ）で確認、native_decide なし。
+
+### 64.3 接続: `Rel` と対応仮説（書き出した文。採用していない）
+
+実側は `Void IO.RealWorld` の世界と `mctx mref cctx cref` の下の `RunsTo`、モデル側は `Heap realSig`（`realSig := sigOf (Std.HashMap Name Res) (Option (Name → MetaM Res))`）。
+
+```
+Rel h w            := cv w = h.cache ∧ sv w = h.synth ∧ dv w = h.depth
+Corr … RA m p      := ∀ w w' h a, Rel h w → RunsTo m mctx mref cctx cref w a w' →
+                        ∃ b h', RunsTo(model) p h b h' ∧ RA a b ∧ Rel h' w'
+GetCorr r rm       := Corr … (· = ·) (ST.Ref.get r : MetaM σ) (getM rm)
+SetCorr r rm       := ∀ v, Corr … (· = ·) (ST.Ref.set r v : MetaM Unit) (setM rm v)
+StderrCorr         := Corr … (fun _ _ => True) (liftM IO.getStderr : MetaM IO.FS.Stream) getStderrM
+EnvCorr k          := Corr … (· = ·) (liftM (IO.getEnv k) : MetaM (Option String)) (getEnvM k)
+InitCorr w0        := ∃ h0, Rel h0 w0 ∧ quietM h0
+```
+
+- **向き**: 実 run の成功 → モデル run の成功（返却値は `RA`、`get`/`set`/`getEnv` は等しい、`getStderr` はストリーム値を比較しない）。モデル → `RunsTo` の向きは **mutant として Check54 が拒否**する。
+- **結果・エラー・終了状態**: 結果は `RA`、終了状態は `Rel h' w'`。エラー: `get`/`set` は `ST`（実 run が必ず成功: `refGet_runs`/`refSet_runs`）、`getStderr` は `BaseIO`（`runsTo_getStderr`、本節で証明）で、モデル leaf も `.error` を返さないため、この範囲ではエラーの対応は空（`throwError`/例外は**未モデル化**、§64.5）。`IO.getEnv` は `BaseIO` と見ているが、`EnvCorr` を使う橋の証明は書いていない。
+- `Rel` は追跡 3 ref の中身だけを関係づける。`mref`/`cref`/side ref・診断出力・環境は `Rel` に入っていない（実側に対応する Lean の項がない）。`StderrCorr`/`EnvCorr` の仮説は「モデルの環境成分が実プロセスの環境である」ことを含む。
+- いずれの仮説も `realProg`・`modelProg`・`pilotEntry3`・`Laws`・`CellPrem`・v11 の結論を含まない（Check54 (D) が定義の使用定数を検査）。
+
+### 64.4 橋の補題（仮説の下で証明）と、v11 のどの前提へ渡せるか
+
+証明した補題: `runsTo_set`、`runsTo_getStderr`（実の leaf の走行）、`corr_pure`、`corr_bind`（部分の対応が合成される。継続の対応は関連する中間値の組ごと）、`bridge_small`（`get depth; set depth (d+1); getStderr; pure d` について `GetCorr depth`・`SetCorr depth`・`StderrCorr` の下で、実 run の成功 → モデル run の成功・**同じ返却値**・`Rel`）、`modelProg_spec`、`real_small_consequence`（実 run の返値は開始 depth、終了 depth は +1、cache と synth は不変 — モデルを通して得た実 run の帰結）、`stderrKeeps_of_corr`。
+
+- **逆向きの含意（`CellPrem` の field ⇒ 対応仮説）**: `getCorr_of_readWorld`・`getCorr_depth`（`ReadWorld r` から `GetCorr`）、`setCorr_depth`（`SetGet`・`SetFrame`×2・ref の不等 2 つから `SetCorr`）。つまり対応仮説は `CellPrem` の field より**弱い**（`Rel` の像の上の値の文）。逆に `GetCorr` から `ReadWorld r`（`∀ w, getW r w = w`）は出ない: `Rel` は世界を決めず、`w' = w` を言わない。
+- **渡せるもの（1 つ）**: `Laws.diag` の `Diag.ioGetStderr` の事例が要求する `StderrKeeps` を、`Rel` から作る quiet `quietR w := ∃ h, Rel h w ∧ quietM h` について、`StderrCorr` の下で（`stderrKeeps_of_corr`）。これは §63 で抽出した `diag` からの**必要条件 1 つ**を、この quiet について対応仮説に置き換えたもので、`StderrCorr` を供給したことにはならない。
+- **渡せないもの**: (a) `CellPrem` の field の本体: `ReadWorld`/`SetFrame`/`SetGet` は**全ての world**に対する世界の等式を言うが、橋は `Rel` の像だけの値の文しか与えない（v11 の `hcell` を `Rel` の像の上に狭められる保証は今ない）。ref の不等 `r.ref ≠ cref.ref` も出ない。(b) `Laws.O.diag` 全体・他の 8 つの `Laws.O` field・`T` の 4 行。`stderrKeeps_of_corr` は `L.O.quiet := quietR` となる `Laws` を作らない（その `L` を作るには全 field が要る）。(c) `hr`（`pilotEntry3` の実 run）: 橋は run の各 leaf のモデル化を要し、`pilotEntry3` 全体のモデル run は未構成。(d) `hquiet`・`hsynth`・`hD`・`hG`・`hT`(TeleRX)・`hs`・`h0`: 触れていない。
+
+### 64.5 未モデル化の一覧（抽象 handler 仮説に隠さず、`Laws` 完成とも言わない）
+
+`Laws` / `CellPrem` のうち、このモデルと橋が**扱っていない**もの:
+
+1. `SideRef`（24）の get/set/modify/modifyGet: モデルには `other n` の get/set/modify があるが、実の side ref との `Rel`・`Corr` は無い。
+2. 新しい ref（`IO.mkRef` と `Fresh`）: モデルに `alloc` はあるが、実の `mkRef` との対応は無い。
+3. 例外: `Throws`（`throwError` の 2 構成子）、`frameT`、`excOk`（`OkExc`・`OkEnv`・`OkMsg`）。モデルの `throwM` は橋に入れていない。
+4. Meta 操作: `whnf`、`inferType`、`getConstInfo`、`getEnv`（Meta）、`readThe`、`ppExpr` 等の `Framed` の Meta primitive 構成子。
+5. `Diag` の他の構成子: `profLog`、`ppExpr`、`ioEprintln`（モデルの `eprintlnM` はあるが `Corr` 仮説と橋は無い）、`msgToString`（`OkMsg`）、`stderrFlush`、`ioHandleMk/PutStrLn/Flush`。`IO.getStderr` はストリーム値を比較していない。`ioEnv`（`EnvCorr` は書いたが橋は未証明）。
+6. `RefLawsATele` の 4 行: `telescope`、`lamTelescope`、`localDecl`、`letDecl`。
+7. `Laws.O` の field のうち `frameQ`、`cacheSetQ`、`depthSetQ`、`frame`、`cacheSet`、`depthSet` の**実 world 上の文**。モデル上の ref のみの対応物 `HeapLaws` は既存だが、実の文の充足ではない。cache・synth の `SetCorr`（depth と同じ証明で書けるが書いていない）。
+8. `mref`/`cref`（`ST.Ref` の `Meta.State`/`Core.State`）の実との対応と、`CellPrem` の `ReadWorld mref`・`SetFrame mref cref`・`mref.ref ≠ cref.ref`・`ReadWorld cref`・`SetGet cref`。
+9. `modify`/`modifyGet` の leaf（モデルに `modifyM` があるが橋は無い）、`if`/`try-finally`/`for` 等の結合子の `Corr` 補題（`pure`・`bind` のみ証明）。
+10. 開始 world `w0` の実在（`InitCorr` は仮説）と、`hr` を `pilotEntry3` のモデル run に落とすこと。fuel・`partial` ハンドラ。
+
+### 64.6 検査（Check54、Check 自身の出力から）と build
+
+- `Tests/Gen5/FGCircuitPilotCheck54.lean`: `FGCIRCUIT54 SIGNATURES: 11 theorems (…) equal their independently written types, 20 mutants rejected (…the bridge in the WRONG direction (model success -> real success), a vacuous return relation, a dropped StderrCorr hypothesis, an unrelated end state, …); Rel and Corr unfold to the independent spellings (Iff.rfl)`。`FGCIRCUIT54 EXEC`（`s0` で quiet が成り立ち `sLoud` で失敗、`prog` の成功実行）。`FGCIRCUIT54 NEGATIVE`（wrong ref、失敗する quiet、write leaf は追跡 depth を変える）。`FGCIRCUIT54 HYPS: 8 correspondence definitions … none mentions realProg, modelProg, … pilotEntry3, Laws, CellPrem or a v11 conclusion`。`FGCIRCUIT54 AXIOMS: 24 names, standard axioms only ([Quot.sound, Classical.choice, propext]); no sorryAx, no native_decide`。
+- Check53 再 build: `FGCIRCUIT53 SIGNATURES: 5 constructed theorems … 9 mutants rejected`、`FGCIRCUIT53 OPAQUE: … the scan with fuel 3 throws (negative control), the scans below finish with an empty todo …`、`FGCIRCUIT53 AXIOMS: 9 names, standard axioms only`。
+- 新しい対象（`Tools.ShippingFGCircuitS3nModel`、`Tools.ShippingFGCircuitS3nBridge`、`Tests.Gen5.FGCircuitPilotCheck54`、再 build した `Tests.Gen5.FGCircuitPilotCheck53`）だけを build した。compiler は不変。
+
+### 64.7 費用の見積りと、残る対応の境界（reviewer の判断用。全体の移植の前）
+
+**見積り（粗い）**: 本節の小接続は約 300 行（モデル約 150、橋約 200）。`Laws`/`CellPrem` の全体を同じ形で移植すると、未モデル化一覧の項目ごとに leaf 1 つあたり `Corr` 仮説 + 橋補題が 30〜60 行（`SideRef` 24、`Diag` 残り 8、Meta primitive 十数個、telescope 4、例外、`mkRef`、`modify`）で、合計 2,500〜4,000 行、加えて `pilotEntry3` の run 全体をモデル run へ落とす結合子（`ite`・`try-finally`・`for`・`match`）の `Corr` 補題と、v11 の `hr`/`hcell`/`hquiet` を `Rel` の像に狭める v12 の再定式化が必要。主要なリスクは量よりも、`Rel` の像に狭めた v11 前提が成り立つかどうかが未確認なこと。
+
+**残る対応の境界**（このまま全体を移植しても残る。上の定義の文のとおり）:
+- leaf ごとの `GetCorr`/`SetCorr`（追跡 3 ref、side ref、`mref`/`cref`、fresh ref）、`StderrCorr`、`EnvCorr`、（未定義の）例外・Meta primitive・Handle・telescope の `Corr`。いずれも**実の opaque primitive**（`ST.Prim.Ref.get/set`、`IO.getStderr`、`IO.getEnv`）についての文で、モデルでは証明されない。`getCorr_of_readWorld`/`setCorr_depth` が示すように、これらは `CellPrem` の field から導けるほど弱いが、`CellPrem` を供給するものではない。
+- `InitCorr`: `hr` の開始 world がモデルの具体初期状態に `Rel` で対応すること。
+- 結論: E1 は `Laws`/`CellPrem` の未供給を**消さず**、「全 world についての世界の等式」を「`Rel` の像の上の leaf ごとの値の文」へ**言い換える**。この言い換えが新 TRUSTED の候補としてレビュー可能な小ささに収まるかどうかが、全体の移植の費用対効果の判断点（新 TRUSTED の採用はしていない。具体的な残余対応文が出た後の判断）。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
