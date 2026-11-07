@@ -2800,3 +2800,37 @@ S3e 補修（Check47 の実型・`F8_real`・全 mutant を同じ一つの正規
 - 出力 baseline（全体）は coder が merge 後に実行する（agent 時点では未実施）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。引数の変更（v8 11 → v9 9）は別記録で、台帳の増減には数えない。reviewer の判断を待つ。
+
+
+## 57. S3g（Issue `sparkle-fg-circuit-pilot`）: 残り仮説 `hD / hG / hT / hs / h0` の監査 — 実際の Off run のどの操作を拘束するか、供給の可否（証明前の記録）
+
+土台 `c135f714`。`Sparkle/` は変えていない。新 law・axiom・sorry・native_decide・TRUSTED なし。この節は**監査だけ**で、v10 は作っていない（§57.4 の判定: 定理または Tools 側検査で供給できる項目がなかった）。コンパイラ変更が要る項目は §57.3 に記述し、変更はしていない（reviewer の判断待ち）。
+
+### 57.1 前提: 「Off run」とは何を実行するか（Elab.lean の行）
+- 根 run: `synthesizeCombinationalCoreOffR`（9096–9172、`pilotReaderOk2` を `readerOk` に渡す）。本体は `synthesizeFromConst … (fun _ => pure ())`（9158 付近。`logProf := fun _ => pure ()`）。**根の `profLog` は構文上存在しない**（Off では `emitLeaves`/`synthesizeFromConst` の `logProf` 呼び出し 2167, 2175, 5375–5459 は全て `pure ()`）。根の head に `IO.getEnv "SPARKLE_PROFILE"` はない（`coreHeadOff`）。
+- **子**は `sparkleChildSynth`（1042, 5270, 5293, 5712）経由で `synthesizeChild`（9210 付近）→ **`synthesizeCombinational`（profile 版）**→ `synthesizeCombinationalCoreWith`。ここは **Off ではない**: 先頭（5515）で `profile := (← IO.getEnv "SPARKLE_PROFILE").isSome` を**実行**し、`logProf`（5516–5522: `IO.eprintln`、`flushStderr`、`IO.FS.Handle.mk "/tmp/sparkle-profile.log"`、`putStrLn`、`flush`）は `profile = true` のときだけ動く。5523 の `logProf "entering"` と 5375–5459, 2167–2175 の呼び出しは `profile = false` では no-op。
+- 翻訳器 `translateExprToWire`（根も子も共通で実行）: 7028（`SPARKLE_TRANSLATE_LIMIT` の `IO.getEnv`）、7040–7066（`callN % 10000 == 0` で `SPARKLE_PROFILE` を `IO.getEnv`、設定時のみ `IO.eprintln`/`flushStderr`/`Handle.mk`/`putStrLn`/`flush`）、6286（`SPARKLE_NO_LOOPCACHE`）、6505–6515（`SPARKLE_DEBUG_HWCALL` を `IO.getEnv`、設定時のみ `IO.eprintln` + `flushStderr`）。`ppExpr` は 683/688/717/5799/7456（直後に `throwError`、エラー経路）と 7115（`try ppExpr ty catch`、fvar の zeta 不成立の分岐。**成功 run で通らないとは言えない**）。`trace[sparkle.compiler]` は多数（6〜6700 台）。
+- 後処理の `IO.getEnv "SPARKLE_NO_REGDEDUP"`（5692, 9189）は run の外（core の後）。
+
+### 57.2 監査表
+範囲の注意: `h0` は**根の開始世界 1 つ**での事実、`hs` は**到達世界から葉ステップ 1 つ**ごと、`hD`/`hG` は**到達世界×admissible 文脈×その族の全操作**、`hT` は**テレスコープ 4 行の継続則**（不変量 `I`・継続 `k` に全称）。混ぜない。
+
+| | (a) 命題 | (b) 使う操作（Off run）と証明段 | (c) Off run に操作は存在するか | (d) 候補供給 |
+|---|---|---|---|---|
+| **h0** | `ProfOffW mref cref w`（S2mReach.lean:57）= `∀ mctx cctx, GetEnvProfileAt mctx mref cctx cref w`: 世界 `w`（根の開始世界 `w₀`）から `IO.getEnv "SPARKLE_PROFILE"` を走らせると `none` を返し Core env を変えない | **子 head の 5515 の lookup**（`synthesizeCombinational` 経由）。証明: `profOffW_of_reachedX`（S2mReach2:82）の `start` → `missRX`（S2mReach2:109, `KidEv` の profile 成分）→ `synthesizeChild_tripleH'X`（`jqhr_synthesizeChildX`, S2mReach3:126）。根自身の head は使わない（`coreHeadOff`）。 | **lookup は存在する**（子ごと、深さ ≥ 1 の各 miss）。`profile` が真のときのログ枝だけが存在しない（定義上 `headAt_of_profileOff` がその枝を `if_neg` で消す）。つまり h0 は「実行されない経路」ではなく「実行される lookup が `none` を返す」事実 | **なし（実境界）**。`IO.getEnv` は `@[extern] opaque`、`Void IO.RealWorld` に環境変数の意味論はなく、定理は書けない。Tools 側検査は `Environment → Name → Bool` の純関数で、プロセス環境は見えない。IO で入口が検査しても、世界 `w₀` の `GetEnvProfileAt` との橋は新しい法則になる（禁止）。コンパイラ変更なら §57.3 案 A |
+| **hs** | `ProfStepRX O w₀`（S2mReach.lean:129）: `ReachedX` な `w` から葉ステップ `w → w'`（`LeafStepX`: framed / diag / throws / cacheSet / depthSet）で `ProfOffW w → ProfOffW w'` | `profOffW_of_reachedX` の `step`。上と同じ `missRX` 以降 | h0 と同じ lookup が使う。葉ステップ自体は全ステップ（`ioEprintln`/`Handle.mk`/`setStderr` 系の Diag を含む）が存在 | **なし（実境界）**。葉ステップが環境変数を書かないことは、各操作（`IO.FS.Stream` のクロージャ、`Handle.mk` ほか）に世界の意味論を与える話で、`hG` と同じ根。Diag の族が閉じていること（`Diag` は `ioEprintln s` などを任意 `s` で許す）は型として分かるが、それは `ProfOffW` の保存を与えない。§57.3 案 A が入れば子 head の lookup が消え、`h0`/`hs` は**この経路では**不要（翻訳器 7040 の lookup は `DRow.ioEnv`（hD）で扱われ、`ProfOffW` は使われていない） |
+| **hG** | `DiagEnvRX O e w₀`（S2mReach.lean:118）: `∀ mctx cctx p, adm → Diag p → ∀ w, quiet ∧ ReadsAt e ∧ ReachedX → ReadsAt e (endW … p w)` | `ropsRX.diag`（S2mReach.lean、`ropsRX` の `diag` フィールド）→ 以降の全 `childKeepsH_all_of_teleX`/`closeInstsM_runHX`。 | **Off run に診断の操作は存在し得る**: ① 子 head の `logProf`（5516–5522, `profile` 真のみ）、② 7040–7066 の tick（`SPARKLE_PROFILE` 設定時のみ）、③ 6509–6515（`SPARKLE_DEBUG_HWCALL` 設定時のみ。**別の変数で、`h0` は何も言わない**）、④ `ppExpr`（上記）。`hG` は「設定されているときのログ枝」を含む全称なので、`h0` があっても `hG` は定理にならない（`Diag` は `ioEprintln s` を任意 `s`・任意 stderr で許し、S1o の裁定どおり `setStderr` 済みの stream の `putStr` が cache を書き得る） | **なし（実境界）**。小さな実装変更でも消えない（③ は `SPARKLE_DEBUG_HWCALL` を読む別枝で、Off 入口が固定する `profile := false` の外。消すにはこの枝の除去 or Off の翻訳器の複製が要り、小さくない）。§57.3 案 B に記述 |
+| **hD** | `DRowEnvRX O e w₀`（S2mReach.lean:112）: 上と同形で `DRow p`（`ioEnv n`/`monoMs`/`mkExprCache`/`localMk`/`whnf`/`inferType`/`isClass?`/`whnfUntil`/`instantiateForall`/`mkLambdaFVars`/`mkAppM`/`unfoldDefinition?`/`reduce`） | `ropsRX.frameQ` の `DRow` 分岐（`by_cases hnd : DRow p`） | 存在する（翻訳器全体が `whnf`/`inferType` 等を呼ぶ。`ioEnv` は 6286/6509/7028/7040 ほか） | **なし（実境界）**。`whnf`/`inferType`/`reduce` が Core env を保つことは `Lean.Meta` の実装の定理（opaque/partial を含む）で、小さくない。`ioEnv`/`monoMs` は IO extern（世界の意味論なし）。`mkExprCache`/`localMk` は新規 ref の確保で、`CellPrem` の `Fresh` 成分から原理的には出るが、`hD` を族ごとに分割する別の型（v10 の binder 変更）が要り、残りの行（`ioEnv`/`monoMs`/Meta 系）が `hD` に残るので**減る個数は 0**（binder は同じ名前のまま狭まるだけ）。今回は行わない |
+| **hT** | `TeleRX O e w₀ := RefLawsATeleX (quietRX …) O.adm mref cref`（S2mReach.lean:123）: `forallTelescopeReducing`/`lambdaTelescope`/`withLocalDeclD`/`withLetDecl` の継続則。不変量 `I` と継続 `k` に全称、`I` は quiet と cv/sv/dv 保存を満たすもの | `jqhr_bodyStepX hT`（S2mReach3）、`childKeepsH_all_of_teleX`、`closeInstsM_runHX`/`closeInstsGM_runHX` | 存在する（翻訳器が telescope と local decl を使う） | **なし（実境界）**。`Lean.Meta` の telescope 実装についての法則。新 axiom で払ったことにはしない（§56.3 のまま）。reader 移動の同型の作業ではなく、`Lean.Meta` の意味論を作る作業 |
+
+### 57.3 小さなコンパイラ変更（**実施していない。reviewer の判断を要する**）
+- **案 A（h0/hs の子 head の lookup を消す）**: 子の実行が `synthesizeChild`（9210 付近）→ `synthesizeCombinational`（`CoreWith`, 5515）なので、Off の根 run が起動する子だけを profile 固定の経路（`synthesizeCombinationalCoreOff` の変種。`logProf := fun _ => pure ()`、`IO.getEnv` なし）で走らせる。実現は `sparkleChildSynth`（1042）の登録先を Off の入口が呼ぶ間だけ別の関数にする必要があり、`initialize sparkleChildSynth.set (some synthesizeChild)`（9220 付近）、`synthesizeChild`、`synthesizeCombinationalOff`/`…CoreOff`/`…CoreOffR`（9019, 9096）、`synthesizeEntry`（9205–9208）の変更を伴う。出力は profile 未設定ならログ以外同一でなければならない（`#synthesize`/`#synthesizeVerilog`/`#showVerilog` の出力 baseline 272/272 の再実行が必要）。**効果は限定的**: 子 head の lookup が消えるだけで、翻訳器 7040 の lookup と `hG` の診断（③ 含む）は残る。`h0`/`hs` の 2 個が不要になる見込みだが、証明側では `missRX` の `KidEv` 定義と `childKeepsH` 一式（S2mReach2/3、S2dKids 等の `coreHeadOff` 周辺）を子の Off 版の head に付け替える必要があり、**小さくない**（単独の見積りでは 1 枚のコンパイラ変更 + 十数ファイルの再証明）。
+- **案 B（hG）**: ③ の `SPARKLE_DEBUG_HWCALL` 枝と 7040 の tick を Off の run から除く（翻訳器を `profile`/`debug` 引数付きにして Off が固定する）。翻訳器の全再帰呼び出しへの引数追加で、Elab.lean の数百行に及ぶ。**小さくない**。
+- どちらも**実施せず**、reviewer の裁定を待つ。
+
+### 57.4 判定（Step 2 の範囲）
+- h0 / hs（profile 無効）: (d) = なし or 案 A。供給した定理・検査はない。
+- hG: (d) = なし or 案 B。供給なし。
+- hD / hT: (d) = なし。
+- よって v10・Check49 は作らない（binder を減らす提供物がない。偽の v10 は作らない）。v9 は不変。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
