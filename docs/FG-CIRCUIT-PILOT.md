@@ -3399,3 +3399,43 @@ InitCorr w0        := ∃ h0, Rel h0 w0 ∧ quietM h0
 - 結論: E1 は `Laws`/`CellPrem` の未供給を**消さず**、「全 world についての世界の等式」を「`Rel` の像の上の leaf ごとの値の文」へ**言い換える**。この言い換えが新 TRUSTED の候補としてレビュー可能な小ささに収まるかどうかが、全体の移植の費用対効果の判断点（新 TRUSTED の採用はしていない。具体的な残余対応文が出た後の判断）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 65. S3o（Issue `sparkle-fg-circuit-pilot`）: S3n の橋の整合性欠陥の反駁と修正（oracle 付き `RelE`）、モデル内の同時充足、案 2 の比較資料
+
+土台 `43a40e05`（S3n）。**変更**: 新規 `Tools/ShippingFGCircuitS3oFix.lean`、`Tests/Gen5/FGCircuitPilotCheck55.lean`、`docs/FG-CIRCUIT-BOUNDARY-COMPARISON.md`（未採用の比較資料）、lakefile の lean_lib 2 件、S3n の橋のコメント（旧 `EnvCorr`/`InitCorr`/`quietR` を反駁済みと印した。文は不変）、本節。`Sparkle/`・v9〜v11・既存の定理の文は不変。新 law・axiom・sorry・native_decide・TRUSTED なし。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+### 65.1 反駁（kernel 定理、Check55 が検査）
+
+- `envCorr_inconsistent`（`_of_run` は run を与えた形）: 旧 `EnvCorr mctx mref cctx cref k` から `False`。旧 `Rel` は環境を縛らないので、`hEmpty`（`reg.env = []`）と `hSome`（`reg.env = [(k,"v")]`）が**同じ `w`** に関係する。旧 `Corr` は関係する全 `h` を量化するので、1 つの実 `getEnv k` の成功 run の戻り値 `a` が `none` と `some "v"` の両方に等しくなる。実 run は任意の world から存在する（`runsTo_getEnv`: `IO.getEnv` は `BaseIO`）。したがって旧 `EnvCorr` は実 `getEnv` の成功と**両立しない**。
+- `oldInit_any_world`、`oldQuietR_eq_true`: 旧 `InitCorr w ∧ quietR w` は**任意の `w`** で成立し（cache/synth/depth を `w` から読み、環境は `[]`）、`quietR = fun _ => True`。`quietM` が `sLoud` で偽という小モデルの非自明性から、`quietR` の非自明性は従わない。`SPARKLE_DEBUG` のモデル例は `SPARKLE_PROFILE`・`DEBUG_HWCALL`・stream callback の安全性の証拠ではない。
+
+### 65.2 修正（`RelE env`、環境 oracle を run 全体で固定）
+
+```
+RelE env h w   := cv w = h.cache ∧ sv w = h.synth ∧ dv w = h.depth ∧ h.reg.env = env
+CorrE env … RA m p := ∀ w w' h a, RelE env h w → RunsTo m … w a w' →
+                        ∃ b h', MRunsTo p h b h' ∧ RA a b ∧ RelE env h' w'
+EnvCorrE env k := CorrE env … (· = ·) (liftM (IO.getEnv k)) (getEnvM k)
+InitCorrE env w0 := ∃ h0, RelE env h0 w0 ∧ quietM h0       quietRE env w := ∃ h, RelE env h w ∧ quietM h
+```
+
+- oracle `env : List (String × String)` は `CorrE` の**パラメータ**で、leaf ごとに選び直せない。`corrE_bind`（仮説・継続の仮説・結論が同じ `env`）、`corrE_pure`、`bridge_smallE`、`real_small_consequenceE`、`getCorrE_depth`、`setCorrE_depth`、`stderrKeeps_of_corrE` を再証明。同一 oracle の 2 回読みは `bridge_env_twice`/`real_env_twice`（両方が `lookupEnv env k`）。`envCorrE_returns`: `EnvCorrE env k` は実戻り値を `lookupEnv env k` に固定する。
+- 一般形 `GCorr`（任意の世界型・任意の実 run 関係）と `gcorr_bind`/`gcorr_pure`。`CorrE` は `GCorr` と `rfl` で等しい（`corrE_eq_gcorr`）。
+- 対照: `relE_env_unique`/`relE_not_both`（同じ oracle の下で環境の異なる 2 状態は同じ world に関係しない）、`envCorrE_observation_committed`（oracle が `k` 未設定なら実の観測 `some v` は不可）。
+- **モデル内の同時充足**（`Toy.simultaneous_sat`）: toy 意味論（世界は cache/synth/depth/環境のレコード、leaf の run 関係は手書き）で、1 つの oracle・1 つの開始 world・quiet なモデル heap・`GetCorr`/`SetCorr`（全値）/`StderrCorr`/`EnvCorr`（全キー）・合成プログラムの対応（`gcorr_bind`）・成功 `getEnv "HOME"`（`some "/root"`）が同時に成立。**モデル内の事実であり、実 pilot の証人ではない**（実の `getEnv` は opaque）。
+
+### 65.3 修正版 `InitCorrE`/`quietRE` が実 world について制約すること・しないこと
+
+- `initCorrE_iff`/`quietRE_iff`: `InitCorrE env w0 ↔ quietRE env w0 ↔ lookupEnv env "SPARKLE_DEBUG" = none`。`quietRE_world_independent`: **world に依存しない**。制約するのは oracle で、実プロセスとの接続は `EnvCorrE env k` の仮説だけが担う。`quietRE_oracle_nonconst`: oracle `[]` で成立し `[("SPARKLE_DEBUG","1")]` で不成立（oracle についての非自明な制約）。
+- 制約しない: `SPARKLE_DEBUG` 以外の環境キー、`SPARKLE_PROFILE`・`DEBUG_HWCALL`・stream callback、`Laws.O.quiet` の抽象 field 全体、出力成分、`mref`/`cref`/side ref。oracle が run 中に変わらないことは仮説の内容で、証明ではない。
+- `RelE` は世界の量化範囲を狭めない（任意の `w` に対し `w` から読んだ `h` が関係する）。変わるのは文の中身（世界の等式 → 値の文）。
+
+### 65.4 検査（Check55、Check 自身の出力から）
+
+`FGCIRCUIT55 SIGNATURES: 15 theorems equal their independently written types, 39 mutants rejected (…)`。`FGCIRCUIT55 REFUTE: 2 refutations as kernel theorems: envCorr_inconsistent (…), oldInit_any_world / oldQuietR_eq_true (…)`。`FGCIRCUIT55 CONTROL: …`、`FGCIRCUIT55 BIND: …`、`FGCIRCUIT55 SIMULTANEOUS: Toy.simultaneous_sat — … (a model-internal fact, not the real pilot)`、`FGCIRCUIT55 HYPS: 9 corrected definitions (…) are plain definitions (no axiom); none mentions a program, Laws, CellPrem, a v11 conclusion or the old Rel/Corr/EnvCorr/quietR; EnvCorrE reaches RelE (the oracle), the old EnvCorr does not`、`FGCIRCUIT55 AXIOMS: 36 names, standard axioms only ([Quot.sound, Classical.choice, propext]); no sorryAx, no native_decide`。新しい対象（`Tools.ShippingFGCircuitS3oFix`、`Tests.Gen5.FGCircuitPilotCheck55`、コメントを足した `Tools.ShippingFGCircuitS3nBridge`）だけを build した。
+
+### 65.5 案 2 の比較資料
+
+`docs/FG-CIRCUIT-BOUNDARY-COMPARISON.md`（未採用。reviewer 確認後にユーザーへ）。(a) 現行 `Laws`/`CellPrem` の条件付き保証、(b) 修正版 `Corr`、(c) 返された IR と元ソースの対応を kernel で検査する証明書／checker の実現可能性（調査のみ）を、未証明の文・利用者への保証（同じ元ソース・同じ返された artifact）・維持する IP・残る台帳行・操作の種類と量化範囲・費用（既知と未知、2,500〜4,000 行は coder の未検証の見積り）で比較した。(c) の主要な未確認は 4 点（pilot root への `#machine_endpoint` の適用、純粋な組立関数の有無、子 instance の接続、ソース側 `CD`/`CDX`）。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
