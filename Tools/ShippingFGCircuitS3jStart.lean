@@ -76,6 +76,26 @@ theorem pilotEntry3_run {X : Name} {w w' : Void IO.RealWorld} {r : Sparkle.IR.AS
     obtain ⟨u3, w3, h3, -⟩ := Tools.ShippingEntrySoundness.RunsTo.bind hr
     exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false h3).elim
 
+/-- **S1, `AdmCtx` of `Start`**: from the run of the checked entry, for EVERY `quiet` (including the vacuous one, which the check does not use): `admCtx_none` at the run's own Meta context -/
+theorem admCtx_of_pilotEntry3 {X : Name} {w w' : Void IO.RealWorld} {r : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design}
+    (hr : RunsTo (pilotEntry3 X) mctx mref cctx cref w r w') (quiet : Void IO.RealWorld → Prop) :
+    AdmCtx quiet mctx cctx :=
+  admCtx_none (pilotEntry3_run hr).1
+
+/-- **S4, `dv w = 0` of `Start`**: the depth read of the checked entry, at the START world `w` of the run (no world is moved: `dv w` is `readOf sparkleSynthDepth w`) -/
+theorem dv_of_pilotEntry3 {X : Name} {w w' : Void IO.RealWorld} {r : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design}
+    (hr : RunsTo (pilotEntry3 X) mctx mref cctx cref w r w') : dv w = 0 :=
+  (pilotEntry3_run hr).2.1
+
+/-- **the run behind the checks, at the same start world**: with the depth cell `ReadWorld` (a field of `CellPrem`, `hcell.2.2.1.1`), the world after the depth read IS `w`, so the run is one of the S3f2 entry `synthesizeCombinationalOffR pilotReaderOk2` from `w` itself (the statement keeps its start world) -/
+theorem entry2_of_pilotEntry3 {X : Name} {w w' : Void IO.RealWorld} {r : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design}
+    (hRW : ReadWorld sparkleSynthDepth)
+    (hr : RunsTo (pilotEntry3 X) mctx mref cctx cref w r w') :
+    RunsTo (synthesizeCombinationalOffR pilotReaderOk2 X) mctx mref cctx cref w r w' := by
+  have h := (pilotEntry3_run hr).2.2
+  rw [hRW w] at h
+  exact h
+
 end Runs
 
 end Tools.ShippingFGCircuitS3jStart
