@@ -18,7 +18,7 @@ open Tools.ShippingChildInvA (AdmCtx)
 open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.ShippingFGCircuitS1kPkg
 open Tools.ShippingFGCircuitS1qLinked Tools.ShippingFGCircuitS1qEndpoint
 open Tools.ShippingFGCircuitS1mCD Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitS1rCD
-open Tools.ShippingFGCircuitS2mReach
+open Tools.ShippingFGCircuitS2mReach Tools.ShippingFGCircuitS1tFinal
 open Tools.ShippingFGCircuitS2yFinal (cdvT)
 open Tools.ShippingFGCircuitS3b2Reader (lvl₀)
 open Tools.ShippingFGCircuitS3jStart (pilotEntry3 admCtx_of_pilotEntry3 dv_of_pilotEntry3 entry2_of_pilotEntry3 jqc_after_head_of_pilotEntry3)
