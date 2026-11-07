@@ -75,7 +75,7 @@ def moduleSrc (defName : String) (m : Module) : String :=
   s!"  , isPrimitive := {boolSrc m.isPrimitive} }\n"
 
 /-- the whole generated file for a returned `(b, D)` -/
-def fileSrc (b : Module) (D : Design) : String :=
+def fileSrc (b : Module) (D : Design) (s : Module) : String :=
   "import Sparkle.IR.AST\n" ++
   "set_option autoImplicit false\n" ++
   "-- GENERATED, UNTRUSTED (FG circuit pilot S3r; generator: `Tools/ShippingFGCircuitS3rGen.lean`, command `#gen_pilot_artifact`).\n" ++
@@ -86,6 +86,8 @@ def fileSrc (b : Module) (D : Design) : String :=
   "namespace Tools.ShippingFGCircuitS3rArtifact\nopen Sparkle.IR.AST Sparkle.IR.Type\n\n" ++
   moduleSrc "pilotB0" b ++ "\n" ++
   "\n".intercalate (D.modules.zipIdx.map fun (m, i) => moduleSrc s!"pilotK{i}" m) ++ "\n" ++
+  "-- the shipped form `checkedOptimize b` (89 statements), computed by the compiler's optimizer (a `partial def`, which the kernel cannot unfold) in the same run\n" ++
+  moduleSrc "pilotS0" s ++ "\n" ++
   s!"def pilotD0 : Design := \{ topModule := {D.topModule.quote}, modules := [{", ".intercalate (D.modules.zipIdx.map fun (_, i) => s!"pilotK{i}")}] }\n\n" ++
   "end Tools.ShippingFGCircuitS3rArtifact\n"
 
@@ -94,8 +96,8 @@ open Lean Elab Command
 /-- run the entry on the pilot root at elaboration time and write the artifact file -/
 elab "#gen_pilot_artifact " path:str : command => do
   let (b, D) ← liftTermElabM (Tools.ShippingFGCircuitS3jStart.pilotEntry3 Tools.ShippingFGCircuitS1kStmt.hftRoot)
-  IO.FS.writeFile path.getString (fileSrc b D)
-  logInfo m!"S3R wrote {path.getString}: top {b.body.length} stmts, {D.modules.length} children {D.modules.map (·.body.length)}"
+  IO.FS.writeFile path.getString (fileSrc b D (Sparkle.IR.OptCheck.checkedOptimize b))
+  logInfo m!"S3R wrote {path.getString}: top {b.body.length} stmts, shipped {(Sparkle.IR.OptCheck.checkedOptimize b).body.length}, {D.modules.length} children {D.modules.map (·.body.length)}"
 
 end Cmd
 
