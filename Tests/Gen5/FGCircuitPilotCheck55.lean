@@ -1,6 +1,6 @@
 import Tools.ShippingFGCircuitS3oFix
 set_option autoImplicit false
--- FG circuit pilot Check55 (S3o): (A) complete types of the S3o theorems against independently written expected types, with mutants (including the OLD `EnvCorr` shape: the oracle dropped / re-chosen in the continuation); (B) the two refutations (old `EnvCorr` + a successful real `getEnv` is `False`; old `InitCorr`/`quietR` hold at every world); (C) the control: under the corrected relation two environment values are not both related to the same world, and the oracle commits the observation; (D) the SAME oracle through a bind composition; (E) simultaneous satisfaction in the toy model; (F) hypotheses do not mention programs / Laws / CellPrem / the old `Rel`; (G) AXIOMS.  The toy model is a model-internal fact, NOT the real pilot.  docs/FG-CIRCUIT-PILOT.md §65.
+-- FG circuit pilot Check55 (S3o): (A) complete types of the S3o theorems against independently written expected types, with mutants (including the OLD `EnvCorr` shape: the oracle dropped / re-chosen in the continuation); (B) the two refutations (old `EnvCorr` + a successful real `getEnv` is `False`; old `InitCorr`/`quietR` hold at every world); (C) the control: under the corrected relation two environment values are not both related to the same world, and the oracle commits the observation; (D) the SAME oracle through a bind composition; (E) simultaneous satisfaction in the toy model; (F) hypotheses do not DIRECTLY reference the listed programs / Laws / CellPrem / the old `Rel` (a direct-reference check, not a closure audit; the depth-6 RelE search reports "not found within depth 6", not non-reachability); (G) AXIOMS.  The toy model is a model-internal fact, NOT the real pilot.  docs/FG-CIRCUIT-PILOT.md §65.
 set_option maxHeartbeats 0
 set_option maxRecDepth 1000000
 
@@ -152,7 +152,7 @@ run_cmd liftTermElabM do
 run_cmd liftTermElabM do
   logInfo m!"FGCIRCUIT55 SIMULTANEOUS: Toy.simultaneous_sat — in the toy semantics ONE oracle, one start world, one quiet model heap, GetCorr/SetCorr(every value)/StderrCorr/EnvCorr(every key), the composed-program correspondence (gcorr_bind) and a successful getEnv \"HOME\" returning some \"/root\" hold TOGETHER (a model-internal fact, not the real pilot)"
 
-/-! ## (F) the corrected definitions mention neither programs, Laws, CellPrem, nor the old `Rel` -/
+/-! ## (F) the corrected definitions do not DIRECTLY reference the listed programs, Laws, CellPrem or the old `Rel` (direct-reference check; not a closure audit) -/
 run_cmd liftTermElabM do
   let env ← getEnv
   let hyps : List Name := [`Tools.ShippingFGCircuitS3oFix.RelE, `Tools.ShippingFGCircuitS3oFix.CorrE, `Tools.ShippingFGCircuitS3oFix.GetCorrE, `Tools.ShippingFGCircuitS3oFix.SetCorrE, `Tools.ShippingFGCircuitS3oFix.StderrCorrE, `Tools.ShippingFGCircuitS3oFix.EnvCorrE, `Tools.ShippingFGCircuitS3oFix.InitCorrE, `Tools.ShippingFGCircuitS3oFix.quietRE, `Tools.ShippingFGCircuitS3oFix.GCorr]
@@ -164,20 +164,27 @@ run_cmd liftTermElabM do
     for f in forbidden do
       if used.contains f then throwError "FGCIRCUIT55 HYPS: {n} mentions {f}"
     unless ci.isDefinition do throwError "FGCIRCUIT55 HYPS: {n} is not a definition (a Prop, not an axiom)"
-  -- the corrected hypotheses reach RelE (the oracle), the old EnvCorr does not
-  let usesRelE (n : Name) : MetaM Bool := do
-    let some ci := env.find? n | return false
-    let rec go (fuel : Nat) (n : Name) : Bool :=
+  -- Reachability of `RelE` through definition bodies, DEPTH-BOUNDED (6 definitions).  `found` = a path to `RelE` of length <= 6 was found.
+  -- `cut` = some definition body was NOT explored because the depth bound ran out; then `found = false` only means "not found within depth 6", NOT "unreachable".
+  let reach (n : Name) : Bool × Bool :=
+    let rec go (fuel : Nat) (n : Name) : Bool × Bool :=
       match fuel with
-      | 0 => false
+      | 0 => (false, match env.find? n with | some (.defnInfo _) => true | _ => false)
       | f + 1 =>
         match env.find? n with
-        | some (.defnInfo v) => (v.value.getUsedConstants.any fun c => c == `Tools.ShippingFGCircuitS3oFix.RelE || go f c)
-        | _ => false
-    return go 6 n
-  unless ← usesRelE `Tools.ShippingFGCircuitS3oFix.EnvCorrE do throwError "FGCIRCUIT55 HYPS: EnvCorrE does not reach RelE"
-  if ← usesRelE `Tools.ShippingFGCircuitS3nBridge.EnvCorr then throwError "FGCIRCUIT55 HYPS: the old EnvCorr reaches RelE"
-  logInfo m!"FGCIRCUIT55 HYPS: {hyps.length} corrected definitions (RelE, CorrE, GetCorrE, SetCorrE, StderrCorrE, EnvCorrE, InitCorrE, quietRE, GCorr) are plain definitions (no axiom); none mentions a program, Laws, CellPrem, a v11 conclusion or the old Rel/Corr/EnvCorr/quietR; EnvCorrE reaches RelE (the oracle), the old EnvCorr does not"
+        | some (.defnInfo v) =>
+          v.value.getUsedConstants.foldl (fun (acc : Bool × Bool) c =>
+            if c == `Tools.ShippingFGCircuitS3oFix.RelE then (true, acc.2)
+            else let r := go f c; (acc.1 || r.1, acc.2 || r.2)) (false, false)
+        | _ => (false, false)
+    go 6 n
+  -- positive claim (must hold, else this check FAILS): EnvCorrE reaches RelE within depth 6
+  let (foundE, _) := reach `Tools.ShippingFGCircuitS3oFix.EnvCorrE
+  unless foundE do throwError "FGCIRCUIT55 HYPS: EnvCorrE does not reach RelE within depth 6"
+  -- the old EnvCorr: reaching RelE within depth 6 would be an error; NOT finding it is reported with its search status, never as a proof of non-reachability
+  let (foundO, cutO) := reach `Tools.ShippingFGCircuitS3nBridge.EnvCorr
+  if foundO then throwError "FGCIRCUIT55 HYPS: the old EnvCorr reaches RelE"
+  logInfo m!"FGCIRCUIT55 HYPS: {hyps.length} corrected definitions (RelE, CorrE, GetCorrE, SetCorrE, StderrCorrE, EnvCorrE, InitCorrE, quietRE, GCorr) are plain definitions (no axiom); a DIRECT-REFERENCE check (the constants of each definition's type and value; NOT a closure audit, it does not recognize an arbitrary v11 conclusion): none directly references the {forbidden.length} listed forbidden constants (the programs realProg/modelProg/realEnvProg/modelEnvProg/prog, pilotEntry3, Laws, CellPrem, rootDefB_sound, the old Rel/Corr/EnvCorr/quietR/InitCorr); within a depth-6 search EnvCorrE reaches RelE (the oracle); within the same depth-6 search the old EnvCorr was NOT found to reach RelE (search cut by the depth bound: {cutO}; this is not a proof of non-reachability)"
 
 /-! ## (G) AXIOMS -/
 run_cmd liftTermElabM do
