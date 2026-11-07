@@ -2436,7 +2436,11 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 
 ### 46.6 台帳
 
-台帳: FG 74 / T1 57（今回 FG -1 +0 / T1 -0 +0）。`hlink`（D.D-3 / DG-SEM）を証明。他は仮説のまま（条件付きの成果は減算しない扱いのまま、`hlink` 分のみ）。
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+パイロット最終文の未供給 binder: `hlink` 1 件を解消し、19 → 18（台帳の行数とは別欄）。他は仮説のまま。
+
+reviewer 訂正（2026-11-07）: FG の減算はしない。D.D-3（GP carrier）は台帳 8649968e の scripts/gen2/PREMISE_LEDGER.md §12.16 GPFIX（ad239809）で既に減算済みで、§12.24 の FG 75 に反映されている。`HftRootLink` はこの非 leaf root 固有の意味接続の残義務で、解消は実質的な進歩だが、未解消の FG 行 1 件と一対一に対応しないので D.D-3 を二度引かない（初版の「FG 74（今回 FG -1）」は誤り）。
 
 ## 47. S2w（Issue `sparkle-fg-circuit-pilot`）: 共通比較器 `FGCircuitCmp` の修正（reviewer 変更依頼 1・2）と回帰対照
 
