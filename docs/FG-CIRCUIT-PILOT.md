@@ -2467,3 +2467,44 @@ Check37 の REMAINING と docstring、§42 の「7 run-local」を一括で `qui
 - **変更**: `litBool?` は `synthInstance (BEq Nat)` を使わない。標準 instance は定数項 `stdBEqNat := instBEqOfDecidableEq Nat instDecidableEqNat` の引用（`FGCircuitCmp`）で、local/global の instance 登録に依存しない。`isStdInst`（構造一致、または default の `isDefEq`）で比較する。`OfNat` は従来どおり `instOfNatNat n` の引用。標準判定のどこにも環境依存の instance 検索はない。
 - **回帰対照**（`FGCircuitCmpRegress`）: 非標準の `badBEq`（常に `false`）を `attribute [local instance 2000] badBEq` で section 内に**登録**する。前提として `synthInstance (BEq Nat)` が `badBEq` を返すことを確認し、検索で得た instance での `3 == 3` は then 枝を選ばず、固定した標準 instance では then（`3 == 3`）／else（`3 == 4`）が選ばれる。section の外では `stdBEqNat` が検索結果と一致することも確認（引用が正しい標準 instance である証拠）。出力: `FGCIRCUITCMPREGRESS controls: all passed (... standard/always-false BEq (also with it registered as a local instance), ...)`。
 - **再 build**（修正版 Cmp、全 966 jobs 成功、AXIOMS は標準のみ）: Check21 3、26 SIG-A 8、27 SIG-A 13／SIG-C 35、28 CORE 28／FINAL 35、30 SIG-A 9／SIG-B 8、31 FINAL 62、32 9、37 FINAL 73 の mutant を棄却。変更前と同数。
+
+## 48. S2y（Issue `sparkle-fg-circuit-pilot`）: `hftObCDT_T` を v3 の `hcd` へ接続した最終文 v4、Check43
+
+土台 `26fb676a`。Issue の状態は変えていない。S2s*/Check39/§44 のファイル名は作らず、`hdown` には触れていない。追加: `Tools/ShippingFGCircuitS2yFinal.lean`、`Tests/Gen5/FGCircuitPilotCheck43.lean`（lakefile 末尾に 2 行）。sorry・native_decide・axiom・TRUSTED・新しい law はない。FG は狭めていない。
+
+### 48.1 v4 `Tools.ShippingFGCircuitS2yFinal.HftFinalStmtOffCombined4`
+
+v3 `HftFinalStmtOffCombined3` の `hcd : Ob (envAt cref w)` を、**同じ環境 `envAt cref w`・同じ Off 入口・同じ root・同じ値（`hftRootValue`）・同じ出力の carrier** のまま次の 3 つに明示置換した。carrier は `hftObCDT_T` が作る T: `cdvT := fun env e α v => CDT env [] e α v`（`HftObOf cdvT env` は定義上 `HftObCDT env`）。
+- `hΔ : EnvDefs (envAt cref w) hftObCDT_of_tablesT.Delta`（55 defs）
+- `hΓ : EnvCtors (envAt cref w) hftObCDT_of_tablesT.Gamma`（11 ctors）
+- `hrec : RecFact (envAt cref w)`（`List.rec` が `recInfo`）
+
+`synth_hftPcieOutByte_finalOffCombined4 : HftFinalStmtOffCombined4`（`kjob lake build Tools.ShippingFGCircuitS2yFinal` exit 0、974 jobs、axiom は propext / Classical.choice / Quot.sound のみ）。証明: `synth_hftPcieOutByte_finalOffCombined3 cdvT HftObCDT (fun _ h => h) … (hftObCDT_T _ hΔ hΓ hrec) …` の 1 つ。Z/Y/X 版ではなく T 版 1 つ（v3 の `Ob`/`CV` 引数をそのまま使った）。
+
+### 48.2 binder の前後
+
+| | 一覧 |
+|---|---|
+| 前（v3、18） | `L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd hadm hdown hD hG hT hs h0 hkgfacts` |
+| 後（v4、20） | `L lvl env₀ hstart hr hcell hchk hreadH hreadT hΔ hΓ hrec hadm hdown hD hG hT hs h0 hkgfacts` |
+
+`hcd`（不透明な `Ob` 一般）が消え、中身のある 3 条件に具体化された。binder の**個数**は 18 → 20 だが、未供給の内容は「1 つの CDT 導出の存在」から「環境が 55 defs / 11 ctors / `List.rec` を持つこと」という有限の環境事実に変わった。個数の減少は主張しない。
+
+### 48.3 供給した条件と仮説として渡した条件
+
+- **供給（証明）**: `HftObCDT env` そのもの（`hftObCDT_T`: 5533 節点の導出を `hΔ hΓ hrec` から組み立て）。`hcd` はこれで置き換えた。
+- **仮説のまま渡した（3 つとも）**: `hΔ` `hΓ` `hrec`。
+- **v4 の既存仮説から導けるか調べた結果: 導けない**。`hstart`（`AdmCtx ∧ JQC`）、`hr`（`RunsTo` の run）、`hchk`（`CheckedStart`: `root`・`gates`・`reader` と `ReadsAt env₀ cref w`）、`hreadH/hreadT`（`RootReader`）はいずれも root の定数 1 つ（`env.find? hftRoot`、`entryGatesB`、`dataOfAt` の出力）と環境の導出引数の一致だけを述べ、`Delta` の 55 定数・`Gamma` の 11 構成子・`List.rec` の `env.find?` は述べない。`hr` の run が行う `getConstInfo` はこの文の中に事実としては出てこない（run の結果型 `(b, D')` と `PostRunOff` を通すだけ）。よって run-local な事実の導出には新しい前提が要る。**追加の law/TRUSTED は足していない**。`RecFact` は「`List.rec` が recInfo」という標準 Lean 環境の事実だが、任意の `Environment` 値については証明できないので仮説のまま。
+
+### 48.4 Check43（`kjob lake build Tests.Gen5.FGCircuitPilotCheck43`、exit 0、983 jobs）
+
+比較は Check37/42 と同じ `norm37` + `FGCircuitCmp.stmtEq`（正例も mutant も同じ関数、binder kind を全深さで）。独立に書いた `ExpFinal4`（Check37 の `ExpFinal2` から `HftRootLink` を除き、`hcd` を 3 条件に、各条件に環境 knob）と `synth_hftPcieOutByte_finalOffCombined4` の完全型が一致し、**mutant 41 を棄却**（出力 `FGCIRCUIT43 SIGNATURES-FINAL4 … 41 mutants rejected`、`FGCIRCUIT43 AXIOMS: 2 names, standard axioms only`、AXIOMS の前に両名の存在を確認）。
+- 環境の取り違え: 各条件（defs/ctors/rec）の環境を終了 world `eE` / `env₀` / run と無関係な world に（9＋3）、3 つ全部を `eE`/`env₀` に、reach の環境・結論の環境の取り違え（3）。
+- root / 値 / carrier: root・post root・出力 shape の変更（3）、carrier を Z/Y/X/old/old artifact に（5。T の代わりに Z/Y/X を使うと不一致）、diag 入口。
+- 条件: 3 条件を 1 つずつ落とす（3）、3 つ全部を落とす、`Delta`/`Gamma` を空表に（2）、`hcd` を追加で残す（同じ env・終了 world・`hcd` のみ、3）、他の premise の削除（adm、kgf、c1、c2）、`hlink` の再追加。
+- 旧文: v3 Z/Y/X と v2 Z の完全型（4）。
+- 正直な注意: 「別の値」の mutant は `hcd` 追加（`keepHcd`）の内側でしか作れていない（3 条件は値を述べない: 値は `hftObCDT_of_tablesT` の導出に固定）。`ExpFinal4` は v3 の文面の別記述であり、`Delta`/`Gamma` は生成物なので名前で参照している（表の中身の監査は §45 の通り別）。
+
+### 48.5 台帳
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。台帳の行は減らしていない（reviewer が決める）。パイロット最終文の binder は 18 → 20（`hcd` 1 → `hΔ hΓ hrec` 3）。成果は引き続き**条件付き**。
