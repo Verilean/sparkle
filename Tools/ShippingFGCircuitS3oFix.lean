@@ -49,7 +49,7 @@ theorem envCorr_inconsistent_of_run (mctx : Meta.Context) (mref : ST.Ref IO.Real
     refine hab2.trans (e2.trans ?_)
     simp [heapOf, DiagEnv.getEnv]
   rw [h1'] at h2'
-  exact Option.noConfusion h2'
+  cases h2'
 
 /-- **refutation of the old `EnvCorr`** (no run assumed: the run exists from every world, `runsTo_getEnv`): the old `EnvCorr k` is false for every Meta/Core context and every key, as soon as there is any world. -/
 theorem envCorr_inconsistent (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State) (cctx : Core.Context)
@@ -293,7 +293,7 @@ theorem relE_not_both (k : String) (env : List (String × String)) (w : Void IO.
     ¬ (RelE env (heapOf w []) w ∧ RelE env (heapOf w [(k, "v")]) w) := by
   rintro ⟨h1, h2⟩
   have := relE_env_unique h1 h2
-  exact List.noConfusion this
+  simp [heapOf] at this
 
 /-- **control at the observation level**: a corrected `EnvCorrE env k` whose oracle has `k` unset cannot coexist with a real run observing `some v` from a world related to the oracle — the oracle commits to ONE value -/
 theorem envCorrE_observation_committed {k : String} (hE : EnvCorrE env mctx mref cctx cref k)
@@ -301,7 +301,7 @@ theorem envCorrE_observation_committed {k : String} (hE : EnvCorrE env mctx mref
     (hrel : RelE env h w) (hr : RunsTo (liftM (IO.getEnv k) : MetaM (Option String)) mctx mref cctx cref w (some v) w') : False := by
   have := envCorrE_returns hE hrel hr
   rw [hnone] at this
-  exact Option.noConfusion this
+  cases this
 
 /-! ### what the corrected `InitCorrE` / `quietRE` constrain: ONLY the oracle -/
 
@@ -330,7 +330,7 @@ theorem quietRE_oracle_nonconst (w : Void IO.RealWorld) :
   have := (quietRE_iff [("SPARKLE_DEBUG", "1")] w).1 h
   have h2 : lookupEnv [("SPARKLE_DEBUG", "1")] "SPARKLE_DEBUG" = some "1" := by decide
   rw [h2] at this
-  exact Option.noConfusion this
+  cases this
 
 /-- the corrected `StderrCorrE` feeds `StderrKeeps (quietRE env)` (the `diag`-at-`ioGetStderr` instance only; NOT `Laws.O.diag`) -/
 theorem stderrKeeps_of_corrE (hE : StderrCorrE env mctx mref cctx cref) : StderrKeeps (quietRE env) := by
