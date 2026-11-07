@@ -3,7 +3,9 @@ root='Tools/'
 DECL=re.compile(r'^\s*(?:@\[[^\]]*\]\s*)?(?:private\s+|protected\s+|noncomputable\s+|partial\s+|unsafe\s+)*(?:theorem|lemma|def|abbrev|structure|inductive|class|instance|macro|syntax|macro_rules|opaque|axiom)\s+([A-Za-z_][\w\.\']*)',re.M)
 def decls(path):
     s=open(path).read()
-    return set(m.group(1) for m in DECL.finditer(s))
+    r=set(m.group(1) for m in DECL.finditer(s))
+    r|=set(m.group(1) for m in re.finditer(r'^(?:local\s+)?macro\s+"(\w+)\s*"',s,re.M))
+    return r
 def src_of(p):
     b=os.path.basename(p)[:-5]
     if b.startswith('ShippingFGCircuitS2sAdm'):

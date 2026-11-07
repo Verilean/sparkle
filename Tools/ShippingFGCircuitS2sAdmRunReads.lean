@@ -66,7 +66,7 @@ open Tools.ShippingChildFrontCP
 open Tools.ShippingChildRunA
 open Tools.ShippingChildRunAMain
 open Tools.ShippingChildComposeC
-open Tools.ShippingChildRunAKids (MachineClosesAtA)
+open Tools.ShippingChildRunAKids (MachineClosesAtAX)
 open Tools.ShippingMachineOutcomeA (legacyTail)
 
 variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
@@ -97,16 +97,16 @@ theorem coreHead_jqcAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx
     · obtain ⟨_, _, ht, _⟩ := RunsTo.bind h
       exact (throwError_not_runs _ ht).elim
     simp only [↓reduceIte, beq_self_eq_true] at h
-    peelP h; peelP h; peelP h; peelP h; peelP h; peelP h; peelP h
-    peelF O hA (stableA_JQ _ 0) h hw; peelF O hA (stableA_JQ _ 0) h hw
-    peelF O hA (stableA_JQ _ 0) h hw; peelF O hA (stableA_JQ _ 0) h hw
+    peelPX h; peelPX h; peelPX h; peelPX h; peelPX h; peelPX h; peelPX h
+    peelFX O hA (stableA_JQ _ 0) h hw; peelFX O hA (stableA_JQ _ 0) h hw
+    peelFX O hA (stableA_JQ _ 0) h hw; peelFX O hA (stableA_JQ _ 0) h hw
     obtain ⟨_, _, step, h⟩ := RunsTo.bind h
     have hw := triple_runsX (tripleC_clearX O hA 0 (R := fun _ _ => False)) hw step
     clear step
-    peelF O hA (stableA_JQCX O 0) h hw; peelF O hA (stableA_JQCX O 0) h hw
-    peelF O hA (stableA_JQCX O 0) h hw; peelF O hA (stableA_JQCX O 0) h hw
-    peelF O hA (stableA_JQCX O 0) h hw; peelF O hA (stableA_JQCX O 0) h hw
-    peelF O hA (stableA_JQCX O 0) h hw
+    peelFX O hA (stableA_JQCX O 0) h hw; peelFX O hA (stableA_JQCX O 0) h hw
+    peelFX O hA (stableA_JQCX O 0) h hw; peelFX O hA (stableA_JQCX O 0) h hw
+    peelFX O hA (stableA_JQCX O 0) h hw; peelFX O hA (stableA_JQCX O 0) h hw
+    peelFX O hA (stableA_JQCX O 0) h hw
     obtain ⟨_, _, step, h⟩ := RunsTo.bind h
     have hw := triple_runsX (tripleC_depthSetX O hA 0 (0 + 1) (R := fun _ _ => False)) hw step
     clear step
@@ -128,14 +128,14 @@ theorem coreHead_jqcAX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx
       exact (throwError_not_runs _ ht).elim
     have h0' : ¬ ((d == 0) = true) := by simpa using h0
     simp only [h0', Bool.false_eq_true, ↓reduceIte] at h
-    peelF O hA (stableA_JQCX O d) h hw; peelF O hA (stableA_JQCX O d) h hw
-    peelF O hA (stableA_JQCX O d) h hw; peelF O hA (stableA_JQCX O d) h hw
-    peelF O hA (stableA_JQCX O d) h hw; peelF O hA (stableA_JQCX O d) h hw
-    peelF O hA (stableA_JQCX O d) h hw
-    peelF O hA (stableA_JQCX O d) h hw; peelF O hA (stableA_JQCX O d) h hw
-    peelF O hA (stableA_JQCX O d) h hw; peelF O hA (stableA_JQCX O d) h hw
-    peelF O hA (stableA_JQCX O d) h hw; peelF O hA (stableA_JQCX O d) h hw
-    peelF O hA (stableA_JQCX O d) h hw
+    peelFX O hA (stableA_JQCX O d) h hw; peelFX O hA (stableA_JQCX O d) h hw
+    peelFX O hA (stableA_JQCX O d) h hw; peelFX O hA (stableA_JQCX O d) h hw
+    peelFX O hA (stableA_JQCX O d) h hw; peelFX O hA (stableA_JQCX O d) h hw
+    peelFX O hA (stableA_JQCX O d) h hw
+    peelFX O hA (stableA_JQCX O d) h hw; peelFX O hA (stableA_JQCX O d) h hw
+    peelFX O hA (stableA_JQCX O d) h hw; peelFX O hA (stableA_JQCX O d) h hw
+    peelFX O hA (stableA_JQCX O d) h hw; peelFX O hA (stableA_JQCX O d) h hw
+    peelFX O hA (stableA_JQCX O d) h hw
     obtain ⟨_, _, step, h⟩ := RunsTo.bind h
     have hw := triple_runsX (tripleC_depthSetX O hA d (d + 1) (R := fun _ _ => False)) hw step
     clear step
@@ -197,22 +197,22 @@ theorem runReads_of_runX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cc
     (closes : MachineClosesAtAX O mctx cctx X shape) :
     ∃ (b : Bool) (ci : ConstantInfo) (envR envR' : Environment) (w5 w6 : Void IO.RealWorld),
       RunReadsAt mctx mref cctx cref X w w' raw D b ci envR envR' shape w5 w6 ∧ JQCX O (D₀ + 1) w5 := by
-  obtain ⟨s, w1, envR, ci, w2, w3, w4, hh, hget, henv, hbody, hfin⟩ :=
+  obtain ⟨s, w1, envR, ci, w2, w3, w4, hh, hgetX, henv, hbody, hfin⟩ :=
     Tools.ShippingEntryReadsLinked.core_chain hr
   have hw1 := coreHead_jqcAX O hA hw hc hh
   have hw2 := triple_runsX (keeps_iff.mp (keepsA_framedX O hA (stableA_JQCX O (D₀ + 1))
-    (FramedA.constInfo _))) hw1 hget
+    (FramedA.constInfo _))) hw1 hgetX
   have hw3 := triple_runsX (keeps_iff.mp (keepsA_framedX O hA (stableA_JQCX O (D₀ + 1)) FramedA.env)) hw2 henv
-  obtain ⟨old, miss, -⟩ := entry _ _ _ _ _ _ _ _ _ hget henv henv
+  obtain ⟨old, miss, -⟩ := entry _ _ _ _ _ _ _ _ _ hgetX henv henv
   obtain ⟨envR', w5, henv', hw5, hmach⟩ := fromConst_machine_linkAX O hA old miss hw3 hbody
-  obtain ⟨-, -, hshape⟩ := entry _ _ _ _ _ _ _ _ _ hget henv henv'
+  obtain ⟨-, -, hshape⟩ := entry _ _ _ _ _ _ _ _ _ hgetX henv henv'
   obtain ⟨r, w6, hrun, hout⟩ := hmach shape hshape
   have hne := closes s.profile (D₀ + 1) w5 r w6 hw5 (by omega) hrun
   rcases hout with ⟨res, hres, hrd, wl, hlog, hmod⟩ | ⟨hnone, -⟩
   · subst hres
     subst hrd
     exact ⟨s.profile, ci, envR, envR', w5, w6,
-      ⟨hr, ⟨s, w1, w2, w3, w4, wl, rfl, hh, hget, henv, henv', hrun, hlog, hmod, hfin⟩, ⟨old, miss⟩, hshape⟩, hw5⟩
+      ⟨hr, ⟨s, w1, w2, w3, w4, wl, rfl, hh, hgetX, henv, henv', hrun, hlog, hmod, hfin⟩, ⟨old, miss⟩, hshape⟩, hw5⟩
   · exact absurd hnone hne
 
 end Tools.ShippingGen5RunReads

@@ -70,6 +70,11 @@ def main():
         for n in sorted(cur,key=lambda x:-len(x)):
             t=re.sub(r'(?<![\w\'])'+re.escape(n)+r'(?![\w\'X])',cur[n],t)
         res.append(t)
+    def rn(t):
+        for n in sorted(cur,key=lambda x:-len(x)):
+            t=re.sub(r'(?<![\w\'])'+re.escape(n)+r'(?![\w\'X])',cur[n],t)
+        return t
+    head=[rn(l) if re.match(r'^open .*\(',l) else l for l in head]
     hdr='\n'.join('import '+m for m in extra)+'\n'
     note='-- FG circuit pilot S2s4: SELECTIVE port of %s onto the context-predicate bundles (only the declarations that mention RefLawsAOps/AdmCtx/Laws/... or an already-ported name; the rest is taken from the imported original); rename-only script scripts/s2s_port2.py (suffix X, `AdmCtx O.quiet` -> `O.adm`). No sorry/axiom/native_decide/TRUSTED/law.\n'%os.path.basename(src)
     open(out,'w').write(hdr+note+'\n'.join(head)+'\n'+'\n\n'.join(res)+'\n')
