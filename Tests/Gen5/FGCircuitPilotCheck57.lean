@@ -60,16 +60,17 @@ example : CertifiedReturnSoundStmt ↔ ∀ (S : SourceData) (mk : Module → Des
 def ExpectedRootShowsAt (S : SourceData) (b : Module) (D : Design) : Prop :=
   S.d.shape.instFields = [] ∧ List.length S.d.shape.insts = 2 ∧
   D.topModule = b.name ∧ List.Nodup (List.map (fun m => m.name) D.modules) ∧ (∀ m, m ∈ D.modules → m.name ≠ b.name) ∧
-  b.inputs = List.map (fun (x : String × Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder) =>
-      ({ name := x.1, ty := match x.2.2 with
+  b.inputs = List.map (fun (x : String × Sparkle.IR.Type.HWType) => ({ name := x.1, ty := x.2 } : Port))
+      (List.zip (List.take S.kD S.portNames) (List.map (fun (y : Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder) =>
+        match y.2 with
           | .bits n => Sparkle.IR.Type.HWType.bitVector n
           | .bool => Sparkle.IR.Type.HWType.bit
-          | .domain => Sparkle.IR.Type.HWType.bitVector 0 } : Port))
-      (List.zip (List.take S.kD S.portNames) (List.take S.kD S.d.bsIn)) ++
+          | .domain => Sparkle.IR.Type.HWType.bitVector 0) (List.take S.kD S.d.bsIn))) ++
     [({ name := "clk", ty := Sparkle.IR.Type.HWType.bit } : Port), ({ name := "rst", ty := Sparkle.IR.Type.HWType.bit } : Port)] ∧
-  (∀ (n : String) (w : Nat), (n, w) ∈ List.map (fun (x : String × Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder) =>
-      (x.1, match x.2.2 with | .bits n => n | .bool => 1 | .domain => 0))
-      (List.zip (List.take S.kD S.portNames) (List.take S.kD S.d.bsIn)) → Sparkle.IR.RegDedup.declWidth b n = w) ∧
+  (∀ (n : String) (w : Nat), (n, w) ∈ List.zip (List.take S.kD S.portNames) (List.map (fun (y : Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder) =>
+        match y.2 with | .bits n => n | .bool => 1 | .domain => 0) (List.take S.kD S.d.bsIn)) →
+      Sparkle.IR.RegDedup.declWidth b n = w) ∧
+  -- the layout's outputs
   b.outputs = List.map (fun o => ({ name := o.name, ty := o.ty } : Port)) S.d.shape.layout.outs ∧
   Sparkle.IR.Machine.linkedOk (Sparkle.IR.Machine.moduleByName D.modules) b.body = true ∧
   ∃ (regs : List String),
