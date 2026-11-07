@@ -51,7 +51,7 @@ open Tests.Gen5.FGCircuitPilotCheck37 (norm37 tyOf)
 def CVT : CDRel := fun env e α v => Tools.ShippingFGCircuitS2iDT.CDT env [] e α v
 
 /-- **`HftFinalStmtOffCombined4`, written again** (no `HftRootLink`; `hcd` replaced by the three conditions, each with its own environment knob; `keepHcd` re-adds `hcd`). -/
-def ExpFinal4 (CV : CDRel) (DT : Name → Option DefRow) (GT : Name → Option CtorRow)
+noncomputable def ExpFinal4 (CV : CDRel) (DT : Name → Option DefRow) (GT : Name → Option CtorRow)
     (diag oldArt nDefs nCtors nRec keepHcd needAdm needKgf c1 c2 : Bool)
     (dE cE' rE hE' eA cE : EnvK) (root postRoot : Name) (sh : SigShape) : Prop :=
   ∀ {ι : Type} {mref : Rf1} {cref : Rf2}
@@ -80,54 +80,55 @@ def ExpFinal4 (CV : CDRel) (DT : Name → Option DefRow) (GT : Name → Option C
       (if oldArt then RootArtifactMono (cE cref w w' env₀) (GPt (ι := ι) lvl (cE cref w w' env₀)) (PostRunOff mctx mref cctx cref w postRoot D') NmRoot sh mm b D' p
        else RootArtifactMonoV CV (cE cref w w' env₀) (GPt (ι := ι) lvl (cE cref w w' env₀)) (PostRunOff mctx mref cctx cref w postRoot D') NmRoot sh mm b D' p)) else True)))))))))))))
 
-def Dl := Tools.ShippingFGCircuitS2tHft.hftObCDT_of_tablesT.Delta
-def Gm := Tools.ShippingFGCircuitS2tHft.hftObCDT_of_tablesT.Gamma
+noncomputable def Dl := Tools.ShippingFGCircuitS2tHft.hftObCDT_of_tablesT.Delta
+noncomputable def Gm := Tools.ShippingFGCircuitS2tHft.hftObCDT_of_tablesT.Gamma
 
-def FD4 (CV : CDRel := CVT) (DT : Name → Option DefRow := Dl) (GT : Name → Option CtorRow := Gm)
+noncomputable def FD4 (CV : CDRel := CVT) (DT : Name → Option DefRow := Dl) (GT : Name → Option CtorRow := Gm)
     (diag oldArt : Bool := false) (nDefs nCtors nRec : Bool := true) (keepHcd : Bool := false) (needAdm needKgf c1 c2 : Bool := true)
     (dE cE' rE hE' eA cE : EnvK := eS) (root postRoot : Name := NmRoot) (sh : SigShape := ShE) : Prop :=
   ExpFinal4 CV DT GT diag oldArt nDefs nCtors nRec keepHcd needAdm needKgf c1 c2 dE cE' rE hE' eA cE root postRoot sh
 
 /-! ## mutants: every one differs from the real FD4 in exactly one knob -/
 
-def Mu_dEnd : Prop := FD4 (dE := eE)
-def Mu_dEnv0 : Prop := FD4 (dE := e0)
-def Mu_cEnd : Prop := FD4 (cE' := eE)
-def Mu_cEnv0 : Prop := FD4 (cE' := e0)
-def Mu_rEnd : Prop := FD4 (rE := eE)
-def Mu_rEnv0 : Prop := FD4 (rE := e0)
-def Mu_allEnd : Prop := FD4 (dE := eE) (cE' := eE) (rE := eE)
-def Mu_allEnv0 : Prop := FD4 (dE := e0) (cE' := e0) (rE := e0)
-def Mu_dIndep : Prop := ∀ {a : W}, FD4 (dE := fun cref _ _ _ => envAt cref a)
-def Mu_cIndep : Prop := ∀ {a : W}, FD4 (cE' := fun cref _ _ _ => envAt cref a)
-def Mu_rIndep : Prop := ∀ {a : W}, FD4 (rE := fun cref _ _ _ => envAt cref a)
-def Mu_concEnd : Prop := FD4 (cE := eE)
-def Mu_concEnv0 : Prop := FD4 (cE := e0)
-def Mu_reachEnd : Prop := FD4 (eA := eE)
-def Mu_root : Prop := FD4 (root := NmHttp)
-def Mu_postRoot : Prop := FD4 (postRoot := NmHttp)
-def Mu_output : Prop := FD4 (sh := { ShE with res := .one (.bits 16) })
-def Mu_noDefs : Prop := FD4 (nDefs := false)
-def Mu_noCtors : Prop := FD4 (nCtors := false)
-def Mu_noRec : Prop := FD4 (nRec := false)
-def Mu_noAll : Prop := FD4 (nDefs := false) (nCtors := false) (nRec := false)
-def Mu_tabDefs : Prop := FD4 (DT := fun _ => none)
-def Mu_tabCtors : Prop := FD4 (GT := fun _ => none)
-def Mu_hcdKept : Prop := FD4 (keepHcd := true)
-def Mu_hcdKeptEnd : Prop := FD4 (keepHcd := true) (hE' := eE)
-def Mu_hcdOnly : Prop := FD4 (nDefs := false) (nCtors := false) (nRec := false) (keepHcd := true)
-def Mu_carrierZ : Prop := FD4 (CV := cdvZ)
-def Mu_carrierY : Prop := FD4 (CV := cdvY)
-def Mu_carrierX : Prop := FD4 (CV := cdvX)
-def Mu_carrierOld : Prop := FD4 (CV := cdvOld)
-def Mu_carrierOldArt : Prop := FD4 (oldArt := true)
-def Mu_diag : Prop := FD4 (diag := true)
-def Mu_noAdm : Prop := FD4 (needAdm := false)
-def Mu_noKgf : Prop := FD4 (needKgf := false)
-def Mu_noC1 : Prop := FD4 (c1 := false)
-def Mu_noC2 : Prop := FD4 (c2 := false)
+noncomputable def FD4_real : Prop := FD4
+noncomputable def Mu_dEnd : Prop := FD4 (dE := eE)
+noncomputable def Mu_dEnv0 : Prop := FD4 (dE := e0)
+noncomputable def Mu_cEnd : Prop := FD4 (cE' := eE)
+noncomputable def Mu_cEnv0 : Prop := FD4 (cE' := e0)
+noncomputable def Mu_rEnd : Prop := FD4 (rE := eE)
+noncomputable def Mu_rEnv0 : Prop := FD4 (rE := e0)
+noncomputable def Mu_allEnd : Prop := FD4 (dE := eE) (cE' := eE) (rE := eE)
+noncomputable def Mu_allEnv0 : Prop := FD4 (dE := e0) (cE' := e0) (rE := e0)
+noncomputable def Mu_dIndep : Prop := ∀ {a : W}, FD4 (dE := fun cref _ _ _ => envAt cref a)
+noncomputable def Mu_cIndep : Prop := ∀ {a : W}, FD4 (cE' := fun cref _ _ _ => envAt cref a)
+noncomputable def Mu_rIndep : Prop := ∀ {a : W}, FD4 (rE := fun cref _ _ _ => envAt cref a)
+noncomputable def Mu_concEnd : Prop := FD4 (cE := eE)
+noncomputable def Mu_concEnv0 : Prop := FD4 (cE := e0)
+noncomputable def Mu_reachEnd : Prop := FD4 (eA := eE)
+noncomputable def Mu_root : Prop := FD4 (root := NmHttp)
+noncomputable def Mu_postRoot : Prop := FD4 (postRoot := NmHttp)
+noncomputable def Mu_output : Prop := FD4 (sh := { ShE with res := .one (.bits 16) })
+noncomputable def Mu_noDefs : Prop := FD4 (nDefs := false)
+noncomputable def Mu_noCtors : Prop := FD4 (nCtors := false)
+noncomputable def Mu_noRec : Prop := FD4 (nRec := false)
+noncomputable def Mu_noAll : Prop := FD4 (nDefs := false) (nCtors := false) (nRec := false)
+noncomputable def Mu_tabDefs : Prop := FD4 (DT := fun _ => none)
+noncomputable def Mu_tabCtors : Prop := FD4 (GT := fun _ => none)
+noncomputable def Mu_hcdKept : Prop := FD4 (keepHcd := true)
+noncomputable def Mu_hcdKeptEnd : Prop := FD4 (keepHcd := true) (hE' := eE)
+noncomputable def Mu_hcdOnly : Prop := FD4 (nDefs := false) (nCtors := false) (nRec := false) (keepHcd := true)
+noncomputable def Mu_carrierZ : Prop := FD4 (CV := cdvZ)
+noncomputable def Mu_carrierY : Prop := FD4 (CV := cdvY)
+noncomputable def Mu_carrierX : Prop := FD4 (CV := cdvX)
+noncomputable def Mu_carrierOld : Prop := FD4 (CV := cdvOld)
+noncomputable def Mu_carrierOldArt : Prop := FD4 (oldArt := true)
+noncomputable def Mu_diag : Prop := FD4 (diag := true)
+noncomputable def Mu_noAdm : Prop := FD4 (needAdm := false)
+noncomputable def Mu_noKgf : Prop := FD4 (needKgf := false)
+noncomputable def Mu_noC1 : Prop := FD4 (c1 := false)
+noncomputable def Mu_noC2 : Prop := FD4 (c2 := false)
 /-- hlink-style regression: the `HftRootLink` binder is back -/
-def Mu_hlink : Prop := HftRootLink → FD4
+noncomputable def Mu_hlink : Prop := HftRootLink → FD4
 
 def unfold43 : List Name := [``HftFinalStmtOffCombined4, ``cdvT]
 
@@ -146,7 +147,7 @@ set_option maxRecDepth 100000 in
 run_cmd liftTermElabM do
   let Q (n : String) : Lean.Expr := Lean.mkConst (`Tests.Gen5.FGCircuitPilotCheck43 ++ Name.mkSimple n)
   let fin ← norm43 (← tyOf ``synth_hftPcieOutByte_finalOffCombined4)
-  Tests.Gen5.FGCircuitCmp.checkSame "finalOffCombined4" fin (← norm37 (Q "FD4"))
+  Tests.Gen5.FGCircuitCmp.checkSame "finalOffCombined4" fin (← norm37 (Q "FD4_real"))
   let mut nm : Nat := 0
   for mu in ["Mu_dEnd", "Mu_dEnv0", "Mu_cEnd", "Mu_cEnv0", "Mu_rEnd", "Mu_rEnv0", "Mu_allEnd", "Mu_allEnv0", "Mu_dIndep", "Mu_cIndep", "Mu_rIndep", "Mu_concEnd", "Mu_concEnv0", "Mu_reachEnd",
       "Mu_root", "Mu_postRoot", "Mu_output", "Mu_noDefs", "Mu_noCtors", "Mu_noRec", "Mu_noAll", "Mu_tabDefs", "Mu_tabCtors", "Mu_hcdKept", "Mu_hcdKeptEnd", "Mu_hcdOnly",
