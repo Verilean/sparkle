@@ -23,12 +23,12 @@ def thmValue (n : Name) : MetaM Expr := do
   | .thmInfo i => pure i.value
   | _ => throwError "FGCIRCUIT56 {n} is not a theorem"
 
-/-- re-add the proof term of `n` under a fresh name: the kernel type-checks it again; returns the milliseconds -/
-def retime (n : Name) : CoreM Nat := do
-  let ci ← getConstInfo n
-  let some v := ci.value? | throwError "FGCIRCUIT56 {n}: no value"
+/-- decide the proposition `P ∧ True` by the kernel afresh (a type no earlier auxiliary lemma has, so the kernel evaluates again; `decide +kernel` puts its proof in an auxiliary lemma, so re-adding an existing theorem would not re-evaluate); returns the milliseconds of the elaboration including the kernel run -/
+def retime (p : Syntax) : TermElabM Nat := do
+  let stx ← `((by decide +kernel : $p ∧ True))
   let t0 ← IO.monoMsNow
-  addDecl (.thmDecl { name := n ++ `retimed, levelParams := ci.levelParams, type := ci.type, value := v })
+  let _ ← elabTermEnsuringType stx none
+  synthesizeSyntheticMVarsNoPostponing
   return (← IO.monoMsNow) - t0
 
 run_cmd liftTermElabM do
@@ -44,7 +44,7 @@ run_cmd liftTermElabM do
   -- (B) negative controls (kernel-checked statements: the check is FALSE on the altered module)
   chk (ns ++ `neg_drop) (← `(Sparkle.IR.RefineCheck.hierRefineCheck Tools.ShippingFGCircuitS3rArtifact.pilotB0 (Tools.ShippingFGCircuitS3rKernel.dropFirst Tools.ShippingFGCircuitS3rArtifact.pilotS0) = false))
   chk (ns ++ `neg_init) (← `(Sparkle.IR.RefineCheck.hierRefineCheck Tools.ShippingFGCircuitS3rArtifact.pilotB0 (Tools.ShippingFGCircuitS3rKernel.flipInit Tools.ShippingFGCircuitS3rArtifact.pilotS0) = false))
-  logInfo m!"FGCIRCUIT56 KERNEL: 7 facts (hierBinds b0; hierRefineCheck b0 b0; refineCheck on each of the 2 children; mergeChecked b0 = b0; hierRefineCheck b0 shipped; design children = [K0, K1]) + shipsHierCheck's conjuncts with the shipped form supplied as a closed term, each by `decide +kernel`/`rfl`; 6 negative controls (an altered statement makes hierRefineCheck/refineCheck FALSE; the altered modules differ from the originals); types match independently written statements; NOT kernel-evaluable: shipsHierCheck, checkedOptimize (partial optimizer), seqCheck (String.all)"
+  logInfo m!"FGCIRCUIT56 KERNEL: 7 facts (hierBinds b0; hierRefineCheck b0 b0; refineCheck on each of the 2 children; mergeChecked b0 = b0; hierRefineCheck b0 shipped; design children = [K0, K1]) + shipsHierCheck's conjuncts with the shipped form supplied as a closed term, each by `decide +kernel`/`rfl`; 5 negative-control theorems (an altered statement makes hierRefineCheck/refineCheck FALSE on 2 altered shipped forms and 2 altered children; the altered modules differ from the originals); types match independently written statements; NOT kernel-evaluable: shipsHierCheck, checkedOptimize (partial optimizer), seqCheck (String.all)"
   -- (D) AXIOMS
   let names : List Name := [`hier_binds, `hier_refine_self, `refine_child0, `refine_child1, `design_kids, `merge_fixed, `hier_refine_shipped, `ships_hier_shipped, `neg_drop, `neg_init, `neg_child0, `neg_child1, `neg_distinct, `shape].map (ns ++ ·)
   let env ← getEnv
@@ -60,9 +60,9 @@ run_cmd liftTermElabM do
   for d in [`pilotB0, `pilotS0, `pilotK0, `pilotK1, `pilotD0] do
     let v := (← getConstInfo (`Tools.ShippingFGCircuitS3rArtifact ++ d)).value!
     sizes := sizes ++ [(d, v.sizeWithoutSharing)]
-  let t1 ← liftCoreM <| retime (ns ++ `refine_child0)
-  let t2 ← liftCoreM <| retime (ns ++ `hier_refine_self)
-  logInfo m!"FGCIRCUIT56 SIZE/TIME (ONE run, this machine; not a bound): closed-term sizes without sharing {sizes}; kernel re-check of the proof term of refine_child0 took {t1} ms, of hier_refine_self {t2} ms"
+  let t1 ← retime (← `(Sparkle.IR.RefineCheck.refineCheck Tools.ShippingFGCircuitS3rArtifact.pilotK0 Tools.ShippingFGCircuitS3rArtifact.pilotK0 = true))
+  let t2 ← retime (← `(Sparkle.IR.RefineCheck.hierRefineCheck Tools.ShippingFGCircuitS3rArtifact.pilotB0 Tools.ShippingFGCircuitS3rArtifact.pilotB0 = true))
+  logInfo m!"FGCIRCUIT56 SIZE/TIME (ONE run, this machine; not a bound): closed-term sizes without sharing {sizes}; a fresh `decide +kernel` of refineCheck K0 K0 took {t1} ms, of hierRefineCheck b0 b0 {t2} ms (elaboration + kernel)"
   -- (C) the observation module is a build dependency of this file
   unless env.contains `Tools.ShippingFGCircuitS3rObs.seqOk do throwError "FGCIRCUIT56: the observation module is not imported"
   logInfo m!"FGCIRCUIT56 OBSERVATION: Tools.ShippingFGCircuitS3rObs (a build dependency of this check) re-ran pilotEntry3 hftRoot and compared with BEq: (b, D) == (pilotB0, pilotD0) and checkedOptimize b == pilotS0 (compiled code, one run: an observation, not a kernel fact)"
