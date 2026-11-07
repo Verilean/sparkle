@@ -42,6 +42,13 @@ import Tools.ShippingFGCircuitS2sAdmRunLocal
 import Tools.ShippingFGCircuitS2sAdmLinked
 import Tools.ShippingFGCircuitS2sAdmRunReads
 import Tools.ShippingFGCircuitS2sAdmServedRealA
+import Tools.ShippingFGCircuitS2sAdmParentRanA
+import Tools.ShippingFGCircuitS2sAdmParentTailsA
+import Tools.ShippingFGCircuitS2sAdmParentDesignA
+import Tools.ShippingFGCircuitS2sAdmS1qLinked
+import Tools.ShippingFGCircuitS2sAdmS1tFinal
+import Tools.ShippingFGCircuitS2sAdmS1uSrc
+import Tools.ShippingFGCircuitS2sAdmS1zClose
 -- FG circuit pilot S2s4: SELECTIVE port of ShippingFGCircuitS2dKids.lean onto the context-predicate bundles (only the declarations that mention RefLawsAOps/AdmCtx/Laws/... or an already-ported name; the rest is taken from the imported original); rename-only script scripts/s2s_port2.py (suffix X, `AdmCtx O.quiet` -> `O.adm`). No sorry/axiom/native_decide/TRUSTED/law.
 set_option autoImplicit false
 -- FG circuit pilot S2d: the children's reflection (`HftKidsDefine`) narrowed run-locally. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law. Results: docs/FG-CIRCUIT-PILOT.md §32.
@@ -268,7 +275,7 @@ theorem hftCoreCloses_of_kidsKX (L : LawsX mref cref) {w : Void IO.RealWorld}
     (hg : HftKidsGates (envAt cref w)) (hke : HftKidsStartEnvX L.O (envAt cref w)) :
     HftCoreCloses mctx mref cctx cref w := by
   intro raw D₀ w1 hr s wh w2 w3 w4 envR ci hh hgetX henv hbody envR' w8 w10 r henv' hrun
-  have hw1 := coreHeadOff_jqcA L.O hstart.1 hstart.2.1 (Or.inl rfl) hh
+  have hw1 := coreHeadOff_jqcAX L.O hstart.1 hstart.2.1 (Or.inl rfl) hh
   have hw2 := triple_runsX (keeps_iff.mp (keepsA_framedX L.O hstart.1 (stableA_JQCX L.O (0 + 1)) (FramedA.constInfo _))) hw1 hgetX
   have hw3 := triple_runsX (keeps_iff.mp (keepsA_framedX L.O hstart.1 (stableA_JQCX L.O (0 + 1)) FramedA.env)) hw2 henv
   have hw8 := triple_runsX (keeps_iff.mp (keepsA_framedX L.O hstart.1 (stableA_JQCX L.O (0 + 1)) FramedA.env)) hw3 henv'
@@ -312,7 +319,7 @@ def HftFinalStmtOffLNKKX (Ob : Environment → Prop) (CV : CDRel) : Prop :=
 theorem synth_hftPcieOutByte_finalOffLNKKX (CV : CDRel) (Ob : Environment → Prop) (hOb : ∀ env, Ob env → HftObOf CV env) :
     HftFinalStmtOffLNKKX Ob CV := by
   intro hlink ι mref cref L lvl env₀ mctx cctx w w' b D' hstart hr hcell hchk hRdH hRdT hCD hTop hkenv hkgates
-  exact synth_hftPcieOutByte_finalOffLNL CV Ob hOb hlink L lvl env₀ hstart hr hcell hchk hRdH hRdT hCD hTop
+  exact synth_hftPcieOutByte_finalOffLNLX CV Ob hOb hlink L lvl env₀ hstart hr hcell hchk hRdH hRdT hCD hTop
     (hftCoreCloses_of_kidsKX L hstart hcell hRdH hRdT hkgates hkenv)
 
 
