@@ -50,12 +50,12 @@ theorem shapeBeq_eq {a b : MachineShape} (h : shapeBeq a b = true) : a = b := by
 /-- the typed terms of two lists, in order, each with its sort AND its term -/
 def anysBeq : List (Σ s : SType, Term s) → List (Σ s : SType, Term s) → Bool
   | [], [] => true
-  | a :: as, b :: bs => anyBeq a b && anysBeq as bs
+  | a :: xs, b :: ys => anyBeq a b && anysBeq xs ys
   | _, _ => false
 
 theorem anysBeq_eq : ∀ {a b : List (Σ s : SType, Term s)}, anysBeq a b = true → a = b
   | [], [], _ => rfl
-  | a :: as, b :: bs, h => by
+  | a :: xs, b :: ys, h => by
     simp only [anysBeq, Bool.and_eq_true] at h
     rw [anyBeq_eq h.1, anysBeq_eq h.2]
   | [], _ :: _, h => by simp [anysBeq] at h
@@ -64,15 +64,15 @@ theorem anysBeq_eq : ∀ {a b : List (Σ s : SType, Term s)}, anysBeq a b = true
 /-- the `Terms` of two states, componentwise (sort and term) -/
 def termsBeq : {ss ss' : List SType} → Terms ss → Terms ss' → Bool
   | _, _, .nil, .nil => true
-  | _, _, .cons a as, .cons b bs => termBeq a b && termsBeq as bs
+  | _, _, .cons a xs, .cons b ys => termBeq a b && termsBeq xs ys
   | _, _, _, _ => false
 
 theorem termsBeq_sound : ∀ {ss ss' : List SType} (a : Terms ss) (b : Terms ss'), termsBeq a b = true → ss = ss' ∧ HEq a b
   | _, _, .nil, .nil, _ => ⟨rfl, HEq.rfl⟩
-  | _, _, .cons a as, .cons b bs, h => by
+  | _, _, .cons a xs, .cons b ys, h => by
     simp only [termsBeq, Bool.and_eq_true] at h
     obtain ⟨hs, hab⟩ := termBeq_sound a b h.1
-    obtain ⟨hss, hbs⟩ := termsBeq_sound as bs h.2
+    obtain ⟨hss, hbs⟩ := termsBeq_sound xs ys h.2
     subst hs hss
     exact ⟨rfl, heq_of_eq (by rw [eq_of_heq hab, eq_of_heq hbs])⟩
   | _, _, .nil, .cons _ _, h => by simp [termsBeq] at h
@@ -91,7 +91,6 @@ theorem mdBeq_eq {a b : MachineData} (h : mdBeq a b = true) : a = b := by
   have h1' := shapeBeq_eq h1
   have h8' := anysBeq_eq h8
   have h9' := anysBeq_eq h9
-  dsimp only at h7 h10 ⊢
   subst h1' h2 h3 h4 h5 h6 h7 h8' h9'
   have := eq_of_heq (termsBeq_sound nx nx' h10).2
   subst this
