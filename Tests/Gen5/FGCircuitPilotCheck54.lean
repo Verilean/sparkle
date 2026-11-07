@@ -39,8 +39,8 @@ example (mctx : Lean.Meta.Context) (mref : ST.Ref IO.RealWorld Lean.Meta.State) 
 
 /-! ## (A) complete types -/
 run_cmd liftTermElabM do
-  let mut nm := 0
-  let mut nt := 0
+  let mut nm : Nat := 0
+  let mut nt : Nat := 0
   -- model: read-back
   nt := nt + 1
   nm := nm + (← chk `Tools.ShippingFGCircuitS3n.readback_depth
@@ -216,16 +216,16 @@ run_cmd liftTermElabM do
 /-! ## (C) negative controls on closed data (all decided by the kernel) -/
 open Tools.ShippingFGCircuitS3n Tools.ShippingHeapModel in
 example : ¬ (hget (Ref.other 0 : Ref exSig Nat) (hset (Ref.other 0 : Ref exSig Nat) 5 s0) = hget (Ref.other 0 : Ref exSig Nat) s0) := by decide
-/-- WRONG REF: a write of `mref` DOES change what `mref` reads, so the non-interference statement for a ref against itself is false -/
+-- WRONG REF: a write of `mref` DOES change what `mref` reads, so the non-interference statement for a ref against itself is false
 open Tools.ShippingFGCircuitS3n Tools.ShippingHeapModel in
 example : ¬ ((Ref.other 0 : Ref exSig Nat).id ≠ (Ref.other 0 : Ref exSig Nat).id) := by decide
-/-- the right refs: a write of `mref` leaves `cref` -/
+-- the right refs: a write of `mref` leaves `cref`
 open Tools.ShippingFGCircuitS3n Tools.ShippingHeapModel in
 example : hget (Ref.other 1 : Ref exSig Nat) (hset (Ref.other 0 : Ref exSig Nat) 5 s0) = hget (Ref.other 1 : Ref exSig Nat) s0 := by decide
-/-- a quiet that fails: from the loud state the same program ends in a heap where quiet fails (quiet is preserved, not created) -/
+-- a quiet that fails: from the loud state the same program ends in a heap where quiet fails (quiet is preserved, not created)
 open Tools.ShippingFGCircuitS3n Tools.ShippingHeapModel in
 example : ¬ quietM (endW prog sLoud) := by decide
-/-- the tracked cells are NOT preserved by the write leaves (so "frame for every action" would be false; only the diagnostic leaves keep them) -/
+-- the tracked cells are NOT preserved by the write leaves (so "frame for every action" would be false; only the diagnostic leaves keep them)
 open Tools.ShippingFGCircuitS3n Tools.ShippingHeapModel in
 example : ¬ ((endW (setM (Ref.depth : Ref exSig Nat) 9) s0).depth = s0.depth) := by decide
 
