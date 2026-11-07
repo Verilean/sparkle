@@ -13,6 +13,7 @@ open Tools.ShippingMachineChild (childValue childRange decB decV portIdx InRange
 open Sparkle.IP.Net.HTTP (httpGetByte)
 open Sparkle.Core.Domain (defaultDomain)
 open Sparkle.Core (HList)
+open Tools.ShippingFGCircuitS3tSpec (kidData kidFs)
 
 /-- the data of `httpGetByte` -/
 noncomputable abbrev kd0 : MachineData := httpGetByte.machineData
@@ -107,5 +108,76 @@ theorem k0_childFn : ChildFn pilotK0 (childRange kd0)
   simp only [List.cons.injEq, and_true] at hres
   simp only [List.getElem?_cons_zero, Option.map_some, Option.getD_some]
   exact hres.symm
+
+
+/-- the same conjunct, in the form `RootShowsAt` has it for call 0: the root's `SourceData` fixes `kidData[0]` and `kidFs[0]`, and the closed child's module computes that function on that range -/
+theorem k0_childFn_slot : ∃ (kd : MachineData) (f : List Nat → Nat),
+    kidData[0]? = some kd ∧ kidFs[0]? = some f ∧ ChildFn pilotK0 (childRange kd) f :=
+  ⟨_, _, rfl, rfl, k0_childFn⟩
+
+/-! ### controls (the conclusion is not vacuous; a changed module or function does not satisfy it) -/
+
+/-- the data's source terms checked against a module (any child's data) -/
+noncomputable def checkWith (d : MachineData) (m : Sparkle.IR.AST.Module) : Bool :=
+  match ofData d with
+  | some s => checkComb s m
+  | none => false
+
+/-- the other child's source terms do not describe `pilotK0` -/
+theorem neg_other_data : checkWith Sparkle.IP.Bus.PCIe.tlpCplByte.machineData pilotK0 = false := by decide +kernel
+
+/-- the argument port's name of `pilotK0`, and an environment with that argument 1 and everything else 0 -/
+def k0name : String := (pilotK0.inputs.map (·.name)).headD ""
+def env1 : Sparkle.IR.Semantics.Env := fun n => if n = k0name then 1 else 0
+
+/-- the value a combinational module gives its first output port at the argument 1 (no memories) -/
+def eval1 (m : Sparkle.IR.AST.Module) : Option Nat :=
+  (Sparkle.IR.Semantics.evalAssigns (Sparkle.IR.RegDedup.declWidth m) (fun _ _ => 0) m.body env1).map
+    (fun e => e ((m.outputs.map (·.name)).headD ""))
+
+theorem k0_eval1 : eval1 pilotK0 = some 71 := by decide +kernel
+theorem k0_eval1_flip : eval1 (flipConst pilotK0) = some 72 := by decide +kernel
+
+theorem k0_range_one : childRange kd0 [1] := by
+  obtain ⟨b0, hb0⟩ : ∃ b, kd0.bsIn.filter (fun b => b.2 != .domain) = [b] := by
+    apply List.length_eq_one_iff.mp
+    have := congrArg List.length k0_range_bs
+    simpa using this
+  have hb2 : b0.2 = .bits 6 := by
+    have := k0_range_bs
+    rw [hb0] at this
+    simpa using this
+  unfold childRange InRange
+  rw [hb0]
+  exact .cons (by rw [hb2]; decide) .nil
+
+theorem k0_args_one : (argPorts pilotK0).map (fun p => env1 p.name) = [1] := by decide +kernel
+theorem k0_rst_zero : env1 "rst" = 0 := by decide +kernel
+
+/-- a module with `pilotK0`'s inputs that satisfies `ChildFn` for a function `f` gives `f [1]` at the argument 1 -/
+theorem childFn_eval1 (m : Sparkle.IR.AST.Module) (hm : m.inputs = pilotK0.inputs) (f : List Nat → Nat)
+    (h : ChildFn m (childRange kd0) f) : eval1 m = some (f [1]) := by
+  obtain ⟨outP, hout, h⟩ := h
+  have hargs : argPorts m = argPorts pilotK0 := by simp [argPorts, hm]
+  obtain ⟨cres, he, hv⟩ := h (fun _ _ => 0) env1 k0_rst_zero (by rw [hargs, k0_args_one]; exact k0_range_one)
+  rw [hargs, k0_args_one] at hv
+  simp only [eval1, he, Option.map_some, hout, List.map_cons, List.map_nil, List.headD_cons, hv]
+
+/-- the conclusion is not vacuous: the function `fun _ => 0` is NOT what `pilotK0` computes -/
+theorem k0_not_zero : ¬ ChildFn pilotK0 (childRange kd0) (fun _ => 0) := by
+  intro h
+  have := childFn_eval1 pilotK0 rfl _ h
+  rw [k0_eval1] at this
+  simp at this
+
+/-- a mutated module (the constant 71 changed to 72) does NOT satisfy the same `ChildFn` -/
+theorem flip_not_childFn : ¬ ChildFn (flipConst pilotK0) (childRange kd0)
+    (childValue httpGetByte.machineSource kd0.bsIn defaultDomain) := by
+  intro h
+  have h1 := childFn_eval1 (flipConst pilotK0) rfl _ h
+  have h0 := childFn_eval1 pilotK0 rfl _ k0_childFn
+  rw [k0_eval1] at h0
+  rw [k0_eval1_flip, ← Option.some.inj h0] at h1
+  simp at h1
 
 end Tools.ShippingFGCircuitS3vChild
