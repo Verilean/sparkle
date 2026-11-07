@@ -2872,3 +2872,159 @@ callback が翻訳器経路で小さく実現できないため、残る案は�
 - 追加の実行は不要な調査だった（コードの読み取りと `grep -l` のみ）。ビルド・Check は実行していない（`Sparkle/`・`Tools/`・`Tests/` が不変のため、§56 の記録と Check48 の結果がそのまま適用される）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。binder の変更なし（v9 の 9 引数のまま）。
+
+
+## 59. S3i（Issue `sparkle-fg-circuit-pilot`）: 残り仮説 `L`（Laws）・`hstart`（Start）・`hcell`（CellPrem）の棚卸し — 命題・消費する操作・同時に成立する適用条件・FG/T1 行・供給候補
+
+土台 `aa9bff12`。docs のみ。`Sparkle/`・`Tools/`・`Tests/` は変えていない。ビルドも Check も実行していない（grep と読み取りのみ）。新 law・axiom・sorry・native_decide・TRUSTED なし。v9 は不変（9 引数 `L hstart hr hcell hD hG hT hs h0`、`Tools/ShippingFGCircuitS3f2Final.lean:115–128`）。
+
+reviewer 方針（`hD/hG/hT` を恒久的な外部境界として終わらせず、使用操作の限定・既存法則からの供給・実装変更の経路を残す。CellPrem/Laws/Start は同時に成立する具体的な適用条件と対応する FG/T1 行を整理する。残義務を隠した一般化より、この pilot の前提を閉じることを優先）に沿い、この節は **`L`・`hstart`・`hcell` の 3 束** を field 単位で扱う（`hD/hG/hT/hs/h0` は §57/§58 の記録のまま。ここでは 3 束との関係のみ §59.7 に書く）。
+
+規約: 「供給できない」とは書かない。供給の欄は (1) 既存定理、(2) run から導ける定理（スケッチ。証明していない）、(3) Tools 側検査（(B) パターン）、(4) 小さな compiler 変更（行番号）、(5) 「調査範囲では未供給」＋足りないもの、のいずれか。(2) は**証明していない**スケッチであり、成否は実装時に決まる。
+
+### 59.0 読み方（共通の記法と事実）
+
+- `E(p,w) := endW mctx mref cctx cref p w`（`Tools/ShippingChildInv.lean:300`）、`Δ(p,w) := cv E = cv w ∧ sv E = sv w ∧ dv E = dv w`（`cv/sv/dv` は `Tools/ShippingChildBndCore.lean:43/45/47`＝ref `sparkleChildCache`/`sparkleChildSynth`/`sparkleSynthDepth` の読み出し）。
+- **`L : Laws mref cref` は v9 の全称 binder（証人）**であり、`quiet` はその field（データ。`Tools/ShippingChildInvA.lean:263` の `RefLawsAOps.quiet`）。したがって `quiet` を何にするかは `L` の側の選択で、`hstart` の `quiet w` と `L` の他の field は同じ `quiet` を共有する（束ねられている）。v7 以降の証明は `L.toX`（`Tools/ShippingFGCircuitS3cTop.lean`、`⟨L.O.toX, L.T.toX⟩`）を使い、`adm := AdmCtx quiet`。`RefLawsAOpsX.adm_closed`（`Tools/ShippingFGCircuitS2sAdmChildInvA.lean:39` 以降）は既存定理 `admCtx_closed`（同ファイル）で供給済みで、`L` の追加前提にはならない。
+- 実行環境の共通事実（Elab.lean）:
+  - 根の run `synthesizeCombinationalCoreOffR`（9096–9172）: 9098 `sparkleSynthDepth.get`、9126（`depth == 0` のとき）`sparkleChildCache.set {}`（ほか側 ref の `set {}` 9115–9140）、9142 `sparkleSynthDepth.set (depth+1)`、9164 `sparkleSynthDepth.modify (· - 1)`（finally）、`readerOk`＝`pilotReaderOk2` は 9142 以降の `doSynth` 内（`getConstInfo`/`getEnv`）。
+  - 子: `synthesizeChild`（9217–9220、`sparkleChildCache.get` → miss なら `synthesizeCombinational` → `sparkleChildCache.modify (·.insert n r)`）。`sparkleChildSynth.get` は 5270・5293（機械経路 `closeInstsM`/`closeInstsGM`）と 5712（翻訳器経路 `childSynthEntry`）。子の head は 5544（depth get）・5621（cache set {}）・5641（depth set）。`initialize sparkleChildSynth.set (some synthesizeChild)` は 9222（モジュール初期化時 1 回）、宣言は 1042。
+  - telescope 系の呼び出し箇所（翻訳器が到達し得る）: 5439・6568・1879・1936・1999・2033・8594（`Lean.Meta.lambdaTelescope`/`forallTelescopeReducing`）、141・150・8017（`withLocalDeclD`/`withLetDecl`）。**この root の run がどの箇所を実際に通るかは列挙していない**。
+- 台帳（FG 75 / T1 57。本体 8649968e §12.24 はこの tree に無い。§8 と同じ注意）の行 ID は `Tools/ShippingGenFGLedgerPremises.lean` の文面の注記から取る: `L`＝**A.P-01（= T1L-01）**（40 行）、`Start`＝**A.P-02**（50 行、`EntryWitness` は Start と run A.P-04 と ReflectsAll D.D-1 を 1 つにまとめた束）、`CellPrem`＝**C.EN-4**（41 行）。注意: §8 の表（本書 356 行目付近）は `Laws L` を A.P-02 と書いているが、Lean 側の注記は A.P-01。**どちらが台帳本体と一致するかは台帳が無いので未確認**（reviewer へ）。**field 単位の行 ID は tree 内に無い**ので、field の (d) 欄は「束の行」を書き、「field 単位の行なし」と明記する。
+- 既存の関連定理: `Tools/ShippingHeapModel.lean` の `HeapLaws.model`／`heapLaws_sat`／`heapLaws_nonempty`（334–432）は、抽象 heap（3 つの追跡 cell ＋ `other n`）上で RefLawsCore の ref のみの断片を満たす**無矛盾性**。実 `Void IO.RealWorld`・`ST.Ref` の世界（`@[extern] opaque`）への橋は無く、`RefLawsAOps`/`RefLawsATele`（`FramedA`・telescope 継続）とも別の型。よって「L が充足可能」の根拠にはなるが、実 run への供給ではない。
+
+### 59.1 この root の run に対する「同時に成立する」適用条件（3 束共通。(c) 欄はこれを参照する）
+
+v9 の結論が意味を持つのは、次が**同じ世界 `w`（根の開始世界）・同じ run `hr` で同時に**成り立つときだけである。
+
+| 記号 | 条件 | 何が決めるか |
+|---|---|---|
+| W1 | `hr : RunsTo (synthesizeCombinationalOffR pilotReaderOk2 hftRoot) mctx mref cctx cref w (b,D') w'` | コマンド `#synthesizeVerilogPilot2`（`Tools/ShippingFGCircuitS3f2Final.lean:143`）が `pilotEntry2`（111）を呼ぶ。`inlinerFuelGuard`（147）が先に走る。run の guard が真であることが `pilotReaderOk2`（91）の健全性で `CheckedEnv`・子 reader を与える |
+| W2 | **深さ**: 開始時 `dv w = 0`（`sparkleSynthDepth` が 0）。9098 で読まれ、9126 の cache クリアと 9142 の `depth+1` の分岐を決める | `Start.JQC 0` の `dv` 成分 |
+| W3 | **子の合成関数**: `sv w = some synthesizeChild`（`sparkleChildSynth` が 9222 の登録値）。5270/5293/5712 で読まれる | `Start.JQ` の `sv` 成分。通常は `initialize` が 1 回設定し、この run の前に別の経路が上書きしないこと |
+| W4 | **cache 状態**: 開始時の `sparkleChildCache` の値 `cv w` は実子の結果だけ（`CacheInvA`）。ただし run は 9126 で `{}` にクリアする。深さ ≥ 1 の各子は `synthesizeChild`（9218）で hit/miss | `Start.JQC` の cache 成分。run 内では `cacheSet` で `{}` に確定する |
+| W5 | **文脈**: `mctx.canUnfold?` の callback が inert（または `none`）。コマンド経路は `liftTermElabM` の既定の `Meta.Context`。翻訳器内の telescope／`withLocalDecl*` の継続文脈は `adm`（`admCtx_lctx` 等、`ChildInvA.lean:96–112`）で保たれる | `Start.AdmCtx`、`L.T.*` の継続の仮定 |
+| W6 | **quiet**: `L.O.quiet w`。run の各 leaf 操作の後も `quiet` が保たれる（`frameQ`）。診断（`ioEprintln`、`Handle.mk` 等）が追跡 3 ref と quiet を壊さない世界（stderr が cell を書く stream に差し替えられていない等。§57 の `hG` と同根） | `Start.JQ.quiet`、`L.O.*` の全 field |
+| W7 | **環境**: 実 run の `ReadsAt (envAt cref w)`、`mref ≠ cref`、`ReadWorld cref` 等の cell 前提（`hcell`）。v9 は `env₀ := envAt cref w` で `readsAt_self` | `hcell` |
+| W8 | **profile**: `SPARKLE_PROFILE` 未設定（子 head の 5515 の lookup）。`h0`/`hs` の領域 | 3 束の外（§57/§58） |
+
+W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分で 1 つの world 述語、W6 は `L` の `quiet` と、W7 は `hcell` と、同じ world `w`（と同じ `mref cref`）の上で成立する必要がある。**v9 はこれらが同時に成り立つ具体的な world を 1 つも与えていない**（全称）。
+
+### 59.2 `L : Laws`（束の行: A.P-01 = T1L-01。field 単位の行なし）
+
+`Laws := { O : RefLawsAOps MkRefd mref cref, T : RefLawsATele O.quiet mref cref }`（`Tools/ShippingGen2Defs.lean:46`）。`O` の定義は `Tools/ShippingChildInvA.lean:263`、`T` は 301。`FramedA Fresh p`（139–179）は許される MetaM 操作の族（`cacheGet`/`synthGet`/`depthGet`/`side*`/`ioEnv`/`constInfo`/`env`/`fvarThrowUnknown`/class-D の `whnf` ほか/`metaGet`/`coreModifyTrace`/`metaModify`/`mkExprCache`/`localMk`…）。
+
+| field | (a) 命題（`AdmCtx quiet mctx cctx` の下、`w` は `quiet w` から） | (b) 使う操作（Elab.lean 行）と消費する証明段 | (c) 適用条件（§59.1） | (d) 行 | (e) 候補供給 |
+|---|---|---|---|---|---|
+| `O.quiet` | データ（`Void IO.RealWorld → Prop`）。命題ではない | 全 field と `Start` が参照 | W6。選び方は証人の自由（`fun _ => False` なら `Start` が偽、`fun _ => True` なら `diag` が `setStderr` 済み stream で偽になり得る §57） | A.P-01 | **未供給**（供給対象は quiet の「具体的な選び方」）。具体選択の候補: `quiet w := (cv/sv/dv の不変量 ∧ stderr が cell を書かない)`。後者の述語化が足りないもの。調査範囲では実世界の述語を与えていない |
+| `O.diag` | `Diag p → Δ(p,w) ∧ quiet E(p,w)` | `ioEprintln`・`Handle.mk`・`putStrLn`・`flush`・`ppExpr` 等（子 head 5516–5522＝profile 真のみ、翻訳器 7040–7066/6509–6515＝環境変数設定時のみ、`ppExpr` 7115 ほか）。`ropsRX.diag`（`S2sAdmS2mReach`）、`ChildKeeps`、`S3cFinal` | W6、W8。Off run では多くが「設定時のみ」の枝（§57.1） | A.P-01（`hG`＝FG D.T-4m2 は別行） | **調査範囲では未供給**。`Diag` は `ioEprintln s` を任意 stream で許すので、ref 前提だけからは出ない。小さな変更で枝を消す案は §57.3 案 B（小さくない） |
+| `O.frameT` | `Throws p → Δ ∧ quiet E` | 投げる操作（`throwError` 系）。`ChildKeeps`/`ChildInv`/`ChildBalance` | W6 | A.P-01 | (2) スケッチ: `Throws p` は世界を変えずに投げる操作の族であれば `E(p,w) = w` の形で `Δ`・`quiet` は自明。`Throws` の定義（`ChildInv.lean:281`）を読んで**各構成子が世界を変えないこと**を確認する必要がある（未確認）。確認できれば既存定理の拡張で供給（`ReadWorld` 等の cell 前提は不要の見込み） |
+| `O.excOk` | `Op p → p … w = .error e w' → OkExc e`（`quiet w`） | 例外のクラス。`ChildVCA`/`ChildKeeps`/`ChildBalance` | W6。`OkExc`（クラス）は例外の中身の述語 | A.P-01 | **調査範囲では未供給**: 例外クラスは `Lean.Meta` 実装が投げる例外の形（`Op p` の各操作）の述語で、`ChildInvA.lean:77` の注記の `O-cancel`（中断例外）が未決。足りないもの: 各 `Op` 構成子の throw 形の列挙 |
+| `O.frameQ` | `FramedA Fresh p → quiet E(p,w)` | 全 framed 操作の後の quiet 保存。`ChildCacheA`/`ChildKeeps`/`S2hHist` | W6 | A.P-01 | **調査範囲では未供給**（`quiet` の選択次第で意味が決まる。選択が決まれば、frame 系 field と同じ cell 前提に帰着する見込み） |
+| `O.cacheSetQ` | `RunsTo (sparkleChildCache.set v) … w u w' → quiet w → quiet w'` | 9126・5621・9220（`modify`＝`ST.Ref.modify`）。`ChildBndCore`/`S2hHist` | W4、W6 | A.P-01 | 同上（quiet 依存） |
+| `O.depthSetQ` | 同上（`sparkleSynthDepth.set`） | 9142・5641・9164 | W2、W6 | A.P-01 | 同上 |
+| `O.frame` | `FramedA Fresh p → Δ(p,w)` | 非 class-D の framed 行。`ChildKeeps`（15 箇所）・`ChildHarness`・`ChildInvA` | W6、W7。`side*`/`get`/`constInfo`/`env` は追跡 3 ref を変えない、が命題の中身 | A.P-01 | (2) スケッチ: `side*` 行は「別 cell の set は追跡 ref の読みを変えない」＝ref 間の `SetFrame`（`StRefCorrespondence.lean:47`）が要る。**現在の `CellPrem` は `SetFrame r cref`（Core 状態 ref に対する枠）しか持たず、追跡 3 ref と side ref の間の `SetFrame` は含まない**（`EnvFrame3.lean:58–62`）。したがって既存 `CellPrem` からは出ない。足りないもの: 追跡 3 ref × 24 side ref（`SideRef`、`ChildInv.lean:69`）× `MkRefd` ref の間の `SetFrame`（読み取りは `ReadWorld`）。これは `hcell` の拡張（C.EN-4 の行の拡張）であり、**L の前提を hcell 側の前提に置き換えるだけで総数は減らない**。class-D 行（`whnf` 等）は別（`hD`） |
+| `O.cacheSet` | `RunsTo (sparkleChildCache.set v) … → quiet w → cv w' = v ∧ sv w' = sv w ∧ dv w' = dv w` | 9126（`set {}`）、5621、9220 | W4 | A.P-01 | (2) スケッチ: `cv w' = v` は **cache ref の `SetGet`**（`StRefCorrespondence.lean:44`）、他 2 成分は追跡 ref 間の `SetFrame`。**`CellPrem` は `SetGet cref` しか持たず、cache/synth/depth の `SetGet` は無い**（9 番目の `SetGet cref` は Core ref）。上と同じ置き換えになる |
+| `O.depthSet` | `sparkleSynthDepth.set v → cv w' = cv w ∧ sv w' = sv w ∧ dv w' = v` | 9142、5641 | W2 | A.P-01 | 同上 |
+| `T.telescope` | `forallTelescopeReducing ty k` の継続則: 不変量 `I`（`I → quiet`、`cv/sv/dv` 保存と quiet 保存で閉じる）に対し、継続 `k` が各 `adm` 文脈で `Keeps I` なら全体が `Keeps I` | 5439・6568・1936・1999・2033・8594（telescope）。`jqhr_bodyStepX hT`（S2mReach3）、`childKeepsH_all_of_teleX` | W5、W6 | A.P-01（`hT`＝FG D.T-4m3 は強化版で別行） | **調査範囲では未供給**。`Lean.Meta.forallTelescopeReducing` は `partial`/`@[extern]` を含む Meta 実装についての継続則。足りないもの: `Lean.Meta` の telescope の世界遷移の意味（`withNewLocalInstances`/`lctx` 更新、`cleanup`）。new axiom で払わない（§56.3） |
+| `T.lamTelescope` | `lambdaTelescope e k cleanup` の同形 | 5439・1879 | 同上 | A.P-01 | 同上 |
+| `T.localDecl` | `withLocalDeclD n ty k` の同形 | 141・（8017 は `CompilerM` 版が 150 経由） | 同上 | A.P-01 | 同上 |
+| `T.letDecl` | `withLetDecl n ty v k` の同形 | 150・8017 | 同上 | A.P-01 | 同上 |
+| `adm_closed`（`L.toX` で必要） | `CtxClosed (AdmCtx quiet)` | 文脈更新 `admCtx_lctx` 等 | W5 | no row（FG 回路ローカル） | **既存定理**: `admCtx_closed`（`S2sAdmChildInvA.lean`、`ChildInvA.lean:96–112` の `admCtx_*` を使う）。供給済み |
+
+`L` 全体の注意:
+- **`L` の 14 field は 1 つの `quiet` を共有する 1 束**（A.P-01 の 1 行。field 単位の行は tree に無い）。`frame`/`cacheSet`/`depthSet`/`frameQ` の ref 部分（上の 4 行）は、追跡 3 ref・side ref・`MkRefd` ref 間の `ReadWorld`/`SetFrame`/`SetGet` から導ける見込み（スケッチ）だが、それらは `hcell`（C.EN-4）に**追加の前提として移る**ので、v9 の binder 数は `L` が減っても `hcell` が増えない保証はない（同じ型の前提 ＝ 実 `ST.Ref` の意味）。
+- `diag`/`excOk`/telescope 4 行/class-D は Lean 実装（IO extern・`partial`・`@[extern]`）の意味に依り、既存定理・Tools 側検査では出ない。調査範囲では未供給。
+- 実装変更の経路（(4)）: `L` を縮める最小の変更は、Off 経路の追跡 ref の使用を**純粋な状態**で受ける関数にすることだが、これは §58 の callback 案と同じ規模（`Rec` 全体、54＋ファイル）で、共有 compiler の「小さく」の条件の外。小さい変更では `L` の field は消えない。
+
+### 59.3 `hstart : Start L mctx cctx w`（束の行: A.P-02）
+
+`Start L mctx cctx w := AdmCtx L.O.quiet mctx cctx ∧ JQC L.O 0 w`（`Tools/ShippingGen2Defs.lean:52`）。`JQC O D w := JQ O.quiet D w ∧ CacheInvA O (cv w)`（`Tools/ShippingChildCacheA.lean:120`）、`JQ quiet D w := quiet w ∧ sv w = some synthesizeChild ∧ dv w = D`（`Tools/ShippingChildVCA.lean:53`）、`CacheInvA O m := ∀ c r, m.get? c = some r → RealChildA O c r`（同 CacheA）。
+
+| field | (a) 命題 | (b) 操作と消費段 | (c) 適用条件 | (d) 行 | (e) 候補供給 |
+|---|---|---|---|---|---|
+| S1 `AdmCtx quiet mctx cctx` | `∀ f, mctx.canUnfold? = some f → InertUnfold quiet f` | 全 `L.*` field の `adm` 前提。`S3cTop.lean` の `StartX := ⟨hstart.1, jqc_toX hstart.2⟩`、`hftTop_of_runRX`、`hftCoreCloses_of_kidsR''` | W5。コマンド経路は `liftTermElabM` の既定 `Meta.Context`（`canUnfold? := none`。**Lean の既定の確認は未実施**、要確認） | A.P-02（Start の束） | **(1) 既存定理** `admCtx_none`（`ChildInvA.lean:82`）: `mctx.canUnfold? = none → AdmCtx quiet mctx cctx`。**(3) Tools 側検査**: `pilotEntry2` を `do unless (← read).canUnfold?.isNone do throwError …; synthesizeCombinationalOffR pilotReaderOk2 declName` に変え、v10 の `hr` をこの wrapper の run にする。`RunsTo.bind`（`EntrySoundness.lean:946`）で分解し、`read` の RunsTo 補題（新規、小）で `mctx.canUnfold? = none` を得る。**Tools 側のみ**（compiler 変更なし）。現在の v9 の `hr` は `synthesizeCombinationalOffR` 自体の run なので文の変更になる |
+| S2 `quiet w` | `L.O.quiet w` | `JQ` の第 1 成分。`cacheSet`/`depthSet` の前提（`quiet w`）として最初の `set` から消費 | W6 | A.P-02（`quiet` は A.P-01 の `L` と共有） | **調査範囲では未供給**。`quiet` が `L` の field（§59.2 `O.quiet`）なので、`L` の具体選択が決まるまで述べられない |
+| S3 `sv w = some synthesizeChild` | `readOf sparkleChildSynth w = some synthesizeChild` | 5270・5293・5712 の `sparkleChildSynth.get`（子 entry が none なら `closeInstsM` は none を返す）。`RealChildA.run.synth`（`ChildCacheA.lean:105`）、`missRX` | W3。`initialize`（Elab 9222）の設定値が run まで保たれる | A.P-02 | **調査範囲では未供給**。関数値（クロージャ）の等号は決定不能で、Bool の Tools 検査にできない。(4) 小さな compiler 変更案: `depth == 0` のとき 9126 の並びに `sparkleChildSynth.set (some synthesizeChild)` を足す（同じ値の再設定。出力不変の見込み、要 272/272 の再比較）。**ただし** `sv w₁ = some synthesizeChild`（set 後の世界）を得るには `sparkleChildSynth` の `SetGet` が要り（`CellPrem` に無い。§59.2 の `cacheSet` と同じ）、証明も開始世界を `set` 後に移す再構成になる。S3 が `hcell` 側の前提に移るだけで減らない見込み。並行する別の elab が同 ref を書く場合の排他は §58.3 の 3 と同根 |
+| S4 `dv w = 0` | `readOf sparkleSynthDepth w = 0` | 9098 の `depth ← get` と 9126/9142 の分岐。`JQ` の `dv` 成分、`depthSet` の初期 | W2 | A.P-02 | **(3) Tools 側 wrapper 検査**: S1 と同じ wrapper に `unless (← sparkleSynthDepth.get) == 0 do throwError …` を足す。wrapper の run から、`ReadWorld`（`hcell.1` の depth cell の `ReadWorld`、`StRefCorrespondence.lean:41`）で world が変わらないことと、get の戻り値＝`readOf sparkleSynthDepth w`（`readOf_get`、同 :52 付近）から `dv w = 0` を導く（スケッチ）。**Tools 側のみ。ただし `ReadWorld` の depth cell は既に `hcell` が持つので新しい前提なし**。compiler の `depth` 分岐（9098）の 1 本目は読み取りなので、wrapper 無しでは導けない |
+| S5 `CacheInvA O (cv w)` | 開始時の cache 値が実子の結果だけ | `RealChildA` の `cache` 成分。`JQC 0` からの `jqc_toX`、`kid_shipsResWX` | W4。run は 9126 で `cache.set {}` するので、開始値は実質使われない | A.P-02 | **(2) run から導けるスケッチ**: 9126 の `sparkleChildCache.set {}` の後は `L.O.cacheSet`（`cv w' = {}`）と `cacheInvA_empty`（`ChildCacheA.lean`）から成り立つ。ただし、証明が `JQC 0 w` を開始世界 `w` で消費しているので、**開始世界を 9126 の後の `w₁` に移す再構成**（`offR_to_off`、`S2mReach2` の `start`／`missRX`、`profOffW_of_reachedX` の `start`）が要る。再構成後は `Start` の S5 だけが消え、他は残る。ここで使う `cacheSet` は `L` の field（§59.2、`SetGet` を要する）なので、`L`/`hcell` の前提は減らない。難易度: 中（`Tools/` の十数ファイルの開始世界の付け替え。§58.3 の 7 と同種） |
+
+`hstart` 全体の注意:
+- A.P-02 は `EntryWitness`（`Start` と run A.P-04 と `ReflectsAll` D.D-1 を 1 行にまとめたもの。`Premises.lean:50`）の行で、**field 単位ではなく束**。S1・S4 を (3) で外しても A.P-02 の行は S2・S3・S5 が残るので、行は減らない（reviewer の「残義務を隠さない」に従い、減ったと数えない）。
+- 具体的な「同時に成立する」例: 開始世界は、(i) `lake env lean`/LSP が `import Sparkle…` を終えた直後、(ii) `sparkleSynthDepth = 0`（以前の synthesize が `finally` で `modify (· - 1)` 済み。例外終了でも `try … finally` 9160 付近で戻る）、(iii) `sparkleChildSynth = some synthesizeChild`（9222 の初期化のみ）、(iv) `canUnfold? = none`、(v) 標準の stderr。これを 1 つの world `w` についての 1 本の主張にするのが `JQC 0 w ∧ AdmCtx` で、**(ii) の「前の run が終わった」は別 run の事後状態の主張であって、この run の `hr` からは出ない**。
+
+### 59.4 `hcell : CellPrem MkRefd mref cref`（束の行: C.EN-4）
+
+`CellPrem Fresh mref cref := CellOK cref sparkleChildCache ∧ CellOK cref sparkleChildSynth ∧ CellOK cref sparkleSynthDepth ∧ (∀ r, SideRef r → CellOK cref r) ∧ (∀ σ r, Fresh σ r → CellOK cref r) ∧ ReadWorld mref ∧ SetFrame mref cref ∧ mref.ref ≠ cref.ref ∧ ReadWorld cref ∧ SetGet cref`（`Tools/ShippingGen5EnvFrame3.lean:58`）。`CellOK cref r := ReadWorld r ∧ r.ref ≠ cref.ref ∧ SetFrame r cref`（同 :55）。`ReadWorld r := ∀ w, getW r w = w`、`SetFrame r r' := r.ref ≠ r'.ref → ∀ v w, readOf r' (setW r v w) = readOf r' w`、`SetGet r := ∀ v w, readOf r (setW r v w) = v`（`Tools/ShippingStRefCorrespondence.lean:41/44/47`。いずれも「実ランタイムの PREMISE」と注記されている）。
+
+実 run での消費（v9 の経路）: `readerOk_of_run`（`S3b2Final.lean:80`）の `headAtOff_of_cellPrem`（`S1qHead.lean:43`＝`envFrame_coreHeadOff`、`ReadWorld cref`・cache/synth/depth の `CellOK`）と `envFrame_getConstInfo ∘ getEnvFrame_of_cellPrem`（`S1hFrame.lean`）。`ropsR/ropsRX`（`S2mReach.lean:102–146`）は `envFrameEnd_framedA`（`EnvFrame3.lean:`）と `envFrameEnd_set`（`hcell.1.2.1`/`hcell.2.2.1.2.1` ほか）を使う。
+
+| field | (a) 命題 | (b) 操作（Elab 行） | (c) 適用条件 | (d) 行 | (e) 候補供給 |
+|---|---|---|---|---|---|
+| C1 `CellOK cref sparkleChildCache` | `ReadWorld cache ∧ cache.ref ≠ cref.ref ∧ SetFrame cache cref` | 9126・5621（set）、9218・9220（get/modify） | W7: `sparkleChildCache` は `initialize`（1034）で確保された別 cell で、`cref`（Core 状態）とは別の ST.Ref | C.EN-4（束） | **調査範囲では未供給**。`ReadWorld`／`SetFrame` は `ST.Ref.get/set` の（extern）意味。`ref ≠` は 2 つの ref の同一性で、`initialize` された IO.Ref と `cref` の関係。足りないもの: 実 `ST.Ref` の get/set の世界遷移の意味（`@[extern] opaque`） |
+| C2 `CellOK cref sparkleChildSynth` | 同形 | 5270・5293・5712（get）、9222（init） | 同上 | C.EN-4 | 同上 |
+| C3 `CellOK cref sparkleSynthDepth` | 同形 | 9098・9142・9164（get/set/modify） | 同上 | C.EN-4 | 同上 |
+| C4 `∀ SideRef r, CellOK cref r` | 24 個の side ref（`ChildInv.lean:69`）について同形 | 側 cache の `set {}`（9115–9140）、`sparkleCallCounter`/`sparkleWhnfCalls` 等の `modify` | 同上。24 個の ref 全てが `initialize` 済みの別 cell | C.EN-4 | 同上。**ref ごとの `≠`（24 個）は `decide` ではなく `initialize` の同一性**で、Lean の `initialize` が別の cell を割り当てることの主張 |
+| C5 `∀ Fresh r, CellOK cref r`（`Fresh := MkRefd`） | `∀ σ r, MkRefd σ r → CellOK cref r`。`MkRefd σ r`（`ChildFresh.lean:44`）は `r` が**任意の** mctx・world・cref の組での `IO.mkRef` の返り値（∃ の外に world が無い） | `mkExprCache`（168）・`localMk` 等の `IO.mkRef`（translator の run-local ref） | W7 だが、命題は「**ある run で mkRef された ref すべて**」への全称で、この root の run に限定されていない。run 局所化（`MkRefd` を現在の run の履歴に限る）は文の変更で、`FramedA.localMk`・`ropsR` の `hFresh` に波及 | C.EN-4 | **調査範囲では未供給**。足りないもの: 「`mkRef` が返す cell は既存の cell と別」という実 ST の意味。run 局所化は `MkRefd` の定義変更（`ChildFresh.lean:44`）と `ChildHarness`/`ChildInvA` の再証明（見積りは調べていない） |
+| C6 `ReadWorld mref` | `∀ w, getW mref w = w`（Meta 状態の get は世界を変えない） | `metaGet`（`FramedA.metaGet`）、`getEnv` 経路 | W7 | C.EN-4 | 調査範囲では未供給 |
+| C7 `SetFrame mref cref` | `mref.ref ≠ cref.ref → ∀ v w, readOf cref (setW mref v w) = readOf cref w` | `metaModify`（Meta 状態の更新） | W7 | C.EN-4 | 同上 |
+| C8 `mref.ref ≠ cref.ref` | 2 つの ref は別 cell | 全 Meta/Core 操作 | W7 | C.EN-4 | 同上。具体 `mref`/`cref` は `liftTermElabM` が与える（v9 は全称） |
+| C9 `ReadWorld cref` | `∀ w, getW cref w = w` | `getEnv`（`readerOk_of_run` の `envAt` の同定。`hcell.2.2.2.2.2.2.2.2.1`）| W7 | C.EN-4 | 同上 |
+| C10 `SetGet cref` | `∀ v w, readOf cref (setW cref v w) = v` | Core 状態の更新 | W7 | C.EN-4 | 同上 |
+
+`hcell` 全体の注意:
+- 10 conjunct（C1〜C10。C4 は 24 個、C5 は無限個の ref に対する全称）は **C.EN-4 の 1 行に束ねられている**。
+- 全て `ST.Ref`（`@[extern]` の `Void IO.RealWorld` 世界上）の `get/set/modify` の意味についての前提で、`Tools/ShippingStRefCorrespondence.lean` が「PREMISE for the real runtime」と注記している。**kernel の中身が無い関数についての主張**（§16.3/§17 の `HeadIO` と同じ種類）で、`IO.getEnv`（h0）や `Lean.Meta`（`hD/hT`）とは別の層（ref の層）。
+- 経路 (A) 既存定理: **なし**（`HeapModel` は抽象 heap の無矛盾性のみ）。(B) Tools 側検査: **なし**（process の cell 同一性は純関数 `Environment → Name → Bool` で検査できない。§57 と同じ）。(C) compiler 変更: 追跡 ref を使わない純粋な状態の経路にすると C1〜C5 は消えるが、これは §58 の `Rec` 全体の変更と同じ規模。小さな変更は見つかっていない。
+- C9（`ReadWorld cref`）は v9 の証明が実際に最も使う成分（`readerOk_of_run`、`headAtOff_of_cellPrem`）。run から導く案（(2)）: `getEnv` を実行した直後の world が同じことは、`getEnv` を定義どおりに展開すれば `ST.Ref.get` の結果で、世界の同一性は `ReadWorld cref`（C9）そのもの。したがって C9 は run からは出ず前提のまま。
+
+### 59.5 FG/T1 行との対応（まとめ）
+
+| 束 | 行 | 束ねられている範囲 | 備考 |
+|---|---|---|---|
+| `L`（14 field ＋ `adm_closed`） | A.P-01（= T1L-01）。**§8 の表は A.P-02 と書いている（要確認）** | 14 field は `quiet` を共有する 1 束。`hD/hG/hT`（FG D.T-4m1/4m2/4m3）・`hs`（D.T-4m4）は `L` の field の**強化版（到達世界・環境への制限）**で別の名前の行 | field 単位の T1 行は tree に無い。`adm_closed` は行なし（FG 回路ローカル、既存定理で供給済み） |
+| `hstart`（S1〜S5） | A.P-02 | `EntryWitness` の一部（A.P-04 の run、D.D-1 と同じ行）。`quiet`（S2）は A.P-01 と共有 | S1・S4 は run の Tools 側 wrapper で行から外せる見込みだが、行自体は S2・S3・S5 が残る |
+| `hcell`（C1〜C10） | C.EN-4 | CellPrem 全体。`HeadIO`／`QuietStrength`／`L` の一部の吸収先（本書 §16.3、632 行目）として使われた | C.EN-4 は QuoteFact・ReadKeeps（C.RK-1）とは別の行 |
+
+台帳本体（8649968e §12.24）が tree に無いので、上は **コードと本書の注記に現れた ID** であり、台帳の行番号との突き合わせは reviewer に残す。
+
+### 59.6 `L`・`hstart`・`hcell` の相互依存（同時に成り立たせる必要）
+
+- `quiet`（`L.O.quiet`）は `hstart.2`・`L` の全 field で共有。`quiet` を決めずに `hstart` だけを減らしても `quiet w` が残る。
+- `L.O.frame/cacheSet/depthSet`（および `quiet` 保存）の ref 部分と `hcell`（C1〜C10）は**同じ種類の前提**（ref 間の `ReadWorld`/`SetFrame`/`SetGet`）。`CellPrem` が `L` の `frame` 族を導くには追跡 3 ref × side ref × `MkRefd` ref の間の `SetFrame`、追跡 ref の `SetGet` が足りない（§59.2）。足すと C.EN-4 の行が大きくなる。
+- `hstart` の S4/S1 を Tools 側 wrapper に移す手は `hcell` の既存 field（C3 の `ReadWorld` depth、`readOf_get`）しか使わない（S4）。S1 は `read` の補題だけ。
+
+### 59.7 `hD/hG/hT/hs/h0` との関係（再掲。新しい主張ではない）
+
+`hD/hG/hT`（FG D.T-4m1/4m2/4m3）は `L` の field の到達世界・環境版なので、`L` の `diag`/class-D/telescope 4 行が「調査範囲では未供給」である限り、同じ理由で残る。`hs/h0`（D.T-4m4）は `SPARKLE_PROFILE` の process 環境の話で `L`/`hcell` とは別（§57/§58）。したがって **この節の供給（S1・S4）は v9 の binder 名を減らさない**（`hstart` の中身が狭まる）。
+
+### 59.8 要約表
+
+| 項目 | 命題（要点） | 行 | 候補供給 | 種別 | v9 から消えるもの |
+|---|---|---|---|---|---|
+| S1 `AdmCtx` | `canUnfold?` が inert | A.P-02 | `admCtx_none` ＋ wrapper の `canUnfold?.isNone` 検査 | (1)+(3) Tools のみ | `hstart.1`（`hstart` は S2〜S5 に狭まる）|
+| S4 `dv w = 0` | 開始 depth 0 | A.P-02 | wrapper の depth 検査 ＋ `ReadWorld`（`hcell` C3）＋ `readOf_get` | (3) Tools のみ | `hstart` の `dv` 成分 |
+| S5 cache 半分 | 開始 cache が実子のみ | A.P-02 | 9126 の `set {}` ＋ `L.O.cacheSet` ＋ `cacheInvA_empty`（開始世界を `w₁` へ付け替え） | (2) スケッチ（中） | `hstart` の cache 成分（`cacheSet` は `L` のまま） |
+| S3 `sv` | `sparkleChildSynth = synthesizeChild` | A.P-02 | 調査範囲では未供給。(4) 9126 並びに set 1 行 ＋ `SetGet`（`hcell` 拡張）| (4)＋前提の移動 | 移るだけ（減らない見込み） |
+| S2 `quiet w`／`O.quiet` | 世界の述語 | A.P-02/A.P-01 | 調査範囲では未供給（選び方の問題） | — | なし |
+| `O.frameT` | throws は世界不変 | A.P-01 | (2) `Throws` の定義の各構成子を確認 | (2) スケッチ（小） | `L.O.frameT`（要確認） |
+| `O.frame/frameQ/cacheSet/depthSet/*SetQ` | ref の frame・get-after-set | A.P-01 | (2) `hcell` の拡張（追跡 ref の `SetGet`、ref 間 `SetFrame`）から | (2) 前提の移動 | 移るだけ（`L` の ref 部分 → `hcell`。総数は減らない） |
+| `O.diag`/`excOk`、`T.*`（4）| IO extern・例外クラス・Meta telescope | A.P-01 | 調査範囲では未供給 | — | なし |
+| `adm_closed` | `CtxClosed (AdmCtx quiet)` | no row | `admCtx_closed`（供給済み） | (1) | 既に外れている |
+| C1〜C10 `hcell` | `ST.Ref` の `ReadWorld`/`SetFrame`/`SetGet`/`≠` | C.EN-4 | 調査範囲では未供給（`HeapModel` は無矛盾性のみ） | — | なし |
+
+### 59.9 次の単位の推奨順（最小の供給から。各々が v9 から何を消すか）
+
+1. **S3j（Tools のみ、小）: wrapper 入口の開始検査で `hstart` の S1・S4 を外す。** `pilotEntry2` を `canUnfold?.isNone`・`sparkleSynthDepth.get == 0` を検査してから `synthesizeCombinationalOffR pilotReaderOk2` を呼ぶ wrapper `pilotEntry3` にし、v10 の `hr` を `RunsTo (pilotEntry3 hftRoot) …` とする（`RunsTo.bind` で分解。新規の補題は `read` と `get` の RunsTo の 2 つ）。消えるもの: `hstart.1`（`AdmCtx`）、`hstart` の `dv w = 0`。残る: S2・S3・S5。**binder 名は変わらない**（`hstart` が狭まる）ので、A.P-02 の行は減らない（数えない）。出力・compiler は不変（wrapper は pilot の入口のみ。`#synthesizeVerilogPilot2` の出力比較は Check48 OUTPUT の形で再確認）。注意: `RunsTo` の読み取りが `ReadWorld` を要する点（hcell の既存 field で足りる）、`inlinerFuelGuard` の位置は wrapper の外のまま。
+2. **S3k（Tools のみ、小〜中）: `O.frameT` の確認と、`Throws` の各構成子が世界を変えないことの定理化。** 成功すれば `L.O.frameT` が既存定理から出る（要確認。失敗なら理由を記録）。減るもの: `L` の 1 field（binder 名は `L` のまま、`L` が狭まる）。
+3. **S3l（Tools のみ、中）: `hstart` の S5（cache 半分）の run からの導出。** 開始世界を 9126 の `set {}` の後へ付け替える再構成（`offR_to_off`、`start`/`missRX` の接続）。減るもの: `hstart` の cache 成分。`L.O.cacheSet` を使うので `L` は減らない。
+4. **S3m（`hcell` の拡張設計、docs＋小さな Tools）: `L` の ref 部分（`frame/cacheSet/depthSet/*Q`）を `hcell` の拡張（追跡 ref の `SetGet`、ref 間 `SetFrame`）に移す。** 減るもの: `L` の ref 部分の field。増えるもの: `hcell` の field（C.EN-4 の行が大きくなる）。総数が減らないので、reviewer の判断（行の数え方）が先。
+5. **S3n 以降（小さくない。reviewer 判断待ち）**: `h0/hs`（§58.4 の 1/2/3）、`hG`（§57.3 案 B）、`hD/hT/diag/excOk/telescope`（`Lean.Meta` の意味、または Off 経路を純粋な状態にする書き換え。戦略 §5 の「当面選ばない」）、`hcell` C1〜C10 と `hstart` S3（実 `ST.Ref`／`initialize` の意味。run 局所化や `mkRef` の意味）。いずれも「調査範囲では未供給」。
+
+全体の見立て（断定ではない）: 1〜3 は Tools 側で行える見込みだが、**v9 の 9 binder の名前は 1 つも減らない**（`hstart`・`L` が狭まるだけ）。binder を実際に減らすのは 5 の項目で、それらはどれも `Lean.Meta`/`IO`/`ST.Ref` の実装の意味か compiler の大きな変更に依る。この pilot の前提を閉じる方針（reviewer）に対して、**残義務は `L`・`hcell`（実 `ST.Ref` の意味）と `hD/hG/hT/hs/h0`（Lean 実装の意味）の 2 群に集約され、`hstart` の一部だけが run から導ける**、というのがこの棚卸しの結果である。
+
+### 59.10 範囲・台帳
+- 読んだもの: `Tools/ShippingFGCircuitS3f2Final.lean`、`Tools/ShippingGen2Defs.lean`、`ShippingChildInvA.lean`、`ShippingFGCircuitS2sAdmChildInvA.lean`/`AdmLawsX.lean`、`ShippingChildCacheA.lean`、`ShippingChildVCA.lean`、`ShippingChildFresh.lean`、`ShippingGen5EnvFrame3.lean`、`ShippingStRefCorrespondence.lean`、`ShippingHeapModel.lean`（冒頭と `HeapLaws`）、`ShippingGenFGLedgerPremises.lean`、`Sparkle/Compiler/Elab.lean` の該当行、本書 §8・§44 周辺・§52–§58、`docs/FG-CIRCUIT-STRATEGY-2026-11-06.md`。台帳本体 8649968e §12.24 は tree に無い。
+- 確認していない: `Throws`/`Op` の各構成子の定義（`ChildInv.lean:281–`）、`admCtx_closed` の厳密な位置、`liftTermElabM` の既定 `canUnfold?` と stderr の隔離（`withIsolatedStreams` 等）、field 消費箇所の網羅（上の「消費する証明段」は `grep` の上位ファイルで、全 call site ではない）。
+- 変更: この docs のみ。`Sparkle/`・`Tools/`・`Tests/` は不変。v9・Check48 は不変。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
