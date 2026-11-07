@@ -2499,7 +2499,7 @@ v3 `HftFinalStmtOffCombined3` の `hcd : Ob (envAt cref w)` を、**同じ環境
 ### 48.4 Check43（`kjob lake build Tests.Gen5.FGCircuitPilotCheck43`、exit 0、983 jobs）
 
 比較は Check37/42 と同じ `norm37` + `FGCircuitCmp.stmtEq`（正例も mutant も同じ関数、binder kind を全深さで）。独立に書いた `ExpFinal4`（Check37 の `ExpFinal2` から `HftRootLink` を除き、`hcd` を 3 条件に、各条件に環境 knob）と `synth_hftPcieOutByte_finalOffCombined4` の完全型が一致し、**mutant 41 を棄却**（出力 `FGCIRCUIT43 SIGNATURES-FINAL4 … 41 mutants rejected`、`FGCIRCUIT43 AXIOMS: 2 names, standard axioms only`、AXIOMS の前に両名の存在を確認）。
-- 環境の取り違え: 各条件（defs/ctors/rec）の環境を終了 world `eE` / `env₀` / run と無関係な world に（9＋3）、3 つ全部を `eE`/`env₀` に、reach の環境・結論の環境の取り違え（3）。
+- 環境の取り違え: 各条件（defs/ctors/rec）の環境を終了 world `eE` / `env₀` に（6）、3 つ全部を `eE`/`env₀` に（2）、run と無関係な world に（3）、結論の環境 2 つと reach の環境の取り違え（3）。
 - root / 値 / carrier: root・post root・出力 shape の変更（3）、carrier を Z/Y/X/old/old artifact に（5。T の代わりに Z/Y/X を使うと不一致）、diag 入口。
 - 条件: 3 条件を 1 つずつ落とす（3）、3 つ全部を落とす、`Delta`/`Gamma` を空表に（2）、`hcd` を追加で残す（同じ env・終了 world・`hcd` のみ、3）、他の premise の削除（adm、kgf、c1、c2）、`hlink` の再追加。
 - 旧文: v3 Z/Y/X と v2 Z の完全型（4）。
