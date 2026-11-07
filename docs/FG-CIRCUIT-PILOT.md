@@ -3439,3 +3439,183 @@ InitCorrE env w0 := ∃ h0, RelE env h0 w0 ∧ quietM h0       quietRE env w := 
 `docs/FG-CIRCUIT-BOUNDARY-COMPARISON.md`（未採用。reviewer 確認後にユーザーへ）。(a) 現行 `Laws`/`CellPrem` の条件付き保証、(b) 修正版 `Corr`、(c) 返された IR と元ソースの対応を kernel で検査する証明書／checker の実現可能性（調査のみ）を、未証明の文・利用者への保証（同じ元ソース・同じ返された artifact）・維持する IP・残る台帳行・操作の種類と量化範囲・費用（既知と未知、2,500〜4,000 行は coder の未検証の見積り）で比較した。(c) の主要な未確認は 4 点（pilot root への `#machine_endpoint` の適用、純粋な組立関数の有無、子 instance の接続、ソース側 `CD`/`CDX`）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 66. S3p（Issue `sparkle-fg-circuit-pilot`）: 案 (c)（証明書／checker）の実現可能性調査 — S3o の未確認 4 点を確定し、証明書の文・欠けている部品・最短経路の再比較
+
+土台 `59a49445`（S3o）。**調査と文書のみ**: `Sparkle/`・`Tools/`・`Tests/` は変更していない。コミットしない scratch ファイル（作業ツリーの外）で `kjob lake env lean` の読み取り専用プローブを走らせた。プローブは (i) 既存の定数の有無と型の表示、(ii) 既存の生成コマンドを scratch 環境で root に適用（生成物は scratch の環境内にだけ残り、保存していない）、(iii) コンパイラ入口を `run_cmd` で 3 回走らせた出力の比較、(iv) `IO.Ref` の閉じた項の構成。ログ・計測データはソースツリーに置かない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+reviewer 裁定（(c)）: 元ソースの意味と返された IR の対応を kernel 検査できる証明／証明書を生成し、コンパイラの IO 全体を正しいと仮定しない経路の実現可能性。候補調査であり新規全面実装は不要。成功 run のモデル化が FG への最小経路かを比較する。いずれも元ソースと同一 artifact を固定し、単なる IR 型検査で代替しない。
+
+各主張に出所の種類を付ける: **[読]** ファイルを読んだ、**[プローブ]** 今回の scratch 実行で確かめた（1 つの環境・1 つの base の値で、任意の run についての kernel の文ではない）、**[未]** 未確認／見積り。
+
+### 66.1 未確認 1: `#machine_endpoint`（と `machine_sound`／`machine_ships_*` 生成器）は insts 付きの pilot root に適用できるか
+
+**答え: `#machine_endpoint` は適用できる（既に適用済み）。適用できないのは、その先の生成物（`machine_closes`、`machine_ships*`、`machine_composedT*`／`machine_ships_hier`）。`#machine_linked` と `#machine_composed` は root に対して通る。**
+
+- **[読]** `Tools/ShippingFGCircuitS1kRoot.lean:22` が `#machine_endpoint Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte` を実行している（S1k 以来、build 済み）。root は `causalProof` 系の分岐ではなく、`generateCore`（`Tools/ShippingMachineCommand.lean`）の `r.nested || !r.shape.loops.isEmpty` の分岐を通る。`nested = true`、`loops = 0`、`runs = 3`、`slots = 17`、`lets = 45`、`insts = [httpGetByte, tlpCplByte]`、`instFields = []`（[プローブ] `readMachine` の値）。
+- **[プローブ]** root の名前空間の定数 21 個: `machineBody`、`machineCall_0/1`、`machineData`、`machineExt`、`machineInits`、`machineInners`、`machineResult`、`machineSource`、`machine_arg_0/1`、`machine_body`、`machine_inits`、`machine_inst_0/1`、`machine_ok`、`machine_result`、`machine_sound`、`machine_source`、`machine_states`、`machine_writes`。**無いもの**: `machine_closes`、`machine_ships`、`machine_ships_wired`、`machine_ships_comb`、`machine_composedT`、`machine_composedTRG*`、`machine_ships_hier`、`machine_design_*`。
+- **[読]** `machine_ships` が出ない理由（コマンドの設計）: `Tools/ShippingMachineCommand.lean:2728` の `if r.shape.insts.isEmpty then …`（コメントは "not for a module with instances (the gates are for assign + register modules)"）。`machine_ships_wired`／`_comb` は同じ `if` の内側にあるので同様に出ない。`machine_closes` は `closeEndpoint` が `closesTheorem?`（`MachineData.letsOk` 等）で作る形で、**呼び出し（instance）があるデータには作れない**。
+- **[プローブ]** scratch 環境で各コマンドを root に適用した結果:
+
+| コマンド | 結果 | エラー本文／出所 |
+|---|---|---|
+| `#machine_linked` | **通る** | `Tools/ShippingMachineLinkedCommand.lean:306`。`root.machine_linked` が生成され、axiom は `propext`/`Classical.choice`/`Quot.sound` のみ |
+| `#machine_composed` | **通る** | `Tools/ShippingGateChildCommand.lean:250`。`root.machine_composed` が生成、axiom は同じ |
+| `#machine_closes` | 失敗 | `MachineCloses is not derived from the data (a call, a `let` that is the variable of a `let` with a driven field, or no machine endpoint)`（`Tools/ShippingMachineClosesGen.lean:119`） |
+| `#machine_composedTS` | 失敗 | `…machine_sound: no wired twin for its head`（`Tools/ShippingMachineSeqCommand.lean:90`） |
+| `#machine_composedTRG` | 失敗 | 同上 |
+| `#machine_composedT`（mem 経路） | 失敗 | `…machine_sound is not built from machine_trace_of_loop_causal or machine_trace_of_comb_calls`（`Tools/ShippingMachineMemCommand.lean:104`） |
+| `#machine_ships_hier` | 失敗 | `no wired twin for its head`（`Tools/ShippingMachineShipsHierCommand.lean` が `endpointParts` で同じ分岐に入る） |
+
+  root の `machine_sound` の頭は `machine_trace_of_tele_ext`（チェーン endpoint）。`endpointParts`（`Tools/ShippingMachineSeqCommand.lean:71`）が wired 双子を探す頭は `machine_trace_of_loop_causal`／`_of_comb_calls`／`_of_data_causal` の 3 つで、`tele_ext` は含まれない（[読]）。
+
+- **[読]** `root.machine_sound` の型: 前提は `mctx mref cctx cref w w' m design`、`hr : RunsTo (synthesizeCombinationalCore root [] false) … (m, design) w'`、`entry : MachineDefines …`、`closes : MachineCloses …`。結論は `MachineTraceWith`（**top の module `m` だけ**。子の出力は自由な入力 `machineExt`）。つまり endpoint は**生成されるが run を経由する**（`hr`、`entry`、`closes`）。`closes` は root では生成できない（上表）ので、閉じる文は FG 側（`MachineClosesAtHX`、`machineClosesAtH_of_gateKidsX`、`Tools/ShippingFGCircuitS2sAdmS2hHist3.lean:130`）で供給している。
+
+**S3o §5.4 の 1 への答え**: 「`insts` 付き shape で `dataOfAt` が正しいデータを返すか」は S1k §15.1 で確認済み（`machineData` リテラルと全構造で等しい）。今回の新しい事実は、**生成が通る範囲の境界**が `machine_sound`／`machine_linked`／`machine_composed` までで、その全てが run の 11 binder（`mctx mref cctx cref w w' m design hr entry closes`）を取ること。
+
+### 66.2 未確認 2: IR の Module（と Design）を、機械データまたはソースから組む純粋関数はあるか
+
+**答え: ない。** `pureBuild src = M` の形の kernel 等式は、今あるものでは書けない。
+
+- **[読]** module を作る関数は `synthesizeMachineCertified`（`Sparkle/Compiler/Elab.lean:5313`、`MetaM`）。その中身は: (1) `synthesizeMixedCertified`（2967、`MetaM`）が `mkFreshFVarId` で binder の id を作り、`IO.mkRef` で wire のキャッシュを作り、`emitLeaves`（2159）→ translator `translateExprToWire env`（8961）を `CompilerM`（MetaM の上）で走らせ、`finishSynth`（2220）で閉じる。(2) `closeLets`（`Sparkle/IR/Machine.lean:179`）と `closeMachine`（98）は**純粋**。(3) instance のある場合 `closeInstsGM`（5290、`MetaM`）が `sparkleChildSynth`（`IO.Ref`）から子の module を取り、純粋な `closeInstsG`（`Sparkle/IR/MachineInstG.lean:115`）に渡す。つまり**純粋なのは仕上げの `closeLets`／`closeMachine`／`closeInstsG` だけ**で、中核（Term から wire 文への lowering）は stateful。
+- **[読]** translator `translateExprToWire` は fuel 付きの**普通の定義**（`partial` ではなく、方程式がある。8961）で、これまでの run 側の健全性証明はそれを使っている。ただし型は `CompilerM String`（`MetaM` 上）で、状態は `CircuitState` と、`Elab.lean` の 29 個の `initialize` のうち wire 名キャッシュ等のグローバル `IO.Ref`（`sparkleWireWidthCache`、`sparkleLetWireCache`、`sparkleWireCanon`、…）。translator 本体（`translateExprToWireImpl` の節）は `Elab.lean` の約 7020〜8960 行（約 1,900 行）。
+- **[読]** 既存の健全性の文は module の**等式**ではなく**存在**の形: `MachinePreserves`（`Tools/ShippingMachineEntry.lean:774`）は `∃ ids cache, ∀ … ∃ regs lets, MachineWired … m dsn regs lets ∧ …`。`ids`（`FVarId` の列）と `cache`（`IO.Ref`）は**名前付けの証人**で、module `m` が何かを決める等式ではない。`MachineTraceWithB`（`Tools/ShippingMachineAuto.lean:260`）も同じ。したがって run から取れる `m` についての kernel の文は「ある ids/cache に対して `m` が trace を満たす」であり、`m = build …` ではない。
+- **[プローブ]** 純粋な後処理は純粋: `dropZeroWidthModule`（`Sparkle/IR/ZeroWidth.lean:113`）、`mergeChecked`（`RefineCheck.lean:260`）、`checkedOptimize`（387）、`toVerilogDesign`（`Sparkle/Backend/Verilog.lean:499`）。つまり**raw module から出荷 Verilog までは純粋関数**で、欠けているのは「ソース／データ → raw module」だけ。
+- **[プローブ]** `IO.Ref` の閉じた項は構成できる: `⟨Classical.choice ST.RefPointed.property, ⟨{}⟩⟩ : IO.Ref (Std.HashMap Nat Nat)`（axiom は標準の 3 つ）。したがって `MachinePreserves` 型の存在文の `cache` の証人を閉じた項で与えることは可能（`ExprStructMap String` でも同じ形のはず — **[未]** 今回は `HashMap Nat Nat` でだけ確認）。
+- **[プローブ]** 純粋な組立関数の代わりに **artifact の値そのもの**を閉じた項にすることの規模: root の top module は 256 文・260 wire・入力 7・出力 1、子は `httpGetByte` 88 文、`tlpCplByte` 159 文、`toVerilogDesign` の出力は約 15,000 文字（Design の組み方は scratch 内の近似で、出荷物のバイト列そのものではない）。kernel で扱える大きさである可能性が高い（**[未]** 実際の kernel 検査時間は測っていない）。
+- **[プローブ]** 決定性: 同じ環境で root に対し `synthesizeEntry` を 2 回、`pilotEntry3` を 1 回走らせ、3 つの出力（module 構造と Verilog 文字列）が一致した。**1 環境・1 base の値**。別の環境・別プロセス・別の `lake` ビルドでの一致は確かめていない。
+
+足りないもの（名前を付ける）: `pureBuild : MachineData → Module × Design`（または、返された module を `MachineData` に照らして判定する純粋 checker `ModuleMatches`）と、その健全性定理。後者は translator の lowering 規則（Term → `assign`／`register`／`inst`）を純粋に再記述することになる（66.6 の部品 M1）。
+
+### 66.3 未確認 3: 子 instance の接続 — `#machine_linked`／`#machine_composed`／`machine_linkedT` は root の 2 つの子を run の仮定なしで覆うか
+
+**答え: 覆うが、run の仮定は外れない。** どちらも root の 2 つの子（`httpGetByte`、`tlpCplByte`）を扱う文として生成されるが、`hr`・`entry`・`closes` を取る。
+
+- **[プローブ]** `root.machine_linked` と `root.machine_composed` の前提は同じ 11 binder（`mctx mref cctx cref w w' m design hr entry closes`）。結論は `∃ ids cache regs lets, … MachineWired … ∧ ∀ i bools bits T seed st0 mems, (seed の前提 4 つ) → (子の前提) → ∃ envs, … ∧ ∀ j k o f, outs[k]? = some o → machineSource … [k]? = some f → envs[j] o.name = f j`。つまり**連結された run**（各 instance がデザイン内で名前から引かれる module で評価される）が source の出力を示す、という文。
+- **子の前提（最後の 1 つの含意）**: `∀ k args mc st, (insts の k 番目の引数 = some args) → st ∈ m.body → CallStmt … k args mc st → moduleByName design.modules mc.name = some mc → …`
+  - `machine_linked`: `… → ChildFn mc (childRange child.machineData) (childValue child.machineSource child.machineData.bsIn …)`。`ChildFn`（`Tools/ShippingMachineCompose.lean`）は「module `mc` が子の source 関数を引数 port 上で計算する」という文。**子の module `mc` がその関数を計算することは仮定**。
+  - `machine_composed`: 同じ位置が `k < 2 ∧ [MachineRun httpGetByte shape, MachineRun tlpCplByte shape].getD k False mc`。`MachineRun c shape mc`（`Tools/ShippingGateChild.lean:357`）は `∃ mctx mref cctx cref w w' design, RunsTo (synthesizeCombinational c) … (mc, design) w' ∧ MachineDefines … ∧ MachineCloses …`、つまり「`mc` はある run が `c` に対して返した module」。**子の run の存在を仮定する形**で、親の `hr`・`entry`・`closes` とは別の 3 組の run 前提。
+- **[読]** `machine_linkedT_*`（`Tools/ShippingMachineCallsLinkedTG.lean` ほか）、`machine_linked_callsServed1`（`Tools/ShippingGen2OneOut.lean:158`）、S2jCopy の `machine_ships_hierC_runOff`／`oneOut_topShipsOff` は FG 側の root への適用で、いずれも `L : Laws`、`hr`、`hkc`（`kidsCombB` を run の closing から）、`CellPrem`（`hcell.2.2.1.1` など）から作る `MachineRunJQC` 等を取る。`machine_linked_callsServed1` は `hsimple : p.d.shape.instFields = []`（root は `instFields = []` で満たす）を要する。
+- **結論**: 「接続」の kernel の文は root について**既にある**（生成物 2 つ、FG 側の連鎖）が、**どれも top の module `m` と子の module `mc` を run の出力として扱う**。子の module が artifact（`D₀.modules`）のどれと一致するかは `moduleByName design.modules mc.name = some mc` で design に結ばれ、その design も `hr` の出力。`hr` なしで同じ文を得るには、`mc` が `D₀` の具体的な module であることと `ChildFn mc …` を、純粋 checker から出す必要がある（部品 M3）。
+
+### 66.4 未確認 4: ソース側（`CD`／`CDX`）— root で使える denotation と、「元ソースの意味 = 返された IR の意味」を述べる既存定理
+
+**答え: 使える denotation は `CDT`（`cdvT`）で、導出は閉じている。「ソースの意味 = 返された IR の意味」を述べる定理は v11（と同形の v4）で、前提は 10 binder（`L hquiet hsynth hr hcell hD hG hT hs h0`）。**
+
+- **[読]** 経緯: `CD`（`Tools/ShippingFGCircuit.lean:61`）には利用者定義定数と構造体射影の規則がなく、root の `CD` 導出は作れなかった（S1k §15.1）。以後 `CDX`（S1m）、`CDY`（S1p）、`CDZ`（S1r）、`CDT`（`Tools/ShippingFGCircuitS2iDT.lean`、表駆動）に拡張され、現在の最終定理が使う搬送は `cdvT`（`Tools/ShippingFGCircuitS2yFinal.lean:41`）。`hftObCDT_T`（`Tools/ShippingFGCircuitS2tHft.lean`）が root の `HftObCDT` を、環境の事実 `EnvDefs`／`EnvCtors`／`RecFact`（`Tools/ShippingFGCircuitS1mCD.lean:672`、`ShippingFGCircuitS1wTbl.lean:41`）から証明している。
+- **[読]** 述語: `SourceDenotesMonoV CV env X [] sh mm := ∃ d, env.find? X = some (.defnInfo d) ∧ … ∧ CV env d.value (MonoTy sh) mm`（`Tools/ShippingFGCircuitS1tFinal.lean:41`）。**`Environment` の値 `env` と定義 `d.value`（`Expr`）についての文**で、`env` は run が読んだ環境（v11 では `envAt cref w`）。`RootArtifactMonoV` は `P X = some p ∧ SourceDenotesMonoV … ∧ ObservationsEqualMono sh mm p ∧ ∀ raw, Post b raw → ∃ n, HasConcretePackage p n X b raw D`（46 行）。
+- **[読]** v11 `HftFinalStmtOffCombined11`（`Tools/ShippingFGCircuitS3kFinal.lean:37`、`synth_hftPcieOutByte_finalOffCombined11` で証明済み）の前提と結論:
+  - 前提: `L : Laws mref cref`、`hquiet : L.O.quiet w`、`hsynth : sv w = some synthesizeChild`、`hr : RunsTo (pilotEntry3 hftRoot) … (b, D') w'`、`hcell : CellPrem MkRefd mref cref`、`hD : DRowEnvR`、`hG : DiagEnvR`、`hT : TeleRX`、`hs : ProfStepR`、`h0 : ProfOffW`。
+  - 結論: `(∃ raw, PostRunOff … hftRoot D' b raw) ∧ ∃ mm p, RootArtifactMonoV cdvT (envAt cref w) (GPt lvl₀ (envAt cref w)) (PostRunOff …) hftRoot shHft mm b D' p`。
+  - 内訳: ソース側（`SourceDenotesMonoV`、`ObservationsEqualMono`）は**環境 `envAt cref w`** にだけ依存し、`hr` は環境を決めるために入る。artifact 側（`HasConcretePackage`＝`TopShips` で `raw`／`b`／`D'` の run）が **`hr` とその全前提を要する部分**。
+- **[読]** 閉じたソース側の既存定理（run なし）: `root.machine_states`（`∃ S₂ Ss, teleState … ∧ …`、前提は `i bools bits` だけ）、`root.machine_source`（宣言が body の状態ループの結果であること。`Eq.refl` を kernel が検査）、`hftRootLink : HftRootLink`（`Tools/ShippingFGCircuitS2kLink.lean:61`）。これらは**定数 `synth_hftPcieOutByte` そのもの**（kernel の環境の定数）についての文で、`Environment` の値も `CD` の導出も使わない。
+- **証明書の経路への含意**: 証明書の「元ソースの意味」は、`CDT` の導出（`Expr` 上）ではなく、**生成された `machineSource`（定数 `synth_hftPcieOutByte` の意味、`Eq.refl` 検査済み）**にできる。FG の文面（`SourceDenotesMonoV` 形）と同一でないので、FG の定義にこれを数えてよいかは reviewer の判断（66.8）。
+
+### 66.5 証明書経路が root について与える文（前提を全て名前付きで）
+
+#### 形 (c1): オフラインの証明書（コンパイラの IO を何も仮定しない）
+
+記号: `R := Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte`、`d := R.machineData`、`(b₀, D₀)` は 1 回の実行で得た artifact を閉じた項にしたもの（66.2: 256＋88＋159 文）、`V₀` は出荷 Verilog のバイト列のリテラル。新規の部品は `CheckRoot`（純粋 checker）と `checkRoot_sound`（その健全性）。
+
+```
+theorem checkRoot_sound :                       -- 一般定理（新規。全データ・全 module）
+  ∀ (d : MachineData) (b : Module) (D : Design), d.ok = true → CheckRoot d b D = true →
+    ∃ ids cache regs lets, MachineWired … b D regs lets ∧
+      ∀ i bools bits T seed st0 mems, SourceInputs … → … →
+        ∃ envs, runModuleT (D.modules から子を引く) b … = some envs ∧
+          ∀ j k o f, d.shape.layout.outs[k]? = some o → (machineSource の出力)[k]? = some f → envs[j] o.name = f j
+
+theorem hft_cert :                              -- root への適用（kernel の rfl／decide のみ）
+  [R.machine_ok の d.ok = true]                 -- 既存（Eq.refl、kernel 検査済み）
+  ∧ CheckRoot R.machineData b₀ D₀ = true        -- 新規 checker を閉じた項に適用（`decide`／`rfl`）
+  ∧ toVerilogDesign (b₀ :: D₀.modules …) = V₀   -- 出荷物との突合（`rfl`）
+```
+
+結論は `checkRoot_sound` と `hft_cert` から `(b₀, D₀)` が `R` の `machineSource` を示すこと。
+
+**前提の一覧（全て）**:
+
+| 前提 | 必要か | 理由 |
+|---|---|---|
+| `hr`（`pilotEntry3`／`synthesizeCombinationalCore` の run） | **不要** | artifact は閉じた項。run は文に現れない |
+| `L : Laws`、`hquiet`、`hsynth`、`hcell : CellPrem`、`hD hG hT hs h0` | **不要** | コンパイラの IO（`getEnv`、診断出力、`mkRef` 等）についての文が現れない |
+| `entry : MachineDefines`、`closes : MachineCloses` | **不要** | これらは run の中身についての文。checker は `d` と `(b₀, D₀)` だけを見る |
+| `d.ok = true`、`machine_body`／`machine_inits`／`machine_writes`／`machine_result`／`machine_source` | 要る（**既に生成・kernel 検査済み**） | データが source の宣言を正しく読んでいることの kernel 検査（`Eq.refl`）。`unq` は意図的に未検証で、受理の根拠は等式 |
+| `CheckRoot d b₀ D₀ = true` | 要る（**新規**） | 返された module が `d` の項を実装している検査（66.6 の M1・M2） |
+| `checkRoot_sound`（kernel 済みの定理） | 要る（**新規**） | checker が true なら trace が成り立つ |
+| 出荷物の突合 `toVerilogDesign … = V₀` | 要る（kernel の `rfl`）。**ただし `V₀` が実際に出荷されるファイルのバイト列であることは kernel の外の運用** | artifact を固定する手段 |
+| `(b₀, D₀)` が root を `pilotEntry3` に通した出力であること | **kernel の中では言えない** | 66.7 |
+
+#### 形 (c2): コンパイラ内の checker（検査失敗なら throw）
+
+`pilotEntry3` の末尾で `CheckRoot` を呼び、false なら例外にする。成功した run について「末尾で checker が `(b, D')` に対して true だった」ことを run の bind 分解で言う。**この形は `hr` を要する**（run の末尾の構造）。`Laws`／`CellPrem` が全体として要るかは [未]: checker が読む環境が `envAt cref w` と一致するための frame（`GetEnvFrame` 相当）が要る見込みで、それが `Laws` 全体を再び要求するかは確かめていない。(c2) は FG の文面（`compileCircuit … = .ok artifact` の全称）に近いが、63 節の阻害（`CellPrem`）を避けられる保証はない。
+
+#### 66.5 の問いへの答え
+
+- **`hr`、`L`、`CellPrem` は要るか**: (c1) は**要らない**（コンパイラの IO について何も仮定しない）。(c2) は `hr` と、少なくとも checker が読む環境の frame が要る（`L`・`CellPrem` の全体が要るかは [未]）。
+- (c1) が代わりに要求するもの: `CheckRoot` の健全性定理（新規）と、`(b₀, D₀)` が実際に出荷される artifact であること（kernel の外）。
+
+### 66.6 欠けている部品（具体的な部品と大きさ）— 既知と未知を分ける
+
+**既知（測った量）**
+
+| 項目 | 値 | 出所 |
+|---|---|---|
+| root artifact | top 256 文・260 wire・入力 7・出力 1、子 88 文と 159 文、Verilog 約 15,000 文字 | [プローブ] |
+| translator の規模 | `Elab.lean` 全体 9,862 行、`translateExprToWireImpl` の節は約 1,900 行、グローバル `initialize` 29 | [読] |
+| 既存の run 側の健全性（この step の相当部分） | `ShippingMachineEntry` 2,492、`ShippingMixedSourceBridge` 345、`ShippingScalarSoundness` 169、`ShippingMuxLoweringSoundness` 147（計 3,153 行）、`ShippingEntrySoundness` 1,823 | [読] `wc -l` |
+| 既存の module→module checker とその健全性 | `RefineCheck` 424＋`ShippingRefineSoundness` 1,075、`HierCheck` 308、`ShippingMachineShipsHier` 889、`ShippingShipsHierFree` 217（**build されていない旨のコメントあり**） | [読] |
+| 既存の連結・子 | `ShippingMachineCompose` 925、`ShippingMachineChild` 512、`ShippingMachineLinked` 396、`ShippingMachineComposedT` 140、`ShippingMachineTeleNest` 483 | [読] |
+| source 側の閉じた部品 | `machine_states`、`machine_source`、`hftRootLink`（`S2kLink` 129 行） | [読]／[プローブ] |
+| 既に動く生成 | `#machine_endpoint`（root とその 2 つの子）、`#machine_linked`、`#machine_composed` | [プローブ] |
+
+**欠けている部品**
+
+| # | 部品 | 内容 | 大きさ |
+|---|---|---|---|
+| M1 | root の top module の checker `CheckTop`（`d` の項 ↔ `b₀` の wire 文） | Term（`bits`／`bool`）から出る `assign`／`register` の形を pure に照合し、wire 名の対応（`ids`／`cache` 由来の名前）を内部で復元する translation validator | **[未]** 行数は見積れない。比較の目安は上の「run 側の健全性 3,153 行」（run の構造を使う部分と演算の意味の補題が混ざっており、後者がどれだけ再利用できるかは未確認） |
+| M2 | top の `register`／`inst` 部分（`closeMachine`、`closeInstsG` の形） | `Sparkle/IR/Machine.lean`・`MachineInstG.lean` の純粋関数の形の照合。ここは純粋関数なので比較的小さい見込み | **[未]** |
+| M3 | 子 2 個の module（88／159 文）が子の source 関数を計算する `ChildFn mc P F` | 子は組合せ（`slots = 0`）なので、同じ validator の組合せ版。既存の `machine_child`（`ShippingMachineChild`）は run から作る | **[未]** M1 の特殊例なら追加は小さいが、`P`（`childRange`）の値域の扱いは確かめていない |
+| M4 | 連結定理（top の open trace と子の `ChildFn` から linked trace）の適用 | 既存の `machine_linked_calls`／`machine_linked_ofB`（`Compose`）をそのまま使う見込み。run の前提を外した版が要る | **[未]** 既存の定理を再利用するだけなら小さい。run なしで使えるかは未確認（`hkc` が run から来る定理がある） |
+| M5 | raw → 出荷 module の後処理（`dropZeroWidth`、`mergeChecked`、`checkedOptimize`）の扱い | (c1) は**返された `b₀` を直接**検査するので後処理をモデル化せずに済む。ただし checker は**後処理後の形**（merge／register dedup 済み）を受け入れる必要がある。`refineCheck` は assign＋register module 用で、instance を含む module には `hierRefineCheck`（`HierCheck`）。root の `machine_ships_hier` の生成器は通らない（66.1） | **[未]** この点が (c1) の最大の隠れた費用になり得る: validator が最適化後の形を扱えない場合、raw を検査して `hierRefineCheck` で `b₀` に移す二段になる |
+| M6 | artifact のシリアライズ（`ToExpr` 相当）と `V₀` の埋め込み | 約 500 文の `Module`／`Design` を閉じた項へ。`ToExpr` の derive があるかは未確認 | 小さい見込み（**[未]**）。kernel 検査時間は未測定 |
+| M7 | 出荷物との突合 | `toVerilogDesign b₀ …` を kernel で評価し `V₀` と `rfl`。文字列 15k 字 | 小さい見込み（**[未]**） |
+| M8 | FG の文としての位置づけ | (c1) の `hft_cert` は「全称の `compile = ok`」ではなく「この artifact」の文 | **[未]** reviewer の判断 |
+
+**未知（行数を見積れないもの）**: M1 の validator の設計（実際に root が使う演算の範囲、translator の lowering の癖——`machNorm`、sign 演算、wire の再利用——を網羅できるか）、M5（最適化後の形）、M3 の値域、M4 の run なし化、kernel 検査時間。**上の既知の量はどれも (c) の総行数の見積りではない。**
+
+### 66.7 同じ返された artifact を固定するか
+
+- **(c1)**: **値としては固定する**（`(b₀, D₀)` と `V₀` の閉じた項。IR の型検査ではなく、`machineSource` との trace の一致）。ただし「`(b₀, D₀)` が root を `pilotEntry3` に通した出力である」という**等式は kernel の中で言えない**（66.2: 純粋な組立関数がない。コンパイラは kernel で評価できない）。その結びは運用: (i) base SHA のコンパイラで一度ダンプする、(ii) 出荷ファイルが `V₀` と一致することを突合する、(iii) コンパイラの変更で出力が変われば再生成。決定性の実測: 同環境で 3 回（`synthesizeEntry` 2、`pilotEntry3` 1）の出力が一致（[プローブ]、1 環境）。
+- **(c2)**: **成功した各 run の返り値**を固定する（`hr` が `(b, D')` を決める）。ただし `hr` に `Laws`／`CellPrem` 型の前提が残るか [未]。
+- 現行 (a)／(b): `hr` が `(b, D')` を決める。同一 artifact だが前提が供給できない（S3m、65 節）。
+
+### 66.8 (a)・(b)・(c) の再比較 — この pilot（root 1 件）で FG に最短なのはどれか
+
+| 観点 | (a) 現行 | (b) 修正版 Corr | (c1) 証明書 | (c2) checker in compiler |
+|---|---|---|---|---|
+| コンパイラの IO を仮定するか | `Laws`／`CellPrem` 全体 | leaf 対応仮説の集合 | **しない** | 末尾の frame のみ（範囲 [未]） |
+| 供給できない前提が残るか | 残る（S3m: `ReadWorld` 全 world 等） | 残る（leaf ごとの opaque primitive） | **残らない見込み**（ただし M1 の成否に依存） | 残る可能性（frame） |
+| 同一 artifact | 前提の下で yes | v12 が作れれば yes | 値として yes、compiler の出力であることは kernel の外 | yes（成功 run） |
+| FG の文面に合うか | yes | yes | **no**（artifact 固定の文。reviewer の判断） | ほぼ yes |
+| 既に動く部品 | v11 の鎖 | S3n／S3o の小モデル（4 leaf） | `#machine_endpoint`、`machine_states`、`hftRootLink`、`#machine_linked`／`#machine_composed`（全て root で通る） | 同左 |
+| 新規に要る最大の部品 | `Laws`／`CellPrem` の供給（不可能に見える） | 2,500〜4,000 行（既知部分の外挿。未知は含まない）と v12 の再定式化 | **M1（validator）＋ M5（最適化後の形）** | M1 に加え末尾 frame |
+| 費用の確度 | 高い確度で「完成しない」 | 低い（未知が多い） | **低い**（M1・M5 が未知） | 低い |
+
+**読み（確度つき）**:
+
+1. **(a) は最短ではない。確度: 高い。** 供給の道がない（S3m）。root の endpoint が全て run の 11 binder を取る（66.1・66.3）ので、(a) を延長しても `hr` を外せない。
+2. **(b) と (c1) のどちらが短いかは決められない。確度: 低い。** S3o の読み（「(c) の可能性が高い」）は、「純粋な組立関数の有無で決まる」とした。今回その答えは**否**（66.2）。S3o §5.4 は「否なら (c) は新規実装になり、(b) より安いとは言えなくなる」としていた。したがって**この条件で S3o の暫定の読みは弱まった**: (c1) の唯一の大きな新規部品 M1（validator）は、translator の lowering を純粋に再記述する作業で、既存の run 側の健全性（3,153 行相当）と同じ桁になり得る。一方 (c1) には (b) にない利点がある: **IO の対応仮説が文に現れない**（供給不能な前提が構造上残らない）、既存の生成・連結・source 側の部品が root で通る（66.1・66.3・66.4）、artifact の規模が小さい（66.2）。
+3. **(c1) の本当の隠れた費用は M5（最適化後の形）と FG の文面（M8）。** M5 は validator が merge／register dedup 済みの module を受け入れられるかで、受け入れられなければ raw の検査＋`hierRefineCheck` の二段になる。M8 は reviewer の判断で、(c1) を FG に数えないなら (c1) は FG への経路ではない。
+4. **「成功 run のモデル化」（(a)／(b)）が FG への最小経路か**: **最小とは言えない。確度: 中。** (b) は IO の各 primitive について**供給できない文**を最後まで残す（65 節）。(c1) はそれを文から消すが、代わりに「validator の健全性」という**新規だが原理的に証明可能な**部品を要する。供給不能な前提が残る経路より、証明可能な部品が多い経路のほうが FG に到達できる可能性は高いが、行数は (b) より小さいとは言えない。
+5. **最短の次の一手の候補（実装でなく、さらに小さい調査）**: (i) M5 の確認 — root の `b₀` が `refineCheck`／`hierRefineCheck` の正規形に入るか（`refineCheck m m` が true か）を scratch で測る、(ii) M1 の範囲の確認 — root の top module が使う `Operator` と `Stmt` の種類の集合（256 文の内訳）を数え、既存の演算の意味の補題がそれをどれだけ覆うかを数える、(iii) M8 を reviewer に確認する。この 3 つで (c1) の費用の桁が決まる。
+
+**推奨は出さない。** 確度の言い方: 「(a) は最短でない」は高、「(c1) が (b) より短い」は低（S3o より弱い）、「(c1) は IO の仮定を文から消す」は高（構造上）、「(c1) が FG に数えられる」は reviewer の判断で未定。
+
+### 66.9 再現のための記録
+
+- 作業ツリーの変更は `docs/FG-CIRCUIT-PILOT.md`（本節）と `docs/FG-CIRCUIT-BOUNDARY-COMPARISON.md`（S3p 更新）だけ。プローブのファイルは作業ツリーの外（scratch）で、コミットしていない。
+- プローブで確かめた事実（1 つの環境・この base）: root の定数 21 個の一覧（66.1）、各コマンドの成否とエラー本文（66.1 の表）、`root.machine_sound`／`machine_linked`／`machine_composed` の前提と結論の形（66.1・66.3）、root の shape（`nested=true loops=0 runs=3 slots=17 lets=45 instFields=0 insts=2`）、artifact の規模と決定性（66.2・66.7）、`IO.Ref` の閉じた項（66.2）。
+- 確かめていないこと: 別の環境・別プロセスでの artifact の一致、`ExprStructMap String` の `IO.Ref` の閉じた項、`Module`／`Design` の `ToExpr`、kernel での検査時間、M1〜M5 の行数、`CheckRoot` が最適化後の形を受け入れられるか。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。

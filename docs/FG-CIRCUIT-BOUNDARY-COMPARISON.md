@@ -2,6 +2,8 @@
 
 Issue `sparkle-fg-circuit-pilot`、S3o。土台 `43a40e05`（S3n）。**未採用の比較資料。まず reviewer が確認し、その後にユーザーへ渡す。** 新 TRUSTED の採用・全面 E1 移植（案 1）の開始・v12 の作成はしていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
 
+**【S3p 更新】** (c) の部分（§5.4・§6・§7）は S3p（`docs/FG-CIRCUIT-PILOT.md` §66、土台 `59a49445`）で更新した。更新箇所は「S3p」と明記した節と、各節末の「S3p 更新」の段落。S3o の本文は書き換えていない。S3p の結論は §6 末の「S3p: 再比較」。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
 この資料の各数値と主張は、(i) 今回 kernel / Check55 で確かめたもの、(ii) リポジトリのファイルを読んだもの、(iii) 未検証（coder の見積り・推測）のどれかを明示する。(iii) を (i) の言葉で書かない。
 
 ## 0. 先に結論
@@ -9,6 +11,7 @@ Issue `sparkle-fg-circuit-pilot`、S3o。土台 `43a40e05`（S3n）。**未採�
 1. **S3n の橋の `EnvCorr` は実 `getEnv` の成功 run と両立しなかった（kernel で反駁）。** 旧 `InitCorr`/`quietR` は**全 world で成立**し、実プロセスの quiet を何も制限していなかった。修正版 `RelE env`（環境を明示的な oracle `env` として run 全体で固定）は、その反駁に当たらず、モデル内（toy 意味論）で全仮説と成功 `getEnv` が同時に成り立つ。これは**モデル内の事実**で、実 pilot の証人ではない（`docs/FG-CIRCUIT-PILOT.md` §65）。
 2. **修正しても (b) は「未証明の文を小さくした」とは言えない。** `RelE` は世界の量化範囲を狭めない（任意の `w` に対し、`w` から読み出した `h` が `RelE` で関係する。§3.2）。変わるのは文の中身（世界の等式 → 値の文）と、見える単位（leaf 操作）だけで、各 leaf の対応仮説は不透明な実 primitive についての**未供給の文**のまま残る。
 3. **最短経路の暫定の読み（未検証）**: このパイロットの root `synth_hftPcieOutByte` は machine 経路（`machineShape?` = some、instance 2、slot 17、S1 §14.4 SNAPSHOT8b）にあり、(c) の「生成物を kernel で検査する」経路が、`Laws`/`CellPrem` の完成を要さない唯一の案である。ただし (c) が成り立つかの**主要な未確認が 4 つ**あり（§5.4）、それを小さい調査（実装でなく、既存の生成器が pilot root に適用できるかの確認）で先に潰すのが、(b) の全面移植より安い。推奨ではなく reviewer の判断材料である。
+   **S3p 更新**: 主要な未確認 4 つは確定した（§5.10）。2（純粋な組立関数）の答えは**否**で、この項の「(c) が唯一の案」という暫定の読みは**弱まった**。(c) の IO を仮定しない形（(c1)）は成り立ち得るが、新規部品（返された module を検査する validator）が (b) と同じ桁になる可能性があり、(b) より安いとは言えない（§6 末）。
 
 ## 1. 共通の土台（S3n/S3o で確かめた事実）
 
@@ -134,6 +137,18 @@ A.P-01、C.EN-4 は、leaf 対応仮説の集合に**置き換わる**だけで�
 ### 5.9 費用
 既知: `#machine_endpoint` の 1 宣言あたりの kernel 検査は 0.1〜1.5 秒（`Coverage.md` の 55 宣言での測定）。`refineCheck` の吸収は既存。**未知（行数を見積れない）**: §5.4 の 4 点、シリアライズ（閉じた Lean 項への書き出し。巨大 module の kernel 検査の規模。CRC の正規形は 0.5〜0.75M ノード）、`emit` 突合の方式。調査自体（実装なし）の作業量: §5.4 の 1 と 2 を `kjob lake env lean` のプローブで確認する程度で、小さい。
 
+
+### 5.10 S3p: §5.4 の未確認 4 点の確定（`docs/FG-CIRCUIT-PILOT.md` §66。読みとプローブ。実装なし）
+
+出所の種類: **[読]** ファイルを読んだ、**[プローブ]** scratch での読み取り専用実行（1 環境・この base の値）、**[未]** 未確認。
+
+1. **pilot root に `#machine_endpoint` は適用できるか — できる（S1k で適用済み）。** root には `machineData`・`machine_ok`・`machine_body`・`machine_sound`・`machine_states` 等 21 個の定数がある。**無い**ものは `machine_closes`・`machine_ships*`・`machine_composedT*`・`machine_ships_hier`。理由: `machine_ships*` は `Tools/ShippingMachineCommand.lean:2728` の `if r.shape.insts.isEmpty`（insts 付きは設計上出さない）、`machine_closes` はデータに呼び出しがあると作れない（`Tools/ShippingMachineClosesGen.lean:119` のエラー）、`machine_composedT*`／`machine_ships_hier` は `endpointParts`（`Tools/ShippingMachineSeqCommand.lean:71`）が root の頭 `machine_trace_of_tele_ext` を持たない（`no wired twin for its head`）。**`#machine_linked` と `#machine_composed` は root に通る**（[プローブ]）。ただし生成される `machine_sound`／`machine_linked`／`machine_composed` は全て `hr`・`entry : MachineDefines`・`closes : MachineCloses` を取る（run の 11 binder）。
+2. **Module（と Design）を組む純粋関数はあるか — ない。** 純粋なのは仕上げの `closeLets`／`closeMachine`／`closeInstsG` と後処理（`dropZeroWidthModule`／`mergeChecked`／`checkedOptimize`／`toVerilogDesign`）だけ。中核は `synthesizeMixedCertified`（`MetaM`、fresh な id と `IO.Ref` のキャッシュ）＋ translator（`CompilerM`、グローバル `IO.Ref`）。既存の健全性の文は `∃ ids cache, … MachineWired …` の存在形で、`m = build …` の等式ではない。→ `pureBuild src = M` は書けない。
+3. **子 instance の接続 — 覆うが run の仮定は外れない。** `machine_linked`（子は `ChildFn mc …` を仮定）、`machine_composed`（子は `MachineRun child shape mc`＝子の run の存在を仮定）はどちらも root の 2 つの子を扱うが、`hr`・`entry`・`closes` が要る。FG 側の鎖（`machine_ships_hierC_runOff`、`machine_linked_callsServed1` 等）も `L`・`hr`・`CellPrem` 由来の前提を取る。
+4. **ソース側 — `CDT`（`cdvT`）が root で使え、導出は閉じている。** 「ソースの意味 = 返された IR の意味」を述べる既存定理は v11 `HftFinalStmtOffCombined11`（前提 10 binder: `L hquiet hsynth hr hcell hD hG hT hs h0`）。ソース側（`SourceDenotesMonoV`、`ObservationsEqualMono`）は環境 `envAt cref w` にだけ依存し、artifact 側（`HasConcretePackage`）が `hr` を要する。run なしの閉じた source 側の部品として `machine_states`・`machine_source`・`hftRootLink` がある（定数 `synth_hftPcieOutByte` そのものについての文）。
+
+**この確定が (c) について意味すること**: 「`#machine_endpoint` が通るか」「接続の文があるか」という 1・3・4 は肯定的だが、いずれも run 経由。(c) を IO 非依存にする鍵は 2 で、答えは否。したがって (c1)（オフライン証明書）の新規部品は、返された module を `MachineData` に照らして検査する純粋 checker（validator）とその健全性になる（§66.6 の M1〜M8）。
+
 ## 6. 比較と、最短経路の読み
 
 | 観点 | (a) 現行 | (b) 修正版 Corr | (c) 証明書／checker |
@@ -147,7 +162,23 @@ A.P-01、C.EN-4 は、leaf 対応仮説の集合に**置き換わる**だけで�
 
 **このパイロット（root 1 件、machine 経路）で FG に最短なのは (c) の可能性が高い（未検証）。** 理由は、(a) と (b) が共に「実 IO の opaque primitive についての未供給の文」を最後まで残す（(b) は形を変えるだけで量化範囲も狭めない）のに対し、(c) は run を経由せず返された値を検査する唯一の案だから。ただし (c) の成否は §5.4 の未確認 4 点（特に 2: 純粋な組立関数の有無）で決まり、2 が否なら (c) は新規実装になり、(b) より安いとは言えなくなる。**(b) の全面移植（案 1）は、(c) の調査結果が出るまで開始しない**のが、現在の読みである（reviewer が既に案 1 を今は開始しないと裁定済み）。
 
+### S3p: 再比較（`docs/FG-CIRCUIT-PILOT.md` §66.8）
+
+| 観点 | (a) 現行 | (b) 修正版 Corr | (c1) オフライン証明書 | (c2) コンパイラ内 checker |
+|---|---|---|---|---|
+| コンパイラの IO を仮定するか | `Laws`／`CellPrem` 全体 | leaf 対応仮説の集合 | **しない**（`hr`・`L`・`CellPrem`・`entry`・`closes` が文に現れない） | 末尾の frame のみ（範囲は未確認） |
+| 供給できない前提が残るか | 残る（S3m） | 残る（opaque primitive ごと） | 構造上は残らない（ただし validator の成否に依存） | 残る可能性 |
+| 同じ返された artifact | 前提の下で yes | v12 が作れれば yes | **値として yes**（閉じた項 `(b₀, D₀)` と出荷バイト列 `V₀`）。「compiler が返した値である」ことは kernel の外 | yes（成功した各 run） |
+| FG の文面（`compile = ok` の全称）に合うか | yes | yes | **no**（artifact 固定の文。reviewer の判断） | ほぼ yes |
+| 新規に要る最大の部品 | 供給不能 | 2,500〜4,000 行（既知部分の外挿。未知を含まない） | validator（M1）＋最適化後の形（M5） | M1 ＋ 末尾 frame |
+| 費用の確度 | 「完成しない」が高確度 | 低 | 低 | 低 |
+
+**確度つきの読み**: (a) は最短でない（高）。(b) と (c1) のどちらが短いかは決められない（低）。S3o の「(c) が唯一の案」は、純粋な組立関数が無かったため**弱まった**: (c1) の validator は translator の lowering の純粋な再記述で、既存の run 側の健全性（約 3,153 行相当）と同じ桁になり得る。(c1) の利点は、IO の対応仮説が文に現れず、既存の生成・連結・ソース側の部品が root で通り、artifact が小さい（top 256 文＋子 88／159 文）こと。(c1) の隠れた費用は M5（最適化後の module を validator が受け入れるか）と、FG の文面（M8）。推奨は出さない。次に小さい調査（実装なし）の候補は、M5・M1 の範囲・M8 の 3 点（§66.8）。
+
 ## 7. reviewer に確認したいこと
 1. FG の定義が「`compileCircuit … = .ok artifact` の全称の定理」（戦略 §6）のままか、root 固定の artifact 証明書（(c1)）を FG の達成に数えるか。
 2. (c) の調査（§5.4 の 1・2 のプローブ）を次の単位にしてよいか（実装を含まない）。
 3. (b) を続ける場合、`Sig` の型付き other cell 化（§2 #1）で `ShippingHeapModel` の既存の文を保てると見てよいか。
+
+4. **S3p 追加**: (c1)（artifact 固定の証明書。`compile = ok` の全称ではない）を FG の達成に数えるか。数えないなら (c1) は FG への経路ではなく、(c2) か (b) になる。
+5. **S3p 追加**: 次の調査単位として、M5（root の `b₀` が `refineCheck`／`hierRefineCheck` の正規形に入るか）と M1 の範囲（256 文の `Operator`／`Stmt` の内訳と既存の演算の意味の補題の被覆）を測ってよいか（どちらも実装を含まない）。
