@@ -3158,3 +3158,31 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 下位の補題（S3j が確かめていなかった範囲）: 3・5・9 が `hstart` の一部として渡す先は `coreHeadOff_jqcAX`（`hw : JQ O.quiet D w`、`hc : D = 0 ∨ CacheInvAX`）、`jqhr_headX`（`hadm`、`hjq : JQ O.quiet 0 w₀`）、`machineRunJQH_of_closesHOffX`（`hA : O.adm`）、`keepsA_framedX`（`hA`）、`synthesizeFromConst_machine_invWX`・`synthesizeMachineCertified_runsAX`・`htr_of_teleX`・`bodyStepC_of_teleX`・`soundX_served_EX`・`oneOut_topShipsOff`・`hft_closesAtHX`（いずれも `hstart.1` の adm のみ）。**どれも `Start`/`StartX`/`JQC`/`JQCX` を開始 world で取らない**（型を読んだ。`JQ` と adm だけ）。
 
 結論: **開始 world の cache 不変量 `CacheInvA L.O (cv w)` は、v10 の証明経路のどこでも読まれない**。唯一の「使用」は #2 の `jqc_toX hstart.2`（`Start` を `StartX` の形にするための再包装）で、その `StartX` の cache 半分は #6–#11 が `.2.1` と `.1` だけを取り出すため消費されない。head の後の `JQC 1` は `coreHeadOff_jqcAX` が `Or.inl rfl` で与える（開始 cache 不要）。よって手順 2（複製）に進む。複製するのは、型に `hstart : Start/StartX` を持つ宣言 #1–#11 のみ（文を変える必要があるもの）で、`hadm` と JQ のみの `hjq : JQ L.O.quiet 0 w` に替える。下位補題は再利用する。
+
+### 61.2 複製した鎖（`Tools/ShippingFGCircuitS3kChain.lean`、`lakefile.lean` に `lean_lib`）
+
+§61.1 の #1–#11 を、`hstart` を `hadm`（文脈述語。`Laws` 版は `AdmCtx L.O.quiet mctx cctx`、`LawsX` 版は `L.O.adm mctx cctx`）と JQ のみの `hjq : JQ L.O.quiet 0 w` に替えて複製した（接尾辞 `_k`、各々の元の namespace を開き直した。選択的移植）。置換は機械的: `hstart.1 ↦ hadm`、`hstart.2.1 ↦ hjq`（`hstart.2.1.1/.2/.2.2 ↦ hjq.1/.2/.2.2`）、`hstart` を渡す所は `hadm hjq`。証明の他の部分は元と同じ。手で直したのは 3 点だけ: (1) `hftCoreCloses_of_kidsRX_k` は元から別引数 `hadm` を持つので `hjq` のみ、(2) v7 の `hstartX := ⟨hstart.1, jqc_toX hstart.2⟩`（cache 半分を作っていた唯一の箇所）を削除し `hadm hjq` を直接渡す、(3) `JQ` の open。複製は `HftFinalStmtOffLNLX_k`、`HftFinalStmtOffCombined7_k`、`HftFinalStmtOffCombined9_k`（文の定義）と、定理 `synth_hftPcieOutByte_finalOffX_k`、`…LX_k`、`…LNLX_k`、`coreOff_ranAX_k`、`hftPostGate_of_localX_k`、`hftObNoRawOff_of_localX_k`、`hftCoreCloses_of_kidsRX_k`、`hftCoreCloses_of_kidsR''_k`、`hftTop_of_runRX_k`、`…Combined7_k`、`…Combined9_k`。原本・既存 Check・下位補題は不変。初回のビルドで通った（`L.toX` の defeq も含めて）。
+
+### 61.3 v11（`Tools/ShippingFGCircuitS3kFinal.lean`）
+
+`HftFinalStmtOffCombined11`（定理 `synth_hftPcieOutByte_finalOffCombined11`）: v10 から `hcache` を除いた文。binder は `L hquiet hsynth hr hcell hD hG hT hs h0`（10 個）。結論・`hr`（`pilotEntry3` の run）・他の前提は v10 と同じ。証明は `jq_of_residual`（`AdmCtx` は run の `canUnfold?` 検査、`quiet w` は `hquiet`、`sv w` は `hsynth`、`dv w = 0` は run の depth 検査 → `AdmCtx ∧ JQ L.O.quiet 0 w`）+ `entry2_of_pilotEntry3` + 複製 v9。`v11_post_head_jqc` は v11 の前提そのもの（`hquiet hsynth hr hcell`）から core head 後の world で `JQC L.O 1`（cache 半分を含む）を `jqc_after_head_of_pilotEntry3` で出す: 開始 world の cache を仮定しない。公理は標準のみ（`#print axioms`）。
+
+### 61.4 Check51（`Tests/Gen5/FGCircuitPilotCheck51.lean`）の行（Check 自身の出力から）
+
+- `FGCIRCUIT51 SIGNATURES`: v11 の完全な型 = 独立に書いた `F11_real`（Check50 の `F10` 族で cache 前提を省いたもの）、`FGCircuitCmp.stmtEq`、`norm51` 1 本、**54 mutants 却下**（`hcache` を開始 world／別 world／空 cache／終了 world で戻す、各前提の削除、S3f2／通常 Off／検査の半分／depth 1 の入口、別の run 文脈・開始 world、`Start` の連言や `Start` 全体を仮説に、結論の環境・tele・level・出力・artifact・carrier、v10／v9／複製 v9／v8／v7 の型）。複製した鎖の主要補題 10 件（`…Combined9_k`、`…Combined7_k`、`…LNLX_k`、`coreOff_ranAX_k`、`hftObNoRawOff_of_localX_k`、`hftCoreCloses_of_kidsR''_k`、`hftTop_of_runRX_k`、`hftCoreCloses_of_kidsRX_k`、`jq_of_residual`、`v11_post_head_jqc`）の完全な型 = 独立に書いた期待型（元の文に start 仮説のノブだけを持たせたもの。v9 のノブ 3 = **元の v9 の型**と一致することも確認）、**65 mutants 却下**（`hadm` なし、`hjq` なし、元の `Start`/`StartX`、cache を `JQC`/`JQCX` として `hjq` の中に戻す、`hjq` を終了 world・depth 1 に、`hjq` に加えて別の cache 仮説、`jq_of_residual` の結論に dv を欠く、など）。
+- `FGCIRCUIT51 BINDERS`: v9（18 = 9 + 9）、v10（20 = 9 + 11）`[ι, mref, cref, L, mctx, cctx, w, w', b, D', hquiet, hsynth, hcache, hr, hcell, hD, hG, hT, hs, h0]`、v11（19 = 9 + 10）`[ι, mref, cref, L, mctx, cctx, w, w', b, D', hquiet, hsynth, hr, hcell, hD, hG, hT, hs, h0]`。**v11 = v10 − [hcache]**。`Start` の 5 連言を v11 自身の変数で照合: v11 の仮説 `[quiet w, sv w = some synthesizeChild]`、run の検査が供給 `AdmCtx`・`dv w = 0`、**もう前提でない** `CacheInvA (cv w)`。
+- `FGCIRCUIT51 VACUITY`: v11 の証明項（25335 定数）は `vacuousLaws`・`RefLawsAOps.quietFalse`・`RefLawsATele.quietFalse`・`admCtx_quietFalse(_writer)`・`frame_quietFalse_vacuous` のどれにも到達しない。同じ走査は元の鎖（v9・v7・`hftTop_of_runRX`・kids の closing・LNLX・`coreOff_ranAX`・`hftPostGate/hftObNoRaw`・LX・X・`jqc_toX`・`start_of_residual`・v10 の 14 宣言）にも到達しない（証明は複製だけを通る。`INDEPENDENCE`）。空虚な `L` が充足例でないことは S3j の `vacuous_no_hquiet`（`hquiet` は全 world で偽）による: v11 は `hquiet` を満たす `L` についての主張。
+- `FGCIRCUIT51 AXIOMS`: 14 名、標準の公理のみ。sorryAx・native_decide なし。
+
+### 61.5 何が供給され、何が残ったか
+
+- 今回供給した（文から消えた）: `CacheInvA L.O (cv w)`（開始 world の cache 半分、`hcache`）。head 後の `JQC 1` は `L.O.cacheSet`（`tripleC_clear`）から出る（`L` の field に依る。`L` は binder のまま）。
+- 残った（名前付き・不変）: `hquiet`・`hsynth`（`Start` の JQ 部分。A.P-02）、`L`（A.P-01）、`hcell`（C.EN-4）、`hD hG hT hs h0`。いずれも「調査範囲では未供給」で、供給不能の主張ではない。
+- v11 の `hr` は v10 と同じ wrapper の run（`pilotEntry3`）。実行経路・出力は v10 と同じ（compiler `Sparkle/` は不変）。
+- 制約: 複製した鎖は元の証明の機械的置換で、元の `Start`（cache 付き）版は残っている（既存 Check の文は不変）。`hftCoreCloses_of_root` など鎖外の宣言は複製していない。
+
+### 61.6 範囲・compiler 変更・次
+
+- 変更: `Tools/ShippingFGCircuitS3kChain.lean`・`…S3kFinal.lean`・`Tests/Gen5/FGCircuitPilotCheck51.lean`（新規。`lakefile.lean` に `lean_lib` 3 件）と本節。`Sparkle/`・v9・v10・既存 Check・既存の文は**不変**。新 law・axiom・sorry・native_decide・TRUSTED なし。
+- 次の候補: `hsynth`（S3: `sparkleChildSynth` の `SetGet` を `hcell` に足す設計、§59.3、reviewer 判断）、`hquiet`（`quiet` の具体的な選択）。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。A.P-02（Start）は `quiet`・`sv` が残るので行は外さない（数え方は reviewer が決める）。
