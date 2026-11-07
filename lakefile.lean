@@ -6706,3 +6706,9 @@ lean_lib «Tools.ShippingFGCircuitS2zEnvCheck» where
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck44» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck44]
+
+lean_lib «Tools.ShippingFGCircuitS2zGenTables» where
+  roots := #[`Tools.ShippingFGCircuitS2zGenTables]
+
+lean_lib «Tools.ShippingFGCircuitS2zPin» where
+  roots := #[`Tools.ShippingFGCircuitS2zPin]
