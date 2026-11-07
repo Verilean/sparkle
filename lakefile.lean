@@ -6700,3 +6700,6 @@ lean_lib «Tools.ShippingFGCircuitS2sAdmChildMainA» where
 
 lean_lib «Tools.ShippingFGCircuitS2sAdmChildTeleLocalA» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmChildTeleLocalA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildCoreC» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildCoreC]
