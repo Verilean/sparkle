@@ -81,7 +81,7 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
 /-- the profile lookup is unset at every reached world, from the root fact and the leaf-step frame -/
 theorem profOffW_of_reachedX {O : RefLawsAOpsX MkRefd mref cref} {w₀ : Void IO.RealWorld}
     (h0 : ProfOffW mref cref w₀) (hs : ProfStepRX O w₀) {w : Void IO.RealWorld}
-    (hr : ReachedX O.quiet mref cref w₀ w) : ProfOffW mref cref w := by
+    (hr : ReachedX O.quiet O.adm mref cref w₀ w) : ProfOffW mref cref w := by
   induction hr with
   | start => exact h0
   | step hr' hl ih => exact hs _ _ hr' hl ih
@@ -91,27 +91,27 @@ theorem profOffW_of_reachedX {O : RefLawsAOpsX MkRefd mref cref} {w₀ : Void IO
 
 /-- **`JQHRX`**: the history invariant `JQHX` over the strengthened operations bundle `ropsRX`. A `JQHRX` world is quiet, reads `e = envAt cref w₀`, is reached from the root start world `w₀`; its cache entries carry the saved reads of the runs that created them. -/
 def JQHRX (O : RefLawsAOpsX MkRefd mref cref) (hcell : CellPrem MkRefd mref cref) (e : Environment)
-    (w₀ : Void IO.RealWorld) (hdown : AdmDownRX O e w₀) (hD : DRowEnvRX O e w₀) (hG : DiagEnvRX O e w₀)
+    (w₀ : Void IO.RealWorld) (hD : DRowEnvRX O e w₀) (hG : DiagEnvRX O e w₀)
     (D : Nat) (w : Void IO.RealWorld) : Prop :=
-  JQHX (ropsRX O hcell e w₀ hdown hD hG) (KidEv mref cref e) D w
+  JQHX (ropsRX O hcell e w₀ hD hG) (KidEv mref cref e) D w
 
 
 /-- what a `JQHRX` world says about its environment, its reach and its profile lookup -/
 theorem jqhr_factsX {O : RefLawsAOpsX MkRefd mref cref} {hcell : CellPrem MkRefd mref cref} {e : Environment}
-    {w₀ : Void IO.RealWorld} {hdown : AdmDownRX O e w₀} {hD : DRowEnvRX O e w₀} {hG : DiagEnvRX O e w₀}
+    {w₀ : Void IO.RealWorld} {hD : DRowEnvRX O e w₀} {hG : DiagEnvRX O e w₀}
     (h0 : ProfOffW mref cref w₀) (hs : ProfStepRX O w₀) {D : Nat} {w : Void IO.RealWorld}
-    (hw : JQHRX O hcell e w₀ hdown hD hG D w) :
-    O.quiet w ∧ ReadsAt e cref w ∧ ReachedX O.quiet mref cref w₀ w ∧ ProfOffW mref cref w :=
+    (hw : JQHRX O hcell e w₀ hD hG D w) :
+    O.quiet w ∧ ReadsAt e cref w ∧ ReachedX O.quiet O.adm mref cref w₀ w ∧ ProfOffW mref cref w :=
   ⟨hw.1.1.1, hw.1.1.2.1, hw.1.1.2.2, profOffW_of_reachedX h0 hs hw.1.1.2.2⟩
 
 
 /-- **The miss premise from the invariant** (replaces S2h's universal `MissEX`): in a `JQHRX` world the evidence `KidEv e` for the call's context pair holds — `ReadsAt e` because the world's quiet predicate carries it, the profile lookup because the world is reached from `w₀` and the lookup is unset along the leaf steps. Nothing is asked of a world outside the invariant. -/
 theorem missRX {O : RefLawsAOpsX MkRefd mref cref} {hcell : CellPrem MkRefd mref cref} {e : Environment}
-    {w₀ : Void IO.RealWorld} {hdown : AdmDownRX O e w₀} {hD : DRowEnvRX O e w₀} {hG : DiagEnvRX O e w₀}
+    {w₀ : Void IO.RealWorld} {hD : DRowEnvRX O e w₀} {hG : DiagEnvRX O e w₀}
     (h0 : ProfOffW mref cref w₀) (hs : ProfStepRX O w₀) :
-    MissEX (ropsRX O hcell e w₀ hdown hD hG) (KidEv mref cref e) := by
+    MissEX (ropsRX O hcell e w₀ hD hG) (KidEv mref cref e) := by
   intro mctx cctx _ D _ n w hw _
-  have hf := jqhr_factsX (hcell := hcell) (hdown := hdown) (hD := hD) (hG := hG) h0 hs (D := D) (w := w) hw
+  have hf := jqhr_factsX (hcell := hcell) (hD := hD) (hG := hG) h0 hs (D := D) (w := w) hw
   exact ⟨hf.2.1, hf.2.2.2 mctx cctx⟩
 
 /-! ## establishment at the head of the root run, and the steps of the induction -/
@@ -119,13 +119,12 @@ theorem missRX {O : RefLawsAOpsX MkRefd mref cref} {hcell : CellPrem MkRefd mref
 
 /-- **Established at the head of the root run**: the start world is `JQHRX` at depth 0 (`ReadsAt (envAt cref w₀) w₀` is `readsAt_self`, `ReachedX.start`), and the head `coreHeadOff` (depth-0 branch: clears the cache) leaves a `JQHRX` world at depth 1. -/
 theorem jqhr_headX {O : RefLawsAOpsX MkRefd mref cref} {hcell : CellPrem MkRefd mref cref}
-    {w₀ : Void IO.RealWorld} {hdown : AdmDownRX O (envAt cref w₀) w₀}
-    {hD : DRowEnvRX O (envAt cref w₀) w₀} {hG : DiagEnvRX O (envAt cref w₀) w₀}
-    (hadm : AdmCtx (quietRX O.quiet mref cref (envAt cref w₀) w₀) mctx cctx)
+    {w₀ : Void IO.RealWorld} {hD : DRowEnvRX O (envAt cref w₀) w₀} {hG : DiagEnvRX O (envAt cref w₀) w₀}
+    (hadm : O.adm mctx cctx)
     (hjq : JQ O.quiet 0 w₀) {X : Name} {w1 : Void IO.RealWorld} {s : CoreSaved}
     (hh : RunsTo (coreHeadOff X) mctx mref cctx cref w₀ s w1) :
-    JQHRX O hcell (envAt cref w₀) w₀ hdown hD hG (0 + 1) w1 :=
-  coreHeadOff_jqhAX (E := KidEv mref cref (envAt cref w₀)) (ropsRX O hcell (envAt cref w₀) w₀ hdown hD hG)
+    JQHRX O hcell (envAt cref w₀) w₀ hD hG (0 + 1) w1 :=
+  coreHeadOff_jqhAX (E := KidEv mref cref (envAt cref w₀)) (ropsRX O hcell (envAt cref w₀) w₀ hD hG)
     hadm ⟨⟨hjq.1, readsAt_self cref w₀, .start⟩, hjq.2⟩ hh
 
 end Tools.ShippingFGCircuitS2mReach
