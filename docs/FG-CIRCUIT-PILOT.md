@@ -4039,8 +4039,43 @@ reviewer 裁定2 との対応: (i) **被覆**: 全 `k < 2` の call と `b.body`
 - **`kernel_rfl`**: `Tools/ShippingFGCircuitS3tCalls.lean` の未信頼の tactic（目標 `a = b` に証明項 `Eq.refl a` を割り当てる。kernel が `a ≡ b` を検査し、成り立たなければ定理の追加が失敗する）。elaborator の `rfl` が root の大きな生成項で終わらないため。新しい axiom／law／TRUSTED ではない（`Lean.ofReduceBool` なし、AXIOMS は標準のみ）。
 - 時間と大きさは 1 つのマシンの 1 run で、上限ではない: kernel 時間（Check57、elaboration を含む）`checkK0 pilotK0 = true` 約 7.0 秒、`structuralOk … = true` 約 4.6 秒、`rootS.ok = true` 約 2.3 秒。項の大きさ（`sizeWithoutSharing`）: `checkComb_sound` 18,251、`rootS_callsEq` 35,737、`premises_satisfiable` 14,378、`cert0` 139。閉じた子 `pilotK0` は 4,709（§68.2）。モジュールのビルド（1 run）: Spec 約 5 秒、Sat 約 1 秒、Calls 約 5 秒、Comb 約 3 秒、CombRun 約 37 秒、Cert 約 43 秒、Check57 は依存込みで約 2 分。
 
+**記録補足（S3u で追記、reviewer）**: (1) `SrcEq` が `SourceData` の全 field を固定するわけではない。`declName`／`d`／`declObs`／`kidInW`／`kidOutW`／`kD` は root の生成定数に固定されるが、**`portNames` と `kidMod` は claim**（validator が module に照らして検査するだけ）。(2) Check57 の署名の型 ascription は**関数の型の確認**であり、`SrcCore`／`CallsEq`／`structuralOk` の本文全体の独立な比較ではない。独立比較は `RootShowsAt` の別記述（`Iff.rfl`）と `CheckRootSoundStmt`／`CertifiedReturnSoundStmt` の再記述に限る。(3) `CertifiedReturnSoundStmt` は checker 受理の抽出だけで、`declName` と `S.declName` の対応は述べない（最終の利用者向け source-preservation wrapper で同一宣言を固定／検査する）。
+
 ### 69.6 Check57 の出力（Check 自身の行）
 
 `FGCIRCUIT57 AXIOMS: 226 theorems of the S3t modules (Spec, Sat, Cert, Calls, Comb, CombRun), standard axioms only ([Quot.sound, Classical.choice, propext]); no sorryAx, no Lean.ofReduceBool (no native_decide)`。`FGCIRCUIT57 NEGATIVE CONTROLS: structural validator on the root 12 … + CheckRoot refuses; combinational validator on pilotK0 9 …`。`FGCIRCUIT57 SIGNATURES: …`（署名は独立に書いた期待型と照合、`RootShowsAt` は独立に書き直した文と `Iff.rfl`）。`FGCIRCUIT57 SATISFIABILITY: rootS.ok = true; rootS.SrcEq proved; the four seed premises … at the artifact's 17 registers …; CheckRoot = true is NOT shown`。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 70. S3u（Issue `sparkle-fg-circuit-pilot`）: S3t の freeze 境界 2 点 — 返された Design の top（P1-1）と top 入力の型・幅（P1-2）
+
+土台 `8ed3fcc4`（S3t）。`Sparkle/` は変更していない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。1 つの root／子の結果は局所で、台帳の減算ではない。`bodyOk = false` と `certifiedReturn` の拒否は維持（空虚な `checkRoot_sound` を受理済みとして提示しない）。
+
+### 70.1 P1-1: 返された Design の top、module 名の重複、top/子の名前衝突
+
+`RootShowsAt` の結論に `D.topModule = b.name ∧ (D.modules.map (·.name)).Nodup ∧ ∀ m ∈ D.modules, m.name ≠ b.name` を追加。`structuralOk` に `designOk b D`（同じ 3 条件の Bool 版）を追加。`moduleByName` は `find?`（同名の最初）であり、名前が相異なれば名前ごとに唯一の module、子の名前の lookup が top を返すことはない。負の対照（kernel）: top 名だけ別名にする（`neg_other_top`）、module 名の重複（`neg_dup_module`）、子の名前を top と同じにする（`neg_kid_named_top`）。
+
+### 70.2 P1-2: top 入力の型と幅
+
+- 各 claimed name がどの外部入力か: **`portNames` の先頭 `kD` 個が、この順で、root の入力 binder（`d.bsIn` の先頭 `kD` 個）に 1 対 1 に対応**する（`srcInPorts`）。型は `kindTy`（`bool` → 1 bit、`bits n` → `n` bit）。
+- `RootShowsAt` は `b.inputs = topInPorts …`（上の入力の後に `clk`／`rst` を各 1 bit）と、IR の意味が実際に読む `declWidth b n = w`（`wires` 宣言、各ソース入力について `w = kindW`）を結論に持つ。`structuralOk` は `topInOk`（同じ 2 条件）を検査。入力名の一意性は `b.inputs` の完全一致と `S.ok`（`portNames` が Nodup、`rst`／`clk` を含まない、先頭 `kD` に domain binder がない）から従う。`clk`／`rst` は artifact の `wires` に宣言がなく（`declWidth` は 0）、型は `b.inputs` の完全一致で固定する。
+- seed 前提 (a) との整合: 前提 (a) の値 `posEnc …` は宣言幅に収まる（`Tools.ShippingFGCircuitS3tSat.posEnc_fits`: `bits n` なら `< 2^n`、`bool` なら `< 2`）。4 前提の同時充足 `premises_satisfiable` は新しい `S.ok` の下で再証明。
+- 負の対照（kernel）: 入力幅を変える（port と wire 両方 `neg_narrow_in`／port のみ `neg_narrow_in_port_only`／wire のみ `neg_narrow_in_wire_only`）、入力の入れ替え（`neg_swap_inputs`）、入力名の重複（`neg_dup_input`）、`clk` を 2 bit にする（`neg_wide_clk`）、claimed name に `clk`（`neg_claim_clk`）。
+
+### 70.3 再証明したもの
+
+`structuralOk rootS pilotB0 pilotD0 cert0 = true`（`struct_ok`、kernel）、`rootS.ok = true`、`rootS.SrcEq`（変更なし）、4 前提の同時充足、既存の 12 の対照。`CheckRoot rootS pilotB0 pilotD0 cert0 = false`（`bodyOk` 未実装）。
+
+### 70.4 新しい freeze 提案
+
+S3t の §69.1 の文のうち `SourceData.ok`（`clk` を含まない、先頭 `kD` に domain binder なし）、`RootShowsAt`（上の 2 群の結論）、`structuralOk`（`designOk`／`topInOk`）を本節の定義で置き換えた型を freeze 対象とする。`bodyOk` の実装と、実 artifact の `CheckRoot = true` および soundness を同じ提出で確認するまでは、`checkRoot_sound` を機械受理しない。
+
+### 70.5 記録補足（S3t から）
+
+§69.5 に追記済み: `portNames`／`kidMod` は claim、Check57 の型 ascription は関数の型のみ、`CertifiedReturnSoundStmt` は `declName` と `S.declName` の対応を述べない。
+
+### 70.6 まだ無いもの
+
+`bodyOk`、`checkRoot_sound` の証明（S3t と同じ）。`SourceData` の claimed name が allocator の名前と一致する保証は不要（Q1 裁定）だが、旧 `MachineWired`／FG 消費者との橋は別の互換性義務。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
