@@ -66,19 +66,19 @@ variable {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
   {Fresh : (σ : Type) → IO.Ref σ → Prop}
 
 /-- A set of another per-synthesis ref under `JQCX` (a `FramedA.sideSet`). -/
-macro "cset " O:term:max hA:term:max D:term:max : tactic => `(tactic|
+macro "csetX " O:term:max hA:term:max D:term:max : tactic => `(tactic|
   (refine Triple.bind (keeps_iff.mp (keepsA_framedX $O $hA (stableA_JQCX $O $D)
       (FramedA.sideSet _ ?s))) ?_
    case s => constructor
    intro _))  -- guess: K1
 /-- A read of another per-synthesis ref under `JQCX` (a `FramedA.sideGet`). -/
-macro "cget " O:term:max hA:term:max D:term:max : tactic => `(tactic|
+macro "cgetX " O:term:max hA:term:max D:term:max : tactic => `(tactic|
   (refine Triple.bind (keeps_iff.mp (keepsA_framedX $O $hA (stableA_JQCX $O $D)
       (FramedA.sideGet ?s))) ?_
    case s => constructor
    intro _))
 /-- A `pure` under `JQCX`. -/
-macro "cpure " O:term:max D:term:max : tactic => `(tactic|
+macro "cpureX " O:term:max D:term:max : tactic => `(tactic|
   (refine Triple.bind (Triple.pure (Q := fun _ => JQCX $O $D) (fun w hw => hw)) ?_; intro _))
 
 /-- The `finally` of the entry under `JQCX`: from depth `d + 1` back to `d`;
@@ -107,7 +107,7 @@ theorem finCX (O : RefLawsAOpsX Fresh mref cref) (hA : O.adm mctx cctx) (d : Nat
     (fun _ _ h => h)) ?_
   intro _
   refine Triple.ite (fun _ => ?_) (fun _ => Triple.pure fun w hw => hw)
-  cset O hA d; cset O hA d; cset O hA d; cset O hA d; cset O hA d; cset O hA d
+  csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d
   exact keeps_iff.mp (keepsA_framedX O hA (stableA_JQCX O d) (FramedA.sideSet _ .singleOut))
 
 /-- **The core entry keeps `JQCX` at every depth, on every outcome.** The only
@@ -184,18 +184,18 @@ theorem core_tripleACX (O : RefLawsAOpsX Fresh mref cref) (hA : O.adm mctx cctx)
     by_cases h0 : (d == 0) = true
     · -- outermost: the cache is cleared, the cache half re-established
       simp only [h0, ↓reduceIte]
-      cpure O d; cpure O d; cpure O d; cpure O d; cpure O d; cpure O d; cpure O d
-      cset O hA d; cset O hA d; cset O hA d; cset O hA d
+      cpureX O d; cpureX O d; cpureX O d; cpureX O d; cpureX O d; cpureX O d; cpureX O d
+      csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d
       refine Triple.bind (tripleC_clear'X O hA d) ?_
       intro _
-      cset O hA d; cset O hA d; cset O hA d; cset O hA d; cset O hA d; cset O hA d; cset O hA d
+      csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d
       refine Triple.bind (tripleC_depthSetX O hA d (d + 1)) ?_
       intro _
       exact body _ _ _ _ _ _ _  -- guess: K4
     · -- nested: the parent's maps are read (and restored in the `finally`), no clear
       simp only [h0, Bool.false_eq_true, ↓reduceIte]  -- guess: K3
-      cget O hA d; cget O hA d; cget O hA d; cget O hA d; cget O hA d; cget O hA d; cget O hA d
-      cset O hA d; cset O hA d; cset O hA d; cset O hA d; cset O hA d; cset O hA d; cset O hA d
+      cgetX O hA d; cgetX O hA d; cgetX O hA d; cgetX O hA d; cgetX O hA d; cgetX O hA d; cgetX O hA d
+      csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d; csetX O hA d
       refine Triple.bind (tripleC_depthSetX O hA d (d + 1)) ?_
       intro _
       exact body _ _ _ _ _ _ _
