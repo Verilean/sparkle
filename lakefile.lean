@@ -6712,3 +6712,6 @@ lean_lib «Tools.ShippingFGCircuitS2zGenTables» where
 
 lean_lib «Tools.ShippingFGCircuitS2zPin» where
   roots := #[`Tools.ShippingFGCircuitS2zPin]
+
+lean_lib «Tools.ShippingFGCircuitS2zFinal» where
+  roots := #[`Tools.ShippingFGCircuitS2zFinal]

@@ -40,6 +40,7 @@ import Sparkle.Compiler.MachRawSurface
 import Sparkle.Compiler.MachTupleIn
 import Sparkle.Compiler.MachSignOps
 import Sparkle.Display.Mime
+import Sparkle.Compiler.PilotEnvTables
 
 namespace Sparkle.Compiler.Elab
 
@@ -9061,6 +9062,8 @@ def synthesizeCombinationalCoreOff (declName : Name) :
     if (entryInlinerError? env true false [] constInfo (instancePredicate env)).isSome then
       throwError (stringToMessageData s!"{declName}: {(entryInlinerError? env true false []
         constInfo (instancePredicate env)).getD ""}")
+    else if !(Sparkle.Compiler.PilotEnvTables.startEnvOk declName env) then
+      throwError (stringToMessageData s!"{declName}: the start environment does not match the environment tables of the guarantee (definition bodies, constructors, List.rec); refusing to synthesize")
     else
     synthesizeFromConst (fun e h t n => translateExprToWire env e h t n) (fun _ => pure ())
       declName [] false true
