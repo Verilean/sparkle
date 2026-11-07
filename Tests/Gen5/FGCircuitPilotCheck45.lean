@@ -50,18 +50,12 @@ run_cmd liftTermElabM do
   let (m2, d2) ← Sparkle.Compiler.Elab.synthesizeCombinational X
   let t2 ← IO.monoMsNow
   let env ← getEnv
-  let inl := Sparkle.Compiler.Elab.userInliner env
-  let ip := Sparkle.Compiler.Elab.instancePredicate env
-  let t3 ← IO.monoMsNow
-  let r := startKidsOk X env inl ip Sparkle.Compiler.Elab.gatePeeledBody
-  let t4 ← IO.monoMsNow
-  let rE := Sparkle.Compiler.PilotEnvTables.startEnvOk X env
-  let t5 ← IO.monoMsNow
-  unless r && rE do throwError "FGCIRCUIT45: the checks are false on the real environment"
+  unless startKidsOk X env (Sparkle.Compiler.Elab.userInliner env) (Sparkle.Compiler.Elab.instancePredicate env) Sparkle.Compiler.Elab.gatePeeledBody && Sparkle.Compiler.PilotEnvTables.startEnvOk X env do
+    throwError "FGCIRCUIT45: the checks are false on the real environment"
   let a := toString (repr m1) ++ "\n" ++ toString (repr d1)
   let b := toString (repr m2) ++ "\n" ++ toString (repr d2)
   unless a == b do throwError "FGCIRCUIT45 REPR: the Off entry (with checks) and the unchanged entry differ"
-  logInfo m!"FGCIRCUIT45 REPR: module+design repr identical ({(toString (repr m1)).length} / {(toString (repr d1)).length} chars); Off with both checks {t1-t0} ms, unchanged entry {t2-t1} ms, startKidsOk alone {t4-t3} ms, startEnvOk alone {t5-t4} ms (ONE run each; not a cost claim)"
+  logInfo m!"FGCIRCUIT45 REPR: module+design repr identical ({(toString (repr m1)).length} / {(toString (repr d1)).length} chars); Off with both checks {t1-t0} ms, unchanged entry {t2-t1} ms (ONE run each; the checks alone are not timed separately; not a cost claim)"
 
 /-! ## B. complete types against independently written statements (ONE criterion `FGCircuitCmp.stmtEq` for the expected statement and every mutant) -/
 namespace Tests.Gen5.FGCircuitPilotCheck45
