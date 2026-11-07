@@ -570,9 +570,9 @@ run_cmd liftTermElabM do
   -- `machine_states` of the root is the general lemma applied (its proof term), and `root_states` is proved from it
   let env ← getEnv
   let some ms := env.find? `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte.machine_states | throwError "machine_states missing"
-  let some v := ms.value? | throwError "machine_states has no value"
+  let some v := (match ms with | .thmInfo t => some t.value | .defnInfo t => some t.value | .opaqueInfo t => some t.value | _ => none) | throwError "machine_states has no value ({ms.isTheorem} {ms.isAxiom})"
   unless v.getAppFn.isConstOf ``Tools.ShippingMachineTeleStates.machine_states_of_tele_ext do throwError "machine_states is not the general lemma applied"
-  let some rv := (env.find? ``root_states).bind (·.value?) | throwError "root_states has no value"
+  let some rv := (match env.find? ``root_states with | some (.thmInfo t) => some t.value | _ => none) | throwError "root_states has no value"
   unless rv.getUsedConstants.contains `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte.machine_states do throwError "root_states does not use machine_states"
   unless rv.getUsedConstants.contains ``Tools.ShippingFGCircuitS2kLink.states_abs do throwError "root_states does not use states_abs"
   logInfo m!"FGCIRCUIT42 SIGNATURES-STATES: the complete type of the general lemma machine_states_of_tele_ext equals the independently written ExpStatesGen, and the type of the root specialisation root_states (the fused state as an abstract stream X, with X t = teleState machineInners ..., over machineData / machineExt / machineSource / machineInits) equals ExpRoot, under the same criterion; {nm} mutants rejected (step at t instead of t+1, initial state at 1, observation at t+1); the value of synth_hftPcieOutByte.machine_states is the general lemma applied (head machine_states_of_tele_ext) and root_states is proved from machine_states and states_abs"
