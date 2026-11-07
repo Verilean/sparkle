@@ -122,7 +122,7 @@ end Kid
 section Main
 variable {ι : Type} {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
 
-/-- **`htop` from the run, v2** (`hftTop_of_runH` of S2k): `hmiss` is replaced by the 7 premises of S2m (`hadm hdown hD hG hT hs h0`; the run and the served children are at `JQHR`, i.e. `RealChildE` of `ropsR`, one history), and `hdec` is no longer a premise: it is `hftCallDec_of_checked` with `hfind` from the core run `hrun` of the actual root run (`root_find_of_headAtOff` of the `hcell`-derived `HeadAtOff`). -/
+/-- **`htop` from the run, X version** (`hftTop_of_runR` of S2r on the context-predicate bundle): the premises are `hstart hcell hchk hreadH hreadT hkgfacts` and the five run-local hypotheses `hD hG hT hs h0` in their X forms (`DRowEnvRX`, `DiagEnvRX`, `TeleRX`, `ProfStepRX` at `L.toX.O`, and `ProfOffW`); the run and the served children are at the history bundle `ropsRX L.toX.O`, whose context predicate is `AdmCtx L.O.quiet` itself, so there is no `hadm` and no `hdown`. `hdec` is not a premise: it is `hftCallDec_of_checked` with `hfind` from the core run `hrun` of the actual root run (`root_find_of_headAtOff` of the `hcell`-derived `HeadAtOff`). -/
 theorem hftTop_of_runRX (L : Laws mref cref) (lvl : Lean.Expr → Nat) (env₀ : Environment)
     {mctx : Meta.Context} {cctx : Core.Context} {w : Void IO.RealWorld} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design}
     (hstart : Start L mctx cctx w) (hcell : CellPrem MkRefd mref cref)

@@ -2654,7 +2654,7 @@ v6（16）`L lvl env₀ hstart hr hcell hchk hreadH hreadT hadm hdown hD hG hT h
 v7（14）`L lvl env₀ hstart hr hcell hchk hreadH hreadT hD hG hT hs h0`
 `hadm`・`hdown` は除いた。**新しい binder は無い。** ただし 1 つの前提の命題が変わった:
 - `hD hG hs`: v6 の命題のまま（`DRowEnvR`/`DiagEnvR`/`ProfStepR`）。X 形（`DRowEnvRX L.toX.O` など）は `ReachedX`/`LeafStepX`（`adm := AdmCtx quiet`）と既存の `Reached`/`LeafStep` が同値なので、証明した橋 `drowEnvRX_of_R` 等で得る。差は無い。`h0`（`ProfOffW`）は同一。
-- **`hT`（変わった）**: v6 は `TeleR L.O e w`（= `RefLawsATele (quietR …)`、文脈 `AdmCtx (quietR …)` に対する continuation 法則）。v7 は `TeleRX L.toX.O e w`（= `RefLawsATeleX (quietRX …) (AdmCtx L.O.quiet)`、文脈 `AdmCtx L.O.quiet` に対する法則）。`TeleR` から `TeleRX` は `hdown`（`AdmCtx quietR → AdmCtx quiet`）なしには出ない（`TeleRX` の方が広い文脈を要求する）ので、橋は作れない。**これは「`hdown` を出し、より広い文脈の `hT` を入れた」交換であり、binder 数は 2 減ったが前提の総量の減少とは言えない。reviewer の判断（台帳に数えるか）が要る。** `hT` は S2s5 §44.6 の「名前付きのまま未供給」の 1 つで、`RefLawsATeleX` の法則そのもの（`L.T` と同じ形）の強化 quiet 版。
+- **`hT`（変わった）**: v6 は `TeleR L.O e w`（= `RefLawsATele (quietR …)`、文脈 `AdmCtx (quietR …)` に対する continuation 法則）。v7 は `TeleRX L.toX.O e w`（= `RefLawsATeleX (quietRX …) (AdmCtx L.O.quiet)`、文脈 `AdmCtx L.O.quiet` に対する法則）。`TeleR` から `TeleRX` へは、`hdown`（`AdmCtx quietR → AdmCtx quiet`）に相当する文脈の橋が要る（`TeleRX` の方が広い文脈を要求する）。**現時点でこの橋は未供給**（`hdown` なしには出ない、橋は作れない、とは言わない: 非導出性は証明していない）。**これは「`hdown` を出し、より広い文脈の `hT` を入れた」交換であり、binder 数は 2 減ったが前提の総量の減少とは言えない。reviewer の判断（台帳に数えるか）が要る。** `hT` は S2s5 §44.6 の「名前付きのまま未供給」の 1 つで、`RefLawsATeleX` の法則そのもの（`L.T` と同じ形）の強化 quiet 版。
 - 供給した/していないもの: `hadm`（`hstart.1` から）と `hdown`（不要になった）は消えた。供給していない: `hreadH hreadT`（§51）、`hchk`、`hcell`、`hD hG hT hs h0`、`Laws/Start/hr`。
 
 ### 52.4 Check46（`kjob lake build Tests.Gen5.FGCircuitPilotCheck46`、exit 0）
@@ -2665,7 +2665,7 @@ Check の行から引用:
 
 ### 52.5 範囲・台帳
 - 構造検査は型の表面で、証明の閉包ではない（axiom は `collectAxioms`）。
-- 既存 Check の再 build と出力 baseline は未実施（`Sparkle/` は未変更、Elab 側の変更なし）。
+- 既存 Check の再 build と出力 baseline は、**agent 時点では未実施**（`Sparkle/` は未変更、Elab 側の変更なし）。merge 後の完了記録は §55.3。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。binder の変更は台帳の減算ではない（reviewer が決める）。
 
 ## 53. S3b2（Issue `sparkle-fg-circuit-pilot`）: `hreadH` / `hreadT` の供給 — 経路 (B): 実際の `dataOfAt` 検査を引数で渡す pilot 入口、v7r、Check46r
@@ -2705,7 +2705,7 @@ Check の行から引用:
 - `FGCIRCUIT46R OUTPUT`（上の一致と明示エラー）。
 - `FGCIRCUIT46R SIGNATURES: … 45 mutants rejected`: `pilotReaderOk_sound`・`readerOk_of_run`・`offR_to_off`・`coreR_to_core`・`synth_hftPcieOutByte_finalOffCombined7R` の完全型を独立に書いた文と、同一の比較関数 `FGCircuitCmp.stmtEq`（正例も mutant も）で照合。mutant: 検査を `True`／常に false、検査を別 env で走らせる／別 env について結論、lvl 0／`lvl₀`+1（reader・`hchk`・`GPt`）、reader を前提に戻した版（lvl 0 も）、別 root／post root／出力 shape、到達・結論の環境を終了 world／env₀、旧入口を仮定にした版、子の名前・データの取り違え、子の重複、root のデータを子に、root 等式なし、橋の終了 world／開始 world／Module／Design／宣言／context／診断入口／core／逆向き、cell 前提の欠落、v6 の文。
 - `FGCIRCUIT46R AXIOMS: 10 names, standard axioms only`（存在確認つき）。
-- 追加 Elab を含む再 build として `Check15/18/19/20/23/24/26/28/30/44/45` を build、いずれも exit 0（各 AXIOMS 行は標準 axiom のみ）。全 Check と出力 baseline の再実行は coder の作業として未実施。
+- 追加 Elab を含む再 build として `Check15/18/19/20/23/24/26/28/30/44/45` を build、いずれも exit 0（各 AXIOMS 行は標準 axiom のみ）。全 Check と出力 baseline の再実行は、**agent 時点では未実施**（coder の作業）。merge 後の完了記録は §55.3。
 
 ### 53.6 残作業（記録）
 1. 通常経路（`synthesizeEntry` → `Off`）への接続と、root 別の `readerOk` 表への一般化。
@@ -2737,3 +2737,26 @@ Check の行から引用:
 - `FGCIRCUIT47 SIGNATURES`: v8 の完全型を独立に書いた `Exp8` と `FGCircuitCmp.stmtEq` で照合。再利用は `Check46.ExpTX`（TeleRX は quietRX / Laws.toX 経由でしか書けないため）のみ。32 個の mutant を拒否（各前提の欠落、検査 True の入口、通常 Off の入口、別 root／別 post root、start の context／world が run と別、TeleR、hadm／hdown／両方／reader を戻した版、`hchk`・`GPt` の別水準、到達環境、結論の一部欠落、別 carrier、v6／v7／v7r の型）。
 - `FGCIRCUIT47 BINDERS`: v6 25 / v7 23 / v7r 22 / v8 20（暗黙 9 を含む）。v8 = v7r − [hadm,hdown] = v7 − [lvl,hreadH,hreadT]、v7r = v6 − [lvl,hreadH,hreadT] を名前の列で検査。
 - `FGCIRCUIT47 AXIOMS`: 6 names、標準 axiom のみ。
+
+## 55. S3e（Issue `sparkle-fg-circuit-pilot`、状態は変えていない）: Check47 の要件（hT の独立な期待型、子 reader／開始 env／出力／carrier の対照）と文書訂正
+
+### 55.1 Check47 の変更（`Tests/Gen5/FGCircuitPilotCheck47.lean`。`Tools/` の定理の文は不変）
+- **hT の独立な期待型 `ExpTXind`/`ExpQuietX`**: `Check46.ExpTX` を使わない。`TeleRX` の命題を `RefLawsATeleX (ExpQuietX L.O.quiet (AdmCtx L.O.quiet) mref cref e w₀) (AdmCtx L.O.quiet) mref cref` と書いた。`adm` は `AdmCtx L.O.quiet`、強化 quiet は `quiet w ∧ ReadsAt e cref w ∧ ReachedX quiet adm mref cref w₀ w` と別に書き（`quietRX` ではない）、`Laws.toX`・`RefLawsAOps.toX` の射影は、実の型と期待型の**両方**に同じ正規化 `projToX`（定義の展開で `L.toX.O.quiet` を `L.O.quiet`、`L.toX.O.adm` を `AdmCtx L.O.quiet` に読む）をかける。肯定例も mutant も同一の比較 `FGCircuitCmp.stmtEq`。
+- hT の mutant（同じ比較で拒否）: 旧 `TeleR`（`RefLawsATele` の強化 quiet）／元の quiet だけの法則（`L.T` の型 `RefLawsATele L.O.quiet`、`L.T.toX` の型 `RefLawsATeleX L.O.quiet (AdmCtx L.O.quiet)`）／文脈を強化 quiet から作ったもの／強化 quiet から到達または `ReadsAt` を落としたもの。
+- 追加した対照（同じ比較）: 子 reader（入口の検査 `chkOf`: 子のデータの取り違え／名前の取り違え／片方の子を別水準／root 等式なし。reader を前提に戻した版の名前の取り違え／片方の子を別水準）、開始 env（`hchk` を run の開始 env／終了 env で、結論を `env₀`／終了 env で）、出力（結論が別の Module／別の Design／両方、別の artifact 名）、carrier（`cdvZ` に加え `cdvOld`）、旧入口（`synthesizeCombinationalOff`、検査 True。既存）。S3d の mutant は全て残した。
+- 結果の数は §55.4 に Check 自身の行から引用する。
+
+### 55.2 文書訂正
+- §52.3: 「`hdown` なしには出ない／橋は作れない」を「現時点でこの橋は未供給」に直した（非導出性は証明していない）。
+- §52.5・§53.5: 再 build と出力 baseline が未実施なのは agent 時点であると明記し、merge 後の完了記録（§55.3）への参照を足した。
+- `Tools/ShippingFGCircuitS3cTop.lean` の `hftTop_of_runRX` の docstring を旧 7 前提／`ropsR` の記述から X 版（`hD hG hT hs h0` が `DRowEnvRX`／`DiagEnvRX`／`TeleRX`／`ProfStepRX` を `L.toX.O` で、`ropsRX`、`hadm`・`hdown` なし）に更新した（コメントのみ、文は不変）。
+
+### 55.3 merge 後の coder の検証記録（agent 時点では未実施だったもの）
+- `kjob-run-src-fgc-m3b2-aba1`: exit 0、73ade833 で 1110 jobs、pilot Check 47 本すべて。
+- 出力 baseline `kjob-run-src-fgc-cmp3b2-4f46`: exit 0。268/272 は `cmpnew-c2ee` とバイト一致、残り 4 は `cmpnew-3a92` とバイト一致で、272/272。`output_baseline.tsv` の列 1–9 は同一。
+- `kjob-run-src-fgc-mg3c-57bc`: exit 0、5606b06a で 1115 jobs、pilot Check 48 本すべて。
+
+### 55.4 結果（Check の行から）
+RESULTS_PLACEHOLDER
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
