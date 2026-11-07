@@ -6482,8 +6482,6 @@ lean_lib «Tools.ShippingFGCircuitS1tFinal» where
 lean_lib «Tests.Gen5.FGCircuitPilotCheck18» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck18]
 
-lean_lib «Tools.ShippingFGCircuitS1uSrc» where
-  roots := #[`Tools.ShippingFGCircuitS1uSrc]
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck19» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck19]
@@ -6494,8 +6492,6 @@ lean_lib «Tools.ShippingFGCircuitS1xNoRaw» where
 lean_lib «Tests.Gen5.FGCircuitPilotCheck20» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck20]
 
-lean_lib «Tools.ShippingFGCircuitS1zClose» where
-  roots := #[`Tools.ShippingFGCircuitS1zClose]
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck23» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck23]
@@ -6758,8 +6754,6 @@ lean_lib «Tools.ShippingFGCircuitS2sAdmCallsGateA» where
 lean_lib «Tools.ShippingFGCircuitS2sAdmCallsGatePin» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmCallsGatePin]
 
-lean_lib «Tools.ShippingFGCircuitS2sAdmS1zClose» where
-  roots := #[`Tools.ShippingFGCircuitS2sAdmS1zClose]
 
 lean_lib «Tools.ShippingFGCircuitS2sAdmParentRanA» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmParentRanA]
@@ -6772,3 +6766,7 @@ lean_lib «Tools.ShippingFGCircuitS2sAdmParentDesignA» where
 
 lean_lib «Tools.ShippingFGCircuitS2sAdmS1qLinked» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmS1qLinked]
+
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS1tFinal» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS1tFinal]
