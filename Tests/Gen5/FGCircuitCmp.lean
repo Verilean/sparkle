@@ -103,7 +103,11 @@ def normCommon (e : Lean.Expr) (reduceHeads : List Name := []) : MetaM Lean.Expr
   let mut e ← proofs e
   for _ in [0:4] do
     e ← step e
-  proofs e
+  e ← proofs e
+  -- the propositions `P` of the `proofIrrelevant P` inserted by this last pass are inferred types (raw literals, unfolded heads): they get the same normalisation as the rest, on both sides alike (S2v merge: a raw `6` against `OfNat.ofNat Nat 6 (instOfNatNat 6)` inside a proof's proposition)
+  for _ in [0:4] do
+    e ← step e
+  pure e
 
 /-- THE criterion (positive and negative cases alike) -/
 def stmtEq (a e : Lean.Expr) : Bool := a.eqv e && allBinderInfos a == allBinderInfos e

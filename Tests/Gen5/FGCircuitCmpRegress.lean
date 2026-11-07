@@ -9,6 +9,10 @@ def _proof_b : Nat := 1
 theorem thmA : 1 + 1 = 2 := rfl
 theorem thmB : 1 + 1 = 2 := by decide
 theorem thmC : 2 + 2 = 4 := rfl
+/-- proofs whose propositions differ only in how a numeral is written (raw literal / standard `OfNat`), or not at all (another value / a non-standard `OfNat` instance) -/
+theorem thmLitRaw : nat_lit 6 = nat_lit 6 := rfl
+theorem thmLitOf : (6 : Nat) = 6 := rfl
+theorem thmLit7 : (7 : Nat) = 7 := rfl
 
 /-- a non-standard `BEq Nat` (always `false`) -/
 @[reducible] def badBEq : BEq Nat := ⟨fun _ _ => false⟩
@@ -69,9 +73,15 @@ run_cmd Lean.Elab.Command.liftTermElabM do
   ctl "registered badBEq: 3 == 4 with the standard instance still selects else-branch" (stmtEq (← n (ite' stdInst 3 4)) (lit 20))
   -- 6. OfNat
   let ofN (inst : Lean.Expr) : Lean.Expr := mkApp3 (.const ``OfNat.ofNat [0]) natT (lit 5) inst
+  let ofN6 (inst : Lean.Expr) : Lean.Expr := mkApp3 (.const ``OfNat.ofNat [0]) natT (lit 6) inst
   ctl "standard OfNat Nat is the raw literal" (stmtEq (← n (ofN (mkApp (.const ``instOfNatNat []) (lit 5)))) (lit 5))
   ctl "custom OfNat Nat instance is NOT the raw literal" (!stmtEq (← n (ofN (mkApp (.const ``badOfNat []) (lit 5)))) (lit 5))
-  logInfo "FGCIRCUITCMPREGRESS controls: all passed (name-only erasure, proof pair same/different proposition, proofs under binders, standard/always-false BEq (also with it registered as a local instance), standard/custom OfNat)"
+  -- 7. the proposition kept in `proofIrrelevant P` gets the same normalisation: a raw literal and the standard `OfNat` numeral agree there, another value or a non-standard instance does not
+  ctl "proof propositions: raw literal = standard OfNat numeral" (stmtEq (← n (.const ``thmLitRaw [])) (← n (.const ``thmLitOf [])))
+  ctl "proof propositions: 6 = 6 differs from 7 = 7" (!stmtEq (← n (.const ``thmLitRaw [])) (← n (.const ``thmLit7 [])))
+  let badEq : Lean.Expr := mkApp3 (.const ``Eq [1]) natT (ofN6 (mkApp (.const ``badOfNat []) (lit 6))) (ofN6 (mkApp (.const ``badOfNat []) (lit 6)))
+  ctl "proof propositions: a non-standard OfNat numeral is not the raw literal" (!stmtEq (← n (mkApp (.const `proofIrrelevant []) badEq)) (← n (.const ``thmLitRaw [])))
+  logInfo "FGCIRCUITCMPREGRESS controls: all passed (name-only erasure, proof pair same/different proposition, proofs under binders, standard/always-false BEq (also with it registered as a local instance), standard/custom OfNat, numerals inside proof propositions)"
 end
 
 end Tests.Gen5.FGCircuitCmpRegress
