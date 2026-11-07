@@ -24,7 +24,7 @@ def thmValue (n : Name) : MetaM Expr := do
   | _ => throwError "FGCIRCUIT56 {n} is not a theorem"
 
 /-- decide the proposition `P ∧ True` by the kernel afresh (a type no earlier auxiliary lemma has, so the kernel evaluates again; `decide +kernel` puts its proof in an auxiliary lemma, so re-adding an existing theorem would not re-evaluate); returns the milliseconds of the elaboration including the kernel run -/
-def retime (p : Syntax) : TermElabM Nat := do
+def retime (p : TSyntax `term) : TermElabM Nat := do
   let stx ← `((by decide +kernel : $p ∧ True))
   let t0 ← IO.monoMsNow
   let _ ← elabTermEnsuringType stx none
