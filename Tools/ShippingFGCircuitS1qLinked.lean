@@ -76,6 +76,8 @@ def coreRestOff (declName : Name) (s : CoreSaved) : MetaM (Sparkle.IR.AST.Module
         constInfo (instancePredicate env)).getD ""}")
     else if !(Sparkle.Compiler.PilotEnvTables.startEnvOk declName env) then
       throwError (stringToMessageData s!"{declName}: the start environment does not match the environment tables of the guarantee (definition bodies, constructors, List.rec); refusing to synthesize")
+    else if !(Sparkle.Compiler.PilotKidTables.startKidsOk declName env (userInliner env) (instancePredicate env) gatePeeledBody) then
+      throwError (stringToMessageData s!"{declName}: the start environment does not satisfy the callee facts of the guarantee (callee definitions, inliner, instance predicate); refusing to synthesize")
     else
     synthesizeFromConst (fun e h t n => translateExprToWire env e h t n) (fun _ => pure ()) declName [] false true
       (entryConst true false [] constInfo
@@ -126,6 +128,8 @@ theorem core_chainOff {declName : Name} {w w' : Void IO.RealWorld} {M : Sparkle.
   · exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false hx).elim
   rcases RunsTo.ite hx with hx | hx
   · exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false hx).elim
+  rcases RunsTo.ite hx with hx | hx
+  · exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false hx).elim
   exact ⟨s, w1, envR, ci, w2, w3, w4, hh, hget, henv, hx, hfin⟩
 
 /-- **the entry's check is a run-local fact**: a successful core run passed `startEnvOk declName envR`, where `envR` is the environment its `getEnv` returned -/
@@ -148,6 +152,31 @@ theorem core_envOkOff {declName : Name} {w w' : Void IO.RealWorld} {M : Sparkle.
   · exact ⟨s, w1, w2, w3, envR, ci, hh, hget, henv, hok⟩
   · exfalso
     have hok' : (!(Sparkle.Compiler.PilotEnvTables.startEnvOk declName envR)) = true := by simpa using hok
+    rw [if_pos hok'] at hx
+    exact Tools.ShippingEntrySoundness.RunsTo.throwError_false hx
+
+/-- **the entry's second check is a run-local fact**: a successful core run passed `startKidsOk declName envR …` with the compiler's own `userInliner`/`instancePredicate`/`gatePeeledBody` at `envR` -/
+theorem core_kidsOkOff {declName : Name} {w w' : Void IO.RealWorld} {M : Sparkle.IR.AST.Module} {D : Design}
+    (hr : RunsTo (synthesizeCombinationalCoreOff declName) mctx mref cctx cref w (M, D) w') :
+    ∃ (s : CoreSaved) (w1 w2 w3 : Void IO.RealWorld) (envR : Environment) (ci : ConstantInfo),
+      RunsTo (coreHeadOff declName) mctx mref cctx cref w s w1 ∧
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      RunsTo (Lean.getEnv : MetaM Environment) mctx mref cctx cref w2 envR w3 ∧
+      Sparkle.Compiler.PilotKidTables.startKidsOk declName envR (userInliner envR) (instancePredicate envR) gatePeeledBody = true := by
+  obtain ⟨s, w1, hh, hk⟩ := core_splitOff hr
+  unfold coreRestOff at hk
+  obtain ⟨w4, u, hx, hfin⟩ := RunsTo.try_finally' hk
+  cases u
+  obtain ⟨ci, w2, hget, hx⟩ := RunsTo.bind hx
+  obtain ⟨envR, w3, henv, hx⟩ := RunsTo.bind hx
+  rcases RunsTo.ite hx with hx | hx
+  · exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false hx).elim
+  rcases RunsTo.ite hx with hx | hx
+  · exact (Tools.ShippingEntrySoundness.RunsTo.throwError_false hx).elim
+  rcases Decidable.em (Sparkle.Compiler.PilotKidTables.startKidsOk declName envR (userInliner envR) (instancePredicate envR) gatePeeledBody = true) with hok | hok
+  · exact ⟨s, w1, w2, w3, envR, ci, hh, hget, henv, hok⟩
+  · exfalso
+    have hok' : (!(Sparkle.Compiler.PilotKidTables.startKidsOk declName envR (userInliner envR) (instancePredicate envR) gatePeeledBody)) = true := by simpa using hok
     rw [if_pos hok'] at hx
     exact Tools.ShippingEntrySoundness.RunsTo.throwError_false hx
 

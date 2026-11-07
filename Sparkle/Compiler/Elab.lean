@@ -41,6 +41,7 @@ import Sparkle.Compiler.MachTupleIn
 import Sparkle.Compiler.MachSignOps
 import Sparkle.Display.Mime
 import Sparkle.Compiler.PilotEnvTables
+import Sparkle.Compiler.PilotKidTables
 
 namespace Sparkle.Compiler.Elab
 
@@ -2349,6 +2350,12 @@ def mixedGatePeel : Lean.Expr → Option (List (Name × MixedGateBinder) × Lean
     | some kind, some (binders, e) => some ((nm, kind) :: binders, e)
     | _, _ => none
   | e => some ([], e)
+
+/-- the body of a gate-peeled value (the term the instance predicate is applied to first) -/
+def gatePeeledBody (e : Lean.Expr) : Lean.Expr :=
+  match mixedGatePeel e with
+  | some p => p.2
+  | none => e
 
 def mixedGateBVar? (kinds : Array MixedGateBinder) (i : Nat) : Option MixedGateBinder :=
   if i < kinds.size then kinds[kinds.size - 1 - i]? else none
@@ -9064,6 +9071,8 @@ def synthesizeCombinationalCoreOff (declName : Name) :
         constInfo (instancePredicate env)).getD ""}")
     else if !(Sparkle.Compiler.PilotEnvTables.startEnvOk declName env) then
       throwError (stringToMessageData s!"{declName}: the start environment does not match the environment tables of the guarantee (definition bodies, constructors, List.rec); refusing to synthesize")
+    else if !(Sparkle.Compiler.PilotKidTables.startKidsOk declName env (userInliner env) (instancePredicate env) gatePeeledBody) then
+      throwError (stringToMessageData s!"{declName}: the start environment does not satisfy the callee facts of the guarantee (callee definitions, inliner, instance predicate); refusing to synthesize")
     else
     synthesizeFromConst (fun e h t n => translateExprToWire env e h t n) (fun _ => pure ())
       declName [] false true
