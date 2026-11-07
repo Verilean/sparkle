@@ -180,7 +180,7 @@ end Steps
 
 
 /-- **`hftCoreCloses_of_kidsHX` with the miss premise `MissEX` replaced by the reachability / environment invariant** `JQHRX` from the start world `w` of the target root run. Premise list, replacing `hmiss : MissEX L.O (KidEv mref cref (envAt cref w))`:
-`hadm` (FG D.T-4m6: the root context is admissible for the strengthened quiet predicate), `hdown` (D.T-4m7), `hD` (D.T-4m1, class-D rows), `hG` (D.T-4m2, diagnostic rows), `hT` (D.T-4m3, telescope rows), `hs` (D.T-4m4, profile lookup along leaf steps), `h0` (D.T-4m5, profile lookup unset at the root start world). `L.T` is not used. -/
+`hadm` (FG D.T-4m6: the root context is admissible for the strengthened quiet predicate), (`hdown` (D.T-4m7) of the original S2m theorem is NOT a premise of this port: `L.O.adm` is kept by `ropsRX` as it is), `hD` (D.T-4m1, class-D rows), `hG` (D.T-4m2, diagnostic rows), `hT` (D.T-4m3, telescope rows), `hs` (D.T-4m4, profile lookup along leaf steps), `h0` (D.T-4m5, profile lookup unset at the root start world). `L.T` is not used. -/
 theorem hftCoreCloses_of_kidsRX (L : LawsX mref cref) {w : Void IO.RealWorld}
     (hstart : StartX L mctx cctx w) (hcell : CellPrem MkRefd mref cref) {lvl : Lean.Expr → Nat}
     (hrH : RootReader lvl (envAt cref w) hftHttp httpGetByte.machineData)

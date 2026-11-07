@@ -2029,7 +2029,7 @@ def ProfOffW mref cref w := ∀ mctx cctx, GetEnvProfileAt mctx mref cctx cref w
 
 **量化範囲（S2n 訂正。各仮説ごと）**: `DRowEnvR`/`DiagEnvR` だけが quiet + `ReadsAt e` + `Reached` の world に限られる。`ProfStepR` が要るのは `Reached` + `LeafStep` + `ProfOffW` だけで、quiet も `ReadsAt` も要らない。`ProfOffW` は 1 つの world についてだが、全 `mctx`/`cctx` に対する。`TeleR` は任意の不変条件・任意の継続についての法則である（`quietR` を quiet として持つが、world の範囲は不変条件が決める）。`hadm`/`AdmDownR` は world ではなく callback（文脈）の性質で、他と同じ量化範囲ではない。`Reached` は、許可された任意の葉・文脈・引数（任意の cache 書き込みを含む）についての閉包であり、特定の run の実トレースではない。この過大近似の上で保存を示すのは問題ない。
 
-`DRow` の 13 行と `Diag` の 9 行と telescope の 4 行、profile、文脈は、`CellPrem` からも `Laws` からも導けない（S2d §32.3 と同じ理由。`QuietStrength` の構成は class-D・`diag`・telescope を含まない）。`DRow`/`Diag` の行について要るのは全 world の frame law ではなく、**root の開始 world から葉の step で到達した quiet な world で、その行が `ReadsAt e` を保つ**という run 局所の事実（DRow/Diag に限る。telescope・文脈・profile は別。S2s 訂正）。不可能とは言わない。
+`DRow` の 13 行と `Diag` の 9 行と telescope の 4 行、profile、文脈は、`CellPrem` からも `Laws` からも供給していない（S2d §32.3 と同じ理由で、現時点で供給経路が見つかっていない。導出不能の証明ではない。`QuietStrength` の構成は class-D・`diag`・telescope を含まない）。`DRow`/`Diag` の行について要るのは全 world の frame law ではなく、**root の開始 world から葉の step で到達した quiet な world で、その行が `ReadsAt e` を保つ**という run 局所の事実（DRow/Diag に限る。telescope・文脈・profile は別。S2s 訂正）。不可能とは言わない。
 
 ### 39.5 `hftCoreCloses_of_kidsR` の前提リスト
 
@@ -2327,7 +2327,7 @@ S2s の手順 1〜14（Check34/docs 修正、`RefLawsAOpsX/ATeleX`、VCA・Cache
 - 名前付きのまま未供給: `DRowEnvRX`、`DiagEnvRX`、`TeleRX`（テレスコープ族 `RefLawsATeleX` が追加された境界）、`ProfStepRX`、`ProfOffW`。
 
 ### 44.4 Check39（`kjob lake build Tests.Gen5.FGCircuitPilotCheck39`）
-Check33 と同一の比較関数 `cmp`（肯定と全 mutant で同じ）。SIGNATURE: `core_tripleA_mainX` の完全な型（binder 名 `mctx mref cctx cref O hA T declName`）を独立に書いた文面と照合、6 mutant 棄却（`AdmCtx` の文脈、旧 telescope bundle、telescope 前提なし、exception 事実なし、事前条件自明、事後条件自明）。STEPS: 移植済み 7 定理の型は `RefLawsAOpsX` を含み `AdmCtx`・旧 `RefLawsAOps`/`RefLawsATele` を含まない（対照: 元の定理は含む、`RefLawsAOps.toX` は `adm := AdmCtx quiet`）。**構造検査は型の表面の定数だけで、証明の閉包ではない。** AXIOMS: 7 名、`contains` で存在を確かめてから `collectAxioms`（存在しない名前を検査済みと報告しない）。REMAINING: 上記の未移植リスト。
+Check33 と同一の比較関数 `cmp`（肯定と全 mutant で同じ）。SIGNATURE: `core_tripleA_mainX` の完全な型（binder 名 `mctx mref cctx cref O hA T declName`）を独立に書いた文面と照合、6 mutant 棄却（`AdmCtx` の文脈、旧 telescope bundle、telescope 前提なし、exception 事実なし、事前条件自明、事後条件自明）。STEPS: 移植済み 7 定理の型は `RefLawsAOpsX` を含み `AdmCtx`・旧 `RefLawsAOps`/`RefLawsATele` を含まない（対照: 元の定理は含む、`RefLawsAOps.toX` は `adm := AdmCtx quiet`）。**構造検査は型の表面の定数の走査（surface scan）で、証明閉包の検査ではない。`ReachedX` は葉の閉包の過大近似で実トレースではない。** AXIOMS: 7 名、`contains` で存在を確かめてから `collectAxioms`（存在しない名前を検査済みと報告しない）。REMAINING: 上記の未移植リスト。
 
 ### 44.6 目標 `hftCoreCloses_of_kidsR''`（S2s5）
 `Tools/ShippingFGCircuitS2sAdmS2nAdm.lean`:
