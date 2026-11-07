@@ -123,8 +123,14 @@ def CallsEq (S : SourceData) : Prop :=
         posEnc (fun p => (bools p).val j) (fun p n => ((synth_hftPcieOutByte.machineExt i bools bits S₂ Ss) p n).val j)
           (S.kD + k) (((S.d.bsIn.drop S.kD)[k]?.map (·.2)).getD .domain)
 
-/-- **`SrcEq`**: the connection of the ORIGINAL value `R` to `machineSource`, and the data's fields to the root's generated constants.  It carries NO statement about the IR `b`, `D` (nothing about `MachineWired`, `ChildFn`, `runModuleH`): (1) the fields are the root's and its children's; (2) the declaration's own observation equals `machineSource` (`monoObs_root`, `rfl`); (3) the state witnesses exist for every input (`machine_states`); (4) the allocator's port names are those of some compiler ids/cache; (5) the source's call facts. -/
-def SrcEq (S : SourceData) : Prop :=
+/-- the allocator's port names: some compiler ids and cache give the transition's ports the names `S.portNames` (the names depend on the binders' names and the module name only).  NOT kernel-evaluable: the allocator's `sanitizeName`/`clean` use `String.replace`/`String.all` (well-founded, opaque to the kernel); see docs §69 gap G1. -/
+def NamesEq (S : SourceData) : Prop :=
+  ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
+    ids.Nodup ∧ ids.length = S.d.shape.binders.length ∧
+    (machPorts S.declName ids cache S.d.shape.binders).map (·.name) = S.portNames
+
+/-- the fields of the data are the root's and its children's, the declaration's own observation is `machineSource`, and the state witnesses exist for every input; no IR, no names, no calls -/
+def SrcCore (S : SourceData) : Prop :=
   S.declName = hftRoot ∧ S.d = synth_hftPcieOutByte.machineData ∧
   (∀ bools bits, S.declObs bools bits = synth_hftPcieOutByte.machineSource () bools bits) ∧
   (∀ (bools : Nat → Signal defaultDomain Bool) (bits : (j n : Nat) → Signal defaultDomain (BitVec n)),
@@ -133,11 +139,10 @@ def SrcEq (S : SourceData) : Prop :=
       Wit () bools bits S₂ Ss) ∧
   S.kidInW = kidData.map (fun kd => inWidths kd.bsIn) ∧
   S.kidOutW = kidData.map (fun kd => kd.shape.layout.outs.map (·.width)) ∧
-  S.kD = 5 ∧
-  (∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
-    ids.Nodup ∧ ids.length = S.d.shape.binders.length ∧
-    (machPorts S.declName ids cache S.d.shape.binders).map (·.name) = S.portNames) ∧
-  S.CallsEq
+  S.kD = 5
+
+/-- **`SrcEq`**: the connection of the ORIGINAL value `R` to `machineSource`, and the data's fields to the root's generated constants.  It carries NO statement about the IR `b`, `D` (nothing about `MachineWired`, `ChildFn`, `runModuleH`): `SrcCore` (the fields are the root's, the declaration's own observation equals `machineSource` (`monoObs_root`, `rfl`), the state witnesses exist (`machine_states`)), `NamesEq` (the allocator's port names), `CallsEq` (the source's call facts). -/
+def SrcEq (S : SourceData) : Prop := S.SrcCore ∧ S.NamesEq ∧ S.CallsEq
 
 end SourceData
 
@@ -303,5 +308,30 @@ noncomputable def rootS : SourceData where
   kD := 5
 
 theorem rootS_ok : rootS.ok = true := by decide +kernel
+
+/-- the declaration's own observation is `machineSource` (`monoObs_root`, `rfl`) -/
+theorem rootS_obs : ∀ bools bits, rootS.declObs bools bits = synth_hftPcieOutByte.machineSource () bools bits :=
+  fun bools bits => Tools.ShippingFGCircuitS2cLink.monoObs_root bools bits
+
+/-- the state witnesses exist for every input (`root_states`, the specialised `machine_states`) -/
+theorem rootS_wit (bools : Nat → Signal defaultDomain Bool) (bits : (j n : Nat) → Signal defaultDomain (BitVec n)) :
+    ∃ (S₂ : Signal defaultDomain (HList (tys [SType.bits 6])))
+      (Ss : Tools.ShippingMachineTele.Tele.Sigs (synth_hftPcieOutByte.machineInners.at () bools bits)),
+      SourceData.Wit () bools bits S₂ Ss := by
+  obtain ⟨S₂, Ss, X, hX, h0, hstep, hobs⟩ := Tools.ShippingFGCircuitS2vLink.root_states () bools bits
+  refine ⟨S₂, Ss, ?_, ?_, ?_⟩
+  · exact (hX 0).symm.trans h0
+  · intro t
+    rw [← hX (t + 1), hstep t, hX t]
+  · intro t
+    rw [hobs t, hX t]
+
+theorem rootS_widths : rootS.kidInW = kidData.map (fun kd => inWidths kd.bsIn) ∧
+    rootS.kidOutW = kidData.map (fun kd => kd.shape.layout.outs.map (·.width)) := by
+  constructor <;> decide +kernel
+
+/-- the data-and-source part of `SrcEq` holds for the concrete root: every field is the root's, the declaration's observation is `machineSource`, the witnesses exist -/
+theorem rootS_srcCore : rootS.SrcCore :=
+  ⟨rfl, rfl, rootS_obs, rootS_wit, rootS_widths.1, rootS_widths.2, rfl⟩
 
 end Tools.ShippingFGCircuitS3tSpec
