@@ -2957,7 +2957,7 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 
 `CellPrem Fresh mref cref := CellOK cref sparkleChildCache ∧ CellOK cref sparkleChildSynth ∧ CellOK cref sparkleSynthDepth ∧ (∀ r, SideRef r → CellOK cref r) ∧ (∀ σ r, Fresh σ r → CellOK cref r) ∧ ReadWorld mref ∧ SetFrame mref cref ∧ mref.ref ≠ cref.ref ∧ ReadWorld cref ∧ SetGet cref`（`Tools/ShippingGen5EnvFrame3.lean:58`）。`CellOK cref r := ReadWorld r ∧ r.ref ≠ cref.ref ∧ SetFrame r cref`（同 :55）。`ReadWorld r := ∀ w, getW r w = w`、`SetFrame r r' := r.ref ≠ r'.ref → ∀ v w, readOf r' (setW r v w) = readOf r' w`、`SetGet r := ∀ v w, readOf r (setW r v w) = v`（`Tools/ShippingStRefCorrespondence.lean:41/44/47`。いずれも「実ランタイムの PREMISE」と注記されている）。
 
-実 run での消費（v9 の経路）: `readerOk_of_run`（`S3b2Final.lean:80`）の `headAtOff_of_cellPrem`（`S1qHead.lean:43`＝`envFrame_coreHeadOff`、`ReadWorld cref`・cache/synth/depth の `CellOK`）と `envFrame_getConstInfo ∘ getEnvFrame_of_cellPrem`（`S1hFrame.lean`）。`ropsR/ropsRX`（`S2mReach.lean:102–146`）は `envFrameEnd_framedA`（`EnvFrame3.lean:`）と `envFrameEnd_set`（`hcell.1.2.1`/`hcell.2.2.1.2.1` ほか）を使う。
+実 run での消費（v9 の経路）: `readerOk_of_run`（`S3b2Final.lean:80`）の `headAtOff_of_cellPrem`（`S1qHead.lean:43`＝`envFrame_coreHeadOff`、`ReadWorld cref`・cache/synth/depth の `CellOK`）と `envFrame_getConstInfo ∘ getEnvFrame_of_cellPrem`（`S1hFrame.lean`）。`ropsR/ropsRX`（`S2mReach.lean:102–146`）は `envFrameEnd_framedA`（`EnvFrame3.lean` の E2）と `envFrameEnd_set`（`hcell.1.2.1`/`hcell.2.2.1.2.1` ほか）を使う。
 
 | field | (a) 命題 | (b) 操作（Elab 行） | (c) 適用条件 | (d) 行 | (e) 候補供給 |
 |---|---|---|---|---|---|
