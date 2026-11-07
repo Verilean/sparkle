@@ -6739,3 +6739,12 @@ lean_lib «Tools.ShippingFGCircuitS2sAdmRunLocal» where
 
 lean_lib «Tools.ShippingFGCircuitS2sAdmServedRealA» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmServedRealA]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2dKids» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2dKids]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmCallsGatePinned» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmCallsGatePinned]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmChildPinC» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmChildPinC]

@@ -22,7 +22,9 @@ def names():
         if not src or not os.path.exists(src): continue
         d=decls(p); o=decls(src)
         for n in o:
-            if n+'X' in d: ren[n]=n+'X'
+            h,_,t=n.partition('.')
+            for cand in (n+'X', h+'X.'+t if t else None, h+'X.'+t+'X' if t else None):
+                if cand and cand in d: ren[n]=cand; break
     return ren
 def port(src,out,extra_imports,ren):
     s=open(src).read()

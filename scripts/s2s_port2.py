@@ -16,28 +16,16 @@ def chunks(lines):
     out=[];prev=0
     for k,i in enumerate(starts):
         j=i
-        while j>prev and lines[j-1].strip()!='' and not STRUCT.match(lines[j-1]) or (j>prev and re.match(r'^set_option .* in\s*$',lines[j-1])): j-=1
-        if j>prev: out.append(('other',lines[prev:j]))
-        e=starts[k+1] if k+1<len(starts) else n
-        out.append(('decl',[i,j,e]))
-        prev=j
-    return out
-def main():
-    src,out=sys.argv[1],sys.argv[2]; extra=sys.argv[3:]
-    lines=open(src).read().split('\n')
-    lines=[l for l in lines if not l.startswith('import ')]
-    ren=P.names()
-    ren.update({'Laws':'LawsX','Start':'StartX'})
-    ren.update({k:v for k,v in [l.split('=') for l in os.environ.get('S2S_REN','').split(',') if '=' in l]})
-    # decl chunks by index
-    starts=[i for i,l in enumerate(lines) if KW.match(l)]
-    pieces=[]  # (text,dirty,name)
-    bounds=[]
-    for k,i in enumerate(starts):
-        j=i
-        while j>0 and (lines[j-1].strip()!='' and not re.match(r'^(section|end|variable|open|namespace|universe)\b',lines[j-1]) ): 
-            if k>0 and j-1<starts[k-1]+1: break
-            j-=1
+        floor=starts[k-1]+1 if k>0 else 0
+        while j>floor:
+            pl=lines[j-1]
+            if re.match(r'^set_option .* in\s*$',pl) or pl.startswith('@['):
+                j-=1; continue
+            if pl.rstrip().endswith('-/'):
+                m=j-1
+                while m>floor and not lines[m].lstrip().startswith('/-'): m-=1
+                if lines[m].lstrip().startswith('/-'): j=m; continue
+            break
         bounds.append([j,starts[k+1] if k+1<len(starts) else len(lines)])
     # fix: next chunk's start trimmed
     for k in range(len(bounds)-1): bounds[k][1]=bounds[k+1][0]
@@ -45,7 +33,9 @@ def main():
     texts=['\n'.join(lines[a:b]) for a,b in bounds]
     names=[]
     for t in texts:
-        m=P.DECL.search(t); names.append(m.group(1) if m else None)
+        m=P.DECL.search(t)
+        mm=re.search(r'^(?:local\s+)?macro\s+"(\w+)\s*"',t,re.M)
+        names.append(m.group(1) if m else (mm.group(1) if mm else None))
     def nocom(t):
         t=re.sub(r'/-.*?-/','',t,flags=re.S)
         return re.sub(r'--[^\n]*','',t)
