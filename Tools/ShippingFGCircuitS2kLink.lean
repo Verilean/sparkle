@@ -1,6 +1,6 @@
 import Tools.ShippingFGCircuitS2cLink
 set_option autoImplicit false
--- FG circuit pilot S2k: `HftRootLink` assembly. The conclusion part is an independent lemma with the typed valuations as abstract variables (`link_concl`). No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law. Results: docs/FG-CIRCUIT-PILOT.md §37.
+-- FG circuit pilot S2k/S2v: `HftRootLink` assembly (S2v: closed). The conclusion part is an independent lemma with the typed valuations as abstract variables (`link_concl`); the fused state stream is repackaged with an abstract stream `X` (`states_abs`) so the huge `machineInners` never appears in the final unification. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law. Results: docs/FG-CIRCUIT-PILOT.md §46.
 namespace Tools.ShippingFGCircuitS2kLink
 open Lean Sparkle.Compiler.Elab Sparkle.IR.Semantics Sparkle.IR.Machine
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
@@ -20,6 +20,43 @@ theorem link_concl (d : MachineData) (hok : d.ok = true) (hw : ∀ o ∈ d.outs,
     src.map (fun f => f t) = d.outs.map (fun o => enc o.1 (eval (fun j => T.b (d.bpos j)) (fun j w => T.v (d.vpos j) w) o.2)) :=
   hobs.trans (outs_tagree d hok hw h).symm
 
+
+open Tools.ShippingMachineTele Tools.ShippingMachineTeleNest
+open Tools.ShippingMachineNest (happendT castSS)
+/-- the fused state stream of a chain endpoint with the state as an abstract stream `X`: `machine_states`' conclusion, repackaged so that later steps never mention `L` (the huge `machineInners`) in the typed valuations -/
+theorem states_abs {ι : Type} {dom : ι → DomainConfig} {ss₂ : List SType} {d : MachineData}
+    (l : TeleT ι dom ss₂ (fun _ => [])) (hss : ss₂ ++ l.sss = d.ss) (inits : HList (tys ss₂))
+    (ext : (i : ι) → (bools : Nat → Signal (dom i) Bool) →
+      (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) →
+      Signal (dom i) (HList (tys ss₂)) → Tele.Sigs (l.at i bools bits) →
+      (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (src : (i : ι) → (Nat → Signal (dom i) Bool) →
+      ((j : Nat) → (n : Nat) → Signal (dom i) (BitVec n)) → List (Nat → Nat))
+    (i : ι) (bools : Nat → Signal (dom i) Bool) (bits : (j : Nat) → (n : Nat) → Signal (dom i) (BitVec n))
+    (H : ∃ (S₂ : Signal (dom i) (HList (tys ss₂))) (Ss : Tele.Sigs (l.at i bools bits)),
+        Tools.ShippingMachineTeleStates.teleState l hss i bools bits S₂ Ss 0 = castSS hss (happendT ss₂ l.sss inits l.initsT) ∧
+        (∀ t, Tools.ShippingMachineTeleStates.teleState l hss i bools bits S₂ Ss (t + 1) = evalTerms
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S₂ Ss) t
+            (Tools.ShippingMachineTeleStates.teleState l hss i bools bits S₂ Ss t)).b (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S₂ Ss) t
+            (Tools.ShippingMachineTeleStates.teleState l hss i bools bits S₂ Ss t)).v (d.vpos j) w) d.nexts) ∧
+        ∀ t, (src i bools bits).map (fun f => f t) = d.outs.map fun o => enc o.1 (eval
+          (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S₂ Ss) t
+            (Tools.ShippingMachineTeleStates.teleState l hss i bools bits S₂ Ss t)).b (d.bpos k))
+          (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S₂ Ss) t
+            (Tools.ShippingMachineTeleStates.teleState l hss i bools bits S₂ Ss t)).v (d.vpos k) w) o.2)) :
+    ∃ (S₂ : Signal (dom i) (HList (tys ss₂))) (Ss : Tele.Sigs (l.at i bools bits)) (X : Nat → HList (tys d.ss)),
+      (∀ t, X t = Tools.ShippingMachineTeleStates.teleState l hss i bools bits S₂ Ss t) ∧
+      X 0 = castSS hss (happendT ss₂ l.sss inits l.initsT) ∧
+      (∀ t, X (t + 1) = evalTerms
+          (fun j => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S₂ Ss) t (X t)).b (d.bpos j))
+          (fun j w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S₂ Ss) t (X t)).v (d.vpos j) w) d.nexts) ∧
+      ∀ t, (src i bools bits).map (fun f => f t) = d.outs.map fun o => enc o.1 (eval
+          (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S₂ Ss) t (X t)).b (d.bpos k))
+          (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools (ext i bools bits S₂ Ss) t (X t)).v (d.vpos k) w) o.2) := by
+  obtain ⟨S₂, Ss, h0, hs, ho⟩ := H
+  exact ⟨S₂, Ss, fun t => Tools.ShippingMachineTeleStates.teleState l hss i bools bits S₂ Ss t, fun _ => rfl, h0, hs, ho⟩
+
 /-- **`HftRootLink`**, proved from the chain endpoint's `machine_states` (fused state stream) and `machine_arg_0/1` (per-call argument facts), the children's pointwise-ness (`http_pw`, `tlp_pw` from their `machine_result`), and the typed agreement of the `ExtStage` family with the Lean extension. -/
 theorem hftRootLink : HftRootLink := by
   intro ι gi hgi
@@ -28,9 +65,9 @@ theorem hftRootLink : HftRootLink := by
   subst hgi
   intro i bools bits S hS0 hrec t
   have hss : [SType.bits 6] ++ synth_hftPcieOutByte.machineInners.sss = synth_hftPcieOutByte.machineData.ss := rfl
-  obtain ⟨S₂, Ss, h0, hstep, hobs⟩ := synth_hftPcieOutByte.machine_states () bools bits
-  let sg : Nat → HList (tys synth_hftPcieOutByte.machineData.ss) := fun t =>
-    teleState synth_hftPcieOutByte.machineInners hss () bools bits S₂ Ss t
+  have H := synth_hftPcieOutByte.machine_states () bools bits
+  obtain ⟨S₂, Ss, sg, hsg, h0, hstep, hobs⟩ := states_abs (src := fun i b bi => synth_hftPcieOutByte.machineSource i b bi) _ _ _ _ () bools bits H
+  have hsg' : ∀ t, sg t = teleState synth_hftPcieOutByte.machineInners hss () bools bits S₂ Ss t := hsg
   -- the Lean extension, and the typed agreement of the `ExtStage` family with it, at a cycle
   have hext : ∀ t, S.val t = sg t →
       (ExtStage (dom := fun _ => defaultDomain) (hftKids (ι := ι)) (GenIn.mk synth_hftPcieOutByte.machineData wf inits ok bodyEq init) i bools bits S 2).1 = bools ∧
@@ -41,9 +78,9 @@ theorem hftRootLink : HftRootLink := by
     have a0 := synth_hftPcieOutByte.machine_arg_0 () bools bits S₂ Ss t
     have a1 := synth_hftPcieOutByte.machine_arg_1 () bools bits S₂ Ss t
     have s1 := stage1 (GenIn.mk synth_hftPcieOutByte.machineData wf inits ok bodyEq init) rfl i bools bits S t _
-      (by show callArgVals synth_hftPcieOutByte.machineData bools bits t (S.val t) _ = _; rw [hSt]; exact a0)
+      (by show callArgVals synth_hftPcieOutByte.machineData bools bits t (S.val t) _ = _; rw [hSt, hsg' t]; exact a0)
     exact stage2 (GenIn.mk synth_hftPcieOutByte.machineData wf inits ok bodyEq init) rfl i bools bits S t _ s1.1 s1.2 _ _ _ _ _ _
-      (by show callArgVals synth_hftPcieOutByte.machineData bools _ t (S.val t) _ = _; rw [hSt]; exact a1)
+      (by show callArgVals synth_hftPcieOutByte.machineData bools _ t (S.val t) _ = _; rw [hSt, hsg' t]; exact a1)
   have hok : synth_hftPcieOutByte.machineData.ok = true := synth_hftPcieOutByte.machine_ok
   have hlen2 : (GenIn.mk synth_hftPcieOutByte.machineData wf inits ok bodyEq init).d.shape.insts.length = 2 := root_insts_len
   -- the agreement of the two families' typed valuations at a cycle
@@ -79,8 +116,12 @@ theorem hftRootLink : HftRootLink := by
       exact nexts_tagree _ hok (hagree t ih)
   have hw := outs_wf _ hok root_outs_len
   have hag := hagree t (hSg t)
+  have hob := hobs t
+  have key := @link_concl synth_hftPcieOutByte.machineData hok hw _ _ hag _ t hob
   rw [monoObs_root bools bits]
-  exact link_concl _ hok hw hag (hobs t)
+  dsimp only
+  dsimp only at key
+  exact key
 
 end Tools.ShippingFGCircuitS2kLink
 
