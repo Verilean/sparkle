@@ -14,7 +14,7 @@ open Sparkle.Core.Signal (Signal)
 /-- the child's module has ONE output port, and for every memory state and every environment with reset 0 whose argument values (the module's inputs but `clk`/`rst`, in order) are in range of `httpGetByte`'s non-domain input binders' types, the module's IR semantics succeeds and the output port carries the first source observation of `httpGetByte.machineSource` at time 0 on the constant signals the decoded argument values give (`decB`/`decV`, by the binders of `machineData.bsIn`) -/
 example : ∃ outP : Port, pilotK0.outputs = [outP] ∧ ∀ (mems : MEnv) (env : Env), env "rst" = 0 →
     Tools.ShippingMachineClose.Zip₂
-      (fun (v : Nat) (b : Lean.Name × Tools.ShippingMixedSourceBridge.MixedGateBinder) => match b.2 with
+      (fun (v : Nat) (b : Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder) => match b.2 with
         | .bool => v < 2
         | .bits n => v < 2 ^ n
         | .domain => True)
@@ -54,7 +54,7 @@ example : ∀ (d : Tools.ShippingMachineAuto.MachineData), d.ss.length = 0 → �
     (∀ l ∈ d.ls, Frag d l.2 = true) → (∀ o ∈ d.outs, Frag d o.2 = true) →
     ∀ (s : Tools.ShippingFGCircuitS3tComb.CSrc), Tools.ShippingFGCircuitS3tCombRun.ofData d = some s →
       s.inPos = Tools.ShippingFGCircuitS3tCombRun.inputPositions d ∧ s.outs.length = d.outs.length ∧
-      ∀ (k : Nat) (o : Σ s : Tools.ShippingMachineAuto.SType, Tools.ShippingUnifiedSource.Term s) (c : Tools.ShippingFGCircuitS3tComb.CTerm),
+      ∀ (k : Nat) (o : Σ s : Tools.ShippingUnifiedSource.SType, Tools.ShippingUnifiedSource.Term s) (c : Tools.ShippingFGCircuitS3tComb.CTerm),
         d.outs[k]? = some o → s.outs[k]? = some c →
         c.den V = Tools.ShippingMachineDenote.enc o.1
             (Tools.ShippingUnifiedSource.eval (fun j => (letTV d x B W).b (d.bpos j))

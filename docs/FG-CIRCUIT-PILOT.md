@@ -4044,3 +4044,35 @@ reviewer 裁定2 との対応: (i) **被覆**: 全 `k < 2` の call と `b.body`
 `FGCIRCUIT57 AXIOMS: 226 theorems of the S3t modules (Spec, Sat, Cert, Calls, Comb, CombRun), standard axioms only ([Quot.sound, Classical.choice, propext]); no sorryAx, no Lean.ofReduceBool (no native_decide)`。`FGCIRCUIT57 NEGATIVE CONTROLS: structural validator on the root 12 … + CheckRoot refuses; combinational validator on pilotK0 9 …`。`FGCIRCUIT57 SIGNATURES: …`（署名は独立に書いた期待型と照合、`RootShowsAt` は独立に書き直した文と `Iff.rfl`）。`FGCIRCUIT57 SATISFIABILITY: rootS.ok = true; rootS.SrcEq proved; the four seed premises … at the artifact's 17 registers …; CheckRoot = true is NOT shown`。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 71. S3v（Issue `sparkle-fg-circuit-pilot`）: 閉じた子 1 つ（`pilotK0` = `httpGetByte`）を端から端まで閉じる — `CTerm` → `Term.eval`/`typedVal` → `machineSource` → `ChildFn`
+
+土台 `8ed3fcc4`（S3t）。新規ファイルのみ: `Tools/ShippingFGCircuitS3vBridge.lean`、`Tools/ShippingFGCircuitS3vChild.lean`、`Tests/Gen5/FGCircuitPilotCheck58v.lean`（lakefile に各 `lean_lib`）。S3tSpec／S3tCert／Check57 と `Sparkle/` は変更していない。既存の定理の文も変更していない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。**1 つの子の結果は局所成果で、台帳の減算ではない**。
+
+### 71.1 範囲（正確に）
+
+- 対象は `httpGetByte`（`pilotK0`、88 文）**だけ**。`pilotK1`（`tlpCplByte`、`checkComb` が受理しない）と root の `bodyOk` は対象外。
+- 橋 `ofData_sound` は**一般の補題**で、仮定は `MachineData` についての**決定可能な事実**だけ: `d.ss.length = 0`（`ofData` は `d.ss = []` を検査しない）、`Frag`（下）、そして値の側の `(W p w).toNat = V p % 2 ^ w`（入力位置の値が `V` で実現されること）。**一般形を仮定としては置いていない**。`httpGetByte` についてはこれら全部を kernel（`decide +kernel`、フィールドごとの閉じた事実）で証明した。
+- `Frag d t`: `tC` が覆う形（`bitsInput`／`bitsLit`／`boolLit`／`compare .eq`／`mux`／`slice`／`concat`）に限り、`slice` の長さ > 0、`boolInput` を含まない、`bitsInput` は入力位置（`vpos j < nIn`）か「`d.ls` の対応する `let` の sort が `.bits w`」であるもの。これが、`tC` が非入力位置を `Nat` 減算で `let` に写すことの正当化（`ss.length = 0` と合わせて位置の算術 `nIn + ss.length + (p - nIn - ss.length) = p` が成り立つ）と、slice 長 0 の幅の食い違い（`hi - lo + 1`）を排除する。
+
+### 71.2 証明したこと
+
+1. **`tC_sound`／`letsC_sound`／`ofData_sound`**（Bridge）: `ofData d = some s` のとき、`s.inPos = inputPositions d`、`s.outs.length = d.outs.length`、各出力 `k` について `Rel V o.1 (Term.eval … o.2 を letTV d x B W で) c`、すなわち `c.den V = enc o.1 (eval …)` かつ `c.width = sortW o.1`。`letTV d x B W` は `typedVal` を 1 時刻で書いたもの（`typedVal_eq : … = letTV … := rfl`）。`let` の翻訳 `letsC` と型付き値 `letVal` を同時に帰納し、`let` 位置は `TVal.set`／`set_v_eq`／`set_v_ne` で追う。
+2. **`k0_childFn`**（Child）: `ChildFn pilotK0 (childRange kd0) (childValue httpGetByte.machineSource kd0.bsIn defaultDomain)`（`kd0 = httpGetByte.machineData`）。全入力、run の前提なし。証明は `checkComb_sound`（`checkK0 pilotK0 = true` から `ofData kd0 = some s ∧ checkComb s pilotK0 = true` を取り出す）＋ `ofData_sound`（`V q := vals.getD (portIdx bs q) 0`、`W := decV`、`B := decB`）＋ `httpGetByte.machine_result`（`machineSource` を時刻 0 で評価したものが `enc (eval (typedVal …))`）。入力 port が 1 つ（`clk`/`rst` でない、幅 6）、`inputPositions = [1]`、`portIdx bs 1 = 0`、範囲の仮定から `env p0.name < 2^6` を `inRange_get` で得る。
+3. **`k0_childFn_slot`**: `∃ kd f, kidData[0]? = some kd ∧ kidFs[0]? = some f ∧ ChildFn pilotK0 (childRange kd) f`（`rfl` で上へ）。これが `RootShowsAt` の call 0 の連言の形。
+
+### 71.3 Check58v（`kjob lake build Tests.Gen5.FGCircuitPilotCheck58v`、exit 0）
+
+- 完全型: `k0_childFn` を `ChildFn`／`childValue`／`childRange`／`argPorts` を使わずに書き直した型（`Zip₂` の範囲、`filter` した入力、`decB`／`decV` を展開した信号）へ型注釈（不一致はコンパイルエラー。一致した）。橋 `ofData_sound`、`letTV = typedVal` も同様。
+- 負の対照: 変更した定数、mux の分岐入れ替え、出力の代入の欠落（検査器が拒否）、**もう一方の子の module**・**もう一方の子のデータ**（`checkWith tlpCplByte.machineData pilotK0 = false`）、`ChildFn pilotK0 (childRange kd0) (fun _ => 0)` は**偽**（引数 1 で module は 71）、**変異 module（71→72）は同じ `ChildFn` を満たさない**（`eval1` の kernel 評価と `k0_childFn` から）。
+- 出力（Check 自身の行）: `FGCIRCUIT58V AXIOMS: 72 theorems of the S3v modules (Bridge, Child), standard axioms only ([Quot.sound, Classical.choice, propext]); k0_childFn depends on [propext, Classical.choice, Quot.sound]; no sorryAx, no Lean.ofReduceBool (no native_decide)`。`FGCIRCUIT58V NEGATIVE CONTROLS: 7 — …`。`FGCIRCUIT58V SIGNATURES: …`。`FGCIRCUIT58V SCOPE: ONE closed child (pilotK0 = httpGetByte, 88 statements) for ALL inputs in its range, no run premise; … pilotK1 (tlpCplByte) and the root's bodyOk are NOT covered; ledger unchanged`。
+- 大きさ（`sizeWithoutSharing`、1 run）: `tC_sound` 603、`letsC_sound` 1,039、`ofData_sound` 15,176、`k0_childFn` 42,949。kernel（elaboration を含む、1 run）: `Frag` の確認 4 ms、`eval1 pilotK0 = some 71` 310 ms。ビルドは各ファイル 1 分未満（依存の replay を除く）。`decide +kernel` は全部フィールドごとで、machineData 全体にはかけていない。
+
+### 71.4 残り（確立していないもの）
+
+- **`pilotK1`（`tlpCplByte`）**: `checkComb` が受理しない（§69.0）。第 1 の違いの診断（(ii)）は未着手。単なる比較の緩和は不可（証明付きの狭い正規化のみ）。
+- **top の `bodyOk` と `checkRoot_sound`**（(iii)）。`k0_childFn_slot` は call 0 の `ChildFn` の連言だけを供給する。call 1 の連言、`RootShowsAt` の他の連言は未供給。
+- freeze の境界修正（P1-1／P1-2）は S3u の担当。この節は `S3tSpec`／`S3tCert`／`Check57` を触っていない。
+- 橋は `Frag` の外（Bool 入力、状態、`binary`／`concatLit*`／`zextMap` 等）には適用できない。広げる場合は `tC` の被覆とともに `tC_sound` を拡張する。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
