@@ -2010,3 +2010,28 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 ### 40.7 ビルド環境の注記
 
 `kjob lake build Tools.ShippingFGCircuitS2nAdm` → `Tests.Gen5.FGCircuitPilotCheck34` を 1 つずつ。S2m の鎖（`Tools.ShippingFGCircuitS2mReach3`）が未ビルドの cache だと 900 job 超の初回ビルドになる。
+
+## 44. S2s/S2s3（Issue `sparkle-fg-circuit-pilot`）: 文脈述語を quiet から分離した版（reviewer 裁定 (b)）— 依存経路に沿った限定的な移植。ここまでの到達点
+
+土台 `81c7bea0`（par/fgc-s1）。追加ファイルは `Tools/ShippingFGCircuitS2sAdm*.lean` と `Tests/Gen5/FGCircuitPilotCheck39.lean`。既存の定理・ファイルは書き換えていない（新しい law・axiom・TRUSTED・sorry・native_decide はない）。Issue の状態は変えていない。**目標 `hftCoreCloses_of_kidsR''`（`hdown` なし）には到達していない。** 成果は条件付きで台帳に数えない。
+
+### 44.1 設計
+- `RefLawsAOpsX` / `RefLawsATeleX quiet adm` / `CtxClosed adm`（`S2sAdmChildInvA`）: 文脈の述語 `adm` を bundle が持ち、本体が行う文脈の更新（lctx・localInstances・config・Core 文脈・`canUnfold?` を保つ `withReader`）で閉じる。既存の bundle はその特殊化（`RefLawsAOps.toX`, `RefLawsATele.toX`: `adm := AdmCtx quiet`）。
+- 移植はリネームのみ（名前に接尾辞 `X`、`AdmCtx O.quiet` → `O.adm`、マクロ名にも接尾辞）。`withReader` の補題は `CtxClosed.canUnfold` を使う形に一般化（TeleLocalA のみ手書きの差分）。
+
+### 44.2 ビルド済み（各ステップで commit、`kjob lake build` exit 0）
+S2s の手順 1〜14（Check34/docs 修正、`RefLawsAOpsX/ATeleX`、VCA・CacheA(RealChildA)・VertA・PathA・TranslateA・FallbackA・CanonKeyA・LegacyCachedA・WalkA・TeleCP・FrontA・TranslatePathA・ProjFieldA・LegacyHelpersA・LegacyHandlersA・LegacyImplA・DepthA・FrontCP、KWalk）に加え、S2s3 で:
+- 15: `ChildLegacyTailA`（`legacyTailA_genericX`, `legacyTailA_of_stepX`）。draft は修正なしでビルドが通った。
+- 16〜: `ChildComposeA`, `ChildMainA`（`core_tripleA_mainX`）, `ChildTeleLocalA`, `ChildCacheA` の**全体**（これまでは `RealChildAX` のみで `JQC`・`EQC`・`synthesizeChild_tripleC`・`closeInstsM_realA` が未移植だった）, `ChildCoreC`, `ChildRunA`, `ChildDepthC`, `ChildRunAKids`, `ChildComposeC`, `ChildRunAMain`, `ChildTeleMainA`。`FrontCP` に `childEntryA_JQC_of_childSynthAX` を追加。
+標準 axiom のみ（各ファイル末尾の `#print axioms`）。
+
+### 44.3 まだ移植していないもの（精密なリスト）
+- `S2sAdmS2hHist2` は手順 5 の**古い写し**（`RecAX`, `ChildEntryAX` 等が当時なく、`sorryAx` を含む状態でビルドされていた）。CacheA・FrontCP などが揃った今、`ShippingFGCircuitS2hHist2` から再生成が必要（再生成スクリプト: リネーム対象は「移植済みファイルの宣言名」+「対象ファイル自身の宣言名」+ マクロ名）。**この古い写しは信用しないこと。**
+- 経路上の未移植: `ShippingFGCircuitS2dKids`（`machineChild_ifaceK`; `machine_run_of_coreC` は `ShippingFGCircuitLinked`、`synthesizeMachineCertified_runsA` 等）、`S1qLinked`（`coreHeadOff_jqcA`）, `Gen5RunReads`, `EntryReadsLinked`（`RealChildA`）, `S2aClose`, `S1zClose`, `RunLocal`, `Bridge`、`Tools/ShippingGen2Defs.lean` の `Laws`/`Start`（`LawsX`/`StartX` が要る: `O : RefLawsAOpsX`, `T : RefLawsATeleX O.quiet O.adm`, `Start := O.adm ∧ JQCX O 0 w`）、その上の `S2hHist3 (hftCoreCloses_of_kidsH)`, `S2mReach`〜`Reach3 (hftCoreCloses_of_kidsR)`, `S2nAdm (hftCoreCloses_of_kidsR')`。
+- したがって `hftCoreCloses_of_kidsR''`（`hdown` なし。`DRowEnvR`/`DiagEnvR`/`TeleR`/`ProfStepR`/`ProfOffW` は名前付きのまま）は**述べても証明してもいない**。root の `mkMetaContext` の証拠を実際の run の文脈に結び付ける部分（`adm` の確立）も未着手。
+
+### 44.4 Check39（`kjob lake build Tests.Gen5.FGCircuitPilotCheck39`）
+Check33 と同一の比較関数 `cmp`（肯定と全 mutant で同じ）。SIGNATURE: `core_tripleA_mainX` の完全な型（binder 名 `mctx mref cctx cref O hA T declName`）を独立に書いた文面と照合、6 mutant 棄却（`AdmCtx` の文脈、旧 telescope bundle、telescope 前提なし、exception 事実なし、事前条件自明、事後条件自明）。STEPS: 移植済み 7 定理の型は `RefLawsAOpsX` を含み `AdmCtx`・旧 `RefLawsAOps`/`RefLawsATele` を含まない（対照: 元の定理は含む、`RefLawsAOps.toX` は `adm := AdmCtx quiet`）。**構造検査は型の表面の定数だけで、証明の閉包ではない。** AXIOMS: 7 名、`contains` で存在を確かめてから `collectAxioms`（存在しない名前を検査済みと報告しない）。REMAINING: 上記の未移植リスト。
+
+### 44.5 次
+(1) `Hist2` の再生成。(2) 経路上の未移植ファイルを依存順に移植し（上記）、`LawsX`/`StartX` を定義。(3) `hftCoreCloses_of_kidsH → …R → R'' ` を移植し、`hdown` の代わりに root の `adm` を `mkMetaContext` から確立。(4) 達成後に Check40 以降で `R''` の完全な型を同じ比較方法で。
