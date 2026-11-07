@@ -64,11 +64,12 @@ structure SourceData where
 
 namespace SourceData
 
-/-- the Bool checks on the data: the root has no instance fields, exactly two calls, the children are two, widths and names are present for both, and the port names are one per binder.  (Each is decided by `decide +kernel` for the root: `rootS_ok`.) -/
+/-- the Bool checks on the data: the root has no instance fields, exactly two calls, the children are two, widths and names are present for both, the port names are one per binder, distinct, none is `rst`, and the root's own inputs are among them.  (Each is decided by `decide +kernel` for the root: `rootS_ok`.) -/
 def ok (S : SourceData) : Bool :=
   S.d.ok && S.d.shape.instFields.isEmpty && (S.d.shape.insts.length == 2) &&
   (S.kidMod.length == 2) && (S.kidInW.length == 2) && (S.kidOutW.length == 2) &&
-  (S.portNames.length == S.d.shape.binders.length) && decide S.portNames.Nodup
+  (S.portNames.length == S.d.shape.binders.length) && decide S.portNames.Nodup &&
+  (!S.portNames.contains "rst") && (S.kD ≤ S.portNames.length) && (S.kD ≤ S.d.nIn)
 
 /-- the state witnesses of the root's source: Lean state signals `S₂` (the enclosing registers) and `Ss` (the chain's) whose fused state starts at the reset tuple, steps by the data's `nexts` over the Lean extension `machineExt … S₂ Ss`, and shows the data's outputs as `machineSource` (the content of `machine_states`, `Tools.ShippingFGCircuitS2vLink.root_states`; it contains no IR) -/
 def Wit (i : Unit) (bools : Nat → Signal defaultDomain Bool)
@@ -123,12 +124,6 @@ def CallsEq (S : SourceData) : Prop :=
         posEnc (fun p => (bools p).val j) (fun p n => ((synth_hftPcieOutByte.machineExt i bools bits S₂ Ss) p n).val j)
           (S.kD + k) (((S.d.bsIn.drop S.kD)[k]?.map (·.2)).getD .domain)
 
-/-- the allocator's port names: some compiler ids and cache give the transition's ports the names `S.portNames` (the names depend on the binders' names and the module name only).  NOT kernel-evaluable: the allocator's `sanitizeName`/`clean` use `String.replace`/`String.all` (well-founded, opaque to the kernel); see docs §69 gap G1. -/
-def NamesEq (S : SourceData) : Prop :=
-  ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)),
-    ids.Nodup ∧ ids.length = S.d.shape.binders.length ∧
-    (machPorts S.declName ids cache S.d.shape.binders).map (·.name) = S.portNames
-
 /-- the fields of the data are the root's and its children's, the declaration's own observation is `machineSource`, and the state witnesses exist for every input; no IR, no names, no calls -/
 def SrcCore (S : SourceData) : Prop :=
   S.declName = hftRoot ∧ S.d = synth_hftPcieOutByte.machineData ∧
@@ -141,21 +136,32 @@ def SrcCore (S : SourceData) : Prop :=
   S.kidOutW = kidData.map (fun kd => kd.shape.layout.outs.map (·.width)) ∧
   S.kD = 5
 
-/-- **`SrcEq`**: the connection of the ORIGINAL value `R` to `machineSource`, and the data's fields to the root's generated constants.  It carries NO statement about the IR `b`, `D` (nothing about `MachineWired`, `ChildFn`, `runModuleH`): `SrcCore` (the fields are the root's, the declaration's own observation equals `machineSource` (`monoObs_root`, `rfl`), the state witnesses exist (`machine_states`)), `NamesEq` (the allocator's port names), `CallsEq` (the source's call facts). -/
-def SrcEq (S : SourceData) : Prop := S.SrcCore ∧ S.NamesEq ∧ S.CallsEq
+/-- **`SrcEq`**: the connection of the ORIGINAL value `R` to `machineSource`, and the data's fields to the root's generated constants.  It carries NO statement about the IR `b`, `D` (nothing about `MachineWired`, `ChildFn`, `runModuleH`): `SrcCore` (the fields are the root's, the declaration's own observation equals `machineSource` (`monoObs_root`, `rfl`), the state witnesses exist (`machine_states`)) and `CallsEq` (the source's call facts).  The port names `S.portNames` are CLAIMS the validator checks against the module; no statement about the compiler's allocator is made (docs §69, gap G1: the allocator's names are not kernel-evaluable). -/
+def SrcEq (S : SourceData) : Prop := S.SrcCore ∧ S.CallsEq
 
 end SourceData
 
 /-! ## RootShowsAt: run-free meaning preservation for ALL inputs -/
 
-/-- The meaning a returned `(b, D)` has for the root.  Built from the shape of the generated `machine_composed` conclusion, with the children's `MachineRun` HYPOTHESIS moved into a conjunct of the conclusion (`ChildFn`).  The child conditions cover every call (`k < 2`: the call's statement is in the body, its module is what its name resolves to in `D`, and the module computes the child's source function on the child's range) and every `inst` statement of the body (each is one of the calls); a failed lookup makes the statement FALSE, not vacuous.  The run part is quantified over ALL inputs, the state witnesses, the run length `T`, `seed`, `st0`, `mems`, under the four exact premises `(a)`–`(d)` (their simultaneous satisfaction: `premises_satisfiable`). -/
+/-- The meaning a returned `(b, D)` has for the root.  Built from the shape of the generated `machine_composed` conclusion, with the children's `MachineRun` HYPOTHESIS moved into a conjunct of the conclusion (`ChildFn`), and with the compiler's allocator (`ids`, `cache`, `machPorts`) replaced by the names the data CLAIMS (`S.portNames`): the module's own ports and statements are what the statement is about.  The child conditions cover every call (`k < 2`: the call's statement is in the body, its module is what its name resolves to in `D`, and the module computes the child's source function on the child's range) and every `inst` statement of the body (each is one of the calls); a failed lookup makes the statement FALSE, not vacuous.  The run part is quantified over ALL inputs, the state witnesses, the run length `T`, `seed`, `st0`, `mems`, under the four exact premises `(a)`–`(d)` (their simultaneous satisfaction: `Tools.ShippingFGCircuitS3tSat.premises_satisfiable`). -/
 def RootShowsAt (S : SourceData) (b : Module) (D : Design) : Prop :=
   S.d.shape.instFields = [] ∧ S.d.shape.insts.length = 2 ∧
-  ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) (regs lets : List String),
-    ids.Nodup ∧ ids.length = S.d.shape.binders.length ∧
-    (machPorts S.declName ids cache S.d.shape.binders).map (·.name) = S.portNames ∧
-    regs.Nodup ∧ regs.length = S.d.ss.length ∧ lets.length = S.d.letBs.length ∧
-    MachineWired S.declName S.d.shape ids cache b D regs lets ∧
+  -- the top module's ports: the root's own inputs by the claimed names, clock and reset, the layout's outputs
+  (b.inputs.filter fun p => p.name != "clk" && p.name != "rst").map (·.name) = S.portNames.take S.kD ∧
+  "clk" ∈ b.inputs.map (·.name) ∧ "rst" ∈ b.inputs.map (·.name) ∧
+  b.outputs = S.d.shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port)) ∧
+  -- the body is in the linked order
+  linkedOk (moduleByName D.modules) b.body = true ∧
+  ∃ (regs : List String),
+    regs.Nodup ∧ regs.length = S.d.ss.length ∧
+    (∀ r ∈ regs, r ∈ S.portNames.drop (S.portNames.length - S.d.shape.layout.lets - S.d.shape.layout.slots.length)) ∧
+    -- register k is a register statement with slot k's width and init; every register statement is a slot's
+    (∀ (k : Nat) (r : String) (f : SlotField), regs[k]? = some r → S.d.shape.layout.slots[k]? = some f →
+      weOf b r = f.width ∧ r ∉ b.inputs.map (·.name) ∧
+      ∃ (rk : Sparkle.IR.Type.ResetKind) (inp : Expr), Stmt.register r "clk" ("rst", rk) inp (Int.ofNat f.init) ∈ b.body) ∧
+    (∀ (r c : String) (rs : String × Sparkle.IR.Type.ResetKind) (inp : Expr) (init : Int),
+      Stmt.register r c rs inp init ∈ b.body →
+      ∃ (k : Nat) (f : SlotField), regs[k]? = some r ∧ S.d.shape.layout.slots[k]? = some f ∧ init = Int.ofNat f.init) ∧
     -- every call k < 2 is covered: statement, module lookup, `ChildFn` (a conjunct, not a hypothesis)
     (∀ k, k < 2 → ∃ (args : List Nat) (mc : Module) (st : Stmt) (kd : MachineData) (f : List Nat → Nat),
       (S.d.shape.insts.map (·.2.1))[k]? = some args ∧ st ∈ b.body ∧
@@ -175,10 +181,11 @@ def RootShowsAt (S : SourceData) (b : Module) (D : Design) : Prop :=
       (Ss : Tools.ShippingMachineTele.Tele.Sigs (synth_hftPcieOutByte.machineInners.at i bools bits)),
       SourceData.Wit i bools bits S₂ Ss →
       ∀ (T : Nat) (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (mems : MEnv),
-        -- (a) the input ports carry the source's inputs
-        (∀ (t : Nat) (st : String → Nat), t < T →
-          SourceInputs S.declName (S.d.bsIn.take S.kD) ids cache (fun j => (bools j).val (T - 1 - t))
-            (fun j n => ((synth_hftPcieOutByte.machineExt i bools bits S₂ Ss) j n).val (T - 1 - t)) (seed t st)) →
+        -- (a) the input ports (by the claimed names) carry the source's inputs
+        (∀ (t : Nat) (st : String → Nat), t < T → ∀ (q : Nat) (nm : String), q < S.kD → S.portNames[q]? = some nm →
+          seed t st nm = posEnc (fun p => (bools p).val (T - 1 - t))
+            (fun p n => ((synth_hftPcieOutByte.machineExt i bools bits S₂ Ss) p n).val (T - 1 - t)) q
+            (((S.d.bsIn)[q]?.map (·.2)).getD .domain)) →
         -- (b) a register reads the state
         (∀ (t : Nat) (st : String → Nat) (r : String), r ∈ regs → seed t st r = st r) →
         -- (c) reset is 0
@@ -237,8 +244,9 @@ def callOk (S : SourceData) (b : Module) (D : Design) (cert : Cert) (k : Nat) : 
     | _, _ => false
   | _, _, _, _, _ => false
 
-/-- register `r` of the body is a clocked register with synchronous reset `rst` and initial value `init` -/
-def regOk (b : Module) (r : String) (init : Nat) : Bool :=
+/-- register `r` of the body is a clocked register with reset `rst`, initial value `init`, declared at the slot's width `w` -/
+def regOk (b : Module) (r : String) (init w : Nat) : Bool :=
+  (Sparkle.IR.RegDedup.declWidth b r == w) &&
   b.body.any fun st => match st with
     | .register o c (rn, _) _ i => (o == r) && (c == "clk") && (rn == "rst") && (i == Int.ofNat init)
     | _ => false
@@ -248,18 +256,22 @@ def regsOk (S : SourceData) (b : Module) (cert : Cert) : Bool :=
   (cert.regs.length == S.d.ss.length) && decide cert.regs.Nodup &&
   ((List.range cert.regs.length).all fun k =>
     match cert.regs[k]?, S.d.shape.layout.slots[k]? with
-    | some r, some f => regOk b r f.init
+    | some r, some f => regOk b r f.init f.width
     | _, _ => false) &&
   ((b.body.filter isRegStmt).length == cert.regs.length)
 
-/-- the structural part of the validator (the coverage the freeze requires): no instance fields, two calls, both children found through `moduleByName` with the fixed widths, exactly those two `inst` statements, the registers, the output ports, the `rst` input.  A missing, swapped, or width-changed child, an extra `inst`, a changed register init, a missing `rst` make it false. -/
+/-- the structural part of the validator (the coverage the freeze requires): no instance fields, two calls, both children found through `moduleByName` with the fixed widths, exactly those two `inst` statements, the registers (named by the cert, among the claimed names, with the slots' widths and inits), the ports (the root's own inputs by the claimed names, `clk`, `rst`, the layout's outputs), the linked order.  A missing, swapped, or width-changed child, an extra `inst`, a changed register init or width, a missing `rst`, a changed output port make it false. -/
 def structuralOk (S : SourceData) (b : Module) (D : Design) (cert : Cert) : Bool :=
   S.ok && (cert.callAt.length == 2) && decide (cert.callAt.Nodup) &&
   callOk S b D cert 0 && callOk S b D cert 1 &&
   ((b.body.filter isInstStmt).length == 2) &&
   regsOk S b cert &&
-  (b.outputs.map (fun p => (p.name, portW p)) == S.d.shape.layout.outs.map (fun o => (o.name, o.width))) &&
-  ((b.inputs.map (·.name)).contains "rst")
+  (cert.regs.all fun r => (S.portNames.drop (S.portNames.length - S.d.shape.layout.lets - S.d.shape.layout.slots.length)).contains r &&
+    !(b.inputs.map (·.name)).contains r) &&
+  decide (b.outputs = S.d.shape.layout.outs.map (fun o => ({ name := o.name, ty := o.ty } : Port))) &&
+  ((b.inputs.filter fun p => p.name != "clk" && p.name != "rst").map (·.name) == S.portNames.take S.kD) &&
+  ((b.inputs.map (·.name)).contains "clk") && ((b.inputs.map (·.name)).contains "rst") &&
+  linkedOk (moduleByName D.modules) b.body
 
 /-- NOT WRITTEN YET (M1, the body validator): the statements of the body against the source terms (`checkComb` for a combinational child is the step-2 piece).  It is `false` for every input, so `CheckRoot` is false for every input and `certifiedReturn` refuses: the freeze fixes the statement and the structural part, not a claim that the body is validated. -/
 def bodyOk (_S : SourceData) (_b : Module) (_D : Design) (_cert : Cert) : Bool := false

@@ -7012,3 +7012,6 @@ lean_lib «Tools.ShippingFGCircuitS3tComb» where
 
 lean_lib «Tools.ShippingFGCircuitS3tCombRun» where
   roots := #[`Tools.ShippingFGCircuitS3tCombRun]
+
+lean_lib «Tools.ShippingFGCircuitS3tCert» where
+  roots := #[`Tools.ShippingFGCircuitS3tCert]
