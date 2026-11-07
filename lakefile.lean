@@ -6691,6 +6691,3 @@ lean_lib «Tools.ShippingFGCircuitS2sAdmChildFrontCP» where
 
 lean_lib «Tools.ShippingFGCircuitS2sAdmChildLegacyTailA» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmChildLegacyTailA]
-
-lean_lib «Tools.ShippingFGCircuitS2sAdmChildComposeA» where
-  roots := #[`Tools.ShippingFGCircuitS2sAdmChildComposeA]
