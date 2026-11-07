@@ -96,7 +96,7 @@ noncomputable def F8Mu_carrierZ : Prop := F8 (CV := Tools.ShippingFGCircuitS1tFi
 
 def unfold47 : List Name := [``Tools.ShippingFGCircuitS3dFinal.HftFinalStmtOffCombined8, ``Tools.ShippingFGCircuitS3cFinal.HftFinalStmtOffCombined7,
   ``Tools.ShippingFGCircuitS3b2Final.HftFinalStmtOffCombined7R, ``Tools.ShippingFGCircuitS3aFinal.HftFinalStmtOffCombined6,
-  ``Tools.ShippingFGCircuitS2zFinal.HftFinalStmtOffCombined5, ``Tools.ShippingFGCircuitS2yFinal.cdvT, ``TeleRX]
+  ``Tools.ShippingFGCircuitS2zFinal.HftFinalStmtOffCombined5, ``Tools.ShippingFGCircuitS2yFinal.cdvT, ``Tools.ShippingFGCircuitS2mReach.TeleRX]
 def norm47 (e : Lean.Expr) : MetaM Lean.Expr := do
   let e ← Meta.transform e (post := fun e => do
     let e := e.headBeta
