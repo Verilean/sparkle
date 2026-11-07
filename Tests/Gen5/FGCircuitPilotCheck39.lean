@@ -70,7 +70,7 @@ def MainTrivPost : Prop :=
     O.adm mctx cctx → RefLawsATeleX O.quiet O.adm mref cref → ∀ (declName : Name),
     Tools.ShippingChildInv.Triple mctx mref cctx cref (OutQ O.quiet)
       (Sparkle.Compiler.Elab.synthesizeCombinationalCore declName [] false)
-      (fun _ => True) (fun e w => OutQ O.quiet w ∧ OkExc e)
+      (fun _ _ => True) (fun e w => OutQ O.quiet w ∧ OkExc e)
 
 /-! ## 1. SIGNATURE -/
 
