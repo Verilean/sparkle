@@ -2871,6 +2871,13 @@ callback が翻訳器経路で小さく実現できないため、残る案は�
 - `hD`／`hG`／`hT` は今回も触れていない。`hG` は案 A が通っても解けたと数えない（翻訳器の tick／debug／`ppExpr` が残る）。TRUSTED・解決済み行にはしていない。
 - 追加の実行は不要な調査だった（コードの読み取りと `grep -l` のみ）。ビルド・Check は実行していない（`Sparkle/`・`Tools/`・`Tests/` が不変のため、§56 の記録と Check48 の結果がそのまま適用される）。
 
+### 58.5 【S3j 追記・reviewer 指摘】S3h の評価の限界（上の 58.2–58.4 を読むときの注記）
+- **54／146 は参照ファイル数であり、再証明が必須な件数とはまだ確定していない。** `grep -l` が数えたのは `Rec.handleDefinitionUnfold`／`Rec.synthesizeCombinational`／`Rec.translateExprToWireImpl`（54）または `sparkleChildSynth`／`synthesizeChild`／`childSynthEntry`（146）を**名前で参照しているファイル**であって、callback を足したときに文・`rfl` 等式・`unfold` が実際に壊れるファイルの数ではない。
+- **wrapper／`rfl` 維持の経路は未検証。** callback を持つ内部定義と、旧名・旧引数の特殊化 wrapper（既定の callback `= sparkleChildSynth.get` を渡す）で定義的等式を保てる可能性は試していない。将来 選択肢 1 を再開するときは、小さい代表（例: `Rec.handleDefinitionUnfold` 1 つ）で wrapper の `rfl` 維持を先に試し、実際に壊れる範囲を測ってから見積りを出す。
+- **選択肢 1 が S3 一般化に必須とは断言しない。** §58.4 の選択肢 1 は `h0`／`hs` をこの経路で外すための一案で、S3 の一般化に必須だとは示していない。
+- **§58 は「pilot の成功 run が 2 本の経路の両方を通る」ことを示していない。** 58.1 が示したのは、一般に 2 本の経路が `sparkleChildSynth` を読むこと（コード上の存在）であり、固定した pilot（`hftRoot`）の成功 run が両方を実際に通ることは別の主張で、証明も測定もしていない。経路排除の証拠が無い間は、機械側だけを変えても `h0`／`hs` は外れない（§58.2 の結論）。
+- §57.3 の「`sparkleChildSynth` の登録先を呼び出し間だけ別の関数にする（一時 Ref 変更が必要）」は S3g 時点の旧案の候補で、§58.3 の義務を満たす形では採用していない（S3h は案 3 を当面採用、案 2 は不採用）。
+
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。binder の変更なし（v9 の 9 引数のまま）。
 
 
@@ -3027,4 +3034,101 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 - 読んだもの: `Tools/ShippingFGCircuitS3f2Final.lean`、`Tools/ShippingGen2Defs.lean`、`ShippingChildInvA.lean`、`ShippingFGCircuitS2sAdmChildInvA.lean`/`AdmLawsX.lean`、`ShippingChildCacheA.lean`、`ShippingChildVCA.lean`、`ShippingChildFresh.lean`、`ShippingGen5EnvFrame3.lean`、`ShippingStRefCorrespondence.lean`、`ShippingHeapModel.lean`（冒頭と `HeapLaws`）、`ShippingGenFGLedgerPremises.lean`、`Sparkle/Compiler/Elab.lean` の該当行、本書 §8・§44 周辺・§52–§58、`docs/FG-CIRCUIT-STRATEGY-2026-11-06.md`。台帳本体 8649968e §12.24 は tree に無い。
 - 確認していない: `Throws`/`Op` の各構成子の定義（`ChildInv.lean:281–`）、`admCtx_closed` の厳密な位置、`liftTermElabM` の既定 `canUnfold?` と stderr の隔離（`withIsolatedStreams` 等）、field 消費箇所の網羅（上の「消費する証明段」は `grep` の上位ファイルで、全 call site ではない）。
 - 変更: この docs のみ。`Sparkle/`・`Tools/`・`Tests/` は不変。v9・Check48 は不変。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 60. S3j（Issue `sparkle-fg-circuit-pilot`）: §59 の供給候補のうち小さな Lean 補題にできたもの — 検査付き入口 `pilotEntry3`、v10（`hstart` を未供給の 3 成分に狭めた版）、Check50
+
+土台 `061b2e88`（= par/fgc-s1 `aa9bff12` + §59）。**変更したもの**: `Tools/ShippingFGCircuitS3jStart.lean`・`…S3jFinal.lean`・`…S3jThrows.lean`・`Tests/Gen5/FGCircuitPilotCheck50.lean`（新規。`lakefile.lean` に `lean_lib` 4 件）と docs（§8・§57.3・§58.5・§59 の訂正、本節）。`Sparkle/`（compiler）・v9（`Tools/ShippingFGCircuitS3f2Final.lean`）・既存 Check・既存の定義は**不変**。新 law・axiom・sorry・native_decide・TRUSTED なし。コミット（古い順）: `49035530` pilotEntry3 と run 補題、`edc57d16` v10、`07e31173` jqc_after_head、`0bda40ba` frameT と拒否補題、`f8a11506` pilotArtifact3 と空虚 L の補題、`03c04d2d` Check50、続く 1 件（Check50 の補助補題の署名と docs 訂正）、本節。
+
+### 60.0 結果の要約（供給したもの／していないもの）
+
+| 項目 | 結果 | 種別 |
+|---|---|---|
+| S1 `AdmCtx`（`hstart.1`） | **供給した**（`admCtx_of_pilotEntry3`）。run の `canUnfold?.isNone` 検査 + 既存 `admCtx_none` | 既存定理 + Tools 側検査（MetaM wrapper） |
+| S4 `dv w = 0` | **供給した**（`dv_of_pilotEntry3`）。run の depth 読み取りの検査。**開始 world `w` のまま**（文の開始 world は動かしていない） | Tools 側検査 + `ReadWorld`（`hcell` の既存 field） |
+| S5 cache 半分 | **補題として供給した**（`jqc_after_head`・`jqc_after_head_of_pilotEntry3`: core head の後の world `w1` で `JQC L.O 1 w1`、cache 半分を含む）。**ただし v10 の文からは外せていない**: `hcache` が残る（§60.3） | 既存定理 `coreHeadOff_jqcA`（`L.O.cacheSet` を使う）の組み立て。**`L` の field に依る** |
+| S2 `quiet w`、S3 `sv w = some synthesizeChild` | 未供給（v10 の `hquiet`・`hsynth`） | 調査範囲では未供給（§59.3 のまま） |
+| `L.O.frameT` | **field の命題を補題にした**（`frameT_of_readWorld`）。`ReadWorld mref` と `ReadWorld cref`（`hcell` の 2 field）だけから。**`L` は binder のまま**（他の 13 field は不変。field の補題は構造体を作らない） | 定義から計算（`rfl` 2 本）+ `ReadWorld` |
+| v10 | **作った**（11 引数: `L hquiet hsynth hcache hr hcell hD hG hT hs h0`）。`hstart` の 5 conjunct のうち 2 つが消えた | v9 の合成 |
+| `L` 全体、`hcell`、`hD hG hT hs h0` | **不変・未供給**（調査範囲では） | — |
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。**A.P-02（Start）は行を外していない**: `quiet`・`sv`・cache 半分が残る。A.P-01（`L`）・C.EN-4（`hcell`）も行は同じ（`frameT` の補題は `L` の 14 field のうち 1 つの命題の供給で、`L` は binder のまま）。行の数え方は reviewer が決める。
+
+### 60.1 `mctx` はどこから来るか — 検査は「その run の」`mctx` を見ている
+
+- 実行経路: `elab "#synthesizeVerilogPilot3"`（`Tools/ShippingFGCircuitS3jFinal.lean`、`#synthesizeVerilogPilot2` と同形）→ `liftCoreM (resolveGlobalConstNoOverload id)` → `Lean.Elab.Command.liftTermElabM (do inlinerFuelGuard declName; pilotArtifact3 declName)` → `pilotEntry3`。Lean の `liftTermElabM` は term action を `… |>.run mkMetaContext {}` で走らせるので、入口の Meta context は `Command.mkMetaContext`（その上で `x` 自身の更新）。これは `Tools/ShippingStartWorldA.lean` の冒頭が記録している **Lean ソースの読み**で、定理ではない。そこで証明済みなのは `mkMetaContext.canUnfold? = none`（`mkMetaContext_canUnfold := rfl`）だけ。
+- **`Environment → Name → Bool` の検査（`readerOk`・`pilotReaderOk2`）は `Meta.Context` を見られない**（引数が環境と名前だけの純関数）。したがって `mctx` の検査は `readerOk` には入れられず、MetaM の wrapper に置く。これが `pilotEntry3`（`Tools/ShippingFGCircuitS3jStart.lean:22`）:
+  ```
+  def pilotEntry3 (declName : Name) : MetaM (Module × Design) := do
+    let ctx ← readThe Meta.Context
+    unless ctx.canUnfold?.isNone do throwError "…"
+    let depth ← sparkleSynthDepth.get
+    unless depth == 0 do throwError "…"
+    synthesizeCombinationalOffR pilotReaderOk2 declName
+  ```
+- **「同じ `mctx`」であることの根拠**: `RunsTo (m >>= f) mctx … ` は `m` も `f a` も同じ `mctx` で走る（`RunsTo.bind`）ので、`readThe Meta.Context` の返り値は `RunsTo` の引数 `mctx` そのもの（`runsTo_readThe`・`runsTo_readThe_bind`）で、その後の `synthesizeCombinationalOffR` の run も同じ `mctx`。`pilotEntry3_run` はこれを `mctx.canUnfold? = none` として出す。つまり v10 の `mctx`（結論の `PostRunOff mctx …` と共通）が検査された文脈である。
+- 残る限界: (a) `liftTermElabM` が `mkMetaContext` から始まるという読みは定理ではない（run_cmd の文脈では Check50 が `canUnfold?.isNone` を実行して確認した）。(b) `AdmCtx` は `Core.Context` に何も要求しない（`ChildInvA.lean` の注記どおり）ので検査していない。(c) 検査は `canUnfold? = none` で、`some f` の文脈を `InertUnfold` で受ける形ではない（その文脈は拒否される: `pilotEntry3_refuses_canUnfold`）。
+- §59.10 の「確認していない」のうち、`liftTermElabM` の既定 `canUnfold?` は上のとおり（ソースの読み + run_cmd での実行確認）。stderr の隔離は今回も確認していない。
+
+### 60.2 `dv w = 0` — どの world か
+
+- `pilotEntry3` は depth を**開始 world `w` で読む**（`sparkleSynthDepth.get`）。`runsTo_get` は返り値 `= readOf r w`・終了 world `= getW r w` を出す。`dv w`（`Tools/ShippingChildBndCore.lean:47`）は定義が `readOf sparkleSynthDepth w` なので、`dv_of_pilotEntry3 : … → dv w = 0` は `pilotEntry3_run` の第 2 成分そのもの。
+- 内側の `synthesizeCombinationalOffR pilotReaderOk2` が走り出す world は `getW sparkleSynthDepth w`。**`ReadWorld sparkleSynthDepth`**（`hcell` の C3 の第 1 成分、`hcell.2.2.1.1`）で `= w` となる（`entry2_of_pilotEntry3`）。よって **文の開始 world を動かさない**: v10 の `w` は wrapper の開始 world で、`PostRunOff mctx mref cctx cref w …`・`envAt cref w`・`hD hG hT hs h0` は v9 と同じ `w`。core head の後の world（depth 1）は別物で、`jqc_after_head` が扱う。
+- `hcell` は v9 にも在ったので新しい前提ではないが、v10 の証明は C3 の `ReadWorld` を**新たに使う**。
+
+### 60.3 cache 半分 — 補題はできたが、文からは外せていない（正確な欠け）
+
+- できたこと: `jqc_after_head`（`S3jStart.lean:118`）。`AdmCtx`・`quiet w`・`sv w`・`dv w = 0` と core head の run `coreHeadOff X` から、head 後の world `w1` で `JQC L.O 1 w1`、すなわち `CacheInvA L.O (cv w1)` を含む。中身は既存 `coreHeadOff_jqcA`（`D = 0`、`Or.inl rfl`: depth 0 では cache の前提を消費しない）。cache の段は `coreHeadOff` の `sparkleChildCache.set {}`（depth 0 の分岐）と **`L.O.cacheSet`**（`tripleC_clear` 経由）。**これは `L` の field を使う**ので、Start のこの部分は「無から」ではなく `L` から供給される（`L` は binder のまま）。`jqc_after_head_of_pilotEntry3` は run から head の run を取り出し（`coreR_chain`）同じ結論を出す。**開始 world の cache（`cv w`）は一切仮定していない**。
+- 実行での裏付け（Check50 OUTPUT）: 開始 cache を**非空**（`hftHttp` の artifact を入れた）にして `pilotEntry3` を走らせても artifact は同一（run は head で cache を消す）。
+- **文から外せていない理由（欠けている文）**: v9 の証明の連鎖は `Start`（`StartX`）を **開始 world `w`** で消費する。連鎖の各定理は `hstart : StartX L mctx cctx w`（または `Start`）を引数に取る: `synth_hftPcieOutByte_finalOffLNLX`（`S2sAdmS1zClose.lean:222`、文は `HftFinalStmtOffLNLX`:203）、`coreOff_ranAX`/`hftPostGate_of_localX` ほか `S2sAdmS1zClose.lean` の 4 件（128・171・186・207 行）、`S2sAdmS2dKids.lean`（272・303）、`S2sAdmS2hHist3.lean`（184・215）、`S2sAdmS2mReach3.lean`（185）、`S2sAdmS1uSrc.lean`（104）、`S2sAdmS1tFinal.lean`（89）、`S2sAdmS2nAdm.lean`（96。`hftCoreCloses_of_kidsR''`）、`S3cTop.lean`（128。`hftTop_of_runRX`）、`S3cFinal.lean`（`hstartX := ⟨hstart.1, jqc_toX hstart.2⟩`）。**grep で読んだ範囲の直接の使用は `hstart.1`（adm）と `hstart.2.1`（`JQX` 部分）だけで、`hstart.2.2`（cache 半分）は使われていない**（`coreHeadOff_jqcAX … hstart.1 hstart.2.1 (Or.inl rfl) hh` の形）。ただしこれらは `hstart` を下位の定理へ丸ごと渡すので、**下位まで `.2.2` が使われないことは確かめていない**。
+- 欠けている文（正確に）: `HftFinalStmtOffLNLX Ob CV`（`S2sAdmS1zClose.lean:203`）の `hstart : StartX L mctx cctx w` を 2 つの引数 `hadm : L.O.adm mctx cctx` と `hjq : JQ L.O.quiet 0 w`（cache 半分なし）に替えた文 `HftFinalStmtOffLNLX'` と、その証明の連鎖（上の ~12 宣言の `StartX` を `adm ∧ JQ` に替えた複製）。これが通れば v10 から `hcache` を外せる（head の後の `JQC 1` は `jqc_after_head` が与える）。**既存の文を変えると旧 Check（型を独立に照合している）が壊れるので、複製として別ファイルに作る必要がある**。見積りは出していない（連鎖の宣言数は ~12、各々は既存の証明の `hstart.2.1` の取り出し直し）。**次の単位の候補**。
+- したがって v10 は `hcache : CacheInvA L.O (cv w)` を名前付きの未供給仮説として残している。「`Start` の cache 半分が供給できた」とは数えない。
+
+### 60.4 `L.O.frameT`（任意項目）— 各 `Throws` 構成子は世界を変えない
+
+- `Throws`（`Tools/ShippingChildInv.lean:281`）の構成子は 2 つ: `err msg : throwError msg`（MetaM）と `coreErr msg : liftM (throwError msg : CoreM α)`。Lean 4.32.1 の `throwError` は `getRef`（Core context の読み出し）、`addMessageContext`（`getEnv`＝Core 状態 ref の `get`、`getMCtx`＝Meta 状態 ref の `get`、`lctx`・`opts` は context の読み出し）、`throw` の順。`S3jThrows.lean` の `throwError_run`・`coreThrowError_run` は、この run が「Core 状態の `get`（と、MetaM 版では Meta 状態の `get`）の後に `error` を返す」ことを `rfl` で示す。
+- `endW_throws`: `ReadWorld mref` と `ReadWorld cref`（`hcell.2.2.2.2.2.1`、`hcell.2.2.2.2.2.2.2.2.1`）の下で `endW … p w = w`（`Throws p`）。`frameT_of_readWorld` はこれから field `RefLawsAOps.frameT` の命題（`AdmCtx` の仮定は使わない）を、**任意の `quiet`** について出す。
+- **`L` は binder のまま**: この補題は field の命題を `hcell` の 2 field に帰着させるもので、`L` の構造体は作らない。他の 13 field・`T` の 4 field は未供給。`L` を作るなら `frameT` は追加の仮定を要さない、という記録（frameT は `L` の中の独立な仮定ではなく `hcell` の C6・C9 に既に含まれている）。`hcell` は `ST.Ref` の意味の前提（§59.4）のまま。
+
+### 60.5 v10 — 文と binder（v9 との field 単位の比較）
+
+`HftFinalStmtOffCombined10`（`Tools/ShippingFGCircuitS3jFinal.lean:76`、定理 `synth_hftPcieOutByte_finalOffCombined10`:92。証明は `start_of_residual` + `entry2_of_pilotEntry3` + v9）:
+
+```
+∀ {ι} {mref} {cref} (L : Laws mref cref) {mctx cctx w w' b D'}
+  (hquiet : L.O.quiet w) (hsynth : sv w = some synthesizeChild) (hcache : CacheInvA L.O (cv w))
+  (hr : RunsTo (pilotEntry3 hftRoot) mctx mref cctx cref w (b, D') w')
+  (hcell : CellPrem MkRefd mref cref) (hD …) (hG …) (hT …) (hs …) (h0 …), <v9 と同じ結論>
+```
+
+| binder | v9 | v10 |
+|---|---|---|
+| `hstart` | `Start L mctx cctx w` = `AdmCtx L.O.quiet mctx cctx` ∧ `quiet w` ∧ `sv w = some synthesizeChild` ∧ `dv w = 0` ∧ `CacheInvA L.O (cv w)` | **なし**。5 conjunct のうち `AdmCtx` と `dv w = 0` は `hr`（wrapper の run）の検査から出る |
+| `hquiet` / `hsynth` / `hcache` | — | 残った 3 conjunct（それぞれ独立の名前付き仮説。隠した束ではない） |
+| `hr` | `synthesizeCombinationalOffR pilotReaderOk2 hftRoot` の run | `pilotEntry3 hftRoot` の run（同じ run に 2 つの検査が付く。成功 run の集合は狭まる） |
+| `L`・`hcell`・`hD hG hT hs h0` | — | **不変**（型は v9 と同一） |
+
+`Start` の 5 conjunct を v10 自身の変数で展開して照合した結果（Check50 BINDERS）: v10 の仮説に残る = `quiet w`・`sv w = some synthesizeChild`・`CacheInvA (cv w)`、消えた（run の検査が供給）= `AdmCtx`・`dv w = 0`。
+
+**空虚な `L`（`quiet := False`）は充足例に数えない**: `vacuousLaws`（`RefLawsAOps.quietFalse`・`RefLawsATele.quietFalse` で作る）では `hquiet` が全 world で偽（`vacuous_no_hquiet`）、`Start` も偽（`vacuous_no_start`）。一方 **検査が供給する `AdmCtx` は `quiet := False` でも真**（`vacuous_adm_trivial`＝`admCtx_quietFalse`）なので、検査は `quiet` について何も言わず、`hquiet` を別の仮説に残している。v10 の証明項は（推移的に 25340 個の定数を辿って）`vacuousLaws`・`quietFalse`・`admCtx_quietFalse(_writer)`・`frame_quietFalse_vacuous` のどれも使っていない（Check50 VACUITY）。つまり v10 は `hquiet` を満たす `L` についての主張で、空虚な `L` に依っていない。
+
+### 60.6 Check50（`Tests/Gen5/FGCircuitPilotCheck50.lean`）の行（Check 自身の出力から）
+
+- `FGCIRCUIT50 SIGNATURES`: v10 の完全な型 = 独立に書いた `Exp10`（`FGCircuitCmp.stmtEq`、`norm50` 1 本）、**52 mutants 却下**（各前提の削除、入口 = 検査なし／`canUnfold?` のみ／depth のみ／通常 Off／検査の向きを逆、別の Meta context、別の開始 world、残差 3 前提を別 world・終了 world・別の形（全 world quiet、`sv = none`、**空 cache**）に、検査が出す conjunct や `Start` 全体を仮説に戻す、結論の環境・tele・level・出力・artifact・carrier、v9／v8／v7 の型）。新補題 17 件の完全な型 = 独立に書いた期待型、**54 mutants 却下**。
+- `FGCIRCUIT50 BINDERS`: v9（18 = 9 + 9）`[ι, mref, cref, L, mctx, cctx, w, w', b, D', hstart, hr, hcell, hD, hG, hT, hs, h0]`; v10（20 = 9 + 11）`[ι, mref, cref, L, mctx, cctx, w, w', b, D', hquiet, hsynth, hcache, hr, hcell, hD, hG, hT, hs, h0]`; Start の 5 conjunct のうち残る `[quiet w, sv w = some synthesizeChild, CacheInvA (cv w)]`、消えた `[AdmCtx, dv w = 0]`。
+- `FGCIRCUIT50 VACUITY`: 上のとおり（25340 定数、空虚な証人への依存なし）。
+- `FGCIRCUIT50 OUTPUT`: S3j の入口 = S3f2 の入口 = 通常 Off の入口の module+design repr が同一（77654 / 89425 文字）。run 自身の Module から出した Verilog も同一（11345 文字）。制御: 別宣言の artifact／改変した Module は不一致、実際の `run_cmd` の文脈は `canUnfold?` が none・depth 0、**`canUnfold?` の callback を入れた文脈では S3j の入口は明示エラーを返し（S3f2 の入口は走る）**、depth 1 でも明示エラー（depth は復元）、**非空の開始 cache でも artifact は不変**。
+- `FGCIRCUIT50 AXIOMS`: 20 名、標準の公理のみ（`propext`・`Classical.choice`・`Quot.sound`）。sorryAx・native_decide なし。
+- 「別の開始 world」は、world が抽象（`Void IO.RealWorld`）なので実行での対照は作れず、文の型の mutant（`F10Mu_runWorld`、`quietOther`/`synthOther`/`cacheOther` ほか）で却下した。「別の `mctx`」は実行（callback 入りの文脈で拒否）と型（`F10Mu_runCtx`、`pilotEntry3_refuses_canUnfold`）の両方。「depth ≠ 0」は実行（depth 1 で拒否）と型（`pilotEntry3_refuses_depth`）の両方。
+
+### 60.7 何が供給され、何が残ったか（まとめ）
+
+- 供給した: `AdmCtx`（`hstart.1`）、`dv w = 0`、（補題として）core head 後の cache 半分、`frameT` の命題。
+- 残った（名前付き）: `hquiet`・`hsynth`・`hcache`（`Start` の残り。A.P-02）、`L`（A.P-01）、`hcell`（C.EN-4）、`hD hG hT hs h0`。いずれも「調査範囲では未供給」で、供給不能の主張ではない。
+- v10 の `hr` は wrapper の run なので、v10 が語るのは「2 つの検査を通った run」だけ。実コマンドの経路（`#synthesizeVerilogPilot3`）はその run を作る。既存のコマンド `#synthesizeVerilog`・`#synthesizeVerilogPilot`・`#synthesizeVerilogPilot2` は不変で、v10 の対象外。
+
+### 60.8 範囲・compiler 変更・次
+
+- compiler（`Sparkle/`）の変更: **なし**。小さな compiler 変更が必要と判断した項目もない（S3 `sv`（§59.3 の案）は今回触れていない）。
+- 次の候補（小さい順）: (1) §60.3 の `HftFinalStmtOffLNLX'` 連鎖（`hcache` を外す。Tools のみ、複製）。(2) `hsynth`（S3）は `sparkleChildSynth` の `SetGet` を `hcell` に足す設計が要る（§59.3、reviewer 判断）。(3) `hquiet`（`quiet` の具体的な選択）は未着手。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
