@@ -20,6 +20,7 @@ import Tools.ShippingFGCircuitS2sAdmChildLegacyImplA
 import Tools.ShippingFGCircuitS2sAdmChildLegacyTailA
 import Tools.ShippingFGCircuitS2sAdmChildMainA
 import Tools.ShippingFGCircuitS2sAdmChildPathA
+import Tools.ShippingFGCircuitS2sAdmChildPinC
 import Tools.ShippingFGCircuitS2sAdmChildProjFieldA
 import Tools.ShippingFGCircuitS2sAdmChildRunA
 import Tools.ShippingFGCircuitS2sAdmChildRunAKids
@@ -35,10 +36,12 @@ import Tools.ShippingFGCircuitS2sAdmChildWalkA
 import Tools.ShippingFGCircuitS2sAdmKWalk
 import Tools.ShippingChildRunAKids
 import Tools.ShippingChildComposeC
-import Tools.ShippingFGCircuitS2sAdmServedRealA
-import Tools.ShippingFGCircuitS2sAdmRunReads
+import Tools.ShippingFGCircuitS2sAdmChildPinC
+import Tools.ShippingFGCircuitS2sAdmCallsGatePinned
 import Tools.ShippingFGCircuitS2sAdmRunLocal
 import Tools.ShippingFGCircuitS2sAdmLinked
+import Tools.ShippingFGCircuitS2sAdmRunReads
+import Tools.ShippingFGCircuitS2sAdmServedRealA
 -- FG circuit pilot S2s4: SELECTIVE port of ShippingFGCircuitS2dKids.lean onto the context-predicate bundles (only the declarations that mention RefLawsAOps/AdmCtx/Laws/... or an already-ported name; the rest is taken from the imported original); rename-only script scripts/s2s_port2.py (suffix X, `AdmCtx O.quiet` -> `O.adm`). No sorry/axiom/native_decide/TRUSTED/law.
 set_option autoImplicit false
 -- FG circuit pilot S2d: the children's reflection (`HftKidsDefine`) narrowed run-locally. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED, no new law. Results: docs/FG-CIRCUIT-PILOT.md §32.
@@ -241,7 +244,7 @@ theorem hft_closesAtKX (O : RefLawsAOpsX MkRefd mref cref) (T : RefLawsATeleX O.
     (hrH : RootReader lvl e hftHttp httpGetByte.machineData) (hrT : RootReader lvl e hftTlp tlpCplByte.machineData)
     (hg : HftKidsGates e) (hke : HftKidsStartEnvX O e) :
     MachineClosesAtAX (mref := mref) (cref := cref) O mctx cctx hftRoot synth_hftPcieOutByte.machineData.shape :=
-  Tools.ShippingCallsGatePinned.machineClosesAtA_of_gateKids' O T hA synth_hftPcieOutByte.machineData
+  Tools.ShippingCallsGatePinned.machineClosesAtA_of_gateKids'X O T hA synth_hftPcieOutByte.machineData
     synth_hftPcieOutByte.machine_ok synth_hftPcieOutByte.machine_body hft_alias hft_gateCalls
     (fun k => nkOf ((synth_hftPcieOutByte.machineData.shape.insts[k]?.map (·.1)).getD Name.anonymous))
     (fun x hx => (hft_nomem x hx).1)
