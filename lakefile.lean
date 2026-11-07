@@ -6916,3 +6916,18 @@ lean_lib «Tools.ShippingFGCircuitS3b2Final» where
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck46r» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck46r]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2kRun» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2kRun]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmS2jKid» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmS2jKid]
+
+lean_lib «Tools.ShippingFGCircuitS3cTop» where
+  roots := #[`Tools.ShippingFGCircuitS3cTop]
+
+lean_lib «Tools.ShippingFGCircuitS3cFinal» where
+  roots := #[`Tools.ShippingFGCircuitS3cFinal]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck46» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck46]
