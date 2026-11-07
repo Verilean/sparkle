@@ -3233,3 +3233,83 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 - **非空虚な Laws / CellPrem / quiet が実 run について同時に成り立つこと（`hquiet`・`hsynth`・`L`・`hcell`・`hD hG hT hs h0`）は、今回も未供給**。quiet=False の拒否と依存の走査（Check50/51）は、そうした充足例を与えたことにはならない。
 - compiler（`Sparkle/`）の変更: なし。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 63. S3m（Issue `sparkle-fg-circuit-pilot`）: 案 A（非空虚性）— `CellPrem`・`Laws` を field 別に構成・反駁。最初の阻害 field、設計の出口
+
+土台 `cbc80365`（S3l）。**変更**: `Tools/ShippingFGCircuitS3mField.lean`（新規）、`Tests/Gen5/FGCircuitPilotCheck53.lean`（新規）、lakefile の lean_lib 2 件、docs（§62.2/62.3 の表現限定を先に 1 コミット、本節）。`Sparkle/`・v9〜v11・既存の文は**不変**。新 law・axiom・sorry・native_decide・TRUSTED なし。**v12 は作っていない**。
+
+### 63.1 結論（先に）
+
+- **非空虚な `CellPrem`・`Laws`・`quiet` と v11 の他の前件（`hsynth hD hG hT hs h0 hr`）の同時充足は、既存の opaque な IO 定義の上では構成できなかった。** 構成できた field は **0**。
+- **最初の阻害 field（`CellPrem`）**: `hcell` の第 1 conjunct `ReadWorld sparkleChildCache`（§63.3）。
+- **最初の阻害 field（`Laws`）**: `L.O.diag`。`quiet` が `False` 以外の世界を 1 つでも持つなら、`diag` の最小の事例 `Diag.ioGetStderr` が、opaque な `IO.getStderr` についての文 `StderrKeeps quiet` を要求する（§63.4）。
+- **矛盾は見つからなかった**。上の 2 つは「未供給」であり「矛盾」ではない（opaque 定数は型以外に制約を持たないので、論理の中では `ReadWorld`・`StderrKeeps` の真偽どちらも反証できない。これは `opaque` の意味についての説明で、kernel で検査したのは §63.2 (B) の「opaque である」「文がそこに到達する」まで）。
+- 調査範囲に限った主張である。他の経路が無いことの証明ではない。
+
+### 63.2 設定（手順 1）と、4 分類
+
+同じ `mref cref mctx cctx` と開始 world `w` の上の `pilotEntry3` の run（v11 の `hr`）を設定とした。`w : Void IO.RealWorld` は**抽象**で、`Void` は opaque な `Void.nonemptyType σ` の `type`、`Void.mk` も opaque。world を動かすのは `ST.Prim.Ref.get/set/mkRef`（opaque、実体は `inhabitedFromRef` で、kernel は展開しない）と `IO.getStderr` など（opaque / `extern`）だけで、`ST.Ref.ref : ST.RefPointed.type` の `ST.RefPointed` も opaque な `NonemptyType`。既存 API が `readOf / setW / ST.Ref.get / set` について証明させるのは、`readOf_get`（`get` の値は `readOf r w`、世界は `getW r w`）、`runsTo_get` 類の**定義の展開**だけで、`ReadWorld`・`SetGet`・`SetFrame` は**前提**（`PREMISE for the real runtime`）として定義されている。実際の `initialize sparkleChildCache` 等も opaque 定数（`Check53 OPAQUE`）。
+
+| 分類 | 内容 | 状態 |
+|---|---|---|
+| (a) 純粋な模擬モデルの充足 | `readWorld_shape_both`（`∀ w, g w = w` の形は明示状態の上で充足も反証も可能）。既存の `Tools/ShippingHeapModel.lean`（ref のみの断片の模擬 heap。自前の `RunsTo`・`M σ α` で、`Tools.ShippingEntrySoundness.RunsTo` との**橋は無い**） | 実 pilot の証人ではない。新しい模擬 heap は作っていない |
+| (b) 既存 opaque IO 定義についての定理 | `cellPrem_iff_fields`（`CellPrem` = 10 top-level = 16 atomic conjunct）、`readWorld_cache_unfold`、`cellPrem_false_of_subsingleton`、`endW_getStderr`、`stderrKeeps_of_ops` / `_of_laws`（`diag` の事例）、`stderrKeeps_of_id`、`diag_stderr_at_depth0` | kernel 検査済（Check53） |
+| (c) 実ランタイムとの対応 | **無い**。`Void IO.RealWorld` は実行時には消える token で、`ReadWorld`・`SetFrame`・`StderrKeeps` の「実ランタイムで真」は、論理側のどこにも接続されていない | 未接続 |
+| (d) MetaM 実行の観測 | Check53 (E): この compile process で depth=0、`sparkleChildSynth` が some、cache 0 件、`IO.getStderr` の前後で 3 cell 不変、`pilotEntry3 hftRoot` が `run_cmd` の文脈でエラー無く返る。**論理的な内容は無い**（world が token なので `ReadWorld` 等は観測できず、`hr` の開始 world は Lean の項ではない） | 観測のみ |
+
+`hr` の証拠について: 論理側に `RunsTo (pilotEntry3 X) mctx mref cctx cref w a w'` の**項は無い**。`pilotEntry3` は depth の `get` の値（opaque）が `0` であること、`mref` の状態から環境を引くこと、数百の opaque IO を経ることを要し、既存 API に `readOf mref w` や `setW` の結果についての `SetGet mref` も無い（`CellPrem` の `SetGet` は `cref` のみ）。(d) の観測は同じ文脈の run が実際に成功したことを示すが、それは (b) の `hr` の証拠ではない。
+
+### 63.3 `hcell`（`CellPrem`）の field 別（手順 2）
+
+`CellPrem Fresh mref cref` は 10 の top-level conjunct（`CellOK` 3 つ、`SideRef` の全称、`Fresh` の全称、`ReadWorld mref`・`SetFrame mref cref`・`mref.ref ≠ cref.ref`・`ReadWorld cref`・`SetGet cref`）で、`CellOK cref r := ReadWorld r ∧ r.ref ≠ cref.ref ∧ SetFrame r cref` を開くと 16 の atomic conjunct（`cellPrem_iff_fields`）。
+
+| # | field | 状態 |
+|---|---|---|
+| 1 | `ReadWorld sparkleChildCache` | **阻害（未供給）。最初の阻害 field** |
+| 2–16 | 残り 15（`cache.ref ≠ cref.ref`、`SetFrame cache cref`、synth・depth の 3 つ組、`SideRef`・`Fresh` の全称、`mref`・`cref` の 5 つ） | **試していない**（ルーリング: 最初の阻害 field で止める） |
+
+**完全な型**: `ReadWorld (r : IO.Ref σ) := ∀ w : Void IO.RealWorld, getW r w = w`、`getW r w := match (ST.Ref.get r : ST IO.RealWorld σ) w with | .mk _ w' => w'`。ここで `r = sparkleChildCache : IO.Ref (Std.HashMap Name (Module × Design))`、`σ` はその `HashMap`。**量化範囲**: 全ての `w : Void IO.RealWorld`（到達可能な world に限らない）。**opaque な primitive**: `ST.Prim.Ref.get`（`ST.Ref.get` は `liftM <| Prim.Ref.get`）、`sparkleChildCache`（`initialize` による opaque 定数）、`Void.nonemptyType`。文の到達する opaque 定数は Check53 (B) に列挙（`ST.Prim.Ref.get`・`sparkleChildCache`・`Void.nonemptyType`・`IO.RealWorld.nonemptyType`、型の `HashMap Name` 由来の `mixHash`・`String.hash`）。`Prim.Ref.get` の定義式（`inhabitedFromRef r`）は opaque のため kernel は展開しない。既存 API に `ReadWorld` を与える定理は無い。
+
+付記（同じ境界の別の field を試したのではなく、2 の型を読んで分かること）: field 2・15 の `r.ref ≠ cref.ref` / `mref.ref ≠ cref.ref` は、`ST.RefPointed.type` の**相異なる 2 点**を要する。API が与える点は `Classical.choice ST.RefPointed.property` の 1 点だけで、`CellPrem` を**構成する**道は無い（`cref` は run が与える変数）。`cellPrem_false_of_subsingleton`: `ST.RefPointed.type` が subsingleton ならどの `mref cref` でも `¬ CellPrem`。実ランタイムでは ref は別物だが、論理にはそれを言う文が無い。矛盾ではない（subsingleton は仮定であって、示されていない）。
+
+### 63.4 `Laws L` の field 別（手順 3）
+
+`Laws := { O : RefLawsAOps MkRefd mref cref, T : RefLawsATele O.quiet mref cref }`。`RefLawsAOps` は 10 field（`quiet`（データ）・`diag`・`frameT`・`excOk`・`frameQ`・`cacheSetQ`・`depthSetQ`・`frame`・`cacheSet`・`depthSet`）、`RefLawsATele` は 4 field（`telescope`・`lamTelescope`・`localDecl`・`letDecl`）。
+
+| field | 状態 |
+|---|---|
+| `quiet` | 選択可能。`False` は既に拒否済（`vacuous_no_hquiet`）。非 `False` の候補として「`dv w = 0`」（追跡 ref の述語）を取った |
+| `diag` | **阻害（未供給）。最初の阻害 field** |
+| `frameT … depthSet`（8）、`T` の 4 | **試していない**（`quiet := False` では全て空虚に成り立つが、それは非空虚ではない） |
+
+**完全な型**（`diag`）: `∀ {mctx cctx α}, AdmCtx quiet mctx cctx → ∀ (p : MetaM α), Diag p → ∀ w, quiet w → (cv (endW mctx mref cctx cref p w) = cv w ∧ sv (endW …) = sv w ∧ dv (endW …) = dv w) ∧ quiet (endW mctx mref cctx cref p w)`。**量化範囲**: 全ての許容文脈、全ての `Diag p`（`profLog`・`ppExpr`・`ioEprintln`・`msgToString`（`OkMsg` のみ）・`ioGetStderr`・`stderrFlush`・`ioHandleMk`・`ioHandlePutStrLn`（任意の `Handle`）・`ioHandleFlush`（任意の `Handle`））、`quiet` な全ての world。
+
+最小の事例 `p := liftM IO.getStderr` で、`endW … p w = stderrW w`（`endW_getStderr`、`rfl`）。したがって（`stderrKeeps_of_ops`、**構成した定理**）任意の `L : Laws` で `StderrKeeps L.O.quiet`:
+`∀ w, quiet w → (cv (stderrW w) = cv w ∧ sv (stderrW w) = sv w ∧ dv (stderrW w) = dv w) ∧ quiet (stderrW w)`。`stderrW w` は opaque な `IO.getStderr : BaseIO Stream` が返す世界で、**API は型以外の情報を持たない**。つまり非空虚な `quiet` を選ぶこと自体（例えば `dv w = 0` — `diag_stderr_at_depth0`）が、`IO.getStderr` が 3 つの cell を保つという文を前提にする。十分条件として最小の文は `∀ w, stderrW w = w`（`stderrKeeps_of_id`: これがあれば**どの** `quiet` でも `StderrKeeps`）。いずれも未供給。
+
+**矛盾との区別**: `quiet := False` 以外で `Laws` の field 同士が kernel で反駁できる組合せは**見つからなかった**。`diag` から `StderrKeeps` が出る（含意）ことは、矛盾ではない。
+
+**構造的な観察（未検証）**: 非空虚な有効な `quiet` 全体の和（最大の `quiet`）を取って `Laws.O` を「構成」する案は、`AdmCtx` が `quiet` について反単調でない（`InertUnfold` の結論が `quiet w'` を含む）ため、`O` の field の和閉包がそのままは成り立たない。Lean では検査していない（読みのみ）。
+
+### 63.5 設計の出口（候補。実装していない。新 TRUSTED は採用済みではない）
+
+**(1) opaque な実行モデルが障害 → 明示状態の意味論と実装対応の境界（手順 4）**
+
+- **最小の明示状態**: `Tools/ShippingHeapModel.lean` の `Heap`（追跡 3 cell・side cell・run-local cell・診断環境 `reg`）と `M σ α`（状態関数 + 例外）。ここでは `get_set_same`・`get_set_other`・`runsTo_getM`（read は heap を変えない）・ref のみの field 類似が**証明済**（`CellPrem` の `ReadWorld`・`SetGet`・`SetFrame` に当たる）。
+- **実装対応の境界（新 TRUSTED 資料の候補。採用しない）**: ある抽象化 `abs : Void IO.RealWorld → Heap` と、各 leaf 操作（追跡 3 ref と 24 の `SideRef` の `get/set/modify`、`mkRef`、`Diag` の 9 構成子、`throwError` の 2 構成子）についての simulation 文: `RunsTo (leaf) … w a w' → ModelRun leaf (abs w) a (abs w')`。実 IO は残す（`IO.getStderr`・`Handle`・`ppExpr` は実 primitive のまま、その simulation 文が境界）。
+- **現在の境界との比較**: 現在は `CellPrem`（16）と `Laws`（`O` 9 + `T` 4）が `Void IO.RealWorld` 上の**直接の文**（未供給）。置き換えは、これらを (i) 模擬 heap 上の証明済の法則と (ii) leaf 操作ごとの simulation 文（上の 24+3 個の ref 操作 3 種、`mkRef`、`Diag` 9、`Throws` 2 程度）に分ける。**減る**のは「世界上で `ReadWorld`・`SetFrame` を各 ref について主張する」部分、**増える**のは `abs` と simulation の対応。**`IO.getStderr` 等の `Diag` の効果**（`StderrKeeps`）は simulation 文として残る（模擬 heap では `reg` の効果として明示される）ので、未供給の内容が**消える**のではなく、**どの primitive が何をするか**に局在化される。規模は文の数で言えば同程度、見える単位が leaf 操作になる。`hr` は引き続き `RunsTo` の run で、`abs` を通して模擬 heap の run に移る。**橋（上の simulation）が無い限り模擬モデルは実 pilot の証人ではない**。
+
+**(2) 任意操作・任意文脈の量化が障害 → 対象実行への制限（手順 5）**
+
+- `Laws.O.diag` の `∀ p, Diag p` は任意の `Handle`（`ioHandlePutStrLn h`・`ioHandleFlush h`）と任意の `msgToString m`（`OkMsg` のみ）を含み、`AdmCtx` も任意の許容文脈を含む。最小の制限は、`Laws` の操作の量化を **`pilotEntry3 declName` の run が実際に行う leaf 操作の集合**（run の構造から決まる有限集合: `Reach` 系が既に持つ到達操作）と、**run が到達する文脈**に限ること。`hr` が与える run に対して、`diag` は run の `ioEprintln`・`ppExpr`・`Handle.mk`（固定パス）等だけを言えばよく、任意の `h` を言わなくてよい。
+- 保たれる必要がある IP: v11 の結論（artifact・環境・出力）と `hquiet` / `hsynth` / `hcell` が run のどの操作に使われるかの対応。**この制限をしても `StderrKeeps` 型の文（`IO.getStderr` が cell を保つ）は run が `getStderr` を行う限り残る**。つまり (2) は文の数を減らすが、opaque primitive の効果についての未供給は残る。(1) と組み合わせて初めて局在化できる、というのが現時点の読み（検証していない）。
+
+### 63.6 監査記述の限定の確認
+
+§62.2 の「唯一の経路」「出ない」、pointer 等価の補題を与えれば直ちに axiom、は「調査範囲で未供給」へ、none 時の別経路の指摘は固定 root の成功反例の証明ではない、と限定した。`CellPrem'` の +3 は候補で、`envAt`・`quiet`・各残前提の `ws` への移送まで十分と検証した完全な境界ではない。§62.3 の `quiet` は抽象 field で、stderr の性質は想定する具体化の要件であって定義そのものではない（本節の `StderrKeeps` はその要件を、`diag` の事例として明示したもの）。
+
+### 63.7 検査（Check53）・範囲・台帳
+
+- Check53（`Tests/Gen5/FGCircuitPilotCheck53.lean`）: (A) 構成した 5 定理の完全な型が独立に書いた型と一致し、mutant 9 件を拒否、(B) 10 の primitive が opaque 定数であり、第 1 field の文・`stderrW`・`StderrKeeps` が到達する opaque 定数の列挙、(C) field の数（`CellPrem` 10/16、`RefLawsAOps` 10、`RefLawsATele` 4、`diag` が `quiet` の次）、(D) AXIOMS は標準のみ（9 名）、(E) MetaM の観測（(d)）。
+- 新しい証明範囲の対象（`Tools.ShippingFGCircuitS3mField`、`Tests.Gen5.FGCircuitPilotCheck53`）だけを build した。compiler（`Sparkle/`）は不変で、出力 baseline は再実行していない。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
