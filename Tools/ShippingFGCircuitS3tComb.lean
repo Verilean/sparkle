@@ -357,13 +357,13 @@ structure CSrc where
   inPos : List Nat
   outs : List CTerm
 
-/-- **the validator for a combinational child**: the inputs are distinct and as many as the source's positions, each declared at its port width; the body is assignments; the translation of the body goes through; each output port's translation EQUALS the source term -/
+/-- **the validator for a combinational child**: the inputs are distinct and as many as the source's positions, each declared at its port width; the body is assignments; the translation of the body goes through; each output port's translation EQUALS the source term and the port is declared at that term's width -/
 def checkComb (s : CSrc) (m : Module) : Bool :=
   decide (m.inputs.map (·.name)).Nodup &&
   (m.inputs.length == s.inPos.length) && (m.outputs.length == s.outs.length) &&
   (m.inputs.all fun p => declWidth m p.name == portW p) &&
   (match stepT m ((m.inputs.zip s.inPos).map (fun (p, q) => (p.name, CTerm.var q (portW p)))) m.body with
-   | some T => (m.outputs.zip s.outs).all (fun (p, c) => look T p.name == some c)
+   | some T => (m.outputs.zip s.outs).all (fun (p, c) => (look T p.name == some c) && (portW p == c.width))
    | none => false)
 
 theorem look_inputs (m : Module) (s : CSrc) (n : String) (c : CTerm)
@@ -408,7 +408,9 @@ theorem checkComb_sound (s : CSrc) (m : Module) (h : checkComb s m = true) (V : 
     have hz : (m.outputs.zip s.outs)[i]? = some (p, c) := by
       rw [List.getElem?_zip_eq_some]; exact ⟨hp, hc⟩
     have hmem := List.all_eq_true.mp h (p, c) (List.mem_of_getElem? hz)
-    have hl : look T' p.name = some c := by simpa using hmem
+    have hl : look T' p.name = some c := by
+      simp only [Bool.and_eq_true, beq_iff_eq] at hmem
+      exact hmem.1
     exact (hT p.name c hl).1
   · cases h
 
