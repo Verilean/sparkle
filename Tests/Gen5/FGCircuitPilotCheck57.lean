@@ -2,7 +2,7 @@ import Tools.ShippingFGCircuitS3tCert
 import Tools.ShippingFGCircuitS3tCalls
 import Tools.ShippingFGCircuitS3tCombRun
 set_option autoImplicit false
--- FG circuit pilot Check57 (S3t): (A) COMPLETE-TYPE SIGNATURES of the freeze definitions (`SourceData`, `SrcEq`, `RootShowsAt`, `CheckRoot`, the statement of `checkRoot_sound`, `certifiedReturn`, its statement) and of `checkComb`/`checkComb_sound`, against INDEPENDENTLY WRITTEN expected types (type ascriptions and `Iff.rfl` between two spellings; a mismatch is a compile error); (B) negative controls (kernel-checked theorems of the Cert and CombRun modules, their types restated here); (C) the simultaneous-satisfaction example (`rootS.ok`, `rootS.SrcEq`, the four seed premises at the artifact's registers); (D) kernel time and sizes (ONE run); (E) AXIOMS (every theorem of the S3t modules: standard only).  `CheckRoot` is false for every input today (`bodyOk` is not written): this Check does not claim a validated root.  docs/FG-CIRCUIT-PILOT.md §69.
+-- FG circuit pilot Check57 (S3t): (A) COMPLETE-TYPE SIGNATURES of the freeze definitions (`SourceData`, `SrcEq`, `RootShowsAt`, `CheckRoot`, the statement of `checkRoot_sound`, `certifiedReturn`, its statement) and of `checkComb`/`checkComb_sound`, against INDEPENDENTLY WRITTEN expected types (type ascriptions and `Iff.rfl` between two spellings; a mismatch is a compile error); (B) negative controls (kernel-checked theorems of the Cert and CombRun modules, their types restated here); (C) the simultaneous-satisfaction example (`rootS.ok`, `rootS.SrcEq`, the four seed premises at the artifact's registers); (D) kernel time and sizes (ONE run); (E) AXIOMS (every theorem of the S3t modules: standard only).  `CheckRoot` is false for every input today (`bodyOk` is not written): this Check does not claim a validated root.  S3u: RootShowsAt/structuralOk now bind the Design's top and the top inputs' types/widths.  docs/FG-CIRCUIT-PILOT.md §69.
 set_option maxHeartbeats 0
 set_option maxRecDepth 1000000
 
@@ -59,9 +59,17 @@ example : CertifiedReturnSoundStmt ↔ ∀ (S : SourceData) (mk : Module → Des
 /-- **`RootShowsAt`, written again from the design text** (docs §67.3, §69.1): the instance fields are empty and there are two calls; the top module's own inputs carry the claimed names, `clk` and `rst` are inputs, the outputs are the layout's, the body is in the linked order; and there are register names such that: distinct, one per slot, among the claimed names' register range, register `k` is a clocked register statement with slot `k`'s width and init and is not an input, every register statement is one of those; every call `k < 2` has its statement in the body, the `CallStmt` shape, its module is what its name resolves to in the design, and the module computes the child's source function on the child's range (`ChildFn`, a CONJUNCT); every instance statement of the body is one of the two calls with the same conclusions; and for every inputs, state witnesses, run length, seed, initial state and memories under the four premises, the linked run succeeds with `T` environments and every output is the source's. -/
 def ExpectedRootShowsAt (S : SourceData) (b : Module) (D : Design) : Prop :=
   S.d.shape.instFields = [] ∧ List.length S.d.shape.insts = 2 ∧
-  List.map (fun p => p.name) (List.filter (fun p => p.name != "clk" && p.name != "rst") b.inputs) =
-    List.take S.kD S.portNames ∧
-  "clk" ∈ List.map (fun p => p.name) b.inputs ∧ "rst" ∈ List.map (fun p => p.name) b.inputs ∧
+  D.topModule = b.name ∧ List.Nodup (List.map (fun m => m.name) D.modules) ∧ (∀ m, m ∈ D.modules → m.name ≠ b.name) ∧
+  b.inputs = List.map (fun (x : String × Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder) =>
+      ({ name := x.1, ty := match x.2.2 with
+          | .bits n => Sparkle.IR.Type.HWType.bitVector n
+          | .bool => Sparkle.IR.Type.HWType.bit
+          | .domain => Sparkle.IR.Type.HWType.bitVector 0 } : Port))
+      (List.zip (List.take S.kD S.portNames) (List.take S.kD S.d.bsIn)) ++
+    [({ name := "clk", ty := Sparkle.IR.Type.HWType.bit } : Port), ({ name := "rst", ty := Sparkle.IR.Type.HWType.bit } : Port)] ∧
+  (∀ (n : String) (w : Nat), (n, w) ∈ List.map (fun (x : String × Lean.Name × Sparkle.Compiler.Elab.MixedGateBinder) =>
+      (x.1, match x.2.2 with | .bits n => n | .bool => 1 | .domain => 0))
+      (List.zip (List.take S.kD S.portNames) (List.take S.kD S.d.bsIn)) → Sparkle.IR.RegDedup.declWidth b n = w) ∧
   b.outputs = List.map (fun o => ({ name := o.name, ty := o.ty } : Port)) S.d.shape.layout.outs ∧
   Sparkle.IR.Machine.linkedOk (Sparkle.IR.Machine.moduleByName D.modules) b.body = true ∧
   ∃ (regs : List String),
@@ -132,6 +140,18 @@ example : structuralOk rootS pilotB0 pilotD0 { cert0 with callAt := [173, 173] }
 example : structuralOk rootS pilotB0 pilotD0 { cert0 with regs := cert0.regs.reverse } = false := neg_cert_regs
 example : structuralOk { rootS with kidInW := [[7], [16, 16, 8, 8, 32, 5]] } pilotB0 pilotD0 cert0 = false := neg_data_width
 example : structuralOk { rootS with kidMod := ["Sparkle_IP_Net_HTTP_httpGetByte"] } pilotB0 pilotD0 cert0 = false := neg_data_kids
+-- P1-1 (the returned Design's top and module table): a different top name, a duplicate module name, a child named like the top
+example : structuralOk rootS pilotB0 (otherTop pilotD0) cert0 = false := neg_other_top
+example : structuralOk rootS pilotB0 (dupModule pilotD0) cert0 = false := neg_dup_module
+example : structuralOk rootS pilotB0 (kidNamedTop pilotD0 pilotB0) cert0 = false := neg_kid_named_top
+-- P1-2 (top input types/widths): an input width changed (port and wire; port only; wire only), two inputs swapped, a duplicate input name, `clk` of two bits, a claimed `clk`
+example : structuralOk rootS (narrowIn pilotB0) pilotD0 cert0 = false := neg_narrow_in
+example : structuralOk rootS (narrowInPortOnly pilotB0) pilotD0 cert0 = false := neg_narrow_in_port_only
+example : structuralOk rootS (narrowInWireOnly pilotB0) pilotD0 cert0 = false := neg_narrow_in_wire_only
+example : structuralOk rootS (swapInputs pilotB0) pilotD0 cert0 = false := neg_swap_inputs
+example : structuralOk rootS (dupInput pilotB0) pilotD0 cert0 = false := neg_dup_input
+example : structuralOk rootS (wideClk pilotB0) pilotD0 cert0 = false := neg_wide_clk
+example : structuralOk { rootS with portNames := "clk" :: rootS.portNames.tail } pilotB0 pilotD0 cert0 = false := neg_claim_clk
 -- `CheckRoot` itself refuses today (its body validator is not written)
 example : CheckRoot rootS pilotB0 pilotD0 cert0 = false := check_root_refuses
 -- the combinational validator on `pilotK0`: an altered child module, a dropped statement, a wrong width, a wrong output, the other child, a wrong source term
@@ -215,8 +235,8 @@ run_cmd liftTermElabM do
   let t3 ← retime (← `(Tools.ShippingFGCircuitS3tSpec.rootS.ok = true))
   logInfo m!"FGCIRCUIT57 SIZE/TIME (ONE run, this machine; not a bound): proof/definition term sizes without sharing {sizes}; a fresh `decide +kernel` of `checkK0 pilotK0 = true` took {t1} ms, of `structuralOk rootS pilotB0 pilotD0 cert0 = true` {t2} ms, of `rootS.ok = true` {t3} ms (elaboration + kernel)"
   logInfo m!"FGCIRCUIT57 KERNEL: checkComb (httpGetByte's source terms read off its MachineData by `ofData`) accepts the closed child module pilotK0 (88 statements); structuralOk accepts the closed artifact pilotB0/pilotD0 with the certificate cert0; rootS.ok = true; each by `decide +kernel`.  checkComb_sound is a theorem over ALL modules and ALL inputs (not an evaluation); rootS.SrcEq is proved (no IR); CheckRoot is false for every input today, so no root claim"
-  logInfo m!"FGCIRCUIT57 SIGNATURES: SourceData (+ its 8 fields), SrcEq/SrcCore/CallsEq, RootShowsAt (also against an independently written statement, Iff.rfl), CheckRoot, structuralOk, the statement of checkRoot_sound, certifiedReturn, the statement of certifiedReturn_sound, Cert, checkComb, checkComb_sound: all typed against independently written expected types (a mismatch is a compile error)"
-  logInfo m!"FGCIRCUIT57 NEGATIVE CONTROLS: structural validator on the root 12 (missing child ×2, swapped names, wrong child width, wrong output width, register reset value, no rst, certificate swapped, certificate repeated, registers permuted, wrong data width, wrong child count) + CheckRoot refuses; combinational validator on pilotK0 9 (dropped first, dropped last, changed constant, swapped mux branches, wrong wire width, wrong output width, wrong output name, the other child, a wrong source term) + the altered modules differ; every one kernel-checked"
-  logInfo m!"FGCIRCUIT57 SATISFIABILITY: rootS.ok = true; rootS.SrcEq proved; the four seed premises of RootShowsAt hold together at the artifact's 17 registers for every per-cycle input values (example_premises); CheckRoot = true is NOT shown (bodyOk is not written)"
+  logInfo m!"FGCIRCUIT57 SIGNATURES: the type ascriptions of SourceData (+ its 8 fields), SrcEq/SrcCore/CallsEq, RootShowsAt, CheckRoot, structuralOk, the statement of checkRoot_sound, certifiedReturn, the statement of certifiedReturn_sound, Cert, checkComb, checkComb_sound check the FUNCTION TYPES only; they are not an independent comparison of the bodies of SrcCore / CallsEq / structuralOk.  Separately, RootShowsAt's body is compared with an independently written statement (ExpectedRootShowsAt, Iff.rfl), and CheckRootSoundStmt / CertifiedReturnSoundStmt are respelled (Iff.rfl).  Not every SourceData field is fixed by SrcEq (portNames and kidMod are claims); CertifiedReturnSoundStmt only extracts the checker's acceptance (no relation between declName and S.declName)"
+  logInfo m!"FGCIRCUIT57 NEGATIVE CONTROLS: structural validator on the root 12 + 3 design-top (other top name, duplicate module name, child named like the top) + 7 input-boundary (width changed in port+wire, port only, wire only, inputs swapped, duplicate input name, clk two bits, claimed clk) (missing child ×2, swapped names, wrong child width, wrong output width, register reset value, no rst, certificate swapped, certificate repeated, registers permuted, wrong data width, wrong child count) + CheckRoot refuses; combinational validator on pilotK0 9 (dropped first, dropped last, changed constant, swapped mux branches, wrong wire width, wrong output width, wrong output name, the other child, a wrong source term) + the altered modules differ; every one kernel-checked"
+  logInfo m!"FGCIRCUIT57 SATISFIABILITY: rootS.ok = true; rootS.SrcEq proved; the four seed premises of RootShowsAt hold together at the artifact's 17 registers (and Tools.ShippingFGCircuitS3tSat.posEnc_fits: the value of premise (a) fits the declared port width) for every per-cycle input values (example_premises); CheckRoot = true is NOT shown (bodyOk is not written)"
 
 end Tests.Gen5.FGCircuitPilotCheck57
