@@ -7,7 +7,7 @@ set_option maxHeartbeats 0
 set_option maxRecDepth 1000000
 
 namespace Tools.ShippingFGCircuitS3rGen
-open Lean Elab Command Sparkle.IR.AST Sparkle.IR.Type
+open Sparkle.IR.AST Sparkle.IR.Type
 
 def listSrc {α : Type} (f : α → String) (xs : List α) : String :=
   "[" ++ ", ".intercalate (xs.map f) ++ "]"
@@ -40,8 +40,8 @@ def opSrc (o : Operator) : String := s!"Operator.{o.toString}"
 partial def exprSrc : Expr → String
   | .const v w => s!"(Expr.const {intSrc v} {w})"
   | .ref n => s!"(Expr.ref {n.quote})"
-  | .op o as => s!"(Expr.op {opSrc o} {listSrc exprSrc as})"
-  | .concat as => s!"(Expr.concat {listSrc exprSrc as})"
+  | .op o args => s!"(Expr.op {opSrc o} {listSrc exprSrc args})"
+  | .concat args => s!"(Expr.concat {listSrc exprSrc args})"
   | .slice e h l => s!"(Expr.slice {exprSrc e} {h} {l})"
   | .sliceDim e h l => s!"(Expr.sliceDim {exprSrc e} {dimSrc h} {dimSrc l})"
   | .index a i => s!"(Expr.index {exprSrc a} {exprSrc i})"
@@ -85,14 +85,18 @@ def fileSrc (b : Module) (D : Design) : String :=
   "set_option maxHeartbeats 0\nset_option maxRecDepth 1000000\n" ++
   "namespace Tools.ShippingFGCircuitS3rArtifact\nopen Sparkle.IR.AST Sparkle.IR.Type\n\n" ++
   moduleSrc "pilotB0" b ++ "\n" ++
-  "\n".intercalate (D.modules.enum.map fun (i, m) => moduleSrc s!"pilotK{i}" m) ++ "\n" ++
-  s!"def pilotD0 : Design := \{ topModule := {D.topModule.quote}, modules := [{", ".intercalate (D.modules.enum.map fun (i, _) => s!"pilotK{i}")}] }\n\n" ++
+  "\n".intercalate (D.modules.zipIdx.map fun (m, i) => moduleSrc s!"pilotK{i}" m) ++ "\n" ++
+  s!"def pilotD0 : Design := \{ topModule := {D.topModule.quote}, modules := [{", ".intercalate (D.modules.zipIdx.map fun (_, i) => s!"pilotK{i}")}] }\n\n" ++
   "end Tools.ShippingFGCircuitS3rArtifact\n"
 
+section Cmd
+open Lean Elab Command
 /-- run the entry on the pilot root at elaboration time and write the artifact file -/
 elab "#gen_pilot_artifact " path:str : command => do
   let (b, D) ← liftTermElabM (Tools.ShippingFGCircuitS3jStart.pilotEntry3 Tools.ShippingFGCircuitS1kStmt.hftRoot)
   IO.FS.writeFile path.getString (fileSrc b D)
   logInfo m!"S3R wrote {path.getString}: top {b.body.length} stmts, {D.modules.length} children {D.modules.map (·.body.length)}"
+
+end Cmd
 
 end Tools.ShippingFGCircuitS3rGen
