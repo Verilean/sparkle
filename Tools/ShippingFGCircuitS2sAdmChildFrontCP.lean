@@ -229,6 +229,11 @@ theorem childEntryA_JQ_of_childSynthAX (O : RefLawsAOpsX MkRefd mref cref) (D : 
     (hC : ChildKeepsAX O D) : ChildEntryAX O (JQ O.quiet D) :=
   childEntryA_of_childSynthAX O (stableA_JQ _ D) (fun _ h => h.2.1) hC
 
+theorem childEntryA_JQC_of_childSynthAX (O : RefLawsAOpsX MkRefd mref cref) (D : Nat)
+    (hC : ChildSynthAX O (Tools.ShippingChildCacheA.JQCX O D)) :
+    ChildEntryAX O (Tools.ShippingChildCacheA.JQCX O D) :=
+  childEntryA_of_childSynthAX O (Tools.ShippingChildCacheA.stableA_JQCX O D) (fun _ h => h.1.2.1) hC
+
 theorem fromConst_frontends_keepsCPX (O : RefLawsAOpsX MkRefd mref cref)
     (hA : O.adm mctx cctx) {I : Void IO.RealWorld → Prop} (hS : StableA O.quiet I)
     (translate : TranslateFn) (htr : RecAX O I translate) (hchild : ChildSynthAX O I)
