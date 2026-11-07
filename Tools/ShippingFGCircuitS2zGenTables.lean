@@ -18,11 +18,20 @@ inductive N
   deriving BEq, Hashable, Inhabited
 
 /-- hash-consing is by FULL structure (binder names included): `Expr`'s own `BEq`/`Hashable` identify alpha-equivalent terms, which are different terms for the kernel -/
+structure EKey where
+  e : Expr
+
+/-- the memo key: equality is `Expr.equal` (full structure, binder names and binder infos included; NOT `Expr`'s own alpha-equivalence `BEq`), hash is `Expr.hash` (which ignores binder names, so equal keys have equal hashes) -/
+instance : BEq EKey := ⟨fun a b => Expr.equal a.e b.e⟩
+instance : Hashable EKey := ⟨fun a => Expr.hash a.e⟩
+
 structure GS where
   names : Std.HashMap Name String := {}
   nameOrder : Array (String × String) := #[]
   nodes : Array N := #[]
   ids : Std.HashMap N Nat := {}
+  /-- memo of `internE` on the subterm itself, so a shared `Expr` DAG is walked once, not as a tree; it only avoids recomputation (the id of a subterm is determined by its structure), so the output is the same as without it -/
+  memo : Std.HashMap EKey Nat := {}
 
 abbrev G := StateM GS
 
@@ -58,23 +67,29 @@ def intern (n : N) : G Nat := do
   pure i
 
 partial def internE (e : Expr) : G Nat := do
-  match e with
-  | .bvar i => intern (.leaf s!"Expr.bvar {i}")
-  | .sort l => do intern (.leaf s!"Expr.sort {← levelSrc l}")
-  | .const n ls => do
-      let mut out := #[]
-      for l in ls do out := out.push (← levelSrc l)
-      intern (.leaf s!"Expr.const {← nameSrc n} [{", ".intercalate out.toList}]")
-  | .app f a => do let f ← internE f; let a ← internE a; intern (.app f a)
-  | .lam n t b bi => do let n ← nameSrc n; let t ← internE t; let b ← internE b; intern (.lam n t b (biSrc bi))
-  | .forallE n t b bi => do let n ← nameSrc n; let t ← internE t; let b ← internE b; intern (.pi n t b (biSrc bi))
-  | .letE n t v b nd => do let n ← nameSrc n; let t ← internE t; let v ← internE v; let b ← internE b; intern (.letE n t v b nd)
-  | .lit (.natVal k) => intern (.leaf s!"Expr.lit (Literal.natVal {k})")
-  | .lit (.strVal s) => intern (.leaf s!"Expr.lit (Literal.strVal {s.quote})")
-  | .proj s i x => do let s ← nameSrc s; let x ← internE x; intern (.proj s i x)
-  | .mdata _ _ => intern (.leaf "(panic! \"mdata\")")
-  | .fvar _ => intern (.leaf "(panic! \"fvar\")")
-  | .mvar _ => intern (.leaf "(panic! \"mvar\")")
+  if let some i := (← get).memo[EKey.mk e]? then return i
+  let i ← internE' e
+  modify fun st => { st with memo := st.memo.insert (EKey.mk e) i }
+  pure i
+where
+  internE' (e : Expr) : G Nat := do
+    match e with
+    | .bvar i => intern (.leaf s!"Expr.bvar {i}")
+    | .sort l => do intern (.leaf s!"Expr.sort {← levelSrc l}")
+    | .const n ls => do
+        let mut out := #[]
+        for l in ls do out := out.push (← levelSrc l)
+        intern (.leaf s!"Expr.const {← nameSrc n} [{", ".intercalate out.toList}]")
+    | .app f a => do let f ← internE f; let a ← internE a; intern (.app f a)
+    | .lam n t b bi => do let n ← nameSrc n; let t ← internE t; let b ← internE b; intern (.lam n t b (biSrc bi))
+    | .forallE n t b bi => do let n ← nameSrc n; let t ← internE t; let b ← internE b; intern (.pi n t b (biSrc bi))
+    | .letE n t v b nd => do let n ← nameSrc n; let t ← internE t; let v ← internE v; let b ← internE b; intern (.letE n t v b nd)
+    | .lit (.natVal k) => intern (.leaf s!"Expr.lit (Literal.natVal {k})")
+    | .lit (.strVal s) => intern (.leaf s!"Expr.lit (Literal.strVal {s.quote})")
+    | .proj s i x => do let s ← nameSrc s; let x ← internE x; intern (.proj s i x)
+    | .mdata _ _ => intern (.leaf "(panic! \"mdata\")")
+    | .fvar _ => intern (.leaf "(panic! \"fvar\")")
+    | .mvar _ => intern (.leaf "(panic! \"mvar\")")
 
 def kids : N → List Nat
   | .leaf _ => [] | .app f a => [f, a] | .lam _ t b _ => [t, b] | .pi _ t b _ => [t, b]
