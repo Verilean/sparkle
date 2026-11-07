@@ -34,6 +34,7 @@ open Tools.ShippingFGCircuitS1hGates (entryGatesB)
 open Tools.ShippingFGCircuitS3b2Reader (lvl₀ rootReaderB mdBeq)
 open Tools.ShippingFGCircuitS3b2Final (pilotReaderOk)
 open Tools.ShippingFGCircuitS3f2Exp (rootMD)
+open Tools.ShippingMachineAuto (MachineData)
 
 
 def eX : EnvK := fun cref w _ _ => envX (envAt cref w)
@@ -275,7 +276,7 @@ run_cmd liftTermElabM do
   ok (!rootDefB env hftRoot tyAlt hftRootValue) "root type: one nested subterm altered"
   ok (!rootDefB env hftRoot hftRootType valAlt) "root value: one nested subterm altered"
   let addAs (nm : Name) (f : DefinitionVal → DefinitionVal) : MetaM Environment := do
-    match env.addDeclWithoutChecking (.defnDecl (f { d with name := nm })) with
+    match env.addDeclCore 0 (.defnDecl (f { d with name := nm })) none false with
     | .ok e => pure e
     | .error _ => throwError "could not add {nm}"
   let envLp ← addAs `Test.rootLp (fun d => { d with levelParams := [`u] })
@@ -286,14 +287,20 @@ run_cmd liftTermElabM do
   ok (!rootDefB envTy `Test.rootTy hftRootType hftRootValue) "added root with an altered type"
   let envVal ← addAs `Test.rootVal (fun d => { d with value := valAlt })
   ok (!rootDefB envVal `Test.rootVal hftRootType hftRootValue) "added root with an altered value"
-  let envThm ← match env.addDeclWithoutChecking (.thmDecl { name := `Test.rootThm, levelParams := [], type := d.type, value := d.value }) with
+  let envThm ← match env.addDeclCore 0 (.thmDecl { name := `Test.rootThm, levelParams := [], type := d.type, value := d.value }) none false with
     | .ok e => pure e | .error _ => throwError "could not add a theorem"
   ok (!rootDefB envThm `Test.rootThm hftRootType hftRootValue) "a theorem is not the root definition"
-  -- gates: some declaration whose gates are false (the gate refuses it); the gate conjunct of the checker is that same function
-  let mut gateFalse : Option Name := none
-  for n in [`Sparkle.Tests.SignalLoopTest.counterLoop, `Sparkle.Tests.SignalLoopTest.counterEnableLoop] do
-    if (env.find? n).isSome && !(entryGatesB env n) then gateFalse := some n
-  logInfo m!"FGCIRCUIT48 GATES: a candidate declaration with gates false: {gateFalse}"
+  -- gates: a declaration the certified front end accepts (a Bool gate `fun a => a`) has gates FALSE; the real root's are true; the checker's gate conjunct is that same function
+  let sig (dom t : Lean.Expr) : Lean.Expr := .app (.app (.const ``Sparkle.Core.Signal.Signal [Level.zero]) dom) t
+  let dd := Lean.Expr.const ``Sparkle.Core.Domain.defaultDomain []
+  let bool := Lean.Expr.const ``Bool []
+  let gTy : Lean.Expr := Lean.Expr.forallE `a (sig dd bool) (sig dd bool) BinderInfo.default
+  let gVal : Lean.Expr := Lean.Expr.lam `a (sig dd bool) (Lean.Expr.bvar 0) BinderInfo.default
+  let gDecl : Declaration := Declaration.defnDecl { name := `Test.gateId, levelParams := [], type := gTy, value := gVal, hints := ReducibilityHints.abbrev, safety := DefinitionSafety.safe }
+  let envG ← match env.addDeclCore 0 gDecl none false with
+    | .ok e => pure e | .error _ => throwError "could not add the gate declaration"
+  ok (!(entryGatesB envG `Test.gateId)) "gates: a certified-shape declaration has gates false"
+  ok (entryGatesB envG hftRoot) "gates: the real root's gates stay true in the extended environment"
   -- reader: data altered in each component of the comparison, other children's data, another level
   let m := rootMD
   ok (!rootReaderB lvl₀ env hftRoot Tools.ShippingFGCircuitS3b2Exp.httpMD) "root reader against the HTTP child's data"
@@ -316,7 +323,7 @@ run_cmd liftTermElabM do
   ok (!rootReaderB lvl₀ env' hftRoot rootMD) "Init-only environment, root reader: false"
   ok (entryGatesB env' hftRoot) "Init-only environment: the gates pass on a missing constant (as EntryGates), the other conjuncts refuse it"
   -- the kernel equation of the executable copy (the typed check is `rootMD_eq`; here the printed pieces agree)
-  logInfo m!"FGCIRCUIT48 CONTROLS: ok (real environment true as a whole and by conjunct; other root name / child as root / missing constant; root type / value altered, swapped, one nested subterm altered; a level parameter, a theorem, a copy under another name true; root data altered in 8 components, another machineData, another name; Init-only environment false); the root reader at constant levels 0, 1, 3, 10 and lvl₀ gives {[lvOk 0, lvOk 1, lvOk 3, lvOk 10, lvOk lvl₀]} (the Bool check does not tell levels apart, as for the children in Check46r; the certified level is a property of the statement, SIGNATURES)"
+  logInfo m!"FGCIRCUIT48 CONTROLS: ok (real environment true as a whole and by conjunct; other root name / child as root / missing constant; root type / value altered, swapped, one nested subterm altered; gates false for a certified-shape declaration, true for the root; a level parameter, a theorem, a copy under another name true; root data altered in 8 components, another machineData, another name; Init-only environment false); the root reader at constant levels 0, 1, 3, 10 and lvl₀ gives {[lvOk 0, lvOk 1, lvOk 3, lvOk 10]} + true (the Bool check does not tell levels apart, as for the children in Check46r; the certified level is a property of the statement, SIGNATURES)"
 
 run_cmd liftTermElabM do
   let X := hftRoot
