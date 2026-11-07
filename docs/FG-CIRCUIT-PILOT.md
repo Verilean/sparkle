@@ -3619,3 +3619,204 @@ theorem hft_cert :                              -- root への適用（kernel �
 - 確かめていないこと: 別の環境・別プロセスでの artifact の一致、`ExprStructMap String` の `IO.Ref` の閉じた項、`Module`／`Design` の `ToExpr`、kernel での検査時間、M1〜M5 の行数、`CheckRoot` が最適化後の形を受け入れられるか。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+
+## 67. S3q（Issue `sparkle-fg-circuit-pilot`）: 比較資料の訂正・Check55 の表現・M5／M1 の調査・案 (c) の最小試作の設計（実装なし）
+
+土台 `8b7953d1`（S3p）。**文書と Check55 の表現だけ**を変えた（`Sparkle/`・`Tools/` は未変更、定理の文は未変更）。コミットしない scratch ファイル（作業ツリーの外）で `kjob lake env lean` の読み取り専用プローブを走らせた（root の定数の型の読み出し、root を `pilotEntry3` に通した返却値の検査、既存の検査器の適用、演算子と文の集計）。ログ・計測データはソースツリーに置いていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+出所の種類（§66 と同じ）: **[読]** ファイルを読んだ、**[プローブ]** scratch での読み取り専用実行（1 環境・この base の値。任意の run についての kernel の文ではない）、**[未]** 未確認／見積り。
+
+### 67.0 やったこと
+
+1. **比較資料の訂正**（`docs/FG-CIRCUIT-BOUNDARY-COMPARISON.md`、reviewer 裁定の「資料修正」）: §4.8（受入範囲: `Toy.RelT` と実 `RelE` の差、`EnvCorrE` の残る強さ、今 TRUSTED 採用しない）、§3 の「証明も反証もできない」「道がない」を「調査範囲で未供給」へ、§5.1a（root の `machine_*` 21 定数の実際の型: ソース端点と run 付きの端点を分類）、§5.4（古い `CD`/`CDX` と現行 `CDT` の混同を除去。`hftObCDT_T` と S2z の表検査は現在の成果で、(c) で再利用するための環境対応だけが未解決）、§5.7（局所成果は受理、FG 全体・全行減算にしない）、§6（(c1)/(c2) を「完成後の見込み」と「現時点の欠け」に分離。2,500〜4,000 行は既知部分の外挿で未知を含まないことを維持）、§5.11（M5・M1 の結果）。
+2. **Check55 の表現**（`Tests/Gen5/FGCircuitPilotCheck55.lean`、コミット `de43fd68`）: HYPS は禁止名の**直接参照**の検査で、任意の v11 結論を認識する閉包監査ではない旨を表示に明記。`usesRelE` の深さ 6 探索は (found, cut) を返すようにし、EnvCorrE が RelE に届くこと（正の主張）は届かなければ**失敗**、旧 EnvCorr については「深さ 6 で未検出」（探索が深さで打ち切られたかも併記）と表示し、非到達の証明とは言わない。statement は変更していない。
+3. **M5・M1 の調査**（§67.1・§67.2）。
+4. **(c) の最小試作の設計**（§67.3〜§67.6）。実装なし。
+
+**§66 の記述のうち、S3q の測定で読み替えるもの**（§66 の本文は書き換えていない）: (i) §66.6 M5 の「checker は後処理後の形（merge／register dedup 済み）を受け入れる必要がある」→ **root の返却 module `b₀` は raw（merge も zero-width 除去も何も変えていない）**で、後処理後の形を受け入れる必要は返却の段階では無い（§67.1）。(ii) §66.8 の「供給の道がない（S3m）」→ **調査範囲で供給できていない**（不可能の証明ではない）。
+
+### 67.1 M5: root の返却 module は既存の検査器に入るか（[プローブ]、[読]）
+
+`pilotEntry3 synth_hftPcieOutByte` を 1 回走らせた値 `(b₀, D₀)` について（D₀.modules は 2 つの子で、top は D₀ に入っていない）。**詳細な表は比較資料 §5.11**。要点:
+
+1. **`b₀` は raw そのもの**。`b₀ == raw`（`synthesizeCombinationalCoreOffR pilotReaderOk2` の出力）、`dropZeroWidthModule raw == raw`、`mergeChecked (dropZeroWidthModule raw) == raw`。`mergeDuplicates raw ≠ raw` なので merge の候補はあったが採用されていない。構造的な理由は kernel 済みの `mergeChecked_inst`（`Tools/ShippingMachineShipsHier.lean:69`: inst を含む module では `mergeChecked` は入力を返す）。**最適化（`checkedOptimize`）は返却ではなく印字（`verilogOf`）の段階**。
+2. top `b₀`（256 文）: `refineCheck b₀ b₀ = false`（inst 文は `seqStmtOk` でない）、`seqGate = false`、`hierGate = true`、`hierBinds = true`、`hierRefineCheck b₀ b₀ = true`、`shipsHierCheck (childMap D₀.modules) b₀ = true`（`machine_ships_hierC` の checker 前提）。出荷形 `checkedOptimize b₀` は **89 文**で `b₀` と**異なる**（`deinline` 後の候補を `hierRefineCheck` が受理）。出荷形の `seqCheck`（`moduleWof`）は true、幅の一致も true。
+3. 子（assign のみ、88／159 文）: `refineCheck m m = true`、`simpleBody = true`。`checkedOptimize m == m`（optimizer の候補は 7／18 文に縮むが不受理で入力を返す）。出荷形の `seqCheck` は true。
+4. **失敗する形**: top に対する `refineCheck`／`seqGate` 系（`machine_ships`、`machine_ships_checked`、`machine_ships_wired`、`machine_ships_comb`。いずれも `insts = []` 等の前提を持ち、かつ全て run（`hr`）付きの定理。root には生成されない、§66.1）。**通る形**: `hierBinds`／`hierRefineCheck`／`shipsHierCheck`／出荷形の `seqCheck`。
+5. **fallback**（reviewer: 最適化形を拒否して既証明の未最適化 artifact へ戻す安全な経路は一律に禁止しない）:
+   - コンパイラの fallback は**既にある**（`mergeChecked`／`checkedOptimize` は検査失敗で入力 module を返し、throw しない）。root の merge は実際にこの fallback で入力に戻っている。
+   - (c) が検査する `b₀` は未最適化の raw なので、IR レベルでは戻り先と `b₀` が同じ値。**追加の fallback 実装は要らない**。ただし**「既証明」の未最適化 artifact は root の top に現時点で存在しない**（既存の証明は全て run 付き。M1 が無いと `b₀` の意味保存は証明できない）。
+   - root だけ最適化せずに `b₀` を印字する fallback は**小さい**（`checkedOptimize b₀` → `b₀` の分岐 1 つ）が、**出力の SV は今日と異なる**（top が 89 → 256 文。子は同じ）。**IP のベースライン（出力テキスト比較）は変わる**（意味は同じでも文字列は同じでない）。全 module に及ぼすと全 IP の出力が変わるので、使うなら対象を限定する。
+   - 出荷形（89 文）まで kernel で覆う場合の既存部品: `hierRefineCheck_linkedH`（`Tools/ShippingHierOptRunH.lean:412`、`b₀` → 出荷形の移送。設計側の前提 `linkedWF`・`kidsLocal`・`hOutM` 等を要する）、SV 側は `hier_pipeline_transfer`（`Tools/ShippingHierSVSoundness.lean:494`。前提 `hcomb : o.body.all combStmtI = true`: top は register 17 を含むので **`combStmtI` が register を含むかは未確認 [未]**。含まないなら適用範囲外）。
+
+### 67.2 M1: root の module の演算子・文の形と、既存の checker／補題の被覆（[プローブ]、[読]）
+
+**文**（top 256）: `assign` 237、`register` 17（全て clock `clk`、同期 reset `rst`、初期値 0）、`inst` 2。**子**: `httpGetByte` 88 文 = assign 88、`tlpCplByte` 159 文 = assign 159。`memory`・assertion・parameter は無い。**式**（全て 2 引数の `concat`、3 引数の `mux`、2 引数の二項演算、非負の `const`）:
+
+| 形 | top (256) | 子 88 | 子 159 |
+|---|---|---|---|
+| `ref` | 426 | 122 | 255 |
+| `slice` | 66 | 13 | 51 |
+| `concat`（2 引数） | 64 | 12 | 42 |
+| `mux`（3 引数） | 42 | 17 | 30 |
+| `eq` | 19 | 17 | 15 |
+| `and` | 10 | 0 | 0 |
+| `or` | 6 | 0 | 0 |
+| `add` | 3 | 0 | 0 |
+| `shl` | 2 | 0 | 0 |
+| `const` | 25 | 29 | 21 |
+
+出荷形の top（89 文: assign 70、register 17、inst 2）も同じ演算子の集合（`mux` 23、`and` 49、`const` 64、`concat` 2、…）。**root 全体の演算子は `mux`・`eq`・`and`・`or`・`add`・`shl` の 6 種**。`sub`・`mul`・`xor`・`not`・`neg`・`lt`/`le`/`gt`/`ge`（`_u`/`_s`）・`shr`・`asr`・`sliceDim`・`index` は無い。
+
+**被覆**（純粋 checker／kernel 済みの補題が、これらの形を覆うか）:
+
+| 形 | IR の評価意味（`Semantics.evalOp`／`evalExpr`）[読] | IR→IR の純粋 checker: `refineCheck` の正規形 `rNormE`（健全性 `refineCheck_transfer`）[読] | IR→SV の検査 `seqCheck`（`sf4Check`）[プローブ: 3 module とも true] | run 側の lowering の補題（Term → 文）[読／名前検索] |
+|---|---|---|---|---|
+| `const`・`ref` | あり | あり（`0 ≤ v < 2^w`、`ref` は定義の展開） | あり | — |
+| `mux` | あり | `rMux` | `sf4Check` の `mux` の枝 | `emitMuxResult_correct`（`Tools/ShippingMuxLoweringSoundness.lean`） |
+| `and`・`or`・`add`・`shl` | あり | `rBinOk` に含まれる（`rBin`） | `sf4Check` の二項の枝（`and`/`or` は `perOp`、`shl` は shl の経路） | `Binary.emit_correct`（`Tools/ShippingScalarSoundness.lean`: `add sub mul and or xor shr shl`） |
+| `eq` | あり | `rBinOk` に含まれる | 二項の枝 | 比較の補題 `Tools/ShippingCompareLoweringSoundness.lean`（`eq` がその種別に当たるかは**名前でしか確かめていない [未]**） |
+| `slice` | あり | `rSlice` | 通る（プローブ） | 名前検索では**見つからない [未]** |
+| `concat`（2 引数） | あり | あり（`concat [a, b]` のみ） | 通る（プローブ） | 名前検索では**見つからない [未]** |
+| `register` 17（同期 reset、init 0） | `runModule` | `refineCheck` は register を扱う（**top には inst があるので top 全体には適用外**） | あり | — |
+| `inst` 2 | `runModuleH`（子の呼び出し） | `hierRefineCheck`（開いた module に取り出して `refineCheck`） | `seqCheck` は inst 文に条件を置かない | — |
+
+**読み**: (i) **IR→IR と IR→SV の既存の純粋 checker は、root の演算子の集合を全て覆う**（`refineCheck` 正規形と `seqCheck` の両方が root の 3 module で true）。(ii) **覆われないのは M1 そのもの**: 「`MachineData`（ソース宣言から読んだ項）から module の文への対応」を判定する純粋 checker は既存に無い。run 側の lowering の補題は `mux`・`add`/`and`/`or`/`shl`（と、未確認だが比較）にはあるが、`slice`・`concat` の補題は名前検索で見つからず、いずれも run 側の補題であって純粋 checker の健全性としては使えない。(iii) したがって M1 の演算子ごとの新規の対応規則は、**6 種の二項／三項演算と `slice`・`concat`（2 引数）・`const`・`ref`・`register`・`inst` の 12 程度の形**に限られ、既存の「全演算子」の網羅は要らない（**ただし行数は見積らない**: 規模の目安は §66.6 の 3,153 行のまま）。
+
+### 67.3 案 (c) の最小試作（設計のみ）: この root についての完全な文
+
+**記号**: `R := Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte`（名前 `` `Tools.ShippingFGCircuitS1kRoot.synth_hftPcieOutByte ``）。`d := R.machineData : MachineData`。子 `K₀ := Sparkle.IP.Net.HTTP.httpGetByte`、`K₁ := Sparkle.IP.Bus.PCIe.tlpCplByte`（それぞれ `machineData`・`machineSource` を持つ）。
+
+**ソース宣言と値**（既存、kernel 検査済み、run を含まない — 比較資料 §5.1a）: 宣言 `R rxByte rxValid sopTlp dataDword cplId := (hftPcieLoop …).outByte`（`Signal defaultDomain (BitVec 8)`）。値は `R.machineSource : Unit → (Nat → Signal Bool) → (Nat → (n : Nat) → Signal (BitVec n)) → List (Nat → Nat)`。`R.machine_ok : d.ok = true`、`R.machine_source : machineSource i bools bits = machineResult i (resOn (fusedBody …))`（`Eq.refl`）、`R.machine_states : ∀ i bools bits, ∃ S₂ Ss, teleState … ∧ …`。
+
+**返される Module・Design（子接続を含む）**: 1 回の実行（`pilotEntry3 R`）が返した値を閉じた項にした `b₀ : Module`（256 文）、`D₀ : Design`（`D₀.modules` = [子 `K₀` の module（88 文）、子 `K₁` の module（159 文）]）。生成器は**信頼しない**（kernel が受理した文だけが根拠）。
+
+**保存される意味**（IR の意味。run なし。`R.machine_composed`／`machine_linked` の結論の形を土台にし、子の前提を**仮説でなく結論側**に移す）:
+
+```lean
+/-- (新規) 返された (b, D) が R の源の意味を持つ。子接続を含む。
+    ids / cache / regs / lets は名付けの証人（存在量化）。 -/
+def RootShows (b : Module) (D : Design) : Prop :=
+  ∃ (ids : List FVarId) (cache : IO.Ref (ExprStructMap String)) (regs lets : List String),
+    ids.Nodup ∧ ids.length = d.shape.binders.length ∧ regs.Nodup ∧ regs.length = d.ss.length ∧
+    lets.length = d.letBs.length ∧
+    MachineWired R d.shape ids cache b D regs lets ∧
+    -- 子接続: 親の各呼び出し k の module mc は D から名前で引かれ、子の関数を計算する
+    (∀ k args mc st,
+        (d.shape.insts.map (·.2.1))[k]? = some args → st ∈ b.body →
+        CallStmt (machNIn d.shape) d.shape.insts.length d.shape.layout.slots.length
+          ((machPorts R ids cache d.shape.binders).map (·.name)) k args mc st →
+        moduleByName D.modules mc.name = some mc →
+        ChildFn mc ([childRange K₀.machineData, childRange K₁.machineData].getD k (fun _ => True))
+                   ([childValue K₀.machineSource K₀.machineData.bsIn defaultDomain,
+                     childValue K₁.machineSource K₁.machineData.bsIn defaultDomain].getD k (fun _ => 0))) ∧
+    -- 親の連結された run が源の出力を示す
+    ∀ (i : Unit) bools bits (T : Nat) seed st0 mems,
+      (seed の 4 前提: SourceInputs … / seed t st r = st r (r ∈ regs) / seed t st "rst" = 0 / st0 r = f.init) →
+      ∃ envs, runModuleH (weOf b) (childMap D.modules) b.body seed T st0 mems = some envs ∧
+        envs.length = T ∧
+        ∀ j (hj : j < envs.length) k o f,
+          d.shape.layout.outs[k]? = some o → (R.machineSource i bools bits)[k]? = some f →
+          envs[j] o.name = f j
+```
+
+（`machine_composed` と異なる点: 子の `MachineRun`（子の run の存在）という**仮説**を、`ChildFn`（子 module が子の源の関数を計算するという IR の文）の**結論側の conjunct**にした。`machine_linked` の子の前提と同じ文を、仮説から結論へ移した形。上のコードは `R.machine_composed` の型（[プローブ]）から書き写した設計で、**まだ Lean で型検査していない [未]**。特に seed の 4 前提の正確な形・`ChildFn` の引数は、実装時に `machine_linked` の型に合わせる。）
+
+**この root への主張（kernel の閉じた項だけ。`hr`・`L`・`CellPrem`・`entry`・`closes` を含まない）**:
+
+```lean
+theorem hft_cert : RootShows b₀ D₀ :=
+  checkRoot_sound R.machineData [K₀.machineData, K₁.machineData] R.machine_ok … b₀ D₀ cert₀ (by decide)
+-- cert₀ : 閉じた証明書の項（untrusted generator の出力）。`by decide` は CheckRoot … = true の kernel 評価
+```
+
+**検査器 `CheckRoot` が取るもの**: ソース束 `S`（`declName`・`MachineData`・各子の `MachineData`・`machineSource` の等式 `machine_source` を満たすこと）、返された `b : Module`、`D : Design`、**証明書 `cert`**（信頼しないヒント: `ids`・`regs`・`lets` の名前、top の各 wire 文がソースの項のどの節点に当たるかの対応表、子の module と呼び出しの対応）。`CheckRoot : SourceData → Module → Design → Cert → Bool`（純粋）。
+
+**健全性の文の形**（一般。root 固定ではない）:
+
+```lean
+theorem checkRoot_sound :
+  ∀ (S : SourceData) (b : Module) (D : Design) (cert : Cert),
+    S.ok = true →               -- machine_ok 等（Bool、既存の検査）
+    S.srcEq →                   -- machine_source の等式（Prop、既存の kernel 済み定理から供給）
+    CheckRoot S b D cert = true →
+    RootShowsAt S b D           -- RootShows の S についての一般化
+```
+
+証明生成器・`cert` の作り方の正しさは仮定しない（任意の `cert` について成り立つ）。根拠は「生成された `cert₀` で `CheckRoot … = true` が kernel に受理された」こと。
+
+**「検査した同じ artifact だけを返す」接続**（採用入口。(c1) の offline では不要で、(c2) として後続）: 
+
+```lean
+def certifiedReturn (declName : Name) (S : SourceData) : MetaM (Module × Design) := do
+  let (b, D) ← pilotEntry3 declName          -- 既存の入口（run のまま）
+  let cert ← buildCert S b D                 -- untrusted（純粋、または MetaM）
+  unless CheckRoot S b D cert do throwError "certificate check failed"   -- 検査失敗は拒否（成功扱いにしない）
+  pure (b, D)                                -- 検査したその (b, D) だけを返す
+
+theorem certifiedReturn_sound :
+  RunsTo (certifiedReturn declName S) mctx mref cctx cref w (b, D) w' →
+  ∃ cert, CheckRoot S b D cert = true       -- RunsTo.bind／ite／pure の分解のみ（checker は純粋で world に依存しない）
+```
+
+`S` は閉じた束（S2z の `pin_*` と同じ流儀: 生成した行を `decide +kernel` で固定）で、**run 時の env から読まない**。そのため末尾の `getEnv` の frame（`Laws`/`CellPrem` 相当）は要らない。「`S` が利用者の環境の宣言 `R` と同じものか」の対応は別に残る（§67.5 の未解決）。「既存の最適化を拒否して既証明の未最適化 artifact へ戻す」分岐は、拒否の代わりに `pure (b, D)` を残す変形として足せる（`b₀` が raw なので root では戻り先が同値。§67.1 の 5）。
+
+**FG の文との差**（reviewer: 対象/前件が変わるなら新旧の差と消費者を示して正式に変更）:
+
+| | 現行 FG（v11 `HftFinalStmtOffCombined11`） | (c1) の最小試作 |
+|---|---|---|
+| 対象 | `pilotEntry3 hftRoot` の**成功 run が返す任意の** `(b, D')` | **1 つの具体的な閉じた** `(b₀, D₀)` |
+| 前件 | 10 binder（`L hquiet hsynth hr hcell hD hG hT hs h0`） | なし（`S.ok`・`S.srcEq`・`CheckRoot = true` は全て kernel 検査済みの閉じた事実） |
+| 元ソースの意味 | `SourceDenotesMonoV cdvT (envAt cref w) …`（`Environment` 値と `CDT` の導出） | `R.machineSource`（kernel の定数の意味。`Eq.refl` 検査済み） |
+| artifact 側 | `HasConcretePackage`（run `hr` 経由） | `RootShows b₀ D₀`（IR の run なし） |
+| 消費者 | v11 の結論を使う後続（`RootArtifactMonoV`） | 新しい `hft_cert`。現行 FG の消費者には**そのままは渡せない**（対象が「任意の成功 run」から「この artifact」に変わる）。FG 全体・全行減算にしない（reviewer 裁定） |
+
+### 67.4 IR の証明・SV 文字列の一致・SV の意味保存の区別
+
+| 層 | 主張 | 試作の範囲 | 根拠 |
+|---|---|---|---|
+| **IR の意味保存** | `RootShows b₀ D₀`（IR の `runModuleH` が源の出力を示す） | **含む**（`checkRoot_sound` の結論） | `CheckRoot = true` の kernel 評価＋健全性 |
+| **SV 文字列の一致** | `toVerilogDesign … (checkedOptimize b₀) … = V₀`（出荷物のバイト列のリテラル） | 任意（artifact を固定する手段）。**意味保存とは呼ばない** | `rfl`／`decide`。ハッシュ一致だけでは kernel 内の意味保存と呼ばない |
+| **SV の意味保存** | 出荷 SV を構文解析した意味が IR の意味と一致する | **含まない**（後続）。root の出荷形（register 17 と inst 2 を含む 89 文の top）に既存の `hier_pipeline_transfer` が適用できるかは**未確認 [未]**（前提 `combStmtI`） | 既存の `seqCheck`・`semFragCheck`・`hierRefineCheck` が root で true であることは**測定値**であって、意味保存の証明ではない |
+
+さらに、**出荷形と返却形が違う**（§67.1: top は 256 文 → 89 文）ので、IR の意味保存は「返却形 `b₀`」について証明し、出荷形への移送は `hierRefineCheck`＋`hierRefineCheck_linkedH` を使う別の段になる。
+
+### 67.5 再利用するものと新規のもの（大きさは分かっているものだけ）
+
+| 部品 | 再利用／新規 | 内容・用途 | 大きさ |
+|---|---|---|---|
+| `R.machineData`・`machine_ok`・`machine_source`・`machine_states`・`machine_arg_*`・`machine_inst_*` | 再利用 | ソース宣言と値、run なし | 生成済み（kernel 済み）。1 宣言の検査 0.1〜1.5 秒（`Coverage.md` の測定、別の宣言） |
+| `hftRootLink`（`Tools/ShippingFGCircuitS2kLink.lean`） | 再利用（FG の `RootArtifactMonoV` 形の文にしたい場合） | `CDT` の観測と `machineData` の出力の対応 | 129 行 |
+| `hftObCDT_T`（S2t）＋ S2z の表検査（`hftEnvCheckB_sound`、`pin_*`、`startEnvOk_sound`） | 再利用（**`env` の値についての文**） | `HftObCDT env` を同じ `env` の表検査から供給 | S2tHftOb 16、S2zEnvCheck 73、S2zPin 35、`EnvTableCheck` 80、`PilotEnvTables` 1,328（生成） |
+| S3a／S3b2 の検査（`dataOfAt` 検査を引数で渡す入口、`coreR_chain`） | 再利用（採用入口の接続 (c2) の部品） | run 側の env の読みの鎖 | S3b2Core 137、S3aFinal 93、S3f2Final 159 |
+| `pilotEntry3`（検査付き入口） | 再利用 | 返却する (b, D') を作る | S3jStart 140 |
+| `shipsHierCheck`・`hierRefineCheck`・`hierRefineCheck_linkedH`・`refineCheck_transfer`・`seqCheck` | 再利用（出荷形の移送・SV の検査） | 全て root で true（測定） | 既存 |
+| `MachineWired`・`ChildFn`・`childRange`・`childValue`・`runModuleH`・`childMap` | 再利用（文の語彙） | `RootShows` の部品 | 既存 |
+| **`CheckRoot` と `checkRoot_sound`（M1・M2）** | **新規** | 返された module を `MachineData` に照らす translation validator と健全性 | **行数の見積りなし**（目安: 既存の run 側 3,153 行。覆う形は §67.2 の 12 程度） |
+| 子の検査（M3: `ChildFn mc P F`）と連結（M4） | **新規** | 子 2 つの module が子の源の関数を計算する。`ChildFn` は全環境への量化（`P` の範囲）なので、**列挙では閉じない**（`tlpCplByte` は入力 6 ポート）。M1 の組合せ版として検査する | 見積りなし |
+| `ToExpr`（`Module`／`Design`）、artifact の閉じた項の生成器（M6） | **新規** | `Module`・`Design` は `deriving Repr, BEq, DecidableEq` のみ（`ToExpr` 無し）。`Expr` は入れ子の帰納型（`List Expr`）で自動導出の可否は**未確認 [未]** | 見積りなし（artifact 自体は 256＋88＋159 文） |
+| `MachineWired` の名付けの証人（`ids : List FVarId`、`cache : IO.Ref`、`Allocated`） | **新規（検査可能性が未確認）** | `machPorts` は `start (entryCompilerState false cache) …` を**純粋に**評価するので `cache` は閉じた項でよい（§66.2 の `IO.Ref` の閉じた項）。ただし `NameHints.Allocated x`（命題）の判定が**決定可能かは未確認 [未]** | 見積りなし |
+| 出荷物の突合（M7） | 新規・任意 | `V₀` のリテラルと `rfl`。意味保存とは別（§67.4） | 約 15,000 文字（近似） |
+| `env` の値と kernel の定数 `R` の対応（源環境・宣言の固定） | **未解決** | `dataOfAt env R` が固定した `S` と一致することの検査（S2z の `pin_*` の流儀）と、その健全性 | 見積りなし |
+
+### 67.6 最初の実装ステップ（1 単位で足りる大きさ）: 「artifact の閉じた項化と、既存の純粋検査の kernel 評価」
+
+新しい checker は**書かない**。M6（artifact の固定）と、「既存の検査が閉じた項の上で kernel で評価できるか・何秒か」を先に決める。
+
+1. **生成器（untrusted）**: `pilotEntry3 R` を 1 回走らせた `(b, D)` から、`b₀ : Module`・`D₀ : Design`（閉じた項）を定義として追加するコマンド。`Module`／`Design` の `ToExpr`（手書き、`Stmt`・`Expr`（入れ子）・`Port`・`Type`・`DimExpr`）を含む。生成した項が**同じ run の値と `==` であること**を、生成時に実行して確認し、食い違えばビルドを失敗させる（artifact の固定の運用上の根拠。kernel の外）。
+2. **kernel で評価する既存の検査**（全て [プローブ] で true だったもの）: `hierBinds b₀`、`hierRefineCheck b₀ (deinline b₀ (optimizeModule b₀))`、`shipsHierCheck (childMap D₀.modules) b₀`、`refineCheck K m m`（子 2 つ）、`mergeChecked b₀ = b₀`、`dropZeroWidthModule b₀ = b₀`、出荷形の `seqCheck`。`decide`／`rfl`／`decide +kernel` のどれで通るか、**kernel の評価時間と閉じた項の大きさ**を記録（ログはソースツリーに置かず、結果を文書にだけ書く）。
+3. **出力**: 通った検査の一覧と、通らなかったものの理由（`ToExpr` の導出不能、kernel の時間切れ、`decide` の深さ等）。**受入は「閉じた項が作れて、既存の検査の kernel 評価が通る（または通らない理由が分かる）」こと**。`CheckRoot` と `checkRoot_sound` は次の単位。
+
+この 1 単位が答えるもの: M6（`ToExpr`）と kernel の時間・規模、M5 の出荷形の kernel 評価。答えないもの: M1（`CheckRoot`）、M3・M4、SV の意味保存、`env` の対応。
+
+### 67.7 Check55 の表示（コミット `de43fd68` を build した出力。`kjob lake build Tests.Gen5.FGCircuitPilotCheck55`、1071 job、成功）
+
+- `FGCIRCUIT55 HYPS: 9 corrected definitions (RelE, CorrE, GetCorrE, SetCorrE, StderrCorrE, EnvCorrE, InitCorrE, quietRE, GCorr) are plain definitions (no axiom); a DIRECT-REFERENCE check (the constants of each definition's type and value; NOT a closure audit, it does not recognize an arbitrary v11 conclusion): none directly references the 14 listed forbidden constants (the programs realProg/modelProg/realEnvProg/modelEnvProg/prog, pilotEntry3, Laws, CellPrem, rootDefB_sound, the old Rel/Corr/EnvCorr/quietR/InitCorr); within a depth-6 search EnvCorrE reaches RelE (the oracle); within the same depth-6 search the old EnvCorr was NOT found to reach RelE (search cut by the depth bound: true; this is not a proof of non-reachability)`
+- 他の行（SIGNATURES 15 定理・39 変異体、REFUTE、CONTROL、BIND、SIMULTANEOUS、AXIOMS 36 名・標準 axiom のみ）は変更なし。**旧 EnvCorr の探索は深さ 6 で打ち切られた（cut = true）**ので、以前の「旧 EnvCorr は RelE に届かない」という表示は非到達の証明ではなかった。
+
+### 67.8 まだ確かめていないこと
+
+別の環境・別プロセスでの artifact の一致（決定性は 1 環境の測定）、`Module`／`Design` の `ToExpr` の導出可否、kernel での検査時間と閉じた項の大きさ、`NameHints.Allocated` の決定可能性、`combStmtI` が register を含むか、`slice`・`concat`・`eq` の lowering の補題の有無（名前検索のみ）、`RootShows` の Lean での型検査、M1〜M4 の行数。**この節の `RootShows`・`CheckRoot`・`checkRoot_sound`・`certifiedReturn` は設計であって、Lean に書いていない。**
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
