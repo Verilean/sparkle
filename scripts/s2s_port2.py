@@ -8,12 +8,15 @@ import s2s_port as P
 TRIG=re.compile(r'RefLawsAOps\b|RefLawsATele\b|AdmCtx\b|\bLaws\b|\bStart\b|\bL\.O\b|\bL\.T\b|\bJQC\b|RealChildA\b|CacheInvA\b|\bJQHX?\b')
 KW=re.compile(r"^(?:@\[[^\]]*\]\s*)?(?:private\s+|protected\s+|noncomputable\s+|partial\s+|unsafe\s+)*(theorem|lemma|def|abbrev|structure|inductive|class|instance|macro|syntax|macro_rules|opaque|example)\b")
 STRUCT=re.compile(r'^(section|end|variable|open|namespace|universe|attribute|local|noncomputable section|set_option\s+\S+\s+\S+\s*$|import|-- )')
-def chunks(lines):
-    # returns list of (kind,text-lines); kind in 'struct','decl','other'
-    n=len(lines); starts=[]
-    for i,l in enumerate(lines):
-        if KW.match(l): starts.append(i)
-    out=[];prev=0
+def main():
+    src,out=sys.argv[1],sys.argv[2]; extra=sys.argv[3:]
+    lines=open(src).read().split('\n')
+    lines=[l for l in lines if not l.startswith('import ')]
+    ren=P.names()
+    ren.update({'Laws':'LawsX','Start':'StartX'})
+    ren.update({k:v for k,v in [l.split('=') for l in os.environ.get('S2S_REN','').split(',') if '=' in l]})
+    starts=[i for i,l in enumerate(lines) if KW.match(l)]
+    bounds=[]
     for k,i in enumerate(starts):
         j=i
         floor=starts[k-1]+1 if k>0 else 0

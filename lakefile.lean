@@ -6748,3 +6748,6 @@ lean_lib «Tools.ShippingFGCircuitS2sAdmCallsGatePinned» where
 
 lean_lib «Tools.ShippingFGCircuitS2sAdmChildPinC» where
   roots := #[`Tools.ShippingFGCircuitS2sAdmChildPinC]
+
+lean_lib «Tools.ShippingFGCircuitS2sAdmCallsCloseA» where
+  roots := #[`Tools.ShippingFGCircuitS2sAdmCallsCloseA]
