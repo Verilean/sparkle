@@ -11,7 +11,12 @@ open Tools.ShippingChildInv (readOf)
 open Tools.ShippingStRefCorrespondence (ReadWorld getW)
 open Tools.ShippingChildBndCore (cv sv dv)
 open Tools.ShippingChildInvA (AdmCtx admCtx_none)
+open Tools.ShippingFGCircuitS1kStmt (hftRoot)
 open Tools.ShippingFGCircuitS3f2Final (pilotReaderOk2)
+open Tools.ShippingGen2 (Laws)
+open Tools.ShippingChildCacheA (JQC)
+open Tools.ShippingFGCircuitS1qLinked (coreHeadOff coreHeadOff_jqcA)
+open Tools.ShippingFGCircuitS3b2Core (coreR_chain)
 
 /-- the S3j pilot entry: the S3f2 entry `synthesizeCombinationalOffR pilotReaderOk2` behind two start checks (an explicit error, no fallback): (1) the Meta context of THIS run has no `canUnfold?` callback; (2) `sparkleSynthDepth` is 0 -/
 def pilotEntry3 (declName : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
@@ -95,6 +100,27 @@ theorem entry2_of_pilotEntry3 {X : Name} {w w' : Void IO.RealWorld} {r : Sparkle
   have h := (pilotEntry3_run hr).2.2
   rw [hRW w] at h
   exact h
+
+/-- **S5, the cache half, at the world AFTER the core head**: from `JQ` alone at the start (`quiet`, `sv`, `dv = 0`) and an admissible context, the head of the depth-0 core (`sparkleChildCache.set {}` then `depth := 1`) ends in a world with `JQC L.O 1`, i.e. WITH the cache invariant `CacheInvA L.O (cv w1)`; no cache fact about the start world is used.  This is the existing `coreHeadOff_jqcA` at `D = 0` (`Or.inl rfl`: its cache premise is not consumed at depth 0); the cache step it uses is the field `L.O.cacheSet` (via `tripleC_clear`), so this part of `Start` is supplied FROM `L`, not from nothing -/
+theorem jqc_after_head {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) {X : Name} {w w1 : Void IO.RealWorld} {s : Tools.ShippingEntryReadsLinked.CoreSaved}
+    (hA : AdmCtx L.O.quiet mctx cctx) (hq : L.O.quiet w) (hsv : sv w = some synthesizeChild) (hdv : dv w = 0)
+    (hh : RunsTo (coreHeadOff X) mctx mref cctx cref w s w1) : JQC L.O 1 w1 :=
+  coreHeadOff_jqcA L.O hA (D := 0) ⟨hq, hsv, hdv⟩ (Or.inl rfl) hh
+
+/-- **the same, from the run of the checked wrapper**: `AdmCtx` and `dv w = 0` come from the wrapper's checks, `quiet w` and `sv w` are the residual; the core head's run is read off the OffR run (`coreR_chain`), and the world after the head satisfies `JQC L.O 1` including the cache half — the start world's own cache is never assumed -/
+theorem jqc_after_head_of_pilotEntry3 {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.Ref IO.RealWorld Core.State}
+    (L : Laws mref cref) {w w' : Void IO.RealWorld} {r : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design}
+    (hRW : ReadWorld sparkleSynthDepth)
+    (hr : RunsTo (pilotEntry3 hftRoot) mctx mref cctx cref w r w')
+    (hq : L.O.quiet w) (hsv : sv w = some synthesizeChild) :
+    ∃ (s : Tools.ShippingEntryReadsLinked.CoreSaved) (w1 : Void IO.RealWorld),
+      RunsTo (coreHeadOff hftRoot) mctx mref cctx cref w s w1 ∧ JQC L.O 1 w1 := by
+  have h := entry2_of_pilotEntry3 hRW hr
+  unfold synthesizeCombinationalOffR at h
+  obtain ⟨⟨M, D⟩, w2, hcore, -⟩ := Tools.ShippingEntrySoundness.RunsTo.bind h
+  obtain ⟨s, w1, -, -, -, -, -, hh, -⟩ := coreR_chain hcore
+  exact ⟨s, w1, hh, jqc_after_head L (admCtx_of_pilotEntry3 hr L.O.quiet) hq hsv (dv_of_pilotEntry3 hr) hh⟩
 
 end Runs
 
