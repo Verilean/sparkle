@@ -3132,3 +3132,29 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 - compiler（`Sparkle/`）の変更: **なし**。小さな compiler 変更が必要と判断した項目もない（S3 `sv`（§59.3 の案）は今回触れていない）。
 - 次の候補（小さい順）: (1) §60.3 の `HftFinalStmtOffLNLX'` 連鎖（`hcache` を外す。Tools のみ、複製）。(2) `hsynth`（S3）は `sparkleChildSynth` の `SetGet` を `hcell` に足す設計が要る（§59.3、reviewer 判断）。(3) `hquiet`（`quiet` の具体的な選択）は未着手。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 61. S3k（Issue `sparkle-fg-circuit-pilot`）: `hcache` を v10 から外す — 開始 world の `Start` を消費する宣言の監査（§61.1）、複製した鎖、v11、Check51
+
+土台 `fb8b6d8e`（S3j）。
+
+### 61.1 監査: v10 の証明経路で開始 world の `Start` / `StartX` を消費する宣言
+
+方法: v10 の定理 `synth_hftPcieOutByte_finalOffCombined10` から定数の推移閉包（24871 件）を取り、(a) 型が `Start`・`StartX`・`JQC`・`JQCX`（またはそれらを値に持つ文の定義）を直接含む宣言を列挙し、(b) 開始 world に対する `Start` を引数に取るものについて証明本体の `hstart` の使用を全て読んだ。定義: `Start L mctx cctx w = AdmCtx L.O.quiet mctx cctx ∧ JQC L.O 0 w`、`JQC O D w = JQ O.quiet D w ∧ CacheInvA O (cv w)`、`JQ quiet D w = quiet w ∧ sv w = some synthesizeChild ∧ dv w = D`。`StartX` は `L.O.adm mctx cctx ∧ JQCX L.O 0 w`（`JQCX = JQ ∧ CacheInvAX (cv w)`）。したがって `hstart.1` = AdmCtx（X では adm）、`hstart.2.1` = JQ（quiet・sv・dv）、`hstart.2.2` = **cache 不変量**。
+
+| # | 宣言（ファイル） | 使う連言 | cache `.2.2` |
+|---|---|---|---|
+| 1 | `synth_hftPcieOutByte_finalOffCombined9`（S3f2Final）| `hstart` を v7 へ丸ごと渡す | 渡すだけ |
+| 2 | `synth_hftPcieOutByte_finalOffCombined7`（S3cFinal）| `hstart.1`、`hstart.2`（全体）→ `hstartX := ⟨hstart.1, jqc_toX hstart.2⟩`、`hftTop_of_runRX` へ `hstart` | **`jqc_toX hstart.2` で StartX の cache 半分を作る**（作るだけ。下流で読まれない: 3–10）|
+| 3 | `hftTop_of_runRX`（S3cTop:128）| `hstart.1`（adm、4 箇所）、`hstart.2.1.2.2`（dv = 0）、`hstart.2.1.1`（quiet）、`hstart.2.1.2`（sv ∧ dv）| 使わない |
+| 4 | `hftCoreCloses_of_kidsR''`（S2nAdm:96）| `hstart.1`、`hstart` を 5 へ | 使わない |
+| 5 | `hftCoreCloses_of_kidsRX`（S2mReach3:185）| `hstart.2.1`（`jqhr_headX` の `hjq : JQ`）のみ。`hadm` は別引数 | 使わない |
+| 6 | `synth_hftPcieOutByte_finalOffLNLX`（S1zClose:222）| `hstart` を 7・8・9 へ | 渡すだけ |
+| 7 | `hftObNoRawOff_of_localX`（S1zClose:186）| `hstart` を 8・9 へ | 渡すだけ |
+| 8 | `hftPostGate_of_localX`（S1zClose:171）| `hstart` を 9 へ | 渡すだけ |
+| 9 | `coreOff_ranAX`（S1zClose:128）| `hstart.1`（adm、5 箇所）、`hstart.2.1`（`coreHeadOff_jqcAX … (Or.inl rfl)` の `hw : JQ`）| 使わない（`D = 0 ∨ CacheInvAX …` は `Or.inl rfl`）|
+| 10 | `synth_hftPcieOutByte_finalOffLX`（S1uSrc:122）| `hstart` を 11 へ | 渡すだけ |
+| 11 | `synth_hftPcieOutByte_finalOffX`（S1tFinal:109）| **`hstart` を本体で一度も使わない**（introduce されるのみ）| 使わない |
+
+下位の補題（S3j が確かめていなかった範囲）: 3・5・9 が `hstart` の一部として渡す先は `coreHeadOff_jqcAX`（`hw : JQ O.quiet D w`、`hc : D = 0 ∨ CacheInvAX`）、`jqhr_headX`（`hadm`、`hjq : JQ O.quiet 0 w₀`）、`machineRunJQH_of_closesHOffX`（`hA : O.adm`）、`keepsA_framedX`（`hA`）、`synthesizeFromConst_machine_invWX`・`synthesizeMachineCertified_runsAX`・`htr_of_teleX`・`bodyStepC_of_teleX`・`soundX_served_EX`・`oneOut_topShipsOff`・`hft_closesAtHX`（いずれも `hstart.1` の adm のみ）。**どれも `Start`/`StartX`/`JQC`/`JQCX` を開始 world で取らない**（型を読んだ。`JQ` と adm だけ）。
+
+結論: **開始 world の cache 不変量 `CacheInvA L.O (cv w)` は、v10 の証明経路のどこでも読まれない**。唯一の「使用」は #2 の `jqc_toX hstart.2`（`Start` を `StartX` の形にするための再包装）で、その `StartX` の cache 半分は #6–#11 が `.2.1` と `.1` だけを取り出すため消費されない。head の後の `JQC 1` は `coreHeadOff_jqcAX` が `Or.inl rfl` で与える（開始 cache 不要）。よって手順 2（複製）に進む。複製するのは、型に `hstart : Start/StartX` を持つ宣言 #1–#11 のみ（文を変える必要があるもの）で、`hadm` と JQ のみの `hjq : JQ L.O.quiet 0 w` に替える。下位補題は再利用する。
