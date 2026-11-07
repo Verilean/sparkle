@@ -2494,7 +2494,7 @@ v3 `HftFinalStmtOffCombined3` の `hcd : Ob (envAt cref w)` を、**同じ環境
 
 - **供給（証明）**: `HftObCDT env` そのもの（`hftObCDT_T`: 5533 節点の導出を `hΔ hΓ hrec` から組み立て）。`hcd` はこれで置き換えた。
 - **仮説のまま渡した（3 つとも）**: `hΔ` `hΓ` `hrec`。
-- **v4 の既存仮説から導けるか調べた結果: 導けない**。`hstart`（`AdmCtx ∧ JQC`）、`hr`（`RunsTo` の run）、`hchk`（`CheckedStart`: `root`・`gates`・`reader` と `ReadsAt env₀ cref w`）、`hreadH/hreadT`（`RootReader`）はいずれも root の定数 1 つ（`env.find? hftRoot`、`entryGatesB`、`dataOfAt` の出力）と環境の導出引数の一致だけを述べ、`Delta` の 55 定数・`Gamma` の 11 構成子・`List.rec` の `env.find?` は述べない。`hr` の run が行う `getConstInfo` はこの文の中に事実としては出てこない（run の結果型 `(b, D')` と `PostRunOff` を通すだけ）。よって run-local な事実の導出には新しい前提が要る。**追加の law/TRUSTED は足していない**。`RecFact` は「`List.rec` が recInfo」という標準 Lean 環境の事実だが、任意の `Environment` 値については証明できないので仮説のまま。
+- **v4 の既存仮説からの導出: 現時点では供給していない**（reviewer 訂正 2026-11-07: 初版の「導けない」「よって新しい前提が要る」は断言しすぎ。`RunsTo` の結果型に問い合わせの事実が出ないことは、run の分解から導けないことの証明にならない。非導出を言うなら既存仮説をすべて満たす反例が別に要る）。調べた範囲: `hstart`（`AdmCtx ∧ JQC`）、`hr`（`RunsTo` の run）、`hchk`（`CheckedStart`: `root`・`gates`・`reader` と `ReadsAt env₀ cref w`）、`hreadH/hreadT`（`RootReader`）はいずれも root の定数 1 つ（`env.find? hftRoot`、`entryGatesB`、`dataOfAt` の出力）と環境の導出引数の一致だけを述べ、`Delta` の 55 定数・`Gamma` の 11 構成子・`List.rec` の `env.find?` は述べない。`hr` の run が行う `getConstInfo` はこの文の中に事実としては出てこない（run の結果型 `(b, D')` と `PostRunOff` を通すだけ）。run の分解からの導出は試していない。**追加の law/TRUSTED は足していない**。`RecFact` は「`List.rec` が recInfo」という標準 Lean 環境の事実だが、任意の `Environment` 値については証明できないので仮説のまま。
 
 ### 48.4 Check43（`kjob lake build Tests.Gen5.FGCircuitPilotCheck43`、exit 0、983 jobs）
 
@@ -2503,7 +2503,7 @@ v3 `HftFinalStmtOffCombined3` の `hcd : Ob (envAt cref w)` を、**同じ環境
 - root / 値 / carrier: root・post root・出力 shape の変更（3）、carrier を Z/Y/X/old/old artifact に（5。T の代わりに Z/Y/X を使うと不一致）、diag 入口。
 - 条件: 3 条件を 1 つずつ落とす（3）、3 つ全部を落とす、`Delta`/`Gamma` を空表に（2）、`hcd` を追加で残す（同じ env・終了 world・`hcd` のみ、3）、他の premise の削除（adm、kgf、c1、c2）、`hlink` の再追加。
 - 旧文: v3 Z/Y/X と v2 Z の完全型（4）。
-- 正直な注意: 「別の値」の mutant は `hcd` 追加（`keepHcd`）の内側でしか作れていない（3 条件は値を述べない: 値は `hftObCDT_of_tablesT` の導出に固定）。`ExpFinal4` は v3 の文面の別記述であり、`Delta`/`Gamma` は生成物なので名前で参照している（表の中身の監査は §45 の通り別）。
+- 値を差し替える mutant は無い（reviewer 訂正 2026-11-07: 初版の「`keepHcd` の内側で作れている」は誤り。`ExpFinal4` の `keepHcd` の内側でも `hftRootValue` と `synth_hftPcieOutByte` は固定で、値を変える knob も実例も無い）。`keepHcd` は `hcd` 併存の対照で、値変更の対照ではない。3 条件は値を述べない（値は `hftObCDT_of_tablesT` の導出に固定）。`ExpFinal4` は v3 の文面の別記述であり、`Delta`/`Gamma` は生成物なので名前で参照している（表の中身の監査は §45 の通り別）。
 
 ### 48.5 台帳
 
