@@ -2634,3 +2634,36 @@ build の所要: Elab 変更後の依存全体の再 build（Check45 の前段�
 ### 51.3 範囲
 - 追加の Elab 変更・新しい Check・binder 変更は無い（v6 の 16 binder のまま）。供給していないもの: `hreadH` / `hreadT`（上のとおり）、`hadm hdown hD hG hT hs h0`、`hchk`、`CellPrem`、`Laws/Start/hr`。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 52. S3c（Issue `sparkle-fg-circuit-pilot`、状態は変えていない）: `hadm` / `hdown` を除いた最終文 v7、Check46
+
+土台 `45e5ccc9`。`Sparkle/`（compiler）は変更していない。sorry・axiom・native_decide・TRUSTED・新しい law は無い（標準 axiom のみ）。v6 以前は書き換えていない。
+
+### 52.1 発見: 閉じ方は core だけでなく top の経路にも `hdown` を使っていた
+v6 の証明は `finalOffLNL`（S1z）に 2 つの事実を渡す: `HftCoreCloses`（S2m の `hftCoreCloses_of_kidsR`）と `htop`（S2r の `hftTop_of_runR`）。`hdown` は両方で使われていた（`ropsR`、`kid_shipsResW` の `hadmW`、`jqc_weak`）。S2s5 の X 版は core 側（`hftCoreCloses_of_kidsR''`）だけだったので、top 側を X へ移した。
+
+### 52.2 追加したもの（すべて `kjob lake build` exit 0、sorry なし）
+- `Tools/ShippingFGCircuitS2sAdmS2kRun.lean`（`scripts/s2s_port2.py` による選択的移植 + 手書き 1 補題 `JQHX.toCX`）: `MachineRunJQHX`、`machineRunJQH_of_closesHOffX`、`soundX_served_EX`。
+- `Tools/ShippingFGCircuitS2sAdmS2jKid.lean`（同上）: `kidRunKX` のみ（`S2jKid` の他の宣言は `Laws` に依るので移植せず）。`S2jCopy`（`oneOut_topShipsOff`、`ShipsRes L`、`MachineTaken L`）は移植していない: 結論側の `L : Laws` はそのままにして、履歴側だけ X にした（下記）。
+- `Tools/ShippingFGCircuitS3cTop.lean`: `Laws.toX`（`⟨L.O.toX, L.T.toX⟩`）、`realChildAX_weak`/`jqcX_weak`（X → 既存、文脈の述語が `AdmCtx L.O.quiet` そのものなので文脈の弱化は恒等）、`realChildA_toX`/`jqc_toX`（既存の `JQC` → X）、`kid_shipsResWX`、`hftTop_of_runRX`（`hadm`・`hdown` なしの `hftTop_of_runR`）。
+- `Tools/ShippingFGCircuitS3cFinal.lean`: `leafStep_ofX`/`reached_ofX`（`ReachedX` with `adm := AdmCtx quiet` から `Reached`）、`drowEnvRX_of_R`/`diagEnvRX_of_R`/`profStepRX_of_R`、v7 `HftFinalStmtOffCombined7` と `synth_hftPcieOutByte_finalOffCombined7`。閉じ方: `synth_hftPcieOutByte_finalOffLNLX`（X、S2s5）に `L.toX`、`htop := hftTop_of_runRX`、`hclL := hftCoreCloses_of_kidsR''` を渡す。`hcd`/`hlink`/`hkgfacts` は v5/v6 と同じ導出（`startEnvOk_sound (startEnvOk_of_run …)`、`startKidsOk_sound`）。
+- 根の文脈: `StartX L.toX mctx cctx w := ⟨hstart.1, jqc_toX hstart.2⟩`。`hstart.1 : AdmCtx L.O.quiet mctx cctx` は v6 が既に持つ `hstart` の一部で、X の文脈述語 `L.toX.O.adm` は定義上これと同じ。したがって `AdmRootX`/`admRootX_toX`（`mkMetaContext` 固定）は使っていない（v6/v7 の文は任意の `mctx` について述べている）。`hftCoreCloses_of_root` ではなく `hftCoreCloses_of_kidsR''` を使った理由はこれ。
+
+### 52.3 binder の前後
+v6（16）`L lvl env₀ hstart hr hcell hchk hreadH hreadT hadm hdown hD hG hT hs h0`
+v7（14）`L lvl env₀ hstart hr hcell hchk hreadH hreadT hD hG hT hs h0`
+`hadm`・`hdown` は除いた。**新しい binder は無い。** ただし 1 つの前提の命題が変わった:
+- `hD hG hs`: v6 の命題のまま（`DRowEnvR`/`DiagEnvR`/`ProfStepR`）。X 形（`DRowEnvRX L.toX.O` など）は `ReachedX`/`LeafStepX`（`adm := AdmCtx quiet`）と既存の `Reached`/`LeafStep` が同値なので、証明した橋 `drowEnvRX_of_R` 等で得る。差は無い。`h0`（`ProfOffW`）は同一。
+- **`hT`（変わった）**: v6 は `TeleR L.O e w`（= `RefLawsATele (quietR …)`、文脈 `AdmCtx (quietR …)` に対する continuation 法則）。v7 は `TeleRX L.toX.O e w`（= `RefLawsATeleX (quietRX …) (AdmCtx L.O.quiet)`、文脈 `AdmCtx L.O.quiet` に対する法則）。`TeleR` から `TeleRX` は `hdown`（`AdmCtx quietR → AdmCtx quiet`）なしには出ない（`TeleRX` の方が広い文脈を要求する）ので、橋は作れない。**これは「`hdown` を出し、より広い文脈の `hT` を入れた」交換であり、binder 数は 2 減ったが前提の総量の減少とは言えない。reviewer の判断（台帳に数えるか）が要る。** `hT` は S2s5 §44.6 の「名前付きのまま未供給」の 1 つで、`RefLawsATeleX` の法則そのもの（`L.T` と同じ形）の強化 quiet 版。
+- 供給した/していないもの: `hadm`（`hstart.1` から）と `hdown`（不要になった）は消えた。供給していない: `hreadH hreadT`（§51）、`hchk`、`hcell`、`hD hG hT hs h0`、`Laws/Start/hr`。
+
+### 52.4 Check46（`kjob lake build Tests.Gen5.FGCircuitPilotCheck46`、exit 0）
+Check の行から引用:
+- `FGCIRCUIT46 BINDERS (9 implicit + explicit): v6 (25 = 9 + 16) … v7 (23 = 9 + 14) …; v7 = v6 minus [hadm, hdown]; hT keeps its name but is stated at TeleRX`（binder 名のリストを v6 から `hadm`/`hdown` を除いたものと比較して一致）。
+- `FGCIRCUIT46 SIGNATURES: … 25 mutants rejected`（各前提の欠落 11、`hT` を v6 の `TeleR` 形にしたもの、`hadm`/`hdown`/両方を戻したもの、到達環境の違い 2、別の root、別の post-run root、結論の一部を落としたもの 2、診断入口、carrier Z、v6 と v5 の定理の型）。同じ `FGCircuitCmp.stmtEq`。期待型 `Exp7` は独立に書いた（`hT` の X 形 `ExpTX` は `quietRX`/`Laws.toX` の射影を使って書いたので、`TeleRX` 自体の展開とのみ独立で、`quietRX` の定義には独立ではない。`Laws.toX` の `adm`/`quiet` が `AdmCtx L.O.quiet`/`L.O.quiet` であることは `rfl` の 2 補題で示した）。
+- `FGCIRCUIT46 AXIOMS: 7 names, standard axioms only ([Quot.sound, Classical.choice, propext]); no sorryAx, no native_decide`。
+
+### 52.5 範囲・台帳
+- 構造検査は型の表面で、証明の閉包ではない（axiom は `collectAxioms`）。
+- 既存 Check の再 build と出力 baseline は未実施（`Sparkle/` は未変更、Elab 側の変更なし）。
+- 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。binder の変更は台帳の減算ではない（reviewer が決める）。

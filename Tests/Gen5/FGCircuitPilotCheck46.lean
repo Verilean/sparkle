@@ -19,7 +19,7 @@ open Tools.ShippingFGCircuitS1kRoot Tools.ShippingFGCircuitS1kStmt Tools.Shippin
 open Tools.ShippingFGCircuitS1zClose Tools.ShippingFGCircuit Tools.ShippingFGCircuitCover
 open Sparkle.Compiler.Elab Sparkle.Core Sparkle.Core.Domain Sparkle.IR.AST
 open Tools.ShippingChildInvA Tools.ShippingChildCacheA
-open Tools.ShippingGenFGLedgerPremises
+open Tools.ShippingGenFGLedgerPremises Tools.ShippingGen2 Tools.ShippingFGCircuitS1kPkg Tools.ShippingFGCircuitS1pCD Tools.ShippingFGCircuitBridge Tools.ShippingFGCircuitRoots Tools.ShippingGen5FG Tools.ShippingGen5DeclConnect Tools.ShippingFGCircuitS1iHead Tools.ShippingFGCircuitS1qLinked Tools.ShippingFGCircuitS1qHead Tools.ShippingFGCircuitS1tFinal
 open Tests.Gen5.FGCircuitPilotCheck26 (W Cx Cc Rf1 Rf2 Mod NmRoot NmHttp NmTlp RootData HttpData TlpData Pre EntryOf)
 open Tests.Gen5.FGCircuitPilotCheck31 (EnvK eS eE e0)
 open Tests.Gen5.FGCircuitPilotCheck33 (ExpQuiet ExpD ExpG ExpT ExpPS ExpDown ExpProfOff)
@@ -28,7 +28,7 @@ open Tests.Gen5.FGCircuitPilotCheck43 (CVT)
 open Tests.Gen5.FGCircuitPilotCheck44 (NmHttpX)
 
 /-- the telescope law in the context-predicate form, written again: strengthened quiet predicate with the reachability of the X bundle, context predicate `AdmCtx quiet` -/
-def ExpTX (L : Laws mref cref) (e : Environment) (w₀ : W) : Prop :=
+def ExpTX {mref : Rf1} {cref : Rf2} (L : Laws mref cref) (e : Environment) (w₀ : W) : Prop :=
   RefLawsATeleX (quietRX (Tools.ShippingGen2.Laws.toX L).O.quiet (Tools.ShippingGen2.Laws.toX L).O.adm mref cref e w₀) (Tools.ShippingGen2.Laws.toX L).O.adm mref cref
 
 /-- **v7, written again.** Knobs: each premise (Bool), `tele` (0 = hT at TeleRX as in v7, 1 = hT in the v6 form TeleR), the old premises hadm/hdown back, the reach environment, root, post-run root, carrier, conclusion parts, the diagnostic entry. -/
@@ -120,13 +120,15 @@ run_cmd liftTermElabM do
   Tests.Gen5.FGCircuitCmp.checkDiff "finalOffCombined7 vs the v6 theorem's type" f7 (← norm46 f6ty); nm := nm + 1
   Tests.Gen5.FGCircuitCmp.checkDiff "finalOffCombined7 vs the v5 theorem's type" f7 (← norm46 (← tyOf ``Tools.ShippingFGCircuitS2zFinal.synth_hftPcieOutByte_finalOffCombined5)); nm := nm + 1
   -- binder lists (names of the leading binders of the stated types, in order)
-  let b6 := binderNames f6ty
-  let b7 := binderNames f7ty
+  let u6 ← unfoldDefinition? f6ty
+  let u7 ← unfoldDefinition? f7ty
+  let b6 := binderNames (u6.getD f6ty)
+  let b7 := binderNames (u7.getD f7ty)
   let expected7 := b6.filter fun n => n != `hadm && n != `hdown
   unless b7 == expected7 do throwError "binder list of v7 is not v6 without hadm/hdown: v6 {b6}, v7 {b7}"
-  unless b6.length == 16 && b7.length == 14 do throwError "binder counts: v6 {b6.length}, v7 {b7.length}"
+  unless b6.length == 25 && b7.length == 23 do throwError "binder counts: v6 {b6.length}, v7 {b7.length}"
   unless !b7.contains `hadm && !b7.contains `hdown do throwError "v7 still has hadm/hdown"
-  logInfo m!"FGCIRCUIT46 BINDERS: v6 ({b6.length}) {b6}; v7 ({b7.length}) {b7}; v7 = v6 minus [hadm, hdown]; hT keeps its name but is stated at TeleRX (docs S52)"
+  logInfo m!"FGCIRCUIT46 BINDERS (9 implicit + explicit): v6 ({b6.length} = 9 + 16) {b6}; v7 ({b7.length} = 9 + 14) {b7}; v7 = v6 minus [hadm, hdown]; hT keeps its name but is stated at TeleRX (docs S52)"
   logInfo m!"FGCIRCUIT46 SIGNATURES: the complete type of synth_hftPcieOutByte_finalOffCombined7 equals the independently written Exp7 under ONE criterion (FGCircuitCmp.stmtEq; binder kinds at all depths); {nm} mutants rejected (each premise dropped, hadm/hdown/both back, hT in the v6 form TeleR, reach environment end/initial, other root, other post-run root, conclusion parts dropped, diagnostic entry, carrier Z, the v6 and v5 theorem types)"
 
 run_cmd liftTermElabM do
