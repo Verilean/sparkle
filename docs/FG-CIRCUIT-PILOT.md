@@ -3933,7 +3933,7 @@ kernel 型検査の合計は 1 run で約 229 秒（Kernel モジュールのビ
 
 - **freeze 提案（Lean で型検査済み）**: `SourceData`／`SrcEq`／`RootShowsAt`／`CheckRoot`／`checkRoot_sound` の文（`def … : Prop`、証明は書いていない）／`certifiedReturn`（`CheckRoot` で守り、false なら拒否、fallback なし）。`Tools/ShippingFGCircuitS3tSpec.lean`。
 - **同時充足の例**: 具体の `rootS`（このルートの `SourceData`）について `rootS.ok = true`（kernel）、**`rootS.SrcEq` を証明**（IR を含まない）、`RootShowsAt` の seed 前提 4 つの同時充足（artifact の 17 register について、任意の入力値で）。`CheckRoot = true` は**示していない**（下の 69.5）。
-- **組合せ子の validator の健全性**: `checkComb`／`checkComb_sound`（`Tools/ShippingFGCircuitS3tComb.lean`）。任意の module・任意の入力について、`checkComb s m = true` なら module の IR 意味（`evalAssigns`、宣言幅）が成功し、各出力 port の値がソース項の値に等しい。覆う演算は `ref`／`const`／`eq`／`mux`／`slice`／`concat`（2 部）。**閉じた子 `pilotK0`（`httpGetByte`、88 文）を kernel（`decide +kernel`）で受理**し、9 つの負の対照を拒否。`pilotK1`（`tlpCplByte`）は**受理されない**（`checkK1 pilotK1 = false`。`ofData` は `some`、入力・出力の個数と幅・`stepT` は通るので、出力 port の項がソース項と食い違う。原因は未分析。健全性には影響しない不完全性）。
+- **組合せ子の validator の健全性**: `checkComb`／`checkComb_sound`（`Tools/ShippingFGCircuitS3tComb.lean`）。任意の module・任意の入力について、`checkComb s m = true` なら module の IR 意味（`evalAssigns`、宣言幅）が成功し、各出力 port の値がソース項の値に等しい。覆う演算は `ref`／`const`／`eq`／`mux`／`slice`／`concat`（2 部）。**閉じた子 `pilotK0`（`httpGetByte`、88 文）を kernel（`decide +kernel`）で受理**し、9 つの負の対照を拒否。`pilotK1`（`tlpCplByte`）は**受理されない**（scratch の試行で `checkK1 pilotK1 = false`、コミットしていない。`ofData` は `some`、入力・出力の個数・相異・幅と `stepT` は通るので、出力 port の項がソース項と食い違う。原因は未分析。健全性には影響しない不完全性）。
 - **Check57**（`Tests/Gen5/FGCircuitPilotCheck57.lean`）: 完全型の署名を独立に書いた期待型と照合、負の対照（構造 validator 12 + 組合せ validator 9）、同時充足、kernel 時間と大きさ、AXIOMS 標準のみ（226 定理）。**`kjob lake build Tests.Gen5.FGCircuitPilotCheck57` が成功（1073 job、exit 0）**。
 
 ### 69.1 freeze 提案: 文の全体
