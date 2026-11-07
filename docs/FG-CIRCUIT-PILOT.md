@@ -2302,3 +2302,57 @@ theorem hftCoreCloses_of_cover (L) {w} (hstart) (hcell) {lvl} (hrH) (hrT) (hg)
 
 - 名前付き仮説（未供給）: `hcd`（承認済みブランチでは未導出）、`EnvDefs/EnvCtors/RecFact`（`hftObCDT_Q` では仮定として残る）、`HftRootLink`、`htop`、`hreadH/T`、`hchk`、`CellPrem`、`Laws/Start/hr`、`Sh` と置換規則の対応（監査）。`stopD` の追加（`HShiftLeft.hShiftLeft`/`HAppend.hAppend` が `Sh` で展開されなくなった）も監査対象。
 - 次（reviewer 判断）: `Signal (BitVec n) ||| Signal (BitVec n)`（§43.3）を許すか。許されれば副ブランチの `sigOrBV`（第 2 型引数を無制約にした実験版）を、第 2 型引数の束縛つきの規則に直し、`dt_fun` と Check を足して承認済みブランチに入れる。
+
+## 46. S2v（Issue `sparkle-fg-circuit-pilot` の次の束）: `HftRootLink` を証明した、`hlink` を除いた最終文 `HftFinalStmtOffCombined3`、Check42
+
+土台 `cb405fd8`。Issue の状態は変えていない。S2s/S2t/S2u のファイルには触れていない。追加: `Tools/ShippingFGCircuitS2vLink.lean`、`Tests/Gen5/FGCircuitPilotCheck42.lean`。書き換え: `Tools/ShippingFGCircuitS2kLink.lean`（S2k の草稿。コンパイルするようになった）。lakefile は末尾に 2 行追記。sorry・native_decide・axiom・TRUSTED・新しい law はない。`maxHeartbeats` の局所上書きは Check42 の `run_cmd`（64000000、Check37 と同じ値）のみ。証明側（S2kLink/S2vLink）は既定のまま。
+
+### 46.1 結果: `HftRootLink` は証明済み
+
+`Tools.ShippingFGCircuitS2kLink.hftRootLink : HftRootLink`（`kjob lake build Tools.ShippingFGCircuitS2kLink` exit 0、axiom は propext / Classical.choice / Quot.sound のみ）。
+
+**S2c §31.5 の止まりの原因（実測）**: 組み立ての中の部分は全て通る。止まるのは最後の 1 文（`link_concl` の適用）だけだった。`diagnostics` では、`machine_states` の型の `teleState` を含む `typedVal` の定義的同一視で `TeleT.at`/`happendT`/`tys`/`Tele.valsOf`（数万回）が展開されていた。2 つの原因が重なっていた:
+1. `machine_states` の型は `machineInners` を**展開した形**で持つが、私たちの状態列 `sg t` は `teleState machineInners …` と書かれる。この 2 つが `typedVal` の引数に入ると、単一化が `L` を展開せず状態を評価する。
+2. 目標の `(GenIn.mk … ).d.nIn` 等（構造体射影）と `machineData.nIn` の同一視で、`machineData` の delta 展開が先に選ばれる。
+
+**修正（S2c の計画どおり「抽象変数」にする）**:
+- `states_abs`（S2kLink）: `machine_states` の結論を、融合状態を**抽象列 `X : Nat → HList (tys d.ss)`**（`X t = teleState L hss … t` の等式つき）に書き直す一般補題。`L` は一般変数なので、`machine_states` への適用は構文的一致で済む（`src` だけは `fun i b bi => machineSource i b bi` と明示。メタ変数のままだと高階単一化が止まる）。以降の `hext`/`hagree`/`hSg` は `X`（= `sg`）だけを使い、`machineInners` は `X t = teleState machineInners …` の 1 本の変換（`hsg'`）でしか現れない。
+- `link_concl`（S2k の草稿どおり）: `TVal` を抽象変数にした結論部の独立補題（`outs_tagree` から）。
+- 最後は `rw [monoObs_root]` のあと、目標と `key` の**両方に `dsimp only`**（`GenIn.mk … .d` の射影を落とす）してから `exact key`。
+
+### 46.2 `hlink` を除いた最終文（binder 前後）
+
+`Tools.ShippingFGCircuitS2vLink.HftFinalStmtOffCombined3`（`synth_hftPcieOutByte_finalOffCombined3_{Z,Y,X}`、`kjob lake build Tools.ShippingFGCircuitS2vLink` exit 0、axiom は標準のみ）。証明は `synth_hftPcieOutByte_finalOffCombined2 … hftRootLink …` の 1 行。
+
+| | 一覧 |
+|---|---|
+| 前（v2 `HftFinalStmtOffCombined2`、19） | `hlink L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd hadm hdown hD hG hT hs h0 hkgfacts` |
+| 後（v3 `HftFinalStmtOffCombined3`、18） | `L lvl env₀ hstart hr hcell hchk hreadH hreadT hcd hadm hdown hD hG hT hs h0 hkgfacts` |
+
+残る名前付き仮説: `hadm hdown hD hG hT hs h0`（FG D.T-4m6…m5）、`hkgfacts`（D.T-4g）、`hcd`（S2b/S2i）、`hreadH/hreadT`、`hchk`、`CellPrem`、`Laws/Start/hr`。**`hlink` は仮説でなくなった**。
+
+### 46.3 `machine_states` の完全型（レビュアー指摘）
+
+- 一般補題 `machine_states_of_tele_ext` の完全な型を、独立に書いた `ExpStatesGen` と `FGCircuitCmp.stmtEq` で照合（binder kind を全深さで、instance binder も含む）。
+- 特殊化 `Tools.ShippingFGCircuitS2vLink.root_states`: 根について、`S₂`/`Ss`/融合状態列 `X`（`X t = teleState machineInners root_hss …`）、初期状態 `X 0 = castSS … (happendT … machineInits …)`、遷移 `X (t+1) = evalTerms … machineExt … nexts`、観測 `machineSource = outs`。`ExpRoot` と照合。`root_hss`（`[bits 6] ++ machineInners.sss = machineData.ss`）は名前付き定理（`show … from rfl` は証明項の扱いが比較で非対称になる）。
+- `synth_hftPcieOutByte.machine_states` の値の頭が一般補題の適用であることと、`root_states` の証明項が `machine_states` と `states_abs` を使うことを検査。
+- 注意: 生成された `machine_states` 自体の型（`machineInners` を展開した巨大な形）との**直接の**文面照合はしていない（S2c と同じ理由。ここでは一般補題 + 特殊化に分けた）。
+
+### 46.4 Check42（`kjob lake build Tests.Gen5.FGCircuitPilotCheck42`）
+
+`FGCIRCUIT42` 出力 4 行（SIGNATURES-FINAL3、SIGNATURES-LINK、SIGNATURES-STATES、AXIOMS）。比較は Check37 と同じ `normCommon` + `FGCircuitCmp.stmtEq`（正例も mutant も同じ関数）。
+- FINAL3: `_Z/_Y/_X` の完全な型を、Check37 の独立な `ExpFinal2` 族から `HftRootLink` の binder だけ取り除いたもの（`dropLink`）と照合。mutant **75**: Check37 の 66 個（`dropLink` 同様）＋carrier 3、v2（`hlink` つき）の文面、実際の v2 定理の型、旧い最終文 5。
+- LINK: `hftRootLink` の型を独立に書いた `ExpLink` と照合、mutant 3（初期状態の前提なし、`GenIn` データ前提なし、観測が `t+1`）。
+- STATES: 一般補題 `ExpStatesGen`（mutant 3）、`root_states` `ExpRoot`（mutant 3）。
+- AXIOMS: 最終文 3、`hftRootLink`、`link_concl`、`states_abs`、`root_states` が標準 axiom のみ。
+
+### 46.5 範囲と正直な注意
+
+- `ExpLink`/`ExpStatesGen`/`ExpRoot` は元の文面の**書き写し**（同じ人が書いた別の記述）で、独立性は文面の別記述に限る。
+- 生成器・IR/SV は変えていない（`Tools/ShippingMachineCommand.lean` は未変更）。
+- 名前付き仮説からは `hlink` だけが消えた。7 仮説 + `hkgfacts` 等は未供給のまま。
+- ビルドの所要: S2kLink 約 4 分（依存の再ビルド込み）、モジュール自体は約 1 分以内。scratch では、isolated build の `.olean` に `lean` を直接かけて数秒で反復した。
+
+### 46.6 台帳
+
+台帳: FG 74 / T1 57（今回 FG -1 +0 / T1 -0 +0）。`hlink`（D.D-3 / DG-SEM）を証明。他は仮説のまま（条件付きの成果は減算しない扱いのまま、`hlink` 分のみ）。
