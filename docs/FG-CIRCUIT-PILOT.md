@@ -2634,3 +2634,47 @@ build の所要: Elab 変更後の依存全体の再 build（Check45 の前段�
 ### 51.3 範囲
 - 追加の Elab 変更・新しい Check・binder 変更は無い（v6 の 16 binder のまま）。供給していないもの: `hreadH` / `hreadT`（上のとおり）、`hadm hdown hD hG hT hs h0`、`hchk`、`CellPrem`、`Laws/Start/hr`。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 53. S3b2（Issue `sparkle-fg-circuit-pilot`）: `hreadH` / `hreadT` の供給 — 経路 (B): 実際の `dataOfAt` 検査を引数で渡す pilot 入口、v7r、Check46r
+
+土台 `45e5ccc9`（par/fgc-s1 `3978c529` ＋ S3b 文書 §51）。reviewer 裁定 (B)（§51 の約 404 定義の一括移動 (A) は採らない）に従った。TRUSTED・axiom・sorry・native_decide・新しい law はない。Issue の状態は変えていない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。binder の変更は台帳の減算としては数えていない（reviewer が決める）。
+
+### 53.1 構成（既存の入口・既存の v6 は変えていない）
+- `Sparkle/Compiler/Elab.lean`（追加のみ、削除 0 行）: `synthesizeCombinationalCoreOffR (readerOk : Environment → Name → Bool)` — 既存の `synthesizeCombinationalCoreOff` と同じ本体で、S2z の `startEnvOk`、S3a の `startKidsOk` の guard のあと、本体の前に **同じ `env` で** `readerOk env declName` の guard を足したもの（false は `throwError`「…reader check of this entry; refusing to synthesize」、fallback なし）。`synthesizeCombinationalOffR readerOk` は既存の `synthesizeCombinationalOff` と同じ後処理。`synthesizeCombinationalCoreOff` / `synthesizeCombinationalOff` / `synthesizeEntry`（`#synthesize` / `#synthesizeVerilog` / `#showVerilog` が使う）は 1 文字も変えていない。**reviewer の訂正のとおり、通常の `#synthesize` 系は `Off` を使うので、(B) の拡張保証は下の pilot 入口にだけ付き、既存 `Off` にも任意 `readerOk` の run にも広げていない。**
+- `Tools/ShippingFGCircuitS3b2Reader.lean`: `lvl₀`、`MachineData` の構造比較 `mdBeq`（`layoutBeq` / `shapeBeq` / `anysBeq` / `termsBeq`。shape・dom・`nIn`・位置表・`ss`・`ls`・`outs` の各 `Term`（sort と term の両方）・`nexts`・**順序**を落とさない）と `mdBeq_eq : mdBeq a b = true → a = b`（`MachineData` 全体の `LawfulBEq` ではない）。`rootReaderB lvl env X d`（`entry₀` → `machineShape?` → **実際の** `dataOfAt lvl` を呼び、返り値を `mdBeq` で `d` と比較）と `rootReaderB_sound : rootReaderB … = true → RootReader lvl env X d`。reader の複製は書いていない（`dataOfAt` / `machineShape?` / `entry₀` 自体を呼ぶ）。
+- `lvl₀ := fun e => e.approxDepth.toNat`: この検査が採用する具体的・決定的な検証用 fuel 設定（`readN` の段数 = 本体の入れ子の深さ。「既存入口が固定している level」ではない）。root の `hchk`、子 2 つの `RootReader`、結論の `GPt` に同じ `lvl₀` を使う。
+- `Tools/ShippingFGCircuitS3b2Exp.lean`: `httpGetByte.machineData` / `tlpCplByte.machineData` は `#machine_endpoint` が `addDecl` で足した定数で**コンパイル済みコードがない**（Bool 検査から呼べない）。そこで同じ値を別名 `httpMD` / `tlpMD` で `addAndCompile` した複製を作り、`httpMD_eq : httpMD = httpGetByte.machineData := rfl`（axiom なし）。値の複製であって reader の複製ではない。
+- `Tools/ShippingFGCircuitS3b2Core.lean`: `coreRestOffR`、`core_eqOffR`、`coreR_chain`（head → `getConstInfo` → `getEnv` が返す `envR` → 4 つの guard（inliner error なし、`startEnvOk`、`startKidsOk`、**`readerOk envR declName`**）→ 本体 → finally）、`RunsTo.try_finally_intro`、橋 `coreR_to_core`（検査付き core の成功 run は、同じ入力・開始 world・終了 world・Module・Design での**既存 core** の成功 run）、`offR_to_off`（`Off` へ同様。同じ後処理）。純粋な検査は生成結果を変えない、を定理にした。
+- `Tools/ShippingFGCircuitS3b2Final.lean`: `pilotReaderOk env X := X == hftRoot && rootReaderB lvl₀ env hftHttp httpMD && rootReaderB lvl₀ env hftTlp tlpMD`。
+  - (1) `pilotReaderOk_sound`: `pilotReaderOk env X = true → X = hftRoot ∧ RootReader lvl₀ env hftHttp httpGetByte.machineData ∧ RootReader lvl₀ env hftTlp tlpCplByte.machineData`（**同じ env**、実 `dataOfAt`、子の `machineData`）。
+  - (2) `readerOk_of_run`: 検査付き入口の root への成功 run は、**その開始環境 `envAt cref w`** で `readerOk … hftRoot = true`（任意の `readerOk`。`startKidsOk_of_run` と同じ head / getConstInfo / getEnv の環境保存）。
+  - pilot 入口 `pilotEntry := synthesizeCombinationalOffR pilotReaderOk`、`pilotArtifact`（**1 回の run** が返した Module / Design と、その Module から作った Verilog 文）、コマンド `#synthesizeVerilogPilot`（返り値の同じ artifact を印刷し、再合成しない）。
+  - (4) `synth_hftPcieOutByte_finalOffCombined7R`（`HftFinalStmtOffCombined7R`）: `hr` が `synthesizeCombinationalOffR pilotReaderOk hftRoot` の run のとき、v6 の結論（同じ `PostRunOff`、`RootArtifactMonoV cdvT … (GPt lvl₀ …)`）。証明は (2)→(1)→ 橋 `offR_to_off` → 既存 v6 を `lvl₀` で適用。**固定 wrapper に検査の soundness 仮説は残っていない**（定理で渡した）。
+
+### 53.2 binder の前後
+- v6（16, 未変更）: `L lvl env₀ hstart hr hcell hchk hreadH hreadT hadm hdown hD hG hT hs h0`。
+- v7r（13）: `L env₀ hstart hr hcell hchk hadm hdown hD hG hT hs h0`。外れたのは `lvl`（`lvl₀` に特化）、`hreadH`、`hreadT`。`hr` は検査付き入口の run、`hchk` は `lvl₀`。これは単に `lvl` binder を落としたのではなく、特化の橋（v6 を `lvl₀` で適用）と完全型 Check が付いている。台帳への数え方は reviewer が決める。
+
+### 53.3 供給したもの / していないもの
+- 供給: `hreadH` / `hreadT`（pilot 入口の run に対して、`lvl₀` で、定理 (1)(2) から）。
+- していない: `hadm hdown hD hG hT hs h0`、`hchk`、`CellPrem`、`Laws/Start/hr`（残る仮説。v6 と同じ）。
+- **通常経路は未接続**: `#synthesize` / `#synthesizeVerilog` / `#showVerilog` と既存 `Off` の run は v7r の対象外（reader 検査を通らない）。通常経路への一般化・接続は残作業。
+- reader を compiler へ移すことが将来必須とはまだ言えない。注入方式でも root 別の表（root ごとの `readerOk` と、その root の子の `machineData` の表）への一般化は設計できる。S3 一般化はこの境界を保って判断し、いま大量移動を先行条件にしない。
+
+### 53.4 測定・注記
+- Elab 変更後の依存全体の cold build: `Tools.ShippingFGCircuitS3aFinal` まで 31 分 46 秒（単一 foreground build）。Elab 自体は 1 分 7 秒。
+- 実環境で `pilotReaderOk env hftRoot = true`（検査単独は 1 ms 未満）。同じ root で pilot 入口 / 既存 `Off` / `fun _ _ => true` の `OffR` の module+design の `repr` は一致（77654 / 89425 文字、§50.6 と同じ数）、pilot の Verilog 文は既存入口の Module から作った文と一致（11345 文字）。pilot 入口 361 ms、既存 `Off` 323 ms（各 1 回、費用の主張ではない）。
+- **`lvl` について（正直な記録）**: この 2 つの子では Bool 検査は定数 lvl 0, 1, 3, 10 でも `lvl₀` でも true になる。つまり Bool 検査は lvl を区別しない。どの lvl を認証したかは**文**（`pilotReaderOk_sound` の `RootReader lvl₀ …`、v7r の `lvl₀`）で固定され、Check46r の mutant（lvl 0 / `lvl₀`+1 を reader / `hchk` / `GPt` に入れた文）で区別している。
+- 実際の失敗経路: `fun _ _ => false` の `OffR` は「…does not pass the reader check of this entry; refusing to synthesize」で失敗（fallback なし）。pilot 入口を別の宣言（`hftHttp`）に使うと同じ guard で拒否される。
+
+### 53.5 Check46r（`kjob lake build Tests.Gen5.FGCircuitPilotCheck46r`、exit 0、1009 jobs）
+- `FGCIRCUIT46R CONTROLS: ok`（実環境 true／別の root・子を root・子の取り違え 2 方向・存在しない定数／`mdBeq` の各成分を改変した 8 件（`nIn` `dom` `bposL` `vwL` `ls` `outs` `shape.body` `shape.binders`）／`Init` だけの環境で false。lvl は上のとおり区別しない）。
+- `FGCIRCUIT46R OUTPUT`（上の一致と明示エラー）。
+- `FGCIRCUIT46R SIGNATURES: … 45 mutants rejected`: `pilotReaderOk_sound`・`readerOk_of_run`・`offR_to_off`・`coreR_to_core`・`synth_hftPcieOutByte_finalOffCombined7R` の完全型を独立に書いた文と、同一の比較関数 `FGCircuitCmp.stmtEq`（正例も mutant も）で照合。mutant: 検査を `True`／常に false、検査を別 env で走らせる／別 env について結論、lvl 0／`lvl₀`+1（reader・`hchk`・`GPt`）、reader を前提に戻した版（lvl 0 も）、別 root／post root／出力 shape、到達・結論の環境を終了 world／env₀、旧入口を仮定にした版、子の名前・データの取り違え、子の重複、root のデータを子に、root 等式なし、橋の終了 world／開始 world／Module／Design／宣言／context／診断入口／core／逆向き、cell 前提の欠落、v6 の文。
+- `FGCIRCUIT46R AXIOMS: 10 names, standard axioms only`（存在確認つき）。
+- 追加 Elab を含む再 build として `Check15/18/19/20/23/24/26/28/30/44/45` を build、いずれも exit 0（各 AXIOMS 行は標準 axiom のみ）。全 Check と出力 baseline の再実行は coder の作業として未実施。
+
+### 53.6 残作業（記録）
+1. 通常経路（`synthesizeEntry` → `Off`）への接続と、root 別の `readerOk` 表への一般化。
+2. 任意 lvl に対する保証（Bool 検査は lvl を区別しない。lvl₀ 以外については `readN` の段数の単調性が要る）。
+3. `hadm hdown hD hG hT hs h0`、`hchk`、`CellPrem`、`Laws/Start`。
