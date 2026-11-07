@@ -54,7 +54,7 @@ open Tests.Gen5.FGCircuitPilotCheck37 (norm37 tyOf)
 open Tests.Gen5.FGCircuitPilotCheck43 (FD4 Dl Gm)
 open Tests.Gen5.FGCircuitPilotCheck31 (EnvK eS eE e0)
 
-noncomputable def envC : Environment := default
+def envX (e : Environment) : Environment := e.setMainModule `Other.Module
 noncomputable def dropRow {α : Type} (T : Name → Option α) (c : Name) : Name → Option α := fun x => if x = c then none else T x
 def NmMmio : Name := `Sparkle.IP.Bus.PCIe.mmioEndpoint
 def NmHttpX : Name := `Tools.ShippingFGCircuitS1kRoot.synth_hftHttp
@@ -62,18 +62,18 @@ def NmHttpX : Name := `Tools.ShippingFGCircuitS1kRoot.synth_hftHttp
 /-- the soundness statement, written again. Knobs: the checker, its result, the environment each condition speaks about, the tables, which conditions are concluded -/
 noncomputable def ExpSnd (chk : Environment → Bool) (val : Bool) (e1 e2 e3 : Environment → Environment)
     (DT : Name → Option DefRow) (GT : Name → Option CtorRow) (n1 n2 n3 : Bool) : Prop :=
-  ∀ (env : Environment), chk env = val →
+  ∀ {env : Environment}, chk env = val →
     (if n1 then EnvDefs (e1 env) DT else True) ∧ (if n2 then EnvCtors (e2 env) GT else True) ∧ (if n3 then RecFact (e3 env) else True)
 
-noncomputable def Snd (chk : Environment → Bool := hftEnvCheckB) (val : Bool := true) (e1 e2 e3 : Environment → Environment := id)
+noncomputable def Snd (chk : Environment → Bool := hftEnvCheckB) (val : Bool := true) (e1 e2 e3 : Environment → Environment := fun e => e)
     (DT : Name → Option DefRow := Dl) (GT : Name → Option CtorRow := Gm) (n1 n2 n3 : Bool := true) : Prop := ExpSnd chk val e1 e2 e3 DT GT n1 n2 n3
 
 /-- the entry check's soundness at the pilot root (written again) -/
 noncomputable def ExpStart (X : Name) (val : Bool) (e1 e2 e3 : Environment → Environment) (DT : Name → Option DefRow) (GT : Name → Option CtorRow) (n1 n2 n3 : Bool) : Prop :=
-  ∀ (env : Environment), startEnvOk X env = val →
+  ∀ {env : Environment}, startEnvOk X env = val →
     (if n1 then EnvDefs (e1 env) DT else True) ∧ (if n2 then EnvCtors (e2 env) GT else True) ∧ (if n3 then RecFact (e3 env) else True)
 
-noncomputable def Strt (X : Name := hftRoot) (val : Bool := true) (e1 e2 e3 : Environment → Environment := id)
+noncomputable def Strt (X : Name := hftRoot) (val : Bool := true) (e1 e2 e3 : Environment → Environment := fun e => e)
     (DT : Name → Option DefRow := Dl) (GT : Name → Option CtorRow := Gm) (n1 n2 n3 : Bool := true) : Prop := ExpStart X val e1 e2 e3 DT GT n1 n2 n3
 
 /-- the run-level fact (written again): a run of the entry on `root` from `w` to `w'`, with the cell premise, passed the entry's check at `eA` -/
@@ -81,15 +81,15 @@ noncomputable def ExpRun (diag needCell : Bool) (root chkRoot : Name) (eA : EnvK
   ∀ {mctx : Cx} {mref : Rf1} {cctx : Cc} {cref : Rf2} {w w' : W} {b : Sparkle.IR.AST.Module} {D' : Sparkle.IR.AST.Design},
     Tests.Gen5.FGCircuitPilotCheck26.Pre needCell (CellPrem Tools.ShippingChildFresh.MkRefd mref cref) (
     RunsTo (EntryOf diag root) mctx mref cctx cref w (b, D') w' →
-    startEnvOk chkRoot (eA cref w w' envC) = true)
+    startEnvOk chkRoot (eA cref w w' (envX (envAt cref w))) = true)
 
-noncomputable def Run (diag noCell : Bool := false) (root : Name := hftRoot) (chkRoot : Name := hftRoot) (eA : EnvK := eS) : Prop := ExpRun diag (!noCell) root chkRoot eA
+noncomputable def Run (diag : Bool := false) (needCell : Bool := true) (root : Name := hftRoot) (chkRoot : Name := hftRoot) (eA : EnvK := eS) : Prop := ExpRun diag needCell root chkRoot eA
 
 /-! mutants -/
 noncomputable def Snd_real : Prop := Snd
-noncomputable def SndMu_env1 : Prop := Snd (e1 := fun _ => envC)
-noncomputable def SndMu_env2 : Prop := Snd (e2 := fun _ => envC)
-noncomputable def SndMu_env3 : Prop := Snd (e3 := fun _ => envC)
+noncomputable def SndMu_env1 : Prop := Snd (e1 := fun e => envX e)
+noncomputable def SndMu_env2 : Prop := Snd (e2 := fun e => envX e)
+noncomputable def SndMu_env3 : Prop := Snd (e3 := fun e => envX e)
 noncomputable def SndMu_only1 : Prop := Snd (n2 := false) (n3 := false)
 noncomputable def SndMu_only2 : Prop := Snd (n1 := false) (n3 := false)
 noncomputable def SndMu_only3 : Prop := Snd (n1 := false) (n2 := false)
@@ -106,9 +106,9 @@ noncomputable def SndMu_defsOnly : Prop := Snd (chk := fun env => Sparkle.Compil
 
 noncomputable def Strt_real : Prop := Strt
 noncomputable def StrtMu_root : Prop := Strt (X := NmHttpX)
-noncomputable def StrtMu_env1 : Prop := Strt (e1 := fun _ => envC)
-noncomputable def StrtMu_env2 : Prop := Strt (e2 := fun _ => envC)
-noncomputable def StrtMu_env3 : Prop := Strt (e3 := fun _ => envC)
+noncomputable def StrtMu_env1 : Prop := Strt (e1 := fun e => envX e)
+noncomputable def StrtMu_env2 : Prop := Strt (e2 := fun e => envX e)
+noncomputable def StrtMu_env3 : Prop := Strt (e3 := fun e => envX e)
 noncomputable def StrtMu_only1 : Prop := Strt (n2 := false) (n3 := false)
 noncomputable def StrtMu_no2 : Prop := Strt (n2 := false)
 noncomputable def StrtMu_no3 : Prop := Strt (n3 := false)
@@ -119,7 +119,7 @@ noncomputable def Run_real : Prop := Run
 noncomputable def RunMu_end : Prop := Run (eA := eE)
 noncomputable def RunMu_env0 : Prop := Run (eA := e0)
 noncomputable def RunMu_diag : Prop := Run (diag := true)
-noncomputable def RunMu_noCell : Prop := Run (noCell := true)
+noncomputable def RunMu_noCell : Prop := Run (needCell := false)
 noncomputable def RunMu_root : Prop := Run (root := NmHttpX)
 noncomputable def RunMu_chkRoot : Prop := Run (chkRoot := NmHttpX)
 
