@@ -43,7 +43,7 @@ theorem readWorld_cache_unfold :
       ∀ w : Void IO.RealWorld,
         (match (ST.Ref.get sparkleChildCache : ST IO.RealWorld _) w with | .mk _ w' => w') = w := Iff.rfl
 
-/-- the ref-distinctness fields need TWO distinct pointers.  The only pointer the API gives is `Classical.choice ST.RefPointed.property` (`ST.RefPointed` is an opaque `NonemptyType`); so no `cref` with `cref.ref ≠ sparkleChildCache.ref` can be built, and if the pointer type were a subsingleton `CellPrem` would be false for every `mref cref`.  (Neither is contradictory: in the runtime the pointers differ.) -/
+/-- the ref-distinctness fields need TWO distinct pointers.  In the API supplied to this investigation the only pointer found is `Classical.choice ST.RefPointed.property` (`ST.RefPointed` is an opaque `NonemptyType`); no `cref` with `cref.ref ≠ sparkleChildCache.ref` was constructed in the investigated range.  CONDITIONAL refutation only: if the pointer type were a subsingleton `CellPrem` would be false for every `mref cref`.  (Neither is contradictory: in the runtime the pointers differ.) -/
 theorem cellPrem_false_of_subsingleton (hs : Subsingleton ST.RefPointed.type)
     (Fresh : (σ : Type) → IO.Ref σ → Prop) (mref : ST.Ref IO.RealWorld Meta.State)
     (cref : ST.Ref IO.RealWorld Core.State) : ¬ CellPrem Fresh mref cref :=
@@ -86,11 +86,11 @@ theorem stderrKeeps_of_laws {mref : ST.Ref IO.RealWorld Meta.State} {cref : ST.R
     (L : Laws mref cref) (cctx : Core.Context) : StderrKeeps L.O.quiet :=
   stderrKeeps_of_ops L.O cctx
 
-/-- the smallest sufficient fact: if the opaque primitive leaves the world alone (the runtime's world token is erased), `StderrKeeps` holds for EVERY `quiet`.  Not supplied for `IO.getStderr`. -/
+/-- a STRONG sufficient condition (not the smallest): if the opaque primitive leaves the whole world alone, `StderrKeeps` holds for EVERY `quiet`.  Identity of the entire world is more than `StderrKeeps` needs.  Not supplied for `IO.getStderr`. -/
 theorem stderrKeeps_of_id (h : ∀ w, stderrW w = w) (quiet : Void IO.RealWorld → Prop) : StderrKeeps quiet := by
   intro w hq; rw [h w]; exact ⟨⟨rfl, rfl, rfl⟩, hq⟩
 
-/-- a concrete non-`False` quiet, "the depth cell reads 0" (a predicate on a tracked ref): for any `Laws.O` with this quiet, the field `diag` at `ioGetStderr` is equivalent to the depth/cache/synth values surviving `IO.getStderr` at every world with depth 0 -/
+/-- an IMPLICATION under the hypothesis `O.quiet w ↔ dv w = 0` (assumed, not a constructed quiet; nothing here shows such an `O` exists, and preserving `dv = 0` under `depthSetQ` updates to arbitrary depths is not established): from `diag` at `ioGetStderr`, at a world with depth 0 the cache/synth values survive `IO.getStderr` and the depth stays 0 -/
 theorem diag_stderr_at_depth0 {Fresh : (σ : Type) → IO.Ref σ → Prop} {mref : ST.Ref IO.RealWorld Meta.State}
     {cref : ST.Ref IO.RealWorld Core.State} (O : RefLawsAOps Fresh mref cref) (hO : ∀ w, O.quiet w ↔ dv w = 0)
     (cctx : Core.Context) (w : Void IO.RealWorld) (h0 : dv w = 0) :

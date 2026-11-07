@@ -2,7 +2,7 @@ import Tools.ShippingFGCircuitS3mField
 import Tools.ShippingFGCircuitS3jStart
 import Tools.ShippingFGCircuitS1kStmt
 set_option autoImplicit false
--- FG circuit pilot Check53 (S3m): (A) the complete types of the constructed theorems against independently written expected types, with mutants; (B) the primitives the first blocking fields rest on are opaque constants, and the statements reach nothing else opaque; (C) the field inventory of CellPrem / Laws; (D) AXIOMS.  The last block is a MetaM EXECUTION OBSERVATION in the real compile process (category (d)); it proves nothing about the logic.  docs/FG-CIRCUIT-PILOT.md §63.
+-- FG circuit pilot Check53 (S3m): (A) the complete types of the constructed theorems against independently written expected types, with mutants; (B) the primitives the first blocking fields rest on are opaque constants (definitional walk, fuel negative control; API theorems are not searched); (C) the field inventory of CellPrem / Laws; (D) AXIOMS.  The last block is a MetaM EXECUTION OBSERVATION in the real compile process (category (d)); it proves nothing about the logic.  docs/FG-CIRCUIT-PILOT.md §63.
 set_option maxHeartbeats 0
 set_option maxRecDepth 1000000
 
@@ -80,14 +80,14 @@ run_cmd liftTermElabM do
     [← `((∃ g : Bool → Bool, ∀ w, g w = w) ∧ (∃ g : Bool → Bool, ∀ w, g w = w))])
   logInfo m!"FGCIRCUIT53 SIGNATURES: 5 constructed theorems (readWorld_cache_unfold, cellPrem_false_of_subsingleton, stderrKeeps_of_ops, stderrKeeps_of_id, readWorld_shape_both) equal their independently written types, {nm} mutants rejected (another ref, a constant match, CellPrem not negated, no quiet premise, dropped dv conjunct, no premise on stderrW, a vacuous conclusion)"
 
-/-! ## (B) the primitives under the first blocking fields are opaque; nothing else opaque is reached -/
+/-! ## (B) the primitives under the first blocking fields are opaque (within the walk; API theorems are not searched) -/
 /-- the opaque constants reachable from `n` through definitions (theorems are not entered) -/
-partial def opaquesOf (e0 : Expr) : MetaM (NameSet × Nat) := do
+def opaquesOf (e0 : Expr) (fuel0 : Nat := 200000) : MetaM (NameSet × Nat) := do
   let env ← getEnv
   let mut seen : NameSet := {}
   let mut ops : NameSet := {}
   let mut todo : List Name := e0.getUsedConstants.toList
-  let mut fuel := 200000
+  let mut fuel := fuel0
   while fuel > 0 do
     fuel := fuel - 1
     match todo with
@@ -105,6 +105,7 @@ partial def opaquesOf (e0 : Expr) : MetaM (NameSet × Nat) := do
       | some ci => for d in ci.type.getUsedConstants do
           unless seen.contains d do todo := d :: todo
       | none => pure ()
+  unless todo.isEmpty do throwError "FGCIRCUIT53 opaquesOf: fuel exhausted with {todo.length} constants still to visit; partial result refused"
   return (ops, seen.size)
 
 run_cmd liftTermElabM do
@@ -115,6 +116,12 @@ run_cmd liftTermElabM do
     | some (.opaqueInfo _) => pure ()
     | _ => throwError "FGCIRCUIT53 OPAQUE: {n} is not an opaque constant"
   -- the first CellPrem field: ReadWorld sparkleChildCache
+  -- negative control: with a too-small fuel the scan must THROW (it used to return a partial result)
+  let mut smallThrew := false
+  try
+    let _ ← opaquesOf (← tyOfConst ``readWorld_cache_unfold) 3
+  catch _ => smallThrew := true
+  unless smallThrew do throwError "FGCIRCUIT53 OPAQUE: fuel 3 did not throw (negative control failed)"
   let (o1, n1) ← opaquesOf (← tyOfConst ``readWorld_cache_unfold)
   let (o2, n2) ← opaquesOf (mkConst ``stderrW)
   let (o3, n3) ← opaquesOf (mkConst ``StderrKeeps)
@@ -122,7 +129,7 @@ run_cmd liftTermElabM do
   unless o2.contains ``IO.getStderr do throwError "FGCIRCUIT53 OPAQUE: stderrW does not reach IO.getStderr"
   -- StderrKeeps reaches the ref-read primitives of cv/sv/dv and IO.getStderr, nothing about the stream's behaviour
   unless o3.contains ``IO.getStderr && o3.contains ``ST.Prim.Ref.get do throwError "FGCIRCUIT53 OPAQUE: StderrKeeps"
-  logInfo m!"FGCIRCUIT53 OPAQUE: the ten primitives (ST.Prim.Ref.get/set/mkRef, ST.RefPointed, Void.mk, Void.nonemptyType, IO.getStderr, sparkleChildCache/Synth/SynthDepth) are opaque constants (kernel cannot unfold them).  The statement ReadWorld sparkleChildCache (the first CellPrem field) reaches {o1.size} opaque constants {o1.toList} through {n1} constants; stderrW (the world under the first Laws field) reaches {o2.toList} ({n2} constants); StderrKeeps reaches {o3.toList} ({n3} constants).  No defining equation of any of them is in the API"
+  logInfo m!"FGCIRCUIT53 OPAQUE: the ten primitives (ST.Prim.Ref.get/set/mkRef, ST.RefPointed, Void.mk, Void.nonemptyType, IO.getStderr, sparkleChildCache/Synth/SynthDepth) are opaque constants (kernel cannot unfold them); the scan with fuel 3 throws (negative control), the scans below finish with an empty todo.  The statement ReadWorld sparkleChildCache (the first CellPrem field) reaches {o1.size} opaque constants {o1.toList} through {n1} constants; stderrW (the world under the first Laws field) reaches {o2.toList} ({n2} constants); StderrKeeps reaches {o3.toList} ({n3} constants), found by a walk through definitions only (theorems of the API are not searched).  No defining equation of these was found in the range investigated; this scan does not prove that none exists, nor that nothing else opaque is reached"
 
 /-! ## (C) the field inventory -/
 run_cmd liftTermElabM do
@@ -172,6 +179,6 @@ run_cmd liftTermElabM do
   let r ← (Tools.ShippingFGCircuitS3jStart.pilotEntry3 Tools.ShippingFGCircuitS1kStmt.hftRoot).run'
   let _ := r
   ok ((← Sparkle.Compiler.Elab.sparkleSynthDepth.get) == d0) "depth after pilotEntry3"
-  logInfo m!"FGCIRCUIT53 OBSERVATION (category (d), real process, not a proof): in this compile process the depth cell reads {d0}, sparkleChildSynth is some = {s0.isSome}, the cache has {c0.size} entries before and after IO.getStderr (unchanged), and pilotEntry3 hftRoot returns without error in the run_cmd context.  The world token is erased at runtime: ReadWorld / SetFrame are not observable, and the run's start world is not a Lean term"
+  logInfo m!"FGCIRCUIT53 OBSERVATION (category (d), real process, not a proof): in this compile process the depth cell reads {d0}, sparkleChildSynth is some = {s0.isSome}, the cache has {c0.size} entries before and after IO.getStderr; the compared observables are only cache.size, synth.isSome and depth (equal before/after; function values and the full cache structure are not compared; with cache.size = 0 the cache is empty), and pilotEntry3 hftRoot returns without error in the run_cmd context.  The world token is erased at runtime: ReadWorld / SetFrame are not observable, and the run's start world is not a Lean term"
 
 end Tests.Gen5.FGCircuitPilotCheck53

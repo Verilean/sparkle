@@ -3255,7 +3255,7 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 | (a) 純粋な模擬モデルの充足 | `readWorld_shape_both`（`∀ w, g w = w` の形は明示状態の上で充足も反証も可能）。既存の `Tools/ShippingHeapModel.lean`（ref のみの断片の模擬 heap。自前の `RunsTo`・`M σ α` で、`Tools.ShippingEntrySoundness.RunsTo` との**橋は無い**） | 実 pilot の証人ではない。新しい模擬 heap は作っていない |
 | (b) 既存 opaque IO 定義についての定理 | `cellPrem_iff_fields`（`CellPrem` = 10 top-level = 16 atomic conjunct）、`readWorld_cache_unfold`、`cellPrem_false_of_subsingleton`、`endW_getStderr`、`stderrKeeps_of_ops` / `_of_laws`（`diag` の事例）、`stderrKeeps_of_id`、`diag_stderr_at_depth0` | kernel 検査済（Check53） |
 | (c) 実ランタイムとの対応 | **無い**。`Void IO.RealWorld` は実行時には消える token で、`ReadWorld`・`SetFrame`・`StderrKeeps` の「実ランタイムで真」は、論理側のどこにも接続されていない | 未接続 |
-| (d) MetaM 実行の観測 | Check53 (E): この compile process で depth=0、`sparkleChildSynth` が some、cache 0 件、`IO.getStderr` の前後で 3 cell 不変、`pilotEntry3 hftRoot` が `run_cmd` の文脈でエラー無く返る。**論理的な内容は無い**（world が token なので `ReadWorld` 等は観測できず、`hr` の開始 world は Lean の項ではない） | 観測のみ |
+| (d) MetaM 実行の観測 | Check53 (E): この compile process で depth=0、`sparkleChildSynth` が some、cache 0 件（今回の限定として cache=0 なら空）、`IO.getStderr` の前後で **観測量 3 つ（`cache.size`・`synth.isSome`・`depth`）が一致**（関数値の同一性も cache 全構造も比較していない。「3 cell 不変」とは書かない）、`pilotEntry3 hftRoot` が `run_cmd` の文脈でエラー無く返る。**論理的な内容は無い**（world が token なので `ReadWorld` 等は観測できず、`hr` の開始 world は Lean の項ではない） | 観測のみ |
 
 `hr` の証拠について: 論理側に `RunsTo (pilotEntry3 X) mctx mref cctx cref w a w'` の**項は無い**。`pilotEntry3` は depth の `get` の値（opaque）が `0` であること、`mref` の状態から環境を引くこと、数百の opaque IO を経ることを要し、既存 API に `readOf mref w` や `setW` の結果についての `SetGet mref` も無い（`CellPrem` の `SetGet` は `cref` のみ）。(d) の観測は同じ文脈の run が実際に成功したことを示すが、それは (b) の `hr` の証拠ではない。
 
@@ -3270,7 +3270,7 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 
 **完全な型**: `ReadWorld (r : IO.Ref σ) := ∀ w : Void IO.RealWorld, getW r w = w`、`getW r w := match (ST.Ref.get r : ST IO.RealWorld σ) w with | .mk _ w' => w'`。ここで `r = sparkleChildCache : IO.Ref (Std.HashMap Name (Module × Design))`、`σ` はその `HashMap`。**量化範囲**: 全ての `w : Void IO.RealWorld`（到達可能な world に限らない）。**opaque な primitive**: `ST.Prim.Ref.get`（`ST.Ref.get` は `liftM <| Prim.Ref.get`）、`sparkleChildCache`（`initialize` による opaque 定数）、`Void.nonemptyType`。文の到達する opaque 定数は Check53 (B) に列挙（`ST.Prim.Ref.get`・`sparkleChildCache`・`Void.nonemptyType`・`IO.RealWorld.nonemptyType`、型の `HashMap Name` 由来の `mixHash`・`String.hash`）。`Prim.Ref.get` の定義式（`inhabitedFromRef r`）は opaque のため kernel は展開しない。既存 API に `ReadWorld` を与える定理は無い。
 
-付記（同じ境界の別の field を試したのではなく、2 の型を読んで分かること）: field 2・15 の `r.ref ≠ cref.ref` / `mref.ref ≠ cref.ref` は、`ST.RefPointed.type` の**相異なる 2 点**を要する。API が与える点は `Classical.choice ST.RefPointed.property` の 1 点だけで、`CellPrem` を**構成する**道は無い（`cref` は run が与える変数）。`cellPrem_false_of_subsingleton`: `ST.RefPointed.type` が subsingleton ならどの `mref cref` でも `¬ CellPrem`。実ランタイムでは ref は別物だが、論理にはそれを言う文が無い。矛盾ではない（subsingleton は仮定であって、示されていない）。
+付記（同じ境界の別の field を試したのではなく、2 の型を読んで分かること）: field 2・15 の `r.ref ≠ cref.ref` / `mref.ref ≠ cref.ref` は、`ST.RefPointed.type` の**相異なる 2 点**を要する。調査範囲で API から見つけた点は `Classical.choice ST.RefPointed.property` の 1 点だけで、相異なる 2 点を与える手段は**調査範囲では未供給**（構成不能と断言はしない。`cref` は run が与える変数）。`cellPrem_false_of_subsingleton` は**条件付き反駁**: `ST.RefPointed.type` が subsingleton ならどの `mref cref` でも `¬ CellPrem`。実ランタイムでは ref は別物だが、論理にはそれを言う文が調査範囲で見つからなかった。矛盾ではない（subsingleton は仮定であって、示されていない）。
 
 ### 63.4 `Laws L` の field 別（手順 3）
 
@@ -3285,7 +3285,7 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 **完全な型**（`diag`）: `∀ {mctx cctx α}, AdmCtx quiet mctx cctx → ∀ (p : MetaM α), Diag p → ∀ w, quiet w → (cv (endW mctx mref cctx cref p w) = cv w ∧ sv (endW …) = sv w ∧ dv (endW …) = dv w) ∧ quiet (endW mctx mref cctx cref p w)`。**量化範囲**: 全ての許容文脈、全ての `Diag p`（`profLog`・`ppExpr`・`ioEprintln`・`msgToString`（`OkMsg` のみ）・`ioGetStderr`・`stderrFlush`・`ioHandleMk`・`ioHandlePutStrLn`（任意の `Handle`）・`ioHandleFlush`（任意の `Handle`））、`quiet` な全ての world。
 
 最小の事例 `p := liftM IO.getStderr` で、`endW … p w = stderrW w`（`endW_getStderr`、`rfl`）。したがって（`stderrKeeps_of_ops`、**構成した定理**）任意の `L : Laws` で `StderrKeeps L.O.quiet`:
-`∀ w, quiet w → (cv (stderrW w) = cv w ∧ sv (stderrW w) = sv w ∧ dv (stderrW w) = dv w) ∧ quiet (stderrW w)`。`stderrW w` は opaque な `IO.getStderr : BaseIO Stream` が返す世界で、**API は型以外の情報を持たない**。つまり非空虚な `quiet` を選ぶこと自体（例えば `dv w = 0` — `diag_stderr_at_depth0`）が、`IO.getStderr` が 3 つの cell を保つという文を前提にする。十分条件として最小の文は `∀ w, stderrW w = w`（`stderrKeeps_of_id`: これがあれば**どの** `quiet` でも `StderrKeeps`）。いずれも未供給。
+`∀ w, quiet w → (cv (stderrW w) = cv w ∧ sv (stderrW w) = sv w ∧ dv (stderrW w) = dv w) ∧ quiet (stderrW w)`。`stderrW w` は opaque な `IO.getStderr : BaseIO Stream` が返す世界で、**API は型以外の情報を持たない**。つまり非 `False` の `quiet` が `w` で成り立つなら、`w` で `IO.getStderr` が 3 値と `quiet` を保つという opaque primitive についての文が必要になる（`diag` からの必要条件の抽出）。強い十分条件の例は `∀ w, stderrW w = w`（`stderrKeeps_of_id`: world 全体の同一性は `StderrKeeps` が要求するより強く、「最小」ではない）。`diag_stderr_at_depth0` は `O.quiet w ↔ dv w = 0` と depth=0 を**仮定した**含意であり、非空虚な `quiet` の構成でも同値の証明でもない。`quiet = (dv = 0)` が `depthSetQ` による任意 depth への更新を保てるかも必要で、`Laws` の具体候補として確立したとは書かない。いずれも未供給。
 
 **矛盾との区別**: `quiet := False` 以外で `Laws` の field 同士が kernel で反駁できる組合せは**見つからなかった**。`diag` から `StderrKeeps` が出る（含意）ことは、矛盾ではない。
 
@@ -3310,6 +3310,6 @@ W2〜W7 は互いに独立ではない: W2/W3/W4/W6 は `JQC 0 w` の 4 成分�
 
 ### 63.7 検査（Check53）・範囲・台帳
 
-- Check53（`Tests/Gen5/FGCircuitPilotCheck53.lean`）: (A) 構成した 5 定理の完全な型が独立に書いた型と一致し、mutant 9 件を拒否、(B) 10 の primitive が opaque 定数であり、第 1 field の文・`stderrW`・`StderrKeeps` が到達する opaque 定数の列挙、(C) field の数（`CellPrem` 10/16、`RefLawsAOps` 10、`RefLawsATele` 4、`diag` が `quiet` の次）、(D) AXIOMS は標準のみ（9 名）、(E) MetaM の観測（(d)）。
+- Check53（`Tests/Gen5/FGCircuitPilotCheck53.lean`）: (A) 構成した 5 定理の完全な型が独立に書いた型と一致し、mutant 9 件を拒否、(B) 10 の primitive が opaque 定数であり、第 1 field の文・`stderrW`・`StderrKeeps` が定義を辿って到達する opaque 定数の列挙（API の定理は探索しない。「API に定義式がない」「他に opaque はない」は走査の証明内容ではなく、調査範囲で未発見という意味。S3n で、fuel 切れで todo が残れば throwError に修正し、fuel=3 の負対照を追加）、(C) field の数（`CellPrem` 10/16、`RefLawsAOps` 10、`RefLawsATele` 4、`diag` が `quiet` の次）、(D) AXIOMS は標準のみ（9 名）、(E) MetaM の観測（(d)）。
 - 新しい証明範囲の対象（`Tools.ShippingFGCircuitS3mField`、`Tests.Gen5.FGCircuitPilotCheck53`）だけを build した。compiler（`Sparkle/`）は不変で、出力 baseline は再実行していない。
 - 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
