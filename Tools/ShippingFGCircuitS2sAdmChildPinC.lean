@@ -20,7 +20,6 @@ import Tools.ShippingFGCircuitS2sAdmChildLegacyImplA
 import Tools.ShippingFGCircuitS2sAdmChildLegacyTailA
 import Tools.ShippingFGCircuitS2sAdmChildMainA
 import Tools.ShippingFGCircuitS2sAdmChildPathA
-import Tools.ShippingFGCircuitS2sAdmChildPinC
 import Tools.ShippingFGCircuitS2sAdmChildProjFieldA
 import Tools.ShippingFGCircuitS2sAdmChildRunA
 import Tools.ShippingFGCircuitS2sAdmChildRunAKids
@@ -99,6 +98,8 @@ theorem stableA_JQPX (O : RefLawsAOpsX MkRefd mref cref) (D : Nat) (L : List (Na
     ⟨(stableA_JQCX O D).2 w w' hc hs hd hq h.1, fun p hp => by rw [hc]; exact h.2 p hp⟩⟩
 
 
+/-- A set of another per-synthesis ref under `JQPX`. -/
+macro "pssetX " O:term:max hA:term:max D:term:max L:term:max : tactic => `(tactic|
   (refine Triple.bind (keeps_iff.mp (keepsA_framedX $O $hA (stableA_JQPX $O $D $L)
       (FramedA.sideSet _ ?s))) ?_
    case s => constructor
@@ -168,7 +169,7 @@ theorem finPX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx) (d : Na
     (fun _ _ h => h)) ?_
   intro _
   refine Triple.ite (fun _ => ?_) (fun _ => Triple.pure fun w hw => hw)
-  psset O hA d L; psset O hA d L; psset O hA d L; psset O hA d L; psset O hA d L; psset O hA d L
+  pssetX O hA d L; pssetX O hA d L; pssetX O hA d L; pssetX O hA d L; pssetX O hA d L; pssetX O hA d L
   exact keeps_iff.mp (keepsA_framedX O hA (stableA_JQPX O d L) (FramedA.sideSet _ .singleOut))
 
 
@@ -246,8 +247,8 @@ theorem core_tripleAPX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.adm mctx cctx
     simp only [h0, Bool.false_eq_true, ↓reduceIte]
     psgetX O hA d L; psgetX O hA d L; psgetX O hA d L; psgetX O hA d L; psgetX O hA d L
     psgetX O hA d L; psgetX O hA d L
-    psset O hA d L; psset O hA d L; psset O hA d L; psset O hA d L; psset O hA d L
-    psset O hA d L; psset O hA d L
+    pssetX O hA d L; pssetX O hA d L; pssetX O hA d L; pssetX O hA d L; pssetX O hA d L
+    pssetX O hA d L; pssetX O hA d L
     refine Triple.bind (tripleP_depthSetX O hA d (d + 1) L) ?_
     intro _
     exact body _ _ _ _ _ _ _
