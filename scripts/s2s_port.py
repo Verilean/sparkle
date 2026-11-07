@@ -12,11 +12,12 @@ def src_of(p):
         r=b[len('ShippingFGCircuitS2sAdm'):]
         if r.startswith('Child') or r=='KWalk': 
             return root+('ShippingFGCircuit'+r if os.path.exists(root+'ShippingFGCircuit'+r+'.lean') else 'Shipping'+r)+'.lean'
-        return root+'ShippingFGCircuit'+r+'.lean'
+        for c in ('ShippingFGCircuit'+r,'Shipping'+r,'ShippingGen5'+r,'ShippingGen2'+r):
+            if os.path.exists(root+c+'.lean'): return root+c+'.lean'
+        return None
 def names():
     ren={}
     for p in glob.glob(root+'ShippingFGCircuitS2sAdm*.lean'):
-        if 'Hist2' in p: continue
         src=src_of(p)
         if not src or not os.path.exists(src): continue
         d=decls(p); o=decls(src)

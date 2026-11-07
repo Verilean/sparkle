@@ -2,8 +2,6 @@ import Tools.ShippingFGCircuitRunLocal
 import Tools.ShippingFGCircuitS2sAdmLawsX
 import Tools.ShippingFGCircuitS2sAdmS2hHist
 import Tools.ShippingFGCircuitS2sAdmS2hHist2
-import Tools.ShippingChildRunAKids
-import Tools.ShippingChildComposeC
 import Tools.ShippingFGCircuitS2sAdmChildCacheA
 import Tools.ShippingFGCircuitS2sAdmChildCanonKeyA
 import Tools.ShippingFGCircuitS2sAdmChildComposeA
@@ -25,15 +23,20 @@ import Tools.ShippingFGCircuitS2sAdmChildPathA
 import Tools.ShippingFGCircuitS2sAdmChildProjFieldA
 import Tools.ShippingFGCircuitS2sAdmChildRunA
 import Tools.ShippingFGCircuitS2sAdmChildRunAKids
+import Tools.ShippingFGCircuitS2sAdmChildRunAMain
 import Tools.ShippingFGCircuitS2sAdmChildTeleCP
 import Tools.ShippingFGCircuitS2sAdmChildTeleLocalA
+import Tools.ShippingFGCircuitS2sAdmChildTeleMainA
 import Tools.ShippingFGCircuitS2sAdmChildTranslateA
 import Tools.ShippingFGCircuitS2sAdmChildTranslatePathA
 import Tools.ShippingFGCircuitS2sAdmChildVCA
 import Tools.ShippingFGCircuitS2sAdmChildVertA
 import Tools.ShippingFGCircuitS2sAdmChildWalkA
 import Tools.ShippingFGCircuitS2sAdmKWalk
+import Tools.ShippingChildRunAKids
+import Tools.ShippingChildComposeC
 import Tools.ShippingFGCircuitS2sAdmServedRealA
+import Tools.ShippingFGCircuitS2sAdmRunReads
 -- FG circuit pilot S2s4: SELECTIVE port of ShippingFGCircuitRunLocal.lean onto the context-predicate bundles (only the declarations that mention RefLawsAOps/AdmCtx/Laws/... or an already-ported name; the rest is taken from the imported original); rename-only script scripts/s2s_port2.py (suffix X, `AdmCtx O.quiet` -> `O.adm`). No sorry/axiom/native_decide/TRUSTED/law.
 set_option autoImplicit false
 -- FG circuit pilot S1f, unit 1: `MachineDefinesRun`, the run-local successor of `MachineDefines`. No `sorry`, no `axiom`, no `native_decide`, no TRUSTED.
@@ -137,7 +140,7 @@ theorem machineRunJQC_of_closesRX (O : RefLawsAOpsX MkRefd mref cref) (hA : O.ad
     (entry : MachineDefinesRun mctx mref cctx cref declName shape w m d w')
     (closes : MachineClosesAtAX (mref := mref) (cref := cref) O mctx cctx declName shape)
     (hw : JQ O.quiet D w) (hc : D = 0 ∨ CacheInvAX O (cv w)) :
-    MachineRunJQC O mctx cctx (D + 1) declName shape m d := by
+    MachineRunJQCX O mctx cctx (D + 1) declName shape m d := by
   obtain ⟨tenv, b, r, w9, w10, hrun, hw9, hres⟩ := machine_run_of_coreRX O hA hr entry hw hc
   have hne := closes b (D + 1) w9 r w10 hw9 (by omega) hrun
   cases r with
