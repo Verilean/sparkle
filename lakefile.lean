@@ -7051,3 +7051,9 @@ lean_lib «Tools.VedU1Contract» where
 
 lean_lib «Tests.Ved.U1ContractCheck» where
   roots := #[`Tests.Ved.U1ContractCheck]
+
+lean_lib «Tools.VedU1Entry» where
+  roots := #[`Tools.VedU1Entry]
+
+lean_lib «Tests.Ved.U1EntryCheck» where
+  roots := #[`Tests.Ved.U1EntryCheck]

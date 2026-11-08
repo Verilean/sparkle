@@ -6,6 +6,8 @@
 
 **改訂 3（2026-11-08、bb58e0c6 に対する reviewer の変更依頼 P1-A・P1-B への対応）**: U1 の契約に、元の宣言の型から読む入出力の対応表を入れ、clock の値を自由にし、玩具 `toyDelay` について契約と `OutputsStmt` を kernel で証明した。**§4.2 の契約の文と clock の項は改訂 2 のもので、改訂 3 で置き換えた（§9）。**
 
+**改訂 4（2026-11-08、83fe82b2 に対する reviewer の裁定 4 への対応）**: U1 入口の最小縦断を 1 つの小さい実宣言でつないだ（`Tools/VedU1Entry.lean`、`Tests/Ved/U1EntryCheck.lean`）。§10。
+
 **Issue 未登録（manager 停止中）**（`managerctl` は completed Failed の Pod への exec でエラーになる）。復旧後に、U0/U1 の完了条件とこの裁定を Issue に登録する。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）
@@ -475,3 +477,65 @@ DeepElab を使う smoke（§3.5 の 1・2）は manager の復旧後に行い�
 - **memory と instance**: v1 の範囲外（`pilotB0` も子 instance を持つので範囲外）。
 - reset の掛かる run、最適化（`checkedOptimize`）と SV への接続。
 - 2 target の `lake build`（cluster）。
+
+## 10. U1 入口の最小縦断（改訂 4、83fe82b2 に対する裁定 4 への対応）
+
+**Issue 未登録（manager 停止中）**。復旧後に、この裁定と U1 入口の完了条件を Issue に記録する。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）
+
+**受理済みのコンパイル済み IP には数えない**。小さい試験用の宣言 1 つ（と同じ型の対照用の宣言）で入口をつないだもので、必要 IP 327 のどれでもない。下の「証明した」は `MEM=16G memlimit lake env lean <file>`（既にある olean に対して 1 ファイルずつ、scratchpad の wrapper `u1lean.sh` で LEAN_PATH に新しい olean を足す）で確かめた範囲で、`lake build` は実行していない（§9 と同じ理由。cluster が要る）。`Sparkle/` と `Tools/DeepElab.lean` は変えていない。DeepElab は import していない。
+
+### 10.1 つないだもの（`Tools/VedU1Entry.lean`、`vedU1Entry` / `#ved_u1 decl`）
+1. 元の宣言の**型**から対応表を読む（`readTable`、`ved_table%` の中身と同じ関数）。出力の射影が 1 つでなければ、**合成の前に**拒否する（段 `multi-output`。複数出力の port 名の規則は実物で未確認なので、推測で受理しない）。
+2. コマンドと同じ `inlinerFuelGuard` の後、`synthesizeEntry declName` を**ちょうど 1 回**呼び、返った `(m, design)` を保持する。再合成はしない。
+3. `declName.ved_mod : Module := toExpr m` を登録する。その閉じた項を評価し直した値が `m` と `DecidableEq` で等しいこと、登録した定数の値がその項と `Expr` として等しいことを確かめる（段 `artifact`）。契約 `declName.ved_contract := contractOf (表) ["out"] clkRst declName.ved_mod`（clk/rst の名前は `m` の register から選ぶだけで、`ShapeCore` が全 register と入力の末尾で照合する）、出力の一覧 `declName.ved_outs` も登録する。
+4. 期待する文 `U1Stmt declName.ved_contract declName.ved_mod declName`（**元の定数そのもの**）を `Expr` として作り、型検査する（段 `type`）。生成した証明 script をその型で elaborate する（`sorry` への置き換えをしない。elaborate 中に error が出たら拒否。段 `proof`）。`Elab.async false` で kernel に `declName.ved_u1` を**ちょうどその型で**同期登録し（段 `kernel`）、登録された型を読み直して期待の `Expr` と比べる（段 `type`）。
+5. `Tools.VedStrictAudit.strictAudit`（存在、theorem、mvar なし、到達閉包 ⊆ 標準 3 公理）を通す（段 `audit`）。
+6. 3〜5 が通ったときだけ `m` を返す／表示する。どこかで失敗したら環境を保存した状態に戻し（`ved_mod`・`ved_u1`・kernel 失敗時の代替 axiom を残さない）、`VED U1 REFUSED <decl> [<段>]: …` を throw する。fallback、trace だけの経路、replay の省略は無い。
+- 証明 script は**信頼しない**（kernel が検査する）。この縦断の script が扱うのは、register の無い module と、register が 1 つでその現在値が出力になる module（delay）だけ。それ以外の body では script が失敗して入口は拒否する（受理はしない）。
+- 一般の補題 `outputs_of_step`（1 周期の不変条件 `R` から `OutputsStmt` を、`seedFwd_time` で時刻の向きを合わせて run の長さの帰納法で導く）は 1 回だけ証明した。生成した script はこの補題に、各 instance の `R`（delay なら「register の値 = 宣言の時刻 `s` の出力」）と 1 周期の計算（`simp` で `m.body` そのものの `stepModule` を評価、連結の算術は `or_mod`）を渡す。
+- `SPARKLE_PROFILE` は `synthesizeEntry` が読む（設定されていれば診断用の entry が走る）。どちらの枝でも、証明するのは返った `m` そのもの。
+- `checkU1` は入口の下の検査器で、module・文に入れる定数・証明を別々に受け取る。これは**対照のためだけ**（差し替えを 1 つずつ注入する）。入口自身は常に、合成した `m`、宣言そのもの、生成した script を渡す。
+
+### 10.2 証明したもの（`Tests/Ved/U1EntryCheck.lean`、`#guard_msgs` で固定）
+- `delay8 (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) := Signal.register 0#8 x`（corpus の書き方、cf. `Tests/TestCircuits.lean`）。`synthesizeEntry` が返す module は loop の機械の形（`_gen_out := {_gen_reg0, _gen_x}`、`next_gen_reg0 := _gen_out[7:0]`、register `_gen_reg0` init 0、`out := _gen_out[15:8]`、clk/rst、module 名 `Tests_Ved_U1EntryCheck_delay8`）。
+- `#ved_u1 delay8` → `theorem Tests.Ved.U1EntryCheck.delay8.ved_u1 : U1Stmt delay8.ved_contract delay8.ved_mod delay8`。監査の行（固定）:
+  `VED U1 OK Tests.Ved.U1EntryCheck.delay8.ved_u1: [Classical.choice, Quot.sound, propext]`
+  続けて返った `m` の全体を表示（`#guard_msgs` に固定）。文の第 3 引数が定数 `Tests.Ved.U1EntryCheck.delay8` そのものであることも `run_meta` で確認した。
+- 同じ入口で、それぞれ**自分の** module について受理: `ident8`（恒等。合成された module は `out := _gen_x` で clk/rst なし、文は真）、`delay8k`（init 5）、`delay8b`（`delay8` と同じ中身で別名）。
+- `native_decide`・`sorry`・新しい axiom は、受理した証明に使っていない。
+
+### 10.3 対照（すべて `#guard_msgs` で固定。拒否された対照の後は、その base の定数が環境に残っていないことも確認）
+- **同じ型で意味が違う宣言**:
+  - 入口: delay の module に恒等 `ident8` を差し替えた完全な期待型 → 拒否 `[proof]`。逆（恒等の module に `delay8`）→ 拒否 `[proof]`。
+  - kernel: `theorem ident_not_delay : ¬ U1Stmt delay8.ved_contract delay8.ved_mod ident8`（閉じた入力 `x = 1` の 1 周期の run: register は 0、恒等は 1。`not_outputs_of_witness`、`decide`/`rfl`）。script の失敗だけでなく、文が偽であることを kernel で示した。
+- **変異した module と元の宣言**（`delay8` に対して、`m` を 1 箇所だけ変える）: register の init 0→5、出力が連結の入力側を読む、出力 port の幅 8→9、register の入力を定数 3 に → すべて拒否 `[proof]`。init の変異は kernel でも `theorem init5_not_delay : ¬ U1Stmt cInit5 mInit5 delay8`（全 0 の入力の時刻 0 で 5 ≠ 0。`mInit5` は `mutInit` の値と `DecidableEq` で一致することを確認）。
+- **別の宣言の証明・artifact の流用**: `delay8` の文の証明に `delay8k.ved_u1`・`delay8b.ved_u1`（同じ意味でも module 名が違うので型が合わない）・`ident8.ved_u1` → 拒否 `[proof]`。`delay8k` の module（init 5）・`ident8` の module を `delay8` に → 拒否 `[proof]`。
+  - **拒否ではない記録**: `delay8b` の module（同じ意味、別の module 名）に**新しく生成した証明**を付けると `delay8` について受理される。契約は module 名を `m` から読み、`declName` に結び付けていない。裁定 11（意味の同じ新 artifact は証明可能）に沿うが、module 名と宣言名の結合は契約に入っていないことを明記する。
+- **複数出力**: `pair8 : … → Signal defaultDomain (BitVec 8 × BitVec 8)` → `VED U1 REFUSED … [multi-output]: 2 output projections; …`（合成の前に拒否）。
+- **範囲外の body**: `inc8 := (· + 1#8) <$> Signal.register 0#8 x`（register はあるが出力ではない）→ 入口が拒否 `[proof]`、何も残らない。これは script の**網羅の限界**であって反例ではない（文は真かもしれない）。
+- **strict 監査**: 完全な文の正しい証明に `native_decide` の事実を混ぜた項（`(fun (_ : 2 + 2 = 4) => delay8.ved_u1) (by native_decide)`）は kernel が受理するが、到達閉包に `Lean.ofReduceBool` があるので拒否 `[audit]`、定理は残らない。（契約の節そのものに `native_decide` を使う形は、`ved_mod`/`ved_contract` が kernel 用の未コンパイルの定義なので compile できない。）
+
+### 10.4 記録の区別
+- **kernel の事実**: `delay8.ved_u1` ほか受理した 4 つの定理、`ident_not_delay`、`init5_not_delay`、`ones_ok`/`zeros_ok`。
+- **入口の拒否**: `checkU1`/`vedU1Entry` が throw したこと（段の名前つき）。拒否は「この script では証明できなかった」までで、文が偽であることの証明ではない（偽であることは上の kernel の定理で別に示した 2 例だけ）。
+- `pilotSig`（`Tests/Ved/U1ContractCheck.lean`）は引き続き、`synth_hftPcieOutByte` の**型を写した観測用の宣言**で、元の宣言についての証明ではない。今回の入口は `pilotB0` も `synth_hftPcieOutByte` も扱っていない（子 instance を持つので v1 の範囲外）。
+
+### 10.5 確かめたこと（rc と時間、このマシンで 1 ファイルずつ、`MEM=16G memlimit`）
+- `Tools/VedU1Contract.lean`（`contractOf` の docstring の修正のみ）: rc=0。
+- `Tools/VedU1Entry.lean`: rc=0、約 8 秒。
+- `Tests/Ved/U1ContractCheck.lean`: rc=0、約 6 秒（変更なし、再確認）。
+- `Tests/Ved/U1EntryCheck.lean`: rc=0、約 29 秒（`synthesizeEntry` は計 5 回: 入口の実行 5 回〔delay8・ident8・delay8k・delay8b・inc8〕で各 1 回。pair8 は合成の前に拒否。対照は登録済みの module を評価し直して使い、合成し直さない）。
+- `synthesizeEntry` は import した olean の IR を interpreter で実行した。共有ライブラリの precompile・gcc の build は要らなかった。
+- 文言の修正（裁定 4 の軽微な点）: `contractOf` の docstring を「不一致が出力意味に影響する場合は `OutputsStmt` を証明できず拒否。未使用 register など観測出力に影響しないものは拒否しなくてよい」に直した。module 名も `m` から読み宣言名に結び付けていないことを書き足した。
+- lakefile に `Tools.VedU1Entry`・`Tests.Ved.U1EntryCheck` の `lean_lib` を足した。
+
+### 10.6 まだ満たしていないもの
+- **一般の証明生成**: script は register なし／register 1 つで出力 = register の形だけ。それ以外（`inc8` のような一般の 1 register の機械、複数 register、比較・mux 等の演算を含む body、Bool の出力）は拒否する。必要 IP の body ごとの replay の生成が U1 の本体の仕事として残る。
+- **複数出力**: 拒否のまま。synthesizer の複数出力の port 名の規則の確認が要る。
+- **module 名と宣言名の結合**: 契約に無い（§10.3 の記録）。入れるなら synthesizer の名前の規則（`.` → `_`）を契約に固定する。
+- params を持つ宣言、構造体の出力、memory、instance（`pilotB0` を含む）、reset の掛かる run、最適化（`checkedOptimize`）と SV への接続。
+- `#verify_elab_deep` のコマンド自体（DeepElab）と 327 の経路への接続はしていない。通常の entry・他のコマンドの経路は別扱い。
+- `lake build`（`kjob lake build Tools.VedU1Entry Tests.Ved.U1EntryCheck`）は cluster が要る。未実行。
+- reviewer の確認は未（このコミットは受理を求める成果の一括ではない）。

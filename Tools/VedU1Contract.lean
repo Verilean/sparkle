@@ -8,9 +8,12 @@ import Sparkle.Core.Signal
 
 Reviewer change requests 2026-11-08: P1-4 (rev 2), then P1-A / P1-B (this
 revision).  Definitions, the declaration-side table reader, and small lemmas.
-No entry and no generator yet; the first instance (`toyDelay`) is proved in
-`Tests/Ved/U1ContractCheck.lean`.  Nothing here imports `Tools.DeepElab`.
-Design: docs/VERIFY-ELAB-DEEP-U0U1-DESIGN-2026-11-08.md §4 and §9.
+The first instance (`toyDelay`, a hand-written module) is proved in
+`Tests/Ved/U1ContractCheck.lean`; the minimal end-to-end entry slice (one
+`synthesizeEntry` call, the full statement over the returned module and the
+original constant, kernel, strict audit) is `Tools/VedU1Entry.lean`.  Nothing
+here imports `Tools.DeepElab`.
+Design: docs/VERIFY-ELAB-DEEP-U0U1-DESIGN-2026-11-08.md §4, §9 and §10.
 
 ## P1-A: the declaration side fixes the port correspondence
 
@@ -60,11 +63,10 @@ bridge at that unit; the IR guarantee is not narrowed to fit it.
 * `seedFwd`: `runModule` passes the cycle index counting down; `seedFwd`
   re-indexes so trace position `t` reads stream time `t` (`seedFwd_time`).
 
-What is NOT here (honest status): the `ved_table%` reader is used by the
-Check on toy declarations; the entry that reads the table of the real
-`declName`, calls `synthesizeEntry` once, registers `m` and `c`, and proves
-`U1Stmt` (same-artifact identity, full statement types) is still planned, as
-are memories, instances and declarations with non-Signal parameters.
+What is NOT here (honest status): the entry is `Tools/VedU1Entry.lean` (a
+minimal slice: one output; register-free or one-register-delay bodies; see
+§10 of the design doc).  The general proof generator, multi-output naming,
+memories, instances and declarations with non-Signal parameters are open.
 -/
 
 namespace Tools.VedU1Contract
@@ -374,8 +376,12 @@ projections) comes from the declaration; input port names follow the
 synthesizer's naming rule `_gen_<binder>` (observed on the toy and on
 `pilotB0`; a different rule makes `ShapeCore` reject, never accept);
 `outNames` are given per output projection.  Name, wires and register
-inits are read from `m`: they are not part of the declaration's type, and a
-wrong init or wire width makes `OutputsStmt` unprovable, not true. -/
+inits are read from `m`: they are not part of the declaration's type.  A
+mismatch in them is rejected because `OutputsStmt` cannot be proved WHEN it
+affects the output meaning; a mismatch that does not affect the observed
+outputs (an unused register, say) need not be rejected (reviewer wording,
+2026-11-08).  The module name is likewise read from `m` and is not bound to
+the declaration's name. -/
 def contractOf (tbl : DeclTable) (outNames : List String)
     (clkRst : Option (String × String)) (m : Module) : Contract :=
   { modName := m.name, clkRst, table := tbl,
