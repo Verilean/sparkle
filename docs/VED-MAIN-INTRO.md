@@ -23,6 +23,7 @@ This branch (`ved/main-intro`, based on main `1614cee8`) brings `#verify_elab_de
 - **The link to the IR the compiler emitted is not strict.**
   - The IR replay `{f}_deep_signal_run` and its lemmas (`_deep_coneEval_*`, `_deep_regstep`, `_deep_state_trace`, …) are discharged with `native_decide`. `ValueParamInitRepro` records this as `replay=[std + 23 native_decide aux]`.
   - These results trust the compiled evaluation of the checkers, not the kernel. Under the strict audit they are rejected, and they are never counted as strict.
+  - **"axioms clean" in the command's `PROVEN` message is not a strictness claim.** The command only rejects metavariables and `sorryAx` in the generated proofs it audits (`Tools/DeepElab.lean` around line 5536). That set includes the IR-replay theorems, which depend on `native_decide` (`Lean.ofReduceBool`). Use `#ved_strict_audit` to check that a declaration is strict.
   - The command also re-synthesises with `synthesizeHierarchical`. It therefore does not prove anything about the artifact that `#synthesizeVerilog` printed.
 - **What it does not cover:**
   - single-module designs only, so hierarchy and instances are refused;
