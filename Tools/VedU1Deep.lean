@@ -130,13 +130,13 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
         intro ins t
         have hl := hlt ins t
         simp [srcOf, $C:ident, contractOf, applyIns, OTy.obs, PTy.obs]
-        rw [$trace:ident]
-        unfold $irS:ident $inpU:ident at hl ⊢
-        simp only [CExpr.compile, $out:ident]
-        simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
+        all_goals rw [$trace:ident]
+        all_goals unfold $irS:ident $inpU:ident at hl ⊢
+        all_goals simp only [CExpr.compile, $out:ident]
+        all_goals simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
           Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
           $nmC:ident, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl] at hl ⊢
-        omega
+        all_goals omega
       refine ⟨by decide, by decide, by decide, ?_⟩
       apply outputs_of_step $C $M $f $O (by decide) (fun ins s st => st $rS = $irS ins s)
       · intro ins hok
@@ -156,18 +156,18 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
         refine ⟨_, _, ⟨rfl, rfl⟩, ?_, ?_⟩
         · simp only [ite_true]
           rw [e1, hR]
-          generalize $irS ins s = x at hl ⊢
-          omega
+          all_goals generalize $irS ins s = x at hl ⊢
+          all_goals omega
         · simp only [List.find?, beq_self_eq_true]
           rw [hR]
-          unfold $irS:ident at hl ⊢
-          simp only [Cdo.irState, $next:ident, CExpr.compile]
-          unfold $inpU:ident at hl ⊢
-          simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
+          all_goals unfold $irS:ident at hl ⊢
+          all_goals simp only [Cdo.irState, $next:ident, CExpr.compile]
+          all_goals unfold $inpU:ident at hl ⊢
+          all_goals simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
           Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
             $nmC:ident, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
             $inpC:ident, PTy.sig] at hl hin ⊢
-          omega)
+          all_goals omega)
 
 /-- The entry: as `vedU1Entry` (one `synthesizeEntry`, the same `m` checked
 and returned), with the DeepElab-built script. -/
