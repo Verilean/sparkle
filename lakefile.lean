@@ -323,6 +323,14 @@ lean_lib «Tools.VedStrictAudit» where
 lean_lib «Tests.Ved.StrictAuditCheck» where
   roots := #[`Tests.Ved.StrictAuditCheck]
 
+-- regressions for the synthesis-path changes this introduction brings
+-- (PR #147 review): width-aware register merging, per-module caches
+lean_lib «Tests.Ved.RegDedupWidthCheck» where
+  roots := #[`Tests.Ved.RegDedupWidthCheck]
+
+lean_lib «Tests.Ved.NestedCacheCheck» where
+  roots := #[`Tests.Ved.NestedCacheCheck]
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"

@@ -14,6 +14,7 @@ on:
   pull_request:
     branches: [ main, master ]
     paths:
+      - 'Sparkle.lean'
       - 'Sparkle/**'
       - 'Tools/DeepElab.lean'
       - 'Tools/VerifyElab.lean'
@@ -54,6 +55,9 @@ jobs:
     - name: Strict axiom audit (accept / reject controls)
       run: lake build Tests.Ved.StrictAuditCheck
 
+    - name: Synthesis-path regressions (width-aware merging, per-module caches)
+      run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
+
     - name: Deep route, representative regression
       run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
 
@@ -75,6 +79,9 @@ jobs:
 
     - name: Strict axiom audit (accept / reject controls)
       run: lake build Tests.Ved.StrictAuditCheck
+
+    - name: Synthesis-path regressions (width-aware merging, per-module caches)
+      run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
 
     - name: Deep route, every regression file
       run: |
