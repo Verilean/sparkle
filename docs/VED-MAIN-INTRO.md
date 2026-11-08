@@ -48,6 +48,25 @@ This branch (`ved/main-intro`, based on main `1614cee8`) brings `#verify_elab_de
 - All five regression files pass on this branch.
 - On `poc` (`09621708`), four of them fail: `DeepElabReifyDemo`, `ConeSharingGen`, `ConeSharingCrc16` and `DeepElabRealIP`. `Tools/DeepElab.lean` is unchanged since `df5f0b09`, so those failures come from later `poc` compiler changes. They must be fixed, or explicitly decided, before the `poc` compiler is brought to main.
 
+## Generated output changes against main
+
+The backend files in the closure carry two fixes from `poc`. They change generated output, deliberately. Measured by building `main`'s CI generators on both commits and comparing byte for byte (jobs `ved-cap-main-1614` and `ved-cap-br-b927`, each also reproducing its earlier hash run):
+
+- **Unchanged:** 13 of the 43 files in `.lake/build/gen`. `cuda/symbolic_xor_w17_command.cu` is written only by the CUDA step.
+- **`.sv`, 10 files.** The only changes:
+  - the NOT mask is printed as a sized literal (`1'd1` instead of `1'(1)`);
+  - temporaries are renumbered in `cavlc_synth`, `frame_encoder` and `mp4_encoder`;
+  - in those three, two assignments of a narrower value to a 6-bit net gain an explicit zero-extension cast (`6'(_gen_zlMinus1)`).
+
+  None of these changes the circuit's function.
+- **C simulator models (`*_cppsim.h`, `*_jit.c`), 20 files.** Two behaviour fixes:
+  - **Per-cycle reset.** The simulator now applies the register's synchronous reset (`if (rst) q = init`), which the SV always emitted. Before, the C model ignored it.
+  - **Exact-width operands.** Operands are masked to their exact width in compare, shift, index and truthiness positions, so an unmasked carry no longer leaks into them. This adds one extra mask on a shift operand in the three CAVLC designs.
+
+  The rest is the same renumbering.
+
+Both fixes bring the C simulator closer to the SV. `main`'s `build.yml` steps pass on this branch. The per-IP function, area and speed comparison belongs to the release gate.
+
 ## CI
 
 - **`ved-pr`** runs on pull requests that touch the compiler, the VED tools or their tests. It builds `Tests.Ved.StrictAuditCheck`, `ValueParamInitRepro`, `ConeSharingGen` and `DeepElabReifyDemo`.
