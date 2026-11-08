@@ -169,9 +169,38 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
     | .ref name =>
       match widthOf (sanitizeName name) with
       | some w =>
-        if lo == 0 && hi + 1 >= w then sanitizeName name
-        else s!"{sanitizeName name}[{hi}:{lo}]"
+        if lo == 0 && hi + 1 == w then
+          -- exact full-width select: elide (`s[0:0]` on a scalar is
+          -- illegal Verilog)
+          sanitizeName name
+        else if hi < w then
+          s!"{sanitizeName name}[{hi}:{lo}]"
+        else if lo == 0 then
+          -- OVER-wide slice: the IR value is the zero-extension to
+          -- hi+1 bits.  Eliding it (the old behaviour) shrank the
+          -- expression's self-determined width and shifted every
+          -- element above it in a concat (silent miscompile, found by
+          -- the certified-roundtrip fragment analysis); a bare
+          -- `name[hi:0]` beyond the width is x-producing Verilog.
+          s!"{hi + 1}'({sanitizeName name})"
+        else
+          s!"{hi + 1 - lo}'(({sanitizeName name}) >> {lo})"
       | none => s!"{sanitizeName name}[{hi}:{lo}]"
+    | .concat [.const 0 w, x] =>
+      -- The lowerer encodes a size cast `w'(y)` as
+      -- `slice (concat [0_w, y]) (w-1) 0`.  Emit that shape back as the
+      -- cast itself: the reparse then reproduces this IR verbatim
+      -- (emit∘parse becomes a projection) instead of wrapping one more
+      -- `{1'd0, ·}` layer per roundtrip — found by the
+      -- certified-roundtrip idempotence check.
+      if lo == 0 && hi + 1 == w then
+        s!"{w}'({emitExpr widthOf x})"
+      else
+        let n := hi + 1 - lo
+        if lo == 0 then
+          s!"{n}'({emitExpr widthOf e})"
+        else
+          s!"{n}'(({emitExpr widthOf e}) >> {lo})"
     | _ =>
       -- A part-select is only legal in Verilog on a NAME (net/reg/array
       -- element) — `(a >> b)[0:0]` is a syntax error.  When the operand is
@@ -217,7 +246,11 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
       match exprWidthV widthOf arg with
       | some w =>
         if w == 0 then s!"~({inner})"
-        else s!"({w}'({inner} ^ {w}'({(2 : Nat) ^ w - 1})))"
+        -- the mask is a SIZED literal (w'dN), not a cast of a bare one:
+        -- `w'(N)` re-parsed as a width-32 literal under a size cast and
+        -- grew one wrapper per roundtrip (certified-roundtrip
+        -- idempotence check)
+        else s!"({w}'({inner} ^ {w}'d{(2 : Nat) ^ w - 1}))"
       | none =>
         -- Parenthesise: a nested NOT otherwise renders as `~~x`, which
         -- iverilog rejects as a syntax error (TLBusBypassBar's
@@ -421,7 +454,11 @@ def emitModule (m : Module) : String :=
     let body := if m.body.isEmpty then
       ""
     else
-      let stmts := m.body.map (emitStmt · "    " m.wires)
+      -- Ports carry widths too: without them a NOT of an input (e.g.
+      -- `~reset`) emitted width-UNKNOWN (`~(x)`), which reparses to a
+      -- 32-bit-container xor — the width-pinned masked form is both
+      -- more precise and roundtrip-stable (certified-roundtrip Test 68).
+      let stmts := m.body.map (emitStmt · "    " (m.wires ++ m.inputs ++ m.outputs))
       "\n" ++ String.intercalate "\n\n" stmts ++ "\n"
 
     let footer := "\nendmodule\n"

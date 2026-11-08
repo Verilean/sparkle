@@ -922,18 +922,25 @@ def optimizeModule (m : Module)
     -- Phase 1: Replace slice-of-concat with direct references
     let optimizedBody := cseBody.map (optimizeStmt dm wm)
 
-    -- Phase 2: Dead code elimination
+    -- Phase 2: Dead code elimination.  Observable wires (read BY NAME at
+    -- runtime through `JIT.resolveWires`, e.g. `_gen_done`,
+    -- `_gen_trap_taken`) count as used: once constant/alias propagation
+    -- has redirected every reference to an alias's target, the alias has
+    -- zero uses but must still exist under its own name.
     let useCounts := countAllUses optimizedBody
     let outputSet := m.outputs.foldl (fun s p => s.insert p.name true) ({} : HashMap String Bool)
+    let observableSet : HashMap String Bool :=
+      (observableWires.getD []).foldl (fun s w => s.insert w true) {}
+    let keepName := fun (w : String) => outputSet.contains w || observableSet.contains w
 
     let prunedBody := optimizedBody.filter fun stmt =>
       match stmt with
       | .assign lhs _ =>
-        outputSet.contains lhs || (useCounts.getD lhs 0) > 0
+        keepName lhs || (useCounts.getD lhs 0) > 0
       | _ => true
 
     let prunedWires := m.wires.filter fun w =>
-      (useCounts.getD w.name 0) > 0 || outputSet.contains w.name
+      (useCounts.getD w.name 0) > 0 || keepName w.name
 
     let m2 := { m with body := prunedBody, wires := prunedWires }
 
@@ -947,11 +954,11 @@ def optimizeModule (m : Module)
     let finalBody := inlinedBody.filter fun stmt =>
       match stmt with
       | .assign lhs _ =>
-        outputSet.contains lhs || (useCounts2.getD lhs 0) > 0
+        keepName lhs || (useCounts2.getD lhs 0) > 0
       | _ => true
 
     let finalWires := inlinedWires.filter fun w =>
-      (useCounts2.getD w.name 0) > 0 || outputSet.contains w.name
+      (useCounts2.getD w.name 0) > 0 || keepName w.name
 
     -- Phase 4.5: prune registers (and instances) unreachable from the
     -- module's outputs.
