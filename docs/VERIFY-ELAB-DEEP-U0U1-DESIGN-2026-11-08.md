@@ -572,7 +572,7 @@ DeepElab を使う smoke（§3.5 の 1・2）は manager の復旧後に行い�
 ### 11.2 つないだもの（`Tools/VedU1Deep.lean`、`vedU1DeepEntry` / `#ved_u1_deep decl`）
 - 入口は `vedU1Entry` と同じ形: 型から表を読む（複数出力は合成の前に拒否）、`inlinerFuelGuard`、`synthesizeEntry` を**ちょうど 1 回**、返った `m` を `checkU1` に渡して、成功したときだけ `m` を返す。違いは証明源だけ。
 - `checkU1` に証明源 `.built mk` を足した（`Tools/VedU1Entry.lean`、8 行）。`mk` は checker が `ved_mod`・`ved_contract`・`ved_outs` を登録した**後**に、名前と返却 `m` から script を作る。`mk` が環境に足すもの（補助の定義）は checker の save/restore の中にあり、拒否したら戻る。`mk` の失敗は段 `proof` の拒否。
-- builder（`buildDeepWith stmtDecl decl`）が読む DeepElab の定数は、`#verify_elab_deep decl` が作ったもののうち次だけ: `{f}_deep : Cdo Γr Γi w`、`{f}_nm`、`{f}_inp`、`{f}_deep_trace`、`{f}_deep_next`、`{f}_deep_inits`、`{f}_deep_out`（smoke2 の row 212 の監査ではどれも strict OK の系統）。無ければ拒否（`#verify_elab_deep` を先に）。`Cdo` でなければ（memory を持つ `CdoM` 等）範囲外として拒否。
+- builder（`buildDeepWith stmtDecl decl`）が script に書く DeepElab の定数は、`#verify_elab_deep decl` が作ったもののうち次だけ: `{f}_deep : Cdo Γr Γi w`、`{f}_nm`、`{f}_inp`、`{f}_deep_trace`、`{f}_deep_next`、`{f}_deep_inits`、`{f}_deep_out`（smoke2 の row 212 の監査ではどれも strict OK の系統）。このうち `_deep_next`/`_deep_inits`/`_deep_out` は `rfl` の定理で、最終の証明項には残らない（`simp` の定義的な書き換え）。無ければ拒否（`#verify_elab_deep` を先に）。`Cdo` でなければ（memory を持つ `CdoM` 等）範囲外として拒否。
 - **使わないもの**: cone の定数、`_deep_fidelity_*`、DeepElab の再合成 IR、native 依存の定理（`_deep_coneEval_*`、`_deep_regstep`、`_deep_step_*`、`_deep_seed_bounded`、`_deep_signalM*`、`_deep_signal_fold`、`_deep_state_trace`、`_deep_signal_run`）。提案の段階で予定した「cone の `Expr` 一致を閉じた `decide` で」も、不要だったので使っていない。返却 `m.body` と DeepElab の `Cdo` の compile をそれぞれ kernel で算術まで評価して比べるので、2 つの合成が同じ module を返すこと（probe1 で観測、BEq で一致）を前提にも観測の根拠にもしていない。
 - 補助の定義 2 つ（checker の base の下、通常の reducibility）: `ved_inpU ins t j`（U1 の入力の流れ `ins` を DeepElab の入力の値へ: `({f}_inp (PTy.sig (.bv w) ins "_gen_<binder>") …) j).val t`）と `ved_irS ins t := Cdo.irState {f}_deep {f}_nm (ved_inpU ins) t ⟨0, _⟩`。`abbrev` にすると `simp`/`omega` が別の形に開いて atom が揃わなかった（probe4）ので通常の定義にした。
 - 生成した script（信頼しない、kernel が検査）:
@@ -585,12 +585,15 @@ DeepElab を使う smoke（§3.5 の 1・2）は manager の復旧後に行い�
 - probe1（`ved-probe1-b316` exit 0）: `accK9`・`natInit5` で `synthesizeEntry` の `m` と `synthesizeHierarchical` の単一 module が BEq で一致（観測。証明には使わない）。
 - probe2（exit 0）: DeepElab の生成文の形（`accK9_nm` は 0 ↦ `_gen_acc`、1 ↦ `_gen_d`。next/out は concat の slice）。
 - probe3〜7（exit 1）: 依存型の注釈、`envOfC_names` が当たらない、`evalOp` の展開、`abbrev` の atom、`srcOf C f` の rewrite で motive が型不正、`← hR` が構文一致しない。各回の原因と対処は Issue の note。
+- 生成器の build: `ved-deep-5fc2`（`evalExpr` が `Meta.evalExpr` と曖昧、2 例とも `[proof]` で拒否）、`ved-deep-2260`（`simp` が先に goal を閉じ `No goals`、同じく拒否）、`ved-deep-f66f`（入口の受理と対照は通過、閉包の検査が空虚で停止）、`ved-deep-332e`（閉包の要件を `_deep_next` に置いた誤り）。各回とも入口は fallback なしで拒否し、誤りは script か検査の側だった。
 - probe8（`ved-probe8-b316` exit 0）: 手書きの定理 `accK9_u1 : U1Stmt accK9.ved_contract accK9.ved_mod accK9`、`sorry` なし、strict 監査 `[Classical.choice, Quot.sound, propext]`。この証明の形を 11.2 の生成器にした。
 
 ### 11.4 Check（`Tests/Ved/U1DeepCheck.lean`）
 - `#verify_elab_deep` の後、入口が `accK9`・`natInit5` を受理: `VED U1 OK …ved_u1: [Classical.choice, Quot.sound, propext]`（`#guard_msgs` で固定）。
 - 完全型: 登録された定理の型が `U1Stmt f.ved_contract f.ved_mod f`（宣言の定数そのもの）と `Expr` として等しい。
-- 定数依存閉包（`collectAxioms` とは別）: `accK9.ved_u1` から型と値をたどった閉包が `accK9_deep_trace` を含み（空でない）、`_native` の補助と native 系の DeepElab 定理を含まない。環境には `accK9_deep_signal_run` が在ることも確かめる。
+- 定数依存閉包（`collectAxioms` とは別）: `accK9.ved_u1` から型と値をたどった閉包が `accK9_deep_trace`・`accK9_deep`（reify した回路）・`Cdo.irState` を含み（空でない）、`_native` の補助と native 系の DeepElab 定理を含まない。環境には `accK9_deep_signal_run` が在ることも確かめる。
+  - 定理の値は `thmInfo`/`defnInfo`/`opaqueInfo` を明示的に読む。最初の版は `ConstantInfo.value?` を使い、これが定理に `none` を返したので型だけをたどっていた（空虚な検査。probe9 で発見）。strict 監査は `collectAxioms`（定理の値をたどる）なので、この誤りの影響を受けていない。
+  - `{f}_deep_next`・`{f}_deep_inits`・`{f}_deep_out` は `rfl` の定理で、`simp` は定義的な書き換えとして使うので項に定数が残らない。したがって閉包の要件はこの 3 つではなく、回路 `{f}_deep` とその漸化式 `Cdo.irState` に置く。
 - 拒否（共通 helper `expectRefused`。拒否のたびに checker の定数と補助の定義が残っていないことも確かめる）:
   - 変異した module（init 0→5、定数 9→10）と、元の宣言と自分の DeepElab の事実 → `[proof]`。変異が元と異なることも確かめる。
   - 別の宣言の DeepElab の事実（意味が違う `accK10`、`natInit5`）→ `[proof]`。
