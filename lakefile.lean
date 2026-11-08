@@ -7045,3 +7045,9 @@ lean_lib «Tools.VedStrictAudit» where
 
 lean_lib «Tests.Ved.StrictAuditCheck» where
   roots := #[`Tests.Ved.StrictAuditCheck]
+
+lean_lib «Tools.VedU1Contract» where
+  roots := #[`Tools.VedU1Contract]
+
+lean_lib «Tests.Ved.U1ContractCheck» where
+  roots := #[`Tests.Ved.U1ContractCheck]

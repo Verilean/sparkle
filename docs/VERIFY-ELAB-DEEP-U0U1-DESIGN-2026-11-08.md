@@ -1,8 +1,10 @@
 # verify_elab_deep 拡張: U0 測定の設計、厳密な axiom 監査、U1 契約の下書き（2026-11-08）
 
-土台: par/ved-plan 8f2bcada（調査書 `docs/VERIFY-ELAB-DEEP-SURVEY-2026-11-08.md`）。この文書は**設計**で、測定はまだ一度も実行していない。cluster の Job は使っていない。実行したのは、手元での小さな build 2 件（`Tools.VedStrictAudit`、`Tests.Ved.StrictAuditCheck`、どちらも `MEM=8G memlimit lake build`、exit 0）だけである。`Tools/DeepElab.lean` と `Sparkle/` は変えていない。
+土台: par/ved-plan 8f2bcada（調査書 `docs/VERIFY-ELAB-DEEP-SURVEY-2026-11-08.md`）。この文書は**設計**で、測定はまだ一度も実行していない。cluster の Job は使っていない。`Tools/DeepElab.lean` と `Sparkle/` は変えていない。
 
-**Issue 登録は未実施**（manager が停止中。`managerctl` は completed Failed の Pod への exec でエラーになる）。復旧後に、U0/U1 の完了条件とこの裁定を Issue に登録する。
+**改訂 2（2026-11-08、reviewer の変更依頼 P1-1〜P1-4・追加への対応）**: U0 の harness を発見・観測のモードに作り直し（§3）、U1 の契約を build できる下書きにした（§4）。各項の対応と残りは **§8**。手元で実行したのは、harness の単体テスト（偽の runner、Lean なし、30 件 OK）と小さな Lean の build（`Tools.VedStrictAudit`、`Tests.Ved.StrictAuditCheck` は `MEM=8G memlimit lake build`、`Tools.VedU1Contract`、`Tests.Ved.U1ContractCheck` は `MEM=8G memlimit lake env lean`。§4.2）だけである。
+
+**Issue 未登録（manager 停止中）**（`managerctl` は completed Failed の Pod への exec でエラーになる）。復旧後に、U0/U1 の完了条件とこの裁定を Issue に登録する。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）
 
@@ -37,6 +39,35 @@
 
 ---
 
+## 1b. reviewer の変更依頼（2026-11-08、1cd11d0f に対して。原文のまま）
+
+> 1cd11d0f の Tools/VedStrictAudit.lean、StrictAuditCheck、U0 scripts、設計書を読みました。監査本体の方針は適合しています（標準3公理の閉包、存在/theorem/mvar、名前偽装対照）。手元buildは報告として受領、こちらで再実行はしていません。native_decideの現toolchainの閉包観測と模型の時間を実G1へ外挿しない記録も適切です。ただし測定harnessとU1契約は以下の変更を要します。全327測定へ進む前に直してください。新規実装成果の一括受理ではありません。
+>
+> P1-1 U0のstrict_countedは現在の判定では過大評価できます。
+> case_textのVED BODYはdeep実行後にsynthesizeHierarchicalを再実行した別runのmとの比較です。v==toExpr m.bodyを同じrunの実bodyの証拠に使えません。非一致を全てreorderedとするのも誤りです（mismatch/unknownが要る）。
+> またclassifierは名前suffixの存在を見ており、定理の完全型/前提/出力全部を検査していません。複数出力で1個のtrace/replayだけでもsrc/replay=trueになります。VED REQの実装もありません。
+> 対処: U0の現harnessは発見/観測モードとして strict_counted=no/unknown を維持するか、生成時に同じartifactの識別と各出力の期待型を検査するprobeを追加。body比較はobserved_against_second_runと明記し、厳密な結合と分ける。source/IR/opt/SVの段ごとに必要な定理集合とそのclosureを確認してください。text_parsesの存在だけではSV意味の橋をyesにしないこと（parse/roundtrip/SV意味を分ける）。任意の観測用extra theoremの非標準axiomを理由にIR段まで失敗とせず、その段に必要なclosureを集計する。
+>
+> P1-2 inventoryケースを忠実に再現していません。
+> params/argsはコメントとmeta.tsvにあるだけで #verify_elab_deep decl へ渡していません。symbolicModeは捨てています。元ファイルのimportでprivate宣言は通常の名前で参照できない場合もあり、namespace/openやlocal optionはimportでは持ち越せません。『そのコマンドでの検証結果』と数えないこと。正確なwrapper/特殊化を構成するか、unsupported-invocation/unresolved-private/harness-errorとして明示して327の分母に残してください。decl_ofのqualifiedが推定である場合も検証が必要。
+> smoke-splitは残した#check/証明/guard等が、削除したdeep宣言を参照する可能性があり、別namespaceに移した生成名も既存参照を壊します。as-isの結果と切出しharnessの失敗を分け、少数例で生成fileを検証してから展開。
+>
+> P1-3 設定・再開・プロセス隔離。
+> (a) limited_runはos.environを継承して追加するだけなのでdefaultにも親のSPARKLE_DEEP_SHARE/TRACE_ONLY/NOTHM/PROFILE等が漏れます。関連overrideを一度消してから明示設定し、実効設定を記録。
+> (b) genがCase.lean/meta.tsvを上書きした後run.txtがあればskipするため、別SHA/設定の古い結果と新fileが混在します。srcSHA/toolchain/inventory/casehash/実効設定でrun identityを固定。生成前に再利用可否確認し、不一致なら別attemptディレクトリ。REDOでresults.tsvへ旧新混在・二重集計しない。
+> (c) p.killはkjob/lakeの親だけをkillし、Lean等の子孫が生存し得ます。新session/process groupまたはcase単位cgroupで全体を終了し、回収を確認。RLIMIT_ASだけをhostのmemlimit代用にしない（Pod -mの外側制限は保持）。SIGKILLだけでOOMと断定せずsignal_unknownを分ける。ru_maxrssがwrapperだけを測っていないか小さい負荷で確認。
+> (d) run.txt欠落・classifier失敗・gen失敗はharness-errorとして残し、後続測定継続とJob全体の未完報告を両立。set -uだけではこの失敗が最後のechoで成功扱いになり得る。
+>
+> P1-4 U1Stmtのsrc/declNameの結合がスケッチでは不足。
+> 現ShapeStmt/OutputsStmtはc.declName/paramsを意味的に使用せず、srcは自由引数。『宣言から生成する予定』だけでは別ソースやIR由来srcへの取り違えを防げません。独立の期待型に元宣言を適用したSignal式を直接固定するか、SrcBindingを実際に証明し最終文へ合成。c.clk/rstと実module入力/register reset式の結合、inputsの幅/順序/初期状態、seedInの時刻方向も明示してください。WidthStmtのdeclWidthはwire宣言のみから読む実装なので、clk/rstにwire宣言のない実artifactで契約が成立するか確認。必要以上に拒否する契約にも注意。期待型と全Moduleをbindして元宣言から返却IRを示すという目標は維持。
+>
+> 追加: #ved_audit_generatedは現在のnamespace配下の定理を列挙するだけで、期待する全定理が生成されたことや契約の正しさを監査しません。この限界をCLI/docに明記（strictAudit単体がその役割を持たないのは正しい）。U0側の同期設定と、汎用commandとして使用する際の同期前提も区別。
+> 修正の検証は軽いharness unit/controlを先に（別SHA再開、環境変数汚染、子process timeout、複数出力欠落、params無視、body mismatch）。DeepElabを使うsmokeはmanager復旧後でよいです。U0全件を待たずU1の型と最小接続準備は継続可。FG75/T157不変。manager復旧時にIssueへこの変更依頼を記録してください。
+
+対応は §8。
+
+---
+
 ## 2. 厳密な axiom 監査（裁定 8・9）
 
 ### 2.1 置いたもの
@@ -46,6 +77,8 @@
   - 判定は閉包の集合の包含**だけ**で行う。tactic の名前も、axiom の名前の形も見ない。shared 経路の `isAux`（DeepElab.lean:3600–3604、`.str (.str (.str _ "_native") "native_decide") ax => ax.startsWith "ax_"`）は写していない。
   - `#ved_strict_audit decl`: 通れば `VED STRICT OK decl: [閉包]`、落ちればエラー。
   - 測定用（受理はしない）: `#ved_axioms_raw decl`（閉包をそのまま出す）、`#ved_audit_generated Ns`（このファイルで `Ns` の下に宣言された theorem ごとに `VED AUDIT <名前> strict=OK|REJECTED axioms=[閉包]` を 1 行。エラーで止まらないので、1 ケースの全定理を記録できる）。
+  - `#ved_audit_current_namespace`（730341a1）: 同じことを今の名前空間について行う（U0 の写しのケースは、ファイルの名前空間の中に入れ子にした新しい名前空間で走るので、その完全な名前をケースファイルに書かない）。
+  - **限界（変更依頼の追加）**: `#ved_audit_generated` と `#ved_audit_current_namespace` は、名前空間の下に宣言された theorem を**列挙するだけ**である。期待するすべての定理が生成されたこと、定理の文（契約）が正しいこと、定理がどの artifact についてのものかは監査しない（期待した定理が無ければ、一覧に出ないだけ）。`strictAudit` 単体も 1 つの宣言の閉包だけを判定する。期待する定理の集合との比較は U0 の classifier（§3.4、観測）と U1 の入口（§4.1）の仕事である。docstring に明記した。
 - `Tests/Ved/StrictAuditCheck.lean`（lakefile に `lean_lib «Tests.Ved.StrictAuditCheck»`）。`#guard_msgs` で期待する出力を固定した。負の例（NEGATIVE）の axiom はこのファイルの中だけにあり、ほかから import されない。
 
 ### 2.2 各例の結果（`lake build Tests.Ved.StrictAuditCheck` exit 0 = すべての `#guard_msgs` が一致）
@@ -82,133 +115,124 @@ metavariable の検査 (c) は、宣言済みの定数に metavariable を残す
 - 179/82/40/4/18/4 の群は、調査書 C 節の**最適化後の SV**から取った近似。結果表では `sv_group_approx` という別の列に入れ、raw IR から取った値（`#verify_elab_deep` の拒否理由、レジスタ数など）と混ぜない。群の表は coder の作業領域にあり、ソースツリーには入れない。
 - 「deep の実行記録が無い」は**未確認**で、失敗ではない。列 `deep_run_record` は、測った行が `measured`、まだ走っていない行が `none`。
 
-### 3.2 1 ケース = 1 行 × 1 設定 = 1 つの小さな Lean ファイル
-`u0_gen.py gen --row N --setting S --out DIR` が `DIR/R<NNN>_<S>/` に次を書く。
-- `Case.lean`: `import Tools.DeepElab`、`import Tools.VedStrictAudit`、`import <その行のファイルの module>`。`set_option Elab.async false`。inventory の `options` 列（例 `maxHeartbeats=4000000`）。設定の option。新しい名前空間 `VedU0.R<N>` の中で `open <ns>` と `#verify_elab_deep <decl>`、続けて `#ved_audit_generated VedU0.R<N>` と、replay の本体が `m.body` そのものか並べ替えかを調べる `run_cmd`（`VED BODY …`、§3.4）。
-- `case.env`: 設定の環境変数。`meta.tsv`: 上のキー列。
+### 3.2 1 ケース = 1 行 × 1 設定 = 元のファイルの写し 1 つ（変更依頼 P1-2 で作り直した）
+`u0_gen.py gen --row N --setting S --dir DIR` が DIR に次を書く。
+- `Case.lean`: **その行のソースファイルの写し**。import の並びの後に `import Tools.DeepElab` と `import Tools.VedStrictAudit` を足し、**元のコマンドの直後**に次の塊を差し込む（元のコマンドもそのまま走る）。
+  ```lean
+  namespace VedU0Case_R<N>
+  run_cmd …   -- VED NS（いまの名前空間）、VED DECL（コマンドの識別子をこの場所で解決し、inventory の qualified と比べる）
+  set_option Elab.async false in
+  set_option <inventory の options> in      -- 例 maxHeartbeats 4000000
+  set_option sparkle.deepShare true in       -- shared の設定のときだけ
+  #verify_elab_deep <top>                    -- 元のコマンドが書いた識別子そのまま
+  #ved_audit_current_namespace
+  run_cmd …   -- VED RET / VED SECONDRUN / VED OUTPUT / VED BODY（観測。下の 3.4）
+  end VedU0Case_R<N>
+  ```
+  写しなので、private の宣言（327 行のうち 153 行）、ファイルの namespace / open、scoped な `set_option`（136 ファイルのうち 54）、local な属性は、元のコマンドのものと同じになる。前の版（宣言を import して別ファイルで `open ns` するもの）は、これらを持ち越せず、private の 153 行は名前を解決できなかった。
+- `case.env`: 設定の環境変数。`meta.json`: キー列、`invocation`、差し込んだ塊の行範囲（`block_begin`/`block_end`。エラーを塊の中と外に分けるため）。
+- **走らせない行**（327 の分母には残す）: `#verify_elab_deep` は識別子 1 つしか取らないので、引数を持つ行は元のコマンドどおりに再現できない。`params`（`W := 8` など）と `symbolicMode` を持つ `#synthesizeParameterizedVerilog` 4 行、ファイル名などの引数を持つ `#writeDesign` 13 行と `#writeVerilogDesign` 2 行、計 19 行を `invocation=unsupported-invocation` とし、理由を `invocation_detail` に書く。手元で 327 行すべてを生成した結果: `deep-in-file` 308、`unsupported-invocation` 19、生成の失敗 0。
+- ほかの `invocation`: `unresolved-name` / `unresolved-private`（VED DECL が解決できなかった）、`harness-error`（下の 3.2b）。ソースの走査で確かでないもの（コマンドが見つからない・2 つある、`end` の対応が合わない、`mutual` の中、`module` ヘッダ）は `unsupported-invocation: source scan …`。元のファイルが `Tools.DeepElab` の import の閉包に入っている場合（写しが同じ宣言を再定義する）は `harness-error`（今の 327 行では 0）。
+- `decl_check`: VED DECL が解決した名前（private なら利用者名に直す）と inventory の `qualified` の比較（`match`/`mismatch`/`absent`）。`qualified` は抽出時の推定なので、`mismatch` は inventory 側の誤りとして記録し、測る宣言は元のコマンドと同じ場所での解決結果を使う。
 
-`u0_case.sh` がケースを**それぞれ別の `lean` process** で走らせる。前のケースが timeout・OOM・エラーになっても、後のケースはその影響を受けない（巨大な一括ファイルにしない）。ケースごとに次を `run.txt` に書く。
-- `rc`（終了コード）、`timeout`（yes/no）、`limit`（メモリ上限に当たったと見られる場合 `mem`）、`wall_s`、`peak_rss_kb`（子 process の `ru_maxrss`）、`time_limit_s`（`U0_TMO`、既定 1800）、`mem_limit_kb`（`U0_MEM_KB`、既定 12 GiB。`RLIMIT_AS` で掛ける）、`sparkle_sha`（`HEAD` と、追跡ファイルの未コミット変更数）。
-- `SPARKLE_DEEP_TRACE=<ケース>/stages.log` を常に設定する。DeepElab の STAGE の印は kill されても残るので、timeout がどの段で起きたかが分かる。
-- stdout と stderr は `stdout.txt` / `stderr.txt`。すべて `OUT`（Job の `KJOB_REPORT_PATH` の置き場）の下で、ソースツリーには何も書かない（両 script とも、OUT がツリーの中なら止まる）。
-- `RLIMIT_AS` が Lean の仮想メモリの予約と合わず、正常なケースまで落とすようなら、Pod の `-m` を上限にして 1 ケース 1 Job にする（その場合も記録する列は同じ）。
+### 3.2b 実行（`u0_run.py`。`u0_case.sh` は薄い wrapper）
+- **環境（P1-3 a）**: 親の環境から `SPARKLE_` で始まる変数を**すべて消してから**、`case.env` と `SPARKLE_DEEP_TRACE=<ケース>/stages.log` を置く。DeepElab が読むのは `SPARKLE_DEEP_{DEBUG,GOALS,NOFIRST,NOTHM,SHARE,SKIP,TRACE,TRACE_ONLY}` と `SPARKLE_SL_CHECK`、compiler と Tools はほかに `SPARKLE_PROFILE`、`SPARKLE_NO_REGDEDUP`、`SPARKLE_NO_LOOPCACHE` などを読む（grep `IO.getEnv`）。接頭辞ごと消すので後から増えた変数も残らない。実効の `SPARKLE_*` を `effective_env`、消した名前を `cleared_env` に記録する。Lean の option は塊の `set_option … in` として `lean_options` に記録する。`SPARKLE_DEEP_TRACE` は STAGE の印と宣言ごとの RSS を書くだけで、証明は変えない（DeepElab.lean 2430–2442）。
+- **実行の同一性（P1-3 b）**: `run_id` = src SHA + 未コミット変更の hash（`git status --porcelain` と `git diff HEAD`）+ toolchain + inventory の固定値 + harness（2 つの script）の hash + 実行設定（コマンド、timeout、grace、RLIMIT_AS）。ケースごとに `case_hash`（Case.lean・case.env・meta.json）と実効の設定。**再利用の判断は書き込む前**に行う。同じ同一性で終わった attempt があれば再利用し、無ければ新しい `cases/<key>/attempt-NNN/` を作る（古い attempt は消さず、混ぜない）。表は `results/<run_id>/` に、その `run_id` の各ケースの**最新の終わった attempt 1 つ**から毎回作り直す。別の SHA・設定の行は別の表に入り、`REDO=1` で何度やり直しても 1 ケース 1 行。
+- **process（P1-3 c）**: ケースごとに補助 process（child subreaper）を起こし、その子としてコマンドを**新しい session（process group）**で始める。timeout なら group に SIGTERM、`U0_GRACE` 秒後に SIGKILL。終わった後（正常終了でも）、group に残ったものと subreaper に付け替えられた子孫を kill し、回収を確かめる（`reaped=yes|no:<pid>`）。終了は `exit_<n>`、`signal_<n>`、wrapper が 128 以上で終わった `exit_<n>(signal_unknown)`、`timeout(TERM|KILL)`。**SIGKILL だけで OOM とは書かない**。メモリの証拠は `mem_evidence` に、cgroup の `oom_kill` の増分か allocator の文（`out of memory` / `std::bad_alloc`）があるときだけ書く。
+  - メモリ: `peak_rss_kb` は補助 process の `RUSAGE_CHILDREN` の `ru_maxrss` = **回収した子孫のうち最大の 1 process** の RSS（wrapper の RSS でも合計でもない）。ケースごとに新しい補助 process なので前のケースの値は混ざらない。手元で確かめた: 200 MB を確保する孫を持つ偽のケースで 216356 kB、持たないケースで 14052 kB。cgroup v2 の `memory.peak` が fd ごとに reset できる kernel（6.12 以上。手元は 6.18）では `cgroup_peak_kb` も記録する（cgroup 全体なので runner 自身の分を含む: 同じ 2 ケースで 244416 / 35072 kB）。
+  - `RLIMIT_AS` は既定で使わない（`U0_RLIMIT_AS_KB` で付けられるが、Lean の仮想メモリの予約と合わない恐れがあり、メモリ上限の代わりにはしない）。上限は **kjob の Pod の `-m`**（外側）で掛ける。
+- **harness の失敗（P1-3 d）**: 生成の失敗、`run.txt` が無い、分類の失敗、コマンドを起動できない、壊れた list の行は、`invocation=harness-error` の行（`harness_error` に理由）として残し、次のケースへ進む。最後の行は `U0 SUMMARY run_id=… requested=… ran=… reused=… not_run_unsupported=… harness_error=… missing=… COMPLETE|INCOMPLETE`。harness-error か欠けた行があれば `INCOMPLETE` で、終了コードは 3（`u0_case.sh` もそのまま返す）。
 
 ### 3.3 設定
 | 設定 | 中身 | 数え方 |
 |---|---|---|
-| `default` | 既定経路（`Cdo`/`CdoM`） | 通常 |
-| `shared` | `set_option sparkle.deepShare true`（`CdoW`） | 通常 |
-| `profile` | 既定 + `SPARKLE_PROFILE=1` + `SPARKLE_DEEP_DEBUG=1`（合成側の profile と STAGE 情報） | 通常（profile は観測を足すだけ） |
-| `traceonly-shared` | shared + `SPARKLE_DEEP_TRACE_ONLY=1`（trace 定理だけで止まる） | **trace-only。完全な成功に数えない** |
-| `defsonly-default` | 既定 + `SPARKLE_DEEP_NOTHM=1`（定義だけ作って定理を作らない） | **trace-only。完全な成功に数えない** |
+| `default` | 既定経路（`Cdo`/`CdoM`） | 観測 |
+| `shared` | 塊に `set_option sparkle.deepShare true in`（`CdoW`） | 観測 |
+| `profile` | 既定 + `SPARKLE_PROFILE=1` + `SPARKLE_DEEP_DEBUG=1` | 観測（profile は観測を足すだけ） |
+| `traceonly-shared` | shared + `SPARKLE_DEEP_TRACE_ONLY=1` | **trace-only。完全な成功に数えない** |
+| `defsonly-default` | 既定 + `SPARKLE_DEEP_NOTHM=1` | **trace-only。完全な成功に数えない** |
 
-- 同期 kernel 登録: ケースのファイル全体に `set_option Elab.async false` を付ける。`#verify_elab_deep` 自身も中で `Elab.async false` にして各定理を elabCommand している（DeepElab.lean:1742、1773–1776）。こうすると、kernel が拒否した定理は環境に**無い**ので、`#ved_audit_generated` の一覧に出ない。U1 の入口では、生成した宣言を `addDecl`（同期）で登録し、その直後に `getConstInfo` で存在を確かめる。
-- 327 行には `default` と `shared` の 2 つを走らせる。`profile` と trace-only の 2 つは smoke の代表だけ（trace-only はどの段で止まるかの診断用）。
+- **同期の設定（U0 のケースのもの）**: 塊の `#verify_elab_deep` に `set_option Elab.async false in` を付ける。`#verify_elab_deep` も中で各定理を同期で elaborate する（DeepElab.lean 1742、1773–1776）。こうすると kernel が拒否した定理は環境に**無い**ので、`#ved_audit_current_namespace` の一覧に出ない。これは U0 のケースファイルの性質である。**`#ved_audit_generated` などを一般に使うときは**、監査する宣言が同期で登録済みであることを呼ぶ側が保証しなければならない（既定の非同期 elaboration では、検査中・後で拒否される定理が一覧に出たり出なかったりする）。コマンドはそれを強制しない（Tools/VedStrictAudit.lean の docstring）。U1 の入口は生成した宣言を `addDecl`（同期）で登録し、直後に `getConstInfo` で存在を確かめる。
+- 327 行には `default` と `shared`。`profile` と trace-only は smoke の代表だけ。
 
-### 3.4 axiom と「strict に数える」の規則
-- 各ケースが出した theorem すべてについて、`#ved_audit_generated` が strict の判定と raw の閉包を 1 行ずつ出す（`VED AUDIT …`）。`#verify_elab_deep` 自身の PROVEN 文（"axioms clean" など）は判定に使わない。
-- `VED BODY _deep_body|_sdeep_body real|reordered|absent`: 生成された本体の定数の値（`toExpr (deepOrderBody m.body)`）が、同じ `synthesizeHierarchical` の `toExpr m.body` と Expr として等しいかどうか。等しくなければ「並べ替えた本体だけ」。この比較は列の分類に使うだけで、kernel の証明の代わりではない（裁定 7）。
-- 列 `strict_counted = yes` になるのは、次の全部を満たすときだけ。
-  1. `rc = 0`、timeout でない、trace-only の設定・文がない、`#verify_elab_deep` のエラーがない。
-  2. source の deep 定理（`{base}…_deep_trace` か `{base}_sdeep_trace`）と、**`m.body` そのもの**についての replay 定理（`…_signal_run`、`VED BODY … real`）が、同期登録されて環境にあり theorem である。
-  3. そのケースで出た theorem すべてが strict 監査を通る（閉包 ⊆ 標準 3 公理）。
-  4. replay や橋の SKIPPED が無い。
-- 今の DeepElab では、replay は `deepOrderBody m.body` について（調査書 B5）で、G1 などに `native_decide` がある（§5）ので、**`strict_counted` はほぼすべて no になる見込み**。それが U0 で測る事実で、U1 で直す対象である。U0 の数を良く見せるために規則を緩めない。
-- 型・前提の確認: U0 では「定理が存在し、その名前の役割（trace / signal_run / Opt / SV）が分かる」ところまでしか見ない。定理の文が契約どおりか（どの Module のどの field に結び付くか）は U1 の Check で確かめる（§4）。
+### 3.4 分類（変更依頼 P1-1: 発見・観測のモード）
+- **`strict_counted` は `no` か `unknown` だけで、`yes` にはならない。** DeepElab を変えずに書ける probe では、(i) deep のコマンドが検証した module と、元のコマンドが返した module が**同じ run の同じもの**であること（deep のコマンドは `synthesizeHierarchical` を自分で呼び直し、何も返さない）、(ii) 各出力の定理の**完全な型**が期待どおりであること、のどちらも確かめられないからである。`strict_blockers` には常に `artifact-identity-not-probed;theorem-types-not-checked` が入る。はっきりした失敗（rc≠0、timeout、trace-only、塊の中のエラー、`deep-in-file` 以外、harness-error、src か ir の段が `ok` でない、SKIPPED）が 1 つでもあれば `no`、無ければ `unknown`。
+- **段ごとの必要な定理**（出力ごと）。`{b}` = 解決した宣言の最後の成分、`{s}` = 構造体を返す宣言では `_<port>`、Signal を返す宣言では空（DeepElab.lean 3639）。
+
+  | 段 | default 経路 | shared 経路（1 出力だけ） |
+  |---|---|---|
+  | `src` | 各出力の `{b}{s}_deep_trace` | `{b}_sdeep_trace` |
+  | `ir` | 各出力の `{b}{s}_deep_signal_run` | `{b}_sdeep_signal_run` |
+  | `opt` | 無し（`not-in-route`） | `{b}_sdeep_signal_runOpt`（`optimizeModule`。`checkedOptimize` ではない） |
+  | `sv_parse` | 無し | `{b}_sdeep_text_parses`（印字した文字列を shipping の parser で読むと RT の body になる、を native_decide で） |
+  | `sv_roundtrip` | 無し | `{b}_sdeep_signal_runRT`（読み戻した body の runModule = Signal） |
+  | `sv_meaning` | 無し | `{b}_sdeep_signal_svOpt`（最適化後の body の emission の M4 意味 = Signal。印字した文字列についての文ではない） |
+
+  段ごとに `*_expected`（必要な定理の数。出力が分からないときは `?`）、`*_found`、`*_closure`（`ok` = 全部あって全部 strict 監査を通る / `rejected` / `missing` / `not-in-route` / `unknown`）、`*_axioms`（**その段に必要な定理だけ**の閉包の和）。`text_parses` があっても `sv_meaning` は `yes` にならない。必要な集合に入らない定理（`_coneEval_*` などの補助）は `n_extra` / `extra_rejected` に別に数え、段の判定に入れない（観測用の定理の非標準 axiom で ir 段を落とさない）。必要な定理の閉包は `collectAxioms` の到達閉包なので、その定理が使う補題の axiom は入る。欠けた定理の名前は `missing_theorems`。
+- 期待する出力の一覧（`VED OUTPUT`）と戻り値の形（`VED RET signal|struct`）は、塊の後の **2 回目の合成**から取る観測である。2 回目の合成が deep のコマンドの中のものと同じ module だという保証は無い（上の (i)）。
+- **body の比較は `observed_against_second_run`**（`match` / `mismatch` / `unknown`）。生成された `{b}_deep_body`（shared は `_sdeep_body`）の値と、2 回目の合成の `toExpr m.body` を Expr として比べた**観測**で、同じ run の body の証拠ではない。`mismatch` から「並べ替え」とは推定しない（理由は分からない）。定数が無い・probe が失敗したときは `unknown`。
+- VED REQ の行は使わない（前の版の docstring にあったが実装が無かった）。必要な集合は VED RET / VED OUTPUT から classifier が作る。
+- 型・前提: U0 は「名前の決まった定理が同期登録されて存在し、theorem で、閉包が何か」までで、文の中身は見ない。`#ved_audit_generated` / `#ved_audit_current_namespace` は名前空間の下の定理を**列挙するだけ**で、期待するすべての定理が作られたことも、契約が正しいことも監査しない（Tools/VedStrictAudit.lean の docstring に明記した）。
 
 ### 3.5 順序: smoke → 327 行
-1. **smoke（既存の deep のテスト）**: 次の 5 ファイルを、(a) そのまま 1 回（9 月の数との比較用。`--smoke-file`）と、(b) `#verify_elab_deep` 1 つごとに分けた版（`--smoke-split`。ほかのコマンドは comment にし、残した 1 つを名前空間 `VedU0Smoke` の中で走らせ `#ved_audit_generated` を付ける）で走らせる。
-   - `Tests/Verification/DeepElabReifyDemo.lean`（行頭の `#verify_elab_deep` 20 コマンド）
-   - `Tests/Verification/DeepElabRealIP.lean`（6 コマンド）
-   - `Tests/Verification/ValueParamInitRepro.lean`（5 コマンド）
-   - `Tests/Verification/ConeSharingGen.lean`（2 コマンド、shared）
-   - `Tests/Verification/ConeSharingCrc16.lean`（1 コマンド、shared。9 月は 93 秒 / 1.98 GB）
-   - （行頭の `#verify_elab_deep` だけを分割の対象にする。comment の中の行は数えない。`DeepElabDemo.lean` と `ConeSharingProto/Replay/Premises`、`ConeKernelSlot*` は手書きの試作で `#verify_elab_deep` を呼ばない。build が通るかだけを記録する。）
-   9 月の期待数（Demo 21 以上、RealIP 17 以上、VPI 5、ConeSharing 3）は要求しない（裁定 12）。同じ SHA での今回の実測を基準にし、9 月との差を分類する。
-2. **smoke（必要IPの群ごとの代表）**: 次の行を 5 つの設定すべてで走らせる。
-   | 群（近似） | row | 宣言 |
-   |---|---|---|
-   | S | 6 | `Sparkle.IP.Arbiter.RoundRobin.arbiterSignal` |
-   | S（RealIP と重なる wrapper） | 212 / 244 | `SynthesisChecks.crc32EngineTop` / `synth_uartTx` |
-   | S（複数出力） | 63 | `pairCounterCdo` |
-   | C | 3 | `adder16` |
-   | H | 9 | `Sparkle.IP.Crypto.AESHW.synth_aesSbox` |
-   | M | 71 | `Sparkle.Tests.Compiler.ShippingMachineFuseTest.withMemory` |
-   | D | 1 | `Examples.CDC.MultiClockSim.domainACounter` |
-   | P | 260 | `symbolicXor` |
+1. **smoke（既存の deep のテスト）**: 次の 5 ファイルを、(a) そのまま 1 回（`--smoke-file`。表 `results_smoke_asis.tsv`。PROVEN の文の数は 9 月との比較のための観測で、成功の基準ではない）と、(b) `#verify_elab_deep` 1 つごとに分けた版（`--smoke-split`。表 `results_smoke_split.tsv`）で走らせる。2 つの表は分けて、混ぜない。
+   - `Tests/Verification/DeepElabReifyDemo.lean`（20 コマンド）、`DeepElabRealIP.lean`（6）、`ValueParamInitRepro.lean`（5）、`ConeSharingGen.lean`（2、shared）、`ConeSharingCrc16.lean`（1、shared）。
+   - **分けた版の危険**: ほかの `#verify_elab_deep` を comment にすると、その後の `#check`・証明・guard がそれらの生成した名前を参照していれば壊れる。残した 1 つも新しい名前空間 `VedU0Smoke<k>` の中に移すので、その生成名を名前空間の外から参照している行も壊れる。手元で 5 ファイルの分けた版を生成して見た: 変種は 20/6/5/2/1、後ろの行にある生成名への参照は 900/126/10/2/1 か所（各変種の `split_report.txt` に行番号つきで出る）。したがって ReifyDemo と RealIP の変種のほとんどで、塊の外のエラー（`split-harness`）が出る見込みである。塊の外のエラーは `harness_error=split-harness: …` として deep のコマンドの結果（塊の中）と分けて記録し、run は `INCOMPLETE` になる。分けた版の結果を広げる前に、最初の smoke で数個の変種の Case.lean とエラーを見て確かめる。分けた版の変種の経路は、残したコマンドの前の `set_option sparkle.deepShare true in` から決める。
+2. **smoke（群の代表）**: 前の版の表のとおり（row 6, 212, 244, 63, 3, 9, 71, 1, 260 を 5 つの設定で）。row 9（`synth_aesSbox`）と 244（`synth_uartTx`）は private で、前の版では名前を解決できなかったが、写しの方式では解決できる。row 260（`symbolicXor`）は `unsupported-invocation` で走らない（表には残る）。
 3. **327 行すべて**を `default` と `shared` で（654 ケース、直列、再開可能）。
-4. U0 全件の終了を待つことは、U1 の小さな試作の着手条件にしない（裁定 2）。smoke の結果が出た時点で U1 の試作を始めてよい。
+4. U0 全件の終了を待つことは、U1 の小さな試作の着手条件にしない（裁定 2）。
 
-### 3.6 結果の表（1 inventory 行 × 1 設定 = 1 TSV 行）
-`u0_gen.py header` が出す列（順に）:
+### 3.6 結果の表
+`u0_gen.py header` が列を出す（行の表）。キー（`inv_commit` … `setting`）、`invocation` `invocation_detail` `decl_resolved` `decl_check`、同一性（`run_id` `attempt` `src_sha` `src_dirty_hash` `toolchain` `case_hash` `harness_hash` `effective_env` `lean_options` `cleared_env`）、`sv_group_approx`（SV からの近似の群。raw IR の値と混ぜない）、実行（`ran` `rc` `term` `timeout` `wall_s` `peak_rss_kb` `peak_rss_source` `cgroup_peak_kb` `mem_evidence` `reaped` `time_limit_s` `rlimit_as_kb`）、観測（`ret_kind` `second_run_modules` `outputs`）、段ごとの 4 列（3.4）、`missing_theorems`、`observed_against_second_run`、`skipped`、`trace_only`、`refusal`（塊の中の最初のエラー）、`errors_outside_block`、`n_theorems` `n_extra` `extra_rejected` `raw_axioms`、`strict_counted`、`strict_blockers`、`harness_error`、`deep_run_record`（`measured` / `not-run` / `none`。none は未確認で失敗ではない）、`stdout_ref` `stderr_ref`。as-is の smoke は別の列（`u0_run.py` の `ASIS_COLUMNS`）。
 
-| 列 | 意味 |
-|---|---|
-| `inv_commit` `inv_blob` `row` `file` `line` `command` `ns` `top` `decl` `params` `options` `args` `setting` | キー（§3.1） |
-| `sparkle_sha` | 測った worktree の HEAD（+ 未コミット変更数） |
-| `sv_group_approx` | SV からの近似の群（S/C/H/M/D/P）。raw IR の値と混ぜない |
-| `rc` `timeout` `oom_or_limit` `wall_s` `peak_rss_kb` `time_limit_s` `mem_limit_kb` | 実行 |
-| `source_deep_theorem` | SOURCE/deep の定理（trace）だけでもあるか |
-| `real_body_replay` | `m.body` そのものの replay があるか |
-| `reordered_body_replay` | 並べ替えた本体の replay だけか |
-| `opt_bridged` | `_sdeep_signal_runOpt`（`optimizeModule` についてで、`checkedOptimize` ではない）があるか |
-| `sv_bridged` | `_sdeep_signal_svOpt` / `_sdeep_text_parses` があるか |
-| `skipped` | replay や橋の SKIPPED の文（複数は `;`） |
-| `nonstd_axioms` | strict 監査で落ちた theorem があるか |
-| `trace_only` | 診断の設定・文か |
-| `refusal` | 最初のエラー文（拒否理由）。名前が解決できないものは `unresolved-name:` を前に付ける（harness 側の問題で、deep の拒否と区別する） |
-| `strict_counted` | §3.4 の規則 |
-| `n_theorems` `n_strict_ok` `n_rejected` `raw_axioms` | 監査の数と、閉包の和集合 |
-| `deep_run_record` | `measured` / `none`（none は未確認で、失敗ではない） |
-| `stdout_ref` `stderr_ref` `audit_ref` | 出力ファイルの場所 |
-
-分類の列は 1 つにまとめない（「PROVEN」1 列にしない）。`n_theorems` には生成器が作る補助の theorem（`_proof_1_1` など）も入る。
-
-### 3.7 script（書いたが、まだ走らせていない）
-- `scripts/ved/u0_gen.py`: `rows` / `gen` / `smoke-split` / `classify` / `header`。inventory は §3.1 の固定値で `git show` から読む。手元で確かめたのは文法の検査と、`rows`（327 行）、`gen` と `smoke-split` が scratch に書いたファイルの見た目だけ（Lean は動かしていない）。
-- `scripts/ved/u0_case.sh`: `OUT ROW SETTING` / `OUT --list ROWS.txt` / `OUT --smoke-file FILE` / `OUT --smoke-split FILE`。既に `run.txt` のあるケースは飛ばす（`REDO=1` でやり直す）。各ケースは `kjob lake env lean <Case.lean>`（`U0_LEAN` で変えられる）。
-- 後で走らせるときの呼び方（今は走らせない。`<ISSUE>` は復旧後に登録する U0 の Issue）:
+### 3.7 script と harness の単体テスト
+- `scripts/ved/u0_gen.py`（生成・分類）、`scripts/ved/u0_run.py`（実行・同一性・表）、`scripts/ved/u0_case.sh`（前と同じ呼び方の wrapper）。
+- `scripts/ved/tests/test_u0.py` と偽の runner `scripts/ved/tests/fake_lean.py`（Lean を動かさない。決めた VED の行を出す、環境の SPARKLE_* を出す、sleep、子・setsid した子・親が先に終わる孫を作る、子で 200 MB 確保、決めた終了コード・自分への signal）。inventory とソースは使い捨ての git repo をテストの中で作る。`TMPDIR=<scratchpad> MEM=4G memlimit python3 -I -W ignore scripts/ved/tests/test_u0.py -v` で **30 件すべて OK**（内訳はコミット 53127556 のメッセージ）。依頼の 7 つの対照: 別 SHA での再開、環境の汚染、子 process の timeout kill と回収、複数出力で 1 つ欠ける、params の無視（走らせず unsupported として残す）、body mismatch、harness-error の後の継続。
+- 後で走らせるときの呼び方（今は走らせない。`<ISSUE>` は復旧後に登録する U0 の Issue）。Case.lean は元のファイルの写しなので、**元の module の import** が build 済みであればよい（module 自身を build すると import も build される）。
 
 ```sh
 cd /home/junji-hashimoto/git/.kjob/src-ved-plan      # 測る SHA の worktree（Job はこの時点の copy を使う）
 
-# smoke: 既存 deep テスト 5 本と群の代表 10 行
+# smoke: 既存 deep テスト 5 本と群の代表
 kjob -N sparkle-dev run --issue <ISSUE> -n mkvs-dell -c 8 -m 24Gi --name ved-u0-smoke -d -- bash -c '
   set -u
   OUT=$(dirname "$KJOB_REPORT_PATH")/ved_u0
-  kjob lake build Tools.DeepElab Tools.VedStrictAudit IP.Net.CRC32 IP.Net.UART IP.Crypto.EcdsaSignSmall IP.Bus.DroneCANHW IP.Bus.SBUSHW IP.Bus.SPIHW \
+  kjob lake build Tools.DeepElab Tools.VedStrictAudit Tests.Verification.DeepElabReifyDemo Tests.Verification.DeepElabRealIP \
+    Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.ConeSharingCrc16 \
     IP.Arbiter.RoundRobin Tests.IP.Net.CRC32Test Tests.IP.Net.UARTTest Tests.CircuitDoTest Examples.HierarchicalCPU IP.Crypto.AESHW \
-    Tests.Compiler.ShippingMachineFuseTest Examples.CDC.MultiClockSim Tests.SymbolicParameterEmit
+    Tests.Compiler.ShippingMachineFuseTest Examples.CDC.MultiClockSim || exit 2
+  rc=0
   for f in DeepElabReifyDemo DeepElabRealIP ValueParamInitRepro ConeSharingGen ConeSharingCrc16; do
-    scripts/ved/u0_case.sh "$OUT" --smoke-file  Tests/Verification/$f.lean
-    scripts/ved/u0_case.sh "$OUT" --smoke-split Tests/Verification/$f.lean
+    scripts/ved/u0_case.sh "$OUT" --smoke-file  Tests/Verification/$f.lean || rc=$?
+    scripts/ved/u0_case.sh "$OUT" --smoke-split Tests/Verification/$f.lean || rc=$?
   done
   mkdir -p "$OUT"
   for r in 6 212 244 63 3 9 71 1 260; do
     for s in default shared profile traceonly-shared defsonly-default; do echo "$r $s"; done
   done > "$OUT/rows_smoke.txt"
-  scripts/ved/u0_case.sh "$OUT" --list "$OUT/rows_smoke.txt"'
+  scripts/ved/u0_case.sh "$OUT" --list "$OUT/rows_smoke.txt" || rc=$?
+  exit $rc'
 
-# 327 行（smoke の後）。import する module は inventory の file 列から作る
+# 327 行（smoke の後）
 kjob -N sparkle-dev run --issue <ISSUE> -n mkvs-dell -c 8 -m 24Gi --name ved-u0-all -d -- bash -c '
   set -u
   OUT=$(dirname "$KJOB_REPORT_PATH")/ved_u0
   mkdir -p "$OUT"
-  python3 -I scripts/ved/u0_gen.py rows > "$OUT/rows_all.raw"
-  kjob lake build Tools.DeepElab Tools.VedStrictAudit $(cut -f2 "$OUT/rows_all.raw" | sort -u | sed "s/\.lean$//; s#/#.#g")
+  python3 -I scripts/ved/u0_gen.py rows > "$OUT/rows_all.raw" || exit 2
+  kjob lake build Tools.DeepElab Tools.VedStrictAudit $(cut -f2 "$OUT/rows_all.raw" | sort -u | sed "s/\.lean$//; s#/#.#g") || exit 2
   awk -F"\t" "{print \$1\" default\"; print \$1\" shared\"}" "$OUT/rows_all.raw" > "$OUT/rows_all.txt"
   scripts/ved/u0_case.sh "$OUT" --list "$OUT/rows_all.txt"'
 ```
-- 327 行の Job は長くなる（1 ケースの上限 1800 秒）。`--list` は再開できるので、`rows_all.txt` を分けて複数の Job にしてもよい。その場合も各 Job が同じ SHA の worktree から出ていることを `env.txt` で確かめる。
-- `IP/Crypto/*` の file は、`IP.Crypto` の lean_lib に root file が無い（BASELINE.md の手順 2 の注意）。module 単位の `kjob lake build IP.Crypto.AESHW` が通らなければ、その行は harness の問題として `refusal` に記録し、BASELINE.md の手順（file ごとに elaborate）に合わせて直す。
+- Job の終了コードは `u0_case.sh` のもの（3 = INCOMPLETE）。`rows_all.txt` を分けて複数の Job にしてもよい。同じ `run_id`（同じ SHA・設定・harness）の Job の結果だけが同じ表に入る。
+- `IP/Crypto/*` の file は、`IP.Crypto` の lean_lib に root file が無い（BASELINE.md の手順 2 の注意）。その module の build が通らなければ、その行のケースは `harness-error`（Lean が import を見つけられない）になり、表に残る。
 
 ### 3.8 U0 で言えないこと
-- U0 は「今の `#verify_elab_deep` が、必要IPの宣言それぞれに何をするか」の測定で、保証ではない。`#verify_elab_deep` は `synthesizeHierarchical`（診断の入口）を自分で呼び直すので、`#synthesizeVerilog` が印字した成果物そのものを検査したことにはならない（調査書 B7）。
+- U0 は「今の `#verify_elab_deep` が、必要IPの宣言それぞれに何をするか」の観測で、保証ではない。`#verify_elab_deep` は `synthesizeHierarchical`（診断の入口）を自分で呼び直すので、`#synthesizeVerilog` が印字した成果物そのものを検査したことにはならない（調査書 B7）。写しの方式でも、元のコマンドと deep のコマンドはそれぞれ合成し直す。
 - `printModule` などの文字列一致は観測の回帰検査で、内部の Module/Design の構造比較や同じ artifact への接続の代わりにならない（裁定 12）。
 
 ---
 
-## 4. U1 の契約（下書き。コンパイルしていない）
+## 4. U1 の契約（下書き。定義は `Tools/VedU1Contract.lean` で build する。入口と証明はまだ）
 
 ### 4.1 入口の形
 新しいファイル（compiler のファイルは小さく保つ）に、次の入口を置く。
@@ -220,60 +244,68 @@ kjob -N sparkle-dev run --issue <ISSUE> -n mkvs-dell -c 8 -m 24Gi --name ved-u0-
 
 返すのは IR の `m` まで。最適化（`checkedOptimize`）と SV は未接続と記録する。「出荷 SV を保証」「327 の印字 artifact を検証済み」とは書かない。IR の契約が通った後の次の接続先は `checkedOptimize`（`refineCheck_transfer` / `optCheck_sound` との合成）。`#synthesizeVerilog` などの通常の入口と、ほかの 327 コマンドの経路は、新しい入口が覆うまで別扱いにする。
 
-### 4.2 契約の文（Lean の下書き）
+### 4.2 契約の文（変更依頼 P1-4 で作り直した。`Tools/VedU1Contract.lean`）
+DeepElab を import しない（`Sparkle.IR.Semantics`、`Sparkle.IR.RegDedup`、`Sparkle.Core.Signal` だけ）ので、下書きをそのまま Lean のファイルにしてコンパイルした。lakefile に `lean_lib «Tools.VedU1Contract»` と `«Tests.Ved.U1ContractCheck»` を足したが、**手元の確認は `lake build` ではなく `MEM=8G memlimit lake env lean <file>`**（既にある olean に対して 1 ファイルずつ。Check が import する `Tools.ShippingFGCircuitS3rArtifact` と `Tools.VedU1Contract` の olean は scratchpad に出した。どちらも rc=0）。`lake build` で Sparkle を import する target を作ると、`Sparkle` lib の `precompileModules := true` のために Sparkle 全体の共有ライブラリ（`Sparkle/Compiler/Elab.c` の gcc を含む）を作り始め、小さな build ではなくなったので途中で止めた（必要な olean はその前にできていた）。cluster では通常の `kjob lake build Tools.VedU1Contract Tests.Ved.U1ContractCheck` で確かめる。定義と小さな補題だけで、入口・生成器・`OutputsStmt` の証明はまだ無い。要点（全文はファイル）:
 
 ```lean
-namespace Tools.VedU1
-open Sparkle.IR.AST Sparkle.IR.Semantics
-
-/-- 入口が固定する値。どれも `synthesizeEntry` の同じ 1 回の結果 `m` と
-    宣言 `declName` から取る。 -/
 structure Contract where
-  declName : Lean.Name
-  params   : List (String × Nat)      -- 具体化した値引数（無ければ []）
-  modName  : String
-  inputs   : List Port
-  outputs  : List Port                -- 全出力
-  wires    : List Port                -- width 表の元（declWidth m）
-  inits    : List (String × Nat)      -- register ごとの初期値（m の register 文から）
-  rst      : Option String            -- reset の入力名
-  clk      : String
+  modName : String
+  clkRst : Option (String × String)   -- (clock 入力, reset 入力)。register の無い module は none
+  dataInputs : List Port              -- port の順。i 番目が宣言の i 番目の Signal 引数に入る
+  outputs : List Port
+  wires : List Port
+  inits : List (String × Int)         -- register の出力 ↦ 初期値（body の順）
 
-/-- Module の意味に使う全 field が契約と一致する。body は別に「そのもの」を使う。 -/
+def ShapeCore (c : Contract) (m : Module) : Prop :=
+  m.name = c.modName ∧ m.parameters = [] ∧ m.assertions = [] ∧ m.isPrimitive = false ∧
+  m.inputs = c.dataInputs ++ clkRstPorts c ∧          -- 入力の順と幅。clk・rst は実際の入力
+  m.outputs = c.outputs ∧ m.wires = c.wires ∧
+  (regsOf m.body).map (fun r => (r.1, r.2.2.2)) = c.inits ∧
+  (∀ r ∈ regsOf m.body, c.clkRst = some (r.2.1, r.2.2.1))   -- 各 register の clock・reset の名前 = その入力
+
 def ShapeStmt (c : Contract) (m : Module) : Prop :=
-  m.name = c.modName ∧ m.inputs = c.inputs ∧ m.outputs = c.outputs ∧
-  m.wires = c.wires ∧ m.parameters = [] ∧ m.assertions = [] ∧
-  m.isPrimitive = false ∧ regInits m.body = c.inits
+  ShapeCore c m ∧ memInstFree m.body = true           -- v1 の範囲: memory と子 instance は無し
 
-/-- width 表: 各 port の宣言幅（`declWidth m`）が型の幅と一致。 -/
-def WidthStmt (m : Module) : Prop :=
-  ∀ p ∈ m.inputs ++ m.outputs ++ m.wires, Sparkle.IR.RegDedup.declWidth m p.name = p.ty.width
+def WidthStmt (c : Contract) (m : Module) : Prop :=
+  (m.wires.map (·.name)).Nodup ∧
+  (∀ p ∈ c.dataInputs, scalar p.ty = true ∧ declWidth m p.name = p.ty.bitWidth) ∧
+  (∀ p ∈ c.outputs, scalar p.ty = true) ∧
+  (∀ r ∈ regsOf m.body, ∃ p ∈ m.wires, p.name = r.1 ∧ scalar p.ty = true)
 
-/-- 入力の前提: 幅に収まる、reset は low（契約で固定した条件。ほかの条件は足さない）。 -/
 def InputsOk (c : Contract) (m : Module) (ins : Nat → String → Nat) : Prop :=
-  (∀ t p, p ∈ m.inputs → ins t p.name < 2 ^ Sparkle.IR.RegDedup.declWidth m p.name) ∧
-  (∀ t r, c.rst = some r → ins t r = 0)
+  (∀ t, ∀ p ∈ c.dataInputs, ins t p.name < 2 ^ declWidth m p.name) ∧
+  (∀ t kr, c.clkRst = some kr → ins t kr.1 = 0 ∧ ins t kr.2 = 0)
 
-/-- 元の Signal への橋: `src` は宣言ごとに生成する、宣言 `declName` を
-    `params` と入力列に適用した Signal の出力 `o` の時刻 `t` の値。 -/
-def OutputsStmt (c : Contract) (m : Module)
-    (src : (Nat → String → Nat) → String → Nat → Nat) : Prop :=
+def st0 (c : Contract) (m : Module) : String → Nat := fun n =>
+  match c.inits.lookup n with | some i => encodeInit i (declWidth m n) | none => 0
+
+def seedFwd (m : Module) (K : Nat) (ins : Nat → String → Nat) : Nat → (String → Nat) → Env :=
+  fun j st n => if (m.inputs.map (·.name)).contains n then ins (K - 1 - j) n else st n
+
+theorem seedFwd_time (m K ins) {t} (ht : t < K) (st) :
+    seedFwd m K ins (K - 1 - t) st = seedIn m ins t st        -- 証明済み
+
+def OutputsStmt (c : Contract) (m : Module) (src : (Nat → String → Nat) → String → Nat → Nat) : Prop :=
   ∀ ins, InputsOk c m ins → ∀ K, ∃ envs,
-    runModule (Sparkle.IR.RegDedup.declWidth m) m.body   -- m.body そのもの
-      (seedIn m ins) K (initState c.inits) (fun _ _ => 0) = some envs ∧
-    ∀ t < K, ∀ o ∈ m.outputs, ∃ env, envs[t]? = some env ∧ env o.name = src ins o.name t
+    runModule (declWidth m) m.body (seedFwd m K ins) K (st0 c m) (fun _ _ => 0) = some envs ∧
+    ∀ t, t < K → ∀ o ∈ c.outputs, ∃ env, envs[t]? = some env ∧ env o.name = src ins o.name t
 
-/-- U1 の入口が返す前に、定数 `{f}_u1_mod` について登録しておく定理の文。 -/
-def U1Stmt (c : Contract) (m : Module) (src : _) : Prop :=
-  ShapeStmt c m ∧ WidthStmt m ∧ OutputsStmt c m src
-
-end Tools.VedU1
+def U1Stmt c m src := ShapeStmt c m ∧ WidthStmt c m ∧ OutputsStmt c m src
 ```
 
-- `regInits`、`initState`、`HWType.width` は下書きの名前で、実装時に既存の定義（`theRegisters`、`seedIn`（Tools/ShippingSeqOptSoundness.lean:892）、`declWidth`（Sparkle/IR/RegDedup.lean:172））に合わせる。
-- `m.body` そのものを replay する。順序を変えて証明するなら、この具体的な body について「並べ替えた body の run = 元の body の run」を前提つきで証明し、結論は元の `m.body` に戻す。任意の文の並べ替えが意味を保つとは仮定しない（裁定 5）。今の `{f}_deep_signal_run` は `deepOrderBody m.body` についてなので、そのままでは `OutputsStmt` にならない。
-- 結論は `m` の全 field（名前、inputs/outputs、wires による幅、初期値、reset、body）に結び付く。body が同じでも別の Module（初期値や幅の違うもの）の証明は流用できない（裁定 4）。
-- 証明の閉包は標準 3 公理まで（`strictAudit`）。G1 などの `native_decide` は §5 の置き換えが済むまで U1 の入口を通らない。
+- **元の宣言への結合（src は自由な引数ではない）**: 入口が登録する定理は `U1Stmt f_u1_contract f_u1_mod (fun ins o t => SRC)` で、`SRC` は入口が**元の宣言の定数** `declName` から構文的に作る項である: `declName` を params の値と、データ入力ごとの入力 Signal（`sigBV ins "<port>" w` / `sigB ins "<port>"`）に適用し、`obsBV` / `obsB` で観測し、出力 port `o` へ射影する（構造体なら field、Signal なら 1 つ）。`Tests/Ved/U1ContractCheck.lean` の `toySrc` がこの形。入口は (1) 登録した定理の型が、`declName`・params・2 つの定数から自分で作った文と Expr として等しいこと、(2) `f_u1_mod` の値が同じ 1 回の `synthesizeEntry` の `toExpr m` であること、(3) `f_u1_contract` の値が `contractOf m` の `toExpr` であることを確かめる。(1) により、別のソース（ほかの宣言、IR 由来の Signal）を src に使った証明は型が合わない。(2) により、検証した module と返す module は同じ値になる（これが U0 では確かめられなかった同一性）。
+  - 宣言の引数とデータ入力の対応は**順番**で、入口はさらに宣言の i 番目の Signal 引数の名前 `x` と i 番目のデータ入力の名前（`pilotB0` では `_gen_<引数名>`）が合うことを確かめ、合わなければ throw する（名前の付け方が一般にこうであることは U1 の最初の試作で確かめる）。DomainConfig の引数は `defaultDomain` にする（DeepElab と同じ）。値の引数（params）は具体的な値を代入した後の宣言を使う。
+- **clk・rst**: `m.inputs = dataInputs ++ [clk, rst]`（`pilotB0` の形: データ入力の後に `clk`、`rst`）で、clk・rst が module の実際の入力であることと、その順を固定する。各 register 文の clock と reset の名前がその 2 つであることも `ShapeStmt` に入れた。reset の種類（sync/async）は意味に効かない（`regNexts` はどちらも `env rst ≠ 0` で初期値にする。`InputsOk` で rst は常に 0）。register の無い組合せ回路は `clkRst = none`（register があれば `ShapeStmt` が偽）。データ入力の後に clk・rst が来ない module が実際にあれば、この節は合わないので、並べ替えを許す形に直す（黙って並べ替えない）。
+- **幅（WidthStmt）**: `declWidth` は `m.wires` だけを読む（Sparkle/IR/RegDedup.lean 172）。実物の `pilotB0`（Tools/ShippingFGCircuitS3rArtifact.lean、`pilotEntry3` の 1 回の結果）を確かめた: データ入力 5 つと register の出力 17 個は wire 宣言があり幅が合う。**`clk`、`rst`、出力 `out` には wire 宣言が無い**。前の下書きの「inputs ++ outputs ++ wires の全部で `declWidth m p.name = p.ty.width`」は `pilotB0` を拒否する（Check で `#guard !decide (WidthStmtDraft1 pilotB0)`）。新しい `WidthStmt` は、意味が `declWidth` を読む所（データ入力の幅の前提、register の更新の mask）だけに wire 宣言を求め、clk・rst・出力 port には求めない（`#guard decide (WidthStmt (contractOf pilotB0 …) pilotB0)`。`ShapeCore` も成り立つ）。ただし **`pilotB0` には子の instance 文が 2 つあり、v1 の範囲（memory・instance 無し）の外**なので `ShapeStmt` は成り立たない。これは幅や名前による拒否ではなく範囲の制限で、子を持つ module は後の単位（子の意味との合成）で扱う。出力の値の幅は、期待する文の側（`obsBV` の `BitVec w`、`w` = 出力 port の型の幅）で決まる。
+- **入力の幅・順・初期状態・時刻の向き**: 幅はデータ入力ごとに `declWidth` = port の型の幅（`WidthStmt`）、その中に収まる入力（`InputsOk`）。順は `m.inputs` の等式と宣言の引数の順。初期状態は `st0`（各 register の初期値を宣言幅で `encodeInit`。Signal 側の `Signal.register init` の時刻 0 の値に当たる）と、memory は 0（v1 は memory 無し）。**時刻の向き**: `runModule` は周期の番号を**数え下ろして** seed に渡す（最初の周期が `k-1`）。前の下書きは `seedIn m ins` をそのまま渡して `envs[t]` を時刻 `t` と比べていたので、入力列を逆向きに読んでいた。`seedFwd m K ins` は番号を `K-1-j` に戻し、trace の `t` 番目（古い順）が `ins t` を読む（`seedFwd_time`、`runModule_first` は rfl で確かめた）。
+- **clock の値**: IR の意味は clock の値を読まない（1 周期 = 1 回の `stepModule`）。`InputsOk` は clock も 0 に固定する。振る舞いは失われず、`seqOptCheck_run_sound` の前提 `hinsFit`（全入力を `declWidth` で抑える。clk・rst は `2^0`）とそのまま合う。次の接続先の `checkedOptimize` との合成のためである。
+- 目標は変えない: 期待する文と Module 全体を bind し、返す IR が元の宣言から来たことを示す。`OutputsStmt` は `m.body` そのものの `runModule` について述べる（`deepOrderBody` ではない）。
+
+### 4.2b Check（`Tests/Ved/U1ContractCheck.lean`、build する）
+- 玩具の宣言 `toyDelay`（1 周期遅延）と、`synthesizeEntry` の形の module `toyMod`（データ入力、clk、rst。clk・rst・out に wire 無し）、`toyC = contractOf toyMod …`、`toySrc`（宣言から作った src）。`U1Stmt toyC toyMod toySrc` が elaborate する。`ShapeStmt`・`WidthStmt` は `decide` で成り立ち、`WidthStmtDraft1` は成り立たない。
+- 負の例（同じ契約に変えた module を当てる）: 初期値、入力の幅、出力を 1 つ足す、register の reset を別の wire にする、入力の順を変える → `¬ ShapeStmt`。register の出力の wire 宣言を消す → `¬ WidthStmt`。
+- `pilotB0` の形: clk・rst・out に wire 宣言が無いこと、`ShapeCore`・`WidthStmt` が成り立ち、`WidthStmtDraft1` が成り立たないこと、instance 文が 2 つあって v1 の範囲外（`memInstFree` が false）であることを `#guard`。
+- `OutputsStmt` の証明は無い（U1 の本体の仕事）。
 
 ### 4.3 対照（U1 の Check に入れるもの）
 **拒否すべきもの**（意味が変わる変異と、証明の取り違え）:
@@ -348,12 +380,37 @@ shared 経路は 2026-09-19/20 に、同じ種類の義務の多くを kernel �
 
 ---
 
-## 6. cluster が無いとできなかったこと
-- U0 の測定そのもの（smoke も 327 行も）。`Tools.DeepElab` とそれを import するものの build も、この作業では行っていない。§3.4 の `VED BODY` の `run_cmd` と `Case.lean` の生成文は、Lean で一度もコンパイルしていない（DeepElab を import するため）。最初の smoke で通ることを確かめる。
+## 6. cluster が無いとできなかったこと（2026-11-08 変更依頼の後も残るもの）
+- U0 の測定そのもの（smoke も 327 行も）。`Tools.DeepElab` を import するものの build と実行は、この作業では一度も行っていない（指示どおり）。**DeepElab を使う smoke は manager の復旧後**に行う。
+- 生成する Case.lean の Lean の部分（塊の 2 つの `run_cmd`: VED NS / VED DECL と VED RET / VED SECONDRUN / VED OUTPUT / VED BODY）は、DeepElab を import するので**一度もコンパイルしていない**。最初の smoke で通ることと、出す行の形が classifier の正規表現と合うことを確かめる。合わなければ classifier は `?`/`unknown` を出し（`yes` にはならない）、そのケースは `strict_counted=no` になる。
+- 写しの方式で、元のファイルの import（`Tools.DeepElab` を足した後）と後ろのコマンドが実際にどう振る舞うか（後ろのコマンドのエラーは `errors_outside_block` に数える）。
+- 分けた版（smoke-split）の変種のエラーが、`split_report.txt` の予想どおり塊の外に出るか。
 - G1 の実物の置き換えと時間（§5.3）。今あるのは模型の時間だけ。
-- `RLIMIT_AS` によるケースごとのメモリ上限が Lean と合うかの確認（§3.2）。
-- Issue の登録（manager の停止中）。復旧後に、U0 と U1 の完了条件とこの裁定を登録する。
+- `memory.peak` の per-fd reset が kjob の Pod の kernel で使えるか（使えなければ `cgroup_peak_kb=unavailable` と記録される）。
+- Issue の登録（manager の停止中）。
 
 ## 7. このコミットまでの成果物
-- `Tools/VedStrictAudit.lean`、`Tests/Ved/StrictAuditCheck.lean`、lakefile の 2 つの `lean_lib`（8b3c39a7）。
-- `scripts/ved/u0_gen.py`、`scripts/ved/u0_case.sh`、この文書（次のコミット）。
+- `Tools/VedStrictAudit.lean`、`Tests/Ved/StrictAuditCheck.lean`、lakefile の 2 つの `lean_lib`（8b3c39a7）。`#ved_audit_current_namespace` と限界の docstring（730341a1）。
+- `scripts/ved/u0_gen.py`、`scripts/ved/u0_run.py`、`scripts/ved/u0_case.sh`、`scripts/ved/tests/{test_u0.py,fake_lean.py}`（53127556）。
+- `Tools/VedU1Contract.lean`、`Tests/Ved/U1ContractCheck.lean`、lakefile の 2 つの `lean_lib`、この文書の改訂（次のコミット）。
+
+## 8. 2026-11-08 の変更依頼（P1-1〜P1-4、追加）への対応
+
+**Issue 未登録（manager 停止中）**。復旧後に、この変更依頼（原文は reviewer の依頼文。要旨は下の各項）と U0/U1 の完了条件を Issue に記録する。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）
+
+新しい実装成果の受理を求めるものではない。下の「済み」は harness の単体テストと小さな Lean の build で確かめた範囲で、DeepElab を使う実測は含まない。
+
+| 項 | 依頼 | 変えたこと | 確かめたこと | まだ満たしていない・cluster が要るもの |
+|---|---|---|---|---|
+| P1-1 | strict_counted の過大評価、body 比較、名前の suffix だけの判定、段の分離、段ごとの閉包、VED REQ | 発見・観測のモード（§3.4）。`strict_counted` は `no`/`unknown` だけ。body の比較は `observed_against_second_run`（match/mismatch/unknown、並べ替えと推定しない）。出力ごとの必要な定理を段（src/ir/opt/sv_parse/sv_roundtrip/sv_meaning）ごとに数え（expected/found）、閉包はその段に必要な定理だけで集計。補助の定理は `n_extra`/`extra_rejected` に別に。VED REQ は削除 | 単体テスト: 1 出力で `unknown`（yes にならない）、2 出力で 1 つ欠けると ir 2/1 `missing`、body mismatch で `mismatch`（"reorder" の文字列は出ない）、補助の定理の native axiom で ir は `ok`、必要な定理が拒否されると `rejected`、text_parses だけなら sv_parse `ok`・sv_meaning `missing`、probe が無ければ `unknown` | **同じ run の artifact の同一性 (i) と、各出力の完全な型 (ii) を確かめる probe は、DeepElab を変えずには作れない**（deep のコマンドは合成をやり直し、何も返さない）。そのため strict に数える経路は U0 には無く、U1 の入口（§4.1、§4.2 の (1)(2)）で作る。probe の Lean 部分は未コンパイル |
+| P1-2 | params/args/symbolicMode を渡していない、private・namespace/open・local option、qualified の推定、smoke-split の危険 | ケースを元のファイルの写しにし、元のコマンドの直後に deep の塊を差し込む（§3.2）。private 153 行、scoped option のあるファイル 54 を元の文脈で扱う。引数を持つ 19 行は走らせず `unsupported-invocation`（分母に残す）。VED DECL で解決した名前と `qualified` を比べる（`decl_check`）。smoke-split は表を分け、塊の外のエラーを split-harness として記録し、生成名の参照を `split_report.txt` に出す | 327 行を手元で生成: deep-in-file 308 / unsupported-invocation 19 / 失敗 0。単体テスト: params・symbolicMode・`#writeDesign` の引数の行は偽の runner が呼ばれず表に残る、写しに private 宣言・scoped option・元のコマンドの識別子が入る、解決できない名前は unresolved-name / unresolved-private、smoke の 2 つの表は別、塊の外のエラーで split-harness。実ファイル 5 本の分けた版を生成して見た（§3.5: 後ろの参照 900/126/10/2/1） | `#verify_elab_deep` は識別子しか取らないので、**params / symbolicMode / ファイル引数の 19 行を「そのコマンドの検証」として再現する方法は無い**（DeepElab の変更か、特殊化した wrapper を別の宣言として作る必要があり、後者は元のコマンドと同じではない）。写しの方式が実際に Lean で通るか（import の追加、後ろのコマンド）は最初の smoke で確かめる |
+| P1-3 (a) | 環境変数の漏れ | `SPARKLE_*` をすべて消してから明示の設定を置き、実効の設定と消した名前を記録 | 単体テスト: 親に 5 つの `SPARKLE_*` を置いても子には `SPARKLE_DEEP_TRACE` だけ、`profile` は明示の 2 つ + TRACE | — |
+| P1-3 (b) | 再開で古い結果と新しい file が混ざる | run_id（SHA・dirty・toolchain・inventory・harness・設定）と case_hash で同一性を固定、書き込む前に再利用を判断、不一致は新しい attempt、表は run_id ごとに最新の終わった attempt から作り直す | 単体テスト: 同じ SHA は再利用、別 SHA は attempt-002 と別の表（古い表はそのまま）、REDO でも 1 行、終わっていない attempt は再利用しない、ソースの変更で case_hash が変わる | — |
+| P1-3 (c) | 子孫の生存、OOM の断定、RLIMIT_AS、ru_maxrss | 新しい session で始め、group ごと TERM→KILL、残りと付け替えられた子孫も kill、回収を確認。signal は `signal_<n>` / `exit_<n>(signal_unknown)`、OOM は cgroup か allocator の文があるときだけ。`ru_maxrss` は補助 process の RUSAGE_CHILDREN（最大の 1 子孫）、`memory.peak` は per-fd reset。RLIMIT_AS は既定で使わず、Pod の `-m` を保つ | 単体テスト: timeout で子 2・setsid の子・孤児の孫がすべて死に `reaped=yes`、正常終了後の残りも kill、SIGKILL は `signal_9`・137 は `exit_137(signal_unknown)` でどちらも oom ではない、200 MB の孫を `peak_rss_kb` 216356 で捉え、無いケースは 14052（ケースごと） | Pod の中の kernel で `memory.peak` の reset が使えるかは未確認（使えなければ unavailable と記録） |
+| P1-3 (d) | 失敗が最後の echo で成功扱いになる | 生成・run.txt・分類・起動の失敗と壊れた行を harness-error の行にし、続け、`U0 SUMMARY … INCOMPLETE` と終了コード 3 | 単体テスト: 範囲外の行・壊れた行・分類の失敗の注入・起動できないコマンド・run.txt 無しで、ほかの行は正しく分類され、終了コード 3 / INCOMPLETE（`u0_case.sh` 経由でも 3） | — |
+| P1-4 | src が自由な引数、clk/rst の結合、入力の幅・順・初期状態、seedIn の向き、WidthStmt の過剰な拒否 | `Tools/VedU1Contract.lean`（§4.2）。src は入口が元の宣言から作る項で、型の Expr の一致を入口が確かめる。clk/rst は実際の入力で、全 register の clock/reset の名前。`seedFwd` で時刻の向きを直した（前の下書きは逆向き）。`WidthStmt` は wire 宣言を、意味が読む所（データ入力、register の出力）だけに求める | `MEM=8G memlimit lake env lean` で 2 ファイルとも rc=0（§4.2。`lake build` は Sparkle 全体の precompile になるので手元では止めた）。`seedFwd_time` 証明済み。`pilotB0` に clk・rst・out の wire 宣言が無いこと、`ShapeCore`/`WidthStmt` が成り立ち前の下書きの幅の節が成り立たないこと、instance 文 2 つで v1 の範囲外であること、玩具の module の 6 つの変異が拒否されること | `OutputsStmt` の証明、入口（`synthesizeEntry` を 1 回、定数の登録、型の Expr 比較、strict 監査）、宣言の引数名とデータ入力名の対応規則の実物での確認、memory・instance のある module（v1 の範囲外。実物の `pilotB0` も子 instance を持つので範囲外）、`lake build` での 2 target の確認（cluster）。データ入力の後に clk・rst が来ない module があれば `ShapeStmt` の入力の節を直す |
+| 追加 | `#ved_audit_generated` の限界、U0 の同期設定と一般の使用の同期前提 | Tools/VedStrictAudit.lean の docstring と §3.3・§3.4 に明記。`#ved_audit_current_namespace` を追加（同じ限界） | `lake build Tools.VedStrictAudit Tests.Ved.StrictAuditCheck` rc=0（730341a1）。期待した定理が無くても一覧に出ないだけであることを Check に書いた | — |
+
+DeepElab を使う smoke（§3.5 の 1・2）は manager の復旧後に行い、その結果で、塊の Lean の部分がコンパイルできるか、VED の行の形、写しの方式と分けた版の振る舞いを確かめる。U0 全件を待たずに、U1 の型と最小の接続（§4.2 の入口の試作）は進めてよい（reviewer の依頼文）。
