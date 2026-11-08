@@ -1,5 +1,6 @@
 import Lean
 import Sparkle.IR.Semantics
+import Tools.VedIRDecEq
 import Sparkle.Core.Signal
 
 /-!

@@ -333,6 +333,9 @@ lean_lib «Tests.Ved.NestedCacheCheck» where
 
 -- U1 strict entry: the module `synthesizeCombinational` returned, returned
 -- only with a strict (standard-axiom) step theorem (docs/VED-MAIN-INTRO.md)
+lean_lib «Tools.VedIRDecEq» where
+  roots := #[`Tools.VedIRDecEq]
+
 lean_lib «Tools.VedU1Contract» where
   roots := #[`Tools.VedU1Contract]
 
