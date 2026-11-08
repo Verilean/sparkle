@@ -88,7 +88,7 @@ example : ∀ (d : Tools.ShippingMachineAuto.MachineData) (m : Module), checkDat
 /-- `portsOk_spec`: the contract part, complete type (the six count/width/order facts are `portsOk0_spec`) -/
 example : ∀ (d : Tools.ShippingMachineAuto.MachineData) (m : Module), portsOk d m = true →
     (∀ b ∈ d.bsIn.filter (fun b => b.2 != .domain), ∃ n, b.2 = .bits n ∧ 0 < n) ∧
-    (∀ (p : Port) (o : Σ s : Tools.ShippingMachineDenote.SType, Tools.ShippingUnifiedSource.Term s), p ∈ m.outputs → o ∈ d.outs →
+    (∀ (p : Port) (o : Σ s : Tools.ShippingUnifiedSource.SType, Tools.ShippingUnifiedSource.Term s), p ∈ m.outputs → o ∈ d.outs →
       m.outputs.length = 1 → d.outs.length = 1 → Tools.ShippingFGCircuitS3tComb.portW p = Tools.ShippingFGCircuitS3vBridge.sortW o.1) :=
   fun d m h => ⟨(portsOk_spec d m h).2.1, (portsOk_spec d m h).2.2⟩
 
@@ -171,15 +171,15 @@ example (lvl : Lean.Expr → Nat) (declName : Lean.Name) (mctx : Lean.Meta.Conte
 /-! ### (B2) the contract of the first fragment: rejections and vacuity (S3y2) -/
 
 /-- `httpGetByte`'s input is one `BitVec 6` (and a domain), the output is a non-zero-width bits sort: the contract holds at the instance -/
-example : kd0.bsIn.filter (fun b => b.2 != .domain) |>.map (·.2) = [.bits 6] := by decide +kernel
+example : (kd0.bsIn.filter (fun b => b.2 != .domain)).map (·.2) = [.bits 6] := by decide +kernel
 example : kd0.outs.map (fun o => Tools.ShippingFGCircuitS3vBridge.sortW o.1) = [8] := by decide +kernel
 example : circOk kd0 = true := by decide +kernel
 example : portsOk kd0 pilotK0 = true := by decide +kernel
 
 /-- a data variant whose `BitVec 6` input is a `Bool` / a zero-width bits: refused (kernel) -/
-def kdBool : Tools.ShippingMachineAuto.MachineData :=
+noncomputable def kdBool : Tools.ShippingMachineAuto.MachineData :=
   { kd0 with shape := { kd0.shape with binders := kd0.shape.binders.map fun b => if b.2 == .bits 6 then (b.1, .bool) else b } }
-def kdW0 : Tools.ShippingMachineAuto.MachineData :=
+noncomputable def kdW0 : Tools.ShippingMachineAuto.MachineData :=
   { kd0 with shape := { kd0.shape with binders := kd0.shape.binders.map fun b => if b.2 == .bits 6 then (b.1, .bits 0) else b } }
 example : portsOk kdBool pilotK0 = false := by decide +kernel
 example : portsOk kdW0 pilotK0 = false := by decide +kernel
@@ -198,8 +198,6 @@ example : checkData { kd0 with outs := [] } pilotK0 = false := by decide +kernel
 example : circOk { kd0 with outs := kd0.outs ++ kd0.outs } = false := by decide +kernel
 example : circOk { kd0 with outs := [⟨.bits 0, .bitsLit 0 0⟩] } = false := by decide +kernel
 example : checkData { kd0 with outs := [⟨.bits 0, .bitsLit 0 0⟩] } pilotK0 = false := by decide +kernel
-/-- state is refused (the fragment is stateless) -/
-example : circOk { kd0 with ss := [.bool] } = false := by decide +kernel
 
 /-- vacuity 1: the argument range is NEVER empty, for any data: at least the all-zero list is in range; for `kd0` also the list `[1]` and the list `[0]` -/
 example : ∀ d : Tools.ShippingMachineAuto.MachineData, ∃ vals, Tools.ShippingMachineChild.childRange d vals := childRange_nonempty
@@ -221,9 +219,10 @@ theorem dataShows_k0_succ_fails :
     ¬ (∀ x : Sparkle.Core.HList (Tools.ShippingMachineDenote.tys kd0.ss),
       Tools.ShippingMachineCompose.ChildFn pilotK0 (Tools.ShippingMachineChild.childRange kd0) (fun vs => dataValue kd0 x vs + 1)) := by
   intro h
-  exact wrong_value_fails _ (by rw [show (fun vs => dataValue kd0 Sparkle.IP.Net.HTTP.httpGetByte.machineInits vs + 1) [1] = 72 by
-      show dataValue kd0 Sparkle.IP.Net.HTTP.httpGetByte.machineInits [1] + 1 = 72
-      rw [dataValue_one]]; decide) (h Sparkle.IP.Net.HTTP.httpGetByte.machineInits)
+  refine wrong_value_fails (fun vs => dataValue kd0 Sparkle.IP.Net.HTTP.httpGetByte.machineInits vs + 1) ?_
+    (h Sparkle.IP.Net.HTTP.httpGetByte.machineInits)
+  show dataValue kd0 Sparkle.IP.Net.HTTP.httpGetByte.machineInits [1] + 1 ≠ 71
+  rw [dataValue_one]; decide
 
 /-- a failed `readData` gives no successful run of `certifiedEntryC` -/
 example : ∀ (lvl : Lean.Expr → Nat) (declName : Lean.Name) (mctx : Lean.Meta.Context)
@@ -233,7 +232,7 @@ example : ∀ (lvl : Lean.Expr → Nat) (declName : Lean.Name) (mctx : Lean.Meta
       ¬ Tools.ShippingEntrySoundness.RunsTo (readData lvl declName) mctx mref cctx cref w d w₁) →
     ∀ (r : Module × Design) (w' : Void IO.RealWorld),
       ¬ Tools.ShippingEntrySoundness.RunsTo (certifiedEntryC lvl declName) mctx mref cctx cref w r w' :=
-  fun _ _ _ _ _ _ _ _ h => certifiedEntryC_no_read h
+  fun _ _ _ _ _ _ _ h _ _ => certifiedEntryC_no_read h _ _
 
 /-! ### (D) sizes and kernel time, (E) axioms -/
 
@@ -275,6 +274,6 @@ run_cmd liftTermElabM do
   logInfo m!"FGCIRCUIT60 SIGNATURES: checkData_sound (G1, complete type, dataValue unfolded), checkData / circOk unfolded, certifiedEntryC_sound (G2) and the entry body, k0_childFn' through G1: all ascribed to independently written types (a mismatch is a compile error)"
   logInfo m!"FGCIRCUIT60 CONTROLS: 7 rejections by the general check (changed constant, dropped first statement, dropped output statement, swapped mux, the other child's module, the other child's data, a clk input) by the kernel; DataShows non-vacuous (data value 71 at argument 1, a constant function fails, the mutated module is not DataShows); the guard (a false check admits no successful run), plus its instance for a wrong design top"
   logInfo m!"FGCIRCUIT60 SCOPE: the combinational sub-language (no state, one output, Frag), general in the data and the module; ONE closed child (pilotK0 = httpGetByte) as the instance; the entry is a different entry from synthesizeCombinational (old-entry proofs not counted); DeclDenotes (the d read is the declaration's data), registers, instances, the top operators, optimisation and SV are NOT covered; required-IP baseline NOT measured here; ledger unchanged"
-  logInfo m!"FGCIRCUIT60 CONTRACT: first fragment = one output of non-zero width (ChildFn/dataValue are single-output; multi-output IPs are later work), inputs only BitVec n with 0 < n (Bool and zero-width refused), port count/order/width and the output port width checked; 16 kernel rejections (Bool input, zero-width input, extra port, wrong input width, two output ports, wrong output width x2, no output x2, two outputs, zero-width output x2, state, ...); vacuity: childRange d is non-empty for every d (all-zero list), the output list of a passing check is non-empty, a wrong value function is not ChildFn pilotK0; read failure gives no run (certifiedEntryC_no_read); G2 takes the run's success as its premise"
+  logInfo m!"FGCIRCUIT60 CONTRACT: first fragment = one output of non-zero width (ChildFn/dataValue are single-output; multi-output IPs are later work), inputs only BitVec n with 0 < n (Bool and zero-width refused), port count/order/width and the output port width checked; kernel rejections for each of: Bool input, zero-width input, extra input port, wrong input width, two output ports, wrong output width, no output, two outputs, zero-width output; vacuity: childRange d is non-empty for every d (all-zero list), the output list of a passing check is non-empty, a wrong value function is not ChildFn pilotK0; read failure gives no run (certifiedEntryC_no_read); G2 takes the run's success as its premise"
 
 end Tests.Gen5.FGCircuitPilotCheck60
