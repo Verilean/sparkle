@@ -4144,7 +4144,7 @@ S3t の §69.1 の文のうち `SourceData.ok`（`clk` を含まない、先頭 
 - `k1_checkN : checkWithN kd1 pilotK1 = true`（`decide +kernel`、1 run）。診断の kernel 版: `(ofData kd1).isSome = true`、`checkComb`（正規化なし）は `pilotK1` を false。
 - **`k1_childFn : ChildFn pilotK1 (childRange kd1) (childValue tlpCplByte.machineSource kd1.bsIn defaultDomain)`**（Child）。全入力（引数 6 個、範囲内）、run の前提なし。S3v の `k0_childFn` と同じ構成（`checkCombN_sound` + `ofData_soundW` + `tlpCplByte.machine_result`）。引数は `inputs` 全部（`clk`/`rst` なし）で、位置 `i+1` ↔ `i` 番目の値、幅 ↔ binder の幅は**添字ごとの kernel 事実** `k1Fact`（`(List.range 6).all`）。橋の側条件は kernel で証明: `ss.length = 0`、`FragW` が全 `let`／出力、`inputPositions = [1..6]`、出力 1 個。`decide +kernel` は全てフィールドごとで、`machineData` 全体にはかけていない。
 - **`k1_childFn_slot`**: `kidData[1]? = some kd ∧ kidFs[1]? = some f ∧ ChildFn pilotK1 (childRange kd) f`（`rfl`）。`RootShowsAt` の call 1 の連言の形。call 0（`k0_childFn_slot`）と合わせて**両方の子の連言**が揃った（Check59 に 1 つの `example`）。
-- 実装上の注意（証明の中身ではない）: `kd1` を `abbrev` で書くと、`machine_result` との照合で `kd1.nIn =?= machineData.nIn` を elaborator が射影の評価で解こうとして**非常に遅くなる**（50 分以上）。Child では `tlpCplByte.machineData` を直接書き、`typedVal → letTV` の書き換えは任意の `d` についての補題 `tail_gen`（`B`／`W` を明示）で行った。
+- 実装上の注意（証明の中身ではない）: `kd1` を `abbrev` で書くと、`machine_result` との照合で `kd1.nIn =?= machineData.nIn` が原因と思われる（機構は未確認）**非常に遅くなる**（50 分以上、打ち切り）。Child では `tlpCplByte.machineData` を直接書き、`typedVal → letTV` の書き換えは任意の `d` についての補題 `tail_gen`（`B`／`W` を明示）で行った。
 
 ### 72.4 Check59（`kjob lake build Tests.Gen5.FGCircuitPilotCheck59`、exit 0、1 run 約 5.5 分、依存の replay を含む）
 
