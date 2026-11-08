@@ -7036,3 +7036,9 @@ lean_lib «Tools.ShippingFGCircuitS3wComb» where
 
 lean_lib «Tools.ShippingFGCircuitS3wRun» where
   roots := #[`Tools.ShippingFGCircuitS3wRun]
+
+lean_lib «Tools.ShippingFGCircuitS3wChild» where
+  roots := #[`Tools.ShippingFGCircuitS3wChild]
+
+lean_lib «Tools.ShippingFGCircuitS3wBridge» where
+  roots := #[`Tools.ShippingFGCircuitS3wBridge]
