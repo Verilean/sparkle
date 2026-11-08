@@ -43,6 +43,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from u0_gen import scan_source  # noqa: E402  (same scanner as U0)
 
 BEGIN = "@@VEDGATE BEGIN R"
+TIMEP = re.compile(r"^@@VEDGATE TIME R(\d+) (\d+)$")
+# in-process wall time of one command, independent of the profiler
+TIMER = ["open Lean Elab Command in",
+         'elab "#vedgate_t " n:num c:command : command => do',
+         "  let t0 ← IO.monoNanosNow",
+         "  elabCommand c",
+         "  let t1 ← IO.monoNanosNow",
+         '  IO.println s!"@@VEDGATE TIME R{n.getNat} {t1 - t0}"']
 END = "@@VEDGATE END R"
 PROF = re.compile(r"(?:^|\binfo: )([A-Za-z][A-Za-z .]*?) took ([0-9.]+)(ms|s)\b")
 WRITE_CMDS = {"#writeDesign", "#writeVerilogDesign"}  # first string literal = SV path
@@ -81,18 +89,23 @@ def probe_text(text, rows_here):
         i, j = sc["cmd_index"], sc["end_index"]
         sc["text"] = "\n".join(lines[i:j])
         located[r["row"]] = sc
-        ins_before.setdefault(i, []).append(f'#eval IO.println "{BEGIN}{r["row"]}"')
-        prefix[i] = True
-        ins_after.setdefault(j, []).append(f'#eval IO.println "{END}{r["row"]}"')
+        ins_before.setdefault(i, []).extend([f'#eval IO.println "{BEGIN}{r["row"]}"',
+                                             "set_option profiler true", "set_option profiler.threshold 0"])
+        prefix[i] = r["row"]
+        ins_after.setdefault(j, []).extend(["set_option profiler false",
+                                            f'#eval IO.println "{END}{r["row"]}"'])
+        imports_end = sc["imports_end"]
     out = []
     for k, ln in enumerate(lines + [""]):
+        if located and k == imports_end:
+            out += TIMER
         out += ins_after.get(k, [])
         if k == len(lines):
             break
         out += ins_before.get(k, [])
         if prefix.get(k):
             ind = ln[: len(ln) - len(ln.lstrip())]
-            ln = ind + "set_option profiler true in set_option profiler.threshold 0 in " + ln.lstrip()
+            ln = ind + f"#vedgate_t {prefix[k]} " + ln.lstrip()
         out.append(ln)
     return "\n".join(out) + "\n", located
 
@@ -123,7 +136,7 @@ def prof_of(lines):
 def sv_of(lines):
     keep = []
     for ln in lines:
-        if PROF.search(ln) or re.search(r":\d+:\d+: (info|warning|error)", ln):
+        if PROF.search(ln) or TIMEP.match(ln) or re.search(r":\d+:\d+: (info|warning|error)", ln):
             continue
         if ln.startswith("-- ") and "successfully generated" in ln:
             continue
@@ -209,6 +222,9 @@ def main():
                 rec["status"] = "no-markers"; rtab.append(rec); continue
             errs = [ln for ln in lines if re.search(r": error(?:\([^)\s]*\))?:", ln)]
             cats = prof_of(lines)
+            tm = [TIMEP.match(ln) for ln in lines]
+            tm = [m for m in tm if m and m.group(1) == r["row"]]
+            rec["cmd_s"] = round(int(tm[-1].group(2)) / 1e9, 4) if tm else ""
             rec["prof"] = json.dumps(cats, sort_keys=True)
             rec["elab_s"] = cats.get("elaboration", "")
             rec["kernel_s"] = cats.get("type checking", "")
@@ -239,7 +255,7 @@ def main():
     dump("files.tsv", ftab, ["file", "status", "exit", "wall_s", "peak_kib", "errors", "probe_exit",
                              "probe_wall_s", "probe_peak_kib", "rows"])
     rtab.sort(key=lambda t: int(t["row"]))
-    dump("rows.tsv", rtab, ["row", "file", "command", "top", "status", "errors", "elab_s", "kernel_s",
+    dump("rows.tsv", rtab, ["row", "file", "command", "top", "status", "errors", "cmd_s", "elab_s", "kernel_s",
                             "prof", "sv_lines", "sv_sha256"])
     meta["status_counts"] = {}
     for t in rtab:
