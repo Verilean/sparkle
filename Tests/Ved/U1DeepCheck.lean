@@ -108,7 +108,15 @@ partial def constClosure (n : Name) : CoreM NameSet := do
       if seen.contains c then go rest seen else
       let seen := seen.insert c
       let some ci := (← getEnv).find? c | go rest seen
-      let cs := ci.type.getUsedConstants ++ (ci.value?.map (·.getUsedConstants)).getD #[]
+      -- theorem values are read explicitly: `ConstantInfo.value?` gives `none`
+      -- for theorems here, which made a first version of this check vacuous
+      -- (it followed types only; probe9 on f66faccd)
+      let v? : Option Lean.Expr := match ci with
+        | .thmInfo t => some t.value
+        | .defnInfo d => some d.value
+        | .opaqueInfo o => some o.value
+        | _ => none
+      let cs := ci.type.getUsedConstants ++ (v?.map (·.getUsedConstants)).getD #[]
       go (cs.toList ++ rest) seen
   go [n] {}
 
@@ -120,15 +128,17 @@ def nativeFamily (c : Name) : Bool :=
   ["_deep_coneEval", "_deep_regstep", "_deep_seed_bounded", "_deep_step_", "_deep_signalM",
    "_deep_signal_fold", "_deep_signal_run", "_deep_state_trace"].any (fun p => (s.splitOn p).length > 1)
 
-/-- info: closure of accK9.ved_u1: has accK9_deep_trace, no native family (environment has accK9_deep_signal_run) -/
+/-- info: closure of accK9.ved_u1: has accK9_deep_trace and accK9_deep_next, no native family (environment has accK9_deep_signal_run) -/
 #guard_msgs in
 run_cmd liftTermElabM do
   let cl ← constClosure ``accK9.ved_u1
   unless cl.contains ``accK9_deep_trace do throwError "accK9_deep_trace not used (vacuous)"
+  unless cl.contains ``accK9_deep_next && cl.contains ``Cdo.irState do
+    throwError "the Cdo step is not used (vacuous)"
   for c in cl.toList do
     if nativeFamily c then throwError "closure contains {c}"
   unless (← getEnv).contains ``accK9_deep_signal_run do throwError "control premise: no native theorem in env"
-  logInfo "closure of accK9.ved_u1: has accK9_deep_trace, no native family (environment has accK9_deep_signal_run)"
+  logInfo "closure of accK9.ved_u1: has accK9_deep_trace and accK9_deep_next, no native family (environment has accK9_deep_signal_run)"
 
 /-! ## 4. Refusals -/
 
@@ -229,9 +239,9 @@ run_cmd expectRefused "proof" (checkerNames ``accK11) do
 
 /-! ## 5. Kernel: the init-5 module does not implement `accK9` -/
 
-def mAcc5 : Sparkle.IR.AST.Module := mutInit accK9.ved_mod
+noncomputable def mAcc5 : Sparkle.IR.AST.Module := mutInit accK9.ved_mod
 
-def cAcc5 : Contract := contractOf (ved_table% accK9) ["out"] (some ("clk", "rst")) mAcc5
+noncomputable def cAcc5 : Contract := contractOf (ved_table% accK9) ["out"] (some ("clk", "rst")) mAcc5
 
 def zeros : Nat → String → Nat := fun _ _ => 0
 
