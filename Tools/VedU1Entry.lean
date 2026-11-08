@@ -271,6 +271,13 @@ inductive ProofSrc
   /-- CONTROLS ONLY: an arbitrary term (another declaration's theorem, a
   `native_decide` proof, …) -/
   | term (stx : Syntax)
+  /-- A generated script built AFTER the checker has registered the module,
+  contract and outputs (`Names`), from the returned module itself.  Anything
+  the builder adds to the environment (auxiliary definitions) is inside the
+  checker's save/restore scope and is taken back on a refusal.  Used by
+  another entry (Tools/VedU1Deep.lean); the builder is untrusted like the
+  script. -/
+  | built (mk : Names → Sparkle.IR.AST.Module → TermElabM Syntax)
 
 /-- Is `e` already a `VED U1 REFUSED …` error? -/
 def isRefusal (e : Exception) : MetaM Bool := do
@@ -325,6 +332,7 @@ def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Mo
     let stx ← match proof with
       | .generated => scriptFor nm stmtDecl (regShape m)
       | .term s => pure s
+      | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     let pf ← try
         withoutErrToSorry do
