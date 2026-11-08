@@ -143,4 +143,63 @@ theorem k1_childFn : ChildFn pilotK1 (childRange tlpCplByte.machineData)
   exact (tail_gen (D := defaultDomain) tlpCplByte.machineData (fun p => Sparkle.Core.Signal.Signal.pure (decB tlpCplByte.machineData.bsIn vals p))
     (fun p n => Sparkle.Core.Signal.Signal.pure (decV tlpCplByte.machineData.bsIn vals p n)) 0 tlpCplByte.machineInits (fun p => decB tlpCplByte.machineData.bsIn vals p) (fun p w => decV tlpCplByte.machineData.bsIn vals p w) (fun _ => rfl) (fun _ _ => rfl) o0 (f 0) hres.symm)
 
+
+/-- the same conjunct, in the form `RootShowsAt` has it for call 1: the root's `SourceData` fixes `kidData[1]` and `kidFs[1]`, and the closed child's module computes that function on that range -/
+theorem k1_childFn_slot : ∃ (kd : MachineData) (f : List Nat → Nat),
+    kidData[1]? = some kd ∧ kidFs[1]? = some f ∧ ChildFn pilotK1 (childRange kd) f :=
+  ⟨_, _, rfl, rfl, k1_childFn⟩
+
+/-! ### controls: the conclusion is not vacuous; a changed module or function does not satisfy it -/
+
+open Tools.ShippingFGCircuitS3tCombRun (dropFirst)
+
+/-- an environment with the count argument 1 and everything else 0 -/
+def k1env : Sparkle.IR.Semantics.Env := fun n => if n = "_gen_cntSig" then 1 else 0
+
+/-- the value a combinational module gives its first output port at `k1env` (no memories) -/
+def k1eval (m : Sparkle.IR.AST.Module) : Option Nat :=
+  (Sparkle.IR.Semantics.evalAssigns (Sparkle.IR.RegDedup.declWidth m) (fun _ _ => 0) m.body k1env).map
+    (fun e => e ((m.outputs.map (·.name)).headD ""))
+
+theorem k1_eval : k1eval pilotK1 = some 74 := by decide +kernel
+theorem k1_eval_flip : k1eval (flip74 pilotK1) = some 75 := by decide +kernel
+
+theorem k1_bs : tlpCplByte.machineData.bsIn.filter (fun b => b.2 != .domain) =
+    [(`cplId, .bits 16), (`reqId, .bits 16), (`tag, .bits 8), (`lowerAddr, .bits 8), (`data, .bits 32), (`cntSig, .bits 5)] := by
+  decide +kernel
+
+theorem k1_range_vec : childRange tlpCplByte.machineData [0, 0, 0, 0, 0, 1] := by
+  unfold childRange InRange
+  rw [k1_bs]
+  repeat' first | exact .nil | (apply Tools.ShippingMachineClose.Zip₂.cons; decide)
+
+theorem k1_args_vec : (argPorts pilotK1).map (fun p => k1env p.name) = [0, 0, 0, 0, 0, 1] := by decide +kernel
+theorem k1_rst_zero : k1env "rst" = 0 := by decide +kernel
+
+/-- a module with `pilotK1`'s inputs that satisfies `ChildFn` for `f` gives `f [0,0,0,0,0,1]` at `k1env` -/
+theorem childFn_k1eval (m : Sparkle.IR.AST.Module) (hm : m.inputs = pilotK1.inputs) (f : List Nat → Nat)
+    (h : ChildFn m (childRange tlpCplByte.machineData) f) : k1eval m = some (f [0, 0, 0, 0, 0, 1]) := by
+  obtain ⟨outP, hout, h⟩ := h
+  have hargs : argPorts m = argPorts pilotK1 := by simp [argPorts, hm]
+  obtain ⟨cres, he, hv⟩ := h (fun _ _ => 0) k1env k1_rst_zero (by rw [hargs, k1_args_vec]; exact k1_range_vec)
+  rw [hargs, k1_args_vec] at hv
+  simp only [k1eval, he, Option.map_some, hout, List.map_cons, List.map_nil, List.headD_cons, hv]
+
+/-- the conclusion is not vacuous: the function `fun _ => 0` is NOT what `pilotK1` computes -/
+theorem k1_not_zero : ¬ ChildFn pilotK1 (childRange tlpCplByte.machineData) (fun _ => 0) := by
+  intro h
+  have := childFn_k1eval pilotK1 rfl _ h
+  rw [k1_eval] at this
+  simp at this
+
+/-- a mutated module (the constant 74 changed to 75) does NOT satisfy the same `ChildFn` -/
+theorem flip74_not_childFn : ¬ ChildFn (flip74 pilotK1) (childRange tlpCplByte.machineData)
+    (childValue tlpCplByte.machineSource tlpCplByte.machineData.bsIn defaultDomain) := by
+  intro h
+  have h1 := childFn_k1eval (flip74 pilotK1) rfl _ h
+  have h0 := childFn_k1eval pilotK1 rfl _ k1_childFn
+  rw [k1_eval] at h0
+  rw [k1_eval_flip, ← Option.some.inj h0] at h1
+  simp at h1
+
 end Tools.ShippingFGCircuitS3wChild
