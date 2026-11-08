@@ -128,10 +128,11 @@ theorem portsOk_spec (d : MachineData) (m : Module) (h : portsOk d m = true) :
   · intro p o hp ho hm hd
     obtain ⟨p0, hp0⟩ := List.length_eq_one_iff.mp hm
     obtain ⟨o0, ho0⟩ := List.length_eq_one_iff.mp hd
-    subst hp0; subst ho0
+    rw [hp0] at hp h2
+    rw [ho0] at ho h2
     simp only [List.mem_singleton] at hp ho
-    subst hp; subst ho
-    simpa using List.all_eq_true.mp h2 (p, o) (by simp)
+    rw [hp, ho] at *
+    simpa using h2
 
 /-- **G1, the general validator soundness**: for every data `d` and module `m`, `checkData d m = true` gives `DataShows d m`.  General in `d` and `m`; no run, no law. -/
 theorem checkData_sound (d : MachineData) (m : Module) (h : checkData d m = true) : DataShows d m := by
@@ -214,7 +215,7 @@ theorem inRange_zeros (L : List (Lean.Name × MixedGateBinder)) : InRange (L.map
   | cons b L ih =>
     refine .cons ?_ ih
     rcases b with ⟨nm, k⟩
-    cases k <;> simp [Nat.pos_pow_of_pos, Nat.two_pow_pos]
+    cases k <;> simp [Nat.two_pow_pos]
 
 theorem childRange_nonempty (d : MachineData) : ∃ vals, childRange d vals :=
   ⟨_, inRange_zeros (d.bsIn.filter fun b => b.2 != .domain)⟩
