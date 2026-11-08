@@ -446,7 +446,7 @@ class Runner:
                 run.get("rc", ""), run.get("term", ""), run.get("timeout", ""), run.get("wall_s", ""),
                 run.get("peak_rss_kb", ""), run.get("reaped", ""), run.get("mem_evidence", ""),
                 str(len(re.findall(r"#verify_elab_deep \S+: PROVEN", text))),
-                str(len(re.findall(r": error:", text))),
+                str(len(re.findall(r": error(?:\([^)\s]*\))?:", text))),
                 str(len(re.findall(r"SKIPPED|replay skipped", text))),
                 "harness-error" if he else "smoke-asis", he, os.path.join(d, "stdout.txt")]
         return "\t".join(v.replace("\t", " ") for v in vals)

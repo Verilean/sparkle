@@ -563,7 +563,7 @@ def stage_table(route, base, ret_kind, outputs, thms):
 def error_lines(text, case_name):
     """(line, message) of every Lean error reported against the case file."""
     out = []
-    for m in re.finditer(r"(?m)^(\S*?)" + re.escape(case_name) + r":(\d+):(\d+): error: (.*)$", text):
+    for m in re.finditer(r"(?m)^(\S*?)" + re.escape(case_name) + r":(\d+):(\d+): error(?:\([^)\s]*\))?: (.*)$", text):
         out.append((int(m.group(2)), m.group(4)))
     return out
 

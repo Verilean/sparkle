@@ -56,6 +56,10 @@ def main():
         msg("error", plan["error_in_block"])
     if plan.get("error_outside_line"):
         msg("error", "unknown identifier 'foo_deep_trace'", line=plan["error_outside_line"])
+    if plan.get("coded_error_outside_line"):
+        # Lean v4.32 form with an error code: `error(lean.unknownIdentifier): ...`
+        msg("error(lean.unknownIdentifier)", "Unknown identifier `foo_deep_regstep`",
+            line=plan["coded_error_outside_line"])
     if "ret" in plan:
         msg("info", f"VED RET {plan['ret']}")
         msg("info", "VED SECONDRUN modules=1")

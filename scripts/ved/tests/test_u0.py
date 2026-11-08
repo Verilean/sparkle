@@ -291,6 +291,23 @@ class U0Harness(unittest.TestCase):
         self.assertIn("-- U0 split: #verify_elab_deep a", case1)
         self.assertIn("namespace VedU0Smoke01\nset_option sparkle.deepShare true in\n#verify_elab_deep b", case1)
 
+    def test_coded_error_lines_counted(self):
+        # smoke2-4d1e: Lean v4.32 prints `error(lean.unknownIdentifier): ...`; such lines
+        # were not matched, so a split variant failed with errors_outside_block=0.
+        f = os.path.join(self.fx.repo, "Src/Deep.lean")
+        open(f, "w").write("import Foo\nnamespace T\n#verify_elab_deep a\n#verify_elab_deep b\n"
+                           "#check a_deep_trace\nend T\n")
+        self.plan["smoke:0"] = {"ret": "signal", "coded_error_outside_line": 9}
+        self.plan["smoke:1"] = {"ret": "signal"}
+        self.plan["asis"] = {"coded_error_outside_line": 5}
+        r1 = self.run_u0("smoke-split", "Src/Deep.lean")
+        self.run_u0("smoke-file", "Src/Deep.lean")
+        v0 = [x for x in self.results("results_smoke_split.tsv") if x["row"] == "smoke:Deep:0"][0]
+        self.assertEqual(v0["errors_outside_block"], "1")
+        self.assertIn("split-harness", v0["harness_error"])
+        self.assertEqual(r1.returncode, 3)
+        self.assertEqual(self.results("results_smoke_asis.tsv")[0]["n_errors"], "1")
+
     # ------------------------------------------------------------ P1-3 a
     def test_environment_pollution_cleared(self):
         self.single_ok(1)
