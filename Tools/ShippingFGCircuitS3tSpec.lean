@@ -74,7 +74,7 @@ def designOk (b : Module) (D : Design) : Bool :=
 /-! ## SourceData -/
 
 /-- NOT every field is fixed by `SrcEq`: `declName`, `d`, `declObs`, `kidInW`, `kidOutW`, `kD` are pinned to the root's constants, but `portNames` and `kidMod` are CLAIMS (the validator checks them against the module; nothing relates them to the compiler's allocator).  The first `kD` of `portNames` are the root's own inputs in source order, with the kinds `d.bsIn` gives (`srcInPorts`).
-The source side for the pilot root, as data: the machine the front end read off the declaration, the declaration's own observation, the allocator's port names, the two children's module names and port widths, and the number `kD` of the root's own input binders.  This is a statement about THIS root: `SrcEq` pins every field to the root's generated constants.  `instFields = []` is required (`ok`), so the soundness statement covers no root with instance fields. -/
+The source side for the pilot root, as data: the machine the front end read off the declaration, the declaration's own observation, the claimed port names, the two children's module names and port widths, and the number `kD` of the root's own input binders.  This is a statement about THIS root: `SrcEq` pins every field to the root's generated constants.  `instFields = []` is required (`ok`), so the soundness statement covers no root with instance fields. -/
 structure SourceData where
   declName : Name
   d : MachineData

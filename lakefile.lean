@@ -7021,3 +7021,12 @@ lean_lib «Tools.ShippingFGCircuitS3tCalls» where
 
 lean_lib «Tests.Gen5.FGCircuitPilotCheck57» where
   roots := #[`Tests.Gen5.FGCircuitPilotCheck57]
+
+lean_lib «Tools.ShippingFGCircuitS3vBridge» where
+  roots := #[`Tools.ShippingFGCircuitS3vBridge]
+
+lean_lib «Tools.ShippingFGCircuitS3vChild» where
+  roots := #[`Tools.ShippingFGCircuitS3vChild]
+
+lean_lib «Tests.Gen5.FGCircuitPilotCheck58v» where
+  roots := #[`Tests.Gen5.FGCircuitPilotCheck58v]
