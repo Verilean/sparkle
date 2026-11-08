@@ -11,6 +11,7 @@ open Tools.ShippingMachineCompose (ChildFn argPorts)
 open Tools.ShippingMachineChild (childValue childRange decB decV portIdx InRange inRange_get)
 open Sparkle.Core (HList)
 open Sparkle.IR.AST (Module Port)
+open Sparkle.Compiler.Elab (MixedGateBinder)
 
 /-- the bit width of a port binder (a domain binder has no port: 0) -/
 def binderW : MixedGateBinder → Nat
@@ -101,7 +102,8 @@ theorem checkData_sound (d : MachineData) (m : Module) (h : checkData d m = true
     intro p hp'
     have := hnoclk p hp'
     simp [this.1, this.2]
-  set vals : List Nat := (argPorts m).map (fun p => env p.name) with hvals
+  obtain ⟨vals, hvals⟩ : ∃ vals : List Nat, vals = (argPorts m).map (fun p => env p.name) := ⟨_, rfl⟩
+  rw [← hvals] at hP ⊢
   have hvlen : vals.length = m.inputs.length := by rw [hvals, hargs]; simp
   have hvget : ∀ (i : Nat) (p : Port), m.inputs[i]? = some p → vals.getD i 0 = env p.name := by
     intro i p hi
@@ -129,15 +131,17 @@ theorem checkData_sound (d : MachineData) (m : Module) (h : checkData d m = true
     have hbnd : b.2 != .domain := (List.mem_filter.mp hbmem).2
     have hrng := inRange_get hP i b (by rw [childRange] at hP; exact hb)
     have hvi : vals.getD i 0 = env p.name := hvget i p hi
+    have hvi' : vals[i]?.getD 0 = env p.name := by rw [← List.getD_eq_getElem?_getD]; exact hvi
     show env p.name = vals.getD (portIdx d.bsIn q) 0 % 2 ^ portW p
     rw [hidxq, hvi]
     symm
     apply Nat.mod_eq_of_lt
     rw [hpw]
     rcases b with ⟨nm, k⟩
+    simp only [] at hrng
     cases k with
-    | bool => simpa [binderW] using hrng
-    | bits n => simpa [binderW] using hrng
+    | bool => simpa [binderW, hvi'] using hrng
+    | bits n => simpa [binderW, hvi'] using hrng
     | domain => simp at hbnd)
   refine ⟨env', he, ?_⟩
   have hslen : s.outs.length = 1 := by rw [hlen]; simpa using hout1
