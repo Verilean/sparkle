@@ -3824,6 +3824,21 @@ mutual
     let savedWireWidthCache ←
       if depth == 0 then pure ({} : Std.HashMap String Nat)
       else sparkleWireWidthCache.get
+    -- The hardware-`let`, `Signal.loop` and wire-canonicalisation caches
+    -- map keys to wire NAMES of the module being synthesised, so they are
+    -- per-module too: a nested synth starts them empty and the parent's
+    -- are restored afterwards.  Without the restore the parent continued
+    -- with the CHILD's entries and could reuse a child wire name that, in
+    -- the parent module, is another wire (or none).
+    let savedLetWireCache ←
+      if depth == 0 then pure ({} : Std.HashMap String String)
+      else sparkleLetWireCache.get
+    let savedLoopWireCache ←
+      if depth == 0 then pure ({} : Std.HashMap String String)
+      else sparkleLoopWireCache.get
+    let savedWireCanon ←
+      if depth == 0 then pure ({} : Std.HashMap String String)
+      else sparkleWireCanon.get
     if depth == 0 then
       sparkleTypeCache.set {}
       sparkleTypeCacheHits.set 0
@@ -4041,6 +4056,9 @@ mutual
         sparkleFvarValueMap.set savedFvarMap
         sparkleFvarWireMap.set savedFvarWireMap
         sparkleWireWidthCache.set savedWireWidthCache
+        sparkleLetWireCache.set savedLetWireCache
+        sparkleLoopWireCache.set savedLoopWireCache
+        sparkleWireCanon.set savedWireCanon
   partial def synthesizeCombinational (declName : Name) :
       MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let (m, d) ← synthesizeCombinationalCore declName [] false

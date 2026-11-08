@@ -39,7 +39,7 @@ import Sparkle.IR.Optimize
 
 namespace Sparkle.IR.RegDedup
 
-open Sparkle.IR.AST Std
+open Sparkle.IR.AST Sparkle.IR.Type Std
 
 /-- Canonical form of an expression under a class map: references to
     classified nodes become their class id, everything else is kept. -/
@@ -72,19 +72,30 @@ def definedNode : Stmt → Option String
   | .memory _ _ _ _ _ _ _ _ rd _ [] [] => some rd
   | _ => none
 
+/-- The declared type of a node, when it is a FIXED width (`bit` or
+    `bitVector n`).  A symbolic width, an array or an undeclared name is
+    `none`: such a node is never merged and never looked through. -/
+def fixedTy (tys : HashMap String HWType) (n : String) : Option HWType :=
+  match tys.get? n with
+  | some t@(.bit) => some t
+  | some t@(.bitVector _) => some t
+  | _ => none
+
 /-- A node's refinement signature: its own current class (so classes
-    only ever split) plus its defining statement with references
-    canonicalised. -/
-def sigOf (alias : HashMap String String) (cls : HashMap String Nat) (self : Nat) :
-    Stmt → String
-  | .assign _ rhs => s!"{self}|A|{repr (canonExpr alias cls rhs)}"
+    only ever split), its declared type (`tyKey`: two nodes of different
+    widths carry different values even when their defining statements
+    agree — a register or wire truncates its input to its own width),
+    plus its defining statement with references canonicalised. -/
+def sigOf (alias : HashMap String String) (cls : HashMap String Nat) (self : Nat)
+    (tyKey : String) : Stmt → String
+  | .assign _ rhs => s!"{self}|{tyKey}|A|{repr (canonExpr alias cls rhs)}"
   | .register _ clk (rstN, rk) input init =>
-    s!"{self}|R|{clk}|{rstN}|{repr rk}|{init}|{repr (canonExpr alias cls input)}"
+    s!"{self}|{tyKey}|R|{clk}|{rstN}|{repr rk}|{init}|{repr (canonExpr alias cls input)}"
   | .memory _ aw dw clk wa wd we ra _ cr _ _ =>
     -- same write port ⇒ same contents at every cycle (both start at 0);
     -- same read address (and read kind) ⇒ same read data
-    s!"{self}|M|{cr}|{aw}|{dw}|{clk}|{repr (canonExpr alias cls wa)}|{repr (canonExpr alias cls wd)}|{repr (canonExpr alias cls we)}|{repr (canonExpr alias cls ra)}"
-  | _ => s!"{self}|?"
+    s!"{self}|{tyKey}|M|{cr}|{aw}|{dw}|{clk}|{repr (canonExpr alias cls wa)}|{repr (canonExpr alias cls wd)}|{repr (canonExpr alias cls we)}|{repr (canonExpr alias cls ra)}"
+  | _ => s!"{self}|{tyKey}|?"
 
 /-- Merge bisimilar nodes.  Internal (`_tmp_*`) non-representatives become
     plain aliases `n := rep` (a duplicate register's output turns into an
@@ -96,11 +107,22 @@ def mergeDuplicates (m : Module) : Module := Id.run do
   if nodes.length < 2 then return m
   let outputSet : HashMap String Bool :=
     m.outputs.foldl (fun h p => h.insert p.name true) {}
-  -- plain aliases `y := x` (x ≠ y): canonical forms look through them
+  let tys : HashMap String HWType :=
+    (m.inputs ++ m.outputs ++ m.wires).foldl (fun h p => h.insert p.name p.ty) {}
+  -- plain aliases `y := x` (x ≠ y): canonical forms look through them —
+  -- only when both sides have the SAME fixed width (an assignment to a
+  -- narrower wire truncates, so `y` is not `x` there)
   let alias : HashMap String String := m.body.foldl (init := {}) fun h st =>
     match st with
-    | .assign y (.ref x) => if x != y then h.insert y x else h
+    | .assign y (.ref x) =>
+      if x != y && (fixedTy tys x).isSome && fixedTy tys x == fixedTy tys y then
+        h.insert y x else h
     | _ => h
+  -- a node of unknown or symbolic width gets a key of its own: never merged
+  let tyKeyOf (n : String) : String :=
+    match fixedTy tys n with
+    | some t => s!"T{repr t}"
+    | none => s!"U{n}"
   -- partition refinement from the coarsest partition
   let mut cls : HashMap String Nat := nodes.foldl (fun h (n, _) => h.insert n 0) {}
   let mut nClasses := 1
@@ -108,7 +130,7 @@ def mergeDuplicates (m : Module) : Module := Id.run do
     let mut ids : HashMap String Nat := {}
     let mut next : HashMap String Nat := {}
     for (n, st) in nodes do
-      let s := sigOf alias cls (cls.getD n 0) st
+      let s := sigOf alias cls (cls.getD n 0) (tyKeyOf n) st
       let k := match ids.get? s with
         | some k => k
         | none => ids.size
