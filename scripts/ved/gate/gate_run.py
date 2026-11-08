@@ -136,6 +136,7 @@ def main():
     ap.add_argument("--inv", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--cold", action="store_true")
+    ap.add_argument("--files", default="", help="smoke only: comma-separated files (not a gate result)")
     a = ap.parse_args()
     out = a.out
     for d in ("logs/file", "logs/probe", "probe", "sv"):
@@ -147,6 +148,10 @@ def main():
     head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     meta = {"head": head, "rows": len(rows), "node": os.uname().nodename, "cold": a.cold,
             "cpus": os.cpu_count(), "inventory_sha256": sha(a.inv)}
+    if a.files:
+        keep = set(a.files.split(","))
+        rows = [r for r in rows if r["file"] in keep]
+        meta["smoke_subset"] = sorted(keep)
     files = sorted({r["file"] for r in rows})
     present = [f for f in files if os.path.isfile(f)]
     texts = {f: open(f).read() for f in present}
@@ -241,7 +246,7 @@ def main():
     with open(os.path.join(out, "meta.json"), "w") as fh:
         json.dump(meta, fh, indent=1)
     print("GATEDONE " + json.dumps(meta["status_counts"], sort_keys=True), flush=True)
-    return 0 if len(rtab) == len(rows) else 3
+    return 0 if len(rtab) == len(rows) and not a.files else 3
 
 
 if __name__ == "__main__":
