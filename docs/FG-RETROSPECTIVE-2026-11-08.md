@@ -57,7 +57,8 @@ pilot では source の導出、子呼び出しとの意味一致、同じ返却
 
 ### 5. 構文代入・値の表現が対象回路を覆わない
 
-- 症状：一般代入補題が現規則では成立しない場合、Type 0 の Dyn に再帰子・motive・型クラス引数が入らない場合があった。
+- 症状：一般代入補題は未供給で、可換性の負対照（`substS` と `betaS`／`instForallS`）から反例候補が指摘された。また、Type 0 の Dyn に再帰子・motive・型クラス引数が入らない場合があった。
+- 訂正履歴：草稿は「一般代入補題が現規則では成立しない場合」と書いていたが、d1e60233 は具体的な反例を作っていないので、上のように直した（reviewer が 0ac77362 の確認時に採用）。
 - 根拠：d1e60233 の代入負対照、bc4e180f の PTcorpus、404e597a の carrier 比較。（coder 訂正: d1e60233 自身は一般代入補題が「偽になりうる」と書いていて、具体的な反例は作っていない。kernel が示したのは `substS` が `betaS`／`instForallS` と可換でないことだけなので、分類は「未供給（反例候補あり）」。引用した 5 コミット（d1e60233、bc4e180f、404e597a、6fd58e9e、e37da005）はどれも `CONSTVALUEE_FREEZE_DRAFT.md` だけの変更で、404e597a は比較表の数値 2 行の修正であって比較そのものではない。）
 - 対応：valuation 経由の app/let、狭い回路 primitive 規則、静的 List.rec。Signal の展開停止だけでは全コーパスの再帰子は消えなかった（6fd58e9e、e37da005）。
 - 教訓：任意 Lean を意味モデルに取り込む費用と、有限な回路記述を扱う費用を分ける。停止集合を広げても、その primitive の意味の正当化は必要。
@@ -355,21 +356,23 @@ T1 の内訳は、除去 10、追加 5、置き換え 5 行（正味 0）。62 �
 | 分類 | 行数 | 行 |
 |---|---|---|
 | P 証明による除去 | **−31** | 流れ 1 の 3、C.SM-2/3/4、C.AC-2/3、C.CV-1、C.RT-1/3/4、D.E-1/2/5/9、D.E-6、D.E-3、C.RT-2、C.CV-2/3、D.E-7/8、B.F-4、C.RK-1、C.CV-6、C.AC-9、D.T-1、D.D-3、C.DG-1、C.SM-1 |
-| 　うち固定 carrier・scoped などの条件つき | （内数）−12 | C.SM-2/3/4、C.AC-2/3（GenData-kit の採用が条件）、C.AC-9、D.T-1、D.D-3（`GP := genGP` の範囲）、C.SM-1（`initsOf` の固定）、C.DG-1（統合として数える）、B.F-4（fragment の範囲だけ）、C.CV-1（文を改めたあと） |
+| 　うち、固定 carrier・保証範囲・仕様変更を条件とした既受入の計上（未受理の条件付き部品ではない。この内訳は新しい受理判定には使わない） | （内数）−12 | C.SM-2/3/4、C.AC-2/3（GenData-kit の採用が条件）、C.AC-9、D.T-1、D.D-3（`GP := genGP` の範囲）、C.SM-1（`initsOf` の固定）、C.DG-1（統合として数える）、B.F-4（fragment の範囲だけ）、C.CV-1（文を改めたあと） |
 | 　うち仮定 +5 と引き換えの置き換え | （内数）−3 | C.RT-2、C.CV-2、C.CV-3（§12.8） |
 | U 不要な binder の除去 | **−2** | C.CV-5（リーフ）、D.T-2（非リーフ） |
 | D 重複計上の統合 | **−2** | A.P-22、A.P-12（どちらも非リーフ。Lean は変えていない） |
 | N 非リーフの置き換え | **−6** | A.P-26、C.CR-1、A.P-24、C.SM-7、A.P-17、C.CR-4 |
 | R 数え方の規則（R0-B） | **−1** | C.SM-5 |
-| R 数え直しの訂正（件数が増えた） | **+1**（記録では −4 のあと +1） | D.T-5。流れ 1 の承認 note は −4 で、後から +1 と訂正した。上の P の「流れ 1 の 3」は訂正後の数 |
 | + 追加 | **+7** | SigTyClosed、InstSFieldsDet、N1-a DeclValuePh、N2-b PackTupleInputsBridge、N3-b RawNodePh、N3-b NormNodePh、RecRulePhU |
 | どれにも当てはまらないもの | **0** | — |
+
+履歴注記（訂正後の合計には加算しない）: R 数え直しの訂正 +1（D.T-5）。流れ 1 の承認 note は −4 と記録し、後から +1 と訂正した。上の P の「流れ 1 の 3」は訂正後の数なので、この +1 を上の表の合計に加えると 76 になってしまう。履歴の式（下の 2 つ目）でだけ使う。
 
 突き合わせ:
 
 - 訂正後の数で数えると、110 − 31 − 2 − 2 − 6 − 1 + 7 = **75**。
 - 記録どおりの数で数えると、110 − 43（除去の記録。D.T-5 を含む）+ 1（訂正）+ 7（追加）= **75**。
 - 146 から数えると、146 − 36（段 1 の重複統合、D）= 110。そこから上と同じで 75 になる。
+- 110 → 75 は 35 行の**純減**で、証明による前進が 35 件あったという意味ではない（証明による除去は 31、うち 12 は条件付きの既受入、残りは記帳上の整理と追加 7 の差し引き）。発表・論文では、旧来の「100 前後から」という概算よりもこの照合済みの内訳を使う。
 - リーフ / 非リーフで分けると、102（72 / 30）からリーフは −23 +5 = −18 で 54、非リーフは −9 で 21。合わせて 75。
 - 差は残らない。
 
@@ -386,3 +389,16 @@ T1 の内訳は、除去 10、追加 5、置き換え 5 行（正味 0）。62 �
 7. **FG 75 に入っていないもの（食い違いではなく注意）。** N4-a `LamTelescopeN` の +1（§12.17。入れると 76）は数えていない。D.D-4 の欠陥（§12.22）は、文が今のままでは反駁できるというもので、件数は変えていない。
 
 T1 の値の時刻を照らした結果、FG 台帳の各節に書かれた T1 の値（§12 で 54、§12.1 で 54 のまま、§12.3 / §12.4 で 56、§12.5 で 54、§12.6 で 55、§12.8 以降は 57）は、その節を書いた時刻の T1 台帳の値と合っていた。
+
+## 付録 C: 区切りの時点で進行中だった Job の保存状態（coder、2026-11-08）
+
+終了と完成は別物として扱う。下の「build 成功」はどれもエージェントが Pod の中で回した増分 build で、coder による exact-head の独立検証ではない。
+
+- **S3w**（kjob-claude-src-fgc-s3w-ac60、base 615b4b90、pilotK1）。区切りの時点でもエージェントは動いていた（phase wait_agents）。
+  - コミット済み: 137c3bee（checkCombN、Bool→bit の規則を証明した正規化と checkCombN_sound）、6fa8d941（checkCombN が pilotK1 を kernel で受理、対照あり）、1ac6104c（FragW の橋と k1_childFn の下書き）。
+  - 未コミットだった差分（Tools/ShippingFGCircuitS3wChild.lean、+21/−6）は、動いている worktree には触れずに par/fgc-s3w-draft 0a1a88c2 へ下書きとして明示コミットした（UNVERIFIED と明記）。
+  - Pod 内 build の記録: S3wComb、S3wBridge、S3wRun は exit 0。S3wChild は exit 1（65 秒）と、3040 秒後の kill（exit 143）。scratch の `lake env lean` を多数（成功・失敗・kill が混在）。記録は `~/git/.kjob-state/namespaces/sparkle-dev/kjob-claude-src-fgc-s3w-ac60/builds/`。
+  - **k1_childFn は証明済みではない。** 下書きの差分は build されていない。reviewer の審査は受けていない。
+- **S3z**（kjob-claude-src-fgc-s3z-6255、base 8d587684、DeclDenotes と合成文）: コミットはなく、end_head は base と同じで dirty=false。mkvs-macpro の cache なしの依存 build に時間を使っていた。DeclDenotes の型付けは未着手のまま区切った。
+- **S3y／S3y2**（G1 checkData_sound、G2 certifiedEntryC_sound）: origin/par/fgc-s1 8cf6beef。exact-head の検証は kjob-run-src-fgc-m3y2-794b で exit 0（Check60: 34 定理、標準 axiom のみ）。中間意味（MachineData）までの結果で、reviewer の審査は G1/G2 の形の採用まで。証明の受理は受けていない。
+- 新しい実装は始めていない。台帳は FG 75 / T1 57 のまま。
