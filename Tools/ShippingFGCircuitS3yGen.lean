@@ -152,4 +152,40 @@ theorem checkData_sound (d : MachineData) (m : Module) (h : checkData d m = true
   rw [h1, h2.1]
   simp [dataValue, ho0]
 
+/-! ### `k0_childFn` as a corollary: `httpGetByte`'s per-declaration facts are now Bool checks -/
+section K0
+open Tools.ShippingFGCircuitS3vChild (kd0 k0_outs_len)
+open Tools.ShippingFGCircuitS3rArtifact (pilotK0)
+open Sparkle.IP.Net.HTTP (httpGetByte)
+open Sparkle.Core.Domain (defaultDomain)
+
+/-- the whole check, by the kernel, on the closed generated child (no per-field facts supplied) -/
+theorem k0_checkData : checkData kd0 pilotK0 = true := by decide +kernel
+
+/-- the data's own value IS the declaration's `childValue` of `machineSource` (the tie `httpGetByte.machine_result`, per declaration) -/
+theorem dataValue_k0 (vals : List Nat) :
+    dataValue kd0 httpGetByte.machineInits vals =
+      childValue httpGetByte.machineSource kd0.bsIn defaultDomain vals := by
+  have hres := httpGetByte.machine_result defaultDomain
+    (fun p => Sparkle.Core.Signal.Signal.pure (decB kd0.bsIn vals p))
+    (fun p n => Sparkle.Core.Signal.Signal.pure (decV kd0.bsIn vals p n)) 0
+  obtain ⟨o0, ho0⟩ := List.length_eq_one_iff.mp k0_outs_len
+  simp only [ho0, List.map_cons, List.map_nil, httpGetByte.machineSource] at hres
+  unfold dataValue childValue
+  simp only [ho0, httpGetByte.machineSource]
+  simp only [List.cons.injEq, and_true] at hres
+  simp only [List.getElem?_cons_zero, Option.map_some, Option.getD_some]
+  exact hres.symm
+
+/-- **`k0_childFn` re-derived**: the S3v theorem, now a corollary of the GENERAL `checkData_sound` (its side facts are inside `k0_checkData`) and the per-declaration tie -/
+theorem k0_childFn' : ChildFn pilotK0 (childRange kd0)
+    (childValue httpGetByte.machineSource kd0.bsIn defaultDomain) := by
+  have h := checkData_sound kd0 pilotK0 k0_checkData httpGetByte.machineInits
+  obtain ⟨outP, hout, h⟩ := h
+  exact ⟨outP, hout, fun mems env hr hP => by
+    obtain ⟨cres, he, hv⟩ := h mems env hr hP
+    exact ⟨cres, he, by rw [hv, dataValue_k0]⟩⟩
+
+end K0
+
 end Tools.ShippingFGCircuitS3yGen
