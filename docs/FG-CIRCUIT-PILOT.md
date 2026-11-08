@@ -4115,3 +4115,49 @@ S3t の §69.1 の文のうち `SourceData.ok`（`clk` を含まない、先頭 
 - 橋は `Frag` の外（Bool 入力、状態、`binary`／`concatLit*`／`zextMap` 等）には適用できない。広げる場合は `tC` の被覆とともに `tC_sound` を拡張する。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+## 72. S3w（Issue `sparkle-fg-circuit-pilot`）: 閉じた子 2 つ目（`pilotK1` = `tlpCplByte`、159 文）— 診断、証明付きの狭い正規化、`k1_childFn`
+
+土台 `615b4b90`（S3t + S3u + S3v）。新規ファイルのみ: `Tools/ShippingFGCircuitS3wComb.lean`、`…S3wRun.lean`、`…S3wBridge.lean`、`…S3wChild.lean`、`Tests/Gen5/FGCircuitPilotCheck59.lean`（lakefile に各 `lean_lib`）。S3t／S3u／S3v のファイルと `Sparkle/` は**変更していない**。既存の定理の文も変更していない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。**1 つの子の結果は局所成果で、台帳の減算ではない**。
+
+### 72.1 診断（修正の前に。scratch で kernel 評価、結果だけここに記録）
+
+- `tlpCplByte.machineData`: `ss.length = 0`、`nIn = 7`、`ls` 42、`outs` 1（sort は 8 bit）。`ofData` は **`some`**（`letsC` は全 42 `let` で成功）。入力位置は `[1,2,3,4,5,6]`。
+- `pilotK1` の 159 文は、`stepT` で**全て翻訳できる**（文の接頭辞のどれも `none` にならない）。`checkComb` が false になる原因は**最後の出力の比較**だけ。
+- 出力 `out` の 2 つの項（`CTerm`）: モジュール側は大きさ 129、ソース側は 84。幅は両方 8。`firstDiff`（構造の最初の違い）は**最外の `mux` の条件**:
+  - モジュール側: `mux (mux (eq cntSig p1) (lit 1 1) (lit 1 0)) b0 (…)`。wire `_tmp_concat_hi_57 = mux _tmp_mux_cond_54 _tmp_mux_then_55 _tmp_mux_else_56` （`_tmp_mux_then_55 = const 1 1`、`_tmp_mux_else_56 = const 0 1`）に、幅 1 の `slice _ 0 0`（`mkSlice` が全幅として畳む）。
+  - ソース側（`ofData`）: `mux (eq cntSig p1) b0 (…)`。ソースの `compare .eq` は Bool で、**コンパイラが Bool を 1 bit に変換するために `mux c 1 0` を出力**している。
+  - これが 15 個の条件 `e1`…`e15` の全てで同じ形。**原因はこの 1 つだけ**: `normB`（下）で正規化したモジュール側の項は、ソース側の項と構造として**等しい**（`decide (normB tm = src) = true`）。
+- 原因の分類: 演算子の欠落（concat 3 つ以上、binary、zext、Bool 入力）でも幅の違いでも wire の inline でも slice／literal の畳み込みでもなく、**Bool→bit の変換 `mux c (lit 1 1) (lit 1 0)`**。
+- `d.ss = []`: 満たす。`Frag`: **満たさない**。出力項が `boolInput j`（15 個、全て `nIn` 以上の位置で、sort `bool` の `let` を読む）を含み、S3v の `Frag` は `boolInput` を一律に排除する（`tC` は `letC` を引くので `ofData` は `some` だが、S3v の橋は覆わない）。これは S3v のブリッジの範囲の外にある形で、`checkComb` の問題とは別。
+
+### 72.2 修正（Option A + 橋の拡張）
+
+1. **`normB : CTerm → CTerm`**（Comb）: `mux c (lit 1 1) (lit 1 0)` で `c.width = 1` のとき `normB c`、それ以外は子を正規化して作り直す。**`normB_sound`**: `c.wf` なら `(normB c).width = c.width ∧ (normB c).wf ∧ (normB c).den V = c.den V`（`den_lt` から、1 bit の `c` の値は < 2 なので `mux c 1 0 = c`）。
+2. **`checkCombN`／`checkCombN_sound`**（Comb）: `checkComb` と同一で、各出力 port の**モジュール側の翻訳**だけを `normB` してから**ソース項と等式で比較**（`(look T p.name).map normB == some c`）。文は `checkComb_sound` と同じ。ソース側は正規化しない（ソース項に `wf` を要求しない）。**比較の緩和ではない**: 追加した規則は証明した 1 つの書き換えだけで、比較は `==`。
+3. **`FragW`／`tC_soundW`／`letsC_soundW`／`ofData_soundW`**（Bridge）: S3v の `Frag` に、「`nIn ≤ d.bpos j` で `d.ls` の対応する `let` の sort が `.bool`」である `boolInput` を加えた断片。S3v の `tC_sound`／`letsC_sound`／`ofData_sound` を複製し、`boolInput` の場合を 1 つ足した（`ss.length = 0` から位置の算術 `nIn + ss.length + (bpos j - nIn - ss.length) = bpos j`）。**S3v の `Frag` は変更していない**（新しい名前 `FragW`）。実入力の `boolInput`（`bpos j < nIn`）は覆わない（値の側の `B` の実現が要る）。
+
+**範囲**: 正規化は Bool→bit 変換の 1 規則だけ。`checkCombN` が受理するモジュールは、`checkComb` が受理するものに加えて、この変換を含むもの。`pilotK0` は両方で受理される（`checkWithN kd0 pilotK0 = true`）。S3t の 9 個の負の対照は `checkCombN` でも全て false（Check59）。
+
+### 72.3 証明したこと
+
+- `k1_checkN : checkWithN kd1 pilotK1 = true`（`decide +kernel`、1 run）。診断の kernel 版: `(ofData kd1).isSome = true`、`checkComb`（正規化なし）は `pilotK1` を false。
+- **`k1_childFn : ChildFn pilotK1 (childRange kd1) (childValue tlpCplByte.machineSource kd1.bsIn defaultDomain)`**（Child）。全入力（引数 6 個、範囲内）、run の前提なし。S3v の `k0_childFn` と同じ構成（`checkCombN_sound` + `ofData_soundW` + `tlpCplByte.machine_result`）。引数は `inputs` 全部（`clk`/`rst` なし）で、位置 `i+1` ↔ `i` 番目の値、幅 ↔ binder の幅は**添字ごとの kernel 事実** `k1Fact`（`(List.range 6).all`）。橋の側条件は kernel で証明: `ss.length = 0`、`FragW` が全 `let`／出力、`inputPositions = [1..6]`、出力 1 個。`decide +kernel` は全てフィールドごとで、`machineData` 全体にはかけていない。
+- **`k1_childFn_slot`**: `kidData[1]? = some kd ∧ kidFs[1]? = some f ∧ ChildFn pilotK1 (childRange kd) f`（`rfl`）。`RootShowsAt` の call 1 の連言の形。call 0（`k0_childFn_slot`）と合わせて**両方の子の連言**が揃った（Check59 に 1 つの `example`）。
+- 実装上の注意（証明の中身ではない）: `kd1` を `abbrev` で書くと、`machine_result` との照合で `kd1.nIn =?= machineData.nIn` を elaborator が射影の評価で解こうとして**非常に遅くなる**（50 分以上）。Child では `tlpCplByte.machineData` を直接書き、`typedVal → letTV` の書き換えは任意の `d` についての補題 `tail_gen`（`B`／`W` を明示）で行った。
+
+### 72.4 Check59（`kjob lake build Tests.Gen5.FGCircuitPilotCheck59`、exit 0、1 run 約 5.5 分、依存の replay を含む）
+
+- 完全型: `k1_childFn` を `ChildFn`／`childValue`／`childRange`／`argPorts` を使わずに書き直した型（`Zip₂`、`filter` した入力、`decB`／`decV` の展開）へ型注釈、およびプロジェクトの定義による型。`checkCombN_sound`、`normB_sound` も独立に書いた型へ。`normB` の境界（kernel）: 1 bit の `eq` 条件の `(1,0)` は書き換える。入れ替えた `(0,1)`、2 bit の条件、2 bit の literal 対、`(1,1)` 対は**書き換えない**。
+- 負の対照: 変異した `pilotK1` 9 種（先頭文の欠落、出力文の欠落、定数 74→75、slice の上限を動かす、全 mux の分岐入れ替え、Bool→bit の定数対の入れ替え、宣言幅、出力 7 bit、出力名）、もう一方の子（module／データ）、誤ったソース項。非空虚: `ChildFn pilotK1 (childRange kd1) (fun _ => 0)` は偽（count = 1 で module は 74）、変異 module（74→75）は同じ `ChildFn` を満たさない。変異が元と異なること（`neg1_distinct`）。
+- K0 の結果: `checkK0 pilotK0 = true`、`checkWithN kd0 pilotK0 = true`、`k0_childFn`、S3t の対照 9 個（`checkWithN`）と S3v の非空虚の対照が残る。
+- 出力（Check 自身の行）: `FGCIRCUIT59 AXIOMS: 126 theorems of the S3w modules (Comb, Run, Bridge, Child), standard axioms only ([Quot.sound, Classical.choice, propext]); k1_childFn depends on [propext, Classical.choice, Quot.sound]; no sorryAx, no Lean.ofReduceBool (no native_decide)`。`FGCIRCUIT59 SIZE/TIME …`: 項の大きさ（`sizeWithoutSharing`）`normB_sound` 85、`checkCombN_sound` 19,754、`tC_soundW` 603、`ofData_soundW` 15,176、`k1_childFn` 35,715。`checkWithN kd1 pilotK1 = true` の新規 `decide +kernel` は 24,769 ms、`k1eval pilotK1 = some 74` は 603 ms（elaboration を含む、1 run、この機械、上限ではない）。`FGCIRCUIT59 SIGNATURES`／`NEGATIVE CONTROLS`／`SCOPE` の各行あり。
+
+### 72.5 残り（確立していないもの）
+
+- **top の `bodyOk` と `checkRoot_sound`**（M1 の(iii)）: root の 256 文（`and`／`or`／`add`／`shl`、register の next、inst の出力 wire、状態の読み）を源の項に照らす検査は未着手。`RootShowsAt` の他の連言（run、register、port）は未供給。top の演算・状態・子の出力を `bodyOk` へ。
+- 橋 `ofData_soundW` の範囲は `d.ss = []`、`FragW`、入力値の実現。実入力の `boolInput`、`binary`／`concatLit*`／`zextMap` 等は覆わない。
+- `normB` は Bool→bit の 1 規則。他のコンパイラ出力の形（`and`／`or` 等）は `opC` が覆わないので、別の子や top には別の拡張が要る。
+- `kidData`／`kidFs` の 2 つの子はどちらも `ChildFn` を持つが、`rootS.SrcEq` の `CallsEq` と `moduleByName` の接続（`RootShowsAt` の call 全体の連言）の組み立ては top 側の作業。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
