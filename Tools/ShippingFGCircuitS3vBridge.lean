@@ -28,8 +28,7 @@ def PosRel (V : Nat → Nat) (T : TVal) (p : Nat) : SType → CTerm → Prop
 def LetInv (d : MachineData) (V : Nat → Nat) (T : TVal) (pre : List (Σ s : SType, Term s)) (acc : List CTerm) : Prop :=
   ∀ (k : Nat) (c : CTerm), acc[k]? = some c → ∃ l, pre[k]? = some l ∧ PosRel V T (d.nIn + d.ss.length + k) l.1 c
 
-/-- the fragment: the terms `tC` covers, with a positive slice length, no Bool input, and a `bitsInput` that is an input position or reads a `let` of bits sort of that width -/
-/-- the side condition of the bridge on the shapes `tC` covers.  NOTE: constructors `tC` does not cover (e.g. `binary`) fall to the last case and give `true`, so `Frag` alone does NOT decide the covered syntax.  The covered set is `Frag = true` TOGETHER with `tC`/`ofData` succeeding (`tC` returns `none` on an uncovered constructor); `ofData_sound` assumes that success. -/
+/-- the fragment: the terms `tC` covers, with a positive slice length, no Bool input, and a `bitsInput` that is an input position or reads a `let` of bits sort of that width.  NOTE: constructors `tC` does not cover (e.g. `binary`) fall to the last case and give `true`, so `Frag` alone does NOT decide the covered syntax: the covered set is `Frag = true` TOGETHER with `tC`/`ofData` succeeding (`tC` returns `none` on an uncovered constructor); `ofData_sound` assumes that success -/
 def Frag (d : MachineData) : {s : SType} → Term s → Bool
   | _, .boolInput _ => false
   | _, .bitsInput w j =>
