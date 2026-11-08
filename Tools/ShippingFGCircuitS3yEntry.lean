@@ -68,6 +68,17 @@ theorem certifiedEntryC_sound {lvl : Lean.Expr → Nat} {declName : Name} {w w' 
     obtain ⟨u, w₃, h3, -⟩ := RunsTo.bind h
     exact (RunsTo.throwError_false h3).elim
 
+/-- **the guard**: if no `d` passes the check on the returned pair (the check is false for `(b, D)` whatever the data read), there is NO successful run of `certifiedEntryC` that returns it.  The check refuses, no fallback. -/
+theorem certifiedEntryC_refuses {lvl : Lean.Expr → Nat} {declName : Name} {w w' : Void IO.RealWorld}
+    {b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (hno : ∀ d : MachineData, checkData d b = false ∨ designOk b D = false) :
+    ¬ RunsTo (certifiedEntryC lvl declName) mctx mref cctx cref w (b, D) w' := by
+  intro h
+  obtain ⟨d, -, -, -, -, hc, hd, -⟩ := certifiedEntryC_sound h
+  rcases hno d with h1 | h1
+  · rw [hc] at h1; cases h1
+  · rw [hd] at h1; cases h1
+
 end Runs
 
 end Tools.ShippingFGCircuitS3yEntry
