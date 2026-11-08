@@ -45,7 +45,7 @@ from u0_gen import scan_source  # noqa: E402  (same scanner as U0)
 BEGIN = "@@VEDGATE BEGIN R"
 END = "@@VEDGATE END R"
 PROF = re.compile(r"(?:^|\binfo: )([A-Za-z][A-Za-z .]*?) took ([0-9.]+)(ms|s)\b")
-WRITE_CMDS = {"#writeDesign": 1, "#writeVerilogDesign": 1}  # index of the SV path argument
+WRITE_CMDS = {"#writeDesign", "#writeVerilogDesign"}  # first string literal = SV path
 
 
 def timed(cmd, log, cwd=None):
@@ -79,6 +79,7 @@ def probe_text(text, rows_here):
         if sc["cmd_index"] is None:
             continue
         i, j = sc["cmd_index"], sc["end_index"]
+        sc["text"] = "\n".join(lines[i:j])
         located[r["row"]] = sc
         ins_before.setdefault(i, []).append(f'#eval IO.println "{BEGIN}{r["row"]}"')
         prefix[i] = True
@@ -189,9 +190,9 @@ def main():
         with open(ppath, "w") as fh:
             fh.write(ptxt)
         for r in rs:  # stale outputs of write commands must not be credited
-            if r["command"] in WRITE_CMDS:
-                sa = str_args(r.get("args"))
-                if len(sa) > WRITE_CMDS[r["command"]] - 1 and os.path.isfile(sa[0]):
+            if r["command"] in WRITE_CMDS and r["row"] in located:
+                sa = str_args(located[r["row"]]["text"])
+                if sa and os.path.isfile(sa[0]):
                     os.remove(sa[0])
         prc, pwall, ppeak = timed(["lean", ppath], os.path.join(out, f"logs/probe/{key}.log"))
         plog = open(os.path.join(out, f"logs/probe/{key}.log")).read()
@@ -212,7 +213,7 @@ def main():
             rec["elab_s"] = cats.get("elaboration", "")
             rec["kernel_s"] = cats.get("type checking", "")
             if r["command"] in WRITE_CMDS:
-                sa = str_args(r.get("args"))
+                sa = str_args(located[r["row"]]["text"])
                 src = sa[0] if sa else ""
                 sv = open(src).read() if src and os.path.isfile(src) else ""
             else:
