@@ -65,6 +65,13 @@ The backend files in the closure carry two fixes from `poc`. They change generat
 
   The rest is the same renumbering.
 
+- **XiangShan roundtrip IR metric (`bench/xiangshan/ci_baseline.tsv`).** The SVParser files in the closure carry `poc`'s self-reparse fixes. Before them, registers folded to constants and sync memories reparsed to garbage, so the old re-emission counts were too small. The baseline is therefore taken from `df5f0b09`, where `poc` re-baselined it in `1e7ac20e` and `40fd36df`:
+  - re-emission nodes go from 15453 to 38753;
+  - lowering nodes go from 30539 to 30291;
+  - all 52 modules are listed.
+
+  On this branch the failing modules' counts are exactly `df5f0b09`'s values. Functional equivalence on the same corpus is covered by the gate's co-sim (17/0/0) and yosys equivalence (41 proven, as in the unchanged `ci_equiv_baseline.tsv`).
+
 Both fixes bring the C simulator closer to the SV. `main`'s `build.yml` steps pass on this branch. The per-IP function, area and speed comparison belongs to the release gate.
 
 ## CI
