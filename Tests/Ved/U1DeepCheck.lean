@@ -128,17 +128,20 @@ def nativeFamily (c : Name) : Bool :=
   ["_deep_coneEval", "_deep_regstep", "_deep_seed_bounded", "_deep_step_", "_deep_signalM",
    "_deep_signal_fold", "_deep_signal_run", "_deep_state_trace"].any (fun p => (s.splitOn p).length > 1)
 
-/-- info: closure of accK9.ved_u1: has accK9_deep_trace and accK9_deep_next, no native family (environment has accK9_deep_signal_run) -/
+/-- info: closure of accK9.ved_u1: has accK9_deep_trace, accK9_deep and Cdo.irState, no native family (environment has accK9_deep_signal_run) -/
 #guard_msgs in
 run_cmd liftTermElabM do
   let cl ← constClosure ``accK9.ved_u1
   unless cl.contains ``accK9_deep_trace do throwError "accK9_deep_trace not used (vacuous)"
-  unless cl.contains ``accK9_deep_next && cl.contains ``Cdo.irState do
-    throwError "the Cdo step is not used (vacuous)"
+  -- `_deep_next`/`_deep_inits`/`_deep_out` are `rfl` theorems: `simp` uses them
+  -- as definitional rewrites and they leave no constant in the term, so the
+  -- requirement is on the reified circuit and its recurrence themselves
+  unless cl.contains ``accK9_deep && cl.contains ``Cdo.irState do
+    throwError "the Cdo recurrence of accK9_deep is not used (vacuous)"
   for c in cl.toList do
     if nativeFamily c then throwError "closure contains {c}"
   unless (← getEnv).contains ``accK9_deep_signal_run do throwError "control premise: no native theorem in env"
-  logInfo "closure of accK9.ved_u1: has accK9_deep_trace and accK9_deep_next, no native family (environment has accK9_deep_signal_run)"
+  logInfo "closure of accK9.ved_u1: has accK9_deep_trace, accK9_deep and Cdo.irState, no native family (environment has accK9_deep_signal_run)"
 
 /-! ## 4. Refusals -/
 
