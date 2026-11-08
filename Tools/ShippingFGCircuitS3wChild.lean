@@ -36,7 +36,7 @@ noncomputable def k1Fact (i : Nat) : Bool :=
 
 theorem k1_facts : (List.range 6).all k1Fact = true := by decide +kernel
 
-theorem k1_fact_of (i : Nat) (p : Sparkle.IR.AST.Port) (hp : (pilotK1.inputs[i]? = some p) :
+theorem k1_fact_of (i : Nat) (p : Sparkle.IR.AST.Port) (hp : pilotK1.inputs[i]? = some p) :
     ∃ b q, (kd1.bsIn.filter (fun b => b.2 != .domain))[i]? = some b ∧ (inputPositions kd1)[i]? = some q ∧
       b.2 = .bits (portW p) ∧ q = i + 1 ∧ portIdx kd1.bsIn q = i := by
   have hi : i < 6 := by
@@ -52,6 +52,16 @@ theorem k1_fact_of (i : Nat) (p : Sparkle.IR.AST.Port) (hp : (pilotK1.inputs[i]?
     simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h
     exact ⟨b, q, hb, hq, h.1.1, h.1.2, h.2⟩
   · cases h
+
+/-- `typedVal` at a time is `letTV` at the values read at that time (S3v's `typedVal_eq`, in the form the tail of `k1_childFn` needs, for an arbitrary `d` so that nothing of `tlpCplByte`'s data is unfolded) -/
+theorem tail_gen {D : Sparkle.Core.Domain.DomainConfig} (d : MachineData)
+    (bools : Nat → Sparkle.Core.Signal.Signal D Bool)
+    (bits : (j : Nat) → (n : Nat) → Sparkle.Core.Signal.Signal D (BitVec n)) (t : Nat) (x : HList (tys d.ss))
+    (o : Σ s : SType, Term s) (F : Nat)
+    (h : enc o.1 (eval (fun k => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t x).b (d.bpos k))
+        (fun k w => (typedVal d.nIn d.bpos d.vpos d.ss d.ls bools bits t x).v (d.vpos k) w) o.2) = F) :
+    enc o.1 (eval (fun j => (letTV d x (fun p => (bools p).val t) (fun p w => (bits p w).val t)).b (d.bpos j))
+        (fun j w => (letTV d x (fun p => (bools p).val t) (fun p w => (bits p w).val t)).v (d.vpos j) w) o.2) = F := h
 
 /-- **`ChildFn` for the closed child `pilotK1`**: the module computes, on every environment with reset low and argument values in the range of `tlpCplByte`'s inputs, `childValue` of `tlpCplByte`'s own `machineSource`.  Full type, all inputs, no run premise. -/
 theorem k1_childFn : ChildFn pilotK1 (childRange kd1)
@@ -80,7 +90,8 @@ theorem k1_childFn : ChildFn pilotK1 (childRange kd1)
     rw [hb2] at this
     have hv : (pilotK1.inputs.map (fun p => env p.name)).getD i 0 = env p.name := by
       simp [List.getD_eq_getElem?_getD, hp]
-    simpa [hv] using this
+    rw [hv] at this
+    simpa using this
   -- the source valuation
   let vals : List Nat := pilotK1.inputs.map (fun p => env p.name)
   let V : Nat → Nat := fun q => vals.getD (portIdx kd1.bsIn q) 0
@@ -114,11 +125,15 @@ theorem k1_childFn : ChildFn pilotK1 (childRange kd1)
   have hres := tlpCplByte.machine_result defaultDomain
     (fun p => Sparkle.Core.Signal.Signal.pure (decB kd1.bsIn vals p))
     (fun p n => Sparkle.Core.Signal.Signal.pure (decV kd1.bsIn vals p n)) 0
-  simp only [ho0, List.map_cons, List.map_nil, tlpCplByte.machineSource] at hres
+  rw [ho0] at hres
+  obtain ⟨f, hf⟩ : ∃ f, tlpCplByte.machineSource defaultDomain
+      (fun p => Sparkle.Core.Signal.Signal.pure (decB kd1.bsIn vals p))
+      (fun p n => Sparkle.Core.Signal.Signal.pure (decV kd1.bsIn vals p n)) = [f] := ⟨_, rfl⟩
+  rw [hf] at hres
   unfold childValue
-  simp only [tlpCplByte.machineSource]
-  simp only [List.cons.injEq, and_true] at hres
+  rw [hf]
+  simp only [List.map_cons, List.map_nil, List.cons.injEq, and_true] at hres
   simp only [List.getElem?_cons_zero, Option.map_some, Option.getD_some]
-  exact hres.symm
+  exact (tail_gen kd1 _ _ 0 tlpCplByte.machineInits o0 _ hres.symm).symm
 
 end Tools.ShippingFGCircuitS3wChild
