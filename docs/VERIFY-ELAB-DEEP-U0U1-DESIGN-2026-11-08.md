@@ -4,6 +4,8 @@
 
 **改訂 2（2026-11-08、reviewer の変更依頼 P1-1〜P1-4・追加への対応）**: U0 の harness を発見・観測のモードに作り直し（§3）、U1 の契約を build できる下書きにした（§4）。各項の対応と残りは **§8**。手元で実行したのは、harness の単体テスト（偽の runner、Lean なし、30 件 OK）と小さな Lean の build（`Tools.VedStrictAudit`、`Tests.Ved.StrictAuditCheck` は `MEM=8G memlimit lake build`、`Tools.VedU1Contract`、`Tests.Ved.U1ContractCheck` は `MEM=8G memlimit lake env lean`。§4.2）だけである。
 
+**改訂 3（2026-11-08、bb58e0c6 に対する reviewer の変更依頼 P1-A・P1-B への対応）**: U1 の契約に、元の宣言の型から読む入出力の対応表を入れ、clock の値を自由にし、玩具 `toyDelay` について契約と `OutputsStmt` を kernel で証明した。**§4.2 の契約の文と clock の項は改訂 2 のもので、改訂 3 で置き換えた（§9）。**
+
 **Issue 未登録（manager 停止中）**（`managerctl` は completed Failed の Pod への exec でエラーになる）。復旧後に、U0/U1 の完了条件とこの裁定を Issue に登録する。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）
@@ -244,7 +246,7 @@ kjob -N sparkle-dev run --issue <ISSUE> -n mkvs-dell -c 8 -m 24Gi --name ved-u0-
 
 返すのは IR の `m` まで。最適化（`checkedOptimize`）と SV は未接続と記録する。「出荷 SV を保証」「327 の印字 artifact を検証済み」とは書かない。IR の契約が通った後の次の接続先は `checkedOptimize`（`refineCheck_transfer` / `optCheck_sound` との合成）。`#synthesizeVerilog` などの通常の入口と、ほかの 327 コマンドの経路は、新しい入口が覆うまで別扱いにする。
 
-### 4.2 契約の文（変更依頼 P1-4 で作り直した。`Tools/VedU1Contract.lean`）
+### 4.2 契約の文（変更依頼 P1-4 で作り直した改訂 2 の記録。現行は §9）
 DeepElab を import しない（`Sparkle.IR.Semantics`、`Sparkle.IR.RegDedup`、`Sparkle.Core.Signal` だけ）ので、下書きをそのまま Lean のファイルにしてコンパイルした。lakefile に `lean_lib «Tools.VedU1Contract»` と `«Tests.Ved.U1ContractCheck»` を足したが、**手元の確認は `lake build` ではなく `MEM=8G memlimit lake env lean <file>`**（既にある olean に対して 1 ファイルずつ。Check が import する `Tools.ShippingFGCircuitS3rArtifact` と `Tools.VedU1Contract` の olean は scratchpad に出した。どちらも rc=0）。`lake build` で Sparkle を import する target を作ると、`Sparkle` lib の `precompileModules := true` のために Sparkle 全体の共有ライブラリ（`Sparkle/Compiler/Elab.c` の gcc を含む）を作り始め、小さな build ではなくなったので途中で止めた（必要な olean はその前にできていた）。cluster では通常の `kjob lake build Tools.VedU1Contract Tests.Ved.U1ContractCheck` で確かめる。定義と小さな補題だけで、入口・生成器・`OutputsStmt` の証明はまだ無い。要点（全文はファイル）:
 
 ```lean
@@ -298,10 +300,10 @@ def U1Stmt c m src := ShapeStmt c m ∧ WidthStmt c m ∧ OutputsStmt c m src
 - **clk・rst**: `m.inputs = dataInputs ++ [clk, rst]`（`pilotB0` の形: データ入力の後に `clk`、`rst`）で、clk・rst が module の実際の入力であることと、その順を固定する。各 register 文の clock と reset の名前がその 2 つであることも `ShapeStmt` に入れた。reset の種類（sync/async）は意味に効かない（`regNexts` はどちらも `env rst ≠ 0` で初期値にする。`InputsOk` で rst は常に 0）。register の無い組合せ回路は `clkRst = none`（register があれば `ShapeStmt` が偽）。データ入力の後に clk・rst が来ない module が実際にあれば、この節は合わないので、並べ替えを許す形に直す（黙って並べ替えない）。
 - **幅（WidthStmt）**: `declWidth` は `m.wires` だけを読む（Sparkle/IR/RegDedup.lean 172）。実物の `pilotB0`（Tools/ShippingFGCircuitS3rArtifact.lean、`pilotEntry3` の 1 回の結果）を確かめた: データ入力 5 つと register の出力 17 個は wire 宣言があり幅が合う。**`clk`、`rst`、出力 `out` には wire 宣言が無い**。前の下書きの「inputs ++ outputs ++ wires の全部で `declWidth m p.name = p.ty.width`」は `pilotB0` を拒否する（Check で `#guard !decide (WidthStmtDraft1 pilotB0)`）。新しい `WidthStmt` は、意味が `declWidth` を読む所（データ入力の幅の前提、register の更新の mask）だけに wire 宣言を求め、clk・rst・出力 port には求めない（`#guard decide (WidthStmt (contractOf pilotB0 …) pilotB0)`。`ShapeCore` も成り立つ）。ただし **`pilotB0` には子の instance 文が 2 つあり、v1 の範囲（memory・instance 無し）の外**なので `ShapeStmt` は成り立たない。これは幅や名前による拒否ではなく範囲の制限で、子を持つ module は後の単位（子の意味との合成）で扱う。出力の値の幅は、期待する文の側（`obsBV` の `BitVec w`、`w` = 出力 port の型の幅）で決まる。
 - **入力の幅・順・初期状態・時刻の向き**: 幅はデータ入力ごとに `declWidth` = port の型の幅（`WidthStmt`）、その中に収まる入力（`InputsOk`）。順は `m.inputs` の等式と宣言の引数の順。初期状態は `st0`（各 register の初期値を宣言幅で `encodeInit`。Signal 側の `Signal.register init` の時刻 0 の値に当たる）と、memory は 0（v1 は memory 無し）。**時刻の向き**: `runModule` は周期の番号を**数え下ろして** seed に渡す（最初の周期が `k-1`）。前の下書きは `seedIn m ins` をそのまま渡して `envs[t]` を時刻 `t` と比べていたので、入力列を逆向きに読んでいた。`seedFwd m K ins` は番号を `K-1-j` に戻し、trace の `t` 番目（古い順）が `ins t` を読む（`seedFwd_time`、`runModule_first` は rfl で確かめた）。
-- **clock の値**: IR の意味は clock の値を読まない（1 周期 = 1 回の `stepModule`）。`InputsOk` は clock も 0 に固定する。振る舞いは失われず、`seqOptCheck_run_sound` の前提 `hinsFit`（全入力を `declWidth` で抑える。clk・rst は `2^0`）とそのまま合う。次の接続先の `checkedOptimize` との合成のためである。
+- **clock の値（改訂 2 の誤り。改訂 3 で撤回、§9.2）**: 改訂 2 は「IR の意味は clock の値を読まないので 0 に固定しても振る舞いを失わない」と書き、`InputsOk` で clock を 0 に固定していた。これは `ShapeStmt` からは言えない: register 文の clock 欄は読まれないが、`evalExpr (.ref clk)` は env の clock の値を読み、assign や register の入力式から参照できる。改訂 3 では clock の値を自由（全称）にした。
 - 目標は変えない: 期待する文と Module 全体を bind し、返す IR が元の宣言から来たことを示す。`OutputsStmt` は `m.body` そのものの `runModule` について述べる（`deepOrderBody` ではない）。
 
-### 4.2b Check（`Tests/Ved/U1ContractCheck.lean`、build する）
+### 4.2b Check（改訂 2 の記録。現行は §9.1・§9.3・§9.4）
 - 玩具の宣言 `toyDelay`（1 周期遅延）と、`synthesizeEntry` の形の module `toyMod`（データ入力、clk、rst。clk・rst・out に wire 無し）、`toyC = contractOf toyMod …`、`toySrc`（宣言から作った src）。`U1Stmt toyC toyMod toySrc` が elaborate する。`ShapeStmt`・`WidthStmt` は `decide` で成り立ち、`WidthStmtDraft1` は成り立たない。
 - 負の例（同じ契約に変えた module を当てる）: 初期値、入力の幅、出力を 1 つ足す、register の reset を別の wire にする、入力の順を変える → `¬ ShapeStmt`。register の出力の wire 宣言を消す → `¬ WidthStmt`。
 - `pilotB0` の形: clk・rst・out に wire 宣言が無いこと、`ShapeCore`・`WidthStmt` が成り立ち、`WidthStmtDraft1` が成り立たないこと、instance 文が 2 つあって v1 の範囲外（`memInstFree` が false）であることを `#guard`。
@@ -392,7 +394,8 @@ shared 経路は 2026-09-19/20 に、同じ種類の義務の多くを kernel �
 ## 7. このコミットまでの成果物
 - `Tools/VedStrictAudit.lean`、`Tests/Ved/StrictAuditCheck.lean`、lakefile の 2 つの `lean_lib`（8b3c39a7）。`#ved_audit_current_namespace` と限界の docstring（730341a1）。
 - `scripts/ved/u0_gen.py`、`scripts/ved/u0_run.py`、`scripts/ved/u0_case.sh`、`scripts/ved/tests/{test_u0.py,fake_lean.py}`（53127556）。
-- `Tools/VedU1Contract.lean`、`Tests/Ved/U1ContractCheck.lean`、lakefile の 2 つの `lean_lib`、この文書の改訂（次のコミット）。
+- `Tools/VedU1Contract.lean`、`Tests/Ved/U1ContractCheck.lean`、lakefile の 2 つの `lean_lib`、この文書の改訂 2（bb58e0c6）。
+- 改訂 3（P1-A・P1-B、`toyDelay` の証明）: 同じ 2 ファイルとこの文書（§9）。
 
 ## 8. 2026-11-08 の変更依頼（P1-1〜P1-4、追加）への対応
 
@@ -414,3 +417,61 @@ shared 経路は 2026-09-19/20 に、同じ種類の義務の多くを kernel �
 | 追加 | `#ved_audit_generated` の限界、U0 の同期設定と一般の使用の同期前提 | Tools/VedStrictAudit.lean の docstring と §3.3・§3.4 に明記。`#ved_audit_current_namespace` を追加（同じ限界） | `lake build Tools.VedStrictAudit Tests.Ved.StrictAuditCheck` rc=0（730341a1）。期待した定理が無くても一覧に出ないだけであることを Check に書いた | — |
 
 DeepElab を使う smoke（§3.5 の 1・2）は manager の復旧後に行い、その結果で、塊の Lean の部分がコンパイルできるか、VED の行の形、写しの方式と分けた版の振る舞いを確かめる。U0 全件を待たずに、U1 の型と最小の接続（§4.2 の入口の試作）は進めてよい（reviewer の依頼文）。
+
+## 9. bb58e0c6 に対する変更依頼（P1-A・P1-B）への対応（改訂 3）
+
+**Issue 未登録（manager 停止中）**。復旧後に、この変更依頼と U1 の完了条件を Issue に記録する。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）
+
+新しい実装成果の一括受理を求めるものではない。下の「証明した」は `MEM=8G memlimit lake env lean <file>`（既にある olean に対して 1 ファイルずつ）で確かめた範囲である。`lake build` は Sparkle を import する target で Sparkle 全体の共有ライブラリの precompile を始めるので手元では実行しておらず、**2 target の `lake build`（`kjob lake build Tools.VedU1Contract Tests.Ved.U1ContractCheck`）は cluster が要る**。
+
+### 9.1 P1-A: 元の宣言の入出力の対応表（`Tools/VedU1Contract.lean`）
+- **対応表 `DeclTable`** は元の宣言の**型**から作る。`binders`（明示の引数の名前、順）、`ins`（引数ごとの port の型: `Signal defaultDomain Bool` → `.bit`、`Signal defaultDomain (BitVec w)` → `.bv w`）、`out`（結果 `Signal defaultDomain T` の `T` を `Bool`・`BitVec w`・`×` の木として。`OTy.flat` が左から平らにした出力の射影の固定の順）。
+- **読み取り**: 項の elaborator `ved_table% decl` が、宣言の型だけ（`forallTelescopeReducing`）から表の literal を作る。v1 の範囲外（Signal でない引数 = params、暗黙の引数、`defaultDomain` 以外の domain、literal でない幅、`Bool`/`BitVec`/`×` 以外の型、universe 多相）は throw する。
+- **宣言への結合（kernel）**: `DeclTable.Ty tbl` は表が表す Lean の型。最終の文 `U1Stmt c m f` は宣言そのものを `f : c.table.Ty` として取るので、宣言の型が表の型と（定義的に）一致しないと文が型検査を通らない。`src` は `srcOf c f`（`f` を表の port ごとの入力 Signal に適用し、全射影を観測して名前で引く）で、呼び出し側が与える自由な引数ではない。Check の `toyBound : toyTable.Ty := toyDelay` がこの結合の確認。
+- **照合**（`CorrStmt`・`ShapeCore`・`WidthStmt`、すべて decidable）:
+  - arity: `binders`・`inNames` の長さ = `ins` の長さ（`zip` が黙って切り詰めないように）;
+  - 順と port ごとの幅: `m.inputs = c.dataInputs ++ [clk, rst]`、`c.dataInputs` は**表から**作る（名前 i 番目と `ins` i 番目の `hw` 型）。データ入力の `declWidth` = 表の幅;
+  - 全出力の射影: `outNames` の長さ = `out.flat` の長さ、`m.outputs = c.outputs`（表の全射影を順に、幅つき）;
+  - 名前の単射性: `inNames ++ outNames ++ [clk, rst]` が `Nodup`（独立な 2 入力が 1 つの stream に縮まない、入力と出力が同じ名前にならない）;
+  - clk/rst との分離: 同じ `Nodup` に clk・rst を含める;
+  - 幅は正（`BitVec 0` の port は拒否。v1 の範囲）。
+- **`contractOf tbl outNames clkRst m`**: 表（arity・順・幅・出力の射影）は宣言から。入力 port の名前は合成器の名前の規則 `_gen_<引数名>`（玩具と `pilotB0` で観測。規則が違えば `ShapeCore` が拒否するだけで、受理はしない）。`outNames` は出力の射影ごとに与える（1 出力は `"out"`。複数出力の名前の規則は実物で未確認）。module 名・wires・register の初期値は `m` から読む: 宣言の型には現れず、初期値や wire の幅が違えば `OutputsStmt` が証明できなくなる（真にはならない）。
+- **対照（kernel の拒否、`example … := by decide`）**:
+  - 別の宣言の表: `toyAdd`（2 入力）と `toyDelay8`（8 bit）の表で `toyMod` に対して `¬ ShapeCore`。3 つの別の宣言の表は `toyDelay` の表と異なる（よって `U1Stmt toyC _ f` はそれらの `f` で型検査を通らない）;
+  - 2 入力の併合: `toyAdd` の `a`・`b` を 1 つの stream `_gen_a` から取る `mergedMod`。2 つの引数を `_gen_a` に名付けた契約は `¬ CorrStmt`（単射性）、名前の規則どおりなら `_gen_b` が無く `¬ ShapeCore`、入力 port を 2 重に並べても `¬ CorrStmt`;
+  - 出力の欠落: 2 射影の `toyPair` に対して出力 port 1 つの module。名前 1 つでは `¬ CorrStmt`（網羅）、名前 2 つでは `¬ ShapeCore`（名前 2 つの契約自体は `CorrStmt` を満たす）;
+  - 幅違い: 正しい表で、入力 5 bit・出力 8 bit の module は `¬ ShapeCore`、入力の wire 宣言 5 bit は `¬ WidthStmt`;
+  - clk との分離: 出力を `"clk"` と名付けると `¬ CorrStmt`;
+  - 改訂 2 の module の変異（初期値、出力の追加、reset を別の wire、入力の順）は引き続き `¬ ShapeStmt`。
+- **正直な状態**: 改訂 2 の `toyExpected` は `Prop` の**定義**で、証明ではなかった（elaborate することを見ただけ）。改訂 3 で玩具については証明した（§9.3）。実際の `declName` の表を読み、`synthesizeEntry` を 1 回呼び、`m` と `c` を定数として登録して `U1Stmt` を証明する**入口（元の宣言への自動の結合と、その意味の証明）はまだ予定**である。
+
+### 9.2 P1-B: clock
+- `InputsOk` は、データ入力が `declWidth` に収まることと **reset を 0 に保つこと**だけを要求し、**clock の値は自由**（各周期で全称）。「IR の意味は clock を読まない」の主張は撤回した（§4.2 の項を訂正）。`evalExpr (.ref clk)` は env の clock を読み、データの式から参照できるので、0 に固定すると保証が狭くなる。clock を自由にしたので、「データの式が clock を読まない」条件も非干渉の補題も要らない。0 に固定する部分は残っていない。
+- 確認: `toy_inputsOk_toggling_clock`（clock が周期ごとに 0/1 に変わる入力が `InputsOk` を満たす）。`toyDelay_outputs` はこの入力にも適用される。
+- reset = 0 の範囲は引き続き明示（reset の掛かる run は保証の外）。
+- 最適化との接続（`seqOptCheck_run_sound` の `hinsFit` は clk を `2^declWidth clk = 1` で抑える）は、その単位で橋を作る。今の IR の保証を将来の前提に合わせて狭めない。
+
+### 9.3 `toyDelay` の証明（`Tests/Ved/U1ContractCheck.lean`）
+- `theorem toyDelay_u1 : U1Stmt toyC toyMod toyDelay`。`CorrStmt`・`ShapeStmt`・`WidthStmt` は kernel の `decide`、`OutputsStmt`（`toyDelay_outputs`）は構造的な証明: 範囲内のすべての入力 stream、すべての clock の stream、reset 0、すべての run の長さ `K`、すべての周期 `t < K`、すべての出力 port について、`m.body` そのものの `runModule` が `some envs` を返し、`envs[t]` の出力が宣言 `toyDelay` の値に等しい。run の前提は無い。
+  - 補題: `toy_step`（1 周期の `stepModule`）、`toy_run`（`K` 周期の run の時刻 `s` から始まる `k` 周期の末尾を `k` の帰納法で）、`toy_src`（`srcOf toyC toyDelay ins "out" t` = `toyR ins t`: 時刻 0 は 0、`t+1` は `ins t x % 16`）。
+  - `native_decide`・`sorry`・新しい axiom は使っていない。
+- 監査（Check の中で `#guard_msgs` に固定）:
+  `VED STRICT OK Tests.Ved.U1ContractCheck.toyDelay_u1: [Classical.choice, Quot.sound, propext]`
+
+### 9.4 記録の区別（評価の観測と kernel の事実）
+- **kernel の事実**: Check の `example … := by decide` と `theorem`（玩具の表・契約・対照・`toyDelay_u1`）。
+- **評価の観測**: `pilotB0` の `#guard` の行（コンパイルされた評価器が `Decidable` の instance を実行する。kernel は検査しない）。`pilotB0` について言えるのは観測で、clk・rst・out に wire 宣言が無い、`CorrStmt`・`ShapeCore`・`WidthStmt` が成り立つ、`WidthStmtDraft1` が成り立たない、instance 文が 2 つで v1 の範囲外。`pilotB0` の表は宣言 `synth_hftPcieOutByte` と同じ型の写し `pilotSig` から `ved_table%` で読んだ（元の宣言の olean は手元に無い。読むのは型だけ）。
+
+### 9.5 確かめたこと
+- `MEM=8G memlimit lake env lean Tools/VedU1Contract.lean`: rc=0（olean は scratchpad に出力）。
+- `MEM=8G memlimit lake env lean Tests/Ved/U1ContractCheck.lean`: rc=0、約 6 秒（`Tools.VedStrictAudit`・`Tools.ShippingFGCircuitS3rArtifact` の olean も scratchpad から）。
+
+### 9.6 まだ開いているもの
+- **U1 の入口**: `synthesizeEntry` を 1 回呼んだ同じ artifact の同一性（`f_u1_mod` の値 = その run の `toExpr m`）、登録した定理の完全な型と期待する文の Expr の一致、strict 監査、失敗したら `m` を返さない（§4.1）。これは U1 入口の束で確かめ、U0 準備の完成とは数えない。
+- **実際の宣言**: 実物の `declName` での表の読み取りと名前の規則（`_gen_<引数名>`、複数出力の名前）の確認、params を持つ宣言、構造体を返す宣言（今の読み取りは `×` の木だけ）。
+- **`OutputsStmt` の一般の生成**: 玩具は手で証明した。実物の body ごとの証明の生成（replay）は U1 の本体の仕事。
+- **memory と instance**: v1 の範囲外（`pilotB0` も子 instance を持つので範囲外）。
+- reset の掛かる run、最適化（`checkedOptimize`）と SV への接続。
+- 2 target の `lake build`（cluster）。

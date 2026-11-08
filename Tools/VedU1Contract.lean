@@ -1,58 +1,70 @@
+import Lean
 import Sparkle.IR.Semantics
 import Sparkle.IR.RegDedup
 import Sparkle.Core.Signal
 
 /-!
-# U1 contract for the checked `#verify_elab_deep` entry (SKETCH, P1-4)
+# U1 contract for the checked `#verify_elab_deep` entry (rev 3)
 
-Reviewer change request 2026-11-08, P1-4.  Definitions only: no entry, no
-generator, no proof of `OutputsStmt` yet.  Nothing here imports
-`Tools.DeepElab`.  Design: docs/VERIFY-ELAB-DEEP-U0U1-DESIGN-2026-11-08.md §4.
+Reviewer change requests 2026-11-08: P1-4 (rev 2), then P1-A / P1-B (this
+revision).  Definitions, the declaration-side table reader, and small lemmas.
+No entry and no generator yet; the first instance (`toyDelay`) is proved in
+`Tests/Ved/U1ContractCheck.lean`.  Nothing here imports `Tools.DeepElab`.
+Design: docs/VERIFY-ELAB-DEEP-U0U1-DESIGN-2026-11-08.md §4 and §9.
 
-The U1 entry calls `synthesizeEntry declName` ONCE, registers the returned
-module `m` as a constant `f_u1_mod` and a contract `c` as `f_u1_contract`
-(both by `toExpr`, synchronously), and must prove
+## P1-A: the declaration side fixes the port correspondence
 
-  `U1Stmt f_u1_contract f_u1_mod (fun ins o t => SRC)`
+The contract no longer takes its data inputs and outputs from the returned
+module.  It carries a `DeclTable` read from the ORIGINAL declaration's TYPE
+(`ved_table% decl`, below):
 
-where `SRC` is built SYNTACTICALLY from the original declaration: the
-constant `declName` applied to the parameter values and to one input signal
-per data input port (`sigBV`/`sigB` of the stream), observed with
-`obsBV`/`obsB` and projected to the output port `o` (`toySrc` below is the
-shape).  The source is therefore NOT a free argument of the final statement:
-the entry checks that the registered theorem's type is Expr-equal to the
-statement it builds from `declName`, the params and these two constants, and
-that `f_u1_mod`'s value is `toExpr m` of the same run (identity of the
-verified and the returned module).
+* `ins`: one entry per explicit binder, in binder order, each
+  `Signal defaultDomain Bool` (`.bit`) or `Signal defaultDomain (BitVec w)`
+  (`.bv w`); `binders` are the binder names;
+* `out`: the result `Signal defaultDomain T` with `T` a tree of `Bool`,
+  `BitVec w` and `×`; `OTy.flat` flattens it left-first (`(a × b) × c` gives
+  `a, b, c`), which is the FIXED order of the output projections.
 
-What each part pins:
-* `ShapeStmt` = `ShapeCore` ∧ v1 scope.  `ShapeCore`: every Module field the
-  meaning reads (name, parameters, assertions, primitive flag, inputs in
-  order, outputs, wires, the register list with initial values) is the
-  contract's; every register's clock and reset NAME is the module's
-  clock/reset input (`clkRst`).  v1 scope: memory-free and instance-free
-  (memories and child instances are later units; `pilotB0` has two child
-  instances and is outside v1, while its `ShapeCore` and `WidthStmt` hold).
-* `WidthStmt`: `declWidth` reads `m.wires` ONLY.  So the contract requires a
-  wire declaration (with the port's scalar width) for every DATA input and
-  every register output, and deliberately NOT for the clock, the reset or the
-  output ports: the real artifact `pilotB0`
-  (Tools/ShippingFGCircuitS3rArtifact.lean) has no wire for `clk`, `rst` or
-  `out`, and the first draft (`WidthStmtDraft1`: every input, output and wire
-  through `declWidth`) rejects it (Tests/Ved/U1ContractCheck.lean).
-* `InputsOk`: data inputs fit `declWidth`; reset AND clock are held 0.  The
-  IR semantics never reads the clock's value (one `stepModule` per cycle), so
-  fixing it to 0 loses no behaviour; it matches the `hinsFit` premise of
-  `seqOptCheck_run_sound` (which bounds every input by `declWidth`, i.e.
-  `clk`/`rst` by `2^0`), the intended next connection (`checkedOptimize`).
-* `st0`: the initial register state is each register's `encodeInit` of its
-  contract init at its declared width (the Signal side starts registers at
-  their init, `Signal.register` at time 0); memories start at 0.
-* `seedFwd`: `runModule` passes the cycle index COUNTING DOWN (first cycle
-  gets `k-1`, Sparkle/IR/Semantics.lean `runModule`).  `seedFwd m K ins`
-  re-indexes, so trace position `t` (oldest first) reads `ins t`
-  (`seedFwd_time`); the first draft fed `seedIn m ins` directly and compared
-  `envs[t]` with time `t`, i.e. with the stream reversed.
+`DeclTable.Ty tbl` is the Lean type the table denotes.  The final statement
+`U1Stmt c m f` takes the declaration itself as `f : c.table.Ty`, so it only
+typechecks when the declaration's type is (definitionally) the table's: the
+kernel checks the table against the declaration, and the source
+(`srcOf c f`) is built from `f`, not supplied.
+
+`CorrStmt` (arity of names vs table, coverage of every output projection,
+injectivity of all port names, separation from clk/rst, positive widths) and
+`ShapeCore` (module inputs = the table's ports in order with their widths,
+then clk, rst; module outputs = ALL projections in order with their widths)
+reject another declaration's table, merged inputs, a missing output and a
+width mismatch (kernel-checked controls in the Check).
+
+## P1-B: the clock is free
+
+`InputsOk` bounds the data inputs and holds the RESET at 0 (scope: runs
+without reset, stated); it does NOT constrain the clock input: its value at
+every cycle is universally quantified.  (The previous revision fixed it to 0
+and claimed the IR semantics never reads the clock; that is false in general:
+`evalExpr (.ref clk)` reads the environment's clock value, and assignments or
+register inputs may reference it.  With the clock free, nothing about clock
+reads needs to be assumed.)  The optimiser connection (`seqOptCheck_run_sound`
+has `hinsFit`, which bounds `clk` by `2^declWidth clk = 1`) will need its own
+bridge at that unit; the IR guarantee is not narrowed to fit it.
+
+## Other parts (unchanged from rev 2)
+
+* `ShapeStmt` = `ShapeCore` ∧ v1 scope (no memories, no instances).
+* `WidthStmt`: `declWidth` reads `m.wires` ONLY; a wire declaration is
+  required for every data input and every register output, not for clk, rst
+  or output ports (the real artifact `pilotB0` has none for them).
+* `st0`: each register at `encodeInit` of its init; memories at 0.
+* `seedFwd`: `runModule` passes the cycle index counting down; `seedFwd`
+  re-indexes so trace position `t` reads stream time `t` (`seedFwd_time`).
+
+What is NOT here (honest status): the `ved_table%` reader is used by the
+Check on toy declarations; the entry that reads the table of the real
+`declName`, calls `synthesizeEntry` once, registers `m` and `c`, and proves
+`U1Stmt` (same-artifact identity, full statement types) is still planned, as
+are memories, instances and declarations with non-Signal parameters.
 -/
 
 namespace Tools.VedU1Contract
@@ -64,19 +76,181 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 declaration, `0` when the name has none. -/
 abbrev declWidth : Module → String → Nat := Sparkle.IR.RegDedup.declWidth
 
-/-- Fixed by the entry from the ONE `synthesizeEntry` result. -/
+/-! ## The declaration-side table -/
+
+/-- A scalar port type as written in the declaration's type. -/
+inductive PTy
+  | bit
+  | bv (w : Nat)
+  deriving Repr, DecidableEq, Lean.ToExpr
+
+/-- The Lean value type of a port. -/
+def PTy.val : PTy → Type
+  | .bit => Bool
+  | .bv w => BitVec w
+
+def PTy.hw : PTy → HWType
+  | .bit => .bit
+  | .bv w => .bitVector w
+
+def PTy.width : PTy → Nat
+  | .bit => 1
+  | .bv w => w
+
+/-- Observation of a port value as a natural number. -/
+def PTy.obs : (p : PTy) → p.val → Nat
+  | .bit, b => Bool.toNat (show Bool from b)
+  | .bv _, v => v.toNat
+
+/-- The input signal a port's stream denotes. -/
+def PTy.sig : (p : PTy) → (Nat → String → Nat) → String → Signal defaultDomain p.val
+  | .bit, ins, n => ⟨fun t => ins t n != 0⟩
+  | .bv w, ins, n => ⟨fun t => BitVec.ofNat w (ins t n)⟩
+
+/-- The declaration's result value type: a `×`-tree of scalar ports. -/
+inductive OTy
+  | leaf (p : PTy)
+  | pair (a b : OTy)
+  deriving Repr, DecidableEq, Lean.ToExpr
+
+def OTy.val : OTy → Type
+  | .leaf p => p.val
+  | .pair a b => a.val × b.val
+
+/-- The output projections in their fixed order (left-first). -/
+def OTy.flat : OTy → List PTy
+  | .leaf p => [p]
+  | .pair a b => a.flat ++ b.flat
+
+/-- Observations of every projection, in `flat` order. -/
+def OTy.obs : (o : OTy) → o.val → List Nat
+  | .leaf p, v => [p.obs v]
+  | .pair a b, v => a.obs v.1 ++ b.obs v.2
+
+/-- The correspondence table read from the declaration's type. -/
+structure DeclTable where
+  /-- explicit binder names, in order -/
+  binders : List String
+  /-- binder port types, in order -/
+  ins : List PTy
+  out : OTy
+  deriving Repr, DecidableEq, Lean.ToExpr
+
+/-- Curried function type over the input ports. -/
+def InTy : List PTy → Type → Type
+  | [], R => R
+  | p :: ps, R => Signal defaultDomain p.val → InTy ps R
+
+/-- The Lean type the table denotes. -/
+def DeclTable.Ty (d : DeclTable) : Type := InTy d.ins (Signal defaultDomain d.out.val)
+
+/-- Apply a declaration to one input signal per port (named by `ns`). -/
+def applyIns {R : Type} : (ps : List PTy) → List String → (Nat → String → Nat) → InTy ps R → R
+  | [], _, _, f => f
+  | p :: ps, ns, ins, f => applyIns ps ns.tail ins (f (p.sig ins (ns.headD "")))
+
+section Reader
+open Lean Meta Elab Term
+
+/-- Read a scalar value type (`Bool` or `BitVec w` with a numeral width). -/
+def readPTy (ty : Lean.Expr) : MetaM PTy := do
+  let ty ← whnfR (← instantiateMVars ty)
+  match ty.getAppFnArgs with
+  | (``Bool, #[]) => pure .bit
+  | (``BitVec, #[w]) =>
+    match ← evalNat (← instantiateMVars w) with
+    | some n => pure (.bv n)
+    | none => throwError "ved_table%: non-literal BitVec width {w}"
+  | _ => throwError "ved_table%: unsupported port type {ty} (v1: Bool or BitVec w)"
+
+/-- Read the result value type (a `×`-tree of scalars). -/
+partial def readOTy (ty : Lean.Expr) : MetaM OTy := do
+  let ty ← whnfR (← instantiateMVars ty)
+  match ty.getAppFnArgs with
+  | (``Prod, #[a, b]) => return .pair (← readOTy a) (← readOTy b)
+  | _ => return .leaf (← readPTy ty)
+
+/-- `Signal defaultDomain α` ↦ `α`, otherwise an error. -/
+def signalArg (ty : Lean.Expr) : MetaM Lean.Expr := do
+  let ty ← whnfR (← instantiateMVars ty)
+  match ty.getAppFnArgs with
+  | (``Sparkle.Core.Signal.Signal, #[dom, a]) =>
+    unless dom.isConstOf ``Sparkle.Core.Domain.defaultDomain do
+      throwError "ved_table%: signal domain {dom} is not defaultDomain"
+    pure a
+  | _ => throwError "ved_table%: {ty} is not a Signal defaultDomain _ (v1: Signal binders only)"
+
+/-- The table of a declaration, read from its type only. -/
+def readTable (decl : Name) : MetaM DeclTable := do
+  let some ci := (← getEnv).find? decl | throwError "ved_table%: unknown {decl}"
+  unless ci.levelParams.isEmpty do throwError "ved_table%: {decl} is universe polymorphic"
+  forallTelescopeReducing ci.type fun xs res => do
+    let mut bs : List String := []
+    let mut ps : List PTy := []
+    for x in xs do
+      let ld ← x.fvarId!.getDecl
+      unless ld.binderInfo.isExplicit do
+        throwError "ved_table%: {decl} has a non-explicit binder {ld.userName}"
+      bs := bs ++ [ld.userName.toString]
+      ps := ps ++ [← readPTy (← signalArg ld.type)]
+    return { binders := bs, ins := ps, out := ← readOTy (← signalArg res) }
+
+/-- `ved_table% decl`: the `DeclTable` literal of `decl`, read from its type. -/
+elab "ved_table% " id:ident : term => do
+  let decl ← realizeGlobalConstNoOverloadWithInfo id
+  return toExpr (← readTable decl)
+
+end Reader
+
+/-! ## The contract -/
+
+/-- Fixed by the entry: the table from the declaration, the port names, and
+the module fields the meaning reads. -/
 structure Contract where
-  modName    : String
+  modName  : String
   /-- `(clock input, reset input)`; `none` for a module without registers -/
-  clkRst     : Option (String × String)
-  /-- data inputs in port order; the i-th feeds the declaration's i-th
-  explicit Signal parameter in the expected statement -/
-  dataInputs : List Port
-  outputs    : List Port
-  wires      : List Port
+  clkRst   : Option (String × String)
+  table    : DeclTable
+  /-- the i-th input binder ↦ module input port name -/
+  inNames  : List String
+  /-- the j-th output projection (`table.out.flat` order) ↦ output port name -/
+  outNames : List String
+  wires    : List Port
   /-- register output ↦ initial value, in body order -/
-  inits      : List (String × Int)
+  inits    : List (String × Int)
   deriving Repr, DecidableEq
+
+/-- Data input ports built from the TABLE (order and widths are the table's). -/
+def Contract.dataInputs (c : Contract) : List Port :=
+  (c.inNames.zip c.table.ins).map fun (n, p) => ⟨n, p.hw⟩
+
+/-- Output ports built from the TABLE (every projection, in order). -/
+def Contract.outputs (c : Contract) : List Port :=
+  (c.outNames.zip c.table.out.flat).map fun (n, p) => ⟨n, p.hw⟩
+
+def clkRstNames (c : Contract) : List String :=
+  match c.clkRst with
+  | some (k, r) => [k, r]
+  | none => []
+
+def clkRstPorts (c : Contract) : List Port :=
+  match c.clkRst with
+  | some (k, r) => [⟨k, .bit⟩, ⟨r, .bit⟩]
+  | none => []
+
+/-- The declaration/contract correspondence: arity (names vs table: the
+`zip`s above would otherwise truncate silently), coverage of every output
+projection, injectivity of all port names (no two inputs share a stream, no
+input doubles as an output), separation from clk/rst, positive widths. -/
+def CorrStmt (c : Contract) : Prop :=
+  c.table.binders.length = c.table.ins.length ∧
+  c.inNames.length = c.table.ins.length ∧
+  c.outNames.length = c.table.out.flat.length ∧
+  (c.inNames ++ c.outNames ++ clkRstNames c).Nodup ∧
+  (∀ p ∈ c.table.ins ++ c.table.out.flat, 0 < p.width)
+
+instance (c : Contract) : Decidable (CorrStmt c) := by
+  unfold CorrStmt; infer_instance
 
 /-- Registers of a body: (output, clock, reset name, init). -/
 def regsOf : List Stmt → List (String × String × String × Int)
@@ -91,12 +265,8 @@ def memInstFree : List Stmt → Bool
   | .inst .. :: _ => false
   | _ :: rest => memInstFree rest
 
-def clkRstPorts (c : Contract) : List Port :=
-  match c.clkRst with
-  | some (k, r) => [⟨k, .bit⟩, ⟨r, .bit⟩]
-  | none => []
-
-/-- Every Module field the meaning reads is the contract's (scope-free part). -/
+/-- Every Module field the meaning reads is the contract's; inputs and
+outputs are compared with the TABLE's ports (order, widths, all outputs). -/
 def ShapeCore (c : Contract) (m : Module) : Prop :=
   m.name = c.modName ∧ m.parameters = [] ∧ m.assertions = [] ∧ m.isPrimitive = false ∧
   m.inputs = c.dataInputs ++ clkRstPorts c ∧
@@ -107,9 +277,7 @@ def ShapeCore (c : Contract) (m : Module) : Prop :=
 instance (c : Contract) (m : Module) : Decidable (ShapeCore c m) := by
   unfold ShapeCore; infer_instance
 
-/-- The v1 shape: the core plus the v1 scope (no memories, no child
-instances; `pilotB0` has two instances, so it is outside v1 — a scope
-limit, not a width or naming rejection). -/
+/-- The v1 shape: the core plus the v1 scope. -/
 def ShapeStmt (c : Contract) (m : Module) : Prop :=
   ShapeCore c m ∧ memInstFree m.body = true
 
@@ -132,19 +300,18 @@ def WidthStmt (c : Contract) (m : Module) : Prop :=
 instance (c : Contract) (m : Module) : Decidable (WidthStmt c m) := by
   unfold WidthStmt; infer_instance
 
-/-- The FIRST draft's width clause (kept only to show that it over-rejects:
-`clk`, `rst` and the output ports have no wire declaration, so `declWidth`
-is `0` for them). -/
+/-- The FIRST draft's width clause (kept only to show that it over-rejects). -/
 def WidthStmtDraft1 (m : Module) : Prop :=
   ∀ p ∈ m.inputs ++ m.outputs ++ m.wires, declWidth m p.name = p.ty.bitWidth
 
 instance (m : Module) : Decidable (WidthStmtDraft1 m) := by
   unfold WidthStmtDraft1; infer_instance
 
-/-- Input streams the contract covers. -/
+/-- Input streams the contract covers: data inputs fit their declared width,
+the reset is held 0 (scope: reset-free runs).  The CLOCK is unconstrained. -/
 def InputsOk (c : Contract) (m : Module) (ins : Nat → String → Nat) : Prop :=
   (∀ t, ∀ p ∈ c.dataInputs, ins t p.name < 2 ^ declWidth m p.name) ∧
-  (∀ t kr, c.clkRst = some kr → ins t kr.1 = 0 ∧ ins t kr.2 = 0)
+  (∀ t kr, c.clkRst = some kr → ins t kr.2 = 0)
 
 /-- Initial register state. -/
 def st0 (c : Contract) (m : Module) : String → Nat := fun n =>
@@ -161,9 +328,8 @@ def seedIn (m : Module) (ins : Nat → String → Nat) : Nat → (String → Nat
 def seedFwd (m : Module) (K : Nat) (ins : Nat → String → Nat) : Nat → (String → Nat) → Env :=
   fun j st n => if (m.inputs.map (·.name)).contains n then ins (K - 1 - j) n else st n
 
-/-- Time direction: `runModule … (k+1)` seeds its first cycle with index `k`;
-in a `K`-cycle run, trace position `t` is seeded with index `K-1-t`, which
-`seedFwd` maps back to stream time `t`. -/
+/-- Time direction: in a `K`-cycle run, trace position `t` is seeded with
+index `K-1-t`, which `seedFwd` maps back to stream time `t`. -/
 theorem seedFwd_time (m : Module) (K : Nat) (ins : Nat → String → Nat) {t : Nat}
     (ht : t < K) (st : String → Nat) :
     seedFwd m K ins (K - 1 - t) st = seedIn m ins t st := by
@@ -179,41 +345,42 @@ theorem runModule_first (we : WEnv) (body : List Stmt) (seed : Nat → (String �
           let rest ← runModule we body seed k (applyNexts st nexts) mems'
           some (envF :: rest)) := rfl
 
-/-- Every output port, at every cycle of every run of `m.body` ITSELF from
-`st0`, equals the source's value. -/
-def OutputsStmt (c : Contract) (m : Module)
-    (src : (Nat → String → Nat) → String → Nat → Nat) : Prop :=
+/-- The source built from the DECLARATION `f`: apply it to one input signal
+per table port, observe every output projection, and read port `o`'s. -/
+def srcOf (c : Contract) (f : c.table.Ty) : (Nat → String → Nat) → String → Nat → Nat :=
+  fun ins o t =>
+    ((c.outNames.zip (c.table.out.obs ((applyIns c.table.ins c.inNames ins f).val t))).lookup o).getD 0
+
+/-- Every output port (all projections), at every cycle of every run of
+`m.body` ITSELF from `st0`, equals the declaration's value. -/
+def OutputsStmt (c : Contract) (m : Module) (f : c.table.Ty) : Prop :=
   ∀ ins, InputsOk c m ins → ∀ K, ∃ envs,
     runModule (declWidth m) m.body (seedFwd m K ins) K (st0 c m) (fun _ _ => 0) = some envs ∧
-    ∀ t, t < K → ∀ o ∈ c.outputs, ∃ env, envs[t]? = some env ∧ env o.name = src ins o.name t
+    ∀ t, t < K → ∀ o ∈ c.outputs, ∃ env, envs[t]? = some env ∧ env o.name = srcOf c f ins o.name t
 
-/-- The statement the U1 entry registers (with `src` built from the
-declaration, never supplied by the caller). -/
-def U1Stmt (c : Contract) (m : Module)
-    (src : (Nat → String → Nat) → String → Nat → Nat) : Prop :=
-  ShapeStmt c m ∧ WidthStmt c m ∧ OutputsStmt c m src
+/-- The statement the U1 entry registers.  `f` is the declaration constant;
+it typechecks only at the table's type. -/
+def U1Stmt (c : Contract) (m : Module) (f : c.table.Ty) : Prop :=
+  CorrStmt c ∧ ShapeStmt c m ∧ WidthStmt c m ∧ OutputsStmt c m f
 
-/-! ## Input signals and observations used to BUILD `src` from a declaration -/
+/-- The data input ports of a module: everything except clk/rst. -/
+def dataPortsOf (m : Module) (clkRst : Option (String × String)) : List Port :=
+  m.inputs.filter (fun p => match clkRst with
+    | some (k, r) => p.name != k && p.name != r
+    | none => true)
 
-def sigBV (ins : Nat → String → Nat) (p : String) (w : Nat) : Signal defaultDomain (BitVec w) :=
-  ⟨fun t => BitVec.ofNat w (ins t p)⟩
-
-def sigB (ins : Nat → String → Nat) (p : String) : Signal defaultDomain Bool :=
-  ⟨fun t => ins t p != 0⟩
-
-def obsBV {w : Nat} (s : Signal defaultDomain (BitVec w)) (t : Nat) : Nat := (s.val t).toNat
-
-def obsB (s : Signal defaultDomain Bool) (t : Nat) : Nat := if s.val t then 1 else 0
-
-/-- The contract the entry would compute from a module (the contract
-constant is then a closed literal; another module with a different field
-fails `ShapeStmt` against it). -/
-def contractOf (m : Module) (clkRst : Option (String × String)) : Contract :=
-  { modName := m.name, clkRst,
-    dataInputs := m.inputs.filter (fun p => match clkRst with
-      | some (k, r) => p.name != k && p.name != r
-      | none => true),
-    outputs := m.outputs, wires := m.wires,
+/-- The contract the entry computes.  The TABLE (arity, order, widths, output
+projections) comes from the declaration; input port names follow the
+synthesizer's naming rule `_gen_<binder>` (observed on the toy and on
+`pilotB0`; a different rule makes `ShapeCore` reject, never accept);
+`outNames` are given per output projection.  Name, wires and register
+inits are read from `m`: they are not part of the declaration's type, and a
+wrong init or wire width makes `OutputsStmt` unprovable, not true. -/
+def contractOf (tbl : DeclTable) (outNames : List String)
+    (clkRst : Option (String × String)) (m : Module) : Contract :=
+  { modName := m.name, clkRst, table := tbl,
+    inNames := tbl.binders.map ("_gen_" ++ ·), outNames,
+    wires := m.wires,
     inits := (regsOf m.body).map (fun r => (r.1, r.2.2.2)) }
 
 end Tools.VedU1Contract
