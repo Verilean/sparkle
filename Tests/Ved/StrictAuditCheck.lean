@@ -136,6 +136,27 @@ info: VED AUDIT Tests.Ved.StrictAuditCheck.Gen.genB strict=REJECTED axioms=[Test
 #guard_msgs in
 #ved_audit_generated Tests.Ved.StrictAuditCheck.Gen
 
+/-! `#ved_audit_current_namespace` lists the same theorems from inside the
+namespace (as the U0 in-file cases use it).  NEGATIVE (limit, by design): an
+EXPECTED theorem that was never declared (`genC`) is simply not listed — the
+enumeration does not audit completeness; the U0 classifier compares the found
+names with the required set itself. -/
+namespace Gen
+/--
+info: VED AUDIT Tests.Ved.StrictAuditCheck.Gen.genA strict=OK axioms=[]
+---
+info: VED AUDIT Tests.Ved.StrictAuditCheck.Gen.genB strict=REJECTED axioms=[Tests.Ved.StrictAuditCheck.Gen.genB._native.native_decide.ax_1_1]
+-/
+#guard_msgs in
+#ved_audit_current_namespace
+end Gen
+
+namespace GenEmpty
+/-- info: VED AUDIT none: no theorem declared under Tests.Ved.StrictAuditCheck.GenEmpty -/
+#guard_msgs in
+#ved_audit_current_namespace
+end GenEmpty
+
 /-! ## Ruling 9: a G1-style finite check, native_decide vs kernel decide
 
 A miniature of the per-cone G1 obligations of `Tools/DeepElab.lean`

@@ -29,6 +29,36 @@ its proof term contains metavariables.
 
 `#ved_axioms_raw d` is a MEASUREMENT command for the U0 harness: it prints the
 raw closure without judging it.  Its output is not a strict acceptance.
+
+## What the enumeration commands do NOT audit
+
+`#ved_audit_generated Ns` and `#ved_audit_current_namespace` only ENUMERATE
+the theorems declared in the current file under a namespace and report each
+one's strict verdict and raw closure.  They do NOT audit
+
+* that every EXPECTED theorem was generated (a missing theorem simply does not
+  appear; the U0 classifier compares the found names against the per-output,
+  per-stage required set, and that set is itself only an observation of the
+  second synthesis run),
+* that a theorem's STATEMENT is the right one (its type is not compared with
+  any expected type; the contract is not checked), nor
+* that the module a theorem is about is the artifact a command returned.
+
+`strictAudit` on one declaration is the acceptance step for that declaration's
+axiom closure only; the contract (U1) is a separate obligation.
+
+## Synchronous registration
+
+The U0 harness puts `set_option Elab.async false in` in front of the measured
+`#verify_elab_deep` (which also elaborates every generated theorem
+synchronously itself), so a kernel-rejected theorem is ABSENT when these
+commands enumerate.  That is a property of the U0 case files.  When the
+commands are used elsewhere, they see only the theorems that are already in
+the environment at that point: under asynchronous elaboration (the Lean
+default) a theorem whose proof is still being checked, or will later be
+rejected, may be listed or missing.  General use therefore REQUIRES the
+caller to elaborate the audited declarations synchronously (or to audit after
+the file is complete); these commands do not enforce it.
 -/
 
 namespace Tools.VedStrictAudit
@@ -113,16 +143,11 @@ elab "#ved_axioms_raw " id:ident : command => do
   let axs ← liftCoreM <| rawAxioms decl
   logInfo m!"VED AXIOMS RAW {decl}: {showNames axs}"
 
-/-- `#ved_audit_generated Ns`: MEASUREMENT ONLY (U0).  For every theorem
-DECLARED IN THE CURRENT FILE under the namespace `Ns` (a U0 case file runs
-`#verify_elab_deep` inside a fresh namespace, so these are exactly the
-generated `{base}_deep_*` / `{base}_sdeep_*` theorems), print one line
-`VED AUDIT <decl> strict=OK|REJECTED axioms=[raw closure]`.  The namespace
-only FINDS the produced declarations; the verdict is `strictAudit` (closure
-⊆ `strictAllowed`).  It never throws on a rejected theorem, so a case can
-record every produced theorem; it accepts nothing by itself. -/
-elab "#ved_audit_generated " ns:ident : command => do
-  let pfx := ns.getId
+/-- Shared by `#ved_audit_generated` and `#ved_audit_current_namespace`:
+enumerate the theorems declared in this file strictly under `pfx` and print
+one `VED AUDIT` line each.  MEASUREMENT ONLY (see the module docstring for
+what it does not audit). -/
+def auditUnder (pfx : Name) : CommandElabM Unit := do
   let env ← getEnv
   let mut found : Array Name := #[]
   for (n, ci) in env.constants.map₂.toList do
@@ -139,5 +164,21 @@ elab "#ved_audit_generated " ns:ident : command => do
         pure "OK"
       catch _ => pure "REJECTED"
     logInfo m!"VED AUDIT {n} strict={verdict} axioms={showNames axs}"
+
+/-- `#ved_audit_generated Ns`: MEASUREMENT ONLY (U0).  For every theorem
+DECLARED IN THE CURRENT FILE under the namespace `Ns`, print one line
+`VED AUDIT <decl> strict=OK|REJECTED axioms=[raw closure]`.  The namespace
+only FINDS the declarations; the verdict is `strictAudit` (closure ⊆
+`strictAllowed`).  It never throws on a rejected theorem, so a case can record
+every produced theorem; it accepts nothing by itself.  It does NOT check that
+all expected theorems exist, nor any theorem's statement (module docstring). -/
+elab "#ved_audit_generated " ns:ident : command => auditUnder ns.getId
+
+/-- `#ved_audit_current_namespace`: `#ved_audit_generated` for the CURRENT
+namespace (the U0 in-file cases run `#verify_elab_deep` inside a fresh
+namespace nested in the file's own, whose full name the case file does not
+spell out).  Same limits as `#ved_audit_generated`. -/
+elab "#ved_audit_current_namespace" : command => do
+  auditUnder (← getCurrNamespace)
 
 end Tools.VedStrictAudit
