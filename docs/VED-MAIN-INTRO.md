@@ -12,7 +12,15 @@ This branch (`ved/main-intro`, based on main `1614cee8`) brings `#verify_elab_de
   - **Changed files:**
     - `Sparkle/Compiler/Elab.lean` (+131), `Sparkle/Core/Signal.lean` (+200, merged with main's #135), `Sparkle/Backend/CSim.lean` (+104), `Sparkle/Backend/Verilog.lean` (+41), `Sparkle/IR/Optimize.lean` (+12);
     - `Tools/SVParser/{Lower,Parser}.lean`;
-    - `lakefile.lean`: `lean_lib` entries for the closure only, none of them a default target.
+    - `lakefile.lean`: `lean_lib` entries for the VED tools and tests (`Tools.DeepElab`, `Tools.VedStrictAudit`, `Tests.Ved.*`, …). None of them is a default target.
+    - `Sparkle.lean` (the umbrella, so in the default build): imports `Sparkle.IR.Semantics` and `Sparkle.IR.ReorderInvariance`. The precompiled `Tools.SVParser` library links their per-module dynlibs, so without these imports `Sparkle.Verification.CounterProps` fails to link.
+- **Changes to the normal synthesis path.** These come with the closure and apply to every compile, not only to `#verify_elab_deep`:
+  - `Sparkle/IR/RegDedup.lean` merges bisimilar duplicate hardware after `synthesizeCombinational`. `runCircuitH` evaluates a body twice, which used to duplicate a nested circuit's registers. `SPARKLE_NO_REGDEDUP=1` turns it off.
+    - Fixed in review: nodes are merged only when their declared type is the same fixed width. Aliases are looked through only between equal fixed widths. Symbolic-width, array and undeclared nodes are never merged.
+    - Regression: `Tests/Ved/RegDedupWidthCheck.lean`, with same-width controls that are merged.
+  - The `Signal.loop` wire cache and the wire-canonicalisation map in `Sparkle/Compiler/Elab.lean` make the second evaluation reuse the first's loop.
+    - Fixed in review: these caches, and the existing hardware-`let` cache, map keys to wire names of one module. A nested `@[hardware_module]` synth therefore saves the parent's caches and restores them afterwards; before the fix the parent continued with the child's entries. The `let` cache had the same missing restore on `main`.
+    - Regression: `Tests/Ved/NestedCacheCheck.lean` (parent loop → child synth → inlined twin → parent loop).
 - **The strict audit.** `Tools/VedStrictAudit.lean` (`#ved_strict_audit`, `#ved_axioms_raw`, …) checks a declaration's reachable axiom closure against `{propext, Classical.choice, Quot.sound}`. Anything else is rejected, including `Lean.ofReduceBool`, i.e. `native_decide`. Name patterns are never allowed through. `Tests/Ved/StrictAuditCheck.lean` holds its accept and reject controls.
 - **The regression files, as of `df5f0b09`.** `Tests/Verification/{ValueParamInitRepro,ConeSharingGen,DeepElabReifyDemo,ConeSharingCrc16,DeepElabRealIP}.lean`. The IP sources they import (`IP/Net/{CRC32,UART}`, `IP/Crypto/EcdsaSignSmall`, `IP/Bus/{DroneCANHW,SBUSHW,SPIHW}`) are identical on main and at `df5f0b09`.
 - **CI.** `.github/workflows/ved.yml` has two jobs, `ved-pr` and `ved-full` (see "CI" below).
@@ -83,7 +91,7 @@ Both fixes bring the C simulator closer to the SV. `main`'s `build.yml` steps pa
 
 ## Where the rest is
 
-Nothing below is in this branch, the default build, CI or any import:
+Nothing below is in this branch or in its CI:
 
 | What | Where |
 |---|---|

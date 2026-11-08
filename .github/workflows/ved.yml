@@ -1,7 +1,7 @@
 name: VED (verify_elab_deep)
 
 # Regression for `#verify_elab_deep` and the strict axiom audit
-# (docs/VED-MAIN-INTRO.md).  These targets are NOT default targets, so the
+# (docs/VED-MAIN-INTRO.md).  These lean_lib targets are NOT default targets, so the
 # plain `lake build` of build.yml does not build them.
 #
 # * `ved-pr`   — the representative regression, on pull requests that touch
