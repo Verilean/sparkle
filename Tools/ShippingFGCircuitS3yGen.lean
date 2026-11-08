@@ -1,6 +1,6 @@
 import Tools.ShippingFGCircuitS3vChild
 set_option autoImplicit false
--- FG circuit pilot S3y, steps 1-2: the first GENERAL connection.  `checkData_sound`: for ANY `MachineData d` of the combinational sub-language (`circOk`) and ANY module `m`, a successful `checkData d m` (the ports `portsOk`, the source terms `ofData d`, the validator `checkComb`) gives `DataShows d m`: `ChildFn m (childRange d) (dataValue d x)`, where `dataValue` is defined from `d` ALONE (`letTV` / `Term.eval` on `d.outs`, at the `decB`/`decV` decoding of the argument values), never from a module.  The per-declaration side facts of `k0_childFn` (port count, widths, `portIdx`, output count, fragment) are Bool checks inside `circOk`/`portsOk`; `k0_childFn'` re-derives `k0_childFn` from it.  No run premise, no Laws/CellPrem/hr.  No sorry/axiom/native_decide/TRUSTED/law. docs/FG-CIRCUIT-PILOT.md §73.
+-- FG circuit pilot S3y, steps 1-2: the first GENERAL connection.  `checkData_sound`: for ANY `MachineData d` of the combinational sub-language (`circOk`) and ANY module `m`, a successful `checkData d m` (the ports `portsOk`, the source terms `ofData d`, the validator `checkComb`) gives `DataShows d m`: `ChildFn m (childRange d) (dataValue d x)`, where `dataValue` is defined from `d` ALONE (`letTV` / `Term.eval` on `d.outs`, at the `decB`/`decV` decoding of the argument values), never from a module.  The per-declaration side facts of `k0_childFn` (port count, widths, `portIdx`, output count, fragment) are Bool checks inside `circOk`/`portsOk`; `k0_childFn'` re-derives `k0_childFn` from it.  `checkData_sound` has NO run premise (it is a statement about data and module); it uses no Laws/CellPrem.  S3y2: the contract of the first fragment is explicit in the checker (single output of non-zero width, bits-only non-zero-width inputs, port widths, order and count), see `circOk_spec` / `portsOk_spec`; `ChildFn` / `dataValue : List Nat → Nat` are SINGLE-OUTPUT, multi-output IPs are later work.  No sorry/axiom/native_decide/TRUSTED/law. docs/FG-CIRCUIT-PILOT.md §73.
 set_option maxHeartbeats 0
 set_option maxRecDepth 1000000
 
@@ -31,12 +31,16 @@ def dataValue (d : MachineData) (x : HList (tys d.ss)) (vals : List Nat) : Nat :
 def DataShows (d : MachineData) (m : Module) : Prop :=
   ∀ x : HList (tys d.ss), ChildFn m (childRange d) (dataValue d x)
 
-/-- the combinational sub-language: no state, one output, every `let` and the output in `Frag` -/
-def circOk (d : MachineData) : Bool :=
+/-- the S3y core of the fragment: no state, one output, every `let` and the output in `Frag` -/
+def circOk0 (d : MachineData) : Bool :=
   d.ss.isEmpty && (d.outs.length == 1) && d.ls.all (fun l => Frag d l.2) && d.outs.all (fun o => Frag d o.2)
 
-/-- the module's ports against the data's input binders: as many ports as hardware binders, none of them `clk`/`rst`, each at its binder's width, the source position of port `i` has port index `i`, one output -/
-def portsOk (d : MachineData) (m : Module) : Bool :=
+/-- **the contract of the first fragment (data side)**: `circOk0`, and every output has a NON-ZERO sort width (`sortW`: Bool 1, bits n n).  `ChildFn`/`dataValue : List Nat → Nat` carry ONE output value: exactly one output (so the output list is non-empty and single); a multi-output IP is later work. -/
+def circOk (d : MachineData) : Bool :=
+  circOk0 d && d.outs.all (fun o => decide (0 < sortW o.1))
+
+/-- the S3y core of the port check: as many ports as hardware binders, none of them `clk`/`rst`, each at its binder's width, the source position of port `i` has port index `i`, one output -/
+def portsOk0 (d : MachineData) (m : Module) : Bool :=
   let bs := d.bsIn.filter (fun b => b.2 != .domain)
   (m.inputs.length == bs.length) &&
   m.inputs.all (fun p => p.name != "clk" && p.name != "rst") &&
@@ -45,12 +49,23 @@ def portsOk (d : MachineData) (m : Module) : Bool :=
   (List.range (inputPositions d).length).all (fun i => portIdx d.bsIn ((inputPositions d).getD i 0) == i) &&
   (m.outputs.length == 1)
 
+/-- an input binder the first fragment accepts: a `BitVec n` with `0 < n`.  A `Bool` binder is refused (`Frag` has no `boolInput`; an unused Bool input would otherwise slip through), a zero-width one is refused (no port to constrain). -/
+def inKindOk : MixedGateBinder → Bool
+  | .bits n => decide (0 < n)
+  | _ => false
+
+/-- **the port contract (data and module)**: `portsOk0`; every hardware input binder is an `inKindOk` one (bits, non-zero width); the module's single output port has exactly the width of the data's output sort (non-zero by `circOk`).  Input COUNT and ORDER: as many ports as hardware binders, port `i` ↔ binder `i` (`portIdx`).  Zero inputs are allowed (a constant circuit; the argument list is then `[]`). -/
+def portsOk (d : MachineData) (m : Module) : Bool :=
+  portsOk0 d m &&
+  (d.bsIn.filter (fun b => b.2 != .domain)).all (fun b => inKindOk b.2) &&
+  (m.outputs.zip d.outs).all (fun (p, o) => portW p == sortW o.1)
+
 /-- **the general checker on (data, module)**: no root-specific constant -/
 def checkData (d : MachineData) (m : Module) : Bool :=
   circOk d && portsOk d m && (match ofData d with | some s => checkComb s m | none => false)
 
-/-- what `portsOk` says, as propositions -/
-theorem portsOk_spec (d : MachineData) (m : Module) (h : portsOk d m = true) :
+/-- what `portsOk0` says, as propositions -/
+theorem portsOk0_spec (d : MachineData) (m : Module) (h : portsOk0 d m = true) :
     m.inputs.length = (d.bsIn.filter (fun b => b.2 != .domain)).length ∧
     (∀ p ∈ m.inputs, p.name ≠ "clk" ∧ p.name ≠ "rst") ∧
     (∀ (i : Nat) (p : Port) (b : Lean.Name × MixedGateBinder),
@@ -58,7 +73,7 @@ theorem portsOk_spec (d : MachineData) (m : Module) (h : portsOk d m = true) :
     (inputPositions d).length = (d.bsIn.filter (fun b => b.2 != .domain)).length ∧
     (∀ (i q : Nat), (inputPositions d)[i]? = some q → portIdx d.bsIn q = i) ∧
     m.outputs.length = 1 := by
-  unfold portsOk at h
+  unfold portsOk0 at h
   simp only [Bool.and_eq_true, beq_iff_eq] at h
   obtain ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ := h
   refine ⟨h1, ?_, ?_, h4, ?_, h6⟩
@@ -78,6 +93,46 @@ theorem portsOk_spec (d : MachineData) (m : Module) (h : portsOk d m = true) :
     rw [hg] at this
     simpa using this
 
+/-- what `circOk` says, as propositions: the data side of the contract -/
+theorem circOk_spec (d : MachineData) (h : circOk d = true) :
+    d.ss = [] ∧ d.outs.length = 1 ∧ d.ls.all (fun l => Frag d l.2) = true ∧ d.outs.all (fun o => Frag d o.2) = true ∧
+    (∀ o ∈ d.outs, 0 < sortW o.1) := by
+  unfold circOk circOk0 at h
+  simp only [Bool.and_eq_true, List.isEmpty_iff, beq_iff_eq] at h
+  obtain ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩ := h
+  refine ⟨h1, h2, h3, h4, fun o ho => ?_⟩
+  simpa using List.all_eq_true.mp h5 o ho
+
+/-- what `portsOk` says, as propositions: the six facts of `portsOk0_spec`, and the contract (every hardware input is `BitVec n`, `0 < n`; the single output port has the data output's width) -/
+theorem portsOk_spec (d : MachineData) (m : Module) (h : portsOk d m = true) :
+    (m.inputs.length = (d.bsIn.filter (fun b => b.2 != .domain)).length ∧
+    (∀ p ∈ m.inputs, p.name ≠ "clk" ∧ p.name ≠ "rst") ∧
+    (∀ (i : Nat) (p : Port) (b : Lean.Name × MixedGateBinder),
+      m.inputs[i]? = some p → (d.bsIn.filter (fun b => b.2 != .domain))[i]? = some b → portW p = binderW b.2) ∧
+    (inputPositions d).length = (d.bsIn.filter (fun b => b.2 != .domain)).length ∧
+    (∀ (i q : Nat), (inputPositions d)[i]? = some q → portIdx d.bsIn q = i) ∧
+    m.outputs.length = 1) ∧
+    (∀ b ∈ d.bsIn.filter (fun b => b.2 != .domain), ∃ n, b.2 = .bits n ∧ 0 < n) ∧
+    (∀ (p : Port) (o : Σ s : SType, Term s), p ∈ m.outputs → o ∈ d.outs → m.outputs.length = 1 → d.outs.length = 1 → portW p = sortW o.1) := by
+  unfold portsOk at h
+  simp only [Bool.and_eq_true] at h
+  obtain ⟨⟨h0, h1⟩, h2⟩ := h
+  refine ⟨portsOk0_spec d m h0, ?_, ?_⟩
+  · intro b hb
+    have := List.all_eq_true.mp h1 b hb
+    rcases b with ⟨nm, k⟩
+    cases k with
+    | bits n => exact ⟨n, rfl, by simpa [inKindOk] using this⟩
+    | bool => simp [inKindOk] at this
+    | domain => simp [inKindOk] at this
+  · intro p o hp ho hm hd
+    obtain ⟨p0, hp0⟩ := List.length_eq_one_iff.mp hm
+    obtain ⟨o0, ho0⟩ := List.length_eq_one_iff.mp hd
+    subst hp0; subst ho0
+    simp only [List.mem_singleton] at hp ho
+    subst hp; subst ho
+    simpa using List.all_eq_true.mp h2 (p, o) (by simp)
+
 /-- **G1, the general validator soundness**: for every data `d` and module `m`, `checkData d m = true` gives `DataShows d m`.  General in `d` and `m`; no run, no law. -/
 theorem checkData_sound (d : MachineData) (m : Module) (h : checkData d m = true) : DataShows d m := by
   intro x
@@ -88,11 +143,9 @@ theorem checkData_sound (d : MachineData) (m : Module) (h : checkData d m = true
     split at h3
     · rename_i s hs; exact ⟨s, hs, h3⟩
     · cases h3
-  unfold circOk at hc
-  simp only [Bool.and_eq_true, List.isEmpty_iff, beq_iff_eq] at hc
-  obtain ⟨⟨⟨hss0, hout1⟩, hfl⟩, hfo⟩ := hc
+  obtain ⟨hss0, hout1, hfl, hfo, -⟩ := circOk_spec d hc
   have hss : d.ss.length = 0 := by rw [hss0]; rfl
-  obtain ⟨hnin, hnoclk, hw, hipl, hidx, hnout⟩ := portsOk_spec d m hp
+  obtain ⟨⟨hnin, hnoclk, hw, hipl, hidx, hnout⟩, -, -⟩ := portsOk_spec d m hp
   obtain ⟨outP, hout⟩ := List.length_eq_one_iff.mp hnout
   refine ⟨outP, hout, ?_⟩
   intro mems env hrst hP
@@ -151,6 +204,32 @@ theorem checkData_sound (d : MachineData) (m : Module) (h : checkData d m = true
   have h2 := hrel 0 o0 c0 (by simp [ho0]) (by simp [hc0])
   rw [h1, h2.1]
   simp [dataValue, ho0]
+
+/-! ### vacuity: the range is never empty, and the checked fragment has exactly one output -/
+
+/-- the all-zero argument list is in range of any binder list (a `Bool` takes `0 < 2`, `bits n` takes `0 < 2 ^ n`, a domain is unconstrained): the argument range of `childRange d` is NEVER empty, so `ChildFn m (childRange d) f` is not vacuous for want of an argument -/
+theorem inRange_zeros (L : List (Lean.Name × MixedGateBinder)) : InRange (L.map fun _ => 0) L := by
+  induction L with
+  | nil => exact .nil
+  | cons b L ih =>
+    refine .cons ?_ ih
+    rcases b with ⟨nm, k⟩
+    cases k <;> simp [Nat.pos_pow_of_pos, Nat.two_pow_pos]
+
+theorem childRange_nonempty (d : MachineData) : ∃ vals, childRange d vals :=
+  ⟨_, inRange_zeros (d.bsIn.filter fun b => b.2 != .domain)⟩
+
+/-- a passing check has exactly ONE output term (the output list is non-empty, and single), of non-zero width, and a module with exactly one output port of that width; every hardware input is a non-zero-width `BitVec` -/
+theorem checkData_contract (d : MachineData) (m : Module) (h : checkData d m = true) :
+    (∃ o, d.outs = [o] ∧ 0 < sortW o.1) ∧ (∃ p, m.outputs = [p]) ∧
+    (∀ b ∈ d.bsIn.filter (fun b => b.2 != .domain), ∃ n, b.2 = .bits n ∧ 0 < n) := by
+  unfold checkData at h
+  simp only [Bool.and_eq_true] at h
+  obtain ⟨⟨hc, hp⟩, -⟩ := h
+  obtain ⟨-, hout1, -, -, hpos⟩ := circOk_spec d hc
+  obtain ⟨⟨-, -, -, -, -, hnout⟩, hin, -⟩ := portsOk_spec d m hp
+  obtain ⟨o, ho⟩ := List.length_eq_one_iff.mp hout1
+  exact ⟨⟨o, ho, hpos o (by simp [ho])⟩, List.length_eq_one_iff.mp hnout, hin⟩
 
 /-! ### `k0_childFn` as a corollary: `httpGetByte`'s per-declaration facts are now Bool checks -/
 section K0
