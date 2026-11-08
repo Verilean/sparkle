@@ -1,0 +1,83 @@
+name: VED (verify_elab_deep)
+
+# Regression for `#verify_elab_deep` and the strict axiom audit
+# (docs/VED-MAIN-INTRO.md).  These targets are NOT default targets, so the
+# plain `lake build` of build.yml does not build them.
+#
+# * `ved-pr`   — the representative regression, on pull requests that touch
+#   the compiler, the VED tools or their tests.
+# * `ved-full` — every VED regression file, on a schedule and on demand
+#   (the release / periodic gate; the per-IP release measurement is a
+#   separate gate, see the doc).
+
+on:
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'Sparkle/**'
+      - 'Tools/DeepElab.lean'
+      - 'Tools/VerifyElab.lean'
+      - 'Tools/ConeFold*.lean'
+      - 'Tools/ConcatNorm.lean'
+      - 'Tools/SVParser/**'
+      - 'Tools/VedStrictAudit.lean'
+      - 'Tests/Verification/**'
+      - 'Tests/Ved/**'
+      - 'lakefile.lean'
+      - 'lake-manifest.json'
+      - 'lean-toolchain'
+      - '.github/workflows/ved.yml'
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ved-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Elan
+      run: |
+        curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+        echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Install Lean toolchain
+      run: elan default $(cat lean-toolchain)
+
+    - name: Strict axiom audit (accept / reject controls)
+      run: lake build Tests.Ved.StrictAuditCheck
+
+    - name: Deep route, representative regression
+      run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
+
+  ved-full:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Elan
+      run: |
+        curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+        echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Install Lean toolchain
+      run: elan default $(cat lean-toolchain)
+
+    - name: Strict axiom audit (accept / reject controls)
+      run: lake build Tests.Ved.StrictAuditCheck
+
+    - name: Deep route, every regression file
+      run: |
+        lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen \
+          Tests.Verification.DeepElabReifyDemo Tests.Verification.ConeSharingCrc16 \
+          Tests.Verification.DeepElabRealIP
