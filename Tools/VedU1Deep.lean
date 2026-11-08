@@ -133,7 +133,8 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
         rw [$trace:ident]
         unfold $irS:ident $inpU:ident at hl ⊢
         simp only [CExpr.compile, $out:ident]
-        simp [evalExpr, evalExpr.go, evalList, evalOp, envOfC, weOfC, chainMap, List.finRange,
+        simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
+          Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
           $nmC:ident, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl] at hl ⊢
         omega
       refine ⟨by decide, by decide, by decide, ?_⟩
@@ -148,7 +149,8 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
         have e1 := hSI ins s
         simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth,
           Sparkle.IR.RegDedup.declWidth] at hin hrst
-        simp [stepModule, evalAssigns, regNexts, memNexts, evalExpr, evalList, evalExpr.go, evalOp,
+        simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList,
+          Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalOp,
           widthOf, seedIn, applyNexts, $O:ident, $M:ident, declWidth,
           Sparkle.IR.RegDedup.declWidth, mask, hrst, or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow]
         refine ⟨_, _, ⟨rfl, rfl⟩, ?_, ?_⟩
@@ -161,7 +163,8 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
           unfold $irS:ident at hl ⊢
           simp only [Cdo.irState, $next:ident, CExpr.compile]
           unfold $inpU:ident at hl ⊢
-          simp [evalExpr, evalExpr.go, evalList, evalOp, envOfC, weOfC, chainMap, List.finRange,
+          simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
+          Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
             $nmC:ident, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
             $inpC:ident, PTy.sig] at hl hin ⊢
           omega)

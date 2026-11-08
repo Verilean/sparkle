@@ -557,3 +557,50 @@ DeepElab を使う smoke（§3.5 の 1・2）は manager の復旧後に行い�
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）
 
 必要 IP 327 の受理数には加えない。
+
+## 11. DeepElab の生成器を U1 入口へ（最小 1 例、Issue sparkle-ved-gen1、裁定 6 への対応）
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。必要 IP 327 の受理数には加えない（下の 2 例はどちらも試験用の宣言で、必要 IP ではない）。
+
+### 11.1 裁定 6（経路 1–4 と accK9 を設計として許可）
+- 第一例 `accK9`、第二例 `natInit5`（`Tests/Verification/ValueParamInitRepro.lean` の形）。native の G1（`mkG1` の HashMap/String 計算）の全面改修は先行条件にしない。
+- 返却 `m.body` そのものの step を証明する。cone の `Expr` 一致だけでなく、`declWidth` と `weOfC`/`weM` の一致（必要な参照の上）、register/input の slot 対応、mask と範囲、init、時刻の向きを kernel で閉じる。二度の合成の一致を観測で使わない。失敗したら拒否する。
+- 最終の U1 定理の型と証明の axiom 閉包は標準 3 公理だけ。名前付きの native 定理に依存しないと言うなら、`collectAxioms` とは別に定数依存閉包を確かめる。DeepElab の native 依存の生成物が環境に在ること自体は拒否の理由にしない。native 証明の流用の対照を残す。
+- 元の宣言が違うだけで常に拒否とはしない。意味が違う証拠の流用は拒否し、意味が同じ新しい正しい証明は許す。
+- 不要な HashMap/String 抽出の正しさを、checker の証明対象に戻さない。ただし残る幅表や concatNorm の前提を、観測や新しい仮説に移さない。
+
+### 11.2 つないだもの（`Tools/VedU1Deep.lean`、`vedU1DeepEntry` / `#ved_u1_deep decl`）
+- 入口は `vedU1Entry` と同じ形: 型から表を読む（複数出力は合成の前に拒否）、`inlinerFuelGuard`、`synthesizeEntry` を**ちょうど 1 回**、返った `m` を `checkU1` に渡して、成功したときだけ `m` を返す。違いは証明源だけ。
+- `checkU1` に証明源 `.built mk` を足した（`Tools/VedU1Entry.lean`、8 行）。`mk` は checker が `ved_mod`・`ved_contract`・`ved_outs` を登録した**後**に、名前と返却 `m` から script を作る。`mk` が環境に足すもの（補助の定義）は checker の save/restore の中にあり、拒否したら戻る。`mk` の失敗は段 `proof` の拒否。
+- builder（`buildDeepWith stmtDecl decl`）が読む DeepElab の定数は、`#verify_elab_deep decl` が作ったもののうち次だけ: `{f}_deep : Cdo Γr Γi w`、`{f}_nm`、`{f}_inp`、`{f}_deep_trace`、`{f}_deep_next`、`{f}_deep_inits`、`{f}_deep_out`（smoke2 の row 212 の監査ではどれも strict OK の系統）。無ければ拒否（`#verify_elab_deep` を先に）。`Cdo` でなければ（memory を持つ `CdoM` 等）範囲外として拒否。
+- **使わないもの**: cone の定数、`_deep_fidelity_*`、DeepElab の再合成 IR、native 依存の定理（`_deep_coneEval_*`、`_deep_regstep`、`_deep_step_*`、`_deep_seed_bounded`、`_deep_signalM*`、`_deep_signal_fold`、`_deep_state_trace`、`_deep_signal_run`）。提案の段階で予定した「cone の `Expr` 一致を閉じた `decide` で」も、不要だったので使っていない。返却 `m.body` と DeepElab の `Cdo` の compile をそれぞれ kernel で算術まで評価して比べるので、2 つの合成が同じ module を返すこと（probe1 で観測、BEq で一致）を前提にも観測の根拠にもしていない。
+- 補助の定義 2 つ（checker の base の下、通常の reducibility）: `ved_inpU ins t j`（U1 の入力の流れ `ins` を DeepElab の入力の値へ: `({f}_inp (PTy.sig (.bv w) ins "_gen_<binder>") …) j).val t`）と `ved_irS ins t := Cdo.irState {f}_deep {f}_nm (ved_inpU ins) t ⟨0, _⟩`。`abbrev` にすると `simp`/`omega` が別の形に開いて atom が揃わなかった（probe4）ので通常の定義にした。
+- 生成した script（信頼しない、kernel が検査）:
+  1. `hinj`（`{f}_nm` の単射、`decide`）、`hlt : ved_irS ins t < 2^w`（`Cdo.irState_eq` から、値は `BitVec w` の `toNat`）。
+  2. `hSI : srcOf C f ins "out" t = ved_irS ins t`: `srcOf` を宣言の Signal の値へ開き、`{f}_deep_trace` で書き換え、`{f}_deep_out` の compile を `evalExpr` で評価する。`envOfC`/`weOfC`/`chainMap` を `List.finRange` の上で計算して名前を照合する（`envOfC_names` は `simp` が暗黙の長さを正規化して当たらなかった、probe3）。
+  3. `outputs_of_step` に不変条件 `R ins s st := st r = ved_irS ins s` を渡す。初期: `st0`（`encodeInit` と `declWidth`）と `Cdo.irState` の 0 と `{f}_deep_inits`。1 周期: `stepModule (declWidth m) m.body (seedIn m ins s st)` を `simp` で計算し（`hrst` で reset 0、`hin` で入力の範囲）、出力は `hSI` と `R` で、次の register の値は `Cdo.irState` を 1 段開いて `{f}_deep_next` の compile を同じ評価で計算し、`omega` で比べる。時刻の向きは `outputs_of_step`（`seedFwd_time`）が持つ。
+- 範囲（この外では script が失敗し、入口は拒否する。受理はしない）: register 1 つで、その値が出力、データ入力は bit-vector、出力 1 つ、memory なし。
+
+### 11.3 経緯（probe、ソースツリー外 `~/git/workspaces/ved-inputs`、Issue 付き Job）
+- probe1（`ved-probe1-b316` exit 0）: `accK9`・`natInit5` で `synthesizeEntry` の `m` と `synthesizeHierarchical` の単一 module が BEq で一致（観測。証明には使わない）。
+- probe2（exit 0）: DeepElab の生成文の形（`accK9_nm` は 0 ↦ `_gen_acc`、1 ↦ `_gen_d`。next/out は concat の slice）。
+- probe3〜7（exit 1）: 依存型の注釈、`envOfC_names` が当たらない、`evalOp` の展開、`abbrev` の atom、`srcOf C f` の rewrite で motive が型不正、`← hR` が構文一致しない。各回の原因と対処は Issue の note。
+- probe8（`ved-probe8-b316` exit 0）: 手書きの定理 `accK9_u1 : U1Stmt accK9.ved_contract accK9.ved_mod accK9`、`sorry` なし、strict 監査 `[Classical.choice, Quot.sound, propext]`。この証明の形を 11.2 の生成器にした。
+
+### 11.4 Check（`Tests/Ved/U1DeepCheck.lean`）
+- `#verify_elab_deep` の後、入口が `accK9`・`natInit5` を受理: `VED U1 OK …ved_u1: [Classical.choice, Quot.sound, propext]`（`#guard_msgs` で固定）。
+- 完全型: 登録された定理の型が `U1Stmt f.ved_contract f.ved_mod f`（宣言の定数そのもの）と `Expr` として等しい。
+- 定数依存閉包（`collectAxioms` とは別）: `accK9.ved_u1` から型と値をたどった閉包が `accK9_deep_trace` を含み（空でない）、`_native` の補助と native 系の DeepElab 定理を含まない。環境には `accK9_deep_signal_run` が在ることも確かめる。
+- 拒否（共通 helper `expectRefused`。拒否のたびに checker の定数と補助の定義が残っていないことも確かめる）:
+  - 変異した module（init 0→5、定数 9→10）と、元の宣言と自分の DeepElab の事実 → `[proof]`。変異が元と異なることも確かめる。
+  - 別の宣言の DeepElab の事実（意味が違う `accK10`、`natInit5`）→ `[proof]`。
+  - 別の宣言の受理済みの証明（`natInit5.ved_u1`）→ `[proof]`。
+  - `native_decide` の事実を混ぜた正しい証明、DeepElab の native の replay 定理（`accK9_deep_signal_run`）を引き込む正しい証明 → `[audit]`。
+  - `#verify_elab_deep` を走らせていない宣言（`accK11`）→ `[proof]`。
+- kernel: `acc5_not_accK9 : ¬ U1Stmt cAcc5 mAcc5 accK9`（init 5 の module、全 0 の入力の時刻 0 で 5 ≠ 0。宣言側の 0 は `{f}_deep_trace` と `{f}_deep_inits` から）。
+- 意味が同じ別の宣言の DeepElab の事実で受理する対照は置いていない。この script は `{f}_deep_trace` で宣言そのものを書き換えるので、別名の宣言の trace は当たらず拒否になる（裁定の「常に拒否とはしない」に反する設計の規則ではなく、script の網羅の限界）。
+
+### 11.5 まだ満たしていないもの
+- 一般の生成: register 複数、register が出力でない形、Bool の入出力、memory、struct 出力、instance、reset の掛かる run、最適化と SV。
+- `#verify_elab_deep` の全実行を使っているので、補助的な再合成（DeepElab 側の `synthesizeHierarchical`）とその native 依存の生成物の費用が掛かる。U1 の対象の `synthesizeEntry` は 1 回のまま。費用と失敗は build の記録に残す。emit だけの flag が要るなら独立の小さな差分にする。
+- 327 行への接続。

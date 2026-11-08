@@ -247,7 +247,8 @@ theorem src0 : srcOf cAcc5 accK9 zeros "out" 0 = 0 := by
   simp [srcOf, cAcc5, contractOf, applyIns, OTy.obs, PTy.obs]
   rw [accK9_deep_trace]
   simp only [CExpr.compile, accK9_deep_out, Cdo.irState, accK9_deep_inits]
-  simp [evalExpr, evalExpr.go, evalList, evalOp, envOfC, weOfC, chainMap, List.finRange,
+  simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
+    Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
     accK9_nm, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, accK9_inp, PTy.sig, zeros]
 
 theorem acc5_not_accK9 : ¬ U1Stmt cAcc5 mAcc5 accK9 :=
