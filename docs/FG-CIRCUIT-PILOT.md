@@ -4134,10 +4134,10 @@ S3t の §69.1 の文のうち `SourceData.ok`（`clk` を含まない、先頭 
 - `dataValue d x vals`: `d` **だけ**から定義した意味。`d.outs[0]` の項に `Term.eval` を、`letTV d x (decB d.bsIn vals) (decV d.bsIn vals)`（`typedVal` の 1 時刻版）の上で適用し `enc` する。モジュール・`ofData`・`CTerm` は使わない。`x` は状態値（`circOk` の下では `d.ss = []` で一意）。
 - `DataShows d m := ∀ x, ChildFn m (childRange d) (dataValue d x)`。
 - `circOk d`（Bool）: `d.ss = []`、出力 1 つ、全 `let` と出力が `Frag`。`portsOk d m`（Bool）: ポート数 = 非 domain binder 数、`clk`/`rst` なし、各ポートの幅 = binder の幅、`inputPositions` の i 番目の `portIdx` = i、出力 1 つ。`checkData d m := circOk d && portsOk d m && (ofData d の成功 ∧ checkComb s m)`。root 固有の定数はない。
-- **G1 `checkData_sound : ∀ d m, checkData d m = true → DataShows d m`**。run も `Laws`／`CellPrem`／`hr` も前提にない。`ofData_sound`（S3v）＋`checkComb_sound`（S3t）から。S3v の `k0_childFn` が子ごとに供給していた事実（ポート数・幅・`portIdx`・出力数・fragment）は `circOk`／`portsOk` の Bool 検査になった（`portsOk_spec` が命題に戻す）。
+- **G1 `checkData_sound : ∀ d m, checkData d m = true → DataShows d m`**。G1 は data と module についての文で run を含まない（`Laws`／`CellPrem` は使わない）。`ofData_sound`（S3v）＋`checkComb_sound`（S3t）から。S3v の `k0_childFn` が子ごとに供給していた事実（ポート数・幅・`portIdx`・出力数・fragment）は `circOk`／`portsOk` の Bool 検査になった（`portsOk_spec` が命題に戻す）。
 - `k0_checkData : checkData kd0 pilotK0 = true`（kernel、閉じた項）＋ `dataValue_k0`（`httpGetByte.machine_result`、宣言ごとの結び付け）から **`k0_childFn'`** を再導出（`k0_childFn` と同じ型）。
 - **入口** `certifiedEntryC lvl declName`: `readData` で `d` を読み、**既存の** `synthesizeCombinationalCoreOff declName` を無変更で走らせ、`checkData d b && designOk b D` が偽なら throw（フォールバックなし）、真なら同じ `(b, D)` を返す。
-- **G2 `certifiedEntryC_sound`**: 成功した run `RunsTo (certifiedEntryC lvl declName) … (b, D) w'` から、`∃ d w₁ w₂`、同じ run で `readData` が `d` を返し、無変更の入口がその後に同じ `(b, D)` を返し、`checkData d b = true ∧ designOk b D = true ∧ DataShows d b`。証明は `RunsTo` の bind／if／throwError／pure の反転だけ（`runsTo_pure` のみ新規）。**SrcEq／ChildFn／環境照合は束縛変数に置き換えず**、`checkData` がその run 自身の値で決める。
+- **G2 `certifiedEntryC_sound`**: 成功した run `RunsTo (certifiedEntryC lvl declName) … (b, D) w'` から、`∃ d w₁ w₂`、同じ run で `readData` が `d` を返し、無変更の入口がその後に同じ `(b, D)` を返し、`checkData d b = true ∧ designOk b D = true ∧ DataShows d b`。証明は `RunsTo` の bind／if／throwError／pure の反転だけ（`runsTo_pure` のみ新規）。前提は run の成功（`RunsTo (certifiedEntryC …)`）であり、G2 は run 前提を不要にするものではない。**データ対 IR の範囲に限り**、SrcEq／ChildFn／環境照合を束縛変数に置き換えず `checkData` がその run 自身の `d` と `(b, D)` で決める。G2 は `readData` の正しさ（`d` が宣言のデータであること）を証明しない: それは DeclDenotes（S3z）。
 - **ガード** `certifiedEntryC_refuses`: どの `d` でも検査が偽（または `designOk` が偽）なら、その `(b, D)` を返す成功 run は存在しない。
 
 ### 73.2 `MachineData` の MetaM 読み取りの欠け（正確に）
@@ -4150,21 +4150,21 @@ S3t の §69.1 の文のうち `SourceData.ok`（`clk` を含まない、先頭 
 - **再利用していないもの**: DeepElab の `CExpr.compile_correct`（演算子ごと）と `Cdo.irState_eq`／`Cdo.elab_general` は**まだ使っていない**。ソースは `MachineData`（`Frag` の部分言語）であり Cdo ではない。演算子（and／or／add／shl／sub／lt…）の CTerm 意味補題としての再利用は §73.5(b)、レジスタの帰納は (c)。
 - 元の run の証明（v11／FG スキーマ）は**この入口には使っていない**: 検査付き入口は別の入口で、旧入口の証明は旧入口のものとして残る。
 
-### 73.4 既存 FG 最終結論へ何が渡るか（台帳 ID 単位。**候補**であり、外すかは最終 binder 差分でレビュアが決める）
+### 73.4 既存 FG 最終結論との対応（**未接続一覧**。G1／G2 の入口・結論は FG のものと異なるため、どの行もここからは外れない）
 
 | FG／v11 の前提・結論 | 検査付き入口 | 状態 |
 |---|---|---|
-| A.P-01 Laws (L) | G1／G2 は使わない（run は意味を運ばない） | 候補 |
-| A.P-02 Start（AdmCtx ∧ JQC、hquiet／hsynth） | 使わない | 候補 |
-| A.P-04 core run `hr` | 入口の成功そのものが前提（法則ではなく run） | 候補 |
-| C.EN-4 CellPrem、hD／hG／hT／hs／h0 | 使わない | 候補 |
+| A.P-01 Laws (L) | G1／G2 の証明は使わない。ただし FG の入口・結論と別物なので行は残る | 未接続 |
+| A.P-02 Start（AdmCtx ∧ JQC、hquiet／hsynth） | 証明は使わない。行は残る | 未接続 |
+| A.P-04 core run `hr` | G2 は run の成功を前提に使う（`hr` 不要ではない）。行は残る | 未接続 |
+| C.EN-4 CellPrem、hD／hG／hT／hs／h0 | 証明は使わない。行は残る | 未接続 |
 | A.P-06 MachineDefines／DeclDenotes | **まだ必要**: 読んだ `d` が宣言のデータであり、宣言の Signal 関数が `dataValue` であること（`machine_result`／`machine_source`、宣言ごとに生成） | 未接続（一般の front-end 定理か入口での検査が未決） |
 | G3 ReflectsAll（machine route）、B.G-* reflection Props | 同上（machine route） | 未接続 |
 | TopShips（結論） | `DataShows` は組合せモジュールの IR レベル・子インターフェース形。階層・レジスタ・インスタンスの `TopShips` は §73.5 | 未接続 |
 | 最適化（IR → `checkedOptimize b`） | G1／G2 は**返された `b`** について。印字される最適化後の形は S3r の `hierRefineCheck` の観測だけで接続 | 未接続（新しい主張なし） |
 | SV | 範囲外。変更なし | 未接続 |
 
-IR・最適化・SV は上のとおり別々。**この表は台帳の行を一つも外していない**。
+IR・最適化・SV は上のとおり別々。**この表は台帳の行を一つも外していない**。FG 全体の結論までの橋と必要 IP の受入は、別の完了条件として扱う。
 
 ### 73.5 必要 IP の baseline（完了条件の一部。**この単位では未実施**）
 
@@ -4185,5 +4185,26 @@ IR・最適化・SV は上のとおり別々。**この表は台帳の行を一�
 - `FGCIRCUIT60 CONTROLS: 7 rejections by the general check (…)`; `DataShows` は非自明（`dataValue kd0 inits [1] = 71`、定数関数は偽、変異 module（71→72）は `DataShows` でない）、ガード（偽の検査は成功 run を許さない。誤った design の top の例も）。
 - `FGCIRCUIT60 SIGNATURES`: `checkData_sound`（`dataValue` 展開済みの完全型）、`checkData`／`circOk` の展開、`certifiedEntryC_sound` と入口の本体、`k0_childFn'` を独立に書いた型へ型注釈。
 - 大きさ（`sizeWithoutSharing`、1 run）: `portsOk_spec` 23,764、`checkData_sound` 38,343、`k0_childFn'` 2,554、`certifiedEntryC_sound` 20,205、`certifiedEntryC_refuses` 2,521。`decide +kernel` の `checkData kd0 pilotK0 = true` は約 2.9 s（elaboration 込み、1 run）。machineData 全体への `decide +kernel` は使っていない。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
+
+### 73.8 S3y2 addendum（レビュア裁定の反映）
+
+土台 `7da2992b`。変更ファイル: `Tools/ShippingFGCircuitS3yGen.lean`、`Tools/ShippingFGCircuitS3yEntry.lean`、`Tests/Gen5/FGCircuitPilotCheck60.lean`。`Sparkle/` と S3z／S3w のファイル、既存定理の文は変更していない。台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。1 root／1 child の結果は局所的で台帳の減算ではない。
+
+**(裁定 5) 最初の断片の契約を checker に明示**
+- `ChildFn`／`dataValue : List Nat → Nat` は**単一出力**。複数出力の IP は**後続の一般化の残件**（出力ごとの値関数）。
+- `circOk d` = `circOk0`（状態なし、出力 1 つ、`let`／出力が `Frag`）∧ 各出力の `sortW > 0`。`circOk_spec` が命題に戻す。
+- `portsOk d m` = `portsOk0`（ポート数 = 非 domain binder 数、`clk`/`rst` なし、各ポート幅 = binder 幅（順序どおり）、`inputPositions`／`portIdx` の i 番目 = i、出力ポート 1 つ）∧ 非 domain の入力 binder は全て `BitVec n`（`0 < n`）∧ 出力ポート幅 = 出力 sort の幅。`inKindOk`: `.bits n`（`0<n`）のみ。**Bool 入力は拒否**（`Frag` に `boolInput` がなく、未使用の Bool 入力が素通りするのを防ぐ）、幅 0 の入力も拒否。入力 0 個（定数回路）は許す（引数列は `[]`）。`portsOk_spec`／`checkData_contract` が命題に戻す。
+- 拒否の kernel 対照（Check60 B2）: Bool 入力、幅 0 入力、余分な入力ポート、入力幅違い、出力ポート 2 つ、出力ポート幅違い、出力リスト空、出力 2 つ、幅 0 の出力。
+- 空虚さの対照: `childRange_nonempty`（全データで全 0 の引数列が範囲内。範囲が空になるデータは存在しない）、`kd0` で `[1]` が範囲内（`k0_range_one`）、通る検査の出力リストは非空（`checkData_contract`）、`dataValue kd0 … [1] = 71`、誤った値関数は `ChildFn pilotK0` を満たさない（`wrong_value_fails`: `f [1] ≠ 71` なら偽、`dataShows_k0_succ_fails`: 値 +1 は偽、`flip_not_dataShows`）。
+
+**(裁定 1) 文言**: G1／G2 について「hr 不要」とは記録しない。G1 は run を含まない data／module の文、**G2 は run の成功（`RunsTo (certifiedEntryC …) … (b, D) w'`）を前提に使う**。`readData` が成功 run を持たなければ `certifiedEntryC` も持たない（`certifiedEntryC_no_read`、新規）。検査が偽なら成功 run はない（`certifiedEntryC_refuses`）。
+
+**(裁定 2) 文言**: §73.1 の「SrcEq／ChildFn／環境照合」の文はデータ対 IR の範囲に限定した。G2 は `readData` が返す `d` が宣言のデータであること、元の Lean 宣言と同じ run の `readData` 一致・意味保存を**証明しない**（DeclDenotes、S3z）。`MachineData`＋`typedVal`（`dataValue`）は中間意味であり、FG の最終ソース（元 Lean の Signal）ではない。最終の接続定理では DeclDenotes を供給する。
+
+**(裁定 6)** §73.4 は**未接続一覧**として維持。「候補」表記を除き、どの行も外していない。FG 全体の結論までの橋と必要 IP の受入は別の完了条件。
+
+Check60（`kjob lake build Tests.Gen5.FGCircuitPilotCheck60`、exit 0）の行: `FGCIRCUIT60 AXIOMS: 34 theorems of the S3y modules (Gen, Entry, this Check), standard axioms only`、`FGCIRCUIT60 CONTRACT: …`（新規）。大きさ（`sizeWithoutSharing`）: `portsOk_spec` 12,399、`circOk_spec` 8,737、`checkData_contract` 15,581、`checkData_sound` 40,247、`certifiedEntryC_sound` 20,205、`certifiedEntryC_refuses` 2,521、`certifiedEntryC_no_read` 1,529。`checkData kd0 pilotK0 = true` の `decide +kernel` は約 2.8 s（1 run）。
 
 台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）。
