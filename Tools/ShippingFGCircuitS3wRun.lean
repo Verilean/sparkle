@@ -65,6 +65,7 @@ theorem neg1_drop_last : checkWithN kd1 (dropLast pilotK1) = false := by decide 
 theorem neg1_flip_const : checkWithN kd1 (flip74 pilotK1) = false := by decide +kernel
 theorem neg1_move_slice : checkWithN kd1 (moveSlice pilotK1) = false := by decide +kernel
 theorem neg1_swap_mux : checkWithN kd1 (swapMux pilotK1) = false := by decide +kernel
+theorem neg1_swap_bool_pair : checkWithN kd1 (swapBoolPair pilotK1) = false := by decide +kernel
 theorem neg1_wrong_width : checkWithN kd1 (wrongWidth pilotK1) = false := by decide +kernel
 theorem neg1_wrong_out_w : checkWithN kd1 (wrongOutW pilotK1) = false := by decide +kernel
 theorem neg1_wrong_out_name : checkWithN kd1 (wrongOutName pilotK1) = false := by decide +kernel
