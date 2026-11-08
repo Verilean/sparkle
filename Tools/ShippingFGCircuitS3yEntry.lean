@@ -2,7 +2,7 @@ import Tools.ShippingFGCircuitS3yGen
 import Tools.ShippingGen5Acc
 import Tools.ShippingEntrySoundness
 set_option autoImplicit false
--- FG circuit pilot S3y, step 3: the CHECKED entry `certifiedEntryC` and its soundness `certifiedEntryC_sound` (G2).  The entry reads the declaration's `MachineData` in `MetaM` (`readData`: the front end's own `entry₀` + `machineShape?` + `dataOfAt lvl`, the pattern `RootReader` states), runs the EXISTING entry `synthesizeCombinationalCoreOff` unchanged, and returns its `(b, D)` only if `checkData d b && designOk b D`; otherwise it throws.  The soundness proof uses only the `RunsTo` inversions of `bind` / `if` / `throwError` / `pure`: no Laws, no CellPrem, no `hr`, no quiet/start premise, no binder for `SrcEq`/`ChildFn`/environment correspondence (`checkData` decides them on the run's own `d` and `(b, D)`).  Not proved: that the `d` read is the declaration's data (`DeclDenotes`), see docs §73.  No sorry/axiom/native_decide/TRUSTED/law. docs/FG-CIRCUIT-PILOT.md §73.
+-- FG circuit pilot S3y, step 3: the CHECKED entry `certifiedEntryC` and its soundness `certifiedEntryC_sound` (G2).  The entry reads the declaration's `MachineData` in `MetaM` (`readData`: the front end's own `entry₀` + `machineShape?` + `dataOfAt lvl`, the pattern `RootReader` states), runs the EXISTING entry `synthesizeCombinationalCoreOff` unchanged, and returns its `(b, D)` only if `checkData d b && designOk b D`; otherwise it throws.  The soundness statement takes the run's SUCCESS (`RunsTo (certifiedEntryC …) … (b, D) w'`) as its premise (it is the `hr` of the shape: G2 does NOT dispense with a run premise); the proof uses only the `RunsTo` inversions of `bind` / `if` / `throwError` / `pure`, no Laws, no CellPrem, no quiet/start premise.  No binder for `SrcEq`/`ChildFn`/environment correspondence in the data-vs-IR part: `checkData` decides it on the run's own `d` and `(b, D)`.  A failed `readData`, a false check give no successful run (`certifiedEntryC_refuses`, `certifiedEntryC_no_read`).  Not proved: that the `d` read is the declaration's data (`DeclDenotes`), see docs §73.  No sorry/axiom/native_decide/TRUSTED/law. docs/FG-CIRCUIT-PILOT.md §73.
 set_option maxHeartbeats 0
 set_option maxRecDepth 1000000
 
@@ -44,7 +44,7 @@ theorem runsTo_pure {α : Type} {a r : α} {w w' : Void IO.RealWorld}
   change EST.Out.ok a w = _ at h
   cases h; exact ⟨rfl, rfl⟩
 
-/-- **G2, the entry connection**: a successful run of `certifiedEntryC` returns `(b, D)` such that (1) the same run read some `d` (a run of `readData`), (2) the unchanged entry ran from the world after that read and returned this `(b, D)`, (3) `checkData d b = true` and `designOk b D = true`, hence `DataShows d b` (G1).  No premise about the run beyond its success. -/
+/-- **G2, the entry connection**: a successful run of `certifiedEntryC` returns `(b, D)` such that (1) the same run read some `d` (a run of `readData`), (2) the unchanged entry ran from the world after that read and returned this `(b, D)`, (3) `checkData d b = true` and `designOk b D = true`, hence `DataShows d b` (G1).  The premise is the run's success (`h`); nothing else about the run is assumed. -/
 theorem certifiedEntryC_sound {lvl : Lean.Expr → Nat} {declName : Name} {w w' : Void IO.RealWorld}
     {b : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
     (h : RunsTo (certifiedEntryC lvl declName) mctx mref cctx cref w (b, D) w') :
@@ -78,6 +78,16 @@ theorem certifiedEntryC_refuses {lvl : Lean.Expr → Nat} {declName : Name} {w w
   rcases hno d with h1 | h1
   · rw [hc] at h1; cases h1
   · rw [hd] at h1; cases h1
+
+/-- **a failed read gives no successful run**: if `readData` has no successful run from `w` (it throws: no entry constant, no machine data, or any other failure), then `certifiedEntryC` has none from `w`, whatever the pair.  Nothing is returned, no fallback. -/
+theorem certifiedEntryC_no_read {lvl : Lean.Expr → Nat} {declName : Name} {w : Void IO.RealWorld}
+    (hno : ∀ (d : MachineData) (w₁ : Void IO.RealWorld), ¬ RunsTo (readData lvl declName) mctx mref cctx cref w d w₁) :
+    ∀ (r : Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) (w' : Void IO.RealWorld),
+      ¬ RunsTo (certifiedEntryC lvl declName) mctx mref cctx cref w r w' := by
+  intro r w' h
+  obtain ⟨b, D⟩ := r
+  obtain ⟨d, w₁, -, h1, -⟩ := certifiedEntryC_sound h
+  exact hno d w₁ h1
 
 end Runs
 
