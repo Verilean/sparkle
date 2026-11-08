@@ -4070,6 +4070,14 @@ reviewer 裁定2 との対応: (i) **被覆**: 全 `k < 2` の call と `b.body`
 
 S3t の §69.1 の文のうち `SourceData.ok`（`clk` を含まない、先頭 `kD` に domain binder なし）、`RootShowsAt`（上の 2 群の結論）、`structuralOk`（`designOk`／`topInOk`）を本節の定義で置き換えた型を freeze 対象とする。`bodyOk` の実装と、実 artifact の `CheckRoot = true` および soundness を同じ提出で確認するまでは、`checkRoot_sound` を機械受理しない。
 
+**受理の記録（reviewer、S3u/S3v の審査）**: `615b4b90` の `RootShowsAt`、`SourceData.ok`、`structuralOk` と、それらが使う helper 定義を freeze 対象として受理した。helper は `kindW`、`kindTy`、`inWidths`、`srcInPorts`、`topInPorts`、`topInWidths`、`topInOk`、`designOk`、`callOk`、`regsOk`、`linkedOk`、`moduleByName`、`childRange`、`childValue`、`ChildFn`、`kidData`、`kidFs`、`Cert` で、いずれも `Tools/ShippingFGCircuitS3tSpec.lean` とその import にある。
+
+この受理には次の限定がある。
+- `SourceData.SrcEq` はこの root に特化した文で、任意のソースに対する一般の保証とは呼ばない。
+- `bodyOk = false` の骨格と、空虚な `CheckRootSoundStmt` は受理の対象外。`bodyOk` とその健全性は、実 artifact の `CheckRoot = true` と合わせて後続で受理する。
+- `CertifiedReturnSoundStmt` は checker の受理を取り出すところまでの文。利用者向け wrapper で同じ `declName` に接続する部分は後続の作業。
+- 現在の freeze は reset = 0 の IR 保証で、reset の assert や SV の意味には広げない。
+
 ### 70.5 記録補足（S3t から）
 
 §69.5 に追記済み: `portNames`／`kidMod` は claim、Check57 の型 ascription は関数の型のみ、`CertifiedReturnSoundStmt` は `declName` と `S.declName` の対応を述べない。
@@ -4092,6 +4100,7 @@ S3t の §69.1 の文のうち `SourceData.ok`（`clk` を含まない、先頭 
 
 - 対象は `httpGetByte`（`pilotK0`、88 文）**だけ**。`pilotK1`（`tlpCplByte`、`checkComb` が受理しない）と root の `bodyOk` は対象外。
 - 橋 `ofData_sound` は**一般の補題**で、仮定は `MachineData` についての**決定可能な事実**だけ: `d.ss.length = 0`（`ofData` は `d.ss = []` を検査しない）、`Frag`（下）、そして値の側の `(W p w).toNat = V p % 2 ^ w`（入力位置の値が `V` で実現されること）。**一般形を仮定としては置いていない**。`httpGetByte` についてはこれら全部を kernel（`decide +kernel`、フィールドごとの閉じた事実）で証明した。
+- **注（reviewer）**: `Frag` は `tC` が覆わない構成子（`binary` など）に既定で `true` を返す。したがって `Frag` だけでは対応する構文の集合を判定しない。対応範囲は `Frag = true` と `tC`／`ofData` の成功（覆わない構成子では `tC` が `none` を返す）の組で決まる。`ofData_sound` は成功を前提に置くので健全性に問題はないが、`Frag = true` だけを根拠に `binary` 等が供給済みと扱ってはいけない。
 - `Frag d t`: `tC` が覆う形（`bitsInput`／`bitsLit`／`boolLit`／`compare .eq`／`mux`／`slice`／`concat`）に限り、`slice` の長さ > 0、`boolInput` を含まない、`bitsInput` は入力位置（`vpos j < nIn`）か「`d.ls` の対応する `let` の sort が `.bits w`」であるもの。これが、`tC` が非入力位置を `Nat` 減算で `let` に写すことの正当化（`ss.length = 0` と合わせて位置の算術 `nIn + ss.length + (p - nIn - ss.length) = p` が成り立つ）と、slice 長 0 の幅の食い違い（`hi - lo + 1`）を排除する。
 
 ### 71.2 証明したこと
