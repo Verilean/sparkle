@@ -8,8 +8,10 @@ Records, kept apart:
   strict audit), pinned with `#guard_msgs`;
 * CONTROLS through the checker `checkU1` (the entry's own checker with ONE
   piece substituted: the statement's constant, the module, or the proof),
-  each pinned as a refusal at a named stage, plus a check that the refused
-  run left nothing in the environment;
+  each pinned as a refusal at a named stage through ONE helper
+  (`expectRefused stage absent act`), which after EVERY refusal also checks
+  that the names in `absent` (the checker's four constants for that base) are
+  not in the environment;
 * KERNEL FACTS: `theorem`s refuting the substituted statements (closed
   witness runs, `decide`/`rfl`, no `native_decide`).
 
@@ -111,37 +113,41 @@ def modOf (base : Name) : TermElabM Sparkle.IR.AST.Module := do
   let some v := (← getConstInfo (base ++ `ved_mod)).value? | throwError "no value"
   evalModule v
 
-/-- Run a control; it must be refused at `stage`.  Logs `refused [stage]`. -/
-def expectRefused (stage : String) (act : TermElabM Unit) : CommandElabM Unit := liftTermElabM do
+/-- The constants the checker registers for `base` (they must be absent
+after a refusal: `checkU1` restores the state it saved at its own start). -/
+def checkerNames (base : Name) : List Name :=
+  [`ved_mod, `ved_contract, `ved_outs, `ved_u1].map (base ++ ·)
+
+/-- None of `absent` is in the environment. -/
+def assertClean (absent : List Name) : TermElabM Unit := do
+  let env ← getEnv
+  for n in absent do
+    if env.contains n then throwError "left behind: {n}"
+
+/-- THE refusal helper, used for every refusal control: `act` must be refused
+at `stage` (a `VED U1 REFUSED … [stage]` error), and afterwards none of
+`absent` may be in the environment.  Logs `refused [stage], clean`. -/
+def expectRefused (stage : String) (absent : List Name) (act : TermElabM Unit) :
+    CommandElabM Unit := liftTermElabM do
   let accepted ← try act; pure true catch e =>
     let s ← e.toMessageData.toString
     unless s.startsWith "VED U1 REFUSED" && (s.splitOn s!"[{stage}]").length > 1 do throw e
     pure false
   if accepted then throwError "control ACCEPTED (expected a refusal at [{stage}])"
-  logInfo m!"refused [{stage}]"
-
-/-- No constant of a refused control's base is left behind. -/
-def assertClean (base : Name) : CommandElabM Unit := do
-  let env ← getEnv
-  for s in [`ved_mod, `ved_contract, `ved_outs, `ved_u1] do
-    if env.contains (base ++ s) then throwError "left behind: {base ++ s}"
-  logInfo m!"clean {base}"
+  assertClean absent
+  logInfo m!"refused [{stage}], clean"
 
 /-! ## 2. Same type, different meaning (the identity into the delay's statement) -/
 
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlIdentIntoDelay) do
   discard <| checkU1 ``delay8 `ctlIdentIntoDelay ``ident8 (← modOf ``delay8) .generated
 
-/-- info: clean ctlIdentIntoDelay -/
-#guard_msgs in
-run_cmd assertClean `ctlIdentIntoDelay
-
 -- … and the delay into the identity's statement
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlDelayIntoIdent) do
   discard <| checkU1 ``ident8 `ctlDelayIntoIdent ``delay8 (← modOf ``ident8) .generated
 
 /-- An input stream: `x` is 1 at every cycle, everything else 0. -/
@@ -199,29 +205,25 @@ def mutConst (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
       | .register o c r _ i => .register o c r (.const 3 8) i
       | s => s }
 
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlInit) do
   discard <| checkU1 ``delay8 `ctlInit ``delay8 (mutInit (← modOf ``delay8)) .generated
 
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlOut) do
   discard <| checkU1 ``delay8 `ctlOut ``delay8 (mutOut (← modOf ``delay8)) .generated
 
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlWidth) do
   discard <| checkU1 ``delay8 `ctlWidth ``delay8 (mutWidth (← modOf ``delay8)) .generated
 
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlConst) do
   discard <| checkU1 ``delay8 `ctlConst ``delay8 (mutConst (← modOf ``delay8)) .generated
-
-/-- info: clean ctlInit -/
-#guard_msgs in
-run_cmd assertClean `ctlInit
 
 /-- The init mutation as a constant (the same value `mutInit` gives). -/
 def mInit5 : Sparkle.IR.AST.Module :=
@@ -259,48 +261,54 @@ theorem init5_not_delay : ¬ U1Stmt cInit5 mInit5 delay8 :=
 /-! ## 4. Another declaration's proof or artifact -/
 
 -- another declaration's theorem as the proof of delay8's statement
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlProofK) do
   discard <| checkU1 ``delay8 `ctlProofK ``delay8 (← modOf ``delay8) (.term (mkCIdent ``delay8k.ved_u1))
 
 -- … even of a declaration with the same meaning (its module name differs)
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlProofB) do
   discard <| checkU1 ``delay8 `ctlProofB ``delay8 (← modOf ``delay8) (.term (mkCIdent ``delay8b.ved_u1))
 
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlProofI) do
   discard <| checkU1 ``delay8 `ctlProofI ``delay8 (← modOf ``delay8) (.term (mkCIdent ``ident8.ved_u1))
 
 -- another declaration's ARTIFACT (delay8k's module, init 5) for delay8
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlArtK) do
   discard <| checkU1 ``delay8 `ctlArtK ``delay8 (← modOf ``delay8k) .generated
 
 -- the identity's artifact for delay8
-/-- info: refused [proof] -/
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames `ctlArtI) do
   discard <| checkU1 ``delay8 `ctlArtI ``delay8 (← modOf ``ident8) .generated
 
--- NOT a refusal (recorded so that it is not mistaken for one): the artifact
--- of `delay8b` (same meaning, another module name) with a NEW generated proof
--- is accepted for `delay8`.  The contract reads the module name from `m`, it
--- does not bind it to `declName`; ruling 11 allows a new correct proof for a
--- same-meaning artifact.  Only the OLD proof (`delay8b.ved_u1`) is refused above.
+-- NOT a refusal, and NOT a defect (reviewer's naming ruling): the artifact of
+-- `delay8b` (same meaning, another module name) with a NEW generated proof is
+-- accepted for `delay8`.  `checkU1` verifies "this `m` has this declaration's
+-- meaning"; the contract reads the module name from `m`, and no
+-- module-name = declaration-name condition is part of the IR meaning contract
+-- (a naming rule is a separate specification for file-output / hierarchy
+-- consumers).  Three things are recorded separately:
+--   (a) an OLD proof reused for another declaration is refused
+--       (`ctlProofB` / `ctlProofK` / `ctlProofI` above);
+--   (b) a NEW correct proof for a same-meaning artifact is accepted (here);
+--   (c) the production entry `vedU1Entry` keeps the artifact of the same run:
+--       it passes the `m` its one `synthesizeEntry` call returned to `checkU1`
+--       unsubstituted and returns that `m` (by construction; `checkU1`'s
+--       `artifact` stage checks the registered `ved_mod` denotes it).  That is a
+--       property of the entry, separate from what `checkU1` verifies.
 /-- info: accepted ctlArtB.ved_u1 -/
 #guard_msgs in
 run_cmd liftTermElabM do
   let t ← checkU1 ``delay8 `ctlArtB ``delay8 (← modOf ``delay8b) .generated
   logInfo m!"accepted {t}"
-
-/-- info: clean ctlProofK -/
-#guard_msgs in
-run_cmd assertClean `ctlProofK
 
 /-! ## 5. Multi-output: refused before synthesis -/
 
@@ -310,23 +318,24 @@ error: VED U1 REFUSED Tests.Ved.U1EntryCheck.pair8 [multi-output]: 2 output proj
 #guard_msgs in
 #ved_u1 pair8
 
-/-- info: clean Tests.Ved.U1EntryCheck.pair8 -/
+-- the same refusal through the shared helper (checks the names after it)
+/-- info: refused [multi-output], clean -/
 #guard_msgs in
-run_cmd assertClean ``pair8
+run_cmd expectRefused "multi-output" (checkerNames ``pair8) do
+  discard <| vedU1Entry ``pair8
 
 /-! ## 6. Scope: a body outside the slice's script is refused (not accepted) -/
 
 -- `inc8`'s statement may well be true; the refusal is a COVERAGE limit of the
 -- slice's generated script (no invariant for a register that is not the
--- output), not a counterexample.  What matters here: no fallback, nothing left.
-/-- info: refused [proof] -/
+-- output), not a counterexample.  What is checked: no fallback, and none of
+-- the checker's constants for `inc8` is left (the helper).  Side effects of
+-- `synthesizeEntry` itself (which ran before `checkU1`) are not rolled back and
+-- not checked here.
+/-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" do
+run_cmd expectRefused "proof" (checkerNames ``inc8) do
   discard <| vedU1Entry ``inc8
-
-/-- info: clean Tests.Ved.U1EntryCheck.inc8 -/
-#guard_msgs in
-run_cmd assertClean ``inc8
 
 /-! ## 7. Strict audit: a `native_decide` proof is refused -/
 
@@ -334,14 +343,10 @@ run_cmd assertClean ``inc8
 -- term carries a `native_decide` fact (`Lean.ofReduceBool` in the reachable
 -- closure).  (`native_decide` cannot run on the contract's own clauses here:
 -- `ved_mod` / `ved_contract` are kernel-only definitions, not compiled.)
-/-- info: refused [audit] -/
+/-- info: refused [audit], clean -/
 #guard_msgs in
-run_cmd expectRefused "audit" do
+run_cmd expectRefused "audit" (checkerNames `ctlNative) do
   let stx ← `((fun (_ : (2 : Nat) + 2 = 4) => delay8.ved_u1) (by native_decide))
   discard <| checkU1 ``delay8 `ctlNative ``delay8 (← modOf ``delay8) (.term stx)
-
-/-- info: clean ctlNative -/
-#guard_msgs in
-run_cmd assertClean `ctlNative
 
 end Tests.Ved.U1EntryCheck

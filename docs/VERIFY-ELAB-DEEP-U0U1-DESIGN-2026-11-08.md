@@ -492,7 +492,9 @@ DeepElab を使う smoke（§3.5 の 1・2）は manager の復旧後に行い�
 3. `declName.ved_mod : Module := toExpr m` を登録する。その閉じた項を評価し直した値が `m` と `DecidableEq` で等しいこと、登録した定数の値がその項と `Expr` として等しいことを確かめる（段 `artifact`）。契約 `declName.ved_contract := contractOf (表) ["out"] clkRst declName.ved_mod`（clk/rst の名前は `m` の register から選ぶだけで、`ShapeCore` が全 register と入力の末尾で照合する）、出力の一覧 `declName.ved_outs` も登録する。
 4. 期待する文 `U1Stmt declName.ved_contract declName.ved_mod declName`（**元の定数そのもの**）を `Expr` として作り、型検査する（段 `type`）。生成した証明 script をその型で elaborate する（`sorry` への置き換えをしない。elaborate 中に error が出たら拒否。段 `proof`）。`Elab.async false` で kernel に `declName.ved_u1` を**ちょうどその型で**同期登録し（段 `kernel`）、登録された型を読み直して期待の `Expr` と比べる（段 `type`）。
 5. `Tools.VedStrictAudit.strictAudit`（存在、theorem、mvar なし、到達閉包 ⊆ 標準 3 公理）を通す（段 `audit`）。
-6. 3〜5 が通ったときだけ `m` を返す／表示する。どこかで失敗したら環境を保存した状態に戻し（`ved_mod`・`ved_u1`・kernel 失敗時の代替 axiom を残さない）、`VED U1 REFUSED <decl> [<段>]: …` を throw する。fallback、trace だけの経路、replay の省略は無い。
+6. 3〜5 が通ったときだけ `m` を返す／表示する。fallback、trace だけの経路、replay の省略は無い。
+- **失敗したときに戻すもの（記録修正 1、裁定 5）**: `checkU1` は**自分の開始時**（つまり `synthesizeEntry` の後）に `saveState` を取り、`checkU1` の中の失敗（heartbeat／max recursion の runtime 例外も `tryCatchRuntimeEx` で捕まえる）ではその TermElabM の状態に戻す。戻るのは checker が足した定数（`ved_mod`・`ved_contract`・`ved_outs`・`ved_u1`、kernel の段で残ったもの）と message を checker 開始時へ、まで。**合成の副作用の復元は主張しない**: `synthesizeEntry` の前の環境、`IO.Ref`／cache、ファイルは戻さない。以前の「どの失敗でも環境全体を戻す／何も残らない」はこの範囲に限定した。
+- **`VED U1 REFUSED <decl> [<段>]` の形で出るもの（実装を変えて合わせた）**: `vedU1Entry` が捕まえる例外はすべてこの形。段は、合成の前の `table`・`multi-output`、`inliner`（`inlinerFuelGuard`、今回包んだ）、`synthesis`（`synthesizeEntry`、今回包んだ）、`checkU1` の中の `table`・`multi-output`・`artifact`・`type`・`proof`・`kernel`・`audit`、それ以外の `checkU1` 内の例外（登録名の `addDecl` の失敗、runtime 制限など）は `checker`（今回追加）。**この形で出ないもの**: interrupt 例外（elaborator は捕まえない）と、`checkU1` より前（`readTable`・`inlinerFuelGuard`・`synthesizeEntry`）で起きた heartbeat／max recursion の例外（そこは通常の `try … catch` なので runtime 例外は捕まえず、そのままの error で出る。戻しもしない）。
 - 証明 script は**信頼しない**（kernel が検査する）。この縦断の script が扱うのは、register の無い module と、register が 1 つでその現在値が出力になる module（delay）だけ。それ以外の body では script が失敗して入口は拒否する（受理はしない）。
 - 一般の補題 `outputs_of_step`（1 周期の不変条件 `R` から `OutputsStmt` を、`seedFwd_time` で時刻の向きを合わせて run の長さの帰納法で導く）は 1 回だけ証明した。生成した script はこの補題に、各 instance の `R`（delay なら「register の値 = 宣言の時刻 `s` の出力」）と 1 周期の計算（`simp` で `m.body` そのものの `stepModule` を評価、連結の算術は `or_mod`）を渡す。
 - `SPARKLE_PROFILE` は `synthesizeEntry` が読む（設定されていれば診断用の entry が走る）。どちらの枝でも、証明するのは返った `m` そのもの。
@@ -506,15 +508,16 @@ DeepElab を使う smoke（§3.5 の 1・2）は manager の復旧後に行い�
 - 同じ入口で、それぞれ**自分の** module について受理: `ident8`（恒等。合成された module は `out := _gen_x` で clk/rst なし、文は真）、`delay8k`（init 5）、`delay8b`（`delay8` と同じ中身で別名）。
 - `native_decide`・`sorry`・新しい axiom は、受理した証明に使っていない。
 
-### 10.3 対照（すべて `#guard_msgs` で固定。拒否された対照の後は、その base の定数が環境に残っていないことも確認）
+### 10.3 対照（すべて `#guard_msgs` で固定。拒否の対照はすべて共通 helper `expectRefused stage absent act` を通し、拒否のたびに `absent`〔その base の checker の定数 4 つ、`checkerNames base`〕が環境に無いことも確認する。記録修正 2）
 - **同じ型で意味が違う宣言**:
   - 入口: delay の module に恒等 `ident8` を差し替えた完全な期待型 → 拒否 `[proof]`。逆（恒等の module に `delay8`）→ 拒否 `[proof]`。
   - kernel: `theorem ident_not_delay : ¬ U1Stmt delay8.ved_contract delay8.ved_mod ident8`（閉じた入力 `x = 1` の 1 周期の run: register は 0、恒等は 1。`not_outputs_of_witness`、`decide`/`rfl`）。script の失敗だけでなく、文が偽であることを kernel で示した。
 - **変異した module と元の宣言**（`delay8` に対して、`m` を 1 箇所だけ変える）: register の init 0→5、出力が連結の入力側を読む、出力 port の幅 8→9、register の入力を定数 3 に → すべて拒否 `[proof]`。init の変異は kernel でも `theorem init5_not_delay : ¬ U1Stmt cInit5 mInit5 delay8`（全 0 の入力の時刻 0 で 5 ≠ 0。`mInit5` は `mutInit` の値と `DecidableEq` で一致することを確認）。
 - **別の宣言の証明・artifact の流用**: `delay8` の文の証明に `delay8k.ved_u1`・`delay8b.ved_u1`（同じ意味でも module 名が違うので型が合わない）・`ident8.ved_u1` → 拒否 `[proof]`。`delay8k` の module（init 5）・`ident8` の module を `delay8` に → 拒否 `[proof]`。
-  - **拒否ではない記録**: `delay8b` の module（同じ意味、別の module 名）に**新しく生成した証明**を付けると `delay8` について受理される。契約は module 名を `m` から読み、`declName` に結び付けていない。裁定 11（意味の同じ新 artifact は証明可能）に沿うが、module 名と宣言名の結合は契約に入っていないことを明記する。
-- **複数出力**: `pair8 : … → Signal defaultDomain (BitVec 8 × BitVec 8)` → `VED U1 REFUSED … [multi-output]: 2 output projections; …`（合成の前に拒否）。
-- **範囲外の body**: `inc8 := (· + 1#8) <$> Signal.register 0#8 x`（register はあるが出力ではない）→ 入口が拒否 `[proof]`、何も残らない。これは script の**網羅の限界**であって反例ではない（文は真かもしれない）。
+  - **拒否ではない記録（欠陥でもない。裁定 5 の名前の裁定）**: `delay8b` の module（同じ意味、別の module 名）に**新しく生成した証明**を付けると `delay8` について受理される（`ctlArtB`）。下位の `checkU1` が検証するのは「この `m` がこの宣言の意味を持つ」なので、同じ意味で別名の `m` が証明できてよい。本番の `vedU1Entry` が受け取った `m` を差し替えずに検査・返却することは、これとは別の問題。
+  - 3 つを分けて記録する: (a) 別の宣言の**旧い証明**の流用は拒否（`ctlProofB`・`ctlProofK`・`ctlProofI`）。(b) 同じ意味の artifact に対する**新しい正しい証明**は受理（`ctlArtB`）。(c) 入口は**同じ実行の artifact** を保持する（`synthesizeEntry` 1 回の `m` をそのまま `checkU1` に渡して返す。構成による性質で、`checkU1` の段 `artifact` が登録した `ved_mod` がその `m` を表すことを確かめる）。
+- **複数出力**: `pair8 : … → Signal defaultDomain (BitVec 8 × BitVec 8)` → `VED U1 REFUSED … [multi-output]: 2 output projections; …`（合成の前に拒否。コマンドの error を固定し、同じ拒否を helper でも通して名前が無いことを確認）。
+- **範囲外の body**: `inc8 := (· + 1#8) <$> Signal.register 0#8 x`（register はあるが出力ではない）→ 入口が拒否 `[proof]`、checker の定数は残らない（`synthesizeEntry` 自体の副作用は戻さず、確認もしていない）。これは script の**網羅の限界**であって反例ではない（文は真かもしれない）。
 - **strict 監査**: 完全な文の正しい証明に `native_decide` の事実を混ぜた項（`(fun (_ : 2 + 2 = 4) => delay8.ved_u1) (by native_decide)`）は kernel が受理するが、到達閉包に `Lean.ofReduceBool` があるので拒否 `[audit]`、定理は残らない。（契約の節そのものに `native_decide` を使う形は、`ved_mod`/`ved_contract` が kernel 用の未コンパイルの定義なので compile できない。）
 
 ### 10.4 記録の区別
@@ -534,8 +537,23 @@ DeepElab を使う smoke（§3.5 の 1・2）は manager の復旧後に行い�
 ### 10.6 まだ満たしていないもの
 - **一般の証明生成**: script は register なし／register 1 つで出力 = register の形だけ。それ以外（`inc8` のような一般の 1 register の機械、複数 register、比較・mux 等の演算を含む body、Bool の出力）は拒否する。必要 IP の body ごとの replay の生成が U1 の本体の仕事として残る。
 - **複数出力**: 拒否のまま。synthesizer の複数出力の port 名の規則の確認が要る。
-- **module 名と宣言名の結合**: 契約に無い（§10.3 の記録）。入れるなら synthesizer の名前の規則（`.` → `_`）を契約に固定する。
+- **module 名と宣言名の結合**: 今の IR の意味の契約には**加えない**（裁定 5）。名前の規則が要るのはファイル出力／階層の consumer へ進むときで、そのときに別の仕様として扱う。
 - params を持つ宣言、構造体の出力、memory、instance（`pilotB0` を含む）、reset の掛かる run、最適化（`checkedOptimize`）と SV への接続。
 - `#verify_elab_deep` のコマンド自体（DeepElab）と 327 の経路への接続はしていない。通常の entry・他のコマンドの経路は別扱い。
 - `lake build`（`kjob lake build Tools.VedU1Entry Tests.Ved.U1EntryCheck`）は cluster が要る。未実行。
 - reviewer の確認は未（このコミットは受理を求める成果の一括ではない）。
+
+### 10.7 裁定 5（762b3466 に対する静的レビュー）への対応と次の優先
+- 記録修正 1（戻す範囲と段の形）: 文言を実装どおりに限定し、加えて実装を変えた（`inliner`・`synthesis`・`checker` の段で包む、`checkU1` の戻しを runtime 例外にも広げる）。§10.1 の 6 の下の 2 項目。
+- 記録修正 2（拒否のたびの確認）: 実装を変えた。`expectRefused` と `assertClean` を 1 つの helper（`absent` の名前の一覧を引数に取る）にまとめ、Check の拒否の対照すべてで使う（`pair8` はコマンドの error の固定に加えて helper でも通す）。
+- 名前の裁定: §10.3 と Check のコメントに (a)(b)(c) を分けて記録した。
+- 再確認（このマシン、1 ファイルずつ、`MEM=16G memlimit`、scratchpad の `u1lean.sh`）: `Tools/VedU1Entry.lean`（olean を出力）rc=0 約 8 秒、続けて `Tests/Ved/U1EntryCheck.lean` rc=0 約 31 秒。`lake build` は未実行。
+- **次の優先（reviewer）**:
+  1. Issue 登録の後、exact-head で必要な target の build と U0 smoke。
+  2. その結果を見て、既存の DeepElab の proof generator をこの入口の契約へ接続する最小 1 例。
+  3. `scriptFor` の手書きの専用対応を際限なく広げる方向は避ける。
+  4. 多出力／階層／opt／SV は、明示的な範囲外のまま。
+
+台帳: FG 75 / T1 57（今回 FG -0 +0 / T1 -0 +0）
+
+必要 IP 327 の受理数には加えない。

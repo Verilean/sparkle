@@ -29,10 +29,31 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
    type, re-reads its stored type and compares it with the expected `Expr`;
 5. runs `Tools.VedStrictAudit.strictAudit` (standard 3 axioms, reachable
    closure, theorem, no mvars) on it;
-6. returns / prints `m` ONLY if 3–5 succeed.  On ANY failure the environment
-   is restored (no `ved_mod`/`ved_u1`/fallback axiom is left behind) and the
-   entry throws `VED U1 REFUSED <decl> [<stage>]: …`.  There is no fallback,
-   no trace-only path and no skipped replay.
+6. returns / prints `m` ONLY if 3–5 succeed.  There is no fallback, no
+   trace-only path and no skipped replay.
+
+What a failure leaves and how it is reported (exactly what the code does):
+
+* `checkU1` takes `saveState` when IT starts, i.e. AFTER `synthesizeEntry`.
+  On a failure inside `checkU1` (including heartbeat / max-recursion
+  exceptions, caught with `tryCatchRuntimeEx`) it restores that TermElabM
+  state: the constants it added (`ved_mod`, `ved_contract`, `ved_outs`,
+  `ved_u1`, and any declaration a failed kernel step left) and its messages go back to the
+  state at the checker's start.  It does NOT claim to roll back anything
+  synthesis did: the environment before `synthesizeEntry`, `IO.Ref`s /
+  caches, or files are not restored.
+* Reported as `VED U1 REFUSED <decl> [<stage>]: …`: every exception that
+  `vedU1Entry` catches, i.e. the stages `table`, `multi-output` (both before
+  synthesis), `inliner` (`inlinerFuelGuard`), `synthesis` (`synthesizeEntry`),
+  and inside `checkU1` the stages `table`, `multi-output` (of the statement's
+  constant), `artifact`, `type`, `proof`, `kernel`,
+  `audit`, plus `checker` for any other exception raised inside `checkU1`
+  (e.g. an `addDecl` of a registered name failing, or a runtime limit).
+  NOT in that form: interrupt exceptions (never caught by the elaborator),
+  and heartbeat / max-recursion exceptions raised by `readTable`,
+  `inlinerFuelGuard` or `synthesizeEntry` before `checkU1` starts (the plain
+  `try … catch` there does not catch runtime exceptions; they propagate as
+  their own errors).
 
 The proof script is UNTRUSTED (the kernel checks it).  This slice's script
 covers register-free modules and modules with exactly one register whose
@@ -251,15 +272,30 @@ inductive ProofSrc
   `native_decide` proof, …) -/
   | term (stx : Syntax)
 
+/-- Is `e` already a `VED U1 REFUSED …` error? -/
+def isRefusal (e : Exception) : MetaM Bool := do
+  return (← e.toMessageData.toString).startsWith "VED U1 REFUSED"
+
 /-- The checker under the entry.  `decl` names the refusal; `stmtDecl` is the
 constant put into the statement (the entry: `decl` itself); `m` is the module
 (the entry: the value `synthesizeEntry` returned).  Returns the theorem name.
-Throws `VED U1 REFUSED` on any failure, after restoring the environment. -/
+
+On a failure (any non-interrupt exception raised inside it, runtime limits
+included) it restores the TermElabM state saved when IT started, which takes
+back the constants and messages the checker added (nothing synthesis did
+before the call is rolled back), and throws `VED U1 REFUSED <decl> [<stage>]`;
+an exception not already in that form is reported at stage `checker`.
+
+`checkU1` verifies "this `m` has this declaration's meaning": the contract
+reads the module name from `m` and does not bind it to `stmtDecl`, so a
+same-meaning `m` with another module name may be proved with a NEW proof.
+That the entry inspects and returns the `m` it received, unsubstituted, is a
+property of `vedU1Entry`, not of this statement. -/
 def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Module) (proof : ProofSrc) :
     TermElabM Name := do
   let nm := Names.ofBase base
   let saved ← saveState
-  try
+  tryCatchRuntimeEx (do
     -- the table, from the TYPE of the statement's constant
     let tbl ← try readTable stmtDecl catch e => refuse decl "table" e.toMessageData
     unless tbl.out.flat.length == 1 do
@@ -314,22 +350,26 @@ def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Mo
     -- strict audit (standard 3 axioms, reachable closure)
     try discard <| Tools.VedStrictAudit.strictAudit nm.thm
     catch e => refuse decl "audit" e.toMessageData
-    return nm.thm
-  catch e =>
+    return nm.thm) fun e => do
     saved.restore (restoreInfo := true)
-    throw e
+    if ← isRefusal e then throw e
+    refuse decl "checker" e.toMessageData
 
 /-- The U1 entry: `synthesizeEntry` ONCE, the full statement over the
 returned module and the declaration itself, kernel, strict audit; `m` is
-returned only on success. -/
+returned only on success.  Failures of the steps before `checkU1` are tagged
+(`table`, `multi-output`, `inliner`, `synthesis`) but NOT rolled back (see the
+module docstring: runtime-limit exceptions there are not caught). -/
 def vedU1Entry (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name) := do
   -- refuse multi-output from the TYPE before any synthesis
   let tbl ← try readTable declName catch e => refuse declName "table" e.toMessageData
   unless tbl.out.flat.length == 1 do
     refuse declName "multi-output"
       m!"{tbl.out.flat.length} output projections; the synthesizer's multi-output port naming is unconfirmed, refused (v1: one output)"
-  Sparkle.Compiler.Elab.inlinerFuelGuard declName
-  let (m, d) ← Sparkle.Compiler.Elab.synthesizeEntry declName
+  try Sparkle.Compiler.Elab.inlinerFuelGuard declName
+  catch e => refuse declName "inliner" e.toMessageData
+  let (m, d) ← try Sparkle.Compiler.Elab.synthesizeEntry declName
+    catch e => refuse declName "synthesis" e.toMessageData
   let thm ← checkU1 declName declName declName m .generated
   return (m, d, thm)
 
