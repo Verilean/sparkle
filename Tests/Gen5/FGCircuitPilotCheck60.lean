@@ -7,6 +7,7 @@ set_option maxRecDepth 1000000
 namespace Tests.Gen5.FGCircuitPilotCheck60
 open Sparkle.IR.AST Tools.ShippingFGCircuitS3rArtifact Tools.ShippingFGCircuitS3yGen Tools.ShippingFGCircuitS3yEntry
 open Tools.ShippingFGCircuitS3vChild (kd0 k0_childFn k0_not_zero flip_not_childFn k0_range_one)
+open Tools.ShippingFGCircuitS3tSpec (designOk)
 open Tools.ShippingFGCircuitS3tCombRun (flipConst dropFirst dropLast swapMux)
 open Sparkle.IR.Semantics (Env MEnv evalAssigns)
 
@@ -73,7 +74,6 @@ example : ∀ (lvl : Lean.Expr → Nat) (declName : Lean.Name) (mctx : Lean.Meta
     exact ⟨d, w₁, w₂, h1, h2, h3, h4, h5⟩
 
 /-- the checked entry's body, unfolded: read the data, run the unchanged entry, check the pair, return it -/
-example : ∀ (lvl : Lean.Expr → Lean.Name → Nat) (declName : Lean.Name), True := fun _ _ => trivial
 example (lvl : Lean.Expr → Nat) (declName : Lean.Name) : certifiedEntryC lvl declName =
     (do let d ← readData lvl declName
         let (b, D) ← Sparkle.Compiler.Elab.synthesizeCombinationalCoreOff declName
