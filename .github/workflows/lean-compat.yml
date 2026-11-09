@@ -1,0 +1,148 @@
+name: Lean compatibility (informational)
+
+# Builds the default targets with newer Lean toolchains than the pinned one,
+# and on toolchains that have it (v4.35.0+) runs `lake check` and
+# `lake check --paranoid`:
+#
+# * `lake check` re-checks the exported default targets in the kernel and
+#   fails on any axiom outside {propext, Classical.choice, Quot.sound}.
+#   `native_decide` (`Lean.ofReduceBool`) is outside that set, and several
+#   `Sparkle/Verification/*` files use it, so a failure there is expected
+#   until that is decided.
+# * `--paranoid` also runs the bundled external checkers.
+#
+# Informational: the build, check and paranoid steps are continue-on-error,
+# so their failures are recorded (outcome, failing declarations and axioms)
+# and do not fail the job.  Infrastructure steps are not: a row whose elan
+# install or toolchain download fails, or whose log upload fails, fails the
+# job, so such errors stay visible instead of being reported as results.
+# Do not make this a required check.  Per toolchain, the outcomes and the
+# diagnostics go to the job summary and the full logs to an artifact.  The
+# pinned toolchain row is the control.
+
+on:
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - '.github/workflows/lean-compat.yml'
+  schedule:
+    - cron: '41 4 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [ pinned, 'leanprover/lean4:v4.35.0', 'leanprover/lean4:stable' ]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Elan
+      run: |
+        # retried: a transient GitHub 504 on the elan download otherwise loses the row
+        for i in 1 2 3 4 5; do
+          curl --retry 3 -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y && break
+          sleep $((i * 20))
+        done
+        test -x "$HOME/.elan/bin/elan"
+        echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Select toolchain
+      run: |
+        if [ "${{ matrix.toolchain }}" != pinned ]; then
+          echo "${{ matrix.toolchain }}" > lean-toolchain
+        fi
+        for i in 1 2 3 4 5; do elan default "$(cat lean-toolchain)" && lean --version && break; sleep $((i * 30)); done
+        # fail the row here (later steps are skipped) instead of reporting
+        # download errors as build/check results
+        set -o pipefail
+        lean --version | tee -a compat.log
+
+    - name: lake build (default targets)
+      id: build
+      continue-on-error: true
+      run: |
+        set -o pipefail
+        lake build 2>&1 | tee build.log
+
+    - name: lake check
+      id: check
+      continue-on-error: true
+      run: |
+        # Only the real call tells: on v4.32.1 `lake check --help` prints the
+        # general help and exits 0, and `lake check` fails with "unknown command".
+        set +e
+        lake check > check.log 2>&1
+        rc=$?
+        cat check.log
+        if grep -q "unknown command 'check'" check.log; then
+          echo "lake check: not available in this toolchain" | tee check.log
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        exit $rc
+
+    - name: lake check --paranoid
+      id: paranoid
+      if: steps.check.outputs.skipped != 'true'
+      continue-on-error: true
+      run: |
+        set -o pipefail
+        lake check --paranoid 2>&1 | tee paranoid.log
+
+    - name: Summary
+      if: always()
+      run: |
+        set +e
+        {
+          echo "### ${{ matrix.toolchain }}"
+          echo
+          echo '```'
+          cat compat.log 2>/dev/null || echo "(toolchain not installed: see the install steps)"
+          echo '```'
+          echo
+          echo "| step | outcome |"
+          echo "|---|---|"
+          echo "| lake build | ${{ steps.build.outcome }} |"
+          if [ "${{ steps.check.outputs.skipped }}" = true ]; then
+            echo "| lake check | not available |"
+          else
+            echo "| lake check | ${{ steps.check.outcome }} |"
+            echo "| lake check --paranoid | ${{ steps.paranoid.outcome }} |"
+          fi
+          # Diagnostics.  `lake check` (Lake/CLI/Check.lean, checkUsedAxioms)
+          # prints "Uses axioms: ..." and then one "Axiom 'A' is not permitted;
+          # it is used by 'D'" line per violation, joined by newlines, with
+          # "error: " only before the first; those lines are kept, as are the
+          # kernel verdicts.
+          diag='^error|^Uses (no )?axioms|^(error: )?Axiom .* is not permitted|kernel (rejected|accepts)|^Error while interacting'
+          for f in build check paranoid; do
+            [ -f "$f.log" ] || continue
+            n=$(grep -cE '^error' "$f.log")
+            v=$(grep -cE '^(error: )?Axiom .* is not permitted' "$f.log")
+            [ "${n:-0}" -gt 0 ] || [ "${v:-0}" -gt 0 ] || grep -qE '^Uses (no )?axioms' "$f.log" || continue
+            echo
+            echo "<details><summary>$f: $n error lines, $v axiom violations</summary>"
+            echo
+            echo '```'
+            grep -oE '^error: [^:]+\.lean' "$f.log" | sort | uniq -c
+            echo
+            grep -E "$diag" "$f.log" | head -80
+            echo '```'
+            echo "</details>"
+          done
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: lean-compat-${{ strategy.job-index }}
+        path: '*.log'
