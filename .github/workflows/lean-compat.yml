@@ -11,10 +11,14 @@ name: Lean compatibility (informational)
 #   until that is decided.
 # * `--paranoid` also runs the bundled external checkers.
 #
-# This job never gates a merge: every step after checkout is recorded, not
-# enforced.  The result (per toolchain: build, check, paranoid, and the
-# first error lines) goes to the job summary and an artifact.  The pinned
-# toolchain row is the control.
+# Informational: the build, check and paranoid steps are continue-on-error,
+# so their failures are recorded (outcome, failing declarations and axioms)
+# and do not fail the job.  Infrastructure steps are not: a row whose elan
+# install or toolchain download fails, or whose log upload fails, fails the
+# job, so such errors stay visible instead of being reported as results.
+# Do not make this a required check.  Per toolchain, the outcomes and the
+# diagnostics go to the job summary and the full logs to an artifact.  The
+# pinned toolchain row is the control.
 
 on:
   pull_request:
@@ -113,17 +117,24 @@ jobs:
             echo "| lake check | ${{ steps.check.outcome }} |"
             echo "| lake check --paranoid | ${{ steps.paranoid.outcome }} |"
           fi
+          # Diagnostics.  `lake check` (Lake/CLI/Check.lean, checkUsedAxioms)
+          # prints "Uses axioms: ..." and then one "Axiom 'A' is not permitted;
+          # it is used by 'D'" line per violation, joined by newlines, with
+          # "error: " only before the first; those lines are kept, as are the
+          # kernel verdicts.
+          diag='^error|^Uses (no )?axioms|^(error: )?Axiom .* is not permitted|kernel (rejected|accepts)|^Error while interacting'
           for f in build check paranoid; do
             [ -f "$f.log" ] || continue
             n=$(grep -cE '^error' "$f.log")
-            [ "${n:-0}" -gt 0 ] || continue
+            v=$(grep -cE '^(error: )?Axiom .* is not permitted' "$f.log")
+            [ "${n:-0}" -gt 0 ] || [ "${v:-0}" -gt 0 ] || grep -qE '^Uses (no )?axioms' "$f.log" || continue
             echo
-            echo "<details><summary>$f: $n error lines; files with errors</summary>"
+            echo "<details><summary>$f: $n error lines, $v axiom violations</summary>"
             echo
             echo '```'
             grep -oE '^error: [^:]+\.lean' "$f.log" | sort | uniq -c
             echo
-            grep -E '^error' "$f.log" | head -40
+            grep -E "$diag" "$f.log" | head -80
             echo '```'
             echo "</details>"
           done
