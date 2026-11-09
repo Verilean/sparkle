@@ -55,29 +55,21 @@ def pair8 (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8
 
 /--
 info: VED U1 OK Tests.Ved.U1EntryCheck.delay8.ved_u1: [Classical.choice, Quot.sound, propext]
-{ name := "Tests_Ved_U1EntryCheck_delay8",
+{ name := "Tests.Ved.U1EntryCheck.delay8",
   parameters := [],
   inputs := [{ name := "_gen_x", ty := Sparkle.IR.Type.HWType.bitVector 8 },
              { name := "clk", ty := Sparkle.IR.Type.HWType.bit },
              { name := "rst", ty := Sparkle.IR.Type.HWType.bit }],
   outputs := [{ name := "out", ty := Sparkle.IR.Type.HWType.bitVector 8 }],
   wires := [{ name := "_gen_x", ty := Sparkle.IR.Type.HWType.bitVector 8 },
-            { name := "_gen_reg0", ty := Sparkle.IR.Type.HWType.bitVector 8 },
-            { name := "_gen_out", ty := Sparkle.IR.Type.HWType.bitVector 16 },
-            { name := "next_gen_reg0", ty := Sparkle.IR.Type.HWType.bitVector 8 }],
-  body := [Sparkle.IR.AST.Stmt.assign
+            { name := "_gen_out", ty := Sparkle.IR.Type.HWType.bitVector 8 }],
+  body := [Sparkle.IR.AST.Stmt.register
              "_gen_out"
-             (Sparkle.IR.AST.Expr.concat [Sparkle.IR.AST.Expr.ref "_gen_reg0", Sparkle.IR.AST.Expr.ref "_gen_x"]),
-           Sparkle.IR.AST.Stmt.assign
-             "next_gen_reg0"
-             (Sparkle.IR.AST.Expr.slice (Sparkle.IR.AST.Expr.ref "_gen_out") 7 0),
-           Sparkle.IR.AST.Stmt.register
-             "_gen_reg0"
              "clk"
              ("rst", Sparkle.IR.Type.ResetKind.synchronous)
-             (Sparkle.IR.AST.Expr.ref "next_gen_reg0")
+             (Sparkle.IR.AST.Expr.ref "_gen_x")
              0,
-           Sparkle.IR.AST.Stmt.assign "out" (Sparkle.IR.AST.Expr.slice (Sparkle.IR.AST.Expr.ref "_gen_out") 15 8)],
+           Sparkle.IR.AST.Stmt.assign "out" (Sparkle.IR.AST.Expr.ref "_gen_out")],
   assertions := [],
   isPrimitive := false }
 -/
@@ -188,10 +180,12 @@ def mutInit (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
       | .register o c r i _ => .register o c r i 5
       | s => s }
 
-/-- The delay's module with the output reading the INPUT field of the concat. -/
+/-- The delay's module with the output reading the INPUT instead of the
+register (main's delay8 has no concat; the poc-era mutation, the concat's low
+field, would be a no-op here). -/
 def mutOut (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
   { m with body := m.body.map fun s => match s with
-      | .assign "out" _ => .assign "out" (.slice (.ref "_gen_out") 7 0)
+      | .assign "out" _ => .assign "out" (.ref "_gen_x")
       | s => s }
 
 /-- The delay's module with the output port widened to 9 bits. -/
@@ -227,15 +221,12 @@ run_cmd expectRefused "proof" (checkerNames `ctlConst) do
 
 /-- The init mutation as a constant (the same value `mutInit` gives). -/
 def mInit5 : Sparkle.IR.AST.Module :=
-  { name := "Tests_Ved_U1EntryCheck_delay8",
+  { name := "Tests.Ved.U1EntryCheck.delay8",
     inputs := [⟨"_gen_x", .bitVector 8⟩, ⟨"clk", .bit⟩, ⟨"rst", .bit⟩],
     outputs := [⟨"out", .bitVector 8⟩],
-    wires := [⟨"_gen_x", .bitVector 8⟩, ⟨"_gen_reg0", .bitVector 8⟩, ⟨"_gen_out", .bitVector 16⟩,
-              ⟨"next_gen_reg0", .bitVector 8⟩],
-    body := [.assign "_gen_out" (.concat [.ref "_gen_reg0", .ref "_gen_x"]),
-             .assign "next_gen_reg0" (.slice (.ref "_gen_out") 7 0),
-             .register "_gen_reg0" "clk" ("rst", .synchronous) (.ref "next_gen_reg0") 5,
-             .assign "out" (.slice (.ref "_gen_out") 15 8)] }
+    wires := [⟨"_gen_x", .bitVector 8⟩, ⟨"_gen_out", .bitVector 8⟩],
+    body := [.register "_gen_out" "clk" ("rst", .synchronous) (.ref "_gen_x") 5,
+             .assign "out" (.ref "_gen_out")] }
 
 /-- info: mInit5 = mutInit delay8's module -/
 #guard_msgs in

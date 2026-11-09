@@ -272,7 +272,7 @@ theorem src0 : srcOf cAcc5 accK9 zeros "out" 0 = 0 := by
 
 theorem acc5_not_accK9 : ¬ U1Stmt cAcc5 mAcc5 accK9 :=
   not_u1_of_not_outputs <|
-    not_outputs_of_witness _ _ _ (mutInit accK9.ved_body) (by decide) (by decide) zeros zeros_ok 1 0 (by decide) ⟨"out", .bitVector 8⟩
+    not_outputs_of_witness _ _ _ (mutInit { accK9.ved_mod with body := accK9.ved_body }).body (by decide) (by decide) zeros zeros_ok 1 0 (by decide) ⟨"out", .bitVector 8⟩
       (out_mem _ (by decide))
       _ rfl _ rfl (by show _ ≠ srcOf cAcc5 accK9 zeros "out" 0; rw [src0]; decide)
 
