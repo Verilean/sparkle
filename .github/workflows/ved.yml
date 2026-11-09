@@ -22,6 +22,8 @@ on:
       - 'Tools/ConcatNorm.lean'
       - 'Tools/SVParser/**'
       - 'Tools/VedStrictAudit.lean'
+      - 'Tools/VedU1*.lean'
+      - 'Tools/VedIRDecEq.lean'
       - 'Tests/Verification/**'
       - 'Tests/Ved/**'
       - 'lakefile.lean'
