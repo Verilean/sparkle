@@ -331,6 +331,32 @@ lean_lib «Tests.Ved.RegDedupWidthCheck» where
 lean_lib «Tests.Ved.NestedCacheCheck» where
   roots := #[`Tests.Ved.NestedCacheCheck]
 
+-- U1 strict entry: the module `synthesizeCombinational` returned, returned
+-- only with a strict (standard-axiom) step theorem (docs/VED-MAIN-INTRO.md)
+lean_lib «Tools.VedIRDecEq» where
+  roots := #[`Tools.VedIRDecEq]
+
+lean_lib «Tools.VedU1Contract» where
+  roots := #[`Tools.VedU1Contract]
+
+lean_lib «Tools.VedU1Entry» where
+  roots := #[`Tools.VedU1Entry]
+
+lean_lib «Tools.VedU1Deep» where
+  roots := #[`Tools.VedU1Deep]
+
+lean_lib «Tests.Ved.PilotB0Fixture» where
+  roots := #[`Tests.Ved.PilotB0Fixture]
+
+lean_lib «Tests.Ved.U1ContractCheck» where
+  roots := #[`Tests.Ved.U1ContractCheck]
+
+lean_lib «Tests.Ved.U1EntryCheck» where
+  roots := #[`Tests.Ved.U1EntryCheck]
+
+lean_lib «Tests.Ved.U1DeepCheck» where
+  roots := #[`Tests.Ved.U1DeepCheck]
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"

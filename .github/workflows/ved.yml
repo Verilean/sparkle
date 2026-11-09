@@ -22,6 +22,8 @@ on:
       - 'Tools/ConcatNorm.lean'
       - 'Tools/SVParser/**'
       - 'Tools/VedStrictAudit.lean'
+      - 'Tools/VedU1*.lean'
+      - 'Tools/VedIRDecEq.lean'
       - 'Tests/Verification/**'
       - 'Tests/Ved/**'
       - 'lakefile.lean'
@@ -58,6 +60,9 @@ jobs:
     - name: Synthesis-path regressions (width-aware merging, per-module caches)
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
 
+    - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
+      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck
+
     - name: Deep route, representative regression
       run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
 
@@ -82,6 +87,9 @@ jobs:
 
     - name: Synthesis-path regressions (width-aware merging, per-module caches)
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
+
+    - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
+      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck
 
     - name: Deep route, every regression file
       run: |
