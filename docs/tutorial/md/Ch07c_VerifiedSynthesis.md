@@ -14,9 +14,12 @@ This chapter covers a command that closes that gap for small designs:
 
 It compiles `delay8` the same way `#synthesizeVerilog` does.  It returns
 the IR module **only together with a kernel-checked theorem**.  The theorem
-says that the module's outputs equal the declaration's Signal outputs, for
-every input stream and every cycle.  If no such theorem can be built, the
-command refuses and returns nothing.
+says that the module's outputs equal the declaration's Signal outputs at
+every cycle.  It covers every input stream whose values fit their widths,
+with reset held at 0, and every arrangement of the body that assigns each
+wire before reading it (§7c.2, §7c.4).  It is a statement about the IR
+module, not about the printed Verilog.  If no such theorem can be built,
+the command refuses and returns nothing.
 
 > **Status.**
 >
@@ -82,11 +85,29 @@ After an accepted run, five constants exist next to your declaration:
 The theorem is stated about **your** constant, not about a copy:
 
 ```text
+open Tools.VedU1Contract in
 example : U1Stmt delay8.ved_contract delay8.ved_mod delay8 := delay8.ved_u1
 ```
 
-So a proof for `delay8` cannot be reused for another declaration.  The
-kernel checks the statement's type against `delay8` itself.
+There is no rule by name that forbids reusing a proof.  What the entry
+checks is the type: the theorem it adds must have exactly the expected
+statement `U1Stmt f.ved_contract f.ved_mod f`, and the kernel checks the
+proof against that type.  `Tests/Ved/U1EntryCheck.lean` records the two
+cases separately:
+
+- **An old proof is refused.** Passing `delay8b.ved_u1` (or
+  `delay8k.ved_u1`) as the proof for `delay8` is refused at `[proof]`.
+  That theorem talks about `delay8b`'s own module and contract, so its type
+  is not `delay8`'s statement (`ctlProofB`, `ctlProofK`).
+- **A new proof of a same-meaning artifact is accepted.** `delay8b`'s
+  module is a different artifact with the same meaning.  Checking it
+  against `delay8`'s statement with a freshly generated proof is accepted
+  (`ctlArtB`).  The IR contract has no "module name = declaration name"
+  condition.
+
+That the entry returns the module of its *own* synthesis run is a property
+of `#ved_u1` (it passes that module to the checker unchanged), not of the
+statement.
 
 ## 7c.2 What the theorem says
 
@@ -154,11 +175,22 @@ Some points to read carefully:
    accepts only `propext`, `Classical.choice` and `Quot.sound`.  It
    rejects `native_decide` (`Lean.ofReduceBool`) and any other axiom.
 
-If any step fails:
+When a step fails:
 
-- the command reports `VED U1 REFUSED f [stage]: …`;
-- the constants it added are rolled back, so no `ved_u1` is left behind;
-- it does not roll back what synthesis itself did.
+- **The report.** Failures are reported as `VED U1 REFUSED f [stage]: …`.
+  Inside the checker (steps 3–8), any other exception is reported as
+  `[checker]`.  Not every failure takes this form: an interrupt is never
+  caught, and a heartbeat or recursion-limit error raised while reading the
+  table or during synthesis propagates as its own error.
+- **The rollback.** The checker saves the elaboration state when it starts,
+  which is after synthesis.  On a failure it restores that state.  The
+  constants it added (`ved_mod`, `ved_contract`, `ved_outs`, `ved_body`,
+  `ved_u1`, and anything a failed kernel step left) and its messages
+  disappear.  Constants that existed before are not deleted; the state just
+  goes back to the checker's start.
+- **What is not restored.** Anything synthesis did before the checker
+  started: the environment before `synthesizeCombinational`, `IO.Ref`s and
+  caches, and files.
 
 The proof script is **untrusted**.  The kernel and the audit are what make
 the result trustworthy, not the script generator.
@@ -220,10 +252,14 @@ _tmp_loop_body_7 := _tmp_a_5           -- assigned here
 out := _tmp_op_a_2
 ```
 
-The printed Verilog is correct, because Verilog `assign` is order-free.
-A theorem about "the body in its printed order" would be false here,
-although the circuit is right.  So the U1 statement is about the circuit,
-not about one listing of it:
+As continuous assignments, these lines mean the same in any order:
+swapping two `assign` statements does not change a netlist.  (This is a
+remark about statement order only.  U1 says nothing about the correctness
+of the Verilog that is printed for this design.)  A theorem about the IR
+body *in its printed order*, read with the one-pass `evalAssigns`, would be
+false here although the order of the assignments carries no meaning.  So
+the U1 statement is about the body as a netlist, not about one listing of
+it:
 
 - **The well-ordered arrangements.**
   - `WO [] b` holds when `b` assigns every wire before reading it.
@@ -271,9 +307,12 @@ Both commands prove `OutputsStmt` in the same three moves:
 
    The time direction (`runModule` counts cycles down; streams count up)
    is handled once inside `outputs_of_step` (`seedFwd_time`).
-3. **Let the kernel evaluate one cycle.** For a concrete module, one step
-   is a closed computation.  The generated script unfolds `stepModule` with
-   `simp` and closes the per-cycle arithmetic.
+3. **Prove one symbolic cycle.** The module's syntax is fixed, but the
+   step is not a closed computation: the inputs `ins`, the cycle `s`, the
+   state `st` and the memories are all universally quantified.  The
+   generated script unfolds `stepModule` on the fixed body with `simp`,
+   which leaves arithmetic over those variables, and closes it with the
+   input-width bounds and `omega`.
 
 The two commands differ in where the invariant and the per-cycle facts
 come from:
@@ -304,7 +343,9 @@ come from:
 An accepted run is only interesting if wrong modules are refused.
 `Tests/Ved/U1EntryCheck.lean` feeds the checker the real declaration
 together with a **mutated** module.  Each mutation must be refused at the
-named stage, with nothing left in the environment:
+named stage, and none of the names the checker registers (`ved_mod`,
+`ved_contract`, `ved_outs`, `ved_body`, `ved_u1` for that run) may be left
+in the environment:
 
 | Mutation of `delay8`'s module | Refused at |
 |---|---|
