@@ -55,7 +55,10 @@ jobs:
         if [ "${{ matrix.toolchain }}" != pinned ]; then
           echo "${{ matrix.toolchain }}" > lean-toolchain
         fi
-        for i in 1 2 3; do elan default "$(cat lean-toolchain)" && lean --version && break; sleep 30; done
+        for i in 1 2 3 4 5; do elan default "$(cat lean-toolchain)" && lean --version && break; sleep $((i * 30)); done
+        # fail the row here (later steps are skipped) instead of reporting
+        # download errors as build/check results
+        set -o pipefail
         lean --version | tee -a compat.log
 
     - name: lake build (default targets)
