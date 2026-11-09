@@ -40,6 +40,7 @@ automatically.
 | 5 | Verilog Generation | [`md/Ch05_Verilog.md`](md/Ch05_Verilog.md) |
 | 6 | Proofs: LTL Invariants | [`md/Ch06_LTL.md`](md/Ch06_LTL.md) |
 | 7 | Proofs: Equivalence Checking | [`md/Ch07_Equivalence.md`](md/Ch07_Equivalence.md) |
+| 7c | Synthesis With a Proof Attached (`#ved_u1`) | [`md/Ch07c_VerifiedSynthesis.md`](md/Ch07c_VerifiedSynthesis.md) |
 | 8 | Netlist Generation with Yosys | [`md/Ch08_Yosys.md`](md/Ch08_Yosys.md) |
 | 8b | Three Ways to Simulate, One Interface (pure-Lean / JIT / Verilator) | [`md/Ch08b_Simulation.md`](md/Ch08b_Simulation.md) |
 | 8c | From Signal to Silicon — DFF, clocks, STA, gate count, ASIC vs FPGA mapping | [`md/Ch08c_Silicon.md`](md/Ch08c_Silicon.md) |
