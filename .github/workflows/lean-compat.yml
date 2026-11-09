@@ -1,0 +1,121 @@
+name: Lean compatibility (informational)
+
+# Builds the default targets with newer Lean toolchains than the pinned one,
+# and on toolchains that have it (v4.35.0+) runs `lake check` and
+# `lake check --paranoid`:
+#
+# * `lake check` re-checks the exported default targets in the kernel and
+#   fails on any axiom outside {propext, Classical.choice, Quot.sound}.
+#   `native_decide` (`Lean.ofReduceBool`) is outside that set, and several
+#   `Sparkle/Verification/*` files use it, so a failure there is expected
+#   until that is decided.
+# * `--paranoid` also runs the bundled external checkers.
+#
+# This job never gates a merge: every step after checkout is recorded, not
+# enforced.  The result (per toolchain: build, check, paranoid, and the
+# first error lines) goes to the job summary and an artifact.  The pinned
+# toolchain row is the control.
+
+on:
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - '.github/workflows/lean-compat.yml'
+  schedule:
+    - cron: '41 4 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [ pinned, 'leanprover/lean4:v4.35.0', 'leanprover/lean4:stable' ]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Elan
+      run: |
+        curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+        echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Select toolchain
+      run: |
+        if [ "${{ matrix.toolchain }}" != pinned ]; then
+          echo "${{ matrix.toolchain }}" > lean-toolchain
+        fi
+        elan default "$(cat lean-toolchain)"
+        lean --version | tee -a compat.log
+
+    - name: lake build (default targets)
+      id: build
+      continue-on-error: true
+      run: |
+        set -o pipefail
+        lake build 2>&1 | tee build.log
+
+    - name: lake check
+      id: check
+      continue-on-error: true
+      run: |
+        if ! lake check --help >/dev/null 2>&1; then
+          echo "lake check: not available in this toolchain" | tee check.log
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        set -o pipefail
+        lake check 2>&1 | tee check.log
+
+    - name: lake check --paranoid
+      id: paranoid
+      if: steps.check.outputs.skipped != 'true'
+      continue-on-error: true
+      run: |
+        set -o pipefail
+        lake check --paranoid 2>&1 | tee paranoid.log
+
+    - name: Summary
+      if: always()
+      run: |
+        {
+          echo "### ${{ matrix.toolchain }}"
+          echo
+          echo '```'
+          cat compat.log
+          echo '```'
+          echo
+          echo "| step | outcome |"
+          echo "|---|---|"
+          echo "| lake build | ${{ steps.build.outcome }} |"
+          if [ "${{ steps.check.outputs.skipped }}" = true ]; then
+            echo "| lake check | not available |"
+          else
+            echo "| lake check | ${{ steps.check.outcome }} |"
+            echo "| lake check --paranoid | ${{ steps.paranoid.outcome }} |"
+          fi
+          for f in build check paranoid; do
+            [ -f "$f.log" ] || continue
+            n=$(grep -cE 'error' "$f.log" || true)
+            [ "$n" -gt 0 ] || continue
+            echo
+            echo "<details><summary>$f: first error lines ($n matching)</summary>"
+            echo
+            echo '```'
+            grep -E 'error' "$f.log" | head -40
+            echo '```'
+            echo "</details>"
+          done
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: lean-compat-${{ strategy.job-index }}
+        path: '*.log'
