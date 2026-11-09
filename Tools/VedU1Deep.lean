@@ -26,10 +26,14 @@ They may exist in the environment; the final theorem's axiom closure is
 checked by the strict audit, and its constant-dependency closure by the
 Check file.
 
-The step obligation is discharged on `m.body` ITSELF: one cycle of the
-returned module is evaluated by the kernel (`simp` over `stepModule`) and
-compared with one step of `Cdo.irState` (the compiled `next`, evaluated the
-same way).  The invariant is "the register of `m` = `Cdo.irState` at the
+The step obligation is discharged on the checked arrangement `nm.body`
+(`OrderOk m nm.body`, a well-ordered permutation of `m.body`): one cycle of
+it is evaluated by the kernel (`simp` over `stepModule`) and compared with
+one step of `Cdo.irState` (the compiled `next`, evaluated the same way);
+`outputs_of_order` then carries the result to EVERY well-ordered arrangement
+of `m.body` (`runModule_perm`).  This is not a statement about running the
+returned list `m.body` in its own order with `runModule`, nor about the C
+simulator.  The invariant is "the register of `m` = `Cdo.irState` at the
 same cycle".  Name/slot correspondence, widths (`declWidth` / `weOfC`), the
 mask, the initial value (`st0` / `_deep_inits`) and the time direction
 (`outputs_of_step`, `seedFwd_time`) are all closed inside that kernel proof;

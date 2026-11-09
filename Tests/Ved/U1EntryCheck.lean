@@ -219,6 +219,26 @@ run_cmd expectRefused "proof" (checkerNames `ctlWidth) do
 run_cmd expectRefused "proof" (checkerNames `ctlConst) do
   discard <| checkU1 ``delay8 `ctlConst ``delay8 (mutConst (← modOf ``delay8)) .generated
 
+/-- PR #148 review P1: the output's driver removed (the seed would read 0). -/
+def mutNoOut (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
+  { m with body := m.body.filter fun s => match s with
+      | .assign "out" _ => false
+      | _ => true }
+
+/-- An assignment to the data input added in front. -/
+def mutInAssign (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
+  { m with body := .assign "_gen_x" (.const 0 8) :: m.body }
+
+/-- info: refused [order], clean -/
+#guard_msgs in
+run_cmd expectRefused "order" (checkerNames `ctlNoOut) do
+  discard <| checkU1 ``delay8 `ctlNoOut ``delay8 (mutNoOut (← modOf ``delay8)) .generated
+
+/-- info: refused [order], clean -/
+#guard_msgs in
+run_cmd expectRefused "order" (checkerNames `ctlInAssign) do
+  discard <| checkU1 ``delay8 `ctlInAssign ``delay8 (mutInAssign (← modOf ``delay8)) .generated
+
 /-- The init mutation as a constant (the same value `mutInit` gives). -/
 def mInit5 : Sparkle.IR.AST.Module :=
   { name := "Tests.Ved.U1EntryCheck.delay8",

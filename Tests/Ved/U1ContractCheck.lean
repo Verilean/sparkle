@@ -277,6 +277,32 @@ example : OrderOk (withBody selfRd) selfRd = false := by decide
 def undriven : List Stmt := [.assign "out" (.ref "ghost")]
 example : OrderOk (withBody undriven) undriven = false := by decide
 
+-- PR #148 review P1: an undriven OUTPUT.  With an empty body the seed makes
+-- `out` read 0 at every cycle, so a constant-0 declaration would match; the
+-- order condition must refuse it.  The driven constant is the control.
+example : OrderOk (withBody []) [] = false := by decide
+theorem empty_not_order : ¬ OrderStmt (withBody []) := by
+  rintro ⟨b, hb⟩
+  have hp : b.Perm [] := by
+    simp only [OrderOk, Bool.and_eq_true] at hb
+    exact Sparkle.IR.Reorder.isPermOf_sound hb.1.1.1.1.1.1.1.1
+  rw [hp.eq_nil] at hb
+  exact absurd hb (by decide)
+def constOut : List Stmt := [.assign "out" (.const 0 4)]
+example : OrderOk (withBody constOut) constOut = true := by decide
+
+-- an assignment to a module input
+def inAssign : List Stmt := [.assign "_gen_x" (.const 0 4), .assign "out" (.ref "_gen_x")]
+example : OrderOk (withBody inAssign) inAssign = false := by decide
+
+-- a name both assigned and a register output (WO and nextKeys alone accept it)
+def regAssign : List Stmt :=
+  [.register "_gen_r" "clk" ("rst", .synchronous) (.ref "_gen_x") 0,
+   .assign "_gen_r" (.const 0 4), .assign "out" (.ref "_gen_r")]
+example : Sparkle.IR.Reorder.woCheck [] regAssign = true := by decide
+example : decide (Sparkle.IR.Reorder.nextKeys regAssign).Nodup = true := by decide
+example : OrderOk (withBody regAssign) regAssign = false := by decide
+
 /-! ## 4. The real artifact `pilotB0` (EVALUATION OBSERVATIONS, `#guard`) -/
 
 set_option linter.unusedVariables false in

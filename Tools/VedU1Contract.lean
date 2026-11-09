@@ -396,7 +396,17 @@ no order-free meaning:
 * a read of a name that is neither a module input, a register output nor
   assigned in the body (an undriven net);
 * two register updates of one name, two memories of one name (the
-  `runModule_perm` side conditions). -/
+  `runModule_perm` side conditions);
+* an output port with no driver (PR #148 review P1: the seed would show it as
+  a constant 0), an assignment to a module input, and a name both assigned
+  and a register output.
+
+Netlist well-formedness here means exactly these conditions, for the v1 scope
+(no memories, no instances): every output is a register output or assigned,
+every read is an input, a register output or assigned, each driven name has
+ONE driver (an assignment or a register, never both, never an input), and the
+combinational part is acyclic.  It is an IR contract (the seed default never
+stands in for a missing driver), not a statement about the printed Verilog. -/
 
 open Sparkle.IR.Reorder in
 /-- Names a statement reads, register inputs included (combinational reads
@@ -413,7 +423,10 @@ def OrderOk (m : Module) (b : List Stmt) : Bool :=
   b.all (fun s => (stmtReads s).all (fun n => !(stmtWrites s).contains n)) &&
   b.all (fun s => (allReads s).all (fun n =>
     (m.inputs.map (·.name)).contains n || ((regsOf b).map (·.1)).contains n ||
-      (writesOf b).contains n))
+      (writesOf b).contains n)) &&
+  m.outputs.all (fun p => ((regsOf b).map (·.1)).contains p.name || (writesOf b).contains p.name) &&
+  (writesOf b).all (fun n => !(m.inputs.map (·.name)).contains n && !((regsOf b).map (·.1)).contains n) &&
+  ((regsOf b).map (·.1)).all (fun n => !(m.inputs.map (·.name)).contains n)
 
 /-- Some arrangement of the body assigns every wire before reading it, and the
 body is a well-formed netlist in the sense above. -/
@@ -430,7 +443,7 @@ every other well-ordered arrangement. -/
 theorem outputs_of_order {c : Contract} {m : Module} {f : c.table.Ty} (b0 : List Stmt)
     (h : OrderOk m b0 = true) (hout : OutputsOn c m b0 f) : OutputsStmt c m f := by
   simp only [OrderOk, Bool.and_eq_true, decide_eq_true_eq] at h
-  obtain ⟨⟨⟨⟨⟨hp, hwo⟩, hk⟩, hmem⟩, _⟩, _⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨hp, hwo⟩, hk⟩, hmem⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := h
   intro b hb hwob ins hok K
   obtain ⟨envs, hrun, hall⟩ := hout ins hok K
   refine ⟨envs, ?_, hall⟩

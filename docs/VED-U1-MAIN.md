@@ -31,7 +31,8 @@ Everything else is refused.
     - a combinational cycle;
     - an assignment that reads its own target;
     - a read of a name that is neither an input, a register output nor assigned;
-    - duplicate register or memory names.
+    - duplicate register or memory names;
+    - an output with no driver, an assignment to an input, a name that is both assigned and a register output (review of PR #148: the seed default must never stand in for a missing driver).
   - **The module is not reordered.** The arrangement is proof data only (`f.ved_body`). The entry refuses at `[order]` when no arrangement exists.
   - **The old statement is recovered.** `outputs_body` gives the in-order statement over `m.body` whenever that order is already well-ordered.
 - **The checks are pinned to main's IR.**
