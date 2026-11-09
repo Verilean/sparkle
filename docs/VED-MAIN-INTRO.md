@@ -39,7 +39,7 @@ This branch (`ved/main-intro`, based on main `1614cee8`) brings `#verify_elab_de
   - the fixed list of 327 required IP commands.
 
   A U0 observation on the `poc` branch counted 0 strict-counted rows out of 79. Nothing here is "327 supported" or "strict complete".
-- **Not included:** the U1 strict entry, which returns only the module it verified. That is `Tools/VedU1{Contract,Entry,Deep}.lean` on `par/ved-plan` `e2186481`. It relies on the `poc` compiler's `synthesizeEntry`, and it is a follow-up PR.
+- **Not included in PR #147:** the U1 strict entry, which returns only the module it verified. It is the follow-up PR-2 (`ved/u1-main`, see `docs/VED-U1-MAIN.md`).
 
 ## Measured (cluster node mkvs-dell, `-c 8 -m 24Gi`, no cache, one run, job `ved-main-93c2` at `93c2f811`)
 
