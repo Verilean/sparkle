@@ -69,7 +69,8 @@ jobs:
       id: check
       continue-on-error: true
       run: |
-        if ! lake check --help >/dev/null 2>&1; then
+        # `lake check --help` exits 0 even where `check` is unknown (v4.32.1), so read its text
+        if lake check --help 2>&1 | grep -qi 'unknown command'; then
           echo "lake check: not available in this toolchain" | tee check.log
           echo "skipped=true" >> "$GITHUB_OUTPUT"
           exit 0
