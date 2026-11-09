@@ -69,14 +69,18 @@ jobs:
       id: check
       continue-on-error: true
       run: |
-        # `lake check --help` exits 0 even where `check` is unknown (v4.32.1), so read its text
-        if lake check --help 2>&1 | grep -qi 'unknown command'; then
+        # Only the real call tells: on v4.32.1 `lake check --help` prints the
+        # general help and exits 0, and `lake check` fails with "unknown command".
+        set +e
+        lake check > check.log 2>&1
+        rc=$?
+        cat check.log
+        if grep -q "unknown command 'check'" check.log; then
           echo "lake check: not available in this toolchain" | tee check.log
           echo "skipped=true" >> "$GITHUB_OUTPUT"
           exit 0
         fi
-        set -o pipefail
-        lake check 2>&1 | tee check.log
+        exit $rc
 
     - name: lake check --paranoid
       id: paranoid
