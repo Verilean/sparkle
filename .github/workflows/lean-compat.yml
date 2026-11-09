@@ -42,7 +42,12 @@ jobs:
 
     - name: Install Elan
       run: |
-        curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+        # retried: a transient GitHub 504 on the elan download otherwise loses the row
+        for i in 1 2 3 4 5; do
+          curl --retry 3 -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y && break
+          sleep $((i * 20))
+        done
+        test -x "$HOME/.elan/bin/elan"
         echo "$HOME/.elan/bin" >> $GITHUB_PATH
 
     - name: Select toolchain
@@ -50,7 +55,7 @@ jobs:
         if [ "${{ matrix.toolchain }}" != pinned ]; then
           echo "${{ matrix.toolchain }}" > lean-toolchain
         fi
-        elan default "$(cat lean-toolchain)"
+        for i in 1 2 3; do elan default "$(cat lean-toolchain)" && lean --version && break; sleep 30; done
         lean --version | tee -a compat.log
 
     - name: lake build (default targets)
@@ -83,11 +88,12 @@ jobs:
     - name: Summary
       if: always()
       run: |
+        set +e
         {
           echo "### ${{ matrix.toolchain }}"
           echo
           echo '```'
-          cat compat.log
+          cat compat.log 2>/dev/null || echo "(toolchain not installed: see the install steps)"
           echo '```'
           echo
           echo "| step | outcome |"
@@ -101,13 +107,15 @@ jobs:
           fi
           for f in build check paranoid; do
             [ -f "$f.log" ] || continue
-            n=$(grep -cE 'error' "$f.log" || true)
-            [ "$n" -gt 0 ] || continue
+            n=$(grep -cE '^error' "$f.log")
+            [ "${n:-0}" -gt 0 ] || continue
             echo
-            echo "<details><summary>$f: first error lines ($n matching)</summary>"
+            echo "<details><summary>$f: $n error lines; files with errors</summary>"
             echo
             echo '```'
-            grep -E 'error' "$f.log" | head -40
+            grep -oE '^error: [^:]+\.lean' "$f.log" | sort | uniq -c
+            echo
+            grep -E '^error' "$f.log" | head -40
             echo '```'
             echo "</details>"
           done
