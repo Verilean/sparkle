@@ -116,7 +116,7 @@ def modOf (base : Name) : TermElabM Sparkle.IR.AST.Module := do
 /-- The constants the checker registers for `base` (they must be absent
 after a refusal: `checkU1` restores the state it saved at its own start). -/
 def checkerNames (base : Name) : List Name :=
-  [`ved_mod, `ved_contract, `ved_outs, `ved_u1].map (base ++ ·)
+  [`ved_mod, `ved_contract, `ved_outs, `ved_body, `ved_u1].map (base ++ ·)
 
 /-- None of `absent` is in the environment. -/
 def assertClean (absent : List Name) : TermElabM Unit := do
@@ -176,7 +176,7 @@ theorem out_mem (c : Contract) (h : c.outputs = [⟨"out", .bitVector 8⟩]) :
 does NOT hold for the identity (cycle 0: the register gives 0, `x` is 1). -/
 theorem ident_not_delay : ¬ U1Stmt delay8.ved_contract delay8.ved_mod ident8 :=
   not_u1_of_not_outputs <|
-    not_outputs_of_witness _ _ _ ones ones_ok 1 0 (by decide) ⟨"out", .bitVector 8⟩
+    not_outputs_of_witness _ _ _ delay8.ved_mod.body (by decide) (by decide) ones ones_ok 1 0 (by decide) ⟨"out", .bitVector 8⟩
       (out_mem _ (by decide))
       _ rfl _ rfl (by decide)
 
@@ -254,7 +254,7 @@ theorem zeros_ok : InputsOk cInit5 mInit5 zeros :=
 /-- KERNEL: the init-5 module does not implement `delay8` (cycle 0: 5 ≠ 0). -/
 theorem init5_not_delay : ¬ U1Stmt cInit5 mInit5 delay8 :=
   not_u1_of_not_outputs <|
-    not_outputs_of_witness _ _ _ zeros zeros_ok 1 0 (by decide) ⟨"out", .bitVector 8⟩
+    not_outputs_of_witness _ _ _ mInit5.body (by decide) (by decide) zeros zeros_ok 1 0 (by decide) ⟨"out", .bitVector 8⟩
       (out_mem _ (by decide))
       _ rfl _ rfl (by decide)
 

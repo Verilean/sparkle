@@ -113,6 +113,7 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
   let f := mkCIdent stmtDecl
+  let B := mkCIdent nm.body
   let trace := mkCIdent (deepName decl "_deep_trace")
   let next := mkCIdent (deepName decl "_deep_next")
   let inits := mkCIdent (deepName decl "_deep_inits")
@@ -137,8 +138,9 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
           Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
           $nmC:ident, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl] at hl ⊢
         all_goals omega
-      refine ⟨by decide, by decide, by decide, ?_⟩
-      apply outputs_of_step $C $M $f $O (by decide) (fun ins s st => st $rS = $irS ins s)
+      refine ⟨by decide, by decide, by decide, ⟨$B, by decide⟩, ?_⟩
+      apply outputs_of_order $B (by decide)
+      apply outputs_of_step $C $M $B $f $O (by decide) (fun ins s st => st $rS = $irS ins s)
       · intro ins hok
         simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
           $irS:ident, Cdo.irState, $inits:ident]
@@ -150,7 +152,7 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
         simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at hin hrst
         simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList,
           Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalOp,
-          widthOf, seedIn, applyNexts, $O:ident, $M:ident, declWidth,
+          widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth,
           mask, hrst, or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow]
         refine ⟨_, _, ⟨rfl, rfl⟩, ?_, ?_⟩
         · simp only [ite_true]

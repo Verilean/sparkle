@@ -96,24 +96,24 @@ theorem or_mod (a b w n : Nat) (hn : 2 ^ w = n) : a <<< w ||| b % n = a * n + b 
   subst hn
   rw [← Nat.shiftLeft_add_eq_or_of_lt (Nat.mod_lt _ (Nat.two_pow_pos w)), Nat.shiftLeft_eq]
 
-/-- `OutputsStmt` from a one-cycle step invariant `R` (stream time `s`,
+/-- `OutputsOn c m b f` from a one-cycle step invariant `R` (stream time `s`,
 register state `st`): `R` holds initially, and from any state satisfying it one
-cycle of `m.body` ITSELF succeeds, every listed output equals the
+cycle of the arrangement `b` succeeds, every listed output equals the
 declaration's value at `s`, and `R` holds at `s+1`.  `outs` is the contract's
 output list (`hO`). -/
-theorem outputs_of_step (c : Contract) (m : Module) (f : c.table.Ty) (outs : List Port)
+theorem outputs_of_step (c : Contract) (m : Module) (b : List Stmt) (f : c.table.Ty) (outs : List Port)
     (hO : c.outputs = outs)
     (R : (Nat → String → Nat) → Nat → (String → Nat) → Prop)
     (h0 : ∀ ins, InputsOk c m ins → R ins 0 (st0 c m))
     (hstep : ∀ ins, InputsOk c m ins → ∀ s st (mems : MEnv), R ins s st →
-      ∃ envF nexts mems', stepModule (declWidth m) m.body (seedIn m ins s st) mems =
+      ∃ envF nexts mems', stepModule (declWidth m) b (seedIn m ins s st) mems =
           some (envF, nexts, mems') ∧
         (∀ o ∈ outs, envF o.name = srcOf c f ins o.name s) ∧ R ins (s + 1) (applyNexts st nexts)) :
-    OutputsStmt c m f := by
+    OutputsOn c m b f := by
   subst hO
   intro ins hok K
   have key : ∀ k s (st : String → Nat) (mems : MEnv), s + k = K → R ins s st →
-      ∃ envs, runModule (declWidth m) m.body (seedFwd m K ins) k st mems = some envs ∧
+      ∃ envs, runModule (declWidth m) b (seedFwd m K ins) k st mems = some envs ∧
         ∀ i, i < k → ∀ o ∈ c.outputs, ∃ env, envs[i]? = some env ∧
           env o.name = srcOf c f ins o.name (s + i) := by
     intro k
@@ -129,7 +129,7 @@ theorem outputs_of_step (c : Contract) (m : Module) (f : c.table.Ty) (outs : Lis
       obtain ⟨rest, hrun, hrest⟩ := ih (s + 1) (applyNexts st nexts) mems' (by omega) hR'
       refine ⟨envF :: rest, ?_, ?_⟩
       · rw [runModule_first, hseed, hst]
-        show (runModule (declWidth m) m.body (seedFwd m K ins) k (applyNexts st nexts) mems').bind _ = _
+        show (runModule (declWidth m) b (seedFwd m K ins) k (applyNexts st nexts) mems').bind _ = _
         rw [hrun]; rfl
       · intro i hi o ho
         cases i with
@@ -140,18 +140,22 @@ theorem outputs_of_step (c : Contract) (m : Module) (f : c.table.Ty) (outs : Lis
   obtain ⟨envs, hrun, hall⟩ := key K 0 (st0 c m) (fun _ _ => 0) (by omega) (h0 ins hok)
   exact ⟨envs, hrun, fun t ht o ho => by simpa using hall t ht o ho⟩
 
-/-- Refutation from one concrete run: an input stream in range, a run of
-length `K` that the module actually produces, and a cycle `t < K` where an
-output port differs from the declaration.  Used by the controls (all its
+/-- Refutation from one concrete run: a well-ordered arrangement `b` of the
+body, an input stream in range, a run of length `K` that `b` actually
+produces, and a cycle `t < K` where an output port differs from the
+declaration.  Used by the controls (all its
 premises are closed computations, checked by `decide`/`rfl`). -/
 theorem not_outputs_of_witness (c : Contract) (m : Module) (f : c.table.Ty)
+    (b : List Stmt) (hb : Sparkle.IR.Reorder.isPermOf b m.body = true)
+    (hwo : Sparkle.IR.Reorder.woCheck [] b = true)
     (ins : Nat → String → Nat) (hok : InputsOk c m ins) (K t : Nat) (ht : t < K)
     (o : Port) (ho : o ∈ c.outputs) (envs : List Env)
-    (hrun : runModule (declWidth m) m.body (seedFwd m K ins) K (st0 c m) (fun _ _ => 0) = some envs)
+    (hrun : runModule (declWidth m) b (seedFwd m K ins) K (st0 c m) (fun _ _ => 0) = some envs)
     (env : Env) (he : envs[t]? = some env) (hne : env o.name ≠ srcOf c f ins o.name t) :
     ¬ OutputsStmt c m f := by
   intro h
-  obtain ⟨envs', hrun', hall⟩ := h ins hok K
+  obtain ⟨envs', hrun', hall⟩ := h b (Sparkle.IR.Reorder.isPermOf_sound hb)
+    (Sparkle.IR.Reorder.woCheck_sound _ _ hwo) ins hok K
   rw [hrun] at hrun'
   cases hrun'
   obtain ⟨env', he', hv⟩ := hall t ht o ho
@@ -160,7 +164,7 @@ theorem not_outputs_of_witness (c : Contract) (m : Module) (f : c.table.Ty)
   exact hne hv
 
 theorem not_u1_of_not_outputs {c : Contract} {m : Module} {f : c.table.Ty}
-    (h : ¬ OutputsStmt c m f) : ¬ U1Stmt c m f := fun hu => h hu.2.2.2
+    (h : ¬ OutputsStmt c m f) : ¬ U1Stmt c m f := fun hu => h hu.2.2.2.2
 
 /-! ## The entry -/
 
@@ -200,11 +204,13 @@ structure Names where
   mod : Name
   contract : Name
   outs : Name
+  /-- the checked well-ordered arrangement of the body (proof data only) -/
+  body : Name
   thm : Name
 
 def Names.ofBase (base : Name) : Names :=
   { mod := base ++ `ved_mod, contract := base ++ `ved_contract, outs := base ++ `ved_outs,
-    thm := base ++ `ved_u1 }
+    body := base ++ `ved_body, thm := base ++ `ved_u1 }
 
 /-- The generated (untrusted) proof script for `U1Stmt C M F`.  `reg?` is
 the single register of the delay shape (name, width), `none` for a
@@ -214,18 +220,20 @@ def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElab
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
   let f := mkCIdent F
+  let B := mkCIdent nm.body
   match reg? with
   | none =>
     `(by
-        refine ⟨by decide, by decide, by decide, ?_⟩
-        apply outputs_of_step $C $M $f $O (by decide) (fun _ _ _ => True)
+        refine ⟨by decide, by decide, by decide, ⟨$B, by decide⟩, ?_⟩
+        apply outputs_of_order $B (by decide)
+        apply outputs_of_step $C $M $B $f $O (by decide) (fun _ _ _ => True)
         · intro _ _; trivial
         · intro ins hok s st mems _
           have hin := hok.1 s
           simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at hin
           simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
-            widthOf, seedIn, applyNexts, $O:ident, $M:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $f:ident,
+            widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $f:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
             Nat.shiftRight_eq_div_pow]
           try omega)
@@ -233,8 +241,9 @@ def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElab
     let rS := Syntax.mkStrLit r
     let wS := Syntax.mkNumLit (toString w)
     `(by
-        refine ⟨by decide, by decide, by decide, ?_⟩
-        apply outputs_of_step $C $M $f $O (by decide)
+        refine ⟨by decide, by decide, by decide, ⟨$B, by decide⟩, ?_⟩
+        apply outputs_of_order $B (by decide)
+        apply outputs_of_step $C $M $B $f $O (by decide)
           (fun ins s st => st $rS = srcOf $C $f ins "out" s)
         · intro ins hok
           simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $f:ident,
@@ -245,7 +254,7 @@ def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElab
           simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at hin hrst
           simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
-            widthOf, seedIn, applyNexts, $O:ident, $M:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $f:ident,
+            widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $f:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, hrst, or_mod _ _ _ _ rfl,
             Nat.shiftRight_eq_div_pow] at hR ⊢
           have hlt : st $rS < 2 ^ $wS := by rw [hR]; exact BitVec.isLt _
@@ -253,6 +262,23 @@ def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElab
           try rw [← hR]
           simp
           try omega)
+
+open Sparkle.IR.Reorder in
+/-- A well-ordered arrangement of a body (untrusted proof data: `OrderOk`
+checks it in the kernel).  Stable: repeatedly take the FIRST remaining
+statement none of whose reads another remaining statement writes.  When no
+such statement is left (a combinational cycle) the rest is appended in its
+own order, and `OrderOk` then fails. -/
+def orderBody (body : List Sparkle.IR.AST.Stmt) : List Sparkle.IR.AST.Stmt := Id.run do
+  let mut rest := body
+  let mut out : Array Sparkle.IR.AST.Stmt := #[]
+  for _ in [0:body.length] do
+    let ready := fun (s : Sparkle.IR.AST.Stmt) =>
+      (stmtReads s).all (fun n => !(writesOf (rest.erase s)).contains n)
+    match rest.find? ready with
+    | some s => out := out.push s; rest := rest.erase s
+    | none => break
+  return out.toList ++ rest
 
 /-- The shape the slice's script handles (else `proof` would fail anyway;
 this only picks the script variant). -/
@@ -321,6 +347,13 @@ def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Mo
     let c := contractOf tbl ["out"] clkRst m
     addDefn nm.outs (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Port))
       (toExpr c.outputs)
+    -- the order-free meaning needs one well-ordered arrangement of the body
+    let b0 := orderBody m.body
+    unless OrderOk m b0 do
+      refuse decl "order"
+        m!"no arrangement of the body assigns every wire before it is read (combinational cycle, self-read, undriven net or duplicate update)"
+    addDefn nm.body (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Stmt))
+      (toExpr b0)
     -- the full expected statement, with the ORIGINAL constant
     let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst stmtDecl]
     try check expected catch e => refuse decl "type" e.toMessageData

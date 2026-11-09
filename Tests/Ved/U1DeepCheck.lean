@@ -82,6 +82,12 @@ run_cmd runEntry ``accK9
 #guard_msgs in
 run_cmd runEntry ``natInit5
 
+-- main's compiler emits accK9's body with a read before its assignment; the
+-- statement is order-free (every well-ordered arrangement), so it is accepted
+-- with the module returned unchanged
+example : Sparkle.IR.Reorder.woCheck [] accK9.ved_mod.body = false := by decide
+example : Sparkle.IR.Reorder.isPermOf accK9.ved_body accK9.ved_mod.body = true := by decide
+
 /-! ## 2. The complete type -/
 
 example : U1Stmt accK9.ved_contract accK9.ved_mod accK9 := accK9.ved_u1
@@ -151,7 +157,7 @@ def modOf (base : Name) : TermElabM Sparkle.IR.AST.Module := do
 
 /-- The checker's constants for `base`, the builder's auxiliaries included. -/
 def checkerNames (base : Name) : List Name :=
-  [`ved_mod, `ved_contract, `ved_outs, `ved_u1].map (base ++ ·) ++ auxNames base
+  [`ved_mod, `ved_contract, `ved_outs, `ved_body, `ved_u1].map (base ++ ·) ++ auxNames base
 
 def assertClean (absent : List Name) : TermElabM Unit := do
   let env ← getEnv
@@ -266,7 +272,7 @@ theorem src0 : srcOf cAcc5 accK9 zeros "out" 0 = 0 := by
 
 theorem acc5_not_accK9 : ¬ U1Stmt cAcc5 mAcc5 accK9 :=
   not_u1_of_not_outputs <|
-    not_outputs_of_witness _ _ _ zeros zeros_ok 1 0 (by decide) ⟨"out", .bitVector 8⟩
+    not_outputs_of_witness _ _ _ (mutInit accK9.ved_body) (by decide) (by decide) zeros zeros_ok 1 0 (by decide) ⟨"out", .bitVector 8⟩
       (out_mem _ (by decide))
       _ rfl _ rfl (by show _ ≠ srcOf cAcc5 accK9 zeros "out" 0; rw [src0]; decide)
 

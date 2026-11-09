@@ -1,5 +1,6 @@
 import Lean
 import Sparkle.IR.Semantics
+import Sparkle.IR.ReorderInvariance
 import Tools.VedIRDecEq
 import Sparkle.Core.Signal
 
@@ -62,6 +63,17 @@ bridge at that unit; the IR guarantee is not narrowed to fit it.
 * `st0`: each register at `encodeInit` of its init; memories at 0.
 * `seedFwd`: `runModule` passes the cycle index counting down; `seedFwd`
   re-indexes so trace position `t` reads stream time `t` (`seedFwd_time`).
+
+## Order-free meaning (rev 4, user decision 2026-11-09)
+
+`OutputsStmt` quantifies over every arrangement of `m.body` that assigns each
+wire before reading it (`WO [] b`), and `OrderStmt` requires one to exist and
+the body to be a well-formed netlist (no self-read, no undriven read, unique
+update names).  `main`'s compiler emits `circuit do` bodies with a read before
+the assignment; as continuous assignments (and in the printed Verilog) the
+order is irrelevant, but the one-pass `evalAssigns` is not.  The returned
+module itself is never reordered.  `outputs_body` recovers the in-order
+statement over `m.body` when that order is already well-ordered.
 
 What is NOT here (honest status): the entry is `Tools/VedU1Entry.lean` (a
 minimal slice: one output; register-free or one-register-delay bodies; see
@@ -358,17 +370,85 @@ def srcOf (c : Contract) (f : c.table.Ty) : (Nat → String → Nat) → String 
   fun ins o t =>
     ((c.outNames.zip (c.table.out.obs ((applyIns c.table.ins c.inNames ins f).val t))).lookup o).getD 0
 
-/-- Every output port (all projections), at every cycle of every run of
-`m.body` ITSELF from `st0`, equals the declaration's value. -/
-def OutputsStmt (c : Contract) (m : Module) (f : c.table.Ty) : Prop :=
+/-- Every output port (all projections), at every cycle of every run of the
+statement list `b` from `st0`, equals the declaration's value.  `m` supplies
+the widths and the input names; `b` is an arrangement of `m.body`. -/
+def OutputsOn (c : Contract) (m : Module) (b : List Stmt) (f : c.table.Ty) : Prop :=
   ∀ ins, InputsOk c m ins → ∀ K, ∃ envs,
-    runModule (declWidth m) m.body (seedFwd m K ins) K (st0 c m) (fun _ _ => 0) = some envs ∧
+    runModule (declWidth m) b (seedFwd m K ins) K (st0 c m) (fun _ _ => 0) = some envs ∧
     ∀ t, t < K → ∀ o ∈ c.outputs, ∃ env, envs[t]? = some env ∧ env o.name = srcOf c f ins o.name t
+
+/-! ## Order-free meaning (user decision 2026-11-09, option D)
+
+A module body is a list of continuous assignments, registers and memories:
+as a circuit its statement ORDER carries no meaning.  `evalAssigns` folds the
+list once, top to bottom, so a wire read before its assignment sees the seed
+value.  The statement therefore speaks about every arrangement in which each
+wire is assigned before it is read (`WO [] b`, `Sparkle.IR.Reorder`), and
+`runModule_perm` makes all of them agree.  The returned module is NOT
+reordered; only the meaning is order-free.  `OrderStmt` says such an
+arrangement exists (else the statement would be vacuous) and rules out what has
+no order-free meaning:
+
+* a combinational cycle (no well-ordered arrangement exists);
+* an assignment that reads its own target (`WO` alone allows it: the read
+  sees the seed);
+* a read of a name that is neither a module input, a register output nor
+  assigned in the body (an undriven net);
+* two register updates of one name, two memories of one name (the
+  `runModule_perm` side conditions). -/
+
+open Sparkle.IR.Reorder in
+/-- Names a statement reads, register inputs included (combinational reads
+are `stmtReads`). -/
+def allReads : Stmt → List String
+  | .register _ _ _ e _ => refsOf e
+  | s => stmtReads s
+
+open Sparkle.IR.Reorder in
+/-- The decidable side of `OrderStmt` for one arrangement `b` of `m.body`. -/
+def OrderOk (m : Module) (b : List Stmt) : Bool :=
+  isPermOf b m.body && woCheck [] b &&
+  decide (nextKeys b).Nodup && decide (b.filterMap stmtMemName).Nodup &&
+  b.all (fun s => (stmtReads s).all (fun n => !(stmtWrites s).contains n)) &&
+  b.all (fun s => (allReads s).all (fun n =>
+    (m.inputs.map (·.name)).contains n || ((regsOf b).map (·.1)).contains n ||
+      (writesOf b).contains n))
+
+/-- Some arrangement of the body assigns every wire before reading it, and the
+body is a well-formed netlist in the sense above. -/
+def OrderStmt (m : Module) : Prop := ∃ b, OrderOk m b = true
+
+/-- The order-free output statement: EVERY well-ordered arrangement of the
+module's statements produces the declaration's outputs. -/
+def OutputsStmt (c : Contract) (m : Module) (f : c.table.Ty) : Prop :=
+  ∀ b, b.Perm m.body → Sparkle.IR.Reorder.WO [] b → OutputsOn c m b f
+
+open Sparkle.IR.Reorder in
+/-- One checked arrangement is enough: `runModule_perm` carries its outputs to
+every other well-ordered arrangement. -/
+theorem outputs_of_order {c : Contract} {m : Module} {f : c.table.Ty} (b0 : List Stmt)
+    (h : OrderOk m b0 = true) (hout : OutputsOn c m b0 f) : OutputsStmt c m f := by
+  simp only [OrderOk, Bool.and_eq_true, decide_eq_true_eq] at h
+  obtain ⟨⟨⟨⟨⟨hp, hwo⟩, hk⟩, hmem⟩, _⟩, _⟩ := h
+  intro b hb hwob ins hok K
+  obtain ⟨envs, hrun, hall⟩ := hout ins hok K
+  refine ⟨envs, ?_, hall⟩
+  rw [← runModule_perm (declWidth m) ((isPermOf_sound hp).trans hb.symm)
+    (woCheck_sound _ _ hwo) hwob hmem hk]
+  exact hrun
+
+open Sparkle.IR.Reorder in
+/-- When the module's own order is already well-ordered, the statement is the
+in-order one over `m.body` itself. -/
+theorem outputs_body {c : Contract} {m : Module} {f : c.table.Ty}
+    (h : OutputsStmt c m f) (hwo : woCheck [] m.body = true) : OutputsOn c m m.body f :=
+  h m.body (List.Perm.refl _) (woCheck_sound _ _ hwo)
 
 /-- The statement the U1 entry registers.  `f` is the declaration constant;
 it typechecks only at the table's type. -/
 def U1Stmt (c : Contract) (m : Module) (f : c.table.Ty) : Prop :=
-  CorrStmt c ∧ ShapeStmt c m ∧ WidthStmt c m ∧ OutputsStmt c m f
+  CorrStmt c ∧ ShapeStmt c m ∧ WidthStmt c m ∧ OrderStmt m ∧ OutputsStmt c m f
 
 /-- The data input ports of a module: everything except clk/rst. -/
 def dataPortsOf (m : Module) (clkRst : Option (String × String)) : List Port :=

@@ -202,7 +202,7 @@ theorem toy_run (ins : Nat → String → Nat) (hrst : ∀ t, ins t "rst" = 0) (
         obtain ⟨env, he, hv⟩ := hrest i (by omega)
         exact ⟨env, by simpa using he, by rw [hv]; congr 1; omega⟩
 
-theorem toyDelay_outputs : OutputsStmt toyC toyMod toyDelay := by
+theorem toyDelay_outputsOn : OutputsOn toyC toyMod toyMod.body toyDelay := by
   intro ins hok K
   have hrst : ∀ t, ins t "rst" = 0 := fun t => hok.2 t ("clk", "rst") rfl
   have h0 : st0 toyC toyMod "_gen_r" = toyR ins 0 := by
@@ -219,8 +219,11 @@ theorem toyDelay_outputs : OutputsStmt toyC toyMod toyDelay := by
 
 /-- The fixed contract and the outputs, for `toyDelay`: no run premise, every
 data stream in range, EVERY clock stream, reset held 0, every run length. -/
+theorem toyDelay_outputs : OutputsStmt toyC toyMod toyDelay :=
+  outputs_of_order toyMod.body (by decide) toyDelay_outputsOn
+
 theorem toyDelay_u1 : U1Stmt toyC toyMod toyDelay :=
-  ⟨by decide, by decide, by decide, toyDelay_outputs⟩
+  ⟨by decide, by decide, by decide, ⟨toyMod.body, by decide⟩, toyDelay_outputs⟩
 
 /-- info: VED STRICT OK Tests.Ved.U1ContractCheck.toyDelay_u1: [Classical.choice, Quot.sound, propext] -/
 #guard_msgs in
@@ -242,6 +245,37 @@ theorem toy_inputsOk_toggling_clock :
     rw [h] at hkr
     cases hkr
     rfl
+
+/-! ## 3b. Order-free meaning: `OrderOk` controls (kernel `decide`)
+
+`toyMod` with its two statements swapped reads `_gen_r` (a register) only, so
+both orders are well-ordered; a wire read before its assignment is accepted
+once reordered; a combinational cycle (both of its two arrangements), a
+self-read and an undriven read are rejected. -/
+
+def withBody (b : List Stmt) : Module := { toyMod with body := b }
+
+-- the register/assign swap: both orders pass
+example : OrderOk toyMod toyMod.body.reverse = true := by decide
+
+-- use before definition: the module's own order fails, the reordered one passes
+def useFirst : List Stmt := [.assign "out" (.ref "w"), .assign "w" (.ref "_gen_x")]
+example : Sparkle.IR.Reorder.woCheck [] useFirst = false := by decide
+example : OrderOk (withBody useFirst) useFirst.reverse = true := by decide
+
+-- a combinational cycle: neither arrangement passes
+def cyc : List Stmt := [.assign "a" (.ref "b"), .assign "b" (.ref "a")]
+example : OrderOk (withBody cyc) cyc = false := by decide
+example : OrderOk (withBody cyc) cyc.reverse = false := by decide
+
+-- a self-read (WO alone would accept it: the read sees the seed)
+def selfRd : List Stmt := [.assign "w" (.op .add [.ref "w", .ref "_gen_x"])]
+example : Sparkle.IR.Reorder.woCheck [] selfRd = true := by decide
+example : OrderOk (withBody selfRd) selfRd = false := by decide
+
+-- an undriven read (neither input, register nor assigned)
+def undriven : List Stmt := [.assign "out" (.ref "ghost")]
+example : OrderOk (withBody undriven) undriven = false := by decide
 
 /-! ## 4. The real artifact `pilotB0` (EVALUATION OBSERVATIONS, `#guard`) -/
 
