@@ -1,6 +1,7 @@
 import Sparkle.IR.ReorderInvariance
 import Sparkle.IR.Semantics
 import Tools.VedU1Lemmas
+import Tools.VedU1Contract
 
 /-!
 # Per-statement evaluation of an assign-only body (`Tools.VedU1Script`)
@@ -221,6 +222,11 @@ theorem step_assigns (we : WEnv) (mems : MEnv) (B : List Stmt) (env0 : Env)
   obtain ⟨E, hE, hf, hx⟩ := evalAssigns_fix we mems B [] env0 (woCheck_sound _ _ hwo) hok
   refine ⟨E, ?_, hf, hx⟩
   simp [stepModule, hE, regNexts_assigns we mems E B hall, memNexts_assigns we mems E B hall]
+
+theorem woCheck_of_orderOk (m : Module) (b : List Stmt) (h : Tools.VedU1Contract.OrderOk m b = true) :
+    woCheck [] b = true := by
+  simp only [Tools.VedU1Contract.OrderOk, Bool.and_eq_true, decide_eq_true_eq] at h
+  exact h.1.1.1.1.1.1.1.2
 
 /-- One equation per assignment, as a conjunction over the body (so a proof reads
 statement `i` as the `i`-th conjunct, no list-membership search). -/

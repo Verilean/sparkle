@@ -322,7 +322,7 @@ def perStmtText (nm : Names) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   L := L.push "    have hin := hok.1 s"
   for nme in widthNames do
     L := L.push s!"    have {hwN nme} : Tools.VedU1Contract.declWidth {M} {q nme} = {Tools.VedU1Contract.declWidth m nme} := by decide +kernel"
-  L := L.push s!"    obtain ⟨E, hst, hfr, hall⟩ := Tools.VedU1Script.step_assigns' (Tools.VedU1Contract.declWidth {M}) mems {B} (Tools.VedU1Contract.seedIn {M} ins s st) (by decide +kernel) (by decide +kernel) (by decide +kernel)"
+  L := L.push s!"    obtain ⟨E, hst, hfr, hall⟩ := Tools.VedU1Script.step_assigns' (Tools.VedU1Contract.declWidth {M}) mems {B} (Tools.VedU1Contract.seedIn {M} ins s st) (Tools.VedU1Script.woCheck_of_orderOk _ _ hord) (by decide +kernel) (by decide +kernel)"
   L := L.push "    refine ⟨E, [], mems, hst, ?_, trivial⟩"
   for (p, i) in ports.zipIdx do
     let w := Tools.VedU1Contract.declWidth m p.name
@@ -702,15 +702,19 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
     -- elaborate the proof (errors are not turned into sorry)
     let inNames := (dataPortsOf m clkRst).map fun p => p.name
-    let stx ← match proof with
+    let stx : Syntax ← match proof with
       | .generated =>
-        if perStmtApplicable m && stmt.getAppFn.isConst then
-          perStmtScript nm stmt.getAppFn.constName! stmt.getAppNumArgs m b0 clkRst
-        else
-          let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
+        let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
+        let old : Syntax ←
           if stmt.getAppFn.isConst then
             scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
           else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
+        if perStmtApplicable m && stmt.getAppFn.isConst then
+          -- the per-statement script first; the flat script (it also covers `==` over the
+          -- input domain and constant tables) is the fallback
+          let new ← perStmtScript nm stmt.getAppFn.constName! stmt.getAppNumArgs m b0 clkRst
+          pure (← `(by first | exact $(⟨new⟩) | exact $(⟨old⟩))).raw
+        else pure old
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
@@ -720,7 +724,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     -- are at least the caller's times 8 for every module)
     let pf ← tryCatchRuntimeEx
         (withProofBudget do
-        withoutErrToSorry do
+        withoutErrToSorry <| withEnableInfoTree false do
           let e ← elabTermEnsuringType stx expected
           synthesizeSyntheticMVarsNoPostponing
           instantiateMVars e)
