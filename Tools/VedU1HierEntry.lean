@@ -148,7 +148,6 @@ def portTy (p : PTy) : String :=
 def sigTy (p : PTy) : String :=
   s!"(Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain {portTy p})"
 
-/-- The declaration term as the statement writes it (`@decl defaultDomain …` when specialised). -/
 /-- A name as it can be written in the generated proof TEXT: a private name
 (`_private.<module>.0.N`) is printed as its user-facing `N`, which resolves
 back to the same private constant inside the module that declares it (the
@@ -163,6 +162,7 @@ def namesUser (nm : Names) : Names :=
   { mod := userName nm.mod, contract := userName nm.contract, outs := userName nm.outs,
     body := userName nm.body, thm := userName nm.thm }
 
+/-- The declaration term as the statement writes it (`@decl defaultDomain …` when specialised). -/
 def declTerm (decl : Name) (nDom : Nat) : String :=
   let decl := userName decl
   if nDom == 0 then s!"{decl}"
