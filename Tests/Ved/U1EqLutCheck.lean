@@ -161,7 +161,7 @@ def eqToNe (n : Nat) (m : Sparkle.IR.AST.Module) : Except String Sparkle.IR.AST.
 
 open Sparkle.IR.AST in
 /-- compact rendering of the statements the mutators touch -/
-def showExpr : Expr → String
+def showExpr : Sparkle.IR.AST.Expr → String
   | .const v w => s!"const {v}:{w}"
   | .ref n => n
   | .op .eq args => s!"eq({", ".intercalate (args.map showExpr)})"
