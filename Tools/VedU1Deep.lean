@@ -81,6 +81,13 @@ def addTermDef (n : Name) (stx : Term) : TermElabM Unit := do
   if e.hasMVar || e.hasFVar then throwError "auxiliary {n} is not closed"
   addDefnRegular n (← inferType e) e
 
+/-- `Fin.val` of a numeral: core has `Fin.val_zero/one/two` only, so the context
+lookups `[w₀, …][↑3]` of a four-register circuit would stay stuck. -/
+simproc reduceFinVal (Fin.val _) := fun e => do
+  let_expr Fin.val _ x := e | return .continue
+  let some ⟨_, v⟩ ← getFinValue? x | return .continue
+  return .done { expr := toExpr v.val }
+
 /-- The register widths `Γr` of a `Cdo Γr Γi w` type (a list literal). -/
 partial def readWidths (e : Lean.Expr) : MetaM (List Nat) := do
   let e ← whnfR (← instantiateMVars e)
@@ -172,6 +179,7 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
     let h : Ident := hltIds[i]!
     `(tactic| have $(hlIds[i]!):ident := $h ins s)
   let locs : Array (TSyntax `ident) := hRIds ++ hlIds
+  let hRs : Array (TSyntax `Lean.Parser.Tactic.simpLemma) ← hRIds.mapM fun h => `(Lean.Parser.Tactic.simpLemma| $h:ident)
   let hRTacs ← (List.range k).toArray.mapM fun i => do
     `(tactic| have $(hRIds[i]!):ident := $(← conjProj hRId i k))
   let holes : Array Term ← (List.range k).toArray.mapM fun _ => `(?_)
@@ -180,6 +188,10 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
     for sfx in [s!"_inp_at_{j}", s!"_inp_at_mk_{j}"] do
       if (← getEnv).contains (deepName decl sfx) then
         inpAts := inpAts.push (mkCIdent (deepName decl sfx))
+  let mut inpL : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
+  for i in inpAts do inpL := inpL.push (← `(Lean.Parser.Tactic.simpLemma| $i:ident))
+  inpL := inpL.push (← `(Lean.Parser.Tactic.simpLemma| PTy.sig))
+  let splitK : Lean.TSyntax `tactic ← if k == 1 then `(tactic| skip) else `(tactic| refine ⟨$[$holes],*⟩)
   let pre ← `(tactic| have hinj : ∀ i j, $nmC i = $nmC j → i = j := by decide)
   let mainTac ← `(tactic| (
       refine ⟨by decide, by decide, by decide, ⟨$B, by decide⟩, ?_⟩
@@ -206,10 +218,11 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
           simp only [CExpr.compile, $out:ident]
           simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
-            $nmC:ident, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
-            $[$inpAts:ident],*, PTy.sig] at $locs* ⊢
-          omega
-        · refine ⟨$[$holes],*⟩
+            $nmC:ident, reduceFinVal, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
+            $[$inpL],*] at $locs* ⊢
+          try simp only [$[$hRs],*]
+          first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega)
+        · $splitK:tactic
           all_goals simp only [List.find?, $nmC:ident]
           all_goals simp
           all_goals unfold $irS:ident at *
@@ -217,9 +230,10 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
           all_goals unfold $inpU:ident at *
           all_goals simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
-            $nmC:ident, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
-            $[$inpAts:ident],*, PTy.sig, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq] at $locs* ⊢
-          all_goals (split <;> simp_all <;> omega)))
+            $nmC:ident, reduceFinVal, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
+            $[$inpL],*, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq] at $locs* ⊢
+          all_goals (try simp only [$[$hRs],*])
+          all_goals (first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega))))
   let tacs := #[pre] ++ hltTacs ++ #[mainTac]
   `(by $[$tacs]*)
 
