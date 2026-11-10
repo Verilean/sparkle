@@ -199,7 +199,10 @@ run_cmd do
         di.value.getAppArgs.back? == some (mkConst md)
       logInfo m!"VED U1P CONTRACT {if ok then "bound-to-mod" else "other"}"
     | some _ => logInfo m!"VED U1P CONTRACT not-a-def"
-    let tbl ← liftTermElabM (Tools.VedU1Contract.readTable n)
+    -- the outputs of the STATEMENT term's type (`@decl defaultDomain` when
+    -- specialised; readTable on the bare constant refuses its implicit binder)
+    let tbl ← liftTermElabM do
+      Tools.VedU1Contract.readTableOfType n (← Lean.Meta.inferType stmt)
     logInfo m!"VED U1P OUTS {tbl.out.flat.length}"
   catch e => logInfo m!"VED U1P PROBE failed: {← e.toMessageData.toString}"'''
 
