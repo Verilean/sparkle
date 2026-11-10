@@ -528,4 +528,84 @@ theorem runHS_leaf (d : Design) (arr : Module → List Stmt) (m : Module)
       rw [hroot] at this
       simp [this]
 
+/-! ## Initial state lemmas -/
+
+/-- The root of `st0H` is the top's own initial state, which is the contract's `st0` under
+`ShapeCore`'s `inits` clause. -/
+theorem st0H_own (c : Contract) (d : Design) (m : Module)
+    (hinits : (regsOf m.body).map (fun r => (r.1, r.2.2.2)) = c.inits) :
+    st0H d m [] = st0 c m := by
+  funext n
+  simp only [st0H, st0Of, initsOf, st0, hinits]
+  first | done | rfl
+
+/-- The same for any module and its own contract (a child). -/
+theorem st0Of_eq_st0 (c : Contract) (m : Module)
+    (hinits : (regsOf m.body).map (fun r => (r.1, r.2.2.2)) = c.inits) :
+    st0Of m = st0 c m := by
+  funext n
+  simp only [st0Of, initsOf, st0, hinits]
+  first | done | rfl
+
+theorem mem_instDecls_iff (b : List Stmt) (x : String × String × List (String × Expr)) :
+    x ∈ instDecls b ↔ Stmt.inst x.1 x.2.1 x.2.2 ∈ b := by
+  induction b with
+  | nil => simp [instDecls]
+  | cons s rest ih =>
+    obtain ⟨mn, i, cs⟩ := x
+    cases s with
+    | inst a b' c =>
+      simp only [instDecls, List.mem_cons, Stmt.inst.injEq]
+      constructor
+      · rintro (h | h)
+        · rw [Prod.mk.injEq, Prod.mk.injEq] at h; exact Or.inl ⟨h.1, h.2.1, h.2.2⟩
+        · exact Or.inr (ih.mp h)
+      · rintro (h | h)
+        · left; rw [Prod.mk.injEq, Prod.mk.injEq]; exact ⟨h.1, h.2.1, h.2.2⟩
+        · exact Or.inr (ih.mpr h)
+    | assign l r => simpa [instDecls] using ih
+    | register o c r e i => simpa [instDecls] using ih
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simpa [instDecls] using ih
+
+theorem instNames_eq (b : List Stmt) : instNames b = (instDecls b).map (·.2.1) := by
+  induction b with
+  | nil => rfl
+  | cons s rest ih =>
+    cases s <;> simp [instNames, instDecls, ih]
+
+theorem find_inst_decls : ∀ (l : List (String × String × List (String × Expr))),
+    (l.map (·.2.1)).Nodup → ∀ x ∈ l, l.find? (fun y => y.2.1 == x.2.1) = some x := by
+  intro l
+  induction l with
+  | nil => intro _ x hx; cases hx
+  | cons y ys ih =>
+    intro hnd x hx
+    rw [List.map_cons, List.nodup_cons] at hnd
+    rcases List.mem_cons.mp hx with rfl | hm
+    · simp [List.find?_cons]
+    · have hne : y.2.1 ≠ x.2.1 := fun e => hnd.1 (List.mem_map.mpr ⟨x, hm, e.symm⟩)
+      simp [List.find?_cons, hne, ih hnd.2 x hm]
+
+/-- The initial state at `[i]` of an instance is its resolved child's own initial state. -/
+theorem st0H_slice (d : Design) (m : Module) (mn i : String) (cs : List (String × Expr))
+    (c : Module) (hnd : (instNames m.body).Nodup) (hin : Stmt.inst mn i cs ∈ m.body)
+    (hf : findMod d mn = some c) :
+    st0H d m [i] = st0Of c := by
+  have hmem : (mn, i, cs) ∈ instDecls m.body := (mem_instDecls_iff _ _).mpr hin
+  have hfind : (instDecls m.body).find? (fun x => x.2.1 == i) = some (mn, i, cs) := by
+    rw [instNames_eq] at hnd
+    exact find_inst_decls _ hnd (mn, i, cs) hmem
+  simp only [st0H, hfind, hf]
+
+/-- Off the registers the initial state is 0. -/
+theorem st0Of_off (m : Module) (n : String) (h : n ∉ regOuts m.body) : st0Of m n = 0 := by
+  have : (initsOf m).lookup n = none := by
+    rw [List.lookup_eq_none_iff]
+    intro p hp
+    obtain ⟨r, hr, rfl⟩ := List.mem_map.mp hp
+    have : r.1 ∈ regOuts m.body := List.mem_map.mpr ⟨r, hr, rfl⟩
+    have hne : r.1 ≠ n := fun e => h (e ▸ this)
+    simpa [beq_iff_eq] using Ne.symm hne
+  simp [st0Of, this]
+
 end Tools.VedU2Hier
