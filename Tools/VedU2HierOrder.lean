@@ -60,7 +60,8 @@ theorem orderOkHS_sound {d : Design} {m : Module} {b : List Stmt} (h : OrderOkHS
   · intro n hn hin
     have := List.all_eq_true.mp hro n hn
     have h2 : (inNames m).contains n = true := List.contains_iff_mem.mpr hin
-    simp [h2] at this
+    simp at this
+    exact this hin
   · intro n hn hr
     have := List.all_eq_true.mp hwr n hn
     simp only [Bool.and_eq_true, Bool.not_eq_true'] at this

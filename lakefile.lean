@@ -1364,6 +1364,12 @@ lean_lib «Tools.VedU2HierSem» where
 lean_lib «Tools.VedU2HierProj» where
   roots := #[`Tools.VedU2HierProj]
 
+lean_lib «Tools.VedU2HierOrder» where
+  roots := #[`Tools.VedU2HierOrder]
+
+lean_lib «Tools.VedU2HierStmt» where
+  roots := #[`Tools.VedU2HierStmt]
+
 lean_lib «Tests.Ved.U2HierSemCheck» where
   roots := #[`Tests.Ved.U2HierSemCheck]
 
