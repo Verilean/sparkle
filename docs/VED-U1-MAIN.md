@@ -12,7 +12,7 @@ This branch, `ved/u1-main`, is stacked on PR #147 (`ved/main-intro` `4845255b`).
 
 Otherwise the command refuses with `VED U1 REFUSED f [stage]`.
 
-- `#ved_u1` uses a generated script. It covers register-free bodies built from not/and/or/xor/add/sub/mux/slice and two-field concatenation (lemmas in `Tools/VedU1Lemmas.lean`), and one-register delays. It is not complete for every circuit those operators can build; shifts and concatenation of more than two fields are not covered yet.
+- `#ved_u1` uses a generated script. It covers register-free bodies built from not/and/or/xor/add/sub/mux/slice, two-field concatenation, `==` (`Operator.eq`, 1-bit result), constants (`.const`, `Signal.pure`) and the constant mux chains `kLut!` expands to (lemmas in `Tools/VedU1Lemmas.lean`), and one-register delays. A body that uses `==` is closed over the finite input domain: every data input is generalised and the remaining goal `∀ x, x < 2^w → …` is decided by the kernel (`decide +kernel`; no `native_decide`, standard axioms only). The cost grows with the product of the input ranges and may hit resource limits; this suits table-shaped leaves (a 4-bit or 8-bit index). There is no width guard that refuses wide inputs, and no fixed stage at which they stop; `sboxHW` still stops at `maxRecDepth` in the checker and stays open. It is not complete for every circuit those operators can build; shifts and concatenation of more than two fields are not covered yet.
 - `#ved_u1_deep` uses the standard-axiom facts that `#verify_elab_deep` generated (`_deep_trace`, `_deep_next`, `_deep_inits`, `_deep_out`). It covers one register whose current value is the output.
 
 Everything else is refused.
@@ -64,6 +64,11 @@ These are built by `ved-pr`; job `ved-u1-ord-4bf8c9dd`, exit 0.
   - Accepted: 2 components, a `Bool` leaf, nested right and left (3 leaves), auto-bound domain; the contract's slice map is compared with a hand-written one.
   - Refused (stage `packed` or `proof`, nothing left behind): slices swapped, exchanged, wrong offset, wrong width, overlap, gap, missing or extra slice, another port name, a changed field value, fields swapped inside the module, another declaration's module.
   - Fixed inventory rows: R296 `test_tuple` and R309 `test_decoder_fields` are strict in their own file context.
+- **`Tests/Ved/U1EqLutCheck.lean`:**
+  - 7 positives (`==` of two signals, `==` against a constant, a constant output, local 4-entry `kLut!` tables), each with the exact type and the standard axioms;
+  - 13 refusals at `[proof]` with no `ved_*` left: 9 mutants and 4 modules of other declarations. Each mutant differs from the original in exactly one statement (two for the swap); the positions and the old and new statements are checked before the control runs, and a mutator whose target is absent fails.
+- **`Tests/Ved/U1RconCheck.lean`:**
+  - the real `Sparkle.IP.Crypto.AESHW.rconHW` (16-entry `kLut!`): exact type, standard axioms, `ved_mod` equal to a fresh synthesis. Its own lean_lib, not in the VED CI workflow (it imports the AES IP).
 - **`Tests/Ved/U1DeepCheck.lean`:**
   - `accK9` and `natInit5` accepted on main, with a body that is not well-ordered in its own order;
   - the dependency closure contains no native replay;
