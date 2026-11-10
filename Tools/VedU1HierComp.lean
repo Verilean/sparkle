@@ -512,4 +512,96 @@ theorem child_rel (cc : Contract) (cm : Module) (g : cc.table.Ty) (b : List Stmt
   rw [hv]
   simp only [srcOf, hins]
   rw [applyIns_streamOf cc.table.ins cc.inNames args g hl2 hndin]
+/-- The child's (single) output port name. -/
+def outNameOf (c : Module) : String := (c.outputs.headD ⟨"", .bit⟩).name
+
+/-- The child's output value on the given input values, in the arrangement `b` of its body
+(`0` when the fold fails; the composition lemma proves it does not). -/
+def leafOut (c : Module) (b : List Stmt) (vals : List Nat) : Nat :=
+  ((evalAssigns (declWidth c) (fun _ _ => 0) b
+      (seedOfVals (c.inputs.map (·.name)) vals)).map fun e => e (outNameOf c)).getD 0
+
+theorem mapM_inputs (we : WEnv) (env : Env) (conns : List (String × Expr)) :
+    ∀ (ps : List Port) (xs : List String),
+      ps.map (fun p => conns.lookup p.name) = xs.map (fun x => some (Expr.ref x)) →
+      (ps.mapM fun (p : Port) => do
+          let e ← conns.lookup p.name
+          let v ← evalExpr we env e
+          pure (p.name, v)) = some ((ps.map (·.name)).zip (xs.map env)) := by
+  intro ps
+  induction ps with
+  | nil => intro xs h; cases xs <;> simp_all
+  | cons p ps ih =>
+    intro xs h
+    cases xs with
+    | nil => simp at h
+    | cons x xs =>
+      simp only [List.map_cons, List.cons.injEq] at h
+      rw [List.mapM_cons, ih xs h.2]
+      simp [h.1, evalExpr]
+
+theorem childSeed_eq (we : WEnv) (env : Env) (c : Module) (conns : List (String × Expr))
+    (xs : List String)
+    (h : (c.inputs.map (·.name)).map (fun n => conns.lookup n) = xs.map (fun x => some (Expr.ref x))) :
+    childSeed c conns we env = some (seedOfVals (c.inputs.map (·.name)) (xs.map env)) := by
+  unfold childSeed
+  have h' : c.inputs.map (fun (p : Port) => conns.lookup p.name) = xs.map (fun x => some (Expr.ref x)) := by
+    rw [← h]; simp [List.map_map, Function.comp_def]
+  rw [mapM_inputs we env conns c.inputs xs h']
+  rfl
+
+theorem outWrites_eq (c : Module) (conns : List (String × Expr)) (envC : Env) (y : String)
+    (h : conns.filter (fun p => c.outputs.any (·.name == p.1)) = [(outNameOf c, Expr.ref y)]) :
+    outWrites c conns envC = some [(y, envC (outNameOf c))] := by
+  unfold outWrites
+  rw [h]
+  simp [List.mapM_cons]
+
+/-- The seed-independent success of a child's fold, as the premise of the instance step. -/
+def LeafSucc (c : Module) (b : List Stmt) : Prop :=
+  ∃ seed E, evalAssigns (declWidth c) (fun _ _ => 0) b seed = some E
+
+/-- THE INSTANCE STEP: one `inst` of a combinational leaf child writes its output wire with
+`leafOut`; nothing else is read except the input wires. -/
+theorem instEval_leaf (d : Design) (arr : String → List Stmt) (we : WEnv) (mn iname : String)
+    (conns : List (String × Expr)) (cm : Module) (xs : List String) (y : String) (env : Env)
+    (hres : findMod d mn = some cm) (hprim : cm.isPrimitive = false)
+    (hall : conns.all (fun p => (cm.inputs ++ cm.outputs).any (·.name == p.1)) = true)
+    (hin : (cm.inputs.map (·.name)).map (fun n => conns.lookup n) = xs.map (fun x => some (Expr.ref x)))
+    (hout : conns.filter (fun p => cm.outputs.any (·.name == p.1)) = [(outNameOf cm, Expr.ref y)])
+    (hass : assignOnly cm.body = true) (hperm : (arr cm.name).Perm cm.body)
+    (hfuel : 0 < fuelOf d) (hsucc : LeafSucc cm (arr cm.name)) :
+    instEval d (runAt d arr (fuelOf d)) we mn iname conns env
+      = some [(y, leafOut cm (arr cm.name) (xs.map env))] := by
+  have hasgA : assignOnly (arr cm.name) = true := assignOnly_perm hperm.symm hass
+  have hleaf := assignOnly_leaf _ hasgA
+  obtain ⟨seed0, E0, hE0⟩ := hsucc
+  have hE0' : evalAssignsI (declWidth cm)
+      (instEval d (runAt d arr (fuelOf d - 1)) (declWidth cm)) (arr cm.name) seed0 = some E0 := by
+    rw [evalAssignsI_leaf _ _ (fun _ _ => 0) _ _ hleaf]; exact hE0
+  obtain ⟨k, hk⟩ : ∃ k, fuelOf d = k + 1 := ⟨fuelOf d - 1, by omega⟩
+  have hseed := childSeed_eq we env cm conns xs hin
+  have hrun : ∀ seed, ∃ envC, runAt d arr (fuelOf d) cm seed = some envC ∧
+      evalAssigns (declWidth cm) (fun _ _ => 0) (arr cm.name) seed = some envC := by
+    intro seed
+    obtain ⟨E', hE'⟩ := evalAssignsI_succ (declWidth cm)
+      (instEval d (runAt d arr (fuelOf d - 1)) (declWidth cm)) _ seed0 E0 hleaf hE0' seed
+    refine ⟨E', ?_, ?_⟩
+    · rw [hk]
+      simp only [runAt, assignOnly_comb _ hass, if_true]
+      rw [hk] at hE'; simpa using hE'
+    · rw [← evalAssignsI_leaf (declWidth cm) (instEval d (runAt d arr (fuelOf d - 1)) (declWidth cm))
+        (fun _ _ => 0) _ _ hleaf]
+      exact hE'
+  obtain ⟨envC, hr1, hr2⟩ := hrun (seedOfVals (cm.inputs.map (·.name)) (xs.map env))
+  unfold instEval
+  simp only [hres, hprim, hall, hseed]
+  simp only [Bool.false_eq_true, if_false, if_true]
+  change ((runAt d arr (fuelOf d) cm (seedOfVals (cm.inputs.map (·.name)) (xs.map env))).bind
+    fun envC => outWrites cm conns envC) = _
+  rw [hr1]
+  change outWrites cm conns envC = _
+  rw [outWrites_eq cm conns envC y hout]
+  simp [leafOut, hr2]
+
 end Tools.VedU1Hier
