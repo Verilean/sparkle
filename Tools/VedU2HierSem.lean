@@ -608,4 +608,226 @@ theorem st0Of_off (m : Module) (n : String) (h : n ∉ regOuts m.body) : st0Of m
     simpa [beq_iff_eq] using Ne.symm hne
   simp [st0Of, this]
 
+/-! ## `runHS_stateless`: under H1's conditions `runHS` is `runH` -/
+
+theorem findMod_mem {d : Design} {mn : String} {c : Module} (h : findMod d mn = some c) :
+    c ∈ d.modules := by
+  unfold findMod at h
+  exact List.mem_of_find?_eq_some h
+
+theorem evalAssignsI_congr_mem (we : WEnv) (ie1 ie2 : InstEval) :
+    ∀ (b : List Stmt) (env : Env),
+      (∀ mn i cs, Stmt.inst mn i cs ∈ b → ∀ e, ie1 mn i cs e = ie2 mn i cs e) →
+      evalAssignsI we ie1 b env = evalAssignsI we ie2 b env := by
+  intro b
+  induction b with
+  | nil => intro env _; rfl
+  | cons s rest ih =>
+    intro env h
+    have hc : cellVals we ie1 s env = cellVals we ie2 s env := by
+      cases s with
+      | inst mn i cs => exact h mn i cs (List.mem_cons_self ..) env
+      | assign l r => rfl
+      | register _ _ _ _ _ => rfl
+      | memory _ _ _ _ _ _ _ _ _ _ _ _ => rfl
+    simp only [evalAssignsI, hc]
+    cases hl : cellVals we ie2 s env with
+    | none => rfl
+    | some l =>
+      exact ih _ (fun mn i cs hm e => h mn i cs (List.mem_cons_of_mem _ hm) e)
+
+theorem mapM_eq_map {α β : Type} (f : α → Option β) (g : α → β) :
+    ∀ l : List α, (∀ x ∈ l, f x = some (g x)) → l.mapM f = some (l.map g) := by
+  intro l
+  induction l with
+  | nil => intro _; rfl
+  | cons a rest ih =>
+    intro h
+    rw [List.mapM_cons, h a (List.mem_cons_self ..), ih (fun x hx => h x (List.mem_cons_of_mem _ hx))]
+    rfl
+
+theorem applyH_empty (st : HSt) (ups : Ups) (h : ∀ u ∈ ups, u.2 = []) : applyH st ups = st := by
+  funext p n
+  unfold applyH
+  cases hf : ups.find? (fun u => u.1 == p) with
+  | none => rfl
+  | some u =>
+    have := h u (List.mem_of_find?_eq_some hf)
+    simp [this, applyNexts]
+
+theorem childNexts_some (d : Design) (arr : Module → List Stmt) (we : WEnv) (st : HSt) (envF : Env)
+    (mn i : String) (cs : List (String × Expr)) (c : Module) (envC : Env)
+    (nx : List (String × Nat)) (hf : findMod d mn = some c) (hok : instOkS c cs = true)
+    (hr : childRunS arr we c cs envF (st [i]) = some envC)
+    (hn : regNexts (declWidth c) (fun _ _ => 0) (arr c) envC = some nx) :
+    childNexts d arr we st envF (mn, i, cs) = some ([i], nx) := by
+  simp [childNexts, hf, hok, hr, hn]
+
+/-- The facts H1's `HierShape` gives about an instance. -/
+theorem hier_inst_child {d : Design} {m : Module} (h : HierShape d m = true) {mn i : String}
+    {cs : List (String × Expr)} (hin : Stmt.inst mn i cs ∈ m.body) :
+    ∃ c, findMod d mn = some c ∧ c.isPrimitive = false ∧ assignOnly c.body = true ∧
+      cs.all (fun p => (c.inputs ++ c.outputs).any (·.name == p.1)) = true := by
+  have h5 : m.body.all (fun s => match s with
+      | .inst mn _ cs => connsOk d m mn cs
+      | _ => true) = true := by
+    simp only [HierShape, Bool.and_eq_true] at h
+    exact h.1.1.2
+  have h6 := List.all_eq_true.mp h5 _ hin
+  simp only [connsOk] at h6
+  cases hf : findMod d mn with
+  | none => simp [hf] at h6
+  | some c =>
+    simp only [hf, Bool.and_eq_true, Bool.not_eq_true'] at h6
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨hp, _⟩, _⟩, ha⟩, _⟩, _⟩, _⟩, hall2⟩, _⟩ := h6
+    exact ⟨c, rfl, hp, ha, hall2⟩
+
+theorem hier_body_asgInst {d : Design} {m : Module} (h : HierShape d m = true) :
+    ∀ s ∈ m.body, isAsgInst s = true := by
+  have h4 : m.body.all isAsgInst = true := by
+    simp only [HierShape, Bool.and_eq_true] at h
+    exact h.1.1.1.2
+  exact fun s hs => List.all_eq_true.mp h4 s hs
+
+theorem hier_insts_unique {d : Design} {m : Module} (h : HierShape d m = true) :
+    (instNames m.body).Nodup := by
+  simp only [HierShape, Bool.and_eq_true, decide_eq_true_eq] at h
+  exact h.1.2
+
+theorem regOuts_asgInst (b : List Stmt) (h : ∀ s ∈ b, isAsgInst s = true) : regOuts b = [] := by
+  cases hr : regOuts b with
+  | nil => rfl
+  | cons n rest =>
+    have : n ∈ regOuts b := by rw [hr]; exact List.mem_cons_self ..
+    obtain ⟨s, hs, c, r, e, i, rfl⟩ := (mem_regOuts_iff n b).mp this
+    have := h _ hs
+    simp [isAsgInst] at this
+
+theorem clkRstOk_stateless {d : Design} {m : Module} (h : HierShape d m = true) :
+    clkRstOk d m = true := by
+  have hregs : regsOf m.body = [] := by
+    have := regOuts_asgInst m.body (hier_body_asgInst h)
+    simpa [regOuts] using this
+  have hri : regInsts d m = [] := by
+    unfold regInsts
+    rw [List.filter_eq_nil_iff]
+    intro x hx
+    have hx' := (mem_instDecls_iff _ _).mp hx
+    obtain ⟨c, hf, _, ha, _⟩ := hier_inst_child h hx'
+    simp [hf, assignOnly_regsOf _ ha]
+  have hp : instPairs d m = [] := by simp [instPairs, hri]
+  simp [clkRstOk, hp, hregs]
+
+/-- The stateful step on an instance agrees with H1's under H1's shape. -/
+theorem instEvalS_eq_instEval {d : Design} {arr : Module → List Stmt} (st : HSt) (we : WEnv)
+    (mn i : String) (cs : List (String × Expr)) (env : Env) (c : Module)
+    (hf : findMod d mn = some c) (hprim : c.isPrimitive = false) (hass : assignOnly c.body = true)
+    (hall : cs.all (fun p => (c.inputs ++ c.outputs).any (·.name == p.1)) = true)
+    (hperm : (arr c).Perm c.body) :
+    instEvalS d arr st we mn i cs env = instEval d (runAt d arr (fuelOf d)) we mn i cs env := by
+  have hasgA : assignOnly (arr c) = true := assignOnly_perm hperm.symm hass
+  have hleaf := assignOnly_leaf _ hasgA
+  have hreg : regOuts (arr c) = [] := by
+    have := assignOnly_regsOf _ hasgA
+    simp [regOuts, this]
+  have hok : instOkS c cs = true := by
+    unfold instOkS; rw [hprim, assignOnly_leaf _ hass, hall]; rfl
+  have hpos : 0 < fuelOf d := by
+    have := List.length_pos_of_mem (findMod_mem hf)
+    simpa [fuelOf] using this
+  obtain ⟨k, hk⟩ : ∃ k, fuelOf d = k + 1 := ⟨fuelOf d - 1, by omega⟩
+  have hrun : ∀ seed, runAt d arr (fuelOf d) c seed = evalAssigns (declWidth c) (fun _ _ => 0) (arr c) seed := by
+    intro seed
+    rw [hk]
+    simp only [runAt, assignOnly_comb _ hass, if_true]
+    exact evalAssignsI_leaf _ _ (fun _ _ => 0) _ _ hleaf
+  unfold instEvalS instEval
+  simp only [hf, hok, hprim, hall, if_true, Bool.false_eq_true, if_false]
+  have hseed : childSeedS c cs we env (regOuts (arr c)) (st [i]) = childSeed c cs we env := by
+    simp [childSeedS, hreg]
+  simp only [childRunS, hseed, hrun]
+  cases childSeed c cs we env <;> rfl
+
+/-- ONE STATEFUL STEP AGREES WITH H1's under H1's conditions. -/
+theorem stepHS_stateless (d : Design) (arr : Module → List Stmt) (m : Module) (st : HSt)
+    (env0 : Env) (hH : HierShape d m = true) (hA : AdmArr d m arr) :
+    stepHS d arr m st env0 = (stepH d arr m env0).map fun r =>
+      (r.1, ([], r.2) :: (instDecls (arr m)).map fun x => ([x.2.1], [])) := by
+  have hclk := clkRstOk_stateless hH
+  have hmem : ∀ s, s ∈ arr m → s ∈ m.body := fun s hs => hA.1.mem_iff.mp hs
+  have hai : ∀ s ∈ arr m, isAsgInst s = true := fun s hs => hier_body_asgInst hH s (hmem s hs)
+  have hcong : evalAssignsI (declWidth m) (instEvalS d arr st (declWidth m)) (arr m) env0 =
+      evalAssignsI (declWidth m) (instEval d (runAt d arr (fuelOf d)) (declWidth m)) (arr m) env0 := by
+    apply evalAssignsI_congr_mem
+    intro mn i cs hin e
+    obtain ⟨c, hf, hp, ha, hall⟩ := hier_inst_child hH (hmem _ hin)
+    exact instEvalS_eq_instEval st _ mn i cs e c hf hp ha hall (hA.2.2 c (findMod_mem hf)).1
+  unfold stepHS stepH
+  rw [if_pos hclk, hcong]
+  cases hfold : evalAssignsI (declWidth m) (instEval d (runAt d arr (fuelOf d)) (declWidth m)) (arr m) env0 with
+  | none => simp
+  | some E =>
+    have hfoldS : evalAssignsI (declWidth m) (instEvalS d arr st (declWidth m)) (arr m) env0 = some E := by
+      rw [hcong]; exact hfold
+    have hG := good_of_fold d (declWidth m) _ (instEvalS_laws d arr st (declWidth m)) (arr m) env0 E hA.2.1 hfoldS
+    have hnx := regNexts_asgInst (declWidth m) (fun _ _ => 0) (arr m) E hai
+    have hall : ∀ x ∈ instDecls (arr m),
+        childNexts d arr (declWidth m) st E x = some ([x.2.1], []) := by
+      rintro ⟨mn, i, cs⟩ hx
+      have hx' := (mem_instDecls_iff _ _).mp hx
+      obtain ⟨l, hl, _⟩ := hG.2 _ hx'
+      obtain ⟨c, envC, hf, hok, hr, _⟩ := instEvalS_some (by simpa [cellVals] using hl)
+      have hcm := findMod_mem hf
+      obtain ⟨_, _, _, ha, _⟩ := hier_inst_child hH (hmem _ hx')
+      have hasgA : assignOnly (arr c) = true := assignOnly_perm (hA.2.2 c hcm).1.symm
+        (by obtain ⟨c', hf', _, ha', _⟩ := hier_inst_child hH (hmem _ hx'); rw [hf] at hf'; cases hf'; exact ha')
+      exact childNexts_some d arr (declWidth m) st E mn i cs c envC [] hf hok hr
+        (regNexts_assignOnly _ _ _ _ hasgA)
+    simp only [Option.bind_eq_bind, Option.bind_some, hnx, mapM_eq_map _ _ _ hall, Option.map_some]
+
+/-- STATELESS AGREEMENT: under H1's conditions (no registers anywhere) `runHS` returns the same
+environments as H1's `runH` (started from the all-0 state: no register exists, the seed of a
+register-free top shows no state). -/
+theorem runHS_stateless (d : Design) (arr : Module → List Stmt) (m : Module)
+    (seed : Nat → (String → Nat) → Env) (hH : HierShape d m = true) (hA : AdmArr d m arr)
+    (s0 : String → Nat) (hs0 : ∀ n, s0 n = 0) :
+    ∀ (k : Nat) (st : HSt), runHS d arr m seed k st = runH d arr m seed k s0 := by
+  intro k
+  have hreg : regOuts (arr m) = [] :=
+    regOuts_asgInst _ (fun s hs => hier_body_asgInst hH s (hA.1.mem_iff.mp hs))
+  have hs0' : s0 = fun _ => 0 := funext hs0
+  have hr0 : restrictTo (regOuts (arr m)) = fun s _ => 0 := by
+    funext s n; simp [restrictTo, hreg]
+  induction k with
+  | zero => intro st; rfl
+  | succ k ih =>
+    intro st
+    simp only [runHS, runH, hr0]
+    have hseed : seed k (fun _ => 0) = seed k s0 := by rw [hs0']
+    rw [stepHS_stateless d arr m st _ hH hA, hseed]
+    cases hs : stepH d arr m (seed k s0) with
+    | none => simp
+    | some r =>
+      obtain ⟨E, nx⟩ := r
+      have hnx : nx = [] := by
+        unfold stepH at hs
+        cases hfold : evalAssignsI (declWidth m) (instEval d (runAt d arr (fuelOf d)) (declWidth m)) (arr m) (seed k s0) with
+        | none => simp [hfold] at hs
+        | some E' =>
+          have hai : ∀ s ∈ arr m, isAsgInst s = true := fun s hs => hier_body_asgInst hH s (hA.1.mem_iff.mp hs)
+          simp [hfold, regNexts_asgInst _ _ _ _ hai] at hs
+          exact hs.2
+      subst hnx
+      have hup : applyH st (([], []) :: (instDecls (arr m)).map fun x => ([x.2.1], [])) = st := by
+        apply applyH_empty
+        intro u hu
+        rcases List.mem_cons.mp hu with rfl | hu
+        · rfl
+        · obtain ⟨x, _, rfl⟩ := List.mem_map.mp hu; rfl
+      have hup2 : applyNexts s0 [] = s0 := by funext n; simp [applyNexts]
+      simp only [Option.map_some, Option.bind_eq_bind, Option.bind_some]
+      rw [hup, hup2]
+      have := ih st
+      simp [this]
+
 end Tools.VedU2Hier
