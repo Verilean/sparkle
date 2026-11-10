@@ -436,6 +436,18 @@ partial def exprHasEq : Sparkle.IR.AST.Expr → Bool
 def bodyHasEq (body : List Sparkle.IR.AST.Stmt) : Bool :=
   body.any fun | .assign _ e => exprHasEq e | _ => false
 
+/-- Resource budget for ELABORATING the generated script only (a finite bound,
+not a check: the kernel still checks the result in full).  A table of `n`
+entries is an `n`-deep `mux` chain; `simp` over it recurses once per level (the
+default `maxRecDepth` 512 is exceeded from about 30 levels) and costs more than
+the default heartbeats. -/
+def proofRecDepth : Nat := 20000
+def proofHeartbeats : Nat := 8000000
+
+def withProofBudget {α} (k : TermElabM α) : TermElabM α :=
+  withReader (fun c => { c with maxRecDepth := max c.maxRecDepth proofRecDepth,
+                                maxHeartbeats := max c.maxHeartbeats (proofHeartbeats * 1000) }) k
+
 /-- A proof source for `checkU1`. -/
 inductive ProofSrc
   /-- the generated script (the only source the entry uses) -/
@@ -538,7 +550,8 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     -- a runtime limit (heartbeats, recursion depth) here is a `proof` refusal
     -- (the script is too costly), not the catch-all `checker`
     let pf ← tryCatchRuntimeEx
-        (withoutErrToSorry do
+        (withProofBudget do
+        withoutErrToSorry do
           let e ← elabTermEnsuringType stx expected
           synthesizeSyntheticMVarsNoPostponing
           instantiateMVars e)
