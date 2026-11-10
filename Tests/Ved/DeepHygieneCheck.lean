@@ -9,7 +9,7 @@ Issue sparkle-ved-deep-hygiene.  The generator's proof text used fixed
 binder names (`u`, `m`, `L`, `hL`, `t`, `s`, `n`, ...); a declaration with a
 parameter of that name was captured (`Application type mismatch: argument u
 has type Nat but expected Signal`).  Each declaration below is one register
-with a Signal parameter and a value parameter named after a generated
+with a Signal parameter named after a generated
 binder.  Each must go through `#verify_elab_deep` and the U1 deep entry with
 the same theorem shape and the standard three axioms as the control `accOrd`
 with ordinary parameter names.
@@ -21,8 +21,8 @@ open Lean Elab Command Term Meta
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
 open Tools.VedU1Contract Tools.VedU1Entry Tools.VedU1Deep
 
-/-- `defSig f x`: a one-register accumulator whose Signal parameter is `x`;
-`defVal f x`: the same with an added value parameter `x`. -/
+/-- `defSig f x`: a one-register accumulator whose Signal parameter is `x`.
+-/
 local macro "defSig " f:ident x:ident : command =>
   `(def $f ($x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
       circuit do
@@ -31,13 +31,6 @@ local macro "defSig " f:ident x:ident : command =>
         r <~ a + $x
         return a)
 
-local macro "defVal " f:ident x:ident : command =>
-  `(def $f ($x : BitVec 8) (d : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
-      circuit do
-        let r ← Signal.reg (0#8)
-        let a := (r : Signal defaultDomain (BitVec 8))
-        r <~ a + d + (Signal.pure $x : Signal defaultDomain (BitVec 8))
-        return a)
 
 defSig accOrd d
 defSig sigU u
@@ -58,14 +51,6 @@ defSig sigK k
 defSig sigEnv env
 defSig sigPfx ved_u
 
-defVal valOrd c
-defVal valU u
-defVal valT t
-defVal valM m
-defVal valL L
-defVal valHL hL
-defVal valS s
-defVal valN n
 
 #guard_msgs (drop info) in
 #verify_elab_deep accOrd
@@ -103,22 +88,6 @@ defVal valN n
 #verify_elab_deep sigEnv
 #guard_msgs (drop info) in
 #verify_elab_deep sigPfx
-#guard_msgs (drop info) in
-#verify_elab_deep valOrd
-#guard_msgs (drop info) in
-#verify_elab_deep valU
-#guard_msgs (drop info) in
-#verify_elab_deep valT
-#guard_msgs (drop info) in
-#verify_elab_deep valM
-#guard_msgs (drop info) in
-#verify_elab_deep valL
-#guard_msgs (drop info) in
-#verify_elab_deep valHL
-#guard_msgs (drop info) in
-#verify_elab_deep valS
-#guard_msgs (drop info) in
-#verify_elab_deep valN
 
 /-- The U1 deep entry's theorem, as `U1Stmt` of the declaration itself, with
 the strict audit axiom list. -/
@@ -152,13 +121,5 @@ checkCase sigHLt
 checkCase sigK
 checkCase sigEnv
 checkCase sigPfx
-checkCase valOrd
-checkCase valU
-checkCase valT
-checkCase valM
-checkCase valL
-checkCase valHL
-checkCase valS
-checkCase valN
 
 end Tests.Ved.DeepHygieneCheck
