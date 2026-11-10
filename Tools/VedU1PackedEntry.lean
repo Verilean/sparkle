@@ -47,13 +47,17 @@ def packedScript (nm : Names) (F : Name) (nDom : Nat) : TermElabM Syntax := do
         apply outputs_of_step (PContract.core $C) $M $B (packedF ($C).tbl $f) $O (by decide) (fun _ _ _ => True)
         · intro _ _; trivial
         · intro ins hok s st mems _
+          have key : srcOf (PContract.core $C) (packedF ($C).tbl $f) ins "out" s =
+              OTy.packNat ($C).tbl.out ((applyIns ($C).tbl.ins ($C).inNames ins $f).val s) :=
+            srcOf_packed $C $f ins s
           have hin := hok.1 s
+          simp only [$O:ident, List.mem_singleton, forall_eq, key]
           simp [PContract.core, collapse, $C:ident, Contract.dataInputs, $M:ident, declWidth] at hin
           simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
             widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth,
-            srcOf_packed, PContract.core, collapse, $C:ident, applyIns, $fI:ident,
-            OTy.pack, PTy.pack, OTy.width, PTy.width, OTy.obs, PTy.obs, PTy.sig,
+            PContract.core, collapse, $C:ident, applyIns, $fI:ident,
+            OTy.packNat, OTy.width, PTy.width, OTy.obs, PTy.obs, PTy.sig,
             mask, or_mod _ _ _ _ rfl,
             Nat.shiftRight_eq_div_pow, hin,
             Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit,
@@ -70,6 +74,7 @@ def packedScript (nm : Names) (F : Name) (nDom : Nat) : TermElabM Syntax := do
           all_goals
             first
             | omega
+            | (rw [Nat.mod_eq_of_lt (by omega)])
             | exact toNat_bne _ (by omega)
             | (split <;> simp <;> omega)
             | (rw [BitVec.toNat_append]; simp [BitVec.toNat_ofNat]; rw [Nat.mod_eq_of_lt hin.1, Nat.mod_eq_of_lt hin.2])

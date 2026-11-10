@@ -135,6 +135,22 @@ theorem _root_.Tools.VedU1Contract.OTy.slices_obs (o : OTy) (v : o.val) :
       refine ⟨by omega, ?_⟩
       rw [sliceOf_low _ _ _ _ _ h1]; exact h2
 
+/-- The packed value as a number (the same value as `(o.pack v).toNat`, without the width-dependent type):
+leaf `i` is `obs_i` shifted by the widths of the leaves after it. -/
+def _root_.Tools.VedU1Contract.OTy.packNat : (o : OTy) → o.val → Nat
+  | .leaf p, v => p.obs v
+  | .pair a b, v => a.packNat v.1 <<< b.width ||| b.packNat v.2
+
+theorem OTy.toNat_pack (o : OTy) (v : o.val) : (o.pack v).toNat = o.packNat v := by
+  induction o with
+  | leaf p =>
+    cases p with
+    | bit => cases v <;> rfl
+    | bv w => rfl
+  | pair a b iha ihb =>
+    show (a.pack v.1 ++ b.pack v.2).toNat = a.packNat v.1 <<< b.width ||| b.packNat v.2
+    rw [BitVec.toNat_append, iha, ihb]
+
 /-! ## The coverage check -/
 
 /-- A slice map covers a port of width `W` for leaves of the given widths:
@@ -216,14 +232,14 @@ theorem applyIns_mapOut {R S : Type} (g : R → S) (ps : List PTy) (ns : List St
 
 theorem srcOf_packed (pc : PContract) (f : pc.tbl.Ty) (ins : Nat → String → Nat) (t : Nat) :
     srcOf pc.core (packedF pc.tbl f) ins pc.port t =
-      (pc.tbl.out.pack ((applyIns pc.tbl.ins pc.inNames ins f).val t)).toNat := by
+      pc.tbl.out.packNat ((applyIns pc.tbl.ins pc.inNames ins f).val t) := by
   have e : applyIns pc.tbl.ins pc.inNames ins
       (InTy.mapOut (fun s => Signal.map pc.tbl.out.pack s) pc.tbl.ins f) =
       Signal.map pc.tbl.out.pack (applyIns pc.tbl.ins pc.inNames ins f) := applyIns_mapOut _ _ _ _ _
   simp only [srcOf, PContract.core, collapse, packedF, OTy.obs, PTy.obs,
     List.zip_cons_cons, List.zip_nil_left, List.lookup, beq_self_eq_true, if_true, Option.getD_some]
   erw [e]
-  rfl
+  exact OTy.toNat_pack _ _
 
 /-- Outputs of the packed view give the slice statement: every slice of the port is the declaration's
 own projection, and the port is in range. -/
@@ -236,7 +252,7 @@ theorem slices_of_outputs {pc : PContract} {m : Module} {f : pc.tbl.Ty}
   obtain ⟨env, he, hv⟩ := hall t ht ⟨pc.port, .bitVector pc.tbl.out.width⟩ (List.mem_cons_self ..)
   refine ⟨env, he, ?_⟩
   have hv' : env pc.port = (pc.tbl.out.pack ((applyIns pc.tbl.ins pc.inNames ins f).val t)).toNat := by
-    rw [hv]; exact srcOf_packed pc f ins t
+    rw [hv, srcOf_packed, OTy.toNat_pack]
   rw [hv', hc]
   refine ⟨BitVec.isLt _, ?_⟩
   exact all2_imp (fun s v hh => hh.2) (OTy.slices_obs pc.tbl.out ((applyIns pc.tbl.ins pc.inNames ins f).val t))
