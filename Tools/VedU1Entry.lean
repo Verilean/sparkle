@@ -445,8 +445,8 @@ def proofRecDepth : Nat := 20000
 def proofHeartbeats : Nat := 8000000
 
 def withProofBudget {α} (k : TermElabM α) : TermElabM α :=
-  withReader (fun c => { c with maxRecDepth := max c.maxRecDepth proofRecDepth,
-                                maxHeartbeats := max c.maxHeartbeats (proofHeartbeats * 1000) }) k
+  withTheReader Core.Context
+    (fun c => { c with maxRecDepth := max c.maxRecDepth proofRecDepth, maxHeartbeats := max c.maxHeartbeats (proofHeartbeats * 1000) }) k
 
 /-- A proof source for `checkU1`. -/
 inductive ProofSrc

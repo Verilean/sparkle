@@ -394,6 +394,10 @@ lean_lib «Tests.Ved.U1RconCheck» where
 lean_lib «Tests.Ved.U1HierCheck» where
   roots := #[`Tests.Ved.U1HierCheck]
 
+-- the real `keccakRcHW` (imports the Keccak IP): 32 × 64-bit constants over a 5-bit index
+lean_lib «Tests.Ved.U1KeccakRcCheck» where
+  roots := #[`Tests.Ved.U1KeccakRcCheck]
+
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]
 
