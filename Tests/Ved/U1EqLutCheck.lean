@@ -117,53 +117,90 @@ def expectRefused (stage : String) (base : Name) (act : TermElabM Unit) :
   logInfo m!"refused [{stage}], clean"
 
 open Sparkle.IR.AST in
-/-- replace the `n`-th statement `f` maps to `some` (the module is unchanged if there is none) -/
-def mutNth (n : Nat) (f : Stmt → Option Stmt) (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
-  let (_, body) := m.body.foldl (init := (n, ([] : List Stmt))) fun (k, acc) s =>
+/-- Replace EXACTLY the `n`-th (0-based) statement that `f` maps to `some`; every other
+statement is kept.  Fails loudly when there is no such statement. -/
+def mutNth (n : Nat) (f : Stmt → Option Stmt) (m : Sparkle.IR.AST.Module) :
+    Except String Sparkle.IR.AST.Module :=
+  let (cnt, changed, body) := m.body.foldl (init := (0, false, ([] : List Stmt))) fun (k, ch, acc) s =>
     match f s with
-    | some s' => if k == 0 then (k.pred, acc ++ [s']) else (k.pred, acc ++ [s])
-    | none => (k, acc ++ [s])
-  { m with body := body }
+    | some s' => if k == n then (k + 1, true, acc ++ [s']) else (k + 1, ch, acc ++ [s])
+    | none => (k, ch, acc ++ [s])
+  if changed then .ok { m with body := body }
+  else .error s!"mutator target absent: wanted match #{n}, the module has {cnt} matching statements"
 
 open Sparkle.IR.AST in
-/-- the `n`-th constant of width `w` gets value `+1` -/
-def bumpConst (w n : Nat) : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module :=
-  mutNth n fun | .assign o (.const v w') => if w' == w then some (.assign o (.const (v + 1) w)) else none
-               | _ => none
-
-open Sparkle.IR.AST in
-/-- the `n`-th constant of width `w`, the values of two constants exchanged -/
-def swapConsts (w : Nat) (a b : Nat) (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
-  let vs : List Int := m.body.filterMap fun | .assign _ (.const v w') => if w' == w then some v else none | _ => none
-  let va := vs.getD a 0
-  let vb := vs.getD b 0
-  mutNth a (fun | .assign o (.const _ w') => if w' == w then some (.assign o (.const vb w)) else none
-                | _ => none) <|
-  mutNth b (fun | .assign o (.const _ w') => if w' == w then some (.assign o (.const va w)) else none
+/-- the `n`-th constant of width `w` gets value `+1` (one statement) -/
+def bumpConst (w n : Nat) (m : Sparkle.IR.AST.Module) : Except String Sparkle.IR.AST.Module :=
+  mutNth n (fun | .assign o (.const v w') => if w' == w then some (.assign o (.const (v + 1) w)) else none
                 | _ => none) m
 
 open Sparkle.IR.AST in
-/-- the first `==` becomes `!=` (a comparison is 1 bit wide: its complement) -/
-def eqToNe (n : Nat) : Sparkle.IR.AST.Module → Sparkle.IR.AST.Module :=
-  mutNth n fun | .assign o (.op .eq args) => some (.assign o (.op .not [.op .eq args]))
-               | _ => none
+/-- the values of the `a`-th and the `b`-th constant of width `w` exchanged (exactly two
+statements; fails if `a = b` or the two values are equal, as nothing would change) -/
+def swapConsts (w : Nat) (a b : Nat) (m : Sparkle.IR.AST.Module) :
+    Except String Sparkle.IR.AST.Module := do
+  let vs : List Int := m.body.filterMap fun | .assign _ (.const v w') => if w' == w then some v else none | _ => none
+  if a == b then throw "swap of a position with itself"
+  let some va := vs[a]? | throw s!"swap: no constant #{a} of width {w}"
+  let some vb := vs[b]? | throw s!"swap: no constant #{b} of width {w}"
+  if va == vb then throw "swap of two equal constants changes nothing"
+  let m1 ← mutNth a (fun | .assign o (.const _ w') => if w' == w then some (.assign o (.const vb w)) else none
+                       | _ => none) m
+  mutNth b (fun | .assign o (.const _ w') => if w' == w then some (.assign o (.const va w)) else none
+              | _ => none) m1
 
-/-- `(decl, base, module)`: the statement of `decl` against `module` -/
+open Sparkle.IR.AST in
+/-- the `n`-th `==` becomes `!=` (a comparison is 1 bit wide: its complement); one statement -/
+def eqToNe (n : Nat) (m : Sparkle.IR.AST.Module) : Except String Sparkle.IR.AST.Module :=
+  mutNth n (fun | .assign o (.op .eq args) => some (.assign o (.op .not [.op .eq args]))
+                | _ => none) m
+
+open Sparkle.IR.AST in
+/-- the positions where the bodies differ, with the old and the new statement
+(the rest of the module must be identical and the bodies of equal length) -/
+def bodyDiff (o m : Sparkle.IR.AST.Module) : Except String (List (Nat × String × String)) := do
+  unless ({ o with body := [] } : Sparkle.IR.AST.Module) = { m with body := [] } do throw "module header differs"
+  unless o.body.length == m.body.length do throw "body lengths differ"
+  let mut out := []
+  for (i, (x, y)) in (o.body.zip m.body).zipIdx.map (fun (p, i) => (i, p)) do
+    if x ≠ y then out := out ++ [(i, toString (repr x), toString (repr y))]
+  return out
+
+/-- Check original against mutant BEFORE the control runs: the number of differing
+positions, which positions, and the old and new statements there. -/
+def checkDiff (what : String) (o : Sparkle.IR.AST.Module) (mut : Except String Sparkle.IR.AST.Module)
+    (expected : List (Nat × String × String)) : CommandElabM Sparkle.IR.AST.Module := do
+  let m ← match mut with | .ok m => pure m | .error e => throwError "{what}: mutator failed: {e}"
+  let d ← match bodyDiff o m with | .ok d => pure d | .error e => throwError "{what}: {e}"
+  unless d.length == expected.length do
+    throwError "{what}: {d.length} differing positions, expected {expected.length}: {d}"
+  unless d == expected do throwError "{what}: differing statements {d}, expected {expected}"
+  logInfo m!"diff {what}: {d.map (·.1)}"
+  return m
+
+/-- `(base, decl)`: the statement of `decl` against `module` -/
 def ctl (base : Name) (decl : Name) (m : Sparkle.IR.AST.Module) : CommandElabM Unit :=
   expectRefused "proof" base do
     discard <| checkU1E decl base (specOf decl) m .generated
 
-/-- info: refused [proof], clean -/
-#guard_msgs in
-run_cmd do ctl `ctlLutTableConst ``lut4 (bumpConst 8 2 (← liftTermElabM (modOf ``lut4)))
+/-- the mutant of `decl`'s module, its diff checked against the original, then refused -/
+def ctlMut (base decl : Name) (mut : Sparkle.IR.AST.Module → Except String Sparkle.IR.AST.Module)
+    (expected : List (Nat × String × String)) : CommandElabM Unit := do
+  let o ← liftTermElabM (modOf decl)
+  let m ← checkDiff (toString base) o (mut o) expected
+  ctl base decl m
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd do ctl `ctlLutFirstEntry ``lut4 (bumpConst 8 0 (← liftTermElabM (modOf ``lut4)))
+run_cmd ctlMut `ctlLutTableConst ``lut4 (bumpConst 8 2) []
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd do ctl `ctlLutSwapped ``lut4 (swapConsts 8 1 2 (← liftTermElabM (modOf ``lut4)))
+run_cmd ctlMut `ctlLutFirstEntry ``lut4 (bumpConst 8 0) []
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd ctlMut `ctlLutSwapped ``lut4 (swapConsts 8 1 2) []
 
 -- the module of the declaration with the table's entries swapped / one constant changed
 /-- info: refused [proof], clean -/
@@ -177,24 +214,24 @@ run_cmd do ctl `ctlLutDeclConst ``lut4 (← liftTermElabM (modOf ``lut4c))
 -- `==` replaced by `!=`, in a table's compare and in a plain comparison
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd do ctl `ctlLutNe ``lut4 (eqToNe 1 (← liftTermElabM (modOf ``lut4)))
+run_cmd ctlMut `ctlLutNe ``lut4 (eqToNe 1) []
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd do ctl `ctlEqNe ``eq4 (eqToNe 0 (← liftTermElabM (modOf ``eq4)))
+run_cmd ctlMut `ctlEqNe ``eq4 (eqToNe 0) []
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd do ctl `ctlEqKNe ``eqK (eqToNe 0 (← liftTermElabM (modOf ``eqK)))
+run_cmd ctlMut `ctlEqKNe ``eqK (eqToNe 0) []
 
 -- a compared constant changed (a 2-bit constant of the table; the 6-bit constant)
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd do ctl `ctlLutCompared ``lut4 (bumpConst 2 1 (← liftTermElabM (modOf ``lut4)))
+run_cmd ctlMut `ctlLutCompared ``lut4 (bumpConst 2 1) []
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd do ctl `ctlEqKConst ``eqK (bumpConst 6 0 (← liftTermElabM (modOf ``eqK)))
+run_cmd ctlMut `ctlEqKConst ``eqK (bumpConst 6 0) []
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
@@ -203,7 +240,7 @@ run_cmd do ctl `ctlEqKOther ``eqK (← liftTermElabM (modOf ``eqK2))
 -- a constant output changed
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd do ctl `ctlConstOut ``constOut (bumpConst 8 0 (← liftTermElabM (modOf ``constOut)))
+run_cmd ctlMut `ctlConstOut ``constOut (bumpConst 8 0) []
 
 -- the comparison's module against another statement
 /-- info: refused [proof], clean -/
