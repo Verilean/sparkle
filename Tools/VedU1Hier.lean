@@ -221,4 +221,33 @@ theorem exists_arr (d : Design) (m : Module) (hord : OrderH d m)
     obtain ⟨⟨⟨⟨⟨⟨⟨⟨hp, hwo⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := h
     exact ⟨isPermOf_sound hp, woCheck_sound _ _ hwo⟩
 
+/-! ## The leaf lemma at the step level -/
+
+theorem memNexts_leaf (we : WEnv) :
+    ∀ (b : List Stmt) (mems : MEnv) (env : Env), leafBody b = true → memNexts we b mems env = some mems := by
+  intro b
+  induction b with
+  | nil => intro _ _ _; rfl
+  | cons s rest ih =>
+    intro mems env h
+    cases s with
+    | assign l r => simp only [leafBody] at h; simp only [memNexts]; exact ih _ _ h
+    | register o c r e i => simp only [leafBody] at h; simp only [memNexts]; exact ih _ _ h
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [leafBody] at h
+    | inst _ _ _ => simp [leafBody] at h
+
+/-- LEAF LEMMA (step level): for a top module whose arranged body has no instance and no memory,
+the closed step is the existing `stepModule` (the design is irrelevant). -/
+theorem stepH_leaf (d : Design) (arr : Module → List Stmt) (m : Module) (env0 : Env)
+    (h : leafBody (arr m) = true) :
+    stepH d arr m env0 =
+      (stepModule (declWidth m) (arr m) env0 (fun _ _ => 0)).map fun r => (r.1, r.2.1) := by
+  unfold stepH stepModule
+  rw [evalAssignsI_leaf _ _ (fun _ _ => 0) _ _ h]
+  cases hv : evalAssigns (declWidth m) (fun _ _ => 0) (arr m) env0 with
+  | none => rfl
+  | some e =>
+    simp only [memNexts_leaf _ _ _ _ h]
+    cases hn : regNexts (declWidth m) (fun _ _ => 0) (arr m) e <;> simp [hn]
+
 end Tools.VedU1Hier

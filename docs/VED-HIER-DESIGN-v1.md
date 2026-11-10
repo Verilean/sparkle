@@ -115,3 +115,21 @@ statement は `U1HStmt c d m stmt` とする。中身は U1Stmt と同じ形で�
    - 合成時間、証明時間、peak memory の記録
    - 先に 36 拒否行から H1 候補を 1 行調査して指定する。見つからなければ、理由と最初の阻害を報告する。小例は 327 に加算しない。
    - frontend/comb 等を中断する全面変更はしない。
+
+## 8. H1 の実装（ved/hier-h1、型は未凍結）
+
+方向の許可（§7）に沿った最小縦断。ファイル:
+- `Tools/VedU1HierSem.lean`: 閉じた階層意味論 `stepH`/`runH`（返却 Module/Design だけで定義）、`instEval`、`runAt`（燃料）、
+  葉補題 `evalAssignsI_leaf`、階層順序 `WOH` と全許容順序での一致 `evalAssignsI_perm`。
+- `Tools/VedU1HierComp.lean`: 子の定理から供給する関係（合成補題）`child_rel`/`child_rel_out`、`instEval_leaf`、`instEval_laws`。
+- `Tools/VedU1Hier.lean`: 文 `U1HStmt`、artifact 検査 `HierShape`/`OrderOkH`、`outputsH_of_step`、`stepH_of_b0`、`exists_arr`、`stepH_leaf`。
+- `Tools/VedU1HierEntry.lean`: `#ved_u1_hier decl`（合成 1 回、(m, d) を保持、子ごとに `checkU1E`、親の証明を生成）。
+- `Tests/Ved/U1HierCheck.lean`: 肯定例と対照（327 には加算しない）。
+
+意味論の要点: 失敗は `none`（子の欠落・primitive・入力の未接続・存在しない port への接続・出力接続が `ref` でない・子の register/memory・
+燃料切れ）。配列の選択は `arr : Module → List Stmt`（全ての許容配列で結論が成り立つ）。中間契約は、親の証明が使う子の関係
+（`hrel`: 宣言 `g` の値 = `leafOut`（子の閉じた評価）と `hI`: instance の書込み）で、最終定理では子の実定理（`child_rel_out`）と
+`d` から解決した module への束縛（`decide`）で全て供給する（未供給の binder なし）。
+
+H1 の範囲外（明示的に拒否）: 親・子の register/memory（H2）、複数出力の子（H3）、`ref` 以外の接続、primitive・parameter 付きの子、
+深さ 2 以上（`assignOnly` でない子）、`d` に未使用の module。
