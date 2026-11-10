@@ -221,5 +221,31 @@ theorem step_assigns (we : WEnv) (mems : MEnv) (B : List Stmt) (env0 : Env)
   refine ⟨E, ?_, hf, hx⟩
   simp [stepModule, hE, regNexts_assigns we mems E B hall, memNexts_assigns we mems E B hall]
 
+/-- One equation per assignment, as a conjunction over the body (so a proof reads
+statement `i` as the `i`-th conjunct, no list-membership search). -/
+def stmtEq (we : WEnv) (E : Env) : Stmt → Prop
+  | .assign l r => evalExpr we E r = some (E l)
+  | _ => True
+
+def AllP {α : Type} (P : α → Prop) : List α → Prop
+  | [] => True
+  | a :: as => P a ∧ AllP P as
+
+theorem allP_of_mem {α : Type} (P : α → Prop) :
+    ∀ B : List α, (∀ s, s ∈ B → P s) → AllP P B
+  | [], _ => trivial
+  | a :: as, h => ⟨h a (List.mem_cons_self ..), allP_of_mem P as (fun s hs => h s (List.mem_cons_of_mem _ hs))⟩
+
+/-- `step_assigns` with the equations as `AllP`. -/
+theorem step_assigns' (we : WEnv) (mems : MEnv) (B : List Stmt) (env0 : Env)
+    (hwo : woCheck [] B = true) (hok : bodyOk we B = true) (hall : allAssign B = true) :
+    ∃ E, stepModule we B env0 mems = some (E, [], mems) ∧ (∀ n, n ∉ writesOf B → E n = env0 n) ∧
+      AllP (stmtEq we E) B := by
+  obtain ⟨E, h1, h2, h3⟩ := step_assigns we mems B env0 hwo hok hall
+  refine ⟨E, h1, h2, allP_of_mem _ B ?_⟩
+  intro s hs
+  cases s with
+  | assign l r => exact h3 l r hs
+  | _ => trivial
 
 end Tools.VedU1Script
