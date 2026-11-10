@@ -19,8 +19,7 @@ open Tools.VedU1Contract Tools.VedU1Entry
 /-! ## Declarations -/
 
 -- The binder shapes of R303 `test_not` (auto-bound `Domain`) and R73
--- `testComplement8` (`{dom : DomainConfig}`), with the identity as the body:
--- the generated script proves it (it has no rule for `not`, see below).
+-- `testComplement8` (`{dom : DomainConfig}`), with the identity as the body.
 def didAuto (a : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) := a
 
 def didImpl {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := a
@@ -67,6 +66,27 @@ run_cmd checkSpec ``didAuto
 #guard_msgs in
 run_cmd checkSpec ``didImpl
 
+/-! ## The representatives' bodies: strict (`Operator.not`, any width)
+
+The bodies of R303 `test_not` (BitVec 16, auto-bound `Domain`) and R73
+`testComplement8` (BitVec 8, `{dom : DomainConfig}`): exact type
+`U1Stmt c m (@decl defaultDomain)` rebuilt and compared, std3 axioms. -/
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dnotAuto.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dnotAuto
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dnotImpl.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dnotImpl
+
+-- the same rule at a width that is neither 8 nor 16
+def dnot5 {dom : DomainConfig} (a : Signal dom (BitVec 5)) : Signal dom (BitVec 5) := ~~~a
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dnot5.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dnot5
+
 /-! ## Controls: refused at `[table]`, no theorem -/
 
 def expectStageRefusal (stage : String) (decl : Name) : CommandElabM Unit := liftTermElabM do
@@ -93,18 +113,80 @@ run_cmd expectStageRefusal "table" ``dInst
 #guard_msgs in
 run_cmd expectStageRefusal "table" ``dFixed
 
-/-! ## The representatives' bodies: past the table, refused at `[proof]`
+/-! ## Controls on `not`: a wrong module / wrong statement is refused, no theorem
 
-The script has no rule for `Operator.not` / `Signal` complement (and the
-`^^^ (2^w-1)` arithmetic), so both are refused at `[proof]`, with no theorem
-left.  This pins the CURRENT limit; widening the script changes these two. -/
+`checkU1E` is the checker below the entry (it takes the module and the
+statement separately so a control can substitute them); the module comes from
+the real entry run of the declaration above. -/
+
+def modOf (base : Name) : TermElabM Sparkle.IR.AST.Module := do
+  let some v := (← getConstInfo (base ++ `ved_mod)).value? | throwError "no value"
+  evalModule v
+
+def checkerNames (base : Name) : List Name :=
+  [`ved_mod, `ved_contract, `ved_outs, `ved_body, `ved_u1].map (base ++ ·)
+
+def expectRefused (stage : String) (base : Name) (act : TermElabM Unit) :
+    CommandElabM Unit := liftTermElabM do
+  let accepted ← try act; pure true catch e =>
+    let s ← e.toMessageData.toString
+    unless s.startsWith "VED U1 REFUSED" && (s.splitOn s!"[{stage}]").length > 1 do throw e
+    pure false
+  if accepted then throwError "control ACCEPTED (expected a refusal at [{stage}])"
+  for n in checkerNames base do
+    if (← getEnv).contains n then throwError "left behind: {n}"
+  logInfo m!"refused [{stage}], clean"
+
+/-- `@decl defaultDomain` -/
+def specOf (decl : Name) : Lean.Expr := mkApp (Lean.mkConst decl) (Lean.mkConst ``defaultDomain)
+
+/-- `not` replaced by the identity (module output = input) -/
+def mutNotIdent (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
+  { m with body := m.body.map fun s => match s with
+      | .assign o (.op .not [a]) => .assign o a
+      | s => s }
+
+/-- `not` replaced by arithmetic negation -/
+def mutNotNeg (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
+  { m with body := m.body.map fun s => match s with
+      | .assign o (.op .not a) => .assign o (.op .neg a)
+      | s => s }
+
+/-- output port widened to 17 bits -/
+def mutNotWidth (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
+  { m with outputs := m.outputs.map fun p => { p with ty := .bitVector 17 } }
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectStageRefusal "proof" ``dnotAuto
+run_cmd expectRefused "proof" `ctlNotIdent do
+  discard <| checkU1E ``dnotAuto `ctlNotIdent (specOf ``dnotAuto) (mutNotIdent (← modOf ``dnotAuto)) .generated
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectStageRefusal "proof" ``dnotImpl
+run_cmd expectRefused "proof" `ctlNotNeg do
+  discard <| checkU1E ``dnotAuto `ctlNotNeg (specOf ``dnotAuto) (mutNotNeg (← modOf ``dnotAuto)) .generated
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlNotWidth do
+  discard <| checkU1E ``dnotAuto `ctlNotWidth (specOf ``dnotAuto) (mutNotWidth (← modOf ``dnotAuto)) .generated
+
+-- the identity's module against the complement's statement, and back
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlIdentIntoNot do
+  discard <| checkU1E ``dnotAuto `ctlIdentIntoNot (specOf ``dnotAuto) (← modOf ``didAuto) .generated
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlNotIntoIdent do
+  discard <| checkU1E ``didAuto `ctlNotIntoIdent (specOf ``didAuto) (← modOf ``dnotAuto) .generated
+
+-- a proof term of the wrong statement (the identity's theorem for the complement)
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlNotTerm do
+  discard <| checkU1E ``dnotAuto `ctlNotTerm (specOf ``dnotAuto) (← modOf ``dnotAuto)
+    (.term (mkIdent ``didAuto.ved_u1))
 
 end Tests.Ved.U1DomainCheck
