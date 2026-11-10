@@ -179,6 +179,7 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
     let h : Ident := hltIds[i]!
     `(tactic| have $(hlIds[i]!):ident := $h ins s)
   let locs : Array (TSyntax `ident) := hRIds ++ hlIds
+  let hMods : Array (TSyntax `Lean.Parser.Tactic.simpLemma) ← hlIds.mapM fun h => `(Lean.Parser.Tactic.simpLemma| Nat.mod_eq_of_lt $h:ident)
   let hRs : Array (TSyntax `Lean.Parser.Tactic.simpLemma) ← hRIds.mapM fun h => `(Lean.Parser.Tactic.simpLemma| $h:ident)
   let hRTacs ← (List.range k).toArray.mapM fun i => do
     `(tactic| have $(hRIds[i]!):ident := $(← conjProj hRId i k))
@@ -211,17 +212,18 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
           widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth,
           mask, hrst, or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow]
         refine ⟨_, _, ⟨rfl, rfl⟩, ?_, ?_⟩
-        · simp only [ite_true]
-          simp [srcOf, $C:ident, contractOf, applyIns, OTy.obs, PTy.obs, $nmC:ident]
-          rw [$trace:ident]
-          unfold $irS:ident $inpU:ident at $locs*
-          simp only [CExpr.compile, $out:ident]
-          simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
+        · try rw [if_pos rfl]
+          all_goals simp [srcOf, $C:ident, contractOf, applyIns, OTy.obs, PTy.obs, $nmC:ident]
+          all_goals rw [$trace:ident]
+          all_goals unfold $irS:ident $inpU:ident at $locs*
+          all_goals simp only [CExpr.compile, $out:ident]
+          all_goals simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
             $nmC:ident, reduceFinVal, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
             $[$inpL],*] at $locs* ⊢
-          try simp only [$[$hRs],*]
-          first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega)
+          all_goals try simp only [$[$hRs],*]
+          all_goals try simp only [$[$hMods],*]
+          all_goals (first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega))
         · $splitK:tactic
           all_goals simp only [List.find?, $nmC:ident]
           all_goals simp
