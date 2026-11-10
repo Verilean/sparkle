@@ -145,14 +145,18 @@ run_cmd checkSpec ``dslice8h
 
 -- two-field concat (first operand in the high bits)
 def dcat8 (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 16) := (fun x y => x ++ y) <$> a <*> b
-/-- The operands in the other order.  The COMPILER emits `{_gen_a, _gen_b}` for
-this too (it ignores the lambda's parameter order); the checker catches that
-miscompilation: the entry refuses it at `[proof]` (pinned below). -/
+/-- The operands in the other order.  The compiler honours the lambda's
+parameter order (`b ++ a`), so the module is correct and the entry accepts it
+(positive check below). -/
 def dcat8s (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 16) := (fun x y => y ++ x) <$> a <*> b
 
 /-- info: specialised OK Tests.Ved.U1DomainCheck.dcat8.ved_u1 -/
 #guard_msgs in
 run_cmd checkSpec ``dcat8
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dcat8s.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dcat8s
 
 /-! ## Controls: refused at `[table]`, no theorem -/
 
@@ -293,11 +297,17 @@ def mutCatSwap (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
 run_cmd expectRefused "proof" `ctlCatSwap do
   discard <| checkU1E ``dcat8 `ctlCatSwap (specOf ``dcat8) (mutCatSwap (← modOf ``dcat8)) .generated
 
--- the real declaration with swapped operands: the compiler's module is wrong, refused, no theorem
+-- the swapped declaration's correct module with the fields swapped again: refused
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd expectRefused "proof" ``dcat8s do
-  discard <| vedU1Entry ``dcat8s
+run_cmd expectRefused "proof" `ctlCatSwapS do
+  discard <| checkU1E ``dcat8s `ctlCatSwapS (specOf ``dcat8s) (mutCatSwap (← modOf ``dcat8s)) .generated
+
+-- the unswapped declaration's module against the swapped statement
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlCatIntoS do
+  discard <| checkU1E ``dcat8s `ctlCatIntoS (specOf ``dcat8s) (← modOf ``dcat8) .generated
 
 -- a proof term of the wrong statement (the identity's theorem for the complement)
 /-- info: refused [proof], clean -/
