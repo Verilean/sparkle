@@ -214,6 +214,17 @@ theorem applyIns_mapOut {R S : Type} (g : R → S) (ps : List PTy) (ns : List St
   | nil => rfl
   | cons p ps ih => exact ih _ _
 
+theorem srcOf_packed (pc : PContract) (f : pc.tbl.Ty) (ins : Nat → String → Nat) (t : Nat) :
+    srcOf pc.core (packedF pc.tbl f) ins pc.port t =
+      (pc.tbl.out.pack ((applyIns pc.tbl.ins pc.inNames ins f).val t)).toNat := by
+  have e : applyIns pc.tbl.ins pc.inNames ins
+      (InTy.mapOut (fun s => Signal.map pc.tbl.out.pack s) pc.tbl.ins f) =
+      Signal.map pc.tbl.out.pack (applyIns pc.tbl.ins pc.inNames ins f) := applyIns_mapOut _ _ _ _ _
+  simp only [srcOf, PContract.core, collapse, packedF, OTy.obs, PTy.obs,
+    List.zip_cons_cons, List.zip_nil_left, List.lookup, beq_self_eq_true, if_true, Option.getD_some]
+  erw [e]
+  rfl
+
 /-- Outputs of the packed view give the slice statement: every slice of the port is the declaration's
 own projection, and the port is in range. -/
 theorem slices_of_outputs {pc : PContract} {m : Module} {f : pc.tbl.Ty}
@@ -225,14 +236,7 @@ theorem slices_of_outputs {pc : PContract} {m : Module} {f : pc.tbl.Ty}
   obtain ⟨env, he, hv⟩ := hall t ht ⟨pc.port, .bitVector pc.tbl.out.width⟩ (List.mem_cons_self ..)
   refine ⟨env, he, ?_⟩
   have hv' : env pc.port = (pc.tbl.out.pack ((applyIns pc.tbl.ins pc.inNames ins f).val t)).toNat := by
-    rw [hv]
-    have e : applyIns pc.tbl.ins pc.inNames ins
-        (InTy.mapOut (fun s => Signal.map pc.tbl.out.pack s) pc.tbl.ins f) =
-        Signal.map pc.tbl.out.pack (applyIns pc.tbl.ins pc.inNames ins f) := applyIns_mapOut _ _ _ _ _
-    simp only [srcOf, PContract.core, collapse, packedF, OTy.obs, PTy.obs,
-      List.zip_cons_cons, List.zip_nil_left, List.lookup, beq_self_eq_true, if_true, Option.getD_some]
-    erw [e]
-    rfl
+    rw [hv]; exact srcOf_packed pc f ins t
   rw [hv', hc]
   refine ⟨BitVec.isLt _, ?_⟩
   exact all2_imp (fun s v hh => hh.2) (OTy.slices_obs pc.tbl.out ((applyIns pc.tbl.ins pc.inNames ins f).val t))
