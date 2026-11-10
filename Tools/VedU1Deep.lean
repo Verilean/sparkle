@@ -99,16 +99,6 @@ simproc reduceFinVal (Fin.val _) := fun e => do
   if nv == 0 then return .continue
   return .done { expr := toExpr (k % nv) }
 
-/-- `⟨v, h⟩ : Fin n` with `v` a closed numeral expression (`↑3 - 2`, from the
-joined register/input context): rewrite `v` to its numeral.  Simp does not
-descend into the `Fin.mk` of a dependent proof field here, and the DeepElab input
-lemmas (`_inp_at_mk_j`) are stated for numeral indices. -/
-simproc reduceFinMk (Fin.mk _ _) := fun e => do
-  let_expr Fin.mk n a h := e | return .continue
-  if a.isAppOfArity ``OfNat.ofNat 3 || a.isRawNatLit then return .continue
-  let some v ← natLit? a | return .continue
-  return .done { expr := mkApp3 (mkConst ``Fin.mk) n (toExpr v) h }
-
 /-- The register widths `Γr` of a `Cdo Γr Γi w` type (a list literal). -/
 partial def readWidths (e : Lean.Expr) : MetaM (List Nat) := do
   let e ← whnfR (← instantiateMVars e)
@@ -240,7 +230,7 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
           all_goals simp only [CExpr.compile, $out:ident]
           all_goals simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
-            $nmC:ident, -Fin.isValue, -Fin.reduceFinMk, -Fin.reduceSucc, -Fin.reduceOfNat, reduceFinVal, reduceFinMk, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
+            $nmC:ident, -Fin.isValue, -Fin.reduceFinMk, -Fin.reduceSucc, -Fin.reduceOfNat, reduceFinVal, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
             $[$inpL],*] at $locs* ⊢
           all_goals try simp only [$[$hRs],*]
           all_goals try simp only [$[$hMods],*]
@@ -253,7 +243,7 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
           all_goals unfold $inpU:ident at *
           all_goals simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
-            $nmC:ident, -Fin.isValue, -Fin.reduceFinMk, -Fin.reduceSucc, -Fin.reduceOfNat, reduceFinVal, reduceFinMk, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
+            $nmC:ident, -Fin.isValue, -Fin.reduceFinMk, -Fin.reduceSucc, -Fin.reduceOfNat, reduceFinVal, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
             $[$inpL],*, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq] at $locs* ⊢
           all_goals (try simp only [$[$hRs],*])
           all_goals (first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega))))
