@@ -73,6 +73,34 @@ def dandn {dom : DomainConfig} (a b : Signal dom Bool) : Signal dom Bool :=
 def dnandn {dom : DomainConfig} (a b : Signal dom Bool) : Signal dom Bool :=
   (fun d b0 => !b0 && d) <$> a <*> b
 
+
+/-! Non-standard instances: the source value uses the bad instance, so the
+    helper must not read the operator off the head name.  Each must be
+    refused (explicit "non-standard instance"), never miscompiled. -/
+@[reducible] def badBEq : BEq (BitVec 8) := ⟨fun _ _ => false⟩
+@[reducible] def badAdd : HAdd (BitVec 8) (BitVec 8) (BitVec 8) := ⟨fun a _ => a⟩
+@[reducible] def badApp : HAppend (BitVec 8) (BitVec 8) (BitVec 16) := ⟨fun a _ => a.zeroExtend 16⟩
+
+def nsBeqXX {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom Bool :=
+  (fun x _y => @BEq.beq (BitVec 8) badBEq x x) <$> a <*> b
+def nsBeqXY {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom Bool :=
+  (fun x y => @BEq.beq (BitVec 8) badBEq x y) <$> a <*> b
+def nsAddGen {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  (fun x y => @HAdd.hAdd _ _ _ badAdd x y + y) <$> a <*> b
+def nsAddExact {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  (fun x y => @HAdd.hAdd _ _ _ badAdd x y) <$> a <*> b
+def nsAppGen {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 16) :=
+  (fun x y => @HAppend.hAppend _ _ _ badApp y x) <$> a <*> b
+def nsAppExact {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 16) :=
+  (fun x y => @HAppend.hAppend _ _ _ badApp x y) <$> a <*> b
+def nsNotBeq {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom Bool :=
+  (fun x y => !(@BEq.beq (BitVec 8) badBEq x y)) <$> a <*> b
+/-- Standard instances spelled explicitly stay supported. -/
+def stdBeqGen {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom Bool :=
+  (fun x y => y == x) <$> a <*> b
+def stdNotBeq {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom Bool :=
+  (fun x y => !(y == x)) <$> a <*> b
+
 /-- The synthesis must fail with the "Unsupported 2-argument lambda" error. -/
 def checkRefused (declName : Name) : MetaM Bool := do
   try
@@ -107,6 +135,29 @@ def irVal (m : Sparkle.IR.AST.Module) : MetaM Nat := do
     | throwError "IR evaluator: body outside the evaluable fragment"
   let [o] := m.outputs | throwError "expected 1 output"
   return env o.name
+
+
+/-- Refused with the explicit non-standard-instance error. -/
+def checkRefusedNS (declName : Name) : MetaM Bool := do
+  try
+    let _ ← Sparkle.Compiler.Elab.synthesizeCombinational declName
+    IO.println s!"[concat-order] {declName}: compiled (expected refusal)"
+    return false
+  catch e =>
+    let msg ← e.toMessageData.toString
+    IO.println s!"[concat-order] {declName}: refused"
+    return (msg.splitOn "non-standard instance").length > 1
+
+/-- BitVec inputs a=1,b=2, Bool output. -/
+def checkBoolBV (declName : Name)
+    (f : Signal defaultDomain (BitVec 8) → Signal defaultDomain (BitVec 8) → Signal defaultDomain Bool)
+    (expected : Nat) : MetaM Bool := do
+  let (m, _) ← Sparkle.Compiler.Elab.synthesizeCombinational declName
+  let s := (if (f ⟨fun _ => 1#8⟩ ⟨fun _ => 2#8⟩).atTime 0 then 1 else 0 : Nat)
+  let i ← irVal m
+  IO.println s!"[concat-order] {declName}: source={s} ir={i} expected={expected}"
+  unless s == expected do throwError "{declName}: source value {s} /= expected {expected}"
+  return s == i
 
 /-- a = true, b = false. -/
 def checkBool (declName : Name)
@@ -163,6 +214,12 @@ run_meta do
   unless (← checkBool ``dandn (dandn (dom := defaultDomain)) 1) do bad := bad ++ [``dandn]
   unless (← checkBool ``dnandn (dnandn (dom := defaultDomain)) 1) do bad := bad ++ [``dnandn]
   unless (← checkRefused ``dshlmix) do bad := bad ++ [``dshlmix]
+  -- Non-standard instances: explicit refusal.
+  for n in [``nsBeqXX, ``nsBeqXY, ``nsAddGen, ``nsAddExact, ``nsAppGen, ``nsAppExact, ``nsNotBeq] do
+    unless (← checkRefusedNS n) do bad := bad ++ [n]
+  -- Standard `==` (a=1,b=2): false; stays source == IR.
+  unless (← checkBoolBV ``stdBeqGen (stdBeqGen (dom := defaultDomain)) 0) do bad := bad ++ [``stdBeqGen]
+  unless (← checkBoolBV ``stdNotBeq (stdNotBeq (dom := defaultDomain)) 1) do bad := bad ++ [``stdNotBeq]
   unless bad.isEmpty do
     throwError "source/IR mismatch for {bad}"
 

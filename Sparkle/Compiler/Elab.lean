@@ -1092,6 +1092,103 @@ def isCommutativeOp : Operator → Bool
   | .and | .or | .xor | .add | .mul | .eq => true
   | _ => false
 
+/-- Arity of the operand block of the overloaded (type-class) operators whose
+    meaning depends on an instance argument.  All other registry heads
+    (`BitVec.add`, `Bool.and`, `BitVec.sshiftRight`, …) are fixed constants. -/
+def overloadedOpArity? (nm : Name) : Option Nat :=
+  if nm == ``HAnd.hAnd || nm == ``HOr.hOr || nm == ``HXor.hXor
+      || nm == ``HAdd.hAdd || nm == ``HSub.hSub || nm == ``HMul.hMul
+      || nm == ``HAppend.hAppend || nm == ``HShiftLeft.hShiftLeft
+      || nm == ``HShiftRight.hShiftRight || nm == ``ShiftLeft.shiftLeft
+      || nm == ``ShiftRight.shiftRight || nm == ``BEq.beq
+      || nm == ``LT.lt || nm == ``LE.le then some 2
+  else if nm == ``Neg.neg || nm == ``Complement.complement then some 1
+  else none
+
+/-- The FIXED meaning of an overloaded operator on operands `xs` (fresh
+    fvars): a term built only from non-overloaded constants. -/
+def canonicalStdOp (nm : Name) (xs : Array Lean.Expr) : MetaM (Option Lean.Expr) := do
+  let a := xs[0]!
+  let ty ← whnfR (← inferType a)
+  let isBV := ty.isAppOf ``BitVec
+  let isBool := ty.isConstOf ``Bool
+  let mk (c : Name) (as : Array Lean.Expr := xs) : MetaM (Option Lean.Expr) :=
+    try return some (← mkAppM c as) catch _ => return none
+  let natOf (x : Lean.Expr) : MetaM Lean.Expr := mkAppM ``BitVec.toNat #[x]
+  if nm == ``HAnd.hAnd then (if isBV then mk ``BitVec.and else if isBool then mk ``and else pure none)
+  else if nm == ``HOr.hOr then (if isBV then mk ``BitVec.or else if isBool then mk ``or else pure none)
+  else if nm == ``HXor.hXor then (if isBV then mk ``BitVec.xor else if isBool then mk ``xor else pure none)
+  else if nm == ``HAdd.hAdd then (if isBV then mk ``BitVec.add else pure none)
+  else if nm == ``HSub.hSub then (if isBV then mk ``BitVec.sub else pure none)
+  else if nm == ``HMul.hMul then (if isBV then mk ``BitVec.mul else pure none)
+  else if nm == ``HAppend.hAppend then (if isBV then mk ``BitVec.append else pure none)
+  else if nm == ``Neg.neg then (if isBV then mk ``BitVec.neg else pure none)
+  else if nm == ``Complement.complement then
+    (if isBV then mk ``BitVec.not else if isBool then mk ``not else pure none)
+  else if nm == ``HShiftLeft.hShiftLeft || nm == ``ShiftLeft.shiftLeft then
+    (if isBV && xs.size == 2 then do let n ← natOf xs[1]!; mk ``BitVec.shiftLeft #[xs[0]!, n] else pure none)
+  else if nm == ``HShiftRight.hShiftRight || nm == ``ShiftRight.shiftRight then
+    (if isBV && xs.size == 2 then do let n ← natOf xs[1]!; mk ``BitVec.ushiftRight #[xs[0]!, n] else pure none)
+  else if nm == ``LT.lt then
+    (if isBV && xs.size == 2 then
+      try return some (← mkAppM ``LT.lt #[← natOf xs[0]!, ← natOf xs[1]!]) catch _ => pure none
+     else pure none)
+  else if nm == ``LE.le then
+    (if isBV && xs.size == 2 then
+      try return some (← mkAppM ``LE.le #[← natOf xs[0]!, ← natOf xs[1]!]) catch _ => pure none
+     else pure none)
+  else if nm == ``BEq.beq then
+    -- `a == b` on BitVec / Bool is `decide (a = b)` via the core decidable-equality instances
+    try
+      if isBV then
+        let d ← mkAppM ``instDecidableEqBitVec xs
+        return some (mkApp2 (mkConst ``Decidable.decide) (← mkEq xs[0]! xs[1]!) d)
+      else if isBool then
+        let d ← mkAppM ``instDecidableEqBool xs
+        return some (mkApp2 (mkConst ``Decidable.decide) (← mkEq xs[0]! xs[1]!) d)
+      else return none
+    catch _ => return none
+  else return none
+
+/-- `none` when the application `fn args` is acceptable: either `fn` is not
+    an overloaded operator, or its instance/type arguments are closed and the
+    application on fresh operands is definitionally equal, at `instances`
+    transparency, to the fixed meaning.  `some msg` for a non-standard
+    instance (the caller refuses).  Operands are replaced by fresh fvars, so
+    nothing is unfolded at the operand widths. -/
+def nonStandardOpMsg? (fn : Lean.Expr) (args : Array Lean.Expr) : MetaM (Option String) := do
+  let .const nm _ := fn | return none
+  let some k := overloadedOpArity? nm | return none
+  let bad := some s!"non-standard instance for {nm}"
+  if args.size < k then return bad
+  let others := args.extract 0 (args.size - k)
+  if others.any (·.hasLooseBVars) then return bad
+  withNewMCtxDepth do
+    let head := mkAppN fn others
+    let ty ← inferType head
+    forallBoundedTelescope ty (some k) fun xs _ => do
+      if xs.size != k then return bad
+      let app := mkAppN head xs
+      match ← canonicalStdOp nm xs with
+      | none => return bad
+      | some canon =>
+        if ← withTransparency .instances (isDefEq app canon) then return none else return bad
+
+def throwNonStandard (msg : String) (f : Lean.Expr) : MetaM α :=
+  throwError "Unsupported 2-argument lambda in `<$> … <*> …`: {msg} (the operator \
+    must use the standard instance; lambda: {f})"
+
+/-- Check that the lambda body of `f` (`exact` shape, or the outer/inner
+    operators of `!(x OP y)`) uses only standard operators. -/
+def checkLamBodyStd (f : Lean.Expr) (inner : Bool := false) : MetaM Unit := do
+  let .lam _ _ (.lam _ _ body _) _ := f | return
+  let chk (e : Lean.Expr) : MetaM Unit := do
+    if let some m ← nonStandardOpMsg? e.getAppFn e.getAppArgs then throwNonStandard m f
+  chk body
+  if inner then
+    let nargs := body.getAppArgs
+    if nargs.size >= 1 then chk nargs[nargs.size-1]!
+
 /-- Shape of the function argument of a 2-argument `Seq.seq`/`Signal.ap`
     lowering.  The "head operator applied to the two wires" shortcut is only
     sound for `exact`: `fun x y => op … x y` / `op … y x` where the last two
@@ -1159,6 +1256,8 @@ def lowerLam2General (f : Lean.Expr) (wa wb : String) :
     | .app .. =>
       let args := e.getAppArgs
       let .const nm _ := e.getAppFn | return none
+      if let some m ← CompilerM.liftMetaM (nonStandardOpMsg? e.getAppFn args) then
+        CompilerM.liftMetaM (throwNonStandard m f)
       if nm == ``OfNat.ofNat || nm == ``BitVec.ofNat then
         if e.hasLooseBVars then return none
         try
@@ -1194,7 +1293,9 @@ def lowerLam2General (f : Lean.Expr) (wa wb : String) :
 def lowerNonExactLam2 (e f : Lean.Expr) (wa wb hint : String) (isNamed : Bool) :
     CompilerM (Option String) := do
   match lam2Shape f with
-  | .exact _ => return none
+  | .exact _ =>
+    CompilerM.liftMetaM (checkLamBodyStd f)
+    return none
   | .notLam2 => return none
   | .general =>
     match (← lowerLam2General f wa wb) with
@@ -1884,6 +1985,7 @@ mutual
                         | _ => none
                       else none
                     | _ => none) then
+                  CompilerM.liftMetaM (checkLamBodyStd f (inner := true))
                   let exprType ← cachedInferType e
                   let hwType ← inferHWTypeFromSignal exprType
                   let innerWire ← CompilerM.makeWire s!"{hint}_inner" hwType (named := false)
@@ -2589,6 +2691,7 @@ mutual
           | _ => none
         match compoundNot? with
         | some (innerOp, innerSw) =>
+          CompilerM.liftMetaM (checkLamBodyStd f (inner := true))
           let exprType ← cachedInferType e
           let hwType ← inferHWTypeFromSignal exprType
           let innerWire ← CompilerM.makeWire s!"{hint}_inner" hwType (named := false)
