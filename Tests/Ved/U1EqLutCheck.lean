@@ -131,8 +131,9 @@ def mutNth (n : Nat) (f : Stmt → Option Stmt) (m : Sparkle.IR.AST.Module) :
 open Sparkle.IR.AST in
 /-- the `n`-th constant of width `w` gets value `+1` (one statement) -/
 def bumpConst (w n : Nat) (m : Sparkle.IR.AST.Module) : Except String Sparkle.IR.AST.Module :=
-  mutNth n (fun | .assign o (.const v w') => if w' == w then some (.assign o (.const (v + 1) w)) else none
-                | _ => none) m
+  mutNth n (fun s => match s with
+    | .assign o (.const v w') => if w' == w then some (.assign o (.const (v + 1) w)) else none
+    | _ => none) m
 
 open Sparkle.IR.AST in
 /-- the values of the `a`-th and the `b`-th constant of width `w` exchanged (exactly two
@@ -144,16 +145,19 @@ def swapConsts (w : Nat) (a b : Nat) (m : Sparkle.IR.AST.Module) :
   let some va := vs[a]? | throw s!"swap: no constant #{a} of width {w}"
   let some vb := vs[b]? | throw s!"swap: no constant #{b} of width {w}"
   if va == vb then throw "swap of two equal constants changes nothing"
-  let m1 ← mutNth a (fun | .assign o (.const _ w') => if w' == w then some (.assign o (.const vb w)) else none
-                       | _ => none) m
-  mutNth b (fun | .assign o (.const _ w') => if w' == w then some (.assign o (.const va w)) else none
-              | _ => none) m1
+  let m1 ← mutNth a (fun s => match s with
+    | .assign o (.const _ w') => if w' == w then some (.assign o (.const vb w)) else none
+    | _ => none) m
+  mutNth b (fun s => match s with
+    | .assign o (.const _ w') => if w' == w then some (.assign o (.const va w)) else none
+    | _ => none) m1
 
 open Sparkle.IR.AST in
 /-- the `n`-th `==` becomes `!=` (a comparison is 1 bit wide: its complement); one statement -/
 def eqToNe (n : Nat) (m : Sparkle.IR.AST.Module) : Except String Sparkle.IR.AST.Module :=
-  mutNth n (fun | .assign o (.op .eq args) => some (.assign o (.op .not [.op .eq args]))
-                | _ => none) m
+  mutNth n (fun s => match s with
+    | .assign o (.op .eq args) => some (.assign o (.op .not [.op .eq args]))
+    | _ => none) m
 
 open Sparkle.IR.AST in
 /-- the positions where the bodies differ, with the old and the new statement
@@ -161,16 +165,16 @@ open Sparkle.IR.AST in
 def bodyDiff (o m : Sparkle.IR.AST.Module) : Except String (List (Nat × String × String)) := do
   unless ({ o with body := [] } : Sparkle.IR.AST.Module) = { m with body := [] } do throw "module header differs"
   unless o.body.length == m.body.length do throw "body lengths differ"
-  let mut out := []
+  let mutant out := []
   for (i, (x, y)) in (o.body.zip m.body).zipIdx.map (fun (p, i) => (i, p)) do
     if x ≠ y then out := out ++ [(i, toString (repr x), toString (repr y))]
   return out
 
 /-- Check original against mutant BEFORE the control runs: the number of differing
 positions, which positions, and the old and new statements there. -/
-def checkDiff (what : String) (o : Sparkle.IR.AST.Module) (mut : Except String Sparkle.IR.AST.Module)
+def checkDiff (what : String) (o : Sparkle.IR.AST.Module) (mutant : Except String Sparkle.IR.AST.Module)
     (expected : List (Nat × String × String)) : CommandElabM Sparkle.IR.AST.Module := do
-  let m ← match mut with | .ok m => pure m | .error e => throwError "{what}: mutator failed: {e}"
+  let m ← match mutant with | .ok m => pure m | .error e => throwError "{what}: mutator failed: {e}"
   let d ← match bodyDiff o m with | .ok d => pure d | .error e => throwError "{what}: {e}"
   unless d.length == expected.length do
     throwError "{what}: {d.length} differing positions, expected {expected.length}: {d}"
@@ -184,10 +188,10 @@ def ctl (base : Name) (decl : Name) (m : Sparkle.IR.AST.Module) : CommandElabM U
     discard <| checkU1E decl base (specOf decl) m .generated
 
 /-- the mutant of `decl`'s module, its diff checked against the original, then refused -/
-def ctlMut (base decl : Name) (mut : Sparkle.IR.AST.Module → Except String Sparkle.IR.AST.Module)
+def ctlMut (base decl : Name) (mutant : Sparkle.IR.AST.Module → Except String Sparkle.IR.AST.Module)
     (expected : List (Nat × String × String)) : CommandElabM Unit := do
   let o ← liftTermElabM (modOf decl)
-  let m ← checkDiff (toString base) o (mut o) expected
+  let m ← checkDiff (toString base) o (mutant o) expected
   ctl base decl m
 
 /-- info: refused [proof], clean -/
