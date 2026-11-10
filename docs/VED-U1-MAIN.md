@@ -75,7 +75,7 @@ Issue `sparkle-ved-multireg`. Nothing in `Sparkle/`, in `Tools/DeepElab.lean` or
   - accepted, std3 axioms, full type compared with `==`: two registers with a Bool reset, four independent counters, a held register with a Bool enable and a bit-vector input, a 3-state FSM with a hold, user parameters named `u`, `m`;
   - refused at `[proof]`, nothing left under the base: one register's next value changed (2 and 4 registers), two same-width registers swapped in the module (2 and 4), another declaration's DeepElab constants, a wrong initial value (2 and 4).
   `U1DeepCheck`, `U1EntryCheck` and `DeepHygieneCheck` still pass.
-- **Representatives, in their own file context** (`#verify_elab_deep` then `set_option Elab.async false in #ved_u1_deep`, scratch files outside the tree; wall time includes loading the imports, peak RSS of the whole `lean` process):
+- **Representatives, in their own file context** (`#verify_elab_deep` then `set_option Elab.async false in #ved_u1_deep`, scratch files outside the tree; wall time includes loading the imports, peak RSS of the whole `lean` process). These are reference runs by the implementing agent, made before the kjob build-cache seeding fix. They are not independent-probe measurements and are NOT added to the strict count of the fixed 327-row inventory; that count comes only from the separate measurement with an independent probe:
 
   | row | declaration | result | wall (verify only / + deep U1) | peak RSS |
   |---|---|---|---|---|
@@ -88,7 +88,7 @@ Issue `sparkle-ved-multireg`. Nothing in `Sparkle/`, in `Tools/DeepElab.lean` or
 
 - **What is not claimed.**
   - R66 (`baselineNoSubmodule`) and R212 (`crc32EngineTop`) were not run here.
-  - One output, no memories, no instances, reset held at 0: unchanged.
+  - One output, no memories, no instances, no multi-output, reset held at 0: unchanged. Nothing about the optimised IR or the printed SV.
   - A circuit with many registers and several inputs is one `simp`/`omega` script; a local copy with two registers and three inputs (two Bool, one 8-bit) was refused at `[checker]` (deterministic heartbeat timeout at `whnf`, limit 200000). The limit was not raised; a smaller circuit of the same kind (two registers, a Bool and an 8-bit input) is accepted.
   - Nothing here is "327 supported" or strict-complete.
 - **Fin literals.** Core simp turns a joined-context index into `(3 : Fin 4)` while the surrounding `Fin.val` keeps the bound `List.length (Γr ++ Γi)`; that term is not type-correct at instance transparency and simp then refuses to rewrite it. The script keeps the indices as `Fin.mk` (`-Fin.reduceFinMk`, `-Fin.isValue`, `-Fin.reduceSucc`, `-Fin.reduceOfNat`) and has one simproc for `Fin.val` of a numeral (`[8,8,8,8][↑3]`). A future generalisation (many registers, many inputs) should avoid expanding `natJoin`/`envOfC` through `List.finRange` and instead read each variable with `envOfC_names`, one lemma per slot.
