@@ -604,4 +604,48 @@ theorem instEval_leaf (d : Design) (arr : String → List Stmt) (we : WEnv) (mn 
   rw [outWrites_eq cm conns envC y hout]
   simp [leafOut, hr2]
 
+theorem OTy.obs_length : ∀ (o : OTy) (v : o.val), (o.obs v).length = o.flat.length
+  | .leaf p, v => by simp [OTy.obs, OTy.flat]
+  | .pair a b, v => by simp [OTy.obs, OTy.flat, OTy.obs_length a v.1, OTy.obs_length b v.2]
+
+/-- The child's output as an observation: one output projection, equal to `leafOut`. -/
+theorem child_rel_out (cc : Contract) (cm : Module) (g : cc.table.Ty) (b : List Stmt)
+    (hU : U1Stmt cc cm g) (hpa : b.Perm cm.body) (hwo : WO [] b)
+    (hasg : assignOnly cm.body = true) (hclk : cc.clkRst = none)
+    (hone : cc.table.out.flat.length = 1)
+    (args : ArgSigs cc.table.ins) (t : Nat) :
+    cc.table.out.obs ((applyArgs cc.table.ins g args).val t) =
+      [leafOut cm b (obsArgs cc.table.ins args t)] := by
+  obtain ⟨envC, hE, hO⟩ := child_rel cc cm g b hU hpa hwo hasg hclk args t
+  obtain ⟨hcorr, ⟨hcore, _⟩, _⟩ := hU
+  obtain ⟨hl1, hl2, hl3, _⟩ := hcorr
+  have hinp : cm.inputs = cc.dataInputs := by
+    rw [hcore.2.2.2.2.1]; simp [clkRstPorts, hclk]
+  have hnames : cm.inputs.map (·.name) = cc.inNames := by rw [hinp]; exact dataInputs_names cc hl2
+  obtain ⟨q, hq⟩ : ∃ q, cc.table.out.flat = [q] := by
+    cases h : cc.table.out.flat with
+    | nil => rw [h] at hone; simp at hone
+    | cons q r => rw [h] at hone; simp at hone; exact ⟨q, by simp [hone]⟩
+  obtain ⟨o, ho⟩ : ∃ o, cc.outNames = [o] := by
+    cases h : cc.outNames with
+    | nil => rw [h, hq] at hl3; simp at hl3
+    | cons o r => rw [h, hq] at hl3; simp at hl3; exact ⟨o, by simp [hl3]⟩
+  have hlen := OTy.obs_length cc.table.out ((applyArgs cc.table.ins g args).val t)
+  rw [hq] at hlen
+  obtain ⟨x, hx⟩ : ∃ x, cc.table.out.obs ((applyArgs cc.table.ins g args).val t) = [x] := by
+    cases h : cc.table.out.obs ((applyArgs cc.table.ins g args).val t) with
+    | nil => rw [h] at hlen; simp at hlen
+    | cons x r => rw [h] at hlen; simp at hlen; exact ⟨x, by simp [hlen]⟩
+  have hout : cm.outputs = [⟨o, q.hw⟩] := by
+    rw [hcore.2.2.2.2.2.1]; simp [Contract.outputs, ho, hq]
+  have hoo : (⟨o, q.hw⟩ : Port) ∈ cc.outputs := by
+    rw [← hcore.2.2.2.2.2.1, hout]; simp
+  have h1 := hO _ hoo
+  rw [ho, hx] at h1
+  simp only [List.zip_cons_cons, List.zip_nil_right, List.lookup, beq_self_eq_true, ite_true, Option.getD_some] at h1
+  rw [hx]
+  congr 1
+  simp only [leafOut, hnames, hE, Option.map_some, Option.getD_some, outNameOf, hout, List.headD_cons]
+  exact h1.symm
+
 end Tools.VedU1Hier
