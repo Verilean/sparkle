@@ -63,6 +63,9 @@ jobs:
     - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
       run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1EqLutCheck
 
+    - name: U1 on a real IP leaf (rconHW, representative, heavier)
+      run: lake build Tests.Ved.U1RconCheck
+
     - name: Deep route, representative regression
       run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
 
@@ -90,6 +93,9 @@ jobs:
 
     - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
       run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1EqLutCheck
+
+    - name: U1 on a real IP leaf (rconHW, representative, heavier)
+      run: lake build Tests.Ved.U1RconCheck
 
     - name: Deep route, every regression file
       run: |
