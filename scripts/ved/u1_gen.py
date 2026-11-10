@@ -97,7 +97,7 @@ RESULT_COLUMNS = KEY_COLUMNS + [
     "u1_status",             # ok | refused | error | not-reached(prep failed) | not-reached(unsupported) | not-reached(run aborted) | unresolved
     "first_cause",           # see FIRST_CAUSES in the docstring of classify
     "refusal_stage", "refusal_msg", "later_stages_not_reached",
-    "u1_ok_line", "u1_ok_thm",
+    "u1_ok_line", "u1_ok_thm", "u1_ok_specialised", "probe_domains",
     # independent probe
     "probe_present", "probe_thm", "probe_type", "probe_mvars", "probe_levels", "probe_mod",
     "probe_contract", "probe_outputs", "probe_axioms", "probe_axioms_std3", "probe_preexisting",
@@ -165,8 +165,22 @@ run_cmd do
     | none => logInfo m!"VED U1P THM absent"
     | some (.thmInfo _) => logInfo m!"VED U1P THM theorem"
     | some _ => logInfo m!"VED U1P THM not-a-theorem"
+    -- the statement term, rebuilt here independently of the entry: the
+    -- original constant, applied to `defaultDomain` once per LEADING implicit
+    -- binder whose type is exactly `DomainConfig` (reviewer 2026-11-10)
+    let k ← liftTermElabM do
+      let ci ← getConstInfo n
+      forallTelescope ci.type fun xs _ => do
+        let mut k := 0
+        for x in xs do
+          let ld ← x.fvarId!.getDecl
+          if !ld.binderInfo.isExplicit && ld.type.isConstOf `Sparkle.Core.Domain.DomainConfig then k := k + 1
+          else break
+        pure k
+    logInfo m!"VED U1P STMT domains={k}"
+    let stmt := mkAppN (mkConst n) (List.replicate k (mkConst `Sparkle.Core.Domain.defaultDomain)).toArray
     if let some (.thmInfo ti) := env.find? thm then
-      let expected := mkAppN (mkConst ``Tools.VedU1Contract.U1Stmt) #[mkConst ct, mkConst md, mkConst n]
+      let expected := mkAppN (mkConst ``Tools.VedU1Contract.U1Stmt) #[mkConst ct, mkConst md, stmt]
       logInfo m!"VED U1P TYPE {if ti.type == expected then "exact" else "differs"}"
       logInfo m!"VED U1P MVARS type={ti.type.hasMVar} value={ti.value.hasMVar} fvars={ti.type.hasFVar || ti.value.hasFVar}"
       logInfo m!"VED U1P LEVELS {ti.levelParams.length}"
@@ -492,9 +506,11 @@ def classify_dir(d, sv_group=""):
     # the U1 step
     u1 = in_seg("u1")
     u1_errs = [t for ln, sev, t in u1 if sev == "error"]
-    okm = next((re.match(r"VED U1 OK (\S+):", t) for ln, sev, t in u1 if t.startswith("VED U1 OK ")), None)
+    okm = next((re.match(r"VED U1 OK (\S+)( \(specialised at defaultDomain\))?:", t)
+                for ln, sev, t in u1 if t.startswith("VED U1 OK ")), None)
     row["u1_ok_line"] = "yes" if okm else "no"
     row["u1_ok_thm"] = okm.group(1) if okm else ""
+    row["u1_ok_specialised"] = ("yes" if okm.group(2) else "no") if okm else ""
     refusal = None
     for t in u1_errs:
         m = re.match(r"VED U1 REFUSED (\S+) \[([\w-]+)\]: ?(.*)", t, re.S)
@@ -639,6 +655,13 @@ def classify_dir(d, sv_group=""):
         bl.append(f"decl:{row['decl_check']}")
     if pre_exist or row["probe_preexisting"] != "no":
         bl.append(f"preexisting:{row['probe_preexisting']}")
+    m_dom = re.search(r"VED U1P STMT domains=(\d+)", "\n".join(pm))
+    row["probe_domains"] = m_dom.group(1) if m_dom else ""
+    if not m_dom:
+        bl.append("stmt-domains:unknown")
+    elif okm and (row["probe_domains"] != "0") != (row["u1_ok_specialised"] == "yes"):
+        # the OK line's "specialised" claim must match the statement the probe rebuilt
+        bl.append(f"specialised-mismatch:ok={row['u1_ok_specialised']},domains={row['probe_domains']}")
     if resolved and row["u1_ok_thm"] != f"{resolved}.ved_u1":
         bl.append(f"ok-thm-name:{row['u1_ok_thm'] or 'none'}")
     if row["ran"] != "yes" or "probe_end" not in marks:

@@ -390,6 +390,23 @@ class U1Harness(unittest.TestCase):
         r = self.one(5, "u1")
         self.assertEqual(r["ns_check"], "n/a")
 
+    def test_specialised_statement(self):
+        # reviewer 2026-11-10: `@decl defaultDomain` statements; the OK line's
+        # "specialised" claim must match the statement the probe rebuilt
+        r = self.one(1, "u1", ok_specialised=True, domains=1)
+        self.assertEqual((r["strict_counted"], r["u1_ok_specialised"], r["probe_domains"]), ("yes", "yes", "1"))
+        r = self.one(2, "u1", ok_specialised=True, domains=0)
+        self.assertEqual(r["strict_counted"], "no")
+        self.assertIn("specialised-mismatch:ok=yes,domains=0", r["strict_blockers"])
+        r = self.one(5, "u1", domains=1)
+        self.assertIn("specialised-mismatch:ok=no,domains=1", r["strict_blockers"])
+        # the stored type over the unapplied constant (old expected type): differs
+        r = self.one(1, "u1", ok_specialised=True, domains=1, probe={"type": "differs"})
+        self.assertIn("type:differs", r["strict_blockers"])
+        # no STMT line from the probe: never strict
+        r = self.one(2, "u1", domains=None)
+        self.assertIn("stmt-domains:unknown", r["strict_blockers"])
+
     def test_u1_deep_ns_root_level_declaration(self):
         # reviewer P1-1: a root-level name opens no namespace (the u1_deep command)
         r = self.one(1, "u1_deep_ns", resolved="foo1", qualified="foo1")

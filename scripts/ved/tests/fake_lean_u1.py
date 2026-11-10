@@ -91,7 +91,8 @@ def main():
     el = at("#ved_u1")
     if u1 == "ok":
         axs = ", ".join(plan.get("ok_axioms", ["propext"]))
-        msg("info", f"VED U1 OK {plan.get('ok_thm', resolved + '.ved_u1')}: [{axs}]\n(Module body)", el)
+        spec = " (specialised at defaultDomain)" if plan.get("ok_specialised") else ""
+        msg("info", f"VED U1 OK {plan.get('ok_thm', resolved + '.ved_u1')}{spec}: [{axs}]\n(Module body)", el)
     elif isinstance(u1, list) and u1[0] == "refused":
         msg("error", f"VED U1 REFUSED {resolved} [{u1[1]}]: {u1[2]}", el)
     elif isinstance(u1, list) and u1[0] == "error":
@@ -103,6 +104,8 @@ def main():
         msg("info", f"VED U1P PROBE failed: {plan['probe_fail']}", pl)
     else:
         q = dict(GOOD, **plan.get("probe", {}))
+        if plan.get("domains", 0) is not None:
+            msg("info", f"VED U1P STMT domains={plan.get('domains', 0)}", pl)
         msg("info", f"VED U1P THM {q['thm']}", pl)
         if q["thm"] == "theorem":
             msg("info", f"VED U1P TYPE {q['type']}", pl)
