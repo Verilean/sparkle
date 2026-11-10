@@ -42,6 +42,11 @@ def hpar (a b c : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVe
 def hchain (a b c : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
   hcA (hcA a b) c
 
+/-- A PRIVATE parent (its constants live under `_private.<module>.0`, a name
+the generated proof text cannot spell; the text uses the user-facing name). -/
+private def hpriv (a b c : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  hcA (hcA a b) c
+
 /-- Same shape as `hpar`, used by the controls (so nothing clashes with the entry runs). -/
 def hctl (a b c : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
   let p := hcA a b
@@ -85,6 +90,23 @@ run_cmd checkOk ``hpar
 /-- info: hier OK Tests.Ved.U1HierCheck.hchain.ved_u1 children [Tests.Ved.U1HierCheck.hcA] -/
 #guard_msgs in
 run_cmd checkOk ``hchain
+
+/-- The private parent: exact type and standard axioms, as `checkOk`
+(the message avoids the module-dependent private prefix). -/
+def checkOkPriv : CommandElabM Unit := liftTermElabM do
+  let decl := ``hpriv
+  unless isPrivateName decl do throwError "{decl} is not private"
+  let (_, _, thm, nDom, _) ← vedU1HierEntry decl
+  let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+  unless ti.type == expectedOf decl nDom do throwError "{thm}: type is not U1HStmt c m d decl"
+  let ax ← collectAxioms thm
+  let ok := [``propext, ``Classical.choice, ``Quot.sound]
+  unless ax.all (ok.contains ·) do throwError "{thm}: axioms {ax}"
+  logInfo m!"hier OK private parent {(privateToUserName? thm).getD thm}"
+
+/-- info: hier OK private parent Tests.Ved.U1HierCheck.hpriv.ved_u1 -/
+#guard_msgs in
+run_cmd checkOkPriv
 
 /-! ## The closed run on concrete values (miswiring is observable) -/
 

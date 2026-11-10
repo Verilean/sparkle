@@ -148,8 +148,23 @@ def portTy (p : PTy) : String :=
 def sigTy (p : PTy) : String :=
   s!"(Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain {portTy p})"
 
+/-- A name as it can be written in the generated proof TEXT: a private name
+(`_private.<module>.0.N`) is printed as its user-facing `N`, which resolves
+back to the same private constant inside the module that declares it (the
+numeric component of the private prefix cannot be written in source). -/
+def userName (n : Name) : Name := (privateToUserName? n).getD n
+
+def HNames.user (nm : HNames) : HNames :=
+  { mod := userName nm.mod, design := userName nm.design, contract := userName nm.contract,
+    outs := userName nm.outs, body := userName nm.body, thm := userName nm.thm }
+
+def namesUser (nm : Names) : Names :=
+  { mod := userName nm.mod, contract := userName nm.contract, outs := userName nm.outs,
+    body := userName nm.body, thm := userName nm.thm }
+
 /-- The declaration term as the statement writes it (`@decl defaultDomain …` when specialised). -/
 def declTerm (decl : Name) (nDom : Nat) : String :=
+  let decl := userName decl
   if nDom == 0 then s!"{decl}"
   else "(@" ++ s!"{decl}" ++ String.join (List.replicate nDom " Sparkle.Core.Domain.defaultDomain") ++ ")"
 
@@ -164,7 +179,8 @@ def strList (xs : List String) : String := "[" ++ ", ".intercalate (xs.map sq) +
 /-- The generated (untrusted) proof text of `U1HStmt P.contract P.mod P.design F`. -/
 def scriptText (nm : HNames) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design) (kids : List Kid) :
     String := Id.run do
-  let P := nm
+  let P := nm.user
+  let kids := kids.map fun k => { k with nm := namesUser k.nm }
   let mut L : Array String := #[]
   let kidIdx := kids.zipIdx
   L := L.push s!"  have hne := Tools.VedU1Hier.hier_ne (show Tools.VedU1Hier.HierShape {P.design} {P.mod} = true by decide)"
