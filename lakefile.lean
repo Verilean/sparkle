@@ -345,6 +345,9 @@ lean_lib «Tools.VedU1Lemmas» where
 lean_lib «Tools.VedU1Entry» where
   roots := #[`Tools.VedU1Entry]
 
+lean_lib «Tools.VedU1Packed» where
+  roots := #[`Tools.VedU1Packed]
+
 lean_lib «Tools.VedU1Deep» where
   roots := #[`Tools.VedU1Deep]
 
