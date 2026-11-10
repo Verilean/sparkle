@@ -15,7 +15,7 @@ import time
 
 def counts(m):
     d = dict(regs=0, mems=0, insts=0, stmts=0, wires=0, regbits=0, regbits_unknown=0, membits=0)
-    d.update(m)
+    d.update({k: v for k, v in m.items() if k != "name"})
     return d
 
 
