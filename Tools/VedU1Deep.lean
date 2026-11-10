@@ -81,6 +81,26 @@ def addTermDef (n : Name) (stx : Term) : TermElabM Unit := do
   if e.hasMVar || e.hasFVar then throwError "auxiliary {n} is not closed"
   addDefnRegular n (← inferType e) e
 
+/-- The register widths `Γr` of a `Cdo Γr Γi w` type (a list literal). -/
+partial def readWidths (e : Lean.Expr) : MetaM (List Nat) := do
+  let e ← whnfR (← instantiateMVars e)
+  match e.getAppFnArgs with
+  | (``List.nil, _) => pure []
+  | (``List.cons, #[_, h, t]) =>
+    let some n ← evalNat (← instantiateMVars h) | throwError "register width {h} is not a literal"
+    return n :: (← readWidths t)
+  | _ => throwError "register context {e} is not a list literal"
+
+/-- A fresh, macro-scoped identifier (never capturable by a user name). -/
+def freshId (base : String) : MetaM Ident := do
+  return mkIdent (← mkFreshUserName (Name.mkSimple base))
+
+/-- Right-nested `∧` projection `i` of `k`. -/
+def conjProj (h : Ident) (i k : Nat) : TermElabM Term := do
+  let mut t : Term := h
+  for _ in [0:i] do t ← `($t.2)
+  if i + 1 < k then `($t.1) else pure t
+
 /-- The script builder: registers `ved_inpU` / `ved_irS` (under the checker's
 base) and returns the proof script of `U1Stmt C M stmtDecl`, built from the
 DeepElab constants of `decl`.  The entry passes the same declaration for
@@ -93,15 +113,19 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
   let deepC ← getConstInfo (deepName decl "_deep")
   unless deepC.type.getAppFn.constName? == some ``Cdo do
     throwError "{deepName decl "_deep"} is not a Cdo (memories are outside this slice)"
-  let some (r, w) := regShape m
-    | throwError "not one register (outside this slice)"
+  let widths ← readWidths (deepC.type.getAppArgs[0]!)
+  let k := widths.length
+  if k == 0 then throwError "no register (outside this slice)"
+  unless (regsOf m.body).length == k do
+    throwError "module has {(regsOf m.body).length} registers, {deepName decl "_deep"} has {k}"
   unless tbl.out.flat.length == 1 do throwError "not one output"
   let mut sigs : Array Term := #[]
   for (p, b) in tbl.ins.zip tbl.binders do
     match p with
     | .bv pw =>
       sigs := sigs.push (← `(PTy.sig (.bv $(quote pw)) ins $(quote ("_gen_" ++ b))))
-    | _ => throwError "input {b} is not a bit vector (outside this slice)"
+    | .bit =>
+      sigs := sigs.push (← `(PTy.sig .bit ins $(quote ("_gen_" ++ b))))
   let base := nm.mod.getPrefix
   let inpU := mkCIdent (base ++ `ved_inpU)
   let irS := mkCIdent (base ++ `ved_irS)
@@ -112,7 +136,7 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
     (← `(fun (ins : Nat → String → Nat) (t : Nat) j => ($inpC $sigs* j).val t))
   addTermDef (base ++ `ved_irS)
     (← `(fun (ins : Nat → String → Nat) (t : Nat) =>
-          Cdo.irState $deep $nmC ($inpU ins) t ⟨0, by decide⟩))
+          Cdo.irState $deep $nmC ($inpU ins) t))
   let C := mkCIdent nm.contract
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
@@ -122,37 +146,53 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
   let next := mkCIdent (deepName decl "_deep_next")
   let inits := mkCIdent (deepName decl "_deep_inits")
   let out := mkCIdent (deepName decl "_deep_out")
-  let rS := Syntax.mkStrLit r
-  let wS := Syntax.mkNumLit (toString w)
-  `(by
-      have hinj : ∀ i j, $nmC i = $nmC j → i = j := by decide
-      have hlt : ∀ ins t, $irS ins t < 2 ^ $wS := by
+  let idx (i : Nat) : TermElabM Term := `((⟨$(quote i), by decide⟩ : Fin _))
+  -- per register: its slot name (through `_nm`), its bound, its invariant hypothesis
+  let mut slotN : Array Term := #[]
+  let mut slotV : Array Term := #[]
+  for i in [0:k] do
+    slotN := slotN.push (← `($nmC ⟨$(quote i), by decide⟩))
+    slotV := slotV.push (← `($irS ins s ⟨$(quote i), by decide⟩))
+  let mut inv : Term ← `(st $(slotN[k-1]!) = $(slotV[k-1]!))
+  for i in (List.range (k - 1)).reverse do
+    inv ← `(st $(slotN[i]!) = $(slotV[i]!) ∧ $inv)
+  let hltIds ← (List.range k).toArray.mapM fun i => freshId s!"hlt{i}"
+  let hRId ← freshId "hR"
+  let hRIds ← (List.range k).toArray.mapM fun i => freshId s!"hR{i}"
+  let hltTacs ← (List.range k).toArray.mapM fun i => do
+    let h := hltIds[i]!
+    let wS := Syntax.mkNumLit (toString widths[i]!)
+    `(tactic| have $h:ident : ∀ ins t, $irS ins t ⟨$(quote i), by decide⟩ < 2 ^ $wS := by
         intro ins t
         unfold $irS:ident
         rw [Cdo.irState_eq $deep $nmC hinj]
-        exact BitVec.isLt _
-      have hSI : ∀ ins t, srcOf $C $f ins "out" t = $irS ins t := by
-        intro ins t
-        have hl := hlt ins t
-        simp [srcOf, $C:ident, contractOf, applyIns, OTy.obs, PTy.obs]
-        all_goals rw [$trace:ident]
-        all_goals unfold $irS:ident $inpU:ident at hl ⊢
-        all_goals simp only [CExpr.compile, $out:ident]
-        all_goals simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
-          Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
-          $nmC:ident, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl] at hl ⊢
-        all_goals omega
+        exact BitVec.isLt _)
+  let hlIds ← (List.range k).toArray.mapM fun i => freshId s!"hl{i}"
+  let hlTacs ← (List.range k).toArray.mapM fun i => do
+    let h : Ident := hltIds[i]!
+    `(tactic| have $(hlIds[i]!):ident := $h ins s)
+  let locs : Array (TSyntax `ident) := hRIds ++ hlIds
+  let hRTacs ← (List.range k).toArray.mapM fun i => do
+    `(tactic| have $(hRIds[i]!):ident := $(← conjProj hRId i k))
+  let holes : Array Term ← (List.range k).toArray.mapM fun _ => `(?_)
+  let mut inpAts : Array Ident := #[]
+  for j in [0:tbl.ins.length] do
+    for sfx in [s!"_inp_at_{j}", s!"_inp_at_mk_{j}"] do
+      if (← getEnv).contains (deepName decl sfx) then
+        inpAts := inpAts.push (mkCIdent (deepName decl sfx))
+  let pre ← `(tactic| have hinj : ∀ i j, $nmC i = $nmC j → i = j := by decide)
+  let mainTac ← `(tactic| (
       refine ⟨by decide, by decide, by decide, ⟨$B, by decide⟩, ?_⟩
       apply outputs_of_order $B (by decide)
-      apply outputs_of_step $C $M $B $f $O (by decide) (fun ins s st => st $rS = $irS ins s)
+      apply outputs_of_step $C $M $B $f $O (by decide) (fun ins s st => $inv)
       · intro ins hok
         simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
-          $irS:ident, Cdo.irState, $inits:ident]
-      · intro ins hok s st mems hR
+          $irS:ident, Cdo.irState, $inits:ident, $nmC:ident, List.lookup]
+      · intro ins hok s st mems $hRId
         have hin := hok.1 s
         have hrst := hok.2 s
-        have hl := hlt ins s
-        have e1 := hSI ins s
+        $hRTacs*
+        $hlTacs*
         simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at hin hrst
         simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList,
           Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalOp,
@@ -160,19 +200,28 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
           mask, hrst, or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow]
         refine ⟨_, _, ⟨rfl, rfl⟩, ?_, ?_⟩
         · simp only [ite_true]
-          rw [e1, hR]
-          all_goals generalize $irS ins s = x at hl ⊢
-          all_goals omega
-        · simp only [List.find?, beq_self_eq_true]
-          rw [hR]
-          all_goals unfold $irS:ident at hl ⊢
-          all_goals simp only [Cdo.irState, $next:ident, CExpr.compile]
-          all_goals unfold $inpU:ident at hl ⊢
-          all_goals simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
-          Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
+          simp [srcOf, $C:ident, contractOf, applyIns, OTy.obs, PTy.obs, $nmC:ident]
+          rw [$trace:ident]
+          unfold $irS:ident $inpU:ident at $locs*
+          simp only [CExpr.compile, $out:ident]
+          simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
+            Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
             $nmC:ident, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
-            $inpC:ident, PTy.sig] at hl hin ⊢
-          all_goals omega)
+            $[$inpAts:ident],*, PTy.sig] at $locs* ⊢
+          omega
+        · refine ⟨$[$holes],*⟩
+          all_goals simp only [List.find?, $nmC:ident]
+          all_goals simp
+          all_goals unfold $irS:ident at *
+          all_goals simp only [Cdo.irState, $next:ident, CExpr.compile]
+          all_goals unfold $inpU:ident at *
+          all_goals simp [Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go,
+            Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange,
+            $nmC:ident, natJoin, widthOf, mask, Nat.shiftRight_eq_div_pow, or_mod _ _ _ _ rfl,
+            $[$inpAts:ident],*, PTy.sig, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq] at $locs* ⊢
+          all_goals (split <;> simp_all <;> omega)))
+  let tacs := #[pre] ++ hltTacs ++ #[mainTac]
+  `(by $[$tacs]*)
 
 /-- The entry: as `vedU1Entry` (one `synthesizeCombinational`, the same `m` checked
 and returned), with the DeepElab-built script. -/
