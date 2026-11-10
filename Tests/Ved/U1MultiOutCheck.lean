@@ -69,9 +69,9 @@ def moRec (a b : Signal defaultDomain (BitVec 8)) : PO := { x := a &&& b, y := a
 
 /-! ## Positives: exact theorem type, ports in order, std3 axioms -/
 
-def modOf (base : Name) : TermElabM Sparkle.IR.AST.Module := do
-  let some v := (← getConstInfo (base ++ `ved_mod)).value? | throwError "no value"
-  evalModule v
+/-- the module the synthesizer returns for `decl` (nothing is registered) -/
+def modOf (decl : Name) : TermElabM Sparkle.IR.AST.Module := do
+  return (← Sparkle.Compiler.Elab.synthesizeCombinational decl).1
 
 /-- the statement term written out by hand (elaborated, not built by the entry) -/
 def checkMulti (decl : Name) (stmtStx : Term) (ports : List String) : CommandElabM Unit := liftTermElabM do
@@ -93,25 +93,29 @@ def checkMulti (decl : Name) (stmtStx : Term) (ports : List String) : CommandEla
 
 /-- info: multi OK Tests.Ved.U1MultiOutCheck.mo2.ved_u1 [out_0, out_1] 0 -/
 #guard_msgs in
-run_cmd checkMulti ``mo2
-  (← `(fun a b => bundle2 (mo2 a b).1 (mo2 a b).2)) ["out_0", "out_1"]
+run_cmd do
+  checkMulti ``mo2
+    (← `(fun a b => bundle2 (mo2 a b).1 (mo2 a b).2)) ["out_0", "out_1"]
 
 /-- info: multi OK Tests.Ved.U1MultiOutCheck.mo3r.ved_u1 [out_0, out_1_0, out_1_1] 0 -/
 #guard_msgs in
-run_cmd checkMulti ``mo3r
-  (← `(fun a b c => bundle2 (mo3r a b c).1 (bundle2 (mo3r a b c).2.1 (mo3r a b c).2.2)))
-  ["out_0", "out_1_0", "out_1_1"]
+run_cmd do
+  checkMulti ``mo3r
+    (← `(fun a b c => bundle2 (mo3r a b c).1 (bundle2 (mo3r a b c).2.1 (mo3r a b c).2.2)))
+    ["out_0", "out_1_0", "out_1_1"]
 
 /-- info: multi OK Tests.Ved.U1MultiOutCheck.mo3l.ved_u1 [out_0_0, out_0_1, out_1] 1 -/
 #guard_msgs in
-run_cmd checkMulti ``mo3l
-  (← `(fun a b => bundle2 (bundle2 (mo3l defaultDomain a b).1.1 (mo3l defaultDomain a b).1.2) (mo3l defaultDomain a b).2))
-  ["out_0_0", "out_0_1", "out_1"]
+run_cmd do
+  checkMulti ``mo3l
+    (← `(fun a b => bundle2 (bundle2 (mo3l defaultDomain a b).1.1 (mo3l defaultDomain a b).1.2) (mo3l defaultDomain a b).2))
+    ["out_0_0", "out_0_1", "out_1"]
 
 /-- info: multi OK Tests.Ved.U1MultiOutCheck.mw.ved_u1 [out_0, out_1] 0 -/
 #guard_msgs in
-run_cmd checkMulti ``mw
-  (← `(fun a b => bundle2 (mw a b).1 (mw a b).2)) ["out_0", "out_1"]
+run_cmd do
+  checkMulti ``mw
+    (← `(fun a b => bundle2 (mw a b).1 (mw a b).2)) ["out_0", "out_1"]
 
 /-! ## Controls: refused, no `ved_*` constant left -/
 
