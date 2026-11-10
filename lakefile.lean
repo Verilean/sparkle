@@ -345,6 +345,12 @@ lean_lib «Tools.VedU1Lemmas» where
 lean_lib «Tools.VedU1Entry» where
   roots := #[`Tools.VedU1Entry]
 
+lean_lib «Tools.VedU1Packed» where
+  roots := #[`Tools.VedU1Packed]
+
+lean_lib «Tools.VedU1PackedEntry» where
+  roots := #[`Tools.VedU1PackedEntry]
+
 lean_lib «Tools.VedU1Deep» where
   roots := #[`Tools.VedU1Deep]
 
@@ -359,6 +365,12 @@ lean_lib «Tests.Ved.U1EntryCheck» where
 
 lean_lib «Tests.Ved.U1DomainCheck» where
   roots := #[`Tests.Ved.U1DomainCheck]
+
+lean_lib «Tests.Ved.U1MultiOutCheck» where
+  roots := #[`Tests.Ved.U1MultiOutCheck]
+
+lean_lib «Tests.Ved.U1PackedCheck» where
+  roots := #[`Tests.Ved.U1PackedCheck]
 
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]
