@@ -41,6 +41,48 @@ def insCIn (cs : List (String × Expr)) (ins : Nat → String → Nat) : Nat →
     | some (.ref x) => ins t x
     | _ => 0
 
+/-- Decidable form of `hconn`: every input port of the child is connected to a `ref` of a parent
+input. -/
+def connsIn (m : Module) (c : Module) (cs : List (String × Expr)) : Bool :=
+  c.inputs.all fun p => match cs.lookup p.name with
+    | some (.ref x) => (inNames m).contains x
+    | _ => false
+
+theorem connsIn_sound {m c : Module} {cs : List (String × Expr)} (h : connsIn m c cs = true) :
+    ∀ p ∈ c.inputs, ∃ x, cs.lookup p.name = some (Expr.ref x) ∧ x ∈ inNames m := by
+  intro p hp
+  have := List.all_eq_true.mp h p hp
+  cases hl : cs.lookup p.name with
+  | none => simp [hl] at this
+  | some e =>
+    cases e with
+    | ref x => simp only [hl] at this; exact ⟨x, rfl, List.contains_iff_mem.mp this⟩
+    | _ => simp [hl] at this
+
+/-- Decidable form of `hdata`: every DATA input port of the child (the child contract's data
+inputs) reads a parent DATA input of the same width. -/
+def dataIn (cc : Contract) (m : Module) (ck : Contract) (c : Module) (cs : List (String × Expr)) :
+    Bool :=
+  ck.dataInputs.all fun p => match cs.lookup p.name with
+    | some (.ref x) => cc.dataInputs.any (·.name == x) && declWidth m x == declWidth c p.name
+    | _ => false
+
+theorem dataIn_sound {cc ck : Contract} {m c : Module} {cs : List (String × Expr)}
+    (h : dataIn cc m ck c cs = true) :
+    ∀ p ∈ ck.dataInputs, ∃ x, cs.lookup p.name = some (Expr.ref x) ∧
+      (∃ q ∈ cc.dataInputs, q.name = x) ∧ declWidth m x = declWidth c p.name := by
+  intro p hp
+  have := List.all_eq_true.mp h p hp
+  cases hl : cs.lookup p.name with
+  | none => simp [hl] at this
+  | some e =>
+    cases e with
+    | ref x =>
+      simp only [hl, Bool.and_eq_true, beq_iff_eq] at this
+      obtain ⟨q, hq, hqn⟩ := List.any_eq_true.mp this.1
+      exact ⟨x, rfl, ⟨q, hq, by simpa using hqn⟩, this.2⟩
+    | _ => simp [hl] at this
+
 theorem kid_inst (d : Design) (arr : Module → List Stmt) (m : Module)
     (hS : HierShapeS d m = true) (hA : AdmArr d m arr)
     (hwr : ∀ n ∈ wrsH d (arr m), n ∉ inNames m)
