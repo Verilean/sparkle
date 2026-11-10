@@ -104,6 +104,17 @@ run_cmd checkSpec ``dor8
 #guard_msgs in
 run_cmd checkSpec ``dxor8
 
+def dadd8 (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) := a + b
+def dsub8 {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := a - b
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dadd8.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dadd8
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dsub8.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dsub8
+
 /-! ## Controls: refused at `[table]`, no theorem -/
 
 def expectStageRefusal (stage : String) (decl : Name) : CommandElabM Unit := liftTermElabM do
@@ -209,6 +220,17 @@ run_cmd expectRefused "proof" `ctlAndIntoOr do
 #guard_msgs in
 run_cmd expectRefused "proof" `ctlOrIntoAnd do
   discard <| checkU1E ``dand8 `ctlOrIntoAnd (specOf ``dand8) (← modOf ``dor8) .generated
+
+-- add's module against sub's statement, and back
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlAddIntoSub do
+  discard <| checkU1E ``dsub8 `ctlAddIntoSub (specOf ``dsub8) (← modOf ``dadd8) .generated
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlSubIntoAdd do
+  discard <| checkU1E ``dadd8 `ctlSubIntoAdd (specOf ``dadd8) (← modOf ``dsub8) .generated
 
 -- a proof term of the wrong statement (the identity's theorem for the complement)
 /-- info: refused [proof], clean -/

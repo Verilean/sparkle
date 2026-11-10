@@ -67,4 +67,22 @@ open Sparkle.Core.Signal in
 theorem xor_val {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
     (a b : Signal dom (BitVec n)) (s : Nat) : (a ^^^ b).val s = a.val s ^^^ b.val s := rfl
 
+/-- `Operator.add` (mod `2 ^ w`, no range hypothesis needed). -/
+theorem evalOp_add_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .add xs [a, b] w = some ((a + b) % 2 ^ w) := rfl
+
+open Sparkle.Core.Signal in
+theorem add_val {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a b : Signal dom (BitVec n)) (s : Nat) : (a + b).val s = a.val s + b.val s := rfl
+
+/-- `Operator.sub` on in-range operands: `(a + (2^w - b)) % 2^w`. -/
+theorem evalOp_sub_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat)
+    (hb : b < 2 ^ w) : evalOp we .sub xs [a, b] w = some ((a + (2 ^ w - b)) % 2 ^ w) := by
+  simp only [evalOp, mask]
+  rw [Nat.mod_eq_of_lt hb]
+
+open Sparkle.Core.Signal in
+theorem sub_val {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a b : Signal dom (BitVec n)) (s : Nat) : (a - b).val s = a.val s - b.val s := rfl
+
 end Tools.VedU1Lemmas
