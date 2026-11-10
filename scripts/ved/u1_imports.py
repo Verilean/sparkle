@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import u0_gen  # noqa: E402
 
-TOOLS = ["Tools.VedU1Entry", "Tools.VedU1Deep", "Tools.VedStrictAudit", "Tools.DeepElab"]
+TOOLS = ["Tools.VedU1Entry", "Tools.VedU1Deep", "Tools.VedU1HierEntry", "Tools.VedStrictAudit", "Tools.DeepElab"]
 
 
 def main():

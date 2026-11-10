@@ -11,6 +11,8 @@ Plan fields (all optional): resolved, qualified, decl ("found"|"absent"), pre
 {thm,mod,contract}, prep_error, u1 ("ok" | ["refused", stage, msg] | ["error", msg] | "none"),
 ok_thm, ok_axioms, outside_error, probe {thm,type,mvars,levels,mod,contract,outs,axioms}, probe_fail,
 ms {prep,u1,probe}, exit, sleep, self_signal, mem_mb, stderr.
+Route u1_hier: the OK line is `VED U1 HIER OK`; `hier` {top, mods, insts, children, child_thms, design, ports}
+overrides the canned hier probe lines (GOOD_HIER); `pre` may carry design / child.
 """
 import json
 import os
@@ -22,6 +24,11 @@ import time
 GOOD = {"thm": "theorem", "type": "exact", "mvars": "type=false value=false fvars=false", "levels": "0",
         "mod": "closed=true type=true", "contract": "bound-to-mod", "outs": "1",
         "axioms": ["propext", "Classical.choice"]}
+
+
+GOOD_HIER = {"design": "closed=true type=true", "top": "ok", "top_design": "Top", "top_mod": "Top",
+             "mods": [2, "true", "true"], "insts": ["ok", 2, "[]"], "children": ["kidA", "kidB"],
+             "child_thms": {}, "ports": "ok"}
 
 
 def main():
@@ -53,8 +60,11 @@ def main():
         msg("info", f"VED U1P DECL resolved={resolved} user={resolved} inventory={qual} "
                     f"{'match' if qual == resolved else 'mismatch'}", pre)
         p = plan.get("pre", {})
+        extra = ""
+        if m and m.group(2) == "u1_hier":
+            extra = f" design={str(p.get('design', False)).lower()} child={str(p.get('child', False)).lower()}"
         msg("info", f"VED U1P PRE thm={str(p.get('thm', False)).lower()} mod={str(p.get('mod', False)).lower()} "
-                    f"contract={str(p.get('contract', False)).lower()}", pre)
+                    f"contract={str(p.get('contract', False)).lower()}{extra}", pre)
     else:
         msg("info", "VED U1P DECL absent: unknown constant", pre)
     if plan.get("outside_error"):
@@ -92,7 +102,12 @@ def main():
     if u1 == "ok":
         axs = ", ".join(plan.get("ok_axioms", ["propext"]))
         spec = " (specialised at defaultDomain)" if plan.get("ok_specialised") else ""
-        msg("info", f"VED U1 OK {plan.get('ok_thm', resolved + '.ved_u1')}{spec}: [{axs}]\n(Module body)", el)
+        if m and m.group(2) == "u1_hier":
+            msg("info", f"VED U1 HIER OK {plan.get('ok_thm', resolved + '.ved_u1')}{spec}: [{axs}]\n"
+                        "children: [kidA, kidB]\nsynthesis 14 ms, children 9600 ms, parent proof 1200 ms, "
+                        "peak 2590000 kB\n(Module body)", el)
+        else:
+            msg("info", f"VED U1 OK {plan.get('ok_thm', resolved + '.ved_u1')}{spec}: [{axs}]\n(Module body)", el)
     elif isinstance(u1, list) and u1[0] == "refused":
         msg("error", f"VED U1 REFUSED {resolved} [{u1[1]}]: {u1[2]}", el)
     elif isinstance(u1, list) and u1[0] == "error":
@@ -113,8 +128,21 @@ def main():
             msg("info", f"VED U1P LEVELS {q['levels']}", pl)
             msg("info", f"VED U1P AXIOMS [{', '.join(q['axioms'])}]", pl)
         msg("info", f"VED U1P MOD {q['mod']}", pl)
+        h = dict(GOOD_HIER, **plan.get("hier", {})) if m and m.group(2) == "u1_hier" else None
+        if h and h["design"] is not None:
+            msg("info", f"VED U1P DESIGN {h['design']}", pl)
         msg("info", f"VED U1P CONTRACT {q['contract']}", pl)
+        if h and h["ports"] is not None:
+            msg("info", f"VED U1P PORTS {h['ports']} inputs=2 outputs=1", pl)
         msg("info", f"VED U1P OUTS {q['outs']}", pl)
+        if h and h["top"] is not None:
+            msg("info", f"VED U1P HIERTOP {h['top']} design={h['top_design']} mod={h['top_mod']}", pl)
+            msg("info", "VED U1P HIERMODS n=%s nonempty=%s top-not-child=%s" % tuple(h["mods"]), pl)
+            msg("info", f"VED U1P HIERINST {h['insts'][0]} n={h['insts'][1]} missing={h['insts'][2]}", pl)
+            for c in h["children"]:
+                msg("info", f"VED U1P HIERCHILD {c} thm={h['child_thms'].get(c, 'theorem')}", pl)
+            allthm = all(h["child_thms"].get(c, "theorem") == "theorem" for c in h["children"])
+            msg("info", f"VED U1P HIERCHILDREN [{', '.join(h['children'])}] all-theorems={str(allthm).lower()}", pl)
     clock += ms.get("probe", 100)
     msg("info", f"VED U1T probe_end {clock}", at('#vedu1_t "probe_end"'))
     if plan.get("stderr"):

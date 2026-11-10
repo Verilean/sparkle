@@ -67,16 +67,26 @@ from u0_gen import (INV_BLOB, INV_COMMIT, INV_PATH, INV_ROWS, die, git_show_inve
 # declaration's prefix, so a command written outside that namespace (e.g.
 # CircuitDoTest's `section SynthesisChecks`) never meets in u1_deep.  Reported
 # as its own route; the scope difference is recorded, never hidden.
-ROUTES = ("u1", "u1_deep", "u1_deep_ns")
+#
+# u1_hier: the hierarchical entry `#ved_u1_hier` (Tools/VedU1HierEntry.lean; not a
+# deep route: no preparation, the block runs in the ORIGINAL scope like `u1`).
+# Strict only through the hier probe (PROBE_HIER below), which rebuilds the
+# statement `U1HStmt <decl>.ved_contract <decl>.ved_mod <decl>.ved_design <stmt>`
+# and reads the closed module and design values itself.
+ROUTES = ("u1", "u1_deep", "u1_deep_ns", "u1_hier")
 DEEP_ROUTES = ("u1_deep", "u1_deep_ns")
-ENTRY_CMD = {"u1": "#ved_u1", "u1_deep": "#ved_u1_deep", "u1_deep_ns": "#ved_u1_deep"}
+ENTRY_CMD = {"u1": "#ved_u1", "u1_deep": "#ved_u1_deep", "u1_deep_ns": "#ved_u1_deep",
+             "u1_hier": "#ved_u1_hier"}
 IMPORTS = {"u1": ["Tools.VedU1Entry", "Tools.VedStrictAudit"],
            "u1_deep": ["Tools.VedU1Deep", "Tools.VedStrictAudit"],
-           "u1_deep_ns": ["Tools.VedU1Deep", "Tools.VedStrictAudit"]}
+           "u1_deep_ns": ["Tools.VedU1Deep", "Tools.VedStrictAudit"],
+           "u1_hier": ["Tools.VedU1HierEntry", "Tools.VedStrictAudit"]}
 STD3 = {"propext", "Classical.choice", "Quot.sound"}
 # pipeline order inside the entry, for "later stages not reached"
 PIPELINE = ["table", "multi-output", "synthesis", "artifact", "order", "type", "proof", "kernel", "audit"]
-REFUSAL_STAGES = set(PIPELINE) | {"checker"}
+HIER_PIPELINE = ["table", "multi-output", "synthesis", "artifact", "hier-shape", "order", "child", "type",
+                 "proof", "kernel", "audit"]
+REFUSAL_STAGES = set(PIPELINE) | set(HIER_PIPELINE) | {"checker"}
 
 KEY_COLUMNS = ["inv_commit", "inv_blob", "row", "file", "line", "command", "ns", "top",
                "qualified", "params", "options", "args", "setting"]
@@ -101,6 +111,9 @@ RESULT_COLUMNS = KEY_COLUMNS + [
     # independent probe
     "probe_present", "probe_thm", "probe_type", "probe_mvars", "probe_levels", "probe_mod",
     "probe_contract", "probe_outputs", "probe_axioms", "probe_axioms_std3", "probe_preexisting",
+    # u1_hier probe (n/a elsewhere): closed design, top/children/instances, child leaf theorems, ports
+    "probe_design", "probe_hier_top", "probe_hier_modules", "probe_hier_insts", "probe_hier_children",
+    "probe_hier_child_thms", "probe_ports", "tool_reported",
     "kernel_sync",
     # timing (ms from in-file monotonic markers; "combined" where not separable)
     "t_synthesis", "t_deep_prep", "t_u1_proof", "t_elab_kernel", "t_audit", "t_u1_combined",
@@ -207,14 +220,135 @@ run_cmd do
   catch e => logInfo m!"VED U1P PROBE failed: {← e.toMessageData.toString}"'''
 
 
+# The probe of the hierarchical route.  Independent of the tool: it never calls
+# the tool's checker or HierShape; it rebuilds the statement and reads the CLOSED
+# module / design / contract values itself (Meta.evalExpr on the stored value).
+PRE_PROBE_HIER = '''open Lean Elab Command in
+run_cmd do
+  logInfo m!"VED U1P NS {← getCurrNamespace}"
+  try
+    let n ← liftCoreM <| realizeGlobalConstNoOverload (mkIdent "@TOP@".toName)
+    let u := (privateToUserName? n).getD n
+    logInfo m!"VED U1P DECL resolved={n} user={u} inventory=@Q@ {if u == "@Q@".toName then "match" else "mismatch"}"
+    let env ← getEnv
+    let kids := env.constants.fold (fun a k _ => a || (n ++ `ved_child).isPrefixOf k) false
+    logInfo m!"VED U1P PRE thm={env.contains (n ++ `ved_u1)} mod={env.contains (n ++ `ved_mod)} contract={env.contains (n ++ `ved_contract)} design={env.contains (n ++ `ved_design)} child={kids}"
+  catch e => logInfo m!"VED U1P DECL absent: {← e.toMessageData.toString}"'''
+
+EVAL_HELP = '''open Lean Meta in
+unsafe def vedu1hEvalImpl {a : Type} (ty e : Lean.Expr) : MetaM a := Meta.evalExpr a ty e
+open Lean Meta in
+@[implemented_by vedu1hEvalImpl] opaque vedu1hEval {a : Type} (ty e : Lean.Expr) : MetaM a'''
+
+PROBE_HIER = '''open Lean Elab Command Meta Sparkle.IR.AST in
+run_cmd do
+  try
+    let n ← liftCoreM <| realizeGlobalConstNoOverload (mkIdent "@TOP@".toName)
+    let env ← getEnv
+    let thm := n ++ `ved_u1
+    let md := n ++ `ved_mod
+    let dn := n ++ `ved_design
+    let ct := n ++ `ved_contract
+    match env.find? thm with
+    | none => logInfo m!"VED U1P THM absent"
+    | some (.thmInfo _) => logInfo m!"VED U1P THM theorem"
+    | some _ => logInfo m!"VED U1P THM not-a-theorem"
+    -- the statement term, rebuilt here: the original constant applied to
+    -- `defaultDomain` once per LEADING implicit `DomainConfig` binder
+    let k ← liftTermElabM do
+      let ci ← getConstInfo n
+      forallTelescope ci.type fun xs _ => do
+        let mut k := 0
+        for x in xs do
+          let ld ← x.fvarId!.getDecl
+          if !ld.binderInfo.isExplicit && ld.type.isConstOf `Sparkle.Core.Domain.DomainConfig then k := k + 1
+          else break
+        pure k
+    logInfo m!"VED U1P STMT domains={k}"
+    let stmt := mkAppN (mkConst n) (List.replicate k (mkConst `Sparkle.Core.Domain.defaultDomain)).toArray
+    if let some (.thmInfo ti) := env.find? thm then
+      let expected := mkAppN (mkConst ``Tools.VedU1Hier.U1HStmt) #[mkConst ct, mkConst md, mkConst dn, stmt]
+      logInfo m!"VED U1P TYPE {if ti.type == expected then "exact" else "differs"}"
+      logInfo m!"VED U1P MVARS type={ti.type.hasMVar} value={ti.value.hasMVar} fvars={ti.type.hasFVar || ti.value.hasFVar}"
+      logInfo m!"VED U1P LEVELS {ti.levelParams.length}"
+      let ax ← liftCoreM <| collectAxioms thm
+      logInfo m!"VED U1P AXIOMS {Tools.VedStrictAudit.showNames (Tools.VedStrictAudit.sortNames ax)}"
+    let closedOf (v : Lean.Expr) := !v.hasMVar && !v.hasFVar && !v.hasLooseBVars
+    -- the closed module value
+    let mut modV : Option Sparkle.IR.AST.Module := none
+    match env.find? md with
+    | none => logInfo m!"VED U1P MOD absent"
+    | some (.defnInfo di) =>
+      logInfo m!"VED U1P MOD closed={closedOf di.value} type={di.type == mkConst ``Sparkle.IR.AST.Module}"
+      if closedOf di.value then
+        modV := some (← liftTermElabM (vedu1hEval (a := Sparkle.IR.AST.Module) (mkConst ``Sparkle.IR.AST.Module) di.value))
+    | some _ => logInfo m!"VED U1P MOD not-a-def"
+    -- the closed design value
+    let mut desV : Option Sparkle.IR.AST.Design := none
+    match env.find? dn with
+    | none => logInfo m!"VED U1P DESIGN absent"
+    | some (.defnInfo di) =>
+      logInfo m!"VED U1P DESIGN closed={closedOf di.value} type={di.type == mkConst ``Sparkle.IR.AST.Design}"
+      if closedOf di.value then
+        desV := some (← liftTermElabM (vedu1hEval (a := Sparkle.IR.AST.Design) (mkConst ``Sparkle.IR.AST.Design) di.value))
+    | some _ => logInfo m!"VED U1P DESIGN not-a-def"
+    -- the contract: bound to `ved_mod`, ports equal the module's
+    let tbl ← liftTermElabM do
+      Tools.VedU1Contract.readTableOfType n (← Lean.Meta.inferType stmt)
+    match env.find? ct with
+    | none => logInfo m!"VED U1P CONTRACT absent"
+    | some (.defnInfo di) =>
+      let ok := di.value.getAppFn.isConstOf ``Tools.VedU1Contract.contractOf &&
+        di.value.getAppArgs.back? == some (mkConst md)
+      logInfo m!"VED U1P CONTRACT {if ok then "bound-to-mod" else "other"}"
+      -- ports: the contract's arguments (table, output names, clock/reset) and the
+      -- module's ports against the table rebuilt from the statement's type
+      -- (the contract value itself is read as an expression, not evaluated)
+      if let some m := modV then
+        let args := di.value.getAppArgs
+        let okp := args.size == 4 && args[0]! == toExpr tbl &&
+          args[1]! == toExpr (m.outputs.map (·.name)) &&
+          args[2]! == toExpr (none : Option (String × String)) &&
+          m.inputs.length == tbl.ins.length && m.outputs.length == tbl.out.flat.length &&
+          (m.inputs.map (·.name)) == tbl.binders.map ("_gen_" ++ ·) &&
+          (m.inputs.map (·.ty)) == tbl.ins.map (·.hw) && (m.outputs.map (·.ty)) == tbl.out.flat.map (·.hw)
+        logInfo m!"VED U1P PORTS {if okp then "ok" else "differs"} inputs={m.inputs.length} outputs={m.outputs.length}"
+      else logInfo m!"VED U1P PORTS no-module"
+    | some _ => logInfo m!"VED U1P CONTRACT not-a-def"
+    logInfo m!"VED U1P OUTS {tbl.out.flat.length}"
+    -- the hierarchy
+    if let (some m, some d) := (modV, desV) then
+      logInfo m!"VED U1P HIERTOP {if d.topModule == m.name then "ok" else "differs"} design={d.topModule} mod={m.name}"
+      let insts := m.body.filterMap fun s => match s with | .inst mn _ _ => some mn | _ => none
+      let names := d.modules.map (·.name)
+      let missing := insts.filter fun mn => !(names.contains mn)
+      logInfo m!"VED U1P HIERMODS n={names.length} nonempty={!names.isEmpty} top-not-child={!(names.contains m.name)}"
+      logInfo m!"VED U1P HIERINST {if missing.isEmpty && !insts.isEmpty then "ok" else "bad"} n={insts.length} missing={missing}"
+      let mut allThm := true
+      for cm in d.modules do
+        let cthm := n ++ `ved_child ++ cm.name.toName ++ `ved_u1
+        let st := match env.find? cthm with
+          | none => "absent"
+          | some (.thmInfo ti) =>
+            if ti.type.getAppFn.isConstOf ``Tools.VedU1Contract.U1Stmt then "theorem" else "theorem-other-stmt"
+          | some _ => "not-a-theorem"
+        if st != "theorem" then allThm := false
+        logInfo m!"VED U1P HIERCHILD {cm.name} thm={st}"
+      logInfo m!"VED U1P HIERCHILDREN {names} all-theorems={allThm}"
+  catch e => logInfo m!"VED U1P PROBE failed: {← e.toMessageData.toString}"'''
+
+
 def block_pieces(r, route, ns):
     """[(segment, text)] in order; segment is None for plumbing."""
     opts = lean_option_lines(r["options"], "default")
     prefix = "".join(f"set_option {o} in\n" for o in ["Elab.async false"] + opts)
     top, q = r["top"], r["qualified"] or ""
     sub = lambda s: s.replace("@TOP@", top).replace("@Q@", q)
+    hier = route == "u1_hier"
     p = [(None, f"-- ===== VED U1 BEGIN row {r['row']} route {route} (inventory {INV_COMMIT[:8]}) ====="),
-         (None, f"namespace {ns}"), (None, TIMER), ("pre", sub(PRE_PROBE))]
+         (None, f"namespace {ns}"), (None, TIMER), ("pre", sub(PRE_PROBE_HIER if hier else PRE_PROBE))]
+    if hier:
+        p.append((None, EVAL_HELP))
     if route == "u1_deep_ns":
         wrap = lambda cmd: f"#vedu1_in_declns {top}\n" + prefix + cmd
         p += [(None, IN_DECLNS), (None, f"end {ns}"),
@@ -235,7 +369,7 @@ def block_pieces(r, route, ns):
     else:
         p += [("u1", '#vedu1_t "u_begin"'), ("u1", prefix + f"{ENTRY_CMD[route]} {top}"),
               ("u1", '#vedu1_t "u_end"')]
-    p += [("probe", sub(PROBE)), ("probe", '#vedu1_t "probe_end"'),
+    p += [("probe", sub(PROBE_HIER if hier else PROBE)), ("probe", '#vedu1_t "probe_end"'),
           (None, f"end {ns}"), (None, "-- ===== VED U1 END =====")]
     return p
 
@@ -370,9 +504,10 @@ def first_line(s, n=200):
     return s.split("\n", 1)[0][:n].replace("\t", " ")
 
 
-def later_stages(stage):
-    if stage in PIPELINE:
-        return ";".join(PIPELINE[PIPELINE.index(stage) + 1:])
+def later_stages(stage, route=""):
+    pipe = HIER_PIPELINE if route == "u1_hier" else PIPELINE
+    if stage in pipe:
+        return ";".join(pipe[pipe.index(stage) + 1:])
     return ""
 
 
@@ -390,6 +525,52 @@ def parse_probe(text):
     return p
 
 
+def hier_probe(row, ptext, okm, u1):
+    """The u1_hier part of the probe: fills the probe_hier_* columns, returns the blockers.
+    Every item must be established by a `VED U1P` line of the probe itself."""
+    bl = []
+    g = lambda pat: re.search(pat, ptext)
+    m = g(r"VED U1P DESIGN (.*)")
+    row["probe_design"] = m.group(1).strip() if m else ""
+    if not (m and m.group(1).startswith("closed=true type=true")):
+        bl.append(f"design:{row['probe_design'] or 'unknown'}")
+    m = g(r"VED U1P HIERTOP (\w+) design=(\S*) mod=(\S*)")
+    row["probe_hier_top"] = m.group(1) if m else ""
+    if not (m and m.group(1) == "ok"):
+        bl.append("topModule:" + (f"differs(design={m.group(2)},mod={m.group(3)})" if m else "unknown"))
+    m = g(r"VED U1P HIERMODS n=(\d+) nonempty=(\w+) top-not-child=(\w+)")
+    row["probe_hier_modules"] = m.group(1) if m else ""
+    if not (m and m.group(2) == "true" and int(m.group(1)) > 0):
+        bl.append("modules:" + ("empty" if m else "unknown"))
+    elif m.group(3) != "true":
+        bl.append("modules:top-is-child")
+    m = g(r"VED U1P HIERINST (\w+) n=(\d+) missing=(\[[^\]]*\])")
+    row["probe_hier_insts"] = f"{m.group(1)} n={m.group(2)} missing={m.group(3)}" if m else ""
+    if not (m and m.group(1) == "ok"):
+        bl.append("instances:" + (f"n={m.group(2)},missing={m.group(3)}" if m else "unknown"))
+    kids = re.findall(r"VED U1P HIERCHILD (\S+) thm=(\S+)", ptext)
+    m = g(r"VED U1P HIERCHILDREN \[([^\]]*)\] all-theorems=(\w+)")
+    row["probe_hier_children"] = ";".join(x.strip().strip('"') for x in m.group(1).split(",") if x.strip()) if m else ""
+    row["probe_hier_child_thms"] = ";".join(f"{n.strip(chr(34))}={t}" for n, t in kids)
+    if not m:
+        bl.append("children:unknown")
+    else:
+        names = [x.strip().strip('"') for x in m.group(1).split(",") if x.strip()]
+        bad = [f"{n.strip(chr(34))}={t}" for n, t in kids if t != "theorem"]
+        if m.group(2) != "true" or bad or len(kids) != len(names) or not names:
+            bl.append("child-thm:" + (",".join(bad) or "inconsistent"))
+    m = g(r"VED U1P PORTS (\w[\w-]*)")
+    row["probe_ports"] = m.group(1) if m else ""
+    if row["probe_ports"] != "ok":
+        bl.append(f"ports:{row['probe_ports'] or 'unknown'}")
+    if okm:
+        full = next((t for ln, sev, t in u1 if t.startswith("VED U1 HIER OK ")), "")
+        mt = re.search(r"synthesis (\d+) ms, children (\d+) ms, parent proof (\d+) ms, peak (\d+) kB", full)
+        if mt:
+            row["tool_reported"] = "synth_ms=%s;children_ms=%s;parent_ms=%s;peak_kb=%s" % mt.groups()
+    return bl
+
+
 def classify_dir(d, sv_group=""):
     meta = json.loads(read(os.path.join(d, "meta.json")) or "null")
     if meta is None:
@@ -403,7 +584,7 @@ def classify_dir(d, sv_group=""):
     row["cleared_env"] = ";".join(ident.get("cleared_env", []))
     row["stdout_ref"] = os.path.join(d, "stdout.txt")
     row["stderr_ref"] = os.path.join(d, "stderr.txt")
-    row["prep_status"] = "n/a" if route == "u1" else "not-run"
+    row["prep_status"] = "n/a" if route in ("u1", "u1_hier") else "not-run"
     if not meta.get("run"):
         row.update(ran="no", strict_counted="no", strict_blockers=meta["invocation"],
                    first_cause=meta["invocation"], u1_status="not-reached(unsupported)",
@@ -468,12 +649,16 @@ def classify_dir(d, sv_group=""):
             row["ns_check"] = f"absent({len(wraps)} wraps)"
     else:
         row["ns_scope"] = row["ns_check"] = row["ns_detail"] = row["ns_mode"] = "n/a"
-    row["prep_command"] = ("n/a" if route == "u1" else
+    row["prep_command"] = ("n/a" if route in ("u1", "u1_hier") else
                            ("#vedu1_in_declns " if route == "u1_deep_ns" else "") + f"#verify_elab_deep {meta.get('top', '')}")
     row["u1_command"] = ("#vedu1_in_declns " if route == "u1_deep_ns" else "") + f"{ENTRY_CMD[route]} {meta.get('top', '')}"
-    m = re.search(r"VED U1P PRE thm=(\w+) mod=(\w+) contract=(\w+)", text)
+    m = re.search(r"VED U1P PRE thm=(\w+) mod=(\w+) contract=(\w+)(?: design=(\w+) child=(\w+))?", text)
     pre_exist = bool(m and "true" in m.groups())
+    if route == "u1_hier" and m and m.group(4) is None:
+        pre_exist = True      # a PRE line without design/child cannot show they were absent
     row["probe_preexisting"] = "unknown" if not m else ("yes" if pre_exist else "no")
+    if route == "u1_hier" and m and m.group(4) is None:
+        row["probe_preexisting"] = "unknown"
 
     # timing markers (monotonic ms inside the Lean process)
     marks = {k: int(v) for k, v in re.findall(r"VED U1T (\w+) (\d+)", text)}
@@ -509,8 +694,9 @@ def classify_dir(d, sv_group=""):
     # the U1 step
     u1 = in_seg("u1")
     u1_errs = [t for ln, sev, t in u1 if sev == "error"]
-    okm = next((re.match(r"VED U1 OK (\S+)( \(specialised at defaultDomain\))?:", t)
-                for ln, sev, t in u1 if t.startswith("VED U1 OK ")), None)
+    ok_prefix = "VED U1 HIER OK " if route == "u1_hier" else "VED U1 OK "
+    okm = next((re.match(re.escape(ok_prefix) + r"(\S+)( \(specialised at defaultDomain\))?:", t)
+                for ln, sev, t in u1 if t.startswith(ok_prefix)), None)
     row["u1_ok_line"] = "yes" if okm else "no"
     row["u1_ok_thm"] = okm.group(1) if okm else ""
     row["u1_ok_specialised"] = ("yes" if okm.group(2) else "no") if okm else ""
@@ -574,7 +760,7 @@ def classify_dir(d, sv_group=""):
                 cause = "missing-cases"
             elif "runCircuitH" in msg:
                 cause = "runCircuitH-location"
-        row.update(u1_status="refused", first_cause=cause, later_stages_not_reached=later_stages(stage))
+        row.update(u1_status="refused", first_cause=cause, later_stages_not_reached=later_stages(stage, route))
     elif u1_errs:
         e0 = u1_errs[0]
         if "Missing cases" in e0:
@@ -617,6 +803,9 @@ def classify_dir(d, sv_group=""):
         axs = [x.strip() for x in p["axioms"][0].split(",") if x.strip()]
         row["probe_axioms"] = ";".join(axs)
         row["probe_axioms_std3"] = "yes" if set(axs) <= STD3 else "no"
+    hier_bl = []
+    if route == "u1_hier":
+        hier_bl = hier_probe(row, "\n".join(pm), okm, u1)
     row["kernel_sync"] = ("yes" if meta.get("async_false") and p["thm"] and p["thm"][0] == "theorem"
                           else "no")
 
@@ -679,6 +868,7 @@ def classify_dir(d, sv_group=""):
         bl.append(f"rc:{rcv or 'unknown'}")
     if row["errors_outside_block"] != "0":
         bl.append(f"outside-errors:{row['errors_outside_block']}")
+    bl += hier_bl
     strict = not bl
     case_only = bool(bl) and all(b.startswith(("rc:", "outside-errors:")) for b in bl)
     row["strict_counted"] = "yes" if strict else "no"

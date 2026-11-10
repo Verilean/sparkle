@@ -455,6 +455,112 @@ class U1Harness(unittest.TestCase):
         self.assertIn("route u1_deep: records=4 strict_counted_yes=2", summ)
         self.assertIn("union (standard routes u1, u1_deep): distinct_rows=4 returned_IR_strict_rows=3", summ)
 
+    # ------------------------------------------------------------ u1_hier route
+    def test_hier_strict_yes_and_columns(self):
+        r = self.one(1, "u1_hier")
+        self.assertEqual(r["strict_counted"], "yes", r["strict_blockers"])
+        self.assertEqual((r["u1_status"], r["first_cause"], r["prep_status"]), ("ok", "none", "n/a"))
+        self.assertEqual((r["probe_design"], r["probe_hier_top"], r["probe_hier_modules"], r["probe_ports"]),
+                         ("closed=true type=true", "ok", "2", "ok"))
+        self.assertEqual(r["probe_hier_children"], "kidA;kidB")
+        self.assertEqual(r["probe_hier_child_thms"], "kidA=theorem;kidB=theorem")
+        self.assertIn("synth_ms=14", r["tool_reported"])
+        self.assertEqual(r["u1_command"], "#ved_u1_hier foo1")
+
+    def test_hier_case_text_runs_in_original_scope_with_hier_probe(self):
+        d = os.path.join(self.base, "c")
+        sh([sys.executable, "-I", GEN, "--repo", self.fx.repo, "--commit", self.fx.commit, "--blob", self.fx.blob,
+            "gen", "--row", "1", "--setting", "u1_hier", "--dir", d])
+        text = open(os.path.join(d, "Case.lean")).read()
+        self.assertIn("import Tools.VedU1HierEntry", text)
+        self.assertIn("#ved_u1_hier foo1", text)
+        self.assertNotIn("#verify_elab_deep", text)
+        self.assertIn("Tools.VedU1Hier.U1HStmt", text)
+        self.assertLess(text.index("#ved_u1_hier foo1"), text.index("VED U1P HIERTOP"))
+
+    def test_hier_type_mismatch(self):
+        r = self.one(1, "u1_hier", probe={"type": "differs"})
+        self.assertEqual((r["u1_ok_line"], r["strict_counted"], r["first_cause"]), ("yes", "no", "probe-rejected"))
+        self.assertIn("type:differs", r["strict_blockers"])
+
+    def test_hier_missing_child_theorem(self):
+        r = self.one(1, "u1_hier", hier={"child_thms": {"kidB": "absent"}})
+        self.assertEqual((r["u1_ok_line"], r["strict_counted"], r["first_cause"]), ("yes", "no", "probe-rejected"))
+        self.assertIn("child-thm:kidB=absent", r["strict_blockers"])
+        r = self.one(2, "u1_hier", hier={"child_thms": {"kidA": "not-a-theorem"}})
+        self.assertEqual(r["strict_counted"], "no")
+
+    def test_hier_topmodule_mismatch(self):
+        r = self.one(1, "u1_hier", hier={"top": "differs", "top_design": "Other"})
+        self.assertEqual(r["strict_counted"], "no")
+        self.assertIn("topModule:differs(design=Other,mod=Top)", r["strict_blockers"])
+
+    def test_hier_rc_nonzero(self):
+        r = self.one(1, "u1_hier", exit=1)
+        self.assertEqual((r["strict_counted"], r["u1_status"], r["first_cause"]), ("no", "ok-but-case-failed", "case-error"))
+        self.assertIn("rc:1", r["strict_blockers"])
+
+    def test_hier_missing_probe_line(self):
+        for k in ("design", "ports"):
+            r = self.one(1, "u1_hier", hier={k: None})
+            self.assertEqual(r["strict_counted"], "no", k)
+        r = self.one(1, "u1_hier", hier={"top": None})
+        self.assertEqual(r["strict_counted"], "no")
+        self.assertIn("topModule:unknown", r["strict_blockers"])
+        self.assertIn("children:unknown", r["strict_blockers"])
+        r = self.one(1, "u1_hier", probe_fail="boom")
+        self.assertEqual(r["strict_counted"], "no")
+        self.assertIn("probe-missing", r["strict_blockers"])
+
+    def test_hier_no_children_or_missing_instance_child(self):
+        r = self.one(1, "u1_hier", hier={"mods": [0, "false", "true"], "children": [], "insts": ["bad", 0, "[]"]})
+        self.assertEqual(r["strict_counted"], "no")
+        self.assertIn("modules:empty", r["strict_blockers"])
+        r = self.one(2, "u1_hier", hier={"insts": ["bad", 2, "[kidC]"]})
+        self.assertEqual(r["strict_counted"], "no")
+        self.assertIn("instances:n=2,missing=[kidC]", r["strict_blockers"])
+
+    def test_hier_preexisting_design_or_child(self):
+        for k in ("design", "child"):
+            r = self.one(1, "u1_hier", pre={k: True})
+            self.assertEqual(r["strict_counted"], "no", k)
+            self.assertIn("preexisting:yes", r["strict_blockers"])
+
+    def test_hier_refusal_stage(self):
+        r = self.one(1, "u1_hier", u1=["refused", "hier-shape", "no instance"], probe={"thm": "absent"})
+        self.assertEqual((r["u1_status"], r["first_cause"], r["strict_counted"]), ("refused", "hier-shape", "no"))
+        self.assertEqual(r["later_stages_not_reached"], "order;child;type;proof;kernel;audit")
+
+    def test_hier_union_is_separate_from_standard_and_namespace_unions(self):
+        for rt, plan in (("u1", {"u1": ["refused", "synthesis", "x"], "probe": {"thm": "absent"}}),
+                         ("u1_deep", {"u1": ["refused", "proof", "x"], "probe": {"thm": "absent"}}),
+                         ("u1_deep_ns", {"u1": ["refused", "proof", "x"], "probe": {"thm": "absent"}}),
+                         ("u1_hier", {})):
+            self.plan[f"1:{rt}"] = plan
+        lst = os.path.join(self.base, "l.txt")
+        open(lst, "w").write("1 u1\n1 u1_deep\n1 u1_deep_ns\n1 u1_hier\n")
+        r = self.run_u1("list", lst)
+        self.assertIn(r.returncode, (0, 3), r.stdout + r.stderr)
+        [u] = self.results("union.tsv")
+        self.assertEqual((u["u1_hier_strict"], u["union_std_strict"], u["union_strict"], u["union_strict_routes"],
+                          u["union_std_hier_strict"]), ("yes", "no", "no", "", "yes"))
+        rid = open(os.path.join(self.out, "CURRENT_RUN_ID")).read().strip()
+        summ = open(os.path.join(self.out, "results", rid, "summary.txt")).read()
+        self.assertIn("route u1_hier: records=1 strict_counted_yes=1", summ)
+        self.assertIn("union (standard routes u1, u1_deep): distinct_rows=1 returned_IR_strict_rows=0", summ)
+        self.assertIn("returned_IR_strict_rows_incl_namespace_assisted=0", summ)
+        self.assertIn("returned_IR_strict_rows_std_plus_hier=1 hier_adds_over_standard=1", summ)
+
+    def test_hier_lean_control_embeds_the_harness_probe(self):
+        """controls/U1HierControls.lean is generated from the harness's own probe text: no drift."""
+        sys.path.insert(0, os.path.join(VED, "controls"))
+        import gen_u1hier_controls
+        want = gen_u1hier_controls.render()
+        have = open(os.path.join(VED, "controls", "U1HierControls.lean")).read()
+        self.assertEqual(have, want, "regenerate: python3 -I scripts/ved/controls/gen_u1hier_controls.py "
+                                     "scripts/ved/controls/U1HierControls.lean")
+        self.assertIn(u1_gen.EVAL_HELP, have)
+
     def test_malformed_list_line_is_harness_error(self):
         lst = os.path.join(self.base, "rows.txt")
         open(lst, "w").write("1\n1 bogus_route\n")

@@ -5,7 +5,7 @@ Reuses the U0 runner (u0_run.py: per-case isolation in its own session under a
 subreaper helper, SPARKLE_* cleared, rlimit, timeout + TERM/KILL, run identity,
 attempts, reuse only on identical identity, harness-error rows, COMPLETE /
 INCOMPLETE) with the U1 generator/classifier (u1_gen.py).  A row is run once
-per route; the route is the case's "setting": `u1`, `u1_deep`, `u1_deep_ns`.
+per route; the route is the case's "setting": `u1`, `u1_deep`, `u1_deep_ns`, `u1_hier`.
 
 Usage (repo root of the worktree being measured; OUT outside the tree):
   u1_run.py --out OUT case ROW ROUTE
@@ -42,7 +42,7 @@ import u1_gen  # noqa: E402
 
 UNION_COLUMNS = (["row", "file", "line", "command", "top"]
                  + [f"{rt}_strict" for rt in u1_gen.ROUTES]
-                 + ["union_std_strict", "union_strict", "union_strict_routes"]
+                 + ["union_std_strict", "union_strict", "union_strict_routes", "union_std_hier_strict"]
                  + [f"{rt}_first_cause" for rt in u1_gen.ROUTES]
                  + [f"{rt}_status" for rt in u1_gen.ROUTES]
                  + [f"{rt}_prep_status" for rt in u1_gen.DEEP_ROUTES] + ["invocation"])
@@ -53,6 +53,8 @@ def sha(*paths):
 
 
 STD_ROUTES = ("u1", "u1_deep")
+# the namespace-assisted union keeps its meaning: standard + u1_deep_ns, NEVER u1_hier
+NS_UNION_ROUTES = ("u1", "u1_deep", "u1_deep_ns")
 
 
 def union_rows(records):
@@ -65,13 +67,16 @@ def union_rows(records):
     for row in sorted(by, key=lambda x: int(x) if x.isdigit() else 10 ** 9):
         recs = {rt: by[row].get(rt, {}) for rt in u1_gen.ROUTES}
         ok = [rt for rt in u1_gen.ROUTES if recs[rt].get("strict_counted") == "yes"]
+        ok_ns = [rt for rt in ok if rt in NS_UNION_ROUTES]
         base = next((recs[rt] for rt in u1_gen.ROUTES if recs[rt]), {})
         u = {"row": row, "file": base.get("file", ""), "line": base.get("line", ""),
              "command": base.get("command", ""), "top": base.get("top", ""),
              # standard routes only (u1, u1_deep in the original scope)
              "union_std_strict": "yes" if any(rt in STD_ROUTES for rt in ok) else "no",
              # also the namespace-assisted route (reviewer ruling 2026-11-10)
-             "union_strict": "yes" if ok else "no", "union_strict_routes": ",".join(ok),
+             "union_strict": "yes" if ok_ns else "no", "union_strict_routes": ",".join(ok_ns),
+             # standard routes + u1_hier (reported separately; u1_hier is also its own route column)
+             "union_std_hier_strict": "yes" if any(rt in STD_ROUTES + ("u1_hier",) for rt in ok) else "no",
              "invocation": base.get("invocation", "")}
         for rt in u1_gen.ROUTES:
             a = recs[rt]
@@ -100,6 +105,10 @@ def summary_lines(records, union):
     lines.append(f"union (incl. namespace-assisted u1_deep_ns): distinct_rows={len(union)} "
                  f"returned_IR_strict_rows_incl_namespace_assisted={allr} "
                  f"strict_in_several_routes={sum(1 for u in union if u['union_strict_routes'].count(',') >= 1)}")
+    hier = sum(1 for u in union if u["union_std_hier_strict"] == "yes")
+    lines.append(f"union (standard + hier: u1, u1_deep, u1_hier; reported separately): "
+                 f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_hier={hier} "
+                 f"hier_adds_over_standard={sum(1 for u in union if u['union_std_hier_strict'] == 'yes' and u['union_std_strict'] != 'yes')}")
     lines.append("  (not: main's ordinary command succeeds as is / production route / release; "
                  "u1_deep refusals caused by the name lookup stay recorded)")
     lines.append("first_cause cross table (records):")
