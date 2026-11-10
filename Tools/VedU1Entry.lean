@@ -66,8 +66,10 @@ What a failure leaves and how it is reported (exactly what the code does):
   their own errors).
 
 The proof script is UNTRUSTED (the kernel checks it).  This slice's script
-covers register-free modules built from not/and/or/xor/add/sub/mux/slice and
-two-field concatenation (lemmas in Tools/VedU1Lemmas.lean), and modules with
+covers register-free modules built from not/and/or/xor/add/sub/mux/slice,
+two-field concatenation, `==`, constants and `kLut!` mux chains (lemmas in
+Tools/VedU1Lemmas.lean; a body with `==` is closed by a kernel `decide` over the
+input domain), and modules with
 exactly one register whose current value is the output (a delay); it is not
 complete for every circuit these operators can build; any other body makes the script fail,
 and the entry then refuses (stage `proof`), it never accepts.  The general
