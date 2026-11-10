@@ -227,6 +227,38 @@ class U1Harness(unittest.TestCase):
         self.assertEqual(r["strict_counted"], "no")
         self.assertIn("ok-thm-name", r["strict_blockers"])
 
+    def test_decl_scope_relative_inventory_name(self):
+        # inventory `ns` empty + scope-relative name: a suffix match is the same
+        # identifier resolved in the original scope (counterCdo in a namespace)
+        r = self.one(300, "u1", resolved="Outer.foo300", qualified="foo300")
+        self.assertEqual(r["decl_check"], "match-scoped")
+        self.assertNotIn("decl:", r["strict_blockers"])
+        r = self.one(300, "u1", resolved="Outer.foo3000", qualified="foo300")
+        self.assertEqual(r["decl_check"], "mismatch")
+        # with `ns` given the inventory name is fully qualified: no suffix rule
+        r = self.one(1, "u1", resolved="X.Outer.foo1", qualified="Outer.foo1")
+        self.assertEqual(r["decl_check"], "mismatch")
+
+    def test_staged_refusal_keeps_stage_despite_text(self):
+        # an unsolved-goal text that mentions runCircuitH / Missing cases is still [proof]
+        r = self.one(23, "u1", u1=["refused", "proof", "unsolved goals\n⊢ runCircuitH (Missing cases:) x"],
+                     probe={"thm": "absent"})
+        self.assertEqual((r["first_cause"], r["refusal_stage"]), ("proof", "proof"))
+
+    def test_case_text_u1_deep_runs_in_original_scope(self):
+        # #verify_elab_deep names facts in the current namespace and #ved_u1_deep
+        # reads them under the declaration's prefix: both must be outside the case namespace
+        text, meta = self.gen_case(1, "u1_deep")
+        i, j = text.index("#verify_elab_deep foo1"), text.index("#ved_u1_deep foo1")
+        ends = [k for k in range(len(text)) if text.startswith("end VedU1Case_R1", k)]
+        opens = [k for k in range(len(text)) if text.startswith("namespace VedU1Case_R1", k)]
+        self.assertEqual(len(ends), 2); self.assertEqual(len(opens), 2)
+        self.assertTrue(opens[0] < ends[0] < i < j < opens[1] < ends[1])
+        self.assertLess(text.index("#vedu1_t \"probe_end\""), ends[1])
+        text1, _ = self.gen_case(1, "u1")
+        k = text1.index("#ved_u1 foo1")
+        self.assertTrue(text1.index("namespace VedU1Case_R1") < k < text1.index("end VedU1Case_R1"))
+
     def test_probe_crash_not_strict_unresolved(self):
         r = self.one(1, "u1", probe_fail="boom")
         self.assertEqual(r["strict_counted"], "no")

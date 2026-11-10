@@ -161,10 +161,19 @@ def block_pieces(r, route, ns):
     p = [(None, f"-- ===== VED U1 BEGIN row {r['row']} route {route} (inventory {INV_COMMIT[:8]}) ====="),
          (None, f"namespace {ns}"), (None, TIMER), ("pre", sub(PRE_PROBE))]
     if route == "u1_deep":
-        p += [("prep", '#vedu1_t "p_begin"'), ("prep", prefix + f"#verify_elab_deep {top}"),
-              ("prep", '#vedu1_t "p_end"')]
-    p += [("u1", '#vedu1_t "u_begin"'), ("u1", prefix + f"{ENTRY_CMD[route]} {top}"),
-          ("u1", '#vedu1_t "u_end"'), ("probe", sub(PROBE)), ("probe", '#vedu1_t "probe_end"'),
+        # `#verify_elab_deep` names its facts in the CURRENT namespace, and
+        # `#ved_u1_deep` looks them up under the declaration's own prefix, so
+        # both run in the original command's scope, outside the case namespace
+        # (inside it the facts land under VedU1Case_R<row> and are not found).
+        p += [(None, f"end {ns}"),
+              ("prep", '#vedu1_t "p_begin"'), ("prep", prefix + f"#verify_elab_deep {top}"),
+              ("prep", '#vedu1_t "p_end"'),
+              ("u1", '#vedu1_t "u_begin"'), ("u1", prefix + f"{ENTRY_CMD[route]} {top}"),
+              ("u1", '#vedu1_t "u_end"'), (None, f"namespace {ns}")]
+    else:
+        p += [("u1", '#vedu1_t "u_begin"'), ("u1", prefix + f"{ENTRY_CMD[route]} {top}"),
+              ("u1", '#vedu1_t "u_end"')]
+    p += [("probe", sub(PROBE)), ("probe", '#vedu1_t "probe_end"'),
           (None, f"end {ns}"), (None, "-- ===== VED U1 END =====")]
     return p
 
@@ -349,6 +358,13 @@ def classify_dir(d, sv_group=""):
     if m:
         resolved = m.group(1)
         row["decl_resolved"], row["decl_check"] = resolved, m.group(4)
+        # the inventory gives a scope-relative name when its `ns` is empty (245
+        # rows, also for files inside a namespace): the identifier resolved in
+        # the original command's own scope, so a suffix match is that name
+        q, user = meta.get("qualified", "") or "", m.group(2)
+        if (m.group(4) == "mismatch" and not (meta.get("ns") or "") and q
+                and user.endswith("." + q)):
+            row["decl_check"] = "match-scoped"
     elif "VED U1P DECL absent" in text:
         row["decl_check"] = "absent"
         row["invocation"] = "unresolved-private" if meta.get("scan_private") else "unresolved-name"
@@ -431,10 +447,14 @@ def classify_dir(d, sv_group=""):
         stage, msg = refusal
         row.update(refusal_stage=stage, refusal_msg=first_line(msg))
         cause = stage
-        if "Missing cases" in msg:
-            cause = "missing-cases"
-        elif "runCircuitH" in msg:
-            cause = "runCircuitH-location"
+        # the text heuristics only refine stages whose message is a raw error
+        # from elsewhere; a [proof]/[type]/... refusal stays at its stage (its
+        # goal text may mention runCircuitH without being that failure)
+        if stage in ("synthesis", "checker"):
+            if "Missing cases" in msg:
+                cause = "missing-cases"
+            elif "runCircuitH" in msg:
+                cause = "runCircuitH-location"
         row.update(u1_status="refused", first_cause=cause, later_stages_not_reached=later_stages(stage))
     elif u1_errs:
         e0 = u1_errs[0]
@@ -515,7 +535,7 @@ def classify_dir(d, sv_group=""):
         bl.append("axioms:" + (",".join(extra) if extra else "unknown"))
     if row["kernel_sync"] != "yes":
         bl.append("kernel-not-sync")
-    if row["decl_check"] != "match":
+    if row["decl_check"] not in ("match", "match-scoped"):
         bl.append(f"decl:{row['decl_check']}")
     if pre_exist or row["probe_preexisting"] != "no":
         bl.append(f"preexisting:{row['probe_preexisting']}")
