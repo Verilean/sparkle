@@ -32,8 +32,8 @@ statement は `U1HStmt c d m stmt` とする。中身は U1Stmt と同じ形で�
 
 証明は次の 3 つから組み立てる。
 1. 子ごとの U1 定理（子の宣言 = 子 module、既存の生成器を流用）
-2. 親の open-module U1。instance 出力は自由入力として扱う（既存の生成器を流用）。
-3. 一般補題 1 本：「open で成り立つ親の式に、子の定理の値を代入すると、閉じた意味で成り立つ」。
+2. 親の中間契約（裁定2）。既存 U1Stmt は inst を拒否し、任意の子出力について元の親宣言と等しいとは言えないので、open-module U1 をそのまま流用はしない。子の入力/出力関係を仮定として持つ親の中間契約を立てる。
+3. 合成補題：実際の子定理でその関係を供給し、元の親宣言に戻る結論を得る。中間仮説は最終 strict 定理ですべて供給し、ChildFn や接続の意味保存を未供給 binder に残さない。補題の本数・規模は未検証の見積り（「1本で済む」とは言わない）。
    - これは module に依存しない定理として 1 回だけ証明する。
 
 | 項目 | 内容 |
@@ -54,12 +54,12 @@ statement は `U1HStmt c d m stmt` とする。中身は U1Stmt と同じ形で�
 
 ### C. 未対応として数え続ける（現状）
 - 分母から除かずに「未対応（instance）」と報告する。
-- 費用 0。階層を含む行は永久に strict にならない。
+- 費用 0。階層を含む行は現状のままでは未対応。
 
 ## 4. 推奨する最初の範囲（A を選んだ場合）
 - **H1:** 組合せの子だけ（子に register/memory なし）、子は単一出力、親は既存の生成器の範囲。
   - 子の重複呼び出し（同じ子の instance が複数）を含む。
-  - 一般補題と DesignStep をここで固める。
+  - 合成補題と DesignStep をここで固める。
 - **H2:** 順序の子（register 1 個の遅延など、既存スクリプトの範囲）。状態の積。
 - **H3:** 複数出力の子（2b の port 命名の結果を使う）。
 - 代表:
@@ -81,3 +81,37 @@ statement は `U1HStmt c d m stmt` とする。中身は U1Stmt と同じ形で�
 ## 6. 根拠
 - 測定: ~/git/workspaces/ved-u1-results/full-231d5ee7/final-cdc41/results.tsv（u1_deep の prep_error に "single-module"）
 - コード: Sparkle/IR/Semantics.lean:185-198, 227、Tools/VedU1Contract.lean:280-284（main 6c29b9b8。PR #152 b5da6b86 では 311-315）、Sparkle/Compiler/Elab.lean:4062
+
+## 7. reviewer 裁定（2026-11-10、対象 406bd83b）と反映
+方向の許可であり、U1HStmt の凍結、階層 strict の達成、Issue の完了、release の承認ではない。
+
+1. **A を採用**（B の平坦化は今は追加しない）。
+   - DesignStep は新しい axiom や TRUSTED ではない。保証内容を定める仕様である。
+   - 元宣言を参照せず、返却 Module/Design だけで定義する。
+   - 葉（instance なし）では既存意味論に一致することを補題にする。
+2. **親の中間契約**（子の入出力関係を仮定）、**実際の子定理による供給**、**元の親宣言に戻る結論**を明記する。中間仮説はすべて最終定理で供給する。
+3. **階層用の Order/Shape を新設する。** 既存の WO・runModule_perm・ReorderInvariance は inst の read/write を無視するので、そのまま適用しない。
+   - inst の入力 read と出力 write は、子 module の port 方向から定める。
+   - assign/inst を横断する依存順序について、存在と、全許容順序での一致を証明する。
+   - 次はすべて拒否する：循環、undriven、入力への書込み、多重 driver（assign/reg/inst 間も）、幅不整合。
+   - 燃料切れや lookup 失敗を 0 値で補わず、失敗にする。
+   - 入力範囲内の全 stream について、実行が存在することも結論に含める（空虚さの防止）。
+4. **同じ合成 run の (m, d) 全体を保持・引用し、次を検査する。**
+   - top の対応、子 module 名の一意性、全 inst の解決
+   - 各入出力 port の接続：過不足、重複、方向、幅
+   - H1 の出力接続は ref のみなど、狭い明示範囲でよい。
+   - 子定理は d から解決したその module そのものに結ぶ（別 run や同名 module の証明は代用不可）。
+   - 未使用の inst や子 module を証明のために除去しない。unsupported な残存 module の扱いを明記し、黙って検査対象から落とさない。
+5. **H1 の範囲：** 深さ 1、組合せの leaf 子、単一出力、memory/primitive/parameter なし。同じ子を 2 回呼ぶ小例を含める。
+   - 親はまず組合せとし、通った後に既存対応範囲の親 register へ進む。
+   - 子間接続の依存、異なる入力、非対称な関数と値を使い、接続の取り違えを観測できる対照にする。
+   - H2（状態は instance path ごとに独立。同時更新・初期値・reset=0/clock 範囲を別途定義）と H3（multi-output と連携）は今回実装しない。
+6. **次の提出物：**
+   - H1 の型付き契約
+   - 葉の縮約補題と合成補題
+   - 同じ返却 artifact に対する、自動生成の最小 strict 1 例
+   - 対照（すべて拒否）：子 2 回、conns の交換・欠落・余分・幅違い、子 body の改変、子の欠落・重複名、循環、undriven、別 Design・別証明。意味が変わらない一貫した rename は拒否必須にしない。
+   - 監査：std3、完全型、同一 artifact、変数なし
+   - 合成時間、証明時間、peak memory の記録
+   - 先に 36 拒否行から H1 候補を 1 行調査して指定する。見つからなければ、理由と最初の阻害を報告する。小例は 327 に加算しない。
+   - frontend/comb 等を中断する全面変更はしない。
