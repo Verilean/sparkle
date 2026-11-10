@@ -5,7 +5,7 @@ Reuses the U0 runner (u0_run.py: per-case isolation in its own session under a
 subreaper helper, SPARKLE_* cleared, rlimit, timeout + TERM/KILL, run identity,
 attempts, reuse only on identical identity, harness-error rows, COMPLETE /
 INCOMPLETE) with the U1 generator/classifier (u1_gen.py).  A row is run once
-per route; the route is the case's "setting": `u1`, `u1_deep`.
+per route; the route is the case's "setting": `u1`, `u1_deep`, `u1_deep_ns`.
 
 Usage (repo root of the worktree being measured; OUT outside the tree):
   u1_run.py --out OUT case ROW ROUTE
@@ -40,9 +40,11 @@ U1_GEN = os.path.join(HERE, "u1_gen.py")
 u0_run.GEN = os.environ.get("U1_GEN_PY", U1_GEN)
 import u1_gen  # noqa: E402
 
-UNION_COLUMNS = ["row", "file", "line", "command", "top", "u1_strict", "u1_deep_strict", "union_strict",
-                 "u1_first_cause", "u1_deep_first_cause", "u1_status", "u1_deep_status",
-                 "u1_deep_prep_status", "invocation"]
+UNION_COLUMNS = (["row", "file", "line", "command", "top"]
+                 + [f"{rt}_strict" for rt in u1_gen.ROUTES] + ["union_strict", "union_strict_routes"]
+                 + [f"{rt}_first_cause" for rt in u1_gen.ROUTES]
+                 + [f"{rt}_status" for rt in u1_gen.ROUTES]
+                 + [f"{rt}_prep_status" for rt in u1_gen.DEEP_ROUTES] + ["invocation"])
 
 
 def sha(*paths):
@@ -50,25 +52,28 @@ def sha(*paths):
 
 
 def union_rows(records):
-    """records: list of dict (results.tsv rows).  One union line per distinct row."""
+    """records: list of dict (results.tsv rows).  One union line per distinct row;
+    a row strict in several routes counts once."""
     by = {}
     for r in records:
         by.setdefault(r["row"], {})[r["setting"]] = r
     out = []
     for row in sorted(by, key=lambda x: int(x) if x.isdigit() else 10 ** 9):
-        a, b = by[row].get("u1", {}), by[row].get("u1_deep", {})
-        sa, sb = a.get("strict_counted") == "yes", b.get("strict_counted") == "yes"
-        base = a or b
-        out.append({"row": row, "file": base.get("file", ""), "line": base.get("line", ""),
-                    "command": base.get("command", ""), "top": base.get("top", ""),
-                    "u1_strict": "yes" if sa else ("no" if a else "missing"),
-                    "u1_deep_strict": "yes" if sb else ("no" if b else "missing"),
-                    "union_strict": "yes" if (sa or sb) else "no",
-                    "u1_first_cause": a.get("first_cause", ""),
-                    "u1_deep_first_cause": b.get("first_cause", ""),
-                    "u1_status": a.get("u1_status", ""), "u1_deep_status": b.get("u1_status", ""),
-                    "u1_deep_prep_status": b.get("prep_status", ""),
-                    "invocation": base.get("invocation", "")})
+        recs = {rt: by[row].get(rt, {}) for rt in u1_gen.ROUTES}
+        ok = [rt for rt in u1_gen.ROUTES if recs[rt].get("strict_counted") == "yes"]
+        base = next((recs[rt] for rt in u1_gen.ROUTES if recs[rt]), {})
+        u = {"row": row, "file": base.get("file", ""), "line": base.get("line", ""),
+             "command": base.get("command", ""), "top": base.get("top", ""),
+             "union_strict": "yes" if ok else "no", "union_strict_routes": ",".join(ok),
+             "invocation": base.get("invocation", "")}
+        for rt in u1_gen.ROUTES:
+            a = recs[rt]
+            u[f"{rt}_strict"] = "yes" if rt in ok else ("no" if a else "missing")
+            u[f"{rt}_first_cause"] = a.get("first_cause", "")
+            u[f"{rt}_status"] = a.get("u1_status", "")
+        for rt in u1_gen.DEEP_ROUTES:
+            u[f"{rt}_prep_status"] = recs[rt].get("prep_status", "")
+        out.append(u)
     return out
 
 
@@ -84,7 +89,7 @@ def summary_lines(records, union):
         lines.append(f"route {route}: records={n} strict_counted_yes={s}")
     lines.append(f"union: distinct_rows={len(union)} strict_in_either_route="
                  f"{sum(1 for u in union if u['union_strict'] == 'yes')} "
-                 f"strict_in_both={sum(1 for u in union if u['u1_strict'] == 'yes' and u['u1_deep_strict'] == 'yes')}")
+                 f"strict_in_several_routes={sum(1 for u in union if u['union_strict_routes'].count(',') >= 1)}")
     lines.append("first_cause cross table (records):")
     causes = sorted({r["first_cause"] for r in records})
     lines.append("  " + "\t".join(["cause"] + sorted(routes)))

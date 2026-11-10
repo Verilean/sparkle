@@ -338,6 +338,29 @@ class U1Harness(unittest.TestCase):
         lo, hi = meta["segs"]["prep"]
         self.assertTrue(any(l.startswith("#verify_elab_deep") for l in lines[lo - 1:hi]))
 
+    def test_case_text_u1_deep_ns_in_decl_namespace(self):
+        text, meta = self.gen_case(1, "u1_deep_ns")
+        self.assertIn('elab "#vedu1_in_declns "', text)
+        self.assertIn("withNamespace n.getPrefix", text)
+        self.assertIn("#vedu1_in_declns foo1\nset_option Elab.async false in\n#verify_elab_deep foo1\n", text)
+        self.assertIn("#vedu1_in_declns foo1\nset_option Elab.async false in\n#ved_u1_deep foo1\n", text)
+        ends = [k for k in range(len(text)) if text.startswith("end VedU1Case_R1", k)]
+        i = text.index("#verify_elab_deep foo1")
+        self.assertTrue(ends[0] < i)
+        self.assertEqual(set(meta["segs"]), {"pre", "prep", "u1", "probe"})
+
+    def test_u1_deep_ns_is_its_own_route_in_union(self):
+        self.plan["1:u1"] = {"u1": ["refused", "proof", "x"], "probe": {"thm": "absent"}}
+        self.plan["1:u1_deep"] = {"u1": ["refused", "proof", "foo1_deep missing"], "probe": {"thm": "absent"}}
+        self.plan["1:u1_deep_ns"] = {}
+        lst = os.path.join(self.base, "l.txt")
+        open(lst, "w").write("1 u1\n1 u1_deep\n1 u1_deep_ns\n")
+        r = self.run_u1("list", lst)
+        self.assertIn(r.returncode, (0, 3), r.stdout + r.stderr)
+        [u] = self.results("union.tsv")
+        self.assertEqual((u["u1_strict"], u["u1_deep_strict"], u["u1_deep_ns_strict"], u["union_strict"],
+                          u["union_strict_routes"]), ("no", "no", "yes", "yes", "u1_deep_ns"))
+
     # ------------------------------------------------------- union & runner
     def test_g_union_counting(self):
         lst = os.path.join(self.base, "rows.txt")
@@ -358,7 +381,7 @@ class U1Harness(unittest.TestCase):
         summ = open(os.path.join(self.out, "results", rid, "summary.txt")).read()
         self.assertIn("route u1: records=4 strict_counted_yes=2", summ)
         self.assertIn("route u1_deep: records=4 strict_counted_yes=2", summ)
-        self.assertIn("union: distinct_rows=4 strict_in_either_route=3 strict_in_both=1", summ)
+        self.assertIn("union: distinct_rows=4 strict_in_either_route=3 strict_in_several_routes=1", summ)
 
     def test_malformed_list_line_is_harness_error(self):
         lst = os.path.join(self.base, "rows.txt")
@@ -395,7 +418,7 @@ class U1Harness(unittest.TestCase):
         m = os.path.join(self.base, "m")
         r = subprocess.run([sys.executable, "-I", RUN, "--out", m, "merge", s1, s2], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("union: distinct_rows=1 strict_in_either_route=1 strict_in_both=1", r.stdout)
+        self.assertIn("union: distinct_rows=1 strict_in_either_route=1 strict_in_several_routes=1", r.stdout)
 
 
 if __name__ == "__main__":
