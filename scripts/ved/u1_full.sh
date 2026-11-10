@@ -44,4 +44,12 @@ if [ -n "${SHARD:-}" ]; then
   awk -v k="$k" -v n="$n" '(NR-1) % n == k' "$LIST" > "$LIST.s" && mv "$LIST.s" "$LIST"
 fi
 echo "u1_full: mode=$mode records=$(wc -l < "$LIST") out=$OUT"
+# build the modules the cases import (row files' direct imports + U1 tools),
+# unless U1_BUILD=0; a failed build stops the run (no record is produced)
+if [ "${U1_BUILD:-1}" != 0 ]; then
+  mods=$(python3 -I "$HERE/u1_imports.py" --repo "$REPO" --list "$LIST") || exit 2
+  t0=$(date +%s)
+  (cd "$REPO" && kjob lake build $mods) || { echo "u1_full: import build FAILED" >&2; exit 2; }
+  echo "u1_full: import build ok wall=$(( $(date +%s) - t0 ))s modules=$(echo $mods | wc -w)"
+fi
 cd "$REPO" && exec python3 -I "$HERE/u1_run.py" --repo "$REPO" --out "$OUT" list "$LIST"
