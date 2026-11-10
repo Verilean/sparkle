@@ -135,4 +135,82 @@ theorem instEval_laws (d : Design) (run : Module → Env → Option Env) (we : W
               exact outWrites_names c cs envC l h'
         · simp at h
 
+/-! ## Success of a combinational fold does not depend on the seed values -/
+
+theorem evalOp_isSome_len (we : WEnv) (op : Operator) (args : List Expr) (vals vals' : List Nat) (w w' : Nat)
+    (h : vals.length = vals'.length) (hs : (evalOp we op args vals w).isSome) :
+    (evalOp we op args vals' w').isSome := by
+  rcases vals with _ | ⟨a, _ | ⟨b, _ | ⟨c, _ | ⟨e, rest⟩⟩⟩⟩ <;>
+  rcases vals' with _ | ⟨a', _ | ⟨b', _ | ⟨c', _ | ⟨e', rest'⟩⟩⟩⟩ <;> simp at h <;>
+  rcases args with _ | ⟨x, _ | ⟨y, _ | ⟨z, args2⟩⟩⟩ <;>
+  cases op <;> simp [evalOp] at hs ⊢
+
+mutual
+theorem evalExpr_env_some (we : WEnv) (env env' : Env) : ∀ (e : Expr) (v : Nat),
+    evalExpr we env e = some v → ∃ v', evalExpr we env' e = some v'
+  | .const c w, v, h => ⟨_, rfl⟩
+  | .ref n, v, h => ⟨_, rfl⟩
+  | .op operator args, v, h => by
+    simp only [evalExpr] at h ⊢
+    obtain ⟨vals, hl, ho⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨vals', hl', hlen⟩ := evalList_env_some we env env' args vals hl
+    simp only [hl']
+    have := evalOp_isSome_len we operator args vals vals' (widthOf we (.op operator args))
+      (widthOf we (.op operator args)) hlen.symm (by rw [ho]; rfl)
+    exact Option.isSome_iff_exists.mp this
+  | .concat args, v, h => by
+    simp only [evalExpr] at h ⊢
+    obtain ⟨vals, hl, ho⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨vals', hl', hlen⟩ := evalList_env_some we env env' args vals hl
+    simp only [hl']
+    exact ⟨_, rfl⟩
+  | .slice e hi lo, v, h => by
+    simp only [evalExpr] at h ⊢
+    obtain ⟨v0, hv0, ho⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨v1, hv1⟩ := evalExpr_env_some we env env' e v0 hv0
+    simp only [hv1]
+    exact ⟨_, rfl⟩
+  | .sliceDim _ _ _, v, h => by simp [evalExpr] at h
+  | .index _ _, v, h => by simp [evalExpr] at h
+
+theorem evalList_env_some (we : WEnv) (env env' : Env) : ∀ (args : List Expr) (vs : List Nat),
+    evalList we env args = some vs → ∃ vs', evalList we env' args = some vs' ∧ vs'.length = vs.length
+  | [], vs, h => by simp [evalList] at h; subst h; exact ⟨[], rfl, rfl⟩
+  | a :: rest, vs, h => by
+    simp only [evalList] at h ⊢
+    obtain ⟨v, hv, h2⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨vs0, hvs, h3⟩ := Option.bind_eq_some_iff.mp h2
+    obtain ⟨v', hv'⟩ := evalExpr_env_some we env env' a v hv
+    obtain ⟨vs', hvs', hlen⟩ := evalList_env_some we env env' rest vs0 hvs
+    simp only [hv', hvs']
+    simp only [Option.some.injEq] at h3
+    subst h3
+    exact ⟨v' :: vs', rfl, by simp [hlen]⟩
+end
+
+theorem evalAssignsI_succ (we : WEnv) (ie : InstEval) :
+    ∀ (b : List Stmt) (env E : Env), leafBody b = true → evalAssignsI we ie b env = some E →
+      ∀ env', ∃ E', evalAssignsI we ie b env' = some E' := by
+  intro b
+  induction b with
+  | nil => intro env E _ _ env'; exact ⟨env', rfl⟩
+  | cons s rest ih =>
+    intro env E hl h env'
+    cases s with
+    | assign l r =>
+      simp only [leafBody] at hl
+      simp only [evalAssignsI, cellVals] at h ⊢
+      obtain ⟨vl, hvl, h2⟩ := Option.bind_eq_some_iff.mp h
+      obtain ⟨v, hv, hlv⟩ := Option.map_eq_some_iff.mp hvl
+      subst hlv
+      obtain ⟨v', hv'⟩ := evalExpr_env_some we env env' r v hv
+      simp only [hv', Option.map_some]
+      exact ih _ E hl h2 _
+    | register o c r e i =>
+      simp only [leafBody] at hl
+      simp only [evalAssignsI, cellVals] at h ⊢
+      exact ih _ E hl h _
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [leafBody] at hl
+    | inst _ _ _ => simp [leafBody] at hl
+
 end Tools.VedU1Hier
