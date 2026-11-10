@@ -5,9 +5,17 @@ import Tests.Ved.U1EntryCheck
 
 A REAL heartbeat / max-recursion exception raised while the checker elaborates
 the proof is refused at `[proof]`; one raised in its synchronous kernel
-`addDecl` is refused at `[kernel]` (before: both reached the catch-all
-`[checker]`).  Each case is pinned through `expectRefused` (stage + none of the
-checker's constants left); no OK line is printed.
+`addDecl` is refused at `[kernel]`.  Each case is pinned through
+`expectRefused` (stage + none of the checker's constants left); no OK line is
+printed.
+
+Old vs new (observed when the change was made, with the previous `checkU1E`
+applied temporarily): the two proof-side cases were refused at the catch-all
+`[checker]` before and are `[proof]` now.  The kernel-side case was `[kernel]`
+before as well (the kernel's deterministic timeout reaches the checker as an
+ordinary exception in this toolchain), so it pins the stage but does not
+exercise the added runtime-exception path on the kernel side; that path is not
+verified by this file.
 -/
 
 namespace Tests.Ved.U1StageCheck
