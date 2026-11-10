@@ -58,7 +58,9 @@ What a failure leaves and how it is reported (exactly what the code does):
   and inside `checkU1` the stages `table`, `multi-output` (of the statement's
   constant), `artifact`, `type`, `proof`, `kernel`,
   `audit`, plus `checker` for any other exception raised inside `checkU1`
-  (e.g. an `addDecl` of a registered name failing, or a runtime limit).
+  (e.g. an `addDecl` of a registered name failing).  A runtime limit
+  (heartbeats, recursion depth) while elaborating the proof is refused at
+  `proof`, and one in the synchronous kernel `addDecl` at `kernel`.
   NOT in that form: interrupt exceptions (never caught by the elaborator),
   and heartbeat / max-recursion exceptions raised by `readTable`,
   or `synthesizeCombinational` before `checkU1` starts (the plain
@@ -404,6 +406,8 @@ included) it restores the TermElabM state saved when IT started, which takes
 back the constants and messages the checker added (nothing synthesis did
 before the call is rolled back), and throws `VED U1 REFUSED <decl> [<stage>]`;
 an exception not already in that form is reported at stage `checker`.
+A runtime limit while elaborating the proof is refused at `proof`, one in the
+synchronous kernel `addDecl` at `kernel` (not at `checker`).
 
 `checkU1` verifies "this `m` has this declaration's meaning": the contract
 reads the module name from `m` and does not bind it to `stmt`, so a

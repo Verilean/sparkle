@@ -1340,3 +1340,6 @@ lean_exe «signz-demo-jit» where
 lean_exe «mulmodser-jit» where
   root := `Tests.Drivers.MulModSerJIT
   supportInterpreter := true
+
+lean_lib «Tests.Ved.U1StageCheck» where
+  roots := #[`Tests.Ved.U1StageCheck]
