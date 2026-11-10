@@ -120,9 +120,18 @@ run_cmd do
 
 /-! ## Controls -/
 
-/-- The checker with one piece altered must refuse at `stage` and leave no constant of its base. -/
+/-- The constants of this file's environment under `decl` (the parent's six
+checker constants AND the `decl.ved_child.*` leaf constants). -/
+def constsUnder (decl : Name) : MetaM (List Name) := do
+  return (← getEnv).constants.map₂.toList.filterMap fun (n, _) =>
+    if decl.isPrefixOf n then some n else none
+
+/-- The checker with one piece altered must refuse at `stage`, and the
+environment under `decl` (parent checker constants and the `ved_child`
+namespace) must be exactly as before the call. -/
 def expectRefused (decl : Name) (stage : String) (m : Sparkle.IR.AST.Module) (d : Design) :
     CommandElabM Unit := liftTermElabM do
+  let before ← constsUnder decl
   let (stmt, nDom) ← specialiseDomain decl
   let r ← try
       discard <| checkU1H decl stmt nDom m d
@@ -136,6 +145,9 @@ def expectRefused (decl : Name) (stage : String) (m : Sparkle.IR.AST.Module) (d 
   let nm := HNames.ofBase decl
   for n in [nm.mod, nm.design, nm.contract, nm.outs, nm.body, nm.thm] do
     if (← getEnv).contains n then throwError "{n} is still in the environment after the refusal"
+  let after ← constsUnder decl
+  let added := after.filter (!before.contains ·)
+  unless added.isEmpty do throwError "constants left under {decl} after the refusal: {added}"
 
 /-- Replace the first statement satisfying `p` by `f s`. -/
 def mapFirst (p : Stmt → Bool) (f : Stmt → Stmt) : List Stmt → List Stmt
@@ -259,10 +271,11 @@ def controlsRun : CommandElabM Unit := do
     if c.name == hcAName then { (d3.modules.headD c) with name := hcAName } else c
   expectRefused name "child" m { d with modules := other }
   n := n + 1
-  -- nothing of the controls' base is left, and nothing else was added by them
-  logInfo m!"controls: {n} refused, nothing left"
+  -- after each refusal the environment under the controls' base (parent
+  -- checker constants and its `ved_child` namespace) is unchanged
+  logInfo m!"controls: {n} refused, nothing left under the base"
 
-/-- info: controls: 20 refused, nothing left -/
+/-- info: controls: 20 refused, nothing left under the base -/
 #guard_msgs in
 run_cmd controlsRun
 
@@ -284,7 +297,11 @@ def multiRun : CommandElabM Unit := liftTermElabM do
 #guard_msgs in
 run_cmd multiRun
 
-/-! ## Kernel-level controls: another Design / another proof do not typecheck -/
+/-! ## Type-level controls: another Design / another proof do not elaborate against the statement
+
+These are refusals by `elabTermEnsuringType` (the elaborator's type check of
+the substituted proof against the full expected type), not direct kernel
+`addDecl` refusal tests. -/
 
 def typeMismatch (what : String) (stx : Syntax) (ty : Lean.Expr) : CommandElabM Unit := liftTermElabM do
   let ok ← try

@@ -38,7 +38,7 @@ statement は `U1HStmt c d m stmt` とする。中身は U1Stmt と同じ形で�
 
 | 項目 | 内容 |
 |---|---|
-| 新しい信頼 | `DesignStep` の定義（reviewer が承認する定義）。生成器と証明は信頼しない（kernel） |
+| 仕様（新しい axiom・TRUSTED ではない） | `DesignStep` の定義は保証内容を定める仕様で、返却 Module/Design だけから定義し reviewer が仕様として承認する（§7 裁定1）。生成器と証明は信頼しない（kernel） |
 | 利用者に見える影響 | なし（compiler 出力は不変、検査の追加だけ） |
 | 費用 | 意味論の定義と合成補題 1 本（組合せの子：中、順序の子：大）、生成器の結線 |
 | 後から変えられるか | 変えられる。DesignStep を変えると statement が変わるので、版を上げて再測定する |
