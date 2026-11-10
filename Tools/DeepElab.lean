@@ -2264,10 +2264,51 @@ elab "#verify_elab_deep" id:ident : command =>
           e ← Lean.Meta.whnf tl
         | _ => break
       return acc
-    let initVals (h : Lean.Expr) (k : Nat) : Lean.MetaM (Option (Array Nat)) := do
+    -- A closed initial value that is not syntactically `BitVec.ofNat _ lit`
+    -- (`BitVec.zero 8`, a named constant `q 1 2`, `decide …`): evaluate it
+    -- to a Nat by default-transparency whnf of `toNat`, then have the KERNEL
+    -- check `init = BitVec.ofNat w v` / `init = Bool.true|false` by `Eq.refl`
+    -- (a throwaway `addDecl`).  The evaluator is not trusted: a wrong value
+    -- fails the kernel check and the init is refused.  Free variables and
+    -- metavariables are refused (`topFail` names the reason).
+    let evalInit (a : Lean.Expr) (isBool : Bool) (w : Nat) : Lean.MetaM (Option Nat) := do
+      let a ← Lean.instantiateMVars a
+      if a.hasFVar || a.hasMVar || a.hasLevelMVar then return none
+      let v? ← try
+          if isBool then
+            let r ← Lean.Meta.withDefault (Lean.Meta.whnf a)
+            match r.getAppFnArgs with
+            | (``Bool.true, _) => pure (some 1)
+            | (``Bool.false, _) => pure (some 0)
+            | _ => pure none
+          else
+            let r ← Lean.Meta.withDefault (Lean.Meta.whnf (← Lean.Meta.mkAppM ``BitVec.toNat #[a]))
+            match r.rawNatLit? with
+            | some n => pure (some n)
+            | none => Lean.Meta.evalNat r
+        catch _ => pure none
+      let some v := v? | return none
+      let rhs : Lean.Expr := if isBool then
+          (if v == 1 then Lean.mkConst ``Bool.true else Lean.mkConst ``Bool.false)
+        else Lean.mkApp2 (Lean.mkConst ``BitVec.ofNat) (Lean.mkRawNatLit w) (Lean.mkRawNatLit v)
+      let ty ← Lean.Meta.inferType a
+      let lvl ← Lean.Meta.getLevel ty
+      let eqTy := Lean.mkApp3 (Lean.mkConst ``Eq [lvl]) ty a rhs
+      let pf := Lean.mkApp2 (Lean.mkConst ``Eq.refl [lvl]) ty a
+      let env ← Lean.getEnv
+      let ok ← try
+          let decl := Lean.Declaration.thmDecl
+            { name := `_ved_init_check, levelParams := [], type := eqTy, value := pf }
+          match Lean.Environment.addDecl env (← Lean.getOptions) decl with
+          | .ok _ => pure true
+          | .error _ => pure false
+        catch _ => pure false
+      return if ok then some v else none
+    let initVals (h : Lean.Expr) (isBools : Array Bool) (ws : Array Nat) :
+        Lean.MetaM (Option (Array Nat)) := do
       let mut e ← Lean.Meta.whnf h
       let mut acc : Array Nat := #[]
-      for _ in [0:k] do
+      for j in [0:ws.size] do
         match e.getAppFnArgs with
         | (``Prod.mk, #[_, _, a, rest]) =>
           -- reducible whnf only: default transparency would unfold
@@ -2278,6 +2319,9 @@ elab "#verify_elab_deep" id:ident : command =>
             | (``Bool.true, _) => pure (some 1)
             | (``Bool.false, _) => pure (some 0)
             | _ => pure none
+          let v? ← match v? with
+            | some v => pure (some v)
+            | none => evalInit a isBools[j]! ws[j]!
           match v? with
           | some v => acc := acc.push v
           | none => return none
@@ -2307,7 +2351,10 @@ elab "#verify_elab_deep" id:ident : command =>
         if ty.hasFVar then
           throwError "#verify_elab_deep: loop element type mentions a local binder: {ty}"
         tys := tys.push (← Lean.PrettyPrinter.delab ty)
-      let some inits ← initVals inits tysE.size | return none
+      let some inits ← initVals inits isBool widths
+        | if isTop && (inits.hasFVar || inits.hasMVar) then
+            throwError "#verify_elab_deep: the top-level circuit's initial values depend on a parameter or local variable; they must be closed ({inits})"
+          return none
       return some { isBool, widths, inits, tys, isTop }
     let mut nodes : Array LoopNode := #[]
     -- the definition itself: head node = top, the rest nested.  A
