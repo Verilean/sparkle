@@ -1384,3 +1384,6 @@ lean_lib «Tests.Ved.H2OpenParentProbe» where
 
 lean_lib «Tests.Ved.U2HierCheck» where
   roots := #[`Tests.Ved.U2HierCheck]
+
+lean_lib «Tests.Ved.U2HierPin» where
+  roots := #[`Tests.Ved.U2HierPin]
