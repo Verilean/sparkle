@@ -184,4 +184,41 @@ theorem stepH_of_b0 (d : Design) (arr : Module → List Stmt) (m : Module) (b0 :
   rw [regNexts_asgInst _ _ _ _ hai]
   rfl
 
+theorem hier_ne {d : Design} {m : Module} (h : HierShape d m = true) :
+    ∀ x ∈ d.modules, x ≠ m := by
+  intro x hx hxm
+  simp only [HierShape, Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at h
+  obtain ⟨⟨⟨⟨⟨⟨_, _⟩, hC⟩, _⟩, _⟩, _⟩, _⟩ := h
+  subst hxm
+  have h2 : (d.modules.map (·.name)).contains x.name = false := hC
+  have h3 : x.name ∈ d.modules.map (·.name) := List.mem_map.mpr ⟨x, hx, rfl⟩
+  simp [List.contains_eq_mem, h3] at h2
+
+theorem orderOkH_sound {d : Design} {m : Module} {b : List Stmt} (h : OrderOkH d m b = true) :
+    b.Perm m.body ∧ WOH d b ∧ (∀ s ∈ b, isAsgInst s = true) := by
+  simp only [OrderOkH, Bool.and_eq_true, decide_eq_true_eq] at h
+  obtain ⟨⟨⟨⟨⟨hp, hw⟩, hai⟩, _⟩, _⟩, _⟩ := h
+  exact ⟨isPermOf_sound hp, hw, by simpa using hai⟩
+
+/-- Existence of an admissible arrangement choice (the statement is not vacuous). -/
+theorem exists_arr (d : Design) (m : Module) (hord : OrderH d m)
+    (hch : ∀ x ∈ d.modules, OrderStmt x) (hne : ∀ x ∈ d.modules, x ≠ m) :
+    ∃ arr, AdmArr d m arr := by
+  classical
+  obtain ⟨b0, hb0⟩ := hord
+  obtain ⟨hp0, hw0, _⟩ := orderOkH_sound hb0
+  obtain ⟨bc, hbc⟩ : ∃ bc : Module → List Stmt, ∀ x ∈ d.modules, OrderOk x (bc x) = true :=
+    ⟨fun x => if h : x ∈ d.modules then Classical.choose (hch x h) else [],
+     fun x hx => by simp only [hx, dite_true]; exact Classical.choose_spec (hch x hx)⟩
+  refine ⟨fun c => if c = m then b0 else bc c, ?_, ?_, ?_⟩
+  · simpa using hp0
+  · simpa using hw0
+  · intro c hc
+    have hcm : c ≠ m := hne c hc
+    simp only [hcm, if_false]
+    have h := hbc c hc
+    simp only [OrderOk, Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨hp, hwo⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := h
+    exact ⟨isPermOf_sound hp, woCheck_sound _ _ hwo⟩
+
 end Tools.VedU1Hier
