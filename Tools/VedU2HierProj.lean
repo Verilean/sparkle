@@ -98,7 +98,7 @@ theorem hierS_inst_ok {d : Design} {m : Module} (h : HierShapeS d m = true) {mn 
 theorem connsOkS_facts {d : Design} {m : Module} {mn : String} {cs : List (String × Expr)}
     (h : connsOkS d m mn cs = true) :
     ∃ c, findMod d mn = some c ∧ c.isPrimitive = false ∧ leafBody c.body = true ∧
-      childSane c = true ∧ (inNames c).Nodup ∧ c.outputs.length = 1 ∧
+      childSane c = true ∧ (inNames c).Nodup ∧ c.outputs.length = 1 ∧ (cs.map (·.1)).Nodup ∧
       cs.all (fun p => (c.inputs ++ c.outputs).any (·.name == p.1)) = true ∧
       (∀ p ∈ c.inputs ++ c.outputs, ∃ q ∈ cs, q.1 = p.name) ∧
       (∀ q ∈ cs, ∃ x, q.2 = Expr.ref x) := by
@@ -107,8 +107,8 @@ theorem connsOkS_facts {d : Design} {m : Module} {mn : String} {cs : List (Strin
   | none => simp [hf] at h
   | some c =>
     simp only [hf, Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq, beq_iff_eq] at h
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hp, _⟩, _⟩, hl⟩, hsane⟩, hol⟩, _⟩, hcov⟩, hall2⟩, hrefs⟩ := h
-    refine ⟨c, rfl, hp, hl, hsane, ?_, hol, hall2, ?_, ?_⟩
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hp, _⟩, _⟩, hl⟩, hsane⟩, hol⟩, hcsnd⟩, hcov⟩, hall2⟩, hrefs⟩ := h
+    refine ⟨c, rfl, hp, hl, hsane, ?_, hol, hcsnd, hall2, ?_, ?_⟩
     · have := hsane
       simp only [childSane, Bool.and_eq_true, decide_eq_true_eq] at this
       exact this.1.1
@@ -285,7 +285,7 @@ theorem instEvalS_succ {d : Design} {m : Module} (arr : Module → List Stmt) (s
     (hsucc : ∀ c, findMod d mn = some c → ChildSucc c (arr c))
     (hleafArr : ∀ c, findMod d mn = some c → leafBody (arr c) = true) (env : Env) :
     ∃ l, instEvalS d arr st we mn i cs env = some l := by
-  obtain ⟨c, hf, hprim, hleaf, hsane, hnd, hol, hall, hcov, href⟩ := connsOkS_facts hok
+  obtain ⟨c, hf, hprim, hleaf, hsane, hnd, hol, hcsnd, hall, hcov, href⟩ := connsOkS_facts hok
   have hinok : instOkS c cs = true := by
     unfold instOkS; rw [hprim, hleaf, hall]; rfl
   obtain ⟨seed0, E0, nx0, hE0, hN0⟩ := hsucc c hf
@@ -390,7 +390,7 @@ theorem stepHS_succ (d : Design) (arr : Module → List Stmt) (m : Module)
       leafBody (arr c) = true ∧ (∀ p ∈ c.inputs, ∃ q ∈ cs, q.1 = p.name) ∧
       (∀ q ∈ cs, ∃ x, q.2 = Expr.ref x) ∧ ChildSucc c (arr c) ∧ instOkS c cs = true := by
     intro mn i cs hin
-    obtain ⟨c, hf, hprim, hleaf, hsane, hnd, hol, hall, hcov, href⟩ :=
+    obtain ⟨c, hf, hprim, hleaf, hsane, hnd, hol, hcsnd, hall, hcov, href⟩ :=
       connsOkS_facts (hierS_inst_ok hS (hmem _ hin))
     refine ⟨c, hf, leafBody_perm (hA.2.2 c (findMod_mem hf)).1.symm hleaf,
       fun p hp => hcov p (List.mem_append_left _ hp), href, hch c (findMod_mem hf), ?_⟩
@@ -704,5 +704,195 @@ theorem seedFwd_shift (c : Module) (we : WEnv) (cs : List (String × Expr)) (E :
   have : k + 1 - 1 - j = (k - 1 - j) + 1 := by omega
   rw [this]
   simp [insCOf]
+
+theorem childSeedS_inv (c : Module) (cs : List (String × Expr)) (we : WEnv) (env : Env)
+    (regs : List String) (sti : String → Nat) (seedC : Env)
+    (h : childSeedS c cs we env regs sti = some seedC) :
+    ∃ e0, childSeed c cs we env = some e0 ∧
+      seedC = fun n => if regs.contains n && !(inNames c).contains n then sti n else e0 n := by
+  unfold childSeedS at h
+  obtain ⟨e0, he0, hs⟩ := Option.map_eq_some_iff.mp h
+  exact ⟨e0, he0, hs.symm⟩
+
+/-- The child's standalone seed of the first cycle is the seed the hierarchical step built. -/
+theorem seedFwd_first (c : Module) (we : WEnv) (cs : List (String × Expr)) (envF : Env)
+    (rest : List Env) (k : Nat) (regs : List String) (sti : String → Nat) (seedC : Env)
+    (hnd : (inNames c).Nodup)
+    (hseed : childSeedS c cs we envF regs sti = some seedC) :
+    seedFwd c (k + 1) (insCOf we cs (envF :: rest)) k (restrictTo regs sti) = seedC := by
+  obtain ⟨e0, he0, hsc⟩ := childSeedS_inv c cs we envF regs sti seedC hseed
+  obtain ⟨hz, hp⟩ := childSeed_val c cs we envF e0 he0 hnd
+  funext n
+  subst hsc
+  simp only [seedFwd]
+  have h0 : k + 1 - 1 - k = 0 := by omega
+  rw [h0]
+  by_cases hn : (inNames c).contains n = true
+  · have hn' : (c.inputs.map (·.name)).contains n = true := hn
+    have hmem : n ∈ inNames c := by simpa using hn
+    obtain ⟨p, hp', rfl⟩ := List.mem_map.mp hmem
+    obtain ⟨ex, hl, hv⟩ := hp p hp'
+    simp only [hn', if_true, hn, Bool.not_true, Bool.and_false, Bool.false_eq_true, if_false]
+    simp [insCOf, hl, hv]
+  · have hn' : (c.inputs.map (·.name)).contains n = false := by
+      simpa [inNames] using hn
+    have hnot : n ∉ inNames c := by simpa using hn
+    simp only [hn', Bool.false_eq_true, if_false]
+    have hn0 : (inNames c).contains n = false := by simpa using hn
+    simp [restrictTo, hz n hnot, hnot]
+
+theorem leafBody_assign_ne (c : Module) (b : List Stmt) (hperm : b.Perm c.body)
+    (hsane : childSane c = true) (n : String) (hn : n ∈ inNames c) :
+    ∀ s ∈ b, ∀ l r, s = Stmt.assign l r → l ≠ n := by
+  intro s hs l r hsl hln
+  subst hsl
+  subst hln
+  have hs' := hperm.mem_iff.mp hs
+  simp only [childSane, Bool.and_eq_true] at hsane
+  have := List.all_eq_true.mp hsane.1.2 _ hs'
+  simp at this
+  exact this hn
+
+/-- THE PROJECTION (aux form: any start state, `k` cycles).  From a successful hierarchical run,
+for every instance there is an EXISTENTIAL child trace `cenvs` with an auxiliary child state history
+`cstates`: the child's standalone `runModuleTrace` on the input stream the connections produce
+(`insCOf`), started from the child's state slice, succeeds, and at every cycle the three
+correspondences of `ProjAt` hold. -/
+theorem runHS_proj_aux (d : Design) (arr : Module → List Stmt) (m : Module)
+    (hS : HierShapeS d m = true) (hA : AdmArr d m arr)
+    (mn i : String) (cs : List (String × Expr)) (c : Module)
+    (hin : Stmt.inst mn i cs ∈ m.body) (hf : findMod d mn = some c) :
+    ∀ (k : Nat) (seedK : Nat → (String → Nat) → Env) (st : HSt) (envs : List Env) (sts : List HSt),
+      runHSTrace d arr m seedK k st = some (envs, sts) →
+      ∃ cenvs cstates,
+        runModuleTrace (declWidth c) (arr c) (seedFwd c k (insCOf (declWidth m) cs envs)) k
+          (restrictTo (regOuts (arr c)) (st [i])) (fun _ _ => 0) = some (cenvs, cstates) ∧
+        ∀ t, t < k → ∃ E Ec S Sc, envs[t]? = some E ∧ cenvs[t]? = some Ec ∧ sts[t]? = some S ∧
+          cstates[t]? = some Sc ∧ ProjAt (declWidth m) c cs i E Ec S Sc := by
+  have hmemM : Stmt.inst mn i cs ∈ arr m := hA.1.mem_iff.mpr hin
+  obtain ⟨c0, hf0, hprim, hleaf, hsane, hnd, hol, hcsnd, hall, hcov, href⟩ :=
+    connsOkS_facts (hierS_inst_ok hS hin)
+  have hc : c = c0 := by rw [hf] at hf0; exact Option.some.inj hf0
+  subst hc
+  have hperm := (hA.2.2 c (findMod_mem hf)).1
+  have hleafA := leafBody_perm hperm.symm hleaf
+  have hinok : instOkS c cs = true := by unfold instOkS; rw [hprim, hleaf, hall]; rfl
+  have hdecl : ((instDecls (arr m)).map (·.2.1)).Nodup := by
+    rw [← instNames_eq]
+    exact (instNames_perm hA.1).nodup_iff.mpr (hierS_inst_unique hS)
+  intro k
+  induction k with
+  | zero =>
+    intro seedK st envs sts hrun
+    simp only [runHSTrace, Option.some.injEq, Prod.mk.injEq] at hrun
+    obtain ⟨rfl, rfl⟩ := hrun
+    exact ⟨[], [], rfl, fun t ht => absurd ht (Nat.not_lt_zero _)⟩
+  | succ k ih =>
+    intro seedK st envs sts hrun
+    simp only [runHSTrace] at hrun
+    cases hs : stepHS d arr m st (seedK k (restrictTo (regOuts (arr m)) (st []))) with
+    | none => simp [hs] at hrun
+    | some r =>
+      obtain ⟨envF, ups⟩ := r
+      cases hr : runHSTrace d arr m seedK k (applyH st ups) with
+      | none => simp [hs, hr] at hrun
+      | some q =>
+        obtain ⟨rest, sts'⟩ := q
+        simp [hs, hr] at hrun
+        obtain ⟨rfl, rfl⟩ := hrun
+        obtain ⟨_, hfold, nxP, ys, hnxP, hys, hups⟩ := stepHS_some_inv hs
+        have hG := good_of_fold d (declWidth m) _ (instEvalS_laws d arr st (declWidth m)) (arr m) _
+          envF hA.2.1 hfold
+        obtain ⟨l, hl, hlE⟩ := hG.2 _ hmemM
+        have hl' : instEvalS d arr st (declWidth m) mn i cs envF = some l := by simpa [cellVals] using hl
+        obtain ⟨c', envC, hf', _, hrunC, hw⟩ := instEvalS_some hl'
+        have hcc : c' = c := by rw [hf] at hf'; exact (Option.some.inj hf').symm
+        subst hcc
+        obtain ⟨y, hy, hyc⟩ := mapM_mem_ex _ _ _ hys (mn, i, cs) ((mem_instDecls_iff _ _).mpr hmemM)
+        obtain ⟨nx, hnx, hyeq⟩ : ∃ nx, regNexts (declWidth c') (fun _ _ => 0) (arr c') envC = some nx ∧
+            y = ([i], nx) := by
+          unfold childNexts at hyc
+          simp only [hf, hinok, if_true, hrunC, Option.bind_some] at hyc
+          cases hn : regNexts (declWidth c') (fun _ _ => 0) (arr c') envC with
+          | none => simp [hn] at hyc
+          | some nx => simp [hn] at hyc; exact ⟨nx, rfl, hyc.symm⟩
+        subst hyeq
+        -- the paths of the updates are distinct
+        have hpaths : ys.map (·.1) = (instDecls (arr m)).map (fun x => ([x.2.1] : Path)) :=
+          mapM_fst_eq _ _ _ (fun x y h => childNexts_fst d arr (declWidth m) st envF x y h) _ _ hys
+        have hupsnd : (ups.map (·.1)).Nodup := by
+          rw [hups, List.map_cons, hpaths, List.nodup_cons]
+          have h2 : (instDecls (arr m)).map (fun x => ([x.2.1] : Path)) =
+              ((instDecls (arr m)).map (·.2.1)).map (fun a => [a]) := by
+            simp [List.map_map, Function.comp_def]
+          refine ⟨?_, ?_⟩
+          · intro hmem
+            obtain ⟨x, _, hx⟩ := List.mem_map.mp hmem
+            exact absurd hx (List.cons_ne_nil _ _)
+          · rw [h2]; exact hdecl.map (fun a => [a]) (fun a b h e => h (by simpa using e))
+        have hstate : applyH st ups [i] = applyNexts (st [i]) nx :=
+          applyH_at st ups hupsnd ([i], nx) (by rw [hups]; exact List.mem_cons_of_mem _ hy)
+        have hnames : ∀ p ∈ nx, p.1 ∈ regOuts (arr c') := regNexts_fst_mem _ _ _ _ _ hleafA hnx
+        have hstc' : applyNexts (restrictTo (regOuts (arr c')) (st [i])) nx =
+            restrictTo (regOuts (arr c')) (applyH st ups [i]) := by
+          rw [hstate, restrict_applyNexts _ _ _ hnames]
+        obtain ⟨cenvs', cstates', hrunM', hcorr'⟩ := ih seedK (applyH st ups) rest sts' hr
+        obtain ⟨seedC, hseedC, hevC⟩ : ∃ seedC, childSeedS c' cs (declWidth m) envF (regOuts (arr c'))
+            (st [i]) = some seedC ∧ evalAssigns (declWidth c') (fun _ _ => 0) (arr c') seedC = some envC := by
+          unfold childRunS at hrunC
+          cases hh : childSeedS c' cs (declWidth m) envF (regOuts (arr c')) (st [i]) with
+          | none => simp [hh] at hrunC
+          | some sd => exact ⟨sd, rfl, by simpa [hh] using hrunC⟩
+        have hseed1 := seedFwd_first c' (declWidth m) cs envF rest k (regOuts (arr c')) (st [i]) seedC
+          hnd hseedC
+        have hstepM : stepModule (declWidth c') (arr c')
+            (seedFwd c' (k + 1) (insCOf (declWidth m) cs (envF :: rest)) k
+              (restrictTo (regOuts (arr c')) (st [i]))) (fun _ _ => 0) =
+            some (envC, nx, fun _ _ => 0) := by
+          rw [hseed1]
+          unfold stepModule
+          simp [hevC, hnx, memNexts_leaf _ _ _ _ hleafA]
+        refine ⟨envC :: cenvs', restrictTo (regOuts (arr c')) (st [i]) :: cstates', ?_, ?_⟩
+        · simp only [runModuleTrace]
+          rw [hstepM]
+          have hcongr := runModuleTrace_congr_seed (declWidth c') (arr c')
+            (seedFwd c' (k + 1) (insCOf (declWidth m) cs (envF :: rest)))
+            (seedFwd c' k (insCOf (declWidth m) cs rest)) k
+            (fun j hj => seedFwd_shift c' _ cs envF rest k j hj)
+            (applyNexts (restrictTo (regOuts (arr c')) (st [i])) nx) (fun _ _ => 0)
+          simp only [Option.bind_eq_bind, Option.bind_some]
+          rw [hcongr, hstc', hrunM']
+          rfl
+        · intro t ht
+          cases t with
+          | succ t =>
+            obtain ⟨E, Ec, S, Sc, h1, h2, h3, h4, h5⟩ := hcorr' t (by omega)
+            exact ⟨E, Ec, S, Sc, by simpa using h1, by simpa using h2, by simpa using h3,
+              by simpa using h4, h5⟩
+          | zero =>
+            refine ⟨envF, envC, st, restrictTo (regOuts (arr c')) (st [i]), rfl, rfl, rfl, rfl, ?_, ?_, ?_⟩
+            · intro p hpm
+              obtain ⟨e0, he0, hsc⟩ := childSeedS_inv c' cs (declWidth m) envF _ _ seedC hseedC
+              obtain ⟨hz, hp⟩ := childSeed_val c' cs (declWidth m) envF e0 he0 hnd
+              obtain ⟨ex, hl2, hv⟩ := hp p hpm
+              have hpn : p.name ∈ inNames c' := List.mem_map.mpr ⟨p, hpm, rfl⟩
+              have hkeep := evalAssigns_keeps (declWidth c') (fun _ _ => 0) p.name (arr c') seedC envC
+                (leafBody_assign_ne c' (arr c') hperm hsane p.name hpn) hleafA hevC
+              refine ⟨ex, hl2, ?_⟩
+              rw [hv, hkeep, hsc]
+              simp [hpn]
+            · intro q hq
+              obtain ⟨qq, hqq, hq1⟩ := hcov q (List.mem_append_right _ hq)
+              obtain ⟨x, hx⟩ := href qq hqq
+              have hqe : qq = (q.name, Expr.ref x) := by
+                obtain ⟨a, b⟩ := qq; simp only at hq1 hx; subst hq1; subst hx; rfl
+              rw [hqe] at hqq
+              refine ⟨x, lookup_of_mem_nodup cs hcsnd _ _ hqq, ?_⟩
+              have hmemo := outWrites_mem c' cs envC l hw q.name x hqq
+                (List.any_eq_true.mpr ⟨q, hq, by simp⟩)
+              exact hlE _ hmemo
+            · intro r hr'
+              have : r ∈ regOuts (arr c') := (regOuts_perm_mem hperm r).mpr hr'
+              simp [restrictTo, this]
 
 end Tools.VedU2Hier
