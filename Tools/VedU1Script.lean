@@ -183,4 +183,43 @@ theorem evalAssigns_fix (we : WEnv) (mems : MEnv) :
           · exact hfix l' r' h
       | _ => simp [bodyOk] at hok
 
+/-- Assignments only. -/
+def allAssign : List Stmt → Bool
+  | [] => true
+  | .assign _ _ :: rest => allAssign rest
+  | _ => false
+
+theorem regNexts_assigns (we : WEnv) (mems : MEnv) (env : Env) :
+    ∀ B : List Stmt, allAssign B = true → regNexts we mems B env = some [] := by
+  intro B
+  induction B with
+  | nil => intro _; rfl
+  | cons s rest ih =>
+    intro h
+    cases s with
+    | assign l r => simp only [allAssign] at h; simp only [regNexts]; exact ih h
+    | _ => simp [allAssign] at h
+
+theorem memNexts_assigns (we : WEnv) (mems : MEnv) (env : Env) :
+    ∀ B : List Stmt, allAssign B = true → memNexts we B mems env = some mems := by
+  intro B
+  induction B with
+  | nil => intro _; rfl
+  | cons s rest ih =>
+    intro h
+    cases s with
+    | assign l r => simp only [allAssign] at h; simp only [memNexts]; exact ih h
+    | _ => simp [allAssign] at h
+
+/-- One cycle of a register-free body of assignments: the environment `E` after it
+satisfies one equation per statement and keeps every name the body does not write. -/
+theorem step_assigns (we : WEnv) (mems : MEnv) (B : List Stmt) (env0 : Env)
+    (hwo : woCheck [] B = true) (hok : bodyOk we B = true) (hall : allAssign B = true) :
+    ∃ E, stepModule we B env0 mems = some (E, [], mems) ∧ (∀ n, n ∉ writesOf B → E n = env0 n) ∧
+      ∀ l r, Stmt.assign l r ∈ B → evalExpr we E r = some (E l) := by
+  obtain ⟨E, hE, hf, hx⟩ := evalAssigns_fix we mems B [] env0 (woCheck_sound _ _ hwo) hok
+  refine ⟨E, ?_, hf, hx⟩
+  simp [stepModule, hE, regNexts_assigns we mems E B hall, memNexts_assigns we mems E B hall]
+
+
 end Tools.VedU1Script
