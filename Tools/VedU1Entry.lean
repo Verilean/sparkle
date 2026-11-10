@@ -215,11 +215,17 @@ def Names.ofBase (base : Name) : Names :=
 /-- The generated (untrusted) proof script for `U1Stmt C M F`.  `reg?` is
 the single register of the delay shape (name, width), `none` for a
 register-free module. -/
-def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElabM Syntax := do
+def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat)) : TermElabM Syntax := do
   let C := mkCIdent nm.contract
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
-  let f := mkCIdent F
+  -- `f` is the statement's term (`@F defaultDomain …` when specialised),
+  -- `fI` the constant itself for the simp sets
+  let fI := mkCIdent F
+  let mut f : Term := fI
+  if nDom > 0 then
+    f ← `(@$fI)
+    for _ in [0:nDom] do f ← `($f Sparkle.Core.Domain.defaultDomain)
   let B := mkCIdent nm.body
   match reg? with
   | none =>
@@ -233,7 +239,7 @@ def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElab
           simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at hin
           simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
-            widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $f:ident,
+            widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
             Nat.shiftRight_eq_div_pow]
           try omega)
@@ -246,7 +252,7 @@ def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElab
         apply outputs_of_step $C $M $B $f $O (by decide)
           (fun ins s st => st $rS = srcOf $C $f ins "out" s)
         · intro ins hok
-          simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $f:ident,
+          simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth]
         · intro ins hok s st mems hR
           have hin := hok.1 s
@@ -254,7 +260,7 @@ def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElab
           simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at hin hrst
           simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
-            widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $f:ident,
+            widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, hrst, or_mod _ _ _ _ rfl,
             Nat.shiftRight_eq_div_pow] at hR ⊢
           have hlt : st $rS < 2 ^ $wS := by rw [hR]; exact BitVec.isLt _
@@ -306,8 +312,8 @@ inductive ProofSrc
 def isRefusal (e : Exception) : MetaM Bool := do
   return (← e.toMessageData.toString).startsWith "VED U1 REFUSED"
 
-/-- The checker under the entry.  `decl` names the refusal; `stmtDecl` is the
-constant put into the statement (the entry: `decl` itself); `m` is the module
+/-- The checker under the entry.  `decl` names the refusal; `stmt` is the
+term put into the statement (the entry: `decl` itself, or `@decl defaultDomain`); `m` is the module
 (the entry: the value `synthesizeCombinational` returned).  Returns the theorem name.
 
 On a failure (any non-interrupt exception raised inside it, runtime limits
@@ -317,17 +323,17 @@ before the call is rolled back), and throws `VED U1 REFUSED <decl> [<stage>]`;
 an exception not already in that form is reported at stage `checker`.
 
 `checkU1` verifies "this `m` has this declaration's meaning": the contract
-reads the module name from `m` and does not bind it to `stmtDecl`, so a
+reads the module name from `m` and does not bind it to `stmt`, so a
 same-meaning `m` with another module name may be proved with a NEW proof.
 That the entry inspects and returns the `m` it received, unsubstituted, is a
 property of `vedU1Entry`, not of this statement. -/
-def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Module) (proof : ProofSrc) :
+def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.Module) (proof : ProofSrc) :
     TermElabM Name := do
   let nm := Names.ofBase base
   let saved ← saveState
   tryCatchRuntimeEx (do
-    -- the table, from the TYPE of the statement's constant
-    let tbl ← try readTable stmtDecl catch e => refuse decl "table" e.toMessageData
+    -- the table, from the TYPE of the statement's term
+    let tbl ← try readTableOfType decl (← inferType stmt) catch e => refuse decl "table" e.toMessageData
     unless tbl.out.flat.length == 1 do
       refuse decl "multi-output"
         m!"{tbl.out.flat.length} output projections; the synthesizer's multi-output port naming is unconfirmed, refused (v1: one output)"
@@ -355,12 +361,12 @@ def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Mo
     addDefn nm.body (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Stmt))
       (toExpr b0)
     -- the full expected statement, with the ORIGINAL constant
-    let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst stmtDecl]
+    let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
     -- elaborate the proof (errors are not turned into sorry)
     let stx ← match proof with
-      | .generated => scriptFor nm stmtDecl (regShape m)
+      | .generated => scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m)
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
@@ -393,20 +399,33 @@ def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Mo
     if ← isRefusal e then throw e
     refuse decl "checker" e.toMessageData
 
+/-- `checkU1E` for a statement that is a plain constant. -/
+def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Module) (proof : ProofSrc) :
+    TermElabM Name :=
+  checkU1E decl base (Lean.mkConst stmtDecl) m proof
+
 /-- The U1 entry: `synthesizeCombinational` ONCE, the full statement over the
 returned module and the declaration itself, kernel, strict audit; `m` is
 returned only on success.  Failures of the steps before `checkU1` are tagged
 (`table`, `multi-output`, `inliner`, `synthesis`) but NOT rolled back (see the
 module docstring: runtime-limit exceptions there are not caught). -/
-def vedU1Entry (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name) := do
+def vedU1EntryS (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name × Nat) := do
+  -- leading `DomainConfig` binders are instantiated with `defaultDomain`
+  -- (the statement is then about `@declName defaultDomain`, NOT the
+  -- polymorphic declaration); anything else is left for the table to refuse
+  let (stmt, nDom) ← try specialiseDomain declName catch e => refuse declName "table" e.toMessageData
   -- refuse multi-output from the TYPE before any synthesis
-  let tbl ← try readTable declName catch e => refuse declName "table" e.toMessageData
+  let tbl ← try readTableOfType declName (← inferType stmt) catch e => refuse declName "table" e.toMessageData
   unless tbl.out.flat.length == 1 do
     refuse declName "multi-output"
       m!"{tbl.out.flat.length} output projections; the synthesizer's multi-output port naming is unconfirmed, refused (v1: one output)"
   let (m, d) ← try Sparkle.Compiler.Elab.synthesizeCombinational declName
     catch e => refuse declName "synthesis" e.toMessageData
-  let thm ← checkU1 declName declName declName m .generated
+  let thm ← checkU1E declName declName stmt m .generated
+  return (m, d, thm, nDom)
+
+def vedU1Entry (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name) := do
+  let (m, d, thm, _) ← vedU1EntryS declName
   return (m, d, thm)
 
 /-- `#ved_u1 decl`: run the entry; on success print the theorem, its audit
@@ -414,8 +433,9 @@ and the returned module; otherwise the refusal error. -/
 elab "#ved_u1 " id:ident : command => do
   let decl ← Command.liftCoreM <| realizeGlobalConstNoOverload id
   Command.liftTermElabM do
-    let (m, _, thm) ← vedU1Entry decl
+    let (m, _, thm, nDom) ← vedU1EntryS decl
     let r ← Tools.VedStrictAudit.strictAudit thm
-    logInfo m!"VED U1 OK {thm}: {Tools.VedStrictAudit.showNames r.axioms}\n{repr m}"
+    let spec := if nDom > 0 then " (specialised at defaultDomain)" else ""
+    logInfo m!"VED U1 OK {thm}{spec}: {Tools.VedStrictAudit.showNames r.axioms}\n{repr m}"
 
 end Tools.VedU1Entry
