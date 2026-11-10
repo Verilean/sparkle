@@ -271,4 +271,261 @@ theorem runModuleTrace_fst (we : WEnv) (body : List Stmt) (seed : Nat → (Strin
       | some q =>
         rw [hr] at this; simp only [Option.map_some] at this; simp [hs, hr, ← this]
 
+/-! ## Laws of the stateful instance evaluator -/
+
+theorem childSeedS_agree (c : Module) (cs : List (String × Expr)) (we : WEnv) (e1 e2 : Env)
+    (regs : List String) (stc : String → Nat)
+    (hag : ∀ p ∈ c.inputs, ∀ e, cs.lookup p.name = some e →
+      evalExpr we e1 e = evalExpr we e2 e) :
+    childSeedS c cs we e1 regs stc = childSeedS c cs we e2 regs stc := by
+  unfold childSeedS
+  rw [childSeed_agree c cs we e1 e2 hag]
+
+theorem instEvalS_some {d : Design} {arr : Module → List Stmt} {st : HSt} {we : WEnv}
+    {mn i : String} {cs : List (String × Expr)} {env : Env} {l : List (String × Nat)}
+    (h : instEvalS d arr st we mn i cs env = some l) :
+    ∃ c envC, findMod d mn = some c ∧ instOkS c cs = true ∧
+      childRunS arr we c cs env (st [i]) = some envC ∧ outWrites c cs envC = some l := by
+  unfold instEvalS at h
+  cases hf : findMod d mn with
+  | none => simp [hf] at h
+  | some c =>
+    simp only [hf] at h
+    by_cases hok : instOkS c cs = true
+    · simp only [hok, if_true] at h
+      cases hr : childRunS arr we c cs env (st [i]) with
+      | none => simp [hr] at h
+      | some envC =>
+        simp only [hr, Option.bind_some] at h
+        exact ⟨c, envC, rfl, hok, hr, h⟩
+    · simp [hok] at h
+
+theorem instEvalS_laws (d : Design) (arr : Module → List Stmt) (st : HSt) (we : WEnv) :
+    IELaws d (instEvalS d arr st we) := by
+  constructor
+  · intro mn i cs e1 e2 h
+    unfold instEvalS
+    cases hf : findMod d mn with
+    | none => rfl
+    | some c =>
+      simp only []
+      have hr : childRunS arr we c cs e1 (st [i]) = childRunS arr we c cs e2 (st [i]) := by
+        unfold childRunS
+        have : childSeedS c cs we e1 (regOuts (arr c)) (st [i]) =
+            childSeedS c cs we e2 (regOuts (arr c)) (st [i]) := by
+          apply childSeedS_agree
+          intro p hp e hl
+          apply evalExpr_congr
+          intro n hn
+          apply h
+          simp only [instIns, hf, List.mem_flatMap, List.mem_map, List.mem_filter]
+          exact ⟨e, ⟨(p.name, e), ⟨lookup_mem _ _ _ hl, by simpa using ⟨p, hp, rfl⟩⟩, rfl⟩, hn⟩
+        rw [this]
+      simp only [hr]
+  · intro mn i cs e l h
+    obtain ⟨c, envC, hf, _, _, hw⟩ := instEvalS_some h
+    simp only [instOuts, hf]
+    exact outWrites_names c cs envC l hw
+
+/-! ## Register-list facts -/
+
+theorem regOuts_reg (o c : String) (r : String × ResetKind) (e : Expr) (i : Int) (rest : List Stmt) :
+    regOuts (.register o c r e i :: rest) = o :: regOuts rest := by
+  obtain ⟨rn, rk⟩ := r; rfl
+
+theorem regOuts_asg (l : String) (r : Expr) (rest : List Stmt) :
+    regOuts (.assign l r :: rest) = regOuts rest := rfl
+
+theorem regOuts_inst (a b : String) (c : List (String × Expr)) (rest : List Stmt) :
+    regOuts (.inst a b c :: rest) = regOuts rest := rfl
+
+theorem mem_regOuts_iff (n : String) : ∀ b : List Stmt,
+    n ∈ regOuts b ↔ ∃ s ∈ b, ∃ c r e i, s = Stmt.register n c r e i := by
+  intro b
+  induction b with
+  | nil => simp [regOuts, regsOf]
+  | cons s rest ih =>
+    cases s with
+    | register o c r e i =>
+      rw [regOuts_reg]
+      constructor
+      · intro h
+        rcases List.mem_cons.mp h with h | h
+        · exact ⟨_, List.mem_cons_self .., c, r, e, i, by rw [h]⟩
+        · obtain ⟨s', hs', r'⟩ := ih.mp h
+          exact ⟨s', List.mem_cons_of_mem _ hs', r'⟩
+      · rintro ⟨s', hs', c', r', e', i', rfl⟩
+        rcases List.mem_cons.mp hs' with h | h
+        · simp only [Stmt.register.injEq] at h; exact List.mem_cons.mpr (Or.inl h.1)
+        · exact List.mem_cons.mpr (Or.inr (ih.mpr ⟨_, h, c', r', e', i', rfl⟩))
+    | assign l r =>
+      rw [regOuts_asg]
+      constructor
+      · intro h; obtain ⟨s', hs', r'⟩ := ih.mp h; exact ⟨s', List.mem_cons_of_mem _ hs', r'⟩
+      · rintro ⟨s', hs', c', r', e', i', rfl⟩
+        rcases List.mem_cons.mp hs' with h | h
+        · cases h
+        · exact ih.mpr ⟨_, h, c', r', e', i', rfl⟩
+    | memory a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 =>
+      have : regOuts (.memory a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 :: rest) = regOuts rest := rfl
+      rw [this]
+      constructor
+      · intro h; obtain ⟨s', hs', r'⟩ := ih.mp h; exact ⟨s', List.mem_cons_of_mem _ hs', r'⟩
+      · rintro ⟨s', hs', c', r', e', i', rfl⟩
+        rcases List.mem_cons.mp hs' with h | h
+        · cases h
+        · exact ih.mpr ⟨_, h, c', r', e', i', rfl⟩
+    | inst a b c =>
+      rw [regOuts_inst]
+      constructor
+      · intro h; obtain ⟨s', hs', r'⟩ := ih.mp h; exact ⟨s', List.mem_cons_of_mem _ hs', r'⟩
+      · rintro ⟨s', hs', c', r', e', i', rfl⟩
+        rcases List.mem_cons.mp hs' with h | h
+        · cases h
+        · exact ih.mpr ⟨_, h, c', r', e', i', rfl⟩
+
+theorem regOuts_perm_mem {b b' : List Stmt} (hp : b.Perm b') (n : String) :
+    n ∈ regOuts b ↔ n ∈ regOuts b' := by
+  rw [mem_regOuts_iff, mem_regOuts_iff]
+  constructor
+  · rintro ⟨s, hs, h⟩; exact ⟨s, hp.mem_iff.mp hs, h⟩
+  · rintro ⟨s, hs, h⟩; exact ⟨s, hp.mem_iff.mpr hs, h⟩
+
+theorem regNexts_fst_mem (we : WEnv) (mems : MEnv) :
+    ∀ (b : List Stmt) (env : Env) (l : List (String × Nat)), leafBody b = true →
+      regNexts we mems b env = some l → ∀ p ∈ l, p.1 ∈ regOuts b := by
+  intro b
+  induction b with
+  | nil => intro env l _ h p hp; simp [regNexts] at h; subst h; cases hp
+  | cons s rest ih =>
+    intro env l hl h p hp
+    cases s with
+    | assign x r =>
+      simp only [leafBody] at hl
+      simp only [regNexts] at h
+      rw [regOuts_asg]
+      exact ih env l hl h p hp
+    | register o c r e i =>
+      obtain ⟨rn, rk⟩ := r
+      simp only [leafBody] at hl
+      simp only [regNexts] at h
+      cases hv : evalExpr we env e with
+      | none => simp [hv] at h
+      | some v =>
+        cases hn : regNexts we mems rest env with
+        | none => simp [hv, hn] at h
+        | some nx =>
+          simp [hv, hn] at h
+          subst h
+          rw [regOuts_reg]
+          rcases List.mem_cons.mp hp with rfl | hp
+          · exact List.mem_cons_self ..
+          · exact List.mem_cons_of_mem _ (ih env nx hl hn p hp)
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [leafBody] at hl
+    | inst _ _ _ => simp [leafBody] at hl
+
+theorem instDecls_leaf : ∀ b : List Stmt, leafBody b = true → instDecls b = [] := by
+  intro b
+  induction b with
+  | nil => intro _; rfl
+  | cons s rest ih =>
+    intro h
+    cases s <;> simp [leafBody] at h <;> simpa [instDecls] using ih h
+
+theorem applyH_root (st : HSt) (nx : List (String × Nat)) :
+    applyH st [([], nx)] = fun p n => if p = [] then applyNexts (st []) nx n else st p n := by
+  funext p n
+  by_cases hp : p = []
+  · subst hp; simp [applyH]
+  · simp [applyH, hp]
+
+/-! ## The leaf correspondence -/
+
+theorem stepModule_leaf_some (we : WEnv) (b : List Stmt) (env0 : Env) (mems : MEnv)
+    (h : leafBody b = true) (e : Env) (nx : List (String × Nat)) (mm : MEnv)
+    (hs : stepModule we b env0 mems = some (e, nx, mm)) : mm = mems := by
+  unfold stepModule at hs
+  cases hv : evalAssigns we mems b env0 with
+  | none => simp [hv] at hs
+  | some E =>
+    cases hn : regNexts we mems b E with
+    | none => simp [hv, hn] at hs
+    | some N =>
+      simp [hv, hn, memNexts_leaf we b mems E h] at hs
+      exact hs.2.2.symm
+
+theorem stepModule_leaf_nexts (we : WEnv) (b : List Stmt) (env0 : Env) (mems : MEnv)
+    (e : Env) (nx : List (String × Nat)) (mm : MEnv)
+    (hs : stepModule we b env0 mems = some (e, nx, mm)) :
+    ∃ E, regNexts we mems b E = some nx := by
+  unfold stepModule at hs
+  cases hv : evalAssigns we mems b env0 with
+  | none => simp [hv] at hs
+  | some E =>
+    cases hn : regNexts we mems b E with
+    | none => simp [hv, hn] at hs
+    | some N =>
+      cases hm : memNexts we b mems E with
+      | none => simp [hv, hn, hm] at hs
+      | some M =>
+        simp [hv, hn, hm] at hs
+        exact ⟨E, by rw [hn, hs.2.1]⟩
+
+/-- A top without instances (and memories): one stateful step is the existing `stepModule`. -/
+theorem stepHS_leaf (d : Design) (arr : Module → List Stmt) (m : Module) (st : HSt) (env0 : Env)
+    (h : leafBody (arr m) = true) (hclk : clkRstOk d m = true) :
+    stepHS d arr m st env0 =
+      (stepModule (declWidth m) (arr m) env0 (fun _ _ => 0)).map fun r => (r.1, [([], r.2.1)]) := by
+  unfold stepHS
+  rw [if_pos hclk]
+  rw [evalAssignsI_leaf _ _ (fun _ _ => 0) _ _ h, instDecls_leaf _ h]
+  unfold stepModule
+  cases hv : evalAssigns (declWidth m) (fun _ _ => 0) (arr m) env0 with
+  | none => rfl
+  | some e =>
+    simp only [memNexts_leaf _ _ _ _ h]
+    cases hn : regNexts (declWidth m) (fun _ _ => 0) (arr m) e <;> simp [hn, List.mapM_nil]
+
+/-- LEAF CORRESPONDENCE: a module without instances under `runHS` is the existing `runModule`
+(path `[]`; the state shows only the module's register outputs). -/
+theorem runHS_leaf (d : Design) (arr : Module → List Stmt) (m : Module)
+    (seed : Nat → (String → Nat) → Env) (h : leafBody (arr m) = true) (hclk : clkRstOk d m = true) :
+    ∀ (k : Nat) (st : HSt), (∀ n, n ∉ regOuts (arr m) → st [] n = 0) →
+      runHS d arr m seed k st = runModule (declWidth m) (arr m) seed k (st []) (fun _ _ => 0) := by
+  intro k
+  induction k with
+  | zero => intro st _; rfl
+  | succ k ih =>
+    intro st hN
+    have hr : restrictTo (regOuts (arr m)) (st []) = st [] := by
+      funext n
+      by_cases hn : n ∈ regOuts (arr m)
+      · simp [restrictTo, hn]
+      · simp [restrictTo, hn, hN n hn]
+    simp only [runHS, runModule, hr, stepHS_leaf d arr m st _ h hclk]
+    cases hs : stepModule (declWidth m) (arr m) (seed k (st [])) (fun _ _ => 0) with
+    | none => simp
+    | some r =>
+      obtain ⟨e, nx, mm⟩ := r
+      have hmm := stepModule_leaf_some _ _ _ _ h e nx mm hs
+      subst hmm
+      obtain ⟨E0, hE0⟩ := stepModule_leaf_nexts _ _ _ _ e nx _ hs
+      simp only [Option.map_some, Option.bind_some]
+      have hN' : ∀ n, n ∉ regOuts (arr m) → applyH st [([], nx)] [] n = 0 := by
+        intro n hn
+        rw [applyH_root]
+        simp only [if_true]
+        have : nx.find? (fun p => p.1 == n) = none := by
+          rw [List.find?_eq_none]
+          intro p hp
+          have := regNexts_fst_mem _ _ _ _ _ h hE0 p hp
+          intro hpn
+          exact hn (by simp at hpn; rw [← hpn]; exact this)
+        simp [applyNexts, this, hN n hn]
+      have hroot : applyH st [([], nx)] [] = applyNexts (st []) nx := by
+        rw [applyH_root]; simp
+      have := ih (applyH st [([], nx)]) hN'
+      rw [hroot] at this
+      simp [this]
+
 end Tools.VedU2Hier
