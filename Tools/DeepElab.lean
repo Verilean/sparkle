@@ -1897,8 +1897,26 @@ elab "#verify_elab_deep" id:ident : command =>
   let outCs ← outIRs.mapM (toCExpr slotIdx)
   -- names / syntax scaffolding
   let base := declName.componentsRev.headD (Name.mkSimple "x") |>.toString
-  let mkI (s : String) : Ident := mkIdent (Name.mkSimple s)
-  let nmId := mkI s!"{base}_nm"
+  -- HYGIENE: the user's parameters are spliced into the generated proof
+  -- text as plain identifiers, so every generated binder (u, m, L, hL, s,
+  -- n, ...) must be distinct from them.  Generated binders get a reserved
+  -- prefix (`mkBinder`), lengthened until no parameter name starts with it;
+  -- generated declaration names (`mkDecl`) keep their spelling.
+  let userParamNames : List String := ins.map fun (n, _) =>
+    match n.dropPrefix? "_gen_" with
+    | some sub => sub.toString | none => n
+  let hygPfx : String := Id.run do
+    let mut p := "ved_"
+    while userParamNames.any (·.startsWith p) do p := p ++ "v_"
+    pure p
+  let mkU (s : String) : Ident := mkIdent (Name.mkSimple s)
+  -- generated constant / declaration names: spelling kept (downstream
+  -- tools read `<base>_deep_*`); roles are chosen at each call site, never
+  -- inferred from the spelling
+  let mkDecl (s : String) : Ident := mkU s
+  -- local binders (lambda / intro / have / match variables): ALWAYS prefixed
+  let mkBinder (s : String) : Ident := mkU (hygPfx ++ s)
+  let nmId := mkDecl s!"{base}_nm"
   let regWsT : Array Term := regWs.toArray.map fun w => quote w
   let inWsT : Array Term := inWs.toArray.map fun w => quote w
   let ΓrT : Term ← `([$regWsT,*])
@@ -1913,7 +1931,7 @@ elab "#verify_elab_deep" id:ident : command =>
     match n.dropPrefix? "_gen_" with
     | some sub => sub.toString | none => n
   let paramIds : Array Ident :=
-    (ins.map fun (n, _) => mkI (paramOf n)).toArray
+    (ins.map fun (n, _) => mkU (paramOf n)).toArray
   -- Parameter types from the DSL signature.  A generic
   -- `{dom : DomainConfig}` binder is instantiated at `defaultDomain`
   -- BEFORE delaboration — the remaining types would otherwise mention
@@ -2035,8 +2053,8 @@ elab "#verify_elab_deep" id:ident : command =>
     match i with $nmArms:matchAlt*))
   -- the names restricted to registers and inputs (read addresses are
   -- compiled with these) and their agreement with `nm`
-  let nm0Id := mkI s!"{base}_nm0"
-  let nm0EqId := mkI s!"{base}_nm0_eq"
+  let nm0Id := mkDecl s!"{base}_nm0"
+  let nm0EqId := mkDecl s!"{base}_nm0_eq"
   if hasCombo then
     let nm0Arms ← (List.range (nR + nI)).toArray.mapM fun i => do
       let s := if i < nR then (regs[i]!).1 else (ins[i - nR]!).1
@@ -2049,7 +2067,7 @@ elab "#verify_elab_deep" id:ident : command =>
       decide))
   -- the input family from the params
   let inpRhs : Array Term ← (List.range nI).toArray.mapM fun j => do
-    let pj : Ident := paramIds.getD j (mkI "unreachable")
+    let pj : Ident := paramIds.getD j (mkBinder "unreachable")
     if paramIsBool.getD j false then
       -- a Bool signal enters the deep circuit as its 1-bit encoding
       `((Sparkle.Core.Signal.Signal.map
@@ -2065,7 +2083,7 @@ elab "#verify_elab_deep" id:ident : command =>
   -- syntactically different forms and abstracts into different
   -- variables (kabstract's keyed matching cannot cross matcher
   -- constants).  One def = one matcher = one form everywhere.
-  let inpId := mkI s!"{base}_inp"
+  let inpId := mkDecl s!"{base}_inp"
   if nI == 0 then
     elabSync (← `(def $inpId :
         ∀ j : Fin ($ΓiT : List Nat).length,
@@ -2094,19 +2112,19 @@ elab "#verify_elab_deep" id:ident : command =>
   -- (`p.val n = true` vs `¬(inp k).val n = 1`) never connect
   let inpValRhs : Array (Lean.TSyntax `term → Lean.Elab.Command.CommandElabM Term) :=
     (List.range nI).toArray.map fun j tv => do
-      let pj : Ident := paramIds.getD j (mkI "unreachable")
+      let pj : Ident := paramIds.getD j (mkBinder "unreachable")
       if paramIsBool.getD j false then
         `((bif ($pj).val $tv then (1 : BitVec 1) else 0))
       else
         `((($pj).val $tv))
   let inpAtIds : Array Ident ← (List.range nI).toArray.flatMapM fun j => do
     let rhs ← inpValRhs[j]! (← `(tv))
-    let atId := mkI s!"{base}_inp_at_{j}"
+    let atId := mkDecl s!"{base}_inp_at_{j}"
     elabSync (← `(theorem $atId $paramBinders* (tv : Nat) :
       ($inpId $appArgs* $(quote j)).val tv = $rhs := rfl))
     -- the applied index appears in BOTH OfNat-literal and Fin.mk
     -- forms depending on which normalization reached it; cover both
-    let atMkId := mkI s!"{base}_inp_at_mk_{j}"
+    let atMkId := mkDecl s!"{base}_inp_at_mk_{j}"
     elabSync (← `(theorem $atMkId $paramBinders* (tv : Nat) :
       ($inpId $appArgs* ⟨$(quote j), by decide⟩).val tv = $rhs := rfl))
     pure #[atId, atMkId]
@@ -2264,10 +2282,51 @@ elab "#verify_elab_deep" id:ident : command =>
           e ← Lean.Meta.whnf tl
         | _ => break
       return acc
-    let initVals (h : Lean.Expr) (k : Nat) : Lean.MetaM (Option (Array Nat)) := do
+    -- A closed initial value that is not syntactically `BitVec.ofNat _ lit`
+    -- (`BitVec.zero 8`, a named constant `q 1 2`, `decide …`): evaluate it
+    -- to a Nat by default-transparency whnf of `toNat`, then have the KERNEL
+    -- check `init = BitVec.ofNat w v` / `init = Bool.true|false` by `Eq.refl`
+    -- (a throwaway `addDecl`).  The evaluator is not trusted: a wrong value
+    -- fails the kernel check and the init is refused.  Free variables and
+    -- metavariables are refused (`topFail` names the reason).
+    let evalInit (a : Lean.Expr) (isBool : Bool) (w : Nat) : Lean.MetaM (Option Nat) := do
+      let a ← Lean.instantiateMVars a
+      if a.hasFVar || a.hasMVar || a.hasLevelMVar then return none
+      let v? ← try
+          if isBool then
+            let r ← Lean.Meta.withDefault (Lean.Meta.whnf a)
+            match r.getAppFnArgs with
+            | (``Bool.true, _) => pure (some 1)
+            | (``Bool.false, _) => pure (some 0)
+            | _ => pure none
+          else
+            let r ← Lean.Meta.withDefault (Lean.Meta.whnf (← Lean.Meta.mkAppM ``BitVec.toNat #[a]))
+            match r.rawNatLit? with
+            | some n => pure (some n)
+            | none => Lean.Meta.evalNat r
+        catch _ => pure none
+      let some v := v? | return none
+      let rhs : Lean.Expr := if isBool then
+          (if v == 1 then Lean.mkConst ``Bool.true else Lean.mkConst ``Bool.false)
+        else Lean.mkApp2 (Lean.mkConst ``BitVec.ofNat) (Lean.mkRawNatLit w) (Lean.mkRawNatLit v)
+      let ty ← Lean.Meta.inferType a
+      let lvl ← Lean.Meta.getLevel ty
+      let eqTy := Lean.mkApp3 (Lean.mkConst ``Eq [lvl]) ty a rhs
+      let pf := Lean.mkApp2 (Lean.mkConst ``Eq.refl [lvl]) ty a
+      let ok ← try
+          -- synchronous kernel check (`Elab.async` would defer a theorem's
+          -- kernel check and the failure would never reach this `catch`)
+          Lean.withoutModifyingEnv <| withOptions (fun o => o.setBool `Elab.async false) do
+            Lean.addDecl (Lean.Declaration.thmDecl
+              { name := `_ved_init_check, levelParams := [], type := eqTy, value := pf })
+            pure true
+        catch _ => pure false
+      return if ok then some v else none
+    let initVals (h : Lean.Expr) (isBools : Array Bool) (ws : Array Nat) :
+        Lean.MetaM (Option (Array Nat)) := do
       let mut e ← Lean.Meta.whnf h
       let mut acc : Array Nat := #[]
-      for _ in [0:k] do
+      for j in [0:ws.size] do
         match e.getAppFnArgs with
         | (``Prod.mk, #[_, _, a, rest]) =>
           -- reducible whnf only: default transparency would unfold
@@ -2278,6 +2337,9 @@ elab "#verify_elab_deep" id:ident : command =>
             | (``Bool.true, _) => pure (some 1)
             | (``Bool.false, _) => pure (some 0)
             | _ => pure none
+          let v? ← match v? with
+            | some v => pure (some v)
+            | none => evalInit a isBools[j]! ws[j]!
           match v? with
           | some v => acc := acc.push v
           | none => return none
@@ -2307,7 +2369,10 @@ elab "#verify_elab_deep" id:ident : command =>
         if ty.hasFVar then
           throwError "#verify_elab_deep: loop element type mentions a local binder: {ty}"
         tys := tys.push (← Lean.PrettyPrinter.delab ty)
-      let some inits ← initVals inits tysE.size | return none
+      let some inits ← initVals inits isBool widths
+        | if isTop && (inits.hasFVar || inits.hasMVar) then
+            throwError "#verify_elab_deep: the top-level circuit's initial values depend on a parameter or local variable; they must be closed ({inits})"
+          return none
       return some { isBool, widths, inits, tys, isTop }
     let mut nodes : Array LoopNode := #[]
     -- the definition itself: head node = top, the rest nested.  A
@@ -2500,18 +2565,18 @@ elab "#verify_elab_deep" id:ident : command =>
       let wireWsT : Array Term := wireWs.toArray.map fun w => quote w
       let ΓwT : Term ← `(([$wireWsT,*] : List Nat))
       let ΓAllS : Term ← `((($ΓrT ++ $ΓiT) ++ $ΓwT : List Nat))
-      let snmLId := mkI s!"{base}_snmL"
-      let snmId := mkI s!"{base}_snm"
-      let sdeepId := mkI s!"{base}_sdeep"
-      let wlId := mkI s!"{base}_swl"
-      let wlOkId := mkI s!"{base}_swlOk"
+      let snmLId := mkDecl s!"{base}_snmL"
+      let snmId := mkDecl s!"{base}_snm"
+      let sdeepId := mkDecl s!"{base}_sdeep"
+      let wlId := mkDecl s!"{base}_swl"
+      let wlOkId := mkDecl s!"{base}_swlOk"
       let nameTs : Array Term := slotNames.toArray.map fun n => quote n
       elabSyncS (← `(def $snmLId : List String := [$nameTs,*]))
       elabSyncS (← `(def $snmId : Fin ($ΓAllS).length → String := fun i => ($snmLId).getD i.val ""))
       -- F2: the name table's injectivity ONCE, by KERNEL decide (Fin × Fin over a
       -- literal list of string literals); it is the side condition of
       -- `CdoW.elab_general` in the trace AND the replay's `hinj`
-      let hinjId := mkI s!"{base}_sdeep_hinj"
+      let hinjId := mkDecl s!"{base}_sdeep_hinj"
       elabSyncS (← `(theorem $hinjId : ∀ a b : Fin ($ΓAllS).length, $snmId a = $snmId b → a = b := by decide))
       -- ---- the CdoW ----
       let sigTs : Array Term ← (List.range nW).toArray.mapM fun k => do
@@ -2527,11 +2592,11 @@ elab "#verify_elab_deep" id:ident : command =>
         next := fun i => match i with $snextArms:matchAlt*
         out := $outC))
       -- ---- readers (registers, wires), their equations, the output ----
-      let sId := mkI "s"
+      let sId := mkBinder "s"
       let inpFam : Term ← `((fun t j => (($inpS) j).val t))
-      let rdIdsS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}"
-      let rwIdsS : Array Ident := (List.range nW).toArray.map fun k => mkI s!"{base}_sdeep_rw{k}"
-      let ρSId := mkI s!"{base}_sdeep_rho"
+      let rdIdsS : Array Ident := (List.range nR).toArray.map fun i => mkDecl s!"{base}_sdeep_rd{i}"
+      let rwIdsS : Array Ident := (List.range nW).toArray.map fun k => mkDecl s!"{base}_sdeep_rw{k}"
+      let ρSId := mkDecl s!"{base}_sdeep_rho"
       for i in List.range nR do
         let rdId := rdIdsS[i]!
         elabSyncS (← `(def $rdId $paramBinders* ($sId : Nat) : BitVec $(quote regWs[i]!) :=
@@ -2547,13 +2612,13 @@ elab "#verify_elab_deep" id:ident : command =>
           (fun i => do let rdId : Ident := rdIdsS[i]!; `(($rdId $appArgs* $tv)))
           (fun j => inpValRhs[j]! tv)
           (fun k => do let rwId : Ident := rwIdsS[k]!; `(($rwId $appArgs* $tv))) e
-      let rwEqIds : Array Ident := (List.range nW).toArray.map fun k => mkI s!"{base}_sdeep_rw{k}_eq"
+      let rwEqIds : Array Ident := (List.range nW).toArray.map fun k => mkDecl s!"{base}_sdeep_rw{k}_eq"
       for k in List.range nW do
         let rhs ← shallowS (← `($sId)) wireConesIR[k]!
         elabSyncS (← `(theorem $(rwEqIds[k]!) $paramBinders* ($sId : Nat) :
           $(rwIdsS[k]!) $appArgs* $sId = $rhs := rfl))
-      let rdZeroS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}_zero"
-      let rdSuccS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}_succ"
+      let rdZeroS : Array Ident := (List.range nR).toArray.map fun i => mkDecl s!"{base}_sdeep_rd{i}_zero"
+      let rdSuccS : Array Ident := (List.range nR).toArray.map fun i => mkDecl s!"{base}_sdeep_rd{i}_succ"
       for i in List.range nR do
         let (_, _, init) := regs[i]!
         elabSyncS (← `(theorem $(rdZeroS[i]!) $paramBinders* :
@@ -2561,7 +2626,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let rhs ← shallowS (← `($sId)) regConesIR[i]!
         elabSyncS (← `(theorem $(rdSuccS[i]!) $paramBinders* ($sId : Nat) :
           $(rdIdsS[i]!) $appArgs* ($sId + 1) = $rhs := rfl))
-      let outSId := mkI s!"{base}_sdeep_outS"
+      let outSId := mkDecl s!"{base}_sdeep_outS"
       let outRhs ← shallowS (← `($sId)) outConeIR
       elabSyncS (← `(theorem $outSId $paramBinders* ($sId : Nat) :
           (CdoW.outSig $sdeepId $inpS).val $sId = $outRhs := by
@@ -2570,7 +2635,7 @@ elab "#verify_elab_deep" id:ident : command =>
         rfl))
       deepTrace fun _ => s!"#verify_elab_deep STAGE shared: readers + equations emitted"
       -- ---- the trace theorem (linear recipe) ----
-      let thId := mkI s!"{base}_sdeep_trace"
+      let thId := mkDecl s!"{base}_sdeep_trace"
       let declIdent : Ident := mkIdent declName
       -- struct outputs project their field; the def unfolds through its first
       -- equation (a plain `simp only [f]` would reduce past the projection)
@@ -2618,11 +2683,11 @@ elab "#verify_elab_deep" id:ident : command =>
           let slot ← if topNode.isBool[j]! then `(($slot == 1#1)) else pure slot
           acc ← `(($slot, $acc))
         pure acc
-      let uId := mkI "u"; let mId := mkI "m"; let LId := mkI "L"; let hLId := mkI "hL"
-      let hLtId := mkI "hLt"; let preId := mkI "pre"; let hpreId := mkI "hpre"
+      let uId := mkBinder "u"; let mId := mkBinder "m"; let LId := mkBinder "L"; let hLId := mkBinder "hL"
+      let hLtId := mkBinder "hLt"; let preId := mkBinder "pre"; let hpreId := mkBinder "hpre"
       let packU ← packAt (← `($uId)); let packS ← packAt (← `($sId))
-      let fIdsM : Array Ident := (List.range nW).toArray.map fun k => mkI s!"fm{k}"
-      let fIdsT : Array Ident := (List.range nW).toArray.map fun k => mkI s!"ft{k}"
+      let fIdsM : Array Ident := (List.range nW).toArray.map fun k => mkBinder s!"fm{k}"
+      let fIdsT : Array Ident := (List.range nW).toArray.map fun k => mkBinder s!"ft{k}"
       let hpreApp : Term ← `($hpreId $mId (Nat.lt_succ_self $mId))
       let inpAtTs : Array Term := inpAtIds.map fun i => (⟨i.raw⟩ : Term)
       let extrasM : Array Term := #[hpreApp, ← `(mkRegList)] ++ helperTs ++ outUnfoldS
@@ -2651,10 +2716,10 @@ elab "#verify_elab_deep" id:ident : command =>
       let genAtomsAt (tv : Term) (tag : String) : CommandElabM (Array (Lean.TSyntax `tactic)) := do
         let mut acc : Array (Lean.TSyntax `tactic) := #[]
         for k in List.range nW do
-          let rwId : Ident := rwIdsS[k]!; let aId := mkI s!"aw{k}{tag}"
+          let rwId : Ident := rwIdsS[k]!; let aId := mkBinder s!"aw{k}{tag}"
           acc := acc.push (← `(tactic| all_goals (try sparkle_opaque ($rwId $appArgs* $tv) => $aId:ident)))
         for i in List.range nR do
-          let rdId : Ident := rdIdsS[i]!; let aId := mkI s!"ar{i}{tag}"
+          let rdId : Ident := rdIdsS[i]!; let aId := mkBinder s!"ar{i}{tag}"
           acc := acc.push (← `(tactic| all_goals (try sparkle_opaque ($rdId $appArgs* $tv) => $aId:ident)))
         pure acc
       let genAtomsM ← genAtomsAt (← `($mId)) "m"
@@ -2744,7 +2809,7 @@ elab "#verify_elab_deep" id:ident : command =>
       -- Mirrors Tests/Verification/ConeSharingReplay.lean, generically.
       let rec sharedReplay : Unit → CommandElabM (Ident × Array (Ident × String)) := fun _ => do
         deepTrace fun _ => s!"#verify_elab_deep STAGE shared: replay begin"
-        let P (x : String) : Ident := mkI s!"{base}_sdeep_{x}"
+        let P (x : String) : Ident := mkDecl s!"{base}_sdeep_{x}"
         let bodyId := P "body"; let weMId := P "weM"; let wtLId := P "wtL"; let wtMId := P "wtM"
         let stopLId := P "stopL"; let stopAtMId := P "stopAtM"; let dmId := P "dm"
         let stopLwId := P "stopLw"; let stopAtMwId := P "stopAtMw"
@@ -2939,7 +3004,7 @@ elab "#verify_elab_deep" id:ident : command =>
           pure out
         let stvCases ← (List.range nR).toArray.mapM fun _ => do
           `(tactic| simp [$stvId:ident])
-        let kvId := mkI "kv"; let hkId := mkI "hk"; let jvId := mkI "jv"; let hjId := mkI "hj"
+        let kvId := mkBinder "kv"; let hkId := mkBinder "hk"; let jvId := mkBinder "jv"; let hjId := mkBinder "hj"
         let stvSeq ← natSeq stvCases kvId
         elabSyncS (← `(theorem $ρnSEqId $paramBinders* (t : Nat) (st : String → Nat) :
             $ρnSId $appArgs* t st = fun m => (CEnv.join
@@ -2964,11 +3029,11 @@ elab "#verify_elab_deep" id:ident : command =>
         -- henv: st agrees with the spec recurrence ⇒ the seeds coincide
         let hstBinders ← (List.range nR).toArray.mapM fun i => do
           let (rn, _, _) := regs[i]!
-          let hId := mkI s!"hst{i}"
+          let hId := mkBinder s!"hst{i}"
           `(Lean.Parser.Term.bracketedBinderF| ($hId : st $(quote rn) = CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t ⟨$(quote i), by decide⟩))
         let hstvCases ← (List.range nR).toArray.mapM fun i => do
           let (rn, _, _) := regs[i]!
-          let hId := mkI s!"hst{i}"
+          let hId := mkBinder s!"hst{i}"
           `(tactic| (show st $(quote rn) % 2 ^ $(quote regWs[i]!) = _; rw [$hId:ident]; exact Nat.mod_eq_of_lt (by rw [CdoW.irState_eq $sdeepId $snmId $hinjId]; exact BitVec.isLt _)))
         let hstvSeq ← natSeq hstvCases jvId
         elabSyncS (← `(theorem $henvId $paramBinders* (t : Nat) (st : String → Nat) $hstBinders* :
@@ -3001,7 +3066,7 @@ elab "#verify_elab_deep" id:ident : command =>
           if i + 1 < nR then `(($t).1) else pure t
         -- `hm : n = a ∨ n = b ∨ …` handled as a SEQUENCE of two-way splits, each
         -- followed by a focused bullet (no alternative patterns needed)
-        let hmId := mkI "hm"; let nId := mkI "n"; let hnId := mkI "hn"; let hsubId := mkI "hsub"
+        let hmId := mkBinder "hm"; let nId := mkBinder "n"; let hnId := mkBinder "hn"; let hsubId := mkBinder "hsub"
         let splitSeq (bullets : Array (Lean.TSyntax `tactic)) : CommandElabM (Array (Lean.TSyntax `tactic)) := do
           let mut out : Array (Lean.TSyntax `tactic) := #[]
           let cnt := bullets.size
@@ -3345,7 +3410,7 @@ elab "#verify_elab_deep" id:ident : command =>
           let mut rws : Array Term := #[]
           for i in List.range nR do
             let rin := rinX[i]!
-            let hnextId := mkI s!"hnext{i}"; let hbId := mkI s!"hb{i}"
+            let hnextId := mkBinder s!"hnext{i}"; let hbId := mkBinder s!"hb{i}"
             let g1R : Ident := P s!"coneEval_r{i}"
             pre := pre.push (← `(tactic| have $hnextId:ident : CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) (t + 1) ⟨$(quote i), by decide⟩ = env1 $(quote rin) := by
               show (Sparkle.IR.Semantics.evalExpr $weCT (envOfC $snmId (natJoin ($ρnId $appArgs* t) (CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t))))
@@ -3360,13 +3425,13 @@ elab "#verify_elab_deep" id:ident : command =>
           -- rewrite by hnext may not fire syntactically; close up to defeq
           let mut nextClosers : Array (Lean.TSyntax `tactic) := #[]
           for i in List.range nR do
-            let hnextId := mkI s!"hnext{i}"
+            let hnextId := mkBinder s!"hnext{i}"
             nextClosers := nextClosers.push (← `(tactic| all_goals (try exact ($hnextId:ident).symm)))
             nextClosers := nextClosers.push (← `(tactic| all_goals (try exact $hnextId:ident)))
           let mut hrsts : Array (Lean.TSyntax `tactic) := #[]
           let mut hrstTs : Array Term := #[]
           for (r, idx) in rstNamesX.toArray.zipIdx do
-            let hId := mkI s!"hrst{idx}"
+            let hId := mkBinder s!"hrst{idx}"
             hrsts := hrsts.push (← `(tactic| have $hId:ident : env1 $(quote r) = 0 := by
               rw [$(Q s!"frame_rst{idx}") $appArgs* t hrun]; exact $otherId $appArgs* t $(quote r) (by decide)))
             hrstTs := hrstTs.push (← `($hId))
@@ -3625,7 +3690,7 @@ elab "#verify_elab_deep" id:ident : command =>
   -- ================= per-output-port generation =================
   let jobs := ((outPorts.zip portMeta).zip (outCs.zip outIRs))
   let mut portIdx := 0
-  let mut deep0Id : Ident := mkI s!"{base}_deep"
+  let mut deep0Id : Ident := mkDecl s!"{base}_deep"
   -- MEASURED 2026-09-19: `compilation (LCNF base)` is superlinear in one
   -- function's body size — extracting the shared route cut this module
   -- 1042 s -> 598 s with no change to logic or obligations, and this
@@ -3637,15 +3702,15 @@ elab "#verify_elab_deep" id:ident : command =>
     -- `k` and `deep0Id` come in as parameters (the loop keeps the state)
     let mut deep0Id := deep0IdIn
     let suffix := if structName?.isSome then s!"_{portName}" else ""
-    let deepId := mkI s!"{base}{suffix}_deep"
+    let deepId := mkDecl s!"{base}{suffix}_deep"
     if k == 0 then deep0Id := deepId
-    let thId := mkI s!"{base}{suffix}_deep_trace"
-    let nextEqId := mkI s!"{base}{suffix}_deep_next"
-    let initsEqId := mkI s!"{base}{suffix}_deep_inits"
-    let outEqId := mkI s!"{base}{suffix}_deep_out"
-    let writesEqId := mkI s!"{base}{suffix}_deep_writes"
-    let minitsEqId := mkI s!"{base}{suffix}_deep_minits"
-    let readsEqId := mkI s!"{base}{suffix}_deep_reads"
+    let thId := mkDecl s!"{base}{suffix}_deep_trace"
+    let nextEqId := mkDecl s!"{base}{suffix}_deep_next"
+    let initsEqId := mkDecl s!"{base}{suffix}_deep_inits"
+    let outEqId := mkDecl s!"{base}{suffix}_deep_out"
+    let writesEqId := mkDecl s!"{base}{suffix}_deep_writes"
+    let minitsEqId := mkDecl s!"{base}{suffix}_deep_minits"
+    let readsEqId := mkDecl s!"{base}{suffix}_deep_reads"
     if hasMem then
       deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: reifying _deep (next-arms syntax chars={(nextArmsM.map fun a => (toString a).length).foldl (· + ·) 0})"
       elabSync (← `(def $deepId : CdoM $ΓrT $ΓiT $ΓmT $ΓcT $(quote wOut) where
@@ -3692,7 +3757,7 @@ elab "#verify_elab_deep" id:ident : command =>
     -- (they're shared syntax across the per-port Cdos).
     let fidIds ← if k == 0 then
         (List.range nR).toArray.filterMapM fun i => do
-          let fidId := mkI s!"{base}{suffix}_deep_fidelity_r{i}"
+          let fidId := mkDecl s!"{base}{suffix}_deep_fidelity_r{i}"
           let coneQ ← quoteIR (Tools.ConcatNorm.concatNorm 10000 conesIR[i]!)
           if hasMem then
             if i < nReg then
@@ -3716,7 +3781,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 $compT = $coneQ := by
                 simp only [CExpr.compile, $nmId:ident]
                 all_goals (first | rfl | (simp; done) | (simp; rfl))))
-              let fidLId := mkI s!"{base}{suffix}_deep_fidelity_latch{i}"
+              let fidLId := mkDecl s!"{base}{suffix}_deep_fidelity_latch{i}"
               elabSync (← `(theorem $fidLId :
                 NextM.latchAddr? (CdoM.next $deepId ⟨$(quote i), by decide⟩)
                   = some ⟨⟨$(quote kk), by decide⟩, $(cones[i]!)⟩ := by
@@ -3737,14 +3802,14 @@ elab "#verify_elab_deep" id:ident : command =>
       else pure #[]
     let fidLIds : Array Ident := if k == 0 && hasMem then
         (List.range nR).toArray.filterMap fun i =>
-          if i < nReg then none else some (mkI s!"{base}{suffix}_deep_fidelity_latch{i}")
+          if i < nReg then none else some (mkDecl s!"{base}{suffix}_deep_fidelity_latch{i}")
       else #[]
     -- read-address fidelity (combinational reads): the reified address
     -- compiles (with the register/input names) back to the elaborated cone
     let fidCIds ← if k == 0 && hasCombo then
         (List.range nC).toArray.mapM fun c => do
           let (kk, _, _, _, _) := combos[c]!
-          let fidId := mkI s!"{base}{suffix}_deep_fidelity_c{c}"
+          let fidId := mkDecl s!"{base}{suffix}_deep_fidelity_c{c}"
           let coneQ ← quoteIR (Tools.ConcatNorm.concatNorm 10000 comboConesIR[c]!)
           let compT ← `(@CExpr.compile ($ΓrT ++ $ΓiT)
             (($ΓmT : List MemSig).get ⟨$(quote kk), by decide⟩).1
@@ -3760,7 +3825,7 @@ elab "#verify_elab_deep" id:ident : command =>
         (List.range nM).toArray.flatMapM fun kk => do
           let (waIR, wdIR, weIR) := memConesIR[kk]!
           let mk (tag : String) (ir : Sparkle.IR.AST.Expr) (proj : Term) : CommandElabM Ident := do
-            let fid := mkI s!"{base}{suffix}_deep_fidelity_m{kk}_{tag}"
+            let fid := mkDecl s!"{base}{suffix}_deep_fidelity_m{kk}_{tag}"
             let q ← quoteIR (Tools.ConcatNorm.concatNorm 10000 ir)
             elabSync (← `(theorem $fid :
               CExpr.compile $nmId $proj = $q := by
@@ -3772,7 +3837,7 @@ elab "#verify_elab_deep" id:ident : command =>
           let e ← mk "we" weIR (← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).2.2))
           pure #[a, d, e]
       else pure #[]
-    let fidOutId := mkI s!"{base}{suffix}_deep_fidelity_out"
+    let fidOutId := mkDecl s!"{base}{suffix}_deep_fidelity_out"
     let outQ ← quoteIR (Tools.ConcatNorm.concatNorm 10000 outIR)
     if hasMem then
       elabSync (← `(theorem $fidOutId :
@@ -3799,13 +3864,13 @@ elab "#verify_elab_deep" id:ident : command =>
     -- synchronous memory is a no-op for `evalAssigns`), which is
     -- memory-free and hence inside the seam theorems' premises; the
     -- state step (regstep/memstep) keeps the full body.
-    let weMId := mkI s!"{base}_deep_weM"
-    let bodyId := mkI s!"{base}_deep_body"
-    let stopLId := mkI s!"{base}_deep_stopL"
-    let stopAtMId := mkI s!"{base}_deep_stopAtM"
-    let wtLId := mkI s!"{base}_deep_wtL"
-    let wtMId := mkI s!"{base}_deep_wtM"
-    let bodyCId := mkI s!"{base}_deep_bodyC"
+    let weMId := mkDecl s!"{base}_deep_weM"
+    let bodyId := mkDecl s!"{base}_deep_body"
+    let stopLId := mkDecl s!"{base}_deep_stopL"
+    let stopAtMId := mkDecl s!"{base}_deep_stopAtM"
+    let wtLId := mkDecl s!"{base}_deep_wtL"
+    let wtMId := mkDecl s!"{base}_deep_wtM"
+    let bodyCId := mkDecl s!"{base}_deep_bodyC"
     let bodyC : Term ← if hasCombo then `($bodyCId)
       else if hasMem then `(Tools.ConeFold.stripSyncMem $bodyId)
       else `($bodyId)
@@ -3906,8 +3971,8 @@ elab "#verify_elab_deep" id:ident : command =>
         addStmtList bodyCId bodyCList
         for c in List.range nC do
           let (pre, post) := comboSplits[c]!
-          addStmtList (mkI s!"{base}_deep_bodyP{c}") pre
-          addStmtList (mkI s!"{base}_deep_bodyQ{c}") post
+          addStmtList (mkDecl s!"{base}_deep_bodyP{c}") pre
+          addStmtList (mkDecl s!"{base}_deep_bodyQ{c}") post
       let stopL : List String := (ins.map (·.1)) ++ (regs.map (·.1))
         ++ (combos.map (·.2.1))
       liftCoreM <| addAndCompile <| .defnDecl {
@@ -3929,9 +3994,9 @@ elab "#verify_elab_deep" id:ident : command =>
       for i in List.range nR do
         let (rn, input, _) := regs[i]!
         let sanit := Sparkle.Backend.Verilog.sanitizeName rn
-        let coneRawId := mkI s!"{base}_deep_coneRaw_{sanit}"
-        let coneId := mkI s!"{base}_deep_cone_{sanit}"
-        let regInId := mkI s!"{base}_deep_regIn_{sanit}"
+        let coneRawId := mkDecl s!"{base}_deep_coneRaw_{sanit}"
+        let coneId := mkDecl s!"{base}_deep_cone_{sanit}"
+        let regInId := mkDecl s!"{base}_deep_regIn_{sanit}"
         let craw ← match Tools.ConeFold.inlineConeT dm stopAt 10000 input with
           | .ok c => pure c
           | .error e => throwError "#verify_elab_deep bridge: cone of {rn}: {e}"
@@ -3939,7 +4004,7 @@ elab "#verify_elab_deep" id:ident : command =>
         addExprConst coneId conesIR[i]!
         addExprConst regInId input
         let fidId := fidIds[i]!
-        let g1Id := mkI s!"{base}_deep_coneEval_r{i}"
+        let g1Id := mkDecl s!"{base}_deep_coneEval_r{i}"
         if !hasMem then
           mkG1 g1Id (← `(CExpr.compile $nmId (Cdo.next $deepId ⟨$(quote i), by decide⟩)))
             (← `(tactic| (rw [$fidId:ident]; native_decide))) coneRawId coneId (← `($regInId))
@@ -3963,17 +4028,17 @@ elab "#verify_elab_deep" id:ident : command =>
           let (waC, wdC, weC) := memConesIR[kk]!
           let portG1 (tag : String) (portIR coneIR : Sparkle.IR.AST.Expr) (proj : Term) :
               CommandElabM Unit := do
-            let coneRawId := mkI s!"{base}_deep_coneRaw_m{kk}_{tag}"
-            let coneId := mkI s!"{base}_deep_cone_m{kk}_{tag}"
-            let portInId := mkI s!"{base}_deep_portIn_m{kk}_{tag}"
+            let coneRawId := mkDecl s!"{base}_deep_coneRaw_m{kk}_{tag}"
+            let coneId := mkDecl s!"{base}_deep_cone_m{kk}_{tag}"
+            let portInId := mkDecl s!"{base}_deep_portIn_m{kk}_{tag}"
             let craw ← match Tools.ConeFold.inlineConeT dm stopAt 10000 portIR with
               | .ok c => pure c
               | .error e => throwError "#verify_elab_deep bridge: write port {tag} of memory {name}: {e}"
             addExprConst coneRawId craw
             addExprConst coneId coneIR
             addExprConst portInId portIR
-            let fidId := mkI s!"{base}{suffix}_deep_fidelity_m{kk}_{tag}"
-            let g1Id := mkI s!"{base}_deep_coneEval_m{kk}_{tag}"
+            let fidId := mkDecl s!"{base}{suffix}_deep_fidelity_m{kk}_{tag}"
+            let g1Id := mkDecl s!"{base}_deep_coneEval_m{kk}_{tag}"
             mkG1 g1Id (← `(CExpr.compile $nmId $proj))
               (← `(tactic| (rw [$fidId:ident]; native_decide))) coneRawId coneId (← `($portInId))
           portG1 "wa" waIR waC (← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).1))
@@ -3982,32 +4047,32 @@ elab "#verify_elab_deep" id:ident : command =>
         -- read addresses (combinational reads)
         for c in List.range nC do
           let (kk, rd, raIR, _, _) := combos[c]!
-          let coneRawId := mkI s!"{base}_deep_coneRaw_c{c}"
-          let coneId := mkI s!"{base}_deep_cone_c{c}"
-          let portInId := mkI s!"{base}_deep_portIn_c{c}"
+          let coneRawId := mkDecl s!"{base}_deep_coneRaw_c{c}"
+          let coneId := mkDecl s!"{base}_deep_cone_c{c}"
+          let portInId := mkDecl s!"{base}_deep_portIn_c{c}"
           let craw ← match Tools.ConeFold.inlineConeT dm stopAt 10000 raIR with
             | .ok cc => pure cc
             | .error e => throwError "#verify_elab_deep bridge: read address of {rd}: {e}"
           addExprConst coneRawId craw
           addExprConst coneId comboConesIR[c]!
           addExprConst portInId raIR
-          let fidId := mkI s!"{base}{suffix}_deep_fidelity_c{c}"
-          let g1Id := mkI s!"{base}_deep_coneEval_c{c}"
+          let fidId := mkDecl s!"{base}{suffix}_deep_fidelity_c{c}"
+          let g1Id := mkDecl s!"{base}_deep_coneEval_c{c}"
           let compT ← `(@CExpr.compile ($ΓrT ++ $ΓiT)
             (($ΓmT : List MemSig).get ⟨$(quote kk), by decide⟩).1
             $nm0Id $(comboCs[c]!))
           mkG1 g1Id compT (← `(tactic| (rw [$fidId:ident]; native_decide)))
             coneRawId coneId (← `($portInId))
     -- per-port: the output cone's G1
-    let outConeRawId := mkI s!"{base}{suffix}_deep_coneRaw_out"
-    let outConeId := mkI s!"{base}{suffix}_deep_cone_out"
+    let outConeRawId := mkDecl s!"{base}{suffix}_deep_coneRaw_out"
+    let outConeId := mkDecl s!"{base}{suffix}_deep_cone_out"
     let outRawIR ← match Tools.ConeFold.inlineConeT dm stopAt 10000
         (.ref portName) with
       | .ok c => pure c
       | .error e => throwError "#verify_elab_deep bridge: out cone: {e}"
     addExprConst outConeRawId outRawIR
     addExprConst outConeId outIR
-    let g1OutId := mkI s!"{base}{suffix}_deep_coneEval_out"
+    let g1OutId := mkDecl s!"{base}{suffix}_deep_coneEval_out"
     mkG1 g1OutId (← `(CExpr.compile $nmId $outT0))
       (← `(tactic| (rw [$fidOutId:ident]; native_decide))) outConeRawId outConeId
       (← `(Sparkle.IR.AST.Expr.ref $(quote portName)))
@@ -4033,21 +4098,21 @@ elab "#verify_elab_deep" id:ident : command =>
       -- gets the same treatment against `Cdo.outSig`.  The trace
       -- theorem's pack, hypotheses and closers then live entirely in
       -- literal-width land.
-      let sId := mkI "s"
-      let nId := mkI "n"
+      let sId := mkBinder "s"
+      let nId := mkBinder "n"
       let rdIds : Array Ident := (List.range nR).toArray.map fun i =>
-        mkI s!"{base}{suffix}_deep_rd{i}"
+        mkDecl s!"{base}{suffix}_deep_rd{i}"
       let rdZeroIds : Array Ident := (List.range nR).toArray.map fun i =>
-        mkI s!"{base}{suffix}_deep_rd{i}_zero"
+        mkDecl s!"{base}{suffix}_deep_rd{i}_zero"
       let rdSuccIds : Array Ident := (List.range nR).toArray.map fun i =>
-        mkI s!"{base}{suffix}_deep_rd{i}_succ"
+        mkDecl s!"{base}{suffix}_deep_rd{i}_succ"
       -- (the memory contents readers' lemmas are appended below, once the
       -- readers exist; see `rdZeroAll` / `rdSuccAll`)
       let gIds : Array Ident := (List.range nR).toArray.map fun i =>
-        mkI s!"g{i}"
-      let addrId := mkI "addr"
+        mkBinder s!"g{i}"
+      let addrId := mkBinder "addr"
       let mdIds : Array Ident := (List.range nM).toArray.map fun kk =>
-        mkI s!"{base}{suffix}_deep_md{kk}"
+        mkDecl s!"{base}{suffix}_deep_md{kk}"
       -- shallow terms over registers and inputs only (read addresses)
       let shallowAt0 (tv : Term) (e : Sparkle.IR.AST.Expr) :
           CommandElabM Term :=
@@ -4109,9 +4174,9 @@ elab "#verify_elab_deep" id:ident : command =>
           $rdId $appArgs* ($sId + 1) = $rhs := rfl))
         deepTrace fun _ => s!"#verify_elab_deep STAGE ok: bridge {rdSuccId.getId}"
       let mdZeroIds : Array Ident := (List.range nM).toArray.map fun kk =>
-        mkI s!"{base}{suffix}_deep_md{kk}_zero"
+        mkDecl s!"{base}{suffix}_deep_md{kk}_zero"
       let mdSuccIds : Array Ident := (List.range nM).toArray.map fun kk =>
-        mkI s!"{base}{suffix}_deep_md{kk}_succ"
+        mkDecl s!"{base}{suffix}_deep_md{kk}_succ"
       for kk in List.range nM do
         let mdId : Ident := mdIds[kk]!
         let (waIR, wdIR, weIR) := memConesIR[kk]!
@@ -4128,7 +4193,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 else $mdId $appArgs* $sId $addrId := rfl))
       let rdZeroAll : Array Ident := rdZeroIds ++ mdZeroIds
       let rdSuccAll : Array Ident := rdSuccIds ++ mdSuccIds
-      let outSId := mkI s!"{base}{suffix}_deep_outS"
+      let outSId := mkDecl s!"{base}{suffix}_deep_outS"
       let outRhs ← shallowAt (← `($sId)) outIR
       if hasMem then
         elabSync (← `(theorem $outSId $paramBinders* ($sId : Nat) :
@@ -4143,19 +4208,19 @@ elab "#verify_elab_deep" id:ident : command =>
           rw [Cdo.stateSig_eq]
           rfl))
       -- ===== packs, duplicate copies, and the nested-loop machinery =====
-      let uId := mkI "u"
-      let mId := mkI "m"
-      let preId := mkI "pre"
-      let hpreId := mkI "hpre"
-      let qId := mkI "q"
-      let hqId := mkI "hq"
-      let hgId := mkI "hg"
-      let LId := mkI "L"
-      let hLId := mkI "hL"
-      let hLtId := mkI "hLt"
-      let iId := mkI "i"
-      let hiId := mkI "hi"
-      let ihId := mkI "ih"
+      let uId := mkBinder "u"
+      let mId := mkBinder "m"
+      let preId := mkBinder "pre"
+      let hpreId := mkBinder "hpre"
+      let qId := mkBinder "q"
+      let hqId := mkBinder "hq"
+      let hgId := mkBinder "hg"
+      let LId := mkBinder "L"
+      let hLId := mkBinder "hL"
+      let hLtId := mkBinder "hLt"
+      let iId := mkBinder "i"
+      let hiId := mkBinder "hi"
+      let ihId := mkBinder "ih"
       -- the pack of a node's register block starting at IR register `b`,
       -- at time `tv`: the HList of its readers (a Bool register's slot is
       -- `Bool`, the reader yields `BitVec 1` — decode it)
@@ -4191,7 +4256,7 @@ elab "#verify_elab_deep" id:ident : command =>
             let same := (List.range k).all fun j =>
               Sparkle.IR.Optimize.renameRefs subst conesIR[b + j]! == conesIR[b0 + j]!
             if !same then continue
-            let dupId := mkI s!"{base}{suffix}_deep_dup_b{b}"
+            let dupId := mkDecl s!"{base}{suffix}_deep_dup_b{b}"
             let stmt ← do
               let mut acc : Term ← `(True)
               for j in (List.range k).reverse do
@@ -4220,7 +4285,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 all_goals (repeat' apply And.intro)
                 all_goals (first | rfl | trivial)))
             for j in List.range k do
-              let dupRId := mkI s!"{base}{suffix}_deep_dup_r{b + j}"
+              let dupRId := mkDecl s!"{base}{suffix}_deep_dup_r{b + j}"
               let r1 : Ident := rdIds[b + j]!
               let r0 : Ident := rdIds[b0 + j]!
               let pj ← projOf (← `($dupId $appArgs* $sId)) j
@@ -4299,12 +4364,12 @@ elab "#verify_elab_deep" id:ident : command =>
           CommandElabM (Lean.TSyntax `tactic) := do
         -- level-indexed names: a deeper level's `intro` must not shadow the
         -- enclosing level's `q`/`hg`, which the handed-down guard refers to
-        let qId := mkI s!"q{lvl}"
-        let hqId := mkI s!"hq{lvl}"
-        let hgId := mkI s!"hg{lvl}"
-        let uId := mkI s!"u{lvl}"
-        let mId := mkI s!"m{lvl}"
-        let hsId := mkI s!"hs{lvl}"
+        let qId := mkBinder s!"q{lvl}"
+        let hqId := mkBinder s!"hq{lvl}"
+        let hgId := mkBinder s!"hg{lvl}"
+        let uId := mkBinder s!"u{lvl}"
+        let mId := mkBinder s!"m{lvl}"
+        let hsId := mkBinder s!"hs{lvl}"
         let mut alts : Array (Lean.TSyntax `tactic) := #[]
         for node in nestedNodes do
           for b in blocksFor node do
@@ -4590,9 +4655,9 @@ elab "#verify_elab_deep" id:ident : command =>
       -- deep `envOfC (natJoin (irState t) inp)`; matching it to a
       -- stepModule seed and replaying regstep/state_trace is the next
       -- deep step.
-      let outConeId := mkI s!"{base}{suffix}_deep_cone_out"
-      let g1OutId := mkI s!"{base}{suffix}_deep_coneEval_out"
-      let sigMId := mkI s!"{base}{suffix}_deep_signalM"
+      let outConeId := mkDecl s!"{base}{suffix}_deep_cone_out"
+      let g1OutId := mkDecl s!"{base}{suffix}_deep_coneEval_out"
+      let sigMId := mkDecl s!"{base}{suffix}_deep_signalM"
       let inpFam : Term ← `((fun t j => (($inpS) j).val t))
       -- the IR state recurrence of a deep circuit (Cdo / CdoM) at cycle `tt`
       let irStateAt (d : Ident) (tt : Term) : CommandElabM Term :=
@@ -4603,8 +4668,8 @@ elab "#verify_elab_deep" id:ident : command =>
         if hasMem then `(CdoM.irEnv $d $inpFam $tt)
         else `(natJoin (Cdo.irState $d $nmId $inpFam $tt) (fun j => ((($inpS) j).val $tt).toNat))
       -- the IR memory contents at cycle `tt` (memory-free: the zero MEnv)
-      let memAtId := mkI s!"{base}_deep_memAt"
-      let memAtZeroId := mkI s!"{base}_deep_memAt_zero"
+      let memAtId := mkDecl s!"{base}_deep_memAt"
+      let memAtZeroId := mkDecl s!"{base}_deep_memAt_zero"
       let memsAt (tt : Term) : CommandElabM Term :=
         if hasMem then `($memAtId $appArgs* $tt) else `((fun _ _ => (0 : Nat)))
       let irET ← irEnvAt deepId (← `(t))
@@ -4629,16 +4694,16 @@ elab "#verify_elab_deep" id:ident : command =>
       -- cycle t are `memAt t` (the `CMem.natView` of the deep contents),
       -- a latch slot's next value comes from `syncReadLatches` on `memAt t`,
       -- and `memstep` shows `memNexts` lands on `memAt (t+1)`.
-      let deepEnvAtId := mkI s!"{base}_deep_envAt"
-      let irFunextId := mkI s!"{base}_deep_irState_funext"
-      let seedBndId := mkI s!"{base}_deep_seed_bounded"
-      let rdOtherId := mkI s!"{base}_deep_envAt_other"
-      let dRegstepId := mkI s!"{base}_deep_regstep"
-      let dMemstepId := mkI s!"{base}_deep_memstep"
-      let dEnvStId := mkI s!"{base}_deep_envSt"
-      let dSt0Id := mkI s!"{base}_deep_st0"
-      let dEnvStBndId := mkI s!"{base}_deep_envSt_bounded"
-      let dStateTraceId := mkI s!"{base}_deep_state_trace"
+      let deepEnvAtId := mkDecl s!"{base}_deep_envAt"
+      let irFunextId := mkDecl s!"{base}_deep_irState_funext"
+      let seedBndId := mkDecl s!"{base}_deep_seed_bounded"
+      let rdOtherId := mkDecl s!"{base}_deep_envAt_other"
+      let dRegstepId := mkDecl s!"{base}_deep_regstep"
+      let dMemstepId := mkDecl s!"{base}_deep_memstep"
+      let dEnvStId := mkDecl s!"{base}_deep_envSt"
+      let dSt0Id := mkDecl s!"{base}_deep_st0"
+      let dEnvStBndId := mkDecl s!"{base}_deep_envSt_bounded"
+      let dStateTraceId := mkDecl s!"{base}_deep_state_trace"
       let regRstsD : List String := m.body.filterMap fun st =>
         match st with
         | .register _ _ (rstName, _) _ _ => some rstName
@@ -4671,11 +4736,11 @@ elab "#verify_elab_deep" id:ident : command =>
         (regs.map (·.1)) ++ (ins.map (·.1)) ++ (combos.map (·.2.1))
       let nAll := nR + nI + nC
       let hneIds : Array Ident :=
-        (List.range nAll).toArray.map fun idx => mkI s!"hne_{idx}"
+        (List.range nAll).toArray.map fun idx => mkBinder s!"hne_{idx}"
       let rdIds : Array Ident := (List.range nAll).toArray.map fun idx =>
-        if idx < nR then mkI s!"{base}_deep_envAt_r{idx}"
-        else if idx < nR + nI then mkI s!"{base}_deep_envAt_i{idx - nR}"
-        else mkI s!"{base}_deep_envAt_c{idx - nR - nI}"
+        if idx < nR then mkDecl s!"{base}_deep_envAt_r{idx}"
+        else if idx < nR + nI then mkDecl s!"{base}_deep_envAt_i{idx - nR}"
+        else mkDecl s!"{base}_deep_envAt_c{idx - nR - nI}"
       -- the read addresses of the combinational reads are wire references
       let comboRaWires? : Option (List String) := combos.foldr
         (fun (cc : Nat × String × Sparkle.IR.AST.Expr × Nat × Nat) acc =>
@@ -4686,7 +4751,7 @@ elab "#verify_elab_deep" id:ident : command =>
       -- `have` and its uses (mkHenv builds its uses in a separate
       -- quotation; a literal `ihc` in the outer quotation would get a
       -- macro scope the inner reference cannot see)
-      let ihcId := mkI "ihc"
+      let ihcId := mkBinder "ihc"
       -- the seed identity `deep_envSt t st = deep_envAt t` under the
       -- induction conjunction, as a reusable tactic block
       let mkHenv (ihcId : Ident) (hbndIds : Array Ident) :
@@ -4755,12 +4820,12 @@ elab "#verify_elab_deep" id:ident : command =>
           let (name, _, _, waIR, wdIR, weIR, _, _) := mems[kk]!
           let clk := memClks[kk]!
           let raW := comboRaWires[c]!
-          let bodyPId := mkI s!"{base}_deep_bodyP{c}"
-          let bodyQId := mkI s!"{base}_deep_bodyQ{c}"
-          let coneId := mkI s!"{base}_deep_cone_c{c}"
-          let coneRawId := mkI s!"{base}_deep_coneRaw_c{c}"
-          let portInId := mkI s!"{base}_deep_portIn_c{c}"
-          let g1Id := mkI s!"{base}_deep_coneEval_c{c}"
+          let bodyPId := mkDecl s!"{base}_deep_bodyP{c}"
+          let bodyQId := mkDecl s!"{base}_deep_bodyQ{c}"
+          let coneId := mkDecl s!"{base}_deep_cone_c{c}"
+          let coneRawId := mkDecl s!"{base}_deep_coneRaw_c{c}"
+          let portInId := mkDecl s!"{base}_deep_portIn_c{c}"
+          let g1Id := mkDecl s!"{base}_deep_coneEval_c{c}"
           let rdC := rdIds[nR + nI + c]!
           let waQ ← quoteIR waIR
           let wdQ ← quoteIR wdIR
@@ -4768,11 +4833,11 @@ elab "#verify_elab_deep" id:ident : command =>
           let raQ ← quoteIR raIR
           let memStmt ← `(Sparkle.IR.AST.Stmt.memory $(quote name) $(quote aw) $(quote dw)
             $(quote clk) $waQ $wdQ $weQ $raQ $(quote rd) true [] [])
-          let envPId := mkI s!"envP{c}"
-          let hPId := mkI s!"hP{c}"
-          let hsId := mkI s!"hs{c}"
-          let hdenId := mkI s!"hdenC{c}"
-          let hrdId := mkI s!"hrdC{c}"
+          let envPId := mkBinder s!"envP{c}"
+          let hPId := mkBinder s!"hP{c}"
+          let hsId := mkBinder s!"hs{c}"
+          let hdenId := mkBinder s!"hdenC{c}"
+          let hrdId := mkBinder s!"hrdC{c}"
           tacs := tacs.push (← `(tactic| rw [show $curT = $bodyPId ++ $memStmt :: $bodyQId by native_decide] at hb))
           tacs := tacs.push (← `(tactic| obtain ⟨$envPId:ident, $hPId:ident⟩ := Option.isSome_iff_exists.mp
             (Tools.ConeFold.evalAssigns_isSome $weMId $memsT $bodyPId (by native_decide)
@@ -4951,10 +5016,10 @@ elab "#verify_elab_deep" id:ident : command =>
         for i in List.range nR do
           let (rn, _, _) := regs[i]!
           let sanit := Sparkle.Backend.Verilog.sanitizeName rn
-          let coneId := mkI s!"{base}_deep_cone_{sanit}"
-          let coneRawId := mkI s!"{base}_deep_coneRaw_{sanit}"
-          let regInId := mkI s!"{base}_deep_regIn_{sanit}"
-          let stepId := mkI s!"{base}_deep_step_{sanit}"
+          let coneId := mkDecl s!"{base}_deep_cone_{sanit}"
+          let coneRawId := mkDecl s!"{base}_deep_coneRaw_{sanit}"
+          let regInId := mkDecl s!"{base}_deep_regIn_{sanit}"
+          let stepId := mkDecl s!"{base}_deep_step_{sanit}"
           stepIds := stepIds.push stepId
           bridgeAudit := bridgeAudit.push stepId
           mkStep stepId coneId coneRawId (← `($regInId))
@@ -4962,11 +5027,11 @@ elab "#verify_elab_deep" id:ident : command =>
         if hasMem then
           for kk in List.range nM do
             for tag in ["wa", "wd", "we"] do
-              let stepId := mkI s!"{base}_deep_step_m{kk}_{tag}"
+              let stepId := mkDecl s!"{base}_deep_step_m{kk}_{tag}"
               bridgeAudit := bridgeAudit.push stepId
-              mkStep stepId (mkI s!"{base}_deep_cone_m{kk}_{tag}")
-                (mkI s!"{base}_deep_coneRaw_m{kk}_{tag}")
-                (← `($(mkI s!"{base}_deep_portIn_m{kk}_{tag}")))
+              mkStep stepId (mkDecl s!"{base}_deep_cone_m{kk}_{tag}")
+                (mkDecl s!"{base}_deep_coneRaw_m{kk}_{tag}")
+                (← `($(mkDecl s!"{base}_deep_portIn_m{kk}_{tag}")))
         -- regstep
         let mut nextsItems : Array Term := #[]
         let mut pre : Array (Lean.TSyntax `tactic) := #[]
@@ -4984,14 +5049,14 @@ elab "#verify_elab_deep" id:ident : command =>
         for i in List.range nR do
           let (rn, _, _) := regs[i]!
           let sanit := Sparkle.Backend.Verilog.sanitizeName rn
-          let coneId := mkI s!"{base}_deep_cone_{sanit}"
-          let regInId := mkI s!"{base}_deep_regIn_{sanit}"
-          let g1Id := mkI s!"{base}_deep_coneEval_r{i}"
+          let coneId := mkDecl s!"{base}_deep_cone_{sanit}"
+          let regInId := mkDecl s!"{base}_deep_regIn_{sanit}"
+          let g1Id := mkDecl s!"{base}_deep_coneEval_r{i}"
           let w := regWiresD[i]!
-          let hrstId := mkI s!"hrst{i}"
-          let hstepId := mkI s!"hstep{i}"
-          let hnextId := mkI s!"hnext{i}"
-          let hbndId := mkI s!"hbnd{i}"
+          let hrstId := mkBinder s!"hrst{i}"
+          let hstepId := mkBinder s!"hstep{i}"
+          let hnextId := mkBinder s!"hnext{i}"
+          let hbndId := mkBinder s!"hbnd{i}"
           pre := pre.push (← `(tactic| have $hstepId:ident :=
             $(stepIds[i]!) $appArgs* t hrun
               (show Sparkle.IR.Semantics.evalExpr $weMId env1 $regInId
@@ -5043,8 +5108,8 @@ elab "#verify_elab_deep" id:ident : command =>
             -- the read address; `syncReadLatches` on `memAt t` lands there
             let kk := i - nReg
             let (name, aw, dw, _, _, _, raIR, rd) := mems[kk]!
-            let fidLId := mkI s!"{base}{suffix}_deep_fidelity_latch{i}"
-            let hslId := mkI s!"hsl{i}"
+            let fidLId := mkDecl s!"{base}{suffix}_deep_fidelity_latch{i}"
+            let hslId := mkBinder s!"hsl{i}"
             let raQ ← quoteIR raIR
             pre := pre.push (← `(tactic| have $hnextId:ident :
                 $irTs ⟨$(quote i), by decide⟩
@@ -5097,12 +5162,12 @@ elab "#verify_elab_deep" id:ident : command =>
                ("we", weW, weIR, ← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).2.2))]
             let mut hdenIds : Array Ident := #[]
             for (tag, w, portIR, proj) in ports do
-              let stepId := mkI s!"{base}_deep_step_m{kk}_{tag}"
-              let g1Id := mkI s!"{base}_deep_coneEval_m{kk}_{tag}"
-              let portInId := mkI s!"{base}_deep_portIn_m{kk}_{tag}"
-              let hstepId := mkI s!"hstep_m{kk}_{tag}"
-              let hdenId := mkI s!"hden_m{kk}_{tag}"
-              let hpayId := mkI s!"hpay_m{kk}_{tag}"
+              let stepId := mkDecl s!"{base}_deep_step_m{kk}_{tag}"
+              let g1Id := mkDecl s!"{base}_deep_coneEval_m{kk}_{tag}"
+              let portInId := mkDecl s!"{base}_deep_portIn_m{kk}_{tag}"
+              let hstepId := mkBinder s!"hstep_m{kk}_{tag}"
+              let hdenId := mkBinder s!"hden_m{kk}_{tag}"
+              let hpayId := mkBinder s!"hpay_m{kk}_{tag}"
               let portQ ← quoteIR portIR
               hdenIds := hdenIds.push hdenId
               mpre := mpre.push (← `(tactic| have $hstepId:ident :=
@@ -5203,7 +5268,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let mut bndTacs : Array (Lean.TSyntax `tactic) := #[]
         for (e, idx) in chainEntries.toArray.zipIdx do
           let (name, w, kind) := e
-          let hId := mkI s!"hc{idx}"
+          let hId := mkBinder s!"hc{idx}"
           let predT : Term ← `((n == $(quote name)) = true)
           let wRfl : Term ← `(show $weMId $(quote name) = $(quote w) from rfl)
           let closer : Lean.TSyntax `tactic ← match kind with
@@ -5234,7 +5299,7 @@ elab "#verify_elab_deep" id:ident : command =>
             acc ← `($c ∧ $acc)
           pure acc
         let hbndIds : Array Ident :=
-          (List.range nR).toArray.map fun i => mkI s!"hbnd{i}"
+          (List.range nR).toArray.map fun i => mkBinder s!"hbnd{i}"
         let mut hbndTacs : Array (Lean.TSyntax `tactic) := #[]
         for i in List.range nR do
           hbndTacs := hbndTacs.push (← mkHbnd deepId hbndIds[i]! i)
@@ -5343,15 +5408,15 @@ elab "#verify_elab_deep" id:ident : command =>
         if !hasMem then bridgeAudit := bridgeAudit.push irFunextId
       -- per-port: the output cone at the seed, and the Signal-level chain
       if bridgeOk then
-        let dStepOutId := mkI s!"{base}{suffix}_deep_step_out"
-        let dSigFoldId := mkI s!"{base}{suffix}_deep_signal_fold"
-        let dSigRunId := mkI s!"{base}{suffix}_deep_signal_run"
+        let dStepOutId := mkDecl s!"{base}{suffix}_deep_step_out"
+        let dSigFoldId := mkDecl s!"{base}{suffix}_deep_signal_fold"
+        let dSigRunId := mkDecl s!"{base}{suffix}_deep_signal_run"
         let memsT ← memsAt (← `(t))
         let hrunCTac ← mkHrunCTac
         -- this port's Signal value over the SHARED recurrence (the first
         -- port's Cdo): irState only reads next/inits (and writes/minits),
         -- which every port's Cdo of a struct circuit shares syntactically
-        let sigM0Id := mkI s!"{base}{suffix}_deep_signalM0"
+        let sigM0Id := mkDecl s!"{base}{suffix}_deep_signalM0"
         let irE0T ← irEnvAt deep0Id (← `(t))
         if k == 0 then
           elabSync (← `(theorem $sigM0Id $paramBinders* (t : Nat) :
@@ -5403,7 +5468,7 @@ elab "#verify_elab_deep" id:ident : command =>
             (hinl := by native_decide)
             10000 hv))
         let hbndIds : Array Ident :=
-          (List.range nR).toArray.map fun i => mkI s!"hbnd{i}"
+          (List.range nR).toArray.map fun i => mkBinder s!"hbnd{i}"
         let mut hbndTacs : Array (Lean.TSyntax `tactic) := #[]
         for i in List.range nR do
           hbndTacs := hbndTacs.push (← mkHbnd deep0Id hbndIds[i]! i)
