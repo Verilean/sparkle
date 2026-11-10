@@ -38,7 +38,11 @@ def main():
         return next((i + 1 for i, ln in enumerate(lines) if ln.startswith(prefix)), 1)
 
     def msg(sev, s, line):
-        print(f"{case}:{line}:0: {sev}: {s}", flush=True)
+        # as Lean's driver: info messages are printed bare, without a position
+        if sev == "info":
+            print(s, flush=True)
+        else:
+            print(f"{case}:{line}:0: {sev}: {s}", flush=True)
     top = re.search(r"\n#ved_u1\w* (\S+)", text)
     top = top.group(1) if top else "x"
     resolved = plan.get("resolved", f"Outer.{top}")

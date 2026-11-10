@@ -279,14 +279,33 @@ def cmd_gen(a):
 MSG_RE = re.compile(r"^(?:\S*?)Case\.lean:(\d+):(\d+): (?:(error|warning|info)(?:\([^)\s]*\))?: )?(.*)$")
 
 
-def messages(text):
+# Lean's command-line driver prints errors and warnings with a
+# `Case.lean:L:C:` prefix but INFO messages (logInfo: `VED U1 OK`, the probe's
+# `VED U1P ...`, the timers) as bare text with no position.  A bare line that
+# starts with "VED " is therefore its own message, placed by the timer markers
+# around it (elaboration order): before p_begin/u_begin -> pre, p_begin..p_end
+# -> prep, u_begin..u_end -> u1, u_end..probe_end -> probe.
+MARK_SEG = {"p_begin": "prep", "p_end": None, "u_begin": "u1", "u_end": "probe", "probe_end": None}
+
+
+def messages(text, segs=None):
     """[(line, severity, full text)] of the messages Lean printed for the case file
-    (continuation lines are appended to the message they follow)."""
-    out = []
+    (continuation lines are appended to the message they follow).  Bare `VED `
+    info lines get the first line of the segment the markers put them in."""
+    out, cur = [], "pre"
     for ln in text.splitlines():
         m = MSG_RE.match(ln)
         if m:
             out.append([int(m.group(1)), m.group(3) or "info", m.group(4)])
+            continue
+        if ln.startswith("VED "):
+            t = re.match(r"VED U1T (\w+) ", ln)
+            seg_here = cur
+            if t and t.group(1) in MARK_SEG:
+                cur = MARK_SEG[t.group(1)]
+                seg_here = "probe" if t.group(1) == "probe_end" else (cur or seg_here)
+            line = (segs or {}).get(seg_here, (0, 0))[0] if seg_here else 0
+            out.append([line, "info", ln])
         elif out:
             out[-1][2] += "\n" + ln
     return [tuple(x) for x in out]
@@ -369,7 +388,7 @@ def classify_dir(d, sv_group=""):
     err = read(os.path.join(d, "stderr.txt")) or ""
     text = out + "\n" + err
     segs = {k: tuple(v) for k, v in meta.get("segs", {}).items()}
-    msgs = messages(text)
+    msgs = messages(text, segs)
     in_seg = lambda name: [(ln, sev, t) for ln, sev, t in msgs if seg_of(ln, segs) == name]
     outside = [(ln, t) for ln, sev, t in msgs if sev == "error" and seg_of(ln, segs) is None]
     row["errors_outside_block"] = str(len(outside))
