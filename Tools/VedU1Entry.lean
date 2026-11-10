@@ -39,10 +39,16 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
    `declName.ved_contract := contractOf tbl <port names> clkRst declName.ved_mod`
    and the output list `declName.ved_outs`;
 4. builds the expected type `U1Stmt declName.ved_contract declName.ved_mod
-   stmt` as an `Expr`, where `stmt` is the ORIGINAL constant `@declName`, or
-   `@declName defaultDomain` when step 1 specialised it (then the theorem is
-   about that specialisation, not about every domain of the polymorphic
-   declaration; the OK line says "specialised at defaultDomain"), elaborates a generated
+   stmt` as an `Expr`, where `stmt` (built by `stmtOf`) is the ORIGINAL
+   constant `@declName`, or `@declName defaultDomain` when step 1 specialised
+   it (then the theorem is about that specialisation, not about every domain
+   of the polymorphic declaration; the OK line says "specialised at
+   defaultDomain"), or, for a result that is a `×`-tree of signals, the
+   bundled lambda `fun xs => bundle2 (D xs).1 (D xs).2` (nested by the tree)
+   over that same `D` (`bundledStmt`: projections of the original
+   declaration's value, nothing else).  `checkU1E` / `vedU1EntryOn` accept any
+   `stmt`; the link to the declaration is a property of the path
+   `stmtOf` → `vedU1EntryS`, not of the checker alone.  It elaborates a generated
    proof script against it (errors are never turned into `sorry`), adds the
    theorem `declName.ved_u1` to the kernel synchronously with exactly that
    type, re-reads its stored type and compares it with the expected `Expr`;
@@ -457,7 +463,8 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         m!"no arrangement of the body assigns every wire before it is read (combinational cycle, self-read, undriven net or duplicate update)"
     addDefn nm.body (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Stmt))
       (toExpr b0)
-    -- the full expected statement, with the ORIGINAL constant
+    -- the full expected statement over `stmt` (the original constant, or the
+    -- bundled lambda over it, from `stmtOf`)
     let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"

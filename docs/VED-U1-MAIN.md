@@ -6,7 +6,7 @@ This branch, `ved/u1-main`, is stacked on PR #147 (`ved/main-intro` `4845255b`).
 
 `#ved_u1 f` and `#ved_u1_deep f` synthesise `f` once, with `synthesizeCombinational`, the function `#synthesizeVerilog` calls. They return the module only after three steps succeed:
 
-1. **The theorem.** A theorem `f.ved_u1 : U1Stmt f.ved_contract f.ved_mod f` is stated over the original constant `f` and the returned module. When `f` has leading implicit `DomainConfig` binders (`{dom : DomainConfig}` or auto-bound), `#ved_u1` states it over `@f defaultDomain` instead and the OK line says "specialised at defaultDomain": the theorem is about that specialisation, not about every domain. Any other non-explicit binder, or a fixed domain other than `defaultDomain`, is refused at [table].
+1. **The theorem.** A theorem `f.ved_u1 : U1Stmt f.ved_contract f.ved_mod f` is stated over the original constant `f` and the returned module. When `f` has leading implicit `DomainConfig` binders (`{dom : DomainConfig}` or auto-bound), `#ved_u1` states it over `@f defaultDomain` instead and the OK line says "specialised at defaultDomain": the theorem is about that specialisation, not about every domain. Any other non-explicit binder, or a fixed domain other than `defaultDomain`, is refused at [table]. For a result that is a `×`-tree of `Signal d _` (register-free), the statement is over the bundled lambda `fun xs => bundle2 (f xs).1 (f xs).2` (nested by the tree), i.e. the projections of the original declaration's value; see the multi-output section below.
 2. **The kernel.** The kernel checks it synchronously, with exactly that type.
 3. **The strict audit.** `#ved_strict_audit` accepts only `propext`, `Classical.choice` and `Quot.sound`, with no `native_decide`.
 
@@ -55,6 +55,7 @@ These are built by `ved-pr`; job `ved-u1-ord-4bf8c9dd`, exit 0.
 - **`Tests/Ved/U1MultiOutCheck.lean`:** multi-output (a `×`-tree of `Signal d _`, register-free).
   - Port rule: leaf = prefix, `out` at the root, product sides `_0`/`_1` (`splitReturnLeaves`); derived from the declaration and required to equal the returned module's output names, then widths and values per port.
   - The statement is `U1Stmt c m (fun xs => bundle2 (decl xs).1 (decl xs).2)`, so each projection is checked at its own port; `U1Stmt`/`OutputsStmt` are unchanged.
+  - Scope (review of a3f25e5f): four small examples; no new strict row of the fixed 327 (the register-free multi-output rows there are packed `Signal d (A × B)`, still refused).
   - Accepted: 2 outputs of different widths, nested 3 outputs (right and left), same width.
   - Refused: a dropped output, swapped same-width outputs, one changed value, another declaration's module, a renamed port, wrong port-name lists.
   - Not supported, refused: `Signal d (A × B)` (ONE packed port `out`, `multi-output`), registers with several outputs (`multi-output`), structure results (`table`).

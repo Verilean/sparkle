@@ -227,4 +227,12 @@ run_cmd expectRefused "multi-output" ``mwCtl do
   let (stmt, _, _) ← stmtOf ``mwCtl
   discard <| checkU1E ``mwCtl ``mwCtl stmt (← modOf ``mw) .generated
 
+-- the checker with the right number of names but a DUPLICATE name: the
+-- contract's port names must be distinct (`CorrStmt`), so nothing is proved
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" ``mwCtl do
+  let (stmt, _, _) ← stmtOf ``mwCtl
+  discard <| checkU1E ``mwCtl ``mwCtl stmt (← modOf ``mw) .generated ["out_0", "out_0"]
+
 end Tests.Ved.U1MultiOutCheck
