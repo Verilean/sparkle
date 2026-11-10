@@ -70,10 +70,25 @@ elab "#vedu1_in_ns " ns:ident id:ident c:command : command => do
   let n ← liftCoreM <| realizeGlobalConstNoOverload id
   withNamespace ns.getId do
     let n' ← try liftCoreM <| realizeGlobalConstNoOverload id
-      catch e => do logError m!"VED U1N REFUSED {id}: {← e.toMessageData.toString}"; return Name.anonymous
+      catch e => do logError m!"VED U1N REFUSED {id}: {← e.toMessageData.toString}"; pure Name.anonymous
     logInfo m!"VED U1N scope={ns.getId} outer={n} inner={n'} {if n == n' then "same" else "differs"}"
     if n == n' then elabCommand c
     else logError m!"VED U1N REFUSED {id}: resolves to {n'} inside {ns.getId}, not {n}"
+
+open Lean Elab Command in
+/-- Elaborate `c`; require an error from the namespace wrapper itself
+(`VED U1N REFUSED ...`), whatever the resolution failure was (another constant
+or an ambiguous name), and drop the captured messages. -/
+elab "#vedu1_expect_refused " id:str c:command : command => do
+  let saved := (← get).messages
+  modify fun s => { s with messages := MessageLog.empty }
+  elabCommand c
+  let errs ← (← get).messages.toList.filterMapM fun m => do
+    if m.severity == .error then pure (some (← m.data.toString)) else pure none
+  modify fun s => { s with messages := saved }
+  match errs.find? (·.startsWith "VED U1N REFUSED") with
+  | some e => logInfo m!"VED U1CTL {id.getString} refused by the wrapper: {e}"
+  | none => throwError m!"VED U1CTL {id.getString} FAIL: not refused by the wrapper; errors: {errs}"
 
 open Lean Elab Command in
 elab "#vedu1_ctl " id:str thm:ident want:ident : command => do
@@ -107,21 +122,22 @@ set_option Elab.async false in
 end C0
 #vedu1_ctl "C0" VedCtlA.cnt.ved_u1 present
 
-/-! C1: same short name elsewhere; the wrong namespace must not run the command -/
+/-! C1: same short name elsewhere; the wrong namespace must not run the command.
+The wrapper's own refusal is required (#vedu1_expect_refused), so C1 can not
+pass because the wrapper is missing or never ran. -/
 section C1
 open VedCtlA
-#guard_msgs (drop all) in
-set_option Elab.async false in
+#vedu1_expect_refused "C1-prep"
 #vedu1_in_ns VedCtlB cnt
 set_option Elab.async false in
 #verify_elab_deep cnt
-#guard_msgs (drop all) in
-set_option Elab.async false in
+#vedu1_expect_refused "C1-u1"
 #vedu1_in_ns VedCtlB cnt
 set_option Elab.async false in
 #ved_u1_deep cnt
 end C1
 #vedu1_absent "C1" VedCtlB.cnt_deep_trace
+#vedu1_absent "C1" cnt_deep_trace
 #vedu1_ctl "C1" VedCtlB.cnt.ved_u1 absent
 
 /-! C2: no preparation facts -/
