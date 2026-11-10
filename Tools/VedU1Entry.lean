@@ -12,8 +12,12 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
 
 `vedU1Entry declName` (and the command `#ved_u1 declName`):
 
-1. reads the declaration's port table from its TYPE (`readTable`, the reader
-   behind `ved_table%`) and REFUSES, before any synthesis, a declaration with
+1. specialises leading implicit `DomainConfig` binders (written
+   `{dom : DomainConfig}` or auto-bound) at `defaultDomain`
+   (`specialiseDomain`; any other non-explicit binder is left and refused),
+   reads the port table from the TYPE of that statement term
+   (`readTableOfType`; `readTable` and `ved_table%` read an unspecialised
+   constant as before) and REFUSES, before any synthesis, a declaration with
    more than one output projection (the synthesizer's multi-output port
    naming is not confirmed; the reviewer allows refusing it);
 2. calls `synthesizeCombinational declName` exactly ONCE (the function
@@ -26,7 +30,10 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
    `declName.ved_contract := contractOf tbl ["out"] clkRst declName.ved_mod`
    and the output list `declName.ved_outs`;
 4. builds the expected type `U1Stmt declName.ved_contract declName.ved_mod
-   @declName` (the ORIGINAL constant) as an `Expr`, elaborates a generated
+   stmt` as an `Expr`, where `stmt` is the ORIGINAL constant `@declName`, or
+   `@declName defaultDomain` when step 1 specialised it (then the theorem is
+   about that specialisation, not about every domain of the polymorphic
+   declaration; the OK line says "specialised at defaultDomain"), elaborates a generated
    proof script against it (errors are never turned into `sorry`), adds the
    theorem `declName.ved_u1` to the kernel synchronously with exactly that
    type, re-reads its stored type and compares it with the expected `Expr`;
@@ -59,8 +66,10 @@ What a failure leaves and how it is reported (exactly what the code does):
   their own errors).
 
 The proof script is UNTRUSTED (the kernel checks it).  This slice's script
-covers register-free modules and modules with exactly one register whose
-current value is the output (a delay); any other body makes the script fail,
+covers register-free modules built from not/and/or/xor/add/sub/mux/slice and
+two-field concatenation (lemmas in Tools/VedU1Lemmas.lean), and modules with
+exactly one register whose current value is the output (a delay); it is not
+complete for every circuit these operators can build; any other body makes the script fail,
 and the entry then refuses (stage `proof`), it never accepts.  The general
 proof generator is open (§10).
 
@@ -329,6 +338,13 @@ def isRefusal (e : Exception) : MetaM Bool := do
 /-- The checker under the entry.  `decl` names the refusal; `stmt` is the
 term put into the statement (the entry: `decl` itself, or `@decl defaultDomain`); `m` is the module
 (the entry: the value `synthesizeCombinational` returned).  Returns the theorem name.
+
+`stmt` may be any closed term, but the GENERATED script (`.generated`) only
+supports a constant applied to `defaultDomain` arguments: it reads
+`stmt.getAppFn.constName!` and takes every argument (`getAppNumArgs`) to be a
+domain.  Another `stmt` makes that script fail, so the entry refuses; it can
+not be accepted, because the theorem is checked against the full expected
+type by the kernel.
 
 On a failure (any non-interrupt exception raised inside it, runtime limits
 included) it restores the TermElabM state saved when IT started, which takes

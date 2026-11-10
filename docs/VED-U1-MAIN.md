@@ -6,13 +6,13 @@ This branch, `ved/u1-main`, is stacked on PR #147 (`ved/main-intro` `4845255b`).
 
 `#ved_u1 f` and `#ved_u1_deep f` synthesise `f` once, with `synthesizeCombinational`, the function `#synthesizeVerilog` calls. They return the module only after three steps succeed:
 
-1. **The theorem.** A theorem `f.ved_u1 : U1Stmt f.ved_contract f.ved_mod f` is stated over the original constant `f` and the returned module.
+1. **The theorem.** A theorem `f.ved_u1 : U1Stmt f.ved_contract f.ved_mod f` is stated over the original constant `f` and the returned module. When `f` has leading implicit `DomainConfig` binders (`{dom : DomainConfig}` or auto-bound), `#ved_u1` states it over `@f defaultDomain` instead and the OK line says "specialised at defaultDomain": the theorem is about that specialisation, not about every domain. Any other non-explicit binder, or a fixed domain other than `defaultDomain`, is refused at [table].
 2. **The kernel.** The kernel checks it synchronously, with exactly that type.
 3. **The strict audit.** `#ved_strict_audit` accepts only `propext`, `Classical.choice` and `Quot.sound`, with no `native_decide`.
 
 Otherwise the command refuses with `VED U1 REFUSED f [stage]`.
 
-- `#ved_u1` uses a generated script. It covers register-free bodies and one-register delays.
+- `#ved_u1` uses a generated script. It covers register-free bodies built from not/and/or/xor/add/sub/mux/slice and two-field concatenation (lemmas in `Tools/VedU1Lemmas.lean`), and one-register delays. It is not complete for every circuit those operators can build; shifts and concatenation of more than two fields are not covered yet.
 - `#ved_u1_deep` uses the standard-axiom facts that `#verify_elab_deep` generated (`_deep_trace`, `_deep_next`, `_deep_inits`, `_deep_out`). It covers one register whose current value is the output.
 
 Everything else is refused.
