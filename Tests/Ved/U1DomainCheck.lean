@@ -143,6 +143,17 @@ run_cmd checkSpec ``dslice8
 #guard_msgs in
 run_cmd checkSpec ``dslice8h
 
+-- two-field concat (first operand in the high bits)
+def dcat8 (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 16) := (fun x y => x ++ y) <$> a <*> b
+/-- The operands in the other order.  The COMPILER emits `{_gen_a, _gen_b}` for
+this too (it ignores the lambda's parameter order); the checker catches that
+miscompilation: the entry refuses it at `[proof]` (pinned below). -/
+def dcat8s (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 16) := (fun x y => y ++ x) <$> a <*> b
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dcat8.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dcat8
+
 /-! ## Controls: refused at `[table]`, no theorem -/
 
 def expectStageRefusal (stage : String) (decl : Name) : CommandElabM Unit := liftTermElabM do
@@ -270,6 +281,23 @@ run_cmd expectRefused "proof" `ctlMuxSwap do
 #guard_msgs in
 run_cmd expectRefused "proof" `ctlSliceHigh do
   discard <| checkU1E ``dslice8 `ctlSliceHigh (specOf ``dslice8) (← modOf ``dslice8h) .generated
+
+-- concat with the fields swapped in the module
+def mutCatSwap (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
+  { m with body := m.body.map fun s => match s with
+      | .assign o (.concat [a, b]) => .assign o (.concat [b, a])
+      | s => s }
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlCatSwap do
+  discard <| checkU1E ``dcat8 `ctlCatSwap (specOf ``dcat8) (mutCatSwap (← modOf ``dcat8)) .generated
+
+-- the real declaration with swapped operands: the compiler's module is wrong, refused, no theorem
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" ``dcat8s do
+  discard <| vedU1Entry ``dcat8s
 
 -- a proof term of the wrong statement (the identity's theorem for the complement)
 /-- info: refused [proof], clean -/
