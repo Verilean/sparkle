@@ -225,7 +225,8 @@ def Names.ofBase (base : Name) : Names :=
 /-- The generated (untrusted) proof script for `U1Stmt C M F`.  `reg?` is
 the single register of the delay shape (name, width), `none` for a
 register-free module. -/
-def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat)) : TermElabM Syntax := do
+def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat))
+    (fStx? : Option Term := none) : TermElabM Syntax := do
   let C := mkCIdent nm.contract
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
@@ -236,6 +237,8 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
   if nDom > 0 then
     f ← `(@$fI)
     for _ in [0:nDom] do f ← `($f Sparkle.Core.Domain.defaultDomain)
+  -- multi-output: the statement term is the bundled lambda itself
+  if let some fs := fStx? then f := fs
   let B := mkCIdent nm.body
   match reg? with
   | none =>
@@ -259,7 +262,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add,
             Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub,
             Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val,
-            Seq.seq, Signal.seq, Signal.ap, BitVec.toNat_append,
+            Seq.seq, Signal.seq, Signal.ap, Signal.bundle2, BitVec.toNat_append,
             BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat]
           try omega
           -- a `mux`: both arms in range
@@ -316,6 +319,37 @@ def regShape (m : Sparkle.IR.AST.Module) : Option (String × Nat) :=
   | [(r, _, _, _)] => some (r, declWidth m r)
   | _ => none
 
+/-- The synthesizer's output port names for the leaves of a result tree
+(`splitReturnLeaves`, Sparkle/Compiler/Elab.lean): a leaf is named by its
+prefix, `out` at the root; the two sides of a product get the suffixes `_0`
+and `_1`.  Left-first, the order of `OTy.flat` and of `m.outputs`. -/
+def portNamesOf : String → OTy → List String
+  | pre, .leaf _ => [pre]
+  | pre, .pair a b => portNamesOf (pre ++ "_0") a ++ portNamesOf (pre ++ "_1") b
+
+open Lean Meta in
+/-- Bundle a value of type `Signal d A × (Signal d B × …)` into one `Signal d
+(A × …)` by `Signal.bundle2`, following the product tree of the TYPE `ty`
+(a `Signal _ _` is a leaf).  The statement is then about the stream of
+every projection, each observed at its own port. -/
+partial def bundleProd (ty e : Lean.Expr) : MetaM Lean.Expr := do
+  let ty ← whnfR (← instantiateMVars ty)
+  match ty.getAppFnArgs with
+  | (``Prod, #[a, b]) =>
+    let l ← bundleProd a (← mkAppM ``Prod.fst #[e])
+    let r ← bundleProd b (← mkAppM ``Prod.snd #[e])
+    mkAppM ``Sparkle.Core.Signal.bundle2 #[l, r]
+  | (``Sparkle.Core.Signal.Signal, _) => pure e
+  | _ => throwError "{ty} is not a product of signals"
+
+open Lean Meta in
+/-- `fun xs => bundleProd (stmt xs)` for the statement `stmt` whose result
+type is a product of signals (a `Prod` at the top). -/
+def bundledStmt (stmt : Lean.Expr) : MetaM Lean.Expr :=
+  forallTelescopeReducing (← inferType stmt) fun xs res => do
+    unless (← whnfR res).isAppOf ``Prod do throwError "the result is not a product of signals"
+    mkLambdaFVars xs (← bundleProd res (mkAppN stmt xs))
+
 /-- A proof source for `checkU1`. -/
 inductive ProofSrc
   /-- the generated script (the only source the entry uses) -/
@@ -357,16 +391,24 @@ reads the module name from `m` and does not bind it to `stmt`, so a
 same-meaning `m` with another module name may be proved with a NEW proof.
 That the entry inspects and returns the `m` it received, unsubstituted, is a
 property of `vedU1Entry`, not of this statement. -/
-def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.Module) (proof : ProofSrc) :
-    TermElabM Name := do
+def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.Module) (proof : ProofSrc)
+    (outNames : List String := ["out"]) : TermElabM Name := do
   let nm := Names.ofBase base
   let saved ← saveState
   tryCatchRuntimeEx (do
     -- the table, from the TYPE of the statement's term
     let tbl ← try readTableOfType decl (← inferType stmt) catch e => refuse decl "table" e.toMessageData
-    unless tbl.out.flat.length == 1 do
+    -- more than one projection only for a statement bundled from a product of
+    -- signals (`bundledStmt`, a lambda); a constant with a `Signal (A × B)`
+    -- result is ONE packed port, not two
+    unless tbl.out.flat.length == 1 || !stmt.getAppFn.isConst do
       refuse decl "multi-output"
-        m!"{tbl.out.flat.length} output projections; the synthesizer's multi-output port naming is unconfirmed, refused (v1: one output)"
+        m!"{tbl.out.flat.length} output projections in one `Signal` (the synthesizer packs it into one port `out`); refused"
+    unless outNames.length == tbl.out.flat.length do
+      refuse decl "multi-output"
+        m!"{outNames.length} output port names for {tbl.out.flat.length} output projections"
+    if !stmt.getAppFn.isConst && (regsOf m.body).length != 0 then
+      refuse decl "multi-output" m!"multi-output with registers is not supported (register-free bodies only)"
     -- the closed term of `m`, checked to denote `m` itself
     let mE := toExpr m
     let back ← evalModule mE
@@ -378,9 +420,9 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     unless di.value == mE do refuse decl "artifact" m!"{nm.mod} does not hold toExpr m"
     let clkRst := clkRstOf m
     let cE := mkAppN (Lean.mkConst ``contractOf)
-      #[toExpr tbl, toExpr ["out"], toExpr clkRst, Lean.mkConst nm.mod]
+      #[toExpr tbl, toExpr outNames, toExpr clkRst, Lean.mkConst nm.mod]
     addDefn nm.contract (Lean.mkConst ``Contract) cE
-    let c := contractOf tbl ["out"] clkRst m
+    let c := contractOf tbl outNames clkRst m
     addDefn nm.outs (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Port))
       (toExpr c.outputs)
     -- the order-free meaning needs one well-ordered arrangement of the body
@@ -396,7 +438,9 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
     -- elaborate the proof (errors are not turned into sorry)
     let stx ← match proof with
-      | .generated => scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m)
+      | .generated =>
+        if stmt.getAppFn.isConst then scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m)
+        else scriptFor nm decl 0 none (some (← Term.exprToSyntax stmt))
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
@@ -439,19 +483,47 @@ returned module and the declaration itself, kernel, strict audit; `m` is
 returned only on success.  Failures of the steps before `checkU1` are tagged
 (`table`, `multi-output`, `inliner`, `synthesis`) but NOT rolled back (see the
 module docstring: runtime-limit exceptions there are not caught). -/
-def vedU1EntryS (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name × Nat) := do
+/-- The statement and the output port names for `declName`, from its TYPE:
+the declaration itself (one output projection, port `out`), or, for a result
+that is a product of `Signal`s, the bundled lambda (`bundledStmt`) with the
+ports `portNamesOf`.  Refuses (stage `table` / `multi-output`) everything
+else, before any synthesis. -/
+def stmtOf (declName : Name) : TermElabM (Lean.Expr × Nat × List String) := do
   -- leading `DomainConfig` binders are instantiated with `defaultDomain`
   -- (the statement is then about `@declName defaultDomain`, NOT the
   -- polymorphic declaration); anything else is left for the table to refuse
   let (stmt, nDom) ← try specialiseDomain declName catch e => refuse declName "table" e.toMessageData
-  -- refuse multi-output from the TYPE before any synthesis
-  let tbl ← try readTableOfType declName (← inferType stmt) catch e => refuse declName "table" e.toMessageData
-  unless tbl.out.flat.length == 1 do
+  let ty ← inferType stmt
+  match ← (try pure (Except.ok (← readTableOfType declName ty)) catch e => pure (Except.error e)) with
+  | .ok tbl =>
+    unless tbl.out.flat.length == 1 do
+      refuse declName "multi-output"
+        m!"{tbl.out.flat.length} output projections in one `Signal` (the synthesizer packs it into one port `out`); refused"
+    return (stmt, nDom, ["out"])
+  | .error e =>
+    -- a product of signals?
+    let b ← try bundledStmt stmt catch _ => refuse declName "table" e.toMessageData
+    let tbl ← try readTableOfType declName (← inferType b) catch e => refuse declName "table" e.toMessageData
+    return (b, nDom, portNamesOf "out" tbl.out)
+
+/-- The checker for a module `m` (the entry: the one `synthesizeCombinational`
+returned): the statement from `declName`'s type, the output ports DERIVED
+from the declaration's result tree by the synthesizer's rule and REQUIRED to
+be exactly `m.outputs`' names (count, order), widths and the rest by
+`ShapeStmt`. -/
+def vedU1EntryOn (declName : Name) (stmt : Lean.Expr) (nDom : Nat) (names : List String)
+    (m : Sparkle.IR.AST.Module) : TermElabM (Name × Nat) := do
+  unless m.outputs.map (·.name) == names do
     refuse declName "multi-output"
-      m!"{tbl.out.flat.length} output projections; the synthesizer's multi-output port naming is unconfirmed, refused (v1: one output)"
+      m!"the module's output ports {m.outputs.map (·.name)} are not the declaration's projections' ports {names}"
+  let thm ← checkU1E declName declName stmt m .generated names
+  return (thm, nDom)
+
+def vedU1EntryS (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name × Nat) := do
+  let (stmt, nDom, names) ← stmtOf declName
   let (m, d) ← try Sparkle.Compiler.Elab.synthesizeCombinational declName
     catch e => refuse declName "synthesis" e.toMessageData
-  let thm ← checkU1E declName declName stmt m .generated
+  let (thm, _) ← vedU1EntryOn declName stmt nDom names m
   return (m, d, thm, nDom)
 
 def vedU1Entry (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name) := do

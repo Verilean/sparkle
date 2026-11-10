@@ -360,6 +360,9 @@ lean_lib «Tests.Ved.U1EntryCheck» where
 lean_lib «Tests.Ved.U1DomainCheck» where
   roots := #[`Tests.Ved.U1DomainCheck]
 
+lean_lib «Tests.Ved.U1MultiOutCheck» where
+  roots := #[`Tests.Ved.U1MultiOutCheck]
+
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]
 
