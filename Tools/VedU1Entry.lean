@@ -345,7 +345,7 @@ partial def bundleProd (ty e : Lean.Expr) : MetaM Lean.Expr := do
 open Lean Meta in
 /-- `fun xs => bundleProd (stmt xs)` for the statement `stmt` whose result
 type is a product of signals (a `Prod` at the top). -/
-def bundledStmt (stmt : Lean.Expr) : MetaM Lean.Expr :=
+def bundledStmt (stmt : Lean.Expr) : MetaM Lean.Expr := do
   forallTelescopeReducing (← inferType stmt) fun xs res => do
     unless (← whnfR res).isAppOf ``Prod do throwError "the result is not a product of signals"
     mkLambdaFVars xs (← bundleProd res (mkAppN stmt xs))
@@ -478,11 +478,6 @@ def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Mo
     TermElabM Name :=
   checkU1E decl base (Lean.mkConst stmtDecl) m proof
 
-/-- The U1 entry: `synthesizeCombinational` ONCE, the full statement over the
-returned module and the declaration itself, kernel, strict audit; `m` is
-returned only on success.  Failures of the steps before `checkU1` are tagged
-(`table`, `multi-output`, `inliner`, `synthesis`) but NOT rolled back (see the
-module docstring: runtime-limit exceptions there are not caught). -/
 /-- The statement and the output port names for `declName`, from its TYPE:
 the declaration itself (one output projection, port `out`), or, for a result
 that is a product of `Signal`s, the bundled lambda (`bundledStmt`) with the
@@ -519,6 +514,11 @@ def vedU1EntryOn (declName : Name) (stmt : Lean.Expr) (nDom : Nat) (names : List
   let thm ← checkU1E declName declName stmt m .generated names
   return (thm, nDom)
 
+/-- The U1 entry: `synthesizeCombinational` ONCE, the full statement over the
+returned module and the declaration itself, kernel, strict audit; `m` is
+returned only on success.  Failures of the steps before `checkU1` are tagged
+(`table`, `multi-output`, `inliner`, `synthesis`) but NOT rolled back (see the
+module docstring: runtime-limit exceptions there are not caught). -/
 def vedU1EntryS (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name × Nat) := do
   let (stmt, nDom, names) ← stmtOf declName
   let (m, d) ← try Sparkle.Compiler.Elab.synthesizeCombinational declName
