@@ -2296,7 +2296,9 @@ elab "#verify_elab_deep" id:ident : command =>
       let eqTy := Lean.mkApp3 (Lean.mkConst ``Eq [lvl]) ty a rhs
       let pf := Lean.mkApp2 (Lean.mkConst ``Eq.refl [lvl]) ty a
       let ok ← try
-          Lean.withoutModifyingEnv do
+          -- synchronous kernel check (`Elab.async` would defer a theorem's
+          -- kernel check and the failure would never reach this `catch`)
+          Lean.withoutModifyingEnv <| withOptions (fun o => o.setBool `Elab.async false) do
             Lean.addDecl (Lean.Declaration.thmDecl
               { name := `_ved_init_check, levelParams := [], type := eqTy, value := pf })
             pure true
