@@ -1,5 +1,6 @@
 import Sparkle.IR.ReorderInvariance
 import Sparkle.IR.Semantics
+import Tools.VedU1Lemmas
 
 /-!
 # Per-statement evaluation of an assign-only body (`Tools.VedU1Script`)
@@ -247,5 +248,53 @@ theorem step_assigns' (we : WEnv) (mems : MEnv) (B : List Stmt) (env0 : Env)
   cases s with
   | assign l r => exact h3 l r hs
   | _ => trivial
+
+/-! ## One operator at a time, on `BitVec` values
+
+A wire's value is kept as `V.toNat` for a `BitVec` (or `Bool`) term `V` over the
+inputs; each statement then needs ONE of these lemmas, with no range side
+condition and no input-domain search. -/
+
+section Ops
+variable (we : WEnv) (xs : List Expr)
+
+theorem evalOp_and_bv {n : Nat} (a b : BitVec n) :
+    evalOp we .and xs [a.toNat, b.toNat] n = some (a &&& b).toNat := by
+  simp [evalOp, mask, BitVec.toNat_and, Nat.mod_eq_of_lt (Nat.and_lt_two_pow _ b.isLt)]
+
+theorem evalOp_or_bv {n : Nat} (a b : BitVec n) :
+    evalOp we .or xs [a.toNat, b.toNat] n = some (a ||| b).toNat := by
+  simp [evalOp, mask, BitVec.toNat_or, Nat.mod_eq_of_lt (Nat.or_lt_two_pow a.isLt b.isLt)]
+
+theorem evalOp_xor_bv {n : Nat} (a b : BitVec n) :
+    evalOp we .xor xs [a.toNat, b.toNat] n = some (a ^^^ b).toNat := by
+  simp [evalOp, mask, BitVec.toNat_xor, Nat.mod_eq_of_lt (Nat.xor_lt_two_pow a.isLt b.isLt)]
+
+theorem evalOp_add_bv {n : Nat} (a b : BitVec n) :
+    evalOp we .add xs [a.toNat, b.toNat] n = some (a + b).toNat := by
+  simp [evalOp, mask, BitVec.toNat_add]
+
+theorem evalOp_sub_bv {n : Nat} (a b : BitVec n) :
+    evalOp we .sub xs [a.toNat, b.toNat] n = some (a - b).toNat := by
+  simp [evalOp, mask, BitVec.toNat_sub, Nat.mod_eq_of_lt b.isLt, Nat.add_comm]
+
+theorem evalOp_not_bv {n : Nat} (x : Expr) (hx : widthOf we x = n) (a : BitVec n) (w : Nat) :
+    evalOp we .not [x] [a.toNat] w = some (~~~a).toNat := by
+  simp only [evalOp, hx, mask]
+  rw [BitVec.toNat_not]
+  have h := a.isLt
+  simp only [Option.some.injEq]
+  rw [Tools.VedU1Lemmas.xor_ones _ _ h, Nat.mod_eq_of_lt (by omega)]
+
+theorem evalOp_mux_bv {n : Nat} (c : Bool) (a b : BitVec n) (w : Nat) :
+    evalOp we .mux xs [c.toNat, a.toNat, b.toNat] w = some (if c then a else b).toNat := by
+  cases c <;> simp [evalOp]
+
+theorem evalOp_eq_bv {n : Nat} (a b : BitVec n) (w : Nat) :
+    evalOp we .eq xs [a.toNat, b.toNat] w = some (decide (a = b)).toNat := by
+  simp [evalOp, BitVec.toNat_inj]
+  by_cases h : a = b <;> simp [h]
+
+end Ops
 
 end Tools.VedU1Script
