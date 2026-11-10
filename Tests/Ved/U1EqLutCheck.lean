@@ -195,6 +195,24 @@ def checkDiff (what : String) (o : Sparkle.IR.AST.Module) (mutant : Except Strin
   unless d == expected do throwError "{what}: differing statements {d}, expected {expected}"
   return m
 
+/-- a mutator whose target is absent (or that would change nothing) FAILS, never returns the module -/
+def mustFail (what : String) (r : Except String Sparkle.IR.AST.Module) : CommandElabM Unit :=
+  match r with
+  | .error _ => pure ()
+  | .ok _ => throwError "{what}: the mutator did not fail"
+
+/-- info: mutators fail loudly: 5 -/
+#guard_msgs in
+run_cmd do
+  let l ← liftTermElabM (modOf ``lut4)
+  let c ← liftTermElabM (modOf ``constOut)
+  mustFail "bumpConst past the end" (bumpConst 8 4 l)
+  mustFail "bumpConst of an absent width" (bumpConst 3 0 l)
+  mustFail "eqToNe on a module without ==" (eqToNe 0 c)
+  mustFail "swap with itself" (swapConsts 8 1 1 l)
+  mustFail "swap of an absent entry" (swapConsts 8 1 9 l)
+  logInfo m!"mutators fail loudly: 5"
+
 /-- `(base, decl)`: the statement of `decl` against `module` -/
 def ctl (base : Name) (decl : Name) (m : Sparkle.IR.AST.Module) : CommandElabM Unit :=
   expectRefused "proof" base do
