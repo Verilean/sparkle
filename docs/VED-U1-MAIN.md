@@ -52,6 +52,12 @@ These are built by `ved-pr`; job `ved-u1-ord-4bf8c9dd`, exit 0.
   - mutated modules refused at `[proof]`;
   - kernel counterexamples;
   - multi-output refused.
+- **`Tests/Ved/U1MultiOutCheck.lean`:** multi-output (a `×`-tree of `Signal d _`, register-free).
+  - Port rule: leaf = prefix, `out` at the root, product sides `_0`/`_1` (`splitReturnLeaves`); derived from the declaration and required to equal the returned module's output names, then widths and values per port.
+  - The statement is `U1Stmt c m (fun xs => bundle2 (decl xs).1 (decl xs).2)`, so each projection is checked at its own port; `U1Stmt`/`OutputsStmt` are unchanged.
+  - Accepted: 2 outputs of different widths, nested 3 outputs (right and left), same width.
+  - Refused: a dropped output, swapped same-width outputs, one changed value, another declaration's module, a renamed port, wrong port-name lists.
+  - Not supported, refused: `Signal d (A × B)` (ONE packed port `out`, `multi-output`), registers with several outputs (`multi-output`), structure results (`table`).
 - **`Tests/Ved/U1DeepCheck.lean`:**
   - `accK9` and `natInit5` accepted on main, with a body that is not well-ordered in its own order;
   - the dependency closure contains no native replay;

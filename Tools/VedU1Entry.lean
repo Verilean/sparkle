@@ -18,8 +18,17 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
    reads the port table from the TYPE of that statement term
    (`readTableOfType`; `readTable` and `ved_table%` read an unspecialised
    constant as before) and REFUSES, before any synthesis, a declaration with
-   more than one output projection (the synthesizer's multi-output port
-   naming is not confirmed; the reviewer allows refusing it);
+   more than one projection in one `Signal` (`Signal d (A × B)` is ONE packed port, so
+   it stays refused at `multi-output`).  A result that is a `×`-tree of
+   `Signal d _` is multi-output (`stmtOf`): the statement is the lambda
+   `fun xs => bundle2 (decl xs).1 (decl xs).2` (nested by the tree), whose
+   table has one projection per leaf, and the port names are derived from the
+   tree by the synthesizer's rule (`portNamesOf`: `out_0`, `out_1`, nested
+   `out_0_1`, …, left-first; Sparkle/Compiler/Elab.lean `splitReturnLeaves`).
+   They must be EXACTLY the returned module's output names (else
+   `multi-output`); widths are checked by `ShapeStmt`, every port's value by
+   `OutputsStmt`.  Register-free bodies only; structure results stay refused
+   at `table`;
 2. calls `synthesizeCombinational declName` exactly ONCE (the function
    `#synthesizeVerilog` calls; main has no inliner fuel guard) and keeps the
    returned `(m, design)`.  The guarantee is about that returned module, not
@@ -27,7 +36,7 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
 3. registers `declName.ved_mod : Module := toExpr m` (and checks, by
    evaluating that closed term back and comparing with `m` by `DecidableEq`,
    that the term denotes the very value returned), the contract
-   `declName.ved_contract := contractOf tbl ["out"] clkRst declName.ved_mod`
+   `declName.ved_contract := contractOf tbl <port names> clkRst declName.ved_mod`
    and the output list `declName.ved_outs`;
 4. builds the expected type `U1Stmt declName.ved_contract declName.ved_mod
    stmt` as an `Expr`, where `stmt` is the ORIGINAL constant `@declName`, or
