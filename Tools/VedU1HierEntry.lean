@@ -178,6 +178,10 @@ def scriptText (nm : HNames) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   let pat := " | ".intercalate (kids.map fun _ => "h")
   if kids.length == 0 then
     L := L.push s!"    exact absurd hx (by simp)"
+  else if kids.length == 1 then
+    for k in kids do
+      L := L.push s!"    subst hx"
+      L := L.push s!"    exact {k.nm.thm}.2.2.2.1"
   else
     L := L.push s!"    rcases hx with {pat}"
     for k in kids do
@@ -320,6 +324,7 @@ def checkU1H (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.M
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
     let text := "by\n" ++ scriptText nm stmt.getAppFn.constName! stmt.getAppNumArgs m d kids
+    if (← IO.getEnv "VED_HIER_DEBUG").isSome then IO.eprintln text
     let stx ← match Lean.Parser.runParserCategory (← getEnv) `term text "<ved_u1_hier>" with
       | .ok s => pure s
       | .error e => refuse decl "proof" m!"generated script does not parse: {e}"

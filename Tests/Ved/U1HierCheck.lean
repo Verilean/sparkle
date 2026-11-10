@@ -105,15 +105,15 @@ def swapConns : Stmt → Stmt
 def synthOf (decl : Name) : CommandElabM (Sparkle.IR.AST.Module × Design) := liftTermElabM do
   Sparkle.Compiler.Elab.synthesizeCombinational decl
 
-/-- `hpar 9 3 7`: p = 6, q = 3 - 7 = 252, out = (6 ^^^ 252) - 252 = 254; swapping the first call's
-connections gives p = 3 - 9 = 250 and out = (250 ^^^ 252) - 252 = 4 - 252 = 8. -/
+/- `hpar 9 3 7`: p = 6, q = 3 - 7 = 252, out = (6 ^^^ 252) - 252 = 254; swapping the first call's
+connections gives p = 3 - 9 = 250 and out = (250 ^^^ 252) - 252 = 6 - 252 = 10 (mod 256). -/
 run_cmd do
   let (m, d) ← synthOf ``hpar
   let a := stepOut d m 9 3 7
   let m' := { m with body := (m.body.take 1).map swapConns ++ m.body.drop 1 }
   let b := stepOut d m' 9 3 7
   unless a == some 254 do throwError "closed run of hpar: {a}"
-  unless b == some 8 do throwError "closed run of the swapped hpar: {b}"
+  unless b == some 10 do throwError "closed run of the swapped hpar: {b}"
   logInfo m!"closed run: {a} vs miswired {b}"
 
 #guard (hpar ⟨fun _ => 9#8⟩ ⟨fun _ => 3#8⟩ ⟨fun _ => 7#8⟩).val 0 == 254#8
@@ -160,9 +160,9 @@ def controlsRun : CommandElabM Unit := do
   -- 2. the OUTPUT connections of the two `hcA` calls exchanged
   let swapOut : Stmt → Stmt
     | .inst mn i [a, b, (po, .ref y)] =>
-      .inst mn i [a, b, (po, .ref (if y == "_gen_p" then "_gen_q" else y))]
+      .inst mn i [a, b, (po, .ref (if y == "_gen_p" then "_gen_q" else if y == "_gen_q" then "_gen_p" else y))]
     | s => s
-  expectRefused name "proof" { m with body := mapFirst (isInstOf hcAName) swapOut m.body } d
+  expectRefused name "proof" { m with body := m.body.map swapOut } d
   n := n + 1
   -- 3. a connection missing
   let dropConn : Stmt → Stmt
