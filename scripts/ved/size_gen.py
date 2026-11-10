@@ -12,17 +12,16 @@ files next to Case.lean (no compiler change):
 
   command kind "module"  (#synthesizeVerilog)
       (m, d) := Sparkle.Compiler.Elab.synthesizeCombinational decl
-      HASHED TEXT sv      = toVerilog (optimizeModule m)         -- exactly the text
-                            `#synthesizeVerilog` prints (without its trailing
-                            "-- Verilog successfully generated!" line); the TOP module only,
-                            OPTIMISED (the command optimises before emission).
+      HASHED TEXT sv      = toVerilog (optimizeModule m)         -- a RE-SYNTHESIS with the same
+                            functions the command's elaborator calls; the TOP module only, OPTIMISED.
+                            It is not the command's own output: see sv_origin_check below.
       children text       = toVerilogDesign {modules := d.modules without m}  -- NOT part of what
                             the command prints; emitted too (each child optimised, joined by "\\n")
                             so yosys sees the whole hierarchy, hashed separately.
   command kind "design"  (#writeDesign, #writeVerilogDesign, #synthesizeVerilogDesign)
       design := Sparkle.Compiler.Elab.synthesizeHierarchical decl
-      HASHED TEXT sv      = toVerilogDesign design  -- the text those commands emit: EVERY module
-                            of the hierarchy, each one optimised (toVerilogDesign applies
+      HASHED TEXT sv      = toVerilogDesign design  -- a re-synthesis with the functions those commands
+                            call: EVERY module of the hierarchy, each one optimised (toVerilogDesign applies
                             optimizeModule per module), joined by "\\n".  Per-module texts are
                             hashed too.  (#writeDesign's path / wire-name arguments only name
                             output files and the JIT wires: they cannot change the SV, so the
@@ -30,6 +29,20 @@ files next to Case.lean (no compiler change):
   Not reproduced: the DRC the commands run first (warnings/errors, no effect on the text),
   C/CSim output, the `#synthesizeParameterizedVerilog` rows (parameters, symbolicMode: they stay
   unsupported-invocation as in the U1 harness).
+
+sv_origin_check: the ORIGINAL command stays in the case and runs first.  What it emitted is captured
+(its printed SV in the message log, just before the size block's marker, for #synthesizeVerilog and
+#synthesizeVerilogDesign; the file it wrote for #writeDesign / #writeVerilogDesign when that file can be
+read) and compared with the re-synthesised SV: `same` | `differ` | `not-checked`, with a reason in
+sv_origin_reason.  `not-checked` means the size SV is observed, not shown to be what the command emits.
+Entry guard: at gen time Sparkle/Compiler/Elab.lean of the MEASURED tree is read; if the command's
+elaborator does not call the functions this block re-uses (synthesizeCombinational / optimizeModule /
+synthesizeHierarchical / toVerilogDesign) the row is `entry-mismatch` (not run), never measured through
+the old function.
+
+size_status is `ok` only when the whole case succeeded (rc 0, no signal, no timeout, no Lean error, files
+complete, sv_join_check=yes).  Artifacts seen in a case that did not succeed are kept as an observation
+(`failed-observed`, size_observed=yes, numbers filled) and are never a successful measurement.
 
 The record's sv_sha256 is the sha256 of the hashed sv text; `sv_identity` is the sha256 of
 sv text + NUL + children text.  IR counts are taken from the returned Module/Design
@@ -79,7 +92,7 @@ RESULT_COLUMNS = KEY_COLUMNS + [
     "invocation", "invocation_detail", "args_waived", "cmd_kind",
     "run_id", "attempt", "src_sha", "src_dirty_hash", "toolchain", "case_hash", "harness_hash",
     "ran", "rc", "term", "timeout", "wall_s", "peak_rss_kb",
-    "size_status", "size_error",
+    "size_status", "size_error", "size_observed", "sv_origin_check", "sv_origin_reason",
     "top", "sv_top", "synth_ms", "sv_modules", "children_modules",
     "sv_sha256", "sv_bytes", "children_sha256", "sv_identity", "sv_module_sha256", "sv_join_check",
 ] + [f"ir_{f}" for f in IR_FIELDS] + [f"opt_{f}" for f in IR_FIELDS] + [
@@ -98,6 +111,7 @@ run_cmd do
   let dir := (System.FilePath.mk (← read).fileName).parent.getD "."
   try
     let n ← liftCoreM <| realizeGlobalConstNoOverload (mkIdent "@TOP@".toName)
+    IO.println "VED SIZE MARK row @ROW@"
     let t0 ← IO.monoMsNow
 '''
 
@@ -162,7 +176,7 @@ def block_text(r):
     prefix = "".join(f"set_option {o} in\n" for o in ["Elab.async false"] + opts)
     body = BODY_DESIGN if kind == "design" else BODY_MODULE
     text = prefix + HEAD + body + TAIL
-    return kind, text.replace("@TOP@", r["top"])
+    return kind, text.replace("@TOP@", r["top"]).replace("@ROW@", r["row"])
 
 
 def case_text(src_text, scan, r):
@@ -178,6 +192,70 @@ def case_text(src_text, scan, r):
     end = len(out)
     out += lines[ei:]
     return "\n".join(out) + "\n", begin, end, kind
+
+
+ENTRY_FILE = "Sparkle/Compiler/Elab.lean"
+# what the command's elaborator must call for the block's re-synthesis to be the same pipeline
+ENTRY_REQUIRED = {
+    "#synthesizeVerilog": ["synthesizeCombinational", "optimizeModule", "toVerilog"],
+    "#synthesizeVerilogDesign": ["synthesizeHierarchical", "toVerilogDesign"],
+    "#writeVerilogDesign": ["synthesizeHierarchical", "toVerilogDesign"],
+    "#writeDesign": ["writeDesignCore"],              # + the private def below
+}
+ENTRY_FORBIDDEN = {"#synthesizeVerilog": ["synthesizeHierarchical"]}
+CORE_REQUIRED = ["synthesizeHierarchical", "toVerilogDesign"]
+
+
+def decl_blocks(src, head):
+    """Texts of the top-level declarations whose first line starts with `head` (the body is the indented
+    lines and `--` comments that follow; the next column-0 line ends it)."""
+    out, cur = [], None
+    for ln in src.splitlines():
+        if ln.startswith(head):
+            if cur is not None:
+                out.append("\n".join(cur))
+            cur = [ln]
+        elif cur is not None:
+            if ln and ln[0] not in " \t" and not ln.startswith("--"):
+                out.append("\n".join(cur))
+                cur = None
+            else:
+                cur.append(ln)
+    if cur is not None:
+        out.append("\n".join(cur))
+    return out
+
+
+def entry_check(repo, command):
+    """-> "" when the measured tree's elaborator for `command` calls the functions the size block re-uses,
+    otherwise the reason."""
+    path = os.path.join(repo, ENTRY_FILE)
+    src = read(path)
+    if src is None:
+        return f"{ENTRY_FILE} not readable in the measured tree"
+    blocks = decl_blocks(src, f'elab "{command}"')
+    if not blocks:
+        return f"no `elab \"{command}\"` in {ENTRY_FILE}"
+    text = "\n".join(blocks)
+    miss = [t for t in ENTRY_REQUIRED[command] if t not in text]
+    bad = [t for t in ENTRY_FORBIDDEN.get(command, []) if t in text]
+    if command == "#writeDesign":
+        core = "\n".join(decl_blocks(src, "private def writeDesignCore"))
+        miss += [t for t in CORE_REQUIRED if t not in core] if core else ["private def writeDesignCore"]
+    if miss or bad:
+        return (f"elaborator of {command} in the measured tree " + (f"does not call {','.join(miss)}" if miss else "")
+                + (" and " if miss and bad else "") + (f"calls {','.join(bad)}" if bad else "")
+                + "; the size block would measure through another function")
+    return ""
+
+
+def origin_arg(r):
+    """The first string literal argument of the original write command (#writeDesign / #writeVerilogDesign): the
+    file it wrote; "" for the other commands."""
+    if r["command"] not in ("#writeDesign", "#writeVerilogDesign"):
+        return ""
+    m = re.search(r'"([^"]*)"', r["args"])
+    return m.group(1) if m else ""
 
 
 def cmd_rows(a):
@@ -212,12 +290,17 @@ def cmd_gen(a):
             r2["args"] = ""
         closure = import_closure(a.repo, [])
         inv, detail, run = invocation_of(r2, scan, closure)
+        if run and r["command"] in ENTRY_REQUIRED:
+            why = entry_check(a.repo, r["command"])
+            if why:
+                inv, detail, run = "entry-mismatch", why, False
         if inv == "deep-in-file":
             inv = "size-in-file"
             detail = detail.replace("deep block", "size block")
         if inv == "unsupported-invocation" and r["command"] not in MODULE_CMDS + DESIGN_CMDS:
             detail += f"; command {r['command']} has no size block"
         meta.update(invocation=inv, invocation_detail=detail, run=run, args_waived="yes" if waived else "no",
+                    command=r["command"], origin_arg=origin_arg(r), repo=os.path.realpath(a.repo),
                     module=module_of(r["file"]), scan_private=scan["private"], scan_decl_seen=scan["decl_seen"])
         if run:
             text, b, e, kind = case_text(src_text, scan, r)
@@ -424,6 +507,45 @@ def ir_columns(row, hdr, mods):
             row["irtop_" + f] = str(tops[0][4][f])
 
 
+ORIGIN_TAIL = {"#synthesizeVerilog": "-- Verilog successfully generated!",
+               "#synthesizeVerilogDesign": "-- Hierarchical Verilog successfully generated!"}
+MARK_RE = re.compile(r"VED SIZE MARK row \d+")
+
+
+def origin_check(meta, stdout, sv_text, case_dir):
+    """Compare what the ORIGINAL command emitted with the re-synthesised SV.  -> (same|differ|not-checked, reason)."""
+    cmd = meta.get("command", "")
+    if cmd in ORIGIN_TAIL:
+        if stdout is None:
+            return "not-checked", "no stdout captured"
+        marks = list(MARK_RE.finditer(stdout))
+        if not marks:
+            return "not-checked", "size block marker not in stdout (messages not on stdout?)"
+        pre = stdout[:marks[-1].start()]
+        tail = ORIGIN_TAIL[cmd]
+        at = pre.rfind(tail)
+        if at < 0:
+            return "not-checked", f"original command's `{tail}` line not found before the marker"
+        if pre[at + len(tail):].count("\n") > 3:
+            return "not-checked", "original output not adjacent to the marker"
+        body = pre[:at].rstrip()
+        if body.endswith(sv_text.rstrip()):
+            return "same", "printed SV of the original command equals the re-synthesised SV"
+        return "differ", "the SV the original command printed differs from the re-synthesised SV"
+    if cmd in ("#writeDesign", "#writeVerilogDesign"):
+        arg = meta.get("origin_arg") or ""
+        # candidates: absolute, relative to the measured tree, relative to the case directory
+        paths = [] if not arg else [arg] if os.path.isabs(arg) else [os.path.join(meta.get("repo", "."), arg), os.path.join(case_dir, arg)]
+        for pth in paths:
+            t = read(pth)
+            if t is not None:
+                if t == sv_text:
+                    return "same", f"file written by the original command ({os.path.basename(pth)}) equals the re-synthesised SV"
+                return "differ", f"file written by the original command ({os.path.basename(pth)}) differs from the re-synthesised SV"
+        return "not-checked", "file the original command wrote not found" + (f" ({', '.join(paths)})" if paths else " (no path argument)")
+    return "not-checked", f"no capture defined for {cmd or 'unknown command'}"
+
+
 def classify_dir(d, sv_group=""):
     meta = json.load(open(os.path.join(d, "meta.json"))) if os.path.exists(os.path.join(d, "meta.json")) else {}
     row = blank_row(meta)
@@ -470,8 +592,16 @@ def classify_dir(d, sv_group=""):
         row["size_status"] = "no-output"
         row["size_error"] = (errl[0] if errl else f"no size files written (term={run.get('term', '')})")[:200]
     else:
-        row["size_status"] = "ok"
-    if row["size_status"] != "ok":
+        # the artifacts exist; whole-case success is a separate question
+        fail = []
+        if run.get("term") != "exit_0" or run.get("rc") != "0":
+            fail.append(f"case did not exit 0 (rc={run.get('rc', '')} term={run.get('term', '')})")
+        errl = [ln for ln in out.splitlines() if ": error" in ln]
+        if errl:
+            fail.append("Lean error: " + errl[0].strip())
+        row["size_status"] = "failed-observed" if fail else "ok"
+        row["size_error"] = "; ".join(fail)[:200]
+    if row["size_status"] not in ("ok", "failed-observed"):
         for t in ("g", "f"):
             row[t + "_status"] = "not-run"
         return row
@@ -495,6 +625,11 @@ def classify_dir(d, sv_group=""):
     row["sv_module_sha256"] = ";".join(f"{n}:{sha(t)[:16]}" if t is not None else f"{n}:missing"
                                        for n, t in zip(names, mod_texts))
     row["sv_join_check"] = "yes" if None not in mod_texts and b"\n".join(mod_texts) == sv else "no"
+    if row["sv_join_check"] == "no" and row["size_status"] == "ok":
+        row["size_status"] = "failed-observed"
+        row["size_error"] = "sv_join_check=no (per-module SV does not join to the SV)"
+    row["size_observed"] = "yes" if row["size_status"] == "failed-observed" else ""
+    row["sv_origin_check"], row["sv_origin_reason"] = origin_check(meta, read(row["stdout_ref"]), sv.decode(errors="replace"), d)
     # yosys
     files = [os.path.join(d, "size_sv.sv")] + ([kp] if kids else [])
     row["ys_files"] = ";".join(os.path.basename(f) for f in files)

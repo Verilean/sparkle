@@ -19,11 +19,14 @@ Environment (U0_*/U1_* names as in the U1 runner; the size ones below)
 Outputs under OUT/results/<run_id>/: results.tsv (one record per inventory row, 327), summary.txt.
 
 compare A B: A and B are result directories of two runs (a directory holding results.tsv, or an
-OUT root with CURRENT_RUN_ID).  Writes compare.tsv and compare.txt: per row whether the SV is
-identical, the IR counts and yosys numbers of both sides, and deltas ONLY where the SV differs.
-The comparison statement is: "SV identical => size identical (same backend)": a row whose SV is
-identical but whose numbers differ is reported as a VIOLATION (backend or harness not the same);
-"same backend" is checked (yosys version and flow scripts equal on both sides) and reported.
+OUT root with CURRENT_RUN_ID).  Writes compare.tsv and compare.txt.  Every row and section (ir = returned IR,
+opt = optimised IR, g / f = yosys flows) is classified identical / different / not-comparable / incomplete.
+IR counts are compared as returned whatever the SV says (identical SV can come from different raw IR).
+The backend statement "SV identical => yosys numbers identical" holds only for the same backend (non-empty,
+equal yosys version, command, top, flow script, input files) with both flows ended normally; a row whose SV
+and backend are identical but whose yosys numbers differ is a VIOLATION.  Exit status: 0 only when every
+row is comparable and there is no violation; 1 = violation; 2 = some row not-comparable or incomplete
+(unsupported rows unmeasured on both sides count as incomplete: "violations 0" is never a pass on its own).
 """
 import csv
 import glob
@@ -87,7 +90,7 @@ class SizeRunner(u0_run.Runner):
                 f"{'COMPLETE' if complete else 'INCOMPLETE'}")
         body = [f"records={len(recs)} (not a coverage claim: only the rows requested)",
                 "yosys: " + self.gid["yosys_cmd"] + f" (timeout {self.gid['yosys_tmo']} s per flow)"]
-        for col in ("invocation", "size_status", "g_status", "f_status"):
+        for col in ("invocation", "size_status", "sv_origin_check", "g_status", "f_status"):
             cnt = {}
             for r in recs:
                 cnt[r[col]] = cnt.get(r[col], 0) + 1
@@ -132,47 +135,116 @@ def delta(a, b):
         return ""
 
 
+# classes of a section of a row (IR, optimised IR, generic flow, fpga flow) and of the row (worst section)
+IDENTICAL, DIFFERENT, NOT_COMPARABLE, INCOMPLETE = "identical", "different", "not-comparable", "incomplete"
+ORDER = [IDENTICAL, DIFFERENT, NOT_COMPARABLE, INCOMPLETE]
+SECTIONS = {
+    "ir": ([c for c in IR_CMP if c.startswith("ir_")], None),
+    "opt": ([c for c in IR_CMP if c.startswith("opt_")], None),
+    "g": (["g_cells", "g_dff"], "g"),
+    "f": (["f_cells", "f_lut", "f_ff", "f_bram"], "f"),
+}
+
+
+def backend_id(r, pre):
+    """What a yosys number depends on besides the SV text: version, command, top, flow script, input files.
+    Empty string when any part is missing (then nothing may be derived from it)."""
+    parts = [r.get("ys_version", ""), r.get("ys_cmd", ""), r.get("sv_top", "") or r.get("top", ""),
+             r.get(pre + "_script", ""), r.get("ys_files", "")]
+    return "|".join(parts) if all(parts) else ""
+
+
+def classify_section(sec, a, b):
+    """-> (class, reason).  IR sections (ir/opt) are compared as returned, independent of the SV and the backend.
+    Flows are compared only with a non-empty, equal backend identity on both sides, both flows ended normally and
+    every required number present."""
+    cols, pre = SECTIONS[sec]
+    for side, r in (("A", a), ("B", b)):
+        if not r:
+            return INCOMPLETE, f"{side}: no record"
+        if r.get("size_status") != "ok":
+            return INCOMPLETE, f"{side}: size_status={r.get('size_status') or '(empty)'}"
+        if pre and r.get(pre + "_status") != "ok":
+            return INCOMPLETE, f"{side}: {pre}_status={r.get(pre + '_status') or '(empty)'}"
+        miss = [c for c in cols if r.get(c, "") == ""]
+        if miss:
+            return INCOMPLETE, f"{side}: missing {','.join(miss)}"
+    if pre:
+        ba, bb = backend_id(a, pre), backend_id(b, pre)
+        if not ba or not bb:
+            return NOT_COMPARABLE, "backend identity empty on " + "/".join(s for s, x in (("A", ba), ("B", bb)) if not x)
+        if ba != bb:
+            return NOT_COMPARABLE, "backend differs (version/cmd/top/script/files)"
+    same = all(a[c] == b[c] for c in cols)
+    return (IDENTICAL if same else DIFFERENT), ""
+
+
 def compare_rows(ra, rb):
-    """-> (list of dict rows, summary dict)."""
-    ia, ib = {r["row"]: r for r in ra}, {r["row"]: r for r in rb}
+    """-> (list of dict rows, summary dict).  Each row and section is classified identical / different /
+    not-comparable / incomplete; nothing unmeasured or not comparable counts as a pass."""
+    def index(rs):
+        d, dup = {}, set()
+        for r in rs:
+            if r["row"] in d:
+                dup.add(r["row"])
+            d.setdefault(r["row"], r)
+        return d, dup
+    (ia, da), (ib, db) = index(ra), index(rb)
     rows = sorted(set(ia) | set(ib), key=lambda x: int(x) if x.isdigit() else 10 ** 9)
     out = []
-    S = {"rows": len(rows), "sv_identical": 0, "sv_differs": 0, "not_comparable": 0, "violations": 0,
-         "numbers_missing_identical": 0}
+    S = {"rows": len(rows), "sv_identical": 0, "sv_differs": 0, "sv_n_a": 0, "violations": 0,
+         "ir_differs_same_sv": 0, "opt_differs_same_sv": 0, "duplicate_rows": 0,
+         "row_class": {c: 0 for c in ORDER}, "section_class": {s: {c: 0 for c in ORDER} for s in SECTIONS},
+         "incomplete_unsupported_both": 0, "origin_differ": 0, "origin_not_checked": 0}
     for row in rows:
         a, b = ia.get(row, {}), ib.get(row, {})
         base = a or b
         rec = {"row": row, "file": base.get("file", ""), "command": base.get("command", ""),
                "top": base.get("top", ""), "status_A": a.get("size_status", "absent"),
                "status_B": b.get("size_status", "absent")}
+        dup = row in da or row in db
+        if dup:
+            S["duplicate_rows"] += 1
         if usable(a) and usable(b):
             same = a["sv_identity"] == b["sv_identity"]
             rec["sv_identical"] = "yes" if same else "no"
         else:
             same = None
             rec["sv_identical"] = "n/a"
-            S["not_comparable"] += 1
-        rec["sv_sha256_A"], rec["sv_sha256_B"] = a.get("sv_sha256", ""), b.get("sv_sha256", "")
-        rec["sv_modules_A"], rec["sv_modules_B"] = a.get("sv_modules", ""), b.get("sv_modules", "")
-        viol = []
-        for c in NUM_CMP:
-            va, vb = a.get(c, ""), b.get(c, "")
-            rec[c + "_A"], rec[c + "_B"] = va, vb
-            rec[c + "_delta"] = delta(va, vb) if same is False else ""
-            if same is True and va != vb:
-                # identical SV must give identical numbers; a blank on one side (yosys timeout / error)
-                # is not a number difference but it is not a confirmation either
-                if va == "" or vb == "":
-                    S["numbers_missing_identical"] += 1
-                else:
-                    viol.append(c)
+        S["sv_identical" if same else "sv_differs" if same is False else "sv_n_a"] += 1
+        for c in ("sv_sha256", "sv_modules", "sv_origin_check"):
+            rec[c + "_A"], rec[c + "_B"] = a.get(c, ""), b.get(c, "")
+        for sd in (a, b):
+            if sd.get("sv_origin_check") == "differ":
+                S["origin_differ"] += 1
+            elif sd and sd.get("size_status") == "ok" and sd.get("sv_origin_check") != "same":
+                S["origin_not_checked"] += 1
+        viol, reasons, classes = [], [], {}
+        for sec, (cols, pre) in SECTIONS.items():
+            cls, why = (NOT_COMPARABLE, "duplicate row in an input") if dup else classify_section(sec, a, b)
+            classes[sec] = cls
+            rec["class_" + sec] = cls
+            if why:
+                reasons.append(f"{sec}: {why}")
+            S["section_class"][sec][cls] += 1
+            ok = cls in (IDENTICAL, DIFFERENT)
+            for c in cols:
+                va, vb = a.get(c, ""), b.get(c, "")
+                rec[c + "_A"], rec[c + "_B"] = va, vb
+                rec[c + "_delta"] = delta(va, vb) if ok else ""
+                if ok and same is True and pre and va != vb:
+                    viol.append(c)          # identical SV, same backend, other yosys numbers
+            if same is True and sec in ("ir", "opt") and cls == DIFFERENT:
+                S[sec + "_differs_same_sv"] += 1
+        worst = max(classes.values(), key=ORDER.index)
+        rec["class"] = worst
+        rec["reasons"] = "; ".join(reasons)[:400]
+        if worst == INCOMPLETE and a.get("size_status") == "not-run" and b.get("size_status") == "not-run":
+            S["incomplete_unsupported_both"] += 1
+        S["row_class"][worst] += 1
         for c in ("g_status", "f_status"):
             rec[c + "_A"], rec[c + "_B"] = a.get(c, ""), b.get(c, "")
         rec["violation"] = ",".join(viol)
-        if same is True:
-            S["sv_identical"] += 1
-        elif same is False:
-            S["sv_differs"] += 1
         if viol:
             S["violations"] += 1
         out.append(rec)
@@ -180,27 +252,29 @@ def compare_rows(ra, rb):
 
 
 COMPARE_COLUMNS = (["row", "file", "command", "top", "status_A", "status_B", "sv_identical",
-                    "sv_sha256_A", "sv_sha256_B", "sv_modules_A", "sv_modules_B"]
-                   + [f"{c}_{s}" for c in NUM_CMP for s in ("A", "B", "delta")]
+                    "sv_sha256_A", "sv_sha256_B", "sv_modules_A", "sv_modules_B",
+                    "sv_origin_check_A", "sv_origin_check_B", "class", "class_ir", "class_opt", "class_g", "class_f",
+                    "reasons"]
+                   + [f"{c}_{s}" for cols, _ in SECTIONS.values() for c in cols for s in ("A", "B", "delta")]
                    + ["g_status_A", "g_status_B", "f_status_A", "f_status_B", "violation"])
 
 
 def backend_check(ra, rb):
-    """Same backend: one yosys version, and per row (both sides usable) the same flow scripts
-    (file names, top, options), yosys command and timeout."""
-    notes, same = [], True
-    for col in ("ys_version", "ys_cmd", "ys_timeout_s"):
-        va, vb = {r[col] for r in ra if r.get(col) and r.get("ys_files")}, {r[col] for r in rb if r.get(col) and r.get("ys_files")}
-        if va != vb:
-            same = False
-            notes.append(f"{col}: A={sorted(va)} B={sorted(vb)}")
+    """Informational: do the flows of the comparable rows share one backend?  Per row and flow the identity (non-empty
+    yosys version, command, top, script, files) must be present and equal on both sides; a version that is
+    blank on a side or swapped between rows is a difference.  -> (same, notes)."""
     ib = {r["row"]: r for r in rb}
-    diff = [r["row"] for r in ra if r["row"] in ib and usable(r) and usable(ib[r["row"]])
-            and (r["g_script"], r["f_script"]) != (ib[r["row"]]["g_script"], ib[r["row"]]["f_script"])]
-    if diff:
-        same = False
-        notes.append(f"flow scripts differ in rows {','.join(diff[:20])}")
-    return same, notes
+    notes = []
+    for pre in ("g", "f"):
+        bad = [r["row"] for r in ra if r["row"] in ib and r.get(pre + "_status") == "ok" and ib[r["row"]].get(pre + "_status") == "ok"
+               and (not backend_id(r, pre) or backend_id(r, pre) != backend_id(ib[r["row"]], pre))]
+        if bad:
+            notes.append(f"{pre}: backend identity empty or different in rows {','.join(bad[:20])}")
+    for name, rs in (("A", ra), ("B", rb)):
+        vs = {r.get("ys_version", "") for r in rs if r.get("ys_files")}
+        if "" in vs or len(vs) > 1:
+            notes.append(f"{name}: yosys versions {sorted(vs)} (blank or several)")
+    return not notes, notes
 
 
 def cmd_compare(a_dir, b_dir, out):
@@ -213,22 +287,37 @@ def cmd_compare(a_dir, b_dir, out):
         for r in rows:
             f.write("\t".join(str(r.get(c, "")).replace("\t", " ") for c in COMPARE_COLUMNS) + "\n")
     srcs = lambda rs: sorted({r.get("src_sha", "")[:12] for r in rs})
+    rc = S["row_class"]
+    nonpass = rc[NOT_COMPARABLE] + rc[INCOMPLETE]
+    status = 1 if S["violations"] else 2 if nonpass else 0
     lines = [f"SIZE COMPARE A={a_dir} (src {srcs(ra)}) B={b_dir} (src {srcs(rb)})",
              f"statement: {STATEMENT}",
-             f"same backend (yosys version, flow scripts, yosys command and timeout equal on both sides): "
-             f"{'yes' if same_backend else 'NO'}" + ("" if same_backend else " -- " + "; ".join(notes)),
-             f"rows={S['rows']} sv_identical={S['sv_identical']} sv_differs={S['sv_differs']} "
-             f"not_comparable(no usable record on a side)={S['not_comparable']}",
-             f"VIOLATIONS of the statement (identical SV, differing numbers): {S['violations']}"
-             + (" -- rows: " + ",".join(r['row'] for r in rows if r['violation']) if S["violations"] else ""),
-             f"identical-SV rows whose yosys number is missing on a side (timeout/error): {S['numbers_missing_identical']}",
-             "deltas (B - A) are filled only for rows whose SV differs; no tolerance is applied "
-             "(acceptance thresholds are the user's decision)"]
+             "yosys numbers are compared per row and flow only when the backend identity (version, command, top, flow "
+             "script, input files) is non-empty and equal on both sides, both flows ended normally and every number is "
+             "present; IR counts (ir_*, opt_*) are compared as returned, independently of the SV",
+             f"backend check (informational): {'consistent' if same_backend else 'NOT CONSISTENT -- ' + '; '.join(notes)}",
+             f"rows={S['rows']} (duplicate rows in an input: {S['duplicate_rows']}) "
+             f"sv_identical={S['sv_identical']} sv_differs={S['sv_differs']} sv_n/a={S['sv_n_a']}",
+             "row classes: " + " ".join(f"{c}={rc[c]}" for c in ORDER)
+             + f" (incomplete of which unsupported/not-run on both sides: {S['incomplete_unsupported_both']})"]
+    for sec in SECTIONS:
+        lines.append(f"  {sec}: " + " ".join(f"{c}={S['section_class'][sec][c]}" for c in ORDER))
+    lines += [f"VIOLATIONS (identical SV, same backend, other yosys numbers): {S['violations']}"
+              + (" -- rows: " + ",".join(r["row"] for r in rows if r["violation"]) if S["violations"] else ""),
+              f"identical SV but returned IR (ir_*) differs: {S['ir_differs_same_sv']}; optimised IR (opt_*) differs: "
+              f"{S['opt_differs_same_sv']} (reported, not a violation)",
+              f"sv_origin_check: differ={S['origin_differ']} not-same(not-checked/other, measured sides)={S['origin_not_checked']}",
+              "deltas (B - A) are filled for every comparable section; no tolerance is applied "
+              "(acceptance thresholds are the user's decision)",
+              ("RESULT: every row comparable (exit 0)" if status == 0 else
+               f"RESULT: NOT A PASS -- violations={S['violations']} not-comparable={rc[NOT_COMPARABLE]} "
+               f"incomplete={rc[INCOMPLETE]}; unmeasured or not-comparable rows are never a pass "
+               f"(exit {status}: 1 = violation, 2 = not-comparable or incomplete)")]
     with open(os.path.join(out, "compare.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")
     print("\n".join(lines))
     print(f"written: {out}/compare.tsv compare.txt")
-    return 1 if S["violations"] else 0
+    return status
 
 
 def main():

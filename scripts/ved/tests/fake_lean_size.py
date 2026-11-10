@@ -5,10 +5,16 @@ size block writes next to the case (size_sv.sv, size_children.sv, size_mod_<i>.s
 or size_err.txt).  Plan fields (all optional): sv (text of the single module, default
 "module <top>(); endmodule\\n"), mods [{name, regs, mems, insts, stmts, wires, regbits, membits}]
 (design kind: several modules joined by newline), kids ([names]), err, nofiles, sleep, exit.
+The ORIGINAL command's output is faked first: it prints plan "orig_sv" (default: the same SV as the size
+block writes; "" = prints nothing) plus the command's tail line on stdout, or, for #writeDesign /
+#writeVerilogDesign, writes "orig_sv" to the path of its first string argument (relative to the case
+directory); plan "orig_skip" = does not emit at all.  Then the block marker.  After the size files:
+exit_after (exit code), signal_after (SIGKILL itself), join_bad (size_sv.sv no longer joins).
 """
 import json
 import os
 import re
+import signal
 import sys
 import time
 
@@ -40,6 +46,9 @@ def main():
         print(f"{case}:1:0: error: unknown identifier")
         sys.exit(1)
     kind = "design" if "synthesizeHierarchical" in text else "module"
+    cms = list(re.finditer(r"^(#synthesizeVerilogDesign|#writeVerilogDesign|#writeDesign|#synthesizeVerilog)\s+\S+(?:\s+\"([^\"]*)\")?",
+                           text.split("-- ===== VED SIZE BEGIN")[0], re.M))
+    cmd, wpath = (cms[-1].group(1), cms[-1].group(2)) if cms else ("#synthesizeVerilog", None)   # the original command: the last one before the block
     top = re.search(r'mkIdent "([^"]+)"', text).group(1).split(".")[-1]
     mods = plan.get("mods") or [{"name": top}]
     texts = [plan.get("sv", f"module {mo['name']}(); endmodule\n") if i == 0 else f"module {mo['name']}(); endmodule\n"
@@ -61,11 +70,29 @@ def main():
         for tag in ("raw", "opt"):
             lines.append(f"mod {tag} child {i} {k} " + " ".join(f"{a}={b}" for a, b in counts({}).items()))
         i += 1
-    open(os.path.join(d, "size_sv.sv"), "w").write("\n".join(texts))
+    sv_all = "\n".join(texts)
+    if not plan.get("orig_skip"):
+        orig = plan.get("orig_sv", sv_all)
+        if wpath is not None:
+            open(os.path.join(d, wpath) if not os.path.isabs(wpath) else wpath, "w").write(orig)
+        elif orig is not None:
+            tail = "-- Hierarchical Verilog successfully generated!" if cmd == "#synthesizeVerilogDesign" else "-- Verilog successfully generated!"
+            if orig:
+                print(orig)
+            print("\n" + tail)
+    print(f"VED SIZE MARK row {row}")
+    open(os.path.join(d, "size_sv.sv"), "w").write(sv_all)
+    if plan.get("join_bad"):
+        open(os.path.join(d, "size_mod_0.sv"), "w").write("module other(); endmodule\n")
     if kids:
         open(os.path.join(d, "size_children.sv"), "w").write("\n".join(f"module {k}(); endmodule\n" for k in kids))
     open(os.path.join(d, "size_ir.txt"), "w").write("\n".join(lines) + "\nEND\n")
     print(f"VED SIZE OK kind={kind}")
+    if plan.get("signal_after"):
+        sys.stdout.flush()
+        os.kill(os.getpid(), signal.SIGKILL)
+    if plan.get("exit_after"):
+        sys.exit(plan["exit_after"])
 
 
 if __name__ == "__main__":

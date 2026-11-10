@@ -102,6 +102,31 @@ FPGA = """
 """
 
 
+ELAB = """namespace Sparkle.Compiler.Elab
+elab "#synthesizeVerilog" id:ident : command => do
+  let (module, _) ← synthesizeCombinational declName
+  let optimized := Sparkle.IR.Optimize.optimizeModule module
+  let verilog := toVerilog optimized
+  IO.println verilog
+/-- doc -/
+elab "#synthesizeVerilogDesign" id:ident : command => do
+  let design ← synthesizeHierarchical declName
+  IO.println (toVerilogDesign design)
+
+elab "#writeVerilogDesign" id:ident str:str : command => do
+  let design ← synthesizeHierarchical declName
+  IO.FS.writeFile path (toVerilogDesign design)
+
+private def writeDesignCore (declName : Name) : TermElabM Unit := do
+  let design ← synthesizeHierarchical declName
+  let verilog := toVerilogDesign design
+
+elab "#writeDesign" id:ident svPath:str cppPath:str : command => do
+  writeDesignCore declName svPath.getString cppPath.getString none
+end Sparkle.Compiler.Elab
+"""
+
+
 class ParseStat(unittest.TestCase):
     def test_generic_flat(self):
         st = size_gen.parse_stat(GEN_FLAT, "top")
@@ -140,9 +165,15 @@ class SizeHarness(unittest.TestCase):
         self.log = os.path.join(self.base, "fake.log")
         self.ys_log = os.path.join(self.base, "ys.log")
         self.plan, self.ys = {}, {}
+        self.write_elab(ELAB)
 
     def tearDown(self):
         shutil.rmtree(self.base, ignore_errors=True)
+
+    def write_elab(self, text):
+        path = os.path.join(self.fx.repo, "Sparkle/Compiler/Elab.lean")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").write(text)
 
     def env(self, **extra):
         e = {k: v for k, v in os.environ.items() if not k.startswith(("SPARKLE_", "U0_", "U1_", "SIZE_"))}
@@ -294,7 +325,7 @@ class SizeHarness(unittest.TestCase):
 
     def test_compare_table(self):
         lst = os.path.join(self.base, "rows.txt")
-        open(lst, "w").write("1\n2\n4\n")
+        open(lst, "w").write("1\n2\n")
         self.plan = {"1": {"sv": "module foo1(); endmodule\n", "mods": [{"name": "foo1", "regs": 1}]},
                      "2": {"sv": "module bar2(); endmodule\n", "mods": [{"name": "bar2", "regs": 2}]}}
         self.assertIn(self.run_size("list", lst, out=self.out("A")).returncode, (0, 3))
@@ -306,39 +337,215 @@ class SizeHarness(unittest.TestCase):
         self.assertEqual(c.returncode, 0, c.stdout + c.stderr)
         self.assertIn("SV identical => size identical (same backend)", c.stdout)
         rows = {r["row"]: r for r in csv.DictReader(open(os.path.join(o, "compare.tsv")), delimiter="\t")}
-        self.assertEqual(rows["1"]["sv_identical"], "yes")
-        self.assertEqual((rows["1"]["ir_regs_A"], rows["1"]["ir_regs_B"], rows["1"]["ir_regs_delta"]), ("1", "1", ""))
-        self.assertEqual(rows["1"]["g_cells_delta"], "")      # identical SV: no delta column filled
-        self.assertEqual(rows["2"]["sv_identical"], "no")
+        self.assertEqual((rows["1"]["sv_identical"], rows["1"]["class"]), ("yes", "identical"))
+        self.assertEqual((rows["1"]["ir_regs_A"], rows["1"]["ir_regs_B"], rows["1"]["ir_regs_delta"]), ("1", "1", "0"))
+        self.assertEqual((rows["2"]["sv_identical"], rows["2"]["class"]), ("no", "different"))
         self.assertEqual((rows["2"]["ir_regs_A"], rows["2"]["ir_regs_B"], rows["2"]["ir_regs_delta"]), ("2", "3", "1"))
         n0, n1 = len("module bar2(); endmodule\n"), len("module bar2(); wire x; endmodule\n")
         self.assertEqual((rows["2"]["g_cells_A"], rows["2"]["g_cells_B"], rows["2"]["g_cells_delta"]),
                          (str(n0 + 10), str(n1 + 10), str(n1 - n0)))
-        self.assertEqual(rows["4"]["sv_identical"], "n/a")
         txt = open(os.path.join(o, "compare.txt")).read()
-        self.assertIn("same backend (yosys version, flow scripts, yosys command and timeout equal on both sides): yes", txt)
-        self.assertIn("sv_identical=1 sv_differs=1 not_comparable(no usable record on a side)=1", txt)
-        self.assertIn("VIOLATIONS of the statement (identical SV, differing numbers): 0", txt)
+        self.assertIn("row classes: identical=1 different=1 not-comparable=0 incomplete=0", txt)
+        self.assertIn("RESULT: every row comparable (exit 0)", txt)
 
-    def test_compare_flags_identical_sv_with_different_numbers(self):
-        base = {"row": "1", "file": "f", "command": "#synthesizeVerilog", "top": "t", "size_status": "ok",
-                "sv_identity": "abc", "sv_sha256": "abc", "ir_regs": "1", "g_cells": "10", "f_lut": "4",
-                "ys_version": "Y", "ys_cmd": "y", "ys_timeout_s": "5", "ys_files": "size_sv.sv",
-                "g_script": "g", "f_script": "f", "src_sha": "1" * 12}
-        a, b = dict(base), dict(base, g_cells="11", src_sha="2" * 12)
-        rows, S = size_run.compare_rows([a], [b])
-        self.assertEqual((rows[0]["sv_identical"], rows[0]["violation"], S["violations"]), ("yes", "g_cells", 1))
+    def test_unmeasured_rows_are_never_a_pass(self):
+        lst = os.path.join(self.base, "rows.txt")
+        open(lst, "w").write("1\n4\n")        # row 4 is unsupported on both sides
+        self.assertIn(self.run_size("list", lst, out=self.out("A")).returncode, (0, 3))
+        self.assertIn(self.run_size("list", lst, out=self.out("B")).returncode, (0, 3))
+        c = self.compare(self.out("A"), self.out("B"), self.out("cmp"))
+        self.assertEqual(c.returncode, 2, c.stdout)
+        self.assertIn("incomplete=1", c.stdout)
+        self.assertIn("unsupported/not-run on both sides: 1", c.stdout)
+        self.assertIn("NOT A PASS", c.stdout)
+
+    # compare: records built directly --------------------------------------------------------
+    BASE = {"row": "1", "file": "f", "command": "#synthesizeVerilog", "top": "t", "sv_top": "t", "size_status": "ok",
+            "sv_identity": "abc", "sv_sha256": "abc", "ir_regs": "1", "ir_stmts": "5", "opt_regs": "1", "opt_stmts": "4",
+            "ir_modules": "1", "ir_mems": "0", "ir_insts": "0", "ir_wires": "2", "ir_regbits": "8", "ir_membits": "0",
+            "opt_mems": "0", "opt_insts": "0", "opt_wires": "2", "opt_regbits": "8",
+            "g_status": "ok", "f_status": "ok", "g_cells": "10", "g_dff": "2", "f_cells": "9", "f_lut": "4", "f_ff": "2",
+            "f_bram": "0", "ys_version": "Yosys 0.70", "ys_cmd": "y", "ys_timeout_s": "5", "ys_files": "size_sv.sv",
+            "g_script": "g", "f_script": "f", "src_sha": "1" * 12}
+
+    def rec(self, **kw):
+        return dict(self.BASE, **kw)
+
+    def cls(self, a, b):
+        rows, S = size_run.compare_rows(a, b)
+        return rows, S
+
+    def test_identical_sv_with_different_raw_ir_is_reported_not_derived(self):
+        # P1-1 control: same SV, raw and optimised IR differ -> reported as different IR, not a violation
+        a, b = self.rec(), self.rec(ir_stmts="9", ir_regs="3", opt_stmts="6")
+        rows, S = self.cls([a], [b])
+        r = rows[0]
+        self.assertEqual(r["sv_identical"], "yes")
+        self.assertEqual((r["class_ir"], r["class_opt"], r["class_g"], r["class_f"]), ("different", "different", "identical", "identical"))
+        self.assertEqual((r["ir_stmts_delta"], r["opt_stmts_delta"], r["violation"]), ("4", "2", ""))
+        self.assertEqual((S["ir_differs_same_sv"], S["opt_differs_same_sv"], S["violations"]), (1, 1, 0))
+        # and different IR with different SV is reported the same way
+        rows, _ = self.cls([a], [dict(b, sv_identity="zzz")])
+        self.assertEqual(rows[0]["class_ir"], "different")
+
+    def test_identical_sv_same_backend_other_yosys_numbers_is_a_violation(self):
+        rows, S = self.cls([self.rec()], [self.rec(g_cells="11", src_sha="2" * 12)])
+        self.assertEqual((rows[0]["violation"], S["violations"], rows[0]["class_g"]), ("g_cells", 1, "different"))
+
+    def test_sv_differs_yosys_delta_is_filled_when_comparable(self):
+        rows, S = self.cls([self.rec()], [self.rec(sv_identity="x", g_cells="12")])
+        self.assertEqual((rows[0]["g_cells_delta"], rows[0]["violation"], S["violations"]), ("2", "", 0))
+
+    def test_both_yosys_numbers_blank_is_incomplete_not_equal(self):
+        blank = dict(g_cells="", g_dff="", g_status="timeout")
+        rows, S = self.cls([self.rec(**blank)], [self.rec(**blank)])   # both sides timed out
+        self.assertEqual((rows[0]["class_g"], rows[0]["class"], rows[0]["g_cells_delta"]), ("incomplete", "incomplete", ""))
+        self.assertEqual(rows[0]["class_f"], "identical")
+        self.assertEqual(S["row_class"]["incomplete"], 1)
+
+    def test_one_side_failed_is_incomplete(self):
+        rows, _ = self.cls([self.rec()], [self.rec(size_status="synthesis-error", sv_identity="", g_cells="")])
+        self.assertEqual((rows[0]["sv_identical"], rows[0]["class"]), ("n/a", "incomplete"))
+        rows, _ = self.cls([self.rec()], [self.rec(f_status="error", f_cells="", f_lut="", f_ff="", f_bram="")])
+        self.assertEqual((rows[0]["class_f"], rows[0]["class_g"]), ("incomplete", "identical"))
+        rows, _ = self.cls([self.rec()], [])
+        self.assertEqual(rows[0]["class"], "incomplete")
+
+    def test_version_missing_is_not_comparable(self):
+        rows, S = self.cls([self.rec(ys_version="")], [self.rec(ys_version="")])
+        self.assertEqual((rows[0]["class_g"], rows[0]["class_f"], rows[0]["class"]), ("not-comparable",) * 3)
         self.assertEqual(rows[0]["g_cells_delta"], "")
-        # a different backend is reported, not hidden
-        same, notes = size_run.backend_check([a], [dict(b, ys_version="Z")])
+        self.assertFalse(size_run.backend_check([self.rec(ys_version="")], [self.rec(ys_version="")])[0])
+        # IR is still compared (independent of the backend)
+        self.assertEqual(rows[0]["class_ir"], "identical")
+
+    def test_versions_swapped_between_rows_is_not_comparable(self):
+        a = [self.rec(row="1", ys_version="Yosys 0.70"), self.rec(row="2", ys_version="Yosys 0.71")]
+        b = [self.rec(row="1", ys_version="Yosys 0.71"), self.rec(row="2", ys_version="Yosys 0.70")]
+        rows, S = self.cls(a, b)
+        self.assertEqual([r["class"] for r in rows], ["not-comparable"] * 2)
+        same, notes = size_run.backend_check(a, b)
         self.assertFalse(same)
-        self.assertIn("ys_version", notes[0])
-        # a blank (yosys timeout) next to a number on identical SV is not a violation but is counted
-        rows, S = size_run.compare_rows([a], [dict(base, g_cells="")])
-        self.assertEqual((rows[0]["violation"], S["violations"], S["numbers_missing_identical"]), ("", 0, 1))
-        # a side without a usable record is not comparable
-        rows, S = size_run.compare_rows([a], [dict(base, size_status="synthesis-error", sv_identity="")])
-        self.assertEqual((rows[0]["sv_identical"], S["not_comparable"]), ("n/a", 1))
+        self.assertIn("rows 1,2", notes[0])
+
+    def test_different_backend_is_not_comparable_and_no_delta(self):
+        for kw in (dict(ys_version="Yosys 0.71"), dict(ys_cmd="other"), dict(g_script="g2", f_script="f2"), dict(sv_top="u")):
+            rows, _ = self.cls([self.rec()], [self.rec(sv_identity="x", g_cells="12", f_lut="9", **kw)])
+            self.assertEqual(rows[0]["class_g"], "not-comparable", kw)
+            self.assertEqual((rows[0]["g_cells_delta"], rows[0]["f_lut_delta"]), ("", ""), kw)
+
+    def test_duplicate_row_in_one_input_is_not_comparable(self):
+        rows, S = self.cls([self.rec(), self.rec()], [self.rec()])
+        self.assertEqual((len(rows), rows[0]["class"], S["duplicate_rows"]), (1, "not-comparable", 1))
+
+    def run_compare_dirs(self, ra, rb):
+        dirs = []
+        for n, rs in (("cA", ra), ("cB", rb)):
+            d = self.out(n)
+            shutil.rmtree(d, ignore_errors=True)
+            os.makedirs(d)
+            with open(os.path.join(d, "results.tsv"), "w") as f:
+                w = csv.DictWriter(f, fieldnames=sorted({k for r in rs for k in r}), delimiter="\t")
+                w.writeheader()
+                w.writerows(rs)
+            dirs.append(d)
+        return self.compare(dirs[0], dirs[1], self.out("cmpd"))
+
+    def test_exit_status_distinguishes_violation_not_comparable_and_pass(self):
+        c = self.run_compare_dirs([self.rec()], [self.rec()])
+        self.assertEqual(c.returncode, 0, c.stdout)
+        c = self.run_compare_dirs([self.rec()], [self.rec(g_cells="11")])
+        self.assertEqual(c.returncode, 1)
+        c = self.run_compare_dirs([self.rec(ys_version="")], [self.rec(ys_version="")])
+        self.assertEqual(c.returncode, 2)
+        self.assertIn("violations=0 not-comparable=1", c.stdout)     # violations 0 alone is not a pass
+        c = self.run_compare_dirs([self.rec(g_cells="", g_status="timeout")], [self.rec(g_cells="", g_status="timeout")])
+        self.assertEqual(c.returncode, 2)
+
+    # -------------------------------------------------- P2-1: success vs observed artifacts
+    def test_files_then_exit_1_is_observed_not_ok(self):
+        self.plan["1"] = {"exit_after": 1}
+        r = self.one(1)
+        self.assertEqual(r["size_status"], "failed-observed")
+        self.assertEqual(r["size_observed"], "yes")
+        self.assertIn("rc=1", r["size_error"])
+        self.assertNotEqual(r["sv_sha256"], "")             # kept as an observation
+        self.assertEqual(r["g_status"], "ok")
+        rows, _ = size_run.compare_rows([r], [r])
+        self.assertEqual(rows[0]["class"], "incomplete")    # never a formal measurement
+
+    def test_files_then_signal_is_observed_not_ok(self):
+        self.plan["1"] = {"signal_after": True}
+        r = self.one(1)
+        self.assertEqual((r["size_status"], r["size_observed"]), ("failed-observed", "yes"))
+        self.assertIn("signal", r["size_error"])
+
+    def test_join_check_no_is_not_ok(self):
+        self.plan["1"] = {"join_bad": True}
+        r = self.one(1)
+        self.assertEqual((r["sv_join_check"], r["size_status"], r["size_observed"]), ("no", "failed-observed", "yes"))
+        self.assertIn("sv_join_check=no", r["size_error"])
+
+    def test_success_has_no_observed_flag(self):
+        r = self.one(1)
+        self.assertEqual((r["size_status"], r["size_observed"], r["sv_join_check"]), ("ok", "", "yes"))
+
+    # ------------------------------------------------------------ P1-3: origin of the SV
+    def test_origin_same_when_the_command_printed_the_same_sv(self):
+        r = self.one(1)
+        self.assertEqual(r["sv_origin_check"], "same")
+
+    def test_origin_differ_when_the_command_printed_something_else(self):
+        self.plan["1"] = {"orig_sv": "module something_else(); endmodule\n"}
+        r = self.one(1)
+        self.assertEqual(r["sv_origin_check"], "differ")
+        self.assertEqual(r["size_status"], "ok")            # recorded, not hidden
+        rows, S = size_run.compare_rows([r], [r])
+        self.assertEqual(S["origin_differ"], 2)
+
+    def test_origin_not_checked_when_nothing_was_captured(self):
+        self.plan["1"] = {"orig_skip": True}
+        r = self.one(1)
+        self.assertEqual(r["sv_origin_check"], "not-checked")
+        self.assertIn("not found", r["sv_origin_reason"])
+
+    def test_origin_of_a_write_command_reads_the_written_file(self):
+        r = self.one(13)
+        self.assertEqual(r["sv_origin_check"], "same")
+        self.plan["13"] = {"mods": [{"name": "wd13"}, {"name": "sub13"}], "orig_sv": "module stale(); endmodule\n"}
+        r = self.one(13)      # the re-synthesis differs from the file the original wrote
+        self.assertEqual(r["sv_origin_check"], "differ")
+        self.plan["13"] = {"orig_skip": True}
+        self.assertEqual(self.one(13)["sv_origin_check"], "not-checked")
+
+    def test_no_exactly_what_the_command_prints_claim(self):
+        for f in ("size_gen.py", "size_run.py"):
+            self.assertNotIn("exactly the text", open(os.path.join(VED, f)).read())
+
+    # ---------------------------------------------------------------- entry guard
+    def test_entry_guard_refuses_a_changed_entry_function(self):
+        self.write_elab(ELAB.replace("synthesizeCombinational declName", "synthesizeCombinationalV2 declName", 1)
+                        .replace("(module, _) ← synthesizeCombinationalV2", "(module, _) ← synthesizeNew"))
+        r = self.one(1)
+        self.assertEqual((r["invocation"], r["size_status"]), ("entry-mismatch", "not-run"))
+        self.assertIn("synthesizeCombinational", r["invocation_detail"])
+        self.assertFalse(os.path.exists(self.log) and '"row": "1"' in open(self.log).read())   # Lean never ran
+        self.write_elab(ELAB.replace("toVerilogDesign design))", "toVerilogDesign2 design))", 1).replace(
+            "synthesizeHierarchical declName\n  IO.println", "synthesizeNew declName\n  IO.println"))
+        self.assertEqual(self.one(13, out=self.out("o2"))["size_status"], "ok")       # writeDesign unaffected
+        self.write_elab(ELAB.replace("  let design ← synthesizeHierarchical declName\n  let verilog", "  let design ← synthesizeNew declName\n  let verilog"))
+        self.assertEqual(self.one(13, out=self.out("o3"))["invocation"], "entry-mismatch")   # core changed
+
+    def test_entry_guard_missing_file_or_command_fails_closed(self):
+        os.remove(os.path.join(self.fx.repo, "Sparkle/Compiler/Elab.lean"))
+        self.assertEqual(self.one(1)["invocation"], "entry-mismatch")
+
+    def test_entry_guard_accepts_the_real_elaborator(self):
+        root = os.path.dirname(os.path.dirname(VED))
+        if not os.path.exists(os.path.join(root, size_gen.ENTRY_FILE)):
+            self.skipTest("no Elab.lean next to the harness")
+        for cmd in size_gen.ENTRY_REQUIRED:
+            self.assertEqual(size_gen.entry_check(root, cmd), "", cmd)
 
 
 if __name__ == "__main__":
