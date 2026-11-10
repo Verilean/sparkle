@@ -136,6 +136,153 @@ theorem fold_oracle (d : Design) (we : WEnv) (ie : InstEval) (hie : IELaws d ie)
       simp [List.map_map, Function.comp_def]
     refine ⟨l, by simp [cellVals, oracleIE, hl2], hlE⟩
 
+/-! ## The oracle fold IS the IR's open semantics (`Sparkle.IR.Semantics.evalAssigns`) -/
+
+/-- The instance output wires of a body. -/
+def instOutsOf (d : Design) : List Stmt → List String
+  | [] => []
+  | .inst mn _ cs :: r => instOuts d mn cs ++ instOutsOf d r
+  | _ :: r => instOutsOf d r
+
+theorem instOutsOf_sub_wrsH (d : Design) : ∀ (b : List Stmt) (n : String),
+    n ∈ instOutsOf d b → n ∈ wrsH d b := by
+  intro b
+  induction b with
+  | nil => intro n h; cases h
+  | cons s rest ih =>
+    intro n h
+    cases s with
+    | inst mn i cs =>
+      simp only [instOutsOf, List.mem_append] at h
+      simp only [wrsH, List.flatMap_cons, List.mem_append, wrH]
+      rcases h with h | h
+      · exact Or.inl h
+      · exact Or.inr (ih n h)
+    | assign l r =>
+      simp only [instOutsOf] at h
+      simp only [wrsH, List.flatMap_cons, List.mem_append]
+      exact Or.inr (ih n h)
+    | register _ _ _ _ _ =>
+      simp only [instOutsOf] at h
+      simp only [wrsH, List.flatMap_cons, List.mem_append]
+      exact Or.inr (ih n h)
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ =>
+      simp only [instOutsOf] at h
+      simp only [wrsH, List.flatMap_cons, List.mem_append]
+      exact Or.inr (ih n h)
+
+/-- The open seed: the instance output wires carry the oracle, everything else the given seed. -/
+def oracleSeed (d : Design) (O : String → Nat) (b : List Stmt) (env0 : Env) : Env :=
+  fun n => if n ∈ instOutsOf d b then O n else env0 n
+
+theorem upd_oracle (env0 : Env) (O : String → Nat) (outs : List String) (n : String) :
+    upd env0 (outs.map fun y => (y, O y)) n = if n ∈ outs then O n else env0 n := by
+  unfold upd
+  by_cases hn : n ∈ outs
+  · have : (outs.map fun y => (y, O y)).find? (fun p => p.1 == n) = some (n, O n) := by
+      induction outs with
+      | nil => cases hn
+      | cons y ys ih =>
+        by_cases hy : y = n
+        · subst hy; simp [List.find?_cons]
+        · have hn' : n ∈ ys := by
+            rcases List.mem_cons.mp hn with h | h
+            · exact absurd h.symm hy
+            · exact h
+          have hb : (y == n) = false := beq_eq_false_iff_ne.mpr hy
+          simp [List.find?_cons, hb, ih hn']
+    simp [this, hn]
+  · have : (outs.map fun y => (y, O y)).find? (fun p => p.1 == n) = none := by
+      rw [List.find?_eq_none]
+      intro p hp
+      obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hp
+      have : y ≠ n := fun e => hn (e ▸ hy)
+      simpa using this
+    simp [this, hn]
+
+theorem evalAssignsI_cons_some (we : WEnv) (ie : InstEval) (s : Stmt) (rest : List Stmt) (env : Env)
+    (l : List (String × Nat)) (h : cellVals we ie s env = some l) :
+    evalAssignsI we ie (s :: rest) env = evalAssignsI we ie rest (upd env l) := by
+  simp [evalAssignsI, h]
+
+/-- OPEN AND CLOSED, against the IR's OWN open semantics: on a hierarchically well-ordered body of
+assignments, registers and instances, the fold with every instance output a free oracle value
+(`oracleIE`) is `Sparkle.IR.Semantics.evalAssigns` (where an instance is a no-op and its outputs are
+free inputs of the enclosing module) on the seed that carries the oracle on the instance outputs. -/
+theorem open_eq_evalAssigns (d : Design) (we : WEnv) (mems : MEnv) (O : String → Nat) :
+    ∀ (b : List Stmt) (env0 : Env), WOH d b → (∀ s ∈ b, isAsgInstReg s = true) →
+      evalAssignsI we (oracleIE d O) b env0 = evalAssigns we mems b (oracleSeed d O b env0) := by
+  intro b
+  induction b with
+  | nil =>
+    intro env0 _ _
+    have : oracleSeed d O [] env0 = env0 := by funext n; simp [oracleSeed, instOutsOf]
+    simp [evalAssignsI, evalAssigns, this]
+  | cons s rest ih =>
+    intro env0 hw hai
+    obtain ⟨hrd, hwr, hnd, hrest⟩ := hw
+    have hairest : ∀ x ∈ rest, isAsgInstReg x = true := fun x hx => hai x (List.mem_cons_of_mem _ hx)
+    cases s with
+    | assign l r =>
+      have hread : ∀ n ∈ refsOf r, n ∉ instOutsOf d (Stmt.assign l r :: rest) := by
+        intro n hn hin
+        have h1 := hrd n (by simpa [rdH] using hn)
+        have h2 := instOutsOf_sub_wrsH d _ n hin
+        simp only [wrsH, List.flatMap_cons, List.mem_append, wrH] at h2
+        rcases h2 with h2 | h2
+        · exact h1.2 (by simpa [wrH] using h2)
+        · exact h1.1 h2
+      have hev : evalExpr we (oracleSeed d O (Stmt.assign l r :: rest) env0) r = evalExpr we env0 r := by
+        apply evalExpr_congr
+        intro n hn
+        simp [oracleSeed, hread n hn]
+      cases hv : evalExpr we env0 r with
+      | none => simp [evalAssignsI, cellVals, evalAssigns, hv, hev]
+      | some v =>
+        have hcell : cellVals we (oracleIE d O) (Stmt.assign l r) env0 = some [(l, v)] := by
+          simp [cellVals, hv]
+        rw [evalAssignsI_cons_some we _ _ _ _ _ hcell]
+        simp only [evalAssigns, hev, hv]
+        show _ = evalAssigns we mems rest
+          (fun n => if n = l then v else oracleSeed d O (Stmt.assign l r :: rest) env0 n)
+        have hlr : l ∉ instOutsOf d rest := by
+          intro hin
+          exact (hwr l (by simp [wrH])) (instOutsOf_sub_wrsH d _ l hin)
+        rw [ih (upd env0 [(l, v)]) hrest hairest]
+        congr 1
+        funext n
+        by_cases hn : n = l
+        · subst hn; simp [oracleSeed, instOutsOf, hlr, upd]
+        · simp [oracleSeed, instOutsOf, hn, Ne.symm hn, upd]
+    | register o c r e i =>
+      have hcell : cellVals we (oracleIE d O) (Stmt.register o c r e i) env0 = some [] := rfl
+      rw [evalAssignsI_cons_some we _ _ _ _ _ hcell]
+      have hu : upd env0 [] = env0 := by funext n; simp [upd]
+      rw [hu, ih env0 hrest hairest]
+      simp only [evalAssigns]
+      congr 1
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ =>
+      have := hai _ (List.mem_cons_self ..); simp [isAsgInstReg] at this
+    | inst mn i cs =>
+      have hcell : cellVals we (oracleIE d O) (Stmt.inst mn i cs) env0 =
+          some ((instOuts d mn cs).map fun y => (y, O y)) := rfl
+      rw [evalAssignsI_cons_some we _ _ _ _ _ hcell]
+      rw [ih (upd env0 ((instOuts d mn cs).map fun y => (y, O y))) hrest hairest]
+      simp only [evalAssigns]
+      congr 1
+      funext n
+      simp only [oracleSeed, instOutsOf, List.mem_append, upd_oracle]
+      by_cases h1 : n ∈ instOuts d mn cs <;> by_cases h2 : n ∈ instOutsOf d rest <;> simp [h1, h2]
+
+/-- A successful closed fold is the IR's open evaluation, the instance output wires seeded with their
+own final values. -/
+theorem closed_fold_is_open (d : Design) (we : WEnv) (mems : MEnv) (ie : InstEval)
+    (hie : IELaws d ie) (b : List Stmt) (env0 E : Env) (hw : WOH d b)
+    (hai : ∀ s ∈ b, isAsgInstReg s = true) (h : evalAssignsI we ie b env0 = some E) :
+    evalAssigns we mems b (oracleSeed d E b env0) = some E := by
+  rw [← open_eq_evalAssigns d we mems E b env0 hw hai]
+  exact fold_oracle d we ie hie E b env0 E hw h (fun _ _ _ _ _ _ => rfl)
+
 /-! ## Facts about the run -/
 
 theorem restrictTo_nil (s : String → Nat) : restrictTo [] s = fun _ => 0 := by
@@ -184,6 +331,24 @@ theorem runHSTrace_cycle (d : Design) (arr : Module → List Stmt) (m : Module)
           refine ⟨E, S, by simpa using h1, by simpa using h2, ?_⟩
           have : k + 1 - 1 - (t + 1) = k - 1 - t := by omega
           rw [this]; exact h3
+
+/-- THE CLOSED RUN IS THE OPEN RUN: at every cycle of a successful hierarchical run, the top's
+environment is `Sparkle.IR.Semantics.evalAssigns` (the IR's own open semantics: instances are no-ops,
+their outputs free inputs) on the top's arrangement, from the cycle's seed with every instance
+output wire carrying the value the child produced. -/
+theorem runHSTrace_open (d : Design) (arr : Module → List Stmt) (m : Module)
+    (hA : AdmArr d m arr) (hS : HierShapeS d m = true)
+    (seed : Nat → (String → Nat) → Env) (k : Nat) (st : HSt) (envs : List Env) (sts : List HSt)
+    (hrun : runHSTrace d arr m seed k st = some (envs, sts)) :
+    ∀ t, t < k → ∃ E S, envs[t]? = some E ∧ sts[t]? = some S ∧
+      evalAssigns (declWidth m) (fun _ _ => 0) (arr m)
+        (oracleSeed d E (arr m)
+          (seed (k - 1 - t) (restrictTo (regOuts (arr m)) (S [])))) = some E := by
+  intro t ht
+  obtain ⟨E, S, h1, h2, hf⟩ := runHSTrace_cycle d arr m seed k st envs sts hrun t ht
+  refine ⟨E, S, h1, h2, ?_⟩
+  exact closed_fold_is_open d _ _ _ (instEvalS_laws d arr S (declWidth m)) (arr m) _ E hA.2.1
+    (fun s hs => hierS_body hS s (hA.1.mem_iff.mp hs)) hf
 
 theorem exprsSupp_perm {m : Module} {b b' : List Stmt} (hp : b.Perm b') (h : ExprsSupp m b) :
     ExprsSupp m b' := fun s hs => h s (hp.mem_iff.mpr hs)

@@ -167,6 +167,15 @@ theorem parTwo_open_eq_stated (a b : Signal defaultDomain (BitVec 8)) :
 
 example (a b p q : Signal defaultDomain (BitVec 8)) : parTwo.ved_open a b p q = p - q + a := rfl
 
+/-- The open parent's meaning IS the IR's own open semantics on the SAME module and design: the
+fold in which every instance output is a free oracle value is `Sparkle.IR.Semantics.evalAssigns`
+(instances are no-ops) on the seed carrying the oracle; and a closed cycle is that open evaluation
+with each instance output seeded by its own final value (`runHSTrace_open`). -/
+theorem parTwo_open_is_ir_open (we : WEnv) (O : String → Nat) (env0 : Env) :
+    evalAssignsI we (oracleIE parTwo.ved_design O) parTwo.ved_body env0 =
+      evalAssigns we (fun _ _ => 0) parTwo.ved_body (oracleSeed parTwo.ved_design O parTwo.ved_body env0) :=
+  open_eq_evalAssigns _ _ _ _ _ _ (by decide) (by decide)
+
 /-! ## The theorem's type, spelled out (the final statement is not a hypothesis of anything) -/
 
 example : U2HStmt parTwo.ved_contract parTwo.ved_mod parTwo.ved_design parTwo := parTwo.ved_u1
@@ -645,7 +654,9 @@ run_cmd liftCoreM do
       ``Tools.VedU2Hier.runHS_exists, ``Tools.VedU2Hier.runHS_child_clkRst,
       ``Tools.VedU2Hier.childSucc_of_outputsOn, ``Tools.VedU2Hier.instPair_tie,
       ``Tools.VedU2Hier.st0H_slice, ``Tools.VedU2Hier.runHS_inputs, ``Tools.VedU2Hier.stepHS_succ,
-      ``Tools.VedU2Hier.runHS_stateless, ``Tools.VedU2Hier.runHS_leaf] do
+      ``Tools.VedU2Hier.runHS_stateless, ``Tools.VedU2Hier.runHS_leaf,
+      ``Tools.VedU2Hier.open_eq_evalAssigns, ``Tools.VedU2Hier.closed_fold_is_open,
+      ``Tools.VedU2Hier.runHSTrace_open, ``parTwo_open_is_ir_open] do
     std3Only n
 
 end Tests.Ved.U2HierCheck
