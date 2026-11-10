@@ -1897,7 +1897,22 @@ elab "#verify_elab_deep" id:ident : command =>
   let outCs ← outIRs.mapM (toCExpr slotIdx)
   -- names / syntax scaffolding
   let base := declName.componentsRev.headD (Name.mkSimple "x") |>.toString
-  let mkI (s : String) : Ident := mkIdent (Name.mkSimple s)
+  -- HYGIENE: the user's parameters are spliced into the generated proof
+  -- text as plain identifiers, so every generated binder (u, m, L, hL, s,
+  -- n, ...) must be distinct from them.  Generated binders get a reserved
+  -- prefix, lengthened until no parameter name starts with it; names that
+  -- start with `<base>_` are the generated
+  -- declaration names and keep their spelling.
+  let userParamNames : List String := ins.map fun (n, _) =>
+    match n.dropPrefix? "_gen_" with
+    | some sub => sub.toString | none => n
+  let hygPfx : String := Id.run do
+    let mut p := "ved_"
+    while userParamNames.any (·.startsWith p) do p := p ++ "v_"
+    pure p
+  let mkU (s : String) : Ident := mkIdent (Name.mkSimple s)
+  let mkI (s : String) : Ident :=
+    if s.startsWith (base ++ "_") then mkU s else mkU (hygPfx ++ s)
   let nmId := mkI s!"{base}_nm"
   let regWsT : Array Term := regWs.toArray.map fun w => quote w
   let inWsT : Array Term := inWs.toArray.map fun w => quote w
@@ -1913,7 +1928,7 @@ elab "#verify_elab_deep" id:ident : command =>
     match n.dropPrefix? "_gen_" with
     | some sub => sub.toString | none => n
   let paramIds : Array Ident :=
-    (ins.map fun (n, _) => mkI (paramOf n)).toArray
+    (ins.map fun (n, _) => mkU (paramOf n)).toArray
   -- Parameter types from the DSL signature.  A generic
   -- `{dom : DomainConfig}` binder is instantiated at `defaultDomain`
   -- BEFORE delaboration — the remaining types would otherwise mention
