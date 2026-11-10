@@ -108,7 +108,7 @@ run_cmd do
 #guard_msgs in
 run_cmd do
   checkMulti ``mo3l
-    (← `(fun a b => bundle2 (bundle2 (mo3l defaultDomain a b).1.1 (mo3l defaultDomain a b).1.2) (mo3l defaultDomain a b).2))
+    (← `(fun (a b : Signal defaultDomain (BitVec 8)) => bundle2 (bundle2 (mo3l a b).1.1 (mo3l a b).1.2) (mo3l a b).2))
     ["out_0_0", "out_0_1", "out_1"]
 
 /-- info: multi OK Tests.Ved.U1MultiOutCheck.mw.ved_u1 [out_0, out_1] 0 -/
@@ -186,10 +186,11 @@ run_cmd expectRefused "proof" ``mwCtl do onModule ``mwCtl (← modOf ``mwVal)
 #guard_msgs in
 run_cmd expectRefused "proof" ``mwCtl do onModule ``mwCtl (← modOf ``mwSwap)
 
--- one output's value changed (same width): only the second driver is replaced
+-- one output's value changed (same width): the `or` feeding out_1 becomes `xor`
+-- (out_0 is an `and`, untouched)
 def mutValue (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
   { m with body := m.body.map fun s => match s with
-      | .assign o (.op .or a) => if o == "out_1" then .assign o (.op .xor a) else s
+      | .assign o (.op .or a) => .assign o (.op .xor a)
       | s => s }
 
 /-- info: refused [proof], clean -/

@@ -270,6 +270,8 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
           all_goals
             first
             | omega
+            -- a `Bool` port
+            | (simp [Bool.toNat, bne_iff_ne] <;> split <;> omega)
             -- a `mux`: both arms in range
             | (split <;> simp <;> omega)
             -- a `concat`: fields in range
