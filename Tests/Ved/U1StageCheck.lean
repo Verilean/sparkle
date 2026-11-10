@@ -33,14 +33,19 @@ run_cmd expectRefused "proof" (checkerNames `stHb) do
   let stx ← costlyDecide
   discard <| withBudget 150 (checkU1 ``delay8 `stHb ``delay8 m (.term stx))
 
--- proof side: max recursion depth
+-- proof side: max recursion depth (150 nested `id (…)` under a context limit of 100;
+-- the checker's own steps fit, the term elaborator does not)
+def deepTerm : Nat → Syntax.Term → Syntax.Term
+  | 0, t => t
+  | n+1, t => Unhygienic.run `(id $(deepTerm n t))
+
 /-- info: refused [proof], clean -/
 #guard_msgs in
 run_cmd expectRefused "proof" (checkerNames `stRec) do
-  discard <| checkU1 ``delay8 `stRec ``delay8 (← modOf ``delay8)
-    (.term (← `(by
-      set_option maxRecDepth 5 in
-      exact (by decide : (List.range 1000).foldl (· + ·) 0 = 499500) ▸ delay8.ved_u1)))
+  let m ← modOf ``delay8
+  let stx := deepTerm 150 (Unhygienic.run `(delay8.ved_u1))
+  discard <| withTheReader Core.Context (fun c => { c with maxRecDepth := 100 }) do
+    checkU1 ``delay8 `stRec ``delay8 m (.term stx)
 
 def fib : Nat → Nat | 0 => 0 | 1 => 1 | n+2 => fib n + fib (n+1)
 /-- unchecked assignment: elaboration is cheap, the kernel does the work -/
