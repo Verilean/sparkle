@@ -209,17 +209,17 @@ def ctlMut (base decl : Name) (mutant : Sparkle.IR.AST.Module → Except String 
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd ctlMut `ctlLutTableConst ``lut4 (bumpConst 8 2)
+run_cmd ctlMut `ctlLutTableConst ``lut4 (bumpConst 8 2) <|
     [(8, "_tmp_mux_then_8 := const 68:8", "_tmp_mux_then_8 := const 69:8")]
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd ctlMut `ctlLutFirstEntry ``lut4 (bumpConst 8 0)
+run_cmd ctlMut `ctlLutFirstEntry ``lut4 (bumpConst 8 0) <|
     [(2, "_tmp_mux_then_2 := const 17:8", "_tmp_mux_then_2 := const 18:8")]
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd ctlMut `ctlLutSwapped ``lut4 (swapConsts 8 1 2)
+run_cmd ctlMut `ctlLutSwapped ``lut4 (swapConsts 8 1 2) <|
     [(5, "_tmp_mux_then_5 := const 34:8", "_tmp_mux_then_5 := const 68:8"),
      (8, "_tmp_mux_then_8 := const 68:8", "_tmp_mux_then_8 := const 34:8")]
 
@@ -235,28 +235,28 @@ run_cmd do ctl `ctlLutDeclConst ``lut4 (← liftTermElabM (modOf ``lut4c))
 -- `==` replaced by `!=`, in a table's compare and in a plain comparison
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd ctlMut `ctlLutNe ``lut4 (eqToNe 1)
+run_cmd ctlMut `ctlLutNe ``lut4 (eqToNe 1) <|
     [(4, "_tmp_mux_cond_4 := eq(_gen_i, _tmp_b_3)", "_tmp_mux_cond_4 := not(eq(_gen_i, _tmp_b_3))")]
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd ctlMut `ctlEqNe ``eq4 (eqToNe 0)
+run_cmd ctlMut `ctlEqNe ``eq4 (eqToNe 0) <|
     [(0, "_gen_out := eq(_gen_a, _gen_b)", "_gen_out := not(eq(_gen_a, _gen_b))")]
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd ctlMut `ctlEqKNe ``eqK (eqToNe 0)
+run_cmd ctlMut `ctlEqKNe ``eqK (eqToNe 0) <|
     [(1, "_gen_out := eq(_gen_a, _tmp_b_0)", "_gen_out := not(eq(_gen_a, _tmp_b_0))")]
 
 -- a compared constant changed (a 2-bit constant of the table; the 6-bit constant)
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd ctlMut `ctlLutCompared ``lut4 (bumpConst 2 1)
+run_cmd ctlMut `ctlLutCompared ``lut4 (bumpConst 2 1) <|
     [(3, "_tmp_b_3 := const 1:2", "_tmp_b_3 := const 2:2")]
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd ctlMut `ctlEqKConst ``eqK (bumpConst 6 0)
+run_cmd ctlMut `ctlEqKConst ``eqK (bumpConst 6 0) <|
     [(0, "_tmp_b_0 := const 37:6", "_tmp_b_0 := const 38:6")]
 
 /-- info: refused [proof], clean -/
@@ -266,7 +266,7 @@ run_cmd do ctl `ctlEqKOther ``eqK (← liftTermElabM (modOf ``eqK2))
 -- a constant output changed
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd ctlMut `ctlConstOut ``constOut (bumpConst 8 0)
+run_cmd ctlMut `ctlConstOut ``constOut (bumpConst 8 0) <|
     [(0, "_gen_out := const 90:8", "_gen_out := const 91:8")]
 
 -- the comparison's module against another statement
