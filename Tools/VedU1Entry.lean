@@ -106,6 +106,14 @@ theorem or_mod (a b w n : Nat) (hn : 2 ^ w = n) : a <<< w ||| b % n = a * n + b 
   subst hn
   rw [← Nat.shiftLeft_add_eq_or_of_lt (Nat.mod_lt _ (Nat.two_pow_pos w)), Nat.shiftLeft_eq]
 
+/-- A one-bit port read back from its stream value. -/
+theorem toNat_bne (x : Nat) (h : x < 2) : x = (x != 0).toNat := by
+  rcases Nat.lt_or_ge x 1 with h0 | h1
+  · have : x = 0 := by omega
+    subst this; rfl
+  · have : x = 1 := by omega
+    subst this; rfl
+
 /-- `OutputsOn c m b f` from a one-cycle step invariant `R` (stream time `s`,
 register state `st`): `R` holds initially, and from any state satisfying it one
 cycle of the arrangement `b` succeeds, every listed output equals the
@@ -271,7 +279,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             first
             | omega
             -- a `Bool` port
-            | (simp [Bool.toNat, bne_iff_ne] <;> split <;> omega)
+            | exact toNat_bne _ (by omega)
             -- a `mux`: both arms in range
             | (split <;> simp <;> omega)
             -- a `concat`: fields in range
