@@ -1348,3 +1348,12 @@ lean_exe «signz-demo-jit» where
 lean_exe «mulmodser-jit» where
   root := `Tests.Drivers.MulModSerJIT
   supportInterpreter := true
+
+lean_lib «Tools.VedU2HierSem» where
+  roots := #[`Tools.VedU2HierSem]
+
+lean_lib «Tools.VedU2HierProj» where
+  roots := #[`Tools.VedU2HierProj]
+
+lean_lib «Tests.Ved.U2HierSemCheck» where
+  roots := #[`Tests.Ved.U2HierSemCheck]
