@@ -226,7 +226,7 @@ def Names.ofBase (base : Name) : Names :=
 the single register of the delay shape (name, width), `none` for a
 register-free module. -/
 def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat))
-    (inNames : List String := []) : TermElabM Syntax := do
+    (inNames : List String := []) (eqs : Bool := false) : TermElabM Syntax := do
   let C := mkCIdent nm.contract
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
@@ -265,6 +265,19 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
       for (x, h) in (xs.zip hs).reverse do
         dom := dom.push (← `(tactic| revert $h:ident))
         dom := dom.push (← `(tactic| revert $x:ident))
+    let domAll ← `(tactic| all_goals
+      $dom*
+      decide +kernel)
+    -- a body with `==` goes straight to the input domain (the range tactics
+    -- below only fail on it, after costly case splits)
+    let tail : Array (TSyntax `tactic) ←
+      if eqs then pure #[domAll] else pure #[
+        ← `(tactic| try omega),
+        -- a `mux`: both arms in range
+        ← `(tactic| try (split <;> simp <;> omega)),
+        -- a `concat`: fields in range
+        ← `(tactic| try (rw [BitVec.toNat_append]; simp [BitVec.toNat_ofNat]; rw [Nat.mod_eq_of_lt $hinI.1, Nat.mod_eq_of_lt $hinI.2])),
+        domAll]
     `(by
         have hord : OrderOk $M $B = true := by decide +kernel
         refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
@@ -289,14 +302,9 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.pure_val,
             Seq.seq, Signal.seq, Signal.ap, BitVec.toNat_append,
             BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat]
-          try omega
-          -- a `mux`: both arms in range
-          try (split <;> simp <;> omega)
-          -- a `concat`: fields in range
-          try (rw [BitVec.toNat_append]; simp [BitVec.toNat_ofNat]; rw [Nat.mod_eq_of_lt $hinI.1, Nat.mod_eq_of_lt $hinI.2])
-          all_goals
-            $dom*
-            decide +kernel)
+          skip
+          $tail*
+          skip)
   | some (r, w) =>
     let rS := Syntax.mkStrLit r
     let wS := Syntax.mkNumLit (toString w)
@@ -347,6 +355,17 @@ def regShape (m : Sparkle.IR.AST.Module) : Option (String × Nat) :=
   match regsOf m.body with
   | [(r, _, _, _)] => some (r, declWidth m r)
   | _ => none
+
+/-- Does an expression use `Operator.eq`? (only picks the script variant) -/
+partial def exprHasEq : Sparkle.IR.AST.Expr → Bool
+  | .op .eq _ => true
+  | .op _ args | .concat args => args.any exprHasEq
+  | .slice e _ _ | .sliceDim e _ _ => exprHasEq e
+  | .index a i => exprHasEq a || exprHasEq i
+  | _ => false
+
+def bodyHasEq (body : List Sparkle.IR.AST.Stmt) : Bool :=
+  body.any fun | .assign _ e => exprHasEq e | _ => false
 
 /-- A proof source for `checkU1`. -/
 inductive ProofSrc
@@ -427,9 +446,9 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
     -- elaborate the proof (errors are not turned into sorry)
+    let inNames := (dataPortsOf m clkRst).map fun p => p.name
     let stx ← match proof with
-      | .generated => scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m)
-          ((dataPortsOf m clkRst).map (·.name))
+      | .generated => scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body)
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
