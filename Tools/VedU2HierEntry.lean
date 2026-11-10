@@ -527,7 +527,8 @@ def checkU2H (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.M
       | .error e => refuse decl "proof" m!"generated script does not parse: {e}"
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     let pf ← try
-        withoutErrToSorry do
+        withOptions (fun o => ((o.setBool `linter.unusedSimpArgs false).setBool
+            `linter.unusedTactic false).setBool `linter.unreachableTactic false) <| withoutErrToSorry do
           let e ← elabTermEnsuringType stx expected
           synthesizeSyntheticMVarsNoPostponing
           instantiateMVars e
