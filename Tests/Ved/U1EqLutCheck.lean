@@ -165,7 +165,7 @@ open Sparkle.IR.AST in
 def bodyDiff (o m : Sparkle.IR.AST.Module) : Except String (List (Nat × String × String)) := do
   unless ({ o with body := [] } : Sparkle.IR.AST.Module) = { m with body := [] } do throw "module header differs"
   unless o.body.length == m.body.length do throw "body lengths differ"
-  let mutant out := []
+  let mut out : List (Nat × String × String) := []
   for (i, (x, y)) in (o.body.zip m.body).zipIdx.map (fun (p, i) => (i, p)) do
     if x ≠ y then out := out ++ [(i, toString (repr x), toString (repr y))]
   return out
