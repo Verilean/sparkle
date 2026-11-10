@@ -98,19 +98,19 @@ def fsmHold : Signal defaultDomain (BitVec 8) :=
     | _ => state <~ 0#2
     return extra
 
-/-- User parameters named like the names a generated script could bind. -/
-def hygBool (u : Signal defaultDomain Bool) (hL : Signal defaultDomain Bool)
-    (m : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+/-- User parameters (`u`, `m`) and register names (`t`, `ins`) spelled like the
+names a generated script could bind. -/
+def hygBool (u : Signal defaultDomain Bool) (m : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) :=
   circuit do
     let t ← Signal.reg 0#8
     let ins ← Signal.reg 0#8
     if u then
       t <~ t + m
+      ins <~ ins + 1#8
     else
       ins <~ ins + 1#8
-    let tS := (t : Signal defaultDomain (BitVec 8))
-    let iS := (ins : Signal defaultDomain (BitVec 8))
-    return Signal.mux hL tS iS
+    return t
 
 #guard_msgs (drop info) in
 #verify_elab_deep twoRegReset
