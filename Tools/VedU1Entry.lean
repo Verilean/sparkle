@@ -225,7 +225,8 @@ def Names.ofBase (base : Name) : Names :=
 /-- The generated (untrusted) proof script for `U1Stmt C M F`.  `reg?` is
 the single register of the delay shape (name, width), `none` for a
 register-free module. -/
-def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat)) : TermElabM Syntax := do
+def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat))
+    (inNames : List String := []) : TermElabM Syntax := do
   let C := mkCIdent nm.contract
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
@@ -239,19 +240,45 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
   let B := mkCIdent nm.body
   match reg? with
   | none =>
+    -- the input domain closes what the rewriting leaves (`==` against constants,
+    -- a table's mux chain): every data input generalised, the goal reverted to
+    -- `∀ x₀, x₀ < 2^w₀ → … → G` and decided by the kernel
+    let insI := mkIdent `ins
+    let sI := mkIdent `s
+    let hinI := mkIdent `hin
+    let xs := (List.range inNames.length).map fun i => mkIdent (Name.mkSimple s!"x{i}")
+    let hs := (List.range inNames.length).map fun i => mkIdent (Name.mkSimple s!"hx{i}")
+    let mut dom : Array (TSyntax `tactic) := #[]
+    if inNames.length == 1 then
+      dom := dom.push (← `(tactic| generalize $insI $sI $(Syntax.mkStrLit inNames[0]!) = $(xs[0]!) at $hinI:ident ⊢))
+      dom := dom.push (← `(tactic| revert $hinI:ident))
+      dom := dom.push (← `(tactic| revert $(xs[0]!)))
+    else if inNames.length > 1 then
+      let k := inNames.length
+      for i in [0:k] do
+        let mut t : Term := hinI
+        for _ in [0:i] do t ← `($t.2)
+        if i + 1 < k then t ← `($t.1)
+        dom := dom.push (← `(tactic| have $(hs[i]!):ident := $t))
+      for (n, (x, h)) in inNames.zip (xs.zip hs) do
+        dom := dom.push (← `(tactic| generalize $insI $sI $(Syntax.mkStrLit n) = $x at $h:ident ⊢))
+      for (x, h) in (xs.zip hs).reverse do
+        dom := dom.push (← `(tactic| revert $h:ident))
+        dom := dom.push (← `(tactic| revert $x:ident))
     `(by
-        refine ⟨by decide, by decide, by decide, ⟨$B, by decide⟩, ?_⟩
-        apply outputs_of_order $B (by decide)
-        apply outputs_of_step $C $M $B $f $O (by decide) (fun _ _ _ => True)
+        have hord : OrderOk $M $B = true := by decide +kernel
+        refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+        apply outputs_of_order $B hord
+        apply outputs_of_step $C $M $B $f $O (by decide +kernel) (fun _ _ _ => True)
         · intro _ _; trivial
-        · intro ins hok s st mems _
-          have hin := hok.1 s
-          simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at hin
+        · intro $insI hok $sI st mems _
+          have $hinI := hok.1 $sI
+          simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident
           simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
             widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
-            Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, hin,
+            Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, $hinI:ident,
             Tools.VedU1Lemmas.compl_val,
             Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit,
             Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val,
@@ -259,20 +286,25 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add,
             Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub,
             Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val,
+            Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.pure_val,
             Seq.seq, Signal.seq, Signal.ap, BitVec.toNat_append,
             BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat]
           try omega
           -- a `mux`: both arms in range
           try (split <;> simp <;> omega)
           -- a `concat`: fields in range
-          try (rw [BitVec.toNat_append]; simp [BitVec.toNat_ofNat]; rw [Nat.mod_eq_of_lt hin.1, Nat.mod_eq_of_lt hin.2]))
+          try (rw [BitVec.toNat_append]; simp [BitVec.toNat_ofNat]; rw [Nat.mod_eq_of_lt $hinI.1, Nat.mod_eq_of_lt $hinI.2])
+          all_goals
+            $dom*
+            decide +kernel)
   | some (r, w) =>
     let rS := Syntax.mkStrLit r
     let wS := Syntax.mkNumLit (toString w)
     `(by
-        refine ⟨by decide, by decide, by decide, ⟨$B, by decide⟩, ?_⟩
-        apply outputs_of_order $B (by decide)
-        apply outputs_of_step $C $M $B $f $O (by decide)
+        have hord : OrderOk $M $B = true := by decide +kernel
+        refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+        apply outputs_of_order $B hord
+        apply outputs_of_step $C $M $B $f $O (by decide +kernel)
           (fun ins s st => st $rS = srcOf $C $f ins "out" s)
         · intro ins hok
           simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $fI:ident,
@@ -397,6 +429,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     -- elaborate the proof (errors are not turned into sorry)
     let stx ← match proof with
       | .generated => scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m)
+          ((dataPortsOf m clkRst).map (·.name))
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length

@@ -94,4 +94,12 @@ theorem mux_val {dom : Sparkle.Core.Domain.DomainConfig} {α : Type}
     (c : Signal dom Bool) (a b : Signal dom α) (s : Nat) :
     (Signal.mux c a b).val s = if c.val s then a.val s else b.val s := rfl
 
+/-- `Operator.eq` (a 1-bit result). -/
+theorem evalOp_eq_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .eq xs [a, b] w = some (if a = b then 1 else 0) := rfl
+
+/-- `Signal.pure` is constant in time (`.const v w` and a constant output). -/
+theorem pure_val {dom : Sparkle.Core.Domain.DomainConfig} {α : Type} (a : α) (s : Nat) :
+    (Sparkle.Core.Signal.Signal.pure (dom := dom) a).val s = a := rfl
+
 end Tools.VedU1Lemmas
