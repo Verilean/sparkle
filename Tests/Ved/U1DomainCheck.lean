@@ -16,8 +16,16 @@ open Lean Elab Command Term Meta
 open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.VedU1Contract Tools.VedU1Entry
 
-/-! ## Declarations (shaped like R303 `test_not` and R73 `testComplement8`) -/
+/-! ## Declarations -/
 
+-- The binder shapes of R303 `test_not` (auto-bound `Domain`) and R73
+-- `testComplement8` (`{dom : DomainConfig}`), with the identity as the body:
+-- the generated script proves it (it has no rule for `not`, see below).
+def didAuto (a : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) := a
+
+def didImpl {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := a
+
+-- The bodies of the representatives themselves (copies, local names).
 def dnotAuto (a : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) := (~~~ ·) <$> a
 
 def dnotImpl {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := ~~~a
@@ -51,36 +59,52 @@ def checkSpec (decl : Name) : CommandElabM Unit := liftTermElabM do
     throwError "{thm}: axioms {ax}"
   logInfo m!"specialised OK {thm}"
 
-/-- info: specialised OK Tests.Ved.U1DomainCheck.dnotAuto.ved_u1 -/
+/-- info: specialised OK Tests.Ved.U1DomainCheck.didAuto.ved_u1 -/
 #guard_msgs in
-run_cmd checkSpec ``dnotAuto
+run_cmd checkSpec ``didAuto
 
-/-- info: specialised OK Tests.Ved.U1DomainCheck.dnotImpl.ved_u1 -/
+/-- info: specialised OK Tests.Ved.U1DomainCheck.didImpl.ved_u1 -/
 #guard_msgs in
-run_cmd checkSpec ``dnotImpl
+run_cmd checkSpec ``didImpl
 
 /-! ## Controls: refused at `[table]`, no theorem -/
 
-def expectTableRefusal (decl : Name) : CommandElabM Unit := liftTermElabM do
+def expectStageRefusal (stage : String) (decl : Name) : CommandElabM Unit := liftTermElabM do
   let accepted ← try discard <| vedU1Entry decl; pure true catch e =>
     let s ← e.toMessageData.toString
-    unless s.startsWith s!"VED U1 REFUSED {decl} [table]" do throw e
+    unless s.startsWith s!"VED U1 REFUSED {decl} [{stage}]" do throw e
     pure false
-  if accepted then throwError "{decl}: ACCEPTED (expected a refusal at [table])"
+  if accepted then throwError "{decl}: ACCEPTED (expected a refusal at [{stage}])"
   for n in [`ved_mod, `ved_contract, `ved_outs, `ved_body, `ved_u1] do
     if (← getEnv).contains (decl ++ n) then throwError "left behind: {decl ++ n}"
-  logInfo m!"refused [table], clean"
+  logInfo m!"refused [{stage}], clean"
+
+
 
 /-- info: refused [table], clean -/
 #guard_msgs in
-run_cmd expectTableRefusal ``dNat
+run_cmd expectStageRefusal "table" ``dNat
 
 /-- info: refused [table], clean -/
 #guard_msgs in
-run_cmd expectTableRefusal ``dInst
+run_cmd expectStageRefusal "table" ``dInst
 
 /-- info: refused [table], clean -/
 #guard_msgs in
-run_cmd expectTableRefusal ``dFixed
+run_cmd expectStageRefusal "table" ``dFixed
+
+/-! ## The representatives' bodies: past the table, refused at `[proof]`
+
+The script has no rule for `Operator.not` / `Signal` complement (and the
+`^^^ (2^w-1)` arithmetic), so both are refused at `[proof]`, with no theorem
+left.  This pins the CURRENT limit; widening the script changes these two. -/
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectStageRefusal "proof" ``dnotAuto
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectStageRefusal "proof" ``dnotImpl
 
 end Tests.Ved.U1DomainCheck
