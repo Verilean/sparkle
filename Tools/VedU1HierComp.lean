@@ -1,9 +1,11 @@
 import Tools.VedU1HierSem
+import Sparkle.Core.Signal
 
 namespace Tools.VedU1Hier
 
 open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.IR.Reorder
 open Tools.VedU1Contract
+open Sparkle.Core.Domain Sparkle.Core.Signal
 
 theorem mapM_cons_some {α β : Type} (f : α → Option β) (a : α) (r : List α) (l : List β) :
     (a :: r).mapM f = some l ↔ ∃ b rs, f a = some b ∧ r.mapM f = some rs ∧ l = b :: rs := by
@@ -212,5 +214,201 @@ theorem evalAssignsI_succ (we : WEnv) (ie : InstEval) :
       exact ih _ E hl h _
     | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [leafBody] at hl
     | inst _ _ _ => simp [leafBody] at hl
+
+/-- One signal per port (the arguments of a call). -/
+def ArgSigs : List PTy → Type
+  | [] => Unit
+  | p :: ps => Signal defaultDomain p.val × ArgSigs ps
+
+def obsArgs : (ps : List PTy) → ArgSigs ps → Nat → List Nat
+  | [], _, _ => []
+  | p :: ps, (a, r), t => p.obs (a.val t) :: obsArgs ps r t
+
+def applyArgs {R : Type} : (ps : List PTy) → InTy ps R → ArgSigs ps → R
+  | [], f, _ => f
+  | p :: ps, f, (a, r) => applyArgs ps (f a) r
+
+/-- The input stream whose value at time `t` on port `ns[i]` is the i-th entry of `vals t`. -/
+def streamOf (ns : List String) (vals : Nat → List Nat) : Nat → String → Nat :=
+  fun t n => ((ns.zip (vals t)).lookup n).getD 0
+
+theorem sig_self (p : PTy) (a : Signal defaultDomain p.val) (ins : Nat → String → Nat) (n : String)
+    (h : ∀ t, ins t n = p.obs (a.val t)) : p.sig ins n = a := by
+  cases p with
+  | bit =>
+    show (⟨fun t => ins t n != 0⟩ : Signal defaultDomain Bool) = a
+    cases a with
+    | mk f =>
+      congr 1; funext t
+      have := h t
+      simp only [PTy.obs] at this
+      rw [this]; cases f t <;> rfl
+  | bv w =>
+    show (⟨fun t => BitVec.ofNat w (ins t n)⟩ : Signal defaultDomain (BitVec w)) = a
+    cases a with
+    | mk f =>
+      congr 1; funext t
+      have := h t
+      simp only [PTy.obs] at this
+      rw [this]; simp
+
+theorem applyIns_congr {R : Type} (ins1 ins2 : Nat → String → Nat) :
+    ∀ (ps : List PTy) (ns : List String) (f : InTy ps R),
+      (∀ t, ∀ n ∈ ns, ins1 t n = ins2 t n) → ns.length = ps.length →
+      applyIns ps ns ins1 f = applyIns ps ns ins2 f := by
+  intro ps
+  induction ps with
+  | nil => intro ns f _ _; rfl
+  | cons p ps ih =>
+    intro ns f h hl
+    cases ns with
+    | nil => simp at hl
+    | cons n ns' =>
+      simp only [applyIns, List.tail_cons, List.headD_cons]
+      have : p.sig ins1 n = p.sig ins2 n := by
+        cases p with
+        | bit => simp only [PTy.sig]; congr 1; funext t; rw [h t n (List.mem_cons_self ..)]
+        | bv w => simp only [PTy.sig]; congr 1; funext t; rw [h t n (List.mem_cons_self ..)]
+      rw [this]
+      exact ih ns' _ (fun t m hm => h t m (List.mem_cons_of_mem _ hm)) (by simpa using hl)
+
+theorem applyIns_streamOf {R : Type} :
+    ∀ (ps : List PTy) (ns : List String) (args : ArgSigs ps) (f : InTy ps R),
+      ns.length = ps.length → ns.Nodup →
+      applyIns ps ns (streamOf ns (obsArgs ps args)) f = applyArgs ps f args := by
+  intro ps
+  induction ps with
+  | nil => intro ns args f _ _; rfl
+  | cons p ps ih =>
+    intro ns args f hl hnd
+    obtain ⟨a, r⟩ := args
+    cases ns with
+    | nil => simp at hl
+    | cons n ns' =>
+      have hl' : ns'.length = ps.length := by simpa using hl
+      have hnd' := List.nodup_cons.mp hnd
+      simp only [applyIns, List.tail_cons, List.headD_cons, applyArgs]
+      have hs : p.sig (streamOf (n :: ns') (obsArgs (p :: ps) (a, r))) n = a := by
+        apply sig_self
+        intro t; simp [streamOf, obsArgs]
+      rw [hs]
+      rw [← ih ns' r (f a) hl' hnd'.2]
+      apply applyIns_congr _ _ ps ns' _ _ hl'
+      intro t m hm
+      have hne : n ≠ m := fun e => hnd'.1 (e ▸ hm)
+      have hmn : (m == n) = false := beq_eq_false_iff_ne.mpr (Ne.symm hne)
+      simp [streamOf, obsArgs, List.zip_cons_cons, List.lookup, hmn]
+
+/-- Only assignments. -/
+def assignOnly : List Stmt → Bool
+  | [] => true
+  | .assign .. :: r => assignOnly r
+  | _ => false
+
+theorem assignOnly_iff : ∀ b : List Stmt, assignOnly b = true ↔ ∀ s ∈ b, ∃ l r, s = .assign l r := by
+  intro b
+  induction b with
+  | nil => simp [assignOnly]
+  | cons s rest ih =>
+    cases s <;> simp [assignOnly, ih]
+
+theorem assignOnly_perm {b b' : List Stmt} (hp : b.Perm b') (h : assignOnly b = true) :
+    assignOnly b' = true := by
+  rw [assignOnly_iff] at h ⊢
+  exact fun s hs => h s (hp.mem_iff.mpr hs)
+
+theorem assignOnly_leaf : ∀ b : List Stmt, assignOnly b = true → leafBody b = true := by
+  intro b
+  induction b with
+  | nil => intro _; rfl
+  | cons s rest ih =>
+    intro h
+    cases s <;> simp [assignOnly] at h
+    simp only [leafBody]; exact ih h
+
+theorem assignOnly_comb : ∀ b : List Stmt, assignOnly b = true → combOnly b = true := by
+  intro b
+  induction b with
+  | nil => intro _; rfl
+  | cons s rest ih =>
+    intro h
+    cases s <;> simp [assignOnly] at h
+    simp only [combOnly]; exact ih h
+
+theorem assignOnly_regsOf : ∀ b : List Stmt, assignOnly b = true → regsOf b = [] := by
+  intro b
+  induction b with
+  | nil => intro _; rfl
+  | cons s rest ih =>
+    intro h
+    cases s <;> simp [assignOnly] at h
+    simp only [regsOf]; exact ih h
+
+theorem regNexts_assignOnly (we : WEnv) (mems : MEnv) :
+    ∀ (b : List Stmt) (env : Env), assignOnly b = true → regNexts we mems b env = some [] := by
+  intro b
+  induction b with
+  | nil => intro _ _; rfl
+  | cons s rest ih =>
+    intro env h
+    cases s <;> simp [assignOnly] at h
+    simp only [regNexts]; exact ih _ h
+
+theorem memNexts_assignOnly (we : WEnv) :
+    ∀ (b : List Stmt) (mems : MEnv) (env : Env), assignOnly b = true → memNexts we b mems env = some mems := by
+  intro b
+  induction b with
+  | nil => intro _ _ _; rfl
+  | cons s rest ih =>
+    intro mems env h
+    cases s <;> simp [assignOnly] at h
+    simp only [memNexts]; exact ih _ _ h
+
+theorem stepModule_assign (we : WEnv) (b : List Stmt) (env0 : Env) (mems : MEnv)
+    (h : assignOnly b = true) :
+    stepModule we b env0 mems = (evalAssigns we mems b env0).map fun e => (e, [], mems) := by
+  unfold stepModule
+  cases hv : evalAssigns we mems b env0 with
+  | none => rfl
+  | some e => simp [regNexts_assignOnly we mems b e h, memNexts_assignOnly we b mems e h]
+
+theorem runModule_assign (we : WEnv) (b : List Stmt) (seed : Nat → (String → Nat) → Env)
+    (h : assignOnly b = true) :
+    ∀ (k : Nat) (st : String → Nat) (mems : MEnv) (envs : List Env),
+      runModule we b seed k st mems = some envs →
+      ∀ i, i < k → ∃ X, envs[i]? = some X ∧ evalAssigns we mems b (seed (k - 1 - i) st) = some X := by
+  intro k
+  induction k with
+  | zero => intro _ _ _ _ i hi; omega
+  | succ k ih =>
+    intro st mems envs hr i hi
+    rw [runModule_first, stepModule_assign we b _ mems h] at hr
+    cases hv : evalAssigns we mems b (seed k st) with
+    | none => simp [hv] at hr
+    | some X =>
+      have hst : applyNexts st [] = st := by funext n; simp [applyNexts]
+      simp only [hv, Option.map_some] at hr
+      change ((runModule we b seed k (applyNexts st []) mems).bind fun rest => some (X :: rest)) = some envs at hr
+      rw [hst] at hr
+      cases hr2 : runModule we b seed k st mems with
+      | none => rw [hr2] at hr; simp at hr
+      | some rest =>
+        rw [hr2] at hr
+        change some (X :: rest) = some envs at hr
+        simp only [Option.some.injEq] at hr
+        subst hr
+        cases i with
+        | zero => exact ⟨X, by simp, by simpa using hv⟩
+        | succ i =>
+          obtain ⟨Y, hY, hY2⟩ := ih st mems rest hr2 i (by omega)
+          refine ⟨Y, by simpa using hY, ?_⟩
+          have : k + 1 - 1 - (i + 1) = k - 1 - i := by omega
+          rw [this]; exact hY2
+
+/-- A seed: the values on the named ports, everything else 0. -/
+def seedOfVals (ns : List String) (vals : List Nat) : Env := fun n =>
+  match (ns.zip vals).lookup n with
+  | some v => v
+  | none => 0
 
 end Tools.VedU1Hier
