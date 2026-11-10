@@ -74,7 +74,7 @@ def parentOpen (a p q : Signal defaultDomain (BitVec 8)) : Signal defaultDomain 
 #guard_msgs in
 #verify_elab_deep parentOpen
 
-/-- error: Tests.Ved.H2OpenParentProbe.parentOpen.ved_mod missing (run #verify_elab_deep Tests.Ved.H2OpenParentProbe.parentOpen first) -/
+/-- error: VED U1 REFUSED Tests.Ved.H2OpenParentProbe.parentOpen [proof]: Tests.Ved.H2OpenParentProbe.parentOpen_deep missing (run #verify_elab_deep Tests.Ved.H2OpenParentProbe.parentOpen first) -/
 #guard_msgs in
 #ved_u1_deep parentOpen
 
@@ -99,9 +99,9 @@ theorem parTwo_eq_open (a b : Signal defaultDomain (BitVec 8)) :
 /-! ## 4. Controls: the kernel refuses a wrong equation, nothing is left -/
 
 /-- Elaborate `stmt` (a closed `∀ a b, l = r`), submit `fun a b => Eq.refl l`
-as the proof of a theorem named `nm` to the kernel; it must be refused, and
-`nm` must not exist afterwards.  With `expectOk := true` it must be accepted
-(then the name is dropped from the check by using a throwaway environment). -/
+as the proof of a theorem named `nm` to the kernel, and return whether it was
+accepted.  The environment returned by the kernel call is discarded, so a
+refused or accepted control leaves nothing behind. -/
 def kernelVerdict (nm : Name) (stmt : Syntax) : TermElabM Bool := do
   let ty ← instantiateMVars (← Term.elabTerm stmt none)
   Term.synthesizeSyntheticMVarsNoPostponing
@@ -110,15 +110,12 @@ def kernelVerdict (nm : Name) (stmt : Syntax) : TermElabM Bool := do
     let some (_, l, _) := body.eq? | throwError "not an equation"
     let pf ← mkEqRefl l
     mkLambdaFVars xs pf
-  let before ← getEnv
-  let ok ← try
-      addDecl (.thmDecl { name := nm, levelParams := [], type := ty, value })
-      pure true
-    catch _ => pure false
-  unless ok do
-    if (← getEnv).contains nm then throwError "{nm} left in the environment"
-  setEnv before
-  return ok
+  -- the pure kernel entry point: a refusal is an `Except.error`, and the
+  -- returned environment is dropped, so nothing is left behind
+  match Lean.Environment.addDeclCore (← getEnv) 0
+      (.thmDecl { name := nm, levelParams := [], type := ty, value }) none with
+  | .ok _ => return true
+  | .error _ => return false
 
 elab "#kernel_refuses " nm:ident ty:term : command => do
   liftTermElabM do
