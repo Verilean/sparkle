@@ -79,7 +79,7 @@ run_cmd do
       (txt.splitOn "must be closed").length > 1 do
     throwError "unclear message: {txt}"
   let env ← getEnv
-  if env.contains ``paramInit_deep_trace || env.contains ``paramInit_deep then
+  if env.contains `Tests.Ved.DeepInitCheck.paramInit_deep_trace || env.contains `Tests.Ved.DeepInitCheck.paramInit_deep then
     throwError "a theorem was left behind"
   logInfo "refused: initial values must be closed; no theorem left"
 
