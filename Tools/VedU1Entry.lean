@@ -2,6 +2,7 @@ import Lean
 import Sparkle.Compiler.Elab
 import Tools.VedU1Contract
 import Tools.VedU1Lemmas
+import Tools.VedU1Script
 import Tools.VedStrictAudit
 
 /-!
@@ -262,6 +263,110 @@ def helperConsts (decl : Name) : MetaM (Array Name) := do
     let some (.defnInfo _) := env.find? c | continue
     if modOf c == modOf decl || (`Sparkle.IP).isPrefixOf c then out := out.push c
   return out
+
+/-! ## The per-statement script (register-free bodies of assignments)
+
+One `step_assigns'` (the final environment `E` satisfies one equation per
+statement), then ONE small `simp only` per statement that turns its equation
+into `E l = V.toNat` for a `BitVec`/`Bool` term `V` over the inputs, using only
+the equations of the wires that statement reads, and one rewrite of the
+output.  Cost: `n` steps of constant size (plus the width table), no `Env`
+update chain, no `Option.bind` chain. -/
+
+/-- Expressions the per-statement script has operator lemmas for. -/
+partial def exprSupported : Sparkle.IR.AST.Expr → Bool
+  | .const _ _ => true
+  | .ref _ => true
+  | .op o args =>
+    (match o, args.length with
+      | .and, 2 | .or, 2 | .xor, 2 | .add, 2 | .sub, 2 | .not, 1 | .mux, 3 | .eq, 2 => true
+      | _, _ => false) && args.all exprSupported
+  | _ => false
+
+/-- A body of supported assignments only (no registers, memories, instances). -/
+def stmtsSupported (body : List Sparkle.IR.AST.Stmt) : Bool :=
+  body.all fun | .assign _ e => exprSupported e | _ => false
+
+/-- Is the per-statement script applicable to this module? -/
+def perStmtApplicable (m : Sparkle.IR.AST.Module) : Bool :=
+  stmtsSupported m.body && (regsOf m.body).isEmpty
+
+/-- The per-statement script as text (parsed by the caller).  `b0` is the
+checked well-ordered arrangement of the body. -/
+def perStmtText (nm : Names) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
+    (b0 : List Sparkle.IR.AST.Stmt) (clkRst : Option (String × String)) : String := Id.run do
+  let M := toString nm.mod
+  let B := toString nm.body
+  let C := toString nm.contract
+  let O := toString nm.outs
+  let mut f := s!"(@{F}"
+  for _ in [0:nDom] do f := f ++ " Sparkle.Core.Domain.defaultDomain"
+  f := f ++ ")"
+  let q := fun (s : String) => "\"" ++ s ++ "\""
+  let ports := dataPortsOf m clkRst
+  let portNames := ports.map (·.name)
+  let stmts := b0.filterMap fun | .assign l r => some (l, r) | _ => none
+  let n := stmts.length
+  let hn := fun (i : Nat) => s!"h{i}"
+  let widthNames := (stmts.flatMap fun (_, r) => Sparkle.IR.Reorder.refsOf r).eraseDups
+  let hwN := fun (nme : String) => s!"hw{widthNames.idxOf nme}"
+  let hiN := fun (nme : String) => s!"hE{portNames.idxOf nme}"
+  let mut L : Array String := #[]
+  L := L.push "by"
+  L := L.push s!"  have hord : Tools.VedU1Contract.OrderOk {M} {B} = true := by decide +kernel"
+  L := L.push s!"  refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨{B}, hord⟩, ?_⟩"
+  L := L.push s!"  apply Tools.VedU1Contract.outputs_of_order {B} hord"
+  L := L.push s!"  apply Tools.VedU1Entry.outputs_of_step {C} {M} {B} {f} {O} (by decide +kernel) (fun _ _ _ => True)"
+  L := L.push "  · intro _ _; trivial"
+  L := L.push "  · intro ins hok s st mems _"
+  L := L.push "    have hin := hok.1 s"
+  for nme in widthNames do
+    L := L.push s!"    have {hwN nme} : Tools.VedU1Contract.declWidth {M} {q nme} = {Tools.VedU1Contract.declWidth m nme} := by decide +kernel"
+  L := L.push s!"    obtain ⟨E, hst, hfr, hall⟩ := Tools.VedU1Script.step_assigns' (Tools.VedU1Contract.declWidth {M}) mems {B} (Tools.VedU1Contract.seedIn {M} ins s st) (by decide +kernel) (by decide +kernel) (by decide +kernel)"
+  L := L.push "    refine ⟨E, [], mems, hst, ?_, trivial⟩"
+  for (p, i) in ports.zipIdx do
+    let w := Tools.VedU1Contract.declWidth m p.name
+    let (pt, isBit) := match p.ty with
+      | .bitVector k => (s!"(Sparkle.IR.Type.HWType.bitVector {k})", false)
+      | _ => ("Sparkle.IR.Type.HWType.bit", true)
+    L := L.push s!"    have hr{i} : ins s {q p.name} < 2 ^ {w} := by"
+    L := L.push s!"      have h : ins s {q p.name} < 2 ^ Tools.VedU1Contract.declWidth {M} {q p.name} := hin ⟨{q p.name}, {pt}⟩ (List.mem_of_getElem? (i := {i}) rfl)"
+    L := L.push s!"      rw [show Tools.VedU1Contract.declWidth {M} {q p.name} = {w} by decide +kernel] at h; exact h"
+    if isBit then
+      L := L.push s!"    have hE{i} : E {q p.name} = (ins s {q p.name} != 0).toNat := by"
+      L := L.push s!"      rw [hfr _ (by decide +kernel)]; simp only [Tools.VedU1Contract.seedIn]"
+      L := L.push s!"      rw [if_pos (by decide +kernel)]; revert hr{i}; generalize ins s {q p.name} = x; intro h; rcases x with _ | _ | x <;> simp_all"
+    else
+      L := L.push s!"    have hE{i} : E {q p.name} = (BitVec.ofNat {w} (ins s {q p.name})).toNat := by"
+      L := L.push s!"      rw [hfr _ (by decide +kernel)]; simp only [Tools.VedU1Contract.seedIn]"
+      L := L.push s!"      rw [if_pos (by decide +kernel), BitVec.toNat_ofNat, Nat.mod_eq_of_lt hr{i}]"
+  let names := (List.range n).map hn
+  L := L.push s!"    obtain ⟨{String.intercalate ", " names}, -⟩ := hall"
+  L := L.push s!"    simp only [Tools.VedU1Script.stmtEq] at {String.intercalate " " names}"
+  let opSet := "Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Option.bind_eq_bind, Option.bind_some, Option.some.injEq, Nat.max_self, Tools.VedU1Script.evalOp_and_bv, Tools.VedU1Script.evalOp_or_bv, Tools.VedU1Script.evalOp_xor_bv, Tools.VedU1Script.evalOp_add_bv, Tools.VedU1Script.evalOp_sub_bv, Tools.VedU1Script.evalOp_not_bv, Tools.VedU1Script.evalOp_mux_bv, Tools.VedU1Script.evalOp_eq_bv"
+  let mut outIdx : Option Nat := none
+  for ((l, r), i) in stmts.zipIdx do
+    let refs := (Sparkle.IR.Reorder.refsOf r).eraseDups
+    let deps := refs.map fun x =>
+      match stmts.take i |>.findIdx? (·.1 == x) with
+      | some j => hn j
+      | none => hiN x
+    let hws := refs.map hwN
+    L := L.push s!"    replace {hn i} := {hn i}.symm"
+    L := L.push s!"    simp only [{opSet}, {String.intercalate ", " (hws ++ deps)}] at {hn i}"
+    if l == "out" then outIdx := some i
+  let some oi := outIdx | return "by fail \"no assignment to out\""
+  L := L.push s!"    simp only [{O}, List.mem_singleton, forall_eq]"
+  L := L.push s!"    rw [{hn oi}]"
+  L := L.push s!"    simp only [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {C}, {F}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.PTy.sig, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, List.map, List.headD_cons, List.tail_cons, List.zip_cons_cons, List.zip_nil_left, List.lookup, Option.getD_some, beq_self_eq_true, cond_true, String.reduceAppend, Tools.VedU1Lemmas.and_val, Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val, Tools.VedU1Lemmas.add_val, Tools.VedU1Lemmas.sub_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.pure_val]"
+  return String.intercalate "\n" L.toList
+
+/-- The per-statement script, parsed. -/
+def perStmtScript (nm : Names) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
+    (b0 : List Sparkle.IR.AST.Stmt) (clkRst : Option (String × String)) : TermElabM Syntax := do
+  match Lean.Parser.runParserCategory (← getEnv) `term (perStmtText nm F nDom m b0 clkRst) with
+  | .ok s => pure s
+  | .error e => throwError "per-statement script does not parse: {e}"
 
 /-- The generated (untrusted) proof script for `U1Stmt C M F`.  `reg?` is
 the single register of the delay shape (name, width), `none` for a
@@ -599,10 +704,13 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     let inNames := (dataPortsOf m clkRst).map fun p => p.name
     let stx ← match proof with
       | .generated =>
-        let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
-        if stmt.getAppFn.isConst then
-          scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
-        else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
+        if perStmtApplicable m && stmt.getAppFn.isConst then
+          perStmtScript nm stmt.getAppFn.constName! stmt.getAppNumArgs m b0 clkRst
+        else
+          let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
+          if stmt.getAppFn.isConst then
+            scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
+          else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
