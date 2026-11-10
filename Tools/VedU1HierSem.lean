@@ -199,28 +199,28 @@ def combOnly : List Stmt → Bool
   | _ => false
 
 /-- Run a child module at the given fuel on a seed environment, in the
-arrangement `arr c.name` of its body.  Fuel exhaustion is a failure. -/
-def runAt (d : Design) (arr : String → List Stmt) : Nat → Module → Env → Option Env
+arrangement `arr c` of its body.  Fuel exhaustion is a failure. -/
+def runAt (d : Design) (arr : Module → List Stmt) : Nat → Module → Env → Option Env
   | 0, _, _ => none
   | k + 1, c, seed =>
     if combOnly c.body = true then
-      evalAssignsI (declWidth c) (instEval d (runAt d arr k) (declWidth c)) (arr c.name) seed
+      evalAssignsI (declWidth c) (instEval d (runAt d arr k) (declWidth c)) (arr c) seed
     else none
 
 /-- The nesting fuel: one level per module of the design. -/
 def fuelOf (d : Design) : Nat := d.modules.length
 
 /-- One clock cycle of the closed design: the top module `m` (its body in the
-arrangement `arr m.name`) with its instances evaluated by the children. -/
-def stepH (d : Design) (arr : String → List Stmt) (m : Module) (env0 : Env) :
+arrangement `arr m`) with its instances evaluated by the children. -/
+def stepH (d : Design) (arr : Module → List Stmt) (m : Module) (env0 : Env) :
     Option (Env × List (String × Nat)) := do
   let envF ← evalAssignsI (declWidth m)
-    (instEval d (runAt d arr (fuelOf d)) (declWidth m)) (arr m.name) env0
-  let nexts ← regNexts (declWidth m) (fun _ _ => 0) (arr m.name) envF
+    (instEval d (runAt d arr (fuelOf d)) (declWidth m)) (arr m) env0
+  let nexts ← regNexts (declWidth m) (fun _ _ => 0) (arr m) envF
   some (envF, nexts)
 
 /-- `k` cycles (as `runModule`: the cycle index passed to `seed` counts down). -/
-def runH (d : Design) (arr : String → List Stmt) (m : Module)
+def runH (d : Design) (arr : Module → List Stmt) (m : Module)
     (seed : Nat → (String → Nat) → Env) : Nat → (String → Nat) → Option (List Env)
   | 0, _ => some []
   | k + 1, st => do

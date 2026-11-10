@@ -563,26 +563,26 @@ def LeafSucc (c : Module) (b : List Stmt) : Prop :=
 
 /-- THE INSTANCE STEP: one `inst` of a combinational leaf child writes its output wire with
 `leafOut`; nothing else is read except the input wires. -/
-theorem instEval_leaf (d : Design) (arr : String → List Stmt) (we : WEnv) (mn iname : String)
+theorem instEval_leaf (d : Design) (arr : Module → List Stmt) (we : WEnv) (mn iname : String)
     (conns : List (String × Expr)) (cm : Module) (xs : List String) (y : String) (env : Env)
     (hres : findMod d mn = some cm) (hprim : cm.isPrimitive = false)
     (hall : conns.all (fun p => (cm.inputs ++ cm.outputs).any (·.name == p.1)) = true)
     (hin : (cm.inputs.map (·.name)).map (fun n => conns.lookup n) = xs.map (fun x => some (Expr.ref x)))
     (hout : conns.filter (fun p => cm.outputs.any (·.name == p.1)) = [(outNameOf cm, Expr.ref y)])
-    (hass : assignOnly cm.body = true) (hperm : (arr cm.name).Perm cm.body)
-    (hfuel : 0 < fuelOf d) (hsucc : LeafSucc cm (arr cm.name)) :
+    (hass : assignOnly cm.body = true) (hperm : (arr cm).Perm cm.body)
+    (hfuel : 0 < fuelOf d) (hsucc : LeafSucc cm (arr cm)) :
     instEval d (runAt d arr (fuelOf d)) we mn iname conns env
-      = some [(y, leafOut cm (arr cm.name) (xs.map env))] := by
-  have hasgA : assignOnly (arr cm.name) = true := assignOnly_perm hperm.symm hass
+      = some [(y, leafOut cm (arr cm) (xs.map env))] := by
+  have hasgA : assignOnly (arr cm) = true := assignOnly_perm hperm.symm hass
   have hleaf := assignOnly_leaf _ hasgA
   obtain ⟨seed0, E0, hE0⟩ := hsucc
   have hE0' : evalAssignsI (declWidth cm)
-      (instEval d (runAt d arr (fuelOf d - 1)) (declWidth cm)) (arr cm.name) seed0 = some E0 := by
+      (instEval d (runAt d arr (fuelOf d - 1)) (declWidth cm)) (arr cm) seed0 = some E0 := by
     rw [evalAssignsI_leaf _ _ (fun _ _ => 0) _ _ hleaf]; exact hE0
   obtain ⟨k, hk⟩ : ∃ k, fuelOf d = k + 1 := ⟨fuelOf d - 1, by omega⟩
   have hseed := childSeed_eq we env cm conns xs hin
   have hrun : ∀ seed, ∃ envC, runAt d arr (fuelOf d) cm seed = some envC ∧
-      evalAssigns (declWidth cm) (fun _ _ => 0) (arr cm.name) seed = some envC := by
+      evalAssigns (declWidth cm) (fun _ _ => 0) (arr cm) seed = some envC := by
     intro seed
     obtain ⟨E', hE'⟩ := evalAssignsI_succ (declWidth cm)
       (instEval d (runAt d arr (fuelOf d - 1)) (declWidth cm)) _ seed0 E0 hleaf hE0' seed

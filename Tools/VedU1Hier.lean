@@ -90,15 +90,15 @@ def OrderOkH (d : Design) (m : Module) (b : List Stmt) : Bool :=
 
 def OrderH (d : Design) (m : Module) : Prop := ∃ b, OrderOkH d m b = true
 
-/-- An arrangement choice: per module name an arrangement of its body; the top hierarchically
+/-- An arrangement choice: per module an arrangement of its body; the top hierarchically
 well-ordered, every child well-ordered. -/
-def AdmArr (d : Design) (m : Module) (arr : String → List Stmt) : Prop :=
-  (arr m.name).Perm m.body ∧ WOH d (arr m.name) ∧
-  ∀ c ∈ d.modules, (arr c.name).Perm c.body ∧ WO [] (arr c.name)
+def AdmArr (d : Design) (m : Module) (arr : Module → List Stmt) : Prop :=
+  (arr m).Perm m.body ∧ WOH d (arr m) ∧
+  ∀ c ∈ d.modules, (arr c).Perm c.body ∧ WO [] (arr c)
 
 /-- The outputs of the CLOSED hierarchical run equal the declaration, at every cycle of every
 in-range input stream, and such a run EXISTS. -/
-def OutputsOnH (c : Contract) (m : Module) (d : Design) (arr : String → List Stmt)
+def OutputsOnH (c : Contract) (m : Module) (d : Design) (arr : Module → List Stmt)
     (f : c.table.Ty) : Prop :=
   ∀ ins, InputsOk c m ins → ∀ K, ∃ envs,
     runH d arr m (seedFwd m K ins) K (st0 c m) = some envs ∧
@@ -115,7 +115,7 @@ def U1HStmt (c : Contract) (m : Module) (d : Design) (f : c.table.Ty) : Prop :=
 
 /-! ## One-step invariant to the whole run -/
 
-theorem outputsH_of_step (c : Contract) (m : Module) (d : Design) (arr : String → List Stmt)
+theorem outputsH_of_step (c : Contract) (m : Module) (d : Design) (arr : Module → List Stmt)
     (f : c.table.Ty) (outs : List Port) (hO : c.outputs = outs)
     (R : (Nat → String → Nat) → Nat → (String → Nat) → Prop)
     (h0 : ∀ ins, InputsOk c m ins → R ins 0 (st0 c m))
@@ -169,18 +169,18 @@ theorem regNexts_asgInst (we : WEnv) (mems : MEnv) :
     cases s <;> simp [isAsgInst] at hs <;> simpa [regNexts] using hr
 
 /-- ORDER-FREE STEP: if ONE well-ordered arrangement `b0` of the top body folds to `E`, then
-`stepH` under ANY admissible arrangement `arr m.name` does too, with the same `E` and no register
+`stepH` under ANY admissible arrangement `arr m` does too, with the same `E` and no register
 update. -/
-theorem stepH_of_b0 (d : Design) (arr : String → List Stmt) (m : Module) (b0 : List Stmt)
-    (hp : (arr m.name).Perm b0) (hw1 : WOH d (arr m.name)) (hw2 : WOH d b0)
-    (hai : ∀ s ∈ arr m.name, isAsgInst s = true) (env0 E : Env)
+theorem stepH_of_b0 (d : Design) (arr : Module → List Stmt) (m : Module) (b0 : List Stmt)
+    (hp : (arr m).Perm b0) (hw1 : WOH d (arr m)) (hw2 : WOH d b0)
+    (hai : ∀ s ∈ arr m, isAsgInst s = true) (env0 E : Env)
     (h : evalAssignsI (declWidth m) (instEval d (runAt d arr (fuelOf d)) (declWidth m)) b0 env0 = some E) :
     stepH d arr m env0 = some (E, []) := by
   have h' := evalAssignsI_perm d (declWidth m) (instEval d (runAt d arr (fuelOf d)) (declWidth m))
     (instEval_laws d _ _) hp.symm hw2 hw1 h
   unfold stepH
   rw [h']
-  change (regNexts (declWidth m) (fun _ _ => 0) (arr m.name) E).bind _ = _
+  change (regNexts (declWidth m) (fun _ _ => 0) (arr m) E).bind _ = _
   rw [regNexts_asgInst _ _ _ _ hai]
   rfl
 
