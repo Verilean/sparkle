@@ -50,6 +50,13 @@ defSig sigHLt hLt
 defSig sigK k
 defSig sigEnv env
 defSig sigPfx ved_u
+/- Reserved-prefix lengthening: `ved_u` already lengthens the prefix to
+`ved_v_`; `ved_v_u` lengthens it again. -/
+defSig sigPfx2 ved_v_u
+/- Declaration base `hne` is a prefix of the internal binder `hne_0`; the old
+`mkI` took `hne_0` for a declaration name and left it unprefixed. -/
+defSig hne hne_0
+defSig hne2 hne2_0
 
 
 #guard_msgs (drop info) in
@@ -88,6 +95,12 @@ defSig sigPfx ved_u
 #verify_elab_deep sigEnv
 #guard_msgs (drop info) in
 #verify_elab_deep sigPfx
+#guard_msgs (drop info) in
+#verify_elab_deep sigPfx2
+#guard_msgs (drop info) in
+#verify_elab_deep hne
+#guard_msgs (drop info) in
+#verify_elab_deep hne2
 
 /-- The U1 deep entry's theorem, as `U1Stmt` of the declaration itself, with
 the strict audit axiom list. -/
@@ -121,5 +134,17 @@ checkCase sigHLt
 checkCase sigK
 checkCase sigEnv
 checkCase sigPfx
+checkCase sigPfx2
+checkCase hne
+checkCase hne2
+
+-- Generated constant names are unchanged by the binder hygiene fix.
+run_cmd liftTermElabM do
+  let env ← getEnv
+  let ns ← getCurrNamespace
+  for b in [`accOrd, `hne] do
+    for suf in ["_deep_trace", "_deep_rd0", "_deep_next", "_deep_inits", "_deep_out"] do
+      let n := ns ++ Name.mkSimple (b.toString ++ suf)
+      unless env.contains n do throwError "missing generated constant {n}"
 
 end Tests.Ved.DeepHygieneCheck
