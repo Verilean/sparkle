@@ -64,7 +64,7 @@ example : U1Stmt namedInit.ved_contract namedInit.ved_mod namedInit := namedInit
 
 /-! ## Refusal: an initial value depending on a parameter -/
 
-/-- info: refused: initial values must be closed; no theorem left -/
+/-- info: refused: parameter-dependent initial value; no theorem left -/
 #guard_msgs in
 run_cmd do
   let ok ← try elabCommand (← `(#verify_elab_deep paramInit)); pure true
@@ -75,12 +75,14 @@ run_cmd do
   let txt ← msgs.foldlM (fun s m => do pure (s ++ (← m.data.toString))) ""
   modify fun s => { s with messages := {} }
   unless (ok && hasErr) || !ok do throwError "paramInit was accepted"
-  unless (txt.splitOn "initial values depend on a parameter").length > 1 ||
+  -- the synthesis stage refuses a non-literal init first ("Expected BitVec
+  -- literal"); the locator's own message ("must be closed") is the backstop
+  unless (txt.splitOn "Expected BitVec literal").length > 1 ||
       (txt.splitOn "must be closed").length > 1 do
     throwError "unclear message: {txt}"
   let env ← getEnv
   if env.contains `Tests.Ved.DeepInitCheck.paramInit_deep_trace || env.contains `Tests.Ved.DeepInitCheck.paramInit_deep then
     throwError "a theorem was left behind"
-  logInfo "refused: initial values must be closed; no theorem left"
+  logInfo "refused: parameter-dependent initial value; no theorem left"
 
 end Tests.Ved.DeepInitCheck
