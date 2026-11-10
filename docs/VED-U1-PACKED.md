@@ -39,3 +39,13 @@ a new statement `PackedStmt` alongside it:
   `pc.core` is an ordinary `Contract` whose table has ONE `bv W` output (so the old statement is reused,
   not weakened), `packedF` is the declaration with its result packed by `BitVec.append`;
   `SlicesStmt` says that on every run every slice of the port equals the declaration's own projection.
+
+## 3. Entry, tests, results
+
+* `Tools/VedU1PackedEntry.lean`: `#ved_u1_packed decl` (`vedU1PackedS`, checker `checkPackedE`).  The slice map is
+  derived from the declaration's type (`OTy.slices`); the checker takes it as a parameter only for the controls.
+  Order of checks: `PackCover` (decidable; refuses at `[packed]`), then the generated proof (`[proof]`), kernel, audit.
+* Proof: the ordinary `U1Stmt` of the packed value (`PContract.core`, `packedF`) by the existing step lemma, then
+  `slices_of_outputs` (general, proved once in `Tools/VedU1Packed.lean` from `OTy.slices_obs`) turns it into the slice statement.
+* `Tests/Ved/U1PackedCheck.lean`: positives and negatives.
+* Scope: register-free bodies, `Bool` / `BitVec w` leaves, no params / structure / register / memory / hierarchy.
