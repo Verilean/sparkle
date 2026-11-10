@@ -160,6 +160,20 @@ def eqToNe (n : Nat) (m : Sparkle.IR.AST.Module) : Except String Sparkle.IR.AST.
     | _ => none) m
 
 open Sparkle.IR.AST in
+/-- compact rendering of the statements the mutators touch -/
+def showExpr : Expr → String
+  | .const v w => s!"const {v}:{w}"
+  | .ref n => n
+  | .op .eq args => s!"eq({", ".intercalate (args.map showExpr)})"
+  | .op .not args => s!"not({", ".intercalate (args.map showExpr)})"
+  | e => toString (repr e)
+
+open Sparkle.IR.AST in
+def showStmt : Stmt → String
+  | .assign o e => s!"{o} := {showExpr e}"
+  | s => toString (repr s)
+
+open Sparkle.IR.AST in
 /-- the positions where the bodies differ, with the old and the new statement
 (the rest of the module must be identical and the bodies of equal length) -/
 def bodyDiff (o m : Sparkle.IR.AST.Module) : Except String (List (Nat × String × String)) := do
@@ -167,7 +181,7 @@ def bodyDiff (o m : Sparkle.IR.AST.Module) : Except String (List (Nat × String 
   unless o.body.length == m.body.length do throw "body lengths differ"
   let mut out : List (Nat × String × String) := []
   for (i, (x, y)) in (o.body.zip m.body).zipIdx.map (fun (p, i) => (i, p)) do
-    if x ≠ y then out := out ++ [(i, toString (repr x), toString (repr y))]
+    if x ≠ y then out := out ++ [(i, showStmt x, showStmt y)]
   return out
 
 /-- Check original against mutant BEFORE the control runs: the number of differing
