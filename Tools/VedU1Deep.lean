@@ -33,16 +33,38 @@ one step of `Cdo.irState` (the compiled `next`, evaluated the same way);
 `outputs_of_order` then carries the result to EVERY well-ordered arrangement
 of `m.body` (`runModule_perm`).  This is not a statement about running the
 returned list `m.body` in its own order with `runModule`, nor about the C
-simulator.  The invariant is "the register of `m` = `Cdo.irState` at the
-same cycle".  Name/slot correspondence, widths (`declWidth` / `weOfC`), the
-mask, the initial value (`st0` / `_deep_inits`) and the time direction
-(`outputs_of_step`, `seedFwd_time`) are all closed inside that kernel proof;
-nothing is observed, and the two synthesis runs are not assumed equal.
+simulator.
+
+The invariant (k ≥ 1 registers) is the conjunction, over the Cdo's register
+slots `i < k`, of `st (_nm ⟨i, _⟩) = Cdo.irState … s ⟨i, _⟩`: the register of
+`m` that `_nm` names for slot `i` equals that slot at the same cycle.  The
+correspondence is by the `_nm` names, never by the order of the registers in
+`m`: two registers whose names are swapped in the module fail here.  Name/slot
+correspondence, widths (`declWidth` / `weOfC`), the mask, the initial value
+(`st0` / `_deep_inits`) and the time direction (`outputs_of_step`,
+`seedFwd_time`) are all closed inside that kernel proof; nothing is observed,
+and the two synthesis runs are not assumed equal.  The contract
+(`Tools/VedU1Contract.lean`: `regsOf`, `st0`, `ShapeCore`, `U1Stmt`) is
+unchanged; it already states multi-register modules.
+
+Bool data inputs use the declaration's own semantics: the contract side is
+`PTy.sig .bit` (`ins t n != 0`, observed by `PTy.obs`), the deep side is
+`{f}_inp`'s 1-bit encoding (`bif b then 1#1 else 0#1`); the proof uses
+`InputsOk` (`ins < 2 ^ declWidth` = 2) and no value encoding of its own.
+
+Generated binders in the script are macro-scoped fresh names
+(`mkFreshUserName`), so user parameters (`reset`, `en`, `a`, `b`, `u`, `m`, …)
+are never captured.
 
 Scope of this slice (the script fails, and the entry refuses, outside it):
-one register, data inputs of bit-vector type, one output, no memory.  The
-builder refuses up front when `#verify_elab_deep` has not produced the
-constants above, or the shape is outside the slice.
+k ≥ 1 registers, data inputs of Bool or bit-vector type, one output, no memory.
+The builder refuses up front when `#verify_elab_deep` has not produced the
+constants above, when the module's register count differs from the Cdo's, or
+the shape is otherwise outside the slice.  Known limits (measured, see
+docs/VED-U1-MAIN.md): the proof is a single `simp`/`omega` script, so a
+circuit with many registers AND several inputs can exceed the default
+heartbeat budget of the checker (refused at `[checker]`, never accepted);
+the global limits are not raised.
 -/
 
 namespace Tools.VedU1Deep
