@@ -2295,13 +2295,11 @@ elab "#verify_elab_deep" id:ident : command =>
       let lvl ← Lean.Meta.getLevel ty
       let eqTy := Lean.mkApp3 (Lean.mkConst ``Eq [lvl]) ty a rhs
       let pf := Lean.mkApp2 (Lean.mkConst ``Eq.refl [lvl]) ty a
-      let env ← Lean.getEnv
       let ok ← try
-          let decl := Lean.Declaration.thmDecl
-            { name := `_ved_init_check, levelParams := [], type := eqTy, value := pf }
-          match Lean.Environment.addDecl env (← Lean.getOptions) decl with
-          | .ok _ => pure true
-          | .error _ => pure false
+          Lean.withoutModifyingEnv do
+            Lean.addDecl (Lean.Declaration.thmDecl
+              { name := `_ved_init_check, levelParams := [], type := eqTy, value := pf })
+            pure true
         catch _ => pure false
       return if ok then some v else none
     let initVals (h : Lean.Expr) (isBools : Array Bool) (ws : Array Nat) :
