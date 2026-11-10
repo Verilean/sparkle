@@ -62,14 +62,24 @@ def main():
     ms = plan.get("ms", {})
     clock = 1000
     deep = bool(m and m.group(2) in ("u1_deep", "u1_deep_ns"))
+    nsr = bool(m and m.group(2) == "u1_deep_ns")
+
+    def u1n(line):
+        if nsr:
+            inner = plan.get("ns_inner", resolved)
+            pfx = resolved.rsplit(".", 1)[0]
+            msg("info", f"VED U1N scope={pfx} outer={resolved} inner={inner} "
+                        f"{'same' if inner == resolved else 'differs'}", line)
     if deep:
         l = at('#vedu1_t "p_begin"')
         msg("info", f"VED U1T p_begin {clock}", l)
+        u1n(l)
         if plan.get("prep_error"):
             msg("error", plan["prep_error"], at("#verify_elab_deep"))
         clock += ms.get("prep", 500)
         msg("info", f"VED U1T p_end {clock}", at('#vedu1_t "p_end"'))
     msg("info", f"VED U1T u_begin {clock}", at('#vedu1_t "u_begin"'))
+    u1n(at('#vedu1_t "u_begin"'))
     u1 = plan.get("u1", "ok")
     el = at("#ved_u1")
     if u1 == "ok":
