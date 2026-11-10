@@ -241,6 +241,18 @@ theorem childSucc_of_outputsOn (cc : Contract) (cm : Module) (b : List Stmt) (g 
       | none => simp [hv, hn] at hs
       | some N => exact ⟨_, E, N, hv, hn⟩
 
+/-- `ChildSucc` from one concrete successful cycle (decidable on a concrete module). -/
+theorem childSucc_of_step (c : Module) (b : List Stmt) (seed : Env)
+    (h : (stepModule (declWidth c) b seed (fun _ _ => 0)).isSome = true) : ChildSucc c b := by
+  obtain ⟨⟨e, nx, mm⟩, hs⟩ := Option.isSome_iff_exists.mp h
+  unfold stepModule at hs
+  cases hv : evalAssigns (declWidth c) (fun _ _ => 0) b seed with
+  | none => simp [hv] at hs
+  | some E =>
+    cases hn : regNexts (declWidth c) (fun _ _ => 0) b E with
+    | none => simp [hv, hn] at hs
+    | some N => exact ⟨seed, E, N, hv, hn⟩
+
 /-- Support of the top's expressions: every assign and register input evaluates (at the all-0
 environment, hence at every environment). -/
 def StmtSupp (we : WEnv) : Stmt → Bool
@@ -894,5 +906,149 @@ theorem runHS_proj_aux (d : Design) (arr : Module → List Stmt) (m : Module)
             · intro r hr'
               have : r ∈ regOuts (arr c') := (regOuts_perm_mem hperm r).mpr hr'
               simp [restrictTo, this]
+
+/-- THE PROJECTION LEMMA (§2.4 as revised), from the initial state.  A successful hierarchical run
+`runHSTrace … (st0H d m)` gives, for each instance, an EXISTENTIAL child trace `cenvs` with an
+auxiliary child state history `cstates` (`runModuleTrace`, which `runModule` is the first
+component of): the child's standalone run from the child's OWN initial state `st0Of c` (the slice
+is `st0H_slice`) on the stream the connections produce.  Input and output PORTS correspond through
+the parent's environments, internal REGISTERS through the child state history (`ProjAt`); nothing
+is claimed about the child's whole environment, and the agreement of the stream with the input a
+declaration expects (F2) is not part of it. -/
+theorem runHS_proj (d : Design) (arr : Module → List Stmt) (m : Module)
+    (hS : HierShapeS d m = true) (hA : AdmArr d m arr)
+    (inp : Nat → String → Nat) (K : Nat) (envs : List Env) (sts : List HSt)
+    (hrun : runHSTrace d arr m (seedFwd m K inp) K (st0H d m) = some (envs, sts))
+    (mn i : String) (cs : List (String × Expr)) (hin : Stmt.inst mn i cs ∈ m.body) :
+    ∃ c cenvs cstates, findMod d mn = some c ∧
+      runModuleTrace (declWidth c) (arr c) (seedFwd c K (insCOf (declWidth m) cs envs)) K (st0Of c)
+        (fun _ _ => 0) = some (cenvs, cstates) ∧
+      runModule (declWidth c) (arr c) (seedFwd c K (insCOf (declWidth m) cs envs)) K (st0Of c)
+        (fun _ _ => 0) = some cenvs ∧
+      ∀ t, t < K → ∃ E Ec S Sc, envs[t]? = some E ∧ cenvs[t]? = some Ec ∧ sts[t]? = some S ∧
+        cstates[t]? = some Sc ∧ ProjAt (declWidth m) c cs i E Ec S Sc := by
+  obtain ⟨c, hf, _⟩ := connsOkS_facts (hierS_inst_ok hS hin)
+  obtain ⟨cenvs, cstates, hrunM, hcorr⟩ := runHS_proj_aux d arr m hS hA mn i cs c hin hf K _ _ envs sts hrun
+  have hslice := st0H_slice d m mn i cs c (hierS_inst_unique hS) hin hf
+  have hperm := (hA.2.2 c (findMod_mem hf)).1
+  have hres : restrictTo (regOuts (arr c)) (st0H d m [i]) = st0Of c := by
+    rw [hslice]
+    funext n
+    by_cases hn : n ∈ regOuts (arr c)
+    · simp [restrictTo, hn]
+    · have : n ∉ regOuts c.body := fun h => hn ((regOuts_perm_mem hperm n).mpr h)
+      simp [restrictTo, hn, st0Of_off c n this]
+  rw [hres] at hrunM
+  refine ⟨c, cenvs, cstates, hf, hrunM, ?_, hcorr⟩
+  have := runModuleTrace_fst (declWidth c) (arr c) (seedFwd c K (insCOf (declWidth m) cs envs)) K
+    (st0Of c) (fun _ _ => 0)
+  rw [hrunM] at this
+  simpa using this.symm
+
+/-! ## clock / reset: the statement side (reviewer obligation 3) -/
+
+theorem instPair_some {d : Design} {m : Module} {mn : String} {cs : List (String × Expr)}
+    {x y : String} (h : instPair d m mn cs = some (x, y)) :
+    ∃ c kc kr, findMod d mn = some c ∧ regClkRst c.body = some (kc, kr) ∧
+      cs.lookup kc = some (Expr.ref x) ∧ cs.lookup kr = some (Expr.ref y) ∧
+      x ∈ inNames m ∧ y ∈ inNames m ∧ x ≠ y := by
+  cases hf : findMod d mn with
+  | none => simp [instPair, hf] at h
+  | some c =>
+    cases hr : regClkRst c.body with
+    | none => simp [instPair, hf, hr] at h
+    | some kk =>
+      obtain ⟨kc, kr⟩ := kk
+      cases h1 : cs.lookup kc with
+      | none => simp [instPair, hf, hr, h1] at h
+      | some e1 =>
+        cases h2 : cs.lookup kr with
+        | none => simp [instPair, hf, hr, h1, h2] at h
+        | some e2 =>
+          cases e1 with
+          | ref a =>
+            cases e2 with
+            | ref b =>
+              simp only [instPair, hf, hr, h1, h2] at h
+              split at h
+              · rename_i hc
+                simp only [Option.some.injEq, Prod.mk.injEq] at h
+                obtain ⟨rfl, rfl⟩ := h
+                simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, List.contains_eq_mem,
+                  decide_eq_true_eq] at hc
+                exact ⟨c, kc, kr, rfl, hr, h1, h2, hc.1.1.2, hc.1.2, hc.2⟩
+              · simp at h
+            | _ => simp [instPair, hf, hr, h1, h2] at h
+          | _ => simp [instPair, hf, hr, h1, h2] at h
+
+/-- Under `clkRstOk`, every instance whose child has a register is connected, on its child clock
+and reset ports, to ONE pair `(x, y)` of distinct parent inputs, and that pair is the contract's
+`clkRst` whenever the statement ties the contract to the design (`designClkRst`).  Nothing makes
+an arbitrary data input a reset: the reset input is the contract's reset, so `InputsOk`'s reset
+clause (`ins t y = 0`) applies to it, and the clock keeps the full range. -/
+theorem instPair_tie (d : Design) (m : Module) (hok : clkRstOk d m = true)
+    (mn i : String) (cs : List (String × Expr)) (c : Module)
+    (hin : Stmt.inst mn i cs ∈ m.body) (hf : findMod d mn = some c) (hreg : regsOf c.body ≠ [])
+    (cc : Contract) (htie : cc.clkRst = designClkRst d m) :
+    ∃ x y kc kr, regClkRst c.body = some (kc, kr) ∧ cs.lookup kc = some (Expr.ref x) ∧
+      cs.lookup kr = some (Expr.ref y) ∧ cc.clkRst = some (x, y) ∧ x ∈ inNames m ∧ y ∈ inNames m ∧
+      x ≠ y := by
+  have hmemR : (mn, i, cs) ∈ regInsts d m := by
+    unfold regInsts
+    rw [List.mem_filter]
+    refine ⟨(mem_instDecls_iff _ _).mpr hin, ?_⟩
+    simp [hf, hreg]
+  have hpm : instPair d m mn cs ∈ instPairs d m := List.mem_map.mpr ⟨_, hmemR, rfl⟩
+  unfold clkRstOk at hok
+  simp only [Bool.and_eq_true] at hok
+  obtain ⟨hall, hpar⟩ := hok
+  -- all pairs are `some p`
+  obtain ⟨p, hp, hpall⟩ : ∃ p, (instPairs d m) ≠ [] ∧ ∀ q ∈ instPairs d m, q = some p := by
+    cases hl : instPairs d m with
+    | nil => rw [hl] at hpm; cases hpm
+    | cons q qs =>
+      rw [hl] at hall
+      simp only [Bool.and_eq_true] at hall
+      obtain ⟨hq, hqs⟩ := hall
+      obtain ⟨p, rfl⟩ := Option.isSome_iff_exists.mp hq
+      refine ⟨p, by simp, ?_⟩
+      intro r hr
+      rcases List.mem_cons.mp hr with rfl | hr
+      · rfl
+      · simpa using List.all_eq_true.mp hqs r hr
+  have hpair : instPair d m mn cs = some p := hpall _ hpm
+  -- the design pair is `p`
+  have hdes : designClkRst d m = some p := by
+    unfold designClkRst
+    cases hrc : regClkRst m.body with
+    | some q =>
+      simp only [hrc]
+      have : (regsOf m.body).isEmpty = false := by
+        cases hr2 : regsOf m.body with
+        | nil => simp [regClkRst, hr2] at hrc
+        | cons _ _ => rfl
+      simp only [this, Bool.false_or, Bool.and_eq_true, hrc] at hpar
+      have := List.all_eq_true.mp hpar.2 _ hpm
+      simp only [hpair, hrc, beq_iff_eq, Option.some.injEq] at this
+      rw [this]
+    | none =>
+      simp only [hrc]
+      have : (regsOf m.body).isEmpty = true := by
+        cases hr2 : regsOf m.body with
+        | nil => rfl
+        | cons _ _ => simp [hr2, hrc] at hpar
+      cases hl : instPairs d m with
+      | nil => exact absurd hl hp
+      | cons q qs => simp [hpall q (by rw [hl]; exact List.mem_cons_self ..)]
+  obtain ⟨x, y⟩ := p
+  obtain ⟨c', kc, kr, hf', hrc, h1, h2, hx, hy, hne⟩ := instPair_some hpair
+  have hcc : c' = c := by rw [hf] at hf'; exact (Option.some.inj hf').symm
+  subst hcc
+  exact ⟨x, y, kc, kr, hrc, h1, h2, by rw [htie, hdes], hx, hy, hne⟩
+
+/-- The reset clause of `InputsOk` applied to that pair: the instance's reset input is 0. -/
+theorem inst_reset_zero (cc : Contract) (m : Module) (ins : Nat → String → Nat)
+    (hok : InputsOk cc m ins) (x y : String) (h : cc.clkRst = some (x, y)) (t : Nat) : ins t y = 0 :=
+  hok.2 t (x, y) h
 
 end Tools.VedU2Hier
