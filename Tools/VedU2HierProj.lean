@@ -10,8 +10,14 @@ Design: docs/VED-HIER-H2-DESIGN.md §2.4, §2.5, §11 (reviewer obligations of 3
   evaluates, a syntactic-support check at the all-0 environment; success of `evalExpr` does not
   depend on the environment: `evalExpr_env_some`) and `ChildSucc` (the child's one cycle succeeds
   at ONE point; for a leaf body that is success at every seed).  `childSucc_of_outputsOn` derives
-  `ChildSucc` from the child's REAL U1 statement (`OutputsOn`, K = 1, the all-0 stream), so no
-  success assumption is left in a final statement: the child's theorem plus the shape supply it.
+  `ChildSucc` from the child's REAL U1 statement (`OutputsOn`, K = 1, the all-0 stream).  This is
+  a SUPPLY PATH, not yet a final statement: there is no `U2HStmt` / entry in this unit, and
+  `runHS_exists` still takes `ExprsSupp` / `ChildSucc` (and `runHS_child_clkRst` takes `htie`,
+  `hwr`, `InputsOk`) as hypotheses.  Supplying them in the final theorem, F2, the child input range
+  and the parent's output meaning are the next unit's work.
+* `HierShapeS` / `childSane` / `AdmArr` are NOT a full acceptance check of a sound circuit (they do
+  not yet exclude duplicate register outputs, register vs assign / instance-output clashes, writes
+  to top inputs, undriven register inputs, …); the lemmas here hold over this wider abstract IR.
 * §2.4 PROJECTION with an EXPLICIT child state trace (`runModuleTrace`): input and output
   PORTS correspond through the parent environments, internal REGISTERS through the child state
   history; never a claim about the child's whole environment from the connections alone.
