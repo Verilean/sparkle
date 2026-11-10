@@ -31,8 +31,8 @@ def mo2 (a b : Signal defaultDomain (BitVec 8)) :
 
 /-- three outputs, right-nested -/
 def mo3r (a : Signal defaultDomain (BitVec 8)) (b c : Signal defaultDomain Bool) :
-    Signal defaultDomain (BitVec 8) × (Signal defaultDomain Bool × Signal defaultDomain (BitVec 16)) :=
-  (~~~a, (b, (fun x y => x ++ y) <$> a <*> a))
+    Signal defaultDomain (BitVec 8) × (Signal defaultDomain Bool × Signal defaultDomain (BitVec 4)) :=
+  (~~~a, (b, (fun x => x.extractLsb' 4 4) <$> a))
 
 /-- three outputs, left-nested -/
 def mo3l {dom : DomainConfig} (a b : Signal dom (BitVec 8)) :
