@@ -462,6 +462,8 @@ def checkU2H (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.M
       (toExpr b0)
     unless (regsOf m.body).isEmpty do
       refuse decl "scope" m!"the parent has registers (H2b: a parent with registers is another unit)"
+    if d.modules.isEmpty then
+      refuse decl "scope" m!"the parent has no child instance (a register-free parent without instances is `#ved_u1`)"
     -- every module of the design: its declaration and port table
     let mut pre : List (Sparkle.IR.AST.Module × Name × Lean.Expr × Nat × DeclTable) := []
     for cm in d.modules do

@@ -111,6 +111,37 @@ def parMulti (r0 r1 : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 
   let q := twoReg r1
   p - q
 
+/-- Three instances of the same child. -/
+@[hardware_module]
+def parThree (a b c : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  let p := accMod a
+  let q := accMod b
+  let r := accMod c
+  p - q + r
+
+/-- Two instances of the same child on the SAME input (two instances, one call, separate state). -/
+@[hardware_module]
+def parSame (a b : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  let p := accMod a
+  let q := accMod a
+  p - q + b
+
+/-- A combinational child next to a register child. -/
+@[hardware_module]
+def combC (x y : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  x - y
+
+@[hardware_module]
+def parMixed (a b : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  let p := accMod a
+  let q := combC b a
+  p + q
+
+/-- No child at all (that is `#ved_u1`). -/
+@[hardware_module]
+def parLeafOnly (a b : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  a + b
+
 /-- A parent that feeds an instance from a DERIVED wire (outside H2a). -/
 @[hardware_module]
 def parDerived (a b : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
@@ -302,6 +333,18 @@ run_cmd do
 /-- info: u2 hier OK Tests.Ved.U2HierCheck.parMulti.ved_u1 children [Tests.Ved.U2HierCheck.twoReg] -/
 #guard_msgs in
 run_cmd checkOk ``parMulti
+
+/-- info: u2 hier OK Tests.Ved.U2HierCheck.parThree.ved_u1 children [Tests.Ved.U2HierCheck.accMod] -/
+#guard_msgs in
+run_cmd checkOk ``parThree
+
+/-- info: u2 hier OK Tests.Ved.U2HierCheck.parSame.ved_u1 children [Tests.Ved.U2HierCheck.accMod] -/
+#guard_msgs in
+run_cmd checkOk ``parSame
+
+/-- info: u2 hier OK Tests.Ved.U2HierCheck.parMixed.ved_u1 children [Tests.Ved.U2HierCheck.accMod, Tests.Ved.U2HierCheck.combC] -/
+#guard_msgs in
+run_cmd checkOk ``parMixed
 
 /-! ## Controls: ONE piece altered, refused at a named stage, nothing left -/
 
@@ -555,6 +598,12 @@ run_cmd do
   entryRefused ``parPair "multi-output"
   logInfo "multi-output refused"
 
+/-- info: no child refused at [scope] -/
+#guard_msgs in
+run_cmd do
+  entryRefused ``parLeafOnly "scope"
+  logInfo "no child refused at [scope]"
+
 /-- info: derived instance input refused at [conns] -/
 #guard_msgs in
 run_cmd do
@@ -649,7 +698,8 @@ run_cmd liftCoreM do
       ``Tools.VedU2Hier.runHSTrace_cycle, ``Tools.VedU2Hier.outputsOnHS_of_oracle,
       ``Tools.VedU2Hier.kid_inst, ``Tools.VedU2Hier.connsIn_sound, ``Tools.VedU2Hier.dataIn_sound,
       ``Tools.VedU2Hier.runModule_congr_seed, ``parTwo_changing_clock, ``parTwo_any_clock,
-      ``insRst_not_ok, ``inputsOk_clk, ``parTwo.ved_u1, ``parMulti.ved_u1,
+      ``insRst_not_ok, ``inputsOk_clk, ``parTwo.ved_u1, ``parMulti.ved_u1, ``parThree.ved_u1,
+      ``parSame.ved_u1, ``parMixed.ved_u1,
       ``parTwo.ved_open_eq, ``Tools.VedU2Hier.runHS_proj, ``Tools.VedU2Hier.runHS_proj_aux,
       ``Tools.VedU2Hier.runHS_exists, ``Tools.VedU2Hier.runHS_child_clkRst,
       ``Tools.VedU2Hier.childSucc_of_outputsOn, ``Tools.VedU2Hier.instPair_tie,
