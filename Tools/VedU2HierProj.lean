@@ -629,4 +629,80 @@ theorem runModuleTrace_congr_seed (we : WEnv) (body : List Stmt) (seed1 seed2 : 
       have hi := ih (fun j hj => h j (Nat.lt_succ_of_lt hj))
       simp [hi]
 
+/-! ## Projection -/
+
+/-- The child's input stream: the connection expressions evaluated in the parent's cycle
+environments (value 0 outside the trace; the lemma below never reads outside it). -/
+def insCOf (we : WEnv) (cs : List (String × Expr)) (envs : List Env) : Nat → String → Nat :=
+  fun t n =>
+    match envs[t]?, cs.lookup n with
+    | some E, some e => (evalExpr we E e).getD 0
+    | _, _ => 0
+
+/-- The three correspondences at ONE cycle, kept apart:
+* INPUT ports: the child's input value is the connection evaluated in the PARENT's environment;
+* OUTPUT ports: the parent wire an output is connected to holds the child's output value;
+* REGISTERS: the child's registers are the hierarchical state's slice `[i]`, held in the
+  auxiliary child state history.
+Nothing is said about any other name of the child's environment. -/
+def ProjAt (we : WEnv) (c : Module) (cs : List (String × Expr)) (i : String)
+    (E Ec : Env) (S : HSt) (Sc : String → Nat) : Prop :=
+  (∀ p ∈ c.inputs, ∃ e, cs.lookup p.name = some e ∧ evalExpr we E e = some (Ec p.name)) ∧
+  (∀ q ∈ c.outputs, ∃ x, cs.lookup q.name = some (Expr.ref x) ∧ E x = Ec q.name) ∧
+  (∀ r ∈ regOuts c.body, S [i] r = Sc r)
+
+theorem childNexts_fst (d : Design) (arr : Module → List Stmt) (we : WEnv) (st : HSt) (envF : Env)
+    (x : String × String × List (String × Expr)) (y : Path × List (String × Nat))
+    (h : childNexts d arr we st envF x = some y) : y.1 = [x.2.1] := by
+  obtain ⟨mn, i, cs⟩ := x
+  unfold childNexts at h
+  cases hf : findMod d mn with
+  | none => simp [hf] at h
+  | some c =>
+    simp only [hf] at h
+    by_cases hok : instOkS c cs = true
+    · simp only [hok, if_true] at h
+      cases hr : childRunS arr we c cs envF (st [i]) with
+      | none => simp [hr] at h
+      | some envC =>
+        cases hn : regNexts (declWidth c) (fun _ _ => 0) (arr c) envC with
+        | none => simp [hr, hn] at h
+        | some nx => simp [hr, hn] at h; rw [← h]
+    · simp [hok] at h
+
+/-- Inverting a successful step. -/
+theorem stepHS_some_inv {d : Design} {arr : Module → List Stmt} {m : Module} {st : HSt} {env0 envF : Env}
+    {ups : Ups} (h : stepHS d arr m st env0 = some (envF, ups)) :
+    clkRstOk d m = true ∧
+    evalAssignsI (declWidth m) (instEvalS d arr st (declWidth m)) (arr m) env0 = some envF ∧
+    ∃ nxP ys, regNexts (declWidth m) (fun _ _ => 0) (arr m) envF = some nxP ∧
+      (instDecls (arr m)).mapM (childNexts d arr (declWidth m) st envF) = some ys ∧
+      ups = ([], nxP) :: ys := by
+  unfold stepHS at h
+  by_cases hclk : clkRstOk d m = true
+  · rw [if_pos hclk] at h
+    cases hf : evalAssignsI (declWidth m) (instEvalS d arr st (declWidth m)) (arr m) env0 with
+    | none => simp [hf] at h
+    | some E =>
+      cases hn : regNexts (declWidth m) (fun _ _ => 0) (arr m) E with
+      | none => simp [hf, hn] at h
+      | some nxP =>
+        cases hk : (instDecls (arr m)).mapM (childNexts d arr (declWidth m) st E) with
+        | none => simp [hf, hn, hk] at h
+        | some ys =>
+          simp [hf, hn, hk] at h
+          obtain ⟨h1, h2⟩ := h
+          subst h1; subst h2
+          exact ⟨hclk, rfl, nxP, ys, hn, hk, rfl⟩
+  · rw [if_neg hclk] at h; simp at h
+
+theorem seedFwd_shift (c : Module) (we : WEnv) (cs : List (String × Expr)) (E : Env) (rest : List Env)
+    (k j : Nat) (hj : j < k) :
+    seedFwd c (k + 1) (insCOf we cs (E :: rest)) j = seedFwd c k (insCOf we cs rest) j := by
+  funext st n
+  simp only [seedFwd]
+  have : k + 1 - 1 - j = (k - 1 - j) + 1 := by omega
+  rw [this]
+  simp [insCOf]
+
 end Tools.VedU2Hier
