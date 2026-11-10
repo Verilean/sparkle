@@ -411,4 +411,105 @@ def seedOfVals (ns : List String) (vals : List Nat) : Env := fun n =>
   | some v => v
   | none => 0
 
+theorem PTy.obs_lt (p : PTy) (v : p.val) : p.obs v < 2 ^ p.width := by
+  cases p with
+  | bit => cases (show Bool from v) <;> simp [PTy.obs, PTy.width]
+  | bv w => exact BitVec.isLt _
+
+theorem streamOf_lt : ∀ (ps : List PTy) (ns : List String) (args : ArgSigs ps) (t : Nat),
+    ns.Nodup → ns.length = ps.length → ∀ n q, (n, q) ∈ ns.zip ps →
+      streamOf ns (obsArgs ps args) t n < 2 ^ q.width := by
+  intro ps
+  induction ps with
+  | nil => intro ns args t _ _ n q h; cases ns <;> simp at h
+  | cons p ps ih =>
+    intro ns args t hnd hl n q hm
+    obtain ⟨a, r⟩ := args
+    cases ns with
+    | nil => simp at hl
+    | cons n0 ns' =>
+      have hnd' := List.nodup_cons.mp hnd
+      simp only [List.zip_cons_cons, List.mem_cons, Prod.mk.injEq] at hm
+      rcases hm with ⟨rfl, rfl⟩ | hm
+      · simp only [streamOf, obsArgs, List.zip_cons_cons, List.lookup, beq_self_eq_true, ite_true,
+          Option.getD_some]
+        exact PTy.obs_lt _ _
+      · have hn : n ∈ ns' := (List.of_mem_zip hm).1
+        have hne : (n == n0) = false := beq_eq_false_iff_ne.mpr (fun e => hnd'.1 (e ▸ hn))
+        have := ih ns' r t hnd'.2 (by simpa using hl) n q hm
+        simpa [streamOf, obsArgs, List.zip_cons_cons, List.lookup, hne] using this
+
+theorem dataInputs_names (cc : Contract) (hl : cc.inNames.length = cc.table.ins.length) :
+    cc.dataInputs.map (·.name) = cc.inNames := by
+  simp only [Contract.dataInputs, List.map_map]
+  have : (fun (x : String × PTy) => (Port.mk x.1 x.2.hw).name) = Prod.fst := rfl
+  show List.map ((fun (x : String × PTy) => (Port.mk x.1 x.2.hw).name)) (cc.inNames.zip cc.table.ins) = _
+  rw [this]
+  exact List.map_fst_zip (by omega)
+
+/-- THE COMPOSITION CORE: from the child's REAL U1 theorem, for every call (one signal per input
+port) and every time, the child's combinational fold on the seed of the observed argument values
+succeeds and its output port holds the declaration's value. -/
+theorem child_rel (cc : Contract) (cm : Module) (g : cc.table.Ty) (b : List Stmt)
+    (hU : U1Stmt cc cm g) (hpa : b.Perm cm.body) (hwo : WO [] b)
+    (hasg : assignOnly cm.body = true) (hclk : cc.clkRst = none)
+    (args : ArgSigs cc.table.ins) (t : Nat) :
+    ∃ envC, evalAssigns (declWidth cm) (fun _ _ => 0) b
+        (seedOfVals cc.inNames (obsArgs cc.table.ins args t)) = some envC ∧
+      ∀ o ∈ cc.outputs, envC o.name =
+        ((cc.outNames.zip (cc.table.out.obs ((applyArgs cc.table.ins g args).val t))).lookup o.name).getD 0 := by
+  obtain ⟨hcorr, ⟨hcore, _⟩, hwid, _, hout⟩ := hU
+  obtain ⟨hl1, hl2, hl3, hnd, _⟩ := hcorr
+  have hndin : cc.inNames.Nodup := by
+    have := hnd
+    simp only [List.nodup_append] at this
+    exact this.1.1
+  obtain ⟨ins, hins⟩ : ∃ ins, ins = streamOf cc.inNames (obsArgs cc.table.ins args) := ⟨_, rfl⟩
+  have hok : InputsOk cc cm ins := by
+    refine ⟨?_, fun t kr h => by rw [hclk] at h; cases h⟩
+    intro t' p hp
+    simp only [Contract.dataInputs, List.mem_map] at hp
+    obtain ⟨⟨n, q⟩, hm, rfl⟩ := hp
+    have hw := hwid.2.1 ⟨n, q.hw⟩ (by simp only [Contract.dataInputs, List.mem_map]; exact ⟨(n, q), hm, rfl⟩)
+    rw [hw.2]
+    have := streamOf_lt cc.table.ins cc.inNames args t' hndin hl2 n q hm
+    rw [← hins] at this
+    have hbw : q.hw.bitWidth = q.width := by cases q <;> rfl
+    rw [hbw]; exact this
+  obtain ⟨envs, hrunM, hall⟩ := hout b hpa hwo ins hok (t + 1)
+  obtain ⟨X, hX, hX2⟩ := runModule_assign (declWidth cm) b (seedFwd cm (t + 1) ins)
+    (assignOnly_perm hpa.symm hasg) (t + 1) (st0 cc cm) (fun _ _ => 0) envs hrunM t (by omega)
+  have hinp : cm.inputs = cc.dataInputs := by
+    rw [hcore.2.2.2.2.1]; simp [clkRstPorts, hclk]
+  have hnames : cm.inputs.map (·.name) = cc.inNames := by rw [hinp]; exact dataInputs_names cc hl2
+  have hinits : cc.inits = [] := by
+    have := hcore.2.2.2.2.2.2.2.1
+    rw [assignOnly_regsOf cm.body hasg] at this
+    simpa using this.symm
+  have hseed : seedFwd cm (t + 1) ins (t + 1 - 1 - t) (st0 cc cm) =
+      seedOfVals cc.inNames (obsArgs cc.table.ins args t) := by
+    funext n
+    have h0 : t + 1 - 1 - t = 0 := by omega
+    have h1 : t + 1 - 1 - 0 = t := by omega
+    rw [h0]
+    simp only [seedFwd, hnames, h1]
+    by_cases hn : n ∈ cc.inNames
+    · simp only [hn, List.contains_eq_mem, decide_true, ite_true, hins, streamOf, seedOfVals]
+      cases (cc.inNames.zip (obsArgs cc.table.ins args t)).lookup n <;> rfl
+    · have hn' : (cc.inNames.zip (obsArgs cc.table.ins args t)).lookup n = none := by
+        rw [List.lookup_eq_none_iff]
+        intro p hp
+        have := (List.of_mem_zip hp).1
+        have hne : p.1 ≠ n := fun e => hn (e ▸ this)
+        simpa [beq_iff_eq] using Ne.symm hne
+      simp [hn, seedOfVals, hn', st0, hinits]
+  rw [hseed] at hX2
+  refine ⟨X, hX2, ?_⟩
+  intro o ho
+  obtain ⟨env, he, hv⟩ := hall t (by omega) o ho
+  rw [hX] at he
+  cases he
+  rw [hv]
+  simp only [srcOf, hins]
+  rw [applyIns_streamOf cc.table.ins cc.inNames args g hl2 hndin]
 end Tools.VedU1Hier
