@@ -45,8 +45,18 @@ def childSane (c : Module) : Bool :=
     | _ => true) &&
   (regOuts c.body).all (fun n => !(inNames c).contains n)
 
+/-- The child's clock and reset ports: the names its registers use (none without registers).
+The parent declares NO wire for its own clk/rst inputs (the synthesizer emits none; `WidthStmt`
+requires wires for data inputs and register outputs only), so the width of a connection to these
+two ports is not read from `declWidth`: it is the input pair judged by `clkRstOk`. -/
+def isClkRstPort (c : Module) (n : String) : Bool :=
+  match regClkRst c.body with
+  | some (kc, kr) => n == kc || n == kr
+  | none => false
+
 /-- One `inst` against the design (H2): H1's `connsOk` with a child that may carry registers
-(`leafBody`), plus `childSane`. -/
+(`leafBody`), plus `childSane`; the width of a connection is checked on every port except the
+child's clock and reset ports (`isClkRstPort`). -/
 def connsOkS (d : Design) (m : Module) (mn : String) (cs : List (String × Expr)) : Bool :=
   match findMod d mn with
   | none => false
@@ -58,7 +68,8 @@ def connsOkS (d : Design) (m : Module) (mn : String) (cs : List (String × Expr)
     cs.all (fun q => (c.inputs ++ c.outputs).any (fun p => p.name == q.1)) &&
     cs.all (fun q => match q.2 with
       | .ref x => (c.inputs ++ c.outputs).any
-          (fun p => p.name == q.1 && scalar p.ty && declWidth m x == p.ty.bitWidth)
+          (fun p => p.name == q.1 && scalar p.ty &&
+            (declWidth m x == p.ty.bitWidth || isClkRstPort c p.name))
       | _ => false)
 
 /-- The design checks of H2, the analogue of `HierShape`; plus the clock/reset judgement. -/
