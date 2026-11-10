@@ -39,7 +39,7 @@ module of the emitted scope (sv text + children); `irtop_*` = the top module onl
 yosys (pinned nixpkgs; every option is recorded in the record): the SV files are read by
   (a) generic: read_verilog -sv F..; hierarchy -top T; synth -top T; stat
   (b) fpga:    read_verilog -sv F..; hierarchy -top T; synth_gowin -top T; stat
-with T the IR top module name.  A timeout, an error, a missing top or an unreadable stat is
+with T the SV name of the IR top module (`sanitizeName m.name`, as the emitter writes it; both names are recorded).  A timeout, an error, a missing top or an unreadable stat is
 a status, never a 0.  Numbers are blank unless the status is `ok`.
 
 Subcommands: rows | header | gen | classify | error-row
@@ -80,7 +80,7 @@ RESULT_COLUMNS = KEY_COLUMNS + [
     "run_id", "attempt", "src_sha", "src_dirty_hash", "toolchain", "case_hash", "harness_hash",
     "ran", "rc", "term", "timeout", "wall_s", "peak_rss_kb",
     "size_status", "size_error",
-    "top", "synth_ms", "sv_modules", "children_modules",
+    "top", "sv_top", "synth_ms", "sv_modules", "children_modules",
     "sv_sha256", "sv_bytes", "children_sha256", "sv_identity", "sv_module_sha256", "sv_join_check",
 ] + [f"ir_{f}" for f in IR_FIELDS] + [f"opt_{f}" for f in IR_FIELDS] + [
     f"irtop_{f}" for f in ("regs", "mems", "insts", "stmts", "wires", "regbits", "membits")
@@ -134,7 +134,7 @@ TAIL = '''    let t1 ← IO.monoMsNow
       | .memory _ aw dw .. => a + (2 ^ aw) * dw | _ => a) 0
     let line := fun (tag : String) (role : String) (i : Nat) (m : Sparkle.IR.AST.Module) =>
       s!"mod {tag} {role} {i} {m.name} regs={(m.body.filter isReg).length} mems={(m.body.filter isMem).length} insts={(m.body.filter isInst).length} stmts={m.body.length} wires={m.wires.length} regbits={regBits m} regbits_unknown={regUnk m} membits={memBits m}"
-    let mut lines : Array String := #[s!"kind={kind}", s!"top={top}", s!"synth_ms={t1 - t0}",
+    let mut lines : Array String := #[s!"kind={kind}", s!"top={top}", s!"sv_top={Sparkle.Backend.Verilog.sanitizeName top}", s!"synth_ms={t1 - t0}",
       s!"sv_modules={scope.length}", s!"children_modules={kids.length}"]
     let mut i := 0
     for m in scope do
@@ -476,7 +476,7 @@ def classify_dir(d, sv_group=""):
             row[t + "_status"] = "not-run"
         return row
     hdr, mods = parsed
-    row["top"], row["synth_ms"] = hdr.get("top", ""), hdr.get("synth_ms", "")
+    row["top"], row["sv_top"], row["synth_ms"] = hdr.get("top", ""), hdr.get("sv_top", ""), hdr.get("synth_ms", "")
     row["sv_modules"], row["children_modules"] = hdr.get("sv_modules", ""), hdr.get("children_modules", "")
     row["cmd_kind"] = hdr.get("kind", row["cmd_kind"])
     ir_columns(row, hdr, mods)
@@ -498,7 +498,7 @@ def classify_dir(d, sv_group=""):
     # yosys
     files = [os.path.join(d, "size_sv.sv")] + ([kp] if kids else [])
     row["ys_files"] = ";".join(os.path.basename(f) for f in files)
-    top, cmd, tmo = row["top"], yosys_cmd(), yosys_tmo()
+    top, cmd, tmo = row["sv_top"] or row["top"], yosys_cmd(), yosys_tmo()   # yosys sees the EMITTED (sanitised) name
     rd = "read_verilog -sv " + " ".join(files)
     rd_rec = "read_verilog -sv " + " ".join(os.path.basename(f) for f in files)   # recorded: no run-dir paths
     flows = (("g", "generic", "synth"), ("f", "fpga", "synth_gowin"))

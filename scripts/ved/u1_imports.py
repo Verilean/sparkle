@@ -19,10 +19,11 @@ def main():
     p.add_argument("--repo", default=".")
     p.add_argument("--list")
     p.add_argument("--all", action="store_true")
+    p.add_argument("--tools", nargs="*", help="replace the U1 tool modules (size harness: Sparkle.Compiler.Elab)")
     a = p.parse_args()
     rows = u0_gen.git_show_inventory(a.repo, u0_gen.INV_COMMIT, u0_gen.INV_BLOB)
     want = None if a.all else {ln.split()[0] for ln in open(a.list) if ln.strip()}
-    mods = set(TOOLS)
+    mods = set(TOOLS if a.tools is None else a.tools)
     for r in rows:
         if want is not None and r["row"] not in want:
             continue
