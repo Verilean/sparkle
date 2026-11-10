@@ -303,4 +303,131 @@ theorem instEvalS_succ {d : Design} {m : Module} (arr : Module → List Stmt) (s
   simp only [this, Option.bind_some]
   exact hl
 
+theorem leafBody_iff : ∀ b : List Stmt, leafBody b = true ↔
+    ∀ s ∈ b, (∃ l r, s = Stmt.assign l r) ∨ (∃ o c r e i, s = Stmt.register o c r e i) := by
+  intro b
+  induction b with
+  | nil => simp [leafBody]
+  | cons s rest ih =>
+    cases s with
+    | assign l r =>
+      simp only [leafBody, ih, List.mem_cons, forall_eq_or_imp]
+      constructor
+      · intro h; exact ⟨Or.inl ⟨l, r, rfl⟩, h⟩
+      · intro h; exact h.2
+    | register o c r e i =>
+      simp only [leafBody, ih, List.mem_cons, forall_eq_or_imp]
+      constructor
+      · intro h; exact ⟨Or.inr ⟨o, c, r, e, i, rfl⟩, h⟩
+      · intro h; exact h.2
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ =>
+      simp only [leafBody, Bool.false_eq_true, false_iff]
+      intro h
+      rcases h _ (List.mem_cons_self ..) with ⟨l, r, h⟩ | ⟨o, c, r, e, i, h⟩ <;> cases h
+    | inst _ _ _ =>
+      simp only [leafBody, Bool.false_eq_true, false_iff]
+      intro h
+      rcases h _ (List.mem_cons_self ..) with ⟨l, r, h⟩ | ⟨o, c, r, e, i, h⟩ <;> cases h
+
+theorem leafBody_perm {b b' : List Stmt} (hp : b.Perm b') (h : leafBody b = true) :
+    leafBody b' = true := by
+  rw [leafBody_iff] at h ⊢
+  exact fun s hs => h s (hp.mem_iff.mpr hs)
+
+/-- One child's cycle exists in any enclosing environment and on any state slice. -/
+theorem childRun_succ (arr : Module → List Stmt) (we : WEnv) (c : Module) (cs : List (String × Expr))
+    (env : Env) (stc : String → Nat)
+    (hin : ∀ p ∈ c.inputs, ∃ q ∈ cs, q.1 = p.name) (href : ∀ q ∈ cs, ∃ x, q.2 = Expr.ref x)
+    (hsucc : ChildSucc c (arr c)) (hleaf : leafBody (arr c) = true) :
+    ∃ envC nx, childRunS arr we c cs env stc = some envC ∧
+      regNexts (declWidth c) (fun _ _ => 0) (arr c) envC = some nx := by
+  obtain ⟨seed0, E0, nx0, hE0, hN0⟩ := hsucc
+  obtain ⟨e, he⟩ := childSeed_some c cs we env hin href
+  obtain ⟨E', hE'⟩ := evalAssigns_succ_leaf _ _ _ hleaf seed0 E0 hE0
+    (fun n => if (regOuts (arr c)).contains n && !(inNames c).contains n then stc n else e n)
+  obtain ⟨nx', hnx'⟩ := regNexts_succ_leaf _ _ _ E0 nx0 hleaf hN0 E'
+  refine ⟨E', nx', ?_, hnx'⟩
+  simp only [childRunS, childSeedS, he, Option.map_some, Option.bind_some]
+  exact hE'
+
+theorem evalAssignsI_succ_S (m : Module) (ie : InstEval) :
+    ∀ (b : List Stmt) (env : Env), (∀ s ∈ b, isAsgInstReg s = true) → ExprsSupp m b →
+      (∀ mn i cs, Stmt.inst mn i cs ∈ b → ∀ e, ∃ l, ie mn i cs e = some l) →
+      ∃ E, evalAssignsI (declWidth m) ie b env = some E := by
+  intro b
+  induction b with
+  | nil => intro env _ _ _; exact ⟨env, rfl⟩
+  | cons s rest ih =>
+    intro env hb hs hi
+    have hl : ∃ l, cellVals (declWidth m) ie s env = some l := by
+      cases s with
+      | assign x r =>
+        have := hs _ (List.mem_cons_self ..)
+        simp only [StmtSupp] at this
+        obtain ⟨v, hv⟩ := evalExpr_isSome_any _ r this env
+        exact ⟨[(x, v)], by simp [cellVals, hv]⟩
+      | register _ _ _ _ _ => exact ⟨[], rfl⟩
+      | inst mn i cs => exact hi mn i cs (List.mem_cons_self ..) env
+      | memory _ _ _ _ _ _ _ _ _ _ _ _ =>
+        have := hb _ (List.mem_cons_self ..); simp [isAsgInstReg] at this
+    obtain ⟨l, hl⟩ := hl
+    obtain ⟨E, hE⟩ := ih (upd env l) (fun x hx => hb x (List.mem_cons_of_mem _ hx))
+      (fun x hx => hs x (List.mem_cons_of_mem _ hx))
+      (fun mn i cs hm e => hi mn i cs (List.mem_cons_of_mem _ hm) e)
+    exact ⟨E, by simp [evalAssignsI, hl, hE]⟩
+
+/-- STEP SUCCESS (§2.5, reviewer obligation 1), from any state and any seed.  The conditions are
+EXPLICIT: the shape (`HierShapeS`, which carries the wiring and `clkRstOk`), the admissible
+arrangements, `ExprsSupp` for the top's expressions and `ChildSucc` for each child (supplied by the
+child's real theorem, `childSucc_of_outputsOn`).  Nothing is read from the hierarchical run. -/
+theorem stepHS_succ (d : Design) (arr : Module → List Stmt) (m : Module)
+    (hS : HierShapeS d m = true) (hA : AdmArr d m arr) (hsupp : ExprsSupp m (arr m))
+    (hch : ∀ c ∈ d.modules, ChildSucc c (arr c)) (st : HSt) (env0 : Env) :
+    ∃ r, stepHS d arr m st env0 = some r := by
+  have hmem : ∀ s, s ∈ arr m → s ∈ m.body := fun s hs => hA.1.mem_iff.mp hs
+  have hai : ∀ s ∈ arr m, isAsgInstReg s = true := fun s hs => hierS_body hS s (hmem s hs)
+  have hinst : ∀ mn i cs, Stmt.inst mn i cs ∈ arr m → ∃ c, findMod d mn = some c ∧
+      leafBody (arr c) = true ∧ (∀ p ∈ c.inputs, ∃ q ∈ cs, q.1 = p.name) ∧
+      (∀ q ∈ cs, ∃ x, q.2 = Expr.ref x) ∧ ChildSucc c (arr c) ∧ instOkS c cs = true := by
+    intro mn i cs hin
+    obtain ⟨c, hf, hprim, hleaf, hsane, hnd, hol, hall, hcov, href⟩ :=
+      connsOkS_facts (hierS_inst_ok hS (hmem _ hin))
+    refine ⟨c, hf, leafBody_perm (hA.2.2 c (findMod_mem hf)).1.symm hleaf,
+      fun p hp => hcov p (List.mem_append_left _ hp), href, hch c (findMod_mem hf), ?_⟩
+    unfold instOkS; rw [hprim, hleaf, hall]; rfl
+  have hfold : ∃ E, evalAssignsI (declWidth m) (instEvalS d arr st (declWidth m)) (arr m) env0 = some E := by
+    apply evalAssignsI_succ_S m _ _ _ hai hsupp
+    intro mn i cs hin e
+    obtain ⟨c, hf, hleaf, hin', href, hsucc, hok⟩ := hinst mn i cs hin
+    obtain ⟨envC, nx, hr, _⟩ := childRun_succ arr (declWidth m) c cs e (st [i]) hin' href hsucc hleaf
+    obtain ⟨l, hl⟩ := outWrites_some c cs envC href
+    exact ⟨l, by simp [instEvalS, hf, hok, hr, hl]⟩
+  obtain ⟨E, hE⟩ := hfold
+  obtain ⟨nxP, hnxP⟩ := regNexts_succ_supp m (fun _ _ => 0) (arr m) hai hsupp E
+  have hkids : ∃ ys, (instDecls (arr m)).mapM (childNexts d arr (declWidth m) st E) = some ys := by
+    apply mapM_some_of_forall
+    rintro ⟨mn, i, cs⟩ hx
+    obtain ⟨c, hf, hleaf, hin', href, hsucc, hok⟩ := hinst mn i cs ((mem_instDecls_iff _ _).mp hx)
+    obtain ⟨envC, nx, hr, hn⟩ := childRun_succ arr (declWidth m) c cs E (st [i]) hin' href hsucc hleaf
+    exact ⟨_, childNexts_some d arr (declWidth m) st E mn i cs c envC nx hf hok hr hn⟩
+  obtain ⟨ys, hys⟩ := hkids
+  exact ⟨(E, ([], nxP) :: ys), by simp [stepHS, hierS_clk hS, hE, hnxP, hys]⟩
+
+/-- EXISTENCE OF THE HIERARCHICAL RUN, by cycle induction (every cycle's step succeeds from every
+state and seed, so the state threads through): for every `K`, every seed discipline and every
+state a run exists. -/
+theorem runHS_exists (d : Design) (arr : Module → List Stmt) (m : Module)
+    (hS : HierShapeS d m = true) (hA : AdmArr d m arr) (hsupp : ExprsSupp m (arr m))
+    (hch : ∀ c ∈ d.modules, ChildSucc c (arr c)) (seed : Nat → (String → Nat) → Env) :
+    ∀ (k : Nat) (st : HSt), ∃ envs sts, runHSTrace d arr m seed k st = some (envs, sts) := by
+  intro k
+  induction k with
+  | zero => intro st; exact ⟨[], [], rfl⟩
+  | succ k ih =>
+    intro st
+    obtain ⟨⟨envF, ups⟩, hr⟩ := stepHS_succ d arr m hS hA hsupp hch st
+      (seed k (restrictTo (regOuts (arr m)) (st [])))
+    obtain ⟨envs, sts, hrest⟩ := ih (applyH st ups)
+    exact ⟨envF :: envs, st :: sts, by simp [runHSTrace, hr, hrest]⟩
+
 end Tools.VedU2Hier
