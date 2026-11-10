@@ -1,4 +1,5 @@
 import Sparkle.IR.Semantics
+import Sparkle.Core.Signal
 
 /-!
 # Lemmas for the U1 generated proof script (register-free operators)
@@ -32,5 +33,10 @@ theorem evalOp_not_lit (we : WEnv) (x : Sparkle.IR.AST.Expr) (a w : Nat)
   simp only [evalOp, mask]
   rw [xor_ones _ _ ha, Nat.mod_eq_of_lt]
   omega
+
+/-- `~~~a` on a `BitVec` signal, pointwise (the instance does not unfold under `simp`). -/
+theorem compl_val {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : Sparkle.Core.Signal.Signal dom (BitVec n)) (s : Nat) :
+    (~~~a).val s = ~~~(a.val s) := rfl
 
 end Tools.VedU1Lemmas
