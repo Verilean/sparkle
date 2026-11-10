@@ -186,7 +186,6 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
   let next := mkCIdent (deepName decl "_deep_next")
   let inits := mkCIdent (deepName decl "_deep_inits")
   let out := mkCIdent (deepName decl "_deep_out")
-  let idx (i : Nat) : TermElabM Term := `((⟨$(quote i), by decide⟩ : Fin _))
   -- per register: its slot name (through `_nm`), its bound, its invariant hypothesis
   let mut slotN : Array Term := #[]
   let mut slotV : Array Term := #[]
