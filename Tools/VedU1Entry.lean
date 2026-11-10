@@ -454,12 +454,14 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
-    let pf ← try
-        withoutErrToSorry do
+    -- a runtime limit (heartbeats, recursion depth) here is a `proof` refusal
+    -- (the script is too costly), not the catch-all `checker`
+    let pf ← tryCatchRuntimeEx
+        (withoutErrToSorry do
           let e ← elabTermEnsuringType stx expected
           synthesizeSyntheticMVarsNoPostponing
-          instantiateMVars e
-      catch e => refuse decl "proof" e.toMessageData
+          instantiateMVars e)
+        fun e => refuse decl "proof" e.toMessageData
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let first ← match errs.drop errsBefore with
@@ -468,10 +470,10 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
     if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
     -- the kernel, synchronously, with EXACTLY the expected type
-    try
-      withOptions (fun o => o.setBool `Elab.async false) do
-        addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf })
-    catch e => refuse decl "kernel" e.toMessageData
+    tryCatchRuntimeEx
+      (withOptions (fun o => o.setBool `Elab.async false) do
+        addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
+      fun e => refuse decl "kernel" e.toMessageData
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
       | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
     unless ti.type == expected do refuse decl "type" m!"stored type differs from the expected statement"
