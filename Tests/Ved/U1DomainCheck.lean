@@ -115,6 +115,34 @@ run_cmd checkSpec ``dadd8
 #guard_msgs in
 run_cmd checkSpec ``dsub8
 
+def dmux8 (c : Signal Domain Bool) (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
+  Signal.mux c a b
+/-- same type as `dmux8`, the arms swapped -/
+def dmux8s (c : Signal Domain Bool) (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
+  Signal.mux c b a
+-- bit slice (low byte of a 16-bit signal) through `Signal.map`
+def dslice8 (a : Signal Domain (BitVec 16)) : Signal Domain (BitVec 8) :=
+  (fun x => x.extractLsb' 0 8) <$> a
+/-- same type as `dslice8`, the high byte -/
+def dslice8h (a : Signal Domain (BitVec 16)) : Signal Domain (BitVec 8) :=
+  (fun x => x.extractLsb' 8 8) <$> a
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dmux8.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dmux8
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dmux8s.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dmux8s
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dslice8.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dslice8
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dslice8h.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dslice8h
+
 /-! ## Controls: refused at `[table]`, no theorem -/
 
 def expectStageRefusal (stage : String) (decl : Name) : CommandElabM Unit := liftTermElabM do
@@ -231,6 +259,17 @@ run_cmd expectRefused "proof" `ctlAddIntoSub do
 #guard_msgs in
 run_cmd expectRefused "proof" `ctlSubIntoAdd do
   discard <| checkU1E ``dadd8 `ctlSubIntoAdd (specOf ``dadd8) (← modOf ``dsub8) .generated
+
+-- mux with the arms swapped, slice of the other byte
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlMuxSwap do
+  discard <| checkU1E ``dmux8 `ctlMuxSwap (specOf ``dmux8) (← modOf ``dmux8s) .generated
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlSliceHigh do
+  discard <| checkU1E ``dslice8 `ctlSliceHigh (specOf ``dslice8) (← modOf ``dslice8h) .generated
 
 -- a proof term of the wrong statement (the identity's theorem for the complement)
 /-- info: refused [proof], clean -/

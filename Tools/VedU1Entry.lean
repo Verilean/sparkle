@@ -249,8 +249,11 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val,
             Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add,
             Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub,
+            Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val,
             BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat]
-          try omega)
+          try omega
+          -- a `mux`: both arms in range
+          try (split <;> simp <;> omega))
   | some (r, w) =>
     let rS := Syntax.mkStrLit r
     let wS := Syntax.mkNumLit (toString w)

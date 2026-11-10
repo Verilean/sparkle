@@ -85,4 +85,13 @@ open Sparkle.Core.Signal in
 theorem sub_val {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
     (a b : Signal dom (BitVec n)) (s : Nat) : (a - b).val s = a.val s - b.val s := rfl
 
+/-- `Operator.mux` (condition nonzero selects the first value). -/
+theorem evalOp_mux_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (c a b w : Nat) :
+    evalOp we .mux xs [c, a, b] w = some (if c ≠ 0 then a else b) := rfl
+
+open Sparkle.Core.Signal in
+theorem mux_val {dom : Sparkle.Core.Domain.DomainConfig} {α : Type}
+    (c : Signal dom Bool) (a b : Signal dom α) (s : Nat) :
+    (Signal.mux c a b).val s = if c.val s then a.val s else b.val s := rfl
+
 end Tools.VedU1Lemmas
