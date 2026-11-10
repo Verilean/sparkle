@@ -12,7 +12,7 @@ projection.
 Positives: the registered theorem has EXACTLY the type `PackedStmt <ved_contract> <ved_mod> <decl>`;
 the contract's slice map equals one written out by hand here (so the bit order is stated
 independently of `OTy.slices`); the axioms are the standard three.
-Negatives (each refused, no `ved_*` constant left): slices swapped, wrong offset, wrong width,
+Negatives (14 refusal calls: 8 slice-map/[packed], 3 [proof], 1 port, 1 one-leaf, 1 old entry; each refused, and no `ved_*` constant the checker registered after it started is left): slices swapped, wrong offset, wrong width,
 overlapping slices, a missing slice, a changed field value, a field swapped inside the module, another
 declaration's module, and `#ved_u1` itself on a packed declaration (still `[multi-output]`).
 -/
@@ -96,7 +96,7 @@ run_cmd checkPacked ``p3r (← `(p3r)) [(5, 8), (4, 1), (0, 4)] 13
 #guard_msgs in
 run_cmd checkPacked ``p3l (← `(@p3l defaultDomain)) [(12, 8), (4, 8), (0, 4)] 20
 
-/-! ## Controls: refused, no `ved_*` constant left -/
+/-! ## Controls: refused, no `ved_*` constant registered by the checker left -/
 
 def checkerNames (base : Name) : List Name :=
   [`ved_mod, `ved_contract, `ved_outs, `ved_body, `ved_u1].map (base ++ ·)
@@ -117,7 +117,8 @@ def onMap (decl : Name) (slices : List (Nat × Nat)) (m : Sparkle.IR.AST.Module)
   let (stmt, _, tbl) ← packedStmtOf decl
   discard <| checkPackedE decl stmt tbl slices m .generated
 
--- the right map is accepted by the same helper (so the refusals below are due to the map)
+-- (no positive call of this helper here: the right map for `pw`, [(8,8),(0,8)], is the one the
+-- positives check against a hand-written map; each control below changes only the map or the module)
 /-- info: refused [packed], clean -/
 #guard_msgs in
 run_cmd expectRefused "packed" ``pwCtl do onMap ``pwCtl [(0, 8), (8, 8)] (← modOf ``pw)  -- slices swapped

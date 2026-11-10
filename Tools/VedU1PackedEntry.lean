@@ -12,7 +12,8 @@ specialise a leading `DomainConfig` binder, read the table from the declaration'
 that type, strict audit.  Register-free bodies only; the result must be a `Prod` tree of at least two
 leaves inside ONE `Signal` (`Bool` / `BitVec w` leaves).
 
-Refusals (`VED U1 REFUSED <decl> [<stage>]`, nothing left behind): `table`, `packed` (not a packed
+Refusals (`VED U1 REFUSED <decl> [<stage>]`; the `ved_*` constants the checker registered after it
+started are taken back; side effects of synthesis before that, e.g. IO or caches, are NOT rolled back): `table`, `packed` (not a packed
 result, the module's ports are not exactly `out`, or the slice map does not pass `PackCover`:
 width / order / offset mismatch, overlap, missing slice), `synthesis`, `artifact`, `order`, `type`, `proof`, `kernel`, `audit`.
 The slice map is DERIVED from the declaration's type by the packing rule (`OTy.slices`); the checker
