@@ -5,6 +5,12 @@ size block writes next to the case (size_sv.sv, size_children.sv, size_mod_<i>.s
 or size_err.txt).  Plan fields (all optional): sv (text of the single module, default
 "module <top>(); endmodule\\n"), mods [{name, regs, mems, insts, stmts, wires, regbits, membits}]
 (design kind: several modules joined by newline), kids ([names]), err, nofiles, sleep, exit.
+Emulates the capture blocks the generator wraps around the original command (only when the case text has them):
+token -> size_token.txt, `VED SIZE CAP BEGIN/END <token>` on stdout (stdout commands); the path argument moved
+aside, the write, the copy to size_orig_write.bin and size_wpre/size_wpost.txt (write commands; the path is
+relative to the working directory, as for the real lean).  More plan fields: prev_out (text printed BEFORE the
+begin marker: a previous command), preexisting (content of the path before the command), no_write (the command
+writes nothing), later_write (content written to the path by a LATER command, after the capture), no_end_marker.
 The ORIGINAL command's output is faked first: it prints plan "orig_sv" (default: the same SV as the size
 block writes; "" = prints nothing) plus the command's tail line on stdout, or, for #writeDesign /
 #writeVerilogDesign, writes "orig_sv" to the path of its first string argument (relative to the case
@@ -71,15 +77,49 @@ def main():
             lines.append(f"mod {tag} child {i} {k} " + " ".join(f"{a}={b}" for a, b in counts({}).items()))
         i += 1
     sv_all = "\n".join(texts)
+    cap = "VED SIZE CAPTURE PRE" in text
+    tok = "t-%d-%d" % (os.getpid(), int(time.time() * 1e6) % 1000000007)
+    if cap:
+        open(os.path.join(d, "size_token.txt"), "w").write(tok)
+    if plan.get("prev_out") and cmd != "#writeDesign":
+        print(plan["prev_out"])
+    wfile = None if wpath is None else (wpath if os.path.isabs(wpath) else os.path.join(os.getcwd(), wpath))
+    had = False
+    if cap and wfile:
+        had = os.path.exists(wfile)
+        if plan.get("preexisting") is not None:
+            open(wfile, "w").write(plan["preexisting"])
+            had = True
+        if had:
+            os.rename(wfile, wfile + ".size-bak-" + tok)
+        open(os.path.join(d, "size_wpre.txt"), "w").write(f"{tok}\nhad={'true' if had else 'false'}\n")
+    elif cap:
+        print(f"VED SIZE CAP BEGIN {tok}")
     if not plan.get("orig_skip"):
         orig = plan.get("orig_sv", sv_all)
         if wpath is not None:
-            open(os.path.join(d, wpath) if not os.path.isabs(wpath) else wpath, "w").write(orig)
+            if not plan.get("no_write"):
+                open(wfile, "w").write(orig)
         elif orig is not None:
             tail = "-- Hierarchical Verilog successfully generated!" if cmd == "#synthesizeVerilogDesign" else "-- Verilog successfully generated!"
             if orig:
                 print(orig)
             print("\n" + tail)
+    if cap and wfile:
+        if os.path.exists(wfile):
+            open(os.path.join(d, "size_orig_write.bin"), "wb").write(open(wfile, "rb").read())
+            if had:
+                os.remove(wfile + ".size-bak-" + tok)
+            st = "written"
+        else:
+            if had:
+                os.rename(wfile + ".size-bak-" + tok, wfile)
+            st = "absent"
+        open(os.path.join(d, "size_wpost.txt"), "w").write(f"{tok}\n{st}\n")
+    elif cap and not plan.get("no_end_marker"):
+        print(f"VED SIZE CAP END {tok}")
+    if wfile and plan.get("later_write") is not None:
+        open(wfile, "w").write(plan["later_write"])
     print(f"VED SIZE MARK row {row}")
     open(os.path.join(d, "size_sv.sv"), "w").write(sv_all)
     if plan.get("join_bad"):

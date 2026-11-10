@@ -30,15 +30,34 @@ files next to Case.lean (no compiler change):
   C/CSim output, the `#synthesizeParameterizedVerilog` rows (parameters, symbolicMode: they stay
   unsupported-invocation as in the U1 harness).
 
-sv_origin_check: the ORIGINAL command stays in the case and runs first.  What it emitted is captured
-(its printed SV in the message log, just before the size block's marker, for #synthesizeVerilog and
-#synthesizeVerilogDesign; the file it wrote for #writeDesign / #writeVerilogDesign when that file can be
-read) and compared with the re-synthesised SV: `same` | `differ` | `not-checked`, with a reason in
-sv_origin_reason.  `not-checked` means the size SV is observed, not shown to be what the command emits.
-Entry guard: at gen time Sparkle/Compiler/Elab.lean of the MEASURED tree is read; if the command's
-elaborator does not call the functions this block re-uses (synthesizeCombinational / optimizeModule /
-synthesizeHierarchical / toVerilogDesign) the row is `entry-mismatch` (not run), never measured through
-the old function.
+sv_origin_check: the ORIGINAL command stays in the case and runs first; what it emitted is captured INSIDE the
+case, attempt-specifically, and compared in FULL with the re-synthesised SV: `same` | `differ` | `not-checked`
+(reason in sv_origin_reason).  Only `same` on a side lets that side's row enter the formal comparison (size_run.py
+compare); `differ` / `not-checked` / missing make the row not-comparable / incomplete (exit 2).  The comparison of
+two re-synthesised artifacts of rows whose origin is not `same` is only an observation (obs_* columns).
+  stdout commands (#synthesizeVerilog, #synthesizeVerilogDesign): a `run_cmd` before the command draws an
+    attempt token (monotonic ns, pid, random; written to size_token.txt) and prints `VED SIZE CAP BEGIN <token>`; a
+    `run_cmd` right after it prints `VED SIZE CAP END <token>`.  stdout must hold each marker exactly once, BEGIN
+    before END.  The captured range (between the BEGIN line and the END marker) must be
+        <SV> "\n" "\n" <tail line> "\n" <compiler messages, if any>
+    where the command did `IO.println verilog` then `IO.println "\n<tail line>"`; <tail line> is
+    `-- Verilog successfully generated!` / `-- Hierarchical Verilog successfully generated!`.  The ONLY text
+    removed is that tail println (its leading "\n", the line and its newline) and what follows it (messages the
+    command logged: warnings; never SV); <SV> (everything before it, the whole range otherwise) must equal the
+    re-synthesised text byte for byte.  A range without the tail line is `not-checked`.
+  write commands (#writeDesign, #writeVerilogDesign): the command's path argument (first string literal of the
+    row's args) is MOVED ASIDE before the command (`<path>.size-bak-<token>`), the command runs, and right after it
+    (before any later command) the file is copied to size_orig_write.bin and the backup is dropped (or, when the
+    command wrote nothing, moved back).  `written` in size_wpost.txt with the attempt token is the proof that THIS
+    attempt's command wrote the file; a path that is absent afterwards (only a pre-existing file, or no write) is
+    `not-checked`.  Later commands that overwrite the path cannot change the capture.
+Not covered by the origin check: the children SV of a #synthesizeVerilog row (not printed by the command), the DRC
+and C/CSim outputs.
+Entry guard (AUXILIARY, NOT evidence of output identity): at gen time Sparkle/Compiler/Elab.lean of the measured tree
+is read with Lean comments and string literals removed and the command's elaborator is checked for the identifiers the
+block re-uses (synthesizeCombinational / optimizeModule / synthesizeHierarchical / toVerilogDesign ...), matched at
+identifier boundaries; a miss is `entry-mismatch` (not run).  It only avoids running the block through an obviously
+different entry function; identity of the output is shown by the origin check alone.
 
 size_status is `ok` only when the whole case succeeded (rc 0, no signal, no timeout, no Lean error, files
 complete, sv_join_check=yes).  Artifacts seen in a case that did not succeed are kept as an observation
@@ -80,6 +99,8 @@ SETTING = "size"
 KEY_COLUMNS = u1_gen.KEY_COLUMNS
 DESIGN_CMDS = ("#writeDesign", "#writeVerilogDesign", "#synthesizeVerilogDesign")
 MODULE_CMDS = ("#synthesizeVerilog",)
+ORIGIN_TAIL = {"#synthesizeVerilog": "-- Verilog successfully generated!",
+               "#synthesizeVerilogDesign": "-- Hierarchical Verilog successfully generated!"}
 # the SV never depends on these arguments (output paths, JIT observable wires)
 ARGS_WAIVED = DESIGN_CMDS
 
@@ -170,6 +191,56 @@ TAIL = '''    let t1 ← IO.monoMsNow
     logInfo m!"VED SIZE ERROR {msg}"'''
 
 
+CAP_HEAD = '''open Lean Elab Command in
+run_cmd do
+  let dir := (System.FilePath.mk (← read).fileName).parent.getD "."
+'''
+CAP_PRE_STDOUT = CAP_HEAD + '''  let t0 ← IO.monoNanosNow
+  let pid ← IO.Process.getPID
+  let rnd ← IO.rand 0 1000000000
+  let tok := s!"{t0}-{pid}-{rnd}"
+  IO.FS.writeFile (dir / "size_token.txt") tok
+  IO.println s!"VED SIZE CAP BEGIN {tok}"'''
+CAP_POST_STDOUT = CAP_HEAD + '''  let tok ← IO.FS.readFile (dir / "size_token.txt")
+  IO.println s!"VED SIZE CAP END {tok}"'''
+CAP_PRE_WRITE = CAP_HEAD + '''  let t0 ← IO.monoNanosNow
+  let pid ← IO.Process.getPID
+  let rnd ← IO.rand 0 1000000000
+  let tok := s!"{t0}-{pid}-{rnd}"
+  IO.FS.writeFile (dir / "size_token.txt") tok
+  let p : System.FilePath := "@PATH@"
+  let bak : System.FilePath := p.toString ++ ".size-bak-" ++ tok
+  let had ← p.pathExists
+  if had then IO.FS.rename p bak
+  IO.FS.writeFile (dir / "size_wpre.txt") s!"{tok}\\nhad={had}\\n"'''
+CAP_POST_WRITE = CAP_HEAD + '''  let tok ← IO.FS.readFile (dir / "size_token.txt")
+  let p : System.FilePath := "@PATH@"
+  let bak : System.FilePath := p.toString ++ ".size-bak-" ++ tok
+  let st ← if (← p.pathExists) then do
+      IO.FS.writeBinFile (dir / "size_orig_write.bin") (← IO.FS.readBinFile p)
+      if (← bak.pathExists) then IO.FS.removeFile bak
+      pure "written"
+    else do
+      if (← bak.pathExists) then IO.FS.rename bak p
+      pure "absent"
+  IO.FS.writeFile (dir / "size_wpost.txt") s!"{tok}\\n{st}\\n"'''
+CAP_OPTS = "set_option Elab.async false in\n"
+
+
+def capture_blocks(r, code=""):
+    """-> (pre text, post text) wrapped around the ORIGINAL command; ("", "") when there is nothing to capture
+    (a write command without a path argument)."""
+    cmd = r["command"]
+    if cmd in ORIGIN_TAIL:
+        return CAP_OPTS + CAP_PRE_STDOUT, CAP_OPTS + CAP_POST_STDOUT
+    if cmd in ("#writeDesign", "#writeVerilogDesign"):
+        path = origin_arg(r, code)
+        if not path:
+            return "", ""
+        return (CAP_OPTS + CAP_PRE_WRITE.replace("@PATH@", path), CAP_OPTS + CAP_POST_WRITE.replace("@PATH@", path))
+    return "", ""
+
+
 def block_text(r):
     kind = "design" if r["command"] in DESIGN_CMDS else "module"
     opts = lean_option_lines(r["options"], "default")
@@ -181,8 +252,19 @@ def block_text(r):
 
 def case_text(src_text, scan, r):
     lines = src_text.splitlines()
-    ie, ei = scan["imports_end"], scan["end_index"]
-    out = lines[:ie] + lines[ie:ei]
+    ie, ci, ei = scan["imports_end"], scan["cmd_index"], scan["end_index"]
+    code = "\n".join(u0_gen.blank_comments(src_text).splitlines()[ci:ei])
+    pre, post = capture_blocks(r, code)
+    out = lines[:ie] + lines[ie:ci]
+    if pre:
+        out.append("-- ===== VED SIZE CAPTURE PRE (before the original command) =====")
+        out += pre.splitlines()
+        out.append("-- ===== VED SIZE CAPTURE PRE END =====")
+    out += lines[ci:ei]
+    if post:
+        out.append("-- ===== VED SIZE CAPTURE POST (right after the original command) =====")
+        out += post.splitlines()
+        out.append("-- ===== VED SIZE CAPTURE POST END =====")
     out.append("")
     begin = len(out) + 1
     out.append(f"-- ===== VED SIZE BEGIN row {r['row']} (inventory {INV_COMMIT[:8]}) =====")
@@ -206,9 +288,65 @@ ENTRY_FORBIDDEN = {"#synthesizeVerilog": ["synthesizeHierarchical"]}
 CORE_REQUIRED = ["synthesizeHierarchical", "toVerilogDesign"]
 
 
+CHAR_LIT = re.compile(r"'(?:\\(?:x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|.)|[^\\'\n])'")
+IDENT_TOKEN = re.compile(r"[\w'.!?]+")
+
+
+def strip_lean(src, strings=False):
+    """`src` with Lean comments blanked (`--` to end of line; `/- ... -/` including `/--` docs, nested), and, when
+    `strings`, the contents of string literals too (the quotes stay).  Blanked characters become spaces, newlines are
+    kept, so line structure is unchanged.  `--` or `/-` inside a string literal is not a comment; a char literal
+    (`'"'`) is not a string start."""
+    out, i, n, depth = [], 0, len(src), 0
+    while i < n:
+        c = src[i]
+        if depth:
+            if src.startswith("/-", i):
+                depth += 1
+                out.append("  ")
+                i += 2
+            elif src.startswith("-/", i):
+                depth -= 1
+                out.append("  ")
+                i += 2
+            else:
+                out.append("\n" if c == "\n" else " ")
+                i += 1
+        elif src.startswith("--", i):
+            while i < n and src[i] != "\n":
+                out.append(" ")
+                i += 1
+        elif src.startswith("/-", i):
+            depth = 1
+            out.append("  ")
+            i += 2
+        elif c == '"':
+            out.append('"')
+            i += 1
+            while i < n and src[i] != '"':
+                if src[i] == "\\" and i + 1 < n:
+                    seg = src[i:i + 2]
+                    out.append("  " if strings and seg[1] != "\n" else seg)
+                    i += 2
+                else:
+                    out.append(" " if strings and src[i] != "\n" else src[i])
+                    i += 1
+            if i < n:
+                out.append('"')
+                i += 1
+        elif c == "'" and (i == 0 or not (src[i - 1].isalnum() or src[i - 1] in "_'")) and CHAR_LIT.match(src, i):
+            m = CHAR_LIT.match(src, i)
+            out.append(m.group(0))
+            i = m.end()
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
 def decl_blocks(src, head):
     """Texts of the top-level declarations whose first line starts with `head` (the body is the indented
-    lines and `--` comments that follow; the next column-0 line ends it)."""
+    lines that follow; the next column-0 line ends it).  `src` is expected comment-stripped (strip_lean)."""
     out, cur = [], None
     for ln in src.splitlines():
         if ln.startswith(head):
@@ -216,7 +354,7 @@ def decl_blocks(src, head):
                 out.append("\n".join(cur))
             cur = [ln]
         elif cur is not None:
-            if ln and ln[0] not in " \t" and not ln.startswith("--"):
+            if ln and ln[0] not in " \t":
                 out.append("\n".join(cur))
                 cur = None
             else:
@@ -226,22 +364,30 @@ def decl_blocks(src, head):
     return out
 
 
+def calls(text, name):
+    """True when the identifier `name` occurs in `text` (comments and strings already removed) as a whole identifier
+    or as the last component of a qualified one (`A.B.name`): identifier characters are letters, digits, `_`, `'`,
+    `.`, `!`, `?`, so `nameV2`, `name'` and `pre_name` are other identifiers."""
+    return any(t == name or t.endswith("." + name) for t in IDENT_TOKEN.findall(text))
+
+
 def entry_check(repo, command):
     """-> "" when the measured tree's elaborator for `command` calls the functions the size block re-uses,
-    otherwise the reason."""
+    otherwise the reason.  AUXILIARY: it is no evidence that the output is the same (the origin check is)."""
     path = os.path.join(repo, ENTRY_FILE)
     src = read(path)
     if src is None:
         return f"{ENTRY_FILE} not readable in the measured tree"
-    blocks = decl_blocks(src, f'elab "{command}"')
+    code = strip_lean(src)                      # comments gone, strings kept (the `elab "#cmd"` head)
+    blocks = decl_blocks(code, f'elab "{command}"')
     if not blocks:
         return f"no `elab \"{command}\"` in {ENTRY_FILE}"
-    text = "\n".join(blocks)
-    miss = [t for t in ENTRY_REQUIRED[command] if t not in text]
-    bad = [t for t in ENTRY_FORBIDDEN.get(command, []) if t in text]
+    text = strip_lean("\n".join(blocks), strings=True)
+    miss = [t for t in ENTRY_REQUIRED[command] if not calls(text, t)]
+    bad = [t for t in ENTRY_FORBIDDEN.get(command, []) if calls(text, t)]
     if command == "#writeDesign":
-        core = "\n".join(decl_blocks(src, "private def writeDesignCore"))
-        miss += [t for t in CORE_REQUIRED if t not in core] if core else ["private def writeDesignCore"]
+        core = strip_lean("\n".join(decl_blocks(code, "private def writeDesignCore")), strings=True)
+        miss += [t for t in CORE_REQUIRED if not calls(core, t)] if core.strip() else ["private def writeDesignCore"]
     if miss or bad:
         return (f"elaborator of {command} in the measured tree " + (f"does not call {','.join(miss)}" if miss else "")
                 + (" and " if miss and bad else "") + (f"calls {','.join(bad)}" if bad else "")
@@ -249,12 +395,17 @@ def entry_check(repo, command):
     return ""
 
 
-def origin_arg(r):
+def origin_arg(r, code=""):
     """The first string literal argument of the original write command (#writeDesign / #writeVerilogDesign): the
-    file it wrote; "" for the other commands."""
+    file it wrote, as written in the source (escapes unchanged); "" for the other commands.  The inventory `args`
+    column is used when it has a literal, otherwise the command text of the source (`code`, comments blanked:
+    the command line and its indented continuation lines, after the command name)."""
     if r["command"] not in ("#writeDesign", "#writeVerilogDesign"):
         return ""
-    m = re.search(r'"([^"]*)"', r["args"])
+    m = re.search(r'"((?:[^"\\]|\\.)*)"', r["args"])
+    if not m and code:
+        at = code.find(r["command"])
+        m = re.search(r'"((?:[^"\\]|\\.)*)"', code[at:]) if at >= 0 else None
     return m.group(1) if m else ""
 
 
@@ -290,6 +441,11 @@ def cmd_gen(a):
             r2["args"] = ""
         closure = import_closure(a.repo, [])
         inv, detail, run = invocation_of(r2, scan, closure)
+        if run and scan["cmd_index"]:
+            prev = [ln for ln in u0_gen.blank_comments(src_text).splitlines()[:scan["cmd_index"]] if ln.strip()]
+            if prev and re.search(r"\bin\s*$", prev[-1]):
+                inv, detail, run = ("unsupported-invocation",
+                                    "the command line follows a `... in` modifier line (the capture block cannot be inserted before it)", False)
         if run and r["command"] in ENTRY_REQUIRED:
             why = entry_check(a.repo, r["command"])
             if why:
@@ -300,7 +456,8 @@ def cmd_gen(a):
         if inv == "unsupported-invocation" and r["command"] not in MODULE_CMDS + DESIGN_CMDS:
             detail += f"; command {r['command']} has no size block"
         meta.update(invocation=inv, invocation_detail=detail, run=run, args_waived="yes" if waived else "no",
-                    command=r["command"], origin_arg=origin_arg(r), repo=os.path.realpath(a.repo),
+                    command=r["command"], origin_arg=origin_arg(r, "\n".join(
+                        u0_gen.blank_comments(src_text).splitlines()[scan["cmd_index"]:scan["end_index"]]) if scan["cmd_index"] is not None else ""), repo=os.path.realpath(a.repo),
                     module=module_of(r["file"]), scan_private=scan["private"], scan_decl_seen=scan["decl_seen"])
         if run:
             text, b, e, kind = case_text(src_text, scan, r)
@@ -507,43 +664,54 @@ def ir_columns(row, hdr, mods):
             row["irtop_" + f] = str(tops[0][4][f])
 
 
-ORIGIN_TAIL = {"#synthesizeVerilog": "-- Verilog successfully generated!",
-               "#synthesizeVerilogDesign": "-- Hierarchical Verilog successfully generated!"}
 MARK_RE = re.compile(r"VED SIZE MARK row \d+")
 
 
 def origin_check(meta, stdout, sv_text, case_dir):
-    """Compare what the ORIGINAL command emitted with the re-synthesised SV.  -> (same|differ|not-checked, reason)."""
+    """Compare what the ORIGINAL command emitted IN THIS ATTEMPT with the re-synthesised SV.  The full rules are in
+    the module docstring.  -> (same|differ|not-checked, reason)."""
     cmd = meta.get("command", "")
+    tok = (read(os.path.join(case_dir, "size_token.txt")) or "").strip()
+    if cmd not in ORIGIN_TAIL and cmd not in ("#writeDesign", "#writeVerilogDesign"):
+        return "not-checked", f"no capture defined for {cmd or 'unknown command'}"
+    if not tok:
+        return "not-checked", "no attempt token (the capture block before the original command did not run)"
     if cmd in ORIGIN_TAIL:
         if stdout is None:
             return "not-checked", "no stdout captured"
-        marks = list(MARK_RE.finditer(stdout))
-        if not marks:
-            return "not-checked", "size block marker not in stdout (messages not on stdout?)"
-        pre = stdout[:marks[-1].start()]
+        begin, end = f"VED SIZE CAP BEGIN {tok}\n", f"VED SIZE CAP END {tok}"
+        if stdout.count(begin) != 1 or stdout.count(end) != 1:
+            return "not-checked", (f"capture markers of this attempt not found exactly once in stdout "
+                                   f"(begin={stdout.count(begin)} end={stdout.count(end)})")
+        bi, ei = stdout.index(begin) + len(begin), stdout.index(end)
+        if ei < bi:
+            return "not-checked", "capture END marker before BEGIN marker"
+        rng = stdout[bi:ei]
         tail = ORIGIN_TAIL[cmd]
-        at = pre.rfind(tail)
+        sep = "\n\n" + tail + "\n"
+        at = rng.find(sep)
         if at < 0:
-            return "not-checked", f"original command's `{tail}` line not found before the marker"
-        if pre[at + len(tail):].count("\n") > 3:
-            return "not-checked", "original output not adjacent to the marker"
-        body = pre[:at].rstrip()
-        if body.endswith(sv_text.rstrip()):
-            return "same", "printed SV of the original command equals the re-synthesised SV"
-        return "differ", "the SV the original command printed differs from the re-synthesised SV"
-    if cmd in ("#writeDesign", "#writeVerilogDesign"):
-        arg = meta.get("origin_arg") or ""
-        # candidates: absolute, relative to the measured tree, relative to the case directory
-        paths = [] if not arg else [arg] if os.path.isabs(arg) else [os.path.join(meta.get("repo", "."), arg), os.path.join(case_dir, arg)]
-        for pth in paths:
-            t = read(pth)
-            if t is not None:
-                if t == sv_text:
-                    return "same", f"file written by the original command ({os.path.basename(pth)}) equals the re-synthesised SV"
-                return "differ", f"file written by the original command ({os.path.basename(pth)}) differs from the re-synthesised SV"
-        return "not-checked", "file the original command wrote not found" + (f" ({', '.join(paths)})" if paths else " (no path argument)")
-    return "not-checked", f"no capture defined for {cmd or 'unknown command'}"
+            return "not-checked", f"original command's `{tail}` line not found inside the capture range"
+        if rng[:at] == sv_text:
+            return "same", "the whole captured range of the original command (minus its tail line) equals the re-synthesised SV"
+        return "differ", "the captured output of the original command differs from the re-synthesised SV"
+    # write commands: the capture file of THIS attempt
+    pre = (read(os.path.join(case_dir, "size_wpre.txt")) or "").split("\n")
+    post = (read(os.path.join(case_dir, "size_wpost.txt")) or "").split("\n")
+    if pre[0] != tok:
+        return "not-checked", "the pre-command step of this attempt did not run (token mismatch)"
+    if post[0] != tok:
+        return "not-checked", "the capture right after the original command did not run in this attempt"
+    if len(post) < 2 or post[1] != "written":
+        return "not-checked", "the original command did not write its path in this attempt" + (
+            " (a file that was there before is not used)" if len(pre) > 1 and pre[1] == "had=true" else "")
+    try:
+        cap = open(os.path.join(case_dir, "size_orig_write.bin"), "rb").read()
+    except OSError:
+        return "not-checked", "capture file of the written output missing"
+    if cap == sv_text.encode():
+        return "same", "file written by the original command in this attempt (captured right after it) equals the re-synthesised SV"
+    return "differ", "file written by the original command in this attempt differs from the re-synthesised SV"
 
 
 def classify_dir(d, sv_group=""):

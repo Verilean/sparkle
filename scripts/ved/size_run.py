@@ -22,6 +22,10 @@ compare A B: A and B are result directories of two runs (a directory holding res
 OUT root with CURRENT_RUN_ID).  Writes compare.tsv and compare.txt.  Every row and section (ir = returned IR,
 opt = optimised IR, g / f = yosys flows) is classified identical / different / not-comparable / incomplete.
 IR counts are compared as returned whatever the SV says (identical SV can come from different raw IR).
+A row enters the formal comparison only when sv_origin_check=same on BOTH sides (the SV the size numbers come from is
+then what the original command emitted in that attempt); otherwise its sections are not-comparable (origin differ /
+not-checked) or incomplete (field missing) and the exit status is 2.  The comparison of the re-synthesised artifacts of
+such rows is only an OBSERVATION (obs_* columns, "OBSERVATION" line), never part of the exit status.
 The backend statement "SV identical => yosys numbers identical" holds only for the same backend (non-empty,
 equal yosys version, command, top, flow script, input files) with both flows ended normally; a row whose SV
 and backend are identical but whose yosys numbers differ is a VIOLATION.  Exit status: 0 only when every
@@ -154,16 +158,36 @@ def backend_id(r, pre):
     return "|".join(parts) if all(parts) else ""
 
 
-def classify_section(sec, a, b):
+def origin_gate(a, b):
+    """The formal comparison is of the artifact the ORIGINAL command emitted: both sides must have
+    sv_origin_check=same.  -> None, or (class, reason): not-comparable for differ / not-checked, incomplete when the
+    field is missing."""
+    for side, r in (("A", a), ("B", b)):
+        o = r.get("sv_origin_check", "")
+        if o == "same":
+            continue
+        if o in ("differ", "not-checked"):
+            return NOT_COMPARABLE, f"{side}: sv_origin_check={o} ({r.get('sv_origin_reason', '')[:80]})"
+        return INCOMPLETE, f"{side}: sv_origin_check missing"
+    return None
+
+
+def classify_section(sec, a, b, origin=True):
     """-> (class, reason).  IR sections (ir/opt) are compared as returned, independent of the SV and the backend.
     Flows are compared only with a non-empty, equal backend identity on both sides, both flows ended normally and
-    every required number present."""
+    every required number present.  With `origin` (the formal comparison) both sides must also have
+    sv_origin_check=same; `origin=False` is the OBSERVATION of the re-synthesised artifacts, which never decides
+    the exit status."""
     cols, pre = SECTIONS[sec]
     for side, r in (("A", a), ("B", b)):
         if not r:
             return INCOMPLETE, f"{side}: no record"
         if r.get("size_status") != "ok":
             return INCOMPLETE, f"{side}: size_status={r.get('size_status') or '(empty)'}"
+    g = origin_gate(a, b) if origin else None
+    if g:
+        return g
+    for side, r in (("A", a), ("B", b)):
         if pre and r.get(pre + "_status") != "ok":
             return INCOMPLETE, f"{side}: {pre}_status={r.get(pre + '_status') or '(empty)'}"
         miss = [c for c in cols if r.get(c, "") == ""]
@@ -195,7 +219,8 @@ def compare_rows(ra, rb):
     S = {"rows": len(rows), "sv_identical": 0, "sv_differs": 0, "sv_n_a": 0, "violations": 0,
          "ir_differs_same_sv": 0, "opt_differs_same_sv": 0, "duplicate_rows": 0,
          "row_class": {c: 0 for c in ORDER}, "section_class": {s: {c: 0 for c in ORDER} for s in SECTIONS},
-         "incomplete_unsupported_both": 0, "origin_differ": 0, "origin_not_checked": 0}
+         "incomplete_unsupported_both": 0, "origin_differ": 0, "origin_not_checked": 0,
+         "obs_class": {s: {c: 0 for c in ORDER} for s in SECTIONS}, "obs_row_class": {c: 0 for c in ORDER}}
     for row in rows:
         a, b = ia.get(row, {}), ib.get(row, {})
         base = a or b
@@ -205,12 +230,11 @@ def compare_rows(ra, rb):
         dup = row in da or row in db
         if dup:
             S["duplicate_rows"] += 1
-        if usable(a) and usable(b):
-            same = a["sv_identity"] == b["sv_identity"]
-            rec["sv_identical"] = "yes" if same else "no"
-        else:
-            same = None
-            rec["sv_identical"] = "n/a"
+        # the re-synthesised SVs against each other: an OBSERVATION; the formal sv_identical needs origin=same on both sides
+        obs_same = a["sv_identity"] == b["sv_identity"] if usable(a) and usable(b) else None
+        rec["obs_sv_identical"] = "n/a" if obs_same is None else "yes" if obs_same else "no"
+        same = obs_same if obs_same is not None and origin_gate(a, b) is None else None
+        rec["sv_identical"] = "n/a" if same is None else "yes" if same else "no"
         S["sv_identical" if same else "sv_differs" if same is False else "sv_n_a"] += 1
         for c in ("sv_sha256", "sv_modules", "sv_origin_check"):
             rec[c + "_A"], rec[c + "_B"] = a.get(c, ""), b.get(c, "")
@@ -219,11 +243,14 @@ def compare_rows(ra, rb):
                 S["origin_differ"] += 1
             elif sd and sd.get("size_status") == "ok" and sd.get("sv_origin_check") != "same":
                 S["origin_not_checked"] += 1
-        viol, reasons, classes = [], [], {}
+        viol, reasons, classes, obs = [], [], {}, {}
         for sec, (cols, pre) in SECTIONS.items():
             cls, why = (NOT_COMPARABLE, "duplicate row in an input") if dup else classify_section(sec, a, b)
             classes[sec] = cls
             rec["class_" + sec] = cls
+            obs[sec] = (NOT_COMPARABLE if dup else classify_section(sec, a, b, origin=False)[0])
+            rec["obs_class_" + sec] = obs[sec]
+            S["obs_class"][sec][obs[sec]] += 1
             if why:
                 reasons.append(f"{sec}: {why}")
             S["section_class"][sec][cls] += 1
@@ -238,6 +265,8 @@ def compare_rows(ra, rb):
                 S[sec + "_differs_same_sv"] += 1
         worst = max(classes.values(), key=ORDER.index)
         rec["class"] = worst
+        rec["obs_class"] = max(obs.values(), key=ORDER.index)
+        S["obs_row_class"][rec["obs_class"]] += 1
         rec["reasons"] = "; ".join(reasons)[:400]
         if worst == INCOMPLETE and a.get("size_status") == "not-run" and b.get("size_status") == "not-run":
             S["incomplete_unsupported_both"] += 1
@@ -254,7 +283,7 @@ def compare_rows(ra, rb):
 COMPARE_COLUMNS = (["row", "file", "command", "top", "status_A", "status_B", "sv_identical",
                     "sv_sha256_A", "sv_sha256_B", "sv_modules_A", "sv_modules_B",
                     "sv_origin_check_A", "sv_origin_check_B", "class", "class_ir", "class_opt", "class_g", "class_f",
-                    "reasons"]
+                    "reasons", "obs_sv_identical", "obs_class", "obs_class_ir", "obs_class_opt", "obs_class_g", "obs_class_f"]
                    + [f"{c}_{s}" for cols, _ in SECTIONS.values() for c in cols for s in ("A", "B", "delta")]
                    + ["g_status_A", "g_status_B", "f_status_A", "f_status_B", "violation"])
 
@@ -306,7 +335,10 @@ def cmd_compare(a_dir, b_dir, out):
               + (" -- rows: " + ",".join(r["row"] for r in rows if r["violation"]) if S["violations"] else ""),
               f"identical SV but returned IR (ir_*) differs: {S['ir_differs_same_sv']}; optimised IR (opt_*) differs: "
               f"{S['opt_differs_same_sv']} (reported, not a violation)",
-              f"sv_origin_check: differ={S['origin_differ']} not-same(not-checked/other, measured sides)={S['origin_not_checked']}",
+              f"sv_origin_check: differ={S['origin_differ']} not-same(not-checked/other, measured sides)={S['origin_not_checked']}"
+              " -- a row enters the formal comparison only when BOTH sides are origin=same (else not-comparable / incomplete)",
+              "OBSERVATION (re-synthesised artifacts compared without the origin condition; never decides the exit status; "
+              "columns obs_*): row classes " + " ".join(f"{c}={S['obs_row_class'][c]}" for c in ORDER),
               "deltas (B - A) are filled for every comparable section; no tolerance is applied "
               "(acceptance thresholds are the user's decision)",
               ("RESULT: every row comparable (exit 0)" if status == 0 else

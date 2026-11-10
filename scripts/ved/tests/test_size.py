@@ -366,7 +366,7 @@ class SizeHarness(unittest.TestCase):
             "opt_mems": "0", "opt_insts": "0", "opt_wires": "2", "opt_regbits": "8",
             "g_status": "ok", "f_status": "ok", "g_cells": "10", "g_dff": "2", "f_cells": "9", "f_lut": "4", "f_ff": "2",
             "f_bram": "0", "ys_version": "Yosys 0.70", "ys_cmd": "y", "ys_timeout_s": "5", "ys_files": "size_sv.sv",
-            "g_script": "g", "f_script": "f", "src_sha": "1" * 12}
+            "g_script": "g", "f_script": "f", "src_sha": "1" * 12, "sv_origin_check": "same"}
 
     def rec(self, **kw):
         return dict(self.BASE, **kw)
@@ -502,14 +502,21 @@ class SizeHarness(unittest.TestCase):
         self.assertEqual(r["size_status"], "ok")            # recorded, not hidden
         rows, S = size_run.compare_rows([r], [r])
         self.assertEqual(S["origin_differ"], 2)
+        # P1-3a: never a formal comparison, never exit 0
+        self.assertEqual((rows[0]["class"], rows[0]["sv_identical"]), ("not-comparable", "n/a"))
+        self.assertEqual(rows[0]["obs_class"], "identical")          # only an observation
+        c = self.run_compare_dirs([r], [r])
+        self.assertEqual(c.returncode, 2, c.stdout)
 
     def test_origin_not_checked_when_nothing_was_captured(self):
         self.plan["1"] = {"orig_skip": True}
         r = self.one(1)
         self.assertEqual(r["sv_origin_check"], "not-checked")
         self.assertIn("not found", r["sv_origin_reason"])
+        c = self.run_compare_dirs([r], [r])
+        self.assertEqual(c.returncode, 2, c.stdout)
 
-    def test_origin_of_a_write_command_reads_the_written_file(self):
+    def test_origin_of_a_write_command_reads_the_capture_of_this_attempt(self):
         r = self.one(13)
         self.assertEqual(r["sv_origin_check"], "same")
         self.plan["13"] = {"mods": [{"name": "wd13"}, {"name": "sub13"}], "orig_sv": "module stale(); endmodule\n"}
@@ -517,6 +524,129 @@ class SizeHarness(unittest.TestCase):
         self.assertEqual(r["sv_origin_check"], "differ")
         self.plan["13"] = {"orig_skip": True}
         self.assertEqual(self.one(13)["sv_origin_check"], "not-checked")
+
+    # P1-3a: the origin condition in the comparison
+    def test_compare_requires_origin_same_on_both_sides(self):
+        for kw in (dict(sv_origin_check="differ"), dict(sv_origin_check="not-checked"), dict(sv_origin_check="")):
+            for side in (0, 1):
+                recs = [self.rec(), self.rec()]
+                recs[side] = self.rec(**kw)
+                rows, S = self.cls([recs[0]], [recs[1]])
+                want = "incomplete" if kw["sv_origin_check"] == "" else "not-comparable"
+                self.assertEqual(rows[0]["class"], want, (kw, side))
+                self.assertTrue(all(rows[0]["class_" + sec] == want for sec in ("ir", "opt", "g", "f")), (kw, side))
+                self.assertEqual((rows[0]["sv_identical"], rows[0]["ir_regs_delta"], rows[0]["violation"]), ("n/a", "", ""))
+                self.assertEqual(rows[0]["obs_class"], "identical")     # the observation stays, separately
+                self.assertEqual(rows[0]["obs_sv_identical"], "yes")
+                c = self.run_compare_dirs([recs[0]], [recs[1]])
+                self.assertEqual(c.returncode, 2, (kw, side, c.stdout))
+                self.assertIn("OBSERVATION", c.stdout)
+
+    def test_origin_not_same_cannot_hide_a_difference_or_make_a_pass(self):
+        # even identical numbers: not a pass; different numbers: not a violation either (observation only)
+        a, b = self.rec(sv_origin_check="differ"), self.rec(g_cells="99")
+        rows, S = self.cls([a], [b])
+        self.assertEqual((rows[0]["class"], rows[0]["violation"], S["violations"]), ("not-comparable", "", 0))
+        self.assertEqual(rows[0]["obs_class_g"], "different")
+        self.assertEqual(self.run_compare_dirs([a], [b]).returncode, 2)
+
+    def test_origin_same_on_both_sides_is_the_formal_comparison(self):
+        rows, _ = self.cls([self.rec()], [self.rec(g_cells="12", sv_identity="x")])
+        self.assertEqual((rows[0]["class"], rows[0]["sv_identical"], rows[0]["g_cells_delta"]), ("different", "no", "2"))
+
+    # P1-3b: full-text origin identity, stdout rows
+    def test_capture_wraps_the_original_command_with_attempt_markers(self):
+        self.one(1)
+        d = os.path.join(self.out(), "cases", "R001_size", "attempt-001")
+        text = open(os.path.join(d, "Case.lean")).read()
+        i, j = text.index("VED SIZE CAP BEGIN"), text.index("#synthesizeVerilog foo1\n")
+        k, m = text.index("VED SIZE CAP END"), text.index("-- ===== VED SIZE BEGIN")
+        self.assertTrue(i < j < k < m)                       # before the command / after it / before the size block
+        tok = open(os.path.join(d, "size_token.txt")).read()
+        out = open(os.path.join(d, "stdout.txt")).read()
+        self.assertEqual((out.count(f"VED SIZE CAP BEGIN {tok}"), out.count(f"VED SIZE CAP END {tok}")), (1, 1))
+
+    def test_origin_top_module_missing_from_the_resynthesis_is_differ(self):
+        # the command printed module A + module B (hierarchy), the re-synthesis is module B only
+        a, b = "module A(); endmodule\n", "module B(); endmodule\n"
+        self.plan["1"] = {"sv": b, "orig_sv": a + b}
+        r = self.one(1)
+        self.assertEqual(r["sv_origin_check"], "differ")
+
+    def test_origin_previous_command_with_the_same_tail_does_not_count(self):
+        prev = "module foo1(); endmodule\n\n\n-- Verilog successfully generated!"
+        self.plan["1"] = {"prev_out": prev, "orig_skip": True}      # the command itself emitted nothing
+        r = self.one(1)
+        self.assertEqual(r["sv_origin_check"], "not-checked")
+        self.assertIn("not found", r["sv_origin_reason"])
+
+    def test_origin_marker_missing_or_text_around_the_sv_is_not_same(self):
+        self.plan["1"] = {"no_end_marker": True}
+        r = self.one(1)
+        self.assertEqual(r["sv_origin_check"], "not-checked")
+        self.assertIn("markers", r["sv_origin_reason"])
+        self.plan["1"] = {"orig_sv": "extra\nmodule foo1(); endmodule\n"}      # something printed before the SV
+        self.assertEqual(self.one(1)["sv_origin_check"], "differ")
+
+    def test_origin_check_direct_rules(self):
+        d = os.path.join(self.base, "direct")
+        os.makedirs(d)
+        open(os.path.join(d, "size_token.txt"), "w").write("T1")
+        meta = {"command": "#synthesizeVerilog"}
+        sv = "module m(); endmodule\n"
+        good = f"x\nVED SIZE CAP BEGIN T1\n{sv}\n\n-- Verilog successfully generated!\nVED SIZE CAP END T1\n"
+        self.assertEqual(size_gen.origin_check(meta, good, sv, d)[0], "same")
+        # a stale marker of ANOTHER attempt does not count
+        self.assertEqual(size_gen.origin_check(meta, good.replace("T1", "T0"), sv, d)[0], "not-checked")
+        # messages the command logged after its tail line are not SV
+        warn = good.replace("\nVED SIZE CAP END", "\nf.lean:3:0: warning: w\nVED SIZE CAP END")
+        self.assertEqual(size_gen.origin_check(meta, warn, sv, d)[0], "same")
+        # SV with a prefix / suffix / other text is not the same
+        self.assertEqual(size_gen.origin_check(meta, good, "module n();\n" + sv, d)[0], "differ")
+        self.assertEqual(size_gen.origin_check(meta, good, sv[:-1], d)[0], "differ")
+        self.assertEqual(size_gen.origin_check(meta, None, sv, d)[0], "not-checked")
+
+    # P1-3b: write rows
+    def test_write_row_captures_this_attempts_write(self):
+        r = self.one(13)
+        self.assertEqual(r["sv_origin_check"], "same")
+        d = os.path.join(self.out(), "cases", "R013_size", "attempt-001")
+        text = open(os.path.join(d, "Case.lean")).read()
+        self.assertLess(text.index("size_wpre.txt"), text.index("#writeDesign wd13"))
+        self.assertLess(text.index("#writeDesign wd13"), text.index("size_wpost.txt"))
+        self.assertLess(text.index("size_wpost.txt"), text.index("-- ===== VED SIZE BEGIN"))
+
+    def test_write_path_is_read_from_continuation_lines_when_args_column_is_empty(self):
+        r = {"command": "#writeDesign", "args": ""}
+        code = '#writeDesign top\n  ".lake/build/gen/a b.sv"\n  "x.h"'
+        self.assertEqual(size_gen.origin_arg(r, code), ".lake/build/gen/a b.sv")
+        pre, post = size_gen.capture_blocks(dict(r, args=""), code)
+        self.assertIn('let p : System.FilePath := ".lake/build/gen/a b.sv"', pre)
+        self.assertIn('".lake/build/gen/a b.sv"', post)
+        self.assertEqual(size_gen.capture_blocks(r, "#writeDesign top"), ("", ""))     # no path: nothing to capture
+
+    def test_write_row_only_a_preexisting_file_is_not_checked(self):
+        # the file is there from before (even equal to the SV), this attempt's command writes nothing
+        self.plan["13"] = {"preexisting": "module wd13(); endmodule\nmodule sub13(); endmodule\n", "no_write": True}
+        r = self.one(13)
+        self.assertEqual(r["sv_origin_check"], "not-checked")
+        self.assertIn("did not write", r["sv_origin_reason"])
+        self.assertIn("before", r["sv_origin_reason"])
+        # the pre-existing file is back in place afterwards
+        self.assertTrue(os.path.exists(os.path.join(self.fx.repo, "out.sv")))
+
+    def test_write_row_preexisting_file_is_replaced_by_this_attempts_write(self):
+        self.plan["13"] = {"mods": [{"name": "wd13"}, {"name": "sub13"}], "preexisting": "module stale(); endmodule\n"}
+        r = self.one(13)
+        self.assertEqual(r["sv_origin_check"], "same")        # the file of THIS write, not the stale one
+        self.plan["13"] = {"preexisting": "module wd13(); endmodule\nmodule sub13(); endmodule\n", "orig_sv": "module other(); endmodule\n"}
+        self.assertEqual(self.one(13)["sv_origin_check"], "differ")
+
+    def test_write_row_later_overwrite_does_not_change_the_capture(self):
+        self.plan["13"] = {"later_write": "module later(); endmodule\n"}
+        self.assertEqual(self.one(13)["sv_origin_check"], "same")
+        self.plan["13"] = {"orig_sv": "module other(); endmodule\n", "later_write": "module wd13(); endmodule\nmodule sub13(); endmodule\n"}
+        self.assertEqual(self.one(13)["sv_origin_check"], "differ")      # a later file equal to the SV does not help
 
     def test_no_exactly_what_the_command_prints_claim(self):
         for f in ("size_gen.py", "size_run.py"):
@@ -539,6 +669,60 @@ class SizeHarness(unittest.TestCase):
     def test_entry_guard_missing_file_or_command_fails_closed(self):
         os.remove(os.path.join(self.fx.repo, "Sparkle/Compiler/Elab.lean"))
         self.assertEqual(self.one(1)["invocation"], "entry-mismatch")
+
+    # P2-2: identifier boundaries, no comments, no strings
+    def entry(self, text, cmd="#synthesizeVerilog"):
+        self.write_elab(text)
+        return size_gen.entry_check(self.fx.repo, cmd)
+
+    def test_entry_guard_rejects_a_v2_only_change(self):
+        self.assertEqual(self.entry(ELAB), "")
+        why = self.entry(ELAB.replace("synthesizeCombinational declName", "synthesizeCombinationalV2 declName", 1))
+        self.assertIn("synthesizeCombinational", why)
+        self.assertIn("synthesizeCombinational", self.entry(ELAB.replace("synthesizeCombinational declName", "synthesizeCombinational' declName", 1)))
+        self.assertIn("synthesizeCombinational", self.entry(ELAB.replace("synthesizeCombinational declName", "pre_synthesizeCombinational declName", 1)))
+        self.assertIn("toVerilog", self.entry(ELAB.replace("toVerilog optimized", "toVerilogDesign optimized", 1)))   # toVerilog vs toVerilogDesign
+
+    def test_entry_guard_old_name_only_in_a_comment_is_rejected(self):
+        new = ELAB.replace("synthesizeCombinational declName", "synthesizeNew declName  -- was synthesizeCombinational declName", 1)
+        self.assertIn("synthesizeCombinational", self.entry(new))
+        new = ELAB.replace("  let (module, _) ← synthesizeCombinational declName\n",
+                           "  let (module, _) ← synthesizeNew declName\n  /- synthesizeCombinational\n     /- nested synthesizeCombinational -/\n  still comment synthesizeCombinational -/\n", 1)
+        self.assertIn("synthesizeCombinational", self.entry(new))
+        new = ELAB.replace("  let (module, _) ← synthesizeCombinational declName\n",
+                           "  let (module, _) ← synthesizeNew declName\n  /-- doc synthesizeCombinational -/\n", 1)
+        self.assertIn("synthesizeCombinational", self.entry(new))
+
+    def test_entry_guard_old_name_only_in_a_string_is_rejected(self):
+        new = ELAB.replace("  let (module, _) ← synthesizeCombinational declName\n",
+                           '  let (module, _) ← synthesizeNew declName\n  IO.println "synthesizeCombinational"\n', 1)
+        self.assertIn("synthesizeCombinational", self.entry(new))
+        new = ELAB.replace("  let (module, _) ← synthesizeCombinational declName\n",
+                           '  let (module, _) ← synthesizeNew declName\n  IO.println "a \\" -- synthesizeCombinational"\n', 1)
+        self.assertIn("synthesizeCombinational", self.entry(new))
+
+    def test_entry_guard_missing_name_is_rejected(self):
+        self.assertIn("synthesizeCombinational", self.entry(ELAB.replace("  let (module, _) ← synthesizeCombinational declName\n", "", 1)))
+
+    def test_entry_guard_accepts_qualified_names_and_ignores_comment_markers_in_strings(self):
+        new = ELAB.replace("synthesizeCombinational declName", "Sparkle.Compiler.Elab.synthesizeCombinational declName", 1)
+        self.assertEqual(self.entry(new), "")
+        # `--` inside a string is not a comment: the call after it on the same line counts
+        new = ELAB.replace("  let (module, _) ← synthesizeCombinational declName\n",
+                           '  IO.println "-- x"; let (module, _) ← synthesizeCombinational declName\n', 1)
+        self.assertEqual(self.entry(new), "")
+        # a char literal quote does not open a string
+        new = ELAB.replace("  IO.println verilog\n", "  let q := '\"'\n  IO.println verilog\n", 1)
+        self.assertEqual(self.entry(new), "")
+
+    def test_entry_guard_forbidden_name_in_a_comment_is_fine_in_code_is_not(self):
+        self.assertEqual(self.entry(ELAB.replace("  IO.println verilog\n", "  -- synthesizeHierarchical\n  IO.println verilog\n", 1)), "")
+        self.assertIn("synthesizeHierarchical", self.entry(ELAB.replace("  IO.println verilog\n", "  let _ ← synthesizeHierarchical declName\n  IO.println verilog\n", 1)))
+
+    def test_entry_guard_writedesign_core_checked_without_comments(self):
+        new = ELAB.replace("  let design ← synthesizeHierarchical declName\n  let verilog",
+                           "  let design ← synthesizeNew declName -- synthesizeHierarchical\n  let verilog", 1)
+        self.assertIn("synthesizeHierarchical", self.entry(new, "#writeDesign"))
 
     def test_entry_guard_accepts_the_real_elaborator(self):
         root = os.path.dirname(os.path.dirname(VED))
