@@ -41,7 +41,8 @@ u0_run.GEN = os.environ.get("U1_GEN_PY", U1_GEN)
 import u1_gen  # noqa: E402
 
 UNION_COLUMNS = (["row", "file", "line", "command", "top"]
-                 + [f"{rt}_strict" for rt in u1_gen.ROUTES] + ["union_strict", "union_strict_routes"]
+                 + [f"{rt}_strict" for rt in u1_gen.ROUTES]
+                 + ["union_std_strict", "union_strict", "union_strict_routes"]
                  + [f"{rt}_first_cause" for rt in u1_gen.ROUTES]
                  + [f"{rt}_status" for rt in u1_gen.ROUTES]
                  + [f"{rt}_prep_status" for rt in u1_gen.DEEP_ROUTES] + ["invocation"])
@@ -49,6 +50,9 @@ UNION_COLUMNS = (["row", "file", "line", "command", "top"]
 
 def sha(*paths):
     return u0_run.sha256_bytes(*[open(p, "rb").read() for p in paths])
+
+
+STD_ROUTES = ("u1", "u1_deep")
 
 
 def union_rows(records):
@@ -64,6 +68,9 @@ def union_rows(records):
         base = next((recs[rt] for rt in u1_gen.ROUTES if recs[rt]), {})
         u = {"row": row, "file": base.get("file", ""), "line": base.get("line", ""),
              "command": base.get("command", ""), "top": base.get("top", ""),
+             # standard routes only (u1, u1_deep in the original scope)
+             "union_std_strict": "yes" if any(rt in STD_ROUTES for rt in ok) else "no",
+             # also the namespace-assisted route (reviewer ruling 2026-11-10)
              "union_strict": "yes" if ok else "no", "union_strict_routes": ",".join(ok),
              "invocation": base.get("invocation", "")}
         for rt in u1_gen.ROUTES:
@@ -87,9 +94,14 @@ def summary_lines(records, union):
         n = len(rs)
         s = sum(1 for r in rs if r["strict_counted"] == "yes")
         lines.append(f"route {route}: records={n} strict_counted_yes={s}")
-    lines.append(f"union: distinct_rows={len(union)} strict_in_either_route="
-                 f"{sum(1 for u in union if u['union_strict'] == 'yes')} "
+    std = sum(1 for u in union if u["union_std_strict"] == "yes")
+    allr = sum(1 for u in union if u["union_strict"] == "yes")
+    lines.append(f"union (standard routes u1, u1_deep): distinct_rows={len(union)} returned_IR_strict_rows={std}")
+    lines.append(f"union (incl. namespace-assisted u1_deep_ns): distinct_rows={len(union)} "
+                 f"returned_IR_strict_rows_incl_namespace_assisted={allr} "
                  f"strict_in_several_routes={sum(1 for u in union if u['union_strict_routes'].count(',') >= 1)}")
+    lines.append("  (not: main's ordinary command succeeds as is / production route / release; "
+                 "u1_deep refusals caused by the name lookup stay recorded)")
     lines.append("first_cause cross table (records):")
     causes = sorted({r["first_cause"] for r in records})
     lines.append("  " + "\t".join(["cause"] + sorted(routes)))

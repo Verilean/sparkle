@@ -83,6 +83,10 @@ KEY_COLUMNS = ["inv_commit", "inv_blob", "row", "file", "line", "command", "ns",
 RESULT_COLUMNS = KEY_COLUMNS + [
     "invocation",            # u1-in-file | unsupported-invocation | unresolved-private | unresolved-name | harness-error
     "invocation_detail", "decl_resolved", "decl_check",
+    # u1_deep_ns only (n/a elsewhere): the namespace the wrapper opened, and
+    # whether the bare identifier named the SAME constant inside it, for the
+    # preparation and for the U1 command (both wraps must say `same`)
+    "ns_scope", "ns_check", "ns_detail", "prep_command", "u1_command",
     "run_id", "attempt", "src_sha", "src_dirty_hash", "toolchain", "case_hash", "harness_hash",
     "effective_env", "lean_options", "cleared_env",
     "ran", "rc", "term", "timeout", "wall_s", "peak_rss_kb", "peak_rss_source", "cgroup_peak_kb",
@@ -116,8 +120,13 @@ elab "#vedu1_t " s:str : command => do
 IN_DECLNS = '''open Lean Elab Command in
 elab "#vedu1_in_declns " id:ident c:command : command => do
   let n ← liftCoreM <| realizeGlobalConstNoOverload id
-  logInfo m!"VED U1N scope={n.getPrefix}"
-  withNamespace n.getPrefix (elabCommand c)'''
+  withNamespace n.getPrefix do
+    -- withNamespace also changes how the bare identifier resolves: run the
+    -- command only if it still names the SAME constant inside the namespace
+    let n' ← liftCoreM <| realizeGlobalConstNoOverload id
+    logInfo m!"VED U1N scope={n.getPrefix} outer={n} inner={n'} {if n == n' then "same" else "differs"}"
+    if n == n' then elabCommand c
+    else logError m!"VED U1N REFUSED {id}: resolves to {n'} inside {n.getPrefix}, not {n}"'''
 
 PRE_PROBE = '''open Lean Elab Command in
 run_cmd do
@@ -412,6 +421,24 @@ def classify_dir(d, sv_group=""):
         row["invocation"] = "unresolved-private" if meta.get("scan_private") else "unresolved-name"
     else:
         row["decl_check"] = "unknown"
+    # namespace wrapper (u1_deep_ns): one `VED U1N` line per wrap (prep, U1)
+    if route == "u1_deep_ns":
+        wraps = re.findall(r"VED U1N scope=(\S+) outer=(\S+) inner=(\S+) (same|differs)", text)
+        row["ns_scope"] = ",".join(sorted({w[0] for w in wraps}))
+        row["ns_detail"] = ";".join(f"outer={w[1]} inner={w[2]}" for w in wraps)
+        if len(wraps) == 2 and all(w[3] == "same" and w[1] == resolved for w in wraps):
+            row["ns_check"] = "same"
+        elif any(w[3] == "differs" for w in wraps):
+            row["ns_check"] = "differs"
+        elif wraps and resolved and any(w[1] != resolved for w in wraps):
+            row["ns_check"] = "outer-differs-from-original"
+        else:
+            row["ns_check"] = f"absent({len(wraps)} wraps)"
+    else:
+        row["ns_scope"] = row["ns_check"] = row["ns_detail"] = "n/a"
+    row["prep_command"] = ("n/a" if route == "u1" else
+                           ("#vedu1_in_declns " if route == "u1_deep_ns" else "") + f"#verify_elab_deep {meta.get('top', '')}")
+    row["u1_command"] = ("#vedu1_in_declns " if route == "u1_deep_ns" else "") + f"{ENTRY_CMD[route]} {meta.get('top', '')}"
     m = re.search(r"VED U1P PRE thm=(\w+) mod=(\w+) contract=(\w+)", text)
     pre_exist = bool(m and "true" in m.groups())
     row["probe_preexisting"] = "unknown" if not m else ("yes" if pre_exist else "no")
@@ -585,6 +612,8 @@ def classify_dir(d, sv_group=""):
         bl.append(f"ok-thm-name:{row['u1_ok_thm'] or 'none'}")
     if row["ran"] != "yes" or "probe_end" not in marks:
         bl.append("run-incomplete")
+    if route == "u1_deep_ns" and row["ns_check"] != "same":
+        bl.append(f"ns:{row['ns_check'] or 'unknown'}")
     strict = not bl
     row["strict_counted"] = "yes" if strict else "no"
     row["strict_label"] = "returned-IR strict: U1, reset=0, order-free" if strict else "no"
