@@ -113,4 +113,75 @@ def U1HStmt (c : Contract) (m : Module) (d : Design) (f : c.table.Ty) : Prop :=
   OrderH d m ∧ (∀ x ∈ d.modules, OrderStmt x) ∧ (∃ arr, AdmArr d m arr) ∧
   OutputsStmtH c m d f
 
+/-! ## One-step invariant to the whole run -/
+
+theorem outputsH_of_step (c : Contract) (m : Module) (d : Design) (arr : String → List Stmt)
+    (f : c.table.Ty) (outs : List Port) (hO : c.outputs = outs)
+    (R : (Nat → String → Nat) → Nat → (String → Nat) → Prop)
+    (h0 : ∀ ins, InputsOk c m ins → R ins 0 (st0 c m))
+    (hstep : ∀ ins, InputsOk c m ins → ∀ s st, R ins s st →
+      ∃ envF nexts, stepH d arr m (seedIn m ins s st) = some (envF, nexts) ∧
+        (∀ o ∈ outs, envF o.name = srcOf c f ins o.name s) ∧ R ins (s + 1) (applyNexts st nexts)) :
+    OutputsOnH c m d arr f := by
+  subst hO
+  intro ins hok K
+  have key : ∀ k s (st : String → Nat), s + k = K → R ins s st →
+      ∃ envs, runH d arr m (seedFwd m K ins) k st = some envs ∧
+        ∀ i, i < k → ∀ o ∈ c.outputs, ∃ env, envs[i]? = some env ∧
+          env o.name = srcOf c f ins o.name (s + i) := by
+    intro k
+    induction k with
+    | zero => intro s st _ _; exact ⟨[], rfl, fun i hi => absurd hi (Nat.not_lt_zero _)⟩
+    | succ k ih =>
+      intro s st hK hR
+      have hseed : seedFwd m K ins k st = seedIn m ins s st := by
+        have h := seedFwd_time m K ins (t := s) (by omega) st
+        have hk : K - 1 - s = k := by omega
+        rw [hk] at h; exact h
+      obtain ⟨envF, nexts, hst, hout, hR'⟩ := hstep ins hok s st hR
+      obtain ⟨rest, hrun, hrest⟩ := ih (s + 1) (applyNexts st nexts) (by omega) hR'
+      refine ⟨envF :: rest, ?_, ?_⟩
+      · show (do let (envF, nexts) ← stepH d arr m (seedFwd m K ins k st)
+                 let rest ← runH d arr m (seedFwd m K ins) k (applyNexts st nexts)
+                 some (envF :: rest)) = _
+        rw [hseed, hst]
+        change (runH d arr m (seedFwd m K ins) k (applyNexts st nexts)).bind _ = _
+        rw [hrun]; rfl
+      · intro i hi o ho
+        cases i with
+        | zero => exact ⟨envF, rfl, by simpa using hout o ho⟩
+        | succ i =>
+          obtain ⟨env, he, hv⟩ := hrest i (by omega) o ho
+          exact ⟨env, by simpa using he, by rw [hv]; congr 1; omega⟩
+  obtain ⟨envs, hrun, hall⟩ := key K 0 (st0 c m) (by omega) (h0 ins hok)
+  exact ⟨envs, hrun, fun t ht o ho => by simpa using hall t ht o ho⟩
+
+/-- Without registers a body's `regNexts` is empty. -/
+theorem regNexts_asgInst (we : WEnv) (mems : MEnv) :
+    ∀ (b : List Stmt) (env : Env), (∀ s ∈ b, isAsgInst s = true) → regNexts we mems b env = some [] := by
+  intro b
+  induction b with
+  | nil => intro _ _; rfl
+  | cons s rest ih =>
+    intro env h
+    have hs := h s (List.mem_cons_self ..)
+    have hr := ih env (fun x hx => h x (List.mem_cons_of_mem _ hx))
+    cases s <;> simp [isAsgInst] at hs <;> simpa [regNexts] using hr
+
+/-- ORDER-FREE STEP: if ONE well-ordered arrangement `b0` of the top body folds to `E`, then
+`stepH` under ANY admissible arrangement `arr m.name` does too, with the same `E` and no register
+update. -/
+theorem stepH_of_b0 (d : Design) (arr : String → List Stmt) (m : Module) (b0 : List Stmt)
+    (hp : (arr m.name).Perm b0) (hw1 : WOH d (arr m.name)) (hw2 : WOH d b0)
+    (hai : ∀ s ∈ arr m.name, isAsgInst s = true) (env0 E : Env)
+    (h : evalAssignsI (declWidth m) (instEval d (runAt d arr (fuelOf d)) (declWidth m)) b0 env0 = some E) :
+    stepH d arr m env0 = some (E, []) := by
+  have h' := evalAssignsI_perm d (declWidth m) (instEval d (runAt d arr (fuelOf d)) (declWidth m))
+    (instEval_laws d _ _) hp.symm hw2 hw1 h
+  unfold stepH
+  rw [h']
+  change (regNexts (declWidth m) (fun _ _ => 0) (arr m.name) E).bind _ = _
+  rw [regNexts_asgInst _ _ _ _ hai]
+  rfl
+
 end Tools.VedU1Hier
