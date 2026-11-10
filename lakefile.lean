@@ -342,6 +342,12 @@ lean_lib «Tools.VedU1Contract» where
 lean_lib «Tools.VedU1Lemmas» where
   roots := #[`Tools.VedU1Lemmas]
 
+lean_lib «Tools.VedU1HierSem» where
+  roots := #[`Tools.VedU1HierSem]
+
+lean_lib «Tools.VedU1HierComp» where
+  roots := #[`Tools.VedU1HierComp]
+
 lean_lib «Tools.VedU1Entry» where
   roots := #[`Tools.VedU1Entry]
 
