@@ -81,7 +81,9 @@ def heldEn (en : Signal defaultDomain Bool) (d : Signal defaultDomain (BitVec 8)
     let n ← Signal.reg 0#8
     if en then
       acc <~ acc + d
-    n <~ n + 1#8
+      n <~ n + 1#8
+    else
+      n <~ n + 1#8
     return acc
 
 def fsmHold : Signal defaultDomain (BitVec 8) :=
@@ -106,9 +108,9 @@ def hygBool (u : Signal defaultDomain Bool) (hL : Signal defaultDomain Bool)
       t <~ t + m
     else
       ins <~ ins + 1#8
-    if hL then
-      ins <~ 0#8
-    return t + ins
+    let tS := (t : Signal defaultDomain (BitVec 8))
+    let iS := (ins : Signal defaultDomain (BitVec 8))
+    return Signal.mux hL tS iS
 
 #guard_msgs (drop info) in
 #verify_elab_deep twoRegReset
