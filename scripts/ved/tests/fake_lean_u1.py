@@ -64,23 +64,30 @@ def main():
     deep = bool(m and m.group(2) in ("u1_deep", "u1_deep_ns"))
     nsr = bool(m and m.group(2) == "u1_deep_ns")
 
+    wfail = nsr and plan.get("ns_wrapper_fail")
+
     def u1n(line):
-        if nsr:
+        if wfail:
+            # the wrapper itself fails: no command runs inside it
+            msg("error", plan["ns_wrapper_fail"], line)
+        elif nsr and "." not in resolved:
+            msg("info", f"VED U1N scope=_root_ outer={resolved} inner={resolved} same mode=root", line)
+        elif nsr:
             inner = plan.get("ns_inner", resolved)
             pfx = resolved.rsplit(".", 1)[0]
             msg("info", f"VED U1N scope={pfx} outer={resolved} inner={inner} "
-                        f"{'same' if inner == resolved else 'differs'}", line)
+                        f"{'same' if inner == resolved else 'differs'} mode=ns", line)
     if deep:
         l = at('#vedu1_t "p_begin"')
         msg("info", f"VED U1T p_begin {clock}", l)
         u1n(l)
-        if plan.get("prep_error"):
+        if plan.get("prep_error") and not wfail:
             msg("error", plan["prep_error"], at("#verify_elab_deep"))
         clock += ms.get("prep", 500)
         msg("info", f"VED U1T p_end {clock}", at('#vedu1_t "p_end"'))
     msg("info", f"VED U1T u_begin {clock}", at('#vedu1_t "u_begin"'))
     u1n(at('#vedu1_t "u_begin"'))
-    u1 = plan.get("u1", "ok")
+    u1 = plan.get("u1", "ok") if not wfail else "none"
     el = at("#ved_u1")
     if u1 == "ok":
         axs = ", ".join(plan.get("ok_axioms", ["propext"]))

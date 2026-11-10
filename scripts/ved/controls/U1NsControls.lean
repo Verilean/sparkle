@@ -16,7 +16,13 @@ The file elaborates without error iff every control holds; each prints
   C2  preparation facts missing: `#ved_u1_deep` on VedCtlC.cnt with no
       `#verify_elab_deep` refuses, no theorem;
   C3  another declaration's facts: VedCtlA's facts exist (C0), and
-      `#ved_u1_deep VedCtlB.cnt` refuses, no theorem for VedCtlB.cnt.
+      `#ved_u1_deep VedCtlB.cnt` refuses, no theorem for VedCtlB.cnt;
+  C4  a ROOT-level declaration (no namespace; 150 inventory rows failed with
+      `invalid scope` before): the wrapper elaborates the command as is in the
+      original scope (mode=root) and gives a strict `vedCtlRootCnt.ved_u1`;
+  C5  a PRIVATE declaration inside a namespace (3 rows failed the same way):
+      the wrapper opens the user-facing namespace, the bare name still
+      resolves to the same private constant, and the theorem is strict.
 -/
 import Sparkle
 import Sparkle.Core.CircuitDo
@@ -43,6 +49,20 @@ def cnt : Signal defaultDomain (BitVec 8) :=
     return c
 end VedCtlB
 
+def vedCtlRootCnt : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let c ← Signal.reg 0#8
+    c <~ c + 5#8
+    return c
+
+namespace VedCtlP
+private def pcnt : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let c ← Signal.reg 0#8
+    c <~ c + 7#8
+    return c
+end VedCtlP
+
 namespace VedCtlC
 def cnt : Signal defaultDomain (BitVec 8) :=
   circuit do
@@ -55,13 +75,26 @@ end VedCtlC
 open Lean Elab Command in
 elab "#vedu1_in_declns " id:ident c:command : command => do
   let n ← liftCoreM <| realizeGlobalConstNoOverload id
-  withNamespace n.getPrefix do
-    -- withNamespace also changes how the bare identifier resolves: run the
-    -- command only if it still names the SAME constant inside the namespace
-    let n' ← liftCoreM <| realizeGlobalConstNoOverload id
-    logInfo m!"VED U1N scope={n.getPrefix} outer={n} inner={n'} {if n == n' then "same" else "differs"}"
-    if n == n' then elabCommand c
-    else logError m!"VED U1N REFUSED {id}: resolves to {n'} inside {n.getPrefix}, not {n}"
+  -- a private constant's namespace is that of its user-facing name
+  let scope := ((privateToUserName? n).getD n).getPrefix
+  if scope.isAnonymous then
+    -- a root-level declaration: no namespace to open, so the command is
+    -- elaborated as is in the original scope (the u1_deep command)
+    logInfo m!"VED U1N scope=_root_ outer={n} inner={n} same mode=root"
+    elabCommand c
+  else
+    let r : Option String ← try
+        withNamespace scope do
+          -- withNamespace also changes how the bare identifier resolves: run
+          -- the command only if it still names the SAME constant inside
+          let n' ← liftCoreM <| realizeGlobalConstNoOverload id
+          logInfo m!"VED U1N scope={scope} outer={n} inner={n'} {if n == n' then "same" else "differs"} mode=ns"
+          if n == n' then elabCommand c
+          else logError m!"VED U1N REFUSED {id}: resolves to {n'} inside {scope}, not {n}"
+        pure none
+      catch e => pure (some (← e.toMessageData.toString))
+    if let some msg := r then
+      logError m!"VED U1N HARNESS-FAIL {id} scope={scope}: {msg}"
 
 -- a deliberately WRONG wrapper for C1: opens the namespace it is given, with
 -- the same same-constant check as the harness wrapper
@@ -156,3 +189,40 @@ set_option Elab.async false in
 #ved_u1_deep cnt
 end VedCtlB
 #vedu1_ctl "C3" VedCtlB.cnt.ved_u1 absent
+
+/-! C4: root-level declaration through the wrapper (mode=root) -/
+section C4
+set_option Elab.async false in
+#vedu1_in_declns vedCtlRootCnt
+set_option Elab.async false in
+#verify_elab_deep vedCtlRootCnt
+set_option Elab.async false in
+#vedu1_in_declns vedCtlRootCnt
+set_option Elab.async false in
+#ved_u1_deep vedCtlRootCnt
+end C4
+#vedu1_ctl "C4" vedCtlRootCnt.ved_u1 present
+
+/-! C5: private declaration inside a namespace, command written outside it -/
+section C5
+open VedCtlP
+set_option Elab.async false in
+#vedu1_in_declns pcnt
+set_option Elab.async false in
+#verify_elab_deep pcnt
+set_option Elab.async false in
+#vedu1_in_declns pcnt
+set_option Elab.async false in
+#ved_u1_deep pcnt
+open Lean Elab Command in
+run_cmd do
+  let n ← liftCoreM <| realizeGlobalConstNoOverload (mkIdent `pcnt)
+  let thm := n ++ `ved_u1
+  match (← getEnv).find? thm with
+  | some (.thmInfo _) =>
+    let ax ← liftCoreM <| Lean.collectAxioms thm
+    if ax.all (fun a => a == ``propext || a == ``Classical.choice || a == ``Quot.sound) then
+      logInfo m!"VED U1CTL C5 PASS ({thm})"
+    else throwError m!"VED U1CTL C5 FAIL: axioms {ax}"
+  | _ => throwError m!"VED U1CTL C5 FAIL: {thm} absent"
+end C5

@@ -86,7 +86,7 @@ RESULT_COLUMNS = KEY_COLUMNS + [
     # u1_deep_ns only (n/a elsewhere): the namespace the wrapper opened, and
     # whether the bare identifier named the SAME constant inside it, for the
     # preparation and for the U1 command (both wraps must say `same`)
-    "ns_scope", "ns_check", "ns_detail", "prep_command", "u1_command",
+    "ns_scope", "ns_check", "ns_detail", "ns_mode", "prep_command", "u1_command",
     "run_id", "attempt", "src_sha", "src_dirty_hash", "toolchain", "case_hash", "harness_hash",
     "effective_env", "lean_options", "cleared_env",
     "ran", "rc", "term", "timeout", "wall_s", "peak_rss_kb", "peak_rss_source", "cgroup_peak_kb",
@@ -106,7 +106,7 @@ RESULT_COLUMNS = KEY_COLUMNS + [
     "t_synthesis", "t_deep_prep", "t_u1_proof", "t_elab_kernel", "t_audit", "t_u1_combined",
     "t_probe", "t_total_wall_s",
     "errors_outside_block", "errors_outside_first",
-    "strict_counted", "strict_label", "strict_blockers",
+    "case_ok", "strict_counted", "strict_label", "strict_blockers",
     "opt_sv", "harness_error", "stdout_ref", "stderr_ref",
 ]
 
@@ -120,13 +120,26 @@ elab "#vedu1_t " s:str : command => do
 IN_DECLNS = '''open Lean Elab Command in
 elab "#vedu1_in_declns " id:ident c:command : command => do
   let n ← liftCoreM <| realizeGlobalConstNoOverload id
-  withNamespace n.getPrefix do
-    -- withNamespace also changes how the bare identifier resolves: run the
-    -- command only if it still names the SAME constant inside the namespace
-    let n' ← liftCoreM <| realizeGlobalConstNoOverload id
-    logInfo m!"VED U1N scope={n.getPrefix} outer={n} inner={n'} {if n == n' then "same" else "differs"}"
-    if n == n' then elabCommand c
-    else logError m!"VED U1N REFUSED {id}: resolves to {n'} inside {n.getPrefix}, not {n}"'''
+  -- a private constant's namespace is that of its user-facing name
+  let scope := ((privateToUserName? n).getD n).getPrefix
+  if scope.isAnonymous then
+    -- a root-level declaration: no namespace to open, so the command is
+    -- elaborated as is in the original scope (the u1_deep command)
+    logInfo m!"VED U1N scope=_root_ outer={n} inner={n} same mode=root"
+    elabCommand c
+  else
+    let r : Option String ← try
+        withNamespace scope do
+          -- withNamespace also changes how the bare identifier resolves: run
+          -- the command only if it still names the SAME constant inside
+          let n' ← liftCoreM <| realizeGlobalConstNoOverload id
+          logInfo m!"VED U1N scope={scope} outer={n} inner={n'} {if n == n' then "same" else "differs"} mode=ns"
+          if n == n' then elabCommand c
+          else logError m!"VED U1N REFUSED {id}: resolves to {n'} inside {scope}, not {n}"
+        pure none
+      catch e => pure (some (← e.toMessageData.toString))
+    if let some msg := r then
+      logError m!"VED U1N HARNESS-FAIL {id} scope={scope}: {msg}"'''
 
 PRE_PROBE = '''open Lean Elab Command in
 run_cmd do
@@ -426,6 +439,8 @@ def classify_dir(d, sv_group=""):
         wraps = re.findall(r"VED U1N scope=(\S+) outer=(\S+) inner=(\S+) (same|differs)", text)
         row["ns_scope"] = ",".join(sorted({w[0] for w in wraps}))
         row["ns_detail"] = ";".join(f"outer={w[1]} inner={w[2]}" for w in wraps)
+        modes = sorted(set(re.findall(r"VED U1N scope=\S+ outer=\S+ inner=\S+ (?:same|differs) mode=(\w+)", text)))
+        row["ns_mode"] = ",".join(modes) if modes else "unrecorded"
         if len(wraps) == 2 and all(w[3] == "same" and w[1] == resolved for w in wraps):
             row["ns_check"] = "same"
         elif any(w[3] == "differs" for w in wraps):
@@ -435,7 +450,7 @@ def classify_dir(d, sv_group=""):
         else:
             row["ns_check"] = f"absent({len(wraps)} wraps)"
     else:
-        row["ns_scope"] = row["ns_check"] = row["ns_detail"] = "n/a"
+        row["ns_scope"] = row["ns_check"] = row["ns_detail"] = row["ns_mode"] = "n/a"
     row["prep_command"] = ("n/a" if route == "u1" else
                            ("#vedu1_in_declns " if route == "u1_deep_ns" else "") + f"#verify_elab_deep {meta.get('top', '')}")
     row["u1_command"] = ("#vedu1_in_declns " if route == "u1_deep_ns" else "") + f"{ENTRY_CMD[route]} {meta.get('top', '')}"
@@ -465,6 +480,15 @@ def classify_dir(d, sv_group=""):
         else:
             row["prep_status"], prep_ok = "incomplete", False
 
+    # namespace wrapper failure (u1_deep_ns): its own HARNESS-FAIL line, or
+    # Lean's `invalid scope` from withNamespace in older harness versions
+    ns_fail = ""
+    if route == "u1_deep_ns":
+        for ln, sev, t in msgs:
+            if sev == "error" and (t.startswith("VED U1N HARNESS-FAIL") or t.strip() == "invalid scope"):
+                ns_fail = t
+                break
+
     # the U1 step
     u1 = in_seg("u1")
     u1_errs = [t for ln, sev, t in u1 if sev == "error"]
@@ -491,6 +515,13 @@ def classify_dir(d, sv_group=""):
         cause = "signal"
     elif run.get("harness_error"):
         cause = "harness-error"
+    elif route == "u1_deep_ns" and ns_fail:
+        # the namespace wrapper itself failed (e.g. `invalid scope` from
+        # withNamespace at the root or on a private name before 2026-11-10):
+        # the row's command never ran, so this is undetermined, not a refusal
+        cause = "harness-error(ns-wrapper)"
+        row["harness_error"] = (row["harness_error"] + ";" if row["harness_error"] else "") + \
+            f"namespace wrapper failed: {first_line(ns_fail, 160)}"
     elif row["decl_check"] == "absent":
         cause = "unresolved"
     elif not msgs and not marks:
@@ -614,12 +645,25 @@ def classify_dir(d, sv_group=""):
         bl.append("run-incomplete")
     if route == "u1_deep_ns" and row["ns_check"] != "same":
         bl.append(f"ns:{row['ns_check'] or 'unknown'}")
+    # the case itself must succeed: Lean's exit status 0 and no error outside
+    # the inserted block (an error after the probe or in the original file
+    # would otherwise leave strict=yes)
+    row["case_ok"] = "yes" if rcv == "0" and row["errors_outside_block"] == "0" else "no"
+    if rcv != "0":
+        bl.append(f"rc:{rcv or 'unknown'}")
+    if row["errors_outside_block"] != "0":
+        bl.append(f"outside-errors:{row['errors_outside_block']}")
     strict = not bl
+    case_only = bool(bl) and all(b.startswith(("rc:", "outside-errors:")) for b in bl)
     row["strict_counted"] = "yes" if strict else "no"
     row["strict_label"] = "returned-IR strict: U1, reset=0, order-free" if strict else "no"
     row["strict_blockers"] = ";".join(bl)
     if strict:
         row.update(u1_status="ok", first_cause="none")
+    elif case_only and row["u1_ok_line"] == "yes" and not cause and not refusal and not u1_errs:
+        # theorem confirmed by the probe, but the case itself failed (non-zero
+        # exit or an error outside the block): not counted
+        row.update(u1_status="ok-but-case-failed", first_cause="case-error")
     elif row["u1_ok_line"] == "yes" and not cause and not refusal and not u1_errs:
         # `VED U1 OK` printed, but the independent probe disagrees: never counted
         row.update(u1_status="ok-line-not-confirmed", first_cause="probe-rejected")

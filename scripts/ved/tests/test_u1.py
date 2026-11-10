@@ -213,10 +213,27 @@ class U1Harness(unittest.TestCase):
         self.assertEqual((r["u1_status"], r["first_cause"]), ("error", "uncaught-heartbeat"))
 
     def test_error_outside_block_is_separate(self):
+        # reviewer P2-1: an error outside the block or a non-zero exit blocks strict
         r = self.one(1, "u1", exit=1, outside_error="unknown identifier 'zzz'")
-        self.assertEqual((r["errors_outside_block"], r["first_cause"]), ("1", "none"))
+        self.assertEqual((r["errors_outside_block"], r["first_cause"]), ("1", "case-error"))
         self.assertIn("zzz", r["errors_outside_first"])
         self.assertEqual(r["refusal_msg"], "")
+        self.assertEqual((r["strict_counted"], r["case_ok"], r["probe_type"]), ("no", "no", "exact"))
+        self.assertIn("rc:1", r["strict_blockers"])
+        self.assertIn("outside-errors:1", r["strict_blockers"])
+
+    def test_p2_ok_and_good_probe_but_case_failed(self):
+        # VED U1 OK + a fully correct probe, then only a non-zero exit
+        r = self.one(1, "u1", exit=1)
+        self.assertEqual((r["u1_ok_line"], r["probe_type"], r["probe_axioms_std3"]), ("yes", "exact", "yes"))
+        self.assertEqual((r["strict_counted"], r["case_ok"], r["strict_blockers"]), ("no", "no", "rc:1"))
+        self.assertEqual((r["u1_status"], r["first_cause"]), ("ok-but-case-failed", "case-error"))
+        # ... or only an error outside the block with exit 0
+        r = self.one(2, "u1", outside_error="unknown identifier 'zzz'")
+        self.assertEqual((r["strict_counted"], r["case_ok"], r["strict_blockers"]), ("no", "no", "outside-errors:1"))
+        # the clean case stays strict
+        r = self.one(5, "u1")
+        self.assertEqual((r["strict_counted"], r["case_ok"]), ("yes", "yes"))
 
     def test_decl_mismatch_preexisting_and_ok_name(self):
         r = self.one(1, "u1", qualified="Other.foo1")
@@ -341,7 +358,7 @@ class U1Harness(unittest.TestCase):
     def test_case_text_u1_deep_ns_in_decl_namespace(self):
         text, meta = self.gen_case(1, "u1_deep_ns")
         self.assertIn('elab "#vedu1_in_declns "', text)
-        self.assertIn("withNamespace n.getPrefix", text)
+        self.assertIn("withNamespace scope do", text)
         self.assertIn("#vedu1_in_declns foo1\nset_option Elab.async false in\n#verify_elab_deep foo1\n", text)
         self.assertIn("#vedu1_in_declns foo1\nset_option Elab.async false in\n#ved_u1_deep foo1\n", text)
         ends = [k for k in range(len(text)) if text.startswith("end VedU1Case_R1", k)]
@@ -372,6 +389,32 @@ class U1Harness(unittest.TestCase):
         self.assertIn("ns:differs", r["strict_blockers"])
         r = self.one(5, "u1")
         self.assertEqual(r["ns_check"], "n/a")
+
+    def test_u1_deep_ns_root_level_declaration(self):
+        # reviewer P1-1: a root-level name opens no namespace (the u1_deep command)
+        r = self.one(1, "u1_deep_ns", resolved="foo1", qualified="foo1")
+        self.assertEqual((r["strict_counted"], r["ns_check"], r["ns_scope"], r["ns_mode"]),
+                         ("yes", "same", "_root_", "root"))
+        r = self.one(2, "u1_deep_ns")
+        self.assertEqual(r["ns_mode"], "ns")
+
+    def test_u1_deep_ns_wrapper_failure_is_harness_error(self):
+        # `invalid scope` (harness before 2026-11-10) and the wrapper's own
+        # HARNESS-FAIL line: undetermined, never a prep refusal
+        for msg in ("invalid scope", "VED U1N HARNESS-FAIL foo1 scope=X: invalid scope"):
+            r = self.one(1, "u1_deep_ns", ns_wrapper_fail=msg, prep_error="no registers")
+            self.assertEqual((r["first_cause"], r["strict_counted"]), ("harness-error(ns-wrapper)", "no"), msg)
+            self.assertIn("namespace wrapper failed", r["harness_error"])
+            self.assertIn("harness-error", r["strict_blockers"])
+        # the same message on another route is not a wrapper failure
+        r = self.one(1, "u1_deep", prep_error="invalid scope")
+        self.assertEqual(r["first_cause"], "prep")
+
+    def test_case_text_u1_deep_ns_root_and_private(self):
+        text, _ = self.gen_case(1, "u1_deep_ns")
+        self.assertIn("privateToUserName? n", text)
+        self.assertIn("if scope.isAnonymous then", text)
+        self.assertIn("VED U1N HARNESS-FAIL", text)
 
     # ------------------------------------------------------- union & runner
     def test_g_union_counting(self):
