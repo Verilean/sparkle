@@ -87,6 +87,23 @@ def dnot5 {dom : DomainConfig} (a : Signal dom (BitVec 5)) : Signal dom (BitVec 
 #guard_msgs in
 run_cmd checkSpec ``dnot5
 
+-- Two-input bitwise operators (next operators of the combinational group)
+def dand8 (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) := a &&& b
+def dor8 (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) := a ||| b
+def dxor8 {dom : DomainConfig} (a b : Signal dom (BitVec 12)) : Signal dom (BitVec 12) := a ^^^ b
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dand8.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dand8
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dor8.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dor8
+
+/-- info: specialised OK Tests.Ved.U1DomainCheck.dxor8.ved_u1 -/
+#guard_msgs in
+run_cmd checkSpec ``dxor8
+
 /-! ## Controls: refused at `[table]`, no theorem -/
 
 def expectStageRefusal (stage : String) (decl : Name) : CommandElabM Unit := liftTermElabM do
@@ -181,6 +198,17 @@ run_cmd expectRefused "proof" `ctlIdentIntoNot do
 #guard_msgs in
 run_cmd expectRefused "proof" `ctlNotIntoIdent do
   discard <| checkU1E ``didAuto `ctlNotIntoIdent (specOf ``didAuto) (← modOf ``dnotAuto) .generated
+
+-- and's module against or's statement, and xor's against and's
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlAndIntoOr do
+  discard <| checkU1E ``dor8 `ctlAndIntoOr (specOf ``dor8) (← modOf ``dand8) .generated
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" `ctlOrIntoAnd do
+  discard <| checkU1E ``dand8 `ctlOrIntoAnd (specOf ``dand8) (← modOf ``dor8) .generated
 
 -- a proof term of the wrong statement (the identity's theorem for the complement)
 /-- info: refused [proof], clean -/

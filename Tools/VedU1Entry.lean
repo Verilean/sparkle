@@ -243,7 +243,11 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
             Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, hin,
-            Tools.VedU1Lemmas.compl_val, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat]
+            Tools.VedU1Lemmas.compl_val,
+            Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit,
+            Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val,
+            Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val,
+            BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat]
           try omega)
   | some (r, w) =>
     let rS := Syntax.mkStrLit r
