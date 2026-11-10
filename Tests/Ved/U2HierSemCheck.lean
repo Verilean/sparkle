@@ -124,10 +124,12 @@ example : (runHS dsn arrId topRstData (seedFwd topRstData 3 inpS) 3 (st0H dsn to
   decide
 
 /-- BOTH instances reset by the data input `a` (a single pair `(clk, a)`): `clkRstOk` alone accepts
-a pair of distinct inputs, so the STATEMENT side must tie the pair to the contract's `clkRst`; the
-design pair here is `(clk, a)`, a data input of the contract, which `CorrStmt`'s injectivity of
-`inNames ++ outNames ++ clkRstNames` refuses (the contract names `_gen_a` for the data input and
-a clock/reset pair `(clk, a)` would repeat a port name). -/
+a pair of distinct inputs, so the STATEMENT side must tie the pair to the contract's `clkRst`.  By
+REAL names: the design pair here is `(clk, a)`; `a` is a data input of the parent, so a contract
+whose pair is `(clk, a)` repeats the port name `a` (`CorrStmt`'s injectivity of
+`inNames ++ outNames ++ clkRstNames` over the real names refuses it); a contract whose pair is the
+parent's real `(clk, rst)` is not equal to the design pair `(clk, a)` (the `htie` conjunct of
+`U2HStmt` refuses it).  Both are exercised with the synthesized parent in `U2HierCheck.lean`. -/
 def topBothA : Module := topWith (.ref "clk") (.ref "clk") (.ref "a") (.ref "a") "p" "q"
 
 example : clkRstOk dsn topBothA = true := by decide

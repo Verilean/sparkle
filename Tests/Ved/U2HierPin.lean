@@ -227,6 +227,13 @@ noncomputable def Mrn : Sparkle.IR.AST.Module := { M with body := renameInsts (M
 example : HierShapeS D Mrn = true := by decide +kernel
 example : outsP D Mrn (renameInsts parTwo.ved_body) (st0H D Mrn) inpS 4 = some decl := by decide +kernel
 
+/-! ## Axioms, MACHINE-checked: the closure of every pinned statement is within the standard three -/
+
+run_cmd Lean.Elab.Command.liftCoreM do
+  for n in [``pin_ProjAt, ``pin_insCOf, ``pin_runHS_proj, ``pin_U2HStmt, ``pin_applyH, ``pin_stepHS,
+      ``pin_st0H] do
+    Tests.Ved.U2HierCheck.std3Only n
+
 /-! ## The printed types, fixed (fully qualified names) -/
 
 set_option pp.fullNames true

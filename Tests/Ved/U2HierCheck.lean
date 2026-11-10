@@ -641,7 +641,11 @@ run_cmd liftCoreM do
       ``Tools.VedU2Hier.kid_inst, ``Tools.VedU2Hier.connsIn_sound, ``Tools.VedU2Hier.dataIn_sound,
       ``Tools.VedU2Hier.runModule_congr_seed, ``parTwo_changing_clock, ``parTwo_any_clock,
       ``insRst_not_ok, ``inputsOk_clk, ``parTwo.ved_u1, ``parMulti.ved_u1,
-      ``parTwo.ved_open_eq] do
+      ``parTwo.ved_open_eq, ``Tools.VedU2Hier.runHS_proj, ``Tools.VedU2Hier.runHS_proj_aux,
+      ``Tools.VedU2Hier.runHS_exists, ``Tools.VedU2Hier.runHS_child_clkRst,
+      ``Tools.VedU2Hier.childSucc_of_outputsOn, ``Tools.VedU2Hier.instPair_tie,
+      ``Tools.VedU2Hier.st0H_slice, ``Tools.VedU2Hier.runHS_inputs, ``Tools.VedU2Hier.stepHS_succ,
+      ``Tools.VedU2Hier.runHS_stateless, ``Tools.VedU2Hier.runHS_leaf] do
     std3Only n
 
 end Tests.Ved.U2HierCheck
