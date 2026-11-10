@@ -10,7 +10,7 @@
   - instance の出力は、親の自由入力として扱う。
   - 子の振る舞いはすべて量化される。
   - 閉じた階層意味論は「future work」と明記されている。
-- U1 の `ShapeStmt` は v1 範囲として instance を持つ module を拒否する（Tools/VedU1Contract.lean:311-315）。
+- U1 の `ShapeStmt` は v1 範囲として instance を持つ module を拒否する（Tools/VedU1Contract.lean:280-284（main 6c29b9b8。PR #152 b5da6b86 では 311-315））。
 - 測定（a18ab/cdc41 の u1_deep）: prep で「single-module designs only」が 36 行。
   - ファイルは IPv4/ARP/ICMP/HTTP/TCPHeader、AESHW、Keccak、SHA256/512、ECDSA/Policy/P256/Fido2、PCIe、MultiInstanceTest、MultiOutputSubModuleHangRepro など。
   - u1 経路では、それより前の段（table/proof/checker）で止まる行が多い。
@@ -80,4 +80,4 @@ statement は `U1HStmt c d m stmt` とする。中身は U1Stmt と同じ形で�
 
 ## 6. 根拠
 - 測定: ~/git/workspaces/ved-u1-results/full-231d5ee7/final-cdc41/results.tsv（u1_deep の prep_error に "single-module"）
-- コード: Sparkle/IR/Semantics.lean:185-198, 227、Tools/VedU1Contract.lean:311-315、Sparkle/Compiler/Elab.lean:4062
+- コード: Sparkle/IR/Semantics.lean:185-198, 227、Tools/VedU1Contract.lean:280-284（main 6c29b9b8。PR #152 b5da6b86 では 311-315）、Sparkle/Compiler/Elab.lean:4062
