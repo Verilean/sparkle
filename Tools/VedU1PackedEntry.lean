@@ -58,7 +58,7 @@ def packedScript (nm : Names) (F : Name) (nDom : Nat) : TermElabM Syntax := do
             widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth,
             PContract.core, collapse, $C:ident, applyIns, $fI:ident,
             OTy.packNat, OTy.width, PTy.width, OTy.obs, PTy.obs, PTy.sig,
-            mask, or_mod _ _ _ _ rfl,
+            mask,
             Nat.shiftRight_eq_div_pow, hin,
             Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit,
             Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val,
@@ -74,6 +74,7 @@ def packedScript (nm : Names) (F : Name) (nDom : Nat) : TermElabM Syntax := do
           all_goals
             first
             | omega
+            | (simp (disch := ltb) only [bne_toNat, Nat.mod_eq_of_lt] <;> (try simp (disch := ltb) only [cat_eq]) <;> omega)
             | (rw [Nat.mod_eq_of_lt (by omega)])
             | exact toNat_bne _ (by omega)
             | (split <;> simp <;> omega)

@@ -61,7 +61,7 @@ jobs:
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
 
     - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
-      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck
+      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1PackedCheck
 
     - name: Deep route, representative regression
       run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
@@ -89,7 +89,7 @@ jobs:
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
 
     - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
-      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck
+      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1PackedCheck
 
     - name: Deep route, every regression file
       run: |

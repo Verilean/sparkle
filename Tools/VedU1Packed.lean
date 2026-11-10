@@ -151,6 +151,53 @@ theorem OTy.toNat_pack (o : OTy) (v : o.val) : (o.pack v).toNat = o.packNat v :=
     show (a.pack v.1 ++ b.pack v.2).toNat = a.packNat v.1 <<< b.width ||| b.packNat v.2
     rw [BitVec.toNat_append, iha, ihb]
 
+/-- A low field that fits its width: shift-or is shift-add. -/
+theorem cat_eq (a b w : Nat) (hb : b < 2 ^ w) : a <<< w ||| b = a * 2 ^ w + b := by
+  rw [← Nat.shiftLeft_add_eq_or_of_lt hb, Nat.shiftLeft_eq]
+
+/-- A one-bit port read back from its stream value. -/
+theorem bne_toNat (x : Nat) (h : x < 2) : (x != 0).toNat = x := by
+  rcases Nat.lt_or_ge x 1 with h0 | h1
+  · have : x = 0 := by omega
+    subst this; rfl
+  · have : x = 1 := by omega
+    subst this; rfl
+
+/-- Bounds of bitwise combinations of numbers below a power of two (the side conditions the
+generated scripts discharge with `ltb`; the literal `n` is checked to be a power of two by `decide`). -/
+theorem or_lt_lit (a b n : Nat) (ha : a < n) (hb : b < n) (hn : n = 2 ^ Nat.log2 n) : a ||| b < n := by
+  rw [hn] at ha hb ⊢; exact Nat.or_lt_two_pow ha hb
+
+theorem xor_lt_lit (a b n : Nat) (ha : a < n) (hb : b < n) (hn : n = 2 ^ Nat.log2 n) : a ^^^ b < n := by
+  rw [hn] at ha hb ⊢; exact Nat.xor_lt_two_pow ha hb
+
+theorem and_lt_left (a b n : Nat) (ha : a < n) : a &&& b < n :=
+  Nat.lt_of_le_of_lt Nat.and_le_left ha
+
+theorem and_lt_right (a b n : Nat) (hb : b < n) : a &&& b < n :=
+  Nat.lt_of_le_of_lt Nat.and_le_right hb
+
+theorem shl_lt_div (x w n : Nat) (hx : x < n / 2 ^ w) : x <<< w < n := by
+  rw [Nat.shiftLeft_eq]
+  have h1 : (x + 1) * 2 ^ w ≤ n / 2 ^ w * 2 ^ w := Nat.mul_le_mul_right _ hx
+  have h2 := Nat.div_mul_le_self n (2 ^ w)
+  rw [Nat.add_mul, Nat.one_mul] at h1
+  have := Nat.two_pow_pos w
+  omega
+
+/-- Discharger for the bound side conditions of the generated scripts. -/
+syntax "ltb" : tactic
+
+macro_rules
+  | `(tactic| ltb) =>
+    `(tactic| first
+    | omega
+    | (refine or_lt_lit _ _ _ ?_ ?_ (by decide) <;> ltb)
+    | (refine xor_lt_lit _ _ _ ?_ ?_ (by decide) <;> ltb)
+    | (refine and_lt_left _ _ _ ?_; ltb)
+    | (refine and_lt_right _ _ _ ?_; ltb)
+    | (refine shl_lt_div _ _ _ ?_; ltb))
+
 /-! ## The coverage check -/
 
 /-- A slice map covers a port of width `W` for leaves of the given widths:
