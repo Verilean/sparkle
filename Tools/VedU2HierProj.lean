@@ -430,4 +430,203 @@ theorem runHS_exists (d : Design) (arr : Module → List Stmt) (m : Module)
     obtain ⟨envs, sts, hrest⟩ := ih (applyH st ups)
     exact ⟨envF :: envs, st :: sts, by simp [runHSTrace, hr, hrest]⟩
 
+/-! ## Projection: helper lemmas -/
+
+theorem restrict_applyNexts (names : List String) (s : String → Nat) (nx : List (String × Nat))
+    (h : ∀ p ∈ nx, p.1 ∈ names) :
+    restrictTo names (applyNexts s nx) = applyNexts (restrictTo names s) nx := by
+  funext n
+  by_cases hn : n ∈ names
+  · simp only [restrictTo, applyNexts, List.contains_eq_mem, decide_eq_true_eq, hn, if_true]
+  · have : nx.find? (fun p => p.1 == n) = none := by
+      rw [List.find?_eq_none]
+      intro p hp
+      have := h p hp
+      simp only [beq_iff_eq]
+      exact fun e => hn (e ▸ this)
+    simp [restrictTo, applyNexts, hn, this]
+
+theorem instNames_filterMap (b : List Stmt) :
+    instNames b = b.filterMap (fun s => match s with | .inst _ i _ => some i | _ => none) := by
+  induction b with
+  | nil => rfl
+  | cons s rest ih => cases s <;> simp [instNames, ih]
+
+theorem instNames_perm {b b' : List Stmt} (hp : b.Perm b') : (instNames b).Perm (instNames b') := by
+  rw [instNames_filterMap, instNames_filterMap]
+  exact hp.filterMap _
+
+theorem mapM_fst_eq {α β γ : Type} (f : α → Option β) (g : β → γ) (h : α → γ)
+    (hf : ∀ a b, f a = some b → g b = h a) :
+    ∀ (l : List α) (ys : List β), l.mapM f = some ys → ys.map g = l.map h := by
+  intro l
+  induction l with
+  | nil => intro ys hy; simp at hy; subst hy; rfl
+  | cons a rest ih =>
+    intro ys hy
+    obtain ⟨b, rs, hb, hr, rfl⟩ := (mapM_cons_some _ _ _ _).mp hy
+    simp [hf a b hb, ih rs hr]
+
+theorem mapM_mem_ex {α β : Type} (f : α → Option β) :
+    ∀ (l : List α) (ys : List β), l.mapM f = some ys → ∀ a ∈ l, ∃ b ∈ ys, f a = some b := by
+  intro l
+  induction l with
+  | nil => intro ys _ a ha; cases ha
+  | cons a0 rest ih =>
+    intro ys hy a ha
+    obtain ⟨b, rs, hb, hr, rfl⟩ := (mapM_cons_some _ _ _ _).mp hy
+    rcases List.mem_cons.mp ha with rfl | ha
+    · exact ⟨b, List.mem_cons_self .., hb⟩
+    · obtain ⟨b', hb', h'⟩ := ih rs hr a ha
+      exact ⟨b', List.mem_cons_of_mem _ hb', h'⟩
+
+theorem find_ups : ∀ (ups : Ups), (ups.map (·.1)).Nodup → ∀ u ∈ ups,
+    ups.find? (fun v => v.1 == u.1) = some u := by
+  intro ups
+  induction ups with
+  | nil => intro _ u hu; cases hu
+  | cons y ys ih =>
+    intro hnd u hu
+    rw [List.map_cons, List.nodup_cons] at hnd
+    rcases List.mem_cons.mp hu with rfl | hm
+    · simp [List.find?_cons]
+    · have hne : y.1 ≠ u.1 := fun e => hnd.1 (List.mem_map.mpr ⟨u, hm, e.symm⟩)
+      simp [List.find?_cons, hne, ih hnd.2 u hm]
+
+theorem applyH_at (st : HSt) (ups : Ups) (hnd : (ups.map (·.1)).Nodup) (u : Path × List (String × Nat))
+    (hu : u ∈ ups) : applyH st ups u.1 = applyNexts (st u.1) u.2 := by
+  funext n
+  unfold applyH
+  rw [find_ups ups hnd u hu]
+
+theorem lookup_of_mem_nodup {α β : Type} [BEq α] [LawfulBEq α] :
+    ∀ (L : List (α × β)), (L.map Prod.fst).Nodup → ∀ a v, (a, v) ∈ L → L.lookup a = some v := by
+  intro L
+  induction L with
+  | nil => intro _ a v h; cases h
+  | cons y ys ih =>
+    intro hnd a v h
+    rw [List.map_cons, List.nodup_cons] at hnd
+    rcases List.mem_cons.mp h with rfl | hm
+    · simp [List.lookup]
+    · have hne : y.1 ≠ a := fun e => hnd.1 (List.mem_map.mpr ⟨(a, v), hm, e.symm⟩)
+      have hb : (a == y.1) = false := beq_eq_false_iff_ne.mpr (Ne.symm hne)
+      simp [List.lookup, hb, ih hnd.2 a v hm]
+
+theorem lookup_none_of_not_mem {α β : Type} [BEq α] [LawfulBEq α] :
+    ∀ (L : List (α × β)) (a : α), a ∉ L.map Prod.fst → L.lookup a = none := by
+  intro L
+  induction L with
+  | nil => intro _ _; rfl
+  | cons y ys ih =>
+    intro a h
+    rw [List.map_cons, List.mem_cons, not_or] at h
+    have hb : (a == y.1) = false := beq_eq_false_iff_ne.mpr h.1
+    simp [List.lookup, hb, ih a h.2]
+
+/-- The shape of the input-seed list `childSeed` builds. -/
+theorem mapM_ports_spec (cs : List (String × Expr)) (we : WEnv) (env : Env) :
+    ∀ (ports : List Port) (L : List (String × Nat)),
+      (ports.mapM fun (p : Port) => do
+          let e ← cs.lookup p.name
+          let v ← evalExpr we env e
+          pure (p.name, v)) = some L →
+      L.map Prod.fst = ports.map (·.name) ∧
+      ∀ p ∈ ports, ∃ ex v, cs.lookup p.name = some ex ∧ evalExpr we env ex = some v ∧ (p.name, v) ∈ L := by
+  intro ports
+  induction ports with
+  | nil => intro L h; simp at h; subst h; exact ⟨rfl, fun p hp => by cases hp⟩
+  | cons p rest ih =>
+    intro L h
+    obtain ⟨b, rs, hb, hr, rfl⟩ := (mapM_cons_some _ _ _ _).mp h
+    obtain ⟨ih1, ih2⟩ := ih rs hr
+    cases hl : cs.lookup p.name with
+    | none => simp [hl] at hb
+    | some ex =>
+      cases hv : evalExpr we env ex with
+      | none => simp [hl, hv] at hb
+      | some v =>
+        simp [hl, hv] at hb
+        subst hb
+        refine ⟨by simp [ih1], ?_⟩
+        intro q hq
+        rcases List.mem_cons.mp hq with rfl | hq
+        · exact ⟨ex, v, hl, hv, List.mem_cons_self ..⟩
+        · obtain ⟨ex', v', h1, h2, h3⟩ := ih2 q hq
+          exact ⟨ex', v', h1, h2, List.mem_cons_of_mem _ h3⟩
+
+theorem childSeed_val (c : Module) (cs : List (String × Expr)) (we : WEnv) (env e0 : Env)
+    (h : childSeed c cs we env = some e0) (hnd : (inNames c).Nodup) :
+    (∀ n, n ∉ inNames c → e0 n = 0) ∧
+    (∀ p ∈ c.inputs, ∃ ex, cs.lookup p.name = some ex ∧ evalExpr we env ex = some (e0 p.name)) := by
+  unfold childSeed at h
+  obtain ⟨L, hm, hL⟩ := Option.map_eq_some_iff.mp h
+  subst hL
+  · obtain ⟨hfst, hmem⟩ := mapM_ports_spec cs we env c.inputs L hm
+    have hLnd : (L.map Prod.fst).Nodup := by rw [hfst]; exact hnd
+    refine ⟨?_, ?_⟩
+    · intro n hn
+      have : L.lookup n = none := lookup_none_of_not_mem L n (by rw [hfst]; exact hn)
+      simp [this]
+    · intro p hp
+      obtain ⟨ex, v, h1, h2, h3⟩ := hmem p hp
+      refine ⟨ex, h1, ?_⟩
+      simp [lookup_of_mem_nodup L hLnd _ _ h3, h2]
+
+/-- An assignment fold keeps every name no assignment writes. -/
+theorem evalAssigns_keeps (we : WEnv) (mems : MEnv) (n : String) :
+    ∀ (b : List Stmt) (env E : Env),
+      (∀ s ∈ b, ∀ l r, s = Stmt.assign l r → l ≠ n) → leafBody b = true →
+      evalAssigns we mems b env = some E → E n = env n := by
+  intro b
+  induction b with
+  | nil => intro env E _ _ h; simp [evalAssigns] at h; subst h; rfl
+  | cons s rest ih =>
+    intro env E hw hl h
+    cases s with
+    | assign l r =>
+      simp only [leafBody] at hl
+      simp only [evalAssigns] at h
+      cases hv : evalExpr we env r with
+      | none => simp [hv] at h
+      | some v =>
+        simp only [hv, Option.bind_some] at h
+        have := ih _ E (fun s hs => hw s (List.mem_cons_of_mem _ hs)) hl h
+        rw [this]
+        have hne := hw _ (List.mem_cons_self ..) l r rfl
+        simp [hne.symm]
+    | register o c r e i =>
+      simp only [leafBody] at hl
+      simp only [evalAssigns] at h
+      exact ih _ E (fun s hs => hw s (List.mem_cons_of_mem _ hs)) hl h
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [leafBody] at hl
+    | inst _ _ _ => simp [leafBody] at hl
+
+theorem outWrites_mem (c : Module) (cs : List (String × Expr)) (envC : Env) (l : List (String × Nat))
+    (h : outWrites c cs envC = some l) (qn x : String) (hq : (qn, Expr.ref x) ∈ cs)
+    (ho : c.outputs.any (·.name == qn) = true) : (x, envC qn) ∈ l := by
+  unfold outWrites at h
+  obtain ⟨b, hb, hfb⟩ := mapM_mem_ex _ _ _ h (qn, Expr.ref x) (List.mem_filter.mpr ⟨hq, by simpa using ho⟩)
+  simp at hfb
+  subst hfb
+  exact hb
+
+theorem runModuleTrace_congr_seed (we : WEnv) (body : List Stmt) (seed1 seed2 : Nat → (String → Nat) → Env) :
+    ∀ (k : Nat), (∀ j, j < k → seed1 j = seed2 j) →
+      ∀ (st : String → Nat) (mems : MEnv),
+        runModuleTrace we body seed1 k st mems = runModuleTrace we body seed2 k st mems := by
+  intro k
+  induction k with
+  | zero => intro _ st mems; rfl
+  | succ k ih =>
+    intro h st mems
+    simp only [runModuleTrace]
+    rw [h k (Nat.lt_succ_self k)]
+    cases stepModule we body (seed2 k st) mems with
+    | none => rfl
+    | some r =>
+      obtain ⟨e, nx, mm⟩ := r
+      have hi := ih (fun j hj => h j (Nat.lt_succ_of_lt hj))
+      simp [hi]
+
 end Tools.VedU2Hier
