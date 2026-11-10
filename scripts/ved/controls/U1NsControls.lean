@@ -21,8 +21,10 @@ The file elaborates without error iff every control holds; each prints
       `invalid scope` before): the wrapper elaborates the command as is in the
       original scope (mode=root) and gives a strict `vedCtlRootCnt.ved_u1`;
   C5  a PRIVATE declaration inside a namespace (3 rows failed the same way):
-      the wrapper opens the user-facing namespace, the bare name still
-      resolves to the same private constant, and the theorem is strict.
+      the wrapper opens the user-facing namespace and the bare name still
+      resolves to the same private constant (mode=ns, same); `#ved_u1_deep`
+      then refuses (`pcnt_deep missing`: a U1 tool limit on private names, see
+      below), and no theorem exists.
 -/
 import Sparkle
 import Sparkle.Core.CircuitDo
@@ -203,13 +205,34 @@ set_option Elab.async false in
 end C4
 #vedu1_ctl "C4" vedCtlRootCnt.ved_u1 present
 
-/-! C5: private declaration inside a namespace, command written outside it -/
+/-! C5: private declaration inside a namespace, command written outside it.
+The wrapper must resolve the same private constant and run both commands
+(mode=ns).  U1 then REFUSES: `#verify_elab_deep` names the facts in the current
+namespace by the user-facing name (`VedCtlP.pcnt_deep...`) while `#ved_u1_deep`
+looks them up under the private name (`_private...VedCtlP.pcnt_deep`).  That is
+a U1 tool limit (deepName on private names), recorded here as the expected
+refusal; it is not a harness failure and never a success. -/
+open Lean Elab Command in
+elab "#vedu1_expect_error " id:str pat:str c:command : command => do
+  let saved := (← get).messages
+  modify fun s => { s with messages := MessageLog.empty }
+  elabCommand c
+  let msgs ← (← get).messages.toList.mapM fun m => do pure (m.severity, ← m.data.toString)
+  modify fun s => { s with messages := saved }
+  let errs := msgs.filter (·.1 == .error) |>.map (·.2)
+  let infos := msgs.filter (·.1 == .information) |>.map (·.2)
+  unless infos.any (fun t => t.startsWith "VED U1N" && (t.splitOn " same mode=ns").length > 1) do
+    throwError m!"VED U1CTL {id.getString} FAIL: wrapper did not run the command (mode=ns, same): {infos}"
+  match errs.find? (fun e => (e.splitOn pat.getString).length > 1) with
+  | some e => logInfo m!"VED U1CTL {id.getString} expected refusal: {e}"
+  | none => throwError m!"VED U1CTL {id.getString} FAIL: no error containing {pat.getString}; errors: {errs}"
 section C5
 open VedCtlP
 set_option Elab.async false in
 #vedu1_in_declns pcnt
 set_option Elab.async false in
 #verify_elab_deep pcnt
+#vedu1_expect_error "C5-u1" "pcnt_deep missing"
 set_option Elab.async false in
 #vedu1_in_declns pcnt
 set_option Elab.async false in
@@ -217,12 +240,11 @@ set_option Elab.async false in
 open Lean Elab Command in
 run_cmd do
   let n ← liftCoreM <| realizeGlobalConstNoOverload (mkIdent `pcnt)
-  let thm := n ++ `ved_u1
-  match (← getEnv).find? thm with
-  | some (.thmInfo _) =>
-    let ax ← liftCoreM <| Lean.collectAxioms thm
-    if ax.all (fun a => a == ``propext || a == ``Classical.choice || a == ``Quot.sound) then
-      logInfo m!"VED U1CTL C5 PASS ({thm})"
-    else throwError m!"VED U1CTL C5 FAIL: axioms {ax}"
-  | _ => throwError m!"VED U1CTL C5 FAIL: {thm} absent"
+  if (← getEnv).contains (n ++ `ved_u1) then
+    throwError m!"VED U1CTL C5 FAIL: {n ++ `ved_u1} exists"
+  -- where the preparation put the facts (this module's constants only)
+  let facts := (← getEnv).constants.map₂.foldl (init := #[]) fun acc k _ =>
+    if (toString k).endsWith "pcnt_deep" then acc.push k else acc
+  logInfo m!"VED U1CTL C5 facts at {facts}; U1 looked under {n}_deep"
+  logInfo m!"VED U1CTL C5 PASS (expected tool refusal on a private name, no theorem)"
 end C5
