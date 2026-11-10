@@ -42,6 +42,9 @@ class Fixture:
         4: dict(top="symb4", command="#synthesizeParameterizedVerilog", params="W := 8",
                 options="symbolicMode=true"),
         13: dict(top="wd13", command="#writeDesign", args='"out.sv" "out.h"'),
+        # like 245 real rows: `ns` empty and a scope-relative name, although the
+        # source file has a namespace (used by the U1 decl-check test)
+        300: dict(ns="", qualified="foo300"),
     }
 
     def __init__(self, base):
@@ -58,8 +61,8 @@ class Fixture:
             cmd = sp.get("command", "#synthesizeVerilog")
             a.append(("private " if sp.get("private") else "") + f"def {top} : Nat := {k}")
             a.append(f"{cmd} {top}" + (f" {sp['args']}" if sp.get("args") else ""))
-            rows.append({"file": "Src/A.lean", "line": str(len(a)), "command": cmd, "ns": "Outer",
-                         "top": top, "qualified": f"Outer.{top}", "params": sp.get("params", ""),
+            rows.append({"file": "Src/A.lean", "line": str(len(a)), "command": cmd, "ns": sp.get("ns", "Outer"),
+                         "top": top, "qualified": sp.get("qualified", f"Outer.{top}"), "params": sp.get("params", ""),
                          "options": sp.get("options", ""), "args": sp.get("args", ""),
                          "in_alltests_closure": "N", "area": "Src"})
         a.append("end Outer")
