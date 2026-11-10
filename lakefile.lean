@@ -357,6 +357,9 @@ lean_lib «Tests.Ved.U1EntryCheck» where
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]
 
+lean_lib «Tests.Ved.U1MultiRegCheck» where
+  roots := #[`Tests.Ved.U1MultiRegCheck]
+
 lean_lib «Tests.Ved.DeepInitCheck» where
   roots := #[`Tests.Ved.DeepInitCheck]
 
