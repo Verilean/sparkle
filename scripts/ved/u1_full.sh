@@ -32,10 +32,10 @@ LIST=$(mktemp)
 trap 'rm -f "$LIST"' EXIT
 case "$mode" in
   rows)  src=${1:?ROWS.txt}; shift; cp "$src" "$LIST" ;;
-  smoke) for r in $SMOKE_ROWS; do for rt in ${ROUTES:-u1 u1_deep}; do echo "$r $rt"; done; done > "$LIST" ;;
+  smoke) for r in $SMOKE_ROWS; do for rt in ${ROUTES:-u1 u1_deep u1_deep_ns}; do echo "$r $rt"; done; done > "$LIST" ;;
   full)  python3 -I "$HERE/u1_gen.py" --repo "$REPO" ${U1_INV_COMMIT:+--commit "$U1_INV_COMMIT"} \
            ${U1_INV_BLOB:+--blob "$U1_INV_BLOB"} rows | cut -f1 | while read -r r; do
-           for rt in ${ROUTES:-u1 u1_deep}; do echo "$r $rt"; done; done > "$LIST" ;;
+           for rt in ${ROUTES:-u1 u1_deep u1_deep_ns}; do echo "$r $rt"; done; done > "$LIST" ;;
   *) echo "unknown mode $mode" >&2; exit 2 ;;
 esac
 OUT=${1:-$(default_out)}

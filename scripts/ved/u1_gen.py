@@ -60,10 +60,19 @@ from u0_gen import (INV_BLOB, INV_COMMIT, INV_PATH, INV_ROWS, die, git_show_inve
                     import_closure, invocation_of, kv_file, lean_option_lines, module_of, read,
                     scan_source)
 
-ROUTES = ("u1", "u1_deep")
-ENTRY_CMD = {"u1": "#ved_u1", "u1_deep": "#ved_u1_deep"}
+# u1_deep_ns: as u1_deep, but the preparation and `#ved_u1_deep` are elaborated
+# inside the DECLARATION's namespace (Lean's withNamespace, added to the original
+# scope; opens / private names / options are kept).  `#verify_elab_deep` names
+# its facts in the current namespace while `#ved_u1_deep` reads them under the
+# declaration's prefix, so a command written outside that namespace (e.g.
+# CircuitDoTest's `section SynthesisChecks`) never meets in u1_deep.  Reported
+# as its own route; the scope difference is recorded, never hidden.
+ROUTES = ("u1", "u1_deep", "u1_deep_ns")
+DEEP_ROUTES = ("u1_deep", "u1_deep_ns")
+ENTRY_CMD = {"u1": "#ved_u1", "u1_deep": "#ved_u1_deep", "u1_deep_ns": "#ved_u1_deep"}
 IMPORTS = {"u1": ["Tools.VedU1Entry", "Tools.VedStrictAudit"],
-           "u1_deep": ["Tools.VedU1Deep", "Tools.VedStrictAudit"]}
+           "u1_deep": ["Tools.VedU1Deep", "Tools.VedStrictAudit"],
+           "u1_deep_ns": ["Tools.VedU1Deep", "Tools.VedStrictAudit"]}
 STD3 = {"propext", "Classical.choice", "Quot.sound"}
 # pipeline order inside the entry, for "later stages not reached"
 PIPELINE = ["table", "multi-output", "synthesis", "artifact", "order", "type", "proof", "kernel", "audit"]
@@ -102,6 +111,13 @@ RESULT_COLUMNS = KEY_COLUMNS + [
 TIMER = '''open Lean Elab Command in
 elab "#vedu1_t " s:str : command => do
   logInfo m!"VED U1T {s.getString} {← IO.monoMsNow}"'''
+
+# u1_deep_ns only: elaborate one command inside the declaration's namespace
+IN_DECLNS = '''open Lean Elab Command in
+elab "#vedu1_in_declns " id:ident c:command : command => do
+  let n ← liftCoreM <| realizeGlobalConstNoOverload id
+  logInfo m!"VED U1N scope={n.getPrefix}"
+  withNamespace n.getPrefix (elabCommand c)'''
 
 PRE_PROBE = '''open Lean Elab Command in
 run_cmd do
@@ -160,7 +176,14 @@ def block_pieces(r, route, ns):
     sub = lambda s: s.replace("@TOP@", top).replace("@Q@", q)
     p = [(None, f"-- ===== VED U1 BEGIN row {r['row']} route {route} (inventory {INV_COMMIT[:8]}) ====="),
          (None, f"namespace {ns}"), (None, TIMER), ("pre", sub(PRE_PROBE))]
-    if route == "u1_deep":
+    if route == "u1_deep_ns":
+        wrap = lambda cmd: f"#vedu1_in_declns {top}\n" + prefix + cmd
+        p += [(None, IN_DECLNS), (None, f"end {ns}"),
+              ("prep", '#vedu1_t "p_begin"'), ("prep", wrap(f"#verify_elab_deep {top}")),
+              ("prep", '#vedu1_t "p_end"'),
+              ("u1", '#vedu1_t "u_begin"'), ("u1", wrap(f"{ENTRY_CMD[route]} {top}")),
+              ("u1", '#vedu1_t "u_end"'), (None, f"namespace {ns}")]
+    elif route == "u1_deep":
         # `#verify_elab_deep` names its facts in the CURRENT namespace, and
         # `#ved_u1_deep` looks them up under the declaration's own prefix, so
         # both run in the original command's scope, outside the case namespace
@@ -377,7 +400,7 @@ def classify_dir(d, sv_group=""):
     # timing markers (monotonic ms inside the Lean process)
     marks = {k: int(v) for k, v in re.findall(r"VED U1T (\w+) (\d+)", text)}
     dt = lambda a, b: str(marks[b] - marks[a]) if a in marks and b in marks else ""
-    row["t_deep_prep"] = dt("p_begin", "p_end") if route == "u1_deep" else "n/a"
+    row["t_deep_prep"] = dt("p_begin", "p_end") if route in DEEP_ROUTES else "n/a"
     row["t_u1_combined"] = dt("u_begin", "u_end")
     row["t_probe"] = dt("u_end", "probe_end")
     sep = "combined" if row["t_u1_combined"] else ""
@@ -386,7 +409,7 @@ def classify_dir(d, sv_group=""):
 
     # preparation (u1_deep)
     prep_ok = True
-    if route == "u1_deep":
+    if route in DEEP_ROUTES:
         perr = [t for ln, sev, t in in_seg("prep") if sev == "error"]
         if perr:
             row["prep_status"], row["prep_error"] = "failed", first_line(perr[0])
@@ -428,7 +451,7 @@ def classify_dir(d, sv_group=""):
         cause = "harness-error"
         row["harness_error"] = (row["harness_error"] + ";" if row["harness_error"] else "") + \
             f"no Lean messages and no markers (rc={rcv}; import failure?)"
-    elif route == "u1_deep" and not prep_ok and "p_end" in marks:
+    elif route in DEEP_ROUTES and not prep_ok and "p_end" in marks:
         cause = "prep"
     else:
         cause = ""
@@ -508,7 +531,7 @@ def classify_dir(d, sv_group=""):
         bl.append(meta.get("invocation", "?"))
     if row["harness_error"]:
         bl.append("harness-error")
-    if route == "u1_deep" and not prep_ok:
+    if route in DEEP_ROUTES and not prep_ok:
         bl.append(f"prep:{row['prep_status']}")
     if not okm:
         bl.append("no-VED-U1-OK-line")
@@ -589,7 +612,7 @@ def main():
     sub.add_parser("header")
     g = sub.add_parser("gen")
     g.add_argument("--row", required=True)
-    g.add_argument("--setting", required=True, help="route: u1 | u1_deep")
+    g.add_argument("--setting", required=True, help="route: u1 | u1_deep | u1_deep_ns")
     g.add_argument("--dir", required=True)
     c = sub.add_parser("classify")
     c.add_argument("case_dir")

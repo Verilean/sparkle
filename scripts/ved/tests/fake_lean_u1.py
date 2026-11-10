@@ -57,7 +57,7 @@ def main():
         msg("error", plan["outside_error"], 1)
     ms = plan.get("ms", {})
     clock = 1000
-    deep = bool(m and m.group(2) == "u1_deep")
+    deep = bool(m and m.group(2) in ("u1_deep", "u1_deep_ns"))
     if deep:
         l = at('#vedu1_t "p_begin"')
         msg("info", f"VED U1T p_begin {clock}", l)
