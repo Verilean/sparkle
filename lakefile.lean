@@ -931,6 +931,11 @@ lean_exe «rtl-structure-test» where
   root := `Tests.Drivers.RtlStructureTestMain
   supportInterpreter := true
 
+-- Concat lambda argument order: source value vs evaluated synthesised IR.
+lean_exe «concat-lambda-order-test» where
+  root := `Tests.Drivers.ConcatLambdaOrderTestMain
+  supportInterpreter := true
+
 lean_exe «policy-sign-demo-test» where
   root := `Tests.Drivers.PolicySignDemoTestMain
   supportInterpreter := true
