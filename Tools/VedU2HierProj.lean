@@ -951,7 +951,7 @@ theorem instPair_some {d : Design} {m : Module} {mn : String} {cs : List (String
     {x y : String} (h : instPair d m mn cs = some (x, y)) :
     ∃ c kc kr, findMod d mn = some c ∧ regClkRst c.body = some (kc, kr) ∧
       cs.lookup kc = some (Expr.ref x) ∧ cs.lookup kr = some (Expr.ref y) ∧
-      x ∈ inNames m ∧ y ∈ inNames m ∧ x ≠ y := by
+      x ∈ inNames m ∧ y ∈ inNames m ∧ x ≠ y ∧ kc ∈ inNames c ∧ kr ∈ inNames c := by
   cases hf : findMod d mn with
   | none => simp [instPair, hf] at h
   | some c =>
@@ -976,7 +976,7 @@ theorem instPair_some {d : Design} {m : Module} {mn : String} {cs : List (String
                 obtain ⟨rfl, rfl⟩ := h
                 simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, List.contains_eq_mem,
                   decide_eq_true_eq] at hc
-                exact ⟨c, kc, kr, rfl, hr, h1, h2, hc.1.1.2, hc.1.2, hc.2⟩
+                exact ⟨c, kc, kr, rfl, hr, h1, h2, hc.1.1.2, hc.1.2, hc.2, hc.1.1.1.1, hc.1.1.1.2⟩
               · simp at h
             | _ => simp [instPair, hf, hr, h1, h2] at h
           | _ => simp [instPair, hf, hr, h1, h2] at h
@@ -992,7 +992,7 @@ theorem instPair_tie (d : Design) (m : Module) (hok : clkRstOk d m = true)
     (cc : Contract) (htie : cc.clkRst = designClkRst d m) :
     ∃ x y kc kr, regClkRst c.body = some (kc, kr) ∧ cs.lookup kc = some (Expr.ref x) ∧
       cs.lookup kr = some (Expr.ref y) ∧ cc.clkRst = some (x, y) ∧ x ∈ inNames m ∧ y ∈ inNames m ∧
-      x ≠ y := by
+      x ≠ y ∧ kc ∈ inNames c ∧ kr ∈ inNames c := by
   have hmemR : (mn, i, cs) ∈ regInsts d m := by
     unfold regInsts
     rw [List.mem_filter]
@@ -1041,14 +1041,97 @@ theorem instPair_tie (d : Design) (m : Module) (hok : clkRstOk d m = true)
       | nil => exact absurd hl hp
       | cons q qs => simp [hpall q (by rw [hl]; exact List.mem_cons_self ..)]
   obtain ⟨x, y⟩ := p
-  obtain ⟨c', kc, kr, hf', hrc, h1, h2, hx, hy, hne⟩ := instPair_some hpair
+  obtain ⟨c', kc, kr, hf', hrc, h1, h2, hx, hy, hne, hkc, hkr⟩ := instPair_some hpair
   have hcc : c' = c := by rw [hf] at hf'; exact (Option.some.inj hf').symm
   subst hcc
-  exact ⟨x, y, kc, kr, hrc, h1, h2, by rw [htie, hdes], hx, hy, hne⟩
+  exact ⟨x, y, kc, kr, hrc, h1, h2, by rw [htie, hdes], hx, hy, hne, hkc, hkr⟩
 
 /-- The reset clause of `InputsOk` applied to that pair: the instance's reset input is 0. -/
 theorem inst_reset_zero (cc : Contract) (m : Module) (ins : Nat → String → Nat)
     (hok : InputsOk cc m ins) (x y : String) (h : cc.clkRst = some (x, y)) (t : Nat) : ins t y = 0 :=
   hok.2 t (x, y) h
+
+/-! ## The inputs of a cycle are the stream's (so the child sees the contract's reset, 0) -/
+
+/-- An input the parent does not write keeps the stream's value, at every cycle of the run. -/
+theorem runHS_inputs (d : Design) (arr : Module → List Stmt) (m : Module) (hA : AdmArr d m arr)
+    (hwr : ∀ n ∈ wrsH d (arr m), n ∉ inNames m) (inp : Nat → String → Nat) (K : Nat) :
+    ∀ (k : Nat), k ≤ K → ∀ (st : HSt) (envs : List Env) (sts : List HSt),
+      runHSTrace d arr m (seedFwd m K inp) k st = some (envs, sts) →
+      ∀ t, t < k → ∀ E, envs[t]? = some E → ∀ n ∈ inNames m, E n = inp (K - k + t) n := by
+  intro k
+  induction k with
+  | zero => intro _ st envs sts _ t ht; exact absurd ht (Nat.not_lt_zero _)
+  | succ k ih =>
+    intro hk st envs sts hrun t ht E hE n hn
+    simp only [runHSTrace] at hrun
+    cases hs : stepHS d arr m st (seedFwd m K inp k (restrictTo (regOuts (arr m)) (st []))) with
+    | none => simp [hs] at hrun
+    | some r =>
+      obtain ⟨envF, ups⟩ := r
+      cases hr : runHSTrace d arr m (seedFwd m K inp) k (applyH st ups) with
+      | none => simp [hs, hr] at hrun
+      | some q =>
+        obtain ⟨rest, sts'⟩ := q
+        simp [hs, hr] at hrun
+        obtain ⟨rfl, rfl⟩ := hrun
+        obtain ⟨_, hfold, _⟩ := stepHS_some_inv hs
+        have hG := good_of_fold d (declWidth m) _ (instEvalS_laws d arr st (declWidth m)) (arr m) _
+          envF hA.2.1 hfold
+        cases t with
+        | zero =>
+          simp at hE; subst hE
+          rw [hG.1 n (fun h => hwr n h hn)]
+          have hc : (m.inputs.map (·.name)).contains n = true := by simpa [inNames] using hn
+          simp only [seedFwd, hc, if_true]
+          have : K - 1 - k = K - (k + 1) + 0 := by omega
+          rw [this]
+        | succ t =>
+          have := ih (by omega) _ rest sts' hr t (by omega) E (by simpa using hE) n hn
+          rw [this]; congr 1; omega
+
+/-- THE CHILD'S CLOCK AND RESET FROM THE CONTRACT (reviewer obligation 3): under `clkRstOk`, the
+statement tie `cc.clkRst = designClkRst d m`, `InputsOk` and the netlist clause that the parent
+writes no input, the child's reset port reads 0 at every cycle (the contract's reset clause, through
+the ONE pair of parent inputs) and its clock port reads the parent clock input.  No range is
+assumed for the clock, and no data input is made a reset. -/
+theorem runHS_child_clkRst (d : Design) (arr : Module → List Stmt) (m : Module)
+    (hS : HierShapeS d m = true) (hA : AdmArr d m arr)
+    (hwr : ∀ n ∈ wrsH d (arr m), n ∉ inNames m)
+    (cc : Contract) (htie : cc.clkRst = designClkRst d m)
+    (inp : Nat → String → Nat) (hok : InputsOk cc m inp) (K : Nat) (envs : List Env) (sts : List HSt)
+    (hrun : runHSTrace d arr m (seedFwd m K inp) K (st0H d m) = some (envs, sts))
+    (mn i : String) (cs : List (String × Expr)) (hin : Stmt.inst mn i cs ∈ m.body)
+    (c : Module) (hf : findMod d mn = some c) (hreg : regsOf c.body ≠ []) :
+    ∃ x y kc kr cenvs, cc.clkRst = some (x, y) ∧ regClkRst c.body = some (kc, kr) ∧
+      runModule (declWidth c) (arr c) (seedFwd c K (insCOf (declWidth m) cs envs)) K (st0Of c)
+        (fun _ _ => 0) = some cenvs ∧
+      ∀ t, t < K → ∃ Ec, cenvs[t]? = some Ec ∧ Ec kr = 0 ∧ Ec kc = inp t x := by
+  obtain ⟨x, y, kc, kr, hrc, h1, h2, hcl, hx, hy, hne, hkc, hkr⟩ :=
+    instPair_tie d m (hierS_clk hS) mn i cs c hin hf hreg cc htie
+  obtain ⟨c', cenvs, cstates, hf', hrunM, hrunR, hcorr⟩ := runHS_proj d arr m hS hA inp K envs sts hrun
+    mn i cs hin
+  have hcc : c' = c := by rw [hf] at hf'; exact (Option.some.inj hf').symm
+  subst hcc
+  refine ⟨x, y, kc, kr, cenvs, hcl, hrc, hrunR, ?_⟩
+  intro t ht
+  obtain ⟨E, Ec, S, Sc, hE, hEc, _, _, hproj, _, _⟩ := hcorr t ht
+  have hin2 := runHS_inputs d arr m hA hwr inp K K (Nat.le_refl K) _ envs sts hrun t ht E hE
+  have hkr' : ∃ p ∈ c'.inputs, p.name = kr := by
+    obtain ⟨p, hp, hpn⟩ := List.mem_map.mp hkr; exact ⟨p, hp, hpn⟩
+  have hkc' : ∃ p ∈ c'.inputs, p.name = kc := by
+    obtain ⟨p, hp, hpn⟩ := List.mem_map.mp hkc; exact ⟨p, hp, hpn⟩
+  refine ⟨Ec, hEc, ?_, ?_⟩
+  · obtain ⟨p, hp, rfl⟩ := hkr'
+    obtain ⟨e, hl, hv⟩ := hproj p hp
+    rw [h2] at hl; cases hl
+    simp [evalExpr] at hv
+    rw [← hv, hin2 y hy, Nat.sub_self, Nat.zero_add]
+    exact inst_reset_zero cc m inp hok x y hcl t
+  · obtain ⟨p, hp, rfl⟩ := hkc'
+    obtain ⟨e, hl, hv⟩ := hproj p hp
+    rw [h1] at hl; cases hl
+    simp [evalExpr] at hv
+    rw [← hv, hin2 x hx, Nat.sub_self, Nat.zero_add]
 
 end Tools.VedU2Hier

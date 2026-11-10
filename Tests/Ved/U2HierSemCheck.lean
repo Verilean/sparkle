@@ -205,6 +205,9 @@ theorem dsn_proj (K : Nat) (inp : Nat → String → Nat) :
 #print axioms Tools.VedU2Hier.childSucc_of_outputsOn
 #print axioms Tools.VedU2Hier.instPair_tie
 #print axioms Tools.VedU2Hier.instEvalS_laws
+#print axioms Tools.VedU2Hier.runHS_inputs
+#print axioms Tools.VedU2Hier.runHS_child_clkRst
+#print axioms Tools.VedU2Hier.stepHS_some_inv
 #print axioms Tests.Ved.U2HierSemCheck.dsn_proj
 
 end Tests.Ved.U2HierSemCheck
