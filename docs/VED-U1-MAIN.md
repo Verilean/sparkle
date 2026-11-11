@@ -13,7 +13,7 @@ This branch, `ved/u1-main`, is stacked on PR #147 (`ved/main-intro` `4845255b`).
 Otherwise the command refuses with `VED U1 REFUSED f [stage]`.
 
 - `#ved_u1` uses a generated script. It covers register-free bodies built from not/and/or/xor/add/sub/mux/slice, two-field concatenation, `==` (`Operator.eq`, 1-bit result), constants (`.const`, `Signal.pure`) and the constant mux chains `kLut!` expands to (lemmas in `Tools/VedU1Lemmas.lean`), and one-register delays. A body that uses `==` is closed over the finite input domain: every data input is generalised and the remaining goal `∀ x, x < 2^w → …` is decided by the kernel (`decide +kernel`; no `native_decide`, standard axioms only). The cost grows with the product of the input ranges and may hit resource limits; this suits table-shaped leaves (a 4-bit or 8-bit index). There is no width guard that refuses wide inputs, and no fixed stage at which they stop; `sboxHW` still stops at `maxRecDepth` in the checker and stays open. It is not complete for every circuit those operators can build; shifts and concatenation of more than two fields are not covered yet.
-- `#ved_u1_deep` uses the standard-axiom facts that `#verify_elab_deep` generated (`_deep_trace`, `_deep_next`, `_deep_inits`, `_deep_out`). It covers one register whose current value is the output.
+- `#ved_u1_deep` uses the standard-axiom facts that `#verify_elab_deep` generated (`_deep_trace`, `_deep_next`, `_deep_inits`, `_deep_out`). It covers k ≥ 1 registers (see the multi-register section below) with Bool or bit-vector data inputs and one output.
 
 Everything else is refused.
 
@@ -80,3 +80,32 @@ These are built by `ved-pr`; job `ved-u1-ord-4bf8c9dd`, exit 0.
 - **Scope.** One output, no memories or instances, and runs with reset held at 0.
 - **Coverage.** Nothing here is "327 supported" or strict-complete; that belongs to the release gate (Issue `sparkle-ved-release-gate`).
 - **The design document.** The design document named in the tool headers (`docs/VERIFY-ELAB-DEEP-U0U1-DESIGN-2026-11-08.md`) is on `par/ved-plan`, not on main.
+
+## `#ved_u1_deep` with several registers and Bool inputs
+
+Issue `sparkle-ved-multireg`. Nothing in `Sparkle/`, in `Tools/DeepElab.lean` or in the statement (`U1Stmt`, `OutputsStmt`, `ShapeCore`, `regsOf`, `st0`) changed; the contract already states multi-register modules (`regsOf` lists every register, `st0` looks each up by name) and Bool ports (`PTy.bit`).
+
+- **The rule.** The invariant of the step obligation is, for every register slot `i` of the Cdo, `st (_nm ⟨i,_⟩) = Cdo.irState … s ⟨i,_⟩`. The correspondence is by the `_nm` names; widths, masks and initial values come from `_deep_inits` and the module's wires, closed inside the kernel proof. The step is still discharged on the checked arrangement (`OrderOk m nm.body`) and carried by `outputs_of_order`.
+- **Bool inputs.** The contract side is `PTy.sig .bit`; the deep side is `_inp`'s `bif b then 1#1 else 0#1`. The proof uses `InputsOk` only.
+- **Hygiene.** The generated hypotheses are macro-scoped; user parameters are never captured.
+- **Check.** `Tests/Ved/U1MultiRegCheck.lean` (`lake build Tests.Ved.U1MultiRegCheck`):
+  - accepted, std3 axioms, full type compared with `==`: two registers with a Bool reset, four independent counters, a held register with a Bool enable and a bit-vector input, a 3-state FSM with a hold, user parameters named `u`, `m`;
+  - refused at `[proof]`, nothing left under the base: one register's next value changed (2 and 4 registers), two same-width registers swapped in the module (2 and 4), another declaration's DeepElab constants, a wrong initial value (2 and 4).
+  `U1DeepCheck`, `U1EntryCheck` and `DeepHygieneCheck` still pass.
+- **Representatives, in their own file context** (`#verify_elab_deep` then `set_option Elab.async false in #ved_u1_deep`, scratch files outside the tree; wall time includes loading the imports, peak RSS of the whole `lean` process). These are reference runs by the implementing agent, made before the kjob build-cache seeding fix. They are not independent-probe measurements and are NOT added to the strict count of the fixed 327-row inventory; that count comes only from the separate measurement with an independent probe:
+
+  | row | declaration | result | wall (verify only / + deep U1) | peak RSS |
+  |---|---|---|---|---|
+  | R58 | `twoRegResetCdo` | strict (std3) | 13.0 s / 19.2 s | 1.98 GB |
+  | R62 | `fourCounterCdo` | strict (std3) | 22.2 s / 30.0 s | 2.21 GB |
+  | R59 | `heldRegCdo` | strict (std3) | 14.4 s / 16.1 s | 1.91 GB |
+  | R61 | `fsmHoldCdo` | strict (std3) | 15.5 s / 20.1 s | 2.02 GB |
+  | R57 | `resetCounterCdo` | strict (std3) | 14.1 s / 14.4 s | 1.81 GB |
+  | R258 | `counterEnableDSL` | strict (std3) | 13.8 s / 13.3 s | 1.84 GB |
+
+- **What is not claimed.**
+  - R66 (`baselineNoSubmodule`) and R212 (`crc32EngineTop`) were not run here.
+  - One output, no memories, no instances, no multi-output, reset held at 0: unchanged. Nothing about the optimised IR or the printed SV.
+  - A circuit with many registers and several inputs is one `simp`/`omega` script; a local copy with two registers and three inputs (two Bool, one 8-bit) was refused at `[checker]` (deterministic heartbeat timeout at `whnf`, limit 200000). The limit was not raised; a smaller circuit of the same kind (two registers, a Bool and an 8-bit input) is accepted.
+  - Nothing here is "327 supported" or strict-complete.
+- **Fin literals.** Core simp turns a joined-context index into `(3 : Fin 4)` while the surrounding `Fin.val` keeps the bound `List.length (Γr ++ Γi)`; that term is not type-correct at instance transparency and simp then refuses to rewrite it. The script keeps the indices as `Fin.mk` (`-Fin.reduceFinMk`, `-Fin.isValue`, `-Fin.reduceSucc`, `-Fin.reduceOfNat`) and has one simproc for `Fin.val` of a numeral (`[8,8,8,8][↑3]`). A future generalisation (many registers, many inputs) should avoid expanding `natJoin`/`envOfC` through `List.finRange` and instead read each variable with `envOfC_names`, one lemma per slot.
