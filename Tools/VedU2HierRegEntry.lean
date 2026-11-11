@@ -193,6 +193,14 @@ def netSimpL : String :=
 
 def deepC (open_ : Name) (s : String) : String := toString (userName (deepName open_ s))
 
+/-- The constant `#verify_elab_deep open_` declares for the fact `s`, spelled exactly as it is in the
+environment: the namespace the command ran in is kept as it is (for a PRIVATE declaration it is the
+mangled `_private…` name, which `deepName` strips). -/
+def deepNameP (open_ : Name) (s : String) : Name :=
+  match open_ with
+  | .str p l => .str p (l ++ s)
+  | n => n.appendAfter s
+
 /-- The register slot a wire is an alias of (`ref r`, or the full-width slice of `r`), following
 assignments. -/
 partial def stateSlotOf (b : List Stmt) (regs : List String) (fuel : Nat) (w : String) : Option Nat :=
@@ -709,7 +717,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   -- H2c-state: the deep facts come from the first port of the open parent that exported its loop state
   let opn ← if p1.insts.any (·.stateArg) then do
       let env ← getEnv
-      match opn.ports.find? (fun p => env.contains (deepName opn.openName s!"_{p}_deep_state")) with
+      match opn.ports.find? (fun p => env.contains (deepNameP opn.openName s!"_{p}_deep_state")) with
       | some p => pure { opn with port := some p }
       | none => refuse decl "deep" m!"no port of the open parent exported its loop state (ports: {opn.ports})"
     else pure opn
@@ -717,9 +725,9 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   for s in deepParts ++ (if p1.insts.any (·.stateArg) then ["_deep_state"] else []) do
     -- `_nm` and `_inp` are shared by all ports of the open parent
     let tg := if s == "_nm" || s == "_inp" then "" else ptag
-    unless (← getEnv).contains (deepName opn.openName (tg ++ s)) do
-      refuse decl "deep" m!"{deepName opn.openName (tg ++ s)} missing: #verify_elab_deep of the open parent did not produce it"
-  let deepCi ← getConstInfo (deepName opn.openName (ptag ++ "_deep"))
+    unless (← getEnv).contains (deepNameP opn.openName (tg ++ s)) do
+      refuse decl "deep" m!"{deepNameP opn.openName (tg ++ s)} missing: #verify_elab_deep of the open parent did not produce it"
+  let deepCi ← getConstInfo (deepNameP opn.openName (ptag ++ "_deep"))
   unless deepCi.type.getAppFn.constName? == some ``Cdo do
     refuse decl "deep" m!"the open parent's deep circuit is not a Cdo (memories are outside H2b)"
   let regWs ← try readWidths (deepCi.type.getAppArgs[0]!) catch e => refuse decl "deep" e.toMessageData
