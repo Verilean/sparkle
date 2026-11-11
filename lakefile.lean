@@ -1427,6 +1427,9 @@ lean_lib «Tools.VedU2HierKid» where
 lean_lib «Tools.VedU2HierReg» where
   roots := #[`Tools.VedU2HierReg]
 
+lean_lib «Tools.VedU2HierStep» where
+  roots := #[`Tools.VedU2HierStep]
+
 lean_lib «Tools.VedU2HierState» where
   roots := #[`Tools.VedU2HierState]
 
