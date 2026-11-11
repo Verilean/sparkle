@@ -1414,6 +1414,9 @@ lean_lib «Tools.VedU2HierStmt» where
 lean_lib «Tools.VedU2HierKid» where
   roots := #[`Tools.VedU2HierKid]
 
+lean_lib «Tools.VedU2HierReg» where
+  roots := #[`Tools.VedU2HierReg]
+
 lean_lib «Tools.VedU2HierEntry» where
   roots := #[`Tools.VedU2HierEntry]
 
