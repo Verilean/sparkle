@@ -47,6 +47,35 @@ theorem closed_run_asg (d : Design) (arr : Module → List Stmt) (m : Module) (h
     simp only at this
     rw [this]
 
+
+/-- The expression a wire is assigned (the first assignment of the arrangement). -/
+def asgOf (b : List Stmt) (l : String) : Option Expr :=
+  b.findSome? fun s => match s with
+    | .assign l' r => if l' = l then some r else none
+    | _ => none
+
+theorem asgOf_mem {b : List Stmt} {l : String} {r : Expr} (h : asgOf b l = some r) :
+    Stmt.assign l r ∈ b := by
+  unfold asgOf at h
+  obtain ⟨s, hs, hsr⟩ := List.exists_of_findSome?_eq_some h
+  cases s with
+  | assign l' r' =>
+    simp only at hsr
+    by_cases hl : l' = l
+    · simp only [hl, if_true, Option.some.injEq] at hsr
+      subst hsr; subst hl; exact hs
+    · simp [hl] at hsr
+  | _ => simp at hsr
+
+/-- `closed_run_asg` for a wire named by `asgOf` (the generated proof never prints the expression). -/
+theorem closed_run_asgOf (d : Design) (arr : Module → List Stmt) (m : Module) (hA : AdmArr d m arr)
+    (b0 : List Stmt) (hp : (arr m).Perm b0) (hw0 : WOH d b0)
+    (seed : Nat → (String → Nat) → Env) (K : Nat) (st : HSt) (envs : List Env) (sts : List HSt)
+    (hrun : runHSTrace d arr m seed K st = some (envs, sts)) (t : Nat) (ht : t < K)
+    (E : Env) (hE : envs[t]? = some E) :
+    ∀ l r, asgOf b0 l = some r → evalExpr (declWidth m) E r = some (E l) :=
+  fun l r h => closed_run_asg d arr m hA b0 hp hw0 seed K st envs sts hrun t ht E hE l r (asgOf_mem h)
+
 /-- The child's input stream when its DATA ports read the total stream `F` and every other port
 reads the parent input its connection names. -/
 def netIn (ck : Contract) (cs : List (String × Expr)) (ins : Nat → String → Nat)
@@ -189,6 +218,31 @@ theorem kid_inst_net (d : Design) (arr : Module → List Stmt) (m : Module)
   have hee : env = Ec := (Option.some.inj he).symm
   subst hee
   rw [hxv]; exact hv
+
+/-- A port signal whose stream is the observation of a signal is that signal. -/
+theorem sig_of_obs_bv (w : Nat) (S : Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain (BitVec w))
+    (NS : Nat → String → Nat) (n : String) (h : ∀ t, NS t n = (S.val t).toNat) :
+    (PTy.bv w).sig NS n = S := by
+  cases S with
+  | mk f =>
+    simp only [PTy.sig]
+    congr 1
+    funext t
+    have := h t
+    simp only at this
+    simp [this]
+
+theorem sig_of_obs_bit (S : Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain Bool)
+    (NS : Nat → String → Nat) (n : String) (h : ∀ t, NS t n = Bool.toNat (S.val t)) :
+    PTy.bit.sig NS n = S := by
+  cases S with
+  | mk f =>
+    simp only [PTy.sig]
+    congr 1
+    funext t
+    have := h t
+    simp only at this
+    cases hf : f t <;> simp [this, hf, Bool.toNat]
 
 /-- Reading a bit-vector signal's observation back as a signal gives the signal. -/
 theorem sig_obs_bv (w : Nat) (S : Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain (BitVec w)) :
