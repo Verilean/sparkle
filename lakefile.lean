@@ -1384,3 +1384,33 @@ lean_exe «mulmodser-jit» where
 
 lean_lib «Tests.Ved.U1StageCheck» where
   roots := #[`Tests.Ved.U1StageCheck]
+
+lean_lib «Tools.VedU2HierSem» where
+  roots := #[`Tools.VedU2HierSem]
+
+lean_lib «Tools.VedU2HierProj» where
+  roots := #[`Tools.VedU2HierProj]
+
+lean_lib «Tools.VedU2HierOrder» where
+  roots := #[`Tools.VedU2HierOrder]
+
+lean_lib «Tools.VedU2HierStmt» where
+  roots := #[`Tools.VedU2HierStmt]
+
+lean_lib «Tools.VedU2HierKid» where
+  roots := #[`Tools.VedU2HierKid]
+
+lean_lib «Tools.VedU2HierEntry» where
+  roots := #[`Tools.VedU2HierEntry]
+
+lean_lib «Tests.Ved.U2HierSemCheck» where
+  roots := #[`Tests.Ved.U2HierSemCheck]
+
+lean_lib «Tests.Ved.H2OpenParentProbe» where
+  roots := #[`Tests.Ved.H2OpenParentProbe]
+
+lean_lib «Tests.Ved.U2HierCheck» where
+  roots := #[`Tests.Ved.U2HierCheck]
+
+lean_lib «Tests.Ved.U2HierPin» where
+  roots := #[`Tests.Ved.U2HierPin]
