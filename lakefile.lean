@@ -387,6 +387,9 @@ lean_lib «Tests.Ved.U1PackedCheck» where
 lean_lib «Tests.Ved.U1EqLutCheck» where
   roots := #[`Tests.Ved.U1EqLutCheck]
 
+lean_lib «Tests.Ved.U1LeafCheck» where
+  roots := #[`Tests.Ved.U1LeafCheck]
+
 -- the real `rconHW` (imports the AES IP); not in the VED CI workflow
 lean_lib «Tests.Ved.U1RconCheck» where
   roots := #[`Tests.Ved.U1RconCheck]
