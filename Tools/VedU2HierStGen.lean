@@ -76,6 +76,21 @@ partial def outerCall (kid : Name) (e : Lean.Expr) (fuel : Nat) : MetaM (Option 
     | some e' => outerCall kid e' f
     | none => return none
 
+/-- Applications in `e` (whole spines) one of whose arguments is the child function (the child constant with
+exactly its domain arguments, or the bare constant), outermost first. -/
+partial def kidArgApps (kid : Name) (nDom : Nat) (e : Lean.Expr) (acc : Array Lean.Expr) : Array Lean.Expr :=
+  let isKidFn (a : Lean.Expr) : Bool :=
+    a.getAppFn.isConstOf kid && a.getAppNumArgs == nDom
+  let acc :=
+    if e.isApp && !isKidFn e && (e.getAppArgs.any isKidFn) then acc.push e else acc
+  match e with
+  | .app f a => kidArgApps kid nDom a (kidArgApps kid nDom f acc)
+  | .lam _ t b _ => kidArgApps kid nDom b (kidArgApps kid nDom t acc)
+  | .letE _ t v b _ => kidArgApps kid nDom b (kidArgApps kid nDom v (kidArgApps kid nDom t acc))
+  | .mdata _ b => kidArgApps kid nDom b acc
+  | .proj _ _ b => kidArgApps kid nDom b acc
+  | _ => acc
+
 /-- `genOpenSt`: see the file header.  `kid` is the single child (the slice: one child, one call). -/
 def genOpenSt (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (kid : Kid)
     (base : Name) (openSuf : String) : TermElabM OpenInfo := do
@@ -122,40 +137,57 @@ def genOpenSt (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (k
     -- the open parent
     let e1 ← zetaReduce (← unfoldReaching kid.decl body0)
     let env ← getEnv
-    let (headFn, headArgs, S) :=
+    let (headFn, headArgs, S0) :=
       match e1.getAppFn with
       | .const n _ =>
         if env.isProjectionFn n && e1.getAppNumArgs > 0 then
           (some e1.getAppFn, e1.getAppArgs.pop, e1.appArg!)
         else (none, #[], e1)
       | _ => (none, #[], e1)
+    -- the circuit the child is passed to: the smallest application taking the child function as an
+    -- argument (the burst emitter, with its trigger), when it is smaller than the whole value
+    let sCands := (kidArgApps kid.decl kid.nDom e1 #[]).filter fun x =>
+      !x.hasLooseBVars && (Lean.collectFVars {} x).fvarIds.all (fun v => xs.any (·.fvarId! == v))
+    let S := match sCands.foldl (fun (best : Option Lean.Expr) x =>
+        match best with
+        | none => some x
+        | some b => if x.approxDepth < b.approxDepth then some x else some b) none with
+      | some x => x
+      | none => S0
+    let whole := S == S0
     let callTy ← inferType call
     let argTys ← dargs.mapM (fun a => inferType a)
     withLocalDeclD `ved_o callTy fun o => do
-      let constFn : Lean.Expr := argTys.foldr (fun t acc => Lean.mkLambda `_s .default t acc) o
-      let repl (x : Lean.Expr) : Option Lean.Expr :=
+      -- The child is replaced by the free signal `o`, but kept READING its argument (`mux (x === x) o o`):
+      -- the registers the argument depends on stay alive in the synthesised open parent (a register that
+      -- nothing reads is dropped by the synthesiser, and then there is nothing to tie the state to).
+      let keepAlive (as : Array Lean.Expr) : MetaM Lean.Expr :=
+        as.foldrM (fun a acc => do
+          let c ← mkAppM ``Sparkle.Core.Signal.Signal.beq #[a, a]
+          mkAppM ``Sparkle.Core.Signal.Signal.mux #[c, acc, o]) o
+      let nIns' := nIns
+      let S' ← Meta.transform S (pre := fun x => do
         if x.isApp && x.getAppFn.isConstOf kid.decl then
-          (if x.getAppNumArgs == kid.nDom + nIns then some o
-           else if x.getAppNumArgs == kid.nDom then some constFn else none)
-        else if x.isConst && x.constName! == kid.decl && kid.nDom == 0 then some constFn
-        else none
-      let S' := S.replace repl
+          if x.getAppNumArgs == kid.nDom + nIns' then
+            return .done (← keepAlive (x.getAppArgs.extract kid.nDom x.getAppNumArgs))
+          if x.getAppNumArgs == kid.nDom then
+            let fnTy ← inferType x
+            return .done (← forallBoundedTelescope fnTy (some nIns') fun vs _ => do
+              mkLambdaFVars vs (← keepAlive vs))
+        else if x.isConst && x.constName! == kid.decl && kid.nDom == 0 then
+          let fnTy ← inferType x
+          return .done (← forallBoundedTelescope fnTy (some nIns') fun vs _ => do
+            mkLambdaFVars vs (← keepAlive vs))
+        return .continue)
       if (S'.find? fun x => x.isConstOf kid.decl).isSome then
         refuse decl "open" m!"a call of {kid.decl} remains in the open parent after the replacement of the child function"
       let openVal ← mkLambdaFVars (xs ++ #[o]) S'
       let openTy ← inferType openVal
       addDefnRegular openName openTy openVal
-      let openApp := mkAppN (Lean.mkConst openName) (xs ++ #[call])
-      let rhs := match headFn with
-        | some f => mkAppN f (headArgs.push openApp)
-        | none => openApp
       let lhs := mkAppN stmt xs
-      let eqTy ← mkForallFVars xs (← mkEq lhs rhs)
       let pf ← mkLambdaFVars xs (← mkEqRefl lhs)
-      try
-        withOptions (fun o => o.setBool `Elab.async false) do
-          addDecl (.thmDecl { name := eqName, levelParams := [], type := eqTy, value := pf })
-      catch e => refuse decl "open" m!"the kernel refused the open-parent equation: {e.toMessageData}"
+      -- (No equation between the declaration and the open parent is claimed: the open parent only ever supplies
+      -- the registers' state; the declaration itself is the outer call, below.)
       -- the declaration IS the outer call on its closed argument (also kernel-checked)
       let callEqName := base ++ Name.mkSimple (openSuf ++ "_ceq")
       let ceqTy ← mkForallFVars xs (← mkEq lhs call)
@@ -163,14 +195,16 @@ def genOpenSt (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (k
         withOptions (fun o => o.setBool `Elab.async false) do
           addDecl (.thmDecl { name := callEqName, levelParams := [], type := ceqTy, value := pf })
       catch e => refuse decl "open" m!"the kernel refused the equation of the declaration with its call: {e.toMessageData}"
-      let port : Option String := match headFn with
+      let port : Option String := if !whole then none else match headFn with
         | some f => match f.constName? with | some n => some n.getString! | none => none
         | none => none
       -- the ports of the open parent: the fields of its struct result
       let ports : List String ← do
         let st ← whnf (← inferType S)
         match st.getAppFn.constName? with
-        | some sn => pure ((getStructureFields (← getEnv) sn).toList.map (·.toString))
+        | some sn =>
+          if sn == ``Sparkle.Core.Signal.Signal then pure []
+          else pure ((getStructureFields (← getEnv) sn).toList.map (·.toString))
         | none => pure []
       let info : CallInfo := { kid := 0, args := dargs.toList.map (fun _ => "?"), derived := true,
                                argDefs := defs, stateArg := true }

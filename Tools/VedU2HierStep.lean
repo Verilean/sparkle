@@ -35,6 +35,11 @@ elab "ved_kernel_exact " t:term : tactic => do
 open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.IR.Reorder
 open Tools.VedU1Contract Tools.VedU1Hier
 
+/-- A concatenation `x ++ y` is `x * 2 ^ n + y` (the form `omega` can use): used by the net evaluation of a
+register bundle, whose slices are taken out of such concatenations. -/
+theorem or_shl_add_of_lt (x y n : Nat) (h : y < 2 ^ n) : (x <<< n ||| y) = x * 2 ^ n + y := by
+  rw [← Nat.shiftLeft_add_eq_or_of_lt h, Nat.shiftLeft_eq]
+
 /-- A body of plain assignments. -/
 def asgOnly : List Stmt → Bool
   | [] => true

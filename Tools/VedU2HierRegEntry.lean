@@ -189,7 +189,7 @@ def fDefName (opn : OpenInfo) (j : Nat) : Name :=
 /-- The simp set that evaluates a net's IR expression and the Signal term of the declaration's
 argument. -/
 def netSimpL : String :=
-  "Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit, Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val, Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val, Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add, Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub, Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val, Seq.seq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, BitVec.toNat_append, BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Sparkle.Core.Signal.Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig, Sparkle.IR.Semantics.mask, Sparkle.Core.Signal.Signal.pure"
+  "Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, Tools.VedU2Hier.or_shl_add_of_lt, Tools.VedU1Lemmas.evalOp_not_lit, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit, Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val, Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val, Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add, Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub, Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val, Seq.seq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, BitVec.toNat_append, BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Sparkle.Core.Signal.Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig, Sparkle.IR.Semantics.mask, Sparkle.Core.Signal.Signal.pure"
 
 def deepC (open_ : Name) (s : String) : String := toString (userName (deepName open_ s))
 
@@ -201,19 +201,41 @@ def deepNameP (open_ : Name) (s : String) : Name :=
   | .str p l => .str p (l ++ s)
   | n => n.appendAfter s
 
-/-- The register slot a wire is an alias of (`ref r`, or the full-width slice of `r`), following
-assignments. -/
-partial def stateSlotOf (b : List Stmt) (regs : List String) (fuel : Nat) (w : String) : Option Nat :=
+/-- Are the bits `lo ..= hi` of `e` exactly one register's output?  Through renaming assignments, slices
+(composed) and concatenations (the synthesiser bundles the registers of one `circuit do` and slices the
+bundle).  Returns the register's slot. -/
+partial def stateBitsOf (b : List Stmt) (regs : List String) (wd : String → Nat) (fuel : Nat)
+    (e : Sparkle.IR.AST.Expr) (hi lo : Nat) : Option Nat :=
   match fuel with
   | 0 => none
   | f + 1 =>
-    match regs.idxOf? w with
-    | some i => some i
-    | none =>
-      match asgOf b w with
-      | some (.ref r) => stateSlotOf b regs f r
-      | some (.slice (.ref r) _ 0) => stateSlotOf b regs f r
-      | _ => none
+    match e with
+    | .ref r =>
+      match regs.idxOf? r with
+      | some i => if lo == 0 && hi + 1 == wd r then some i else none
+      | none => match asgOf b r with
+        | some e' => stateBitsOf b regs wd f e' hi lo
+        | none => none
+    | .slice inner h l => stateBitsOf b regs wd f inner (l + hi) (l + lo)
+    | .concat es =>
+      -- msb first: element widths, offsets from the right
+      let ws : List (Option Nat) := es.map fun el => match el with
+        | .ref x => some (wd x)
+        | .slice _ h l => some (h - l + 1)
+        | .const _ w => some w
+        | _ => none
+      if ws.any (·.isNone) then none
+      else
+        let wsN := ws.map (·.getD 0)
+        let offs := (List.range es.length).map fun k => ((wsN.drop (k + 1)).foldl (· + ·) 0)
+        match (List.range es.length).find? fun k => offs[k]! ≤ lo && hi < offs[k]! + wsN[k]! with
+        | some k => stateBitsOf b regs wd f es[k]! (hi - offs[k]!) (lo - offs[k]!)
+        | none => none
+    | _ => none
+
+/-- The register slot a wire is (all its bits), see `stateBitsOf`. -/
+def stateSlotOf (b : List Stmt) (regs : List String) (wd : String → Nat) (fuel : Nat) (w : String) : Option Nat :=
+  stateBitsOf b regs wd fuel (.ref w) (wd w - 1) 0
 
 def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : OpenInfo)
     (kids : List Kid) (insts : List InstInfo) (di : DeepInfo) (dbg : Bool := false) : String := Id.run do
@@ -678,7 +700,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
           | some (.ref x) => netChain (dataInsP ++ regLeaves) b0 b0.length x
           | _ => []).flatten).reverse.eraseDups.map fun w => (w, declWidth m w)
         let slots := (ck.dataInputs.filterMap fun p => match cs.lookup p.name with
-          | some (.ref x) => (stateSlotOf b0 ((regsOf m.body).map (·.1)) 16 x).map fun i => (x, i)
+          | some (.ref x) => (stateSlotOf b0 ((regsOf m.body).map (·.1)) (declWidth m) 32 x).map fun i => (x, i)
           | _ => none)
         insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := 0, derived := true, chain, stateArg := true, slots }]
       else if instDerived c ck cs then
@@ -717,6 +739,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   -- H2c-state: the deep facts come from the first port of the open parent that exported its loop state
   let opn ← if p1.insts.any (·.stateArg) then do
       let env ← getEnv
+      if opn.ports.isEmpty then pure opn else
       match opn.ports.find? (fun p => env.contains (deepNameP opn.openName s!"_{p}_deep_state")) with
       | some p => pure { opn with port := some p }
       | none => refuse decl "deep" m!"no port of the open parent exported its loop state (ports: {opn.ports})"
