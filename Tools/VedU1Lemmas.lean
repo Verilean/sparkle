@@ -331,4 +331,20 @@ theorem bit1_eq {w : Nat} (x : BitVec w) (i : Nat) :
     (BitVec.extractLsb' i 1 x = 1#1) ↔ x.toNat >>> i % 2 = 1 := by
   rw [BitVec.toNat_eq]; simp [BitVec.extractLsb'_toNat]
 
+/-- `==` between two `BitVec.ofNat` values of one width is a `decide` on the residues. -/
+theorem beq_ofNat (w a b : Nat) :
+    (BitVec.ofNat w a == BitVec.ofNat w b) = decide (a % 2 ^ w = b % 2 ^ w) := by
+  rw [Bool.eq_iff_iff]
+  simp [BitVec.toNat_eq, BitVec.toNat_ofNat]
+
+/-- `Bool.toNat` of a `decide`: a Prop-level `if` (what `split` and `omega` handle). -/
+theorem toNat_decide_ite (p : Prop) [Decidable p] : (decide p).toNat = if p then 1 else 0 :=
+  apply_ite Bool.toNat p true false
+
+theorem toNat_not_decide_ite (p : Prop) [Decidable p] : (!decide p).toNat = if p then 0 else 1 := by
+  by_cases h : p <;> simp [h]
+
+/-- literal xor on single bits (`Bool` ports lowered through `^^^ 1`) -/
+theorem xor_one_one : (1 : Nat) ^^^ 1 = 0 := rfl
+
 end Tools.VedU1Lemmas
