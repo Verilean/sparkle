@@ -501,7 +501,10 @@ def checkU2H (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.M
       kids := kids ++ [{ c := cm, decl := cdecl, nDom := cdom, tbl := ctbl, nm := Names.ofBase base }]
     let t1 ← IO.monoMsNow
     -- the open parent, generated from the declaration
-    let opn ← genOpen decl stmt nDom tbl kids nm.mod.getPrefix
+    -- the open parent is proof construction (its definition is tied to the declaration by `open_eq`,
+    -- checked by the kernel): same finite budget as the proof, and a runtime limit is an [open] refusal
+    let opn ← tryCatchRuntimeEx (withProofBudget <| genOpen decl stmt nDom tbl kids nm.mod.getPrefix)
+      fun e => do if ← isRefusal e then throw e else refuse decl "open" e.toMessageData
     let mut insts : List InstInfo := []
     for s in m.body do
       match s with
