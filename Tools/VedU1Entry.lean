@@ -562,7 +562,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     #[← `(tactic| all_goals (try ved_bit_simp))],
     #[← `(tactic| all_goals (try ved_or_lit))],
     #[← `(tactic| all_goals (try ved_pack_simp))],
-    #[← `(tactic| all_goals (try ved_bits_facts))],
+    #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts))],
     #[closing]]
   let stop ← `(tactic| (trace_state; all_goals sorry))
   if dbg == 1 then tacs := tacs.push stop
