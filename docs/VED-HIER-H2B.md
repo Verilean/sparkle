@@ -131,13 +131,33 @@ deep の `_deep_trace` / `_deep_next` の比較（`#ved_u1_deep` の step 証明
 
 3 行とも `[scope]`（親が register を持つ）は通過し、次の阻害は H2b の範囲外の「instance の入力が内部 wire」（F2 の一般化）。
 
+### 8.1 追記（2026-11-11、上の 3 行の probe とは別の測定）: 固定 14 行の harness 測定
+
+上の表は実装時の lake 外 probe（3 行）。その後 coder が harness で固定 14 行すべてを u2_hier で測った（a8f3b7d2、run 2da6812270291120、
+ran=14、harness_error 0、各 8〜13 s、peak 約 1.7 GiB）。14 行すべての最初の拒否が `[conns]`（子 instance の入力が親の入力でない）で、strict は 0。
+
+| 行 | 子（`[conns]` を起こした instance） |
+|---|---|
+| R92, R220, R223 | `Sparkle.IP.Net.HTTP.httpGetByte` |
+| R193, R194 | `Sparkle.IP.Crypto.SHA512HW.kMux` |
+| R210, R211 | `Sparkle.IP.Net.ARP.arpPacketByte` |
+| R224 | `Sparkle.IP.Net.HTTP.httpRespByte` |
+| R227, R228 | `Sparkle.IP.Net.ICMP.icmpHeaderByte` |
+| R230, R231, R232 | `Sparkle.IP.Net.IPv4.ipv4HeaderChecksumSig` |
+| R246 | `Sparkle.IP.Net.UsbWebServer.respByteMux` |
+
+測定の制限: harness（scripts/ved）は H2b の branch に無いので未追跡で写し、u2_hier の import を `Tools.VedU2HierRegEntry` に 1 箇所変えた。
+strict の probe は旧 `U2HStmt`（register なし）用のままなので、受理された行は strict に数えられない（過少にしかならない）。今回は全行が
+`[conns]` で probe に届かないため阻害の記録としてのみ使う。成功を数える前に `U2HRStmt` 用の独立 probe が要る。後段（deep・proof）で通るかは未確認。
+
 ## 9. 未了と質問
 
 - **質問 1（parentMix）**: `parentMix` は deep 経路の限界（入れ子の inline stateful 呼出し）で `[deep]` 拒否。対応するなら: (a) inline の stateful 関数も open 親で自由 signal に抽象し、
   その関数自身の deep の事実と、親の対応する register 群の不変量（その関数の `Cdo` の slot ↔ 親の register）を足す（機構が増える）、または
   (b) DeepElab の bridge を入れ子に対応させる（`Tools/DeepElab.lean` の変更）。どちらも H2b の範囲を超えると判断し、していない。方針の指示を求める。
 - **質問 2（状態の共有名）**: 「親 register が子の register 名と状態を共有する」拒否は、状態の鍵が `(path, 名前)` なので該当せず、受理（正の対照）とした。拒否にしたい意図が別にあれば指示を求める。
-- 親 register を持つ実在 14 行は、少なくとも上の 3 行では `[conns]`（内部 wire の instance 入力）が次の阻害。F2 の一般化（H2c 以降）が要る。
+- 親 register を持つ実在 14 行は、14 行すべてで `[conns]`（内部 wire の instance 入力）が次の阻害（§8.1）。F2 の一般化（H2c）が要る。
+- レビュー回答（2026-11-11）: 質問 1 は (b) DeepElab の入れ子 runCircuitH→slot の橋を第一候補に別単位で調べる。質問 2 は受理（(path, 名前) で別状態）。
 - 子の `#verify_elab_deep` を入口が自動で走らせることはしない（H2a と同じ。親の open 親に対しては入口が走らせる）。
 - 閉じた run の数値は小例のみ。親 register の init が 0 でない例は `regCtl`（q の init 1）。
 
