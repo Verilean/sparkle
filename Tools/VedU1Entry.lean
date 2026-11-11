@@ -793,7 +793,9 @@ def withProofBudget {α} (k : TermElabM α) : TermElabM α :=
   withTheReader Core.Context
     (fun c => { c with
       maxRecDepth := max c.maxRecDepth (ved.u1.proofRecDepth.get c.options),
-      maxHeartbeats := max c.maxHeartbeats (ved.u1.proofHeartbeats.get c.options * 1000) }) k
+      maxHeartbeats := max c.maxHeartbeats (ved.u1.proofHeartbeats.get c.options * 1000),
+      -- 384-bit registers (`2 ^ 384`) are evaluated, not left symbolic
+      options := c.options.insert `exponentiation.threshold (.ofNat 4096) }) k
 
 /-- The same finite recursion budget for the checker's own evaluation of `toExpr m` back to a
 module (`Meta.evalExpr` compiles the closed term, which recurses once per list element:
