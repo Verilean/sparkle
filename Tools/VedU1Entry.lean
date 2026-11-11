@@ -346,7 +346,10 @@ def helperConsts (decl : Name) : MetaM (Array Name) := do
     for c in di.value.getUsedConstants do
       if seen.contains c then continue
       let some (.defnInfo _) := env.find? c | continue
-      if modOf c == modOf decl || (`Sparkle.IP).isPrefixOf ((privateToUserName? c).getD c) then
+      let circuitMod := match modOf c with
+        | some i => [`Sparkle.Core.CircuitMonad, `Sparkle.Core.CircuitDo].contains env.header.moduleNames[i.toNat]!
+        | none => false
+      if modOf c == modOf decl || (`Sparkle.IP).isPrefixOf ((privateToUserName? c).getD c) || circuitMod then
         seen := seen.insert c
         out := out.push c
         todo := todo.push c
@@ -673,7 +676,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| clear $hv))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
-  let closing ← if dbg == 5 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | (trace_state; sorry)))
+  let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | (trace_state; sorry)))
     else `(tactic| all_goals ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_loop_unfold ($sI + 1)),
@@ -682,18 +685,18 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     #[← `(tactic| all_goals refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩),
       ← `(tactic| all_goals ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
       ← `(tactic| all_goals try (repeat' apply And.intro))],
-    #[← `(tactic| all_goals (try ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod])),
-      ← `(tactic| all_goals (try ved_bit_simp)),
-      ← `(tactic| all_goals (try ved_or_lit)),
-      ← `(tactic| all_goals (try ved_pack_simp)),
-      ← `(tactic| all_goals (try ved_bits_facts))],
+    #[← `(tactic| all_goals (try ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod]))],
+    #[← `(tactic| all_goals (try ved_bit_simp))],
+    #[← `(tactic| all_goals (try ved_or_lit))],
+    #[← `(tactic| all_goals (try ved_pack_simp))],
+    #[← `(tactic| all_goals (try ved_bits_facts))],
     #[closing]]
   let stop ← `(tactic| (trace_state; all_goals sorry))
   if dbg == 1 then tacs := tacs.push stop
   else
     for k in [0:stages.size] do
-      if dbg == 0 || dbg > k + 1 then tacs := tacs ++ stages[k]!
-      if dbg == k + 2 && dbg < 5 then tacs := tacs.push stop
+      if (dbg == 0 || dbg > k + 1) && !(dbg == 98 && (k == 5 || k == 6)) then tacs := tacs ++ stages[k]!
+      if dbg == k + 2 && dbg < 99 then tacs := tacs.push stop
   let h0tacs : Array (TSyntax `tactic) := #[
     ← `(tactic| intro $insI hok),
     ← `(tactic| ved_loop_unfold 0),
