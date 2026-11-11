@@ -572,14 +572,7 @@ def vedU2HierEntry (declName : Name) :
   let (thm, childMs, proofMs) ← checkU2H declName stmt nDom m d
   return (m, d, thm, nDom, { synthMs := t1 - t0, childMs, proofMs, peakKb := ← peakKb })
 
-/-- `#ved_u2_hier decl`: the stateful hierarchical entry (H2a); prints the theorem, its audit, the
-design and the measurements; otherwise the refusal. -/
-elab "#ved_u2_hier " id:ident : command => do
-  let decl ← Command.liftCoreM <| realizeGlobalConstNoOverload id
-  Command.liftTermElabM do
-    let (m, d, thm, nDom, st) ← vedU2HierEntry decl
-    let r ← Tools.VedStrictAudit.strictAudit thm
-    let spec := if nDom > 0 then " (specialised at defaultDomain)" else ""
-    logInfo m!"VED U2 HIER OK {thm}{spec}: {Tools.VedStrictAudit.showNames r.axioms}\nchildren: {d.modules.map (·.name)}\nsynthesis {st.synthMs} ms, children {st.childMs} ms, parent proof {st.proofMs} ms, peak {st.peakKb} kB\n{repr m}"
+/- The command `#ved_u2_hier` is defined in `Tools/VedU2HierRegEntry.lean` (H2b): a register-free
+parent is `checkU2H` above, as in H2a. -/
 
 end Tools.VedU2HierEntry
