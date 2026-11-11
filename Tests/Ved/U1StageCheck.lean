@@ -29,6 +29,12 @@ def withBudget (n : Nat) (act : TermElabM α) : TermElabM α :=
   Core.withCurrHeartbeats <|
     withTheReader Core.Context (fun c => { c with maxHeartbeats := n * 1000 }) act
 
+/-- Switch off the checker's proof budget (`withProofBudget` raises the context
+limits to at least `ved.u1.proofRecDepth` / `ved.u1.proofHeartbeats`), so the
+small limits set by the cases below are the ones in force. -/
+def noProofBudget (act : TermElabM α) : TermElabM α :=
+  withOptions (fun o => (o.setNat `ved.u1.proofRecDepth 0).setNat `ved.u1.proofHeartbeats 0) act
+
 /-- Elaboration of the proof is the expensive part: a `decide` over a long fold. -/
 def costlyDecide : TermElabM Syntax :=
   `(by exact (by decide : (List.range 1000).foldl (· + ·) 0 = 499500) ▸ delay8.ved_u1)
@@ -39,7 +45,7 @@ def costlyDecide : TermElabM Syntax :=
 run_cmd expectRefused "proof" (checkerNames `stHb) do
   let m ← modOf ``delay8
   let stx ← costlyDecide
-  discard <| withBudget 150 (checkU1 ``delay8 `stHb ``delay8 m (.term stx))
+  discard <| noProofBudget <| withBudget 150 (checkU1 ``delay8 `stHb ``delay8 m (.term stx))
 
 -- proof side: max recursion depth (150 nested `id (…)` under a context limit of 100;
 -- the checker's own steps fit, the term elaborator does not)
@@ -52,7 +58,7 @@ def deepTerm : Nat → Syntax.Term → Syntax.Term
 run_cmd expectRefused "proof" (checkerNames `stRec) do
   let m ← modOf ``delay8
   let stx := deepTerm 150 (Unhygienic.run `(delay8.ved_u1))
-  discard <| withTheReader Core.Context (fun c => { c with maxRecDepth := 100 }) do
+  discard <| noProofBudget <| withTheReader Core.Context (fun c => { c with maxRecDepth := 100 }) do
     checkU1 ``delay8 `stRec ``delay8 m (.term stx)
 
 def fib : Nat → Nat | 0 => 0 | 1 => 1 | n+2 => fib n + fib (n+1)

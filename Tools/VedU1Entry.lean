@@ -490,12 +490,21 @@ not a check: the kernel still checks the result in full).  A table of `n`
 entries is an `n`-deep `mux` chain; `simp` over it recurses once per level (the
 default `maxRecDepth` 512 is exceeded from about 30 levels) and costs more than
 the default heartbeats. -/
-def proofRecDepth : Nat := 20000
-def proofHeartbeats : Nat := 8000000
+register_option ved.u1.proofRecDepth : Nat := {
+  defValue := 20000
+  descr := "VED U1: lower bound on maxRecDepth while elaborating the generated proof script (0 = the caller's limit only)" }
+register_option ved.u1.proofHeartbeats : Nat := {
+  defValue := 8000000
+  descr := "VED U1: lower bound (thousands) on maxHeartbeats while elaborating the generated proof script (0 = the caller's limit only)" }
 
+/-- The budget is read from the options in scope (defaults 20000 / 8000000):
+the stage checks set both to 0 so that their own small context limits are the
+ones that apply. -/
 def withProofBudget {α} (k : TermElabM α) : TermElabM α :=
   withTheReader Core.Context
-    (fun c => { c with maxRecDepth := max c.maxRecDepth proofRecDepth, maxHeartbeats := max c.maxHeartbeats (proofHeartbeats * 1000) }) k
+    (fun c => { c with
+      maxRecDepth := max c.maxRecDepth (ved.u1.proofRecDepth.get c.options),
+      maxHeartbeats := max c.maxHeartbeats (ved.u1.proofHeartbeats.get c.options * 1000) }) k
 
 /-- A proof source for `checkU1`. -/
 inductive ProofSrc
