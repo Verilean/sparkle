@@ -74,16 +74,33 @@ open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.VedU1Contract Tools.VedU1Entry
 
-/-- `{prefix}.{last}{suffix}`: the names `#verify_elab_deep` gives its
-constants (in the declaration's namespace). -/
+/-- The name `#verify_elab_deep decl` gives a fact in namespace `ns`: DeepElab
+declares `{last component of decl}{suffix}` in the CURRENT namespace. -/
+def deepNameAt (ns decl : Name) (suffix : String) : Name :=
+  match (privateToUserName? decl).getD decl with
+  | .str _ s => .str ns (s ++ suffix)
+  | _ => .str ns suffix
+
+/-- The same name in the declaration's own namespace (older spelling). -/
 def deepName (decl : Name) (suffix : String) : Name :=
-  match decl with
-  | .str p s => .str p (s ++ suffix)
-  | _ => .str decl suffix
+  deepNameAt ((privateToUserName? decl).getD decl).getPrefix decl suffix
 
 /-- The DeepElab constants the script reads (and nothing else). -/
 def deepParts : List String :=
   ["_deep", "_nm", "_inp", "_deep_trace", "_deep_next", "_deep_inits", "_deep_out"]
+
+/-- The namespace holding `decl`'s deep facts: the current one (where
+`#verify_elab_deep` ran), else the declaration's own.  Both present and
+different is ambiguous and refused.  Any wrong choice still has to pass the
+kernel check and the exact type comparison. -/
+def deepScope (decl : Name) : CoreM Name := do
+  let env ← getEnv
+  let cur ← getCurrNamespace
+  let own := ((privateToUserName? decl).getD decl).getPrefix
+  let has (ns : Name) := env.contains (deepNameAt ns decl "_deep")
+  if cur != own && has cur && has own then
+    throwError "ambiguous deep facts for {decl}: {deepNameAt cur decl "_deep"} (current namespace) and {deepNameAt own decl "_deep"} (declaration namespace) both exist"
+  return if has cur then cur else own
 
 /-- Auxiliary definitions the builder registers (inside the checker's scope). -/
 def auxNames (base : Name) : List Name :=
@@ -147,17 +164,18 @@ DeepElab constants of `decl`.  The entry passes the same declaration for
 both; the controls pass another declaration's DeepElab constants. -/
 def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Sparkle.IR.AST.Module) :
     TermElabM Syntax := do
+  let ns ← deepScope decl
   for s in deepParts do
-    unless (← getEnv).contains (deepName decl s) do
-      throwError "{deepName decl s} missing (run #verify_elab_deep {decl} first)"
-  let deepC ← getConstInfo (deepName decl "_deep")
+    unless (← getEnv).contains (deepNameAt ns decl s) do
+      throwError "{deepNameAt ns decl s} missing (run #verify_elab_deep {decl} first)"
+  let deepC ← getConstInfo (deepNameAt ns decl "_deep")
   unless deepC.type.getAppFn.constName? == some ``Cdo do
-    throwError "{deepName decl "_deep"} is not a Cdo (memories are outside this slice)"
+    throwError "{deepNameAt ns decl "_deep"} is not a Cdo (memories are outside this slice)"
   let widths ← readWidths (deepC.type.getAppArgs[0]!)
   let k := widths.length
   if k == 0 then throwError "no register (outside this slice)"
   unless (regsOf m.body).length == k do
-    throwError "module has {(regsOf m.body).length} registers, {deepName decl "_deep"} has {k}"
+    throwError "module has {(regsOf m.body).length} registers, {deepNameAt ns decl "_deep"} has {k}"
   unless tbl.out.flat.length == 1 do throwError "not one output"
   let mut sigs : Array Term := #[]
   for (p, b) in tbl.ins.zip tbl.binders do
@@ -169,9 +187,9 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
   let base := nm.mod.getPrefix
   let inpU := mkCIdent (base ++ `ved_inpU)
   let irS := mkCIdent (base ++ `ved_irS)
-  let inpC := mkCIdent (deepName decl "_inp")
-  let deep := mkCIdent (deepName decl "_deep")
-  let nmC := mkCIdent (deepName decl "_nm")
+  let inpC := mkCIdent (deepNameAt ns decl "_inp")
+  let deep := mkCIdent (deepNameAt ns decl "_deep")
+  let nmC := mkCIdent (deepNameAt ns decl "_nm")
   addTermDef (base ++ `ved_inpU)
     (← `(fun (ins : Nat → String → Nat) (t : Nat) j => ($inpC $sigs* j).val t))
   addTermDef (base ++ `ved_irS)
@@ -182,10 +200,10 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
   let O := mkCIdent nm.outs
   let f := mkCIdent stmtDecl
   let B := mkCIdent nm.body
-  let trace := mkCIdent (deepName decl "_deep_trace")
-  let next := mkCIdent (deepName decl "_deep_next")
-  let inits := mkCIdent (deepName decl "_deep_inits")
-  let out := mkCIdent (deepName decl "_deep_out")
+  let trace := mkCIdent (deepNameAt ns decl "_deep_trace")
+  let next := mkCIdent (deepNameAt ns decl "_deep_next")
+  let inits := mkCIdent (deepNameAt ns decl "_deep_inits")
+  let out := mkCIdent (deepNameAt ns decl "_deep_out")
   -- per register: its slot name (through `_nm`), its bound, its invariant hypothesis
   let mut slotN : Array Term := #[]
   let mut slotV : Array Term := #[]
@@ -219,8 +237,8 @@ def buildDeepWith (stmtDecl decl : Name) (tbl : DeclTable) (nm : Names) (m : Spa
   let mut inpAts : Array Ident := #[]
   for j in [0:tbl.ins.length] do
     for sfx in [s!"_inp_at_{j}", s!"_inp_at_mk_{j}"] do
-      if (← getEnv).contains (deepName decl sfx) then
-        inpAts := inpAts.push (mkCIdent (deepName decl sfx))
+      if (← getEnv).contains (deepNameAt ns decl sfx) then
+        inpAts := inpAts.push (mkCIdent (deepNameAt ns decl sfx))
   let mut inpL : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
   for i in inpAts do inpL := inpL.push (← `(Lean.Parser.Tactic.simpLemma| $i:ident))
   inpL := inpL.push (← `(Lean.Parser.Tactic.simpLemma| PTy.sig))
