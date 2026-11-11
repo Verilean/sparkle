@@ -5,8 +5,9 @@
 # `kjob lake build` of THIS tree (builds/<id>.json in $KJOB_STATE_DIR), so the case reads
 # exactly the oleans that build checked (Lake verifies every trace). It replaces
 # `kjob lake env lean`, which before manager PR #80 seeded from other trees without trace
-# checks. Refuses (exit 97, a harness error) unless exactly one tree was built in this Pod,
-# every build of it succeeded, and the tree is a clean checkout.
+# checks. Refuses (exit 97, a harness error) unless every build in this Pod is of this checkout, the builds of the newest
+# tree state all succeeded, the tree is a clean checkout, and its content digest equals the build's
+# source_sha256 (tree_digest.py).
 set -u
 f=${1:?Lean file}
 repo=$(git rev-parse --show-toplevel) || exit 97
@@ -40,6 +41,17 @@ EOF
 ) || exit 97
 read -r dir tc bid sha <<<"$sel"
 [ -z "$(git -C "$repo" status --porcelain --untracked-files=all)" ] || { echo "lean_isolated: $repo is not clean" >&2; exit 97; }
-echo "lean_isolated: build_id=$bid source_sha256=$sha head=$(git -C "$repo" rev-parse HEAD)" >&2
+# the checked-out tree must be the one that build was made from: its content digest (kjob's own method,
+# tree_digest.py) must equal the build's source_sha256.  Computed once per (build, HEAD) in this Pod; a
+# clean tree at the same HEAD has the same content, so later cases only re-check HEAD and cleanliness.
+head=$(git -C "$repo" rev-parse HEAD)
+ok="$state/lean_isolated.$bid.$head.ok"
+if [ ! -f "$ok" ]; then
+  cur=$(python3 -I "$(dirname "$0")/tree_digest.py" "$repo") || exit 97
+  [ "$cur" = "$sha" ] || { echo "lean_isolated: tree at $head (sha256 $cur) is not the tree build $bid was made from (sha256 $sha)" >&2; exit 97; }
+  echo "$cur" > "$ok"
+fi
+echo "lean_isolated: build_id=$bid source_sha256=$sha head=$head tree_sha256_checked=yes" >&2
 case "$f" in /*) ;; *) f="$PWD/$f" ;; esac
+[ -z "${VED_LEAN_ISOLATED_DRY:-}" ] || { echo "lean_isolated: dry run $dir $f"; exit 0; }
 cd "$dir" && ELAN_HOME=${KJOB_BUILD_CACHE:-/build/cache}/elan exec elan run "$tc" lake env lean "$f"
