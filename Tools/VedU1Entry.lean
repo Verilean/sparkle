@@ -506,6 +506,16 @@ def withProofBudget {α} (k : TermElabM α) : TermElabM α :=
       maxRecDepth := max c.maxRecDepth (ved.u1.proofRecDepth.get c.options),
       maxHeartbeats := max c.maxHeartbeats (ved.u1.proofHeartbeats.get c.options * 1000) }) k
 
+/-- The same finite recursion budget for the checker's own evaluation of `toExpr m` back to a
+module (`Meta.evalExpr` compiles the closed term, which recurses once per list element:
+a body of several hundred statements, a 256-entry table, exceeds the default
+`maxRecDepth`, and that compiler reads the OPTION, not only the context).  A bound, not a
+check: what the term denotes is still compared with `m` and the kernel checks the proof. -/
+def withEvalBudget {α} (k : TermElabM α) : TermElabM α := do
+  let d := ved.u1.proofRecDepth.get (← getOptions)
+  withOptions (fun o => if d == 0 then o else o.set `maxRecDepth (max (maxRecDepth.get o) d))
+    (withTheReader Core.Context (fun c => { c with maxRecDepth := max c.maxRecDepth d }) k)
+
 /-- A proof source for `checkU1`. -/
 inductive ProofSrc
   /-- the generated script (the only source the entry uses) -/
@@ -569,7 +579,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       refuse decl "multi-output" m!"multi-output with registers is not supported (register-free bodies only)"
     -- the closed term of `m`, checked to denote `m` itself
     let mE := toExpr m
-    let back ← evalModule mE
+    let back ← withEvalBudget (evalModule mE)
     unless decide (back = m) do
       refuse decl "artifact" m!"toExpr of the returned module does not evaluate back to it"
     let modTy := Lean.mkConst ``Sparkle.IR.AST.Module
