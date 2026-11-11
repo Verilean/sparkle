@@ -130,6 +130,23 @@ def connDiagNet (d : Design) (c : Contract) (m : Sparkle.IR.AST.Module) (b : Lis
         else some s!"instance {iname}: data port {p.name} of {cm.name} is not connected to a parent input or to a net computed from parent inputs only: {netWhy d dataIns b x}"
       | _ => some s!"instance {iname}: data port {p.name} of {cm.name} is not connected to a plain wire reference"
 
+/-- The expression of a net with every assigned wire inlined (the net as a function of the parent
+data inputs); two instances with equal inlined nets on every data port compute the same stream. -/
+partial def inlineNet (dataIns : List String) (b : List Stmt) : Nat → Sparkle.IR.AST.Expr → Sparkle.IR.AST.Expr
+  | 0, e => e
+  | fuel + 1, e =>
+    match e with
+    | .ref x =>
+      if dataIns.contains x then e
+      else match asgOf b x with
+        | some r => inlineNet dataIns b fuel r
+        | none => e
+    | .op o as => .op o (as.map (inlineNet dataIns b fuel))
+    | .concat as => .concat (as.map (inlineNet dataIns b fuel))
+    | .slice x hi lo => .slice (inlineNet dataIns b fuel x) hi lo
+    | .index a i => .index (inlineNet dataIns b fuel a) (inlineNet dataIns b fuel i)
+    | e => e
+
 /-- The instance reads a derived net (some data port is not a parent data input). -/
 def instDerived (c : Contract) (ck : Contract) (cs : List (String × Sparkle.IR.AST.Expr)) : Bool :=
   let dataIns := c.dataInputs.map (·.name)
@@ -154,7 +171,7 @@ def fDefName (opn : OpenInfo) (j : Nat) : Name :=
 /-- The simp set that evaluates a net's IR expression and the Signal term of the declaration's
 argument. -/
 def netSimpL : String :=
-  "Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit, Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val, Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val, Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add, Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub, Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val, Seq.seq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, BitVec.toNat_append, BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Sparkle.Core.Signal.Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig"
+  "Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit, Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val, Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val, Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add, Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub, Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val, Seq.seq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, BitVec.toNat_append, BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Sparkle.Core.Signal.Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig, Sparkle.IR.Semantics.mask, Sparkle.Core.Signal.Signal.pure"
 
 def deepC (open_ : Name) (s : String) : String := toString (userName (deepName open_ s))
 
@@ -329,10 +346,15 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       for n in dataNames do
         X := X.push s!"  have hE_{n} : E {sq n} = ins t {sq n} := hEin _ (by decide)"
         facts := facts ++ [s!"hE_{n}"]
-      for (w, wi) in ii.chain.zipIdx do
+      let mut lts : List String := []
+      for ((w, wd), wi) in ii.chain.zipIdx do
         X := X.push s!"  have e_{wi} := hasgF {sq w} _ rfl"
-        X := X.push s!"  simp [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}] at e_{wi}"
-        facts := facts ++ [s!"e_{wi}"]
+        X := X.push s!"  simp [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
+        X := X.push s!"  have f_{wi} := e_{wi}.symm"
+        if dbg && wi + 1 == ii.chain.length then X := X.push s!"  fail \"TRACE\""
+        X := X.push s!"  have hlt_{wi} : E {sq w} < 2 ^ {wd} := by first | omega | (rw [f_{wi}]; exact Nat.and_lt_two_pow _ (by omega)) | (rw [f_{wi}]; exact Nat.or_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; exact Nat.xor_lt_two_pow (by omega) (by omega))"
+        facts := facts ++ [s!"f_{wi}"]
+        lts := lts ++ [s!"hlt_{wi}"]
       X := X.push s!"  rw [hdl] at hp"
       X := X.push s!"  simp only [List.mem_cons, List.not_mem_nil, or_false] at hp"
       X := X.push s!"  rcases hp with {pat}"
@@ -340,7 +362,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         let nm := "_gen_" ++ bn
         let wire := match ii.cs.lookup nm with | some (.ref x) => x | _ => "?"
         X := X.push s!"  · refine ⟨{sq wire}, by decide, ?_⟩"
-        X := X.push s!"    simp [{Fj}, {toString (userName ad)}, {netSimpL}, {", ".intercalate facts}]"
+        X := X.push s!"    simp [{Fj}, {toString (userName ad)}, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
         X := X.push s!"    try omega"
       X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_inst_net {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange hrunF t ht E hE _ hq"
       -- the signals the child's theorem is applied to are the declaration's arguments
@@ -518,6 +540,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let opn ← genOpen decl stmt nDom tbl kids nm.mod.getPrefix openSuf (allowDerived := true)
   let mut insts : List InstInfo := []
   let mut usedDerived : List Nat := []
+  let mut derivedKeys : List (List Sparkle.IR.AST.Expr × Nat) := []
   let dataInsP := c.dataInputs.map (·.name)
   -- in the order of the CHECKED arrangement (the proof's case split follows `{P.body}`'s order)
   for s in b0 do
@@ -533,14 +556,20 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       let ck := contractOf k.tbl ["out"] (clkRstOf k.c) k.c
       if instDerived c ck cs then
         -- a derived net: the declaration's call is the next unused derived call of this child
-        let some ci := (List.range opn.calls.size).find? (fun j =>
-            opn.calls[j]!.derived && opn.calls[j]!.kid == ki && !usedDerived.contains j)
+        let key := ck.dataInputs.map fun p => match cs.lookup p.name with
+          | some (.ref x) => inlineNet dataInsP b0 b0.length (.ref x)
+          | _ => .ref "?"
+        let some ci := (match derivedKeys.find? (fun kj => kj.1 == key && opn.calls[kj.2]!.kid == ki) with
+          | some kj => some kj.2
+          | none => (List.range opn.calls.size).find? (fun j =>
+            opn.calls[j]!.derived && opn.calls[j]!.kid == ki && !usedDerived.contains j))
           | refuse decl "open"
-              m!"instance {iname}: the declaration's body has no call of {mn} on a derived argument (the call's arguments must be closed terms over the parent inputs)"
+              m!"instance {iname}: the declaration's body has no call of {mn} on a derived argument (the call's arguments must be closed terms over the parent inputs); calls found: {opn.calls.toList.map fun c => (c.kid, c.derived)}, matched so far: {usedDerived}, instances so far: {insts.map (·.iname)}"
         usedDerived := usedDerived ++ [ci]
+        derivedKeys := derivedKeys ++ [(key, ci)]
         let chain := ((ck.dataInputs.map fun p => match cs.lookup p.name with
           | some (.ref x) => netChain dataInsP b0 b0.length x
-          | _ => []).flatten).eraseDups
+          | _ => []).flatten).reverse.eraseDups.map fun w => (w, declWidth m w)
         insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := ci, derived := true, chain }]
       else
         let some ci := opn.calls.findIdx? (fun c => c.kid == ki && c.args == args && !c.derived)
