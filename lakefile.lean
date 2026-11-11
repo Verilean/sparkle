@@ -348,6 +348,9 @@ lean_lib «Tools.VedU1Table» where
 lean_lib «Tools.VedU1TableGen» where
   roots := #[`Tools.VedU1TableGen]
 
+lean_lib «Tools.VedU1Loop» where
+  roots := #[`Tools.VedU1Loop]
+
 lean_lib «Tools.VedU1HierSem» where
   roots := #[`Tools.VedU1HierSem]
 
