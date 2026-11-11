@@ -103,7 +103,7 @@ IMPORTS = {"u1_packed": ["Tools.VedU1PackedEntry", "Tools.VedStrictAudit"],
            "u1_deep": ["Tools.VedU1Deep", "Tools.VedStrictAudit"],
            "u1_deep_ns": ["Tools.VedU1Deep", "Tools.VedStrictAudit"],
            "u1_hier": ["Tools.VedU1HierEntry", "Tools.VedStrictAudit"],
-           "u2_hier": ["Tools.VedU2HierEntry", "Tools.VedStrictAudit"]}
+           "u2_hier": ["Tools.VedU2HierRegEntry", "Tools.VedStrictAudit"]}
 STD3 = {"propext", "Classical.choice", "Quot.sound"}
 # pipeline order inside the entry, for "later stages not reached"
 PIPELINE = ["table", "multi-output", "synthesis", "artifact", "order", "type", "proof", "kernel", "audit"]
