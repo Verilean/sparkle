@@ -686,14 +686,37 @@ class U1Harness(unittest.TestCase):
         sh([sys.executable, "-I", GEN, "--repo", self.fx.repo, "--commit", self.fx.commit, "--blob", self.fx.blob,
             "gen", "--row", "1", "--setting", "u2_hier", "--dir", d])
         text = open(os.path.join(d, "Case.lean")).read()
-        self.assertIn("import Tools.VedU2HierEntry", text)
+        self.assertIn("import Tools.VedU2HierRegEntry", text)
         self.assertIn("import Tools.VedStrictAudit", text)
         self.assertIn("#ved_u2_hier foo1", text)
         self.assertIn("Tools.VedU2Hier.U2HStmt", text)
+        self.assertIn("Tools.VedU2Hier.U2HRStmt", text)
+        self.assertIn("VED U1P EXPSTMT", text)
+        self.assertNotIn("(m.body.all fun s => match s with | .register .. => false", text)
         self.assertNotIn("U1HStmt", text)
         self.assertNotIn("#verify_elab_deep", text)
         self.assertLess(text.index("#ved_u2_hier foo1"), text.index("VED U1P HIERTOP"))
         self.assertIn('startsWith "ved_"', text)
+
+    def test_u2_hier_expected_statement_is_logged_and_required(self):
+        r = self.one(1, "u2_hier", expstmt="U2HRStmt registers=true")
+        self.assertEqual((r["strict_counted"], r["probe_expected_stmt"]), ("yes", "U2HRStmt registers=true"))
+        r = self.one(1, "u2_hier", expstmt="U2HStmt registers=false")
+        self.assertEqual(r["probe_expected_stmt"], "U2HStmt registers=false")
+        r = self.one(1, "u2_hier", expstmt=None)       # no EXPSTMT line: not strict
+        self.assertEqual((r["strict_counted"], r["probe_expected_stmt"]), ("no", ""))
+        self.assertIn("expected-stmt:unknown", r["strict_blockers"])
+        r = self.one(1, "u2_hier", expstmt="U2HRStmt registers=unknown")
+        self.assertEqual(r["strict_counted"], "no")
+
+    def test_u2_hier_control_embeds_the_harness_probe(self):
+        """controls/U2HierControls.lean is generated from the harness's own probe text: no drift."""
+        sys.path.insert(0, os.path.join(VED, "controls"))
+        import gen_u2hier_controls
+        have = open(os.path.join(VED, "controls", "U2HierControls.lean")).read()
+        self.assertEqual(have, gen_u2hier_controls.render(), "regenerate: python3 -I "
+                         "scripts/ved/controls/gen_u2hier_controls.py scripts/ved/controls/U2HierControls.lean")
+        self.assertIn(u1_gen.PROBE_HIER_U2.split("let n ←", 1)[1].split("\n", 1)[1], have)
 
     def test_u2_hier_probe_rejections(self):
         r = self.one(1, "u2_hier", probe={"type": "differs"})
