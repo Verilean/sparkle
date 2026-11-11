@@ -596,6 +596,8 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     -- a runtime limit (heartbeats, recursion depth) here is a `proof` refusal
     -- (the script is too costly), not the catch-all `checker`
+    -- (aff81fa7's size-scaled budget is subsumed by `withProofBudget`: its limits
+    -- are at least the caller's times 8 for every module)
     let pf ← tryCatchRuntimeEx
         (withProofBudget do
         withoutErrToSorry do
