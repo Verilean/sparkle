@@ -196,6 +196,45 @@ def natBitOps (e : Lean.Expr) : Array Lean.Expr := Id.run do
     | _ => pure ()
   return out
 
+/-- all `a * b` on `Nat` in `e` with neither factor a numeral (each distinct term once) -/
+def natMuls (e : Lean.Expr) : Array Lean.Expr := Id.run do
+  let mut out : Array Lean.Expr := #[]
+  let mut todo : Array Lean.Expr := #[e]
+  while !todo.isEmpty do
+    let x := todo.back!
+    todo := todo.pop
+    if x.isAppOfArity ``HMul.hMul 6 && (x.getArg! 0).isConstOf ``Nat
+        && (x.getArg! 4).nat?.isNone && (x.getArg! 5).nat?.isNone then
+      unless out.contains x do out := out.push x
+    match x with
+    | .app f a => todo := (todo.push a).push f
+    | .lam _ t b _ => todo := (todo.push b).push t
+    | .forallE _ t b _ => todo := (todo.push b).push t
+    | .letE _ t v b _ => todo := ((todo.push b).push v).push t
+    | .mdata _ b => todo := todo.push b
+    | .proj _ _ b => todo := todo.push b
+    | _ => pure ()
+  return out
+
+/-- `ved_mul_facts`: for a product `a * b` of two non-numeral factors, `a < 2^n` and `b < 2^m`
+(least `n`, `m` found by `omega`) give `a * b < 2^n * 2^m`; `omega` treats the product as an
+atom and needs this bound. -/
+elab "ved_mul_facts" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let cands : List Nat := (List.range 130).tail! ++ (List.range 60).map (fun i => 136 + 8 * i)
+  for t in natMuls tgt do
+    let a := t.getArg! 4
+    let b := t.getArg! 5
+    let least (x : Lean.Expr) : TacticM (Option (Nat × Lean.Expr)) := do
+      for n in cands do
+        let bound ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit n]
+        if let some h ← omegaProof? (← mkAppM ``LT.lt #[x, bound]) then return some (n, h)
+      return none
+    let some (_, ha) ← least a | continue
+    let some (_, hb) ← least b | continue
+    let lem ← mkAppM ``Nat.mul_lt_mul'' #[ha, hb]
+    evalTactic (← `(tactic| have := $(← Term.exprToSyntax lem)))
+
 /-- `ved_bits_facts`: for every `a ^^^ b` / `a ||| b` in the goal whose operands are below `2^n`
 (least `n` found by `omega`), add `a ^^^ b < 2^n`; for every `a &&& b`, add `a &&& b ≤ a` and
 `≤ b`.  `omega` treats the bitwise term as an atom and needs these bounds. -/
