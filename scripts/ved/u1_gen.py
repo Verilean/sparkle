@@ -82,9 +82,10 @@ from u0_gen import (INV_BLOB, INV_COMMIT, INV_PATH, INV_ROWS, die, git_show_inve
 # statement `U1HStmt <decl>.ved_contract <decl>.ved_mod <decl>.ved_design <stmt>`
 # and reads the closed module and design values itself.
 # u2_hier: the stateful hierarchical entry `#ved_u2_hier` (Tools/VedU2HierEntry.lean, H2a: depth 1,
-# register-free parent, single-output leaf children, child input ports straight from parent inputs).
+# register-free parent, single-output leaf children, child input ports straight from parent inputs;
+# H2b: the parent may also have registers, statement `U2HRStmt`).
 # Same shape as u1_hier (original scope, no preparation).  Strict only through PROBE_HIER_U2, which
-# rebuilds `U2HStmt <decl>.ved_contract <decl>.ved_mod <decl>.ved_design <stmt>` itself.  Its own
+# rebuilds `U2HStmt` (or `U2HRStmt` when the registered module has a register) `<decl>.ved_contract <decl>.ved_mod <decl>.ved_design <stmt>` itself.  Its own
 # route column and its own union "standard + u2_hier"; never in the default ROUTES of u1_full.sh.
 # u1_packed: `#ved_u1_packed <ident>` (Tools/VedU1PackedEntry.lean) in the original
 # scope, for a result `Signal d (A x B)` packed into ONE port `out`.  Not a deep
@@ -141,7 +142,7 @@ RESULT_COLUMNS = KEY_COLUMNS + [
     "probe_contract", "probe_outputs", "probe_slices", "probe_port", "probe_axioms", "probe_axioms_std3", "probe_preexisting",
     # u1_hier probe (n/a elsewhere): closed design, top/children/instances, child leaf theorems, ports
     "probe_design", "probe_hier_top", "probe_hier_modules", "probe_hier_insts", "probe_hier_children",
-    "probe_hier_child_thms", "probe_ports", "tool_reported",
+    "probe_hier_child_thms", "probe_ports", "probe_expected_stmt", "tool_reported",
     "kernel_sync",
     # timing (ms from in-file monotonic markers; "combined" where not separable)
     "t_synthesis", "t_deep_prep", "t_u1_proof", "t_elab_kernel", "t_audit", "t_u1_combined",
@@ -503,7 +504,7 @@ _P1 = """        let okp := args.size == 4 && args[0]! == toExpr tbl &&
           m.inputs.length == tbl.ins.length && m.outputs.length == tbl.out.flat.length &&
           (m.inputs.map (·.name)) == tbl.binders.map ("_gen_" ++ ·) &&
           (m.inputs.map (·.ty)) == tbl.ins.map (·.hw) && (m.outputs.map (·.ty)) == tbl.out.flat.map (·.hw)"""
-_P2 = """        -- H2a: the parent's inputs are the data inputs, then none or exactly clock and reset
+_P2 = """        -- H2a/H2b: the parent's inputs are the data inputs, then none or exactly clock and reset
         let kr : Option (Option (String × String)) := match m.inputs.drop tbl.ins.length with
           | [] => some none
           | [k, r] => some (some (k.name, r.name))
@@ -514,11 +515,23 @@ _P2 = """        -- H2a: the parent's inputs are the data inputs, then none or e
           args[2]! == toExpr kr.get! &&
           m.outputs.length == tbl.out.flat.length &&
           ((m.inputs.take nd).map (·.name)) == tbl.binders.map ("_gen_" ++ ·) &&
-          ((m.inputs.take nd).map (·.ty)) == tbl.ins.map (·.hw) && (m.outputs.map (·.ty)) == tbl.out.flat.map (·.hw) &&
-          (m.body.all fun s => match s with | .register .. => false | _ => true)"""
-PROBE_HIER_U2 = (PROBE_HIER.replace("Tools.VedU1Hier.U1HStmt", "Tools.VedU2Hier.U2HStmt")
-                 .replace(_P1, _P2))
-assert PROBE_HIER_U2.count("U2HStmt") == 1 and _P2 in PROBE_HIER_U2
+          ((m.inputs.take nd).map (·.ty)) == tbl.ins.map (·.hw) && (m.outputs.map (·.ty)) == tbl.out.flat.map (·.hw)"""
+# H2b: the expected statement is chosen from the registered module ITSELF (its closed value, evaluated
+# here): `U2HRStmt` when its body has a register, else `U2HStmt`; compared with `==` (exact).
+_E1 = "      let expected := mkAppN (mkConst ``Tools.VedU1Hier.U1HStmt) #[mkConst ct, mkConst md, mkConst dn, stmt]"
+_E2 = """      let hasReg : Option Bool ← match env.find? md with
+        | some (.defnInfo di) =>
+          if !di.value.hasMVar && !di.value.hasFVar && !di.value.hasLooseBVars then
+            let mv ← liftTermElabM (vedu1hEval (a := Sparkle.IR.AST.Module) (mkConst ``Sparkle.IR.AST.Module) di.value)
+            pure (some (mv.body.any fun s => match s with | .register .. => true | _ => false))
+          else pure none
+        | _ => pure none
+      let stmtC := if hasReg == some true then ``Tools.VedU2Hier.U2HRStmt else ``Tools.VedU2Hier.U2HStmt
+      logInfo m!"VED U1P EXPSTMT {if hasReg == some true then "U2HRStmt" else "U2HStmt"} registers={match hasReg with | some b => toString b | none => "unknown"}"
+      let expected := mkAppN (mkConst stmtC) #[mkConst ct, mkConst md, mkConst dn, stmt]"""
+assert _E1 in PROBE_HIER
+PROBE_HIER_U2 = (PROBE_HIER.replace(_E1, _E2).replace(_P1, _P2))
+assert "U2HRStmt" in PROBE_HIER_U2 and _P2 in PROBE_HIER_U2 and _E2 in PROBE_HIER_U2
 
 # u2_hier: nothing named `<decl>.ved_*` (theorem, module, design, contract, outs, body, child.*,
 # open, open_eq, ...) may exist before the entry runs
@@ -722,7 +735,7 @@ def parse_probe(text):
     return p
 
 
-def hier_probe(row, ptext, okm, u1):
+def hier_probe(row, ptext, okm, u1, route=""):
     """The u1_hier part of the probe: fills the probe_hier_* columns, returns the blockers.
     Every item must be established by a `VED U1P` line of the probe itself."""
     bl = []
@@ -760,6 +773,11 @@ def hier_probe(row, ptext, okm, u1):
     row["probe_ports"] = m.group(1) if m else ""
     if row["probe_ports"] != "ok":
         bl.append(f"ports:{row['probe_ports'] or 'unknown'}")
+    if route == "u2_hier":
+        m = g(r"VED U1P EXPSTMT (U2HR?Stmt) registers=(\w+)")
+        row["probe_expected_stmt"] = f"{m.group(1)} registers={m.group(2)}" if m else ""
+        if not m or m.group(2) not in ("true", "false"):
+            bl.append("expected-stmt:" + (row["probe_expected_stmt"] or "unknown"))
     if okm:
         full = next((t for ln, sev, t in u1 if t.startswith(("VED U1 HIER OK ", "VED U2 HIER OK "))), "")
         mt = re.search(r"synthesis (\d+) ms, children (\d+) ms, parent proof (\d+) ms, peak (\d+) kB", full)
@@ -1009,7 +1027,7 @@ def classify_dir(d, sv_group=""):
         row["probe_axioms_std3"] = "yes" if set(axs) <= STD3 else "no"
     hier_bl = []
     if route in HIER_ROUTES:
-        hier_bl = hier_probe(row, "\n".join(pm), okm, u1)
+        hier_bl = hier_probe(row, "\n".join(pm), okm, u1, route)
     row["kernel_sync"] = ("yes" if meta.get("async_false") and p["thm"] and p["thm"][0] == "theorem"
                           else "no")
 
