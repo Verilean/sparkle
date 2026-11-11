@@ -28,7 +28,10 @@ general lemmas evaluate such a body (`step_table`), prove it a well-ordered netl
 `kLut!` chain is compared with `lutBV` of the same table by `rfl`.
 
 Controls: a table constant of the module changed (and two swapped) is refused at `[proof]` and
-leaves no `ved_*` constant.
+leaves no `ved_*` constant; so is the module of one table against the statement of another.
+(A single-constant mutant of the S-box is not a control here: every value is held by two wires
+that the compiler shares, so the mutant is no longer table-shaped and would fall to the flat
+`simp` script, which does not scale to 1022 statements.)
 -/
 
 namespace Tests.Ved.U1KTabCheck
@@ -91,12 +94,11 @@ run_cmd ctlMut `ctlSha256Swap ``Sparkle.IP.Crypto.SHA256.kMux (swapConsts 32 1 2
     [(5, "_tmp_mux_then_5 := const 1899447441:32", "_tmp_mux_then_5 := const 3049323471:32"),
      (8, "_tmp_mux_then_8 := const 3049323471:32", "_tmp_mux_then_8 := const 1899447441:32")]
 
--- the S-box entry S[1] (0x7c) changed
+-- the module of SHA-256's table against the S-box's statement
 /-- info: refused [proof], clean -/
 #guard_msgs in
 set_option maxRecDepth 100000 in
-run_cmd ctlMut `ctlSboxEntry ``Sparkle.IP.Crypto.AESHW.sboxHW (bumpConst 8 3) <|
-    [(5, "_tmp_mux_then_5 := const 124:8", "_tmp_mux_then_5 := const 125:8")]
+run_cmd do ctl `ctlTabSbox ``Sparkle.IP.Crypto.AESHW.sboxHW (← liftTermElabM (modOf ``Sparkle.IP.Crypto.SHA256.kMux))
 
 -- the module of SHA-256's table against SHA-512's statement
 /-- info: refused [proof], clean -/
