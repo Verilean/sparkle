@@ -254,7 +254,7 @@ syntax (name := vedLoopClose) "ved_loop_close " "[" Lean.Parser.Tactic.simpLemma
 
 macro_rules
   | `(tactic| ved_loop_close [$ex,*]) =>
-    `(tactic| ((try ved_wide_simp [$ex,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> omega))))
+    `(tactic| ((try ved_wide_simp [$ex,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_bits_facts) <;> omega))))
 
 /-! ## The entry -/
 
@@ -558,7 +558,8 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     #[← `(tactic| all_goals (try ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod])),
       ← `(tactic| all_goals (try ved_bit_simp)),
       ← `(tactic| all_goals (try ved_or_lit)),
-      ← `(tactic| all_goals (try ved_pack_simp))],
+      ← `(tactic| all_goals (try ved_pack_simp)),
+      ← `(tactic| all_goals (try ved_bits_facts))],
     #[closing]]
   let stop ← `(tactic| (trace_state; all_goals sorry))
   if dbg == 1 then tacs := tacs.push stop
