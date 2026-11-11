@@ -420,7 +420,10 @@ def checkU2H (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.M
     TermElabM (Name × Nat × Nat) := do
   let nm := HNames.ofBase decl
   let saved ← saveState
-  tryCatchRuntimeEx (do
+  -- the whole check runs under the finite proof budget (`withProofBudget`): its steps
+  -- (child checks, the open parent, type and definitional comparisons) work on terms as
+  -- large as the generated proof; the kernel still checks the result in full
+  tryCatchRuntimeEx (withProofBudget <| do
     let tbl ← try readTableOfType decl (← inferType stmt) catch e => refuse decl "table" e.toMessageData
     unless tbl.out.flat.length == 1 do
       refuse decl "multi-output"
