@@ -342,6 +342,18 @@ lean_lib «Tools.VedU1Contract» where
 lean_lib «Tools.VedU1Lemmas» where
   roots := #[`Tools.VedU1Lemmas]
 
+lean_lib «Tools.VedU1HierSem» where
+  roots := #[`Tools.VedU1HierSem]
+
+lean_lib «Tools.VedU1HierComp» where
+  roots := #[`Tools.VedU1HierComp]
+
+lean_lib «Tools.VedU1Hier» where
+  roots := #[`Tools.VedU1Hier]
+
+lean_lib «Tools.VedU1HierEntry» where
+  roots := #[`Tools.VedU1HierEntry]
+
 lean_lib «Tools.VedU1Entry» where
   roots := #[`Tools.VedU1Entry]
 
@@ -378,6 +390,9 @@ lean_lib «Tests.Ved.U1EqLutCheck» where
 -- the real `rconHW` (imports the AES IP); not in the VED CI workflow
 lean_lib «Tests.Ved.U1RconCheck» where
   roots := #[`Tests.Ved.U1RconCheck]
+
+lean_lib «Tests.Ved.U1HierCheck» where
+  roots := #[`Tests.Ved.U1HierCheck]
 
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]
