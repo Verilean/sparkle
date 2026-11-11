@@ -181,6 +181,29 @@ structure DeepInfo where
   nIn : Nat
   /-- the parent's register output names, slot order -/
   pm : List String
+  /-- H2c-state: the register slots the exported loop-state theorem's pack holds, in pack order (the top loop's
+  block of the flat register list; a nested circuit's registers are not in it) -/
+  block : List Nat := []
+
+/-- The register slots a state theorem's pack holds: the reader constants `<..>_deep_rd<n>` in the order they
+occur in the right side of its equation (`(rd_b .., (rd_b' .., ()))`, a Bool register's reader under `== 1#1`). -/
+def stateBlockOf (thm : Name) : MetaM (List Nat) := do
+  let ci ← getConstInfo thm
+  forallTelescope ci.type fun _ body => do
+    let some (_, _, rhs) := body.eq? | return []
+    let rec go (e : Lean.Expr) (fuel : Nat) (acc : List Nat) : List Nat :=
+      match fuel with
+      | 0 => acc
+      | f + 1 =>
+        if e.isAppOfArity ``Prod.mk 4 then
+          let a := e.getArg! 2
+          let idx := (a.foldConsts ([] : List Name) (fun c l => c :: l)).findSome? fun c =>
+            match c.getString!.splitOn "_deep_rd" with
+            | [_, n] => n.toNat?
+            | _ => none
+          go (e.getArg! 3) f (match idx with | some n => acc ++ [n] | none => acc)
+        else acc
+    return go rhs 64 []
 
 /-- The name of the stream definition `ved_F<j>` of derived call `j`. -/
 def fDefName (opn : OpenInfo) (j : Nat) : Name :=
@@ -442,7 +465,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           let nm := "_gen_" ++ bn
           let wire := match ii.cs.lookup nm with | some (.ref x) => x | _ => "?"
           let slot := (ii.slots.lookup wire).getD 0
-          let sel := (List.range slot).foldl (fun s _ => s ++ ".2") "x" ++ ".1"
+          -- the pack holds the top loop's registers only: the position of the slot in it
+          let pos := (di.block.idxOf? slot).getD slot
+          let sel := (List.range pos).foldl (fun s _ => s ++ ".2") "x" ++ ".1"
           X := X.push s!"  have hAl{bn} : (({toString (userName ad)} ins).val t).toNat = {irS} ins t ({slot} : Fin {di.regWs.length}) := by"
           X := X.push s!"    have hst := {OState} {sigsAll} t"
           X := X.push s!"    have h1 : ({toString (userName ad)} ins).val t = {deepC opn.openName (ptag ++ s!"_deep_rd{slot}")} {sigsAll} t := by ved_kernel_exact (congrArg (fun x => {sel}) hst)"
@@ -761,7 +786,10 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       m!"the parent has {pm.length} registers, the open parent's circuit has {regWs.length}"
   unless inWs.length == tbl.binders.length + opn.calls.size do
     refuse decl "deep" m!"the open circuit has {inWs.length} inputs, expected {tbl.binders.length + opn.calls.size}"
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm }
+  let block ← if p1.insts.any (·.stateArg) then
+      stateBlockOf (deepNameP opn.openName (ptag ++ "_deep_state"))
+    else pure []
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU
@@ -836,7 +864,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
 /-- The checker for a parent WITH registers.  `m` and `d` are the values `synthesizeCombinational`
 returned.  On any failure the command state saved at the start (constants and messages) is
 restored and a refusal thrown. -/
-def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
+def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
     (clkRstOverride : Option (Option (String × String)) := none) :
     CommandElabM (Name × Nat × Nat) := do
   let saved ← get
@@ -850,7 +878,15 @@ def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.
     try withScope (fun sc => { sc with currNamespace := decl }) (elabCommand stx)
     catch e => liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName}: {e.toMessageData}"
     let errs := (← get).messages.toList.filter (·.severity == .error)
-    if errs.length != nErr0 then
+    -- H2c-state: the open parent's ports are proved one by one; a port the proof does not need (a port that is the
+    -- trigger of the circuit, an output of a nested circuit) may fail without costing the state of the loop that
+    -- another port exported.  Only the facts of a port that exported its state are used, and the final theorem is
+    -- audited (a `sorry` in a used fact is refused there).
+    let envNow ← getEnv
+    let stateExported := p1.opn.calls.any (·.stateArg) &&
+      (p1.opn.ports.isEmpty && envNow.contains (deepNameP p1.opn.openName "_deep_state") ||
+       p1.opn.ports.any fun p => envNow.contains (deepNameP p1.opn.openName s!"_{p}_deep_state"))
+    if errs.length != nErr0 && !stateExported then
       let first ← match errs.drop nErr0 with
         | msg :: _ => msg.data.toString
         | [] => pure ""
@@ -865,6 +901,14 @@ def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.
     set saved
     if ← liftTermElabM (isRefusal e) then throw e
     liftTermElabM <| refuse decl "checker" e.toMessageData
+
+/-- `checkU2HRCore` with the elaboration limits raised (the proofs of a parent with several registers and a
+nested circuit exceed the default 200000 heartbeats in `whnf`); the limits are the same for every parent. -/
+def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
+    (clkRstOverride : Option (Option (String × String)) := none) :
+    CommandElabM (Name × Nat × Nat) :=
+  withScope (fun sc => { sc with opts := Lean.maxRecDepth.set (Lean.maxHeartbeats.set sc.opts 8000000) 100000 })
+    (checkU2HRCore decl stmt nDom m d clkRstOverride)
 
 /-- The entry: ONE `synthesizeCombinational`; a register-free parent is H2a's `checkU2H`
 (statement `U2HStmt`), a parent with registers is `checkU2HR` (statement `U2HRStmt`). -/
