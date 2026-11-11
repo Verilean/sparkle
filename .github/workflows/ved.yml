@@ -73,6 +73,9 @@ jobs:
     - name: U1 on a real IP leaf (keccakRcHW, 32 x 64-bit constants)
       run: lake build Tests.Ved.U1KeccakRcCheck
 
+    - name: U1 on real IP with == and wide inputs (aluSignal, hazardSignal, lqrCtrlTop, canopenIsNmt, droneCanNodeFilter)
+      run: lake build Tests.Ved.U1EqWideCheck
+
     - name: Deep route, representative regression
       run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
 
@@ -109,6 +112,9 @@ jobs:
 
     - name: U1 on a real IP leaf (keccakRcHW, 32 x 64-bit constants)
       run: lake build Tests.Ved.U1KeccakRcCheck
+
+    - name: U1 on real IP with == and wide inputs (aluSignal, hazardSignal, lqrCtrlTop, canopenIsNmt, droneCanNodeFilter)
+      run: lake build Tests.Ved.U1EqWideCheck
 
     - name: Deep route, every regression file
       run: |
