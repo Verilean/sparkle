@@ -506,7 +506,8 @@ theorem Wt_ne_inp (t : Nat) (inp : String) (h1 : inp.toList[1]? ≠ some 't') (h
 /-! ## a table, as data the kernel checks -/
 
 structure TblData where
-  Fl : List Form
+  /-- the forms, in chunks of 32: random access costs the kernel `p / 32 + p % 32` steps, not `p` -/
+  Fl : List (List Form)
   t : Nat
   bpL : List Nat
   rtL : List Nat
@@ -517,7 +518,7 @@ structure TblData where
   w : Nat
   inp : String
 
-def TblData.Fn (D : TblData) : Nat → Form := fun p => D.Fl.getD p (.const 0 0)
+def TblData.Fn (D : TblData) : Nat → Form := fun p => (D.Fl.getD (p / 32) []).getD (p % 32) (.const 0 0)
 
 /-- the body the data stands for -/
 def TblData.body (D : TblData) : List Stmt := bodyN D.inp (Wt D.t) D.Fn 0 (4 * D.t + 2)
@@ -526,7 +527,7 @@ def TblData.body (D : TblData) : List Stmt := bodyN D.inp (Wt D.t) D.Fn 0 (4 * D
 form reads earlier positions), the constants behind the compared / selected positions, and the
 names. -/
 def TblData.ok (D : TblData) : Bool :=
-  decide (1 ≤ D.t) && (D.Fl.length == 4 * D.t + 2) && (D.tbl.length == D.t) && decide (D.t ≤ 2 ^ D.iw) &&
+  decide (1 ≤ D.t) && (D.tbl.length == D.t) && decide (D.t ≤ 2 ^ D.iw) &&
   (List.range (4 * D.t + 2)).all (fun p => (D.Fn p).reads.all (fun j => decide (j < p))) &&
   (List.range D.t).all (fun k => D.Fn (3 * k + 1) == .eqIn (D.bpL.getD k 0)) &&
   (List.range' 1 D.t).all (fun j => D.Fn (3 * D.t + j) ==
@@ -539,7 +540,7 @@ def TblData.ok (D : TblData) : Bool :=
   decide (D.inp.toList[1]? ≠ some 't') && decide (D.inp ≠ "_gen_out") && decide (D.inp ≠ "out")
 
 theorem TblData.ok_sound (D : TblData) (h : D.ok = true) :
-    1 ≤ D.t ∧ D.Fl.length = 4 * D.t + 2 ∧ D.tbl.length = D.t ∧ D.t ≤ 2 ^ D.iw ∧
+    1 ≤ D.t ∧ True ∧ D.tbl.length = D.t ∧ D.t ≤ 2 ^ D.iw ∧
     ValidN D.Fn (4 * D.t + 2) ∧
     (∀ k, k < D.t → D.Fn (3 * k + 1) = .eqIn (D.bpL.getD k 0)) ∧
     (∀ j, 1 ≤ j → j ≤ D.t → D.Fn (3 * D.t + j) =
@@ -551,8 +552,8 @@ theorem TblData.ok_sound (D : TblData) (h : D.ok = true) :
     D.inp.toList[1]? ≠ some 't' ∧ D.inp ≠ "_gen_out" ∧ D.inp ≠ "out" := by
   simp only [TblData.ok, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq, beq_iff_eq,
     List.mem_range, List.mem_range'_1] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, h11⟩, h12⟩, h13⟩ := h
-  refine ⟨h1, h2, h3, h4, ?_, ?_, ?_, h8, ?_, ?_, ?_, h11, h12, h13⟩
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, h11⟩, h12⟩, h13⟩ := h
+  refine ⟨h1, trivial, h3, h4, ?_, ?_, ?_, h8, ?_, ?_, ?_, h11, h12, h13⟩
   · intro p hp j hj
     exact h5 p hp j hj
   · intro k hk; exact h6 k hk
