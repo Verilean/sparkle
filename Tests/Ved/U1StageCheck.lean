@@ -33,7 +33,7 @@ def withBudget (n : Nat) (act : TermElabM α) : TermElabM α :=
 limits to at least `ved.u1.proofRecDepth` / `ved.u1.proofHeartbeats`), so the
 small limits set by the cases below are the ones in force. -/
 def noProofBudget (act : TermElabM α) : TermElabM α :=
-  withOptions (fun o => (o.setNat `ved.u1.proofRecDepth 0).setNat `ved.u1.proofHeartbeats 0) act
+  withOptions (fun o => (o.set `ved.u1.proofRecDepth (0 : Nat)).set `ved.u1.proofHeartbeats (0 : Nat)) act
 
 /-- Elaboration of the proof is the expensive part: a `decide` over a long fold. -/
 def costlyDecide : TermElabM Syntax :=
