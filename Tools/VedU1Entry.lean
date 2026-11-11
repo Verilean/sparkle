@@ -270,7 +270,7 @@ syntax (name := vedLoopClose) "ved_loop_close " "[" Lean.Parser.Tactic.simpLemma
 
 macro_rules
   | `(tactic| ved_loop_close [$ex,*]) =>
-    `(tactic| ((try ved_wide_simp [$ex,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_bits_facts) <;> omega))))
+    `(tactic| ((try ved_wide_simp [$ex,*]) <;> (first | omega | ((repeat' (split <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false] at *))) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_bits_facts) <;> omega))))
 
 /-! ## The entry -/
 
@@ -688,11 +688,14 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     #[← `(tactic| all_goals refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩),
       ← `(tactic| all_goals ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
       ← `(tactic| all_goals try (repeat' apply And.intro))],
-    #[← `(tactic| all_goals (try ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod]))],
+    #[← `(tactic| all_goals (try ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
     #[← `(tactic| all_goals (try ved_bit_simp))],
     #[← `(tactic| all_goals (try ved_or_lit))],
     #[← `(tactic| all_goals (try ved_pack_simp))],
-    #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts))],
+    #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
+      ← `(tactic| all_goals (try ved_pack_simp)),
+      ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
+      ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat]))],
     #[closing]]
   let stop ← `(tactic| (trace_state; fail "stopped at debug stage"))
   if dbg == 1 then tacs := tacs.push stop

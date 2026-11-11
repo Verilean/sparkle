@@ -95,6 +95,34 @@ macro "ved_bit_simp" : tactic =>
 
 open Lean Meta Elab Tactic
 
+/-- a numeral of `Nat` or a `BitVec` literal (`n#w`, `OfNat.ofNat`) -/
+def isNumLit (e : Lean.Expr) : Bool :=
+  e.nat?.isSome || e.isRawNatLit
+    || (e.isAppOfArity ``BitVec.ofNat 2 && (e.getArg! 1).nat?.isSome)
+    || (e.isAppOfArity ``OfNat.ofNat 3 && (e.getArg! 1).isRawNatLit)
+
+/-- `x * n` with `n` a literal and `x` not one: `n * x`, for `x : α` with `α` as chosen by `isTy`.
+The kernel unfolds `x * n` (structural recursion on `n`) when it has to evaluate the `toNat` of the
+product, which is not feasible for a 32-bit literal; with the literal first the recursion is on `x`
+and gets stuck. -/
+def mulLitComm (isTy : Lean.Expr → Bool) (e : Lean.Expr) : Simp.SimpM Simp.Step := do
+  unless e.isAppOfArity ``HMul.hMul 6 do return .continue
+  let x := e.getArg! 4
+  let y := e.getArg! 5
+  if !isNumLit y || isNumLit x then return .continue
+  let ty ← inferType x
+  unless isTy ty do return .continue
+  let pf ← if ty.isConstOf ``Nat then mkAppM ``Nat.mul_comm #[x, y]
+    else mkAppM ``BitVec.mul_comm #[x, y]
+  let e' ← mkAppM ``HMul.hMul #[y, x]
+  return .visit { expr := e', proof? := some pf }
+
+/-- `ved_mul_lit_bv`: `x * n#w` to `n#w * x` on `BitVec` (used by name: `simp [ved_mul_lit_bv]`) -/
+simproc_decl ved_mul_lit_bv (HMul.hMul _ _) := mulLitComm (·.isAppOf ``BitVec)
+
+/-- `ved_mul_lit_nat`: `x * n` to `n * x` on `Nat` (used by name) -/
+simproc_decl ved_mul_lit_nat (HMul.hMul _ _) := mulLitComm (·.isConstOf ``Nat)
+
 /-- the `Signal.loop` applications of `e` with no loose bound variable, children before parents
 (a loop inside another's body comes first: the order the synthesizer allocates their registers) -/
 partial def collectLoops (e : Lean.Expr) (acc : Array Lean.Expr) : Array Lean.Expr :=
