@@ -23,6 +23,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, VED)
 sys.path.insert(0, HERE)
 import u1_gen  # noqa: E402
+import u1_run  # noqa: E402
 from test_u0 import Fixture, sh  # noqa: E402
 
 
@@ -544,8 +545,8 @@ class U1Harness(unittest.TestCase):
         # row 1: only u1_packed strict -> not in the old unions, in standard + packed
         self.assertEqual((un["1"]["u1_packed_strict"], un["1"]["union_std_strict"], un["1"]["union_strict"],
                           un["1"]["union_strict_routes"], un["1"]["union_std_packed_strict"],
-                          un["1"]["union_std_packed_routes"]), ("yes", "no", "no", "", "yes", "u1_packed"))
-        self.assertEqual((un["2"]["union_strict"], un["2"]["union_std_packed_strict"]), ("no", "yes"))
+                          un["1"]["union_std_packed_routes"]), ("yes", "no", "unknown", "", "yes", "u1_packed"))
+        self.assertEqual((un["2"]["union_strict"], un["2"]["union_std_packed_strict"]), ("unknown", "yes"))
         self.assertEqual((un["3"]["u1_packed_strict"], un["3"]["union_std_packed_strict"]), ("missing", "yes"))
         rid = open(os.path.join(self.out, "CURRENT_RUN_ID")).read().strip()
         summ = open(os.path.join(self.out, "results", rid, "summary.txt")).read()
@@ -569,7 +570,7 @@ class U1Harness(unittest.TestCase):
         self.assertEqual((un["1"]["u1_strict"], un["1"]["u1_deep_strict"], un["1"]["union_strict"]), ("yes", "yes", "yes"))
         self.assertEqual((un["2"]["u1_strict"], un["2"]["u1_deep_strict"], un["2"]["union_strict"]), ("no", "yes", "yes"))
         self.assertEqual((un["5"]["u1_strict"], un["5"]["u1_deep_strict"], un["5"]["union_strict"]), ("yes", "no", "yes"))
-        self.assertEqual(un["4"]["union_strict"], "no")
+        self.assertEqual(un["4"]["union_strict"], "unknown")   # u1_deep_ns not measured: not a "no"
         rid = open(os.path.join(self.out, "CURRENT_RUN_ID")).read().strip()
         summ = open(os.path.join(self.out, "results", rid, "summary.txt")).read()
         self.assertIn("route u1: records=4 strict_counted_yes=2", summ)
@@ -721,7 +722,7 @@ class U1Harness(unittest.TestCase):
         [u] = self.results("union.tsv")
         self.assertEqual((u["u2_hier_strict"], u["union_std_strict"], u["union_strict"], u["union_std_hier_strict"],
                           u["union_std_packed_strict"], u["union_std_u2hier_strict"]),
-                         ("yes", "no", "no", "no", "no", "yes"))
+                         ("yes", "no", "unknown", "no", "unknown", "yes"))
         rid = open(os.path.join(self.out, "CURRENT_RUN_ID")).read().strip()
         summ = open(os.path.join(self.out, "results", rid, "summary.txt")).read()
         self.assertIn("route u2_hier: records=1 strict_counted_yes=1", summ)
@@ -775,6 +776,45 @@ class U1Harness(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("union (standard routes u1, u1_deep): distinct_rows=1 returned_IR_strict_rows=1", r.stdout)
 
+
+
+class UnionNotMeasuredTest(unittest.TestCase):
+    """Review P2-1 (382c71eb): a union whose routes were not all measured is "unknown", never "no", and an
+    increment over the standard union is counted only where the standard union is a measured "no"."""
+
+    def recs(self, routes, strict):
+        return [{"row": "1", "setting": rt, "strict_counted": "yes" if rt in strict else "no", "file": "F",
+                 "line": "1", "command": "#synthesizeVerilog", "top": "t", "invocation": "u1-in-file",
+                 "first_cause": "" if rt in strict else "proof", "u1_status": "", "prep_status": ""}
+                for rt in routes]
+
+    def summary(self, recs):
+        un = u1_run.union_rows(recs)
+        return un[0], "\n".join(u1_run.summary_lines(recs, un))
+
+    def test_hier_routes_only(self):
+        u, s = self.summary(self.recs(["u1_hier", "u2_hier"], {"u2_hier"}))
+        self.assertEqual((u["union_std_strict"], u["union_std_u2hier_strict"], u["union_std_hier_strict"]),
+                         ("unknown", "yes", "unknown"))
+        self.assertIn("returned_IR_strict_rows=0 unknown_rows=1 NOT_DETERMINED", s)
+        self.assertIn("u2_hier_adds_over_standard=0 u2_hier_adds_not_determined=1", s)
+        self.assertIn("returned_IR_strict_rows_std_plus_hier=0 unknown_rows=1 NOT_DETERMINED", s)
+
+    def test_one_standard_route_only(self):
+        u, s = self.summary(self.recs(["u1", "u2_hier"], {"u2_hier"}))
+        self.assertEqual((u["u1_strict"], u["u1_deep_strict"], u["union_std_strict"]), ("no", "missing", "unknown"))
+        self.assertIn("u2_hier_adds_not_determined=1", s)
+        u, s = self.summary(self.recs(["u1", "u2_hier"], {"u1", "u2_hier"}))
+        self.assertEqual(u["union_std_strict"], "yes")               # a measured strict route decides "yes"
+        self.assertIn("u2_hier_adds_over_standard=0 strict_by_u2_hier=1", s)
+
+    def test_all_routes_measured(self):
+        routes = list(u1_gen.ROUTES)
+        u, s = self.summary(self.recs(routes, {"u2_hier"}))
+        self.assertEqual((u["union_std_strict"], u["union_strict"], u["union_std_u2hier_strict"]), ("no", "no", "yes"))
+        self.assertIn("returned_IR_strict_rows=0\n", s + "\n")
+        self.assertNotIn("NOT_DETERMINED", s)
+        self.assertIn("u2_hier_adds_over_standard=1 strict_by_u2_hier=1", s)
 
 if __name__ == "__main__":
     unittest.main()

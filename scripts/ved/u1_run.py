@@ -63,6 +63,31 @@ STD_PACKED_ROUTES = STD_ROUTES + ("u1_packed",)
 STD_U2HIER_ROUTES = STD_ROUTES + ("u2_hier",)   # its own union; never merged into the others
 
 
+def tri(recs, ok_all, routes):
+    """A union over `routes` for one row: "yes" when a measured route in it is strict, "no" when every route
+    in it was measured and none is strict, else "unknown" (a route of the union has no record: not measured,
+    which is NOT a refusal)."""
+    if any(rt in ok_all for rt in routes):
+        return "yes"
+    return "no" if all(recs.get(rt) for rt in routes) else "unknown"
+
+
+def adds(union, key):
+    """Rows the union `key` adds over the standard union: counted only where the standard union is a
+    measured "no"; where it is "unknown" the increment is not determined (second number)."""
+    return (sum(1 for u in union if u[key] == "yes" and u["union_std_strict"] == "no"),
+            sum(1 for u in union if u[key] == "yes" and u["union_std_strict"] == "unknown"))
+
+
+def ycount(union, key):
+    """(yes, unknown) rows of a union column; a union with unknown rows is NOT DETERMINED."""
+    return (sum(1 for u in union if u[key] == "yes"), sum(1 for u in union if u[key] == "unknown"))
+
+
+def nd(unknown):
+    return f" unknown_rows={unknown} NOT_DETERMINED(routes not measured)" if unknown else ""
+
+
 def union_rows(records):
     """records: list of dict (results.tsv rows).  One union line per distinct row;
     a row strict in several routes counts once."""
@@ -79,15 +104,15 @@ def union_rows(records):
         u = {"row": row, "file": base.get("file", ""), "line": base.get("line", ""),
              "command": base.get("command", ""), "top": base.get("top", ""),
              # standard routes only (u1, u1_deep in the original scope)
-             "union_std_strict": "yes" if any(rt in STD_ROUTES for rt in ok_all) else "no",
+             "union_std_strict": tri(recs, ok_all, STD_ROUTES),
              # also the namespace-assisted route (reviewer ruling 2026-11-10)
-             "union_strict": "yes" if ok_ns else "no", "union_strict_routes": ",".join(ok_ns),
+             "union_strict": tri(recs, ok_all, NS_UNION_ROUTES), "union_strict_routes": ",".join(ok_ns),
              # standard routes + u1_hier (reported separately; u1_hier is also its own route column)
-             "union_std_hier_strict": "yes" if any(rt in STD_ROUTES + ("u1_hier",) for rt in ok_all) else "no",
+             "union_std_hier_strict": tri(recs, ok_all, STD_ROUTES + ("u1_hier",)),
              # standard routes plus u1_packed (reported separately, never merged into the unions above)
-             "union_std_packed_strict": "yes" if okp else "no", "union_std_packed_routes": ",".join(okp),
+             "union_std_packed_strict": tri(recs, ok_all, STD_PACKED_ROUTES), "union_std_packed_routes": ",".join(okp),
              # standard routes plus u2_hier (H2a), reported separately
-             "union_std_u2hier_strict": "yes" if any(rt in STD_U2HIER_ROUTES for rt in ok_all) else "no",
+             "union_std_u2hier_strict": tri(recs, ok_all, STD_U2HIER_ROUTES),
              "invocation": base.get("invocation", "")}
         for rt in u1_gen.ROUTES:
             a = recs[rt]
@@ -110,24 +135,28 @@ def summary_lines(records, union):
         n = len(rs)
         s = sum(1 for r in rs if r["strict_counted"] == "yes")
         lines.append(f"route {route}: records={n} strict_counted_yes={s}")
-    std = sum(1 for u in union if u["union_std_strict"] == "yes")
-    allr = sum(1 for u in union if u["union_strict"] == "yes")
-    lines.append(f"union (standard routes u1, u1_deep): distinct_rows={len(union)} returned_IR_strict_rows={std}")
+    std, std_u = ycount(union, "union_std_strict")
+    allr, all_u = ycount(union, "union_strict")
+    lines.append(f"union (standard routes u1, u1_deep): distinct_rows={len(union)} returned_IR_strict_rows={std}{nd(std_u)}")
     lines.append(f"union (incl. namespace-assisted u1_deep_ns): distinct_rows={len(union)} "
-                 f"returned_IR_strict_rows_incl_namespace_assisted={allr} "
+                 f"returned_IR_strict_rows_incl_namespace_assisted={allr}{nd(all_u)} "
                  f"strict_in_several_routes={sum(1 for u in union if u['union_strict_routes'].count(',') >= 1)}")
-    hier = sum(1 for u in union if u["union_std_hier_strict"] == "yes")
+
+    def add_txt(key, name):
+        a, au = adds(union, key)
+        return f"{name}_adds_over_standard={a}" + (f" {name}_adds_not_determined={au}" if au else "")
+    hier, hier_u = ycount(union, "union_std_hier_strict")
     lines.append(f"union (standard + hier: u1, u1_deep, u1_hier; reported separately): "
-                 f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_hier={hier} "
-                 f"hier_adds_over_standard={sum(1 for u in union if u['union_std_hier_strict'] == 'yes' and u['union_std_strict'] != 'yes')}")
-    sp = sum(1 for u in union if u["union_std_packed_strict"] == "yes")
+                 f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_hier={hier}{nd(hier_u)} "
+                 f"{add_txt('union_std_hier_strict', 'hier')}")
+    sp, sp_u = ycount(union, "union_std_packed_strict")
     lines.append(f"union (standard + packed: u1, u1_deep, u1_packed; reported separately): "
-                 f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_packed={sp} "
+                 f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_packed={sp}{nd(sp_u)} "
                  f"strict_by_u1_packed={sum(1 for u in union if u['u1_packed_strict'] == 'yes')}")
-    s2 = sum(1 for u in union if u["union_std_u2hier_strict"] == "yes")
+    s2, s2_u = ycount(union, "union_std_u2hier_strict")
     lines.append(f"union (standard + u2_hier: u1, u1_deep, u2_hier; reported separately): "
-                 f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_u2_hier={s2} "
-                 f"u2_hier_adds_over_standard={sum(1 for u in union if u['union_std_u2hier_strict'] == 'yes' and u['union_std_strict'] != 'yes')} "
+                 f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_u2_hier={s2}{nd(s2_u)} "
+                 f"{add_txt('union_std_u2hier_strict', 'u2_hier')} "
                  f"strict_by_u2_hier={sum(1 for u in union if u['u2_hier_strict'] == 'yes')}")
     lines.append("  (not: main's ordinary command succeeds as is / production route / release; "
                  "u1_deep refusals caused by the name lookup stay recorded)")
