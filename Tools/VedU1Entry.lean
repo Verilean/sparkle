@@ -330,9 +330,9 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
           let mut t : Term := hinI
           for _ in [0:i] do t ← `($t.2)
           if i + 1 < k then t ← `($t.1)
-          gen := gen.push (← `(tactic| have $(hs[i]!):ident := $t))
+          gen := gen.push (← `(tactic| all_goals have $(hs[i]!):ident := $t))
         for (n, (x, h)) in inNames.zip (xs.zip hs) do
-          gen := gen.push (← `(tactic| generalize $insI $sI $(Syntax.mkStrLit n) = $x at $h:ident ⊢))
+          gen := gen.push (← `(tactic| all_goals generalize $insI $sI $(Syntax.mkStrLit n) = $x at $h:ident ⊢))
         -- `x < 2^w` becomes `x = 0 ∨ … ∨ x = 2^w - 1`, then one goal per value
         let hc := mkIdent `hcase
         let rflI := mkIdent `rfl
@@ -381,10 +381,10 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add,
             Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub,
             Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val,
-            Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.pure_val,
+            Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.append_def, Tools.VedU1Lemmas.toNat_append', Sparkle.Core.Signal.Signal.map,
             Seq.seq, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, BitVec.toNat_append,
             BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat,
-            List.lookup, Option.getD_some, Option.getD_none, $hlp,*]
+            List.lookup, Option.getD_some, Option.getD_none, $hlp,*, -Nat.reduceAdd]
           -- several outputs: one goal per output
           try (repeat' apply And.intro)
           $tail*

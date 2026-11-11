@@ -75,6 +75,20 @@ open Sparkle.Core.Signal in
 theorem add_val {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
     (a b : Signal dom (BitVec n)) (s : Nat) : (a + b).val s = a.val s + b.val s := rfl
 
+open Sparkle.Core.Signal in
+/-- `a ++ b` on `BitVec` signals is the lifted append.  The result type `m + n` is
+`no_index`: `simp` normalises it to a literal (`1 + 16` to `17`), which the discrimination
+tree would otherwise not match against `m + n`. -/
+theorem append_def {dom : Sparkle.Core.Domain.DomainConfig} {m n : Nat}
+    (a : Signal dom (BitVec m)) (b : Signal dom (BitVec n)) :
+    (a ++ b : Signal dom (BitVec (no_index (m + n)))) = (· ++ ·) <$> a <*> b := rfl
+
+/-- `toNat` of a `BitVec` concatenation, arithmetic form (the core `<<<`/`|||` form is opaque
+to `omega`).  `no_index` as in `append_def`. -/
+theorem toNat_append' {m n : Nat} (x : BitVec m) (y : BitVec n) :
+    (x ++ y : BitVec (no_index (m + n))).toNat = x.toNat * 2 ^ n + y.toNat := by
+  rw [BitVec.toNat_append, ← Nat.shiftLeft_add_eq_or_of_lt y.isLt, Nat.shiftLeft_eq, Nat.mul_comm]
+
 /-- `Operator.sub` on in-range operands: `(a + (2^w - b)) % 2^w`. -/
 theorem evalOp_sub_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat)
     (hb : b < 2 ^ w) : evalOp we .sub xs [a, b] w = some ((a + (2 ^ w - b)) % 2 ^ w) := by
