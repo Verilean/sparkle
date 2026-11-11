@@ -331,4 +331,283 @@ theorem nodup_wires (inp : String) (W : Nat → String) (N : Nat)
     exact (List.nodup_range (n := N)).imp_of_mem (fun {a b} ha hb hne hab =>
       hne (hW a b (List.mem_range.1 ha) (List.mem_range.1 hb) hab))
 
+/-! ## the value of the table skeleton -/
+
+/-- positions whose value does not depend on the input: constants and aliases of such -/
+inductive PureAt (Fn : Nat → Form) : Nat → Prop
+  | const {p c w} : Fn p = .const c w → PureAt Fn p
+  | alias {p j} : Fn p = .alias j → j < p → PureAt Fn j → PureAt Fn p
+
+theorem V_pure (Fn : Nat → Form) {p : Nat} (h : PureAt Fn p) (x y : Nat) : V x Fn p = V y Fn p := by
+  induction h with
+  | const hf =>
+    rename_i p c w
+    rw [V_eq x Fn p (by rw [hf]; simp [Form.reads]), V_eq y Fn p (by rw [hf]; simp [Form.reads]), hf]
+    rfl
+  | alias hf hj hp ih =>
+    rename_i p j
+    rw [V_eq x Fn p (by rw [hf]; intro k hk; simp [Form.reads] at hk; omega),
+      V_eq y Fn p (by rw [hf]; intro k hk; simp [Form.reads] at hk; omega), hf]
+    simp only [Form.ev]
+    exact ih
+
+/-- decidable purity with the value (fuel: the alias depth) -/
+def kv (Fn : Nat → Form) : Nat → Nat → Option Nat
+  | 0, _ => none
+  | f + 1, p => match Fn p with
+    | .const c w => some (c % 2 ^ w)
+    | .alias j => if j < p then kv Fn f j else none
+    | _ => none
+
+theorem kv_sound (Fn : Nat → Form) : ∀ (f p v : Nat), kv Fn f p = some v →
+    PureAt Fn p ∧ ∀ x, V x Fn p = v := by
+  intro f
+  induction f with
+  | zero => intro p v h; simp [kv] at h
+  | succ f ih =>
+    intro p v h
+    simp only [kv] at h
+    cases hf : Fn p with
+    | const c w =>
+      rw [hf] at h
+      simp only [Option.some.injEq] at h
+      refine ⟨PureAt.const hf, fun x => ?_⟩
+      rw [V_eq x Fn p (by rw [hf]; simp [Form.reads]), hf]
+      simp [Form.ev, h]
+    | alias j =>
+      rw [hf] at h
+      by_cases hj : j < p
+      · simp only [hj, if_true] at h
+        obtain ⟨hp, hv⟩ := ih j v h
+        refine ⟨PureAt.alias hf hj hp, fun x => ?_⟩
+        rw [V_eq x Fn p (by rw [hf]; intro k hk; simp [Form.reads] at hk; omega), hf]
+        simp only [Form.ev]
+        exact hv x
+      · simp [hj] at h
+    | eqIn j => rw [hf] at h; simp at h
+    | mux c t f' => rw [hf] at h; simp at h
+
+/-- The value of a table skeleton: wires `3k+1` compare the input with `bp k`, the chain
+`3t+j` (`j = 1…t`) muxes them from the top, position `4t+1` aliases the result. -/
+theorem skeleton_val (Fn : Nat → Form) (t : Nat) (ht : 1 ≤ t) (hv : ValidN Fn (4 * t + 2))
+    (bp rt : Nat → Nat) (rl : Nat) (tbl : List Nat) (last w : Nat) (htl : tbl.length = t)
+    (h1 : ∀ k, k < t → Fn (3 * k + 1) = .eqIn (bp k))
+    (h2 : ∀ j, 1 ≤ j → j ≤ t → Fn (3 * t + j) = .mux (3 * (t - j) + 1) (rt (t - j))
+      (if j = 1 then rl else 3 * t + j - 1))
+    (h3 : Fn (4 * t + 1) = .alias (4 * t))
+    (hb : ∀ k, k < t → ∀ x, V x Fn (bp k) = k)
+    (hd : ∀ k, k < t → ∀ x, V x Fn (rt k) = tbl.getD k 0 % 2 ^ w)
+    (hl : ∀ x, V x Fn rl = last % 2 ^ w) (x : Nat) :
+    V x Fn (4 * t + 1) = pick x 0 tbl last % 2 ^ w := by
+  -- the conditions
+  have hc : ∀ k, k < t → V x Fn (3 * k + 1) = if x = k then 1 else 0 := by
+    intro k hk
+    have hr := hv (3 * k + 1) (by omega)
+    rw [h1 k hk] at hr
+    rw [V_eq x Fn _ (by rw [h1 k hk]; exact hr), h1 k hk]
+    simp only [Form.ev, hb k hk x]
+  -- the chain
+  let E : Nat → Nat := fun j => if j = 0 then V x Fn rl else V x Fn (3 * t + j)
+  have hE : ∀ j, j < t → E (j + 1) = if V x Fn (3 * (t - (j + 1)) + 1) ≠ 0 then V x Fn (rt (t - (j + 1))) else E j := by
+    intro j hj
+    have hr := hv (3 * t + (j + 1)) (by omega)
+    rw [h2 (j + 1) (by omega) (by omega)] at hr
+    simp only [E, if_neg (Nat.succ_ne_zero j)]
+    rw [V_eq x Fn _ (by rw [h2 (j + 1) (by omega) (by omega)]; exact hr), h2 (j + 1) (by omega) (by omega)]
+    simp only [Form.ev]
+    by_cases hj0 : j = 0
+    · subst hj0; simp
+    · have : ¬ (j + 1 = 1) := by omega
+      simp only [this, if_false, hj0, if_false]
+      have e : 3 * t + (j + 1) - 1 = 3 * t + j := by omega
+      rw [e]
+  have hcv : ∀ j, j ≤ t → E j = cv (fun i => if x = i then 1 else 0) (fun i => tbl.getD i 0 % 2 ^ w) t (last % 2 ^ w) j := by
+    intro j
+    induction j with
+    | zero => intro _; simp [E, cv, hl x]
+    | succ j ih =>
+      intro hj
+      rw [hE j (by omega), ih (by omega)]
+      simp only [cv]
+      have hk : t - (j + 1) < t := by omega
+      rw [hc _ hk, hd _ hk x]
+  have hfin : V x Fn (4 * t) = E t := by
+    have : 4 * t = 3 * t + t := by omega
+    simp only [E, if_neg (by omega : t ≠ 0)]
+    rw [this]
+  have hr3 := hv (4 * t + 1) (by omega)
+  rw [h3] at hr3
+  rw [V_eq x Fn _ (by rw [h3]; exact hr3), h3]
+  simp only [Form.ev]
+  rw [hfin, hcv t (Nat.le_refl _)]
+  have := cv_eq tbl last x w t (by omega)
+  rw [htl] at this
+  simpa using this
+
+/-! ## the wire names of a table body -/
+
+/-- the compiler's wire names: the pre-region `3t` wires `nm (p % 3) p`, the else chain `nm 3 p`
+up to `4t - 1`, then `_gen_out` and `out` -/
+def Wt (t p : Nat) : String :=
+  if p < 3 * t then nm (p % 3) p else if p < 4 * t then nm 3 p
+  else if p = 4 * t then "_gen_out" else "out"
+
+theorem nm_ne_of_ne_t {s : String} (h : s.toList[1]? ≠ some 't') (a j : Nat) : nm a j ≠ s := by
+  intro e
+  exact h (e ▸ nm_get1 a j)
+
+theorem Wt_lt (t p : Nat) (h : p < 4 * t) : Wt t p = nm (if p < 3 * t then p % 3 else 3) p := by
+  unfold Wt
+  by_cases h1 : p < 3 * t
+  · simp [h1]
+  · simp [h1, h]
+
+theorem Wt_ge (t p : Nat) (h : 4 * t ≤ p) : Wt t p = if p = 4 * t then "_gen_out" else "out" := by
+  unfold Wt
+  have h1 : ¬ p < 3 * t := by omega
+  have h2 : ¬ p < 4 * t := by omega
+  simp [h1, h2]
+
+theorem Wt_inj (t : Nat) : ∀ a b, a < 4 * t + 2 → b < 4 * t + 2 → Wt t a = Wt t b → a = b := by
+  intro a b ha hb h
+  have g1 : "_gen_out".toList[1]? ≠ some 't' := by decide
+  have g2 : "out".toList[1]? ≠ some 't' := by decide
+  have ne_go : "_gen_out" ≠ "out" := by decide
+  have kind : ∀ p, (if p < 3 * t then p % 3 else 3) ≤ 3 := by
+    intro p; split <;> omega
+  by_cases ha' : a < 4 * t <;> by_cases hb' : b < 4 * t
+  · rw [Wt_lt t a ha', Wt_lt t b hb'] at h
+    exact (nm_inj (kind a) (kind b) h).2
+  · rw [Wt_lt t a ha', Wt_ge t b (by omega)] at h
+    by_cases hb4 : b = 4 * t
+    · simp only [hb4, if_true] at h; exact absurd h (nm_ne_of_ne_t g1 _ _)
+    · simp only [hb4, if_false] at h; exact absurd h (nm_ne_of_ne_t g2 _ _)
+  · rw [Wt_ge t a (by omega), Wt_lt t b hb'] at h
+    by_cases ha4 : a = 4 * t
+    · simp only [ha4, if_true] at h; exact absurd h.symm (nm_ne_of_ne_t g1 _ _)
+    · simp only [ha4, if_false] at h; exact absurd h.symm (nm_ne_of_ne_t g2 _ _)
+  · rw [Wt_ge t a (by omega), Wt_ge t b (by omega)] at h
+    by_cases h1 : a = 4 * t <;> by_cases h2 : b = 4 * t
+    · omega
+    · simp only [h1, h2, if_true, if_false] at h; exact absurd h ne_go
+    · simp only [h1, h2, if_true, if_false] at h; exact absurd h.symm ne_go
+    · omega
+
+theorem Wt_ne_inp (t : Nat) (inp : String) (h1 : inp.toList[1]? ≠ some 't') (h2 : inp ≠ "_gen_out")
+    (h3 : inp ≠ "out") : ∀ a, a < 4 * t + 2 → Wt t a ≠ inp := by
+  intro a ha
+  by_cases ha' : a < 4 * t
+  · rw [Wt_lt t a ha']; exact nm_ne_of_ne_t h1 _ _
+  · rw [Wt_ge t a (by omega)]
+    split
+    · exact fun h => h2 h.symm
+    · exact fun h => h3 h.symm
+
+/-! ## a table, as data the kernel checks -/
+
+structure TblData where
+  Fl : List Form
+  t : Nat
+  bpL : List Nat
+  rtL : List Nat
+  rl : Nat
+  tbl : List Nat
+  last : Nat
+  iw : Nat
+  w : Nat
+  inp : String
+
+def TblData.Fn (D : TblData) : Nat → Form := fun p => D.Fl.getD p (.const 0 0)
+
+/-- the body the data stands for -/
+def TblData.body (D : TblData) : List Stmt := bodyN D.inp (Wt D.t) D.Fn 0 (4 * D.t + 2)
+
+/-- the checks, all on small numbers and the form list: the shape of the skeleton, validity (every
+form reads earlier positions), the constants behind the compared / selected positions, and the
+names. -/
+def TblData.ok (D : TblData) : Bool :=
+  decide (1 ≤ D.t) && (D.Fl.length == 4 * D.t + 2) && (D.tbl.length == D.t) && decide (D.t ≤ 2 ^ D.iw) &&
+  (List.range (4 * D.t + 2)).all (fun p => (D.Fn p).reads.all (fun j => decide (j < p))) &&
+  (List.range D.t).all (fun k => D.Fn (3 * k + 1) == .eqIn (D.bpL.getD k 0)) &&
+  (List.range' 1 D.t).all (fun j => D.Fn (3 * D.t + j) ==
+    .mux (3 * (D.t - j) + 1) (D.rtL.getD (D.t - j) 0) (if j = 1 then D.rl else 3 * D.t + j - 1)) &&
+  (D.Fn (4 * D.t + 1) == .alias (4 * D.t)) &&
+  (List.range D.t).all (fun k =>
+    (kv D.Fn (D.bpL.getD k 0 + 1) (D.bpL.getD k 0) == some k) &&
+    (kv D.Fn (D.rtL.getD k 0 + 1) (D.rtL.getD k 0) == some (D.tbl.getD k 0 % 2 ^ D.w))) &&
+  (kv D.Fn (D.rl + 1) D.rl == some (D.last % 2 ^ D.w)) &&
+  decide (D.inp.toList[1]? ≠ some 't') && decide (D.inp ≠ "_gen_out") && decide (D.inp ≠ "out")
+
+theorem TblData.ok_sound (D : TblData) (h : D.ok = true) :
+    1 ≤ D.t ∧ D.Fl.length = 4 * D.t + 2 ∧ D.tbl.length = D.t ∧ D.t ≤ 2 ^ D.iw ∧
+    ValidN D.Fn (4 * D.t + 2) ∧
+    (∀ k, k < D.t → D.Fn (3 * k + 1) = .eqIn (D.bpL.getD k 0)) ∧
+    (∀ j, 1 ≤ j → j ≤ D.t → D.Fn (3 * D.t + j) =
+      .mux (3 * (D.t - j) + 1) (D.rtL.getD (D.t - j) 0) (if j = 1 then D.rl else 3 * D.t + j - 1)) ∧
+    D.Fn (4 * D.t + 1) = .alias (4 * D.t) ∧
+    (∀ k, k < D.t → ∀ x, V x D.Fn (D.bpL.getD k 0) = k) ∧
+    (∀ k, k < D.t → ∀ x, V x D.Fn (D.rtL.getD k 0) = D.tbl.getD k 0 % 2 ^ D.w) ∧
+    (∀ x, V x D.Fn D.rl = D.last % 2 ^ D.w) ∧
+    D.inp.toList[1]? ≠ some 't' ∧ D.inp ≠ "_gen_out" ∧ D.inp ≠ "out" := by
+  simp only [TblData.ok, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq, beq_iff_eq,
+    List.mem_range, List.mem_range'_1] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, h11⟩, h12⟩, h13⟩ := h
+  refine ⟨h1, h2, h3, h4, ?_, ?_, ?_, h8, ?_, ?_, ?_, h11, h12, h13⟩
+  · intro p hp j hj
+    exact h5 p hp j hj
+  · intro k hk; exact h6 k hk
+  · intro j hj1 hj2; exact h7 j ⟨hj1, by omega⟩
+  · intro k hk x
+    have := (h9 k hk).1
+    exact (kv_sound _ _ _ _ this).2 x
+  · intro k hk x
+    have := (h9 k hk).2
+    exact (kv_sound _ _ _ _ this).2 x
+  · intro x
+    exact (kv_sound _ _ _ _ h10).2 x
+
+theorem all_bodyN (inp : String) (W : Nat → String) (Fn : Nat → Form) :
+    ∀ (n i : Nat), (bodyN inp W Fn i n).all isAsg = true := by
+  intro n
+  induction n with
+  | zero => intro i; rfl
+  | succ n ih => intro i; simp [bodyN, isAsg, ih]
+
+/-- One cycle of a table body: no register update, memories unchanged, `out` the table lookup. -/
+theorem step_table (D : TblData) (hok : D.ok = true) (we : WEnv) (mems : MEnv) (env0 : Env) :
+    ∃ envF, stepModule we D.body env0 mems = some (envF, [], mems) ∧
+      envF "out" = pick (env0 D.inp) 0 D.tbl D.last % 2 ^ D.w := by
+  obtain ⟨ht, hlen, htl, hti, hv, h1, h2, h3, hb, hd, hl, hi1, hi2, hi3⟩ := D.ok_sound hok
+  have hW := Wt_inj D.t
+  have hI := Wt_ne_inp D.t D.inp hi1 hi2 hi3
+  obtain ⟨env', hrun, _, hval⟩ := eval_bodyN we mems D.inp (Wt D.t) D.Fn (env0 D.inp) (4 * D.t + 2) hv hW hI
+    (4 * D.t + 2) 0 env0 (by omega) rfl (fun j hj => absurd hj (Nat.not_lt_zero _))
+  have hout : env' "out" = V (env0 D.inp) D.Fn (4 * D.t + 1) := by
+    have := hval (4 * D.t + 1) (by omega)
+    rw [Wt_ge D.t _ (by omega)] at this
+    simpa using this
+  refine ⟨env', ?_, ?_⟩
+  · unfold TblData.body
+    simp only [stepModule, hrun, regNexts_asg we mems _ _ (all_bodyN _ _ _ _ _),
+      memNexts_asg we _ mems _ (all_bodyN _ _ _ _ _), Option.bind_eq_bind, Option.bind_some]
+  · rw [hout]
+    exact skeleton_val D.Fn D.t ht hv (fun k => D.bpL.getD k 0) (fun k => D.rtL.getD k 0) D.rl D.tbl D.last D.w
+      htl h1 h2 h3 hb hd hl _
+
+/-- the table body is a well-ordered netlist -/
+theorem orderOk_table (D : TblData) (hok : D.ok = true) (m : Sparkle.IR.AST.Module)
+    (hbody : m.body = D.body) (hin : m.inputs.map (·.name) = [D.inp])
+    (hout : ∀ p ∈ m.outputs, p.name = "out") : OrderOk m D.body = true := by
+  obtain ⟨ht, hlen, htl, hti, hv, h1, h2, h3, hb, hd, hl, hi1, hi2, hi3⟩ := D.ok_sound hok
+  exact orderOk_bodyN m D.inp (Wt D.t) D.Fn (4 * D.t + 2) hv (Wt_inj D.t)
+    (Wt_ne_inp D.t D.inp hi1 hi2 hi3) hbody hin
+    (fun p hp => ⟨4 * D.t + 1, by omega, by rw [hout p hp, Wt_ge D.t _ (by omega)]; simp⟩)
+
+/-- the wire names of the table body are distinct (`WidthStmt`) -/
+theorem nodup_table (D : TblData) (hok : D.ok = true) :
+    (D.inp :: (List.range (4 * D.t + 1)).map (Wt D.t)).Nodup := by
+  obtain ⟨ht, hlen, htl, hti, hv, h1, h2, h3, hb, hd, hl, hi1, hi2, hi3⟩ := D.ok_sound hok
+  exact nodup_wires D.inp (Wt D.t) (4 * D.t + 1) (fun a b ha hb h => Wt_inj D.t a b (by omega) (by omega) h)
+    (fun a ha => Wt_ne_inp D.t D.inp hi1 hi2 hi3 a (by omega))
+
 end Tools.VedU1TableGen
