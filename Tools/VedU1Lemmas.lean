@@ -187,4 +187,48 @@ theorem evalOp_xor_raw (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat)
 theorem evalOp_sub_raw (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
     evalOp we .sub xs [a, b] w = some ((a + (2 ^ w - b % 2 ^ w)) % 2 ^ w) := rfl
 
+theorem evalOp_asr_lit (we : WEnv) (x y : Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .asr [x, y] [a, b] w =
+      some (mask (widthOf we x) (Int.toNat ((toSigned (widthOf we x) a >>> b) % (2 ^ widthOf we x : Nat)))) := rfl
+
+/-- The signed reading of the IR (`toSigned`) is `BitVec.toInt`. -/
+theorem toSigned_toInt (w : Nat) (hw : 0 < w) (x : BitVec w) : toSigned w x.toNat = x.toInt := by
+  unfold toSigned BitVec.toInt
+  obtain ⟨k, rfl⟩ : ∃ k, w = k + 1 := ⟨w - 1, by omega⟩
+  have : 2 ^ (k + 1) = 2 * 2 ^ k := by rw [Nat.pow_succ]; omega
+  simp only [Nat.add_sub_cancel]
+  by_cases h : x.toNat < 2 ^ k
+  · have h2 : 2 * x.toNat < 2 ^ (k+1) := by omega
+    simp [h, h2]
+  · have h2 : ¬ 2 * x.toNat < 2 ^ (k+1) := by omega
+    simp [h, h2]
+
+theorem toInt_ofNat_toSigned (w : Nat) (hw : 0 < w) (a : Nat) (ha : a < 2 ^ w) :
+    (BitVec.ofNat w a).toInt = toSigned w a := by
+  rw [← toSigned_toInt w hw]; simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha]
+
+theorem toNat_sshiftRight' {w : Nat} (x : BitVec w) (n : Nat) :
+    (x.sshiftRight n).toNat = ((x.toInt >>> n) % ((2 ^ w : Nat) : Int)).toNat := by
+  have h := BitVec.toInt_sshiftRight (x := x) (n := n)
+  rw [← BitVec.toNat_ofInt, ← h, BitVec.ofInt_toInt]
+
+theorem mask_emod (s : Int) (w : Nat) : (s % ((2 ^ w : Nat) : Int)).toNat % 2 ^ w = (s % ((2 ^ w : Nat) : Int)).toNat := by
+  have h1 : 0 < ((2 ^ w : Nat) : Int) := by exact_mod_cast Nat.two_pow_pos w
+  have h2 := Int.emod_nonneg s (Int.ne_of_gt h1)
+  have h3 := Int.emod_lt_of_pos s h1
+  apply Nat.mod_eq_of_lt
+  omega
+
+theorem slt_eq {w : Nat} (x y : BitVec w) : BitVec.slt x y = decide (x.toInt < y.toInt) := by
+  rw [Bool.eq_iff_iff]; simp [BitVec.slt_iff_toInt_lt]
+
+theorem ult_eq {w : Nat} (x y : BitVec w) : BitVec.ult x y = decide (x.toNat < y.toNat) := by
+  simp [BitVec.ult]
+
+theorem and_mod_r (x y m : Nat) (h : y < m) : (x &&& y) % m = x &&& y :=
+  Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt Nat.and_le_right h)
+
+theorem and_mod_l (x y m : Nat) (h : x < m) : (x &&& y) % m = x &&& y :=
+  Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt Nat.and_le_left h)
+
 end Tools.VedU1Lemmas
