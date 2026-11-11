@@ -3,6 +3,8 @@ import Sparkle.Compiler.Elab
 import Tools.VedU1Contract
 import Tools.VedU1Lemmas
 import Tools.VedU1Table
+import Tools.VedU1TableGen
+import Std.Data.HashMap
 import Tools.VedStrictAudit
 
 /-!
@@ -264,27 +266,58 @@ def helperConsts (decl : Name) : MetaM (Array Name) := do
     if modOf c == modOf decl || (`Sparkle.IP).isPrefixOf c then out := out.push c
   return out
 
-/-- The constant-table shape: a body that IS `Tools.VedU1Table.tblBody inp iw w tbl last` for
-the table read from it (the `kLut!` mux chain the compiler emits).  Returns
-`(iw, w, tbl, last)`.  Only picks the script variant (the kernel re-checks the equality). -/
-def tableShape? (b : List Sparkle.IR.AST.Stmt) (inp : String) : Option (Nat × Nat × List Nat × Nat) :=
-  let rec grab : List Sparkle.IR.AST.Stmt → List Nat → List Nat × List Sparkle.IR.AST.Stmt
-    | .assign _ (.const _ _) :: .assign _ (.op .eq _) :: .assign _ (.const v _) :: rest, acc =>
-      grab rest (v.toNat :: acc)
-    | rest, acc => (acc.reverse, rest)
-  let (tbl, rest) := grab b []
-  match b, rest with
-  | .assign _ (.const _ iw) :: _, .assign _ (.const l w) :: _ =>
-    if !tbl.isEmpty && decide (b = Tools.VedU1Table.tblBody inp iw w tbl l.toNat)
-    then some (iw, w, tbl, l.toNat) else none
-  | _, _ => none
+open Tools.VedU1TableGen in
+deriving instance Lean.ToExpr for Form
+open Tools.VedU1TableGen in
+deriving instance Lean.ToExpr for TblData
+
+open Tools.VedU1TableGen in
+/-- The constant-table data read from a module whose body is a `kLut!` mux chain (any sharing of
+equal constants): position `p` defines `Wt t p`, the statements are constants, aliases, `eq` against
+the single input and `mux`es, and `TblData.ok` (the same Bool the kernel re-evaluates) accepts.
+Only picks the script variant; the kernel re-checks everything. -/
+def tblDataOf? (m : Sparkle.IR.AST.Module) (inp : String) : Option Tools.VedU1TableGen.TblData := do
+  let b := m.body
+  guard (b.length % 4 == 2 && b.length ≥ 6)
+  let t := (b.length - 2) / 4
+  let iw ← match m.inputs with | [⟨_, .bitVector n⟩] => some n | _ => none
+  let w ← match m.outputs with | [⟨_, .bitVector n⟩] => some n | _ => none
+  let mut pos : Std.HashMap String Nat := {}
+  let mut i := 0
+  for s in b do
+    match s with
+    | .assign l _ => guard (l == Wt t i); pos := pos.insert l i
+    | _ => failure
+    i := i + 1
+  let mut fl : Array Form := #[]
+  for s in b do
+    let .assign _ e := s | failure
+    let f ← match e with
+      | .const v w' => if v < 0 then none else some (Form.const v.toNat w')
+      | .ref n => (pos.get? n).map Form.alias
+      | .op .eq [.ref a, .ref c] => if a == inp then (pos.get? c).map Form.eqIn else none
+      | .op .mux [.ref c, .ref x, .ref y] => do
+        let c' ← pos.get? c; let x' ← pos.get? x; let y' ← pos.get? y
+        some (Form.mux c' x' y')
+      | _ => none
+    fl := fl.push f
+  let Fl := fl.toList
+  let bpL := (List.range t).map fun k => match Fl.getD (3 * k + 1) (.const 0 0) with | .eqIn j => j | _ => 0
+  let rtL := (List.range t).map fun k => match Fl.getD (3 * t + (t - k)) (.const 0 0) with | .mux _ r _ => r | _ => 0
+  let rl := match Fl.getD (3 * t + 1) (.const 0 0) with | .mux _ _ f => f | _ => 0
+  let D0 : TblData := { Fl, t, bpL, rtL, rl, tbl := [], last := 0, iw, w, inp }
+  let tbl := (List.range t).map fun k => ((kv D0.Fn (rtL.getD k 0 + 1) (rtL.getD k 0))).getD 0
+  let last := (kv D0.Fn (rl + 1) rl).getD 0
+  let D : TblData := { D0 with tbl, last }
+  guard (D.ok = true)
+  pure D
 
 /-- The generated (untrusted) proof script for `U1Stmt C M F`.  `reg?` is
 the single register of the delay shape (name, width), `none` for a
 register-free module. -/
 def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat))
     (inNames : List String := []) (eqs : Bool := false) (fStx? : Option Term := none) (helpers : Array Name := #[]) (inWidths : List Nat := [])
-    (tbl? : Option (Nat × Nat × List Nat × Nat) := none) :
+    (tbl? : Option Name := none) :
     TermElabM Syntax := do
   -- the declaration's own helper definitions (private `byte16`, `abbrev` constants,
   -- sub-modules), unfolded by `simp`; untrusted, the kernel checks the result.  The
@@ -313,40 +346,55 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
     -- a constant table (`kLut!` mux chain): NOT unfolded by `simp`.  The kernel checks that the body
     -- is `tblBody` of the table; `step_tblBody` evaluates it once (induction over the table), and
     -- the declaration's chain is compared with `lutBV` of the same table by `rfl`
-    if let some (iw, w, tbl, last) := tbl? then
+    if let some dn := tbl? then
       if inNames.length == 1 then
         let insI := mkIdent `ins
         let sI := mkIdent `s
-        let hinI := mkIdent `hin
-        let inpS := Syntax.mkStrLit inNames[0]!
-        let iwL := Syntax.mkNumLit (toString iw)
-        let wL := Syntax.mkNumLit (toString w)
-        let elems : Array (TSyntax `term) := tbl.toArray.map fun v => ⟨Syntax.mkNumLit (toString v)⟩
-        let tblS ← `([$elems,*])
-        let lastL := Syntax.mkNumLit (toString last)
+        let Dc := mkCIdent dn
         return ← `(by
-          have hord : OrderOk $M $B = true := by decide +kernel
-          refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+          have hD : ($Dc).ok = true := by decide +kernel
+          have hbody : ($M).body = ($Dc).body := by decide +kernel
+          have hB : $B = ($M).body := rfl
+          have hin : ($M).inputs.map (·.name) = [($Dc).inp] := by decide +kernel
+          have hout : ∀ p ∈ ($M).outputs, p.name = "out" := by decide +kernel
+          have hord : OrderOk $M $B = true := by
+            rw [hB, hbody]
+            exact Tools.VedU1TableGen.orderOk_table $Dc hD $M hbody hin hout
+          have hw : ($M).wires.map (·.name) = ($Dc).inp :: (List.range (4 * ($Dc).t + 1)).map (Tools.VedU1TableGen.Wt ($Dc).t) := by
+            decide +kernel
+          have hnd : (($M).wires.map (·.name)).Nodup := by
+            rw [hw]; exact Tools.VedU1TableGen.nodup_table $Dc hD
+          have hregs : ∀ r ∈ regsOf ($M).body, ∃ p ∈ ($M).wires, p.name = r.1 ∧ scalar p.ty = true := by
+            intro r hr
+            rw [hbody, Tools.VedU1TableGen.TblData.body, Tools.VedU1TableGen.regsOf_bodyN] at hr
+            exact absurd hr (List.not_mem_nil)
+          refine ⟨by decide +kernel, by decide +kernel, ⟨hnd, by decide +kernel, by decide +kernel, hregs⟩, ⟨$B, hord⟩, ?_⟩
           apply outputs_of_order $B hord
           apply outputs_of_step $C $M $B $f $O (by decide +kernel) (fun _ _ _ => True)
           · intro _ _; trivial
           · intro $insI hok $sI st mems _
-            have $hinI := hok.1 $sI
-            simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident
-            have hB : $B = Tools.VedU1Table.tblBody $inpS $iwL $wL $tblS $lastL := by decide +kernel
-            rw [hB]
-            obtain ⟨envF, hstep, hout⟩ := Tools.VedU1Table.step_tblBody (declWidth $M) mems $inpS $iwL $wL
-              (by decide) $tblS $lastL (by decide) (by decide) (seedIn $M $insI $sI st)
+            have hdi : ($C).dataInputs = [⟨($Dc).inp, .bitVector ($Dc).iw⟩] := by decide +kernel
+            have hin1 : $insI $sI ($Dc).inp < 2 ^ declWidth $M ($Dc).inp :=
+              hok.1 $sI ⟨($Dc).inp, .bitVector ($Dc).iw⟩ (by rw [hdi]; exact List.mem_singleton_self _)
+            have hdw : declWidth $M ($Dc).inp = ($Dc).iw := by decide +kernel
+            rw [hdw] at hin1
+            rw [hB, hbody]
+            obtain ⟨envF, hstep, hout'⟩ := Tools.VedU1TableGen.step_table $Dc hD (declWidth $M) mems
+              (seedIn $M $insI $sI st)
             refine ⟨envF, [], mems, hstep, ?_, trivial⟩
             intro o ho
             simp only [$O:ident, List.mem_singleton] at ho
             subst ho
-            rw [hout]
-            simp [srcOf, $C:ident, contractOf, applyIns, OTy.obs, PTy.obs, PTy.sig, seedIn, $M:ident]
-            have hsig : ($f ⟨fun t => BitVec.ofNat $iwL ($insI t $inpS)⟩).val $sI =
-                Tools.VedU1Table.lutBV $iwL $wL (BitVec.ofNat $iwL ($insI $sI $inpS)) 0 $tblS $lastL := rfl
-            exact (Tools.VedU1Table.lutBV_toNat $iwL $wL ($insI $sI $inpS) $hinI _ 0 _ (by decide)).symm.trans
-              (congrArg BitVec.toNat hsig.symm))
+            rw [hout']
+            have hseed : seedIn $M $insI $sI st ($Dc).inp = $insI $sI ($Dc).inp := by simp [seedIn, hin]
+            rw [hseed]
+            simp [srcOf, $C:ident, contractOf, applyIns, OTy.obs, PTy.obs, PTy.sig]
+            have hsig : ($f ⟨fun t => BitVec.ofNat ($Dc).iw ($insI t ($Dc).inp)⟩).val $sI =
+                Tools.VedU1Table.lutBV ($Dc).iw ($Dc).w (BitVec.ofNat ($Dc).iw ($insI $sI ($Dc).inp)) 0 ($Dc).tbl ($Dc).last := rfl
+            have hlen : ($Dc).tbl.length = ($Dc).t := (Tools.VedU1TableGen.TblData.ok_sound $Dc hD).2.2.1
+            have hti : ($Dc).t ≤ 2 ^ ($Dc).iw := (Tools.VedU1TableGen.TblData.ok_sound $Dc hD).2.2.2.1
+            exact (Tools.VedU1Table.lutBV_toNat ($Dc).iw ($Dc).w ($insI $sI ($Dc).inp) hin1 _ 0 _
+              (by rw [hlen]; omega)).symm.trans (congrArg BitVec.toNat hsig.symm))
     -- the input domain closes what the rewriting leaves (`==` against constants,
     -- a table's mux chain): every data input generalised, the goal reverted to
     -- `∀ x₀, x₀ < 2^w₀ → … → G` and decided by the kernel
@@ -661,12 +709,23 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
     -- elaborate the proof (errors are not turned into sorry)
     let inNames := (dataPortsOf m clkRst).map fun p => p.name
+    let tblD? : Option Name ← do
+      let inp := inNames.headD ""
+      if let .generated := proof then
+        if stmt.getAppFn.isConst && (regsOf m.body).isEmpty && inNames.length == 1 && decide (b0 = m.body) then
+          if let some D := tblDataOf? m inp then
+            let dn := nm.mod.getPrefix ++ `ved_tbl
+            addDefn dn (Lean.mkConst ``Tools.VedU1TableGen.TblData) (toExpr D)
+            pure (some dn)
+          else pure none
+        else pure none
+      else pure none
     let stx ← match proof with
       | .generated =>
         let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
         if stmt.getAppFn.isConst then
           scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
-            (if (regShape m).isNone && (regsOf m.body).isEmpty && inNames.length == 1 then tableShape? b0 inNames[0]! else none)
+            tblD?
         else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
