@@ -185,9 +185,9 @@ partial def collectCalls (isKid : Name → Bool) (e : Lean.Expr) (acc : Array Le
 signal (`kabstract` is only the construction device), register the definition, and add the
 equation `decl xs = open xs calls` to the KERNEL (its proof is `rfl`). -/
 def genOpen (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (kids : List Kid)
-    (base : Name) : TermElabM OpenInfo := do
-  let openName := base ++ `ved_open
-  let eqName := base ++ `ved_open_eq
+    (base : Name) (openSuf : String := "ved_open") : TermElabM OpenInfo := do
+  let openName := base ++ Name.mkSimple openSuf
+  let eqName := base ++ Name.mkSimple (openSuf ++ "_eq")
   let ty ← inferType stmt
   forallTelescope ty fun xs _ => do
     let some (.defnInfo ci) := (← getEnv).find? decl
