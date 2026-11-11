@@ -347,4 +347,13 @@ theorem toNat_not_decide_ite (p : Prop) [Decidable p] : (!decide p).toNat = if p
 /-- literal xor on single bits (`Bool` ports lowered through `^^^ 1`) -/
 theorem xor_one_one : (1 : Nat) ^^^ 1 = 0 := rfl
 
+/-- `Bool.toNat` as a Prop-level `if` (then `Bool.and_eq_true`, `Bool.or_eq_true`, `decide_eq_true_eq`
+turn a combination of `decide`s into Prop connectives for `split` / `omega`). -/
+theorem toNat_ite_true (b : Bool) : b.toNat = if b = true then 1 else 0 := by
+  cases b <;> rfl
+
+theorem ule_decide {n : Nat} (x y : BitVec n) : x.ule y = decide (x.toNat ≤ y.toNat) := rfl
+
+theorem ult_decide {n : Nat} (x y : BitVec n) : x.ult y = decide (x.toNat < y.toNat) := rfl
+
 end Tools.VedU1Lemmas
