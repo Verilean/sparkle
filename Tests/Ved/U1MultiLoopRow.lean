@@ -6,7 +6,7 @@ import Tools.VedU1Entry
 `#ved_u1_row M n` runs `#ved_u1` on the `private` declaration `n` of module `M` and the strict audit;
 `checkRows` compares each stored type with `==` against `U1Stmt <decl>.ved_contract <decl>.ved_mod <decl>`
 and checks the axioms are within std3.  Used by `U1MultiLoopCheck` (PR: representative rows and the
-refusal controls), `U1MultiLoopFull1..3` (the other rows) and `U1MultiLoopAll` (all 26 rows together).
+refusal controls), `U1MultiLoopFull1..4` (the other rows) and `U1MultiLoopAll` (all 28 rows together).
 -/
 
 namespace Tests.Ved.U1MultiLoopRow

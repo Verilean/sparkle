@@ -2,13 +2,14 @@ import Tests.Ved.U1MultiLoopCheck
 import Tests.Ved.U1MultiLoopFull1
 import Tests.Ved.U1MultiLoopFull2
 import Tests.Ved.U1MultiLoopFull3
+import Tests.Ved.U1MultiLoopFull4
 
 /-!
-# All 26 accepted `Signal.loop` rows together (sparkle-ved-u1-multiloop)
+# All 28 accepted `Signal.loop` rows together (sparkle-ved-u1-multiloop)
 
-Imports the PR check and the three full parts (no proof is re-run here) and checks, for the complete
-list of 26 rows, that `<decl>.ved_u1` exists with stored type `==` `U1Stmt c m F` and std3 axioms,
-and that the four files together hold exactly these rows (`rows.length = 26`, no duplicate).
+Imports the PR check and the four full parts (no proof is re-run here) and checks, for the complete
+list of 28 rows, that `<decl>.ved_u1` exists with stored type `==` `U1Stmt c m F` and std3 axioms,
+and that the five files together hold exactly these rows (`rows.length = 28`, no duplicate).
 -/
 
 namespace Tests.Ved.U1MultiLoopAll
@@ -42,16 +43,18 @@ def rows : List (Name × Name) :=
    (`Tests.IP.Net.HFTStrategyTest, `synth_hftTriggerSeen),
    (`Tests.IP.Net.HTTPTest, `synth_httpRequestParser),
    (`Tests.IP.Net.HTTPTest, `synth_httpStatus),
-   (`Tests.IP.Net.SLIPTest, `synth_slipFramerByte)]
+   (`Tests.IP.Net.SLIPTest, `synth_slipFramerByte),
+   (`Tests.IP.Crypto.Fp381MontMulHWTest, `synth_fp381MontMulDone),
+   (`Tests.IP.Net.TCPStateTest, `synth_serverFsmTxReq)]
 
-example : rows.length = 26 := by decide
+example : rows.length = 28 := by decide
 
 example : rows = Tests.Ved.U1MultiLoopCheck.rows ++ Tests.Ved.U1MultiLoopFull1.rows ++
-    Tests.Ved.U1MultiLoopFull2.rows ++ Tests.Ved.U1MultiLoopFull3.rows := by decide
+    Tests.Ved.U1MultiLoopFull2.rows ++ Tests.Ved.U1MultiLoopFull3.rows ++ Tests.Ved.U1MultiLoopFull4.rows := by decide
 
 example : rows.Nodup := by decide
 
-/-- info: OK 26 rows: stored type = U1Stmt c m F, axioms within std3 -/
+/-- info: OK 28 rows: stored type = U1Stmt c m F, axioms within std3 -/
 #guard_msgs in
 run_cmd checkRows rows
 
