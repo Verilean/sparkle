@@ -371,7 +371,10 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     catch e => refuse decl "child" m!"child {cm.name}: {e.toMessageData}"
     kids := kids ++ [{ c := cm, decl := cdecl, nDom := cdom, tbl := ctbl, nm := Names.ofBase base }]
   let t1 ← IO.monoMsNow
-  let opn ← genOpen decl stmt nDom tbl kids nm.mod.getPrefix
+  -- `#verify_elab_deep` declares some of its constants under the ident's LAST component at the root
+  -- namespace, so the open parent's last component is made unique per declaration
+  let openSuf := "ved_open_" ++ "_".intercalate (decl.components.map toString)
+  let opn ← genOpen decl stmt nDom tbl kids nm.mod.getPrefix openSuf
   let mut insts : List InstInfo := []
   -- in the order of the CHECKED arrangement (the proof's case split follows `{P.body}`'s order)
   for s in b0 do
