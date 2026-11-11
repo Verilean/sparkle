@@ -127,6 +127,8 @@ def main():
             msg("info", f"VED U1P STMT domains={plan.get('domains', 0)}", pl)
         msg("info", f"VED U1P THM {q['thm']}", pl)
         if q["thm"] == "theorem":
+            if m and m.group(2) == "u2_hier" and plan.get("expstmt", "U2HStmt registers=false") is not None:
+                msg("info", f"VED U1P EXPSTMT {plan.get('expstmt', 'U2HStmt registers=false')}", pl)
             msg("info", f"VED U1P TYPE {q['type']}", pl)
             msg("info", f"VED U1P MVARS {q['mvars']}", pl)
             msg("info", f"VED U1P LEVELS {q['levels']}", pl)
