@@ -508,8 +508,7 @@ def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.
     let (thm, proofMs) ← liftTermElabM (phase2 decl stmt nDom m p1)
     return (thm, p1.childMs, proofMs)
   catch e =>
-    -- debugging aid (probes only): keep the constants of a refused run
-    unless (← IO.getEnv "VED_HIER_KEEP").isSome do set saved
+    set saved
     if ← liftTermElabM (isRefusal e) then throw e
     liftTermElabM <| refuse decl "checker" e.toMessageData
 
