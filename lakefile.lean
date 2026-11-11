@@ -411,6 +411,10 @@ lean_lib «Tests.Ved.U1KeccakRcCheck» where
 lean_lib «Tests.Ved.U1EqWideCheck» where
   roots := #[`Tests.Ved.U1EqWideCheck]
 
+-- the real constant tables: SHA-256 / SHA-512 K and the AES S-box (64 / 80 / 256 entries)
+lean_lib «Tests.Ved.U1KTabCheck» where
+  roots := #[`Tests.Ved.U1KTabCheck]
+
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]
 
