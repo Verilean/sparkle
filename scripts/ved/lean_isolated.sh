@@ -23,8 +23,12 @@ for p in glob.glob(os.path.join(d, "*.json")):
 srcs = {os.path.realpath(r.get("source", "")) for r in recs}
 if srcs != {repo}:
     sys.exit(f"lean_isolated: builds in this Pod are not all of {repo}: {sorted(srcs)}")
-if len({r.get("source_sha256") for r in recs}) != 1:
-    sys.exit("lean_isolated: the tree changed between builds in this Pod")
+# a commit made after an earlier build in this Pod leaves that older build record behind: only the
+# builds of the NEWEST tree state (the latest started build's source hash) count; the tree must
+# still be clean (checked below), so that build is the one of this very tree
+if recs:
+    newest = max(recs, key=lambda r: r.get("started_at", 0)).get("source_sha256")
+    recs = [r for r in recs if r.get("source_sha256") == newest]
 ok = [r for r in recs if r.get("phase") == "succeeded" and r.get("exit_code") == 0]
 if not ok or len(ok) != len(recs):
     sys.exit("lean_isolated: no build, or a build that did not succeed")
