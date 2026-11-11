@@ -664,6 +664,25 @@ def ir_columns(row, hdr, mods):
             row["irtop_" + f] = str(tops[0][4][f])
 
 
+def command_warnings(text, case_dir):
+    """Strip the original command's own one-line warnings from the start of `text`.  A line counts only when it
+    is `<…/Case.lean>:<L>:<c>: warning: …` with L the original command's line in this case's Case.lean (the
+    line after the PRE END marker).  -> (number stripped, rest).  Errors and other positions are never
+    stripped, so they still make the row `differ`."""
+    lines = (read(os.path.join(case_dir, "Case.lean")) or "").split("\n")
+    pre = "-- ===== VED SIZE CAPTURE PRE END ====="
+    if pre not in lines:
+        return 0, text
+    cmd_line = lines.index(pre) + 2
+    warn = re.compile(r"(?:[^\n:]*/)?Case\.lean" + rf":{cmd_line}:\d+: warning: [^\n]*\n")
+    n = 0
+    while True:
+        m = warn.match(text)
+        if not m:
+            return n, text
+        text, n = text[m.end():], n + 1
+
+
 MARK_RE = re.compile(r"VED SIZE MARK row \d+")
 
 
@@ -694,6 +713,12 @@ def origin_check(meta, stdout, sv_text, case_dir):
             return "not-checked", f"original command's `{tail}` line not found inside the capture range"
         if rng[:at] == sv_text:
             return "same", "the whole captured range of the original command (minus its tail line) equals the re-synthesised SV"
+        # Lean prints the original command's own warnings (e.g. `[DRC] …`) before its IO output: one-line
+        # warnings positioned AT the original command's line, at the very start of the range, are not SV
+        lead, body = command_warnings(rng[:at], case_dir)
+        if lead and body == sv_text:
+            return "same", (f"the captured range of the original command equals the re-synthesised SV after "
+                            f"{lead} leading one-line warning(s) of that command were removed")
         return "differ", "the captured output of the original command differs from the re-synthesised SV"
     # write commands: the capture file of THIS attempt
     pre = (read(os.path.join(case_dir, "size_wpre.txt")) or "").split("\n")
