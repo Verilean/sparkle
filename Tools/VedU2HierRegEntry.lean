@@ -35,6 +35,47 @@ open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.IR.Reorder
 open Tools.VedU1Contract Tools.VedU1Entry Tools.VedU1Hier Tools.VedU1HierEntry Tools.VedU2Hier
   Tools.VedU2HierEntry Tools.VedU1Deep
 
+/-! ## A simproc for the slot arithmetic of the open circuit's input lookups
+
+With more than a few inputs the context lookup of an input slot is `Fin.mk (↑k - nReg) _` (a
+subtraction of the register count from a numeral `Fin` value), which neither `Fin.reduceFinMk`
+(first argument not a literal) nor `reduceFinVal` (not under `Fin.mk`) reduces, so the generated
+`_inp_at_<j>` lemmas, stated at a literal `j`, do not fire.  The simproc evaluates the closed
+first argument and returns the literal; the result is definitionally the same term. -/
+
+open Lean Meta Elab Tactic in
+/-- Replace every `Fin.mk a h` whose first argument is a closed, non-literal numeral expression by
+the literal `(value : Fin n)`, and every `Fin.val` of a numeral by its value (definitionally the
+same term). -/
+def finNormExpr (e : Lean.Expr) : MetaM Lean.Expr :=
+  Meta.transform e (post := fun x => do
+    match x.getAppFnArgs with
+    | (``Fin.mk, #[n, a, _]) =>
+      if a.isRawNatLit || a.isAppOfArity ``OfNat.ofNat 3 || a.hasFVar || a.hasMVar then return .done x
+      let some nv ← natLit? n | return .done x
+      let some av ← natLit? a | return .done x
+      if nv == 0 || av ≥ nv then return .done x
+      let ty := mkApp (mkConst ``Fin) n
+      let r ← try mkAppOptM ``OfNat.ofNat #[some ty, some (mkRawNatLit av), none]
+        catch _ => mkAppOptM ``OfNat.ofNat #[some (mkApp (mkConst ``Fin) (toExpr nv)), some (mkRawNatLit av), none]
+      return .done r
+    | (``Fin.val, #[n, x]) =>
+      -- `Fin.val (k : Fin n)` of a numeral
+      unless x.isAppOfArity ``OfNat.ofNat 3 do return .continue
+      let some k := (x.getArg! 1).rawNatLit? | return .continue
+      let some nv ← natLit? n | return .continue
+      if nv == 0 then return .continue
+      return .done (toExpr (k % nv))
+    | _ => return .continue)
+
+open Lean Meta Elab Tactic in
+/-- `ved_fin_norm`: normalise those input-slot indices in the goal (definitional change). -/
+elab "ved_fin_norm" : tactic => withMainContext do
+  let g ← getMainGoal
+  let ty ← instantiateMVars (← g.getType)
+  let ty' ← finNormExpr ty
+  if ty' != ty then replaceMainGoal [← g.replaceTargetDefEq ty']
+
 /-! ## The generated proof of `U2HRStmt` -/
 
 structure DeepInfo where
@@ -48,7 +89,7 @@ structure DeepInfo where
 def deepC (open_ : Name) (s : String) : String := toString (userName (deepName open_ s))
 
 def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : OpenInfo)
-    (kids : List Kid) (insts : List InstInfo) (di : DeepInfo) : String := Id.run do
+    (kids : List Kid) (insts : List InstInfo) (di : DeepInfo) (dbg : Bool := false) : String := Id.run do
   let P := nm.user
   let kids := kids.map fun k => { k with nm := namesUser k.nm }
   let kidA := kids.toArray
@@ -152,7 +193,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"  · intro ins hok K envs sts hrun mn i cs hin t ht E hE y hy"
   L := L.push s!"    have hin0 := hin"
   L := L.push s!"    have hin1 : Sparkle.IR.AST.Stmt.inst mn i cs ∈ {P.body} := hb0.1.mem_iff.mpr hin"
-  L := L.push s!"    simp only [{P.body}, List.mem_cons, List.not_mem_nil, or_false, Sparkle.IR.AST.Stmt.inst.injEq, reduceCtorEq] at hin1"
+  L := L.push s!"    simp only [{P.body}, List.mem_cons, List.not_mem_nil, or_false, false_or, Sparkle.IR.AST.Stmt.inst.injEq, reduceCtorEq] at hin1"
   let nI := insts.length
   let patI := " | ".intercalate (insts.map fun _ => "⟨rfl, rfl, rfl⟩")
   if nI == 1 then
@@ -209,7 +250,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     ((List.range calls.size).map fun j => s!"Nat.mod_eq_of_lt hlo{j}"))
   let inpL := ", ".intercalate ((List.range di.nIn).flatMap fun j =>
     [s!"{OInp}_at_{j}", s!"{OInp}_at_mk_{j}"]) ++ ", Tools.VedU1Contract.PTy.sig"
-  let evalL := s!"Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange, {ONm}, -Fin.isValue, -Fin.reduceFinMk, -Fin.reduceSucc, -Fin.reduceOfNat, Tools.VedU1Deep.reduceFinVal, natJoin, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.mask, Nat.shiftRight_eq_div_pow, Tools.VedU1Entry.or_mod _ _ _ _ rfl, {inpL}"
+  let evalL := s!"Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange, {ONm}, Tools.VedU1Deep.reduceFinVal, natJoin, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.mask, Nat.shiftRight_eq_div_pow, Tools.VedU1Entry.or_mod _ _ _ _ rfl, {inpL}"
   L := L.push s!"    simp [hout, {P.outs}, Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {T2}.oracleIE, {hOl}, {P.body}, Sparkle.IR.Semantics.regNexts, {T2}.regOuts, Tools.VedU1Contract.regsOf, {T2}.restrictTo, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.declWidth, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.widthOf, Tools.VedU1Hier.upd, Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.applyNexts, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, hrst]"
   L := L.push s!"    constructor"
   -- the output
@@ -219,8 +260,11 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"      all_goals unfold {irS} {inpU} at {locsU}"
   L := L.push s!"      all_goals simp only [CExpr.compile, {OOut}]"
   L := L.push s!"      all_goals simp [{evalL}] at {locs} ⊢"
+  L := L.push s!"      all_goals ved_fin_norm"
+  L := L.push s!"      all_goals try simp [{evalL}] at ⊢"
   L := L.push s!"      all_goals try simp only [{hRs}]"
   L := L.push s!"      all_goals try simp only [{hMods}]"
+  if dbg then L := L.push s!"      all_goals trace_state"
   L := L.push s!"      all_goals (first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega))"
   -- the next values
   let holes := ", ".intercalate ((List.range k).map fun _ => "?_")
@@ -230,8 +274,11 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"      all_goals simp only [Cdo.irState, {ONext}, CExpr.compile]"
   L := L.push s!"      all_goals unfold {inpU} at *"
   L := L.push s!"      all_goals simp [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at {locs} ⊢"
+  L := L.push s!"      all_goals ved_fin_norm"
+  L := L.push s!"      all_goals try simp [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at ⊢"
   L := L.push s!"      all_goals (try simp only [{hRs}])"
   L := L.push s!"      all_goals (try simp only [{hMods}])"
+  if dbg then L := L.push s!"      all_goals trace_state"
   L := L.push s!"      all_goals (first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega))"
   return "\n".intercalate L.toList
 
@@ -326,7 +373,8 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let t1 ← IO.monoMsNow
   let opn ← genOpen decl stmt nDom tbl kids nm.mod.getPrefix
   let mut insts : List InstInfo := []
-  for s in m.body do
+  -- in the order of the CHECKED arrangement (the proof's case split follows `{P.body}`'s order)
+  for s in b0 do
     match s with
     | .inst mn iname cs =>
       let some (ki, k) := (kids.zipIdx.find? fun (k, _) => k.c.name == mn).map (fun (k, i) => (i, k))
@@ -396,7 +444,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst nm.design, stmt]
   try check expected catch e => refuse decl "type" e.toMessageData
   unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
-  let text := "by\n" ++ scriptTextR nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn kids p1.insts di
+  let text := "by\n" ++ scriptTextR nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
   if (← IO.getEnv "VED_HIER_DEBUG").isSome then IO.eprintln text
   let stx ← match Lean.Parser.runParserCategory (← getEnv) `term text "<ved_u2_hier_reg>" with
     | .ok s => pure s
