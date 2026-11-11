@@ -528,13 +528,15 @@ def checkU2H (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.M
       | .ok s => pure s
       | .error e => refuse decl "proof" m!"generated script does not parse: {e}"
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
-    let pf ← try
+    -- the same finite budget and runtime-limit handling as `checkU1E` (see Tools/VedU1HierEntry.lean)
+    let pf ← tryCatchRuntimeEx
+        (withProofBudget <|
         withOptions (fun o => ((o.setBool `linter.unusedSimpArgs false).setBool
             `linter.unusedTactic false).setBool `linter.unreachableTactic false) <| withoutErrToSorry do
           let e ← elabTermEnsuringType stx expected
           synthesizeSyntheticMVarsNoPostponing
-          instantiateMVars e
-      catch e => refuse decl "proof" e.toMessageData
+          instantiateMVars e)
+        fun e => refuse decl "proof" e.toMessageData
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let first ← match errs.drop errsBefore with
