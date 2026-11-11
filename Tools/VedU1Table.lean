@@ -376,4 +376,33 @@ theorem step_tblBody (we : WEnv) (mems : MEnv) (inp : String) (iw w : Nat)
   simp only [stepModule, h, regNexts_asg we mems _ _ (all_tblBody inp iw w tbl last),
     memNexts_asg we _ mems _ (all_tblBody inp iw w tbl last), Option.bind_eq_bind, Option.bind_some]
 
+/-! ## the Signal side -/
+
+/-- the value of the `kLut!` chain `mux (sel == k) vₖ (…)` at a selector value `x` -/
+def lutBV (iw w : Nat) (x : BitVec iw) : Nat → List Nat → Nat → BitVec w
+  | _, [], last => BitVec.ofNat w last
+  | k, v :: vs, last => if x == BitVec.ofNat iw k then BitVec.ofNat w v else lutBV iw w x (k + 1) vs last
+
+theorem lutBV_toNat (iw w x : Nat) (hx : x < 2 ^ iw) :
+    ∀ (vs : List Nat) (k : Nat) (last : Nat), k + vs.length ≤ 2 ^ iw →
+    (lutBV iw w (BitVec.ofNat iw x) k vs last).toNat = pick x k vs last % 2 ^ w := by
+  intro vs
+  induction vs with
+  | nil => intro k last _; simp [lutBV, pick]
+  | cons v vs ih =>
+    intro k last hk
+    simp only [List.length_cons] at hk
+    simp only [lutBV, pick]
+    by_cases h : x = k
+    · subst h; simp
+    · have hne : ¬ (BitVec.ofNat iw x == BitVec.ofNat iw k) = true := by
+        simp only [beq_iff_eq, BitVec.ofNat_eq_ofNat, ne_eq]
+        intro e
+        have := congrArg BitVec.toNat e
+        simp only [BitVec.toNat_ofNat] at this
+        rw [Nat.mod_eq_of_lt hx, Nat.mod_eq_of_lt (by omega)] at this
+        exact h this
+      simp only [hne, if_false, if_neg h]
+      exact ih (k + 1) last (by omega)
+
 end Tools.VedU1Table
