@@ -303,4 +303,28 @@ theorem evalOp_eq_bv {n : Nat} (a b : BitVec n) (w : Nat) :
 
 end Ops
 
+/-! ## Expression constructors, one lemma each
+
+A constant is read as `BitVec.ofInt`, so a `mux` over constant branches stays in
+`BitVec` (no `Int.toNat`/`%` arithmetic is left for `simp` to normalise). -/
+
+theorem evalExpr_const (we : WEnv) (env : Env) (v : Int) (w : Nat) :
+    evalExpr we env (.const v w) = some (BitVec.ofInt w v).toNat := by
+  have hp : (0 : Int) < ((2 ^ w : Nat) : Int) := by exact_mod_cast Nat.two_pow_pos w
+  have e : (v % ((2 ^ w : Nat) : Int) + ((2 ^ w : Nat) : Int)) % ((2 ^ w : Nat) : Int)
+      = v % ((2 ^ w : Nat) : Int) := by rw [Int.add_emod_right, Int.emod_emod]
+  have h : (0 : Int) ≤ v % ((2 ^ w : Nat) : Int) := Int.emod_nonneg _ (by omega)
+  have h2 : v % ((2 ^ w : Nat) : Int) < ((2 ^ w : Nat) : Int) := Int.emod_lt_of_pos _ hp
+  simp only [evalExpr, BitVec.toNat_ofInt, Option.some.injEq, mask]
+  rw [e]
+  apply Nat.mod_eq_of_lt
+  omega
+
+theorem evalExpr_ref (we : WEnv) (env : Env) (n : String) :
+    evalExpr we env (.ref n) = some (env n) := rfl
+
+theorem evalExpr_op (we : WEnv) (env : Env) (o : Operator) (args : List Expr) :
+    evalExpr we env (.op o args) =
+      (evalList we env args).bind fun vals => evalOp we o args vals (widthOf we (.op o args)) := rfl
+
 end Tools.VedU1Script

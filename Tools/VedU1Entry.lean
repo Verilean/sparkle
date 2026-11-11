@@ -343,7 +343,7 @@ def perStmtText (nm : Names) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   let names := (List.range n).map hn
   L := L.push s!"    obtain ⟨{String.intercalate ", " names}, -⟩ := hall"
   L := L.push s!"    simp only [Tools.VedU1Script.stmtEq] at {String.intercalate " " names}"
-  let opSet := "Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Option.bind_eq_bind, Option.bind_some, Option.some.injEq, Nat.max_self, Tools.VedU1Script.evalOp_and_bv, Tools.VedU1Script.evalOp_or_bv, Tools.VedU1Script.evalOp_xor_bv, Tools.VedU1Script.evalOp_add_bv, Tools.VedU1Script.evalOp_sub_bv, Tools.VedU1Script.evalOp_not_bv, Tools.VedU1Script.evalOp_mux_bv, Tools.VedU1Script.evalOp_eq_bv"
+  let opSet := "Tools.VedU1Script.evalExpr_const, Tools.VedU1Script.evalExpr_ref, Tools.VedU1Script.evalExpr_op, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Option.bind_eq_bind, Option.bind_some, Option.some.injEq, Nat.max_self, Tools.VedU1Script.evalOp_and_bv, Tools.VedU1Script.evalOp_or_bv, Tools.VedU1Script.evalOp_xor_bv, Tools.VedU1Script.evalOp_add_bv, Tools.VedU1Script.evalOp_sub_bv, Tools.VedU1Script.evalOp_not_bv, Tools.VedU1Script.evalOp_mux_bv, Tools.VedU1Script.evalOp_eq_bv"
   let mut outIdx : Option Nat := none
   for ((l, r), i) in stmts.zipIdx do
     let refs := (Sparkle.IR.Reorder.refsOf r).eraseDups
@@ -702,6 +702,9 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
     -- elaborate the proof (errors are not turned into sorry)
     let inNames := (dataPortsOf m clkRst).map fun p => p.name
+    -- `first?`: the per-statement script, tried before the main script and discarded
+    -- (state and message log restored) when it throws, hits a limit or logs an error
+    let mut first? : Option Syntax := none
     let stx : Syntax ← match proof with
       | .generated =>
         let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
@@ -712,22 +715,36 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         if perStmtApplicable m && stmt.getAppFn.isConst then
           -- the per-statement script first; the flat script (it also covers `==` over the
           -- input domain and constant tables) is the fallback
-          let new ← perStmtScript nm stmt.getAppFn.constName! stmt.getAppNumArgs m b0 clkRst
-          pure (← `(by first | exact $(⟨new⟩) | exact $(⟨old⟩))).raw
-        else pure old
+          first? := some (← perStmtScript nm stmt.getAppFn.constName! stmt.getAppNumArgs m b0 clkRst)
+        pure old
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
+    let elabProof (stx : Syntax) : TermElabM Lean.Expr :=
+      withProofBudget do
+        withoutErrToSorry <| withEnableInfoTree false do
+          let e ← elabTermEnsuringType stx expected
+          synthesizeSyntheticMVarsNoPostponing
+          instantiateMVars e
+    let mut pre : Option Lean.Expr := none
+    if let some fs := first? then
+      let st ← saveState
+      let log0 ← Core.getMessageLog
+      let n0 := log0.toList.filter (·.severity == .error) |>.length
+      let r ← tryCatchRuntimeEx (try some <$> elabProof fs catch _ => pure none) fun _ => pure none
+      let n1 := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
+      match r with
+      | some e => if n1 == n0 && !e.hasMVar && !e.hasFVar then pre := some e
+      | none => pure ()
+      if pre.isNone then
+        st.restore (restoreInfo := true)
+        Core.setMessageLog log0
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     -- a runtime limit (heartbeats, recursion depth) here is a `proof` refusal
     -- (the script is too costly), not the catch-all `checker`
     -- (aff81fa7's size-scaled budget is subsumed by `withProofBudget`: its limits
     -- are at least the caller's times 8 for every module)
     let pf ← tryCatchRuntimeEx
-        (withProofBudget do
-        withoutErrToSorry <| withEnableInfoTree false do
-          let e ← elabTermEnsuringType stx expected
-          synthesizeSyntheticMVarsNoPostponing
-          instantiateMVars e)
+        (if let some e := pre then pure e else elabProof stx)
         fun e => refuse decl "proof" e.toMessageData
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
