@@ -5,12 +5,12 @@
 # `kjob lake build Tools.VedU1Entry Tools.VedU1Deep Tools.VedStrictAudit`):
 #   scripts/ved/u1_full.sh smoke [OUT]          # the smoke rows below, both routes
 #   scripts/ved/u1_full.sh full  [OUT]          # 327 rows x {u1,u1_deep} = 654 records
-#   scripts/ved/u1_full.sh rows ROWS.txt [OUT]  # lines "ROW ROUTE" (route u1|u1_deep|u1_deep_ns|u1_hier|u1_packed)
+#   scripts/ved/u1_full.sh rows ROWS.txt [OUT]  # lines "ROW ROUTE" (route u1|u1_deep|u1_deep_ns|u1_hier|u1_packed|u2_hier)
 #   scripts/ved/u1_full.sh merge OUT SHARD_OUT...
 # OUT defaults to $KJOB_REPORT_PATH's directory + /u1-run (never the source tree).
 # Environment: U1_LEAN (default "kjob lake env lean"), U1_TMO (1800 s), U1_GRACE,
 #   U1_RLIMIT_AS_KB, U1_INV_COMMIT/U1_INV_BLOB (default: the U0 pin), REDO=1,
-#   ROUTES="u1 u1_deep" (restrict routes; u1_hier and u1_packed are run only when named, e.g. ROUTES="u1_hier u1_packed"), SHARD=k/n (take every n-th list line,
+#   ROUTES="u1 u1_deep" (restrict routes; u1_hier, u1_packed and u2_hier are run only when named, e.g. ROUTES="u1_hier u1_packed"), SHARD=k/n (take every n-th list line,
 #   k=0..n-1; give each shard its own OUT and merge afterwards).
 # Exit status: 0 COMPLETE, 3 INCOMPLETE (harness errors / missing records).
 set -u

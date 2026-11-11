@@ -672,6 +672,62 @@ class U1Harness(unittest.TestCase):
         self.assertIn("returned_IR_strict_rows_incl_namespace_assisted=0", summ)
         self.assertIn("returned_IR_strict_rows_std_plus_hier=1 hier_adds_over_standard=1", summ)
 
+    # ------------------------------------------------------------ u2_hier route
+    def test_u2_hier_strict_and_command(self):
+        r = self.one(1, "u2_hier")
+        self.assertEqual(r["strict_counted"], "yes", r["strict_blockers"])
+        self.assertEqual((r["u1_status"], r["prep_status"], r["probe_ports"]), ("ok", "n/a", "ok"))
+        self.assertEqual(r["u1_command"], "#ved_u2_hier foo1")
+        self.assertIn("synth_ms=14", r["tool_reported"])
+
+    def test_u2_hier_case_text(self):
+        d = os.path.join(self.base, "c2")
+        sh([sys.executable, "-I", GEN, "--repo", self.fx.repo, "--commit", self.fx.commit, "--blob", self.fx.blob,
+            "gen", "--row", "1", "--setting", "u2_hier", "--dir", d])
+        text = open(os.path.join(d, "Case.lean")).read()
+        self.assertIn("import Tools.VedU2HierEntry", text)
+        self.assertIn("import Tools.VedStrictAudit", text)
+        self.assertIn("#ved_u2_hier foo1", text)
+        self.assertIn("Tools.VedU2Hier.U2HStmt", text)
+        self.assertNotIn("U1HStmt", text)
+        self.assertNotIn("#verify_elab_deep", text)
+        self.assertLess(text.index("#ved_u2_hier foo1"), text.index("VED U1P HIERTOP"))
+        self.assertIn('startsWith "ved_"', text)
+
+    def test_u2_hier_probe_rejections(self):
+        r = self.one(1, "u2_hier", probe={"type": "differs"})
+        self.assertEqual((r["u1_ok_line"], r["strict_counted"], r["first_cause"]), ("yes", "no", "probe-rejected"))
+        r = self.one(1, "u2_hier", pre={"child": True})
+        self.assertIn("preexisting:yes", r["strict_blockers"])
+        r = self.one(1, "u2_hier", hier={"ports": "differs"})
+        self.assertIn("ports:differs", r["strict_blockers"])
+
+    def test_u2_hier_refusal_stage_pipeline(self):
+        r = self.one(1, "u2_hier", u1=["refused", "conns", "derived input"], probe={"thm": "absent"})
+        self.assertEqual((r["u1_status"], r["first_cause"], r["strict_counted"]), ("refused", "conns", "no"))
+        self.assertEqual(r["later_stages_not_reached"], "child;open;type;proof;kernel;audit")
+
+    def test_u2_hier_not_in_default_routes_and_own_union(self):
+        self.assertNotIn("u2_hier", open(os.path.join(VED, "u1_full.sh")).read().split("ROUTES:-")[1].split("}")[0])
+        for rt, plan in (("u1", {"u1": ["refused", "synthesis", "x"], "probe": {"thm": "absent"}}),
+                         ("u1_deep", {"u1": ["refused", "proof", "x"], "probe": {"thm": "absent"}}),
+                         ("u1_hier", {"u1": ["refused", "hier-shape", "x"], "probe": {"thm": "absent"}}),
+                         ("u2_hier", {})):
+            self.plan[f"1:{rt}"] = plan
+        lst = os.path.join(self.base, "l2.txt")
+        open(lst, "w").write("1 u1\n1 u1_deep\n1 u1_hier\n1 u2_hier\n")
+        r = self.run_u1("list", lst)
+        self.assertIn(r.returncode, (0, 3), r.stdout + r.stderr)
+        [u] = self.results("union.tsv")
+        self.assertEqual((u["u2_hier_strict"], u["union_std_strict"], u["union_strict"], u["union_std_hier_strict"],
+                          u["union_std_packed_strict"], u["union_std_u2hier_strict"]),
+                         ("yes", "no", "no", "no", "no", "yes"))
+        rid = open(os.path.join(self.out, "CURRENT_RUN_ID")).read().strip()
+        summ = open(os.path.join(self.out, "results", rid, "summary.txt")).read()
+        self.assertIn("route u2_hier: records=1 strict_counted_yes=1", summ)
+        self.assertIn("returned_IR_strict_rows_std_plus_u2_hier=1 u2_hier_adds_over_standard=1 strict_by_u2_hier=1", summ)
+        self.assertIn("returned_IR_strict_rows_std_plus_hier=0 hier_adds_over_standard=0", summ)
+
     def test_hier_lean_control_embeds_the_harness_probe(self):
         """controls/U1HierControls.lean is generated from the harness's own probe text: no drift."""
         sys.path.insert(0, os.path.join(VED, "controls"))

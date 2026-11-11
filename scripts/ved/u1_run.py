@@ -6,6 +6,7 @@ subreaper helper, SPARKLE_* cleared, rlimit, timeout + TERM/KILL, run identity,
 attempts, reuse only on identical identity, harness-error rows, COMPLETE /
 INCOMPLETE) with the U1 generator/classifier (u1_gen.py).  A row is run once
 per route; the route is the case's "setting": `u1`, `u1_deep`, `u1_deep_ns`, `u1_hier`,
+`u2_hier` (H2a, `#ved_u2_hier`; its own route and its own "standard + u2_hier" union),
 `u1_packed` (packed-port results, `#ved_u1_packed`; its own route and its own
 "standard + packed" union, never merged into the older unions).
 
@@ -45,7 +46,7 @@ import u1_gen  # noqa: E402
 UNION_COLUMNS = (["row", "file", "line", "command", "top"]
                  + [f"{rt}_strict" for rt in u1_gen.ROUTES]
                  + ["union_std_strict", "union_strict", "union_strict_routes", "union_std_hier_strict",
-                    "union_std_packed_strict", "union_std_packed_routes"]
+                    "union_std_packed_strict", "union_std_packed_routes", "union_std_u2hier_strict"]
                  + [f"{rt}_first_cause" for rt in u1_gen.ROUTES]
                  + [f"{rt}_status" for rt in u1_gen.ROUTES]
                  + [f"{rt}_prep_status" for rt in u1_gen.DEEP_ROUTES] + ["invocation"])
@@ -59,6 +60,7 @@ STD_ROUTES = ("u1", "u1_deep")
 # the namespace-assisted union keeps its meaning: standard + u1_deep_ns, NEVER u1_hier or u1_packed
 NS_UNION_ROUTES = ("u1", "u1_deep", "u1_deep_ns")
 STD_PACKED_ROUTES = STD_ROUTES + ("u1_packed",)
+STD_U2HIER_ROUTES = STD_ROUTES + ("u2_hier",)   # its own union; never merged into the others
 
 
 def union_rows(records):
@@ -84,6 +86,8 @@ def union_rows(records):
              "union_std_hier_strict": "yes" if any(rt in STD_ROUTES + ("u1_hier",) for rt in ok_all) else "no",
              # standard routes plus u1_packed (reported separately, never merged into the unions above)
              "union_std_packed_strict": "yes" if okp else "no", "union_std_packed_routes": ",".join(okp),
+             # standard routes plus u2_hier (H2a), reported separately
+             "union_std_u2hier_strict": "yes" if any(rt in STD_U2HIER_ROUTES for rt in ok_all) else "no",
              "invocation": base.get("invocation", "")}
         for rt in u1_gen.ROUTES:
             a = recs[rt]
@@ -120,6 +124,11 @@ def summary_lines(records, union):
     lines.append(f"union (standard + packed: u1, u1_deep, u1_packed; reported separately): "
                  f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_packed={sp} "
                  f"strict_by_u1_packed={sum(1 for u in union if u['u1_packed_strict'] == 'yes')}")
+    s2 = sum(1 for u in union if u["union_std_u2hier_strict"] == "yes")
+    lines.append(f"union (standard + u2_hier: u1, u1_deep, u2_hier; reported separately): "
+                 f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_u2_hier={s2} "
+                 f"u2_hier_adds_over_standard={sum(1 for u in union if u['union_std_u2hier_strict'] == 'yes' and u['union_std_strict'] != 'yes')} "
+                 f"strict_by_u2_hier={sum(1 for u in union if u['u2_hier_strict'] == 'yes')}")
     lines.append("  (not: main's ordinary command succeeds as is / production route / release; "
                  "u1_deep refusals caused by the name lookup stay recorded)")
     lines.append("first_cause cross table (records):")

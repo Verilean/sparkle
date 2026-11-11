@@ -81,28 +81,40 @@ from u0_gen import (INV_BLOB, INV_COMMIT, INV_PATH, INV_ROWS, die, git_show_inve
 # Strict only through the hier probe (PROBE_HIER below), which rebuilds the
 # statement `U1HStmt <decl>.ved_contract <decl>.ved_mod <decl>.ved_design <stmt>`
 # and reads the closed module and design values itself.
+# u2_hier: the stateful hierarchical entry `#ved_u2_hier` (Tools/VedU2HierEntry.lean, H2a: depth 1,
+# register-free parent, single-output leaf children, child input ports straight from parent inputs).
+# Same shape as u1_hier (original scope, no preparation).  Strict only through PROBE_HIER_U2, which
+# rebuilds `U2HStmt <decl>.ved_contract <decl>.ved_mod <decl>.ved_design <stmt>` itself.  Its own
+# route column and its own union "standard + u2_hier"; never in the default ROUTES of u1_full.sh.
 # u1_packed: `#ved_u1_packed <ident>` (Tools/VedU1PackedEntry.lean) in the original
 # scope, for a result `Signal d (A x B)` packed into ONE port `out`.  Not a deep
 # route.  Its own probe (PACKED_PROBE_DEF) rebuilds `PackedStmt <ved_contract>
 # <ved_mod> <stmt>` and checks the slice map against the packing rule computed
 # from the declaration's TYPE.  Reported as its own route: the standard union
 # stays u1 + u1_deep, and "standard + packed" is a separate union.
-ROUTES = ("u1", "u1_deep", "u1_deep_ns", "u1_hier", "u1_packed")
+ROUTES = ("u1", "u1_deep", "u1_deep_ns", "u1_hier", "u1_packed", "u2_hier")
+HIER_ROUTES = ("u1_hier", "u2_hier")
 DEEP_ROUTES = ("u1_deep", "u1_deep_ns")
 ENTRY_CMD = {"u1": "#ved_u1", "u1_deep": "#ved_u1_deep", "u1_deep_ns": "#ved_u1_deep",
-             "u1_hier": "#ved_u1_hier", "u1_packed": "#ved_u1_packed"}
+             "u1_hier": "#ved_u1_hier", "u1_packed": "#ved_u1_packed",
+             "u2_hier": "#ved_u2_hier"}
 IMPORTS = {"u1_packed": ["Tools.VedU1PackedEntry", "Tools.VedStrictAudit"],
            "u1": ["Tools.VedU1Entry", "Tools.VedStrictAudit"],
            "u1_deep": ["Tools.VedU1Deep", "Tools.VedStrictAudit"],
            "u1_deep_ns": ["Tools.VedU1Deep", "Tools.VedStrictAudit"],
-           "u1_hier": ["Tools.VedU1HierEntry", "Tools.VedStrictAudit"]}
+           "u1_hier": ["Tools.VedU1HierEntry", "Tools.VedStrictAudit"],
+           "u2_hier": ["Tools.VedU2HierEntry", "Tools.VedStrictAudit"]}
 STD3 = {"propext", "Classical.choice", "Quot.sound"}
 # pipeline order inside the entry, for "later stages not reached"
 PIPELINE = ["table", "multi-output", "synthesis", "artifact", "order", "type", "proof", "kernel", "audit"]
 HIER_PIPELINE = ["table", "multi-output", "synthesis", "artifact", "hier-shape", "order", "child", "type",
                  "proof", "kernel", "audit"]
 PIPELINE_PACKED = ["table", "packed", "synthesis", "artifact", "order", "type", "proof", "kernel", "audit"]
-REFUSAL_STAGES = set(PIPELINE) | set(HIER_PIPELINE) | set(PIPELINE_PACKED) | {"checker"}
+# u2_hier (Tools/VedU2HierEntry.lean): stages in the order of the checker
+U2_HIER_PIPELINE = ["table", "multi-output", "synthesis", "artifact", "hier-shape", "clkrst", "order", "scope",
+                    "conns", "child", "open", "type", "proof", "kernel", "audit"]
+REFUSAL_STAGES = (set(PIPELINE) | set(HIER_PIPELINE) | set(PIPELINE_PACKED) | set(U2_HIER_PIPELINE)
+                  | {"checker"})
 
 KEY_COLUMNS = ["inv_commit", "inv_blob", "row", "file", "line", "command", "ns", "top",
                "qualified", "params", "options", "args", "setting"]
@@ -485,15 +497,46 @@ run_cmd do
   catch e => logInfo m!"VED U1P PROBE failed: {← e.toMessageData.toString}"'''
 
 
+_P1 = """        let okp := args.size == 4 && args[0]! == toExpr tbl &&
+          args[1]! == toExpr (m.outputs.map (·.name)) &&
+          args[2]! == toExpr (none : Option (String × String)) &&
+          m.inputs.length == tbl.ins.length && m.outputs.length == tbl.out.flat.length &&
+          (m.inputs.map (·.name)) == tbl.binders.map ("_gen_" ++ ·) &&
+          (m.inputs.map (·.ty)) == tbl.ins.map (·.hw) && (m.outputs.map (·.ty)) == tbl.out.flat.map (·.hw)"""
+_P2 = """        -- H2a: the parent's inputs are the data inputs, then none or exactly clock and reset
+        let kr : Option (Option (String × String)) := match m.inputs.drop tbl.ins.length with
+          | [] => some none
+          | [k, r] => some (some (k.name, r.name))
+          | _ => none
+        let nd := tbl.ins.length
+        let okp := kr.isSome && args.size == 4 && args[0]! == toExpr tbl &&
+          args[1]! == toExpr (m.outputs.map (·.name)) && m.outputs.map (·.name) == ["out"] &&
+          args[2]! == toExpr kr.get! &&
+          m.outputs.length == tbl.out.flat.length &&
+          ((m.inputs.take nd).map (·.name)) == tbl.binders.map ("_gen_" ++ ·) &&
+          ((m.inputs.take nd).map (·.ty)) == tbl.ins.map (·.hw) && (m.outputs.map (·.ty)) == tbl.out.flat.map (·.hw) &&
+          (m.body.all fun s => match s with | .register .. => false | _ => true)"""
+PROBE_HIER_U2 = (PROBE_HIER.replace("Tools.VedU1Hier.U1HStmt", "Tools.VedU2Hier.U2HStmt")
+                 .replace(_P1, _P2))
+assert PROBE_HIER_U2.count("U2HStmt") == 1 and _P2 in PROBE_HIER_U2
+
+# u2_hier: nothing named `<decl>.ved_*` (theorem, module, design, contract, outs, body, child.*,
+# open, open_eq, ...) may exist before the entry runs
+PRE_PROBE_U2 = PRE_PROBE_HIER.replace(
+    "let kids := env.constants.fold (fun a k _ => a || (n ++ `ved_child).isPrefixOf k) false",
+    "let kids := env.constants.fold (fun a k _ => a || (n.isPrefixOf k && k != n && ((k.components[n.components.length]?).any fun c => c.toString.startsWith \"ved_\"))) false")
+assert PRE_PROBE_U2 != PRE_PROBE_HIER
+
+
 def block_pieces(r, route, ns):
     """[(segment, text)] in order; segment is None for plumbing."""
     opts = lean_option_lines(r["options"], "default")
     prefix = "".join(f"set_option {o} in\n" for o in ["Elab.async false"] + opts)
     top, q = r["top"], r["qualified"] or ""
     sub = lambda s: s.replace("@TOP@", top).replace("@Q@", q)
-    hier = route == "u1_hier"
+    hier = route in HIER_ROUTES
     p = [(None, f"-- ===== VED U1 BEGIN row {r['row']} route {route} (inventory {INV_COMMIT[:8]}) ====="),
-         (None, f"namespace {ns}"), (None, TIMER), ("pre", sub(PRE_PROBE_HIER if hier else PRE_PROBE))]
+         (None, f"namespace {ns}"), (None, TIMER), ("pre", sub(PRE_PROBE_U2 if route == "u2_hier" else PRE_PROBE_HIER if hier else PRE_PROBE))]
     if hier:
         p.append((None, EVAL_HELP))
     if route == "u1_deep_ns":
@@ -519,7 +562,7 @@ def block_pieces(r, route, ns):
     if route == "u1_packed":
         probe = [("probe", PACKED_PROBE_DEF), ("probe", sub(PACKED_PROBE))]
     else:
-        probe = [("probe", sub(PROBE_HIER if hier else PROBE))]
+        probe = [("probe", sub(PROBE_HIER_U2 if route == "u2_hier" else PROBE_HIER if hier else PROBE))]
     p += probe + [("probe", '#vedu1_t "probe_end"'),
           (None, f"end {ns}"), (None, "-- ===== VED U1 END =====")]
     return p
@@ -656,7 +699,7 @@ def first_line(s, n=200):
 
 
 def later_stages(stage, route=""):
-    pipe = HIER_PIPELINE if route == "u1_hier" else PIPELINE_PACKED if route == "u1_packed" else PIPELINE
+    pipe = U2_HIER_PIPELINE if route == "u2_hier" else HIER_PIPELINE if route == "u1_hier" else PIPELINE_PACKED if route == "u1_packed" else PIPELINE
     if stage in pipe:
         return ";".join(pipe[pipe.index(stage) + 1:])
     return ""
@@ -718,7 +761,7 @@ def hier_probe(row, ptext, okm, u1):
     if row["probe_ports"] != "ok":
         bl.append(f"ports:{row['probe_ports'] or 'unknown'}")
     if okm:
-        full = next((t for ln, sev, t in u1 if t.startswith("VED U1 HIER OK ")), "")
+        full = next((t for ln, sev, t in u1 if t.startswith(("VED U1 HIER OK ", "VED U2 HIER OK "))), "")
         mt = re.search(r"synthesis (\d+) ms, children (\d+) ms, parent proof (\d+) ms, peak (\d+) kB", full)
         if mt:
             row["tool_reported"] = "synth_ms=%s;children_ms=%s;parent_ms=%s;peak_kb=%s" % mt.groups()
@@ -738,7 +781,7 @@ def classify_dir(d, sv_group=""):
     row["cleared_env"] = ";".join(ident.get("cleared_env", []))
     row["stdout_ref"] = os.path.join(d, "stdout.txt")
     row["stderr_ref"] = os.path.join(d, "stderr.txt")
-    row["prep_status"] = "n/a" if route in ("u1", "u1_hier", "u1_packed") else "not-run"
+    row["prep_status"] = "n/a" if route in ("u1", "u1_hier", "u1_packed", "u2_hier") else "not-run"
     if not meta.get("run"):
         row.update(ran="no", strict_counted="no", strict_blockers=meta["invocation"],
                    first_cause=meta["invocation"], u1_status="not-reached(unsupported)",
@@ -803,15 +846,15 @@ def classify_dir(d, sv_group=""):
             row["ns_check"] = f"absent({len(wraps)} wraps)"
     else:
         row["ns_scope"] = row["ns_check"] = row["ns_detail"] = row["ns_mode"] = "n/a"
-    row["prep_command"] = ("n/a" if route in ("u1", "u1_hier", "u1_packed") else
+    row["prep_command"] = ("n/a" if route in ("u1", "u1_hier", "u1_packed", "u2_hier") else
                            ("#vedu1_in_declns " if route == "u1_deep_ns" else "") + f"#verify_elab_deep {meta.get('top', '')}")
     row["u1_command"] = ("#vedu1_in_declns " if route == "u1_deep_ns" else "") + f"{ENTRY_CMD[route]} {meta.get('top', '')}"
     m = re.search(r"VED U1P PRE thm=(\w+) mod=(\w+) contract=(\w+)(?: design=(\w+) child=(\w+))?", text)
     pre_exist = bool(m and "true" in m.groups())
-    if route == "u1_hier" and m and m.group(4) is None:
+    if route in HIER_ROUTES and m and m.group(4) is None:
         pre_exist = True      # a PRE line without design/child cannot show they were absent
     row["probe_preexisting"] = "unknown" if not m else ("yes" if pre_exist else "no")
-    if route == "u1_hier" and m and m.group(4) is None:
+    if route in HIER_ROUTES and m and m.group(4) is None:
         row["probe_preexisting"] = "unknown"
 
     # timing markers (monotonic ms inside the Lean process)
@@ -849,7 +892,7 @@ def classify_dir(d, sv_group=""):
     u1 = in_seg("u1")
     u1_errs = [t for ln, sev, t in u1 if sev == "error"]
     # u1_packed: the tool's own `VED U1 PACKED OK` line; a plain `VED U1 OK` is not accepted there
-    ok_prefix = ("VED U1 HIER OK " if route == "u1_hier" else
+    ok_prefix = ("VED U2 HIER OK " if route == "u2_hier" else "VED U1 HIER OK " if route == "u1_hier" else
                  "VED U1 PACKED OK " if route == "u1_packed" else "VED U1 OK ")
     okm = next((re.match(re.escape(ok_prefix) + r"(\S+)( \(specialised at defaultDomain\))?:", t)
                 for ln, sev, t in u1 if t.startswith(ok_prefix)), None)
@@ -965,7 +1008,7 @@ def classify_dir(d, sv_group=""):
         row["probe_axioms"] = ";".join(axs)
         row["probe_axioms_std3"] = "yes" if set(axs) <= STD3 else "no"
     hier_bl = []
-    if route == "u1_hier":
+    if route in HIER_ROUTES:
         hier_bl = hier_probe(row, "\n".join(pm), okm, u1)
     row["kernel_sync"] = ("yes" if meta.get("async_false") and p["thm"] and p["thm"][0] == "theorem"
                           else "no")
@@ -1097,7 +1140,7 @@ def main():
     sub.add_parser("header")
     g = sub.add_parser("gen")
     g.add_argument("--row", required=True)
-    g.add_argument("--setting", required=True, help="route: u1 | u1_deep | u1_deep_ns | u1_packed")
+    g.add_argument("--setting", required=True, help="route: u1 | u1_deep | u1_deep_ns | u1_hier | u1_packed | u2_hier")
     g.add_argument("--dir", required=True)
     c = sub.add_parser("classify")
     c.add_argument("case_dir")

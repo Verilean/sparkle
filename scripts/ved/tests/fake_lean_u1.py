@@ -11,7 +11,7 @@ Plan fields (all optional): resolved, qualified, decl ("found"|"absent"), pre
 {thm,mod,contract}, prep_error, u1 ("ok" | ["refused", stage, msg] | ["error", msg] | "none"),
 ok_thm, ok_axioms, outside_error, probe {thm,type,mvars,levels,mod,contract,outs,axioms}, probe_fail,
 ms {prep,u1,probe}, exit, sleep, self_signal, mem_mb, stderr.
-Route u1_hier: the OK line is `VED U1 HIER OK`; `hier` {top, mods, insts, children, child_thms, design, ports}
+Routes u1_hier / u2_hier: the OK line is `VED U1 HIER OK` / `VED U2 HIER OK`; `hier` {top, mods, insts, children, child_thms, design, ports}
 overrides the canned hier probe lines (GOOD_HIER); `pre` may carry design / child.
 Route u1_packed: the OK line is `VED U1 PACKED OK`, and probe also takes
 {leaves ("8,4"), slices ("equal"|"differs"), port ("match"|"differs")}.
@@ -52,7 +52,7 @@ def main():
             print(s, flush=True)
         else:
             print(f"{case}:{line}:0: {sev}: {s}", flush=True)
-    top = re.search(r"\n#ved_u1\w* (\S+)", text)
+    top = re.search(r"\n#ved_u[12]\w* (\S+)", text)
     top = top.group(1) if top else "x"
     resolved = plan.get("resolved", f"Outer.{top}")
     qual = plan.get("qualified", resolved)
@@ -63,7 +63,7 @@ def main():
                     f"{'match' if qual == resolved else 'mismatch'}", pre)
         p = plan.get("pre", {})
         extra = ""
-        if m and m.group(2) == "u1_hier":
+        if m and m.group(2) in ("u1_hier", "u2_hier"):
             extra = f" design={str(p.get('design', False)).lower()} child={str(p.get('child', False)).lower()}"
         msg("info", f"VED U1P PRE thm={str(p.get('thm', False)).lower()} mod={str(p.get('mod', False)).lower()} "
                     f"contract={str(p.get('contract', False)).lower()}{extra}", pre)
@@ -101,12 +101,12 @@ def main():
     msg("info", f"VED U1T u_begin {clock}", at('#vedu1_t "u_begin"'))
     u1n(at('#vedu1_t "u_begin"'))
     u1 = plan.get("u1", "ok") if not wfail else "none"
-    el = at("#ved_u1")
+    el = at("#ved_u")
     if u1 == "ok":
         axs = ", ".join(plan.get("ok_axioms", ["propext"]))
         spec = " (specialised at defaultDomain)" if plan.get("ok_specialised") else ""
-        if m and m.group(2) == "u1_hier":
-            msg("info", f"VED U1 HIER OK {plan.get('ok_thm', resolved + '.ved_u1')}{spec}: [{axs}]\n"
+        if m and m.group(2) in ("u1_hier", "u2_hier"):
+            msg("info", f"VED U{'2' if m.group(2) == 'u2_hier' else '1'} HIER OK {plan.get('ok_thm', resolved + '.ved_u1')}{spec}: [{axs}]\n"
                         "children: [kidA, kidB]\nsynthesis 14 ms, children 9600 ms, parent proof 1200 ms, "
                         "peak 2590000 kB\n(Module body)", el)
         else:
@@ -132,7 +132,7 @@ def main():
             msg("info", f"VED U1P LEVELS {q['levels']}", pl)
             msg("info", f"VED U1P AXIOMS [{', '.join(q['axioms'])}]", pl)
         msg("info", f"VED U1P MOD {q['mod']}", pl)
-        h = dict(GOOD_HIER, **plan.get("hier", {})) if m and m.group(2) == "u1_hier" else None
+        h = dict(GOOD_HIER, **plan.get("hier", {})) if m and m.group(2) in ("u1_hier", "u2_hier") else None
         if h and h["design"] is not None:
             msg("info", f"VED U1P DESIGN {h['design']}", pl)
         msg("info", f"VED U1P CONTRACT {q['contract']}", pl)
