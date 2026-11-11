@@ -679,7 +679,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| clear $hv))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
-  let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | (trace_state; sorry)))
+  let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | (trace_state; fail "ved_loop_close failed here")))
     else `(tactic| all_goals ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_loop_unfold ($sI + 1)),
@@ -694,7 +694,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     #[← `(tactic| all_goals (try ved_pack_simp))],
     #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts))],
     #[closing]]
-  let stop ← `(tactic| (trace_state; all_goals sorry))
+  let stop ← `(tactic| (trace_state; fail "stopped at debug stage"))
   if dbg == 1 then tacs := tacs.push stop
   else
     for k in [0:stages.size] do
