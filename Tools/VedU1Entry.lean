@@ -85,6 +85,16 @@ What a failure leaves and how it is reported (exactly what the code does):
   `try … catch` there does not catch runtime exceptions; they propagate as
   their own errors).
 
+A register-free body that is a `kLut!` constant table (`tblDataOf?`: statements are constants,
+aliases, `eq` against the one input and `mux`es, wire `p` named `Tools.VedU1TableGen.Wt t p`) does
+NOT go through the flat `simp` below, which does not scale past about 32 entries (a 256-entry
+table is a 1022-statement body).  The checker registers `decl.ved_tbl` (the `TblData` read from
+the module) and the script uses the general lemmas of Tools/VedU1TableGen.lean: the kernel checks
+the body equals the position-indexed body of that data and a small Bool over the data; evaluation
+(`step_table`), `OrderOk` (`orderOk_table`) and the wire names' distinctness (`nodup_table`) are
+proved once, by induction, with no scan over names; the declaration's own mux chain is compared
+with `lutBV` of the table by `rfl`.  Any other body keeps the script below unchanged.
+
 The proof script is UNTRUSTED (the kernel checks it).  This slice's script
 covers register-free modules built from not/and/or/xor/add/sub/mux/slice,
 two-field concatenation, `==`, constants and `kLut!` mux chains (lemmas in
