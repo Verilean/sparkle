@@ -401,6 +401,10 @@ lean_lib «Tests.Ved.U1HierCheck» where
 lean_lib «Tests.Ved.U1KeccakRcCheck» where
   roots := #[`Tests.Ved.U1KeccakRcCheck]
 
+-- real IP rows with `==` / wide inputs (aluSignal, hazardSignal, lqrCtrlTop, private test rows)
+lean_lib «Tests.Ved.U1EqWideCheck» where
+  roots := #[`Tests.Ved.U1EqWideCheck]
+
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]
 
