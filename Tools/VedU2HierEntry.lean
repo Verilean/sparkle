@@ -277,7 +277,7 @@ structure InstInfo where
   derived : Bool := false
   /-- H2c: the assigned wires the derived nets are computed from (dependency closure, input
   names excluded) -/
-  chain : List String := []
+  chain : List (String × Nat) := []
 
 def ptyTxt : PTy → String
   | .bit => "Tools.VedU1Contract.PTy.bit"
