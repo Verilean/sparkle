@@ -103,8 +103,11 @@ Tools/VedU1Lemmas.lean; a body with `==` is closed by a kernel `decide` over the
 input domain only when the data inputs total at most 16 bits; above that, inputs of
 at most 6 bits are enumerated value by value and wider inputs stay symbolic, closed
 by `simp` + `omega`), and modules with
-exactly one register whose current value is the output (a delay); it is not
-complete for every circuit these operators can build; any other body makes the script fail,
+exactly one register whose current value is the output (a delay), and modules with two or
+more registers that are the state of `Signal.loop`s (`circuit do`, nested `circuit do` included):
+`loopScriptFor` proves by induction on the cycle that register `n` of the module is the `toNat`
+of the loop-state component it implements (`Tools/VedU1Loop.lean`; Tests/Ved/U1MultiLoopCheck.lean);
+it is not complete for every circuit these operators can build; any other body makes the script fail,
 and the entry then refuses (stage `proof`), it never accepts.  The general
 proof generator is open (§10).
 
