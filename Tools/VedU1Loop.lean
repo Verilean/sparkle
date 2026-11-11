@@ -23,6 +23,17 @@ namespace Tools.VedU1Loop
 
 open Sparkle.Core.Domain Sparkle.Core.Signal
 
+open Lean Elab Tactic in
+/-- `omega` with a small heartbeat budget of its own (the rewrite rules below call it as a
+side-condition discharger, many times, on goals that can be large): running out of the budget is an
+ordinary failure of this tactic. -/
+elab "ved_omega" : tactic => do
+  let hb ← IO.getNumHeartbeats
+  tryCatchRuntimeEx
+    (withTheReader Core.Context (fun c => { c with initHeartbeats := hb, maxHeartbeats := 2000 * 1000 })
+      (Tactic.withoutRecover (evalTactic (← `(tactic| omega)))))
+    fun _ => throwError "ved_omega: no proof within the budget"
+
 theorem loop_val_unfold {dom : DomainConfig} {α : Type} [Inhabited α]
     (F : Signal dom α → Signal dom α)
     (h0 : ∀ s₁ s₂ : Signal dom α, (F s₁).val 0 = (F s₂).val 0)
@@ -74,12 +85,12 @@ theorem mod_pack (a b m : Nat) : (a * m + b) % m = b % m := by
   rw [Nat.add_comm]; exact Nat.add_mul_mod_self_right _ _ _
 
 macro "ved_pack_simp" : tactic =>
-  `(tactic| simp (disch := first | omega | fail) only
+  `(tactic| simp (disch := first | ved_omega | fail) only
       [Nat.reducePow, Nat.reduceAdd, Nat.mod_eq_of_lt, Nat.div_eq_of_lt, Tools.VedU1Loop.div_pack, Tools.VedU1Loop.mod_pack, Nat.add_mod_left, Nat.add_zero])
 
 /-- the one-bit logic rewrite, with the range side conditions closed by `omega` -/
 macro "ved_bit_simp" : tactic =>
-  `(tactic| simp (disch := first | omega | (split <;> omega) | fail) only
+  `(tactic| simp (disch := first | ved_omega | (split <;> ved_omega) | fail) only
       [Tools.VedU1Loop.and_lt2_l, Tools.VedU1Loop.and_lt2_r, Tools.VedU1Loop.or_lt2, Tools.VedU1Loop.xor_lt2])
 
 open Lean Meta Elab Tactic
@@ -124,7 +135,7 @@ def omegaProof? (prop : Lean.Expr) : TacticM (Option Lean.Expr) := do
   let m ← mkFreshExprMVar prop
   setGoals [m.mvarId!]
   let r ← try
-      Tactic.withoutRecover (evalTactic (← `(tactic| omega)))
+      Tactic.withoutRecover (evalTactic (← `(tactic| ved_omega)))
       pure (← getGoals).isEmpty
     catch _ => pure false
   setGoals saved
@@ -260,7 +271,9 @@ elab "ved_loop_R " ins:ident " [" ns:str,* "]" ws:num,* : tactic => withMainCont
   for d in ← getLCtx do
     unless d.isImplementationDetail do tgt := mkApp tgt (← instantiateMVars d.type)
   let loops := loopsOf tgt
-  if loops.isEmpty then throwError "ved_loop_R: no Signal.loop in the goal"
+  if loops.isEmpty then
+    let shown := (← ppExpr tgt).pretty.take 3000
+    throwError "ved_loop_R: no Signal.loop in the goal: {shown}"
   let ms ← getMVars tgt
   let mut rId? : Option MVarId := none
   for m in ms do
