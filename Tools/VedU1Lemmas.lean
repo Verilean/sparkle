@@ -231,4 +231,104 @@ theorem and_mod_r (x y m : Nat) (h : y < m) : (x &&& y) % m = x &&& y :=
 theorem and_mod_l (x y m : Nat) (h : x < m) : (x &&& y) % m = x &&& y :=
   Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt Nat.and_le_left h)
 
+open Sparkle.Core.Signal in
+theorem add_val_sc {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) : (a + b).val s = a.val s + b := rfl
+
+open Sparkle.Core.Signal in
+theorem add_val_cs {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) : (a + b).val s = a + b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem sub_val_sc {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) : (a - b).val s = a.val s - b := rfl
+
+open Sparkle.Core.Signal in
+theorem sub_val_cs {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) : (a - b).val s = a - b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem mul_val_sc {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) : (a * b).val s = a.val s * b := rfl
+
+open Sparkle.Core.Signal in
+theorem mul_val_cs {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) : (a * b).val s = a * b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem and_val_sc {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) : (a &&& b).val s = a.val s &&& b := rfl
+
+open Sparkle.Core.Signal in
+theorem and_val_cs {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) : (a &&& b).val s = a &&& b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem or_val_sc {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) : (a ||| b).val s = a.val s ||| b := rfl
+
+open Sparkle.Core.Signal in
+theorem or_val_cs {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) : (a ||| b).val s = a ||| b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem xor_val_sc {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) : (a ^^^ b).val s = a.val s ^^^ b := rfl
+
+open Sparkle.Core.Signal in
+theorem xor_val_cs {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) : (a ^^^ b).val s = a ^^^ b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem shl_val_sc {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) : (a <<< b).val s = a.val s <<< b := rfl
+
+open Sparkle.Core.Signal in
+theorem shl_val_cs {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) : (a <<< b).val s = a <<< b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem shr_val_sc {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) : (a >>> b).val s = a.val s >>> b := rfl
+
+open Sparkle.Core.Signal in
+theorem shr_val_cs {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) : (a >>> b).val s = a >>> b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem append_def_sc {dom : Sparkle.Core.Domain.DomainConfig} {m n : Nat}
+    (a : Signal dom (BitVec m)) (b : BitVec n) :
+    (a ++ b : Signal dom (BitVec (no_index (m + n)))) = (· ++ ·) <$> a <*> Signal.pure b := rfl
+
+open Sparkle.Core.Signal in
+theorem append_def_cs {dom : Sparkle.Core.Domain.DomainConfig} {m n : Nat}
+    (a : BitVec m) (b : Signal dom (BitVec n)) :
+    (a ++ b : Signal dom (BitVec (no_index (m + n)))) = (· ++ ·) <$> Signal.pure a <*> b := rfl
+
+/-- A high constant (multiple of `2^w`) or-ed with a `w`-bit value is their sum. -/
+theorem or_hi (c x w : Nat) (hx : x < 2 ^ w) (hc : c % 2 ^ w = 0) : c ||| x = c + x := by
+  have e : (c / 2 ^ w) <<< w = c := by
+    rw [Nat.shiftLeft_eq]; exact Nat.div_mul_cancel (Nat.dvd_of_mod_eq_zero hc)
+  have := Nat.shiftLeft_add_eq_or_of_lt hx (c / 2 ^ w)
+  rw [e] at this
+  exact this.symm
+
+theorem or_hi_8 (c x : Nat) (hx : x < 2 ^ 8) (hc : c % 2 ^ 8 = 0) : c ||| x = c + x := or_hi c x 8 hx hc
+
+theorem or_hi_16 (c x : Nat) (hx : x < 2 ^ 16) (hc : c % 2 ^ 16 = 0) : c ||| x = c + x := or_hi c x 16 hx hc
+
+theorem or_hi_24 (c x : Nat) (hx : x < 2 ^ 24) (hc : c % 2 ^ 24 = 0) : c ||| x = c + x := or_hi c x 24 hx hc
+
+theorem or_hi_32 (c x : Nat) (hx : x < 2 ^ 32) (hc : c % 2 ^ 32 = 0) : c ||| x = c + x := or_hi c x 32 hx hc
+
+theorem or_hi_40 (c x : Nat) (hx : x < 2 ^ 40) (hc : c % 2 ^ 40 = 0) : c ||| x = c + x := or_hi c x 40 hx hc
+
+theorem or_hi_48 (c x : Nat) (hx : x < 2 ^ 48) (hc : c % 2 ^ 48 = 0) : c ||| x = c + x := or_hi c x 48 hx hc
+
+theorem or_hi_64 (c x : Nat) (hx : x < 2 ^ 64) (hc : c % 2 ^ 64 = 0) : c ||| x = c + x := or_hi c x 64 hx hc
+
+theorem bit1_eq {w : Nat} (x : BitVec w) (i : Nat) :
+    (BitVec.extractLsb' i 1 x = 1#1) ↔ x.toNat >>> i % 2 = 1 := by
+  rw [BitVec.toNat_eq]; simp [BitVec.extractLsb'_toNat]
+
 end Tools.VedU1Lemmas
