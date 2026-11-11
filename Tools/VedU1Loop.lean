@@ -89,40 +89,71 @@ def loopsOf (e : Lean.Expr) : Array Lean.Expr :=
         | _ => pure ()
     return out)
 
-/-- the first `c ||| x` / `x ||| c` of `e` with `c` a nonzero numeral: `(c, x)` -/
-partial def natVal? (e : Lean.Expr) : Option Nat :=
-  match e.nat? with
-  | some n => some n
-  | none =>
-    if e.isAppOfArity ``HAdd.hAdd 6 then (·+·) <$> natVal? (e.getArg! 4) <*> natVal? (e.getArg! 5)
-    else if e.isAppOfArity ``HMul.hMul 6 then (·*·) <$> natVal? (e.getArg! 4) <*> natVal? (e.getArg! 5)
-    else if e.isAppOfArity ``HPow.hPow 6 then (·^·) <$> natVal? (e.getArg! 4) <*> natVal? (e.getArg! 5)
-    else none
+/-- all `a ||| b` on `Nat` in `e` (each distinct term once) -/
+def natOrs (e : Lean.Expr) : Array Lean.Expr := Id.run do
+  let mut out : Array Lean.Expr := #[]
+  let mut todo : Array Lean.Expr := #[e]
+  while !todo.isEmpty do
+    let x := todo.back!
+    todo := todo.pop
+    if x.isAppOfArity ``HOr.hOr 6 && (x.getArg! 0).isConstOf ``Nat then
+      unless out.contains x do out := out.push x
+    match x with
+    | .app f a => todo := (todo.push a).push f
+    | .lam _ t b _ => todo := (todo.push b).push t
+    | .forallE _ t b _ => todo := (todo.push b).push t
+    | .letE _ t v b _ => todo := ((todo.push b).push v).push t
+    | .mdata _ b => todo := todo.push b
+    | .proj _ _ b => todo := todo.push b
+    | _ => pure ()
+  return out
 
-def orLit? (e : Lean.Expr) : Option (Lean.Expr × Lean.Expr × Nat × Bool) :=
-  let lit (a : Lean.Expr) := match natVal? a with | some n => n != 0 | none => false
-  let hit := e.find? fun x => x.isAppOfArity ``HOr.hOr 6 && (lit (x.getArg! 4) || lit (x.getArg! 5))
-  hit.bind fun x =>
-    if lit (x.getArg! 4) then (natVal? (x.getArg! 4)).map (x.getArg! 4, x.getArg! 5, ·, false)
-    else (natVal? (x.getArg! 5)).map (x.getArg! 5, x.getArg! 4, ·, true)
+/-- a proof of `prop` by `omega` in the current context, or `none` (nothing is logged) -/
+def omegaProof? (prop : Lean.Expr) : TacticM (Option Lean.Expr) := do
+  let saved ← getGoals
+  let m ← mkFreshExprMVar prop
+  setGoals [m.mvarId!]
+  let r ← try
+      Tactic.withoutRecover (evalTactic (← `(tactic| omega)))
+      pure (← getGoals).isEmpty
+    catch _ => pure false
+  setGoals saved
+  if r then return some (← instantiateMVars m) else return none
 
-/-- `ved_or_lit`: rewrite `c ||| x` (`c` a numeral, `x` below `c`'s lowest set bit) as `c + x` -/
-elab "ved_or_lit" : tactic => do
-  let mut n := 0
-  while n < 64 do
-    n := n + 1
-    let some (c, x, cv, swapped) := orLit? (← instantiateMVars (← getMainTarget)) | break
-    let mut w := 0
-    while cv % 2 ^ (w + 1) == 0 do w := w + 1
-    let cs ← Term.exprToSyntax c
-    let xs ← Term.exprToSyntax x
-    let ws := Syntax.mkNumLit (toString w)
-    try
+/-- `ved_or_lit`: rewrite `c ||| x` (either order) as `c + x` when, for some `w`, `x < 2^w` and
+`c % 2^w = 0` (both proved by `omega`; `w` is the least with `x < 2^w`).  The single-register
+shape `(acc <<< 8) ||| byte`, and a numeral `c` with the small operand `x`. -/
+elab "ved_or_lit" : tactic => withMainContext do
+  let mut skip : Array Lean.Expr := #[]
+  for _ in [0:64] do
+    let tgt ← instantiateMVars (← getMainTarget)
+    let cands := (natOrs tgt).filter (!skip.contains ·)
+    let some t := cands[0]? | break
+    let a := t.getArg! 4
+    let b := t.getArg! 5
+    let mut done := false
+    for (c, x, swapped) in [(a, b, false), (b, a, true)] do
+      if done then break
+      -- least `w` with `x < 2^w`
+      let mut found : Option (Nat × Lean.Expr) := none
+      for w in [0:65] do
+        let p ← mkAppM ``LT.lt #[x, ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit w]]
+        if let some pf ← omegaProof? p then
+          found := some (w, pf)
+          break
+      let some (w, hx) := found | continue
+      let pc ← mkEq (← mkAppM ``HMod.hMod #[c, ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit w]]) (mkNatLit 0)
+      let some hc ← omegaProof? pc | continue
+      let lem ← mkAppM ``Tools.VedU1Lemmas.or_hi #[c, x, mkNatLit w, hx, hc]
+      let lemS ← Term.exprToSyntax lem
       if swapped then
-        evalTactic (← `(tactic| rw [Nat.or_comm $xs $cs, Tools.VedU1Lemmas.or_hi $cs $xs $ws (by omega) (by omega)]))
+        let cs ← Term.exprToSyntax c
+        let xs ← Term.exprToSyntax x
+        evalTactic (← `(tactic| rw [Nat.or_comm $xs $cs, $lemS:term]))
       else
-        evalTactic (← `(tactic| rw [Tools.VedU1Lemmas.or_hi $cs $xs $ws (by omega) (by omega)]))
-    catch _ => break
+        evalTactic (← `(tactic| rw [$lemS:term]))
+      done := true
+    unless done do skip := skip.push t
 
 /-- `i`-th component of a right-nested product value -/
 partial def compProj (e : Lean.Expr) (i : Nat) : MetaM Lean.Expr := do

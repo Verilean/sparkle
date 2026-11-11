@@ -319,7 +319,7 @@ def helperConsts (decl : Name) : MetaM (Array Name) := do
     for c in di.value.getUsedConstants do
       if seen.contains c then continue
       let some (.defnInfo _) := env.find? c | continue
-      if modOf c == modOf decl || (`Sparkle.IP).isPrefixOf c then
+      if modOf c == modOf decl || (`Sparkle.IP).isPrefixOf ((privateToUserName? c).getD c) then
         seen := seen.insert c
         out := out.push c
         todo := todo.push c
