@@ -116,4 +116,75 @@ theorem evalOp_eq_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) 
 theorem pure_val {dom : Sparkle.Core.Domain.DomainConfig} {α : Type} (a : α) (s : Nat) :
     (Sparkle.Core.Signal.Signal.pure (dom := dom) a).val s = a := rfl
 
+/-- `Operator.mul`/`shl`/`shr` (mod `2 ^ w`; no range hypothesis). -/
+theorem evalOp_mul_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .mul xs [a, b] w = some ((a * b) % 2 ^ w) := rfl
+
+theorem evalOp_shl_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .shl xs [a, b] w = some ((a <<< b) % 2 ^ w) := rfl
+
+theorem evalOp_shr_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .shr xs [a, b] w = some (a >>> b) := rfl
+
+theorem evalOp_lt_u_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .lt_u xs [a, b] w = some (if a < b then 1 else 0) := rfl
+
+theorem evalOp_le_u_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .le_u xs [a, b] w = some (if a ≤ b then 1 else 0) := rfl
+
+theorem evalOp_gt_u_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .gt_u xs [a, b] w = some (if b < a then 1 else 0) := rfl
+
+theorem evalOp_ge_u_lit (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .ge_u xs [a, b] w = some (if b ≤ a then 1 else 0) := rfl
+
+theorem evalOp_lt_s_lit (we : WEnv) (x y : Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .lt_s [x, y] [a, b] w =
+      some (if toSigned (max (widthOf we x) (widthOf we y)) a < toSigned (max (widthOf we x) (widthOf we y)) b then 1 else 0) := rfl
+
+open Sparkle.Core.Signal in
+theorem mul_val {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a b : Signal dom (BitVec n)) (s : Nat) : (a * b).val s = a.val s * b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem shl_val {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a b : Signal dom (BitVec n)) (s : Nat) : (a <<< b).val s = a.val s <<< b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem shr_val {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
+    (a b : Signal dom (BitVec n)) (s : Nat) : (a >>> b).val s = a.val s >>> b.val s := rfl
+
+open Sparkle.Core.Signal in
+theorem bool_and_val {dom : Sparkle.Core.Domain.DomainConfig}
+    (a b : Signal dom Bool) (s : Nat) : (a &&& b).val s = (a.val s && b.val s) := rfl
+
+open Sparkle.Core.Signal in
+theorem bool_or_val {dom : Sparkle.Core.Domain.DomainConfig}
+    (a b : Signal dom Bool) (s : Nat) : (a ||| b).val s = (a.val s || b.val s) := rfl
+
+open Sparkle.Core.Signal in
+theorem bool_xor_val {dom : Sparkle.Core.Domain.DomainConfig}
+    (a b : Signal dom Bool) (s : Nat) : (a ^^^ b).val s = xor (a.val s) (b.val s) := rfl
+
+open Sparkle.Core.Signal in
+theorem bool_compl_val {dom : Sparkle.Core.Domain.DomainConfig}
+    (a : Signal dom Bool) (s : Nat) : (~~~a).val s = !(a.val s) := rfl
+
+/-- Fallbacks without a range hypothesis (tried after the range-guarded forms): the value
+stays an expression, which the finite input domain closes. -/
+theorem evalOp_not_raw (we : WEnv) (x : Sparkle.IR.AST.Expr) (a w : Nat) :
+    evalOp we .not [x] [a] w = some ((a ^^^ (2 ^ widthOf we x - 1)) % 2 ^ widthOf we x) := rfl
+
+theorem evalOp_and_raw (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .and xs [a, b] w = some ((a &&& b) % 2 ^ w) := rfl
+
+theorem evalOp_or_raw (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .or xs [a, b] w = some ((a ||| b) % 2 ^ w) := rfl
+
+theorem evalOp_xor_raw (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .xor xs [a, b] w = some ((a ^^^ b) % 2 ^ w) := rfl
+
+theorem evalOp_sub_raw (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a b w : Nat) :
+    evalOp we .sub xs [a, b] w = some ((a + (2 ^ w - b % 2 ^ w)) % 2 ^ w) := rfl
+
 end Tools.VedU1Lemmas
