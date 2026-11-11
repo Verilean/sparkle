@@ -640,7 +640,6 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     for _ in [0:nDom] do f ← `($f Sparkle.Core.Domain.defaultDomain)
   let k := regs.length
   let hs := (List.range k).toArray.map fun i => mkIdent (Name.mkSimple s!"hreg{i}")
-  let xs := (List.range k).toArray.map fun i => mkIdent (Name.mkSimple s!"xreg{i}")
   let rNames := (regs.map fun r => Syntax.mkStrLit r.1).toArray
   let rWidths := (regs.map fun r => Syntax.mkNumLit (toString r.2)).toArray
   let insI := mkIdent `ins
@@ -662,7 +661,6 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   let hPat : TSyntax `rcasesPat ← match pats with
     | [] => `(rcasesPat| _)
     | _ => `(rcasesPat| ⟨$[$(pats.toArray)],*⟩)
-  let xsU := xs.push (mkIdent `ureg)
   -- `dbg = k` (controls / debugging only): print the goals after stage `k` and stop there
   let mut tacs : Array (TSyntax `tactic) := #[]
   tacs := tacs.push (← `(tactic| intro $insI hok $sI st mems $hR))
@@ -678,7 +676,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_loop_unfold ($sI + 1)),
       ← `(tactic| ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
-      ← `(tactic| ved_loop_gen $sI [$xsU,*])],
+      ← `(tactic| ved_loop_gen $sI)],
     #[← `(tactic| all_goals refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩),
       ← `(tactic| all_goals ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
       ← `(tactic| all_goals try (repeat' apply And.intro))],

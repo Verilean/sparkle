@@ -68,26 +68,20 @@ macro "ved_bit_simp" : tactic =>
 
 open Lean Meta Elab Tactic
 
-/-- the `Signal.loop` applications of `e` with no loose bound variable (outermost first) -/
-def loopsOf (e : Lean.Expr) : Array Lean.Expr :=
-  (Id.run do
-    let mut out : Array Lean.Expr := #[]
-    let mut todo : Array Lean.Expr := #[e]
-    while !todo.isEmpty do
-      let x := todo.back!
-      todo := todo.pop
-      if x.isAppOf ``Sparkle.Core.Signal.Signal.loop && !x.hasLooseBVars then
-        unless out.contains x do out := out.push x
-      else
-        match x with
-        | .app f a => todo := (todo.push a).push f
-        | .lam _ t b _ => todo := (todo.push b).push t
-        | .forallE _ t b _ => todo := (todo.push b).push t
-        | .letE _ t v b _ => todo := ((todo.push b).push v).push t
-        | .mdata _ b => todo := todo.push b
-        | .proj _ _ b => todo := todo.push b
-        | _ => pure ()
-    return out)
+/-- the `Signal.loop` applications of `e` with no loose bound variable, children before parents
+(a loop inside another's body comes first: the order the synthesizer allocates their registers) -/
+partial def collectLoops (e : Lean.Expr) (acc : Array Lean.Expr) : Array Lean.Expr :=
+  let acc := match e with
+    | .app f a => collectLoops a (collectLoops f acc)
+    | .lam _ t b _ => collectLoops b (collectLoops t acc)
+    | .forallE _ t b _ => collectLoops b (collectLoops t acc)
+    | .letE _ t v b _ => collectLoops b (collectLoops v (collectLoops t acc))
+    | .mdata _ b => collectLoops b acc
+    | .proj _ _ b => collectLoops b acc
+    | _ => acc
+  if e.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 && !e.hasLooseBVars && !acc.contains e then acc.push e else acc
+
+def loopsOf (e : Lean.Expr) : Array Lean.Expr := collectLoops e #[]
 
 /-- all `a ||| b` on `Nat` in `e` (each distinct term once) -/
 def natOrs (e : Lean.Expr) : Array Lean.Expr := Id.run do
@@ -181,9 +175,12 @@ def compWidth (ty : Lean.Expr) : MetaM (Option Nat) := do
   | (``BitVec, #[w]) => return (← instantiateMVars w).nat?
   | _ => return none
 
-/-- match the state's components to the module's registers `(name, width)` by width, in
-order (greedy; the kernel checks the choice): the `i`-th component's register -/
+/-- match the state's components to the module's registers `(name, width)`: position by position
+when the widths agree (the synthesizer allocates a loop's registers in component order), else by
+width in order (greedy); the kernel checks the choice -/
 def matchRegs (widths : List (Option Nat)) (regs : List (String × Nat)) : Option (List String) := Id.run do
+  if widths.length == regs.length && (widths.zip regs).all (fun (w, r) => w == some r.2) then
+    return some (regs.map (·.1))
   let mut avail := regs
   let mut out : List String := []
   for w in widths do
@@ -202,55 +199,67 @@ elab "ved_loop_R " ins:ident " [" ns:str,* "]" ws:num,* : tactic => withMainCont
   for d in ← getLCtx do
     unless d.isImplementationDetail do tgt := mkApp tgt (← instantiateMVars d.type)
   let loops := loopsOf tgt
-  let some L := loops[0]? | throwError "ved_loop_R: no Signal.loop in the goal"
+  if loops.isEmpty then throwError "ved_loop_R: no Signal.loop in the goal"
   let ms ← getMVars tgt
   let mut rId? : Option MVarId := none
   for m in ms do
     if (← m.getTag).eraseMacroScopes == `R then rId? := some m
   let some rId := rId? | throwError "ved_loop_R: no invariant mvar ?R in the goal"
   let regs := (ns.getElems.map (·.getString)).toList.zip (ws.getElems.map (·.getNat)).toList
-  let some α := L.getAppArgs[1]? | throwError "ved_loop_R: malformed Signal.loop"
-  let comps ← stateComps α
-  let widths ← comps.mapM fun c => compWidth c
+  -- the components of every loop, in loop order
+  let mut compsOf : Array (List Lean.Expr) := #[]
+  for L in loops do
+    let some α := L.getAppArgs[1]? | throwError "ved_loop_R: malformed Signal.loop"
+    compsOf := compsOf.push (← stateComps α)
+  let widths ← (compsOf.toList.flatten).mapM fun c => compWidth c
   let some names := matchRegs widths regs
-    | throwError "ved_loop_R: the state components {widths} do not match the module registers {regs}"
+    | throwError "ved_loop_R: the state components {widths} of {loops.size} loop(s) {compsOf.map (·.length)} do not match the module registers {regs}"
   forallTelescope (← inferType (mkMVar rId)) fun xs _ => do
     unless xs.size == 3 do throwError "ved_loop_R: unexpected invariant type"
-    let L' := L.replaceFVar insE xs[0]!
-    let lv ← mkAppM ``Sparkle.Core.Signal.Signal.val #[L', xs[1]!]
-    let mut conj : Option Lean.Expr := none
-    for i in (List.range names.length).reverse do
-      let c ← compToNat (← compProj lv i)
-      let eq ← mkEq (mkApp xs[2]! (mkStrLit names[i]!)) c
-      conj := some (match conj with | none => eq | some r => mkAnd eq r)
-    let some body := conj | throwError "ved_loop_R: no registers"
+    let mut eqs : Array Lean.Expr := #[]
+    let mut k := 0
+    for j in [0:loops.size] do
+      let L' := loops[j]!.replaceFVar insE xs[0]!
+      let lv ← mkAppM ``Sparkle.Core.Signal.Signal.val #[L', xs[1]!]
+      for i in [0:compsOf[j]!.length] do
+        let c ← compToNat (← compProj lv i)
+        eqs := eqs.push (← mkEq (mkApp xs[2]! (mkStrLit names[k]!)) c)
+        k := k + 1
+    let some last := eqs.back? | throwError "ved_loop_R: no registers"
+    let body := (eqs.pop).foldr (fun e r => mkAnd e r) last
     rId.assign (← mkLambdaFVars xs body)
 
-/-- `ved_loop_unfold t`: rewrite `(Signal.loop F).val t` by the fixpoint equation -/
+/-- `ved_loop_unfold t`: rewrite `(Signal.loop F).val t` by the fixpoint equation (every loop
+whose value at `t` occurs in the goal) -/
 macro "ved_loop_unfold " t:term : tactic =>
-  `(tactic| (rw [Tools.VedU1Loop.loop_val_unfold _ ?h0 ?hS $t]
-             case h0 => intro _ _; rfl
-             case hS => intro s1 s2 t h; simp only [h]))
+  `(tactic| repeat (rw [Tools.VedU1Loop.loop_val_unfold _ ?h0 ?hS $t]
+                    case h0 => intro _ _; rfl
+                    case hS => intro s1 s2 t h; simp only [h]))
 
-/-- `ved_loop_gen ins s X`: generalise the loop state `(Signal.loop F).val s` (the loop found in
-the goal or hypotheses) to the variable `X`, everywhere -/
-elab "ved_loop_gen " s:ident " [" xs:ident,* "]" : tactic => withMainContext do
+/-- `ved_loop_gen s`: generalise the state `(Signal.loop F).val s` of every loop found in the goal
+or hypotheses to variables, everywhere, and take the tuple apart (`Bool` components are split
+into their two values) -/
+elab "ved_loop_gen " s:ident : tactic => withMainContext do
   let sE ← elabTerm s.raw none
   let g ← getMainGoal
   let mut tgt ← instantiateMVars (← g.getType)
   for d in ← getLCtx do
     unless d.isImplementationDetail do tgt := mkApp tgt (← instantiateMVars d.type)
-  let some L := (loopsOf tgt)[0]? | throwError "ved_loop_gen: no Signal.loop in the goal"
-  let v ← mkAppM ``Sparkle.Core.Signal.Signal.val #[L, sE]
-  let vs ← Term.exprToSyntax v
-  let X := mkIdent `ved_X
-  evalTactic (← `(tactic| generalize $vs = $X at *))
-  let pats ← xs.getElems.mapM fun x => `(Lean.Parser.Tactic.rcasesPatLo| $x:ident)
-  evalTactic (← `(tactic| rcases $X:ident with ⟨$pats,*⟩))
-  -- a `Bool` component is split into its two values
-  for x in xs.getElems do
-    let some d := (← withMainContext getLCtx).findFromUserName? x.getId | continue
-    if (← whnfR d.type).isConstOf ``Bool then
-      evalTactic (← `(tactic| all_goals cases $x:ident))
+  let loops := loopsOf tgt
+  if loops.isEmpty then throwError "ved_loop_gen: no Signal.loop in the goal"
+  for j in [0:loops.size] do
+    let v ← mkAppM ``Sparkle.Core.Signal.Signal.val #[loops[j]!, sE]
+    let vs ← Term.exprToSyntax v
+    let X := mkIdent (Name.mkSimple s!"ved_X{j}")
+    evalTactic (← `(tactic| all_goals generalize $vs = $X at *))
+    let some α := loops[j]!.getAppArgs[1]? | throwError "ved_loop_gen: malformed Signal.loop"
+    let n := (← stateComps α).length
+    let xs := (List.range (n + 1)).toArray.map fun i => mkIdent (Name.mkSimple s!"ved_x{j}_{i}")
+    let pats ← xs.mapM fun x => `(Lean.Parser.Tactic.rcasesPatLo| $x:ident)
+    evalTactic (← `(tactic| all_goals rcases $X:ident with ⟨$pats,*⟩))
+    for x in xs do
+      let some d := (← withMainContext getLCtx).findFromUserName? x.getId | continue
+      if (← whnfR d.type).isConstOf ``Bool then
+        evalTactic (← `(tactic| all_goals cases $x:ident))
 
 end Tools.VedU1Loop
