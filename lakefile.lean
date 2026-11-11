@@ -418,9 +418,25 @@ lean_lib «Tests.Ved.U1EqWideCheck» where
 lean_lib «Tests.Ved.U1KTabCheck» where
   roots := #[`Tests.Ved.U1KTabCheck]
 
--- real IP rows with several registers built by Signal.loop (loop-state invariant)
+-- real IP rows with several registers built by Signal.loop (loop-state invariant): shared commands,
+-- the PR check (3 rows + refusal controls), the other 23 rows in three parts, all 26 together
+lean_lib «Tests.Ved.U1MultiLoopRow» where
+  roots := #[`Tests.Ved.U1MultiLoopRow]
+
 lean_lib «Tests.Ved.U1MultiLoopCheck» where
   roots := #[`Tests.Ved.U1MultiLoopCheck]
+
+lean_lib «Tests.Ved.U1MultiLoopFull1» where
+  roots := #[`Tests.Ved.U1MultiLoopFull1]
+
+lean_lib «Tests.Ved.U1MultiLoopFull2» where
+  roots := #[`Tests.Ved.U1MultiLoopFull2]
+
+lean_lib «Tests.Ved.U1MultiLoopFull3» where
+  roots := #[`Tests.Ved.U1MultiLoopFull3]
+
+lean_lib «Tests.Ved.U1MultiLoopAll» where
+  roots := #[`Tests.Ved.U1MultiLoopAll]
 
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]

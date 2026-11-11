@@ -79,7 +79,7 @@ jobs:
     - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
       run: lake build Tests.Ved.U1KTabCheck
 
-    - name: U1 on real IP with several Signal.loop registers (26 rows) and refusal controls
+    - name: "U1 on real IP with several Signal.loop registers: 3 representative rows and refusal controls"
       run: lake build Tests.Ved.U1MultiLoopCheck
 
     - name: Deep route, representative regression
@@ -125,8 +125,8 @@ jobs:
     - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
       run: lake build Tests.Ved.U1KTabCheck
 
-    - name: U1 on real IP with several Signal.loop registers (26 rows) and refusal controls
-      run: lake build Tests.Ved.U1MultiLoopCheck
+    - name: "U1 on real IP with several Signal.loop registers: all 26 rows (3 parts + PR check) and refusal controls"
+      run: lake build Tests.Ved.U1MultiLoopAll
 
     - name: Deep route, every regression file
       run: |

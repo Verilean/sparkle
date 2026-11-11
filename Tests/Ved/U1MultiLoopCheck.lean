@@ -1,18 +1,5 @@
-import Tools.VedU1Entry
-import Tests.IP.Bus.DroneCANHWTest
-import Tests.IP.Bus.PCIeTest
-import Tests.IP.Bus.SBUSHWTest
-import Tests.IP.Crypto.AESGCMHWTest
-import Tests.IP.Crypto.BLS12MillerHWTest
-import Tests.IP.Crypto.Ed25519SignHWTest
+import Tests.Ved.U1MultiLoopRow
 import Tests.IP.Crypto.Eip1559EnvelopeHWTest
-import Tests.IP.Crypto.GHASHHWSynth
-import Tests.IP.Crypto.HKDFHWTest
-import Tests.IP.Crypto.ModInvHWTest
-import Tests.IP.Crypto.RLPHWTest
-import Tests.IP.Net.HFTStrategyTest
-import Tests.IP.Net.HTTPTest
-import Tests.IP.Net.SLIPTest
 import Tests.IP.Net.UARTTest
 import Sparkle.Core.CircuitMonad
 import Sparkle.Core.CircuitDo
@@ -27,10 +14,14 @@ that register `n` of the returned module is the `toNat` of the loop-state compon
 `loopScriptFor` in `Tools/VedU1Entry.lean`).  No unsupplied hypothesis, no change to the statement
 (`U1Stmt c m f`), the kernel checks everything.
 
+This is the PR check: three representative rows and the refusal controls.  The other 23 accepted rows
+are in `U1MultiLoopFull1` / `Full2` / `Full3` (split so no single Lake module carries all 26 proofs;
+the one-file version took about 15 minutes as one module) and `U1MultiLoopAll` checks all 26 together.
+
 What is fixed here:
-1. the ORIGINAL (`private`) declarations of the rows below are accepted by `#ved_u1`, each followed
-   by the audit (std3 axioms);
-2. `checkAll`: for each row the stored type of `<decl>.ved_u1` compared with `==` against the expected
+1. the ORIGINAL (`private`) declarations `synth_uartTx`, `synth_uartRx`, `synth_envByte` are accepted
+   by `#ved_u1`, each followed by the audit (std3 axioms);
+2. `checkRows`: for each row the stored type of `<decl>.ved_u1` compared with `==` against the expected
    `U1Stmt <decl>.ved_contract <decl>.ved_mod <decl>` and the axioms are within std3;
 3. refusals (`expectRefused`, stage `[proof]`, nothing left behind): on the real `synth_uartTx`
    one register's next value changed, a wrong initial value; on the real `synth_envByte` two
@@ -44,17 +35,7 @@ open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
 open Tools.VedU1Contract Tools.VedU1Entry
 
-/-- the `private` declaration `user` of module `modName` (`_private.<mod>.0.<user>`) -/
-def privName (modName user : Name) : Name :=
-  Name.mkNum (`_private ++ modName) 0 ++ user
-
-/-- `#ved_u1` for a `private` declaration named by its module and user-facing name -/
-elab "#ved_u1_row " m:ident n:ident : command => do
-  let decl := privName m.getId n.getId
-  Command.liftTermElabM do
-    let (_, _, thm, _) ← vedU1EntryS decl
-    let r ← Tools.VedStrictAudit.strictAudit thm
-    logInfo m!"VED U1 OK {n.getId}: {Tools.VedStrictAudit.showNames r.axioms}"
+open Tests.Ved.U1MultiLoopRow
 
 /-! ## 1. Positives (the original declarations) -/
 
@@ -63,96 +44,19 @@ elab "#ved_u1_row " m:ident n:ident : command => do
 #guard_msgs (drop info) in
 #ved_u1_row Tests.IP.Net.UARTTest synth_uartRx
 #guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Bus.DroneCANHWTest synth_droneCanTidError
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Bus.PCIeTest synth_tlpRxAddr
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Bus.SBUSHWTest synth_sbusIdx
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Bus.SBUSHWTest synth_sbusCh0
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.AESGCMHWTest synth_gcmTagY
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.AESGCMHWTest synth_gcmTagFire
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.BLS12MillerHWTest synth_millerStep_done
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.Ed25519SignHWTest synth_ed25519SignS
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.Ed25519SignHWTest synth_ed25519SignDone
-#guard_msgs (drop info) in
 #ved_u1_row Tests.IP.Crypto.Eip1559EnvelopeHWTest synth_envByte
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.Eip1559EnvelopeHWTest synth_envDone
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.GHASHHWSynth synth_gmulHWResult
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.HKDFHWTest synth_hkdfCounter
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.HKDFHWTest synth_hkdfDone
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.HKDFHWTest synth_hkdfTrig
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.ModInvHWTest synth_modInvDone
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.ModInvHWTest synth_modInvMulStart
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.RLPHWTest synth_rlpHeaderValid
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Crypto.RLPHWTest synth_rlpHeaderDone
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Net.HFTStrategyTest synth_hftEmitCount
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Net.HFTStrategyTest synth_hftTriggerSeen
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Net.HTTPTest synth_httpRequestParser
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Net.HTTPTest synth_httpStatus
-#guard_msgs (drop info) in
-#ved_u1_row Tests.IP.Net.SLIPTest synth_slipFramerByte
 
 /-! ## 2. Stored type and axioms -/
 
-/-- the stored type is `U1Stmt c m (@decl defaultDomain …)`-free: the bare constant (no domain
-argument on these rows), compared with `==`; axioms within std3 -/
-def checkRow (decl : Name) : CoreM Unit := do
-  let nm := Names.ofBase decl
-  let thm := decl ++ `ved_u1
-  let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst decl]
-  let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
-  unless ti.type == expected do throwError "{thm}: type is not U1Stmt c m {decl}"
-  let ax ← collectAxioms thm
-  let ok := [``propext, ``Classical.choice, ``Quot.sound]
-  unless ax.all (ok.contains ·) do throwError "{thm}: axioms {ax}"
-
 def rows : List (Name × Name) :=
   [(`Tests.IP.Net.UARTTest, `synth_uartTx), (`Tests.IP.Net.UARTTest, `synth_uartRx),
-   (`Tests.IP.Bus.DroneCANHWTest, `synth_droneCanTidError), (`Tests.IP.Bus.PCIeTest, `synth_tlpRxAddr),
-   (`Tests.IP.Bus.SBUSHWTest, `synth_sbusIdx), (`Tests.IP.Bus.SBUSHWTest, `synth_sbusCh0),
-   (`Tests.IP.Crypto.AESGCMHWTest, `synth_gcmTagY), (`Tests.IP.Crypto.AESGCMHWTest, `synth_gcmTagFire),
-   (`Tests.IP.Crypto.BLS12MillerHWTest, `synth_millerStep_done),
-   (`Tests.IP.Crypto.Ed25519SignHWTest, `synth_ed25519SignS),
-   (`Tests.IP.Crypto.Ed25519SignHWTest, `synth_ed25519SignDone),
-   (`Tests.IP.Crypto.Eip1559EnvelopeHWTest, `synth_envByte),
-   (`Tests.IP.Crypto.Eip1559EnvelopeHWTest, `synth_envDone),
-   (`Tests.IP.Crypto.GHASHHWSynth, `synth_gmulHWResult),
-   (`Tests.IP.Crypto.HKDFHWTest, `synth_hkdfCounter), (`Tests.IP.Crypto.HKDFHWTest, `synth_hkdfDone),
-   (`Tests.IP.Crypto.HKDFHWTest, `synth_hkdfTrig),
-   (`Tests.IP.Crypto.ModInvHWTest, `synth_modInvDone), (`Tests.IP.Crypto.ModInvHWTest, `synth_modInvMulStart),
-   (`Tests.IP.Crypto.RLPHWTest, `synth_rlpHeaderValid), (`Tests.IP.Crypto.RLPHWTest, `synth_rlpHeaderDone),
-   (`Tests.IP.Net.HFTStrategyTest, `synth_hftEmitCount), (`Tests.IP.Net.HFTStrategyTest, `synth_hftTriggerSeen),
-   (`Tests.IP.Net.HTTPTest, `synth_httpRequestParser), (`Tests.IP.Net.HTTPTest, `synth_httpStatus),
-   (`Tests.IP.Net.SLIPTest, `synth_slipFramerByte)]
+   (`Tests.IP.Crypto.Eip1559EnvelopeHWTest, `synth_envByte)]
 
-def checkAll : CommandElabM Unit := liftCoreM do
-  for (m, n) in rows do checkRow (privName m n)
-  logInfo m!"OK {rows.length} rows: stored type = U1Stmt c m F, axioms within std3"
-
-/-- info: OK 26 rows: stored type = U1Stmt c m F, axioms within std3 -/
+/-- info: OK 3 rows: stored type = U1Stmt c m F, axioms within std3 -/
 #guard_msgs in
-run_cmd checkAll
+run_cmd checkRows rows
 
-example : rows.length = 26 := by decide
+example : rows.length = 3 := by decide
 
 /-! ## 3. Refusals -/
 
