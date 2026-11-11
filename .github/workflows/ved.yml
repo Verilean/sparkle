@@ -76,6 +76,9 @@ jobs:
     - name: U1 on real IP with == and wide inputs (aluSignal, hazardSignal, lqrCtrlTop, canopenIsNmt, droneCanNodeFilter)
       run: lake build Tests.Ved.U1EqWideCheck
 
+    - name: U1 on real IP with several Signal.loop registers (26 rows) and refusal controls
+      run: lake build Tests.Ved.U1MultiLoopCheck
+
     - name: Deep route, representative regression
       run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
 
@@ -115,6 +118,9 @@ jobs:
 
     - name: U1 on real IP with == and wide inputs (aluSignal, hazardSignal, lqrCtrlTop, canopenIsNmt, droneCanNodeFilter)
       run: lake build Tests.Ved.U1EqWideCheck
+
+    - name: U1 on real IP with several Signal.loop registers (26 rows) and refusal controls
+      run: lake build Tests.Ved.U1MultiLoopCheck
 
     - name: Deep route, every regression file
       run: |

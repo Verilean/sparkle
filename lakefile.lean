@@ -408,6 +408,10 @@ lean_lib «Tests.Ved.U1KeccakRcCheck» where
 lean_lib «Tests.Ved.U1EqWideCheck» where
   roots := #[`Tests.Ved.U1EqWideCheck]
 
+-- real IP rows with several registers built by Signal.loop (loop-state invariant)
+lean_lib «Tests.Ved.U1MultiLoopCheck» where
+  roots := #[`Tests.Ved.U1MultiLoopCheck]
+
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]
 
