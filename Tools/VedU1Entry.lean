@@ -239,6 +239,20 @@ def addDefn (n : Name) (ty val : Lean.Expr) : MetaM Unit := do
   addDecl (.defnDecl (mkDefinitionValEx n [] ty val .abbrev .safe []))
   enableRealizationsForConst n
 
+open Lean Elab Tactic Meta in
+/-- Closes an equation `a = b` by `Eq.refl a` WITHOUT checking `a ≡ b` in the elaborator: the kernel
+checks the definitional equality when the theorem is added (a false equation is a `[kernel]`
+refusal).  For the table equations whose two sides the elaborator would unfold through hundreds of
+statements (the kernel does it much cheaper). -/
+elab "ved_kernel_rfl" : tactic => do
+  let g ← getMainGoal
+  g.withContext do
+    let t ← whnfR (← instantiateMVars (← g.getType))
+    let some (α, a, _) := t.eq? | throwError "ved_kernel_rfl: not an equation"
+    let u ← getLevel α
+    g.assign (mkApp2 (Lean.mkConst ``Eq.refl [u]) α a)
+    replaceMainGoal []
+
 /-- Names of the constants the checker registers for one check. -/
 structure Names where
   mod : Name
@@ -302,10 +316,11 @@ def tblDataOf? (m : Sparkle.IR.AST.Module) (inp : String) : Option Tools.VedU1Ta
       | _ => none
     fl := fl.push f
   let Fl := fl.toList
+  let chunks : List (List Form) := (List.range ((fl.size + 31) / 32)).map fun c => (Fl.drop (32 * c)).take 32
   let bpL := (List.range t).map fun k => match Fl.getD (3 * k + 1) (.const 0 0) with | .eqIn j => j | _ => 0
   let rtL := (List.range t).map fun k => match Fl.getD (3 * t + (t - k)) (.const 0 0) with | .mux _ r _ => r | _ => 0
   let rl := match Fl.getD (3 * t + 1) (.const 0 0) with | .mux _ _ f => f | _ => 0
-  let D0 : TblData := { Fl, t, bpL, rtL, rl, tbl := [], last := 0, iw, w, inp }
+  let D0 : TblData := { Fl := chunks, t, bpL, rtL, rl, tbl := [], last := 0, iw, w, inp }
   let tbl := (List.range t).map fun k => ((kv D0.Fn (rtL.getD k 0 + 1) (rtL.getD k 0))).getD 0
   let last := (kv D0.Fn (rl + 1) rl).getD 0
   let D : TblData := { D0 with tbl, last }
@@ -353,7 +368,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
         let Dc := mkCIdent dn
         return ← `(by
           have hD : ($Dc).ok = true := by decide +kernel
-          have hbody : ($M).body = ($Dc).body := by decide +kernel
+          have hbody : ($M).body = ($Dc).body := by ved_kernel_rfl
           have hB : $B = ($M).body := rfl
           have hin : ($M).inputs.map (·.name) = [($Dc).inp] := by decide +kernel
           have hout : ∀ p ∈ ($M).outputs, p.name = "out" := by decide +kernel
@@ -361,7 +376,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             rw [hB, hbody]
             exact Tools.VedU1TableGen.orderOk_table $Dc hD $M hbody hin hout
           have hw : ($M).wires.map (·.name) = ($Dc).inp :: (List.range (4 * ($Dc).t + 1)).map (Tools.VedU1TableGen.Wt ($Dc).t) := by
-            decide +kernel
+            ved_kernel_rfl
           have hnd : (($M).wires.map (·.name)).Nodup := by
             rw [hw]; exact Tools.VedU1TableGen.nodup_table $Dc hD
           have hregs : ∀ r ∈ regsOf ($M).body, ∃ p ∈ ($M).wires, p.name = r.1 ∧ scalar p.ty = true := by
