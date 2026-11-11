@@ -86,7 +86,9 @@ The proof script is UNTRUSTED (the kernel checks it).  This slice's script
 covers register-free modules built from not/and/or/xor/add/sub/mux/slice,
 two-field concatenation, `==`, constants and `kLut!` mux chains (lemmas in
 Tools/VedU1Lemmas.lean; a body with `==` is closed by a kernel `decide` over the
-input domain), and modules with
+input domain only when the data inputs total at most 16 bits; above that, inputs of
+at most 6 bits are enumerated value by value and wider inputs stay symbolic, closed
+by `simp` + `omega`), and modules with
 exactly one register whose current value is the output (a delay); it is not
 complete for every circuit these operators can build; any other body makes the script fail,
 and the entry then refuses (stage `proof`), it never accepts.  The general
@@ -303,7 +305,8 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
   match reg? with
   | none =>
     -- the input domain closes what the rewriting leaves (`==` against constants,
-    -- a table's mux chain): every data input generalised, the goal reverted to
+    -- a table's mux chain) when the data inputs total at most 16 bits (`wide` below
+    -- is false): every data input generalised, the goal reverted to
     -- `∀ x₀, x₀ < 2^w₀ → … → G` and decided by the kernel
     let insI := mkIdent `ins
     let sI := mkIdent `s
@@ -625,8 +628,10 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     -- a runtime limit (heartbeats, recursion depth) here is a `proof` refusal
     -- (the script is too costly), not the catch-all `checker`
-    -- (aff81fa7's size-scaled budget is subsumed by `withProofBudget`: its limits
-    -- are at least the caller's times 8 for every module)
+    -- (aff81fa7's size-scaled budget is replaced by `withProofBudget`: the limits are
+    -- max(caller, `ved.u1.proofRecDepth` / `ved.u1.proofHeartbeats`), not a fixed
+    -- multiple of the caller's; a caller with `maxHeartbeats 0` (unlimited) gets the
+    -- finite option value)
     let pf ← tryCatchRuntimeEx
         (withProofBudget do
         withoutErrToSorry do
