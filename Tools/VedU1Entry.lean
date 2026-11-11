@@ -2,6 +2,7 @@ import Lean
 import Sparkle.Compiler.Elab
 import Tools.VedU1Contract
 import Tools.VedU1Lemmas
+import Tools.VedU1Loop
 import Tools.VedStrictAudit
 
 /-!
@@ -204,6 +205,48 @@ theorem not_outputs_of_witness (c : Contract) (m : Module) (f : c.table.Ty)
 
 theorem not_u1_of_not_outputs {c : Contract} {m : Module} {f : c.table.Ty}
     (h : ¬ OutputsStmt c m f) : ¬ U1Stmt c m f := fun hu => h hu.2.2.2.2
+
+/-- The fixed `simp` set of the generated step proofs (`scriptFor`'s register paths): the
+module-evaluation unfolding and the operator lemmas.  The per-declaration constants (module,
+body, outputs, contract, the declaration) and the helper definitions are the `ex` list.  Only
+the script uses it; the kernel checks the result. -/
+syntax (name := vedCoreSimp) "ved_core_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
+
+macro_rules
+  | `(tactic| ved_core_simp [$ex,*] $[$loc]?) =>
+    `(tactic| simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
+        Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
+        widthOf, seedIn, applyNexts, declWidth, srcOf, contractOf, applyIns, 
+        Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
+        Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, 
+        Tools.VedU1Lemmas.compl_val,
+        Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit,
+        Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val,
+        Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val,
+        Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add,
+        Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub,
+        Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val,
+        Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.evalOp_mul_lit, Tools.VedU1Lemmas.evalOp_shl_lit, Tools.VedU1Lemmas.evalOp_shr_lit, Tools.VedU1Lemmas.evalOp_lt_u_lit, Tools.VedU1Lemmas.evalOp_le_u_lit, Tools.VedU1Lemmas.evalOp_gt_u_lit, Tools.VedU1Lemmas.evalOp_ge_u_lit, Tools.VedU1Lemmas.evalOp_lt_s_lit, Tools.VedU1Lemmas.mul_val, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedU1Lemmas.append_def_sc, Tools.VedU1Lemmas.append_def_cs, Tools.VedU1Lemmas.evalOp_asr_lit, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.mask_emod, Tools.VedU1Lemmas.slt_eq, Tools.VedU1Lemmas.ult_eq, Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, Tools.VedU1Lemmas.evalOp_not_raw, Tools.VedU1Lemmas.evalOp_and_raw, Tools.VedU1Lemmas.evalOp_or_raw, Tools.VedU1Lemmas.evalOp_xor_raw, Tools.VedU1Lemmas.evalOp_sub_raw, Tools.VedU1Lemmas.shl_val, Tools.VedU1Lemmas.shr_val, BitVec.toNat_mul, BitVec.toNat_shiftLeft, BitVec.toNat_ushiftRight, BitVec.shiftLeft_eq', BitVec.ushiftRight_eq', Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.append_def, Tools.VedU1Lemmas.toNat_append', Sparkle.Core.Signal.Signal.map,
+        Seq.seq, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, BitVec.toNat_append,
+        BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat,
+        List.lookup, Option.getD_some, Option.getD_none, -Nat.reduceAdd, $ex,*] $[$loc]?)
+
+/-- The `simp` of the wide path's closing tactic (`BitVec` / operator lemmas); `ex` are extra
+simp lemmas. -/
+syntax (name := vedWideSimp) "ved_wide_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
+
+macro_rules
+  | `(tactic| ved_wide_simp [$ex,*] $[$loc]?) =>
+    `(tactic| simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
+
+/-- The closing tactic of the wide path (`scriptFor`): `ved_wide_simp`, then `omega`, else a
+case split on the remaining `if`s and `omega`.  `ex` are extra simp lemmas (the range facts of
+the wide inputs). -/
+syntax (name := vedWideClose) "ved_wide_close " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
+macro_rules
+  | `(tactic| ved_wide_close [$ex,*]) =>
+    `(tactic| ((try ved_wide_simp [$ex,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> omega))))
 
 /-! ## The entry -/
 
@@ -439,6 +482,84 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
           simp
           try omega)
 
+/-- The generated (untrusted) proof script for a module whose registers come from ONE
+`Signal.loop` over their tuple (`circuit do`): the invariant "register `n` of the module is the
+`toNat` of the loop-state component it implements, at the same cycle" (`ved_loop_R`, matching the
+components to `regs` by width, in order), proved by induction on the cycle
+(`Tools.VedU1Loop.loop_val_unfold`: the state at `s+1` from the state at `s`; initially from
+cycle 0).  The loop state is generalised to variables (`ved_loop_gen`; `Bool` components split)
+and the module's step is compared with the loop's step by the wide path's closing tactics.
+`regs` is the module's registers `(name, width)`. -/
+def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
+    (helpers : Array Name) : TermElabM Syntax := do
+  let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+    helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
+  let C := mkCIdent nm.contract
+  let M := mkCIdent nm.mod
+  let O := mkCIdent nm.outs
+  let B := mkCIdent nm.body
+  let fI := mkCIdent F
+  let mut f : Term := fI
+  if nDom > 0 then
+    f ← `(@$fI)
+    for _ in [0:nDom] do f ← `($f Sparkle.Core.Domain.defaultDomain)
+  let k := regs.length
+  let hs := (List.range k).toArray.map fun i => mkIdent (Name.mkSimple s!"hreg{i}")
+  let xs := (List.range k).toArray.map fun i => mkIdent (Name.mkSimple s!"xreg{i}")
+  let rNames := (regs.map fun r => Syntax.mkStrLit r.1).toArray
+  let rWidths := (regs.map fun r => Syntax.mkNumLit (toString r.2)).toArray
+  let insI := mkIdent `ins
+  let sI := mkIdent `s
+  let hinI := mkIdent `hin
+  let hrstI := mkIdent `hrst
+  let hR := mkIdent `hR
+  let vI := mkIdent `vsrc
+  let hv := mkIdent `hvsrc
+  let hsAll : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+    hs.mapM fun h => `(Lean.Parser.Tactic.simpLemma| $h:ident)
+  let ex1 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems (hsA ++ hsAll)
+  let ex2 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems (hsA ++ hsAll.push (← `(Lean.Parser.Tactic.simpLemma| $hrstI:ident)))
+  let exHelp : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems hsA
+  let pats ← (hs.toList).mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
+  let hPat : TSyntax `rcasesPat ← match pats with
+    | [] => `(rcasesPat| _)
+    | _ => `(rcasesPat| ⟨$[$(pats.toArray)],*⟩)
+  let xsU := xs.push (mkIdent `ureg)
+  `(by
+      have hord : OrderOk $M $B = true := by decide +kernel
+      refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+      apply outputs_of_order $B hord
+      refine outputs_of_step $C $M $B $f $O (by decide +kernel) ?R ?h0 ?hstep
+      case hstep =>
+        intro $insI hok $sI st mems $hR
+        have $hinI := hok.1 $sI
+        have $hrstI := hok.2 $sI
+        simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident
+        -- the loop of the declaration, in the simp normal form of the goal
+        obtain ⟨$vI, $hv⟩ : ∃ v, v = srcOf $C $f $insI "out" $sI := ⟨_, rfl⟩
+        ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $exHelp,*] at $hv:ident
+        ved_loop_R $insI [$rNames,*] $rWidths,*
+        clear $hv
+        obtain $hPat := $hR
+        ved_loop_unfold ($sI + 1)
+        ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]
+        ved_loop_gen $sI [$xsU,*]
+        all_goals refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩
+        all_goals ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]
+        all_goals try (repeat' apply And.intro)
+        all_goals ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod]
+        all_goals (try ved_bit_simp)
+        all_goals (try ved_or_lit)
+        all_goals ved_wide_close [BitVec.toNat_eq, Nat.and_one_is_mod]
+      case h0 =>
+        intro $insI hok
+        ved_loop_unfold 0
+        simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth]
+        all_goals decide +kernel)
+
 open Sparkle.IR.Reorder in
 /-- A well-ordered arrangement of a body (untrusted proof data: `OrderOk`
 checks it in the kernel).  Stable: repeatedly take the FIRST remaining
@@ -621,6 +742,10 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       | .generated =>
         let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
         if stmt.getAppFn.isConst then
+          let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+          if regs.length ≥ 2 then
+            loopScriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs regs (← helperConsts stmt.getAppFn.constName!)
+          else
           scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
         else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
       | .term s => pure s
@@ -648,7 +773,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
     -- the kernel, synchronously, with EXACTLY the expected type
     tryCatchRuntimeEx
-      (withOptions (fun o => o.setBool `Elab.async false) do
+      (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
         addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
       fun e => refuse decl "kernel" e.toMessageData
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
