@@ -99,18 +99,24 @@ def netChain (dataIns : List String) (b : List Stmt) : Nat → String → List S
       | some r => x :: (refsOf r).flatMap (netChain dataIns b fuel)
       | none => []
 
+/-- The first leaf of a net that is not a parent data input, with its kind. -/
+def badLeaf (d : Design) (dataIns : List String) (b : List Stmt) : Nat → String → Option String
+  | 0, x => some s!"{x} (the net is too deep)"
+  | fuel + 1, x =>
+    if dataIns.contains x then none
+    else if (regOuts b).contains x then
+      some s!"{x} is a parent register output (a register-driven instance input has no closed Lean term over the parent inputs when the register is a loop: H2c covers nets computed from parent data inputs only)"
+    else if (instOutsOf d b).contains x then
+      some s!"{x} is another instance's output (a chained instance input)"
+    else match asgOf b x with
+      | some r => (refsOf r).findSome? (badLeaf d dataIns b fuel)
+      | none => some s!"{x} is neither a parent data input nor assigned (the clock/reset or an undriven name)"
+
 /-- Why a net is not a pure function of the parent data inputs. -/
 def netWhy (d : Design) (dataIns : List String) (b : List Stmt) (x : String) : String :=
-  if (regOuts b).contains x then
-    s!"{x} is a parent register output (a register-driven instance input has no closed Lean term over the parent inputs when the register is a loop: H2c covers nets computed from parent data inputs only)"
-  else if (instOutsOf d b).contains x then
-    s!"{x} is another instance's output (a chained instance input)"
-  else match asgOf b x with
-    | some r =>
-      match (refsOf r).find? (fun y => !pureNetB dataIns b b.length y) with
-      | some y => s!"{x} is computed from {y}, which is not a parent data input ({y} is a register output, an instance output, the clock/reset or undriven)"
-      | none => s!"{x} is not a pure net"
-    | none => s!"{x} is not a parent data input and has no assignment"
+  match badLeaf d dataIns b b.length x with
+  | some msg => s!"{x} is computed from a net that is not a function of the data inputs: {msg}"
+  | none => s!"{x} is not a pure net"
 
 /-- The first reason an instance's connections are outside H2b/H2c (plain inputs for the clock and
 reset ports; each data port a parent data input or a net computed from the data inputs only). -/
