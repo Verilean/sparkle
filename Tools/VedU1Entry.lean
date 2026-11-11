@@ -261,6 +261,14 @@ macro_rules
   | `(tactic| ved_wide_close [$ex,*]) =>
     `(tactic| ((try ved_wide_simp [$ex,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> omega))))
 
+/-- `ved_wide_close` for the loop path: after the case split, the `|||` with a numeral that the
+split exposed (`x >>> 1 ||| 128`) is rewritten by `ved_or_lit` before `omega`. -/
+syntax (name := vedLoopClose) "ved_loop_close " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
+macro_rules
+  | `(tactic| ved_loop_close [$ex,*]) =>
+    `(tactic| ((try ved_wide_simp [$ex,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> omega))))
+
 /-! ## The entry -/
 
 open Lean Meta Elab Term
@@ -618,7 +626,7 @@ cycle 0).  The loop state is generalised to variables (`ved_loop_gen`; `Bool` co
 and the module's step is compared with the loop's step by the wide path's closing tactics.
 `regs` is the module's registers `(name, width)`. -/
 def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
-    (helpers : Array Name) : TermElabM Syntax := do
+    (helpers : Array Name) (dbg : Nat := 0) : TermElabM Syntax := do
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
   let C := mkCIdent nm.contract
@@ -655,37 +663,49 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     | [] => `(rcasesPat| _)
     | _ => `(rcasesPat| ⟨$[$(pats.toArray)],*⟩)
   let xsU := xs.push (mkIdent `ureg)
+  -- `dbg = k` (controls / debugging only): print the goals after stage `k` and stop there
+  let mut tacs : Array (TSyntax `tactic) := #[]
+  tacs := tacs.push (← `(tactic| intro $insI hok $sI st mems $hR))
+  tacs := tacs.push (← `(tactic| have $hinI := hok.1 $sI))
+  tacs := tacs.push (← `(tactic| have $hrstI := hok.2 $sI))
+  tacs := tacs.push (← `(tactic| simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident))
+  -- the loop of the declaration, in the simp normal form of the goal
+  tacs := tacs.push (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = srcOf $C $f $insI "out" $sI := ⟨_, rfl⟩))
+  tacs := tacs.push (← `(tactic| ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $exHelp,*] at $hv:ident))
+  tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
+  tacs := tacs.push (← `(tactic| clear $hv))
+  tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
+  let stages : Array (Array (TSyntax `tactic)) := #[
+    #[← `(tactic| ved_loop_unfold ($sI + 1)),
+      ← `(tactic| ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
+      ← `(tactic| ved_loop_gen $sI [$xsU,*])],
+    #[← `(tactic| all_goals refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩),
+      ← `(tactic| all_goals ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
+      ← `(tactic| all_goals try (repeat' apply And.intro))],
+    #[← `(tactic| all_goals (try ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod])),
+      ← `(tactic| all_goals (try ved_bit_simp)),
+      ← `(tactic| all_goals (try ved_or_lit))],
+    #[← `(tactic| all_goals ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])]]
+  let stop ← `(tactic| (trace_state; all_goals sorry))
+  if dbg == 1 then tacs := tacs.push stop
+  else
+    for k in [0:stages.size] do
+      if dbg == 0 || dbg > k + 1 then tacs := tacs ++ stages[k]!
+      if dbg == k + 2 then tacs := tacs.push stop
+  let h0tacs : Array (TSyntax `tactic) := #[
+    ← `(tactic| intro $insI hok),
+    ← `(tactic| ved_loop_unfold 0),
+    ← `(tactic| simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth]),
+    ← `(tactic| all_goals decide +kernel)]
   `(by
       have hord : OrderOk $M $B = true := by decide +kernel
       refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
       apply outputs_of_order $B hord
       refine outputs_of_step $C $M $B $f $O (by decide +kernel) ?R ?h0 ?hstep
       case hstep =>
-        intro $insI hok $sI st mems $hR
-        have $hinI := hok.1 $sI
-        have $hrstI := hok.2 $sI
-        simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident
-        -- the loop of the declaration, in the simp normal form of the goal
-        obtain ⟨$vI, $hv⟩ : ∃ v, v = srcOf $C $f $insI "out" $sI := ⟨_, rfl⟩
-        ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $exHelp,*] at $hv:ident
-        ved_loop_R $insI [$rNames,*] $rWidths,*
-        clear $hv
-        obtain $hPat := $hR
-        ved_loop_unfold ($sI + 1)
-        ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]
-        ved_loop_gen $sI [$xsU,*]
-        all_goals refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩
-        all_goals ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]
-        all_goals try (repeat' apply And.intro)
-        all_goals ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod]
-        all_goals (try ved_bit_simp)
-        all_goals (try ved_or_lit)
-        all_goals ved_wide_close [BitVec.toNat_eq, Nat.and_one_is_mod]
+        $tacs*
       case h0 =>
-        intro $insI hok
-        ved_loop_unfold 0
-        simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth]
-        all_goals decide +kernel)
+        $h0tacs*)
 
 open Sparkle.IR.Reorder in
 /-- A well-ordered arrangement of a body (untrusted proof data: `OrderOk`

@@ -99,26 +99,29 @@ partial def natVal? (e : Lean.Expr) : Option Nat :=
     else if e.isAppOfArity ``HPow.hPow 6 then (·^·) <$> natVal? (e.getArg! 4) <*> natVal? (e.getArg! 5)
     else none
 
-def orLit? (e : Lean.Expr) : Option (Lean.Expr × Lean.Expr × Nat) :=
+def orLit? (e : Lean.Expr) : Option (Lean.Expr × Lean.Expr × Nat × Bool) :=
   let lit (a : Lean.Expr) := match natVal? a with | some n => n != 0 | none => false
   let hit := e.find? fun x => x.isAppOfArity ``HOr.hOr 6 && (lit (x.getArg! 4) || lit (x.getArg! 5))
   hit.bind fun x =>
-    if lit (x.getArg! 4) then (natVal? (x.getArg! 4)).map (x.getArg! 4, x.getArg! 5, ·)
-    else (natVal? (x.getArg! 5)).map (x.getArg! 5, x.getArg! 4, ·)
+    if lit (x.getArg! 4) then (natVal? (x.getArg! 4)).map (x.getArg! 4, x.getArg! 5, ·, false)
+    else (natVal? (x.getArg! 5)).map (x.getArg! 5, x.getArg! 4, ·, true)
 
 /-- `ved_or_lit`: rewrite `c ||| x` (`c` a numeral, `x` below `c`'s lowest set bit) as `c + x` -/
 elab "ved_or_lit" : tactic => do
   let mut n := 0
   while n < 64 do
     n := n + 1
-    let some (c, x, cv) := orLit? (← instantiateMVars (← getMainTarget)) | break
+    let some (c, x, cv, swapped) := orLit? (← instantiateMVars (← getMainTarget)) | break
     let mut w := 0
     while cv % 2 ^ (w + 1) == 0 do w := w + 1
     let cs ← Term.exprToSyntax c
     let xs ← Term.exprToSyntax x
     let ws := Syntax.mkNumLit (toString w)
     try
-      evalTactic (← `(tactic| rw [Tools.VedU1Lemmas.or_hi $cs $xs $ws (by omega) (by omega)]))
+      if swapped then
+        evalTactic (← `(tactic| rw [Nat.or_comm $xs $cs, Tools.VedU1Lemmas.or_hi $cs $xs $ws (by omega) (by omega)]))
+      else
+        evalTactic (← `(tactic| rw [Tools.VedU1Lemmas.or_hi $cs $xs $ws (by omega) (by omega)]))
     catch _ => break
 
 /-- `i`-th component of a right-nested product value -/
