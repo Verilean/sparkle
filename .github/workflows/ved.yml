@@ -23,6 +23,7 @@ on:
       - 'Tools/SVParser/**'
       - 'Tools/VedStrictAudit.lean'
       - 'Tools/VedU1*.lean'
+      - 'Tools/VedU2*.lean'
       - 'Tools/VedIRDecEq.lean'
       - 'Tests/Verification/**'
       - 'Tests/Ved/**'
@@ -66,6 +67,9 @@ jobs:
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
+    - name: H2 stateful hierarchy (semantics, open parent, H2a entry; accept and refuse controls)
+      run: lake build Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierPin
+
     - name: Deep route, representative regression
       run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
 
@@ -96,6 +100,9 @@ jobs:
 
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
+
+    - name: H2 stateful hierarchy (semantics, open parent, H2a entry; accept and refuse controls)
+      run: lake build Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierPin
 
     - name: Deep route, every regression file
       run: |
