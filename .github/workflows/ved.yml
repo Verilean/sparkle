@@ -67,8 +67,8 @@ jobs:
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
-    - name: H2 stateful hierarchy (semantics, open parent, H2a entry; accept and refuse controls)
-      run: lake build Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierPin
+    - name: H2 stateful hierarchy (semantics, open parent, H2a entry, H2b parent registers; accept and refuse controls)
+      run: lake build Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierPin
 
     - name: U1 on a real IP leaf (keccakRcHW, 32 x 64-bit constants)
       run: lake build Tests.Ved.U1KeccakRcCheck
@@ -107,8 +107,8 @@ jobs:
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
-    - name: H2 stateful hierarchy (semantics, open parent, H2a entry; accept and refuse controls)
-      run: lake build Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierPin
+    - name: H2 stateful hierarchy (semantics, open parent, H2a entry, H2b parent registers; accept and refuse controls)
+      run: lake build Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierPin
 
     - name: U1 on a real IP leaf (keccakRcHW, 32 x 64-bit constants)
       run: lake build Tests.Ved.U1KeccakRcCheck
