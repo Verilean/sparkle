@@ -79,6 +79,9 @@ jobs:
     - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
       run: lake build Tests.Ved.U1KTabCheck
 
+    - name: U1 on real IP with several Signal.loop registers (26 rows) and refusal controls
+      run: lake build Tests.Ved.U1MultiLoopCheck
+
     - name: Deep route, representative regression
       run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
 
@@ -121,6 +124,9 @@ jobs:
 
     - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
       run: lake build Tests.Ved.U1KTabCheck
+
+    - name: U1 on real IP with several Signal.loop registers (26 rows) and refusal controls
+      run: lake build Tests.Ved.U1MultiLoopCheck
 
     - name: Deep route, every regression file
       run: |
