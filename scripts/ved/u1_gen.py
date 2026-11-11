@@ -541,6 +541,9 @@ PRE_PROBE_U2 = PRE_PROBE_HIER.replace(
 assert PRE_PROBE_U2 != PRE_PROBE_HIER
 
 
+PROBE_RECDEPTH = "set_option maxRecDepth 20000 in\n"
+
+
 def block_pieces(r, route, ns):
     """[(segment, text)] in order; segment is None for plumbing."""
     opts = lean_option_lines(r["options"], "default")
@@ -575,7 +578,9 @@ def block_pieces(r, route, ns):
     if route == "u1_packed":
         probe = [("probe", PACKED_PROBE_DEF), ("probe", sub(PACKED_PROBE))]
     else:
-        probe = [("probe", sub(PROBE_HIER_U2 if route == "u2_hier" else PROBE_HIER if hier else PROBE))]
+        # the probe evaluates `toExpr` values back (`Meta.evalExpr` reads the OPTION maxRecDepth): a 256-entry
+        # table module exceeds the default 512, so the probe (measurement only) gets a larger finite limit
+        probe = [("probe", PROBE_RECDEPTH + sub(PROBE_HIER_U2 if route == "u2_hier" else PROBE_HIER if hier else PROBE))]
     p += probe + [("probe", '#vedu1_t "probe_end"'),
           (None, f"end {ns}"), (None, "-- ===== VED U1 END =====")]
     return p
