@@ -1,4 +1,5 @@
 import Tools.VedU2HierNet
+import Tools.VedU2HierState
 
 /-!
 # H2c-state: an instance's output at ONE cycle, for a combinational child (`kid_step`)
@@ -18,6 +19,18 @@ supplies only `F t port = (the wire's value at cycle t)`.
 -/
 
 namespace Tools.VedU2Hier
+
+open Lean Elab Tactic Meta in
+/-- `ved_kernel_exact h` closes the goal by the term `h` WITHOUT checking in the elaborator that `h`'s type is
+the goal: the kernel checks the conversion when the theorem is added (a wrong one is a `[kernel]`
+refusal).  For the conversions that need the kernel's cheaper unfolding (a parent's loop against the
+open parent's loop that differs only in dead code). -/
+elab "ved_kernel_exact " t:term : tactic => do
+  let g ← getMainGoal
+  g.withContext do
+    let e ← instantiateMVars (← Term.elabTerm t none)
+    g.assign e
+    replaceMainGoal []
 
 open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.IR.Reorder
 open Tools.VedU1Contract Tools.VedU1Hier
@@ -222,5 +235,28 @@ theorem kid_step (d : Design) (arr : Module → List Stmt) (m : Module)
   have hee : env = Ec := (Option.some.inj he).symm
   subst hee
   rw [hxv]; exact hv
+
+/-- A register output carries, in the closed run's cycle `t`, the PRE-update state of that cycle (nothing
+in the cycle's assignments or instances writes it): the value the parent's own invariant speaks about. -/
+theorem closed_run_reg (d : Design) (arr : Module → List Stmt) (m : Module) (hA : AdmArr d m arr)
+    (b0 : List Stmt) (hp : (arr m).Perm b0) (hw0 : WOH d b0)
+    (hwb : ∀ n ∈ wrsH d b0, n ∉ regOuts b0) (hri : ∀ n ∈ regOuts b0, n ∉ inNames m)
+    (ins : Nat → String → Nat) (K : Nat) (envs : List Env) (sts : List HSt)
+    (hrun : runHSTrace d arr m (seedFwd m K ins) K (st0H d m) = some (envs, sts))
+    (t : Nat) (ht : t < K) (S : HSt) (E : Env) (hS : sts[t]? = some S) (hE : envs[t]? = some E) :
+    ∀ r ∈ regOuts b0, E r = S [] r := by
+  intro r hr
+  obtain ⟨E', S', hE', hS', hfold⟩ := runHSTrace_cycle d arr m (seedFwd m K ins) K (st0H d m) envs sts hrun t ht
+  rw [hE] at hE'; rw [hS] at hS'
+  cases hE'; cases hS'
+  have hfold0 := evalAssignsI_perm d _ _ (instEvalS_laws d arr S (declWidth m)) hp hA.2.1 hw0 hfold
+  have hG := good_of_fold d _ _ (instEvalS_laws d arr S (declWidth m)) b0 _ E hw0 hfold0
+  have hnw : r ∉ wrsH d b0 := fun h => hwb r h hr
+  rw [hG.1 r hnw]
+  have hrA : r ∈ regOuts (arr m) := (regOuts_perm_mem hp r).mpr hr
+  have hne : ¬ ∃ a, a ∈ m.inputs ∧ a.name = r := by
+    rintro ⟨a, ha, rfl⟩
+    exact hri a.name hr (List.mem_map.mpr ⟨a, ha, rfl⟩)
+  simp [seedFwd, restrictTo, hne, hrA]
 
 end Tools.VedU2Hier

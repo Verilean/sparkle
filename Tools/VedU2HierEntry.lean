@@ -157,12 +157,22 @@ structure CallInfo where
   `fun ins => argument[inputs := the input streams]` -/
   derived : Bool := false
   argDefs : List Name := []
+  /-- H2c-state: the call's argument is computed from the parent's REGISTER state (a closed Signal
+  term over the inputs, containing the parent's own loop), not only from inputs -/
+  stateArg : Bool := false
   deriving BEq, Inhabited
 
 structure OpenInfo where
   openName : Name
   eqName : Name
   calls : Array CallInfo
+  /-- H2c-state: the open parent is struct-valued; the declaration's output is this field of it, and
+  the deep facts are those of this port (`<open>_<port>_deep…`) -/
+  port : Option String := none
+  /-- H2c-state: all the ports (struct fields) of the open parent -/
+  ports : List String := []
+  /-- H2c-state: the kernel equation `decl xs = g a` (the declaration IS the call on its closed argument) -/
+  callEqName : Option Name := none
   deriving Inhabited
 
 instance : Inhabited Kid :=
@@ -278,6 +288,10 @@ structure InstInfo where
   /-- H2c: the assigned wires the derived nets are computed from (dependency closure, input
   names excluded) -/
   chain : List (String × Nat) := []
+  /-- H2c-state: the nets also read parent register outputs -/
+  stateArg : Bool := false
+  /-- H2c-state: per data-port wire, the parent register slot it is an alias of -/
+  slots : List (String × Nat) := []
 
 def ptyTxt : PTy → String
   | .bit => "Tools.VedU1Contract.PTy.bit"
