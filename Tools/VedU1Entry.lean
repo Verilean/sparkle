@@ -546,6 +546,8 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| clear $hv))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
+  let closing ← if dbg == 5 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | (trace_state; sorry)))
+    else `(tactic| all_goals ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_loop_unfold ($sI + 1)),
       ← `(tactic| ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
@@ -555,14 +557,15 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
       ← `(tactic| all_goals try (repeat' apply And.intro))],
     #[← `(tactic| all_goals (try ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod])),
       ← `(tactic| all_goals (try ved_bit_simp)),
-      ← `(tactic| all_goals (try ved_or_lit))],
-    #[← `(tactic| all_goals ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])]]
+      ← `(tactic| all_goals (try ved_or_lit)),
+      ← `(tactic| all_goals (try ved_pack_simp))],
+    #[closing]]
   let stop ← `(tactic| (trace_state; all_goals sorry))
   if dbg == 1 then tacs := tacs.push stop
   else
     for k in [0:stages.size] do
       if dbg == 0 || dbg > k + 1 then tacs := tacs ++ stages[k]!
-      if dbg == k + 2 then tacs := tacs.push stop
+      if dbg == k + 2 && dbg < 5 then tacs := tacs.push stop
   let h0tacs : Array (TSyntax `tactic) := #[
     ← `(tactic| intro $insI hok),
     ← `(tactic| ved_loop_unfold 0),

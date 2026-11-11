@@ -61,6 +61,22 @@ theorem bool_true_iff (b : Bool) : b = true ↔ b.toNat = 1 := Bool.toNat_eq_one
 
 theorem bool_false_iff (b : Bool) : b = false ↔ b.toNat = 0 := by cases b <;> simp
 
+/-! ### unpacking the loop state
+
+The module packs the registers of a loop into one wire (`a * 2^k + b`) and slices the fields back
+out (`x / 2^k % 2^w`); `omega` alone is incomplete on these nested `/` and `%`.  These rewrite
+rules (range side conditions closed by `omega`) read a field back directly. -/
+
+theorem div_pack (a b m : Nat) (hm : 0 < m) : (a * m + b) / m = a + b / m := by
+  rw [Nat.add_comm, Nat.add_mul_div_right _ _ hm, Nat.add_comm]
+
+theorem mod_pack (a b m : Nat) : (a * m + b) % m = b % m := by
+  rw [Nat.add_comm]; exact Nat.add_mul_mod_self_right _ _ _
+
+macro "ved_pack_simp" : tactic =>
+  `(tactic| simp (disch := first | omega | fail) only
+      [Nat.reducePow, Nat.reduceAdd, Nat.mod_eq_of_lt, Nat.div_eq_of_lt, Tools.VedU1Loop.div_pack, Tools.VedU1Loop.mod_pack, Nat.add_mod_left, Nat.add_zero])
+
 /-- the one-bit logic rewrite, with the range side conditions closed by `omega` -/
 macro "ved_bit_simp" : tactic =>
   `(tactic| simp (disch := first | omega | (split <;> omega) | fail) only
