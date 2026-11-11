@@ -249,12 +249,32 @@ def Names.ofBase (base : Name) : Names :=
   { mod := base ++ `ved_mod, contract := base ++ `ved_contract, outs := base ++ `ved_outs,
     body := base ++ `ved_body, thm := base ++ `ved_u1 }
 
+/-- Definitions the declaration's body mentions that `simp` must unfold to reach the
+operators: those of its own module (private helpers, `abbrev` constants) and
+`Sparkle.IP` sub-modules. -/
+def helperConsts (decl : Name) : MetaM (Array Name) := do
+  let env ← getEnv
+  let some (.defnInfo di) := env.find? decl | return #[]
+  let modOf (n : Name) := env.getModuleIdxFor? n
+  let mut out : Array Name := #[]
+  for c in di.value.getUsedConstants do
+    if c == decl then continue
+    let some (.defnInfo _) := env.find? c | continue
+    if modOf c == modOf decl || (`Sparkle.IP).isPrefixOf c then out := out.push c
+  return out
+
 /-- The generated (untrusted) proof script for `U1Stmt C M F`.  `reg?` is
 the single register of the delay shape (name, width), `none` for a
 register-free module. -/
 def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat))
-    (inNames : List String := []) (eqs : Bool := false) (fStx? : Option Term := none) :
+    (inNames : List String := []) (eqs : Bool := false) (fStx? : Option Term := none) (helpers : Array Name := #[]) (inWidths : List Nat := []) :
     TermElabM Syntax := do
+  -- the declaration's own helper definitions (private `byte16`, `abbrev` constants,
+  -- sub-modules), unfolded by `simp`; untrusted, the kernel checks the result
+  let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+    helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
+  let hlp : Syntax.TSepArray [``Lean.Parser.Tactic.simpStar, ``Lean.Parser.Tactic.simpErase, ``Lean.Parser.Tactic.simpLemma] "," :=
+    Syntax.TSepArray.ofElems (hsA.map fun x => ⟨x.raw⟩)
   let C := mkCIdent nm.contract
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
@@ -295,13 +315,40 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
       for (x, h) in (xs.zip hs).reverse do
         dom := dom.push (← `(tactic| revert $h:ident))
         dom := dom.push (← `(tactic| revert $x:ident))
-    let domAll ← `(tactic| all_goals
+    let domSmall ← `(tactic| all_goals
       $dom*
       decide +kernel)
+    -- a domain too large to enumerate (`2^(Σ widths) > 2^16`): only the narrow
+    -- inputs (the `==` selectors, ≤ 6 bits) are case-split, wide data stays symbolic
+    -- and the leftover `BitVec` field extraction is closed by `omega`
+    let wide := inWidths.length == inNames.length && inWidths.foldl (· + ·) 0 > 16
+    let domAll : Array (TSyntax `tactic) ←
+      if !wide then pure #[domSmall] else do
+        let mut gen : Array (TSyntax `tactic) := #[]
+        let k := inNames.length
+        for i in [0:k] do
+          let mut t : Term := hinI
+          for _ in [0:i] do t ← `($t.2)
+          if i + 1 < k then t ← `($t.1)
+          gen := gen.push (← `(tactic| have $(hs[i]!):ident := $t))
+        for (n, (x, h)) in inNames.zip (xs.zip hs) do
+          gen := gen.push (← `(tactic| generalize $insI $sI $(Syntax.mkStrLit n) = $x at $h:ident ⊢))
+        -- `x < 2^w` becomes `x = 0 ∨ … ∨ x = 2^w - 1`, then one goal per value
+        let hc := mkIdent `hcase
+        let rflI := mkIdent `rfl
+        let mut narrow : Array (TSyntax `tactic) := #[]
+        for (w, x, h) in inWidths.zip (xs.zip hs) do
+          if w ≤ 6 then
+            let mut dj : Term ← `($x = $(Syntax.mkNumLit (toString (2 ^ w - 1))))
+            for v in (List.range (2 ^ w - 1)).reverse do
+              dj ← `($x = $(Syntax.mkNumLit (toString v)) ∨ $dj)
+            narrow := narrow.push (← `(tactic| all_goals (have $hc:ident : $dj := (by omega); clear $h:ident)))
+            narrow := narrow.push (← `(tactic| all_goals (repeat' first | (rcases $hc:ident with $rflI:ident | $hc:ident) | subst $hc:ident)))
+        pure (gen ++ narrow ++ (#[← `(tactic| all_goals ((try simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow]) <;> omega))] : Array (TSyntax `tactic)))
     -- a body with `==` goes straight to the input domain (the range tactics
     -- below only fail on it, after costly case splits)
     let tail : Array (TSyntax `tactic) ←
-      if eqs then pure #[domAll] else pure #[
+      if eqs then pure domAll else pure (#[
         -- one goal per output (several outputs)
         ← `(tactic| all_goals
           first
@@ -312,8 +359,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
           | (split <;> simp <;> omega)
           -- a `concat`: fields in range
           | (rw [BitVec.toNat_append]; simp [BitVec.toNat_ofNat]; rw [Nat.mod_eq_of_lt $hinI.1, Nat.mod_eq_of_lt $hinI.2])
-          | skip),
-        domAll]
+          | skip)] ++ domAll)
     `(by
         have hord : OrderOk $M $B = true := by decide +kernel
         refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
@@ -336,9 +382,9 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub,
             Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val,
             Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.pure_val,
-            Seq.seq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, BitVec.toNat_append,
+            Seq.seq, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, BitVec.toNat_append,
             BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat,
-            List.lookup, Option.getD_some, Option.getD_none]
+            List.lookup, Option.getD_some, Option.getD_none, $hlp,*]
           -- several outputs: one goal per output
           try (repeat' apply And.intro)
           $tail*
@@ -541,9 +587,10 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     let inNames := (dataPortsOf m clkRst).map fun p => p.name
     let stx ← match proof with
       | .generated =>
+        let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
         if stmt.getAppFn.isConst then
-          scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body)
-        else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt))
+          scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
+        else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
