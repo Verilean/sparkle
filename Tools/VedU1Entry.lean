@@ -270,11 +270,14 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
     (inNames : List String := []) (eqs : Bool := false) (fStx? : Option Term := none) (helpers : Array Name := #[]) (inWidths : List Nat := []) :
     TermElabM Syntax := do
   -- the declaration's own helper definitions (private `byte16`, `abbrev` constants,
-  -- sub-modules), unfolded by `simp`; untrusted, the kernel checks the result
+  -- sub-modules), unfolded by `simp`; untrusted, the kernel checks the result.  The
+  -- last entry erases `Nat.reduceAdd`, which would turn the `m + n` result width of a
+  -- concatenation into a literal and defeat the append lemmas (and keeps the list non-empty).
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
   let hlp : Syntax.TSepArray [``Lean.Parser.Tactic.simpStar, ``Lean.Parser.Tactic.simpErase, ``Lean.Parser.Tactic.simpLemma] "," :=
-    Syntax.TSepArray.ofElems (hsA.map fun x => ⟨x.raw⟩)
+    Syntax.TSepArray.ofElems ((hsA.map fun x => (⟨x.raw⟩ : TSyntax _)).push
+      ⟨(← `(Lean.Parser.Tactic.simpErase| -Nat.reduceAdd)).raw⟩)
   let C := mkCIdent nm.contract
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
@@ -384,7 +387,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.append_def, Tools.VedU1Lemmas.toNat_append', Sparkle.Core.Signal.Signal.map,
             Seq.seq, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, BitVec.toNat_append,
             BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat,
-            List.lookup, Option.getD_some, Option.getD_none, $hlp,*, -Nat.reduceAdd]
+            List.lookup, Option.getD_some, Option.getD_none, $hlp,*]
           -- several outputs: one goal per output
           try (repeat' apply And.intro)
           $tail*
