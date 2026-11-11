@@ -3,6 +3,7 @@ import IP.RV32.Core
 import Tests.IP.Control.LQRTest
 import Tests.IP.Bus.CANopenHWTest
 import Tests.IP.Bus.DroneCANHWTest
+import Tests.IP.Crypto.TxPolicyTest
 
 /-!
 # `#ved_u1` on real IP rows with `==` / wide inputs (sparkle-ved-eq-wide)
@@ -10,11 +11,14 @@ import Tests.IP.Bus.DroneCANHWTest
 The rows are the ORIGINAL declarations (no stand-in copies):
 
 * `Sparkle.IP.RV32.aluSignal` (4/32/32-bit inputs, shifts, signed compare, `sra`),
+* `Sparkle.IP.RV32.branchCompSignal` (3/32/32-bit inputs, 32-bit `===`, signed / unsigned compare),
+* `Sparkle.IP.RV32.aluControlSignal` (7/3/7-bit inputs, `===` against constants, `extractLsb'`),
 * `Sparkle.IP.RV32.hazardSignal` (Bool `&&&` / `|||` / `~~~` and `===`),
 * `Sparkle.Tests.IP.Control.LQRTest.lqrCtrlTop` (two 32-bit inputs, Q-format multiply,
   clamp, helper definitions two levels deep),
 * the `private` `synth_canopenIsNmt` and `synth_droneCanNodeFilter` of the CANopen / DroneCAN
-  HW tests (`#ved_u1_private` resolves the private name from its user-facing name and runs
+  HW tests, and the `private` `synth_txPolicy` (160-bit allow-list `==`, 256-bit `ule`) of the
+  TxPolicy test (`#ved_u1_private` resolves the private name from its user-facing name and runs
   the SAME entry `vedU1EntryS`).
 
 After `#ved_u1` the checks are independent of the entry: the stored type of `<decl>.ved_u1` is,
@@ -51,6 +55,12 @@ elab "#ved_u1_private " id:ident : command => do
 #ved_u1 Sparkle.IP.RV32.aluSignal
 
 #guard_msgs (drop info) in
+#ved_u1 Sparkle.IP.RV32.branchCompSignal
+
+#guard_msgs (drop info) in
+#ved_u1 Sparkle.IP.RV32.aluControlSignal
+
+#guard_msgs (drop info) in
 #ved_u1 Sparkle.IP.RV32.hazardSignal
 
 #guard_msgs (drop info) in
@@ -61,6 +71,9 @@ elab "#ved_u1_private " id:ident : command => do
 
 #guard_msgs (drop info) in
 #ved_u1_private synth_droneCanNodeFilter
+
+#guard_msgs (drop info) in
+#ved_u1_private synth_txPolicy
 
 /-- the stored type is `U1Stmt c m (@decl defaultDomain …)` (`==`), axioms within std3 -/
 def checkRow (decl : Name) (nDom : Nat) : CoreM Unit := do
@@ -77,13 +90,16 @@ def checkRow (decl : Name) (nDom : Nat) : CoreM Unit := do
 
 def checkAll : CommandElabM Unit := liftCoreM do
   checkRow ``Sparkle.IP.RV32.aluSignal 1
+  checkRow ``Sparkle.IP.RV32.branchCompSignal 1
+  checkRow ``Sparkle.IP.RV32.aluControlSignal 1
   checkRow ``Sparkle.IP.RV32.hazardSignal 1
   checkRow ``Sparkle.Tests.IP.Control.LQRTest.lqrCtrlTop 0
   checkRow (← findPrivate `synth_canopenIsNmt) 0
   checkRow (← findPrivate `synth_droneCanNodeFilter) 0
-  logInfo m!"OK 5 rows: stored type = U1Stmt c m F, axioms within std3"
+  checkRow (← findPrivate `synth_txPolicy) 0
+  logInfo m!"OK 8 rows: stored type = U1Stmt c m F, axioms within std3"
 
-/-- info: OK 5 rows: stored type = U1Stmt c m F, axioms within std3 -/
+/-- info: OK 8 rows: stored type = U1Stmt c m F, axioms within std3 -/
 #guard_msgs in
 run_cmd checkAll
 

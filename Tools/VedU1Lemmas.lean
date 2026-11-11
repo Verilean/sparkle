@@ -356,4 +356,9 @@ theorem ule_decide {n : Nat} (x y : BitVec n) : x.ule y = decide (x.toNat ≤ y.
 
 theorem ult_decide {n : Nat} (x y : BitVec n) : x.ult y = decide (x.toNat < y.toNat) := rfl
 
+/-- an equation `BitVec.ofNat w a = y` is a residue equation on `Nat` (for `omega`). -/
+theorem ofNat_eq_iff {w : Nat} (a : Nat) (y : BitVec w) :
+    BitVec.ofNat w a = y ↔ a % 2 ^ w = y.toNat := by
+  rw [BitVec.toNat_eq]; simp [BitVec.toNat_ofNat]
+
 end Tools.VedU1Lemmas
