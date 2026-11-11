@@ -664,21 +664,31 @@ def ir_columns(row, hdr, mods):
             row["irtop_" + f] = str(tops[0][4][f])
 
 
-def command_warnings(text, case_dir):
+WARN_LINE_RE = re.compile(r"([^\n]*?):(\d+):\d+: warning: [^\n]*\n")
+
+
+def command_warnings(text, case_dir, cwd=None):
     """Strip the original command's own one-line warnings from the start of `text`.  A line counts only when it
-    is `<…/Case.lean>:<L>:<c>: warning: …` with L the original command's line in this case's Case.lean (the
-    line after the PRE END marker).  -> (number stripped, rest).  Errors and other positions are never
-    stripped, so they still make the row `differ`."""
-    lines = (read(os.path.join(case_dir, "Case.lean")) or "").split("\n")
+    is `<path>:<L>:<c>: warning: …` where <path> names THIS attempt's Case.lean (an absolute path, or a relative
+    one resolved from the run's `cwd` when given, equal to it after realpath; never a bare file name or another
+    directory's file) and L is the original command's line in that Case.lean (the line after the PRE END
+    marker).  -> (number stripped, rest).  Errors, other files or positions, a warning's continuation lines
+    and anything after the first other line are never stripped, so they still make the row `differ`."""
+    case = os.path.realpath(os.path.join(case_dir, "Case.lean"))
+    lines = (read(case) or "").split("\n")
     pre = "-- ===== VED SIZE CAPTURE PRE END ====="
     if pre not in lines:
         return 0, text
     cmd_line = lines.index(pre) + 2
-    warn = re.compile(r"(?:[^\n:]*/)?Case\.lean" + rf":{cmd_line}:\d+: warning: [^\n]*\n")
+
+    def ours(path):
+        if os.path.isabs(path):
+            return os.path.realpath(path) == case
+        return cwd is not None and os.path.realpath(os.path.join(cwd, path)) == case
     n = 0
     while True:
-        m = warn.match(text)
-        if not m:
+        m = WARN_LINE_RE.match(text)
+        if not m or int(m.group(2)) != cmd_line or not ours(m.group(1)):
             return n, text
         text, n = text[m.end():], n + 1
 
@@ -717,8 +727,10 @@ def origin_check(meta, stdout, sv_text, case_dir):
         # warnings positioned AT the original command's line, at the very start of the range, are not SV
         lead, body = command_warnings(rng[:at], case_dir)
         if lead and body == sv_text:
-            return "same", (f"the captured range of the original command equals the re-synthesised SV after "
-                            f"{lead} leading one-line warning(s) of that command were removed")
+            return "same", (f"SV same: the captured range of the original command, after removing {lead} leading "
+                            f"one-line warning(s) of that command (this attempt's Case.lean, the command's line), "
+                            f"equals the re-synthesised SV; the whole stdout including the warning(s) is NOT "
+                            f"identical (raw stdout kept)")
         return "differ", "the captured output of the original command differs from the re-synthesised SV"
     # write commands: the capture file of THIS attempt
     pre = (read(os.path.join(case_dir, "size_wpre.txt")) or "").split("\n")
