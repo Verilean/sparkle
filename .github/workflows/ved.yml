@@ -76,7 +76,7 @@ jobs:
     - name: U1 on real IP with == and wide inputs (aluSignal, hazardSignal, lqrCtrlTop, canopenIsNmt, droneCanNodeFilter)
       run: lake build Tests.Ved.U1EqWideCheck
 
-    - name: U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)
+    - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
       run: lake build Tests.Ved.U1KTabCheck
 
     - name: Deep route, representative regression
@@ -119,7 +119,7 @@ jobs:
     - name: U1 on real IP with == and wide inputs (aluSignal, hazardSignal, lqrCtrlTop, canopenIsNmt, droneCanNodeFilter)
       run: lake build Tests.Ved.U1EqWideCheck
 
-    - name: U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)
+    - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
       run: lake build Tests.Ved.U1KTabCheck
 
     - name: Deep route, every regression file
