@@ -80,7 +80,7 @@ deep の `_deep_trace` / `_deep_next` の比較（`#ved_u1_deep` の step 証明
 |---|---|---|
 | 親 register の init を変える（2 通り） | `[proof]` | unsolved goals |
 | 親 register の next を変える（`u - p` → `u + p`、2 register の入力の交換、定数） | `[proof]` | omega could not prove the goal |
-| 1 cycle の時間ずれ（出力が register の次の値を読む、2 通り） | `[proof]` | omega could not prove the goal |
+| 同一 cycle の state/next の取り違え（出力が register の出力ではなく入力 net＝次状態の式を読む、2 通り。1 cycle 遅延の反例ではない） | `[proof]` | omega could not prove the goal |
 | instance の出力 wire の交換、instance 入力の取違え | `[proof]` | omega could not prove the goal |
 | 親 register の出力が instance 出力 wire と衝突 | `[order]` | drives a register output |
 | register の二重書込み（追加、出力名の重複） | `[order]` | twice |

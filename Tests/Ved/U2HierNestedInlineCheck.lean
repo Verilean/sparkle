@@ -23,7 +23,9 @@ specialized wrapper's head) is the echo, and the nested loop is bridged onto its
 * REFUSALS (the real module with ONE piece of the nested call altered, against the declaration's
   own deep facts; must be refused at `[proof]` and leave nothing): the nested register's init
   changed, the nested slot swapped with the parent's (their register inputs exchanged), the
-  nested value read one cycle late (the register's input net instead of its output).
+  nested register's OUTPUT replaced by its INPUT net where the parent reads it (the input net is
+  the next-state expression, so this confuses state and next within one cycle; it is not a
+  one-cycle delay).
 -/
 
 namespace Tests.Ved.U2HierNestedInlineCheck
@@ -232,7 +234,7 @@ run_cmd u1Ctl ``nest `ctlNestSwap (swapInputs "_tmp_a_5" "_tmp_a_11")
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd u1Ctl ``nest `ctlNestLate (setAssign "_tmp_arg1_1" (add "_gen_o" "_tmp_reg_input_4"))
+run_cmd u1Ctl ``nest `ctlNestNextNet (setAssign "_tmp_arg1_1" (add "_gen_o" "_tmp_reg_input_4"))
 
 /- `nest2`: innermost `_tmp_a_7`, middle `_tmp_a_12`, parent `_tmp_a_18`. -/
 
@@ -246,7 +248,7 @@ run_cmd u1Ctl ``nest2 `ctlNest2Swap (swapInputs "_tmp_a_7" "_tmp_a_12")
 
 /-- info: refused [proof], clean -/
 #guard_msgs in
-run_cmd u1Ctl ``nest2 `ctlNest2Late (setAssign "_tmp_arg1_1" (add "_gen_o" "_tmp_reg_input_11"))
+run_cmd u1Ctl ``nest2 `ctlNest2NextNet (setAssign "_tmp_arg1_1" (add "_gen_o" "_tmp_reg_input_11"))
 
 /-! Hierarchical: `mixRef`'s module has the instance `accMod`, the nested register `_tmp_a_7`
 (input `_tmp_reg_input_6`, read by `_tmp_arg1_5`) and the parent register `_tmp_a_13`;
