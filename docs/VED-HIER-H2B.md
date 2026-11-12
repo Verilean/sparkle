@@ -102,12 +102,13 @@ deep の `_deep_trace` / `_deep_next` の比較（`#ved_u1_deep` の step 証明
 
 ## 7. 実測で見つかったこと
 
-- **DeepElab は入れ子の stateful な inline 呼出しを扱えない**: `NestedCacheCheck.parentMix`（親の register `p`、`@[hardware_module]` の instance `accMod`、
-  **inline の stateful 関数 `accInl`**）の open 親は、IR の reify までは通るが `_deep_trace`（Signal 側の bridge）が
-  `closers exhausted`（`runCircuitH (0#8, ()) …` の値が slot の状態に結びつかない）で失敗する。`accInl x` を `p <~ …` の式の中で呼ぶだけで再現し、
-  H2b と無関係の最小例（`circuit do let p ← reg; p <~ o + accInl x + p`）でも同じ。入口は `[deep]` で拒否し、何も残さない（Check の `parentMix` の対照）。
-  `parentMixFlat`（同じ module の形で、2 つ目の register を親の circuit の中に書いたもの）は受理される。これは文ではなく deep 経路の限界。
-  質問は §9。
+- **入れ子の stateful な inline 呼出し（解消済み）**: `NestedCacheCheck.parentMix`（親の register `p`、`@[hardware_module]` の instance `accMod`、
+  **inline の stateful 関数 `accInl`**）の open 親は、以前は `_deep_trace` が `closers exhausted` で失敗した。原因は DeepElab の loop node 発見で、
+  入れ子の `runCircuitH` の slot 署名（幅・init）が top と同じだと「top 自身の echo」として捨てられ（`nestedNodes` の署名フィルタ）、
+  入れ子 loop が IR の register block に結ばれなかったこと。修正は echo を署名ではなく構文で判定する（top の適用そのもの、特殊化 wrapper の head だけを除く）。
+  これで同じ署名の入れ子 node が候補 block 試行（誤った block は step の証明で落ちる）に載る。`parentMix` は `#ved_u2_hier` で strict 受理
+  （`Tests/Ved/U2HierRegCheck.lean`）、最小例・2 段の入れ子・拒否対照は `Tests/Ved/U2HierNestedInlineCheck.lean`。
+  `parentMixFlat` は従来どおり受理される。
 - Issue #107 の `toggle`（`Signal.loop` で `Bool` 出力）は `#verify_elab_deep` が拒否（`could not locate the top-level runCircuitH`）し、
   deep 経路の子は bit-vector 出力のみ（`BitVec 1` は synthesizer が出力 port を `bit` にするので `ShapeCore` が拒否）。
   `oneInstance` / `threeInstances` は構造（1 / 3 個の let 束縛 instance が親 register を駆動）を保って `toggle` を 8 bit の enable 付きカウンタにした **複製**（Check に注記）。
@@ -152,9 +153,7 @@ strict の probe は旧 `U2HStmt`（register なし）用のままなので、�
 
 ## 9. 未了と質問
 
-- **質問 1（parentMix）**: `parentMix` は deep 経路の限界（入れ子の inline stateful 呼出し）で `[deep]` 拒否。対応するなら: (a) inline の stateful 関数も open 親で自由 signal に抽象し、
-  その関数自身の deep の事実と、親の対応する register 群の不変量（その関数の `Cdo` の slot ↔ 親の register）を足す（機構が増える）、または
-  (b) DeepElab の bridge を入れ子に対応させる（`Tools/DeepElab.lean` の変更）。どちらも H2b の範囲を超えると判断し、していない。方針の指示を求める。
+- **質問 1（parentMix）**: 解消（上、§7）。(b) の橋で通った。
 - **質問 2（状態の共有名）**: 「親 register が子の register 名と状態を共有する」拒否は、状態の鍵が `(path, 名前)` なので該当せず、受理（正の対照）とした。拒否にしたい意図が別にあれば指示を求める。
 - 親 register を持つ実在 14 行は、14 行すべてで `[conns]`（内部 wire の instance 入力）が次の阻害（§8.1）。F2 の一般化（H2c）が要る。
 - レビュー回答（2026-11-11）: 質問 1 は (b) DeepElab の入れ子 runCircuitH→slot の橋を第一候補に別単位で調べる。質問 2 は受理（(path, 名前) で別状態）。
