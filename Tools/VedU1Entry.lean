@@ -247,6 +247,33 @@ macro_rules
         BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat,
         List.lookup, Option.getD_some, Option.getD_none, -Nat.reduceAdd, $ex,*] $[$loc]?)
 
+/-- `ved_core_simp` for the `Signal.loop` script (`loopScriptFor`), with `Signal.mux` unfolded as well.
+With the rewrite rule `mux_val` alone (a `rfl` lemma on `(Signal.mux c a b).val s`) the step that reads the
+loop of the declaration (`ved_core_simp ... at hvsrc`) ran into the recursion limit on a loop whose body
+holds `<$>`/`<*>` and `Signal.mux` terms (`Tests.IP.Crypto.Fp2MulHWTest.synth_fp2MulC0`: the same set
+without `mux_val`, and the set with the definition of `Signal.mux` unfolded, both finish).  `Signal.mux` is
+unfolded when simp visits the node, before the `.val` around it, so `mux_val` is not needed here. -/
+syntax (name := vedLoopSimp) "ved_loop_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
+
+macro_rules
+  | `(tactic| ved_loop_simp [$ex,*] $[$loc]?) =>
+    `(tactic| simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
+        Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
+        widthOf, seedIn, applyNexts, declWidth, srcOf, contractOf, applyIns, 
+        Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
+        Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, 
+        Tools.VedU1Lemmas.compl_val,
+        Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit,
+        Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val,
+        Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val,
+        Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add,
+        Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub,
+        Tools.VedU1Lemmas.evalOp_mux_lit, Signal.mux,
+        Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.evalOp_mul_lit, Tools.VedU1Lemmas.evalOp_shl_lit, Tools.VedU1Lemmas.evalOp_shr_lit, Tools.VedU1Lemmas.evalOp_lt_u_lit, Tools.VedU1Lemmas.evalOp_le_u_lit, Tools.VedU1Lemmas.evalOp_gt_u_lit, Tools.VedU1Lemmas.evalOp_ge_u_lit, Tools.VedU1Lemmas.evalOp_lt_s_lit, Tools.VedU1Lemmas.mul_val, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedU1Lemmas.append_def_sc, Tools.VedU1Lemmas.append_def_cs, Tools.VedU1Lemmas.evalOp_asr_lit, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.mask_emod, Tools.VedU1Lemmas.slt_eq, Tools.VedU1Lemmas.ult_eq, Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, Tools.VedU1Lemmas.evalOp_not_raw, Tools.VedU1Lemmas.evalOp_and_raw, Tools.VedU1Lemmas.evalOp_or_raw, Tools.VedU1Lemmas.evalOp_xor_raw, Tools.VedU1Lemmas.evalOp_sub_raw, Tools.VedU1Lemmas.shl_val, Tools.VedU1Lemmas.shr_val, BitVec.toNat_mul, BitVec.toNat_shiftLeft, BitVec.toNat_ushiftRight, BitVec.shiftLeft_eq', BitVec.ushiftRight_eq', Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.append_def, Tools.VedU1Lemmas.toNat_append', Sparkle.Core.Signal.Signal.map,
+        Seq.seq, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, BitVec.toNat_append,
+        BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat,
+        List.lookup, Option.getD_some, Option.getD_none, -Nat.reduceAdd, $ex,*] $[$loc]?)
+
 /-- The `simp` of the wide path's closing tactic (`BitVec` / operator lemmas); `ex` are extra
 simp lemmas. -/
 syntax (name := vedWideSimp) "ved_wide_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
@@ -675,7 +702,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   tacs := tacs.push (← `(tactic| simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident))
   -- the loop of the declaration, in the simp normal form of the goal
   tacs := tacs.push (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = srcOf $C $f $insI "out" $sI := ⟨_, rfl⟩))
-  tacs := tacs.push (← `(tactic| ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $exHelp,*] at $hv:ident))
+  tacs := tacs.push (← `(tactic| ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $exHelp,*] at $hv:ident))
   tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| clear $hv))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
@@ -683,15 +710,15 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     else `(tactic| all_goals ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_loop_unfold ($sI + 1)),
-      ← `(tactic| ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
+      ← `(tactic| ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
       ← `(tactic| ved_loop_gen $sI)],
     #[← `(tactic| all_goals refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩),
-      ← `(tactic| all_goals ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
+      ← `(tactic| all_goals ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
       ← `(tactic| all_goals try (repeat' apply And.intro))],
     #[← `(tactic| all_goals (try ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
     #[← `(tactic| all_goals (try ved_bit_simp))],
     #[← `(tactic| all_goals (try ved_or_lit))],
-    #[← `(tactic| all_goals (try ved_pack_simp))],
+    #[← `(tactic| all_goals (try ved_pack_share))],
     #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
       ← `(tactic| all_goals (try ved_pack_simp)),
       ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
@@ -795,6 +822,10 @@ register_option ved.u1.proofRecDepth : Nat := {
 register_option ved.u1.proofHeartbeats : Nat := {
   defValue := 8000000
   descr := "VED U1: lower bound (thousands) on maxHeartbeats while elaborating the generated proof script (0 = the caller's limit only)" }
+
+register_option ved.u1.debugStage : Nat := {
+  defValue := 0
+  descr := "VED U1 (debugging only): stop the generated multi-register loop script after this stage and print the goals (`loopScriptFor`'s `dbg`)" }
 
 /-- The budget is read from the options in scope (defaults 20000 / 8000000):
 the stage checks set both to 0 so that their own small context limits are the
@@ -926,6 +957,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
           let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
           if regs.length ≥ 2 then
             loopScriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs regs (← helperConsts stmt.getAppFn.constName!)
+              (ved.u1.debugStage.get (← getOptions))
           else
           scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
             tblD?
