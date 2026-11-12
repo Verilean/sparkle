@@ -316,6 +316,12 @@ lean_lib «Tools.ConeFoldRT» where
 lean_lib «Tools.VedU2HierStateArgs» where
   roots := #[`Tools.VedU2HierStateArgs]
 
+lean_lib «Tools.VedU2HierDbg» where
+  roots := #[`Tools.VedU2HierDbg]
+
+lean_lib «Tools.VedU2HierClose» where
+  roots := #[`Tools.VedU2HierClose]
+
 lean_lib «Tools.DeepNestedState» where
   roots := #[`Tools.DeepNestedState]
 

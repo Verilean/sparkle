@@ -1,3 +1,5 @@
+import Tools.VedU2HierDbg
+import Tools.VedU2HierClose
 import Tools.VedU2HierEntry
 import Tools.VedU2HierReg
 import Tools.VedU2HierNet
@@ -496,7 +498,6 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         X := X.push s!"  have e_{wi} := hasgF {sq w} _ rfl"
         X := X.push s!"  simp (config := \{ maxSteps := 2000000 }) [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
         X := X.push s!"  have f_{wi} := e_{wi}.symm"
-        if dbg && wi + 1 == ii.chain.length then X := X.push s!"  fail \"TRACE\""
         X := X.push s!"  have hlt_{wi} : E {sq w} < 2 ^ {wd} := by first | omega | (rw [f_{wi}]; exact Nat.and_lt_two_pow _ (by omega)) | (rw [f_{wi}]; exact Nat.or_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; exact Nat.xor_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; (repeat' split) <;> (first | omega | exact Nat.and_lt_two_pow _ (by omega) | exact Nat.or_lt_two_pow (by omega) (by omega) | exact Nat.xor_lt_two_pow (by omega) (by omega)))"
         facts := facts ++ [s!"f_{wi}"]
         lts := lts ++ [s!"hlt_{wi}"]
@@ -586,7 +587,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     -- H2c-state: the declaration IS the call on its closed argument; the output is the oracle value
     -- (`{CEq}` is the kernel equation `decl xs = g a`; the conversion itself is left to the kernel)
     L := L.push s!"      all_goals simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig]"
-    if dbg then L := L.push s!"      all_goals trace_state"
+    if dbg then L := L.push s!"      all_goals ved_eprint_state"
     L := L.push s!"      all_goals ved_kernel_rfl"
   else
     L := L.push s!"      all_goals simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {OE}, Tools.VedU1Contract.PTy.sig]"
@@ -598,8 +599,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     L := L.push s!"      all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}] at ⊢"
     L := L.push s!"      all_goals try simp only [{hRs}]"
     L := L.push s!"      all_goals try simp only [{hMods}]"
-    if dbg then L := L.push s!"      all_goals trace_state"
-    L := L.push s!"      all_goals (first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega))"
+    if dbg then L := L.push s!"      all_goals ved_eprint_state"
+    L := L.push s!"      all_goals ved_hier_close"
   -- the next values
   let holes := ", ".intercalate ((List.range k).map fun _ => "?_")
   L := L.push s!"    · {if k == 1 then "skip" else s!"refine ⟨{holes}⟩"}"
@@ -612,8 +613,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"      all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at ⊢"
   L := L.push s!"      all_goals (try simp only [{hRs}])"
   L := L.push s!"      all_goals (try simp only [{hMods}])"
-  if dbg then L := L.push s!"      all_goals trace_state"
-  L := L.push s!"      all_goals (first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega))"
+  if dbg then L := L.push s!"      all_goals ved_eprint_state"
+  L := L.push s!"      all_goals ved_hier_close"
   return "\n".intercalate L.toList
 
 /-! ## The checker -/
