@@ -1489,6 +1489,9 @@ lean_lib «Tests.Ved.U2HierStateCallCheck» where
 lean_lib «Tests.Ved.U2HierPartialDeepCheck» where
   roots := #[`Tests.Ved.U2HierPartialDeepCheck]
 
+lean_lib «Tests.Ved.U2HierNestedInlineCheck» where
+  roots := #[`Tests.Ved.U2HierNestedInlineCheck]
+
 lean_lib «Tests.Ved.U2HierWireCheck» where
   roots := #[`Tests.Ved.U2HierWireCheck]
 

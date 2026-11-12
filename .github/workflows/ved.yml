@@ -135,6 +135,9 @@ jobs:
     - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
       run: lake build Tests.Ved.U2HierPartialDeepCheck
 
+    - name: "Nested inline stateful calls through the deep route (nest, 2-deep, parentMix); altered-slot refusals"
+      run: lake build Tests.Ved.U2HierNestedInlineCheck
+
     - name: "H2c-state: the ORIGINAL private declaration synth_httpGetByte (R223), the entry appended to its module"
       run: |
         lake build Tools.VedU2HierRegEntry IP.Net.HTTP
