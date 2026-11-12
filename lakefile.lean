@@ -363,6 +363,12 @@ lean_lib «Tools.VedU1Hier» where
 lean_lib «Tools.VedU1HierEntry» where
   roots := #[`Tools.VedU1HierEntry]
 
+lean_lib «Tools.VedU1Uns» where
+  roots := #[`Tools.VedU1Uns]
+
+lean_lib «Tools.VedU1LemmasExt1» where
+  roots := #[`Tools.VedU1LemmasExt1]
+
 lean_lib «Tools.VedU1Entry» where
   roots := #[`Tools.VedU1Entry]
 
