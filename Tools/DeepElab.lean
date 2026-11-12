@@ -1334,6 +1334,16 @@ register_option sparkle.deepShare : Bool := {
   descr := "#verify_elab_deep: use the cone-sharing (CdoW) route (v1: memory-free, single-port)"
 }
 
+/-- H2d: skip the per-port IR replay (the `signal_run` chain).  The hierarchical checker
+(`#ved_u2_hier`) reads only the trace theorem, the reifications and the exported loop state of the
+open parent, never the replay; on a real IP the replay is minutes per port.  The capstone trace
+theorem, its fidelity theorems and their audit are unchanged ("IR replay skipped" is the message
+the irregular-register case already prints). -/
+register_option sparkle.deepNoReplay : Bool := {
+  defValue := false
+  descr := "#verify_elab_deep: skip the per-port IR replay (trace theorem and fidelity facts only)"
+}
+
 /-- `signal_lets tv [extra,*]` — the DSL half of the linear (cone-sharing)
 trace recipe, generically.
 
@@ -2528,9 +2538,33 @@ elab "#verify_elab_deep" id:ident : command =>
       (List.range k).all fun j =>
         regWs[s + j]! == n.widths[j]! &&
         (regs[s + j]!).2.2.toNat == n.inits[j]!
-  let topBlocks := blocksFor topNode
+  let sigOk (n : LoopNode) (idx : Array Nat) : Bool :=
+    idx.size == n.widths.size &&
+      (List.range idx.size).all fun j =>
+        regWs[idx[j]!]! == n.widths[j]! && (regs[idx[j]!]!).2.2.toNat == n.inits[j]!
+  -- H2d: the top circuit's registers are not always one contiguous IR block: the registers of a
+  -- NESTED circuit created in between (a parser evaluated lazily inside the `circuit do`) sit in the
+  -- middle of them.  Besides the contiguous blocks, the candidates are the registers LEFT OVER when
+  -- one contiguous block of each nested node is taken out (in IR order, signature-checked).
+  let topBlocks : List (Array Nat) := Id.run do
+    let contig := (blocksFor topNode).map fun b => (Array.range topNode.widths.size).map (b + ·)
+    let mut picks : List (List (Nat × Nat)) := [[]]   -- (start, size) of the removed nested blocks
+    for n in nestedNodes do
+      let mut next : List (List (Nat × Nat)) := []
+      for pk in picks do
+        for b in blocksFor n do
+          if pk.all (fun (s, k) => b + n.widths.size ≤ s || s + k ≤ b) then
+            next := next ++ [pk ++ [(b, n.widths.size)]]
+      picks := (next.take 64)
+    let mut out := contig
+    unless nestedNodes.isEmpty do
+      for pk in picks do
+        let rest := ((Array.range nR).filter fun i => !pk.any fun (s, k) => s ≤ i && i < s + k)
+        if rest.size == topNode.widths.size && sigOk topNode rest && !out.contains rest then
+          out := out ++ [rest]
+    return out
   if topBlocks.isEmpty then
-    throwError "#verify_elab_deep: no IR register block matches the top-level circuit's registers {topNode.widths} / {topNode.inits}"
+    throwError "#verify_elab_deep: no IR register block matches the top-level circuit's registers {topNode.widths} / {topNode.inits} (IR registers {regWs} / {(List.range nR).map fun i => (regs[i]!).2.2.toNat})"
   -- fidelity quoting (see the FIDELITY comment below)
   let quoteIR (e : Sparkle.IR.AST.Expr) : CommandElabM Term := do
     match Lean.Parser.runParserCategory (← getEnv) `term
@@ -4292,11 +4326,11 @@ elab "#verify_elab_deep" id:ident : command =>
       -- the pack of a node's register block starting at IR register `b`,
       -- at time `tv`: the HList of its readers (a Bool register's slot is
       -- `Bool`, the reader yields `BitVec 1` — decode it)
-      let packOf (node : LoopNode) (b : Nat) (tv : Term) : CommandElabM Term := do
+      let packOf (node : LoopNode) (b : Array Nat) (tv : Term) : CommandElabM Term := do
         let k := node.widths.size
         let mut acc : Term ← `(())
         for j in (List.range k).reverse do
-          let rdId : Ident := rdIds[b + j]!
+          let rdId : Ident := rdIds[b[j]!]!
           let slot ← `($rdId $appArgs* $tv)
           let slot ← if node.isBool[j]! then `(($slot == 1#1)) else pure slot
           acc ← `(($slot, $acc))
@@ -4441,8 +4475,8 @@ elab "#verify_elab_deep" id:ident : command =>
         let mut alts : Array (Lean.TSyntax `tactic) := #[]
         for node in nestedNodes do
           for b in blocksFor node do
-            let packS ← packOf node b (← `($sId))
-            let packI ← packOf node b (← `($iId))
+            let packS ← packOf node ((Array.range node.widths.size).map (b + ·)) (← `($sId))
+            let packI ← packOf node ((Array.range node.widths.size).map (b + ·)) (← `($iId))
             let st1z ← stage1 #[]
             -- `hg m _ : G m` is a conjunction; simp splits it into rewrites
             let st1s ← stage1 #[← `($hqId $mId (Nat.lt_succ_self $mId)),
@@ -4597,7 +4631,7 @@ elab "#verify_elab_deep" id:ident : command =>
           throwError "#verify_elab_deep: return type mentions a local binder: {retTy}"
         Lean.PrettyPrinter.delab retTy
       let topTys := topNode.tys
-      let mkTopProof (b : Nat) : CommandElabM (Lean.TSyntax `tactic) := do
+      let mkTopProof (b : Array Nat) : CommandElabM (Lean.TSyntax `tactic) := do
         let packS ← packOf topNode b (← `($sId))
         let packU ← packOf topNode b (← `($uId))
         let packI ← packOf topNode b (← `($iId))
@@ -4863,7 +4897,8 @@ elab "#verify_elab_deep" id:ident : command =>
           `(tactic| have $hbndId:ident : $irTi ⟨$(quote i), by decide⟩ < 2 ^ $(quote regWs[i]!) := by
             rw [Cdo.irState_eq _ _ (by decide)]
             exact BitVec.isLt _)
-      let bridgeOk := nR > 0 && refWiresD?.isSome && regRstsD.length == nReg
+      let noReplay := sparkle.deepNoReplay.get (← getOptions)
+      let bridgeOk := !noReplay && nR > 0 && refWiresD?.isSome && regRstsD.length == nReg
         && memPortWires?.isSome && stateOrder.length == nR && comboRaWires?.isSome
       let mut bridgeAudit : Array Ident := #[]
       -- `hrunC : evalAssigns weM (memAt t) bodyC (envAt t) = some env1` from
@@ -5671,7 +5706,7 @@ elab "#verify_elab_deep" id:ident : command =>
             exact $dSigFoldId $appArgs* t hsi' hev'))
         bridgeAudit := bridgeAudit ++ #[sigM0Id, dStepOutId, dSigFoldId, dSigRunId]
       else
-        logInfo m!"#verify_elab_deep {declName}: IR replay skipped (a state or memory-port input is not a wire reference, or the register/reset bookkeeping is irregular); the certified statement is the capstone {thId.getId}"
+        logInfo m!"#verify_elab_deep {declName}: IR replay skipped ({if noReplay then "sparkle.deepNoReplay" else "a state or memory-port input is not a wire reference, or the register/reset bookkeeping is irregular"}); the certified statement is the capstone {thId.getId}"
       -- audit the capstone AND every fidelity theorem: elabCommand
       -- recovers failed tactic blocks as sorry, and a sorry'd fidelity
       -- proof would silently demote the result to the unverified twin.
