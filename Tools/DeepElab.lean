@@ -2468,6 +2468,8 @@ elab "#verify_elab_deep" id:ident : command =>
         if let some t := top? then
           if let some n ← nodeOf t true then acc := acc.push n
         for a in all do
+          -- the top application itself is collected too: that echo is not a nested node
+          if top?.any (· == a) then continue
           if let some n ← nodeOf a false then acc := acc.push n
         pure (acc, ch)
       chain := ch
@@ -2478,7 +2480,12 @@ elab "#verify_elab_deep" id:ident : command =>
       | some (.defnInfo v) =>
         let ns ← openLams v.value 64 fun body => do
           let mut acc : Array LoopNode := #[]
+          -- a helper unfolded to reach the top (specialized wrapper): its head
+          -- application is the top circuit again, not a nested node
+          let headRC := if chain.any (fun c => c == hid.getId.eraseMacroScopes || (privateToUserName? c).getD c == hid.getId.eraseMacroScopes)
+            then findRC body 64 else none
           for a in collect body do
+            if headRC.any (· == a) then continue
             if let some n ← nodeOf a false then acc := acc.push n
           pure acc
         nodes := nodes ++ ns
@@ -2500,10 +2507,9 @@ elab "#verify_elab_deep" id:ident : command =>
     deepTrace fun _ => s!"#verify_elab_deep STAGE ok: loop nodes discovered"
   let some topNode := loopNodes.find? (·.isTop)
     | throwError "#verify_elab_deep: could not locate the top-level runCircuitH (register types / initial values must be closed literals)"
-  -- the top node is also collected as an ordinary application of the
-  -- body; a nested node with the top's own signature is that echo
-  let nestedNodes := loopNodes.filter fun n => !n.isTop &&
-    !(n.isBool == topNode.isBool && n.widths == topNode.widths && n.inits == topNode.inits)
+  -- the top application itself (an echo) is already excluded from the nested nodes at discovery;
+  -- a nested node with the top's own signature is a genuine inner circuit
+  let nestedNodes := loopNodes.filter fun n => !n.isTop
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome && !headChain.isEmpty then
     logInfo m!"#verify_elab_deep head chain: {headChain}"
   -- candidate register blocks of a node: contiguous IR registers whose
