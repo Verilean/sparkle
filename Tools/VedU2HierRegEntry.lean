@@ -29,6 +29,14 @@ parent's own registers: slot `i` of the open circuit is the returned module's re
 value at cycle `t` is `Cdo.irState`, its initial value is `st0Of m`, and one cycle of the checked
 arrangement (instances as free oracle values) evaluated by `simp` is compared with the compiled
 `next`.
+
+H2c-state (a child call whose argument is the parent's register state; docs/VED-HIER-H2C-STATE.md), the LIMITED
+method: the open parent is a PROOF AID only (it supplies the registers' state; no equation between it and the
+declaration is claimed).  The declaration is joined to its call by the kernel equation `decl xs = g a` (`_ceq`)
+and the call's argument to the registers by the argument-state equation, also in the kernel, from the exported
+state theorem of the open parent's deep run.  The statement `U2HRStmt` is unchanged.  A failure of the deep run
+is tolerated ONLY for ports the proof does not use, and then recorded (`VED U2 HIER PARTIAL-DEEP`); every
+other deep failure is refused at `[deep]`.
 -/
 
 namespace Tools.VedU2HierRegEntry

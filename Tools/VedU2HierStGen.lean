@@ -15,15 +15,21 @@ to the loop's register inside `circuit do`'s lambda, so no closed call occurs in
   contains the parent's own loop: a `Signal.loop` over the registers);
 * the open parent `decl.ved_open_…` (struct-valued when the declaration projects a field of a circuit's
   struct result): the declaration's body with the user definitions that reach the child unfolded, the
-  child (passed as a function) replaced by the constant function `fun _ => o` of a free signal `o`.
-  Its registers are the parent's, its output the call's value `o`;
-* the equation `decl xs = π (open xs (g a))` in the KERNEL (`Eq.refl`: it is a delta/beta/projection
-  conversion plus the child call at the position the replaced function was applied; the kernel decides).
+  child (passed as a function) replaced by a function that returns a free signal `o` but still READS its
+  argument (`mux (x === x) o o`, so the argument's registers are kept by the synthesiser).  Its registers
+  are the parent's, its output the call's value `o`;
+* the equation of the declaration with its call, `decl xs = g a`, in the KERNEL (`Eq.refl`, theorem
+  `decl.ved_open_…_ceq`): a delta/beta/projection conversion, which the kernel decides.  NO equation between
+  the declaration and the open parent is claimed.
 
-The deep facts of the open parent (`#verify_elab_deep`, run by the checker) tie its registers to the
-IR registers (the invariant of `outputsOnHS_of_stepRK`); the closed argument `a` is tied to the same
-registers by the exported STATE theorem of that deep run (`ved_have_export` in DeepElab), and the
-child's output at the same cycle by `kid_step`.
+The open parent is a PROOF AID, not an equal of the declaration: it only supplies the registers' state.  The
+deep facts of the open parent
+(`#verify_elab_deep`, run by the checker) tie its registers to the IR registers (the invariant of
+`outputsOnHS_of_stepRK`); the closed argument `a` of the declaration's call is tied to the same registers by
+the exported STATE theorem of that deep run (`ved_have_export` in DeepElab), joined to the call by the
+argument-state equation in the kernel (`ved_kernel_exact`), and the child's output at the same cycle comes
+from `kid_step`.  Limits: a combinational child (`asgOnly`), the argument a plain rewiring of a register
+(alias, slice, slice of the register bundle).
 -/
 
 namespace Tools.VedU2HierStGen
