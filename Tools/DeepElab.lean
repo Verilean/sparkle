@@ -37,6 +37,7 @@ import Tools.VerifyElab
 import Tools.ConcatNorm
 import Tools.ConeFoldMem
 import Tools.ConeFoldRT
+import Tools.DeepFinArms
 open Sparkle.IR.AST Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
 
@@ -2101,6 +2102,12 @@ elab "#verify_elab_deep" id:ident : command =>
   -- engine: 13 + 5) cannot be reified yet.  The fix is a name table
   -- that is not a `match` at all (a `List String` with `getD`, whose
   -- lookups reduce by `decide`) — a separate change.
+  -- UPDATE (H2d): a final arm `⟨k + N, h⟩` closes the "tail" of the `Fin`
+  -- by contradiction with the bound, so past ~16 arms the match compiler
+  -- no longer has to (its contradiction search has a fixed fuel of 16,
+  -- which is the "Missing cases" ceiling).  The literal arms are
+  -- unchanged, so `nm ⟨i, _⟩` still iota-reduces for every slot.
+  let nmArms ← finTailArm nmArms (nR + nI + nC)
   elabSync (← `(def $nmId :
       Fin (($ΓAllT).length) → String := fun i =>
     match i with $nmArms:matchAlt*))
@@ -2112,6 +2119,7 @@ elab "#verify_elab_deep" id:ident : command =>
     let nm0Arms ← (List.range (nR + nI)).toArray.mapM fun i => do
       let s := if i < nR then (regs[i]!).1 else (ins[i - nR]!).1
       `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => $(quote s))
+    let nm0Arms ← finTailArm nm0Arms (nR + nI)
     elabSync (← `(def $nm0Id :
         Fin (($ΓrT ++ $ΓiT : List Nat).length) → String := fun i =>
       match i with $nm0Arms:matchAlt*))
