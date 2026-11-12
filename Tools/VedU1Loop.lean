@@ -80,7 +80,7 @@ def repeatedArith (es : Array Lean.Expr) (minSize : Nat) : MetaM (Array Lean.Exp
   return out
 
 /-- a goal whose tree has fewer nodes than this is left alone by `ved_share` -/
-def shareMinTree : Nat := 20000
+def shareMinTree : Nat := 150000
 
 open Lean Meta Elab Tactic in
 /-- one step of `ved_share`: the main goal `G` (with the hypotheses that mention `e` put back into it)
@@ -244,12 +244,8 @@ elab "ved_share" : tactic => withMainContext do
         if (← isProp t) then es := es.push t
     let cands ← repeatedArith es 24
     let some e := cands[0]? | return
-    let t0 ← IO.monoMsNow
     let (x, h) ← shareOne e
-    let t1 ← IO.monoMsNow
     shareRange e x h
-    let t2 ← IO.monoMsNow
-    IO.FS.withFile "/tmp/ved_share.log" .append fun hd => hd.putStrLn s!"SHARE size {treeSizeVal e} one {t1 - t0} ms range {t2 - t1} ms"
 
 open Lean Elab Tactic in
 /-- `omega` with a small heartbeat budget of its own (the rewrite rules below call it as a
