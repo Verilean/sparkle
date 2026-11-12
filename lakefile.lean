@@ -313,6 +313,9 @@ lean_lib «Tools.ConeFoldMem» where
 lean_lib «Tools.ConeFoldRT» where
   roots := #[`Tools.ConeFoldRT]
 
+lean_lib «Tools.VedU2HierStateArgs» where
+  roots := #[`Tools.VedU2HierStateArgs]
+
 lean_lib «Tools.DeepNestedState» where
   roots := #[`Tools.DeepNestedState]
 
@@ -1500,6 +1503,9 @@ lean_lib «Tests.Ved.U2HierStateCallCheck» where
 
 lean_lib «Tests.Ved.U2HierPartialDeepCheck» where
   roots := #[`Tests.Ved.U2HierPartialDeepCheck]
+
+lean_lib «Tests.Ved.U2HierOpenDeepCheck» where
+  roots := #[`Tests.Ved.U2HierOpenDeepCheck]
 
 lean_lib «Tests.Ved.U2HierNestedInlineCheck» where
   roots := #[`Tests.Ved.U2HierNestedInlineCheck]

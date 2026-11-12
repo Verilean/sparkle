@@ -1346,6 +1346,12 @@ register_option sparkle.deepNoReplay : Bool := {
   descr := "#verify_elab_deep: skip the per-port IR replay (trace theorem and fidelity facts only)"
 }
 
+/-- H2d: attempt the remaining ports after one whose block throws (see the port loop of `#verify_elab_deep`). -/
+register_option sparkle.deepContinue : Bool := {
+  defValue := false
+  descr := "#verify_elab_deep: report a failing port and continue with the next one"
+}
+
 /-- `signal_lets tv [extra,*]` — the DSL half of the linear (cone-sharing)
 trace recipe, generically.
 
@@ -5741,6 +5747,16 @@ elab "#verify_elab_deep" id:ident : command =>
   for (((portName, wOut), proj?, isBoolOut), outC, outIR) in jobs do
     let k := portIdx
     portIdx := portIdx + 1
-    deep0Id := ← portBlock k portName wOut proj? isBoolOut outC outIR deep0Id
+    -- H2d (`sparkle.deepContinue`, set by the hierarchical checker): a port whose block throws is reported
+    -- (`<decl>.<port>: FAILED`, after its errors) and the NEXT port is still attempted; the checker needs the
+    -- state of one port and tolerates the failure of another (a port that does not read the circuit's own
+    -- loop, such as the output of a nested circuit, cannot export it).
+    if sparkle.deepContinue.get (← getOptions) then
+      try deep0Id := ← portBlock k portName wOut proj? isBoolOut outC outIR deep0Id
+      catch e =>
+        logError e.toMessageData
+        logInfo m!"#verify_elab_deep {declName}.{portName}: FAILED"
+    else
+      deep0Id := ← portBlock k portName wOut proj? isBoolOut outC outIR deep0Id
 
 end Tools.DeepElab

@@ -6,6 +6,7 @@ import Tools.VedU2HierStep
 import Tools.DeepElab
 import Tools.DeepHelpers
 import Tools.DeepHelpersTac
+import Tools.VedU2HierStateArgs
 
 /-!
 # Stateful hierarchical entry, H2b: a parent WITH REGISTERS (`#ved_u2_hier decl`)
@@ -45,6 +46,7 @@ namespace Tools.VedU2HierRegEntry
 
 open Lean Meta Elab Term Command
 open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.IR.Reorder
+open Tools.VedU2HierStateArgs
 open Tools.VedU1Contract Tools.VedU1Entry Tools.VedU1Hier Tools.VedU1HierEntry Tools.VedU2Hier
   Tools.VedU2HierEntry Tools.VedU1Deep
 
@@ -183,23 +185,6 @@ def instDerived (c : Contract) (ck : Contract) (cs : List (String × Sparkle.IR.
     | _ => false
 
 /-! ## The generated proof of `U2HRStmt` -/
-
-structure DeepInfo where
-  /-- widths of the open circuit's register slots -/
-  regWs : List Nat
-  /-- number of inputs of the open circuit (data inputs, then one per child call) -/
-  nIn : Nat
-  /-- the parent's register output names, slot order -/
-  pm : List String
-  /-- H2c-state: the register slots the exported loop-state theorem's pack holds, in pack order (the top loop's
-  block of the flat register list; a nested circuit's registers are not in it) -/
-  block : List Nat := []
-  /-- H2d: the exported state theorems of the NESTED loops (script spelling, register slots in pack order) -/
-  nested : List (String × List Nat) := []
-  /-- H2d: the copies of a nested circuit's registers (slot, the slot it is equal to) and the equation's name -/
-  dups : List (Nat × Nat × String) := []
-  /-- the open parent, as the script spells it -/
-  openUser : String := ""
 
 /-- The register slots a state theorem's pack holds: the reader constants `<..>_deep_rd<n>` in the order they
 occur in the right side of its equation (`(rd_b .., (rd_b' .., ()))`, a Bool register's reader under `== 1#1`). -/
@@ -369,6 +354,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let kidOut (ki : Nat) : PTy := outPTy kidA[ki]!.tbl
   let calls := opn.calls
   let sigsAll := " ".intercalate (tbl.binders.map argTxt ++ calls.toList.map callTxt)
+  let spn : Sp :=
+  { state := OState, deep := ODeep, nm := ONm, irS := irS, inpU := inpU, sigsAll := sigsAll
+    rd := (fun slot => deepC opn.openName (ptag ++ s!"_deep_rd{slot}")) }
   let oracleBody (sg : Nat → String) : String :=
     insts.foldr (fun (ii : InstInfo) acc =>
       s!"if y = {sq ii.y} then {obsOf (kidOut ii.kid) (sg ii.call)} else {acc}") "0"
@@ -486,20 +474,14 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           X := X.push s!"    have := hltS ins t ⟨{i}, by decide⟩"
           X := X.push s!"    simpa using this"
           facts := facts ++ [s!"hEr{i}", s!"hlS{i}"]
-        -- H2d: an argument that is a derived net over the register state (a mux of an input and a register, say)
-        -- reads the loop's state inside a term, not as one slot: the exported state theorem rewrites the loop
-        -- to its pack, and each block slot's reader is the IR register (`hRd<slot>`)
+        -- H2d (`Tools/VedU2HierStateArgs.lean`): an argument that is a derived net over the register state reads
+        -- the loop inside a term; the state theorems rewrite it to its pack
         let derivedArgs := ports.any fun (bn, _) =>
           (ii.slots.lookup (match ii.cs.lookup ("_gen_" ++ bn) with | some (.ref x) => x | _ => "?")).isNone
         if derivedArgs then
-          X := X.push s!"  have hstA := {OState} {sigsAll} t"
-          stFacts := stFacts ++ ["hstA"]
-          for slot in di.block do
-            X := X.push s!"  have hRd{slot} : ({deepC opn.openName (ptag ++ s!"_deep_rd{slot}")} {sigsAll} t).toNat = {irS} ins t ({slot} : Fin {di.regWs.length}) := by"
-            X := X.push s!"    unfold {irS} {inpU}"
-            X := X.push s!"    rw [Cdo.irState_eq {ODeep} {ONm} hinj]"
-            X := X.push s!"    rfl"
-            stFacts := stFacts ++ [s!"hRd{slot}"]
+          let (ls, fs) := stateFacts spn di
+          X := X ++ ls
+          stFacts := fs
         -- the argument signal is the register's Signal-level state (the exported state theorem)
         for (bn, (_, ad)) in ports do
           let nm := "_gen_" ++ bn
@@ -507,28 +489,12 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           -- an argument that is not one of the parent's register slots (a data input, or a derived
           -- net) has no state fact; defaulting it to slot 0 gave a type mismatch (H2d)
           let some slot := ii.slots.lookup wire | continue
-          -- the pack holds the top loop's registers only: the position of the slot in it
-          -- (a register of a nested circuit: the pack of that circuit's own state theorem)
-          let dupT := di.dups.find? (·.1 == slot)
-          let slot0 := match dupT with | some (_, c, _) => c | none => slot
-          let (stName, pos) := if di.block.contains slot0 then (OState, di.block.idxOf slot0) else
-            match di.nested.find? (·.2.contains slot0) with
-            | some (nm, b) => (nm, b.idxOf slot0)
-            | none => (OState, (di.block.idxOf? slot0).getD slot0)
-          let sel := (List.range pos).foldl (fun s _ => s ++ ".2") "x" ++ ".1"
-          if !di.block.contains slot0 && (di.nested.find? (·.2.contains slot0)).isNone then
-            X := X.push s!"  fail \"H2D: register slot {slot} is in no exported state block (top {di.block}, nested {di.nested}, copies {di.dups})\""
-          X := X.push s!"  have hAl{bn} : (({toString (userName ad)} ins).val t).toNat = {irS} ins t ({slot} : Fin {di.regWs.length}) := by"
-          X := X.push s!"    have hst := {stName} {sigsAll} t"
-          X := X.push s!"    have h1 : ({toString (userName ad)} ins).val t = {deepC opn.openName (ptag ++ s!"_deep_rd{slot}")} {sigsAll} t := by {match dupT with | some (_, _, dn) => s!"rw [{dn} {sigsAll} t]; " | none => ""}ved_kernel_exact (congrArg (fun x => {sel}) hst)"
-          X := X.push s!"    unfold {irS} {inpU}"
-          X := X.push s!"    rw [Cdo.irState_eq {ODeep} {ONm} hinj, h1]"
-          X := X.push s!"    rfl"
+          X := X ++ slotLines spn di bn (toString (userName ad)) slot
           facts := facts ++ [s!"hAl{bn}"]
       let mut lts : List String := []
       for ((w, wd), wi) in ii.chain.zipIdx do
         X := X.push s!"  have e_{wi} := hasgF {sq w} _ rfl"
-        X := X.push s!"  simp [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
+        X := X.push s!"  simp (config := \{ maxSteps := 2000000 }) [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
         X := X.push s!"  have f_{wi} := e_{wi}.symm"
         if dbg && wi + 1 == ii.chain.length then X := X.push s!"  fail \"TRACE\""
         X := X.push s!"  have hlt_{wi} : E {sq w} < 2 ^ {wd} := by first | omega | (rw [f_{wi}]; exact Nat.and_lt_two_pow _ (by omega)) | (rw [f_{wi}]; exact Nat.or_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; exact Nat.xor_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; (repeat' split) <;> (first | omega | exact Nat.and_lt_two_pow _ (by omega) | exact Nat.or_lt_two_pow (by omega) (by omega) | exact Nat.xor_lt_two_pow (by omega) (by omega)))"
@@ -541,22 +507,12 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         let nm := "_gen_" ++ bn
         let wire := match ii.cs.lookup nm with | some (.ref x) => x | _ => "?"
         X := X.push s!"  · refine ⟨{sq wire}, by decide, ?_⟩"
+        if dbg then X := X.push s!"    trace \"H2D-PORT {bn} begin\""
         if ii.stateArg then
           -- a non-register argument (a constant, a data input, a derived net) is unfolded like the stateless case
-          let adU := if (ii.slots.lookup wire).isSome then "" else s!"{toString (userName ad)}, "
-          let stU := if (ii.slots.lookup wire).isSome then [] else stFacts
-          -- the state theorem speaks of `Signal.loop (loopFOf ..)` and of the arguments `PTy.sig ins ..`; the
-          -- declaration's term has the loop unfolded and the signals unfolded: bring the facts to the same form
-          unless stU.isEmpty do
-            X := X.push s!"    try unfold loopFOf at hstA"
-            X := X.push s!"    try simp [loopFOf, {adU}Tools.VedU1Contract.PTy.obs, {netSimpL}] at {" ".intercalate stU}"
-          if stU.isEmpty then
-            X := X.push s!"    simp [{Fj}, {adU}Tools.VedU1Contract.PTy.obs, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
-          else
-            -- the argument's terms keep a nested circuit folded, the state theorem has it unfolded
-            X := X.push s!"    simp [{Fj}, {adU}Tools.VedU1Contract.PTy.obs, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
-            X := X.push s!"    all_goals ved_unfold_helpers {di.openUser}"
-            X := X.push s!"    all_goals (try simp [apply_ite BitVec.toNat, {netSimpL}, hin, {", ".intercalate (facts ++ lts ++ stU)}])"
+          let isSlot := (ii.slots.lookup wire).isSome
+          X := X ++ portLines di dbg bn isSlot (toString (userName ad)) Fj netSimpL (facts ++ lts)
+            (if isSlot then [] else stFacts)
         else
           X := X.push s!"    simp [{Fj}, {toString (userName ad)}, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
         X := X.push s!"    try omega"
@@ -571,12 +527,12 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       for ((bn, (pt, ad)), kk) in ports.zipIdx do
         let nm := "_gen_" ++ bn
         let lem := match pt with | .bv w => s!"{T2}.sig_of_obs_bv {w}" | .bit => s!"{T2}.sig_of_obs_bit"
-        X := X.push s!"have hsig{kk} := {lem} (({toString (userName ad)}) ins) NS {sq nm} (fun t => by rw [← hNS]; simp [{T2}.netIn, {K.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {Fj}, Tools.VedU1Contract.PTy.obs])"
+        X := X.push s!"have hsig{kk} := {lem} (({toString (userName ad)}) ins) NS {sq nm} (fun t => by rw [← hNS]; simp (config := \{ maxSteps := 2000000 }) [{T2}.netIn, {K.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {Fj}, Tools.VedU1Contract.PTy.obs])"
         sigFacts := sigFacts ++ [s!"hsig{kk}"]
       X := X.push s!"have hx' : x = {sq ii.y} := by\n  have h2 : ({connsLit ii.cs}).lookup {sq outName} = some (Sparkle.IR.AST.Expr.ref {sq ii.y}) := by decide\n  rw [h2] at hx\n  simpa using hx.symm"
       X := X.push s!"subst hx'"
       X := X.push s!"rw [hv]"
-      X := X.push s!"simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {K.contract}, Tools.VedU1Contract.contractOf, List.lookup, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {", ".intercalate sigFacts}]"
+      X := X.push s!"simp (config := \{ maxSteps := 2000000 }) [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {K.contract}, Tools.VedU1Contract.contractOf, List.lookup, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {", ".intercalate sigFacts}]"
       return X.toList
     let lines : List String := if ii.derived then
       -- the shared prefix of the plain lines (the instance's output wire) stays; the child's
@@ -622,7 +578,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     [s!"{OInp}_at_{j}", s!"{OInp}_at_mk_{j}"]) ++ ", Tools.VedU1Contract.PTy.sig"
   let argDefsL := ", ".intercalate (calls.toList.flatMap fun c => c.argDefs.map fun n => toString (userName n))
   let evalL := s!"{if argDefsL.isEmpty then "" else argDefsL ++ ", "}Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange, {ONm}, Tools.VedU1Deep.reduceFinVal, natJoin, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.mask, Nat.shiftRight_eq_div_pow, Tools.VedU1Entry.or_mod _ _ _ _ rfl, {inpL}"
-  L := L.push s!"    simp [hout, {P.outs}, Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {T2}.oracleIE, {hOl}, {P.body}, Sparkle.IR.Semantics.regNexts, {T2}.regOuts, Tools.VedU1Contract.regsOf, {T2}.restrictTo, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.declWidth, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.widthOf, Tools.VedU1Hier.upd, Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.applyNexts, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, hrst]"
+  L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [hout, {P.outs}, Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {T2}.oracleIE, {hOl}, {P.body}, Sparkle.IR.Semantics.regNexts, {T2}.regOuts, Tools.VedU1Contract.regsOf, {T2}.restrictTo, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.declWidth, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.widthOf, Tools.VedU1Hier.upd, Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.applyNexts, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, hrst]"
   L := L.push s!"    constructor"
   -- the output
   L := L.push s!"    · try rw [if_pos rfl]"
@@ -637,9 +593,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     L := L.push s!"      all_goals rw [{OTrace}]"
     L := L.push s!"      all_goals unfold {irS} {inpU} at {locsU}"
     L := L.push s!"      all_goals simp only [CExpr.compile, {OOut}]"
-    L := L.push s!"      all_goals simp [{evalL}] at {locs} ⊢"
+    L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) [{evalL}] at {locs} ⊢"
     L := L.push s!"      all_goals ved_fin_norm"
-    L := L.push s!"      all_goals try simp [{evalL}] at ⊢"
+    L := L.push s!"      all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}] at ⊢"
     L := L.push s!"      all_goals try simp only [{hRs}]"
     L := L.push s!"      all_goals try simp only [{hMods}]"
     if dbg then L := L.push s!"      all_goals trace_state"
@@ -651,9 +607,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"      all_goals unfold {irS} at *"
   L := L.push s!"      all_goals simp only [Cdo.irState, {ONext}, CExpr.compile]"
   L := L.push s!"      all_goals unfold {inpU} at *"
-  L := L.push s!"      all_goals simp [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at {locs} ⊢"
+  L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at {locs} ⊢"
   L := L.push s!"      all_goals ved_fin_norm"
-  L := L.push s!"      all_goals try simp [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at ⊢"
+  L := L.push s!"      all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at ⊢"
   L := L.push s!"      all_goals (try simp only [{hRs}])"
   L := L.push s!"      all_goals (try simp only [{hMods}])"
   if dbg then L := L.push s!"      all_goals trace_state"
@@ -943,7 +899,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
 `msgs` are the NEW messages in order `(isError, text)`.  A port's block logs its errors and, when it completes,
 the line `…<open>.<port>: PROVEN via …`; so the errors logged since the previous `PROVEN` line belong to the
 port whose `PROVEN` line follows, and the errors left at the end belong to the first port that has no `PROVEN`
-line (a failing block aborts the command, later ports are never attempted).  Returns the errors that belong to
+line (a failing block that THROWS is reported `…<port>: FAILED` after its errors and the later ports are still attempted).  Returns the errors that belong to
 no port, and per port the errors tied to it (first text kept, in port order). -/
 def attributeDeepErrors (ports : List String) (msgs : List (Bool × String)) :
     List String × List (String × List String) := Id.run do
@@ -957,7 +913,13 @@ def attributeDeepErrors (ports : List String) (msgs : List (Bool × String)) :
         proven := proven ++ [p]
         if !pending.isEmpty then tied := tied ++ [(p, pending)]
         pending := []
-      | none => pure ()
+      | none =>
+        -- H2d: a port whose block threw says so after its errors; they are its own
+        match ports.find? (fun p => (txt.splitOn s!".{p}: FAILED").length > 1) with
+        | some p =>
+          if !pending.isEmpty then tied := tied ++ [(p, pending)]
+          pending := []
+        | none => pure ()
   let mut stray : List String := []
   if !pending.isEmpty then
     match ports.find? (fun p => !proven.contains p) with
@@ -1007,7 +969,7 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
     let stx ← `(command| #verify_elab_deep $(mkIdent p1.opn.openName))
     -- the deep constants are declared in the CURRENT namespace under the ident's last component;
     -- inside the namespace `decl` they are `decl.ved_open_deep…` (`deepName` of the open parent)
-    try withScope (fun sc => { sc with currNamespace := decl, opts := sc.opts.setBool `sparkle.deepNoReplay true }) (elabCommand stx)
+    try withScope (fun sc => { sc with currNamespace := decl, opts := (sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true }) (elabCommand stx)
     catch e => liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName}: {e.toMessageData}"
     let p1 ← tamper p1
     let newMsgs := (← get).messages.toList.drop nMsg0
