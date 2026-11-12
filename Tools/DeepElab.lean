@@ -39,6 +39,7 @@ import Tools.ConeFoldMem
 import Tools.ConeFoldRT
 import Tools.DeepFinArms
 import Tools.DeepHelpers
+import Tools.DeepNestedState
 open Sparkle.IR.AST Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
 
@@ -4655,6 +4656,41 @@ elab "#verify_elab_deep" id:ident : command =>
         for a in alts.pop.reverse do
           alt ← `(tactic| first | $a:tactic | $alt:tactic)
         pure alt
+      -- H2d: the proof of a NESTED node's state, `(Signal.loop G).val u = pack u` for a closed nested loop
+      -- (the context holds `u`): the top loop's step proof with the node's own pack.  Used to export the
+      -- nested state theorems (`Tools.DeepNested.exportNested`).
+      let mkNestedProof (node : LoopNode) (b : Array Nat) : CommandElabM (Lean.TSyntax `tactic) := do
+        let packS ← packOf node b (← `($sId))
+        let packI ← packOf node b (← `($iId))
+        let hpreGuard ← `((fun $iId $hiId => $hpreId $iId (by omega)))
+        let nAlts := nestedNodes.foldl (fun acc n => acc + (blocksFor n).length) 0 + 2 * nM
+        let want := (if nestedNodes.isEmpty then 0 else 2 * nestedNodes.size + 1)
+          + (if hasMem then 2 else 0) + (if hasCombo then 1 else 0)
+        let depth := Id.run do
+          let mut d := 0
+          for k in [1:6] do
+            if k ≤ want && nAlts ^ k ≤ 64 then d := k
+          return max d (if hasMem then 1 else 0)
+        let innerHpre ← innerBlock (← `(($preId).val $iId = $packI)) hpreGuard depth 0
+        let st1z ← stage1 #[]
+        let st1s ← stage1 #[← `($hpreId $nId (Nat.lt_succ_self $nId))]
+        `(tactic| (
+          refine loop_trace_at _ (fun $sId => $packS) ?_ $uId
+          intro $uId:ident $preId:ident $hpreId:ident
+          cases $uId:ident with
+          | zero =>
+            $st1z:tactic
+            $appendFix:tactic
+            all_goals (try simp only [$[$rdZeroAll:ident],*])
+            $closers:tactic
+          | succ $nId =>
+            $st1s:tactic
+            $appendFix:tactic
+            $innerHpre:tactic
+            all_goals (try simp only [$[$rdSuccAll:ident],*])
+            $dupSimp:tactic
+            ($[$genLines:tactic]*)
+            $closers:tactic))
       -- the theorem: general theorem + per-instance Signal bridge
       -- the IR seed of the capstone: CdoM's `irEnv` (registers, inputs,
       -- read slots) or Cdo's joined state/inputs
@@ -4698,6 +4734,20 @@ elab "#verify_elab_deep" id:ident : command =>
         logInfo m!"#verify_elab_deep {declName}.{portName}: defs only (SPARKLE_DEEP_NOTHM)"
         return none
       elabSync thmCmd
+      -- H2d: the state of the nested loops of a circuit whose top state was exported
+      if !hasMem && !nestedNodes.isEmpty then
+        let stFull := (← getCurrNamespace) ++ stateThId.getId
+        if (← getEnv).contains stFull then
+          let nodes ← nestedNodes.mapM fun node => do
+            let blocks ← (blocksFor node).toArray.mapM fun b => do
+              let idx := (Array.range node.widths.size).map (b + ·)
+              pure ({ idx, pack := ← packOf node idx (← `($uId)),
+                      tac := ← mkNestedProof node idx } : Tools.DeepNested.BlockCand)
+            pure ({ widths := node.widths, isBool := node.isBool, blocks } : Tools.DeepNested.NodeCand)
+          let added ← liftTermElabM <| withTheReader Core.Context
+            (fun c => { c with maxRecDepth := 65536, maxHeartbeats := 1600000 * 1000 })
+            (Tools.DeepNested.exportNested stFull nodes)
+          deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: nested state theorems {added}"
       return some lhsSig
     -- defs-only mode: this port contributes no theorems (was `continue`
     -- when this body was a loop body)

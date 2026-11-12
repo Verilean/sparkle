@@ -313,8 +313,14 @@ lean_lib «Tools.ConeFoldMem» where
 lean_lib «Tools.ConeFoldRT» where
   roots := #[`Tools.ConeFoldRT]
 
+lean_lib «Tools.DeepNestedState» where
+  roots := #[`Tools.DeepNestedState]
+
 lean_lib «Tools.DeepHelpers» where
   roots := #[`Tools.DeepHelpers]
+
+lean_lib «Tools.DeepHelpersTac» where
+  roots := #[`Tools.DeepHelpersTac]
 
 lean_lib «Tools.DeepFinArms» where
   roots := #[`Tools.DeepFinArms]

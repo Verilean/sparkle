@@ -5,6 +5,7 @@ import Tools.VedU2HierStGen
 import Tools.VedU2HierStep
 import Tools.DeepElab
 import Tools.DeepHelpers
+import Tools.DeepHelpersTac
 
 /-!
 # Stateful hierarchical entry, H2b: a parent WITH REGISTERS (`#ved_u2_hier decl`)
@@ -193,9 +194,12 @@ structure DeepInfo where
   /-- H2c-state: the register slots the exported loop-state theorem's pack holds, in pack order (the top loop's
   block of the flat register list; a nested circuit's registers are not in it) -/
   block : List Nat := []
-  /-- H2d: the helper circuits the open parent calls (nested `circuit do`s such as a parser), which the
-  state theorem has unfolded and a declaration's argument terms have not -/
-  helpers : List String := []
+  /-- H2d: the exported state theorems of the NESTED loops (script spelling, register slots in pack order) -/
+  nested : List (String × List Nat) := []
+  /-- H2d: the copies of a nested circuit's registers (slot, the slot it is equal to) and the equation's name -/
+  dups : List (Nat × Nat × String) := []
+  /-- the open parent, as the script spells it -/
+  openUser : String := ""
 
 /-- The register slots a state theorem's pack holds: the reader constants `<..>_deep_rd<n>` in the order they
 occur in the right side of its equation (`(rd_b .., (rd_b' .., ()))`, a Bool register's reader under `== 1#1`). -/
@@ -216,6 +220,15 @@ def stateBlockOf (thm : Name) : MetaM (List Nat) := do
           go (e.getArg! 3) f (match idx with | some n => acc ++ [n] | none => acc)
         else acc
     return go rhs 64 []
+
+/-- The register a duplicate-copy equation `<..>_deep_dup_r<n> : rd<n> .. = rd<m> ..` identifies `rd<n>` with: `m`. -/
+def dupTargetOf (thm : Name) : MetaM (Option Nat) := do
+  let ci ← getConstInfo thm
+  forallTelescope ci.type fun _ body => do
+    let some (_, _, rhs) := body.eq? | return none
+    return (rhs.getAppFn.constName?.bind fun c => match c.getString!.splitOn "_deep_rd" with
+      | [_, n] => n.toNat?
+      | _ => none)
 
 /-- The name of the stream definition `ved_F<j>` of derived call `j`. -/
 def fDefName (opn : OpenInfo) (j : Nat) : Name :=
@@ -495,11 +508,19 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           -- net) has no state fact; defaulting it to slot 0 gave a type mismatch (H2d)
           let some slot := ii.slots.lookup wire | continue
           -- the pack holds the top loop's registers only: the position of the slot in it
-          let pos := (di.block.idxOf? slot).getD slot
+          -- (a register of a nested circuit: the pack of that circuit's own state theorem)
+          let dupT := di.dups.find? (·.1 == slot)
+          let slot0 := match dupT with | some (_, c, _) => c | none => slot
+          let (stName, pos) := if di.block.contains slot0 then (OState, di.block.idxOf slot0) else
+            match di.nested.find? (·.2.contains slot0) with
+            | some (nm, b) => (nm, b.idxOf slot0)
+            | none => (OState, (di.block.idxOf? slot0).getD slot0)
           let sel := (List.range pos).foldl (fun s _ => s ++ ".2") "x" ++ ".1"
+          if !di.block.contains slot0 && (di.nested.find? (·.2.contains slot0)).isNone then
+            X := X.push s!"  fail \"H2D: register slot {slot} is in no exported state block (top {di.block}, nested {di.nested}, copies {di.dups})\""
           X := X.push s!"  have hAl{bn} : (({toString (userName ad)} ins).val t).toNat = {irS} ins t ({slot} : Fin {di.regWs.length}) := by"
-          X := X.push s!"    have hst := {OState} {sigsAll} t"
-          X := X.push s!"    have h1 : ({toString (userName ad)} ins).val t = {deepC opn.openName (ptag ++ s!"_deep_rd{slot}")} {sigsAll} t := by ved_kernel_exact (congrArg (fun x => {sel}) hst)"
+          X := X.push s!"    have hst := {stName} {sigsAll} t"
+          X := X.push s!"    have h1 : ({toString (userName ad)} ins).val t = {deepC opn.openName (ptag ++ s!"_deep_rd{slot}")} {sigsAll} t := by {match dupT with | some (_, _, dn) => s!"rw [{dn} {sigsAll} t]; " | none => ""}ved_kernel_exact (congrArg (fun x => {sel}) hst)"
           X := X.push s!"    unfold {irS} {inpU}"
           X := X.push s!"    rw [Cdo.irState_eq {ODeep} {ONm} hinj, h1]"
           X := X.push s!"    rfl"
@@ -529,11 +550,17 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           unless stU.isEmpty do
             X := X.push s!"    try unfold loopFOf at hstA"
             X := X.push s!"    try simp [loopFOf, {adU}Tools.VedU1Contract.PTy.obs, {netSimpL}] at {" ".intercalate stU}"
-          let hlp := if stU.isEmpty then "" else ", ".intercalate di.helpers ++ (if di.helpers.isEmpty then "" else ", ")
-          X := X.push s!"    simp [{Fj}, {adU}{hlp}Tools.VedU1Contract.PTy.obs, {netSimpL}, hin, {", ".intercalate (facts ++ lts ++ stU)}]"
+          if stU.isEmpty then
+            X := X.push s!"    simp [{Fj}, {adU}Tools.VedU1Contract.PTy.obs, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
+          else
+            -- the argument's terms keep a nested circuit folded, the state theorem has it unfolded
+            X := X.push s!"    simp [{Fj}, {adU}Tools.VedU1Contract.PTy.obs, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
+            X := X.push s!"    all_goals ved_unfold_helpers {di.openUser}"
+            X := X.push s!"    all_goals (try simp [apply_ite BitVec.toNat, {netSimpL}, hin, {", ".intercalate (facts ++ lts ++ stU)}])"
         else
           X := X.push s!"    simp [{Fj}, {toString (userName ad)}, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
         X := X.push s!"    try omega"
+        if ii.stateArg then X := X.push s!"    all_goals (try (split <;> omega))"
       if ii.stateArg then
         X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_step {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht E hE hrunF _ hq"
       else
@@ -827,9 +854,20 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let block ← if p1.insts.any (·.stateArg) then
       stateBlockOf (deepNameP opn.openName (ptag ++ "_deep_state"))
     else pure []
-  let helpers := (Tools.DeepHelpers.helperConsts (← getEnv) opn.openName).toList.map fun n =>
-    toString ((privateToUserName? n).getD n)
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, helpers }
+  let mut nested : List (String × List Nat) := []
+  if p1.insts.any (·.stateArg) then
+    for j in List.range 16 do
+      let n := deepNameP opn.openName (ptag ++ s!"_deep_state_n{j}")
+      if (← getEnv).contains n then
+        nested := nested ++ [(deepC opn.openName (ptag ++ s!"_deep_state_n{j}"), ← stateBlockOf n)]
+  let mut dups : List (Nat × Nat × String) := []
+  if p1.insts.any (·.stateArg) then
+    for slot in List.range regWs.length do
+      let n := deepNameP opn.openName (ptag ++ s!"_deep_dup_r{slot}")
+      if (← getEnv).contains n then
+        if let some c ← dupTargetOf n then
+          dups := dups ++ [(slot, c, deepC opn.openName (ptag ++ s!"_deep_dup_r{slot}"))]
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName) }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU
