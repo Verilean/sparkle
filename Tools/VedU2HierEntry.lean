@@ -152,12 +152,27 @@ parent binder names its arguments are. -/
 structure CallInfo where
   kid : Nat
   args : List String
+  /-- H2c: some argument is a derived expression over the parent inputs, not a parent input itself;
+  `args` is then not meaningful and `argDefs` names, per child binder, the closed definition
+  `fun ins => argument[inputs := the input streams]` -/
+  derived : Bool := false
+  argDefs : List Name := []
+  /-- H2c-state: the call's argument is computed from the parent's REGISTER state (a closed Signal
+  term over the inputs, containing the parent's own loop), not only from inputs -/
+  stateArg : Bool := false
   deriving BEq, Inhabited
 
 structure OpenInfo where
   openName : Name
   eqName : Name
   calls : Array CallInfo
+  /-- H2c-state: the open parent is struct-valued; the declaration's output is this field of it, and
+  the deep facts are those of this port (`<open>_<port>_deep…`) -/
+  port : Option String := none
+  /-- H2c-state: all the ports (struct fields) of the open parent -/
+  ports : List String := []
+  /-- H2c-state: the kernel equation `decl xs = g a` (the declaration IS the call on its closed argument) -/
+  callEqName : Option Name := none
   deriving Inhabited
 
 instance : Inhabited Kid :=
@@ -185,7 +200,7 @@ partial def collectCalls (isKid : Name → Bool) (e : Lean.Expr) (acc : Array Le
 signal (`kabstract` is only the construction device), register the definition, and add the
 equation `decl xs = open xs calls` to the KERNEL (its proof is `rfl`). -/
 def genOpen (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (kids : List Kid)
-    (base : Name) (openSuf : String := "ved_open") : TermElabM OpenInfo := do
+    (base : Name) (openSuf : String := "ved_open") (allowDerived : Bool := false) : TermElabM OpenInfo := do
   let openName := base ++ Name.mkSimple openSuf
   let eqName := base ++ Name.mkSimple (openSuf ++ "_eq")
   let ty ← inferType stmt
@@ -208,13 +223,38 @@ def genOpen (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (kid
       unless cargs.size == k.nDom + k.tbl.ins.length do
         refuse decl "open" m!"child call {call} is not fully applied"
       let mut names : List String := []
+      let mut derived := false
       for a in cargs.extract k.nDom cargs.size do
         match xs.findIdx? (· == a) with
         | some j => names := names ++ [tbl.binders.getD j ""]
         | none =>
-          refuse decl "open"
-            m!"the argument {a} of the child call {call} is not a parent input signal (derived or chained instance inputs are outside H2a)"
-      infos := infos.push { kid := ki, args := names }
+          unless allowDerived do
+            refuse decl "open"
+              m!"the argument {a} of the child call {call} is not a parent input signal (derived or chained instance inputs are outside H2a)"
+          if a.hasLooseBVars then
+            refuse decl "open"
+              m!"the argument {a} of the child call {call} depends on a signal bound inside the parent's circuit (a register output of the parent): it has no closed term over the parent inputs, outside H2c"
+          derived := true
+          names := names ++ ["?"]
+      if !derived then
+        infos := infos.push { kid := ki, args := names }
+      else
+        -- the closed argument definitions `fun ins => argument[inputs := input streams]`
+        let ptys := tbl.ins
+        let insTy := Lean.mkForall `n .default (Lean.mkConst ``Nat) (Lean.mkForall `s .default (Lean.mkConst ``String) (Lean.mkConst ``Nat))
+        let j := infos.size
+        let defs ← withLocalDeclD `ins insTy fun insFv => do
+          let mut ds : List Name := []
+          let sigs : Array Lean.Expr := (ptys.zip tbl.binders).toArray.map fun (pt, bn) =>
+            mkAppN (Lean.mkConst ``PTy.sig) #[toExpr pt, insFv, toExpr ("_gen_" ++ bn)]
+          for (a, kk) in (cargs.extract k.nDom cargs.size).toList.zipIdx do
+            let v := a.replaceFVars xs sigs
+            let lam ← mkLambdaFVars #[insFv] v
+            let nmA := base ++ Name.mkSimple (openSuf ++ s!"_arg{j}_{kk}")
+            addDefnRegular nmA (← inferType lam) lam
+            ds := ds ++ [nmA]
+          return ds
+        infos := infos.push { kid := ki, args := names, derived := true, argDefs := defs }
     let tys ← calls.mapM fun c => inferType c
     let decls := (tys.mapIdx fun i T => (Name.mkSimple s!"o{i}", T)).toList
     withLocalDeclsDND decls.toArray fun os => do
@@ -243,6 +283,15 @@ structure InstInfo where
   kid : Nat
   y : String
   call : Nat
+  /-- H2c: a data port reads a derived parent net (see `CallInfo.derived`) -/
+  derived : Bool := false
+  /-- H2c: the assigned wires the derived nets are computed from (dependency closure, input
+  names excluded) -/
+  chain : List (String × Nat) := []
+  /-- H2c-state: the nets also read parent register outputs -/
+  stateArg : Bool := false
+  /-- H2c-state: per data-port wire, the parent register slot it is an alias of -/
+  slots : List (String × Nat) := []
 
 def ptyTxt : PTy → String
   | .bit => "Tools.VedU1Contract.PTy.bit"

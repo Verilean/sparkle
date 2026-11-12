@@ -1488,6 +1488,59 @@ elab_rules : tactic
       let (_, g3) ← g''.introNP fvars.size
       replaceMainGoal [g3]
 
+/-- `ved_have_export h : T := (tacs) hL => n` — `have h : T := by tacs`, and ALSO the theorem `n`
+stating `T` with the loop variable replaced by its definition.  Used by the deep route's top loop: after
+`generalize hL : loopTerm = L`, `T` is `∀ u, L.val u = pack u` and the proof only uses `hL` to unfold `L`;
+the theorem `n : ∀ (params), ∀ u, loopTerm.val u = pack u` is the STATE meaning of the circuit's loop
+(the open-call composition needs the loop's state as a Signal fact, not only the output's).  `n` is
+kernel-checked like every other generated theorem; if `n` already exists (another alternative of the
+`first` combinator exported it) nothing is added. -/
+syntax (name := vedHaveExport) "ved_have_export " ident " : " term " := " "(" tacticSeq ")" ident " => " ident : tactic
+
+/-- Local variables the expression mentions, with those their types mention (transitively). -/
+partial def vedCollectFVars (e : Lean.Expr) (acc : Std.HashSet Lean.FVarId) :
+    Lean.MetaM (Std.HashSet Lean.FVarId) := do
+  let mut acc := acc
+  for x in (Lean.collectFVars {} e).fvarIds do
+    unless acc.contains x do
+      acc := acc.insert x
+      acc ← vedCollectFVars (← x.getType) acc
+  return acc
+
+open Lean Meta Elab Tactic in
+elab_rules : tactic
+  | `(tactic| ved_have_export $h:ident : $ty:term := ($tacs:tacticSeq) $hL:ident => $nm:ident) => withMainContext do
+    let T ← instantiateMVars (← Lean.Elab.Term.elabType ty)
+    let pfM ← mkFreshExprSyntheticOpaqueMVar T
+    let saved ← getGoals
+    setGoals [pfM.mvarId!]
+    evalTactic tacs
+    unless (← getGoals).isEmpty do throwError "ved_have_export: the proof left goals"
+    setGoals saved
+    let pf ← instantiateMVars pfM
+    -- the exported theorem
+    unless (← getEnv).contains ((← getCurrNamespace) ++ nm.getId) do
+      let hLd ← getLocalDeclFromUserName hL.getId
+      let some (_, lhs, rhs) := (← instantiateMVars hLd.type).eq?
+        | throwError "ved_have_export: {hL} is not an equation"
+      unless rhs.isFVar do throwError "ved_have_export: the right side of {hL} is not a variable"
+      let T' := T.replaceFVar rhs lhs
+      let lam ← mkLambdaFVars #[rhs, hLd.toExpr] pf
+      let pf' := (mkApp2 lam lhs (← mkEqRefl lhs)).headBeta
+      -- close over the remaining local variables (the circuit's parameters), in context order
+      let need ← vedCollectFVars pf' (← vedCollectFVars T' {})
+      let xs := (← getLCtx).foldl (init := (#[] : Array Lean.Expr)) fun acc d =>
+        if need.contains d.fvarId then acc.push d.toExpr else acc
+      if xs.contains rhs || xs.contains hLd.toExpr then
+        throwError "ved_have_export: the exported statement still mentions the loop variable"
+      let ty2 ← mkForallFVars xs T'
+      let val2 ← mkLambdaFVars xs pf'
+      addDecl (Declaration.thmDecl { name := (← getCurrNamespace) ++ nm.getId, levelParams := [], type := ty2, value := val2 })
+    let g ← getMainGoal
+    let g' ← g.assert h.getId T pf
+    let (_, g'') ← g'.intro1P
+    replaceMainGoal [g'']
+
 end Tools.DeepElab
 
 namespace Tools.DeepElab
@@ -3705,6 +3758,7 @@ elab "#verify_elab_deep" id:ident : command =>
     let deepId := mkDecl s!"{base}{suffix}_deep"
     if k == 0 then deep0Id := deepId
     let thId := mkDecl s!"{base}{suffix}_deep_trace"
+    let stateThId := mkDecl s!"{base}{suffix}_deep_state"
     let nextEqId := mkDecl s!"{base}{suffix}_deep_next"
     let initsEqId := mkDecl s!"{base}{suffix}_deep_inits"
     let outEqId := mkDecl s!"{base}{suffix}_deep_out"
@@ -4561,7 +4615,7 @@ elab "#verify_elab_deep" id:ident : command =>
           generalize $hLId : Signal.loop (loopFOf
             (dom := Sparkle.Core.Domain.defaultDomain)
             (αs := [$topTys,*]) (ρ := $retTyStx) _ _) = $LId
-          have $hLtId : ∀ ($uId : Nat), ($LId).val $uId = $packU := by
+          ved_have_export $hLtId : (∀ ($uId : Nat), ($LId).val $uId = $packU) := (
             intro $uId:ident
             rw [← $hLId:ident]
             refine loop_trace_at _ (fun $sId => $packS) ?_ $uId
@@ -4582,7 +4636,7 @@ elab "#verify_elab_deep" id:ident : command =>
               all_goals (try simp only [$[$rdSuccAll:ident],*])
               $dupSimp:tactic
               ($[$genLines:tactic]*)
-              $closers:tactic
+              $closers:tactic) $hLId => $stateThId
           -- the output side: outSig against the packed projection, via
           -- the shallow output equation
           rw [$outSId:ident]
@@ -4624,13 +4678,16 @@ elab "#verify_elab_deep" id:ident : command =>
         -- the field projection onto the output via runCircuitH_proj_eq
         -- (the loop's STATE is projection-independent), landing on the
         -- same outFOf shape a single Signal output produces.
+        -- an output that is a bare input (a port that does not read the circuit's state) is closed by
+        -- `congr 1` already: the rest then has nothing to do (and exports no state theorem)
+        all_goals (
         $idUnfold:tactic
         ($[$chainUnfold:tactic]*)
         $projRw:tactic
         simp only [outFOf, mkHolds, Signal.map, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
           $[$outUnfoldIds:ident],*]
         $appendFix:tactic
-        $topProof:tactic)
+        $topProof:tactic))
       if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
         logInfo m!"{thmCmd}"
       if (← IO.getEnv "SPARKLE_DEEP_NOTHM").isSome then

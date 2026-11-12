@@ -1453,8 +1453,20 @@ lean_lib «Tools.VedU2HierKid» where
 lean_lib «Tools.VedU2HierReg» where
   roots := #[`Tools.VedU2HierReg]
 
+lean_lib «Tools.VedU2HierStep» where
+  roots := #[`Tools.VedU2HierStep]
+
+lean_lib «Tools.VedU2HierState» where
+  roots := #[`Tools.VedU2HierState]
+
+lean_lib «Tools.VedU2HierNet» where
+  roots := #[`Tools.VedU2HierNet]
+
 lean_lib «Tools.VedU2HierEntry» where
   roots := #[`Tools.VedU2HierEntry]
+
+lean_lib «Tools.VedU2HierStGen» where
+  roots := #[`Tools.VedU2HierStGen]
 
 lean_lib «Tools.VedU2HierRegEntry» where
   roots := #[`Tools.VedU2HierRegEntry]
@@ -1467,6 +1479,18 @@ lean_lib «Tests.Ved.H2OpenParentProbe» where
 
 lean_lib «Tests.Ved.U2HierRegCheck» where
   roots := #[`Tests.Ved.U2HierRegCheck]
+
+lean_lib «Tests.IP.Net.HTTPTest» where
+  roots := #[`Tests.IP.Net.HTTPTest]
+
+lean_lib «Tests.Ved.U2HierStateCallCheck» where
+  roots := #[`Tests.Ved.U2HierStateCallCheck]
+
+lean_lib «Tests.Ved.U2HierPartialDeepCheck» where
+  roots := #[`Tests.Ved.U2HierPartialDeepCheck]
+
+lean_lib «Tests.Ved.U2HierWireCheck» where
+  roots := #[`Tests.Ved.U2HierWireCheck]
 
 lean_lib «Tests.Ved.U2HierCheck» where
   roots := #[`Tests.Ved.U2HierCheck]
