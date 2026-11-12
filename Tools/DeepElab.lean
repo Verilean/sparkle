@@ -38,6 +38,7 @@ import Tools.ConcatNorm
 import Tools.ConeFoldMem
 import Tools.ConeFoldRT
 import Tools.DeepFinArms
+import Tools.DeepHelpers
 open Sparkle.IR.AST Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
 
@@ -2206,52 +2207,7 @@ elab "#verify_elab_deep" id:ident : command =>
   -- namespaces and splice them (preresolved, so private mangled
   -- names hit the environment directly) into the top-level unfold.
   let helperIds : Array Ident ← liftTermElabM do
-    let env ← getEnv
-    let isCore (n : Name) : Bool :=
-      -- keep the Sparkle core/compiler namespaces and the stdlib out;
-      -- user circuits stay (IP.*, Tests.*, and anything else a design
-      -- defines — a helper circuit under `Sparkle.Tests` is a helper)
-      let base := (privateToUserName? n).getD n
-      let r := base.getRoot
-      r == `Init || r == `Lean || r == `Std
-        || r == `Nat || r == `BitVec || r == `List || r == `Tools
-        || (`Sparkle.Core).isPrefixOf base
-        || (`Sparkle.IR).isPrefixOf base
-        || (`Sparkle.Compiler).isPrefixOf base
-        || (`Sparkle.Backend).isPrefixOf base
-    let mentionsSignal (e : Lean.Expr) : Bool :=
-      Option.isSome <| e.find? fun x =>
-        match x with
-        | .const n _ =>
-          n == ``Sparkle.Core.Signal.Signal
-          || n.eraseMacroScopes.components.contains `Circuit
-        | _ => false
-    let rec go (fuel : Nat) (work : List Name) (seen : List Name)
-        (acc : Array Name) : Array Name :=
-      match fuel, work with
-      | 0, _ | _, [] => acc
-      | fuel + 1, c :: rest =>
-        if seen.contains c then go fuel rest seen acc else
-        let seen := c :: seen
-        -- hygiene suffixes (`._@._internal…`) name compiler-internal
-        -- twins; the simp-facing constant is the scope-erased one
-        let c := c.eraseMacroScopes
-        if (Lean.Meta.Match.Extension.getMatcherInfo? env c).isSome
-        then go fuel rest seen acc else
-        match env.find? c with
-        | some (.defnInfo v) =>
-          -- closed BitVec constants (`private abbrev poly : BitVec 32
-          -- := …`) ride along: the shallow side carries the literal,
-          -- and bv_decide treats an un-unfolded constant as an atom
-          let isBvConst := v.type.isAppOf ``BitVec
-          if !isCore c && (mentionsSignal v.type || isBvConst) then
-            let deps := v.value.getUsedConstants.toList
-            go fuel (deps ++ rest) seen (acc.push c)
-          else go fuel rest seen acc
-        | _ => go fuel rest seen acc
-    let root ← getConstInfo declName
-    let deps := (root.value?.getD root.type).getUsedConstants.toList
-    let names := go 512 deps [declName] #[]
+    let names := Tools.DeepHelpers.helperConsts (← getEnv) declName
     pure <| names.map fun n =>
       -- preresolved constant ident: resolves even for private names
       ⟨Lean.mkCIdentFrom Lean.Syntax.missing n (canonical := true)⟩
