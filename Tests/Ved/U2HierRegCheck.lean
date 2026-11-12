@@ -551,17 +551,14 @@ run_cmd do
 The parent has its own register, ONE instance and an INLINED stateful call (`accInl`, a second
 register of the parent that is not an instance).  The entry generates the open parent (the
 instance call abstracted into a free signal) and runs `#verify_elab_deep` on it; the inlined
-`accInl x` stays a nested `runCircuitH` inside the open parent, and DeepElab's Signal-side bridge
-cannot relate it to the second register ("closers exhausted").  This is a limit of the deep route
-(not of the statement); the entry REFUSES at [deep], leaving nothing behind.  `parentMixFlat` is the
-same module shape with the second register written in the parent's own circuit, and is accepted
-above. -/
+`accInl x` is a nested `runCircuitH` inside the open parent, and DeepElab's Signal-side bridge maps it
+onto the second register block (a nested loop whose signature equals the top's is a nested node, not
+the echo of the top application).  ACCEPTED with the exact statement; further nested-inline controls
+(positives and refusals) are in Tests/Ved/U2HierNestedInlineCheck.lean. -/
 
-/-- info: parentMix refused at [deep]: the inlined stateful call is outside the deep route -/
+/-- info: u2 hier reg OK Tests.Ved.U2HierRegCheck.parentMix.ved_u1: 2 parent registers, children [Tests.Ved.U2HierRegCheck.accMod] -/
 #guard_msgs in
-run_cmd do
-  entryRefused ``parentMix "deep" "closers exhausted"
-  logInfo "parentMix refused at [deep]: the inlined stateful call is outside the deep route"
+run_cmd checkOk ``parentMix
 
 /-! ## Positive controls: meaning-preserving changes are ACCEPTED with the exact statement -/
 
