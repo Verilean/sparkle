@@ -861,40 +861,98 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let t2 ← IO.monoMsNow
   return (nm.thm, t2 - p1.t1)
 
+/-- H2c-state: what the messages of the open parent's `#verify_elab_deep` say about its ports.
+`msgs` are the NEW messages in order `(isError, text)`.  A port's block logs its errors and, when it completes,
+the line `…<open>.<port>: PROVEN via …`; so the errors logged since the previous `PROVEN` line belong to the
+port whose `PROVEN` line follows, and the errors left at the end belong to the first port that has no `PROVEN`
+line (a failing block aborts the command, later ports are never attempted).  Returns the errors that belong to
+no port, and per port the errors tied to it (first text kept, in port order). -/
+def attributeDeepErrors (ports : List String) (msgs : List (Bool × String)) :
+    List String × List (String × List String) := Id.run do
+  let mut pending : List String := []
+  let mut tied : List (String × List String) := []
+  let mut proven : List String := []
+  for (isErr, txt) in msgs do
+    if isErr then pending := pending ++ [txt]
+    else match ports.find? (fun p => (txt.splitOn s!".{p}: PROVEN via").length > 1) with
+      | some p =>
+        proven := proven ++ [p]
+        if !pending.isEmpty then tied := tied ++ [(p, pending)]
+        pending := []
+      | none => pure ()
+  let mut stray : List String := []
+  if !pending.isEmpty then
+    match ports.find? (fun p => !proven.contains p) with
+    | some p => tied := tied ++ [(p, pending)]
+    | none => stray := pending
+  let byPort := ports.filterMap fun p =>
+    let es := (tied.filter (·.1 == p)).flatMap (·.2)
+    if es.isEmpty then none else some (p, es)
+  return (stray, byPort)
+
+/-- The verdict on the errors of the open parent's deep run: `none` (no error), `some (usedPort, failed)` when
+every error is tied to a port the proof does not use (`failed`: port, number of errors, first error), or the
+refusal text (first error) otherwise: an error of the used port, an error tied to no port, a parent with no
+port, or a loop state that no port exported. -/
+def deepVerdict (stateCalls : Bool) (ports : List String) (hasState : String → Bool)
+    (msgs : List (Bool × String)) :
+    Except String (Option (String × List (String × Nat × String))) :=
+  let errs := msgs.filter (·.1) |>.map (·.2)
+  match errs with
+  | [] => .ok none
+  | first :: _ =>
+    let refuseWith := fun (why : String) => Except.error s!"{why}; first: {first}"
+    if !stateCalls then refuseWith "the parent has no call on its register state"
+    else if ports.isEmpty then refuseWith "the open parent has no port to tie the errors to"
+    else
+      match ports.find? hasState with
+      | none => refuseWith "no port of the open parent exported its loop state"
+      | some used =>
+        let (stray, tied) := attributeDeepErrors ports msgs
+        if !stray.isEmpty then refuseWith "an error is tied to no port"
+        else if tied.any (·.1 == used) then refuseWith s!"an error of the port {used}, which the proof uses"
+        else .ok (some (used, tied.map fun (p, es) => (p, es.length, es.head!)))
+
 /-- The checker for a parent WITH registers.  `m` and `d` are the values `synthesizeCombinational`
 returned.  On any failure the command state saved at the start (constants and messages) is
-restored and a refusal thrown. -/
+restored and a refusal thrown.  `tamper` (tests only) may change the `Phase1` or the messages right after the
+deep run; it is `pure` in the entry. -/
 def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
-    (clkRstOverride : Option (Option (String × String)) := none) :
+    (clkRstOverride : Option (Option (String × String)) := none)
+    (tamper : Phase1 → CommandElabM Phase1 := fun p => pure p) :
     CommandElabM (Name × Nat × Nat) := do
   let saved ← get
   try
     let p1 ← liftTermElabM (phase1 decl stmt nDom m d clkRstOverride)
     let msgs0 := (← get).messages
-    let nErr0 := msgs0.toList.filter (·.severity == .error) |>.length
+    let nMsg0 := msgs0.toList.length
     let stx ← `(command| #verify_elab_deep $(mkIdent p1.opn.openName))
     -- the deep constants are declared in the CURRENT namespace under the ident's last component;
     -- inside the namespace `decl` they are `decl.ved_open_deep…` (`deepName` of the open parent)
     try withScope (fun sc => { sc with currNamespace := decl }) (elabCommand stx)
     catch e => liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName}: {e.toMessageData}"
-    let errs := (← get).messages.toList.filter (·.severity == .error)
+    let p1 ← tamper p1
+    let newMsgs := (← get).messages.toList.drop nMsg0
+    let msgTxt ← newMsgs.mapM fun msg => do pure (msg.severity == .error, ← msg.data.toString)
     -- H2c-state: the open parent's ports are proved one by one; a port the proof does not need (a port that is the
     -- trigger of the circuit, an output of a nested circuit) may fail without costing the state of the loop that
-    -- another port exported.  Only the facts of a port that exported its state are used, and the final theorem is
-    -- audited (a `sorry` in a used fact is refused there).
+    -- another port exported.  ONLY errors tied to such a port are tolerated (`deepVerdict`), and the tolerated
+    -- failure is RECORDED below (`VED U2 HIER PARTIAL-DEEP`); the facts used are those of the first port that
+    -- exported its state, and the final theorem is audited (a `sorry` or a non-standard axiom in a used fact is
+    -- refused there).
     let envNow ← getEnv
-    let stateExported := p1.opn.calls.any (·.stateArg) &&
-      (p1.opn.ports.isEmpty && envNow.contains (deepNameP p1.opn.openName "_deep_state") ||
-       p1.opn.ports.any fun p => envNow.contains (deepNameP p1.opn.openName s!"_{p}_deep_state"))
-    if errs.length != nErr0 && !stateExported then
-      let first ← match errs.drop nErr0 with
-        | msg :: _ => msg.data.toString
-        | [] => pure ""
-      liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName} failed; first: {first}"
+    let hasState := fun p => envNow.contains (deepNameP p1.opn.openName s!"_{p}_deep_state")
+    let partial? ← match deepVerdict (p1.opn.calls.any (·.stateArg)) p1.opn.ports hasState msgTxt with
+      | .error why => liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName} failed: {why}"
+      | .ok v => pure v
     if (← IO.getEnv "VED_HIER_DEBUG").isSome then
-      for msg in (← get).messages.toList.drop msgs0.toList.length do
-        IO.eprintln s!"[deep] {← msg.data.toString}"
+      for (_, t) in msgTxt do IO.eprintln s!"[deep] {t}"
     modify fun s => { s with messages := msgs0 }
+    if let some (used, failed) := partial? then
+      let nErr : Nat := failed.foldl (fun (n : Nat) (f : String × Nat × String) => n + f.2.1) 0
+      logInfo m!"VED U2 HIER PARTIAL-DEEP {decl}: open parent {p1.opn.openName}, used port {used}, failed ports {failed.map (·.1)}, {nErr} errors tolerated (ports the proof does not use)"
+      for (p, k, e) in failed do
+        logInfo m!"VED U2 HIER PARTIAL-DEEP {decl}: port {p}, {k} errors, first: {e.take 400}"
     let (thm, proofMs) ← liftTermElabM (phase2 decl stmt nDom m p1)
     return (thm, p1.childMs, proofMs)
   catch e =>
@@ -905,10 +963,11 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
 /-- `checkU2HRCore` with the elaboration limits raised (the proofs of a parent with several registers and a
 nested circuit exceed the default 200000 heartbeats in `whnf`); the limits are the same for every parent. -/
 def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
-    (clkRstOverride : Option (Option (String × String)) := none) :
+    (clkRstOverride : Option (Option (String × String)) := none)
+    (tamper : Phase1 → CommandElabM Phase1 := fun p => pure p) :
     CommandElabM (Name × Nat × Nat) :=
   withScope (fun sc => { sc with opts := Lean.maxRecDepth.set (Lean.maxHeartbeats.set sc.opts 8000000) 100000 })
-    (checkU2HRCore decl stmt nDom m d clkRstOverride)
+    (checkU2HRCore decl stmt nDom m d clkRstOverride tamper)
 
 /-- The entry: ONE `synthesizeCombinational`; a register-free parent is H2a's `checkU2H`
 (statement `U2HStmt`), a parent with registers is `checkU2HR` (statement `U2HRStmt`). -/

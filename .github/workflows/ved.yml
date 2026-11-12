@@ -73,6 +73,9 @@ jobs:
     - name: "H2c-state (a child call on the parent's register state): copies, controls"
       run: lake build Tests.Ved.U2HierStateCallCheck
 
+    - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
+      run: lake build Tests.Ved.U2HierPartialDeepCheck
+
     - name: "H2c-state: the ORIGINAL private declaration synth_httpGetByte (R223), the entry appended to its module"
       run: |
         lake build Tools.VedU2HierRegEntry IP.Net.HTTP
@@ -125,6 +128,9 @@ jobs:
 
     - name: "H2c-state (a child call on the parent's register state): copies, controls"
       run: lake build Tests.Ved.U2HierStateCallCheck
+
+    - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
+      run: lake build Tests.Ved.U2HierPartialDeepCheck
 
     - name: "H2c-state: the ORIGINAL private declaration synth_httpGetByte (R223), the entry appended to its module"
       run: |

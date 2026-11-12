@@ -1460,6 +1460,9 @@ lean_lib «Tests.IP.Net.HTTPTest» where
 lean_lib «Tests.Ved.U2HierStateCallCheck» where
   roots := #[`Tests.Ved.U2HierStateCallCheck]
 
+lean_lib «Tests.Ved.U2HierPartialDeepCheck» where
+  roots := #[`Tests.Ved.U2HierPartialDeepCheck]
+
 lean_lib «Tests.Ved.U2HierWireCheck» where
   roots := #[`Tests.Ved.U2HierWireCheck]
 
