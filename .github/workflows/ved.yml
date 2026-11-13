@@ -129,6 +129,9 @@ jobs:
     - name: U1 packed result with registers (positives and must-stay-refused controls)
       run: lake build Tests.Ved.U1MultiSeqCheck
 
+    - name: "#writeDesign argument form and the chunked input domain (accept and refuse controls)"
+      run: lake build Tests.Ved.InvocationCheck
+
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
