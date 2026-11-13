@@ -24,3 +24,21 @@ Round 2 (the open parent's REGISTER-STEP proof on real IP, R211 `synth_arpReques
 | `maximum recursion depth` in a closer | `first`/`try` rethrow runtime exceptions | `ved_rt`: a runtime exception becomes an ordinary failure |
 
 Checks: `Tests/Ved/U2HierOpenDeepCheck.lean` (positive `wideW`: 57-bit pack, `~~~`, Bool flag over a conjunction, derived child argument; five refused controls).
+
+Memory (round 2): the proof elaboration and the nested `#verify_elab_deep` run without info trees (`withEnableInfoTree false`), and the metavariable context is dropped before the kernel check (`setMCtx`-style reset in `phase2`): R211 15.4 → 13.9 GB at the kernel peak (the elaboration peak, the monolithic `simp` at the start of `hstep`, is 12.2 GB).
+
+Rows (checker run on the case files of the U1 harness, guard 14680064 kB, R092 23068672 kB):
+
+| Row | Result | Time / peak RSS |
+|---|---|---|
+| R211 `synth_arpRequesterByte` | STRICT (`#ved_u2_hier`, stored type `U2HRStmt c m d decl`, axioms `propext`, `Classical.choice`, `Quot.sound`) | 14 m 19 s / 13.9 GB |
+| R092 `synth_hftPcieOutByte` | STRICT | 16 m 22 s / 18.9 GB |
+| R228 `synth_icmpRequesterByte` | refused `[proof]` after 5 m | 11.0 GB |
+| R210 `synth_arpResponderByte` | refused `[proof]` after 9.5 m | 9.1 GB |
+
+Open:
+
+* R228: the port goal of the derived argument `~~~(checksum)`: (a) `omega` cannot read `x ^^^ 65535` (a complement of a computed value; `W4`-shaped parents show it alone: the goal is `(v ^^^ 255) % 256 = 255 - v % 256`; `Tools.VedU1Lemmas.xor_ones` states it for `2 ^ k - 1`, the goal has the literal), and (b) the declaration's side of the goal keeps the top loop and the nested parser loop UNFOLDED (`Signal.loop fun live => packRegister …`): the exported state theorems (`loopFOf` form) do not rewrite them.
+* R210: ten `all_goals` of the register-step part and the three closers run to the end (7 goals), then 3 errors `maximum recursion depth has been reached` are logged inside the proof; they are not in the closers (`VED_SORRY`-style replacement of the closers keeps them) and not in the next-value tactics (a mark after each shows all 7 goals reach the end); not located (the messages carry no position inside the generated script).
+* the monolithic `simp` at the start of `hstep` evaluates the whole body; its proof (2.5 M nodes on R211) and its elaboration (12 GB) bound the register count: a 16-register toy parent (`W3`) is killed at 20 GB.  A composition lemma over the closed run's cycle (`cyc`, the conclusion `hstep` is used for) with per-register cones is the next step.
+
