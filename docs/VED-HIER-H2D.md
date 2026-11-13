@@ -36,6 +36,8 @@ Rows (checker run on the case files of the U1 harness, guard 14680064 kB, R092 2
 | R228 `synth_icmpRequesterByte` | refused `[proof]` after 5 m | 11.0 GB |
 | R210 `synth_arpResponderByte` | refused `[proof]` after 9.5 m | 9.1 GB |
 
+The times above are a local run with an outer `timeout 1200` (Lean options at their defaults, case files identical to the harness's); they are not results within the standard 900 s limit.  The standard harness (`U1_TMO=900`, guard 23068672 kB) at meas/ved-h2d-5e5d 898128e3 (= 5e5dab2e + harness) gives R092 STRICT 654.6 s / 17.7 GB, R211 STRICT 552.1 s / 12.9 GB, R210 refused `[proof]` (maximum recursion depth) 346 s, R228 refused `[proof]` (unsolved goals) 206 s.  Rows count only when the integration candidate is measured at one SHA.
+
 Open:
 
 * R228: the port goal of the derived argument `~~~(checksum)`: (a) `omega` cannot read `x ^^^ 65535` (a complement of a computed value; `W4`-shaped parents show it alone: the goal is `(v ^^^ 255) % 256 = 255 - v % 256`; `Tools.VedU1Lemmas.xor_ones` states it for `2 ^ k - 1`, the goal has the literal), and (b) the declaration's side of the goal keeps the top loop and the nested parser loop UNFOLDED (`Signal.loop fun live => packRegister …`): the exported state theorems (`loopFOf` form) do not rewrite them.
