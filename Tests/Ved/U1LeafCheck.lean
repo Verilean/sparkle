@@ -16,8 +16,9 @@ import IP.Net.IPv4
   the real `TCP.tcpHeaderChecksumSig` (14 chained stages) needs.
 * Controls: a mutated module of the same declaration (a constant of the byte value, a
   selector constant, the carry constant) is refused at `[proof]` and leaves no `ved_*`.
-* `leafOnes2` (two chained stages) and the real `TCP.tcpHeaderChecksumSig` are PINNED AS
-  REFUSED at `[proof]`: this unit does not prove them (see the unit report).
+* the real `TCP.tcpHeaderChecksumSig` is PINNED AS REFUSED at `[proof]`: this unit does not
+  prove it (see the unit report).  `leafOnes2` (two chained stages) was pinned the same way and is
+  proved by the closers of sparkle-ved-unsolved (a positive below).
 -/
 
 namespace Tests.Ved.U1LeafCheck
@@ -93,10 +94,18 @@ run_cmd ctlMut `ctlTcpSel ``Sparkle.IP.Net.TCP.tcpHeaderByte (bumpConst 5 3) <|
 run_cmd ctlMut `ctlOnesCarry ``leafOnes (bumpConst 15 0) <|
     [(6, "_tmp_concat_hi_1 := const 0:15", "_tmp_concat_hi_1 := const 1:15")]
 
-/-- info: refused [proof], clean -/
+-- the 1-bit zero of the zero-prepend is SHARED by both operands (`_tmp_concat_hi_0` feeds `a17`
+-- and `b17`): set to 1 it adds 2^16 to both, and 2^17 vanishes in the 17-bit sum, so the mutant is
+-- the same function.  It was refused only while the generated closers could not prove that
+-- (a control must change the meaning); it is accepted now, as an equivalent mutant.
+/-- info: accepted: the shared zero bit set to 1 is an equivalent mutant -/
 #guard_msgs in
-run_cmd ctlMut `ctlOnesPrepend ``leafOnes (bumpConst 1 0) <|
+run_cmd do
+  let o ← liftTermElabM (modOf ``leafOnes)
+  let m ← checkDiff "ctlOnesPrepend" o (bumpConst 1 0 o) <|
     [(0, "_tmp_concat_hi_0 := const 0:1", "_tmp_concat_hi_0 := const 1:1")]
+  liftTermElabM (discard <| checkU1E ``leafOnes `ctlOnesPrepend (specOf ``leafOnes) m .generated)
+  logInfo "accepted: the shared zero bit set to 1 is an equivalent mutant"
 
 -- a module of another declaration against the byte selector's statement
 /-- info: refused [proof], clean -/
@@ -108,9 +117,14 @@ run_cmd do ctl `ctlPcieOther ``Sparkle.IP.Bus.PCIe.tlpHeaderByte (← liftTermEl
 def refusedAt (stage : String) (decl : Name) : CommandElabM Unit :=
   expectRefused stage decl do discard <| vedU1EntryS decl
 
-/-- info: refused [proof], clean -/
+-- `leafOnes2` (two chained stages) was pinned here as refused at `[proof]`; the closers of
+-- sparkle-ved-unsolved prove it: a positive now (exact type, std3)
+#guard_msgs (drop info) in
+#ved_u1 leafOnes2
+
+/-- info: OK Tests.Ved.U1LeafCheck.leafOnes2: exact type, axioms 3 -/
 #guard_msgs in
-run_cmd refusedAt "proof" ``leafOnes2
+run_cmd checkTy ``leafOnes2
 
 /-- info: refused [proof], clean -/
 #guard_msgs in

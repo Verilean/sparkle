@@ -7,6 +7,8 @@ import Tools.VedU1TableGen
 import Std.Data.HashMap
 import Tools.VedU1Loop
 import Tools.VedU1Wire
+import Tools.VedU1Uns
+import Tools.VedU1LemmasExt1
 import Tools.VedStrictAudit
 
 /-!
@@ -304,7 +306,7 @@ syntax (name := vedWideClose) "ved_wide_close " "[" Lean.Parser.Tactic.simpLemma
 
 macro_rules
   | `(tactic| ved_wide_close [$ex,*]) =>
-    `(tactic| ((try ved_wide_simp [$ex,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> omega))))
+    `(tactic| ((try ved_wide_simp [$ex,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> omega) | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> (try ved_or_lit) <;> (try ved_bits_facts) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_or_lit) <;> omega))))
 
 /-- `ved_wide_close` for the loop path: after the case split, the `|||` with a numeral that the
 split exposed (`x >>> 1 ||| 128`) is rewritten by `ved_or_lit` before `omega`. -/
@@ -312,7 +314,7 @@ syntax (name := vedLoopClose) "ved_loop_close " "[" Lean.Parser.Tactic.simpLemma
 
 macro_rules
   | `(tactic| ved_loop_close [$ex,*]) =>
-    `(tactic| ((try ved_loopw_simp [$ex,*]) <;> (first | omega | ((repeat' (split <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *]))) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_bits_facts) <;> omega))))
+    `(tactic| ((try ved_loopw_simp [$ex,*]) <;> (first | omega | ((repeat' (split <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, Nat.reduceSub, Nat.add_zero, Nat.sub_zero, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *]))) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, true_iff, iff_true, false_iff, iff_false, Nat.reduceSub, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] at *) <;> (try ved_or_lit) <;> (try ved_bit_simp) <;> (try (repeat' split)) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_bits_facts) <;> omega))))
 
 /-! ## The entry -/
 
@@ -593,7 +595,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             modLs := modLs.push (← `(Lean.Parser.Tactic.simpLemma| $h:ident))
         let modL : Syntax.TSepArray [``Lean.Parser.Tactic.simpStar, ``Lean.Parser.Tactic.simpErase, ``Lean.Parser.Tactic.simpLemma] "," :=
           Syntax.TSepArray.ofElems (modLs.map fun x => (⟨x.raw⟩ : TSyntax _))
-        pure (gen ++ narrow ++ (#[← `(tactic| all_goals ((try simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $modL,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> omega))))] : Array (TSyntax `tactic)))
+        pure (gen ++ narrow ++ (#[← `(tactic| all_goals ((try simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $modL,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> omega) | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> (try ved_or_lit) <;> (try ved_bits_facts) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_or_lit) <;> omega))))] : Array (TSyntax `tactic)))
     -- a body with `==` goes straight to the input domain (the range tactics
     -- below only fail on it, after costly case splits)
     let tail : Array (TSyntax `tactic) ←
@@ -674,7 +676,7 @@ cycle 0).  The loop state is generalised to variables (`ved_loop_gen`; `Bool` co
 and the module's step is compared with the loop's step by the wide path's closing tactics.
 `regs` is the module's registers `(name, width)`. -/
 def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
-    (helpers : Array Name) (dbg : Nat := 0) : TermElabM Syntax := do
+    (helpers : Array Name) (dbg : Nat := 0) (supp : List (List String) := []) : TermElabM Syntax := do
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
   let C := mkCIdent nm.contract
@@ -718,11 +720,19 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   -- the loop of the declaration, in the simp normal form of the goal
   tacs := tacs.push (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = srcOf $C $f $insI "out" $sI := ⟨_, rfl⟩))
   tacs := tacs.push (← `(tactic| ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $exHelp,*] at $hv:ident))
-  tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
+  let rSupps := (supp.map fun l => Syntax.mkStrLit (",".intercalate l)).toArray
+  if supp.length == regs.length then
+    tacs := tacs.push (← `(tactic| ved_loop_R2 $insI [$rNames,*] $rWidths,* ; $rSupps,*))
+  else
+    tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| clear $hv))
-  tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
-  let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | (trace_state; fail "ved_loop_close failed here")))
-    else `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | ved_bmod_close))
+  -- ONE register: the invariant is the equation itself (no conjunction to take apart)
+  if hs.size == 1 then
+    tacs := tacs ++ #[← `(tactic| have $(hs[0]!):ident := $hR), ← `(tactic| clear $hR)]
+  else
+    tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
+  let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | (trace_state; fail "ved_loop_close failed here")))
+    else `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_loop_unfold ($sI + 1)),
       ← `(tactic| ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
@@ -737,7 +747,8 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
       ← `(tactic| all_goals (try ved_pack_simp)),
       ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
-      ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat]))],
+      ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
+      ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
     #[closing]]
   let stop ← `(tactic| (trace_state; fail "stopped at debug stage"))
   if dbg == 1 then tacs := tacs.push stop
@@ -970,9 +981,10 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
         if stmt.getAppFn.isConst then
           let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
-          if regs.length ≥ 2 then
+          if regs.length ≥ 2 || (regs.length == 1 && (← Tools.VedU1Uns.usesLoop stmt.getAppFn.constName! (← helperConsts stmt.getAppFn.constName!))) then
             loopScriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs regs (← helperConsts stmt.getAppFn.constName!)
               (ved.u1.debugStage.get (← getOptions))
+              (supp := regs.map fun r => ((Tools.VedU1Uns.regSupports m).lookup r.1).getD [])
           else
           scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
             tblD?
