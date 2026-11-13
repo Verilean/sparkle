@@ -229,12 +229,16 @@ structure PContract where
   slices  : List (Nat × Nat)
   inNames : List String
   wires   : List Port
+  /-- `(clock input, reset input)` of a module with registers; `none` without registers -/
+  clkRst  : Option (String × String) := none
+  /-- register output ↦ initial value, in body order (empty without registers) -/
+  inits   : List (String × Int) := []
   deriving Repr, DecidableEq
 
 /-- The ordinary contract of the packed port (one `bv W` output). -/
 def PContract.core (pc : PContract) : Contract :=
-  { modName := pc.modName, clkRst := none, table := collapse pc.tbl,
-    inNames := pc.inNames, outNames := [pc.port], wires := pc.wires, inits := [] }
+  { modName := pc.modName, clkRst := pc.clkRst, table := collapse pc.tbl,
+    inNames := pc.inNames, outNames := [pc.port], wires := pc.wires, inits := pc.inits }
 
 /-- `InTy` with a mapped result. -/
 def InTy.mapOut {R S : Type} (g : R → S) : (ps : List PTy) → InTy ps R → InTy ps S
