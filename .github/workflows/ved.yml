@@ -157,6 +157,9 @@ jobs:
     - name: "U1 on real IP with several Signal.loop registers: all 28 rows (4 parts + PR check) and refusal controls"
       run: lake build Tests.Ved.U1MultiLoopAll
 
+    - name: "U1 loop script for one-register circuit do, bare loops, closers, register matching by input support; refusal controls"
+      run: lake build Tests.Ved.U1UnsolvedCheck
+
     - name: Deep route, every regression file
       run: |
         lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen \
