@@ -4,13 +4,14 @@ import Tests.Ved.U1MultiLoopFull2
 import Tests.Ved.U1MultiLoopFull3
 import Tests.Ved.U1MultiLoopFull4
 import Tests.Ved.U1MultiLoopFull5
+import Tests.Ved.U1MultiLoopFull6
 
 /-!
-# All 29 accepted `Signal.loop` rows together (sparkle-ved-u1-multiloop)
+# All 30 accepted `Signal.loop` rows together (sparkle-ved-u1-multiloop)
 
-Imports the PR check and the five full parts (no proof is re-run here) and checks, for the complete
-list of 29 rows, that `<decl>.ved_u1` exists with stored type `==` `U1Stmt c m F` and std3 axioms,
-and that the five files together hold exactly these rows (`rows.length = 29`, no duplicate).
+Imports the PR check and the six full parts (no proof is re-run here) and checks, for the complete
+list of 30 rows, that `<decl>.ved_u1` exists with stored type `==` `U1Stmt c m F` and std3 axioms,
+and that the seven files together hold exactly these rows (`rows.length = 30`, no duplicate).
 -/
 
 namespace Tests.Ved.U1MultiLoopAll
@@ -47,16 +48,17 @@ def rows : List (Name × Name) :=
    (`Tests.IP.Net.SLIPTest, `synth_slipFramerByte),
    (`Tests.IP.Crypto.Fp381MontMulHWTest, `synth_fp381MontMulDone),
    (`Tests.IP.Net.TCPStateTest, `synth_serverFsmTxReq),
-   (.anonymous, `Sparkle.Tests.IP.Control.PIDTest.pidTop)]
+   (.anonymous, `Sparkle.Tests.IP.Control.PIDTest.pidTop),
+   (`Tests.IP.Crypto.Fp2MulHWTest, `synth_fp2MulC0)]
 
-example : rows.length = 29 := by decide
+example : rows.length = 30 := by decide
 
 example : rows = Tests.Ved.U1MultiLoopCheck.rows ++ Tests.Ved.U1MultiLoopFull1.rows ++
-    Tests.Ved.U1MultiLoopFull2.rows ++ Tests.Ved.U1MultiLoopFull3.rows ++ Tests.Ved.U1MultiLoopFull4.rows ++ Tests.Ved.U1MultiLoopFull5.rows := by decide
+    Tests.Ved.U1MultiLoopFull2.rows ++ Tests.Ved.U1MultiLoopFull3.rows ++ Tests.Ved.U1MultiLoopFull4.rows ++ Tests.Ved.U1MultiLoopFull5.rows ++ Tests.Ved.U1MultiLoopFull6.rows := by decide
 
 example : rows.Nodup := by decide
 
-/-- info: OK 29 rows: stored type = U1Stmt c m F, axioms within std3 -/
+/-- info: OK 30 rows: stored type = U1Stmt c m F, axioms within std3 -/
 #guard_msgs in
 run_cmd checkRows rows
 
