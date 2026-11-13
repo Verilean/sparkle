@@ -6,6 +6,7 @@ import Tools.VedU1Table
 import Tools.VedU1TableGen
 import Std.Data.HashMap
 import Tools.VedU1Loop
+import Tools.VedU1ScriptSeqGen
 import Tools.VedStrictAudit
 
 /-!
@@ -832,6 +833,36 @@ inductive ProofSrc
   script. -/
   | built (mk : Names → Sparkle.IR.AST.Module → TermElabM Syntax)
 
+register_option ved.u1.seqDebug : Bool := { defValue := false, descr := "VED U1: report why the first-attempt script failed (info message)" }
+
+register_option ved.u1.seqStop : Nat := { defValue := 0, descr := "debug: stop the first-attempt script after this many tactics" }
+
+/-- A FIRST-ATTEMPT script (`Tools.VedU1ScriptSeqGen`): elaborated against `expected` with the
+proof budget; any failure (exception, logged error, open term) puts the state back (messages
+included) and returns `none`, so the caller runs the script it always ran. -/
+def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lean.Expr) := do
+  let saved ← saveState
+  let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
+  let mut why : String := ""
+  let r ← tryCatchRuntimeEx (do
+      let pf ← withProofBudget do
+        withoutErrToSorry do
+          let e ← elabTermEnsuringType stx expected
+          synthesizeSyntheticMVarsNoPostponing
+          instantiateMVars e
+      let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
+      if errs.length != errsBefore || pf.hasMVar || pf.hasFVar then
+        return (none, (← (errs.drop errsBefore).headD (default : Message) |>.data.toString))
+      pure (some pf, ""))
+    fun e => do return (none, ← e.toMessageData.toString)
+  why := r.2
+  if r.1.isNone && (ved.u1.seqDebug.get (← getOptions)) then
+    for msg in (← Core.getMessageLog).toList do
+      IO.eprintln s!"VED U1 SEQ msg: {← msg.data.toString}"
+  if r.1.isNone then saved.restore (restoreInfo := true)
+  if r.1.isNone && (ved.u1.seqDebug.get (← getOptions)) then IO.eprintln s!"VED U1 SEQ first attempt failed: {why}"
+  return r.1
+
 /-- Is `e` already a `VED U1 REFUSED …` error? -/
 def isRefusal (e : Exception) : MetaM Bool := do
   return (← e.toMessageData.toString).startsWith "VED U1 REFUSED"
@@ -932,6 +963,19 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
+    -- first attempt: the per-statement multi-register script (`Tools/VedU1ScriptSeqGen.lean`)
+    let firstPf? : Option Lean.Expr ← do
+      if let .generated := proof then
+        let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+        if stmt.getAppFn.isConst && regs.length ≥ 2 then
+          let some sx ← Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body stmt.getAppFn.constName!
+              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) (ved.u1.seqStop.get (← getOptions))
+            | do
+              if ved.u1.seqDebug.get (← getOptions) then IO.eprintln "VED U1 SEQ shape not supported"
+              pure none
+          tryScriptFirst sx expected
+        else pure none
+      else pure none
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     -- a runtime limit (heartbeats, recursion depth) here is a `proof` refusal
     -- (the script is too costly), not the catch-all `checker`
@@ -939,13 +983,16 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     -- max(caller, `ved.u1.proofRecDepth` / `ved.u1.proofHeartbeats`), not a fixed
     -- multiple of the caller's; a caller with `maxHeartbeats 0` (unlimited) gets the
     -- finite option value)
-    let pf ← tryCatchRuntimeEx
-        (withProofBudget do
-        withoutErrToSorry do
-          let e ← elabTermEnsuringType stx expected
-          synthesizeSyntheticMVarsNoPostponing
-          instantiateMVars e)
-        fun e => refuse decl "proof" e.toMessageData
+    let pf ← match firstPf? with
+      | some e => pure e
+      | none =>
+        tryCatchRuntimeEx
+          (withProofBudget do
+          withoutErrToSorry do
+            let e ← elabTermEnsuringType stx expected
+            synthesizeSyntheticMVarsNoPostponing
+            instantiateMVars e)
+          fun e => refuse decl "proof" e.toMessageData
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let first ← match errs.drop errsBefore with

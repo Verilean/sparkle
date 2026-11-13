@@ -348,6 +348,12 @@ lean_lib «Tools.VedU1Table» where
 lean_lib «Tools.VedU1TableGen» where
   roots := #[`Tools.VedU1TableGen]
 
+lean_lib «Tools.VedU1ScriptSeq» where
+  roots := #[`Tools.VedU1ScriptSeq]
+
+lean_lib «Tools.VedU1ScriptSeqGen» where
+  roots := #[`Tools.VedU1ScriptSeqGen]
+
 lean_lib «Tools.VedU1Loop» where
   roots := #[`Tools.VedU1Loop]
 
