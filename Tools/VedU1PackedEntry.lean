@@ -121,11 +121,14 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
     let expected := mkAppN (Lean.mkConst ``PackedStmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
+    -- a body with registers gets the larger heartbeat floor of the loop script
+    let budget {α} (k : TermElabM α) : TermElabM α :=
+      if (regsOf m.body).isEmpty then k else Tools.VedU1MultiSeq.withSeqBudget k
     -- elaborate a script against the expected statement (errors are not turned into sorry)
     let elabProof (stx : Syntax) : TermElabM Lean.Expr := do
       let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
       let pf ← tryCatchRuntimeEx
-          (withProofBudget do
+          (budget <| withProofBudget do
           withoutErrToSorry do
             let e ← elabTermEnsuringType stx expected
             synthesizeSyntheticMVarsNoPostponing
@@ -158,7 +161,7 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
       | .term s => elabProof s
       | .built mk => elabProof (← try mk nm m catch e => refuse decl "proof" e.toMessageData)
     tryCatchRuntimeEx
-      (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
+      (budget <| withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
         addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
       fun e => refuse decl "kernel" e.toMessageData
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
