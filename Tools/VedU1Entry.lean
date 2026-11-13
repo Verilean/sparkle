@@ -833,42 +833,30 @@ inductive ProofSrc
   script. -/
   | built (mk : Names → Sparkle.IR.AST.Module → TermElabM Syntax)
 
-register_option ved.u1.seqDebug : Bool := { defValue := false, descr := "VED U1: report why the first-attempt script failed (info message)" }
-
-register_option ved.u1.seqStop : Nat := { defValue := 0, descr := "debug: stop the first-attempt script after this many tactics" }
+/-- the heartbeat budget (thousands) of the first-attempt script -/
+def firstAttemptHeartbeats : Nat := 3000000
 
 /-- A FIRST-ATTEMPT script (`Tools.VedU1ScriptSeqGen`): elaborated against `expected` with the
-proof budget; any failure (exception, logged error, open term) puts the state back (messages
-included) and returns `none`, so the caller runs the script it always ran. -/
+proof budget, and at most `firstAttemptHeartbeats` thousand heartbeats of it; any failure (exception,
+timeout, logged error, open term) puts the state back (messages and environment included) and
+returns `none`, so the caller runs the script it always ran. -/
 def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lean.Expr) := do
   let saved ← saveState
   let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
-  let dbg := ved.u1.seqDebug.get (← getOptions)
-  let mut why : String := ""
+  let hb0 ← IO.getNumHeartbeats
   let r ← tryCatchRuntimeEx (do
       let pf ← withProofBudget do
+        withTheReader Core.Context
+          (fun c => { c with initHeartbeats := hb0, maxHeartbeats := min c.maxHeartbeats (firstAttemptHeartbeats * 1000) }) do
         withoutErrToSorry do
           let e ← elabTermEnsuringType stx expected
           synthesizeSyntheticMVarsNoPostponing
           instantiateMVars e
       let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
-      if errs.length != errsBefore || pf.hasMVar || pf.hasFVar then
-        let txt ← if dbg then ((errs.drop errsBefore).headD (default : Message)).data.toString else pure ""
-        return (none, txt)
-      pure (some pf, ""))
-    fun e => do
-      let txt ← if dbg then e.toMessageData.toString else pure ""
-      return (none, txt)
-  why := r.2
-  if r.1.isSome && (ved.u1.seqDebug.get (← getOptions)) then
-    let h ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-    h.putStrLn "MARK entry: first attempt elaborated"; h.flush
-  if r.1.isNone && (ved.u1.seqDebug.get (← getOptions)) then
-    for msg in (← Core.getMessageLog).toList do
-      IO.eprintln s!"VED U1 SEQ msg: {← msg.data.toString}"
-  if r.1.isNone then saved.restore (restoreInfo := true)
-  if r.1.isNone && (ved.u1.seqDebug.get (← getOptions)) then IO.eprintln s!"VED U1 SEQ first attempt failed: {why}"
-  return r.1
+      if errs.length != errsBefore || pf.hasMVar || pf.hasFVar then pure none else pure (some pf))
+    fun _ => pure none
+  if r.isNone then saved.restore (restoreInfo := true)
+  return r
 
 /-- Is `e` already a `VED U1 REFUSED …` error? -/
 def isRefusal (e : Exception) : MetaM Bool := do
@@ -975,12 +963,10 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       if let .generated := proof then
         let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
         if stmt.getAppFn.isConst && regs.length ≥ 2 then
-          let some sx ← Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body stmt.getAppFn.constName!
-              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) (ved.u1.seqStop.get (← getOptions))
-            | do
-              if ved.u1.seqDebug.get (← getOptions) then IO.eprintln "VED U1 SEQ shape not supported"
-              pure none
-          tryScriptFirst sx expected
+          match ← Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body stmt.getAppFn.constName!
+              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) with
+          | some sx => tryScriptFirst sx expected
+          | none => pure none
         else pure none
       else pure none
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
@@ -1007,50 +993,14 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         | [] => pure ""
       refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
     if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
-    if ved.u1.seqDebug.get (← getOptions) then
-      let h ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-      -- DEBUG: numerals above 2^100 and large exponents anywhere in the proof (DAG scan)
-      let mut seenP : Std.HashSet USize := {}
-      let mut todoP : Array Lean.Expr := #[pf]
-      let mut bigNums : Array String := #[]
-      while !todoP.isEmpty do
-        let x := todoP.back!
-        todoP := todoP.pop
-        let pp := unsafe ptrAddrUnsafe x
-        if seenP.contains pp then continue
-        seenP := seenP.insert pp
-        if x.isAppOfArity ``HPow.hPow 6 then
-          if let some n := (x.getArg! 5).nat? then
-            if n > 5000 then bigNums := bigNums.push s!"POW exponent {n}"
-        match x with
-        | .app f a => todoP := (todoP.push a).push f
-        | .lam _ t b _ => todoP := (todoP.push b).push t
-        | .forallE _ t b _ => todoP := (todoP.push b).push t
-        | .letE _ t v b _ => todoP := ((todoP.push b).push v).push t
-        | .mdata _ b => todoP := todoP.push b
-        | .proj _ _ b => todoP := todoP.push b
-        | .lit (.natVal n) => if n > 2 ^ 5000 then bigNums := bigNums.push s!"NATLIT bits {Nat.log2 n}"
-        | _ => pure ()
-      h.putStrLn s!"MARK bignums: {bigNums.size} {(bigNums.toList.take 10)}"
-      h.flush
-      let (tot, top) ← Tools.VedU1ScriptSeq.treeSizes pf 400
-      h.putStrLn s!"MARK entry: before kernel addDecl depth={pf.approxDepth} dag={Tools.VedU1ScriptSeq.dagSize pf} tree={tot}"
-      for (n, d) in top do h.putStrLn s!"  TOP {n} {d}"
-      h.flush
     -- the kernel, synchronously, with EXACTLY the expected type
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
         addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
       fun e => refuse decl "kernel" e.toMessageData
-    if ved.u1.seqDebug.get (← getOptions) then
-      let h ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-      h.putStrLn "MARK entry: after kernel addDecl"; h.flush
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
       | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
     unless ti.type == expected do refuse decl "type" m!"stored type differs from the expected statement"
-    if ved.u1.seqDebug.get (← getOptions) then
-      let h ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-      h.putStrLn "MARK entry: before audit"; h.flush
     -- strict audit (standard 3 axioms, reachable closure)
     try discard <| Tools.VedStrictAudit.strictAudit nm.thm
     catch e => refuse decl "audit" e.toMessageData

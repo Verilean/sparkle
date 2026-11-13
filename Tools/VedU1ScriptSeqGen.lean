@@ -28,6 +28,24 @@ theorem or_mod (a b w n : Nat) (hn : 2 ^ w = n) : a <<< w ||| b % n = a * n + b 
   rw [← Nat.shiftLeft_add_eq_or_of_lt (Nat.mod_lt _ (Nat.two_pow_pos w)), Nat.shiftLeft_eq]
 
 open Lean Meta Simp in
+/-- `toNat` of a concatenation whose result width was already folded to a literal (`BitVec 32`
+rather than `BitVec (16 + 16)`, after `Nat.reduceAdd`): the library lemmas are indexed on `m + n`
+and do not fire.  The step is `Tools.VedU1Lemmas.toNat_append'`, whose left side is the same term
+up to the literal arithmetic `16 + 16 = 32`. -/
+simproc_decl vedToNatAppend (BitVec.toNat _) := fun e => do
+  unless e.isAppOfArity ``BitVec.toNat 2 do return .continue
+  let a := e.getArg! 1
+  unless a.isAppOfArity ``HAppend.hAppend 6 do return .continue
+  let x := a.getArg! 4
+  let y := a.getArg! 5
+  let tx ← whnfR (← inferType x)
+  let ty ← whnfR (← inferType y)
+  unless tx.isAppOf ``BitVec && ty.isAppOf ``BitVec do return .continue
+  let pf ← mkAppM ``Tools.VedU1Lemmas.toNat_append' #[x, y]
+  let rhs := (← inferType pf).appArg!
+  return .visit { expr := rhs, proof? := some pf }
+
+open Lean Meta Simp in
 /-- `simp` does not look into the argument of a `Signal.loop`: rewriting the body of a loop (a
 function of the whole circuit) makes proof terms with `funext` / `congr` over the whole body, a
 term the kernel cannot check in reasonable memory; the loop is read at ONE cycle instead
@@ -84,24 +102,17 @@ syntax (name := vedSeqWideSimp) "ved_seq_wide_simp " "[" Lean.Parser.Tactic.simp
 
 macro_rules
   | `(tactic| ved_seq_wide_simp [$ex,*] $[$loc]?) =>
-    `(tactic| simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
+    `(tactic| simp (config := { maxSteps := 4000000 }) [vedToNatAppend, BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
 
-/-- The closing tactic of the wide path (`scriptFor`): `ved_seq_wide_simp`, then `omega`, else a
-case split on the remaining `if`s and `omega`.  `ex` are extra simp lemmas (the range facts of
-the wide inputs). -/
-syntax (name := vedSeqWideClose) "ved_seq_wide_close " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
-
-macro_rules
-  | `(tactic| ved_seq_wide_close [$ex,*]) =>
-    `(tactic| ((try ved_seq_wide_simp [$ex,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> omega))))
-
-/-- `ved_seq_wide_close` for the loop path: after the case split, the `|||` with a numeral that the
-split exposed (`x >>> 1 ||| 128`) is rewritten by `ved_or_lit` before `omega`. -/
+/-- The closing tactic of the loop path (a copy of `ved_loop_close` of `Tools/VedU1Entry.lean`,
+which this file cannot import): `ved_seq_wide_simp`, then `omega`, else a case split on the remaining
+`if`s, the `|||` with a numeral that the split exposed (`x >>> 1 ||| 128`) rewritten by `ved_or_lit`,
+and `omega`.  A concatenation whose width was folded to a literal is read back by `vedToNatAppend`. -/
 syntax (name := vedSeqLoopClose) "ved_seq_loop_close " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 
 macro_rules
   | `(tactic| ved_seq_loop_close [$ex,*]) =>
-    `(tactic| ((try ved_seq_wide_simp [$ex,*]) <;> (first | omega | ((repeat' (split <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *]))) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_bits_facts) <;> (first | omega | (trace_state; fail "SEQOM"))))))
+    `(tactic| ((try ved_seq_wide_simp [$ex,*]) <;> (first | omega | ((repeat' (split <;> (try simp only [vedToNatAppend, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_ofNat, Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *]))) <;> (try simp only [BitVec.toNat_append, BitVec.toNat_ofNat, Nat.shiftLeft_eq] at *) <;> (try simp only [vedToNatAppend, Tools.VedU1Lemmas.toNat_append', Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_bits_facts) <;> omega))))
 
 
 /-! ## Loop-state variables with their defining equations -/
@@ -156,8 +167,8 @@ open Lean Meta Elab Tactic in
       ids := ids.push (← `(Lean.Parser.Tactic.simpLemma| $(mkIdent d.userName):ident))
   unless ids.isEmpty do
     match at? with
-    | some h => evalTactic (← `(tactic| simp only [$ids,*] at $h:ident))
-    | none => evalTactic (← `(tactic| simp only [$ids,*]))
+    | some h => evalTactic (← `(tactic| simp only [$ids,*, -Nat.reduceAdd] at $h:ident))
+    | none => evalTactic (← `(tactic| simp only [$ids,*, -Nat.reduceAdd]))
 
 open Lean Meta Elab Tactic in
 /-- `ved_seq_next s [ex]`: for every loop in the context, read its state at `s + 1` off the body
@@ -165,209 +176,6 @@ ONCE (`ved_hUj : (loop F).val (s+1) = …` in the variables of `ved_seq_gen`), s
 to carry the loop body: a goal that did made every rewriting step of the proof as big as the
 loop, and the kernel check of the finished proof never returned. -/
 syntax (name := vedSeqNext) "ved_seq_next " ident " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
-
-open Lean in
-/-- number of distinct (pointer-wise) subterms of `e` -/
-partial def dagSize (e : Expr) : Nat := Id.run do
-  let mut seen : Std.HashSet USize := {}
-  let mut todo : Array Expr := #[e]
-  let mut n := 0
-  while !todo.isEmpty do
-    let x := todo.back!
-    todo := todo.pop
-    let p := unsafe ptrAddrUnsafe x
-    if seen.contains p then continue
-    seen := seen.insert p
-    n := n + 1
-    match x with
-    | .app f a => todo := (todo.push a).push f
-    | .lam _ t b _ => todo := (todo.push b).push t
-    | .forallE _ t b _ => todo := (todo.push b).push t
-    | .letE _ t v b _ => todo := ((todo.push b).push v).push t
-    | .mdata _ b => todo := todo.push b
-    | .proj _ _ b => todo := todo.push b
-    | _ => pure ()
-  return n
-
-open Lean in
-/-- tree sizes (shared subterms counted at every use) of every distinct subterm, by pointer;
-returns the list of the `k` largest `(treeSize, head description)` among lambda / app nodes -/
-partial def treeSizes (e : Expr) (k : Nat) : IO (Nat × Array (Nat × String)) := do
-  let memo ← IO.mkRef (({} : Std.HashMap USize Nat))
-  let best ← IO.mkRef (#[] : Array (Nat × String))
-  let rec go (x : Expr) : IO Nat := do
-    let p := unsafe ptrAddrUnsafe x
-    if let some v := (← memo.get)[p]? then return v
-    let r ← match x with
-      | .app f a => do pure ((← go f) + (← go a) + 1)
-      | .lam _ t b _ => do pure ((← go t) + (← go b) + 1)
-      | .forallE _ t b _ => do pure ((← go t) + (← go b) + 1)
-      | .letE _ t v b _ => do pure ((← go t) + (← go v) + (← go b) + 1)
-      | .mdata _ b => do pure ((← go b) + 1)
-      | .proj _ _ b => do pure ((← go b) + 1)
-      | _ => pure 1
-    memo.modify (·.insert p r)
-    if r > 1000000 then
-      let hd := match x.getAppFn with
-        | .const n _ => s!"{n}"
-        | .lam n .. => s!"lam {n}"
-        | .fvar _ => "fvar"
-        | _ => "other"
-      best.modify fun b => b.push (r, hd ++ s!" nargs={x.getAppNumArgs}")
-    return r
-  let n ← go e
-  let b ← best.get
-  -- histogram by head: (head, count, max)
-  let mut hist : Std.HashMap String (Nat × Nat) := {}
-  for (sz, hd) in b do
-    let (c, m) := hist.getD hd (0, 0)
-    hist := hist.insert hd (c + 1, max m sz)
-  let rows := hist.toArray.qsort (fun a c => a.2.2 > c.2.2)
-  let out := rows.extract 0 k |>.map fun (hd, (c, m)) => (m, s!"{hd} x{c}")
-  return (n, out)
-
-open Lean Meta in
-/-- the spine of a tactic proof: from `e` go down through lambdas and through applications whose
-last argument is a lambda (the continuation); returns the list of (node, index of continuation arg). -/
-partial def spineCut (e : Expr) (depth : Nat) : MetaM Expr := do
-  -- replace the continuation at `depth` by `sorry`
-  let rec go (e : Expr) (d : Nat) : MetaM Expr := do
-    match e with
-    | .lam .. =>
-      lambdaTelescope e fun xs b => do mkLambdaFVars xs (← go b d)
-    | .mdata m b => return .mdata m (← go b d)
-    | .app .. =>
-      let f := e.getAppFn
-      let args := e.getAppArgs
-      if let some last := args.back? then
-        if last.isLambda || (last.isMData && last.consumeMData.isLambda) then
-          if d == 0 then
-            let ty ← inferType last
-            return mkAppN f (args.pop.push (← mkSorry ty false))
-          else
-            return mkAppN f (args.pop.push (← go last (d - 1)))
-      return e
-    | _ => return e
-  go e depth
-
-open Lean Meta Elab Tactic in
-elab "ved_seq_kcheck" : tactic => withMainContext do
-  let g ← instantiateMVars (← getMainTarget)
-  let h ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-  for d in ← getLCtx do
-    let t ← instantiateMVars d.type
-    if t.isAppOfArity ``Eq 3 && g.isAppOfArity ``Eq 3 && t.getArg! 1 == g.getArg! 1 then
-      h.putStrLn s!"KCHECK start {d.userName}"
-      h.flush
-      let t0 ← IO.monoMsNow
-      let r := Lean.Kernel.isDefEq (← getEnv) (← getLCtx) t g
-      let t1 ← IO.monoMsNow
-      h.putStrLn s!"KCHECK {d.userName}: {match r with | .ok b => toString b | .error _ => "error"} {t1 - t0}ms"
-      h.flush
-
-open Lean Meta in
-partial def kprobe (e : Expr) (depth : Nat) (mName : Name) : MetaM Unit := do
-  if depth > 40 then return
-  unless (← isProof e) do return
-  match e with
-  | .app .. =>
-    for a in e.getAppArgs do kprobe a (depth + 1) mName
-  | .lam _ _ b _ => lambdaTelescope e fun _ b => kprobe b (depth + 1) mName
-  | _ => pure ()
-  if e.isAtomic then return
-  let ty ← inferType e
-  let l ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-  l.putStrLn s!"PROBE depth={depth} dag={dagSize e} head={e.getAppFn.constName?.getD `other}"
-  l.flush
-  IO.FS.writeFile "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/probe_last.txt" s!"{← ppExpr e}\n\nTYPE: {← ppExpr ty}"
-  -- DEBUG: first the same node with its last argument (the sub-proof) replaced by `sorry`
-  if e.isAppOf ``congrArg && depth == 9 && dagSize e == 394 then
-    let args := e.getAppArgs
-    let last := args.back!
-    let lty ← inferType last
-    let e2 := mkAppN e.getAppFn (args.pop.push (← mkSorry lty false))
-    l.putStrLn "PROBE sorried variant start"; l.flush
-    let t1 ← IO.monoMsNow
-    let ty2 ← inferType e2
-    let result ← Closure.mkValueTypeClosure ty2 e2 true
-    l.putStrLn s!"PROBE closure done {(← IO.monoMsNow) - t1}ms dag(type)={dagSize result.type} dag(value)={dagSize result.value} args={result.exprArgs.size}"; l.flush
-    let ppAll ← withOptions (fun o => o.setBool `pp.all true |>.setBool `pp.universes true |>.setBool `pp.deepTerms true |>.setBool `pp.proofs true |>.set `pp.maxSteps (1000000 : Nat) |>.set `pp.deepTerms.threshold (1000000 : Nat) |>.set `pp.proofs.threshold (1000000 : Nat)) (ppExpr result.type)
-    IO.FS.writeFile "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/blow_type.txt" s!"{ppAll}"
-    let ppV ← withOptions (fun o => o.setBool `pp.all true |>.setBool `pp.universes true |>.setBool `pp.deepTerms true |>.setBool `pp.proofs true |>.set `pp.maxSteps (1000000 : Nat) |>.set `pp.deepTerms.threshold (1000000 : Nat) |>.set `pp.proofs.threshold (1000000 : Nat)) (ppExpr result.value)
-    IO.FS.writeFile "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/blow_value.txt" s!"{ppV}"
-    -- DEBUG: the explicit sides of the congrArg versus the sides of the sub-proof's type
-    do
-      let args := e.getAppArgs
-      let a1 := args[2]!
-      let a2 := args[3]!
-      let lty ← instantiateMVars lty
-      let a1' := lty.getArg! 1
-      let a2' := lty.getArg! 2
-      l.putStrLn s!"SIDES a1==a1': {a1 == a1'} a2==a2': {a2 == a2'}"; l.flush
-      for (nm, x, y) in [("a1", a1, a1'), ("a2", a2, a2')] do
-        if x != y then
-          IO.FS.writeFile s!"/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/sides_{nm}.txt" s!"{← ppExpr x}\n=====\n{← ppExpr y}"
-          l.putStrLn s!"KDEFEQ {nm} start"; l.flush
-          let t0 ← IO.monoMsNow
-          let r := Lean.Kernel.isDefEq (← getEnv) (← getLCtx) x y
-          l.putStrLn s!"KDEFEQ {nm} {match r with | .ok b => toString b | .error _ => "error"} {(← IO.monoMsNow) - t0}ms"; l.flush
-    -- DEBUG: kernel check with a small heartbeat budget (the kernel reads the OPTION)
-    let tryK := fun (name : String) (ty : Expr) (val : Expr) => do
-      let t3 ← IO.monoMsNow
-      let ok ← tryCatchRuntimeEx (do
-          withOptions (fun o => if name.startsWith "NOOPT" then o else o.set `maxHeartbeats (3000 : Nat)) do
-            discard <| mkAuxLemma [] ty val (cache := false)
-          pure "ok")
-        fun e => do pure s!"FAIL {← e.toMessageData.toString}"
-      l.putStrLn s!"KPROBE {name}: {ok} {(← IO.monoMsNow) - t3}ms"; l.flush
-    tryK "sorried congrArg" result.type result.value
-    -- variants built from the pieces of the type
-    forallTelescope result.type fun xs body => do
-      let some (_, _, lhs, rhs) := (some (body.getAppFn, body.getAppNumArgs, body.getArg! 1, body.getArg! 2)) | pure ()
-      let a1 := lhs.appArg!
-      let a2 := rhs.appArg!
-      let f := lhs.appFn!
-      l.putStrLn s!"PIECES a1 head={a1.getAppFn.constName?.getD `other} a2 head={a2.getAppFn.constName?.getD `other} f={← ppExpr f}"; l.flush
-      -- (a) Eq Nat a1 a2 by sorry
-      let eq12 ← mkEq a1 a2
-      let tyA ← mkForallFVars xs eq12
-      let valA ← mkLambdaFVars xs (← mkSorry eq12 false)
-      tryK "(a) a1 = a2 by sorry" tyA valA
-      -- (b) congrArg with a trivial function
-      let idf ← withLocalDeclD `y (mkConst ``Nat) fun y => mkLambdaFVars #[y] y
-      let eqb ← mkEq (mkApp idf a1) (mkApp idf a2)
-      let valb ← mkLambdaFVars xs (← mkAppM ``congrArg #[idf, ← mkSorry eq12 false])
-      tryK "(b) congrArg id" (← mkForallFVars xs (← inferType (← mkAppM ``congrArg #[idf, ← mkSorry eq12 false]))) valb
-      -- (c) congrArg HOr.hOr with a1 a2 abstracted to fresh variables
-      withLocalDeclD `u (mkConst ``Nat) fun u => withLocalDeclD `w (mkConst ``Nat) fun w => do
-        let e12 ← mkEq u w
-        let vc ← mkAppM ``congrArg #[f, ← mkSorry e12 false]
-        let tc ← inferType vc
-        tryK "(c) congrArg f on variables" (← mkForallFVars #[u, w] tc) (← mkLambdaFVars #[u, w] vc)
-      -- (d) the real congrArg term but a1 := variable u (a2 kept)
-      withLocalDeclD `u (mkConst ``Nat) fun u => do
-        let e12 ← mkEq u a2
-        let vc ← mkAppM ``congrArg #[f, ← mkSorry e12 false]
-        let tc ← inferType vc
-        tryK "(d) a1 variable" (← mkForallFVars (xs.push u) tc) (← mkLambdaFVars (xs.push u) vc)
-      withLocalDeclD `u (mkConst ``Nat) fun u => do
-        let e12 ← mkEq a1 u
-        let vc ← mkAppM ``congrArg #[f, ← mkSorry e12 false]
-        let tc ← inferType vc
-        tryK "(e) a2 variable" (← mkForallFVars (xs.push u) tc) (← mkLambdaFVars (xs.push u) vc)
-      let natT := mkConst ``Nat
-      for (nm, fn) in [("HAdd", ``HAdd.hAdd), ("HAnd", ``HAnd.hAnd), ("HMul", ``HMul.hMul), ("HXor", ``HXor.hXor), ("HOr", ``HOr.hOr)] do
-        let f2 ← mkAppOptM fn #[natT, natT, natT, none]
-        let vc ← mkAppM ``congrArg #[f2, ← mkSorry eq12 false]
-        let tc ← inferType vc
-        tryK s!"(f) congrArg {nm} real a1 a2" (← mkForallFVars xs tc) (← mkLambdaFVars xs vc)
-      -- with the sort of `a1`/`a2` replaced by opaque copies (equal structure, different sharing)
-    throwError "probe done"
-    l.putStrLn s!"PROBE sorried variant done {(← IO.monoMsNow) - t1}ms"; l.flush
-  let t0 ← IO.monoMsNow
-  discard <| mkAuxTheorem ty e (zetaDelta := true)
-  l.putStrLn s!"PROBE done {(← IO.monoMsNow) - t0}ms"
-  l.flush
 
 open Lean Meta Elab Tactic in
 /-- `ved_seq_aux h (tacs)`: run `tacs` (which rewrite the hypothesis `h` in place) in a SUB-GOAL, and
@@ -392,44 +200,7 @@ open Lean Meta Elab Tactic in
     setGoals saved
     let val ← instantiateMVars mv
     let T1 ← instantiateMVars ty
-    let hlog ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-    let t0 ← IO.monoMsNow
-    let (tr, _) ← treeSizes val 0
-    hlog.putStrLn s!"AUX start {h.getId} dag={dagSize val} tree={tr} depth={val.approxDepth}"
-    let consts := val.foldConsts (init := ({} : Std.HashMap Name Nat)) fun c m => m.insert c (m.getD c 0 + 1)
-    hlog.putStrLn s!"   CONSTS {(consts.toList.map (·.1)).take 80}"
-    hlog.flush
-    if h.getId == `hs23 then
-      -- DEBUG: the kernel on `declWidth M "x" =?= 129`
-      let some mC := consts.toList.find? (fun (c, _) => c.toString.endsWith "ved_mod") | pure ()
-      let l ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-      let dw := mkApp2 (mkConst ``Tools.VedU1Contract.declWidth) (mkConst mC.1) (mkStrLit "_tmp_b_77")
-      l.putStrLn "KDW start"; l.flush
-      let t0 ← IO.monoMsNow
-      let r := Lean.Kernel.isDefEq (← getEnv) {} dw (mkNatLit 129)
-      l.putStrLn s!"KDW {match r with | .ok b => toString b | .error _ => "error"} {(← IO.monoMsNow) - t0}ms"; l.flush
-      let wo := mkApp2 (mkConst ``Sparkle.IR.Semantics.widthOf) (mkApp (mkConst ``Tools.VedU1Contract.declWidth) (mkConst mC.1))
-        (mkApp (mkConst ``Sparkle.IR.AST.Expr.ref) (mkStrLit "_tmp_b_77"))
-      l.putStrLn "KWO start"; l.flush
-      let t1 ← IO.monoMsNow
-      let r2 := Lean.Kernel.isDefEq (← getEnv) {} wo (mkNatLit 129)
-      l.putStrLn s!"KWO {match r2 with | .ok b => toString b | .error _ => "error"} {(← IO.monoMsNow) - t1}ms"; l.flush
-      let mk := mkApp2 (mkConst ``Sparkle.IR.Semantics.mask) wo (mkNatLit 5)
-      let pw := mkApp2 (mkConst ``HMod.hMod [Level.zero, Level.zero, Level.zero]) (mkNatLit 5) (mkNatLit 680564733841876926926749214863536422912)
-      l.putStrLn "KMASK start"; l.flush
-      let t2 ← IO.monoMsNow
-      let r3 := Lean.Kernel.isDefEq (← getEnv) {} mk (mkNatLit 5)
-      l.putStrLn s!"KMASK {match r3 with | .ok b => toString b | .error _ => "error"} {(← IO.monoMsNow) - t2}ms"; l.flush
-      let _ := pw
-      -- DEBUG: kernel-check the sub-proofs bottom-up, logging each before it is checked
-      kprobe val 0 mC.1
-      let ppv ← ppExpr val
-      let ppt ← ppExpr T1
-      IO.FS.writeFile "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/hs23_val.txt" s!"TYPE:\n{ppt}\n\nVALUE:\n{ppv}\n"
-    let r ← mkAuxTheorem T1 val (zetaDelta := true)
-    hlog.putStrLn s!"AUX done {h.getId} {(← IO.monoMsNow) - t0}ms"
-    hlog.flush
-    pure r
+    mkAuxTheorem T1 val (zetaDelta := true)
   let auxS ← Term.exprToSyntax aux
   evalTactic (← `(tactic| have $h:ident := $auxS))
 
@@ -459,7 +230,7 @@ def seqNextAt (tm : Term) (ex : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma 
     evalTactic (← `(tactic| ved_seq_aux $hU:ident (
       try dsimp only [$ex,*, Sparkle.Core.Signal.Signal.map, Signal.register, Signal.beq, Signal.seq, Signal.ap,
         Sparkle.Core.Signal.bundle2, Functor.map, Seq.seq, Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le,
-        OTy.obs, PTy.obs, PTy.sig] at $hU:ident
+        OTy.obs, PTy.obs, PTy.sig, -Nat.reduceAdd] at $hU:ident
       ved_seq_simp [$ex,*] at $hU:ident
       ved_seq_sub at $hU:ident)))
 
@@ -641,14 +412,6 @@ elab "ved_seq_unpack " "at " h:ident : tactic => withMainContext do
 end Unpack
 
 open Lean Meta Elab Tactic in
-elab "ved_seq_dump" : tactic => withMainContext do
-  let t ← instantiateMVars (← getMainTarget)
-  IO.eprintln s!"DUMP target: {t.dbgToString}"
-  for d in ← getLCtx do
-    if d.userName.toString.startsWith "this" || d.userName.toString.startsWith "h" then
-      IO.eprintln s!"DUMP hyp {d.userName}: {(← instantiateMVars d.type).dbgToString}"
-
-open Lean Meta Elab Tactic in
 /-- the `save_info` annotations the elaborator leaves in a goal hide a term from `omega` (it takes
 `[mdata] a % 8` for an atom): remove the metadata from the target of every goal. -/
 elab "ved_seq_unmdata" : tactic => do
@@ -661,61 +424,16 @@ elab "ved_seq_unmdata" : tactic => do
   setGoals out.toList
 
 open Lean Meta Elab Tactic in
-elab "ved_seq_omega_dbg" : tactic => do
-  let gs ← getGoals
-  let mut i := 0
-  for g in gs do
-    setGoals [g]
-    let t0 ← IO.monoMsNow
-    let ok ← try evalTactic (← `(tactic| omega)); pure true catch _ => pure false
-    let t1 ← IO.monoMsNow
-    let gt ← g.withContext do ppExpr (← instantiateMVars (← g.getType))
-    IO.eprintln s!"OMEGA goal {i}/{gs.length}: {if ok then "ok" else "FAIL"} {t1 - t0}ms  {(toString gt).take 100}"
-    i := i + 1
-  setGoals []
-
-open Lean Meta Elab Tactic in
-elab "ved_seq_mark " l:str : tactic => do
-  let st ← (try IO.FS.readFile "/proc/self/status" catch _ => pure "")
-  let rss := (st.splitOn "\n").find? (·.startsWith "VmRSS") |>.getD ""
-  let t ← IO.monoMsNow
-  let (tsz, tmax, tname) ← match ← getGoals with
-    | g :: _ => g.withContext do
-        let mut tsz : Nat := 0
-        let mut tmax : Nat := 0
-        let mut tname : Name := .anonymous
-        for d in ← getLCtx do
-          let z := (← instantiateMVars d.type).sizeWithoutSharing
-          tsz := tsz + z
-          if z > tmax then
-            tmax := z
-            tname := d.userName
-        pure (tsz, tmax, tname)
-    | [] => pure (0, 0, Name.anonymous)
-  let h ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-  h.putStrLn s!"MARK {l.getString} t={t / 1000}s goals={(← getGoals).length} {rss} ctxsize={tsz} max={tmax}({tname})"
-  h.flush
-
-open Lean Meta Elab Tactic in
+/-- `ved_seq_close_each`: the closing tactic on every goal in turn; a goal it cannot close is an
+error (the whole attempt is abandoned at once, the fallback script then runs). -/
 elab "ved_seq_close_each" : tactic => do
   let gs ← getGoals
-  let mut i := 0
-  let mut failed : Array MVarId := #[]
   for g in gs do
     setGoals [g]
-    let t0 ← IO.monoMsNow
-    let ok ← try evalTactic (← `(tactic| ved_seq_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])); pure true catch _ => pure false
-    let t1 ← IO.monoMsNow
-    let st ← (try IO.FS.readFile "/proc/self/status" catch _ => pure "")
-    let rss := (st.splitOn "\n").find? (·.startsWith "VmRSS") |>.getD ""
-    let gt ← g.withContext do ppExpr (← instantiateMVars (← g.getType))
-    let h ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-    let pfE ← instantiateMVars (mkMVar g)
-    h.putStrLn s!"CLOSE {i}/{gs.length} {if ok then "ok" else "FAIL"} {t1 - t0}ms {rss} dag={dagSize pfE} tree={(← treeSizes pfE 0).1} depth={pfE.approxDepth} {(toString gt).take 100}"
-    h.flush
-    unless ok do failed := failed.push g
-    i := i + 1
-  setGoals failed.toList
+    evalTactic (← `(tactic| ved_seq_unmdata))
+    Tactic.withoutRecover
+      (evalTactic (← `(tactic| ved_seq_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Int.bmod_def, BitVec.toNat_append, BitVec.toNat_ofNat, Tools.VedU1ScriptSeq.or_mod _ _ _ _ rfl])))
+  setGoals []
 
 /-! ## The generator -/
 
@@ -736,12 +454,7 @@ plain wire, a data input that is not scalar, no clock/reset for the registers).
 declaration, `b0` the arrangement stored as `B`, `regs` the registers `(name, width)`. -/
 def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b0 : List Stmt)
     (clkRst : Option (String × String)) (dataPorts : List Port) (regs : List (String × Nat))
-    (helpers : Array Name) (stop : Nat := 0) : TermElabM (Option Syntax) := do
-  let stop0 := stop
-  let dbgSorry := stop == 9000
-  let sorryT ← `(tactic| sorry)
-  let dbgB1 := stop == 5000 || (stop ≥ 6000 && stop < 8000) || stop == 7100 || stop == 7101 || stop == 7103 || stop == 7104 || stop == 7105 || stop == 7200
-  let dbgB2 := stop == 5001
+    (helpers : Array Name) : TermElabM (Option Syntax) := do
   let some (clkN, rstN) := clkRst | return none
   -- registers: their input must be a plain wire, their reset the module's, their init non-negative
   let mut regInfo : Array (String × Nat × String × String × Int) := #[]
@@ -760,9 +473,6 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
   let Mi := mkCIdent M
   let Oi := mkCIdent O
   let Bi := mkCIdent B
-  let hlog ← IO.FS.Handle.mk "/home/junji-hashimoto/git/.kjob/ved-script-cost4/scratch/marks.log" .append
-  hlog.putStrLn s!"HELPERS {helpers.size}: {helpers.toList.map (·.toString) |>.take 60}"
-  hlog.flush
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
   let insI := mkIdent `ins
@@ -857,24 +567,20 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
   let mut perStmt : Array (TSyntax `tactic) := #[]
   for k in [0:assignIdx.size] do
     let i := assignIdx[k]!
-    if stop0 == 8000 then
-      perStmt := perStmt.push (← `(tactic| ved_seq_aux $(hss[i]!):ident (
-        ved_seq_simp_nd [$(mk (hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL.extract 0 k)),*] at $(hss[i]!):ident)))
-    else
-      perStmt := perStmt.push (← `(tactic| ved_seq_aux $(hss[i]!):ident (
-        ved_seq_simp_nd [$(mk (hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL.extract 0 k)),*] at $(hss[i]!):ident
-        try ved_seq_unpack at $(hss[i]!):ident)))
+    perStmt := perStmt.push (← `(tactic| ved_seq_aux $(hss[i]!):ident (
+      ved_seq_simp_nd [$(mk (hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL.extract 0 k)),*] at $(hss[i]!):ident
+      try ved_seq_unpack at $(hss[i]!):ident)))
   let applyL ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1ScriptSeq.applyNexts_nextsOf)
   let sigBase := #[← `(Lean.Parser.Tactic.simpLemma| srcOf), ← `(Lean.Parser.Tactic.simpLemma| $Ci:ident),
     ← `(Lean.Parser.Tactic.simpLemma| contractOf), ← `(Lean.Parser.Tactic.simpLemma| applyIns),
     ← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA
-  let exOut := mk (sigBase ++ hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL)
   let exReg := mk (#[applyL] ++ sigBase ++ hrgL ++ hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL)
   let closeTacs : Array (TSyntax `tactic) := #[
     ← `(tactic| ved_seq_unmdata),
+    ← `(tactic| all_goals (try simp only [vedToNatAppend, BitVec.toNat_append, BitVec.toNat_ofNat, Nat.shiftLeft_eq])),
     ← `(tactic| all_goals (try simp only [Nat.reduceAdd, Nat.reducePow])),
     ← `(tactic| all_goals (try simp (disch := first | ved_omega | decide) only [Nat.mod_mod_of_dvd])),
-    ← `(tactic| all_goals (try ved_seq_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv])),
+    ← `(tactic| all_goals (try ved_seq_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Int.bmod_def, Tools.VedU1Loop.ved_mul_lit_bv])),
     ← `(tactic| all_goals (try ved_bit_simp)),
     ← `(tactic| all_goals (try ved_or_lit)),
     ← `(tactic| all_goals (try ved_pack_simp)),
@@ -896,7 +602,7 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
   tacs := tacs.push (← `(tactic| ved_seq_aux $hv:ident (
       try dsimp only [$Oi:ident, $Mi:ident, $Bi:ident, Tools.VedU1Contract.declWidth, srcOf, $Ci:ident, contractOf, applyIns, $fI:ident,
         Sparkle.Core.Signal.Signal.map, Signal.register, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, Functor.map, Seq.seq,
-        Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, OTy.obs, PTy.obs, PTy.sig, $(mk hsA),*] at $hv:ident
+        Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, OTy.obs, PTy.obs, PTy.sig, -Nat.reduceAdd, $(mk hsA),*] at $hv:ident
       ved_seq_simp [$Oi:ident, $Mi:ident, $Bi:ident, declWidth, srcOf, $Ci:ident, contractOf, applyIns, $fI:ident, $(mk hsA),*] at $hv:ident)))
   tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
@@ -904,12 +610,9 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
   tacs := tacs.push (← `(tactic| ved_seq_next $sI [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]))
   tacs := tacs.push (← `(tactic| obtain ⟨E, hstep, hfr, hall⟩ := Tools.VedU1ScriptSeq.step_seq (declWidth $Mi) mems $Bi
     (Tools.VedU1Contract.seedIn $Mi $insI $sI st) (by decide +kernel) (by decide +kernel)))
-  let nA := tacs.size
   tacs := tacs ++ postStep
-  let nB := tacs.size
   tacs := tacs.push (← `(tactic| obtain $allPat := hall))
   tacs := tacs ++ perStmt
-  let nC := tacs.size
   tacs := tacs.push (← `(tactic| refine ⟨E, Tools.VedU1ScriptSeq.nextsOf (declWidth $Mi) E $Bi, mems, hstep, ?_, ?_⟩))
   -- outputs
   let outTacs : Array (TSyntax `tactic) := #[
@@ -919,7 +622,7 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(tactic| try dsimp only),
     ← `(tactic| rw [← $hv0:ident]),
     ← `(tactic| rw [$hv:ident]),
-    ← `(tactic| simp only [$(mk hsL),*]),
+    ← `(tactic| simp only [$(mk hsL),*, -Nat.reduceAdd]),
     ← `(tactic| ved_seq_bools),
     ← `(tactic| all_goals try (repeat' apply And.intro))] ++ closeTacs
   let regTacs : Array (TSyntax `tactic) := #[
@@ -933,50 +636,10 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(tactic| ved_seq_sub),
     ← `(tactic| simp [Tools.VedU1Contract.st0, $Ci:ident, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.regsOf, $Mi:ident, Sparkle.IR.Semantics.encodeInit, Sparkle.IR.Semantics.mask, Tools.VedU1Contract.declWidth]),
     ← `(tactic| all_goals decide +kernel)]
-  let stopT ← `(tactic| (trace_state; fail "seq stop"))
-  let stop := if stop == 1 then nA else if stop == 2 then nB else if stop == 3 then nC else if stop == 4 then nC + 1 else stop
-  let expT ← `(tactic| have := $(hss[20]!))
-  let exp2T ← `(tactic| simp only [$(hsL[20]!)])
-  let chainIdx := (List.range b0.length).filter fun i => match b0[i]? with
-    | some (Stmt.assign l _) => l == "out" || l == "_tmp_mux_else_53"
-    | _ => false
-  let chainL ← (chainIdx.toArray).mapM fun i => `(Lean.Parser.Tactic.simpLemma| $(hss[i]!):ident)
-  let exp3T ← `(tactic| simp only [$(mk chainL),*])
-  let boolsT ← `(tactic| clear $(mkIdent `ved_hU0):ident $(mkIdent `ved_hL0):ident $hv:ident $hv0:ident)
-  let exp4T ← `(tactic| exact $(hss[chainIdx.getD 1 0]!))
-  let kcT ← `(tactic| ved_seq_kcheck)
-  let outTacs := if stop0 == 7200 then outTacs.extract 0 6 ++ #[kcT, sorryT] else if stop0 == 7105 then outTacs.extract 0 6 ++ #[boolsT, exp4T] else if stop0 == 7104 then outTacs.extract 0 6 ++ #[exp4T] else if stop0 == 7103 then outTacs.extract 0 6 ++ #[exp3T] else if stop0 == 7100 then outTacs.extract 0 6 ++ #[expT, sorryT] else if stop0 == 7101 then outTacs.extract 0 6 ++ #[exp2T, sorryT] else if stop0 ≥ 7000 && stop0 < 8000 then outTacs.extract 0 (stop0 - 7000) ++ #[sorryT] else if stop0 ≥ 1000 && stop0 < 2000 then (outTacs.extract 0 (stop0 - 1000)).push stopT else if stop0 ≥ 6000 && stop0 < 7000 then (outTacs.extract 0 (stop0 - 6000)).push stopT else outTacs
-  let orLitT ← `(tactic| all_goals (try ved_or_lit))
-  let bitsT ← `(tactic| all_goals (try ved_bits_facts))
-  let dbgTacs : Array (TSyntax `tactic) := #[
-    ← `(tactic| all_goals (try ved_seq_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv])),
-    ← `(tactic| all_goals (repeat' (split <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *])))),
-    ← `(tactic| all_goals (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true] at *)),
-    ← `(tactic| all_goals (try simp only [Nat.or_zero, Nat.zero_or]))] ++
-    (if stop == 3017 || stop == 3019 then #[orLitT] else #[]) ++
-    (if stop == 3018 || stop == 3019 then #[bitsT] else #[]) ++
-    #[← `(tactic| all_goals ved_seq_omega_dbg)]
-  let regTacs := if stop0 ≥ 3000 then (regTacs.extract 0 (stop0 - 3000)) ++ dbgTacs
-    else if stop0 ≥ 2000 then (regTacs.extract 0 (stop0 - 2000)).push stopT else regTacs
-  let stop := if stop ≥ 1000 then 0 else stop
-  if stop > 0 then tacs := (tacs.extract 0 stop).push stopT
   let oos := mkCIdent `Tools.VedU1Entry.outputs_of_step
-  let withMarks := fun (pre : String) (xs : Array (TSyntax `tactic)) => do
-    let mut out : Array (TSyntax `tactic) := #[]
-    let mut i := 0
-    for x in xs do
-      out := out.push (← `(tactic| ved_seq_mark $(Syntax.mkStrLit s!"{pre}{i}")))
-      out := out.push x
-      i := i + 1
-    return out
-  let outM ← withMarks "out" outTacs
-  let regM ← withMarks "reg" regTacs
-  let tacsM ← withMarks "main" tacs
-  let b1 ← `(tactic| · $outM*)
-  let b2 ← `(tactic| · $regM*)
-  let sb ← `(tactic| · sorry)
-  let hblock : Array (TSyntax `tactic) :=
-    if dbgSorry then tacsM ++ #[sb, sb] else if dbgB1 then tacsM ++ #[b1, sb] else if dbgB2 then tacsM ++ #[sb, b2] else tacsM ++ #[b1, b2]
+  let b1 ← `(tactic| · $outTacs*)
+  let b2 ← `(tactic| · $regTacs*)
+  let hblock : Array (TSyntax `tactic) := tacs ++ #[b1, b2]
   let stx ← `(by
       have hord : OrderOk $Mi $Bi = true := by decide +kernel
       refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$Bi, hord⟩, ?_⟩
