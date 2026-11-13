@@ -306,4 +306,10 @@ theorem inputsOk_nth (c : Tools.VedU1Contract.Contract) (m : Module) (ins : Nat 
   obtain ⟨a, ha, rfl⟩ := h
   exact hok.1 s a (List.mem_of_getElem? ha)
 
+/-- `x <<< 0 = x`, with a proof that is not `rfl` (`Nat.shiftLeft_zero` is: a `rfl` lemma is used by
+`simp` WITHOUT a proof, and the kernel then has to check `x <<< 0 ≡ x` by evaluation — for symbolic
+`x` with big literals inside, it unfolds `Nat.mul` by recursion on the literal). -/
+theorem shl_zero' (x : Nat) : x <<< 0 = x := by
+  rw [Nat.shiftLeft_eq, Nat.pow_zero, Nat.mul_one]
+
 end Tools.VedU1ScriptSeq
