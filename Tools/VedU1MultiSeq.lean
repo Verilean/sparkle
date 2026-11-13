@@ -71,7 +71,7 @@ def packedLoopScript (nm : Names) (F : Name) (nDom : Nat) (regs : List (String �
   tacs := tacs.push (← `(tactic| intro $insI hok $sI st mems $hR))
   tacs := tacs.push (← `(tactic| have $hinI := hok.1 $sI))
   tacs := tacs.push (← `(tactic| have $hrstI := hok.2 $sI))
-  tacs := tacs.push (← `(tactic| simp [PContract.core, collapse, $C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident))
+  tacs := tacs.push (← `(tactic| simp (config := { maxSteps := 2000000 }) [PContract.core, collapse, $C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident))
   let keyI := mkIdent `key
   tacs := tacs.push (← `(tactic| have $keyI : ∀ t, srcOf (PContract.core $C) (packedF ($C).tbl $f) $insI "out" t =
       OTy.packNat ($C).tbl.out ((applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => srcOf_packed $C $f $insI t))
@@ -81,9 +81,17 @@ def packedLoopScript (nm : Names) (F : Name) (nDom : Nat) (regs : List (String �
   tacs := tacs.push (← `(tactic| ved_loop_R' $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| clear $hv))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
-  let closing ← if ved.multiseq.dbg.get (← getOptions) == 99
+  let closing ← if ved.multiseq.dbg.get (← getOptions) == 96
+    then `(tactic| all_goals (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | fail "leaf failed here")))
+    else if ved.multiseq.dbg.get (← getOptions) == 98
+    then `(tactic| all_goals (ved_timed (first
+        | (ved_leafwise <;> ved_timed (ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod]))
+        | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])))
+    else if ved.multiseq.dbg.get (← getOptions) == 99
     then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | fail "ved_loop_close failed here"))
-    else `(tactic| all_goals ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
+    else `(tactic| all_goals (first
+        | (ved_leafwise <;> ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
+        | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod]))
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_loop_unfold' [$exHelp,*] ($sI + 1))],
     #[← `(tactic| ved_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, PContract.core, collapse, $C:ident, contractOf, applyIns, $fI:ident, Tools.VedU1MultiSeqLemmas.OTy_packNat_pair, Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, OTy.width, PTy.width, Signal.fst, Signal.snd, $ex1,*])],
@@ -105,10 +113,13 @@ def packedLoopScript (nm : Names) (F : Name) (nDom : Nat) (regs : List (String �
   if dbg == 50 then
     tacs := tacs.push (← `(tactic| ved_loop_unfold1 [$exHelp,*] ($sI + 1)))
   let stop ← `(tactic| (trace_state; fail "stopped at debug stage"))
-  if dbg == 1 || (dbg ≥ 50 && dbg < 99) then tacs := tacs.push stop
+  if dbg == 1 || (dbg ≥ 50 && dbg < 96) then tacs := tacs.push stop
   else
     for k in [0:stages.size] do
-      if dbg == 0 || dbg > k + 1 then tacs := tacs ++ stages[k]!
+      if dbg == 0 || dbg == 96 || dbg == 97 || dbg == 98 || dbg > k + 1 then
+        if dbg == 97 then
+          for t in stages[k]! do tacs := tacs.push (← `(tactic| ved_timed $t))
+        else tacs := tacs ++ stages[k]!
       if dbg == k + 2 then tacs := tacs.push stop
   let h0tacs : Array (TSyntax `tactic) := #[
     ← `(tactic| intro $insI hok),

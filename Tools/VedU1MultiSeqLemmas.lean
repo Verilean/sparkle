@@ -97,4 +97,8 @@ theorem xor_ones (x c k : Nat) (hc : c + 1 = 2 ^ k) (h : x < 2 ^ k) : x ^^^ c = 
   subst hc'
   exact h2
 
+theorem add_congr_nat {a b c d : Nat} (h1 : a = c) (h2 : b = d) : a + b = c + d := by subst h1; subst h2; rfl
+
+theorem mul_congr_nat {a b : Nat} (c : Nat) (h : a = b) : c * a = c * b := by subst h; rfl
+
 end Tools.VedU1MultiSeqLemmas

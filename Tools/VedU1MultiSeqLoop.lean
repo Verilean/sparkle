@@ -101,6 +101,39 @@ elab "ved_loop_gen' " s:ident : tactic => withMainContext do
       if (← whnfR d.type).isConstOf ``Bool then
         evalTactic (← `(tactic| all_goals cases $x:ident))
 
+/-- The leaf equations of `x₁ + … = y₁ + …` / `c * x = c * y` (same shape on both sides), by structural
+descent: each leaf is closed on its own, which avoids splitting every condition of every field of
+a packed value at once.  Returns the goal itself when the two sides have no common shape. -/
+partial def leafGoals (g : MVarId) : MetaM (List MVarId) := do
+  let t ← whnfR (← instantiateMVars (← g.getType))
+  let some (ty, l, r) := t.eq? | return [g]
+  unless ty.isConstOf ``Nat do return [g]
+  if l.isAppOfArity ``HAdd.hAdd 6 && r.isAppOfArity ``HAdd.hAdd 6 then
+    let gs ← g.apply (← mkConstWithFreshMVarLevels ``Tools.VedU1MultiSeqLemmas.add_congr_nat)
+    return (← gs.mapM leafGoals).flatten
+  if l.isAppOfArity ``HMul.hMul 6 && r.isAppOfArity ``HMul.hMul 6 && (l.getArg! 4) == (r.getArg! 4)
+      && (l.getArg! 4).nat?.isSome then
+    let gs ← g.apply (← mkConstWithFreshMVarLevels ``Tools.VedU1MultiSeqLemmas.mul_congr_nat)
+    return (← gs.mapM leafGoals).flatten
+  return [g]
+
+/-- `ved_leafwise`: replace the main goal by its leaf equations (see `leafGoals`). -/
+elab "ved_leafwise" : tactic => do
+  let g ← getMainGoal
+  let gs ← leafGoals g
+  replaceMainGoal gs
+
+/-- `ved_timed tac`: run `tac` on the main goal and print the elapsed milliseconds and the size of
+the goal to stderr (debugging the per-goal cost of the closing stage). -/
+elab "ved_timed " t:tactic : tactic => do
+  let g ← getMainGoal
+  let sz := (← instantiateMVars (← g.getType)).approxDepth
+  let t0 ← IO.monoMsNow
+  let r ← try evalTactic t; pure true catch _ => pure false
+  let t1 ← IO.monoMsNow
+  IO.eprintln s!"VED MS goal {g.name} depth={sz} {t1 - t0}ms ok={r}"
+  unless r do throwError "ved_timed: failed"
+
 /-- all `a ^^^ b` on `Nat` with a numeral operand in `e` (each distinct term once) -/
 partial def natXorLits (e : Lean.Expr) : Array Lean.Expr := Id.run do
   let mut out : Array Lean.Expr := #[]
@@ -183,13 +216,13 @@ applied to its inputs (`Signal.loop (dividerLoopBody a b c)`): the step side con
 macro "ved_loop_unfold' " "[" hs:Lean.Parser.Tactic.simpLemma,* "]" t:term : tactic =>
   `(tactic| repeat (rw [Tools.VedU1Loop.loop_val_unfold _ ?h0 ?hS $t]
                     case h0 => intro _ _; rfl
-                    case hS => intro s1 s2 t h; ved_core_simp_big [$hs,*, Signal.fst, Signal.snd, h]))
+                    case hS => intro s1 s2 t h; ved_core_simp_big [Signal.fst, Signal.snd, h, $hs,*]))
 
 /-- `ved_loop_unfold1 t`: one rewrite of `ved_loop_unfold` (debugging: the failure is not hidden
 by `repeat`). -/
 macro "ved_loop_unfold1 " "[" hs:Lean.Parser.Tactic.simpLemma,* "]" t:term : tactic =>
   `(tactic| (rw [Tools.VedU1Loop.loop_val_unfold _ ?h0 ?hS $t]
              case h0 => intro _ _; rfl
-             case hS => intro s1 s2 t h; ved_core_simp_big [$hs,*, Signal.fst, Signal.snd, h]))
+             case hS => intro s1 s2 t h; ved_core_simp_big [Signal.fst, Signal.snd, h, $hs,*]))
 
 end Tools.VedU1MultiSeqLoop
