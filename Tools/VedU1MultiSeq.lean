@@ -112,7 +112,7 @@ def packedLoopScript (nm : Names) (F : Name) (nDom : Nat) (regs : List (String �
   let h0tacs : Array (TSyntax `tactic) := #[
     ← `(tactic| intro $insI hok),
     ← `(tactic| ved_loop_unfold' [$exHelp,*] 0),
-    ← `(tactic| simp [st0, PContract.core, $C:ident, collapse, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth]),
+    ← `(tactic| ved_core_simp_big [st0, PContract.core, $C:ident, collapse, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth, Signal.fst, Signal.snd, $exHelp,*]),
     ← `(tactic| all_goals decide +kernel)]
   `(by
       have hP : PackCover $C := by decide
