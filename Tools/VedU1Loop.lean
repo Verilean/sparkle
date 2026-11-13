@@ -175,6 +175,7 @@ shape `(acc <<< 8) ||| byte`, and a numeral `c` with the small operand `x`. -/
 elab "ved_or_lit" : tactic => withMainContext do
   let mut skip : Array Lean.Expr := #[]
   for _ in [0:64] do
+    if (← getGoals).isEmpty then break  -- the last `rw` closed the goal (`rfl`)
     let tgt ← instantiateMVars (← getMainTarget)
     let cands := (natOrs tgt).filter (!skip.contains ·)
     let some t := cands[0]? | break
