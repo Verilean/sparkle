@@ -19,6 +19,13 @@ Issue sparkle-ved-hier2-h2d.  Real IP rows (R211 `synth_arpRequesterByte`, R228,
 * a port that does not read the circuit's own loop cannot export its state; its failure no longer stops the
   later ports (`sparkle.deepContinue`).
 
+* H2d2 (R211): a parent whose registers form a WIDE pack (57 bits), guarded by `~~~`, with a Bool flag over a
+  conjunction and a child call on a derived argument.  Four things stood between such a parent and acceptance:
+  `omega` does not read `^^^`/`&&&`/`(0#1).toNat` and the pack arithmetic made it explode (`ved_hier_close`,
+  `Tools/VedU2HierClose.lean`); `simp` dropped `x <<< 0` as a `rfl` step, whose kernel check (`Nat.mod` on a literal
+  modulus) needed minutes and gigabytes for a 56-bit pack (`shl_zero`); the trace closers used `bv_decide` (native axiom,
+  refused by the strict audit): `sparkle.deepNoNative` and `ved_bv_close` (`Tools/DeepNoNative.lean`); an operator on an
+  operand without a range fact stayed `evalOp` (`rawOpL`).
 * POSITIVES: the `Fin` tail arm (25 arms); `topN` (parent registers, a nested stateful call, a child call
   reading the nested register and the parent's) through `#ved_u2_hier`'s entry: type `U2HRStmt c m d decl`
   compared with `==`, axioms within `propext`, `Classical.choice`, `Quot.sound`, and the nested state theorem
@@ -104,6 +111,44 @@ def topRef (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 
     d <~ dS + x
     return sum2 p (cS + dS)
 
+/-! ## A wide register pack, `~~~`, a Bool flag over a conjunction, a derived child argument (H2d2) -/
+
+@[hardware_module]
+def sumw {dom : DomainConfig} (x y : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := x + y
+
+structure OW (dom : DomainConfig) where
+  out : Signal dom (BitVec 8)
+  seen : Signal dom Bool
+
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (OW dom) dom := ⟨⟩
+
+/-- Parent registers of 24 + 8 + 24 + 1 bits (a 57-bit pack): a counter guarded by `~~~isIdle`, a latch, an accumulator
+guarded by a comparison, a flag over a conjunction; the child reads the derived net `mux trig x b`. -/
+def wideG {dom : DomainConfig} (trig : Signal dom Bool) (x : Signal dom (BitVec 8)) : OW dom :=
+  circuit do
+    let a ← Signal.reg (0#24)
+    let b ← Signal.reg (0#8)
+    let c ← Signal.reg (0#24)
+    let d ← Signal.reg false
+    let aS := (a : Signal dom (BitVec 24))
+    let bS := (b : Signal dom (BitVec 8))
+    let cS := (c : Signal dom (BitVec 24))
+    let dS := (d : Signal dom Bool)
+    let isIdle := aS === (Signal.pure 0#24 : Signal dom (BitVec 24))
+    a <~ Signal.mux trig (Signal.pure 1#24) (Signal.mux (~~~isIdle) (aS + (Signal.pure 1#24 : Signal dom (BitVec 24))) aS)
+    b <~ Signal.mux trig x bS
+    c <~ Signal.mux (bS === (Signal.pure 3#8 : Signal dom (BitVec 8))) (cS + (Signal.pure 3#24 : Signal dom (BitVec 24))) cS
+    d <~ Signal.mux trig (Signal.pure false) (Signal.mux (isIdle &&& (bS === (Signal.pure 3#8 : Signal dom (BitVec 8)))) (Signal.pure true) dS)
+    let byteOut := sumw (Signal.mux trig x bS) (Signal.pure 1#8 : Signal dom (BitVec 8))
+    return ({ out := byteOut, seen := dS } : OW dom)
+
+def wideW (trig : Signal defaultDomain Bool) (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  (wideG trig x).out
+
+/-- The declaration the CONTROLS alter (never accepted itself). -/
+def wideRef (trig : Signal defaultDomain Bool) (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  (wideG trig x).out
+
 /-! ## Helpers -/
 
 def std3 : List Name := [``propext, ``Classical.choice, ``Quot.sound]
@@ -144,6 +189,25 @@ def checkOk (decl : Name) : CommandElabM Unit := do
 /-- info: u2 hier open-deep OK Tests.Ved.U2HierOpenDeepCheck.topN.ved_u1: 3 parent registers, children [Tests.Ved.U2HierOpenDeepCheck.sum2] -/
 #guard_msgs in
 run_cmd checkOk ``topN
+
+/-- The entry run for a parent without a nested circuit whose output is the projection `port` of a structure: exact type
+(`==`), strict audit, standard axioms, the loop state exported by that port. -/
+def checkOkFlat (decl : Name) (port : String) : CommandElabM Unit := do
+  let (m, d, thm, nDom, _) ← vedU2HierEntryR decl
+  liftTermElabM do
+    let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+    unless ti.type == expectedOf decl nDom do throwError "{thm}: type is not U2HRStmt c m d decl"
+    discard <| Tools.VedStrictAudit.strictAudit thm
+    std3Only thm
+    let openSuf := "ved_open_" ++ "_".intercalate (decl.components.map toString)
+    let n := decl ++ Name.mkSimple (openSuf ++ "_" ++ port ++ "_deep_state")
+    let some (.thmInfo _) := (← getEnv).find? n | throwError "{n} is not a theorem"
+    std3Only n
+    logInfo m!"u2 hier open-deep OK {thm}: {(regsOf m.body).length} parent registers, children {d.modules.map (·.name)}"
+
+/-- info: u2 hier open-deep OK Tests.Ved.U2HierOpenDeepCheck.wideW.ved_u1: 4 parent registers, children [Tests.Ved.U2HierOpenDeepCheck.sumw] -/
+#guard_msgs in
+run_cmd checkOkFlat ``wideW "out"
 
 /-! ## Refusals: the real module with ONE piece altered, the declaration's own deep facts -/
 
@@ -226,5 +290,34 @@ run_cmd hierCtl ``topRef "proof" (swapInputs "_tmp_a_4" "_tmp_a_15")
 /-- info: refused [kernel], clean -/
 #guard_msgs in
 run_cmd hierCtl ``topRef "kernel" (setConnAt 0 "_gen_x" (.ref "_tmp_arg1_1"))
+
+/- `wideRef` (module): parent registers `_tmp_a_9` (a, 24 bits; next net `_tmp_reg_input_8`, load value `_tmp_mux_then_1`, guard
+`_tmp_mux_cond_5 = ~~~(_tmp_arg1_4)`), `_tmp_a_13` (b, 8), `_tmp_a_21` (c, 24), `_tmp_a_29` (d, 1); the child's `_gen_x` is
+`_tmp_reg_input_12` (the derived net `mux trig x b`). -/
+
+-- The `~~~` guard removed: the counter increments exactly when it is idle.
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd hierCtl ``wideRef "proof" (setAssign "_tmp_mux_cond_5" (.ref "_tmp_arg1_4"))
+
+-- The load value of the counter changed.
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd hierCtl ``wideRef "proof" (setAssign "_tmp_mux_then_1" (.const 2 24))
+
+-- The latch's init changed.
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd hierCtl ``wideRef "proof" (setInit "_tmp_a_13" 1)
+
+-- The next-state nets of the counter and the accumulator exchanged (same width).
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd hierCtl ``wideRef "proof" (swapInputs "_tmp_a_9" "_tmp_a_21")
+
+-- The child's port reads the latch register itself instead of the derived net.
+/-- info: refused [kernel], clean -/
+#guard_msgs in
+run_cmd hierCtl ``wideRef "kernel" (setConnAt 0 "_gen_x" (.ref "_tmp_a_13"))
 
 end Tests.Ved.U2HierOpenDeepCheck
