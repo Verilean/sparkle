@@ -896,7 +896,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
   let pf ← try
       withOptions (fun o => ((o.setBool `linter.unusedSimpArgs false).setBool
-          `linter.unusedTactic false).setBool `linter.unreachableTactic false) <| withoutErrToSorry do
+          `linter.unusedTactic false).setBool `linter.unreachableTactic false) <| withoutErrToSorry <| withEnableInfoTree false do
         let e ← elabTermEnsuringType stx expected
         synthesizeSyntheticMVarsNoPostponing
         instantiateMVars e
@@ -908,6 +908,10 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       | [] => pure ""
     refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
   if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
+  -- the elaborator's metavariable context (every goal with its local context) and caches are dead from here on: free
+  -- them before the kernel checks the term (the kernel's caches are the peak of the run)
+  modifyThe Lean.Meta.State fun st => { st with mctx := {} }
+  modifyThe Lean.Meta.State fun st => { st with cache := {} }
   try
     withOptions (fun o => o.setBool `Elab.async false) do
       addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf })
@@ -994,7 +998,7 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
     let stx ← `(command| #verify_elab_deep $(mkIdent p1.opn.openName))
     -- the deep constants are declared in the CURRENT namespace under the ident's last component;
     -- inside the namespace `decl` they are `decl.ved_open_deep…` (`deepName` of the open parent)
-    try withScope (fun sc => { sc with currNamespace := decl, opts := ((sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true).setBool `sparkle.deepNoNative true }) (elabCommand stx)
+    try withScope (fun sc => { sc with currNamespace := decl, opts := ((sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true).setBool `sparkle.deepNoNative true }) (withEnableInfoTree false (elabCommand stx))
     catch e => liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName}: {e.toMessageData}"
     let p1 ← tamper p1
     let newMsgs := (← get).messages.toList.drop nMsg0
