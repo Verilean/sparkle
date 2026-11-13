@@ -139,4 +139,53 @@ def packedLoopScript (nm : Names) (F : Name) (nDom : Nat) (regs : List (String �
           $h0tacs*
       exact ⟨hP, hU, slices_of_outputs hP.1 hU.2.2.2.2⟩)
 
+/-- The generated (untrusted) script for `PackedStmt C M f` when the module has NO registers but the
+register-free packed script (`Tools.VedU1PackedEntry.packedScript`) does not cover the body:
+comparisons against constants (`==`), wide operands.  The same unfolding and closing as the loop script,
+without the loop invariant (`R` is `True`). -/
+def packedCombScript (nm : Names) (F : Name) (nDom : Nat) (helpers : Array Name) : TermElabM Syntax := do
+  let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+    helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
+  let C := mkCIdent nm.contract
+  let M := mkCIdent nm.mod
+  let O := mkCIdent nm.outs
+  let B := mkCIdent nm.body
+  let fI := mkCIdent F
+  let mut f : Term := fI
+  if nDom > 0 then
+    f ← `(@$fI)
+    for _ in [0:nDom] do f ← `($f Sparkle.Core.Domain.defaultDomain)
+  let exHelp : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems hsA
+  let insI := mkIdent `ins
+  let sI := mkIdent `s
+  let keyI := mkIdent `key
+  `(by
+      have hP : PackCover $C := by decide
+      have hU : U1Stmt (PContract.core $C) $M (packedF ($C).tbl $f) := by
+        have hord : OrderOk $M $B = true := by decide +kernel
+        refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+        apply outputs_of_order $B hord
+        refine outputs_of_step (PContract.core $C) $M $B (packedF ($C).tbl $f) $O (by decide +kernel)
+          (fun _ _ _ => True) ?h0 ?hstep
+        case h0 => intro _ _; trivial
+        case hstep =>
+          intro $insI hok $sI st mems _
+          have hin := hok.1 $sI
+          simp (config := { maxSteps := 2000000 }) [PContract.core, collapse, $C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at hin
+          have $keyI : ∀ t, srcOf (PContract.core $C) (packedF ($C).tbl $f) $insI "out" t =
+            OTy.packNat ($C).tbl.out ((applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => srcOf_packed $C $f $insI t
+          simp only [$O:ident, List.mem_singleton, forall_eq, $keyI:ident]
+          ved_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, PContract.core, collapse, $C:ident, contractOf, applyIns, $fI:ident, Tools.VedU1MultiSeqLemmas.OTy_packNat_pair, Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, OTy.width, PTy.width, Signal.fst, Signal.snd, $exHelp,*]
+          all_goals (try ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod])
+          all_goals (try ved_bit_simp)
+          all_goals (try ved_or_lit)
+          all_goals (try ved_pack_simp)
+          all_goals (try ved_xor_ones)
+          all_goals (try ved_bits_facts)
+          all_goals (first
+            | (ved_leafwise <;> ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
+            | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
+      exact ⟨hP, hU, slices_of_outputs hP.1 hU.2.2.2.2⟩)
+
 end Tools.VedU1MultiSeq

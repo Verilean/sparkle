@@ -121,29 +121,42 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
     let expected := mkAppN (Lean.mkConst ``PackedStmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
-    let stx ← match proof with
+    -- elaborate a script against the expected statement (errors are not turned into sorry)
+    let elabProof (stx : Syntax) : TermElabM Lean.Expr := do
+      let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
+      let pf ← tryCatchRuntimeEx
+          (withProofBudget do
+          withoutErrToSorry do
+            let e ← elabTermEnsuringType stx expected
+            synthesizeSyntheticMVarsNoPostponing
+            instantiateMVars e)
+          fun e => refuse decl "proof" e.toMessageData
+      let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
+      if errs.length != errsBefore then
+        let first ← match errs.drop errsBefore with
+          | msg :: _ => msg.data.toString
+          | [] => pure ""
+        refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
+      if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
+      return pf
+    let pf ← match proof with
       | .generated =>
-        if (regsOf m.body).isEmpty then packedScript nm stmt.getAppFn.constName! stmt.getAppNumArgs
+        let F := stmt.getAppFn.constName!
+        if (regsOf m.body).isEmpty then
+          -- the register-free script first; a body it does not cover (comparisons against constants,
+          -- wide operands) is retried with the loop script's unfolding and closing, without the loop
+          let st ← saveState
+          try elabProof (← packedScript nm F stmt.getAppNumArgs)
+          catch e0 =>
+            unless ← isRefusal e0 do throw e0
+            st.restore (restoreInfo := true)
+            try elabProof (← Tools.VedU1MultiSeq.packedCombScript nm F stmt.getAppNumArgs (← helperConsts F))
+            catch _ => throw e0
         else
-          Tools.VedU1MultiSeq.packedLoopScript nm stmt.getAppFn.constName! stmt.getAppNumArgs
-            ((regsOf m.body).map fun r => (r.1, declWidth m r.1)) (← helperConsts stmt.getAppFn.constName!)
-      | .term s => pure s
-      | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
-    let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
-    let pf ← tryCatchRuntimeEx
-        (withProofBudget do
-        withoutErrToSorry do
-          let e ← elabTermEnsuringType stx expected
-          synthesizeSyntheticMVarsNoPostponing
-          instantiateMVars e)
-        fun e => refuse decl "proof" e.toMessageData
-    let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
-    if errs.length != errsBefore then
-      let first ← match errs.drop errsBefore with
-        | msg :: _ => msg.data.toString
-        | [] => pure ""
-      refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
-    if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
+          elabProof (← Tools.VedU1MultiSeq.packedLoopScript nm F stmt.getAppNumArgs
+            ((regsOf m.body).map fun r => (r.1, declWidth m r.1)) (← helperConsts F))
+      | .term s => elabProof s
+      | .built mk => elabProof (← try mk nm m catch e => refuse decl "proof" e.toMessageData)
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
         addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
