@@ -101,6 +101,56 @@ elab "ved_loop_gen' " s:ident : tactic => withMainContext do
       if (← whnfR d.type).isConstOf ``Bool then
         evalTactic (← `(tactic| all_goals cases $x:ident))
 
+/-- all `a ^^^ b` on `Nat` with a numeral operand in `e` (each distinct term once) -/
+partial def natXorLits (e : Lean.Expr) : Array Lean.Expr := Id.run do
+  let mut out : Array Lean.Expr := #[]
+  let mut todo : Array Lean.Expr := #[e]
+  while !todo.isEmpty do
+    let x := todo.back!
+    todo := todo.pop
+    if x.isAppOfArity ``HXor.hXor 6 && (x.getArg! 0).isConstOf ``Nat
+        && ((x.getArg! 4).nat?.isSome || (x.getArg! 5).nat?.isSome) then
+      unless out.contains x do out := out.push x
+    match x with
+    | .app f a => todo := (todo.push a).push f
+    | .lam _ t b _ => todo := (todo.push b).push t
+    | .forallE _ t b _ => todo := (todo.push b).push t
+    | .letE _ t v b _ => todo := ((todo.push b).push v).push t
+    | .mdata _ b => todo := todo.push b
+    | .proj _ _ b => todo := todo.push b
+    | _ => pure ()
+  return out
+
+/-- `ved_xor_ones`: rewrite `x ^^^ c` for a numeral `c = 2^k - 1` as `c - x` when `x < 2^k` (proved by
+`omega`): the bit-clear `a &&& ~~~b` of a register update. -/
+elab "ved_xor_ones" : tactic => withMainContext do
+  let mut skip : Array Lean.Expr := #[]
+  for _ in [0:64] do
+    let tgt ← instantiateMVars (← getMainTarget)
+    let cands := (natXorLits tgt).filter (!skip.contains ·)
+    let some t := cands[0]? | break
+    let a := t.getArg! 4
+    let b := t.getArg! 5
+    let mut done := false
+    for (x, c, swapped) in [(a, b, false), (b, a, true)] do
+      if done then break
+      let some cn := c.nat? | continue
+      let some k := (List.range 130).find? (fun k => cn + 1 == 2 ^ k) | continue
+      let hcP ← mkEq (← mkAppM ``HAdd.hAdd #[c, mkNatLit 1]) (← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit k])
+      let hc ← mkDecideProof hcP
+      let p ← mkAppM ``LT.lt #[x, ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit k]]
+      let some hx ← omegaProof? p | continue
+      let lem ← mkAppM ``Tools.VedU1MultiSeqLemmas.xor_ones #[x, c, mkNatLit k, hc, hx]
+      let lemS ← Term.exprToSyntax lem
+      if swapped then
+        let cs ← Term.exprToSyntax c
+        let xs ← Term.exprToSyntax x
+        evalTactic (← `(tactic| rw [Nat.xor_comm $cs $xs, $lemS:term]))
+      else
+        evalTactic (← `(tactic| rw [$lemS:term]))
+      done := true
+    unless done do skip := skip.push t
+
 /-- `ved_core_simp_big [lemmas] (at loc)?`: `ved_core_simp` with the simp step budget raised
 (`maxSteps`): a packed result with registers unfolds the whole body of every register and every
 projection in one `simp`. -/

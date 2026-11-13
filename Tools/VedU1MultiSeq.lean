@@ -95,6 +95,7 @@ def packedLoopScript (nm : Names) (F : Name) (nDom : Nat) (regs : List (String �
     #[← `(tactic| all_goals (try ved_bit_simp))],
     #[← `(tactic| all_goals (try ved_or_lit))],
     #[← `(tactic| all_goals (try ved_pack_simp))],
+    #[← `(tactic| all_goals (try ved_xor_ones))],
     #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
       ← `(tactic| all_goals (try ved_pack_simp)),
       ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),

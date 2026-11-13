@@ -88,4 +88,13 @@ theorem OTy_packNat_pair (a b : OTy) (v : (OTy.pair a b).val) :
 
 theorem OTy_packNat_leaf (p : PTy) (v : (OTy.leaf p).val) : (OTy.leaf p).packNat v = p.obs v := rfl
 
+/-- `x ^^^ (2^k - 1)` is the complement of `x` in `k` bits. -/
+theorem xor_ones (x c k : Nat) (hc : c + 1 = 2 ^ k) (h : x < 2 ^ k) : x ^^^ c = c - x := by
+  have h1 : (BitVec.ofNat k x).toNat = x := by simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt h]
+  have h2 := congrArg BitVec.toNat (BitVec.xor_allOnes (x := BitVec.ofNat k x))
+  rw [BitVec.toNat_xor, BitVec.toNat_allOnes, BitVec.toNat_not, h1] at h2
+  have hc' : c = 2 ^ k - 1 := by omega
+  subst hc'
+  exact h2
+
 end Tools.VedU1MultiSeqLemmas
