@@ -322,6 +322,9 @@ lean_lib «Tools.VedU2HierDbg» where
 lean_lib «Tools.VedU2HierClose» where
   roots := #[`Tools.VedU2HierClose]
 
+lean_lib «Tools.DeepNoNative» where
+  roots := #[`Tools.DeepNoNative]
+
 lean_lib «Tools.DeepNestedState» where
   roots := #[`Tools.DeepNestedState]
 

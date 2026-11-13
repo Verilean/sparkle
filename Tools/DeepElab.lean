@@ -32,6 +32,7 @@
   keep the per-instance `#verify_elab` fallback.
 -/
 
+import Tools.DeepNoNative
 import Sparkle.IR.Semantics
 import Tools.VerifyElab
 import Tools.ConcatNorm
@@ -1346,6 +1347,13 @@ register_option sparkle.deepNoReplay : Bool := {
   descr := "#verify_elab_deep: skip the per-port IR replay (trace theorem and fidelity facts only)"
 }
 
+/-- H2d: no native decision procedure (`bv_decide`) in the trace proofs.  The hierarchical checker's capstone depends on the
+trace theorem and the strict audit admits the three standard axioms only. -/
+register_option sparkle.deepNoNative : Bool := {
+  defValue := false
+  descr := "#verify_elab_deep: the trace closers do not use bv_decide (no native axiom)"
+}
+
 /-- H2d: attempt the remaining ports after one whose block throws (see the port loop of `#verify_elab_deep`). -/
 register_option sparkle.deepContinue : Bool := {
   defValue := false
@@ -2073,9 +2081,11 @@ elab "#verify_elab_deep" id:ident : command =>
     let (_, _, init) := regs[i]!
     `(Lean.Parser.Term.matchAltExpr|
       | ⟨$(quote i), _⟩ => BitVec.ofNat _ $(quote init.toNat))
+  let initArms ← finTailArm initArms nR
   let nextArms ← (List.range nR).toArray.mapM fun i => do
     `(Lean.Parser.Term.matchAltExpr|
       | ⟨$(quote i), _⟩ => $(cones[i]!))
+  let nextArms ← finTailArm nextArms nR
   -- CdoM form: register slots are cones, latch slots read their memory
   let nextArmsM ← (List.range nR).toArray.mapM fun i => do
     if i < nReg then
@@ -2084,6 +2094,7 @@ elab "#verify_elab_deep" id:ident : command =>
     else
       `(Lean.Parser.Term.matchAltExpr|
         | ⟨$(quote i), _⟩ => NextM.latch ⟨$(quote syncIdx[i - nReg]!), by decide⟩ $(cones[i]!))
+  let nextArmsM ← finTailArm nextArmsM nR
   let writesArms ← (List.range nM).toArray.mapM fun k => do
     let (wa, wd, we) := memCs[k]!
     `(Lean.Parser.Term.matchAltExpr|
@@ -2650,6 +2661,7 @@ elab "#verify_elab_deep" id:ident : command =>
           (($wlId).getD j.val ⟨0, CExpr.const 0 0⟩).1 = ($ΓwT).get j := by decide))
       let snextArms ← (List.range nR).toArray.mapM fun i => do
         `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => $(regCs[i]!))
+      let snextArms ← finTailArm snextArms nR
       elabSyncS (← `(def $sdeepId : CdoW $ΓrT $ΓiT $ΓwT $(quote wOut) where
         inits := fun i => match i with $initArms:matchAlt*
         wires := fun j => ($wlOkId j) ▸ (($wlId).getD j.val ⟨0, CExpr.const 0 0⟩).2
@@ -3040,6 +3052,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let stvArms ← (List.range nR).toArray.mapM fun i => do
           let (rn, _, _) := regs[i]!
           `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => st $(quote rn) % 2 ^ $(quote regWs[i]!))
+        let stvArms ← finTailArm stvArms nR
         elabSyncS (← `(def $stvId (st : String → Nat) : Fin ($ΓrT : List Nat).length → Nat := fun j => match j with $stvArms:matchAlt*))
         elabSyncS (← `(def $ρnSId $paramBinders* (t : Nat) (st : String → Nat) : Fin ($ΓrT ++ $ΓiT : List Nat).length → Nat :=
           natJoin ($stvId st) (fun j => ((($inpS) j).val t).toNat)))
@@ -3055,6 +3068,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let bvArms ← (List.range nR).toArray.mapM fun i => do
           let (rn, _, _) := regs[i]!
           `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => BitVec.ofNat $(quote regWs[i]!) (st $(quote rn)))
+        let bvArms ← finTailArm bvArms nR
         let ρnSEqId := P "rhoNS_eq"; let envStBndId := P "envSt_bounded"; let henvId := P "henv"
         -- Nat index `kv < nR`: nR two-way splits with a focused bullet each, then
         -- the impossible tail closes by omega
@@ -4386,7 +4400,20 @@ elab "#verify_elab_deep" id:ident : command =>
       -- Every goal is now a literal-width BitVec/Bool identity over the
       -- reader variables and the input values; bv_decide is the closer,
       -- rfl/simp for the degenerate ones, bv_omega for Nat-cast shapes.
-      let closers : Lean.TSyntax `tactic ←
+      let noNative := sparkle.deepNoNative.get (← getOptions)
+      let closers : Lean.TSyntax `tactic ← if noNative then
+        `(tactic| all_goals (first
+          | rfl
+          -- the register-step goals of a real circuit are conjunctions of `if`/`bif` identities over Bool and
+          -- literal-width atoms (`Tools.DeepNoNative`); the whole-goal `simp_all` below times out on them
+          | ved_bv_close
+          | (simp_all [BitVec.toNat_eq, BitVec.toNat_add,
+              BitVec.toNat_ofNat, bif_beq_ofBool, bif_beq_ofBool_toNat,
+              $[$inpAtIds:ident],*]; done)
+          | bv_omega
+          | (simp; done)
+          | fail "#verify_elab_deep: closers exhausted on this goal"))
+      else
         `(tactic| all_goals (first
           | rfl
           | bv_decide
