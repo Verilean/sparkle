@@ -116,7 +116,7 @@ def packedLoopScript (nm : Names) (F : Name) (nDom : Nat) (regs : List (String �
   if dbg == 50 then
     tacs := tacs.push (← `(tactic| ved_loop_unfold1 [$exHelp,*] ($sI + 1)))
   let stop ← `(tactic| (trace_state; fail "stopped at debug stage"))
-  if dbg == 1 || (dbg ≥ 50 && dbg < 96) then tacs := tacs.push stop
+  if dbg == 1 || (dbg ≥ 50 && dbg < 96 && !(dbg ≥ 91 && dbg ≤ 94)) then tacs := tacs.push stop
   else
     for k in [0:stages.size] do
       if dbg == 0 || dbg == 96 || dbg == 97 || dbg == 98 || dbg > k + 1 then
@@ -129,13 +129,24 @@ def packedLoopScript (nm : Names) (F : Name) (nDom : Nat) (regs : List (String �
     ← `(tactic| ved_loop_unfold' [$exHelp,*] 0),
     ← `(tactic| ved_core_simp_big [st0, PContract.core, $C:ident, collapse, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth, Signal.fst, Signal.snd, $exHelp,*]),
     ← `(tactic| all_goals decide +kernel)]
+  let dbgS := ved.multiseq.dbg.get (← getOptions)
+  let stopT ← `(tactic| fail "stopped at debug stage")
+  let skipT ← `(tactic| skip)
+  let sa : TSyntax `tactic := if dbgS == 91 then stopT else skipT
+  let sb : TSyntax `tactic := if dbgS == 92 then stopT else skipT
+  let sc : TSyntax `tactic := if dbgS == 93 then stopT else skipT
+  let sd : TSyntax `tactic := if dbgS == 94 then stopT else skipT
   `(by
-      have hP : PackCover $C := by decide
+      have hP : PackCover $C := (by decide)
+      $sa
       have hU : U1Stmt (PContract.core $C) $M (packedF ($C).tbl $f) := by
-        have hord : OrderOk $M $B = true := by decide +kernel
+        have hord : OrderOk $M $B = true := (by decide +kernel)
+        $sb
         refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+        $sc
         apply outputs_of_order $B hord
         refine outputs_of_step (PContract.core $C) $M $B (packedF ($C).tbl $f) $O (by decide +kernel) ?R ?h0 ?hstep
+        $sd
         case hstep =>
           $tacs*
         case h0 =>
