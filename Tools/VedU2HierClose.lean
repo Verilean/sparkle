@@ -80,4 +80,6 @@ macro "ved_hier_close" : tactic =>
             Nat.zero_or, Nat.or_zero, Nat.zero_xor, Nat.xor_zero, Nat.and_one_is_mod, Nat.one_and_eq_mod_two,
             Nat.mod_mod_self] at *) <;>
           omega)))
-    | (ved_rt ((repeat' split) <;> simp_all <;> omega))))
+    | (ved_rt ((repeat' split) <;> simp_all <;> omega))
+    -- last, so that a refused goal reports `omega`'s counterexample
+    | omega))
