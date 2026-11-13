@@ -128,10 +128,20 @@ the goal to stderr (debugging the per-goal cost of the closing stage). -/
 elab "ved_timed " t:tactic : tactic => do
   let g ← getMainGoal
   let sz := (← instantiateMVars (← g.getType)).approxDepth
+  if let some path ← IO.getEnv "VED_MS_LOG" then
+    let h ← IO.FS.Handle.mk path .append
+    h.putStrLn s!"VED MS start {← IO.monoMsNow} depth={sz}"
+    h.flush
   let t0 ← IO.monoMsNow
   let r ← try evalTactic t; pure true catch _ => pure false
   let t1 ← IO.monoMsNow
-  IO.eprintln s!"VED MS goal {g.name} depth={sz} {t1 - t0}ms ok={r}"
+  let msg := s!"VED MS goal {g.name} depth={sz} {t1 - t0}ms ok={r}"
+  match ← IO.getEnv "VED_MS_LOG" with
+  | some path =>
+    let h ← IO.FS.Handle.mk path .append
+    h.putStrLn msg
+    h.flush
+  | none => IO.eprintln msg
   unless r do throwError "ved_timed: failed"
 
 /-- all `a ^^^ b` on `Nat` with a numeral operand in `e` (each distinct term once) -/

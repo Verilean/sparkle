@@ -68,19 +68,22 @@ def packedLoopScript (nm : Names) (F : Name) (nDom : Nat) (regs : List (String �
     | [] => `(rcasesPat| _)
     | _ => `(rcasesPat| ⟨$[$(pats.toArray)],*⟩)
   let mut tacs : Array (TSyntax `tactic) := #[]
-  tacs := tacs.push (← `(tactic| intro $insI hok $sI st mems $hR))
-  tacs := tacs.push (← `(tactic| have $hinI := hok.1 $sI))
-  tacs := tacs.push (← `(tactic| have $hrstI := hok.2 $sI))
-  tacs := tacs.push (← `(tactic| simp (config := { maxSteps := 2000000 }) [PContract.core, collapse, $C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident))
+  let timed := ved.multiseq.dbg.get (← getOptions) == 97
+  let wrap (t : TSyntax `tactic) : TermElabM (TSyntax `tactic) :=
+    if timed then `(tactic| ved_timed $t) else pure t
+  tacs := tacs.push (← wrap (← `(tactic| intro $insI hok $sI st mems $hR)))
+  tacs := tacs.push (← wrap (← `(tactic| have $hinI := hok.1 $sI)))
+  tacs := tacs.push (← wrap (← `(tactic| have $hrstI := hok.2 $sI)))
+  tacs := tacs.push (← wrap (← `(tactic| simp (config := { maxSteps := 2000000 }) [PContract.core, collapse, $C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident)))
   let keyI := mkIdent `key
-  tacs := tacs.push (← `(tactic| have $keyI : ∀ t, srcOf (PContract.core $C) (packedF ($C).tbl $f) $insI "out" t =
-      OTy.packNat ($C).tbl.out ((applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => srcOf_packed $C $f $insI t))
-  tacs := tacs.push (← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, $keyI:ident]))
-  tacs := tacs.push (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = OTy.packNat ($C).tbl.out ((applyIns ($C).tbl.ins ($C).inNames $insI $f).val $sI) := ⟨_, rfl⟩))
-  tacs := tacs.push (← `(tactic| ved_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, PContract.core, collapse, $C:ident, contractOf, applyIns, $fI:ident, Tools.VedU1MultiSeqLemmas.OTy_packNat_pair, Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, OTy.width, PTy.width, Signal.fst, Signal.snd, $exHelp,*] at $hv:ident))
-  tacs := tacs.push (← `(tactic| ved_loop_R' $insI [$rNames,*] $rWidths,*))
-  tacs := tacs.push (← `(tactic| clear $hv))
-  tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
+  tacs := tacs.push (← wrap (← `(tactic| have $keyI : ∀ t, srcOf (PContract.core $C) (packedF ($C).tbl $f) $insI "out" t =
+      OTy.packNat ($C).tbl.out ((applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => srcOf_packed $C $f $insI t)))
+  tacs := tacs.push (← wrap (← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, $keyI:ident])))
+  tacs := tacs.push (← wrap (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = OTy.packNat ($C).tbl.out ((applyIns ($C).tbl.ins ($C).inNames $insI $f).val $sI) := ⟨_, rfl⟩)))
+  tacs := tacs.push (← wrap (← `(tactic| ved_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, PContract.core, collapse, $C:ident, contractOf, applyIns, $fI:ident, Tools.VedU1MultiSeqLemmas.OTy_packNat_pair, Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, OTy.width, PTy.width, Signal.fst, Signal.snd, $exHelp,*] at $hv:ident)))
+  tacs := tacs.push (← wrap (← `(tactic| ved_loop_R' $insI [$rNames,*] $rWidths,*)))
+  tacs := tacs.push (← wrap (← `(tactic| clear $hv)))
+  tacs := tacs.push (← wrap (← `(tactic| obtain $hPat := $hR)))
   let closing ← if ved.multiseq.dbg.get (← getOptions) == 96
     then `(tactic| all_goals (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | fail "leaf failed here")))
     else if ved.multiseq.dbg.get (← getOptions) == 98
