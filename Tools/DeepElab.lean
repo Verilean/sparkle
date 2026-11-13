@@ -32,11 +32,15 @@
   keep the per-instance `#verify_elab` fallback.
 -/
 
+import Tools.DeepNoNative
 import Sparkle.IR.Semantics
 import Tools.VerifyElab
 import Tools.ConcatNorm
 import Tools.ConeFoldMem
 import Tools.ConeFoldRT
+import Tools.DeepFinArms
+import Tools.DeepHelpers
+import Tools.DeepNestedState
 open Sparkle.IR.AST Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
 
@@ -1333,6 +1337,29 @@ register_option sparkle.deepShare : Bool := {
   descr := "#verify_elab_deep: use the cone-sharing (CdoW) route (v1: memory-free, single-port)"
 }
 
+/-- H2d: skip the per-port IR replay (the `signal_run` chain).  The hierarchical checker
+(`#ved_u2_hier`) reads only the trace theorem, the reifications and the exported loop state of the
+open parent, never the replay; on a real IP the replay is minutes per port.  The capstone trace
+theorem, its fidelity theorems and their audit are unchanged ("IR replay skipped" is the message
+the irregular-register case already prints). -/
+register_option sparkle.deepNoReplay : Bool := {
+  defValue := false
+  descr := "#verify_elab_deep: skip the per-port IR replay (trace theorem and fidelity facts only)"
+}
+
+/-- H2d: no native decision procedure (`bv_decide`) in the trace proofs.  The hierarchical checker's capstone depends on the
+trace theorem and the strict audit admits the three standard axioms only. -/
+register_option sparkle.deepNoNative : Bool := {
+  defValue := false
+  descr := "#verify_elab_deep: the trace closers do not use bv_decide (no native axiom)"
+}
+
+/-- H2d: attempt the remaining ports after one whose block throws (see the port loop of `#verify_elab_deep`). -/
+register_option sparkle.deepContinue : Bool := {
+  defValue := false
+  descr := "#verify_elab_deep: report a failing port and continue with the next one"
+}
+
 /-- `signal_lets tv [extra,*]` — the DSL half of the linear (cone-sharing)
 trace recipe, generically.
 
@@ -2054,9 +2081,11 @@ elab "#verify_elab_deep" id:ident : command =>
     let (_, _, init) := regs[i]!
     `(Lean.Parser.Term.matchAltExpr|
       | ⟨$(quote i), _⟩ => BitVec.ofNat _ $(quote init.toNat))
+  let initArms ← finTailArm initArms nR
   let nextArms ← (List.range nR).toArray.mapM fun i => do
     `(Lean.Parser.Term.matchAltExpr|
       | ⟨$(quote i), _⟩ => $(cones[i]!))
+  let nextArms ← finTailArm nextArms nR
   -- CdoM form: register slots are cones, latch slots read their memory
   let nextArmsM ← (List.range nR).toArray.mapM fun i => do
     if i < nReg then
@@ -2065,6 +2094,7 @@ elab "#verify_elab_deep" id:ident : command =>
     else
       `(Lean.Parser.Term.matchAltExpr|
         | ⟨$(quote i), _⟩ => NextM.latch ⟨$(quote syncIdx[i - nReg]!), by decide⟩ $(cones[i]!))
+  let nextArmsM ← finTailArm nextArmsM nR
   let writesArms ← (List.range nM).toArray.mapM fun k => do
     let (wa, wd, we) := memCs[k]!
     `(Lean.Parser.Term.matchAltExpr|
@@ -2101,6 +2131,12 @@ elab "#verify_elab_deep" id:ident : command =>
   -- engine: 13 + 5) cannot be reified yet.  The fix is a name table
   -- that is not a `match` at all (a `List String` with `getD`, whose
   -- lookups reduce by `decide`) — a separate change.
+  -- UPDATE (H2d): a final arm `⟨k + N, h⟩` closes the "tail" of the `Fin`
+  -- by contradiction with the bound, so past ~16 arms the match compiler
+  -- no longer has to (its contradiction search has a fixed fuel of 16,
+  -- which is the "Missing cases" ceiling).  The literal arms are
+  -- unchanged, so `nm ⟨i, _⟩` still iota-reduces for every slot.
+  let nmArms ← finTailArm nmArms (nR + nI + nC)
   elabSync (← `(def $nmId :
       Fin (($ΓAllT).length) → String := fun i =>
     match i with $nmArms:matchAlt*))
@@ -2112,6 +2148,7 @@ elab "#verify_elab_deep" id:ident : command =>
     let nm0Arms ← (List.range (nR + nI)).toArray.mapM fun i => do
       let s := if i < nR then (regs[i]!).1 else (ins[i - nR]!).1
       `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => $(quote s))
+    let nm0Arms ← finTailArm nm0Arms (nR + nI)
     elabSync (← `(def $nm0Id :
         Fin (($ΓrT ++ $ΓiT : List Nat).length) → String := fun i =>
       match i with $nm0Arms:matchAlt*))
@@ -2188,52 +2225,7 @@ elab "#verify_elab_deep" id:ident : command =>
   -- namespaces and splice them (preresolved, so private mangled
   -- names hit the environment directly) into the top-level unfold.
   let helperIds : Array Ident ← liftTermElabM do
-    let env ← getEnv
-    let isCore (n : Name) : Bool :=
-      -- keep the Sparkle core/compiler namespaces and the stdlib out;
-      -- user circuits stay (IP.*, Tests.*, and anything else a design
-      -- defines — a helper circuit under `Sparkle.Tests` is a helper)
-      let base := (privateToUserName? n).getD n
-      let r := base.getRoot
-      r == `Init || r == `Lean || r == `Std
-        || r == `Nat || r == `BitVec || r == `List || r == `Tools
-        || (`Sparkle.Core).isPrefixOf base
-        || (`Sparkle.IR).isPrefixOf base
-        || (`Sparkle.Compiler).isPrefixOf base
-        || (`Sparkle.Backend).isPrefixOf base
-    let mentionsSignal (e : Lean.Expr) : Bool :=
-      Option.isSome <| e.find? fun x =>
-        match x with
-        | .const n _ =>
-          n == ``Sparkle.Core.Signal.Signal
-          || n.eraseMacroScopes.components.contains `Circuit
-        | _ => false
-    let rec go (fuel : Nat) (work : List Name) (seen : List Name)
-        (acc : Array Name) : Array Name :=
-      match fuel, work with
-      | 0, _ | _, [] => acc
-      | fuel + 1, c :: rest =>
-        if seen.contains c then go fuel rest seen acc else
-        let seen := c :: seen
-        -- hygiene suffixes (`._@._internal…`) name compiler-internal
-        -- twins; the simp-facing constant is the scope-erased one
-        let c := c.eraseMacroScopes
-        if (Lean.Meta.Match.Extension.getMatcherInfo? env c).isSome
-        then go fuel rest seen acc else
-        match env.find? c with
-        | some (.defnInfo v) =>
-          -- closed BitVec constants (`private abbrev poly : BitVec 32
-          -- := …`) ride along: the shallow side carries the literal,
-          -- and bv_decide treats an un-unfolded constant as an atom
-          let isBvConst := v.type.isAppOf ``BitVec
-          if !isCore c && (mentionsSignal v.type || isBvConst) then
-            let deps := v.value.getUsedConstants.toList
-            go fuel (deps ++ rest) seen (acc.push c)
-          else go fuel rest seen acc
-        | _ => go fuel rest seen acc
-    let root ← getConstInfo declName
-    let deps := (root.value?.getD root.type).getUsedConstants.toList
-    let names := go 512 deps [declName] #[]
+    let names := Tools.DeepHelpers.helperConsts (← getEnv) declName
     pure <| names.map fun n =>
       -- preresolved constant ident: resolves even for private names
       ⟨Lean.mkCIdentFrom Lean.Syntax.missing n (canonical := true)⟩
@@ -2520,9 +2512,33 @@ elab "#verify_elab_deep" id:ident : command =>
       (List.range k).all fun j =>
         regWs[s + j]! == n.widths[j]! &&
         (regs[s + j]!).2.2.toNat == n.inits[j]!
-  let topBlocks := blocksFor topNode
+  let sigOk (n : LoopNode) (idx : Array Nat) : Bool :=
+    idx.size == n.widths.size &&
+      (List.range idx.size).all fun j =>
+        regWs[idx[j]!]! == n.widths[j]! && (regs[idx[j]!]!).2.2.toNat == n.inits[j]!
+  -- H2d: the top circuit's registers are not always one contiguous IR block: the registers of a
+  -- NESTED circuit created in between (a parser evaluated lazily inside the `circuit do`) sit in the
+  -- middle of them.  Besides the contiguous blocks, the candidates are the registers LEFT OVER when
+  -- one contiguous block of each nested node is taken out (in IR order, signature-checked).
+  let topBlocks : List (Array Nat) := Id.run do
+    let contig := (blocksFor topNode).map fun b => (Array.range topNode.widths.size).map (b + ·)
+    let mut picks : List (List (Nat × Nat)) := [[]]   -- (start, size) of the removed nested blocks
+    for n in nestedNodes do
+      let mut next : List (List (Nat × Nat)) := []
+      for pk in picks do
+        for b in blocksFor n do
+          if pk.all (fun (s, k) => b + n.widths.size ≤ s || s + k ≤ b) then
+            next := next ++ [pk ++ [(b, n.widths.size)]]
+      picks := (next.take 64)
+    let mut out := contig
+    unless nestedNodes.isEmpty do
+      for pk in picks do
+        let rest := ((Array.range nR).filter fun i => !pk.any fun (s, k) => s ≤ i && i < s + k)
+        if rest.size == topNode.widths.size && sigOk topNode rest && !out.contains rest then
+          out := out ++ [rest]
+    return out
   if topBlocks.isEmpty then
-    throwError "#verify_elab_deep: no IR register block matches the top-level circuit's registers {topNode.widths} / {topNode.inits}"
+    throwError "#verify_elab_deep: no IR register block matches the top-level circuit's registers {topNode.widths} / {topNode.inits} (IR registers {regWs} / {(List.range nR).map fun i => (regs[i]!).2.2.toNat})"
   -- fidelity quoting (see the FIDELITY comment below)
   let quoteIR (e : Sparkle.IR.AST.Expr) : CommandElabM Term := do
     match Lean.Parser.runParserCategory (← getEnv) `term
@@ -2645,6 +2661,7 @@ elab "#verify_elab_deep" id:ident : command =>
           (($wlId).getD j.val ⟨0, CExpr.const 0 0⟩).1 = ($ΓwT).get j := by decide))
       let snextArms ← (List.range nR).toArray.mapM fun i => do
         `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => $(regCs[i]!))
+      let snextArms ← finTailArm snextArms nR
       elabSyncS (← `(def $sdeepId : CdoW $ΓrT $ΓiT $ΓwT $(quote wOut) where
         inits := fun i => match i with $initArms:matchAlt*
         wires := fun j => ($wlOkId j) ▸ (($wlId).getD j.val ⟨0, CExpr.const 0 0⟩).2
@@ -3035,6 +3052,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let stvArms ← (List.range nR).toArray.mapM fun i => do
           let (rn, _, _) := regs[i]!
           `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => st $(quote rn) % 2 ^ $(quote regWs[i]!))
+        let stvArms ← finTailArm stvArms nR
         elabSyncS (← `(def $stvId (st : String → Nat) : Fin ($ΓrT : List Nat).length → Nat := fun j => match j with $stvArms:matchAlt*))
         elabSyncS (← `(def $ρnSId $paramBinders* (t : Nat) (st : String → Nat) : Fin ($ΓrT ++ $ΓiT : List Nat).length → Nat :=
           natJoin ($stvId st) (fun j => ((($inpS) j).val t).toNat)))
@@ -3050,6 +3068,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let bvArms ← (List.range nR).toArray.mapM fun i => do
           let (rn, _, _) := regs[i]!
           `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => BitVec.ofNat $(quote regWs[i]!) (st $(quote rn)))
+        let bvArms ← finTailArm bvArms nR
         let ρnSEqId := P "rhoNS_eq"; let envStBndId := P "envSt_bounded"; let henvId := P "henv"
         -- Nat index `kv < nR`: nR two-way splits with a focused bullet each, then
         -- the impossible tail closes by omega
@@ -4284,11 +4303,11 @@ elab "#verify_elab_deep" id:ident : command =>
       -- the pack of a node's register block starting at IR register `b`,
       -- at time `tv`: the HList of its readers (a Bool register's slot is
       -- `Bool`, the reader yields `BitVec 1` — decode it)
-      let packOf (node : LoopNode) (b : Nat) (tv : Term) : CommandElabM Term := do
+      let packOf (node : LoopNode) (b : Array Nat) (tv : Term) : CommandElabM Term := do
         let k := node.widths.size
         let mut acc : Term ← `(())
         for j in (List.range k).reverse do
-          let rdId : Ident := rdIds[b + j]!
+          let rdId : Ident := rdIds[b[j]!]!
           let slot ← `($rdId $appArgs* $tv)
           let slot ← if node.isBool[j]! then `(($slot == 1#1)) else pure slot
           acc ← `(($slot, $acc))
@@ -4381,7 +4400,20 @@ elab "#verify_elab_deep" id:ident : command =>
       -- Every goal is now a literal-width BitVec/Bool identity over the
       -- reader variables and the input values; bv_decide is the closer,
       -- rfl/simp for the degenerate ones, bv_omega for Nat-cast shapes.
-      let closers : Lean.TSyntax `tactic ←
+      let noNative := sparkle.deepNoNative.get (← getOptions)
+      let closers : Lean.TSyntax `tactic ← if noNative then
+        `(tactic| all_goals (first
+          | rfl
+          -- the register-step goals of a real circuit are conjunctions of `if`/`bif` identities over Bool and
+          -- literal-width atoms (`Tools.DeepNoNative`); the whole-goal `simp_all` below times out on them
+          | ved_bv_close
+          | (simp_all [BitVec.toNat_eq, BitVec.toNat_add,
+              BitVec.toNat_ofNat, bif_beq_ofBool, bif_beq_ofBool_toNat,
+              $[$inpAtIds:ident],*]; done)
+          | bv_omega
+          | (simp; done)
+          | fail "#verify_elab_deep: closers exhausted on this goal"))
+      else
         `(tactic| all_goals (first
           | rfl
           | bv_decide
@@ -4433,8 +4465,8 @@ elab "#verify_elab_deep" id:ident : command =>
         let mut alts : Array (Lean.TSyntax `tactic) := #[]
         for node in nestedNodes do
           for b in blocksFor node do
-            let packS ← packOf node b (← `($sId))
-            let packI ← packOf node b (← `($iId))
+            let packS ← packOf node ((Array.range node.widths.size).map (b + ·)) (← `($sId))
+            let packI ← packOf node ((Array.range node.widths.size).map (b + ·)) (← `($iId))
             let st1z ← stage1 #[]
             -- `hg m _ : G m` is a conjunction; simp splits it into rewrites
             let st1s ← stage1 #[← `($hqId $mId (Nat.lt_succ_self $mId)),
@@ -4589,7 +4621,7 @@ elab "#verify_elab_deep" id:ident : command =>
           throwError "#verify_elab_deep: return type mentions a local binder: {retTy}"
         Lean.PrettyPrinter.delab retTy
       let topTys := topNode.tys
-      let mkTopProof (b : Nat) : CommandElabM (Lean.TSyntax `tactic) := do
+      let mkTopProof (b : Array Nat) : CommandElabM (Lean.TSyntax `tactic) := do
         let packS ← packOf topNode b (← `($sId))
         let packU ← packOf topNode b (← `($uId))
         let packI ← packOf topNode b (← `($iId))
@@ -4657,6 +4689,41 @@ elab "#verify_elab_deep" id:ident : command =>
         for a in alts.pop.reverse do
           alt ← `(tactic| first | $a:tactic | $alt:tactic)
         pure alt
+      -- H2d: the proof of a NESTED node's state, `(Signal.loop G).val u = pack u` for a closed nested loop
+      -- (the context holds `u`): the top loop's step proof with the node's own pack.  Used to export the
+      -- nested state theorems (`Tools.DeepNested.exportNested`).
+      let mkNestedProof (node : LoopNode) (b : Array Nat) : CommandElabM (Lean.TSyntax `tactic) := do
+        let packS ← packOf node b (← `($sId))
+        let packI ← packOf node b (← `($iId))
+        let hpreGuard ← `((fun $iId $hiId => $hpreId $iId (by omega)))
+        let nAlts := nestedNodes.foldl (fun acc n => acc + (blocksFor n).length) 0 + 2 * nM
+        let want := (if nestedNodes.isEmpty then 0 else 2 * nestedNodes.size + 1)
+          + (if hasMem then 2 else 0) + (if hasCombo then 1 else 0)
+        let depth := Id.run do
+          let mut d := 0
+          for k in [1:6] do
+            if k ≤ want && nAlts ^ k ≤ 64 then d := k
+          return max d (if hasMem then 1 else 0)
+        let innerHpre ← innerBlock (← `(($preId).val $iId = $packI)) hpreGuard depth 0
+        let st1z ← stage1 #[]
+        let st1s ← stage1 #[← `($hpreId $nId (Nat.lt_succ_self $nId))]
+        `(tactic| (
+          refine loop_trace_at _ (fun $sId => $packS) ?_ $uId
+          intro $uId:ident $preId:ident $hpreId:ident
+          cases $uId:ident with
+          | zero =>
+            $st1z:tactic
+            $appendFix:tactic
+            all_goals (try simp only [$[$rdZeroAll:ident],*])
+            $closers:tactic
+          | succ $nId =>
+            $st1s:tactic
+            $appendFix:tactic
+            $innerHpre:tactic
+            all_goals (try simp only [$[$rdSuccAll:ident],*])
+            $dupSimp:tactic
+            ($[$genLines:tactic]*)
+            $closers:tactic))
       -- the theorem: general theorem + per-instance Signal bridge
       -- the IR seed of the capstone: CdoM's `irEnv` (registers, inputs,
       -- read slots) or Cdo's joined state/inputs
@@ -4700,6 +4767,20 @@ elab "#verify_elab_deep" id:ident : command =>
         logInfo m!"#verify_elab_deep {declName}.{portName}: defs only (SPARKLE_DEEP_NOTHM)"
         return none
       elabSync thmCmd
+      -- H2d: the state of the nested loops of a circuit whose top state was exported
+      if !hasMem && !nestedNodes.isEmpty then
+        let stFull := (← getCurrNamespace) ++ stateThId.getId
+        if (← getEnv).contains stFull then
+          let nodes ← nestedNodes.mapM fun node => do
+            let blocks ← (blocksFor node).toArray.mapM fun b => do
+              let idx := (Array.range node.widths.size).map (b + ·)
+              pure ({ idx, pack := ← packOf node idx (← `($uId)),
+                      tac := ← mkNestedProof node idx } : Tools.DeepNested.BlockCand)
+            pure ({ widths := node.widths, isBool := node.isBool, blocks } : Tools.DeepNested.NodeCand)
+          let added ← liftTermElabM <| withTheReader Core.Context
+            (fun c => { c with maxRecDepth := 65536, maxHeartbeats := 1600000 * 1000 })
+            (Tools.DeepNested.exportNested stFull nodes)
+          deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: nested state theorems {added}"
       return some lhsSig
     -- defs-only mode: this port contributes no theorems (was `continue`
     -- when this body was a loop body)
@@ -4855,7 +4936,8 @@ elab "#verify_elab_deep" id:ident : command =>
           `(tactic| have $hbndId:ident : $irTi ⟨$(quote i), by decide⟩ < 2 ^ $(quote regWs[i]!) := by
             rw [Cdo.irState_eq _ _ (by decide)]
             exact BitVec.isLt _)
-      let bridgeOk := nR > 0 && refWiresD?.isSome && regRstsD.length == nReg
+      let noReplay := sparkle.deepNoReplay.get (← getOptions)
+      let bridgeOk := !noReplay && nR > 0 && refWiresD?.isSome && regRstsD.length == nReg
         && memPortWires?.isSome && stateOrder.length == nR && comboRaWires?.isSome
       let mut bridgeAudit : Array Ident := #[]
       -- `hrunC : evalAssigns weM (memAt t) bodyC (envAt t) = some env1` from
@@ -5663,7 +5745,7 @@ elab "#verify_elab_deep" id:ident : command =>
             exact $dSigFoldId $appArgs* t hsi' hev'))
         bridgeAudit := bridgeAudit ++ #[sigM0Id, dStepOutId, dSigFoldId, dSigRunId]
       else
-        logInfo m!"#verify_elab_deep {declName}: IR replay skipped (a state or memory-port input is not a wire reference, or the register/reset bookkeeping is irregular); the certified statement is the capstone {thId.getId}"
+        logInfo m!"#verify_elab_deep {declName}: IR replay skipped ({if noReplay then "sparkle.deepNoReplay" else "a state or memory-port input is not a wire reference, or the register/reset bookkeeping is irregular"}); the certified statement is the capstone {thId.getId}"
       -- audit the capstone AND every fidelity theorem: elabCommand
       -- recovers failed tactic blocks as sorry, and a sorry'd fidelity
       -- proof would silently demote the result to the unverified twin.
@@ -5692,6 +5774,16 @@ elab "#verify_elab_deep" id:ident : command =>
   for (((portName, wOut), proj?, isBoolOut), outC, outIR) in jobs do
     let k := portIdx
     portIdx := portIdx + 1
-    deep0Id := ← portBlock k portName wOut proj? isBoolOut outC outIR deep0Id
+    -- H2d (`sparkle.deepContinue`, set by the hierarchical checker): a port whose block throws is reported
+    -- (`<decl>.<port>: FAILED`, after its errors) and the NEXT port is still attempted; the checker needs the
+    -- state of one port and tolerates the failure of another (a port that does not read the circuit's own
+    -- loop, such as the output of a nested circuit, cannot export it).
+    if sparkle.deepContinue.get (← getOptions) then
+      try deep0Id := ← portBlock k portName wOut proj? isBoolOut outC outIR deep0Id
+      catch e =>
+        logError e.toMessageData
+        logInfo m!"#verify_elab_deep {declName}.{portName}: FAILED"
+    else
+      deep0Id := ← portBlock k portName wOut proj? isBoolOut outC outIR deep0Id
 
 end Tools.DeepElab

@@ -1,9 +1,14 @@
+import Tools.VedU2HierDbg
+import Tools.VedU2HierClose
 import Tools.VedU2HierEntry
 import Tools.VedU2HierReg
 import Tools.VedU2HierNet
 import Tools.VedU2HierStGen
 import Tools.VedU2HierStep
 import Tools.DeepElab
+import Tools.DeepHelpers
+import Tools.DeepHelpersTac
+import Tools.VedU2HierStateArgs
 
 /-!
 # Stateful hierarchical entry, H2b: a parent WITH REGISTERS (`#ved_u2_hier decl`)
@@ -43,6 +48,7 @@ namespace Tools.VedU2HierRegEntry
 
 open Lean Meta Elab Term Command
 open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.IR.Reorder
+open Tools.VedU2HierStateArgs
 open Tools.VedU1Contract Tools.VedU1Entry Tools.VedU1Hier Tools.VedU1HierEntry Tools.VedU2Hier
   Tools.VedU2HierEntry Tools.VedU1Deep
 
@@ -182,17 +188,6 @@ def instDerived (c : Contract) (ck : Contract) (cs : List (String × Sparkle.IR.
 
 /-! ## The generated proof of `U2HRStmt` -/
 
-structure DeepInfo where
-  /-- widths of the open circuit's register slots -/
-  regWs : List Nat
-  /-- number of inputs of the open circuit (data inputs, then one per child call) -/
-  nIn : Nat
-  /-- the parent's register output names, slot order -/
-  pm : List String
-  /-- H2c-state: the register slots the exported loop-state theorem's pack holds, in pack order (the top loop's
-  block of the flat register list; a nested circuit's registers are not in it) -/
-  block : List Nat := []
-
 /-- The register slots a state theorem's pack holds: the reader constants `<..>_deep_rd<n>` in the order they
 occur in the right side of its equation (`(rd_b .., (rd_b' .., ()))`, a Bool register's reader under `== 1#1`). -/
 def stateBlockOf (thm : Name) : MetaM (List Nat) := do
@@ -213,14 +208,28 @@ def stateBlockOf (thm : Name) : MetaM (List Nat) := do
         else acc
     return go rhs 64 []
 
+/-- The register a duplicate-copy equation `<..>_deep_dup_r<n> : rd<n> .. = rd<m> ..` identifies `rd<n>` with: `m`. -/
+def dupTargetOf (thm : Name) : MetaM (Option Nat) := do
+  let ci ← getConstInfo thm
+  forallTelescope ci.type fun _ body => do
+    let some (_, _, rhs) := body.eq? | return none
+    return (rhs.getAppFn.constName?.bind fun c => match c.getString!.splitOn "_deep_rd" with
+      | [_, n] => n.toNat?
+      | _ => none)
+
 /-- The name of the stream definition `ved_F<j>` of derived call `j`. -/
 def fDefName (opn : OpenInfo) (j : Nat) : Name :=
   Name.mkStr opn.openName.getPrefix (opn.openName.getString! ++ s!"_F{j}")
 
+/-- The range-free forms of the operators (`Tools.VedU1Lemmas`): they apply to what the range-guarded forms of
+`netSimpL` left as `evalOp`. -/
+def rawOpL : String :=
+  "Tools.VedU1Lemmas.evalOp_not_raw, Tools.VedU1Lemmas.evalOp_and_raw, Tools.VedU1Lemmas.evalOp_or_raw, Tools.VedU1Lemmas.evalOp_xor_raw, Tools.VedU1Lemmas.evalOp_sub_raw"
+
 /-- The simp set that evaluates a net's IR expression and the Signal term of the declaration's
 argument. -/
 def netSimpL : String :=
-  "Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, Tools.VedU2Hier.or_shl_add_of_lt, Tools.VedU1Lemmas.evalOp_not_lit, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit, Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val, Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val, Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add, Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub, Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val, Seq.seq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, BitVec.toNat_append, BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Sparkle.Core.Signal.Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig, Sparkle.IR.Semantics.mask, Sparkle.Core.Signal.Signal.pure"
+  "Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, -Nat.shiftLeft_zero, Tools.VedU2Hier.shl_zero, Tools.VedU2Hier.or_shl_add_of_lt, Tools.VedU1Lemmas.evalOp_not_lit, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit, Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val, Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val, Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add, Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub, Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val, Seq.seq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, BitVec.toNat_append, BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Sparkle.Core.Signal.Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig, Sparkle.IR.Semantics.mask, Sparkle.Core.Signal.Signal.pure"
 
 def deepC (open_ : Name) (s : String) : String := toString (userName (deepName open_ s))
 
@@ -352,6 +361,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let kidOut (ki : Nat) : PTy := outPTy kidA[ki]!.tbl
   let calls := opn.calls
   let sigsAll := " ".intercalate (tbl.binders.map argTxt ++ calls.toList.map callTxt)
+  let spn : Sp :=
+  { state := OState, deep := ODeep, nm := ONm, irS := irS, inpU := inpU, sigsAll := sigsAll
+    rd := (fun slot => deepC opn.openName (ptag ++ s!"_deep_rd{slot}")) }
   let oracleBody (sg : Nat → String) : String :=
     insts.foldr (fun (ii : InstInfo) acc =>
       s!"if y = {sq ii.y} then {obsOf (kidOut ii.kid) (sg ii.call)} else {acc}") "0"
@@ -456,6 +468,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       for n in dataNames do
         X := X.push s!"  have hE_{n} : E {sq n} = ins t {sq n} := hEin _ (by decide)"
         facts := facts ++ [s!"hE_{n}"]
+      let mut stFacts : List String := []
       if ii.stateArg then
         -- the parent's registers at cycle t: the pre-update state, which the invariant speaks about
         X := X.push s!"  have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
@@ -464,32 +477,36 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           X := X.push s!"  have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {di.regWs.length}) := by"
           X := X.push s!"    rw [hregE _ (by decide)]"
           X := X.push s!"    exact {proj}"
-          X := X.push s!"  have hlS{i} : {irS} ins t ({i} : Fin {di.regWs.length}) < 2 ^ {di.regWs[i]!} := by"
+          X := X.push s!"  have hlS{i} : {irS} ins t ({i} : Fin {di.regWs.length}) < {2 ^ di.regWs[i]!} := by"
           X := X.push s!"    have := hltS ins t ⟨{i}, by decide⟩"
           X := X.push s!"    simpa using this"
           facts := facts ++ [s!"hEr{i}", s!"hlS{i}"]
+        -- H2d (`Tools/VedU2HierStateArgs.lean`): an argument that is a derived net over the register state reads
+        -- the loop inside a term; the state theorems rewrite it to its pack
+        let derivedArgs := ports.any fun (bn, _) =>
+          (ii.slots.lookup (match ii.cs.lookup ("_gen_" ++ bn) with | some (.ref x) => x | _ => "?")).isNone
+        if derivedArgs then
+          let (ls, fs) := stateFacts spn di
+          X := X ++ ls
+          stFacts := fs
         -- the argument signal is the register's Signal-level state (the exported state theorem)
         for (bn, (_, ad)) in ports do
           let nm := "_gen_" ++ bn
           let wire := match ii.cs.lookup nm with | some (.ref x) => x | _ => "?"
-          let slot := (ii.slots.lookup wire).getD 0
-          -- the pack holds the top loop's registers only: the position of the slot in it
-          let pos := (di.block.idxOf? slot).getD slot
-          let sel := (List.range pos).foldl (fun s _ => s ++ ".2") "x" ++ ".1"
-          X := X.push s!"  have hAl{bn} : (({toString (userName ad)} ins).val t).toNat = {irS} ins t ({slot} : Fin {di.regWs.length}) := by"
-          X := X.push s!"    have hst := {OState} {sigsAll} t"
-          X := X.push s!"    have h1 : ({toString (userName ad)} ins).val t = {deepC opn.openName (ptag ++ s!"_deep_rd{slot}")} {sigsAll} t := by ved_kernel_exact (congrArg (fun x => {sel}) hst)"
-          X := X.push s!"    unfold {irS} {inpU}"
-          X := X.push s!"    rw [Cdo.irState_eq {ODeep} {ONm} hinj, h1]"
-          X := X.push s!"    rfl"
+          -- an argument that is not one of the parent's register slots (a data input, or a derived
+          -- net) has no state fact; defaulting it to slot 0 gave a type mismatch (H2d)
+          let some slot := ii.slots.lookup wire | continue
+          X := X ++ slotLines spn di bn (toString (userName ad)) slot
           facts := facts ++ [s!"hAl{bn}"]
       let mut lts : List String := []
       for ((w, wd), wi) in ii.chain.zipIdx do
         X := X.push s!"  have e_{wi} := hasgF {sq w} _ rfl"
-        X := X.push s!"  simp [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
+        X := X.push s!"  simp (config := \{ maxSteps := 2000000 }) [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
+        -- an operator whose operand has no range fact (`~~~` of a computed value: the checksum's complement) stays
+        -- `evalOp`: the range-free forms evaluate it
+        X := X.push s!"  try simp (config := \{ maxSteps := 2000000 }) [{rawOpL}, {netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
         X := X.push s!"  have f_{wi} := e_{wi}.symm"
-        if dbg && wi + 1 == ii.chain.length then X := X.push s!"  fail \"TRACE\""
-        X := X.push s!"  have hlt_{wi} : E {sq w} < 2 ^ {wd} := by first | omega | (rw [f_{wi}]; exact Nat.and_lt_two_pow _ (by omega)) | (rw [f_{wi}]; exact Nat.or_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; exact Nat.xor_lt_two_pow (by omega) (by omega))"
+        X := X.push s!"  have hlt_{wi} : E {sq w} < {2 ^ wd} := by first | omega | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.and_lt_two_pow _ (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.or_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.xor_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; (repeat' split) <;> (first | omega | exact Nat.and_lt_two_pow _ (by omega) | exact Nat.or_lt_two_pow (by omega) (by omega) | exact Nat.xor_lt_two_pow (by omega) (by omega)))"
         facts := facts ++ [s!"f_{wi}"]
         lts := lts ++ [s!"hlt_{wi}"]
       X := X.push s!"  rw [hdl] at hp"
@@ -499,11 +516,16 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         let nm := "_gen_" ++ bn
         let wire := match ii.cs.lookup nm with | some (.ref x) => x | _ => "?"
         X := X.push s!"  · refine ⟨{sq wire}, by decide, ?_⟩"
+        if dbg then X := X.push s!"    trace \"H2D-PORT {bn} begin\""
         if ii.stateArg then
-          X := X.push s!"    simp [{Fj}, Tools.VedU1Contract.PTy.obs, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
+          -- a non-register argument (a constant, a data input, a derived net) is unfolded like the stateless case
+          let isSlot := (ii.slots.lookup wire).isSome
+          X := X ++ portLines di dbg bn isSlot (toString (userName ad)) Fj netSimpL (facts ++ lts)
+            (if isSlot then [] else stFacts)
         else
           X := X.push s!"    simp [{Fj}, {toString (userName ad)}, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
         X := X.push s!"    try omega"
+        if ii.stateArg then X := X.push s!"    all_goals (try (split <;> omega))"
       if ii.stateArg then
         X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_step {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht E hE hrunF _ hq"
       else
@@ -514,12 +536,12 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       for ((bn, (pt, ad)), kk) in ports.zipIdx do
         let nm := "_gen_" ++ bn
         let lem := match pt with | .bv w => s!"{T2}.sig_of_obs_bv {w}" | .bit => s!"{T2}.sig_of_obs_bit"
-        X := X.push s!"have hsig{kk} := {lem} (({toString (userName ad)}) ins) NS {sq nm} (fun t => by rw [← hNS]; simp [{T2}.netIn, {K.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {Fj}, Tools.VedU1Contract.PTy.obs])"
+        X := X.push s!"have hsig{kk} := {lem} (({toString (userName ad)}) ins) NS {sq nm} (fun t => by rw [← hNS]; simp (config := \{ maxSteps := 2000000 }) [{T2}.netIn, {K.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {Fj}, Tools.VedU1Contract.PTy.obs])"
         sigFacts := sigFacts ++ [s!"hsig{kk}"]
       X := X.push s!"have hx' : x = {sq ii.y} := by\n  have h2 : ({connsLit ii.cs}).lookup {sq outName} = some (Sparkle.IR.AST.Expr.ref {sq ii.y}) := by decide\n  rw [h2] at hx\n  simpa using hx.symm"
       X := X.push s!"subst hx'"
       X := X.push s!"rw [hv]"
-      X := X.push s!"simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {K.contract}, Tools.VedU1Contract.contractOf, List.lookup, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {", ".intercalate sigFacts}]"
+      X := X.push s!"simp (config := \{ maxSteps := 2000000 }) [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {K.contract}, Tools.VedU1Contract.contractOf, List.lookup, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {", ".intercalate sigFacts}]"
       return X.toList
     let lines : List String := if ii.derived then
       -- the shared prefix of the plain lines (the instance's output wire) stays; the child's
@@ -544,6 +566,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"  · intro ins hok t p hR"
   L := L.push s!"    have hin := hok.1 t"
   L := L.push s!"    have hrst := hok.2 t"
+  L := L.push s!"    have hinpU : ∀ (ins : Nat → String → Nat) (t : Nat) j, {inpU} ins t j = ({OInp} {sigsAll} j).val t := fun _ _ _ => rfl"
   for i in [0:k] do
     let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < k then ".1" else "")
     L := L.push s!"    have hR{i} := {proj}"
@@ -561,11 +584,15 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let hRs := ", ".intercalate ((List.range k).map fun i => s!"hR{i}")
   let hMods := ", ".intercalate (((List.range k).map fun i => s!"Nat.mod_eq_of_lt hl{i}") ++
     ((List.range calls.size).map fun j => s!"Nat.mod_eq_of_lt hlo{j}"))
+  -- the next-value goals do not read the child's output: its range fact is dropped there (it would be unfolded, with the
+  -- derived arguments, into the loop terms of the call's inputs)
+  let locsN := " ".intercalate (((List.range k).map fun i => s!"hR{i}") ++ ((List.range k).map fun i => s!"hl{i}"))
+  let hModsN := ", ".intercalate ((List.range k).map fun i => s!"Nat.mod_eq_of_lt hl{i}")
   let inpL := ", ".intercalate ((List.range di.nIn).flatMap fun j =>
     [s!"{OInp}_at_{j}", s!"{OInp}_at_mk_{j}"]) ++ ", Tools.VedU1Contract.PTy.sig"
   let argDefsL := ", ".intercalate (calls.toList.flatMap fun c => c.argDefs.map fun n => toString (userName n))
-  let evalL := s!"{if argDefsL.isEmpty then "" else argDefsL ++ ", "}Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange, {ONm}, Tools.VedU1Deep.reduceFinVal, natJoin, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.mask, Nat.shiftRight_eq_div_pow, Tools.VedU1Entry.or_mod _ _ _ _ rfl, {inpL}"
-  L := L.push s!"    simp [hout, {P.outs}, Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {T2}.oracleIE, {hOl}, {P.body}, Sparkle.IR.Semantics.regNexts, {T2}.regOuts, Tools.VedU1Contract.regsOf, {T2}.restrictTo, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.declWidth, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.widthOf, Tools.VedU1Hier.upd, Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.applyNexts, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, hrst]"
+  let evalL := s!"{if argDefsL.isEmpty then "" else argDefsL ++ ", "}Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange, {ONm}, Tools.VedU1Deep.reduceFinVal, natJoin, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Sparkle.IR.Semantics.mask, Nat.shiftRight_eq_div_pow, Tools.VedU1Entry.or_mod _ _ _ _ rfl, {inpL}"
+  L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [hout, {P.outs}, Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {T2}.oracleIE, {hOl}, {P.body}, Sparkle.IR.Semantics.regNexts, {T2}.regOuts, Tools.VedU1Contract.regsOf, {T2}.restrictTo, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.declWidth, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Tools.VedU1Hier.upd, Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.applyNexts, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, hrst]"
   L := L.push s!"    constructor"
   -- the output
   L := L.push s!"    · try rw [if_pos rfl]"
@@ -573,34 +600,45 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     -- H2c-state: the declaration IS the call on its closed argument; the output is the oracle value
     -- (`{CEq}` is the kernel equation `decl xs = g a`; the conversion itself is left to the kernel)
     L := L.push s!"      all_goals simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig]"
-    if dbg then L := L.push s!"      all_goals trace_state"
+    if dbg then L := L.push s!"      all_goals ved_eprint_state"
     L := L.push s!"      all_goals ved_kernel_rfl"
   else
     L := L.push s!"      all_goals simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {OE}, Tools.VedU1Contract.PTy.sig]"
     L := L.push s!"      all_goals rw [{OTrace}]"
     L := L.push s!"      all_goals unfold {irS} {inpU} at {locsU}"
     L := L.push s!"      all_goals simp only [CExpr.compile, {OOut}]"
-    L := L.push s!"      all_goals simp [{evalL}] at {locs} ⊢"
+    L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) [{evalL}] at {locs} ⊢"
     L := L.push s!"      all_goals ved_fin_norm"
-    L := L.push s!"      all_goals try simp [{evalL}] at ⊢"
+    L := L.push s!"      all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}] at ⊢"
     L := L.push s!"      all_goals try simp only [{hRs}]"
     L := L.push s!"      all_goals try simp only [{hMods}]"
-    if dbg then L := L.push s!"      all_goals trace_state"
-    L := L.push s!"      all_goals (first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega))"
+    if dbg then L := L.push s!"      all_goals ved_eprint_state"
+    L := L.push s!"      all_goals ved_hier_close"
   -- the next values
   let holes := ", ".intercalate ((List.range k).map fun _ => "?_")
   L := L.push s!"    · {if k == 1 then "skip" else s!"refine ⟨{holes}⟩"}"
+  -- `hR` (the conjunction) repeats the `hR{i}` with `Fin.mk` indices; `omega` would compare its register atoms with the
+  -- literal-index ones of the goal by unfolding the IR state recurrence (a recursion-depth error in the closer)
+  L := L.push s!"      all_goals (try clear hR)"
+  for j in [0:calls.size] do
+    L := L.push s!"      all_goals (try clear hlo{j})"
   L := L.push s!"      all_goals try simp only [List.find?, {ONm}]"
+  if dbg then L := L.push s!"      all_goals ved_eprint_state"
   L := L.push s!"      all_goals unfold {irS} at *"
-  L := L.push s!"      all_goals simp only [Cdo.irState, {ONext}, CExpr.compile]"
-  L := L.push s!"      all_goals unfold {inpU} at *"
-  L := L.push s!"      all_goals simp [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at {locs} ⊢"
+  L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) only [Cdo.irState, {ONext}, CExpr.compile]"
+  if dbg then L := L.push s!"      all_goals ved_eprint_state"
+  -- only the APPLIED `inpU ins t j` is unfolded: the register atoms `deep.irState nm (inpU ins) t i` keep their
+  -- small shape (unfolding the environment inside them copied the child's argument terms into every atom)
+  L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) only [hinpU] at *"
+  if dbg then L := L.push s!"      all_goals ved_eprint_state"
+  L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at {locsN} ⊢"
+  if dbg then L := L.push s!"      all_goals ved_eprint_state"
   L := L.push s!"      all_goals ved_fin_norm"
-  L := L.push s!"      all_goals try simp [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at ⊢"
+  L := L.push s!"      all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at ⊢"
   L := L.push s!"      all_goals (try simp only [{hRs}])"
-  L := L.push s!"      all_goals (try simp only [{hMods}])"
-  if dbg then L := L.push s!"      all_goals trace_state"
-  L := L.push s!"      all_goals (first | omega | ((repeat' split) <;> omega) | ((repeat' split) <;> simp_all <;> omega))"
+  L := L.push s!"      all_goals (try simp only [{hModsN}])"
+  if dbg then L := L.push s!"      all_goals ved_eprint_state"
+  L := L.push s!"      all_goals ved_hier_close"
   return "\n".intercalate L.toList
 
 /-! ## The checker -/
@@ -797,7 +835,20 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let block ← if p1.insts.any (·.stateArg) then
       stateBlockOf (deepNameP opn.openName (ptag ++ "_deep_state"))
     else pure []
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block }
+  let mut nested : List (String × List Nat) := []
+  if p1.insts.any (·.stateArg) then
+    for j in List.range 16 do
+      let n := deepNameP opn.openName (ptag ++ s!"_deep_state_n{j}")
+      if (← getEnv).contains n then
+        nested := nested ++ [(deepC opn.openName (ptag ++ s!"_deep_state_n{j}"), ← stateBlockOf n)]
+  let mut dups : List (Nat × Nat × String) := []
+  if p1.insts.any (·.stateArg) then
+    for slot in List.range regWs.length do
+      let n := deepNameP opn.openName (ptag ++ s!"_deep_dup_r{slot}")
+      if (← getEnv).contains n then
+        if let some c ← dupTargetOf n then
+          dups := dups ++ [(slot, c, deepC opn.openName (ptag ++ s!"_deep_dup_r{slot}"))]
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName) }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU
@@ -845,7 +896,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
   let pf ← try
       withOptions (fun o => ((o.setBool `linter.unusedSimpArgs false).setBool
-          `linter.unusedTactic false).setBool `linter.unreachableTactic false) <| withoutErrToSorry do
+          `linter.unusedTactic false).setBool `linter.unreachableTactic false) <| withoutErrToSorry <| withEnableInfoTree false do
         let e ← elabTermEnsuringType stx expected
         synthesizeSyntheticMVarsNoPostponing
         instantiateMVars e
@@ -857,6 +908,10 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       | [] => pure ""
     refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
   if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
+  -- the elaborator's metavariable context (every goal with its local context) and caches are dead from here on: free
+  -- them before the kernel checks the term (the kernel's caches are the peak of the run)
+  modifyThe Lean.Meta.State fun st => { st with mctx := {} }
+  modifyThe Lean.Meta.State fun st => { st with cache := {} }
   try
     withOptions (fun o => o.setBool `Elab.async false) do
       addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf })
@@ -873,7 +928,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
 `msgs` are the NEW messages in order `(isError, text)`.  A port's block logs its errors and, when it completes,
 the line `…<open>.<port>: PROVEN via …`; so the errors logged since the previous `PROVEN` line belong to the
 port whose `PROVEN` line follows, and the errors left at the end belong to the first port that has no `PROVEN`
-line (a failing block aborts the command, later ports are never attempted).  Returns the errors that belong to
+line (a failing block that THROWS is reported `…<port>: FAILED` after its errors and the later ports are still attempted).  Returns the errors that belong to
 no port, and per port the errors tied to it (first text kept, in port order). -/
 def attributeDeepErrors (ports : List String) (msgs : List (Bool × String)) :
     List String × List (String × List String) := Id.run do
@@ -887,7 +942,13 @@ def attributeDeepErrors (ports : List String) (msgs : List (Bool × String)) :
         proven := proven ++ [p]
         if !pending.isEmpty then tied := tied ++ [(p, pending)]
         pending := []
-      | none => pure ()
+      | none =>
+        -- H2d: a port whose block threw says so after its errors; they are its own
+        match ports.find? (fun p => (txt.splitOn s!".{p}: FAILED").length > 1) with
+        | some p =>
+          if !pending.isEmpty then tied := tied ++ [(p, pending)]
+          pending := []
+        | none => pure ()
   let mut stray : List String := []
   if !pending.isEmpty then
     match ports.find? (fun p => !proven.contains p) with
@@ -937,7 +998,7 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
     let stx ← `(command| #verify_elab_deep $(mkIdent p1.opn.openName))
     -- the deep constants are declared in the CURRENT namespace under the ident's last component;
     -- inside the namespace `decl` they are `decl.ved_open_deep…` (`deepName` of the open parent)
-    try withScope (fun sc => { sc with currNamespace := decl }) (elabCommand stx)
+    try withScope (fun sc => { sc with currNamespace := decl, opts := ((sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true).setBool `sparkle.deepNoNative true }) (withEnableInfoTree false (elabCommand stx))
     catch e => liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName}: {e.toMessageData}"
     let p1 ← tamper p1
     let newMsgs := (← get).messages.toList.drop nMsg0

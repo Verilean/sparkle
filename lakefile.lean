@@ -313,6 +313,30 @@ lean_lib «Tools.ConeFoldMem» where
 lean_lib «Tools.ConeFoldRT» where
   roots := #[`Tools.ConeFoldRT]
 
+lean_lib «Tools.VedU2HierStateArgs» where
+  roots := #[`Tools.VedU2HierStateArgs]
+
+lean_lib «Tools.VedU2HierDbg» where
+  roots := #[`Tools.VedU2HierDbg]
+
+lean_lib «Tools.VedU2HierClose» where
+  roots := #[`Tools.VedU2HierClose]
+
+lean_lib «Tools.DeepNoNative» where
+  roots := #[`Tools.DeepNoNative]
+
+lean_lib «Tools.DeepNestedState» where
+  roots := #[`Tools.DeepNestedState]
+
+lean_lib «Tools.DeepHelpers» where
+  roots := #[`Tools.DeepHelpers]
+
+lean_lib «Tools.DeepHelpersTac» where
+  roots := #[`Tools.DeepHelpersTac]
+
+lean_lib «Tools.DeepFinArms» where
+  roots := #[`Tools.DeepFinArms]
+
 lean_lib «Tools.DeepElab» where
   roots := #[`Tools.DeepElab]
 
@@ -1518,6 +1542,9 @@ lean_lib «Tests.Ved.U2HierStateCallCheck» where
 
 lean_lib «Tests.Ved.U2HierPartialDeepCheck» where
   roots := #[`Tests.Ved.U2HierPartialDeepCheck]
+
+lean_lib «Tests.Ved.U2HierOpenDeepCheck» where
+  roots := #[`Tests.Ved.U2HierOpenDeepCheck]
 
 lean_lib «Tests.Ved.U2HierNestedInlineCheck» where
   roots := #[`Tests.Ved.U2HierNestedInlineCheck]
