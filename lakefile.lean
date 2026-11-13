@@ -432,6 +432,9 @@ lean_lib «Tests.Ved.U1MultiLoopRow» where
 lean_lib «Tests.Ved.U1MultiLoopCheck» where
   roots := #[`Tests.Ved.U1MultiLoopCheck]
 
+lean_lib «Tests.Ved.U1SeqCheck» where
+  roots := #[`Tests.Ved.U1SeqCheck]
+
 lean_lib «Tests.Ved.U1MultiLoopFull1» where
   roots := #[`Tests.Ved.U1MultiLoopFull1]
 
