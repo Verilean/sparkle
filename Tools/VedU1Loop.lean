@@ -291,6 +291,8 @@ elab "ved_bits_facts" : tactic => withMainContext do
 
 /-- `i`-th component of a right-nested product value -/
 partial def compProj (e : Lean.Expr) (i : Nat) : MetaM Lean.Expr := do
+  -- a bare (non-tuple) state `Signal.loop (fun s : Signal d (BitVec w) => …)` is its own component
+  if i == 0 && !(← whnfR (← inferType e)).isAppOf ``Prod then return e
   if i == 0 then mkAppM ``Prod.fst #[e] else compProj (← mkAppM ``Prod.snd #[e]) (i - 1)
 
 /-- `toNat` of a `BitVec w` / `Bool` component -/
@@ -306,6 +308,7 @@ partial def stateComps (ty : Lean.Expr) : MetaM (List Lean.Expr) := do
   let ty ← whnfR ty
   match ty.getAppFnArgs with
   | (``Prod, #[a, b]) => return (← whnfR a) :: (← stateComps b)
+  | (``BitVec, _) | (``Bool, _) => return [ty]  -- a bare (non-tuple) state
   | _ => return []
 
 /-- bit width of a state component (`Bool` is one bit) -/
@@ -393,12 +396,17 @@ elab "ved_loop_gen " s:ident : tactic => withMainContext do
     let v ← mkAppM ``Sparkle.Core.Signal.Signal.val #[loops[j]!, sE]
     let vs ← Term.exprToSyntax v
     let X := mkIdent (Name.mkSimple s!"ved_X{j}")
-    evalTactic (← `(tactic| all_goals generalize $vs = $X at *))
     let some α := loops[j]!.getAppArgs[1]? | throwError "ved_loop_gen: malformed Signal.loop"
+    let bare := !(← whnfR α).isAppOf ``Prod
+    if bare then
+      evalTactic (← `(tactic| all_goals generalize $vs = $(mkIdent (Name.mkSimple s!"ved_x{j}_0")):ident at *))
+    else
+      evalTactic (← `(tactic| all_goals generalize $vs = $X at *))
     let n := (← stateComps α).length
-    let xs := (List.range (n + 1)).toArray.map fun i => mkIdent (Name.mkSimple s!"ved_x{j}_{i}")
+    let xs := (List.range (if bare then 1 else n + 1)).toArray.map fun i => mkIdent (Name.mkSimple s!"ved_x{j}_{i}")
     let pats ← xs.mapM fun x => `(Lean.Parser.Tactic.rcasesPatLo| $x:ident)
-    evalTactic (← `(tactic| all_goals rcases $X:ident with ⟨$pats,*⟩))
+    if bare then pure ()
+    else evalTactic (← `(tactic| all_goals rcases $X:ident with ⟨$pats,*⟩))
     for x in xs do
       let some d := (← withMainContext getLCtx).findFromUserName? x.getId | continue
       if (← whnfR d.type).isConstOf ``Bool then
