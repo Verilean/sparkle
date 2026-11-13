@@ -634,7 +634,7 @@ cycle 0).  The loop state is generalised to variables (`ved_loop_gen`; `Bool` co
 and the module's step is compared with the loop's step by the wide path's closing tactics.
 `regs` is the module's registers `(name, width)`. -/
 def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
-    (helpers : Array Name) (dbg : Nat := 0) : TermElabM Syntax := do
+    (helpers : Array Name) (dbg : Nat := 0) (supp : List (List String) := []) : TermElabM Syntax := do
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
   let C := mkCIdent nm.contract
@@ -678,7 +678,11 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   -- the loop of the declaration, in the simp normal form of the goal
   tacs := tacs.push (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = srcOf $C $f $insI "out" $sI := ⟨_, rfl⟩))
   tacs := tacs.push (← `(tactic| ved_core_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $exHelp,*] at $hv:ident))
-  tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
+  let rSupps := (supp.map fun l => Syntax.mkStrLit (",".intercalate l)).toArray
+  if supp.length == regs.length then
+    tacs := tacs.push (← `(tactic| ved_loop_R2 $insI [$rNames,*] $rWidths,* ; $rSupps,*))
+  else
+    tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| clear $hv))
   -- ONE register: the invariant is the equation itself (no conjunction to take apart)
   if hs.size == 1 then
@@ -932,7 +936,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         if stmt.getAppFn.isConst then
           let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
           if regs.length ≥ 2 || (regs.length == 1 && (← Tools.VedU1Uns.usesLoop stmt.getAppFn.constName! (← helperConsts stmt.getAppFn.constName!))) then
-            loopScriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs regs (← helperConsts stmt.getAppFn.constName!)
+            loopScriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs regs (← helperConsts stmt.getAppFn.constName!) (supp := regs.map fun r => ((Tools.VedU1Uns.regSupports m).lookup r.1).getD [])
           else
           scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
             tblD?
