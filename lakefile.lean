@@ -1503,3 +1503,9 @@ lean_lib «Tests.Ved.U2HierPin» where
 
 lean_lib «Tools.VedInvocationDom» where
   roots := #[`Tools.VedInvocationDom]
+
+lean_lib «Tools.VedInvocation» where
+  roots := #[`Tools.VedInvocation]
+
+lean_lib «Tests.Ved.InvocationCheck» where
+  roots := #[`Tests.Ved.InvocationCheck]
