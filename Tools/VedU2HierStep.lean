@@ -40,6 +40,14 @@ register bundle, whose slices are taken out of such concatenations. -/
 theorem or_shl_add_of_lt (x y n : Nat) (h : y < 2 ^ n) : (x <<< n ||| y) = x * 2 ^ n + y := by
   rw [← Nat.shiftLeft_add_eq_or_of_lt h, Nat.shiftLeft_eq]
 
+/-- `x <<< 0 = x`, with a proof that is not `rfl`.  The library's `Nat.shiftLeft_zero` is a `rfl` lemma, which `simp`
+applies as a definitional step WITHOUT a proof term; the kernel then has to check `x <<< 0 ≡ x` for `x` the
+register-pack arithmetic `(a * 2 ^ k + b) % 2 ^ w`, and it does so by unfolding `Nat.mod` on a literal modulus: deep
+recursion, tens of seconds and gigabytes already for a 56-bit pack (H2d, R211).  With this lemma (and the library one
+erased) the step is an `Eq.mpr` the kernel checks by `Nat.shiftLeft_eq`. -/
+theorem shl_zero (x : Nat) : x <<< 0 = x := by
+  rw [Nat.shiftLeft_eq]; simp
+
 /-- A body of plain assignments. -/
 def asgOnly : List Stmt → Bool
   | [] => true

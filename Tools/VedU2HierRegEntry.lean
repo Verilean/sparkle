@@ -221,10 +221,15 @@ def dupTargetOf (thm : Name) : MetaM (Option Nat) := do
 def fDefName (opn : OpenInfo) (j : Nat) : Name :=
   Name.mkStr opn.openName.getPrefix (opn.openName.getString! ++ s!"_F{j}")
 
+/-- The range-free forms of the operators (`Tools.VedU1Lemmas`): they apply to what the range-guarded forms of
+`netSimpL` left as `evalOp`. -/
+def rawOpL : String :=
+  "Tools.VedU1Lemmas.evalOp_not_raw, Tools.VedU1Lemmas.evalOp_and_raw, Tools.VedU1Lemmas.evalOp_or_raw, Tools.VedU1Lemmas.evalOp_xor_raw, Tools.VedU1Lemmas.evalOp_sub_raw"
+
 /-- The simp set that evaluates a net's IR expression and the Signal term of the declaration's
 argument. -/
 def netSimpL : String :=
-  "Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, Tools.VedU2Hier.or_shl_add_of_lt, Tools.VedU1Lemmas.evalOp_not_lit, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit, Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val, Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val, Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add, Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub, Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val, Seq.seq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, BitVec.toNat_append, BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Sparkle.Core.Signal.Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig, Sparkle.IR.Semantics.mask, Sparkle.Core.Signal.Signal.pure"
+  "Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, -Nat.shiftLeft_zero, Tools.VedU2Hier.shl_zero, Tools.VedU2Hier.or_shl_add_of_lt, Tools.VedU1Lemmas.evalOp_not_lit, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit, Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val, Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val, Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add, Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub, Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val, Seq.seq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, BitVec.toNat_append, BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Sparkle.Core.Signal.Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig, Sparkle.IR.Semantics.mask, Sparkle.Core.Signal.Signal.pure"
 
 def deepC (open_ : Name) (s : String) : String := toString (userName (deepName open_ s))
 
@@ -472,7 +477,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           X := X.push s!"  have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {di.regWs.length}) := by"
           X := X.push s!"    rw [hregE _ (by decide)]"
           X := X.push s!"    exact {proj}"
-          X := X.push s!"  have hlS{i} : {irS} ins t ({i} : Fin {di.regWs.length}) < 2 ^ {di.regWs[i]!} := by"
+          X := X.push s!"  have hlS{i} : {irS} ins t ({i} : Fin {di.regWs.length}) < {2 ^ di.regWs[i]!} := by"
           X := X.push s!"    have := hltS ins t ⟨{i}, by decide⟩"
           X := X.push s!"    simpa using this"
           facts := facts ++ [s!"hEr{i}", s!"hlS{i}"]
@@ -497,8 +502,11 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       for ((w, wd), wi) in ii.chain.zipIdx do
         X := X.push s!"  have e_{wi} := hasgF {sq w} _ rfl"
         X := X.push s!"  simp (config := \{ maxSteps := 2000000 }) [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
+        -- an operator whose operand has no range fact (`~~~` of a computed value: the checksum's complement) stays
+        -- `evalOp`: the range-free forms evaluate it
+        X := X.push s!"  try simp (config := \{ maxSteps := 2000000 }) [{rawOpL}, {netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
         X := X.push s!"  have f_{wi} := e_{wi}.symm"
-        X := X.push s!"  have hlt_{wi} : E {sq w} < 2 ^ {wd} := by first | omega | (rw [f_{wi}]; exact Nat.and_lt_two_pow _ (by omega)) | (rw [f_{wi}]; exact Nat.or_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; exact Nat.xor_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; (repeat' split) <;> (first | omega | exact Nat.and_lt_two_pow _ (by omega) | exact Nat.or_lt_two_pow (by omega) (by omega) | exact Nat.xor_lt_two_pow (by omega) (by omega)))"
+        X := X.push s!"  have hlt_{wi} : E {sq w} < {2 ^ wd} := by first | omega | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.and_lt_two_pow _ (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.or_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.xor_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; (repeat' split) <;> (first | omega | exact Nat.and_lt_two_pow _ (by omega) | exact Nat.or_lt_two_pow (by omega) (by omega) | exact Nat.xor_lt_two_pow (by omega) (by omega)))"
         facts := facts ++ [s!"f_{wi}"]
         lts := lts ++ [s!"hlt_{wi}"]
       X := X.push s!"  rw [hdl] at hp"
@@ -558,6 +566,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"  · intro ins hok t p hR"
   L := L.push s!"    have hin := hok.1 t"
   L := L.push s!"    have hrst := hok.2 t"
+  L := L.push s!"    have hinpU : ∀ (ins : Nat → String → Nat) (t : Nat) j, {inpU} ins t j = ({OInp} {sigsAll} j).val t := fun _ _ _ => rfl"
   for i in [0:k] do
     let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < k then ".1" else "")
     L := L.push s!"    have hR{i} := {proj}"
@@ -575,11 +584,15 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let hRs := ", ".intercalate ((List.range k).map fun i => s!"hR{i}")
   let hMods := ", ".intercalate (((List.range k).map fun i => s!"Nat.mod_eq_of_lt hl{i}") ++
     ((List.range calls.size).map fun j => s!"Nat.mod_eq_of_lt hlo{j}"))
+  -- the next-value goals do not read the child's output: its range fact is dropped there (it would be unfolded, with the
+  -- derived arguments, into the loop terms of the call's inputs)
+  let locsN := " ".intercalate (((List.range k).map fun i => s!"hR{i}") ++ ((List.range k).map fun i => s!"hl{i}"))
+  let hModsN := ", ".intercalate ((List.range k).map fun i => s!"Nat.mod_eq_of_lt hl{i}")
   let inpL := ", ".intercalate ((List.range di.nIn).flatMap fun j =>
     [s!"{OInp}_at_{j}", s!"{OInp}_at_mk_{j}"]) ++ ", Tools.VedU1Contract.PTy.sig"
   let argDefsL := ", ".intercalate (calls.toList.flatMap fun c => c.argDefs.map fun n => toString (userName n))
-  let evalL := s!"{if argDefsL.isEmpty then "" else argDefsL ++ ", "}Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange, {ONm}, Tools.VedU1Deep.reduceFinVal, natJoin, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.mask, Nat.shiftRight_eq_div_pow, Tools.VedU1Entry.or_mod _ _ _ _ rfl, {inpL}"
-  L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [hout, {P.outs}, Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {T2}.oracleIE, {hOl}, {P.body}, Sparkle.IR.Semantics.regNexts, {T2}.regOuts, Tools.VedU1Contract.regsOf, {T2}.restrictTo, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.declWidth, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.widthOf, Tools.VedU1Hier.upd, Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.applyNexts, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, hrst]"
+  let evalL := s!"{if argDefsL.isEmpty then "" else argDefsL ++ ", "}Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange, {ONm}, Tools.VedU1Deep.reduceFinVal, natJoin, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Sparkle.IR.Semantics.mask, Nat.shiftRight_eq_div_pow, Tools.VedU1Entry.or_mod _ _ _ _ rfl, {inpL}"
+  L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [hout, {P.outs}, Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {T2}.oracleIE, {hOl}, {P.body}, Sparkle.IR.Semantics.regNexts, {T2}.regOuts, Tools.VedU1Contract.regsOf, {T2}.restrictTo, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.declWidth, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Tools.VedU1Hier.upd, Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.applyNexts, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, hrst]"
   L := L.push s!"    constructor"
   -- the output
   L := L.push s!"    · try rw [if_pos rfl]"
@@ -604,15 +617,26 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   -- the next values
   let holes := ", ".intercalate ((List.range k).map fun _ => "?_")
   L := L.push s!"    · {if k == 1 then "skip" else s!"refine ⟨{holes}⟩"}"
+  -- `hR` (the conjunction) repeats the `hR{i}` with `Fin.mk` indices; `omega` would compare its register atoms with the
+  -- literal-index ones of the goal by unfolding the IR state recurrence (a recursion-depth error in the closer)
+  L := L.push s!"      all_goals (try clear hR)"
+  for j in [0:calls.size] do
+    L := L.push s!"      all_goals (try clear hlo{j})"
   L := L.push s!"      all_goals try simp only [List.find?, {ONm}]"
+  if dbg then L := L.push s!"      all_goals ved_eprint_state"
   L := L.push s!"      all_goals unfold {irS} at *"
-  L := L.push s!"      all_goals simp only [Cdo.irState, {ONext}, CExpr.compile]"
-  L := L.push s!"      all_goals unfold {inpU} at *"
-  L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at {locs} ⊢"
+  L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) only [Cdo.irState, {ONext}, CExpr.compile]"
+  if dbg then L := L.push s!"      all_goals ved_eprint_state"
+  -- only the APPLIED `inpU ins t j` is unfolded: the register atoms `deep.irState nm (inpU ins) t i` keep their
+  -- small shape (unfolding the environment inside them copied the child's argument terms into every atom)
+  L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) only [hinpU] at *"
+  if dbg then L := L.push s!"      all_goals ved_eprint_state"
+  L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at {locsN} ⊢"
+  if dbg then L := L.push s!"      all_goals ved_eprint_state"
   L := L.push s!"      all_goals ved_fin_norm"
   L := L.push s!"      all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at ⊢"
   L := L.push s!"      all_goals (try simp only [{hRs}])"
-  L := L.push s!"      all_goals (try simp only [{hMods}])"
+  L := L.push s!"      all_goals (try simp only [{hModsN}])"
   if dbg then L := L.push s!"      all_goals ved_eprint_state"
   L := L.push s!"      all_goals ved_hier_close"
   return "\n".intercalate L.toList
@@ -970,7 +994,7 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
     let stx ← `(command| #verify_elab_deep $(mkIdent p1.opn.openName))
     -- the deep constants are declared in the CURRENT namespace under the ident's last component;
     -- inside the namespace `decl` they are `decl.ved_open_deep…` (`deepName` of the open parent)
-    try withScope (fun sc => { sc with currNamespace := decl, opts := (sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true }) (elabCommand stx)
+    try withScope (fun sc => { sc with currNamespace := decl, opts := ((sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true).setBool `sparkle.deepNoNative true }) (elabCommand stx)
     catch e => liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName}: {e.toMessageData}"
     let p1 ← tamper p1
     let newMsgs := (← get).messages.toList.drop nMsg0
