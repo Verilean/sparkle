@@ -6,6 +6,7 @@ import Tools.VedU1Table
 import Tools.VedU1TableGen
 import Std.Data.HashMap
 import Tools.VedU1Loop
+import Tools.VedU1Wire
 import Tools.VedStrictAudit
 
 /-!
@@ -707,7 +708,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   tacs := tacs.push (← `(tactic| clear $hv))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
   let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | (trace_state; fail "ved_loop_close failed here")))
-    else `(tactic| all_goals ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
+    else `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | ved_bmod_close))
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_loop_unfold ($sI + 1)),
       ← `(tactic| ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
@@ -718,7 +719,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     #[← `(tactic| all_goals (try ved_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
     #[← `(tactic| all_goals (try ved_bit_simp))],
     #[← `(tactic| all_goals (try ved_or_lit))],
-    #[← `(tactic| all_goals (try ved_pack_share))],
+    #[← `(tactic| all_goals ved_pack_wire)],
     #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
       ← `(tactic| all_goals (try ved_pack_simp)),
       ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),

@@ -351,6 +351,9 @@ lean_lib «Tools.VedU1TableGen» where
 lean_lib «Tools.VedU1Loop» where
   roots := #[`Tools.VedU1Loop]
 
+lean_lib «Tools.VedU1Wire» where
+  roots := #[`Tools.VedU1Wire]
+
 lean_lib «Tools.VedU1HierSem» where
   roots := #[`Tools.VedU1HierSem]
 
@@ -437,6 +440,9 @@ lean_lib «Tests.Ved.U1MultiLoopFull3» where
 
 lean_lib «Tests.Ved.U1MultiLoopFull4» where
   roots := #[`Tests.Ved.U1MultiLoopFull4]
+
+lean_lib «Tests.Ved.U1MultiLoopFull5» where
+  roots := #[`Tests.Ved.U1MultiLoopFull5]
 
 lean_lib «Tests.Ved.U1MultiLoopAll» where
   roots := #[`Tests.Ved.U1MultiLoopAll]
