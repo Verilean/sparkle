@@ -8,8 +8,8 @@ import Tests.IP.Crypto.Fp2MulHWTest
 by `#ved_u1` with the strict audit, then `checkRows` compares the stored type with `==` and checks the axioms.
 `U1MultiLoopAll` checks all rows together.
 
-The elaboration of the generated proof was always possible; the kernel ran out of memory (14 GiB) on the first
-normalising step.  The loop script's `simp` calls (`ved_loop_simp`, `ved_loopw_simp`) now record their definitional
+In the measured run (RSS guard 14 GiB) the elaboration of the generated proof finished; the kernel ran out of memory on the
+first normalising step.  The loop script's `simp` calls (`ved_loop_simp`, `ved_loopw_simp`) now record their definitional
 steps as proof terms (`-implicitDefEqProofs`, `Tools/VedU1Entry.lean`), so the kernel checks each step instead of
 one comparison of the goal with its 110 000-node normal form.
 -/
