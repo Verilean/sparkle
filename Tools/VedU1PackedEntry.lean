@@ -10,8 +10,10 @@ An explicit mode next to `#ved_u1` (which still refuses such a declaration at
 specialise a leading `DomainConfig` binder, read the table from the declaration's TYPE, call
 `synthesizeCombinational` ONCE, register `ved_mod`, `ved_contract` (here a `PContract`),
 `ved_outs`, `ved_body`, elaborate the generated script against `PackedStmt c m stmt`, add the theorem with exactly
-that type, strict audit.  Register-free bodies only; the result must be a `Prod` tree of at least two
-leaves inside ONE `Signal` (`Bool` / `BitVec w` leaves).
+that type, strict audit.  Register-free bodies use `packedScript` (then `packedCombScript`); bodies with
+registers (`Signal.loop`) use `packedLoopScript` (Tools/VedU1MultiSeq.lean), the contract then carrying the
+module's clock/reset and register initial values (`PContract.clkRst` / `inits`, bound by `ShapeCore`).  The
+result must be a `Prod` tree of at least two leaves inside ONE `Signal` (`Bool` / `BitVec w` leaves).
 
 Refusals (`VED U1 REFUSED <decl> [<stage>]`; the `ved_*` constants the checker registered after it
 started are taken back; side effects of synthesis before that, e.g. IO or caches, are NOT rolled back): `table`, `packed` (not a packed
