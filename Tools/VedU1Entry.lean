@@ -7,6 +7,7 @@ import Tools.VedU1TableGen
 import Std.Data.HashMap
 import Tools.VedU1Loop
 import Tools.VedStrictAudit
+import Tools.VedInvocationDom
 
 /-!
 # U1 checked entry, minimal end-to-end slice (`#ved_u1 decl`)
@@ -514,9 +515,20 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
       for (x, h) in (xs.zip hs).reverse do
         dom := dom.push (← `(tactic| revert $h:ident))
         dom := dom.push (← `(tactic| revert $x:ident))
+    -- one input of at least 13 bits: the domain is checked in chunks of 2^12 (Tools/VedInvocationDom.lean)
+    let chunked := inWidths.length == 1 && inNames.length == 1 && inWidths.head! ≥ 13
+    let domClose ← if chunked then
+        let K := Syntax.mkNumLit (toString (2 ^ (inWidths.head! - 12)))
+        let mut t : Term ← `(Tools.VedInvocationDom.allLt_zero _)
+        for _ in [0:2 ^ (inWidths.head! - 12)] do
+          t ← `(Tools.VedInvocationDom.allLt_succ _ _ $t ?_)
+        `(tactic| open Tools.VedInvocationDom in
+          (apply Tools.VedInvocationDom.chunks 4096 $K; refine $t; all_goals decide +kernel))
+      else
+        `(tactic| open Tools.VedInvocationDom in decide +kernel)
     let domSmall ← `(tactic| all_goals
       $dom*
-      decide +kernel)
+      $domClose:tactic)
     -- a domain too large to enumerate (`2^(Σ widths) > 2^16`): only the narrow
     -- inputs (the `==` selectors, ≤ 6 bits) are case-split, wide data stays symbolic
     -- and the leftover `BitVec` field extraction is closed by `omega`
