@@ -450,6 +450,9 @@ lean_lib «Tests.Ved.U1MultiLoopAll» where
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]
 
+lean_lib «Tests.Ved.U1UnsolvedCheck» where
+  roots := #[`Tests.Ved.U1UnsolvedCheck]
+
 lean_lib «Tests.Ved.U1MultiRegCheck» where
   roots := #[`Tests.Ved.U1MultiRegCheck]
 
