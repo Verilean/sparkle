@@ -121,7 +121,7 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
     let expected := mkAppN (Lean.mkConst ``PackedStmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
-    -- a body with registers gets the larger heartbeat floor of the loop script
+    -- a body with registers: the optional extra floor `ved.u1.seqProofHeartbeats` (default 0: none)
     let budget {α} (k : TermElabM α) : TermElabM α :=
       if (regsOf m.body).isEmpty then k else Tools.VedU1MultiSeq.withSeqBudget k
     -- elaborate a script against the expected statement (errors are not turned into sorry)

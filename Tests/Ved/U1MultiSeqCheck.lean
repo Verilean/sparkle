@@ -108,8 +108,9 @@ def modOf (decl : Name) : TermElabM Sparkle.IR.AST.Module := do
 /-- `slices`, the clock/reset and the registers' initial values are written out by hand
 (`inits`: one value per register, in body order; the register NAMES are the module's). -/
 def checkPackedSeq (decl : Name) (stmtStx : Term) (slices : List (Nat × Nat)) (W : Nat)
-    (inits : List Int) : CommandElabM Unit := liftTermElabM do
-  let (m, thm, nDom) ← vedU1PackedS decl
+    (inits : List Int) (wrap : TermElabM (Sparkle.IR.AST.Module × Name × Nat) →
+      TermElabM (Sparkle.IR.AST.Module × Name × Nat) := id) : CommandElabM Unit := liftTermElabM do
+  let (m, thm, nDom) ← wrap (vedU1PackedS decl)
   let nm := Names.ofBase decl
   unless m.outputs == [⟨"out", .bitVector W⟩] do throwError "{decl}: outputs {repr m.outputs}"
   let stmt ← instantiateMVars (← Term.elabTerm stmtStx none)
@@ -220,5 +221,34 @@ def mutInit (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
 /-- info: refused [proof], clean -/
 #guard_msgs in
 run_cmd expectRefused "proof" ``msCntCtl do onMap ``msCntCtl [(1, 8), (0, 1)] (mutInit (← modOf ``msCnt))
+
+/-! ## Heartbeat budget of the loop script (no fixed floor: `ved.u1.seqProofHeartbeats`)
+
+A packed body with registers is elaborated under `withProofBudget`, plus the extra floor
+`ved.u1.seqProofHeartbeats` (default 0 = none).  (N) `ved.u1.proofHeartbeats 0` and `ved.u1.seqProofHeartbeats 0`
+with a small context budget: the low budget is respected, refused at `[proof]`.  (P) the same context budget with
+`ved.u1.seqProofHeartbeats 24000000`: the option raises the floor, the registered theorem has the exact
+`PackedStmt` type.  (D) the positives above run at the default options (no extra floor). -/
+
+/-- Local heartbeat budget of `n` thousand (the context field), the proof budget switched off
+(as in `Tests/Ved/U1StageCheck.lean`), and the extra floor `seq` (thousands). -/
+def withLowBudget (n seq : Nat) (act : TermElabM α) : TermElabM α :=
+  withOptions (fun o => ((o.set `ved.u1.proofRecDepth (0 : Nat)).set `ved.u1.proofHeartbeats (0 : Nat)).set
+      `ved.u1.seqProofHeartbeats seq) <|
+    Core.withCurrHeartbeats <| withTheReader Core.Context (fun c => { c with maxHeartbeats := n * 1000 }) act
+
+def msCntLow (en : Signal defaultDomain Bool) (d : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8 × Bool) := msCnt en d
+
+-- (N) the low budget is respected
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" ``msCntLow do
+  discard <| withLowBudget 2000 0 (vedU1PackedS ``msCntLow)
+
+-- (P) the option raises the floor: accepted, exact type, standard axioms
+/-- info: packed+registers OK Tests.Ved.U1MultiSeqCheck.msCntLow.ved_u1 [(1, 8), (0, 1)] [0, 0] 0 -/
+#guard_msgs in
+run_cmd checkPackedSeq ``msCntLow (← `(msCntLow)) [(1, 8), (0, 1)] 9 [0, 0] (withLowBudget 2000 24000000)
 
 end Tests.Ved.U1MultiSeqCheck

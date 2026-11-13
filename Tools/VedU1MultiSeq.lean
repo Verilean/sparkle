@@ -23,12 +23,21 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.VedU1Contract Tools.VedU1Entry Tools.VedU1Packed Tools.VedU1Loop Tools.VedU1MultiSeqLoop
 open Lean Meta Elab Term
 
-/-- The proof budget of a packed body with registers: the loop script unfolds every register and every
-projection (a controller of 100 statements needs about 1.3·10^10 heartbeats, 8·10^9 is the floor of
-`withProofBudget`).  A floor on the heartbeats only (untrusted resource bound: a proof that is not finished
-is refused at `[proof]`; the harness' own wall-clock limit still applies). -/
+/-- Extra lower bound (thousands of heartbeats) for the loop script of a packed body with registers.
+There is NO fixed floor: with the default 0 the limit is exactly what `withProofBudget` gives (as for every
+other route), and a caller limit smaller than that is respected when `ved.u1.proofHeartbeats` is 0 too.
+A controller of 100 statements needs about 1.3·10^10 heartbeats (R41, R46); the earlier measurement set
+24000000 here explicitly.  An untrusted resource bound only: a proof that is not finished is refused at
+`[proof]`; the harness' own wall-clock limit still applies. -/
+register_option ved.u1.seqProofHeartbeats : Nat := {
+  defValue := 0
+  descr := "VED U1 packed with registers: extra lower bound (thousands) on maxHeartbeats for the loop script (0 = no extra floor; withProofBudget still applies)"
+}
+
+/-- `max caller (ved.u1.seqProofHeartbeats * 1000)`; the option 0 leaves the limit unchanged. -/
 def withSeqBudget {α} (k : TermElabM α) : TermElabM α :=
-  withTheReader Core.Context (fun c => { c with maxHeartbeats := max c.maxHeartbeats 24000000000 }) k
+  withTheReader Core.Context
+    (fun c => { c with maxHeartbeats := max c.maxHeartbeats (ved.u1.seqProofHeartbeats.get c.options * 1000) }) k
 
 /-- Debugging/controls only: stop the generated proof after stage `k` and print the goals. -/
 register_option ved.multiseq.dbg : Nat := {
