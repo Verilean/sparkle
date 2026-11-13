@@ -48,4 +48,5 @@ a new statement `PackedStmt` alongside it:
 * Proof: the ordinary `U1Stmt` of the packed value (`PContract.core`, `packedF`) by the existing step lemma, then
   `slices_of_outputs` (general, proved once in `Tools/VedU1Packed.lean` from `OTy.slices_obs`) turns it into the slice statement.
 * `Tests/Ved/U1PackedCheck.lean`: positives and negatives.
-* Scope: register-free bodies, `Bool` / `BitVec w` leaves, no params / structure / register / memory / hierarchy.
+* Scope: `Bool` / `BitVec w` leaves, no params / structure / memory / hierarchy.  Registers: register-free bodies here; bodies with
+  registers (`Signal.loop` state) are in docs/VED-U1-MULTISEQ.md (the statement is the same `PackedStmt`).

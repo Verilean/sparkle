@@ -1,5 +1,6 @@
 import Tools.VedU1Entry
 import Tools.VedU1Packed
+import Tools.VedU1MultiSeq
 
 /-!
 # U1 entry for a packed result `Signal d (A × B)` (`#ved_u1_packed decl`)
@@ -9,8 +10,10 @@ An explicit mode next to `#ved_u1` (which still refuses such a declaration at
 specialise a leading `DomainConfig` binder, read the table from the declaration's TYPE, call
 `synthesizeCombinational` ONCE, register `ved_mod`, `ved_contract` (here a `PContract`),
 `ved_outs`, `ved_body`, elaborate the generated script against `PackedStmt c m stmt`, add the theorem with exactly
-that type, strict audit.  Register-free bodies only; the result must be a `Prod` tree of at least two
-leaves inside ONE `Signal` (`Bool` / `BitVec w` leaves).
+that type, strict audit.  Register-free bodies use `packedScript` (then `packedCombScript`); bodies with
+registers (`Signal.loop`) use `packedLoopScript` (Tools/VedU1MultiSeq.lean), the contract then carrying the
+module's clock/reset and register initial values (`PContract.clkRst` / `inits`, bound by `ShapeCore`).  The
+result must be a `Prod` tree of at least two leaves inside ONE `Signal` (`Bool` / `BitVec w` leaves).
 
 Refusals (`VED U1 REFUSED <decl> [<stage>]`; the `ved_*` constants the checker registered after it
 started are taken back; side effects of synthesis before that, e.g. IO or caches, are NOT rolled back): `table`, `packed` (not a packed
@@ -94,16 +97,15 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
       refuse decl "packed" m!"the result is not a product inside one `Signal`"
     let pc : PContract :=
       { modName := m.name, tbl, port := "out", slices,
-        inNames := tbl.binders.map ("_gen_" ++ ·), wires := m.wires }
+        inNames := tbl.binders.map ("_gen_" ++ ·), wires := m.wires,
+        clkRst := clkRstOf m, inits := (regsOf m.body).map (fun r => (r.1, r.2.2.2)) }
     unless m.outputs.map (·.name) == ["out"] do
       refuse decl "packed" m!"the module's output ports {m.outputs.map (·.name)} are not the one packed port `out`"
     unless decide (PackCover pc) do
       refuse decl "packed"
         m!"the slice map {slices} is not the packing rule's map for the declaration's result, or does not cover the port exactly (width, order, offset, overlap, missing slice)"
-    if (regsOf m.body).length != 0 then
-      refuse decl "packed" m!"registers are not supported (register-free bodies only)"
     let mE := toExpr m
-    let back ← evalModule mE
+    let back ← withEvalBudget (evalModule mE)
     unless decide (back = m) do
       refuse decl "artifact" m!"toExpr of the returned module does not evaluate back to it"
     addDefn nm.mod (Lean.mkConst ``Sparkle.IR.AST.Module) mE
@@ -121,28 +123,49 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
     let expected := mkAppN (Lean.mkConst ``PackedStmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
-    let stx ← match proof with
-      | .generated => packedScript nm stmt.getAppFn.constName! stmt.getAppNumArgs
-      | .term s => pure s
-      | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
-    let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
-    let pf ← try
-        withoutErrToSorry do
-          let e ← elabTermEnsuringType stx expected
-          synthesizeSyntheticMVarsNoPostponing
-          instantiateMVars e
-      catch e => refuse decl "proof" e.toMessageData
-    let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
-    if errs.length != errsBefore then
-      let first ← match errs.drop errsBefore with
-        | msg :: _ => msg.data.toString
-        | [] => pure ""
-      refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
-    if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
-    try
-      withOptions (fun o => o.setBool `Elab.async false) do
-        addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf })
-    catch e => refuse decl "kernel" e.toMessageData
+    -- a body with registers: the optional extra floor `ved.u1.seqProofHeartbeats` (default 0: none)
+    let budget {α} (k : TermElabM α) : TermElabM α :=
+      if (regsOf m.body).isEmpty then k else Tools.VedU1MultiSeq.withSeqBudget k
+    -- elaborate a script against the expected statement (errors are not turned into sorry)
+    let elabProof (stx : Syntax) : TermElabM Lean.Expr := do
+      let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
+      let pf ← tryCatchRuntimeEx
+          (budget <| withProofBudget do
+          withoutErrToSorry do
+            let e ← elabTermEnsuringType stx expected
+            synthesizeSyntheticMVarsNoPostponing
+            instantiateMVars e)
+          fun e => refuse decl "proof" e.toMessageData
+      let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
+      if errs.length != errsBefore then
+        let first ← match errs.drop errsBefore with
+          | msg :: _ => msg.data.toString
+          | [] => pure ""
+        refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
+      if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
+      return pf
+    let pf ← match proof with
+      | .generated =>
+        let F := stmt.getAppFn.constName!
+        if (regsOf m.body).isEmpty then
+          -- the register-free script first; a body it does not cover (comparisons against constants,
+          -- wide operands) is retried with the loop script's unfolding and closing, without the loop
+          let st ← saveState
+          try elabProof (← packedScript nm F stmt.getAppNumArgs)
+          catch e0 =>
+            unless ← isRefusal e0 do throw e0
+            st.restore (restoreInfo := true)
+            try elabProof (← Tools.VedU1MultiSeq.packedCombScript nm F stmt.getAppNumArgs (← helperConsts F))
+            catch _ => throw e0
+        else
+          elabProof (← Tools.VedU1MultiSeq.packedLoopScript nm F stmt.getAppNumArgs
+            ((regsOf m.body).map fun r => (r.1, declWidth m r.1)) (← helperConsts F))
+      | .term s => elabProof s
+      | .built mk => elabProof (← try mk nm m catch e => refuse decl "proof" e.toMessageData)
+    tryCatchRuntimeEx
+      (budget <| withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
+        addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
+      fun e => refuse decl "kernel" e.toMessageData
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
       | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
     unless ti.type == expected do refuse decl "type" m!"stored type differs from the expected statement"
