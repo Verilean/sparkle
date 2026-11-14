@@ -16,7 +16,8 @@ shapes then run out of budget:
 * a signed product followed by an arithmetic shift by a narrow selector and a clamp
   (`requantize`): the whole normalisation is repeated for every value of the selector.
 
-The heavy script (`scriptFor … (heavy := true)`) keeps a signed value whole:
+The heavy tactics (`scriptFor … (heavy := 1)`: a capped first try inside the flat script, which runs
+from the same state when the try fails; `heavy := 2`: alone, for the controls) keep a signed value whole:
 
 1. `ved_heavy_norm` brings both sides to ONE form: `BitVec.toInt x` is `toSigned w x.toNat`,
    `toSigned` / `toNat` are pushed into `ite`s, `(toSigned a * toSigned b).bmod 2^w` is
@@ -25,9 +26,14 @@ The heavy script (`scriptFor … (heavy := true)`) keeps a signed value whole:
    range facts;
 2. `ved_gen_atoms` names each `toSigned` argument that is a wrap-around of a product
    (`x0 * e % 2 ^ 32`) by a variable with its range;
-3. after the selectors are case-split, `ved_heavy_close` splits once per distinct condition
-   (`split` rewrites every `ite` on the same condition) and closes the leaves by `omega` /
-   `simp_all`, unfolding `toSigned` only at a leaf.
+3. a shift by a selector is named by a variable with the range of a signed value (`ved_gen_shifts`,
+   no case split of the selector); without a shift the selectors are case-split; `ved_heavy_close`
+   then splits once per distinct condition (`split` rewrites every `ite` on the same condition; at
+   most `maxLeaves` cases) and closes the leaves by `simp_all` / `omega`, unfolding `toSigned` only
+   at a leaf.
+
+The try is bounded (`ved_heavy_try`: `heavyHeartbeats`, simp steps, cases), so a module of another shape
+costs a few seconds before the flat tactics run.
 
 The script is UNTRUSTED: the kernel checks the proof term it produces.
 -/
@@ -124,7 +130,7 @@ syntax (name := vedHeavyNorm) "ved_heavy_norm" : tactic
 
 macro_rules
   | `(tactic| ved_heavy_norm) =>
-    `(tactic| (simp (disch := omega) only [apply_ite BitVec.toNat,
+    `(tactic| (simp (config := { maxSteps := 10000 }) (disch := omega) only [apply_ite BitVec.toNat,
           Tools.VedU1Heavy.toInt_eq_toSigned, Tools.VedU1Heavy.mul_bmod_toSigned,
           BitVec.toNat_ofNat, Tools.VedU1Lemmas.toNat_sshiftRight', BitVec.toNat_mul, BitVec.extractLsb'_toNat,
           Tools.VedU1ScriptSeq.vedToNatAppend, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Heavy.vedOrAdd,
@@ -210,10 +216,24 @@ elab "ved_gen_shifts" : tactic => withMainContext do
 /-- step 3: the closing tactic, after the selectors are case-split -/
 syntax (name := vedHeavyClose) "ved_heavy_close" : tactic
 
-macro_rules
-  | `(tactic| ved_heavy_close) =>
-    `(tactic| ((repeat' split)
-        <;> (first | (simp_all; done) | omega | (simp only [Sparkle.IR.Semantics.toSigned, Int.shiftRight_eq_div_pow] at *
+/-- the most cases `ved_heavy_close` takes after splitting once per distinct condition: `maxPool2x2` and
+`requantize` give 9; a module of another shape (`aluSignal`: 78) is left to the flat script at once, not
+after a closing attempt on every case -/
+def maxLeaves : Nat := 24
+
+open Lean Meta Elab Tactic in
+elab_rules : tactic
+  | `(tactic| ved_heavy_close) => do
+    -- one split per round and goal, stopped as soon as there are more than `maxLeaves` cases
+    let mut n := (← getGoals).length
+    for _ in [0:16] do
+      evalTactic (← `(tactic| all_goals (try split)))
+      let n' := (← getGoals).length
+      if n' > maxLeaves then
+        throwError "ved_heavy_close: more than {maxLeaves} cases after splitting one per condition"
+      if n' == n then break
+      n := n'
+    evalTactic (← `(tactic| all_goals (first | (simp_all; done) | omega | (simp only [Sparkle.IR.Semantics.toSigned, Int.shiftRight_eq_div_pow] at *
                                                     <;> (repeat' split) <;> omega))))
 
 end Tools.VedU1Heavy
@@ -239,5 +259,29 @@ elab_rules : tactic
       evalTactic (← `(tactic| (ved_gen_shifts; ved_heavy_close)))
     else
       evalTactic (← `(tactic| (($split:tacticSeq); all_goals ved_heavy_close)))
+
+end Tools.VedU1Heavy
+
+namespace Tools.VedU1Heavy
+open Lean Meta Elab Tactic
+
+/-- the heartbeat budget (thousands) of the heavy try: `maxPool2x2` needs under 5e7 heartbeats and
+`requantize` under 1.5e8; a module of another shape that the heavy tactics do not close must not cost more
+than this before the flat tactics run -/
+def heavyHeartbeats : Nat := 300000
+
+/-- run a tactic sequence under the heavy budget; any failure, a heartbeat or recursion limit included, is an
+ordinary error, so that `first | ved_heavy_try (…) | …` goes on with the flat tactics from the saved state -/
+syntax (name := vedHeavyTry) "ved_heavy_try " "(" tacticSeq ")" : tactic
+
+elab_rules : tactic
+  | `(tactic| ved_heavy_try ( $seq:tacticSeq )) => do
+    let hb0 ← IO.getNumHeartbeats
+    let cap := heavyHeartbeats * 1000
+    tryCatchRuntimeEx
+      (withTheReader Core.Context
+        (fun c => { c with initHeartbeats := hb0, maxHeartbeats := if c.maxHeartbeats == 0 then cap else min c.maxHeartbeats cap })
+        (evalTactic seq))
+      fun e => throwError "ved_heavy_try: {e.toMessageData}"
 
 end Tools.VedU1Heavy

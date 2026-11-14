@@ -14,19 +14,20 @@ The real rows `Sparkle.IP.YOLOv8.Primitives.MaxPool.maxPool2x2` (four signed INT
 `slt`) and `Sparkle.IP.YOLOv8.Primitives.Requantize.requantize` (INT32 accumulator times a sign-extended
 unsigned 16-bit scale, arithmetic shift by a 5-bit selector, clamp to INT8) were refused at `[proof]`
 (heartbeats): the wide path of the flat script opens every signed value into a case split on its sign bit,
-once per case of the selector.  `Tools/VedU1Heavy.lean` is the first attempt the entry now makes for a
-combinational module with wide data inputs (`scriptFor … (heavy := true)`): both sides brought to one
-form with `toSigned` kept whole (`ved_heavy_norm`), the wrap-around product and the shifted value named
-by variables with their ranges (`ved_gen_atoms`, `ved_gen_shifts`), one case split per distinct
-condition (`ved_heavy_close`).  When it fails the flat script runs as before.
+once per case of the selector.  `Tools/VedU1Heavy.lean` is a capped first try inside the flat script of a
+combinational module with wide data inputs and a signed comparison or arithmetic shift
+(`scriptFor … (heavy := 1)`): both sides brought to one form with `toSigned` kept whole
+(`ved_heavy_norm`), the wrap-around product and the shifted value named by variables with their ranges
+(`ved_gen_atoms`, `ved_gen_shifts`), one case split per distinct condition (`ved_heavy_close`).  When the
+try fails (error, heartbeat cap, more than 24 cases) the flat tactics run as before from the same state.
 
 What is fixed here, at the smallest sizes that exercise each shape and on the two real rows:
 1. `#ved_u1` accepts `smax3` (three 6-bit inputs: a select tree, 18 bits), `smax4` (four 8-bit: the
    `maxPool2x2` shape), `qreq` (10 + 4 + 3 bits: product, shift, clamp), and the two real rows;
    the stored type of `<decl>.ved_u1` compared with `==` against `U1Stmt <decl>.ved_contract
    <decl>.ved_mod (@decl defaultDomain)`, axioms within std3;
-2. the heavy script ALONE (no flat fallback) accepts `smax3` and `qreq`;
-3. refusals (`expectRefused`, stage `[proof]`, no `ved_*` constant left) of the heavy script alone on the
+2. the heavy tactics ALONE (`heavy := 2`: no flat fallback) accepts `smax3` and `qreq`;
+3. refusals (`expectRefused`, stage `[proof]`, no `ved_*` constant left) of the heavy tactics alone on the
    module with one change each: the signed compare read as unsigned (select tree and clamp), the operands of
    the compare exchanged (both), the arithmetic shift read as logical, a clamp bound changed (7 becomes 6), the
    sign-extension constant of the scale (63 becomes 31).
@@ -139,7 +140,7 @@ def heavyProof (decl : Name) (nDom : Nat) : ProofSrc :=
     let clkRst := clkRstOf m
     let inNames := (dataPortsOf m clkRst).map fun p => p.name
     let widths := m.inputs.filter (fun p => match clkRst with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
-    scriptFor nm decl nDom (regShape m) inNames (bodyHasEq m.body) none (← helperConsts decl) widths none (heavy := true)
+    scriptFor nm decl nDom (regShape m) inNames (bodyHasEq m.body) none (← helperConsts decl) widths none (heavy := 2)
 
 def modOfDecl (decl : Name) : TermElabM Sparkle.IR.AST.Module := do
   let (m, _) ← Sparkle.Compiler.Elab.synthesizeCombinational decl
