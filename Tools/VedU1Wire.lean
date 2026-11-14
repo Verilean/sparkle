@@ -26,10 +26,10 @@ theorem ved_cast_ite (c : Prop) [Decidable c] (a b : Nat) :
     ((if c then a else b : Nat) : Int) = if c then (a : Int) else (b : Int) := by
   split <;> rfl
 
-/-! ### bit operations with a numeral operand
+/-! ### bit operations with the numeral `1`
 
-`a &&& c`, `a ^^^ c`, `a ||| c` for a numeral `c` are rewritten, one bit at a time, to `/ 2` and `% 2` terms
-(`c` halves at each step, so the rewriting stops at `0`), which `omega` reads. -/
+`a &&& 1`, `a ^^^ 1`, `a ||| 1` (and the numeral first) are rewritten to `/ 2` and `% 2` terms, which `omega` reads
+(`ved_bitlit1`; the numeral halves to `0` in one step). -/
 
 theorem and_mod2 (a c : Nat) : (a &&& c) % 2 = (a % 2) * (c % 2) := by
   have h := Nat.testBit_and a c 0
@@ -64,12 +64,6 @@ theorem or_step (a c : Nat) : a ||| c = 2 * ((a / 2) ||| (c / 2)) + (a % 2 + c %
   have h1 : (a ||| c) / 2 = (a / 2) ||| (c / 2) := by simpa using (Nat.or_div_two_pow (a := a) (b := c) (n := 1))
   have h2 := or_mod2 a c
   omega
-theorem and_step_r (a c : Nat) (_hc : c ≠ 0) : a &&& c = 2 * ((a / 2) &&& (c / 2)) + (a % 2) * (c % 2) := and_step a c
-theorem and_step_l (a c : Nat) (_hc : c ≠ 0) : c &&& a = 2 * ((c / 2) &&& (a / 2)) + (c % 2) * (a % 2) := and_step c a
-theorem xor_step_r (a c : Nat) (_hc : c ≠ 0) : a ^^^ c = 2 * ((a / 2) ^^^ (c / 2)) + (a % 2 + c % 2) % 2 := xor_step a c
-theorem xor_step_l (a c : Nat) (_hc : c ≠ 0) : c ^^^ a = 2 * ((c / 2) ^^^ (a / 2)) + (c % 2 + a % 2) % 2 := xor_step c a
-theorem or_step_r (a c : Nat) (_hc : c ≠ 0) : a ||| c = 2 * ((a / 2) ||| (c / 2)) + (a % 2 + c % 2 - (a % 2) * (c % 2)) := or_step a c
-theorem or_step_l (a c : Nat) (_hc : c ≠ 0) : c ||| a = 2 * ((c / 2) ||| (a / 2)) + (c % 2 + a % 2 - (c % 2) * (a % 2)) := or_step c a
 
 theorem and_step_r1 (a c : Nat) (_hc : c ≠ 0) (_h : c < 2) : a &&& c = 2 * ((a / 2) &&& (c / 2)) + (a % 2) * (c % 2) := and_step a c
 theorem and_step_l1 (a c : Nat) (_hc : c ≠ 0) (_h : c < 2) : c &&& a = 2 * ((c / 2) &&& (a / 2)) + (c % 2) * (a % 2) := and_step c a
@@ -82,13 +76,6 @@ theorem or_step_l1 (a c : Nat) (_hc : c ≠ 0) (_h : c < 2) : c ||| a = 2 * ((c 
 macro "ved_bitlit1" loc:(Lean.Parser.Tactic.location)? : tactic =>
   `(tactic| simp (disch := decide) only [Tools.VedU1Wire.and_step_r1, Tools.VedU1Wire.and_step_l1,
      Tools.VedU1Wire.xor_step_r1, Tools.VedU1Wire.xor_step_l1, Tools.VedU1Wire.or_step_r1, Tools.VedU1Wire.or_step_l1,
-     Nat.reduceDiv, Nat.reduceMod, Nat.reduceXor, Nat.reduceAnd, Nat.reduceOr, Nat.and_zero, Nat.zero_and,
-     Nat.xor_zero, Nat.zero_xor, Nat.or_zero, Nat.zero_or, Nat.reduceMul, Nat.reduceAdd, Nat.reduceSub] $[$loc]?)
-
-/-- the rewriting of the bit operations with a numeral operand -/
-macro "ved_bitlit" loc:(Lean.Parser.Tactic.location)? : tactic =>
-  `(tactic| simp (disch := decide) only [Tools.VedU1Wire.and_step_r, Tools.VedU1Wire.and_step_l,
-     Tools.VedU1Wire.xor_step_r, Tools.VedU1Wire.xor_step_l, Tools.VedU1Wire.or_step_r, Tools.VedU1Wire.or_step_l,
      Nat.reduceDiv, Nat.reduceMod, Nat.reduceXor, Nat.reduceAnd, Nat.reduceOr, Nat.and_zero, Nat.zero_and,
      Nat.xor_zero, Nat.zero_xor, Nat.or_zero, Nat.zero_or, Nat.reduceMul, Nat.reduceAdd, Nat.reduceSub] $[$loc]?)
 
@@ -471,13 +458,14 @@ def addBitFacts : TacticM Unit := do
 
 /-- a proof of `prop` in the context of the main goal reduced to `keep`, by `dfsOmega` (after the `bmod` and
 cast-of-`if` rewrites); `none` when it fails -/
-def localProof? (prop : Expr) (keep : Std.HashSet FVarId) (fuel : Nat) (bits : Bool := false) : TacticM (Option Expr) := do
+def localProof? (prop : Expr) (keep : Std.HashSet FVarId) (fuel : Nat) (bits : Bool := false) (maxLevel : Nat := 1) :
+    TacticM (Option Expr) := do
   let saved ← getGoals
   let hb ← IO.getNumHeartbeats
-  -- `level`: 0 no rewriting of bit operations, 1 those with the numeral `1`, 2 those with any numeral (the
-  -- rewritten terms are large for `omega`, so the cheaper contexts are tried first); without bit operations
-  -- in the goal only level 0
-  let levels : List Nat := if bits then [0, 1, 2] else [0]
+  -- `level`: 0 no rewriting of bit operations, 1 those with the numeral `1` (the one-bit logic of a comparison
+  -- of a top bit); the rewritten terms of the other numerals are large for `omega` and no row needs them;
+  -- without bit operations in the goal only level 0
+  let levels : List Nat := if bits then (([0, 1] : List Nat).filter (· ≤ maxLevel)) else [0]
   for level in levels do
     let m ← mkFreshExprMVar prop
     let m' ← clearOthers m.mvarId! keep
@@ -490,7 +478,6 @@ def localProof? (prop : Expr) (keep : Std.HashSet FVarId) (fuel : Nat) (bits : B
           if bits then substWires
           step (evalTactic (← `(tactic| try simp only [Int.bmod_def, Tools.VedU1Wire.ved_cast_ite] at *)))
           if level == 1 then step (evalTactic (← `(tactic| try ved_bitlit1 at *)))
-          if level == 2 then step (evalTactic (← `(tactic| try ved_bitlit at *)))
           if bits then step addBitFacts
           if (← getGoals).isEmpty then return true
           dfsOmega fuel
@@ -671,7 +658,7 @@ def addRange (k : Nat) (xn hn : Name) (isNat : Bool) (lo hi : Int) (bits : Bool 
       props := props.push (← mkAppM ``LE.le #[← intLit lo, xe])
     pure props
   for p in props do
-    let some pf ← withMainContext (localProof? p keep 3 bits) | continue
+    let some pf ← withMainContext (localProof? p keep 3 bits 0) | continue
     let g ← getMainGoal
     let (_, g') ← (← g.assert (Name.mkSimple s!"ved_g{k}") p pf).intro1P
     replaceMainGoal [g']

@@ -143,7 +143,14 @@ elab "ved_loop_gen_share " s:ident : tactic => withMainContext do
     let X := mkIdent (Name.mkSimple s!"ved_X{j}")
     let some α := loops[j]!.getAppArgs[1]? | throwError "ved_loop_gen_share: malformed Signal.loop"
     let bare := !(← whnfR α).isAppOf ``Prod
-    generalizeDag v (if bare then Name.mkSimple s!"ved_x{j}_0" else X.getId)
+    -- in every goal (the `Bool` components of an earlier loop were split into goals)
+    let gs ← getGoals
+    let mut gsOut : List MVarId := []
+    for g in gs do
+      setGoals [g]
+      generalizeDag v (if bare then Name.mkSimple s!"ved_x{j}_0" else X.getId)
+      gsOut := gsOut ++ (← getGoals)
+    setGoals gsOut
     let n := (← Tools.VedU1Loop.stateComps α).length
     let xs := (List.range (if bare then 1 else n + 1)).toArray.map fun i => mkIdent (Name.mkSimple s!"ved_x{j}_{i}")
     let pats ← xs.mapM fun x => `(Lean.Parser.Tactic.rcasesPatLo| $x:ident)
