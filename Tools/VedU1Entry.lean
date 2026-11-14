@@ -844,6 +844,17 @@ partial def exprHasEq : Sparkle.IR.AST.Expr → Bool
 def bodyHasEq (body : List Sparkle.IR.AST.Stmt) : Bool :=
   body.any fun | .assign _ e => exprHasEq e | _ => false
 
+/-- Does an expression use a signed comparison or an arithmetic shift? (only picks the heavy first attempt) -/
+partial def exprHasSigned : Sparkle.IR.AST.Expr → Bool
+  | .op o args => [Sparkle.IR.AST.Operator.lt_s, .le_s, .gt_s, .ge_s, .asr].contains o || args.any exprHasSigned
+  | .concat args => args.any exprHasSigned
+  | .slice e _ _ | .sliceDim e _ _ => exprHasSigned e
+  | .index a i => exprHasSigned a || exprHasSigned i
+  | _ => false
+
+def bodyHasSigned (body : List Sparkle.IR.AST.Stmt) : Bool :=
+  body.any fun | .assign _ e => exprHasSigned e | _ => false
+
 /-- Resource budget for ELABORATING the generated script only (a finite bound,
 not a check: the kernel still checks the result in full).  A table of `n`
 entries is an `n`-deep `mux` chain; `simp` over it recurses once per level (the
@@ -1045,8 +1056,8 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
               stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) with
           | some sx => tryScriptFirst sx expected
           | none => pure none
-        else if stmt.getAppFn.isConst && regs.isEmpty && tblD?.isNone && inNames.length ≥ 1 then
-          -- a combinational module with wide data inputs: the signed-select closing (`Tools.VedU1Heavy`)
+        else if stmt.getAppFn.isConst && regs.isEmpty && tblD?.isNone && inNames.length ≥ 1 && bodyHasSigned m.body then
+          -- a combinational module with signed operations and wide data inputs: the heavy closing (`Tools.VedU1Heavy`)
           let widths := m.inputs.filter (fun p => match clkRst with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
           if widths.length == inNames.length && widths.foldl (· + ·) 0 > 16 then
             let sx ← scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none
