@@ -739,7 +739,7 @@ def proveCone (prop : Expr) (starts : Array Name) (maxDepth : Nat) (bits : Bool 
           unless S.contains f do S := S.push f
       pure (eqNames, S)
     let keep ← keepFor eqNames S
-    pr ← withMainContext (localProof? prop keep 12 bits)
+    pr ← withMainContext (localProof? prop keep (if bits then 6 else 12) bits)
     if pr.isNone && depth + 1 < maxDepth then
       let next ← withMainContext do
         let mut out : Array Name := #[]
@@ -894,7 +894,7 @@ def wireMain (force : Bool) : TacticM Unit := withMainContext do
       let t ← instantiateMVars (← getMainTarget)
       let ws ← wiresIn t
       pure (t, ← ws.mapM (·.getUserName))
-    let some pf ← proveCone tgt starts 6 s.bits | throwError "ved_wire: the goal is not proved from the equalities"
+    let some pf ← proveCone tgt starts (if s.bits then 3 else 6) s.bits | throwError "ved_wire: the goal is not proved from the equalities"
     g.assign pf
     replaceMainGoal []
 

@@ -1,5 +1,6 @@
 import Lean
 import Tools.VedU1Loop
+import Tools.VedU1Wire
 
 /-!
 # Sharing-preserving steps of the single-register loop script (U1)
@@ -162,5 +163,17 @@ elab "ved_bit_simp_share" : tactic => withMainContext do
       && (Tools.VedU1Loop.natBitOps tgt).size ≥ Tools.VedU1Loop.bitsMinOps then
     return
   evalTactic (← `(tactic| try ved_bit_simp))
+
+/-- `ved_pack_wire_all`: `all_goals ved_pack_wire`, where the failure of the step on a goal is the failure of the tactic
+(`all_goals` recovers from the error of its argument and leaves the goal, and the closing steps that follow then run
+`omega` on a goal that is read as an exponentially large tree) -/
+elab "ved_pack_wire_all" : tactic => do
+  let gs ← getGoals
+  let mut rest : List MVarId := []
+  for g in gs do
+    setGoals [g]
+    evalTactic (← `(tactic| ved_pack_wire))
+    rest := rest ++ (← getGoals)
+  setGoals rest
 
 end Tools.VedU1WireShare
