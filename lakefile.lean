@@ -1602,3 +1602,6 @@ lean_lib «Tools.VedInvocation» where
 
 lean_lib «Tests.Ved.InvocationCheck» where
   roots := #[`Tests.Ved.InvocationCheck]
+
+lean_lib «Tools.VedWriteForms» where
+  roots := #[`Tools.VedWriteForms]
