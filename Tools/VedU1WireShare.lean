@@ -159,7 +159,7 @@ elab "ved_loop_gen_share " s:ident : tactic => withMainContext do
 elab "ved_bit_simp_share" : tactic => withMainContext do
   let tgt ← instantiateMVars (← getMainTarget)
   if Tools.VedU1Loop.treeSizeVal tgt ≥ Tools.VedU1Loop.shareMinTree
-      && (Tools.VedU1Loop.natBitOps tgt).size > 0 then
+      && (Tools.VedU1Loop.natBitOps tgt).size ≥ Tools.VedU1Loop.bitsMinOps then
     return
   evalTactic (← `(tactic| try ved_bit_simp))
 

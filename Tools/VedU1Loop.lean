@@ -78,6 +78,10 @@ def treeSizeVal (e : Lean.Expr) : Nat := Id.run ((treeSizeOf e).run' {})
 /-- a goal whose tree has fewer nodes than this is left alone by `ved_wire` (`Tools/VedU1Wire.lean`) -/
 def shareMinTree : Nat := 150000
 
+/-- a goal with at least this many distinct bit operations (`^^^`, `&&&`, `|||` on `Nat`) is wired with its atoms and
+the bit operations of the wires rewritten (`Tools/VedU1Wire.lean`) -/
+def bitsMinOps : Nat := 8
+
 open Lean Elab Tactic in
 /-- `omega` with a small heartbeat budget of its own (the rewrite rules below call it as a
 side-condition discharger, many times, on goals that can be large): running out of the budget is an

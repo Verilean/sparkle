@@ -865,10 +865,10 @@ def wireMain (force : Bool) : TacticM Unit := withMainContext do
           let t ← instantiateMVars d.type
           if (← isProp t) then es := es.push t
     pure es
-  -- a goal with bit operations (`^^^`, `&&&`, `|||` on `Nat`): the atoms (the inputs of the module, the register
+  -- a goal with many bit operations (`^^^`, `&&&`, `|||` on `Nat`, at least `bitsMinOps`): the atoms (the inputs of the module, the register
   -- values) become wires as well, so that `w0 = in % 256` and `in` are two wires of equal value and the operations
   -- over them can be compared (`substWires`)
-  let bits := (← collectEs).any fun e => (Tools.VedU1Loop.natBitOps e).size > 0
+  let bits := (← collectEs).any fun e => (Tools.VedU1Loop.natBitOps e).size ≥ Tools.VedU1Loop.bitsMinOps
   st.modify fun s => { s with bits := bits }
   if bits then
     let mut tried : Array Expr := #[]
@@ -905,13 +905,13 @@ elab "ved_wire_bits" : tactic => wireMain true
 
 /-- `ved_pack_wire`: the packing step of the loop script (`ved_pack_simp`) on a goal of ordinary size; on a large goal
 (`shareMinTree` nodes read as a tree) `ved_wire`, whose failure is the failure of the step.  A goal of ordinary size
-with many bit operations (at least 16 in a tree of at least 20000 nodes: the bit-serial CRC of a 32-bit register)
+with many bit operations (at least `2 * bitsMinOps` in a tree of at least 20000 nodes: the bit-serial CRC of a 32-bit register)
 is tried with `ved_wire_bits` first, and the packing step is the fallback -/
 elab "ved_pack_wire" : tactic => withMainContext do
   let tgt ← instantiateMVars (← getMainTarget)
   let size := Tools.VedU1Loop.treeSizeVal tgt
   if size < Tools.VedU1Loop.shareMinTree then
-    if size ≥ 20000 && (Tools.VedU1Loop.natBitOps tgt).size ≥ 16 then
+    if size ≥ 20000 && (Tools.VedU1Loop.natBitOps tgt).size ≥ 2 * Tools.VedU1Loop.bitsMinOps then
       evalTactic (← `(tactic| first | ved_wire_bits | try ved_pack_simp))
     else
       evalTactic (← `(tactic| try ved_pack_simp))
