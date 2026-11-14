@@ -910,6 +910,11 @@ inductive ProofSrc
 /-- the heartbeat budget (thousands) of the first-attempt script -/
 def firstAttemptHeartbeats : Nat := 3000000
 
+/-- the heartbeat budget (thousands) of the heavy first attempt (`Tools.VedU1Heavy`): `maxPool2x2` needs
+under 5e7 heartbeats and `requantize` under 1.5e8; a module of another shape that the heavy script does not
+close must not cost more than this before the flat script runs -/
+def heavyHeartbeats : Nat := 300000
+
 /-- TEST HOOK (default 0 = off): replaces `firstAttemptHeartbeats` (thousands) so a control can make
 the first attempt hit its cap cheaply. -/
 register_option ved.u1.firstAttemptHeartbeatsForTest : Nat := {
@@ -924,12 +929,12 @@ def firstAttemptLimit (ctx cap : Nat) : Nat := if ctx == 0 then cap else min ctx
 proof budget, and at most `firstAttemptHeartbeats` thousand heartbeats of it; any failure (exception,
 timeout, logged error, open term) puts the state back (messages and environment included) and
 returns `none`, so the caller runs the script it always ran. -/
-def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lean.Expr) := do
+def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) (cap : Nat := firstAttemptHeartbeats) : TermElabM (Option Lean.Expr) := do
   let saved ← saveState
   let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
   let hb0 ← IO.getNumHeartbeats
   let capK := match ved.u1.firstAttemptHeartbeatsForTest.get (← getOptions) with
-    | 0 => firstAttemptHeartbeats
+    | 0 => cap
     | n => n
   let r ← tryCatchRuntimeEx (do
       let pf ← withProofBudget do
@@ -1062,7 +1067,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
           if widths.length == inNames.length && widths.foldl (· + ·) 0 > 16 then
             let sx ← scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none
               (← helperConsts stmt.getAppFn.constName!) widths tblD? (heavy := true)
-            tryScriptFirst sx expected
+            tryScriptFirst sx expected heavyHeartbeats
           else pure none
         else pure none
       else pure none
