@@ -23,6 +23,7 @@ on:
       - 'Tools/SVParser/**'
       - 'Tools/VedStrictAudit.lean'
       - 'Tools/VedU1*.lean'
+      - 'Tools/VedU2*.lean'
       - 'Tools/VedIRDecEq.lean'
       - 'Tests/Verification/**'
       - 'Tests/Ved/**'
@@ -61,7 +62,47 @@ jobs:
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
 
     - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
-      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck
+      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck
+
+    - name: U1 on a real IP leaf (rconHW, representative, heavier)
+      run: lake build Tests.Ved.U1RconCheck
+
+    - name: H2 stateful hierarchy (semantics, open parent, H2a entry, H2b parent registers; accept and refuse controls)
+      run: lake build Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierWireCheck Tests.Ved.U2HierPin
+
+    - name: "H2c-state (a child call on the parent's register state): copies, controls"
+      run: lake build Tests.Ved.U2HierStateCallCheck
+
+    - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
+      run: lake build Tests.Ved.U2HierPartialDeepCheck
+
+    - name: "H2d: open-parent deep run (Fin tail arm, nested loop state, child call over nested + parent registers); altered-piece refusals"
+      run: lake build Tests.Ved.U2HierOpenDeepCheck
+
+    - name: "H2e: derived child arguments over register state (complement, one's-complement sum); refusal controls"
+      run: lake build Tests.Ved.U2HierOpenDeep2Check
+
+    - name: "H2e: unfolded nested loop and the configurable hierarchy/nested-export budget; controls"
+      run: lake build Tests.Ved.U2HierOpenDeep3Check
+
+    - name: "H2c-state: the ORIGINAL private declaration synth_httpGetByte (R223), the entry appended to its module"
+      run: |
+        lake build Tools.VedU2HierRegEntry IP.Net.HTTP
+        sed -e 's/^import Sparkle$/import Sparkle\nimport Tools.VedU2HierRegEntry/' -e 's/^#synthesizeVerilog synth_httpGetByte$/#synthesizeVerilog synth_httpGetByte\nset_option maxRecDepth 100000\n#ved_u2_hier synth_httpGetByte/' Tests/IP/Net/HTTPTest.lean > "$RUNNER_TEMP/HTTPTestReal.lean"
+        lake env lean "$RUNNER_TEMP/HTTPTestReal.lean" 2>&1 | tee "$RUNNER_TEMP/real.out"
+        grep -q "VED U2 HIER OK" "$RUNNER_TEMP/real.out"
+
+    - name: U1 on a real IP leaf (keccakRcHW, 32 x 64-bit constants)
+      run: lake build Tests.Ved.U1KeccakRcCheck
+
+    - name: U1 on real IP with == and wide inputs (aluSignal, hazardSignal, lqrCtrlTop, canopenIsNmt, droneCanNodeFilter)
+      run: lake build Tests.Ved.U1EqWideCheck
+
+    - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
+      run: lake build Tests.Ved.U1KTabCheck
+
+    - name: "U1 on real IP with several Signal.loop registers: 3 representative rows and refusal controls"
+      run: lake build Tests.Ved.U1MultiLoopCheck
 
     - name: Deep route, representative regression
       run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
@@ -89,7 +130,65 @@ jobs:
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
 
     - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
-      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck
+      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck
+
+    - name: U1 packed result with registers (positives and must-stay-refused controls)
+      run: lake build Tests.Ved.U1MultiSeqCheck
+
+    - name: "#writeDesign argument form and the chunked input domain (accept and refuse controls)"
+      run: lake build Tests.Ved.InvocationCheck
+
+    - name: U1 on a real IP leaf (rconHW, representative, heavier)
+      run: lake build Tests.Ved.U1RconCheck
+
+    - name: H2 stateful hierarchy (semantics, open parent, H2a entry, H2b parent registers; accept and refuse controls)
+      run: lake build Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierWireCheck Tests.Ved.U2HierPin
+
+    - name: "H2c-state (a child call on the parent's register state): copies, controls"
+      run: lake build Tests.Ved.U2HierStateCallCheck
+
+    - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
+      run: lake build Tests.Ved.U2HierPartialDeepCheck
+
+    - name: "Nested inline stateful calls through the deep route (nest, 2-deep, parentMix); altered-slot refusals"
+      run: lake build Tests.Ved.U2HierNestedInlineCheck
+
+    - name: "H2d: open-parent deep run (Fin tail arm, nested loop state, child call over nested + parent registers); altered-piece refusals"
+      run: lake build Tests.Ved.U2HierOpenDeepCheck
+
+    - name: "H2e: derived child arguments over register state (complement, one's-complement sum); refusal controls"
+      run: lake build Tests.Ved.U2HierOpenDeep2Check
+
+    - name: "H2e: unfolded nested loop and the configurable hierarchy/nested-export budget; controls"
+      run: lake build Tests.Ved.U2HierOpenDeep3Check
+
+    - name: "H2c-state: the ORIGINAL private declaration synth_httpGetByte (R223), the entry appended to its module"
+      run: |
+        lake build Tools.VedU2HierRegEntry IP.Net.HTTP
+        sed -e 's/^import Sparkle$/import Sparkle\nimport Tools.VedU2HierRegEntry/' -e 's/^#synthesizeVerilog synth_httpGetByte$/#synthesizeVerilog synth_httpGetByte\nset_option maxRecDepth 100000\n#ved_u2_hier synth_httpGetByte/' Tests/IP/Net/HTTPTest.lean > "$RUNNER_TEMP/HTTPTestReal.lean"
+        lake env lean "$RUNNER_TEMP/HTTPTestReal.lean" 2>&1 | tee "$RUNNER_TEMP/real.out"
+        grep -q "VED U2 HIER OK" "$RUNNER_TEMP/real.out"
+
+    - name: U1 on a real IP leaf (keccakRcHW, 32 x 64-bit constants)
+      run: lake build Tests.Ved.U1KeccakRcCheck
+
+    - name: U1 on real IP with == and wide inputs (aluSignal, hazardSignal, lqrCtrlTop, canopenIsNmt, droneCanNodeFilter)
+      run: lake build Tests.Ved.U1EqWideCheck
+
+    - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
+      run: lake build Tests.Ved.U1KTabCheck
+
+    - name: "U1 on real IP with several Signal.loop registers: all 30 rows (6 parts + PR check) and refusal controls"
+      run: lake build Tests.Ved.U1MultiLoopAll
+
+    - name: "U1 loop script for one-register circuit do, bare loops, closers, register matching by input support; refusal controls"
+      run: lake build Tests.Ved.U1UnsolvedCheck
+
+    - name: "U1 multi-register per-statement script: 11-register BIP-32 row and refusal controls"
+      run: lake build Tests.Ved.U1SeqCheck
+
+    - name: "U1 chained bit-serial CRC bodies (sharing-preserving loop script, bit-operation wires); refusal controls"
+      run: lake build Tests.Ved.U1WireShareCheck
 
     - name: Deep route, every regression file
       run: |

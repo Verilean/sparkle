@@ -1,7 +1,18 @@
 import Lean
 import Sparkle.Compiler.Elab
 import Tools.VedU1Contract
+import Tools.VedU1Lemmas
+import Tools.VedU1Table
+import Tools.VedU1TableGen
+import Std.Data.HashMap
+import Tools.VedU1Loop
+import Tools.VedU1Wire
+import Tools.VedU1WireShare
+import Tools.VedU1Uns
+import Tools.VedU1LemmasExt1
+import Tools.VedU1ScriptSeqGen
 import Tools.VedStrictAudit
+import Tools.VedInvocationDom
 
 /-!
 # U1 checked entry, minimal end-to-end slice (`#ved_u1 decl`)
@@ -11,10 +22,23 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
 
 `vedU1Entry declName` (and the command `#ved_u1 declName`):
 
-1. reads the declaration's port table from its TYPE (`readTable`, the reader
-   behind `ved_table%`) and REFUSES, before any synthesis, a declaration with
-   more than one output projection (the synthesizer's multi-output port
-   naming is not confirmed; the reviewer allows refusing it);
+1. specialises leading implicit `DomainConfig` binders (written
+   `{dom : DomainConfig}` or auto-bound) at `defaultDomain`
+   (`specialiseDomain`; any other non-explicit binder is left and refused),
+   reads the port table from the TYPE of that statement term
+   (`readTableOfType`; `readTable` and `ved_table%` read an unspecialised
+   constant as before) and REFUSES, before any synthesis, a declaration with
+   more than one projection in one `Signal` (`Signal d (A × B)` is ONE packed port, so
+   it stays refused at `multi-output`).  A result that is a `×`-tree of
+   `Signal d _` is multi-output (`stmtOf`): the statement is the lambda
+   `fun xs => bundle2 (decl xs).1 (decl xs).2` (nested by the tree), whose
+   table has one projection per leaf, and the port names are derived from the
+   tree by the synthesizer's rule (`portNamesOf`: `out_0`, `out_1`, nested
+   `out_0_1`, …, left-first; Sparkle/Compiler/Elab.lean `splitReturnLeaves`).
+   They must be EXACTLY the returned module's output names (else
+   `multi-output`); widths are checked by `ShapeStmt`, every port's value by
+   `OutputsStmt`.  Register-free bodies only; structure results stay refused
+   at `table`;
 2. calls `synthesizeCombinational declName` exactly ONCE (the function
    `#synthesizeVerilog` calls; main has no inliner fuel guard) and keeps the
    returned `(m, design)`.  The guarantee is about that returned module, not
@@ -22,10 +46,19 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
 3. registers `declName.ved_mod : Module := toExpr m` (and checks, by
    evaluating that closed term back and comparing with `m` by `DecidableEq`,
    that the term denotes the very value returned), the contract
-   `declName.ved_contract := contractOf tbl ["out"] clkRst declName.ved_mod`
+   `declName.ved_contract := contractOf tbl <port names> clkRst declName.ved_mod`
    and the output list `declName.ved_outs`;
 4. builds the expected type `U1Stmt declName.ved_contract declName.ved_mod
-   @declName` (the ORIGINAL constant) as an `Expr`, elaborates a generated
+   stmt` as an `Expr`, where `stmt` (built by `stmtOf`) is the ORIGINAL
+   constant `@declName`, or `@declName defaultDomain` when step 1 specialised
+   it (then the theorem is about that specialisation, not about every domain
+   of the polymorphic declaration; the OK line says "specialised at
+   defaultDomain"), or, for a result that is a `×`-tree of signals, the
+   bundled lambda `fun xs => bundle2 (D xs).1 (D xs).2` (nested by the tree)
+   over that same `D` (`bundledStmt`: projections of the original
+   declaration's value, nothing else).  `checkU1E` / `vedU1EntryOn` accept any
+   `stmt`; the link to the declaration is a property of the path
+   `stmtOf` → `vedU1EntryS`, not of the checker alone.  It elaborates a generated
    proof script against it (errors are never turned into `sorry`), adds the
    theorem `declName.ved_u1` to the kernel synchronously with exactly that
    type, re-reads its stored type and compares it with the expected `Expr`;
@@ -50,16 +83,37 @@ What a failure leaves and how it is reported (exactly what the code does):
   and inside `checkU1` the stages `table`, `multi-output` (of the statement's
   constant), `artifact`, `type`, `proof`, `kernel`,
   `audit`, plus `checker` for any other exception raised inside `checkU1`
-  (e.g. an `addDecl` of a registered name failing, or a runtime limit).
+  (e.g. an `addDecl` of a registered name failing).  A runtime limit
+  (heartbeats, recursion depth) while elaborating the proof is refused at
+  `proof`, and one in the synchronous kernel `addDecl` at `kernel`.
   NOT in that form: interrupt exceptions (never caught by the elaborator),
   and heartbeat / max-recursion exceptions raised by `readTable`,
   or `synthesizeCombinational` before `checkU1` starts (the plain
   `try … catch` there does not catch runtime exceptions; they propagate as
   their own errors).
 
+A register-free body that is a `kLut!` constant table (`tblDataOf?`: statements are constants,
+aliases, `eq` against the one input and `mux`es, wire `p` named `Tools.VedU1TableGen.Wt t p`) does
+NOT go through the flat `simp` below, which does not scale past about 32 entries (a 256-entry
+table is a 1022-statement body).  The checker registers `decl.ved_tbl` (the `TblData` read from
+the module) and the script uses the general lemmas of Tools/VedU1TableGen.lean: the kernel checks
+the body equals the position-indexed body of that data and a small Bool over the data; evaluation
+(`step_table`), `OrderOk` (`orderOk_table`) and the wire names' distinctness (`nodup_table`) are
+proved once, by induction, with no scan over names; the declaration's own mux chain is compared
+with `lutBV` of the table by `rfl`.  Any other body keeps the script below unchanged.
+
 The proof script is UNTRUSTED (the kernel checks it).  This slice's script
-covers register-free modules and modules with exactly one register whose
-current value is the output (a delay); any other body makes the script fail,
+covers register-free modules built from not/and/or/xor/add/sub/mux/slice,
+two-field concatenation, `==`, constants and `kLut!` mux chains (lemmas in
+Tools/VedU1Lemmas.lean; a body with `==` is closed by a kernel `decide` over the
+input domain only when the data inputs total at most 16 bits; above that, inputs of
+at most 6 bits are enumerated value by value and wider inputs stay symbolic, closed
+by `simp` + `omega`), and modules with
+exactly one register whose current value is the output (a delay), and modules with two or
+more registers that are the state of `Signal.loop`s (`circuit do`, nested `circuit do` included):
+`loopScriptFor` proves by induction on the cycle that register `n` of the module is the `toNat`
+of the loop-state component it implements (`Tools/VedU1Loop.lean`; Tests/Ved/U1MultiLoopCheck.lean);
+it is not complete for every circuit these operators can build; any other body makes the script fail,
 and the entry then refuses (stage `proof`), it never accepts.  The general
 proof generator is open (§10).
 
@@ -95,6 +149,14 @@ deriving instance Lean.ToExpr for Sparkle.IR.AST.Module
 theorem or_mod (a b w n : Nat) (hn : 2 ^ w = n) : a <<< w ||| b % n = a * n + b % n := by
   subst hn
   rw [← Nat.shiftLeft_add_eq_or_of_lt (Nat.mod_lt _ (Nat.two_pow_pos w)), Nat.shiftLeft_eq]
+
+/-- A one-bit port read back from its stream value. -/
+theorem toNat_bne (x : Nat) (h : x < 2) : x = (x != 0).toNat := by
+  rcases Nat.lt_or_ge x 1 with h0 | h1
+  · have : x = 0 := by omega
+    subst this; rfl
+  · have : x = 1 := by omega
+    subst this; rfl
 
 /-- `OutputsOn c m b f` from a one-cycle step invariant `R` (stream time `s`,
 register state `st`): `R` holds initially, and from any state satisfying it one
@@ -166,6 +228,97 @@ theorem not_outputs_of_witness (c : Contract) (m : Module) (f : c.table.Ty)
 theorem not_u1_of_not_outputs {c : Contract} {m : Module} {f : c.table.Ty}
     (h : ¬ OutputsStmt c m f) : ¬ U1Stmt c m f := fun hu => h hu.2.2.2.2
 
+/-- The fixed `simp` set of the generated step proofs (`scriptFor`'s register paths): the
+module-evaluation unfolding and the operator lemmas.  The per-declaration constants (module,
+body, outputs, contract, the declaration) and the helper definitions are the `ex` list.  Only
+the script uses it; the kernel checks the result. -/
+syntax (name := vedCoreSimp) "ved_core_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
+
+macro_rules
+  | `(tactic| ved_core_simp [$ex,*] $[$loc]?) =>
+    `(tactic| simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
+        Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
+        widthOf, seedIn, applyNexts, declWidth, srcOf, contractOf, applyIns, 
+        Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
+        Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, 
+        Tools.VedU1Lemmas.compl_val,
+        Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit,
+        Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val,
+        Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val,
+        Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add,
+        Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub,
+        Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val,
+        Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.evalOp_mul_lit, Tools.VedU1Lemmas.evalOp_shl_lit, Tools.VedU1Lemmas.evalOp_shr_lit, Tools.VedU1Lemmas.evalOp_lt_u_lit, Tools.VedU1Lemmas.evalOp_le_u_lit, Tools.VedU1Lemmas.evalOp_gt_u_lit, Tools.VedU1Lemmas.evalOp_ge_u_lit, Tools.VedU1Lemmas.evalOp_lt_s_lit, Tools.VedU1Lemmas.mul_val, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedU1Lemmas.append_def_sc, Tools.VedU1Lemmas.append_def_cs, Tools.VedU1Lemmas.evalOp_asr_lit, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.mask_emod, Tools.VedU1Lemmas.slt_eq, Tools.VedU1Lemmas.ult_eq, Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, Tools.VedU1Lemmas.evalOp_not_raw, Tools.VedU1Lemmas.evalOp_and_raw, Tools.VedU1Lemmas.evalOp_or_raw, Tools.VedU1Lemmas.evalOp_xor_raw, Tools.VedU1Lemmas.evalOp_sub_raw, Tools.VedU1Lemmas.shl_val, Tools.VedU1Lemmas.shr_val, BitVec.toNat_mul, BitVec.toNat_shiftLeft, BitVec.toNat_ushiftRight, BitVec.shiftLeft_eq', BitVec.ushiftRight_eq', Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.append_def, Tools.VedU1Lemmas.toNat_append', Sparkle.Core.Signal.Signal.map,
+        Seq.seq, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, BitVec.toNat_append,
+        BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat,
+        List.lookup, Option.getD_some, Option.getD_none, -Nat.reduceAdd, $ex,*] $[$loc]?)
+
+/-- `ved_core_simp` for the `Signal.loop` script (`loopScriptFor`), with `Signal.mux` unfolded as well.
+With the rewrite rule `mux_val` alone (a `rfl` lemma on `(Signal.mux c a b).val s`) the step that reads the
+loop of the declaration (`ved_core_simp ... at hvsrc`) ran into the recursion limit on a loop whose body
+holds `<$>`/`<*>` and `Signal.mux` terms (`Tests.IP.Crypto.Fp2MulHWTest.synth_fp2MulC0`: the same set
+without `mux_val`, and the set with the definition of `Signal.mux` unfolded, both finish).  `Signal.mux` is
+unfolded when simp visits the node, before the `.val` around it, so `mux_val` is not needed here.
+
+`-implicitDefEqProofs`: the definitional steps (the unfolding of the declaration, `srcOf`, `OTy.obs`, ...) are
+recorded as proof terms.  Left implicit they leave the kernel ONE comparison of the whole goal with its normal form
+(a 110 000-node term for the 384-bit `synth_fp2MulC0`), which it does by unfolding in an order that runs out of
+memory (14 GiB); with the steps recorded it compares the small terms of each step. -/
+syntax (name := vedLoopSimp) "ved_loop_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
+
+macro_rules
+  | `(tactic| ved_loop_simp [$ex,*] $[$loc]?) =>
+    `(tactic| simp -implicitDefEqProofs (maxSteps := 4000000) [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
+        Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
+        widthOf, seedIn, applyNexts, declWidth, srcOf, contractOf, applyIns, 
+        Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
+        Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, 
+        Tools.VedU1Lemmas.compl_val,
+        Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit,
+        Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val,
+        Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val,
+        Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add,
+        Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub,
+        Tools.VedU1Lemmas.evalOp_mux_lit, Signal.mux,
+        Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.evalOp_mul_lit, Tools.VedU1Lemmas.evalOp_shl_lit, Tools.VedU1Lemmas.evalOp_shr_lit, Tools.VedU1Lemmas.evalOp_lt_u_lit, Tools.VedU1Lemmas.evalOp_le_u_lit, Tools.VedU1Lemmas.evalOp_gt_u_lit, Tools.VedU1Lemmas.evalOp_ge_u_lit, Tools.VedU1Lemmas.evalOp_lt_s_lit, Tools.VedU1Lemmas.mul_val, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedU1Lemmas.append_def_sc, Tools.VedU1Lemmas.append_def_cs, Tools.VedU1Lemmas.evalOp_asr_lit, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.mask_emod, Tools.VedU1Lemmas.slt_eq, Tools.VedU1Lemmas.ult_eq, Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, Tools.VedU1Lemmas.evalOp_not_raw, Tools.VedU1Lemmas.evalOp_and_raw, Tools.VedU1Lemmas.evalOp_or_raw, Tools.VedU1Lemmas.evalOp_xor_raw, Tools.VedU1Lemmas.evalOp_sub_raw, Tools.VedU1Lemmas.shl_val, Tools.VedU1Lemmas.shr_val, BitVec.toNat_mul, BitVec.toNat_shiftLeft, BitVec.toNat_ushiftRight, BitVec.shiftLeft_eq', BitVec.ushiftRight_eq', Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.append_def, Tools.VedU1Lemmas.toNat_append', Sparkle.Core.Signal.Signal.map,
+        Seq.seq, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, BitVec.toNat_append,
+        BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat,
+        List.lookup, Option.getD_some, Option.getD_none, -Nat.reduceAdd, $ex,*] $[$loc]?)
+
+/-- The `simp` of the wide path's closing tactic (`BitVec` / operator lemmas); `ex` are extra
+simp lemmas. -/
+syntax (name := vedWideSimp) "ved_wide_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
+
+macro_rules
+  | `(tactic| ved_wide_simp [$ex,*] $[$loc]?) =>
+    `(tactic| simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
+
+/-- `ved_wide_simp` for the `Signal.loop` script, with the definitional rewrite steps recorded as proof terms
+(`implicitDefEqProofs := false`): the kernel checks each step where it happens instead of one comparison of the
+whole goal with its normal form (`Tests.IP.Crypto.Fp2MulHWTest.synth_fp2MulC0`). -/
+syntax (name := vedLoopWideSimp) "ved_loopw_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
+
+macro_rules
+  | `(tactic| ved_loopw_simp [$ex,*] $[$loc]?) =>
+    `(tactic| simp -implicitDefEqProofs (maxSteps := 4000000) [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
+
+/-- The closing tactic of the wide path (`scriptFor`): `ved_wide_simp`, then `omega`, else a
+case split on the remaining `if`s and `omega`.  `ex` are extra simp lemmas (the range facts of
+the wide inputs). -/
+syntax (name := vedWideClose) "ved_wide_close " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
+macro_rules
+  | `(tactic| ved_wide_close [$ex,*]) =>
+    `(tactic| ((try ved_wide_simp [$ex,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> omega) | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> (try ved_or_lit) <;> (try ved_bits_facts) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_or_lit) <;> omega))))
+
+/-- `ved_wide_close` for the loop path: after the case split, the `|||` with a numeral that the
+split exposed (`x >>> 1 ||| 128`) is rewritten by `ved_or_lit` before `omega`. -/
+syntax (name := vedLoopClose) "ved_loop_close " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
+macro_rules
+  | `(tactic| ved_loop_close [$ex,*]) =>
+    `(tactic| ((try ved_loopw_simp [$ex,*]) <;> (first | omega | ((repeat' (split <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, Nat.reduceSub, Nat.add_zero, Nat.sub_zero, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *]))) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, true_iff, iff_true, false_iff, iff_false, Nat.reduceSub, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] at *) <;> (try ved_or_lit) <;> (try ved_bit_simp) <;> (try (repeat' split)) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_bits_facts) <;> omega))))
+
 /-! ## The entry -/
 
 open Lean Meta Elab Term
@@ -199,6 +352,20 @@ def addDefn (n : Name) (ty val : Lean.Expr) : MetaM Unit := do
   addDecl (.defnDecl (mkDefinitionValEx n [] ty val .abbrev .safe []))
   enableRealizationsForConst n
 
+open Lean Elab Tactic Meta in
+/-- Closes an equation `a = b` by `Eq.refl a` WITHOUT checking `a ≡ b` in the elaborator: the kernel
+checks the definitional equality when the theorem is added (a false equation is a `[kernel]`
+refusal).  For the table equations whose two sides the elaborator would unfold through hundreds of
+statements (the kernel does it much cheaper). -/
+elab "ved_kernel_rfl" : tactic => do
+  let g ← getMainGoal
+  g.withContext do
+    let t ← whnfR (← instantiateMVars (← g.getType))
+    let some (α, a, _) := t.eq? | throwError "ved_kernel_rfl: not an equation"
+    let u ← getLevel α
+    g.assign (mkApp2 (Lean.mkConst ``Eq.refl [u]) α a)
+    replaceMainGoal []
+
 /-- Names of the constants the checker registers for one check. -/
 structure Names where
   mod : Name
@@ -212,41 +379,294 @@ def Names.ofBase (base : Name) : Names :=
   { mod := base ++ `ved_mod, contract := base ++ `ved_contract, outs := base ++ `ved_outs,
     body := base ++ `ved_body, thm := base ++ `ved_u1 }
 
+/-- Definitions the declaration's body mentions that `simp` must unfold to reach the
+operators: those of its own module (private helpers, `abbrev` constants) and
+`Sparkle.IP` sub-modules. -/
+def helperConsts (decl : Name) : MetaM (Array Name) := do
+  let env ← getEnv
+  let modOf (n : Name) := env.getModuleIdxFor? n
+  -- transitive: a helper's own helpers (`lqrController` uses `clampSymC`, `mulQSig`, ...)
+  let mut out : Array Name := #[]
+  let mut todo : Array Name := #[decl]
+  let mut seen : NameSet := NameSet.empty.insert decl
+  while !todo.isEmpty do
+    let cur := todo.back!
+    todo := todo.pop
+    let some (.defnInfo di) := env.find? cur | continue
+    for c in di.value.getUsedConstants do
+      if seen.contains c then continue
+      let some (.defnInfo _) := env.find? c | continue
+      let circuitMod := match modOf c with
+        | some i => [`Sparkle.Core.CircuitMonad, `Sparkle.Core.CircuitDo].contains env.header.moduleNames[i.toNat]!
+        | none => false
+      if modOf c == modOf decl || (`Sparkle.IP).isPrefixOf ((privateToUserName? c).getD c) || circuitMod then
+        seen := seen.insert c
+        out := out.push c
+        todo := todo.push c
+  return out
+
+open Tools.VedU1TableGen in
+deriving instance Lean.ToExpr for Form
+open Tools.VedU1TableGen in
+deriving instance Lean.ToExpr for TblData
+
+open Tools.VedU1TableGen in
+/-- The constant-table data read from a module whose body is a `kLut!` mux chain (any sharing of
+equal constants): position `p` defines `Wt t p`, the statements are constants, aliases, `eq` against
+the single input and `mux`es, and `TblData.ok` (the same Bool the kernel re-evaluates) accepts.
+Only picks the script variant; the kernel re-checks everything. -/
+def tblDataOf? (m : Sparkle.IR.AST.Module) (inp : String) : Option Tools.VedU1TableGen.TblData := do
+  let b := m.body
+  guard (b.length % 4 == 2 && b.length ≥ 6)
+  let t := (b.length - 2) / 4
+  let iw ← match m.inputs with | [⟨_, .bitVector n⟩] => some n | _ => none
+  let w ← match m.outputs with | [⟨_, .bitVector n⟩] => some n | _ => none
+  let mut pos : Std.HashMap String Nat := {}
+  let mut i := 0
+  for s in b do
+    match s with
+    | .assign l _ => guard (l == Wt t i); pos := pos.insert l i
+    | _ => failure
+    i := i + 1
+  let mut fl : Array Form := #[]
+  for s in b do
+    let .assign _ e := s | failure
+    let f ← match e with
+      | .const v w' => if v < 0 then none else some (Form.const v.toNat w')
+      | .ref n => (pos.get? n).map Form.alias
+      | .op .eq [.ref a, .ref c] => if a == inp then (pos.get? c).map Form.eqIn else none
+      | .op .mux [.ref c, .ref x, .ref y] => do
+        let c' ← pos.get? c; let x' ← pos.get? x; let y' ← pos.get? y
+        some (Form.mux c' x' y')
+      | _ => none
+    fl := fl.push f
+  let Fl := fl.toList
+  let chunks : List (List Form) := (List.range ((fl.size + 31) / 32)).map fun c => (Fl.drop (32 * c)).take 32
+  let bpL := (List.range t).map fun k => match Fl.getD (3 * k + 1) (.const 0 0) with | .eqIn j => j | _ => 0
+  let rtL := (List.range t).map fun k => match Fl.getD (3 * t + (t - k)) (.const 0 0) with | .mux _ r _ => r | _ => 0
+  let rl := match Fl.getD (3 * t + 1) (.const 0 0) with | .mux _ _ f => f | _ => 0
+  let D0 : TblData := { Fl := chunks, t, bpL, rtL, rl, tbl := [], last := 0, iw, w, inp }
+  let tbl := (List.range t).map fun k => ((kv D0.Fn (rtL.getD k 0 + 1) (rtL.getD k 0))).getD 0
+  let last := (kv D0.Fn (rl + 1) rl).getD 0
+  let D : TblData := { D0 with tbl, last }
+  guard (D.ok = true)
+  pure D
+
 /-- The generated (untrusted) proof script for `U1Stmt C M F`.  `reg?` is
 the single register of the delay shape (name, width), `none` for a
 register-free module. -/
-def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElabM Syntax := do
+def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat))
+    (inNames : List String := []) (eqs : Bool := false) (fStx? : Option Term := none) (helpers : Array Name := #[]) (inWidths : List Nat := [])
+    (tbl? : Option Name := none) :
+    TermElabM Syntax := do
+  -- the declaration's own helper definitions (private `byte16`, `abbrev` constants,
+  -- sub-modules), unfolded by `simp`; untrusted, the kernel checks the result.  The
+  -- last entry erases `Nat.reduceAdd`, which would turn the `m + n` result width of a
+  -- concatenation into a literal and defeat the append lemmas (and keeps the list non-empty).
+  let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+    helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
+  let hlp : Syntax.TSepArray [``Lean.Parser.Tactic.simpStar, ``Lean.Parser.Tactic.simpErase, ``Lean.Parser.Tactic.simpLemma] "," :=
+    Syntax.TSepArray.ofElems ((hsA.map fun x => (⟨x.raw⟩ : TSyntax _)).push
+      ⟨(← `(Lean.Parser.Tactic.simpErase| -Nat.reduceAdd)).raw⟩)
   let C := mkCIdent nm.contract
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
-  let f := mkCIdent F
+  -- `f` is the statement's term (`@F defaultDomain …` when specialised),
+  -- `fI` the constant itself for the simp sets
+  let fI := mkCIdent F
+  let mut f : Term := fI
+  if nDom > 0 then
+    f ← `(@$fI)
+    for _ in [0:nDom] do f ← `($f Sparkle.Core.Domain.defaultDomain)
+  -- multi-output: the statement term is the bundled lambda itself
+  if let some fs := fStx? then f := fs
   let B := mkCIdent nm.body
   match reg? with
   | none =>
+    -- a constant table (`kLut!` mux chain): NOT unfolded by `simp`.  The kernel checks that the body
+    -- is `tblBody` of the table; `step_tblBody` evaluates it once (induction over the table), and
+    -- the declaration's chain is compared with `lutBV` of the same table by `rfl`
+    if let some dn := tbl? then
+      if inNames.length == 1 then
+        let insI := mkIdent `ins
+        let sI := mkIdent `s
+        let Dc := mkCIdent dn
+        return ← `(by
+          have hD : ($Dc).ok = true := by decide +kernel
+          have hbody : ($M).body = ($Dc).body := by ved_kernel_rfl
+          have hB : $B = ($M).body := rfl
+          have hin : ($M).inputs.map (·.name) = [($Dc).inp] := by decide +kernel
+          have hout : ∀ p ∈ ($M).outputs, p.name = "out" := by decide +kernel
+          have hord : OrderOk $M $B = true := by
+            rw [hB, hbody]
+            exact Tools.VedU1TableGen.orderOk_table $Dc hD $M hbody hin hout
+          have hw : ($M).wires.map (·.name) = ($Dc).inp :: (List.range (4 * ($Dc).t + 1)).map (Tools.VedU1TableGen.Wt ($Dc).t) := by
+            ved_kernel_rfl
+          have hnd : (($M).wires.map (·.name)).Nodup := by
+            rw [hw]; exact Tools.VedU1TableGen.nodup_table $Dc hD
+          have hregs : ∀ r ∈ regsOf ($M).body, ∃ p ∈ ($M).wires, p.name = r.1 ∧ scalar p.ty = true := by
+            intro r hr
+            rw [hbody, Tools.VedU1TableGen.TblData.body, Tools.VedU1TableGen.regsOf_bodyN] at hr
+            exact absurd hr (List.not_mem_nil)
+          refine ⟨by decide +kernel, by decide +kernel, ⟨hnd, by decide +kernel, by decide +kernel, hregs⟩, ⟨$B, hord⟩, ?_⟩
+          apply outputs_of_order $B hord
+          apply outputs_of_step $C $M $B $f $O (by decide +kernel) (fun _ _ _ => True)
+          · intro _ _; trivial
+          · intro $insI hok $sI st mems _
+            have hdi : ($C).dataInputs = [⟨($Dc).inp, .bitVector ($Dc).iw⟩] := by decide +kernel
+            have hin1 : $insI $sI ($Dc).inp < 2 ^ declWidth $M ($Dc).inp :=
+              hok.1 $sI ⟨($Dc).inp, .bitVector ($Dc).iw⟩ (by rw [hdi]; exact List.mem_singleton_self _)
+            have hdw : declWidth $M ($Dc).inp = ($Dc).iw := by decide +kernel
+            rw [hdw] at hin1
+            rw [hB, hbody]
+            obtain ⟨envF, hstep, hout'⟩ := Tools.VedU1TableGen.step_table $Dc hD (declWidth $M) mems
+              (seedIn $M $insI $sI st)
+            refine ⟨envF, [], mems, hstep, ?_, trivial⟩
+            intro o ho
+            simp only [$O:ident, List.mem_singleton] at ho
+            subst ho
+            rw [hout']
+            have hseed : seedIn $M $insI $sI st ($Dc).inp = $insI $sI ($Dc).inp := by simp [seedIn, hin]
+            rw [hseed]
+            simp [srcOf, $C:ident, contractOf, applyIns, OTy.obs, PTy.obs, PTy.sig]
+            have hsig : ($f ⟨fun t => BitVec.ofNat ($Dc).iw ($insI t ($Dc).inp)⟩).val $sI =
+                Tools.VedU1Table.lutBV ($Dc).iw ($Dc).w (BitVec.ofNat ($Dc).iw ($insI $sI ($Dc).inp)) 0 ($Dc).tbl ($Dc).last := rfl
+            have hlen : ($Dc).tbl.length = ($Dc).t := (Tools.VedU1TableGen.TblData.ok_sound $Dc hD).2.2.1
+            have hti : ($Dc).t ≤ 2 ^ ($Dc).iw := (Tools.VedU1TableGen.TblData.ok_sound $Dc hD).2.2.2.1
+            exact (Tools.VedU1Table.lutBV_toNat ($Dc).iw ($Dc).w ($insI $sI ($Dc).inp) hin1 _ 0 _
+              (by rw [hlen]; omega)).symm.trans (congrArg BitVec.toNat hsig.symm))
+    -- the input domain closes what the rewriting leaves (`==` against constants,
+    -- a table's mux chain) when the data inputs total at most 16 bits (`wide` below
+    -- is false): every data input generalised, the goal reverted to
+    -- `∀ x₀, x₀ < 2^w₀ → … → G` and decided by the kernel
+    let insI := mkIdent `ins
+    let sI := mkIdent `s
+    let hinI := mkIdent `hin
+    let xs := (List.range inNames.length).map fun i => mkIdent (Name.mkSimple s!"x{i}")
+    let hs := (List.range inNames.length).map fun i => mkIdent (Name.mkSimple s!"hx{i}")
+    let mut dom : Array (TSyntax `tactic) := #[]
+    if inNames.length == 1 then
+      dom := dom.push (← `(tactic| generalize $insI $sI $(Syntax.mkStrLit inNames[0]!) = $(xs[0]!) at $hinI:ident ⊢))
+      dom := dom.push (← `(tactic| revert $hinI:ident))
+      dom := dom.push (← `(tactic| revert $(xs[0]!)))
+    else if inNames.length > 1 then
+      let k := inNames.length
+      for i in [0:k] do
+        let mut t : Term := hinI
+        for _ in [0:i] do t ← `($t.2)
+        if i + 1 < k then t ← `($t.1)
+        dom := dom.push (← `(tactic| have $(hs[i]!):ident := $t))
+      for (n, (x, h)) in inNames.zip (xs.zip hs) do
+        dom := dom.push (← `(tactic| generalize $insI $sI $(Syntax.mkStrLit n) = $x at $h:ident ⊢))
+      for (x, h) in (xs.zip hs).reverse do
+        dom := dom.push (← `(tactic| revert $h:ident))
+        dom := dom.push (← `(tactic| revert $x:ident))
+    -- one input of at least 13 bits: the domain is checked in chunks of 2^12 (Tools/VedInvocationDom.lean)
+    -- (decided after `wide`: a wide input never builds the 2^(w-12) chunk nodes)
+    let wide := inWidths.length == inNames.length && inWidths.foldl (· + ·) 0 > 16
+    let chunked := !wide && inWidths.length == 1 && inNames.length == 1 &&
+      13 ≤ inWidths.head! && inWidths.head! ≤ 16
+    let domClose ← if chunked then
+        let K := Syntax.mkNumLit (toString (2 ^ (inWidths.head! - 12)))
+        let mut t : Term ← `(Tools.VedInvocationDom.allLt_zero _)
+        for _ in [0:2 ^ (inWidths.head! - 12)] do
+          t ← `(Tools.VedInvocationDom.allLt_succ _ _ $t ?_)
+        `(tactic| open Tools.VedInvocationDom in
+          (apply Tools.VedInvocationDom.chunks 4096 $K; refine $t; all_goals decide +kernel))
+      else
+        `(tactic| open Tools.VedInvocationDom in decide +kernel)
+    let domSmall ← `(tactic| all_goals
+      $dom*
+      $domClose:tactic)
+    -- a domain too large to enumerate (`2^(Σ widths) > 2^16`): only the narrow
+    -- inputs (the `==` selectors, ≤ 6 bits) are case-split, wide data stays symbolic
+    -- and the leftover `BitVec` field extraction is closed by `omega`
+    let domAll : Array (TSyntax `tactic) ←
+      if !wide then pure #[domSmall] else do
+        let mut gen : Array (TSyntax `tactic) := #[]
+        let k := inNames.length
+        for i in [0:k] do
+          let mut t : Term := hinI
+          for _ in [0:i] do t ← `($t.2)
+          if i + 1 < k then t ← `($t.1)
+          gen := gen.push (← `(tactic| all_goals have $(hs[i]!):ident := $t))
+        for (n, (x, h)) in inNames.zip (xs.zip hs) do
+          gen := gen.push (← `(tactic| all_goals generalize $insI $sI $(Syntax.mkStrLit n) = $x at $h:ident ⊢))
+        -- `x < 2^w` becomes `x = 0 ∨ … ∨ x = 2^w - 1`, then one goal per value
+        let hc := mkIdent `hcase
+        let rflI := mkIdent `rfl
+        let mut narrow : Array (TSyntax `tactic) := #[]
+        for (w, x, h) in inWidths.zip (xs.zip hs) do
+          if w ≤ 6 then
+            let mut dj : Term ← `($x = $(Syntax.mkNumLit (toString (2 ^ w - 1))))
+            for v in (List.range (2 ^ w - 1)).reverse do
+              dj ← `($x = $(Syntax.mkNumLit (toString v)) ∨ $dj)
+            narrow := narrow.push (← `(tactic| all_goals (have $hc:ident : $dj := (by omega); clear $h:ident)))
+            narrow := narrow.push (← `(tactic| all_goals (repeat' first | (rcases $hc:ident with $rflI:ident | $hc:ident) | subst $hc:ident)))
+        -- the wide values are in range: `x % 2^w` folds back to `x`
+        let mut modLs : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
+        for (w, h) in inWidths.zip hs do
+          if w > 6 then
+            modLs := modLs.push (← `(Lean.Parser.Tactic.simpLemma| Nat.mod_eq_of_lt $h:ident))
+            modLs := modLs.push (← `(Lean.Parser.Tactic.simpLemma| $h:ident))
+        let modL : Syntax.TSepArray [``Lean.Parser.Tactic.simpStar, ``Lean.Parser.Tactic.simpErase, ``Lean.Parser.Tactic.simpLemma] "," :=
+          Syntax.TSepArray.ofElems (modLs.map fun x => (⟨x.raw⟩ : TSyntax _))
+        pure (gen ++ narrow ++ (#[← `(tactic| all_goals ((try simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $modL,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> omega) | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> (try ved_or_lit) <;> (try ved_bits_facts) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_or_lit) <;> omega))))] : Array (TSyntax `tactic)))
+    -- a body with `==` goes straight to the input domain (the range tactics
+    -- below only fail on it, after costly case splits)
+    let tail : Array (TSyntax `tactic) ←
+      if eqs then pure domAll else pure (#[
+        -- one goal per output (several outputs)
+        ← `(tactic| all_goals
+          first
+          | omega
+          -- a `Bool` port
+          | exact toNat_bne _ (by omega)
+          -- a `mux`: both arms in range
+          | (split <;> simp <;> omega)
+          -- a `concat`: fields in range
+          | (rw [BitVec.toNat_append]; simp [BitVec.toNat_ofNat]; rw [Nat.mod_eq_of_lt $hinI.1, Nat.mod_eq_of_lt $hinI.2])
+          | skip)] ++ domAll)
     `(by
-        refine ⟨by decide, by decide, by decide, ⟨$B, by decide⟩, ?_⟩
-        apply outputs_of_order $B (by decide)
-        apply outputs_of_step $C $M $B $f $O (by decide) (fun _ _ _ => True)
+        have hord : OrderOk $M $B = true := by decide +kernel
+        refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+        apply outputs_of_order $B hord
+        apply outputs_of_step $C $M $B $f $O (by decide +kernel) (fun _ _ _ => True)
         · intro _ _; trivial
-        · intro ins hok s st mems _
-          have hin := hok.1 s
-          simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at hin
+        · intro $insI hok $sI st mems _
+          have $hinI := hok.1 $sI
+          simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident
           simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
-            widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $f:ident,
+            widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
-            Nat.shiftRight_eq_div_pow]
-          try omega)
+            Nat.shiftRight_eq_div_pow, Tools.VedU1Lemmas.evalOp_not_lit, $hinI:ident,
+            Tools.VedU1Lemmas.compl_val,
+            Tools.VedU1Lemmas.evalOp_and_lit, Tools.VedU1Lemmas.evalOp_or_lit,
+            Tools.VedU1Lemmas.evalOp_xor_lit, Tools.VedU1Lemmas.and_val,
+            Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val,
+            Tools.VedU1Lemmas.evalOp_add_lit, Tools.VedU1Lemmas.add_val, BitVec.toNat_add,
+            Tools.VedU1Lemmas.evalOp_sub_lit, Tools.VedU1Lemmas.sub_val, BitVec.toNat_sub,
+            Tools.VedU1Lemmas.evalOp_mux_lit, Tools.VedU1Lemmas.mux_val,
+            Tools.VedU1Lemmas.evalOp_eq_lit, Tools.VedU1Lemmas.evalOp_mul_lit, Tools.VedU1Lemmas.evalOp_shl_lit, Tools.VedU1Lemmas.evalOp_shr_lit, Tools.VedU1Lemmas.evalOp_lt_u_lit, Tools.VedU1Lemmas.evalOp_le_u_lit, Tools.VedU1Lemmas.evalOp_gt_u_lit, Tools.VedU1Lemmas.evalOp_ge_u_lit, Tools.VedU1Lemmas.evalOp_lt_s_lit, Tools.VedU1Lemmas.mul_val, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedU1Lemmas.append_def_sc, Tools.VedU1Lemmas.append_def_cs, Tools.VedU1Lemmas.evalOp_asr_lit, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.mask_emod, Tools.VedU1Lemmas.slt_eq, Tools.VedU1Lemmas.ult_eq, Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, Tools.VedU1Lemmas.evalOp_not_raw, Tools.VedU1Lemmas.evalOp_and_raw, Tools.VedU1Lemmas.evalOp_or_raw, Tools.VedU1Lemmas.evalOp_xor_raw, Tools.VedU1Lemmas.evalOp_sub_raw, Tools.VedU1Lemmas.shl_val, Tools.VedU1Lemmas.shr_val, BitVec.toNat_mul, BitVec.toNat_shiftLeft, BitVec.toNat_ushiftRight, BitVec.shiftLeft_eq', BitVec.ushiftRight_eq', Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.append_def, Tools.VedU1Lemmas.toNat_append', Sparkle.Core.Signal.Signal.map,
+            Seq.seq, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, BitVec.toNat_append,
+            BitVec.toNat_and, BitVec.toNat_or, BitVec.toNat_xor, Nat.mod_eq_of_lt, Functor.map, Signal.map, BitVec.toNat_not, BitVec.toNat_ofNat,
+            List.lookup, Option.getD_some, Option.getD_none, $hlp,*]
+          -- several outputs: one goal per output
+          try (repeat' apply And.intro)
+          $tail*
+          skip)
   | some (r, w) =>
     let rS := Syntax.mkStrLit r
     let wS := Syntax.mkNumLit (toString w)
     `(by
-        refine ⟨by decide, by decide, by decide, ⟨$B, by decide⟩, ?_⟩
-        apply outputs_of_order $B (by decide)
-        apply outputs_of_step $C $M $B $f $O (by decide)
+        have hord : OrderOk $M $B = true := by decide +kernel
+        refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+        apply outputs_of_order $B hord
+        apply outputs_of_step $C $M $B $f $O (by decide +kernel)
           (fun ins s st => st $rS = srcOf $C $f ins "out" s)
         · intro ins hok
-          simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $f:ident,
+          simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth]
         · intro ins hok s st mems hR
           have hin := hok.1 s
@@ -254,7 +674,7 @@ def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElab
           simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at hin hrst
           simp [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
-            widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $f:ident,
+            widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, hrst, or_mod _ _ _ _ rfl,
             Nat.shiftRight_eq_div_pow] at hR ⊢
           have hlt : st $rS < 2 ^ $wS := by rw [hR]; exact BitVec.isLt _
@@ -262,6 +682,110 @@ def scriptFor (nm : Names) (F : Name) (reg? : Option (String × Nat)) : TermElab
           try rw [← hR]
           simp
           try omega)
+
+/-- The generated (untrusted) proof script for a module whose registers come from ONE
+`Signal.loop` over their tuple (`circuit do`): the invariant "register `n` of the module is the
+`toNat` of the loop-state component it implements, at the same cycle" (`ved_loop_R`, matching the
+components to `regs` by width, in order), proved by induction on the cycle
+(`Tools.VedU1Loop.loop_val_unfold`: the state at `s+1` from the state at `s`; initially from
+cycle 0).  The loop state is generalised to variables (`ved_loop_gen`; `Bool` components split)
+and the module's step is compared with the loop's step by the wide path's closing tactics.
+`regs` is the module's registers `(name, width)`. -/
+def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
+    (helpers : Array Name) (dbg : Nat := 0) (supp : List (List String) := []) : TermElabM Syntax := do
+  let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+    helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
+  let C := mkCIdent nm.contract
+  let M := mkCIdent nm.mod
+  let O := mkCIdent nm.outs
+  let B := mkCIdent nm.body
+  let fI := mkCIdent F
+  let mut f : Term := fI
+  if nDom > 0 then
+    f ← `(@$fI)
+    for _ in [0:nDom] do f ← `($f Sparkle.Core.Domain.defaultDomain)
+  let k := regs.length
+  let hs := (List.range k).toArray.map fun i => mkIdent (Name.mkSimple s!"hreg{i}")
+  let rNames := (regs.map fun r => Syntax.mkStrLit r.1).toArray
+  let rWidths := (regs.map fun r => Syntax.mkNumLit (toString r.2)).toArray
+  let insI := mkIdent `ins
+  let sI := mkIdent `s
+  let hinI := mkIdent `hin
+  let hrstI := mkIdent `hrst
+  let hR := mkIdent `hR
+  let vI := mkIdent `vsrc
+  let hv := mkIdent `hvsrc
+  let hsAll : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+    hs.mapM fun h => `(Lean.Parser.Tactic.simpLemma| $h:ident)
+  let ex1 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems (hsA ++ hsAll)
+  let ex2 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems (hsA ++ hsAll.push (← `(Lean.Parser.Tactic.simpLemma| $hrstI:ident)))
+  let exHelp : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems hsA
+  let pats ← (hs.toList).mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
+  let hPat : TSyntax `rcasesPat ← match pats with
+    | [] => `(rcasesPat| _)
+    | _ => `(rcasesPat| ⟨$[$(pats.toArray)],*⟩)
+  -- `dbg = k` (controls / debugging only): print the goals after stage `k` and stop there
+  let mut tacs : Array (TSyntax `tactic) := #[]
+  tacs := tacs.push (← `(tactic| intro $insI hok $sI st mems $hR))
+  tacs := tacs.push (← `(tactic| have $hinI := hok.1 $sI))
+  tacs := tacs.push (← `(tactic| have $hrstI := hok.2 $sI))
+  tacs := tacs.push (← `(tactic| simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident))
+  -- the loop of the declaration, in the simp normal form of the goal
+  tacs := tacs.push (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = srcOf $C $f $insI "out" $sI := ⟨_, rfl⟩))
+  tacs := tacs.push (← `(tactic| ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $exHelp,*] at $hv:ident))
+  let rSupps := (supp.map fun l => Syntax.mkStrLit (",".intercalate l)).toArray
+  if supp.length == regs.length then
+    tacs := tacs.push (← `(tactic| ved_loop_R2 $insI [$rNames,*] $rWidths,* ; $rSupps,*))
+  else
+    tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
+  tacs := tacs.push (← `(tactic| clear $hv))
+  -- ONE register: the invariant is the equation itself (no conjunction to take apart)
+  if hs.size == 1 then
+    tacs := tacs ++ #[← `(tactic| have $(hs[0]!):ident := $hR), ← `(tactic| clear $hR)]
+  else
+    tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
+  let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | (trace_state; fail "ved_loop_close failed here")))
+    else `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))
+  let stages : Array (Array (TSyntax `tactic)) := #[
+    #[← `(tactic| ved_loop_unfold_share ($sI + 1)),
+      ← `(tactic| ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
+      ← `(tactic| ved_loop_gen_share $sI)],
+    #[← `(tactic| all_goals refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩),
+      ← `(tactic| all_goals ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
+      ← `(tactic| all_goals try (repeat' apply And.intro))],
+    #[← `(tactic| all_goals (try ved_loopw_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
+    #[← `(tactic| all_goals ved_bit_simp_share)],
+    #[← `(tactic| all_goals (try ved_or_lit))],
+    #[← `(tactic| ved_pack_wire_all)],
+    #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
+      ← `(tactic| all_goals (try ved_pack_simp)),
+      ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
+      ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
+      ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
+    #[closing]]
+  let stop ← `(tactic| (trace_state; fail "stopped at debug stage"))
+  if dbg == 1 then tacs := tacs.push stop
+  else
+    for k in [0:stages.size] do
+      if (dbg == 0 || dbg > k + 1) && !(dbg == 98 && (k == 5 || k == 6)) then tacs := tacs ++ stages[k]!
+      if dbg == k + 2 && dbg < 99 then tacs := tacs.push stop
+  let h0tacs : Array (TSyntax `tactic) := #[
+    ← `(tactic| intro $insI hok),
+    ← `(tactic| ved_loop_unfold_share 0),
+    ← `(tactic| simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth]),
+    ← `(tactic| all_goals decide +kernel)]
+  `(by
+      have hord : OrderOk $M $B = true := by decide +kernel
+      refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+      apply outputs_of_order $B hord
+      refine outputs_of_step $C $M $B $f $O (by decide +kernel) ?R ?h0 ?hstep
+      case hstep =>
+        $tacs*
+      case h0 =>
+        $h0tacs*)
 
 open Sparkle.IR.Reorder in
 /-- A well-ordered arrangement of a body (untrusted proof data: `OrderOk`
@@ -287,6 +811,85 @@ def regShape (m : Sparkle.IR.AST.Module) : Option (String × Nat) :=
   | [(r, _, _, _)] => some (r, declWidth m r)
   | _ => none
 
+/-- The synthesizer's output port names for the leaves of a result tree
+(`splitReturnLeaves`, Sparkle/Compiler/Elab.lean): a leaf is named by its
+prefix, `out` at the root; the two sides of a product get the suffixes `_0`
+and `_1`.  Left-first, the order of `OTy.flat` and of `m.outputs`. -/
+def portNamesOf : String → OTy → List String
+  | pre, .leaf _ => [pre]
+  | pre, .pair a b => portNamesOf (pre ++ "_0") a ++ portNamesOf (pre ++ "_1") b
+
+open Lean Meta in
+/-- Bundle a value of type `Signal d A × (Signal d B × …)` into one `Signal d
+(A × …)` by `Signal.bundle2`, following the product tree of the TYPE `ty`
+(a `Signal _ _` is a leaf).  The statement is then about the stream of
+every projection, each observed at its own port. -/
+partial def bundleProd (ty e : Lean.Expr) : MetaM Lean.Expr := do
+  let ty ← whnfR (← instantiateMVars ty)
+  match ty.getAppFnArgs with
+  | (``Prod, #[a, b]) =>
+    let l ← bundleProd a (← mkAppM ``Prod.fst #[e])
+    let r ← bundleProd b (← mkAppM ``Prod.snd #[e])
+    mkAppM ``Sparkle.Core.Signal.bundle2 #[l, r]
+  | (``Sparkle.Core.Signal.Signal, _) => pure e
+  | _ => throwError "{ty} is not a product of signals"
+
+open Lean Meta in
+/-- `fun xs => bundleProd (stmt xs)` for the statement `stmt` whose result
+type is a product of signals (a `Prod` at the top). -/
+def bundledStmt (stmt : Lean.Expr) : MetaM Lean.Expr := do
+  forallTelescopeReducing (← inferType stmt) fun xs res => do
+    unless (← whnfR res).isAppOf ``Prod do throwError "the result is not a product of signals"
+    mkLambdaFVars xs (← bundleProd res (mkAppN stmt xs))
+
+/-- Does an expression use `Operator.eq`? (only picks the script variant) -/
+partial def exprHasEq : Sparkle.IR.AST.Expr → Bool
+  | .op .eq _ => true
+  | .op _ args | .concat args => args.any exprHasEq
+  | .slice e _ _ | .sliceDim e _ _ => exprHasEq e
+  | .index a i => exprHasEq a || exprHasEq i
+  | _ => false
+
+def bodyHasEq (body : List Sparkle.IR.AST.Stmt) : Bool :=
+  body.any fun | .assign _ e => exprHasEq e | _ => false
+
+/-- Resource budget for ELABORATING the generated script only (a finite bound,
+not a check: the kernel still checks the result in full).  A table of `n`
+entries is an `n`-deep `mux` chain; `simp` over it recurses once per level (the
+default `maxRecDepth` 512 is exceeded from about 30 levels) and costs more than
+the default heartbeats. -/
+register_option ved.u1.proofRecDepth : Nat := {
+  defValue := 20000
+  descr := "VED U1: lower bound on maxRecDepth while elaborating the generated proof script (0 = the caller's limit only)" }
+register_option ved.u1.proofHeartbeats : Nat := {
+  defValue := 8000000
+  descr := "VED U1: lower bound (thousands) on maxHeartbeats while elaborating the generated proof script (0 = the caller's limit only)" }
+
+register_option ved.u1.debugStage : Nat := {
+  defValue := 0
+  descr := "VED U1 (debugging only): stop the generated multi-register loop script after this stage and print the goals (`loopScriptFor`'s `dbg`)" }
+
+/-- The budget is read from the options in scope (defaults 20000 / 8000000):
+the stage checks set both to 0 so that their own small context limits are the
+ones that apply. -/
+def withProofBudget {α} (k : TermElabM α) : TermElabM α :=
+  withTheReader Core.Context
+    (fun c => { c with
+      maxRecDepth := max c.maxRecDepth (ved.u1.proofRecDepth.get c.options),
+      maxHeartbeats := max c.maxHeartbeats (ved.u1.proofHeartbeats.get c.options * 1000),
+      -- 384-bit registers (`2 ^ 384`) are evaluated, not left symbolic
+      options := c.options.insert `exponentiation.threshold (.ofNat 4096) }) k
+
+/-- The same finite recursion budget for the checker's own evaluation of `toExpr m` back to a
+module (`Meta.evalExpr` compiles the closed term, which recurses once per list element:
+a body of several hundred statements, a 256-entry table, exceeds the default
+`maxRecDepth`, and that compiler reads the OPTION, not only the context).  A bound, not a
+check: what the term denotes is still compared with `m` and the kernel checks the proof. -/
+def withEvalBudget {α} (k : TermElabM α) : TermElabM α := do
+  let d := ved.u1.proofRecDepth.get (← getOptions)
+  withOptions (fun o => if d == 0 then o else o.set `maxRecDepth (max (maxRecDepth.get o) d))
+    (withTheReader Core.Context (fun c => { c with maxRecDepth := max c.maxRecDepth d }) k)
+
 /-- A proof source for `checkU1`. -/
 inductive ProofSrc
   /-- the generated script (the only source the entry uses) -/
@@ -302,38 +905,93 @@ inductive ProofSrc
   script. -/
   | built (mk : Names → Sparkle.IR.AST.Module → TermElabM Syntax)
 
+/-- the heartbeat budget (thousands) of the first-attempt script -/
+def firstAttemptHeartbeats : Nat := 3000000
+
+/-- TEST HOOK (default 0 = off): replaces `firstAttemptHeartbeats` (thousands) so a control can make
+the first attempt hit its cap cheaply. -/
+register_option ved.u1.firstAttemptHeartbeatsForTest : Nat := {
+  defValue := 0
+  descr := "VED U1 (test hook): cap (thousands) of the first-attempt script instead of the fixed one (0 = off)" }
+
+/-- The heartbeat limit of the first attempt: `cap` is the cap in heartbeats; a context value of 0
+means unlimited, so the cap applies; a finite one is kept when it is below the cap. -/
+def firstAttemptLimit (ctx cap : Nat) : Nat := if ctx == 0 then cap else min ctx cap
+
+/-- A FIRST-ATTEMPT script (`Tools.VedU1ScriptSeqGen`): elaborated against `expected` with the
+proof budget, and at most `firstAttemptHeartbeats` thousand heartbeats of it; any failure (exception,
+timeout, logged error, open term) puts the state back (messages and environment included) and
+returns `none`, so the caller runs the script it always ran. -/
+def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lean.Expr) := do
+  let saved ← saveState
+  let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
+  let hb0 ← IO.getNumHeartbeats
+  let capK := match ved.u1.firstAttemptHeartbeatsForTest.get (← getOptions) with
+    | 0 => firstAttemptHeartbeats
+    | n => n
+  let r ← tryCatchRuntimeEx (do
+      let pf ← withProofBudget do
+        withTheReader Core.Context
+          (fun c => { c with initHeartbeats := hb0, maxHeartbeats := firstAttemptLimit c.maxHeartbeats (capK * 1000) }) do
+        withoutErrToSorry do
+          let e ← elabTermEnsuringType stx expected
+          synthesizeSyntheticMVarsNoPostponing
+          instantiateMVars e
+      let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
+      if errs.length != errsBefore || pf.hasMVar || pf.hasFVar then pure none else pure (some pf))
+    fun _ => pure none
+  if r.isNone then saved.restore (restoreInfo := true)
+  return r
+
 /-- Is `e` already a `VED U1 REFUSED …` error? -/
 def isRefusal (e : Exception) : MetaM Bool := do
   return (← e.toMessageData.toString).startsWith "VED U1 REFUSED"
 
-/-- The checker under the entry.  `decl` names the refusal; `stmtDecl` is the
-constant put into the statement (the entry: `decl` itself); `m` is the module
+/-- The checker under the entry.  `decl` names the refusal; `stmt` is the
+term put into the statement (the entry: `decl` itself, or `@decl defaultDomain`); `m` is the module
 (the entry: the value `synthesizeCombinational` returned).  Returns the theorem name.
+
+`stmt` may be any closed term, but the GENERATED script (`.generated`) only
+supports a constant applied to `defaultDomain` arguments: it reads
+`stmt.getAppFn.constName!` and takes every argument (`getAppNumArgs`) to be a
+domain.  Another `stmt` makes that script fail, so the entry refuses; it can
+not be accepted, because the theorem is checked against the full expected
+type by the kernel.
 
 On a failure (any non-interrupt exception raised inside it, runtime limits
 included) it restores the TermElabM state saved when IT started, which takes
 back the constants and messages the checker added (nothing synthesis did
 before the call is rolled back), and throws `VED U1 REFUSED <decl> [<stage>]`;
 an exception not already in that form is reported at stage `checker`.
+A runtime limit while elaborating the proof is refused at `proof`, one in the
+synchronous kernel `addDecl` at `kernel` (not at `checker`).
 
 `checkU1` verifies "this `m` has this declaration's meaning": the contract
-reads the module name from `m` and does not bind it to `stmtDecl`, so a
+reads the module name from `m` and does not bind it to `stmt`, so a
 same-meaning `m` with another module name may be proved with a NEW proof.
 That the entry inspects and returns the `m` it received, unsubstituted, is a
 property of `vedU1Entry`, not of this statement. -/
-def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Module) (proof : ProofSrc) :
-    TermElabM Name := do
+def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.Module) (proof : ProofSrc)
+    (outNames : List String := ["out"]) : TermElabM Name := do
   let nm := Names.ofBase base
   let saved ← saveState
   tryCatchRuntimeEx (do
-    -- the table, from the TYPE of the statement's constant
-    let tbl ← try readTable stmtDecl catch e => refuse decl "table" e.toMessageData
-    unless tbl.out.flat.length == 1 do
+    -- the table, from the TYPE of the statement's term
+    let tbl ← try readTableOfType decl (← inferType stmt) catch e => refuse decl "table" e.toMessageData
+    -- more than one projection only for a statement bundled from a product of
+    -- signals (`bundledStmt`, a lambda); a constant with a `Signal (A × B)`
+    -- result is ONE packed port, not two
+    unless tbl.out.flat.length == 1 || !stmt.getAppFn.isConst do
       refuse decl "multi-output"
-        m!"{tbl.out.flat.length} output projections; the synthesizer's multi-output port naming is unconfirmed, refused (v1: one output)"
+        m!"{tbl.out.flat.length} output projections in one `Signal` (the synthesizer packs it into one port `out`); refused"
+    unless outNames.length == tbl.out.flat.length do
+      refuse decl "multi-output"
+        m!"{outNames.length} output port names for {tbl.out.flat.length} output projections"
+    if !stmt.getAppFn.isConst && (regsOf m.body).length != 0 then
+      refuse decl "multi-output" m!"multi-output with registers is not supported (register-free bodies only)"
     -- the closed term of `m`, checked to denote `m` itself
     let mE := toExpr m
-    let back ← evalModule mE
+    let back ← withEvalBudget (evalModule mE)
     unless decide (back = m) do
       refuse decl "artifact" m!"toExpr of the returned module does not evaluate back to it"
     let modTy := Lean.mkConst ``Sparkle.IR.AST.Module
@@ -342,9 +1000,9 @@ def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Mo
     unless di.value == mE do refuse decl "artifact" m!"{nm.mod} does not hold toExpr m"
     let clkRst := clkRstOf m
     let cE := mkAppN (Lean.mkConst ``contractOf)
-      #[toExpr tbl, toExpr ["out"], toExpr clkRst, Lean.mkConst nm.mod]
+      #[toExpr tbl, toExpr outNames, toExpr clkRst, Lean.mkConst nm.mod]
     addDefn nm.contract (Lean.mkConst ``Contract) cE
-    let c := contractOf tbl ["out"] clkRst m
+    let c := contractOf tbl outNames clkRst m
     addDefn nm.outs (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Port))
       (toExpr c.outputs)
     -- the order-free meaning needs one well-ordered arrangement of the body
@@ -354,22 +1012,67 @@ def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Mo
         m!"no arrangement of the body assigns every wire before it is read (combinational cycle, self-read, undriven net or duplicate update)"
     addDefn nm.body (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Stmt))
       (toExpr b0)
-    -- the full expected statement, with the ORIGINAL constant
-    let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst stmtDecl]
+    -- the full expected statement over `stmt` (the original constant, or the
+    -- bundled lambda over it, from `stmtOf`)
+    let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
     -- elaborate the proof (errors are not turned into sorry)
+    let inNames := (dataPortsOf m clkRst).map fun p => p.name
+    let tblD? : Option Name ← do
+      let inp := inNames.headD ""
+      if let .generated := proof then
+        if stmt.getAppFn.isConst && (regsOf m.body).isEmpty && inNames.length == 1 && decide (b0 = m.body) then
+          if let some D := tblDataOf? m inp then
+            let dn := nm.mod.getPrefix ++ `ved_tbl
+            addDefn dn (Lean.mkConst ``Tools.VedU1TableGen.TblData) (toExpr D)
+            pure (some dn)
+          else pure none
+        else pure none
+      else pure none
     let stx ← match proof with
-      | .generated => scriptFor nm stmtDecl (regShape m)
+      | .generated =>
+        let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
+        if stmt.getAppFn.isConst then
+          let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+          if regs.length ≥ 2 || (regs.length == 1 && (← Tools.VedU1Uns.usesLoop stmt.getAppFn.constName! (← helperConsts stmt.getAppFn.constName!))) then
+            loopScriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs regs (← helperConsts stmt.getAppFn.constName!)
+              (ved.u1.debugStage.get (← getOptions))
+              (supp := regs.map fun r => ((Tools.VedU1Uns.regSupports m).lookup r.1).getD [])
+          else
+          scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
+            tblD?
+        else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
+    -- first attempt: the per-statement multi-register script (`Tools/VedU1ScriptSeqGen.lean`)
+    let firstPf? : Option Lean.Expr ← do
+      if let .generated := proof then
+        let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+        if stmt.getAppFn.isConst && regs.length ≥ 2 then
+          match ← Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body stmt.getAppFn.constName!
+              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) with
+          | some sx => tryScriptFirst sx expected
+          | none => pure none
+        else pure none
+      else pure none
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
-    let pf ← try
-        withoutErrToSorry do
-          let e ← elabTermEnsuringType stx expected
-          synthesizeSyntheticMVarsNoPostponing
-          instantiateMVars e
-      catch e => refuse decl "proof" e.toMessageData
+    -- a runtime limit (heartbeats, recursion depth) here is a `proof` refusal
+    -- (the script is too costly), not the catch-all `checker`
+    -- (aff81fa7's size-scaled budget is replaced by `withProofBudget`: the limits are
+    -- max(caller, `ved.u1.proofRecDepth` / `ved.u1.proofHeartbeats`), not a fixed
+    -- multiple of the caller's; a caller with `maxHeartbeats 0` (unlimited) gets the
+    -- finite option value)
+    let pf ← match firstPf? with
+      | some e => pure e
+      | none =>
+        tryCatchRuntimeEx
+          (withProofBudget do
+          withoutErrToSorry do
+            let e ← elabTermEnsuringType stx expected
+            synthesizeSyntheticMVarsNoPostponing
+            instantiateMVars e)
+          fun e => refuse decl "proof" e.toMessageData
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let first ← match errs.drop errsBefore with
@@ -378,10 +1081,10 @@ def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Mo
       refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
     if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
     -- the kernel, synchronously, with EXACTLY the expected type
-    try
-      withOptions (fun o => o.setBool `Elab.async false) do
-        addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf })
-    catch e => refuse decl "kernel" e.toMessageData
+    tryCatchRuntimeEx
+      (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
+        addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
+      fun e => refuse decl "kernel" e.toMessageData
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
       | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
     unless ti.type == expected do refuse decl "type" m!"stored type differs from the expected statement"
@@ -393,20 +1096,61 @@ def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Mo
     if ← isRefusal e then throw e
     refuse decl "checker" e.toMessageData
 
+/-- `checkU1E` for a statement that is a plain constant. -/
+def checkU1 (decl : Name) (base : Name) (stmtDecl : Name) (m : Sparkle.IR.AST.Module) (proof : ProofSrc) :
+    TermElabM Name :=
+  checkU1E decl base (Lean.mkConst stmtDecl) m proof
+
+/-- The statement and the output port names for `declName`, from its TYPE:
+the declaration itself (one output projection, port `out`), or, for a result
+that is a product of `Signal`s, the bundled lambda (`bundledStmt`) with the
+ports `portNamesOf`.  Refuses (stage `table` / `multi-output`) everything
+else, before any synthesis. -/
+def stmtOf (declName : Name) : TermElabM (Lean.Expr × Nat × List String) := do
+  -- leading `DomainConfig` binders are instantiated with `defaultDomain`
+  -- (the statement is then about `@declName defaultDomain`, NOT the
+  -- polymorphic declaration); anything else is left for the table to refuse
+  let (stmt, nDom) ← try specialiseDomain declName catch e => refuse declName "table" e.toMessageData
+  let ty ← inferType stmt
+  match ← (try pure (Except.ok (← readTableOfType declName ty)) catch e => pure (Except.error e)) with
+  | .ok tbl =>
+    unless tbl.out.flat.length == 1 do
+      refuse declName "multi-output"
+        m!"{tbl.out.flat.length} output projections in one `Signal` (the synthesizer packs it into one port `out`); refused"
+    return (stmt, nDom, ["out"])
+  | .error e =>
+    -- a product of signals?
+    let b ← try bundledStmt stmt catch _ => refuse declName "table" e.toMessageData
+    let tbl ← try readTableOfType declName (← inferType b) catch e => refuse declName "table" e.toMessageData
+    return (b, nDom, portNamesOf "out" tbl.out)
+
+/-- The checker for a module `m` (the entry: the one `synthesizeCombinational`
+returned): the statement from `declName`'s type, the output ports DERIVED
+from the declaration's result tree by the synthesizer's rule and REQUIRED to
+be exactly `m.outputs`' names (count, order), widths and the rest by
+`ShapeStmt`. -/
+def vedU1EntryOn (declName : Name) (stmt : Lean.Expr) (nDom : Nat) (names : List String)
+    (m : Sparkle.IR.AST.Module) : TermElabM (Name × Nat) := do
+  unless m.outputs.map (·.name) == names do
+    refuse declName "multi-output"
+      m!"the module's output ports {m.outputs.map (·.name)} are not the declaration's projections' ports {names}"
+  let thm ← checkU1E declName declName stmt m .generated names
+  return (thm, nDom)
+
 /-- The U1 entry: `synthesizeCombinational` ONCE, the full statement over the
 returned module and the declaration itself, kernel, strict audit; `m` is
 returned only on success.  Failures of the steps before `checkU1` are tagged
 (`table`, `multi-output`, `inliner`, `synthesis`) but NOT rolled back (see the
 module docstring: runtime-limit exceptions there are not caught). -/
-def vedU1Entry (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name) := do
-  -- refuse multi-output from the TYPE before any synthesis
-  let tbl ← try readTable declName catch e => refuse declName "table" e.toMessageData
-  unless tbl.out.flat.length == 1 do
-    refuse declName "multi-output"
-      m!"{tbl.out.flat.length} output projections; the synthesizer's multi-output port naming is unconfirmed, refused (v1: one output)"
+def vedU1EntryS (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name × Nat) := do
+  let (stmt, nDom, names) ← stmtOf declName
   let (m, d) ← try Sparkle.Compiler.Elab.synthesizeCombinational declName
     catch e => refuse declName "synthesis" e.toMessageData
-  let thm ← checkU1 declName declName declName m .generated
+  let (thm, _) ← vedU1EntryOn declName stmt nDom names m
+  return (m, d, thm, nDom)
+
+def vedU1Entry (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name) := do
+  let (m, d, thm, _) ← vedU1EntryS declName
   return (m, d, thm)
 
 /-- `#ved_u1 decl`: run the entry; on success print the theorem, its audit
@@ -414,8 +1158,9 @@ and the returned module; otherwise the refusal error. -/
 elab "#ved_u1 " id:ident : command => do
   let decl ← Command.liftCoreM <| realizeGlobalConstNoOverload id
   Command.liftTermElabM do
-    let (m, _, thm) ← vedU1Entry decl
+    let (m, _, thm, nDom) ← vedU1EntryS decl
     let r ← Tools.VedStrictAudit.strictAudit thm
-    logInfo m!"VED U1 OK {thm}: {Tools.VedStrictAudit.showNames r.axioms}\n{repr m}"
+    let spec := if nDom > 0 then " (specialised at defaultDomain)" else ""
+    logInfo m!"VED U1 OK {thm}{spec}: {Tools.VedStrictAudit.showNames r.axioms}\n{repr m}"
 
 end Tools.VedU1Entry

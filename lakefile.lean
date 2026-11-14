@@ -313,6 +313,45 @@ lean_lib «Tools.ConeFoldMem» where
 lean_lib «Tools.ConeFoldRT» where
   roots := #[`Tools.ConeFoldRT]
 
+lean_lib «Tools.VedU2HierStateArgs» where
+  roots := #[`Tools.VedU2HierStateArgs]
+
+lean_lib «Tools.VedU2HierDbg» where
+  roots := #[`Tools.VedU2HierDbg]
+
+lean_lib «Tools.VedU2HierClose» where
+  roots := #[`Tools.VedU2HierClose]
+
+lean_lib «Tools.VedU2HierBvAppend» where
+  roots := #[`Tools.VedU2HierBvAppend]
+
+lean_lib «Tools.VedU2HierLoopRw» where
+  roots := #[`Tools.VedU2HierLoopRw]
+
+lean_lib «Tools.VedU2HierXorAttr» where
+  roots := #[`Tools.VedU2HierXorAttr]
+
+lean_lib «Tools.VedU2HierXor» where
+  roots := #[`Tools.VedU2HierXor]
+
+lean_lib «Tools.DeepNoNative» where
+  roots := #[`Tools.DeepNoNative]
+
+lean_lib «Tools.DeepNestedState» where
+  roots := #[`Tools.DeepNestedState]
+
+lean_lib «Tools.DeepHelpers» where
+  roots := #[`Tools.DeepHelpers]
+
+lean_lib «Tools.DeepHelpersTac» where
+  roots := #[`Tools.DeepHelpersTac]
+
+lean_lib «Tools.DeepFinArms» where
+  roots := #[`Tools.DeepFinArms]
+
+lean_lib «Tools.VedU2HierBudget» where
+  roots := #[`Tools.VedU2HierBudget]
+
 lean_lib «Tools.DeepElab» where
   roots := #[`Tools.DeepElab]
 
@@ -339,8 +378,65 @@ lean_lib «Tools.VedIRDecEq» where
 lean_lib «Tools.VedU1Contract» where
   roots := #[`Tools.VedU1Contract]
 
+lean_lib «Tools.VedU1Lemmas» where
+  roots := #[`Tools.VedU1Lemmas]
+
+lean_lib «Tools.VedU1Table» where
+  roots := #[`Tools.VedU1Table]
+
+lean_lib «Tools.VedU1TableGen» where
+  roots := #[`Tools.VedU1TableGen]
+
+lean_lib «Tools.VedU1ScriptSeq» where
+  roots := #[`Tools.VedU1ScriptSeq]
+
+lean_lib «Tools.VedU1ScriptSeqGen» where
+  roots := #[`Tools.VedU1ScriptSeqGen]
+
+lean_lib «Tools.VedU1Loop» where
+  roots := #[`Tools.VedU1Loop]
+
+lean_lib «Tools.VedU1Wire» where
+  roots := #[`Tools.VedU1Wire]
+
+lean_lib «Tools.VedU1WireShare» where
+  roots := #[`Tools.VedU1WireShare]
+
+lean_lib «Tools.VedU1HierSem» where
+  roots := #[`Tools.VedU1HierSem]
+
+lean_lib «Tools.VedU1HierComp» where
+  roots := #[`Tools.VedU1HierComp]
+
+lean_lib «Tools.VedU1Hier» where
+  roots := #[`Tools.VedU1Hier]
+
+lean_lib «Tools.VedU1HierEntry» where
+  roots := #[`Tools.VedU1HierEntry]
+
+lean_lib «Tools.VedU1Uns» where
+  roots := #[`Tools.VedU1Uns]
+
+lean_lib «Tools.VedU1LemmasExt1» where
+  roots := #[`Tools.VedU1LemmasExt1]
+
 lean_lib «Tools.VedU1Entry» where
   roots := #[`Tools.VedU1Entry]
+
+lean_lib «Tools.VedU1Packed» where
+  roots := #[`Tools.VedU1Packed]
+
+lean_lib «Tools.VedU1MultiSeqLemmas» where
+  roots := #[`Tools.VedU1MultiSeqLemmas]
+
+lean_lib «Tools.VedU1MultiSeqLoop» where
+  roots := #[`Tools.VedU1MultiSeqLoop]
+
+lean_lib «Tools.VedU1MultiSeq» where
+  roots := #[`Tools.VedU1MultiSeq]
+
+lean_lib «Tools.VedU1PackedEntry» where
+  roots := #[`Tools.VedU1PackedEntry]
 
 lean_lib «Tools.VedU1Deep» where
   roots := #[`Tools.VedU1Deep]
@@ -354,8 +450,95 @@ lean_lib «Tests.Ved.U1ContractCheck» where
 lean_lib «Tests.Ved.U1EntryCheck» where
   roots := #[`Tests.Ved.U1EntryCheck]
 
+lean_lib «Tests.Ved.U1DomainCheck» where
+  roots := #[`Tests.Ved.U1DomainCheck]
+
+lean_lib «Tests.Ved.U1MultiOutCheck» where
+  roots := #[`Tests.Ved.U1MultiOutCheck]
+
+lean_lib «Tests.Ved.U1PackedCheck» where
+  roots := #[`Tests.Ved.U1PackedCheck]
+
+lean_lib «Tests.Ved.U1MultiSeqCheck» where
+  roots := #[`Tests.Ved.U1MultiSeqCheck]
+
+lean_lib «Tests.Ved.U1EqLutCheck» where
+  roots := #[`Tests.Ved.U1EqLutCheck]
+
+lean_lib «Tests.Ved.U1LeafCheck» where
+  roots := #[`Tests.Ved.U1LeafCheck]
+
+-- the real `rconHW` (imports the AES IP); not in the VED CI workflow
+lean_lib «Tests.Ved.U1RconCheck» where
+  roots := #[`Tests.Ved.U1RconCheck]
+
+lean_lib «Tests.Ved.U1HierCheck» where
+  roots := #[`Tests.Ved.U1HierCheck]
+
+-- the real `keccakRcHW` (imports the Keccak IP): 32 × 64-bit constants over a 5-bit index
+lean_lib «Tests.Ved.U1KeccakRcCheck» where
+  roots := #[`Tests.Ved.U1KeccakRcCheck]
+
+-- real IP rows with `==` / wide inputs (aluSignal, hazardSignal, lqrCtrlTop, private test rows)
+lean_lib «Tests.Ved.U1EqWideCheck» where
+  roots := #[`Tests.Ved.U1EqWideCheck]
+
+-- the real constant tables: SHA-256 / SHA-512 K and the AES S-box (64 / 80 / 256 entries)
+lean_lib «Tests.Ved.U1KTabCheck» where
+  roots := #[`Tests.Ved.U1KTabCheck]
+
+-- real IP rows with several registers built by Signal.loop (loop-state invariant): shared commands,
+-- the PR check (3 rows + refusal controls), the other rows in four parts, all together
+lean_lib «Tests.Ved.U1MultiLoopRow» where
+  roots := #[`Tests.Ved.U1MultiLoopRow]
+
+lean_lib «Tests.Ved.U1MultiLoopCheck» where
+  roots := #[`Tests.Ved.U1MultiLoopCheck]
+
+lean_lib «Tests.Ved.U1SeqCheck» where
+  roots := #[`Tests.Ved.U1SeqCheck]
+
+lean_lib «Tests.Ved.U1MultiLoopFull1» where
+  roots := #[`Tests.Ved.U1MultiLoopFull1]
+
+lean_lib «Tests.Ved.U1MultiLoopFull2» where
+  roots := #[`Tests.Ved.U1MultiLoopFull2]
+
+lean_lib «Tests.Ved.U1MultiLoopFull3» where
+  roots := #[`Tests.Ved.U1MultiLoopFull3]
+
+lean_lib «Tests.Ved.U1MultiLoopFull4» where
+  roots := #[`Tests.Ved.U1MultiLoopFull4]
+
+lean_lib «Tests.Ved.U1MultiLoopFull5» where
+  roots := #[`Tests.Ved.U1MultiLoopFull5]
+
+lean_lib «Tests.Ved.U1MultiLoopFull6» where
+  roots := #[`Tests.Ved.U1MultiLoopFull6]
+
+lean_lib «Tests.Ved.U1MultiLoopAll» where
+  roots := #[`Tests.Ved.U1MultiLoopAll]
+
 lean_lib «Tests.Ved.U1DeepCheck» where
   roots := #[`Tests.Ved.U1DeepCheck]
+
+lean_lib «Tests.Ved.U1UnsolvedCheck» where
+  roots := #[`Tests.Ved.U1UnsolvedCheck]
+
+lean_lib «Tests.Ved.U1WireShareCheck» where
+  roots := #[`Tests.Ved.U1WireShareCheck]
+
+lean_lib «Tests.Ved.U1MultiRegCheck» where
+  roots := #[`Tests.Ved.U1MultiRegCheck]
+
+lean_lib «Tests.Ved.DeepNameCheck» where
+  roots := #[`Tests.Ved.DeepNameCheck]
+
+lean_lib «Tests.Ved.DeepInitCheck» where
+  roots := #[`Tests.Ved.DeepInitCheck]
+
+lean_lib «Tests.Ved.DeepHygieneCheck» where
+  roots := #[`Tests.Ved.DeepHygieneCheck]
 
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
@@ -925,6 +1108,11 @@ lean_exe «rtl-structure-test» where
   root := `Tests.Drivers.RtlStructureTestMain
   supportInterpreter := true
 
+-- Concat lambda argument order: source value vs evaluated synthesised IR.
+lean_exe «concat-lambda-order-test» where
+  root := `Tests.Drivers.ConcatLambdaOrderTestMain
+  supportInterpreter := true
+
 lean_exe «policy-sign-demo-test» where
   root := `Tests.Drivers.PolicySignDemoTestMain
   supportInterpreter := true
@@ -1327,3 +1515,90 @@ lean_exe «signz-demo-jit» where
 lean_exe «mulmodser-jit» where
   root := `Tests.Drivers.MulModSerJIT
   supportInterpreter := true
+
+lean_lib «Tests.Ved.U1StageCheck» where
+  roots := #[`Tests.Ved.U1StageCheck]
+
+lean_lib «Tools.VedU2HierSem» where
+  roots := #[`Tools.VedU2HierSem]
+
+lean_lib «Tools.VedU2HierProj» where
+  roots := #[`Tools.VedU2HierProj]
+
+lean_lib «Tools.VedU2HierOrder» where
+  roots := #[`Tools.VedU2HierOrder]
+
+lean_lib «Tools.VedU2HierStmt» where
+  roots := #[`Tools.VedU2HierStmt]
+
+lean_lib «Tools.VedU2HierKid» where
+  roots := #[`Tools.VedU2HierKid]
+
+lean_lib «Tools.VedU2HierReg» where
+  roots := #[`Tools.VedU2HierReg]
+
+lean_lib «Tools.VedU2HierStep» where
+  roots := #[`Tools.VedU2HierStep]
+
+lean_lib «Tools.VedU2HierState» where
+  roots := #[`Tools.VedU2HierState]
+
+lean_lib «Tools.VedU2HierNet» where
+  roots := #[`Tools.VedU2HierNet]
+
+lean_lib «Tools.VedU2HierEntry» where
+  roots := #[`Tools.VedU2HierEntry]
+
+lean_lib «Tools.VedU2HierStGen» where
+  roots := #[`Tools.VedU2HierStGen]
+
+lean_lib «Tools.VedU2HierRegEntry» where
+  roots := #[`Tools.VedU2HierRegEntry]
+
+lean_lib «Tests.Ved.U2HierSemCheck» where
+  roots := #[`Tests.Ved.U2HierSemCheck]
+
+lean_lib «Tests.Ved.H2OpenParentProbe» where
+  roots := #[`Tests.Ved.H2OpenParentProbe]
+
+lean_lib «Tests.Ved.U2HierRegCheck» where
+  roots := #[`Tests.Ved.U2HierRegCheck]
+
+lean_lib «Tests.IP.Net.HTTPTest» where
+  roots := #[`Tests.IP.Net.HTTPTest]
+
+lean_lib «Tests.Ved.U2HierStateCallCheck» where
+  roots := #[`Tests.Ved.U2HierStateCallCheck]
+
+lean_lib «Tests.Ved.U2HierPartialDeepCheck» where
+  roots := #[`Tests.Ved.U2HierPartialDeepCheck]
+
+lean_lib «Tests.Ved.U2HierOpenDeepCheck» where
+  roots := #[`Tests.Ved.U2HierOpenDeepCheck]
+
+lean_lib «Tests.Ved.U2HierOpenDeep2Check» where
+  roots := #[`Tests.Ved.U2HierOpenDeep2Check]
+
+lean_lib «Tests.Ved.U2HierOpenDeep3Check» where
+  roots := #[`Tests.Ved.U2HierOpenDeep3Check]
+
+lean_lib «Tests.Ved.U2HierNestedInlineCheck» where
+  roots := #[`Tests.Ved.U2HierNestedInlineCheck]
+
+lean_lib «Tests.Ved.U2HierWireCheck» where
+  roots := #[`Tests.Ved.U2HierWireCheck]
+
+lean_lib «Tests.Ved.U2HierCheck» where
+  roots := #[`Tests.Ved.U2HierCheck]
+
+lean_lib «Tests.Ved.U2HierPin» where
+  roots := #[`Tests.Ved.U2HierPin]
+
+lean_lib «Tools.VedInvocationDom» where
+  roots := #[`Tools.VedInvocationDom]
+
+lean_lib «Tools.VedInvocation» where
+  roots := #[`Tools.VedInvocation]
+
+lean_lib «Tests.Ved.InvocationCheck» where
+  roots := #[`Tests.Ved.InvocationCheck]

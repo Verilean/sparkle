@@ -1075,6 +1075,243 @@ partial def canonHardwareExpr (value : Lean.Expr) : CompilerM Lean.Expr := do
     | .fvar fid => repl.get? fid.name
     | _ => none
 
+/-- `fun x y => g … y x`: the two-parameter lambda applies its head to the
+    parameters in swapped order (last application args are `bvar 0, bvar 1`).
+    The wire-level lowering below takes the head operator from the lambda body
+    and applies it to `[a, b]`; without this check the parameter order was
+    ignored (`(fun x y => y ++ x) <$> a <*> b` lowered as `a ++ b`). -/
+def lamSwapsArgs : Lean.Expr → Bool
+  | .lam _ _ (.lam _ _ body _) _ =>
+    let bargs := body.getAppArgs
+    bargs.size >= 2 && bargs[bargs.size-2]! == .bvar 0 && bargs[bargs.size-1]! == .bvar 1
+  | _ => false
+
+/-- Operators whose result does not depend on operand order; for these the
+    original `[a, b]` operand order is kept so emitted output is unchanged. -/
+def isCommutativeOp : Operator → Bool
+  | .and | .or | .xor | .add | .mul | .eq => true
+  | _ => false
+
+/-- Arity of the operand block of the overloaded (type-class) operators whose
+    meaning depends on an instance argument.  All other registry heads
+    (`BitVec.add`, `Bool.and`, `BitVec.sshiftRight`, …) are fixed constants. -/
+def overloadedOpArity? (nm : Name) : Option Nat :=
+  if nm == ``HAnd.hAnd || nm == ``HOr.hOr || nm == ``HXor.hXor
+      || nm == ``HAdd.hAdd || nm == ``HSub.hSub || nm == ``HMul.hMul
+      || nm == ``HAppend.hAppend || nm == ``HShiftLeft.hShiftLeft
+      || nm == ``HShiftRight.hShiftRight || nm == ``ShiftLeft.shiftLeft
+      || nm == ``ShiftRight.shiftRight || nm == ``BEq.beq
+      || nm == ``LT.lt || nm == ``LE.le then some 2
+  else if nm == ``Neg.neg || nm == ``Complement.complement then some 1
+  else none
+
+/-- The FIXED meaning of an overloaded operator on operands `xs` (fresh
+    fvars): a term built only from non-overloaded constants. -/
+def canonicalStdOp (nm : Name) (xs : Array Lean.Expr) : MetaM (Option Lean.Expr) := do
+  let a := xs[0]!
+  let ty ← whnfR (← inferType a)
+  let isBV := ty.isAppOf ``BitVec
+  let isBool := ty.isConstOf ``Bool
+  let mk (c : Name) (as : Array Lean.Expr := xs) : MetaM (Option Lean.Expr) :=
+    try return some (← mkAppM c as) catch _ => return none
+  let natOf (x : Lean.Expr) : MetaM Lean.Expr := mkAppM ``BitVec.toNat #[x]
+  if nm == ``HAnd.hAnd then (if isBV then mk ``BitVec.and else if isBool then mk ``and else pure none)
+  else if nm == ``HOr.hOr then (if isBV then mk ``BitVec.or else if isBool then mk ``or else pure none)
+  else if nm == ``HXor.hXor then (if isBV then mk ``BitVec.xor else if isBool then mk ``xor else pure none)
+  else if nm == ``HAdd.hAdd then (if isBV then mk ``BitVec.add else pure none)
+  else if nm == ``HSub.hSub then (if isBV then mk ``BitVec.sub else pure none)
+  else if nm == ``HMul.hMul then (if isBV then mk ``BitVec.mul else pure none)
+  else if nm == ``HAppend.hAppend then (if isBV then mk ``BitVec.append else pure none)
+  else if nm == ``Neg.neg then (if isBV then mk ``BitVec.neg else pure none)
+  else if nm == ``Complement.complement then
+    (if isBV then mk ``BitVec.not else if isBool then mk ``not else pure none)
+  else if nm == ``HShiftLeft.hShiftLeft || nm == ``ShiftLeft.shiftLeft then
+    (if isBV && xs.size == 2 then do let n ← natOf xs[1]!; mk ``BitVec.shiftLeft #[xs[0]!, n] else pure none)
+  else if nm == ``HShiftRight.hShiftRight || nm == ``ShiftRight.shiftRight then
+    (if isBV && xs.size == 2 then do let n ← natOf xs[1]!; mk ``BitVec.ushiftRight #[xs[0]!, n] else pure none)
+  else if nm == ``LT.lt then
+    (if isBV && xs.size == 2 then
+      try return some (← mkAppM ``LT.lt #[← natOf xs[0]!, ← natOf xs[1]!]) catch _ => pure none
+     else pure none)
+  else if nm == ``LE.le then
+    (if isBV && xs.size == 2 then
+      try return some (← mkAppM ``LE.le #[← natOf xs[0]!, ← natOf xs[1]!]) catch _ => pure none
+     else pure none)
+  else if nm == ``BEq.beq then
+    -- `a == b` on BitVec / Bool is `decide (a = b)` via the core decidable-equality instances
+    try
+      if isBV then
+        let d ← mkAppM ``instDecidableEqBitVec xs
+        return some (mkApp2 (mkConst ``Decidable.decide) (← mkEq xs[0]! xs[1]!) d)
+      else if isBool then
+        let d ← mkAppM ``instDecidableEqBool xs
+        return some (mkApp2 (mkConst ``Decidable.decide) (← mkEq xs[0]! xs[1]!) d)
+      else return none
+    catch _ => return none
+  else return none
+
+/-- `none` when the application `fn args` is acceptable: either `fn` is not
+    an overloaded operator, or its instance/type arguments are closed and the
+    application on fresh operands is definitionally equal, at `instances`
+    transparency, to the fixed meaning.  `some msg` for a non-standard
+    instance (the caller refuses).  Operands are replaced by fresh fvars, so
+    nothing is unfolded at the operand widths. -/
+def nonStandardOpMsg? (fn : Lean.Expr) (args : Array Lean.Expr) : MetaM (Option String) := do
+  let .const nm _ := fn | return none
+  let some k := overloadedOpArity? nm | return none
+  let bad := some s!"non-standard instance for {nm}"
+  if args.size < k then return bad
+  let others := args.extract 0 (args.size - k)
+  if others.any (·.hasLooseBVars) then return bad
+  withNewMCtxDepth do
+    let head := mkAppN fn others
+    let ty ← inferType head
+    forallBoundedTelescope ty (some k) fun xs _ => do
+      if xs.size != k then return bad
+      let app := mkAppN head xs
+      match ← canonicalStdOp nm xs with
+      | none => return bad
+      | some canon =>
+        if ← withTransparency .instances (isDefEq app canon) then return none else return bad
+
+def throwNonStandard (msg : String) (f : Lean.Expr) : MetaM α :=
+  throwError "Unsupported 2-argument lambda in `<$> … <*> …`: {msg} (the operator \
+    must use the standard instance; lambda: {f})"
+
+/-- Check that the lambda body of `f` (`exact` shape, or the outer/inner
+    operators of `!(x OP y)`) uses only standard operators. -/
+def checkLamBodyStd (f : Lean.Expr) (inner : Bool := false) : MetaM Unit := do
+  let .lam _ _ (.lam _ _ body _) _ := f | return
+  let chk (e : Lean.Expr) : MetaM Unit := do
+    if let some m ← nonStandardOpMsg? e.getAppFn e.getAppArgs then throwNonStandard m f
+  chk body
+  if inner then
+    let nargs := body.getAppArgs
+    if nargs.size >= 1 then chk nargs[nargs.size-1]!
+
+/-- Shape of the function argument of a 2-argument `Seq.seq`/`Signal.ap`
+    lowering.  The "head operator applied to the two wires" shortcut is only
+    sound for `exact`: `fun x y => op … x y` / `op … y x` where the last two
+    arguments are the two parameters and every other argument is closed
+    (types, instances, widths). -/
+inductive Lam2Shape where
+  | exact (swapped : Bool)
+  | general
+  | notLam2
+
+def lam2Shape : Lean.Expr → Lam2Shape
+  | .lam _ _ (.lam _ _ body _) _ =>
+    let bargs := body.getAppArgs
+    match body.getAppFn with
+    | .const _ _ =>
+      if bargs.size >= 2 then
+        let p := bargs[bargs.size-2]!
+        let q := bargs[bargs.size-1]!
+        let others := bargs.extract 0 (bargs.size-2)
+        if others.all (fun a => !a.hasLooseBVars) then
+          if p == .bvar 1 && q == .bvar 0 then .exact false
+          else if p == .bvar 0 && q == .bvar 1 then .exact true
+          else if body.getAppFn.isConstOf ``BitVec.sshiftRight then
+            -- `fun x y => BitVec.sshiftRight n x y.toNat`: the shift amount
+            -- is the second wire (handled as `asr`).
+            let isToNat (a : Lean.Expr) (i : Nat) :=
+              a.getAppFn.isConstOf ``BitVec.toNat && a.getAppNumArgs == 2
+                && a.appArg! == .bvar i
+            if p == .bvar 1 && isToNat q 0 then .exact false
+            else if p == .bvar 0 && isToNat q 1 then .exact true
+            else .general
+          else .general
+        else .general
+      else .general
+    | _ => .general
+  | _ => .notLam2
+
+/-- For `!(x OP y)` bodies: the inner operands must be the two distinct
+    parameters; `some true` when they are `y, x`. -/
+def bvarPair? (iargs : Array Lean.Expr) : Option Bool :=
+  if iargs.size < 2 then none
+  else
+    let p := iargs[iargs.size-2]!
+    let q := iargs[iargs.size-1]!
+    if p == .bvar 1 && q == .bvar 0 then some false
+    else if p == .bvar 0 && q == .bvar 1 then some true
+    else none
+
+/-- Lower a non-`exact` 2-parameter lambda body over the two input wires
+    (`bvar 1` = first parameter → `wa`, `bvar 0` → `wb`).  Supports
+    parameters, BitVec literals, `++`, `& | ^ + - *`, `==`, `~~~`, `-x`.
+    Anything else is refused: the head-operator shortcut would silently
+    miscompile it. -/
+def lowerLam2General (f : Lean.Expr) (wa wb : String) :
+    CompilerM (Option Sparkle.IR.AST.Expr) := do
+  let .lam _ _ (.lam _ _ body _) _ := f | return none
+  let rec go (fuel : Nat) (e : Lean.Expr) : CompilerM (Option Sparkle.IR.AST.Expr) := do
+    match fuel with
+    | 0 => return none
+    | fuel + 1 =>
+    match e with
+    | .bvar 1 => return some (.ref wa)
+    | .bvar 0 => return some (.ref wb)
+    | .mdata _ b => go fuel b
+    | .app .. =>
+      let args := e.getAppArgs
+      let .const nm _ := e.getAppFn | return none
+      if let some m ← CompilerM.liftMetaM (nonStandardOpMsg? e.getAppFn args) then
+        CompilerM.liftMetaM (throwNonStandard m f)
+      if nm == ``OfNat.ofNat || nm == ``BitVec.ofNat then
+        if e.hasLooseBVars then return none
+        try
+          let (v, w) ← extractBitVecLiteral e
+          return some (.const (Int.ofNat v) w)
+        catch _ => return none
+      else if (nm == ``HAppend.hAppend || nm == ``BitVec.append) && args.size >= 2 then
+        match (← go fuel args[args.size-2]!), (← go fuel args[args.size-1]!) with
+        | some x, some y => return some (.concat [x, y])
+        | _, _ => return none
+      else match getOperator nm with
+        | some op =>
+          if op == .not || op == .neg then
+            if args.size < 1 then return none
+            match (← go fuel args[args.size-1]!) with
+            | some x => return some (.op op [x])
+            | none => return none
+          else if op == .and || op == .or || op == .xor || op == .add || op == .sub
+              || op == .mul || op == .eq then
+            if args.size < 2 then return none
+            match (← go fuel args[args.size-2]!), (← go fuel args[args.size-1]!) with
+            | some x, some y => return some (.op op [x, y])
+            | _, _ => return none
+          else return none
+        | none => return none
+    | _ => return none
+  go 64 body
+
+/-- Handle a 2-parameter lambda whose body is NOT the exact `op … x y` shape
+    by lowering the whole body over the two wires; refuse (compile error)
+    when it is outside the supported fragment.  Returns `none` for the exact
+    / non-lambda shapes, which keep the head-operator path. -/
+def lowerNonExactLam2 (e f : Lean.Expr) (wa wb hint : String) (isNamed : Bool) :
+    CompilerM (Option String) := do
+  match lam2Shape f with
+  | .exact _ =>
+    CompilerM.liftMetaM (checkLamBodyStd f)
+    return none
+  | .notLam2 => return none
+  | .general =>
+    match (← lowerLam2General f wa wb) with
+    | some ir =>
+      let exprType ← cachedInferType e
+      let hwType ← inferHWTypeFromSignal exprType
+      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+      CompilerM.emitAssign resWire ir
+      return some resWire
+    | none =>
+      CompilerM.liftMetaM $ throwError
+        "Unsupported 2-argument lambda in `<$> … <*> …`: the body is not a single \
+         binary operator applied to the two parameters, and it uses constructs the \
+         wire lowering cannot translate (supported: parameters, BitVec literals, \
+         ++, &&&, |||, ^^^, +, -, *, ==, ~~~, unary -). Lambda: {f}"
+
 def canonHardwareKey (value : Lean.Expr) : CompilerM String := do
   return toString (← canonHardwareExpr value).hash
 
@@ -1730,7 +1967,7 @@ mutual
                 -- `/* ERROR: not requires 1 argument */`.  This is the
                 -- bit-serial engines' `busy = !(isIdle || isFinish)`.
                 -- Emit the correct nested `not (a OP b)` instead.
-                if let some innerOp := (
+                if let some (innerOp, innerSw) := (
                     match f with
                     | .lam _ _ (.lam _ _ notBody _) _ =>
                       let nfn := notBody.getAppFn
@@ -1742,30 +1979,38 @@ mutual
                         match inner.getAppFn with
                         | .const iname _ =>
                           let iargs := inner.getAppArgs
-                          if iargs.size >= 2 && iargs[iargs.size-2]!.isBVar
-                             && iargs[iargs.size-1]!.isBVar then getOperator iname
-                          else none
+                          match bvarPair? iargs with
+                          | some sw => (getOperator iname).map (·, sw)
+                          | none => none
                         | _ => none
                       else none
                     | _ => none) then
+                  CompilerM.liftMetaM (checkLamBodyStd f (inner := true))
                   let exprType ← cachedInferType e
                   let hwType ← inferHWTypeFromSignal exprType
                   let innerWire ← CompilerM.makeWire s!"{hint}_inner" hwType (named := false)
-                  CompilerM.emitAssign innerWire (.op innerOp [.ref wireA, .ref wireB])
+                  let (il, ir) := if innerSw && !isCommutativeOp innerOp then (wireB, wireA) else (wireA, wireB)
+                  CompilerM.emitAssign innerWire (.op innerOp [.ref il, .ref ir])
                   let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                   CompilerM.emitAssign resWire (.op .not [.ref innerWire])
                   return resWire
+                -- Non-exact bodies: lower the whole body or refuse
+                if let some w ← lowerNonExactLam2 e f wireA wireB hint isNamed then
+                  return w
                 -- Get op name from lambda body
                 let opName ← getPrimitiveNameFromLambda f
+                let swapped := match lam2Shape f with | .exact s => s | _ => lamSwapsArgs f
                 match getOperator opName with
                 | some op =>
                    -- Infer result type from the expression type
                    let exprType ← cachedInferType e
                    let hwType ← inferHWTypeFromSignal exprType
                    let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-                   CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
+                   let (wl, wr) := if swapped && !isCommutativeOp op then (wireB, wireA) else (wireA, wireB)
+                   CompilerM.emitAssign resWire (.op op [.ref wl, .ref wr])
                    return resWire
                 | none =>
+                   let (wireA, wireB) := if swapped then (wireB, wireA) else (wireA, wireB)
                    -- Special: BitVec.append / HAppend → concat
                    if opName == ``HAppend.hAppend || opName == ``BitVec.append then
                      let exprType ← cachedInferType e
@@ -2423,7 +2668,7 @@ mutual
         -- `/* ERROR: not requires 1 argument */`.  Recognise this exact
         -- shape (the bit-serial engines' `busy = !(isIdle || isFinish)`)
         -- and emit the correct nested `not (a OP b)`.
-        let compoundNot? : Option Operator :=
+        let compoundNot? : Option (Operator × Bool) :=
           match f with
           | .lam _ _ (.lam _ _ notBody _) _ =>
             let nfn := notBody.getAppFn
@@ -2438,32 +2683,38 @@ mutual
               -- …applied to a single binary op on the two bound vars.
               match ifn with
               | .const iname _ =>
-                if iargs.size >= 2 && iargs[iargs.size-2]!.isBVar
-                   && iargs[iargs.size-1]!.isBVar then
-                  getOperator iname
-                else none
+                match bvarPair? iargs with
+                | some sw => (getOperator iname).map (·, sw)
+                | none => none
               | _ => none
             else none
           | _ => none
         match compoundNot? with
-        | some innerOp =>
+        | some (innerOp, innerSw) =>
+          CompilerM.liftMetaM (checkLamBodyStd f (inner := true))
           let exprType ← cachedInferType e
           let hwType ← inferHWTypeFromSignal exprType
           let innerWire ← CompilerM.makeWire s!"{hint}_inner" hwType (named := false)
-          CompilerM.emitAssign innerWire (.op innerOp [.ref wireA, .ref wireB])
+          let (il, ir) := if innerSw && !isCommutativeOp innerOp then (wireB, wireA) else (wireA, wireB)
+          CompilerM.emitAssign innerWire (.op innerOp [.ref il, .ref ir])
           let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
           CompilerM.emitAssign resWire (.op .not [.ref innerWire])
           return some resWire
         | none => pure ()
+        if let some w ← lowerNonExactLam2 e f wireA wireB hint isNamed then
+          return some w
         let opName ← getPrimitiveNameFromLambda f
+        let swapped := match lam2Shape f with | .exact s => s | _ => lamSwapsArgs f
         match getOperator opName with
         | some op =>
           let exprType ← cachedInferType e
           let hwType ← inferHWTypeFromSignal exprType
           let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-          CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
+          let (wl, wr) := if swapped && !isCommutativeOp op then (wireB, wireA) else (wireA, wireB)
+          CompilerM.emitAssign resWire (.op op [.ref wl, .ref wr])
           return some resWire
         | none =>
+          let (wireA, wireB) := if swapped then (wireB, wireA) else (wireA, wireB)
           -- Special: BitVec.append / HAppend → concat
           if opName == ``HAppend.hAppend || opName == ``BitVec.append then
             let exprType ← cachedInferType e
