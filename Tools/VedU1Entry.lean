@@ -10,6 +10,7 @@ import Tools.VedU1Wire
 import Tools.VedU1Uns
 import Tools.VedU1LemmasExt1
 import Tools.VedU1ScriptSeqGen
+import Tools.VedU1Heavy
 import Tools.VedStrictAudit
 
 /-!
@@ -455,7 +456,7 @@ the single register of the delay shape (name, width), `none` for a
 register-free module. -/
 def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat))
     (inNames : List String := []) (eqs : Bool := false) (fStx? : Option Term := none) (helpers : Array Name := #[]) (inWidths : List Nat := [])
-    (tbl? : Option Name := none) :
+    (tbl? : Option Name := none) (heavy : Bool := false) :
     TermElabM Syntax := do
   -- the declaration's own helper definitions (private `byte16`, `abbrev` constants,
   -- sub-modules), unfolded by `simp`; untrusted, the kernel checks the result.  The
@@ -596,6 +597,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             modLs := modLs.push (← `(Lean.Parser.Tactic.simpLemma| $h:ident))
         let modL : Syntax.TSepArray [``Lean.Parser.Tactic.simpStar, ``Lean.Parser.Tactic.simpErase, ``Lean.Parser.Tactic.simpLemma] "," :=
           Syntax.TSepArray.ofElems (modLs.map fun x => (⟨x.raw⟩ : TSyntax _))
+        if heavy then pure (gen ++ narrow ++ #[← `(tactic| all_goals ved_heavy_close)]) else
         pure (gen ++ narrow ++ (#[← `(tactic| all_goals ((try simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $modL,*]) <;> (first | omega | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> omega) | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false] at *) <;> (try ved_or_lit) <;> (try ved_bits_facts) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_or_lit) <;> omega))))] : Array (TSyntax `tactic)))
     -- a body with `==` goes straight to the input domain (the range tactics
     -- below only fail on it, after costly case splits)
@@ -1039,6 +1041,14 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
               stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) with
           | some sx => tryScriptFirst sx expected
           | none => pure none
+        else if stmt.getAppFn.isConst && regs.isEmpty && tblD?.isNone && inNames.length ≥ 1 then
+          -- a combinational module with wide data inputs: the signed-select closing (`Tools.VedU1Heavy`)
+          let widths := m.inputs.filter (fun p => match clkRst with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
+          if widths.length == inNames.length && widths.foldl (· + ·) 0 > 16 then
+            let sx ← scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none
+              (← helperConsts stmt.getAppFn.constName!) widths tblD? (heavy := true)
+            tryScriptFirst sx expected
+          else pure none
         else pure none
       else pure none
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
