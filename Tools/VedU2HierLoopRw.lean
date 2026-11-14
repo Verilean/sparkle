@@ -52,6 +52,10 @@ elab "ved_rw_loops " hs:(ppSpace colGt ident)+ : tactic => withMainContext do
       -- the loop's pack type and the time argument must agree before the (expensive) unfolding check
       unless e.getArg! 3 == lhs.getArg! 3 do continue
       if (← withDefault <| isDefEq e lhs) then
+        -- (debugging, `VED_HIER_TRACE_FILE`: was the match syntactic, or only by unfolding?)
+        if let some f ← IO.getEnv "VED_HIER_TRACE_FILE" then
+          let hdl ← IO.FS.Handle.mk f .append
+          hdl.putStrLn s!"ved_rw_loops {h.getId}: {if e == lhs then "syntactic" else "by unfolding"}"
         let tgt ← instantiateMVars (← getMainTarget)
         let pf ← mkExpectedTypeHint hv (← mkEq e rhs)
         let r ← (← getMainGoal).rewrite tgt pf

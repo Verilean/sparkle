@@ -1561,6 +1561,12 @@ lean_lib «Tests.Ved.U2HierPartialDeepCheck» where
 lean_lib «Tests.Ved.U2HierOpenDeepCheck» where
   roots := #[`Tests.Ved.U2HierOpenDeepCheck]
 
+lean_lib «Tests.Ved.U2HierOpenDeep2Check» where
+  roots := #[`Tests.Ved.U2HierOpenDeep2Check]
+
+lean_lib «Tests.Ved.U2HierOpenDeep3Check» where
+  roots := #[`Tests.Ved.U2HierOpenDeep3Check]
+
 lean_lib «Tests.Ved.U2HierNestedInlineCheck» where
   roots := #[`Tests.Ved.U2HierNestedInlineCheck]
 

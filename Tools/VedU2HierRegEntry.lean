@@ -1034,7 +1034,10 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
       logInfo m!"VED U2 HIER PARTIAL-DEEP {decl}: open parent {p1.opn.openName}, used port {used}, failed ports {failed.map (·.1)}, {nErr} errors tolerated (ports the proof does not use)"
       for (p, k, e) in failed do
         logInfo m!"VED U2 HIER PARTIAL-DEEP {decl}: port {p}, {k} errors, first: {e.take 400}"
-    let (thm, proofMs) ← liftTermElabM (phase2 decl stmt nDom m p1)
+    -- H2e: a limit reached while the proof is elaborated (`maxHeartbeats`, `maxRecDepth`: runtime exceptions, which `catch`
+    -- does not see) is a refusal at `[proof]`, like any other failure of the proof
+    let (thm, proofMs) ← liftTermElabM (tryCatchRuntimeEx (phase2 decl stmt nDom m p1) fun ex =>
+      if ex.isRuntime then refuse decl "proof" ex.toMessageData else throw ex)
     return (thm, p1.childMs, proofMs)
   catch e =>
     set saved
