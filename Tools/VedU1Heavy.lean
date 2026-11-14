@@ -213,7 +213,31 @@ syntax (name := vedHeavyClose) "ved_heavy_close" : tactic
 macro_rules
   | `(tactic| ved_heavy_close) =>
     `(tactic| ((repeat' split)
-        <;> (first | omega | (simp_all; done) | (simp only [Sparkle.IR.Semantics.toSigned, Int.shiftRight_eq_div_pow] at *
+        <;> (first | (simp_all; done) | omega | (simp only [Sparkle.IR.Semantics.toSigned, Int.shiftRight_eq_div_pow] at *
                                                     <;> (repeat' split) <;> omega))))
+
+end Tools.VedU1Heavy
+
+namespace Tools.VedU1Heavy
+open Lean Meta Elab Tactic
+
+/-- does the goal contain a shift of a signed value (`toSigned w X >>> y`)? -/
+def hasSignedShift (e : Expr) : Bool :=
+  (e.find? fun t => t.isAppOfArity ``HShiftRight.hShiftRight 6 && (t.getArg! 0).isConstOf ``Int &&
+    (t.getArg! 4).isAppOfArity ``Sparkle.IR.Semantics.toSigned 2).isSome
+
+/-- step 2b + 3: with a signed shift in the goal, name the shifts (`ved_gen_shifts`) and close; without one,
+run the case split of the narrow selectors (`split`, given by the script) and close.  There is no fallback
+from one to the other: the first applicable one is the only one tried. -/
+syntax (name := vedHeavyFinish) "ved_heavy_finish " "(" tacticSeq ")" : tactic
+
+elab_rules : tactic
+  | `(tactic| ved_heavy_finish ( $split:tacticSeq )) => do
+    let g ← getMainGoal
+    let shifted ← g.withContext do pure (hasSignedShift (← instantiateMVars (← g.getType)))
+    if shifted then
+      evalTactic (← `(tactic| (ved_gen_shifts; ved_heavy_close)))
+    else
+      evalTactic (← `(tactic| (($split:tacticSeq); all_goals ved_heavy_close)))
 
 end Tools.VedU1Heavy
