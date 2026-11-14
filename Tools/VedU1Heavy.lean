@@ -75,6 +75,27 @@ theorem toSigned_ite (w : Nat) (c : Prop) [Decidable c] (a b : Nat) :
     toSigned w (if c then a else b) = if c then toSigned w a else toSigned w b := by
   split <;> rfl
 
+
+theorem shr_bounds (A : Int) (y : Nat) :
+    (0 ≤ A → 0 ≤ A >>> y ∧ A >>> y ≤ A) ∧ (A < 0 → A ≤ A >>> y ∧ A >>> y < 0) := by
+  rw [Int.shiftRight_eq_div_pow]
+  have ht : (0 : Int) < ((2 ^ y : Nat) : Int) := by exact_mod_cast Nat.two_pow_pos y
+  have ht1 : (1 : Int) ≤ ((2 ^ y : Nat) : Int) := by omega
+  generalize ((2 ^ y : Nat) : Int) = t at *
+  refine ⟨fun h => ⟨Int.ediv_nonneg h (by omega), Int.ediv_le_self _ h⟩, fun h => ⟨?_, ?_⟩⟩
+  · apply Int.le_ediv_of_mul_le ht
+    have := Int.mul_le_mul_of_nonpos_left (by omega : A ≤ 0) ht1
+    omega
+  · exact Int.ediv_neg_of_neg_of_pos h ht
+
+theorem toSigned_range (w X : Nat) (hw : 0 < w) (hX : X < 2 ^ w) :
+    -((2 ^ (w - 1) : Nat) : Int) ≤ toSigned w X ∧ toSigned w X < ((2 ^ (w - 1) : Nat) : Int) := by
+  have hh : 2 ^ (w - 1) * 2 = 2 ^ w := by
+    obtain ⟨k, rfl⟩ : ∃ k, w = k + 1 := ⟨w - 1, by omega⟩
+    simp [Nat.pow_succ]
+  unfold toSigned
+  split <;> omega
+
 /-- step 1 of the heavy script (see the module docstring) -/
 syntax (name := vedHeavyNorm) "ved_heavy_norm" : tactic
 
@@ -86,7 +107,7 @@ macro_rules
           Tools.VedU1ScriptSeq.vedToNatAppend, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.or_hi_16,
           Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32,
           Nat.mod_eq_of_lt, Nat.reduceAdd, Nat.reduceMul, Nat.reducePow, Nat.zero_mul, Nat.shiftRight_eq_div_pow, Nat.zero_add, Nat.div_one,
-          Int.shiftRight_eq_div_pow, Int.not_le.symm, ite_not]))
+          Int.not_le.symm, ite_not]))
 
 open Lean Meta Elab Tactic in
 /-- step 2: every maximal argument `X` of a `toSigned w X` that is a wrap-around `_ % m` and mentions a
@@ -116,6 +137,53 @@ elab "ved_gen_atoms" : tactic => withMainContext do
     let hp := mkIdent (Name.mkSimple s!"ved_hp{i}")
     evalTactic (← `(tactic| generalize $hp:ident : $stx = $p:ident))
     evalTactic (← `(tactic| have : $p:ident < $(← Term.exprToSyntax ((x.getArg! 5))) := by omega))
+
+
+open Lean Meta Elab Tactic in
+/-- step 2b: a shift `toSigned w X >>> y` by a variable amount is named by a variable `Q` whose range is
+that of a `w`-bit signed value (`shr_bounds`, `toSigned_range`): the goal no longer depends on `y`, so the
+selector need not be case-split -/
+elab "ved_gen_shifts" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let st ← IO.mkRef (#[] : Array Expr)
+  let rec go (e : Expr) : MetaM Unit := do
+    if e.isAppOfArity ``HShiftRight.hShiftRight 6 && (e.getArg! 0).isConstOf ``Int then
+      let a := e.getArg! 4
+      if a.isAppOfArity ``Sparkle.IR.Semantics.toSigned 2 && !e.hasLooseBVars then
+        if !(← st.get).contains e then st.modify (·.push e)
+    match e with
+    | .app f a => go f; go a
+    | .lam _ t b _ => go t; go b
+    | .forallE _ t b _ => go t; go b
+    | .letE _ t v b _ => go t; go v; go b
+    | .mdata _ b => go b
+    | .proj _ _ b => go b
+    | _ => pure ()
+  go tgt
+  let ts ← st.get
+  if ts.isEmpty then throwError "ved_gen_shifts: no signed shift"
+  for i in [0:ts.size] do
+    let t := ts[i]!
+    let a := t.getArg! 4
+    let y := t.getArg! 5
+    let some w := (a.getArg! 0).nat? | throwError "ved_gen_shifts: width is not a literal"
+    let x := a.getArg! 1
+    let tS ← Term.exprToSyntax t
+    let aS ← Term.exprToSyntax a
+    let yS ← Term.exprToSyntax y
+    let xS ← Term.exprToSyntax x
+    let wS := Syntax.mkNumLit (toString w)
+    let hb := mkIdent (Name.mkSimple s!"ved_hb{i}")
+    let ha := mkIdent (Name.mkSimple s!"ved_ha{i}")
+    let q := mkIdent (Name.mkSimple s!"ved_q{i}")
+    let hq := mkIdent (Name.mkSimple s!"ved_hq{i}")
+    let lit := Syntax.mkNumLit (toString (2 ^ (w - 1)))
+    evalTactic (← `(tactic| have $hb:ident := Tools.VedU1Heavy.shr_bounds $aS $yS))
+    evalTactic (← `(tactic| have $ha:ident := Tools.VedU1Heavy.toSigned_range $wS $xS (by omega) (by omega)))
+    evalTactic (← `(tactic| simp only [Nat.reduceSub, Nat.reducePow] at $ha:ident))
+    evalTactic (← `(tactic| generalize $tS = $q:ident at $hb:ident ⊢))
+    evalTactic (← `(tactic| have $hq:ident : -($lit : Int) ≤ $q:ident ∧ $q:ident < $lit := by omega))
+    evalTactic (← `(tactic| clear $hb:ident $ha:ident))
 
 /-- step 3: the closing tactic, after the selectors are case-split -/
 syntax (name := vedHeavyClose) "ved_heavy_close" : tactic
