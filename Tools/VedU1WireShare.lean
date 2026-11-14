@@ -11,7 +11,10 @@ whose tree is exponential in the number of steps).  The tactics there (`rw`, `ge
 a tree, or let `isDefEq` unfold a large candidate; on such a goal they do not finish.  The tactics here do the same
 steps by walks that memoise on the shared subterms (UNTRUSTED: the kernel checks the proof that results).
 
-A goal whose tree has fewer than `shareMinTree` nodes is handed to the original tactic unchanged.
+The size threshold `shareMinTree` applies only to the bit / packing steps (`ved_bit_simp_share`, the choice between
+`ved_wire` and `ved_pack_simp` in `ved_pack_wire_all`): there a goal whose tree has fewer nodes keeps the original
+tactic.  `ved_loop_unfold_share` and `ved_loop_gen_share` replace `ved_loop_unfold` / `ved_loop_gen` for every goal
+(`ved_loop_gen_share` falls back to the original only when it finds no loop).
 -/
 
 namespace Tools.VedU1WireShare

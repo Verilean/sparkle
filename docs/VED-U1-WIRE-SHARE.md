@@ -49,7 +49,20 @@ other; each was found with the stage timer (a tactic that appends the time to a 
 
 Everything is untrusted proof search: the kernel checks the result; the numeric samples only propose equalities.
 
-## Measurements (standard script, this machine, alone; the standard harness limit is 900 s)
+## Measurements
+
+Standard harness (coordinator, run `4a291289ff0a8dd0` at 41bbc1c9 = e681033d + the harness of 1694730d, `U1_TMO=900`,
+RSS guard 22 GB, clean tree; the accepted figures):
+
+| row | result | seconds | peak RSS |
+|---|---|---|---|
+| R83 `synth_crsfCrc8` | strict | 60.7 | 3.5 GB |
+| R84 `synth_droneCanCrc16` | strict | 69.2 | 3.2 GB |
+| R212 `crc32EngineTop` | strict | 43.7 | 2.6 GB |
+| R103 `lqrLoopTop` | strict | 105.7 | 3.7 GB |
+
+Local development runs (the worker's own `kjob lake env lean` on the standard case files, one row at a time, 1200 s
+timeout; NOT the standard measurement, shown only for comparison):
 
 | row | result | seconds | peak RSS |
 |---|---|---|---|
