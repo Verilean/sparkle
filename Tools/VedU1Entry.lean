@@ -9,6 +9,7 @@ import Tools.VedU1Loop
 import Tools.VedU1Wire
 import Tools.VedU1Uns
 import Tools.VedU1LemmasExt1
+import Tools.VedU1ScriptSeqGen
 import Tools.VedStrictAudit
 
 /-!
@@ -889,6 +890,44 @@ inductive ProofSrc
   script. -/
   | built (mk : Names → Sparkle.IR.AST.Module → TermElabM Syntax)
 
+/-- the heartbeat budget (thousands) of the first-attempt script -/
+def firstAttemptHeartbeats : Nat := 3000000
+
+/-- TEST HOOK (default 0 = off): replaces `firstAttemptHeartbeats` (thousands) so a control can make
+the first attempt hit its cap cheaply. -/
+register_option ved.u1.firstAttemptHeartbeatsForTest : Nat := {
+  defValue := 0
+  descr := "VED U1 (test hook): cap (thousands) of the first-attempt script instead of the fixed one (0 = off)" }
+
+/-- The heartbeat limit of the first attempt: `cap` is the cap in heartbeats; a context value of 0
+means unlimited, so the cap applies; a finite one is kept when it is below the cap. -/
+def firstAttemptLimit (ctx cap : Nat) : Nat := if ctx == 0 then cap else min ctx cap
+
+/-- A FIRST-ATTEMPT script (`Tools.VedU1ScriptSeqGen`): elaborated against `expected` with the
+proof budget, and at most `firstAttemptHeartbeats` thousand heartbeats of it; any failure (exception,
+timeout, logged error, open term) puts the state back (messages and environment included) and
+returns `none`, so the caller runs the script it always ran. -/
+def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lean.Expr) := do
+  let saved ← saveState
+  let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
+  let hb0 ← IO.getNumHeartbeats
+  let capK := match ved.u1.firstAttemptHeartbeatsForTest.get (← getOptions) with
+    | 0 => firstAttemptHeartbeats
+    | n => n
+  let r ← tryCatchRuntimeEx (do
+      let pf ← withProofBudget do
+        withTheReader Core.Context
+          (fun c => { c with initHeartbeats := hb0, maxHeartbeats := firstAttemptLimit c.maxHeartbeats (capK * 1000) }) do
+        withoutErrToSorry do
+          let e ← elabTermEnsuringType stx expected
+          synthesizeSyntheticMVarsNoPostponing
+          instantiateMVars e
+      let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
+      if errs.length != errsBefore || pf.hasMVar || pf.hasFVar then pure none else pure (some pf))
+    fun _ => pure none
+  if r.isNone then saved.restore (restoreInfo := true)
+  return r
+
 /-- Is `e` already a `VED U1 REFUSED …` error? -/
 def isRefusal (e : Exception) : MetaM Bool := do
   return (← e.toMessageData.toString).startsWith "VED U1 REFUSED"
@@ -991,6 +1030,17 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
+    -- first attempt: the per-statement multi-register script (`Tools/VedU1ScriptSeqGen.lean`)
+    let firstPf? : Option Lean.Expr ← do
+      if let .generated := proof then
+        let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+        if stmt.getAppFn.isConst && regs.length ≥ 2 then
+          match ← Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body stmt.getAppFn.constName!
+              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) with
+          | some sx => tryScriptFirst sx expected
+          | none => pure none
+        else pure none
+      else pure none
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     -- a runtime limit (heartbeats, recursion depth) here is a `proof` refusal
     -- (the script is too costly), not the catch-all `checker`
@@ -998,13 +1048,16 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     -- max(caller, `ved.u1.proofRecDepth` / `ved.u1.proofHeartbeats`), not a fixed
     -- multiple of the caller's; a caller with `maxHeartbeats 0` (unlimited) gets the
     -- finite option value)
-    let pf ← tryCatchRuntimeEx
-        (withProofBudget do
-        withoutErrToSorry do
-          let e ← elabTermEnsuringType stx expected
-          synthesizeSyntheticMVarsNoPostponing
-          instantiateMVars e)
-        fun e => refuse decl "proof" e.toMessageData
+    let pf ← match firstPf? with
+      | some e => pure e
+      | none =>
+        tryCatchRuntimeEx
+          (withProofBudget do
+          withoutErrToSorry do
+            let e ← elabTermEnsuringType stx expected
+            synthesizeSyntheticMVarsNoPostponing
+            instantiateMVars e)
+          fun e => refuse decl "proof" e.toMessageData
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let first ← match errs.drop errsBefore with
