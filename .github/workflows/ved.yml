@@ -150,6 +150,15 @@ jobs:
     - name: "Nested inline stateful calls through the deep route (nest, 2-deep, parentMix); altered-slot refusals"
       run: lake build Tests.Ved.U2HierNestedInlineCheck
 
+    - name: "H2d: open-parent deep run (Fin tail arm, nested loop state, child call over nested + parent registers); altered-piece refusals"
+      run: lake build Tests.Ved.U2HierOpenDeepCheck
+
+    - name: "H2e: derived child arguments over register state (complement, one's-complement sum); refusal controls"
+      run: lake build Tests.Ved.U2HierOpenDeep2Check
+
+    - name: "H2e: unfolded nested loop and the configurable hierarchy/nested-export budget; controls"
+      run: lake build Tests.Ved.U2HierOpenDeep3Check
+
     - name: "H2c-state: the ORIGINAL private declaration synth_httpGetByte (R223), the entry appended to its module"
       run: |
         lake build Tools.VedU2HierRegEntry IP.Net.HTTP
