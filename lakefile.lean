@@ -378,6 +378,9 @@ lean_lib «Tools.VedU1Loop» where
 lean_lib «Tools.VedU1Wire» where
   roots := #[`Tools.VedU1Wire]
 
+lean_lib «Tools.VedU1WireShare» where
+  roots := #[`Tools.VedU1WireShare]
+
 lean_lib «Tools.VedU1HierSem» where
   roots := #[`Tools.VedU1HierSem]
 

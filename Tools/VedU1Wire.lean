@@ -26,6 +26,72 @@ theorem ved_cast_ite (c : Prop) [Decidable c] (a b : Nat) :
     ((if c then a else b : Nat) : Int) = if c then (a : Int) else (b : Int) := by
   split <;> rfl
 
+/-! ### bit operations with a numeral operand
+
+`a &&& c`, `a ^^^ c`, `a ||| c` for a numeral `c` are rewritten, one bit at a time, to `/ 2` and `% 2` terms
+(`c` halves at each step, so the rewriting stops at `0`), which `omega` reads. -/
+
+theorem and_mod2 (a c : Nat) : (a &&& c) % 2 = (a % 2) * (c % 2) := by
+  have h := Nat.testBit_and a c 0
+  simp only [Nat.testBit_zero] at h
+  have ha : a % 2 = 0 ∨ a % 2 = 1 := by omega
+  have hc : c % 2 = 0 ∨ c % 2 = 1 := by omega
+  have hb : (a &&& c) % 2 = 0 ∨ (a &&& c) % 2 = 1 := by omega
+  rcases ha with ha | ha <;> rcases hc with hc | hc <;> rcases hb with hb | hb <;> simp_all
+theorem and_step (a c : Nat) : a &&& c = 2 * ((a / 2) &&& (c / 2)) + (a % 2) * (c % 2) := by
+  have h1 : (a &&& c) / 2 = (a / 2) &&& (c / 2) := by simpa using (Nat.and_div_two_pow (a := a) (b := c) (n := 1))
+  have h2 := and_mod2 a c
+  omega
+theorem xor_mod2 (a c : Nat) : (a ^^^ c) % 2 = (a % 2 + c % 2) % 2 := by
+  have h := Nat.testBit_xor a c 0
+  simp only [Nat.testBit_zero] at h
+  have ha : a % 2 = 0 ∨ a % 2 = 1 := by omega
+  have hc : c % 2 = 0 ∨ c % 2 = 1 := by omega
+  have hb : (a ^^^ c) % 2 = 0 ∨ (a ^^^ c) % 2 = 1 := by omega
+  rcases ha with ha | ha <;> rcases hc with hc | hc <;> rcases hb with hb | hb <;> simp_all
+theorem xor_step (a c : Nat) : a ^^^ c = 2 * ((a / 2) ^^^ (c / 2)) + (a % 2 + c % 2) % 2 := by
+  have h1 : (a ^^^ c) / 2 = (a / 2) ^^^ (c / 2) := by simpa using (Nat.xor_div_two_pow (a := a) (b := c) (n := 1))
+  have h2 := xor_mod2 a c
+  omega
+theorem or_mod2 (a c : Nat) : (a ||| c) % 2 = (a % 2 + c % 2 - (a % 2) * (c % 2)) := by
+  have h := Nat.testBit_or a c 0
+  simp only [Nat.testBit_zero] at h
+  have ha : a % 2 = 0 ∨ a % 2 = 1 := by omega
+  have hc : c % 2 = 0 ∨ c % 2 = 1 := by omega
+  have hb : (a ||| c) % 2 = 0 ∨ (a ||| c) % 2 = 1 := by omega
+  rcases ha with ha | ha <;> rcases hc with hc | hc <;> rcases hb with hb | hb <;> simp_all
+theorem or_step (a c : Nat) : a ||| c = 2 * ((a / 2) ||| (c / 2)) + (a % 2 + c % 2 - (a % 2) * (c % 2)) := by
+  have h1 : (a ||| c) / 2 = (a / 2) ||| (c / 2) := by simpa using (Nat.or_div_two_pow (a := a) (b := c) (n := 1))
+  have h2 := or_mod2 a c
+  omega
+theorem and_step_r (a c : Nat) (_hc : c ≠ 0) : a &&& c = 2 * ((a / 2) &&& (c / 2)) + (a % 2) * (c % 2) := and_step a c
+theorem and_step_l (a c : Nat) (_hc : c ≠ 0) : c &&& a = 2 * ((c / 2) &&& (a / 2)) + (c % 2) * (a % 2) := and_step c a
+theorem xor_step_r (a c : Nat) (_hc : c ≠ 0) : a ^^^ c = 2 * ((a / 2) ^^^ (c / 2)) + (a % 2 + c % 2) % 2 := xor_step a c
+theorem xor_step_l (a c : Nat) (_hc : c ≠ 0) : c ^^^ a = 2 * ((c / 2) ^^^ (a / 2)) + (c % 2 + a % 2) % 2 := xor_step c a
+theorem or_step_r (a c : Nat) (_hc : c ≠ 0) : a ||| c = 2 * ((a / 2) ||| (c / 2)) + (a % 2 + c % 2 - (a % 2) * (c % 2)) := or_step a c
+theorem or_step_l (a c : Nat) (_hc : c ≠ 0) : c ||| a = 2 * ((c / 2) ||| (a / 2)) + (c % 2 + a % 2 - (c % 2) * (a % 2)) := or_step c a
+
+theorem and_step_r1 (a c : Nat) (_hc : c ≠ 0) (_h : c < 2) : a &&& c = 2 * ((a / 2) &&& (c / 2)) + (a % 2) * (c % 2) := and_step a c
+theorem and_step_l1 (a c : Nat) (_hc : c ≠ 0) (_h : c < 2) : c &&& a = 2 * ((c / 2) &&& (a / 2)) + (c % 2) * (a % 2) := and_step c a
+theorem xor_step_r1 (a c : Nat) (_hc : c ≠ 0) (_h : c < 2) : a ^^^ c = 2 * ((a / 2) ^^^ (c / 2)) + (a % 2 + c % 2) % 2 := xor_step a c
+theorem xor_step_l1 (a c : Nat) (_hc : c ≠ 0) (_h : c < 2) : c ^^^ a = 2 * ((c / 2) ^^^ (a / 2)) + (c % 2 + a % 2) % 2 := xor_step c a
+theorem or_step_r1 (a c : Nat) (_hc : c ≠ 0) (_h : c < 2) : a ||| c = 2 * ((a / 2) ||| (c / 2)) + (a % 2 + c % 2 - (a % 2) * (c % 2)) := or_step a c
+theorem or_step_l1 (a c : Nat) (_hc : c ≠ 0) (_h : c < 2) : c ||| a = 2 * ((c / 2) ||| (a / 2)) + (c % 2 + a % 2 - (c % 2) * (a % 2)) := or_step c a
+
+/-- the rewriting of the bit operations with the numeral operand `1` -/
+macro "ved_bitlit1" loc:(Lean.Parser.Tactic.location)? : tactic =>
+  `(tactic| simp (disch := decide) only [Tools.VedU1Wire.and_step_r1, Tools.VedU1Wire.and_step_l1,
+     Tools.VedU1Wire.xor_step_r1, Tools.VedU1Wire.xor_step_l1, Tools.VedU1Wire.or_step_r1, Tools.VedU1Wire.or_step_l1,
+     Nat.reduceDiv, Nat.reduceMod, Nat.reduceXor, Nat.reduceAnd, Nat.reduceOr, Nat.and_zero, Nat.zero_and,
+     Nat.xor_zero, Nat.zero_xor, Nat.or_zero, Nat.zero_or, Nat.reduceMul, Nat.reduceAdd, Nat.reduceSub] $[$loc]?)
+
+/-- the rewriting of the bit operations with a numeral operand -/
+macro "ved_bitlit" loc:(Lean.Parser.Tactic.location)? : tactic =>
+  `(tactic| simp (disch := decide) only [Tools.VedU1Wire.and_step_r, Tools.VedU1Wire.and_step_l,
+     Tools.VedU1Wire.xor_step_r, Tools.VedU1Wire.xor_step_l, Tools.VedU1Wire.or_step_r, Tools.VedU1Wire.or_step_l,
+     Nat.reduceDiv, Nat.reduceMod, Nat.reduceXor, Nat.reduceAnd, Nat.reduceOr, Nat.and_zero, Nat.zero_and,
+     Nat.xor_zero, Nat.zero_xor, Nat.or_zero, Nat.zero_or, Nat.reduceMul, Nat.reduceAdd, Nat.reduceSub] $[$loc]?)
+
 /-! ### operation nodes -/
 
 /-- an arithmetic operation node of type `Nat` / `Int` that mentions a free variable -/
@@ -40,6 +106,7 @@ def isWireOp (e : Expr) : MetaM Bool := do
         || n == ``HPow.hPow) && ar == 6)
     || (n == ``ite && ar == 5) || (n == ``Int.bmod && ar == 2) || (n == ``Nat.cast && ar == 3)
     || (n == ``Neg.neg && ar == 3)
+    || ((n == ``HXor.hXor || n == ``HAnd.hAnd || n == ``HOr.hOr) && ar == 6 && (e.getArg! 0).isConstOf ``Nat)
   unless ok do return false
   let ty ← whnfR (← inferType e)
   return ty.isConstOf ``Nat || ty.isConstOf ``Int
@@ -103,6 +170,13 @@ partial def evalI (env : Expr → Option Int) (e : Expr) : Option Int := do
     let b ← evalI env (e.getArg! 5)
     guard (b ≥ 0 && b ≤ 4096)
     return a ^ b.toNat
+  if ar == 6 && isNat && (n == ``HXor.hXor || n == ``HAnd.hAnd || n == ``HOr.hOr) then
+    let a ← evalI env (e.getArg! 4)
+    let b ← evalI env (e.getArg! 5)
+    guard (a ≥ 0 && b ≥ 0)
+    if n == ``HXor.hXor then return Int.ofNat (a.toNat ^^^ b.toNat)
+    if n == ``HAnd.hAnd then return Int.ofNat (a.toNat &&& b.toNat)
+    return Int.ofNat (a.toNat ||| b.toNat)
   if ar == 3 && n == ``Nat.cast then return ← evalI env (e.getArg! 2)
   if ar == 3 && n == ``Neg.neg then return - (← evalI env (e.getArg! 2))
   if ar == 2 && n == ``Int.bmod then
@@ -156,10 +230,44 @@ partial def atomsOf (isWire : FVarId → Bool) (e : Expr) (acc : Array Expr) : M
           || n == ``HPow.hPow) && ar == 6)
       || (n == ``ite && ar == 5) || (n == ``Int.bmod && ar == 2) || (n == ``Nat.cast && ar == 3)
       || (n == ``Neg.neg && ar == 3) || (n == ``OfNat.ofNat && ar == 3)
+      || ((n == ``HXor.hXor || n == ``HAnd.hAnd || n == ``HOr.hOr) && ar == 6)
     unless isOp do
       return (if acc.contains e then acc else acc.push e)
   let mut acc := acc
   for k in kids e do acc ← atomsOf isWire k acc
+  return acc
+
+/-- `atomsOf` over several terms, each shared subterm visited once (the goal is a DAG whose tree is huge) -/
+partial def atomsOfDag (isWire : FVarId → Bool) (es : Array Expr) : MetaM (Array Expr) := do
+  let mut seen : Std.HashSet Expr := {}
+  let mut acc : Array Expr := #[]
+  let mut todo : Array Expr := es.reverse
+  while !todo.isEmpty do
+    let e := todo.back!
+    todo := todo.pop
+    if seen.contains e then continue
+    seen := seen.insert e
+    if e.hasLooseBVars then
+      for k in kids e do todo := todo.push k
+      continue
+    if e.isFVar && isWire e.fvarId! then continue
+    if e.nat?.isSome || e.int?.isSome then continue
+    let ty? ← try some <$> whnfR (← inferType e) catch _ => pure none
+    let isNI := match ty? with | some ty => ty.isConstOf ``Nat || ty.isConstOf ``Int | none => false
+    if isNI then
+      let f := e.getAppFn
+      let n := if f.isConst then f.constName! else Name.anonymous
+      let ar := e.getAppNumArgs
+      let isOp :=
+        ((n == ``HAdd.hAdd || n == ``HSub.hSub || n == ``HMul.hMul || n == ``HDiv.hDiv || n == ``HMod.hMod
+            || n == ``HPow.hPow) && ar == 6)
+        || (n == ``ite && ar == 5) || (n == ``Int.bmod && ar == 2) || (n == ``Nat.cast && ar == 3)
+        || (n == ``Neg.neg && ar == 3) || (n == ``OfNat.ofNat && ar == 3)
+        || ((n == ``HXor.hXor || n == ``HAnd.hAnd || n == ``HOr.hOr) && ar == 6)
+      unless isOp do
+        unless acc.contains e do acc := acc.push e
+        continue
+    for k in (kids e).reverse do todo := todo.push k
   return acc
 
 /-! ### the proof search state -/
@@ -283,23 +391,114 @@ def auxProof (prop pf : Expr) : MetaM Expr := do
   let c ← mkAuxTheorem ty val
   return mkAppN c xsE
 
+def isWireName (n : Name) (pre : String) : Bool :=
+  match n with
+  | .str .anonymous s => s.startsWith pre
+  | _ => false
+
+/-- `subst` of the proved equalities `ved_p.. : a = b` between two wires (the operands of equal wires become
+the same variable, so that operations over them are the same atom for `omega`) -/
+def substWires : TacticM Unit := do
+  let names ← withMainContext do
+    let mut out : Array Name := #[]
+    for d in ← getLCtx do
+      if !d.isImplementationDetail && isWireName d.userName "ved_p" then
+        if let some (_, a, b) := (← instantiateMVars d.type).eq? then
+          if a.isFVar && b.isFVar then out := out.push d.userName
+    pure out
+  for n in names do
+    let g ← getMainGoal
+    let some d := (← g.withContext getLCtx).findFromUserName? n | continue
+    try
+      let g' ← Lean.Meta.subst g d.fvarId
+      replaceMainGoal [g']
+    catch _ => pure ()
+
+/-- an upper bound `n` with `x < 2^n` read off the context (`x ≤ c` or `x < c` for a numeral `c`), else found by
+`omega` among the widths 1, 2, 4, ..., 128 -/
+def widthOf? (x : Expr) : TacticM (Option Nat) := do
+  let bitlen := fun (c : Nat) => if c == 0 then 0 else Nat.log2 c + 1
+  if let some c := x.nat? then return some (bitlen c)
+  let types ← withMainContext do
+    let mut ts : Array Expr := #[]
+    for d in ← getLCtx do
+      unless d.isImplementationDetail do ts := ts.push (← instantiateMVars d.type)
+    pure ts
+  let mut best : Option Nat := none
+  for t in types do
+    if t.isAppOfArity ``LE.le 4 && (t.getArg! 2) == x then
+      if let some c := (t.getArg! 3).nat? then
+        best := some (match best with | some b => min b (bitlen c) | none => bitlen c)
+    else if t.isAppOfArity ``LT.lt 4 && (t.getArg! 2) == x then
+      if let some c := (t.getArg! 3).nat? then
+        best := some (match best with | some b => min b (bitlen (c - 1)) | none => bitlen (c - 1))
+  if best.isSome then return best
+  for n in [1, 2, 4, 8, 16, 32, 64, 128] do
+    let bound ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit n]
+    if (← withMainContext (Tools.VedU1Loop.omegaProof? (← mkAppM ``LT.lt #[x, bound]))).isSome then return some n
+  return none
+
+/-- the bit facts of the bit operations that stay in the context:
+`a ^^^ b`, `a ||| b` below `2^n` when both operands are, `a &&& b` below each operand -/
+def addBitFacts : TacticM Unit := do
+  let props ← withMainContext do
+    let mut ps : Array Expr := #[← instantiateMVars (← getMainTarget)]
+    for d in ← getLCtx do
+      unless d.isImplementationDetail do
+        if (← isProp d.type) then ps := ps.push (← instantiateMVars d.type)
+    pure ps
+  let mut ops : Array Expr := #[]
+  for p in props do
+    for o in Tools.VedU1Loop.natBitOps p do
+      unless ops.contains o do ops := ops.push o
+  for t in ops do
+    let a := t.getArg! 4
+    let b := t.getArg! 5
+    if t.isAppOfArity ``HAnd.hAnd 6 then
+      withMainContext do
+        evalTactic (← `(tactic| have := @Nat.and_le_left $(← Term.exprToSyntax a) $(← Term.exprToSyntax b)))
+        evalTactic (← `(tactic| have := @Nat.and_le_right $(← Term.exprToSyntax a) $(← Term.exprToSyntax b)))
+    else
+      let some na ← widthOf? a | continue
+      let some nb ← widthOf? b | continue
+      let n := max na nb
+      let bound ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit n]
+      let some ha ← withMainContext (Tools.VedU1Loop.omegaProof? (← mkAppM ``LT.lt #[a, bound])) | continue
+      let some hb ← withMainContext (Tools.VedU1Loop.omegaProof? (← mkAppM ``LT.lt #[b, bound])) | continue
+      let lem ← if t.isAppOfArity ``HXor.hXor 6
+        then mkAppM ``Nat.xor_lt_two_pow #[ha, hb] else mkAppM ``Nat.or_lt_two_pow #[ha, hb]
+      withMainContext do evalTactic (← `(tactic| have := $(← Term.exprToSyntax lem)))
+
 /-- a proof of `prop` in the context of the main goal reduced to `keep`, by `dfsOmega` (after the `bmod` and
 cast-of-`if` rewrites); `none` when it fails -/
-def localProof? (prop : Expr) (keep : Std.HashSet FVarId) (fuel : Nat) : TacticM (Option Expr) := do
+def localProof? (prop : Expr) (keep : Std.HashSet FVarId) (fuel : Nat) (bits : Bool := false) : TacticM (Option Expr) := do
   let saved ← getGoals
-  let m ← mkFreshExprMVar prop
-  let m' ← clearOthers m.mvarId! keep
-  setGoals [m']
   let hb ← IO.getNumHeartbeats
-  let ok ← tryCatchRuntimeEx
-    (withTheReader Core.Context (fun c => { c with initHeartbeats := hb, maxHeartbeats := 400000 * 1000 })
-      (do
-        evalTactic (← `(tactic| try simp only [Int.bmod_def, Tools.VedU1Wire.ved_cast_ite] at *))
-        dfsOmega fuel
-        pure (← getGoals).isEmpty))
-    fun _ => pure false
-  setGoals saved
-  if ok then return some (← auxProof prop (← instantiateMVars m)) else return none
+  -- `level`: 0 no rewriting of bit operations, 1 those with the numeral `1`, 2 those with any numeral (the
+  -- rewritten terms are large for `omega`, so the cheaper contexts are tried first); without bit operations
+  -- in the goal only level 0
+  let levels : List Nat := if bits then [0, 1, 2] else [0]
+  for level in levels do
+    let m ← mkFreshExprMVar prop
+    let m' ← clearOthers m.mvarId! keep
+    setGoals [m']
+    let ok ← tryCatchRuntimeEx
+      (withTheReader Core.Context (fun c => { c with initHeartbeats := hb, maxHeartbeats := 400000 * 1000 })
+        (do
+          -- a step can close the goal (`subst` of the proved equality of the two wires makes it `w = w`)
+          let step : TacticM Unit → TacticM Unit := fun t => do unless (← getGoals).isEmpty do t
+          if bits then substWires
+          step (evalTactic (← `(tactic| try simp only [Int.bmod_def, Tools.VedU1Wire.ved_cast_ite] at *)))
+          if level == 1 then step (evalTactic (← `(tactic| try ved_bitlit1 at *)))
+          if level == 2 then step (evalTactic (← `(tactic| try ved_bitlit at *)))
+          if bits then step addBitFacts
+          if (← getGoals).isEmpty then return true
+          dfsOmega fuel
+          pure (← getGoals).isEmpty))
+      fun _ => pure false
+    setGoals saved
+    if ok then return some (← auxProof prop (← instantiateMVars m))
+  return none
 
 /-! ### intervals -/
 
@@ -328,6 +527,13 @@ partial def interval (bnd : Expr → Option (Int × Int)) (e : Expr) : Option (I
     guard (l2 > 0)
     if 0 ≤ l1 && h1 < l2 then return (l1, h1)
     return (0, h2 - 1)
+  if ar == 6 && isNat && (n == ``HXor.hXor || n == ``HAnd.hAnd || n == ``HOr.hOr) then
+    let (l1, h1) ← interval bnd (e.getArg! 4)
+    let (l2, h2) ← interval bnd (e.getArg! 5)
+    guard (l1 ≥ 0 && l2 ≥ 0)
+    if n == ``HAnd.hAnd then return (0, min h1 h2)
+    let m := (max h1 h2).toNat
+    return (0, Int.ofNat (2 ^ (if m == 0 then 0 else Nat.log2 m + 1)) - 1)
   if ar == 6 && n == ``HPow.hPow then
     let (l1, h1) ← interval bnd (e.getArg! 4)
     let k ← (e.getArg! 5).nat?
@@ -407,11 +613,6 @@ def hypNamed (n : Name) : TacticM LocalDecl := withMainContext do
   let some d := (← getLCtx).findFromUserName? n | throwError "ved_wire: no hypothesis {n}"
   return d
 
-def isWireName (n : Name) (pre : String) : Bool :=
-  match n with
-  | .str .anonymous s => s.startsWith pre
-  | _ => false
-
 /-- the wire variables (`ved_w..`) of the context that occur in `t` -/
 def wiresIn (t : Expr) : MetaM (Array FVarId) := do
   let mut out : Array FVarId := #[]
@@ -449,7 +650,7 @@ def keepFor (eqs : Array Name) (S : Array FVarId) : TacticM (Std.HashSet FVarId)
 
 /-- add the range facts of the wire `xn` (definition `e`, interval `(lo, hi)`) as hypotheses `ved_g..` when
 `omega` proves them from the equation and the ranges of the operands -/
-def addRange (k : Nat) (xn hn : Name) (isNat : Bool) (lo hi : Int) : TacticM Unit := do
+def addRange (k : Nat) (xn hn : Name) (isNat : Bool) (lo hi : Int) (bits : Bool := false) : TacticM Unit := do
   let d ← hypNamed xn
   let xe := d.toExpr
   let (eqTy, S) ← withMainContext do
@@ -465,7 +666,7 @@ def addRange (k : Nat) (xn hn : Name) (isNat : Bool) (lo hi : Int) : TacticM Uni
       props := props.push (← mkAppM ``LE.le #[← intLit lo, xe])
     pure props
   for p in props do
-    let some pf ← withMainContext (localProof? p keep 3) | continue
+    let some pf ← withMainContext (localProof? p keep 3 bits) | continue
     let g ← getMainGoal
     let (_, g') ← (← g.assert (Name.mkSimple s!"ved_g{k}") p pf).intro1P
     replaceMainGoal [g']
@@ -498,6 +699,7 @@ structure St where
   nAtoms : Nat := 0
   proved : Nat := 0
   tried : Nat := 0
+  bits : Bool := false
 
 def tag {α} (t : String) (x : TacticM α) : TacticM α :=
   try x catch e => throwError "{t}: {e.toMessageData}"
@@ -514,7 +716,7 @@ def wireCong (xi xj : Name) (m : Nat) : TacticM Expr := withMainContext do
 /-- a proof of `prop` (an equality of the wires `xi`, `xj`) by `omega` with the equations of a cone around the two
 wires that grows by one layer of operands (and of the wires already proved equal to them) at each of `maxDepth`
 steps -/
-def proveCone (prop : Expr) (starts : Array Name) (maxDepth : Nat) : TacticM (Option Expr) := do
+def proveCone (prop : Expr) (starts : Array Name) (maxDepth : Nat) (bits : Bool := false) : TacticM (Option Expr) := do
   let mut pr : Option Expr := none
   let mut layer : Array Name := starts
   let mut cone : Array Name := starts
@@ -532,7 +734,7 @@ def proveCone (prop : Expr) (starts : Array Name) (maxDepth : Nat) : TacticM (Op
           unless S.contains f do S := S.push f
       pure (eqNames, S)
     let keep ← keepFor eqNames S
-    pr ← withMainContext (localProof? prop keep 12)
+    pr ← withMainContext (localProof? prop keep 12 bits)
     if pr.isNone && depth + 1 < maxDepth then
       let next ← withMainContext do
         let mut out : Array Name := #[]
@@ -595,7 +797,7 @@ def wireStep (st : IO.Ref St) (e : Expr) : TacticM Unit := do
   if let some v := vec then st.modify fun s => { s with vals := s.vals.insert xn v }
   if let some (lo, hi) := iv then
     st.modify fun s => { s with bnd := s.bnd.insert xn (if isNat then (max 0 lo, hi) else (lo, hi)) }
-    tag "addRange" (addRange k xn hn isNat lo hi)
+    tag "addRange" (addRange k xn hn isNat lo hi (← st.get).bits)
   -- the moduli seen so far (literal right operands of `%`)
   if e.isAppOfArity ``HMod.hMod 6 then
     if let some m := (e.getArg! 5).nat? then
@@ -608,7 +810,7 @@ def wireStep (st : IO.Ref St) (e : Expr) : TacticM Unit := do
       if done then break
       let (prop, _) ← tag "wireEq" (wireEq xi xn)
       st.modify fun s => { s with tried := s.tried + 1 }
-      let pr ← proveCone prop #[xi, xn] 4
+      let pr ← proveCone prop #[xi, xn] 4 (← st.get).bits
       if let some pf := pr then
         tag "assert" do
           let g ← getMainGoal
@@ -630,7 +832,7 @@ def wireStep (st : IO.Ref St) (e : Expr) : TacticM Unit := do
           n := n + 1
           let prop ← tag "wireCong" (wireCong xi xn m)
           st.modify fun s => { s with tried := s.tried + 1 }
-          let pr ← proveCone prop #[xi, xn] 3
+          let pr ← proveCone prop #[xi, xn] 3 (← st.get).bits
           if let some pf := pr then
             tag "assert" do
               let g ← getMainGoal
@@ -649,16 +851,32 @@ elab "ved_wire" : tactic => withMainContext do
   if Tools.VedU1Loop.treeSizeVal tgt < Tools.VedU1Loop.shareMinTree then return
   let st ← IO.mkRef ({} : St)
   evalTactic (← `(tactic| try simp only [Nat.reduceAdd, Nat.reducePow, Int.reducePow, Int.reduceAdd] at *))
+  let collectEs : TacticM (Array Expr) := withMainContext do
+    let mut es : Array Expr := #[← instantiateMVars (← getMainTarget)]
+    for d in ← getLCtx do
+      unless d.isImplementationDetail do
+        let n := d.userName
+        unless isWireName n "ved_e" || isWireName n "ved_g" || isWireName n "ved_p" do
+          let t ← instantiateMVars d.type
+          if (← isProp t) then es := es.push t
+    pure es
+  -- a goal with bit operations (`^^^`, `&&&`, `|||` on `Nat`): the atoms (the inputs of the module, the register
+  -- values) become wires as well, so that `w0 = in % 256` and `in` are two wires of equal value and the operations
+  -- over them can be compared (`substWires`)
+  let bits := (← collectEs).any fun e => (Tools.VedU1Loop.natBitOps e).size > 0
+  st.modify fun s => { s with bits := bits }
+  if bits then
+    let mut tried : Array Expr := #[]
+    for _ in [0:200] do
+      let es ← collectEs
+      let lctx ← getLCtx
+      let isW := fun (f : FVarId) => match lctx.find? f with | some d => isWireName d.userName "ved_w" | none => false
+      let atoms ← atomsOfDag isW es
+      let some a := atoms.find? (fun a => !tried.contains a && a.hasFVar) | break
+      tried := tried.push a
+      tag "wireAtom" (wireStep st a)
   for _ in [0:200] do
-    let es ← withMainContext do
-      let mut es : Array Expr := #[← instantiateMVars (← getMainTarget)]
-      for d in ← getLCtx do
-        unless d.isImplementationDetail do
-          let n := d.userName
-          unless isWireName n "ved_e" || isWireName n "ved_g" || isWireName n "ved_p" do
-            let t ← instantiateMVars d.type
-            if (← isProp t) then es := es.push t
-      pure es
+    let es ← collectEs
     let cands ← readyOps es
     if cands.isEmpty then break
     tag s!"wireStep" (wireStep st cands[0]!)
@@ -671,7 +889,7 @@ elab "ved_wire" : tactic => withMainContext do
       let t ← instantiateMVars (← getMainTarget)
       let ws ← wiresIn t
       pure (t, ← ws.mapM (·.getUserName))
-    let some pf ← proveCone tgt starts 6 | throwError "ved_wire: the goal is not proved from the equalities"
+    let some pf ← proveCone tgt starts 6 s.bits | throwError "ved_wire: the goal is not proved from the equalities"
     g.assign pf
     replaceMainGoal []
 

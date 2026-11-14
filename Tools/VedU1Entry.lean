@@ -7,6 +7,7 @@ import Tools.VedU1TableGen
 import Std.Data.HashMap
 import Tools.VedU1Loop
 import Tools.VedU1Wire
+import Tools.VedU1WireShare
 import Tools.VedU1Uns
 import Tools.VedU1LemmasExt1
 import Tools.VedStrictAudit
@@ -734,14 +735,14 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | (trace_state; fail "ved_loop_close failed here")))
     else `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))
   let stages : Array (Array (TSyntax `tactic)) := #[
-    #[← `(tactic| ved_loop_unfold ($sI + 1)),
+    #[← `(tactic| ved_loop_unfold_share ($sI + 1)),
       ← `(tactic| ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
-      ← `(tactic| ved_loop_gen $sI)],
+      ← `(tactic| ved_loop_gen_share $sI)],
     #[← `(tactic| all_goals refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩),
       ← `(tactic| all_goals ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
       ← `(tactic| all_goals try (repeat' apply And.intro))],
     #[← `(tactic| all_goals (try ved_loopw_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
-    #[← `(tactic| all_goals (try ved_bit_simp))],
+    #[← `(tactic| all_goals ved_bit_simp_share)],
     #[← `(tactic| all_goals (try ved_or_lit))],
     #[← `(tactic| all_goals ved_pack_wire)],
     #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
@@ -758,7 +759,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
       if dbg == k + 2 && dbg < 99 then tacs := tacs.push stop
   let h0tacs : Array (TSyntax `tactic) := #[
     ← `(tactic| intro $insI hok),
-    ← `(tactic| ved_loop_unfold 0),
+    ← `(tactic| ved_loop_unfold_share 0),
     ← `(tactic| simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth]),
     ← `(tactic| all_goals decide +kernel)]
   `(by
