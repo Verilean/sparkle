@@ -266,7 +266,7 @@ syntax (name := vedLoopSimp) "ved_loop_simp " "[" Lean.Parser.Tactic.simpLemma,*
 
 macro_rules
   | `(tactic| ved_loop_simp [$ex,*] $[$loc]?) =>
-    `(tactic| simp -implicitDefEqProofs [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
+    `(tactic| simp -implicitDefEqProofs (maxSteps := 4000000) [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
         Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
         widthOf, seedIn, applyNexts, declWidth, srcOf, contractOf, applyIns, 
         Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
@@ -298,7 +298,7 @@ syntax (name := vedLoopWideSimp) "ved_loopw_simp " "[" Lean.Parser.Tactic.simpLe
 
 macro_rules
   | `(tactic| ved_loopw_simp [$ex,*] $[$loc]?) =>
-    `(tactic| simp -implicitDefEqProofs [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
+    `(tactic| simp -implicitDefEqProofs (maxSteps := 4000000) [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
 
 /-- The closing tactic of the wide path (`scriptFor`): `ved_wide_simp`, then `omega`, else a
 case split on the remaining `if`s and `omega`.  `ex` are extra simp lemmas (the range facts of

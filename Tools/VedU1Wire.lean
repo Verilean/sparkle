@@ -497,7 +497,12 @@ def localProof? (prop : Expr) (keep : Std.HashSet FVarId) (fuel : Nat) (bits : B
           pure (← getGoals).isEmpty))
       fun _ => pure false
     setGoals saved
-    if ok then return some (← auxProof prop (← instantiateMVars m))
+    if ok then
+      let pf ← instantiateMVars m
+      -- the proof of a context in which the wires were substituted can be ill-typed (an `ite` whose condition and
+      -- `Decidable` instance came from different spellings): it is no proof then
+      let r ← try pure (some (← auxProof prop pf)) catch _ => pure none
+      if r.isSome then return r
   return none
 
 /-! ### intervals -/
@@ -845,10 +850,10 @@ def wireStep (st : IO.Ref St) (e : Expr) : TacticM Unit := do
       st.modify fun s => { s with cclasses := s.cclasses.insert key ((s.cclasses.getD key #[]).push xn) }
   st.modify fun s => { s with k := s.k + 1 }
 
-/-- `ved_wire`: see the module docstring -/
-elab "ved_wire" : tactic => withMainContext do
+/-- `ved_wire`: see the module docstring; `force`: also on a goal below `shareMinTree` -/
+def wireMain (force : Bool) : TacticM Unit := withMainContext do
   let tgt ← instantiateMVars (← getMainTarget)
-  if Tools.VedU1Loop.treeSizeVal tgt < Tools.VedU1Loop.shareMinTree then return
+  if !force && Tools.VedU1Loop.treeSizeVal tgt < Tools.VedU1Loop.shareMinTree then return
   let st ← IO.mkRef ({} : St)
   evalTactic (← `(tactic| try simp only [Nat.reduceAdd, Nat.reducePow, Int.reducePow, Int.reduceAdd] at *))
   let collectEs : TacticM (Array Expr) := withMainContext do
@@ -893,12 +898,23 @@ elab "ved_wire" : tactic => withMainContext do
     g.assign pf
     replaceMainGoal []
 
+elab "ved_wire" : tactic => wireMain false
+
+/-- `ved_wire` on a goal of any size (the bit operations of a goal below `shareMinTree`) -/
+elab "ved_wire_bits" : tactic => wireMain true
+
 /-- `ved_pack_wire`: the packing step of the loop script (`ved_pack_simp`) on a goal of ordinary size; on a large goal
-(`shareMinTree` nodes read as a tree) `ved_wire`, whose failure is the failure of the step -/
+(`shareMinTree` nodes read as a tree) `ved_wire`, whose failure is the failure of the step.  A goal of ordinary size
+with many bit operations (at least 16 in a tree of at least 20000 nodes: the bit-serial CRC of a 32-bit register)
+is tried with `ved_wire_bits` first, and the packing step is the fallback -/
 elab "ved_pack_wire" : tactic => withMainContext do
   let tgt ← instantiateMVars (← getMainTarget)
-  if Tools.VedU1Loop.treeSizeVal tgt < Tools.VedU1Loop.shareMinTree then
-    evalTactic (← `(tactic| try ved_pack_simp))
+  let size := Tools.VedU1Loop.treeSizeVal tgt
+  if size < Tools.VedU1Loop.shareMinTree then
+    if size ≥ 20000 && (Tools.VedU1Loop.natBitOps tgt).size ≥ 16 then
+      evalTactic (← `(tactic| first | ved_wire_bits | try ved_pack_simp))
+    else
+      evalTactic (← `(tactic| try ved_pack_simp))
   else
     evalTactic (← `(tactic| ved_wire))
 
