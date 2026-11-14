@@ -446,6 +446,22 @@ def addBitFacts : TacticM Unit := do
         evalTactic (← `(tactic| have := @Nat.and_le_left $(← Term.exprToSyntax a) $(← Term.exprToSyntax b)))
         evalTactic (← `(tactic| have := @Nat.and_le_right $(← Term.exprToSyntax a) $(← Term.exprToSyntax b)))
     else
+      if t.isAppOfArity ``HOr.hOr 6 then
+        -- `c ||| x = c + x` when `x < 2^w` and `c % 2^w = 0` (a sign extension above a field), as an implication
+        -- for `omega` to case-split on
+        for (c, x, swap) in [(a, b, false), (b, a, true)] do
+          if let some w ← widthOf? x then
+            if w > 0 then
+              withMainContext do
+                let cs ← Term.exprToSyntax c
+                let xs ← Term.exprToSyntax x
+                let ws ← Term.exprToSyntax (mkNatLit w)
+                if swap then
+                  evalTactic (← `(tactic| have := fun (h : $xs < 2 ^ $ws ∧ $cs % 2 ^ $ws = 0) =>
+                    (Nat.or_comm $xs $cs).trans (Tools.VedU1Lemmas.or_hi $cs $xs $ws h.1 h.2)))
+                else
+                  evalTactic (← `(tactic| have := fun (h : $xs < 2 ^ $ws ∧ $cs % 2 ^ $ws = 0) =>
+                    Tools.VedU1Lemmas.or_hi $cs $xs $ws h.1 h.2))
       let some na ← widthOf? a | continue
       let some nb ← widthOf? b | continue
       let n := max na nb
@@ -578,6 +594,22 @@ partial def eqMod (a b : Expr) : Bool :=
       && (List.range xs.size).all fun i => (isInstArg xs[i]! && isInstArg ys[i]!) || eqMod xs[i]! ys[i]!
   | _, _ => false
 
+/-- every `ite c inst a b` of `e` whose instance is not (syntactically) a `Decidable c` gets the instance of `c` (the
+conditions and the instances of the declaration are spelled alike up to computation, `2 ^ (31 + 1)` / `4294967296`,
+and wiring the parts of one spelling but not of the other makes the term ill-typed; the new instance is definitionally
+equal to the old one, which has the type of the same proposition up to computation) -/
+def fixIteInst (e : Expr) : MetaM Expr :=
+  Meta.transform e (post := fun t => do
+    if t.isAppOfArity ``ite 5 && !t.hasLooseBVars then
+      let c := t.getArg! 1
+      let inst := t.getArg! 2
+      let want := mkApp (mkConst ``Decidable) c
+      let have' ← try inferType inst catch _ => pure want
+      if have' == want then return .done t
+      let some inst' ← (try some <$> synthInstance want catch _ => pure none) | return .done t
+      return .done (mkApp5 t.getAppFn (t.getArg! 0) c inst' (t.getArg! 3) (t.getArg! 4))
+    return .done t)
+
 /-- the main goal `G` (with the hypotheses that mention `e` put back into it) becomes `∀ x, e = x → G[e := x]`
 applied to `e` and `rfl`; the new variable and equation are named `xn`, `hn` -/
 def wireOne (e : Expr) (xn hn : Name) : TacticM Unit := do
@@ -592,7 +624,7 @@ def wireOne (e : Expr) (xn hn : Name) : TacticM Unit := do
     g1.withContext do
       let tgt ← instantiateMVars (← g1.getType)
       let newTy ← withLocalDeclD xn ty fun xv => do
-        let body := tgt.replace fun t => if eqMod t e then some xv else none
+        let body ← fixIteInst (tgt.replace fun t => if eqMod t e then some xv else none)
         withLocalDeclD hn (← mkEq e xv) fun hv => mkForallFVars #[xv, hv] body
       let g2 ← mkFreshExprMVar newTy
       g1.assign (mkApp2 g2 e (← mkEqRefl e))
@@ -852,7 +884,7 @@ def wireMain (force : Bool) : TacticM Unit := withMainContext do
           let t ← instantiateMVars d.type
           if (← isProp t) then es := es.push t
     pure es
-  -- a goal with many bit operations (`^^^`, `&&&`, `|||` on `Nat`, at least `bitsMinOps`): the atoms (the inputs of the module, the register
+  -- a goal with bit operations (`^^^`, `&&&`, `|||` on `Nat`, at least `bitsMinOps`): the atoms (the inputs of the module, the register
   -- values) become wires as well, so that `w0 = in % 256` and `in` are two wires of equal value and the operations
   -- over them can be compared (`substWires`)
   let bits := (← collectEs).any fun e => (Tools.VedU1Loop.natBitOps e).size ≥ Tools.VedU1Loop.bitsMinOps
@@ -892,13 +924,13 @@ elab "ved_wire_bits" : tactic => wireMain true
 
 /-- `ved_pack_wire`: the packing step of the loop script (`ved_pack_simp`) on a goal of ordinary size; on a large goal
 (`shareMinTree` nodes read as a tree) `ved_wire`, whose failure is the failure of the step.  A goal of ordinary size
-with many bit operations (at least `2 * bitsMinOps` in a tree of at least 20000 nodes: the bit-serial CRC of a 32-bit register)
+with many bit operations (at least `bitsSmallOps` in a tree of at least 20000 nodes: the bit-serial CRC of a 32-bit register)
 is tried with `ved_wire_bits` first, and the packing step is the fallback -/
 elab "ved_pack_wire" : tactic => withMainContext do
   let tgt ← instantiateMVars (← getMainTarget)
   let size := Tools.VedU1Loop.treeSizeVal tgt
   if size < Tools.VedU1Loop.shareMinTree then
-    if size ≥ 20000 && (Tools.VedU1Loop.natBitOps tgt).size ≥ 2 * Tools.VedU1Loop.bitsMinOps then
+    if size ≥ 20000 && (Tools.VedU1Loop.natBitOps tgt).size ≥ Tools.VedU1Loop.bitsSmallOps then
       evalTactic (← `(tactic| first | ved_wire_bits | try ved_pack_simp))
     else
       evalTactic (← `(tactic| try ved_pack_simp))
