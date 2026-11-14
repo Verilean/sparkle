@@ -10,8 +10,9 @@ of the real-IP inventory).  A CRC byte step chains bit steps whose step uses its
 (`c &&& msb`, `c <<< 1` twice), so the unfolded body is a DAG whose tree is exponential in the number of
 steps.  The loop script (`Tools/VedU1Entry.lean`) reads it by walks over the shared subterms
 (`Tools/VedU1WireShare.lean`: unfolding the loop at the next cycle, generalising the state), and `ved_wire`
-(`Tools/VedU1Wire.lean`) makes the atoms and every operation a variable, rewrites `^^^` / `&&&` / `|||` with a
-numeral one bit at a time and compares the wires of equal sample values.
+(`Tools/VedU1Wire.lean`) makes the atoms and every operation a variable (`^^^` / `&&&` / `|||` included), proves
+the wires of equal sample values equal one at a time in a small context (the equalities already proved are
+substituted; `^^^ 1`, `&&& 1`, `||| 1` are rewritten to `/ 2` and `% 2`), and closes the goal from them.
 
 What is fixed here (`#guard_msgs`):
 1. Positives (local declarations shaped like those rows, 3 bit steps at 8 bits, 2 at 16): each is accepted, the
