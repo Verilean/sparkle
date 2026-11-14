@@ -836,6 +836,16 @@ inductive ProofSrc
 /-- the heartbeat budget (thousands) of the first-attempt script -/
 def firstAttemptHeartbeats : Nat := 3000000
 
+/-- TEST HOOK (default 0 = off): replaces `firstAttemptHeartbeats` (thousands) so a control can make
+the first attempt hit its cap cheaply. -/
+register_option ved.u1.firstAttemptHeartbeatsForTest : Nat := {
+  defValue := 0
+  descr := "VED U1 (test hook): cap (thousands) of the first-attempt script instead of the fixed one (0 = off)" }
+
+/-- The heartbeat limit of the first attempt: `cap` is the cap in heartbeats; a context value of 0
+means unlimited, so the cap applies; a finite one is kept when it is below the cap. -/
+def firstAttemptLimit (ctx cap : Nat) : Nat := if ctx == 0 then cap else min ctx cap
+
 /-- A FIRST-ATTEMPT script (`Tools.VedU1ScriptSeqGen`): elaborated against `expected` with the
 proof budget, and at most `firstAttemptHeartbeats` thousand heartbeats of it; any failure (exception,
 timeout, logged error, open term) puts the state back (messages and environment included) and
@@ -844,10 +854,13 @@ def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lea
   let saved ← saveState
   let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
   let hb0 ← IO.getNumHeartbeats
+  let capK := match ved.u1.firstAttemptHeartbeatsForTest.get (← getOptions) with
+    | 0 => firstAttemptHeartbeats
+    | n => n
   let r ← tryCatchRuntimeEx (do
       let pf ← withProofBudget do
         withTheReader Core.Context
-          (fun c => { c with initHeartbeats := hb0, maxHeartbeats := min c.maxHeartbeats (firstAttemptHeartbeats * 1000) }) do
+          (fun c => { c with initHeartbeats := hb0, maxHeartbeats := firstAttemptLimit c.maxHeartbeats (capK * 1000) }) do
         withoutErrToSorry do
           let e ← elabTermEnsuringType stx expected
           synthesizeSyntheticMVarsNoPostponing

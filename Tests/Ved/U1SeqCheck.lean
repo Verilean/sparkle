@@ -1,5 +1,7 @@
 import Tests.Ved.U1MultiLoopRow
 import Tests.IP.Crypto.BIP32CKDHWTest
+import Sparkle.Core.CircuitMonad
+import Sparkle.Core.CircuitDo
 
 /-!
 # `#ved_u1` on a real IP row with eleven registers built by `Signal.loop` (sparkle-ved-script-cost, round 4)
@@ -21,13 +23,18 @@ What is fixed here:
    `U1Stmt <decl>.ved_contract <decl>.ved_mod <decl>`, axioms within std3;
 3. refusals (`expectRefused`, stage `[proof]`, nothing left behind) on the real module with one
    change each: a wrong initial value, one mux constant of the state machine changed, two registers of
-   the same width exchanging their output names.
+   the same width exchanging their output names;
+4. the heartbeat limit of the first attempt (`firstAttemptLimit`: 0 = unlimited gets the cap, a finite
+   value below the cap is kept, one above is capped), a first attempt stopped at the cap with caller
+   and proof budget both 0 (state restored, the flat script accepts, same stored type, std3), and a low
+   finite budget refused at `[proof]`, clean.
 -/
 
 namespace Tests.Ved.U1SeqCheck
 
 open Lean Elab Command Term Meta
 open Sparkle.IR.AST Sparkle.IR.Semantics
+open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
 open Tools.VedU1Contract Tools.VedU1Entry
 open Tests.Ved.U1MultiLoopRow
 
@@ -117,5 +124,70 @@ run_cmd expectRefused "proof" (checkerNames `ctlConst) do
 #guard_msgs in
 run_cmd expectRefused "proof" (checkerNames `ctlSwap) do
   discard <| checkU1 decl `ctlSwap decl (mutSwap64 (← modOf decl)) .generated
+
+/-! ## 4. The first attempt's heartbeat limit (0 = unlimited)
+
+The budget selection, pure: a context value of 0 (caller 0 and `ved.u1.proofHeartbeats` 0) takes the
+cap, a low finite value stays, a finite value above the cap is capped. -/
+
+example : firstAttemptLimit 0 (firstAttemptHeartbeats * 1000) = 3000000000 := by decide
+example : firstAttemptLimit 150000 (firstAttemptHeartbeats * 1000) = 150000 := by decide
+example : firstAttemptLimit 8000000000 (firstAttemptHeartbeats * 1000) = 3000000000 := by decide
+example : firstAttemptLimit 3000000000 (firstAttemptHeartbeats * 1000) = 3000000000 := by decide
+
+/-- two registers, 8 bits each (the stand-in of `U1MultiLoopCheck`) -/
+def twoReg (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let a ← Signal.reg 0#8
+    let b ← Signal.reg 0#8
+    a <~ a + x
+    b <~ b + a
+    let aS := (a : Signal defaultDomain (BitVec 8))
+    let bS := (b : Signal defaultDomain (BitVec 8))
+    return aS + bS
+
+/-- Run the checker on `twoReg` with caller budget 0 (unlimited) and `ved.u1.proofHeartbeats` 0, the
+first-attempt cap set to `cap` thousand (0 = the fixed cap), then check the stored type (`==`) and
+std3, and count the proof constants it added (the first attempt's per-statement theorems). -/
+def runTwoReg (tag : Name) (cap : Nat) : TermElabM Nat := do
+  let (m, _) ← Sparkle.Compiler.Elab.synthesizeCombinational ``twoReg
+  let env0 ← getEnv
+  let thm ← withOptions (fun o => ((o.set `ved.u1.proofRecDepth (0 : Nat)).set `ved.u1.proofHeartbeats
+      (0 : Nat)).set `ved.u1.firstAttemptHeartbeatsForTest cap) <|
+    Core.withCurrHeartbeats <| withTheReader Core.Context (fun c => { c with maxHeartbeats := 0 }) do
+      checkU1 ``twoReg tag ``twoReg m .generated
+  let nm := Names.ofBase tag
+  let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst ``twoReg]
+  let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+  unless ti.type == expected do throwError "stored type differs"
+  let ax ← collectAxioms thm
+  unless ax.all ([``propext, ``Classical.choice, ``Quot.sound].contains ·) do throwError "axioms {ax}"
+  let env1 ← getEnv
+  return (env1.constants.map₂.toList.filter fun (n, _) =>
+    !env0.constants.map₂.contains n && (n.toString.splitOn "_proof_").length > 1).length
+
+/-- Observed: 48 proof constants when the first attempt succeeds, 11 when only the flat script ran. -/
+def firstAttemptLeft (n : Nat) : Bool := 30 ≤ n
+
+/-- info: first attempt under the fixed cap succeeds (its per-statement theorems are left), same stored type -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  unless firstAttemptLeft (← runTwoReg `ctlFree 0) do throwError "the first attempt left nothing"
+  logInfo "first attempt under the fixed cap succeeds (its per-statement theorems are left), same stored type"
+
+/-- info: first attempt stopped at the cap, flat script accepted (no per-statement theorems left), same stored type -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  if firstAttemptLeft (← runTwoReg `ctlCap 1) then throwError "the cap did not stop the first attempt"
+  logInfo "first attempt stopped at the cap, flat script accepted (no per-statement theorems left), same stored type"
+
+-- a low finite budget (300k heartbeats, no proof budget): refused at `[proof]`
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" (checkerNames `ctlLow) do
+  let (m, _) ← Sparkle.Compiler.Elab.synthesizeCombinational ``twoReg
+  discard <| withOptions (fun o => (o.set `ved.u1.proofRecDepth (0 : Nat)).set `ved.u1.proofHeartbeats (0 : Nat)) <|
+    Core.withCurrHeartbeats <| withTheReader Core.Context (fun c => { c with maxHeartbeats := 300000 }) do
+      checkU1 ``twoReg `ctlLow ``twoReg m .generated
 
 end Tests.Ved.U1SeqCheck
