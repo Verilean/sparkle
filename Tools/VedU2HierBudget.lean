@@ -7,8 +7,10 @@ The checker for a parent with registers (`Tools/VedU2HierRegEntry.lean`) and the
 (`Tools/DeepElab.lean`, `Tools.DeepNested.exportNested`) used FIXED limits: the whole check ran with `maxRecDepth 100000`
 and `maxHeartbeats 8000000` whatever the caller had set, and the nested export with 65536 and 1600000 (which also
 LOWERED a larger caller limit).  They are now options in the style of `ved.u1.proofRecDepth` / `ved.u1.proofHeartbeats`
-(`Tools/VedU1Entry.lean`): each is a lower bound the limit is raised to, `0` means no extra floor (the caller's limit
-applies as it is), and the defaults are the former constants.
+(`Tools/VedU1Entry.lean`), with the same formula `max caller floor`: a finite caller limit below the floor is raised to
+it, one above is kept; a caller limit of `0` (unlimited) combined with a floor `> 0` becomes the FINITE floor, so an
+unlimited caller limit is not kept in that case.  `0` as the option means no extra floor (the caller's limit applies as
+it is, unlimited included).  The defaults are the former constants.
 
 * `ved.u2.hierRecDepth`, `ved.u2.hierHeartbeats` (thousands): the register-parent check as a whole;
 * `ved.u2.nestedRecDepth`, `ved.u2.nestedHeartbeats` (thousands): the export of the state theorems of nested loops.

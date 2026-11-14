@@ -26,8 +26,9 @@ elab "ved_eprint_state" tag:(str)? : tactic => do
   for g in gs do
     if full then sink s!"{← Lean.Meta.ppGoal g}" else sink s!"  goal size {(← instantiateMVars (← g.getType)).approxDepth}"
     sink "VED-GOAL-END"
-  -- debugging only: `VED_HIER_STOP_AT=<tag prefix>` closes the goals with `sorry` at that print, so that a run does
-  -- not go on into a closer that does not terminate
+  -- debugging only: `VED_HIER_STOP_AT=<tag prefix>` ABORTS the check (an error, so the run is refused) at that print,
+  -- so that a run does not go on into a closer that does not terminate; it never closes a goal
   if let some stop ← IO.getEnv "VED_HIER_STOP_AT" then
-    if (tag.map (·.getString) |>.getD "").startsWith stop then
-      for g in gs do g.admit
+    let tg := tag.map (·.getString) |>.getD ""
+    if tg.startsWith stop then
+      throwError "VED_HIER_STOP_AT: stopped at {tg} ({gs.length} goals open; debugging only)"

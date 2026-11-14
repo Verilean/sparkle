@@ -12,7 +12,8 @@ Real-IP rows R210 `synth_arpResponderByte` and R228 `synth_icmpRequesterByte` ar
 * `ved_port_ctx` clears the hypotheses the goal does not speak of before `omega`.
 * A limit reached while the register-parent proof is elaborated (`maxHeartbeats`, `maxRecDepth`) is a refusal at `[proof]`.
 * Options `ved.u2.hierRecDepth`, `ved.u2.hierHeartbeats`, `ved.u2.nestedRecDepth`, `ved.u2.nestedHeartbeats` are floors on
-  the limits (`0` = no extra floor); defaults 100000 / 8000000 / 65536 / 1600000, the former constants.
+  the limits (`0` = no extra floor); defaults 100000 / 8000000 / 65536 / 1600000, the former constants.  The limit is
+  `max caller floor`, as for the U1 options: a caller limit of `0` (unlimited) with a floor `> 0` becomes the finite floor.
 
 ## Checks and their cost
 
