@@ -26,8 +26,10 @@ What is fixed here:
    the same width exchanging their output names;
 4. the heartbeat limit of the first attempt (`firstAttemptLimit`: 0 = unlimited gets the cap, a finite
    value below the cap is kept, one above is capped), a first attempt stopped at the cap with caller
-   and proof budget both 0 (state restored, the flat script accepts, same stored type, std3), and a low
-   finite budget refused at `[proof]`, clean.
+   and proof budget both 0 (the flat script then accepts, same stored type, std3), and a low finite
+   budget refused at `[proof]`, clean.  Which route accepted is OBSERVED from the number of new
+   `_proof_` constants (`firstAttemptLeft`, a threshold between the counts seen on this body); it is not
+   a proof that the restored environment equals the saved one or that no helper constant leaks.
 -/
 
 namespace Tests.Ved.U1SeqCheck
@@ -166,20 +168,22 @@ def runTwoReg (tag : Name) (cap : Nat) : TermElabM Nat := do
   return (env1.constants.map₂.toList.filter fun (n, _) =>
     !env0.constants.map₂.contains n && (n.toString.splitOn "_proof_").length > 1).length
 
-/-- Observed: 48 proof constants when the first attempt succeeds, 11 when only the flat script ran. -/
+/-- A route observation, not an independent check of the state restore: on `twoReg` 48 new `_proof_`
+constants were seen when the first attempt succeeds and 11 when only the flat script ran; the threshold
+separates the two counts on this body only. -/
 def firstAttemptLeft (n : Nat) : Bool := 30 ≤ n
 
-/-- info: first attempt under the fixed cap succeeds (its per-statement theorems are left), same stored type -/
+/-- info: first attempt under the fixed cap succeeds (proof-constant count of the first-attempt route), same stored type -/
 #guard_msgs in
 run_cmd liftTermElabM do
   unless firstAttemptLeft (← runTwoReg `ctlFree 0) do throwError "the first attempt left nothing"
-  logInfo "first attempt under the fixed cap succeeds (its per-statement theorems are left), same stored type"
+  logInfo "first attempt under the fixed cap succeeds (proof-constant count of the first-attempt route), same stored type"
 
-/-- info: first attempt stopped at the cap, flat script accepted (no per-statement theorems left), same stored type -/
+/-- info: first attempt stopped at the cap, flat script accepted (proof-constant count of the flat route), same stored type -/
 #guard_msgs in
 run_cmd liftTermElabM do
   if firstAttemptLeft (← runTwoReg `ctlCap 1) then throwError "the cap did not stop the first attempt"
-  logInfo "first attempt stopped at the cap, flat script accepted (no per-statement theorems left), same stored type"
+  logInfo "first attempt stopped at the cap, flat script accepted (proof-constant count of the flat route), same stored type"
 
 -- a low finite budget (300k heartbeats, no proof budget): refused at `[proof]`
 /-- info: refused [proof], clean -/
