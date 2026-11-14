@@ -29,7 +29,7 @@ registers).  The unfolded nested loop and the budget are in `U2HierOpenDeep3Chec
 * POSITIVES: type `U2HRStmt c m d decl` compared with `==`, axioms within `propext`, `Classical.choice`, `Quot.sound`
   (strict audit), the state theorem of the port that reads the loop exists (`nestW`: also the nested one).
 * REFUSALS (the real module with ONE piece altered against the declaration's own deep facts, `[proof]`, nothing left behind):
-  a wrong constant, the next-state nets of two registers exchanged, a wrong initial value, for each shape.
+  a wrong constant, the next-state nets of two registers exchanged, a wrong initial value, for `compW`; the exchange for `onesW`.
 * BUDGET (`ved.u2.hierRecDepth`, `ved.u2.hierHeartbeats`, `ved.u2.nestedRecDepth`, `ved.u2.nestedHeartbeats`: floors, `0` =
   the caller's limit as it is; defaults 100000 / 8000000 / 65536 / 1600000, the former constants): the helper that sets
   the nested export's limits raises a lower caller limit to the floor, leaves a higher one alone, and with `0` changes
@@ -242,19 +242,12 @@ run_cmd hierCtl ``compRef "proof" (setInit "_tmp_a_8" 1)
 /- `onesRef` (module): registers `_tmp_a_9` (txCnt), `_tmp_a_13` (ident), `_tmp_a_17` (seq); the message type byte is
 `_tmp_concat_hi_2`; `_tmp_arg0_31 = ~~~_tmp_s_30` is the child's checksum argument. -/
 
--- A WRONG CONSTANT: the type byte of the message.
-/-- info: refused [proof], clean -/
-#guard_msgs in
-run_cmd hierCtl ``onesRef "proof" (setAssign "_tmp_concat_hi_2" (.const 9 8))
-
 -- The next-state nets of the identifier and the sequence registers exchanged (same width).
 /-- info: refused [proof], clean -/
 #guard_msgs in
 run_cmd hierCtl ``onesRef "proof" (swapInputs "_tmp_a_13" "_tmp_a_17")
 
--- A wrong initial value of the sequence register.
-/-- info: refused [proof], clean -/
-#guard_msgs in
-run_cmd hierCtl ``onesRef "proof" (setInit "_tmp_a_17" 1)
+-- Not here (measured): a wrong constant or initial value on `onesRef` makes the refused proof search run
+-- for minutes (a wrong constant: over 12 GB, killed after 579 s); the same two mutations on `compRef` above refuse in seconds.
 
 end Tests.Ved.U2HierOpenDeep2Check

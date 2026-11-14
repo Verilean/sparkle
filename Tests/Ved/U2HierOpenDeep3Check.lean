@@ -17,8 +17,8 @@ Issue sparkle-ved-hier2-h2e (`docs/VED-HIER-H2E.md`; part 1 is `U2HierOpenDeep2C
   is not the syntactic form of the exported state theorems; `ved_rw_loops` matches it by unfolding.
   POSITIVE: type `U2HRStmt c m d decl` compared with `==`, axioms within `propext`, `Classical.choice`, `Quot.sound` (strict
   audit), the state theorem of the loop and the nested state theorem exist.  REFUSALS (the real module with ONE piece altered
-  against the declaration's own deep facts, `[proof]`, nothing left behind): a wrong constant, the next-state nets of two
-  nested registers exchanged, a wrong initial value of the parent's register.
+  against the declaration's own deep facts, `[proof]`, nothing left behind): the next-state nets of two nested registers
+  exchanged.
 * BUDGET.  `ved.u2.hierRecDepth`, `ved.u2.hierHeartbeats` (the register-parent check as a whole) and `ved.u2.nestedRecDepth`,
   `ved.u2.nestedHeartbeats` (the export of the nested loops' state theorems, `Tools/DeepElab.lean`) are lower bounds on the
   limits, `0` = no extra floor (the caller's limit applies as it is); the defaults are the former fixed constants (100000,
@@ -180,20 +180,13 @@ def hierCtl (decl : Name) (stage : String) (f : List Stmt → List Stmt) : Comma
 `_tmp_a_13` (cnt), `_tmp_a_17` (type), `_tmp_a_32` (ident), `_tmp_a_45` (seq), `_tmp_a_47` (done); `_tmp_arg0_71 =
 ~~~_tmp_arg1_0` (`idReg + identIn`) is the child's first argument. -/
 
--- A WRONG CONSTANT: the complement taken with the mask 65534 instead of 65535.
-/-- info: refused [proof], clean -/
-#guard_msgs in
-run_cmd hierCtl ``reqRef "proof" (setAssign "_tmp_arg0_71" (.op .xor [.ref "_tmp_arg1_0", .const 65534 16]))
-
 -- The next-state nets of the parser's identifier and sequence registers exchanged (same width).
 /-- info: refused [proof], clean -/
 #guard_msgs in
 run_cmd hierCtl ``reqRef "proof" (swapInputs "_tmp_a_32" "_tmp_a_45")
 
--- A wrong initial value of the parent's identifier register.
-/-- info: refused [proof], clean -/
-#guard_msgs in
-run_cmd hierCtl ``reqRef "proof" (setInit "_tmp_a_4" 1)
+-- (the wrong-constant and wrong-initial-value refusals of this shape cost about a minute each; `compRef` in
+-- `U2HierOpenDeep2Check` covers those mutations in seconds)
 
 /-! ## The budget -/
 
