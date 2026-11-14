@@ -96,6 +96,29 @@ theorem toSigned_range (w X : Nat) (hw : 0 < w) (hX : X < 2 ^ w) :
   unfold toSigned
   split <;> omega
 
+
+open Lean Meta Simp in
+/-- `c ||| x` for a numeral `c` whose low `k` bits are zero and `x < 2 ^ k` (`k` the number of trailing zero
+bits of `c`, `x < 2 ^ k` by the configured discharger): the sum `c + x` (`Tools.VedU1Lemmas.or_hi`).  The
+extension of a short operand by a constant (`0x3F ++ scale` read as `1008 ||| scale`) at any width. -/
+simproc_decl vedOrAdd (_ ||| _) := fun e => do
+  unless e.isAppOfArity ``HOr.hOr 6 do return .continue
+  let some c := (e.getArg! 4).nat? | return .continue
+  if c == 0 then return .continue
+  let x := e.getArg! 5
+  if (x.nat?).isSome then return .continue
+  let mut k := 0
+  let mut r := c
+  while r % 2 == 0 do
+    r := r / 2
+    k := k + 1
+  let lt ← mkAppM ``LT.lt #[x, ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit k]]
+  let some h1 ← (← getMethods).discharge? lt | return .continue
+  let h2 ← mkAppM ``Eq.refl #[mkNatLit 0]
+  let pf ← mkAppM ``Tools.VedU1Lemmas.or_hi #[mkNatLit c, x, mkNatLit k, h1, h2]
+  let rhs := (← inferType pf).appArg!
+  return .visit { expr := rhs, proof? := some pf }
+
 /-- step 1 of the heavy script (see the module docstring) -/
 syntax (name := vedHeavyNorm) "ved_heavy_norm" : tactic
 
@@ -104,8 +127,7 @@ macro_rules
     `(tactic| (simp (disch := omega) only [apply_ite BitVec.toNat,
           Tools.VedU1Heavy.toInt_eq_toSigned, Tools.VedU1Heavy.mul_bmod_toSigned,
           BitVec.toNat_ofNat, Tools.VedU1Lemmas.toNat_sshiftRight', BitVec.toNat_mul, BitVec.extractLsb'_toNat,
-          Tools.VedU1ScriptSeq.vedToNatAppend, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.or_hi_16,
-          Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32,
+          Tools.VedU1ScriptSeq.vedToNatAppend, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Heavy.vedOrAdd,
           Nat.mod_eq_of_lt, Nat.reduceAdd, Nat.reduceMul, Nat.reducePow, Nat.zero_mul, Nat.shiftRight_eq_div_pow, Nat.zero_add, Nat.div_one,
           Int.not_le.symm, ite_not]))
 
