@@ -9,6 +9,9 @@ import Tools.DeepElab
 import Tools.DeepHelpers
 import Tools.DeepHelpersTac
 import Tools.VedU2HierStateArgs
+import Tools.VedU2HierBvAppend
+import Tools.VedU2HierBudget
+import Tools.VedU2HierLoopRw
 
 /-!
 # Stateful hierarchical entry, H2b: a parent WITH REGISTERS (`#ved_u2_hier decl`)
@@ -469,6 +472,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         X := X.push s!"  have hE_{n} : E {sq n} = ins t {sq n} := hEin _ (by decide)"
         facts := facts ++ [s!"hE_{n}"]
       let mut stFacts : List String := []
+      let mut loopFs : List String := []
       if ii.stateArg then
         -- the parent's registers at cycle t: the pre-update state, which the invariant speaks about
         X := X.push s!"  have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
@@ -486,9 +490,10 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         let derivedArgs := ports.any fun (bn, _) =>
           (ii.slots.lookup (match ii.cs.lookup ("_gen_" ++ bn) with | some (.ref x) => x | _ => "?")).isNone
         if derivedArgs then
-          let (ls, fs) := stateFacts spn di
+          let (ls, fs, lfs) := stateFacts spn di
           X := X ++ ls
           stFacts := fs
+          loopFs := lfs
         -- the argument signal is the register's Signal-level state (the exported state theorem)
         for (bn, (_, ad)) in ports do
           let nm := "_gen_" ++ bn
@@ -521,9 +526,16 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           -- a non-register argument (a constant, a data input, a derived net) is unfolded like the stateless case
           let isSlot := (ii.slots.lookup wire).isSome
           X := X ++ portLines di dbg bn isSlot (toString (userName ad)) Fj netSimpL (facts ++ lts)
-            (if isSlot then [] else stFacts)
+            (if isSlot then [] else stFacts) (if isSlot then [] else loopFs)
         else
           X := X.push s!"    simp [{Fj}, {toString (userName ad)}, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
+        -- H2e: the pack is read back and a complement `x ^^^ 65535` rewritten, with the context cleared of what
+        -- `omega` cannot read, before `omega` (`omega` on the unread goal in the full context, and `split <;> omega`,
+        -- do not terminate on a checksum)
+        if ii.stateArg && dbg then X := X.push s!"    all_goals (ved_eprint_state \"P1-before-close {bn}\")"
+        if ii.stateArg && dbg then X := X.push s!"    all_goals (try (ved_port_ctx; ved_eprint_state \"P2-cleared {bn}\"))"
+        if ii.stateArg then X := X.push s!"    all_goals (try (ved_port_ctx; ved_hier_close))"
+        if ii.stateArg && dbg then X := X.push s!"    all_goals (ved_eprint_state \"P3-after-close {bn}\")"
         X := X.push s!"    try omega"
         if ii.stateArg then X := X.push s!"    all_goals (try (split <;> omega))"
       if ii.stateArg then
@@ -1030,12 +1042,14 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
     liftTermElabM <| refuse decl "checker" e.toMessageData
 
 /-- `checkU2HRCore` with the elaboration limits raised (the proofs of a parent with several registers and a
-nested circuit exceed the default 200000 heartbeats in `whnf`); the limits are the same for every parent. -/
+nested circuit exceed the default 200000 heartbeats in `whnf`) to the floors `ved.u2.hierRecDepth` /
+`ved.u2.hierHeartbeats` (H2e: options, defaults 100000 / 8000000, 0 = the caller's limit as it is; they were fixed
+constants that also overrode a larger caller limit). -/
 def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
     (clkRstOverride : Option (Option (String × String)) := none)
     (tamper : Phase1 → CommandElabM Phase1 := fun p => pure p) :
     CommandElabM (Name × Nat × Nat) :=
-  withScope (fun sc => { sc with opts := Lean.maxRecDepth.set (Lean.maxHeartbeats.set sc.opts 8000000) 100000 })
+  withScope (fun sc => { sc with opts := Tools.VedU2HierBudget.floorOpts sc.opts Tools.VedU2HierBudget.ved.u2.hierRecDepth Tools.VedU2HierBudget.ved.u2.hierHeartbeats })
     (checkU2HRCore decl stmt nDom m d clkRstOverride tamper)
 
 /-- The entry: ONE `synthesizeCombinational`; a register-free parent is H2a's `checkU2H`

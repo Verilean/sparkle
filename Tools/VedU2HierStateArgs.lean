@@ -47,7 +47,7 @@ structure Sp where
 
 /-- The state theorems, the readers' equalities with the IR registers and the copies' equalities, as script lines;
 and the names of the facts the per-port simps use. -/
-def stateFacts (sp : Sp) (di : DeepInfo) : Array String × List String := Id.run do
+def stateFacts (sp : Sp) (di : DeepInfo) : Array String × List String × List String := Id.run do
   let mut X : Array String := #[]
   let mut stFacts : List String := ["hstA"]
   X := X.push s!"  have hstA := {sp.state} {sp.sigsAll} t"
@@ -62,11 +62,26 @@ def stateFacts (sp : Sp) (di : DeepInfo) : Array String × List String := Id.run
     X := X.push s!"    rw [Cdo.irState_eq {sp.deep} {sp.nm} hinj]"
     X := X.push s!"    rfl"
     if di.block.contains slot || nestedSlots.contains slot then stFacts := stFacts ++ [s!"hRd{slot}"]
+  -- H2e: the loops as values.  A state theorem reads the registers through `rd<slot> <sigsAll> t`, whose arguments
+  -- contain the loop again; the loop is rewritten to `BitVec.ofNat w (irS …)` instead, by definitional matching
+  -- (`ved_rw_loops`), so that nothing of the declaration's term remains in the goal
+  for slot in rdSlots do
+    X := X.push s!"  have hrdE{slot} : {sp.rd slot} {sp.sigsAll} t = BitVec.ofNat {di.regWs[slot]!} ({sp.irS} ins t ({slot} : Fin {di.regWs.length})) := by"
+    X := X.push s!"    apply BitVec.eq_of_toNat_eq"
+    X := X.push s!"    rw [hRd{slot}, BitVec.toNat_ofNat]"
+    X := X.push s!"    exact (Nat.mod_eq_of_lt hlS{slot}).symm"
+  let loopSlots : List (String × List Nat) := ("hstA", di.block) :: (di.nested.zipIdx.map fun ((_, b), jj) => (s!"hstN{jj}", b))
+  let mut loopFacts : List String := []
+  for (h, slots) in loopSlots do
+    X := X.push s!"  have hL{h} := {h}"
+    unless slots.isEmpty do
+      X := X.push s!"  rw [{", ".intercalate (slots.map fun sl => s!"hrdE{sl}")}] at hL{h}"
+    loopFacts := loopFacts ++ [s!"hL{h}"]
   for (slot, c, dn) in di.dups do
     X := X.push s!"  have hSm{slot} : {sp.irS} ins t ({slot} : Fin {di.regWs.length}) = {sp.irS} ins t ({c} : Fin {di.regWs.length}) := by"
     X := X.push s!"    rw [← hRd{slot}, ← hRd{c}, {dn} {sp.sigsAll} t]"
     stFacts := stFacts ++ [s!"hSm{slot}"]
-  return (X, stFacts)
+  return (X, stFacts, loopFacts)
 
 /-- The fact `hAl<bn>` for an argument `ad` that IS the register `slot`: the argument signal is the register's
 Signal-level state, read from the pack of the state theorem that holds the register (the top loop's, a nested
@@ -91,11 +106,15 @@ def slotLines (sp : Sp) (di : DeepInfo) (bn ad : String) (slot : Nat) : Array St
   X := X.push s!"    rfl"
   return X
 
+/-- The lemmas that read a signal term pointwise (`(a op b).val t = a.val t op b.val t`, all `rfl`). -/
+def pointwiseL : String :=
+  "sigval_append, ved_sigval_append, Tools.VedU1Lemmas.add_val, Tools.VedU1Lemmas.and_val, Tools.VedU1Lemmas.or_val, Tools.VedU1Lemmas.xor_val, Tools.VedU1Lemmas.sub_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Sparkle.Core.Signal.Signal.map"
+
 /-- The tactic lines closing the goal of one argument of a stateful call (`fj`: the call's stream definition,
 `netSimpL`: the net simp set, `fs`: the facts in scope, `stU`: the state facts when the argument is not one of the
 register slots). -/
 def portLines (di : DeepInfo) (dbg : Bool) (bn : String) (isSlot : Bool) (ad fj netSimpL : String) (fs : List String)
-    (stU : List String) : Array String := Id.run do
+    (stU : List String) (lps : List String := []) : Array String := Id.run do
   let mut X : Array String := #[]
   let obs := "Tools.VedU1Contract.PTy.obs"
   let adU := if isSlot then "" else s!"{ad}, "
@@ -105,16 +124,31 @@ def portLines (di : DeepInfo) (dbg : Bool) (bn : String) (isSlot : Bool) (ad fj 
     -- declaration's term has the loop unfolded and the signals unfolded: bring the facts to the same form
     for h in stU.filter (·.startsWith "hst") do
       X := X.push s!"    try unfold loopFOf at {h}"
-    X := X.push s!"    try simp (config := \{ maxSteps := 2000000 }) [loopFOf, {adU}{obs}, {netSimpL}] at {" ".intercalate stU}"
+    X := X.push s!"    try simp (config := \{ maxSteps := 2000000 }) [loopFOf, {adU}{obs}, {netSimpL}] at {" ".intercalate (stU ++ lps)}"
+    if dbg then X := X.push s!"    all_goals ved_eprint_state \"stU-simp {bn}\""
   if stU.isEmpty then
     X := X.push s!"    simp [{fj}, {adU}{obs}, {netSimpL}, hin, {facts}]"
   else
     -- the argument's terms keep a nested circuit folded, the state theorems have it unfolded
     X := X.push s!"    simp (config := \{ maxSteps := 2000000 }) [{fj}, {adU}{obs}, {netSimpL}, hin, {facts}]"
     if dbg then X := X.push s!"    trace \"H2D-PORT {bn} after first simp\""
+    if dbg then X := X.push s!"    all_goals (ved_eprint_state \"A-first {bn}\")"
     X := X.push s!"    all_goals ved_unfold_helpers {di.openUser}"
     if dbg then X := X.push s!"    trace \"H2D-PORT {bn} after helpers\""
-    X := X.push s!"    all_goals (try simp (config := \{ maxSteps := 2000000 }) [apply_ite BitVec.toNat, {netSimpL}, hin, {facts}, {", ".intercalate stU}])"
+    if dbg then X := X.push s!"    all_goals (ved_eprint_state \"B-helpers {bn}\")"
+    -- a concatenation of signals (`onesAdd16Sig`, unfolded above) is read pointwise.  The full simp set does not apply
+    -- `sigval_append` to it (it unfolds `Signal.pure` to a term that is not type correct at instance transparency
+    -- first), `simp only` does; the facts get the same pass so that both sides keep one normal form
+    X := X.push s!"    all_goals (try simp only [{pointwiseL}] at {" ".intercalate (stU ++ lps)} ⊢)"
+    -- the loops of the declaration's term, whatever their syntactic form, become the register values; `{ val := f }.val t`
+    -- is reduced first, so that the loop sits at the goal's time and not under a binder
+    unless lps.isEmpty do X := X.push s!"    all_goals (try dsimp only)"
+    unless lps.isEmpty do X := X.push s!"    all_goals (try ved_rw_loops {" ".intercalate lps})"
+    if dbg then X := X.push s!"    all_goals (ved_eprint_state \"B2-loops {bn}\")"
+    -- `toNat` through the concatenations (`ved_toNat_append`: the core lemma needs the width `m + n`, the term has the
+    -- literal) and the slices
+    X := X.push s!"    all_goals (try simp (config := \{ maxSteps := 2000000 }) [apply_ite BitVec.toNat, BitVec.extractLsb'_toNat, ved_toNat_append, ved_sigval_append, {netSimpL}, hin, {facts}])"
+    if dbg then X := X.push s!"    all_goals ved_eprint_state \"D-final {bn}\""
   return X
 
 end Tools.VedU2HierStateArgs

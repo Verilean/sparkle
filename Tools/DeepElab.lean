@@ -41,6 +41,7 @@ import Tools.ConeFoldRT
 import Tools.DeepFinArms
 import Tools.DeepHelpers
 import Tools.DeepNestedState
+import Tools.VedU2HierBudget
 open Sparkle.IR.AST Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
 
@@ -4777,8 +4778,8 @@ elab "#verify_elab_deep" id:ident : command =>
               pure ({ idx, pack := ← packOf node idx (← `($uId)),
                       tac := ← mkNestedProof node idx } : Tools.DeepNested.BlockCand)
             pure ({ widths := node.widths, isBool := node.isBool, blocks } : Tools.DeepNested.NodeCand)
-          let added ← liftTermElabM <| withTheReader Core.Context
-            (fun c => { c with maxRecDepth := 65536, maxHeartbeats := 1600000 * 1000 })
+          -- H2e: the limits are the options `ved.u2.nestedRecDepth` / `ved.u2.nestedHeartbeats` (floors; 0 = the caller's)
+          let added ← liftTermElabM <| Tools.VedU2HierBudget.withNestedBudget
             (Tools.DeepNested.exportNested stFull nodes)
           deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: nested state theorems {added}"
       return some lhsSig

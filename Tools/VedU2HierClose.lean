@@ -1,5 +1,7 @@
 import Lean
 import Tools.VedU1Lemmas
+import Tools.VedU2HierXor
+import Sparkle.Core.Signal
 
 /-!
 # `ved_hier_close`: the closer of the hierarchical checker's register-step goals
@@ -63,11 +65,33 @@ elab "ved_arith_ctx" : tactic => withMainContext do
       g ← g.tryClear d.fvarId
   replaceMainGoal [g]
 
+open Lean Meta Elab Tactic in
+/-- The context of a port goal for `ved_hier_close`: clear every hypothesis that mentions a `Sparkle.Core.Signal` constant
+(the readers' equations and the state facts: their atoms are the declaration's terms, loops of the whole circuit) or the
+evaluation environment `E` (the net-by-net equations `e_i`/`f_i`/`hlt_i`, thirty facts each with several `if`s over the
+same atoms the goal already speaks of).  `omega` abstracts each atom by unification and splits every `if` of every fact:
+on a 16-bit checksum port that exhausted memory (H2e, 10 GB).  What the goal needs is its own bounds on the register
+and input atoms (`hlS<i>`, `hin`). -/
+elab "ved_port_ctx" : tactic => withMainContext do
+  let mut g ← getMainGoal
+  let lctx ← getLCtx
+  let envs := lctx.decls.toList.filterMap fun d => match d with
+    | some d => if d.userName == `E then some d.fvarId else none
+    | none => none
+  for d in lctx.decls.toList.reverse do
+    let some d := d | continue
+    if d.isImplementationDetail then continue
+    let mentionsSig := (d.type.find? fun e => match e with | .const n _ => (`Sparkle.Core.Signal).isPrefixOf n | _ => false).isSome
+    let mentionsE := envs.any fun f => d.type.containsFVar f
+    if (← isProp d.type) && (mentionsSig || mentionsE) then
+      g ← g.tryClear d.fvarId
+  replaceMainGoal [g]
+
 macro "ved_hier_close" : tactic =>
   `(tactic| (
     (ved_arith_ctx;
       (try (ved_rt simp (config := { maxSteps := 4000000 }) (disch := omega) only
-        [ved_div_add_mul, ved_add_mul_mod, ved_mul_add_mod, Nat.mod_eq_of_lt])))
+        [ved_div_add_mul, ved_add_mul_mod, ved_mul_add_mod, Nat.mod_eq_of_lt, ved_xor])))
     <;> first
     | (ved_rt omega)
     -- the case split exposes literals; they are evaluated BEFORE `omega` sees the goal (`x &&& 0` and the like make it

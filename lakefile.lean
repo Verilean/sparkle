@@ -322,6 +322,18 @@ lean_lib «Tools.VedU2HierDbg» where
 lean_lib «Tools.VedU2HierClose» where
   roots := #[`Tools.VedU2HierClose]
 
+lean_lib «Tools.VedU2HierBvAppend» where
+  roots := #[`Tools.VedU2HierBvAppend]
+
+lean_lib «Tools.VedU2HierLoopRw» where
+  roots := #[`Tools.VedU2HierLoopRw]
+
+lean_lib «Tools.VedU2HierXorAttr» where
+  roots := #[`Tools.VedU2HierXorAttr]
+
+lean_lib «Tools.VedU2HierXor» where
+  roots := #[`Tools.VedU2HierXor]
+
 lean_lib «Tools.DeepNoNative» where
   roots := #[`Tools.DeepNoNative]
 
@@ -336,6 +348,9 @@ lean_lib «Tools.DeepHelpersTac» where
 
 lean_lib «Tools.DeepFinArms» where
   roots := #[`Tools.DeepFinArms]
+
+lean_lib «Tools.VedU2HierBudget» where
+  roots := #[`Tools.VedU2HierBudget]
 
 lean_lib «Tools.DeepElab» where
   roots := #[`Tools.DeepElab]
