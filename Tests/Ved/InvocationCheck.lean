@@ -111,4 +111,53 @@ run_cmd do
   expectWriteRefused "table" ``twoField
     (elabCommand (← `(#ved_u1_write twoField ".lake/build/gen/inv/f.sv" ".lake/build/gen/inv/f_cppsim.h")))
 
+/-! ## Domain width controls: one input of 12 (plain decide), 16 (chunked), 32 and 64 bits (symbolic) -/
+
+def eq12 (c : Signal defaultDomain (BitVec 12)) : Signal defaultDomain Bool :=
+  c === (Signal.pure 5#12 : Signal defaultDomain (BitVec 12))
+
+def eq16 (c : Signal defaultDomain (BitVec 16)) : Signal defaultDomain Bool :=
+  c === (Signal.pure 5#16 : Signal defaultDomain (BitVec 16))
+
+def mask32 (a : Signal defaultDomain (BitVec 32)) : Signal defaultDomain (BitVec 32) :=
+  (a &&& (Signal.pure 0xFF00FF#32 : Signal defaultDomain (BitVec 32))) +
+    (Signal.pure 0x1234#32 : Signal defaultDomain (BitVec 32))
+
+def add64 (a : Signal defaultDomain (BitVec 64)) : Signal defaultDomain (BitVec 64) :=
+  a + (Signal.pure 3#64 : Signal defaultDomain (BitVec 64))
+
+#guard_msgs (drop info) in
+#ved_u1 eq12
+#guard_msgs (drop info) in
+#ved_u1 eq16
+#guard_msgs (drop info) in
+#ved_u1 mask32
+#guard_msgs (drop info) in
+#ved_u1 add64
+
+def checkStored (decl : Name) : CommandElabM Unit := liftTermElabM do
+  let nm := Names.ofBase decl
+  let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst decl]
+  let some (.thmInfo ti) := (← getEnv).find? nm.thm | throwError "{nm.thm} is not a theorem"
+  unless ti.type == expected do throwError "{nm.thm}: stored type differs"
+  let ax ← collectAxioms nm.thm
+  unless ax.all ([``propext, ``Classical.choice, ``Quot.sound].contains ·) do throwError "axioms {ax}"
+  logInfo m!"stored OK {decl}"
+
+/-- info: stored OK Tests.Ved.InvocationCheck.eq12 -/
+#guard_msgs in
+run_cmd checkStored ``eq12
+
+/-- info: stored OK Tests.Ved.InvocationCheck.eq16 -/
+#guard_msgs in
+run_cmd checkStored ``eq16
+
+/-- info: stored OK Tests.Ved.InvocationCheck.mask32 -/
+#guard_msgs in
+run_cmd checkStored ``mask32
+
+/-- info: stored OK Tests.Ved.InvocationCheck.add64 -/
+#guard_msgs in
+run_cmd checkStored ``add64
+
 end Tests.Ved.InvocationCheck

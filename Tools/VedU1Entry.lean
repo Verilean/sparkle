@@ -516,7 +516,10 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
         dom := dom.push (← `(tactic| revert $h:ident))
         dom := dom.push (← `(tactic| revert $x:ident))
     -- one input of at least 13 bits: the domain is checked in chunks of 2^12 (Tools/VedInvocationDom.lean)
-    let chunked := inWidths.length == 1 && inNames.length == 1 && inWidths.head! ≥ 13
+    -- (decided after `wide`: a wide input never builds the 2^(w-12) chunk nodes)
+    let wide := inWidths.length == inNames.length && inWidths.foldl (· + ·) 0 > 16
+    let chunked := !wide && inWidths.length == 1 && inNames.length == 1 &&
+      13 ≤ inWidths.head! && inWidths.head! ≤ 16
     let domClose ← if chunked then
         let K := Syntax.mkNumLit (toString (2 ^ (inWidths.head! - 12)))
         let mut t : Term ← `(Tools.VedInvocationDom.allLt_zero _)
@@ -532,7 +535,6 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
     -- a domain too large to enumerate (`2^(Σ widths) > 2^16`): only the narrow
     -- inputs (the `==` selectors, ≤ 6 bits) are case-split, wide data stays symbolic
     -- and the leftover `BitVec` field extraction is closed by `omega`
-    let wide := inWidths.length == inNames.length && inWidths.foldl (· + ·) 0 > 16
     let domAll : Array (TSyntax `tactic) ←
       if !wide then pure #[domSmall] else do
         let mut gen : Array (TSyntax `tactic) := #[]
