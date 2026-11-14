@@ -169,6 +169,9 @@ jobs:
     - name: "U1 multi-register per-statement script: 11-register BIP-32 row and refusal controls"
       run: lake build Tests.Ved.U1SeqCheck
 
+    - name: "U1 chained bit-serial CRC bodies (sharing-preserving loop script, bit-operation wires); refusal controls"
+      run: lake build Tests.Ved.U1WireShareCheck
+
     - name: Deep route, every regression file
       run: |
         lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen \

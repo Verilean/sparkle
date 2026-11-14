@@ -39,11 +39,53 @@ partial def treeSizeOf (e : Lean.Expr) : StateM (Std.HashMap Lean.Expr Nat) Nat 
   modify (·.insert e d)
   return d
 
-/-- `treeSizeOf` from an empty memo -/
+/-- the memoised tree size, the memo keyed by the address of the node (equal subterms that are not the same object
+are counted again, the value is the same; hashing the keys by structure compares large shared terms) -/
+unsafe def treeSizeValPtr (e : Lean.Expr) : Nat := Id.run do
+  let mut memo : Std.HashMap USize Nat := {}
+  -- iterative post-order
+  let mut stack : Array (Lean.Expr × Bool) := #[(e, false)]
+  let kidsOf : Lean.Expr → Array Lean.Expr := fun x => match x with
+    | .app f a => #[f, a]
+    | .lam _ t b _ => #[t, b]
+    | .forallE _ t b _ => #[t, b]
+    | .letE _ t v b _ => #[t, v, b]
+    | .mdata _ b => #[b]
+    | .proj _ _ b => #[b]
+    | _ => #[]
+  while !stack.isEmpty do
+    let (x, done) := stack.back!
+    stack := stack.pop
+    let key := ptrAddrUnsafe x
+    if memo.contains key then continue
+    if !done then
+      stack := stack.push (x, true)
+      for k in kidsOf x do
+        unless memo.contains (ptrAddrUnsafe k) do stack := stack.push (k, false)
+    else
+      let d := match x with
+        | .mdata _ b => memo.getD (ptrAddrUnsafe b) 1
+        | .app .. | .lam .. | .forallE .. | .letE .. | .proj .. =>
+          (kidsOf x).foldl (fun acc k => acc + memo.getD (ptrAddrUnsafe k) 1) 1
+        | _ => 1
+      memo := memo.insert key d
+  return memo.getD (ptrAddrUnsafe e) 1
+
+/-- the tree size of `e` (`treeSizeOf` from an empty memo) -/
+@[implemented_by treeSizeValPtr]
 def treeSizeVal (e : Lean.Expr) : Nat := Id.run ((treeSizeOf e).run' {})
 
 /-- a goal whose tree has fewer nodes than this is left alone by `ved_wire` (`Tools/VedU1Wire.lean`) -/
 def shareMinTree : Nat := 150000
+
+/-- a goal that `ved_wire` takes (`shareMinTree`) with at least this many distinct bit operations (`^^^`, `&&&`, `|||`
+on `Nat`) is wired with its atoms, the equalities proved are substituted and the bit operations of the wires get facts
+(`Tools/VedU1Wire.lean`) -/
+def bitsMinOps : Nat := 1
+
+/-- a goal below `shareMinTree` (at least 20000 nodes) with at least this many distinct bit operations is tried with
+`ved_wire` first (the bit-serial CRC of a register: `Tools/VedU1Wire.lean`, `ved_pack_wire`) -/
+def bitsSmallOps : Nat := 16
 
 open Lean Elab Tactic in
 /-- `omega` with a small heartbeat budget of its own (the rewrite rules below call it as a
@@ -163,10 +205,13 @@ def loopsOf (e : Lean.Expr) : Array Lean.Expr := collectLoops e #[]
 /-- all `a ||| b` on `Nat` in `e` (each distinct term once) -/
 def natOrs (e : Lean.Expr) : Array Lean.Expr := Id.run do
   let mut out : Array Lean.Expr := #[]
+  let mut seen : Std.HashSet Lean.Expr := {}
   let mut todo : Array Lean.Expr := #[e]
   while !todo.isEmpty do
     let x := todo.back!
     todo := todo.pop
+    if seen.contains x then continue
+    seen := seen.insert x
     if x.isAppOfArity ``HOr.hOr 6 && (x.getArg! 0).isConstOf ``Nat then
       unless out.contains x do out := out.push x
     match x with
@@ -230,10 +275,13 @@ elab "ved_or_lit" : tactic => withMainContext do
 /-- all `a ^^^ b`, `a ||| b`, `a &&& b` on `Nat` in `e` (each distinct term once) -/
 def natBitOps (e : Lean.Expr) : Array Lean.Expr := Id.run do
   let mut out : Array Lean.Expr := #[]
+  let mut seen : Std.HashSet Lean.Expr := {}
   let mut todo : Array Lean.Expr := #[e]
   while !todo.isEmpty do
     let x := todo.back!
     todo := todo.pop
+    if seen.contains x then continue
+    seen := seen.insert x
     if (x.isAppOfArity ``HXor.hXor 6 || x.isAppOfArity ``HOr.hOr 6 || x.isAppOfArity ``HAnd.hAnd 6)
         && (x.getArg! 0).isConstOf ``Nat then
       unless out.contains x do out := out.push x
@@ -250,10 +298,13 @@ def natBitOps (e : Lean.Expr) : Array Lean.Expr := Id.run do
 /-- all `a * b` on `Nat` in `e` with neither factor a numeral (each distinct term once) -/
 def natMuls (e : Lean.Expr) : Array Lean.Expr := Id.run do
   let mut out : Array Lean.Expr := #[]
+  let mut seen : Std.HashSet Lean.Expr := {}
   let mut todo : Array Lean.Expr := #[e]
   while !todo.isEmpty do
     let x := todo.back!
     todo := todo.pop
+    if seen.contains x then continue
+    seen := seen.insert x
     if x.isAppOfArity ``HMul.hMul 6 && (x.getArg! 0).isConstOf ``Nat
         && (x.getArg! 4).nat?.isNone && (x.getArg! 5).nat?.isNone then
       unless out.contains x do out := out.push x

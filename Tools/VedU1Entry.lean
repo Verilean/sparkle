@@ -7,6 +7,7 @@ import Tools.VedU1TableGen
 import Std.Data.HashMap
 import Tools.VedU1Loop
 import Tools.VedU1Wire
+import Tools.VedU1WireShare
 import Tools.VedU1Uns
 import Tools.VedU1LemmasExt1
 import Tools.VedU1ScriptSeqGen
@@ -266,7 +267,7 @@ syntax (name := vedLoopSimp) "ved_loop_simp " "[" Lean.Parser.Tactic.simpLemma,*
 
 macro_rules
   | `(tactic| ved_loop_simp [$ex,*] $[$loc]?) =>
-    `(tactic| simp -implicitDefEqProofs [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
+    `(tactic| simp -implicitDefEqProofs (maxSteps := 4000000) [stepModule, evalAssigns, regNexts, memNexts, Sparkle.IR.Semantics.evalExpr,
         Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
         widthOf, seedIn, applyNexts, declWidth, srcOf, contractOf, applyIns, 
         Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, or_mod _ _ _ _ rfl,
@@ -298,7 +299,7 @@ syntax (name := vedLoopWideSimp) "ved_loopw_simp " "[" Lean.Parser.Tactic.simpLe
 
 macro_rules
   | `(tactic| ved_loopw_simp [$ex,*] $[$loc]?) =>
-    `(tactic| simp -implicitDefEqProofs [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
+    `(tactic| simp -implicitDefEqProofs (maxSteps := 4000000) [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
 
 /-- The closing tactic of the wide path (`scriptFor`): `ved_wide_simp`, then `omega`, else a
 case split on the remaining `if`s and `omega`.  `ex` are extra simp lemmas (the range facts of
@@ -735,16 +736,16 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
   let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | (trace_state; fail "ved_loop_close failed here")))
     else `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))
   let stages : Array (Array (TSyntax `tactic)) := #[
-    #[← `(tactic| ved_loop_unfold ($sI + 1)),
+    #[← `(tactic| ved_loop_unfold_share ($sI + 1)),
       ← `(tactic| ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
-      ← `(tactic| ved_loop_gen $sI)],
+      ← `(tactic| ved_loop_gen_share $sI)],
     #[← `(tactic| all_goals refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩),
       ← `(tactic| all_goals ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
       ← `(tactic| all_goals try (repeat' apply And.intro))],
     #[← `(tactic| all_goals (try ved_loopw_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
-    #[← `(tactic| all_goals (try ved_bit_simp))],
+    #[← `(tactic| all_goals ved_bit_simp_share)],
     #[← `(tactic| all_goals (try ved_or_lit))],
-    #[← `(tactic| all_goals ved_pack_wire)],
+    #[← `(tactic| ved_pack_wire_all)],
     #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
       ← `(tactic| all_goals (try ved_pack_simp)),
       ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
@@ -759,7 +760,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
       if dbg == k + 2 && dbg < 99 then tacs := tacs.push stop
   let h0tacs : Array (TSyntax `tactic) := #[
     ← `(tactic| intro $insI hok),
-    ← `(tactic| ved_loop_unfold 0),
+    ← `(tactic| ved_loop_unfold_share 0),
     ← `(tactic| simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth]),
     ← `(tactic| all_goals decide +kernel)]
   `(by
