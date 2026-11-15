@@ -9,6 +9,8 @@ import Tools.VedU1Loop
 import Tools.VedU1WireShare
 import Tools.VedU1Wire
 import Tools.VedU1LemmasExt1
+import Tools.VedU1PackedEntry
+import Tools.VedU1MultiSeq
 
 /-!
 # `#ved_u1_mem decl`: the U1 entry for register-free modules with memories (`sparkle-ved-memory`)
@@ -184,6 +186,12 @@ register_option ved.mem.showScript : Bool := {
 def refuseM {α} (decl : Name) (stage : String) (msg : MessageData) : MetaM α :=
   throwError m!"VED U1 REFUSED {decl} [{stage}]: {msg}"
 
+/-- The statement for a packed result `Signal d (A × B × ..)`: `Tools.VedU1Packed.PackedStmt` with the memory-free shape
+clause replaced as in `MemStmt` (`MemStmt` of the collapsed contract; the slices follow from its outputs). -/
+def MemPackedStmt (pc : Tools.VedU1Packed.PContract) (m : Sparkle.IR.AST.Module) (f : pc.tbl.Ty) : Prop :=
+  Tools.VedU1Packed.PackCover pc ∧ MemStmt pc.core m (Tools.VedU1Packed.packedF pc.tbl f) ∧
+    Tools.VedU1Packed.SlicesStmt pc m f
+
 /-- The invariant `R ins s st mems` as a closed lambda: one `MemInv` per memory statement then one latch
 equation per registered read. -/
 def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
@@ -351,10 +359,12 @@ memory, then one latch equation per registered read), given in full: the loop-st
 state are peeled (their side conditions are goals of the same kind as the registers'). -/
 def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
     (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
-    (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) : TermElabM Syntax := do
+    (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) (pk : Bool := false) : TermElabM Syntax := do
   -- the state projections `Signal.fst` / `Signal.snd` of a loop's state signal are unfolded with the helpers
   let helpers := helpers ++ #[``Sparkle.Core.Signal.Signal.fst, ``Sparkle.Core.Signal.Signal.snd]
   let helpers := helpers ++ #[``Tools.VedMem.ofNat_mod_eq_extract, ``Tools.VedMem.ofNat_mod_eq_extract', ``Tools.VedMemLoop.add_val_bs, ``Tools.VedMemLoop.add_val_sb, ``Tools.VedMemLoop.sub_val_bs, ``Tools.VedMemLoop.sub_val_sb, ``Tools.VedMemLoop.mul_val_bs, ``Tools.VedMemLoop.mul_val_sb, ``Tools.VedMemLoop.and_val_bs, ``Tools.VedMemLoop.and_val_sb, ``Tools.VedMemLoop.or_val_bs, ``Tools.VedMemLoop.or_val_sb, ``Tools.VedMemLoop.xor_val_bs, ``Tools.VedMemLoop.xor_val_sb, ``Tools.VedMemLoop.shl_val_bs, ``Tools.VedMemLoop.shl_val_sb, ``Tools.VedMemLoop.shr_val_bs, ``Tools.VedMemLoop.shr_val_sb, ``Tools.VedU1Lemmas.add_val_sc, ``Tools.VedU1Lemmas.add_val_cs, ``Tools.VedU1Lemmas.sub_val_sc, ``Tools.VedU1Lemmas.sub_val_cs, ``Tools.VedU1Lemmas.mul_val_sc, ``Tools.VedU1Lemmas.mul_val_cs, ``Tools.VedU1Lemmas.and_val_sc, ``Tools.VedU1Lemmas.and_val_cs, ``Tools.VedU1Lemmas.or_val_sc, ``Tools.VedU1Lemmas.or_val_cs, ``Tools.VedU1Lemmas.xor_val_sc, ``Tools.VedU1Lemmas.xor_val_cs, ``Tools.VedU1Lemmas.shl_val_sc, ``Tools.VedU1Lemmas.shl_val_cs, ``Tools.VedU1Lemmas.shr_val_sc, ``Tools.VedU1Lemmas.shr_val_cs]
+  -- a packed result (`Tools/VedU1Packed.lean`): the contract is the collapsed `PContract.core`, the declaration its `packedF`
+  let helpers := if pk then helpers ++ #[``Tools.VedU1Packed.PContract.core, ``Tools.VedU1Packed.collapse, ``Tools.VedU1MultiSeqLemmas.OTy_packNat_pair, ``Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, ``Tools.VedU1Contract.OTy.width, ``Tools.VedU1Contract.PTy.width] else helpers
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
   let C := mkCIdent nm.contract
@@ -366,6 +376,8 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
   if nDom > 0 then
     f ← `(@$fI)
     for _ in [0:nDom] do f ← `($f Sparkle.Core.Domain.defaultDomain)
+  let Cx : Term ← if pk then `(Tools.VedU1Packed.PContract.core $C) else `($C)
+  let fx : Term ← if pk then `(Tools.VedU1Packed.packedF ($C).tbl $f) else `($f)
   let Rstx ← Term.exprToSyntax R
   let hsSep : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems hsA
   let n := stmts.length
@@ -429,6 +441,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     pure a
   let h0Term : Term ← if h0Elems.size == 1 then pure h0Elems[0]! else `(⟨$[$h0Elems],*⟩)
   let closing ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))
+  let closing ← if pk then `(tactic| all_goals (first | (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close)) | (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))) else pure closing
   let closingDbg ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ved_dbg_state))
   let closing := if dbg == 17 then closingDbg else closing
   let stages : Array (Array (TSyntax `tactic)) := #[
@@ -461,11 +474,15 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
   let d5 := d 15
   let d6 := d 16
   let d10 := d 10
-  `(by
+  let keyTacs : Array (TSyntax `tactic) ← if pk then pure #[
+      ← `(tactic| have key : ∀ t, Tools.VedU1Contract.srcOf (Tools.VedU1Packed.PContract.core $C) (Tools.VedU1Packed.packedF ($C).tbl $f) $insI "out" t =
+          Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
+      ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[]
+  let core ← `(by
       have hord : OrderOkM $M $B = true := by decide +kernel
       refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩, by decide +kernel, ⟨$B, hord⟩, ?_⟩
       apply outputs_of_orderM $B hord
-      refine outputs_of_step_mem $C $M $B $f $O (by decide +kernel) $Rstx ?h0 ?hstep
+      refine outputs_of_step_mem $Cx $M $B $fx $O (by decide +kernel) $Rstx ?h0 ?hstep
       case h0 =>
         intro $insI hok
         ved_loop_unfold_mem [$hsSep,*] 0
@@ -478,7 +495,8 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
         intro $insI hok $sI st mems hR
         have $hinI := hok.1 $sI
         have $hrstI := hok.2 $sI
-        simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident
+        simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth, $hsSep,*] at $hinI:ident $hrstI:ident
+        $keyTacs*
         $obtainTac
         $rdTacs*
         $normHyps
@@ -499,19 +517,31 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
         ved_loop_gen_mem $sI
         $d6
         $tail*)
+  if pk then
+    `(by
+        have hP : Tools.VedU1Packed.PackCover $C := by decide
+        have hU : MemStmt (Tools.VedU1Packed.PContract.core $C) $M (Tools.VedU1Packed.packedF ($C).tbl $f) := $core
+        exact ⟨hP, hU, Tools.VedU1Packed.slices_of_outputs hP.1 hU.2.2.2.2⟩)
+  else pure core
 
 /-! ## The checker -/
 
 /-- The checker below the entry (the copy of `checkU1E`'s steps for the memory statement).  `m` is the module
 the synthesis returned, `stmt` the statement's term. -/
 def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.Module)
-    (outNames : List String := ["out"]) : TermElabM Name := do
+    (outNames : List String := ["out"]) (packed : Bool := false) : TermElabM Name := do
   let nm : Names := { (Names.ofBase base) with thm := base ++ `ved_mem }
   let saved ← saveState
   tryCatchRuntimeEx (do
     let tbl ← try readTableOfType decl (← inferType stmt) catch e => refuse decl "table" e.toMessageData
-    unless tbl.out.flat.length == 1 && outNames.length == 1 do
-      refuse decl "multi-output" m!"{tbl.out.flat.length} output projections (this slice: one output)"
+    if packed then
+      unless tbl.out.flat.length ≥ 2 do
+        refuse decl "packed" m!"the result is not a product inside one `Signal`"
+      unless m.outputs.map (·.name) == ["out"] do
+        refuse decl "packed" m!"the module's output ports {m.outputs.map (·.name)} are not the one packed port `out`"
+    else
+      unless tbl.out.flat.length == 1 && outNames.length == 1 do
+        refuse decl "multi-output" m!"{tbl.out.flat.length} output projections (this slice: one output; `#ved_u1_mem_packed` takes a product)"
     if let some why := shapeProblem m then refuse decl "shape" m!"{why}"
     let mE := toExpr m
     let back ← withEvalBudget (evalModule mE)
@@ -519,19 +549,30 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
       refuse decl "artifact" m!"toExpr of the returned module does not evaluate back to it"
     addDefn nm.mod (Lean.mkConst ``Sparkle.IR.AST.Module) mE
     let clkRst := clkRstOfM m
-    let cE := mkAppN (Lean.mkConst ``contractOf)
-      #[toExpr tbl, toExpr outNames, toExpr clkRst, Lean.mkConst nm.mod]
-    addDefn nm.contract (Lean.mkConst ``Contract) cE
-    let c := contractOf tbl outNames clkRst m
-    addDefn nm.outs (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Port))
-      (toExpr c.outputs)
+    let pc : Tools.VedU1Packed.PContract :=
+      { modName := m.name, tbl, port := "out", slices := tbl.out.slices,
+        inNames := tbl.binders.map ("_gen_" ++ ·), wires := m.wires,
+        clkRst := clkRstOf m, inits := (regsOf m.body).map (fun r => (r.1, r.2.2.2)) }
+    if packed then
+      unless decide (Tools.VedU1Packed.PackCover pc) do
+        refuse decl "packed" m!"the slice map is not the packing rule's map for the declaration's result"
+      addDefn nm.contract (Lean.mkConst ``Tools.VedU1Packed.PContract) (toExpr pc)
+      addDefn nm.outs (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Port))
+        (toExpr pc.core.outputs)
+    else
+      let cE := mkAppN (Lean.mkConst ``contractOf)
+        #[toExpr tbl, toExpr outNames, toExpr clkRst, Lean.mkConst nm.mod]
+      addDefn nm.contract (Lean.mkConst ``Contract) cE
+      let c := contractOf tbl outNames clkRst m
+      addDefn nm.outs (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Port))
+        (toExpr c.outputs)
     let b0 := orderBody m.body
     unless OrderOkM m b0 do
       refuse decl "order"
         m!"no arrangement of the body assigns every wire before it is read (combinational cycle, self-read, undriven net or duplicate update)"
     addDefn nm.body (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Stmt))
       (toExpr b0)
-    let expected := mkAppN (Lean.mkConst ``MemStmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
+    let expected := mkAppN (Lean.mkConst (if packed then ``MemPackedStmt else ``MemStmt)) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
     let stmts := memStmts m
@@ -547,11 +588,12 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     let nDom := stmt.getAppNumArgs
     let regsL := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
     let stx ← if regsL.isEmpty then
+        if packed then refuse decl "shape" m!"register-free packed modules with memories: not in this slice" else
         memScript (ved.mem.debugStage.get (← getOptions)) nm stmt.getAppFn.constName! nDom stmts calls R helpers
       else do
         unless ← Tools.VedU1Uns.usesLoop stmt.getAppFn.constName! helpers do
           refuse decl "shape" m!"the body has registers that do not come from a `Signal.loop` (this slice: loops)"
-        memLoopScript (ved.mem.debugStage.get (← getOptions)) nm stmt.getAppFn.constName! nDom regsL stmts calls R helpers
+        memLoopScript (ved.mem.debugStage.get (← getOptions)) nm stmt.getAppFn.constName! nDom regsL stmts calls R helpers packed
     if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM SCRIPT {← PrettyPrinter.ppTerm ⟨stx⟩}"
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     let pf ← tryCatchRuntimeEx
@@ -589,14 +631,19 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     refuse decl "checker" e.toMessageData
 
 /-- the entry: `synthesizeCombinational` ONCE, the statement over the returned module and the declaration -/
-def vedMemEntryS (declName : Name) : TermElabM (Sparkle.IR.AST.Module × Design × Name × Nat) := do
+def vedMemEntryS (declName : Name) (packed : Bool := false) :
+    TermElabM (Sparkle.IR.AST.Module × Design × Name × Nat) := do
   let (stmt, nDom) ← try specialiseDomain declName catch e => refuse declName "table" e.toMessageData
   let tbl ← try readTableOfType declName (← inferType stmt) catch e => refuse declName "table" e.toMessageData
-  unless tbl.out.flat.length == 1 do
-    refuse declName "multi-output" m!"{tbl.out.flat.length} output projections (this slice: one output)"
+  if packed then
+    unless tbl.out.flat.length ≥ 2 do
+      refuse declName "packed" m!"the result is not a product inside one `Signal` (use `#ved_u1_mem`)"
+  else
+    unless tbl.out.flat.length == 1 do
+      refuse declName "multi-output" m!"{tbl.out.flat.length} output projections (use `#ved_u1_mem_packed`)"
   let (m, d) ← try Sparkle.Compiler.Elab.synthesizeCombinational declName
     catch e => refuse declName "synthesis" e.toMessageData
-  let thm ← checkMemE declName declName stmt m
+  let thm ← checkMemE declName declName stmt m (packed := packed)
   return (m, d, thm, nDom)
 
 open Lean Elab Command in
@@ -607,5 +654,15 @@ elab "#ved_u1_mem " id:ident : command => do
     let r ← Tools.VedStrictAudit.strictAudit thm
     let spec := if nDom > 0 then " (specialised at defaultDomain)" else ""
     logInfo m!"VED U1 MEM OK {thm}{spec}: {Tools.VedStrictAudit.showNames r.axioms}\n{repr m}"
+
+open Lean Elab Command in
+/-- `#ved_u1_mem_packed decl`: `#ved_u1_mem` for a result `Signal d (A × B × ..)` (statement `MemPackedStmt`) -/
+elab "#ved_u1_mem_packed " id:ident : command => do
+  let decl ← Command.liftCoreM <| realizeGlobalConstNoOverload id
+  Command.liftTermElabM do
+    let (m, _, thm, nDom) ← vedMemEntryS decl (packed := true)
+    let r ← Tools.VedStrictAudit.strictAudit thm
+    let spec := if nDom > 0 then " (specialised at defaultDomain)" else ""
+    logInfo m!"VED U1 MEM PACKED OK {thm}{spec}: {Tools.VedStrictAudit.showNames r.axioms}"
 
 end Tools.VedMemEntry
