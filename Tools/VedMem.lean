@@ -304,6 +304,34 @@ theorem MemInv.other' {dom : DomainConfig} {aw dw : Nat} {name other : String} {
     simp [Ne.symm hne]
     exact h i hi
 
+/-- `MemInv.write'` when `simp` has already used the range facts of the wires (`av % 2^aw = av`, `dv % 2^dw = dv`) -/
+theorem MemInv.write'' {dom : DomainConfig} {aw dw : Nat} {name : String} {init : BitVec aw → BitVec dw}
+    {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}
+    {mems : MEnv} (h : MemInv name init wa wd we n mems) {ev av dv : Nat}
+    (hev : (ev ≠ 0) ↔ we.val n = true) (hav : av = (wa.val n).toNat) (hdv : dv = (wd.val n).toNat) :
+    MemInv name init wa wd we (n + 1)
+      (if ev = 0 then mems
+        else fun nm i => if nm = name ∧ i = av then dv else mems nm i) := by
+  have := MemInv.write' h hev hav hdv
+  have e1 : av % 2 ^ aw = av := by rw [hav]; exact Nat.mod_eq_of_lt (BitVec.isLt _)
+  have e2 : dv % 2 ^ dw = dv := by rw [hdv]; exact Nat.mod_eq_of_lt (BitVec.isLt _)
+  rw [e1, e2] at this
+  exact this
+
+/-- `MemInv.other'` with the payload already reduced -/
+theorem MemInv.other'' {dom : DomainConfig} {aw dw : Nat} {name other : String} {init : BitVec aw → BitVec dw}
+    {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}
+    {mems : MEnv} (h : MemInv name init wa wd we n mems) (hne : other ≠ name)
+    (ev av dv : Nat) :
+    MemInv name init wa wd we n
+      (if ev = 0 then mems else fun nm i => if nm = other ∧ i = av then dv else mems nm i) := by
+  by_cases hc : ev = 0
+  · rw [if_pos hc]; exact h
+  · rw [if_neg hc]
+    intro i hi
+    simp [Ne.symm hne]
+    exact h i hi
+
 /-- the read in the form `simp` leaves it in: `mems name (a % 2^aw) % 2^dw` -/
 theorem MemInv.read' {dom : DomainConfig} {aw dw : Nat} {name : String} {init : BitVec aw → BitVec dw}
     {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}

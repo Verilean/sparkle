@@ -58,7 +58,7 @@ structure MemCall where
 
 /-- the memory calls of an expression, in order of first occurrence (arguments left to right), each
 distinct call once -/
-partial def collectCalls (e : Lean.Expr) : MetaM (Array MemCall) := do
+partial def collectCalls (unf : Name → Bool) (e : Lean.Expr) : MetaM (Array MemCall) := do
   let r ← IO.mkRef (#[] : Array MemCall)
   let seen ← IO.mkRef (∅ : Std.HashSet Lean.Expr)
   let rec go (e : Lean.Expr) : MetaM Unit := do
@@ -79,6 +79,11 @@ partial def collectCalls (e : Lean.Expr) : MetaM (Array MemCall) := do
           for a in args do go a
           r.modify (·.push { sync, call := e, aw, dw, wa := args[k-4]!, wd := args[k-3]!, we := args[k-2]!, ra := args[k-1]! })
           return
+      if let .const n _ := fn then
+        if unf n then
+          if let some u ← unfoldDefinition? e then
+            go (← instantiateMVars (← zetaReduce u.headBeta))
+            return
       go fn
       for a in args do go a
     | .lam _ t b _ => go t; go b
@@ -95,13 +100,20 @@ def declBody (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (ins : L
   let mut e := stmt
   for (p, n) in tbl.ins.zip names do
     e := mkApp e (mkApp3 (Lean.mkConst ``PTy.sig) (toExpr p) ins (mkStrLit n))
-  let mut cur := e
-  -- unfold the constant at the head until the body is exposed
-  for _ in [0:4] do
-    match ← unfoldDefinition? cur with
-    | some u => cur := u.headBeta
-    | none => break
-  instantiateMVars (← zetaReduce cur)
+  let cur := (← unfoldDefinition? e).getD e
+  instantiateMVars (← zetaReduce cur.headBeta)
+
+/-- the memory calls of the declaration, each component a closed `fun ins => …` -/
+def collectAll (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (unf : Name → Bool) :
+    MetaM (Array MemCall) := do
+  let insTy ← mkArrow (Lean.mkConst ``Nat) (← mkArrow (Lean.mkConst ``String) (Lean.mkConst ``Nat))
+  withLocalDeclD `ins insTy fun ins => do
+    let body ← declBody stmt tbl names ins
+    let cs ← collectCalls unf body
+    cs.mapM fun c => do
+      pure { c with call := ← mkLambdaFVars #[ins] c.call, wa := ← mkLambdaFVars #[ins] c.wa,
+                    wd := ← mkLambdaFVars #[ins] c.wd, we := ← mkLambdaFVars #[ins] c.we,
+                    ra := ← mkLambdaFVars #[ins] c.ra }
 
 /-- the proof script's pieces for one module: which memory statements are present -/
 def memStmts (m : Sparkle.IR.AST.Module) : List (String × Nat × Nat × Bool × String × String × String × String × String) :=
@@ -142,7 +154,20 @@ macro_rules
     `(tactic| first
       | exact $h
       | (refine Tools.VedMem.MemInv.write' (by ved_mem_peel $h) ?_ ?_ ?_)
-      | (refine Tools.VedMem.MemInv.other' (by ved_mem_peel $h) (by decide) _ _ _ _ _))
+      | (refine Tools.VedMem.MemInv.write'' (by ved_mem_peel $h) ?_ ?_ ?_)
+      | (refine Tools.VedMem.MemInv.other' (by ved_mem_peel $h) (by decide) _ _ _ _ _)
+      | (refine Tools.VedMem.MemInv.other'' (by ved_mem_peel $h) (by decide) _ _ _))
+
+/-- print the generated script before elaborating it (debugging only) -/
+register_option ved.mem.debugStage : Nat := {
+  defValue := 0
+  descr := "insert trace_state after stage k of the hstep script (debugging only)"
+}
+
+register_option ved.mem.showScript : Bool := {
+  defValue := false
+  descr := "print the script `#ved_u1_mem` generated"
+}
 
 def refuseM {α} (decl : Name) (stage : String) (msg : MessageData) : MetaM α :=
   throwError m!"VED U1 REFUSED {decl} [{stage}]: {msg}"
@@ -150,16 +175,15 @@ def refuseM {α} (decl : Name) (stage : String) (msg : MessageData) : MetaM α :
 /-- The invariant `R ins s st mems` as a closed lambda: one `MemInv` per memory statement then one latch
 equation per registered read. -/
 def buildR (calls : Array MemCall) (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
-    (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) : MetaM Lean.Expr := do
+    (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (unf : Name → Bool) : MetaM Lean.Expr := do
   let strNat ← mkArrow (Lean.mkConst ``String) (Lean.mkConst ``Nat)
   let insTy ← mkArrow (Lean.mkConst ``Nat) strNat
   withLocalDeclD `ins insTy fun ins =>
   withLocalDeclD `s (Lean.mkConst ``Nat) fun s =>
   withLocalDeclD `st strNat fun st =>
   withLocalDeclD `mems (Lean.mkConst ``Sparkle.IR.Semantics.MEnv) fun mems => do
-    let body ← declBody stmt tbl names ins
-    let calls ← collectCalls body
-    let _ := calls
+    let calls ← collectAll stmt tbl names unf
+    let inst := fun (x : Lean.Expr) => (mkApp x ins).headBeta
     let mut invs : Array Lean.Expr := #[]
     let mut latches : Array Lean.Expr := #[]
     for ((name, aw, dw, cr, _, _, _, _, rd), c) in stmts.zip calls.toList do
@@ -167,10 +191,10 @@ def buildR (calls : Array MemCall) (stmts : List (String × Nat × Nat × Bool �
         refuseM `mem "shape" m!"memory statement {name} ({aw}x{dw}) does not match the declaration's memory call ({c.aw}x{c.dw})"
       let zero ← mkAppM ``BitVec.ofNat #[toExpr c.dw, toExpr 0]
       let init := Lean.mkLambda `a .default (← mkAppM ``BitVec #[toExpr c.aw]) zero
-      invs := invs.push (← mkAppM ``Tools.VedMem.MemInv #[mkStrLit name, init, c.wa, c.wd, c.we, s, mems])
+      invs := invs.push (← mkAppM ``Tools.VedMem.MemInv #[mkStrLit name, init, inst c.wa, inst c.wd, inst c.we, s, mems])
       unless cr do
         latches := latches.push (← mkEq (mkApp st (mkStrLit rd))
-          (← mkAppM ``BitVec.toNat #[← mkAppM ``Sparkle.Core.Signal.Signal.val #[c.call, s]]))
+          (← mkAppM ``BitVec.toNat #[← mkAppM ``Sparkle.Core.Signal.Signal.val #[inst c.call, s]]))
     let all := invs ++ latches
     let some last := all.back? | refuseM `mem "shape" m!"no memory"
     let mut conj := last
@@ -178,7 +202,7 @@ def buildR (calls : Array MemCall) (stmts : List (String × Nat × Nat × Bool �
     mkLambdaFVars #[ins, s, st, mems] conj
 
 /-- the generated script for `MemStmt C M stmt`; `R` the closed invariant -/
-def memScript (nm : Names) (F : Name) (nDom : Nat)
+def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
     (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
     (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) : TermElabM Syntax := do
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
@@ -199,7 +223,7 @@ def memScript (nm : Names) (F : Name) (nDom : Nat)
   let hL := (List.range nSync).toArray.map fun i => mkIdent (Name.mkSimple s!"hL{i}")
   let hD := (List.range n).toArray.map fun i => mkIdent (Name.mkSimple s!"hD{i}")
   let hPatArr ← (hM ++ hL).mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
-  let hPat : TSyntax `rcasesPat ← if hM.size + hL.size == 1 then `(rcasesPat| $(hM[0]!):ident)
+  let hPat : TSyntax `rcasesPat ← if hM.size + hL.size == 1 then `(rcasesPat| _)
     else `(rcasesPat| ⟨$[$hPatArr],*⟩)
   -- one read rule per memory, in the form `simp` leaves the IR read in
   let mut rdTacs : Array (TSyntax `tactic) := #[]
@@ -207,9 +231,12 @@ def memScript (nm : Names) (F : Name) (nDom : Nat)
   let insI := mkIdent `ins
   let sI := mkIdent `s
   for (i, ((name, aw, dw, _, _, _, _, _, _), c)) in (List.range stmts.length).zip (stmts.zip calls.toList) |>.map (fun (i, (x, c)) => (i, (x, c))) do
-    let waS ← Term.exprToSyntax c.wa
-    let wdS ← Term.exprToSyntax c.wd
-    let weS ← Term.exprToSyntax c.we
+    let waL ← Term.exprToSyntax c.wa
+    let wdL ← Term.exprToSyntax c.wd
+    let weL ← Term.exprToSyntax c.we
+    let waS ← `(($waL $insI))
+    let wdS ← `(($wdL $insI))
+    let weS ← `(($weL $insI))
     let nameS := Syntax.mkStrLit name
     let awN := Syntax.mkNumLit (toString (2 ^ aw))
     let dwN := Syntax.mkNumLit (toString (2 ^ dw))
@@ -224,6 +251,8 @@ def memScript (nm : Names) (F : Name) (nDom : Nat)
   for h in hL do rdLemmas := rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $h:ident))
   let exAll : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
     Syntax.TSepArray.ofElems (hsA ++ rdLemmas)
+  let obtainTac : TSyntax `tactic ← if hM.size + hL.size == 1 then `(tactic| have $(hM[0]!):ident := hR)
+    else `(tactic| obtain $hPat := hR)
   let hin := mkIdent `hin
   let hrst := mkIdent `hrst
   let simpAll ← `(tactic| ved_mem_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf,
@@ -237,6 +266,11 @@ def memScript (nm : Names) (F : Name) (nDom : Nat)
   let mut firstAlt : TSyntax `tactic := closers[0]!
   for c in closers.toList.drop 1 do
     firstAlt ← `(tactic| first | ($firstAlt:tactic) | ($c:tactic))
+  let stopT ← `(tactic| (trace_state; fail "ved_mem debug stop"))
+  let skipT ← `(tactic| skip)
+  let dbg1 := if dbg == 1 then stopT else skipT
+  let dbg2 := if dbg == 2 then stopT else skipT
+  let dbg3 := if dbg == 3 then stopT else skipT
   let zeroTerms ← (List.range n).mapM fun _ => `(Tools.VedMem.MemInv.zero _ _ _ _)
   let h0Elems : Array Term ← do
     let mut a : Array Term := zeroTerms.toArray
@@ -258,11 +292,14 @@ def memScript (nm : Names) (F : Name) (nDom : Nat)
         have $hin := hok.1 $sI
         have $hrst := hok.2 $sI
         simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hin:ident $hrst:ident
-        obtain $hPat := hR
+        $obtainTac
         $rdTacs*
+        $dbg1
         $simpAll:tactic
+        $dbg2
         refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
         all_goals (try (repeat' apply And.intro))
+        $dbg3
         all_goals first | ($firstAlt:tactic) | ($side:tactic))
 
 /-! ## The checker -/
@@ -300,19 +337,17 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
     let stmts := memStmts m
+    let helpers ← helperConsts stmt.getAppFn.constName!
+    let unf : Name → Bool := fun n => n == stmt.getAppFn.constName! || helpers.contains n
     let inNames := tbl.binders.map ("_gen_" ++ ·)
-    let (R, calls) ← try
-        let insTy ← mkArrow (Lean.mkConst ``Nat) (← mkArrow (Lean.mkConst ``String) (Lean.mkConst ``Nat))
-        let r ← withLocalDeclD `ins insTy fun ins => do
-          let body ← declBody stmt tbl inNames ins
-          collectCalls body
-        pure (← buildR r stmts stmt tbl inNames, r)
-      catch e => refuse decl "shape" e.toMessageData
+    let calls ← try collectAll stmt tbl inNames unf catch e => refuse decl "shape" e.toMessageData
+    let R ← try buildR calls stmts stmt tbl inNames unf catch e => refuse decl "shape" e.toMessageData
     unless calls.size == stmts.length do
       refuse decl "shape"
         m!"the module has {stmts.length} memory statements, the declaration {calls.size} memory calls (cannot match them)"
     let nDom := stmt.getAppNumArgs
-    let stx ← memScript nm stmt.getAppFn.constName! nDom stmts calls R (← helperConsts stmt.getAppFn.constName!)
+    let stx ← memScript (ved.mem.debugStage.get (← getOptions)) nm stmt.getAppFn.constName! nDom stmts calls R helpers
+    if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM SCRIPT {← PrettyPrinter.ppTerm ⟨stx⟩}"
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     let pf ← tryCatchRuntimeEx
       (withProofBudget do
@@ -323,9 +358,12 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
       fun e => refuse decl "proof" e.toMessageData
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
-      let first ← match errs.drop errsBefore with
+      let new := errs.drop errsBefore
+      let first ← match new with
         | msg :: _ => msg.data.toString
         | [] => pure ""
+      if ved.mem.showScript.get (← getOptions) then
+        for msg in (← Core.getMessageLog).toList do IO.eprintln s!"VED MEM MSG {← msg.data.toString}"
       refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
     if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
     tryCatchRuntimeEx
