@@ -1,5 +1,5 @@
 import Tools.VedU2HierDbg
-import Tools.VedH3ChildTblEntry
+import Tools.VedH3ChildEntry
 import Tools.VedU2HierClose
 import Tools.VedU2HierEntry
 import Tools.VedU2HierReg
@@ -737,7 +737,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   for (cm, cdecl, cstmt, cdom, ctbl) in pre do
     let base := (decl ++ `ved_child) ++ cdecl
     let proofSrc : ProofSrc :=
-      if (regsOf cm.body).isEmpty then Tools.VedH3ChildTblEntry.childProofSrc cdecl cdom cm else .built (buildDeepWith cdecl cdecl ctbl)
+      if (regsOf cm.body).isEmpty then Tools.VedH3ChildEntry.childProofSrc cdecl cdom cm else .built (buildDeepWith cdecl cdecl ctbl)
     try discard <| checkU1E cdecl base cstmt cm proofSrc
     catch e => refuse decl "child" m!"child {cm.name}: {e.toMessageData}"
     kids := kids ++ [{ c := cm, decl := cdecl, nDom := cdom, tbl := ctbl, nm := Names.ofBase base }]

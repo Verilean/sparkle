@@ -390,6 +390,15 @@ lean_lib «Tools.VedU1TableGen» where
 lean_lib «Tools.VedH3ChildTbl» where
   roots := #[`Tools.VedH3ChildTbl]
 
+lean_lib «Tools.VedH3ChildChain» where
+  roots := #[`Tools.VedH3ChildChain]
+
+lean_lib «Tools.VedH3ChildChainEntry» where
+  roots := #[`Tools.VedH3ChildChainEntry]
+
+lean_lib «Tools.VedH3ChildEntry» where
+  roots := #[`Tools.VedH3ChildEntry]
+
 lean_lib «Tools.VedH3ChildTblEntry» where
   roots := #[`Tools.VedH3ChildTblEntry]
 
