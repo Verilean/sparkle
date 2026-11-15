@@ -46,6 +46,12 @@ theorem OTy_packNat_pair_mod (a b : OTy) (v : (OTy.pair a b).val) :
     Nat.mod_eq_of_lt (Tools.VedU1MultiSeqLemmas.OTy_packNat_lt a v.1),
     Nat.mod_eq_of_lt (Tools.VedU1MultiSeqLemmas.OTy_packNat_lt b v.2)]
 
+theorem ite_one_mod2_eq_one (p : Prop) [Decidable p] : ((if p then 1 else 0) % 2 = 1) = p := by
+  by_cases h : p <;> simp [h]
+
+theorem ite_one_mod2_eq_zero (p : Prop) [Decidable p] : ((if p then 1 else 0) % 2 = 0) = ¬p := by
+  by_cases h : p <;> simp [h]
+
 theorem mul_congr_nat_r {a b : Nat} (c : Nat) (h : a = b) : a * c = b * c := by subst h; rfl
 
 theorem mod_congr_nat {a b : Nat} (n : Nat) (h : a = b) : a % n = b % n := by subst h; rfl
@@ -184,7 +190,7 @@ syntax (name := vedPkLoopClose) "ved_pk_loop_close " "[" Lean.Parser.Tactic.simp
 
 macro_rules
   | `(tactic| ved_pk_loop_close [$ex,*]) =>
-    `(tactic| ((try ved_seq_wide_simp [$ex,*]) <;> (first | omega | ((repeat' (split <;> (try simp only [vedToNatAppend, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_ofNat, Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *]))) <;> (try simp only [BitVec.toNat_append, BitVec.toNat_ofNat, Nat.shiftLeft_eq] at *) <;> (try simp only [vedToNatAppend, Tools.VedU1Lemmas.toNat_append', Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_xor_ones) <;> (try ved_pk_bits_facts) <;> omega))))
+    `(tactic| ((try ved_seq_wide_simp [$ex,*]) <;> (try simp only [Tools.VedU1PackedSeq2.ite_one_mod2_eq_one, Tools.VedU1PackedSeq2.ite_one_mod2_eq_zero]) <;> (first | omega | ((repeat' (split <;> (try simp only [vedToNatAppend, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_ofNat, Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *]))) <;> (try simp only [BitVec.toNat_append, BitVec.toNat_ofNat, Nat.shiftLeft_eq] at *) <;> (try simp only [vedToNatAppend, Tools.VedU1Lemmas.toNat_append', Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_xor_ones) <;> (try ved_pk_bits_facts) <;> omega))))
 
 
 
