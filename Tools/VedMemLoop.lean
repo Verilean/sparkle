@@ -90,9 +90,29 @@ elab "ved_dbg_state" : tactic => do
     shorts := shorts ++ s!"\n  #{gi}: " ++ (let t1 := (t.replace "\n" " "); (t1.take 150).toString ++ " ..... " ++ (t1.drop (t1.length - 220)).toString)
     gi := gi + 1
   out := out ++ "\nALL TARGETS:" ++ shorts.take 9000
-  if let some g := gs[(Nat.succ 0) * 8]? then
-    let t ← g.withContext do return toString (← ppExpr (← instantiateMVars (← g.getType)))
-    out := out ++ "\nGOAL8 FULL:\n" ++ t.take 2500
+  for g in gs do
+    let tg ← g.withContext do instantiateMVars (← g.getType)
+    if tg.isAppOf ``Tools.VedMem.MemInv then
+      let rep ← g.withContext do
+        let mut o := ""
+        for d in ← getLCtx do
+          unless d.isImplementationDetail do
+            let ty ← instantiateMVars d.type
+            if ty.isAppOf ``Tools.VedMem.MemInv then
+              let a := tg.getAppArgs
+              let b := ty.getAppArgs
+              let eqs := (List.range (min a.size b.size)).map fun i => a[i]! == b[i]!
+              o := o ++ s!"\n  MEMINV goal vs {d.userName}: arg equal? {eqs}"
+        return o
+      out := out ++ "\nMEMINV GOAL" ++ rep
+      if tg.getAppNumArgs ≥ 10 then
+        let mm ← g.withContext do return toString (← ppExpr (tg.getAppArgs[9]!))
+        out := out ++ s!"\nMEMS ARG ({mm.length} chars): " ++ mm.take 1500
+      break
+  for gi2 in [8, 12] do
+    if let some g := gs[gi2]? then
+      let t ← g.withContext do return toString (← ppExpr (← instantiateMVars (← g.getType)))
+      out := out ++ s!"\nGOAL{gi2} ({t.length} chars):\n" ++ t.take 1500 ++ "\n.....\n" ++ (t.drop (t.length - 1200)).toString
   if let some g := gs.find? (fun g => true) then
     let _ := g
   for g in gs do

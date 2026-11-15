@@ -241,10 +241,16 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
     for x in all.pop.reverse do conj ← mkAppM ``And #[x, conj]
     mkLambdaFVars #[ins, s, st, mems] conj
 
+/-- the simp lemmas about the bodies' operators and address conversions, for both scripts: `.val` of an operator applied
+directly through the `BitVec`-`Signal` / `Signal`-`BitVec` instances (`Tools.VedMemLoop`), the `Signal.pure` spelling
+(`Tools.VedU1Lemmas`), `BitVec.ofNat w (x.toNat % 2^w) = extractLsb' 0 w x` -/
+def memHelperNames : Array Name := #[``Tools.VedMem.ofNat_mod_eq_extract, ``Tools.VedMem.ofNat_mod_eq_extract', ``Tools.VedMemLoop.add_val_bs, ``Tools.VedMemLoop.add_val_sb, ``Tools.VedMemLoop.sub_val_bs, ``Tools.VedMemLoop.sub_val_sb, ``Tools.VedMemLoop.mul_val_bs, ``Tools.VedMemLoop.mul_val_sb, ``Tools.VedMemLoop.and_val_bs, ``Tools.VedMemLoop.and_val_sb, ``Tools.VedMemLoop.or_val_bs, ``Tools.VedMemLoop.or_val_sb, ``Tools.VedMemLoop.xor_val_bs, ``Tools.VedMemLoop.xor_val_sb, ``Tools.VedMemLoop.shl_val_bs, ``Tools.VedMemLoop.shl_val_sb, ``Tools.VedMemLoop.shr_val_bs, ``Tools.VedMemLoop.shr_val_sb, ``Tools.VedU1Lemmas.add_val_sc, ``Tools.VedU1Lemmas.add_val_cs, ``Tools.VedU1Lemmas.sub_val_sc, ``Tools.VedU1Lemmas.sub_val_cs, ``Tools.VedU1Lemmas.mul_val_sc, ``Tools.VedU1Lemmas.mul_val_cs, ``Tools.VedU1Lemmas.and_val_sc, ``Tools.VedU1Lemmas.and_val_cs, ``Tools.VedU1Lemmas.or_val_sc, ``Tools.VedU1Lemmas.or_val_cs, ``Tools.VedU1Lemmas.xor_val_sc, ``Tools.VedU1Lemmas.xor_val_cs, ``Tools.VedU1Lemmas.shl_val_sc, ``Tools.VedU1Lemmas.shl_val_cs, ``Tools.VedU1Lemmas.shr_val_sc, ``Tools.VedU1Lemmas.shr_val_cs]
+
 /-- the generated script for `MemStmt C M stmt`; `R` the closed invariant -/
 def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
     (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
     (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) : TermElabM Syntax := do
+  let helpers := helpers ++ memHelperNames
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
   let C := mkCIdent nm.contract
@@ -362,7 +368,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) (pk : Bool := false) : TermElabM Syntax := do
   -- the state projections `Signal.fst` / `Signal.snd` of a loop's state signal are unfolded with the helpers
   let helpers := helpers ++ #[``Sparkle.Core.Signal.Signal.fst, ``Sparkle.Core.Signal.Signal.snd]
-  let helpers := helpers ++ #[``Tools.VedMem.ofNat_mod_eq_extract, ``Tools.VedMem.ofNat_mod_eq_extract', ``Tools.VedMemLoop.add_val_bs, ``Tools.VedMemLoop.add_val_sb, ``Tools.VedMemLoop.sub_val_bs, ``Tools.VedMemLoop.sub_val_sb, ``Tools.VedMemLoop.mul_val_bs, ``Tools.VedMemLoop.mul_val_sb, ``Tools.VedMemLoop.and_val_bs, ``Tools.VedMemLoop.and_val_sb, ``Tools.VedMemLoop.or_val_bs, ``Tools.VedMemLoop.or_val_sb, ``Tools.VedMemLoop.xor_val_bs, ``Tools.VedMemLoop.xor_val_sb, ``Tools.VedMemLoop.shl_val_bs, ``Tools.VedMemLoop.shl_val_sb, ``Tools.VedMemLoop.shr_val_bs, ``Tools.VedMemLoop.shr_val_sb, ``Tools.VedU1Lemmas.add_val_sc, ``Tools.VedU1Lemmas.add_val_cs, ``Tools.VedU1Lemmas.sub_val_sc, ``Tools.VedU1Lemmas.sub_val_cs, ``Tools.VedU1Lemmas.mul_val_sc, ``Tools.VedU1Lemmas.mul_val_cs, ``Tools.VedU1Lemmas.and_val_sc, ``Tools.VedU1Lemmas.and_val_cs, ``Tools.VedU1Lemmas.or_val_sc, ``Tools.VedU1Lemmas.or_val_cs, ``Tools.VedU1Lemmas.xor_val_sc, ``Tools.VedU1Lemmas.xor_val_cs, ``Tools.VedU1Lemmas.shl_val_sc, ``Tools.VedU1Lemmas.shl_val_cs, ``Tools.VedU1Lemmas.shr_val_sc, ``Tools.VedU1Lemmas.shr_val_cs]
+  let helpers := helpers ++ memHelperNames
   -- a packed result (`Tools/VedU1Packed.lean`): the contract is the collapsed `PContract.core`, the declaration its `packedF`
   let helpers := if pk then helpers ++ #[``Tools.VedU1Packed.PContract.core, ``Tools.VedU1Packed.collapse, ``Tools.VedU1MultiSeqLemmas.OTy_packNat_pair, ``Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, ``Tools.VedU1Contract.OTy.width, ``Tools.VedU1Contract.PTy.width] else helpers
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
@@ -457,7 +463,8 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
     #[← `(tactic| all_goals (try simp only [Tools.VedMem.ofNat_mod_eq_extract'])), closing]]
-  let tail := stages.flatten
+  let stopStage ← `(tactic| ved_dbg_state)
+  let tail := (stages.zipIdx.map fun (st, k) => if dbg == 20 + k then st.push stopStage else st).flatten
   -- the declaration's loops in the hypotheses take the simp normal form of the goal's (the invariant was
   -- built from the declaration as written; `loopScriptFor` builds it from the normalised source instead)
   let normHyps ← `(tactic| try (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf,
@@ -474,10 +481,14 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
   let d5 := d 15
   let d6 := d 16
   let d10 := d 10
+  let hinSimp : TSyntax `tactic ←
+    if pk then `(tactic| simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth,
+      Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse] at $hinI:ident $hrstI:ident)
+    else `(tactic| simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident)
   let keyTacs : Array (TSyntax `tactic) ← if pk then pure #[
       ← `(tactic| have key : ∀ t, Tools.VedU1Contract.srcOf (Tools.VedU1Packed.PContract.core $C) (Tools.VedU1Packed.packedF ($C).tbl $f) $insI "out" t =
           Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
-      ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[]
+      ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
   let core ← `(by
       have hord : OrderOkM $M $B = true := by decide +kernel
       refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩, by decide +kernel, ⟨$B, hord⟩, ?_⟩
@@ -495,7 +506,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
         intro $insI hok $sI st mems hR
         have $hinI := hok.1 $sI
         have $hrstI := hok.2 $sI
-        simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth, $hsSep,*] at $hinI:ident $hrstI:ident
+        $hinSimp
         $keyTacs*
         $obtainTac
         $rdTacs*
@@ -594,7 +605,8 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
         unless ← Tools.VedU1Uns.usesLoop stmt.getAppFn.constName! helpers do
           refuse decl "shape" m!"the body has registers that do not come from a `Signal.loop` (this slice: loops)"
         memLoopScript (ved.mem.debugStage.get (← getOptions)) nm stmt.getAppFn.constName! nDom regsL stmts calls R helpers packed
-    if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM SCRIPT {← PrettyPrinter.ppTerm ⟨stx⟩}"
+    let scriptTxt ← PrettyPrinter.ppTerm ⟨stx⟩
+    if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM SCRIPT {scriptTxt}"
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     let pf ← tryCatchRuntimeEx
       (withProofBudget do
