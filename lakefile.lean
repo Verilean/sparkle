@@ -328,6 +328,12 @@ lean_lib «Tools.VedU2HierBvAppend» where
 lean_lib «Tools.VedU2HierLoopRw» where
   roots := #[`Tools.VedU2HierLoopRw]
 
+lean_lib «Tools.VedU2HierMultiLoop» where
+  roots := #[`Tools.VedU2HierMultiLoop]
+
+lean_lib «Tools.VedU2HierMultiGen» where
+  roots := #[`Tools.VedU2HierMultiGen]
+
 lean_lib «Tools.VedU2HierXorAttr» where
   roots := #[`Tools.VedU2HierXorAttr]
 

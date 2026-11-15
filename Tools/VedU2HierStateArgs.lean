@@ -44,13 +44,22 @@ structure Sp where
   sigsAll : String
   /-- `rd<slot>`'s name, given the slot -/
   rd : Nat → String
+  /-- H3-open: the loop knot of the declaration (`<knot> <binder signals>`, applied to `t` below): the declaration's own
+  loop is the open parent's loop at the oracle along it, so the top state theorem is read through it -/
+  knot : Option String := none
+
+/-- The top state theorem at `t`, as a fact about the loop the declaration's term holds (H3-open: through the knot). -/
+def topState (sp : Sp) : String :=
+  match sp.knot with
+  | some k => s!"(({k} t).trans ({sp.state} {sp.sigsAll} t))"
+  | none => s!"{sp.state} {sp.sigsAll} t"
 
 /-- The state theorems, the readers' equalities with the IR registers and the copies' equalities, as script lines;
 and the names of the facts the per-port simps use. -/
 def stateFacts (sp : Sp) (di : DeepInfo) : Array String × List String × List String := Id.run do
   let mut X : Array String := #[]
   let mut stFacts : List String := ["hstA"]
-  X := X.push s!"  have hstA := {sp.state} {sp.sigsAll} t"
+  X := X.push s!"  have hstA := {topState sp}"
   let nestedSlots := di.nested.flatMap (·.2)
   for (nm, _) in di.nested, jj in List.range di.nested.length do
     X := X.push s!"  have hstN{jj} := {nm} {sp.sigsAll} t"
@@ -99,7 +108,7 @@ def slotLines (sp : Sp) (di : DeepInfo) (bn ad : String) (slot : Nat) : Array St
     X := X.push s!"  fail \"H2D: register slot {slot} is in no exported state block (top {di.block}, nested {di.nested}, copies {di.dups})\""
   let dupRw := match dupT with | some (_, _, dn) => s!"rw [{dn} {sp.sigsAll} t]; " | none => ""
   X := X.push s!"  have hAl{bn} : (({ad} ins).val t).toNat = {sp.irS} ins t ({slot} : Fin {di.regWs.length}) := by"
-  X := X.push s!"    have hst := {stName} {sp.sigsAll} t"
+  X := X.push s!"    have hst := {if stName == sp.state then topState sp else s!"{stName} {sp.sigsAll} t"}"
   X := X.push s!"    have h1 : ({ad} ins).val t = {sp.rd slot} {sp.sigsAll} t := by {dupRw}ved_kernel_exact (congrArg (fun x => {sel}) hst)"
   X := X.push s!"    unfold {sp.irS} {sp.inpU}"
   X := X.push s!"    rw [Cdo.irState_eq {sp.deep} {sp.nm} hinj, h1]"

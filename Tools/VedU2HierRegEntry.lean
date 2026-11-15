@@ -4,6 +4,7 @@ import Tools.VedU2HierEntry
 import Tools.VedU2HierReg
 import Tools.VedU2HierNet
 import Tools.VedU2HierStGen
+import Tools.VedU2HierMultiGen
 import Tools.VedU2HierStep
 import Tools.DeepElab
 import Tools.DeepHelpers
@@ -366,7 +367,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let sigsAll := " ".intercalate (tbl.binders.map argTxt ++ calls.toList.map callTxt)
   let spn : Sp :=
   { state := OState, deep := ODeep, nm := ONm, irS := irS, inpU := inpU, sigsAll := sigsAll
-    rd := (fun slot => deepC opn.openName (ptag ++ s!"_deep_rd{slot}")) }
+    rd := (fun slot => deepC opn.openName (ptag ++ s!"_deep_rd{slot}"))
+    knot := opn.knot.map fun kn => s!"{userName kn} {" ".intercalate (tbl.binders.map argTxt)}" }
   let oracleBody (sg : Nat → String) : String :=
     insts.foldr (fun (ii : InstInfo) acc =>
       s!"if y = {sq ii.y} then {obsOf (kidOut ii.kid) (sg ii.call)} else {acc}") "0"
@@ -608,7 +610,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"    constructor"
   -- the output
   L := L.push s!"    · try rw [if_pos rfl]"
-  if st then
+  if st && opn.knot.isNone then
     -- H2c-state: the declaration IS the call on its closed argument; the output is the oracle value
     -- (`{CEq}` is the kernel equation `decl xs = g a`; the conversion itself is left to the kernel)
     L := L.push s!"      all_goals simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig]"
@@ -757,11 +759,43 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       | none => none
     | _ => none
   let useState := !stateInsts.isEmpty
-  let opn ← if useState then do
-      unless kids.length == 1 && (b0.filter fun s => match s with | .inst .. => true | _ => false).length == 1 do
-        refuse decl "open" m!"H2c-state covers one child instance (the instances reading register outputs: {stateInsts}; instances in total: {(b0.filter fun s => match s with | .inst .. => true | _ => false).length})"
+  -- H3-open: SEVERAL instances (one of them reading register outputs): the calls sit inside the parent's loop
+  -- (`Tools/VedU2HierMultiGen.lean`); ONE instance keeps the H2c-state path
+  let nInst := (b0.filter fun s => match s with | .inst .. => true | _ => false).length
+  let multi := useState && !(kids.length == 1 && nInst == 1)
+  let opn ← if multi then
+      Tools.VedU2HierMultiGen.genOpenMulti decl stmt nDom tbl kids.toArray nm.mod.getPrefix openSuf
+    else if useState then
       Tools.VedU2HierStGen.genOpenSt decl stmt nDom tbl kids[0]! nm.mod.getPrefix openSuf
     else genOpen decl stmt nDom tbl kids nm.mod.getPrefix openSuf (allowDerived := true)
+  -- H3-open: the instance <-> call pairing.  The instances' input nets are grouped (equal nets over the parent's inputs and
+  -- register outputs are one class) and the classes of a child, in the order of the body, are paired with the calls
+  -- found in the loop body, in their order; a wrong pairing fails in the proof (never accepted)
+  let netKeyOfInst (s : Sparkle.IR.AST.Stmt) : Option (Nat × List Sparkle.IR.AST.Expr) :=
+    match s with
+    | .inst mn _ cs =>
+      match (kids.zipIdx.find? fun (k, _) => k.c.name == mn) with
+      | some (k, ki) =>
+        let ck := contractOf k.tbl ["out"] (clkRstOf k.c) k.c
+        some (ki, ck.dataInputs.map fun p => match cs.lookup p.name with
+          | some (.ref x) => inlineNet (c.dataInputs.map (·.name) ++ regLeaves) b0 b0.length (.ref x)
+          | _ => .ref "?")
+      | none => none
+    | _ => none
+  let mut classKeys : List (Nat × List Sparkle.IR.AST.Expr) := []
+  for s in b0 do
+    if let some key := netKeyOfInst s then
+      unless classKeys.contains key do classKeys := classKeys ++ [key]
+  let callOfClass (key : Nat × List Sparkle.IR.AST.Expr) : Option Nat :=
+    let rank := (classKeys.filter (·.1 == key.1)).idxOf key
+    let calls := (List.range opn.calls.size).filter fun j => opn.calls[j]!.kid == key.1
+    calls[rank]?
+  if multi then
+    for ki in List.range kids.length do
+      let nCls := (classKeys.filter (·.1 == ki)).length
+      let nCalls := (opn.calls.toList.filter (·.kid == ki)).length
+      unless nCls == nCalls do
+        refuse decl "open" m!"child {kids[ki]!.c.name}: its instances' input nets form {nCls} distinct classes, the declaration's loop body has {nCalls} distinct calls of it (the instances and the calls cannot be paired)"
   let mut insts : List InstInfo := []
   let mut usedDerived : List Nat := []
   let mut derivedKeys : List (List Sparkle.IR.AST.Expr × Nat) := []
@@ -785,7 +819,8 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
         let slots := (ck.dataInputs.filterMap fun p => match cs.lookup p.name with
           | some (.ref x) => (stateSlotOf b0 ((regsOf m.body).map (·.1)) (declWidth m) 32 x).map fun i => (x, i)
           | _ => none)
-        insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := 0, derived := true, chain, stateArg := true, slots }]
+        let callIdx := if multi then (match netKeyOfInst s with | some key => (callOfClass key).getD 0 | none => 0) else 0
+        insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := callIdx, derived := true, chain, stateArg := true, slots }]
       else if instDerived c ck cs then
         -- a derived net: the declaration's call is the next unused derived call of this child
         let key := ck.dataInputs.map fun p => match cs.lookup p.name with
@@ -822,10 +857,20 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   -- H2c-state: the deep facts come from the first port of the open parent that exported its loop state
   let opn ← if p1.insts.any (·.stateArg) then do
       let env ← getEnv
-      if opn.ports.isEmpty then pure opn else
-      match opn.ports.find? (fun p => env.contains (deepNameP opn.openName s!"_{p}_deep_state")) with
-      | some p => pure { opn with port := some p }
-      | none => refuse decl "deep" m!"no port of the open parent exported its loop state (ports: {opn.ports})"
+      -- H3-open: the output is read from the declaration's own port, which must export the loop state itself
+      if opn.knot.isSome then
+        match opn.port with
+        | some p =>
+          if env.contains (deepNameP opn.openName s!"_{p}_deep_state") then pure opn
+          else refuse decl "deep" m!"the port {p} of the open parent did not export its loop state"
+        | none =>
+          if env.contains (deepNameP opn.openName "_deep_state") then pure opn
+          else refuse decl "deep" m!"the open parent did not export its loop state"
+      else if opn.ports.isEmpty then pure opn
+      else
+        match opn.ports.find? (fun p => env.contains (deepNameP opn.openName s!"_{p}_deep_state")) with
+        | some p => pure { opn with port := some p }
+        | none => refuse decl "deep" m!"no port of the open parent exported its loop state (ports: {opn.ports})"
     else pure opn
   let ptag := match opn.port with | some p => s!"_{p}" | none => ""
   for s in deepParts ++ (if p1.insts.any (·.stateArg) then ["_deep_state"] else []) do

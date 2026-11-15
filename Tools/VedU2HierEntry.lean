@@ -173,6 +173,9 @@ structure OpenInfo where
   ports : List String := []
   /-- H2c-state: the kernel equation `decl xs = g a` (the declaration IS the call on its closed argument) -/
   callEqName : Option Name := none
+  /-- H3-open: the parent's child calls sit inside its register loop (`Tools/VedU2HierMultiGen.lean`); the theorem
+  `∀ xs t, (decl's loop).val t = (the open parent's loop at the oracle along it).val t` -/
+  knot : Option Name := none
   deriving Inhabited
 
 instance : Inhabited Kid :=

@@ -2168,6 +2168,8 @@ elab "#verify_elab_deep" id:ident : command =>
   let inpSArms ← (List.range nI).toArray.mapM fun j => do
     `(Lean.Parser.Term.matchAltExpr|
       | ⟨$(quote j), _⟩ => $(inpRhs[j]!))
+  -- H3-open: a parent with more than 15 inputs (sha512BlockHW: 25 data inputs + the oracle)
+  let inpSArms ← finTailArm inpSArms nI
   -- The input family is a NAMED def: a `fun j => match j with …`
   -- term spliced into several places elaborates a fresh auxiliary
   -- matcher constant at each site, so the same state read appears in
