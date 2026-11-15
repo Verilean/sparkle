@@ -3,6 +3,11 @@ import Sparkle.Compiler.Elab
 import Tools.VedU1Entry
 import Tools.VedMem
 import Tools.VedStrictAudit
+import Tools.VedU1Uns
+import Tools.VedU1Loop
+import Tools.VedU1WireShare
+import Tools.VedU1Wire
+import Tools.VedU1LemmasExt1
 
 /-!
 # `#ved_u1_mem decl`: the U1 entry for register-free modules with memories (`sparkle-ved-memory`)
@@ -80,6 +85,14 @@ partial def collectCalls (unf : Name → Bool) (e : Lean.Expr) : MetaM (Array Me
           r.modify (·.push { sync, call := e, aw, dw, wa := args[k-4]!, wd := args[k-3]!, we := args[k-2]!, ra := args[k-1]! })
           return
       if let .const n _ := fn then
+        -- a loop: its body with the state variable replaced by the loop itself (the form the calls take
+        -- after the fixpoint equation is applied)
+        if n == ``Sparkle.Core.Signal.Signal.loop && args.size == 4 then
+          let body := match args[3]! with
+            | .lam _ _ b _ => b.instantiate1 e
+            | f => (mkApp f e).headBeta
+          go (← instantiateMVars (← zetaReduce body))
+          return
         if unf n then
           if let some u ← unfoldDefinition? e then
             go (← instantiateMVars (← zetaReduce u.headBeta))
@@ -125,8 +138,6 @@ def memStmts (m : Sparkle.IR.AST.Module) : List (String × Nat × Nat × Bool ×
 def shapeProblem (m : Sparkle.IR.AST.Module) : Option String :=
   if !(instFree m.body) then
     some "the body has a submodule instance (instances belong to the hierarchy units)"
-  else if !(regsOf m.body).isEmpty then
-    some "the body has registers (this slice: register-free bodies with memories)"
   else if m.body.all (fun s => match s with | .memory .. => false | _ => true) then
     some "the body has no memory (use #ved_u1)"
   else if m.body.any (fun s => match s with
@@ -174,7 +185,7 @@ def refuseM {α} (decl : Name) (stage : String) (msg : MessageData) : MetaM α :
 
 /-- The invariant `R ins s st mems` as a closed lambda: one `MemInv` per memory statement then one latch
 equation per registered read. -/
-def buildR (calls : Array MemCall) (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
+def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
     (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (unf : Name → Bool) : MetaM Lean.Expr := do
   let strNat ← mkArrow (Lean.mkConst ``String) (Lean.mkConst ``Nat)
   let insTy ← mkArrow (Lean.mkConst ``Nat) strNat
@@ -184,6 +195,26 @@ def buildR (calls : Array MemCall) (stmts : List (String × Nat × Nat × Bool �
   withLocalDeclD `mems (Lean.mkConst ``Sparkle.IR.Semantics.MEnv) fun mems => do
     let calls ← collectAll stmt tbl names unf
     let inst := fun (x : Lean.Expr) => (mkApp x ins).headBeta
+    -- the registers of the loops: `st name = toNat (component of the loop state at s)`
+    let mut regEqs : Array Lean.Expr := #[]
+    unless regs.isEmpty do
+      let body ← declBody stmt tbl names ins
+      let loops := Tools.VedU1Loop.loopsOf body
+      if loops.isEmpty then refuseM `mem "shape" m!"registers but no Signal.loop in the declaration"
+      let mut compsOf : Array (List Lean.Expr) := #[]
+      for L in loops do
+        let some α := L.getAppArgs[1]? | refuseM `mem "shape" m!"malformed Signal.loop"
+        compsOf := compsOf.push (← Tools.VedU1Loop.stateComps α)
+      let widths ← (compsOf.toList.flatten).mapM fun c => Tools.VedU1Loop.compWidth c
+      let some rnames := Tools.VedU1Loop.matchRegs widths regs
+        | refuseM `mem "shape" m!"the loop state components {widths} do not match the registers {regs}"
+      let mut k := 0
+      for j in [0:loops.size] do
+        let lv ← mkAppM ``Sparkle.Core.Signal.Signal.val #[loops[j]!, s]
+        for i in [0:compsOf[j]!.length] do
+          let c ← Tools.VedU1Loop.compToNat (← Tools.VedU1Loop.compProj lv i)
+          regEqs := regEqs.push (← mkEq (mkApp st (mkStrLit rnames[k]!)) c)
+          k := k + 1
     let mut invs : Array Lean.Expr := #[]
     let mut latches : Array Lean.Expr := #[]
     for ((name, aw, dw, cr, _, _, _, _, rd), c) in stmts.zip calls.toList do
@@ -195,7 +226,7 @@ def buildR (calls : Array MemCall) (stmts : List (String × Nat × Nat × Bool �
       unless cr do
         latches := latches.push (← mkEq (mkApp st (mkStrLit rd))
           (← mkAppM ``BitVec.toNat #[← mkAppM ``Sparkle.Core.Signal.Signal.val #[inst c.call, s]]))
-    let all := invs ++ latches
+    let all := regEqs ++ invs ++ latches
     let some last := all.back? | refuseM `mem "shape" m!"no memory"
     let mut conj := last
     for x in all.pop.reverse do conj ← mkAppM ``And #[x, conj]
@@ -278,7 +309,8 @@ def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
   let stop4T ← `(tactic| ((all_goals (first | (ved_mem_peel hM1) | skip)); trace_state; fail "stop4"))
   let stop5T ← `(tactic| ((case right.right.left => refine Tools.VedMem.MemInv.write'' ?_ ?_ ?_ ?_); trace_state; fail "stop5"))
   let stop6T ← `(tactic| (rotate_left 2; refine Tools.VedMem.MemInv.write'' ?_ ?_ ?_ ?_; refine Tools.VedMem.MemInv.other'' ?_ (by decide) _ _ _; trace_state; fail "stop6"))
-  let dbg4 := if dbg == 4 then stop4T else if dbg == 5 then stop5T else if dbg == 6 then stop6T else skipT
+  let stop7T ← `(tactic| ((simp [PTy.sig]); trace_state; fail "stop7"))
+  let dbg4 := if dbg == 4 then stop4T else if dbg == 5 then stop5T else if dbg == 6 then stop6T else if dbg == 7 then stop7T else skipT
   let zeroTerms ← (List.range n).mapM fun _ => `(Tools.VedMem.MemInv.zero _ _ _ _)
   let h0Elems : Array Term ← do
     let mut a : Array Term := zeroTerms.toArray
@@ -310,6 +342,147 @@ def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
         $dbg3
         $dbg4
         all_goals first | ($firstAlt:tactic) | ($side:tactic))
+
+/-- The generated script when the module has registers (`Signal.loop`): `Tools/VedU1Entry.lean`'s `loopScriptFor`
+with the invariant extended by the memories.  The invariant is `R` (registers first, then one `MemInv` per
+memory, then one latch equation per registered read), given in full: the loop-state tactics (`ved_loop_unfold_share`,
+`ved_loop_gen_share`, the closing stages) are those of `loopScriptFor`, run after the memory parts of the next
+state are peeled (their side conditions are goals of the same kind as the registers'). -/
+def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
+    (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
+    (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) : TermElabM Syntax := do
+  let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+    helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
+  let C := mkCIdent nm.contract
+  let M := mkCIdent nm.mod
+  let O := mkCIdent nm.outs
+  let B := mkCIdent nm.body
+  let fI := mkCIdent F
+  let mut f : Term := fI
+  if nDom > 0 then
+    f ← `(@$fI)
+    for _ in [0:nDom] do f ← `($f Sparkle.Core.Domain.defaultDomain)
+  let Rstx ← Term.exprToSyntax R
+  let n := stmts.length
+  let nSync := (stmts.filter fun x => !x.2.2.2.1).length
+  let k := regs.length
+  let hR' := (List.range k).toArray.map fun i => mkIdent (Name.mkSimple s!"hreg{i}")
+  let hM := (List.range n).toArray.map fun i => mkIdent (Name.mkSimple s!"hM{i}")
+  let hL := (List.range nSync).toArray.map fun i => mkIdent (Name.mkSimple s!"hL{i}")
+  let hD := (List.range n).toArray.map fun i => mkIdent (Name.mkSimple s!"hD{i}")
+  let hAll : Array (TSyntax `ident) := hR' ++ hM ++ hL
+  let hPatArr ← hAll.mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
+  let obtainTac : TSyntax `tactic ← if hAll.size == 1 then `(tactic| have $(hAll[0]!):ident := hR)
+    else `(tactic| obtain ⟨$[$hPatArr],*⟩ := hR)
+  let insI := mkIdent `ins
+  let sI := mkIdent `s
+  let hinI := mkIdent `hin
+  let hrstI := mkIdent `hrst
+  let mut rdTacs : Array (TSyntax `tactic) := #[]
+  let mut rdLemmas : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
+  for (i, ((name, aw, dw, _, _, _, _, _, _), c)) in (List.range stmts.length).zip (stmts.zip calls.toList) |>.map (fun (i, (x, c)) => (i, (x, c))) do
+    let waL ← Term.exprToSyntax c.wa
+    let wdL ← Term.exprToSyntax c.wd
+    let weL ← Term.exprToSyntax c.we
+    let waS ← `(($waL $insI))
+    let wdS ← `(($wdL $insI))
+    let weS ← `(($weL $insI))
+    let nameS := Syntax.mkStrLit name
+    let awN := Syntax.mkNumLit (toString (2 ^ aw))
+    let dwN := Syntax.mkNumLit (toString (2 ^ dw))
+    let awL := Syntax.mkNumLit (toString aw)
+    let dwL := Syntax.mkNumLit (toString dw)
+    let hd : TSyntax `ident := hD[i]!
+    let hmi : TSyntax `ident := hM[i]!
+    rdTacs := rdTacs.push (← `(tactic| have $hd : ∀ a, mems $nameS (a % $awN) % $dwN =
+        (Sparkle.Core.Signal.Signal.memState (fun _ => 0#$dwL) $waS $wdS $weS $sI (BitVec.ofNat $awL a)).toNat :=
+      fun a => ($hmi).read' a))
+    rdLemmas := rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $hd:ident))
+  for h in hL do rdLemmas := rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $h:ident))
+  for h in hR' do rdLemmas := rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $h:ident))
+  let ex1 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems (hsA ++ rdLemmas)
+  let ex2 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems (hsA ++ rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $hrstI:ident)))
+  let memSimpLemmas ← `(Lean.Parser.Tactic.simpLemma| comboReads)
+  let _ := memSimpLemmas
+  -- the memory parts of the next state: peel (the side conditions stay as goals)
+  let mut peels : Array (TSyntax `tactic) := #[]
+  for i in [0:n] do
+    let hmi : TSyntax `ident := hM[i]!
+    peels := peels.push (← `(tactic| (ved_mem_peel $hmi:ident)))
+  let mut peelAlt : TSyntax `tactic := peels[0]!
+  for c in peels.toList.drop 1 do
+    peelAlt ← `(tactic| first | ($peelAlt:tactic) | ($c:tactic))
+  let zeroTerms ← (List.range n).mapM fun _ => `(Tools.VedMem.MemInv.zero _ _ _ _)
+  let h0Elems : Array Term ← do
+    let mut a : Array Term := #[]
+    for _ in [0:k] do a := a.push (← `(?_))
+    a := a ++ zeroTerms.toArray
+    for _ in [0:nSync] do a := a.push (← `(?_))
+    pure a
+  let h0Term : Term ← if h0Elems.size == 1 then pure h0Elems[0]! else `(⟨$[$h0Elems],*⟩)
+  let closing ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))
+  let stages : Array (Array (TSyntax `tactic)) := #[
+    #[← `(tactic| all_goals ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
+      ← `(tactic| all_goals try (repeat' apply And.intro))],
+    #[← `(tactic| all_goals (try ved_loopw_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
+    #[← `(tactic| all_goals ved_bit_simp_share)],
+    #[← `(tactic| all_goals (try ved_or_lit))],
+    #[← `(tactic| ved_pack_wire_all)],
+    #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
+      ← `(tactic| all_goals (try ved_pack_simp)),
+      ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
+      ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
+      ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
+    #[closing]]
+  let tail := stages.flatten
+  let stopT ← `(tactic| (trace_state; fail "ved_mem debug stop"))
+  let skipT ← `(tactic| skip)
+  let d := fun (k : Nat) => if dbg == k then stopT else skipT
+  let d1 := d 11
+  let d2 := d 12
+  let d3 := d 13
+  let d4 := d 14
+  let d5 := d 15
+  let d6 := d 16
+  let d10 := d 10
+  `(by
+      have hord : OrderOkM $M $B = true := by decide +kernel
+      refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+      apply outputs_of_orderM $B hord
+      refine outputs_of_step_mem $C $M $B $f $O (by decide +kernel) $Rstx ?h0 ?hstep
+      case h0 =>
+        intro $insI hok
+        ved_loop_unfold_share 0
+        refine $h0Term
+        $d10
+        all_goals simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
+          Sparkle.Core.Signal.Signal.memory_val_zero]
+        all_goals decide +kernel
+      case hstep =>
+        intro $insI hok $sI st mems hR
+        have $hinI := hok.1 $sI
+        have $hrstI := hok.2 $sI
+        simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident
+        $obtainTac
+        $rdTacs*
+        $d1
+        ved_loop_unfold_share ($sI + 1)
+        $d2
+        (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
+          comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
+          Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
+          Sparkle.Core.Signal.Signal.memory_val_zero, $ex1,*])
+        $d3
+        refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
+        all_goals (try (repeat' apply And.intro))
+        $d4
+        all_goals (try $peelAlt:tactic)
+        $d5
+        ved_loop_gen_share $sI
+        $d6
+        $tail*)
 
 /-! ## The checker -/
 
@@ -350,12 +523,19 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     let unf : Name → Bool := fun n => n == stmt.getAppFn.constName! || helpers.contains n
     let inNames := tbl.binders.map ("_gen_" ++ ·)
     let calls ← try collectAll stmt tbl inNames unf catch e => refuse decl "shape" e.toMessageData
-    let R ← try buildR calls stmts stmt tbl inNames unf catch e => refuse decl "shape" e.toMessageData
+    let regsL := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+    let R ← try buildR regsL stmts stmt tbl inNames unf catch e => refuse decl "shape" e.toMessageData
     unless calls.size == stmts.length do
       refuse decl "shape"
         m!"the module has {stmts.length} memory statements, the declaration {calls.size} memory calls (cannot match them)"
     let nDom := stmt.getAppNumArgs
-    let stx ← memScript (ved.mem.debugStage.get (← getOptions)) nm stmt.getAppFn.constName! nDom stmts calls R helpers
+    let regsL := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+    let stx ← if regsL.isEmpty then
+        memScript (ved.mem.debugStage.get (← getOptions)) nm stmt.getAppFn.constName! nDom stmts calls R helpers
+      else do
+        unless ← Tools.VedU1Uns.usesLoop stmt.getAppFn.constName! helpers do
+          refuse decl "shape" m!"the body has registers that do not come from a `Signal.loop` (this slice: loops)"
+        memLoopScript (ved.mem.debugStage.get (← getOptions)) nm stmt.getAppFn.constName! nDom regsL stmts calls R helpers
     if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM SCRIPT {← PrettyPrinter.ppTerm ⟨stx⟩}"
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     let pf ← tryCatchRuntimeEx
