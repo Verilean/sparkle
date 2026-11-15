@@ -101,6 +101,9 @@ jobs:
     - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
       run: lake build Tests.Ved.U1KTabCheck
 
+    - name: "Named constant-table leaves (hand-written mux chains, shared constants), hierarchical child; refusal controls"
+      run: lake build Tests.Ved.H3ChildCheck
+
     - name: "U1 on real IP with several Signal.loop registers: 3 representative rows and refusal controls"
       run: lake build Tests.Ved.U1MultiLoopCheck
 
@@ -177,6 +180,9 @@ jobs:
 
     - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
       run: lake build Tests.Ved.U1KTabCheck
+
+    - name: "Named constant-table leaves (hand-written mux chains, shared constants), hierarchical child; refusal controls"
+      run: lake build Tests.Ved.H3ChildCheck
 
     - name: "U1 on real IP with several Signal.loop registers: all 30 rows (6 parts + PR check) and refusal controls"
       run: lake build Tests.Ved.U1MultiLoopAll

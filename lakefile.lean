@@ -531,6 +531,9 @@ lean_lib «Tests.Ved.U1DeepCheck» where
 lean_lib «Tests.Ved.U1UnsolvedCheck» where
   roots := #[`Tests.Ved.U1UnsolvedCheck]
 
+lean_lib «Tests.Ved.H3ChildCheck» where
+  roots := #[`Tests.Ved.H3ChildCheck]
+
 lean_lib «Tests.Ved.U1WireShareCheck» where
   roots := #[`Tests.Ved.U1WireShareCheck]
 
