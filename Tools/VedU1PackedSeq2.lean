@@ -2,6 +2,7 @@ import Tools.VedU1ScriptSeqGen
 import Tools.VedU1Packed
 import Tools.VedU1MultiSeqLoop
 import Tools.VedU1MultiSeqLemmas
+import Tools.VedU1WireShare
 
 /-!
 # Packed result with registers: the per-statement script (`sparkle-ved-packed-seq2`)
@@ -34,6 +35,7 @@ open Lean Meta Elab Tactic in
 /-- `ved_pk_mark "label"`: debugging only (`ved.packedseq2.dbg 3`): print the monotonic milliseconds and the
 heartbeat counter (differences of two marks are the cost of the phase between them). -/
 elab "ved_pk_mark " l:str : tactic => do
+  if ved.packedseq2.dbg.get (← getOptions) < 3 then return
   IO.eprintln s!"VED PKMARK {l.getString} {← IO.monoMsNow} {(← IO.getNumHeartbeats) / 1000000}"
 
 
@@ -199,6 +201,105 @@ elab "ved_pk_close_each" : tactic => do
   setGoals []
 
 open Lean Meta Elab Tactic in
+/-- debugging: size of the type of hypothesis `h` (distinct nodes, depth). -/
+elab "ved_pk_size " h:ident : tactic => withMainContext do
+  let some d := (← getLCtx).findFromUserName? h.getId | throwError "no {h.getId}"
+  let ty ← instantiateMVars d.type
+  let nodes := (Tools.VedU1WireShare.collectDag (fun _ => true) ty).size
+  IO.eprintln s!"VED PKSIZE {h.getId} dagNodes={nodes} depth={ty.approxDepth} loops={(Tools.VedU1WireShare.loopsDag ty).size}"
+
+/-- `ved_pk_aux h (tacs)`: `ved_seq_aux` (`Tools.VedU1ScriptSeqGen`), printing under `ved.packedseq2.dbg ≥ 3` the DAG size of
+the proof and the time of the auxiliary theorem. -/
+syntax (name := vedPkAux) "ved_pk_aux " ident " (" tacticSeq ")" : tactic
+
+open Lean Meta Elab Tactic in
+@[tactic vedPkAux] def evalVedPkAux : Tactic := fun stx => do
+  let h : Ident := ⟨stx[1]⟩
+  let tacs := stx[3]
+  let dbg := ved.packedseq2.dbg.get (← getOptions) ≥ 3
+  let aux ← withMainContext do
+    let ty ← mkFreshTypeMVar
+    let mv ← mkFreshExprMVar (some ty)
+    let saved ← getGoals
+    setGoals [mv.mvarId!]
+    evalTactic tacs
+    evalTactic (← `(tactic| exact $h))
+    setGoals saved
+    let val ← instantiateMVars mv
+    let T1 ← instantiateMVars ty
+    if dbg then
+      IO.eprintln s!"VED PKAUX {h.getId} proof dagNodes={(Tools.VedU1WireShare.collectDag (fun _ => true) val).size} depth={val.approxDepth} treeSize={val.sizeWithoutSharing} typeTree={T1.sizeWithoutSharing} typeNodes={(Tools.VedU1WireShare.collectDag (fun _ => true) T1).size}"
+    if dbg then
+      let mut cnt : Std.HashMap Name Nat := {}
+      for e in Tools.VedU1WireShare.collectDag (fun e => e.isConst) val do
+        cnt := cnt.insert e.constName! (cnt.getD e.constName! 0 + 1)
+      let top := (cnt.toList.toArray.qsort (fun a b => a.2 > b.2)).toList.take 400
+      IO.eprintln s!"VED PKAUX consts {top.map fun (n, c) => s!"{n}:{c}"}"
+    let t0 ← IO.monoMsNow
+    let r ← mkAuxTheorem T1 val (zetaDelta := true)
+    if dbg then IO.eprintln s!"VED PKAUX {h.getId} kernel {(← IO.monoMsNow) - t0} ms"
+    pure r
+  let auxS ← Term.exprToSyntax aux
+  evalTactic (← `(tactic| have $h:ident := $auxS))
+
+open Lean Meta Elab Tactic in
+/-- `ved_pk_simp_nz [lemmas] (at loc)?`: `ved_seq_simp` with `zeta := false`.  The declaration of a packed result is a
+chain of `let`s (`let csrIsRW := …`, `let regs := Signal.loop …`) used by every leaf; `zeta` unfolds them all at once and the
+proof of the rewriting then carries the unfolded type at every step (R14: a tree of 2.4·10^7 nodes, the kernel needed 66 s
+and ran out of stack).  With the `let`s kept the type is small; `dsimp only` unfolds them afterwards, with no proof term. -/
+elab "ved_pk_simp_nz " "[" ex:Lean.Parser.Tactic.simpLemma,* "]" loc:(Lean.Parser.Tactic.location)? : tactic => do
+  let base ← match loc with
+    | some l => `(tactic| ved_seq_simp [$ex,*] $l:location)
+    | none => `(tactic| ved_seq_simp [$ex,*])
+  let stx ← liftMacroM (expandMacros base)
+  let tmpl ← `(tactic| simp (config := { zeta := false }) [Nat.add_zero])
+  evalTactic (stx.setArg 1 (tmpl.raw.getArg 1))
+
+open Lean Meta Elab Tactic in
+/-- `ved_pk_genloops h`: replace every `Signal.loop F` of the type of the hypothesis `h` by a new variable `ved_Lj`, keeping
+`ved_hLoopj : Signal.loop F = ved_Lj`.  The body of a loop is not rewritten (`vedLoopFreeze`), but every step of a `simp` proof
+carries the type of `h`; a packed result whose declaration is a chain of `let`s mentions the same loop once per leaf (R14: the
+type is 692 distinct nodes but a tree of 3.3·10^5, the rewriting proof a tree of 2.4·10^7 that the kernel could not check:
+66 s, then deep recursion).  The abstraction is done on the shared term (`Expr.abstract`), not by `generalize` (`kabstract`
+walks the tree: more than 8·10^9 heartbeats) and the type is changed by `Eq.mp (congrArg motive hLoop)`.
+`ved_pk_unloops` puts the loops back with `subst`. -/
+elab "ved_pk_genloops " h:ident : tactic => withMainContext do
+  let some d := (← getLCtx).findFromUserName? h.getId | throwError "ved_pk_genloops: no {h.getId}"
+  let loops := Tools.VedU1WireShare.loopsDag (← instantiateMVars d.type)
+  let mut hId := d.fvarId
+  for j in [0:loops.size] do
+    let e := loops[j]!
+    let eS ← Term.exprToSyntax e
+    let hL := mkIdent (Name.mkSimple s!"ved_hLoop{j}")
+    let L := mkIdent (Name.mkSimple s!"ved_L{j}")
+    evalTactic (← `(tactic| refine (fun ($L : _) ($hL : $eS = $L) => ?_) $eS rfl))
+    hId ← withMainContext do
+      let some dh := (← getLCtx).find? hId | throwError "ved_pk_genloops: {h.getId} lost"
+      let ty ← instantiateMVars dh.type
+      let α ← inferType e
+      let some dL := (← getLCtx).findFromUserName? L.getId | throwError "ved_pk_genloops: no L"
+      let some dE := (← getLCtx).findFromUserName? hL.getId | throwError "ved_pk_genloops: no eq"
+      let motive := Lean.mkLambda `l .default α (ty.abstract #[e])
+      let tyNew := (ty.abstract #[e]).instantiate1 dL.toExpr
+      let eqPf ← mkCongrArg motive dE.toExpr
+      let g ← getMainGoal
+      let r ← g.replaceLocalDecl hId tyNew eqPf
+      replaceMainGoal [r.mvarId]
+      pure r.fvarId
+  -- the new declaration has a new fvar id: nothing else to do, `h` is found by name
+
+open Lean Meta Elab Tactic in
+/-- `ved_pk_unloops`: `subst` every `ved_hLoop…` (the loops of `ved_pk_genloops` go back in place). -/
+elab "ved_pk_unloops" : tactic => do
+  let names ← withMainContext do
+    let mut out : Array Name := #[]
+    for d in ← getLCtx do
+      if d.userName.toString.startsWith "ved_hLoop" then out := out.push d.userName
+    pure out
+  for n in names.reverse do
+    evalTactic (← `(tactic| subst $(mkIdent n):ident))
+
+open Lean Meta Elab Tactic in
 /-- `ved_pk_drop`: the first half of `ved_seq_bools`: drop the hypotheses the rewriting is done with
 (nothing reads them any more, and `cases` would revert and re-introduce every one that mentions the
 variable). -/
@@ -337,6 +438,7 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
   for (n, h) in names.zip hws.toList do
     let w := declWidth m n
     pre := pre.push (← `(tactic| have $h:ident : declWidth $Mi $(Syntax.mkStrLit n) = $(Syntax.mkNumLit (toString w)) := by decide +kernel))
+  pre := pre.push (← `(tactic| ved_pk_mark "pre-hw"))
   -- data inputs: the range facts, one per input
   let hins := (List.range dataPorts.length).toArray.map fun i => mkIdent (Name.mkSimple s!"hin{i}")
   for (i, p, h) in (List.range dataPorts.length).zip (dataPorts.zip hins.toList) |>.map fun (i, (p, h)) => (i, p, h) do
@@ -351,6 +453,7 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
         have h0 := Tools.VedU1ScriptSeq.inputsOk_nth $Ci $Mi $insI hok $sI $iL $pn (by decide +kernel)
         rw [$hwI:ident] at h0
         exact h0))
+  pre := pre.push (← `(tactic| ved_pk_mark "pre-hin"))
   -- the reset is held 0
   let hrst := mkIdent `hrst0
   pre := pre.push (← `(tactic| have $hrst:ident : $insI $sI $(Syntax.mkStrLit rstN) = 0 :=
@@ -413,7 +516,7 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
   let mut perStmt : Array (TSyntax `tactic) := #[]
   for k in [0:assignIdx.size] do
     let i := assignIdx[k]!
-    perStmt := perStmt.push (← `(tactic| ved_seq_aux $(hss[i]!):ident (
+    perStmt := perStmt.push (← `(tactic| ved_pk_aux $(hss[i]!):ident (
       ved_seq_simp_nd [$(mk (hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL.extract 0 k)),*] at $(hss[i]!):ident
       try ved_seq_unpack at $(hss[i]!):ident)))
   let applyL ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1ScriptSeq.applyNexts_nextsOf)
@@ -447,7 +550,7 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
   let mark (n : String) : TermElabM (Array (TSyntax `tactic)) :=
     if dbgN == 4 && n == "reg-split" then do pure #[← `(tactic| (trace_state; fail "stopped at reg-split"))]
     else if dbgN == 5 && n == "out-split" then do pure #[← `(tactic| (trace_state; fail "stopped at out-split"))]
-    else if marks then do pure #[← `(tactic| ved_pk_mark $(Syntax.mkStrLit n))] else pure #[]
+    else do pure #[← `(tactic| ved_pk_mark $(Syntax.mkStrLit n))]
   tacs := tacs.push (← `(tactic| intro $insI hok $sI st mems $hR))
   tacs := tacs ++ pre
   tacs := tacs ++ (← mark "pre")
@@ -458,11 +561,17 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
       OTy.packNat ($Cc).tbl.out ((applyIns ($Cc).tbl.ins ($Cc).inNames $insI $f0).val t) :=
         fun t => Tools.VedU1Packed.srcOf_packed $Cc $f0 $insI t))
   tacs := tacs.push (← `(tactic| rw [key] at $hv:ident))
-  tacs := tacs.push (← `(tactic| ved_seq_aux $hv:ident (
-      try dsimp only [$Oi:ident, $Mi:ident, $Bi:ident, Tools.VedU1Contract.declWidth, srcOf, $Cc:ident, Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse, contractOf, applyIns, $fI:ident,
+  let hvDs ← `(tactic| try dsimp only [$Oi:ident, $Mi:ident, $Bi:ident, Tools.VedU1Contract.declWidth, srcOf, $Cc:ident, Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse, contractOf, applyIns, $fI:ident,
         Signal.fst, Signal.snd, Sparkle.Core.Signal.Signal.map, Signal.register, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, Functor.map, Seq.seq,
-        Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, OTy.obs, PTy.obs, PTy.sig, -Nat.reduceAdd, $(mk hsA),*] at $hv:ident
-      ved_seq_simp [$Oi:ident, $Mi:ident, $Bi:ident, declWidth, srcOf, $Cc:ident, Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse, contractOf, applyIns, $fI:ident, Tools.VedU1PackedSeq2.OTy_packNat_pair_mod, Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, OTy.width, PTy.width, Signal.fst, Signal.snd, $(mk hsA),*] at $hv:ident)))
+        Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, OTy.obs, PTy.obs, PTy.sig, -Nat.reduceAdd, $(mk hsA),*] at $hv:ident)
+  let hvSimp ← `(tactic| ved_seq_simp [$Oi:ident, $Mi:ident, $Bi:ident, declWidth, srcOf, $Cc:ident, Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse, contractOf, applyIns, $fI:ident, Tools.VedU1PackedSeq2.OTy_packNat_pair_mod, Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, OTy.width, PTy.width, Signal.fst, Signal.snd, $(mk hsA),*] at $hv:ident)
+  if dbgN == 7 then
+    tacs := tacs ++ #[hvDs, hvSimp, ← `(tactic| ved_pk_size $hv), ← `(tactic| (fail "stopped at hv"))]
+  else
+    if dbgN == 8 then
+      tacs := tacs.push (← `(tactic| ved_pk_aux $hv:ident ($hvDs:tactic; ved_pk_mark "hv-dsimp"; $hvSimp:tactic; ved_pk_mark "hv-simp")))
+    else
+      tacs := tacs.push (← `(tactic| ved_pk_aux $hv:ident ($hvDs:tactic; ved_pk_mark "hv-dsimp"; $hvSimp:tactic; ved_pk_mark "hv-simp")))
   tacs := tacs ++ (← mark "hv")
   tacs := tacs.push (← `(tactic| ved_loop_R' $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))

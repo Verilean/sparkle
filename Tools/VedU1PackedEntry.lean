@@ -92,6 +92,7 @@ def tryPackedFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lea
   if ved.packedseq2.dbg.get (← getOptions) == 0 then return ← tryScriptFirst stx expected
   let t0 ← IO.monoMsNow
   let hb0 ← IO.getNumHeartbeats
+  if ved.packedseq2.dbg.get (← getOptions) ≥ 3 then IO.eprintln s!"VED PKMARK start {t0} {hb0 / 1000000}"
   let saved ← saveState
   let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
   let r ← tryCatchRuntimeEx (do
