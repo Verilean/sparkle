@@ -18,7 +18,7 @@ result must be a `Prod` tree of at least two leaves inside ONE `Signal` (`Bool` 
 Refusals (`VED U1 REFUSED <decl> [<stage>]`; the `ved_*` constants the checker registered after it
 started are taken back; side effects of synthesis before that, e.g. IO or caches, are NOT rolled back): `table`, `packed` (not a packed
 result, the module's ports are not exactly `out`, or the slice map does not pass `PackCover`:
-width / order / offset mismatch, overlap, missing slice), `synthesis`, `artifact`, `order`, `type`, `proof`, `kernel`, `audit`.
+width / order / offset mismatch, overlap, missing slice), `shape` (the body has a memory or a submodule instance: `memInstFree`, tested before the artifact / order steps), `synthesis`, `artifact`, `order`, `type`, `proof`, `kernel`, `audit`.
 The slice map is DERIVED from the declaration's type by the packing rule (`OTy.slices`); the checker
 below takes it as a parameter ONLY so that the controls can inject a wrong map.
 -/
@@ -104,6 +104,11 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
     unless decide (PackCover pc) do
       refuse decl "packed"
         m!"the slice map {slices} is not the packing rule's map for the declaration's result, or does not cover the port exactly (width, order, offset, overlap, missing slice)"
+    -- v1 scope, a Bool outside the kernel: the statement `PackedStmt` contains `memInstFree m.body = true`,
+    -- so a body with a memory or an instance can never be proved; refuse before the expensive steps
+    unless memInstFree m.body do
+      refuse decl "shape"
+        m!"the body has a memory or a submodule instance (the statement requires `memInstFree m.body = true`; v1 scope: no memories, no instances)"
     let mE := toExpr m
     let back ← withEvalBudget (evalModule mE)
     unless decide (back = m) do

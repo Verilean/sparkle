@@ -20,6 +20,9 @@ import Sparkle.Core.CircuitDo
   tampered; with a child tampered; with a child dropped; with the children reordered; with an extra
   module appended; for the flat kinds a second module.  Checker refusals (`[packed]`, `[multi-output]`)
   also leave no file.
+* EARLY `[shape]` REFUSAL of the packed entry: a packed body with a memory or with a submodule instance
+  is refused at `[shape]` (`memInstFree`, tested before the artifact / order / proof steps), no file, no
+  `ved_*` constant left.
 * Not tested and not claimed: that the optimised C++ / JIT or the printed SystemVerilog preserves the
   IR's semantics.
 -/
@@ -320,5 +323,32 @@ run_cmd expectRefused "multi-output" "ck_hier_pk" .u1Hier ``pkWrong
 /-- info: refused [multi-output], no file -/
 #guard_msgs in
 run_cmd expectRefused "multi-output" "ck_u1_pk" .u1 ``pkWrong
+
+/-! ## Early `[shape]` refusal (a memory / an instance in a packed body; `memInstFree` is tested before the
+artifact / order / proof steps, so the declaration is refused at `[shape]`, not later) -/
+
+def pkMem (wa : Signal defaultDomain (BitVec 4)) (wd : Signal defaultDomain (BitVec 8))
+    (we : Signal defaultDomain Bool) (b : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 8 × BitVec 4) :=
+  bundle2 (Signal.memory wa wd we b) b
+
+def pkInst (a : Signal defaultDomain (BitVec 8)) (b : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 8 × BitVec 4) := bundle2 (wA a a) b
+
+/-- info: refused [shape], no file -/
+#guard_msgs in
+run_cmd expectRefused "shape" "ck_pk_mem" .packed ``pkMem
+
+/-- info: refused [shape], no file -/
+#guard_msgs in
+run_cmd expectRefused "shape" "ck_pk_inst" .packed ``pkInst
+
+/-- info: clean -/
+#guard_msgs in
+run_cmd do
+  for d in [``pkMem, ``pkInst] do
+    for n in [`ved_mod, `ved_contract, `ved_outs, `ved_body, `ved_u1] do
+      if (← getEnv).contains (d ++ n) then throwError "left behind: {d ++ n}"
+  logInfo "clean"
 
 end Tests.Ved.WriteCheckedCheck
