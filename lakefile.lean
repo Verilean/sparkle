@@ -462,6 +462,9 @@ lean_lib «Tools.VedU1MultiSeqLoop» where
 lean_lib «Tools.VedU1MultiSeq» where
   roots := #[`Tools.VedU1MultiSeq]
 
+lean_lib «Tools.VedU1PackedSeq2» where
+  roots := #[`Tools.VedU1PackedSeq2]
+
 lean_lib «Tools.VedU1PackedEntry» where
   roots := #[`Tools.VedU1PackedEntry]
 
