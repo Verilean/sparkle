@@ -153,10 +153,10 @@ macro_rules
   | `(tactic| ved_mem_peel $h:ident) =>
     `(tactic| first
       | exact $h
-      | (refine Tools.VedMem.MemInv.write' (by ved_mem_peel $h) ?_ ?_ ?_)
-      | (refine Tools.VedMem.MemInv.write'' (by ved_mem_peel $h) ?_ ?_ ?_)
-      | (refine Tools.VedMem.MemInv.other' (by ved_mem_peel $h) (by decide) _ _ _ _ _)
-      | (refine Tools.VedMem.MemInv.other'' (by ved_mem_peel $h) (by decide) _ _ _))
+      | (refine Tools.VedMem.MemInv.write' ?_ ?_ ?_ ?_; ved_mem_peel $h)
+      | (refine Tools.VedMem.MemInv.write'' ?_ ?_ ?_ ?_; ved_mem_peel $h)
+      | (refine Tools.VedMem.MemInv.other' ?_ (by decide) _ _ _ _ _; ved_mem_peel $h)
+      | (refine Tools.VedMem.MemInv.other'' ?_ (by decide) _ _ _; ved_mem_peel $h))
 
 /-- print the generated script before elaborating it (debugging only) -/
 register_option ved.mem.debugStage : Nat := {
@@ -258,7 +258,7 @@ def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
   let simpAll ← `(tactic| ved_mem_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf,
       applyIns, $fI:ident, $hin:ident, $exAll,*])
   -- the side goals of a write: the port wires carry the declaration's enable / address / data
-  let side ← `(tactic| first | (simp [PTy.sig] <;> omega) | (($simpAll:tactic) <;> omega) | ($simpAll:tactic))
+  let side ← `(tactic| first | (simp [PTy.sig] <;> omega) | (($simpAll:tactic) <;> omega) | (($simpAll:tactic) <;> first | omega | (split <;> simp <;> omega) | ved_wide_close [$hin:ident]) | (trace_state; fail "ved_mem: a goal is not closed"))
   let mut closers : Array (TSyntax `tactic) := #[]
   for i in [0:n] do
     let hmi : TSyntax `ident := hM[i]!
@@ -271,6 +271,14 @@ def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
   let dbg1 := if dbg == 1 then stopT else skipT
   let dbg2 := if dbg == 2 then stopT else skipT
   let dbg3 := if dbg == 3 then stopT else skipT
+  let mut peelOnly : TSyntax `tactic := ← `(tactic| fail "no memory")
+  for i in [0:n] do
+    let hmi : TSyntax `ident := hM[i]!
+    peelOnly ← `(tactic| first | ($peelOnly:tactic) | (ved_mem_peel $hmi:ident))
+  let stop4T ← `(tactic| ((all_goals (first | (ved_mem_peel hM1) | skip)); trace_state; fail "stop4"))
+  let stop5T ← `(tactic| ((case right.right.left => refine Tools.VedMem.MemInv.write'' ?_ ?_ ?_ ?_); trace_state; fail "stop5"))
+  let stop6T ← `(tactic| (rotate_left 2; refine Tools.VedMem.MemInv.write'' ?_ ?_ ?_ ?_; refine Tools.VedMem.MemInv.other'' ?_ (by decide) _ _ _; trace_state; fail "stop6"))
+  let dbg4 := if dbg == 4 then stop4T else if dbg == 5 then stop5T else if dbg == 6 then stop6T else skipT
   let zeroTerms ← (List.range n).mapM fun _ => `(Tools.VedMem.MemInv.zero _ _ _ _)
   let h0Elems : Array Term ← do
     let mut a : Array Term := zeroTerms.toArray
@@ -300,6 +308,7 @@ def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
         refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
         all_goals (try (repeat' apply And.intro))
         $dbg3
+        $dbg4
         all_goals first | ($firstAlt:tactic) | ($side:tactic))
 
 /-! ## The checker -/
@@ -355,7 +364,10 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
           let e ← elabTermEnsuringType stx expected
           synthesizeSyntheticMVarsNoPostponing
           instantiateMVars e)
-      fun e => refuse decl "proof" e.toMessageData
+      fun e => do
+        if ved.mem.showScript.get (← getOptions) then
+          for msg in (← Core.getMessageLog).toList do IO.eprintln s!"VED MEM MSG {← msg.data.toString}"
+        refuse decl "proof" e.toMessageData
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let new := errs.drop errsBefore
