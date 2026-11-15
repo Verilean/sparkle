@@ -161,6 +161,15 @@ theorem memWritePorts_one (we : WEnv) (mems0 : MEnv) (env : Env) (name : String)
           (fun nm i => if nm = name ∧ i = mask aw av then mask dw dv else m nm i) else m) := by
   simp [memWritePorts, hev, hav, hdv]
 
+/-- One port of plain names (the shape the synthesizer emits). -/
+theorem memWritePorts_ref_one (we : WEnv) (mems0 : MEnv) (env : Env) (name : String) (aw dw : Nat)
+    (a d en : String) (m : MEnv) :
+    memWritePorts we mems0 env name aw dw [(.ref a, .ref d, .ref en)] m
+      = some (if env en ≠ 0 then
+          (fun nm i => if nm = name ∧ i = mask aw (env a) then mask dw (env d) else m nm i) else m) :=
+  memWritePorts_one we mems0 env name aw dw _ _ _ m (env en) (env a) (env d)
+    (evalPayload_ref _ _ _ _ _ _ _) (evalPayload_ref _ _ _ _ _ _ _) (evalPayload_ref _ _ _ _ _ _ _)
+
 /-- the whole-module step of a ONE-memory body whose ports are plain names: the CONTENTS update. -/
 theorem memNexts_one (we : WEnv) (name : String) (aw dw : Nat) (clk : String) (wa wd wen ra : String)
     (rd : String) (cr : Bool) (rest : List Stmt) (mems : MEnv) (env : Env)
@@ -262,6 +271,45 @@ theorem MemInv.other {dom : DomainConfig} {aw dw : Nat} {name other : String} {i
     exact h i hi
   · simp [hc]
     exact h i hi
+
+/-- `MemInv.write` in the form `simp` leaves the step in (`mask` unfolded, the test `ev = 0` first). -/
+theorem MemInv.write' {dom : DomainConfig} {aw dw : Nat} {name : String} {init : BitVec aw → BitVec dw}
+    {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}
+    {mems : MEnv} (h : MemInv name init wa wd we n mems) {ev av dv : Nat}
+    (hev : (ev ≠ 0) ↔ we.val n = true) (hav : av = (wa.val n).toNat) (hdv : dv = (wd.val n).toNat) :
+    MemInv name init wa wd we (n + 1)
+      (if ev = 0 then mems
+        else fun nm i => if nm = name ∧ i = av % 2 ^ aw then dv % 2 ^ dw else mems nm i) := by
+  have := h.write ev av dv hev hav hdv
+  by_cases hc : ev = 0
+  · rw [if_pos hc]
+    simp only [hc, ne_eq, not_true_eq_false, if_false] at this
+    exact this
+  · rw [if_neg hc]
+    simp only [ne_eq, hc, not_false_eq_true, if_true] at this
+    exact this
+
+/-- `MemInv.other` in the same form: a write of another memory, whatever its payload. -/
+theorem MemInv.other' {dom : DomainConfig} {aw dw : Nat} {name other : String} {init : BitVec aw → BitVec dw}
+    {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}
+    {mems : MEnv} (h : MemInv name init wa wd we n mems) (hne : other ≠ name)
+    (ev aw' dw' av dv : Nat) :
+    MemInv name init wa wd we n
+      (if ev = 0 then mems
+        else fun nm i => if nm = other ∧ i = av % 2 ^ aw' then dv % 2 ^ dw' else mems nm i) := by
+  by_cases hc : ev = 0
+  · rw [if_pos hc]; exact h
+  · rw [if_neg hc]
+    intro i hi
+    simp [Ne.symm hne]
+    exact h i hi
+
+/-- the read in the form `simp` leaves it in: `mems name (a % 2^aw) % 2^dw` -/
+theorem MemInv.read' {dom : DomainConfig} {aw dw : Nat} {name : String} {init : BitVec aw → BitVec dw}
+    {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}
+    {mems : MEnv} (h : MemInv name init wa wd we n mems) (a : Nat) :
+    mems name (a % 2 ^ aw) % 2 ^ dw = (memState init wa wd we n (BitVec.ofNat aw a)).toNat :=
+  h.read a
 
 /-! ## 4. The state induction with the memory part -/
 
