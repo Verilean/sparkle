@@ -736,9 +736,8 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let mut kids : List Kid := []
   for (cm, cdecl, cstmt, cdom, ctbl) in pre do
     let base := (decl ++ `ved_child) ++ cdecl
-    let proofSrc : ProofSrc :=
-      if (regsOf cm.body).isEmpty then Tools.VedH3ChildEntry.childProofSrc cdecl cdom cm else .built (buildDeepWith cdecl cdecl ctbl)
-    try discard <| checkU1E cdecl base cstmt cm proofSrc
+    try discard <| (if (regsOf cm.body).isEmpty then Tools.VedH3ChildEntry.checkCombChild cdecl cdom base cstmt cm
+        else checkU1E cdecl base cstmt cm (.built (buildDeepWith cdecl cdecl ctbl)))
     catch e => refuse decl "child" m!"child {cm.name}: {e.toMessageData}"
     kids := kids ++ [{ c := cm, decl := cdecl, nDom := cdom, tbl := ctbl, nm := Names.ofBase base }]
   let t1 ← IO.monoMsNow

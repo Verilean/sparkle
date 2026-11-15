@@ -18,4 +18,18 @@ def childProofSrc (cdecl : Lean.Name) (cdom : Nat) (cm : Sparkle.IR.AST.Module) 
   | some p => p
   | none => Tools.VedH3ChildTblEntry.childProofSrc cdecl cdom cm
 
+open Lean Elab Term Meta in
+/-- The child step of the hierarchical entries for a REGISTER-FREE child: the proof source chosen by
+`childProofSrc`; when that source is refused, the generated script is tried (what the entries did before
+this unit), so a child the older route proved is still proved.  A refusal of both is the generated
+script's. -/
+def checkCombChild (cdecl : Name) (cdom : Nat) (base : Name) (cstmt : Expr) (cm : Sparkle.IR.AST.Module) :
+    TermElabM Name := do
+  match childProofSrc cdecl cdom cm with
+  | .generated => checkU1E cdecl base cstmt cm .generated
+  | src =>
+    try checkU1E cdecl base cstmt cm src
+    catch e =>
+      if ← isRefusal e then checkU1E cdecl base cstmt cm .generated else throw e
+
 end Tools.VedH3ChildEntry

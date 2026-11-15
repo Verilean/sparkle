@@ -1,5 +1,7 @@
 import Tools.VedU2HierRegEntry
 import Tools.VedH3ChildTblEntry
+import Tools.VedH3ChildEntry
+import IP.Net.IPv4
 import Tests.Ved.U1EqLutCheck
 import Tests.Ved.U2HierWireCheck
 import Sparkle.Core.CircuitMonad
@@ -30,6 +32,19 @@ The small examples are NOT rows of the 327 inventory.
 * CONTROLS: the checker is run on the REAL module of the positive declaration with ONE piece altered (a
   table constant, two constants exchanged, an index constant, the then/else operands of one `mux`, one
   constant's width); each must be refused at `[proof]` and leave no `ved_*` constant.
+
+## Add-stage chains (`Tools/VedH3ChildChain.lean`, `Tools/VedH3ChildChainEntry.lean`)
+
+`ckSum` is the shape of `tcpHeaderChecksumSig` at the smallest size that exercises every part of the route: a
+prelude (two slices of a 32-bit input, a constant word), three `Sparkle.IP.Net.IPv4.onesAdd16Sig` stages (the first with the
+shared constants between its halves, two chained stages: the induction step), `~~~` of the last sum, and a
+16-bit input read directly as a word.  The leaf is proved by the stage lemmas composed by induction (a stage
+uses its sum twice: the generated script's term grows as `2^stages`); the theorem has exactly the type
+`U1Stmt c m (@decl defaultDomain)`, standard axioms, and `<decl>.ved_chain` is the data the kernel checked.
+`ckParent` is a parent whose instance is the chain leaf (`#ved_u2_hier`).  Controls (one piece of the real
+module altered, refused at `[proof]`, no `ved_*` constant left): a constant word changed, a slice reading the
+wrong half, a slice narrowed by one bit, the chained operand replaced by a word (the chain is broken),
+the final `~~~` dropped, and the module of another chain against this statement.
 -/
 
 namespace Tests.Ved.H3ChildCheck
@@ -216,5 +231,168 @@ run_cmd ctlMutNT `ctlLutSwap ``ntLut (swapConsts 8 0 2)
 /-- info: refused [proof], clean -/
 #guard_msgs in
 run_cmd do ctlNT `ctlOtherDecl ``ntLut (← realMod ``ntResp)
+
+/-! ## Add-stage chains -/
+
+/-- three stages: `ones(hi, lo)`, `ones(·, b)`, `ones(·, const)`, inverted -/
+@[hardware_module] def ckSum {dom : DomainConfig} (a : Signal dom (BitVec 32)) (b : Signal dom (BitVec 16)) :
+    Signal dom (BitVec 16) :=
+  let hi : Signal dom (BitVec 16) := a.map (BitVec.extractLsb' 16 16 ·)
+  let lo : Signal dom (BitVec 16) := a.map (BitVec.extractLsb' 0 16 ·)
+  let k : Signal dom (BitVec 16) := Signal.pure 0x1234#16
+  let s := Sparkle.IP.Net.IPv4.onesAdd16Sig hi lo
+  let s := Sparkle.IP.Net.IPv4.onesAdd16Sig s b
+  let s := Sparkle.IP.Net.IPv4.onesAdd16Sig s k
+  s.map (BitVec.not ·)
+
+/-- another chain (two stages), for the control that exchanges modules -/
+@[hardware_module] def ckSum2 {dom : DomainConfig} (a : Signal dom (BitVec 32)) (b : Signal dom (BitVec 16)) :
+    Signal dom (BitVec 16) :=
+  let hi : Signal dom (BitVec 16) := a.map (BitVec.extractLsb' 16 16 ·)
+  let lo : Signal dom (BitVec 16) := a.map (BitVec.extractLsb' 0 16 ·)
+  let s := Sparkle.IP.Net.IPv4.onesAdd16Sig hi b
+  let s := Sparkle.IP.Net.IPv4.onesAdd16Sig s lo
+  s.map (BitVec.not ·)
+
+/-- a parent whose instance is the chain leaf -/
+def ckParent (a : Signal defaultDomain (BitVec 32)) (b : Signal defaultDomain (BitVec 16)) :
+    Signal defaultDomain (BitVec 16) :=
+  ckSum a b
+
+open Tools.VedH3ChildChainEntry in
+def runCh (decl : Name) (base : Name) (m : Sparkle.IR.AST.Module) : TermElabM Name := do
+  let (stmt, nDom) ← specialiseDomain decl
+  unless (chainDataOf? m).isSome do throwError "{decl}: not read as a chain"
+  unless (Tools.VedH3ChildTblEntry.ntblDataOf? m "_gen_a").isNone do throwError "{decl}: read as a named table"
+  checkU1E decl base stmt m (.built (buildChain decl nDom))
+
+open Tools.VedH3ChildChainEntry in
+def checkChain (decl : Name) (stages : Nat) : CommandElabM Unit := liftTermElabM do
+  let (m, _) ← Sparkle.Compiler.Elab.synthesizeCombinational decl
+  let thm ← runCh decl decl m
+  let nm := Names.ofBase decl
+  let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, specOf decl]
+  let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+  unless ti.type == expected do throwError "{thm}: type is not U1Stmt c m (@{decl} defaultDomain)"
+  let r ← Tools.VedStrictAudit.strictAudit thm
+  let ax ← collectAxioms thm
+  let ok := [``propext, ``Classical.choice, ``Quot.sound]
+  unless ax.all (ok.contains ·) && r.axioms.all (ok.contains ·) do throwError "{thm}: axioms {ax}"
+  let some (.defnInfo di) := (← getEnv).find? (decl ++ `ved_chain) | throwError "{decl}: no chain data"
+  let some D ← (unsafe Meta.evalExpr (Option Tools.VedH3ChildChain.CData)
+      (mkApp (Lean.mkConst ``Option [Level.zero]) (Lean.mkConst ``Tools.VedH3ChildChain.CData))
+      (mkApp2 (Lean.mkConst ``Option.some [Level.zero]) (Lean.mkConst ``Tools.VedH3ChildChain.CData) di.value) : MetaM _)
+    | throwError "{decl}: data not evaluable"
+  unless D.stages.length == stages do throwError "{decl}: {D.stages.length} stages, expected {stages}"
+  logInfo m!"OK {decl}: exact type, axioms {ax.size}, chain of {D.stages.length} stages"
+
+/-- info: OK Tests.Ved.H3ChildCheck.ckSum: exact type, axioms 3, chain of 3 stages -/
+#guard_msgs in
+run_cmd checkChain ``ckSum 3
+/-- info: OK Tests.Ved.H3ChildCheck.ckSum2: exact type, axioms 3, chain of 2 stages -/
+#guard_msgs in
+run_cmd checkChain ``ckSum2 2
+
+/-- the exact statement of a register-free parent (`U2HStmt`, as in `Tests/Ved/U2HierCheck.lean`) -/
+def expectedH2a (decl : Name) (nDom : Nat) : Lean.Expr :=
+  let nm := Tools.VedU1HierEntry.HNames.ofBase decl
+  let stmt := (List.range nDom).foldl (fun e _ => mkApp e (Lean.mkConst ``defaultDomain)) (Lean.mkConst decl)
+  mkAppN (Lean.mkConst ``Tools.VedU2Hier.U2HStmt)
+    #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst nm.design, stmt]
+
+/-- the parent through `#ved_u2_hier`: the chain leaf proved once, composed with the parent -/
+def checkHierCk (decl : Name) : CommandElabM Unit := liftTermElabM do
+  let (_, d, thm, nDom, _) ← Tools.VedU2HierEntry.vedU2HierEntry decl
+  let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+  unless ti.type == expectedH2a decl nDom do throwError "{thm}: type is not U2HStmt c m d decl"
+  discard <| Tools.VedStrictAudit.strictAudit thm
+  std3Only thm
+  unless (← getEnv).contains (((decl ++ `ved_child) ++ ``ckSum) ++ `ved_chain) do
+    throwError "the child did not take the chain route"
+  logInfo m!"u2 hier OK: children {", ".intercalate (d.modules.map (·.name))}"
+
+/-- info: u2 hier OK: children Tests.Ved.H3ChildCheck.ckSum -/
+#guard_msgs in
+run_cmd checkHierCk ``ckParent
+
+/-- the chain controls: the checker with the chain source on the altered module of `ckSum` -/
+def ctlCk (base decl : Name) (m : Sparkle.IR.AST.Module) : CommandElabM Unit :=
+  expectRefusedNT "proof" base do
+    discard <| runCh' decl base m
+where
+  runCh' (decl base : Name) (m : Sparkle.IR.AST.Module) : TermElabM Name := do
+    let (stmt, nDom) ← specialiseDomain decl
+    checkU1E decl base stmt m (.built (Tools.VedH3ChildChainEntry.buildChain decl nDom))
+
+def ctlNames' (base : Name) : List Name := ctlNames base ++ [base ++ `ved_chain, base ++ `ved_ports]
+
+open Sparkle.IR.AST in
+/-- the first slice reading bits `hi..lo` of its source is changed by `f` -/
+def mutSlice (n : Nat) (f : Nat → Nat → Nat × Nat) (m : Sparkle.IR.AST.Module) : Except String Sparkle.IR.AST.Module :=
+  mutNth n (fun s => match s with
+    | .assign o (.slice e hi lo) => let (h, l) := f hi lo; some (.assign o (.slice e h l))
+    | _ => none) m
+
+open Sparkle.IR.AST in
+/-- the `n`-th statement `x := concat [hi0, A]` reads the word `W` instead of its operand -/
+def mutOperand (n : Nat) (m : Sparkle.IR.AST.Module) : Except String Sparkle.IR.AST.Module :=
+  mutNth n (fun s => match s with
+    | .assign o (.concat [.ref h, .ref _]) => some (.assign o (.concat [.ref h, .ref "_gen_hi"]))
+    | _ => none) m
+
+open Sparkle.IR.AST in
+/-- the last `not` of the body becomes the identity (a `ref` of its operand) -/
+def dropNot (m : Sparkle.IR.AST.Module) : Except String Sparkle.IR.AST.Module :=
+  mutNth 0 (fun s => match s with
+    | .assign o (.op .not [x]) => some (.assign o x)
+    | _ => none) m
+
+def ctlMutCk (base decl : Name) (mutant : Sparkle.IR.AST.Module → Except String Sparkle.IR.AST.Module) :
+    CommandElabM Unit := do
+  let o ← realMod decl
+  match mutant o with
+  | .error e => throwError "{base}: mutator failed: {e}"
+  | .ok m =>
+    if m.body == o.body then throwError "{base}: the mutant is the original"
+    expectRefusedNT "proof" base do
+      discard <| ctlCk.runCh' decl base m
+    -- (the left-behind names of the chain route)
+    for n in ctlNames' base do
+      if (← getEnv).contains n then throwError "left behind: {n}"
+
+-- a constant word changed (0x1234 -> 0x1235): the read data is still a chain, the values differ
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd ctlMutCk `ctlCkConst ``ckSum (bumpConst 16 0)
+
+-- a slice reads the wrong half of its input
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd ctlMutCk `ctlCkSlice ``ckSum (mutSlice 0 fun _ _ => (15, 0))
+
+-- a slice narrowed by one bit (bits 31..17 instead of 31..16)
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd ctlMutCk `ctlCkNarrow ``ckSum (mutSlice 0 fun hi _ => (hi, 17))
+
+-- the chained operand of the second stage replaced by a word (the chain is broken)
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd ctlMutCk `ctlCkBroken ``ckSum (mutOperand 3)
+
+-- the final `~~~` dropped
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd ctlMutCk `ctlCkNoNot ``ckSum dropNot
+
+-- the module of the two-stage chain against the three-stage statement
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd do
+  let m ← realMod ``ckSum2
+  expectRefusedNT "proof" `ctlCkOther do
+    discard <| ctlCk.runCh' ``ckSum `ctlCkOther m
+  for n in ctlNames' `ctlCkOther do
+    if (← getEnv).contains n then throwError "left behind: {n}"
 
 end Tests.Ved.H3ChildCheck
