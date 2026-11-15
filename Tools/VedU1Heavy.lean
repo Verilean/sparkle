@@ -17,7 +17,7 @@ shapes then run out of budget:
   (`requantize`): the whole normalisation is repeated for every value of the selector.
 
 The heavy tactics (`scriptFor … (heavy := 1)`: a capped first try inside the flat script, which runs
-from the same state when the try fails; `heavy := 2`: alone, for the controls) keep a signed value whole:
+from the same state when the try fails; `heavy := 2`: alone, for the controls, under the same cap) keep a signed value whole:
 
 1. `ved_heavy_norm` brings both sides to ONE form: `BitVec.toInt x` is `toSigned w x.toNat`,
    `toSigned` / `toNat` are pushed into `ite`s, `(toSigned a * toSigned b).bmod 2^w` is
@@ -32,8 +32,8 @@ from the same state when the try fails; `heavy := 2`: alone, for the controls) k
    most `maxLeaves` cases) and closes the leaves by `simp_all` / `omega`, unfolding `toSigned` only
    at a leaf.
 
-The try is bounded (`ved_heavy_try`: `heavyHeartbeats`, simp steps, cases), so a module of another shape
-costs a few seconds before the flat tactics run.
+The try is bounded (`ved_heavy_try`: `heavyHeartbeats` or what is left of the caller's limit, simp steps,
+cases); a module of another shape pays for the try before the flat tactics run (there is no time guarantee).
 
 The script is UNTRUSTED: the kernel checks the proof term it produces.
 -/
@@ -270,6 +270,18 @@ open Lean Meta Elab Tactic
 than this before the flat tactics run -/
 def heavyHeartbeats : Nat := 300000
 
+/-- TEST HOOK (default 0 = off, the fixed `heavyHeartbeats` applies): replaces `heavyHeartbeats` (thousands)
+so a control can make the heavy try hit its cap cheaply. -/
+register_option ved.u1.heavyHeartbeatsForTest : Nat := {
+  defValue := 0
+  descr := "VED U1 (test hook): cap (thousands) of the heavy try instead of the fixed one (0 = off)" }
+
+/-- The heartbeat limit of the heavy try, counted from `hb0`: `cap` is the cap; a caller limit of 0 means
+unlimited, so the cap applies; a finite one counts what the caller has used since `init` (at least 1: 0 would
+mean unlimited), and the try never runs past what is left of it. -/
+def heavyLimit (ctxMax init hb0 cap : Nat) : Nat :=
+  if ctxMax == 0 then cap else min (max 1 (ctxMax - (hb0 - init))) cap
+
 /-- run a tactic sequence under the heavy budget; any failure, a heartbeat or recursion limit included, is an
 ordinary error, so that `first | ved_heavy_try (…) | …` goes on with the flat tactics from the saved state -/
 syntax (name := vedHeavyTry) "ved_heavy_try " "(" tacticSeq ")" : tactic
@@ -277,10 +289,12 @@ syntax (name := vedHeavyTry) "ved_heavy_try " "(" tacticSeq ")" : tactic
 elab_rules : tactic
   | `(tactic| ved_heavy_try ( $seq:tacticSeq )) => do
     let hb0 ← IO.getNumHeartbeats
-    let cap := heavyHeartbeats * 1000
+    let cap := (match ved.u1.heavyHeartbeatsForTest.get (← getOptions) with
+      | 0 => heavyHeartbeats
+      | n => n) * 1000
     tryCatchRuntimeEx
       (withTheReader Core.Context
-        (fun c => { c with initHeartbeats := hb0, maxHeartbeats := if c.maxHeartbeats == 0 then cap else min c.maxHeartbeats cap })
+        (fun c => { c with initHeartbeats := hb0, maxHeartbeats := heavyLimit c.maxHeartbeats c.initHeartbeats hb0 cap })
         (evalTactic seq))
       fun e => throwError "ved_heavy_try: {e.toMessageData}"
 
