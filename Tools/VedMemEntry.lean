@@ -70,23 +70,33 @@ synthesis emits a memory statement for such a call too (its write is a state cha
 module's memory statements and the declaration's calls match only if the dead call is counted. -/
 def deadSeqName : Name := `Tools.VedMemEntry.deadSeq
 
-/-- zeta-reduce every `let` of `e`, keeping the value of a `let` that nothing uses (marked by `deadSeqName`);
-the reachable part is zeta-reduced as before -/
-def zetaKeepDead (e : Lean.Expr) : MetaM Lean.Expr :=
-  Core.transform e (pre := fun e => match e with
-    | .letE _ _ v b _ =>
-      if b.hasLooseBVar 0 then pure (.visit (b.instantiate1 v))
-      else pure (.visit (mkApp2 (Lean.mkConst deadSeqName) (b.lowerLooseBVars 1 1) v))
-    | _ => pure .continue)
+/-- Marker `memTag "x" v` around the value `v` of a `let x` that binds a memory call (traversal only): the module's memory
+statement for the call is `_gen_x`, and the statements come in the order of the `let`s -/
+def memTagName : Name := `Tools.VedMemEntry.memTag
 
-/-- `deadSeq b v` ↦ `b`, everywhere -/
+/-- zeta-reduce every `let` of `e`, keeping the value of a `let` that nothing uses (marked by `deadSeqName`) and
+tagging the values that are memory calls (`memTagName`); the reachable part is zeta-reduced as before -/
+def zetaKeepDead (e : Lean.Expr) : MetaM Lean.Expr :=
+  Core.transform e (pre := fun e => do
+    match e with
+    | .letE n _ v b _ =>
+      let v := if v.isAppOf ``Sparkle.Core.Signal.Signal.memory || v.isAppOf ``Sparkle.Core.Signal.Signal.memoryComboRead then
+          mkApp2 (Lean.mkConst memTagName) (mkStrLit n.toString) v else v
+      if b.hasLooseBVar 0 then return .visit (b.instantiate1 v)
+      else return .visit (mkApp2 (Lean.mkConst deadSeqName) (b.lowerLooseBVars 1 1) v)
+    | _ => return .continue)
+
+/-- `deadSeq b v` ↦ `b` and `memTag x v` ↦ `v`, everywhere -/
 partial def stripDead (x : Lean.Expr) : Lean.Expr :=
   x.replace fun y =>
-    if y.isAppOfArity deadSeqName 2 then some (stripDead y.appFn!.appArg!) else none
+    if y.isAppOfArity deadSeqName 2 then some (stripDead y.appFn!.appArg!)
+    else if y.isAppOfArity memTagName 2 then some (stripDead y.appArg!)
+    else none
 
 /-- the memory calls of an expression, in order of first occurrence (arguments left to right), each
 distinct call once -/
-partial def collectCalls (unf : Name → Bool) (e : Lean.Expr) : MetaM (Array MemCall) := do
+partial def collectCalls (unf : Name → Bool) (e : Lean.Expr) : MetaM (Array MemCall × Array (Lean.Expr × String)) := do
+  let tags ← IO.mkRef (#[] : Array (Lean.Expr × String))
   let r ← IO.mkRef (#[] : Array MemCall)
   let seen ← IO.mkRef (∅ : Std.HashSet Lean.Expr)
   let rec go (e : Lean.Expr) : MetaM Unit := do
@@ -96,6 +106,10 @@ partial def collectCalls (unf : Name → Bool) (e : Lean.Expr) : MetaM (Array Me
     | .app .. =>
       let fn := e.getAppFn
       let args := e.getAppArgs
+      if e.isAppOfArity memTagName 2 then
+        go e.appArg!
+        if let .lit (.strVal nm) := e.appFn!.appArg! then tags.modify (·.push (e.appArg!, nm))
+        return
       if let .const n _ := fn then
         let sync := n == ``Sparkle.Core.Signal.Signal.memory
         let combo := n == ``Sparkle.Core.Signal.Signal.memoryComboRead
@@ -128,7 +142,7 @@ partial def collectCalls (unf : Name → Bool) (e : Lean.Expr) : MetaM (Array Me
     | .proj _ _ b => go b
     | _ => pure ()
   go e
-  r.get
+  return (← r.get, ← tags.get)
 
 /-- The declaration's body applied to one input signal per table port (`PTy.sig`), `ins` a free variable:
 unfolded, beta- and zeta-reduced. -/
@@ -139,13 +153,21 @@ def declBody (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (ins : L
   let cur := (← unfoldDefinition? e).getD e
   if keepDead then instantiateMVars (← zetaKeepDead cur.headBeta) else instantiateMVars (← zetaReduce cur.headBeta)
 
-/-- the memory calls of the declaration, each component a closed `fun ins => …` -/
-def collectAll (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (unf : Name → Bool) :
-    MetaM (Array MemCall) := do
+/-- the memory calls of the declaration, each component a closed `fun ins => …`.  `order`: the names of the module's
+memory statements; the calls are put in that order when every statement `_gen_<let name>` finds its call among the
+`let`s of the declaration (the module lists its memory statements in the order of the `let`s, the traversal finds the
+calls in the order of their uses), else they stay in the order of the traversal -/
+def collectAll (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (unf : Name → Bool)
+    (order : List String := []) : MetaM (Array MemCall) := do
   let insTy ← mkArrow (Lean.mkConst ``Nat) (← mkArrow (Lean.mkConst ``String) (Lean.mkConst ``Nat))
   withLocalDeclD `ins insTy fun ins => do
     let body ← declBody stmt tbl names ins (keepDead := true)
-    let cs ← collectCalls unf body
+    let (cs, tags) ← collectCalls unf body
+    let nameOf := fun (c : MemCall) => (tags.find? (fun (v, _) => v == c.call)).map fun (_, n) => "_gen_" ++ n
+    let cs := if order.isEmpty || cs.size != order.length then cs else
+      let sorted := order.filterMap fun o => cs.find? (fun c => nameOf c == some o)
+      if sorted.length == order.length && (order.all fun o => (cs.filter fun c => nameOf c == some o).size == 1)
+        then sorted.toArray else cs
     cs.mapM fun c => do
       -- the marker is for the traversal only: the pieces handed to the proof carry the reachable part
       pure { c with call := ← mkLambdaFVars #[ins] (stripDead c.call), wa := ← mkLambdaFVars #[ins] (stripDead c.wa),
@@ -230,7 +252,7 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
   withLocalDeclD `s (Lean.mkConst ``Nat) fun s =>
   withLocalDeclD `st strNat fun st =>
   withLocalDeclD `mems (Lean.mkConst ``Sparkle.IR.Semantics.MEnv) fun mems => do
-    let calls ← collectAll stmt tbl names unf
+    let calls ← collectAll stmt tbl names unf (stmts.map (·.1))
     let inst := fun (x : Lean.Expr) => (mkApp x ins).headBeta
     -- the registers of the loops: `st name = toNat (component of the loop state at s)`
     let mut regEqs : Array Lean.Expr := #[]
@@ -626,7 +648,7 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     let helpers ← helperConsts stmt.getAppFn.constName!
     let unf : Name → Bool := fun n => n == stmt.getAppFn.constName! || helpers.contains n
     let inNames := tbl.binders.map ("_gen_" ++ ·)
-    let calls ← try collectAll stmt tbl inNames unf catch e => refuse decl "shape" e.toMessageData
+    let calls ← try collectAll stmt tbl inNames unf (memStmts m |>.map (·.1)) catch e => refuse decl "shape" e.toMessageData
     let regsL := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
     let R ← try buildR regsL stmts stmt tbl inNames unf catch e => refuse decl "shape" e.toMessageData
     unless calls.size == stmts.length do
