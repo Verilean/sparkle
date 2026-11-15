@@ -201,8 +201,9 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
             catch _ => throw e0
         else
           let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
-          -- first attempt: the per-statement script (`Tools/VedU1PackedSeq2.lean`), under the first-attempt
-          -- cap; a failure puts the state back and the flat loop script below runs as before
+          -- first attempt: the per-statement script (`Tools/VedU1PackedSeq2.lean`) under the proof budget (and
+          -- the optional `ved.u1.seqProofHeartbeats` floor); a failure puts the state back and the flat loop
+          -- script below runs as before
           let first? : Option Lean.Expr ← do
             match ← Tools.VedU1PackedSeq2.packedSeqScript nm.contract nm.mod nm.outs nm.body F stmt.getAppNumArgs m b0
                 pc.clkRst (dataPortsOf m pc.clkRst) regs (← helperConsts F) with
