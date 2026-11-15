@@ -105,11 +105,23 @@ run_cmd do
   expectWriteRefused "multi-output" ``twoOut
     (elabCommand (← `(#ved_u1_write twoOut ".lake/build/gen/inv/t.sv" ".lake/build/gen/inv/t_cppsim.h" wiresC)))
 
-/-- info: refused [table], clean -/
+-- a structure result: the standard entry takes the structure path (Tools/VedU1StructSeq.lean;
+-- this was a `[table]` refusal before), so the `#writeDesign` form accepts it with the bundled
+-- statement built from the structure's own projections
+#guard_msgs (drop info) in
+#ved_u1_write twoField ".lake/build/gen/inv/f.sv" ".lake/build/gen/inv/f_cppsim.h"
+
+/-- info: struct OK Tests.Ved.InvocationCheck.twoField.ved_u1 -/
 #guard_msgs in
-run_cmd do
-  expectWriteRefused "table" ``twoField
-    (elabCommand (← `(#ved_u1_write twoField ".lake/build/gen/inv/f.sv" ".lake/build/gen/inv/f_cppsim.h")))
+run_cmd liftTermElabM do
+  let nm := Names.ofBase ``twoField
+  let stmt ← instantiateMVars (← Term.elabTerm (← `(fun a b => bundle2 (twoField a b).x (twoField a b).y)) none)
+  let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
+  let some (.thmInfo ti) := (← getEnv).find? nm.thm | throwError "{nm.thm} is not a theorem"
+  unless ti.type == expected do throwError "{nm.thm}: type is not the expected U1Stmt"
+  let ax ← collectAxioms nm.thm
+  unless ax.all ([``propext, ``Classical.choice, ``Quot.sound].contains ·) do throwError "axioms {ax}"
+  logInfo m!"struct OK {nm.thm}"
 
 /-! ## Domain width controls: one input of 12 (plain decide), 16 (chunked), 32 and 64 bits (symbolic) -/
 
