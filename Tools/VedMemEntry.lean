@@ -13,7 +13,7 @@ import Tools.VedU1PackedEntry
 import Tools.VedU1MultiSeq
 
 /-!
-# `#ved_u1_mem decl`: the U1 entry for register-free modules with memories (`sparkle-ved-memory`)
+# `#ved_u1_mem decl`: the U1 entry for modules with memories, with or without `Signal.loop` registers (`sparkle-ved-memory`)
 
 Same path as `#ved_u1` (`Tools/VedU1Entry.lean`, not changed): specialise a leading `DomainConfig` binder, read
 the table from the declaration's type, `synthesizeCombinational` ONCE, register `ved_mod` / `ved_contract` /
@@ -22,8 +22,8 @@ exactly that type, strict audit.  The statement is `Tools.VedMem.MemStmt c m stm
 memory-free shape clause replaced by "no instances", the order clause `OrderOkM`, and the SAME
 `OutputsStmt` (every output port, every cycle, every run from the initial state, all memories 0).
 
-What the generated script proves, per memory statement `k` of the returned module (matched, in the order of
-the module's memory statements, to the `Signal.memory` / `Signal.memoryComboRead` calls of the declaration):
+What the generated script proves, per memory statement `k` of the returned module (matched by let name,
+`x` to the statement `_gen_x`, to the `Signal.memory` / `Signal.memoryComboRead` calls of the declaration):
 
 * `MemInv`: the IR array `mems name_k` is, at every cycle, the contents `memState` of the declaration's
   memory (the write port's address / data / enable signals), read through `toNat`;
