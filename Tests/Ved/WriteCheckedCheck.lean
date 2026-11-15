@@ -18,7 +18,8 @@ import Sparkle.Core.CircuitDo
   than the checked design; each is refused at `[written]` and NO file is written): the design of a
   different declaration (checking A while writing B); the checked design with the top module
   tampered; with a child tampered; with a child dropped; with the children reordered; with an extra
-  module appended; for the flat kinds a second module.  Checker refusals (`[packed]`, `[multi-output]`)
+  module appended; for the flat kinds a second module; the checked modules unchanged under another
+  top name (u1, packed, u1_hier).  Checker refusals (`[packed]`, `[multi-output]`)
   also leave no file.
 * EARLY `[shape]` REFUSAL of the packed entry: a packed body with a memory or with a submodule instance
   is refused at `[shape]` (`memInstFree`, tested before the artifact / order / proof steps), no file, no
@@ -189,14 +190,17 @@ macro "defU2 " n:ident : command => `(@[hardware_module] def $n (a b : Signal de
 defOne cu1a
 defOne cu1b
 defOne cu1c
+defOne cu1d
 defPk cpka
 defPk cpkb
+defPk cpkc
 defHier ch1
 defHier ch2
 defHier ch3
 defHier ch4
 defHier ch5
 defHier ch6
+defHier ch7
 defU2 cu2a
 defU2 cu2b
 
@@ -251,6 +255,10 @@ def extraMod (m : Sparkle.IR.AST.Module) (d : Design) : Design :=
   let d' := hierDesignOf m d
   { d' with modules := d'.modules ++ [m] }
 
+/-- the checked design (modules unchanged) under another top name -/
+def renameTop (m : Sparkle.IR.AST.Module) (d : Design) : Design :=
+  { hierDesignOf m d with topModule := "ved_other_top" }
+
 /-- hand the writer the design of ANOTHER declaration (check A, write B) -/
 def otherDesign (other : Name) : Sparkle.IR.AST.Module → Design → CommandElabM Design :=
   fun _ _ => liftTermElabM (Sparkle.Compiler.Elab.synthesizeHierarchical other)
@@ -269,11 +277,19 @@ run_cmd expectRefused "written" "u1_extra" .u1 ``cu1c (fun m d => pure (extraMod
 
 /-- info: refused [written], no file -/
 #guard_msgs in
+run_cmd expectRefused "written" "u1_top_name" .u1 ``cu1d (fun m d => pure (renameTop m d))
+
+/-- info: refused [written], no file -/
+#guard_msgs in
 run_cmd expectRefused "written" "pk_swap" .packed ``cpka (otherDesign ``pk2)
 
 /-- info: refused [written], no file -/
 #guard_msgs in
 run_cmd expectRefused "written" "pk_tamper" .packed ``cpkb (fun m d => pure (onTop tamperMod m d))
+
+/-- info: refused [written], no file -/
+#guard_msgs in
+run_cmd expectRefused "written" "pk_top_name" .packed ``cpkc (fun m d => pure (renameTop m d))
 
 /-- info: refused [written], no file -/
 #guard_msgs in
@@ -298,6 +314,10 @@ run_cmd expectRefused "written" "h_drop" .u1Hier ``ch5 (fun m d => pure (dropKid
 /-- info: refused [written], no file -/
 #guard_msgs in
 run_cmd expectRefused "written" "h_reorder" .u1Hier ``ch6 (fun m d => pure (reorderMods m d))
+
+/-- info: refused [written], no file -/
+#guard_msgs in
+run_cmd expectRefused "written" "h_top_name" .u1Hier ``ch7 (fun m d => pure (renameTop m d))
 
 /-- info: refused [written], no file -/
 #guard_msgs in

@@ -112,6 +112,8 @@ def guardWritten (kind : Kind) (decl : Name) (written : Design) : CommandElabM U
       unless w == e do
         refuseWritten decl m!"module {w.name} differs from the checked one"
   else
+    unless written.topModule == vm.name do
+      refuseWritten decl m!"top name {written.topModule} differs from the checked module's {vm.name}"
     unless written.modules.length == 1 do
       refuseWritten decl
         m!"the design has {written.modules.length} modules; the statement covers exactly the one module {vm.name}"
