@@ -1608,3 +1608,9 @@ lean_lib «Tools.VedWriteForms» where
 
 lean_lib «Tests.Ved.WriteFormsCheck» where
   roots := #[`Tests.Ved.WriteFormsCheck]
+
+lean_lib «Tools.VedWriteChecked» where
+  roots := #[`Tools.VedWriteChecked]
+
+lean_lib «Tests.Ved.WriteCheckedCheck» where
+  roots := #[`Tests.Ved.WriteCheckedCheck]
