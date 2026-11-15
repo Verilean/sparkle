@@ -1662,3 +1662,6 @@ lean_lib «Tools.VedMem» where
 
 lean_lib «Tools.VedMemEntry» where
   roots := #[`Tools.VedMemEntry]
+
+lean_lib «Tools.VedMemLoop» where
+  roots := #[`Tools.VedMemLoop]

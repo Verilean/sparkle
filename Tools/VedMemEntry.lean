@@ -4,6 +4,7 @@ import Tools.VedU1Entry
 import Tools.VedMem
 import Tools.VedStrictAudit
 import Tools.VedU1Uns
+import Tools.VedMemLoop
 import Tools.VedU1Loop
 import Tools.VedU1WireShare
 import Tools.VedU1Wire
@@ -351,6 +352,8 @@ state are peeled (their side conditions are goals of the same kind as the regist
 def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
     (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
     (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) : TermElabM Syntax := do
+  -- the state projections `Signal.fst` / `Signal.snd` of a loop's state signal are unfolded with the helpers
+  let helpers := helpers ++ #[``Sparkle.Core.Signal.Signal.fst, ``Sparkle.Core.Signal.Signal.snd]
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
   let C := mkCIdent nm.contract
@@ -363,6 +366,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     f ← `(@$fI)
     for _ in [0:nDom] do f ← `($f Sparkle.Core.Domain.defaultDomain)
   let Rstx ← Term.exprToSyntax R
+  let hsSep : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems hsA
   let n := stmts.length
   let nSync := (stmts.filter fun x => !x.2.2.2.1).length
   let k := regs.length
@@ -371,6 +375,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
   let hL := (List.range nSync).toArray.map fun i => mkIdent (Name.mkSimple s!"hL{i}")
   let hD := (List.range n).toArray.map fun i => mkIdent (Name.mkSimple s!"hD{i}")
   let hAll : Array (TSyntax `ident) := hR' ++ hM ++ hL
+  let hNorm : Array (TSyntax `ident) := hAll ++ hD
   let hPatArr ← hAll.mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
   let obtainTac : TSyntax `tactic ← if hAll.size == 1 then `(tactic| have $(hAll[0]!):ident := hR)
     else `(tactic| obtain ⟨$[$hPatArr],*⟩ := hR)
@@ -437,6 +442,12 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
     #[closing]]
   let tail := stages.flatten
+  -- the declaration's loops in the hypotheses take the simp normal form of the goal's (the invariant was
+  -- built from the declaration as written; `loopScriptFor` builds it from the normalised source instead)
+  let normHyps ← `(tactic| try (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf,
+      applyIns, $fI:ident, comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
+      Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
+      Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*] at $[$hNorm]*))
   let stopT ← `(tactic| (trace_state; fail "ved_mem debug stop"))
   let skipT ← `(tactic| skip)
   let d := fun (k : Nat) => if dbg == k then stopT else skipT
@@ -454,12 +465,12 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
       refine outputs_of_step_mem $C $M $B $f $O (by decide +kernel) $Rstx ?h0 ?hstep
       case h0 =>
         intro $insI hok
-        ved_loop_unfold_share 0
+        ved_loop_unfold_mem [$hsSep,*] 0
         refine $h0Term
         $d10
-        all_goals simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
-          Sparkle.Core.Signal.Signal.memory_val_zero]
-        all_goals decide +kernel
+        all_goals ved_loop_simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
+          Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*]
+        all_goals (try decide +kernel)
       case hstep =>
         intro $insI hok $sI st mems hR
         have $hinI := hok.1 $sI
@@ -467,8 +478,9 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
         simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident
         $obtainTac
         $rdTacs*
+        $normHyps
         $d1
-        ved_loop_unfold_share ($sI + 1)
+        ved_loop_unfold_mem [$hsSep,*] ($sI + 1)
         $d2
         (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
           comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,

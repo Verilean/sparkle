@@ -185,6 +185,45 @@ theorem memNexts_one (we : WEnv) (name : String) (aw dw : Nat) (clk : String) (w
   simp only [memNexts, h]
   exact hrest
 
+/-! ## Loops whose body holds a memory
+
+`Tools.VedU1Loop.loop_val_unfold` needs the loop body's value at `t+1` to depend on its argument only through
+the value at `t`.  A memory's contents depend on the write port's signals at EVERY earlier cycle, so a body
+that holds a memory whose ports read the loop state does not meet it.  The strong form: the value at `t+1`
+depends on the argument at the cycles `≤ t` (the fixpoint is defined by strong recursion, which is all the
+proof uses), and `memState_congr` is the matching congruence for the contents. -/
+
+theorem loop_val_unfold_strong {dom : DomainConfig} {α : Type} [Inhabited α]
+    (F : Signal dom α → Signal dom α)
+    (h0 : ∀ s₁ s₂ : Signal dom α, (F s₁).val 0 = (F s₂).val 0)
+    (hS : ∀ (t : Nat) (s₁ s₂ : Signal dom α), (∀ k, k ≤ t → s₁.val k = s₂.val k) →
+      (F s₁).val (t + 1) = (F s₂).val (t + 1)) (t : Nat) :
+    (Signal.loop F).val t = (F (Signal.loop F)).val t := by
+  show Signal.loopGo F t = _
+  rw [Signal.loopGo_eq]
+  cases t with
+  | zero => exact h0 _ _
+  | succ u =>
+    apply hS u
+    intro k hk
+    show (if k < u + 1 then Signal.loopGo F k else default) = Signal.loopGo F k
+    rw [if_pos (Nat.lt_succ_of_le hk)]
+
+/-- the contents after `t` cycles depend on the write port's signals at the cycles `< t` only -/
+theorem memState_congr {dom : DomainConfig} {aw dw : Nat} (init : BitVec aw → BitVec dw)
+    {wa₁ wa₂ : Signal dom (BitVec aw)} {wd₁ wd₂ : Signal dom (BitVec dw)} {we₁ we₂ : Signal dom Bool}
+    (t : Nat) (ha : ∀ k, k < t → wa₁.val k = wa₂.val k) (hd : ∀ k, k < t → wd₁.val k = wd₂.val k)
+    (he : ∀ k, k < t → we₁.val k = we₂.val k) :
+    memState init wa₁ wd₁ we₁ t = memState init wa₂ wd₂ we₂ t := by
+  induction t with
+  | zero => rfl
+  | succ n ih =>
+    funext addr
+    rw [memState_succ, memState_succ, ha n (Nat.lt_succ_self n), hd n (Nat.lt_succ_self n),
+      he n (Nat.lt_succ_self n),
+      ih (fun k hk => ha k (Nat.lt_succ_of_lt hk)) (fun k hk => hd k (Nat.lt_succ_of_lt hk))
+        (fun k hk => he k (Nat.lt_succ_of_lt hk))]
+
 /-! ## 3. The invariant -/
 
 /-- The IR array of memory `name` holds, at cycle `n`, the contents the Signal side has. -/
