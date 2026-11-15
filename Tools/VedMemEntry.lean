@@ -167,6 +167,10 @@ macro_rules
   | `(tactic| ved_mem_peel $h:ident) =>
     `(tactic| first
       | exact $h
+      | (refine Tools.VedMem.MemInv.ite (fun _ => ?_) (fun _ => ?_) <;> ved_mem_peel $h)
+      | (refine Tools.VedMem.MemInv.other_leaf ?_ (by decide) _ _; ved_mem_peel $h)
+      | (refine Tools.VedMem.MemInv.write_leaf ?_ ?_ ?_ ?_; ved_mem_peel $h)
+      | (refine Tools.VedMem.MemInv.hold_leaf ?_ ?_; ved_mem_peel $h)
       | (refine Tools.VedMem.MemInv.write' ?_ ?_ ?_ ?_; ved_mem_peel $h)
       | (refine Tools.VedMem.MemInv.write'' ?_ ?_ ?_ ?_; ved_mem_peel $h)
       | (refine Tools.VedMem.MemInv.other' ?_ (by decide) _ _ _ _ _; ved_mem_peel $h)

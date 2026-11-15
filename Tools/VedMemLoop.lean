@@ -139,7 +139,7 @@ elab "ved_dbg_state" : tactic => do
       let mut o := ""
       for d in ← getLCtx do
         unless d.isImplementationDetail do
-          o := o ++ s!"\n  {d.userName} : " ++ (toString (← ppExpr (← instantiateMVars d.type))).take 260
+          o := o ++ s!"\n  {d.userName} : " ++ (toString (← ppExpr (← instantiateMVars d.type))).take 2600
       return o
     out := out ++ "\nHYPS:" ++ hy.take 4500
     let extra ← g.withContext do
