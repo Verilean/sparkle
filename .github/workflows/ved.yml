@@ -196,6 +196,9 @@ jobs:
     - name: "U1 chained bit-serial CRC bodies (sharing-preserving loop script, bit-operation wires); refusal controls"
       run: lake build Tests.Ved.U1WireShareCheck
 
+    - name: "U1 signed select trees and signed product + shift + clamp (maxPool2x2, requantize): positives and refusal controls"
+      run: lake build Tests.Ved.U1HeavyCheck
+
     - name: Deep route, every regression file
       run: |
         lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen \

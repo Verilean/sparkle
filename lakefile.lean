@@ -408,6 +408,9 @@ lean_lib «Tools.VedU1ScriptSeq» where
 lean_lib «Tools.VedU1ScriptSeqGen» where
   roots := #[`Tools.VedU1ScriptSeqGen]
 
+lean_lib «Tools.VedU1Heavy» where
+  roots := #[`Tools.VedU1Heavy]
+
 lean_lib «Tools.VedU1Loop» where
   roots := #[`Tools.VedU1Loop]
 
@@ -515,6 +518,9 @@ lean_lib «Tests.Ved.U1MultiLoopCheck» where
 
 lean_lib «Tests.Ved.U1SeqCheck» where
   roots := #[`Tests.Ved.U1SeqCheck]
+
+lean_lib «Tests.Ved.U1HeavyCheck» where
+  roots := #[`Tests.Ved.U1HeavyCheck]
 
 lean_lib «Tests.Ved.U1MultiLoopFull1» where
   roots := #[`Tests.Ved.U1MultiLoopFull1]
