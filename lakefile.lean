@@ -402,6 +402,9 @@ lean_lib «Tools.VedU1Wire» where
 lean_lib «Tools.VedU1WireShare» where
   roots := #[`Tools.VedU1WireShare]
 
+lean_lib «Tools.VedU1StructOut» where
+  roots := #[`Tools.VedU1StructOut]
+
 lean_lib «Tools.VedU1HierSem» where
   roots := #[`Tools.VedU1HierSem]
 
@@ -1602,3 +1605,6 @@ lean_lib «Tools.VedInvocation» where
 
 lean_lib «Tests.Ved.InvocationCheck» where
   roots := #[`Tests.Ved.InvocationCheck]
+
+lean_lib «Tests.Ved.U1StructOutCheck» where
+  roots := #[`Tests.Ved.U1StructOutCheck]
