@@ -118,6 +118,42 @@ def memQuantP {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal d
     bundleAll! [Signal.register 0#5 idxNext, Signal.register false busyNext, Signal.register 0#16 outMemRead]
   bundle2 (QState.last state) (bundle2 (QState.idx state) (QState.busy state))
 
+declare_signal_state FState
+  | fsm  : BitVec 2  := 0#2
+  | idx  : BitVec 5  := 0#5
+  | last : BitVec 16 := 0#16
+
+/-- two memories in a loop whose second memory's write enable (`fsm == 1`) and the first's read address come from the state: the
+update of the two arrays is a tree of `if`s over single-word updates (`Tools.VedMem.MemInv.ite` and the leaf lemmas) -/
+def memFsm {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let fsm := FState.fsm state
+    let idx := FState.idx state
+    let isProcess := fsm === (1#2 : Signal dom _)
+    let readAddr4 := idx.map (BitVec.extractLsb' 0 4 ·)
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let outMemRead := Signal.memory readAddr4 inputCoeff isProcess (Signal.pure 0#4)
+    let fsmNext := Signal.mux start (Signal.pure 1#2) (Signal.mux (idx === (15#5 : Signal dom _)) (Signal.pure 0#2) fsm)
+    let idxNext := Signal.mux isProcess (idx + 1#5) (Signal.pure 0#5)
+    bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#5 idxNext, Signal.register 0#16 outMemRead]
+  FState.last state
+
+/-- control: the output memory's write enable is `start`, not `fsm == 1` -/
+def memFsmEn {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let fsm := FState.fsm state
+    let idx := FState.idx state
+    let isProcess := fsm === (1#2 : Signal dom _)
+    let readAddr4 := idx.map (BitVec.extractLsb' 0 4 ·)
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let outMemRead := Signal.memory readAddr4 inputCoeff start (Signal.pure 0#4)
+    let fsmNext := Signal.mux start (Signal.pure 1#2) (Signal.mux (idx === (15#5 : Signal dom _)) (Signal.pure 0#2) fsm)
+    let idxNext := Signal.mux isProcess (idx + 1#5) (Signal.pure 0#5)
+    bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#5 idxNext, Signal.register 0#16 outMemRead]
+  FState.last state
+
 /-! ## Entry runs -/
 
 #guard_msgs (drop info) in
@@ -136,6 +172,10 @@ def memQuantP {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal d
 #ved_u1_mem memQuant
 #guard_msgs (drop info) in
 #ved_u1_mem_packed memQuantP
+#guard_msgs (drop info) in
+#ved_u1_mem memFsm
+#guard_msgs (drop info) in
+#ved_u1_mem memFsmEn
 
 /-! ## Stored type `==` the statement, standard axioms (independent probe) -/
 
@@ -165,6 +205,9 @@ run_cmd liftTermElabM <| storedOk ``memQuant false
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCheck.memQuantP -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedOk ``memQuantP true
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCheck.memFsm -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``memFsm false
 
 /-! ## The lemmas: standard axioms only (independent probe) -/
 
@@ -172,14 +215,14 @@ run_cmd liftTermElabM <| storedOk ``memQuantP true
 `Classical.choice`, `Quot.sound` at most -/
 def lemmasOk : TermElabM Unit := do
   let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
-  let names : List Name := [``Tools.VedMem.memState_init, ``Tools.VedMem.mem_read_after_write, ``Tools.VedMem.mem_hold_disabled, ``Tools.VedMem.mem_hold_other, ``Tools.VedMem.mem_step_eq, ``Tools.VedMem.memory_val_zero', ``Tools.VedMem.memory_registered_read, ``Tools.VedMem.memory_eq_combo_delayed, ``Tools.VedMem.memory_same_cycle_reads_old, ``Tools.VedMem.memory_next_cycle_reads_new, ``Tools.VedMem.combo_same_cycle_reads_old, ``Tools.VedMem.combo_next_cycle_reads_new, ``Tools.VedMem.combo_unwritten_reads_init, ``Tools.VedMem.memoryWithInit_val_zero, ``Tools.VedMem.memoryWithInit_zero_eq_memory, ``Tools.VedMem.memory_ne_combo, ``Tools.VedMem.memoryWithInit_ne_memory, ``Tools.VedMem.evalPayload_ref, ``Tools.VedMem.memWritePorts_one, ``Tools.VedMem.memWritePorts_ref_one, ``Tools.VedMem.memNexts_one, ``Tools.VedMem.loop_val_unfold_strong, ``Tools.VedMem.memState_congr, ``Tools.VedMem.ofNat_mask_eq, ``Tools.VedMem.MemInv.read, ``Tools.VedMem.ofNat_eq_iff, ``Tools.VedMem.ofNat_mod_eq_extract, ``Tools.VedMem.ofNat_mod_eq_extract', ``Tools.VedMem.mask_toNat, ``Tools.VedMem.MemInv.write, ``Tools.VedMem.MemInv.other, ``Tools.VedMem.MemInv.write', ``Tools.VedMem.MemInv.other', ``Tools.VedMem.MemInv.write'', ``Tools.VedMem.MemInv.other'', ``Tools.VedMem.MemInv.read', ``Tools.VedMem.outputs_of_step_mem, ``Tools.VedMem.outputs_of_orderM, ``Tools.VedMem.MemInv.zero,
+  let names : List Name := [``Tools.VedMem.memState_init, ``Tools.VedMem.mem_read_after_write, ``Tools.VedMem.mem_hold_disabled, ``Tools.VedMem.mem_hold_other, ``Tools.VedMem.mem_step_eq, ``Tools.VedMem.memory_val_zero', ``Tools.VedMem.memory_registered_read, ``Tools.VedMem.memory_eq_combo_delayed, ``Tools.VedMem.memory_same_cycle_reads_old, ``Tools.VedMem.memory_next_cycle_reads_new, ``Tools.VedMem.combo_same_cycle_reads_old, ``Tools.VedMem.combo_next_cycle_reads_new, ``Tools.VedMem.combo_unwritten_reads_init, ``Tools.VedMem.memoryWithInit_val_zero, ``Tools.VedMem.memoryWithInit_zero_eq_memory, ``Tools.VedMem.memory_ne_combo, ``Tools.VedMem.memoryWithInit_ne_memory, ``Tools.VedMem.evalPayload_ref, ``Tools.VedMem.memWritePorts_one, ``Tools.VedMem.memWritePorts_ref_one, ``Tools.VedMem.memNexts_one, ``Tools.VedMem.loop_val_unfold_strong, ``Tools.VedMem.memState_congr, ``Tools.VedMem.ofNat_mask_eq, ``Tools.VedMem.MemInv.read, ``Tools.VedMem.ofNat_eq_iff, ``Tools.VedMem.ofNat_mod_eq_extract, ``Tools.VedMem.ofNat_mod_eq_extract', ``Tools.VedMem.mask_toNat, ``Tools.VedMem.MemInv.write, ``Tools.VedMem.MemInv.other, ``Tools.VedMem.MemInv.write', ``Tools.VedMem.MemInv.other', ``Tools.VedMem.MemInv.write'', ``Tools.VedMem.MemInv.other'', ``Tools.VedMem.MemInv.read', ``Tools.VedMem.outputs_of_step_mem, ``Tools.VedMem.outputs_of_orderM, ``Tools.VedMem.MemInv.zero, ``Tools.VedMem.MemInv.ite, ``Tools.VedMem.MemInv.other_leaf, ``Tools.VedMem.MemInv.hold_leaf, ``Tools.VedMem.MemInv.write_leaf,
     ``Tools.VedMemLoop.add_val_bs, ``Tools.VedMemLoop.sub_val_bs, ``Tools.VedMemLoop.mul_val_sb]
   for n in names do
     let axs ← collectAxioms n
     unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
   logInfo m!"{names.length} lemmas, axioms within std3"
 
-/-- info: 42 lemmas, axioms within std3 -/
+/-- info: 46 lemmas, axioms within std3 -/
 #guard_msgs in
 run_cmd liftTermElabM lemmasOk
 
@@ -226,6 +269,10 @@ run_cmd expectRefused "proof" (checkerNames `ctlAddr) (cross ``memBase ``memAddr
 /-- info: refused [proof], clean -/
 #guard_msgs (info, drop trace) in
 run_cmd expectRefused "proof" (checkerNames `ctlEn) (cross ``memBase ``memEn `ctlEn)
+
+/-- info: refused [proof], clean -/
+#guard_msgs (info, drop trace) in
+run_cmd expectRefused "proof" (checkerNames `ctlFsmEn) (cross ``memFsm ``memFsmEn `ctlFsmEn)
 
 /-! Read timing: the memory statement of a combinational read is not matched to the registered read of the other
 declaration's call (and the other way): refused at `shape`, before any proof. -/

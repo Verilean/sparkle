@@ -167,14 +167,10 @@ macro_rules
   | `(tactic| ved_mem_peel $h:ident) =>
     `(tactic| first
       | exact $h
-      | (refine Tools.VedMem.MemInv.ite (fun _ => ?_) (fun _ => ?_) <;> ved_mem_peel $h)
-      | (refine Tools.VedMem.MemInv.other_leaf ?_ (by decide) _ _; ved_mem_peel $h)
-      | (refine Tools.VedMem.MemInv.write_leaf ?_ ?_ ?_ ?_; ved_mem_peel $h)
-      | (refine Tools.VedMem.MemInv.hold_leaf ?_ ?_; ved_mem_peel $h)
-      | (refine Tools.VedMem.MemInv.write' ?_ ?_ ?_ ?_; ved_mem_peel $h)
-      | (refine Tools.VedMem.MemInv.write'' ?_ ?_ ?_ ?_; ved_mem_peel $h)
-      | (refine Tools.VedMem.MemInv.other' ?_ (by decide) _ _ _ _ _; ved_mem_peel $h)
-      | (refine Tools.VedMem.MemInv.other'' ?_ (by decide) _ _ _; ved_mem_peel $h))
+      | (ved_mem_shape ite; refine Tools.VedMem.MemInv.ite (fun _ => ?_) (fun _ => ?_) <;> ved_mem_peel $h)
+      | (ved_mem_shape lam; refine Tools.VedMem.MemInv.other_leaf ?_ (by decide) _ _; ved_mem_peel $h)
+      | (ved_mem_shape lam; refine Tools.VedMem.MemInv.write_leaf ?_ ?_ ?_ ?_; ved_mem_peel $h)
+      | (ved_mem_shape fvar; refine Tools.VedMem.MemInv.hold_leaf ?_ ?_; ved_mem_peel $h))
 
 /-- print the generated script before elaborating it (debugging only) -/
 register_option ved.mem.debugStage : Nat := {
@@ -186,6 +182,13 @@ register_option ved.mem.showScript : Bool := {
   defValue := false
   descr := "print the script `#ved_u1_mem` generated"
 }
+
+/-- debugging (`ved.mem.showScript`): the resident set size, from `/proc/self/status` -/
+def rssNote (tag : String) : MetaM Unit := do
+  if ved.mem.showScript.get (← getOptions) then
+    let t ← try IO.FS.readFile "/proc/self/status" catch _ => pure ""
+    let l := (t.splitOn "\n").filter (·.startsWith "VmRSS")
+    IO.eprintln s!"VED MEM RSS {tag}: {l.headD ""} t={← IO.monoMsNow}"
 
 def refuseM {α} (decl : Name) (stage : String) (msg : MessageData) : MetaM α :=
   throwError m!"VED U1 REFUSED {decl} [{stage}]: {msg}"
@@ -371,7 +374,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
     (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) (pk : Bool := false) : TermElabM Syntax := do
   -- the state projections `Signal.fst` / `Signal.snd` of a loop's state signal are unfolded with the helpers
-  let helpers := helpers ++ #[``Sparkle.Core.Signal.Signal.fst, ``Sparkle.Core.Signal.Signal.snd]
+  let helpers := helpers ++ #[``Sparkle.Core.Signal.Signal.fst, ``Sparkle.Core.Signal.Signal.snd, ``Sparkle.Core.Signal.Signal.memoryComboRead_val]
   let helpers := helpers ++ memHelperNames
   -- a packed result (`Tools/VedU1Packed.lean`): the contract is the collapsed `PContract.core`, the declaration its `packedF`
   let helpers := if pk then helpers ++ #[``Tools.VedU1Packed.PContract.core, ``Tools.VedU1Packed.collapse, ``Tools.VedU1MultiSeqLemmas.OTy_packNat_pair, ``Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, ``Tools.VedU1Contract.OTy.width, ``Tools.VedU1Contract.PTy.width] else helpers
@@ -450,13 +453,15 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     for _ in [0:nSync] do a := a.push (← `(?_))
     pure a
   let h0Term : Term ← if h0Elems.size == 1 then pure h0Elems[0]! else `(⟨$[$h0Elems],*⟩)
-  let closing ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))
-  let closing ← if pk then `(tactic| all_goals (first | (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close)) | (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))) else pure closing
-  let closingDbg ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ved_dbg_state))
+  let closing ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))
+  let closing ← if pk then `(tactic| all_goals (first | (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega))) | (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))) else pure closing
+  let closingDbg ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega) | ved_dbg_state))
   let closing := if dbg == 17 then closingDbg else closing
   let stages : Array (Array (TSyntax `tactic)) := #[
-    #[← `(tactic| all_goals ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
-      ← `(tactic| all_goals try (repeat' apply And.intro))],
+    #[← `(tactic| all_goals (try ved_lt_close)),
+      ← `(tactic| all_goals (try ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*])),
+      ← `(tactic| all_goals try (repeat' apply And.intro)),
+      ← `(tactic| all_goals (try ved_lt_close))],
     #[← `(tactic| all_goals (try ved_loopw_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
     #[← `(tactic| all_goals ved_bit_simp_share)],
     #[← `(tactic| all_goals (try ved_or_lit))],
@@ -467,7 +472,10 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
     #[← `(tactic| all_goals (try simp only [Tools.VedMem.ofNat_mod_eq_extract'])), closing]]
-  let stopStage ← `(tactic| ved_dbg_state)
+  -- `dbg ≥ 100`: stop after the stage `dbg - 100` by admitting the goals left (to time the kernel on the proof so far)
+  let stopStage ← if dbg ≥ 100 then `(tactic| all_goals sorry) else `(tactic| ved_dbg_state)
+  let wrapAll := dbg ≥ 100
+  let dbg := if dbg ≥ 100 then dbg - 100 else dbg
   let tail := (stages.zipIdx.map fun (st, k) => if dbg == 20 + k then st.push stopStage else st).flatten
   -- the declaration's loops in the hypotheses take the simp normal form of the goal's (the invariant was
   -- built from the declaration as written; `loopScriptFor` builds it from the normalised source instead)
@@ -475,7 +483,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
       applyIns, $fI:ident, comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
       Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
       Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*] at $[$hNorm]*))
-  let stopT ← `(tactic| ved_dbg_state)
+  let stopT := stopStage
   let skipT ← `(tactic| skip)
   let d := fun (k : Nat) => if dbg == k then stopT else skipT
   let d1 := d 11
@@ -484,6 +492,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
   let d4 := d 14
   let d5 := d 15
   let d6 := d 16
+  let d18 ← if dbg == 18 then `(tactic| (rotate_left 4; ved_mem_shape ite; refine Tools.VedMem.MemInv.ite (fun _ => ?_) (fun _ => ?_); ved_dbg_state)) else `(tactic| skip)
   let d10 := d 10
   let hinSimp : TSyntax `tactic ←
     if pk then `(tactic| simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth,
@@ -516,20 +525,22 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
         $rdTacs*
         $normHyps
         $d1
-        ved_loop_unfold_mem [$hsSep,*] ($sI + 1)
+        $(← if wrapAll then `(tactic| all_goals ved_loop_unfold_mem [$hsSep,*] ($sI + 1)) else `(tactic| ved_loop_unfold_mem [$hsSep,*] ($sI + 1)))
         $d2
-        (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
+        all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
           comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
           Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
           Sparkle.Core.Signal.Signal.memory_val_zero, $ex1,*])
         $d3
-        refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
+        all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
         all_goals (try (repeat' apply And.intro))
         $d4
+        $d18
         all_goals (try $peelAlt:tactic)
         $d5
+        all_goals (try ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val])
         all_goals (try dsimp only at *)
-        ved_loop_gen_mem $sI
+        $(← if wrapAll then `(tactic| all_goals ved_loop_gen_mem $sI) else `(tactic| ved_loop_gen_mem $sI))
         $d6
         $tail*)
   if pk then
@@ -615,13 +626,21 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     let pf ← tryCatchRuntimeEx
       (withProofBudget do
         withoutErrToSorry do
+          rssNote "before elab"
           let e ← elabTermEnsuringType stx expected
+          rssNote "elabTermEnsuringType done"
           synthesizeSyntheticMVarsNoPostponing
-          instantiateMVars e)
+          rssNote "synthesize done"
+          let e ← instantiateMVars e
+          if ved.mem.showScript.get (← getOptions) then
+            IO.eprintln s!"VED MEM proof dag size {(Tools.VedU1WireShare.collectDag (fun _ => true) e).size}"
+          rssNote "instantiateMVars done"
+          return e)
       fun e => do
         if ved.mem.showScript.get (← getOptions) then
           for msg in (← Core.getMessageLog).toList do IO.eprintln s!"VED MEM MSG {← msg.data.toString}"
         refuse decl "proof" e.toMessageData
+    if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM elaborated, proof term size {pf.approxDepth}"
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let new := errs.drop errsBefore
@@ -631,11 +650,14 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
       if ved.mem.showScript.get (← getOptions) then
         for msg in (← Core.getMessageLog).toList do IO.eprintln s!"VED MEM MSG {← msg.data.toString}"
       refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
+    rssNote "proof elaborated"
     if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
+    if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM kernel check starts"
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
         addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
       fun e => refuse decl "kernel" e.toMessageData
+    rssNote "kernel done"
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
       | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
     unless ti.type == expected do refuse decl "type" m!"stored type differs from the expected statement"
