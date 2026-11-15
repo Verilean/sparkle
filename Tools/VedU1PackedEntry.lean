@@ -12,7 +12,8 @@ specialise a leading `DomainConfig` binder, read the table from the declaration'
 `synthesizeCombinational` ONCE, register `ved_mod`, `ved_contract` (here a `PContract`),
 `ved_outs`, `ved_body`, elaborate the generated script against `PackedStmt c m stmt`, add the theorem with exactly
 that type, strict audit.  Register-free bodies use `packedScript` (then `packedCombScript`); bodies with
-registers (`Signal.loop`) use `packedLoopScript` (Tools/VedU1MultiSeq.lean), the contract then carrying the
+registers (`Signal.loop`) first try `Tools.VedU1PackedSeq2.packedSeqScript` (the per-statement script of `#ved_u1`, over the packed
+statement; Tools/VedU1PackedSeq2.lean), then `packedLoopScript` (Tools/VedU1MultiSeq.lean), the contract then carrying the
 module's clock/reset and register initial values (`PContract.clkRst` / `inits`, bound by `ShapeCore`).  The
 result must be a `Prod` tree of at least two leaves inside ONE `Signal` (`Bool` / `BitVec w` leaves).
 
