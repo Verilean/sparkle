@@ -3,6 +3,7 @@ import Sparkle.Compiler.Elab
 import Tools.VedU1Deep
 import Tools.VedU1HierEntry
 import Tools.VedU2HierKid
+import Tools.VedU2HierMultiChain
 
 /-!
 # Stateful hierarchical entry, H2a (`#ved_u2_hier decl`)
@@ -295,6 +296,10 @@ structure InstInfo where
   stateArg : Bool := false
   /-- H2c-state: per data-port wire, the parent register slot it is an alias of -/
   slots : List (String × Nat) := []
+  /-- H3-open: the reads of the register bundle in the nets (`Tools/VedU2HierMultiChain.lean`) and the register slots the
+  net reads (only those get facts) -/
+  bsl : List Tools.VedU2HierMultiChain.BSlice := []
+  needSlots : List Nat := []
 
 def ptyTxt : PTy → String
   | .bit => "Tools.VedU1Contract.PTy.bit"

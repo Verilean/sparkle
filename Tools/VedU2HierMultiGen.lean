@@ -295,7 +295,11 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
           let osVal ← mkLambdaFVars (xs ++ #[live]) (← mkTuple osComps)
           addDefnRegular osName (← inferType osVal) osVal
           -- the declaration's own loop
-          let qBody ← mkAppM ``Sparkle.Core.Signal.Signal.loop #[← loopFOfOf body]
+          -- the declaration's own loop, as a CONSTANT (the proof's `simp` must not unfold the 34-register body)
+          let qName := base ++ Name.mkSimple (openSuf ++ "_Q")
+          let qVal ← mkLambdaFVars xs (← mkAppM ``Sparkle.Core.Signal.Signal.loop #[← loopFOfOf body])
+          addDefnRegular qName (← inferType qVal) qVal
+          let qBody := mkAppN (Lean.mkConst qName) xs
           -- E: the oracle tuples agree below t
           let eName := base ++ Name.mkSimple (openSuf ++ "_E")
           withLocalDeclD `o osTy fun o => withLocalDeclD `o' osTy fun o' => withLocalDeclD `t natTy fun t => do

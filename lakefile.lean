@@ -334,6 +334,12 @@ lean_lib «Tools.VedU2HierMultiLoop» where
 lean_lib «Tools.VedU2HierMultiGen» where
   roots := #[`Tools.VedU2HierMultiGen]
 
+lean_lib «Tools.VedU2HierMultiBundle» where
+  roots := #[`Tools.VedU2HierMultiBundle]
+
+lean_lib «Tools.VedU2HierMultiChain» where
+  roots := #[`Tools.VedU2HierMultiChain]
+
 lean_lib «Tools.VedU2HierXorAttr» where
   roots := #[`Tools.VedU2HierXorAttr]
 
