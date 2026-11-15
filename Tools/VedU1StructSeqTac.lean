@@ -288,4 +288,49 @@ macro "ved_ss_unfold1 " "[" hs:Lean.Parser.Tactic.simpLemma,* "]" t:term : tacti
 
 
 
+/-- the `BitVec.toNat x = n` comparisons of `e` (`x : BitVec w`, `w` a numeral): per distinct `x`, its
+width and the distinct literals -/
+partial def stateAtoms (e : Lean.Expr) (acc : Array (Lean.Expr × Nat × List Nat)) :
+    MetaM (Array (Lean.Expr × Nat × List Nat)) := do
+  let mut acc := acc
+  if e.isAppOfArity ``Eq 3 && (e.getArg! 0).isConstOf ``Nat then
+    let l := e.getArg! 1
+    if l.isAppOfArity ``BitVec.toNat 2 then
+      if let some n := (e.getArg! 2).nat? then
+        if let some w := (← whnfR (← instantiateMVars (l.getArg! 0))).nat? then
+          let x := l.getArg! 1
+          match acc.findIdx? (·.1 == x) with
+          | some i =>
+            let (x', w', ns) := acc[i]!
+            unless ns.contains n do acc := acc.set! i (x', w', n :: ns)
+          | none => acc := acc.push (x, w, [n])
+  match e with
+  | .app f a => stateAtoms a (← stateAtoms f acc)
+  | .lam _ t b _ => stateAtoms b (← stateAtoms t acc)
+  | .forallE _ t b _ => stateAtoms b (← stateAtoms t acc)
+  | .letE _ t v b _ => stateAtoms b (← stateAtoms v (← stateAtoms t acc))
+  | .mdata _ b => stateAtoms b acc
+  | _ => return acc
+
+/-- `ved_ss_state_split`: a goal that compares one narrow `BitVec` state value (at most 6 bits) with at
+least `4` different literals (`if st.toNat = 1 …`, the region predicates of a state machine) is split on
+the value of that state (`x.toNat = 0 ∨ … ∨ x.toNat = 2^w - 1`, by `omega`), and `x.toNat` is rewritten
+by each case: the comparisons fold and the remaining goal does not branch on them (`repeat' split` would
+take every combination of the conditions).  Fails when the goal has no such comparison.  Untrusted: the
+kernel checks the cases. -/
+elab "ved_ss_state_split" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let atoms ← stateAtoms tgt #[]
+  let cands := atoms.filter fun (x, w, ns) => ns.length ≥ 4 && w ≤ 6 && x.isFVar
+  let some (x, w, _) := cands[0]? | throwError "ved_ss_state_split: no state value compared with several literals"
+  let xs ← Term.exprToSyntax x
+  let hc := mkIdent `hcase
+  let h := mkIdent `hcaseV
+  let mut dj : Term ← `(BitVec.toNat $xs = $(Syntax.mkNumLit (toString (2 ^ w - 1))))
+  for v in (List.range (2 ^ w - 1)).reverse do
+    dj ← `(BitVec.toNat $xs = $(Syntax.mkNumLit (toString v)) ∨ $dj)
+  evalTactic (← `(tactic| have $hc:ident : $dj := (by have := BitVec.isLt $xs; omega)))
+  evalTactic (← `(tactic| repeat' first | (rcases $hc:ident with $h:ident | $hc:ident) | (have $h:ident := $hc:ident; clear $hc:ident)))
+  evalTactic (← `(tactic| all_goals simp only [$h:ident, Nat.reduceEqDiff, ↓reduceIte, if_true, if_false, Nat.reduceMod, Nat.reduceAdd] at *))
+
 end Tools.VedU1StructSeqTac

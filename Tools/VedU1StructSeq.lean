@@ -116,6 +116,11 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
       ← `(tactic| all_goals (try ved_pack_simp)),
       ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat]))],
+    -- the one-bit logic again: the register fields are now plain values, so `x < 2` side conditions of
+    -- `a ||| b` / `a &&& b` between comparisons (`inHdr := is1 ||| is2 ||| …`) are provable
+    #[← `(tactic| all_goals (try ved_bit_simp))],
+    -- a goal comparing a narrow state value with several literals is split on the state value
+    #[← `(tactic| all_goals (try ved_ss_state_split))],
     #[closing]]
   let dbg := ved.sseq.dbg.get (← getOptions)
   if dbg == 50 then
