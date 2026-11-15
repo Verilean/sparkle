@@ -11,6 +11,7 @@ import Tools.VedU1WireShare
 import Tools.VedU1Uns
 import Tools.VedU1LemmasExt1
 import Tools.VedU1ScriptSeqGen
+import Tools.VedU1StructSeq
 import Tools.VedStrictAudit
 import Tools.VedInvocationDom
 
@@ -987,8 +988,10 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     unless outNames.length == tbl.out.flat.length do
       refuse decl "multi-output"
         m!"{outNames.length} output port names for {tbl.out.flat.length} output projections"
-    if !stmt.getAppFn.isConst && (regsOf m.body).length != 0 then
-      refuse decl "multi-output" m!"multi-output with registers is not supported (register-free bodies only)"
+    -- registers under a bundled statement term: only a `Signal.loop` body (`Tools/VedU1StructSeq.lean`)
+    if !stmt.getAppFn.isConst && (regsOf m.body).length != 0 &&
+        !(← Tools.VedU1Uns.usesLoop decl (← helperConsts decl)) then
+      refuse decl "multi-output" m!"multi-output with registers is supported for `Signal.loop` bodies only"
     -- the closed term of `m`, checked to denote `m` itself
     let mE := toExpr m
     let back ← withEvalBudget (evalModule mE)
@@ -1042,6 +1045,11 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
           else
           scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
             tblD?
+        else if !(regsOf m.body).isEmpty then
+          -- a bundled statement term (a structure / product result) with registers: one loop invariant,
+          -- one equality per output port (`Tools/VedU1StructSeq.lean`)
+          Tools.VedU1StructSeq.structLoopScript nm.contract nm.mod nm.outs nm.body decl (← Term.exprToSyntax stmt)
+            ((regsOf m.body).map fun r => (r.1, declWidth m r.1)) (← helperConsts decl)
         else scriptFor nm decl 0 none inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
@@ -1119,10 +1127,12 @@ def stmtOf (declName : Name) : TermElabM (Lean.Expr × Nat × List String) := do
         m!"{tbl.out.flat.length} output projections in one `Signal` (the synthesizer packs it into one port `out`); refused"
     return (stmt, nDom, ["out"])
   | .error e =>
-    -- a product of signals?
-    let b ← try bundledStmt stmt catch _ => refuse declName "table" e.toMessageData
+    -- a product of signals, or a structure of them (`Tools/VedU1StructSeq.lean`: `bundleTree`)?
+    let (b, names) ← try Tools.VedU1StructSeq.bundledStmtT stmt catch _ => refuse declName "table" e.toMessageData
     let tbl ← try readTableOfType declName (← inferType b) catch e => refuse declName "table" e.toMessageData
-    return (b, nDom, portNamesOf "out" tbl.out)
+    unless tbl.out.flat.length == names.length do
+      refuse declName "table" m!"{tbl.out.flat.length} projections for {names.length} port names"
+    return (b, nDom, names)
 
 /-- The checker for a module `m` (the entry: the one `synthesizeCombinational`
 returned): the statement from `declName`'s type, the output ports DERIVED

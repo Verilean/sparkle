@@ -402,6 +402,12 @@ lean_lib «Tools.VedU1Wire» where
 lean_lib «Tools.VedU1WireShare» where
   roots := #[`Tools.VedU1WireShare]
 
+lean_lib «Tools.VedU1StructSeqTac» where
+  roots := #[`Tools.VedU1StructSeqTac]
+
+lean_lib «Tools.VedU1StructSeq» where
+  roots := #[`Tools.VedU1StructSeq]
+
 lean_lib «Tools.VedU1StructOut» where
   roots := #[`Tools.VedU1StructOut]
 

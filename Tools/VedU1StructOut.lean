@@ -39,44 +39,7 @@ output), kernel, strict audit.  The command is `#ved_u1_struct decl`.
 namespace Tools.VedU1StructOut
 
 open Lean Meta Elab Term Command
-open Tools.VedU1Contract Tools.VedU1Entry
-
-/-- The leaves of the result tree: statement (bundled signal) and port names,
-left-first.  `pre?` is the compiler's name prefix (`splitReturnLeaves`). -/
-partial def bundleTree (ty e : Lean.Expr) (pre? : Option String) :
-    MetaM (Lean.Expr × List String) := do
-  let ty ← whnfR (← instantiateMVars ty)
-  match ty.getAppFn with
-  | .const ``Sparkle.Core.Signal.Signal _ => pure (e, [pre?.getD "out"])
-  | .const ``Prod _ =>
-    let some (a, b) := (match ty.getAppArgs with | #[a, b] => some (a, b) | _ => none)
-      | throwError "ved_struct%: malformed product {ty}"
-    let p := pre?.getD "out"
-    let (l, ln) ← bundleTree a (← mkAppM ``Prod.fst #[e]) (some (p ++ "_0"))
-    let (r, rn) ← bundleTree b (← mkAppM ``Prod.snd #[e]) (some (p ++ "_1"))
-    return (← mkAppM ``Sparkle.Core.Signal.bundle2 #[l, r], ln ++ rn)
-  | .const ind _ =>
-    let some (.inductInfo iv) := (← getEnv).find? ind
-      | throwError "ved_struct%: {ty} is not a structure of signals"
-    unless iv.ctors.length == 1 && !iv.isRec && iv.numIndices == 0 do
-      throwError "ved_struct%: {ind} is not a single-constructor structure"
-    let some sinfo := getStructureInfo? (← getEnv) ind
-      | throwError "ved_struct%: {ind} is not a structure"
-    if sinfo.fieldNames.isEmpty then throwError "ved_struct%: {ind} has no fields"
-    -- fields, constructor order (the compiler's order: the ctor's binder names)
-    let mut leaves : Array (Lean.Expr × List String) := #[]
-    for f in sinfo.fieldNames do
-      let pj ← mkProjection e f
-      let fty ← inferType pj
-      let nm := match pre? with | none => f.toString | some p => p ++ "_" ++ f.toString
-      leaves := leaves.push (← bundleTree fty pj (some nm))
-    -- right-nested pairs: f₁, (f₂, (… fₙ))
-    let mut acc := leaves.back!
-    for i in (List.range (leaves.size - 1)).reverse do
-      let (l, ln) := leaves[i]!
-      acc := (← mkAppM ``Sparkle.Core.Signal.bundle2 #[l, acc.1], ln ++ acc.2)
-    return acc
-  | _ => throwError "ved_struct%: {ty} is not a signal, a product or a structure"
+open Tools.VedU1Contract Tools.VedU1Entry Tools.VedU1StructSeq
 
 /-- Does the result type contain a structure (so that the product entry does not apply)? -/
 def stmtOfStruct (declName : Name) : TermElabM (Lean.Expr × Nat × List String) := do
