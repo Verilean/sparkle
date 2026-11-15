@@ -146,7 +146,11 @@ elab "ved_ss_gen " s:ident : tactic => withMainContext do
     let n := cs.length + (if u then 1 else 0)
     let xs := (List.range n).toArray.map fun i => mkIdent (Name.mkSimple s!"ved_x{j}_{i}")
     let pats ← xs.mapM fun x => `(Lean.Parser.Tactic.rcasesPatLo| $x:ident)
-    evalTactic (← `(tactic| all_goals rcases $X:ident with ⟨$pats,*⟩))
+    -- a loop of ONE register has a bare (non-tuple) state: nothing to take apart
+    if (← whnfR α).isAppOf ``Prod then
+      evalTactic (← `(tactic| all_goals rcases $X:ident with ⟨$pats,*⟩))
+    else if (← whnfR α).isConstOf ``Bool then
+      evalTactic (← `(tactic| all_goals cases $X:ident))
     for x in xs do
       let some d := (← withMainContext getLCtx).findFromUserName? x.getId | continue
       if (← whnfR d.type).isConstOf ``Bool then

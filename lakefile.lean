@@ -1614,3 +1614,6 @@ lean_lib «Tests.Ved.InvocationCheck» where
 
 lean_lib «Tests.Ved.U1StructOutCheck» where
   roots := #[`Tests.Ved.U1StructOutCheck]
+
+lean_lib «Tests.Ved.U1StructSeqCheck» where
+  roots := #[`Tests.Ved.U1StructSeqCheck]

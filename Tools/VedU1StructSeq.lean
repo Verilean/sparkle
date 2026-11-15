@@ -88,7 +88,11 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
   tacs := tacs.push (← wrap (← `(tactic| ved_ss_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $exHelp,*] at $hv:ident)))
   tacs := tacs.push (← wrap (← `(tactic| ved_ss_R $insI [$rNames,*] $rWidths,*)))
   tacs := tacs.push (← wrap (← `(tactic| clear $hv)))
-  tacs := tacs.push (← wrap (← `(tactic| obtain $hPat := $hR)))
+  -- ONE register: the invariant is the equation itself (no conjunction to take apart)
+  if hs.size == 1 then
+    tacs := tacs ++ #[← wrap (← `(tactic| have $(hs[0]!):ident := $hR)), ← wrap (← `(tactic| clear $hR))]
+  else
+    tacs := tacs.push (← wrap (← `(tactic| obtain $hPat := $hR)))
   let closing ← if ved.sseq.dbg.get (← getOptions) == 96
     then `(tactic| all_goals (ved_ss_leafwise <;> (first | ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | fail "leaf failed here")))
     else if ved.sseq.dbg.get (← getOptions) == 98
