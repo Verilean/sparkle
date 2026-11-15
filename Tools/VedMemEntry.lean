@@ -298,7 +298,7 @@ def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
   let mut firstAlt : TSyntax `tactic := closers[0]!
   for c in closers.toList.drop 1 do
     firstAlt ← `(tactic| first | ($firstAlt:tactic) | ($c:tactic))
-  let stopT ← `(tactic| (trace_state; fail "ved_mem debug stop"))
+  let stopT ← `(tactic| ved_dbg_state)
   let skipT ← `(tactic| skip)
   let dbg1 := if dbg == 1 then stopT else skipT
   let dbg2 := if dbg == 2 then stopT else skipT
@@ -354,6 +354,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) : TermElabM Syntax := do
   -- the state projections `Signal.fst` / `Signal.snd` of a loop's state signal are unfolded with the helpers
   let helpers := helpers ++ #[``Sparkle.Core.Signal.Signal.fst, ``Sparkle.Core.Signal.Signal.snd]
+  let helpers := helpers ++ #[``Tools.VedMem.ofNat_mod_eq_extract, ``Tools.VedMem.ofNat_mod_eq_extract', ``Tools.VedMemLoop.add_val_bs, ``Tools.VedMemLoop.add_val_sb, ``Tools.VedMemLoop.sub_val_bs, ``Tools.VedMemLoop.sub_val_sb, ``Tools.VedMemLoop.mul_val_bs, ``Tools.VedMemLoop.mul_val_sb, ``Tools.VedMemLoop.and_val_bs, ``Tools.VedMemLoop.and_val_sb, ``Tools.VedMemLoop.or_val_bs, ``Tools.VedMemLoop.or_val_sb, ``Tools.VedMemLoop.xor_val_bs, ``Tools.VedMemLoop.xor_val_sb, ``Tools.VedMemLoop.shl_val_bs, ``Tools.VedMemLoop.shl_val_sb, ``Tools.VedMemLoop.shr_val_bs, ``Tools.VedMemLoop.shr_val_sb, ``Tools.VedU1Lemmas.add_val_sc, ``Tools.VedU1Lemmas.add_val_cs, ``Tools.VedU1Lemmas.sub_val_sc, ``Tools.VedU1Lemmas.sub_val_cs, ``Tools.VedU1Lemmas.mul_val_sc, ``Tools.VedU1Lemmas.mul_val_cs, ``Tools.VedU1Lemmas.and_val_sc, ``Tools.VedU1Lemmas.and_val_cs, ``Tools.VedU1Lemmas.or_val_sc, ``Tools.VedU1Lemmas.or_val_cs, ``Tools.VedU1Lemmas.xor_val_sc, ``Tools.VedU1Lemmas.xor_val_cs, ``Tools.VedU1Lemmas.shl_val_sc, ``Tools.VedU1Lemmas.shl_val_cs, ``Tools.VedU1Lemmas.shr_val_sc, ``Tools.VedU1Lemmas.shr_val_cs]
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
   let C := mkCIdent nm.contract
@@ -428,6 +429,8 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     pure a
   let h0Term : Term ← if h0Elems.size == 1 then pure h0Elems[0]! else `(⟨$[$h0Elems],*⟩)
   let closing ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))
+  let closingDbg ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ved_dbg_state))
+  let closing := if dbg == 17 then closingDbg else closing
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| all_goals ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
       ← `(tactic| all_goals try (repeat' apply And.intro))],
@@ -440,7 +443,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
       ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
-    #[closing]]
+    #[← `(tactic| all_goals (try simp only [Tools.VedMem.ofNat_mod_eq_extract'])), closing]]
   let tail := stages.flatten
   -- the declaration's loops in the hypotheses take the simp normal form of the goal's (the invariant was
   -- built from the declaration as written; `loopScriptFor` builds it from the normalised source instead)
@@ -448,7 +451,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
       applyIns, $fI:ident, comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
       Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
       Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*] at $[$hNorm]*))
-  let stopT ← `(tactic| (trace_state; fail "ved_mem debug stop"))
+  let stopT ← `(tactic| ved_dbg_state)
   let skipT ← `(tactic| skip)
   let d := fun (k : Nat) => if dbg == k then stopT else skipT
   let d1 := d 11
@@ -492,7 +495,8 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
         $d4
         all_goals (try $peelAlt:tactic)
         $d5
-        ved_loop_gen_share $sI
+        all_goals (try dsimp only at *)
+        ved_loop_gen_mem $sI
         $d6
         $tail*)
 

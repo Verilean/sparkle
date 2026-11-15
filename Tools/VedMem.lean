@@ -265,6 +265,18 @@ theorem ofNat_eq_iff {aw : Nat} (i : Nat) (hi : i < 2 ^ aw) (a : BitVec aw) :
     subst h
     simp
 
+/-- the low `w` bits of a vector as `BitVec.ofNat` of its masked value (how the IR side's address reads) and as
+`extractLsb'` (how the declaration writes `idx[w-1:0]`) -/
+theorem ofNat_mod_eq_extract {n : Nat} (w : Nat) (x : BitVec n) :
+    BitVec.ofNat w (x.toNat % 2 ^ w) = BitVec.extractLsb' 0 w x := by
+  apply BitVec.eq_of_toNat_eq
+  simp [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat]
+
+/-- the same with the modulus as a numeral (`16` for `2 ^ 4`), discharged by evaluation -/
+theorem ofNat_mod_eq_extract' {n : Nat} (w m : Nat) (hm : 2 ^ w = m) (x : BitVec n) :
+    BitVec.ofNat w (x.toNat % m) = BitVec.extractLsb' 0 w x := by
+  subst hm; exact ofNat_mod_eq_extract w x
+
 theorem mask_toNat {w : Nat} (a : BitVec w) : mask w a.toNat = a.toNat :=
   Nat.mod_eq_of_lt (BitVec.isLt a)
 
@@ -311,15 +323,22 @@ theorem MemInv.other {dom : DomainConfig} {aw dw : Nat} {name other : String} {i
   · simp [hc]
     exact h i hi
 
-/-- `MemInv.write` in the form `simp` leaves the step in (`mask` unfolded, the test `ev = 0` first). -/
+/-- `MemInv.write` in the form `simp` leaves the step in (`mask` unfolded, the test `ev = 0` first).  The wires
+are read modulo the port widths (`av % 2^aw`), so the decomposition of the stored index into `av % 2^aw` that the
+unifier picks does not matter (an address wire wider than the port, `idx[3:0]` of a 5-bit counter, is masked
+twice and `simp` merges the masks): only `av % 2^aw` is compared with the declaration's address. -/
 theorem MemInv.write' {dom : DomainConfig} {aw dw : Nat} {name : String} {init : BitVec aw → BitVec dw}
     {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}
     {mems : MEnv} (h : MemInv name init wa wd we n mems) {ev av dv : Nat}
-    (hev : (ev ≠ 0) ↔ we.val n = true) (hav : av = (wa.val n).toNat) (hdv : dv = (wd.val n).toNat) :
+    (hev : (ev ≠ 0) ↔ we.val n = true) (hav : av % 2 ^ aw = (wa.val n).toNat)
+    (hdv : dv % 2 ^ dw = (wd.val n).toNat) :
     MemInv name init wa wd we (n + 1)
       (if ev = 0 then mems
         else fun nm i => if nm = name ∧ i = av % 2 ^ aw then dv % 2 ^ dw else mems nm i) := by
-  have := h.write ev av dv hev hav hdv
+  have := h.write ev (av % 2 ^ aw) (dv % 2 ^ dw) hev hav hdv
+  have e1 : mask aw (av % 2 ^ aw) = av % 2 ^ aw := Nat.mod_mod _ _
+  have e2 : mask dw (dv % 2 ^ dw) = dv % 2 ^ dw := Nat.mod_mod _ _
+  rw [e1, e2] at this
   by_cases hc : ev = 0
   · rw [if_pos hc]
     simp only [hc, ne_eq, not_true_eq_false, if_false] at this
@@ -351,9 +370,9 @@ theorem MemInv.write'' {dom : DomainConfig} {aw dw : Nat} {name : String} {init 
     MemInv name init wa wd we (n + 1)
       (if ev = 0 then mems
         else fun nm i => if nm = name ∧ i = av then dv else mems nm i) := by
-  have := MemInv.write' h hev hav hdv
   have e1 : av % 2 ^ aw = av := by rw [hav]; exact Nat.mod_eq_of_lt (BitVec.isLt _)
   have e2 : dv % 2 ^ dw = dv := by rw [hdv]; exact Nat.mod_eq_of_lt (BitVec.isLt _)
+  have := MemInv.write' h hev (by rw [e1]; exact hav) (by rw [e2]; exact hdv)
   rw [e1, e2] at this
   exact this
 

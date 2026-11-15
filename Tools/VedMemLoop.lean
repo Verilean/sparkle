@@ -19,6 +19,122 @@ namespace Tools.VedMemLoop
 
 open Lean Meta Elab Tactic Sparkle.Core.Signal
 
+/-! `.val` of an operator applied directly through the `BitVec`-`Signal` / `Signal`-`BitVec` instances (as the synthesizer's
+source writes `0#16 - x`): `Tools.VedU1Lemmas.*_val_sc/_cs` are stated with the other elaboration (`Signal.pure a`). -/
+section DirectOps
+open Sparkle.Core.Domain
+variable {dom : DomainConfig} {n : Nat}
+theorem add_val_bs (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) :
+    (@HAdd.hAdd (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) _ a b).val s = a + b.val s := rfl
+theorem add_val_sb (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) :
+    (@HAdd.hAdd (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) _ a b).val s = a.val s + b := rfl
+theorem sub_val_bs (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) :
+    (@HSub.hSub (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) _ a b).val s = a - b.val s := rfl
+theorem sub_val_sb (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) :
+    (@HSub.hSub (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) _ a b).val s = a.val s - b := rfl
+theorem mul_val_bs (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) :
+    (@HMul.hMul (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) _ a b).val s = a * b.val s := rfl
+theorem mul_val_sb (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) :
+    (@HMul.hMul (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) _ a b).val s = a.val s * b := rfl
+theorem and_val_bs (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) :
+    (@HAnd.hAnd (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) _ a b).val s = a &&& b.val s := rfl
+theorem and_val_sb (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) :
+    (@HAnd.hAnd (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) _ a b).val s = a.val s &&& b := rfl
+theorem or_val_bs (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) :
+    (@HOr.hOr (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) _ a b).val s = a ||| b.val s := rfl
+theorem or_val_sb (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) :
+    (@HOr.hOr (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) _ a b).val s = a.val s ||| b := rfl
+theorem xor_val_bs (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) :
+    (@HXor.hXor (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) _ a b).val s = a ^^^ b.val s := rfl
+theorem xor_val_sb (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) :
+    (@HXor.hXor (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) _ a b).val s = a.val s ^^^ b := rfl
+theorem shl_val_bs (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) :
+    (@HShiftLeft.hShiftLeft (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) _ a b).val s = a <<< b.val s := rfl
+theorem shl_val_sb (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) :
+    (@HShiftLeft.hShiftLeft (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) _ a b).val s = a.val s <<< b := rfl
+theorem shr_val_bs (a : BitVec n) (b : Signal dom (BitVec n)) (s : Nat) :
+    (@HShiftRight.hShiftRight (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) _ a b).val s = a >>> b.val s := rfl
+theorem shr_val_sb (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) :
+    (@HShiftRight.hShiftRight (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) _ a b).val s = a.val s >>> b := rfl
+end DirectOps
+
+/-- debugging: log the part of the main goal from the first `HSub.hSub`, `pp.explicit`, cut to 3500 characters -/
+elab "ved_dbg_goal" : tactic => withMainContext do
+  let g ← getMainGoal
+  let txt ← withOptions (fun o => o.setBool `pp.explicit true) do return toString (← ppGoal g)
+  let i := (txt.splitOn "HSub.hSub").head!.length
+  logInfo m!"DBG {(txt.drop (i - 500)).take 1200}"
+
+/-- debugging: the number of goals and the target of the first two, each cut to 2500 characters -/
+elab "ved_dbg_state" : tactic => do
+  let gs ← getGoals
+  let mut out := s!"{gs.length} goals"
+  for g in gs.take 2 do
+    let t ← g.withContext do return toString (← ppExpr (← instantiateMVars (← g.getType)))
+    out := out ++ s!"\n--- target ({t.length} chars):\n" ++ t.take 800 ++ "\n.....\n" ++ t.drop (t.length - 1800)
+  let mut summary := ""
+  for g in gs do
+    let tl := Tools.VedU1WireShare.loopsDag (← g.withContext do instantiateMVars (← g.getType))
+    let hs ← g.withContext do
+      let mut c := 0
+      for d in ← getLCtx do
+        unless d.isImplementationDetail do
+          c := c + (Tools.VedU1WireShare.loopsDag (← instantiateMVars d.type)).size
+      return c
+    summary := summary ++ s!" [T{tl.size}/H{hs}]"
+  out := out ++ "\nPER GOAL loops (target/hyps):" ++ summary
+  let mut shorts := ""
+  let mut gi := 0
+  for g in gs do
+    let t ← g.withContext do return toString (← ppExpr (← instantiateMVars (← g.getType)))
+    shorts := shorts ++ s!"\n  #{gi}: " ++ (let t1 := (t.replace "\n" " "); (t1.take 150).toString ++ " ..... " ++ (t1.drop (t1.length - 220)).toString)
+    gi := gi + 1
+  out := out ++ "\nALL TARGETS:" ++ shorts.take 9000
+  if let some g := gs[(Nat.succ 0) * 8]? then
+    let t ← g.withContext do return toString (← ppExpr (← instantiateMVars (← g.getType)))
+    out := out ++ "\nGOAL8 FULL:\n" ++ t.take 2500
+  if let some g := gs.find? (fun g => true) then
+    let _ := g
+  for g in gs do
+    let tg ← g.withContext do instantiateMVars (← g.getType)
+    if (Tools.VedU1WireShare.loopsDag tg).size > 0 then
+      let occ := Tools.VedU1WireShare.collectDag (fun x => x.isAppOfArity ``Signal.val 4 && (x.getArg! 2).isAppOfArity ``Signal.loop 4) tg
+      let ts ← g.withContext do occ.mapM fun o => do return toString (← ppExpr (o.getArg! 3))
+      let lp := Tools.VedU1WireShare.collectDag (fun x => x.isAppOfArity ``Signal.loop 4) tg
+      let parents := Tools.VedU1WireShare.collectDag (fun x => x.isApp && x.getAppArgs.any (fun a => a.isAppOfArity ``Signal.loop 4)) tg
+      let ps ← g.withContext do parents.mapM fun o => do return (toString (← ppExpr o.getAppFn)).take 60
+      let tgtS ← g.withContext do
+        let ty ← inferType lp[0]!
+        withLocalDeclD `LOOP ty fun lv => do
+          let t' := tg.replace fun e => if e.isAppOfArity ``Signal.loop 4 then some lv else none
+          return toString (← ppExpr t')
+      out := out ++ s!"\nT1 TARGET (loop := LOOP, {tgtS.length} chars): " ++ tgtS.take 1800
+      let pe := parents[0]!.replace fun e => if e.isAppOfArity ``Signal.loop 4 then some (mkConst `LOOP) else none
+      let pes ← g.withContext <| withOptions (fun o => o.setBool `pp.explicit true) do return toString (← ppExpr pe)
+      out := out ++ s!"\nPARENT0 (loop := LOOP): {pes.take 700}"
+      out := out ++ s!"\nFIRST T1 GOAL: Signal.val-of-loop occurrences at times {ts}; loops {lp.size}; parents heads {ps}"
+      break
+  if let some g := gs.head? then
+    let hy ← g.withContext do
+      let mut o := ""
+      for d in ← getLCtx do
+        unless d.isImplementationDetail do
+          o := o ++ s!"\n  {d.userName} : " ++ (toString (← ppExpr (← instantiateMVars d.type))).take 260
+      return o
+    out := out ++ "\nHYPS:" ++ hy.take 4500
+    let extra ← g.withContext do
+      let mut o := ""
+      let tl := Tools.VedU1WireShare.loopsDag (← instantiateMVars (← g.getType))
+      o := o ++ s!"\nTARGET LOOPS {tl.size}"
+      for d in ← getLCtx do
+        unless d.isImplementationDetail do
+          let hl := Tools.VedU1WireShare.loopsDag (← instantiateMVars d.type)
+          if hl.size > 0 then
+            o := o ++ s!"\nHYP {d.userName}: loops {hl.size}, in target: {hl.map (fun l => tl.contains l)}"
+      return o
+    out := out ++ extra
+  throwError "DBGSTATE {out}"
+
 /-- `ved_mem_congr s1 s2 h t`: rewrite every `memState` of the goal that mentions the fvar `s1` into the one
 with `s2` in its place (`h : ∀ k ≤ t, s1.val k = s2.val k`) -/
 elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
@@ -36,13 +152,14 @@ elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
     let T' := T.replaceFVar s1E s2E
     let Ts ← Term.exprToSyntax T
     let T's ← Term.exprToSyntax T'
-    let side ← `(tactic| (intro k hk; simp only [$h:ident k (Nat.le_of_lt hk)]))
-    let side2 ← `(tactic| (intro k hk; simp [$h:ident k (Nat.le_of_lt hk), Sparkle.Core.Signal.Signal.map, Functor.map, Seq.seq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, Sparkle.Core.Signal.Signal.mux, Sparkle.Core.Signal.Signal.beq, Sparkle.Core.Signal.bundle2]))
+    let side ← `(tactic| (intro k hk; simp only [$h:ident k (by omega)]))
+    let side2 ← `(tactic| (intro k hk; simp [$h:ident k (by omega), Tools.VedU1Contract.PTy.val, Sparkle.Core.Signal.Signal.map, Functor.map, Seq.seq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, Sparkle.Core.Signal.Signal.mux, Sparkle.Core.Signal.Signal.beq, Sparkle.Core.Signal.bundle2]))
+    let side3 ← `(tactic| (intro k hk; dsimp only; ved_loop_simp [$h:ident k (by omega), Tools.VedU1Contract.PTy.val, Sparkle.Core.Signal.Signal.memoryComboRead_val, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val]))
     evalTactic (← `(tactic|
       (have hc : $Ts = $T's := Tools.VedMem.memState_congr _ _
-          (by first | ($side:tactic) | ($side2:tactic))
-          (by first | ($side:tactic) | ($side2:tactic))
-          (by first | ($side:tactic) | ($side2:tactic))
+          (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
+          (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
+          (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
        rw [hc])))
 
 /-- the side condition `hS` of the strong fixpoint equation -/
@@ -51,9 +168,80 @@ syntax "ved_causal " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 macro_rules
   | `(tactic| ved_causal [$ex,*]) =>
     `(tactic| (intro t s1 s2 h
-               try (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*])
-               try ved_mem_congr s1 s2 h
-               try (ved_loop_simp [h t (Nat.le_refl t), Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*])))
+               -- a registered read's value at `t` unfolds only at `t = n + 1`
+               rcases t with _ | t <;>
+               (try (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ, Sparkle.Core.Signal.Signal.memory_val_zero, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))
+               <;> (try ved_mem_congr s1 s2 h)
+               <;> (try (ved_loop_simp [Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, h, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))))
+
+/-- `runSub` that, when a side condition stays open, says which (the first goal, cut to 2500 characters) -/
+def runSubMem (m : MVarId) (tac : TSyntax `tactic) : TacticM Unit := do
+  let saved ← getGoals
+  setGoals [m]
+  evalTactic tac
+  let rest ← getGoals
+  unless rest.isEmpty do
+    let g ← ppGoal rest.head!
+    let txt := (toString g).take 2500
+    throwError "ved_loop_unfold_mem: a side condition is left open ({rest.length} goals); first:\n{txt}"
+  setGoals saved
+
+open Tools.VedU1WireShare in
+/-- the loops of one goal (target and hypotheses), each once -/
+def goalLoops (g : MVarId) : MetaM (Array Expr) := g.withContext do
+  let mut loops := loopsDag (← instantiateMVars (← g.getType))
+  for d in ← getLCtx do
+    unless d.isImplementationDetail do
+      for l in loopsDag (← instantiateMVars d.type) do
+        unless loops.contains l do loops := loops.push l
+  return loops
+
+open Tools.VedU1WireShare in
+/-- the goal reads `(loop).val s` somewhere (target or hypotheses) -/
+def hasValAt (g : MVarId) (loop s : Expr) : MetaM Bool := g.withContext do
+  let isV := fun (e : Expr) => e.isAppOfArity ``Signal.val 4 && e.getArg! 2 == loop && e.getArg! 3 == s
+  if !(collectDag isV (← instantiateMVars (← g.getType))).isEmpty then return true
+  for d in ← getLCtx do
+    unless d.isImplementationDetail do
+      if !(collectDag isV (← instantiateMVars d.type)).isEmpty then return true
+  return false
+
+open Tools.VedU1WireShare in
+/-- `ved_loop_gen_mem s`: `ved_loop_gen_share s` with the loops of ALL goals (the goals of a memory body differ in the
+spelling of the loop after the earlier simp steps; the share version reads the loops of the first goal only), and
+each loop generalised (tuple taken apart, `Bool` components split) only in the goals that contain it -/
+elab "ved_loop_gen_mem " s:ident : tactic => withMainContext do
+  let sE ← elabTerm s.raw none
+  let mut loops : Array Expr := #[]
+  for g in ← getGoals do
+    for l in ← goalLoops g do
+      unless loops.contains l do loops := loops.push l
+  if loops.isEmpty then
+    evalTactic (← `(tactic| ved_loop_gen $s))
+    return
+  for j in [0:loops.size] do
+    let some α := loops[j]!.getAppArgs[1]? | throwError "ved_loop_gen_mem: malformed Signal.loop"
+    let bare := !(← whnfR α).isAppOf ``Prod
+    let n := (← Tools.VedU1Loop.stateComps α).length
+    let X := mkIdent (Name.mkSimple s!"ved_X{j}")
+    let xs := (List.range (if bare then 1 else n + 1)).toArray.map fun i => mkIdent (Name.mkSimple s!"ved_x{j}_{i}")
+    let pats ← xs.mapM fun x => `(Lean.Parser.Tactic.rcasesPatLo| $x:ident)
+    let mut gsOut : List MVarId := []
+    for g in ← getGoals do
+      setGoals [g]
+      unless (← hasValAt g loops[j]! sE) do
+        gsOut := gsOut ++ [g]
+        continue
+      let v ← g.withContext <| mkAppM ``Sparkle.Core.Signal.Signal.val #[loops[j]!, sE]
+      generalizeDag v (if bare then Name.mkSimple s!"ved_x{j}_0" else X.getId)
+      unless bare do evalTactic (← `(tactic| all_goals rcases $X:ident with ⟨$pats,*⟩))
+      for x in xs do
+        let some d := (← withMainContext getLCtx).findFromUserName? x.getId | continue
+        if (← whnfR d.type).isConstOf ``Bool then
+          evalTactic (← `(tactic| all_goals cases $x:ident))
+      gsOut := gsOut ++ (← getGoals)
+    setGoals gsOut
+
 
 open Tools.VedU1WireShare in
 /-- `ved_loop_unfold_mem t`: rewrite `(Signal.loop F).val t` by the strong fixpoint equation, for every loop
@@ -81,8 +269,8 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let h0 ← mkFreshExprMVar h0T
     let ty ← whnf (ty.bindingBody!.instantiate1 h0)
     let hS ← mkFreshExprMVar ty.bindingDomain!
-    runSub h0.mvarId! (← `(tactic| (intro _ _; rfl)))
-    runSub hS.mvarId! (← `(tactic| ved_causal [$ex,*]))
+    runSubMem h0.mvarId! (← `(tactic| (intro _ _; rfl)))
+    runSubMem hS.mvarId! (← `(tactic| ved_causal [$ex,*]))
     let lem ← instantiateMVars (mkApp3 f4 h0 hS (lhs.getArg! 3))
     let eqTy ← instantiateMVars (← inferType lem)
     let some (_, l, r) := eqTy.eq? | throwError "ved_loop_unfold_mem: unexpected equation {eqTy}"
