@@ -109,6 +109,14 @@ elab "ved_dbg_goal" : tactic => withMainContext do
 elab "ved_dbg_state" : tactic => do
   let gs ← getGoals
   let mut out := s!"{gs.length} goals"
+  if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+    let mut k := 0
+    for g in gs do
+      let t ← g.withContext do
+        withOptions (fun o => o.insert `format.width (160 : Nat)) do
+          return toString (← ppGoal g)
+      IO.FS.writeFile s!"{dir}/goal{k}.txt" t
+      k := k + 1
   for g in gs.take 2 do
     let t ← g.withContext do return toString (← ppExpr (← instantiateMVars (← g.getType)))
     out := out ++ s!"\n--- target ({t.length} chars):\n" ++ t.take 800 ++ "\n.....\n" ++ t.drop (t.length - 1800)
