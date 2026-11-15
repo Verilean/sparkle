@@ -25,7 +25,7 @@ A memory is `2^aw` words of `dw` bits: finite state, handled like registers.  Th
    and the order condition `OrderOkM` that lets a sync read's data (`nextKeys`) be read.
 
 Nothing here is an axiom: every theorem depends on `propext`, `Classical.choice`, `Quot.sound` only
-(`Tests/Ved/MemLemmasCheck.lean` prints them).  No `native_decide`.
+(`Tests/Ved/VedMemCheck.lean` reads them with `collectAxioms`).  No `native_decide`.
 -/
 
 namespace Tools.VedMem
