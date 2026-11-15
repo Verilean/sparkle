@@ -525,6 +525,7 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
     perStmt := perStmt.push (← `(tactic| ved_pk_aux $(hss[i]!):ident (
       ved_seq_simp_nd [$(mk (hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL.extract 0 k)),*] at $(hss[i]!):ident
       try ved_seq_unpack at $(hss[i]!):ident)))
+    perStmt := perStmt.push (← `(tactic| ved_pk_mark $(Syntax.mkStrLit s!"stmt{i}")))
   let applyL ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1ScriptSeq.applyNexts_nextsOf)
   let sigBase := #[← `(Lean.Parser.Tactic.simpLemma| srcOf), ← `(Lean.Parser.Tactic.simpLemma| $Cc:ident), ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1Packed.PContract.core), ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1Packed.collapse),
     ← `(Lean.Parser.Tactic.simpLemma| contractOf), ← `(Lean.Parser.Tactic.simpLemma| applyIns),
@@ -587,6 +588,7 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
   tacs := tacs ++ (← mark "next")
   tacs := tacs.push (← `(tactic| obtain ⟨E, hstep, hfr, hall⟩ := Tools.VedU1ScriptSeq.step_seq (declWidth $Mi) mems $Bi
     (Tools.VedU1Contract.seedIn $Mi $insI $sI st) (by decide +kernel) (by decide +kernel)))
+  tacs := tacs ++ (← mark "step_seq")
   tacs := tacs ++ postStep
   tacs := tacs.push (← `(tactic| obtain $allPat := hall))
   tacs := tacs ++ (← mark "step_seq+post")

@@ -87,9 +87,11 @@ def packedScript (nm : Names) (F : Name) (nDom : Nat) : TermElabM Syntax := do
             | skip
       exact ⟨hP, hU, slices_of_outputs hP.1 hU.2.2.2.2⟩)
 
-/-- `tryScriptFirst` (`Tools.VedU1Entry`), reporting the failure of the attempt when the debug option is set. -/
+/-- The first attempt (`Tools/VedU1PackedSeq2.lean`): like `tryScriptFirst` (`Tools.VedU1Entry`: any failure puts the state back and returns
+`none`) but NOT under its `firstAttemptHeartbeats` cap: a packed body with registers needs more than that cap (R13: 3.6·10^9
+heartbeats) and the flat script that runs after a failure cannot prove these bodies at all.  The attempt shares the proof budget
+(`withProofBudget`, not raised) with the script that follows it.  With `ved.packedseq2.dbg` set, the failure and the cost are printed. -/
 def tryPackedFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lean.Expr) := do
-  if ved.packedseq2.dbg.get (← getOptions) == 0 then return ← tryScriptFirst stx expected
   let t0 ← IO.monoMsNow
   let hb0 ← IO.getNumHeartbeats
   if ved.packedseq2.dbg.get (← getOptions) ≥ 3 then IO.eprintln s!"VED PKMARK start {t0} {hb0 / 1000000}"
@@ -109,11 +111,14 @@ def tryPackedFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lea
         throwError "errors were logged; first: {first}"
       pure (some pf))
     fun e => do
-      IO.eprintln s!"VED PKSEQ2 first attempt failed after {(← IO.monoMsNow) - t0} ms: {← e.toMessageData.toString}"
+      if ved.packedseq2.dbg.get (← getOptions) ≥ 1 then
+        IO.eprintln s!"VED PKSEQ2 first attempt failed after {(← IO.monoMsNow) - t0} ms: {← e.toMessageData.toString}"
       if ved.packedseq2.dbg.get (← getOptions) ≥ 2 then throwError "ved.packedseq2.dbg 2: stop after the failed first attempt"
       pure none
   let t1 ← IO.monoMsNow
-  if r.isSome then logInfo m!"VED PKSEQ2 first attempt ok {t1 - t0} ms, {((← IO.getNumHeartbeats) - hb0) / 1000000} M heartbeats"
+  if r.isSome then
+    if ved.packedseq2.dbg.get (← getOptions) ≥ 1 then
+      logInfo m!"VED PKSEQ2 first attempt ok {t1 - t0} ms, {((← IO.getNumHeartbeats) - hb0) / 1000000} M heartbeats"
   else saved.restore (restoreInfo := true)
   return r
 
