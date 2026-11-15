@@ -5,17 +5,17 @@ import Sparkle.Core.CircuitDo
 /-!
 # Checks for the `#writeDesign` argument forms of the packed / hierarchical entries
 
-`#ved_u1_packed_write`, `#ved_u1_hier_write` and `#ved_u2_hier_write` take the argument list of
-`#writeDesign decl "x.sv" "x_cppsim.h" [wires]` (paths and wires constant unused) and run the body of
-`#ved_u1_packed` / `#ved_u1_hier` / `#ved_u2_hier`.  The small examples here are NOT part of the 327
-inventory rows.
+`#ved_u1_packed_write`, `#ved_u1_hier_write` and `#ved_u2_hier_write` are the `#writeDesign` argument form
+of `#ved_u1_packed` / `#ved_u1_hier` / `#ved_u2_hier` (paths and wires constant unused; the entry runs its
+own synthesis).  The small examples here are NOT part of the 327 inventory rows.  These checks say
+nothing about the artifact an actual `#writeDesign` wrote (see `Tests/Ved/WriteCheckedCheck.lean`).
 
-* POSITIVES (each after the original `#writeDesign` on the same declaration, with and without the
-  wires constant): the registered theorem has EXACTLY the entry's statement over the declaration
-  (`PackedStmt` / `U1HStmt` / `U2HStmt`, compared with `==`), the axioms are the standard three, and the
-  artifact checked is the artifact `#writeDesign` writes: `ved_mod` is the module and `ved_design` the
-  design that `synthesizeHierarchical decl` returns (the design of `synthesizeCombinational` plus the
-  returned module).
+* POSITIVES (each with and without the wires constant, after the original `#writeDesign` on the same
+  declaration): the registered theorem has EXACTLY the entry's statement over the declaration
+  (`PackedStmt` / `U1HStmt` / `U2HStmt`, compared with `==`), the axioms are the standard three, and
+  the checked IR agrees with the IR a SEPARATE `synthesizeHierarchical decl` / `synthesizeCombinational
+  decl` run returns (`ved_mod` is that module, `ved_design` that design).  This is "re-synthesis agrees",
+  not "the written file was checked".
 * CONTROLS (the same command forms are refused exactly like the entry commands, leaving no `ved_*`
   constant): `#ved_u1_packed_write` on a one-output declaration `[packed]`; `#ved_u1_hier_write` and
   `#ved_u2_hier_write` on a packed declaration `[multi-output]`.
@@ -100,26 +100,27 @@ def parTwo2 (a b : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitV
 #guard_msgs (drop info) in
 #ved_u2_hier_write parTwo2 ".lake/build/gen/wf/parTwo2.sv" ".lake/build/gen/wf/parTwo2_cppsim.h"
 
-/-! ## Positives: exact statement, standard axioms, the `#writeDesign` artifact -/
+/-! ## Positives: exact statement, standard axioms, agreement with a separate synthesis run -/
 
 def std3 : List Name := [``propext, ``Classical.choice, ``Quot.sound]
 
-/-- `ved_mod` is the returned module, `ved_design` the design of `synthesizeCombinational`, and every
-module of the `#writeDesign` design (`synthesizeHierarchical`) is one of them. -/
-def sameArtifact (decl : Name) (hier : Bool) : TermElabM Unit := do
+/-- `ved_mod` equals the module a SEPARATE `synthesizeCombinational` run returns, `ved_design` its design,
+and every module of a separate `synthesizeHierarchical` run is one of them (re-synthesis agrees; this does
+not look at what `#writeDesign` wrote). -/
+def agreesWithResynthesis (decl : Name) (hier : Bool) : TermElabM Unit := do
   let nm := Names.ofBase decl
   let some (.defnInfo di) := (← getEnv).find? nm.mod | throwError "{decl}: no ved_mod"
   let design ← Sparkle.Compiler.Elab.synthesizeHierarchical decl
   let (m, d0) ← Sparkle.Compiler.Elab.synthesizeCombinational decl
   unless di.value == toExpr m do throwError "{decl}: ved_mod is not the returned module"
   unless design.modules.any (fun x => di.value == toExpr x) do
-    throwError "{decl}: ved_mod is not a module of the #writeDesign design"
+    throwError "{decl}: ved_mod is not a module of the re-synthesised design"
   if hier then
     let some (.defnInfo dd) := (← getEnv).find? (decl ++ `ved_design) | throwError "{decl}: no ved_design"
     unless dd.value == toExpr d0 do throwError "{decl}: ved_design is not the design of the synthesis"
     for x in design.modules do
       unless di.value == toExpr x || d0.modules.any (· == x) do
-        throwError "{decl}: a #writeDesign module is neither ved_mod nor in ved_design"
+        throwError "{decl}: a re-synthesised module is neither ved_mod nor in ved_design"
 
 def checkPacked (decl : Name) (stmtStx : Term) : CommandElabM Unit := liftTermElabM do
   let nm := Names.ofBase decl
@@ -130,8 +131,8 @@ def checkPacked (decl : Name) (stmtStx : Term) : CommandElabM Unit := liftTermEl
   unless ti.type == expected do throwError "{nm.thm}: stored type differs"
   let ax ← collectAxioms nm.thm
   unless ax.all (std3.contains ·) do throwError "axioms {ax}"
-  sameArtifact decl false
-  logInfo m!"written OK {decl}"
+  agreesWithResynthesis decl false
+  logInfo m!"entry form OK {decl}"
 
 def checkHier (decl : Name) (u2 : Bool) : CommandElabM Unit := liftTermElabM do
   let nm := HNames.ofBase decl
@@ -142,30 +143,30 @@ def checkHier (decl : Name) (u2 : Bool) : CommandElabM Unit := liftTermElabM do
   unless ti.type == expected do throwError "{nm.thm}: stored type differs"
   let ax ← collectAxioms nm.thm
   unless ax.all (std3.contains ·) do throwError "axioms {ax}"
-  sameArtifact decl true
-  logInfo m!"written OK {decl}"
+  agreesWithResynthesis decl true
+  logInfo m!"entry form OK {decl}"
 
-/-- info: written OK Tests.Ved.WriteFormsCheck.pk2 -/
+/-- info: entry form OK Tests.Ved.WriteFormsCheck.pk2 -/
 #guard_msgs in
 run_cmd checkPacked ``pk2 (← `(pk2))
 
-/-- info: written OK Tests.Ved.WriteFormsCheck.pk2b -/
+/-- info: entry form OK Tests.Ved.WriteFormsCheck.pk2b -/
 #guard_msgs in
 run_cmd checkPacked ``pk2b (← `(pk2b))
 
-/-- info: written OK Tests.Ved.WriteFormsCheck.hpar -/
+/-- info: entry form OK Tests.Ved.WriteFormsCheck.hpar -/
 #guard_msgs in
 run_cmd checkHier ``hpar false
 
-/-- info: written OK Tests.Ved.WriteFormsCheck.hpar2 -/
+/-- info: entry form OK Tests.Ved.WriteFormsCheck.hpar2 -/
 #guard_msgs in
 run_cmd checkHier ``hpar2 false
 
-/-- info: written OK Tests.Ved.WriteFormsCheck.parTwo -/
+/-- info: entry form OK Tests.Ved.WriteFormsCheck.parTwo -/
 #guard_msgs in
 run_cmd checkHier ``parTwo true
 
-/-- info: written OK Tests.Ved.WriteFormsCheck.parTwo2 -/
+/-- info: entry form OK Tests.Ved.WriteFormsCheck.parTwo2 -/
 #guard_msgs in
 run_cmd checkHier ``parTwo2 true
 

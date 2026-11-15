@@ -11,11 +11,13 @@ import Tools.VedU2HierRegEntry
 `Tools/VedInvocation.lean` gives `#ved_u1_write decl "x.sv" "x_cppsim.h" [wires]` for the single
 module entry.  The H.264 / SoC synthesis files return a packed `Signal d (A × B × …)` (`bundleAll!`)
 and contain submodules, which `#ved_u1` refuses at `[multi-output]`; the entries for those are
-`#ved_u1_packed`, `#ved_u1_hier` and `#ved_u2_hier`.  Each form here accepts the same argument list as
-`#writeDesign` (the paths and the wires constant are not used: nothing is written, the wires
-constant is not evaluated) and runs the BODY of the corresponding entry command on the same
-declaration, so it is the same declaration, the same module returned by `synthesizeCombinational`
-(`synthesizeHierarchical` returns that very module), the same stored statement and the same refusals.
+`#ved_u1_packed`, `#ved_u1_hier` and `#ved_u2_hier`.  Each form here is the `#writeDesign` ARGUMENT FORM of the corresponding entry: it accepts the same
+argument list as `#writeDesign` (the paths and the wires constant are not used: nothing is written, the
+wires constant is not evaluated) and runs the BODY of the entry command on the same declaration.  The
+entry runs its own `synthesizeCombinational`; the IR it checks is the IR that a SEPARATE synthesis run
+returns, not a value captured from a `#writeDesign` call.  This adapter therefore makes no claim about
+the artifact a `#writeDesign` writes; the command that checks the very value it then writes is
+`#ved_write_checked` (`Tools/VedWriteChecked.lean`).
 -/
 
 namespace Tools.VedWriteForms
