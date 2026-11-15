@@ -64,6 +64,26 @@ structure MemCall where
   we : Lean.Expr
   ra : Lean.Expr
 
+/-- Marker for the value of a dead `let` (never type-checked, only traversed by `collectCalls`): `deadSeq b v`
+keeps `v`, the value of an unused `let` of `b`, visible after the zeta step, AFTER the reachable calls of `b`.  The
+synthesis emits a memory statement for such a call too (its write is a state change the module has), so the
+module's memory statements and the declaration's calls match only if the dead call is counted. -/
+def deadSeqName : Name := `Tools.VedMemEntry.deadSeq
+
+/-- zeta-reduce every `let` of `e`, keeping the value of a `let` that nothing uses (marked by `deadSeqName`);
+the reachable part is zeta-reduced as before -/
+def zetaKeepDead (e : Lean.Expr) : MetaM Lean.Expr :=
+  Core.transform e (pre := fun e => match e with
+    | .letE _ _ v b _ =>
+      if b.hasLooseBVar 0 then pure (.visit (b.instantiate1 v))
+      else pure (.visit (mkApp2 (Lean.mkConst deadSeqName) (b.lowerLooseBVars 1 1) v))
+    | _ => pure .continue)
+
+/-- `deadSeq b v` ↦ `b`, everywhere -/
+partial def stripDead (x : Lean.Expr) : Lean.Expr :=
+  x.replace fun y =>
+    if y.isAppOfArity deadSeqName 2 then some (stripDead y.appFn!.appArg!) else none
+
 /-- the memory calls of an expression, in order of first occurrence (arguments left to right), each
 distinct call once -/
 partial def collectCalls (unf : Name → Bool) (e : Lean.Expr) : MetaM (Array MemCall) := do
@@ -94,11 +114,11 @@ partial def collectCalls (unf : Name → Bool) (e : Lean.Expr) : MetaM (Array Me
           let body := match args[3]! with
             | .lam _ _ b _ => b.instantiate1 e
             | f => (mkApp f e).headBeta
-          go (← instantiateMVars (← zetaReduce body))
+          go (← instantiateMVars (← zetaKeepDead body))
           return
         if unf n then
           if let some u ← unfoldDefinition? e then
-            go (← instantiateMVars (← zetaReduce u.headBeta))
+            go (← instantiateMVars (← zetaKeepDead u.headBeta))
             return
       go fn
       for a in args do go a
@@ -112,24 +132,25 @@ partial def collectCalls (unf : Name → Bool) (e : Lean.Expr) : MetaM (Array Me
 
 /-- The declaration's body applied to one input signal per table port (`PTy.sig`), `ins` a free variable:
 unfolded, beta- and zeta-reduced. -/
-def declBody (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (ins : Lean.Expr) : MetaM Lean.Expr := do
+def declBody (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (ins : Lean.Expr) (keepDead : Bool := false) : MetaM Lean.Expr := do
   let mut e := stmt
   for (p, n) in tbl.ins.zip names do
     e := mkApp e (mkApp3 (Lean.mkConst ``PTy.sig) (toExpr p) ins (mkStrLit n))
   let cur := (← unfoldDefinition? e).getD e
-  instantiateMVars (← zetaReduce cur.headBeta)
+  if keepDead then instantiateMVars (← zetaKeepDead cur.headBeta) else instantiateMVars (← zetaReduce cur.headBeta)
 
 /-- the memory calls of the declaration, each component a closed `fun ins => …` -/
 def collectAll (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (unf : Name → Bool) :
     MetaM (Array MemCall) := do
   let insTy ← mkArrow (Lean.mkConst ``Nat) (← mkArrow (Lean.mkConst ``String) (Lean.mkConst ``Nat))
   withLocalDeclD `ins insTy fun ins => do
-    let body ← declBody stmt tbl names ins
+    let body ← declBody stmt tbl names ins (keepDead := true)
     let cs ← collectCalls unf body
     cs.mapM fun c => do
-      pure { c with call := ← mkLambdaFVars #[ins] c.call, wa := ← mkLambdaFVars #[ins] c.wa,
-                    wd := ← mkLambdaFVars #[ins] c.wd, we := ← mkLambdaFVars #[ins] c.we,
-                    ra := ← mkLambdaFVars #[ins] c.ra }
+      -- the marker is for the traversal only: the pieces handed to the proof carry the reachable part
+      pure { c with call := ← mkLambdaFVars #[ins] (stripDead c.call), wa := ← mkLambdaFVars #[ins] (stripDead c.wa),
+                    wd := ← mkLambdaFVars #[ins] (stripDead c.wd), we := ← mkLambdaFVars #[ins] (stripDead c.we),
+                    ra := ← mkLambdaFVars #[ins] (stripDead c.ra) }
 
 /-- the proof script's pieces for one module: which memory statements are present -/
 def memStmts (m : Sparkle.IR.AST.Module) : List (String × Nat × Nat × Bool × String × String × String × String × String) :=
