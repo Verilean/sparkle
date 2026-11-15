@@ -150,9 +150,11 @@ run_cmd expectEntry "multi-output" ``packed
 #guard_msgs in
 run_cmd expectEntry "multi-output" ``moReg
 
-/-- info: refused [table], clean -/
+-- a structure of signals: the standard entry reads it as the tuple of its fields (`Tools/VedU1StructSeq.lean`);
+-- this was refused at `[table]` before
+/-- info: multi OK Tests.Ved.U1MultiOutCheck.moRec.ved_u1 [x, y] 0 -/
 #guard_msgs in
-run_cmd expectEntry "table" ``moRec
+run_cmd checkMulti ``moRec (← `(fun a b => bundle2 (moRec a b).x (moRec a b).y)) ["x", "y"]
 
 -- one output dropped (port list and its assignment)
 def mutDrop (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=

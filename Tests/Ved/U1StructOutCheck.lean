@@ -48,6 +48,9 @@ def miniNarrow (x : Signal defaultDomain (BitVec 8)) (v : Signal defaultDomain B
   { flag := v, data := (fun w => w.extractLsb' 0 4) <$> x }
 def miniCtl (x : Signal defaultDomain (BitVec 8)) (v : Signal defaultDomain Bool) : Pa defaultDomain :=
   { flag := v, data := x &&& x }
+/-- through the standard entry -/
+def miniStd (x : Signal defaultDomain (BitVec 8)) (v : Signal defaultDomain Bool) : Pa defaultDomain :=
+  { flag := v, data := x &&& x }
 
 /-- three fields, a polymorphic domain -/
 structure P3 (dom : DomainConfig) where
@@ -155,10 +158,24 @@ def onModule (decl : Name) (m : Sparkle.IR.AST.Module) : TermElabM Unit := do
 def expectEntry (stage : String) (decl : Name) : CommandElabM Unit :=
   expectRefused stage decl (discard <| vedU1EntryStruct decl)
 
--- the standard entry still refuses a structure (its hook is unchanged)
-/-- info: refused [table], clean -/
+-- the standard entry takes the structure path (it refused a structure at `[table]` before
+-- `Tools/VedU1StructSeq.lean`): the same theorem type as `#ved_u1_struct`
+def checkStd (decl : Name) (stmtStx : Term) (ports : List String) : CommandElabM Unit := liftTermElabM do
+  let (m, _, thm) ← vedU1Entry decl
+  let nm := Names.ofBase decl
+  unless m.outputs.map (·.name) == ports do throwError "{decl}: ports {m.outputs.map (·.name)}"
+  let stmt ← instantiateMVars (← Term.elabTerm stmtStx none)
+  let expected := mkAppN (Lean.mkConst ``U1Stmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, stmt]
+  let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+  unless ti.type == expected do throwError "{thm}: type is not the expected U1Stmt"
+  let ax ← collectAxioms thm
+  let ok := [``propext, ``Classical.choice, ``Quot.sound]
+  unless ax.all (ok.contains ·) do throwError "{thm}: axioms {ax}"
+  logInfo m!"std struct OK {thm} {m.outputs.map (·.name)}"
+
+/-- info: std struct OK Tests.Ved.U1StructOutCheck.miniStd.ved_u1 [flag, data] -/
 #guard_msgs in
-run_cmd expectRefused "table" ``miniCtl (discard <| vedU1Entry ``miniCtl)
+run_cmd checkStd ``miniStd (← `(fun x v => bundle2 (miniStd x v).flag (miniStd x v).data)) ["flag", "data"]
 
 -- the exchanged drivers: the module of the field-swapped declaration
 /-- info: refused [proof], clean -/
