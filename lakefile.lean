@@ -492,6 +492,9 @@ lean_lib «Tests.Ved.U1PackedCheck» where
 lean_lib «Tests.Ved.U1MultiSeqCheck» where
   roots := #[`Tests.Ved.U1MultiSeqCheck]
 
+lean_lib «Tests.Ved.U1PackedSeq2Check» where
+  roots := #[`Tests.Ved.U1PackedSeq2Check]
+
 lean_lib «Tests.Ved.U1EqLutCheck» where
   roots := #[`Tests.Ved.U1EqLutCheck]
 

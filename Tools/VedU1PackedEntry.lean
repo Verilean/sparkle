@@ -205,7 +205,7 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
           let first? : Option Lean.Expr ← do
             match ← Tools.VedU1PackedSeq2.packedSeqScript nm.contract nm.mod nm.outs nm.body F stmt.getAppNumArgs m b0
                 pc.clkRst (dataPortsOf m pc.clkRst) regs (← helperConsts F) with
-            | some sx => tryPackedFirst sx expected
+            | some sx => budget (tryPackedFirst sx expected)
             | none => pure none
           match first? with
           | some e => pure e
