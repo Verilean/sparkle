@@ -306,13 +306,13 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let irS := toString (userName (opn.openName ++ `ved_irS))
   let k := di.regWs.length
   let mut L : Array String := #[]
-  L := L.push s!"  have hS : {T2}.HierShapeS {P.design} {P.mod} = true := by decide"
+  L := L.push s!"  have hS : {T2}.HierShapeS {P.design} {P.mod} = true := by decide +kernel"
   L := L.push s!"  have hne := {T2}.hierS_ne hS"
-  L := L.push s!"  have hord : {T2}.OrderHS {P.design} {P.mod} := ⟨{P.body}, by decide⟩"
-  L := L.push s!"  have hOK : {T2}.OrderOkHS {P.design} {P.mod} {P.body} = true := by decide"
+  L := L.push s!"  have hord : {T2}.OrderHS {P.design} {P.mod} := ⟨{P.body}, by decide +kernel⟩"
+  L := L.push s!"  have hOK : {T2}.OrderOkHS {P.design} {P.mod} {P.body} = true := by decide +kernel"
   L := L.push s!"  have hb0 := {T2}.orderOkHS_sound hOK"
   let modsList := "[" ++ ", ".intercalate (kids.map fun k => s!"{k.nm.mod}") ++ "]"
-  L := L.push s!"  have hmods : {P.design}.modules = {modsList} := by decide"
+  L := L.push s!"  have hmods : {P.design}.modules = {modsList} := by decide +kernel"
   L := L.push s!"  have hch : ∀ x ∈ {P.design}.modules, Tools.VedU1Contract.OrderStmt x := by"
   L := L.push s!"    rw [hmods]; intro x hx"
   L := L.push s!"    simp only [List.mem_cons, List.not_mem_nil, or_false] at hx"
@@ -327,11 +327,11 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     L := L.push s!"    rcases hx with {pat}"
     for k in kids do
       L := L.push s!"    · subst h; exact {k.nm.thm}.2.2.2.1"
-  L := L.push s!"  refine ⟨by decide, by decide, by decide, hS, by decide, hord, hch, {T2}.exists_arrHS _ _ hord hch hne, ?_⟩"
+  L := L.push s!"  refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, hS, by decide +kernel, hord, hch, {T2}.exists_arrHS _ _ hord hch hne, ?_⟩"
   L := L.push s!"  intro arr hadm"
   L := L.push s!"  have hwr := {T2}.orderOkHS_hwr hOK hadm.1"
-  L := L.push s!"  have htie : {P.contract}.clkRst = {T2}.designClkRst {P.design} {P.mod} := by decide"
-  L := L.push s!"  have hout : {P.contract}.outputs = {P.outs} := by decide"
+  L := L.push s!"  have htie : {P.contract}.clkRst = {T2}.designClkRst {P.design} {P.mod} := by decide +kernel"
+  L := L.push s!"  have hout : {P.contract}.outputs = {P.outs} := by decide +kernel"
   for (k, i) in kids.zipIdx do
     let G := declTerm k.decl k.nDom
     let K := k.nm
@@ -351,7 +351,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     for (_, i) in kids.zipIdx do
       L := L.push s!"    · subst h; exact hsc{i}"
   L := L.push s!"  have hsupp : {T2}.ExprsSupp {P.mod} (arr {P.mod}) :="
-  L := L.push s!"    {T2}.exprsSupp_perm (hb0.1.trans hadm.1.symm) (show ∀ s ∈ {P.body}, {T2}.StmtSupp (Tools.VedU1Contract.declWidth {P.mod}) s = true by decide)"
+  L := L.push s!"    {T2}.exprsSupp_perm (hb0.1.trans hadm.1.symm) (show ∀ s ∈ {P.body}, {T2}.StmtSupp (Tools.VedU1Contract.declWidth {P.mod}) s = true by decide +kernel)"
   -- the argument terms
   let argTxt (bn : String) : String :=
     match (tbl.binders.zipIdx).find? (fun (b, _) => b == bn) with
@@ -386,7 +386,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       " ∧ ".intercalate ((List.range k).map fun i =>
         s!"p {sq di.pm[i]!} = {irS} ins t ⟨{i}, by decide⟩") ++ ")"
   let owBody := oracleBody (fun j => callTxt calls[j]!)
-  L := L.push s!"  have hinj : ∀ i j, {ONm} i = {ONm} j → i = j := by decide"
+  L := L.push s!"  have hinj : ∀ i j, {ONm} i = {ONm} j → i = j := by decide +kernel"
   L := L.push s!"  have hltS : ∀ (ins : Nat → String → Nat) (t : Nat), ∀ i : Fin {k}, {irS} ins t i < 2 ^ ([{", ".intercalate (di.regWs.map toString)}].get ⟨i.val, by simp⟩) := by"
   L := L.push s!"    intro ins t i"
   L := L.push s!"    unfold {irS}"

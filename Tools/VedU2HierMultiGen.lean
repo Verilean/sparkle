@@ -256,7 +256,6 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
         let mut orcTys : Array Lean.Expr := #[]
         for (key, k) in orcKey.zip orcSite do
           orcTys := orcTys.push (← inferType (mkAppN siteFn[k]! key.2))
-        logInfo m!"occurrences {siteKid.size}, live distinct calls {n}"
         let osTy ← tupleTy orcTys
         withFVars (orcTys.mapIdx fun i _ => Name.mkSimple s!"ved_o{i}") orcTys fun os => do
           let bodyO ← replaceCalls kids body fun idx _ _ _ _ => pure os[(kToJ[idx]!).get!]!
