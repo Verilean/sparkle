@@ -1653,3 +1653,6 @@ lean_lib «Tools.VedWriteChecked» where
 
 lean_lib «Tests.Ved.WriteCheckedCheck» where
   roots := #[`Tests.Ved.WriteCheckedCheck]
+
+lean_lib «Tools.VedMemClassify» where
+  roots := #[`Tools.VedMemClassify]
