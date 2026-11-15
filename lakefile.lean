@@ -1641,3 +1641,15 @@ lean_lib «Tests.Ved.U1StructOutCheck» where
 
 lean_lib «Tests.Ved.U1StructSeqCheck» where
   roots := #[`Tests.Ved.U1StructSeqCheck]
+
+lean_lib «Tools.VedWriteForms» where
+  roots := #[`Tools.VedWriteForms]
+
+lean_lib «Tests.Ved.WriteFormsCheck» where
+  roots := #[`Tests.Ved.WriteFormsCheck]
+
+lean_lib «Tools.VedWriteChecked» where
+  roots := #[`Tools.VedWriteChecked]
+
+lean_lib «Tests.Ved.WriteCheckedCheck» where
+  roots := #[`Tests.Ved.WriteCheckedCheck]
