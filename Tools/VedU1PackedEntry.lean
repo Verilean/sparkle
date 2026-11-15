@@ -93,16 +93,23 @@ def tryPackedFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lea
   let t0 ← IO.monoMsNow
   let hb0 ← IO.getNumHeartbeats
   let saved ← saveState
+  let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
   let r ← tryCatchRuntimeEx (do
       let pf ← withProofBudget do
         withoutErrToSorry do
           let e ← elabTermEnsuringType stx expected
           synthesizeSyntheticMVarsNoPostponing
           instantiateMVars e
+      let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
+      if errs.length != errsBefore then
+        let first ← match errs.drop errsBefore with
+          | msg :: _ => msg.data.toString
+          | [] => pure ""
+        throwError "errors were logged; first: {first}"
       pure (some pf))
     fun e => do
-      logInfo m!"VED PKSEQ2 first attempt failed after {(← IO.monoMsNow) - t0} ms: {e.toMessageData}"
-      if ved.packedseq2.dbg.get (← getOptions) == 2 then throwError "ved.packedseq2.dbg 2: stop after the failed first attempt"
+      IO.eprintln s!"VED PKSEQ2 first attempt failed after {(← IO.monoMsNow) - t0} ms: {← e.toMessageData.toString}"
+      if ved.packedseq2.dbg.get (← getOptions) ≥ 2 then throwError "ved.packedseq2.dbg 2: stop after the failed first attempt"
       pure none
   let t1 ← IO.monoMsNow
   if r.isSome then logInfo m!"VED PKSEQ2 first attempt ok {t1 - t0} ms, {((← IO.getNumHeartbeats) - hb0) / 1000000} M heartbeats"

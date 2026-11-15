@@ -36,30 +36,197 @@ heartbeat counter (differences of two marks are the cost of the phase between th
 elab "ved_pk_mark " l:str : tactic => do
   IO.eprintln s!"VED PKMARK {l.getString} {← IO.monoMsNow} {(← IO.getNumHeartbeats) / 1000000}"
 
+
+theorem OTy_packNat_pair_mod (a b : OTy) (v : (OTy.pair a b).val) :
+    (OTy.pair a b).packNat v =
+      a.packNat v.1 % 2 ^ a.width * 2 ^ b.width + b.packNat v.2 % 2 ^ b.width := by
+  rw [Tools.VedU1MultiSeqLemmas.OTy_packNat_pair,
+    Nat.mod_eq_of_lt (Tools.VedU1MultiSeqLemmas.OTy_packNat_lt a v.1),
+    Nat.mod_eq_of_lt (Tools.VedU1MultiSeqLemmas.OTy_packNat_lt b v.2)]
+
+theorem mul_congr_nat_r {a b : Nat} (c : Nat) (h : a = b) : a * c = b * c := by subst h; rfl
+
+theorem mod_congr_nat {a b : Nat} (n : Nat) (h : a = b) : a % n = b % n := by subst h; rfl
+
+open Lean Meta Elab Tactic in
+/-- The leaf equations of a packed equation whose two sides are the same concatenation
+`x₁ % 2^w₁ * 2^k₁ + (rest₁ % 2^k₁)` / `c * x + y` (the module's nested concatenation against the declaration's
+`OTy_packNat_pair_mod`): descent through `+`, `c * _` / `_ * c` (the same literal) and `_ % n` over a sum
+(the same literal).  A goal of another shape is a leaf. -/
+partial def pkLeafGoals (g : MVarId) : MetaM (List MVarId) := do
+  let t ← whnfR (← instantiateMVars (← g.getType))
+  let some (ty, l, r) := t.eq? | return [g]
+  unless ty.isConstOf ``Nat do return [g]
+  let isAdd (e : Lean.Expr) := e.isAppOfArity ``HAdd.hAdd 6
+  if isAdd l && isAdd r then
+    let gs ← g.apply (← mkConstWithFreshMVarLevels ``Tools.VedU1MultiSeqLemmas.add_congr_nat)
+    return (← gs.mapM pkLeafGoals).flatten
+  if l.isAppOfArity ``HMul.hMul 6 && r.isAppOfArity ``HMul.hMul 6 then
+    if (l.getArg! 4) == (r.getArg! 4) && (l.getArg! 4).nat?.isSome then
+      let gs ← g.apply (← mkConstWithFreshMVarLevels ``Tools.VedU1MultiSeqLemmas.mul_congr_nat)
+      return (← gs.mapM pkLeafGoals).flatten
+    if (l.getArg! 5) == (r.getArg! 5) && (l.getArg! 5).nat?.isSome then
+      let gs ← g.apply (← mkConstWithFreshMVarLevels ``mul_congr_nat_r)
+      return (← gs.mapM pkLeafGoals).flatten
+  if l.isAppOfArity ``HMod.hMod 6 && r.isAppOfArity ``HMod.hMod 6 && (l.getArg! 5) == (r.getArg! 5)
+      && isAdd (l.getArg! 4) && isAdd (r.getArg! 4) then
+    let gs ← g.apply (← mkConstWithFreshMVarLevels ``mod_congr_nat)
+    return (← gs.mapM pkLeafGoals).flatten
+  return [g]
+
+open Lean Meta Elab Tactic in
+/-- `ved_pk_leafwise`: replace every goal by its leaf equations (`pkLeafGoals`). -/
+elab "ved_pk_leafwise" : tactic => do
+  let gs ← getGoals
+  let mut out : Array MVarId := #[]
+  for g in gs do out := out ++ (← pkLeafGoals g).toArray
+  setGoals out.toList
+
+
+/-- `ved_pk_simp`: `ved_seq_simp` with the signal-literal lemmas of `ved_core_simp_big` (`x &&& 8#32` where the literal is a
+`Signal` by `OfNat`; the loop bodies of a packed result use them). -/
+syntax (name := vedPkSimp) "ved_pk_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
+
+macro_rules
+  | `(tactic| ved_pk_simp [$ex,*] $[$loc]?) =>
+    `(tactic| ved_seq_simp [Tools.VedU1MultiSeqLemmas.add_val_scI, Tools.VedU1MultiSeqLemmas.add_val_csI,
+      Tools.VedU1MultiSeqLemmas.sub_val_scI, Tools.VedU1MultiSeqLemmas.sub_val_csI,
+      Tools.VedU1MultiSeqLemmas.mul_val_scI, Tools.VedU1MultiSeqLemmas.mul_val_csI,
+      Tools.VedU1MultiSeqLemmas.and_val_scI, Tools.VedU1MultiSeqLemmas.and_val_csI,
+      Tools.VedU1MultiSeqLemmas.or_val_scI, Tools.VedU1MultiSeqLemmas.or_val_csI,
+      Tools.VedU1MultiSeqLemmas.xor_val_scI, Tools.VedU1MultiSeqLemmas.xor_val_csI,
+      Tools.VedU1MultiSeqLemmas.shl_val_scI, Tools.VedU1MultiSeqLemmas.shl_val_csI,
+      Tools.VedU1MultiSeqLemmas.shr_val_scI, Tools.VedU1MultiSeqLemmas.shr_val_csI,
+      Tools.VedU1MultiSeqLemmas.append_val_scI, Tools.VedU1MultiSeqLemmas.append_val_csI, $ex,*] $[$loc]?)
+
+open Lean Meta Elab Tactic in
+/-- `seqNextAt` (`Tools.VedU1ScriptSeqGen`) with `ved_pk_simp`: read every loop of the context and of the goal at
+the cycle `tm` off its body. -/
+def pkNextAt (tm : Term) (ex : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") : TacticM Unit :=
+  withMainContext do
+  let mut tgt : Lean.Expr := mkConst ``True
+  for d in ← getLCtx do
+    unless d.isImplementationDetail do tgt := mkApp tgt (← instantiateMVars d.type)
+  tgt := mkApp tgt (← instantiateMVars (← getMainTarget))
+  let loops := Tools.VedU1Loop.loopsOf tgt
+  for j in [0:loops.size] do
+    let L := loops[j]!
+    let args := L.getAppArgs
+    unless args.size == 4 do throwError "ved_pk_next: malformed Signal.loop"
+    let dom ← Term.exprToSyntax args[0]!
+    let α ← Term.exprToSyntax args[1]!
+    let inst ← Term.exprToSyntax args[2]!
+    let F ← Term.exprToSyntax args[3]!
+    let hU := mkIdent (Name.mkSimple s!"ved_hU{j}")
+    let hL ← `(Lean.Parser.Tactic.simpLemma| h)
+    let exh : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+      Syntax.TSepArray.ofElems (#[hL] ++ ex.getElems)
+    evalTactic (← `(tactic| have $hU:ident := @Tools.VedU1Loop.loop_val_unfold $dom $α $inst $F
+        (fun _ _ => rfl) (fun s1 s2 t h => by ved_pk_simp [$exh,*]) $tm))
+    evalTactic (← `(tactic| ved_seq_aux $hU:ident (
+      try dsimp only [$ex,*, Sparkle.Core.Signal.Signal.map, Signal.register, Signal.beq, Signal.seq, Signal.ap,
+        Sparkle.Core.Signal.bundle2, Functor.map, Seq.seq, Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le,
+        OTy.obs, PTy.obs, PTy.sig, -Nat.reduceAdd] at $hU:ident
+      try ved_pk_simp [$ex,*] at $hU:ident
+      try ved_seq_sub at $hU:ident)))
+
+/-- `ved_pk_next s [ex]`: `ved_seq_next` with `ved_pk_simp`. -/
+syntax (name := vedPkNext) "ved_pk_next " ident " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
+open Lean Meta Elab Tactic in
+@[tactic vedPkNext] def evalVedPkNext : Tactic := fun stx => do
+  let sI : Ident := ⟨stx[1]⟩
+  let sE ← `(term| $sI + 1)
+  pkNextAt sE ⟨stx[3].getArgs⟩
+
+/-- `ved_pk_next0 [ex]`: the same at cycle 0. -/
+syntax (name := vedPkNext0) "ved_pk_next0 " " [" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
+open Lean Meta Elab Tactic in
+@[tactic vedPkNext0] def evalVedPkNext0 : Tactic := fun stx => do
+  pkNextAt (← `(term| 0)) ⟨stx[2].getArgs⟩
+
+open Lean Meta Elab Tactic in
+/-- `ved_pk_bits_facts`: `ved_bits_facts` with the operations taken innermost first and the context re-read after
+every fact (`omegaProof?` works in the context current when it is called; `ved_bits_facts` reads it once, so the
+bound of `(x &&& c ||| 8) ||| 128` needed a third call after the bound of `x &&& c ||| 8` was added). -/
+elab "ved_pk_bits_facts" : tactic => do
+  let tgt ← withMainContext do instantiateMVars (← getMainTarget)
+  let cands : List Nat := (List.range 130).tail! ++ (List.range 60).map (fun i => 136 + 8 * i)
+  let ops := (Tools.VedU1Loop.natBitOps tgt).qsort (fun a b => a.approxDepth.toNat < b.approxDepth.toNat)
+  for t in ops do
+    withMainContext do
+      let a := t.getArg! 4
+      let b := t.getArg! 5
+      if t.isAppOfArity ``HAnd.hAnd 6 then
+        evalTactic (← `(tactic| have := @Nat.and_le_left $(← Term.exprToSyntax a) $(← Term.exprToSyntax b)))
+        evalTactic (← `(tactic| have := @Nat.and_le_right $(← Term.exprToSyntax a) $(← Term.exprToSyntax b)))
+    withMainContext do
+      let a := t.getArg! 4
+      let b := t.getArg! 5
+      unless t.isAppOfArity ``HAnd.hAnd 6 do
+        let mut done := false
+        for n in cands do
+          if done then break
+          let bound ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit n]
+          let some ha ← Tools.VedU1Loop.omegaProof? (← mkAppM ``LT.lt #[a, bound]) | continue
+          let some hb ← Tools.VedU1Loop.omegaProof? (← mkAppM ``LT.lt #[b, bound]) | continue
+          let lem ← if t.isAppOfArity ``HXor.hXor 6
+            then mkAppM ``Nat.xor_lt_two_pow #[ha, hb] else mkAppM ``Nat.or_lt_two_pow #[ha, hb]
+          evalTactic (← `(tactic| have := $(← Term.exprToSyntax lem)))
+          done := true
+
+open Sparkle.IR.Semantics Tools.VedU1Contract Sparkle.Core.Signal in
+/-- The closing tactic of `ved_seq_loop_close` with `ved_pk_bits_facts`. -/
+syntax (name := vedPkLoopClose) "ved_pk_loop_close " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
+macro_rules
+  | `(tactic| ved_pk_loop_close [$ex,*]) =>
+    `(tactic| ((try ved_seq_wide_simp [$ex,*]) <;> (first | omega | ((repeat' (split <;> (try simp only [vedToNatAppend, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_ofNat, Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *]))) <;> (try simp only [BitVec.toNat_append, BitVec.toNat_ofNat, Nat.shiftLeft_eq] at *) <;> (try simp only [vedToNatAppend, Tools.VedU1Lemmas.toNat_append', Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true] at *) <;> (try ved_or_lit) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_xor_ones) <;> (try ved_pk_bits_facts) <;> omega))))
+
+
+
+open Lean Meta Elab Tactic in
+/-- `ved_pk_close_each`: `ved_seq_close_each` with `ved_pk_loop_close` (its `ved_bits_facts` reads the context once, so
+the bound of a nested `|||` was missing after the case split exposed it). -/
+elab "ved_pk_close_each" : tactic => do
+  let gs ← getGoals
+  for g in gs do
+    setGoals [g]
+    evalTactic (← `(tactic| ved_seq_unmdata))
+    Tactic.withoutRecover
+      (evalTactic (← `(tactic| ved_pk_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Int.bmod_def, BitVec.toNat_append, BitVec.toNat_ofNat, Tools.VedU1ScriptSeq.or_mod _ _ _ _ rfl])))
+  setGoals []
+
 open Lean Meta Elab Tactic in
 /-- `ved_pk_drop`: the first half of `ved_seq_bools`: drop the hypotheses the rewriting is done with
 (nothing reads them any more, and `cases` would revert and re-introduce every one that mentions the
 variable). -/
 elab "ved_pk_drop" : tactic => do
-  if (← getGoals).isEmpty then return
-  let drop ← withMainContext do
-    let mut out : Array FVarId := #[]
-    for d in ← getLCtx do
-      let n := d.userName.toString
-      if d.isImplementationDetail then continue
-      let mentionsIR := (← instantiateMVars d.type).find? fun e =>
-        e.isConst && (e.constName!.toString.startsWith "Sparkle.IR" || e.constName!.toString.startsWith "Tools.VedU1")
-      if n.startsWith "ved_hL" || n.startsWith "ved_hU" || n.startsWith "hv" || n.startsWith "hs" || n.startsWith "hEr" || n.startsWith "hEin"
-          || n.startsWith "hreg" || n.startsWith "hrg" || n.startsWith "hw" || n == "hfr" || n == "hall"
-          || n == "hstep" || n == "key" || (mentionsIR.isSome && (← isProp d.type)) then
-        out := out.push d.fvarId
-    pure out
-  for fv in drop.reverse do
-    let g ← getMainGoal
-    try
-      let g' ← g.clear fv
-      replaceMainGoal [g']
-    catch _ => pure ()
+  let gs ← getGoals
+  let mut out : Array MVarId := #[]
+  for g0 in gs do
+    setGoals [g0]
+    let drop ← withMainContext do
+      let mut out : Array FVarId := #[]
+      for d in ← getLCtx do
+        let n := d.userName.toString
+        if d.isImplementationDetail then continue
+        let mentionsIR := (← instantiateMVars d.type).find? fun e =>
+          e.isConst && (e.constName!.toString.startsWith "Sparkle.IR" || e.constName!.toString.startsWith "Tools.VedU1")
+        if n.startsWith "ved_hL" || n.startsWith "ved_hU" || n.startsWith "hv" || n.startsWith "hs" || n.startsWith "hEr" || n.startsWith "hEin"
+            || n.startsWith "hreg" || n.startsWith "hrg" || n.startsWith "hw" || n == "hfr" || n == "hall"
+            || n == "hstep" || n == "key" || (mentionsIR.isSome && (← isProp d.type)) then
+          out := out.push d.fvarId
+      pure out
+    for fv in drop.reverse do
+      let g ← getMainGoal
+      try
+        let g' ← g.clear fv
+        replaceMainGoal [g']
+      catch _ => pure ()
+    out := out ++ (← getGoals).toArray
+  setGoals out.toList
 
 open Lean Meta Elab Tactic in
 /-- `ved_pk_split`: on EVERY goal, split only the `Bool` loop-state components (`ved_b…` bound facts of
@@ -263,11 +430,13 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
     ← `(tactic| all_goals (try ved_bit_simp)),
     ← `(tactic| all_goals (try ved_or_lit)),
     ← `(tactic| all_goals (try ved_pack_simp)),
-    ← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
+    ← `(tactic| all_goals (try ved_xor_ones)),
+    ← `(tactic| all_goals (try ved_pk_bits_facts)),
+    ← `(tactic| all_goals (try ved_mul_facts)),
     ← `(tactic| all_goals (try ved_pack_simp)),
     ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
     ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
-    ← `(tactic| ved_seq_close_each)]
+    ← `(tactic| ved_pk_close_each)]
   let pats2 ← (hregs.toList).mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
   let hPat : TSyntax `rcasesPat ← match pats2 with
     | [] => `(rcasesPat| _)
@@ -293,13 +462,13 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
       try dsimp only [$Oi:ident, $Mi:ident, $Bi:ident, Tools.VedU1Contract.declWidth, srcOf, $Cc:ident, Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse, contractOf, applyIns, $fI:ident,
         Signal.fst, Signal.snd, Sparkle.Core.Signal.Signal.map, Signal.register, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, Functor.map, Seq.seq,
         Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, OTy.obs, PTy.obs, PTy.sig, -Nat.reduceAdd, $(mk hsA),*] at $hv:ident
-      ved_seq_simp [$Oi:ident, $Mi:ident, $Bi:ident, declWidth, srcOf, $Cc:ident, Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse, contractOf, applyIns, $fI:ident, Tools.VedU1MultiSeqLemmas.OTy_packNat_pair, Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, OTy.width, PTy.width, Signal.fst, Signal.snd, $(mk hsA),*] at $hv:ident)))
+      ved_seq_simp [$Oi:ident, $Mi:ident, $Bi:ident, declWidth, srcOf, $Cc:ident, Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse, contractOf, applyIns, $fI:ident, Tools.VedU1PackedSeq2.OTy_packNat_pair_mod, Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, OTy.width, PTy.width, Signal.fst, Signal.snd, $(mk hsA),*] at $hv:ident)))
   tacs := tacs ++ (← mark "hv")
   tacs := tacs.push (← `(tactic| ved_loop_R' $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
   tacs := tacs.push (← `(tactic| ved_seq_gen' $sI))
   tacs := tacs ++ (← mark "R+gen")
-  tacs := tacs.push (← `(tactic| ved_seq_next $sI [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]))
+  tacs := tacs.push (← `(tactic| ved_pk_next $sI [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| Signal.fst), ← `(Lean.Parser.Tactic.simpLemma| Signal.snd), ← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]))
   tacs := tacs ++ (← mark "next")
   tacs := tacs.push (← `(tactic| obtain ⟨E, hstep, hfr, hall⟩ := Tools.VedU1ScriptSeq.step_seq (declWidth $Mi) mems $Bi
     (Tools.VedU1Contract.seedIn $Mi $insI $sI st) (by decide +kernel) (by decide +kernel)))
@@ -317,8 +486,10 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
     ← `(tactic| try dsimp only),
     ← `(tactic| rw [← $hv0:ident]),
     ← `(tactic| rw [$hv:ident]),
-    ← `(tactic| simp only [$(mk hsL),*, -Nat.reduceAdd])] ++ (← mark "out-simp") ++ #[
+    ← `(tactic| simp only [$(mk hsL),*, -Nat.reduceAdd]),
+    ← `(tactic| try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMul]),
     ← `(tactic| ved_pk_drop),
+    ← `(tactic| ved_pk_leafwise)] ++ (← mark "out-simp") ++ #[
     ← `(tactic| all_goals try (repeat' apply And.intro)),
     ← `(tactic| ved_pk_split)] ++ (← mark "out-split") ++ closeTacs ++ (← mark "out-close")
   let regTacs : Array (TSyntax `tactic) := #[
@@ -327,10 +498,11 @@ def packedSeqScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) 
     ← `(tactic| ved_pk_drop),
     ← `(tactic| all_goals try (repeat' apply And.intro)),
     ← `(tactic| ved_pk_split)] ++ (← mark "reg-split") ++ closeTacs ++ (← mark "reg-close")
+  let stopH0 ← `(tactic| (trace_state; fail "stopped at h0"))
   let h0tacs : Array (TSyntax `tactic) := #[
     ← `(tactic| intro $insI hok),
-    ← `(tactic| ved_seq_next0 [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]),
-    ← `(tactic| ved_seq_sub),
+    ← `(tactic| ved_pk_next0 [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| Signal.fst), ← `(Lean.Parser.Tactic.simpLemma| Signal.snd), ← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]),
+    ← `(tactic| ved_seq_sub)] ++ (if dbgN == 6 then #[stopH0] else #[]) ++ #[
     ← `(tactic| simp [Signal.fst, Signal.snd, Tools.VedU1Contract.st0, $Cc:ident, Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.regsOf, $Mi:ident, Sparkle.IR.Semantics.encodeInit, Sparkle.IR.Semantics.mask, Tools.VedU1Contract.declWidth]),
     ← `(tactic| all_goals decide +kernel)]
   let oos := mkCIdent `Tools.VedU1Entry.outputs_of_step
