@@ -246,6 +246,37 @@ elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
           (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
        rw [hc])))
 
+
+/-- `ved_mem_addr`: the `memState` atoms of the goal that differ only in the ADDRESS (the IR side spells it as `BitVec.ofNat aw`
+of `Nat` arithmetic, the declaration side as `BitVec` arithmetic) are made the same atom: each other address is rewritten to
+the first one, by an equality proved with `bv_omega` (the branch conditions of the enclosing `if`s are first propagated into the
+branches).  Untrusted: the kernel checks the rewrites. -/
+elab "ved_mem_addr" : tactic => withMainContext do
+  try evalTactic (← `(tactic| simp (config := {contextual := true}) only [↓reduceIte, ite_true, ite_false, if_true, if_false])) catch _ => pure ()
+  let tgt ← instantiateMVars (← getMainTarget)
+  let isMem := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
+  let occs := Tools.VedU1WireShare.collectDag isMem tgt
+  let mut groups : Array (Expr × Array Expr) := #[]
+  for o in occs do
+    if o.hasLooseBVars then continue
+    let args := o.getAppArgs
+    let key := mkAppN o.getAppFn (args.extract 0 8)
+    let a := args[8]!
+    match groups.findIdx? (fun g => g.1 == key) with
+    | some i => if !groups[i]!.2.contains a then groups := groups.set! i (key, groups[i]!.2.push a)
+    | none => groups := groups.push (key, #[a])
+  for (_, addrs) in groups do
+    if addrs.size < 2 then continue
+    let rep := addrs[0]!
+    let repS ← Term.exprToSyntax rep
+    for a in addrs.toList.drop 1 do
+      let aS ← Term.exprToSyntax a
+      try
+        evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
+                                   first | rfl | (apply BitVec.eq_of_toNat_eq; (try simp only [BitVec.toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.shiftRight_zero, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); first | omega | bv_omega)
+                                 rw [hmaddr])))
+      catch _ => pure ()
+
 /-- the side condition `hS` of the strong fixpoint equation -/
 syntax "ved_causal " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 
