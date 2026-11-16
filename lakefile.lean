@@ -480,6 +480,9 @@ lean_lib «Tests.Ved.U1ContractCheck» where
 lean_lib «Tests.Ved.U1EntryCheck» where
   roots := #[`Tests.Ved.U1EntryCheck]
 
+lean_lib «Tests.Ved.VedMemCheck» where
+  roots := #[`Tests.Ved.VedMemCheck]
+
 lean_lib «Tests.Ved.U1DomainCheck» where
   roots := #[`Tests.Ved.U1DomainCheck]
 
@@ -1659,3 +1662,15 @@ lean_lib «Tools.VedWriteChecked» where
 
 lean_lib «Tests.Ved.WriteCheckedCheck» where
   roots := #[`Tests.Ved.WriteCheckedCheck]
+
+lean_lib «Tools.VedMemClassify» where
+  roots := #[`Tools.VedMemClassify]
+
+lean_lib «Tools.VedMem» where
+  roots := #[`Tools.VedMem]
+
+lean_lib «Tools.VedMemEntry» where
+  roots := #[`Tools.VedMemEntry]
+
+lean_lib «Tools.VedMemLoop» where
+  roots := #[`Tools.VedMemLoop]
