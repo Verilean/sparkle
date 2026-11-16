@@ -154,6 +154,56 @@ def memFsmEn {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr :
     bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#5 idxNext, Signal.register 0#16 outMemRead]
   FState.last state
 
+declare_signal_state MState
+  | fsm  : BitVec 2  := 0#2
+  | grp  : BitVec 3  := 0#3
+  | sub  : BitVec 3  := 0#3
+  | last : BitVec 16 := 0#16
+
+/-- the read address is `BitVec` arithmetic selected by the state (the IR spells it as `Nat` arithmetic): `ved_mem_addr` -/
+def memAddrArith {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let fsm := MState.fsm state
+    let grp := MState.grp state
+    let sub := MState.sub state
+    let isRow := fsm === (1#2 : Signal dom _)
+    let grp4 := 0#2 ++ (grp.map (BitVec.extractLsb' 0 2 ·))
+    let sub4 := 0#2 ++ (sub.map (BitVec.extractLsb' 0 2 ·))
+    let rowA := (grp4 * 4#4) + sub4
+    let colA := (sub4 * 4#4) + grp4
+    let readAddr4 := Signal.mux isRow rowA colA
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let fsmNext := Signal.mux start (Signal.pure 1#2) fsm
+    let subNext := sub + 1#3
+    let grpNext := Signal.mux (sub === (7#3 : Signal dom _)) (grp + 1#3) grp
+    let lastNext := Signal.mux isRow inputCoeff (MState.last state)
+    bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#3 grpNext, Signal.register 0#3 subNext, Signal.register 0#16 lastNext]
+  MState.last state
+
+
+/-- control: the row address is one more -/
+def memAddrArithBad {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let fsm := MState.fsm state
+    let grp := MState.grp state
+    let sub := MState.sub state
+    let isRow := fsm === (1#2 : Signal dom _)
+    let grp4 := 0#2 ++ (grp.map (BitVec.extractLsb' 0 2 ·))
+    let sub4 := 0#2 ++ (sub.map (BitVec.extractLsb' 0 2 ·))
+    let rowA := (grp4 * 4#4) + sub4 + 1#4
+    let colA := (sub4 * 4#4) + grp4
+    let readAddr4 := Signal.mux isRow rowA colA
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let fsmNext := Signal.mux start (Signal.pure 1#2) fsm
+    let subNext := sub + 1#3
+    let grpNext := Signal.mux (sub === (7#3 : Signal dom _)) (grp + 1#3) grp
+    let lastNext := Signal.mux isRow inputCoeff (MState.last state)
+    bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#3 grpNext, Signal.register 0#3 subNext, Signal.register 0#16 lastNext]
+  MState.last state
+
+
 /-! ## Entry runs -/
 
 #guard_msgs (drop info) in
@@ -176,6 +226,10 @@ def memFsmEn {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr :
 #ved_u1_mem memFsm
 #guard_msgs (drop info) in
 #ved_u1_mem memFsmEn
+#guard_msgs (drop info) in
+#ved_u1_mem memAddrArith
+#guard_msgs (drop info) in
+#ved_u1_mem memAddrArithBad
 
 /-! ## Stored type `==` the statement, standard axioms (independent probe) -/
 
@@ -208,6 +262,10 @@ run_cmd liftTermElabM <| storedOk ``memQuantP true
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCheck.memFsm -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedOk ``memFsm false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCheck.memAddrArith -/
+#guard_msgs (info, drop trace) in
+run_cmd liftTermElabM <| storedOk ``memAddrArith false
 
 /-! ## The lemmas: standard axioms only (independent probe) -/
 
@@ -273,6 +331,10 @@ run_cmd expectRefused "proof" (checkerNames `ctlEn) (cross ``memBase ``memEn `ct
 /-- info: refused [proof], clean -/
 #guard_msgs (info, drop trace) in
 run_cmd expectRefused "proof" (checkerNames `ctlFsmEn) (cross ``memFsm ``memFsmEn `ctlFsmEn)
+
+/-- info: refused [proof], clean -/
+#guard_msgs (info, drop trace) in
+run_cmd expectRefused "proof" (checkerNames `ctlAddrArith) (cross ``memAddrArith ``memAddrArithBad `ctlAddrArith)
 
 /-! Read timing: the memory statement of a combinational read is not matched to the registered read of the other
 declaration's call (and the other way): refused at `shape`, before any proof. -/
