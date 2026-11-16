@@ -69,6 +69,20 @@ open Lean Elab Term
 private def dedup4 (xs : List String) : List String :=
   xs.foldl (fun acc x => if acc.contains x then acc else acc ++ [x]) []
 
+
+/-- the right-nested conjunction of the propositions `ts`, each elaborated on its own and combined as an `Expr` (the
+elaborator took 79 s for the syntax `t₀ ∧ t₁ ∧ …` of 323 conjuncts), handed to the script as a closed term -/
+def conjSyntax (ts : Array Term) : TermElabM Term := do
+  let mut es : Array Lean.Expr := #[]
+  for t in ts do
+    let e ← Term.elabTerm t none
+    Term.synthesizeSyntheticMVarsNoPostponing
+    es := es.push (← instantiateMVars e)
+  let some last := es.back? | throwError "conjSyntax: empty"
+  let conj := es.pop.foldr (fun e acc => mkApp2 (Lean.mkConst ``And) e acc) last
+  Term.exprToSyntax conj
+
+
 /-- The script, or `none` when the module is outside its shape (a register whose input is not a
 plain wire, a data input that is not scalar, no clock/reset for the registers).
 `C M O B` are the checker's constants (contract, module, outputs, body), `F`/`nDom` the
@@ -117,7 +131,8 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   for n in names do
     wTerms := wTerms.push (← `(declWidth $Mi $(Syntax.mkStrLit n) = $(Syntax.mkNumLit (toString (declWidth m n)))))
   if let some lastT := wTerms.back? then
-    let conj ← wTerms.pop.foldrM (fun t acc => `($t ∧ $acc)) lastT
+    let _ := lastT
+    let conj ← conjSyntax wTerms
     let hwAll := mkIdent `hwAll
     pre := pre.push (← `(tactic| have $hwAll:ident : $conj := by set_option synthInstance.maxSize 100000 in set_option synthInstance.maxHeartbeats 0 in decide +kernel))
     pre := pre.push (← `(tactic| ved_pk4_mark "hwAll"))
@@ -159,7 +174,8 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   let hMem := mkIdent `hwMem
   let memProj (i : Nat) : TermElabM Term := pure (mkIdent (Name.mkSimple s!"hwm{i}"))
   if let some lastM := memTerms.back? then
-    let conj ← memTerms.pop.foldrM (fun t acc => `($t ∧ $acc)) lastM
+    let _ := lastM
+    let conj ← conjSyntax memTerms
     pre := pre.push (← `(tactic| have $hMem:ident : $conj := by set_option synthInstance.maxSize 100000 in set_option synthInstance.maxHeartbeats 0 in decide +kernel))
     let numsM : Array (TSyntax `num) := (List.range memTerms.size).toArray.map fun i => Syntax.mkNumLit (toString i)
     pre := pre.push (← `(tactic| ved_pk4_split $hMem as "hwm" at $[$numsM],*))
