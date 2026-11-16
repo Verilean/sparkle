@@ -18,7 +18,9 @@ import Tools.VedU1PackedEntry
 * Positives (stored type `==` the expected `PackedStmt`, the standard axioms, the hand-written contract, the proof uses
   `step_seq`, `OrderOk_eq_K`, and for the multi-field words `pk4_div`): a two-register counter, an eight-register word of
   mixed widths (`BitVec 32`, `3`, `Bool`, `20`, `2`, `22`, `Bool`, `8`).
-* `ved.packedseq4.on false`: the same declaration through the packed-seq2 script (no `OrderOk_eq_K` in the proof).
+* default options (`ved.packedseq4.on` false; the packed-seq4 script runs only above the packed-seq3 size gate and only with the
+  option on, the positives set `ved.packedseq3.maxExp 0`): a body below the gate goes through the packed-seq2 script (no
+  `OrderOk_eq_K` in the proof).
 * Control: a module with the output altered by a constant is refused at `[proof]` and nothing is left behind.
 -/
 
@@ -158,18 +160,21 @@ def check4 (decl : Name) (stmtStx : Term) (seq4 unpack : Bool) : CommandElabM Un
 
 /-- info: packed seq4 OK Tests.Ved.U1PackedSeq4Check.qCnt.ved_u1 seq4=true unpack=true -/
 #guard_msgs in
+set_option ved.packedseq3.maxExp 0 in
+set_option ved.packedseq4.on true in
 run_cmd check4 ``qCnt (← `(qCnt)) true true
 
 /-- info: packed seq4 OK Tests.Ved.U1PackedSeq4Check.q8.ved_u1 seq4=true unpack=true -/
 #guard_msgs in
 set_option maxHeartbeats 1600000 in
+set_option ved.packedseq3.maxExp 0 in
+set_option ved.packedseq4.on true in
 run_cmd check4 ``q8 (← `(q8)) true true
 
 /-! ## The packed-seq2 script (option off): same statement, no packed-seq4 lemma in the proof -/
 
 /-- info: packed seq4 OK Tests.Ved.U1PackedSeq4Check.qCntOff.ved_u1 seq4=false unpack=false -/
 #guard_msgs in
-set_option ved.packedseq4.on false in
 run_cmd check4 ``qCntOff (← `(qCntOff)) false false
 
 /-! ## Control -/

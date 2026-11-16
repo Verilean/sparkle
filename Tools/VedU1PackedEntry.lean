@@ -212,8 +212,10 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
           -- the cheap size gate (`Tools/VedU1PackedSeq3.lean`): a body whose per-statement script cannot fit the proof
           -- budget goes straight to the flat loop script (R23: 520 s to the timeout, then 0 s left for the fallback)
           let first? : Option Lean.Expr ← do
-            if !(← Tools.VedU1PackedSeq3.firstAttemptOk b0) then pure none else
-            match ← (if ved.packedseq4.on.get (← getOptions) then Tools.VedU1PackedSeq4.packedSeqScript4 else Tools.VedU1PackedSeq2.packedSeqScript) nm.contract nm.mod nm.outs nm.body F stmt.getAppNumArgs m b0
+            let small ← Tools.VedU1PackedSeq3.firstAttemptOk b0
+            -- above the size gate the per-statement script cannot work; only there the seq4 script may run
+            if !small && !ved.packedseq4.on.get (← getOptions) then pure none else
+            match ← (if small then Tools.VedU1PackedSeq2.packedSeqScript else Tools.VedU1PackedSeq4.packedSeqScript4) nm.contract nm.mod nm.outs nm.body F stmt.getAppNumArgs m b0
                 pc.clkRst (dataPortsOf m pc.clkRst) regs (← helperConsts F) with
             | some sx => budget (tryPackedFirst sx expected)
             | none => pure none

@@ -7,8 +7,8 @@ import Tools.VedU1PackedSeq4Fast
 -/
 
 register_option ved.packedseq4.on : Bool := {
-  defValue := true
-  descr := "ved.packedseq4.on: use the packed-seq4 script (otherwise the packed-seq2 script)"
+  defValue := false
+  descr := "ved.packedseq4.on: above the packed-seq3 size gate run the packed-seq4 script before the flat loop script (default off: R23 does not fit 900 s, the refusal would take 480 s)"
 }
 
 namespace Tools.VedU1PackedSeq4
@@ -63,6 +63,58 @@ elab "ved_pk4_show " h:ident : tactic => withMainContext do
   if ved.packedseq2.dbg.get (← getOptions) != 10 then return
   let some d := (← getLCtx).findFromUserName? h.getId | return
   IO.eprintln s!"VED PKRAW {h.getId} {← ppExpr (← instantiateMVars d.type)}"
+
+open Lean Meta Elab Tactic in
+/-- `ved_pk4_goal "label"`: debugging only (`ved.packedseq2.dbg ≥ 3`): the size of the main goal and its first 1500 characters -/
+elab "ved_pk4_goal " l:str : tactic => withMainContext do
+  if ved.packedseq2.dbg.get (← getOptions) < 3 then return
+  let g ← instantiateMVars (← getMainTarget)
+  let t ← ppExpr g
+  let line := s!"VED PKGOAL {l.getString} size={g.sizeWithoutSharing} {(toString t).take 1500}"
+  IO.eprintln line
+  if let some f ← IO.getEnv "VED_PKMARK_FILE" then
+    IO.FS.withFile f .append fun h => do h.putStrLn line; h.flush
+
+open Lean Meta Elab Tactic in
+/-- `ved_pk4_goals "label"`: debugging only (`ved.packedseq2.dbg ≥ 3`): the number and sizes of the goals -/
+elab "ved_pk4_goals " l:str : tactic => do
+  if ved.packedseq2.dbg.get (← getOptions) < 3 then return
+  let gs ← getGoals
+  let mut sz : Array Nat := #[]
+  for g in gs do sz := sz.push (← instantiateMVars (← g.getType)).sizeWithoutSharing
+  let line := s!"VED PKGOALS {l.getString} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000000} n={gs.length} sizes={sz.extract 0 8}"
+  IO.eprintln line
+  if let some f ← IO.getEnv "VED_PKMARK_FILE" then
+    IO.FS.withFile f .append fun h => do h.putStrLn line; h.flush
+
+/-- `ved_pk4_each "label" (tacs)`: run `tacs` on each goal on its own, in order of increasing size, leaving none; under
+`ved.packedseq2.dbg ≥ 3` the time and heartbeats of every goal are printed (and appended to `VED_PKMARK_FILE`). -/
+syntax (name := vedPk4Each) "ved_pk4_each " str " (" tacticSeq ")" "with" "(" tacticSeq ")" : tactic
+
+open Lean Meta Elab Tactic in
+@[tactic vedPk4Each] def evalVedPk4Each : Tactic := fun stx => do
+  let l := (stx[1].isStrLit?).getD ""
+  let tacs := stx[3]
+  let tacsBig := stx[7]
+  let dbg := ved.packedseq2.dbg.get (← getOptions) ≥ 3
+  let gs ← getGoals
+  let mut keyed : Array (Nat × MVarId) := #[]
+  for g in gs do keyed := keyed.push ((← instantiateMVars (← g.getType)).sizeWithoutSharing, g)
+  keyed := keyed.qsort (fun a b => a.1 < b.1)
+  let mut i := 0
+  for (sz, g) in keyed do
+    setGoals [g]
+    let t0 ← IO.monoMsNow
+    let h0 ← IO.getNumHeartbeats
+    evalTactic (if sz > 100000 then tacsBig else tacs)
+    unless (← getGoals).isEmpty do throwError "ved_pk4_each: goals remain"
+    if dbg then
+      let line := s!"VED PKEACH {l} {i} size={sz} ms={(← IO.monoMsNow) - t0} hb={((← IO.getNumHeartbeats) - h0) / 1000000}"
+      IO.eprintln line
+      if let some f ← IO.getEnv "VED_PKMARK_FILE" then
+        IO.FS.withFile f .append fun h => do h.putStrLn line; h.flush
+    i := i + 1
+  setGoals []
 
 open Lean Elab Term
 
@@ -349,12 +401,25 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
     ← `(tactic| ved_pk_leafwise)] ++ (← mark "out-simp") ++ #[
     ← `(tactic| all_goals try (repeat' apply And.intro)),
     ← `(tactic| ved_pk_split)] ++ (← mark "out-split") ++ closeTacs ++ (← mark "out-close")
+  let regExtra : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[
+    ← `(Lean.Parser.Tactic.simpLemma| Sparkle.IR.Semantics.evalExpr), ← `(Lean.Parser.Tactic.simpLemma| Sparkle.IR.Semantics.evalExpr.go),
+    ← `(Lean.Parser.Tactic.simpLemma| widthOf), ← `(Lean.Parser.Tactic.simpLemma| mask), ← `(Lean.Parser.Tactic.simpLemma| List.lookup),
+    ← `(Lean.Parser.Tactic.simpLemma| Option.getD_some), ← `(Lean.Parser.Tactic.simpLemma| Option.getD_none)]
+  let regLemmas := mk (#[applyL] ++ regExtra ++ sigBase ++ hrgL ++ hwL ++ hEinL ++ hErL ++ #[hErstL])
+  let mut closeTacsM : Array (TSyntax `tactic) := #[]
+  for i in [0:closeTacs.size] do
+    closeTacsM := closeTacsM.push closeTacs[i]!
+    closeTacsM := closeTacsM.push (← `(tactic| ved_pk4_goals $(Syntax.mkStrLit s!"c{i}")))
   let regTacs : Array (TSyntax `tactic) := #[
-    ← `(tactic| ved_seq_sub),
-    ← `(tactic| ved_seq_simp [$exReg,*])] ++ (← mark "reg-simp") ++ #[
-    ← `(tactic| ved_pk_drop),
-    ← `(tactic| all_goals try (repeat' apply And.intro)),
-    ← `(tactic| ved_pk_split)] ++ (← mark "reg-split") ++ closeTacs ++ (← mark "reg-close")
+    ← `(tactic| ved_seq_sub), ← `(tactic| ved_pk4_mark "reg-sub"), ← `(tactic| ved_pk4_goal "reg-sub"),
+    ← `(tactic| simp only [$regLemmas,*, -Nat.reduceAdd]),
+    ← `(tactic| ved_pk4_mark "reg-unfold"), ← `(tactic| ved_pk4_goal "reg-unfold"),
+    ← `(tactic| simp only [$(mk hsL),*, -Nat.reduceAdd]),
+    ← `(tactic| try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMul]),
+    ← `(tactic| ved_pk4_mark "reg-simp"),
+    ← `(tactic| ved_pk_drop), ← `(tactic| ved_pk4_mark "reg-drop"),
+    ← `(tactic| all_goals try (repeat' apply And.intro)), ← `(tactic| ved_pk4_mark "reg-and"), ← `(tactic| ved_pk4_goals "reg-and"),
+    ← `(tactic| ved_pk4_each "reg" (ved_pk_split; ved_pk4_goals "split"; $closeTacsM*) with (ved_pk4_goals "big"; $closeTacsM*))]
   let stopH0 ← `(tactic| (trace_state; fail "stopped at h0"))
   let h0tacs : Array (TSyntax `tactic) := #[
     ← `(tactic| intro $insI hok),
