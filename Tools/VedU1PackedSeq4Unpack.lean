@@ -200,3 +200,43 @@ elab "ved_pk4_unpack " "at " h:ident : tactic => withMainContext do
 end Tactic
 
 end Tools.VedU1PackedSeq4
+
+namespace Tools.VedU1PackedSeq4
+open Lean Meta Elab Tactic
+
+/-- `ved_pk4_split h as "pfx" at i, j, ..`: for a hypothesis `h : A₀ ∧ A₁ ∧ …` (right nested; the elements of a recursive
+conjunction such as `AllP P B` are found by `whnf`) introduce `pfx_i : A_i` for the listed indices (increasing), each as a
+projection built DIRECTLY (`And.left` of the `And.right` chain: linear; the elaborator on the same projections as
+`.2.2.1` is quadratic, 30 s for 75 conjuncts and 120 s for 323). -/
+syntax (name := vedPk4Split) "ved_pk4_split " ident " as " str " at " num,* : tactic
+
+@[tactic vedPk4Split] def evalVedPk4Split : Tactic := fun stx => withMainContext do
+  let h : Ident := ⟨stx[1]⟩
+  let pfx := (stx[3]).isStrLit?.getD "h"
+  let idxs : Array Nat := (stx[5].getSepArgs).map fun n => n.isNatLit?.getD 0
+  let some d := (← getLCtx).findFromUserName? h.getId | throwError "ved_pk4_split: no hypothesis {h.getId}"
+  let some last := idxs.back? | return
+  let mut cur : Lean.Expr := d.toExpr
+  let mut curTy ← instantiateMVars d.type
+  let mut hyps : Array Hypothesis := #[]
+  let mut j := 0
+  for i in [0:last + 1] do
+    unless curTy.isAppOfArity ``And 2 do
+      let t' ← whnfD curTy
+      if t'.isAppOfArity ``And 2 then curTy := t'
+    let some (a, b) := (match curTy.getAppFnArgs with | (``And, #[a, b]) => some (a, b) | _ => none)
+      | -- the last conjunct of the chain
+        if j < idxs.size && idxs[j]! == i then
+          hyps := hyps.push { userName := Name.mkSimple s!"{pfx}{i}", type := curTy, value := cur }
+          break
+        throwError "ved_pk4_split: the type of the conjunction ends at {i}"
+    if j < idxs.size && idxs[j]! == i then
+      hyps := hyps.push { userName := Name.mkSimple s!"{pfx}{i}", type := a, value := mkApp3 (mkConst ``And.left) a b cur }
+      j := j + 1
+    cur := mkApp3 (mkConst ``And.right) a b cur
+    curTy := b
+  let g ← getMainGoal
+  let (_, g') ← g.assertHypotheses hyps
+  replaceMainGoal [g']
+
+end Tools.VedU1PackedSeq4

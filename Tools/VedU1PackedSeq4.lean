@@ -17,6 +17,17 @@ open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.Reorder
 open Sparkle.Core.Signal Sparkle.Core.Domain
 open Tools.VedU1Contract Tools.VedU1Packed Tools.VedU1ScriptSeq Tools.VedU1PackedSeq2
 
+open Lean Meta Elab Tactic in
+/-- `ved_pk4_mark "label"`: debugging only (`ved.packedseq2.dbg ≥ 3`): `ved_pk_mark`, and when the environment variable
+`VED_PKMARK_FILE` names a file the mark is appended to it at once (stderr is buffered until the process ends, so a run
+cut by a timeout shows nothing). -/
+elab "ved_pk4_mark " l:str : tactic => do
+  if ved.packedseq2.dbg.get (← getOptions) < 3 then return
+  let line := s!"VED PKMARK {l.getString} {← IO.monoMsNow} {(← IO.getNumHeartbeats) / 1000000}"
+  IO.eprintln line
+  if let some f ← IO.getEnv "VED_PKMARK_FILE" then
+    IO.FS.withFile f .append fun h => do h.putStrLn line; h.flush
+
 /-- `ved_pk4_aux h (tacs)`: `ved_pk_aux` (`Tools.VedU1PackedSeq2`), and under `ved.packedseq2.dbg = 9` the type of the auxiliary theorem is printed. -/
 syntax (name := vedPk4Aux) "ved_pk4_aux " ident " (" tacticSeq ")" : tactic
 
@@ -109,15 +120,11 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
     let conj ← wTerms.pop.foldrM (fun t acc => `($t ∧ $acc)) lastT
     let hwAll := mkIdent `hwAll
     pre := pre.push (← `(tactic| have $hwAll:ident : $conj := by set_option synthInstance.maxSize 100000 in set_option synthInstance.maxHeartbeats 0 in decide +kernel))
-    pre := pre.push (← `(tactic| ved_pk_mark "hwAll"))
-    -- the i-th conjunct by projections (`rcases` on a conjunction of this size took 30 s for 75 names)
-    let nW := wTerms.size
-    for i in [0:nW] do
-      let mut t : Term := hwAll
-      for _ in [0:i] do t ← `(And.right $t)
-      if i + 1 < nW then t ← `(And.left $t)
-      pre := pre.push (← `(tactic| have $(hws[i]!):ident := $t))
-  pre := pre.push (← `(tactic| ved_pk_mark "pre-hw"))
+    pre := pre.push (← `(tactic| ved_pk4_mark "hwAll"))
+    -- the i-th conjunct as a hypothesis `hw{i}`, projections built directly (`ved_pk4_split`)
+    let nums : Array (TSyntax `num) := (List.range wTerms.size).toArray.map fun i => Syntax.mkNumLit (toString i)
+    pre := pre.push (← `(tactic| ved_pk4_split $hwAll as "hw" at $[$nums],*))
+  pre := pre.push (← `(tactic| ved_pk4_mark "pre-hw"))
   -- data inputs: the range facts, one per input
   let hins := (List.range dataPorts.length).toArray.map fun i => mkIdent (Name.mkSimple s!"hin{i}")
   for (i, p, h) in (List.range dataPorts.length).zip (dataPorts.zip hins.toList) |>.map fun (i, (p, h)) => (i, p, h) do
@@ -132,7 +139,7 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
         have h0 := Tools.VedU1ScriptSeq.inputsOk_nth $Ci $Mi $insI hok $sI $iL $pn (by decide +kernel)
         rw [$hwI:ident] at h0
         exact h0))
-  pre := pre.push (← `(tactic| ved_pk_mark "pre-hin"))
+  pre := pre.push (← `(tactic| ved_pk4_mark "pre-hin"))
   -- the reset is held 0
   -- the membership facts the environment equations need, in ONE kernel evaluation (the elaborator-side search for the
   -- `Decidable` instance of the conjunction needs a larger size)
@@ -150,15 +157,13 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
     memTerms := memTerms.push (← `($rn ∉ writesOf $Bi))
     memTerms := memTerms.push (← `((($Mi).inputs.map (·.name)).contains $rn = false))
   let hMem := mkIdent `hwMem
-  let memProj (i : Nat) : TermElabM Term := do
-    let mut t : Term := hMem
-    for _ in [0:i] do t ← `(And.right $t)
-    if i + 1 < memTerms.size then t ← `(And.left $t)
-    pure t
+  let memProj (i : Nat) : TermElabM Term := pure (mkIdent (Name.mkSimple s!"hwm{i}"))
   if let some lastM := memTerms.back? then
     let conj ← memTerms.pop.foldrM (fun t acc => `($t ∧ $acc)) lastM
     pre := pre.push (← `(tactic| have $hMem:ident : $conj := by set_option synthInstance.maxSize 100000 in set_option synthInstance.maxHeartbeats 0 in decide +kernel))
-    pre := pre.push (← `(tactic| ved_pk_mark "hwMem"))
+    let numsM : Array (TSyntax `num) := (List.range memTerms.size).toArray.map fun i => Syntax.mkNumLit (toString i)
+    pre := pre.push (← `(tactic| ved_pk4_split $hMem as "hwm" at $[$numsM],*))
+    pre := pre.push (← `(tactic| ved_pk4_mark "hwMem"))
   let hrst := mkIdent `hrst0
   pre := pre.push (← `(tactic| have $hrst:ident : $insI $sI $(Syntax.mkStrLit rstN) = 0 :=
     hok.2 $sI ($(Syntax.mkStrLit clkN), $(Syntax.mkStrLit rstN)) (by decide +kernel)))
@@ -245,7 +250,7 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
         ved_seq_simp_nd [$(mk (hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL.extract 0 k)),*] at $(hss[i]!):ident
         ved_pk4_show $(hss[i]!):ident
         try ved_seq_unpack at $(hss[i]!):ident)))
-    perStmt := perStmt.push (← `(tactic| ved_pk_mark $(Syntax.mkStrLit s!"stmt{i}")))
+    perStmt := perStmt.push (← `(tactic| ved_pk4_mark $(Syntax.mkStrLit s!"stmt{i}")))
   let applyL ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1ScriptSeq.applyNexts_nextsOf)
   let sigBase := #[← `(Lean.Parser.Tactic.simpLemma| srcOf), ← `(Lean.Parser.Tactic.simpLemma| $Cc:ident), ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1Packed.PContract.core), ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1Packed.collapse),
     ← `(Lean.Parser.Tactic.simpLemma| contractOf), ← `(Lean.Parser.Tactic.simpLemma| applyIns),
@@ -275,9 +280,9 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   let dbgN := ved.packedseq2.dbg.get (← getOptions)
   let mark (n : String) : TermElabM (Array (TSyntax `tactic)) :=
     if dbgN == 4 && n == "reg-split" then do pure #[← `(tactic| (trace_state; fail "stopped at reg-split"))]
-    else if dbgN == 8 && n == "pre" then do pure #[← `(tactic| (ved_pk_mark "pre"; fail "stopped at pre"))]
+    else if dbgN == 8 && n == "pre" then do pure #[← `(tactic| (ved_pk4_mark "pre"; fail "stopped at pre"))]
     else if dbgN == 5 && n == "out-split" then do pure #[← `(tactic| (trace_state; fail "stopped at out-split"))]
-    else do pure #[← `(tactic| ved_pk_mark $(Syntax.mkStrLit n))]
+    else do pure #[← `(tactic| ved_pk4_mark $(Syntax.mkStrLit n))]
   tacs := tacs.push (← `(tactic| intro $insI hok $sI st mems $hR))
   tacs := tacs ++ (← mark "intro")
   tacs := tacs ++ pre
@@ -293,7 +298,7 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
         Signal.fst, Signal.snd, Sparkle.Core.Signal.Signal.map, Signal.register, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, Functor.map, Seq.seq,
         Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, OTy.obs, PTy.obs, PTy.sig, -Nat.reduceAdd, $(mk hsA),*] at $hv:ident)
   let hvSimp ← `(tactic| ved_seq_simp [$Oi:ident, $Mi:ident, $Bi:ident, declWidth, srcOf, $Cc:ident, Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse, contractOf, applyIns, $fI:ident, Tools.VedU1PackedSeq2.OTy_packNat_pair_mod, Tools.VedU1MultiSeqLemmas.OTy_packNat_leaf, OTy.width, PTy.width, Signal.fst, Signal.snd, $(mk hsA),*] at $hv:ident)
-  tacs := tacs.push (← `(tactic| ved_pk4_aux $hv:ident ($hvDs:tactic; ved_pk_mark "hv-dsimp"; $hvSimp:tactic; ved_pk_mark "hv-simp")))
+  tacs := tacs.push (← `(tactic| ved_pk4_aux $hv:ident ($hvDs:tactic; ved_pk4_mark "hv-dsimp"; $hvSimp:tactic; ved_pk4_mark "hv-simp")))
   tacs := tacs ++ (← mark "hv")
   tacs := tacs.push (← `(tactic| ved_loop_R' $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
@@ -306,13 +311,10 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
     ((Tools.VedU1PackedSeq4.woCheckK_eq [] $Bi).symm.trans (by decide +kernel)) (by decide +kernel)))
   tacs := tacs ++ (← mark "step_seq")
   tacs := tacs ++ postStep
-  -- the equations of the assignments by projections (`rcases` on a conjunction of this size is quadratic: 30 s for 75 names)
+  -- the equations of the assignments as hypotheses `hs{i}` (projections built directly: the elaborator is quadratic here)
   let _ := allPat
-  for i in assignIdx do
-    let mut t : Term ← `(hall)
-    for _ in [0:i] do t ← `(And.right $t)
-    t ← `(And.left $t)
-    tacs := tacs.push (← `(tactic| have $(hss[i]!):ident := $t))
+  let numsS : Array (TSyntax `num) := assignIdx.map fun i => Syntax.mkNumLit (toString i)
+  tacs := tacs.push (← `(tactic| ved_pk4_split hall as "hs" at $[$numsS],*))
   tacs := tacs ++ (← mark "step_seq+post")
   tacs := tacs ++ perStmt
   tacs := tacs ++ (← mark "perStmt")
@@ -350,24 +352,24 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   let hblock : Array (TSyntax `tactic) := tacs ++ #[b1, b2]
   let Mi' := Mi
   let stx ← `(by
-      ved_pk_mark "start4"
+      ved_pk4_mark "start4"
       have hP : Tools.VedU1Packed.PackCover $Cc := by decide
-      ved_pk_mark "hP"
+      ved_pk4_mark "hP"
       have hU : U1Stmt $Ci $Mi' $f := by
         have hord : OrderOk $Mi $Bi = true :=
           (Tools.VedU1PackedSeq4.OrderOk_eq_K $Mi $Bi).symm.trans (by decide +kernel)
-        ved_pk_mark "hord"
+        ved_pk4_mark "hord"
         have hCorr : CorrStmt $Ci := by decide +kernel
-        ved_pk_mark "corr"
+        ved_pk4_mark "corr"
         have hShape : ShapeStmt $Ci $Mi := by decide +kernel
-        ved_pk_mark "shape"
+        ved_pk4_mark "shape"
         have hWidth : WidthStmt $Ci $Mi := by
           unfold Tools.VedU1Contract.WidthStmt
           refine ⟨(Tools.VedU1PackedSeq4.nodupK_iff _).1 (by decide +kernel), ?_⟩
           decide +kernel
-        ved_pk_mark "width"
+        ved_pk4_mark "width"
         refine ⟨hCorr, hShape, hWidth, ⟨$Bi, hord⟩, ?_⟩
-        ved_pk_mark "u1parts"
+        ved_pk4_mark "u1parts"
         apply Tools.VedU1Contract.outputs_of_order $Bi hord
         refine $oos $Ci $Mi $Bi $f $Oi (by decide +kernel) ?R ?h0 ?hstep
         case hstep =>
