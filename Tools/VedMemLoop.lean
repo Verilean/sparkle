@@ -348,6 +348,8 @@ elab "ved_mem_addr" : tactic => withMainContext do
     seen0 := seen0.push (key, args[8]!)
   if !need then return
   dbgT "addr: gate passed"
+  let g0 ← getMainGoal
+  g0.setTag ((← g0.getTag) ++ `ved_addr)
   let isMem := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
   -- one rewrite per round, the atoms collected again after it (an address can contain another one: the rewrite of the
   -- inner one changes the outer one)
@@ -439,6 +441,14 @@ elab "ved_hyp_bits" : tactic => withMainContext do
 elab "ved_stamp " k:num : tactic => do
   if (← IO.getEnv "VED_DUMP_DIR").isSome then
     dbgLog s!"STAMP {k.getNat} t={← IO.monoMsNow} goals={(← getGoals).length}"
+
+/-- `ved_addr_post`: after `ved_mem_addr` has found addresses to unify in a goal (it tags the goal `ved_addr`): the memory atoms
+are generalised; in every goal the bit operations of the goal and of the hypotheses are rewritten. -/
+elab "ved_addr_post" : tactic => do
+  let g ← getMainGoal
+  if (← g.getTag).toString.endsWith "ved_addr" then
+    evalTactic (← `(tactic| ved_mem_gen))
+  evalTactic (← `(tactic| ((try ved_bit_simp); (try ved_hyp_bits))))
 
 /-- the side condition `hS` of the strong fixpoint equation -/
 syntax "ved_causal " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
