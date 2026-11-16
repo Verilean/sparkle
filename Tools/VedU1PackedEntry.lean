@@ -206,7 +206,7 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
           -- the optional `ved.u1.seqProofHeartbeats` floor); a failure puts the state back and the flat loop
           -- script below runs as before
           if ved.packedseq2.dbg.get (← getOptions) == 7 then
-            IO.eprintln s!"VED PKSTATS {repr (Tools.VedU1PackedSeq3.substStats b0)} names {(b0.length)}"
+            IO.eprintln s!"VED PKSTATS {repr (Tools.VedU1PackedSeq3.substStats b0)}"
             throwError "ved.packedseq2.dbg 7: stats only"
           -- the cheap size gate (`Tools/VedU1PackedSeq3.lean`): a body whose per-statement script cannot fit the proof
           -- budget goes straight to the flat loop script (R23: 520 s to the timeout, then 0 s left for the fallback)
