@@ -515,10 +515,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
     #[← `(tactic| all_goals (try simp only [Tools.VedMem.ofNat_mod_eq_extract'])), closing]]
-  -- `dbg ≥ 100`: stop after the stage `dbg - 100` by admitting the goals left (to time the kernel on the proof so far)
-  let stopStage ← if dbg ≥ 100 then `(tactic| all_goals sorry) else `(tactic| ved_dbg_state)
-  let wrapAll := dbg ≥ 100
-  let dbg := if dbg ≥ 100 then dbg - 100 else dbg
+  let stopStage ← `(tactic| ved_dbg_state)
   let tail := (stages.zipIdx.map fun (st, k) => if dbg == 20 + k then st.push stopStage else st).flatten
   -- the declaration's loops in the hypotheses take the simp normal form of the goal's (the invariant was
   -- built from the declaration as written; `loopScriptFor` builds it from the normalised source instead)
@@ -568,7 +565,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
         $rdTacs*
         $normHyps
         $d1
-        $(← if wrapAll then `(tactic| all_goals ved_loop_unfold_mem [$hsSep,*] ($sI + 1)) else `(tactic| ved_loop_unfold_mem [$hsSep,*] ($sI + 1)))
+        ved_loop_unfold_mem [$hsSep,*] ($sI + 1)
         $d2
         all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
           comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
@@ -583,7 +580,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
         $d5
         all_goals (try ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val])
         all_goals (try dsimp only at *)
-        $(← if wrapAll then `(tactic| all_goals ved_loop_gen_mem $sI) else `(tactic| ved_loop_gen_mem $sI))
+        ved_loop_gen_mem $sI
         $d6
         $tail*)
   if pk then
