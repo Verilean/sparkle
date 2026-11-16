@@ -1,5 +1,6 @@
 import Tools.VedU1PackedSeq2
 import Tools.VedU1PackedSeq4Unpack
+import Tools.VedU1PackedSeq4Fast
 
 /-!
 # Packed result with registers: the packed-seq4 script (`sparkle-ved-packed-seq4`)
@@ -99,9 +100,23 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   let names := dedup4 (b0.flatMap stmtNames ++ dataPorts.map (·.name) ++ [rstN])
   let hws := (List.range names.length).toArray.map fun i => mkIdent (Name.mkSimple s!"hw{i}")
   let mut pre : Array (TSyntax `tactic) := #[]
-  for (n, h) in names.zip hws.toList do
-    let w := declWidth m n
-    pre := pre.push (← `(tactic| have $h:ident : declWidth $Mi $(Syntax.mkStrLit n) = $(Syntax.mkNumLit (toString w)) := by decide +kernel))
+  -- the width of every name in ONE kernel evaluation (`declWidth` is a `find?` over the wires: the kernel evaluates the
+  -- terms once each and shares them; one `decide +kernel` per name cost 0.1 .. 0.2 s each on R23)
+  let mut wTerms : Array Term := #[]
+  for n in names do
+    wTerms := wTerms.push (← `(declWidth $Mi $(Syntax.mkStrLit n) = $(Syntax.mkNumLit (toString (declWidth m n)))))
+  if let some lastT := wTerms.back? then
+    let conj ← wTerms.pop.foldrM (fun t acc => `($t ∧ $acc)) lastT
+    let hwAll := mkIdent `hwAll
+    pre := pre.push (← `(tactic| have $hwAll:ident : $conj := by set_option synthInstance.maxSize 100000 in set_option synthInstance.maxHeartbeats 0 in decide +kernel))
+    pre := pre.push (← `(tactic| ved_pk_mark "hwAll"))
+    -- the i-th conjunct by projections (`rcases` on a conjunction of this size took 30 s for 75 names)
+    let nW := wTerms.size
+    for i in [0:nW] do
+      let mut t : Term := hwAll
+      for _ in [0:i] do t ← `(And.right $t)
+      if i + 1 < nW then t ← `(And.left $t)
+      pre := pre.push (← `(tactic| have $(hws[i]!):ident := $t))
   pre := pre.push (← `(tactic| ved_pk_mark "pre-hw"))
   -- data inputs: the range facts, one per input
   let hins := (List.range dataPorts.length).toArray.map fun i => mkIdent (Name.mkSimple s!"hin{i}")
@@ -119,6 +134,31 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
         exact h0))
   pre := pre.push (← `(tactic| ved_pk_mark "pre-hin"))
   -- the reset is held 0
+  -- the membership facts the environment equations need, in ONE kernel evaluation (the elaborator-side search for the
+  -- `Decidable` instance of the conjunction needs a larger size)
+  let mut memTerms : Array Term := #[]
+  let mut memIdx : Std.HashMap String (Nat × Nat) := {}
+  for p in dataPorts do
+    memIdx := memIdx.insert ("in:" ++ p.name) (memTerms.size, memTerms.size + 1)
+    memTerms := memTerms.push (← `($(Syntax.mkStrLit p.name) ∉ writesOf $Bi))
+    memTerms := memTerms.push (← `((($Mi).inputs.map (·.name)).contains $(Syntax.mkStrLit p.name) = true))
+  memIdx := memIdx.insert ("in:" ++ rstN) (memTerms.size, memTerms.size + 1)
+  memTerms := memTerms.push (← `($(Syntax.mkStrLit rstN) ∉ writesOf $Bi))
+  memTerms := memTerms.push (← `((($Mi).inputs.map (·.name)).contains $(Syntax.mkStrLit rstN) = true))
+  for rn in rNames do
+    memIdx := memIdx.insert ("reg:" ++ rn.getString) (memTerms.size, memTerms.size + 1)
+    memTerms := memTerms.push (← `($rn ∉ writesOf $Bi))
+    memTerms := memTerms.push (← `((($Mi).inputs.map (·.name)).contains $rn = false))
+  let hMem := mkIdent `hwMem
+  let memProj (i : Nat) : TermElabM Term := do
+    let mut t : Term := hMem
+    for _ in [0:i] do t ← `(And.right $t)
+    if i + 1 < memTerms.size then t ← `(And.left $t)
+    pure t
+  if let some lastM := memTerms.back? then
+    let conj ← memTerms.pop.foldrM (fun t acc => `($t ∧ $acc)) lastM
+    pre := pre.push (← `(tactic| have $hMem:ident : $conj := by set_option synthInstance.maxSize 100000 in set_option synthInstance.maxHeartbeats 0 in decide +kernel))
+    pre := pre.push (← `(tactic| ved_pk_mark "hwMem"))
   let hrst := mkIdent `hrst0
   pre := pre.push (← `(tactic| have $hrst:ident : $insI $sI $(Syntax.mkStrLit rstN) = 0 :=
     hok.2 $sI ($(Syntax.mkStrLit clkN), $(Syntax.mkStrLit rstN)) (by decide +kernel)))
@@ -127,19 +167,22 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   let mut postStep : Array (TSyntax `tactic) := #[]
   for (p, h) in dataPorts.zip hEin.toList do
     let pn := Syntax.mkStrLit p.name
+    let (ia, ib) := memIdx.getD ("in:" ++ p.name) (0, 0)
     postStep := postStep.push (← `(tactic| have $h:ident : E $pn = $insI $sI $pn :=
-      (hfr $pn (by decide +kernel)).trans
-        (Tools.VedU1ScriptSeq.seedIn_input $Mi $insI $sI st $pn (by decide +kernel))))
+      (hfr $pn $(← memProj ia)).trans
+        (Tools.VedU1ScriptSeq.seedIn_input $Mi $insI $sI st $pn $(← memProj ib))))
   let hErst := mkIdent `hErst
+  let (ra, rb) := memIdx.getD ("in:" ++ rstN) (0, 0)
   postStep := postStep.push (← `(tactic| have $hErst:ident : E $(Syntax.mkStrLit rstN) = 0 :=
-    (hfr $(Syntax.mkStrLit rstN) (by decide +kernel)).trans
-      ((Tools.VedU1ScriptSeq.seedIn_input $Mi $insI $sI st $(Syntax.mkStrLit rstN) (by decide +kernel)).trans $hrst)))
+    (hfr $(Syntax.mkStrLit rstN) $(← memProj ra)).trans
+      ((Tools.VedU1ScriptSeq.seedIn_input $Mi $insI $sI st $(Syntax.mkStrLit rstN) $(← memProj rb)).trans $hrst)))
   let hEr := (List.range k).toArray.map fun i => mkIdent (Name.mkSimple s!"hEr{i}")
   for i in [0:k] do
     let rn := rNames[i]!
+    let (ga, gb) := memIdx.getD ("reg:" ++ rn.getString) (0, 0)
     postStep := postStep.push (← `(tactic| have $(hEr[i]!):ident : E $rn = st $rn :=
-      (hfr $rn (by decide +kernel)).trans
-        (Tools.VedU1ScriptSeq.seedIn_state $Mi $insI $sI st $rn (by decide +kernel))))
+      (hfr $rn $(← memProj ga)).trans
+        (Tools.VedU1ScriptSeq.seedIn_state $Mi $insI $sI st $rn $(← memProj gb))))
     postStep := postStep.push (← `(tactic| rw [$(hregs[i]!):ident] at $(hEr[i]!):ident))
   -- register next values
   let hrgs := (List.range k).toArray.map fun i => mkIdent (Name.mkSimple s!"hrg{i}")
@@ -259,10 +302,17 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   tacs := tacs.push (← `(tactic| ved_pk_next $sI [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| Signal.fst), ← `(Lean.Parser.Tactic.simpLemma| Signal.snd), ← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]))
   tacs := tacs ++ (← mark "next")
   tacs := tacs.push (← `(tactic| obtain ⟨E, hstep, hfr, hall⟩ := Tools.VedU1ScriptSeq.step_seq (declWidth $Mi) mems $Bi
-    (Tools.VedU1Contract.seedIn $Mi $insI $sI st) (by decide +kernel) (by decide +kernel)))
+    (Tools.VedU1Contract.seedIn $Mi $insI $sI st)
+    ((Tools.VedU1PackedSeq4.woCheckK_eq [] $Bi).symm.trans (by decide +kernel)) (by decide +kernel)))
   tacs := tacs ++ (← mark "step_seq")
   tacs := tacs ++ postStep
-  tacs := tacs.push (← `(tactic| obtain $allPat := hall))
+  -- the equations of the assignments by projections (`rcases` on a conjunction of this size is quadratic: 30 s for 75 names)
+  let _ := allPat
+  for i in assignIdx do
+    let mut t : Term ← `(hall)
+    for _ in [0:i] do t ← `(And.right $t)
+    t ← `(And.left $t)
+    tacs := tacs.push (← `(tactic| have $(hss[i]!):ident := $t))
   tacs := tacs ++ (← mark "step_seq+post")
   tacs := tacs ++ perStmt
   tacs := tacs ++ (← mark "perStmt")
@@ -304,9 +354,19 @@ def packedSeqScript4 (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
       have hP : Tools.VedU1Packed.PackCover $Cc := by decide
       ved_pk_mark "hP"
       have hU : U1Stmt $Ci $Mi' $f := by
-        have hord : OrderOk $Mi $Bi = true := by decide +kernel
+        have hord : OrderOk $Mi $Bi = true :=
+          (Tools.VedU1PackedSeq4.OrderOk_eq_K $Mi $Bi).symm.trans (by decide +kernel)
         ved_pk_mark "hord"
-        refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$Bi, hord⟩, ?_⟩
+        have hCorr : CorrStmt $Ci := by decide +kernel
+        ved_pk_mark "corr"
+        have hShape : ShapeStmt $Ci $Mi := by decide +kernel
+        ved_pk_mark "shape"
+        have hWidth : WidthStmt $Ci $Mi := by
+          unfold Tools.VedU1Contract.WidthStmt
+          refine ⟨(Tools.VedU1PackedSeq4.nodupK_iff _).1 (by decide +kernel), ?_⟩
+          decide +kernel
+        ved_pk_mark "width"
+        refine ⟨hCorr, hShape, hWidth, ⟨$Bi, hord⟩, ?_⟩
         ved_pk_mark "u1parts"
         apply Tools.VedU1Contract.outputs_of_order $Bi hord
         refine $oos $Ci $Mi $Bi $f $Oi (by decide +kernel) ?R ?h0 ?hstep
