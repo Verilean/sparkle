@@ -2,6 +2,7 @@ import Tools.VedU1Entry
 import Tools.VedU1Packed
 import Tools.VedU1MultiSeq
 import Tools.VedU1PackedSeq2
+import Tools.VedU1PackedSeq3
 
 /-!
 # U1 entry for a packed result `Signal d (A × B)` (`#ved_u1_packed decl`)
@@ -204,7 +205,13 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
           -- first attempt: the per-statement script (`Tools/VedU1PackedSeq2.lean`) under the proof budget (and
           -- the optional `ved.u1.seqProofHeartbeats` floor); a failure puts the state back and the flat loop
           -- script below runs as before
+          if ved.packedseq2.dbg.get (← getOptions) == 7 then
+            IO.eprintln s!"VED PKSTATS {repr (Tools.VedU1PackedSeq3.substStats b0)} names {(b0.length)}"
+            throwError "ved.packedseq2.dbg 7: stats only"
+          -- the cheap size gate (`Tools/VedU1PackedSeq3.lean`): a body whose per-statement script cannot fit the proof
+          -- budget goes straight to the flat loop script (R23: 520 s to the timeout, then 0 s left for the fallback)
           let first? : Option Lean.Expr ← do
+            if !(← Tools.VedU1PackedSeq3.firstAttemptOk b0) then pure none else
             match ← Tools.VedU1PackedSeq2.packedSeqScript nm.contract nm.mod nm.outs nm.body F stmt.getAppNumArgs m b0
                 pc.clkRst (dataPortsOf m pc.clkRst) regs (← helperConsts F) with
             | some sx => budget (tryPackedFirst sx expected)
