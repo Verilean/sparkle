@@ -465,6 +465,9 @@ lean_lib «Tools.VedU1MultiSeq» where
 lean_lib «Tools.VedU1PackedSeq2» where
   roots := #[`Tools.VedU1PackedSeq2]
 
+lean_lib «Tools.VedU1PackedSeq3» where
+  roots := #[`Tools.VedU1PackedSeq3]
+
 lean_lib «Tools.VedU1PackedEntry» where
   roots := #[`Tools.VedU1PackedEntry]
 
@@ -500,6 +503,9 @@ lean_lib «Tests.Ved.U1MultiSeqCheck» where
 
 lean_lib «Tests.Ved.U1PackedSeq2Check» where
   roots := #[`Tests.Ved.U1PackedSeq2Check]
+
+lean_lib «Tests.Ved.U1PackedSeq3Check» where
+  roots := #[`Tests.Ved.U1PackedSeq3Check]
 
 lean_lib «Tests.Ved.U1EqLutCheck» where
   roots := #[`Tests.Ved.U1EqLutCheck]
