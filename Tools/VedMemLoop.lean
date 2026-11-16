@@ -261,11 +261,31 @@ simproc ved_toNat_append (BitVec.toNat _) := fun e => do
   unless (← isDefEq l e) do return .continue
   return .visit { expr := r, proof? := some pf }
 
+def dbgLog (msg : String) : IO Unit := do
+  if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+    let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
+    h.putStrLn msg
+
+/-- `ved_clear_signals`: clear the hypotheses that speak of signals (`MemInv`, the read equations: whole loop bodies, hundreds of
+kilobytes): an address equality does not use them, and `omega` / `generalize ... at *` read every hypothesis. -/
+elab "ved_clear_signals" : tactic => withMainContext do
+  let mut ids : Array FVarId := #[]
+  for d in (← getLCtx) do
+    unless d.isImplementationDetail do
+      let t ← instantiateMVars d.type
+      if (t.find? fun e => e.isConst && (e.constName!.getPrefix == `Sparkle.Core.Signal.Signal
+          || e.constName! == ``Tools.VedMem.MemInv)).isSome then ids := ids.push d.fvarId
+  let g ← getMainGoal
+  let mut g := g
+  for i in ids.reverse do
+    g ← g.tryClear i
+  replaceMainGoal [g]
+
 /-- `ved_decide_small`: a goal over a few small bit-vector fields (every free variable occurs as `BitVec.toNat v` with `v` a
 variable of at most `2^14` values together) is closed by `decide +kernel` after the fields are generalised to bounded
 `Nat` variables (`∀ a, a < 2^w → ..`): the case analysis `omega` does by splitting every `if` is one kernel evaluation.
 Fails when another free variable remains. -/
-elab "ved_decide_small" : tactic => withMainContext do
+def decideSmallCore : Lean.Elab.Tactic.TacticM Unit := withMainContext do
   let tgt ← instantiateMVars (← getMainTarget)
   let isAtom := fun (e : Expr) => e.isAppOfArity ``BitVec.toNat 2 && (e.getArg! 1).isFVar
   let mut atoms : Array Expr := #[]
@@ -288,18 +308,24 @@ elab "ved_decide_small" : tactic => withMainContext do
     let bn := mkIdent (Name.mkSimple s!"ved_ds_b{k}")
     let aS ← Term.exprToSyntax a
     let vS ← Term.exprToSyntax (a.getArg! 1)
-    evalTactic (← `(tactic| have $bn := BitVec.isLt $vS))
-    evalTactic (← `(tactic| generalize $aS = $nm at *))
+    let hk := mkIdent (Name.mkSimple s!"ved_ds_h{k}")
+    let ty ← whnf (← inferType (a.getArg! 1))
+    let wS := Syntax.mkNumLit (toString ((ty.getArg! 0).nat?.getD 0))
+    evalTactic (← `(tactic| generalize $hk:ident : $aS = $nm))
+    evalTactic (← `(tactic| have $bn : $nm < 2 ^ $wS := by rw [← $hk:ident]; exact BitVec.isLt $vS))
+    evalTactic (← `(tactic| clear $hk:ident))
     names := names.push nm
     k := k + 1
   for nm in names.reverse do
     evalTactic (← `(tactic| revert $nm))
   evalTactic (← `(tactic| decide +kernel))
 
-def dbgLog (msg : String) : IO Unit := do
-  if let some dir ← IO.getEnv "VED_DUMP_DIR" then
-    let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
-    h.putStrLn msg
+elab "ved_decide_small" : tactic => do
+  try decideSmallCore
+  catch e =>
+    dbgLog s!"decide_small: {← e.toMessageData.toString}"
+    try dbgLog s!"{← Lean.Elab.Tactic.withMainContext (do return (← Lean.Meta.ppGoal (← Lean.Elab.Tactic.getMainGoal)).pretty)}" catch _ => pure ()
+    throw e
 
 def dbgT (label : String) : IO Unit := do
   dbgLog s!"T {label} t={← IO.monoMsNow}"
@@ -322,43 +348,49 @@ elab "ved_mem_addr" : tactic => withMainContext do
     seen0 := seen0.push (key, args[8]!)
   if !need then return
   dbgT "addr: gate passed"
-  try evalTactic (← `(tactic| simp (config := {contextual := true}) only [↓reduceIte, ite_true, ite_false, if_true, if_false])) catch _ => pure ()
-  dbgT "addr: contextual simp done"
   let isMem := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
   -- one rewrite per round, the atoms collected again after it (an address can contain another one: the rewrite of the
   -- inner one changes the outer one)
-  for _ in [0:8] do
-    let tgt ← instantiateMVars (← getMainTarget)
-    let occs := Tools.VedU1WireShare.collectDag isMem tgt
-    let mut groups : Array (Expr × Array Expr) := #[]
-    for o in occs do
-      if o.hasLooseBVars then continue
-      let args := o.getAppArgs
-      let key := mkAppN o.getAppFn (args.extract 0 8)
-      let a := args[8]!
-      match groups.findIdx? (fun g => g.1 == key) with
-      | some i => if !groups[i]!.2.contains a then groups := groups.set! i (key, groups[i]!.2.push a)
-      | none => groups := groups.push (key, #[a])
-    let mut progress := false
-    for (_, addrs) in groups do
-      if progress then break
-      if addrs.size < 2 then continue
-      let rep := addrs[0]!
-      let repS ← Term.exprToSyntax rep
-      for a in addrs.toList.drop 1 do
+  let mut remaining := true
+  for pass in [0:2] do
+    if !remaining then break
+    if pass == 1 then
+      try evalTactic (← `(tactic| simp (config := {contextual := true}) only [↓reduceIte, ite_true, ite_false, if_true, if_false])) catch _ => pure ()
+      dbgT "addr: contextual simp done"
+    for _ in [0:8] do
+      let tgt ← instantiateMVars (← getMainTarget)
+      let occs := Tools.VedU1WireShare.collectDag isMem tgt
+      let mut groups : Array (Expr × Array Expr) := #[]
+      for o in occs do
+        if o.hasLooseBVars then continue
+        let args := o.getAppArgs
+        let key := mkAppN o.getAppFn (args.extract 0 8)
+        let a := args[8]!
+        match groups.findIdx? (fun g => g.1 == key) with
+        | some i => if !groups[i]!.2.contains a then groups := groups.set! i (key, groups[i]!.2.push a)
+        | none => groups := groups.push (key, #[a])
+      remaining := groups.any (fun g => g.2.size ≥ 2)
+      let mut progress := false
+      for (_, addrs) in groups do
         if progress then break
-        let aS ← Term.exprToSyntax a
-        if let some dir ← IO.getEnv "VED_DUMP_DIR" then
-          let n := (← IO.monoMsNow)
-          IO.FS.writeFile s!"{dir}/pair{n}.txt" s!"A: {← withOptions (fun o => o.setBool `pp.deepTerms true) (ppExpr a)}\n\nREP: {← withOptions (fun o => o.setBool `pp.deepTerms true) (ppExpr rep)}\n"
-        try
-          evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
-                                     first | rfl | (apply BitVec.eq_of_toNat_eq; (try ved_pack_simp); (try ved_bit_simp); (try ved_pack_simp); (try simp only [apply_ite BitVec.toNat, ved_toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); first | ved_decide_small | ((repeat' split); all_goals (try simp only [ved_toNat_append, BitVec.toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.shiftRight_zero, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); all_goals (try ved_pack_simp); all_goals (first | omega | bv_omega)))
-                                   rw [hmaddr])))
-          progress := true
-          dbgT "addr: rewrite ok"
-        catch e => dbgT "addr: equality failed"; dbgLog s!"no equality for {← ppExpr a}: {← e.toMessageData.toString}"
-    if !progress then break
+        if addrs.size < 2 then continue
+        let rep := addrs[0]!
+        let repS ← Term.exprToSyntax rep
+        for a in addrs.toList.drop 1 do
+          if progress then break
+          let aS ← Term.exprToSyntax a
+          if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+            let n := (← IO.monoMsNow)
+            IO.FS.writeFile s!"{dir}/pair{n}.txt" s!"A: {← withOptions (fun o => o.setBool `pp.deepTerms true) (ppExpr a)}\n\nREP: {← withOptions (fun o => o.setBool `pp.deepTerms true) (ppExpr rep)}\n"
+          try
+            evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
+                                       first | rfl | (apply BitVec.eq_of_toNat_eq; (try ved_clear_signals); (try ved_pack_simp); (try ved_bit_simp); (try ved_pack_simp); (try simp only [apply_ite BitVec.toNat, ved_toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); first | ved_decide_small | ((repeat' split); all_goals (try simp only [ved_toNat_append, BitVec.toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.shiftRight_zero, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); all_goals (try ved_pack_simp); all_goals (first | omega | bv_omega))))))
+            dbgT "addr: have done"
+            evalTactic (← `(tactic| rw [hmaddr]))
+            progress := true
+            dbgT "addr: rewrite ok"
+          catch e => dbgT "addr: equality failed"; dbgLog s!"no equality for {← ppExpr a}: {← e.toMessageData.toString}"
+      if !progress then break
 
 /-- `ved_mem_gen`: each `memState` application of the goal (no bound variable) is generalised to a variable `ved_mem_k` (in the
 goal and in the hypotheses that mention it).  After `ved_mem_addr` the two sides of a data goal read the same memory atoms and
