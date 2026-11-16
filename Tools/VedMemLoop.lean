@@ -113,7 +113,7 @@ elab "ved_dbg_state" : tactic => do
     let mut k := 0
     for g in gs do
       let t ← g.withContext do
-        withOptions (fun o => o.insert `format.width (160 : Nat)) do
+        withOptions (fun o => (o.insert `format.width (160 : Nat)).setBool `pp.deepTerms true |>.insert `pp.maxSteps (10000000 : Nat)) do
           return toString (← ppGoal g)
       IO.FS.writeFile s!"{dir}/goal{k}.txt" t
       k := k + 1
@@ -247,6 +247,25 @@ elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
        rw [hc])))
 
 
+open Lean Meta in
+/-- `BitVec.toNat (x ++ y)` read at either spelling of the width (`4` against `2 + 2`: the pattern of `BitVec.toNat_append`
+does not unify the width of a `++` used at a literal width) -/
+simproc ved_toNat_append (BitVec.toNat _) := fun e => do
+  unless e.isAppOfArity ``BitVec.toNat 2 do return .continue
+  let a := e.getArg! 1
+  unless a.isAppOfArity ``HAppend.hAppend 6 do return .continue
+  let x := a.getArg! 4
+  let y := a.getArg! 5
+  let pf ← mkAppM ``BitVec.toNat_append #[x, y]
+  let some (_, l, r) := (← inferType pf).eq? | return .continue
+  unless (← isDefEq l e) do return .continue
+  return .visit { expr := r, proof? := some pf }
+
+def dbgLog (msg : String) : IO Unit := do
+  if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+    let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
+    h.putStrLn msg
+
 /-- `ved_mem_addr`: the `memState` atoms of the goal that differ only in the ADDRESS (the IR side spells it as `BitVec.ofNat aw`
 of `Nat` arithmetic, the declaration side as `BitVec` arithmetic) are made the same atom: each other address is rewritten to
 the first one, by an equality proved with `bv_omega` (the branch conditions of the enclosing `if`s are first propagated into the
@@ -265,29 +284,78 @@ elab "ved_mem_addr" : tactic => withMainContext do
     seen0 := seen0.push (key, args[8]!)
   if !need then return
   try evalTactic (← `(tactic| simp (config := {contextual := true}) only [↓reduceIte, ite_true, ite_false, if_true, if_false])) catch _ => pure ()
-  let tgt ← instantiateMVars (← getMainTarget)
   let isMem := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
-  let occs := Tools.VedU1WireShare.collectDag isMem tgt
-  let mut groups : Array (Expr × Array Expr) := #[]
+  -- one rewrite per round, the atoms collected again after it (an address can contain another one: the rewrite of the
+  -- inner one changes the outer one)
+  for _ in [0:8] do
+    let tgt ← instantiateMVars (← getMainTarget)
+    let occs := Tools.VedU1WireShare.collectDag isMem tgt
+    let mut groups : Array (Expr × Array Expr) := #[]
+    for o in occs do
+      if o.hasLooseBVars then continue
+      let args := o.getAppArgs
+      let key := mkAppN o.getAppFn (args.extract 0 8)
+      let a := args[8]!
+      match groups.findIdx? (fun g => g.1 == key) with
+      | some i => if !groups[i]!.2.contains a then groups := groups.set! i (key, groups[i]!.2.push a)
+      | none => groups := groups.push (key, #[a])
+    let mut progress := false
+    for (_, addrs) in groups do
+      if progress then break
+      if addrs.size < 2 then continue
+      let rep := addrs[0]!
+      let repS ← Term.exprToSyntax rep
+      for a in addrs.toList.drop 1 do
+        if progress then break
+        let aS ← Term.exprToSyntax a
+        try
+          evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
+                                     first | rfl | (apply BitVec.eq_of_toNat_eq; (try ved_pack_simp); (repeat' split); all_goals (try simp only [ved_toNat_append, BitVec.toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.shiftRight_zero, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); all_goals (try ved_pack_simp); all_goals (first | omega | bv_omega))
+                                   rw [hmaddr])))
+          progress := true
+        catch e => dbgLog s!"no equality for {← ppExpr a}: {← e.toMessageData.toString}"
+    if !progress then break
+
+/-- `ved_mem_gen`: each `memState` application of the goal (no bound variable) is generalised to a variable `ved_mem_k` (in the
+goal and in the hypotheses that mention it).  After `ved_mem_addr` the two sides of a data goal read the same memory atoms and
+the rest is arithmetic over the register fields: the atoms (whose write ports are whole loop bodies) only make the goal a
+large tree for `ved_wire`.  Untrusted: generalisation of a term by a variable. -/
+elab "ved_mem_gen" : tactic => withMainContext do
+  let isMem := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
+  let tgt ← instantiateMVars (← getMainTarget)
+  let mut occs : Array Expr := #[]
+  for o in Tools.VedU1WireShare.collectDag isMem tgt do
+    if o.hasLooseBVars || occs.contains o then continue
+    occs := occs.push o
+  let mut k := 0
   for o in occs do
-    if o.hasLooseBVars then continue
-    let args := o.getAppArgs
-    let key := mkAppN o.getAppFn (args.extract 0 8)
-    let a := args[8]!
-    match groups.findIdx? (fun g => g.1 == key) with
-    | some i => if !groups[i]!.2.contains a then groups := groups.set! i (key, groups[i]!.2.push a)
-    | none => groups := groups.push (key, #[a])
-  for (_, addrs) in groups do
-    if addrs.size < 2 then continue
-    let rep := addrs[0]!
-    let repS ← Term.exprToSyntax rep
-    for a in addrs.toList.drop 1 do
-      let aS ← Term.exprToSyntax a
-      try
-        evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
-                                   first | rfl | (apply BitVec.eq_of_toNat_eq; (try simp only [BitVec.toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.shiftRight_zero, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); first | omega | bv_omega)
-                                 rw [hmaddr])))
-      catch _ => pure ()
+    Tools.VedU1WireShare.generalizeDag o (Name.mkSimple s!"ved_mem{k}")
+    k := k + 1
+
+/-- `ved_hyp_bits`: the hypotheses with a bit operation (`&&&`, `|||`, `^^^`) on `Nat` (the write enable of a memory
+as the module computes it, `c1 &&& c2` of two conditions) are rewritten like the goal by `ved_bit_simp`'s rules and moved
+into the goal, where the closing step splits their `if`s (`omega` does not read `if` or `&&&`).  Untrusted: `revert`. -/
+elab "ved_hyp_bits" : tactic => withMainContext do
+  let mut hs : Array (TSyntax `ident) := #[]
+  for d in ← getLCtx do
+    unless d.isImplementationDetail do
+      if (Tools.VedU1Loop.natBitOps (← instantiateMVars d.type)).size > 0 then
+        hs := hs.push (mkIdent d.userName)
+  dbgLog s!"ved_hyp_bits: {hs.size} hyps"
+  if hs.isEmpty then return
+  try evalTactic (← `(tactic| simp (disch := first | ved_omega | (split <;> ved_omega) | fail) only
+      [Tools.VedU1Loop.and_lt2_l, Tools.VedU1Loop.and_lt2_r, Tools.VedU1Loop.or_lt2, Tools.VedU1Loop.xor_lt2] at $[$hs]*))
+  catch e => dbgLog s!"ved_hyp_bits simp: {← e.toMessageData.toString}"
+  let g ← getMainGoal
+  try
+    let names := hs.map (·.getId)
+    let fvs ← g.withContext do
+      return (← getLCtx).foldl (init := (#[] : Array FVarId)) fun a d =>
+        if !d.isImplementationDetail && names.contains d.userName then a.push d.fvarId else a
+    let (_, g') ← g.revert fvs (preserveOrder := true)
+    replaceMainGoal [g']
+    dbgLog "ved_hyp_bits: reverted"
+  catch e => dbgLog s!"ved_hyp_bits revert: {← e.toMessageData.toString}"
 
 /-- the side condition `hS` of the strong fixpoint equation -/
 syntax "ved_causal " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
