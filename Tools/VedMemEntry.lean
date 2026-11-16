@@ -517,7 +517,10 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
     #[← `(tactic| all_goals (try simp only [Tools.VedMem.ofNat_mod_eq_extract'])), closing]]
   let stopStage ← `(tactic| ved_dbg_state)
-  let tail := (stages.zipIdx.map fun (st, k) => if dbg == 20 + k then st.push stopStage else st).flatten
+  let tail ← (stages.zipIdx.mapM fun (st, k) => do
+    let stamp ← `(tactic| ved_stamp $(Syntax.mkNumLit (toString k)))
+    pure (if dbg == 20 + k then (#[stamp] ++ st).push stopStage else #[stamp] ++ st))
+  let tail := tail.flatten
   -- the declaration's loops in the hypotheses take the simp normal form of the goal's (the invariant was
   -- built from the declaration as written; `loopScriptFor` builds it from the normalised source instead)
   let normHyps ← `(tactic| try (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf,
