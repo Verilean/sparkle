@@ -6,6 +6,7 @@ import Tools.VedU1PackedEntry
 import Tools.VedU1HierEntry
 import Tools.VedU2HierRegEntry
 import Tools.VedU2HierEntry
+import Tools.VedMemEntry
 
 /-!
 # `#ved_write_checked`: check ONE synthesis result, then write exactly that value
@@ -16,7 +17,7 @@ SystemVerilog / C++ / JIT files from that design.  The `#ved_*_write` adapters o
 nothing about what a `#writeDesign` writes.  This command connects the checker to the writer:
 
 ```
-#ved_write_checked KIND decl "x.sv" "x_cppsim.h" [wires]      KIND ∈ u1 | packed | u1_hier | u2_hier
+#ved_write_checked KIND decl "x.sv" "x_cppsim.h" [wires]      KIND ∈ u1 | packed | mem_packed | u1_hier | u2_hier
 
   (m, d) := synthesizeCombinational decl            -- ONCE
   thm    := checker KIND decl m d                   -- the entry's checker on that very (m, d)
@@ -46,7 +47,7 @@ namespace Tools.VedWriteChecked
 open Lean Elab Command Term Meta
 open Sparkle.IR.AST (Design)
 
-inductive Kind | u1 | packed | u1Hier | u2Hier
+inductive Kind | u1 | packed | memPacked | u1Hier | u2Hier
   deriving BEq, Repr
 
 def Kind.hier : Kind → Bool
@@ -132,6 +133,10 @@ def checkOn (kind : Kind) (decl : Name) (m : Sparkle.IR.AST.Module) (d : Design)
   | .packed => liftTermElabM do
     let (stmt, _, tbl) ← Tools.VedU1PackedEntry.packedStmtOf decl
     Tools.VedU1PackedEntry.checkPackedE decl stmt tbl tbl.out.slices m .generated
+  | .memPacked => liftTermElabM do
+    let (stmt, _) ← try Tools.VedU1Contract.specialiseDomain decl
+      catch e => Tools.VedU1Entry.refuse decl "table" e.toMessageData
+    Tools.VedMemEntry.checkMemE decl decl stmt m (packed := true)
   | .u1Hier => liftTermElabM do
     let (stmt, nDom) ← try Tools.VedU1Contract.specialiseDomain decl
       catch e => Tools.VedU1Entry.refuse decl "table" e.toMessageData
@@ -152,6 +157,13 @@ def preamble (kind : Kind) (decl : Name) : CommandElabM Unit := liftTermElabM do
   match kind with
   | .u1 => discard <| Tools.VedU1Entry.stmtOf decl
   | .packed => discard <| Tools.VedU1PackedEntry.packedStmtOf decl
+  | .memPacked =>
+    let (stmt, _) ← try Tools.VedU1Contract.specialiseDomain decl
+      catch e => Tools.VedU1Entry.refuse decl "table" e.toMessageData
+    let tbl ← try Tools.VedU1Contract.readTableOfType decl (← inferType stmt)
+      catch e => Tools.VedU1Entry.refuse decl "table" e.toMessageData
+    unless tbl.out.flat.length ≥ 2 do
+      Tools.VedU1Entry.refuse decl "packed" m!"the result is not a product inside one `Signal`"
   | .u1Hier | .u2Hier =>
     let (stmt, _) ← try Tools.VedU1Contract.specialiseDomain decl
       catch e => Tools.VedU1Entry.refuse decl "table" e.toMessageData
@@ -186,9 +198,10 @@ private def kindOf (k : Syntax) : CommandElabM Kind :=
   match k.getId.toString with
   | "u1" => pure .u1
   | "packed" => pure .packed
+  | "mem_packed" => pure .memPacked
   | "u1_hier" => pure .u1Hier
   | "u2_hier" => pure .u2Hier
-  | s => throwErrorAt k "unknown kind {s} (u1 | packed | u1_hier | u2_hier)"
+  | s => throwErrorAt k "unknown kind {s} (u1 | packed | mem_packed | u1_hier | u2_hier)"
 
 elab "#ved_write_checked " k:ident id:ident svPath:str cppPath:str : command => do
   let decl ← Command.liftCoreM <| realizeGlobalConstNoOverload id

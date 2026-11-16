@@ -390,6 +390,58 @@ theorem MemInv.other'' {dom : DomainConfig} {aw dw : Nat} {name other : String} 
     simp [Ne.symm hne]
     exact h i hi
 
+/-! ### Leaves of a recursive peel
+
+`simp` rewrites the step of an IR with several memories into a tree: an `if` per enable test whose branches are
+chains of single-word updates (`fun nm i => if nm = n ∧ i = a then v else M nm i`) over the old array, the update of the
+second memory pushed under the first's `if`.  `MemInv.ite` splits an `if`, the leaves are an update of another memory
+(`MemInv.other_leaf`), the update of this one (`MemInv.write_leaf`, the enable taken from the branch), and no update
+(`MemInv.hold_leaf`). -/
+
+/-- an `if`: the invariant holds for each branch under its condition -/
+theorem MemInv.ite {dom : DomainConfig} {aw dw : Nat} {name : String} {init : BitVec aw → BitVec dw}
+    {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}
+    {c : Prop} {inst : Decidable c} {T E : MEnv}
+    (hT : c → MemInv name init wa wd we n T) (hE : ¬ c → MemInv name init wa wd we n E) :
+    MemInv name init wa wd we n (@ite _ c inst T E) := by
+  by_cases hc : c
+  · rw [if_pos hc]; exact hT hc
+  · rw [if_neg hc]; exact hE hc
+
+/-- an update of ANOTHER memory (any array name `≠ name`), any payload -/
+theorem MemInv.other_leaf {dom : DomainConfig} {aw dw : Nat} {name other : String} {init : BitVec aw → BitVec dw}
+    {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}
+    {M : MEnv} (h : MemInv name init wa wd we n M) (hne : other ≠ name) (a v : Nat) :
+    MemInv name init wa wd we n (fun nm i => if nm = other ∧ i = a then v else M nm i) := by
+  intro i hi
+  simp [Ne.symm hne]
+  exact h i hi
+
+/-- no update while the enable is low -/
+theorem MemInv.hold_leaf {dom : DomainConfig} {aw dw : Nat} {name : String} {init : BitVec aw → BitVec dw}
+    {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}
+    {M : MEnv} (h : MemInv name init wa wd we n M) (hen : we.val n = false) :
+    MemInv name init wa wd we (n + 1) M := by
+  intro i hi
+  rw [mem_hold_disabled _ _ _ _ n hen]
+  exact h i hi
+
+/-- the update of THIS memory with the enable high: address and data are the port's wires of cycle `n` (as numbers) -/
+theorem MemInv.write_leaf {dom : DomainConfig} {aw dw : Nat} {name : String} {init : BitVec aw → BitVec dw}
+    {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}
+    {M : MEnv} (h : MemInv name init wa wd we n M) (hen : we.val n = true) {av dv : Nat}
+    (hav : av = (wa.val n).toNat) (hdv : dv = (wd.val n).toNat) :
+    MemInv name init wa wd we (n + 1) (fun nm i => if nm = name ∧ i = av then dv else M nm i) := by
+  intro i hi
+  rw [memState_succ]
+  subst hav hdv
+  by_cases hia : i = (wa.val n).toNat
+  · have e : BitVec.ofNat aw i = wa.val n := (ofNat_eq_iff i hi _).mpr hia
+    simp [hia, hen, e]
+  · have e : ¬ BitVec.ofNat aw i = wa.val n := fun e => hia ((ofNat_eq_iff i hi _).mp e)
+    simp only [hia, and_false, if_false, hen, Bool.true_and, beq_iff_eq, e]
+    exact h i hi
+
 /-- the read in the form `simp` leaves it in: `mems name (a % 2^aw) % 2^dw` -/
 theorem MemInv.read' {dom : DomainConfig} {aw dw : Nat} {name : String} {init : BitVec aw → BitVec dw}
     {wa : Signal dom (BitVec aw)} {wd : Signal dom (BitVec dw)} {we : Signal dom Bool} {n : Nat}

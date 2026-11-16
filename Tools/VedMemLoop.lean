@@ -58,6 +58,46 @@ theorem shr_val_sb (a : Signal dom (BitVec n)) (b : BitVec n) (s : Nat) :
     (@HShiftRight.hShiftRight (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) _ a b).val s = a.val s >>> b := rfl
 end DirectOps
 
+/-- the first pair of differing subterms of two expressions (descending through equal heads / binder bodies) -/
+partial def exprDiff (a b : Expr) : Option (Expr × Expr) :=
+  if a == b then none else
+  match a, b with
+  | .app .., .app .. =>
+    if a.getAppNumArgs == b.getAppNumArgs && a.getAppFn == b.getAppFn then
+      (List.range a.getAppNumArgs).findSome? fun i => exprDiff (a.getAppArgs[i]!) (b.getAppArgs[i]!)
+    else some (a, b)
+  | .lam _ t x _, .lam _ t' x' _ => (exprDiff t t').orElse fun _ => exprDiff x x'
+  | .mdata _ x, _ => exprDiff x b
+  | _, .mdata _ x => exprDiff a x
+  | _, _ => some (a, b)
+
+/-- the number of nodes of an expression as a tree (shared subterms counted at each occurrence), and as a DAG -/
+partial def treeSize (e : Expr) : StateM (Std.HashMap Expr Nat) Nat := do
+  if let some n := (← get)[e]? then return n
+  let n ← match e with
+    | .app f a => do pure ((← treeSize f) + (← treeSize a) + 1)
+    | .lam _ t b _ => do pure ((← treeSize t) + (← treeSize b) + 1)
+    | .forallE _ t b _ => do pure ((← treeSize t) + (← treeSize b) + 1)
+    | .letE _ t v b _ => do pure ((← treeSize t) + (← treeSize v) + (← treeSize b) + 1)
+    | .mdata _ b => treeSize b
+    | .proj _ _ b => do pure ((← treeSize b) + 1)
+    | _ => pure 1
+  modify (·.insert e n)
+  return n
+
+/-- `ved_mem_shape ite|lam|fvar`: the memory-array argument (the last) of the goal `MemInv ..` has that outer shape, as written
+(the peel must not let the unifier match an `ite` against a `fun` by eta / unfolding: that produces junk) -/
+elab "ved_mem_shape " k:ident : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  unless tgt.isAppOf ``Tools.VedMem.MemInv do throwError "ved_mem_shape: not a MemInv goal"
+  let m := (tgt.getArg! (tgt.getAppNumArgs - 1)).consumeMData
+  let ok := match k.getId.eraseMacroScopes.toString with
+    | "ite" => m.isAppOf ``ite
+    | "lam" => m.isLambda
+    | "fvar" => m.isFVar
+    | _ => false
+  unless ok do throwError "ved_mem_shape: not {k.getId.eraseMacroScopes}"
+
 /-- debugging: log the part of the main goal from the first `HSub.hSub`, `pp.explicit`, cut to 3500 characters -/
 elab "ved_dbg_goal" : tactic => withMainContext do
   let g ← getMainGoal
@@ -69,6 +109,14 @@ elab "ved_dbg_goal" : tactic => withMainContext do
 elab "ved_dbg_state" : tactic => do
   let gs ← getGoals
   let mut out := s!"{gs.length} goals"
+  if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+    let mut k := 0
+    for g in gs do
+      let t ← g.withContext do
+        withOptions (fun o => o.insert `format.width (160 : Nat)) do
+          return toString (← ppGoal g)
+      IO.FS.writeFile s!"{dir}/goal{k}.txt" t
+      k := k + 1
   for g in gs.take 2 do
     let t ← g.withContext do return toString (← ppExpr (← instantiateMVars (← g.getType)))
     out := out ++ s!"\n--- target ({t.length} chars):\n" ++ t.take 800 ++ "\n.....\n" ++ t.drop (t.length - 1800)
@@ -83,6 +131,12 @@ elab "ved_dbg_state" : tactic => do
       return c
     summary := summary ++ s!" [T{tl.size}/H{hs}]"
   out := out ++ "\nPER GOAL loops (target/hyps):" ++ summary
+  let mut sizes := ""
+  for g in gs do
+    let t ← g.withContext do instantiateMVars (← g.getType)
+    let (tr, _) := (treeSize t).run {}
+    sizes := sizes ++ s!" [tree {tr}/dag {(Tools.VedU1WireShare.collectDag (fun _ => true) t).size}]"
+  out := out ++ "\nGOAL SIZES:" ++ sizes
   let mut shorts := ""
   let mut gi := 0
   for g in gs do
@@ -103,12 +157,16 @@ elab "ved_dbg_state" : tactic => do
               let b := ty.getAppArgs
               let eqs := (List.range (min a.size b.size)).map fun i => a[i]! == b[i]!
               o := o ++ s!"\n  MEMINV goal vs {d.userName}: arg equal? {eqs}"
+              for i in (if a[3]! == b[3]! then [5, 6, 7] else []) do
+                if let some (x, y) := exprDiff a[i]! b[i]! then
+                  let xs := toString (← ppExpr x)
+                  let ys := toString (← ppExpr y)
+                  o := o ++ s!"\n   arg {i} first diff:\n    GOAL: {xs.take 500}\n    HYP:  {ys.take 500}"
         return o
       out := out ++ "\nMEMINV GOAL" ++ rep
       if tg.getAppNumArgs ≥ 10 then
-        let mm ← g.withContext do return toString (← ppExpr (tg.getAppArgs[9]!))
-        out := out ++ s!"\nMEMS ARG ({mm.length} chars): " ++ mm.take 1500
-      break
+        let mm ← g.withContext do withOptions (fun o => (o.setBool `pp.deepTerms false |>.insert `pp.deepTerms.threshold (6 : Nat))) do return toString (← ppExpr (tg.getAppArgs[9]!))
+        out := out ++ s!"\nMEMS ARG ({mm.length} chars): " ++ mm.take 3500
   for gi2 in [8, 12] do
     if let some g := gs[gi2]? then
       let t ← g.withContext do return toString (← ppExpr (← instantiateMVars (← g.getType)))
@@ -139,7 +197,7 @@ elab "ved_dbg_state" : tactic => do
       let mut o := ""
       for d in ← getLCtx do
         unless d.isImplementationDetail do
-          o := o ++ s!"\n  {d.userName} : " ++ (toString (← ppExpr (← instantiateMVars d.type))).take 260
+          o := o ++ s!"\n  {d.userName} : " ++ (← (do let t := toString (← ppExpr (← instantiateMVars d.type)); pure (if t.length > 700 then (t.take 100).toString ++ s!" ...({t.length} chars)" else t) : MetaM String))
       return o
     out := out ++ "\nHYPS:" ++ hy.take 4500
     let extra ← g.withContext do
@@ -154,6 +212,12 @@ elab "ved_dbg_state" : tactic => do
       return o
     out := out ++ extra
   throwError "DBGSTATE {out}"
+
+/-- close a goal `x.toNat < n` (a bit-vector's range) by `BitVec.isLt` -/
+elab "ved_lt_close" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  unless tgt.isAppOfArity ``LT.lt 4 do throwError "not <"
+  evalTactic (← `(tactic| exact BitVec.isLt _))
 
 /-- `ved_mem_congr s1 s2 h t`: rewrite every `memState` of the goal that mentions the fvar `s1` into the one
 with `s2` in its place (`h : ∀ k ≤ t, s1.val k = s2.val k`) -/
