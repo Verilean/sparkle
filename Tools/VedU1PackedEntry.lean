@@ -208,8 +208,10 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
           if ved.packedseq2.dbg.get (← getOptions) == 7 then
             IO.eprintln s!"VED PKSTATS {repr (Tools.VedU1PackedSeq3.substStats b0)}"
             throwError "ved.packedseq2.dbg 7: stats only"
-          -- the cheap size gate (`Tools/VedU1PackedSeq3.lean`): a body whose per-statement script cannot fit the proof
-          -- budget goes straight to the flat loop script (R23: 520 s to the timeout, then 0 s left for the fallback)
+          -- the cheap size gate (`Tools/VedU1PackedSeq3.lean`): a body whose summed expanded size exceeds
+          -- `ved.packedseq3.maxExp` goes straight to the flat loop script.  The bound is a measured heuristic (strict
+          -- rows <= 6424, R23 44568, where the first attempt used the whole budget: 520 s, then 0 s left for the
+          -- fallback); bodies of intermediate size are untested.  Only the order of attempts changes.
           let first? : Option Lean.Expr ← do
             if !(← Tools.VedU1PackedSeq3.firstAttemptOk b0) then pure none else
             match ← Tools.VedU1PackedSeq2.packedSeqScript nm.contract nm.mod nm.outs nm.body F stmt.getAppNumArgs m b0

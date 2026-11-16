@@ -16,8 +16,8 @@ attempt to the whole proof budget (8·10^9 heartbeats, 520 s) before the fallbac
   expected `PackedStmt`, standard axioms, the hand-written contract.
 * Gate engaged (`ved.packedseq3.maxExp 0`): the same declaration is still accepted (flat loop script), the stored type is the
   same, the proof does NOT use `step_seq` (the first attempt did not run).
-* Refusals are unchanged with the gate engaged: a module with an altered register update / output is refused at `[proof]` and
-  nothing is left behind.
+* Refusals are unchanged with the gate engaged: one control kind, a module whose OUTPUT is altered by a constant, is refused
+  at `[proof]` and nothing is left behind (no altered-register-update control here).
 -/
 
 namespace Tests.Ved.U1PackedSeq3Check
