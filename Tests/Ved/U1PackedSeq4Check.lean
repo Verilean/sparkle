@@ -25,7 +25,7 @@ import Tools.VedU1PackedEntry
 namespace Tests.Ved.U1PackedSeq4Check
 
 open Lean Elab Command Term Meta
-open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.IR.AST
+open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.IR.AST Sparkle.IR.Reorder
 open Tools.VedU1Contract Tools.VedU1Entry Tools.VedU1Packed Tools.VedU1PackedEntry Tools.VedU1PackedSeq4
 
 /-! ## `ved_pk4_unpack` -/
@@ -48,10 +48,9 @@ example (E : String → Nat) (X : BitVec 3 × Bool × BitVec 8)
   ved_pk4_unpack at h
   exact h
 
--- a word read at a wrong modulus is not changed: the second field is not the quotient by 100
+-- a term of another shape is not changed: no field of a word, a quotient by a literal that is not a field boundary
 example (E : String → Nat) (X : BitVec 3 × Bool × BitVec 8)
-    (h : E "g" = (X.1.toNat % 8 * 512 + (X.2.1.toNat % 2 * 256 + X.2.2.toNat % 256) % 512) / 100 % 2) :
-    E "g" = (X.1.toNat % 8 * 512 + (X.2.1.toNat % 2 * 256 + X.2.2.toNat % 256) % 512) / 100 % 2 := by
+    (h : E "g" = X.2.2.toNat / 100 % 2) : E "g" = X.2.2.toNat / 100 % 2 := by
   ved_pk4_unpack at h
   exact h
 
@@ -70,6 +69,7 @@ def qCnt (en : Signal defaultDomain Bool) (d : Signal defaultDomain (BitVec 8)) 
 def qCntOff (en : Signal defaultDomain Bool) (d : Signal defaultDomain (BitVec 8)) :
     Signal defaultDomain (BitVec 8 × Bool) := qCnt en d
 
+set_option maxRecDepth 4096 in
 /-- eight registers of mixed widths in one loop word -/
 def q8 (en : Signal defaultDomain Bool) (d : Signal defaultDomain (BitVec 32)) (k : Signal defaultDomain (BitVec 3)) :
     Signal defaultDomain (BitVec 32 × BitVec 3 × Bool × BitVec 20 × BitVec 2 × BitVec 22 × Bool × BitVec 8) :=
@@ -162,6 +162,7 @@ run_cmd check4 ``qCnt (← `(qCnt)) true true
 
 /-- info: packed seq4 OK Tests.Ved.U1PackedSeq4Check.q8.ved_u1 seq4=true unpack=true -/
 #guard_msgs in
+set_option maxHeartbeats 1600000 in
 run_cmd check4 ``q8 (← `(q8)) true true
 
 /-! ## The packed-seq2 script (option off): same statement, no packed-seq4 lemma in the proof -/

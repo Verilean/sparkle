@@ -70,6 +70,9 @@ jobs:
     - name: U1 packed result with registers, size gate of the per-statement first attempt (bounded early skip; positives unchanged)
       run: lake build Tests.Ved.U1PackedSeq3Check
 
+    - name: U1 packed result with registers, packed-seq4 script (lemma-based field read-back, key-tested OrderOk; positives, option off, refusal control)
+      run: lake build Tests.Ved.U1PackedSeq4Check
+
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
@@ -155,6 +158,9 @@ jobs:
 
     - name: U1 packed result with registers, size gate of the per-statement first attempt (bounded early skip; positives unchanged)
       run: lake build Tests.Ved.U1PackedSeq3Check
+
+    - name: U1 packed result with registers, packed-seq4 script (lemma-based field read-back, key-tested OrderOk; positives, option off, refusal control)
+      run: lake build Tests.Ved.U1PackedSeq4Check
 
     - name: "#writeDesign argument form and the chunked input domain (accept and refuse controls)"
       run: lake build Tests.Ved.InvocationCheck
