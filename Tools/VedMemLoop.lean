@@ -252,6 +252,18 @@ of `Nat` arithmetic, the declaration side as `BitVec` arithmetic) are made the s
 the first one, by an equality proved with `bv_omega` (the branch conditions of the enclosing `if`s are first propagated into the
 branches).  Untrusted: the kernel checks the rewrites. -/
 elab "ved_mem_addr" : tactic => withMainContext do
+  -- cheap gate: nothing to unify unless two memState atoms differ only in the address (the simp below only drops branches)
+  let tgt0 ← instantiateMVars (← getMainTarget)
+  let isMem0 := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
+  let mut seen0 : Array (Expr × Expr) := #[]
+  let mut need := false
+  for o in Tools.VedU1WireShare.collectDag isMem0 tgt0 do
+    if o.hasLooseBVars then continue
+    let args := o.getAppArgs
+    let key := mkAppN o.getAppFn (args.extract 0 8)
+    if seen0.any (fun (k, a) => k == key && a != args[8]!) then need := true; break
+    seen0 := seen0.push (key, args[8]!)
+  if !need then return
   try evalTactic (← `(tactic| simp (config := {contextual := true}) only [↓reduceIte, ite_true, ite_false, if_true, if_false])) catch _ => pure ()
   let tgt ← instantiateMVars (← getMainTarget)
   let isMem := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
