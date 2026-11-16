@@ -1,6 +1,7 @@
 import Tools.VedU1Entry
 import Tools.VedU1Packed
 import Tools.VedU1MultiSeq
+import Tools.VedU1PackedSeq2
 
 /-!
 # U1 entry for a packed result `Signal d (A × B)` (`#ved_u1_packed decl`)
@@ -11,7 +12,8 @@ specialise a leading `DomainConfig` binder, read the table from the declaration'
 `synthesizeCombinational` ONCE, register `ved_mod`, `ved_contract` (here a `PContract`),
 `ved_outs`, `ved_body`, elaborate the generated script against `PackedStmt c m stmt`, add the theorem with exactly
 that type, strict audit.  Register-free bodies use `packedScript` (then `packedCombScript`); bodies with
-registers (`Signal.loop`) use `packedLoopScript` (Tools/VedU1MultiSeq.lean), the contract then carrying the
+registers (`Signal.loop`) first try `Tools.VedU1PackedSeq2.packedSeqScript` (the per-statement script of `#ved_u1`, over the packed
+statement; Tools/VedU1PackedSeq2.lean), then `packedLoopScript` (Tools/VedU1MultiSeq.lean), the contract then carrying the
 module's clock/reset and register initial values (`PContract.clkRst` / `inits`, bound by `ShapeCore`).  The
 result must be a `Prod` tree of at least two leaves inside ONE `Signal` (`Bool` / `BitVec w` leaves).
 
@@ -85,6 +87,41 @@ def packedScript (nm : Names) (F : Name) (nDom : Nat) : TermElabM Syntax := do
             | (rw [BitVec.toNat_append]; simp [BitVec.toNat_ofNat]; rw [Nat.mod_eq_of_lt hin.1, Nat.mod_eq_of_lt hin.2])
             | skip
       exact ⟨hP, hU, slices_of_outputs hP.1 hU.2.2.2.2⟩)
+
+/-- The first attempt (`Tools/VedU1PackedSeq2.lean`): like `tryScriptFirst` (`Tools.VedU1Entry`: any failure puts the state back and returns
+`none`) but NOT under its `firstAttemptHeartbeats` cap: a packed body with registers needs more than that cap (R13: 3.6·10^9
+heartbeats) and the flat script that runs after a failure cannot prove these bodies at all.  The attempt shares the proof budget
+(`withProofBudget`, not raised) with the script that follows it.  With `ved.packedseq2.dbg` set, the failure and the cost are printed. -/
+def tryPackedFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lean.Expr) := do
+  let t0 ← IO.monoMsNow
+  let hb0 ← IO.getNumHeartbeats
+  if ved.packedseq2.dbg.get (← getOptions) ≥ 3 then IO.eprintln s!"VED PKMARK start {t0} {hb0 / 1000000}"
+  let saved ← saveState
+  let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
+  let r ← tryCatchRuntimeEx (do
+      let pf ← withProofBudget do
+        withoutErrToSorry do
+          let e ← elabTermEnsuringType stx expected
+          synthesizeSyntheticMVarsNoPostponing
+          instantiateMVars e
+      let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
+      if errs.length != errsBefore then
+        let first ← match errs.drop errsBefore with
+          | msg :: _ => msg.data.toString
+          | [] => pure ""
+        throwError "errors were logged; first: {first}"
+      pure (some pf))
+    fun e => do
+      if ved.packedseq2.dbg.get (← getOptions) ≥ 1 then
+        IO.eprintln s!"VED PKSEQ2 first attempt failed after {(← IO.monoMsNow) - t0} ms: {← e.toMessageData.toString}"
+      if ved.packedseq2.dbg.get (← getOptions) ≥ 2 then throwError "ved.packedseq2.dbg 2: stop after the failed first attempt"
+      pure none
+  let t1 ← IO.monoMsNow
+  if r.isSome then
+    if ved.packedseq2.dbg.get (← getOptions) ≥ 1 then
+      logInfo m!"VED PKSEQ2 first attempt ok {t1 - t0} ms, {((← IO.getNumHeartbeats) - hb0) / 1000000} M heartbeats"
+  else saved.restore (restoreInfo := true)
+  return r
 
 /-- The checker under the packed entry: like `checkU1E`, over a `PContract`.  `slices` is the
 slice map put into the contract (the entry: `tbl.out.slices`); `m` the module. -/
@@ -163,8 +200,19 @@ def checkPackedE (decl : Name) (stmt : Lean.Expr) (tbl : DeclTable) (slices : Li
             try elabProof (← Tools.VedU1MultiSeq.packedCombScript nm F stmt.getAppNumArgs (← helperConsts F))
             catch _ => throw e0
         else
-          elabProof (← Tools.VedU1MultiSeq.packedLoopScript nm F stmt.getAppNumArgs
-            ((regsOf m.body).map fun r => (r.1, declWidth m r.1)) (← helperConsts F))
+          let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+          -- first attempt: the per-statement script (`Tools/VedU1PackedSeq2.lean`) under the proof budget (and
+          -- the optional `ved.u1.seqProofHeartbeats` floor); a failure puts the state back and the flat loop
+          -- script below runs as before
+          let first? : Option Lean.Expr ← do
+            match ← Tools.VedU1PackedSeq2.packedSeqScript nm.contract nm.mod nm.outs nm.body F stmt.getAppNumArgs m b0
+                pc.clkRst (dataPortsOf m pc.clkRst) regs (← helperConsts F) with
+            | some sx => budget (tryPackedFirst sx expected)
+            | none => pure none
+          match first? with
+          | some e => pure e
+          | none =>
+            elabProof (← Tools.VedU1MultiSeq.packedLoopScript nm F stmt.getAppNumArgs regs (← helperConsts F))
       | .term s => elabProof s
       | .built mk => elabProof (← try mk nm m catch e => refuse decl "proof" e.toMessageData)
     tryCatchRuntimeEx
