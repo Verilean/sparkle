@@ -193,7 +193,8 @@ def scriptText (nm : HNames) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   L := L.push s!"    simp only [List.mem_cons, List.not_mem_nil, or_false] at hx"
   let pat := " | ".intercalate (kids.map fun _ => "h")
   if kids.length == 0 then
-    L := L.push s!"    exact absurd hx (by simp)"
+    -- `simp only .. at hx` has already closed the goal when `hx : x ∈ []` becomes `False`
+    L := L.push s!"    all_goals exact absurd hx (by simp)"
   else if kids.length == 1 then
     for k in kids do
       L := L.push s!"    subst hx"
@@ -240,16 +241,26 @@ def scriptText (nm : HNames) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
       hIs := hIs.push s!"hI{instNo}"
       instNo := instNo + 1
     | _ => pure ()
+  let Fn := F
   let F := declTerm F nDom
-  let hrels := ", ".intercalate ((List.range kids.length).map fun i => s!"hrel{i}")
-  let hIl := ", ".intercalate hIs.toList
+  -- the two lemma lists sit between fixed simp lemmas: each carries its own trailing ", ",
+  -- so an empty list (a design with no instance / no child) leaves no empty simp element
+  let hrels := String.join ((List.range kids.length).map fun i => s!"hrel{i}, ")
+  -- a top body with an operator expression (not only aliases and instances) needs the operator
+  -- evaluation lemmas of the leaf entry's simp set
+  let hasOp := m.body.any fun s => match s with | .assign _ (.op ..) => true | _ => false
+  let simpHd := if hasOp then "ved_core_simp" else "simp"
+  let hIl := String.join (hIs.toList.map fun h => s!"{h}, ")
   L := L.push s!"  apply Tools.VedU1Hier.outputsH_of_step {P.contract} {P.mod} {P.design} arr {F} {P.outs} (by decide) (fun _ _ _ => True)"
   L := L.push s!"  · intro _ _; trivial"
   L := L.push s!"  · intro ins hok s st _"
   L := L.push s!"    have hin := hok.1 s"
   L := L.push s!"    simp [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
   L := L.push s!"    obtain ⟨E, hE, hP⟩ : ∃ E, Tools.VedU1Hier.evalAssignsI (Tools.VedU1Contract.declWidth {P.mod}) (Tools.VedU1Hier.instEval {P.design} (Tools.VedU1Hier.runAt {P.design} arr (Tools.VedU1Hier.fuelOf {P.design})) (Tools.VedU1Contract.declWidth {P.mod})) {P.body} (Tools.VedU1Contract.seedIn {P.mod} ins s st) = some E ∧ (∀ o ∈ {P.outs}, E o.name = Tools.VedU1Contract.srcOf {P.contract} {F} ins o.name s) := by"
-  L := L.push s!"      simp [Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {hIl}, {hrels}, {P.body}, {P.outs}, {P.contract}, Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {F}, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.PTy.sig, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, hin, Nat.mod_eq_of_lt, Sparkle.IR.Semantics.evalExpr, Tools.VedU1Hier.upd]"
+  L := L.push s!"      {simpHd} [Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {hIl}{hrels}{P.body}, {P.outs}, {P.contract}, Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {userName Fn}, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.PTy.sig, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, hin, Nat.mod_eq_of_lt, Sparkle.IR.Semantics.evalExpr, Tools.VedU1Hier.upd]"
+  -- operator bodies leave `if`s over the (bounded) inputs: split and decide by `omega`
+  if hasOp then
+    L := L.push s!"      all_goals ((repeat' split) <;> (try simp [BitVec.toNat_ofNat]) <;> omega)"
   L := L.push s!"    have hp : (arr {P.mod}).Perm {P.body} := hadm.1.trans hb0.1.symm"
   L := L.push s!"    exact ⟨E, [], Tools.VedU1Hier.stepH_of_b0 {P.design} arr {P.mod} {P.body} hp hadm.2.1 hb0.2.1 (fun s hs => hb0.2.2 s (hp.mem_iff.mp hs)) _ E hE, hP, trivial⟩"
   return "\n".intercalate L.toList
