@@ -732,4 +732,45 @@ elab "ved_pack_wire_all_m" : tactic => do
     rest := rest ++ (← getGoals)
   setGoals rest
 
+
+/-! `ved_hin_simp M`: the input-bound / reset hypotheses `hin`, `hrst` of the step case, as `simp [C, contractOf, ..., M, declWidth]`
+would produce them, WITHOUT unfolding the module constant `M` (a literal as large as the design: the plain `simp` runs out of
+steps on it, `decoderPipeline`).  The closed subterms `Contract.dataInputs _` / `Contract.clkRst _` are evaluated by `reduce`
+(replaceLocalDeclDefEq, the kernel re-checks the defeq), and each `declWidth M "name"` is stated as an equation proved by
+`rfl` (kernel evaluation) and handed to `simp`. -/
+elab "ved_hin_simp " m:term : tactic => withMainContext do
+  let M ← elabTerm m none
+  let names := #[`hin, `hrst]
+  let ref ← IO.mkRef (#[] : Array Expr)
+  for nm in names do
+    let fv := (← getLCtx).findFromUserName? nm |>.map (·.fvarId)
+    let some fv := fv | throwError "ved_hin_simp: no {nm}"
+    let ty ← instantiateMVars (← fv.getType)
+    let ty' ← Meta.transform ty (pre := fun e => do
+      if !e.hasLooseBVars && (e.isAppOf ``Tools.VedU1Contract.Contract.dataInputs || e.isAppOf ``Tools.VedU1Contract.Contract.clkRst) then
+        return .done (← reduce e)
+      else return .continue)
+    dbgLog s!"hin_simp: reduced {nm}"
+    replaceMainGoal [← (← getMainGoal).replaceLocalDeclDefEq fv ty']
+    dbgLog s!"hin_simp: replaced {nm}"
+    discard <| Meta.transform ty' (pre := fun e => do
+      if e.isAppOfArity ``Sparkle.IR.AST.Port.mk 2 then ref.modify (·.push (e.getArg! 0))
+      return .continue)
+  let mut ids : Array Name := #[]
+  let mut i := 0
+  for n in (← ref.get) do
+    let lhs := mkApp2 (mkConst ``Tools.VedU1Contract.declWidth) M n
+    let v ← whnf lhs
+    let some k := v.rawNatLit? <|> v.nat? | throwError "ved_hin_simp: width of {n} is not a numeral: {v}"
+    let nm := Name.mkSimple s!"ved_hw{i}"
+    i := i + 1
+    let g ← getMainGoal
+    let (_, g') ← (← g.assert nm (← mkEq lhs (mkNatLit k)) (← mkEqRefl lhs)).intro1P
+    replaceMainGoal [g']
+    ids := ids.push nm
+  let hs ← ids.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkIdent n):ident)
+  let hsSep : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems hs
+  dbgLog s!"hin_simp: {ids.size} widths"
+  evalTactic (← `(tactic| simp [$hsSep,*] at $(mkIdent `hin):ident $(mkIdent `hrst):ident))
+
 end Tools.VedMemLoop

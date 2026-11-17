@@ -544,42 +544,56 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
   let d18 ← if dbg == 18 then `(tactic| (rotate_left 4; ved_mem_shape ite; refine Tools.VedMem.MemInv.ite (fun _ => ?_) (fun _ => ?_); ved_dbg_state)) else `(tactic| skip)
   let d10 := d 10
   let hinSimp : TSyntax `tactic ←
-    if pk then `(tactic| simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth,
-      Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse] at $hinI:ident $hrstI:ident)
+    if pk then `(tactic| ved_hin_simp $M:ident)
     else `(tactic| simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident)
   let keyTacs : Array (TSyntax `tactic) ← if pk then pure #[
       ← `(tactic| have key : ∀ t, Tools.VedU1Contract.srcOf (Tools.VedU1Packed.PContract.core $C) (Tools.VedU1Packed.packedF ($C).tbl $f) $insI "out" t =
           Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
       ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
   let core ← `(by
+      ved_stamp 80
       have hord : OrderOkM $M $B = true := by decide +kernel
+      ved_stamp 81
       refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+      ved_stamp 82
       apply outputs_of_orderM $B hord
+      ved_stamp 83
       refine outputs_of_step_mem $Cx $M $B $fx $O (by decide +kernel) $Rstx ?h0 ?hstep
       case h0 =>
+        ved_stamp 84
         intro $insI hok
         ved_loop_unfold_mem [$hsSep,*] 0
+        ved_stamp 85
         refine $h0Term
         $d10
         all_goals ved_loop_simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
           Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*]
+        ved_stamp 86
         all_goals (try decide +kernel)
+        ved_stamp 87
       case hstep =>
+        ved_stamp 88
         intro $insI hok $sI st mems hR
         have $hinI := hok.1 $sI
         have $hrstI := hok.2 $sI
+        ved_stamp 90
         $hinSimp
+        ved_stamp 91
         $keyTacs*
         $obtainTac
+        ved_stamp 92
         $rdTacs*
         $normHyps
+        ved_stamp 93
         $d1
         ved_loop_unfold_mem [$hsSep,*] ($sI + 1)
         $d2
+        ved_stamp 94
         all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
           comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
           Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
           Sparkle.Core.Signal.Signal.memory_val_zero, $ex1,*])
+        ved_stamp 95
         $d3
         all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
         all_goals (try (repeat' apply And.intro))
