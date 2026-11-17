@@ -1,4 +1,5 @@
 import Lean
+import Std.Data.HashMap
 import Tools.VedMemLoop
 
 /-!
@@ -426,6 +427,124 @@ elab "ved_decide_small2" : tactic => do
   try decideSmall2Core
   catch e =>
     if dump then Tools.VedMemLoop.dbgLog s!"decide_small2: {← e.toMessageData.toString}"
+    throw e
+
+/-! ## Stage 7: control fields by case analysis, the data part by `omega`
+
+A goal over small control fields (`BitVec.toNat v` of at most 4 bits, `ins s "name"` with a bound of at most 16) and wide data fields
+(16-bit additions under the `if`s on the control fields) is closed by `ved_ctrl_cases`: the control atoms are generalised to bounded
+`Nat` variables, split one at a time into all their values (`ved_cases_lt`, one new goal per value, in the same context), and each case
+is simplified with literal arithmetic (the `if`s on the control fields reduce), skipping a variable that no longer occurs.  What is left
+is a data goal for `omega`, proved once per distinct residual statement (the cases share them).  The cost is that of the control tuples
+(not of the tree).  Fails when there is no control atom or the cases exceed 4096. -/
+
+theorem ved_cases_lt {P : Nat → Prop} {n v : Nat} (h : v < n) (hs : ∀ i, i < n → P i) : P v := hs v h
+theorem ved_ball_zero {P : Nat → Prop} : ∀ i, i < 0 → P i := fun i h => absurd h (Nat.not_lt_zero i)
+theorem ved_ball_succ {P : Nat → Prop} {n : Nat} (h : ∀ i, i < n → P i) (hn : P n) : ∀ i, i < n + 1 → P i :=
+  fun i hi => if e : i = n then e ▸ hn else h i (by omega)
+
+structure CtrlSimp where
+  ctx : Simp.Context
+  sp : Simp.SimprocsArray
+
+def mkCtrlSimp : TacticM CtrlSimp := do
+  let stx ← `(tactic| simp (config := {decide := true}) only [Nat.reduceMod, Nat.reduceEqDiff, ↓reduceIte, Nat.reduceAdd, Nat.reduceMul, Nat.reducePow, Nat.reduceSub, Nat.reduceDiv, and_true, true_and, and_false, false_and, or_true, true_or, or_false, false_or, not_true_eq_false, not_false_eq_true, true_implies, false_implies, implies_true, if_true, if_false])
+  let r ← mkSimpContext stx false
+  return ⟨r.ctx, r.simprocs⟩
+
+partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lean.Expr)) (vars : List (Name × Name × Nat)) : TacticM Unit := do
+  match vars with
+  | [] =>
+    let g ← getMainGoal
+    let ty ← instantiateMVars (← g.getType)
+    if let some pf := (← cache.get).get? ty then
+      g.assign pf
+      setGoals []
+    else
+      evalTactic (← `(tactic| omega))
+      cache.modify fun m => m.insert ty (Lean.Expr.mvar g)
+  | (vn, bn, n) :: rest =>
+    let g ← getMainGoal
+    let lctx ← g.withContext getLCtx
+    let (some ld, some hv) := (lctx.findFromUserName? vn, lctx.findFromUserName? bn) | ctrlCases sc cache rest
+    let v := ld.fvarId
+    let tgt ← instantiateMVars (← g.getType)
+    if !(tgt.containsFVar v) then ctrlCases sc cache rest
+    else
+      let abs := tgt.abstract #[mkFVar v]
+      let motive := Lean.Expr.lam `v (mkConst ``Nat) abs .default
+      let mut mvs : Array MVarId := #[]
+      let mut chain := mkApp (mkConst ``ved_ball_zero) motive
+      for i in [0:n] do
+        let m ← g.withContext <| mkFreshExprSyntheticOpaqueMVar (abs.instantiate1 (mkNatLit i))
+        mvs := mvs.push m.mvarId!
+        chain := mkApp4 (mkConst ``ved_ball_succ) motive (mkNatLit i) chain m
+      g.assign (mkApp5 (mkConst ``ved_cases_lt) motive (mkNatLit n) (mkFVar v) hv.toExpr chain)
+      let mut done : List MVarId := []
+      for g in mvs do
+        setGoals [g]
+        let (r, _) ← simpGoal g sc.ctx sc.sp
+        match r with
+        | none => setGoals []
+        | some (_, g') => setGoals [g']
+        unless (← getGoals).isEmpty do ctrlCases sc cache rest
+        done := done ++ (← getGoals)
+      setGoals done
+
+def ctrlCasesCore : TacticM Unit := withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let isAtom := fun (e : Lean.Expr) =>
+    (e.isAppOfArity ``BitVec.toNat 2 && (e.getArg! 1).isFVar)
+    || (e.isApp && e.getAppNumArgs == 2 && e.getAppFn.isFVar && (e.getArg! 0).isFVar
+        && ((e.getArg! 1).isLit || (e.getArg! 1).isAppOf ``String.mk || (e.getArg! 1).isAppOf ``OfNat.ofNat))
+  let mut atoms : Array Lean.Expr := #[]
+  for o in Tools.VedU1WireShare.collectDag isAtom tgt do
+    unless atoms.contains o do atoms := atoms.push o
+  let mut ctl : Array (Lean.Expr × Nat) := #[]
+  let mut cases := 1
+  for a in atoms do
+    let b? ← (do
+        if a.isAppOfArity ``BitVec.toNat 2 then
+          let ty ← whnf (← inferType (a.getArg! 1))
+          return (ty.getArg! 0).nat?.map (2 ^ ·)
+        let mut r : Option Nat := none
+        for d in ← getLCtx do
+          unless d.isImplementationDetail || r.isSome do
+            r := boundOf? a (← instantiateMVars d.type)
+        return r)
+    if let some n := b? then
+      if n ≤ 16 then
+        ctl := ctl.push (a, n)
+        cases := cases * n
+  if ctl.isEmpty then throwError "ved_ctrl_cases: no control atom"
+  if cases > 4096 then throwError "ved_ctrl_cases: too many cases"
+  let mut vars : List (Name × Name × Nat) := []
+  let mut k := 0
+  for (a, n) in ctl do
+    let nm := mkIdent (Name.mkSimple s!"ved_cv{k}")
+    let bn := mkIdent (Name.mkSimple s!"ved_cb{k}")
+    let hk := mkIdent (Name.mkSimple s!"ved_ch{k}")
+    let aS ← Term.exprToSyntax a
+    let nS := Syntax.mkNumLit (toString n)
+    if a.isAppOfArity ``BitVec.toNat 2 then
+      evalTactic (← `(tactic| generalize $hk:ident : $aS = $nm))
+      evalTactic (← `(tactic| have $bn : $nm < $nS := by rw [← $hk:ident]; exact BitVec.isLt _))
+      evalTactic (← `(tactic| clear $hk:ident))
+    else
+      evalTactic (← `(tactic| have $bn : $aS < $nS := by omega))
+      evalTactic (← `(tactic| generalize $hk:ident : $aS = $nm at $bn:ident ⊢))
+      evalTactic (← `(tactic| clear $hk:ident))
+    vars := vars ++ [(Name.mkSimple s!"ved_cv{k}", Name.mkSimple s!"ved_cb{k}", n)]
+    k := k + 1
+  let sc ← mkCtrlSimp
+  let cache ← IO.mkRef {}
+  ctrlCases sc cache vars
+
+elab "ved_ctrl_cases" : tactic => do
+  let dump := (← IO.getEnv "VED_DUMP_DIR").isSome
+  try ctrlCasesCore
+  catch e =>
+    if dump then Tools.VedMemLoop.dbgLog s!"ctrl_cases: {(← e.toMessageData.toString).take 300}"
     throw e
 
 end Tools.VedMemPack
