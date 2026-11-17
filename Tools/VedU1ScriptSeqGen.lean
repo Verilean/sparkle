@@ -256,6 +256,31 @@ open Lean Meta Elab Tactic in
   seqNextAt (← `(term| 0)) ⟨stx[2].getArgs⟩
 
 open Lean Meta Elab Tactic in
+/-- split the goal `g` on the `Bool` `e`: the goals `hbool : e = true ⊢ G[true]` and
+`hbool : e = false ⊢ G[false]` (what `cases hbool : e` leaves), built from the occurrences of `e`
+found by structural equality; `cases` abstracts with `kabstract`, which unifies `e` (a projection
+chain of the loop state) with every projection of the state in the goal. -/
+def vedSplitBool (g : MVarId) (e : Expr) : MetaM (List MVarId) := g.withContext do
+  let tgt ← instantiateMVars (← g.getType)
+  let motive ← withLocalDeclD `b (mkConst ``Bool) fun b => do
+    mkLambdaFVars #[b] (tgt.replace fun x => if x == e then some b else none)
+  let mkBranch (v : Bool) : MetaM (MVarId × Expr) := do
+    let vE := mkConst (if v then ``Bool.true else ``Bool.false)
+    let eq ← mkEq e vE
+    let gT ← mkFreshExprSyntheticOpaqueMVar (mkForall `hbool .default eq (motive.beta #[vE]))
+    let pf ← withLocalDeclD `h eq fun h => do
+      let ceq ← mkCongrArg motive h
+      mkLambdaFVars #[h] (← mkAppM ``Eq.mpr #[ceq, mkApp gT h])
+    let (_, g') ← gT.mvarId!.intro `hbool
+    pure (g', pf)
+  let (gt, pt) ← mkBranch true
+  let (gf, pf) ← mkBranch false
+  let eT ← mkEq e (mkConst ``Bool.true)
+  let eF ← mkEq e (mkConst ``Bool.false)
+  g.assign (mkApp6 (mkConst ``Or.elim) eT eF tgt (← mkAppM ``Bool.eq_false_or_eq_true #[e] ) pt pf)
+  pure [gt, gf]
+
+open Lean Meta Elab Tactic in
 /-- `ved_seq_bools`: drop the hypotheses the rewriting is done with (the loop-state equations, the
 per-statement equations, the seed facts: nothing reads them any more and `cases` would revert and
 re-introduce every one that mentions the variable), then split every `Bool` loop-state variable
@@ -281,18 +306,30 @@ elab "ved_seq_bools" : tactic => do
       let g' ← g.clear fv
       replaceMainGoal [g']
     catch _ => pure ()
-  let bs ← withMainContext do
-    let mut bs : Array Expr := #[]
-    for d in ← getLCtx do
-      if d.userName.toString.startsWith "ved_b" then
-        let t ← instantiateMVars d.type
-        -- `Bool.toNat e ≤ 1`
-        let a := t.getArg! 2
-        if a.isAppOfArity ``Bool.toNat 1 then bs := bs.push (a.getArg! 0)
-    pure bs
-  for e in bs do
-    let eS ← Term.exprToSyntax e
-    evalTactic (← `(tactic| all_goals (try cases hbool : $eS)))
+  -- the conjuncts of the goal are split first and only the `Bool`s that occur in a goal are split
+  -- there (all `k` split in the one conjunction made `2^k` copies of the whole goal)
+  evalTactic (← `(tactic| all_goals (try (repeat' apply And.intro))))
+  let mut out : Array MVarId := #[]
+  for g in ← getGoals do
+    let bs ← g.withContext do
+      let mut bs : Array Expr := #[]
+      for d in ← getLCtx do
+        if d.userName.toString.startsWith "ved_b" then
+          let t ← instantiateMVars d.type
+          -- `Bool.toNat e ≤ 1`
+          let a := t.getArg! 2
+          if a.isAppOfArity ``Bool.toNat 1 then bs := bs.push (a.getArg! 0)
+      pure bs
+    let mut cur : List MVarId := [g]
+    for e in bs do
+      let mut next : List MVarId := []
+      for g' in cur do
+        let occurs ← g'.withContext do
+          pure ((← instantiateMVars (← g'.getType)).find? (· == e)).isSome
+        if occurs then next := next ++ (← vedSplitBool g' e) else next := next ++ [g']
+      cur := next
+    out := out ++ cur.toArray
+  setGoals out.toList
 
 /-! ## Reading a field back out of a packed word
 
