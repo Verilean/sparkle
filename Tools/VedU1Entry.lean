@@ -6,6 +6,7 @@ import Tools.VedU1Table
 import Tools.VedU1TableGen
 import Std.Data.HashMap
 import Tools.VedU1Loop
+import Tools.VedU1LoopXor
 import Tools.VedU1Wire
 import Tools.VedU1WireShare
 import Tools.VedU1Uns
@@ -767,8 +768,8 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
     tacs := tacs ++ #[← `(tactic| have $(hs[0]!):ident := $hR), ← `(tactic| clear $hR)]
   else
     tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
-  let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | (trace_state; fail "ved_loop_close failed here")))
-    else `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close))
+  let closing ← if dbg == 99 then `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero, Tools.VedU1LoopXor.xor_mod_256, Tools.VedU1LoopXor.xor_mod_65536, Tools.VedU1LoopXor.xor_lt_256, Tools.VedU1LoopXor.xor_lt_65536, Tools.VedU1LoopXor.bv8_lt, Tools.VedU1LoopXor.bv16_lt] | ved_bmod_close | (trace_state; fail "ved_loop_close failed here")))
+    else `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero, Tools.VedU1LoopXor.xor_mod_256, Tools.VedU1LoopXor.xor_mod_65536, Tools.VedU1LoopXor.xor_lt_256, Tools.VedU1LoopXor.xor_lt_65536, Tools.VedU1LoopXor.bv8_lt, Tools.VedU1LoopXor.bv16_lt] | ved_bmod_close))
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_loop_unfold_share ($sI + 1)),
       ← `(tactic| ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex1,*]),
