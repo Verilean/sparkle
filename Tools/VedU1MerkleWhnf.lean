@@ -19,15 +19,19 @@ namespace Tools.VedU1MerkleWhnf
 
 open Lean Meta Elab Tactic
 
-/-- the goal has a packed-state slice: `(a * m + b) / m'` (what `div_pack` / `mod_pack` read back).  A goal without one
-(the single-register CRC bodies of `Tests/Ved/U1WireShareCheck.lean`) is left to the unchanged bit step: the pack step
-rewrites its `% 256` / `/ 256` terms into forms whose `omega` side conditions then fail. -/
+/-- `n` is a packed sum `a * m + b`, possibly under `%` / `/` (a slice of a slice: `((a * m + b) % m' / m'') ...`) -/
+partial def isPackSum (n : Expr) : Bool :=
+  if n.isAppOfArity ``HAdd.hAdd 6 then
+    (n.getArg! 4).isAppOfArity ``HMul.hMul 6 || (n.getArg! 5).isAppOfArity ``HMul.hMul 6
+  else if n.isAppOfArity ``HMod.hMod 6 || n.isAppOfArity ``HDiv.hDiv 6 then isPackSum (n.getArg! 4)
+  else false
+
+/-- the goal has a packed-state slice: `(a * m + b) / m'` or `% m'` (what `div_pack` / `mod_pack` read back).  A goal
+without one (the single-register CRC bodies of `Tests/Ved/U1WireShareCheck.lean`) is left to the unchanged bit step: the
+pack step rewrites its `% 256` / `/ 256` terms into forms whose `omega` side conditions then fail. -/
 def hasPackedSlice (e : Expr) : Bool :=
   (e.find? fun x =>
-    x.isAppOfArity ``HDiv.hDiv 6 &&
-      (let n := x.getArg! 4
-       n.isAppOfArity ``HAdd.hAdd 6 &&
-         ((n.getArg! 4).isAppOfArity ``HMul.hMul 6 || (n.getArg! 5).isAppOfArity ``HMul.hMul 6))).isSome
+    (x.isAppOfArity ``HMod.hMod 6 || x.isAppOfArity ``HDiv.hDiv 6) && isPackSum (x.getArg! 4)).isSome
 
 elab "ved_bit_simp_pk" : tactic => withMainContext do
   let tgt ← instantiateMVars (← getMainTarget)
