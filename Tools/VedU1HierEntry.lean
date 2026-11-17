@@ -176,9 +176,27 @@ def connsLit (cs : List (String × Sparkle.IR.AST.Expr)) : String :=
 
 def strList (xs : List String) : String := "[" ++ ", ".intercalate (xs.map sq) ++ "]"
 
+/-- The declarations of the CURRENT file that `decl` calls, transitively (definitions without a module
+index; the declarations of the case file are all of this kind). -/
+partial def fileCallees (decl : Name) : CoreM (List Name) := do
+  let env ← getEnv
+  let rec go (todo : List Name) (seen : List Name) (fuel : Nat) : List Name :=
+    match fuel, todo with
+    | 0, _ => seen
+    | _, [] => seen
+    | fuel + 1, c :: rest =>
+      match env.find? c with
+      | some (.defnInfo di) =>
+        let new := di.value.getUsedConstants.toList.filter fun u =>
+          (env.getModuleIdxFor? u).isNone && !seen.contains u && !rest.contains u &&
+            (match env.find? u with | some (.defnInfo _) => true | _ => false)
+        go (rest ++ new) (seen ++ new) fuel
+      | _ => go rest seen fuel
+  return go [decl] [] 200
+
 /-- The generated (untrusted) proof text of `U1HStmt P.contract P.mod P.design F`. -/
-def scriptText (nm : HNames) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design) (kids : List Kid) :
-    String := Id.run do
+def scriptText (nm : HNames) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design) (kids : List Kid)
+    (callees : List Name := []) : String := Id.run do
   let P := nm.user
   let kids := kids.map fun k => { k with nm := namesUser k.nm }
   let mut L : Array String := #[]
@@ -249,6 +267,9 @@ def scriptText (nm : HNames) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   -- a top body with an operator expression (not only aliases and instances) needs the operator
   -- evaluation lemmas of the leaf entry's simp set
   let hasOp := m.body.any fun s => match s with | .assign _ (.op ..) => true | _ => false
+  -- the declarations the statement's function calls (inlined by the synthesis) unfold too: their
+  -- `Signal` bodies meet the operator lemmas
+  let kidFns := if hasOp then String.join (callees.map fun c => s!"{userName c}, ") else ""
   let simpHd := if hasOp then "ved_core_simp" else "simp"
   let hIl := String.join (hIs.toList.map fun h => s!"{h}, ")
   L := L.push s!"  apply Tools.VedU1Hier.outputsH_of_step {P.contract} {P.mod} {P.design} arr {F} {P.outs} (by decide) (fun _ _ _ => True)"
@@ -257,7 +278,7 @@ def scriptText (nm : HNames) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   L := L.push s!"    have hin := hok.1 s"
   L := L.push s!"    simp [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
   L := L.push s!"    obtain ⟨E, hE, hP⟩ : ∃ E, Tools.VedU1Hier.evalAssignsI (Tools.VedU1Contract.declWidth {P.mod}) (Tools.VedU1Hier.instEval {P.design} (Tools.VedU1Hier.runAt {P.design} arr (Tools.VedU1Hier.fuelOf {P.design})) (Tools.VedU1Contract.declWidth {P.mod})) {P.body} (Tools.VedU1Contract.seedIn {P.mod} ins s st) = some E ∧ (∀ o ∈ {P.outs}, E o.name = Tools.VedU1Contract.srcOf {P.contract} {F} ins o.name s) := by"
-  L := L.push s!"      {simpHd} [Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {hIl}{hrels}{P.body}, {P.outs}, {P.contract}, Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {userName Fn}, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.PTy.sig, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, hin, Nat.mod_eq_of_lt, Sparkle.IR.Semantics.evalExpr, Tools.VedU1Hier.upd]"
+  L := L.push s!"      {simpHd} [Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {hIl}{hrels}{P.body}, {P.outs}, {P.contract}, Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {userName Fn}, {kidFns}Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.PTy.sig, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, hin, Nat.mod_eq_of_lt, Sparkle.IR.Semantics.evalExpr, Tools.VedU1Hier.upd]"
   -- operator bodies leave `if`s over the (bounded) inputs: split and decide by `omega`
   if hasOp then
     L := L.push s!"      all_goals ((repeat' split) <;> (try simp [BitVec.toNat_ofNat]) <;> omega)"
@@ -354,7 +375,7 @@ def checkU1H (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.M
       #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst nm.design, stmt]
     try check expected catch e => refuse decl "type" e.toMessageData
     unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
-    let text := "by\n" ++ scriptText nm stmt.getAppFn.constName! stmt.getAppNumArgs m d kids
+    let text := "by\n" ++ scriptText nm stmt.getAppFn.constName! stmt.getAppNumArgs m d kids (← fileCallees stmt.getAppFn.constName!)
     if (← IO.getEnv "VED_HIER_DEBUG").isSome then IO.eprintln text
     let stx ← match Lean.Parser.runParserCategory (← getEnv) `term text "<ved_u1_hier>" with
       | .ok s => pure s
