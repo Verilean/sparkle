@@ -272,6 +272,187 @@ def vedSplitBool (g : MVarId) (e : Expr) : MetaM (List MVarId) := g.withContext 
   g.assign (mkApp6 (mkConst ``Or.elim) eT eF tgt (← mkAppM ``Bool.eq_false_or_eq_true #[e] ) pt pf)
   pure [gt, gf]
 
+/-- results of `ved_omega_c`: the proofs of the side conditions found, and for the ones that failed the
+facts that were in the context (the same side condition is asked again in every goal of the block) -/
+initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr Lean.Expr) ← IO.mkRef {}
+initialize vedUbFail : IO.Ref (Std.HashMap Lean.Expr Nat) ← IO.mkRef {}
+initialize vedOmegaFail : IO.Ref (Std.HashMap Lean.Expr (Array Lean.FVarId)) ← IO.mkRef {}
+
+open Lean Meta in
+/-- the value of a closed `Nat` expression built from numerals with `+ * ^ -` (the packing factors are
+`2 ^ 4359`, which `Nat.reducePow` does not evaluate) -/
+partial def vedLitVal (e : Expr) : Option Nat :=
+  match e.getAppFnArgs with
+  | (``HPow.hPow, #[_, _, _, _, a, b]) => do
+    let x ← vedLitVal a; let y ← vedLitVal b
+    if y ≤ 100000 then some (x ^ y) else none
+  | (``HMul.hMul, #[_, _, _, _, a, b]) => do pure ((← vedLitVal a) * (← vedLitVal b))
+  | (``HAdd.hAdd, #[_, _, _, _, a, b]) => do pure ((← vedLitVal a) + (← vedLitVal b))
+  | (``HSub.hSub, #[_, _, _, _, a, b]) => do pure ((← vedLitVal a) - (← vedLitVal b))
+  | _ => e.nat?
+
+theorem ved_ite_le {c : Prop} [Decidable c] {a b U : Nat} (ha : a ≤ U) (hb : b ≤ U) :
+    (if c then a else b) ≤ U := by
+  split <;> assumption
+
+open Lean Meta in
+/-- an upper bound for a `Nat` expression built from `+ * % /`, `if`, literals and atoms with a bound
+in the context (`x < N`, `x ≤ N`): `(value, bound expression, proof of e ≤ bound)`.  The proof is built
+from `Nat.add_le_add`, `Nat.mul_le_mul`, `Nat.mod_le`, `Nat.mod_lt`, `Nat.div_le_div_right` and
+numeral comparisons (`decide`, checked by the kernel with GMP). -/
+partial def vedUb (facts : Array (Expr × Nat × Expr × Expr)) (e : Expr) : MetaM (Option (Nat × Expr × Expr)) := do
+  let lit (n : Nat) : Expr := mkNatLit n
+  if let some n := vedLitVal e then
+    let b := lit n
+    return some (n, b, ← mkDecideProof (← mkAppM ``LE.le #[e, b]))
+  match e.getAppFnArgs with
+  | (``HAdd.hAdd, #[_, _, _, _, a, b]) =>
+    let some (ua, ba, pa) ← vedUb facts a | return none
+    let some (ub, bb, pb) ← vedUb facts b | return none
+    return some (ua + ub, ← mkAppM ``HAdd.hAdd #[ba, bb], ← mkAppM ``Nat.add_le_add #[pa, pb])
+  | (``HMul.hMul, #[_, _, _, _, a, b]) =>
+    let some (ua, ba, pa) ← vedUb facts a | return none
+    let some (ub, bb, pb) ← vedUb facts b | return none
+    return some (ua * ub, ← mkAppM ``HMul.hMul #[ba, bb], ← mkAppM ``Nat.mul_le_mul #[pa, pb])
+  | (``HMod.hMod, #[_, _, _, _, a, n]) =>
+    let some nv := vedLitVal n | return none
+    if nv == 0 then return none
+    let some (ua, ba, pa) ← vedUb facts a | return none
+    if ua ≤ nv - 1 then
+      return some (ua, ba, ← mkAppM ``Nat.le_trans #[← mkAppM ``Nat.mod_le #[a, n], pa])
+    let hn ← mkDecideProof (← mkAppM ``LT.lt #[mkNatLit 0, n])
+    let h ← mkAppM ``Nat.le_pred_of_lt #[← mkAppM ``Nat.mod_lt #[a, hn]]
+    -- `h : a % n ≤ n.pred`; restate with `n - 1`
+    let b := ← mkAppM ``HSub.hSub #[n, mkNatLit 1]
+    let hb ← mkExpectedTypeHint h (← mkAppM ``LE.le #[e, b])
+    return some (nv - 1, b, hb)
+  | (``HDiv.hDiv, #[_, _, _, _, a, n]) =>
+    let some (ua, ba, pa) ← vedUb facts a | return none
+    let some nv := vedLitVal n | return none
+    return some (ua / nv, ← mkAppM ``HDiv.hDiv #[ba, n], ← mkAppM ``Nat.div_le_div_right #[pa])
+  | (``ite, #[_, c, inst, a, b]) =>
+    let some (ua, ba, pa) ← vedUb facts a | return none
+    let some (ub, bb, pb) ← vedUb facts b | return none
+    let (u, bu) := if ua ≥ ub then (ua, ba) else (ub, bb)
+    let pa' ← if ua ≥ ub then pure pa else
+      mkAppM ``Nat.le_trans #[pa, ← mkDecideProof (← mkAppM ``LE.le #[ba, bb])]
+    let pb' ← if ub ≥ ua then pure pb else
+      mkAppM ``Nat.le_trans #[pb, ← mkDecideProof (← mkAppM ``LE.le #[bb, ba])]
+    let pf ← mkAppOptM ``ved_ite_le #[some c, some inst, some a, some b, some bu, some pa', some pb']
+    return some (u, bu, pf)
+  | _ =>
+    for (x, u, b, pf) in facts do
+      if x == e then return some (u, b, pf)
+    return none
+
+open Lean Meta in
+/-- the facts `x < N` / `x ≤ N` of the context as `(x, value of the bound, bound, proof of x ≤ bound)` -/
+def vedBoundFacts : MetaM (Array (Expr × Nat × Expr × Expr)) := do
+  let mut out := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let t ← instantiateMVars d.type
+    if t.isAppOfArity ``LT.lt 4 && (t.getArg! 0).isConstOf ``Nat then
+      if let some n := vedLitVal (t.getArg! 3) then
+        if n > 0 then
+          let b ← mkAppM ``HSub.hSub #[t.getArg! 3, mkNatLit 1]
+          out := out.push (t.getArg! 2, n - 1, b, ← mkAppM ``Nat.le_pred_of_lt #[d.toExpr])
+    else if t.isAppOfArity ``LE.le 4 && (t.getArg! 0).isConstOf ``Nat then
+      if let some n := vedLitVal (t.getArg! 3) then
+        out := out.push (t.getArg! 2, n, t.getArg! 3, d.toExpr)
+  return out
+
+open Lean Meta Elab Tactic in
+/-- `ved_omega` with a cache: the register goals of a loop (`ved_pack_simp_c`) read the same packed
+words, so the range side conditions `a * 2^k + b < 2^m` are the same in every goal and `omega` took
+~1e6 heartbeats (a third of them failures, asked 4 times) per call on the 20-register words.  A found
+proof is reused where its free variables are in the context; a failure where the context has no
+fact (other than an equation of `Bool`s, which `omega` does not read) that the failed run did not
+have.  The proof term is checked by the kernel as before; the cache only decides what is tried. -/
+elab "ved_omega_c" : tactic => do
+  let g ← getMainGoal
+  let tgt ← instantiateMVars (← g.getType)
+  if tgt.hasMVar then
+    evalTactic (← `(tactic| ved_omega))
+    return
+  let lctx ← getLCtx
+  if let some pf := (← vedOmegaOk.get)[tgt]? then
+    if !pf.hasAnyFVar (!lctx.contains ·) then
+      g.assign pf
+      replaceMainGoal []
+      return
+  -- interval bound first: sums of bounded atoms (no `omega` run, which timed out on the failing ones)
+  if tgt.isAppOfArity ``LT.lt 4 && (tgt.getArg! 0).isConstOf ``Nat then
+    if let some nv := vedLitVal (tgt.getArg! 3) then
+      let facts ← vedBoundFacts
+      if let some k := (← vedUbFail.get)[tgt]? then
+        if facts.size ≤ k then
+          throwError "ved_omega_c: bound exceeds (cached)"
+      let r ← try some <$> vedUb facts (tgt.getArg! 2) catch _ => pure none
+      if let some (some (u, b, pf)) := r then
+        if u < nv then
+          let hl ← mkDecideProof (← mkAppM ``LT.lt #[b, tgt.getArg! 3])
+          let pf' ← mkAppM ``Nat.lt_of_le_of_lt #[pf, hl]
+          g.assign pf'
+          replaceMainGoal []
+          unless pf'.hasMVar do vedOmegaOk.modify (·.insert tgt pf')
+          return
+        else
+          vedUbFail.modify (·.insert tgt (← vedBoundFacts).size)
+          throwError "ved_omega_c: bound exceeds"
+  let mut rel : Array FVarId := #[]
+  for d in lctx do
+    if d.isImplementationDetail then continue
+    let t ← instantiateMVars d.type
+    if (← isProp t) && !(t.isAppOfArity ``Eq 3 && (t.getArg! 0).isConstOf ``Bool) then rel := rel.push d.fvarId
+  if let some fs := (← vedOmegaFail.get)[tgt]? then
+    if rel.all (fs.contains ·) then
+      throwError "ved_omega_c: no proof (cached)"
+  try
+    evalTactic (← `(tactic| ved_omega))
+    let pf ← instantiateMVars (mkMVar g)
+    unless pf.hasMVar do vedOmegaOk.modify (·.insert tgt pf)
+  catch e =>
+    vedOmegaFail.modify (·.insert tgt rel)
+    throw e
+
+/-- the packed word `m + b` (a field that is the constant 1 of a register above the others, `2 ^ 4353 + ...`)
+read back at its own weight -/
+theorem ved_div_self_add (m b : Nat) (hm : 0 < m) (hb : b < m) : (m + b) / m = 1 := by
+  rw [Nat.add_div_left _ hm, Nat.div_eq_of_lt hb]
+
+/-- `ved_pack_simp` with the cached side-condition discharger (and the read-back of a literal summand) -/
+macro "ved_pack_simp_c" : tactic =>
+  `(tactic| simp (disch := first | ved_omega_c | fail) only
+      [Nat.reducePow, Nat.reduceAdd, Nat.mod_eq_of_lt, Nat.div_eq_of_lt, Tools.VedU1Loop.div_pack, Tools.VedU1Loop.mod_pack, Nat.add_mod_left, Nat.add_zero, Tools.VedU1ScriptSeq.ved_div_self_add])
+
+open Lean Meta Elab Tactic in
+/-- `ved_mul_facts` with the bound of a factor read off its structure first (`vedUb`): `ved_mul_facts`
+asks `omega` for `x < 2^n` with `n` = 1, 2, ... up to 190 (each failure runs `omega` into its budget),
+which on a product of two packed-word fields took the whole first-attempt budget (R130).  A factor
+`vedUb` cannot bound goes through the original search. -/
+elab "ved_mul_facts_c" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let cands : List Nat := (List.range 130).tail! ++ (List.range 60).map (fun i => 136 + 8 * i)
+  for t in Tools.VedU1Loop.natMuls tgt do
+    let a := t.getArg! 4
+    let b := t.getArg! 5
+    let least (x : Lean.Expr) : TacticM (Option (Nat × Lean.Expr)) := do
+      let r ← try vedUb (← vedBoundFacts) x catch _ => pure none
+      if let some (u, bd, pf) := r then
+        let n := max 1 (Nat.log2 u + 1)
+        let bound ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit n]
+        let lt ← mkAppM ``LT.lt #[bd, bound]
+        return some (n, ← mkAppM ``Nat.lt_of_le_of_lt #[pf, ← mkDecideProof lt])
+      for n in cands do
+        let bound ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit n]
+        if let some h ← Tools.VedU1Loop.omegaProof? (← mkAppM ``LT.lt #[x, bound]) then return some (n, h)
+      return none
+    let some (_, ha) ← least a | continue
+    let some (_, hb) ← least b | continue
+    let lem ← mkAppM ``Nat.mul_lt_mul'' #[ha, hb]
+    evalTactic (← `(tactic| have := $(← Term.exprToSyntax lem)))
+
 open Lean Meta Elab Tactic in
 /-- `ved_seq_bools`: drop the hypotheses the rewriting is done with (the loop-state equations, the
 per-statement equations, the seed facts: nothing reads them any more and `cases` would revert and
@@ -621,9 +802,9 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(tactic| all_goals (try ved_seq_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Int.bmod_def, Tools.VedU1Loop.ved_mul_lit_bv])),
     ← `(tactic| all_goals (try ved_bit_simp)),
     ← `(tactic| all_goals (try ved_or_lit)),
-    ← `(tactic| all_goals (try ved_pack_simp)),
-    ← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
-    ← `(tactic| all_goals (try ved_pack_simp)),
+    ← `(tactic| all_goals (try ved_pack_simp_c)),
+    ← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts_c)),
+    ← `(tactic| all_goals (try ved_pack_simp_c)),
     ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
     ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
     ← `(tactic| ved_seq_close_each)]
