@@ -486,6 +486,9 @@ lean_lib «Tests.Ved.U1ContractCheck» where
 lean_lib «Tests.Ved.U1EntryCheck» where
   roots := #[`Tests.Ved.U1EntryCheck]
 
+lean_lib «Tests.Ved.U1CircuitLoopCheck» where
+  roots := #[`Tests.Ved.U1CircuitLoopCheck]
+
 lean_lib «Tests.Ved.VedMemCheck» where
   roots := #[`Tests.Ved.VedMemCheck]
 
