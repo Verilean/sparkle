@@ -219,6 +219,11 @@ elab "ved_lt_close" : tactic => withMainContext do
   unless tgt.isAppOfArity ``LT.lt 4 do throwError "not <"
   evalTactic (← `(tactic| exact BitVec.isLt _))
 
+def dbgLog (msg : String) : IO Unit := do
+  if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+    let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
+    h.putStrLn msg
+
 /-- `ved_mem_congr s1 s2 h t`: rewrite every `memState` of the goal that mentions the fvar `s1` into the one
 with `s2` in its place (`h : ∀ k ≤ t, s1.val k = s2.val k`) -/
 elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
@@ -233,6 +238,9 @@ elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
     let T := mkAppN o.getAppFn (args.extract 0 8)
     if done.contains T || !(T.containsFVar s1E.fvarId!) then continue
     done := done.push T
+    let tm0 ← IO.monoMsNow
+    let hbm0 ← IO.getNumHeartbeats
+    dbgLog s!"mem_congr: lctx={(← getLCtx).size} T #{done.size} of {occs.size} occs, T tree={Tools.VedU1Loop.treeSizeVal T}"
     let T' := T.replaceFVar s1E s2E
     let Ts ← Term.exprToSyntax T
     let T's ← Term.exprToSyntax T'
@@ -245,6 +253,7 @@ elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
           (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
           (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
        rw [hc])))
+    dbgLog s!"mem_congr: T #{done.size} ms={(← IO.monoMsNow) - tm0} hb={((← IO.getNumHeartbeats) - hbm0) / 1000}"
 
 
 open Lean Meta in
@@ -260,11 +269,6 @@ simproc ved_toNat_append (BitVec.toNat _) := fun e => do
   let some (_, l, r) := (← inferType pf).eq? | return .continue
   unless (← isDefEq l e) do return .continue
   return .visit { expr := r, proof? := some pf }
-
-def dbgLog (msg : String) : IO Unit := do
-  if let some dir ← IO.getEnv "VED_DUMP_DIR" then
-    let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
-    h.putStrLn msg
 
 /-- `ved_clear_signals`: clear the hypotheses that speak of signals (`MemInv`, the read equations: whole loop bodies, hundreds of
 kilobytes): an address equality does not use them, and `omega` / `generalize ... at *` read every hypothesis. -/
@@ -518,6 +522,11 @@ elab "ved_addr_post" : tactic => do
   evalTactic (← `(tactic| (try ved_hyp_bits)))
   dbgT "post: hyp_bits done"
 
+/-- `ved_tlog "k"`: (only with `VED_DUMP_DIR`) a timing line in `addr.log` -/
+elab "ved_tlog " k:str : tactic => do
+  if (← IO.getEnv "VED_DUMP_DIR").isSome then
+    dbgLog s!"TLOG {k.getString} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={(← getGoals).length}"
+
 /-- the side condition `hS` of the strong fixpoint equation -/
 syntax "ved_causal " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 
@@ -527,7 +536,9 @@ macro_rules
                -- a registered read's value at `t` unfolds only at `t = n + 1`
                rcases t with _ | t <;>
                (try (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ, Sparkle.Core.Signal.Signal.memory_val_zero, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))
+               <;> ved_tlog "causal: simp1"
                <;> (try ved_mem_congr s1 s2 h)
+               <;> ved_tlog "causal: congr"
                <;> (try (ved_loop_simp [Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, h, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))))
 
 /-- `runSub` that, when a side condition stays open, says which (the first goal, cut to 2500 characters) -/
@@ -599,6 +610,26 @@ elab "ved_loop_gen_mem " s:ident : tactic => withMainContext do
     setGoals gsOut
 
 
+/-- `m` with every hypothesis cleared that neither its type nor (transitively) the type of a kept hypothesis mentions:
+the side conditions of the strong fixpoint equation are about the loop only, and every `simp`/`omega` call in them
+scans the local context (R29: 38 hypotheses of the step case against 5, 30x slower) -/
+def clearOthers (m : MVarId) : MetaM MVarId := m.withContext do
+  let mut keep : Std.HashSet FVarId := {}
+  let mut todo : Array Expr := #[← instantiateMVars (← m.getType)]
+  while !todo.isEmpty do
+    let e := todo.back!
+    todo := todo.pop
+    for fv in (collectFVars {} e).fvarIds do
+      unless keep.contains fv do
+        keep := keep.insert fv
+        todo := todo.push (← instantiateMVars (← fv.getType))
+        if let some v ← fv.getValue? then todo := todo.push (← instantiateMVars v)
+  let mut drop : Array FVarId := #[]
+  for d in ← getLCtx do
+    unless d.isImplementationDetail || keep.contains d.fvarId do drop := drop.push d.fvarId
+  let (m', _) ← m.tryClearMany' drop
+  return m'
+
 open Tools.VedU1WireShare in
 /-- `ved_loop_unfold_mem t`: rewrite `(Signal.loop F).val t` by the strong fixpoint equation, for every loop
 whose value at `t` occurs in the goal (the walk of `ved_loop_unfold_share`, the lemma and the side
@@ -626,7 +657,11 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let ty ← whnf (ty.bindingBody!.instantiate1 h0)
     let hS ← mkFreshExprMVar ty.bindingDomain!
     runSubMem h0.mvarId! (← `(tactic| (intro _ _; rfl)))
-    runSubMem hS.mvarId! (← `(tactic| ved_causal [$ex,*]))
+    let tc0 ← IO.monoMsNow
+    dbgLog s!"unfold_mem: loop dag={(collectDag (fun _ => true) L).size} tree={Tools.VedU1Loop.treeSizeVal L} hS ctx={(← hS.mvarId!.getDecl).lctx.size} hStype dag={(collectDag (fun _ => true) (← instantiateMVars (← hS.mvarId!.getType))).size} t={tE} nocc={(← occs tgt).size}"
+    let hb0 ← IO.getNumHeartbeats
+    runSubMem (← clearOthers hS.mvarId!) (← `(tactic| ved_causal [$ex,*]))
+    dbgLog s!"unfold_mem: causal ms={(← IO.monoMsNow) - tc0} hb={((← IO.getNumHeartbeats) - hb0) / 1000}"
     let lem ← instantiateMVars (mkApp3 f4 h0 hS (lhs.getArg! 3))
     let eqTy ← instantiateMVars (← inferType lem)
     let some (_, l, r) := eqTy.eq? | throwError "ved_loop_unfold_mem: unexpected equation {eqTy}"
@@ -638,6 +673,7 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let newTgt := tgt.replace fun e => if e == lhs then some r else none
     let g ← getMainGoal
     let g' ← g.replaceTargetEq newTgt pf
+    dbgLog s!"unfold_mem: replaced, ms since causal start={(← IO.monoMsNow) - tc0}"
     replaceMainGoal [g']
 
 /-- `ved_or_lit_m`: `Tools.VedU1Loop`'s `ved_or_lit` with fewer `omega` calls per candidate: the least `w` with `x < 2^w` is found by
