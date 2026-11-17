@@ -706,8 +706,15 @@ and the module's step is compared with the loop's step by the wide path's closin
 `regs` is the module's registers `(name, width)`. -/
 def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
     (helpers : Array Name) (dbg : Nat := 0) (supp : List (List String) := []) : TermElabM Syntax := do
-  let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+  let hsA0 : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
+  -- a `Circuit` (do-notation register DSL) body: its `>>=` / `pure` are `Bind.bind` / `Pure.pure` of the
+  -- `Circuit` monad, and `Circuit.bind` / `Circuit.next` are defined by a `fun w => ..` (their equation
+  -- lemmas have the pending-writes argument), so simp unfolds the monad only through the two projections
+  let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+    if helpers.contains `Sparkle.Core.Circuit.instMonad then
+      pure (hsA0 ++ #[← `(Lean.Parser.Tactic.simpLemma| Bind.bind), ← `(Lean.Parser.Tactic.simpLemma| Pure.pure)])
+    else pure hsA0
   let C := mkCIdent nm.contract
   let M := mkCIdent nm.mod
   let O := mkCIdent nm.outs
