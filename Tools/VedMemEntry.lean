@@ -5,6 +5,7 @@ import Tools.VedMem
 import Tools.VedStrictAudit
 import Tools.VedU1Uns
 import Tools.VedMemLoop
+import Tools.VedMemPack
 import Tools.VedU1Loop
 import Tools.VedU1WireShare
 import Tools.VedU1Wire
@@ -497,7 +498,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     pure a
   let h0Term : Term ← if h0Elems.size == 1 then pure h0Elems[0]! else `(⟨$[$h0Elems],*⟩)
   let closing ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))
-  let closing ← if pk then `(tactic| all_goals (first | (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega))) | (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))) else pure closing
+  let closing ← if pk then `(tactic| ved_all_goals_log (first | (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega))) | (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))) else pure closing
   let closingDbg ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega) | ved_dbg_state))
   let closing := if dbg == 17 then closingDbg else closing
   let stages : Array (Array (TSyntax `tactic)) := #[
@@ -509,11 +510,11 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     #[← `(tactic| all_goals ved_bit_simp_share)],
     #[← `(tactic| all_goals (try ved_or_lit_m))],
     #[← `(tactic| all_goals (try ved_mem_addr)), ← `(tactic| all_goals (try ved_addr_post))],
-    #[← `(tactic| ved_pack_wire_all_m)],
-    #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
-      ← `(tactic| all_goals (try ved_pack_simp)),
-      ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
-      ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
+    #[← `(tactic| ved_pack_dag_wire_all), ← `(tactic| ved_stamp 51), ← `(tactic| all_goals (try ved_bit_simp)), ← `(tactic| ved_stamp 52), ← `(tactic| all_goals (try ved_pack_dag)), ← `(tactic| ved_stamp 53)],
+    #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| ved_stamp 61), ← `(tactic| all_goals (try ved_mul_facts)), ← `(tactic| ved_stamp 62),
+      ← `(tactic| all_goals (try ved_pack_simp_g)), ← `(tactic| ved_stamp 63),
+      ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])), ← `(tactic| ved_stamp 64),
+      ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])), ← `(tactic| ved_stamp 65),
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
     #[← `(tactic| all_goals (try simp only [Tools.VedMem.ofNat_mod_eq_extract'])), closing]]
   let stopStage ← `(tactic| ved_dbg_state)

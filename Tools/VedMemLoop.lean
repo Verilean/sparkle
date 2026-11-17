@@ -476,7 +476,25 @@ elab "ved_hyp_bits" : tactic => withMainContext do
 /-- `ved_stamp k`: (only with `VED_DUMP_DIR` set) append the time and the number of goals to `addr.log` -/
 elab "ved_stamp " k:num : tactic => do
   if (← IO.getEnv "VED_DUMP_DIR").isSome then
-    dbgLog s!"STAMP {k.getNat} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={(← getGoals).length}"
+    let gs ← getGoals
+    let mut szs : Array Nat := #[]
+    for g in gs do
+      szs := szs.push (← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType)))
+    dbgLog s!"STAMP {k.getNat} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={gs.length} tree: total={szs.foldl (· + ·) 0} max={szs.foldl max 0} big(>100k)={(szs.filter (· > 100000)).size}"
+    if let some st ← IO.getEnv "VED_STOP_AT" then
+      if st.toNat? == some k.getNat then
+        dbgLog s!"sizes {szs}"
+        if let some l ← IO.getEnv "VED_DUMP_TGT" then
+          for w in l.splitOn "," do
+            if let some i := w.toNat? then
+              if let some g := gs[i]? then
+                let t ← g.withContext do
+                  withOptions (fun o => (o.insert `format.width (200 : Nat)).setBool `pp.deepTerms true |>.insert `pp.maxSteps (10000000 : Nat)) do
+                    return toString (← ppExpr (← instantiateMVars (← g.getType)))
+                let dag := (Tools.VedU1WireShare.collectDag (fun _ => true) (← instantiateMVars (← g.getType))).size
+                dbgLog s!"TARGET {i} dag={dag} chars={t.length}"
+                IO.FS.writeFile s!"{(← IO.getEnv "VED_DUMP_DIR").getD "."}/target{i}.txt" (t.take 400000).toString
+        throwError "VED_STOP_AT {st}"
 
 /-- `ved_addr_post`: after `ved_mem_addr` has found addresses to unify in a goal (it tags the goal `ved_addr`): the memory atoms
 are generalised; in every goal the bit operations of the goal and of the hypotheses are rewritten. -/
