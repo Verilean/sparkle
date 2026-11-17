@@ -1076,10 +1076,13 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     let chainStx? : Option Syntax ← do
       if let .generated := proof then
         let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
-        if stmt.getAppFn.isConst && regs.length ≥ 2 &&
-            !(← Tools.VedU1Uns.usesLoop stmt.getAppFn.constName! (← helperConsts stmt.getAppFn.constName!)) then
-          Tools.VedU1RegChain.regChainScript nm.contract nm.mod nm.outs nm.body stmt.getAppFn.constName!
-            stmt.getAppNumArgs b0 clkRst (dataPortsOf m clkRst)
+        -- nested `if`s: a `(← …)` in the condition would be lifted before the `isConst` test
+        if stmt.getAppFn.isConst && regs.length ≥ 2 then
+          let F := stmt.getAppFn.constName!
+          if !(← Tools.VedU1Uns.usesLoop F (← helperConsts F)) then
+            Tools.VedU1RegChain.regChainScript nm.contract nm.mod nm.outs nm.body F
+              stmt.getAppNumArgs b0 clkRst (dataPortsOf m clkRst)
+          else pure none
         else pure none
       else pure none
     let stx ← match proof with
