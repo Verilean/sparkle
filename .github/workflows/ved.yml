@@ -67,6 +67,9 @@ jobs:
     - name: U1 Circuit-monad register loop (positives, xor chain; must-stay-refused controls)
       run: lake build Tests.Ved.U1CircuitLoopCheck
 
+    - name: U1 small regression causes (neg, fst/snd, wide concat, registerWithEnable, anonymous binder; must-stay-refused controls)
+      run: lake build Tests.Ved.U1SmallRegCheck
+
     - name: U1 packed result with registers, per-statement script (positives; must-stay-refused controls)
       run: lake build Tests.Ved.U1PackedSeq2Check
 
@@ -152,6 +155,9 @@ jobs:
 
     - name: U1 Circuit-monad register loop (positives, xor chain; must-stay-refused controls)
       run: lake build Tests.Ved.U1CircuitLoopCheck
+
+    - name: U1 small regression causes (neg, fst/snd, wide concat, registerWithEnable, anonymous binder; must-stay-refused controls)
+      run: lake build Tests.Ved.U1SmallRegCheck
 
     - name: U1 packed result with registers (positives and must-stay-refused controls)
       run: lake build Tests.Ved.U1MultiSeqCheck
