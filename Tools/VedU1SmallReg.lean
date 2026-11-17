@@ -19,4 +19,12 @@ theorem neg_val {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat}
 theorem evalOp_neg_raw (we : WEnv) (xs : List Sparkle.IR.AST.Expr) (a w : Nat) :
     evalOp we .neg xs [a] w = some ((2 ^ w - a % 2 ^ w) % 2 ^ w) := rfl
 
+theorem fst_val {dom : Sparkle.Core.Domain.DomainConfig} {α β : Type}
+    (x : Sparkle.Core.Signal.Signal dom (α × β)) (s : Nat) :
+    (Sparkle.Core.Signal.Signal.fst x).val s = (x.val s).1 := rfl
+
+theorem snd_val {dom : Sparkle.Core.Domain.DomainConfig} {α β : Type}
+    (x : Sparkle.Core.Signal.Signal dom (α × β)) (s : Nat) :
+    (Sparkle.Core.Signal.Signal.snd x).val s = (x.val s).2 := rfl
+
 end Tools.VedU1SmallReg
