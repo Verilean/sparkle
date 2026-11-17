@@ -234,7 +234,9 @@ def omegaProof? (prop : Lean.Expr) : TacticM (Option Lean.Expr) := do
       pure (← getGoals).isEmpty
     catch _ => pure false
   setGoals saved
-  if r then return some (← instantiateMVars m) else return none
+  -- a proof that is a bare hypothesis (`h : x < 256` for `x < 2 ^ 8`) keeps the type of the hypothesis,
+  -- which no longer unifies with `?x < 2 ^ ?n` in the lemma it feeds; state the asked type
+  if r then return some (← mkExpectedTypeHint (← instantiateMVars m) prop) else return none
 
 /-- `ved_or_lit`: rewrite `c ||| x` (either order) as `c + x` when, for some `w`, `x < 2^w` and
 `c % 2^w = 0` (both proved by `omega`; `w` is the least with `x < 2^w`).  The single-register
