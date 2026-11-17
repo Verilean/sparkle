@@ -569,6 +569,7 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     let i := assignIdx[k]!
     perStmt := perStmt.push (← `(tactic| ved_seq_aux $(hss[i]!):ident (
       ved_seq_simp_nd [$(mk (hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL.extract 0 k)),*] at $(hss[i]!):ident
+      try simp (disch := decide) only [Nat.mod_mod_of_dvd] at $(hss[i]!):ident
       try ved_seq_unpack at $(hss[i]!):ident)))
   let applyL ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1ScriptSeq.applyNexts_nextsOf)
   let sigBase := #[← `(Lean.Parser.Tactic.simpLemma| srcOf), ← `(Lean.Parser.Tactic.simpLemma| $Ci:ident),

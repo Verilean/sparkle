@@ -555,6 +555,9 @@ lean_lib «Tests.Ved.U1MultiLoopCheck» where
 lean_lib «Tests.Ved.U1SeqCheck» where
   roots := #[`Tests.Ved.U1SeqCheck]
 
+lean_lib «Tests.Ved.U1SeqModCheck» where
+  roots := #[`Tests.Ved.U1SeqModCheck]
+
 lean_lib «Tests.Ved.U1HeavyCheck» where
   roots := #[`Tests.Ved.U1HeavyCheck]
 
