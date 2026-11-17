@@ -179,6 +179,14 @@ def proveRead (S F : Lean.Expr) : TacticM (Option Lean.Expr) := do
   proofCache.modify (·.insert closed r)
   return r.map fun p => mkAppN p fvs
 
+/-- a goal with fewer tree nodes than this is left to the packing step of the loop script (the rewriting below is for goals whose tree is
+what the later tactics pay for; a small goal gains nothing) -/
+def minTree : Nat := 20000
+
+/-- the goal went through `ved_pack_dag_wire_all`'s rewriting (it carries the tag `ved_dag`) -/
+def isDagged (g : MVarId) : MetaM Bool := do
+  return ((← g.getTag).toString.splitOn "ved_dag").length > 1
+
 /-- the goal (target, hypotheses without signals) still has a read `ved_pack_dag` would rewrite -/
 def hasReads : TacticM Bool := withMainContext do
   let g ← getMainGoal
@@ -274,9 +282,16 @@ elab "ved_pack_dag_wire_all" : tactic => do
   let mut allSz : Array Nat := #[]
   for g in gs do
     setGoals [g]
+    let sz ← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType))
+    if sz < minTree then
+      -- a goal of ordinary size: the packing step as before
+      evalTactic (← `(tactic| ved_pack_wire))
+      rest := rest ++ (← getGoals)
+      continue
     evalTactic (← `(tactic| try ved_pack_dag))
     if (← getGoals).isEmpty then continue
     let g := (← getGoals).head!
+    g.setTag (Name.str (← g.getTag) "ved_dag")
     if dump then
       allSz := allSz.push (← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType)))
     if (← try hasReads catch _ => pure true) then
@@ -290,6 +305,9 @@ elab "ved_pack_dag_wire_all" : tactic => do
 
 /-- `ved_pack_simp` on a goal that still has a read of the packed state (after `ved_pack_dag` it is a traversal that changes nothing) -/
 elab "ved_pack_simp_g" : tactic => do
+  unless ← isDagged (← getMainGoal) do
+    evalTactic (← `(tactic| ved_pack_simp))
+    return
   if ← hasReads then
     if (← IO.getEnv "VED_DUMP_DIR").isSome then
       let g ← getMainGoal
@@ -329,5 +347,13 @@ elab "ved_all_goals_log " "(" t:tactic ")" : tactic => do
     i := i + 1
     rest := rest ++ (← getGoals)
   setGoals rest
+
+/-- `ved_bit_simp` on a goal that went through `ved_pack_dag` (the 0/1 `&&&` / `|||` of the wires need the field variables) -/
+elab "ved_bit_simp_g" : tactic => do
+  if ← isDagged (← getMainGoal) then evalTactic (← `(tactic| ved_bit_simp))
+
+/-- fails unless the main goal went through `ved_pack_dag_wire_all`'s rewriting -/
+elab "ved_dag_only" : tactic => do
+  unless ← isDagged (← getMainGoal) do throwError "ved_dag_only: not a goal of the rewriting"
 
 end Tools.VedMemPack
