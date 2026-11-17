@@ -210,7 +210,7 @@ def proveRead (S F : Lean.Expr) : TacticM (Option Lean.Expr) := do
 
 /-- a goal with fewer tree nodes than this is left to the packing step of the loop script (the rewriting below is for goals whose tree is
 what the later tactics pay for; a small goal gains nothing) -/
-def minTree : Nat := 20000
+def minTree : Nat := 5000
 
 /-- the goal went through `ved_pack_dag_wire_all`'s rewriting (it carries the tag `ved_dag`) -/
 def isDagged (g : MVarId) : MetaM Bool := do
