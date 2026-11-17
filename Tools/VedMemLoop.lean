@@ -494,6 +494,16 @@ elab "ved_stamp " k:num : tactic => do
                 let dag := (Tools.VedU1WireShare.collectDag (fun _ => true) (← instantiateMVars (← g.getType))).size
                 dbgLog s!"TARGET {i} dag={dag} chars={t.length}"
                 IO.FS.writeFile s!"{(← IO.getEnv "VED_DUMP_DIR").getD "."}/target{i}.txt" (t.take 400000).toString
+                let ctx ← g.withContext do
+                  withOptions (fun o => (o.insert `format.width (200 : Nat)).setBool `pp.deepTerms true |>.insert `pp.maxSteps (10000000 : Nat)) do
+                    let mut out := ""
+                    for d in (← getLCtx) do
+                      unless d.isImplementationDetail do
+                        let ty ← instantiateMVars d.type
+                        if (ty.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isNone then
+                          out := out ++ s!"{d.userName} : {← ppExpr ty}\n"
+                    return out
+                IO.FS.writeFile s!"{(← IO.getEnv "VED_DUMP_DIR").getD "."}/ctx{i}.txt" (ctx.take 100000).toString
         throwError "VED_STOP_AT {st}"
 
 /-- `ved_addr_post`: after `ved_mem_addr` has found addresses to unify in a goal (it tags the goal `ved_addr`): the memory atoms

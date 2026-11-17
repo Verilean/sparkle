@@ -356,4 +356,76 @@ elab "ved_bit_simp_g" : tactic => do
 elab "ved_dag_only" : tactic => do
   unless ← isDagged (← getMainGoal) do throwError "ved_dag_only: not a goal of the rewriting"
 
+/-! ## Stage 7: goals that are small functions of a few small variables
+
+The closing tactic `(repeat' split) <;> omega` splits every `if` (2^k cases) although the goal is a tiny function of a few bounded variables.
+`ved_decide_small2` closes such a goal by one kernel evaluation: the distinct atoms (`BitVec.toNat v` for a variable `v`, and `ins s "name"`
+with a bound `ins s "name" < n` in a hypothesis) are generalised to bounded `Nat` variables and `decide +kernel` decides the
+`∀ a < n, ..` statement.  The syntactic test (every free variable of the goal under an atom, at most 16384 cases) is a traversal of the DAG;
+a goal with a wide data field fails the test and keeps the old closer. -/
+
+/-- the bound `n` of a hypothesis `.. ∧ atom < n ∧ ..` -/
+partial def boundOf? (atom : Lean.Expr) (t : Lean.Expr) : Option Nat :=
+  if t.isAppOfArity ``And 2 then
+    (boundOf? atom (t.getArg! 0)).orElse fun _ => boundOf? atom (t.getArg! 1)
+  else if t.isAppOfArity ``LT.lt 4 && t.getArg! 2 == atom then (t.getArg! 3).nat?
+  else none
+
+def decideSmall2Core : TacticM Unit := withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let isAtom := fun (e : Lean.Expr) =>
+    (e.isAppOfArity ``BitVec.toNat 2 && (e.getArg! 1).isFVar)
+    || (e.isApp && e.getAppNumArgs == 2 && e.getAppFn.isFVar && (e.getArg! 0).isFVar
+        && ((e.getArg! 1).isLit || (e.getArg! 1).isAppOf ``String.mk || (e.getArg! 1).isAppOf ``OfNat.ofNat))
+  let mut atoms : Array Lean.Expr := #[]
+  for o in Tools.VedU1WireShare.collectDag isAtom tgt do
+    unless atoms.contains o do atoms := atoms.push o
+  if atoms.isEmpty then throwError "ved_decide_small2: no atom"
+  let rest := atoms.foldl (fun (t : Lean.Expr) a => t.replace fun e => if e == a then some (mkNatLit 0) else none) tgt
+  if rest.hasFVar then throwError "ved_decide_small2: other variables"
+  let mut cases : Nat := 1
+  let mut bounds : Array Nat := #[]
+  for a in atoms do
+    let some n ← (do
+        if a.isAppOfArity ``BitVec.toNat 2 then
+          let ty ← whnf (← inferType (a.getArg! 1))
+          return (ty.getArg! 0).nat?.map (2 ^ ·)
+        let mut r : Option Nat := none
+        for d in ← getLCtx do
+          unless d.isImplementationDetail || r.isSome do
+            r := boundOf? a (← instantiateMVars d.type)
+        return r) | throwError "ved_decide_small2: no bound"
+    cases := cases * n
+    bounds := bounds.push n
+    if cases > 16384 then throwError "ved_decide_small2: too many cases"
+  let mut names : Array (TSyntax `ident) := #[]
+  let mut k := 0
+  for a in atoms do
+    let nm := mkIdent (Name.mkSimple s!"ved_ds_a{k}")
+    let bn := mkIdent (Name.mkSimple s!"ved_ds_b{k}")
+    let aS ← Term.exprToSyntax a
+    let hk := mkIdent (Name.mkSimple s!"ved_ds_h{k}")
+    let nS := Syntax.mkNumLit (toString bounds[k]!)
+    if a.isAppOfArity ``BitVec.toNat 2 then
+      let vS ← Term.exprToSyntax (a.getArg! 1)
+      evalTactic (← `(tactic| generalize $hk:ident : $aS = $nm))
+      evalTactic (← `(tactic| have $bn : $nm < $nS := by rw [← $hk:ident]; exact BitVec.isLt $vS))
+      evalTactic (← `(tactic| clear $hk:ident))
+    else
+      evalTactic (← `(tactic| have $bn : $aS < $nS := by omega))
+      evalTactic (← `(tactic| generalize $hk:ident : $aS = $nm at $bn:ident ⊢))
+      evalTactic (← `(tactic| clear $hk:ident))
+    names := names.push nm
+    k := k + 1
+  for nm in names.reverse do
+    evalTactic (← `(tactic| revert $nm))
+  evalTactic (← `(tactic| decide +kernel))
+
+elab "ved_decide_small2" : tactic => do
+  let dump := (← IO.getEnv "VED_DUMP_DIR").isSome
+  try decideSmall2Core
+  catch e =>
+    if dump then Tools.VedMemLoop.dbgLog s!"decide_small2: {← e.toMessageData.toString}"
+    throw e
+
 end Tools.VedMemPack
