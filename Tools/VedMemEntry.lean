@@ -229,6 +229,10 @@ register_option ved.mem.showScript : Bool := {
 
 /-- debugging (`ved.mem.showScript`): the resident set size, from `/proc/self/status` -/
 def rssNote (tag : String) : MetaM Unit := do
+  if (← IO.getEnv "VED_DUMP_DIR").isSome then
+    let t ← try IO.FS.readFile "/proc/self/status" catch _ => pure ""
+    let l := (t.splitOn "\n").filter (·.startsWith "VmRSS")
+    Tools.VedMemLoop.dbgLog s!"RSS {tag}: {l.headD ""} t={← IO.monoMsNow}"
   if ved.mem.showScript.get (← getOptions) then
     let t ← try IO.FS.readFile "/proc/self/status" catch _ => pure ""
     let l := (t.splitOn "\n").filter (·.startsWith "VmRSS")

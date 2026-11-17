@@ -48,6 +48,34 @@ partial def natLit? (e : Lean.Expr) : MetaM (Option Nat) := do
     return some (a * b)
   return none
 
+/-- a numeral, or a power / sum / product of numerals (pure) -/
+partial def natLitP? (e : Lean.Expr) : Option Nat :=
+  if let some n := e.nat? then some n
+  else if e.isRawNatLit then e.rawNatLit?
+  else if e.isAppOfArity ``HPow.hPow 6 || e.isAppOfArity ``HAdd.hAdd 6 || e.isAppOfArity ``HMul.hMul 6 then
+    match natLitP? (e.getArg! 4), natLitP? (e.getArg! 5) with
+    | some a, some b =>
+      if e.isAppOfArity ``HPow.hPow 6 then (if b ≤ 4096 then some (a ^ b) else none)
+      else if e.isAppOfArity ``HAdd.hAdd 6 then some (a + b) else some (a * b)
+    | _, _ => none
+  else none
+
+/-- `e` with every numeral expression `2 ^ (1 + 1)` replaced by its value `4` (the spelling-independent key of a read) -/
+def canonNat (e : Lean.Expr) : Lean.Expr :=
+  e.replace fun x =>
+    if x.isAppOfArity ``HPow.hPow 6 || x.isAppOfArity ``HAdd.hAdd 6 || x.isAppOfArity ``HMul.hMul 6 then
+      (natLitP? x).map mkNatLit
+    else none
+
+/-- `e` with the projections of constructors reduced (`(a, b).fst` to `a`): the same read is spelled with and without them -/
+def normProj (e : Lean.Expr) : MetaM Lean.Expr :=
+  Meta.transform e (post := fun x => do
+    if let .const n _ := x.getAppFn then
+      if (← getProjectionFnInfo? n).isSome then
+        if let some x' ← unfoldDefinition? x then return .visit (← whnfCore x')
+    let x' ← whnfCore x
+    return if x' == x then .done x else .visit x')
+
 def isNatOp (e : Lean.Expr) (op : Name) : Bool := e.isAppOfArity op 6 && (e.getArg! 0).isConstOf ``Nat
 
 def disjointBV (a b : BV) : Bool :=
@@ -238,24 +266,37 @@ elab "ved_pack_dag" : tactic => withMainContext do
     if proved.isEmpty then break
     nProved := nProved + proved.size
     rounds := rounds + 1
-    -- the target, then each hypothesis that has a read
+    -- reads that differ only in the spelling of a numeral (`2 ^ (1 + 1)` / `4`) or in a projection of a constructor are one class:
+    -- the `Decidable` instance of an `ite` and its proposition spell the same read differently, and a rewrite of one spelling alone
+    -- is not well typed up to cheap defeq (the kernel then decides the defeq of the two by unfolding `Nat.div` / `Nat.mod`: memory and
+    -- `deep recursion`); a class is rewritten at all its spellings at once, by the proof of its first member
+    let mut classes : Array (Lean.Expr × Lean.Expr × Lean.Expr × Array Lean.Expr) := #[]
     for (x, f, pf) in proved do
+      let k := canonNat (← normProj x)
+      match classes.findIdx? (fun c => c.1 == k) with
+      | some idx => classes := classes.modify idx fun c => (c.1, c.2.1, c.2.2.1, c.2.2.2.push x)
+      | none => classes := classes.push (k, f, pf, #[x])
+    -- the target, then each hypothesis that has a read
+    for (_, f, pf, xs) in classes do
+      let x0 := xs[0]!
+      let isX := fun (e : Lean.Expr) => xs.contains e
       let g ← getMainGoal
       let tgt ← instantiateMVars (← g.getType)
-      if (tgt.find? (· == x)).isSome then
-        let ty ← inferType x
+      if (tgt.find? isX).isSome then
+        let ty ← inferType x0
         let motive ← withLocalDeclD `ved_x ty fun xv =>
-          mkLambdaFVars #[xv] (tgt.replace fun e => if e == x then some xv else none)
-        let new := tgt.replace fun e => if e == x then some f else none
-        replaceMainGoal [← g.replaceTargetEq new (← mkCongrArg motive pf)]
+          mkLambdaFVars #[xv] (tgt.replace fun e => if isX e then some xv else none)
+        let new := tgt.replace fun e => if isX e then some f else none
+        let cg ← mkCongrArg motive pf
+        replaceMainGoal [← g.replaceTargetEq new cg]
       for d in ← getLCtx do
         unless d.isImplementationDetail do
           let ty ← instantiateMVars d.type
-          if (ty.find? (· == x)).isSome then
-            let xty ← inferType x
+          if (ty.find? isX).isSome then
+            let xty ← inferType x0
             let motive ← withLocalDeclD `ved_x xty fun xv =>
-              mkLambdaFVars #[xv] (ty.replace fun e => if e == x then some xv else none)
-            let new := ty.replace fun e => if e == x then some f else none
+              mkLambdaFVars #[xv] (ty.replace fun e => if isX e then some xv else none)
+            let new := ty.replace fun e => if isX e then some f else none
             let g ← getMainGoal
             let r ← g.replaceLocalDecl d.fvarId new (← mkCongrArg motive pf)
             replaceMainGoal [r.mvarId]
