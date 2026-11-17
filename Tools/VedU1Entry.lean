@@ -682,7 +682,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
           (fun ins s st => st $rS = srcOf $C $f ins "out" s)
         · intro ins hok
           simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $fI:ident,
-            Signal.register, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth]
+            Signal.register, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth, Tools.VedU1SmallReg.regEn_zero]
         · intro ins hok s st mems hR
           have hin := hok.1 s
           have hrst := hok.2 s
@@ -691,12 +691,14 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
             widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, hrst, or_mod _ _ _ _ rfl,
-            Nat.shiftRight_eq_div_pow] at hR ⊢
+            Tools.VedU1SmallReg.regEn_succ, Tools.VedU1Lemmas.evalOp_mux_lit, Nat.shiftRight_eq_div_pow] at hR ⊢
           have hlt : st $rS < 2 ^ $wS := by rw [hR]; exact BitVec.isLt _
           refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩
           try rw [← hR]
           simp
-          try omega)
+          try omega
+          -- an enabled register: both arms of the `if`
+          all_goals (try (split <;> (try simp [BitVec.toNat_ofNat]) <;> omega)))
 
 /-- The generated (untrusted) proof script for a module whose registers come from ONE
 `Signal.loop` over their tuple (`circuit do`): the invariant "register `n` of the module is the

@@ -32,4 +32,13 @@ theorem concat_div (x y m : Nat) (hy : y < m) : (x * m + y) / m = x := by
   have hm : 0 < m := Nat.lt_of_le_of_lt (Nat.zero_le _) hy
   rw [Nat.add_comm, Nat.add_mul_div_right _ _ hm, Nat.div_eq_of_lt hy, Nat.zero_add]
 
+theorem regEn_zero {dom : Sparkle.Core.Domain.DomainConfig} {α : Type}
+    (init : α) (en : Sparkle.Core.Signal.Signal dom Bool) (input : Sparkle.Core.Signal.Signal dom α) :
+    (Sparkle.Core.Signal.Signal.registerWithEnable init en input).val 0 = init := rfl
+
+theorem regEn_succ {dom : Sparkle.Core.Domain.DomainConfig} {α : Type}
+    (init : α) (en : Sparkle.Core.Signal.Signal dom Bool) (input : Sparkle.Core.Signal.Signal dom α) (n : Nat) :
+    (Sparkle.Core.Signal.Signal.registerWithEnable init en input).val (n + 1) =
+      if en.val n then input.val n else (Sparkle.Core.Signal.Signal.registerWithEnable init en input).val n := rfl
+
 end Tools.VedU1SmallReg
