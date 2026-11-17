@@ -448,7 +448,7 @@ structure CtrlSimp where
   sp : Simp.SimprocsArray
 
 def mkCtrlSimp : TacticM CtrlSimp := do
-  let stx ← `(tactic| simp (config := {decide := true}) only [Nat.reduceMod, Nat.reduceEqDiff, ↓reduceIte, Nat.reduceAdd, Nat.reduceMul, Nat.reducePow, Nat.reduceSub, Nat.reduceDiv, and_true, true_and, and_false, false_and, or_true, true_or, or_false, false_or, not_true_eq_false, not_false_eq_true, true_implies, false_implies, implies_true, if_true, if_false])
+  let stx ← `(tactic| simp (config := {decide := true}) only [Nat.reduceMod, Nat.reduceEqDiff, Fin.val_add, Fin.val_mk, BitVec.val_toFin, ↓reduceIte, Nat.reduceAdd, Nat.reduceMul, Nat.reducePow, Nat.reduceSub, Nat.reduceDiv, and_true, true_and, and_false, false_and, or_true, true_or, or_false, false_or, not_true_eq_false, not_false_eq_true, true_implies, false_implies, implies_true, if_true, if_false])
   let r ← mkSimpContext stx false
   return ⟨r.ctx, r.simprocs⟩
 
