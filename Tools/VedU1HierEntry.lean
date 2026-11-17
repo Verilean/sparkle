@@ -208,11 +208,12 @@ def scriptText (nm : HNames) (F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module)
   L := L.push s!"  have hmods : {P.design}.modules = {modsList} := by decide"
   L := L.push s!"  have hch : ∀ x ∈ {P.design}.modules, Tools.VedU1Contract.OrderStmt x := by"
   L := L.push s!"    rw [hmods]; intro x hx"
-  L := L.push s!"    simp only [List.mem_cons, List.not_mem_nil, or_false] at hx"
+  if kids.length > 0 then
+    L := L.push s!"    simp only [List.mem_cons, List.not_mem_nil, or_false] at hx"
   let pat := " | ".intercalate (kids.map fun _ => "h")
   if kids.length == 0 then
-    -- `simp only .. at hx` has already closed the goal when `hx : x ∈ []` becomes `False`
-    L := L.push s!"    all_goals exact absurd hx (by simp)"
+    -- `hx : x ∈ []`: `simp only` turns it into `False`, which closes the goal
+    L := L.push s!"    simp only [List.not_mem_nil] at hx"
   else if kids.length == 1 then
     for k in kids do
       L := L.push s!"    subst hx"

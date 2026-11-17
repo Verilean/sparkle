@@ -520,6 +520,10 @@ lean_lib «Tests.Ved.U1RconCheck» where
 lean_lib «Tests.Ved.U1HierCheck» where
   roots := #[`Tests.Ved.U1HierCheck]
 
+-- `#ved_u1_hier` on designs with no child module (generated script without empty simp elements)
+lean_lib «Tests.Ved.U1HierFlatCheck» where
+  roots := #[`Tests.Ved.U1HierFlatCheck]
+
 -- the real `keccakRcHW` (imports the Keccak IP): 32 × 64-bit constants over a 5-bit index
 lean_lib «Tests.Ved.U1KeccakRcCheck» where
   roots := #[`Tests.Ved.U1KeccakRcCheck]
