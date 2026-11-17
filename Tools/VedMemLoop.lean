@@ -109,13 +109,13 @@ elab "ved_dbg_goal" : tactic => withMainContext do
 elab "ved_dbg_state" : tactic => do
   let gs ← getGoals
   let mut out := s!"{gs.length} goals"
-  if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+  if let some dir ← IO.getEnv "VED_DUMP_GOALS" then
     let mut k := 0
     for g in gs do
       let t ← g.withContext do
         withOptions (fun o => (o.insert `format.width (160 : Nat)).setBool `pp.deepTerms true |>.insert `pp.maxSteps (10000000 : Nat)) do
           return toString (← ppGoal g)
-      IO.FS.writeFile s!"{dir}/goal{k}.txt" t
+      if k < 24 then IO.FS.writeFile s!"{dir}/goal{k}.txt" (t.take 200000).toString
       k := k + 1
   for g in gs.take 2 do
     let t ← g.withContext do return toString (← ppExpr (← instantiateMVars (← g.getType)))
@@ -327,8 +327,10 @@ elab "ved_decide_small" : tactic => do
     try dbgLog s!"{← Lean.Elab.Tactic.withMainContext (do return (← Lean.Meta.ppGoal (← Lean.Elab.Tactic.getMainGoal)).pretty)}" catch _ => pure ()
     throw e
 
+initialize dbgShown : IO.Ref Nat ← IO.mkRef 0
+
 def dbgT (label : String) : IO Unit := do
-  dbgLog s!"T {label} t={← IO.monoMsNow}"
+  dbgLog s!"T {label} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}"
 
 /-- `ved_mem_addr`: the `memState` atoms of the goal that differ only in the ADDRESS (the IR side spells it as `BitVec.ofNat aw`
 of `Nat` arithmetic, the declaration side as `BitVec` arithmetic) are made the same atom: each other address is rewritten to
@@ -412,6 +414,19 @@ elab "ved_mem_gen" : tactic => withMainContext do
     k := k + 1
   dbgT "gen: done"
 
+/-- `ved_lt2`: the side condition `x < 2` of the one-bit rewrite rules for the shapes that need no arithmetic (`y % 2`, `Bool.toNat b`,
+a numeral, an `if` of those): `omega` reads every `Nat` hypothesis of the context (and the condition of each `if` after `split`),
+which in a goal with state-field hypotheses is most of the cost of `ved_hyp_bits` -/
+syntax "ved_lt2" : tactic
+macro_rules
+  | `(tactic| ved_lt2) =>
+    `(tactic| first
+      | exact Nat.one_lt_two
+      | exact Nat.zero_lt_two
+      | (apply Nat.mod_lt; exact Nat.zero_lt_two)
+      | exact Bool.toNat_lt _
+      | (split <;> ved_lt2))
+
 /-- `ved_hyp_bits`: the hypotheses with a bit operation (`&&&`, `|||`, `^^^`) on `Nat` (the write enable of a memory
 as the module computes it, `c1 &&& c2` of two conditions) are rewritten like the goal by `ved_bit_simp`'s rules and moved
 into the goal, where the closing step splits their `if`s (`omega` does not read `if` or `&&&`).  Untrusted: `revert`. -/
@@ -423,9 +438,30 @@ elab "ved_hyp_bits" : tactic => withMainContext do
         hs := hs.push (mkIdent d.userName)
   dbgT s!"hyp: {hs.size} hyps"
   if hs.isEmpty then return
-  try evalTactic (← `(tactic| simp (disch := first | ved_omega | (split <;> ved_omega) | fail) only
+  try evalTactic (← `(tactic| simp (disch := first | ved_lt2 | ved_omega | (split <;> ved_omega) | fail) only
       [Tools.VedU1Loop.and_lt2_l, Tools.VedU1Loop.and_lt2_r, Tools.VedU1Loop.or_lt2, Tools.VedU1Loop.xor_lt2] at $[$hs]*))
   catch e => dbgLog s!"ved_hyp_bits simp: {← e.toMessageData.toString}"
+  dbgT "hyp: simp done"
+  if (← IO.getEnv "VED_DUMP_DIR").isSome then
+    let g ← getMainGoal
+    g.withContext do
+      let mut sz := #[]
+      for d in ← getLCtx do
+        unless d.isImplementationDetail do
+          if hs.any (·.getId == d.userName) then
+            sz := sz.push s!"{d.userName}:{Tools.VedU1Loop.treeSizeVal (← instantiateMVars d.type)}/{(← getLCtx).size}"
+      let gsz := Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType))
+      dbgLog s!"hyp sizes {sz} goal={gsz}"
+      if gsz < 100 then
+        let nShown ← dbgShown.modifyGet fun n => (n, n + 1)
+        if nShown < 3 then
+          dbgLog s!"GOAL {← ppExpr (← instantiateMVars (← g.getType))}"
+          for d in ← getLCtx do
+            unless d.isImplementationDetail do
+              if hs.any (·.getId == d.userName) then
+                let t ← withOptions (fun o => o.setBool `pp.deepTerms true |>.insert `pp.maxSteps (10000000 : Nat)) do
+                  return toString (← ppExpr (← instantiateMVars d.type))
+                dbgLog s!"HYP {d.userName} ({t.length} chars) {(t.take 3000).toString} ..... {(t.drop (t.length - 1500)).toString}"
   let g ← getMainGoal
   try
     let names := hs.map (·.getId)
@@ -440,7 +476,7 @@ elab "ved_hyp_bits" : tactic => withMainContext do
 /-- `ved_stamp k`: (only with `VED_DUMP_DIR` set) append the time and the number of goals to `addr.log` -/
 elab "ved_stamp " k:num : tactic => do
   if (← IO.getEnv "VED_DUMP_DIR").isSome then
-    dbgLog s!"STAMP {k.getNat} t={← IO.monoMsNow} goals={(← getGoals).length}"
+    dbgLog s!"STAMP {k.getNat} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={(← getGoals).length}"
 
 /-- `ved_addr_post`: after `ved_mem_addr` has found addresses to unify in a goal (it tags the goal `ved_addr`): the memory atoms
 are generalised; in every goal the bit operations of the goal and of the hypotheses are rewritten. -/
@@ -448,7 +484,11 @@ elab "ved_addr_post" : tactic => do
   let g ← getMainGoal
   if (← g.getTag).toString.endsWith "ved_addr" then
     evalTactic (← `(tactic| ved_mem_gen))
-  evalTactic (← `(tactic| ((try ved_bit_simp); (try ved_hyp_bits))))
+  dbgT "post: start"
+  evalTactic (← `(tactic| (try ved_bit_simp)))
+  dbgT "post: bit_simp done"
+  evalTactic (← `(tactic| (try ved_hyp_bits)))
+  dbgT "post: hyp_bits done"
 
 /-- the side condition `hS` of the strong fixpoint equation -/
 syntax "ved_causal " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
@@ -571,5 +611,53 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let g ← getMainGoal
     let g' ← g.replaceTargetEq newTgt pf
     replaceMainGoal [g']
+
+/-- `ved_or_lit_m`: `Tools.VedU1Loop`'s `ved_or_lit` with fewer `omega` calls per candidate: the least `w` with `x < 2^w` is found by
+bisection over `[0, 64]` after one test at `64` (a candidate whose operand has no such bound costs one call, not 65) -/
+elab "ved_or_lit_m" : tactic => withMainContext do
+  let t0 ← IO.monoMsNow
+  let calls ← IO.mkRef 0
+  let mut nc := 0
+  let mut skip : Array Lean.Expr := #[]
+  for _ in [0:64] do
+    if (← getGoals).isEmpty then break
+    let tgt ← instantiateMVars (← getMainTarget)
+    let cands := (Tools.VedU1Loop.natOrs tgt).filter (!skip.contains ·)
+    let some t := cands[0]? | break
+    nc := nc + 1
+    let a := t.getArg! 4
+    let b := t.getArg! 5
+    let mut done := false
+    for (c, x, swapped) in [(a, b, false), (b, a, true)] do
+      if done then break
+      let ltW := fun (w : Nat) => do
+        calls.modify (· + 1)
+        Tools.VedU1Loop.omegaProof? (← mkAppM ``LT.lt #[x, ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit w]])
+      let some pf64 ← ltW 64 | continue
+      let mut lo := 0
+      let mut hi := 64
+      let mut best : Lean.Expr := pf64
+      while lo < hi do
+        let mid := (lo + hi) / 2
+        if let some pf ← ltW mid then
+          hi := mid
+          best := pf
+        else lo := mid + 1
+      let w := hi
+      let hx ← if lo == 64 then pure pf64 else pure best
+      let pc ← mkEq (← mkAppM ``HMod.hMod #[c, ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit w]]) (mkNatLit 0)
+      calls.modify (· + 1)
+      let some hc ← Tools.VedU1Loop.omegaProof? pc | continue
+      let lem ← mkAppM ``Tools.VedU1Lemmas.or_hi #[c, x, mkNatLit w, hx, hc]
+      let lemS ← Term.exprToSyntax lem
+      if swapped then
+        let cs ← Term.exprToSyntax c
+        let xs ← Term.exprToSyntax x
+        evalTactic (← `(tactic| rw [Nat.or_comm $xs $cs, $lemS:term]))
+      else
+        evalTactic (← `(tactic| rw [$lemS:term]))
+      done := true
+    unless done do skip := skip.push t
+  dbgLog s!"or_lit_m: cands={nc} omega={← calls.get} ms={(← IO.monoMsNow) - t0}"
 
 end Tools.VedMemLoop
