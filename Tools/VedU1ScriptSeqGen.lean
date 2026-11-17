@@ -800,9 +800,9 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
   tacs := tacs.push (← `(tactic| obtain ⟨$vI, $hv0⟩ : ∃ v, v = srcOf $Ci $f $insI "out" $sI := ⟨_, rfl⟩))
   tacs := tacs.push (← `(tactic| have $hv := $hv0))
   tacs := tacs.push (← `(tactic| ved_seq_aux $hv:ident (
-      try dsimp only [$Oi:ident, $Mi:ident, $Bi:ident, Tools.VedU1Contract.declWidth, srcOf, $Ci:ident, contractOf, applyIns, $fI:ident,
-        Sparkle.Core.Signal.Signal.map, Signal.register, Signal.beq, Signal.seq, Signal.ap, Sparkle.Core.Signal.bundle2, Functor.map, Seq.seq,
-        Signal.slt, Signal.ult, Signal.ule, Signal.ashr, Signal.lt, Signal.le, OTy.obs, PTy.obs, PTy.sig, -Nat.reduceAdd, $(mk hsA),*] at $hv:ident
+      try dsimp only [$Oi:ident, $Mi:ident, $Bi:ident, Tools.VedU1Contract.declWidth, Tools.VedU1Contract.srcOf, $Ci:ident, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, $fI:ident,
+        Sparkle.Core.Signal.Signal.map, Sparkle.Core.Signal.Signal.register, Sparkle.Core.Signal.Signal.beq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, Sparkle.Core.Signal.bundle2, Functor.map, Seq.seq,
+        Sparkle.Core.Signal.Signal.slt, Sparkle.Core.Signal.Signal.ult, Sparkle.Core.Signal.Signal.ule, Sparkle.Core.Signal.Signal.ashr, Sparkle.Core.Signal.Signal.lt, Sparkle.Core.Signal.Signal.le, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig, -Nat.reduceAdd, $(mk hsA),*] at $hv:ident
       ved_seq_simp [$Oi:ident, $Mi:ident, $Bi:ident, declWidth, srcOf, $Ci:ident, contractOf, applyIns, $fI:ident, $(mk hsA),*] at $hv:ident)))
   tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
