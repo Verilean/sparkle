@@ -79,6 +79,9 @@ jobs:
     - name: "U1 packed loop word read through chained truncations (nested % 2^k collapse in the per-statement script): ECDSA sign FSM shape, refusal control"
       run: lake build Tests.Ved.U1SeqModCheck
 
+    - name: U1 stage 3 on the packed state wire (ved_bit_simp_pk; shrunk R165 Merkle shape accepted under a lowered proof budget, altered-output control refused)
+      run: lake build Tests.Ved.U1MerkleWhnfCheck
+
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
@@ -170,6 +173,9 @@ jobs:
 
     - name: U1 packed result with registers, size gate of the per-statement first attempt (bounded early skip; positives unchanged)
       run: lake build Tests.Ved.U1PackedSeq3Check
+
+    - name: U1 stage 3 on the packed state wire (ved_bit_simp_pk; shrunk R165 Merkle shape accepted under a lowered proof budget, altered-output control refused)
+      run: lake build Tests.Ved.U1MerkleWhnfCheck
 
     - name: "#writeDesign argument form and the chunked input domain (accept and refuse controls)"
       run: lake build Tests.Ved.InvocationCheck

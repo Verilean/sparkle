@@ -426,6 +426,9 @@ lean_lib «Tools.VedU1Wire» where
 lean_lib «Tools.VedU1WireShare» where
   roots := #[`Tools.VedU1WireShare]
 
+lean_lib «Tools.VedU1MerkleWhnf» where
+  roots := #[`Tools.VedU1MerkleWhnf]
+
 lean_lib «Tools.VedU1StructSeqTac» where
   roots := #[`Tools.VedU1StructSeqTac]
 
@@ -518,6 +521,9 @@ lean_lib «Tests.Ved.U1PackedSeq2Check» where
 
 lean_lib «Tests.Ved.U1PackedSeq3Check» where
   roots := #[`Tests.Ved.U1PackedSeq3Check]
+
+lean_lib «Tests.Ved.U1MerkleWhnfCheck» where
+  roots := #[`Tests.Ved.U1MerkleWhnfCheck]
 
 lean_lib «Tests.Ved.U1EqLutCheck» where
   roots := #[`Tests.Ved.U1EqLutCheck]
