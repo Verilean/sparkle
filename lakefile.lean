@@ -480,6 +480,9 @@ lean_lib «Tests.Ved.U1EntryCheck» where
 lean_lib «Tests.Ved.VedMemCheck» where
   roots := #[`Tests.Ved.VedMemCheck]
 
+lean_lib «Tests.Ved.VedMemPackCheck» where
+  roots := #[`Tests.Ved.VedMemPackCheck]
+
 lean_lib «Tests.Ved.VedMemWriteCheck» where
   roots := #[`Tests.Ved.VedMemWriteCheck]
 

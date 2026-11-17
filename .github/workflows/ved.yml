@@ -64,6 +64,9 @@ jobs:
     - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
       run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck Tests.Ved.VedMemCheck Tests.Ved.VedMemWriteCheck
 
+    - name: Memory stage tactics (ved_pack_dag, ved_decide_small2, ved_ctrl_cases; ran / refused controls)
+      run: lake build Tests.Ved.VedMemPackCheck
+
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
@@ -152,6 +155,9 @@ jobs:
 
     - name: "#ved_write_checked (one synthesis, checked, the same design written; byte-equal to #writeDesign; swapped / tampered design refused)"
       run: lake build Tests.Ved.WriteCheckedCheck
+
+    - name: Memory stage tactics (ved_pack_dag, ved_decide_small2, ved_ctrl_cases; ran / refused controls)
+      run: lake build Tests.Ved.VedMemPackCheck
 
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck

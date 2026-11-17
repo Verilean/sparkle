@@ -170,6 +170,11 @@ partial def collect (e : Lean.Expr) : EvalM (Array (Lean.Expr × Lean.Expr)) := 
 
 initialize bigShown : IO.Ref Nat ← IO.mkRef 0
 
+/-- test-only evidence that a tactic ran (`Tests/Ved/VedMemPackCheck.lean` clears and reads it): one entry per success of
+`ved_pack_dag` (`pack_dag`, and `pack_dag_class` once per rewritten class of several spellings), `ved_decide_small2`, `ved_ctrl_cases`.
+It is read by nothing in the proof path. -/
+initialize ranLog : IO.Ref (Array String) ← IO.mkRef #[]
+
 initialize proofCache : IO.Ref (Std.HashMap Lean.Expr (Option Lean.Expr)) ← IO.mkRef {}
 
 /-- the fvars of `e` and of their types, in the order of the local context -/
@@ -278,6 +283,7 @@ elab "ved_pack_dag" : tactic => withMainContext do
       | none => classes := classes.push (k, f, pf, #[x])
     -- the target, then each hypothesis that has a read
     for (_, f, pf, xs) in classes do
+      if xs.size > 1 then ranLog.modify (·.push "pack_dag_class")
       let x0 := xs[0]!
       let isX := fun (e : Lean.Expr) => xs.contains e
       let g ← getMainGoal
@@ -300,6 +306,7 @@ elab "ved_pack_dag" : tactic => withMainContext do
             let g ← getMainGoal
             let r ← g.replaceLocalDecl d.fvarId new (← mkCongrArg motive pf)
             replaceMainGoal [r.mvarId]
+  if nProved > 0 then ranLog.modify (·.push "pack_dag")
   if (← IO.getEnv "VED_DUMP_DIR").isSome then
     let g ← getMainGoal
     let sz1 := Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType))
@@ -465,7 +472,7 @@ def decideSmall2Core : TacticM Unit := withMainContext do
 
 elab "ved_decide_small2" : tactic => do
   let dump := (← IO.getEnv "VED_DUMP_DIR").isSome
-  try decideSmall2Core
+  try decideSmall2Core; ranLog.modify (·.push "decide_small2")
   catch e =>
     if dump then Tools.VedMemLoop.dbgLog s!"decide_small2: {← e.toMessageData.toString}"
     throw e
@@ -583,7 +590,7 @@ def ctrlCasesCore : TacticM Unit := withMainContext do
 
 elab "ved_ctrl_cases" : tactic => do
   let dump := (← IO.getEnv "VED_DUMP_DIR").isSome
-  try ctrlCasesCore
+  try ctrlCasesCore; ranLog.modify (·.push "ctrl_cases")
   catch e =>
     if dump then Tools.VedMemLoop.dbgLog s!"ctrl_cases: {(← e.toMessageData.toString).take 300}"
     throw e
