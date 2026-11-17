@@ -509,7 +509,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     #[← `(tactic| all_goals ved_bit_simp_share)],
     #[← `(tactic| all_goals (try ved_or_lit_m))],
     #[← `(tactic| all_goals (try ved_mem_addr)), ← `(tactic| all_goals (try ved_addr_post))],
-    #[← `(tactic| ved_pack_wire_all)],
+    #[← `(tactic| ved_pack_wire_all_m)],
     #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
       ← `(tactic| all_goals (try ved_pack_simp)),
       ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),

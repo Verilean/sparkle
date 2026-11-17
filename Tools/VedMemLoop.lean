@@ -660,4 +660,48 @@ elab "ved_or_lit_m" : tactic => withMainContext do
     unless done do skip := skip.push t
   dbgLog s!"or_lit_m: cands={nc} omega={← calls.get} ms={(← IO.monoMsNow) - t0}"
 
+/-- `ved_pack_wire_all` with a stage-log line per goal (tree size, time, heartbeats; only with `VED_DUMP_DIR`) -/
+elab "ved_pack_wire_all_m" : tactic => do
+  let gs ← getGoals
+  let mut rest : List MVarId := []
+  let mut i := 0
+  let mut allSz : Array Nat := #[]
+  for g in gs do
+    allSz := allSz.push (← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType)))
+  dbgLog s!"wire sizes {allSz}"
+  if (← IO.getEnv "VED_DUMP_DIR").isSome then
+    -- which goals have the same target / hypotheses (fvars read by their user names)
+    let mut norm : Array (Expr × Array (Name × Expr)) := #[]
+    for g in gs do
+      let (t, hs) ← g.withContext do
+        let lctx ← getLCtx
+        let nm : Expr → Expr := fun e => e.replace fun x => match x with
+          | .fvar f => some (mkConst ((lctx.get! f).userName))
+          | _ => none
+        let t ← instantiateMVars (← g.getType)
+        let mut hs : Array (Name × Expr) := #[]
+        for d in lctx do
+          unless d.isImplementationDetail do hs := hs.push (d.userName, nm (← instantiateMVars d.type))
+        pure (nm t, hs)
+      norm := norm.push (t, hs)
+    let mut line := ""
+    for a in [0:norm.size] do
+      let mut firstT := a
+      let mut firstTH := a
+      for j in [0:a] do
+        if firstT == a && norm[j]!.1 == norm[a]!.1 then firstT := j
+        if firstTH == a && norm[j]!.1 == norm[a]!.1 && norm[j]!.2 == norm[a]!.2 then firstTH := j
+      line := line ++ s!" {a}:{firstT}/{firstTH}"
+    dbgLog s!"wire same-target/same-target+hyps first index:{line}"
+  for g in gs do
+    setGoals [g]
+    let sz ← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType))
+    let h0 ← IO.getNumHeartbeats
+    let t0 ← IO.monoMsNow
+    evalTactic (← `(tactic| ved_pack_wire))
+    dbgLog s!"wire goal {i}: size={sz} ms={(← IO.monoMsNow) - t0} hb={((← IO.getNumHeartbeats) - h0) / 1000}"
+    i := i + 1
+    rest := rest ++ (← getGoals)
+  setGoals rest
+
 end Tools.VedMemLoop
