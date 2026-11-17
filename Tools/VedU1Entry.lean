@@ -1012,7 +1012,10 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
   let saved ← saveState
   tryCatchRuntimeEx (do
     -- the table, from the TYPE of the statement's term
-    let tbl ← try readTableOfType decl (← inferType stmt) catch e => refuse decl "table" e.toMessageData
+    let tbl0 ← try readTableOfType decl (← inferType stmt) catch e => refuse decl "table" e.toMessageData
+    -- an anonymous binder `(_ : Signal …)` has the macro-scoped name `x._@.<module>._hyg.<n>`; the synthesizer
+    -- names its port `_gen_x` (the macro scopes erased), which is the name the contract must carry
+    let tbl := { tbl0 with binders := tbl0.binders.map fun b => (b.splitOn "._@.").headD b }
     -- more than one projection only for a statement bundled from a product of
     -- signals (`bundledStmt`, a lambda); a constant with a `Signal (A × B)`
     -- result is ONE packed port, not two
