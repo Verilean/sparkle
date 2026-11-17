@@ -8,6 +8,7 @@ import Std.Data.HashMap
 import Tools.VedU1Loop
 import Tools.VedU1Wire
 import Tools.VedU1WireShare
+import Tools.VedU1MerkleWhnf
 import Tools.VedU1Uns
 import Tools.VedU1LemmasExt1
 import Tools.VedU1ScriptSeqGen
@@ -770,7 +771,7 @@ def loopScriptFor (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × N
       ← `(tactic| all_goals ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*]),
       ← `(tactic| all_goals try (repeat' apply And.intro))],
     #[← `(tactic| all_goals (try ved_loopw_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
-    #[← `(tactic| all_goals ved_bit_simp_share)],
+    #[← `(tactic| all_goals ved_bit_simp_pk)],
     #[← `(tactic| all_goals (try ved_or_lit))],
     #[← `(tactic| ved_pack_wire_all)],
     #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
