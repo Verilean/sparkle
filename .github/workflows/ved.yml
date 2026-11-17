@@ -70,6 +70,9 @@ jobs:
     - name: U1 packed result with registers, size gate of the per-statement first attempt (bounded early skip; positives unchanged)
       run: lake build Tests.Ved.U1PackedSeq3Check
 
+    - name: "U1 packed loop word read through chained truncations (nested % 2^k collapse in the per-statement script): ECDSA sign FSM shape, refusal control"
+      run: lake build Tests.Ved.U1SeqModCheck
+
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
@@ -164,6 +167,9 @@ jobs:
 
     - name: "#ved_write_checked (one synthesis, checked, the same design written; byte-equal to #writeDesign; swapped / tampered design refused)"
       run: lake build Tests.Ved.WriteCheckedCheck
+
+    - name: "U1 packed loop word read through chained truncations (nested % 2^k collapse in the per-statement script): ECDSA sign FSM shape, refusal control"
+      run: lake build Tests.Ved.U1SeqModCheck
 
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
