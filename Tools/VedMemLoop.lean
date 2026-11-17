@@ -522,6 +522,15 @@ elab "ved_addr_post" : tactic => do
   evalTactic (← `(tactic| (try ved_hyp_bits)))
   dbgT "post: hyp_bits done"
 
+/-- `ved_if_read tac`: runs `tac` on the main goal only if a `Signal.memoryComboRead` occurs in its target (a DAG-wise
+test, `Expr.find?` visits shared subterms once); otherwise the `memoryComboRead_val` simp has nothing to rewrite
+and the goal is left alone. -/
+elab "ved_if_read " t:tactic : tactic => do
+  let g ← getMainGoal
+  let e ← instantiateMVars (← g.getType)
+  if (e.find? fun e => e.isConstOf ``Sparkle.Core.Signal.Signal.memoryComboRead).isSome then
+    evalTactic t
+
 /-- `ved_tlog "k"`: (only with `VED_DUMP_DIR`) a timing line in `addr.log` -/
 elab "ved_tlog " k:str : tactic => do
   if (← IO.getEnv "VED_DUMP_DIR").isSome then
