@@ -7,6 +7,7 @@ import Tools.VedU1Table
 import Tools.VedU1TableGen
 import Std.Data.HashMap
 import Tools.VedU1Loop
+import Tools.VedU1Iir
 import Tools.VedU1LoopXor
 import Tools.VedU1Wire
 import Tools.VedU1WireShare
@@ -322,7 +323,7 @@ syntax (name := vedLoopClose) "ved_loop_close " "[" Lean.Parser.Tactic.simpLemma
 
 macro_rules
   | `(tactic| ved_loop_close [$ex,*]) =>
-    `(tactic| ((try ved_loopw_simp [$ex,*]) <;> (first | omega | ((repeat' (split <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, Nat.reduceSub, Nat.add_zero, Nat.sub_zero, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *]))) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, true_iff, iff_true, false_iff, iff_false, Nat.reduceSub, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] at *) <;> (try ved_or_lit) <;> (try ved_bit_simp) <;> (try (repeat' split)) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_bits_facts) <;> omega))))
+    `(tactic| ((try ved_loopw_simp [$ex,*]) <;> (first | omega | ((repeat' (split <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv, Nat.reduceSub, Nat.add_zero, Nat.sub_zero, eq_self, ↓reduceIte, Nat.reduceEqDiff, not_true_eq_false, if_true, if_false, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, *]))) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, Nat.reduceDiv, Tools.VedU1Lemmas.xor_one_one, not_true_eq_false, Nat.zero_and, Nat.and_zero, Nat.one_and_eq_mod_two, Nat.and_one_is_mod, Nat.zero_xor, Nat.xor_zero, true_and, and_true, false_and, and_false, or_false, false_or, or_true, true_or, not_false_eq_true, true_iff, iff_true, false_iff, iff_false, Nat.reduceSub, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] at *) <;> (try ved_or_lit) <;> (try ved_bit_simp) <;> (try (repeat' split)) <;> (try simp only [Nat.or_zero, Nat.zero_or]) <;> (try ved_bits_facts) <;> omega) | ((repeat' split) <;> (try simp only [Nat.reduceAdd, Nat.reducePow, Nat.reduceMod, Nat.reduceMul, Nat.reduceDiv] at *) <;> ved_iir_norm <;> (repeat' split) <;> omega))))
 
 /-! ## The entry -/
 

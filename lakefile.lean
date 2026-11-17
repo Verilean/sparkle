@@ -420,6 +420,9 @@ lean_lib «Tools.VedU1Loop» where
 lean_lib «Tools.VedU1LoopXor» where
   roots := #[`Tools.VedU1LoopXor]
 
+lean_lib «Tools.VedU1Iir» where
+  roots := #[`Tools.VedU1Iir]
+
 lean_lib «Tools.VedU1Wire» where
   roots := #[`Tools.VedU1Wire]
 
@@ -497,6 +500,9 @@ lean_lib «Tests.Ved.U1CircuitLoopCheck» where
 
 lean_lib «Tests.Ved.U1SmallRegCheck» where
   roots := #[`Tests.Ved.U1SmallRegCheck]
+
+lean_lib «Tests.Ved.U1IirCheck» where
+  roots := #[`Tests.Ved.U1IirCheck]
 
 lean_lib «Tests.Ved.VedMemCheck» where
   roots := #[`Tests.Ved.VedMemCheck]
