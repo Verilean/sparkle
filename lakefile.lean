@@ -383,6 +383,9 @@ lean_lib «Tools.VedU1Lemmas» where
 lean_lib «Tools.VedU1SmallReg» where
   roots := #[`Tools.VedU1SmallReg]
 
+lean_lib «Tools.VedU1RegChain» where
+  roots := #[`Tools.VedU1RegChain]
+
 
 lean_lib «Tools.VedU1Table» where
   roots := #[`Tools.VedU1Table]
