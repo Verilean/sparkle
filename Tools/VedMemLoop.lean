@@ -595,7 +595,9 @@ elab "ved_loop_gen_mem " s:ident : tactic => withMainContext do
   if loops.isEmpty then
     evalTactic (← `(tactic| ved_loop_gen $s))
     return
+  dbgLog s!"gen_mem: {loops.size} loops in {(← getGoals).length} goals hb={(← IO.getNumHeartbeats) / 1000}"
   for j in [0:loops.size] do
+    dbgLog s!"gen_mem: loop {j} goals={(← getGoals).length} hb={(← IO.getNumHeartbeats) / 1000} t={← IO.monoMsNow}"
     let some α := loops[j]!.getAppArgs[1]? | throwError "ved_loop_gen_mem: malformed Signal.loop"
     let bare := !(← whnfR α).isAppOf ``Prod
     let n := (← Tools.VedU1Loop.stateComps α).length
