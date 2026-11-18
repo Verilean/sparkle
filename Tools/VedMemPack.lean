@@ -53,11 +53,16 @@ partial def natLitP? (e : Lean.Expr) : Option Nat :=
   if let some n := e.nat? then some n
   else if e.isRawNatLit then e.rawNatLit?
   else if e.isAppOfArity ``HPow.hPow 6 || e.isAppOfArity ``HAdd.hAdd 6 || e.isAppOfArity ``HMul.hMul 6 then
-    match natLitP? (e.getArg! 4), natLitP? (e.getArg! 5) with
-    | some a, some b =>
-      if e.isAppOfArity ``HPow.hPow 6 then (if b ≤ 4096 then some (a ^ b) else none)
-      else if e.isAppOfArity ``HAdd.hAdd 6 then some (a + b) else some (a * b)
-    | _, _ => none
+    -- the right operand only when the left one is a numeral (a non-numeral sum over a shared term of 1e5 tree nodes: the walk of both
+    -- operands at every node of `canonNat`'s traversal is a walk of the tree)
+    match natLitP? (e.getArg! 4) with
+    | none => none
+    | some a =>
+      match natLitP? (e.getArg! 5) with
+      | none => none
+      | some b =>
+        if e.isAppOfArity ``HPow.hPow 6 then (if b ≤ 4096 then some (a ^ b) else none)
+        else if e.isAppOfArity ``HAdd.hAdd 6 then some (a + b) else some (a * b)
   else none
 
 /-- `e` with every numeral expression `2 ^ (1 + 1)` replaced by its value `4` (the spelling-independent key of a read) -/
@@ -389,9 +394,14 @@ elab "ved_pack_dag_wire_all" : tactic => do
   for g in gs do
     setGoals [g]
     let sz ← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType))
+    -- a goal of ordinary size WITHOUT a read of the packed state: the packing step as before (with a read it goes the way of the big goals:
+    -- the packing step on a goal of 3e3 nodes with such reads is 30 s / 1.4M heartbeats, R34, the rewriting 0.3 s)
     if sz < minTree then
-      -- a goal of ordinary size: the packing step as before
+      -- (the packing step as before)
+      let tw0 ← IO.monoMsNow
+      let hw0 ← IO.getNumHeartbeats
       evalTactic (← `(tactic| ved_pack_wire))
+      Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: small goal {sz}: pack_wire ms={(← IO.monoMsNow) - tw0} hb={((← IO.getNumHeartbeats) - hw0) / 1000}"
       rest := rest ++ (← getGoals)
       continue
     Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: goal size {sz}"
@@ -401,7 +411,10 @@ elab "ved_pack_dag_wire_all" : tactic => do
     g.setTag (Name.str (← g.getTag) "ved_dag")
     if dump then
       allSz := allSz.push (← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType)))
-    if (← try hasReads catch _ => pure true) then
+    let th0 ← IO.monoMsNow
+    let hr ← try hasReads catch _ => pure true
+    Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: hasReads={hr} ms={(← IO.monoMsNow) - th0}"
+    if hr then
       let h0 ← IO.getNumHeartbeats
       evalTactic (← `(tactic| ved_pack_wire))
       if dump then Tools.VedMemLoop.dbgLog s!"pack_wire (reads left): hb={((← IO.getNumHeartbeats) - h0) / 1000}"
