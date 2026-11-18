@@ -604,9 +604,9 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
         all_goals (try $peelAlt:tactic)
         ved_stamp 98
         $d5
-        all_goals (try ved_if_read (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val]))
+        ved_if_read (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val])
         ved_stamp 99
-        all_goals (try dsimp only)
+        ved_dsimp_goals
         ved_stamp 100
         ved_loop_gen_mem $sI
         $d6

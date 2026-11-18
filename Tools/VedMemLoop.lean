@@ -522,14 +522,33 @@ elab "ved_addr_post" : tactic => do
   evalTactic (← `(tactic| (try ved_hyp_bits)))
   dbgT "post: hyp_bits done"
 
-/-- `ved_if_read tac`: runs `tac` on the main goal only if a `Signal.memoryComboRead` occurs in its target (a DAG-wise
-test, `Expr.find?` visits shared subterms once); otherwise the `memoryComboRead_val` simp has nothing to rewrite
-and the goal is left alone. -/
+/-- `ved_if_read tac`: `all_goals (try tac)`, but with many goals (> 64: the 843-way split of the decoder) `tac` runs only on
+the goals in which a `Signal.memoryComboRead` occurs (a DAG-wise test: `Expr.find?` visits shared subterms once);
+the `memoryComboRead_val` simp has nothing to rewrite in the others.  With few goals always run: the simp set also
+normalises bit operations that omega later needs (VedMemCheck memTwoMem, VedMemPackCheck pdBase). -/
 elab "ved_if_read " t:tactic : tactic => do
-  let g ← getMainGoal
-  let e ← instantiateMVars (← g.getType)
-  if (e.find? fun e => e.isConstOf ``Sparkle.Core.Signal.Signal.memoryComboRead).isSome then
-    evalTactic t
+  let gs ← getGoals
+  let many := gs.length > 64
+  let mut out : List MVarId := []
+  for g in gs do
+    setGoals [g]
+    let run ← if !many then pure true else g.withContext do
+      let e ← instantiateMVars (← g.getType)
+      pure (e.find? fun e => e.isConstOf ``Sparkle.Core.Signal.Signal.memoryComboRead).isSome
+    if run then
+      evalTactic (← `(tactic| try $t))
+    out := out ++ (← getGoals)
+  setGoals out
+
+/-- `ved_dsimp_goals`: `dsimp only at *` in every goal; with many goals (the 843-way split of the decoder) only the
+target: the hypotheses of every goal are rescanned (`at *` costs more than 2M heartbeats there, the target alone 0.7M),
+and the hypotheses are not what the later steps need in those goals.  With few goals (all small cases) `at *`:
+omega needs the normalised hypotheses (VedMemCheck memTwoMem, VedMemPackCheck pdBase). -/
+elab "ved_dsimp_goals" : tactic => do
+  if (← getGoals).length ≤ 64 then
+    evalTactic (← `(tactic| all_goals (try dsimp only at *)))
+  else
+    evalTactic (← `(tactic| all_goals (try dsimp only)))
 
 /-- `ved_tlog "k"`: (only with `VED_DUMP_DIR`) a timing line in `addr.log` -/
 elab "ved_tlog " k:str : tactic => do
