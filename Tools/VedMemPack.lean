@@ -556,6 +556,15 @@ elab "ved_clear_sig_big" : tactic => do
           g ← g.tryClear d.fvarId
     setGoals [g]
 
+/-- `ved_or_lit_m` on a goal that `ved_or_lit_g` left to `ved_wire` (at least `shareMinTree` nodes, a `|||`) but that `ved_pack_dag` has
+since brought below `shareMinTree` and `ved_wire` has not taken (R034 goals 44/45: 45231 nodes, `|||` of two 16-bit rotation halves: the closers
+exhaust the budget on them, `ved_or_lit_m` 38k heartbeats and `ved_ctrl_cases` 29k close it); without the signal hypotheses for `omega` -/
+elab "ved_or_lit_post" : tactic => do
+  let tgt ← withMainContext do instantiateMVars (← getMainTarget)
+  if Tools.VedU1Loop.treeSizeVal tgt < Tools.VedU1Loop.shareMinTree && !(Tools.VedU1Loop.natOrs tgt).isEmpty then
+    evalTactic (← `(tactic| ved_clear_sig_big))
+    evalTactic (← `(tactic| ved_or_lit_m))
+
 /-- `ved_bit_simp` with `ved_omega_c` as side-condition prover -/
 macro "ved_bit_simp_c" : tactic =>
   `(tactic| simp (disch := first | ved_omega_c | (split <;> ved_omega_c) | fail) only
