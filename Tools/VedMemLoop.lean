@@ -430,7 +430,16 @@ elab "ved_mem_addr" : tactic => withMainContext do
             evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
                                        first | rfl | (apply BitVec.eq_of_toNat_eq; (try ved_clear_signals); (try ved_pack_simp); (try ved_bit_simp); (try ved_pack_simp); (try simp only [apply_ite BitVec.toNat, ved_toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); first | ved_decide_small | ((repeat' split); all_goals (try simp only [ved_toNat_append, BitVec.toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.shiftRight_zero, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); all_goals (try ved_pack_simp); all_goals (first | omega | bv_omega))))))
             dbgT "addr: have done"
-            evalTactic (← `(tactic| rw [hmaddr]))
+            -- `rw [hmaddr]` abstracts the occurrences by `kabstract`, a walk of the TREE (12 s per goal of 3e8 nodes, R34); the
+            -- replacement below is `Expr.replace` (cached by pointer: one visit per shared node) with the `congrArg` of the motive
+            let hm := (← getLCtx).lastDecl.get!
+            let tgt ← instantiateMVars (← getMainTarget)
+            let aTy ← inferType a
+            let motive ← withLocalDeclD `ved_x aTy fun xv =>
+              mkLambdaFVars #[xv] (tgt.replace fun e => if e == a then some xv else none)
+            let newTgt := tgt.replace fun e => if e == a then some rep else none
+            let g ← getMainGoal
+            replaceMainGoal [← g.replaceTargetEq newTgt (← mkCongrArg motive hm.toExpr)]
             progress := true
             dbgT "addr: rewrite ok"
           catch e => dbgT "addr: equality failed"; dbgLog s!"no equality for {← ppExpr a}: {← e.toMessageData.toString}"

@@ -235,6 +235,59 @@ def hasReads : TacticM Bool := withMainContext do
       return false : EvalM Bool).run {}
   return r
 
+/-- the goal is left to stage 5 (`ved_pack_dag`, then `ved_bit_simp_g`): at least `minTree` nodes and a read of the packed state.  `ved_bit_simp`
+before the rewriting reads each packed read as a tree of nested `%` / `/` (the discharging `omega`; R34: 64 s and 3.8M heartbeats per goal of
+4e4 nodes, then `simp` fails with the step limit and the goal is unchanged); after it the reads are field atoms -/
+def deferBits : TacticM Bool := withMainContext do
+  let g ← getMainGoal
+  let sz := Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType))
+  if sz < minTree then return false
+  try hasReads catch _ => return false
+
+/-- `ved_bit_simp_share` (stage 2), except on a goal that `deferBits` leaves to stage 5 -/
+elab "ved_bit_simp_pre" : tactic => do
+  if ← deferBits then
+    Tools.VedMemLoop.dbgLog "bit_simp_pre: deferred"
+    return
+  evalTactic (← `(tactic| ved_bit_simp_share))
+
+/-- `ved_bit_simp_share` on every goal with a log line per goal (tree size, number of bit operations, ms, heartbeats; only with `VED_DUMP_DIR`) -/
+elab "ved_bit_simp_share_m" : tactic => do
+  let gs ← getGoals
+  let mut rest : List MVarId := []
+  let mut i := 0
+  for g in gs do
+    setGoals [g]
+    let (sz, nb) ← g.withContext do
+      let t ← instantiateMVars (← g.getType)
+      return (Tools.VedU1Loop.treeSizeVal t, (Tools.VedU1Loop.natBitOps t).size)
+    let h0 ← IO.getNumHeartbeats
+    let t0 ← IO.monoMsNow
+    evalTactic (← `(tactic| ved_bit_simp_pre))
+    Tools.VedMemLoop.dbgLog s!"bit_simp_share goal {i}: size={sz} bitops={nb} ms={(← IO.monoMsNow) - t0} hb={((← IO.getNumHeartbeats) - h0) / 1000}"
+    i := i + 1
+    rest := rest ++ (← getGoals)
+  setGoals rest
+
+/-- `ved_or_lit_m` (stage 3), except on a goal that `ved_wire` takes (at least `shareMinTree` nodes) with a `|||`: the `omega` calls read the
+operand of a `|||` as a tree (R34: 12 s per goal of 3e8 nodes, 16 such goals), and `ved_wire` (stage 5) rewrites the `|||` of its wires itself
+(`addBitFacts`: `or_hi` as an implication) -/
+elab "ved_or_lit_g" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  if Tools.VedU1Loop.treeSizeVal tgt ≥ Tools.VedU1Loop.shareMinTree && !(Tools.VedU1Loop.natOrs tgt).isEmpty then
+    Tools.VedMemLoop.dbgLog "or_lit_g: left to ved_wire"
+    return
+  evalTactic (← `(tactic| ved_or_lit_m))
+
+/-- `ved_addr_post` (stage 4) with the bit step of `deferBits`' goals left to stage 5 -/
+elab "ved_addr_post_g" : tactic => do
+  let g ← getMainGoal
+  if (← g.getTag).toString.endsWith "ved_addr" then
+    evalTactic (← `(tactic| ved_mem_gen))
+  unless ← deferBits do
+    evalTactic (← `(tactic| (try ved_bit_simp)))
+  evalTactic (← `(tactic| (try ved_hyp_bits)))
+
 /-- `ved_pack_dag`: see the module comment -/
 elab "ved_pack_dag" : tactic => withMainContext do
   let h0 ← IO.getNumHeartbeats
@@ -261,11 +314,15 @@ elab "ved_pack_dag" : tactic => withMainContext do
               for (x, f) in ← collect ty do
                 unless cs.any (·.1 == x) do cs := cs.push (x, f)
         return cs : EvalM _).run {}
+    Tools.VedMemLoop.dbgLog s!"pack_dag: round collected {cands.size} cands ms={(← IO.monoMsNow) - t0} hb={((← IO.getNumHeartbeats) - h0) / 1000} tree={sz0}"
     if cands.isEmpty then break
     nCands := nCands + cands.size
     let mut proved : Array (Lean.Expr × Lean.Expr × Lean.Expr) := #[]
     for (x, f) in cands do
-      match ← proveRead x f with
+      let tp0 ← IO.monoMsNow
+      let r ← proveRead x f
+      Tools.VedMemLoop.dbgLog s!"pack_dag: proveRead x-tree={Tools.VedU1Loop.treeSizeVal x} f-tree={Tools.VedU1Loop.treeSizeVal f} ok={r.isSome} ms={(← IO.monoMsNow) - tp0}"
+      match r with
       | some pf => proved := proved.push (x, f, pf)
       | none => failed := failed + 1
     if proved.isEmpty then break
@@ -337,6 +394,7 @@ elab "ved_pack_dag_wire_all" : tactic => do
       evalTactic (← `(tactic| ved_pack_wire))
       rest := rest ++ (← getGoals)
       continue
+    Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: goal size {sz}"
     evalTactic (← `(tactic| try ved_pack_dag))
     if (← getGoals).isEmpty then continue
     let g := (← getGoals).head!
