@@ -15,6 +15,17 @@ theorem int_concat_div (x y m : Int) (hm : 0 < m) : (x % m * m + y % m) / m = x 
   rw [Int.add_comm, Int.add_mul_ediv_right _ _ (Int.ne_of_gt hm),
     Int.ediv_eq_zero_of_lt (Int.emod_nonneg _ (Int.ne_of_gt hm)) (Int.emod_lt_of_pos _ hm), Int.zero_add]
 
+open Lean Meta Elab Tactic in
+/-- `ved_iir_guard`: fails at once unless the goal or a hypothesis mentions the type `Int` (the signed
+specification of `IP.Control.FixedPoint`, `Int.bmod` / `Int` arithmetic).  Goals over `Nat` and `BitVec` only
+(the memory rows, `R38`) cannot use `ved_iir_norm`, so they do not pay for the `split` / `simp at *` before it. -/
+elab "ved_iir_guard" : tactic => withMainContext do
+  let hasInt (e : Expr) : Bool := (e.find? fun x => x.isConstOf ``Int).isSome
+  if hasInt (← getMainTarget) then return
+  for ld in (← getLCtx) do
+    if !ld.isImplementationDetail && hasInt ld.type then return
+  throwError "ved_iir_guard: no Int term"
+
 /-- `ved_iir_norm`: the `Nat` facts and goal as `Int`, literal casts folded, `% 2^w` of a bounded value removed. -/
 syntax (name := vedIirNorm) "ved_iir_norm" : tactic
 
