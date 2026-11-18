@@ -1,0 +1,601 @@
+import Tools.VedMem
+
+/-!
+# A kernel-cheap `OrderOkM` (`sparkle-ved-memory-rest`)
+
+`OrderOkM` (`Tools/VedMem.lean`) is a Bool of list `contains` / `isPermOf` / `woCheck` over `String` names; the
+entry proves it by `decide +kernel`, and on a body of ~1000 statements that is quadratic String / `Stmt` equality in
+the kernel (23 GB, > 900 s on the SoC; measured in the report of unit ved-memr4).
+
+`OrderOkM'` has the same meaning and is checked in (near) linear time:
+
+* a name is turned into the Nat `ncode name` (an exact positional code of its characters, injective: `ncode_inj`);
+  from then on only Nat arithmetic and comparison is used (GMP-accelerated in the kernel; evaluating a String literal
+  costs the kernel ~1 ms per character and is done once per distinct name).
+* the NAMES (inputs, `nextKeys`, written names) are entered ONCE in a search tree (keyed by a scrambled copy of the code,
+  so that consecutive names do not give a list); every entry carries its kind (input / state key / written), the index
+  of the statement that writes it and its place in the entry list.  Each entry is looked up again (`chkE`): then two
+  entries with the same name are one entry, which every conjunct is derived from.
+* the permutation of the statements is a one-pass search on pairs (cheap key, statement): the key rejects most
+  candidates by a Nat comparison before the structural `Stmt` equality runs.
+
+`OrderOkM'_sound` : `OrderOkM' m b = true → OrderOkM m b = true`.  No axiom, no `native_decide`.
+-/
+
+namespace Tools.VedMemOrder
+
+open Sparkle.IR.AST Sparkle.IR.Reorder Tools.VedMem
+
+/-! ## 1. Name codes and the search tree -/
+
+/-- positional code of a list of characters (base `0x110001`, digits `1 .. 0x110000`) -/
+def ncodeL : List Char → Nat
+  | [] => 0
+  | c :: cs => (c.toNat + 1) + 1114113 * ncodeL cs
+
+theorem char_lt (c : Char) : c.toNat < 0x110000 := by
+  have := c.valid
+  simp only [UInt32.isValidChar, Nat.isValidChar] at this
+  show c.val.toNat < _
+  omega
+
+theorem ncodeL_inj : ∀ (l₁ l₂ : List Char), ncodeL l₁ = ncodeL l₂ → l₁ = l₂
+  | [], [], _ => rfl
+  | [], c :: cs, h => by simp only [ncodeL] at h; omega
+  | c :: cs, [], h => by simp only [ncodeL] at h; omega
+  | c :: cs, d :: ds, h => by
+    simp only [ncodeL] at h
+    have hc := char_lt c
+    have hd := char_lt d
+    have h1 : c.toNat = d.toNat := by omega
+    have h2 : ncodeL cs = ncodeL ds := by omega
+    rw [ncodeL_inj cs ds h2, Char.ext (UInt32.toNat_inj.mp h1)]
+
+/-- the exact Nat code of a name -/
+def ncode (s : String) : Nat := ncodeL s.toList
+
+theorem ncode_inj {a b : String} (h : ncode a = ncode b) : a = b :=
+  String.ext (ncodeL_inj _ _ h)
+
+/-- a scrambled copy of a code: the key of the tree (a collision only makes `chkE` fail) -/
+def skey (c : Nat) : Nat := (c * 1442695040888963407) % 2305843009213693951
+
+/-- an entry of the name table -/
+structure Ent where
+  code : Nat   -- `ncode` of the name
+  kind : Nat   -- 0 input, 1 state key (`nextKeys`), 2 written name
+  sidx : Nat   -- index of the writing statement (kind 2)
+  gidx : Nat   -- place in the entry list
+
+inductive NT where
+  | leaf : NT
+  | node : NT → Nat → Ent → NT → NT
+
+def NT.ins : NT → Nat → Ent → NT
+  | .leaf, k, v => .node .leaf k v .leaf
+  | .node l k' v' r, k, v =>
+    if Nat.blt k k' then .node (l.ins k v) k' v' r
+    else if Nat.blt k' k then .node l k' v' (r.ins k v)
+    else .node l k' v r
+
+def NT.find : NT → Nat → Option Ent
+  | .leaf, _ => none
+  | .node l k' v r, k =>
+    if Nat.blt k k' then l.find k
+    else if Nat.blt k' k then r.find k
+    else some v
+
+def NT.vals : NT → List Ent
+  | .leaf => []
+  | .node l _ v r => l.vals ++ v :: r.vals
+
+theorem NT.vals_ins (t : NT) (k : Nat) (v : Ent) : ∀ e ∈ (t.ins k v).vals, e = v ∨ e ∈ t.vals := by
+  induction t with
+  | leaf => intro e he; simpa [NT.ins, NT.vals] using he
+  | node l k' v' r ihl ihr =>
+    intro e he
+    simp only [NT.ins] at he
+    split at he
+    · simp only [NT.vals, List.mem_append, List.mem_cons] at he ⊢
+      rcases he with h | h | h
+      · rcases ihl e h with h | h
+        · exact Or.inl h
+        · exact Or.inr (Or.inl h)
+      · exact Or.inr (Or.inr (Or.inl h))
+      · exact Or.inr (Or.inr (Or.inr h))
+    · split at he
+      · simp only [NT.vals, List.mem_append, List.mem_cons] at he ⊢
+        rcases he with h | h | h
+        · exact Or.inr (Or.inl h)
+        · exact Or.inr (Or.inr (Or.inl h))
+        · rcases ihr e h with h | h
+          · exact Or.inl h
+          · exact Or.inr (Or.inr (Or.inr h))
+      · simp only [NT.vals, List.mem_append, List.mem_cons] at he ⊢
+        rcases he with h | h | h
+        · exact Or.inr (Or.inl h)
+        · exact Or.inl h
+        · exact Or.inr (Or.inr (Or.inr h))
+
+theorem NT.find_mem (t : NT) (k : Nat) (e : Ent) : t.find k = some e → e ∈ t.vals := by
+  induction t with
+  | leaf => intro h; simp [NT.find] at h
+  | node l k' v r ihl ihr =>
+    intro h
+    simp only [NT.find] at h
+    split at h
+    · simp only [NT.vals, List.mem_append]; exact Or.inl (ihl h)
+    · split at h
+      · simp only [NT.vals, List.mem_append, List.mem_cons]; exact Or.inr (Or.inr (ihr h))
+      · cases h; simp [NT.vals]
+
+def NT.build (l : List Ent) : NT := l.foldl (fun t e => t.ins (skey e.code) e) .leaf
+
+theorem NT.vals_build (l : List Ent) : ∀ e ∈ (NT.build l).vals, e ∈ l := by
+  have key : ∀ (l0 l : List Ent) (t : NT), (∀ e ∈ t.vals, e ∈ l0) → (∀ e ∈ l, e ∈ l0) →
+      ∀ e ∈ (l.foldl (fun t e => t.ins (skey e.code) e) t).vals, e ∈ l0 := by
+    intro l0 l
+    induction l with
+    | nil => intro t ht _ e he; exact ht e he
+    | cons a rest ih =>
+      intro t ht hl
+      apply ih
+      · intro e he
+        rcases NT.vals_ins t _ a e he with h | h
+        · exact h ▸ hl a (List.mem_cons_self ..)
+        · exact ht e h
+      · intro e he; exact hl e (List.mem_cons_of_mem _ he)
+  intro e he
+  exact key l l .leaf (fun e he => by simp [NT.vals] at he) (fun e he => he) e he
+
+/-! ## 2. The entry list -/
+
+/-- `(code, 2, statement index)` of every written name -/
+def tagW : List Stmt → Nat → List (Nat × Nat × Nat)
+  | [], _ => []
+  | s :: rest, n => (stmtWrites s).map (fun w => (ncode w, 2, n)) ++ tagW rest (n + 1)
+
+def numberE : Nat → List (Nat × Nat × Nat) → List Ent
+  | _, [] => []
+  | g, (c, k, s) :: rest => ⟨c, k, s, g⟩ :: numberE (g + 1) rest
+
+def rawE (m : Module) (b : List Stmt) : List (Nat × Nat × Nat) :=
+  (m.inputs.map (fun p => (ncode p.name, 0, 0))) ++ (nextKeys b).map (fun k => (ncode k, 1, 0)) ++ tagW b 0
+
+def entsOf (m : Module) (b : List Stmt) : List Ent := numberE 0 (rawE m b)
+
+/-- every entry is looked up again and sits at its own place -/
+def chkE (T : NT) : Nat → List Ent → Bool
+  | _, [] => true
+  | g, e :: rest =>
+    (match T.find (skey e.code) with
+      | none => false
+      | some e' => Nat.beq e'.code e.code && Nat.beq e'.kind e.kind && Nat.beq e'.sidx e.sidx && Nat.beq e'.gidx e.gidx) &&
+    Nat.beq e.gidx g && chkE T (g + 1) rest
+
+theorem numberE_mem_of (l : List (Nat × Nat × Nat)) :
+    ∀ (g : Nat), ∀ t ∈ l, ∃ g', (⟨t.1, t.2.1, t.2.2, g'⟩ : Ent) ∈ numberE g l := by
+  induction l with
+  | nil => intro g t ht; simp at ht
+  | cons h rest ih =>
+    intro g t ht
+    obtain ⟨c, k, s⟩ := h
+    rcases List.mem_cons.mp ht with rfl | ht
+    · exact ⟨g, by simp [numberE]⟩
+    · obtain ⟨g', hg'⟩ := ih (g + 1) t ht
+      exact ⟨g', by simp [numberE, hg']⟩
+
+theorem numberE_mem_to (l : List (Nat × Nat × Nat)) :
+    ∀ (g : Nat), ∀ e ∈ numberE g l, (e.code, e.kind, e.sidx) ∈ l := by
+  induction l with
+  | nil => intro g e he; simp [numberE] at he
+  | cons h rest ih =>
+    intro g e he
+    obtain ⟨c, k, s⟩ := h
+    simp only [numberE, List.mem_cons] at he
+    rcases he with rfl | he
+    · simp
+    · exact List.mem_cons_of_mem _ (ih (g + 1) e he)
+
+theorem numberE_code (l : List (Nat × Nat × Nat)) :
+    ∀ (g : Nat), (numberE g l).map Ent.code = l.map (·.1) := by
+  induction l with
+  | nil => intro g; rfl
+  | cons h rest ih => intro g; obtain ⟨c, k, s⟩ := h; simp [numberE, ih]
+
+theorem chkE_sound (T : NT) : ∀ (l : List Ent) (g : Nat), chkE T g l = true →
+    (∀ e ∈ l, T.find (skey e.code) = some e) ∧ (∀ e ∈ l, g ≤ e.gidx) ∧ (l.map Ent.code).Nodup := by
+  intro l
+  induction l with
+  | nil => intro g _; simp
+  | cons e rest ih =>
+    intro g h
+    simp only [chkE, Bool.and_eq_true] at h
+    obtain ⟨⟨h1, h2⟩, h3⟩ := h
+    obtain ⟨hf, hg, hnd⟩ := ih (g + 1) h3
+    have hgi : e.gidx = g := Nat.eq_of_beq_eq_true h2
+    have hfe : T.find (skey e.code) = some e := by
+      cases hfd : T.find (skey e.code) with
+      | none => rw [hfd] at h1; simp at h1
+      | some e' =>
+        rw [hfd] at h1
+        simp only [Bool.and_eq_true] at h1
+        obtain ⟨⟨⟨a1, a2⟩, a3⟩, a4⟩ := h1
+        have := Nat.eq_of_beq_eq_true a1
+        have := Nat.eq_of_beq_eq_true a2
+        have := Nat.eq_of_beq_eq_true a3
+        have := Nat.eq_of_beq_eq_true a4
+        cases e'; cases e; simp_all
+    refine ⟨?_, ?_, ?_⟩
+    · intro x hx
+      rcases List.mem_cons.mp hx with rfl | hx
+      · exact hfe
+      · exact hf x hx
+    · intro x hx
+      rcases List.mem_cons.mp hx with rfl | hx
+      · omega
+      · have := hg x hx; omega
+    · simp only [List.map_cons, List.nodup_cons]
+      refine ⟨?_, hnd⟩
+      intro hmem
+      obtain ⟨x, hx, hxc⟩ := List.mem_map.mp hmem
+      have h4 := hf x hx
+      rw [hxc, hfe] at h4
+      have h5 : e = x := Option.some.inj h4
+      have := hg x hx
+      rw [← h5] at this
+      omega
+
+/-! ## 3. The checks -/
+
+/-- the order check of `woCheck`'s reads: a name written by a statement in the table is written at or before `i` -/
+def rdOk (T : NT) (i : Nat) (n : String) : Bool :=
+  match T.find (skey (ncode n)) with
+  | none => true
+  | some e => !Nat.beq e.kind 2 || Nat.ble e.sidx i
+
+def rdOrd (T : NT) : Nat → List Stmt → Bool
+  | _, [] => true
+  | i, s :: rest => (stmtReads s).all (rdOk T i) && rdOrd T (i + 1) rest
+
+/-- a read name is in the table (input, key or written) -/
+def exOk (T : NT) (n : String) : Bool :=
+  match T.find (skey (ncode n)) with
+  | none => false
+  | some e => Nat.beq e.code (ncode n)
+
+def rdEx (T : NT) : List Stmt → Bool
+  | [] => true
+  | s :: rest => (allReadsM s).all (exOk T) && rdEx T rest
+
+/-- an output is a key or a written name -/
+def outOk (T : NT) (n : String) : Bool :=
+  match T.find (skey (ncode n)) with
+  | none => false
+  | some e => Nat.beq e.code (ncode n) && !Nat.beq e.kind 0
+
+/-- a cheap key of a statement -/
+def stmtKey : Stmt → Nat
+  | .assign l _ => skey (ncode l)
+  | .register o .. => skey (ncode o)
+  | .memory n .. => skey (ncode n)
+  | .inst _ i _ => skey (ncode i)
+
+def keyed (s : Stmt) : Nat × Stmt := (stmtKey s, s)
+
+/-- remove the first element equal to `(k, s)`; the key is compared first -/
+def exK (k : Nat) (s : Stmt) : List (Nat × Stmt) → Option (List (Nat × Stmt))
+  | [] => none
+  | p :: rest => if Nat.beq k p.1 && decide (s = p.2) then some rest else (exK k s rest).map (p :: ·)
+
+def permK : List (Nat × Stmt) → List (Nat × Stmt) → Bool
+  | [], [] => true
+  | [], _ :: _ => false
+  | a :: rest, l => match exK a.1 a.2 l with
+    | some l' => permK rest l'
+    | none => false
+
+theorem exK_perm (k : Nat) (s : Stmt) : ∀ (l l' : List (Nat × Stmt)), exK k s l = some l' → l.Perm ((k, s) :: l') := by
+  intro l
+  induction l with
+  | nil => intro l' h; simp [exK] at h
+  | cons p rest ih =>
+    intro l' h
+    simp only [exK] at h
+    split at h
+    · rename_i hc
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at hc
+      obtain ⟨hk, hs⟩ := hc
+      cases h
+      have hk' := Nat.eq_of_beq_eq_true hk
+      obtain ⟨p1, p2⟩ := p
+      simp only at hk' hs
+      subst hk' hs
+      exact List.Perm.refl _
+    · cases hr : exK k s rest with
+      | none => rw [hr] at h; simp at h
+      | some r' =>
+        rw [hr] at h
+        simp only [Option.map_some, Option.some.injEq] at h
+        subst h
+        exact ((ih r' hr).cons p).trans (List.Perm.swap _ _ _)
+
+theorem permK_sound : ∀ (l₁ l₂ : List (Nat × Stmt)), permK l₁ l₂ = true → l₁.Perm l₂ := by
+  intro l₁
+  induction l₁ with
+  | nil =>
+    intro l₂ h
+    cases l₂ with
+    | nil => exact List.Perm.refl _
+    | cons _ _ => simp [permK] at h
+  | cons a rest ih =>
+    intro l₂ h
+    simp only [permK] at h
+    cases hx : exK a.1 a.2 l₂ with
+    | none => rw [hx] at h; simp at h
+    | some l' =>
+      rw [hx] at h
+      have h1 := exK_perm _ _ _ _ hx
+      exact ((ih l' h).cons a).trans h1.symm
+
+theorem isPermOf_complete [DecidableEq α] : ∀ {l₁ l₂ : List α}, l₁.Perm l₂ → isPermOf l₁ l₂ = true := by
+  intro l₁
+  induction l₁ with
+  | nil => intro l₂ h; obtain rfl := List.Perm.nil_eq h; rfl
+  | cons a rest ih =>
+    intro l₂ h
+    have hmem : a ∈ l₂ := h.subset (List.mem_cons_self ..)
+    simp only [isPermOf, if_pos hmem]
+    exact ih (List.Perm.cons_inv (h.trans (List.perm_cons_erase hmem)))
+
+/-- `OrderOkM` with the quadratic parts replaced (same meaning: `OrderOkM'_sound`) -/
+def OrderOkM'' (m : Module) (b : List Stmt) (E : List Ent) (T : NT) : Bool :=
+  permK (b.map keyed) (m.body.map keyed) && chkE T 0 E && rdOrd T 0 b && rdEx T b &&
+  m.outputs.all (fun p => outOk T p.name) &&
+  decide (b.filterMap stmtMemName).Nodup &&
+  b.all (fun s => (stmtReads s).all (fun n => !(stmtWrites s).contains n))
+
+def OrderOkM' (m : Module) (b : List Stmt) : Bool := OrderOkM'' m b (entsOf m b) (NT.build (entsOf m b))
+
+/-! ## 4. Soundness -/
+
+theorem tagW_mem (b : List Stmt) :
+    ∀ (n : Nat), ∀ t ∈ tagW b n, t.2.1 = 2 ∧ n ≤ t.2.2 ∧ ∃ w ∈ writesOf b, ncode w = t.1 := by
+  induction b with
+  | nil => intro n t ht; simp [tagW] at ht
+  | cons s rest ih =>
+    intro n t ht
+    simp only [tagW, List.mem_append, List.mem_map] at ht
+    rcases ht with ⟨w, hw, rfl⟩ | ht
+    · exact ⟨rfl, Nat.le_refl _, w, by simp [writesOf, hw], rfl⟩
+    · obtain ⟨h1, h2, w, hw, h4⟩ := ih (n + 1) t ht
+      exact ⟨h1, by omega, w, by simp only [writesOf, List.flatMap_cons, List.mem_append]; exact Or.inr hw, h4⟩
+
+theorem mem_tagW (b : List Stmt) :
+    ∀ (n : Nat), ∀ w ∈ writesOf b, ∃ j, n ≤ j ∧ (ncode w, 2, j) ∈ tagW b n := by
+  induction b with
+  | nil => intro n w hw; simp [writesOf] at hw
+  | cons s rest ih =>
+    intro n w hw
+    simp only [writesOf, List.flatMap_cons, List.mem_append] at hw
+    rcases hw with hw | hw
+    · exact ⟨n, Nat.le_refl _, by simp only [tagW, List.mem_append, List.mem_map]; exact Or.inl ⟨w, hw, rfl⟩⟩
+    · obtain ⟨j, hj, hm⟩ := ih (n + 1) w hw
+      exact ⟨j, by omega, by simp only [tagW, List.mem_append]; exact Or.inr hm⟩
+
+theorem not_contains_of {l : List String} {x : String} (h : x ∉ l) : (!l.contains x) = true := by
+  simp [List.contains_iff_mem, h]
+
+/-- the order part of `woCheck` from the table -/
+theorem wo_aux (E : List Ent) (T : NT) (hf : ∀ e ∈ E, T.find (skey e.code) = some e) :
+    ∀ (b : List Stmt) (n : Nat) (done : List String),
+    (∀ t ∈ tagW b n, ∃ g, (⟨t.1, t.2.1, t.2.2, g⟩ : Ent) ∈ E) →
+    (∀ d ∈ done, ∃ g j, j < n ∧ (⟨ncode d, 2, j, g⟩ : Ent) ∈ E) →
+    rdOrd T n b = true → woCheck done b = true := by
+  have uniq : ∀ e1 ∈ E, ∀ e2 ∈ E, e1.code = e2.code → e1 = e2 := by
+    intro e1 h1 e2 h2 hc
+    have a := hf e1 h1
+    have b := hf e2 h2
+    rw [hc] at a
+    rw [a] at b
+    exact Option.some.inj b
+  intro b
+  induction b with
+  | nil => intro n done _ _ _; rfl
+  | cons s rest ih =>
+    intro n done hE hdone hrd
+    simp only [rdOrd, Bool.and_eq_true, List.all_eq_true] at hrd
+    obtain ⟨hrd1, hrd2⟩ := hrd
+    have hHead : ∀ w ∈ stmtWrites s, ∃ g, (⟨ncode w, 2, n, g⟩ : Ent) ∈ E := by
+      intro w hw
+      exact hE (ncode w, 2, n) (by simp only [tagW, List.mem_append, List.mem_map]; exact Or.inl ⟨w, hw, rfl⟩)
+    have hTail : ∀ t ∈ tagW rest (n + 1), ∃ g, (⟨t.1, t.2.1, t.2.2, g⟩ : Ent) ∈ E :=
+      fun t ht => hE t (by simp only [tagW, List.mem_append]; exact Or.inr ht)
+    have hRest : ∀ w ∈ writesOf rest, ∃ j g, n + 1 ≤ j ∧ (⟨ncode w, 2, j, g⟩ : Ent) ∈ E := by
+      intro w hw
+      obtain ⟨j, hj, hm⟩ := mem_tagW rest (n + 1) w hw
+      obtain ⟨g, hg⟩ := hTail _ hm
+      exact ⟨j, g, hj, hg⟩
+    have hrest : woCheck (done ++ stmtWrites s) rest = true := by
+      refine ih (n + 1) (done ++ stmtWrites s) hTail ?_ hrd2
+      intro d hd
+      rcases List.mem_append.mp hd with hd | hd
+      · obtain ⟨g, j, hj, he⟩ := hdone d hd
+        exact ⟨g, j, by omega, he⟩
+      · obtain ⟨g, he⟩ := hHead d hd
+        exact ⟨g, n, by omega, he⟩
+    simp only [woCheck, Bool.and_eq_true, List.all_eq_true]
+    refine ⟨⟨?_, ?_⟩, hrest⟩
+    · intro x hx
+      apply not_contains_of
+      intro hin
+      obtain ⟨j, g, hj, he⟩ := hRest x hin
+      have hr := hrd1 x hx
+      have hfe : T.find (skey (ncode x)) = some ⟨ncode x, 2, j, g⟩ := by
+        have h := hf ⟨ncode x, 2, j, g⟩ he
+        dsimp only at h
+        exact h
+      simp [rdOk, hfe] at hr
+      omega
+    · intro x hx
+      obtain ⟨g0, he0⟩ := hHead x hx
+      refine ⟨not_contains_of ?_, not_contains_of ?_⟩
+      · intro hin
+        obtain ⟨g, j, hj, he⟩ := hdone x hin
+        have := uniq _ he0 _ he rfl
+        simp only [Ent.mk.injEq] at this
+        omega
+      · intro hin
+        obtain ⟨j, g, hj, he⟩ := hRest x hin
+        have := uniq _ he0 _ he rfl
+        simp only [Ent.mk.injEq] at this
+        omega
+
+theorem rdEx_all (T : NT) : ∀ (b : List Stmt), rdEx T b = true → ∀ s ∈ b, ∀ n ∈ allReadsM s, exOk T n = true := by
+  intro b
+  induction b with
+  | nil => intro _ s hs; simp at hs
+  | cons a rest ih =>
+    intro h s hs n hn
+    simp only [rdEx, Bool.and_eq_true, List.all_eq_true] at h
+    rcases List.mem_cons.mp hs with rfl | hs
+    · exact h.1 n hn
+    · exact ih h.2 s hs n hn
+
+theorem contains_false_of {l : List String} {x : String} (h : x ∉ l) : l.contains x = false := by
+  cases hc : l.contains x
+  · rfl
+  · exact absurd (List.contains_iff_mem.mp hc) h
+
+theorem nodup_of_map' {α β : Type} (f : α → β) (l : List α) (h : (l.map f).Nodup) : l.Nodup := by
+  unfold List.Nodup at h ⊢
+  rw [List.pairwise_map] at h
+  exact h.imp (fun hne e => hne (congrArg f e))
+
+theorem OrderOkM'_sound (m : Module) (b : List Stmt) (h : OrderOkM' m b = true) : OrderOkM m b = true := by
+  simp only [OrderOkM', OrderOkM'', Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at h
+  obtain ⟨⟨⟨⟨⟨⟨hperm, hchk⟩, hrdo⟩, hrdx⟩, hout⟩, hmem⟩, hloc⟩ := h
+  have hP : b.Perm m.body := by
+    have h1 := (permK_sound _ _ hperm).map Prod.snd
+    simpa [keyed, List.map_map, Function.comp_def] using h1
+  obtain ⟨hf, hg, hnd⟩ := chkE_sound _ _ _ hchk
+  have hpos : ∀ k e, (NT.build (entsOf m b)).find k = some e → e ∈ entsOf m b :=
+    fun k e h => NT.vals_build _ _ (NT.find_mem _ _ _ h)
+  have hEtag : ∀ t ∈ tagW b 0, ∃ g, (⟨t.1, t.2.1, t.2.2, g⟩ : Ent) ∈ entsOf m b := by
+    intro t ht
+    exact numberE_mem_of (rawE m b) 0 t (by simp only [rawE, List.mem_append]; exact Or.inr ht)
+  have hEI : ∀ x ∈ m.inputs.map (·.name), ∃ g, (⟨ncode x, 0, 0, g⟩ : Ent) ∈ entsOf m b := by
+    intro x hx
+    exact numberE_mem_of (rawE m b) 0 (ncode x, 0, 0) (by
+      simp only [rawE, List.mem_append]
+      refine Or.inl (Or.inl ?_)
+      obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
+      exact List.mem_map.mpr ⟨p, hp, rfl⟩)
+  have hEK : ∀ x ∈ nextKeys b, ∃ g, (⟨ncode x, 1, 0, g⟩ : Ent) ∈ entsOf m b := by
+    intro x hx
+    exact numberE_mem_of (rawE m b) 0 (ncode x, 1, 0) (by
+      simp only [rawE, List.mem_append]
+      exact Or.inl (Or.inr (List.mem_map.mpr ⟨x, hx, rfl⟩)))
+  have hEW : ∀ x ∈ writesOf b, ∃ j g, (⟨ncode x, 2, j, g⟩ : Ent) ∈ entsOf m b := by
+    intro x hx
+    obtain ⟨j, _, hm⟩ := mem_tagW b 0 x hx
+    obtain ⟨g, hg⟩ := hEtag _ hm
+    exact ⟨j, g, hg⟩
+  have hEpos : ∀ e ∈ entsOf m b,
+      (e.kind = 0 ∧ ∃ x ∈ m.inputs.map (·.name), ncode x = e.code) ∨
+      (e.kind = 1 ∧ ∃ x ∈ nextKeys b, ncode x = e.code) ∨
+      (e.kind = 2 ∧ ∃ x ∈ writesOf b, ncode x = e.code) := by
+    intro e he
+    have := numberE_mem_to (rawE m b) 0 e he
+    simp only [rawE, List.mem_append, List.mem_map] at this
+    rcases this with (⟨p, hp, h1⟩ | ⟨k, hk, h1⟩) | ht
+    · have h1 := Prod.mk.inj h1
+      have h2 := Prod.mk.inj h1.2
+      exact Or.inl ⟨h2.1.symm, p.name, List.mem_map.mpr ⟨p, hp, rfl⟩, h1.1⟩
+    · have h1 := Prod.mk.inj h1
+      have h2 := Prod.mk.inj h1.2
+      exact Or.inr (Or.inl ⟨h2.1.symm, k, hk, h1.1⟩)
+    · obtain ⟨h1, _, w, hw, h4⟩ := tagW_mem b 0 _ ht
+      exact Or.inr (Or.inr ⟨h1, w, hw, h4⟩)
+  have uniq : ∀ e1 ∈ entsOf m b, ∀ e2 ∈ entsOf m b, e1.code = e2.code → e1 = e2 := by
+    intro e1 h1 e2 h2 hc
+    have a := hf e1 h1
+    have b := hf e2 h2
+    rw [hc] at a
+    rw [a] at b
+    exact Option.some.inj b
+  have hkeys : (nextKeys b).Nodup := by
+    have h1 : ((entsOf m b).map Ent.code).Nodup := hnd
+    rw [entsOf, numberE_code] at h1
+    simp only [rawE, List.map_append, List.map_map] at h1
+    have h2 : ((nextKeys b).map ncode).Nodup := by
+      refine List.Nodup.sublist ?_ h1
+      refine List.Sublist.trans ?_ (List.sublist_append_left _ (List.map (fun x => x.1) (tagW b 0)))
+      exact List.sublist_append_right _ _
+    exact nodup_of_map' ncode _ h2
+  have hwo : woCheck [] b = true := by
+    refine wo_aux (entsOf m b) _ hf b 0 [] hEtag (by intro d hd; simp at hd) hrdo
+  -- membership in the table
+  have hex : ∀ n, exOk (NT.build (entsOf m b)) n = true →
+      n ∈ m.inputs.map (·.name) ∨ n ∈ nextKeys b ∨ n ∈ writesOf b := by
+    intro n hn
+    unfold exOk at hn
+    cases hfd : (NT.build (entsOf m b)).find (skey (ncode n)) with
+    | none => rw [hfd] at hn; simp at hn
+    | some e =>
+      rw [hfd] at hn
+      have hc : e.code = ncode n := Nat.eq_of_beq_eq_true hn
+      rcases hEpos e (hpos _ _ hfd) with ⟨_, x, hx, hxc⟩ | ⟨_, x, hx, hxc⟩ | ⟨_, x, hx, hxc⟩
+      · exact Or.inl (ncode_inj (hxc.trans hc) ▸ hx)
+      · exact Or.inr (Or.inl (ncode_inj (hxc.trans hc) ▸ hx))
+      · exact Or.inr (Or.inr (ncode_inj (hxc.trans hc) ▸ hx))
+  have hdisj : ∀ x e1 e2 (_ : e1 ∈ entsOf m b) (_ : e2 ∈ entsOf m b), e1.code = ncode x → e2.code = ncode x →
+      e1.kind ≠ e2.kind → False := by
+    intro x e1 e2 h1 h2 c1 c2 hk
+    have := uniq e1 h1 e2 h2 (c1.trans c2.symm)
+    exact hk (by rw [this])
+  simp only [OrderOkM, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, Bool.or_eq_true, List.contains_iff_mem,
+    Bool.not_eq_true', Bool.not_eq_true]
+  refine ⟨⟨⟨⟨⟨⟨⟨⟨isPermOf_complete hP, hwo⟩, hkeys⟩, hmem⟩, ?_⟩, ?_⟩, ?_⟩, ?_⟩, ?_⟩
+  · intro s hs x hx
+    have := hloc s hs x hx
+    simpa using this
+  · intro s hs x hx
+    rcases hex x (rdEx_all _ b hrdx s hs x hx) with h | h | h
+    · exact Or.inl (Or.inl h)
+    · exact Or.inl (Or.inr h)
+    · exact Or.inr h
+  · intro p hp
+    have hn := hout p hp
+    unfold outOk at hn
+    cases hfd : (NT.build (entsOf m b)).find (skey (ncode p.name)) with
+    | none => rw [hfd] at hn; simp at hn
+    | some e =>
+      rw [hfd] at hn
+      simp only [Bool.and_eq_true, Bool.not_eq_true'] at hn
+      have hc : e.code = ncode p.name := Nat.eq_of_beq_eq_true hn.1
+      have hk : e.kind ≠ 0 := by
+        intro h0; rw [h0] at hn; simp at hn
+      rcases hEpos e (hpos _ _ hfd) with ⟨h0, _⟩ | ⟨_, x, hx, hxc⟩ | ⟨_, x, hx, hxc⟩
+      · exact absurd h0 hk
+      · exact Or.inl (ncode_inj (hxc.trans hc) ▸ hx)
+      · exact Or.inr (ncode_inj (hxc.trans hc) ▸ hx)
+  · intro x hx
+    obtain ⟨j, g, hW⟩ := hEW x hx
+    constructor
+    · apply contains_false_of
+      intro hI
+      obtain ⟨g', hI'⟩ := hEI x (by simpa using hI)
+      exact hdisj x _ _ hW hI' rfl rfl (by simp)
+    · apply contains_false_of
+      intro hK
+      obtain ⟨g', hK'⟩ := hEK x hK
+      exact hdisj x _ _ hW hK' rfl rfl (by simp)
+  · intro x hx
+    apply contains_false_of
+    intro hI
+    obtain ⟨g, hK⟩ := hEK x hx
+    obtain ⟨g', hI'⟩ := hEI x (by simpa using hI)
+    exact hdisj x _ _ hK hI' rfl rfl (by simp)
+
+end Tools.VedMemOrder

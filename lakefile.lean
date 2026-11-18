@@ -1719,3 +1719,6 @@ lean_lib «Tools.VedMemShape» where
 
 lean_lib «Tools.VedMemNest» where
   roots := #[`Tools.VedMemNest]
+
+lean_lib «Tools.VedMemOrder» where
+  roots := #[`Tools.VedMemOrder]
