@@ -199,6 +199,9 @@ def closure (e : Lean.Expr) : MetaM (Array Lean.Expr) := do
     if ids.contains d.fvarId then r := r.push (.fvar d.fvarId)
   return r
 
+/-- `proveRead` tries `omega` after `ved_pack_simp` only on a read with fewer tree nodes than this -/
+def omegaMaxTree : Nat := 20000
+
 /-- the proof of `S = F` as a closed statement over its free variables (cached by the closed statement); `none` when `ved_pack_simp` fails -/
 def proveRead (S F : Lean.Expr) : TacticM (Option Lean.Expr) := do
   let eq ← mkEq S F
@@ -210,7 +213,12 @@ def proveRead (S F : Lean.Expr) : TacticM (Option Lean.Expr) := do
   let saved ← getGoals
   setGoals [m.mvarId!]
   let ok ← try
-      evalTactic (← `(tactic| (intros; first | (ved_pack_simp; done) | omega)))
+      -- `omega` reads a nested `%` / `/` chain as a tree: on a "read" of 3e4 tree nodes whose field value is itself that large (not a
+      -- packed read: R034 goal 54, f-tree 30849 of x-tree 30969) it runs out of memory (23 GB) instead of failing
+      if Tools.VedU1Loop.treeSizeVal S < omegaMaxTree then
+        evalTactic (← `(tactic| (intros; first | (ved_pack_simp; done) | omega)))
+      else
+        evalTactic (← `(tactic| (intros; ved_pack_simp; done)))
       pure ((← getGoals).isEmpty)
     catch _ => pure false
   setGoals saved
@@ -325,6 +333,7 @@ elab "ved_pack_dag" : tactic => withMainContext do
     let mut proved : Array (Lean.Expr × Lean.Expr × Lean.Expr) := #[]
     for (x, f) in cands do
       let tp0 ← IO.monoMsNow
+      Tools.VedMemLoop.dbgLog s!"pack_dag: proveRead BEGIN x-tree={Tools.VedU1Loop.treeSizeVal x} f-tree={Tools.VedU1Loop.treeSizeVal f} x-dag={(Tools.VedU1WireShare.collectDag (fun _ => true) x).size}"
       let r ← proveRead x f
       Tools.VedMemLoop.dbgLog s!"pack_dag: proveRead x-tree={Tools.VedU1Loop.treeSizeVal x} f-tree={Tools.VedU1Loop.treeSizeVal f} ok={r.isSome} ms={(← IO.monoMsNow) - tp0}"
       match r with
@@ -338,8 +347,13 @@ elab "ved_pack_dag" : tactic => withMainContext do
     -- is not well typed up to cheap defeq (the kernel then decides the defeq of the two by unfolding `Nat.div` / `Nat.mod`: memory and
     -- `deep recursion`); a class is rewritten at all its spellings at once, by the proof of its first member
     let mut classes : Array (Lean.Expr × Lean.Expr × Lean.Expr × Array Lean.Expr) := #[]
+    let tc0 ← IO.monoMsNow
     for (x, f, pf) in proved do
-      let k := canonNat (← normProj x)
+      let tn0 ← IO.monoMsNow
+      let xn ← normProj x
+      let tn1 ← IO.monoMsNow
+      let k := canonNat xn
+      Tools.VedMemLoop.dbgLog s!"pack_dag: class key x-tree={Tools.VedU1Loop.treeSizeVal x} normProj ms={tn1 - tn0} canonNat ms={(← IO.monoMsNow) - tn1}"
       match classes.findIdx? (fun c => c.1 == k) with
       | some idx => classes := classes.modify idx fun c => (c.1, c.2.1, c.2.2.1, c.2.2.2.push x)
       | none => classes := classes.push (k, f, pf, #[x])
@@ -349,14 +363,21 @@ elab "ved_pack_dag" : tactic => withMainContext do
       let x0 := xs[0]!
       let isX := fun (e : Lean.Expr) => xs.contains e
       let g ← getMainGoal
+      let tr0 ← IO.monoMsNow
       let tgt ← instantiateMVars (← g.getType)
+      Tools.VedMemLoop.dbgLog s!"pack_dag: class rewrite start xs={xs.size} x-tree={Tools.VedU1Loop.treeSizeVal x0} f-tree={Tools.VedU1Loop.treeSizeVal f} tgt-tree={Tools.VedU1Loop.treeSizeVal tgt} ms={(← IO.monoMsNow) - tr0}"
       if (tgt.find? isX).isSome then
+        Tools.VedMemLoop.dbgLog s!"pack_dag: found in target ms={(← IO.monoMsNow) - tr0}"
+        let ty0 ← inferType x0
         let ty ← inferType x0
         let motive ← withLocalDeclD `ved_x ty fun xv =>
           mkLambdaFVars #[xv] (tgt.replace fun e => if isX e then some xv else none)
         let new := tgt.replace fun e => if isX e then some f else none
+        Tools.VedMemLoop.dbgLog s!"pack_dag: motive+new built ms={(← IO.monoMsNow) - tr0}"
         let cg ← mkCongrArg motive pf
+        Tools.VedMemLoop.dbgLog s!"pack_dag: congrArg ms={(← IO.monoMsNow) - tr0}"
         replaceMainGoal [← g.replaceTargetEq new cg]
+        Tools.VedMemLoop.dbgLog s!"pack_dag: replaceTargetEq ms={(← IO.monoMsNow) - tr0}"
       for d in ← getLCtx do
         unless d.isImplementationDetail do
           let ty ← instantiateMVars d.type
@@ -366,8 +387,10 @@ elab "ved_pack_dag" : tactic => withMainContext do
               mkLambdaFVars #[xv] (ty.replace fun e => if isX e then some xv else none)
             let new := ty.replace fun e => if isX e then some f else none
             let g ← getMainGoal
+            Tools.VedMemLoop.dbgLog s!"pack_dag: hyp {d.userName} replace start ms={(← IO.monoMsNow) - tr0}"
             let r ← g.replaceLocalDecl d.fvarId new (← mkCongrArg motive pf)
             replaceMainGoal [r.mvarId]
+            Tools.VedMemLoop.dbgLog s!"pack_dag: hyp {d.userName} replace done ms={(← IO.monoMsNow) - tr0}"
   if nProved > 0 then ranLog.modify (·.push "pack_dag")
   if (← IO.getEnv "VED_DUMP_DIR").isSome then
     let g ← getMainGoal
@@ -382,6 +405,38 @@ elab "ved_pack_dag" : tactic => withMainContext do
         Tools.VedMemLoop.dbgLog s!"BIG target dag={dag} chars={t.length}"
     Tools.VedMemLoop.dbgLog s!"pack_dag: rounds={rounds} cands={nCands} proved={nProved} failed={failed} tree {sz0} -> {sz1} ms={(← IO.monoMsNow) - t0} hb={((← IO.getNumHeartbeats) - h0) / 1000}"
 
+/-- heartbeats (thousands) of the fallback `ved_pack_simp` of `ved_pack_wire_m` on a goal of at least 20000 nodes -/
+def packSimpFallbackHb : Nat := 1000
+
+/-- `ved_pack_wire` (`Tools/VedU1Wire.lean`) with a stage-log line per branch (only with `VED_DUMP_DIR`; the same tactics in the same order, but the fallback `ved_pack_simp` after a failed `ved_wire_bits` has a heartbeat budget of its own) -/
+elab "ved_pack_wire_m" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let size := Tools.VedU1Loop.treeSizeVal tgt
+  let nb := (Tools.VedU1Loop.natBitOps tgt).size
+  let t0 ← IO.monoMsNow
+  let h0 ← IO.getNumHeartbeats
+  let stamp := fun (what : String) => do
+    Tools.VedMemLoop.dbgLog s!"pack_wire_m: {what} size={size} bitops={nb} ms={(← IO.monoMsNow) - t0} hb={((← IO.getNumHeartbeats) - h0) / 1000}"
+  stamp "begin"
+  if size < Tools.VedU1Loop.shareMinTree then
+    if size ≥ 20000 && nb ≥ Tools.VedU1Loop.bitsSmallOps then
+      -- (`ved_pack_wire` tries `ved_wire_bits` first here.  This goal went through `ved_pack_dag` and still has reads: R034 goals 54-85,
+      -- 47899 nodes, 18 bit operations: `ved_wire_bits` fails after 64 s / 0.73M heartbeats on EACH of them, the whole budget; so only
+      -- the packing step, with a budget of its own: it does not end on such a goal either (800 s, 40M heartbeats))
+      let hb ← IO.getNumHeartbeats
+      try
+        tryCatchRuntimeEx
+          (withTheReader Core.Context (fun c => { c with initHeartbeats := hb, maxHeartbeats := packSimpFallbackHb * 1000 })
+            (Tactic.withoutRecover (evalTactic (← `(tactic| ved_pack_simp)))))
+          fun _ => throwError "ved_pack_simp: no result within the budget"
+      catch _ => pure ()
+      stamp "pack_simp done"
+    else
+      evalTactic (← `(tactic| try ved_pack_simp))
+  else
+    evalTactic (← `(tactic| ved_wire))
+  stamp "end"
+
 /-- stage 5 of the memory script: `ved_pack_dag` on every goal, then `ved_pack_wire` (the packing step of the loop script, `ved_wire`
 on goals of 150000 nodes) only on a goal that still has a read of the packed state (the packing step on a goal without one is a
 traversal of the whole tree that changes nothing) -/
@@ -391,12 +446,21 @@ elab "ved_pack_dag_wire_all" : tactic => do
   let mut skipped := 0
   let dump := (← IO.getEnv "VED_DUMP_DIR").isSome
   let mut allSz : Array Nat := #[]
+  let fromGoal := ((← IO.getEnv "VED_PACK_FROM").bind String.toNat?).getD 0
+  let mut gi := 0
   for g in gs do
+    gi := gi + 1
+    if gi - 1 < fromGoal then
+      rest := rest ++ [g]
+      continue
     setGoals [g]
     let sz ← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType))
     -- a goal of ordinary size WITHOUT a read of the packed state: the packing step as before (with a read it goes the way of the big goals:
     -- the packing step on a goal of 3e3 nodes with such reads is 30 s / 1.4M heartbeats, R34, the rewriting 0.3 s)
-    if sz < minTree then
+    -- a goal below `minTree` WITH a read goes the way of the big goals (R034: three goals of 1.6k-3.2k nodes, `ved_pack_wire` 26-28 s / 1.4M
+    -- heartbeats each, `ved_pack_dag` 0.3 s)
+    let smallHasRead ← if sz < minTree then (do try hasReads catch _ => pure true) else pure false
+    if sz < minTree && !smallHasRead then
       -- (the packing step as before)
       let tw0 ← IO.monoMsNow
       let hw0 ← IO.getNumHeartbeats
@@ -404,7 +468,7 @@ elab "ved_pack_dag_wire_all" : tactic => do
       Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: small goal {sz}: pack_wire ms={(← IO.monoMsNow) - tw0} hb={((← IO.getNumHeartbeats) - hw0) / 1000}"
       rest := rest ++ (← getGoals)
       continue
-    Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: goal size {sz}"
+    Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: goal #{gi - 1} size {sz}"
     evalTactic (← `(tactic| try ved_pack_dag))
     if (← getGoals).isEmpty then continue
     let g := (← getGoals).head!
@@ -416,7 +480,7 @@ elab "ved_pack_dag_wire_all" : tactic => do
     Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: hasReads={hr} ms={(← IO.monoMsNow) - th0}"
     if hr then
       let h0 ← IO.getNumHeartbeats
-      evalTactic (← `(tactic| ved_pack_wire))
+      evalTactic (← `(tactic| ved_pack_wire_m))
       if dump then Tools.VedMemLoop.dbgLog s!"pack_wire (reads left): hb={((← IO.getNumHeartbeats) - h0) / 1000}"
     else skipped := skipped + 1
     rest := rest ++ (← getGoals)

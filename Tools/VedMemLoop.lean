@@ -372,6 +372,9 @@ initialize dbgShown : IO.Ref Nat ← IO.mkRef 0
 def dbgT (label : String) : IO Unit := do
   dbgLog s!"T {label} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}"
 
+/-- a goal of at least this many tree nodes gets the address rewrite of `ved_mem_addr` by `Expr.replace` instead of `rw` -/
+def addrReplaceMinTree : Nat := 50000000
+
 /-- `ved_mem_addr`: the `memState` atoms of the goal that differ only in the ADDRESS (the IR side spells it as `BitVec.ofNat aw`
 of `Nat` arithmetic, the declaration side as `BitVec` arithmetic) are made the same atom: each other address is rewritten to
 the first one, by an equality proved with `bv_omega` (the branch conditions of the enclosing `if`s are first propagated into the
@@ -431,17 +434,21 @@ elab "ved_mem_addr" : tactic => withMainContext do
                                        first | rfl | (apply BitVec.eq_of_toNat_eq; (try ved_clear_signals); (try ved_pack_simp); (try ved_bit_simp); (try ved_pack_simp); (try simp only [apply_ite BitVec.toNat, ved_toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); first | ved_decide_small | ((repeat' split); all_goals (try simp only [ved_toNat_append, BitVec.toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.shiftRight_zero, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); all_goals (try ved_pack_simp); all_goals (first | omega | bv_omega))))))
             dbgT "addr: have done"
             -- `rw [hmaddr]` abstracts the occurrences by `kabstract`, a walk of the TREE (12 s per goal of 3e8 nodes, R34); on a goal
-            -- the packing step takes (`shareMinTree`) the replacement is `Expr.replace` (cached by pointer: one visit per shared node)
-            -- with the `congrArg` of the motive; below it the `rw` as before
+            -- the packing step takes (`addrReplaceMinTree`: R034, 3e8) the replacement is `Expr.replace` (cached by pointer: one visit per
+            -- shared node) with the `congrArg` of the motive; below it the `rw` as before (R032, 1.7e7 nodes: `rw` abstracts the
+            -- occurrences up to instances, the syntactic `Expr.replace` leaves some, and the closing `omega` then fails)
             let tgt ← instantiateMVars (← getMainTarget)
-            let hm? ← if Tools.VedU1Loop.treeSizeVal tgt < Tools.VedU1Loop.shareMinTree then pure none else do
-              let mut r : Option Expr := none
-              for d in (← getLCtx).decls.toList.reverse do
-                if let some d := d then
-                  if r.isNone && !d.isImplementationDetail then
-                    if let some (_, l, rr) := (← instantiateMVars d.type).eq? then
-                      if l == a && rr == rep then r := some d.toExpr
-              pure r
+            let hm? ← if Tools.VedU1Loop.treeSizeVal tgt < addrReplaceMinTree then pure none else do
+              -- the `have` made a new goal: its local context (not the one this tactic started with) holds `hmaddr`
+              (← getMainGoal).withContext do
+                let mut r : Option Expr := none
+                for d in (← getLCtx).decls.toList.reverse do
+                  if let some d := d then
+                    if r.isNone && !d.isImplementationDetail then
+                      if let some (_, l, rr) := (← instantiateMVars d.type).eq? then
+                        if l == a && rr == rep then r := some d.toExpr
+                pure r
+            dbgT s!"addr: hm found={hm?.isSome} tgt-tree={Tools.VedU1Loop.treeSizeVal tgt}"
             if let some hm := hm? then
               let aTy ← inferType a
               let motive ← withLocalDeclD `ved_x aTy fun xv =>
