@@ -507,6 +507,9 @@ lean_lib «Tests.Ved.VedMemShapeCheck» where
 lean_lib «Tests.Ved.VedMemOrderCheck» where
   roots := #[`Tests.Ved.VedMemOrderCheck]
 
+lean_lib «Tests.Ved.VedMemWidthCheck» where
+  roots := #[`Tests.Ved.VedMemWidthCheck]
+
 lean_lib «Tests.Ved.VedMemPackCheck» where
   roots := #[`Tests.Ved.VedMemPackCheck]
 
