@@ -701,7 +701,7 @@ open Lean Meta Elab Tactic in
 tree (binders instantiated by fresh fvars, each original node once), every proof-valued subterm is
 abstracted and kernel-checked on its own; the first failing ones (all their proof children passed)
 are reported with their head symbol and sizes.  Stops after `budgetMs` or `maxFail` failures. -/
-partial def vedHotSpots (val : Expr) (budgetMs : Nat) (maxFail : Nat := 3) : TacticM Unit := do
+partial def vedHotSpots (val : Expr) (budgetMs : Nat) (maxFail : Nat := 1) : TacticM Unit := do
   let t0 ← IO.monoMsNow
   let seen ← IO.mkRef ({} : Std.HashSet USize)
   let nFail ← IO.mkRef 0
@@ -747,6 +747,36 @@ partial def vedHotSpots (val : Expr) (budgetMs : Nat) (maxFail : Nat := 3) : Tac
         pure s!"{n}/{(Tools.VedKDiag.lookup (← r.get) a).1}"
       let tyStr ← if nt ≤ 400 then pure (toString (← ppExpr ty)) else pure "(large)"
       Tools.VedKDiag.append s!"KHOT FAIL #{← nChk.get}: kind={Tools.VedKDiag.kindOf e} head={e.getAppFn.constName?.getD `_} nargs={args.size} termNodes={n} termH={(Tools.VedKDiag.lookup h e).1} typeNodes={nt} argsNodes/h={argSz} type={tyStr.take 700}"
+      if e.getAppFn.isConstOf ``congrArg && args.size == 6 then
+        let hty ← instantiateMVars (← inferType args[5]!)
+        match hty.eq? with
+        | none => Tools.VedKDiag.append s!"KHOT congrArg: type of the equality argument is not an Eq"
+        | some (_, l, r) =>
+          Tools.VedKDiag.append s!"KHOT congrArg: lhs structurally equal to a1: {l == args[2]!}; rhs equal to a2: {r == args[3]!}"
+          -- first differences (parallel structural walk), small subterms printed
+          let mut stack : Array (Expr × Expr) := #[(r, args[3]!), (l, args[2]!)]
+          let mut shown := 0
+          while !stack.isEmpty && shown < 4 do
+            let (x, y) := stack.back!
+            stack := stack.pop
+            if x == y then continue
+            let cx := Tools.VedKDiag.childrenOf x
+            let cy := Tools.VedKDiag.childrenOf y
+            if Tools.VedKDiag.kindOf x == Tools.VedKDiag.kindOf y && cx.size == cy.size && !cx.isEmpty && x.getAppNumArgs == y.getAppNumArgs then
+              for i in [0:cx.size] do stack := stack.push (cx[cx.size - 1 - i]!, cy[cy.size - 1 - i]!)
+            else
+              shown := shown + 1
+              let h1 ← IO.mkRef ({} : Std.HashMap USize (Nat × Nat))
+              let nx ← Tools.VedKDiag.walk x h1
+              let ny ← Tools.VedKDiag.walk y h1
+              let px ← if nx ≤ 150 then pure (toString (← withOptions (·.setBool `pp.explicit true) (ppExpr x))) else pure "(large)"
+              let py ← if ny ≤ 150 then pure (toString (← withOptions (·.setBool `pp.explicit true) (ppExpr y))) else pure "(large)"
+              Tools.VedKDiag.append s!"KHOT diff {shown}: nodes {nx} vs {ny} kinds {Tools.VedKDiag.kindOf x}/{Tools.VedKDiag.kindOf y}: {px.take 500} <<>> {py.take 500}"
+          -- causal check: the same congrArg with the arguments read off the inferred type of h
+          let e' ← mkCongrArg args[4]! args[5]!
+          let ty' ← inferType e'
+          let r' ← vedAbstractCheckHere "hot-aligned" ty' e'
+          Tools.VedKDiag.append s!"KHOT aligned congrArg (types made syntactically equal): {if r'.isSome then "PASS" else "FAIL"}"
   go val
   Tools.VedKDiag.append s!"KHOT done: checked={← nChk.get} fails={← nFail.get} ms={(← IO.monoMsNow) - t0}"
 
