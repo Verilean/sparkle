@@ -597,8 +597,10 @@ syntax "ved_causal " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 macro_rules
   | `(tactic| ved_causal [$ex,*]) =>
     `(tactic| (intro t s1 s2 h
+               ved_tlog "causal: intro"
                -- a registered read's value at `t` unfolds only at `t = n + 1`
                rcases t with _ | t <;>
+               ved_tlog "causal: rcases" <;>
                (try (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ, Sparkle.Core.Signal.Signal.memory_val_zero, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))
                <;> ved_tlog "causal: simp1"
                <;> (try ved_loop_congr s1 s2 h)
@@ -727,7 +729,9 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let tc0 ← IO.monoMsNow
     dbgLog s!"unfold_mem: loop dag={(collectDag (fun _ => true) L).size} tree={Tools.VedU1Loop.treeSizeVal L} hS ctx={(← hS.mvarId!.getDecl).lctx.size} hStype dag={(collectDag (fun _ => true) (← instantiateMVars (← hS.mvarId!.getType))).size} t={tE} nocc={(← occs tgt).size}"
     let hb0 ← IO.getNumHeartbeats
-    runSubMem (← clearOthers hS.mvarId!) (← `(tactic| ved_causal [$ex,*]))
+    let hSc ← clearOthers hS.mvarId!
+    dbgLog s!"unfold_mem: clearOthers done ms={(← IO.monoMsNow) - tc0}"
+    runSubMem hSc (← `(tactic| ved_causal [$ex,*]))
     dbgLog s!"unfold_mem: causal ms={(← IO.monoMsNow) - tc0} hb={((← IO.getNumHeartbeats) - hb0) / 1000}"
     let lem ← instantiateMVars (mkApp3 f4 h0 hS (lhs.getArg! 3))
     let eqTy ← instantiateMVars (← inferType lem)
