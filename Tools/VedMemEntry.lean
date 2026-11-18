@@ -8,6 +8,7 @@ import Tools.VedMemLoop
 import Tools.VedMemPack
 import Tools.VedMemShape
 import Tools.VedMemOrder
+import Tools.VedMemWidth
 import Tools.VedU1Loop
 import Tools.VedU1WireShare
 import Tools.VedU1Wire
@@ -394,7 +395,10 @@ def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
         first
           | exact Tools.VedMemOrder.OrderOkM_of_parts _ _ (by decide +kernel) (by decide +kernel) (by decide +kernel)
           | decide +kernel
-      refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+      refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩,
+        by first
+          | exact Tools.VedMemWidth.WidthStmt_of_parts _ _ (by decide +kernel) (by decide +kernel)
+          | decide +kernel, ⟨$B, hord⟩, ?_⟩
       apply outputs_of_orderM $B hord
       refine outputs_of_step_mem $C $M $B $f $O (by decide +kernel) $Rstx ?h0 ?hstep
       case h0 =>
@@ -562,7 +566,10 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
           | exact Tools.VedMemOrder.OrderOkM_of_parts _ _ (by decide +kernel) (by decide +kernel) (by decide +kernel)
           | decide +kernel
       ved_stamp 81
-      refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+      refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩,
+        by first
+          | exact Tools.VedMemWidth.WidthStmt_of_parts _ _ (by decide +kernel) (by decide +kernel)
+          | decide +kernel, ⟨$B, hord⟩, ?_⟩
       ved_stamp 82
       apply outputs_of_orderM $B hord
       ved_stamp 83
