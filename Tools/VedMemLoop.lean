@@ -2,6 +2,7 @@ import Lean
 import Tools.VedMem
 import Tools.VedU1Entry
 import Tools.VedU1WireShare
+import Tools.VedMemNest
 
 /-!
 # Loop unfolding for a loop body that holds a memory (`sparkle-ved-memory`)
@@ -255,6 +256,41 @@ elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
        rw [hc])))
     dbgLog s!"mem_congr: T #{done.size} ms={(← IO.monoMsNow) - tm0} hb={((← IO.getNumHeartbeats) - hbm0) / 1000}"
 
+
+/-- `ved_loop_congr s1 s2 h`: rewrite every `(Signal.loop F).val k` of the goal whose body `F` mentions the fvar `s1`
+(a loop inside the outer loop's body, driven by the outer state) into the one with `s2` in its place
+(`h : ∀ k ≤ t, s1.val k = s2.val k`), by `Tools.VedMemNest.loop_val_congr_le` bounded by `k`: the inner loop at time
+`k` reads the outer signal only at cycles `< k`. -/
+elab "ved_loop_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
+  let s1E ← elabTerm s1.raw none
+  let s2E ← elabTerm s2.raw none
+  let tgt ← instantiateMVars (← getMainTarget)
+  let isLoopVal := fun (x : Expr) =>
+    x.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 && (x.getArg! 2).isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4
+      && (x.getArg! 2).containsFVar s1E.fvarId!
+  let occs := Tools.VedU1WireShare.collectDag isLoopVal tgt
+  let mut done : Array Expr := #[]
+  for o in occs do
+    if done.contains o then continue
+    done := done.push o
+    let L := o.getArg! 2
+    let k := o.getArg! 3
+    let L' := L.replaceFVar s1E s2E
+    let Fs ← Term.exprToSyntax (L.getArg! 3)
+    let F's ← Term.exprToSyntax (L'.getArg! 3)
+    let ks ← Term.exprToSyntax k
+    let Ls ← Term.exprToSyntax o
+    let L's ← Term.exprToSyntax (mkAppN o.getAppFn (o.getAppArgs.set! 2 L'))
+    evalTactic (← `(tactic|
+      (have hc : $Ls = $L's := Tools.VedMemNest.loop_val_congr_le $Fs $F's $ks
+          (by first | (intro a b; rfl) | (intro a b; (try dsimp only); ved_loop_simp [Tools.VedU1Contract.PTy.val, Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val]; done))
+          (by intro t' ht' a b hab
+              have h' : ∀ j, j ≤ t' → Sparkle.Core.Signal.Signal.val $s1 j = Sparkle.Core.Signal.Signal.val $s2 j := fun j hj => $h:ident j (by omega)
+              have hab' := hab t' (Nat.le_refl _)
+              have hs' := h' t' (Nat.le_refl _)
+              first | (ved_loop_simp [hab', hs', Tools.VedU1Contract.PTy.val, Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val]; done) | (simp [hab', hs']; done))
+          $ks (Nat.le_refl _)
+       rw [hc])))
 
 open Lean Meta in
 /-- `BitVec.toNat (x ++ y)` read at either spelling of the width (`4` against `2 + 2`: the pattern of `BitVec.toNat_append`
@@ -565,6 +601,7 @@ macro_rules
                rcases t with _ | t <;>
                (try (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ, Sparkle.Core.Signal.Signal.memory_val_zero, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))
                <;> ved_tlog "causal: simp1"
+               <;> (try ved_loop_congr s1 s2 h)
                <;> (try ved_mem_congr s1 s2 h)
                <;> ved_tlog "causal: congr"
                <;> (try (ved_loop_simp [Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, h, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))))

@@ -6,6 +6,7 @@ import Tools.VedStrictAudit
 import Tools.VedU1Uns
 import Tools.VedMemLoop
 import Tools.VedMemPack
+import Tools.VedMemShape
 import Tools.VedU1Loop
 import Tools.VedU1WireShare
 import Tools.VedU1Wire
@@ -263,7 +264,7 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
     let mut regEqs : Array Lean.Expr := #[]
     unless regs.isEmpty do
       let body ← declBody stmt tbl names ins
-      let loops := Tools.VedU1Loop.loopsOf body
+      let loops ← Tools.VedMemShape.nestedLoops unf body
       if loops.isEmpty then refuseM `mem "shape" m!"registers but no Signal.loop in the declaration"
       let mut compsOf : Array (List Lean.Expr) := #[]
       for L in loops do
