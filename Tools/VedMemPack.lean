@@ -543,6 +543,19 @@ elab "ved_omega_c" : tactic => do
   setGoals [g]
   evalTactic (← `(tactic| ved_omega))
 
+/-- the closing stage on a goal of at least `omegaMaxTree` nodes: drop the hypotheses about signals (see `ved_omega_c`) -- plain `omega` of
+the closers reads them all -/
+elab "ved_clear_sig_big" : tactic => do
+  let g ← getMainGoal
+  let sz ← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType))
+  if sz ≥ omegaMaxTree then
+    let mut g := g
+    for d in ← g.withContext getLCtx do
+      unless d.isImplementationDetail do
+        if (d.type.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isSome then
+          g ← g.tryClear d.fvarId
+    setGoals [g]
+
 /-- `ved_bit_simp` with `ved_omega_c` as side-condition prover -/
 macro "ved_bit_simp_c" : tactic =>
   `(tactic| simp (disch := first | ved_omega_c | (split <;> ved_omega_c) | fail) only
