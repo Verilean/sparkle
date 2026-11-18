@@ -501,6 +501,9 @@ lean_lib «Tests.Ved.U1SmallRegCheck» where
 lean_lib «Tests.Ved.VedMemCheck» where
   roots := #[`Tests.Ved.VedMemCheck]
 
+lean_lib «Tests.Ved.VedMemShapeCheck» where
+  roots := #[`Tests.Ved.VedMemShapeCheck]
+
 lean_lib «Tests.Ved.VedMemPackCheck» where
   roots := #[`Tests.Ved.VedMemPackCheck]
 
