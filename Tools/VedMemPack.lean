@@ -487,6 +487,22 @@ elab "ved_pack_dag_wire_all" : tactic => do
   if dump then Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: goals={gs.length} skipped_wire={skipped} sizes after dag {allSz}"
   setGoals rest
 
+/-- `ved_omega` on a side condition without the hypotheses about signals (the packed memory rows `hM1`, `hD1`, ..: 1.6e8 tree nodes in R034;
+`omega` reads every hypothesis, and they are no `Nat` / `Int` facts).  Only the side-condition goal loses them. -/
+elab "ved_omega_c" : tactic => do
+  let mut g ← getMainGoal
+  for d in ← g.withContext getLCtx do
+    unless d.isImplementationDetail do
+      if (d.type.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isSome then
+        g ← g.tryClear d.fvarId
+  setGoals [g]
+  evalTactic (← `(tactic| ved_omega))
+
+/-- `ved_pack_simp` with `ved_omega_c` as side-condition prover (the plain one reads the 1.6e8-node signal hypotheses at every side condition) -/
+macro "ved_pack_simp_c" : tactic =>
+  `(tactic| simp (disch := first | ved_omega_c | fail) only
+      [Nat.reducePow, Nat.reduceAdd, Nat.mod_eq_of_lt, Nat.div_eq_of_lt, Tools.VedU1Loop.div_pack, Tools.VedU1Loop.mod_pack, Nat.add_mod_left, Nat.add_zero])
+
 /-- `ved_pack_simp` on a goal that still has a read of the packed state (after `ved_pack_dag` it is a traversal that changes nothing) -/
 elab "ved_pack_simp_g" : tactic => do
   unless ← isDagged (← getMainGoal) do
@@ -510,7 +526,7 @@ elab "ved_pack_simp_g" : tactic => do
             return out : EvalM _).run {}
         pure r
       Tools.VedMemLoop.dbgLog s!"pack_simp_g runs: {msg.take 1500}"
-    evalTactic (← `(tactic| ved_pack_simp))
+    evalTactic (← `(tactic| ved_pack_simp_c))
 
 /-- `all_goals t` with a stage-log line per goal (size, ms, heartbeats; only with `VED_DUMP_DIR`) -/
 elab "ved_all_goals_log " "(" t:tactic ")" : tactic => do
@@ -531,17 +547,6 @@ elab "ved_all_goals_log " "(" t:tactic ")" : tactic => do
     i := i + 1
     rest := rest ++ (← getGoals)
   setGoals rest
-
-/-- `ved_omega` on a side condition without the hypotheses about signals (the packed memory rows `hM1`, `hD1`, ..: 1.6e8 tree nodes in R034;
-`omega` reads every hypothesis, and they are no `Nat` / `Int` facts).  Only the side-condition goal loses them. -/
-elab "ved_omega_c" : tactic => do
-  let mut g ← getMainGoal
-  for d in ← g.withContext getLCtx do
-    unless d.isImplementationDetail do
-      if (d.type.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isSome then
-        g ← g.tryClear d.fvarId
-  setGoals [g]
-  evalTactic (← `(tactic| ved_omega))
 
 /-- the closing stage on a goal of at least `omegaMaxTree` nodes: drop the hypotheses about signals (see `ved_omega_c`) -- plain `omega` of
 the closers reads them all -/
