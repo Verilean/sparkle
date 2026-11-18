@@ -660,7 +660,9 @@ def vedSplitGoal (label : String) (k : TacticM Unit) : TacticM Unit := do
     k
     unless (← getGoals).isEmpty do throwError "ved_split {label}: goals remain"
     setGoals saved
+    Tools.VedKDiag.append s!"KSPLIT {label}: body done"
     let val ← instantiateMVars mv
+    Tools.VedKDiag.append s!"KSPLIT {label}: instantiated"
     -- used fvars, closed under the types / values of the used ones
     let mut used : Std.HashSet FVarId := {}
     let mut todo : Array Expr := #[ty, val]
@@ -676,8 +678,10 @@ def vedSplitGoal (label : String) (k : TacticM Unit) : TacticM Unit := do
           if let some v := d.value? then todo := todo.push v
     let xs := (← getLCtx).foldl (init := #[]) fun acc d =>
       if used.contains d.fvarId then acc.push d.toExpr else acc
+    Tools.VedKDiag.append s!"KSPLIT {label}: fvars collected {xs.size}"
     let T ← mkForallFVars xs ty
     let V ← mkLambdaFVars xs val
+    Tools.VedKDiag.append s!"KSPLIT {label}: abstracted, checking"
     let t0 ← IO.monoMsNow
     let hb0 ← IO.getNumHeartbeats
     let r ← tryCatchRuntimeEx
@@ -687,6 +691,8 @@ def vedSplitGoal (label : String) (k : TacticM Unit) : TacticM Unit := do
       (fun e => do pure (Except.error (← e.toMessageData.toString)))
     let t1 ← IO.monoMsNow
     let hb1 ← IO.getNumHeartbeats
+    -- diagnosis only: the part's own check is not charged to the caller's heartbeat budget
+    IO.setNumHeartbeats hb0
     let hs ← IO.mkRef ({} : Std.HashMap USize (Nat × Nat))
     let nT ← Tools.VedKDiag.walk T hs
     let nV ← Tools.VedKDiag.walk V hs

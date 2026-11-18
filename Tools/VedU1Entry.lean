@@ -1127,6 +1127,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
     if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
     if (← IO.getEnv "VED_KDIAG_OUT").isSome then Tools.VedKDiag.run (← getEnv) pf expected
+    if (← IO.getEnv "VED_KDIAG_STOP").isSome then refuse decl "kdiag" m!"VED_KDIAG_STOP: final kernel check skipped (diagnosis only)"
     -- the kernel, synchronously, with EXACTLY the expected type
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
