@@ -536,7 +536,7 @@ elab "ved_if_read " t:tactic : tactic => do
       let e ← instantiateMVars (← g.getType)
       pure (e.find? fun e => e.isConstOf ``Sparkle.Core.Signal.Signal.memoryComboRead).isSome
     if run then
-      evalTactic (← `(tactic| try $t))
+      evalTactic (← `(tactic| try ($t:tactic)))
     out := out ++ (← getGoals)
   setGoals out
 
