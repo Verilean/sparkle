@@ -16,9 +16,12 @@ theorem int_concat_div (x y m : Int) (hm : 0 < m) : (x % m * m + y % m) / m = x 
     Int.ediv_eq_zero_of_lt (Int.emod_nonneg _ (Int.ne_of_gt hm)) (Int.emod_lt_of_pos _ hm), Int.zero_add]
 
 open Lean Meta Elab Tactic in
-/-- `ved_iir_guard`: fails at once unless the goal or a hypothesis mentions the type `Int` (the signed
-specification of `IP.Control.FixedPoint`, `Int.bmod` / `Int` arithmetic).  Goals over `Nat` and `BitVec` only
-(the memory rows, `R38`) cannot use `ved_iir_norm`, so they do not pay for the `split` / `simp at *` before it. -/
+/-- `ved_iir_guard`: fails at once unless the goal or a hypothesis syntactically mentions the type `Int` (the
+signed specification of `IP.Control.FixedPoint`, `Int.bmod` / `Int` arithmetic).  This is a cost heuristic, not a
+statement about what `ved_iir_norm` can prove: `ved_iir_norm` also casts `Nat` facts to `Int`, so it might close
+some goals without an `Int` term, but those goals (the memory rows, `R38`) no longer try it and so do not pay for
+the `split` / `simp at *` before it.  Only the goal and hypothesis types are inspected, not `Int`s inside the
+definitions they mention. -/
 elab "ved_iir_guard" : tactic => withMainContext do
   let hasInt (e : Expr) : Bool := (e.find? fun x => x.isConstOf ``Int).isSome
   if hasInt (← getMainTarget) then return
