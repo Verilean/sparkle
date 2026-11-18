@@ -551,6 +551,30 @@ elab "ved_stamp " k:num : tactic => do
     if let some st ← IO.getEnv "VED_STOP_AT" then
       if st.toNat? == some k.getNat then
         dbgLog s!"sizes {szs}"
+        if let some pi ← IO.getEnv "VED_PROBE" then
+          if let some g := gs[pi.toNat!]? then
+            -- test only: context of the goal (let values, Signal-typed hypotheses included) and `ved_bit_simp` under a budget of its own
+            g.withContext do
+              for d in ← getLCtx do
+                unless d.isImplementationDetail do
+                  let ty ← instantiateMVars d.type
+                  let vs := match d.value? with | some v => Tools.VedU1Loop.treeSizeVal v | none => 0
+                  dbgLog s!"PROBE hyp {d.userName} type={Tools.VedU1Loop.treeSizeVal ty} value={vs} let={d.value?.isSome}"
+            for variant in [0, 1] do
+              let sv ← saveState
+              setGoals [g]
+              let hb0 ← IO.getNumHeartbeats
+              let t0 ← IO.monoMsNow
+              let r ← try
+                  tryCatchRuntimeEx
+                    (withTheReader Core.Context (fun c => { c with initHeartbeats := hb0, maxHeartbeats := 400000 * 1000 })
+                      (Tactic.withoutRecover (evalTactic (← if variant == 0 then `(tactic| ved_bit_simp) else `(tactic| (clear_value *; ved_bit_simp))))))
+                    fun _ => throwError "runtime exception (budget)"
+                  pure "ok"
+                catch e => pure s!"FAILED {(← e.toMessageData.toString).take 200}"
+              dbgLog s!"PROBE bit_simp variant={variant} {r} hb={((← IO.getNumHeartbeats) - hb0) / 1000} ms={(← IO.monoMsNow) - t0}"
+              sv.restore
+            setGoals gs
         if let some l ← IO.getEnv "VED_DUMP_TGT" then
           for w in l.splitOn "," do
             if let some i := w.toNat? then

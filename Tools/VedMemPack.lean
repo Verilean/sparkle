@@ -532,9 +532,25 @@ elab "ved_all_goals_log " "(" t:tactic ")" : tactic => do
     rest := rest ++ (← getGoals)
   setGoals rest
 
+/-- `ved_omega` on a side condition without the hypotheses about signals (the packed memory rows `hM1`, `hD1`, ..: 1.6e8 tree nodes in R034;
+`omega` reads every hypothesis, and they are no `Nat` / `Int` facts).  Only the side-condition goal loses them. -/
+elab "ved_omega_c" : tactic => do
+  let mut g ← getMainGoal
+  for d in ← g.withContext getLCtx do
+    unless d.isImplementationDetail do
+      if (d.type.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isSome then
+        g ← g.tryClear d.fvarId
+  setGoals [g]
+  evalTactic (← `(tactic| ved_omega))
+
+/-- `ved_bit_simp` with `ved_omega_c` as side-condition prover -/
+macro "ved_bit_simp_c" : tactic =>
+  `(tactic| simp (disch := first | ved_omega_c | (split <;> ved_omega_c) | fail) only
+      [Tools.VedU1Loop.and_lt2_l, Tools.VedU1Loop.and_lt2_r, Tools.VedU1Loop.or_lt2, Tools.VedU1Loop.xor_lt2])
+
 /-- `ved_bit_simp` on a goal that went through `ved_pack_dag` (the 0/1 `&&&` / `|||` of the wires need the field variables) -/
 elab "ved_bit_simp_g" : tactic => do
-  if ← isDagged (← getMainGoal) then evalTactic (← `(tactic| ved_bit_simp))
+  if ← isDagged (← getMainGoal) then evalTactic (← `(tactic| ved_bit_simp_c))
 
 /-- fails unless the main goal went through `ved_pack_dag_wire_all`'s rewriting -/
 elab "ved_dag_only" : tactic => do
