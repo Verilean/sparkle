@@ -3,6 +3,7 @@ import Sparkle.Compiler.Elab
 import Tools.VedU1Contract
 import Tools.VedU1Lemmas
 import Tools.VedU1SmallReg
+import Tools.VedU1RegChain
 import Tools.VedU1Table
 import Tools.VedU1TableGen
 import Std.Data.HashMap
@@ -1072,8 +1073,22 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
           else pure none
         else pure none
       else pure none
+    -- a loop-free register chain (`Tools/VedU1RegChain.lean`): its own script, else the usual dispatch
+    let chainStx? : Option Syntax ← do
+      if let .generated := proof then
+        let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+        -- nested `if`s: a `(← …)` in the condition would be lifted before the `isConst` test
+        if stmt.getAppFn.isConst && regs.length ≥ 2 then
+          let F := stmt.getAppFn.constName!
+          if !(← Tools.VedU1Uns.usesLoop F (← helperConsts F)) then
+            Tools.VedU1RegChain.regChainScript nm.contract nm.mod nm.outs nm.body F
+              stmt.getAppNumArgs b0 clkRst (dataPortsOf m clkRst)
+          else pure none
+        else pure none
+      else pure none
     let stx ← match proof with
       | .generated =>
+        if let some cs := chainStx? then pure cs else
         let widths := m.inputs.filter (fun p => match clkRstOf m with | some (k, r) => p.name != k && p.name != r | none => true) |>.map fun p => match p.ty with | .bitVector w => w | .bit => 1 | _ => 100
         if stmt.getAppFn.isConst then
           let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
@@ -1096,7 +1111,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     let firstPf? : Option Lean.Expr ← do
       if let .generated := proof then
         let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
-        if stmt.getAppFn.isConst && regs.length ≥ 2 then
+        if stmt.getAppFn.isConst && regs.length ≥ 2 && chainStx?.isNone then
           match ← Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body stmt.getAppFn.constName!
               stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) with
           | some sx => tryScriptFirst sx expected
