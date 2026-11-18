@@ -643,26 +643,12 @@ elab "ved_seq_unmdata" : tactic => do
   setGoals out.toList
 
 open Lean Meta Elab Tactic in
-/-- DIAGNOSTIC (`VED_SPLIT` env var, comma separated labels; behaviour unchanged when unset):
-run `k` on the main goal; if `label` is selected, abstract the finished proof over the used local
-context into a closed auxiliary theorem (`mkAuxTheorem`, kernel-checked synchronously, timed, the
-result and DAG sizes appended to `VED_KDIAG_OUT`) and close the goal with it.  A part whose kernel
-check fails is logged and closed by `sorry` (diagnosis only, never a result). -/
-def vedSplitGoal (label : String) (k : TacticM Unit) : TacticM Unit := do
-  let sel := ((← IO.getEnv "VED_SPLIT").getD "").splitOn ","
-  unless sel.contains label do return (← k)
-  let g ← getMainGoal
-  g.withContext do
-    let ty ← instantiateMVars (← g.getType)
-    let mv ← mkFreshExprMVar (some ty)
-    let saved ← getGoals
-    setGoals [mv.mvarId!]
-    k
-    unless (← getGoals).isEmpty do throwError "ved_split {label}: goals remain"
-    setGoals saved
-    Tools.VedKDiag.append s!"KSPLIT {label}: body done"
-    let val ← instantiateMVars mv
-    Tools.VedKDiag.append s!"KSPLIT {label}: instantiated"
+/-- DIAGNOSTIC: abstract `val : ty` (proved in the context of `g`) over the used local context into
+a closed auxiliary theorem, kernel-checked synchronously and timed (the part's own check is not
+charged to the caller's heartbeat budget); the result and DAG sizes are appended to `VED_KDIAG_OUT`.
+`some (c, xs)`: `c xs` proves `ty`. -/
+def vedAbstractCheckHere (label : String) (ty val : Expr) (quiet : Bool := false) :
+    TacticM (Option (Expr × Array Expr)) := do
     -- used fvars, closed under the types / values of the used ones
     let mut used : Std.HashSet FVarId := {}
     let mut todo : Array Expr := #[ty, val]
@@ -678,10 +664,10 @@ def vedSplitGoal (label : String) (k : TacticM Unit) : TacticM Unit := do
           if let some v := d.value? then todo := todo.push v
     let xs := (← getLCtx).foldl (init := #[]) fun acc d =>
       if used.contains d.fvarId then acc.push d.toExpr else acc
-    Tools.VedKDiag.append s!"KSPLIT {label}: fvars collected {xs.size}"
+    unless quiet do Tools.VedKDiag.append s!"KSPLIT {label}: fvars collected {xs.size}"
     let T ← mkForallFVars xs ty
     let V ← mkLambdaFVars xs val
-    Tools.VedKDiag.append s!"KSPLIT {label}: abstracted, checking"
+    unless quiet do Tools.VedKDiag.append s!"KSPLIT {label}: abstracted, checking"
     let t0 ← IO.monoMsNow
     let hb0 ← IO.getNumHeartbeats
     let r ← tryCatchRuntimeEx
@@ -700,11 +686,134 @@ def vedSplitGoal (label : String) (k : TacticM Unit) : TacticM Unit := do
     let st := s!"KSPLIT {label}: fvars={xs.size} typeH={(Tools.VedKDiag.lookup h T).1} valueH={(Tools.VedKDiag.lookup h V).1} dagNodes(T+V)={nT+nV} secs={(t1-t0)/1000} hb={(hb1-hb0)/1000000}e6"
     match r with
     | .ok c =>
-      Tools.VedKDiag.append s!"{st} RESULT=ok"
-      g.assign (mkAppN c xs)
+      if !quiet || t1 - t0 ≥ 1000 then Tools.VedKDiag.append s!"{st} RESULT=ok"
+      return some (c, xs)
     | .error m =>
       Tools.VedKDiag.append s!"{st} RESULT=FAIL {m}"
-      g.assign (← mkSorry ty (synthetic := true))
+      return none
+
+open Lean Meta Elab Tactic in
+def vedAbstractCheck (label : String) (g : MVarId) (ty val : Expr) : TacticM (Option (Expr × Array Expr)) :=
+  g.withContext (vedAbstractCheckHere label ty val)
+
+open Lean Meta Elab Tactic in
+/-- DIAGNOSTIC hot-spot search for a proof `val` whose kernel check fails: post-order over the proof
+tree (binders instantiated by fresh fvars, each original node once), every proof-valued subterm is
+abstracted and kernel-checked on its own; the first failing ones (all their proof children passed)
+are reported with their head symbol and sizes.  Stops after `budgetMs` or `maxFail` failures. -/
+partial def vedHotSpots (val : Expr) (budgetMs : Nat) (maxFail : Nat := 3) : TacticM Unit := do
+  let t0 ← IO.monoMsNow
+  let seen ← IO.mkRef ({} : Std.HashSet USize)
+  let nFail ← IO.mkRef 0
+  let nChk ← IO.mkRef 0
+  let nSkip ← IO.mkRef 0
+  let rec go (e : Expr) : TacticM Unit := do
+    if (← nFail.get) ≥ maxFail || (← IO.monoMsNow) - t0 > budgetMs then return
+    match e with
+    | .bvar .. | .sort .. | .lit .. | .const .. | .fvar .. | .mvar .. | .forallE .. => return
+    | _ => pure ()
+    let key := Tools.VedKDiag.addr e
+    if (← seen.get).contains key then return
+    seen.modify (·.insert key)
+    match e with
+    | .mdata _ b => go b; return
+    | .lam .. =>
+      lambdaTelescope e fun _ b => go b
+      return
+    | .letE n t v b _ =>
+      go v
+      withLetDecl n t v fun x => go (b.instantiate1 x)
+      return
+    | .proj _ _ b => go b
+    | .app .. =>
+      let f := e.getAppFn
+      unless f.isConst do go f
+      for a in e.getAppArgs do go a
+    | _ => pure ()
+    if (← nFail.get) ≥ maxFail then return
+    let ty ← inferType e
+    unless (← isProp ty) do return
+    nChk.modify (· + 1)
+    if (← vedAbstractCheckHere s!"hot#{← nChk.get}" ty e (quiet := true)).isNone then
+      nFail.modify (· + 1)
+      let hs ← IO.mkRef ({} : Std.HashMap USize (Nat × Nat))
+      let n ← Tools.VedKDiag.walk e hs
+      let nt ← Tools.VedKDiag.walk ty hs
+      let h ← hs.get
+      let args := e.getAppArgs
+      let argSz ← args.mapM fun a => do
+        let r ← IO.mkRef ({} : Std.HashMap USize (Nat × Nat))
+        let n ← Tools.VedKDiag.walk a r
+        pure s!"{n}/{(Tools.VedKDiag.lookup (← r.get) a).1}"
+      let tyStr ← if nt ≤ 400 then pure (toString (← ppExpr ty)) else pure "(large)"
+      Tools.VedKDiag.append s!"KHOT FAIL #{← nChk.get}: kind={Tools.VedKDiag.kindOf e} head={e.getAppFn.constName?.getD `_} nargs={args.size} termNodes={n} termH={(Tools.VedKDiag.lookup h e).1} typeNodes={nt} argsNodes/h={argSz} type={tyStr.take 700}"
+  go val
+  Tools.VedKDiag.append s!"KHOT done: checked={← nChk.get} fails={← nFail.get} ms={(← IO.monoMsNow) - t0}"
+
+/-- DIAGNOSTIC state of `ved_probe`: the part being run (label, its root goal, the proof metavariable)
+and whether a probe already failed. -/
+initialize vedProbeRoot : IO.Ref (Option (String × Lean.MVarId × Lean.Expr)) ← IO.mkRef none
+initialize vedProbeDead : IO.Ref Bool ← IO.mkRef false
+
+open Lean Meta Elab Tactic in
+/-- DIAGNOSTIC (`VED_SPLIT` env var, comma separated labels; `VED_PROBE` labels `part:n` also wrap
+their part; behaviour unchanged when both are unset): run `k` on the main goal; if `label` is in
+`VED_SPLIT`, abstract the finished proof into a closed auxiliary theorem (`vedAbstractCheck`) and close
+the goal with it.  A part whose kernel check fails is logged and closed by `sorry` (diagnosis only,
+never a result). -/
+def vedSplitGoal (label : String) (k : TacticM Unit) : TacticM Unit := do
+  let sel := ((← IO.getEnv "VED_SPLIT").getD "").splitOn ","
+  let probes := ((← IO.getEnv "VED_PROBE").getD "").splitOn ","
+  let probed := probes.any (·.startsWith (label ++ ":"))
+  unless sel.contains label || probed do return (← k)
+  let g ← getMainGoal
+  let ty ← g.withContext do instantiateMVars (← g.getType)
+  let mv ← g.withContext do mkFreshExprMVar (some ty)
+  let saved ← getGoals
+  setGoals [mv.mvarId!]
+  let oldRoot ← vedProbeRoot.get
+  if probed then vedProbeRoot.set (some (label, g, mv))
+  try k finally vedProbeRoot.set oldRoot
+  unless (← getGoals).isEmpty do throwError "ved_split {label}: goals remain"
+  setGoals saved
+  Tools.VedKDiag.append s!"KSPLIT {label}: body done"
+  let val ← instantiateMVars mv
+  if !sel.contains label then
+    g.assign val
+    return
+  match ← vedAbstractCheck label g ty val with
+  | some (c, xs) => g.assign (mkAppN c xs)
+  | none => g.assign (← mkSorry ty (synthetic := true))
+
+open Lean Meta Elab Tactic in
+/-- DIAGNOSTIC `ved_probe "part:n"` (only if `part:n` is in `VED_PROBE`, and `part` is the running
+`ved_split` part): in a saved state, close every current goal by `sorry`, abstract and kernel-check the
+partial proof of the part, then restore the state (nothing changes).  Probing stops after the first
+failure. -/
+def vedProbe (name : String) : TacticM Unit := do
+  let probes := ((← IO.getEnv "VED_PROBE").getD "").splitOn ","
+  unless probes.contains name do return
+  if (← vedProbeDead.get) then return
+  let some (label, g, mv) ← vedProbeRoot.get | return
+  unless name.startsWith (label ++ ":") do return
+  let st ← saveState
+  try
+    for x in ← getGoals do
+      unless ← x.isAssigned do x.assign (← x.withContext do mkSorry (← x.getType) (synthetic := true))
+    let ty ← g.withContext do instantiateMVars (← g.getType)
+    let val ← instantiateMVars mv
+    Tools.VedKDiag.append s!"KPROBE {name}: start"
+    if (← vedAbstractCheck s!"probe {name}" g ty val).isNone then
+      vedProbeDead.set true
+      if (← IO.getEnv "VED_HOT").isSome then
+        g.withContext (vedHotSpots val (((← IO.getEnv "VED_HOT").bind String.toNat?).getD 300000))
+  finally st.restore
+
+open Lean Elab Tactic in
+syntax (name := vedProbeStx) "ved_probe " str : tactic
+
+open Lean Elab Tactic in
+@[tactic vedProbeStx] def evalVedProbe : Tactic := fun stx => vedProbe ((stx[1].isStrLit?).getD "")
 
 open Lean Elab Tactic in
 syntax (name := vedSplit) "ved_split " str " (" tacticSeq ")" : tactic
@@ -923,6 +1032,15 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(tactic| ved_seq_simp [$exReg,*]),
     ← `(tactic| ved_seq_bools),
     ← `(tactic| all_goals try (repeat' apply And.intro))] ++ closeTacs
+  -- DIAGNOSTIC: `VED_PROBE` set at generation time interleaves `ved_probe "reg:n"` after tactic n
+  let regTacs ← if (← IO.getEnv "VED_PROBE").isNone then pure regTacs else do
+    let mut o : Array (TSyntax `tactic) := #[]
+    let mut n := 0
+    for t in regTacs do
+      o := o.push t
+      o := o.push (← `(tactic| ved_probe $(Syntax.mkStrLit s!"reg:{n}")))
+      n := n + 1
+    pure o
   let h0tacs : Array (TSyntax `tactic) := #[
     ← `(tactic| intro $insI hok),
     ← `(tactic| ved_seq_next0 [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]),

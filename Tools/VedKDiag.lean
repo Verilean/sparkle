@@ -12,6 +12,7 @@ structure Stats where
   path : Array (String × String)
 
 unsafe def addrOf (e : Expr) : USize := ptrAddrUnsafe e
+@[implemented_by addrOf] opaque addr (e : Expr) : USize
 
 def kindOf : Expr → String
   | .app .. => "app" | .lam .. => "lam" | .forallE .. => "forallE" | .letE .. => "letE"
