@@ -17,6 +17,7 @@ import Tools.VedU1Heavy
 import Tools.VedU1StructSeq
 import Tools.VedStrictAudit
 import Tools.VedInvocationDom
+import Tools.VedKDiag
 
 /-!
 # U1 checked entry, minimal end-to-end slice (`#ved_u1 decl`)
@@ -1125,6 +1126,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         | [] => pure ""
       refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
     if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
+    if (← IO.getEnv "VED_KDIAG_OUT").isSome then Tools.VedKDiag.run (← getEnv) pf expected
     -- the kernel, synchronously, with EXACTLY the expected type
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do

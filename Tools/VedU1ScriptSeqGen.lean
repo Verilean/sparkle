@@ -1,6 +1,7 @@
 import Lean
 import Tools.VedU1ScriptSeq
 import Tools.VedU1Loop
+import Tools.VedKDiag
 
 /-!
 # The per-statement multi-register script (`Tools.VedU1ScriptSeqGen`)
@@ -642,15 +643,82 @@ elab "ved_seq_unmdata" : tactic => do
   setGoals out.toList
 
 open Lean Meta Elab Tactic in
+/-- DIAGNOSTIC (`VED_SPLIT` env var, comma separated labels; behaviour unchanged when unset):
+run `k` on the main goal; if `label` is selected, abstract the finished proof over the used local
+context into a closed auxiliary theorem (`mkAuxTheorem`, kernel-checked synchronously, timed, the
+result and DAG sizes appended to `VED_KDIAG_OUT`) and close the goal with it.  A part whose kernel
+check fails is logged and closed by `sorry` (diagnosis only, never a result). -/
+def vedSplitGoal (label : String) (k : TacticM Unit) : TacticM Unit := do
+  let sel := ((← IO.getEnv "VED_SPLIT").getD "").splitOn ","
+  unless sel.contains label do return (← k)
+  let g ← getMainGoal
+  g.withContext do
+    let ty ← instantiateMVars (← g.getType)
+    let mv ← mkFreshExprMVar (some ty)
+    let saved ← getGoals
+    setGoals [mv.mvarId!]
+    k
+    unless (← getGoals).isEmpty do throwError "ved_split {label}: goals remain"
+    setGoals saved
+    let val ← instantiateMVars mv
+    -- used fvars, closed under the types / values of the used ones
+    let mut used : Std.HashSet FVarId := {}
+    let mut todo : Array Expr := #[ty, val]
+    while !todo.isEmpty do
+      let e := todo.back!
+      todo := todo.pop
+      let st := (Lean.collectFVars {} e)
+      for fv in st.fvarIds do
+        unless used.contains fv do
+          used := used.insert fv
+          let d ← fv.getDecl
+          todo := todo.push d.type
+          if let some v := d.value? then todo := todo.push v
+    let xs := (← getLCtx).foldl (init := #[]) fun acc d =>
+      if used.contains d.fvarId then acc.push d.toExpr else acc
+    let T ← mkForallFVars xs ty
+    let V ← mkLambdaFVars xs val
+    let t0 ← IO.monoMsNow
+    let hb0 ← IO.getNumHeartbeats
+    let r ← tryCatchRuntimeEx
+      (do
+        let c ← withOptions (fun o => o.setBool `Elab.async false) (mkAuxTheorem T V (zetaDelta := true))
+        pure (Except.ok c))
+      (fun e => do pure (Except.error (← e.toMessageData.toString)))
+    let t1 ← IO.monoMsNow
+    let hb1 ← IO.getNumHeartbeats
+    let hs ← IO.mkRef ({} : Std.HashMap USize (Nat × Nat))
+    let nT ← Tools.VedKDiag.walk T hs
+    let nV ← Tools.VedKDiag.walk V hs
+    let h ← hs.get
+    let st := s!"KSPLIT {label}: fvars={xs.size} typeH={(Tools.VedKDiag.lookup h T).1} valueH={(Tools.VedKDiag.lookup h V).1} dagNodes(T+V)={nT+nV} secs={(t1-t0)/1000} hb={(hb1-hb0)/1000000}e6"
+    match r with
+    | .ok c =>
+      Tools.VedKDiag.append s!"{st} RESULT=ok"
+      g.assign (mkAppN c xs)
+    | .error m =>
+      Tools.VedKDiag.append s!"{st} RESULT=FAIL {m}"
+      g.assign (← mkSorry ty (synthetic := true))
+
+open Lean Elab Tactic in
+syntax (name := vedSplit) "ved_split " str " (" tacticSeq ")" : tactic
+
+open Lean Elab Tactic in
+@[tactic vedSplit] def evalVedSplit : Tactic := fun stx => do
+  let lbl := (stx[1].isStrLit?).getD ""
+  vedSplitGoal lbl (evalTactic stx[3])
+
+open Lean Meta Elab Tactic in
 /-- `ved_seq_close_each`: the closing tactic on every goal in turn; a goal it cannot close is an
 error (the whole attempt is abandoned at once, the fallback script then runs). -/
 elab "ved_seq_close_each" : tactic => do
   let gs ← getGoals
   for g in gs do
     setGoals [g]
+    vedSplitGoal "goal" (do
     evalTactic (← `(tactic| ved_seq_unmdata))
     Tactic.withoutRecover
-      (evalTactic (← `(tactic| ved_seq_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Int.bmod_def, BitVec.toNat_append, BitVec.toNat_ofNat, Tools.VedU1ScriptSeq.or_mod _ _ _ _ rfl])))
+      (evalTactic (← `(tactic| ved_seq_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Int.bmod_def, BitVec.toNat_append, BitVec.toNat_ofNat, Tools.VedU1ScriptSeq.or_mod _ _ _ _ rfl]))))
   setGoals []
 
 /-! ## The generator -/
@@ -856,8 +924,8 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(tactic| simp [Tools.VedU1Contract.st0, $Ci:ident, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.regsOf, $Mi:ident, Sparkle.IR.Semantics.encodeInit, Sparkle.IR.Semantics.mask, Tools.VedU1Contract.declWidth]),
     ← `(tactic| all_goals decide +kernel)]
   let oos := mkCIdent `Tools.VedU1Entry.outputs_of_step
-  let b1 ← `(tactic| · $outTacs*)
-  let b2 ← `(tactic| · $regTacs*)
+  let b1 ← `(tactic| · ved_split "out" ($outTacs*))
+  let b2 ← `(tactic| · ved_split "reg" ($regTacs*))
   let hblock : Array (TSyntax `tactic) := tacs ++ #[b1, b2]
   let stx ← `(by
       have hord : OrderOk $Mi $Bi = true := by decide +kernel
@@ -865,9 +933,9 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
       apply Tools.VedU1Contract.outputs_of_order $Bi hord
       refine $oos $Ci $Mi $Bi $f $Oi (by decide +kernel) ?R ?h0 ?hstep
       case hstep =>
-        $hblock*
+        ved_split "step" ($hblock*)
       case h0 =>
-        $h0tacs*)
+        ved_split "h0" ($h0tacs*))
   return some stx
 
 end Tools.VedU1ScriptSeq
