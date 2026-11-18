@@ -2,6 +2,7 @@ import Lean
 import Tools.VedU1ScriptSeq
 import Tools.VedU1Loop
 import Tools.VedKDiag
+import Tools.VedExprDump
 
 /-!
 # The per-statement multi-register script (`Tools.VedU1ScriptSeqGen`)
@@ -690,6 +691,11 @@ def vedAbstractCheckHere (label : String) (ty val : Expr) (quiet : Bool := false
       return some (c, xs)
     | .error m =>
       Tools.VedKDiag.append s!"{st} RESULT=FAIL {m}"
+      -- diagnosis only: `VED_DUMP=prefix` writes the failing closed theorem to `prefix.<label>.dump`
+      if let some pre ← IO.getEnv "VED_DUMP" then
+        let lbl := label.map fun c => if c.isAlphanum then c else '_'
+        Tools.VedExprDump.dump (← getEnv) s!"{pre}.{lbl}.dump" T V
+        Tools.VedKDiag.append s!"KSPLIT {label}: dumped to {pre}.{lbl}.dump"
       return none
 
 open Lean Meta Elab Tactic in
