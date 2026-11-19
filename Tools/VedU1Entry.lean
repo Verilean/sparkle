@@ -309,14 +309,18 @@ macro_rules
   | `(tactic| ved_loopw_simp [$ex,*] $[$loc]?) =>
     `(tactic| simp -implicitDefEqProofs (maxSteps := 4000000) [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
 
-/- `ved_budget n t`: `t` with a local heartbeat budget of `n` thousand (never above the ambient one); running out
-makes `t` fail like any other tactic failure, so a `first | … | t` alternative falls through.  The 4th alternative of
+/- `ved_budget n t`: `t` with a local heartbeat budget of `n` thousand, never above what is left of the ambient
+budget (with an unlimited ambient budget, `maxHeartbeats = 0`, the local one alone); running out makes `t` fail
+like any other tactic failure, so a `first | … | t` alternative falls through.  The 4th alternative of
 the closers below repeats `ved_bits_facts` on goals where it already ran once (the 3rd alternative), and on a deep
 `|||` chain (`synth_scale`, R281) each run is minutes of `omegaProof?` probes. -/
 open Lean Elab Tactic in
 elab "ved_budget " n:num t:tactic : tactic => do
   let hb ← IO.getNumHeartbeats
-  let r ← withTheReader Core.Context (fun c => { c with maxHeartbeats := min c.maxHeartbeats (n.getNat * 1000), initHeartbeats := hb }) do
+  let loc := n.getNat * 1000
+  let r ← withTheReader Core.Context (fun c =>
+      let left := c.maxHeartbeats - (hb - c.initHeartbeats)
+      { c with maxHeartbeats := if c.maxHeartbeats == 0 then loc else max 1 (min left loc), initHeartbeats := hb }) do
     tryCatchRuntimeEx (do evalTactic t; pure true) fun e =>
       if e.isRuntime then pure false else throw e
   unless r do throwError "ved_budget: local heartbeat budget exhausted"
