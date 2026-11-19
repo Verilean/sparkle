@@ -976,10 +976,13 @@ def firstAttemptLimit (ctx cap : Nat) : Nat := if ctx == 0 then cap else min ctx
 proof budget, and at most `firstAttemptHeartbeats` thousand heartbeats of it; any failure (exception,
 timeout, logged error, open term) puts the state back (messages and environment included) and
 returns `none`, so the caller runs the script it always ran. -/
-def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lean.Expr) := do
+def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) (stamps : Option Name := none) :
+    TermElabM (Option Lean.Expr) := do
   let saved ← saveState
   let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
   let hb0 ← IO.getNumHeartbeats
+  -- `VED_STAGE_STAMPS=1` (`stamps := some decl`): per-stage lines on stderr, see `Tools.VedU1ScriptSeq.stageLine`
+  if let some d := stamps then Tools.VedU1ScriptSeq.stageStart d.toString "u1_seq" "first" "prelude" hb0
   let capK := match ved.u1.firstAttemptHeartbeatsForTest.get (← getOptions) with
     | 0 => firstAttemptHeartbeats
     | n => n
@@ -992,8 +995,19 @@ def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lea
           synthesizeSyntheticMVarsNoPostponing
           instantiateMVars e
       let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
-      if errs.length != errsBefore || pf.hasMVar || pf.hasFVar then pure none else pure (some pf))
-    fun _ => pure none
+      if errs.length != errsBefore || pf.hasMVar || pf.hasFVar then
+        if stamps.isSome then
+          let why ← match errs.drop errsBefore with
+            | msg :: _ => msg.data.toString
+            | [] => pure "open term"
+          Tools.VedU1ScriptSeq.stageFail s!"logged error / open term: {why}"
+        pure none
+      else
+        if stamps.isSome then Tools.VedU1ScriptSeq.stageOk
+        pure (some pf))
+    fun e => do
+      if stamps.isSome then Tools.VedU1ScriptSeq.stageFail (← e.toMessageData.toString)
+      pure none
   if r.isNone then saved.restore (restoreInfo := true)
   return r
 
@@ -1124,16 +1138,18 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     -- first attempt: the per-statement multi-register script (`Tools/VedU1ScriptSeqGen.lean`)
-    let firstPf? : Option Lean.Expr ← do
+    -- `VED_STAGE_STAMPS=1` (default off, one getEnv): per-stage lines on stderr (`Tools.VedU1ScriptSeq.stageLine`)
+    let stamps := (← IO.getEnv "VED_STAGE_STAMPS") == some "1"
+    let (firstPf?, firstRan) : Option Lean.Expr × Bool ← do
       if let .generated := proof then
         let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
         if stmt.getAppFn.isConst && regs.length ≥ 2 && chainStx?.isNone then
           match ← Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body stmt.getAppFn.constName!
-              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) with
-          | some sx => tryScriptFirst sx expected
-          | none => pure none
-        else pure none
-      else pure none
+              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) stamps with
+          | some sx => pure (← tryScriptFirst sx expected (if stamps then some decl else none), true)
+          | none => pure (none, false)
+        else pure (none, false)
+      else pure (none, false)
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     -- a runtime limit (heartbeats, recursion depth) here is a `proof` refusal
     -- (the script is too costly), not the catch-all `checker`
@@ -1144,20 +1160,28 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     let pf ← match firstPf? with
       | some e => pure e
       | none =>
+        let fbStamps := stamps && firstRan
+        if fbStamps then Tools.VedU1ScriptSeq.stageStart decl.toString "u1" "fallback" "elab" (← IO.getNumHeartbeats)
         tryCatchRuntimeEx
           (withProofBudget do
           withoutErrToSorry do
             let e ← elabTermEnsuringType stx expected
             synthesizeSyntheticMVarsNoPostponing
             instantiateMVars e)
-          fun e => refuse decl "proof" e.toMessageData
+          fun e => do
+            if fbStamps then Tools.VedU1ScriptSeq.stageFail (← e.toMessageData.toString)
+            refuse decl "proof" e.toMessageData
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let first ← match errs.drop errsBefore with
         | msg :: _ => msg.data.toString
         | [] => pure ""
+      if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail s!"logged error: {first}"
       refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
-    if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
+    if pf.hasMVar || pf.hasFVar then
+      if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail "proof term is not closed"
+      refuse decl "proof" m!"proof term is not closed"
+    if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageOk
     -- the kernel, synchronously, with EXACTLY the expected type
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
