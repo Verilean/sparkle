@@ -280,6 +280,56 @@ def vedSplitBool (g : MVarId) (e : Expr) : MetaM (List MVarId) := g.withContext 
   g.assign (mkApp6 (mkConst ``Or.elim) eT eF tgt (← mkAppM ``Bool.eq_false_or_eq_true #[e] ) pt pf)
   pure [gt, gf]
 
+/-- results of `ved_omega_c`: the proofs of the side conditions found, and for the ones that failed the
+facts that were in the context (the same side condition is asked again in every goal of the block) -/
+initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr Lean.Expr) ← IO.mkRef {}
+initialize vedOmegaFail : IO.Ref (Std.HashMap Lean.Expr (Array Lean.FVarId)) ← IO.mkRef {}
+
+open Lean Meta Elab Tactic in
+/-- `ved_omega` with a cache: the register goals of a loop (`ved_pack_simp_c`) read the same packed
+words, so the range side conditions `a * 2^k + b < 2^m` are the same in every goal and `omega` took
+~1e6 heartbeats (a third of them failures, asked 4 times) per call on the 20-register words.  A found
+proof is reused where its free variables are in the context; a failure where the context has no
+fact (other than an equation of `Bool`s, which `omega` does not read) that the failed run did not
+have.  The proof term is checked by the kernel as before; the cache only decides what is tried. -/
+elab "ved_omega_c" : tactic => do
+  let g ← getMainGoal
+  let tgt ← instantiateMVars (← g.getType)
+  if tgt.hasMVar then
+    evalTactic (← `(tactic| ved_omega))
+    return
+  let lctx ← getLCtx
+  if let some pf := (← vedOmegaOk.get)[tgt]? then
+    if !pf.hasAnyFVar (!lctx.contains ·) then
+      g.assign pf
+      replaceMainGoal []
+      return
+  let mut rel : Array FVarId := #[]
+  for d in lctx do
+    if d.isImplementationDetail then continue
+    let t ← instantiateMVars d.type
+    if (← isProp t) && !(t.isAppOfArity ``Eq 3 && (t.getArg! 0).isConstOf ``Bool) then rel := rel.push d.fvarId
+  if let some fs := (← vedOmegaFail.get)[tgt]? then
+    if rel.all (fs.contains ·) then
+      throwError "ved_omega_c: no proof (cached)"
+  try
+    evalTactic (← `(tactic| ved_omega))
+    let pf ← instantiateMVars (mkMVar g)
+    unless pf.hasMVar do vedOmegaOk.modify (·.insert tgt pf)
+  catch e =>
+    vedOmegaFail.modify (·.insert tgt rel)
+    throw e
+
+/-- the packed word `m + b` (a field that is the constant 1 of a register above the others, `2 ^ 4353 + ...`)
+read back at its own weight -/
+theorem ved_div_self_add (m b : Nat) (hm : 0 < m) (hb : b < m) : (m + b) / m = 1 := by
+  rw [Nat.add_div_left _ hm, Nat.div_eq_of_lt hb]
+
+/-- `ved_pack_simp` with the cached side-condition discharger (and the read-back of a literal summand) -/
+macro "ved_pack_simp_c" : tactic =>
+  `(tactic| simp (disch := first | ved_omega_c | fail) only
+      [Nat.reducePow, Nat.reduceAdd, Nat.mod_eq_of_lt, Nat.div_eq_of_lt, Tools.VedU1Loop.div_pack, Tools.VedU1Loop.mod_pack, Nat.add_mod_left, Nat.add_zero, Tools.VedU1ScriptSeq.ved_div_self_add])
+
 open Lean Meta Elab Tactic in
 /-- `ved_seq_bools`: drop the hypotheses the rewriting is done with (the loop-state equations, the
 per-statement equations, the seed facts: nothing reads them any more and `cases` would revert and
@@ -629,9 +679,9 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(tactic| all_goals (try ved_seq_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Int.bmod_def, Tools.VedU1Loop.ved_mul_lit_bv])),
     ← `(tactic| all_goals (try ved_bit_simp)),
     ← `(tactic| all_goals (try ved_or_lit)),
-    ← `(tactic| all_goals (try ved_pack_simp)),
+    ← `(tactic| all_goals (try ved_pack_simp_c)),
     ← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
-    ← `(tactic| all_goals (try ved_pack_simp)),
+    ← `(tactic| all_goals (try ved_pack_simp_c)),
     ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
     ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
     ← `(tactic| ved_seq_close_each)]
