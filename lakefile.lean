@@ -369,6 +369,12 @@ lean_lib «Tests.Ved.VedGetDKernelCheck» where
 lean_lib «Tests.Ved.VedOmegaCCheck» where
   roots := #[`Tests.Ved.VedOmegaCCheck]
 
+lean_lib «Tests.Ved.VedOmegaCacheCheck» where
+  roots := #[`Tests.Ved.VedOmegaCacheCheck]
+
+lean_lib «Tests.Ved.VedSeqBoolsCheck» where
+  roots := #[`Tests.Ved.VedSeqBoolsCheck]
+
 -- regressions for the synthesis-path changes this introduction brings
 -- (PR #147 review): width-aware register merging, per-module caches
 lean_lib «Tests.Ved.RegDedupWidthCheck» where
