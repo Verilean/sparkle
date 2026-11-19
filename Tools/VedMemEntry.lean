@@ -158,20 +158,35 @@ def declBody (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (ins : L
   if keepDead then instantiateMVars (← zetaKeepDead cur.headBeta) else instantiateMVars (← zetaReduce cur.headBeta)
 
 /-- the memory calls of the declaration, each component a closed `fun ins => …`.  `order`: the names of the module's
-memory statements; the calls are put in that order when every statement `_gen_<let name>` finds its call among the
-`let`s of the declaration (the module lists its memory statements in the order of the `let`s, the traversal finds the
-calls in the order of their uses), else they stay in the order of the traversal -/
+memory statements, `dims` their (address, data) widths; the calls are put in that order when every statement
+`_gen_<let name>` (or `_gen_<let name>_k`, a name the synthesizer numbered) finds a call among the `let`s of the
+declaration (the module lists its memory statements in the order of the `let`s, the traversal finds the calls in the
+order of their uses; among calls of one name the dimensions decide), else they stay in the order of the traversal -/
 def collectAll (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (unf : Name → Bool)
-    (order : List String := []) : MetaM (Array MemCall) := do
+    (order : List String := []) (dims : List (Nat × Nat) := []) : MetaM (Array MemCall) := do
   let insTy ← mkArrow (Lean.mkConst ``Nat) (← mkArrow (Lean.mkConst ``String) (Lean.mkConst ``Nat))
   withLocalDeclD `ins insTy fun ins => do
     let body ← declBody stmt tbl names ins (keepDead := true)
     let (cs, tags) ← collectCalls unf body
     let nameOf := fun (c : MemCall) => (tags.find? (fun (v, _) => v == c.call)).map fun (_, n) => "_gen_" ++ n
     let cs := if order.isEmpty || cs.size != order.length then cs else
-      let sorted := order.filterMap fun o => cs.find? (fun c => nameOf c == some o)
-      if sorted.length == order.length && (order.all fun o => (cs.filter fun c => nameOf c == some o).size == 1)
-        then sorted.toArray else cs
+      -- a `let` name used twice in the declaration is numbered by the synthesizer (`_gen_x`, `_gen_x_1`, ..) in an
+      -- order that is not the traversal's: the statement `_gen_x_k` takes a call tagged `x` of its own dimensions
+      -- (the first one in the traversal when several agree; the proof compares the memory itself)
+      let group := fun (o : String) => cs.filter fun c => nameOf c == some o
+      let baseOf := fun (o : String) =>
+        if !(group o).isEmpty then o else
+        match o.splitOn "_" |>.reverse with
+        | k :: rest@(_ :: _) => if k.toNat?.isSome then "_".intercalate rest.reverse else o
+        | _ => o
+      let step := fun (st : Option (List MemCall)) (x : String × Nat × Nat) => do
+        let acc ← st
+        let cands := (group (baseOf x.1)).filter fun c => !(acc.any (·.call == c.call))
+        let c ← (cands.find? fun c => c.aw == x.2.1 && c.dw == x.2.2) <|> cands[0]?
+        pure (c :: acc)
+      match (order.zip dims).foldl step (some []) with
+      | some l => if l.length == order.length then l.reverse.toArray else cs
+      | none => cs
     cs.mapM fun c => do
       -- the marker is for the traversal only: the pieces handed to the proof carry the reachable part
       pure { c with call := ← mkLambdaFVars #[ins] (stripDead c.call), wa := ← mkLambdaFVars #[ins] (stripDead c.wa),
@@ -260,7 +275,7 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
   withLocalDeclD `s (Lean.mkConst ``Nat) fun s =>
   withLocalDeclD `st strNat fun st =>
   withLocalDeclD `mems (Lean.mkConst ``Sparkle.IR.Semantics.MEnv) fun mems => do
-    let calls ← collectAll stmt tbl names unf (stmts.map (·.1))
+    let calls ← collectAll stmt tbl names unf (stmts.map (·.1)) (stmts.map fun x => (x.2.1, x.2.2.1))
     let inst := fun (x : Lean.Expr) => (mkApp x ins).headBeta
     -- the registers of the loops: `st name = toNat (component of the loop state at s)`
     let mut regEqs : Array Lean.Expr := #[]
@@ -273,7 +288,7 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
         let some α := L.getAppArgs[1]? | refuseM `mem "shape" m!"malformed Signal.loop"
         compsOf := compsOf.push (← Tools.VedU1Loop.stateComps α)
       let widths ← (compsOf.toList.flatten).mapM fun c => Tools.VedU1Loop.compWidth c
-      let some rnames := Tools.VedU1Loop.matchRegs widths regs
+      let some rnames := Tools.VedU1Loop.matchRegs widths regs <|> Tools.VedMemShape.matchRegsShared widths regs
         | refuseM `mem "shape" m!"the loop state components {widths} do not match the registers {regs}"
       let mut k := 0
       for j in [0:loops.size] do
@@ -286,7 +301,7 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
     let mut latches : Array Lean.Expr := #[]
     for ((name, aw, dw, cr, _, _, _, _, rd), c) in stmts.zip calls.toList do
       unless aw == c.aw && dw == c.dw && cr == !c.sync do
-        refuseM `mem "shape" m!"memory statement {name} ({aw}x{dw}) does not match the declaration's memory call ({c.aw}x{c.dw})"
+        refuseM `mem "shape" m!"memory statement {name} ({aw}x{dw}) does not match the declaration's memory call ({c.aw}x{c.dw}); statements {stmts.map fun x => (x.1, x.2.1, x.2.2.1, x.2.2.2.1)}, calls (aw, dw, sync) {calls.toList.map fun c => (c.aw, c.dw, c.sync)}"
       let zero ← mkAppM ``BitVec.ofNat #[toExpr c.dw, toExpr 0]
       let init := Lean.mkLambda `a .default (← mkAppM ``BitVec #[toExpr c.aw]) zero
       invs := invs.push (← mkAppM ``Tools.VedMem.MemInv #[mkStrLit name, init, inst c.wa, inst c.wd, inst c.we, s, mems])
@@ -422,6 +437,12 @@ def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
         $dbg4
         all_goals first | ($firstAlt:tactic) | ($side:tactic))
 
+/-- the conjuncts of a right-nested `And` -/
+partial def conjCount (e : Lean.Expr) : Nat :=
+  match e.getAppFnArgs with
+  | (``And, #[_, b]) => 1 + conjCount b
+  | _ => 1
+
 /-- The generated script when the module has registers (`Signal.loop`): `Tools/VedU1Entry.lean`'s `loopScriptFor`
 with the invariant extended by the memories.  The invariant is `R` (registers first, then one `MemInv` per
 memory, then one latch equation per registered read), given in full: the loop-state tactics (`ved_loop_unfold_share`,
@@ -452,7 +473,9 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
   let hsSep : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems hsA
   let n := stmts.length
   let nSync := (stmts.filter fun x => !x.2.2.2.1).length
-  let k := regs.length
+  -- one equation per loop state component (a component sharing a register, `matchRegsShared`, has its own)
+  let k := (conjCount (R.bindingBody!.bindingBody!.bindingBody!.bindingBody!)) - n - nSync
+  let _ := regs
   let hR' := (List.range k).toArray.map fun i => mkIdent (Name.mkSimple s!"hreg{i}")
   let hM := (List.range n).toArray.map fun i => mkIdent (Name.mkSimple s!"hM{i}")
   let hL := (List.range nSync).toArray.map fun i => mkIdent (Name.mkSimple s!"hL{i}")
@@ -688,7 +711,7 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     let helpers ← helperConsts stmt.getAppFn.constName!
     let unf : Name → Bool := fun n => n == stmt.getAppFn.constName! || helpers.contains n
     let inNames := tbl.binders.map ("_gen_" ++ ·)
-    let calls ← try collectAll stmt tbl inNames unf (memStmts m |>.map (·.1)) catch e => refuse decl "shape" e.toMessageData
+    let calls ← try collectAll stmt tbl inNames unf (memStmts m |>.map (·.1)) (memStmts m |>.map fun x => (x.2.1, x.2.2.1)) catch e => refuse decl "shape" e.toMessageData
     let regsL := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
     let R ← try buildR regsL stmts stmt tbl inNames unf catch e => refuse decl "shape" e.toMessageData
     unless calls.size == stmts.length do
