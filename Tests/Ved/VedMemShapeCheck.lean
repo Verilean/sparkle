@@ -14,6 +14,11 @@ import Tools.VedMemEntry
   a declaration without the inner loop (3 components against 5 registers) is refused at `shape`; one whose inner
   counter steps by 2 (the pairing is by width and position, the proof compares every register's equation) is refused
   at `proof`.  The checker's constants are absent afterwards.
+* SHARED REGISTER: `#ved_u1_mem memShare`, two sibling loops that hold a register of the same hardware.  The
+  synthesizer builds one register for both (its caches are keyed by the hardware): 5 registers, 6 state components,
+  the other loop's registers first.  `Tools.VedMemShape.matchRegsShared` lets the second component read the register
+  already taken.  Accepted, stored type `==` the statement, standard axioms.  Control: the same module against the
+  statement of `memShare3` (the other loop's register 3 bits wide, so no register to share) is refused at `shape`.
 -/
 
 namespace Tests.Ved.VedMemShapeCheck
@@ -93,6 +98,67 @@ def memNest2 {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal do
 #guard_msgs (drop info) in
 #ved_u1_mem memNest
 
+declare_signal_state NA
+  | idx  : BitVec 5  := 0#5
+  | busy : Bool      := false
+  | sh   : BitVec 2  := 0#2
+  | last : BitVec 16 := 0#16
+
+declare_signal_state NB
+  | acc : BitVec 4 := 0#4
+  | sh  : BitVec 2 := 0#2
+
+declare_signal_state NB3
+  | acc : BitVec 4 := 0#4
+  | sh  : BitVec 3 := 0#3
+
+/-- two sibling loops, each with a register of the same hardware (`sh`: `mux start 1 0`): the synthesizer builds ONE
+register for both, so the module has 5 registers and the loops 6 state components (the other loop's registers come
+first in the module) -/
+def memShare {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let other := Signal.loop fun st =>
+    let acc := NB.acc st
+    bundleAll! [Signal.register 0#4 (acc + 1#4),
+      Signal.register 0#2 (Signal.mux start (Signal.pure 1#2) (Signal.pure 0#2))]
+  let state := Signal.loop fun state =>
+    let idx := NA.idx state
+    let busy := NA.busy state
+    let readAddr4 := idx.map (BitVec.extractLsb' 0 4 ·)
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let outMemRead := Signal.memory readAddr4 inputCoeff busy (Signal.pure 0#4)
+    let done := busy &&& (idx === (15#5 : Signal dom _))
+    let busyNext := Signal.mux done (Signal.pure false) (Signal.mux start (Signal.pure true) busy)
+    let idxNext := Signal.mux busy (idx + 1#5) (Signal.pure 0#5)
+    bundleAll! [Signal.register 0#5 idxNext, Signal.register false busyNext,
+      Signal.register 0#2 (Signal.mux start (Signal.pure 1#2) (Signal.pure 0#2)),
+      Signal.register 0#16 outMemRead]
+  NA.last state ^^^ (Signal.map (fun (x : BitVec 4) => BitVec.zeroExtend 16 x) (NB.acc other))
+
+/-- control: the other loop's second register is 3 bits wide (no register of that width is left to share) -/
+def memShare3 {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let other := Signal.loop fun st =>
+    let acc := NB3.acc st
+    bundleAll! [Signal.register 0#4 (acc + 1#4),
+      Signal.register 0#3 (Signal.mux start (Signal.pure 1#3) (Signal.pure 0#3))]
+  let state := Signal.loop fun state =>
+    let idx := NA.idx state
+    let busy := NA.busy state
+    let readAddr4 := idx.map (BitVec.extractLsb' 0 4 ·)
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let outMemRead := Signal.memory readAddr4 inputCoeff busy (Signal.pure 0#4)
+    let done := busy &&& (idx === (15#5 : Signal dom _))
+    let busyNext := Signal.mux done (Signal.pure false) (Signal.mux start (Signal.pure true) busy)
+    let idxNext := Signal.mux busy (idx + 1#5) (Signal.pure 0#5)
+    bundleAll! [Signal.register 0#5 idxNext, Signal.register false busyNext,
+      Signal.register 0#2 (Signal.mux start (Signal.pure 1#2) (Signal.pure 0#2)),
+      Signal.register 0#16 outMemRead]
+  NA.last state ^^^ (Signal.map (fun (x : BitVec 4) => BitVec.zeroExtend 16 x) (NB3.acc other))
+
+#guard_msgs (drop info) in
+#ved_u1_mem memShare
+
 def storedOk (decl : Name) : TermElabM Unit := do
   let (stmt, _) ← specialiseDomain decl
   let thm := decl ++ `ved_mem
@@ -108,6 +174,10 @@ def storedOk (decl : Name) : TermElabM Unit := do
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemShapeCheck.memNest -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedOk ``memNest
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemShapeCheck.memShare -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``memShare
 
 /-- the lemma of the congruence: standard axioms only -/
 def lemmaOk : TermElabM Unit := do
@@ -153,5 +223,9 @@ run_cmd expectRefused "shape" (checkerNames `ctlNoInner) (cross ``memNest ``memN
 /-- info: refused [proof], clean -/
 #guard_msgs (info, drop trace) in
 run_cmd expectRefused "proof" (checkerNames `ctlInner2) (cross ``memNest ``memNest2 `ctlInner2)
+
+/-- info: refused [shape], clean -/
+#guard_msgs (info, drop trace) in
+run_cmd expectRefused "shape" (checkerNames `ctlShare3) (cross ``memShare ``memShare3 `ctlShare3)
 
 end Tests.Ved.VedMemShapeCheck

@@ -273,7 +273,7 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
         let some α := L.getAppArgs[1]? | refuseM `mem "shape" m!"malformed Signal.loop"
         compsOf := compsOf.push (← Tools.VedU1Loop.stateComps α)
       let widths ← (compsOf.toList.flatten).mapM fun c => Tools.VedU1Loop.compWidth c
-      let some rnames := Tools.VedU1Loop.matchRegs widths regs
+      let some rnames := Tools.VedU1Loop.matchRegs widths regs <|> Tools.VedMemShape.matchRegsShared widths regs
         | refuseM `mem "shape" m!"the loop state components {widths} do not match the registers {regs}"
       let mut k := 0
       for j in [0:loops.size] do
@@ -422,6 +422,12 @@ def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
         $dbg4
         all_goals first | ($firstAlt:tactic) | ($side:tactic))
 
+/-- the conjuncts of a right-nested `And` -/
+partial def conjCount (e : Lean.Expr) : Nat :=
+  match e.getAppFnArgs with
+  | (``And, #[_, b]) => 1 + conjCount b
+  | _ => 1
+
 /-- The generated script when the module has registers (`Signal.loop`): `Tools/VedU1Entry.lean`'s `loopScriptFor`
 with the invariant extended by the memories.  The invariant is `R` (registers first, then one `MemInv` per
 memory, then one latch equation per registered read), given in full: the loop-state tactics (`ved_loop_unfold_share`,
@@ -452,7 +458,9 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
   let hsSep : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems hsA
   let n := stmts.length
   let nSync := (stmts.filter fun x => !x.2.2.2.1).length
-  let k := regs.length
+  -- one equation per loop state component (a component sharing a register, `matchRegsShared`, has its own)
+  let k := (conjCount (R.bindingBody!.bindingBody!.bindingBody!.bindingBody!)) - n - nSync
+  let _ := regs
   let hR' := (List.range k).toArray.map fun i => mkIdent (Name.mkSimple s!"hreg{i}")
   let hM := (List.range n).toArray.map fun i => mkIdent (Name.mkSimple s!"hM{i}")
   let hL := (List.range nSync).toArray.map fun i => mkIdent (Name.mkSimple s!"hL{i}")
