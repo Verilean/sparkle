@@ -851,7 +851,13 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
             unless d.isImplementationDetail do
               if Tools.VedU1Loop.treeSizeVal (← instantiateMVars d.type) ≥ omegaHypMaxTree then return true
           return false
-        ctrlLeafFailed.set bigHyp
+        -- and the residual reads one 16-bit sum in several spellings under `/` (the carry bits `(sum % m) / k`; one spelling is `omega`'s
+        -- ordinary failure that the leafwise closers may still rescue: R037)
+        let mut sums : Array Lean.Expr := #[]
+        for e in Tools.VedU1WireShare.collectDag (fun e => e.isAppOfArity ``HDiv.hDiv 6 && (e.getArg! 5).nat?.isSome
+            && (e.getArg! 4).isAppOfArity ``HMod.hMod 6) ty do
+          unless sums.contains (e.getArg! 4) do sums := sums.push (e.getArg! 4)
+        ctrlLeafFailed.set (bigHyp && sums.size ≥ 2)
         throw e
       cache.modify fun m => m.insert ty (Lean.Expr.mvar g)
   | (vn, bn, n) :: rest =>
