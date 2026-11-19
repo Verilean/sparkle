@@ -496,19 +496,59 @@ elab "ved_omega_c" : tactic => do
       if (d.type.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isSome then
         g ← g.tryClear d.fvarId
   setGoals [g]
+  if let some dir ← IO.getEnv "VED_OMEGA_LOG" then
+   if ← System.FilePath.pathExists s!"{dir}/on" then
+    -- test only: the side condition being proved (overwritten at each call; the last one is the one a hanging `omega` works on)
+    let txt ← g.withContext do
+      let ty ← instantiateMVars (← g.getType)
+      let sz := Tools.VedU1Loop.treeSizeVal ty
+      let mut nh := 0
+      let mut hs := ""
+      for d in ← getLCtx do
+        unless d.isImplementationDetail do
+          nh := nh + 1
+          let t ← instantiateMVars d.type
+          let ts := Tools.VedU1Loop.treeSizeVal t
+          let pp ← if ts < 2000 then pure ((← ppExpr t).pretty.take 150 |>.replace "\n" " ") else pure "(big)"
+          hs := hs ++ s!"  {d.userName} [{ts}] let={d.value?.isSome} : {pp}\n"
+      let pp ← if sz < 3000 then pure ((← ppExpr ty).pretty.take 3000) else pure ""
+      return s!"tree={sz} hyps={nh}\n{pp}\n{hs}"
+    IO.FS.writeFile s!"{dir}/omega_last.txt" txt
   evalTactic (← `(tactic| ved_omega))
 
-/-- `ved_pack_simp` with `ved_omega_c` as side-condition prover (the plain one reads the 1.6e8-node signal hypotheses at every side condition) -/
+/-- `ved_omega_c`, also without the hypotheses of at least this many tree nodes: the packed reads left in the context (`this : S = F`,
+900-1100 nodes each) and the register equalities (`hreg0..7`, 600-960): `omega` reads them as `/` `%` chains and its elimination
+(no heartbeat check) does not end on a failing side condition (R034 goal 44 of stage 6: 8 of them, > 500 s, 100% in `Lean.Omega`) -/
+def omegaHypMaxTree : Nat := 300
+
+/-- `ved_omega_c` with only the small hypotheses (range facts) -/
+elab "ved_omega_s" : tactic => do
+  let mut g ← getMainGoal
+  for d in ← g.withContext getLCtx do
+    unless d.isImplementationDetail do
+      if Tools.VedU1Loop.treeSizeVal (← g.withContext (instantiateMVars d.type)) ≥ omegaHypMaxTree then
+        g ← g.tryClear d.fvarId
+  setGoals [g]
+  evalTactic (← `(tactic| ved_omega_c))
+
+/-- `ved_pack_simp` with `ved_omega_s` as side-condition prover (the plain one reads the 1.6e8-node signal hypotheses at every side condition) -/
 macro "ved_pack_simp_c" : tactic =>
-  `(tactic| simp (disch := first | ved_omega_c | fail) only
+  `(tactic| simp (disch := first | ved_omega_s | fail) only
       [Nat.reducePow, Nat.reduceAdd, Nat.mod_eq_of_lt, Nat.div_eq_of_lt, Tools.VedU1Loop.div_pack, Tools.VedU1Loop.mod_pack, Nat.add_mod_left, Nat.add_zero])
 
 /-- `ved_pack_simp` on a goal that still has a read of the packed state (after `ved_pack_dag` it is a traversal that changes nothing) -/
 elab "ved_pack_simp_g" : tactic => do
+  if let some dir ← IO.getEnv "VED_OMEGA_LOG" then IO.FS.writeFile s!"{dir}/on" "1"
   unless ← isDagged (← getMainGoal) do
     evalTactic (← `(tactic| ved_pack_simp))
     return
   if ← hasReads then
+    -- a dagged goal of `omegaMaxTree` nodes or more that still has reads: the closers (`ved_ctrl_cases` after `ved_or_lit_post`) close it without
+    -- the packing step, which costs 4.2e5 heartbeats on each of R034's goals 44/45 (45231 nodes) and changes nothing they need
+    let sz := Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← getMainTarget))
+    if sz ≥ omegaMaxTree then
+      Tools.VedMemLoop.dbgLog s!"pack_simp_g: skipped on a goal of {sz} nodes"
+      return
     if (← IO.getEnv "VED_DUMP_DIR").isSome then
       let g ← getMainGoal
       let msg ← g.withContext do
@@ -539,6 +579,7 @@ elab "ved_all_goals_log " "(" t:tactic ")" : tactic => do
     let sz ← if dump then g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType)) else pure 0
     let h0 ← IO.getNumHeartbeats
     let t0 ← IO.monoMsNow
+    if dump then Tools.VedMemLoop.dbgLog s!"start goal {i}: size={sz}"
     try evalTactic t
     catch e =>
       if dump then Tools.VedMemLoop.dbgLog s!"close goal {i}: size={sz} FAILED ms={(← IO.monoMsNow) - t0} hb={((← IO.getNumHeartbeats) - h0) / 1000}"
