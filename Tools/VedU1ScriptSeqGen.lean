@@ -283,7 +283,92 @@ def vedSplitBool (g : MVarId) (e : Expr) : MetaM (List MVarId) := g.withContext 
 /-- results of `ved_omega_c`: the proofs of the side conditions found, and for the ones that failed the
 facts that were in the context (the same side condition is asked again in every goal of the block) -/
 initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr Lean.Expr) ← IO.mkRef {}
+initialize vedUbFail : IO.Ref (Std.HashMap Lean.Expr Nat) ← IO.mkRef {}
 initialize vedOmegaFail : IO.Ref (Std.HashMap Lean.Expr (Array Lean.FVarId)) ← IO.mkRef {}
+
+open Lean Meta in
+/-- the value of a closed `Nat` expression built from numerals with `+ * ^ -` (the packing factors are
+`2 ^ 4359`, which `Nat.reducePow` does not evaluate) -/
+partial def vedLitVal (e : Expr) : Option Nat :=
+  match e.getAppFnArgs with
+  | (``HPow.hPow, #[_, _, _, _, a, b]) => do
+    let x ← vedLitVal a; let y ← vedLitVal b
+    if y ≤ 100000 then some (x ^ y) else none
+  | (``HMul.hMul, #[_, _, _, _, a, b]) => do pure ((← vedLitVal a) * (← vedLitVal b))
+  | (``HAdd.hAdd, #[_, _, _, _, a, b]) => do pure ((← vedLitVal a) + (← vedLitVal b))
+  | (``HSub.hSub, #[_, _, _, _, a, b]) => do pure ((← vedLitVal a) - (← vedLitVal b))
+  | _ => e.nat?
+
+theorem ved_ite_le {c : Prop} [Decidable c] {a b U : Nat} (ha : a ≤ U) (hb : b ≤ U) :
+    (if c then a else b) ≤ U := by
+  split <;> assumption
+
+open Lean Meta in
+/-- an upper bound for a `Nat` expression built from `+ * % /`, `if`, literals and atoms with a bound
+in the context (`x < N`, `x ≤ N`): `(value, bound expression, proof of e ≤ bound)`.  The proof is built
+from `Nat.add_le_add`, `Nat.mul_le_mul`, `Nat.mod_le`, `Nat.mod_lt`, `Nat.div_le_div_right` and
+numeral comparisons (`decide`, checked by the kernel with GMP). -/
+partial def vedUb (facts : Array (Expr × Nat × Expr × Expr)) (e : Expr) : MetaM (Option (Nat × Expr × Expr)) := do
+  let lit (n : Nat) : Expr := mkNatLit n
+  if let some n := vedLitVal e then
+    let b := lit n
+    return some (n, b, ← mkDecideProof (← mkAppM ``LE.le #[e, b]))
+  match e.getAppFnArgs with
+  | (``HAdd.hAdd, #[_, _, _, _, a, b]) =>
+    let some (ua, ba, pa) ← vedUb facts a | return none
+    let some (ub, bb, pb) ← vedUb facts b | return none
+    return some (ua + ub, ← mkAppM ``HAdd.hAdd #[ba, bb], ← mkAppM ``Nat.add_le_add #[pa, pb])
+  | (``HMul.hMul, #[_, _, _, _, a, b]) =>
+    let some (ua, ba, pa) ← vedUb facts a | return none
+    let some (ub, bb, pb) ← vedUb facts b | return none
+    return some (ua * ub, ← mkAppM ``HMul.hMul #[ba, bb], ← mkAppM ``Nat.mul_le_mul #[pa, pb])
+  | (``HMod.hMod, #[_, _, _, _, a, n]) =>
+    let some nv := vedLitVal n | return none
+    if nv == 0 then return none
+    let some (ua, ba, pa) ← vedUb facts a | return none
+    if ua ≤ nv - 1 then
+      return some (ua, ba, ← mkAppM ``Nat.le_trans #[← mkAppM ``Nat.mod_le #[a, n], pa])
+    let hn ← mkDecideProof (← mkAppM ``LT.lt #[mkNatLit 0, n])
+    let h ← mkAppM ``Nat.le_pred_of_lt #[← mkAppM ``Nat.mod_lt #[a, hn]]
+    -- `h : a % n ≤ n.pred`; restate with `n - 1`
+    let b := ← mkAppM ``HSub.hSub #[n, mkNatLit 1]
+    let hb ← mkExpectedTypeHint h (← mkAppM ``LE.le #[e, b])
+    return some (nv - 1, b, hb)
+  | (``HDiv.hDiv, #[_, _, _, _, a, n]) =>
+    let some (ua, ba, pa) ← vedUb facts a | return none
+    let some nv := vedLitVal n | return none
+    return some (ua / nv, ← mkAppM ``HDiv.hDiv #[ba, n], ← mkAppM ``Nat.div_le_div_right #[pa])
+  | (``ite, #[_, c, inst, a, b]) =>
+    let some (ua, ba, pa) ← vedUb facts a | return none
+    let some (ub, bb, pb) ← vedUb facts b | return none
+    let (u, bu) := if ua ≥ ub then (ua, ba) else (ub, bb)
+    let pa' ← if ua ≥ ub then pure pa else
+      mkAppM ``Nat.le_trans #[pa, ← mkDecideProof (← mkAppM ``LE.le #[ba, bb])]
+    let pb' ← if ub ≥ ua then pure pb else
+      mkAppM ``Nat.le_trans #[pb, ← mkDecideProof (← mkAppM ``LE.le #[bb, ba])]
+    let pf ← mkAppOptM ``ved_ite_le #[some c, some inst, some a, some b, some bu, some pa', some pb']
+    return some (u, bu, pf)
+  | _ =>
+    for (x, u, b, pf) in facts do
+      if x == e then return some (u, b, pf)
+    return none
+
+open Lean Meta in
+/-- the facts `x < N` / `x ≤ N` of the context as `(x, value of the bound, bound, proof of x ≤ bound)` -/
+def vedBoundFacts : MetaM (Array (Expr × Nat × Expr × Expr)) := do
+  let mut out := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let t ← instantiateMVars d.type
+    if t.isAppOfArity ``LT.lt 4 && (t.getArg! 0).isConstOf ``Nat then
+      if let some n := vedLitVal (t.getArg! 3) then
+        if n > 0 then
+          let b ← mkAppM ``HSub.hSub #[t.getArg! 3, mkNatLit 1]
+          out := out.push (t.getArg! 2, n - 1, b, ← mkAppM ``Nat.le_pred_of_lt #[d.toExpr])
+    else if t.isAppOfArity ``LE.le 4 && (t.getArg! 0).isConstOf ``Nat then
+      if let some n := vedLitVal (t.getArg! 3) then
+        out := out.push (t.getArg! 2, n, t.getArg! 3, d.toExpr)
+  return out
 
 open Lean Meta Elab Tactic in
 /-- `ved_omega` with a cache: the register goals of a loop (`ved_pack_simp_c`) read the same packed
@@ -304,6 +389,25 @@ elab "ved_omega_c" : tactic => do
       g.assign pf
       replaceMainGoal []
       return
+  -- interval bound first: sums of bounded atoms (no `omega` run, which timed out on the failing ones)
+  if tgt.isAppOfArity ``LT.lt 4 && (tgt.getArg! 0).isConstOf ``Nat then
+    if let some nv := vedLitVal (tgt.getArg! 3) then
+      let facts ← vedBoundFacts
+      if let some k := (← vedUbFail.get)[tgt]? then
+        if facts.size ≤ k then
+          throwError "ved_omega_c: bound exceeds (cached)"
+      let r ← try some <$> vedUb facts (tgt.getArg! 2) catch _ => pure none
+      if let some (some (u, b, pf)) := r then
+        if u < nv then
+          let hl ← mkDecideProof (← mkAppM ``LT.lt #[b, tgt.getArg! 3])
+          let pf' ← mkAppM ``Nat.lt_of_le_of_lt #[pf, hl]
+          g.assign pf'
+          replaceMainGoal []
+          unless pf'.hasMVar do vedOmegaOk.modify (·.insert tgt pf')
+          return
+        else
+          vedUbFail.modify (·.insert tgt (← vedBoundFacts).size)
+          throwError "ved_omega_c: bound exceeds"
   let mut rel : Array FVarId := #[]
   for d in lctx do
     if d.isImplementationDetail then continue
