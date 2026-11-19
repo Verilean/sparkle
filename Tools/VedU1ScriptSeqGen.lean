@@ -25,8 +25,9 @@ namespace Tools.VedU1ScriptSeq
 
 /-- `Option.getD_some` restated so that `simp` is NOT allowed to use it as a proof-free rfl step: with
 the library lemma the rewrite `getD (some X) 0 ⟶ X` leaves no proof term, and the kernel must decide
-`getD (some X) 0 =?= X` for an `X` containing `ite` on symbolic `a * 2 ^ k` arithmetic, which it does by
-unary evaluation of the literal `2 ^ k` (time and memory ~ 2 ^ k). -/
+`getD (some X) 0 =?= X`. Observed (Lean 4.32.1, this expression path only): with `X` an `ite` on symbolic
+`a * 2 ^ k` the kernel check of that step took 0.19 s at k = 14, 1.0 s at 16, 4.8 s at 18, 21.6 s / 8.3 GB at
+20, and was killed at k = 4359; no general cost claim is made. -/
 theorem vedGetD_some {α : Type _} (a b : α) : Option.getD (some a) b = a := by
   simp
 
