@@ -226,4 +226,21 @@ run_cmd liftTermElabM do
   unless nOff == 0 && nDef == 0 && tOff == tDef do throwError "the switch-off script differs from the default one"
   logInfo m!"stamps off: {nOff} `ved_stage`, equal to the default script; stamps on: {nOn}"
 
+/-! ## 6. A failed attempt's stamp reads only the exception's kind tag
+
+`stageReason` gives a fixed code and formats nothing: an exception whose message is lazy (here: one that
+records being formatted) is classified without the formatter running, both untagged and tagged as a
+heartbeat timeout.  `stageFail` with no attempt in progress is a no-op (and formats nothing either). -/
+
+/-- info: reasons: exception, max_heartbeats; formatter called: false -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let called ← IO.mkRef false
+  let lazyMsg : MessageData := .lazy (fun _ => do called.set true; pure m!"large goal")
+    (onMissingContext := fun _ => do called.set true; pure m!"large goal")
+  let r1 := Tools.VedU1ScriptSeq.stageReason (.error .missing lazyMsg)
+  let r2 := Tools.VedU1ScriptSeq.stageReason (.error .missing (.tagged `runtime.maxHeartbeats lazyMsg))
+  Tools.VedU1ScriptSeq.stageFail r1
+  logInfo m!"reasons: {r1}, {r2}; formatter called: {← called.get}"
+
 end Tests.Ved.U1SeqCheck

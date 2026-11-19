@@ -997,16 +997,13 @@ def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) (stamps : Option Name :
       let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
       if errs.length != errsBefore || pf.hasMVar || pf.hasFVar then
         if stamps.isSome then
-          let why ← match errs.drop errsBefore with
-            | msg :: _ => msg.data.toString
-            | [] => pure "open term"
-          Tools.VedU1ScriptSeq.stageFail s!"logged error / open term: {why}"
+          Tools.VedU1ScriptSeq.stageFail (if errs.length != errsBefore then "logged_error" else "open_term")
         pure none
       else
         if stamps.isSome then Tools.VedU1ScriptSeq.stageOk
         pure (some pf))
     fun e => do
-      if stamps.isSome then Tools.VedU1ScriptSeq.stageFail (← e.toMessageData.toString)
+      if stamps.isSome then Tools.VedU1ScriptSeq.stageFail (Tools.VedU1ScriptSeq.stageReason e)
       pure none
   if r.isNone then saved.restore (restoreInfo := true)
   return r
@@ -1169,17 +1166,17 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
             synthesizeSyntheticMVarsNoPostponing
             instantiateMVars e)
           fun e => do
-            if fbStamps then Tools.VedU1ScriptSeq.stageFail (← e.toMessageData.toString)
+            if fbStamps then Tools.VedU1ScriptSeq.stageFail (Tools.VedU1ScriptSeq.stageReason e)
             refuse decl "proof" e.toMessageData
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let first ← match errs.drop errsBefore with
         | msg :: _ => msg.data.toString
         | [] => pure ""
-      if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail s!"logged error: {first}"
+      if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail "logged_error"
       refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
     if pf.hasMVar || pf.hasFVar then
-      if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail "proof term is not closed"
+      if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail "open_term"
       refuse decl "proof" m!"proof term is not closed"
     if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageOk
     -- the kernel, synchronously, with EXACTLY the expected type

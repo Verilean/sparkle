@@ -681,7 +681,12 @@ Measurement aid, `VED_STAGE_STAMPS=1`: one stderr line per event, prefix `VED ST
 `IO.Ref` (the attempt in progress); `ved_stage "name"` ends the current stage and begins `name`.  The
 script of `seqLoopScript` contains `ved_stage` tactics ONLY when it is asked to (`stamps := true`,
 decided by the caller once); otherwise the script is the one it always was.  Nothing here touches a
-proof, a budget or a limit. -/
+proof, a budget or a limit.  A FAIL line carries a fixed reason code (`stageReason`), never a formatted
+message, so no goal is printed or formatted for it.  Every function here swallows its own IO errors and then
+clears the state: a failing log line never changes what the checker does next.
+The one global `IO.Ref` assumes one check at a time in a process (not re-entrant; the harness runs one
+case per process).  A reader treats an attempt without END/FAIL as `incomplete`, and a declaration
+without stage lines as `not_applicable`. -/
 
 structure StageCtx where
   decl : String
@@ -697,20 +702,30 @@ initialize stageCtx : IO.Ref (Option StageCtx) ← IO.mkRef none
 
 /-- one line; `ms_delta` / `hb_delta` are since the previous line of the attempt (so the deltas of all
 lines add up to the last `rel`), `hb` in thousands of heartbeats; `msg` (FAIL only) is cut to 200 chars -/
-def stageLine (stage ev : String) (msg : String := "") : IO Unit := do
+def stageLine (stage ev : String) (reason : String := "") : IO Unit := do
   let some c ← stageCtx.get | return
-  let ms ← IO.monoMsNow
-  let hb := (← IO.getNumHeartbeats) / 1000
-  let m := (String.map (fun ch => if ch == '\n' || ch == '\r' then ' ' else ch) (msg.take 200).toString)
-  IO.eprintln s!"VED STAGE decl={c.decl} route={c.route} attempt={c.attempt} stage={stage} ev={ev} ms_rel={ms - c.ms0} ms_delta={ms - c.msPrev} hb_rel={hb - c.hb0 / 1000} hb_delta={hb - c.hbPrev}{if ev == "FAIL" then s!" msg={m}" else ""}"
-  stageCtx.set (some { c with msPrev := ms, hbPrev := hb })
+  try
+    let ms ← IO.monoMsNow
+    let hb := (← IO.getNumHeartbeats) / 1000
+    IO.eprintln s!"VED STAGE decl={c.decl} route={c.route} attempt={c.attempt} stage={stage} ev={ev} ms_rel={ms - c.ms0} ms_delta={ms - c.msPrev} hb_rel={hb - c.hb0 / 1000} hb_delta={hb - c.hbPrev}{if ev == "FAIL" then s!" reason={reason}" else ""}"
+    stageCtx.set (some { c with msPrev := ms, hbPrev := hb })
+  catch _ => stageCtx.set none
+
+/-- the fixed reason code of a failed attempt (reads the exception's kind tag only, formats nothing) -/
+def stageReason (e : Lean.Exception) : String :=
+  if e.isMaxHeartbeat then "max_heartbeats"
+  else if e.isMaxRecDepth then "max_rec_depth"
+  else if e.isInterrupt then "interrupt"
+  else "exception"
 
 /-- begin an attempt (`hb0` in heartbeats: the value the attempt's budget counts from) -/
 def stageStart (decl route attempt first : String) (hb0 : Nat) : IO Unit := do
-  let ms ← IO.monoMsNow
-  stageCtx.set (some { decl, route, attempt, ms0 := ms, hb0, msPrev := ms, hbPrev := hb0 / 1000, cur := first })
-  stageLine "attempt" "BEGIN"
-  stageLine first "BEGIN"
+  try
+    let ms ← IO.monoMsNow
+    stageCtx.set (some { decl, route, attempt, ms0 := ms, hb0, msPrev := ms, hbPrev := hb0 / 1000, cur := first })
+    stageLine "attempt" "BEGIN"
+    stageLine first "BEGIN"
+  catch _ => stageCtx.set none
 
 /-- end the current stage, begin `name` -/
 def stageNext (name : String) : IO Unit := do
@@ -725,11 +740,12 @@ def stageOk : IO Unit := do
   stageLine "attempt" "END"
   stageCtx.set none
 
-/-- the attempt failed in the stage last begun -/
-def stageFail (msg : String) : IO Unit := do
+/-- the attempt failed in the stage last begun; `reason` is a fixed code (`stageReason`, `logged_error`,
+`open_term`) -/
+def stageFail (reason : String) : IO Unit := do
   let some c ← stageCtx.get | return
-  stageLine c.cur "FAIL" msg
-  stageLine "attempt" "FAIL" msg
+  stageLine c.cur "FAIL" reason
+  stageLine "attempt" "FAIL" reason
   stageCtx.set none
 
 /-- `ved_stage "name"`: (only in a script generated with stamps) end the current stage and begin `name` -/
