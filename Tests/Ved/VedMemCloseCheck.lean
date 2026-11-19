@@ -51,8 +51,8 @@ def memAddrs (e : Expr) : Array Expr := Id.run do
 
 def addrCheck : TermElabM Unit := do
   let ty ← elabType (← `(∀ {dom : DomainConfig} (wa : Signal dom (BitVec 4)) (wd : Signal dom (BitVec 16)) (we : Signal dom Bool) (x : Nat),
-    (Signal.memState (fun _ => 0#16) wa wd we 3 (1#4 + 2#4)).toNat + big_dag 27 x
-      = (Signal.memState (fun _ => 0#16) wa wd we 3 3#4).toNat + big_dag 27 x))
+    (Signal.memState (fun _ => 0#16) wa wd we 3 (1#4 + 2#4)).toNat + (big_dag 27 x)
+      = (Signal.memState (fun _ => 0#16) wa wd we 3 3#4).toNat + (big_dag 27 x)))
   forallTelescope (← instantiateMVars ty) fun _ body => do
     let sz := Tools.VedU1Loop.treeSizeVal body
     unless sz ≥ Tools.VedMemLoop.addrReplaceMinTree do throwError "goal too small for the Expr.replace path: {sz}"
@@ -64,7 +64,7 @@ def addrCheck : TermElabM Unit := do
     unless n == 1 do throwError "ved_mem_addr: {n} addresses left (not unified)"
     logInfo m!"ved_mem_addr: one address left (goal of {sz} tree nodes)"
 
-/-- info: ved_mem_addr: one address left (goal of 268435458 tree nodes) -/
+/-- info: ved_mem_addr: one address left (goal of 4294967601 tree nodes) -/
 #guard_msgs in
 #eval addrCheck
 
@@ -73,8 +73,8 @@ def addrCheck : TermElabM Unit := do
 elab "ved_sig_hyp_test" : tactic => do
   Tools.VedMemPack.clearSigHyps
   withMainContext do
-    let mut sig := 0
-    let mut other := 0
+    let mut sig : Nat := 0
+    let mut other : Nat := 0
     for d in ← getLCtx do
       unless d.isImplementationDetail do
         if (d.type.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isSome then sig := sig + 1
@@ -95,10 +95,9 @@ theorem leaf44 (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) :
 
 /-- a refusal control: `ved_omega_t` does not prove a false residual -/
 theorem refuse44 (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) : True := by
-  fail_if_success (have : (x4.toNat % 65536 + x6.toNat % 65536 +
+  fail_if_success (have _h := (show (x4.toNat % 65536 + x6.toNat % 65536 +
         (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768))) % 65536 % 65536 =
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 1) % 65536 := by ved_omega_t
-    exact ())
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 1) % 65536 by ved_omega_t); trivial)
   trivial
 
 /-! ## ved_omega_n (R034 goal 54) -/
@@ -126,10 +125,9 @@ theorem leaf54b (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) :
 
 /-- a refusal control: the same sums, a false flag -/
 theorem refuse54 (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) : True := by
-  fail_if_success (have : ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+  fail_if_success (have _h := (show ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
         (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2 =
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 33) % 65536 / 32768 % 2 := by ved_omega_n
-    exact ())
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 33) % 65536 / 32768 % 2 by ved_omega_n); trivial)
   trivial
 
 /-! ## ved_ctrl_cases and the gate -/
@@ -149,14 +147,13 @@ elab "ved_assert_leaf_flag" : tactic => do
 
 /-- the leaf is false: `ved_ctrl_cases` fails and sets the flag, the gate refuses once and resets it -/
 theorem gate54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) : True := by
-  fail_if_success (have h : (if c.toNat % 8 = 4 then
+  fail_if_success (have _h := (show (if c.toNat % 8 = 4 then
       ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
         (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
     else x4.toNat) =
     (if c.toNat % 8 = 4 then
       (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 33) % 65536 / 32768 % 2
-    else x4.toNat) := by ved_ctrl_cases
-    exact ())
+    else x4.toNat) by ved_ctrl_cases); trivial)
   ved_assert_leaf_flag
   fail_if_success (ved_leaf_gate skip)
   ved_leaf_gate skip
@@ -167,8 +164,8 @@ theorem gate54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 1
 elab "#ved_axioms " ids:ident* : command => do
   let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
   for id in ids do
-    let n ← realizeGlobalConstNoOverloadWithInfo id
-    let axs ← collectAxioms n
+    let n ← liftCoreM (realizeGlobalConstNoOverloadWithInfo id)
+    let axs ← liftCoreM (collectAxioms n)
     unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
   logInfo m!"axioms within std3: {ids.size} declarations"
 
