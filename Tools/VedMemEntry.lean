@@ -158,40 +158,35 @@ def declBody (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (ins : L
   if keepDead then instantiateMVars (← zetaKeepDead cur.headBeta) else instantiateMVars (← zetaReduce cur.headBeta)
 
 /-- the memory calls of the declaration, each component a closed `fun ins => …`.  `order`: the names of the module's
-memory statements; the calls are put in that order when every statement `_gen_<let name>` finds its call among the
-`let`s of the declaration (the module lists its memory statements in the order of the `let`s, the traversal finds the
-calls in the order of their uses), else they stay in the order of the traversal -/
+memory statements, `dims` their (address, data) widths; the calls are put in that order when every statement
+`_gen_<let name>` (or `_gen_<let name>_k`, a name the synthesizer numbered) finds a call among the `let`s of the
+declaration (the module lists its memory statements in the order of the `let`s, the traversal finds the calls in the
+order of their uses; among calls of one name the dimensions decide), else they stay in the order of the traversal -/
 def collectAll (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (unf : Name → Bool)
-    (order : List String := []) : MetaM (Array MemCall) := do
+    (order : List String := []) (dims : List (Nat × Nat) := []) : MetaM (Array MemCall) := do
   let insTy ← mkArrow (Lean.mkConst ``Nat) (← mkArrow (Lean.mkConst ``String) (Lean.mkConst ``Nat))
   withLocalDeclD `ins insTy fun ins => do
     let body ← declBody stmt tbl names ins (keepDead := true)
     let (cs, tags) ← collectCalls unf body
     let nameOf := fun (c : MemCall) => (tags.find? (fun (v, _) => v == c.call)).map fun (_, n) => "_gen_" ++ n
     let cs := if order.isEmpty || cs.size != order.length then cs else
-      -- a `let` name used twice in the declaration is numbered by the synthesizer (`_gen_x`, `_gen_x_1`, ..): the
-      -- statement `_gen_x_k` takes the call with the tag `x` that comes k-th in the traversal
+      -- a `let` name used twice in the declaration is numbered by the synthesizer (`_gen_x`, `_gen_x_1`, ..) in an
+      -- order that is not the traversal's: the statement `_gen_x_k` takes a call tagged `x` of its own dimensions
+      -- (the first one in the traversal when several agree; the proof compares the memory itself)
       let group := fun (o : String) => cs.filter fun c => nameOf c == some o
-      let pick := fun (o : String) =>
-        let direct := group o
-        if direct.size == 1 then direct[0]? else
+      let baseOf := fun (o : String) =>
+        if !(group o).isEmpty then o else
         match o.splitOn "_" |>.reverse with
-        | k :: rest@(_ :: _) =>
-          match k.toNat? with
-          | some k =>
-            let base := "_".intercalate rest.reverse
-            let g := group base
-            if direct.isEmpty && 0 < k then g[k]? else none
-          | none => none
-        | _ => none
-      let sorted := order.filterMap pick
-      -- the plain name of a numbered group is its first call
-      let sorted := if sorted.length == order.length then sorted else
-        order.filterMap fun o =>
-          let g := group o
-          if g.size > 1 then g[0]? else pick o
-      if sorted.length == order.length && (sorted.all fun c => (sorted.filter (·.call == c.call)).length == 1)
-        then sorted.toArray else cs
+        | k :: rest@(_ :: _) => if k.toNat?.isSome then "_".intercalate rest.reverse else o
+        | _ => o
+      let step := fun (st : Option (List MemCall)) (x : String × Nat × Nat) => do
+        let acc ← st
+        let cands := (group (baseOf x.1)).filter fun c => !(acc.any (·.call == c.call))
+        let c ← (cands.find? fun c => c.aw == x.2.1 && c.dw == x.2.2) <|> cands[0]?
+        pure (c :: acc)
+      match (order.zip dims).foldl step (some []) with
+      | some l => if l.length == order.length then l.reverse.toArray else cs
+      | none => cs
     cs.mapM fun c => do
       -- the marker is for the traversal only: the pieces handed to the proof carry the reachable part
       pure { c with call := ← mkLambdaFVars #[ins] (stripDead c.call), wa := ← mkLambdaFVars #[ins] (stripDead c.wa),
@@ -280,7 +275,7 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
   withLocalDeclD `s (Lean.mkConst ``Nat) fun s =>
   withLocalDeclD `st strNat fun st =>
   withLocalDeclD `mems (Lean.mkConst ``Sparkle.IR.Semantics.MEnv) fun mems => do
-    let calls ← collectAll stmt tbl names unf (stmts.map (·.1))
+    let calls ← collectAll stmt tbl names unf (stmts.map (·.1)) (stmts.map fun x => (x.2.1, x.2.2.1))
     let inst := fun (x : Lean.Expr) => (mkApp x ins).headBeta
     -- the registers of the loops: `st name = toNat (component of the loop state at s)`
     let mut regEqs : Array Lean.Expr := #[]
@@ -716,7 +711,7 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     let helpers ← helperConsts stmt.getAppFn.constName!
     let unf : Name → Bool := fun n => n == stmt.getAppFn.constName! || helpers.contains n
     let inNames := tbl.binders.map ("_gen_" ++ ·)
-    let calls ← try collectAll stmt tbl inNames unf (memStmts m |>.map (·.1)) catch e => refuse decl "shape" e.toMessageData
+    let calls ← try collectAll stmt tbl inNames unf (memStmts m |>.map (·.1)) (memStmts m |>.map fun x => (x.2.1, x.2.2.1)) catch e => refuse decl "shape" e.toMessageData
     let regsL := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
     let R ← try buildR regsL stmts stmt tbl inNames unf catch e => refuse decl "shape" e.toMessageData
     unless calls.size == stmts.length do

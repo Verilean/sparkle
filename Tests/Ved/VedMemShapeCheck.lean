@@ -19,6 +19,10 @@ import Tools.VedMemEntry
   the other loop's registers first.  `Tools.VedMemShape.matchRegsShared` lets the second component read the register
   already taken.  Accepted, stored type `==` the statement, standard axioms.  Control: the same module against the
   statement of `memShare3` (the other loop's register 3 bits wide, so no register to share) is refused at `shape`.
+* NUMBERED MEMORY NAMES: `#ved_u1_mem memNum`, two helpers that each bind `let rd := Signal.memoryComboRead ..` (a
+  4-bit and a 3-bit address): the synthesizer names the memory statements `_gen_rd` and `_gen_rd_1`, the declaration
+  tags both calls `rd`.  `Tools.VedMemEntry.collectAll` maps `_gen_rd_1` to the second call tagged `rd`; the stored
+  type is `==` the statement and the axioms are the standard three.
 -/
 
 namespace Tests.Ved.VedMemShapeCheck
@@ -159,6 +163,28 @@ def memShare3 {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal d
 #guard_msgs (drop info) in
 #ved_u1_mem memShare
 
+/-- a 4-bit-address memory read, bound to `rd` -/
+def helpA {dom : DomainConfig} (wa : Signal dom (BitVec 4)) (wd : Signal dom (BitVec 16)) (we : Signal dom Bool)
+    (ra : Signal dom (BitVec 4)) : Signal dom (BitVec 16) :=
+  let rd := Signal.memoryComboRead wa wd we ra
+  rd
+
+/-- a 3-bit-address memory read, also bound to `rd` -/
+def helpB {dom : DomainConfig} (wa : Signal dom (BitVec 3)) (wd : Signal dom (BitVec 16)) (we : Signal dom Bool)
+    (ra : Signal dom (BitVec 3)) : Signal dom (BitVec 16) :=
+  let rd := Signal.memoryComboRead wa wd we ra
+  rd
+
+def memNum {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) (addr3 : Signal dom (BitVec 3)) :
+    Signal dom (BitVec 16) :=
+  let a := helpA writeAddr writeData writeEn writeAddr
+  let b := helpB addr3 writeData start addr3
+  b ^^^ a
+
+#guard_msgs (drop info) in
+#ved_u1_mem memNum
+
 def storedOk (decl : Name) : TermElabM Unit := do
   let (stmt, _) ← specialiseDomain decl
   let thm := decl ++ `ved_mem
@@ -178,6 +204,10 @@ run_cmd liftTermElabM <| storedOk ``memNest
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemShapeCheck.memShare -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedOk ``memShare
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemShapeCheck.memNum -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``memNum
 
 /-- the lemma of the congruence: standard axioms only -/
 def lemmaOk : TermElabM Unit := do
