@@ -423,13 +423,14 @@ elab "ved_pack_wire_m" : tactic => withMainContext do
       -- (`ved_pack_wire` tries `ved_wire_bits` first here.  This goal went through `ved_pack_dag` and still has reads: R034 goals 54-85,
       -- 47899 nodes, 18 bit operations: `ved_wire_bits` fails after 64 s / 0.73M heartbeats on EACH of them, the whole budget; so only
       -- the packing step, with a budget of its own: it does not end on such a goal either (800 s, 40M heartbeats))
-      let hb ← IO.getNumHeartbeats
+      -- local budget never above what is left of the ambient one (`withLocalHb`); a failure restores the state from before
+      let s ← saveState
       try
         tryCatchRuntimeEx
-          (withTheReader Core.Context (fun c => { c with initHeartbeats := hb, maxHeartbeats := packSimpFallbackHb * 1000 })
+          (Tools.VedMemLoop.withLocalHb (packSimpFallbackHb * 1000)
             (Tactic.withoutRecover (evalTactic (← `(tactic| ved_pack_simp)))))
           fun _ => throwError "ved_pack_simp: no result within the budget"
-      catch _ => pure ()
+      catch _ => s.restore
       stamp "pack_simp done"
     else
       evalTactic (← `(tactic| try ved_pack_simp))
@@ -619,7 +620,10 @@ elab "ved_omega_n" : tactic => do
     saved.restore
     evalTactic (← `(tactic| ved_omega_t))
 
-/-- set when the leaf of `ved_ctrl_cases` fails (a data goal after the control cases that `omega` could not prove) in a context with big hypotheses -/
+/-- set when the leaf of `ved_ctrl_cases` fails (a data goal after the control cases that `omega` could not prove), the context has a
+hypothesis of `omegaHypMaxTree` nodes or more, and the residual has at least two DISTINCT subterms `(a % m) / k` with a literal `k`.
+A heuristic refusal rule: it does not check the width (16 bit or other) nor that the `a % m` are spellings of the same sum.
+Cleared by `ved_ctrl_cases` on entry and on success, and by `ved_leaf_gate` when it reads it. -/
 initialize ctrlLeafFailed : IO.Ref Bool ← IO.mkRef false
 
 /-- `t` unless the last `ved_ctrl_cases` ended on a failing leaf: the leafwise closers of such a goal do not end (`omega`'s elimination has no
@@ -851,8 +855,8 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
             unless d.isImplementationDetail do
               if Tools.VedU1Loop.treeSizeVal (← instantiateMVars d.type) ≥ omegaHypMaxTree then return true
           return false
-        -- and the residual reads one 16-bit sum in several spellings under `/` (the carry bits `(sum % m) / k`; one spelling is `omega`'s
-        -- ordinary failure that the leafwise closers may still rescue: R037)
+        -- and the residual has at least two distinct `(a % m) / k` (literal `k`; on R034 goal 54 they are spellings of one 16-bit sum's
+        -- carry bits, but neither the width nor the sameness is checked: a heuristic; with one such term the leafwise closers may still rescue it: R037)
         let mut sums : Array Lean.Expr := #[]
         for e in Tools.VedU1WireShare.collectDag (fun e => e.isAppOfArity ``HDiv.hDiv 6 && (e.getArg! 5).nat?.isSome
             && (e.getArg! 4).isAppOfArity ``HMod.hMod 6) ty do

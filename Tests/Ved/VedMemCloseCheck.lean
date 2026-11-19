@@ -193,6 +193,148 @@ theorem gateSmall54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 
   ved_assert_no_leaf_flag
   trivial
 
+/-- the flag of a failing call does not survive the NEXT `ved_ctrl_cases`: after a failure that set it (and was not read by a
+gate), a succeeding call clears it and the gate runs its tactic -/
+theorem gateResetOk54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16)
+    (hbig : ((if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
+    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
+    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
+    else x4.toNat))) : True := by
+  fail_if_success (have _h := (show (if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 33) % 65536 / 32768 % 2
+    else x4.toNat) by ved_ctrl_cases); trivial)
+  ved_assert_leaf_flag
+  have _ok : (if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
+    else x4.toNat) := by ved_ctrl_cases
+  ved_assert_no_leaf_flag
+  ved_leaf_gate skip
+  trivial
+
+/-- likewise after a failing next call whose residual does not have the gated shape (no `(a % m) / k`): the flag is cleared on entry -/
+theorem gateResetFail54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16)
+    (hbig : ((if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
+    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
+    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
+    else x4.toNat))) : True := by
+  fail_if_success (have _h := (show (if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 33) % 65536 / 32768 % 2
+    else x4.toNat) by ved_ctrl_cases); trivial)
+  ved_assert_leaf_flag
+  fail_if_success (have _h := (show (if c.toNat % 8 = 4 then x4.toNat else x5.toNat) = x6.toNat by ved_ctrl_cases); trivial)
+  ved_assert_no_leaf_flag
+  ved_leaf_gate skip
+  trivial
+
+/-! ## ved_mem_budget / withLocalHb: the local budget of `ved_pack_wire_m`'s fallback
+
+Same rule as `ved_budget` (ved/perf-r281): local max = min(what is left of the ambient budget, local), at least 1; with an
+unlimited ambient budget the local one alone; on exhaustion the state from before is restored.  `burn_hb k` (test-only)
+allocates `k * 1000` heartbeats honouring the limit, so the numbers are heartbeats, not wall-clock. -/
+
+/-- Test-only: burn `k * 1000` heartbeats, honouring the heartbeat limit. -/
+elab "burn_hb " k:num : tactic => do
+  let start ← IO.getNumHeartbeats
+  let target := k.getNat * 1000
+  let r ← IO.mkRef ([] : List Nat)
+  let mut i := 0
+  while (← IO.getNumHeartbeats) - start < target do
+    Core.checkSystem "burn_hb"
+    r.set (List.replicate 20 i)
+    i := i + 1
+
+/-- The old local budget of `ved_pack_wire_m` (0362a39c and before; the control): clock restarted, local value alone -/
+elab "ved_mem_budget_old " n:num t:tactic : tactic => do
+  let hb ← IO.getNumHeartbeats
+  let r ← withTheReader Core.Context (fun c => { c with initHeartbeats := hb, maxHeartbeats := n.getNat * 1000 }) do
+    tryCatchRuntimeEx (do evalTactic t; pure true) fun e => if e.isRuntime then pure false else throw e
+  unless r do throwError "ved_mem_budget_old: local heartbeat budget exhausted"
+
+-- enough budget
+example : True := by ved_mem_budget 1000 (burn_hb 20; trivial)
+
+-- ambient unlimited: the local cap applies (without it the same work succeeds)
+set_option maxHeartbeats 0 in
+example : True := by burn_hb 300; trivial
+
+/-- error: ved_mem_budget: local heartbeat budget exhausted -/
+#guard_msgs in
+set_option maxHeartbeats 0 in
+example : True := by ved_mem_budget 100 (burn_hb 300; trivial)
+
+-- the remaining ambient budget is respected: 100 thousand, 80 burned, `t` needs 60 (< local 1000)
+/-- error: ved_mem_budget: local heartbeat budget exhausted -/
+#guard_msgs in
+set_option maxHeartbeats 100 in
+example : True := by burn_hb 80; ved_mem_budget 1000 (burn_hb 60; trivial)
+
+-- control: the old rule lets the same script through (the ambient limit is exceeded)
+set_option maxHeartbeats 100 in
+example : True := by burn_hb 80; ved_mem_budget_old 1000 (burn_hb 60; trivial)
+
+-- within what is left it passes
+set_option maxHeartbeats 100 in
+example : True := by burn_hb 80; ved_mem_budget 1000 (burn_hb 5; trivial)
+
+-- partial state change, then out of budget: the next alternative / the next tactic sees the ORIGINAL goal
+example : True ∧ True := by
+  first
+    | ved_mem_budget 10 (refine ⟨?_, ?_⟩; burn_hb 300; all_goals trivial)
+    | exact ⟨trivial, trivial⟩
+
+example : True ∧ True := by
+  (try ved_mem_budget 10 (refine ⟨?_, ?_⟩; burn_hb 300)) <;> exact ⟨trivial, trivial⟩
+
+-- a failure that is not a runtime exception passes through
+/--
+error: boom
+⊢ True
+-/
+#guard_msgs in
+example : True := by ved_mem_budget 10 (fail "boom")
+
 /-! ## axioms -/
 
 elab "#ved_axioms " ids:ident* : command => do
@@ -203,8 +345,8 @@ elab "#ved_axioms " ids:ident* : command => do
     unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
   logInfo m!"axioms within std3: {ids.size} declarations"
 
-/-- info: axioms within std3: 9 declarations -/
+/-- info: axioms within std3: 11 declarations -/
 #guard_msgs in
-#ved_axioms Tools.VedMemPack.ved_mod_sum sigHyps leaf44 refuse44 leaf54a leaf54b ctrl54 gate54 gateSmall54
+#ved_axioms Tools.VedMemPack.ved_mod_sum sigHyps leaf44 refuse44 leaf54a leaf54b ctrl54 gate54 gateSmall54 gateResetOk54 gateResetFail54
 
 end Tests.Ved.VedMemCloseCheck

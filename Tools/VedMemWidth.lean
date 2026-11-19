@@ -8,7 +8,9 @@ import Tools.VedMemOrder
 a module with ~2400 wires are String-quadratic in the kernel (measured in the ved-memr5 report: the wire-name
 `Nodup` alone is 29 s / 12 GB at N = 300 and is killed at N = 1000).
 
-`WidthOk' c m` has the same meaning and uses the Nat name codes (`ncode`) and the search tree of
+`WidthOk' c m` is a sound sufficient condition for `WidthStmt c m` (only `WidthStmt_of_ok` is proved; it may refuse what
+the `decide` accepts, and the entry keeps the old `decide` as the fallback).  It uses the Nat name codes (`ncode`) and the
+(unbalanced) search tree of
 `Tools/VedMemOrder.lean`: the wires are entered ONCE in a table (code, width, scalar flag), every entry is looked up
 again (`chkE`: the codes are then pairwise distinct, i.e. the wire names are `Nodup`), and the data-input widths and the
 registers' wires are lookups.  `WidthStmt_of_ok : WidthOk' c m = true → WidthStmt c m`.  No axiom, no `native_decide`.

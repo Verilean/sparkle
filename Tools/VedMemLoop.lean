@@ -20,6 +20,26 @@ namespace Tools.VedMemLoop
 
 open Lean Meta Elab Tactic Sparkle.Core.Signal
 
+/-- run `x` with a local heartbeat budget of `n` (raw heartbeats) that never exceeds what is left of the ambient budget
+(the rule of `ved_budget`, `Tools/VedU1Entry.lean` on ved/perf-r281): local max = min(remaining ambient, n), at least 1
+(an exhausted ambient budget fails at once, never 0 = unlimited); with an unlimited ambient budget (0) the local `n` alone -/
+def withLocalHb {α : Type} (n : Nat) (x : TacticM α) : TacticM α := do
+  let hb ← IO.getNumHeartbeats
+  withTheReader Core.Context (fun c =>
+      let left := c.maxHeartbeats - (hb - c.initHeartbeats)
+      { c with maxHeartbeats := if c.maxHeartbeats == 0 then n else max 1 (min left n), initHeartbeats := hb }) x
+
+/-- `t` within a local budget of `n` thousand heartbeats (`withLocalHb`); when the budget runs out the tactic state is
+restored to the one before `t` (a partial change does not reach the next alternative) and the failure is reported.
+Other errors pass through (with the state restored as well). -/
+elab "ved_mem_budget " n:num t:tactic : tactic => do
+  let s ← saveState
+  let ok ← tryCatchRuntimeEx (do withLocalHb (n.getNat * 1000) (Tactic.withoutRecover (evalTactic t)); pure true)
+    fun e => do
+      s.restore
+      if e.isRuntime then pure false else throw e
+  unless ok do throwError "ved_mem_budget: local heartbeat budget exhausted"
+
 /-! `.val` of an operator applied directly through the `BitVec`-`Signal` / `Signal`-`BitVec` instances (as the synthesizer's
 source writes `0#16 - x`): `Tools.VedU1Lemmas.*_val_sc/_cs` are stated with the other elaboration (`Signal.pure a`). -/
 section DirectOps
@@ -570,7 +590,7 @@ elab "ved_stamp " k:num : tactic => do
               let t0 ← IO.monoMsNow
               let r ← try
                   tryCatchRuntimeEx
-                    (withTheReader Core.Context (fun c => { c with initHeartbeats := hb0, maxHeartbeats := 400000 * 1000 })
+                    (withLocalHb (400000 * 1000)
                       (Tactic.withoutRecover (evalTactic (← if variant == 0 then `(tactic| ved_bit_simp) else `(tactic| (clear_value *; ved_bit_simp))))))
                     fun _ => throwError "runtime exception (budget)"
                   pure "ok"

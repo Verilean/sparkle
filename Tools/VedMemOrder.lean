@@ -7,7 +7,10 @@ import Tools.VedMem
 entry proves it by `decide +kernel`, and on a body of ~1000 statements that is quadratic String / `Stmt` equality in
 the kernel (23 GB, > 900 s on the SoC; measured in the report of unit ved-memr4).
 
-`OrderOkM'` has the same meaning and is checked in (near) linear time:
+`OrderOkM'` is a SOUND SUFFICIENT condition for `OrderOkM` (only `OrderOkM' m b = true → OrderOkM m b = true` is proved;
+it may refuse what `OrderOkM` accepts, e.g. on a collision of the cheap statement keys or the table keys), and the entry
+keeps the old `decide` as the fallback when it is false.  It was measured much cheaper in the kernel on the memory rows
+(ved-memr4/5 reports); the search tree is not balanced, so there is no general near-linear bound:
 
 * a name is turned into the Nat `ncode name` (an exact positional code of its characters, injective: `ncode_inj`);
   from then on only Nat arithmetic and comparison is used (GMP-accelerated in the kernel; evaluating a String literal
@@ -427,7 +430,7 @@ def OrderLoc (b : List Stmt) : Bool :=
   decide (b.filterMap stmtMemName).Nodup &&
   b.all (fun s => (stmtReads s).all (fun n => !(stmtWrites s).contains n))
 
-/-- `OrderOkM` with the quadratic parts replaced (same meaning: `OrderOkM_of_parts`) -/
+/-- `OrderOkM` with the quadratic parts replaced: a sufficient condition (`OrderOkM_of_parts`; the converse is not claimed) -/
 def OrderOkM' (m : Module) (b : List Stmt) : Bool := permT b m.body && OrderTab m b && OrderLoc b
 
 /-! ## 4. Soundness -/
