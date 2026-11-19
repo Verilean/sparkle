@@ -531,6 +531,19 @@ elab "ved_omega_s" : tactic => do
   setGoals [g]
   evalTactic (← `(tactic| ved_omega_c))
 
+/-- `omega` on the small hypotheses only (as `ved_omega_s`, no signal hypotheses, none of `omegaHypMaxTree` nodes or more) and without the
+2M heartbeat cap of `ved_omega`: the leaf of `ved_ctrl_cases` is a data goal that holds, and `omega` needs more than the cap for the
+`%` / `/` chains of the 16-bit sums (3.0M for the residual of R034 goal 44) -/
+elab "ved_omega_t" : tactic => do
+  let mut g ← getMainGoal
+  for d in ← g.withContext getLCtx do
+    unless d.isImplementationDetail do
+      if (d.type.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isSome
+          || Tools.VedU1Loop.treeSizeVal (← g.withContext (instantiateMVars d.type)) ≥ omegaHypMaxTree then
+        g ← g.tryClear d.fvarId
+  setGoals [g]
+  evalTactic (← `(tactic| omega))
+
 /-- `ved_pack_simp` with `ved_omega_s` as side-condition prover (the plain one reads the 1.6e8-node signal hypotheses at every side condition) -/
 macro "ved_pack_simp_c" : tactic =>
   `(tactic| simp (disch := first | ved_omega_s | fail) only
@@ -732,7 +745,19 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
       g.assign pf
       setGoals []
     else
-      evalTactic (← `(tactic| ved_omega_s))
+      try evalTactic (← `(tactic| ved_omega_t))
+      catch e =>
+        if (← IO.getEnv "VED_DUMP_DIR").isSome then
+          -- test only: the residual statement `omega` could not prove, with the context it is given
+          let txt ← g.withContext do
+            let mut hs := ""
+            for d in ← getLCtx do
+              unless d.isImplementationDetail do
+                let t ← instantiateMVars d.type
+                hs := hs ++ s!"  {d.userName} [{Tools.VedU1Loop.treeSizeVal t}]\n"
+            return s!"{(← ppExpr ty).pretty.take 6000}\n{hs}"
+          Tools.VedMemLoop.dbgLog s!"ctrl_cases leaf failed: {txt}"
+        throw e
       cache.modify fun m => m.insert ty (Lean.Expr.mvar g)
   | (vn, bn, n) :: rest =>
     let g ← getMainGoal
