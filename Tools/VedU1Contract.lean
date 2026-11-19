@@ -199,20 +199,51 @@ def signalArg (ty : Lean.Expr) : MetaM Lean.Expr := do
     pure a
   | _ => throwError "ved_table%: {ty} is not a Signal defaultDomain _ (v1: Signal binders only)"
 
-/-- The table of a declaration, read from its type only. -/
-def readTable (decl : Name) : MetaM DeclTable := do
-  let some ci := (← getEnv).find? decl | throwError "ved_table%: unknown {decl}"
-  unless ci.levelParams.isEmpty do throwError "ved_table%: {decl} is universe polymorphic"
-  forallTelescopeReducing ci.type fun xs res => do
+/-- The table of a (fully applied or closed) type: only explicit `Signal
+defaultDomain _` binders, a `Signal defaultDomain _` result.  `what` names the
+declaration in the messages. -/
+def readTableOfType (what : Name) (ty : Lean.Expr) : MetaM DeclTable :=
+  forallTelescopeReducing ty fun xs res => do
     let mut bs : List String := []
     let mut ps : List PTy := []
     for x in xs do
       let ld ← x.fvarId!.getDecl
       unless ld.binderInfo.isExplicit do
-        throwError "ved_table%: {decl} has a non-explicit binder {ld.userName}"
+        throwError "ved_table%: {what} has a non-explicit binder {ld.userName}"
       bs := bs ++ [ld.userName.toString]
       ps := ps ++ [← readPTy (← signalArg ld.type)]
     return { binders := bs, ins := ps, out := ← readOTy (← signalArg res) }
+
+/-- The table of a declaration, read from its type only. -/
+def readTable (decl : Name) : MetaM DeclTable := do
+  let some ci := (← getEnv).find? decl | throwError "ved_table%: unknown {decl}"
+  unless ci.levelParams.isEmpty do throwError "ved_table%: {decl} is universe polymorphic"
+  readTableOfType decl ci.type
+
+/-- The statement constant of `decl`: `decl` itself, or `@decl defaultDomain …`
+when its type starts with implicit binders whose type is exactly
+`DomainConfig` (written `{dom : DomainConfig}` or auto-bound), each
+instantiated with `defaultDomain`.  Returns the term and the number of
+instantiated binders.  ONLY such a leading binder is instantiated: any other
+binder is left for `readTableOfType` to refuse, and a `Signal d _` over
+another domain is refused by `signalArg`. -/
+def specialiseDomain (decl : Name) : MetaM (Lean.Expr × Nat) := do
+  let some ci := (← getEnv).find? decl | throwError "ved_table%: unknown {decl}"
+  unless ci.levelParams.isEmpty do throwError "ved_table%: {decl} is universe polymorphic"
+  let dflt := Lean.mkConst ``Sparkle.Core.Domain.defaultDomain
+  let mut ty := ci.type
+  let mut e := Lean.mkConst decl
+  let mut n := 0
+  repeat
+    match ty with
+    | .forallE _ d b bi =>
+      if !bi.isExplicit && d.isConstOf ``Sparkle.Core.Domain.DomainConfig then
+        ty := b.instantiate1 dflt
+        e := mkApp e dflt
+        n := n + 1
+      else break
+    | _ => break
+  return (e, n)
 
 /-- `ved_table% decl`: the `DeclTable` literal of `decl`, read from its type. -/
 elab "ved_table% " id:ident : term => do
