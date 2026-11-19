@@ -393,9 +393,10 @@ goals of a loop (`ved_pack_simp_c`) read the same packed words, so the range sid
 `a * 2^k + b < 2^m` are the same in every goal and `omega` took ~1e6 heartbeats (a third of them
 failures, asked 4 times) per call on the 20-register words.  The proof term is checked by the kernel
 as before; the cache only decides what is tried. -/
-elab "ved_omega_c" : tactic => do
+elab "ved_omega_c" : tactic => withMainContext do
   let g ← getMainGoal
-  let tgt ← instantiateMVars (← g.getType)
+  -- (a goal left by `have` is wrapped in metadata, which hides the `<` from the matches below)
+  let tgt := (← instantiateMVars (← g.getType)).consumeMData
   if tgt.hasMVar then
     evalTactic (← `(tactic| ved_omega))
     return
