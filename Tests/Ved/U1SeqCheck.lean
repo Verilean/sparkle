@@ -194,4 +194,36 @@ run_cmd expectRefused "proof" (checkerNames `ctlLow) do
     Core.withCurrHeartbeats <| withTheReader Core.Context (fun c => { c with maxHeartbeats := 300000 }) do
       checkU1 ``twoReg `ctlLow ``twoReg m .generated
 
+/-! ## 5. Stage stamps (`VED_STAGE_STAMPS`, default off)
+
+The switch is decided once by the entry and handed to `seqLoopScript` (`stamps`, default `false`): the
+script generated with the switch off (and by default) contains no `ved_stage` tactic, and is the same
+syntax tree whether `stamps` is given as `false` or left out; with the switch on the stamps are in it.
+The run-time lines (`VED STAGE …`) depend on time and heartbeats and are not checked here. -/
+
+def stampCount (stamps : Option Bool) : TermElabM (Nat × String) := do
+  let (m, _) ← Sparkle.Compiler.Elab.synthesizeCombinational ``twoReg
+  let nm := Names.ofBase `ctlStamp
+  let clkRst := clkRstOf m
+  let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+  let hs ← helperConsts ``twoReg
+  let r ← if let some st := stamps then
+      Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body ``twoReg 0 m
+        (orderBody m.body) clkRst (dataPortsOf m clkRst) regs hs st
+    else
+      Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body ``twoReg 0 m
+        (orderBody m.body) clkRst (dataPortsOf m clkRst) regs hs
+  let some stx := r | throwError "no script"
+  let txt := toString stx
+  return ((txt.splitOn "ved_stage").length - 1, txt)
+
+/-- info: stamps off: 0 `ved_stage`, equal to the default script; stamps on: 40 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let (nOff, tOff) ← stampCount (some false)
+  let (nDef, tDef) ← stampCount none
+  let (nOn, _) ← stampCount (some true)
+  unless nOff == 0 && nDef == 0 && tOff == tDef do throwError "the switch-off script differs from the default one"
+  logInfo m!"stamps off: {nOff} `ved_stage`, equal to the default script; stamps on: {nOn}"
+
 end Tests.Ved.U1SeqCheck
