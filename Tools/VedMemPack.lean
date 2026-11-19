@@ -544,6 +544,81 @@ elab "ved_omega_t" : tactic => do
   setGoals [g]
   evalTactic (← `(tactic| omega))
 
+/-- `(a % M + b % M + c) % M = (a + b + c) % M`: the carry bit of a 16-bit sum of already reduced operands is that of the plain sum -/
+theorem ved_mod_sum (a b c M : Nat) : (a % M + b % M + c) % M = (a + b + c) % M := by
+  rw [Nat.add_right_comm, Nat.add_mod_mod, Nat.add_assoc, Nat.mod_add_mod]
+  congr 1
+  omega
+
+/-- the `e % m` subterms (`m` a literal) of `tgt`, smallest first -/
+def modTerms (tgt : Lean.Expr) : Array Lean.Expr :=
+  let src := fun (e : Lean.Expr) => e.isAppOfArity ``HMod.hMod 6 && (e.getArg! 5).nat?.isSome
+  (Tools.VedU1WireShare.collectDag src tgt).qsort fun a b => Tools.VedU1Loop.treeSizeVal a < Tools.VedU1Loop.treeSizeVal b
+
+/-- the packed flags of a 16-bit sum are bits of `(sum) % 65536` written in several spellings (nested `%` of the operands, other
+order of the summands): `omega` meets 30 and more `%` / `/` atoms and does not end (R034 goal 54, 4 spellings of one sum, 4 flags).
+`ved_mod_norm` rewrites every `e % m` that `omega` proves equal to a smaller one (small side goals, smallest first, the inner sums first)
+to that one, then generalises each `sum % m` that is the argument of a `/` to a bounded variable: the goal is then about ONE
+variable per sum -/
+elab "ved_mod_norm" : tactic => withMainContext do
+  let mut changed : Bool := true
+  let mut rounds : Nat := 0
+  while changed && decide (rounds < 20) do
+    changed := false
+    rounds := rounds + 1
+    let cs := modTerms (← instantiateMVars (← getMainTarget))
+    if cs.size > 12 then throwError "ved_mod_norm: too many sums"
+    for i in [0:cs.size] do
+      unless changed do
+        for j in [i+1:cs.size] do
+          unless changed do
+            let r := cs[i]!
+            let x := cs[j]!
+            if r.getArg! 5 == x.getArg! 5 then
+              try
+                let m ← mkFreshExprMVar (← mkEq r x)
+                let _ ← Tactic.run m.mvarId! (evalTactic (← `(tactic| omega)))
+                evalTactic (← `(tactic| rw [← $(← Term.exprToSyntax m):term]))
+                changed := true
+              catch _ => pure ()
+  let src := fun (e : Lean.Expr) =>
+    e.isAppOfArity ``HDiv.hDiv 6 && (e.getArg! 5).nat?.isSome && (e.getArg! 4).isAppOfArity ``HMod.hMod 6
+      && (e.getArg! 4 |>.getArg! 5).nat?.isSome
+  let mut cands : Array Lean.Expr := #[]
+  for e in Tools.VedU1WireShare.collectDag src (← instantiateMVars (← getMainTarget)) do
+    unless cands.contains (e.getArg! 4) do cands := cands.push (e.getArg! 4)
+  if cands.isEmpty then throwError "ved_mod_norm: no sum"
+  let mut k := 0
+  for r in cands do
+    let rS ← Term.exprToSyntax r
+    let mS ← Term.exprToSyntax (r.getArg! 5)
+    let nm := mkIdent (Name.mkSimple s!"ved_ms{k}")
+    let bn := mkIdent (Name.mkSimple s!"ved_mb{k}")
+    let hk := mkIdent (Name.mkSimple s!"ved_mh{k}")
+    evalTactic (← `(tactic| have $bn : $rS < $mS := Nat.mod_lt _ (by omega)))
+    evalTactic (← `(tactic| generalize $hk:ident : $rS = $nm at $bn:ident ⊢))
+    evalTactic (← `(tactic| clear $hk:ident))
+    k := k + 1
+
+/-- the operands that are below the modulus lose their `% 65536` (`Nat.mod_eq_of_lt`),
+`ved_mod_sum` merges nested sums, `ved_mod_norm` makes the carry bits one variable, then `omega`; `ved_omega_t` when that fails (plain `omega` first does not end on
+R034 goal 54's nested sums) -/
+elab "ved_omega_n" : tactic => do
+  let g0 ← getMainGoal
+  let saved ← saveState
+  try
+    let mut g := g0
+    for d in ← g.withContext getLCtx do
+      unless d.isImplementationDetail do
+        if (d.type.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isSome
+            || Tools.VedU1Loop.treeSizeVal (← g.withContext (instantiateMVars d.type)) ≥ omegaHypMaxTree then
+          g ← g.tryClear d.fvarId
+    setGoals [g]
+    evalTactic (← `(tactic| simp (disch := omega) only [Nat.mod_eq_of_lt, ved_mod_sum] <;> (try ved_mod_norm) <;> omega))
+  catch _ =>
+    saved.restore
+    evalTactic (← `(tactic| ved_omega_t))
+
 /-- `ved_pack_simp` with `ved_omega_s` as side-condition prover (the plain one reads the 1.6e8-node signal hypotheses at every side condition) -/
 macro "ved_pack_simp_c" : tactic =>
   `(tactic| simp (disch := first | ved_omega_s | fail) only
@@ -745,7 +820,10 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
       g.assign pf
       setGoals []
     else
-      try evalTactic (← `(tactic| ved_omega_t))
+      if (← IO.getEnv "VED_DUMP_DIR").isSome then
+        -- test only: the residual about to be tried (the last one logged is the one a hanging leaf works on)
+        Tools.VedMemLoop.dbgLog s!"ctrl_cases leaf: {(← ppExpr ty).pretty.take 6000}"
+      try evalTactic (← `(tactic| ved_omega_n))
       catch e =>
         if (← IO.getEnv "VED_DUMP_DIR").isSome then
           -- test only: the residual statement `omega` could not prove, with the context it is given
