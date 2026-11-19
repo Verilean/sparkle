@@ -145,8 +145,27 @@ theorem ctrl54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 1
 elab "ved_assert_leaf_flag" : tactic => do
   unless ← Tools.VedMemPack.ctrlLeafFailed.get do throwError "ctrlLeafFailed not set"
 
-/-- the leaf is false: `ved_ctrl_cases` fails and sets the flag, the gate refuses once and resets it -/
-theorem gate54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) : True := by
+/-- the leaf is false, the context has big hypotheses (the ones `omega` would read): `ved_ctrl_cases` fails and sets the flag, the gate refuses once and resets it -/
+theorem gate54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16)
+    (hbig : ((if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
+    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
+    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
+    else x4.toNat))) : True := by
   fail_if_success (have _h := (show (if c.toNat % 8 = 4 then
       ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
         (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
@@ -159,6 +178,21 @@ theorem gate54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 1
   ved_leaf_gate skip
   trivial
 
+elab "ved_assert_no_leaf_flag" : tactic => do
+  if ← Tools.VedMemPack.ctrlLeafFailed.get then throwError "ctrlLeafFailed set without big hypotheses"
+
+/-- the same false leaf without big hypotheses: `ved_ctrl_cases` fails, the flag stays unset (the leafwise closers may still run) -/
+theorem gateSmall54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) : True := by
+  fail_if_success (have _h := (show (if c.toNat % 8 = 4 then
+      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
+        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
+    else x4.toNat) =
+    (if c.toNat % 8 = 4 then
+      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 33) % 65536 / 32768 % 2
+    else x4.toNat) by ved_ctrl_cases); trivial)
+  ved_assert_no_leaf_flag
+  trivial
+
 /-! ## axioms -/
 
 elab "#ved_axioms " ids:ident* : command => do
@@ -169,8 +203,8 @@ elab "#ved_axioms " ids:ident* : command => do
     unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
   logInfo m!"axioms within std3: {ids.size} declarations"
 
-/-- info: axioms within std3: 8 declarations -/
+/-- info: axioms within std3: 9 declarations -/
 #guard_msgs in
-#ved_axioms Tools.VedMemPack.ved_mod_sum sigHyps leaf44 refuse44 leaf54a leaf54b ctrl54 gate54
+#ved_axioms Tools.VedMemPack.ved_mod_sum sigHyps leaf44 refuse44 leaf54a leaf54b ctrl54 gate54 gateSmall54
 
 end Tests.Ved.VedMemCloseCheck

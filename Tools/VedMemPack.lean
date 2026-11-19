@@ -619,7 +619,7 @@ elab "ved_omega_n" : tactic => do
     saved.restore
     evalTactic (← `(tactic| ved_omega_t))
 
-/-- set when the leaf of `ved_ctrl_cases` fails (a data goal after the control cases that `omega` could not prove) -/
+/-- set when the leaf of `ved_ctrl_cases` fails (a data goal after the control cases that `omega` could not prove) in a context with big hypotheses -/
 initialize ctrlLeafFailed : IO.Ref Bool ← IO.mkRef false
 
 /-- `t` unless the last `ved_ctrl_cases` ended on a failing leaf: the leafwise closers of such a goal do not end (`omega`'s elimination has no
@@ -845,7 +845,13 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
                 hs := hs ++ s!"  {d.userName} [{Tools.VedU1Loop.treeSizeVal t}]\n"
             return s!"{(← ppExpr ty).pretty.take 6000}\n{hs}"
           Tools.VedMemLoop.dbgLog s!"ctrl_cases leaf failed: {txt}"
-        ctrlLeafFailed.set true
+        -- the leafwise closers hang only where `omega` reads hypotheses of `omegaHypMaxTree` nodes or more (R034 goal 54: the 8 `hx` of 850-1100)
+        let bigHyp ← g.withContext do
+          for d in ← getLCtx do
+            unless d.isImplementationDetail do
+              if Tools.VedU1Loop.treeSizeVal (← instantiateMVars d.type) ≥ omegaHypMaxTree then return true
+          return false
+        ctrlLeafFailed.set bigHyp
         throw e
       cache.modify fun m => m.insert ty (Lean.Expr.mvar g)
   | (vn, bn, n) :: rest =>
