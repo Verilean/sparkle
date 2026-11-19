@@ -58,6 +58,9 @@ jobs:
     - name: Strict axiom audit (accept / reject controls)
       run: lake build Tests.Ved.StrictAuditCheck
 
+    - name: "Kernel defeq regression (Option.getD (some X) 0 =?= X via vedGetD_some: positive at k = 4359, old-route control at k = 18, fixed budget)"
+      run: lake build Tests.Ved.VedGetDKernelCheck
+
     - name: Synthesis-path regressions (width-aware merging, per-module caches)
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
 
@@ -161,6 +164,9 @@ jobs:
 
     - name: Strict axiom audit (accept / reject controls)
       run: lake build Tests.Ved.StrictAuditCheck
+
+    - name: "Kernel defeq regression (Option.getD (some X) 0 =?= X via vedGetD_some: positive at k = 4359, old-route control at k = 18, fixed budget)"
+      run: lake build Tests.Ved.VedGetDKernelCheck
 
     - name: Synthesis-path regressions (width-aware merging, per-module caches)
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck

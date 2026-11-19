@@ -362,6 +362,10 @@ lean_lib «Tools.VedStrictAudit» where
 lean_lib «Tests.Ved.StrictAuditCheck» where
   roots := #[`Tests.Ved.StrictAuditCheck]
 
+-- regression: the kernel must not decide `Option.getD (some X) 0 =?= X` (vedGetD_some in ved_seq_simp)
+lean_lib «Tests.Ved.VedGetDKernelCheck» where
+  roots := #[`Tests.Ved.VedGetDKernelCheck]
+
 -- regressions for the synthesis-path changes this introduction brings
 -- (PR #147 review): width-aware register merging, per-module caches
 lean_lib «Tests.Ved.RegDedupWidthCheck» where
