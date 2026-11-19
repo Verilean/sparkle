@@ -619,6 +619,16 @@ elab "ved_omega_n" : tactic => do
     saved.restore
     evalTactic (← `(tactic| ved_omega_t))
 
+/-- set when the leaf of `ved_ctrl_cases` fails (a data goal after the control cases that `omega` could not prove) -/
+initialize ctrlLeafFailed : IO.Ref Bool ← IO.mkRef false
+
+/-- `t` unless the last `ved_ctrl_cases` ended on a failing leaf: the leafwise closers of such a goal do not end (`omega`'s elimination has no
+heartbeat check, so a local cap does not bound it: R034 goal 54 ran the rest of the 900 s), the refusal comes back at once -/
+elab "ved_leaf_gate " t:tactic : tactic => do
+  if ← ctrlLeafFailed.modifyGet fun b => (b, false) then
+    throwError "ved_leaf_gate: ved_ctrl_cases ended on a failing leaf, leafwise closers skipped"
+  evalTactic t
+
 /-- `ved_pack_simp` with `ved_omega_s` as side-condition prover (the plain one reads the 1.6e8-node signal hypotheses at every side condition) -/
 macro "ved_pack_simp_c" : tactic =>
   `(tactic| simp (disch := first | ved_omega_s | fail) only
@@ -835,6 +845,7 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
                 hs := hs ++ s!"  {d.userName} [{Tools.VedU1Loop.treeSizeVal t}]\n"
             return s!"{(← ppExpr ty).pretty.take 6000}\n{hs}"
           Tools.VedMemLoop.dbgLog s!"ctrl_cases leaf failed: {txt}"
+        ctrlLeafFailed.set true
         throw e
       cache.modify fun m => m.insert ty (Lean.Expr.mvar g)
   | (vn, bn, n) :: rest =>
