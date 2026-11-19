@@ -61,6 +61,9 @@ jobs:
     - name: "Kernel defeq regression (Option.getD (some X) 0 =?= X via vedGetD_some: positive at k = 4359, old-route control at k = 18, fixed budget)"
       run: lake build Tests.Ved.VedGetDKernelCheck
 
+    - name: "Register-block side conditions (ved_omega_c interval prover + cache, ved_pack_simp_c, ved_div_self_add)"
+      run: lake build Tests.Ved.VedOmegaCCheck
+
     - name: Synthesis-path regressions (width-aware merging, per-module caches)
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
 
@@ -167,6 +170,9 @@ jobs:
 
     - name: "Kernel defeq regression (Option.getD (some X) 0 =?= X via vedGetD_some: positive at k = 4359, old-route control at k = 18, fixed budget)"
       run: lake build Tests.Ved.VedGetDKernelCheck
+
+    - name: "Register-block side conditions (ved_omega_c interval prover + cache, ved_pack_simp_c, ved_div_self_add)"
+      run: lake build Tests.Ved.VedOmegaCCheck
 
     - name: Synthesis-path regressions (width-aware merging, per-module caches)
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
