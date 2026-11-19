@@ -504,6 +504,9 @@ lean_lib «Tests.Ved.U1CircuitLoopCheck» where
 lean_lib «Tests.Ved.U1SmallRegCheck» where
   roots := #[`Tests.Ved.U1SmallRegCheck]
 
+lean_lib «Tests.Ved.VedBudgetCheck» where
+  roots := #[`Tests.Ved.VedBudgetCheck]
+
 lean_lib «Tests.Ved.U1IirCheck» where
   roots := #[`Tests.Ved.U1IirCheck]
 
