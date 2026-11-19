@@ -589,18 +589,22 @@ elab "ved_all_goals_log " "(" t:tactic ")" : tactic => do
     rest := rest ++ (← getGoals)
   setGoals rest
 
+/-- clear the hypotheses about signals of the main goal (the packed memory rows: 1.6e8 tree nodes in R034; `omega` reads every
+hypothesis, they are no `Nat` / `Int` facts) -/
+def clearSigHyps : TacticM Unit := do
+  let mut g ← getMainGoal
+  for d in ← g.withContext getLCtx do
+    unless d.isImplementationDetail do
+      if (d.type.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isSome then
+        g ← g.tryClear d.fvarId
+  setGoals [g]
+
 /-- the closing stage on a goal of at least `omegaMaxTree` nodes: drop the hypotheses about signals (see `ved_omega_c`) -- plain `omega` of
 the closers reads them all -/
 elab "ved_clear_sig_big" : tactic => do
   let g ← getMainGoal
   let sz ← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType))
-  if sz ≥ omegaMaxTree then
-    let mut g := g
-    for d in ← g.withContext getLCtx do
-      unless d.isImplementationDetail do
-        if (d.type.find? fun e => e.isConst && e.constName!.getPrefix == `Sparkle.Core.Signal.Signal).isSome then
-          g ← g.tryClear d.fvarId
-    setGoals [g]
+  if sz ≥ omegaMaxTree then clearSigHyps
 
 /-- `ved_or_lit_m` on a goal that `ved_or_lit_g` left to `ved_wire` (at least `shareMinTree` nodes, a `|||`) but that `ved_pack_dag` has
 since brought below `shareMinTree` and `ved_wire` has not taken (R034 goals 44/45: 45231 nodes, `|||` of two 16-bit rotation halves: the closers
@@ -691,7 +695,7 @@ def decideSmall2Core : TacticM Unit := withMainContext do
 
 elab "ved_decide_small2" : tactic => do
   let dump := (← IO.getEnv "VED_DUMP_DIR").isSome
-  try decideSmall2Core; ranLog.modify (·.push "decide_small2")
+  try clearSigHyps; decideSmall2Core; ranLog.modify (·.push "decide_small2")
   catch e =>
     if dump then Tools.VedMemLoop.dbgLog s!"decide_small2: {← e.toMessageData.toString}"
     throw e
@@ -728,7 +732,7 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
       g.assign pf
       setGoals []
     else
-      evalTactic (← `(tactic| omega))
+      evalTactic (← `(tactic| ved_omega_s))
       cache.modify fun m => m.insert ty (Lean.Expr.mvar g)
   | (vn, bn, n) :: rest =>
     let g ← getMainGoal
@@ -809,7 +813,7 @@ def ctrlCasesCore : TacticM Unit := withMainContext do
 
 elab "ved_ctrl_cases" : tactic => do
   let dump := (← IO.getEnv "VED_DUMP_DIR").isSome
-  try ctrlCasesCore; ranLog.modify (·.push "ctrl_cases")
+  try clearSigHyps; ctrlCasesCore; ranLog.modify (·.push "ctrl_cases")
   catch e =>
     if dump then Tools.VedMemLoop.dbgLog s!"ctrl_cases: {(← e.toMessageData.toString).take 300}"
     throw e
