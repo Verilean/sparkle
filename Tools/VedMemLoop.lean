@@ -245,6 +245,31 @@ def dbgLog (msg : String) : IO Unit := do
     let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
     h.putStrLn msg
 
+/-- `ved_tlog "k"`: (only with `VED_DUMP_DIR`) a timing line in `addr.log` -/
+elab "ved_tlog " k:str : tactic => do
+  if (← IO.getEnv "VED_DUMP_DIR").isSome then
+    let sz ← match (← getGoals).head? with
+      | some g => g.withContext do
+          let e ← instantiateMVars (← g.getType)
+          pure s!" tree={Tools.VedU1Loop.treeSizeVal e} dag={(Tools.VedU1WireShare.collectDag (fun _ => true) e).size}"
+      | none => pure ""
+    dbgLog s!"TLOG {k.getString} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={(← getGoals).length}{sz}"
+
+/-- `ved_rw_dag hc`, `hc : T = T'`: rewrite the occurrences of `T` in the main goal by `T'` like `rw [hc]`, but with `Expr.replace`
+(a cache by pointer: ONE visit per shared node) and the `congrArg` of the motive, instead of `kabstract` (a walk of the TREE;
+observed: on the loop body of R033 the tree has 3.5e11 nodes for 2460 distinct ones and the `rw` did not return in 890 s).  The
+occurrences replaced are the syntactic ones (`T` is read off the goal by `ved_mem_congr`); one left unreplaced makes the goal
+differ from the one `rw` gives, never the proof wrong (the kernel checks the `congrArg`).  Untrusted: the kernel checks it. -/
+elab "ved_rw_dag " h:ident : tactic => withMainContext do
+  let hE ← elabTerm h.raw none
+  let some (_, l, r) := (← instantiateMVars (← inferType hE)).eq? | throwError "ved_rw_dag: not an equation"
+  let tgt ← instantiateMVars (← getMainTarget)
+  let motive ← withLocalDeclD `ved_x (← inferType l) fun xv =>
+    mkLambdaFVars #[xv] (tgt.replace fun e => if e == l then some xv else none)
+  let newTgt := tgt.replace fun e => if e == l then some r else none
+  let g ← getMainGoal
+  replaceMainGoal [← g.replaceTargetEq newTgt (← mkCongrArg motive hE)]
+
 /-- `ved_mem_congr s1 s2 h t`: rewrite every `memState` of the goal that mentions the fvar `s1` into the one
 with `s2` in its place (`h : ∀ k ≤ t, s1.val k = s2.val k`) -/
 elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
@@ -270,10 +295,11 @@ elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
     let side3 ← `(tactic| (intro k hk; (try dsimp only); ved_loop_simp [$h:ident k (by omega), Tools.VedU1Contract.PTy.val, Sparkle.Core.Signal.Signal.memoryComboRead_val, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val]))
     evalTactic (← `(tactic|
       (have hc : $Ts = $T's := Tools.VedMem.memState_congr _ _
-          (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
-          (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
-          (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
-       rw [hc])))
+          (by ved_tlog "mem_congr side 1"; first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
+          (by ved_tlog "mem_congr side 2"; first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
+          (by ved_tlog "mem_congr side 3"; first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
+       ved_tlog "mem_congr have done"
+       ved_rw_dag hc)))
     dbgLog s!"mem_congr: T #{done.size} ms={(← IO.monoMsNow) - tm0} hb={((← IO.getNumHeartbeats) - hbm0) / 1000}"
 
 
@@ -659,11 +685,6 @@ elab "ved_dsimp_goals" : tactic => do
     evalTactic (← `(tactic| all_goals (try dsimp only at *)))
   else
     evalTactic (← `(tactic| all_goals (try dsimp only)))
-
-/-- `ved_tlog "k"`: (only with `VED_DUMP_DIR`) a timing line in `addr.log` -/
-elab "ved_tlog " k:str : tactic => do
-  if (← IO.getEnv "VED_DUMP_DIR").isSome then
-    dbgLog s!"TLOG {k.getString} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={(← getGoals).length}"
 
 /-- the side condition `hS` of the strong fixpoint equation -/
 syntax "ved_causal " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic

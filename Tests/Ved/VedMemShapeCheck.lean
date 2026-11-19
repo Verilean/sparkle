@@ -23,6 +23,12 @@ import Tools.VedMemEntry
   4-bit and a 3-bit address): the synthesizer names the memory statements `_gen_rd` and `_gen_rd_1`, the declaration
   tags both calls `rd`.  `Tools.VedMemEntry.collectAll` maps `_gen_rd_1` to the second call tagged `rd`; the stored
   type is `==` the statement and the axioms are the standard three.
+* PROOF-STAGE CONTROLS of the two guesses of the shape stage: `memShareW` (a register shared between two loops, the
+  main loop has a second 2-bit register of DIFFERENT hardware: `matchRegsShared` takes the most recent register of the
+  width, the wrong one) and `memEq1` (two 4x16 memories of different content bound to the same `let` name, used in the
+  other order than they are bound: `collectAll` takes the first call of the dimensions, the wrong one) are refused at
+  `proof`; `memEq2` (the same two memories, used in the binding order) is accepted, stored type `==` the statement,
+  standard axioms.
 -/
 
 namespace Tests.Ved.VedMemShapeCheck
@@ -185,6 +191,68 @@ def memNum {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom 
 #guard_msgs (drop info) in
 #ved_u1_mem memNum
 
+declare_signal_state NW
+  | idx  : BitVec 5  := 0#5
+  | busy : Bool      := false
+  | tg   : BitVec 2  := 0#2
+  | sh   : BitVec 2  := 0#2
+  | last : BitVec 16 := 0#16
+
+/-- the main loop holds two 2-bit registers of different hardware (`tg`: `mux start 2 0`, `sh`: `mux start 1 0`), the other loop one
+of the hardware of `sh`: the module has 6 registers for 7 components, the equal-width pairing is a guess and a wrong one here -/
+def memShareW {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let other := Signal.loop fun st =>
+    let acc := NB.acc st
+    bundleAll! [Signal.register 0#4 (acc + 1#4),
+      Signal.register 0#2 (Signal.mux start (Signal.pure 1#2) (Signal.pure 0#2))]
+  let state := Signal.loop fun state =>
+    let idx := NW.idx state
+    let busy := NW.busy state
+    let readAddr4 := idx.map (BitVec.extractLsb' 0 4 ·)
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let outMemRead := Signal.memory readAddr4 inputCoeff busy (Signal.pure 0#4)
+    let done := busy &&& (idx === (15#5 : Signal dom _))
+    let busyNext := Signal.mux done (Signal.pure false) (Signal.mux start (Signal.pure true) busy)
+    let idxNext := Signal.mux busy (idx + 1#5) (Signal.pure 0#5)
+    bundleAll! [Signal.register 0#5 idxNext, Signal.register false busyNext,
+      Signal.register 0#2 (Signal.mux start (Signal.pure 2#2) (Signal.pure 0#2)),
+      Signal.register 0#2 (Signal.mux start (Signal.pure 1#2) (Signal.pure 0#2)),
+      Signal.register 0#16 outMemRead]
+  NW.last state ^^^ (Signal.map (fun (x : BitVec 4) => BitVec.zeroExtend 16 x) (NB.acc other))
+
+/-- a 4-bit-address memory read, bound to `rd` (the same dimensions as `helpD`) -/
+def helpC {dom : DomainConfig} (wa : Signal dom (BitVec 4)) (wd : Signal dom (BitVec 16)) (we : Signal dom Bool)
+    (ra : Signal dom (BitVec 4)) : Signal dom (BitVec 16) :=
+  let rd := Signal.memoryComboRead wa wd we ra
+  rd
+
+/-- the same, another definition (another write enable and data at the call) -/
+def helpD {dom : DomainConfig} (wa : Signal dom (BitVec 4)) (wd : Signal dom (BitVec 16)) (we : Signal dom Bool)
+    (ra : Signal dom (BitVec 4)) : Signal dom (BitVec 16) :=
+  let rd := Signal.memoryComboRead wa wd we ra
+  rd
+
+/-- two 4x16 memories of different content, both bound to `rd` (the synthesizer: `_gen_rd`, `_gen_rd_1`, in the binding
+order), USED in the other order (`b ^^^ a`) -/
+def memEq1 {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) (d2 : Signal dom (BitVec 16)) :
+    Signal dom (BitVec 16) :=
+  let a := helpC writeAddr writeData writeEn writeAddr
+  let b := helpD writeAddr d2 start writeAddr
+  b ^^^ a
+
+/-- the same, used in the binding order -/
+def memEq2 {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) (d2 : Signal dom (BitVec 16)) :
+    Signal dom (BitVec 16) :=
+  let a := helpC writeAddr writeData writeEn writeAddr
+  let b := helpD writeAddr d2 start writeAddr
+  a ^^^ b
+
+#guard_msgs (drop info) in
+#ved_u1_mem memEq2
+
 def storedOk (decl : Name) : TermElabM Unit := do
   let (stmt, _) ← specialiseDomain decl
   let thm := decl ++ `ved_mem
@@ -208,6 +276,10 @@ run_cmd liftTermElabM <| storedOk ``memShare
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemShapeCheck.memNum -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedOk ``memNum
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemShapeCheck.memEq2 -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``memEq2
 
 /-- the lemma of the congruence: standard axioms only -/
 def lemmaOk : TermElabM Unit := do
@@ -257,5 +329,17 @@ run_cmd expectRefused "proof" (checkerNames `ctlInner2) (cross ``memNest ``memNe
 /-- info: refused [shape], clean -/
 #guard_msgs (info, drop trace) in
 run_cmd expectRefused "shape" (checkerNames `ctlShare3) (cross ``memShare ``memShare3 `ctlShare3)
+
+/-- the whole entry on a declaration whose shape-stage guess is wrong: refused, the checker's constants removed -/
+def entryRefused (stage : String) (decl : Name) : CommandElabM Unit :=
+  expectRefused stage (checkerNames decl) (discard <| vedMemEntryS decl)
+
+/-- info: refused [proof], clean -/
+#guard_msgs (info, drop trace) in
+run_cmd entryRefused "proof" ``memShareW
+
+/-- info: refused [proof], clean -/
+#guard_msgs (info, drop trace) in
+run_cmd entryRefused "proof" ``memEq1
 
 end Tests.Ved.VedMemShapeCheck
