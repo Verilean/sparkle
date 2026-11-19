@@ -280,11 +280,28 @@ def vedSplitBool (g : MVarId) (e : Expr) : MetaM (List MVarId) := g.withContext 
   g.assign (mkApp6 (mkConst ``Or.elim) eT eF tgt (← mkAppM ``Bool.eq_false_or_eq_true #[e] ) pt pf)
   pure [gt, gf]
 
-/-- results of `ved_omega_c`: the proofs of the side conditions found, and for the ones that failed the
-facts that were in the context (the same side condition is asked again in every goal of the block) -/
-initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr Lean.Expr) ← IO.mkRef {}
-initialize vedUbFail : IO.Ref (Std.HashMap Lean.Expr Nat) ← IO.mkRef {}
-initialize vedOmegaFail : IO.Ref (Std.HashMap Lean.Expr (Array Lean.FVarId)) ← IO.mkRef {}
+/-- the caches of `ved_omega_c` (the same side condition is asked again in every goal of a block).
+Invariant: each cache is reused only when the inputs of the computation that filled it are equal.
+* `vedOmegaOk`: target ↦ (proof, `(FVarId, type)` of the free variables the proof uses).  The proof is
+  closed over those variables (no metavariables), so in a context that has all of them with equal
+  types it proves the target; the kernel checks it anyway.
+* `vedUbFail`: target ↦ the ordered `(x, u)` of `vedBoundFacts` of the run that found the bound too
+  large.  `vedUb` is a deterministic function of the target and exactly this array (it takes the
+  first fact with `x == e`; proofs do not affect success), so an equal array gives the same refusal.
+* `vedOmegaFail`: target ↦ the ordered types of the relevant hypotheses (`Prop`, not a `Bool`
+  equation) of the failed `omega` run; reused only for an equal array (no subset rule, no `FVarId`
+  keys: `FVarId`s are reused across backtracking).
+Lifetime: one script run; `ved_omega_c_reset` (first of the closing tactics) empties all three. -/
+initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr (Lean.Expr × Array (Lean.FVarId × Lean.Expr))) ← IO.mkRef {}
+initialize vedUbFail : IO.Ref (Std.HashMap Lean.Expr (Array (Lean.Expr × Nat))) ← IO.mkRef {}
+initialize vedOmegaFail : IO.Ref (Std.HashMap Lean.Expr (Array Lean.Expr)) ← IO.mkRef {}
+
+open Lean Elab Tactic in
+/-- empty the caches of `ved_omega_c` (see `vedOmegaOk`) -/
+elab "ved_omega_c_reset" : tactic => do
+  vedOmegaOk.set {}
+  vedUbFail.set {}
+  vedOmegaFail.set {}
 
 open Lean Meta in
 /-- the value of a closed `Nat` expression built from numerals with `+ * ^ -` (the packing factors are
@@ -371,12 +388,11 @@ def vedBoundFacts : MetaM (Array (Expr × Nat × Expr × Expr)) := do
   return out
 
 open Lean Meta Elab Tactic in
-/-- `ved_omega` with a cache: the register goals of a loop (`ved_pack_simp_c`) read the same packed
-words, so the range side conditions `a * 2^k + b < 2^m` are the same in every goal and `omega` took
-~1e6 heartbeats (a third of them failures, asked 4 times) per call on the 20-register words.  A found
-proof is reused where its free variables are in the context; a failure where the context has no
-fact (other than an equation of `Bool`s, which `omega` does not read) that the failed run did not
-have.  The proof term is checked by the kernel as before; the cache only decides what is tried. -/
+/-- `ved_omega` with a cache (see `vedOmegaOk` for what is cached and when it is reused): the register
+goals of a loop (`ved_pack_simp_c`) read the same packed words, so the range side conditions
+`a * 2^k + b < 2^m` are the same in every goal and `omega` took ~1e6 heartbeats (a third of them
+failures, asked 4 times) per call on the 20-register words.  The proof term is checked by the kernel
+as before; the cache only decides what is tried. -/
 elab "ved_omega_c" : tactic => do
   let g ← getMainGoal
   let tgt ← instantiateMVars (← g.getType)
@@ -384,8 +400,19 @@ elab "ved_omega_c" : tactic => do
     evalTactic (← `(tactic| ved_omega))
     return
   let lctx ← getLCtx
-  if let some pf := (← vedOmegaOk.get)[tgt]? then
-    if !pf.hasAnyFVar (!lctx.contains ·) then
+  let store (pf : Expr) : MetaM Unit := do
+    unless pf.hasMVar do
+      let fvs := (CollectFVars.main pf {}).fvarIds
+      let mut used : Array (FVarId × Expr) := #[]
+      for fv in fvs do used := used.push (fv, ← instantiateMVars (← fv.getType))
+      vedOmegaOk.modify (·.insert tgt (pf, used))
+  if let some (pf, used) := (← vedOmegaOk.get)[tgt]? then
+    let mut ok := true
+    for (fv, ty) in used do
+      match lctx.find? fv with
+      | some d => unless (← instantiateMVars d.type) == ty do ok := false
+      | none => ok := false
+    if ok then
       g.assign pf
       replaceMainGoal []
       return
@@ -393,8 +420,9 @@ elab "ved_omega_c" : tactic => do
   if tgt.isAppOfArity ``LT.lt 4 && (tgt.getArg! 0).isConstOf ``Nat then
     if let some nv := vedLitVal (tgt.getArg! 3) then
       let facts ← vedBoundFacts
+      let key := facts.map fun (x, u, _, _) => (x, u)
       if let some k := (← vedUbFail.get)[tgt]? then
-        if facts.size ≤ k then
+        if k == key then
           throwError "ved_omega_c: bound exceeds (cached)"
       let r ← try some <$> vedUb facts (tgt.getArg! 2) catch _ => pure none
       if let some (some (u, b, pf)) := r then
@@ -403,23 +431,22 @@ elab "ved_omega_c" : tactic => do
           let pf' ← mkAppM ``Nat.lt_of_le_of_lt #[pf, hl]
           g.assign pf'
           replaceMainGoal []
-          unless pf'.hasMVar do vedOmegaOk.modify (·.insert tgt pf')
+          store pf'
           return
         else
-          vedUbFail.modify (·.insert tgt (← vedBoundFacts).size)
+          vedUbFail.modify (·.insert tgt key)
           throwError "ved_omega_c: bound exceeds"
-  let mut rel : Array FVarId := #[]
+  let mut rel : Array Expr := #[]
   for d in lctx do
     if d.isImplementationDetail then continue
     let t ← instantiateMVars d.type
-    if (← isProp t) && !(t.isAppOfArity ``Eq 3 && (t.getArg! 0).isConstOf ``Bool) then rel := rel.push d.fvarId
-  if let some fs := (← vedOmegaFail.get)[tgt]? then
-    if rel.all (fs.contains ·) then
+    if (← isProp t) && !(t.isAppOfArity ``Eq 3 && (t.getArg! 0).isConstOf ``Bool) then rel := rel.push t
+  if let some ts := (← vedOmegaFail.get)[tgt]? then
+    if ts == rel then
       throwError "ved_omega_c: no proof (cached)"
   try
     evalTactic (← `(tactic| ved_omega))
-    let pf ← instantiateMVars (mkMVar g)
-    unless pf.hasMVar do vedOmegaOk.modify (·.insert tgt pf)
+    store (← instantiateMVars (mkMVar g))
   catch e =>
     vedOmegaFail.modify (·.insert tgt rel)
     throw e
@@ -776,6 +803,7 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA
   let exReg := mk (#[applyL] ++ sigBase ++ hrgL ++ hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL)
   let closeTacs : Array (TSyntax `tactic) := #[
+    ← `(tactic| ved_omega_c_reset),
     ← `(tactic| ved_seq_unmdata),
     ← `(tactic| all_goals (try simp only [vedToNatAppend, BitVec.toNat_append, BitVec.toNat_ofNat, Nat.shiftLeft_eq])),
     ← `(tactic| all_goals (try simp only [Nat.reduceAdd, Nat.reducePow])),
