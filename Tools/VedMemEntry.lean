@@ -169,8 +169,28 @@ def collectAll (stmt : Lean.Expr) (tbl : DeclTable) (names : List String) (unf :
     let (cs, tags) ← collectCalls unf body
     let nameOf := fun (c : MemCall) => (tags.find? (fun (v, _) => v == c.call)).map fun (_, n) => "_gen_" ++ n
     let cs := if order.isEmpty || cs.size != order.length then cs else
-      let sorted := order.filterMap fun o => cs.find? (fun c => nameOf c == some o)
-      if sorted.length == order.length && (order.all fun o => (cs.filter fun c => nameOf c == some o).size == 1)
+      -- a `let` name used twice in the declaration is numbered by the synthesizer (`_gen_x`, `_gen_x_1`, ..): the
+      -- statement `_gen_x_k` takes the call with the tag `x` that comes k-th in the traversal
+      let group := fun (o : String) => cs.filter fun c => nameOf c == some o
+      let pick := fun (o : String) =>
+        let direct := group o
+        if direct.size == 1 then direct[0]? else
+        match o.splitOn "_" |>.reverse with
+        | k :: rest@(_ :: _) =>
+          match k.toNat? with
+          | some k =>
+            let base := "_".intercalate rest.reverse
+            let g := group base
+            if direct.isEmpty && 0 < k then g[k]? else none
+          | none => none
+        | _ => none
+      let sorted := order.filterMap pick
+      -- the plain name of a numbered group is its first call
+      let sorted := if sorted.length == order.length then sorted else
+        order.filterMap fun o =>
+          let g := group o
+          if g.size > 1 then g[0]? else pick o
+      if sorted.length == order.length && (sorted.all fun c => (sorted.filter (·.call == c.call)).length == 1)
         then sorted.toArray else cs
     cs.mapM fun c => do
       -- the marker is for the traversal only: the pieces handed to the proof carry the reachable part
@@ -286,7 +306,7 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
     let mut latches : Array Lean.Expr := #[]
     for ((name, aw, dw, cr, _, _, _, _, rd), c) in stmts.zip calls.toList do
       unless aw == c.aw && dw == c.dw && cr == !c.sync do
-        refuseM `mem "shape" m!"memory statement {name} ({aw}x{dw}) does not match the declaration's memory call ({c.aw}x{c.dw})"
+        refuseM `mem "shape" m!"memory statement {name} ({aw}x{dw}) does not match the declaration's memory call ({c.aw}x{c.dw}); statements {stmts.map fun x => (x.1, x.2.1, x.2.2.1, x.2.2.2.1)}, calls (aw, dw, sync) {calls.toList.map fun c => (c.aw, c.dw, c.sync)}"
       let zero ← mkAppM ``BitVec.ofNat #[toExpr c.dw, toExpr 0]
       let init := Lean.mkLambda `a .default (← mkAppM ``BitVec #[toExpr c.aw]) zero
       invs := invs.push (← mkAppM ``Tools.VedMem.MemInv #[mkStrLit name, init, inst c.wa, inst c.wd, inst c.we, s, mems])
