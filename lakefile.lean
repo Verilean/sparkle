@@ -513,6 +513,9 @@ lean_lib «Tests.Ved.VedMemWidthCheck» where
 lean_lib «Tests.Ved.VedMemPackCheck» where
   roots := #[`Tests.Ved.VedMemPackCheck]
 
+lean_lib «Tests.Ved.VedMemCloseCheck» where
+  roots := #[`Tests.Ved.VedMemCloseCheck]
+
 lean_lib «Tests.Ved.VedMemWriteCheck» where
   roots := #[`Tests.Ved.VedMemWriteCheck]
 

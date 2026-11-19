@@ -85,6 +85,9 @@ jobs:
     - name: Memory stage tactics (ved_pack_dag, ved_decide_small2, ved_ctrl_cases; ran / refused controls)
       run: lake build Tests.Ved.VedMemPackCheck
 
+    - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_leaf_gate; refusal controls)
+      run: lake build Tests.Ved.VedMemCloseCheck
+
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
@@ -194,6 +197,9 @@ jobs:
 
     - name: Memory stage tactics (ved_pack_dag, ved_decide_small2, ved_ctrl_cases; ran / refused controls)
       run: lake build Tests.Ved.VedMemPackCheck
+
+    - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_leaf_gate; refusal controls)
+      run: lake build Tests.Ved.VedMemCloseCheck
 
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
