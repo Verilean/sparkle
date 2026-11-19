@@ -450,12 +450,15 @@ elab "ved_mem_addr" : tactic => withMainContext do
                 pure r
             dbgT s!"addr: hm found={hm?.isSome} tgt-tree={Tools.VedU1Loop.treeSizeVal tgt}"
             if let some hm := hm? then
-              let aTy ← inferType a
-              let motive ← withLocalDeclD `ved_x aTy fun xv =>
-                mkLambdaFVars #[xv] (tgt.replace fun e => if e == a then some xv else none)
-              let newTgt := tgt.replace fun e => if e == a then some rep else none
               let g ← getMainGoal
-              replaceMainGoal [← g.replaceTargetEq newTgt (← mkCongrArg motive hm)]
+              -- in the context of the new goal: `hm` is a hypothesis of it, not of the context this tactic started with
+              -- (`mkCongrArg` infers its type: "unknown free variable")
+              g.withContext do
+                let aTy ← inferType a
+                let motive ← withLocalDeclD `ved_x aTy fun xv =>
+                  mkLambdaFVars #[xv] (tgt.replace fun e => if e == a then some xv else none)
+                let newTgt := tgt.replace fun e => if e == a then some rep else none
+                replaceMainGoal [← g.replaceTargetEq newTgt (← mkCongrArg motive hm)]
             else
               evalTactic (← `(tactic| rw [hmaddr]))
             progress := true
