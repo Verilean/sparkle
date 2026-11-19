@@ -939,7 +939,9 @@ def ctrlCasesCore : TacticM Unit := withMainContext do
 
 elab "ved_ctrl_cases" : tactic => do
   let dump := (← IO.getEnv "VED_DUMP_DIR").isSome
-  try clearSigHyps; ctrlCasesCore; ranLog.modify (·.push "ctrl_cases")
+  -- the flag `ved_leaf_gate` reads describes THIS call only (a leaf failure that an earlier call caught must not gate a later goal)
+  ctrlLeafFailed.set false
+  try clearSigHyps; ctrlCasesCore; ranLog.modify (·.push "ctrl_cases"); ctrlLeafFailed.set false
   catch e =>
     if dump then Tools.VedMemLoop.dbgLog s!"ctrl_cases: {(← e.toMessageData.toString).take 300}"
     throw e
