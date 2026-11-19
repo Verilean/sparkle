@@ -6,6 +6,9 @@ import Tools.VedStrictAudit
 import Tools.VedU1Uns
 import Tools.VedMemLoop
 import Tools.VedMemPack
+import Tools.VedMemShape
+import Tools.VedMemOrder
+import Tools.VedMemWidth
 import Tools.VedU1Loop
 import Tools.VedU1WireShare
 import Tools.VedU1Wire
@@ -263,7 +266,7 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
     let mut regEqs : Array Lean.Expr := #[]
     unless regs.isEmpty do
       let body ← declBody stmt tbl names ins
-      let loops := Tools.VedU1Loop.loopsOf body
+      let loops ← Tools.VedMemShape.nestedLoops unf body
       if loops.isEmpty then refuseM `mem "shape" m!"registers but no Signal.loop in the declaration"
       let mut compsOf : Array (List Lean.Expr) := #[]
       for L in loops do
@@ -388,8 +391,14 @@ def memScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat)
     pure a
   let h0Term : Term ← if h0Elems.size == 1 then pure h0Elems[0]! else `(⟨$[$h0Elems],*⟩)
   `(by
-      have hord : OrderOkM $M $B = true := by decide +kernel
-      refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+      have hord : OrderOkM $M $B = true := by
+        first
+          | exact Tools.VedMemOrder.OrderOkM_of_parts _ _ (by decide +kernel) (by decide +kernel) (by decide +kernel)
+          | decide +kernel
+      refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩,
+        by first
+          | exact Tools.VedMemWidth.WidthStmt_of_parts _ _ (by decide +kernel) (by decide +kernel)
+          | decide +kernel, ⟨$B, hord⟩, ?_⟩
       apply outputs_of_orderM $B hord
       refine outputs_of_step_mem $C $M $B $f $O (by decide +kernel) $Rstx ?h0 ?hstep
       case h0 =>
@@ -502,7 +511,7 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
     pure a
   let h0Term : Term ← if h0Elems.size == 1 then pure h0Elems[0]! else `(⟨$[$h0Elems],*⟩)
   let closing ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))
-  let closing ← if pk then `(tactic| ved_all_goals_log (first | ved_decide_small2 | ved_ctrl_cases | (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega))) | (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))) else pure closing
+  let closing ← if pk then `(tactic| ved_all_goals_log ((ved_clear_sig_big; first | ved_decide_small2 | ved_ctrl_cases | ved_leaf_gate (first | (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega))) | (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))))) else pure closing
   let closingDbg ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega) | ved_dbg_state))
   let closing := if dbg == 17 then closingDbg else closing
   let stages : Array (Array (TSyntax `tactic)) := #[
@@ -511,12 +520,12 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
       ← `(tactic| all_goals try (repeat' apply And.intro)),
       ← `(tactic| all_goals (try ved_lt_close))],
     #[← `(tactic| all_goals (try ved_loopw_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
-    #[← `(tactic| all_goals ved_bit_simp_share)],
-    #[← `(tactic| all_goals (try ved_or_lit_m))],
-    #[← `(tactic| all_goals (try ved_mem_addr)), ← `(tactic| all_goals (try ved_addr_post))],
-    #[← `(tactic| ved_pack_dag_wire_all), ← `(tactic| ved_stamp 51), ← `(tactic| all_goals (try ved_bit_simp_g)), ← `(tactic| ved_stamp 52), ← `(tactic| all_goals (try (first | (ved_dag_only; ved_pack_dag) | skip))), ← `(tactic| ved_stamp 53)],
-    #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| ved_stamp 61), ← `(tactic| all_goals (try ved_mul_facts)), ← `(tactic| ved_stamp 62),
-      ← `(tactic| all_goals (try ved_pack_simp_g)), ← `(tactic| ved_stamp 63),
+    #[← `(tactic| ved_bit_simp_share_m)],
+    #[← `(tactic| all_goals (try ved_or_lit_g))],
+    #[← `(tactic| all_goals (try ved_mem_addr)), ← `(tactic| all_goals (try ved_addr_post_g))],
+    #[← `(tactic| ved_pack_dag_wire_all), ← `(tactic| ved_stamp 51), ← `(tactic| ved_all_goals_log (try ved_bit_simp_g)), ← `(tactic| ved_stamp 52), ← `(tactic| ved_all_goals_log (try (first | (ved_dag_only; ved_pack_dag) | skip))), ← `(tactic| ved_stamp 53), ← `(tactic| ved_all_goals_log (try ved_or_lit_post))],
+    #[← `(tactic| ved_all_goals_log (try ved_bits_facts)), ← `(tactic| ved_stamp 61), ← `(tactic| ved_all_goals_log (try ved_mul_facts)), ← `(tactic| ved_stamp 62),
+      ← `(tactic| ved_all_goals_log (try ved_pack_simp_g)), ← `(tactic| ved_stamp 63),
       ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])), ← `(tactic| ved_stamp 64),
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])), ← `(tactic| ved_stamp 65),
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
@@ -544,51 +553,76 @@ def memLoopScript (dbg : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List 
   let d18 ← if dbg == 18 then `(tactic| (rotate_left 4; ved_mem_shape ite; refine Tools.VedMem.MemInv.ite (fun _ => ?_) (fun _ => ?_); ved_dbg_state)) else `(tactic| skip)
   let d10 := d 10
   let hinSimp : TSyntax `tactic ←
-    if pk then `(tactic| simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth,
-      Tools.VedU1Packed.PContract.core, Tools.VedU1Packed.collapse] at $hinI:ident $hrstI:ident)
+    if pk then `(tactic| ved_hin_simp $M:ident)
     else `(tactic| simp [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident)
   let keyTacs : Array (TSyntax `tactic) ← if pk then pure #[
       ← `(tactic| have key : ∀ t, Tools.VedU1Contract.srcOf (Tools.VedU1Packed.PContract.core $C) (Tools.VedU1Packed.packedF ($C).tbl $f) $insI "out" t =
           Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
       ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
   let core ← `(by
-      have hord : OrderOkM $M $B = true := by decide +kernel
-      refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+      ved_stamp 80
+      have hord : OrderOkM $M $B = true := by
+        first
+          | exact Tools.VedMemOrder.OrderOkM_of_parts _ _ (by decide +kernel) (by decide +kernel) (by decide +kernel)
+          | decide +kernel
+      ved_stamp 81
+      refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩,
+        by first
+          | exact Tools.VedMemWidth.WidthStmt_of_parts _ _ (by decide +kernel) (by decide +kernel)
+          | decide +kernel, ⟨$B, hord⟩, ?_⟩
+      ved_stamp 82
       apply outputs_of_orderM $B hord
+      ved_stamp 83
       refine outputs_of_step_mem $Cx $M $B $fx $O (by decide +kernel) $Rstx ?h0 ?hstep
       case h0 =>
+        ved_stamp 84
         intro $insI hok
         ved_loop_unfold_mem [$hsSep,*] 0
+        ved_stamp 85
         refine $h0Term
         $d10
         all_goals ved_loop_simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
           Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*]
+        ved_stamp 86
         all_goals (try decide +kernel)
+        ved_stamp 87
       case hstep =>
+        ved_stamp 88
         intro $insI hok $sI st mems hR
         have $hinI := hok.1 $sI
         have $hrstI := hok.2 $sI
+        ved_stamp 90
         $hinSimp
+        ved_stamp 91
         $keyTacs*
         $obtainTac
+        ved_stamp 92
         $rdTacs*
         $normHyps
+        ved_stamp 93
         $d1
         ved_loop_unfold_mem [$hsSep,*] ($sI + 1)
         $d2
+        ved_stamp 94
         all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
           comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
           Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
           Sparkle.Core.Signal.Signal.memory_val_zero, $ex1,*])
+        ved_stamp 95
         $d3
         all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
+        ved_stamp 96
         all_goals (try (repeat' apply And.intro))
+        ved_stamp 97
         $d4
         $d18
         all_goals (try $peelAlt:tactic)
+        ved_stamp 98
         $d5
-        all_goals (try ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val])
-        all_goals (try dsimp only at *)
+        ved_if_read (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val])
+        ved_stamp 99
+        ved_dsimp_goals
+        ved_stamp 100
         ved_loop_gen_mem $sI
         $d6
         $tail*)

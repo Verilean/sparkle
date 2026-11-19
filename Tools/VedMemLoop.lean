@@ -2,6 +2,7 @@ import Lean
 import Tools.VedMem
 import Tools.VedU1Entry
 import Tools.VedU1WireShare
+import Tools.VedMemNest
 
 /-!
 # Loop unfolding for a loop body that holds a memory (`sparkle-ved-memory`)
@@ -18,6 +19,26 @@ Untrusted: the kernel checks the resulting proof.
 namespace Tools.VedMemLoop
 
 open Lean Meta Elab Tactic Sparkle.Core.Signal
+
+/-- run `x` with a local heartbeat budget of `n` (raw heartbeats) that never exceeds what is left of the ambient budget
+(the rule of `ved_budget`, `Tools/VedU1Entry.lean` on ved/perf-r281): local max = min(remaining ambient, n), at least 1
+(an exhausted ambient budget fails at once, never 0 = unlimited); with an unlimited ambient budget (0) the local `n` alone -/
+def withLocalHb {α : Type} (n : Nat) (x : TacticM α) : TacticM α := do
+  let hb ← IO.getNumHeartbeats
+  withTheReader Core.Context (fun c =>
+      let left := c.maxHeartbeats - (hb - c.initHeartbeats)
+      { c with maxHeartbeats := if c.maxHeartbeats == 0 then n else max 1 (min left n), initHeartbeats := hb }) x
+
+/-- `t` within a local budget of `n` thousand heartbeats (`withLocalHb`); when the budget runs out the tactic state is
+restored to the one before `t` (a partial change does not reach the next alternative) and the failure is reported.
+Other errors pass through (with the state restored as well). -/
+elab "ved_mem_budget " n:num t:tactic : tactic => do
+  let s ← saveState
+  let ok ← tryCatchRuntimeEx (do withLocalHb (n.getNat * 1000) (Tactic.withoutRecover (evalTactic t)); pure true)
+    fun e => do
+      s.restore
+      if e.isRuntime then pure false else throw e
+  unless ok do throwError "ved_mem_budget: local heartbeat budget exhausted"
 
 /-! `.val` of an operator applied directly through the `BitVec`-`Signal` / `Signal`-`BitVec` instances (as the synthesizer's
 source writes `0#16 - x`): `Tools.VedU1Lemmas.*_val_sc/_cs` are stated with the other elaboration (`Signal.pure a`). -/
@@ -219,6 +240,11 @@ elab "ved_lt_close" : tactic => withMainContext do
   unless tgt.isAppOfArity ``LT.lt 4 do throwError "not <"
   evalTactic (← `(tactic| exact BitVec.isLt _))
 
+def dbgLog (msg : String) : IO Unit := do
+  if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+    let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
+    h.putStrLn msg
+
 /-- `ved_mem_congr s1 s2 h t`: rewrite every `memState` of the goal that mentions the fvar `s1` into the one
 with `s2` in its place (`h : ∀ k ≤ t, s1.val k = s2.val k`) -/
 elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
@@ -233,6 +259,9 @@ elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
     let T := mkAppN o.getAppFn (args.extract 0 8)
     if done.contains T || !(T.containsFVar s1E.fvarId!) then continue
     done := done.push T
+    let tm0 ← IO.monoMsNow
+    let hbm0 ← IO.getNumHeartbeats
+    dbgLog s!"mem_congr: lctx={(← getLCtx).size} T #{done.size} of {occs.size} occs, T tree={Tools.VedU1Loop.treeSizeVal T}"
     let T' := T.replaceFVar s1E s2E
     let Ts ← Term.exprToSyntax T
     let T's ← Term.exprToSyntax T'
@@ -245,7 +274,43 @@ elab "ved_mem_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
           (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
           (by first | ($side:tactic; done) | ($side2:tactic; done) | ($side3:tactic; done))
        rw [hc])))
+    dbgLog s!"mem_congr: T #{done.size} ms={(← IO.monoMsNow) - tm0} hb={((← IO.getNumHeartbeats) - hbm0) / 1000}"
 
+
+/-- `ved_loop_congr s1 s2 h`: rewrite every `(Signal.loop F).val k` of the goal whose body `F` mentions the fvar `s1`
+(a loop inside the outer loop's body, driven by the outer state) into the one with `s2` in its place
+(`h : ∀ k ≤ t, s1.val k = s2.val k`), by `Tools.VedMemNest.loop_val_congr_le` bounded by `k`: the inner loop at time
+`k` reads the outer signal only at cycles `< k`. -/
+elab "ved_loop_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
+  let s1E ← elabTerm s1.raw none
+  let s2E ← elabTerm s2.raw none
+  let tgt ← instantiateMVars (← getMainTarget)
+  let isLoopVal := fun (x : Expr) =>
+    x.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 && (x.getArg! 2).isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4
+      && (x.getArg! 2).containsFVar s1E.fvarId!
+  let occs := Tools.VedU1WireShare.collectDag isLoopVal tgt
+  let mut done : Array Expr := #[]
+  for o in occs do
+    if done.contains o then continue
+    done := done.push o
+    let L := o.getArg! 2
+    let k := o.getArg! 3
+    let L' := L.replaceFVar s1E s2E
+    let Fs ← Term.exprToSyntax (L.getArg! 3)
+    let F's ← Term.exprToSyntax (L'.getArg! 3)
+    let ks ← Term.exprToSyntax k
+    let Ls ← Term.exprToSyntax o
+    let L's ← Term.exprToSyntax (mkAppN o.getAppFn (o.getAppArgs.set! 2 L'))
+    evalTactic (← `(tactic|
+      (have hc : $Ls = $L's := Tools.VedMemNest.loop_val_congr_le $Fs $F's $ks
+          (by first | (intro a b; rfl) | (intro a b; (try dsimp only); ved_loop_simp [Tools.VedU1Contract.PTy.val, Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val]; done))
+          (by intro t' ht' a b hab
+              have h' : ∀ j, j ≤ t' → Sparkle.Core.Signal.Signal.val $s1 j = Sparkle.Core.Signal.Signal.val $s2 j := fun j hj => $h:ident j (by omega)
+              have hab' := hab t' (Nat.le_refl _)
+              have hs' := h' t' (Nat.le_refl _)
+              first | (ved_loop_simp [hab', hs', Tools.VedU1Contract.PTy.val, Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val]; done) | (simp [hab', hs']; done))
+          $ks (Nat.le_refl _)
+       rw [hc])))
 
 open Lean Meta in
 /-- `BitVec.toNat (x ++ y)` read at either spelling of the width (`4` against `2 + 2`: the pattern of `BitVec.toNat_append`
@@ -260,11 +325,6 @@ simproc ved_toNat_append (BitVec.toNat _) := fun e => do
   let some (_, l, r) := (← inferType pf).eq? | return .continue
   unless (← isDefEq l e) do return .continue
   return .visit { expr := r, proof? := some pf }
-
-def dbgLog (msg : String) : IO Unit := do
-  if let some dir ← IO.getEnv "VED_DUMP_DIR" then
-    let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
-    h.putStrLn msg
 
 /-- `ved_clear_signals`: clear the hypotheses that speak of signals (`MemInv`, the read equations: whole loop bodies, hundreds of
 kilobytes): an address equality does not use them, and `omega` / `generalize ... at *` read every hypothesis. -/
@@ -332,6 +392,9 @@ initialize dbgShown : IO.Ref Nat ← IO.mkRef 0
 def dbgT (label : String) : IO Unit := do
   dbgLog s!"T {label} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}"
 
+/-- a goal of at least this many tree nodes gets the address rewrite of `ved_mem_addr` by `Expr.replace` instead of `rw` -/
+def addrReplaceMinTree : Nat := 50000000
+
 /-- `ved_mem_addr`: the `memState` atoms of the goal that differ only in the ADDRESS (the IR side spells it as `BitVec.ofNat aw`
 of `Nat` arithmetic, the declaration side as `BitVec` arithmetic) are made the same atom: each other address is rewritten to
 the first one, by an equality proved with `bv_omega` (the branch conditions of the enclosing `if`s are first propagated into the
@@ -390,7 +453,34 @@ elab "ved_mem_addr" : tactic => withMainContext do
             evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
                                        first | rfl | (apply BitVec.eq_of_toNat_eq; (try ved_clear_signals); (try ved_pack_simp); (try ved_bit_simp); (try ved_pack_simp); (try simp only [apply_ite BitVec.toNat, ved_toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); first | ved_decide_small | ((repeat' split); all_goals (try simp only [ved_toNat_append, BitVec.toNat_append, BitVec.extractLsb'_toNat, BitVec.toNat_mul, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.shiftRight_zero, Nat.zero_mod, Nat.zero_shiftLeft, Nat.zero_or]); all_goals (try ved_pack_simp); all_goals (first | omega | bv_omega))))))
             dbgT "addr: have done"
-            evalTactic (← `(tactic| rw [hmaddr]))
+            -- `rw [hmaddr]` abstracts the occurrences by `kabstract`, a walk of the TREE (12 s per goal of 3e8 nodes, R34); on a goal
+            -- the packing step takes (`addrReplaceMinTree`: R034, 3e8) the replacement is `Expr.replace` (cached by pointer: one visit per
+            -- shared node) with the `congrArg` of the motive; below it the `rw` as before (R032, 1.7e7 nodes: `rw` abstracts the
+            -- occurrences up to instances, the syntactic `Expr.replace` leaves some, and the closing `omega` then fails)
+            let tgt ← instantiateMVars (← getMainTarget)
+            let hm? ← if Tools.VedU1Loop.treeSizeVal tgt < addrReplaceMinTree then pure none else do
+              -- the `have` made a new goal: its local context (not the one this tactic started with) holds `hmaddr`
+              (← getMainGoal).withContext do
+                let mut r : Option Expr := none
+                for d in (← getLCtx).decls.toList.reverse do
+                  if let some d := d then
+                    if r.isNone && !d.isImplementationDetail then
+                      if let some (_, l, rr) := (← instantiateMVars d.type).eq? then
+                        if l == a && rr == rep then r := some d.toExpr
+                pure r
+            dbgT s!"addr: hm found={hm?.isSome} tgt-tree={Tools.VedU1Loop.treeSizeVal tgt}"
+            if let some hm := hm? then
+              let g ← getMainGoal
+              -- in the context of the new goal: `hm` is a hypothesis of it, not of the context this tactic started with
+              -- (`mkCongrArg` infers its type: "unknown free variable")
+              g.withContext do
+                let aTy ← inferType a
+                let motive ← withLocalDeclD `ved_x aTy fun xv =>
+                  mkLambdaFVars #[xv] (tgt.replace fun e => if e == a then some xv else none)
+                let newTgt := tgt.replace fun e => if e == a then some rep else none
+                replaceMainGoal [← g.replaceTargetEq newTgt (← mkCongrArg motive hm)]
+            else
+              evalTactic (← `(tactic| rw [hmaddr]))
             progress := true
             dbgT "addr: rewrite ok"
           catch e => dbgT "addr: equality failed"; dbgLog s!"no equality for {← ppExpr a}: {← e.toMessageData.toString}"
@@ -484,6 +574,30 @@ elab "ved_stamp " k:num : tactic => do
     if let some st ← IO.getEnv "VED_STOP_AT" then
       if st.toNat? == some k.getNat then
         dbgLog s!"sizes {szs}"
+        if let some pi ← IO.getEnv "VED_PROBE" then
+          if let some g := gs[pi.toNat!]? then
+            -- test only: context of the goal (let values, Signal-typed hypotheses included) and `ved_bit_simp` under a budget of its own
+            g.withContext do
+              for d in ← getLCtx do
+                unless d.isImplementationDetail do
+                  let ty ← instantiateMVars d.type
+                  let vs := match d.value? with | some v => Tools.VedU1Loop.treeSizeVal v | none => 0
+                  dbgLog s!"PROBE hyp {d.userName} type={Tools.VedU1Loop.treeSizeVal ty} value={vs} let={d.value?.isSome}"
+            for variant in [0, 1] do
+              let sv ← saveState
+              setGoals [g]
+              let hb0 ← IO.getNumHeartbeats
+              let t0 ← IO.monoMsNow
+              let r ← try
+                  tryCatchRuntimeEx
+                    (withLocalHb (400000 * 1000)
+                      (Tactic.withoutRecover (evalTactic (← if variant == 0 then `(tactic| ved_bit_simp) else `(tactic| (clear_value *; ved_bit_simp))))))
+                    fun _ => throwError "runtime exception (budget)"
+                  pure "ok"
+                catch e => pure s!"FAILED {(← e.toMessageData.toString).take 200}"
+              dbgLog s!"PROBE bit_simp variant={variant} {r} hb={((← IO.getNumHeartbeats) - hb0) / 1000} ms={(← IO.monoMsNow) - t0}"
+              sv.restore
+            setGoals gs
         if let some l ← IO.getEnv "VED_DUMP_TGT" then
           for w in l.splitOn "," do
             if let some i := w.toNat? then
@@ -518,16 +632,54 @@ elab "ved_addr_post" : tactic => do
   evalTactic (← `(tactic| (try ved_hyp_bits)))
   dbgT "post: hyp_bits done"
 
+/-- `ved_if_read tac`: `all_goals (try tac)`, but with many goals (> 64: the 843-way split of the decoder) `tac` runs only on
+the goals in which a `Signal.memoryComboRead` occurs (a DAG-wise test: `Expr.find?` visits shared subterms once);
+the `memoryComboRead_val` simp has nothing to rewrite in the others.  With few goals always run: the simp set also
+normalises bit operations that omega later needs (VedMemCheck memTwoMem, VedMemPackCheck pdBase). -/
+elab "ved_if_read " t:tactic : tactic => do
+  let gs ← getGoals
+  let many := gs.length > 64
+  let mut out : List MVarId := []
+  for g in gs do
+    setGoals [g]
+    let run ← if !many then pure true else g.withContext do
+      let e ← instantiateMVars (← g.getType)
+      pure (e.find? fun e => e.isConstOf ``Sparkle.Core.Signal.Signal.memoryComboRead).isSome
+    if run then
+      evalTactic (← `(tactic| try ($t:tactic)))
+    out := out ++ (← getGoals)
+  setGoals out
+
+/-- `ved_dsimp_goals`: `dsimp only at *` in every goal; with many goals (the 843-way split of the decoder) only the
+target: the hypotheses of every goal are rescanned (`at *` costs more than 2M heartbeats there, the target alone 0.7M),
+and the hypotheses are not what the later steps need in those goals.  With few goals (all small cases) `at *`:
+omega needs the normalised hypotheses (VedMemCheck memTwoMem, VedMemPackCheck pdBase). -/
+elab "ved_dsimp_goals" : tactic => do
+  if (← getGoals).length ≤ 64 then
+    evalTactic (← `(tactic| all_goals (try dsimp only at *)))
+  else
+    evalTactic (← `(tactic| all_goals (try dsimp only)))
+
+/-- `ved_tlog "k"`: (only with `VED_DUMP_DIR`) a timing line in `addr.log` -/
+elab "ved_tlog " k:str : tactic => do
+  if (← IO.getEnv "VED_DUMP_DIR").isSome then
+    dbgLog s!"TLOG {k.getString} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={(← getGoals).length}"
+
 /-- the side condition `hS` of the strong fixpoint equation -/
 syntax "ved_causal " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 
 macro_rules
   | `(tactic| ved_causal [$ex,*]) =>
     `(tactic| (intro t s1 s2 h
+               ved_tlog "causal: intro"
                -- a registered read's value at `t` unfolds only at `t = n + 1`
                rcases t with _ | t <;>
+               ved_tlog "causal: rcases" <;>
                (try (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ, Sparkle.Core.Signal.Signal.memory_val_zero, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))
+               <;> ved_tlog "causal: simp1"
+               <;> (try ved_loop_congr s1 s2 h)
                <;> (try ved_mem_congr s1 s2 h)
+               <;> ved_tlog "causal: congr"
                <;> (try (ved_loop_simp [Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, h, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))))
 
 /-- `runSub` that, when a side condition stays open, says which (the first goal, cut to 2500 characters) -/
@@ -575,7 +727,9 @@ elab "ved_loop_gen_mem " s:ident : tactic => withMainContext do
   if loops.isEmpty then
     evalTactic (← `(tactic| ved_loop_gen $s))
     return
+  dbgLog s!"gen_mem: {loops.size} loops in {(← getGoals).length} goals hb={(← IO.getNumHeartbeats) / 1000}"
   for j in [0:loops.size] do
+    dbgLog s!"gen_mem: loop {j} goals={(← getGoals).length} hb={(← IO.getNumHeartbeats) / 1000} t={← IO.monoMsNow}"
     let some α := loops[j]!.getAppArgs[1]? | throwError "ved_loop_gen_mem: malformed Signal.loop"
     let bare := !(← whnfR α).isAppOf ``Prod
     let n := (← Tools.VedU1Loop.stateComps α).length
@@ -598,6 +752,26 @@ elab "ved_loop_gen_mem " s:ident : tactic => withMainContext do
       gsOut := gsOut ++ (← getGoals)
     setGoals gsOut
 
+
+/-- `m` with every hypothesis cleared that neither its type nor (transitively) the type of a kept hypothesis mentions:
+the side conditions of the strong fixpoint equation are about the loop only, and every `simp`/`omega` call in them
+scans the local context (R29: 38 hypotheses of the step case against 5, 30x slower) -/
+def clearOthers (m : MVarId) : MetaM MVarId := m.withContext do
+  let mut keep : Std.HashSet FVarId := {}
+  let mut todo : Array Expr := #[← instantiateMVars (← m.getType)]
+  while !todo.isEmpty do
+    let e := todo.back!
+    todo := todo.pop
+    for fv in (collectFVars {} e).fvarIds do
+      unless keep.contains fv do
+        keep := keep.insert fv
+        todo := todo.push (← instantiateMVars (← fv.getType))
+        if let some v ← fv.getValue? then todo := todo.push (← instantiateMVars v)
+  let mut drop : Array FVarId := #[]
+  for d in ← getLCtx do
+    unless d.isImplementationDetail || keep.contains d.fvarId do drop := drop.push d.fvarId
+  let (m', _) ← m.tryClearMany' drop
+  return m'
 
 open Tools.VedU1WireShare in
 /-- `ved_loop_unfold_mem t`: rewrite `(Signal.loop F).val t` by the strong fixpoint equation, for every loop
@@ -626,7 +800,13 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let ty ← whnf (ty.bindingBody!.instantiate1 h0)
     let hS ← mkFreshExprMVar ty.bindingDomain!
     runSubMem h0.mvarId! (← `(tactic| (intro _ _; rfl)))
-    runSubMem hS.mvarId! (← `(tactic| ved_causal [$ex,*]))
+    let tc0 ← IO.monoMsNow
+    dbgLog s!"unfold_mem: loop dag={(collectDag (fun _ => true) L).size} tree={Tools.VedU1Loop.treeSizeVal L} hS ctx={(← hS.mvarId!.getDecl).lctx.size} hStype dag={(collectDag (fun _ => true) (← instantiateMVars (← hS.mvarId!.getType))).size} t={tE} nocc={(← occs tgt).size}"
+    let hb0 ← IO.getNumHeartbeats
+    let hSc ← clearOthers hS.mvarId!
+    dbgLog s!"unfold_mem: clearOthers done ms={(← IO.monoMsNow) - tc0}"
+    runSubMem hSc (← `(tactic| ved_causal [$ex,*]))
+    dbgLog s!"unfold_mem: causal ms={(← IO.monoMsNow) - tc0} hb={((← IO.getNumHeartbeats) - hb0) / 1000}"
     let lem ← instantiateMVars (mkApp3 f4 h0 hS (lhs.getArg! 3))
     let eqTy ← instantiateMVars (← inferType lem)
     let some (_, l, r) := eqTy.eq? | throwError "ved_loop_unfold_mem: unexpected equation {eqTy}"
@@ -638,6 +818,7 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let newTgt := tgt.replace fun e => if e == lhs then some r else none
     let g ← getMainGoal
     let g' ← g.replaceTargetEq newTgt pf
+    dbgLog s!"unfold_mem: replaced, ms since causal start={(← IO.monoMsNow) - tc0}"
     replaceMainGoal [g']
 
 /-- `ved_or_lit_m`: `Tools.VedU1Loop`'s `ved_or_lit` with fewer `omega` calls per candidate: the least `w` with `x < 2^w` is found by
@@ -731,5 +912,46 @@ elab "ved_pack_wire_all_m" : tactic => do
     i := i + 1
     rest := rest ++ (← getGoals)
   setGoals rest
+
+
+/-! `ved_hin_simp M`: the input-bound / reset hypotheses `hin`, `hrst` of the step case, as `simp [C, contractOf, ..., M, declWidth]`
+would produce them, WITHOUT unfolding the module constant `M` (a literal as large as the design: the plain `simp` runs out of
+steps on it, `decoderPipeline`).  The closed subterms `Contract.dataInputs _` / `Contract.clkRst _` are evaluated by `reduce`
+(replaceLocalDeclDefEq, the kernel re-checks the defeq), and each `declWidth M "name"` is stated as an equation proved by
+`rfl` (kernel evaluation) and handed to `simp`. -/
+elab "ved_hin_simp " m:term : tactic => withMainContext do
+  let M ← elabTerm m none
+  let names := #[`hin, `hrst]
+  let ref ← IO.mkRef (#[] : Array Expr)
+  for nm in names do
+    let fv := (← getLCtx).findFromUserName? nm |>.map (·.fvarId)
+    let some fv := fv | throwError "ved_hin_simp: no {nm}"
+    let ty ← instantiateMVars (← fv.getType)
+    let ty' ← Meta.transform ty (pre := fun e => do
+      if !e.hasLooseBVars && (e.isAppOf ``Tools.VedU1Contract.Contract.dataInputs || e.isAppOf ``Tools.VedU1Contract.Contract.clkRst) then
+        return .done (← reduce e)
+      else return .continue)
+    dbgLog s!"hin_simp: reduced {nm}"
+    replaceMainGoal [← (← getMainGoal).replaceLocalDeclDefEq fv ty']
+    dbgLog s!"hin_simp: replaced {nm}"
+    discard <| Meta.transform ty' (pre := fun e => do
+      if e.isAppOfArity ``Sparkle.IR.AST.Port.mk 2 then ref.modify (·.push (e.getArg! 0))
+      return .continue)
+  let mut ids : Array Name := #[]
+  let mut i := 0
+  for n in (← ref.get) do
+    let lhs := mkApp2 (mkConst ``Tools.VedU1Contract.declWidth) M n
+    let v ← whnf lhs
+    let some k := v.rawNatLit? <|> v.nat? | throwError "ved_hin_simp: width of {n} is not a numeral: {v}"
+    let nm := Name.mkSimple s!"ved_hw{i}"
+    i := i + 1
+    let g ← getMainGoal
+    let (_, g') ← (← g.assert nm (← mkEq lhs (mkNatLit k)) (← mkEqRefl lhs)).intro1P
+    replaceMainGoal [g']
+    ids := ids.push nm
+  let hs ← ids.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkIdent n):ident)
+  let hsSep : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems hs
+  dbgLog s!"hin_simp: {ids.size} widths"
+  evalTactic (← `(tactic| simp [$hsSep,*] at $(mkIdent `hin):ident $(mkIdent `hrst):ident))
 
 end Tools.VedMemLoop

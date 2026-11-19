@@ -529,8 +529,20 @@ lean_lib «Tests.Ved.U1RegChainCheck» where
 lean_lib «Tests.Ved.VedMemCheck» where
   roots := #[`Tests.Ved.VedMemCheck]
 
+lean_lib «Tests.Ved.VedMemShapeCheck» where
+  roots := #[`Tests.Ved.VedMemShapeCheck]
+
+lean_lib «Tests.Ved.VedMemOrderCheck» where
+  roots := #[`Tests.Ved.VedMemOrderCheck]
+
+lean_lib «Tests.Ved.VedMemWidthCheck» where
+  roots := #[`Tests.Ved.VedMemWidthCheck]
+
 lean_lib «Tests.Ved.VedMemPackCheck» where
   roots := #[`Tests.Ved.VedMemPackCheck]
+
+lean_lib «Tests.Ved.VedMemCloseCheck» where
+  roots := #[`Tests.Ved.VedMemCloseCheck]
 
 lean_lib «Tests.Ved.VedMemWriteCheck» where
   roots := #[`Tests.Ved.VedMemWriteCheck]
@@ -1738,3 +1750,15 @@ lean_lib «Tools.VedMemLoop» where
 
 lean_lib «Tools.VedMemPack» where
   roots := #[`Tools.VedMemPack]
+
+lean_lib «Tools.VedMemShape» where
+  roots := #[`Tools.VedMemShape]
+
+lean_lib «Tools.VedMemNest» where
+  roots := #[`Tools.VedMemNest]
+
+lean_lib «Tools.VedMemOrder» where
+  roots := #[`Tools.VedMemOrder]
+
+lean_lib «Tools.VedMemWidth» where
+  roots := #[`Tools.VedMemWidth]
