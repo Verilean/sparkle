@@ -257,7 +257,7 @@ elab "ved_tlog " k:str : tactic => do
 
 /-! ### `ved_causal_exp` (diagnosis, only with `VED_DUMP_DIR` and `VED_CAUSAL_EXP`)
 
-At the first `ved_causal` goal whose tree has more than 10^6 nodes: run the experiments listed in `VED_CAUSAL_EXP`
+At the first `ved_causal` goal whose tree has more than `VED_CAUSAL_MIN` (default 10^6) nodes: run the experiments listed in `VED_CAUSAL_EXP`
 (`name[:arg]=cap_s,...`) on that goal, each in a saved state that is restored afterwards, each with a wall-clock cap
 (a cancel token set by a timer task) and the heartbeat cap `withLocalHb`; one line per experiment in `addr.log`
 (`CEXP`), then the check is stopped (`IO.Process.exit`).  Names: `cnt` (counts of projection-like nodes of the goal),
@@ -382,10 +382,12 @@ structure CVis where
   samples : IO.Ref (Array (Nat × Nat × Nat × Nat))
   used : IO.Ref (Array (Meta.Origin × Nat))
   mark : IO.Ref (Std.HashMap Name Nat)
+  inNs : IO.Ref Nat
+  slow : IO.Ref (Array (Nat × String))
 
 def CVis.new (capS : Nat) : IO CVis := do
   return { t0 := ← IO.monoMsNow, capMs := capS * 1000, visits := ← IO.mkRef 0, heads := ← IO.mkRef {}, ptrs := ← IO.mkRef {},
-           samples := ← IO.mkRef #[], used := ← IO.mkRef #[], mark := ← IO.mkRef {} }
+           samples := ← IO.mkRef #[], used := ← IO.mkRef #[], mark := ← IO.mkRef {}, inNs := ← IO.mkRef 0, slow := ← IO.mkRef #[] }
 
 def CVis.tick (st : CVis) (e : Expr) : Simp.SimpM Unit := do
   let n ← st.visits.modifyGet fun n => (n + 1, n + 1)
@@ -418,12 +420,21 @@ def CVis.tick (st : CVis) (e : Expr) : Simp.SimpM Unit := do
     st.used.set s.diag.usedThmCounter.toArray
     if now - st.t0 > st.capMs then throwError "ved_causal_exp: wall cap"
 
+def CVis.timed {α : Type} (st : CVis) (what : String) (e : Expr) (k : Simp.SimpM α) : Simp.SimpM α := do
+  let t ← IO.monoNanosNow
+  let r ← k
+  let d := (← IO.monoNanosNow) - t
+  st.inNs.modify (· + d)
+  if d > 50000000 then
+    st.slow.modify fun a => (a.push (d / 1000000, s!"{what} {e.getAppFn.constName?.getD `_} appArgs={e.getAppNumArgs}")).qsort (fun x y => x.1 > y.1) |>.extract 0 8
+  return r
+
 def CVis.wrap (st : CVis) (m : Simp.Methods) : Simp.Methods :=
   { m with
-    pre := fun e => do st.tick e; m.pre e
-    post := fun e => do st.tick e; m.post e
-    dpre := fun e => do st.tick e; m.dpre e
-    dpost := fun e => do st.tick e; m.dpost e }
+    pre := fun e => do st.tick e; st.timed "pre" e (m.pre e)
+    post := fun e => do st.tick e; st.timed "post" e (m.post e)
+    dpre := fun e => do st.tick e; st.timed "dpre" e (m.dpre e)
+    dpost := fun e => do st.tick e; st.timed "dpost" e (m.dpost e) }
 
 def CVis.report (st : CVis) : IO String := do
   let n ← st.visits.get
@@ -433,7 +444,8 @@ def CVis.report (st : CVis) : IO String := do
   let curve := sm.toList.filterMap fun (v, stp, ms, c) => if v % 20000 == 0 || v == sm.back!.1 then some s!"{v}v/{stp}st/{ms}ms/u{c}" else none
   let us := (← st.used.get).qsort (fun a b => a.2 > b.2)
   let tot := us.foldl (fun n a => n + a.2) 0
-  return s!"visits={n} ptrDistinct={ps} heads(top)=" ++ String.intercalate "; " ((hs.toList.take 14).map fun (h, c) => s!"{h}:{c}") ++
+  let slow := String.intercalate "; " ((← st.slow.get).toList.map fun (ms, w) => s!"{ms}ms {w}")
+  return s!"inPrePostMs={(← st.inNs.get) / 1000000} slowestCalls=[{slow}] visits={n} ptrDistinct={ps} heads(top)=" ++ String.intercalate "; " ((hs.toList.take 14).map fun (h, c) => s!"{h}:{c}") ++
     s!" curve(visits/steps/ms/usedLemmas)={curve} usedSample: applications={tot} distinct={us.size} top=" ++
     String.intercalate "; " ((us.toList.take 20).map fun (o, c) => s!"{o.key}:{c}")
 
@@ -465,6 +477,7 @@ def runVis (label : String) (capS : Nat) (g : MVarId) (stx : Syntax) (isDsimp : 
   let hb := ((← IO.getNumHeartbeats) - hb0) / 1000
   dbgLog s!"CEXP {label} cap={capS}s ms={(← IO.monoMsNow) - st.t0} hb={hb} {← st.report}"
   if let some (e', pf?) := r then
+    dbgLog s!"CEXP {label} sizes-start t={← IO.monoMsNow}"
     dbgLog s!"CEXP {label} result[{sizeStr e'}] {← projCounts e'}"
     if let some pf := pf? then dbgLog s!"CEXP {label} proof[{sizeStr pf}]"
   s.restore
@@ -475,7 +488,8 @@ elab "ved_causal_exp " "[" ex:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
   if ← causalExpDone.get then return
   let g ← getMainGoal
   let e0 ← g.withContext do instantiateMVars (← g.getType)
-  if Tools.VedU1Loop.treeSizeVal e0 ≤ 1000000 then return
+  let minTree := ((← IO.getEnv "VED_CAUSAL_MIN").bind String.toNat?).getD 1000000
+  if Tools.VedU1Loop.treeSizeVal e0 ≤ minTree then return
   causalExpDone.set true
   dbgLog s!"CEXP begin t={← IO.monoMsNow} goal[{sizeStr e0}] {spec}"
   let simpStx ← `(tactic| ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ, Sparkle.Core.Signal.Signal.memory_val_zero, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*])
