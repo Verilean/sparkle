@@ -1,4 +1,5 @@
 import Sparkle
+import Sparkle.Compiler.Elab
 import Tools.VedMemEntry
 import Tools.VedMemLoop
 import Tools.VedMemPack
@@ -19,7 +20,7 @@ Small examples that pin what R034 needed (`Tools/VedMemLoop.lean`, `Tools/VedMem
   `65536 - (..) % 65536` case) close; a false one is refused.
 * `ved_ctrl_cases` + `ved_leaf_gate`: a control case split with such a leaf closes; with a false leaf `ved_ctrl_cases` fails, the flag is
   set, the gate refuses (the leafwise closers are skipped) once and resets.
-* `ved_goal_gate n`: at most `n` open goals pass, more are refused (the case-split gate of the memory loop, limit 512).
+* `ved_goal_gate n`: at most `n` open goals pass, more are refused (the case-split gate of the memory loop; `n = 0` disables it).  The limit is the public option `ved.mem.goalGate` (default 512), read by `#ved_u1_mem` and put into its script.
 -/
 
 namespace Tests.Ved.VedMemCloseCheck
@@ -351,6 +352,81 @@ theorem goalGateRefuses : True := by
     fail_if_success (ved_goal_gate 3)
     all_goals trivial
   trivial
+
+/-- a raised limit lets four goals through -/
+theorem goalGateRaised : True := by
+  have _h : True ∧ True ∧ True ∧ True := by
+    refine ⟨?_, ?_, ?_, ?_⟩
+    ved_goal_gate 4
+    all_goals trivial
+  trivial
+
+/-- limit 0 disables the gate -/
+theorem goalGateOff : True := by
+  have _h : True ∧ True ∧ True ∧ True := by
+    refine ⟨?_, ?_, ?_, ?_⟩
+    ved_goal_gate 0
+    all_goals trivial
+  trivial
+
+/-- info: 512 -/
+#guard_msgs in
+#eval Tools.VedMemEntry.ved.mem.goalGate.defValue
+
+/-! ### through the real entry (`#ved_u1_mem` reads `ved.mem.goalGate` and puts it into the generated script) -/
+
+declare_signal_state FState
+  | fsm  : BitVec 2  := 0#2
+  | idx  : BitVec 5  := 0#5
+  | last : BitVec 16 := 0#16
+
+/-- a loop with two memories (the `memFsm` of `VedMemCheck`): its case split leaves a handful of goals -/
+def gateFsm {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let fsm := FState.fsm state
+    let idx := FState.idx state
+    let isProcess := fsm === (1#2 : Signal dom _)
+    let readAddr4 := idx.map (BitVec.extractLsb' 0 4 ·)
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let outMemRead := Signal.memory readAddr4 inputCoeff isProcess (Signal.pure 0#4)
+    let fsmNext := Signal.mux start (Signal.pure 1#2) (Signal.mux (idx === (15#5 : Signal dom _)) (Signal.pure 0#2) fsm)
+    let idxNext := Signal.mux isProcess (idx + 1#5) (Signal.pure 0#5)
+    bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#5 idxNext, Signal.register 0#16 outMemRead]
+  FState.last state
+
+/-- the same module under other names (each accepted run stores a theorem under the declaration's name) -/
+def gateFsmB {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+
+def gateFsmC {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+
+-- the case split leaves 18 goals; limit 7: refused at `[proof]`, the refusal names the configured value 7
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.gateFsm [proof]: errors were logged while elaborating the proof; first: ved_goal_gate: 18 goals after the case split exceed the configured limit ved.mem.goalGate (7); raise it with `set_option ved.mem.goalGate N` or disable the gate with `set_option ved.mem.goalGate 0` -/
+#guard_msgs in
+set_option ved.mem.goalGate 7 in
+#ved_u1_mem gateFsm
+
+-- limit 17 (one below the goal count): still refused, value 17
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.gateFsm [proof]: errors were logged while elaborating the proof; first: ved_goal_gate: 18 goals after the case split exceed the configured limit ved.mem.goalGate (17); raise it with `set_option ved.mem.goalGate N` or disable the gate with `set_option ved.mem.goalGate 0` -/
+#guard_msgs in
+set_option ved.mem.goalGate 17 in
+#ved_u1_mem gateFsm
+
+-- limit 18 (raised): the entry accepts
+#guard_msgs (drop info) in
+set_option ved.mem.goalGate 18 in
+#ved_u1_mem gateFsm
+
+-- limit 0 disables the gate: accepted
+#guard_msgs (drop info) in
+set_option ved.mem.goalGate 0 in
+#ved_u1_mem gateFsmB
+
+-- default (512): accepted
+#guard_msgs (drop info) in
+#ved_u1_mem gateFsmC
 
 /-! ## axioms -/
 
