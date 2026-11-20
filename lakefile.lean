@@ -1762,3 +1762,6 @@ lean_lib «Tools.VedMemOrder» where
 
 lean_lib «Tools.VedMemWidth» where
   roots := #[`Tools.VedMemWidth]
+
+lean_lib «Tools.VedMemCausalDiag» where
+  roots := #[`Tools.VedMemCausalDiag]
