@@ -364,6 +364,15 @@ def runVariant (v : Nat) (tag : String) (simpStx : Syntax) (capMs throwAt profMs
     s.restore
   return (← out.get)
 
+/-- gated wall-clock marker around one variant (for matching external `perf` timestamps: CLOCK_MONOTONIC ns, and unix ms) -/
+def wallLine (what tag : String) : IO Unit := do
+  let mono ← IO.monoNanosNow
+  let unix ← try
+      let o ← IO.Process.output { cmd := "date", args := #["+%s%3N"] }
+      pure o.stdout.trimAscii.toString
+    catch _ => pure "unknown"
+  diagLine s!"VED DIAG T {what} variant={tag} mono_ns={mono} unix_ms={unix}"
+
 /-- all requested variants in order (`VED_DIAG_VARIANTS`, default "ab": a = plain, b = instrument, c = trace.profiler)
 within a total wall budget; prints each variant's lines as it ends; returns the overall reason code -/
 def measureAll (simpStx : Syntax) (capMs throwAt : Nat) : TacticM String := do
@@ -382,7 +391,9 @@ def measureAll (simpStx : Syntax) (capMs throwAt : Nat) : TacticM String := do
       final := "skipped_budget"
       continue
     let v := if c == 'a' then 0 else if c == 'b' then 1 else 2
+    wallLine "start" tag
     let r ← runVariant v tag simpStx (min capMs left) throwAt profMs keep
+    wallLine "end" tag
     reportVariant r
     if r.reason != "measured" then final := r.reason
     results := results.push r
