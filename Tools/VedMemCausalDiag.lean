@@ -188,8 +188,15 @@ def wrap (a : Acc) (m : Simp.Methods) : Simp.Methods :=
 /-- the real stderr (Lean isolates `IO.getStderr` while a command elaborates; a line written there is lost on `exit`) -/
 def rawErr : IO IO.FS.Handle := IO.FS.Handle.mk "/dev/stderr" .append
 
+initialize diagStarted : IO.Ref Bool ← IO.mkRef false
+
+/-- the first call writes a padding line: the RSS guard writes its summary at the start of a shared stderr FILE (a separate
+open of `/dev/stderr` does not share the file offset) and would overwrite the head of our first line -/
 def diagLine (l : String) : IO Unit := do
   let h ← rawErr
+  unless (← diagStarted.get) do
+    diagStarted.set true
+    h.putStrLn ("VED DIAG begin (padding line, may be overwritten by the RSS guard summary) " ++ String.ofList (List.replicate 160 '.'))
   h.putStrLn l
   h.flush
 
@@ -278,6 +285,16 @@ partial def walkTrace (acc : IO.Ref (Std.HashMap Name (Nat × Nat))) : MessageDa
 
 def envNat (n : String) (d : Nat) : IO Nat := return ((← IO.getEnv n).bind String.toNat?).getD d
 
+/-- run `x` and return its exception as a value, INCLUDING interrupt exceptions (which `try`/`catch` and
+`tryCatchRuntimeEx` rethrow): the cancel token makes Lean's own `checkSystem` points throw an interrupt, and that interrupt
+has to stop only this measurement, not the command -/
+def tryAllCore {α : Type} (x : CoreM α) : CoreM (Except Exception α) := fun ctx sref => do
+  let r ← EIO.toBaseIO (x ctx sref)
+  pure r
+
+def tryAllMeta {α : Type} (x : MetaM α) : MetaM (Except Exception α) := fun mctx msref =>
+  tryAllCore (x mctx msref)
+
 /-- ONE run of the simp1 syntax `simpStx` on the main goal from the saved state, which is restored afterwards (also on
 exception).  `v`: 0 = plain `Simp.mainCore` with the production methods (no wrapper, no phase hooks; only a 100 ms watcher
 thread that sets the cancel token at the cap), 1 = the full instrument (wrapped hooks + 10 ms sampler), 2 = plain methods
@@ -306,11 +323,17 @@ def runVariant (v : Nat) (tag : String) (simpStx : Syntax) (capMs throwAt profMs
           ph.hbLast.set hb0
           let t ← IO.monoNanosNow
           a.t0.set t
-          let th ← startSampler ph (if v == 1 then 10 else 100) t (capMs * 1000000) tk
+          let wms := (← envNat "VED_DIAG_WATCH_MS" 100).toUInt32
+          let th ← startSampler ph (if v == 1 then 10 else wms) t (capMs * 1000000) tk
           try
-            let (r, st) ← withOptions opts <| Simp.mainCore target mc.ctx (methods := methods)
-            stRef.set (some st)
-            out.modify fun o => { o with steps := st.numSteps, res := if keep then some r else none }
+            match (← tryAllMeta (withOptions opts <| Simp.mainCore target mc.ctx (methods := methods))) with
+            | .ok (r, st) =>
+              stRef.set (some st)
+              out.modify fun o => { o with steps := st.numSteps, res := if keep then some r else none }
+            | .error e =>
+              let r := if (← a.cancelled.get) || (← tk.isSet) then "cooperative_cancel"
+                       else if e.isRuntime then "runtime_exception" else "simp_exception"
+              out.modify fun o => { o with reason := r }
           finally
             let tt := (← IO.monoNanosNow) - t
             let hb1 ← IO.getNumHeartbeats
