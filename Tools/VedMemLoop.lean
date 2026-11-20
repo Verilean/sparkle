@@ -268,8 +268,11 @@ section CausalExp
 
 initialize causalExpDone : IO.Ref Bool ← IO.mkRef false
 
-partial def cntTree (p : Expr → Bool) (e : Expr) : StateM (Std.HashMap Expr Nat) Nat := do
-  if let some d := (← get)[e]? then return d
+unsafe def ptrOfImpl (e : Expr) : USize := ptrAddrUnsafe e
+@[implemented_by ptrOfImpl] opaque ptrOf (e : Expr) : USize
+
+partial def cntTree (p : Expr → Bool) (e : Expr) : StateM (Std.HashMap USize Nat) Nat := do
+  if let some d := (← get)[ptrOf e]? then return d
   let own := if p e then 1 else 0
   let d ← match e with
     | .app f a => do return own + (← cntTree p f) + (← cntTree p a)
@@ -279,19 +282,19 @@ partial def cntTree (p : Expr → Bool) (e : Expr) : StateM (Std.HashMap Expr Na
     | .mdata _ b => cntTree p b
     | .proj _ _ b => do return own + (← cntTree p b)
     | _ => pure own
-  modify (·.insert e d)
+  modify (·.insert (ptrOf e) d)
   return d
 
-/-- distinct nodes (structural) of `e` satisfying `p` -/
+/-- pointer-distinct nodes of `e` satisfying `p` (no structural hashing or equality of large terms) -/
 partial def cntDag (p : Expr → Bool) (e : Expr) : Nat := Id.run do
-  let mut seen : Std.HashSet Expr := {}
+  let mut seen : Std.HashSet USize := {}
   let mut todo : Array Expr := #[e]
   let mut n := 0
   while !todo.isEmpty do
     let x := todo.back!
     todo := todo.pop
-    if seen.contains x then continue
-    seen := seen.insert x
+    if seen.contains (ptrOf x) then continue
+    seen := seen.insert (ptrOf x)
     if p x then n := n + 1
     match x with
     | .app f a => todo := (todo.push a).push f
@@ -303,7 +306,7 @@ partial def cntDag (p : Expr → Bool) (e : Expr) : Nat := Id.run do
     | _ => pure ()
   return n
 
-/-- `kind=dag/tree` counts of the projection-like nodes of `e`: dag = structurally distinct nodes, tree = occurrences
+/-- `kind=dag/tree` counts of the projection-like nodes of `e`: dag = pointer-distinct nodes, tree = occurrences
 read as a tree (memoised, nothing is walked twice) -/
 def projCounts (e : Expr) : MetaM String := do
   let mut kinds : Array (String × (Expr → Bool)) := #[]
@@ -368,9 +371,6 @@ def runCExp (label : String) (capS : Nat) (g : MVarId) (tac : TacticM (Option Si
   s.restore
 
 
-unsafe def ptrOfImpl (e : Expr) : USize := ptrAddrUnsafe e
-@[implemented_by ptrOfImpl] opaque ptrOf (e : Expr) : USize
-
 /-- the state of one counted run: node visits (`pre`/`post` calls) per head constant, pointer-distinct nodes visited,
 (visits, steps, ms, cache size) samples every 2000 visits, the lemma applications of the last sample (with diagnostics) -/
 structure CVis where
@@ -381,10 +381,11 @@ structure CVis where
   ptrs : IO.Ref (Std.HashSet USize)
   samples : IO.Ref (Array (Nat × Nat × Nat × Nat))
   used : IO.Ref (Array (Meta.Origin × Nat))
+  mark : IO.Ref (Std.HashMap Name Nat)
 
 def CVis.new (capS : Nat) : IO CVis := do
   return { t0 := ← IO.monoMsNow, capMs := capS * 1000, visits := ← IO.mkRef 0, heads := ← IO.mkRef {}, ptrs := ← IO.mkRef {},
-           samples := ← IO.mkRef #[], used := ← IO.mkRef #[] }
+           samples := ← IO.mkRef #[], used := ← IO.mkRef #[], mark := ← IO.mkRef {} }
 
 def CVis.tick (st : CVis) (e : Expr) : Simp.SimpM Unit := do
   let n ← st.visits.modifyGet fun n => (n + 1, n + 1)
@@ -403,7 +404,17 @@ def CVis.tick (st : CVis) (e : Expr) : Simp.SimpM Unit := do
   if n % 2000 == 0 then
     let now ← IO.monoMsNow
     let s ← get
+    let prev := (← st.samples.get).back?
     st.samples.modify (·.push (n, s.numSteps, now - st.t0, s.usedTheorems.size))
+    -- an interval of 2000 visits that took more than 1 s: its visits per head constant (the heads map minus the one of the
+    -- last slow-interval mark) are logged at once
+    let hm ← st.heads.get
+    let base ← st.mark.get
+    if now - st.t0 - (prev.map (·.2.2.1)).getD 0 > 1000 then
+      let d := hm.toArray.filterMap fun (h, c) => let c' := c - base.getD h 0; if c' > 0 then some (h, c') else none
+      let d := d.qsort (fun a b => a.2 > b.2)
+      dbgLog s!"CEXP slow-interval visits={n} steps={s.numSteps} ms={now - st.t0} (+{now - st.t0 - (prev.map (·.2.2.1)).getD 0}) heads={String.intercalate "; " ((d.toList.take 8).map fun (h, c) => s!"{h}:{c}")}"
+    st.mark.set hm
     st.used.set s.diag.usedThmCounter.toArray
     if now - st.t0 > st.capMs then throwError "ved_causal_exp: wall cap"
 
