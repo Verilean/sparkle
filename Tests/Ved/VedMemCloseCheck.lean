@@ -442,4 +442,51 @@ elab "#ved_axioms " ids:ident* : command => do
 #guard_msgs in
 #ved_axioms Tools.VedMemPack.ved_mod_sum sigHyps leaf44 refuse44 leaf54a leaf54b ctrl54 gate54 gateSmall54 gateResetOk54 gateResetFail54 goalGateOk goalGateRefuses
 
+
+/-! ## ved_causal_dag (sparkle-ved-mem-r033-proof)
+
+The causal side condition of the strong fixpoint equation (`∀ t s1 s2, (∀ k ≤ t, s1.val k = s2.val k) → (F s1).val (t+1) =
+(F s2).val (t+1)`) of a body that holds a memory written and read through the loop state, closed by the lock-step walk
+`ved_causal_dag` (option `ved.mem.causalDag`, default off).  Controls: the option off (the tactic refuses at once, `ved_causal`
+runs the simp path), a body the walk does not know (an inner loop driven by the state: refused, the simp path of `ved_causal`
+closes it). -/
+
+/-- the causal side condition of a registered-read memory written at the state's address -/
+theorem causalDagMem {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+/-- info: causalDagMem: axioms within std3 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let axs ← collectAxioms ``causalDagMem
+  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+  unless axs.all (std.contains ·) do throwError "causalDagMem: axioms {axs}"
+  logInfo "causalDagMem: axioms within std3"
+
+/-- the same goal through `ved_causal` with the option on: the walk closes it -/
+theorem causalDagMemMacro {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in ved_causal []
+
+-- control: with the option off the tactic refuses at once
+/-- error: ved_causal_dag: option ved.mem.causalDag is off -/
+#guard_msgs in
+theorem causalDagOff {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  ved_causal_dag
+
+/-- control: option off, `ved_causal` runs the simp path and closes the same goal -/
+theorem causalSimpMem {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  ved_causal []
+
 end Tests.Ved.VedMemCloseCheck

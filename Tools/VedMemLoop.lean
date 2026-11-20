@@ -385,12 +385,15 @@ def unfoldValDag (A : Expr) : MetaM Expr := do
 
 abbrev DagCache := IO.Ref (Std.HashMap (Expr × Expr) Expr)
 
-/-- the leaf `s1.val k = s2.val k` of the agreement hypothesis `h`, the bound by `omega` -/
-def leafDag (h k0 : Expr) : TacticM Expr := do
-  -- raw literals (`nat_lit 0` left by the unfolding of a `match`) are not read by `omega`: spell them `OfNat`
-  let k := k0.replace fun e =>
+/-- raw literals (`nat_lit 0` left by the unfolding of a `match`) are not read by `omega`: spell them `OfNat` -/
+def normLitsDag (k0 : Expr) : Expr :=
+  k0.replace fun e =>
     if e.isAppOfArity ``OfNat.ofNat 3 && (e.getArg! 1).isRawNatLit then some e
     else match e with | .lit (.natVal n) => some (mkNatLit n) | _ => none
+
+/-- the leaf `s1.val k = s2.val k` of the agreement hypothesis `h`, the bound by `omega` -/
+def leafDag (h k0 : Expr) : TacticM Expr := do
+  let k := normLitsDag k0
   let hk := mkApp h k
   let ty ← whnf (← inferType hk)
   unless ty.isForall do throwError "ved_causal_dag: agreement hypothesis has an unexpected type"
@@ -452,7 +455,7 @@ where
         let t := a[7]!
         let side (x y : Expr) : TacticM Expr :=
           withLocalDeclD `ved_j (mkConst ``Nat) fun j => do
-            withLocalDeclD `ved_hj (← mkAppM ``LT.lt #[j, t]) fun hj => do
+            withLocalDeclD `ved_hj (← mkAppM ``LT.lt #[j, normLitsDag t]) fun hj => do
               let ValX ← mkAppM ``Sparkle.Core.Signal.Signal.val #[x, j]
               let ValY ← mkAppM ``Sparkle.Core.Signal.Signal.val #[y, j]
               mkLambdaFVars #[j, hj] (← dagEq cache s1 s2 h ValX ValY)
