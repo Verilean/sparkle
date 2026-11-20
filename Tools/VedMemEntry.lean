@@ -609,10 +609,11 @@ def memLoopScript (dbg gate : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : 
         intro $insI hok
         ved_loop_unfold_mem [$hsSep,*] 0
         ved_stamp 85
-        refine $h0Term
-        $d10
-        all_goals ved_loop_simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
-          Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*]
+        ved_h0_budget (
+          refine $h0Term
+          $d10
+          all_goals ved_loop_simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
+            Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*])
         ved_stamp 86
         all_goals (try decide +kernel)
         ved_stamp 87

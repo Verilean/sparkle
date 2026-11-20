@@ -40,6 +40,33 @@ elab "ved_mem_budget " n:num t:tactic : tactic => do
       if e.isRuntime then pure false else throw e
   unless ok do throwError "ved_mem_budget: local heartbeat budget exhausted"
 
+/-- the size gate of `ved_loop_unfold_mem` (heuristic limit, public option) -/
+register_option ved.mem.loopGate : Nat := {
+  defValue := 10000000
+  descr := "refuse (stage proof) when a loop `ved_loop_unfold_mem` unfolds has a tree larger than this many nodes; 0 disables the gate (heuristic limit)"
+}
+
+/-- the local heartbeat limit of the memory loop's base case (`h0`) -/
+register_option ved.mem.h0Budget : Nat := {
+  defValue := 1000
+  descr := "refuse (stage proof) when the base case (h0) of the memory loop needs more than this many thousand heartbeats; 0 disables the limit (heuristic limit)"
+}
+
+/-- `ved_h0_budget t`: `t` within the local heartbeat limit `ved.mem.h0Budget` (thousand; `withLocalHb`, never above what is left of the
+ambient budget); when it runs out the tactic state is restored and the refusal names the configured limit.  The strict rows need
+35-43k heartbeats there, R028 was observed to spend the whole 8M budget (643 s) in it.  `0` runs `t` without the local limit. -/
+elab "ved_h0_budget " t:tactic : tactic => do
+  let n := ved.mem.h0Budget.get (← getOptions)
+  if n == 0 then evalTactic t else
+  let s ← saveState
+  let ok ← tryCatchRuntimeEx (do withLocalHb (n * 1000) (Tactic.withoutRecover (evalTactic t)); pure true)
+    fun e => do
+      s.restore
+      if e.isRuntime then pure false else throw e
+  unless ok do
+    throwError "ved_h0_budget: the base case (h0) needs more than the configured limit ved.mem.h0Budget ({n} thousand heartbeats); \
+      raise it with `set_option ved.mem.h0Budget N` or disable the limit with `set_option ved.mem.h0Budget 0`"
+
 /-! `.val` of an operator applied directly through the `BitVec`-`Signal` / `Signal`-`BitVec` instances (as the synthesizer's
 source writes `0#16 - x`): `Tools.VedU1Lemmas.*_val_sc/_cs` are stated with the other elaboration (`Signal.pure a`). -/
 section DirectOps
@@ -831,6 +858,11 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let ty ← whnf (ty.bindingBody!.instantiate1 h0)
     let hS ← mkFreshExprMVar ty.bindingDomain!
     runSubMem h0.mvarId! (← `(tactic| (intro _ _; rfl)))
+    let loopTree := Tools.VedU1Loop.treeSizeVal L
+    let gate := ved.mem.loopGate.get (← getOptions)
+    if gate != 0 && loopTree > gate then
+      throwError "ved_loop_unfold_mem: the loop has {loopTree} tree nodes, more than the configured limit ved.mem.loopGate ({gate}); \
+        raise it with `set_option ved.mem.loopGate N` or disable the gate with `set_option ved.mem.loopGate 0`"
     let tc0 ← IO.monoMsNow
     dbgLog s!"unfold_mem: loop dag={(collectDag (fun _ => true) L).size} tree={Tools.VedU1Loop.treeSizeVal L} hS ctx={(← hS.mvarId!.getDecl).lctx.size} hStype dag={(collectDag (fun _ => true) (← instantiateMVars (← hS.mvarId!.getType))).size} t={tE} nocc={(← occs tgt).size}"
     let hb0 ← IO.getNumHeartbeats
