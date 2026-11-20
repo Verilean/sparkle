@@ -751,13 +751,27 @@ def stageFail (reason : String) : IO Unit := do
 /-- `ved_stage "name"`: (only in a script generated with stamps) end the current stage and begin `name` -/
 elab "ved_stage " n:str : tactic => stageNext n.getString
 
+open Lean Elab Tactic in
+/-- `ved_stage_cap n t`: `t` with a local heartbeat cap of `n` thousand, never above what is left of the ambient
+budget (the rule of `ved_budget`, `Tools/VedU1Entry.lean`: local max = min(remaining ambient, n), at least 1; with an
+unlimited ambient budget the local one alone).  Unlike `ved_budget` the exhaustion is NOT turned into an ordinary
+failure: it is the same runtime exception the ambient budget raises, so the first attempt that contains it fails the
+way it fails when its own budget runs out (`tryScriptFirst`: state restored, the caller runs the script it always ran). -/
+elab "ved_stage_cap " n:num t:tactic : tactic => do
+  let hb ← IO.getNumHeartbeats
+  let loc := n.getNat * 1000
+  withTheReader Core.Context (fun c =>
+      let left := c.maxHeartbeats - (hb - c.initHeartbeats)
+      { c with maxHeartbeats := if c.maxHeartbeats == 0 then loc else max 1 (min left loc), initHeartbeats := hb })
+    (evalTactic t)
+
 /-- The script, or `none` when the module is outside its shape (a register whose input is not a
 plain wire, a data input that is not scalar, no clock/reset for the registers).
 `C M O B` are the checker's constants (contract, module, outputs, body), `F`/`nDom` the
 declaration, `b0` the arrangement stored as `B`, `regs` the registers `(name, width)`. -/
 def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b0 : List Stmt)
     (clkRst : Option (String × String)) (dataPorts : List Port) (regs : List (String × Nat))
-    (helpers : Array Name) (stamps : Bool := false) : TermElabM (Option Syntax) := do
+    (helpers : Array Name) (stamps : Bool := false) (preludeCapK : Nat := 0) : TermElabM (Option Syntax) := do
   let some (clkN, rstN) := clkRst | return none
   -- registers: their input must be a plain wire, their reset the module's, their init non-negative
   let mut regInfo : Array (String × Nat × String × String × Int) := #[]
@@ -962,11 +976,17 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
   let b1 ← `(tactic| · $outTacs*)
   let b2 ← `(tactic| · $regTacs*)
   let hblock : Array (TSyntax `tactic) := tacs ++ #[b1, b2]
+  -- the part before the first stage (`prelude`): with `preludeCapK > 0` under a local heartbeat cap
+  let preludeTacs : Array (TSyntax `tactic) := #[
+    ← `(tactic| have hord : OrderOk $Mi $Bi = true := by decide +kernel),
+    ← `(tactic| refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$Bi, hord⟩, ?_⟩),
+    ← `(tactic| apply Tools.VedU1Contract.outputs_of_order $Bi hord),
+    ← `(tactic| refine $oos $Ci $Mi $Bi $f $Oi (by decide +kernel) ?R ?h0 ?hstep)]
+  let preludeBlock : Array (TSyntax `tactic) ←
+    if preludeCapK == 0 then pure preludeTacs
+    else pure #[← `(tactic| ved_stage_cap $(Syntax.mkNumLit (toString preludeCapK)) ($preludeTacs*))]
   let stx ← `(by
-      have hord : OrderOk $Mi $Bi = true := by decide +kernel
-      refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$Bi, hord⟩, ?_⟩
-      apply Tools.VedU1Contract.outputs_of_order $Bi hord
-      refine $oos $Ci $Mi $Bi $f $Oi (by decide +kernel) ?R ?h0 ?hstep
+      $preludeBlock*
       case hstep =>
         $hblock*
       case h0 =>

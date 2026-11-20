@@ -968,6 +968,16 @@ register_option ved.u1.firstAttemptHeartbeatsForTest : Nat := {
   defValue := 0
   descr := "VED U1 (test hook): cap (thousands) of the first-attempt script instead of the fixed one (0 = off)" }
 
+/-- the local heartbeat cap (thousands) of the `prelude` stage of the u1 sequential first attempt (`ved_stage_cap` around
+the part of the script before `intro_pre`): about twice the largest `prelude` of the first attempts that succeeded in
+the pr17 measurement (397k, R147); a bound for this measured set, not for every circuit.  The fallback is unchanged. -/
+def preludeCapHeartbeats : Nat := 800000
+
+/-- TEST HOOK (default 0 = off): replaces `preludeCapHeartbeats` (thousands) -/
+register_option ved.u1.preludeCapForTest : Nat := {
+  defValue := 0
+  descr := "VED U1 (test hook): cap (thousands) of the prelude stage of the first-attempt script instead of the fixed one (0 = off)" }
+
 /-- The heartbeat limit of the first attempt: `cap` is the cap in heartbeats; a context value of 0
 means unlimited, so the cap applies; a finite one is kept when it is below the cap. -/
 def firstAttemptLimit (ctx cap : Nat) : Nat := if ctx == 0 then cap else min ctx cap
@@ -1142,7 +1152,8 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
         if stmt.getAppFn.isConst && regs.length ≥ 2 && chainStx?.isNone then
           match ← Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body stmt.getAppFn.constName!
-              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) stamps with
+              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) stamps
+              (match ved.u1.preludeCapForTest.get (← getOptions) with | 0 => preludeCapHeartbeats | n => n) with
           | some sx => pure (← tryScriptFirst sx expected (if stamps then some decl else none), true)
           | none => pure (none, false)
         else pure (none, false)
