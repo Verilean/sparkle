@@ -367,6 +367,97 @@ def runCExp (label : String) (capS : Nat) (g : MVarId) (tac : TacticM (Option Si
   dbgLog s!"CEXP {label} cap={capS}s ms={ms} hb={hb} {res}"
   s.restore
 
+
+unsafe def ptrOfImpl (e : Expr) : USize := ptrAddrUnsafe e
+@[implemented_by ptrOfImpl] opaque ptrOf (e : Expr) : USize
+
+/-- the state of one counted run: node visits (`pre`/`post` calls) per head constant, pointer-distinct nodes visited,
+(visits, steps, ms, cache size) samples every 2000 visits, the lemma applications of the last sample (with diagnostics) -/
+structure CVis where
+  t0 : Nat
+  capMs : Nat
+  visits : IO.Ref Nat
+  heads : IO.Ref (Std.HashMap Name Nat)
+  ptrs : IO.Ref (Std.HashSet USize)
+  samples : IO.Ref (Array (Nat × Nat × Nat × Nat))
+  used : IO.Ref (Array (Meta.Origin × Nat))
+
+def CVis.new (capS : Nat) : IO CVis := do
+  return { t0 := ← IO.monoMsNow, capMs := capS * 1000, visits := ← IO.mkRef 0, heads := ← IO.mkRef {}, ptrs := ← IO.mkRef {},
+           samples := ← IO.mkRef #[], used := ← IO.mkRef #[] }
+
+def CVis.tick (st : CVis) (e : Expr) : Simp.SimpM Unit := do
+  let n ← st.visits.modifyGet fun n => (n + 1, n + 1)
+  let h := match e.getAppFn with
+    | .const c _ => c
+    | .proj ..  => `_proj
+    | .fvar .. => `_fvar
+    | .lam .. => `_lam
+    | .forallE .. => `_forall
+    | .letE .. => `_let
+    | .mdata .. => `_mdata
+    | .lit .. => `_lit
+    | _ => `_other
+  st.heads.modify fun m => m.insert h (m.getD h 0 + 1)
+  st.ptrs.modify fun m => m.insert (ptrOf e)
+  if n % 2000 == 0 then
+    let now ← IO.monoMsNow
+    let s ← get
+    st.samples.modify (·.push (n, s.numSteps, now - st.t0, s.usedTheorems.size))
+    st.used.set s.diag.usedThmCounter.toArray
+    if now - st.t0 > st.capMs then throwError "ved_causal_exp: wall cap"
+
+def CVis.wrap (st : CVis) (m : Simp.Methods) : Simp.Methods :=
+  { m with
+    pre := fun e => do st.tick e; m.pre e
+    post := fun e => do st.tick e; m.post e
+    dpre := fun e => do st.tick e; m.dpre e
+    dpost := fun e => do st.tick e; m.dpost e }
+
+def CVis.report (st : CVis) : IO String := do
+  let n ← st.visits.get
+  let hs := (← st.heads.get).toArray.qsort (fun a b => a.2 > b.2)
+  let ps := (← st.ptrs.get).size
+  let sm ← st.samples.get
+  let curve := sm.toList.filterMap fun (v, stp, ms, c) => if v % 20000 == 0 || v == sm.back!.1 then some s!"{v}v/{stp}st/{ms}ms/u{c}" else none
+  let us := (← st.used.get).qsort (fun a b => a.2 > b.2)
+  let tot := us.foldl (fun n a => n + a.2) 0
+  return s!"visits={n} ptrDistinct={ps} heads(top)=" ++ String.intercalate "; " ((hs.toList.take 14).map fun (h, c) => s!"{h}:{c}") ++
+    s!" curve(visits/steps/ms/usedLemmas)={curve} usedSample: applications={tot} distinct={us.size} top=" ++
+    String.intercalate "; " ((us.toList.take 20).map fun (o, c) => s!"{o.key}:{c}")
+
+/-- the counted `simp1`/`dsimp` run on `g` with the cap `capS` (own wall check every 2000 visits): the simp call
+(`Simp.main`/`dsimpMain` with wrapped methods) is timed alone, then `applySimpResultToTarget` and the sizes each get a line -/
+def runVis (label : String) (capS : Nat) (g : MVarId) (stx : Syntax) (isDsimp : Bool) (diag : Bool) : TacticM Unit := do
+  let s ← saveState
+  setGoals [g]
+  let st ← CVis.new capS
+  let hb0 ← IO.getNumHeartbeats
+  let r ← tryCatchRuntimeEx
+    (withOptions (fun o => o.setBool `diagnostics diag |>.insert `diagnostics.threshold (0 : Nat)) do
+      withMainContext do
+        let mc ← mkSimpContext stx (eraseLocal := false) (kind := if isDsimp then .dsimp else .simp)
+        let target ← instantiateMVars (← g.getType)
+        let methods := st.wrap (Simp.mkDefaultMethodsCore mc.simprocs)
+        let ms0 ← IO.monoMsNow
+        if isDsimp then
+          let (e', _) ← withLocalHb (4000000 * 1000) (Simp.dsimpMain target mc.ctx (methods := methods))
+          dbgLog s!"CEXP {label} simp-returned ms={(← IO.monoMsNow) - ms0}"
+          pure (some (e', none))
+        else
+          let (r, _) ← withLocalHb (4000000 * 1000) (Simp.main target mc.ctx (methods := methods))
+          dbgLog s!"CEXP {label} simp-returned ms={(← IO.monoMsNow) - ms0}"
+          pure (some (r.expr, r.proof?)))
+    fun e => do
+      dbgLog s!"CEXP {label} aborted: {((← e.toMessageData.toString).take 100)}"
+      pure none
+  let hb := ((← IO.getNumHeartbeats) - hb0) / 1000
+  dbgLog s!"CEXP {label} cap={capS}s ms={(← IO.monoMsNow) - st.t0} hb={hb} {← st.report}"
+  if let some (e', pf?) := r then
+    dbgLog s!"CEXP {label} result[{sizeStr e'}] {← projCounts e'}"
+    if let some pf := pf? then dbgLog s!"CEXP {label} proof[{sizeStr pf}]"
+  s.restore
+
 elab "ved_causal_exp " "[" ex:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
   let some dir ← IO.getEnv "VED_DUMP_DIR" | return
   let some spec ← IO.getEnv "VED_CAUSAL_EXP" | return
@@ -408,6 +499,21 @@ elab "ved_causal_exp " "[" ex:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
         | "nomemo" => `(tactic| simp -implicitDefEqProofs -memoize (maxSteps := 4000000) [Nat.add])
         | _ => throwError "ved_causal_exp: unknown cfg {arg}"
       runCExp s!"cfg:{arg}" capS g (runSimp (withCfg cfg))
+    | "vis" | "visd" =>
+      runVis name capS g simp0 false (name == "visd")
+    | "vcfg" =>
+      let cfg ← match arg with
+        | "implicit" => `(tactic| simp (maxSteps := 4000000) [Nat.add])
+        | "nozeta" => `(tactic| simp -implicitDefEqProofs -zeta (maxSteps := 4000000) [Nat.add])
+        | "noproj" => `(tactic| simp -implicitDefEqProofs -proj (maxSteps := 4000000) [Nat.add])
+        | "nomemo" => `(tactic| simp -implicitDefEqProofs -memoize (maxSteps := 4000000) [Nat.add])
+        | _ => throwError "ved_causal_exp: unknown cfg {arg}"
+      runVis s!"vcfg:{arg}" capS g (withCfg cfg) false false
+    | "vdsimp" =>
+      let d ← `(tactic| dsimp (maxSteps := 4000000) [Nat.add])
+      let some i := lemmaArgIdx simp0 | throwError "ved_causal_exp: lemma list"
+      let some j := lemmaArgIdx d | throwError "ved_causal_exp: lemma list (dsimp)"
+      runVis "vdsimp" capS g (d.raw.setArg j (simp0.getArg i)) true false
     | "dsimp" =>
       let d ← `(tactic| dsimp (maxSteps := 4000000) [Nat.add])
       let some i := lemmaArgIdx simp0 | throwError "ved_causal_exp: lemma list"
