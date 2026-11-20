@@ -40,6 +40,10 @@ elab "ved_mem_budget " n:num t:tactic : tactic => do
       if e.isRuntime then pure false else throw e
   unless ok do throwError "ved_mem_budget: local heartbeat budget exhausted"
 
+/-- `ved_no_recover t`: `t` with error recovery off, so that the first failing step (`case`, `all_goals`) ends the proof at once instead of
+being logged and admitted while the remaining stages run (a refusal returns after the first error, not after the whole script). -/
+elab "ved_no_recover " t:tactic : tactic => Tactic.withoutRecover (evalTactic t)
+
 /-- the size gate of `ved_loop_unfold_mem` (heuristic limit, public option) -/
 register_option ved.mem.loopGate : Nat := {
   defValue := 10000000
