@@ -589,6 +589,16 @@ elab "ved_hyp_bits" : tactic => withMainContext do
     dbgLog "ved_hyp_bits: reverted"
   catch e => dbgLog s!"ved_hyp_bits revert: {← e.toMessageData.toString}"
 
+/-- `ved_goal_gate n`: fail when more than `n` goals are open.  A heuristic limit (public option `ved.mem.goalGate`, read by the
+entry), not a proof obligation and not a budget argument: the memory loop's case split (`peelAlt`) leaves 16-43 goals on the strict rows
+and 842-843 on R029/R031, where the prelude was observed to spend the whole heartbeat budget before the per-goal stages; refusing right
+after the split returns the same `[proof]` refusal at once.  Resource budgets are untouched; `n = 0` disables the gate. -/
+elab "ved_goal_gate " n:num : tactic => do
+  let k := (← getGoals).length
+  if n.getNat != 0 && k > n.getNat then
+    throwError "ved_goal_gate: {k} goals after the case split exceed the configured limit ved.mem.goalGate ({n.getNat}); \
+      raise it with `set_option ved.mem.goalGate N` or disable the gate with `set_option ved.mem.goalGate 0`"
+
 /-- `ved_stamp k`: (only with `VED_DUMP_DIR` set) append the time and the number of goals to `addr.log` -/
 elab "ved_stamp " k:num : tactic => do
   if (← IO.getEnv "VED_DUMP_DIR").isSome then
