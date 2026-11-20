@@ -19,6 +19,7 @@ Small examples that pin what R034 needed (`Tools/VedMemLoop.lean`, `Tools/VedMem
   `65536 - (..) % 65536` case) close; a false one is refused.
 * `ved_ctrl_cases` + `ved_leaf_gate`: a control case split with such a leaf closes; with a false leaf `ved_ctrl_cases` fails, the flag is
   set, the gate refuses (the leafwise closers are skipped) once and resets.
+* `ved_goal_gate n`: at most `n` open goals pass, more are refused (the case-split gate of the memory loop, limit 512).
 -/
 
 namespace Tests.Ved.VedMemCloseCheck
@@ -335,6 +336,22 @@ error: boom
 #guard_msgs in
 example : True := by ved_mem_budget 10 (fail "boom")
 
+/-! ## ved_goal_gate (sparkle-ved-perf-mem-refused) -/
+
+/-- three open goals, limit three: the gate lets the proof through (the control where it must not skip) -/
+theorem goalGateOk : True ∧ True ∧ True := by
+  refine ⟨?_, ?_, ?_⟩
+  ved_goal_gate 3
+  all_goals trivial
+
+/-- four open goals, limit three: the gate refuses (the refusal is an ordinary tactic failure, the `[proof]` refusal of the entry) -/
+theorem goalGateRefuses : True := by
+  have _h : True ∧ True ∧ True ∧ True := by
+    refine ⟨?_, ?_, ?_, ?_⟩
+    fail_if_success (ved_goal_gate 3)
+    all_goals trivial
+  trivial
+
 /-! ## axioms -/
 
 elab "#ved_axioms " ids:ident* : command => do
@@ -345,8 +362,8 @@ elab "#ved_axioms " ids:ident* : command => do
     unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
   logInfo m!"axioms within std3: {ids.size} declarations"
 
-/-- info: axioms within std3: 11 declarations -/
+/-- info: axioms within std3: 13 declarations -/
 #guard_msgs in
-#ved_axioms Tools.VedMemPack.ved_mod_sum sigHyps leaf44 refuse44 leaf54a leaf54b ctrl54 gate54 gateSmall54 gateResetOk54 gateResetFail54
+#ved_axioms Tools.VedMemPack.ved_mod_sum sigHyps leaf44 refuse44 leaf54a leaf54b ctrl54 gate54 gateSmall54 gateResetOk54 gateResetFail54 goalGateOk goalGateRefuses
 
 end Tests.Ved.VedMemCloseCheck
