@@ -399,17 +399,23 @@ def gateFsm {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : 
 def gateFsmB {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
 
+def gateFsmD {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+
+def gateFsmE {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+
 def gateFsmC {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
 
 -- the case split leaves 18 goals; limit 7: refused at `[proof]`, the refusal names the configured value 7
-/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.gateFsm [proof]: errors were logged while elaborating the proof; first: ved_goal_gate: 18 goals after the case split exceed the configured limit ved.mem.goalGate (7); raise it with `set_option ved.mem.goalGate N` or disable the gate with `set_option ved.mem.goalGate 0` -/
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.gateFsm [proof]: ved_goal_gate: 18 goals after the case split exceed the configured limit ved.mem.goalGate (7); raise it with `set_option ved.mem.goalGate N` or disable the gate with `set_option ved.mem.goalGate 0` -/
 #guard_msgs in
 set_option ved.mem.goalGate 7 in
 #ved_u1_mem gateFsm
 
 -- limit 17 (one below the goal count): still refused, value 17
-/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.gateFsm [proof]: errors were logged while elaborating the proof; first: ved_goal_gate: 18 goals after the case split exceed the configured limit ved.mem.goalGate (17); raise it with `set_option ved.mem.goalGate N` or disable the gate with `set_option ved.mem.goalGate 0` -/
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.gateFsm [proof]: ved_goal_gate: 18 goals after the case split exceed the configured limit ved.mem.goalGate (17); raise it with `set_option ved.mem.goalGate N` or disable the gate with `set_option ved.mem.goalGate 0` -/
 #guard_msgs in
 set_option ved.mem.goalGate 17 in
 #ved_u1_mem gateFsm
@@ -427,6 +433,57 @@ set_option ved.mem.goalGate 0 in
 -- default (512): accepted
 #guard_msgs (drop info) in
 #ved_u1_mem gateFsmC
+
+/-! ## ved.mem.loopGate / ved.mem.h0Budget (sparkle-ved-perf-mem-timeout)
+
+`ved_loop_unfold_mem` refuses a loop with more than `ved.mem.loopGate` tree nodes (default 10^7; strict rows 6k-44k, R025/R035 1.6e9/3.2e7 observed),
+and the base case of the memory loop (`h0`) runs in `ved_h0_budget`, a local heartbeat limit `ved.mem.h0Budget` (units of `maxHeartbeats`; default 1000000, strict rows
+35k-260k).  Both are heuristic limits with public options; 0 disables.  The entry reads the options and puts the values into the script (`(limit := n)` of `ved_loop_unfold_mem`, `ved_h0_budget n`), like `ved.mem.goalGate`; the refusals are exercised on the real rows (R025/R028), not by a small module (`gateFsm`'s loop is never gated: its limit 1 passes). -/
+
+/-- info: 10000000 -/
+#guard_msgs in
+#eval Tools.VedMemLoop.ved.mem.loopGate.defValue
+
+/-- info: 1000000 -/
+#guard_msgs in
+#eval Tools.VedMemLoop.ved.mem.h0Budget.defValue
+
+-- `ved_h0_budget n`: enough (the default 1000000), refused over the limit (the message names the configured value), 0 = off
+example : True := by ved_h0_budget 1000000 (burn_hb 20; trivial)
+
+/-- error: ved_h0_budget: the base case (h0) needs more than the configured limit ved.mem.h0Budget (100 heartbeats in the units of maxHeartbeats); raise it with `set_option ved.mem.h0Budget N` or disable the limit with `set_option ved.mem.h0Budget 0` -/
+#guard_msgs in
+set_option maxHeartbeats 0 in
+example : True := by ved_h0_budget 100 (burn_hb 300; trivial)
+
+-- a raised limit passes the same work
+set_option maxHeartbeats 0 in
+example : True := by ved_h0_budget 400 (burn_hb 300; trivial)
+
+-- 0 disables the local limit (ambient unlimited)
+set_option maxHeartbeats 0 in
+example : True := by ved_h0_budget 0 (burn_hb 300; trivial)
+
+-- the local limit never exceeds what is left of the ambient budget (100 thousand, 80 burned, 60 needed, limit 1000000)
+/-- error: ved_h0_budget: the base case (h0) needs more than the configured limit ved.mem.h0Budget (1000000 heartbeats in the units of maxHeartbeats); raise it with `set_option ved.mem.h0Budget N` or disable the limit with `set_option ved.mem.h0Budget 0` -/
+#guard_msgs in
+set_option maxHeartbeats 100 in
+example : True := by burn_hb 80; ved_h0_budget 1000000 (burn_hb 60; trivial)
+
+-- state restored on failure: the next tactic sees the original goal
+example : True ∧ True := by
+  set_option maxHeartbeats 0 in
+  (try ved_h0_budget 10 (refine ⟨?_, ?_⟩; burn_hb 300)) <;> exact ⟨trivial, trivial⟩
+
+-- raised / disabled limits accept (the same module under other names)
+#guard_msgs (drop info) in
+set_option ved.mem.loopGate 100000 in
+#ved_u1_mem gateFsmD
+
+#guard_msgs (drop info) in
+set_option ved.mem.loopGate 0 in
+set_option ved.mem.h0Budget 0 in
+#ved_u1_mem gateFsmE
 
 /-! ## axioms -/
 

@@ -52,15 +52,14 @@ register_option ved.mem.loopGate : Nat := {
 
 /-- the local heartbeat limit of the memory loop's base case (`h0`) -/
 register_option ved.mem.h0Budget : Nat := {
-  defValue := 1000
-  descr := "refuse (stage proof) when the base case (h0) of the memory loop needs more than this many thousand heartbeats; 0 disables the limit (heuristic limit)"
+  defValue := 1000000
+  descr := "refuse (stage proof) when the base case (h0) of the memory loop needs more than this many heartbeats, in the units of `maxHeartbeats`; 0 disables the limit (heuristic limit)"
 }
 
-/-- `ved_h0_budget t`: `t` within the local heartbeat limit `ved.mem.h0Budget` (thousand; `withLocalHb`, never above what is left of the
-ambient budget); when it runs out the tactic state is restored and the refusal names the configured limit.  The strict rows need
-35-43k heartbeats there, R028 was observed to spend the whole 8M budget (643 s) in it.  `0` runs `t` without the local limit. -/
-elab "ved_h0_budget " t:tactic : tactic => do
-  let n := ved.mem.h0Budget.get (← getOptions)
+/-- `ved_h0_budget n t`: `t` within the local heartbeat limit `n` (the public option `ved.mem.h0Budget`, read by the entry; the units of `maxHeartbeats`, like the `hb` of the stage stamps; `withLocalHb`, never above what is left of the
+ambient budget); when it runs out the tactic state is restored and the refusal names the configured limit.  Observed there (stage stamps): 35-43k (R037/R038), 260k (R034); R028 spent the whole 8M budget (643 s) in it.  `0` runs `t` without the local limit. -/
+elab "ved_h0_budget " n:num t:tactic : tactic => do
+  let n := n.getNat
   if n == 0 then evalTactic t else
   let s ← saveState
   let ok ← tryCatchRuntimeEx (do withLocalHb (n * 1000) (Tactic.withoutRecover (evalTactic t)); pure true)
@@ -68,7 +67,7 @@ elab "ved_h0_budget " t:tactic : tactic => do
       s.restore
       if e.isRuntime then pure false else throw e
   unless ok do
-    throwError "ved_h0_budget: the base case (h0) needs more than the configured limit ved.mem.h0Budget ({n} thousand heartbeats); \
+    throwError "ved_h0_budget: the base case (h0) needs more than the configured limit ved.mem.h0Budget ({n} heartbeats in the units of maxHeartbeats); \
       raise it with `set_option ved.mem.h0Budget N` or disable the limit with `set_option ved.mem.h0Budget 0`"
 
 /-! `.val` of an operator applied directly through the `BitVec`-`Signal` / `Signal`-`BitVec` instances (as the synthesizer's
@@ -835,11 +834,18 @@ def clearOthers (m : MVarId) : MetaM MVarId := m.withContext do
   let (m', _) ← m.tryClearMany' drop
   return m'
 
+/-- `(limit := n)`: the limit prefix of `ved_loop_unfold_mem` -/
+syntax vedLoopLimit := "(" &"limit" " := " num ")"
+
 open Tools.VedU1WireShare in
 /-- `ved_loop_unfold_mem t`: rewrite `(Signal.loop F).val t` by the strong fixpoint equation, for every loop
 whose value at `t` occurs in the goal (the walk of `ved_loop_unfold_share`, the lemma and the side
 conditions changed) -/
-elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : tactic => withMainContext do
+elab "ved_loop_unfold_mem " lim:(vedLoopLimit)? " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : tactic => withMainContext do
+  -- `(limit := n)`: the public option `ved.mem.loopGate`, read by the entry (absent or 0: no gate)
+  let gate := match lim with
+    | some l => (l.raw.getArg 3).isNatLit?.getD 0
+    | none => 0
   let tgt0 ← instantiateMVars (← getMainTarget)
   let tE ← instantiateMVars (← Term.elabTerm t (some (mkConst ``Nat)))
   let tE ← instantiateMVars tE
@@ -863,7 +869,6 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let hS ← mkFreshExprMVar ty.bindingDomain!
     runSubMem h0.mvarId! (← `(tactic| (intro _ _; rfl)))
     let loopTree := Tools.VedU1Loop.treeSizeVal L
-    let gate := ved.mem.loopGate.get (← getOptions)
     if gate != 0 && loopTree > gate then
       throwError "ved_loop_unfold_mem: the loop has {loopTree} tree nodes, more than the configured limit ved.mem.loopGate ({gate}); \
         raise it with `set_option ved.mem.loopGate N` or disable the gate with `set_option ved.mem.loopGate 0`"

@@ -454,7 +454,7 @@ with the invariant extended by the memories.  The invariant is `R` (registers fi
 memory, then one latch equation per registered read), given in full: the loop-state tactics (`ved_loop_unfold_share`,
 `ved_loop_gen_share`, the closing stages) are those of `loopScriptFor`, run after the memory parts of the next
 state are peeled (their side conditions are goals of the same kind as the registers'). -/
-def memLoopScript (dbg gate : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
+def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
     (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
     (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) (pk : Bool := false) : TermElabM Syntax := do
   -- the state projections `Signal.fst` / `Signal.snd` of a loop's state signal are unfolded with the helpers
@@ -470,6 +470,8 @@ def memLoopScript (dbg gate : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : 
   let B := mkCIdent nm.body
   let fI := mkCIdent F
   let gateN := Lean.Syntax.mkNumLit (toString gate)
+  let loopGateN := Lean.Syntax.mkNumLit (toString loopGate)
+  let h0BudgetN := Lean.Syntax.mkNumLit (toString h0Budget)
   let mut f : Term := fI
   if nDom > 0 then
     f ← `(@$fI)
@@ -608,9 +610,9 @@ def memLoopScript (dbg gate : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : 
         case h0 =>
           ved_stamp 84
           intro $insI hok
-          ved_loop_unfold_mem [$hsSep,*] 0
+          ved_loop_unfold_mem (limit := $loopGateN) [$hsSep,*] 0
           ved_stamp 85
-          ved_h0_budget (
+          ved_h0_budget $h0BudgetN (
             refine $h0Term
             $d10
             all_goals ved_loop_simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
@@ -633,7 +635,7 @@ def memLoopScript (dbg gate : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : 
           $normHyps
           ved_stamp 93
           $d1
-          ved_loop_unfold_mem [$hsSep,*] ($sI + 1)
+          ved_loop_unfold_mem (limit := $loopGateN) [$hsSep,*] ($sI + 1)
           $d2
           ved_stamp 94
           all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
@@ -735,7 +737,7 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
       else do
         unless ← Tools.VedU1Uns.usesLoop stmt.getAppFn.constName! helpers do
           refuse decl "shape" m!"the body has registers that do not come from a `Signal.loop` (this slice: loops)"
-        memLoopScript (ved.mem.debugStage.get (← getOptions)) (ved.mem.goalGate.get (← getOptions)) nm stmt.getAppFn.constName! nDom regsL stmts calls R helpers packed
+        memLoopScript (ved.mem.debugStage.get (← getOptions)) (ved.mem.goalGate.get (← getOptions)) (Tools.VedMemLoop.ved.mem.loopGate.get (← getOptions)) (Tools.VedMemLoop.ved.mem.h0Budget.get (← getOptions)) nm stmt.getAppFn.constName! nDom regsL stmts calls R helpers packed
     let scriptTxt ← PrettyPrinter.ppTerm ⟨stx⟩
     if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM SCRIPT {scriptTxt}"
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
