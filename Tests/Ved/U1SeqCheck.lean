@@ -194,4 +194,53 @@ run_cmd expectRefused "proof" (checkerNames `ctlLow) do
     Core.withCurrHeartbeats <| withTheReader Core.Context (fun c => { c with maxHeartbeats := 300000 }) do
       checkU1 ``twoReg `ctlLow ``twoReg m .generated
 
+/-! ## 5. Stage stamps (`VED_STAGE_STAMPS`, default off)
+
+The switch is decided once by the entry and handed to `seqLoopScript` (`stamps`, default `false`): the
+script generated with the switch off (and by default) contains no `ved_stage` tactic, and is the same
+syntax tree whether `stamps` is given as `false` or left out; with the switch on the stamps are in it.
+The run-time lines (`VED STAGE …`) depend on time and heartbeats and are not checked here. -/
+
+def stampCount (stamps : Option Bool) : TermElabM (Nat × String) := do
+  let (m, _) ← Sparkle.Compiler.Elab.synthesizeCombinational ``twoReg
+  let nm := Names.ofBase `ctlStamp
+  let clkRst := clkRstOf m
+  let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+  let hs ← helperConsts ``twoReg
+  let r ← if let some st := stamps then
+      Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body ``twoReg 0 m
+        (orderBody m.body) clkRst (dataPortsOf m clkRst) regs hs st
+    else
+      Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body ``twoReg 0 m
+        (orderBody m.body) clkRst (dataPortsOf m clkRst) regs hs
+  let some stx := r | throwError "no script"
+  let txt := toString stx
+  return ((txt.splitOn "ved_stage").length - 1, txt)
+
+/-- info: stamps off: 0 `ved_stage`, equal to the default script; stamps on: 40 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let (nOff, tOff) ← stampCount (some false)
+  let (nDef, tDef) ← stampCount none
+  let (nOn, _) ← stampCount (some true)
+  unless nOff == 0 && nDef == 0 && tOff == tDef do throwError "the switch-off script differs from the default one"
+  logInfo m!"stamps off: {nOff} `ved_stage`, equal to the default script; stamps on: {nOn}"
+
+/-! ## 6. A failed attempt's stamp reads only the exception's kind tag
+
+`stageReason` gives a fixed code and formats nothing: an exception whose message is lazy (here: one that
+records being formatted) is classified without the formatter running, both untagged and tagged as a
+heartbeat timeout.  `stageFail` with no attempt in progress is a no-op (and formats nothing either). -/
+
+/-- info: reasons: exception, max_heartbeats; formatter called: false -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let called ← IO.mkRef false
+  let lazyMsg : MessageData := .lazy (fun _ => do called.set true; pure m!"large goal")
+    (onMissingContext := fun _ => do called.set true; pure m!"large goal")
+  let r1 := Tools.VedU1ScriptSeq.stageReason (.error .missing lazyMsg)
+  let r2 := Tools.VedU1ScriptSeq.stageReason (.error .missing (.tagged `runtime.maxHeartbeats lazyMsg))
+  Tools.VedU1ScriptSeq.stageFail r1
+  logInfo m!"reasons: {r1}, {r2}; formatter called: {← called.get}"
+
 end Tests.Ved.U1SeqCheck

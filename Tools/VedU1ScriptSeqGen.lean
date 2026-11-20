@@ -675,13 +675,89 @@ def stmtNames : Stmt → List String
 private def dedup (xs : List String) : List String :=
   xs.foldl (fun acc x => if acc.contains x then acc else acc ++ [x]) []
 
+/-! ### per-stage stamps (default OFF)
+
+Measurement aid, `VED_STAGE_STAMPS=1`: one stderr line per event, prefix `VED STAGE`.  The state is one
+`IO.Ref` (the attempt in progress); `ved_stage "name"` ends the current stage and begins `name`.  The
+script of `seqLoopScript` contains `ved_stage` tactics ONLY when it is asked to (`stamps := true`,
+decided by the caller once); otherwise the script is the one it always was.  Nothing here touches a
+proof, a budget or a limit.  A FAIL line carries a fixed reason code (`stageReason`), never a formatted
+message, so no goal is printed or formatted for it.  Every function here swallows its own IO errors and then
+clears the state: a failing log line never changes what the checker does next.
+The one global `IO.Ref` assumes one check at a time in a process (not re-entrant; the harness runs one
+case per process).  A reader treats an attempt without END/FAIL as `incomplete`, and a declaration
+without stage lines as `not_applicable`. -/
+
+structure StageCtx where
+  decl : String
+  route : String
+  attempt : String
+  ms0 : Nat
+  hb0 : Nat
+  msPrev : Nat
+  hbPrev : Nat
+  cur : String
+
+initialize stageCtx : IO.Ref (Option StageCtx) ← IO.mkRef none
+
+/-- one line; `ms_delta` / `hb_delta` are since the previous line of the attempt (so the deltas of all
+lines add up to the last `rel`), `hb` in thousands of heartbeats; `reason` (FAIL only) is a fixed code (`stageFail`), never a formatted message -/
+def stageLine (stage ev : String) (reason : String := "") : IO Unit := do
+  let some c ← stageCtx.get | return
+  try
+    let ms ← IO.monoMsNow
+    let hb := (← IO.getNumHeartbeats) / 1000
+    IO.eprintln s!"VED STAGE decl={c.decl} route={c.route} attempt={c.attempt} stage={stage} ev={ev} ms_rel={ms - c.ms0} ms_delta={ms - c.msPrev} hb_rel={hb - c.hb0 / 1000} hb_delta={hb - c.hbPrev}{if ev == "FAIL" then s!" reason={reason}" else ""}"
+    stageCtx.set (some { c with msPrev := ms, hbPrev := hb })
+  catch _ => stageCtx.set none
+
+/-- the fixed reason code of a failed attempt (reads the exception's kind tag only, formats nothing) -/
+def stageReason (e : Lean.Exception) : String :=
+  if e.isMaxHeartbeat then "max_heartbeats"
+  else if e.isMaxRecDepth then "max_rec_depth"
+  else if e.isInterrupt then "interrupt"
+  else "exception"
+
+/-- begin an attempt (`hb0` in heartbeats: the value the attempt's budget counts from) -/
+def stageStart (decl route attempt first : String) (hb0 : Nat) : IO Unit := do
+  try
+    let ms ← IO.monoMsNow
+    stageCtx.set (some { decl, route, attempt, ms0 := ms, hb0, msPrev := ms, hbPrev := hb0 / 1000, cur := first })
+    stageLine "attempt" "BEGIN"
+    stageLine first "BEGIN"
+  catch _ => stageCtx.set none
+
+/-- end the current stage, begin `name` -/
+def stageNext (name : String) : IO Unit := do
+  let some c ← stageCtx.get | return
+  stageLine c.cur "END"
+  stageLine name "BEGIN"
+  if let some c ← stageCtx.get then stageCtx.set (some { c with cur := name })
+
+def stageOk : IO Unit := do
+  let some c ← stageCtx.get | return
+  stageLine c.cur "END"
+  stageLine "attempt" "END"
+  stageCtx.set none
+
+/-- the attempt failed in the stage last begun; `reason` is a fixed code (`stageReason`, `logged_error`,
+`open_term`) -/
+def stageFail (reason : String) : IO Unit := do
+  let some c ← stageCtx.get | return
+  stageLine c.cur "FAIL" reason
+  stageLine "attempt" "FAIL" reason
+  stageCtx.set none
+
+/-- `ved_stage "name"`: (only in a script generated with stamps) end the current stage and begin `name` -/
+elab "ved_stage " n:str : tactic => stageNext n.getString
+
 /-- The script, or `none` when the module is outside its shape (a register whose input is not a
 plain wire, a data input that is not scalar, no clock/reset for the registers).
 `C M O B` are the checker's constants (contract, module, outputs, body), `F`/`nDom` the
 declaration, `b0` the arrangement stored as `B`, `regs` the registers `(name, width)`. -/
 def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b0 : List Stmt)
     (clkRst : Option (String × String)) (dataPorts : List Port) (regs : List (String × Nat))
-    (helpers : Array Name) : TermElabM (Option Syntax) := do
+    (helpers : Array Name) (stamps : Bool := false) : TermElabM (Option Syntax) := do
   let some (clkN, rstN) := clkRst | return none
   -- registers: their input must be a plain wire, their reset the module's, their init non-negative
   let mut regInfo : Array (String × Nat × String × String × Int) := #[]
@@ -803,7 +879,7 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(Lean.Parser.Tactic.simpLemma| contractOf), ← `(Lean.Parser.Tactic.simpLemma| applyIns),
     ← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA
   let exReg := mk (#[applyL] ++ sigBase ++ hrgL ++ hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL)
-  let closeTacs : Array (TSyntax `tactic) := #[
+  let closeBase : Array (TSyntax `tactic) := #[
     ← `(tactic| ved_omega_c_reset),
     ← `(tactic| ved_seq_unmdata),
     ← `(tactic| all_goals (try simp only [vedToNatAppend, BitVec.toNat_append, BitVec.toNat_ofNat, Nat.shiftLeft_eq])),
@@ -818,33 +894,50 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
     ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
     ← `(tactic| ved_seq_close_each)]
+  -- stage stamps (only when asked): the stage of a stamp is what runs up to the next one
+  let stg (n : String) : TermElabM (Array (TSyntax `tactic)) :=
+    if stamps then do pure #[← `(tactic| ved_stage $(Syntax.mkStrLit n))] else pure #[]
+  let closeNames := #["omega_reset", "unmdata", "simp_append", "simp_reduce", "simp_mod_mod", "wide_simp",
+    "bit_simp", "or_lit", "pack_c1", "bits_facts", "mul_facts", "pack_c2", "mod_mul", "mul_lit_nat", "close_each"]
+  let closeTacs (pfx : String) : TermElabM (Array (TSyntax `tactic)) := do
+    let mut r : Array (TSyntax `tactic) := #[]
+    for i in [0:closeBase.size] do
+      r := r ++ (← stg s!"{pfx}close_{closeNames[i]!}")
+      r := r.push closeBase[i]!
+    return r
   let pats2 ← (hregs.toList).mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
   let hPat : TSyntax `rcasesPat ← match pats2 with
     | [] => `(rcasesPat| _)
     | _ => `(rcasesPat| ⟨$[$(pats2.toArray)],*⟩)
   let mut tacs : Array (TSyntax `tactic) := #[]
+  tacs := tacs ++ (← stg "intro_pre")
   tacs := tacs.push (← `(tactic| intro $insI hok $sI st mems $hR))
   tacs := tacs ++ pre
   let hv0 := mkIdent `hv0
   tacs := tacs.push (← `(tactic| obtain ⟨$vI, $hv0⟩ : ∃ v, v = srcOf $Ci $f $insI "out" $sI := ⟨_, rfl⟩))
   tacs := tacs.push (← `(tactic| have $hv := $hv0))
+  tacs := tacs ++ (← stg "hv_aux")
   tacs := tacs.push (← `(tactic| ved_seq_aux $hv:ident (
       try dsimp only [$Oi:ident, $Mi:ident, $Bi:ident, Tools.VedU1Contract.declWidth, Tools.VedU1Contract.srcOf, $Ci:ident, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, $fI:ident,
         Sparkle.Core.Signal.Signal.map, Sparkle.Core.Signal.Signal.register, Sparkle.Core.Signal.Signal.beq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, Sparkle.Core.Signal.bundle2, Functor.map, Seq.seq,
         Sparkle.Core.Signal.Signal.slt, Sparkle.Core.Signal.Signal.ult, Sparkle.Core.Signal.Signal.ule, Sparkle.Core.Signal.Signal.ashr, Sparkle.Core.Signal.Signal.lt, Sparkle.Core.Signal.Signal.le, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig, -Nat.reduceAdd, $(mk hsA),*] at $hv:ident
       ved_seq_simp [$Oi:ident, $Mi:ident, $Bi:ident, declWidth, srcOf, $Ci:ident, contractOf, applyIns, $fI:ident, $(mk hsA),*] at $hv:ident)))
+  tacs := tacs ++ (← stg "loop_R")
   tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
+  tacs := tacs ++ (← stg "gen_next")
   tacs := tacs.push (← `(tactic| ved_seq_gen $sI))
   tacs := tacs.push (← `(tactic| ved_seq_next $sI [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]))
+  tacs := tacs ++ (← stg "step_seq")
   tacs := tacs.push (← `(tactic| obtain ⟨E, hstep, hfr, hall⟩ := Tools.VedU1ScriptSeq.step_seq (declWidth $Mi) mems $Bi
     (Tools.VedU1Contract.seedIn $Mi $insI $sI st) (by decide +kernel) (by decide +kernel)))
   tacs := tacs ++ postStep
   tacs := tacs.push (← `(tactic| obtain $allPat := hall))
-  tacs := tacs ++ perStmt
+  tacs := tacs ++ (← stg "perStmt") ++ perStmt
+  tacs := tacs ++ (← stg "refine_split")
   tacs := tacs.push (← `(tactic| refine ⟨E, Tools.VedU1ScriptSeq.nextsOf (declWidth $Mi) E $Bi, mems, hstep, ?_, ?_⟩))
   -- outputs
-  let outTacs : Array (TSyntax `tactic) := #[
+  let outTacs : Array (TSyntax `tactic) := (← stg "out_head") ++ #[
     ← `(tactic| intro o ho),
     ← `(tactic| simp only [$Oi:ident, List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at ho),
     ← `(tactic| subst ho),
@@ -853,13 +946,13 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(tactic| rw [$hv:ident]),
     ← `(tactic| simp only [$(mk hsL),*, -Nat.reduceAdd]),
     ← `(tactic| ved_seq_bools),
-    ← `(tactic| all_goals try (repeat' apply And.intro))] ++ closeTacs
-  let regTacs : Array (TSyntax `tactic) := #[
+    ← `(tactic| all_goals try (repeat' apply And.intro))] ++ (← closeTacs "out_")
+  let regTacs : Array (TSyntax `tactic) := (← stg "reg_head") ++ #[
     ← `(tactic| ved_seq_sub),
     ← `(tactic| ved_seq_simp [$exReg,*]),
     ← `(tactic| ved_seq_bools),
-    ← `(tactic| all_goals try (repeat' apply And.intro))] ++ closeTacs
-  let h0tacs : Array (TSyntax `tactic) := #[
+    ← `(tactic| all_goals try (repeat' apply And.intro))] ++ (← closeTacs "reg_")
+  let h0tacs : Array (TSyntax `tactic) := (← stg "h0") ++ #[
     ← `(tactic| intro $insI hok),
     ← `(tactic| ved_seq_next0 [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]),
     ← `(tactic| ved_seq_sub),
