@@ -363,8 +363,8 @@ def measureAll (simpStx : Syntax) (capMs throwAt : Nat) : TacticM String := do
     reportVariant r
     if r.reason != "measured" then final := r.reason
     results := results.push r
-  let ra? := results.find? (·.tag == "a")
-  let rb? := results.find? (·.tag == "b")
+  let ra? := results.toList.reverse.find? (·.tag == "a")
+  let rb? := results.toList.reverse.find? (·.tag == "b")
   if let (some ra, some rb) := (ra?, rb?) then
     if ra.reason == "measured" && rb.reason == "measured" then
       let ov : Int := (Int.ofNat rb.totalNs - Int.ofNat ra.totalNs) / 1000
