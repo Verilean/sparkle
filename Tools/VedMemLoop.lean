@@ -589,6 +589,15 @@ elab "ved_hyp_bits" : tactic => withMainContext do
     dbgLog "ved_hyp_bits: reverted"
   catch e => dbgLog s!"ved_hyp_bits revert: {← e.toMessageData.toString}"
 
+/-- `ved_goal_gate n`: fail when more than `n` goals are open.  A heuristic refusal rule, not a proof obligation: the memory loop's case split
+(`peelAlt`) leaves 16-43 goals on the strict rows and 842-843 on R029/R031 (about 3e11 tree nodes), whose prelude then spends the whole
+heartbeat budget (R031: 428 s, 8M hb, never reaching the per-goal stages); refusing right after the split returns the same `[proof]`
+refusal at once.  The heartbeat budget is untouched. -/
+elab "ved_goal_gate " n:num : tactic => do
+  let k := (← getGoals).length
+  if k > n.getNat then
+    throwError "ved_goal_gate: {k} goals after the case split (more than {n.getNat}): the per-goal stages cannot fit the heartbeat budget, refused"
+
 /-- `ved_stamp k`: (only with `VED_DUMP_DIR` set) append the time and the number of goals to `addr.log` -/
 elab "ved_stamp " k:num : tactic => do
   if (← IO.getEnv "VED_DUMP_DIR").isSome then
