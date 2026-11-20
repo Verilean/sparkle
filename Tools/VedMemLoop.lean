@@ -255,6 +255,171 @@ elab "ved_tlog " k:str : tactic => do
       | none => pure ""
     dbgLog s!"TLOG {k.getString} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={(← getGoals).length}{sz}"
 
+/-! ### `ved_causal_exp` (diagnosis, only with `VED_DUMP_DIR` and `VED_CAUSAL_EXP`)
+
+At the first `ved_causal` goal whose tree has more than 10^6 nodes: run the experiments listed in `VED_CAUSAL_EXP`
+(`name[:arg]=cap_s,...`) on that goal, each in a saved state that is restored afterwards, each with a wall-clock cap
+(a cancel token set by a timer task) and the heartbeat cap `withLocalHb`; one line per experiment in `addr.log`
+(`CEXP`), then the check is stopped (`IO.Process.exit`).  Names: `cnt` (counts of projection-like nodes of the goal),
+`rate:N` (the `ved_causal` simp1 with `maxSteps := N`), `used:N` (the same with `diagnostics`: applications per lemma),
+`base` (the simp1 as `ved_causal` runs it), `cfg:K` (the simp1 with ONE config change K ∈ implicit, nozeta, noproj,
+nomemo), `dsimp` (a proof-free `dsimp` with the same lemma list). -/
+section CausalExp
+
+initialize causalExpDone : IO.Ref Bool ← IO.mkRef false
+
+partial def cntTree (p : Expr → Bool) (e : Expr) : StateM (Std.HashMap Expr Nat) Nat := do
+  if let some d := (← get)[e]? then return d
+  let own := if p e then 1 else 0
+  let d ← match e with
+    | .app f a => do return own + (← cntTree p f) + (← cntTree p a)
+    | .lam _ t b _ => do return own + (← cntTree p t) + (← cntTree p b)
+    | .forallE _ t b _ => do return own + (← cntTree p t) + (← cntTree p b)
+    | .letE _ t v b _ => do return own + (← cntTree p t) + (← cntTree p v) + (← cntTree p b)
+    | .mdata _ b => cntTree p b
+    | .proj _ _ b => do return own + (← cntTree p b)
+    | _ => pure own
+  modify (·.insert e d)
+  return d
+
+/-- distinct nodes (structural) of `e` satisfying `p` -/
+partial def cntDag (p : Expr → Bool) (e : Expr) : Nat := Id.run do
+  let mut seen : Std.HashSet Expr := {}
+  let mut todo : Array Expr := #[e]
+  let mut n := 0
+  while !todo.isEmpty do
+    let x := todo.back!
+    todo := todo.pop
+    if seen.contains x then continue
+    seen := seen.insert x
+    if p x then n := n + 1
+    match x with
+    | .app f a => todo := (todo.push a).push f
+    | .lam _ t b _ => todo := (todo.push b).push t
+    | .forallE _ t b _ => todo := (todo.push b).push t
+    | .letE _ t v b _ => todo := ((todo.push b).push v).push t
+    | .mdata _ b => todo := todo.push b
+    | .proj _ _ b => todo := todo.push b
+    | _ => pure ()
+  return n
+
+/-- `kind=dag/tree` counts of the projection-like nodes of `e`: dag = structurally distinct nodes, tree = occurrences
+read as a tree (memoised, nothing is walked twice) -/
+def projCounts (e : Expr) : MetaM String := do
+  let mut kinds : Array (String × (Expr → Bool)) := #[]
+  for (lbl, n) in [("Prod.fst", ``Prod.fst), ("Prod.snd", ``Prod.snd), ("Signal.fst", ``Signal.fst), ("Signal.snd", ``Signal.snd),
+                   ("Signal.val", ``Signal.val), ("Signal.loop", ``Signal.loop)] do
+    let ar := (← getConstInfo n).type.getNumHeadForalls
+    kinds := kinds.push (lbl, fun x => x.isAppOfArity n ar)
+  kinds := kinds.push ("Expr.proj", fun x => x.isProj)
+  kinds := kinds.push ("let", fun x => x.isLet)
+  kinds := kinds.push ("all", fun _ => true)
+  let mut out := ""
+  for (lbl, p) in kinds do
+    out := out ++ s!" {lbl}={cntDag p e}/{(cntTree p e |>.run' {}).run}"
+  return out
+
+def sizeStr (e : Expr) : String :=
+  s!"dag={(cntDag (fun _ => true) e)} tree={Tools.VedU1Loop.treeSizeVal e}"
+
+def replaceCfg (stx cfg : Syntax) : Syntax := stx.setArg 1 (cfg.getArg 1)
+
+def lemmaArgIdx (stx : Syntax) : Option Nat :=
+  (List.range stx.getNumArgs).find? fun i =>
+    let a := stx.getArg i
+    a.getNumArgs > 0 && (a.getArg 0).isAtom && (a.getArg 0).getAtomVal.trimAscii.toString == "["
+
+/-- one experiment on `g` (state restored afterwards): `tac` runs under the caps; a line is logged -/
+def runCExp (label : String) (capS : Nat) (g : MVarId) (tac : TacticM (Option Simp.Stats)) (diag : Bool := false) : TacticM Unit := do
+  let s ← saveState
+  setGoals [g]
+  let tk ← IO.CancelToken.new
+  let _ ← IO.asTask (prio := .dedicated) (do IO.sleep (capS * 1000).toUInt32; tk.set)
+  let hb0 ← IO.getNumHeartbeats
+  let t0 ← IO.monoMsNow
+  let mut res := ""
+  let r ← tryCatchRuntimeEx
+    (do
+      let st ← withTheReader Core.Context (fun c => { c with cancelTk? := some tk }) do
+        withOptions (fun o => o.setBool `diagnostics diag |>.insert `diagnostics.threshold (0 : Nat)) do
+          withLocalHb (4000000 * 1000) (Tactic.withoutRecover tac)
+      pure (Except.ok st))
+    fun e => do pure (Except.error (← e.toMessageData.toString))
+  let ms := (← IO.monoMsNow) - t0
+  let hb := ((← IO.getNumHeartbeats) - hb0) / 1000
+  match r with
+  | .error msg => res := s!"finished=NO ({(msg.take 120).replace "\n" " "})"
+  | .ok st =>
+    res := "finished=yes"
+    let gs ← getGoals
+    res := res ++ s!" goals={gs.length}"
+    if let some g' := gs.head? then
+      let ty ← g'.withContext do instantiateMVars (← g'.getType)
+      res := res ++ s!" result[{sizeStr ty}]" ++ (← projCounts ty)
+    let pf ← instantiateMVars (mkMVar g)
+    res := res ++ s!" proof[{sizeStr pf}]"
+    if let some st := st then
+      let arr := st.diag.usedThmCounter.toArray.qsort (fun a b => a.2 > b.2)
+      let tot := arr.foldl (fun n a => n + a.2) 0
+      let tried := st.diag.triedThmCounter.toArray.foldl (fun n a => n + a.2) 0
+      res := res ++ s!" applications={tot} distinctLemmas={arr.size} tried={tried} top=" ++
+        String.intercalate "; " ((arr.toList.take 25).map fun (o, c) => s!"{o.key}:{c}")
+  dbgLog s!"CEXP {label} cap={capS}s ms={ms} hb={hb} {res}"
+  s.restore
+
+elab "ved_causal_exp " "[" ex:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
+  let some dir ← IO.getEnv "VED_DUMP_DIR" | return
+  let some spec ← IO.getEnv "VED_CAUSAL_EXP" | return
+  if ← causalExpDone.get then return
+  let g ← getMainGoal
+  let e0 ← g.withContext do instantiateMVars (← g.getType)
+  if Tools.VedU1Loop.treeSizeVal e0 ≤ 1000000 then return
+  causalExpDone.set true
+  dbgLog s!"CEXP begin t={← IO.monoMsNow} goal[{sizeStr e0}] {spec}"
+  let simpStx ← `(tactic| ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ, Sparkle.Core.Signal.Signal.memory_val_zero, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*])
+  let simp0 ← liftMacroM (expandMacros simpStx)
+  let withCfg (cfg : TSyntax `tactic) := replaceCfg simp0 cfg
+  let runSimp (stx : Syntax) : TacticM (Option Simp.Stats) := withMainContext do
+    let r ← mkSimpContext stx (eraseLocal := false)
+    let stats ← r.dischargeWrapper.with fun discharge? =>
+      simpLocation r.ctx r.simprocs discharge? (expandOptLocation stx[5])
+    pure (some stats)
+  for item in spec.splitOn "," do
+    let (nm, capS) := match item.splitOn "=" with
+      | [a, b] => (a, b.toNat?.getD 60)
+      | _ => (item, 60)
+    let (name, arg) := match nm.splitOn ":" with
+      | [a, b] => (a, b)
+      | _ => (nm, "")
+    match name with
+    | "cnt" =>
+      dbgLog s!"CEXP cnt goal {← g.withContext do projCounts e0}"
+    | "rate" | "used" =>
+      let n := arg.toNat!
+      let cfg ← `(tactic| simp -implicitDefEqProofs (maxSteps := $(Syntax.mkNumLit (toString n))) [Nat.add])
+      runCExp s!"{name}:{n}" capS g (runSimp (withCfg cfg)) (diag := name == "used")
+    | "base" =>
+      runCExp "base" capS g (runSimp simp0)
+    | "cfg" =>
+      let cfg ← match arg with
+        | "implicit" => `(tactic| simp (maxSteps := 4000000) [Nat.add])
+        | "nozeta" => `(tactic| simp -implicitDefEqProofs -zeta (maxSteps := 4000000) [Nat.add])
+        | "noproj" => `(tactic| simp -implicitDefEqProofs -proj (maxSteps := 4000000) [Nat.add])
+        | "nomemo" => `(tactic| simp -implicitDefEqProofs -memoize (maxSteps := 4000000) [Nat.add])
+        | _ => throwError "ved_causal_exp: unknown cfg {arg}"
+      runCExp s!"cfg:{arg}" capS g (runSimp (withCfg cfg))
+    | "dsimp" =>
+      let d ← `(tactic| dsimp (maxSteps := 4000000) [Nat.add])
+      let some i := lemmaArgIdx simp0 | throwError "ved_causal_exp: lemma list"
+      let some j := lemmaArgIdx d | throwError "ved_causal_exp: lemma list (dsimp)"
+      let d := d.raw.setArg j (simp0.getArg i)
+      runCExp "dsimp" capS g (do evalTactic d; pure none)
+    | _ => dbgLog s!"CEXP unknown {item}"
+  dbgLog s!"CEXP end t={← IO.monoMsNow}"
+  IO.Process.exit 0
+
+end CausalExp
+
 /-- `ved_rw_dag hc`, `hc : T = T'`: rewrite the occurrences of `T` in the main goal by `T'` like `rw [hc]`, but with `Expr.replace`
 (a cache by pointer: ONE visit per shared node) and the `congrArg` of the motive, instead of `kabstract` (a walk of the TREE;
 observed: on the loop body of R033 the tree has 3.5e11 nodes for 2460 distinct ones and the `rw` did not return in 890 s).  The
@@ -696,6 +861,7 @@ macro_rules
                -- a registered read's value at `t` unfolds only at `t = n + 1`
                rcases t with _ | t <;>
                ved_tlog "causal: rcases" <;>
+               ved_causal_exp [$ex,*] <;>
                (try (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ, Sparkle.Core.Signal.Signal.memory_val_zero, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))
                <;> ved_tlog "causal: simp1"
                <;> (try ved_loop_congr s1 s2 h)
