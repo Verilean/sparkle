@@ -701,7 +701,7 @@ structure StageCtx where
 initialize stageCtx : IO.Ref (Option StageCtx) ← IO.mkRef none
 
 /-- one line; `ms_delta` / `hb_delta` are since the previous line of the attempt (so the deltas of all
-lines add up to the last `rel`), `hb` in thousands of heartbeats; `msg` (FAIL only) is cut to 200 chars -/
+lines add up to the last `rel`), `hb` in thousands of heartbeats; `reason` (FAIL only) is a fixed code (`stageFail`), never a formatted message -/
 def stageLine (stage ev : String) (reason : String := "") : IO Unit := do
   let some c ← stageCtx.get | return
   try
