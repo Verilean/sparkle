@@ -910,7 +910,8 @@ macro_rules
                <;> (try ved_loop_congr s1 s2 h)
                <;> (try ved_mem_congr s1 s2 h)
                <;> ved_tlog "causal: congr"
-               <;> (try (ved_loop_simp [Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, h, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))))
+               <;> (try (ved_loop_simp [Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, h, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*])))
+               <;> ved_tlog "causal: simp2")
 
 /-- `runSub` that, when a side condition stays open, says which (the first goal, cut to 2500 characters) -/
 def runSubMem (m : MVarId) (tac : TSyntax `tactic) : TacticM Unit := do
@@ -1003,6 +1004,32 @@ def clearOthers (m : MVarId) : MetaM MVarId := m.withContext do
   let (m', _) ← m.tryClearMany' drop
   return m'
 
+/-- measurement only (with `VED_DUMP_DIR`): `VED_KERNEL_PROBE` times the kernel check of the closed side condition (a theorem over
+the goal's local context, checked by `Environment.addDecl` and not added); `VED_STOP_AFTER_CAUSAL=n` stops the process (exit 3)
+after the first side condition whose goal had a tree of at least `n` nodes (`szT`), once the line `STOP_AFTER_CAUSAL` is logged -/
+def causalMeasure (hSc : MVarId) (szT : Nat) : TacticM Unit := do
+  if (← IO.getEnv "VED_KERNEL_PROBE").isSome then
+    try
+      hSc.withContext do
+        let xs := (← getLCtx).foldl (init := #[]) fun acc d => if d.isImplementationDetail then acc else acc.push d.toExpr
+        let ty ← mkForallFVars xs (← instantiateMVars (← hSc.getType))
+        let pf ← mkLambdaFVars xs (← instantiateMVars (mkMVar hSc))
+        let t0 ← IO.monoMsNow
+        let env0 ← getEnv
+        let ok ← try
+            withOptions (fun o => o.setBool `Elab.async false) (addDecl (.thmDecl { name := `ved_kernel_probe, levelParams := [], type := ty, value := pf }))
+            pure true
+          catch _ => pure false
+        let t1 ← IO.monoMsNow
+        setEnv env0
+        dbgLog s!"KERNEL_PROBE ms={t1 - t0} ok={ok} proofDag={(Tools.VedU1WireShare.collectDag (fun _ => true) pf).size}"
+    catch e => dbgLog s!"KERNEL_PROBE error {(← e.toMessageData.toString).take 300}"
+  if let some n ← IO.getEnv "VED_STOP_AFTER_CAUSAL" then
+    if szT ≥ n.toNat! then
+      dbgLog s!"STOP_AFTER_CAUSAL t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} tree={szT}"
+      IO.eprintln s!"VED STOP_AFTER_CAUSAL tree={szT}"
+      IO.Process.exit 3
+
 open Tools.VedU1WireShare in
 /-- `ved_loop_unfold_mem t`: rewrite `(Signal.loop F).val t` by the strong fixpoint equation, for every loop
 whose value at `t` occurs in the goal (the walk of `ved_loop_unfold_share`, the lemma and the side
@@ -1035,7 +1062,11 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let hb0 ← IO.getNumHeartbeats
     let hSc ← clearOthers hS.mvarId!
     dbgLog s!"unfold_mem: clearOthers done ms={(← IO.monoMsNow) - tc0}"
+    let measure := (← IO.getEnv "VED_DUMP_DIR").isSome
+    let stopSet := (← IO.getEnv "VED_STOP_AFTER_CAUSAL").isSome
+    let szT ← if measure && stopSet then pure (Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← hSc.getType))) else pure 0
     runSubMem hSc (← `(tactic| ved_causal [$ex,*]))
+    if measure then causalMeasure hSc szT
     dbgLog s!"unfold_mem: causal ms={(← IO.monoMsNow) - tc0} hb={((← IO.getNumHeartbeats) - hb0) / 1000}"
     let lem ← instantiateMVars (mkApp3 f4 h0 hS (lhs.getArg! 3))
     let eqTy ← instantiateMVars (← inferType lem)
