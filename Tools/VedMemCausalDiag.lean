@@ -27,7 +27,7 @@ cancel can only happen at a pre/post call; the hard limits are the outer `timeou
 The state is restored in a `finally` path.  `VED_DIAG_AFTER=continue` (controls only) restores and carries on with the
 production tactic instead of exiting.
 
-Test hooks (controls): `VED_DIAG_THROW_AT=N` makes the N-th depth-0 pre/post call throw after its work;
+`VED_DIAG_FEAT=1`: before the measurement of the selected goal one `VED DIAG FEAT` line with goal-only features (`goalFeat`;\n`VED_DIAG_FEAT_CAP`, default 20000000, caps the number of node/offset pairs held).\n\nTest hooks (controls): `VED_DIAG_THROW_AT=N` makes the N-th depth-0 pre/post call throw after its work;
 `ved_diag_test [lemmas]` runs the measurement on the current goal with an arbitrary `simp [lemmas]` (always continues).
 -/
 
@@ -410,6 +410,92 @@ def measureAll (simpStx : Syntax) (capMs throwAt : Nat) : TacticM String := do
       diagLine s!"VED DIAG result a/b: sameExpr={x.expr == y.expr} sameProofPresence={x.proof?.isSome == y.proof?.isSome}"
   return final
 
+/-- goal-only features (gated by `VED_DIAG_FEAT`, computed once before the measurement, never inside a timed window):
+sizes, binder nesting and the number of distinct `(node, binder offset)` pairs of the `hasFVar` part of the goal, which is
+the number of cache keys a `replace` pass such as `Expr.abstractRange` can create on it (the C++ cache key is node pointer
+and offset; the offset grows by one under each binder body) -/
+structure GoalFeat where
+  tree : Nat := 0
+  dag : Nat := 0
+  maxDepth : Nat := 0
+  maxBinderNest : Nat := 0
+  binders : Nat := 0
+  fvars : Nat := 0
+  fvarNodes : Nat := 0
+  pairs : Nat := 0
+  pairsCapped : Bool := false
+  offHist : Array Nat := Array.replicate 16 0
+  nestHist : Array Nat := Array.replicate 16 0
+  deriving Inhabited
+
+private def kidsOff : Expr → Array (Expr × Nat)
+  | .app f a => #[(f, 0), (a, 0)]
+  | .lam _ t b _ => #[(t, 0), (b, 1)]
+  | .forallE _ t b _ => #[(t, 0), (b, 1)]
+  | .letE _ t v b _ => #[(t, 0), (v, 0), (b, 1)]
+  | .mdata _ b => #[(b, 0)]
+  | .proj _ _ b => #[(b, 0)]
+  | _ => #[]
+
+private def isBinder : Expr → Bool
+  | .lam .. | .forallE .. | .letE .. => true
+  | _ => false
+
+private def bucket (n : Nat) : Nat := min 15 (Nat.log2 (n + 1))
+
+unsafe def goalFeatU (e : Expr) (cap : Nat) : GoalFeat := Id.run do
+  -- pass A: memoised on the node address; (tree size, depth, binder nesting below)
+  let mut memo : Std.HashMap USize (Nat × Nat × Nat) := {}
+  let mut fv : Std.HashSet FVarId := {}
+  let mut r : GoalFeat := {}
+  let mut stack : Array (Expr × Bool) := #[(e, false)]
+  while !stack.isEmpty do
+    let (x, done) := stack.back!
+    stack := stack.pop
+    let key := ptrAddrUnsafe x
+    if memo.contains key then continue
+    if !done then
+      stack := stack.push (x, true)
+      for (k, _) in kidsOff x do
+        unless memo.contains (ptrAddrUnsafe k) do stack := stack.push (k, false)
+    else
+      let mut tr := 1
+      let mut dp := 0
+      let mut bn := 0
+      for (k, inc) in kidsOff x do
+        let (t, d, b) := memo.getD (ptrAddrUnsafe k) (1, 1, 0)
+        tr := tr + t
+        dp := max dp d
+        bn := max bn (inc + b)
+      if let .fvar id := x then fv := fv.insert id
+      if x.hasFVar then r := { r with fvarNodes := r.fvarNodes + 1 }
+      if isBinder x then
+        r := { r with binders := r.binders + 1, nestHist := r.nestHist.modify (bucket (bn - 1)) (· + 1) }
+      memo := memo.insert key (tr, dp + 1, bn)
+  let (t, d, b) := memo.getD (ptrAddrUnsafe e) (1, 1, 0)
+  r := { r with tree := t, dag := memo.size, maxDepth := d, maxBinderNest := b, fvars := fv.size }
+  -- pass B: distinct (node address, offset) pairs of the hasFVar part
+  let mut seen : Std.HashSet (USize × Nat) := {}
+  let mut st : Array (Expr × Nat) := #[(e, 0)]
+  while !st.isEmpty do
+    let (x, off) := st.back!
+    st := st.pop
+    unless x.hasFVar do continue
+    let key := (ptrAddrUnsafe x, off)
+    if seen.contains key then continue
+    if seen.size ≥ cap then
+      r := { r with pairsCapped := true }
+      break
+    seen := seen.insert key
+    r := { r with offHist := r.offHist.modify (bucket off) (· + 1) }
+    for (k, inc) in kidsOff x do st := st.push (k, off + inc)
+  return { r with pairs := seen.size }
+
+@[implemented_by goalFeatU] opaque goalFeat (e : Expr) (cap : Nat) : GoalFeat
+
+def featLine (f : GoalFeat) (ms : Nat) : String :=
+  s!"VED DIAG FEAT goal tree={f.tree} dag={f.dag} maxDepth={f.maxDepth} maxBinderNest={f.maxBinderNest} binderNodes={f.binders} distinctFVars={f.fvars} hasFVarNodes={f.fvarNodes} nodeOffsetPairs={f.pairs}{if f.pairsCapped then "(CAPPED)" else ""} offsetLog2Hist={f.offHist.toList} binderNestLog2Hist={f.nestHist.toList} computeMs={ms}"
+
 /-- the production expansion of a `ved_loop_simp` syntax: the oldest macro registered for the kind -/
 def prodExpansion (stx : Syntax) : TacticM Syntax := do
   let es := macroAttribute.getEntries (← getEnv) stx.getKind
@@ -441,6 +527,10 @@ macro_rules
     if Tools.VedU1Loop.treeSizeVal e0 > (← envNat "VED_DIAG_MIN" 1000000) then
       let n ← loopSeen.modifyGet fun n => (n + 1, n + 1)
       if n == (← envNat "VED_DIAG_K" 1) then
+        if (← IO.getEnv "VED_DIAG_FEAT").isSome then
+          let t0 ← IO.monoMsNow
+          let f := goalFeat e0 (← envNat "VED_DIAG_FEAT_CAP" 20000000)
+          diagLine (featLine f ((← IO.monoMsNow) - t0))
         let reason ← measureAll prod (← capMs) (← envNat "VED_DIAG_THROW_AT" 0)
         if (← IO.getEnv "VED_DIAG_AFTER") == some "continue" then
           diagLine s!"VED DIAG continue diagnostic_only reason={reason}"
