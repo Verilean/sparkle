@@ -1355,8 +1355,18 @@ def hnormStatsCheck : CommandElabM Unit := do
 run_cmd do
   logInfo m!"hstepNorm default {Tools.VedMemLoop.ved.mem.hstepNorm.get (← getOptions)}"
 
+def declWidthHitsCheck (atLeast : Bool) : CommandElabM Unit := do
+  let n ← Tools.VedMemLoop.declWidthHits.get
+  if atLeast then
+    unless n ≥ 1 do throwError "declWidthHits: {n}, expected the table to answer at least one `declWidth M \"wire\"`"
+    logInfo m!"declWidth answered from the table"
+  else
+    unless n == 0 do throwError "declWidthHits: {n}, expected 0"
+    logInfo m!"declWidth table not used"
+
 -- (5) hstepNorm ON, packed
 run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.declWidthHits.set 0
 #guard_msgs (drop info) in
 set_option ved.mem.hstepNorm true in
 #ved_u1_mem_packed hsE
@@ -1368,6 +1378,10 @@ run_cmd hstepRanCheck ["norm_skip"]
 /-- info: hstep_unify converted at least one loop -/
 #guard_msgs in
 run_cmd hnormStatsCheck
+
+/-- info: declWidth answered from the table -/
+#guard_msgs in
+run_cmd declWidthHitsCheck true
 
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsE -/
 #guard_msgs in
@@ -1421,6 +1435,7 @@ run_cmd liftTermElabM <| storedPackedOk ``hsH
 
 -- (9) OFF (default), nothing of the new branch
 run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.declWidthHits.set 0
 #guard_msgs (drop info) in
 #ved_u1_mem_packed hsG
 
@@ -1431,6 +1446,10 @@ run_cmd hstepRanCheck []
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsG -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedPackedOk ``hsG
+
+/-- info: declWidth table not used -/
+#guard_msgs in
+run_cmd declWidthHitsCheck false
 
 
 -- (10) ON, the new branch fails LATE (after its tail stages, test seam `hstepFailLate`): the old script closes and the kernel accepts the result.
