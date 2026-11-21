@@ -1198,5 +1198,131 @@ set_option ved.mem.h0Budget 10000 in
 
 run_cmd Tools.VedMemLoop.h0DagRefuse.set false
 
+/-! ### `ved.mem.hstepDag` (sparkle-ved-mem-hstep): the step case's `obtain` and the hypotheses' simp as targeted rewrites
+
+The step case of the memory loop takes the invariant `hR` apart with `obtain ⟨hreg*, hM*, hL*⟩ := hR` (R033: 95 components, observed 426 s: each
+`cases` step abstracts the goal) and then runs `ved_loop_simp [..] at hreg* hM* hL* hD*` (every hypothesis re-simplifies the same loops).  With the
+option ON `ved_obtain_dag` takes `hR` apart by projections and `ved_hnorm_dag` simplifies each distinct loop of the hypotheses once; the old tactics
+are the fallback.  Controls: (1) ON, packed: accepted (stored type == statement, std3), the log `hstepRan` has `obtain_dag` and `hnorm_dag`;
+(2) OFF (explicit): accepted, nothing ran; (3) ON, both refuse (test seam `hstepRefuse`): the old tactics are the fallback, accepted, nothing ran;
+(4) ON, unpacked entry: accepted, both ran. -/
+
+declare_signal_state HState
+  | fsm  : BitVec 2  := 0#2
+  | sub  : BitVec 3  := 0#3
+  | last : BitVec 16 := 0#16
+
+def hsA {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) :=
+  let state := Signal.loop fun state =>
+    let fsm := HState.fsm state
+    let sub := HState.sub state
+    let isRow := fsm === (1#2 : Signal dom _)
+    let sub4 := 0#1 ++ sub
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn sub4
+    let fsmNext := Signal.mux start (Signal.pure 1#2) fsm
+    let subNext := sub + 1#3
+    let lastNext := Signal.mux isRow (inputCoeff + 1#16) (HState.last state)
+    bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#3 subNext, Signal.register 0#16 lastNext]
+  bundle2 (HState.last state) (HState.sub state)
+
+def hsB {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsC {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsD {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let fsm := HState.fsm state
+    let sub := HState.sub state
+    let isRow := fsm === (1#2 : Signal dom _)
+    let sub4 := 0#1 ++ sub
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn sub4
+    let fsmNext := Signal.mux start (Signal.pure 1#2) fsm
+    let subNext := sub + 1#3
+    let lastNext := Signal.mux isRow (inputCoeff + 1#16) (HState.last state)
+    bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#3 subNext, Signal.register 0#16 lastNext]
+  HState.last state
+
+def storedPackedOk (decl : Name) : TermElabM Unit := do
+  let (stmt, _) ← Tools.VedU1Contract.specialiseDomain decl
+  let thm := decl ++ `ved_mem
+  let ti ← getConstInfo thm
+  let expected := mkAppN (Lean.mkConst ``Tools.VedMemEntry.MemPackedStmt)
+    #[Lean.mkConst (decl ++ `ved_contract), Lean.mkConst (decl ++ `ved_mod), stmt]
+  unless ti.type == expected do throwError "{thm}: stored type differs from the statement"
+  let axs ← collectAxioms thm
+  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+  unless axs.all (std.contains ·) && std.all (axs.contains ·) do throwError "{thm}: axioms {axs}"
+  logInfo m!"stored type == statement, axioms std3: {decl}"
+
+def hstepRanCheck (want : List String) : CommandElabM Unit := do
+  let got := (← Tools.VedMemLoop.hstepRan.get).toList
+  unless got == want do throwError "hstepRan: {got}, expected {want}"
+  logInfo m!"hstep ran: {got}"
+
+/-- info: hstepDag default false -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"hstepDag default {Tools.VedMemLoop.ved.mem.hstepDag.get (← getOptions)}"
+
+-- (1) ON, packed
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepDag true in
+#ved_u1_mem_packed hsA
+
+/-- info: hstep ran: [obtain_dag, hnorm_dag] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["obtain_dag", "hnorm_dag"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsA -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsA
+
+-- (2) OFF (explicit)
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepDag false in
+#ved_u1_mem_packed hsB
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsB -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsB
+
+-- (3) ON, both refuse: the old tactics are the fallback
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepRefuse.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepDag true in
+#ved_u1_mem_packed hsC
+run_cmd Tools.VedMemLoop.hstepRefuse.set false
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsC -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsC
+
+-- (4) ON, unpacked
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepDag true in
+#ved_u1_mem hsD
+
+/-- info: hstep ran: [obtain_dag, hnorm_dag] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["obtain_dag", "hnorm_dag"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsD -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``hsD
+
 
 end Tests.Ved.VedMemCloseCheck
