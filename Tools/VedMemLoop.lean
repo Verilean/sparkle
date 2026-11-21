@@ -434,11 +434,11 @@ def leafDag (h k0 : Expr) : TacticM Expr := do
   return mkApp hk m
 
 /-- a proof of `A = B` (see the module comment) -/
-partial def dagEq (cache : DagCache) (s1 s2 h A B : Expr) : TacticM Expr := do
+partial def dagEq (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM Expr := do
   if A == B then return ← mkEqRefl A
   if let some p ← cache.find? (A, B) then return p
   checkSystem "ved_causal_dag"
-  let p ← dagEqCore cache s1 s2 h A B
+  let p ← dagEqCore cache ag A B
   cache.insert (A, B) p
   return p
 where
@@ -447,20 +447,56 @@ where
     match e.consumeMData with
     | .app (.proj ``Sparkle.Core.Signal.Signal 0 X) k => mkAppM ``Sparkle.Core.Signal.Signal.val #[X, k]
     | e => pure e
-  dagEqCore (cache : DagCache) (s1 s2 h A0 B0 : Expr) : TacticM Expr := do
+  /-- `(Signal.loop F).val k = (Signal.loop G).val k` by `Tools.VedMemNest.loop_val_congr_le F G k` at `k`: its two premises are the
+  walk itself, in a child cache scope, with the pair of fresh state signals `a`/`b` (agreement `hab` up to the cycle) added to the
+  agreements: `h0`, `(F a).val 0 = (G b).val 0`, under `a b`; `hS`, `(F a).val (t'+1) = (G b).val (t'+1)`, under `t' (t' < k) a b hab`.
+  The bounds of the leaves are proved by `omega` from `t' < k` and the facts of the context. -/
+  loopDag (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM Expr := do
+    let L := A.getArg! 2
+    let L' := B.getArg! 2
+    let k := normLitsDag (A.getArg! 3)
+    unless k == normLitsDag (B.getArg! 3) do throwError "ved_causal_dag: different cycles"
+    unless (L.getArg! 0) == (L'.getArg! 0) && (L.getArg! 1) == (L'.getArg! 1) do throwError "ved_causal_dag: loop"
+    let F := L.getArg! 3
+    let G := L'.getArg! 3
+    let dom := L.getArg! 0
+    let α := L.getArg! 1
+    let sigTy := (← whnf (← inferType F)).bindingDomain!
+    let sideVal (F a n : Expr) : MetaM Expr :=
+      mkAppM ``Sparkle.Core.Signal.Signal.val #[(mkApp F a).headBeta, n]
+    let h0 ← do
+      let cache ← cache.scope
+      withLocalDeclD `ved_a sigTy fun a => withLocalDeclD `ved_b sigTy fun b => do
+        mkLambdaFVars #[a, b] (← dagEq cache ag (← sideVal F a (mkNatLit 0)) (← sideVal G b (mkNatLit 0)))
+    let hS ← do
+      let cache ← cache.scope
+      withLocalDeclD `ved_t (mkConst ``Nat) fun t' => do
+        withLocalDeclD `ved_ht (← mkAppM ``LT.lt #[t', k]) fun ht => do
+          withLocalDeclD `ved_a sigTy fun a => withLocalDeclD `ved_b sigTy fun b => do
+            let hty ← withLocalDeclD `ved_k (mkConst ``Nat) fun j => do
+              mkForallFVars #[j] (← mkArrow (← mkAppM ``LE.le #[j, t'])
+                (← mkEq (← mkAppM ``Sparkle.Core.Signal.Signal.val #[a, j]) (← mkAppM ``Sparkle.Core.Signal.Signal.val #[b, j])))
+            withLocalDeclD `ved_hab hty fun hab => do
+              let t1 ← mkAppM ``HAdd.hAdd #[t', mkNatLit 1]
+              mkLambdaFVars #[t', ht, a, b, hab]
+                (← dagEq cache (ag.push (a, b, hab)) (← sideVal F a t1) (← sideVal G b t1))
+    let pf ← mkAppOptM ``Tools.VedMemNest.loop_val_congr_le
+      #[dom, α, L.getArg! 2, F, G, k, h0, hS, k, ← mkAppM ``Nat.le_refl #[k]]
+    mkExpectedTypeHint pf (← mkEq A B)
+  dagEqCore (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A0 B0 : Expr) : TacticM Expr := do
     let A ← normVal (← whnfCore A0)
     let B ← normVal (← whnfCore B0)
     if A != A0 || B != B0 then
-      return ← mkExpectedTypeHint (← dagEq cache s1 s2 h A B) (← mkEq A0 B0)
+      return ← mkExpectedTypeHint (← dagEq cache ag A B) (← mkEq A0 B0)
     -- `Signal.val F k x`: the value of a signal of functions (`<*>`) applied to an argument
     if A.isAppOf ``Sparkle.Core.Signal.Signal.val && A.getAppNumArgs > 4 && B.isAppOf ``Sparkle.Core.Signal.Signal.val
         && B.getAppNumArgs == A.getAppNumArgs then
       let a := A.getAppArgs
       let b := B.getAppArgs
-      let mut pf ← dagEq cache s1 s2 h (mkAppN A.getAppFn (a.extract 0 4)) (mkAppN B.getAppFn (b.extract 0 4))
+      let mut pf ← dagEq cache ag (mkAppN A.getAppFn (a.extract 0 4)) (mkAppN B.getAppFn (b.extract 0 4))
       for i in [4:a.size] do
         if a[i]! != b[i]! then
-          pf ← mkCongr pf (← dagEq cache s1 s2 h a[i]! b[i]!)
+          pf ← mkCongr pf (← dagEq cache ag a[i]! b[i]!)
         else pf ← mkCongrFun pf a[i]!
       return pf
     if A.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 && B.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 then
@@ -468,12 +504,15 @@ where
       let Y := B.getArg! 2
       let k := A.getArg! 3
       unless k == B.getArg! 3 do throwError "ved_causal_dag: different cycles"
-      if X == s1 && Y == s2 then return ← mkExpectedTypeHint (← leafDag h k) (← mkEq A B)
+      for (s1, s2, h) in ag do
+        if X == s1 && Y == s2 then return ← mkExpectedTypeHint (← leafDag h k) (← mkEq A B)
+      if X.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 && Y.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then
+        return ← loopDag cache ag A B
       if X.isAppOf ``Sparkle.Core.Signal.Signal.loop || Y.isAppOf ``Sparkle.Core.Signal.Signal.loop then
         throwError "ved_causal_dag: loop"
       let eA ← unfoldValDag A
       let eB ← unfoldValDag B
-      let p ← dagEq cache s1 s2 h eA eB
+      let p ← dagEq cache ag eA eB
       let l ← mkExpectedTypeHint (← mkEqRefl A) (← mkEq A eA)
       let r ← mkExpectedTypeHint (← mkEqRefl eB) (← mkEq eB B)
       return ← mkEqTrans (← mkEqTrans l p) r
@@ -489,7 +528,7 @@ where
             withLocalDeclD `ved_hj (← mkAppM ``LT.lt #[j, normLitsDag t]) fun hj => do
               let ValX ← mkAppM ``Sparkle.Core.Signal.Signal.val #[x, j]
               let ValY ← mkAppM ``Sparkle.Core.Signal.Signal.val #[y, j]
-              mkLambdaFVars #[j, hj] (← dagEq cache s1 s2 h ValX ValY)
+              mkLambdaFVars #[j, hj] (← dagEq cache ag ValX ValY)
         let ha ← side a[4]! b[4]!
         let hd ← side a[5]! b[5]!
         let he ← side a[6]! b[6]!
@@ -498,7 +537,7 @@ where
         let mut pf := hc
         for i in [8:a.size] do
           if a[i]! != b[i]! then
-            pf ← mkCongr pf (← dagEq cache s1 s2 h a[i]! b[i]!)
+            pf ← mkCongr pf (← dagEq cache ag a[i]! b[i]!)
           else pf ← mkCongrFun pf a[i]!
         return pf
     if A.isApp && B.isApp then
@@ -507,14 +546,14 @@ where
       let b := B.getAppArgs
       if f == B.getAppFn && a.size == b.size then
         if f.isConstOf ``ite && a.size == 5 then
-          let pc ← dagEq cache s1 s2 h a[1]! b[1]!
-          let pt ← dagEq cache s1 s2 h a[3]! b[3]!
-          let pe ← dagEq cache s1 s2 h a[4]! b[4]!
+          let pc ← dagEq cache ag a[1]! b[1]!
+          let pt ← dagEq cache ag a[3]! b[3]!
+          let pe ← dagEq cache ag a[4]! b[4]!
           return ← mkAppOptM ``ved_ite_congr #[a[0]!, a[1]!, b[1]!, a[2]!, b[2]!, a[3]!, b[3]!, a[4]!, b[4]!, pc, pt, pe]
         let mut ps : Array (Nat × Expr) := #[]
         for i in [0:a.size] do
           if a[i]! != b[i]! then
-            let q ← try dagEq cache s1 s2 h a[i]! b[i]!
+            let q ← try dagEq cache ag a[i]! b[i]!
               catch e =>
                 dbgLogWith do
                   let extra ← if f.isConstOf ``Sparkle.Core.Signal.Signal.val then
@@ -527,14 +566,14 @@ where
         return ← congrArgsDag f a b ps
     if let (.proj n i x, .proj n' i' y) := (A, B) then
       if n == n' && i == i' then
-        let p ← dagEq cache s1 s2 h x y
+        let p ← dagEq cache ag x y
         let motive ← withLocalDeclD `ved_y (← inferType x) fun v => mkLambdaFVars #[v] (.proj n i v)
         return ← mkCongrArg motive p
     if let (.lam n ty bA bi, .lam _ ty' bB _) := (A, B) then
       if ty == ty' then
         let cache ← cache.scope
         let p ← withLocalDecl n bi ty fun x => do
-          mkLambdaFVars #[x] (← dagEq cache s1 s2 h (bA.instantiate1 x) (bB.instantiate1 x))
+          mkLambdaFVars #[x] (← dagEq cache ag (bA.instantiate1 x) (bB.instantiate1 x))
         return ← mkFunExt p
     dbgLogWith do return s!"causal_dag: no rule for [{(toString (← ppExpr A)).take 300}] against [{(toString (← ppExpr B)).take 300}]"
     throwError "ved_causal_dag: no rule for this pair of subterms"
@@ -560,7 +599,7 @@ elab "ved_causal_dag" : tactic => do
       let some h := lctx.findFromUserName? `h | throwError "ved_causal_dag: no h"
       let cache ← DagCache.new
       dbgLogWith do return s!"causal_dag top: nargs={A.getAppNumArgs} head={A.getAppFn} {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr (mkAppN A.getAppFn (A.getAppArgs.extract 0 2))))).take 300} | arg2={(toString (← ppExpr (A.getArg! 2))).take 200} | arg3={(toString (← ppExpr (A.getArg! 3))).take 100}"
-      let p ← dagEq cache s1.toExpr s2.toExpr h.toExpr A B
+      let p ← dagEq cache #[(s1.toExpr, s2.toExpr, h.toExpr)] A B
       (← getMainGoal).assign p
       dbgLogWith do return s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.own.get).size}"
   catch e =>

@@ -516,9 +516,7 @@ local macro "innerLoopMemStmt" : term => `(∀ {dom : DomainConfig} (wd : Signal
         = (Signal.memory s2 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
           Signal.register 0#4 (Signal.mux (s2.map (fun x => x.getLsbD 0)) (st + 1#4) st))).val (t + 1))
 
--- the walk alone refuses (no rule for a loop; the text is fixed)
-/-- error: ved_causal_dag: loop -/
-#guard_msgs in
+-- the walk alone closes it (`loop_val_congr_le`, premises walked)
 theorem innerLoopMemDirect : innerLoopMemStmt := by
   intro dom wd we
   set_option ved.mem.causalDag true in ved_causal_dag
