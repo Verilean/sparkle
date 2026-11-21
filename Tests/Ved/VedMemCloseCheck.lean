@@ -690,10 +690,11 @@ set_option ved.mem.loopGate 1 in
 #guard_msgs in
 run_cmd liftTermElabM <| storedOk ``lgF
 
--- (b) option ON, gate 1, the walk refuses (inner loop): the loopGate text (tree 1469; the gate is reached only because the walk failed)
-/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.lgH [proof]: ved_loop_unfold_mem: the loop has 1469 tree nodes, more than the configured limit ved.mem.loopGate (1); raise it with `set_option ved.mem.loopGate N` or disable the gate with `set_option ved.mem.loopGate 0` -/
+-- (b) option ON, gate 1, the walk refuses (causalDagBudget 1; since the inner-`Signal.loop` rule the walk closes lgH within its default budget): the loopGate text (tree 1677; the gate is reached only because the walk failed)
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.lgH [proof]: ved_loop_unfold_mem: the loop has 1677 tree nodes, more than the configured limit ved.mem.loopGate (1); raise it with `set_option ved.mem.loopGate N` or disable the gate with `set_option ved.mem.loopGate 0` -/
 #guard_msgs in
 set_option ved.mem.causalDag true in
+set_option ved.mem.causalDagBudget 1 in
 set_option ved.mem.loopGate 1 in
 #ved_u1_mem lgH
 
