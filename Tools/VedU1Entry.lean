@@ -857,11 +857,16 @@ def regShape (m : Sparkle.IR.AST.Module) : Option (String × Nat) :=
   | _ => none
 
 /-- A module with exactly ONE register (the `regShape` delay) and an output port assigned the register's
-wire itself (`out_k = r`): that port's name.  The bundled-statement route without a loop invariant uses it:
+wire itself (`out_k = r`), every other output assigned an input directly: that port's name.  The bundled-statement route without a loop invariant uses it:
 `st r = srcOf C f ins <port> s`. -/
 def bundledRegPort? (m : Sparkle.IR.AST.Module) : Option String :=
   match regsOf m.body with
   | [(r, _, _, _)] =>
+    -- every output port is assigned directly the register's wire or an input: the scope of the proved shapes
+    let bare := m.outputs.all fun p => m.body.any fun s => match s with
+      | .assign o (.ref x) => o == p.name && (x == r || m.inputs.any (·.name == x))
+      | _ => false
+    if !bare then none else
     m.body.findSome? fun s => match s with
       | .assign o (.ref x) => if x == r && m.outputs.any (·.name == o) then some o else none
       | _ => none
