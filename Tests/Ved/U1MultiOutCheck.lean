@@ -1,7 +1,10 @@
 import Tools.VedU1Entry
 
 /-!
-# Checks for the multi-output U1 entry (register-free, product of signals)
+# Checks for the multi-output U1 entry (product of signals)
+
+Bodies: register-free, or ONE plain register (no loop) whose output ports are
+each the register or an input directly (`moReg`, `moRegS`, `moRegW`).
 
 A result `Signal d A × Signal d B × …` (a `×`-tree whose leaves are `Signal
 defaultDomain _`) is read from the declaration's TYPE.  The synthesizer names
@@ -270,12 +273,12 @@ run_cmd checkMulti ``moRegS (← `(fun a => bundle2 (moRegS a).1 (moRegS a).2)) 
 #guard_msgs in
 run_cmd checkMulti ``moRegW (← `(fun a b => bundle2 (moRegW a b).1 (moRegW a b).2)) ["out_0", "out_1"]
 
--- a register that no output port is assigned directly stays refused (same text as before)
+-- a computed output next to the register stays refused (same stage as before)
 /-- info: refused [multi-output], clean -/
 #guard_msgs in
 run_cmd expectEntry "multi-output" ``moRegSum
 
--- controls on moReg's module: another init, outputs exchanged, an output dropped, the register stripped
+-- controls on moReg's module: another init, outputs exchanged, an output dropped
 /-- info: refused [proof], clean -/
 #guard_msgs in
 run_cmd expectRefused "proof" ``moRegCtl do onModule ``moRegCtl (← modOf ``moRegInit1)

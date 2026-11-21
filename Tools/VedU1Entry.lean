@@ -44,8 +44,11 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
    `out_0_1`, …, left-first; Sparkle/Compiler/Elab.lean `splitReturnLeaves`).
    They must be EXACTLY the returned module's output names (else
    `multi-output`); widths are checked by `ShapeStmt`, every port's value by
-   `OutputsStmt`.  Register-free bodies only; structure results stay refused
-   at `table`;
+   `OutputsStmt`.  Bodies with registers: `Signal.loop` bodies
+   (`Tools/VedU1StructSeq.lean`), or ONE plain register with no loop whose
+   output ports are each the register or an input directly (`bundledRegPort?`);
+   other register bodies are refused at `multi-output`.  Structure results stay
+   refused at `table`;
 2. calls `synthesizeCombinational declName` exactly ONCE (the function
    `#synthesizeVerilog` calls; main has no inliner fuel guard) and keeps the
    returned `(m, design)`.  The guarantee is about that returned module, not
@@ -1087,11 +1090,12 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     unless outNames.length == tbl.out.flat.length do
       refuse decl "multi-output"
         m!"{outNames.length} output port names for {tbl.out.flat.length} output projections"
-    -- registers under a bundled statement term: only a `Signal.loop` body (`Tools/VedU1StructSeq.lean`)
+    -- registers under a bundled statement term: a `Signal.loop` body (`Tools/VedU1StructSeq.lean`)
+    -- or one plain register with outputs wired to it / to inputs (`bundledRegPort?`)
     if !stmt.getAppFn.isConst && (regsOf m.body).length != 0 &&
         !(← Tools.VedU1Uns.usesLoop decl (← helperConsts decl)) &&
         (bundledRegPort? m).isNone then
-      refuse decl "multi-output" m!"multi-output with registers is supported for `Signal.loop` bodies only"
+      refuse decl "multi-output" m!"multi-output with registers is supported for `Signal.loop` bodies and one plain register with outputs wired to it or to inputs only"
     -- the closed term of `m`, checked to denote `m` itself
     let mE := toExpr m
     let back ← withEvalBudget (evalModule mE)
