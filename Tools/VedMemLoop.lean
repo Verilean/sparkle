@@ -493,45 +493,7 @@ partial def find? (c : DagCache) (k : Expr × Expr) : IO (Option Expr) := do
     | none => return none
 def insert (c : DagCache) (k : Expr × Expr) (p : Expr) : IO Unit := c.own.modify (·.insert k p)
 partial def depth (c : DagCache) : Nat := match c.parent with | some q => q.depth + 1 | none => 0
-/-- the scope `n` levels above `c` (the root when there are fewer) -/
-def up : DagCache → Nat → DagCache
-  | c, 0 => c
-  | c, n + 1 => match c.parent with | some q => up q n | none => c
 end DagCache
-
-/-! Where a proof may be stored.  A proof that mentions no variable bound by the scopes below a scope `q` is valid in `q` and in every
-scope inside `q`, so it is stored in `q` (the outermost such scope) and not in the scope it was found in: the scopes of the sibling
-binders (`funext`, the `memState` side conditions, the cases of a split, the premises of an inner loop) then share it.  The scope of a
-binder variable is recorded when it is introduced (`DagCache.bind`); the level of a term is the deepest scope of a variable in it (its
-metavariables: the current scope), memoised by pointer (the terms are kept alive by the memo). -/
-initialize dagLevels : IO.Ref (Std.HashMap FVarId Nat) ← IO.mkRef {}
-initialize dagLevelMemo : IO.Ref (Std.HashMap USize (Expr × Nat)) ← IO.mkRef {}
-
-unsafe def ptrKeyUnsafe (e : Expr) : USize := ptrAddrUnsafe e
-@[implemented_by ptrKeyUnsafe] def ptrKey (_ : Expr) : USize := 0
-
-def DagCache.bind (c : DagCache) (xs : Array Expr) : IO Unit := do
-  let d := c.depth
-  for x in xs do
-    if x.isFVar then dagLevels.modify (·.insert x.fvarId! d)
-
-/-- the deepest scope level of a variable in `e` (`cap` for a metavariable) -/
-partial def dagLevel (cap : Nat) (e : Expr) : IO Nat := do
-  if !e.hasFVar && !e.hasExprMVar then return 0
-  let key := ptrKey e
-  if let some (_, n) := (← dagLevelMemo.get)[key]? then return n
-  let n ← match e with
-    | .fvar id => return (← dagLevels.get).getD id 0
-    | .mvar _ => return cap
-    | .app f a => do pure (max (← dagLevel cap f) (← dagLevel cap a))
-    | .lam _ t b _ => do pure (max (← dagLevel cap t) (← dagLevel cap b))
-    | .forallE _ t b _ => do pure (max (← dagLevel cap t) (← dagLevel cap b))
-    | .letE _ t v b _ => do pure (max (← dagLevel cap t) (max (← dagLevel cap v) (← dagLevel cap b)))
-    | .mdata _ b => dagLevel cap b
-    | .proj _ _ b => dagLevel cap b
-    | _ => pure 0
-  dagLevelMemo.modify (·.insert key (e, n))
-  return n
 
 /-- raw literals (`nat_lit 0` left by the unfolding of a `match`) are not read by `omega`: spell them `OfNat` -/
 def normLitsDag (k0 : Expr) : Expr :=
@@ -552,7 +514,7 @@ def leafDag (h k0 : Expr) : TacticM Expr := do
           if d.userName.toString.startsWith "ved_h" && !d.userName.toString.startsWith "ved_hab" then pure (acc ++ s!" [{d.userName}: {(toString (← ppExpr d.type)).take 120}]") else pure acc) "")}"
       throwError "ved_causal_dag: bound not proved"
   unless rest.isEmpty do throwError "ved_causal_dag: bound not proved"
-  instantiateMVars (mkApp hk m)
+  return mkApp hk m
 
 /-- a proof of `A = B` (see the module comment) -/
 partial def dagEq (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM Expr := do
@@ -577,10 +539,7 @@ where
       else dgStats.modify fun s => { s with seen := s.seen.insert (A, B) }
     checkSystem "ved_causal_dag"
     let p ← dagEqCore cache ag A B
-    let d := cache.depth
-    let lv := min d (max (← dagLevel d p) (max (← dagLevel d A) (← dagLevel d B)))
-    if lv < d then stBump "promoted"
-    (cache.up (d - lv)).insert (A, B) p
+    cache.insert (A, B) p
     return p
   /-- `s.1 k` (the projection spelling of `Signal.val s k`) as `Signal.val s k` -/
   normVal (e : Expr) : MetaM Expr := do
@@ -611,7 +570,6 @@ where
     let h0 ← do
       let cache ← cache.scope
       withLocalDeclD `ved_a sigTy fun a => withLocalDeclD `ved_b sigTy fun b => do
-        cache.bind #[a, b]
         mkLambdaFVars #[a, b] (← dagEq cache ag (← sideVal F a (mkNatLit 0)) (← sideVal G b (mkNatLit 0)))
     let hS ← do
       let cache ← cache.scope
@@ -621,7 +579,6 @@ where
           withLocalDeclD `ved_a sigTy fun a => withLocalDeclD `ved_b sigTy fun b => do
             let hab ← habTy a b t'
             withLocalDeclD `ved_hab hab fun hb => do
-              cache.bind #[t', ht, a, b, hb]
               let t1 ← mkAppM ``HAdd.hAdd #[t', mkNatLit 1]
               mkLambdaFVars #[t', ht, a, b, hb]
                 (← dagEq cache (ag.push (a, b, hb)) (← sideVal F a t1) (← sideVal G b t1))
@@ -636,10 +593,8 @@ where
     let motive ← mkLambdaFVars #[j] (← mkForallFVars ds (← mkEq A B))
     let branch (v : Expr) : TacticM Expr := do
       let cache ← cache.scope
-      cache.bind ((collectFVars {} v).fvarIds.map mkFVar)
       stSplit 1
       let r ← forallTelescope (motive.beta #[v]) fun ds' body => do
-        cache.bind ds'
         let some (_, A', B') := body.eq? | throwError "ved_causal_dag: no rule for this pair of subterms"
         let ag' := ag.map fun (x, y, h) => (x, y, h.replaceFVars ds ds')
         mkLambdaFVars ds' (← dagEq cache ag' A' B')
@@ -708,7 +663,6 @@ where
           let cache ← cache.scope
           withLocalDeclD `ved_j (mkConst ``Nat) fun j => do
             withLocalDeclD `ved_hj (← mkAppM ``LT.lt #[j, normLitsDag t]) fun hj => do
-              cache.bind #[j, hj]
               let ValX ← mkAppM ``Sparkle.Core.Signal.Signal.val #[x, j]
               let ValY ← mkAppM ``Sparkle.Core.Signal.Signal.val #[y, j]
               mkLambdaFVars #[j, hj] (← dagEq cache ag ValX ValY)
@@ -768,7 +722,6 @@ where
         stBump "funext"
         let cache ← cache.scope
         let p ← withLocalDecl n bi ty fun x => do
-          cache.bind #[x]
           mkLambdaFVars #[x] (← dagEq cache ag (bA.instantiate1 x) (bB.instantiate1 x))
         return ← mkFunExt p
     stBump "no-rule"
@@ -786,8 +739,6 @@ elab "ved_causal_dag" : tactic => do
   let hb0 ← IO.getNumHeartbeats
   dbgLogWith do return s!"TLOG causal_dag begin t={t0}"
   stReset
-  dagLevels.set {}
-  dagLevelMemo.set {}
   tryCatchRuntimeEx (do
    for g in ← getGoals do
     setGoals [g]
