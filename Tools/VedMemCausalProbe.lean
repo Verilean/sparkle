@@ -10,25 +10,48 @@ condition.  Environment (all optional; the hook does nothing without `VED_KERNEL
 
 * `VED_STOP_AFTER_CAUSAL=n`: act only on the first side condition whose goal has at least `n` tree nodes, and after acting stop the
   process with exit code 3.
+* `VED_STOP_AFTER_CAUSAL_N=n`: count the closed side conditions; every one is reported (tree size, time), and after the `n`-th
+  (the kernel probe below acts on it only) the process stops with exit code 3.
 * `VED_KERNEL_PROBE=s`: kernel-check the closed side condition (an auxiliary theorem over the goal's local context, checked by
   `Kernel.Environment.addDecl`, the result is dropped), synchronously, with a wall cap of `s` seconds (on the cap the check is
   cancelled and "not finished" is recorded).  The kernel's own heartbeat limit is off for the probe (the wall cap bounds it).
 
-Lines go to stderr (`VED PROBE ...`) and, with `VED_DUMP_DIR`, to `addr.log`.
+Lines are appended to the file `VED_PROBE_LOG` when set (the streams of a tactic are captured by the elaborator, so a stop loses them) and go to stderr (`VED PROBE ...`, independent of `VED_DUMP_DIR`; `walk_ms`/`walk_hb_k` = the walk of the side condition) and, with
+`VED_DUMP_DIR`, to `addr.log`.
 -/
 
 open Lean Meta Elab Tactic
 
 namespace Tools.VedMemCausalProbe
 
+/-- a probe line: appended to the file `VED_PROBE_LOG` (when set), and on stdout/stderr.  The elaborator isolates the streams of a tactic
+into messages, which the process stopping right after never prints; the file is the record. -/
+def out (l : String) : IO Unit := do
+  if let some f ← IO.getEnv "VED_PROBE_LOG" then
+    let h ← IO.FS.Handle.mk f .append
+    h.putStrLn l
+    h.flush
+  IO.eprintln l
+
+initialize closedCount : IO.Ref Nat ← IO.mkRef 0
+
 def probe (hSc : MVarId) : TacticM Unit := do
   let stop := (← IO.getEnv "VED_STOP_AFTER_CAUSAL").bind (·.toNat?)
+  let stopN := (← IO.getEnv "VED_STOP_AFTER_CAUSAL_N").bind (·.toNat?)
   let kprobe := (← IO.getEnv "VED_KERNEL_PROBE").map fun s => s.toNat?.getD 600
-  if stop.isNone && kprobe.isNone then return
+  if stop.isNone && kprobe.isNone && stopN.isNone then return
   let szT := Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← hSc.getType))
-  if szT < stop.getD 0 then return
+  let cnt := (← closedCount.get) + 1
+  closedCount.set cnt
+  if let some n := stopN then
+    let (wms, whb) ← Tools.VedMemLoop.dgWalk.get
+    let msg := s!"causal side condition #{cnt} closed tree={szT} walk_ms={wms} walk_hb_k={whb} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}"
+    out s!"VED PROBE {msg}"
+    Tools.VedMemLoop.dbgLog s!"PROBE {msg}"
+    if cnt < n then return
+  else if szT < stop.getD 0 then return
   let say (msg : String) : IO Unit := do
-    IO.eprintln s!"VED PROBE {msg}"
+    out s!"VED PROBE {msg}"
     Tools.VedMemLoop.dbgLog s!"PROBE {msg}"
   say s!"side condition tree={szT} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}"
   if let some cap := kprobe then
@@ -60,7 +83,7 @@ def probe (hSc : MVarId) : TacticM Unit := do
           | .ok _ => say s!"KERNEL ok ms={t1 - t0} proofDag={dag}"
           | .error _ => say s!"KERNEL rejected ms={t1 - t0} proofDag={dag}"
     catch e => say s!"KERNEL probe error {(← e.toMessageData.toString).take 300}"
-  if stop.isSome then
+  if stop.isSome || stopN.isSome then
     say s!"STOP_AFTER_CAUSAL t={← IO.monoMsNow} tree={szT}"
     IO.Process.exit 3
 

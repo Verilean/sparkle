@@ -30,6 +30,7 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 
 set_option linter.unusedSimpArgs false
 set_option linter.unusedVariables false
+set_option ved.mem.causalDagMaskCheck true
 
 /-! ## ved_mem_addr on a goal of 2.7e8 tree nodes -/
 
@@ -800,10 +801,15 @@ present, exactly:
   first alternative of `ved_causal []`), axioms within std3.
 * `causalDagOff`: option off, `ved_causal_dag` refuses at once with its fixed text; `causalSimpMem`: option off, `ved_causal []`
   runs the simp path and closes the same goal.
-* `innerLoopMem` (REAL FALLBACK): option on, a memory whose read address is an inner `Signal.loop` driven by the state.  The walk
-  has no rule for a loop and refuses (`innerLoopMemDirect`: `ved_causal_dag` alone fails with the fixed text `ved_causal_dag: loop`),
-  `ved_causal []` closes the same goal through the simp path (`ved_causal_simp`, `ved_loop_congr`): stored type `==` the statement,
-  axioms within std3.
+* `innerLoopMem`, `innerLoopMemDirect`: option on, a memory whose read address is an inner `Signal.loop` driven by the state.  The
+  walk closes it (`ved_causal_dag` alone; `innerLoopMem` through `ved_causal []`): stored type `==` the statement, axioms within
+  std3.  The inner loop is a `Tools.VedMemNest.loop_val_congr_le` step whose two premises are walked (under `a b`, and under
+  `t' (t' < k) a b hab`), no whole-goal simp.  `nestedLoopMem` (two nested inner loops) and `loopReadsMem` (an inner loop whose
+  body reads a `memState` of its own state) are closed by the walk too.
+* `ignoredRead` (REAL FALLBACK): a loop read at cycle `t+1` whose body adds `s1.map` of a function that is constant by a Boolean
+  identity.  The walk reaches `s1.val (t'+1)` against `s2.val (t'+1)` for `t' < t+1`, `h` gives cycles `≤ t` only, the
+  bound is not proved and the walk refuses (`ignoredReadDirect`: the fixed text `ved_causal_dag: bound not proved`);
+  `ved_causal []` closes the same goal through the simp path (`ved_causal_simp`, `ved_loop_congr`).
 * `ved_walk_fallback` (STATE RESTORATION): after the failed walk the goal list, the metavariable context (counter, declarations,
   assignments) and the heartbeat clock/limit that the fallback sees are those from before the walk; the fingerprint check itself
   is shown to see a change (`ved_fp_changes`).
@@ -863,14 +869,12 @@ local macro "innerLoopMemStmt" : term => `(∀ {dom : DomainConfig} (wd : Signal
         = (Signal.memory s2 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
           Signal.register 0#4 (Signal.mux (s2.map (fun x => x.getLsbD 0)) (st + 1#4) st))).val (t + 1))
 
--- the walk alone refuses (no rule for a loop; the text is fixed)
-/-- error: ved_causal_dag: loop -/
-#guard_msgs in
+-- the walk alone closes it (`loop_val_congr_le`, premises walked)
 theorem innerLoopMemDirect : innerLoopMemStmt := by
   intro dom wd we
   set_option ved.mem.causalDag true in ved_causal_dag
 
-/-- option on: the walk is tried, fails, and the simp path closes the goal -/
+/-- option on: the walk closes it as the first alternative of `ved_causal` -/
 theorem innerLoopMem : innerLoopMemStmt := by
   intro dom wd we
   set_option ved.mem.causalDag true in ved_causal []
@@ -884,6 +888,64 @@ run_cmd liftTermElabM do
   let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
   unless axs.all (std.contains ·) do throwError "innerLoopMem: axioms {axs}"
   logInfo "innerLoopMem: type exact, axioms within std3"
+
+/-! ### two nested inner loops, an inner loop reading a `memState` -/
+
+set_option hygiene false in
+local macro "nestedLoopMemStmt" : term => `(∀ {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool)
+    (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s1.map (fun x => x.getLsbD 0))
+            (Signal.loop fun (st2 : Signal dom (BitVec 4)) => Signal.register 0#4 (st2 + st)) st))).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s2.map (fun x => x.getLsbD 0))
+            (Signal.loop fun (st2 : Signal dom (BitVec 4)) => Signal.register 0#4 (st2 + st)) st))).val (t + 1))
+
+/-- two nested inner loops (the inner one driven by the state of the middle one, which is driven by the outer state): closed by the walk -/
+theorem nestedLoopMem : nestedLoopMemStmt := by
+  intro dom wd we
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+set_option hygiene false in
+local macro "loopReadsMemStmt" : term => `(∀ {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool)
+    (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s1.map (fun x => x.getLsbD 0))
+            ((Signal.memory st (Signal.register 0#8 wd) we (Signal.register 0#4 st)).map (fun (x : BitVec 8) => x.extractLsb' 0 4)) st))).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s2.map (fun x => x.getLsbD 0))
+            ((Signal.memory st (Signal.register 0#8 wd) we (Signal.register 0#4 st)).map (fun (x : BitVec 8) => x.extractLsb' 0 4)) st))).val (t + 1))
+
+/-- an inner loop whose body reads a `memState` of the loop's own state: closed by the walk -/
+theorem loopReadsMem : loopReadsMemStmt := by
+  intro dom wd we
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+/-! ### the unsupported shape that remains: a read of the outer signal the walk cannot bound (REAL FALLBACK)
+
+The loop (read at cycle `t+1`, not through a memory) adds `s1.map (fun x => if (x.getLsbD 0 && !x.getLsbD 0) = true then 1#4
+else 0#4)`, a function that is constant `0#4` by a Boolean identity.  The walk compares the two sides argument by argument and
+reaches `s1.val (t'+1)` against `s2.val (t'+1)` for the inner time `t' < t+1`: `h` gives only cycles `≤ t`, so for `t' = t` the
+bound is not proved and the walk refuses (it does not know the identity).  The simp path (`ved_causal_simp`) rewrites it away first and closes the goal. -/
+
+set_option hygiene false in
+local macro "ignoredReadStmt" : term => `(∀ {dom : DomainConfig}
+    (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 st + s1.map (fun x => if (x.getLsbD 0 && !x.getLsbD 0) = true then 1#4 else 0#4)).val (t + 1)
+        = (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 st + s2.map (fun x => if (x.getLsbD 0 && !x.getLsbD 0) = true then 1#4 else 0#4)).val (t + 1))
+
+/-- error: ved_causal_dag: bound not proved -/
+#guard_msgs in
+theorem ignoredReadDirect : ignoredReadStmt := by
+  intro dom
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+/-- option on: the walk is tried, refuses, and the simp path closes the goal -/
+theorem ignoredRead : ignoredReadStmt := by
+  intro dom
+  set_option ved.mem.causalDag true in ved_causal []
 
 /-! ### state after a failed walk -/
 
@@ -914,8 +976,8 @@ example : ∀ n : Nat, n = n := by ved_fp_changes (intro n); rfl
 
 /-- the walk makes progress (`intro`, `rcases`) before it fails at the loop; the fallback sees the state from before it, and the
 simp path then closes the goal (the whole state is the one `ved_causal []` itself relies on) -/
-theorem innerLoopMemRestored : innerLoopMemStmt := by
-  intro dom wd we
+theorem innerLoopMemRestored : ignoredReadStmt := by
+  intro dom
   set_option ved.mem.causalDag true in
   ved_walk_fallback 200000 (ved_causal_dag) || (ved_causal_simp [])
 
@@ -944,13 +1006,140 @@ theorem sharedPair {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signa
         = (Signal.memory (⟨fun _ => s2.val 0⟩ : Signal dom (BitVec 4)) wd we (⟨fun _ => s2.val 0⟩ : Signal dom (BitVec 4))).val (t + 1) := by
   set_option ved.mem.causalDag true in ved_causal_dag
 
+/-! ### scope levels: a proof is stored in the outermost scope whose binders it does not mention
+
+`dagCacheLevels` (the cache itself, with real binder variables): a proof that mentions no binder of the scope `s1` it was found in is
+stored in the root and a sibling scope `s2` reads it, and it type-checks in `s2`'s context; a proof that mentions the binder `x`
+of `s1` stays in `s1` (a sibling does not read it, and checking it where `x` is not in scope fails: the control is a real one).
+-/
+
+/-- info: dagCacheLevels ok -/
+#guard_msgs in
+open Tools.VedMemLoop in
+run_cmd liftTermElabM do
+  dgHits.set {}
+  let c ← DagCache.new
+  let s1 ← c.scope
+  let s2 ← c.scope
+  let kFree : Expr × Expr := (mkNatLit 1, mkNatLit 2)
+  let kBind : Expr × Expr := (mkNatLit 3, mkNatLit 4)
+  let pFree := mkApp (mkConst ``Nat.le_refl) (mkNatLit 5)
+  let sh := c.sh
+  -- the proof that mentions the binder, built under the binder of `s1`
+  let pBind ← withLocalDeclD `x (mkConst ``Nat) fun x => do
+    s1.reg #[x]
+    let p := mkApp (mkConst ``Nat.le_refl) x
+    let m ← termMask sh p
+    unless m == 2 do throwError "mask of a proof of a depth-1 variable is {m}, not 2"
+    s1.store kBind p m
+    unless (← s1.find? kBind) == some p do throwError "the own scope lost the binder proof"
+    unless (← s2.find? kBind).isNone do throwError "a binder proof reached a sibling"
+    unless (← c.find? kBind).isNone do throwError "a binder proof reached the root"
+    -- the control is real: the proof does not check where `x` is not in scope
+    return p
+  let bad ← try Meta.check pBind; pure false catch _ => pure true
+  unless bad do throwError "the binder proof checks outside its scope (control void)"
+  -- a closed proof built in `s1` goes to the root and is served to the sibling
+  let mFree ← termMask sh pFree
+  unless mFree == 0 do throwError "mask of a closed proof is {mFree}"
+  s1.store kFree pFree mFree
+  let some (e, found) ← s2.findE? kFree | throwError "the sibling does not read the promoted proof"
+  unless found.depth == 0 do throwError "the promoted proof is not in the root"
+  unless e.by_ == s1.id do throwError "wrong inserter"
+  Meta.check e.proof
+  let h ← Tools.VedMemLoop.dgHits.get
+  unless h.promoted == 1 do throwError "promoted counter {h.promoted}"
+  logInfo "dagCacheLevels ok"
+
+elab "ved_hits_reset" : tactic => Tools.VedMemLoop.dgHits.set {}
+elab "ved_hits_show " tag:str : tactic => do
+  let h ← Tools.VedMemLoop.dgHits.get
+  logInfo m!"{tag.getString} own={h.own} ancestor={h.ancestor} shared={h.shared} inserts={h.inserts} promoted={h.promoted}"
+elab "ved_hits_expect_shared " n:num : tactic => do
+  let h ← Tools.VedMemLoop.dgHits.get
+  unless h.shared ≥ n.getNat do throwError "sibling-shared hits {h.shared} < {n.getNat} (promoted {h.promoted})"
+elab "ved_hits_expect_no_shared" : tactic => do
+  let h ← Tools.VedMemLoop.dgHits.get
+  unless h.shared == 0 do throwError "sibling-shared hits {h.shared}, expected none"
+
+set_option Elab.async false in
+/-- the same pair under the `memState` binders of the address and of the data side (siblings): the walk with the mask check on
+(every stored proof is traversed and its mask compared with the composed one); the pair is promoted to the root and the second
+side is served by it (a sibling-shared hit); the kernel accepts the theorem -/
+theorem sharedPairShared {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory (⟨fun _ => s1.val 0⟩ : Signal dom (BitVec 4)) wd we (⟨fun _ => s1.val 0⟩ : Signal dom (BitVec 4))).val (t + 1)
+        = (Signal.memory (⟨fun _ => s2.val 0⟩ : Signal dom (BitVec 4)) wd we (⟨fun _ => s2.val 0⟩ : Signal dom (BitVec 4))).val (t + 1) := by
+  ved_hits_reset
+  set_option ved.mem.causalDag true in set_option ved.mem.causalDagMaskCheck true in ved_causal_dag
+  ved_hits_show "sharedPairShared"
+  ved_hits_expect_shared 1
+
+set_option Elab.async false in
+/-- end to end, proofs that DO use binder variables: the three sibling sides of this memory read the state signal (`s1.val j` under the
+binder `j`, proved by `h j` with the bound from `hj`).  Those proofs mention `j`/`hj`: none is promoted and none is served to a sibling (promoted 0, shared 0; the mask check, which compares
+every stored proof's traversed mask with the composed one, would fail otherwise; a promoted proof that escaped its binders would fail the
+kernel too); whatever closed pairs the walk shares are served; the theorem is kernel-accepted with its exact statement -/
+theorem siblingBinderProofs {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  ved_hits_reset
+  set_option ved.mem.causalDag true in set_option ved.mem.causalDagMaskCheck true in ved_causal_dag
+  ved_hits_show "siblingBinderProofs"
+  ved_hits_expect_no_shared
+
 /-- info: causal controls: axioms within std3 -/
 #guard_msgs in
 run_cmd liftTermElabM do
   let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
-  for n in [``innerLoopMemRestored, ``sharedPair, ``causalDagMemMacro, ``causalSimpMem] do
+  for n in [``innerLoopMemRestored, ``ignoredRead, ``nestedLoopMem, ``loopReadsMem, ``innerLoopMemDirect, ``sharedPair, ``sharedPairShared, ``siblingBinderProofs, ``causalDagMemMacro, ``causalSimpMem] do
     let axs ← collectAxioms n
     unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
   logInfo "causal controls: axioms within std3"
+
+/-! ## `ved.mem.causalDagBudget`: the local cap of the walk -/
+
+/-- info: causalDagBudget default 200000 -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"causalDagBudget default {Tools.VedMemLoop.ved.mem.causalDagBudget.get (← getOptions)}"
+
+/-- with a tiny cap the walk is refused (the `fail_if_success`: it runs out of its local budget), `ved_causal` then closes the goal by the
+`ved_causal_simp` fallback -/
+theorem causalBudgetTiny {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in
+  set_option ved.mem.causalDagBudget 1 in
+  (fail_if_success ved_causal_budget (ved_causal_dag))
+  set_option ved.mem.causalDag true in
+  set_option ved.mem.causalDagBudget 1 in
+  ved_causal []
+
+/-- the same goal with the default cap: the walk closes it (the macro without the fallback alternative) -/
+theorem causalBudgetDefault {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in ved_causal_budget (ved_causal_dag)
+
+/-- 0 = no local cap: the walk closes it under the ambient budget only -/
+theorem causalBudgetZero {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in set_option ved.mem.causalDagBudget 0 in ved_causal_budget (ved_causal_dag)
+
+/-- info: causal budget controls: axioms within std3 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+  for n in [``causalBudgetTiny, ``causalBudgetDefault, ``causalBudgetZero] do
+    let axs ← collectAxioms n
+    unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
+  logInfo "causal budget controls: axioms within std3"
+
 
 end Tests.Ved.VedMemCloseCheck
