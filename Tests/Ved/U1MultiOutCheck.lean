@@ -146,9 +146,9 @@ def expectEntry (stage : String) (decl : Name) : CommandElabM Unit :=
 #guard_msgs in
 run_cmd expectEntry "multi-output" ``packed
 
-/-- info: refused [multi-output], clean -/
+/-- info: multi OK Tests.Ved.U1MultiOutCheck.moReg.ved_u1 [out_0, out_1] 0 -/
 #guard_msgs in
-run_cmd expectEntry "multi-output" ``moReg
+run_cmd checkMulti ``moReg (← `(fun a => bundle2 (moReg a).1 (moReg a).2)) ["out_0", "out_1"]
 
 -- a structure of signals: the standard entry reads it as the tuple of its fields (`Tools/VedU1StructSeq.lean`);
 -- this was refused at `[table]` before
