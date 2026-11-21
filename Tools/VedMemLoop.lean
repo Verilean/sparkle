@@ -3,6 +3,7 @@ import Tools.VedMem
 import Tools.VedU1Entry
 import Tools.VedU1WireShare
 import Tools.VedMemNest
+import Tools.VedSupplement
 
 /-!
 # Loop unfolding for a loop body that holds a memory (`sparkle-ved-memory`)
@@ -1151,7 +1152,11 @@ elab "ved_loop_unfold_mem " lim:(vedLoopLimit)? " [" ex:Lean.Parser.Tactic.simpL
     -- the gate guards only the simp-based causal discharge (see `loopGateCheck`).  Option `ved.mem.causalDag` on: the walk runs FIRST
     -- (the walk of the `ved_causal` macro, same budget); only when it fails (state restored) the gate is checked, then `ved_causal_simp`.
     -- Option off: the gate, then `ved_causal` (its walk alternative refuses at once, so the simp path), as before.
-    if (← getOptions).getBool `ved.mem.causalDag false then
+    -- a user-supplied lemma (option `ved.mem.userLemma`, `Tools/VedSupplement.lean`) closes this condition INSTEAD of the automatic discharge
+    -- (no gate, no `ved_causal*`); a mismatch is a refusal.  Option empty (default): the branches below, unchanged.
+    if let some lemName := Tools.VedSupplement.optionLemma (← getOptions) then
+      Tools.VedSupplement.applyUserLemma hSc lemName
+    else if (← getOptions).getBool `ved.mem.causalDag false then
       let st ← saveState
       let walked ← try runSubMem hSc (← `(tactic| ved_mem_budget 200000 (ved_causal_dag))); pure true
         catch _ => st.restore; pure false
