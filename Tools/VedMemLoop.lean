@@ -392,7 +392,26 @@ def unfoldValDag (A : Expr) : MetaM Expr := do
   unless Xw.isAppOfArity ``Sparkle.Core.Signal.Signal.mk 3 do throwError "ved_causal_dag: signal does not unfold to Signal.mk"
   return (mkApp (Xw.getArg! 2) k).headBeta
 
-abbrev DagCache := IO.Ref (Std.HashMap (Expr × Expr) Expr)
+/-- the cache of the walk, by pair of subterms, SCOPED: a proof found under a binder (`ved_j`/`ved_hj` of a `memState` side
+condition, the variable of a `funext`) may mention that binder's free variables (a bound proved by `omega` from the binder's
+hypothesis), so it is stored in the scope of the binder only; a scope reads the entries of the scopes around it (those proofs
+mention only variables the inner scope has too) and never writes into them. -/
+structure DagCache where
+  own : IO.Ref (Std.HashMap (Expr × Expr) Expr)
+  parent : Option DagCache
+
+namespace DagCache
+def new : IO DagCache := return { own := ← IO.mkRef {}, parent := none }
+/-- the cache of a new binder scope inside `c` -/
+def scope (c : DagCache) : IO DagCache := return { own := ← IO.mkRef {}, parent := some c }
+partial def find? (c : DagCache) (k : Expr × Expr) : IO (Option Expr) := do
+  match (← c.own.get)[k]? with
+  | some p => return some p
+  | none => match c.parent with
+    | some q => q.find? k
+    | none => return none
+def insert (c : DagCache) (k : Expr × Expr) (p : Expr) : IO Unit := c.own.modify (·.insert k p)
+end DagCache
 
 /-- raw literals (`nat_lit 0` left by the unfolding of a `match`) are not read by `omega`: spell them `OfNat` -/
 def normLitsDag (k0 : Expr) : Expr :=
@@ -417,10 +436,10 @@ def leafDag (h k0 : Expr) : TacticM Expr := do
 /-- a proof of `A = B` (see the module comment) -/
 partial def dagEq (cache : DagCache) (s1 s2 h A B : Expr) : TacticM Expr := do
   if A == B then return ← mkEqRefl A
-  if let some p := (← cache.get)[(A, B)]? then return p
+  if let some p ← cache.find? (A, B) then return p
   checkSystem "ved_causal_dag"
   let p ← dagEqCore cache s1 s2 h A B
-  cache.modify (·.insert (A, B) p)
+  cache.insert (A, B) p
   return p
 where
   /-- `s.1 k` (the projection spelling of `Signal.val s k`) as `Signal.val s k` -/
@@ -464,7 +483,8 @@ where
       let b := B.getAppArgs
       if ([0, 1, 2, 3, 7].all fun i => a[i]! == b[i]!) then
         let t := a[7]!
-        let side (x y : Expr) : TacticM Expr :=
+        let side (x y : Expr) : TacticM Expr := do
+          let cache ← cache.scope
           withLocalDeclD `ved_j (mkConst ``Nat) fun j => do
             withLocalDeclD `ved_hj (← mkAppM ``LT.lt #[j, normLitsDag t]) fun hj => do
               let ValX ← mkAppM ``Sparkle.Core.Signal.Signal.val #[x, j]
@@ -512,6 +532,7 @@ where
         return ← mkCongrArg motive p
     if let (.lam n ty bA bi, .lam _ ty' bB _) := (A, B) then
       if ty == ty' then
+        let cache ← cache.scope
         let p ← withLocalDecl n bi ty fun x => do
           mkLambdaFVars #[x] (← dagEq cache s1 s2 h (bA.instantiate1 x) (bB.instantiate1 x))
         return ← mkFunExt p
@@ -537,11 +558,11 @@ elab "ved_causal_dag" : tactic => do
       let some s1 := lctx.findFromUserName? `s1 | throwError "ved_causal_dag: no s1"
       let some s2 := lctx.findFromUserName? `s2 | throwError "ved_causal_dag: no s2"
       let some h := lctx.findFromUserName? `h | throwError "ved_causal_dag: no h"
-      let cache ← IO.mkRef {}
+      let cache ← DagCache.new
       dbgLogWith do return s!"causal_dag top: nargs={A.getAppNumArgs} head={A.getAppFn} {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr (mkAppN A.getAppFn (A.getAppArgs.extract 0 2))))).take 300} | arg2={(toString (← ppExpr (A.getArg! 2))).take 200} | arg3={(toString (← ppExpr (A.getArg! 3))).take 100}"
       let p ← dagEq cache s1.toExpr s2.toExpr h.toExpr A B
       (← getMainGoal).assign p
-      dbgLogWith do return s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.get).size}"
+      dbgLogWith do return s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.own.get).size}"
   catch e =>
     dbgLogWith do return s!"TLOG causal_dag failed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000}: {(← e.toMessageData.toString).take 600}"
     throw e
