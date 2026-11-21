@@ -1361,6 +1361,13 @@ register_option sparkle.deepContinue : Bool := {
   descr := "#verify_elab_deep: report a failing port and continue with the next one"
 }
 
+/-- H3-open: prove only the named ports of a struct-valued circuit (comma-separated; empty = all).  The hierarchical checker
+reads one port of the open parent (the declaration's own); a struct of ten ports is ten deep proofs. -/
+register_option sparkle.deepPorts : String := {
+  defValue := ""
+  descr := "#verify_elab_deep: only these ports of a struct-valued circuit (comma-separated)"
+}
+
 /-- `signal_lets tv [extra,*]` — the DSL half of the linear (cone-sharing)
 trace recipe, generically.
 
@@ -2168,6 +2175,8 @@ elab "#verify_elab_deep" id:ident : command =>
   let inpSArms ← (List.range nI).toArray.mapM fun j => do
     `(Lean.Parser.Term.matchAltExpr|
       | ⟨$(quote j), _⟩ => $(inpRhs[j]!))
+  -- H3-open: a parent with more than 15 inputs (sha512BlockHW: 25 data inputs + the oracle)
+  let inpSArms ← finTailArm inpSArms nI
   -- The input family is a NAMED def: a `fun j => match j with …`
   -- term spliced into several places elaborates a fresh auxiliary
   -- matcher constant at each site, so the same state read appears in
@@ -5772,7 +5781,11 @@ elab "#verify_elab_deep" id:ident : command =>
     replayBlock ()
     pure deep0Id
 
+  let optsNow ← getOptions
+  let wantPorts : List String :=
+    if structName?.isSome then ((sparkle.deepPorts.get optsNow).splitOn ",").filter (· != "") else []
   for (((portName, wOut), proj?, isBoolOut), outC, outIR) in jobs do
+    if !wantPorts.isEmpty && !wantPorts.contains portName then continue
     let k := portIdx
     portIdx := portIdx + 1
     -- H2d (`sparkle.deepContinue`, set by the hierarchical checker): a port whose block throws is reported

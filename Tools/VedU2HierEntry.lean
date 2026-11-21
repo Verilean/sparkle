@@ -4,6 +4,7 @@ import Tools.VedU1Deep
 import Tools.VedH3ChildEntry
 import Tools.VedU1HierEntry
 import Tools.VedU2HierKid
+import Tools.VedU2HierMultiChain
 
 /-!
 # Stateful hierarchical entry, H2a (`#ved_u2_hier decl`)
@@ -174,6 +175,9 @@ structure OpenInfo where
   ports : List String := []
   /-- H2c-state: the kernel equation `decl xs = g a` (the declaration IS the call on its closed argument) -/
   callEqName : Option Name := none
+  /-- H3-open: the parent's child calls sit inside its register loop (`Tools/VedU2HierMultiGen.lean`); the theorem
+  `∀ xs t, (decl's loop).val t = (the open parent's loop at the oracle along it).val t` -/
+  knot : Option Name := none
   deriving Inhabited
 
 instance : Inhabited Kid :=
@@ -293,6 +297,10 @@ structure InstInfo where
   stateArg : Bool := false
   /-- H2c-state: per data-port wire, the parent register slot it is an alias of -/
   slots : List (String × Nat) := []
+  /-- H3-open: the reads of the register bundle in the nets (`Tools/VedU2HierMultiChain.lean`) and the register slots the
+  net reads (only those get facts) -/
+  bsl : List Tools.VedU2HierMultiChain.BSlice := []
+  needSlots : List Nat := []
 
 def ptyTxt : PTy → String
   | .bit => "Tools.VedU1Contract.PTy.bit"

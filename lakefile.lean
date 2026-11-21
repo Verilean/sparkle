@@ -328,6 +328,18 @@ lean_lib «Tools.VedU2HierBvAppend» where
 lean_lib «Tools.VedU2HierLoopRw» where
   roots := #[`Tools.VedU2HierLoopRw]
 
+lean_lib «Tools.VedU2HierMultiLoop» where
+  roots := #[`Tools.VedU2HierMultiLoop]
+
+lean_lib «Tools.VedU2HierMultiGen» where
+  roots := #[`Tools.VedU2HierMultiGen]
+
+lean_lib «Tools.VedU2HierMultiBundle» where
+  roots := #[`Tools.VedU2HierMultiBundle]
+
+lean_lib «Tools.VedU2HierMultiChain» where
+  roots := #[`Tools.VedU2HierMultiChain]
+
 lean_lib «Tools.VedU2HierXorAttr» where
   roots := #[`Tools.VedU2HierXorAttr]
 
@@ -1684,6 +1696,9 @@ lean_lib «Tests.IP.Net.HTTPTest» where
 
 lean_lib «Tests.Ved.U2HierStateCallCheck» where
   roots := #[`Tests.Ved.U2HierStateCallCheck]
+
+lean_lib «Tests.Ved.U2HierMultiCheck» where
+  roots := #[`Tests.Ved.U2HierMultiCheck]
 
 lean_lib «Tests.Ved.U2HierPartialDeepCheck» where
   roots := #[`Tests.Ved.U2HierPartialDeepCheck]

@@ -5,6 +5,8 @@ import Tools.VedU2HierEntry
 import Tools.VedU2HierReg
 import Tools.VedU2HierNet
 import Tools.VedU2HierStGen
+import Tools.VedU2HierMultiGen
+import Tools.VedU2HierMultiChain
 import Tools.VedU2HierStep
 import Tools.DeepElab
 import Tools.DeepHelpers
@@ -281,6 +283,7 @@ partial def stateBitsOf (b : List Stmt) (regs : List String) (wd : String → Na
 def stateSlotOf (b : List Stmt) (regs : List String) (wd : String → Nat) (fuel : Nat) (w : String) : Option Nat :=
   stateBitsOf b regs wd fuel (.ref w) (wd w - 1) 0
 
+set_option maxHeartbeats 1000000 in
 def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : OpenInfo)
     (kids : List Kid) (insts : List InstInfo) (di : DeepInfo) (dbg : Bool := false) : String := Id.run do
   let P := nm.user
@@ -367,7 +370,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let sigsAll := " ".intercalate (tbl.binders.map argTxt ++ calls.toList.map callTxt)
   let spn : Sp :=
   { state := OState, deep := ODeep, nm := ONm, irS := irS, inpU := inpU, sigsAll := sigsAll
-    rd := (fun slot => deepC opn.openName (ptag ++ s!"_deep_rd{slot}")) }
+    rd := (fun slot => deepC opn.openName (ptag ++ s!"_deep_rd{slot}"))
+    knot := opn.knot.map fun kn => s!"{userName kn} {" ".intercalate (tbl.binders.map argTxt)}" }
   let oracleBody (sg : Nat → String) : String :=
     insts.foldr (fun (ii : InstInfo) acc =>
       s!"if y = {sq ii.y} then {obsOf (kidOut ii.kid) (sg ii.call)} else {acc}") "0"
@@ -466,7 +470,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       X := X.push s!"    have := {T2}.runHS_inputs {P.design} arr {P.mod} hadm hwr ins K K (Nat.le_refl K) _ envs sts hrun t ht E hE x hx"
       X := X.push s!"    simpa using this"
       X := X.push s!"  have hin := hok.1 t"
-      X := X.push s!"  simp [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
+      X := X.push s!"  simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
       let dataNames := tbl.binders.map ("_gen_" ++ ·)
       let mut facts : List String := []
       for n in dataNames do
@@ -477,7 +481,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       if ii.stateArg then
         -- the parent's registers at cycle t: the pre-update state, which the invariant speaks about
         X := X.push s!"  have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
-        for i in [0:di.regWs.length] do
+        -- H3-open: only the registers the instance's net reads get facts
+        for i in List.range di.regWs.length do
           let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < di.regWs.length then ".1" else "")
           X := X.push s!"  have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {di.regWs.length}) := by"
           X := X.push s!"    rw [hregE _ (by decide)]"
@@ -485,7 +490,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           X := X.push s!"  have hlS{i} : {irS} ins t ({i} : Fin {di.regWs.length}) < {2 ^ di.regWs[i]!} := by"
           X := X.push s!"    have := hltS ins t ⟨{i}, by decide⟩"
           X := X.push s!"    simpa using this"
-          facts := facts ++ [s!"hEr{i}", s!"hlS{i}"]
+          if opn.knot.isNone || ii.needSlots.contains i then facts := facts ++ [s!"hEr{i}", s!"hlS{i}"]
         -- H2d (`Tools/VedU2HierStateArgs.lean`): an argument that is a derived net over the register state reads
         -- the loop inside a term; the state theorems rewrite it to its pack
         let derivedArgs := ports.any fun (bn, _) =>
@@ -505,6 +510,15 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           X := X ++ slotLines spn di bn (toString (userName ad)) slot
           facts := facts ++ [s!"hAl{bn}"]
       let mut lts : List String := []
+      -- H3-open: each read of the register bundle is ONE fact per slice step (`bundle_slice_fact`), not an evaluation of the
+      -- concatenation
+      for (bs, bi) in ii.bsl.zipIdx do
+        X := X ++ bs.lines
+        X := X.push s!"  have f_bs{bi} : E {sq bs.w} = {irS} ins t ({bs.slot} : Fin {di.regWs.length}) := by rw [{bs.pf}, hEr{bs.slot}]"
+        let wBs := di.regWs[bs.slot]!
+        X := X.push s!"  have hlt_bs{bi} : E {sq bs.w} < {2 ^ wBs} := by rw [f_bs{bi}]; exact hlS{bs.slot}"
+        facts := facts ++ [s!"f_bs{bi}"]
+        lts := lts ++ [s!"hlt_bs{bi}"]
       for ((w, wd), wi) in ii.chain.zipIdx do
         X := X.push s!"  have e_{wi} := hasgF {sq w} _ rfl"
         X := X.push s!"  simp (config := \{ maxSteps := 2000000 }) [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
@@ -568,9 +582,10 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       else
         L := L.push (ind ++ l.replace "\n" ("\n" ++ ind))
   -- h0: the parent's own initial registers are the open circuit's inits
+  let outCfg : String := if opn.knot.isSome then "(config := { maxSteps := 4000000 }) " else ""
   let hkEnd := L.size
   L := L.push s!"  · intro ins hok"
-  L := L.push s!"    simp [{T2}.st0Of, {T2}.initsOf, Tools.VedU1Contract.regsOf, {P.mod}, Sparkle.IR.Semantics.encodeInit, Sparkle.IR.Semantics.mask, Tools.VedU1Contract.declWidth, {irS}, Cdo.irState, {OInits}, {ONm}, List.lookup, -Fin.isValue]"
+  L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [{T2}.st0Of, {T2}.initsOf, Tools.VedU1Contract.regsOf, {P.mod}, Sparkle.IR.Semantics.encodeInit, Sparkle.IR.Semantics.mask, Tools.VedU1Contract.declWidth, {irS}, Cdo.irState, {OInits}, {ONm}, List.lookup, -Fin.isValue]"
   if st then
     -- the goals of `outputsOnHS_of_stepRK` are h0, hkid, hstep: move h0 in front of hkid
     let h0Block := L.extract hkEnd L.size
@@ -590,7 +605,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     match kidOut c.kid with
     | .bv w => L := L.push s!"    have hlo{j} : ({sg}.val t).toNat < 2 ^ {w} := ({sg}.val t).isLt"
     | .bit => L := L.push s!"    have hlo{j} : Bool.toNat ({sg}.val t) < 2 ^ 1 := by cases ({sg}.val t) <;> simp"
-  L := L.push s!"    simp [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin hrst"
+  L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin hrst"
   let locs := " ".intercalate (((List.range k).map fun i => s!"hR{i}") ++ ((List.range k).map fun i => s!"hl{i}") ++
     ((List.range calls.size).map fun j => s!"hlo{j}"))
   let locsU := " ".intercalate (((List.range k).map fun i => s!"hR{i}") ++ ((List.range k).map fun i => s!"hl{i}"))
@@ -609,14 +624,14 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"    constructor"
   -- the output
   L := L.push s!"    · try rw [if_pos rfl]"
-  if st then
+  if st && opn.knot.isNone then
     -- H2c-state: the declaration IS the call on its closed argument; the output is the oracle value
     -- (`{CEq}` is the kernel equation `decl xs = g a`; the conversion itself is left to the kernel)
     L := L.push s!"      all_goals simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig]"
     if dbg then L := L.push s!"      all_goals ved_eprint_state"
     L := L.push s!"      all_goals ved_kernel_rfl"
   else
-    L := L.push s!"      all_goals simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {OE}, Tools.VedU1Contract.PTy.sig]"
+    L := L.push s!"      all_goals simp {outCfg}[Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {OE}, Tools.VedU1Contract.PTy.sig]"
     L := L.push s!"      all_goals rw [{OTrace}]"
     L := L.push s!"      all_goals unfold {irS} {inpU} at {locsU}"
     L := L.push s!"      all_goals simp only [CExpr.compile, {OOut}]"
@@ -653,6 +668,15 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   if dbg then L := L.push s!"      all_goals ved_eprint_state"
   L := L.push s!"      all_goals ved_hier_close"
   return "\n".intercalate L.toList
+
+/-- The wire names an expression reads. -/
+partial def refsOfE : Sparkle.IR.AST.Expr → List String
+  | .ref n => [n]
+  | .op _ as => as.flatMap refsOfE
+  | .concat as => as.flatMap refsOfE
+  | .slice e _ _ => refsOfE e
+  | .index a i => refsOfE a ++ refsOfE i
+  | _ => []
 
 /-! ## The checker -/
 
@@ -757,11 +781,43 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       | none => none
     | _ => none
   let useState := !stateInsts.isEmpty
-  let opn ← if useState then do
-      unless kids.length == 1 && (b0.filter fun s => match s with | .inst .. => true | _ => false).length == 1 do
-        refuse decl "open" m!"H2c-state covers one child instance (the instances reading register outputs: {stateInsts}; instances in total: {(b0.filter fun s => match s with | .inst .. => true | _ => false).length})"
+  -- H3-open: SEVERAL instances (one of them reading register outputs): the calls sit inside the parent's loop
+  -- (`Tools/VedU2HierMultiGen.lean`); ONE instance keeps the H2c-state path
+  let nInst := (b0.filter fun s => match s with | .inst .. => true | _ => false).length
+  let multi := useState && !(kids.length == 1 && nInst == 1)
+  let opn ← if multi then
+      Tools.VedU2HierMultiGen.genOpenMulti decl stmt nDom tbl kids.toArray nm.mod.getPrefix openSuf
+    else if useState then
       Tools.VedU2HierStGen.genOpenSt decl stmt nDom tbl kids[0]! nm.mod.getPrefix openSuf
     else genOpen decl stmt nDom tbl kids nm.mod.getPrefix openSuf (allowDerived := true)
+  -- H3-open: the instance <-> call pairing.  The instances' input nets are grouped (equal nets over the parent's inputs and
+  -- register outputs are one class) and the classes of a child, in the order of the body, are paired with the calls
+  -- found in the loop body, in their order; a wrong pairing fails in the proof (never accepted)
+  let netKeyOfInst (s : Sparkle.IR.AST.Stmt) : Option (Nat × List Sparkle.IR.AST.Expr) :=
+    match s with
+    | .inst mn _ cs =>
+      match (kids.zipIdx.find? fun (k, _) => k.c.name == mn) with
+      | some (k, ki) =>
+        let ck := contractOf k.tbl ["out"] (clkRstOf k.c) k.c
+        some (ki, ck.dataInputs.map fun p => match cs.lookup p.name with
+          | some (.ref x) => inlineNet (c.dataInputs.map (·.name) ++ regLeaves) b0 b0.length (.ref x)
+          | _ => .ref "?")
+      | none => none
+    | _ => none
+  let mut classKeys : List (Nat × List Sparkle.IR.AST.Expr) := []
+  for s in b0 do
+    if let some key := netKeyOfInst s then
+      unless classKeys.contains key do classKeys := classKeys ++ [key]
+  let callOfClass (key : Nat × List Sparkle.IR.AST.Expr) : Option Nat :=
+    let rank := (classKeys.filter (·.1 == key.1)).idxOf key
+    let calls := (List.range opn.calls.size).filter fun j => opn.calls[j]!.kid == key.1
+    calls[rank]?
+  if multi then
+    for ki in List.range kids.length do
+      let nCls := (classKeys.filter (·.1 == ki)).length
+      let nCalls := (opn.calls.toList.filter (·.kid == ki)).length
+      unless nCls == nCalls do
+        refuse decl "open" m!"child {kids[ki]!.c.name}: its instances' input nets form {nCls} distinct classes, the declaration's loop body has {nCalls} distinct calls of it (the instances and the calls cannot be paired)"
   let mut insts : List InstInfo := []
   let mut usedDerived : List Nat := []
   let mut derivedKeys : List (List Sparkle.IR.AST.Expr × Nat) := []
@@ -785,7 +841,30 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
         let slots := (ck.dataInputs.filterMap fun p => match cs.lookup p.name with
           | some (.ref x) => (stateSlotOf b0 ((regsOf m.body).map (·.1)) (declWidth m) 32 x).map fun i => (x, i)
           | _ => none)
-        insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := 0, derived := true, chain, stateArg := true, slots }]
+        let callIdx := if multi then (match netKeyOfInst s with | some key => (callOfClass key).getD 0 | none => 0) else 0
+        if multi then
+          -- H3-open: the reads of the register bundle are one fact each (`bundle_slice_fact`), not an evaluation of the
+          -- concatenation; only the registers the net reads get facts
+          let regNames := (regsOf m.body).map (·.1)
+          let modN := toString (userName nm.mod)
+          let bodyN := toString (userName nm.body)
+          let netsM : StateM Nat (List (List String × List Tools.VedU2HierMultiChain.BSlice)) :=
+            ck.dataInputs.mapM fun (p : Sparkle.IR.AST.Port) => match cs.lookup p.name with
+              | some (.ref x) => Tools.VedU2HierMultiChain.netChainB (dataInsP ++ regLeaves) regNames b0 (declWidth m) modN bodyN b0.length x
+              | _ => pure ([], [])
+          let nets := netsM.run' 0
+          let chainB := (nets.flatMap (·.1)).eraseDups.map fun w => (w, declWidth m w)
+          let bsl := (nets.flatMap (·.2))
+          let readRegs := (chainB.flatMap fun (w, _) => match asgOf b0 w with
+              | some r => (refsOfE r).filter regNames.contains
+              | none => []) ++ bsl.map (·.reg) ++ (ck.dataInputs.filterMap fun p => match cs.lookup p.name with
+              | some (.ref x) => if regNames.contains x then some x else none
+              | _ => none)
+          let needSlots := (readRegs.eraseDups.filterMap fun r => regNames.idxOf? r)
+          insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := callIdx, derived := true, chain := chainB, stateArg := true, slots,
+                               bsl, needSlots }]
+        else
+          insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := callIdx, derived := true, chain, stateArg := true, slots }]
       else if instDerived c ck cs then
         -- a derived net: the declaration's call is the next unused derived call of this child
         let key := ck.dataInputs.map fun p => match cs.lookup p.name with
@@ -822,10 +901,20 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   -- H2c-state: the deep facts come from the first port of the open parent that exported its loop state
   let opn ← if p1.insts.any (·.stateArg) then do
       let env ← getEnv
-      if opn.ports.isEmpty then pure opn else
-      match opn.ports.find? (fun p => env.contains (deepNameP opn.openName s!"_{p}_deep_state")) with
-      | some p => pure { opn with port := some p }
-      | none => refuse decl "deep" m!"no port of the open parent exported its loop state (ports: {opn.ports})"
+      -- H3-open: the output is read from the declaration's own port, which must export the loop state itself
+      if opn.knot.isSome then
+        match opn.port with
+        | some p =>
+          if env.contains (deepNameP opn.openName s!"_{p}_deep_state") then pure opn
+          else refuse decl "deep" m!"the port {p} of the open parent did not export its loop state"
+        | none =>
+          if env.contains (deepNameP opn.openName "_deep_state") then pure opn
+          else refuse decl "deep" m!"the open parent did not export its loop state"
+      else if opn.ports.isEmpty then pure opn
+      else
+        match opn.ports.find? (fun p => env.contains (deepNameP opn.openName s!"_{p}_deep_state")) with
+        | some p => pure { opn with port := some p }
+        | none => refuse decl "deep" m!"no port of the open parent exported its loop state (ports: {opn.ports})"
     else pure opn
   let ptag := match opn.port with | some p => s!"_{p}" | none => ""
   for s in deepParts ++ (if p1.insts.any (·.stateArg) then ["_deep_state"] else []) do
@@ -906,17 +995,32 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     | .ok s => pure s
     | .error e => refuse decl "proof" m!"generated script does not parse: {e}"
   let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
+  let allBefore := (← Core.getMessageLog).toList.length
+  let tProof0 ← IO.monoMsNow
+  let prof := (← IO.getEnv "VED_HIER_PROFILE").isSome
   let pf ← try
-      withOptions (fun o => ((o.setBool `linter.unusedSimpArgs false).setBool
-          `linter.unusedTactic false).setBool `linter.unreachableTactic false) <| withoutErrToSorry <| withEnableInfoTree false do
+      withOptions (fun o => (((o.setBool `linter.unusedSimpArgs false).setBool
+          `linter.unusedTactic false).setBool `linter.unreachableTactic false).setBool `profiler prof |>.insert `profiler.threshold (Lean.DataValue.ofNat 500)) <| withoutErrToSorry <| withEnableInfoTree false do
         let e ← elabTermEnsuringType stx expected
         synthesizeSyntheticMVarsNoPostponing
         instantiateMVars e
-    catch e => refuse decl "proof" e.toMessageData
+    catch e =>
+      if (← IO.getEnv "VED_HIER_DEBUG").isSome then
+        IO.eprintln s!"[proof] failed after {(← IO.monoMsNow) - tProof0} ms: {(← e.toMessageData.toString).take 300}"
+        for msg in (← Core.getMessageLog).toList.drop allBefore do
+          IO.eprintln s!"[proof-msg] {if msg.severity == .error then "error" else "info"} @{msg.pos.line}:{msg.pos.column} {(← msg.data.toString).take 3000}"
+      refuse decl "proof" e.toMessageData
   let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
+  if (← IO.getEnv "VED_HIER_DEBUG").isSome then
+    IO.eprintln s!"[proof] elaboration {(← IO.monoMsNow) - tProof0} ms"
+    if errs.length != errsBefore then
+      for msg in (← Core.getMessageLog).toList.drop allBefore do
+        IO.eprintln s!"[proof-msg] {if msg.severity == .error then "error" else "info"} @{msg.pos.line}:{msg.pos.column} {(← msg.data.toString).take 3000}"
   if errs.length != errsBefore then
     let first ← match errs.drop errsBefore with
-      | msg :: _ => msg.data.toString
+      | msg :: _ =>
+        let at_ := if (← IO.getEnv "VED_HIER_DEBUG").isSome then s!" [script line {msg.pos.line}, col {msg.pos.column}]" else ""
+        pure ((← msg.data.toString) ++ at_)
       | [] => pure ""
     refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
   if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
@@ -1010,7 +1114,11 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
     let stx ← `(command| #verify_elab_deep $(mkIdent p1.opn.openName))
     -- the deep constants are declared in the CURRENT namespace under the ident's last component;
     -- inside the namespace `decl` they are `decl.ved_open_deep…` (`deepName` of the open parent)
-    try withScope (fun sc => { sc with currNamespace := decl, opts := ((sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true).setBool `sparkle.deepNoNative true }) (withEnableInfoTree false (elabCommand stx))
+    -- H3-open: the open parent is proved for the declaration's own port only (the output is read from it, and so is the loop state)
+    let portOpt := fun (o : Lean.Options) => match p1.opn.knot, p1.opn.port with
+      | some _, some p => o.insert `sparkle.deepPorts (Lean.DataValue.ofString p)
+      | _, _ => o
+    try withScope (fun sc => { sc with currNamespace := decl, opts := portOpt (((sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true).setBool `sparkle.deepNoNative true) }) (withEnableInfoTree false (elabCommand stx))
     catch e => liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName}: {e.toMessageData}"
     let p1 ← tamper p1
     let newMsgs := (← get).messages.toList.drop nMsg0
