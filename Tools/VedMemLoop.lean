@@ -2100,20 +2100,30 @@ def bindStrictStep (e : Expr) : SimpM Step := do
   let r ← Simp.simp m
   unless r.expr.isAppOfArity ``Option.some 2 do return .continue
   let new := (mkApp f r.expr.appArg!).headBeta
-  bindStrictHits.modify (· + 1)
   match r.proof? with
-  | none => return .visit { expr := new }
+  | none => return .continue
   | some p =>
+    bindStrictHits.modify (· + 1)
     let mT ← inferType m
     let motive := Expr.lam `y mT (mkAppN e.getAppFn (e.getAppArgs.set! mi (.bvar 0))) .default
-    let pf ← mkCongrArg motive p
-    return .visit { expr := new, proof? := some (← mkExpectedTypeHint pf (← mkEq e new)) }
+    let x := r.expr.appArg!
+    let mut pf ← mkCongrArg motive p
+    if mi == 4 then pf ← mkEqTrans pf (← mkCongrFun (← mkCongrFun (← mkAppOptM ``Option.bind_eq_bind #[some (e.getArg! 2), some (e.getArg! 3)]) r.expr) f)
+    pf ← mkEqTrans pf (← mkAppM ``Option.bind_some #[x, f])
+    return .visit { expr := new, proof? := some pf }
 
 open Lean Meta Simp in
 simproc_decl vedBindStrictO (Option.bind _ _) := bindStrictStep
 
 open Lean Meta Simp in
 simproc_decl vedBindStrictB (Bind.bind _ _) := bindStrictStep
+
+/-- `ved_hstep_logfail t`: `t`; a failure is logged (`addr.log`, first 600 characters) and rethrown -/
+elab "ved_hstep_logfail " t:tactic : tactic => do
+  try evalTactic t
+  catch e =>
+    dbgLogWith (do return s!"hstep new branch failed: {((← e.toMessageData.toString).replace "\n" " ").take 600}")
+    throw e
 
 /-- `ved_hstep_unify`: in the target of every goal, a loop that is (definitionally, at default transparency, within the budget
 `ved.mem.hstepNormBudget` per test) the loop of a hypothesis (`ved_hstep_loops`) is replaced by that loop, and a read `Signal.val dom α L s` of it

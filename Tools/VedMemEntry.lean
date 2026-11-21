@@ -725,7 +725,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           ved_stamp 921
           first
             | (ved_hstep_norm_on
-               $segNew
+               ved_hstep_logfail $segNew
                ved_hstep_loops_clear
                ved_hstep_norm_ran)
             | (ved_hstep_fallback_reset

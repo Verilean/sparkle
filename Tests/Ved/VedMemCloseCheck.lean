@@ -1364,9 +1364,19 @@ def declWidthHitsCheck (atLeast : Bool) : CommandElabM Unit := do
     unless n == 0 do throwError "declWidthHits: {n}, expected 0"
     logInfo m!"declWidth table not used"
 
+def bindStrictHitsCheck (atLeast : Bool) : CommandElabM Unit := do
+  let n ← Tools.VedMemLoop.bindStrictHits.get
+  if atLeast then
+    unless n ≥ 1 do throwError "bindStrictHits: {n}, expected at least one `Option.bind` step in order"
+    logInfo m!"Option.bind evaluated in order"
+  else
+    unless n == 0 do throwError "bindStrictHits: {n}, expected 0"
+    logInfo m!"Option.bind in order not used"
+
 -- (5) hstepNorm ON, packed
 run_cmd Tools.VedMemLoop.hstepRan.set #[]
 run_cmd Tools.VedMemLoop.declWidthHits.set 0
+run_cmd Tools.VedMemLoop.bindStrictHits.set 0
 #guard_msgs (drop info) in
 set_option ved.mem.hstepNorm true in
 #ved_u1_mem_packed hsE
@@ -1382,6 +1392,10 @@ run_cmd hnormStatsCheck
 /-- info: declWidth answered from the table -/
 #guard_msgs in
 run_cmd declWidthHitsCheck true
+
+/-- info: Option.bind evaluated in order -/
+#guard_msgs in
+run_cmd bindStrictHitsCheck true
 
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsE -/
 #guard_msgs in
@@ -1436,6 +1450,7 @@ run_cmd liftTermElabM <| storedPackedOk ``hsH
 -- (9) OFF (default), nothing of the new branch
 run_cmd Tools.VedMemLoop.hstepRan.set #[]
 run_cmd Tools.VedMemLoop.declWidthHits.set 0
+run_cmd Tools.VedMemLoop.bindStrictHits.set 0
 #guard_msgs (drop info) in
 #ved_u1_mem_packed hsG
 
@@ -1450,6 +1465,10 @@ run_cmd liftTermElabM <| storedPackedOk ``hsG
 /-- info: declWidth table not used -/
 #guard_msgs in
 run_cmd declWidthHitsCheck false
+
+/-- info: Option.bind in order not used -/
+#guard_msgs in
+run_cmd bindStrictHitsCheck false
 
 
 -- (10) ON, the new branch fails LATE (after its tail stages, test seam `hstepFailLate`): the old script closes and the kernel accepts the result.
