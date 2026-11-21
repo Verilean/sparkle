@@ -646,8 +646,10 @@ run_cmd liftTermElabM <| storedOk ``lgE
 
 /-! ### `loopGate 0` does not walk the loop
 
-`loopGateCheck L 0` returns before `treeSizeVal`: it accepts an expression whose tree has 2^64 nodes at once (a counting of that tree would not
-end), while any non-zero limit counts it (memoised over the shared DAG, so it is quick) and refuses. -/
+`loopGateCheck L 0` returns before `treeSizeVal` (a fact of the code: the `gate == 0` early return).  This control only shows the
+behaviour on a shared DAG whose tree has 2^64 nodes: gate 0 accepts it, a non-zero limit counts it and refuses.  Because the count is
+memoised over the shared DAG, it is quick for a non-zero limit too, so this control alone is NOT evidence that gate 0 skips the walk (a
+naive tree traversal of that term would not end; `treeSizeVal` is not naive). -/
 
 /-- info: gate 0: no walk, accepted; gate 10^7: refused -/
 #guard_msgs in
