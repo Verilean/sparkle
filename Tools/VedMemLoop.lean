@@ -389,7 +389,9 @@ def unfoldValDag (A : Expr) : MetaM Expr := do
   let X := A.getArg! 2
   let k := A.getArg! 3
   let Xw ← whnf X
-  unless Xw.isAppOfArity ``Sparkle.Core.Signal.Signal.mk 3 do throwError "ved_causal_dag: signal does not unfold to Signal.mk"
+  unless Xw.isAppOfArity ``Sparkle.Core.Signal.Signal.mk 3 do
+    dbgLogWith do return s!"causal_dag: signal [{(toString (← ppExpr X)).take 200}] whnf [{(toString (← ppExpr Xw)).take 200}]"
+    throwError "ved_causal_dag: signal does not unfold to Signal.mk"
   return (mkApp (Xw.getArg! 2) k).headBeta
 
 /-- the cache of the walk, by pair of subterms, SCOPED: a proof found under a binder (`ved_j`/`ved_hj` of a `memState` side
@@ -428,7 +430,8 @@ def leafDag (h k0 : Expr) : TacticM Expr := do
   let m ← mkFreshExprMVar ty.bindingDomain!
   let rest ← try Tactic.run m.mvarId! (evalTactic (← `(tactic| omega)))
     catch e =>
-      dbgLogWith do return s!"causal_dag leaf: {← e.toMessageData.toString}\nleaf goal: {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr ty.bindingDomain!))).take 400}"
+      dbgLogWith do return s!"causal_dag leaf: {← e.toMessageData.toString}\nleaf goal: {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr ty.bindingDomain!))).take 400}\nbounds: {(← (← getLCtx).foldlM (fun acc d => do
+          if d.userName.toString.startsWith "ved_h" && !d.userName.toString.startsWith "ved_hab" then pure (acc ++ s!" [{d.userName}: {(toString (← ppExpr d.type)).take 120}]") else pure acc) "")}"
       throwError "ved_causal_dag: bound not proved"
   unless rest.isEmpty do throwError "ved_causal_dag: bound not proved"
   return mkApp hk m
@@ -464,6 +467,10 @@ where
     let sigTy := (← whnf (← inferType F)).bindingDomain!
     let sideVal (F a n : Expr) : MetaM Expr :=
       mkAppM ``Sparkle.Core.Signal.Signal.val #[(mkApp F a).headBeta, n]
+    let habTy (a b tt : Expr) : MetaM Expr :=
+      withLocalDeclD `ved_k (mkConst ``Nat) fun j => do
+        mkForallFVars #[j] (← mkArrow (← mkAppM ``LE.le #[j, tt])
+          (← mkEq (← mkAppM ``Sparkle.Core.Signal.Signal.val #[a, j]) (← mkAppM ``Sparkle.Core.Signal.Signal.val #[b, j])))
     let h0 ← do
       let cache ← cache.scope
       withLocalDeclD `ved_a sigTy fun a => withLocalDeclD `ved_b sigTy fun b => do
@@ -471,18 +478,33 @@ where
     let hS ← do
       let cache ← cache.scope
       withLocalDeclD `ved_t (mkConst ``Nat) fun t' => do
-        withLocalDeclD `ved_ht (← mkAppM ``LT.lt #[t', k]) fun ht => do
+        let ltTy ← mkAppM ``LT.lt #[t', k]
+        withLocalDeclD `ved_ht ltTy fun ht => do
           withLocalDeclD `ved_a sigTy fun a => withLocalDeclD `ved_b sigTy fun b => do
-            let hty ← withLocalDeclD `ved_k (mkConst ``Nat) fun j => do
-              mkForallFVars #[j] (← mkArrow (← mkAppM ``LE.le #[j, t'])
-                (← mkEq (← mkAppM ``Sparkle.Core.Signal.Signal.val #[a, j]) (← mkAppM ``Sparkle.Core.Signal.Signal.val #[b, j])))
-            withLocalDeclD `ved_hab hty fun hab => do
+            let hab ← habTy a b t'
+            withLocalDeclD `ved_hab hab fun hb => do
               let t1 ← mkAppM ``HAdd.hAdd #[t', mkNatLit 1]
-              mkLambdaFVars #[t', ht, a, b, hab]
-                (← dagEq cache (ag.push (a, b, hab)) (← sideVal F a t1) (← sideVal G b t1))
+              mkLambdaFVars #[t', ht, a, b, hb]
+                (← dagEq cache (ag.push (a, b, hb)) (← sideVal F a t1) (← sideVal G b t1))
     let pf ← mkAppOptM ``Tools.VedMemNest.loop_val_congr_le
       #[dom, α, L.getArg! 2, F, G, k, h0, hS, k, ← mkAppM ``Nat.le_refl #[k]]
     mkExpectedTypeHint pf (← mkEq A B)
+  /-- `A = B` by `Nat.casesOn` on the variable `j`: the hypotheses that depend on `j` are reverted into the motive, and in each case
+  (`0`, `u+1`) the walk goes on in a child cache scope, with the agreements that mention them re-pointed at the new hypotheses. -/
+  splitDag (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B j : Expr) : TacticM Expr := do
+    let ds := (← collectForwardDeps #[j] false).filter (· != j)
+    dbgLogWith do return s!"causal_dag: split on {(toString (← ppExpr j))} deps={ds.size} A=[{(toString (← ppExpr A)).take 300}]"
+    let motive ← mkLambdaFVars #[j] (← mkForallFVars ds (← mkEq A B))
+    let branch (v : Expr) : TacticM Expr := do
+      let cache ← cache.scope
+      forallTelescope (motive.beta #[v]) fun ds' body => do
+        let some (_, A', B') := body.eq? | throwError "ved_causal_dag: no rule for this pair of subterms"
+        let ag' := ag.map fun (x, y, h) => (x, y, h.replaceFVars ds ds')
+        mkLambdaFVars ds' (← dagEq cache ag' A' B')
+    let z ← branch (mkNatLit 0)
+    let sc ← withLocalDeclD `ved_u (mkConst ``Nat) fun u => do
+      mkLambdaFVars #[u] (← branch (← mkAppM ``HAdd.hAdd #[u, mkNatLit 1]))
+    return mkAppN (← mkAppOptM ``Nat.casesOn #[motive, j, z, sc]) ds
   dagEqCore (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A0 B0 : Expr) : TacticM Expr := do
     let A ← normVal (← whnfCore A0)
     let B ← normVal (← whnfCore B0)
@@ -504,6 +526,13 @@ where
       let Y := B.getArg! 2
       let k := A.getArg! 3
       unless k == B.getArg! 3 do throwError "ved_causal_dag: different cycles"
+      -- a signal left as a redex (`(fun x => a) ()`) is the state variable `a` itself: the leaf is found after the head step
+      let X' ← whnfCore X
+      let Y' ← whnfCore Y
+      if X' != X || Y' != Y then
+        let A' := mkAppN A.getAppFn (A.getAppArgs.set! 2 X')
+        let B' := mkAppN B.getAppFn (B.getAppArgs.set! 2 Y')
+        return ← mkExpectedTypeHint (← dagEq cache ag A' B') (← mkEq A B)
       for (s1, s2, h) in ag do
         if X == s1 && Y == s2 then return ← mkExpectedTypeHint (← leafDag h k) (← mkEq A B)
       if X.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 && Y.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then
@@ -540,6 +569,13 @@ where
             pf ← mkCongr pf (← dagEq cache ag a[i]! b[i]!)
           else pf ← mkCongrFun pf a[i]!
         return pf
+    -- a `match` on a variable time (a memory or register read at the variable inner time of a loop, or at the variable of a
+    -- `memState` side condition) does not reduce: the cases `0` / `u+1` of that variable
+    for E in [A, B] do
+      if let some m ← matchMatcherApp? E then
+        if let some j ← m.discrs.findM? fun d => do
+            pure (d.isFVar && (← inferType d).isConstOf ``Nat) then
+          return ← splitDag cache ag A B j
     if A.isApp && B.isApp then
       let f := A.getAppFn
       let a := A.getAppArgs

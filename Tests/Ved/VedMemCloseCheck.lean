@@ -453,10 +453,15 @@ present, exactly:
   first alternative of `ved_causal []`), axioms within std3.
 * `causalDagOff`: option off, `ved_causal_dag` refuses at once with its fixed text; `causalSimpMem`: option off, `ved_causal []`
   runs the simp path and closes the same goal.
-* `innerLoopMem` (REAL FALLBACK): option on, a memory whose read address is an inner `Signal.loop` driven by the state.  The walk
-  has no rule for a loop and refuses (`innerLoopMemDirect`: `ved_causal_dag` alone fails with the fixed text `ved_causal_dag: loop`),
-  `ved_causal []` closes the same goal through the simp path (`ved_causal_simp`, `ved_loop_congr`): stored type `==` the statement,
-  axioms within std3.
+* `innerLoopMem`, `innerLoopMemDirect`: option on, a memory whose read address is an inner `Signal.loop` driven by the state.  The
+  walk closes it (`ved_causal_dag` alone; `innerLoopMem` through `ved_causal []`): stored type `==` the statement, axioms within
+  std3.  The inner loop is a `Tools.VedMemNest.loop_val_congr_le` step whose two premises are walked (under `a b`, and under
+  `t' (t' < k) a b hab`), no whole-goal simp.  `nestedLoopMem` (two nested inner loops) and `loopReadsMem` (an inner loop whose
+  body reads a `memState` of its own state) are closed by the walk too.
+* `ignoredRead` (REAL FALLBACK): a loop read at cycle `t+1` whose body adds `s1.map` of a function that is constant by a Boolean
+  identity.  The walk reaches `s1.val (t'+1)` against `s2.val (t'+1)` for `t' < t+1`, `h` gives cycles `≤ t` only, the
+  bound is not proved and the walk refuses (`ignoredReadDirect`: the fixed text `ved_causal_dag: bound not proved`);
+  `ved_causal []` closes the same goal through the simp path (`ved_causal_simp`, `ved_loop_congr`).
 * `ved_walk_fallback` (STATE RESTORATION): after the failed walk the goal list, the metavariable context (counter, declarations,
   assignments) and the heartbeat clock/limit that the fallback sees are those from before the walk; the fingerprint check itself
   is shown to see a change (`ved_fp_changes`).
@@ -521,7 +526,7 @@ theorem innerLoopMemDirect : innerLoopMemStmt := by
   intro dom wd we
   set_option ved.mem.causalDag true in ved_causal_dag
 
-/-- option on: the walk is tried, fails, and the simp path closes the goal -/
+/-- option on: the walk closes it as the first alternative of `ved_causal` -/
 theorem innerLoopMem : innerLoopMemStmt := by
   intro dom wd we
   set_option ved.mem.causalDag true in ved_causal []
@@ -535,6 +540,64 @@ run_cmd liftTermElabM do
   let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
   unless axs.all (std.contains ·) do throwError "innerLoopMem: axioms {axs}"
   logInfo "innerLoopMem: type exact, axioms within std3"
+
+/-! ### two nested inner loops, an inner loop reading a `memState` -/
+
+set_option hygiene false in
+local macro "nestedLoopMemStmt" : term => `(∀ {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool)
+    (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s1.map (fun x => x.getLsbD 0))
+            (Signal.loop fun (st2 : Signal dom (BitVec 4)) => Signal.register 0#4 (st2 + st)) st))).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s2.map (fun x => x.getLsbD 0))
+            (Signal.loop fun (st2 : Signal dom (BitVec 4)) => Signal.register 0#4 (st2 + st)) st))).val (t + 1))
+
+/-- two nested inner loops (the inner one driven by the state of the middle one, which is driven by the outer state): closed by the walk -/
+theorem nestedLoopMem : nestedLoopMemStmt := by
+  intro dom wd we
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+set_option hygiene false in
+local macro "loopReadsMemStmt" : term => `(∀ {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool)
+    (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s1.map (fun x => x.getLsbD 0))
+            ((Signal.memory st (Signal.register 0#8 wd) we (Signal.register 0#4 st)).map (fun (x : BitVec 8) => x.extractLsb' 0 4)) st))).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s2.map (fun x => x.getLsbD 0))
+            ((Signal.memory st (Signal.register 0#8 wd) we (Signal.register 0#4 st)).map (fun (x : BitVec 8) => x.extractLsb' 0 4)) st))).val (t + 1))
+
+/-- an inner loop whose body reads a `memState` of the loop's own state: closed by the walk -/
+theorem loopReadsMem : loopReadsMemStmt := by
+  intro dom wd we
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+/-! ### the unsupported shape that remains: a read of the outer signal the walk cannot bound (REAL FALLBACK)
+
+The loop (read at cycle `t+1`, not through a memory) adds `s1.map (fun x => if (x.getLsbD 0 && !x.getLsbD 0) = true then 1#4
+else 0#4)`, a function that is constant `0#4` by a Boolean identity.  The walk compares the two sides argument by argument and
+reaches `s1.val (t'+1)` against `s2.val (t'+1)` for the inner time `t' < t+1`: `h` gives only cycles `≤ t`, so for `t' = t` the
+bound is not proved and the walk refuses (it does not know the identity).  The simp path (`ved_causal_simp`) rewrites it away first and closes the goal. -/
+
+set_option hygiene false in
+local macro "ignoredReadStmt" : term => `(∀ {dom : DomainConfig}
+    (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 st + s1.map (fun x => if (x.getLsbD 0 && !x.getLsbD 0) = true then 1#4 else 0#4)).val (t + 1)
+        = (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 st + s2.map (fun x => if (x.getLsbD 0 && !x.getLsbD 0) = true then 1#4 else 0#4)).val (t + 1))
+
+/-- error: ved_causal_dag: bound not proved -/
+#guard_msgs in
+theorem ignoredReadDirect : ignoredReadStmt := by
+  intro dom
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+/-- option on: the walk is tried, refuses, and the simp path closes the goal -/
+theorem ignoredRead : ignoredReadStmt := by
+  intro dom
+  set_option ved.mem.causalDag true in ved_causal []
 
 /-! ### state after a failed walk -/
 
@@ -565,8 +628,8 @@ example : ∀ n : Nat, n = n := by ved_fp_changes (intro n); rfl
 
 /-- the walk makes progress (`intro`, `rcases`) before it fails at the loop; the fallback sees the state from before it, and the
 simp path then closes the goal (the whole state is the one `ved_causal []` itself relies on) -/
-theorem innerLoopMemRestored : innerLoopMemStmt := by
-  intro dom wd we
+theorem innerLoopMemRestored : ignoredReadStmt := by
+  intro dom
   set_option ved.mem.causalDag true in
   ved_walk_fallback 200000 (ved_causal_dag) || (ved_causal_simp [])
 
@@ -599,7 +662,7 @@ theorem sharedPair {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signa
 #guard_msgs in
 run_cmd liftTermElabM do
   let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
-  for n in [``innerLoopMemRestored, ``sharedPair, ``causalDagMemMacro, ``causalSimpMem] do
+  for n in [``innerLoopMemRestored, ``ignoredRead, ``nestedLoopMem, ``loopReadsMem, ``innerLoopMemDirect, ``sharedPair, ``causalDagMemMacro, ``causalSimpMem] do
     let axs ← collectAxioms n
     unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
   logInfo "causal controls: axioms within std3"
