@@ -384,15 +384,94 @@ def congrArgsDag (f : Expr) (as bs : Array Expr) (ps : Array (Nat × Expr)) : Me
     cur := mkAppN f args
   return pf
 
+/-! Diagnosis of the walk (ONLY with `VED_DUMP_DIR`; every counter below is a no-op without it, no string is built outside the gate). -/
+initialize dgGate : Bool ← dbgOn
+
+/-- counters of one `ved_causal_dag` walk -/
+structure DagStats where
+  rules : Std.HashMap String Nat := {}
+  sizes : Std.HashMap String (Nat × Nat × Nat) := {}
+  seen : Std.HashSet (Expr × Expr) := {}
+  calls : Nat := 0
+  depth : Nat := 0
+  maxDepth : Nat := 0
+  splitDepth : Nat := 0
+  maxSplitDepth : Nat := 0
+  instrHb : Nat := 0
+  hb0 : Nat := 0
+  t0 : Nat := 0
+  deriving Inhabited
+
+initialize dgStats : IO.Ref DagStats ← IO.mkRef {}
+
+def stBump (k : String) : IO Unit := do
+  if dgGate then dgStats.modify fun s => { s with rules := s.rules.insert k (s.rules.getD k 0 + 1) }
+
+/-- the number of distinct nodes (by pointer) of `e` -/
+unsafe def dagNodesUnsafe (e : Expr) : Nat :=
+  let rec go (e : Expr) : StateM (Std.HashSet USize) Unit := do
+    let p := ptrAddrUnsafe e
+    if (← get).contains p then return
+    modify (·.insert p)
+    match e with
+    | .app f a => do go f; go a
+    | .lam _ t b _ => do go t; go b
+    | .forallE _ t b _ => do go t; go b
+    | .letE _ t v b _ => do go t; go v; go b
+    | .mdata _ b => go b
+    | .proj _ _ b => go b
+    | _ => pure ()
+  ((go e).run {}).2.size
+@[implemented_by dagNodesUnsafe] def dagNodes (_ : Expr) : Nat := 0
+
+/-- count, max and sum of the pointer-DAG sizes of the terms recorded under `k` (the heartbeats spent measuring are counted apart) -/
+def stSize (k : String) (e : Expr) : IO Unit := do
+  if dgGate then
+    let h0 ← IO.getNumHeartbeats
+    let n := dagNodes e
+    let h1 ← IO.getNumHeartbeats
+    dgStats.modify fun s =>
+      let (c, m, t) := s.sizes.getD k (0, 0, 0)
+      { s with sizes := s.sizes.insert k (c + 1, max m n, t + n), instrHb := s.instrHb + (h1 - h0) }
+
+def stRender : IO String := do
+  let s ← dgStats.get
+  let hb ← IO.getNumHeartbeats
+  let rs := s.rules.toArray.qsort (fun a b => a.1 < b.1)
+  let zs := s.sizes.toArray.qsort (fun a b => a.1 < b.1)
+  return s!"calls={s.calls} depth={s.depth}/max {s.maxDepth} splitDepth={s.splitDepth}/max {s.maxSplitDepth} seen={s.seen.size} hb={(hb - s.hb0) / 1000} instrHb={s.instrHb / 1000} ms={(← IO.monoMsNow) - s.t0} rules=[{", ".intercalate (rs.toList.map fun (k, n) => s!"{k}:{n}")}] sizes(count/max/sum)=[{", ".intercalate (zs.toList.map fun (k, (c, m, t)) => s!"{k}:{c}/{m}/{t}")}]"
+
+def stReset : IO Unit := do
+  if dgGate then dgStats.set { hb0 := ← IO.getNumHeartbeats, t0 := ← IO.monoMsNow }
+
+def stEnter : IO Unit := do
+  if dgGate then
+    dgStats.modify fun s => { s with calls := s.calls + 1, depth := s.depth + 1, maxDepth := max s.maxDepth (s.depth + 1) }
+    let s ← dgStats.get
+    if s.calls % 2000 == 0 then dbgLog s!"causal_dag progress {← stRender}"
+
+def stLeave : IO Unit := do
+  if dgGate then dgStats.modify fun s => { s with depth := s.depth - 1 }
+
+def stSplit (d : Int) : IO Unit := do
+  if dgGate then dgStats.modify fun s =>
+    let n := (s.splitDepth + d).toNat
+    { s with splitDepth := n, maxSplitDepth := max s.maxSplitDepth n }
+
 /-- the scalar the signal `X` has at cycle `k` (`Signal.val X k` unfolded to the body of its `Signal.mk`) -/
 def unfoldValDag (A : Expr) : MetaM Expr := do
   let X := A.getArg! 2
   let k := A.getArg! 3
   let Xw ← whnf X
+  stSize "whnf-sig" Xw
   unless Xw.isAppOfArity ``Sparkle.Core.Signal.Signal.mk 3 do
     dbgLogWith do return s!"causal_dag: signal [{(toString (← ppExpr X)).take 200}] whnf [{(toString (← ppExpr Xw)).take 200}]"
     throwError "ved_causal_dag: signal does not unfold to Signal.mk"
-  return (mkApp (Xw.getArg! 2) k).headBeta
+  let r := (mkApp (Xw.getArg! 2) k).headBeta
+  if dgGate then
+    stSize "unfold-val" r
+    stSize s!"unfold-by {X.getAppFn.constName?.getD `none}" r
+  return r
 
 /-- the cache of the walk, by pair of subterms, SCOPED: a proof found under a binder (`ved_j`/`ved_hj` of a `memState` side
 condition, the variable of a `funext`) may mention that binder's free variables (a bound proved by `omega` from the binder's
@@ -405,7 +484,7 @@ structure DagCache where
 namespace DagCache
 def new : IO DagCache := return { own := ← IO.mkRef {}, parent := none }
 /-- the cache of a new binder scope inside `c` -/
-def scope (c : DagCache) : IO DagCache := return { own := ← IO.mkRef {}, parent := some c }
+def scope (c : DagCache) : IO DagCache := do stBump "scope-new"; return { own := ← IO.mkRef {}, parent := some c }
 partial def find? (c : DagCache) (k : Expr × Expr) : IO (Option Expr) := do
   match (← c.own.get)[k]? with
   | some p => return some p
@@ -413,6 +492,7 @@ partial def find? (c : DagCache) (k : Expr × Expr) : IO (Option Expr) := do
     | some q => q.find? k
     | none => return none
 def insert (c : DagCache) (k : Expr × Expr) (p : Expr) : IO Unit := c.own.modify (·.insert k p)
+partial def depth (c : DagCache) : Nat := match c.parent with | some q => q.depth + 1 | none => 0
 end DagCache
 
 /-- raw literals (`nat_lit 0` left by the unfolding of a `match`) are not read by `omega`: spell them `OfNat` -/
@@ -438,13 +518,29 @@ def leafDag (h k0 : Expr) : TacticM Expr := do
 
 /-- a proof of `A = B` (see the module comment) -/
 partial def dagEq (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM Expr := do
-  if A == B then return ← mkEqRefl A
-  if let some p ← cache.find? (A, B) then return p
-  checkSystem "ved_causal_dag"
-  let p ← dagEqCore cache ag A B
-  cache.insert (A, B) p
+  stEnter
+  let p ← dagEqBody cache ag A B
+  stLeave
   return p
 where
+  dagEqBody (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM Expr := do
+    if A == B then
+      stBump "refl"
+      return ← mkEqRefl A
+    if let some p ← cache.find? (A, B) then
+      if dgGate then
+        let own := (← cache.own.get).contains (A, B)
+        stBump s!"cache-hit-{if own then "own" else "ancestor"}@{cache.depth}"
+      return p
+    if dgGate then
+      stBump s!"cache-miss@{cache.depth}"
+      let sn ← dgStats.get
+      if sn.seen.contains (A, B) then stBump "cache-miss-pair-seen-before"
+      else dgStats.modify fun s => { s with seen := s.seen.insert (A, B) }
+    checkSystem "ved_causal_dag"
+    let p ← dagEqCore cache ag A B
+    cache.insert (A, B) p
+    return p
   /-- `s.1 k` (the projection spelling of `Signal.val s k`) as `Signal.val s k` -/
   normVal (e : Expr) : MetaM Expr := do
     match e.consumeMData with
@@ -497,10 +593,13 @@ where
     let motive ← mkLambdaFVars #[j] (← mkForallFVars ds (← mkEq A B))
     let branch (v : Expr) : TacticM Expr := do
       let cache ← cache.scope
-      forallTelescope (motive.beta #[v]) fun ds' body => do
+      stSplit 1
+      let r ← forallTelescope (motive.beta #[v]) fun ds' body => do
         let some (_, A', B') := body.eq? | throwError "ved_causal_dag: no rule for this pair of subterms"
         let ag' := ag.map fun (x, y, h) => (x, y, h.replaceFVars ds ds')
         mkLambdaFVars ds' (← dagEq cache ag' A' B')
+      stSplit (-1)
+      return r
     let z ← branch (mkNatLit 0)
     let sc ← withLocalDeclD `ved_u (mkConst ``Nat) fun u => do
       mkLambdaFVars #[u] (← branch (← mkAppM ``HAdd.hAdd #[u, mkNatLit 1]))
@@ -509,12 +608,15 @@ where
     let A ← normVal (← whnfCore A0)
     let B ← normVal (← whnfCore B0)
     if A != A0 || B != B0 then
+      stBump "whnfCore-step"
+      if dgGate then stSize "whnfCore-result" A
       return ← mkExpectedTypeHint (← dagEq cache ag A B) (← mkEq A0 B0)
     -- `Signal.val F k x`: the value of a signal of functions (`<*>`) applied to an argument
     if A.isAppOf ``Sparkle.Core.Signal.Signal.val && A.getAppNumArgs > 4 && B.isAppOf ``Sparkle.Core.Signal.Signal.val
         && B.getAppNumArgs == A.getAppNumArgs then
       let a := A.getAppArgs
       let b := B.getAppArgs
+      stBump "val-applied"
       let mut pf ← dagEq cache ag (mkAppN A.getAppFn (a.extract 0 4)) (mkAppN B.getAppFn (b.extract 0 4))
       for i in [4:a.size] do
         if a[i]! != b[i]! then
@@ -530,15 +632,20 @@ where
       let X' ← whnfCore X
       let Y' ← whnfCore Y
       if X' != X || Y' != Y then
+        stBump "val-signal-whnfCore"
         let A' := mkAppN A.getAppFn (A.getAppArgs.set! 2 X')
         let B' := mkAppN B.getAppFn (B.getAppArgs.set! 2 Y')
         return ← mkExpectedTypeHint (← dagEq cache ag A' B') (← mkEq A B)
       for (s1, s2, h) in ag do
-        if X == s1 && Y == s2 then return ← mkExpectedTypeHint (← leafDag h k) (← mkEq A B)
+        if X == s1 && Y == s2 then
+          stBump "leaf"
+          return ← mkExpectedTypeHint (← leafDag h k) (← mkEq A B)
       if X.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 && Y.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then
+        stBump "loopDag"
         return ← loopDag cache ag A B
       if X.isAppOf ``Sparkle.Core.Signal.Signal.loop || Y.isAppOf ``Sparkle.Core.Signal.Signal.loop then
         throwError "ved_causal_dag: loop"
+      stBump "unfoldValDag"
       let eA ← unfoldValDag A
       let eB ← unfoldValDag B
       let p ← dagEq cache ag eA eB
@@ -550,6 +657,7 @@ where
       let a := A.getAppArgs
       let b := B.getAppArgs
       if ([0, 1, 2, 3, 7].all fun i => a[i]! == b[i]!) then
+        stBump "memState"
         let t := a[7]!
         let side (x y : Expr) : TacticM Expr := do
           let cache ← cache.scope
@@ -575,6 +683,7 @@ where
       if let some m ← matchMatcherApp? E then
         if let some j ← m.discrs.findM? fun d => do
             pure (d.isFVar && (← inferType d).isConstOf ``Nat) then
+          stBump "casesOn-split"
           return ← splitDag cache ag A B j
     if A.isApp && B.isApp then
       let f := A.getAppFn
@@ -582,10 +691,12 @@ where
       let b := B.getAppArgs
       if f == B.getAppFn && a.size == b.size then
         if f.isConstOf ``ite && a.size == 5 then
+          stBump "ite"
           let pc ← dagEq cache ag a[1]! b[1]!
           let pt ← dagEq cache ag a[3]! b[3]!
           let pe ← dagEq cache ag a[4]! b[4]!
           return ← mkAppOptM ``ved_ite_congr #[a[0]!, a[1]!, b[1]!, a[2]!, b[2]!, a[3]!, b[3]!, a[4]!, b[4]!, pc, pt, pe]
+        stBump (if dgGate then s!"congr-app {f.constName?.getD `other}" else "")
         let mut ps : Array (Nat × Expr) := #[]
         for i in [0:a.size] do
           if a[i]! != b[i]! then
@@ -602,15 +713,18 @@ where
         return ← congrArgsDag f a b ps
     if let (.proj n i x, .proj n' i' y) := (A, B) then
       if n == n' && i == i' then
+        stBump "proj"
         let p ← dagEq cache ag x y
         let motive ← withLocalDeclD `ved_y (← inferType x) fun v => mkLambdaFVars #[v] (.proj n i v)
         return ← mkCongrArg motive p
     if let (.lam n ty bA bi, .lam _ ty' bB _) := (A, B) then
       if ty == ty' then
+        stBump "funext"
         let cache ← cache.scope
         let p ← withLocalDecl n bi ty fun x => do
           mkLambdaFVars #[x] (← dagEq cache ag (bA.instantiate1 x) (bB.instantiate1 x))
         return ← mkFunExt p
+    stBump "no-rule"
     dbgLogWith do return s!"causal_dag: no rule for [{(toString (← ppExpr A)).take 300}] against [{(toString (← ppExpr B)).take 300}]"
     throwError "ved_causal_dag: no rule for this pair of subterms"
 
@@ -624,7 +738,8 @@ elab "ved_causal_dag" : tactic => do
   let t0 ← IO.monoMsNow
   let hb0 ← IO.getNumHeartbeats
   dbgLogWith do return s!"TLOG causal_dag begin t={t0}"
-  try
+  stReset
+  tryCatchRuntimeEx (do
    for g in ← getGoals do
     setGoals [g]
     withMainContext do
@@ -637,9 +752,12 @@ elab "ved_causal_dag" : tactic => do
       dbgLogWith do return s!"causal_dag top: nargs={A.getAppNumArgs} head={A.getAppFn} {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr (mkAppN A.getAppFn (A.getAppArgs.extract 0 2))))).take 300} | arg2={(toString (← ppExpr (A.getArg! 2))).take 200} | arg3={(toString (← ppExpr (A.getArg! 3))).take 100}"
       let p ← dagEq cache #[(s1.toExpr, s2.toExpr, h.toExpr)] A B
       (← getMainGoal).assign p
-      dbgLogWith do return s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.own.get).size}"
-  catch e =>
-    dbgLogWith do return s!"TLOG causal_dag failed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000}: {(← e.toMessageData.toString).take 600}"
+      dbgLogWith do return s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.own.get).size} {← stRender}"
+   ) fun e => do
+    if e.isRuntime then
+      dbgLogWith do return s!"TLOG causal_dag RUNTIME EXCEPTION (heartbeats/recursion) t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000}: {← stRender}"
+    else
+      dbgLogWith do return s!"TLOG causal_dag failed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000}: {(← e.toMessageData.toString).take 600}"
     throw e
   setGoals []
 
