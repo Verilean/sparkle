@@ -16,7 +16,7 @@ condition.  Environment (all optional; the hook does nothing without `VED_KERNEL
   `Kernel.Environment.addDecl`, the result is dropped), synchronously, with a wall cap of `s` seconds (on the cap the check is
   cancelled and "not finished" is recorded).  The kernel's own heartbeat limit is off for the probe (the wall cap bounds it).
 
-Lines go to stdout and stderr, flushed (`VED PROBE ...`, independent of `VED_DUMP_DIR`; `walk_ms`/`walk_hb_k` = the walk of the side condition) and, with
+Lines are appended to the file `VED_PROBE_LOG` when set (the streams of a tactic are captured by the elaborator, so a stop loses them) and go to stderr (`VED PROBE ...`, independent of `VED_DUMP_DIR`; `walk_ms`/`walk_hb_k` = the walk of the side condition) and, with
 `VED_DUMP_DIR`, to `addr.log`.
 -/
 
@@ -24,12 +24,14 @@ open Lean Meta Elab Tactic
 
 namespace Tools.VedMemCausalProbe
 
-/-- a probe line on stdout and stderr, flushed (the process may stop right after; the harness shows the case's stdout) -/
+/-- a probe line: appended to the file `VED_PROBE_LOG` (when set), and on stdout/stderr.  The elaborator isolates the streams of a tactic
+into messages, which the process stopping right after never prints; the file is the record. -/
 def out (l : String) : IO Unit := do
+  if let some f ← IO.getEnv "VED_PROBE_LOG" then
+    let h ← IO.FS.Handle.mk f .append
+    h.putStrLn l
+    h.flush
   IO.eprintln l
-  IO.println l
-  (← IO.getStdout).flush
-  (← IO.getStderr).flush
 
 initialize closedCount : IO.Ref Nat ← IO.mkRef 0
 
