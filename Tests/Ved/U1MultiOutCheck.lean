@@ -61,6 +61,31 @@ def moReg (a : Signal defaultDomain (BitVec 8)) :
     Signal defaultDomain (BitVec 8) × Signal defaultDomain (BitVec 8) :=
   (Signal.register 0#8 a, a)
 
+/-- the register on the SECOND leaf (init 5), the output value `a` first -/
+def moRegS (a : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) × Signal defaultDomain (BitVec 8) :=
+  (a, Signal.register 5#8 a)
+
+/-- two inputs of different widths, a 4-bit register on the first leaf -/
+def moRegW (a : Signal defaultDomain (BitVec 8)) (b : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 4) × Signal defaultDomain (BitVec 8) :=
+  (Signal.register 3#4 b, a)
+
+/-- controls: another init / outputs exchanged / the register not driving a port directly; `moRegCtl` is
+never run through the entry itself (its checker constants must not exist afterwards) -/
+def moRegCtl (a : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) × Signal defaultDomain (BitVec 8) :=
+  (Signal.register 0#8 a, a)
+def moRegInit1 (a : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) × Signal defaultDomain (BitVec 8) :=
+  (Signal.register 1#8 a, a)
+def moRegSwap (a : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) × Signal defaultDomain (BitVec 8) :=
+  (a, Signal.register 0#8 a)
+def moRegSum (a : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) × Signal defaultDomain (BitVec 8) :=
+  (Signal.register 0#8 a + a, a)
+
 structure PO where
   x : Signal defaultDomain (BitVec 8)
   y : Signal defaultDomain (BitVec 8)
@@ -236,5 +261,46 @@ run_cmd expectRefused "multi-output" ``mwCtl do
 run_cmd expectRefused "proof" ``mwCtl do
   let (stmt, _, _) ← stmtOf ``mwCtl
   discard <| checkU1E ``mwCtl ``mwCtl stmt (← modOf ``mw) .generated ["out_0", "out_0"]
+
+/-- info: multi OK Tests.Ved.U1MultiOutCheck.moRegS.ved_u1 [out_0, out_1] 0 -/
+#guard_msgs in
+run_cmd checkMulti ``moRegS (← `(fun a => bundle2 (moRegS a).1 (moRegS a).2)) ["out_0", "out_1"]
+
+/-- info: multi OK Tests.Ved.U1MultiOutCheck.moRegW.ved_u1 [out_0, out_1] 0 -/
+#guard_msgs in
+run_cmd checkMulti ``moRegW (← `(fun a b => bundle2 (moRegW a b).1 (moRegW a b).2)) ["out_0", "out_1"]
+
+-- a register that no output port is assigned directly stays refused (same text as before)
+/-- info: refused [multi-output], clean -/
+#guard_msgs in
+run_cmd expectEntry "multi-output" ``moRegSum
+
+-- controls on moReg's module: another init, outputs exchanged, an output dropped, the register stripped
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" ``moRegCtl do onModule ``moRegCtl (← modOf ``moRegInit1)
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" ``moRegCtl do onModule ``moRegCtl (← modOf ``moRegSwap)
+
+/-- info: refused [multi-output], clean -/
+#guard_msgs in
+run_cmd expectRefused "multi-output" ``moRegCtl do onModule ``moRegCtl (mutDrop (← modOf ``moReg))
+
+-- the init changed inside the module itself (same declaration)
+def mutInit (m : Sparkle.IR.AST.Module) : Sparkle.IR.AST.Module :=
+  { m with body := m.body.map fun s => match s with
+      | .register o c r e _ => .register o c r e 1
+      | s => s }
+
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" ``moRegCtl do onModule ``moRegCtl (mutInit (← modOf ``moReg))
+
+-- out_0 / out_1 exchanged inside the module
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd expectRefused "proof" ``moRegCtl do onModule ``moRegCtl (mutSwap (← modOf ``moReg))
 
 end Tests.Ved.U1MultiOutCheck

@@ -701,7 +701,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
           (fun ins s st => st $rS = srcOf $C $f ins $(Syntax.mkStrLit regPort) s)
         · intro ins hok
           simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $fI:ident,
-            Signal.register, Sparkle.Core.Signal.bundle2, Seq.seq, Signal.seq, Signal.ap, Functor.map, Signal.map, Sparkle.Core.Signal.Signal.map, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth, Tools.VedU1SmallReg.regEn_zero]
+            Signal.register, Sparkle.Core.Signal.bundle2, Seq.seq, Signal.seq, Signal.ap, Functor.map, Signal.map, Sparkle.Core.Signal.Signal.map, List.lookup, Option.getD_some, Option.getD_none, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth, Tools.VedU1SmallReg.regEn_zero]
         · intro ins hok s st mems hR
           have hin := hok.1 s
           have hrst := hok.2 s
