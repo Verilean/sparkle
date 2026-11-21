@@ -1993,13 +1993,22 @@ register_option ved.mem.hstepNormBudget : Nat := {
   descr := "local heartbeat budget (thousands) of one definitional-equality test of a goal loop against a hypothesis loop (`ved.mem.hstepNorm`)"
 }
 
+/-- the new branch of the step case has started (set by `ved_hstep_norm_on`; read and reset by `ved_hstep_fallback_reset`, `Tools/VedMemPack.lean`).
+Global, like the caches it guards; one script runs at a time. -/
+initialize hstepAttempted : IO.Ref Bool ← IO.mkRef false
+
 /-- `ved_hstep_norm_on`: fails (fixed text) unless the option `ved.mem.hstepNorm` is on, or when the test seam `hstepRefuse` is set -/
 elab "ved_hstep_norm_on" : tactic => do
   unless (← getOptions).getBool `ved.mem.hstepNorm false do throwError "ved_hstep_norm: option ved.mem.hstepNorm is off"
   if (← hstepRefuse.get) then throwError "ved_hstep_norm: refused (test seam)"
+  hstepAttempted.set true
+
+/-- test seam: the new branch fails at its very end (after the tail stages, whose auxiliary proofs it has created) -/
+initialize hstepFailLate : IO.Ref Bool ← IO.mkRef false
 
 /-- test log: the new branch ran to its end -/
 elab "ved_hstep_norm_ran" : tactic => do
+  if (← hstepFailLate.get) then throwError "ved_hstep_norm: failed late (test seam)"
   hstepRan.modify (·.push "norm_skip")
 
 /-- the loops of the hypotheses (types), the targets of `vedMemLoopFreeze` -/

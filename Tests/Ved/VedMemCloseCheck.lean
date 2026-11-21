@@ -1342,6 +1342,9 @@ def hsH {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Sign
 def hsI {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := hsD start writeEn writeAddr writeData
 
+def hsJ {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
 def hnormStatsCheck : CommandElabM Unit := do
   let (c, _) ← Tools.VedMemLoop.hnormStats.get
   unless c ≥ 1 do throwError "hnormStats: no loop of the goal was made a loop of a hypothesis"
@@ -1429,5 +1432,23 @@ run_cmd hstepRanCheck []
 #guard_msgs in
 run_cmd liftTermElabM <| storedPackedOk ``hsG
 
+
+-- (10) ON, the new branch fails LATE (after its tail stages, test seam `hstepFailLate`): the old script closes and the kernel accepts the result.
+-- Before `ved_hstep_fallback_reset` the kernel said "unknown constant _private._stdin.0._proof_N": the global proof caches (`proofCache`,
+-- `ved_omega_c`'s) kept proofs that mention auxiliary lemmas of the failed branch, which the state restore had removed from the environment.
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepFailLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsJ
+run_cmd Tools.VedMemLoop.hstepFailLate.set false
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsJ -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsJ
 
 end Tests.Ved.VedMemCloseCheck

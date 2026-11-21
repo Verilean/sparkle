@@ -950,4 +950,17 @@ elab "ved_ctrl_cases" : tactic => do
     if dump then Tools.VedMemLoop.dbgLog s!"ctrl_cases: {(← e.toMessageData.toString).take 300}"
     throw e
 
+/-- `ved_hstep_fallback_reset`: first tactic of the old step-case script when it runs as the fallback of the new branch (`ved.mem.hstepNorm`): the proof
+caches of the closing tactics are emptied if the new branch has started.  The caches are global `IO.Ref`s; their proofs may contain auxiliary lemmas
+(`_proof_N`) that the failed branch added to the environment, and the state restore of `first` removes those from the environment but not from the caches
+(observed: "(kernel) unknown constant _private._stdin.0._proof_N" after a late failure of the new branch).  With the option off the flag is never set and
+nothing changes. -/
+elab "ved_hstep_fallback_reset" : tactic => do
+  if (← Tools.VedMemLoop.hstepAttempted.get) then
+    Tools.VedMemLoop.hstepAttempted.set false
+    proofCache.set {}
+    Tools.VedU1ScriptSeq.vedOmegaOk.set {}
+    Tools.VedU1ScriptSeq.vedUbFail.set {}
+    Tools.VedU1ScriptSeq.vedOmegaFail.set {}
+
 end Tools.VedMemPack

@@ -710,7 +710,8 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
                $segNew
                ved_hstep_loops_clear
                ved_hstep_norm_ran)
-            | ($segOld:tactic)
+            | (ved_hstep_fallback_reset
+               $segOld:tactic)
           ))
   if pk then
     `(by
