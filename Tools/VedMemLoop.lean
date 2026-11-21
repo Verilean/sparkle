@@ -480,10 +480,16 @@ def stSplit (d : Int) : IO Unit := do
     { s with splitDepth := n, maxSplitDepth := max s.maxSplitDepth n }
 
 /-- the scalar the signal `X` has at cycle `k` (`Signal.val X k` unfolded to the body of its `Signal.mk`) -/
-def unfoldValDag (A : Expr) : MetaM Expr := do
+def unfoldValDag (memo : IO.Ref (Std.HashMap Expr Expr)) (A : Expr) : MetaM Expr := do
   let X := A.getArg! 2
   let k := A.getArg! 3
-  let Xw ← whnf X
+  -- the same signal is unfolded at many pairs (other cycles, other sides): its head normal form is computed once per walk
+  let Xw ← match (← memo.get)[X]? with
+    | some w => do stBump "whnf-memo-hit"; pure w
+    | none => do
+      let w ← whnf X
+      if w.isAppOfArity ``Sparkle.Core.Signal.Signal.mk 3 then memo.modify (·.insert X w)
+      pure w
   stSize "whnf-sig" Xw
   unless Xw.isAppOfArity ``Sparkle.Core.Signal.Signal.mk 3 do
     dbgLogWith do return s!"causal_dag: signal [{(toString (← ppExpr X)).take 200}] whnf [{(toString (← ppExpr Xw)).take 200}]"
@@ -513,6 +519,8 @@ structure DagShared where
   lv : IO.Ref (Std.HashMap FVarId Nat)
   /-- pointer-memo of the level mask of a term (the term is kept alive so that the pointer is not reused) -/
   memo : IO.Ref (Std.HashMap USize (Expr × Nat))
+  /-- `whnf` of the signals `unfoldValDag` unfolds (only the results that are a `Signal.mk`), for the whole walk -/
+  whnfMemo : IO.Ref (Std.HashMap Expr Expr)
   nextId : IO.Ref Nat
 
 /-- cache hits of the walk (always counted; reset at the start of `ved_causal_dag`): own scope, a scope around, an entry promoted from a scope that is not around the reader (sibling-shared), and the promoted inserts -/
@@ -555,7 +563,7 @@ structure DagCache where
   sh : DagShared
 
 namespace DagCache
-def newShared : IO DagShared := return { lv := ← IO.mkRef {}, memo := ← IO.mkRef {}, nextId := ← IO.mkRef 1 }
+def newShared : IO DagShared := return { lv := ← IO.mkRef {}, memo := ← IO.mkRef {}, whnfMemo := ← IO.mkRef {}, nextId := ← IO.mkRef 1 }
 def new : IO DagCache := return { own := ← IO.mkRef {}, parent := none, depth := 0, id := 0, sh := ← newShared }
 /-- the cache of a new binder scope inside `c` -/
 def scope (c : DagCache) : IO DagCache := do
@@ -843,8 +851,8 @@ where
       if X.isAppOf ``Sparkle.Core.Signal.Signal.loop || Y.isAppOf ``Sparkle.Core.Signal.Signal.loop then
         throwError "ved_causal_dag: loop"
       stBump "unfoldValDag"
-      let eA ← unfoldValDag A
-      let eB ← unfoldValDag B
+      let eA ← unfoldValDag cache.sh.whnfMemo A
+      let eB ← unfoldValDag cache.sh.whnfMemo B
       let (p, m) ← dagEq cache ag eA eB
       let l ← mkExpectedTypeHint (← mkEqRefl A) (← mkEq A eA)
       let r ← mkExpectedTypeHint (← mkEqRefl eB) (← mkEq eB B)
