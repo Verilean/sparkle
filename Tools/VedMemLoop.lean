@@ -245,6 +245,15 @@ def dbgLog (msg : String) : IO Unit := do
     let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
     h.putStrLn msg
 
+/-- the gate of the debug output: `VED_DUMP_DIR` is set -/
+def dbgOn : IO Bool := return (← IO.getEnv "VED_DUMP_DIR").isSome
+
+/-- `dbgLog` of a string that is BUILT only when the gate is open (the gate is checked first, then `mk` runs) -/
+def dbgLogWith {m : Type → Type} [Monad m] [MonadLiftT IO m] (mk : m String) : m Unit := do
+  if ← (dbgOn : IO Bool) then
+    let msg ← mk
+    (dbgLog msg : IO Unit)
+
 /-- `ved_tlog "k"`: (only with `VED_DUMP_DIR`) a timing line in `addr.log` -/
 elab "ved_tlog " k:str : tactic => do
   if (← IO.getEnv "VED_DUMP_DIR").isSome then
@@ -337,6 +346,227 @@ elab "ved_loop_congr " s1:ident s2:ident h:ident : tactic => withMainContext do
               first | (ved_loop_simp [hab', hs', Tools.VedU1Contract.PTy.val, Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val]; done) | (simp [hab', hs']; done))
           $ks (Nat.le_refl _)
        rw [hc])))
+
+/-! ## `ved_causal_dag`: the causal side condition by a lock-step walk, without the whole-goal simp
+
+`ved_causal_dag` (option `ved.mem.causalDag`, default off) proves `(F s1).val (n+1) = (F s2).val (n+1)` from
+`h : ∀ k ≤ n, s1.val k = s2.val k` by walking the two sides in lock step: `Signal.val X k` against `Signal.val Y k` is
+unfolded on both sides to the scalar expression of the signal's `Signal.mk` (a definitional step, the proof is `rfl`), the
+scalar expressions are compared head by head (congruence of the differing arguments only; `ite` by `ved_ite_congr`), a
+`memState` over different write ports by `Tools.VedMem.memState_congr` (its three side conditions are the same walk under a
+bound variable), and `s1.val k` against `s2.val k` by `h k` (the bound by `omega`).  Each pair of subterms is visited once
+(a cache by pair, the DAG is not expanded).  Untrusted: the kernel checks the proof; a shape the walk does not know fails
+and the caller runs the `ved_causal` macro unchanged. -/
+
+theorem ved_ite_congr {α : Sort _} {c c' : Prop} {d : Decidable c} {d' : Decidable c'} {t t' e e' : α}
+    (hc : c = c') (ht : t = t') (he : e = e') : @ite α c d t e = @ite α c' d' t' e' := by
+  subst hc ht he; congr
+
+register_option ved.mem.causalDag : Bool := {
+  defValue := false
+  descr := "try the lock-step walk `ved_causal_dag` for the causal side condition of the memory loop before the simp-based `ved_causal`"
+}
+
+/-- the proof of `x = y` for `x`/`y` equal except at the arguments `ps` (index, proof of `a_i = b_i`): one `congrArg` per
+differing argument (a motive over that argument; fails when a later argument's type depends on it) -/
+def congrArgsDag (f : Expr) (as bs : Array Expr) (ps : Array (Nat × Expr)) : MetaM Expr := do
+  let mut cur := mkAppN f as
+  let mut pf ← mkEqRefl cur
+  let mut args := as
+  for (i, p) in ps do
+    let ai := args[i]!
+    let bi := bs[i]!
+    let motive ← withLocalDeclD `ved_y (← inferType ai) fun y => do
+      mkLambdaFVars #[y] (mkAppN f (args.set! i y))
+    let step ← mkCongrArg motive p
+    pf ← mkEqTrans pf step
+    args := args.set! i bi
+    cur := mkAppN f args
+  return pf
+
+/-- the scalar the signal `X` has at cycle `k` (`Signal.val X k` unfolded to the body of its `Signal.mk`) -/
+def unfoldValDag (A : Expr) : MetaM Expr := do
+  let X := A.getArg! 2
+  let k := A.getArg! 3
+  let Xw ← whnf X
+  unless Xw.isAppOfArity ``Sparkle.Core.Signal.Signal.mk 3 do throwError "ved_causal_dag: signal does not unfold to Signal.mk"
+  return (mkApp (Xw.getArg! 2) k).headBeta
+
+/-- the cache of the walk, by pair of subterms, SCOPED: a proof found under a binder (`ved_j`/`ved_hj` of a `memState` side
+condition, the variable of a `funext`) may mention that binder's free variables (a bound proved by `omega` from the binder's
+hypothesis), so it is stored in the scope of the binder only; a scope reads the entries of the scopes around it (those proofs
+mention only variables the inner scope has too) and never writes into them. -/
+structure DagCache where
+  own : IO.Ref (Std.HashMap (Expr × Expr) Expr)
+  parent : Option DagCache
+
+namespace DagCache
+def new : IO DagCache := return { own := ← IO.mkRef {}, parent := none }
+/-- the cache of a new binder scope inside `c` -/
+def scope (c : DagCache) : IO DagCache := return { own := ← IO.mkRef {}, parent := some c }
+partial def find? (c : DagCache) (k : Expr × Expr) : IO (Option Expr) := do
+  match (← c.own.get)[k]? with
+  | some p => return some p
+  | none => match c.parent with
+    | some q => q.find? k
+    | none => return none
+def insert (c : DagCache) (k : Expr × Expr) (p : Expr) : IO Unit := c.own.modify (·.insert k p)
+end DagCache
+
+/-- raw literals (`nat_lit 0` left by the unfolding of a `match`) are not read by `omega`: spell them `OfNat` -/
+def normLitsDag (k0 : Expr) : Expr :=
+  k0.replace fun e =>
+    if e.isAppOfArity ``OfNat.ofNat 3 && (e.getArg! 1).isRawNatLit then some e
+    else match e with | .lit (.natVal n) => some (mkNatLit n) | _ => none
+
+/-- the leaf `s1.val k = s2.val k` of the agreement hypothesis `h`, the bound by `omega` -/
+def leafDag (h k0 : Expr) : TacticM Expr := do
+  let k := normLitsDag k0
+  let hk := mkApp h k
+  let ty ← whnf (← inferType hk)
+  unless ty.isForall do throwError "ved_causal_dag: agreement hypothesis has an unexpected type"
+  let m ← mkFreshExprMVar ty.bindingDomain!
+  let rest ← try Tactic.run m.mvarId! (evalTactic (← `(tactic| omega)))
+    catch e =>
+      dbgLogWith do return s!"causal_dag leaf: {← e.toMessageData.toString}\nleaf goal: {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr ty.bindingDomain!))).take 400}"
+      throwError "ved_causal_dag: bound not proved"
+  unless rest.isEmpty do throwError "ved_causal_dag: bound not proved"
+  return mkApp hk m
+
+/-- a proof of `A = B` (see the module comment) -/
+partial def dagEq (cache : DagCache) (s1 s2 h A B : Expr) : TacticM Expr := do
+  if A == B then return ← mkEqRefl A
+  if let some p ← cache.find? (A, B) then return p
+  checkSystem "ved_causal_dag"
+  let p ← dagEqCore cache s1 s2 h A B
+  cache.insert (A, B) p
+  return p
+where
+  /-- `s.1 k` (the projection spelling of `Signal.val s k`) as `Signal.val s k` -/
+  normVal (e : Expr) : MetaM Expr := do
+    match e.consumeMData with
+    | .app (.proj ``Sparkle.Core.Signal.Signal 0 X) k => mkAppM ``Sparkle.Core.Signal.Signal.val #[X, k]
+    | e => pure e
+  dagEqCore (cache : DagCache) (s1 s2 h A0 B0 : Expr) : TacticM Expr := do
+    let A ← normVal (← whnfCore A0)
+    let B ← normVal (← whnfCore B0)
+    if A != A0 || B != B0 then
+      return ← mkExpectedTypeHint (← dagEq cache s1 s2 h A B) (← mkEq A0 B0)
+    -- `Signal.val F k x`: the value of a signal of functions (`<*>`) applied to an argument
+    if A.isAppOf ``Sparkle.Core.Signal.Signal.val && A.getAppNumArgs > 4 && B.isAppOf ``Sparkle.Core.Signal.Signal.val
+        && B.getAppNumArgs == A.getAppNumArgs then
+      let a := A.getAppArgs
+      let b := B.getAppArgs
+      let mut pf ← dagEq cache s1 s2 h (mkAppN A.getAppFn (a.extract 0 4)) (mkAppN B.getAppFn (b.extract 0 4))
+      for i in [4:a.size] do
+        if a[i]! != b[i]! then
+          pf ← mkCongr pf (← dagEq cache s1 s2 h a[i]! b[i]!)
+        else pf ← mkCongrFun pf a[i]!
+      return pf
+    if A.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 && B.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 then
+      let X := A.getArg! 2
+      let Y := B.getArg! 2
+      let k := A.getArg! 3
+      unless k == B.getArg! 3 do throwError "ved_causal_dag: different cycles"
+      if X == s1 && Y == s2 then return ← mkExpectedTypeHint (← leafDag h k) (← mkEq A B)
+      if X.isAppOf ``Sparkle.Core.Signal.Signal.loop || Y.isAppOf ``Sparkle.Core.Signal.Signal.loop then
+        throwError "ved_causal_dag: loop"
+      let eA ← unfoldValDag A
+      let eB ← unfoldValDag B
+      let p ← dagEq cache s1 s2 h eA eB
+      let l ← mkExpectedTypeHint (← mkEqRefl A) (← mkEq A eA)
+      let r ← mkExpectedTypeHint (← mkEqRefl eB) (← mkEq eB B)
+      return ← mkEqTrans (← mkEqTrans l p) r
+    if A.isAppOf ``Sparkle.Core.Signal.Signal.memState && A.getAppNumArgs ≥ 8 && B.isAppOf ``Sparkle.Core.Signal.Signal.memState
+        && B.getAppNumArgs == A.getAppNumArgs then
+      let a := A.getAppArgs
+      let b := B.getAppArgs
+      if ([0, 1, 2, 3, 7].all fun i => a[i]! == b[i]!) then
+        let t := a[7]!
+        let side (x y : Expr) : TacticM Expr := do
+          let cache ← cache.scope
+          withLocalDeclD `ved_j (mkConst ``Nat) fun j => do
+            withLocalDeclD `ved_hj (← mkAppM ``LT.lt #[j, normLitsDag t]) fun hj => do
+              let ValX ← mkAppM ``Sparkle.Core.Signal.Signal.val #[x, j]
+              let ValY ← mkAppM ``Sparkle.Core.Signal.Signal.val #[y, j]
+              mkLambdaFVars #[j, hj] (← dagEq cache s1 s2 h ValX ValY)
+        let ha ← side a[4]! b[4]!
+        let hd ← side a[5]! b[5]!
+        let he ← side a[6]! b[6]!
+        let hc ← mkAppOptM ``Tools.VedMem.memState_congr
+          #[a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, b[4]!, a[5]!, b[5]!, a[6]!, b[6]!, t, ha, hd, he]
+        let mut pf := hc
+        for i in [8:a.size] do
+          if a[i]! != b[i]! then
+            pf ← mkCongr pf (← dagEq cache s1 s2 h a[i]! b[i]!)
+          else pf ← mkCongrFun pf a[i]!
+        return pf
+    if A.isApp && B.isApp then
+      let f := A.getAppFn
+      let a := A.getAppArgs
+      let b := B.getAppArgs
+      if f == B.getAppFn && a.size == b.size then
+        if f.isConstOf ``ite && a.size == 5 then
+          let pc ← dagEq cache s1 s2 h a[1]! b[1]!
+          let pt ← dagEq cache s1 s2 h a[3]! b[3]!
+          let pe ← dagEq cache s1 s2 h a[4]! b[4]!
+          return ← mkAppOptM ``ved_ite_congr #[a[0]!, a[1]!, b[1]!, a[2]!, b[2]!, a[3]!, b[3]!, a[4]!, b[4]!, pc, pt, pe]
+        let mut ps : Array (Nat × Expr) := #[]
+        for i in [0:a.size] do
+          if a[i]! != b[i]! then
+            let q ← try dagEq cache s1 s2 h a[i]! b[i]!
+              catch e =>
+                dbgLogWith do
+                  let extra ← if f.isConstOf ``Sparkle.Core.Signal.Signal.val then
+                      do let xs ← a.mapM fun x => do pure ((toString (← ppExpr x)).take 50).toString
+                         pure s!" args={xs}"
+                    else pure ""
+                  return s!"causal_dag: in arg {i}/{a.size} of {(toString (← ppExpr f)).take 80}{extra}"
+                throw e
+            ps := ps.push (i, q)
+        return ← congrArgsDag f a b ps
+    if let (.proj n i x, .proj n' i' y) := (A, B) then
+      if n == n' && i == i' then
+        let p ← dagEq cache s1 s2 h x y
+        let motive ← withLocalDeclD `ved_y (← inferType x) fun v => mkLambdaFVars #[v] (.proj n i v)
+        return ← mkCongrArg motive p
+    if let (.lam n ty bA bi, .lam _ ty' bB _) := (A, B) then
+      if ty == ty' then
+        let cache ← cache.scope
+        let p ← withLocalDecl n bi ty fun x => do
+          mkLambdaFVars #[x] (← dagEq cache s1 s2 h (bA.instantiate1 x) (bB.instantiate1 x))
+        return ← mkFunExt p
+    dbgLogWith do return s!"causal_dag: no rule for [{(toString (← ppExpr A)).take 300}] against [{(toString (← ppExpr B)).take 300}]"
+    throwError "ved_causal_dag: no rule for this pair of subterms"
+
+/-- `ved_causal_dag`: the causal side condition (`∀ t s1 s2, (∀ k ≤ t, s1.val k = s2.val k) → (F s1).val (t+1) = (F s2).val (t+1)`)
+by `dagEq`; with `VED_DUMP_DIR` the time of the walk is logged -/
+elab "ved_causal_dag" : tactic => do
+  unless (← getOptions).getBool `ved.mem.causalDag false do throwError "ved_causal_dag: option ved.mem.causalDag is off"
+  let (t, s1, s2, h) := (mkIdent `t, mkIdent `s1, mkIdent `s2, mkIdent `h)
+  evalTactic (← `(tactic| intro $t $s1 $s2 $h))
+  evalTactic (← `(tactic| rcases $t:ident with _ | $t:ident))
+  let t0 ← IO.monoMsNow
+  let hb0 ← IO.getNumHeartbeats
+  dbgLogWith do return s!"TLOG causal_dag begin t={t0}"
+  try
+   for g in ← getGoals do
+    setGoals [g]
+    withMainContext do
+      let some (_, A, B) := (← instantiateMVars (← getMainTarget)).eq? | throwError "ved_causal_dag: not an equation"
+      let lctx ← getLCtx
+      let some s1 := lctx.findFromUserName? `s1 | throwError "ved_causal_dag: no s1"
+      let some s2 := lctx.findFromUserName? `s2 | throwError "ved_causal_dag: no s2"
+      let some h := lctx.findFromUserName? `h | throwError "ved_causal_dag: no h"
+      let cache ← DagCache.new
+      dbgLogWith do return s!"causal_dag top: nargs={A.getAppNumArgs} head={A.getAppFn} {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr (mkAppN A.getAppFn (A.getAppArgs.extract 0 2))))).take 300} | arg2={(toString (← ppExpr (A.getArg! 2))).take 200} | arg3={(toString (← ppExpr (A.getArg! 3))).take 100}"
+      let p ← dagEq cache s1.toExpr s2.toExpr h.toExpr A B
+      (← getMainGoal).assign p
+      dbgLogWith do return s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.own.get).size}"
+  catch e =>
+    dbgLogWith do return s!"TLOG causal_dag failed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000}: {(← e.toMessageData.toString).take 600}"
+    throw e
+  setGoals []
 
 open Lean Meta in
 /-- `BitVec.toNat (x ++ y)` read at either spelling of the width (`4` against `2 + 2`: the pattern of `BitVec.toNat_append`
@@ -699,8 +929,15 @@ elab "ved_dsimp_goals" : tactic => do
 /-- the side condition `hS` of the strong fixpoint equation -/
 syntax "ved_causal " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 
+/-- the simp-based proof of the side condition (`ved_causal` without the `ved_causal_dag` alternative) -/
+syntax "ved_causal_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
 macro_rules
   | `(tactic| ved_causal [$ex,*]) =>
+    `(tactic| first | (ved_mem_budget 200000 (ved_causal_dag)) | (ved_causal_simp [$ex,*]))
+
+macro_rules
+  | `(tactic| ved_causal_simp [$ex,*]) =>
     `(tactic| (intro t s1 s2 h
                ved_tlog "causal: intro"
                -- a registered read's value at `t` unfolds only at `t = n + 1`
@@ -711,7 +948,8 @@ macro_rules
                <;> (try ved_loop_congr s1 s2 h)
                <;> (try ved_mem_congr s1 s2 h)
                <;> ved_tlog "causal: congr"
-               <;> (try (ved_loop_simp [Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, h, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*]))))
+               <;> (try (ved_loop_simp [Tools.VedU1Lemmas.add_val_sc, Tools.VedU1Lemmas.add_val_cs, Tools.VedU1Lemmas.sub_val_sc, Tools.VedU1Lemmas.sub_val_cs, Tools.VedU1Lemmas.mul_val_sc, Tools.VedU1Lemmas.mul_val_cs, Tools.VedU1Lemmas.and_val_sc, Tools.VedU1Lemmas.and_val_cs, Tools.VedU1Lemmas.or_val_sc, Tools.VedU1Lemmas.or_val_cs, Tools.VedU1Lemmas.xor_val_sc, Tools.VedU1Lemmas.xor_val_cs, Tools.VedU1Lemmas.shl_val_sc, Tools.VedU1Lemmas.shl_val_cs, Tools.VedU1Lemmas.shr_val_sc, Tools.VedU1Lemmas.shr_val_cs, Tools.VedMemLoop.add_val_bs, Tools.VedMemLoop.add_val_sb, Tools.VedMemLoop.sub_val_bs, Tools.VedMemLoop.sub_val_sb, Tools.VedMemLoop.mul_val_bs, Tools.VedMemLoop.mul_val_sb, Tools.VedMemLoop.and_val_bs, Tools.VedMemLoop.and_val_sb, Tools.VedMemLoop.or_val_bs, Tools.VedMemLoop.or_val_sb, Tools.VedMemLoop.xor_val_bs, Tools.VedMemLoop.xor_val_sb, Tools.VedMemLoop.shl_val_bs, Tools.VedMemLoop.shl_val_sb, Tools.VedMemLoop.shr_val_bs, Tools.VedMemLoop.shr_val_sb, Tools.VedU1Lemmas.pure_val, Tools.VedU1Lemmas.mux_val, Tools.VedU1Lemmas.compl_val, Tools.VedU1Lemmas.bool_and_val, Tools.VedU1Lemmas.bool_or_val, Tools.VedU1Lemmas.bool_xor_val, Tools.VedU1Lemmas.bool_compl_val, h, Sparkle.Core.Signal.Signal.fst, Sparkle.Core.Signal.Signal.snd, $ex,*])))
+               <;> ved_tlog "causal: simp2")
 
 /-- `runSub` that, when a side condition stays open, says which (the first goal, cut to 2500 characters) -/
 def runSubMem (m : MVarId) (tac : TSyntax `tactic) : TacticM Unit := do
@@ -804,6 +1042,11 @@ def clearOthers (m : MVarId) : MetaM MVarId := m.withContext do
   let (m', _) ← m.tryClearMany' drop
   return m'
 
+/-- diagnosis hook: called with the closed causal side condition (the mvar `hSc`) right after `ved_causal` closed it.  A no-op
+(`none`) unless a diagnosis module (`Tools/VedMemCausalProbe.lean`, imported only by diagnosis cases) installs a function in its
+`initialize`; production modules never install one. -/
+initialize causalHook : IO.Ref (Option (MVarId → TacticM Unit)) ← IO.mkRef none
+
 open Tools.VedU1WireShare in
 /-- `ved_loop_unfold_mem t`: rewrite `(Signal.loop F).val t` by the strong fixpoint equation, for every loop
 whose value at `t` occurs in the goal (the walk of `ved_loop_unfold_share`, the lemma and the side
@@ -837,6 +1080,7 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let hSc ← clearOthers hS.mvarId!
     dbgLog s!"unfold_mem: clearOthers done ms={(← IO.monoMsNow) - tc0}"
     runSubMem hSc (← `(tactic| ved_causal [$ex,*]))
+    if let some hook ← causalHook.get then hook hSc
     dbgLog s!"unfold_mem: causal ms={(← IO.monoMsNow) - tc0} hb={((← IO.getNumHeartbeats) - hb0) / 1000}"
     let lem ← instantiateMVars (mkApp3 f4 h0 hS (lhs.getArg! 3))
     let eqTy ← instantiateMVars (← inferType lem)

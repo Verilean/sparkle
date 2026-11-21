@@ -442,4 +442,168 @@ elab "#ved_axioms " ids:ident* : command => do
 #guard_msgs in
 #ved_axioms Tools.VedMemPack.ved_mod_sum sigHyps leaf44 refuse44 leaf54a leaf54b ctrl54 gate54 gateSmall54 gateResetOk54 gateResetFail54 goalGateOk goalGateRefuses
 
+
+/-! ## ved_causal_dag (sparkle-ved-mem-r033-proof)
+
+The causal side condition of the strong fixpoint equation (`∀ t s1 s2, (∀ k ≤ t, s1.val k = s2.val k) → (F s1).val (t+1) =
+(F s2).val (t+1)`) closed by the lock-step walk `ved_causal_dag` (option `ved.mem.causalDag`, default off).  The controls
+present, exactly:
+
+* `causalDagMem` / `causalDagMemMacro`: a memory written and read through the loop state; the walk closes it (directly, and as the
+  first alternative of `ved_causal []`), axioms within std3.
+* `causalDagOff`: option off, `ved_causal_dag` refuses at once with its fixed text; `causalSimpMem`: option off, `ved_causal []`
+  runs the simp path and closes the same goal.
+* `innerLoopMem` (REAL FALLBACK): option on, a memory whose read address is an inner `Signal.loop` driven by the state.  The walk
+  has no rule for a loop and refuses (`innerLoopMemDirect`: `ved_causal_dag` alone fails with the fixed text `ved_causal_dag: loop`),
+  `ved_causal []` closes the same goal through the simp path (`ved_causal_simp`, `ved_loop_congr`): stored type `==` the statement,
+  axioms within std3.
+* `ved_walk_fallback` (STATE RESTORATION): after the failed walk the goal list, the metavariable context (counter, declarations,
+  assignments) and the heartbeat clock/limit that the fallback sees are those from before the walk; the fingerprint check itself
+  is shown to see a change (`ved_fp_changes`).
+* CACHE SCOPE: the cache of the walk is scoped per binder (`DagCache.scope`: inner scopes read the outer entries, never write into
+  them).  `dagCacheScope` checks the cache itself; `sharedPair` is a memory whose two signals are constant `⟨fun _ => s1.val 0⟩`,
+  so the pair `s1.val 0` / `s2.val 0` occurs outside the `memState` binders and again under them: the walk closes it and the
+  kernel accepts the result (axioms std3).  (The unscoped cache was not run on this example: that a stale entry would give an
+  ill-typed proof is not demonstrated here.)
+-/
+
+/-- the causal side condition of a registered-read memory written at the state's address -/
+theorem causalDagMem {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+/-- info: causalDagMem: axioms within std3 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let axs ← collectAxioms ``causalDagMem
+  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+  unless axs.all (std.contains ·) do throwError "causalDagMem: axioms {axs}"
+  logInfo "causalDagMem: axioms within std3"
+
+/-- the same goal through `ved_causal` with the option on: the walk closes it -/
+theorem causalDagMemMacro {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in ved_causal []
+
+-- control: with the option off the tactic refuses at once
+/-- error: ved_causal_dag: option ved.mem.causalDag is off -/
+#guard_msgs in
+theorem causalDagOff {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  ved_causal_dag
+
+/-- control: option off, `ved_causal` runs the simp path and closes the same goal -/
+theorem causalSimpMem {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  ved_causal []
+
+
+/-! ### a real fallback: an inner `Signal.loop` the walk does not know -/
+
+set_option hygiene false in
+local macro "innerLoopMemStmt" : term => `(∀ {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool)
+    (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s1.map (fun x => x.getLsbD 0)) (st + 1#4) st))).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s2.map (fun x => x.getLsbD 0)) (st + 1#4) st))).val (t + 1))
+
+-- the walk alone refuses (no rule for a loop; the text is fixed)
+/-- error: ved_causal_dag: loop -/
+#guard_msgs in
+theorem innerLoopMemDirect : innerLoopMemStmt := by
+  intro dom wd we
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+/-- option on: the walk is tried, fails, and the simp path closes the goal -/
+theorem innerLoopMem : innerLoopMemStmt := by
+  intro dom wd we
+  set_option ved.mem.causalDag true in ved_causal []
+
+/-- info: innerLoopMem: type exact, axioms within std3 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let ty ← instantiateMVars (← Term.elabType (← `(innerLoopMemStmt)))
+  unless (← getConstInfo ``innerLoopMem).type == ty do throwError "innerLoopMem: stored type differs from the statement"
+  let axs ← collectAxioms ``innerLoopMem
+  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+  unless axs.all (std.contains ·) do throwError "innerLoopMem: axioms {axs}"
+  logInfo "innerLoopMem: type exact, axioms within std3"
+
+/-! ### state after a failed walk -/
+
+/-- a fingerprint of the tactic state: open goals, metavariable counter / declarations / assignments, heartbeat clock and limit -/
+def stateFp : TacticM (List Nat) := do
+  let m ← getMCtx
+  let c ← readThe Core.Context
+  return [(← getGoals).length, (← getGoals).foldl (fun a g => a * 31 + g.name.hash.toNat % 1000003) 7, m.mvarCounter, m.decls.toList.length,
+    m.eAssignment.toList.length, m.dAssignment.toList.length, c.maxHeartbeats, c.initHeartbeats]
+
+/-- `ved_fp_is a b ..`: the state has the fingerprint `a b ..` -/
+elab "ved_fp_is " ns:num* : tactic => do
+  let fp ← stateFp
+  unless fp == ns.toList.map (·.getNat) do throwError "ved_fp_is: the state differs: {fp}"
+
+/-- `ved_walk_fallback n w fb`: `first | ved_mem_budget n w | (the state is the one from before `w`; fb)` -/
+elab "ved_walk_fallback " n:num w:tactic " || " fb:tactic : tactic => do
+  let ns := (← stateFp).toArray.map fun x => Syntax.mkNumLit (toString x)
+  evalTactic (← `(tactic| first | (ved_mem_budget $n $w) | (ved_fp_is $ns* ; $fb)))
+
+/-- control of the check: `ved_fp_changes tac` fails when `tac` leaves the fingerprint as it was -/
+elab "ved_fp_changes " t:tactic : tactic => do
+  let fp0 ← stateFp
+  evalTactic t
+  if (← stateFp) == fp0 then throwError "ved_fp_changes: the state did not change"
+
+example : ∀ n : Nat, n = n := by ved_fp_changes (intro n); rfl
+
+/-- the walk makes progress (`intro`, `rcases`) before it fails at the loop; the fallback sees the state from before it, and the
+simp path then closes the goal (the whole state is the one `ved_causal []` itself relies on) -/
+theorem innerLoopMemRestored : innerLoopMemStmt := by
+  intro dom wd we
+  set_option ved.mem.causalDag true in
+  ved_walk_fallback 200000 (ved_causal_dag) || (ved_causal_simp [])
+
+/-! ### the cache of the walk is scoped per binder -/
+
+/-- info: dagCacheScope ok -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let c ← Tools.VedMemLoop.DagCache.new
+  let k : Expr × Expr := (mkNatLit 1, mkNatLit 2)
+  let k' : Expr × Expr := (mkNatLit 3, mkNatLit 4)
+  c.insert k (mkNatLit 10)
+  let inner ← c.scope
+  unless (← inner.find? k) == some (mkNatLit 10) do throwError "inner scope does not read the outer entry"
+  inner.insert k' (mkNatLit 11)
+  unless (← inner.find? k') == some (mkNatLit 11) do throwError "inner scope lost its own entry"
+  unless (← c.find? k').isNone do throwError "an inner entry reached the outer scope"
+  let sibling ← c.scope
+  unless (← sibling.find? k').isNone do throwError "an inner entry reached a sibling scope"
+  logInfo "dagCacheScope ok"
+
+/-- the same subterm pair (`s1.val 0` against `s2.val 0`, the constant signals) outside the `memState` binders and under them -/
+theorem sharedPair {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory (⟨fun _ => s1.val 0⟩ : Signal dom (BitVec 4)) wd we (⟨fun _ => s1.val 0⟩ : Signal dom (BitVec 4))).val (t + 1)
+        = (Signal.memory (⟨fun _ => s2.val 0⟩ : Signal dom (BitVec 4)) wd we (⟨fun _ => s2.val 0⟩ : Signal dom (BitVec 4))).val (t + 1) := by
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+/-- info: causal controls: axioms within std3 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+  for n in [``innerLoopMemRestored, ``sharedPair, ``causalDagMemMacro, ``causalSimpMem] do
+    let axs ← collectAxioms n
+    unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
+  logInfo "causal controls: axioms within std3"
+
 end Tests.Ved.VedMemCloseCheck
