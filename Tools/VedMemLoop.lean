@@ -1993,6 +1993,9 @@ register_option ved.mem.hstepNormBudget : Nat := {
   descr := "local heartbeat budget (thousands) of one definitional-equality test of a goal loop against a hypothesis loop (`ved.mem.hstepNorm`)"
 }
 
+/-- test/diagnosis counter: answered from the table (`declWidth M "lit"`) -/
+initialize declWidthHits : IO.Ref Nat ← IO.mkRef 0
+
 /-- the new branch of the step case has started (set by `ved_hstep_norm_on`; read and reset by `ved_hstep_fallback_reset`, `Tools/VedMemPack.lean`).
 Global, like the caches it guards; one script runs at a time. -/
 initialize hstepAttempted : IO.Ref Bool ← IO.mkRef false
@@ -2030,7 +2033,7 @@ elab "ved_hstep_loops" : tactic => withMainContext do
 
 /-- `ved_hstep_loops_clear`: forget them -/
 elab "ved_hstep_loops_clear" : tactic => do
-  dbgLog s!"hstep_loops_clear: converted/left {← hnormStats.get}"
+  dbgLog s!"hstep_loops_clear: converted/left {← hnormStats.get} declWidth answered {← declWidthHits.get}"
   hnormLoops.set #[]
 
 open Lean Meta Simp in
@@ -2038,6 +2041,38 @@ open Lean Meta Simp in
 Sound: no rewriting inside the loop. -/
 simproc_decl vedMemLoopFreeze (Sparkle.Core.Signal.Signal.loop _) := fun e => do
   return .done { expr := e }
+
+/-! ### `declWidth M "wire"` is looked up from a table, not by unfolding `List.find?`
+
+Observed (R033 diagnosis run, stage 94, loops frozen; the goal's DAG is 3636 nodes): the simp does not stop at the goal's size; it unfolds
+`declWidth M x = (M.wires.find? (fun p => p.name == x))` for every width query of the module semantics, a walk over the whole wire list per query:
+visits (pre-simproc calls) grow linearly at 5.4e3 per second (2.0e6 visits at 370 s, still counting), 95% of them `Eq`, `BEq.beq`, `Port.name`,
+`Not`, `List.find?`, `<mvar>` (the `find?` unrolling), against ~1e4 visits for the whole stage on the small examples.
+`Entry` puts the table `wire name ↦ declWidth M name` of the module into `declWidthTab` (only with `ved.mem.hstepNorm` on); the pre-simproc
+`vedDeclWidth` answers `declWidth M "lit"` from it (`.done`, definitional: the kernel checks the step by evaluating the lookup once), and
+`vedDeclWidth1` keeps the partial application `declWidth M` (the `we` of `evalAssigns`) from being unfolded into the `find?` lambda. -/
+
+/-- (module constant, its table), set by `checkMemE` around the proof elaboration when `ved.mem.hstepNorm` is on -/
+initialize declWidthTab : IO.Ref (Option (Name × Std.HashMap String Nat)) ← IO.mkRef none
+
+open Lean Meta Simp in
+def declWidthAnswer (e : Expr) : SimpM Step := do
+  let some (mn, tab) ← declWidthTab.get | return .continue
+  unless e.isAppOfArity ``Tools.VedU1Contract.declWidth 2 do return .continue
+  let args := e.getAppArgs
+  unless args[0]!.isConstOf mn do return .continue
+  let .lit (.strVal s) := args[1]! | return .continue
+  declWidthHits.modify (· + 1)
+  return .done { expr := mkNatLit (tab.getD s 0) }
+
+open Lean Meta Simp in
+simproc_decl vedDeclWidth (Tools.VedU1Contract.declWidth _ _) := declWidthAnswer
+
+open Lean Meta Simp in
+simproc_decl vedDeclWidth1 (Tools.VedU1Contract.declWidth _) := fun e => do
+  let some (mn, _) ← declWidthTab.get | return .continue
+  if e.isAppOfArity ``Tools.VedU1Contract.declWidth 1 && e.appArg!.isConstOf mn then return .done { expr := e }
+  return .continue
 
 /-- `ved_hstep_unify`: in the target of every goal, a loop that is (definitionally, at default transparency, within the budget
 `ved.mem.hstepNormBudget` per test) the loop of a hypothesis (`ved_hstep_loops`) is replaced by that loop, and a read `Signal.val dom α L s` of it

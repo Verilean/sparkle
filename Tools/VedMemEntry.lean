@@ -530,15 +530,18 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
     Syntax.TSepArray.ofElems (hsA ++ rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $hrstI:ident)))
   -- option `ved.mem.hstepNorm`: the simps after the invariant do not enter `Signal.loop` (`vedMemLoopFreeze`, `↓`)
   let fzL ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedMemLoopFreeze):term)
+  let dwL ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedDeclWidth):term)
+  let dw1L ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedDeclWidth1):term)
+  let fzs := #[fzL, dwL, dw1L]
   -- diagnosis only (`VED_PROBE_S94` and `VED_DUMP_DIR`): the counting simproc of stage 94
   let probeL : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     if (← IO.getEnv "VED_PROBE_S94").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome then
       pure #[← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedMemProbe):term)]
     else pure #[]
-  let ex1F : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems (probeL ++ #[fzL] ++ (hsA ++ rdLemmas))
+  let ex1F : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems (probeL ++ fzs ++ (hsA ++ rdLemmas))
   let ex2F : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
-    Syntax.TSepArray.ofElems (#[fzL] ++ (hsA ++ rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $hrstI:ident))))
-  let hsSepF : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems (#[fzL] ++ hsA)
+    Syntax.TSepArray.ofElems (fzs ++ (hsA ++ rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $hrstI:ident))))
+  let hsSepF : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems (fzs ++ hsA)
   let memSimpLemmas ← `(Lean.Parser.Tactic.simpLemma| comboReads)
   let _ := memSimpLemmas
   -- the memory parts of the next state: peel (the side conditions stay as goals)
@@ -564,7 +567,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
   let mkStages := fun (fz : Bool) => do
    let ex2 := if fz then ex2F else ex2
    let lw : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
-     Syntax.TSepArray.ofElems ((if fz then #[fzL] else #[]) ++ #[← `(Lean.Parser.Tactic.simpLemma| BitVec.toNat_eq),
+     Syntax.TSepArray.ofElems ((if fz then fzs else #[]) ++ #[← `(Lean.Parser.Tactic.simpLemma| BitVec.toNat_eq),
        ← `(Lean.Parser.Tactic.simpLemma| Nat.and_one_is_mod), ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1Loop.ved_mul_lit_bv)])
    let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| all_goals (try ved_lt_close)),
@@ -661,7 +664,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
          Sparkle.Core.Signal.Signal.memory_val_zero, $hsSepF,*] at $[$hNorm]*); ved_hstep_loops))
   let mcr ← `(Lean.Parser.Tactic.simpLemma| Sparkle.Core.Signal.Signal.memoryComboRead_val)
   let segOld ← mkSeg normHyps ex1 tail (Syntax.TSepArray.ofElems #[mcr]) (← `(tactic| skip))
-  let segNew ← mkSeg normHypsF ex1F tailF (Syntax.TSepArray.ofElems #[fzL, mcr]) (← `(tactic| ved_hstep_unify))
+  let segNew ← mkSeg normHypsF ex1F tailF (Syntax.TSepArray.ofElems (fzs.push mcr)) (← `(tactic| ved_hstep_unify))
   let core ← `(by
     ved_no_recover (
         ved_stamp 80
@@ -800,7 +803,12 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     let scriptTxt ← PrettyPrinter.ppTerm ⟨stx⟩
     if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM SCRIPT {scriptTxt}"
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
-    let pf ← tryCatchRuntimeEx
+    -- option `ved.mem.hstepNorm`: `declWidth M "wire"` is answered from this table in the new branch's simps (`Tools.VedMemLoop.vedDeclWidth`)
+    if Tools.VedMemLoop.ved.mem.hstepNorm.get (← getOptions) then
+      let tab : Std.HashMap String Nat := m.wires.foldl (fun t p =>
+        if t.contains p.name then t else t.insert p.name (Tools.VedU1Contract.declWidth m p.name)) {}
+      Tools.VedMemLoop.declWidthTab.set (some (nm.mod, tab))
+    let pf ← try (tryCatchRuntimeEx
       (withProofBudget do
         withoutErrToSorry do
           rssNote "before elab"
@@ -816,7 +824,8 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
       fun e => do
         if ved.mem.showScript.get (← getOptions) then
           for msg in (← Core.getMessageLog).toList do IO.eprintln s!"VED MEM MSG {← msg.data.toString}"
-        refuse decl "proof" e.toMessageData
+        refuse decl "proof" e.toMessageData)
+      finally Tools.VedMemLoop.declWidthTab.set none
     if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM elaborated, proof term size {pf.approxDepth}"
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
