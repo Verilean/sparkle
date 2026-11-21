@@ -84,6 +84,38 @@ elab "ved_h0_budget " n:num t:tactic : tactic => do
     throwError "ved_h0_budget: the base case (h0) did not finish within min(local ved.mem.h0Budget, remaining ambient budget) = {m} heartbeats \
       (units of maxHeartbeats): {which}; {hint}"
 
+/-- option `ved.mem.h0Dag` (default false): the base case (h0) of the memory loop is first tried with `ved_h0_dag_close` (see there), the old
+`ved_loop_simp` step stays the fallback -/
+register_option ved.mem.h0Dag : Bool := {
+  defValue := false
+  descr := "try the lazy base-case closer (no simp over the loop's registers' inputs) first for h0 of the memory loop; the old step stays the fallback"
+}
+
+/-- `ved_h0_dag_on`: fails (fixed text) unless the option `ved.mem.h0Dag` is on -/
+elab "ved_h0_dag_on" : tactic => do
+  unless (← getOptions).getBool `ved.mem.h0Dag false do throwError "ved_h0_dag: option ved.mem.h0Dag is off"
+
+/-- test seam of `ved_h0_dag_close` (the fallback control of `Tests/Ved/VedMemCloseCheck.lean`): when set, the closer refuses.  Never set by production code. -/
+initialize h0DagRefuse : IO.Ref Bool ← IO.mkRef false
+
+/-- `ved_h0_dag_close`: closes a goal `a = b` of h0 (`st0 c m name = (X.val 0).proj.toNat`, X a bundle of `Signal.register init x`) by `Eq.refl`
+after one `isDefEq`.  At time 0 a register's value is its initial value whatever its input is, so the check reduces the spine of `X` only: the
+registers' inputs (the loop body, the 1.76e12-tree of R033) are never visited, no simp rewrite of them.  Under its own local budget
+(`ved_mem_budget`, 100000 thousand heartbeats), so that a refusal leaves the old step what is left.  Fails (fixed text) when the sides are not
+defeq; the tactic state is restored by the surrounding `first`. -/
+elab "ved_h0_dag_close" : tactic => withMainContext do
+  let g ← getMainGoal
+  let some (_, l, r) := (← instantiateMVars (← g.getType)).eq? | throwError "ved_h0_dag: the goal is not an equation"
+  if (← h0DagRefuse.get) then throwError "ved_h0_dag: refused (test seam)"
+  let ok ← tryCatchRuntimeEx
+    (do withLocalHb (100000 * 1000) (Tactic.withoutRecover (do
+          unless (← isDefEq l r) do throwError "ved_h0_dag: the two sides do not reduce to the same value"
+          g.assign (← mkEqRefl l)))
+        pure true)
+    fun e => if e.isRuntime then pure false else throw e
+  unless ok do throwError "ved_h0_dag: local heartbeat budget exhausted"
+  replaceMainGoal []
+
 /-! `.val` of an operator applied directly through the `BitVec`-`Signal` / `Signal`-`BitVec` instances (as the synthesizer's
 source writes `0#16 - x`): `Tools.VedU1Lemmas.*_val_sc/_cs` are stated with the other elaboration (`Signal.pure a`). -/
 section DirectOps

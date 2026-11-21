@@ -1143,4 +1143,60 @@ run_cmd liftTermElabM do
   logInfo "causal budget controls: axioms within std3"
 
 
+/-! ### `ved.mem.h0Dag` (sparkle-ved-mem-h0-dag): the base case h0 closed without simp over the registers' inputs
+
+h0's goals are `st0 c m name = (X.val 0).proj.toNat`, `X` a bundle of `Signal.register init x` (the loop body, huge on R033, sits in the `x`).  With the
+option ON `ved_h0_dag_close` closes each by one `isDefEq` (the value at time 0 of a register is its init; the inputs `x` are never visited) as the FIRST
+alternative inside `ved_h0_budget`; the old `ved_loop_simp` step is the fallback.  Controls: (1) ON, `h0Budget 10000`: accepted (the old step, controls
+above, is refused under that limit, observed: the old step needs between 10000 and 30000 thousand heartbeats on this design, the closer fewer than 5000); (2) OFF, `h0Budget 10000`: the old step's refusal unchanged (the option is
+off by default); (3) ON, the closer refused (test seam `h0DagRefuse`): the old step is the fallback: accepted, and under `h0Budget 10000` the old step's
+refusal text (the old step ran). -/
+
+def h0K {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgA start writeEn writeAddr writeData
+def h0L {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgA start writeEn writeAddr writeData
+def h0M {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgA start writeEn writeAddr writeData
+def h0N {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgA start writeEn writeAddr writeData
+
+-- (1) ON, h0Budget 10000
+#guard_msgs (drop info) in
+set_option ved.mem.h0Dag true in
+set_option ved.mem.h0Budget 10000 in
+#ved_u1_mem h0K
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.h0K -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``h0K
+
+-- (2) OFF (explicit), h0Budget 10000: the old step's refusal
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.h0L [proof]: ved_h0_budget: the base case (h0) did not finish within min(local ved.mem.h0Budget, remaining ambient budget) = 10000 heartbeats (units of maxHeartbeats): the local limit ved.mem.h0Budget = 10000 was the smaller one (the remaining ambient budget was not smaller); raise `maxHeartbeats` or `set_option ved.mem.h0Budget N`, or disable the local limit with `set_option ved.mem.h0Budget 0` -/
+#guard_msgs in
+set_option ved.mem.h0Dag false in
+set_option ved.mem.h0Budget 10000 in
+#ved_u1_mem h0L
+
+-- (3) ON, the closer refuses: old step is the fallback
+run_cmd Tools.VedMemLoop.h0DagRefuse.set true
+
+#guard_msgs (drop info) in
+set_option ved.mem.h0Dag true in
+set_option ved.mem.h0Budget 0 in
+#ved_u1_mem h0M
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.h0M -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``h0M
+
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.h0N [proof]: ved_h0_budget: the base case (h0) did not finish within min(local ved.mem.h0Budget, remaining ambient budget) = 10000 heartbeats (units of maxHeartbeats): the local limit ved.mem.h0Budget = 10000 was the smaller one (the remaining ambient budget was not smaller); raise `maxHeartbeats` or `set_option ved.mem.h0Budget N`, or disable the local limit with `set_option ved.mem.h0Budget 0` -/
+#guard_msgs in
+set_option ved.mem.h0Dag true in
+set_option ved.mem.h0Budget 10000 in
+#ved_u1_mem h0N
+
+run_cmd Tools.VedMemLoop.h0DagRefuse.set false
+
+
 end Tests.Ved.VedMemCloseCheck
