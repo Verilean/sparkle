@@ -1095,11 +1095,11 @@ initialize causalHook : IO.Ref (Option (MVarId → TacticM Unit)) ← IO.mkRef n
 the loop is refused when `treeSize > gate` (a limit equal to the tree size accepts, one less refuses).  `gate = 0` is off and the tree size is
 NOT computed (no walk of the loop at all).
 
-PLACEMENT (intended): this step guards only the simp-based causal side condition (`ved_causal [..]` of `ved_loop_unfold_mem`), the one whose
-cost grows with the size of the tree; it is a separate step placed immediately before that discharge.  When the DAG walk of
-`ved/mem-r033-proof` (`ved_causal_dag`) is integrated, the walk runs FIRST and this gate moves INTO the simp fallback (the
-`ved_causal_simp` path), so that it guards only the old simp path and never the walk; the new method must not be refused at the entry by a
-tree threshold. -/
+PLACEMENT (implemented in `ved_loop_unfold_mem`): the gate guards only the simp-based causal side condition (`ved_causal_simp`), the one whose
+cost grows with the size of the tree; it is a separate step.  Option `ved.mem.causalDag` on: the DAG walk (`ved_causal_dag` under
+`ved_mem_budget 200000`, as in `ved_causal`) runs FIRST and is never refused by the gate; only when the walk fails (tactic state restored) the
+gate is checked, then `ved_causal_simp` runs.  Option off: the gate is checked right before `ved_causal [..]` (whose walk alternative refuses
+at once), unchanged.  The new method is never refused by the tree threshold. -/
 def loopGateCheck (L : Expr) (gate : Nat) : MetaM Unit := do
   if gate == 0 then return
   let loopTree := Tools.VedU1Loop.treeSizeVal L
@@ -1148,9 +1148,19 @@ elab "ved_loop_unfold_mem " lim:(vedLoopLimit)? " [" ex:Lean.Parser.Tactic.simpL
     let hb0 ← IO.getNumHeartbeats
     let hSc ← clearOthers hS.mvarId!
     dbgLog s!"unfold_mem: clearOthers done ms={(← IO.monoMsNow) - tc0}"
-    -- the gate sits right before the simp-based causal discharge (see `loopGateCheck`)
-    loopGateCheck L gate
-    runSubMem hSc (← `(tactic| ved_causal [$ex,*]))
+    -- the gate guards only the simp-based causal discharge (see `loopGateCheck`).  Option `ved.mem.causalDag` on: the walk runs FIRST
+    -- (the walk of the `ved_causal` macro, same budget); only when it fails (state restored) the gate is checked, then `ved_causal_simp`.
+    -- Option off: the gate, then `ved_causal` (its walk alternative refuses at once, so the simp path), as before.
+    if (← getOptions).getBool `ved.mem.causalDag false then
+      let st ← saveState
+      let walked ← try runSubMem hSc (← `(tactic| ved_mem_budget 200000 (ved_causal_dag))); pure true
+        catch _ => st.restore; pure false
+      unless walked do
+        loopGateCheck L gate
+        runSubMem hSc (← `(tactic| ved_causal_simp [$ex,*]))
+    else
+      loopGateCheck L gate
+      runSubMem hSc (← `(tactic| ved_causal [$ex,*]))
     if let some hook ← causalHook.get then hook hSc
     dbgLog s!"unfold_mem: causal ms={(← IO.monoMsNow) - tc0} hb={((← IO.getNumHeartbeats) - hb0) / 1000}"
     let lem ← instantiateMVars (mkApp3 f4 h0 hS (lhs.getArg! 3))

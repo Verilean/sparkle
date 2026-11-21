@@ -644,6 +644,76 @@ run_cmd liftTermElabM <| storedOk ``lgD
 #guard_msgs in
 run_cmd liftTermElabM <| storedOk ``lgE
 
+/-! ### the gate guards only the simp fallback (integration of `ved/perf-mem-timeout` and `ved/mem-r033-proof`)
+
+With the option `ved.mem.causalDag` ON, `ved_loop_unfold_mem` runs the DAG walk FIRST (`ved_mem_budget 200000 (ved_causal_dag)`); only
+when the walk fails is `ved.mem.loopGate` checked, and then `ved_causal_simp` runs.  So (a) the walk closes `lgA`'s causal side condition
+and a low gate never refuses it; (b) on `lgH`, whose memory read address (registered read) is an inner `Signal.loop` (the walk has no rule for a loop and
+refuses with its fixed text `ved_causal_dag: loop`, shown by `innerLoopMemDirect` above), a low gate refuses with the loopGate text (the gate
+guards the fallback); (c) the same design with gate 0 / a gate equal to the tree size (1469) is accepted through the fallback; (d) with the option
+OFF the refusals / acceptances of `lgA`..`lgE` above are unchanged (they run with the option off). -/
+
+def lgF {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgA start writeEn writeAddr writeData
+
+def lgH {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let idx := LState.idx state
+    let busy := LState.busy state
+    let readAddr4 := idx.map (BitVec.extractLsb' 0 4 ·)
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let signBit := inputCoeff.map (BitVec.extractLsb' 15 1 ·)
+    let isNeg := signBit === 1#1
+    let result := Signal.mux isNeg (0#16 - inputCoeff) inputCoeff
+    let innerAddr := Signal.loop fun (st : Signal dom (BitVec 4)) => Signal.register 0#4 (Signal.mux busy (st + 1#4) st)
+    let outMemRead := Signal.memory readAddr4 result busy innerAddr
+    let done := busy &&& (idx === 15#5)
+    let busyNext := Signal.mux done (Signal.pure false) (Signal.mux start (Signal.pure true) busy)
+    let idxNext := Signal.mux busy (idx + 1#5) (Signal.pure 0#5)
+    bundleAll! [Signal.register 0#5 idxNext, Signal.register false busyNext, Signal.register 0#16 outMemRead]
+  LState.last state
+
+def lgI {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgH start writeEn writeAddr writeData
+def lgJ {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgH start writeEn writeAddr writeData
+
+-- (a) option ON, gate 1: the walk closes the causal side condition, the entry accepts
+#guard_msgs (drop info) in
+set_option ved.mem.causalDag true in
+set_option ved.mem.loopGate 1 in
+#ved_u1_mem lgF
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.lgF -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``lgF
+
+-- (b) option ON, gate 1, the walk refuses (inner loop): the loopGate text (tree 1469; the gate is reached only because the walk failed)
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.lgH [proof]: ved_loop_unfold_mem: the loop has 1469 tree nodes, more than the configured limit ved.mem.loopGate (1); raise it with `set_option ved.mem.loopGate N` or disable the gate with `set_option ved.mem.loopGate 0` -/
+#guard_msgs in
+set_option ved.mem.causalDag true in
+set_option ved.mem.loopGate 1 in
+#ved_u1_mem lgH
+
+-- (c) option ON, gate 0 / large gate: accepted through the fallback
+#guard_msgs (drop info) in
+set_option ved.mem.causalDag true in
+set_option ved.mem.loopGate 0 in
+#ved_u1_mem lgI
+
+#guard_msgs (drop info) in
+set_option ved.mem.causalDag true in
+set_option ved.mem.loopGate 1469 in
+#ved_u1_mem lgJ
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.lgI -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``lgI
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.lgJ -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``lgJ
+
 /-! ### `loopGate 0` does not walk the loop
 
 `loopGateCheck L 0` returns before `treeSizeVal` (a fact of the code: the `gate == 0` early return).  This control only shows the
