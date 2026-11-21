@@ -95,6 +95,23 @@ register_option ved.mem.h0Dag : Bool := {
 elab "ved_h0_dag_on" : tactic => do
   unless (← getOptions).getBool `ved.mem.h0Dag false do throwError "ved_h0_dag: option ved.mem.h0Dag is off"
 
+/-- diagnosis seam (never set by production code): `ved_h0_mark 0` (start of `case h0`) records the h0 goal, `ved_h0_mark 1` (before the h0 step) the
+time and the heartbeats, `ved_h0_done` (after it) calls the hook with the goal and the elapsed ms / thousand heartbeats of the h0 step.
+Installed by `Tools.VedMemCausalProbe`; without a hook all three do nothing but store two numbers. -/
+initialize h0Mark : IO.Ref (Option (MVarId × Nat × Nat)) ← IO.mkRef none
+initialize h0Hook : IO.Ref (Option (MVarId → Nat → Nat → TacticM Unit)) ← IO.mkRef none
+
+elab "ved_h0_mark " k:num : tactic => do
+  if k.getNat == 0 then
+    h0Mark.set (some ((← getMainGoal), 0, 0))
+  else if let some (g, _, _) ← h0Mark.get then
+    h0Mark.set (some (g, ← IO.monoMsNow, ← IO.getNumHeartbeats))
+
+elab "ved_h0_done" : tactic => do
+  if let some hook ← h0Hook.get then
+    if let some (g, t0, hb0) ← h0Mark.get then
+      hook g ((← IO.monoMsNow) - t0) (((← IO.getNumHeartbeats) - hb0) / 1000)
+
 /-- test seam of `ved_h0_dag_close` (the fallback control of `Tests/Ved/VedMemCloseCheck.lean`): when set, the closer refuses.  Never set by production code. -/
 initialize h0DagRefuse : IO.Ref Bool ← IO.mkRef false
 

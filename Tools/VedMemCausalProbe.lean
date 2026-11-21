@@ -87,6 +87,67 @@ def probe (hSc : MVarId) : TacticM Unit := do
     say s!"STOP_AFTER_CAUSAL t={← IO.monoMsNow} tree={szT}"
     IO.Process.exit 3
 
+/-- kernel-check the proof of the goal `g` (the h0 case) as `probe` does the side condition: auxiliary theorem over the local context, result dropped,
+wall cap `cap` seconds -/
+def kernelCheck (g : MVarId) (cap : Nat) (say : String → IO Unit) : TacticM Unit := do
+  try
+    g.withContext do
+      let xs := (← getLCtx).foldl (init := #[]) fun acc d => if d.isImplementationDetail then acc else acc.push d.toExpr
+      let ty ← mkForallFVars xs (← instantiateMVars (← g.getType))
+      let pf ← mkLambdaFVars xs (← instantiateMVars (mkMVar g))
+      -- unassigned universe metavariables of the still-open elaboration: zero (this is a diagnosis; the state is restored below)
+      let sv ← saveState
+      let lms := (collectLevelMVars {} pf).result ++ (collectLevelMVars {} ty).result
+      for m in lms do
+        if !(← isLevelMVarAssigned m) then assignLevelMVar m levelOne
+      let ty ← instantiateMVars ty
+      let pf ← instantiateMVars pf
+      let dag := (Tools.VedU1WireShare.collectDag (fun _ => true) pf).size
+      say s!"h0 proof term dag={dag} has_mvar={pf.hasMVar} expr_mvar={pf.hasExprMVar} level_mvar={pf.hasLevelMVar} type_dag={(Tools.VedU1WireShare.collectDag (fun _ => true) ty).size}"
+      if pf.hasMVar then
+        let ms ← getMVars pf
+        for m in ms.toList.take 5 do
+          say s!"h0 mvar {m.name} delayed={(← getDelayedMVarAssignment? m).isSome} type={(← ppExpr (← instantiateMVars (← m.getType))).pretty.take 200}"
+      let decl := Declaration.thmDecl { name := `ved_kernel_probe_h0, levelParams := [], type := ty, value := pf }
+      let opts := (← getOptions).insert `maxHeartbeats (DataValue.ofNat 0)
+      let kenv := (← getEnv).toKernelEnv
+      let tk ← IO.CancelToken.new
+      let t0 ← IO.monoMsNow
+      let task := Task.spawn (prio := .dedicated) fun _ => kenv.addDecl opts decl (some tk)
+      let mut capped := false
+      while !(← IO.hasFinished task) do
+        if (← IO.monoMsNow) - t0 ≥ cap * 1000 then
+          tk.set
+          capped := true
+          break
+        IO.sleep 200
+      let t1 ← IO.monoMsNow
+      sv.restore
+      if capped then say s!"h0 KERNEL not finished within {cap} s (cancelled) ms={t1 - t0} proofDag={dag}"
+      else
+        match task.get with
+        | .ok _ => say s!"h0 KERNEL ok ms={t1 - t0} proofDag={dag}"
+        | .error e => say s!"h0 KERNEL rejected ms={t1 - t0} proofDag={dag} {((← (e.toMessageData (← getOptions)).toString)).take 600}"
+  catch e => say s!"h0 KERNEL probe error {(← e.toMessageData.toString).take 300}"
+
+/-- the h0 hook (`VED_STOP_AFTER_H0=1`: after the h0 step stop the process with exit code 3; `VED_KERNEL_PROBE_H0=s`: kernel check of the h0 proof
+first, wall cap `s` seconds).  A probe line goes to `VED_PROBE_LOG`.  Without the variables nothing happens. -/
+def h0Probe (g : MVarId) (ms hbK : Nat) : TacticM Unit := do
+  let stop := (← IO.getEnv "VED_STOP_AFTER_H0").isSome
+  let kp := (← IO.getEnv "VED_KERNEL_PROBE_H0").map fun s => s.toNat?.getD 600
+  if !stop && kp.isNone then return
+  let gs ← getGoals
+  let say (msg : String) : IO Unit := do
+    out s!"VED PROBE {msg}"
+    Tools.VedMemLoop.dbgLog s!"PROBE {msg}"
+  say s!"h0 step done ms={ms} hb_k={hbK} open_goals={gs.length} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}"
+  if let some cap := kp then
+    if gs.isEmpty then kernelCheck g cap say else say "h0 KERNEL skipped: goals left open"
+  if stop then
+    say s!"STOP_AFTER_H0 t={← IO.monoMsNow}"
+    IO.Process.exit 3
+
 initialize Tools.VedMemLoop.causalHook.set (some probe)
+initialize Tools.VedMemLoop.h0Hook.set (some h0Probe)
 
 end Tools.VedMemCausalProbe

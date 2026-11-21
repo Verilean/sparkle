@@ -608,10 +608,12 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
         ved_stamp 83
         refine outputs_of_step_mem $Cx $M $B $fx $O (by decide +kernel) $Rstx ?h0 ?hstep
         case h0 =>
+          ved_h0_mark 0
           ved_stamp 84
           intro $insI hok
           ved_loop_unfold_mem (limit := $loopGateN) [$hsSep,*] 0
           ved_stamp 85
+          ved_h0_mark 1
           ved_h0_budget $h0BudgetN (
             first
               | (ved_h0_dag_on
@@ -621,6 +623,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
                  $d10
                  all_goals ved_loop_simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
                    Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*]))
+          ved_h0_done
           ved_stamp 86
           all_goals (try decide +kernel)
           ved_stamp 87
