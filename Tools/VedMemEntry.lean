@@ -530,7 +530,12 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
     Syntax.TSepArray.ofElems (hsA ++ rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $hrstI:ident)))
   -- option `ved.mem.hstepNorm`: the simps after the invariant do not enter `Signal.loop` (`vedMemLoopFreeze`, `↓`)
   let fzL ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedMemLoopFreeze):term)
-  let ex1F : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems (#[fzL] ++ (hsA ++ rdLemmas))
+  -- diagnosis only (`VED_PROBE_S94` and `VED_DUMP_DIR`): the counting simproc of stage 94
+  let probeL : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+    if (← IO.getEnv "VED_PROBE_S94").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome then
+      pure #[← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedMemProbe):term)]
+    else pure #[]
+  let ex1F : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems (probeL ++ #[fzL] ++ (hsA ++ rdLemmas))
   let ex2F : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
     Syntax.TSepArray.ofElems (#[fzL] ++ (hsA ++ rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $hrstI:ident))))
   let hsSepF : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems (#[fzL] ++ hsA)
@@ -624,10 +629,12 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           ved_loop_unfold_mem (limit := $loopGateN) [$hsSep,*] ($sI + 1)
           $d2
           ved_stamp 94
+          ved_s94_probe_start
           all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
             Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
             Sparkle.Core.Signal.Signal.memory_val_zero, $e1,*])
+          ved_s94_probe_stop
           $un
           ved_stamp 95
           $d3

@@ -2092,4 +2092,80 @@ elab "ved_hstep_unify" : tactic => do
   hnormStats.set (conv, left)
   setGoals out
 
+/-! ## Diagnosis of stage 94 (`VED_PROBE_S94` and `VED_DUMP_DIR` set; never in a default script)
+
+`↓ vedMemProbe` (a wildcard pre-simproc, only added to the stage-94 simp when the gate is open) counts the visited sub-terms (a pre call happens after the
+simp cache missed) by head symbol; a monitor thread (`ved_s94_probe_start` / `ved_s94_probe_stop`) writes the counters to `addr.log` every 15 s, so that a run
+that is killed still shows where it was: visits, the simp state's step count and cache size, the time since the last visit (a stall = work outside the node
+visits), the largest head counts, the last heads visited.  The first `And` / `Exists` visits are logged with their time and tree size. -/
+
+initialize s94Hist : IO.Ref (Std.HashMap String Nat) ← IO.mkRef {}
+initialize s94Visits : IO.Ref Nat ← IO.mkRef 0
+initialize s94SimpState : IO.Ref (Nat × Nat) ← IO.mkRef (0, 0)
+initialize s94LastMs : IO.Ref Nat ← IO.mkRef 0
+initialize s94Last : IO.Ref (Array String) ← IO.mkRef #[]
+initialize s94Stop : IO.Ref Bool ← IO.mkRef false
+initialize s94Logged : IO.Ref Nat ← IO.mkRef 0
+initialize s94T0 : IO.Ref Nat ← IO.mkRef 0
+
+def s94Head (e : Expr) : String :=
+  match e.getAppFn with
+  | .const n _ => n.toString
+  | .fvar _ => "<fvar>"
+  | .lam .. => "<lam>"
+  | .forallE .. => "<forall>"
+  | .letE .. => "<let>"
+  | .mdata .. => "<mdata>"
+  | .proj .. => "<proj>"
+  | .lit _ => "<lit>"
+  | .bvar _ => "<bvar>"
+  | .sort _ => "<sort>"
+  | .mvar _ => "<mvar>"
+  | .app .. => "<app>"
+
+open Lean Meta Simp in
+simproc_decl vedMemProbe (_) := fun e => do
+  let h := s94Head e
+  s94Hist.modify fun m => m.insert h (m.getD h 0 + 1)
+  let v ← s94Visits.modifyGet fun v => (v + 1, v + 1)
+  let now ← IO.monoMsNow
+  s94LastMs.set now
+  s94Last.modify fun a => (a.push h).extract (a.size + 1 - 6) (a.size + 1)
+  if v % 2000 == 0 then
+    let st ← get
+    s94SimpState.set (st.numSteps, st.usedTheorems.map.foldl (fun a _ _ => a + 1) 0)
+  if (h == "And" || h == "Exists") && (← s94Logged.get) < 16 then
+    s94Logged.modify (· + 1)
+    dbgLog s!"S94 visit {h} t={now - (← s94T0.get)} ms visits={v} tree={Tools.VedU1Loop.treeSizeVal e}"
+  return .continue
+
+/-- `ved_s94_probe_start`: reset the counters, log the goal's DAG size, start the monitor thread (only with the two env vars set) -/
+elab "ved_s94_probe_start" : tactic => do
+  if (← IO.getEnv "VED_PROBE_S94").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome then
+    s94Hist.set {}; s94Visits.set 0; s94Stop.set false; s94Logged.set 0; s94Last.set #[]
+    s94T0.set (← IO.monoMsNow); s94LastMs.set (← IO.monoMsNow); s94SimpState.set (0, 0)
+    for g in ← getGoals do
+      let e ← instantiateMVars (← g.getType)
+      dbgLog s!"S94 start dag={(Tools.VedU1WireShare.collectDag (fun _ => true) e).size} tree={Tools.VedU1Loop.treeSizeVal e}"
+    let _ ← IO.asTask (prio := .dedicated) do
+      let mut k := 0
+      while !(← s94Stop.get) do
+        IO.sleep 15000
+        if (← s94Stop.get) then break
+        k := k + 1
+        let now ← IO.monoMsNow
+        let h ← s94Hist.get
+        let top := (h.toList.toArray.qsort (fun a b => a.2 > b.2)).toList.take 8
+        let (steps, csz) ← s94SimpState.get
+        let rss ← try
+            let st ← IO.FS.readFile "/proc/self/status"
+            pure ((st.splitOn "\n").find? (·.startsWith "VmRSS") |>.getD "")
+          catch _ => pure ""
+        dbgLog s!"S94 tick {k} {rss.replace "\t" " "} t={now - (← s94T0.get)} ms visits={← s94Visits.get} sinceLastVisit={now - (← s94LastMs.get)} ms steps@={steps} usedThms@={csz} top={top} last={← s94Last.get}"
+
+elab "ved_s94_probe_stop" : tactic => do
+  if (← IO.getEnv "VED_PROBE_S94").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome then
+    s94Stop.set true
+    dbgLog s!"S94 stop t={(← IO.monoMsNow) - (← s94T0.get)} ms visits={← s94Visits.get}"
+
 end Tools.VedMemLoop
