@@ -677,7 +677,7 @@ private def dedup (xs : List String) : List String :=
 
 /-! ### per-stage stamps (default OFF)
 
-Measurement aid, `VED_STAGE_STAMPS=1`: one stderr line per event, prefix `VED STAGE`.  The state is one
+Measurement aid, `VED_STAGE_STAMPS=1`: one stderr line per event, prefix `VED STAGE` (and a flushed copy in the file `VED_STAGE_LOG`, if given).  The state is one
 `IO.Ref` (the attempt in progress); `ved_stage "name"` ends the current stage and begins `name`.  The
 script of `seqLoopScript` contains `ved_stage` tactics ONLY when it is asked to (`stamps := true`,
 decided by the caller once); otherwise the script is the one it always was.  Nothing here touches a
@@ -700,6 +700,42 @@ structure StageCtx where
 
 initialize stageCtx : IO.Ref (Option StageCtx) ← IO.mkRef none
 
+/-- the diagnostic file named by `VED_STAGE_LOG` (an absolute path; opened once in append mode, flushed per
+line): Lean captures `IO.eprintln` into the command's messages, which are lost when the process is killed, so
+the stamp lines are also written there.  A separate file, never the process's stderr: reopening `/dev/stderr`
+gives a second file description whose writes overwrite what the parent (e.g. the RSS guard) writes through its
+own descriptor of the same file.  `none` when the variable is unset/empty or the file cannot be opened; then
+the lines go to the messages only.  The messages stay the record of a finished command; the file is the copy
+that survives a kill, so a reader counts lines from ONE of the two (the file when it is given), never both. -/
+initialize stageErr : IO.Ref (Option (Option IO.FS.Handle)) ← IO.mkRef none
+
+/-- `key` of `/proc/self/status` (`VmRSS` / `VmHWM`, in kB) as text, `?` on any error -/
+def procStatusKb (key : String) : IO String := do
+  try
+    let txt ← IO.FS.readFile "/proc/self/status"
+    for l in txt.splitOn "\n" do
+      if l.startsWith (key ++ ":") then
+        let ds := ((l.drop (key.length + 1)).trimAscii.takeWhile Char.isDigit).toString
+        return if ds.isEmpty then "?" else ds
+    return "?"
+  catch _ => return "?"
+
+/-- the line to the `VED_STAGE_LOG` file (flushed); errors are swallowed -/
+def stageRawLine (line : String) : IO Unit := do
+  try
+    let h ← match ← stageErr.get with
+      | some h => pure h
+      | none =>
+        let path := (← IO.getEnv "VED_STAGE_LOG").getD ""
+        let h ← if path.isEmpty then pure none
+          else try some <$> IO.FS.Handle.mk path .append catch _ => pure none
+        stageErr.set (some h)
+        pure h
+    if let some h := h then
+      h.putStr (line ++ "\n")
+      h.flush
+  catch _ => pure ()
+
 /-- one line; `ms_delta` / `hb_delta` are since the previous line of the attempt (so the deltas of all
 lines add up to the last `rel`), `hb` in thousands of heartbeats; `reason` (FAIL only) is a fixed code (`stageFail`), never a formatted message -/
 def stageLine (stage ev : String) (reason : String := "") : IO Unit := do
@@ -707,7 +743,11 @@ def stageLine (stage ev : String) (reason : String := "") : IO Unit := do
   try
     let ms ← IO.monoMsNow
     let hb := (← IO.getNumHeartbeats) / 1000
-    IO.eprintln s!"VED STAGE decl={c.decl} route={c.route} attempt={c.attempt} stage={stage} ev={ev} ms_rel={ms - c.ms0} ms_delta={ms - c.msPrev} hb_rel={hb - c.hb0 / 1000} hb_delta={hb - c.hbPrev}{if ev == "FAIL" then s!" reason={reason}" else ""}"
+    let rss ← procStatusKb "VmRSS"
+    let hwm ← procStatusKb "VmHWM"
+    let line := s!"VED STAGE decl={c.decl} route={c.route} attempt={c.attempt} stage={stage} ev={ev} ms_rel={ms - c.ms0} ms_delta={ms - c.msPrev} hb_rel={hb - c.hb0 / 1000} hb_delta={hb - c.hbPrev} rss_kb={rss} hwm_kb={hwm}{if ev == "FAIL" then s!" reason={reason}" else ""}"
+    IO.eprintln line
+    stageRawLine line
     stageCtx.set (some { c with msPrev := ms, hbPrev := hb })
   catch _ => stageCtx.set none
 
