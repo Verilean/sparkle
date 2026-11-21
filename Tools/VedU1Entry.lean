@@ -693,6 +693,12 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
   | some (r, w) =>
     let rS := Syntax.mkStrLit r
     let wS := Syntax.mkNumLit (toString w)
+    -- the bundled-statement route (`regPort != "out"`) unfolds the product signal; a constant's script is unchanged
+    let bundleLemmas : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+      if regPort == "out" then pure #[] else
+      #[``Sparkle.Core.Signal.bundle2, ``Seq.seq, ``Signal.seq, ``Signal.ap, ``Functor.map, ``Signal.map,
+        ``Sparkle.Core.Signal.Signal.map, ``List.lookup, ``Option.getD_some, ``Option.getD_none].mapM fun n =>
+        `(Lean.Parser.Tactic.simpLemma| $(mkIdent n):ident)
     `(by
         have hord : OrderOk $M $B = true := by decide +kernel
         refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
@@ -701,7 +707,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
           (fun ins s st => st $rS = srcOf $C $f ins $(Syntax.mkStrLit regPort) s)
         · intro ins hok
           simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $fI:ident,
-            Signal.register, Sparkle.Core.Signal.bundle2, Seq.seq, Signal.seq, Signal.ap, Functor.map, Signal.map, Sparkle.Core.Signal.Signal.map, List.lookup, Option.getD_some, Option.getD_none, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth, Tools.VedU1SmallReg.regEn_zero]
+            Signal.register, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth, Tools.VedU1SmallReg.regEn_zero, $bundleLemmas,*]
         · intro ins hok s st mems hR
           have hin := hok.1 s
           have hrst := hok.2 s
@@ -710,9 +716,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
             widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, hrst, or_mod _ _ _ _ rfl,
-            Tools.VedU1SmallReg.regEn_succ, Tools.VedU1Lemmas.evalOp_mux_lit, Nat.shiftRight_eq_div_pow,
-            Sparkle.Core.Signal.bundle2, Seq.seq, Signal.seq, Signal.ap, Functor.map, Signal.map,
-            Sparkle.Core.Signal.Signal.map, List.lookup, Option.getD_some, Option.getD_none] at hR ⊢
+            Tools.VedU1SmallReg.regEn_succ, Tools.VedU1Lemmas.evalOp_mux_lit, Nat.shiftRight_eq_div_pow, $bundleLemmas,*] at hR ⊢
           have hlt : st $rS < 2 ^ $wS := by rw [hR]; exact BitVec.isLt _
           refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩
           try rw [← hR]
