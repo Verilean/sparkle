@@ -102,6 +102,24 @@ def memQuantA {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal d
     bundleAll! [Signal.register 0#5 idxNext, Signal.register false busyNext, Signal.register 0#16 outMemRead]
   QState.last state
 
+/-- the same design under a third name: the target of the refusals (no declaration is added by any of them) -/
+def memQuantB {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let idx := QState.idx state
+    let busy := QState.busy state
+    let readAddr4 := idx.map (BitVec.extractLsb' 0 4 ·)
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let signBit := inputCoeff.map (BitVec.extractLsb' 15 1 ·)
+    let isNeg := signBit === 1#1
+    let result := Signal.mux isNeg (0#16 - inputCoeff) inputCoeff
+    let outMemRead := Signal.memory readAddr4 result busy (Signal.pure 0#4)
+    let done := busy &&& (idx === 15#5)
+    let busyNext := Signal.mux done (Signal.pure false) (Signal.mux start (Signal.pure true) busy)
+    let idxNext := Signal.mux busy (idx + 1#5) (Signal.pure 0#5)
+    bundleAll! [Signal.register 0#5 idxNext, Signal.register false busyNext, Signal.register 0#16 outMemRead]
+  QState.last state
+
 /-- the body at the inputs `ins` (the names the generated script uses for the design's inputs) -/
 def qF (ins : Nat → String → Nat) (s : Signal defaultDomain QState) : Signal defaultDomain QState :=
   qBody (PTy.bit.sig ins "_gen_start") (PTy.bit.sig ins "_gen_writeEn") ((PTy.bv 4).sig ins "_gen_writeAddr")
@@ -258,3 +276,21 @@ def partA : TermElabM Unit := do
   logInfo m!"(c) final theorem type, module, contract and body identical to the automatic path"
 
 run_cmd liftTermElabM partA
+
+/-! ## (b) refusals -/
+
+def partB : TermElabM Unit := do
+  let decl := ``memQuantB
+  let L := fun (n : String) => some s!"Tests.Ved.VedSupplementCheck.{n}"
+  refusedWith "wrong-type lemma" decl (some 1) (L "qWrongType") "does not match the goal"
+  refusedWith "lemma of another circuit" decl (some 1) (L "qCausalOther") "does not match the goal"
+  refusedWith "lemma with sorry (matching type)" decl (some 1) (L "qCausalSorry") "sorryAx"
+  refusedWith "lemma with native_decide (matching type)" decl (some 1) (L "qCausalNative") "native_decide"
+  refusedWith "lemma with an unproved hypothesis" decl (some 1) (L "qCausalHyp") "leaves a binder undetermined"
+  refusedWith "unknown constant" decl (some 1) (L "qNoSuchLemma") "unknown constant"
+  refusedWith "a def" decl (some 1) (L "qCausalDef") "not a theorem"
+  refusedWith "no lemma, gate 1 (existing refusal)" decl (some 1) none "more than the configured limit"
+  -- a refused lemma is not retried by the automation: even without the gate the wrong lemma refuses
+  refusedWith "wrong-type lemma, gate off" decl none (L "qWrongType") "does not match the goal"
+
+run_cmd liftTermElabM partB
