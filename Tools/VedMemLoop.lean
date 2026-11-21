@@ -40,6 +40,50 @@ elab "ved_mem_budget " n:num t:tactic : tactic => do
       if e.isRuntime then pure false else throw e
   unless ok do throwError "ved_mem_budget: local heartbeat budget exhausted"
 
+/-- `ved_no_recover t`: `t` with error recovery off, so that the first failing step (`case`, `all_goals`) ends the proof at once instead of
+being logged and admitted while the remaining stages run (a refusal returns after the first error, not after the whole script). -/
+elab "ved_no_recover " t:tactic : tactic => Tactic.withoutRecover (evalTactic t)
+
+/-- the size gate of `ved_loop_unfold_mem` (heuristic limit, public option) -/
+register_option ved.mem.loopGate : Nat := {
+  defValue := 10000000
+  descr := "refuse (stage proof) when a loop `ved_loop_unfold_mem` unfolds has a tree larger than this many nodes; 0 disables the gate (heuristic limit)"
+}
+
+/-- the local heartbeat limit of the memory loop's base case (`h0`) -/
+register_option ved.mem.h0Budget : Nat := {
+  defValue := 1000000
+  descr := "refuse (stage proof) when the base case (h0) of the memory loop needs more than this many heartbeats, in the units of `maxHeartbeats`; 0 disables the limit (heuristic limit)"
+}
+
+/-- `ved_h0_budget n t`: `t` within the local heartbeat limit `n` (the public option `ved.mem.h0Budget`, read by the entry; the units of `maxHeartbeats`, like the `hb` of the stage stamps; `withLocalHb`, never above what is left of the
+ambient budget).  The effective limit is `min(n, remaining ambient budget)` (`n = 0`: the remaining ambient budget alone, the local limit is off, the ambient budget is still enforced).  When a heartbeat limit stops `t` the tactic state is
+restored and the refusal says that `t` did not finish within that minimum and which of the two was the smaller (it does not claim the local limit was too small when the ambient budget ended the run).  Other runtime exceptions
+(recursion depth) and ordinary errors pass through with the state restored, classified as they are.  Observed there (stage stamps): 35-43k (R037/R038), 260k (R034); R028 spent the whole 8M budget (643 s) in it. -/
+elab "ved_h0_budget " n:num t:tactic : tactic => do
+  let n := n.getNat
+  let s ← saveState
+  let hb ← IO.getNumHeartbeats
+  let c ← readThe Core.Context
+  -- what is left of the ambient budget in the units of `maxHeartbeats` (`none`: unlimited)
+  let left? : Option Nat := if c.maxHeartbeats == 0 then none else some ((c.maxHeartbeats - (hb - c.initHeartbeats)) / 1000)
+  let ok ← tryCatchRuntimeEx
+    (do (if n == 0 then evalTactic t else withLocalHb (n * 1000) (Tactic.withoutRecover (evalTactic t))); pure true)
+    fun e => do
+      s.restore
+      if e.isMaxHeartbeat then pure false else throw e
+  unless ok do
+    let hint := "raise `maxHeartbeats` or `set_option ved.mem.h0Budget N`, or disable the local limit with `set_option ved.mem.h0Budget 0`"
+    let (m, which) : String × String := match n, left? with
+      | 0, some l => (s!"{l}", s!"the local limit ved.mem.h0Budget is off (0); the remaining ambient budget (maxHeartbeats) = {l} ended the run")
+      | 0, none => ("unlimited", "the local limit ved.mem.h0Budget is off (0) and the ambient budget is unlimited")
+      | _, some l =>
+        if l < n then (s!"{l}", s!"the remaining ambient budget (maxHeartbeats) = {l} was the smaller one, not the local limit ved.mem.h0Budget = {n}")
+        else (s!"{n}", s!"the local limit ved.mem.h0Budget = {n} was the smaller one (the remaining ambient budget was not smaller)")
+      | _, none => (s!"{n}", s!"the local limit ved.mem.h0Budget = {n} was the smaller one (the ambient budget is unlimited)")
+    throwError "ved_h0_budget: the base case (h0) did not finish within min(local ved.mem.h0Budget, remaining ambient budget) = {m} heartbeats \
+      (units of maxHeartbeats): {which}; {hint}"
+
 /-! `.val` of an operator applied directly through the `BitVec`-`Signal` / `Signal`-`BitVec` instances (as the synthesizer's
 source writes `0#16 - x`): `Tools.VedU1Lemmas.*_val_sc/_cs` are stated with the other elaboration (`Signal.pure a`). -/
 section DirectOps
@@ -1047,11 +1091,34 @@ def clearOthers (m : MVarId) : MetaM MVarId := m.withContext do
 `initialize`; production modules never install one. -/
 initialize causalHook : IO.Ref (Option (MVarId → TacticM Unit)) ← IO.mkRef none
 
+/-- The loop-size gate (public option `ved.mem.loopGate`, read by the entry): refuse a loop of more than `gate` tree nodes.  Comparison:
+the loop is refused when `treeSize > gate` (a limit equal to the tree size accepts, one less refuses).  `gate = 0` is off and the tree size is
+NOT computed (no walk of the loop at all).
+
+PLACEMENT (intended): this step guards only the simp-based causal side condition (`ved_causal [..]` of `ved_loop_unfold_mem`), the one whose
+cost grows with the size of the tree; it is a separate step placed immediately before that discharge.  When the DAG walk of
+`ved/mem-r033-proof` (`ved_causal_dag`) is integrated, the walk runs FIRST and this gate moves INTO the simp fallback (the
+`ved_causal_simp` path), so that it guards only the old simp path and never the walk; the new method must not be refused at the entry by a
+tree threshold. -/
+def loopGateCheck (L : Expr) (gate : Nat) : MetaM Unit := do
+  if gate == 0 then return
+  let loopTree := Tools.VedU1Loop.treeSizeVal L
+  if loopTree > gate then
+    throwError "ved_loop_unfold_mem: the loop has {loopTree} tree nodes, more than the configured limit ved.mem.loopGate ({gate}); \
+      raise it with `set_option ved.mem.loopGate N` or disable the gate with `set_option ved.mem.loopGate 0`"
+
+/-- `(limit := n)`: the limit prefix of `ved_loop_unfold_mem` -/
+syntax vedLoopLimit := "(" &"limit" " := " num ")"
+
 open Tools.VedU1WireShare in
 /-- `ved_loop_unfold_mem t`: rewrite `(Signal.loop F).val t` by the strong fixpoint equation, for every loop
 whose value at `t` occurs in the goal (the walk of `ved_loop_unfold_share`, the lemma and the side
 conditions changed) -/
-elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : tactic => withMainContext do
+elab "ved_loop_unfold_mem " lim:(vedLoopLimit)? " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : tactic => withMainContext do
+  -- `(limit := n)`: the public option `ved.mem.loopGate`, read by the entry (absent or 0: no gate)
+  let gate := match lim with
+    | some l => (l.raw.getArg 3).isNatLit?.getD 0
+    | none => 0
   let tgt0 ← instantiateMVars (← getMainTarget)
   let tE ← instantiateMVars (← Term.elabTerm t (some (mkConst ``Nat)))
   let tE ← instantiateMVars tE
@@ -1075,10 +1142,14 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let hS ← mkFreshExprMVar ty.bindingDomain!
     runSubMem h0.mvarId! (← `(tactic| (intro _ _; rfl)))
     let tc0 ← IO.monoMsNow
-    dbgLog s!"unfold_mem: loop dag={(collectDag (fun _ => true) L).size} tree={Tools.VedU1Loop.treeSizeVal L} hS ctx={(← hS.mvarId!.getDecl).lctx.size} hStype dag={(collectDag (fun _ => true) (← instantiateMVars (← hS.mvarId!.getType))).size} t={tE} nocc={(← occs tgt).size}"
+    -- the debug line walks the loop (tree size, dag): only when the stage log is on
+    if (← IO.getEnv "VED_DUMP_DIR").isSome then
+      dbgLog s!"unfold_mem: loop dag={(collectDag (fun _ => true) L).size} tree={Tools.VedU1Loop.treeSizeVal L} hS ctx={(← hS.mvarId!.getDecl).lctx.size} hStype dag={(collectDag (fun _ => true) (← instantiateMVars (← hS.mvarId!.getType))).size} t={tE} nocc={(← occs tgt).size}"
     let hb0 ← IO.getNumHeartbeats
     let hSc ← clearOthers hS.mvarId!
     dbgLog s!"unfold_mem: clearOthers done ms={(← IO.monoMsNow) - tc0}"
+    -- the gate sits right before the simp-based causal discharge (see `loopGateCheck`)
+    loopGateCheck L gate
     runSubMem hSc (← `(tactic| ved_causal [$ex,*]))
     if let some hook ← causalHook.get then hook hSc
     dbgLog s!"unfold_mem: causal ms={(← IO.monoMsNow) - tc0} hb={((← IO.getNumHeartbeats) - hb0) / 1000}"

@@ -454,7 +454,7 @@ with the invariant extended by the memories.  The invariant is `R` (registers fi
 memory, then one latch equation per registered read), given in full: the loop-state tactics (`ved_loop_unfold_share`,
 `ved_loop_gen_share`, the closing stages) are those of `loopScriptFor`, run after the memory parts of the next
 state are peeled (their side conditions are goals of the same kind as the registers'). -/
-def memLoopScript (dbg gate : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
+def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : List (String × Nat))
     (stmts : List (String × Nat × Nat × Bool × String × String × String × String × String))
     (calls : Array MemCall) (R : Lean.Expr) (helpers : Array Name) (pk : Bool := false) : TermElabM Syntax := do
   -- the state projections `Signal.fst` / `Signal.snd` of a loop's state signal are unfolded with the helpers
@@ -470,6 +470,8 @@ def memLoopScript (dbg gate : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : 
   let B := mkCIdent nm.body
   let fI := mkCIdent F
   let gateN := Lean.Syntax.mkNumLit (toString gate)
+  let loopGateN := Lean.Syntax.mkNumLit (toString loopGate)
+  let h0BudgetN := Lean.Syntax.mkNumLit (toString h0Budget)
   let mut f : Term := fI
   if nDom > 0 then
     f ← `(@$fI)
@@ -590,73 +592,75 @@ def memLoopScript (dbg gate : Nat) (nm : Names) (F : Name) (nDom : Nat) (regs : 
           Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
       ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
   let core ← `(by
-      ved_stamp 80
-      have hord : OrderOkM $M $B = true := by
-        first
-          | exact Tools.VedMemOrder.OrderOkM_of_parts _ _ (by decide +kernel) (by decide +kernel) (by decide +kernel)
-          | decide +kernel
-      ved_stamp 81
-      refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩,
-        by first
-          | exact Tools.VedMemWidth.WidthStmt_of_parts _ _ (by decide +kernel) (by decide +kernel)
-          | decide +kernel, ⟨$B, hord⟩, ?_⟩
-      ved_stamp 82
-      apply outputs_of_orderM $B hord
-      ved_stamp 83
-      refine outputs_of_step_mem $Cx $M $B $fx $O (by decide +kernel) $Rstx ?h0 ?hstep
-      case h0 =>
-        ved_stamp 84
-        intro $insI hok
-        ved_loop_unfold_mem [$hsSep,*] 0
-        ved_stamp 85
-        refine $h0Term
-        $d10
-        all_goals ved_loop_simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
-          Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*]
-        ved_stamp 86
-        all_goals (try decide +kernel)
-        ved_stamp 87
-      case hstep =>
-        ved_stamp 88
-        intro $insI hok $sI st mems hR
-        have $hinI := hok.1 $sI
-        have $hrstI := hok.2 $sI
-        ved_stamp 90
-        $hinSimp
-        ved_stamp 91
-        $keyTacs*
-        $obtainTac
-        ved_stamp 92
-        $rdTacs*
-        $normHyps
-        ved_stamp 93
-        $d1
-        ved_loop_unfold_mem [$hsSep,*] ($sI + 1)
-        $d2
-        ved_stamp 94
-        all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
-          comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
-          Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
-          Sparkle.Core.Signal.Signal.memory_val_zero, $ex1,*])
-        ved_stamp 95
-        $d3
-        all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
-        ved_stamp 96
-        all_goals (try (repeat' apply And.intro))
-        ved_stamp 97
-        $d4
-        $d18
-        all_goals (try $peelAlt:tactic)
-        ved_stamp 98
-        ved_goal_gate $gateN
-        $d5
-        ved_if_read (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val])
-        ved_stamp 99
-        ved_dsimp_goals
-        ved_stamp 100
-        ved_loop_gen_mem $sI
-        $d6
-        $tail*)
+    ved_no_recover (
+        ved_stamp 80
+        have hord : OrderOkM $M $B = true := by
+          first
+            | exact Tools.VedMemOrder.OrderOkM_of_parts _ _ (by decide +kernel) (by decide +kernel) (by decide +kernel)
+            | decide +kernel
+        ved_stamp 81
+        refine ⟨by decide +kernel, ⟨by decide +kernel, by decide +kernel⟩,
+          by first
+            | exact Tools.VedMemWidth.WidthStmt_of_parts _ _ (by decide +kernel) (by decide +kernel)
+            | decide +kernel, ⟨$B, hord⟩, ?_⟩
+        ved_stamp 82
+        apply outputs_of_orderM $B hord
+        ved_stamp 83
+        refine outputs_of_step_mem $Cx $M $B $fx $O (by decide +kernel) $Rstx ?h0 ?hstep
+        case h0 =>
+          ved_stamp 84
+          intro $insI hok
+          ved_loop_unfold_mem (limit := $loopGateN) [$hsSep,*] 0
+          ved_stamp 85
+          ved_h0_budget $h0BudgetN (
+            refine $h0Term
+            $d10
+            all_goals ved_loop_simp [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth,
+              Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*])
+          ved_stamp 86
+          all_goals (try decide +kernel)
+          ved_stamp 87
+        case hstep =>
+          ved_stamp 88
+          intro $insI hok $sI st mems hR
+          have $hinI := hok.1 $sI
+          have $hrstI := hok.2 $sI
+          ved_stamp 90
+          $hinSimp
+          ved_stamp 91
+          $keyTacs*
+          $obtainTac
+          ved_stamp 92
+          $rdTacs*
+          $normHyps
+          ved_stamp 93
+          $d1
+          ved_loop_unfold_mem (limit := $loopGateN) [$hsSep,*] ($sI + 1)
+          $d2
+          ved_stamp 94
+          all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
+            comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
+            Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
+            Sparkle.Core.Signal.Signal.memory_val_zero, $ex1,*])
+          ved_stamp 95
+          $d3
+          all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
+          ved_stamp 96
+          all_goals (try (repeat' apply And.intro))
+          ved_stamp 97
+          $d4
+          $d18
+          all_goals (try $peelAlt:tactic)
+          ved_stamp 98
+          ved_goal_gate $gateN
+          $d5
+          ved_if_read (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val])
+          ved_stamp 99
+          ved_dsimp_goals
+          ved_stamp 100
+          ved_loop_gen_mem $sI
+          $d6
+          $tail*))
   if pk then
     `(by
         have hP : Tools.VedU1Packed.PackCover $C := by decide
@@ -733,7 +737,7 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
       else do
         unless ← Tools.VedU1Uns.usesLoop stmt.getAppFn.constName! helpers do
           refuse decl "shape" m!"the body has registers that do not come from a `Signal.loop` (this slice: loops)"
-        memLoopScript (ved.mem.debugStage.get (← getOptions)) (ved.mem.goalGate.get (← getOptions)) nm stmt.getAppFn.constName! nDom regsL stmts calls R helpers packed
+        memLoopScript (ved.mem.debugStage.get (← getOptions)) (ved.mem.goalGate.get (← getOptions)) (Tools.VedMemLoop.ved.mem.loopGate.get (← getOptions)) (Tools.VedMemLoop.ved.mem.h0Budget.get (← getOptions)) nm stmt.getAppFn.constName! nDom regsL stmts calls R helpers packed
     let scriptTxt ← PrettyPrinter.ppTerm ⟨stx⟩
     if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM SCRIPT {scriptTxt}"
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
