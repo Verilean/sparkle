@@ -10,6 +10,8 @@ condition.  Environment (all optional; the hook does nothing without `VED_KERNEL
 
 * `VED_STOP_AFTER_CAUSAL=n`: act only on the first side condition whose goal has at least `n` tree nodes, and after acting stop the
   process with exit code 3.
+* `VED_STOP_AFTER_CAUSAL_N=n`: count the closed side conditions; every one is reported (tree size, time), and after the `n`-th
+  (the kernel probe below acts on it only) the process stops with exit code 3.
 * `VED_KERNEL_PROBE=s`: kernel-check the closed side condition (an auxiliary theorem over the goal's local context, checked by
   `Kernel.Environment.addDecl`, the result is dropped), synchronously, with a wall cap of `s` seconds (on the cap the check is
   cancelled and "not finished" is recorded).  The kernel's own heartbeat limit is off for the probe (the wall cap bounds it).
@@ -21,12 +23,22 @@ open Lean Meta Elab Tactic
 
 namespace Tools.VedMemCausalProbe
 
+initialize closedCount : IO.Ref Nat ← IO.mkRef 0
+
 def probe (hSc : MVarId) : TacticM Unit := do
   let stop := (← IO.getEnv "VED_STOP_AFTER_CAUSAL").bind (·.toNat?)
+  let stopN := (← IO.getEnv "VED_STOP_AFTER_CAUSAL_N").bind (·.toNat?)
   let kprobe := (← IO.getEnv "VED_KERNEL_PROBE").map fun s => s.toNat?.getD 600
-  if stop.isNone && kprobe.isNone then return
+  if stop.isNone && kprobe.isNone && stopN.isNone then return
   let szT := Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← hSc.getType))
-  if szT < stop.getD 0 then return
+  let cnt := (← closedCount.get) + 1
+  closedCount.set cnt
+  if let some n := stopN then
+    let msg := s!"causal side condition #{cnt} closed tree={szT} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}"
+    IO.eprintln s!"VED PROBE {msg}"
+    Tools.VedMemLoop.dbgLog s!"PROBE {msg}"
+    if cnt < n then return
+  else if szT < stop.getD 0 then return
   let say (msg : String) : IO Unit := do
     IO.eprintln s!"VED PROBE {msg}"
     Tools.VedMemLoop.dbgLog s!"PROBE {msg}"
@@ -60,7 +72,7 @@ def probe (hSc : MVarId) : TacticM Unit := do
           | .ok _ => say s!"KERNEL ok ms={t1 - t0} proofDag={dag}"
           | .error _ => say s!"KERNEL rejected ms={t1 - t0} proofDag={dag}"
     catch e => say s!"KERNEL probe error {(← e.toMessageData.toString).take 300}"
-  if stop.isSome then
+  if stop.isSome || stopN.isSome then
     say s!"STOP_AFTER_CAUSAL t={← IO.monoMsNow} tree={szT}"
     IO.Process.exit 3
 
