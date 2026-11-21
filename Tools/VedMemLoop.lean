@@ -2087,6 +2087,8 @@ simplification of `m` (`congrArg` over `m`, then `Option.bind (some x) f ≡ f x
 
 /-- number of `Option.bind` steps taken by `vedBindStrict*` (test counter) -/
 initialize bindStrictHits : IO.Ref Nat ← IO.mkRef 0
+/-- diagnosis timers of `bindStrictStep` (ms): nested `Simp.simp m`, proof construction -/
+initialize bindStrictMs : IO.Ref (Nat × Nat) ← IO.mkRef (0, 0)
 
 open Lean Meta Simp in
 def bindStrictStep (e : Expr) : SimpM Step := do
@@ -2097,20 +2099,28 @@ def bindStrictStep (e : Expr) : SimpM Step := do
   let m := e.getArg! mi
   if m.isAppOfArity ``Option.some 2 then return .continue
   unless f.isLambda do return .continue
+  let t0 ← IO.monoNanosNow
   let r ← Simp.simp m
+  let t1 ← IO.monoNanosNow
+  bindStrictMs.modify fun (a, b) => (a + (t1 - t0) / 1000, b)
   unless r.expr.isAppOfArity ``Option.some 2 do return .continue
   let new := (mkApp f r.expr.appArg!).headBeta
   match r.proof? with
   | none => return .continue
   | some p =>
     bindStrictHits.modify (· + 1)
-    let mT ← inferType m
-    let motive := Expr.lam `y mT (mkAppN e.getAppFn (e.getAppArgs.set! mi (.bvar 0))) .default
-    let x := r.expr.appArg!
-    let mut pf ← mkCongrArg motive p
-    if mi == 4 then pf ← mkEqTrans pf (← mkCongrFun (← mkCongrFun (← mkAppOptM ``Option.bind_eq_bind #[some (e.getArg! 2), some (e.getArg! 3)]) r.expr) f)
-    pf ← mkEqTrans pf (← mkAppM ``Option.bind_some #[x, f])
-    return .visit { expr := new, proof? := some pf }
+    let t2 ← IO.monoNanosNow
+    try
+      let mT ← inferType m
+      let motive := Expr.lam `y mT (mkAppN e.getAppFn (e.getAppArgs.set! mi (.bvar 0))) .default
+      let x := r.expr.appArg!
+      let mut pf ← mkCongrArg motive p
+      if mi == 4 then pf ← mkEqTrans pf (← mkCongrFun (← mkCongrFun (← mkAppOptM ``Option.bind_eq_bind #[some (e.getArg! 2), some (e.getArg! 3)]) r.expr) f)
+      pf ← mkEqTrans pf (← mkAppM ``Option.bind_some #[x, f])
+      return .visit { expr := new, proof? := some pf }
+    finally
+      let t3 ← IO.monoNanosNow
+      bindStrictMs.modify fun (a, b) => (a, b + (t3 - t2) / 1000)
 
 open Lean Meta Simp in
 simproc_decl vedBindStrictO (Option.bind _ _) := bindStrictStep
@@ -2193,6 +2203,9 @@ initialize s94Last : IO.Ref (Array String) ← IO.mkRef #[]
 initialize s94Stop : IO.Ref Bool ← IO.mkRef false
 initialize s94Logged : IO.Ref Nat ← IO.mkRef 0
 initialize s94T0 : IO.Ref Nat ← IO.mkRef 0
+/-- gap diagnosis: time (µs) between two consecutive visits by (previous head → head), and the last visit's time stamp (ns) -/
+initialize s94Gap : IO.Ref (Std.HashMap String Nat) ← IO.mkRef {}
+initialize s94GapT : IO.Ref Nat ← IO.mkRef 0
 
 def s94Head (e : Expr) : String :=
   match e.getAppFn with
@@ -2216,6 +2229,12 @@ simproc_decl vedMemProbe (_) := fun e => do
   let v ← s94Visits.modifyGet fun v => (v + 1, v + 1)
   let now ← IO.monoMsNow
   s94LastMs.set now
+  let nowN ← IO.monoNanosNow
+  let prevN ← s94GapT.get
+  if prevN != 0 then
+    let ph := (← s94Last.get).back?.getD "-"
+    s94Gap.modify fun m => let k := ph ++ " -> " ++ h; m.insert k (m.getD k 0 + (nowN - prevN) / 1000)
+  s94GapT.set nowN
   s94Last.modify fun a => (a.push h).extract (a.size + 1 - 6) (a.size + 1)
   if v % 2000 == 0 then
     let st ← get
@@ -2337,6 +2356,7 @@ elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
       dbgLog s!"S94D #{i} SKIPPED (total 500 s used) dag={dag0} tree={tree0}"
       return
     s94Hist.set {}
+    s94Gap.set {}; s94GapT.set 0
     let v0 ← s94Visits.get
     let h0 ← declWidthHits.get
     let t1 ← IO.monoMsNow
@@ -2353,12 +2373,16 @@ elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
     let h ← s94Hist.get
     let top := (h.toList.toArray.qsort (fun a b => a.2 > b.2)).toList.take 6
     if i == 0 then
+      let gp := ((← s94Gap.get).toList.toArray.qsort (fun a b => a.2 > b.2)).toList.take 10
+      dbgLog s!"S94D #0 gap(us) by prev->head: {gp}"
       -- variants: the same simp with one simp lemma erased (diagnosis of which rule's cost dominates)
       for nm in ((← IO.getEnv "VED_S94_ERASE").getD "").splitOn "," do
         if nm.isEmpty then continue
         let thms ← sc.ctx.simpTheorems.mapM fun th => do
           try th.erase (.decl nm.toName) catch _ => pure th
         let ctx2 := sc.ctx.setSimpTheorems thms
+        -- a name that is a simproc is erased from the simprocs as well (diagnosis of builtin simprocs such as `reduceIte`)
+        let sps := sc.simprocs.map fun sp => sp.erase nm.toName
         s94Hist.set {}
         let v0 ← s94Visits.get
         let t1 ← IO.monoMsNow
@@ -2366,7 +2390,7 @@ elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
         let r2 ← try
             withTheReader Core.Context (fun c => { c with maxHeartbeats := 2000000000, initHeartbeats := hb }) do
               tryCatchRuntimeEx (do
-                let (r, _) ← sc.dischargeWrapper.with fun d? => Meta.simp c ctx2 sc.simprocs d?
+                let (r, _) ← sc.dischargeWrapper.with fun d? => Meta.simp c ctx2 sps d?
                 pure (some r)) fun ex => if ex.isRuntime then pure none else throw ex
           catch _ => pure none
         let h ← s94Hist.get
@@ -2374,7 +2398,7 @@ elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
         dbgLog s!"S94D #0 erase {nm}: {if r2.isSome then "done" else "BUDGET"} ms={(← IO.monoMsNow) - t1} hb={((← IO.getNumHeartbeats) - hb) / 1000} visits={(← s94Visits.get) - v0} tree={match r2 with | some r => Tools.VedU1Loop.treeSizeVal r.expr | none => 0} top={top}"
     match r with
     | some r =>
-      dbgLog s!"S94D #{i} ms={ms} hb={hbd} visits={v1 - v0} declWidthHits={(← declWidthHits.get) - h0} dag {dag0}->{(Tools.VedU1WireShare.collectDag (fun _ => true) r.expr).size} tree {tree0}->{Tools.VedU1Loop.treeSizeVal r.expr} top={top} src={head.take 110}"
+      dbgLog s!"S94D #{i} ms={ms} hb={hbd} visits={v1 - v0} declWidthHits={(← declWidthHits.get) - h0} bindUs(simp m, proof)={← bindStrictMs.get} dag {dag0}->{(Tools.VedU1WireShare.collectDag (fun _ => true) r.expr).size} ptrObjs {← Lean.Expr.numObjs c}->{← Lean.Expr.numObjs r.expr} tree {tree0}->{Tools.VedU1Loop.treeSizeVal r.expr} top={top} src={head.take 110}"
     | none =>
       dbgLog s!"S94D #{i} BUDGET/ERR ms={ms} visits={v1 - v0} dag={dag0} tree={tree0} top={top} src={head.take 110}"
   dbgLog s!"S94D done total ms={(← IO.monoMsNow) - t0}"
