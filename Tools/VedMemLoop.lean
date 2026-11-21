@@ -1775,77 +1775,56 @@ The step case of the memory loop (`memLoopScript`, `Tools/VedMemEntry.lean`) sta
 hypotheses, whose terms hold the declaration's loops (tree 6.2e10 nodes on R033, a DAG of a few thousand): `simp only [O, List.mem_singleton,
 forall_eq, key]` (packed rows; observed 428 s, ONE conjunct changes) and `ved_loop_simp [..] at hreg* hM* hL* hD*` (every hypothesis re-simplifies
 the same loops: `Simp.main` has a cache per location).  With the option ON the new tactics are the first alternative, the old ones the
-fallback (`first`, the state is restored): `ved_key_dag` rewrites the conjunct alone (`hstep_q_mono`), `ved_hnorm_dag` simplifies each distinct
+fallback (`first`, the state is restored): `ved_obtain_dag` takes `hR` apart by projections, `ved_hnorm_dag` simplifies each distinct
 loop of the hypotheses ONCE and puts the result in by `Expr.replace` + `congrArg`.  Untrusted: the kernel checks the proofs. -/
 
 register_option ved.mem.hstepDag : Bool := {
   defValue := false
-  descr := "step case of the memory loop: rewrite only the needed occurrences (`ved_key_dag`, `ved_hnorm_dag`) instead of the whole-term simps; the old tactics stay the fallback"
+  descr := "step case of the memory loop: rewrite only the needed occurrences (`ved_obtain_dag`, `ved_hnorm_dag`) instead of the whole-term simps; the old tactics stay the fallback"
 }
 
 /-- `ved_hstep_dag_on`: fails (fixed text) unless the option `ved.mem.hstepDag` is on -/
 elab "ved_hstep_dag_on" : tactic => do
   unless (← getOptions).getBool `ved.mem.hstepDag false do throwError "ved_hstep_dag: option ved.mem.hstepDag is off"
 
-/-- test seam (never set by production code): when set `ved_key_dag` / `ved_hnorm_dag` refuse, the old tactic is the fallback -/
+/-- test seam (never set by production code): when set `ved_obtain_dag` / `ved_hnorm_dag` refuse, the old tactic is the fallback -/
 initialize hstepRefuse : IO.Ref Bool ← IO.mkRef false
 
-/-- the change of one conjunct under three `∃`, the other two conjuncts as functions of the witnesses -/
-theorem hstep_q_mono {α β γ : Sort _} {S : α → β → γ → Prop} {Q Q' : α → Prop} {Rr : α → β → γ → Prop}
-    (h : ∀ a, Q' a → Q a) : (∃ a b c, S a b c ∧ Q' a ∧ Rr a b c) → (∃ a b c, S a b c ∧ Q a ∧ Rr a b c) :=
-  fun ⟨a, b, c, hs, hq, hr⟩ => ⟨a, b, c, hs, h a hq, hr⟩
+/-- test log (never read by production code): the names of the new tactics that ran -/
+initialize hstepRan : IO.Ref (Array String) ← IO.mkRef #[]
 
-/-- `ved_key_dag [lemmas]`: the goal `∃ e n m, S ∧ Q ∧ R` (the step case of `outputs_of_step_mem`): `simp only [lemmas]` runs on the
-conjunct `Q` alone (a small term), the new goal is `∃ e n m, S ∧ Q' ∧ R` with `R` (the big invariant) shared, not visited. -/
-def keyDagCore (ls : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") : TacticM Unit := withMainContext do
-  if (← hstepRefuse.get) then throwError "ved_key_dag: refused (test seam)"
-  let g ← getMainGoal
+def obtainDagCore (h : TSyntax `ident) (ids : Array (TSyntax `ident)) : TacticM Unit := withMainContext do
+  if (← hstepRefuse.get) then throwError "ved_obtain_dag: refused (test seam)"
   let t0 ← IO.monoMsNow
-  let tgt ← instantiateMVars (← g.getType)
-  let ex? := fun (x : Expr) =>
-    let x := x.consumeMData
-    if x.isAppOfArity ``Exists 2 && (x.getArg! 1).consumeMData.isLambda then some (x.getArg! 0, (x.getArg! 1).consumeMData) else none
-  let some (α, f1) := ex? tgt | throwError "ved_key_dag: the goal is not an existential: {(toString (← ppExpr tgt)).take 100} [{tgt.ctorName}]"
-  withLocalDeclD f1.bindingName! α fun e => do
-  let b1 := f1.bindingBody!.instantiate1 e
-  let some (β, f2) := ex? b1 | throwError "ved_key_dag: the goal is not a double existential"
-  withLocalDeclD f2.bindingName! β fun n => do
-  let b2 := f2.bindingBody!.instantiate1 n
-  let some (γ, f3) := ex? b2 | throwError "ved_key_dag: the goal is not a triple existential"
-  withLocalDeclD f3.bindingName! γ fun m => do
-  let body := (f3.bindingBody!.instantiate1 m).consumeMData
-  unless body.isAppOfArity ``And 2 && (body.getArg! 1).consumeMData.isAppOfArity ``And 2 do throwError "ved_key_dag: not S ∧ Q ∧ R"
-  let S := body.getArg! 0
-  let QR := (body.getArg! 1).consumeMData
-  let Q := QR.getArg! 0
-  let Rr := QR.getArg! 1
-  if Q.containsFVar n.fvarId! || Q.containsFVar m.fvarId! then throwError "ved_key_dag: the conjunct reads the later witnesses"
-  let qmv ← mkFreshExprMVar Q
-  let gs ← Tactic.run qmv.mvarId! (evalTactic (← `(tactic| simp only [$ls,*])))
-  let [g'] := gs | throwError "ved_key_dag: the conjunct simp left {gs.length} goals"
-  let Q' ← instantiateMVars (← g'.getType)
-  if Q' == Q then throwError "ved_key_dag: no change"
-  let hfun ← withLocalDeclD `hq Q' fun hq => do
-    g'.assign hq
-    mkLambdaFVars #[e, hq] (← instantiateMVars qmv)
-  let Slam ← mkLambdaFVars #[e, n, m] S
-  let Rlam ← mkLambdaFVars #[e, n, m] Rr
-  let Qlam ← mkLambdaFVars #[e] Q
-  let Qlam' ← mkLambdaFVars #[e] Q'
-  let newBody := mkApp2 (mkConst ``And) S (mkApp2 (mkConst ``And) Q' Rr)
-  let e3 ← mkAppM ``Exists #[← mkLambdaFVars #[m] newBody]
-  let e2 ← mkAppM ``Exists #[← mkLambdaFVars #[n] e3]
-  let G' ← mkAppM ``Exists #[← mkLambdaFVars #[e] e2]
-  let prf := mkAppN (mkConst ``hstep_q_mono [← getLevel α, ← getLevel β, ← getLevel γ]) #[α, β, γ, Slam, Qlam, Qlam', Rlam, hfun]
-  let new ← mkFreshExprSyntheticOpaqueMVar G' (← g.getTag)
-  g.assign (mkApp prf new)
-  replaceMainGoal [new.mvarId!]
-  dbgLog s!"key_dag: ms={(← IO.monoMsNow) - t0}"
+  let some d := (← getLCtx).findFromUserName? h.getId | throwError "ved_obtain_dag: no hypothesis {h.getId}"
+  if ids.size < 2 then throwError "ved_obtain_dag: fewer than two components"
+  let mut g ← getMainGoal
+  let mut cur : Expr := mkFVar d.fvarId
+  let mut ty := (← instantiateMVars d.type).consumeMData
+  for i in [0:ids.size] do
+    if i + 1 == ids.size then
+      let (_, g1) ← (← g.assert ids[i]!.getId ty cur).intro1P
+      g := g1
+    else
+      unless ty.isAppOfArity ``And 2 do throwError "ved_obtain_dag: component {i} is not a conjunction"
+      let a := ty.getArg! 0
+      let b := (ty.getArg! 1).consumeMData
+      let (_, g1) ← (← g.assert ids[i]!.getId a (mkApp3 (mkConst ``And.left) a b cur)).intro1P
+      g := g1
+      cur := mkApp3 (mkConst ``And.right) a b cur
+      ty := b
+  g ← g.clear d.fvarId
+  replaceMainGoal [g]
+  hstepRan.modify (·.push "obtain_dag")
+  dbgLog s!"obtain_dag: {ids.size} components ms={(← IO.monoMsNow) - t0}"
 
-elab "ved_key_dag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
-  try keyDagCore ls
+/-- `ved_obtain_dag hR [h₀, .., hₖ]`: `obtain ⟨h₀, .., hₖ⟩ := hR` for a right-nested conjunction by projections (`And.left` / `And.right` of the
+hypothesis, one `have` each, then `hR` cleared).  The `cases` of `rcases` abstracts the goal at each of the components (observed on R033: 426 s for
+the 28 components, the goal a DAG of a few thousand nodes with tree 6e10); the projections never read the goal. -/
+elab "ved_obtain_dag " h:ident " [" ids:ident,* "]" : tactic => do
+  try obtainDagCore h ids.getElems
   catch e =>
-    dbgLog s!"key_dag: refused: {← e.toMessageData.toString}"
+    dbgLog s!"obtain_dag: refused: {← e.toMessageData.toString}"
     throw e
 
 /-- the outermost `Signal.loop`s of `e` (closed ones; a loop inside a loop is not listed), each once -/
@@ -1963,6 +1942,7 @@ def hnormDagCore (ls : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (hs 
   -- (5) the let variables
   g4 ← g4.tryClearMany xfv
   replaceMainGoal [g4]
+  hstepRan.modify (·.push "hnorm_dag")
   dbgLog s!"hnorm_dag: done ms={(← IO.monoMsNow) - t0}"
 
 elab "ved_hnorm_dag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" " at " hs:ident+ : tactic => do

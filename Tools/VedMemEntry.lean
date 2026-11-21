@@ -492,8 +492,12 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
   let hAll : Array (TSyntax `ident) := hR' ++ hM ++ hL
   let hNorm : Array (TSyntax `ident) := hAll ++ hD
   let hPatArr ← hAll.mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
+  -- option `ved.mem.hstepDag`: `hR` taken apart by projections (`ved_obtain_dag`); the `obtain` is the fallback
   let obtainTac : TSyntax `tactic ← if hAll.size == 1 then `(tactic| have $(hAll[0]!):ident := hR)
-    else `(tactic| obtain ⟨$[$hPatArr],*⟩ := hR)
+    else `(tactic| first
+      | (ved_hstep_dag_on
+         ved_obtain_dag hR [$hAll,*])
+      | obtain ⟨$[$hPatArr],*⟩ := hR)
   let insI := mkIdent `ins
   let sI := mkIdent `s
   let hinI := mkIdent `hin
@@ -597,10 +601,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
   let keyTacs : Array (TSyntax `tactic) ← if pk then pure #[
       ← `(tactic| have key : ∀ t, Tools.VedU1Contract.srcOf (Tools.VedU1Packed.PContract.core $C) (Tools.VedU1Packed.packedF ($C).tbl $f) $insI "out" t =
           Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
-      ← `(tactic| first
-          | (ved_hstep_dag_on
-             ved_key_dag [$O:ident, List.mem_singleton, forall_eq, key])
-          | simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
+      ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
   let core ← `(by
     ved_no_recover (
         ved_stamp 80
