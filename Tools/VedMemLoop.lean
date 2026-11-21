@@ -245,6 +245,15 @@ def dbgLog (msg : String) : IO Unit := do
     let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
     h.putStrLn msg
 
+/-- the gate of the debug output: `VED_DUMP_DIR` is set -/
+def dbgOn : IO Bool := return (← IO.getEnv "VED_DUMP_DIR").isSome
+
+/-- `dbgLog` of a string that is BUILT only when the gate is open (the gate is checked first, then `mk` runs) -/
+def dbgLogWith {m : Type → Type} [Monad m] [MonadLiftT IO m] (mk : m String) : m Unit := do
+  if ← (dbgOn : IO Bool) then
+    let msg ← mk
+    (dbgLog msg : IO Unit)
+
 /-- `ved_tlog "k"`: (only with `VED_DUMP_DIR`) a timing line in `addr.log` -/
 elab "ved_tlog " k:str : tactic => do
   if (← IO.getEnv "VED_DUMP_DIR").isSome then
@@ -399,7 +408,9 @@ def leafDag (h k0 : Expr) : TacticM Expr := do
   unless ty.isForall do throwError "ved_causal_dag: agreement hypothesis has an unexpected type"
   let m ← mkFreshExprMVar ty.bindingDomain!
   let rest ← try Tactic.run m.mvarId! (evalTactic (← `(tactic| omega)))
-    catch e => throwError "{e.toMessageData}\nleaf goal: {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr ty.bindingDomain!))).take 400}"
+    catch e =>
+      dbgLogWith do return s!"causal_dag leaf: {← e.toMessageData.toString}\nleaf goal: {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr ty.bindingDomain!))).take 400}"
+      throwError "ved_causal_dag: bound not proved"
   unless rest.isEmpty do throwError "ved_causal_dag: bound not proved"
   return mkApp hk m
 
@@ -485,11 +496,13 @@ where
           if a[i]! != b[i]! then
             let q ← try dagEq cache s1 s2 h a[i]! b[i]!
               catch e =>
-                let extra ← if f.isConstOf ``Sparkle.Core.Signal.Signal.val then
-                    do let xs ← a.mapM fun x => do pure ((toString (← ppExpr x)).take 50).toString
-                       pure s!" args={xs}"
-                  else pure ""
-                throwError "{e.toMessageData}\n  in arg {i}/{a.size} of {(toString (← ppExpr f)).take 80}{extra}"
+                dbgLogWith do
+                  let extra ← if f.isConstOf ``Sparkle.Core.Signal.Signal.val then
+                      do let xs ← a.mapM fun x => do pure ((toString (← ppExpr x)).take 50).toString
+                         pure s!" args={xs}"
+                    else pure ""
+                  return s!"causal_dag: in arg {i}/{a.size} of {(toString (← ppExpr f)).take 80}{extra}"
+                throw e
             ps := ps.push (i, q)
         return ← congrArgsDag f a b ps
     if let (.proj n i x, .proj n' i' y) := (A, B) then
@@ -502,7 +515,8 @@ where
         let p ← withLocalDecl n bi ty fun x => do
           mkLambdaFVars #[x] (← dagEq cache s1 s2 h (bA.instantiate1 x) (bB.instantiate1 x))
         return ← mkFunExt p
-    throwError "ved_causal_dag: no rule for [{(toString (← ppExpr A)).take 300}] against [{(toString (← ppExpr B)).take 300}]"
+    dbgLogWith do return s!"causal_dag: no rule for [{(toString (← ppExpr A)).take 300}] against [{(toString (← ppExpr B)).take 300}]"
+    throwError "ved_causal_dag: no rule for this pair of subterms"
 
 /-- `ved_causal_dag`: the causal side condition (`∀ t s1 s2, (∀ k ≤ t, s1.val k = s2.val k) → (F s1).val (t+1) = (F s2).val (t+1)`)
 by `dagEq`; with `VED_DUMP_DIR` the time of the walk is logged -/
@@ -513,7 +527,7 @@ elab "ved_causal_dag" : tactic => do
   evalTactic (← `(tactic| rcases $t:ident with _ | $t:ident))
   let t0 ← IO.monoMsNow
   let hb0 ← IO.getNumHeartbeats
-  dbgLog s!"TLOG causal_dag begin t={t0}"
+  dbgLogWith do return s!"TLOG causal_dag begin t={t0}"
   try
    for g in ← getGoals do
     setGoals [g]
@@ -524,12 +538,12 @@ elab "ved_causal_dag" : tactic => do
       let some s2 := lctx.findFromUserName? `s2 | throwError "ved_causal_dag: no s2"
       let some h := lctx.findFromUserName? `h | throwError "ved_causal_dag: no h"
       let cache ← IO.mkRef {}
-      dbgLog s!"causal_dag top: nargs={A.getAppNumArgs} head={A.getAppFn} {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr (mkAppN A.getAppFn (A.getAppArgs.extract 0 2))))).take 300} | arg2={(toString (← ppExpr (A.getArg! 2))).take 200} | arg3={(toString (← ppExpr (A.getArg! 3))).take 100}"
+      dbgLogWith do return s!"causal_dag top: nargs={A.getAppNumArgs} head={A.getAppFn} {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr (mkAppN A.getAppFn (A.getAppArgs.extract 0 2))))).take 300} | arg2={(toString (← ppExpr (A.getArg! 2))).take 200} | arg3={(toString (← ppExpr (A.getArg! 3))).take 100}"
       let p ← dagEq cache s1.toExpr s2.toExpr h.toExpr A B
       (← getMainGoal).assign p
-      dbgLog s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.get).size}"
+      dbgLogWith do return s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.get).size}"
   catch e =>
-    dbgLog s!"TLOG causal_dag failed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000}: {(← e.toMessageData.toString).take 600}"
+    dbgLogWith do return s!"TLOG causal_dag failed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000}: {(← e.toMessageData.toString).take 600}"
     throw e
   setGoals []
 
@@ -1007,31 +1021,10 @@ def clearOthers (m : MVarId) : MetaM MVarId := m.withContext do
   let (m', _) ← m.tryClearMany' drop
   return m'
 
-/-- measurement only (with `VED_DUMP_DIR`): `VED_KERNEL_PROBE` times the kernel check of the closed side condition (a theorem over
-the goal's local context, checked by `Environment.addDecl` and not added); `VED_STOP_AFTER_CAUSAL=n` stops the process (exit 3)
-after the first side condition whose goal had a tree of at least `n` nodes (`szT`), once the line `STOP_AFTER_CAUSAL` is logged -/
-def causalMeasure (hSc : MVarId) (szT : Nat) : TacticM Unit := do
-  if (← IO.getEnv "VED_KERNEL_PROBE").isSome then
-    try
-      hSc.withContext do
-        let xs := (← getLCtx).foldl (init := #[]) fun acc d => if d.isImplementationDetail then acc else acc.push d.toExpr
-        let ty ← mkForallFVars xs (← instantiateMVars (← hSc.getType))
-        let pf ← mkLambdaFVars xs (← instantiateMVars (mkMVar hSc))
-        let t0 ← IO.monoMsNow
-        let env0 ← getEnv
-        let ok ← try
-            withOptions (fun o => o.setBool `Elab.async false) (addDecl (.thmDecl { name := `ved_kernel_probe, levelParams := [], type := ty, value := pf }))
-            pure true
-          catch _ => pure false
-        let t1 ← IO.monoMsNow
-        setEnv env0
-        dbgLog s!"KERNEL_PROBE ms={t1 - t0} ok={ok} proofDag={(Tools.VedU1WireShare.collectDag (fun _ => true) pf).size}"
-    catch e => dbgLog s!"KERNEL_PROBE error {(← e.toMessageData.toString).take 300}"
-  if let some n ← IO.getEnv "VED_STOP_AFTER_CAUSAL" then
-    if szT ≥ n.toNat! then
-      dbgLog s!"STOP_AFTER_CAUSAL t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} tree={szT}"
-      IO.eprintln s!"VED STOP_AFTER_CAUSAL tree={szT}"
-      IO.Process.exit 3
+/-- diagnosis hook: called with the closed causal side condition (the mvar `hSc`) right after `ved_causal` closed it.  A no-op
+(`none`) unless a diagnosis module (`Tools/VedMemCausalProbe.lean`, imported only by diagnosis cases) installs a function in its
+`initialize`; production modules never install one. -/
+initialize causalHook : IO.Ref (Option (MVarId → TacticM Unit)) ← IO.mkRef none
 
 open Tools.VedU1WireShare in
 /-- `ved_loop_unfold_mem t`: rewrite `(Signal.loop F).val t` by the strong fixpoint equation, for every loop
@@ -1065,11 +1058,8 @@ elab "ved_loop_unfold_mem " " [" ex:Lean.Parser.Tactic.simpLemma,* "]" t:term : 
     let hb0 ← IO.getNumHeartbeats
     let hSc ← clearOthers hS.mvarId!
     dbgLog s!"unfold_mem: clearOthers done ms={(← IO.monoMsNow) - tc0}"
-    let measure := (← IO.getEnv "VED_DUMP_DIR").isSome
-    let stopSet := (← IO.getEnv "VED_STOP_AFTER_CAUSAL").isSome
-    let szT ← if measure && stopSet then pure (Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← hSc.getType))) else pure 0
     runSubMem hSc (← `(tactic| ved_causal [$ex,*]))
-    if measure then causalMeasure hSc szT
+    if let some hook ← causalHook.get then hook hSc
     dbgLog s!"unfold_mem: causal ms={(← IO.monoMsNow) - tc0} hb={((← IO.getNumHeartbeats) - hb0) / 1000}"
     let lem ← instantiateMVars (mkApp3 f4 h0 hS (lhs.getArg! 3))
     let eqTy ← instantiateMVars (← inferType lem)
