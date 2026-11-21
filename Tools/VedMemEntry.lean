@@ -569,10 +569,17 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
   let tail := tail.flatten
   -- the declaration's loops in the hypotheses take the simp normal form of the goal's (the invariant was
   -- built from the declaration as written; `loopScriptFor` builds it from the normalised source instead)
-  let normHyps ← `(tactic| try (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf,
-      applyIns, $fI:ident, comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
-      Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
-      Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*] at $[$hNorm]*))
+  -- option `ved.mem.hstepDag`: the same simp, each distinct loop of the hypotheses simplified once (`ved_hnorm_dag`); the old step is the fallback
+  let normHyps ← `(tactic| try (first
+    | (ved_hstep_dag_on
+       ved_hnorm_dag [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf,
+         applyIns, $fI:ident, comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
+         Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
+         Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*] at $[$hNorm]*)
+    | (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf,
+         applyIns, $fI:ident, comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
+         Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
+         Sparkle.Core.Signal.Signal.memory_val_zero, $hsSep,*] at $[$hNorm]*)))
   let stopT := stopStage
   let skipT ← `(tactic| skip)
   let d := fun (k : Nat) => if dbg == k then stopT else skipT
@@ -590,7 +597,10 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
   let keyTacs : Array (TSyntax `tactic) ← if pk then pure #[
       ← `(tactic| have key : ∀ t, Tools.VedU1Contract.srcOf (Tools.VedU1Packed.PContract.core $C) (Tools.VedU1Packed.packedF ($C).tbl $f) $insI "out" t =
           Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
-      ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
+      ← `(tactic| first
+          | (ved_hstep_dag_on
+             ved_key_dag [$O:ident, List.mem_singleton, forall_eq, key])
+          | simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
   let core ← `(by
     ved_no_recover (
         ved_stamp 80
@@ -636,9 +646,11 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           $hinSimp
           ved_stamp 91
           $keyTacs*
+          ved_stamp 911
           $obtainTac
           ved_stamp 92
           $rdTacs*
+          ved_stamp 921
           $normHyps
           ved_stamp 93
           $d1

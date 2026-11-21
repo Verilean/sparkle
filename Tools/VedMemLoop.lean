@@ -1768,4 +1768,207 @@ elab "ved_hin_simp " m:term : tactic => withMainContext do
   dbgLog s!"hin_simp: {ids.size} widths"
   evalTactic (← `(tactic| simp [$hsSep,*] at $(mkIdent `hin):ident $(mkIdent `hrst):ident))
 
+
+/-! ## `ved.mem.hstepDag`: the two whole-term simps of the step case, as rewrites of the occurrences they need
+
+The step case of the memory loop (`memLoopScript`, `Tools/VedMemEntry.lean`) starts with two `simp`s over the whole goal / the whole
+hypotheses, whose terms hold the declaration's loops (tree 6.2e10 nodes on R033, a DAG of a few thousand): `simp only [O, List.mem_singleton,
+forall_eq, key]` (packed rows; observed 428 s, ONE conjunct changes) and `ved_loop_simp [..] at hreg* hM* hL* hD*` (every hypothesis re-simplifies
+the same loops: `Simp.main` has a cache per location).  With the option ON the new tactics are the first alternative, the old ones the
+fallback (`first`, the state is restored): `ved_key_dag` rewrites the conjunct alone (`hstep_q_mono`), `ved_hnorm_dag` simplifies each distinct
+loop of the hypotheses ONCE and puts the result in by `Expr.replace` + `congrArg`.  Untrusted: the kernel checks the proofs. -/
+
+register_option ved.mem.hstepDag : Bool := {
+  defValue := false
+  descr := "step case of the memory loop: rewrite only the needed occurrences (`ved_key_dag`, `ved_hnorm_dag`) instead of the whole-term simps; the old tactics stay the fallback"
+}
+
+/-- `ved_hstep_dag_on`: fails (fixed text) unless the option `ved.mem.hstepDag` is on -/
+elab "ved_hstep_dag_on" : tactic => do
+  unless (← getOptions).getBool `ved.mem.hstepDag false do throwError "ved_hstep_dag: option ved.mem.hstepDag is off"
+
+/-- test seam (never set by production code): when set `ved_key_dag` / `ved_hnorm_dag` refuse, the old tactic is the fallback -/
+initialize hstepRefuse : IO.Ref Bool ← IO.mkRef false
+
+/-- the change of one conjunct under three `∃`, the other two conjuncts as functions of the witnesses -/
+theorem hstep_q_mono {α β γ : Sort _} {S : α → β → γ → Prop} {Q Q' : α → Prop} {Rr : α → β → γ → Prop}
+    (h : ∀ a, Q' a → Q a) : (∃ a b c, S a b c ∧ Q' a ∧ Rr a b c) → (∃ a b c, S a b c ∧ Q a ∧ Rr a b c) :=
+  fun ⟨a, b, c, hs, hq, hr⟩ => ⟨a, b, c, hs, h a hq, hr⟩
+
+/-- `ved_key_dag [lemmas]`: the goal `∃ e n m, S ∧ Q ∧ R` (the step case of `outputs_of_step_mem`): `simp only [lemmas]` runs on the
+conjunct `Q` alone (a small term), the new goal is `∃ e n m, S ∧ Q' ∧ R` with `R` (the big invariant) shared, not visited. -/
+def keyDagCore (ls : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") : TacticM Unit := withMainContext do
+  if (← hstepRefuse.get) then throwError "ved_key_dag: refused (test seam)"
+  let g ← getMainGoal
+  let t0 ← IO.monoMsNow
+  let tgt ← instantiateMVars (← g.getType)
+  let ex? := fun (x : Expr) =>
+    let x := x.consumeMData
+    if x.isAppOfArity ``Exists 2 && (x.getArg! 1).consumeMData.isLambda then some (x.getArg! 0, (x.getArg! 1).consumeMData) else none
+  let some (α, f1) := ex? tgt | throwError "ved_key_dag: the goal is not an existential: {(toString (← ppExpr tgt)).take 100} [{tgt.ctorName}]"
+  withLocalDeclD f1.bindingName! α fun e => do
+  let b1 := f1.bindingBody!.instantiate1 e
+  let some (β, f2) := ex? b1 | throwError "ved_key_dag: the goal is not a double existential"
+  withLocalDeclD f2.bindingName! β fun n => do
+  let b2 := f2.bindingBody!.instantiate1 n
+  let some (γ, f3) := ex? b2 | throwError "ved_key_dag: the goal is not a triple existential"
+  withLocalDeclD f3.bindingName! γ fun m => do
+  let body := (f3.bindingBody!.instantiate1 m).consumeMData
+  unless body.isAppOfArity ``And 2 && (body.getArg! 1).consumeMData.isAppOfArity ``And 2 do throwError "ved_key_dag: not S ∧ Q ∧ R"
+  let S := body.getArg! 0
+  let QR := (body.getArg! 1).consumeMData
+  let Q := QR.getArg! 0
+  let Rr := QR.getArg! 1
+  if Q.containsFVar n.fvarId! || Q.containsFVar m.fvarId! then throwError "ved_key_dag: the conjunct reads the later witnesses"
+  let qmv ← mkFreshExprMVar Q
+  let gs ← Tactic.run qmv.mvarId! (evalTactic (← `(tactic| simp only [$ls,*])))
+  let [g'] := gs | throwError "ved_key_dag: the conjunct simp left {gs.length} goals"
+  let Q' ← instantiateMVars (← g'.getType)
+  if Q' == Q then throwError "ved_key_dag: no change"
+  let hfun ← withLocalDeclD `hq Q' fun hq => do
+    g'.assign hq
+    mkLambdaFVars #[e, hq] (← instantiateMVars qmv)
+  let Slam ← mkLambdaFVars #[e, n, m] S
+  let Rlam ← mkLambdaFVars #[e, n, m] Rr
+  let Qlam ← mkLambdaFVars #[e] Q
+  let Qlam' ← mkLambdaFVars #[e] Q'
+  let newBody := mkApp2 (mkConst ``And) S (mkApp2 (mkConst ``And) Q' Rr)
+  let e3 ← mkAppM ``Exists #[← mkLambdaFVars #[m] newBody]
+  let e2 ← mkAppM ``Exists #[← mkLambdaFVars #[n] e3]
+  let G' ← mkAppM ``Exists #[← mkLambdaFVars #[e] e2]
+  let prf := mkAppN (mkConst ``hstep_q_mono [← getLevel α, ← getLevel β, ← getLevel γ]) #[α, β, γ, Slam, Qlam, Qlam', Rlam, hfun]
+  let new ← mkFreshExprSyntheticOpaqueMVar G' (← g.getTag)
+  g.assign (mkApp prf new)
+  replaceMainGoal [new.mvarId!]
+  dbgLog s!"key_dag: ms={(← IO.monoMsNow) - t0}"
+
+elab "ved_key_dag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
+  try keyDagCore ls
+  catch e =>
+    dbgLog s!"key_dag: refused: {← e.toMessageData.toString}"
+    throw e
+
+/-- the outermost `Signal.loop`s of `e` (closed ones; a loop inside a loop is not listed), each once -/
+partial def outerLoops (e : Expr) : Array Expr := Id.run do
+  let mut seen : Std.HashSet Expr := {}
+  let mut out : Array Expr := #[]
+  let mut todo : Array Expr := #[e]
+  while !todo.isEmpty do
+    let x := todo.back!
+    todo := todo.pop
+    if seen.contains x then continue
+    seen := seen.insert x
+    if x.isAppOfArity ``Signal.loop 4 && !x.hasLooseBVars then
+      unless out.contains x do out := out.push x
+      continue
+    match x with
+    | .app f a => todo := (todo.push a).push f
+    | .lam _ t b _ => todo := (todo.push b).push t
+    | .forallE _ t b _ => todo := (todo.push b).push t
+    | .letE _ t v b _ => todo := ((todo.push b).push v).push t
+    | .mdata _ b => todo := todo.push b
+    | .proj _ _ b => todo := todo.push b
+    | _ => pure ()
+  return out
+
+/-- `ved_hnorm_dag [lemmas] at h₁ .. hₖ`: `ved_loop_simp [lemmas] at h₁ .. hₖ` where each distinct loop of the hypotheses is simplified once.
+(1) every outermost loop `L` of the hypotheses is simplified alone (`L = L'`); (2) `L` is replaced in the hypotheses by a `let` variable
+`x := L` (definitional), so that (3) the old `ved_loop_simp ... at ..` sees an atom; (4) `x` is replaced by `L'` (`congrArg` over the replaced
+occurrences, one `Expr.replace` per hypothesis); (5) the `let` variables are cleared. -/
+def hnormDagCore (ls : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (hs : Array (TSyntax `ident)) : TacticM Unit := withMainContext do
+  if (← hstepRefuse.get) then throwError "ved_hnorm_dag: refused (test seam)"
+  let t0 ← IO.monoMsNow
+  let stx0 ← `(tactic| ved_loop_simp [$ls,*])
+  let some (_, .ok stx1) ← liftMacroM (Lean.Elab.expandMacroImpl? (← getEnv) stx0) | throwError "ved_hnorm_dag: ved_loop_simp does not expand"
+  let sc ← Lean.Elab.Tactic.mkSimpContext stx1 (eraseLocal := false)
+  let fvs ← hs.mapM fun h => do
+    let some d := (← getLCtx).findFromUserName? h.getId | throwError "ved_hnorm_dag: no hypothesis {h.getId}"
+    pure d.fvarId
+  let mut loops : Array Expr := #[]
+  for fv in fvs do
+    for l in outerLoops (← instantiateMVars (← fv.getType)) do
+      unless loops.contains l do loops := loops.push l
+  dbgLog s!"hnorm_dag: {fvs.size} hypotheses, {loops.size} outermost loops"
+  -- (1) each loop once
+  let mut res : Array (Expr × Option Expr) := #[]
+  for l in loops do
+    let t1 ← IO.monoMsNow
+    let (r, _) ← sc.dischargeWrapper.with fun d? => Meta.simp l sc.ctx sc.simprocs d?
+    dbgLog s!"hnorm_dag: loop simp ms={(← IO.monoMsNow) - t1} changed={r.expr != l}"
+    let pf? ← if r.expr == l then pure none else do pure (some (← r.getProof))
+    res := res.push (r.expr, pf?)
+  -- (2) the let variables
+  let find (g : MVarId) (h : TSyntax `ident) : MetaM (Option FVarId) := g.withContext do
+    return (← getLCtx).findFromUserName? h.getId |>.map (·.fvarId)
+  let mut g ← getMainGoal
+  let mut xs : Array Expr := #[]
+  for j in [0:loops.size] do
+    let ty ← g.withContext (inferType loops[j]!)
+    let g1 ← g.define (Name.mkSimple s!"ved_hx{j}") ty loops[j]!
+    let (xv, g2) ← g1.intro1P
+    xs := xs.push (mkFVar xv)
+    g := g2
+  for h in hs do
+    let some hf ← find g h | continue
+    let r? ← g.withContext do
+      let ty ← instantiateMVars (← hf.getType)
+      let ty' := ty.replace fun e =>
+        if e.isAppOfArity ``Signal.loop 4 then
+          match loops.findIdx? (· == e) with
+          | some j => some xs[j]!
+          | none => none
+        else none
+      if ty' == ty then return none
+      return some (ty', ← mkExpectedTypeHint (← mkEqRefl ty) (← mkEq ty ty'))
+    if let some (ty', pf) := r? then
+      let (r : AssertAfterResult) ← g.replaceLocalDecl hf ty' pf
+      g := r.mvarId
+  replaceMainGoal [g]
+  dbgLog s!"hnorm_dag: atoms ms={(← IO.monoMsNow) - t0}"
+  -- (3) the old step on the atomised hypotheses
+  evalTactic (← `(tactic| ved_loop_simp [$ls,*] at $hs*))
+  dbgLog s!"hnorm_dag: simp ms={(← IO.monoMsNow) - t0}"
+  -- (4) the atoms become the simplified loops
+  let mut g4 ← getMainGoal
+  let xfv : Array FVarId := xs.map (·.fvarId!)
+  for h in hs do
+    let some hf ← find g4 h | continue
+    let r? ← g4.withContext do
+      let ty ← instantiateMVars (← hf.getType)
+      if !(xfv.any fun x => ty.containsFVar x) then return none
+      let mut cur := ty
+      let mut pf? : Option Expr := none
+      for j in [0:loops.size] do
+        let some pj := res[j]!.2 | continue
+        unless cur.containsFVar xfv[j]! do continue
+        let xj := xs[j]!
+        let motive ← withLocalDeclD `ved_y (← inferType xj) fun y =>
+          mkLambdaFVars #[y] (cur.replace fun e => if e == xj then some y else none)
+        let new := cur.replace fun e => if e == xj then some res[j]!.1 else none
+        let step ← mkCongrArg motive pj
+        pf? := some (← match pf? with | none => pure step | some p => mkEqTrans p step)
+        cur := new
+      -- the atoms without a change: back to the loop itself
+      let cur' := cur.replace fun e =>
+        match xs.findIdx? (· == e) with
+        | some j => some loops[j]!
+        | none => none
+      let pf ← match pf? with
+        | some p => pure p
+        | none => mkExpectedTypeHint (← mkEqRefl ty) (← mkEq ty cur')
+      return some (cur', pf)
+    if let some (ty', pf) := r? then
+      let (r : AssertAfterResult) ← g4.replaceLocalDecl hf ty' pf
+      g4 := r.mvarId
+  -- (5) the let variables
+  g4 ← g4.tryClearMany xfv
+  replaceMainGoal [g4]
+  dbgLog s!"hnorm_dag: done ms={(← IO.monoMsNow) - t0}"
+
+elab "ved_hnorm_dag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" " at " hs:ident+ : tactic => do
+  try hnormDagCore ls hs
+  catch e =>
+    dbgLog s!"hnorm_dag: refused: {← e.toMessageData.toString}"
+    throw e
+
 end Tools.VedMemLoop
