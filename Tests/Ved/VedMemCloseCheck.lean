@@ -1325,4 +1325,109 @@ run_cmd hstepRanCheck ["obtain_dag", "hnorm_dag"]
 run_cmd liftTermElabM <| storedOk ``hsD
 
 
+/-! ### `ved.mem.hstepNorm` (sparkle-ved-mem-hstep, second unit): the simps of the step case do not normalise the loops; the goal's loops are made the hypotheses' loops
+
+The goal's `srcOf` loop (the declaration with its lets and name lookups, the state spelled as the product) and the hypotheses' loop (`R`: lets inlined, names
+literal, the state `HState`) are the same loop only by definitional unfolding: `ved_hstep_unify` replaces the goal's by the hypotheses'.  The option is
+`false` by default; the old script is the fallback. -/
+
+def hsE {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsF {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsG {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsH {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsI {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := hsD start writeEn writeAddr writeData
+
+def hnormStatsCheck : CommandElabM Unit := do
+  let (c, _) ← Tools.VedMemLoop.hnormStats.get
+  unless c ≥ 1 do throwError "hnormStats: no loop of the goal was made a loop of a hypothesis"
+  logInfo m!"hstep_unify converted at least one loop"
+
+/-- info: hstepNorm default false -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"hstepNorm default {Tools.VedMemLoop.ved.mem.hstepNorm.get (← getOptions)}"
+
+-- (5) hstepNorm ON, packed
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsE
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: hstep_unify converted at least one loop -/
+#guard_msgs in
+run_cmd hnormStatsCheck
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsE -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsE
+
+-- (6) hstepNorm ON and hstepDag ON, unpacked
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.hstepDag true in
+#ved_u1_mem hsI
+
+/-- info: hstep ran: [obtain_dag, norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["obtain_dag", "norm_skip"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsI -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``hsI
+
+-- (7) OFF (explicit), hstepDag on: the first unit's tactics, no norm_skip
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm false in
+set_option ved.mem.hstepDag true in
+#ved_u1_mem_packed hsF
+
+/-- info: hstep ran: [obtain_dag, hnorm_dag] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["obtain_dag", "hnorm_dag"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsF -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsF
+
+-- (8) ON, the new branch refuses: the old script closes
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepRefuse.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsH
+run_cmd Tools.VedMemLoop.hstepRefuse.set false
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsH -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsH
+
+-- (9) OFF (default), nothing of the new branch
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+#ved_u1_mem_packed hsG
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsG -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsG
+
+
 end Tests.Ved.VedMemCloseCheck

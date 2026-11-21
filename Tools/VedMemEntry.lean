@@ -528,6 +528,12 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
     Syntax.TSepArray.ofElems (hsA ++ rdLemmas)
   let ex2 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
     Syntax.TSepArray.ofElems (hsA ++ rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $hrstI:ident)))
+  -- option `ved.mem.hstepNorm`: the simps after the invariant do not enter `Signal.loop` (`vedMemLoopFreeze`, `↓`)
+  let fzL ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedMemLoopFreeze):term)
+  let ex1F : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems (#[fzL] ++ (hsA ++ rdLemmas))
+  let ex2F : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems (#[fzL] ++ (hsA ++ rdLemmas.push (← `(Lean.Parser.Tactic.simpLemma| $hrstI:ident))))
+  let hsSepF : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems (#[fzL] ++ hsA)
   let memSimpLemmas ← `(Lean.Parser.Tactic.simpLemma| comboReads)
   let _ := memSimpLemmas
   -- the memory parts of the next state: peel (the side conditions stay as goals)
@@ -550,12 +556,17 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
   let closing ← if pk then `(tactic| ved_all_goals_log ((ved_clear_sig_big; first | ved_decide_small2 | ved_ctrl_cases | ved_leaf_gate (first | (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega))) | (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))))) else pure closing
   let closingDbg ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega) | ved_dbg_state))
   let closing := if dbg == 17 then closingDbg else closing
-  let stages : Array (Array (TSyntax `tactic)) := #[
+  let mkStages := fun (fz : Bool) => do
+   let ex2 := if fz then ex2F else ex2
+   let lw : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+     Syntax.TSepArray.ofElems ((if fz then #[fzL] else #[]) ++ #[← `(Lean.Parser.Tactic.simpLemma| BitVec.toNat_eq),
+       ← `(Lean.Parser.Tactic.simpLemma| Nat.and_one_is_mod), ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1Loop.ved_mul_lit_bv)])
+   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| all_goals (try ved_lt_close)),
       ← `(tactic| all_goals (try ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*])),
       ← `(tactic| all_goals try (repeat' apply And.intro)),
       ← `(tactic| all_goals (try ved_lt_close))],
-    #[← `(tactic| all_goals (try ved_loopw_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
+    #[← `(tactic| all_goals (try ved_loopw_simp [$lw,*]))],
     #[← `(tactic| ved_bit_simp_share_m)],
     #[← `(tactic| all_goals (try ved_or_lit_g))],
     #[← `(tactic| all_goals (try ved_mem_addr)), ← `(tactic| all_goals (try ved_addr_post_g))],
@@ -566,11 +577,14 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])), ← `(tactic| ved_stamp 65),
       ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat] at *))],
     #[← `(tactic| all_goals (try simp only [Tools.VedMem.ofNat_mod_eq_extract'])), closing]]
+   let stopStage ← `(tactic| ved_dbg_state)
+   let tail ← (stages.zipIdx.mapM fun (st, k) => do
+     let stamp ← `(tactic| ved_stamp $(Syntax.mkNumLit (toString k)))
+     pure (if dbg == 20 + k then (#[stamp] ++ st).push stopStage else #[stamp] ++ st))
+   pure tail.flatten
   let stopStage ← `(tactic| ved_dbg_state)
-  let tail ← (stages.zipIdx.mapM fun (st, k) => do
-    let stamp ← `(tactic| ved_stamp $(Syntax.mkNumLit (toString k)))
-    pure (if dbg == 20 + k then (#[stamp] ++ st).push stopStage else #[stamp] ++ st))
-  let tail := tail.flatten
+  let tail ← mkStages false
+  let tailF ← mkStages true
   -- the declaration's loops in the hypotheses take the simp normal form of the goal's (the invariant was
   -- built from the declaration as written; `loopScriptFor` builds it from the normalised source instead)
   -- option `ved.mem.hstepDag`: the same simp, each distinct loop of the hypotheses simplified once (`ved_hnorm_dag`); the old step is the fallback
@@ -602,6 +616,45 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
       ← `(tactic| have key : ∀ t, Tools.VedU1Contract.srcOf (Tools.VedU1Packed.PContract.core $C) (Tools.VedU1Packed.packedF ($C).tbl $f) $insI "out" t =
           Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
       ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
+  -- the step case from the hypotheses' normalisation to the end; `fz`: the simps do not enter `Signal.loop` (option `ved.mem.hstepNorm`)
+  let mkSeg := fun (nh : TSyntax `tactic) (e1 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (tl : Array (TSyntax `tactic)) (r99 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (un : TSyntax `tactic) => `(tactic| (
+          $nh
+          ved_stamp 93
+          $d1
+          ved_loop_unfold_mem (limit := $loopGateN) [$hsSep,*] ($sI + 1)
+          $d2
+          ved_stamp 94
+          all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
+            comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
+            Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
+            Sparkle.Core.Signal.Signal.memory_val_zero, $e1,*])
+          $un
+          ved_stamp 95
+          $d3
+          all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
+          ved_stamp 96
+          all_goals (try (repeat' apply And.intro))
+          ved_stamp 97
+          $d4
+          $d18
+          all_goals (try $peelAlt:tactic)
+          ved_stamp 98
+          ved_goal_gate $gateN
+          $d5
+          ved_if_read (ved_loop_simp [$r99,*])
+          ved_stamp 99
+          ved_dsimp_goals
+          ved_stamp 100
+          ved_loop_gen_mem $sI
+          $d6
+          $tl*))
+  let normHypsF ← `(tactic| (ved_hstep_loops_clear; try (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf,
+         applyIns, $fI:ident, comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
+         Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
+         Sparkle.Core.Signal.Signal.memory_val_zero, $hsSepF,*] at $[$hNorm]*); ved_hstep_loops))
+  let mcr ← `(Lean.Parser.Tactic.simpLemma| Sparkle.Core.Signal.Signal.memoryComboRead_val)
+  let segOld ← mkSeg normHyps ex1 tail (Syntax.TSepArray.ofElems #[mcr]) (← `(tactic| skip))
+  let segNew ← mkSeg normHypsF ex1F tailF (Syntax.TSepArray.ofElems #[fzL, mcr]) (← `(tactic| ved_hstep_unify))
   let core ← `(by
     ved_no_recover (
         ved_stamp 80
@@ -652,35 +705,13 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           ved_stamp 92
           $rdTacs*
           ved_stamp 921
-          $normHyps
-          ved_stamp 93
-          $d1
-          ved_loop_unfold_mem (limit := $loopGateN) [$hsSep,*] ($sI + 1)
-          $d2
-          ved_stamp 94
-          all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
-            comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
-            Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
-            Sparkle.Core.Signal.Signal.memory_val_zero, $ex1,*])
-          ved_stamp 95
-          $d3
-          all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
-          ved_stamp 96
-          all_goals (try (repeat' apply And.intro))
-          ved_stamp 97
-          $d4
-          $d18
-          all_goals (try $peelAlt:tactic)
-          ved_stamp 98
-          ved_goal_gate $gateN
-          $d5
-          ved_if_read (ved_loop_simp [Sparkle.Core.Signal.Signal.memoryComboRead_val])
-          ved_stamp 99
-          ved_dsimp_goals
-          ved_stamp 100
-          ved_loop_gen_mem $sI
-          $d6
-          $tail*))
+          first
+            | (ved_hstep_norm_on
+               $segNew
+               ved_hstep_loops_clear
+               ved_hstep_norm_ran)
+            | ($segOld:tactic)
+          ))
   if pk then
     `(by
         have hP : Tools.VedU1Packed.PackCover $C := by decide

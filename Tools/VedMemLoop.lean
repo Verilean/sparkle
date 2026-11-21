@@ -1338,7 +1338,23 @@ elab "ved_stamp " k:num : tactic => do
     let mut szs : Array Nat := #[]
     for g in gs do
       szs := szs.push (← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType)))
-    dbgLog s!"STAMP {k.getNat} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={gs.length} tree: total={szs.foldl (· + ·) 0} max={szs.foldl max 0} big(>100k)={(szs.filter (· > 100000)).size}"
+    -- distinct loops of the targets / of the hypotheses of the first goal (the option `ved.mem.hstepNorm` keeps both sides the same terms)
+    let isLp := fun (x : Expr) => x.isAppOfArity ``Signal.loop 4
+    let mut lt : Array Expr := #[]
+    for g in gs do
+      for l in Tools.VedU1WireShare.collectDag isLp (← instantiateMVars (← g.getType)) do
+        unless lt.contains l do lt := lt.push l
+    let lh : Array Expr ← match gs.head? with
+      | none => pure #[]
+      | some g => g.withContext do
+        let mut r : Array Expr := #[]
+        for d in ← getLCtx do
+          unless d.isImplementationDetail do
+            for l in Tools.VedU1WireShare.collectDag isLp (← instantiateMVars d.type) do
+              unless r.contains l do r := r.push l
+        pure r
+    let both := (lt.filter fun l => lh.contains l).size
+    dbgLog s!"STAMP {k.getNat} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={gs.length} tree: total={szs.foldl (· + ·) 0} max={szs.foldl max 0} big(>100k)={(szs.filter (· > 100000)).size} loops: tgt={lt.size} hyp1={lh.size} shared={both}"
     if let some st ← IO.getEnv "VED_STOP_AT" then
       if st.toNat? == some k.getNat then
         dbgLog s!"sizes {szs}"
@@ -1950,5 +1966,121 @@ elab "ved_hnorm_dag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" " at " hs:ident+
   catch e =>
     dbgLog s!"hnorm_dag: refused: {← e.toMessageData.toString}"
     throw e
+
+/-! ## `ved.mem.hstepNorm`: the loops are not normalised; the goal's loop is replaced by the hypotheses' loop
+
+Observed (first unit, R033): one `Meta.simp` of one loop of the invariant takes 104 s (loop 2 does not finish in 314 s), and stage 94 repeats the
+same simp on the goal's loops.  What fires inside a loop body (`set_option trace.Meta.Tactic.simp.rewrite true` on a small design) is the
+unfolding of the signal combinators (`Signal.map/seq/ap/mux/beq/register/fst/snd`, `bundle2`, `PTy.sig`, the state-field projections) and a few
+rewrites of the value layer (`pure_val`, `add_val`, `ne_eq`, `ite_not`, ..); the body grows (tree 4611 -> 7745 on the smallest design).  The loops of
+the hypotheses (`R`, built from `declBody`: lets inlined, the input names literal) and the loop that the goal's `srcOf C f ins ..` unfolds to (the
+declaration with its lets and `applyIns` name lookups) are two spellings of the same loop; the old script puts both into the simp normal form.  With the
+option on, simp does not enter a `Signal.loop` (`↓ vedMemLoopFreeze`, `.done`: no proof, no rewrite inside the loop), and after the goal's simp
+(stage 94) `ved_hstep_unify` replaces a loop of the goal that is definitionally (default transparency, a local heartbeat budget per test) the loop of a
+hypothesis by that loop (one `Expr.replace` over the DAG, one `replaceTargetDefEq`; the kernel compares the two targets, which differ only at those
+loops).  The loops of the goal and of the hypotheses are then the same terms, without a rewrite inside a loop.  Why a separate step and not the
+simproc: simp runs at reducible transparency and keeps the type argument of `Signal.val dom α L s`; the entry spells the state type `QState`, the
+declaration the product, which only default transparency identifies. -/
+
+register_option ved.mem.hstepNorm : Bool := {
+  defValue := false
+  descr := "step case of the memory loop: the simps after the invariant do not normalise `Signal.loop` bodies, the goal's loops are made the hypotheses' loops by definitional equality; the old script is the fallback"
+}
+
+/-- local heartbeat budget (thousands) of one `isDefEq` of `vedMemLoopFreeze` -/
+register_option ved.mem.hstepNormBudget : Nat := {
+  defValue := 2000
+  descr := "local heartbeat budget (thousands) of one definitional-equality test of a goal loop against a hypothesis loop (`ved.mem.hstepNorm`)"
+}
+
+/-- `ved_hstep_norm_on`: fails (fixed text) unless the option `ved.mem.hstepNorm` is on, or when the test seam `hstepRefuse` is set -/
+elab "ved_hstep_norm_on" : tactic => do
+  unless (← getOptions).getBool `ved.mem.hstepNorm false do throwError "ved_hstep_norm: option ved.mem.hstepNorm is off"
+  if (← hstepRefuse.get) then throwError "ved_hstep_norm: refused (test seam)"
+
+/-- test log: the new branch ran to its end -/
+elab "ved_hstep_norm_ran" : tactic => do
+  hstepRan.modify (·.push "norm_skip")
+
+/-- the loops of the hypotheses (types), the targets of `vedMemLoopFreeze` -/
+initialize hnormLoops : IO.Ref (Array Expr) ← IO.mkRef #[]
+
+/-- (loops replaced by a hypothesis' loop, loops left alone) of the last `ved_hstep_unify`, test log -/
+initialize hnormStats : IO.Ref (Nat × Nat) ← IO.mkRef (0, 0)
+
+/-- `ved_hstep_loops`: remember the outermost loops of the hypotheses of the main goal -/
+elab "ved_hstep_loops" : tactic => withMainContext do
+  let mut ls : Array Expr := #[]
+  for d in ← getLCtx do
+    unless d.isImplementationDetail do
+      for l in outerLoops (← instantiateMVars d.type) do
+        unless ls.contains l do ls := ls.push l
+  hnormLoops.set ls
+  hnormStats.set (0, 0)
+  dbgLog s!"hstep_loops: {ls.size} loops of the hypotheses"
+
+/-- `ved_hstep_loops_clear`: forget them -/
+elab "ved_hstep_loops_clear" : tactic => do
+  dbgLog s!"hstep_loops_clear: converted/left {← hnormStats.get}"
+  hnormLoops.set #[]
+
+open Lean Meta Simp in
+/-- `simp [↓vedMemLoopFreeze, ..]` does not look into a `Signal.loop` (the goal's loops are made the hypotheses' loops afterwards, `ved_hstep_unify`; same simproc as `vedLoopFreeze` of `Tools/VedU1ScriptSeqGen.lean`).
+Sound: no rewriting inside the loop. -/
+simproc_decl vedMemLoopFreeze (Sparkle.Core.Signal.Signal.loop _) := fun e => do
+  return .done { expr := e }
+
+/-- `ved_hstep_unify`: in the target of every goal, a loop that is (definitionally, at default transparency, within the budget
+`ved.mem.hstepNormBudget` per test) the loop of a hypothesis (`ved_hstep_loops`) is replaced by that loop, and a read `Signal.val dom α L s` of it
+by `Signal.val dom α' l s` (`α'` the type argument of `l`: the entry spells the state `QState`, the declaration the product, and `generalize` matches the
+spelling).  One `Expr.replace` over the DAG per goal, one `replaceTargetDefEq` (the kernel compares the two targets, which differ only at those loops). -/
+elab "ved_hstep_unify" : tactic => do
+  let ls ← hnormLoops.get
+  let n := (← getOptions).get `ved.mem.hstepNormBudget (2000 : Nat)
+  let mut out : List MVarId := []
+  let mut conv := 0
+  let mut left := 0
+  for g in ← getGoals do
+    let tgt ← instantiateMVars (← g.getType)
+    let isLoop := fun (x : Expr) => x.isAppOfArity ``Signal.loop 4
+    let loops := Tools.VedU1WireShare.collectDag isLoop tgt
+    let mut memo : Std.HashMap Expr Expr := {}
+    for L in loops do
+      if ls.contains L then continue
+      let some α := L.getAppArgs[1]? | continue
+      let mut found : Option Expr := none
+      for l in ls do
+        unless l.getAppArgs[1]? == some α || (← g.withContext <| withDefault (isDefEq (l.getAppArgs[1]!) α)) do continue
+        let hb ← IO.getNumHeartbeats
+        let t0 ← IO.monoMsNow
+        let ok ← g.withContext <| try
+            withTheReader Core.Context (fun c =>
+              let left := c.maxHeartbeats - (hb - c.initHeartbeats)
+              { c with maxHeartbeats := if c.maxHeartbeats == 0 then n * 1000 else max 1 (min left (n * 1000)), initHeartbeats := hb }) do
+              tryCatchRuntimeEx (withDefault (isDefEq L l)) fun _ => pure false
+          catch _ => pure false
+        dbgLog s!"hstep_unify: isDefEq {ok} ms={(← IO.monoMsNow) - t0} hb={((← IO.getNumHeartbeats) - hb) / 1000}"
+        if ok then found := some l; break
+      match found with
+      | some l => memo := memo.insert L l; conv := conv + 1
+      | none => left := left + 1
+    let target' := tgt.replace fun x =>
+      if x.isAppOfArity ``Signal.val 4 && isLoop (x.getArg! 2) then
+        let L := x.getArg! 2
+        if let some l := (if ls.contains L then some L else memo[L]?) then
+          let xs := x.getAppArgs
+          let new := mkAppN x.getAppFn #[xs[0]!, l.getArg! 1, l, xs[3]!]
+          if new == x then none else some new
+        else none
+      else if isLoop x then
+        match memo[x]? with
+        | some l => some l
+        | none => none
+      else none
+    if target' == tgt then out := out ++ [g]
+    else out := out ++ [← g.replaceTargetDefEq target']
+  dbgLog s!"hstep_unify: loops converted {conv} left {left}"
+  hnormStats.set (conv, left)
+  setGoals out
 
 end Tools.VedMemLoop
