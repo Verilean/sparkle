@@ -751,4 +751,48 @@ run_cmd liftTermElabM do
     unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
   logInfo "causal controls: axioms within std3"
 
+/-! ## `ved.mem.causalDagBudget`: the local cap of the walk -/
+
+/-- info: causalDagBudget default 200000 -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"causalDagBudget default {Tools.VedMemLoop.ved.mem.causalDagBudget.get (← getOptions)}"
+
+/-- with a tiny cap the walk is refused (the `fail_if_success`: it runs out of its local budget), `ved_causal` then closes the goal by the
+`ved_causal_simp` fallback -/
+theorem causalBudgetTiny {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in
+  set_option ved.mem.causalDagBudget 1 in
+  (fail_if_success ved_causal_budget (ved_causal_dag))
+  set_option ved.mem.causalDag true in
+  set_option ved.mem.causalDagBudget 1 in
+  ved_causal []
+
+/-- the same goal with the default cap: the walk closes it (the macro without the fallback alternative) -/
+theorem causalBudgetDefault {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in ved_causal_budget (ved_causal_dag)
+
+/-- 0 = no local cap: the walk closes it under the ambient budget only -/
+theorem causalBudgetZero {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in set_option ved.mem.causalDagBudget 0 in ved_causal_budget (ved_causal_dag)
+
+/-- info: causal budget controls: axioms within std3 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+  for n in [``causalBudgetTiny, ``causalBudgetDefault, ``causalBudgetZero] do
+    let axs ← collectAxioms n
+    unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
+  logInfo "causal budget controls: axioms within std3"
+
+
 end Tests.Ved.VedMemCloseCheck

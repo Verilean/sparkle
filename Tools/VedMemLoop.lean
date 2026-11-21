@@ -367,6 +367,27 @@ register_option ved.mem.causalDag : Bool := {
   descr := "try the lock-step walk `ved_causal_dag` for the causal side condition of the memory loop before the simp-based `ved_causal`"
 }
 
+register_option ved.mem.causalDagBudget : Nat := {
+  defValue := 200000
+  descr := "local heartbeat budget of the lock-step walk `ved_causal_dag` (same units as `ved_mem_budget`: thousands of heartbeats; \
+    0 = no local cap, only the ambient budget); when it runs out the simp-based `ved_causal` follows"
+}
+
+/-- `ved_causal_budget t`: `ved_mem_budget n t` with `n` the option `ved.mem.causalDagBudget` (read when the tactic runs; the macro of
+`ved_causal` cannot hold the option value as a literal).  `n = 0`: `t` runs under the ambient budget only (state restored on a
+runtime failure as in `ved_mem_budget`). -/
+elab "ved_causal_budget " t:tactic : tactic => do
+  let n := ved.mem.causalDagBudget.get (← getOptions)
+  let s ← saveState
+  let ok ← tryCatchRuntimeEx (do
+      if n == 0 then Tactic.withoutRecover (evalTactic t)
+      else withLocalHb (n * 1000) (Tactic.withoutRecover (evalTactic t))
+      pure true)
+    fun e => do
+      s.restore
+      if e.isRuntime then pure false else throw e
+  unless ok do throwError "ved_causal_budget: local heartbeat budget exhausted"
+
 /-- the proof of `x = y` for `x`/`y` equal except at the arguments `ps` (index, proof of `a_i = b_i`): one `congrArg` per
 differing argument (a motive over that argument; fails when a later argument's type depends on it) -/
 def congrArgsDag (f : Expr) (as bs : Array Expr) (ps : Array (Nat × Expr)) : MetaM Expr := do
@@ -504,6 +525,9 @@ structure DagHits where
   deriving Inhabited
 
 initialize dgHits : IO.Ref DagHits ← IO.mkRef {}
+
+/-- (ms, thousand heartbeats) of the last `ved_causal_dag` walk (all goals of the side condition), for the probe -/
+initialize dgWalk : IO.Ref (Nat × Nat) ← IO.mkRef (0, 0)
 
 def hitsRender : IO String := do
   let h ← dgHits.get
@@ -935,6 +959,7 @@ elab "ved_causal_dag" : tactic => do
       dbgLogWith do return s!"causal_dag top: nargs={A.getAppNumArgs} head={A.getAppFn} {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr (mkAppN A.getAppFn (A.getAppArgs.extract 0 2))))).take 300} | arg2={(toString (← ppExpr (A.getArg! 2))).take 200} | arg3={(toString (← ppExpr (A.getArg! 3))).take 100}"
       let (p, _) ← dagEq cache #[(s1.toExpr, s2.toExpr, h.toExpr)] A B
       (← getMainGoal).assign p
+      dgWalk.set ((← IO.monoMsNow) - t0, ((← IO.getNumHeartbeats) - hb0) / 1000)
       dbgLogWith do return s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.own.get).size} {← hitsRender} {← stRender}"
    ) fun e => do
     if e.isRuntime then
@@ -1310,7 +1335,7 @@ syntax "ved_causal_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
 
 macro_rules
   | `(tactic| ved_causal [$ex,*]) =>
-    `(tactic| first | (ved_mem_budget 200000 (ved_causal_dag)) | (ved_causal_simp [$ex,*]))
+    `(tactic| first | (ved_causal_budget (ved_causal_dag)) | (ved_causal_simp [$ex,*]))
 
 macro_rules
   | `(tactic| ved_causal_simp [$ex,*]) =>

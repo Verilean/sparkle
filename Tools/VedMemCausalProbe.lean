@@ -16,7 +16,8 @@ condition.  Environment (all optional; the hook does nothing without `VED_KERNEL
   `Kernel.Environment.addDecl`, the result is dropped), synchronously, with a wall cap of `s` seconds (on the cap the check is
   cancelled and "not finished" is recorded).  The kernel's own heartbeat limit is off for the probe (the wall cap bounds it).
 
-Lines go to stderr (`VED PROBE ...`) and, with `VED_DUMP_DIR`, to `addr.log`.
+Lines go to stderr (`VED PROBE ...`, independent of `VED_DUMP_DIR`; `walk_ms`/`walk_hb_k` = the walk of the side condition) and, with
+`VED_DUMP_DIR`, to `addr.log`.
 -/
 
 open Lean Meta Elab Tactic
@@ -34,7 +35,8 @@ def probe (hSc : MVarId) : TacticM Unit := do
   let cnt := (← closedCount.get) + 1
   closedCount.set cnt
   if let some n := stopN then
-    let msg := s!"causal side condition #{cnt} closed tree={szT} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}"
+    let (wms, whb) ← Tools.VedMemLoop.dgWalk.get
+    let msg := s!"causal side condition #{cnt} closed tree={szT} walk_ms={wms} walk_hb_k={whb} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}"
     IO.eprintln s!"VED PROBE {msg}"
     Tools.VedMemLoop.dbgLog s!"PROBE {msg}"
     if cnt < n then return
