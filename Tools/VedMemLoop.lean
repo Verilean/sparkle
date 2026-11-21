@@ -2074,6 +2074,47 @@ simproc_decl vedDeclWidth1 (Tools.VedU1Contract.declWidth _) := fun e => do
   if e.isAppOfArity ``Tools.VedU1Contract.declWidth 1 && e.appArg!.isConstOf mn then return .done { expr := e }
   return .continue
 
+/-! ### `Option.bind m f` is evaluated in order: `m` first, the continuation `f` only after `m` is `some x`
+
+Observed (small examples, per-conjunct diagnosis of stage 94, `VED_S94_SAMPLE` samples of the visited `ite`/`Eq`): the conjunct `stepModule .. = some ..`
+takes ALL the time of stage 94 (small: 2255 ms of 2946; others <= 41 ms), and the terms it visits contain the pending variables of the module
+semantics (`v✝`, `env'`, `if n = "w" then v✝ else env' n`): simp's congruence for `Option.bind m (fun v => rest)` (the `do` blocks of `evalAssigns`,
+`evalExpr`, `regNexts`, `memNexts`) visits the continuation `rest` UNDER the binder, i.e. evaluates the whole remaining module with an opaque `v`, and only
+after `Option.bind_some` substitutes the value and simplifies the (rebuilt) continuation again: every statement re-simplifies everything after it
+(quadratic, the substituted continuations are new terms: the memory growth).  `vedBindStrict*` (pre-simprocs, new branch only) simplify `m` first
+and, when it is `some x`, continue with `f x` (beta): the continuation is never visited with an opaque `v`.  The step is definitional up to the
+simplification of `m` (`congrArg` over `m`, then `Option.bind (some x) f ≡ f x`). -/
+
+/-- number of `Option.bind` steps taken by `vedBindStrict*` (test counter) -/
+initialize bindStrictHits : IO.Ref Nat ← IO.mkRef 0
+
+open Lean Meta Simp in
+def bindStrictStep (e : Expr) : SimpM Step := do
+  let (mi, f) ←
+    if e.isAppOfArity ``Option.bind 4 then pure (2, e.getArg! 3)
+    else if e.isAppOfArity ``Bind.bind 6 && (e.getArg! 0).isConstOf ``Option then pure (4, e.getArg! 5)
+    else return .continue
+  let m := e.getArg! mi
+  if m.isAppOfArity ``Option.some 2 then return .continue
+  unless f.isLambda do return .continue
+  let r ← Simp.simp m
+  unless r.expr.isAppOfArity ``Option.some 2 do return .continue
+  let new := (mkApp f r.expr.appArg!).headBeta
+  bindStrictHits.modify (· + 1)
+  match r.proof? with
+  | none => return .visit { expr := new }
+  | some p =>
+    let mT ← inferType m
+    let motive := Expr.lam `y mT (mkAppN e.getAppFn (e.getAppArgs.set! mi (.bvar 0))) .default
+    let pf ← mkCongrArg motive p
+    return .visit { expr := new, proof? := some (← mkExpectedTypeHint pf (← mkEq e new)) }
+
+open Lean Meta Simp in
+simproc_decl vedBindStrictO (Option.bind _ _) := bindStrictStep
+
+open Lean Meta Simp in
+simproc_decl vedBindStrictB (Bind.bind _ _) := bindStrictStep
+
 /-- `ved_hstep_unify`: in the target of every goal, a loop that is (definitionally, at default transparency, within the budget
 `ved.mem.hstepNormBudget` per test) the loop of a hypothesis (`ved_hstep_loops`) is replaced by that loop, and a read `Signal.val dom α L s` of it
 by `Signal.val dom α' l s` (`α'` the type argument of `l`: the entry spells the state `QState`, the declaration the product, and `generalize` matches the
@@ -2169,6 +2210,8 @@ simproc_decl vedMemProbe (_) := fun e => do
   if v % 2000 == 0 then
     let st ← get
     s94SimpState.set (st.numSteps, st.usedTheorems.map.foldl (fun a _ _ => a + 1) 0)
+  if (← IO.getEnv "VED_S94_SAMPLE").isSome && (h == "ite" || h == "Eq") && (← s94Hist.get).getD h 0 % 400 == 1 then
+    dbgLog s!"S94 sample {h} v={v} dag={(Tools.VedU1WireShare.collectDag (fun _ => true) e).size}: {((toString (← Meta.ppExpr e)).replace "\n" " ").take 260}"
   if (h == "And" || h == "Exists") && (← s94Logged.get) < 16 then
     s94Logged.modify (· + 1)
     dbgLog s!"S94 visit {h} t={now - (← s94T0.get)} ms visits={v} tree={Tools.VedU1Loop.treeSizeVal e}"
@@ -2202,5 +2245,130 @@ elab "ved_s94_probe_stop" : tactic => do
   if (← IO.getEnv "VED_PROBE_S94").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome then
     s94Stop.set true
     dbgLog s!"S94 stop t={(← IO.monoMsNow) - (← s94T0.get)} ms visits={← s94Visits.get}"
+
+/-! ### Per-conjunct diagnosis of stage 94 (`VED_S94_DIAG`, `VED_PROBE_S94`, `VED_DUMP_DIR` all set; never in a default script)
+
+`ved_s94_diag [lemmas]` takes the target of the main goal apart at the top (`∃` binders become local hypotheses, `∧` are split) and runs `Meta.simp`
+(the context of `ved_loop_simp [lemmas]`, simprocs included) once per conjunct under a local heartbeat budget, logging per conjunct: milliseconds,
+probe visits, DAG/tree size before and after, the top heads, whether the budget ran out.  Then the process exits (a diagnosis run, no proof). -/
+
+open Lean Meta Elab Tactic in
+partial def s94Walk (e : Expr) (k : Expr → TacticM Unit) : TacticM Unit := do
+  let e ← whnfR e
+  if e.isAppOfArity ``And 2 then
+    s94Walk e.appFn!.appArg! k
+    s94Walk e.appArg! k
+  else if e.isAppOfArity ``Exists 2 then
+    let α := e.appFn!.appArg!
+    let p := e.appArg!
+    match p with
+    | .lam n t b bi => withLocalDecl n bi t fun x => s94Walk (b.instantiate1 x) k
+    | _ => k e
+  else k e
+
+open Lean Meta Elab Tactic in
+elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withMainContext do
+  unless (← IO.getEnv "VED_S94_DIAG").isSome && (← IO.getEnv "VED_PROBE_S94").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome do return
+  let stx0 ← `(tactic| ved_loop_simp [$ls,*])
+  let some (_, .ok stx1) ← liftMacroM (Lean.Elab.expandMacroImpl? (← getEnv) stx0) | throwError "ved_s94_diag: ved_loop_simp does not expand"
+  let sc ← Lean.Elab.Tactic.mkSimpContext stx1 (eraseLocal := false)
+  let g ← getMainGoal
+  let tgt ← instantiateMVars (← g.getType)
+  let t0 ← IO.monoMsNow
+  -- prefixes of the module body: `evalAssigns we mems (body.take m) env0` simplified alone, to see the growth with the number of statements
+  let calls := Tools.VedU1WireShare.collectDag (fun x => x.isAppOfArity ``Sparkle.IR.Semantics.stepModule 4) tgt
+  if let some sm := calls[0]? then
+    let a := sm.getAppArgs
+    let bodyE ← do
+      match ← unfoldDefinition? a[1]! with
+      | some b => pure b
+      | none => pure a[1]!
+    let mut elems : Array Expr := #[]
+    let mut cur := bodyE
+    let ty := Lean.mkConst ``Sparkle.IR.AST.Stmt
+    while cur.isAppOfArity ``List.cons 3 do
+      elems := elems.push (cur.getArg! 1)
+      cur := cur.getArg! 2
+    let kinds := elems.foldl (fun (m : Std.HashMap String Nat) e => let h := e.getAppFn.constName?.map toString |>.getD "?"; m.insert h (m.getD h 0 + 1)) {}
+    dbgLog s!"S94D body: {elems.size} statements, kinds={kinds.toList} tail-is-nil={cur.isAppOfArity ``List.nil 1}"
+    let n := elems.size
+    let mut stop := false
+    for m in [n / 64, n / 32, n / 16, n / 8, n / 4] do
+      if stop || m == 0 then continue
+      let pre ← mkListLit ty (elems.extract 0 m).toList
+      let e := mkApp4 (Lean.mkConst ``Sparkle.IR.Semantics.evalAssigns) a[0]! a[3]! pre a[2]!
+      s94Hist.set {}
+      let v0 ← s94Visits.get
+      let t1 ← IO.monoMsNow
+      let hb ← IO.getNumHeartbeats
+      let r ← try
+          withTheReader Core.Context (fun c => { c with maxHeartbeats := 500000000, initHeartbeats := hb }) do
+            tryCatchRuntimeEx (do
+              let (r, _) ← sc.dischargeWrapper.with fun d? => Meta.simp e sc.ctx sc.simprocs d?
+              pure (some r)) fun ex => if ex.isRuntime then pure none else throw ex
+        catch _ => pure none
+      let ms := (← IO.monoMsNow) - t1
+      let h ← s94Hist.get
+      let top := (h.toList.toArray.qsort (fun a b => a.2 > b.2)).toList.take 5
+      match r with
+      | some r =>
+        dbgLog s!"S94D prefix {m}/{n}: ms={ms} hb={((← IO.getNumHeartbeats) - hb) / 1000} visits={(← s94Visits.get) - v0} result dag={(Tools.VedU1WireShare.collectDag (fun _ => true) r.expr).size} tree={Tools.VedU1Loop.treeSizeVal r.expr} top={top}"
+      | none =>
+        dbgLog s!"S94D prefix {m}/{n}: BUDGET ms={ms} visits={(← s94Visits.get) - v0} top={top}"
+        stop := true
+    pure ()
+  let idx ← IO.mkRef 0
+  s94Walk tgt fun c => do
+    let i ← idx.modifyGet fun i => (i, i + 1)
+    let dag0 := (Tools.VedU1WireShare.collectDag (fun _ => true) c).size
+    let tree0 := Tools.VedU1Loop.treeSizeVal c
+    let head := (toString (← ppExpr c)).replace "\n" " "
+    if (← IO.monoMsNow) - t0 > 500000 then
+      dbgLog s!"S94D #{i} SKIPPED (total 500 s used) dag={dag0} tree={tree0}"
+      return
+    s94Hist.set {}
+    let v0 ← s94Visits.get
+    let h0 ← declWidthHits.get
+    let t1 ← IO.monoMsNow
+    let hb ← IO.getNumHeartbeats
+    let r ← try
+        withTheReader Core.Context (fun c => { c with maxHeartbeats := (if i == 0 then 2000000000 else 500000000), initHeartbeats := hb }) do
+          tryCatchRuntimeEx (do
+            let (r, _) ← sc.dischargeWrapper.with fun d? => Meta.simp c sc.ctx sc.simprocs d?
+            pure (some r)) fun ex => if ex.isRuntime then do dbgLog s!"S94D #{i} runtime exception: {((← ex.toMessageData.toString).replace "\n" " ").take 700}"; pure none else throw ex
+      catch ex => do dbgLog s!"S94D #{i} error {← ex.toMessageData.toString}"; pure none
+    let ms := (← IO.monoMsNow) - t1
+    let hbd := ((← IO.getNumHeartbeats) - hb) / 1000
+    let v1 ← s94Visits.get
+    let h ← s94Hist.get
+    let top := (h.toList.toArray.qsort (fun a b => a.2 > b.2)).toList.take 6
+    if i == 0 then
+      -- variants: the same simp with one simp lemma erased (diagnosis of which rule's cost dominates)
+      for nm in ((← IO.getEnv "VED_S94_ERASE").getD "").splitOn "," do
+        if nm.isEmpty then continue
+        let thms ← sc.ctx.simpTheorems.mapM fun th => do
+          try th.erase (.decl nm.toName) catch _ => pure th
+        let ctx2 := sc.ctx.setSimpTheorems thms
+        s94Hist.set {}
+        let v0 ← s94Visits.get
+        let t1 ← IO.monoMsNow
+        let hb ← IO.getNumHeartbeats
+        let r2 ← try
+            withTheReader Core.Context (fun c => { c with maxHeartbeats := 2000000000, initHeartbeats := hb }) do
+              tryCatchRuntimeEx (do
+                let (r, _) ← sc.dischargeWrapper.with fun d? => Meta.simp c ctx2 sc.simprocs d?
+                pure (some r)) fun ex => if ex.isRuntime then pure none else throw ex
+          catch _ => pure none
+        let h ← s94Hist.get
+        let top := (h.toList.toArray.qsort (fun a b => a.2 > b.2)).toList.take 6
+        dbgLog s!"S94D #0 erase {nm}: {if r2.isSome then "done" else "BUDGET"} ms={(← IO.monoMsNow) - t1} hb={((← IO.getNumHeartbeats) - hb) / 1000} visits={(← s94Visits.get) - v0} tree={match r2 with | some r => Tools.VedU1Loop.treeSizeVal r.expr | none => 0} top={top}"
+    match r with
+    | some r =>
+      dbgLog s!"S94D #{i} ms={ms} hb={hbd} visits={v1 - v0} declWidthHits={(← declWidthHits.get) - h0} dag {dag0}->{(Tools.VedU1WireShare.collectDag (fun _ => true) r.expr).size} tree {tree0}->{Tools.VedU1Loop.treeSizeVal r.expr} top={top} src={head.take 110}"
+    | none =>
+      dbgLog s!"S94D #{i} BUDGET/ERR ms={ms} visits={v1 - v0} dag={dag0} tree={tree0} top={top} src={head.take 110}"
+  dbgLog s!"S94D done total ms={(← IO.monoMsNow) - t0}"
+  IO.Process.exit 0
+
 
 end Tools.VedMemLoop

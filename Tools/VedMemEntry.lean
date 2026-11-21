@@ -532,7 +532,9 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
   let fzL ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedMemLoopFreeze):term)
   let dwL ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedDeclWidth):term)
   let dw1L ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedDeclWidth1):term)
-  let fzs := #[fzL, dwL, dw1L]
+  let bsO ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedBindStrictO):term)
+  let bsB ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedBindStrictB):term)
+  let fzs := #[fzL, dwL, dw1L, bsO, bsB]
   -- diagnosis only (`VED_PROBE_S94` and `VED_DUMP_DIR`): the counting simproc of stage 94
   let probeL : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     if (← IO.getEnv "VED_PROBE_S94").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome then
@@ -625,7 +627,12 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
       ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
   -- the step case from the hypotheses' normalisation to the end; `fz`: the simps do not enter `Signal.loop` (option `ved.mem.hstepNorm`)
-  let mkSeg := fun (nh : TSyntax `tactic) (e1 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (tl : Array (TSyntax `tactic)) (r99 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (un : TSyntax `tactic) => `(tactic| (
+  let mkSeg := fun (nh : TSyntax `tactic) (e1 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (tl : Array (TSyntax `tactic)) (r99 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (un : TSyntax `tactic) (dg : Bool) => do
+    let dgT : TSyntax `tactic ← if dg then `(tactic| all_goals (ved_s94_diag [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
+            comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
+            Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
+            Sparkle.Core.Signal.Signal.memory_val_zero, $e1,*])) else `(tactic| skip)
+    `(tactic| (
           $nh
           ved_stamp 93
           $d1
@@ -633,6 +640,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           $d2
           ved_stamp 94
           ved_s94_probe_start
+          $dgT
           all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
             Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
@@ -663,8 +671,8 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
          Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
          Sparkle.Core.Signal.Signal.memory_val_zero, $hsSepF,*] at $[$hNorm]*); ved_hstep_loops))
   let mcr ← `(Lean.Parser.Tactic.simpLemma| Sparkle.Core.Signal.Signal.memoryComboRead_val)
-  let segOld ← mkSeg normHyps ex1 tail (Syntax.TSepArray.ofElems #[mcr]) (← `(tactic| skip))
-  let segNew ← mkSeg normHypsF ex1F tailF (Syntax.TSepArray.ofElems (fzs.push mcr)) (← `(tactic| ved_hstep_unify))
+  let segOld ← mkSeg normHyps ex1 tail (Syntax.TSepArray.ofElems #[mcr]) (← `(tactic| skip)) false
+  let segNew ← mkSeg normHypsF ex1F tailF (Syntax.TSepArray.ofElems (fzs.push mcr)) (← `(tactic| ved_hstep_unify)) (← IO.getEnv "VED_S94_DIAG").isSome
   let core ← `(by
     ved_no_recover (
         ved_stamp 80
