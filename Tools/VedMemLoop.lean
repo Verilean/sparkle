@@ -473,27 +473,153 @@ def unfoldValDag (A : Expr) : MetaM Expr := do
     stSize s!"unfold-by {X.getAppFn.constName?.getD `none}" r
   return r
 
-/-- the cache of the walk, by pair of subterms, SCOPED: a proof found under a binder (`ved_j`/`ved_hj` of a `memState` side
-condition, the variable of a `funext`) may mention that binder's free variables (a bound proved by `omega` from the binder's
-hypothesis), so it is stored in the scope of the binder only; a scope reads the entries of the scopes around it (those proofs
-mention only variables the inner scope has too) and never writes into them. -/
+/-! ### Scope levels, computed compositionally
+
+A cache scope has a depth (the root is 0, a scope made by `DagCache.scope` is its parent's depth + 1).  Every binder variable the
+walk introduces (`funext` variable, `memState` side `j`/`hj`, the `a b`/`t' ht a b hab` of the two premises of `loopDag`, the
+variables of a `Nat.casesOn` case) is registered with the depth of the scope it is introduced in; the variables of the goal
+context (`t s1 s2 h`, the statement's own variables) have depth 0.  The LEVEL MASK of a term or proof is the set of depths of the
+variables it mentions, a `Nat` with bit `d` set when a variable of depth `d` occurs.  `dagEq` returns the mask of its proof next to
+the proof, and builds it from the pieces: the masks of the child proofs, the masks of the terms the proof is built on (by the
+pointer-memoised `termMask`, shared across the whole walk, `hasFVar` prunes closed subterms), the mask of a leaf proof (the leaf
+proof is a few nodes: traversed once), and, when a scope is closed by `mkLambdaFVars` over its binders, the mask without that
+scope's bit.  A proof whose mask has highest bit `L` mentions only variables of the scopes `0..L` of the chain, so it is stored in
+the scope of depth `L` of the chain: it is well-typed in that scope and in every scope below it, siblings included. -/
+
+/-- the pieces shared by all scopes of one walk -/
+structure DagShared where
+  /-- depth of the scope that introduced a binder variable (absent = 0) -/
+  lv : IO.Ref (Std.HashMap FVarId Nat)
+  /-- pointer-memo of the level mask of a term (the term is kept alive so that the pointer is not reused) -/
+  memo : IO.Ref (Std.HashMap USize (Expr × Nat))
+  nextId : IO.Ref Nat
+
+/-- cache hits of the walk (always counted; reset at the start of `ved_causal_dag`): own scope, a scope around, an entry promoted from a scope that is not around the reader (sibling-shared), and the promoted inserts -/
+structure DagHits where
+  own : Nat := 0
+  ancestor : Nat := 0
+  shared : Nat := 0
+  promoted : Nat := 0
+  inserts : Nat := 0
+  deriving Inhabited
+
+initialize dgHits : IO.Ref DagHits ← IO.mkRef {}
+
+def hitsRender : IO String := do
+  let h ← dgHits.get
+  return s!"hits(own/ancestor/sibling-shared)={h.own}/{h.ancestor}/{h.shared} inserts={h.inserts} promoted={h.promoted}"
+
+/-- check mode (tests): every stored proof is traversed and its true mask compared with the composed one -/
+register_option ved.mem.causalDagMaskCheck : Bool := {
+  defValue := false
+  descr := "check the composed level mask of every stored proof of `ved_causal_dag` against a traversal (tests)"
+}
+
+structure DagEntry where
+  proof : Expr
+  mask : Nat
+  /-- id of the scope the proof was built in -/
+  by_ : Nat
+
+/-- the cache of the walk, by pair of subterms, SCOPED: a scope reads the entries of the scopes around it.  An entry is stored in the
+scope of the depth of its proof's highest level bit (see above), which is a scope around the one that built it (or the same). -/
 structure DagCache where
-  own : IO.Ref (Std.HashMap (Expr × Expr) Expr)
+  own : IO.Ref (Std.HashMap (Expr × Expr) DagEntry)
   parent : Option DagCache
+  depth : Nat
+  id : Nat
+  sh : DagShared
 
 namespace DagCache
-def new : IO DagCache := return { own := ← IO.mkRef {}, parent := none }
+def newShared : IO DagShared := return { lv := ← IO.mkRef {}, memo := ← IO.mkRef {}, nextId := ← IO.mkRef 1 }
+def new : IO DagCache := return { own := ← IO.mkRef {}, parent := none, depth := 0, id := 0, sh := ← newShared }
 /-- the cache of a new binder scope inside `c` -/
-def scope (c : DagCache) : IO DagCache := do stBump "scope-new"; return { own := ← IO.mkRef {}, parent := some c }
-partial def find? (c : DagCache) (k : Expr × Expr) : IO (Option Expr) := do
-  match (← c.own.get)[k]? with
-  | some p => return some p
+def scope (c : DagCache) : IO DagCache := do
+  stBump "scope-new"
+  let id ← c.sh.nextId.modifyGet fun n => (n, n + 1)
+  return { own := ← IO.mkRef {}, parent := some c, depth := c.depth + 1, id, sh := c.sh }
+/-- the scope of depth `d` among `c` and the scopes around it -/
+partial def at_ (c : DagCache) (d : Nat) : DagCache :=
+  if c.depth ≤ d then c else match c.parent with | some q => q.at_ d | none => c
+/-- is the scope of id `i` `c` or around `c`? -/
+partial def hasId (c : DagCache) (i : Nat) : Bool :=
+  c.id == i || (match c.parent with | some q => q.hasId i | none => false)
+/-- the entry of the pair and the scope it was found in -/
+partial def findE? (c : DagCache) (k : Expr × Expr) : IO (Option (DagEntry × DagCache)) := do
+  let m ← c.own.get
+  match m[k]? with
+  | some e => return some (e, c)
   | none => match c.parent with
-    | some q => q.find? k
+    | some q => q.findE? k
     | none => return none
-def insert (c : DagCache) (k : Expr × Expr) (p : Expr) : IO Unit := c.own.modify (·.insert k p)
-partial def depth (c : DagCache) : Nat := match c.parent with | some q => q.depth + 1 | none => 0
+def find? (c : DagCache) (k : Expr × Expr) : IO (Option Expr) := do
+  return (← c.findE? k).map (·.1.proof)
+/-- store a proof of the mask `mask` for the pair `k` found in the scope `c`: in the scope of depth `highest bit of mask` -/
+def store (c : DagCache) (k : Expr × Expr) (p : Expr) (mask : Nat) : IO Unit := do
+  let l := if mask == 0 then 0 else min (Nat.log2 mask) c.depth
+  let target := c.at_ l
+  target.own.modify (·.insert k { proof := p, mask, by_ := c.id })
+  dgHits.modify fun h => { h with inserts := h.inserts + 1, promoted := h.promoted + (if l < c.depth then 1 else 0) }
+/-- store in the scope `c` itself (the level of the proof is not tracked) -/
+def insert (c : DagCache) (k : Expr × Expr) (p : Expr) : IO Unit :=
+  c.own.modify (·.insert k { proof := p, mask := 0, by_ := c.id })
+/-- register the binder variables of the scope `c` -/
+def regAt (c : DagCache) (d : Nat) (xs : Array Expr) : IO Unit :=
+  c.sh.lv.modify fun m => xs.foldl (fun m x => if x.isFVar then m.insert x.fvarId! d else m) m
+def reg (c : DagCache) (xs : Array Expr) : IO Unit := c.regAt c.depth xs
 end DagCache
+
+/-- the set of depths of the variables a term mentions, memoised by pointer (`hasFVar` prunes closed subterms) -/
+unsafe def termMaskUnsafe (sh : DagShared) (e : Expr) : IO Nat := do
+  let lv ← sh.lv.get
+  let rec go (e : Expr) : IO Nat := do
+    if !e.hasFVar then return 0
+    match e with
+    | .fvar id => return 1 <<< (lv.getD id 0)
+    | _ =>
+      let p := ptrAddrUnsafe e
+      let hit ← do let m ← sh.memo.get; pure m[p]?
+      if let some (_, m) := hit then return m
+      let m ← match e with
+        | .app f a => do pure ((← go f) ||| (← go a))
+        | .lam _ t b _ => do pure ((← go t) ||| (← go b))
+        | .forallE _ t b _ => do pure ((← go t) ||| (← go b))
+        | .letE _ t v b _ => do pure ((← go t) ||| (← go v) ||| (← go b))
+        | .mdata _ b => go b
+        | .proj _ _ b => go b
+        | _ => pure 0
+      sh.memo.modify (·.insert p (e, m))
+      return m
+  go e
+@[implemented_by termMaskUnsafe] def termMask (_ : DagShared) (_ : Expr) : IO Nat := pure 0
+
+/-- the mask of a term by a traversal that shares nothing with the walk (check mode) -/
+unsafe def trueMaskUnsafe (sh : DagShared) (e : Expr) : IO Nat := do
+  let lv ← sh.lv.get
+  let seen ← IO.mkRef (∅ : Std.HashSet USize)
+  let acc ← IO.mkRef 0
+  let rec go (e : Expr) : IO Unit := do
+    if !e.hasFVar then return
+    match e with
+    | .fvar id => acc.modify (· ||| (1 <<< (lv.getD id 0)))
+    | _ =>
+      let p := ptrAddrUnsafe e
+      if (← seen.get).contains p then return
+      seen.modify (·.insert p)
+      match e with
+      | .app f a => do go f; go a
+      | .lam _ t b _ => do go t; go b
+      | .forallE _ t b _ => do go t; go b
+      | .letE _ t v b _ => do go t; go v; go b
+      | .mdata _ b => go b
+      | .proj _ _ b => go b
+      | _ => pure ()
+  go e
+  acc.get
+@[implemented_by trueMaskUnsafe] def trueMask (_ : DagShared) (_ : Expr) : IO Nat := pure 0
+
+/-- the mask of the proof of a scope that is closed by abstracting its binders: the bits of the scopes around it -/
+def closeMask (c : DagCache) (m : Nat) : Nat := m &&& ((1 <<< c.depth) - 1)
 
 /-- raw literals (`nat_lit 0` left by the unfolding of a `match`) are not read by `omega`: spell them `OfNat` -/
 def normLitsDag (k0 : Expr) : Expr :=
@@ -501,46 +627,75 @@ def normLitsDag (k0 : Expr) : Expr :=
     if e.isAppOfArity ``OfNat.ofNat 3 && (e.getArg! 1).isRawNatLit then some e
     else match e with | .lit (.natVal n) => some (mkNatLit n) | _ => none
 
-/-- the leaf `s1.val k = s2.val k` of the agreement hypothesis `h`, the bound by `omega` -/
-def leafDag (h k0 : Expr) : TacticM Expr := do
+/-- the leaf `s1.val k = s2.val k` of the agreement hypothesis `h`, the bound by `omega`.  Returns the proof, instantiated (the
+only `instantiateMVars` of the walk: on this proof, a few nodes) and its mask (one traversal of those few nodes). -/
+def leafDag (cache : DagCache) (h k0 : Expr) : TacticM (Expr × Nat) := do
   let k := normLitsDag k0
   let hk := mkApp h k
   let ty ← whnf (← inferType hk)
   unless ty.isForall do throwError "ved_causal_dag: agreement hypothesis has an unexpected type"
-  let m ← mkFreshExprMVar ty.bindingDomain!
-  let rest ← try Tactic.run m.mvarId! (evalTactic (← `(tactic| omega)))
-    catch e =>
-      dbgLogWith do return s!"causal_dag leaf: {← e.toMessageData.toString}\nleaf goal: {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr ty.bindingDomain!))).take 400}\nbounds: {(← (← getLCtx).foldlM (fun acc d => do
+  let goalTy := ty.bindingDomain!
+  -- `omega` reads every hypothesis of its context into its proof, so the bound is first tried in the context of the variables of the
+  -- depth of the bound itself (a bound of the goal context's variables gives a proof of mask 0, which the cache can share with the
+  -- sibling scopes), then in the whole context
+  let gm ← termMask cache.sh goalTy
+  let l0 := if gm == 0 then 0 else Nat.log2 gm
+  let lvm ← cache.sh.lv.get
+  let tryAt (l : Nat) : TacticM (Option Expr) := do
+    let lctx' := (← getLCtx).foldl (init := (← getLCtx)) fun acc d =>
+      if lvm.getD d.fvarId 0 > l then acc.erase d.fvarId else acc
+    withLCtx lctx' (← getLocalInstances) do
+      let m ← mkFreshExprMVar goalTy
+      let rest ← try Tactic.run m.mvarId! (evalTactic (← `(tactic| omega)))
+        catch _ => pure [m.mvarId!]
+      if rest.isEmpty then return some m else return none
+  let found ← do
+    let r ← if l0 < cache.depth then tryAt l0 else pure none
+    match r with
+    | some m => pure (some m)
+    | none => tryAt cache.depth
+  let some m := found | do
+    dbgLogWith do return s!"causal_dag leaf: bound not proved\nleaf goal: {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr goalTy))).take 400}\nbounds: {(← (← getLCtx).foldlM (fun acc d => do
           if d.userName.toString.startsWith "ved_h" && !d.userName.toString.startsWith "ved_hab" then pure (acc ++ s!" [{d.userName}: {(toString (← ppExpr d.type)).take 120}]") else pure acc) "")}"
-      throwError "ved_causal_dag: bound not proved"
-  unless rest.isEmpty do throwError "ved_causal_dag: bound not proved"
-  return mkApp hk m
+    throwError "ved_causal_dag: bound not proved"
+  let pf ← instantiateMVars (mkApp hk m)
+  return (pf, ← termMask cache.sh pf)
 
-/-- a proof of `A = B` (see the module comment) -/
-partial def dagEq (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM Expr := do
+/-- a proof of `A = B` (see the module comment) and the level mask of the proof -/
+partial def dagEq (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM (Expr × Nat) := do
   stEnter
   let p ← dagEqBody cache ag A B
   stLeave
   return p
 where
-  dagEqBody (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM Expr := do
+  dagEqBody (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM (Expr × Nat) := do
+    let sh := cache.sh
     if A == B then
       stBump "refl"
-      return ← mkEqRefl A
-    if let some p ← cache.find? (A, B) then
+      return (← mkEqRefl A, ← termMask sh A)
+    if let some (e, _) ← cache.findE? (A, B) then
+      dgHits.modify fun h =>
+        if e.by_ == cache.id then { h with own := h.own + 1 }
+        else if cache.hasId e.by_ then { h with ancestor := h.ancestor + 1 }
+        else { h with shared := h.shared + 1 }
       if dgGate then
-        let own := (← cache.own.get).contains (A, B)
-        stBump s!"cache-hit-{if own then "own" else "ancestor"}@{cache.depth}"
-      return p
+        stBump s!"cache-hit-{if e.by_ == cache.id then "own" else if cache.hasId e.by_ then "ancestor" else "sibling"}@{cache.depth}"
+      return (e.proof, e.mask)
     if dgGate then
       stBump s!"cache-miss@{cache.depth}"
       let sn ← dgStats.get
       if sn.seen.contains (A, B) then stBump "cache-miss-pair-seen-before"
       else dgStats.modify fun s => { s with seen := s.seen.insert (A, B) }
     checkSystem "ved_causal_dag"
-    let p ← dagEqCore cache ag A B
-    cache.insert (A, B) p
-    return p
+    let (p, m0) ← dagEqCore cache ag A B
+    -- the proof is built on `A` and `B` (type, `Eq.refl`, congruence motives): their variables count
+    let m := m0 ||| (← termMask sh A) ||| (← termMask sh B)
+    if (← getOptions).getBool `ved.mem.causalDagMaskCheck false then
+      let tm ← trueMask sh (← instantiateMVars p)
+      unless (tm ||| m) == m do
+        throwError "ved_causal_dag: level mask check failed: composed {m}, traversal {tm}"
+    cache.store (A, B) p m
+    return (p, m)
   /-- `s.1 k` (the projection spelling of `Signal.val s k`) as `Signal.val s k` -/
   normVal (e : Expr) : MetaM Expr := do
     match e.consumeMData with
@@ -550,7 +705,7 @@ where
   walk itself, in a child cache scope, with the pair of fresh state signals `a`/`b` (agreement `hab` up to the cycle) added to the
   agreements: `h0`, `(F a).val 0 = (G b).val 0`, under `a b`; `hS`, `(F a).val (t'+1) = (G b).val (t'+1)`, under `t' (t' < k) a b hab`.
   The bounds of the leaves are proved by `omega` from `t' < k` and the facts of the context. -/
-  loopDag (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM Expr := do
+  loopDag (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B : Expr) : TacticM (Expr × Nat) := do
     let L := A.getArg! 2
     let L' := B.getArg! 2
     let k := normLitsDag (A.getArg! 3)
@@ -567,11 +722,13 @@ where
       withLocalDeclD `ved_k (mkConst ``Nat) fun j => do
         mkForallFVars #[j] (← mkArrow (← mkAppM ``LE.le #[j, tt])
           (← mkEq (← mkAppM ``Sparkle.Core.Signal.Signal.val #[a, j]) (← mkAppM ``Sparkle.Core.Signal.Signal.val #[b, j])))
-    let h0 ← do
+    let (h0, m0) ← do
       let cache ← cache.scope
       withLocalDeclD `ved_a sigTy fun a => withLocalDeclD `ved_b sigTy fun b => do
-        mkLambdaFVars #[a, b] (← dagEq cache ag (← sideVal F a (mkNatLit 0)) (← sideVal G b (mkNatLit 0)))
-    let hS ← do
+        cache.reg #[a, b]
+        let (p, m) ← dagEq cache ag (← sideVal F a (mkNatLit 0)) (← sideVal G b (mkNatLit 0))
+        return (← mkLambdaFVars #[a, b] p, closeMask cache m)
+    let (hS, m1) ← do
       let cache ← cache.scope
       withLocalDeclD `ved_t (mkConst ``Nat) fun t' => do
         let ltTy ← mkAppM ``LT.lt #[t', k]
@@ -579,50 +736,64 @@ where
           withLocalDeclD `ved_a sigTy fun a => withLocalDeclD `ved_b sigTy fun b => do
             let hab ← habTy a b t'
             withLocalDeclD `ved_hab hab fun hb => do
+              cache.reg #[t', ht, a, b, hb]
               let t1 ← mkAppM ``HAdd.hAdd #[t', mkNatLit 1]
-              mkLambdaFVars #[t', ht, a, b, hb]
-                (← dagEq cache (ag.push (a, b, hb)) (← sideVal F a t1) (← sideVal G b t1))
+              let (p, m) ← dagEq cache (ag.push (a, b, hb)) (← sideVal F a t1) (← sideVal G b t1)
+              return (← mkLambdaFVars #[t', ht, a, b, hb] p, closeMask cache m)
     let pf ← mkAppOptM ``Tools.VedMemNest.loop_val_congr_le
       #[dom, α, L.getArg! 2, F, G, k, h0, hS, k, ← mkAppM ``Nat.le_refl #[k]]
-    mkExpectedTypeHint pf (← mkEq A B)
+    return (← mkExpectedTypeHint pf (← mkEq A B), m0 ||| m1)
   /-- `A = B` by `Nat.casesOn` on the variable `j`: the hypotheses that depend on `j` are reverted into the motive, and in each case
   (`0`, `u+1`) the walk goes on in a child cache scope, with the agreements that mention them re-pointed at the new hypotheses. -/
-  splitDag (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B j : Expr) : TacticM Expr := do
+  splitDag (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A B j : Expr) : TacticM (Expr × Nat) := do
     let ds := (← collectForwardDeps #[j] false).filter (· != j)
     dbgLogWith do return s!"causal_dag: split on {(toString (← ppExpr j))} deps={ds.size} A=[{(toString (← ppExpr A)).take 300}]"
     let motive ← mkLambdaFVars #[j] (← mkForallFVars ds (← mkEq A B))
-    let branch (v : Expr) : TacticM Expr := do
+    let branch (v : Expr) : TacticM (Expr × Nat) := do
       let cache ← cache.scope
       stSplit 1
       let r ← forallTelescope (motive.beta #[v]) fun ds' body => do
+        cache.reg ds'
         let some (_, A', B') := body.eq? | throwError "ved_causal_dag: no rule for this pair of subterms"
         let ag' := ag.map fun (x, y, h) => (x, y, h.replaceFVars ds ds')
-        mkLambdaFVars ds' (← dagEq cache ag' A' B')
+        let (p, m) ← dagEq cache ag' A' B'
+        return (← mkLambdaFVars ds' p, m)
       stSplit (-1)
       return r
-    let z ← branch (mkNatLit 0)
-    let sc ← withLocalDeclD `ved_u (mkConst ``Nat) fun u => do
-      mkLambdaFVars #[u] (← branch (← mkAppM ``HAdd.hAdd #[u, mkNatLit 1]))
-    return mkAppN (← mkAppOptM ``Nat.casesOn #[motive, j, z, sc]) ds
-  dagEqCore (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A0 B0 : Expr) : TacticM Expr := do
+    let (z, mz) ← branch (mkNatLit 0)
+    let (sc, ms) ← withLocalDeclD `ved_u (mkConst ``Nat) fun u => do
+      cache.regAt (cache.depth + 1) #[u]  -- the depth of the branch scope, which `branch` creates next
+      let (p, m) ← branch (← mkAppM ``HAdd.hAdd #[u, mkNatLit 1])
+      return (← mkLambdaFVars #[u] p, m)
+    let mut mj ← termMask cache.sh j
+    for d in ds do mj := mj ||| (← termMask cache.sh d)
+    -- the case proofs are closed over their binders (`ds'`, `u`: the bit of the branch scope, `cache.depth + 1`)
+    let keep := (1 <<< (cache.depth + 1)) - 1
+    return (mkAppN (← mkAppOptM ``Nat.casesOn #[motive, j, z, sc]) ds, mj ||| (mz &&& keep) ||| (ms &&& keep))
+  dagEqCore (cache : DagCache) (ag : Array (Expr × Expr × Expr)) (A0 B0 : Expr) : TacticM (Expr × Nat) := do
     let A ← normVal (← whnfCore A0)
     let B ← normVal (← whnfCore B0)
     if A != A0 || B != B0 then
       stBump "whnfCore-step"
       if dgGate then stSize "whnfCore-result" A
-      return ← mkExpectedTypeHint (← dagEq cache ag A B) (← mkEq A0 B0)
+      let (p, m) ← dagEq cache ag A B
+      return (← mkExpectedTypeHint p (← mkEq A0 B0), m)
     -- `Signal.val F k x`: the value of a signal of functions (`<*>`) applied to an argument
     if A.isAppOf ``Sparkle.Core.Signal.Signal.val && A.getAppNumArgs > 4 && B.isAppOf ``Sparkle.Core.Signal.Signal.val
         && B.getAppNumArgs == A.getAppNumArgs then
       let a := A.getAppArgs
       let b := B.getAppArgs
       stBump "val-applied"
-      let mut pf ← dagEq cache ag (mkAppN A.getAppFn (a.extract 0 4)) (mkAppN B.getAppFn (b.extract 0 4))
+      let (p0, m0) ← dagEq cache ag (mkAppN A.getAppFn (a.extract 0 4)) (mkAppN B.getAppFn (b.extract 0 4))
+      let mut pf := p0
+      let mut m := m0
       for i in [4:a.size] do
         if a[i]! != b[i]! then
-          pf ← mkCongr pf (← dagEq cache ag a[i]! b[i]!)
+          let (q, mq) ← dagEq cache ag a[i]! b[i]!
+          pf ← mkCongr pf q
+          m := m ||| mq
         else pf ← mkCongrFun pf a[i]!
-      return pf
+      return (pf, m)
     if A.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 && B.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 then
       let X := A.getArg! 2
       let Y := B.getArg! 2
@@ -635,11 +806,13 @@ where
         stBump "val-signal-whnfCore"
         let A' := mkAppN A.getAppFn (A.getAppArgs.set! 2 X')
         let B' := mkAppN B.getAppFn (B.getAppArgs.set! 2 Y')
-        return ← mkExpectedTypeHint (← dagEq cache ag A' B') (← mkEq A B)
+        let (p, m) ← dagEq cache ag A' B'
+        return (← mkExpectedTypeHint p (← mkEq A B), m)
       for (s1, s2, h) in ag do
         if X == s1 && Y == s2 then
           stBump "leaf"
-          return ← mkExpectedTypeHint (← leafDag h k) (← mkEq A B)
+          let (p, m) ← leafDag cache h k
+          return (← mkExpectedTypeHint p (← mkEq A B), m)
       if X.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 && Y.isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 then
         stBump "loopDag"
         return ← loopDag cache ag A B
@@ -648,10 +821,10 @@ where
       stBump "unfoldValDag"
       let eA ← unfoldValDag A
       let eB ← unfoldValDag B
-      let p ← dagEq cache ag eA eB
+      let (p, m) ← dagEq cache ag eA eB
       let l ← mkExpectedTypeHint (← mkEqRefl A) (← mkEq A eA)
       let r ← mkExpectedTypeHint (← mkEqRefl eB) (← mkEq eB B)
-      return ← mkEqTrans (← mkEqTrans l p) r
+      return (← mkEqTrans (← mkEqTrans l p) r, m)
     if A.isAppOf ``Sparkle.Core.Signal.Signal.memState && A.getAppNumArgs ≥ 8 && B.isAppOf ``Sparkle.Core.Signal.Signal.memState
         && B.getAppNumArgs == A.getAppNumArgs then
       let a := A.getAppArgs
@@ -659,24 +832,29 @@ where
       if ([0, 1, 2, 3, 7].all fun i => a[i]! == b[i]!) then
         stBump "memState"
         let t := a[7]!
-        let side (x y : Expr) : TacticM Expr := do
+        let side (x y : Expr) : TacticM (Expr × Nat) := do
           let cache ← cache.scope
           withLocalDeclD `ved_j (mkConst ``Nat) fun j => do
             withLocalDeclD `ved_hj (← mkAppM ``LT.lt #[j, normLitsDag t]) fun hj => do
+              cache.reg #[j, hj]
               let ValX ← mkAppM ``Sparkle.Core.Signal.Signal.val #[x, j]
               let ValY ← mkAppM ``Sparkle.Core.Signal.Signal.val #[y, j]
-              mkLambdaFVars #[j, hj] (← dagEq cache ag ValX ValY)
-        let ha ← side a[4]! b[4]!
-        let hd ← side a[5]! b[5]!
-        let he ← side a[6]! b[6]!
+              let (p, m) ← dagEq cache ag ValX ValY
+              return (← mkLambdaFVars #[j, hj] p, closeMask cache m)
+        let (ha, ma) ← side a[4]! b[4]!
+        let (hd, md) ← side a[5]! b[5]!
+        let (he, me) ← side a[6]! b[6]!
         let hc ← mkAppOptM ``Tools.VedMem.memState_congr
           #[a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, b[4]!, a[5]!, b[5]!, a[6]!, b[6]!, t, ha, hd, he]
         let mut pf := hc
+        let mut m := ma ||| md ||| me
         for i in [8:a.size] do
           if a[i]! != b[i]! then
-            pf ← mkCongr pf (← dagEq cache ag a[i]! b[i]!)
+            let (q, mq) ← dagEq cache ag a[i]! b[i]!
+            pf ← mkCongr pf q
+            m := m ||| mq
           else pf ← mkCongrFun pf a[i]!
-        return pf
+        return (pf, m)
     -- a `match` on a variable time (a memory or register read at the variable inner time of a loop, or at the variable of a
     -- `memState` side condition) does not reduce: the cases `0` / `u+1` of that variable
     for E in [A, B] do
@@ -692,15 +870,16 @@ where
       if f == B.getAppFn && a.size == b.size then
         if f.isConstOf ``ite && a.size == 5 then
           stBump "ite"
-          let pc ← dagEq cache ag a[1]! b[1]!
-          let pt ← dagEq cache ag a[3]! b[3]!
-          let pe ← dagEq cache ag a[4]! b[4]!
-          return ← mkAppOptM ``ved_ite_congr #[a[0]!, a[1]!, b[1]!, a[2]!, b[2]!, a[3]!, b[3]!, a[4]!, b[4]!, pc, pt, pe]
+          let (pc, mc) ← dagEq cache ag a[1]! b[1]!
+          let (pt, mt) ← dagEq cache ag a[3]! b[3]!
+          let (pe, me) ← dagEq cache ag a[4]! b[4]!
+          return (← mkAppOptM ``ved_ite_congr #[a[0]!, a[1]!, b[1]!, a[2]!, b[2]!, a[3]!, b[3]!, a[4]!, b[4]!, pc, pt, pe], mc ||| mt ||| me)
         stBump (if dgGate then s!"congr-app {f.constName?.getD `other}" else "")
         let mut ps : Array (Nat × Expr) := #[]
+        let mut m := 0
         for i in [0:a.size] do
           if a[i]! != b[i]! then
-            let q ← try dagEq cache ag a[i]! b[i]!
+            let (q, mq) ← try dagEq cache ag a[i]! b[i]!
               catch e =>
                 dbgLogWith do
                   let extra ← if f.isConstOf ``Sparkle.Core.Signal.Signal.val then
@@ -710,20 +889,23 @@ where
                   return s!"causal_dag: in arg {i}/{a.size} of {(toString (← ppExpr f)).take 80}{extra}"
                 throw e
             ps := ps.push (i, q)
-        return ← congrArgsDag f a b ps
+            m := m ||| mq
+        return (← congrArgsDag f a b ps, m)
     if let (.proj n i x, .proj n' i' y) := (A, B) then
       if n == n' && i == i' then
         stBump "proj"
-        let p ← dagEq cache ag x y
+        let (p, m) ← dagEq cache ag x y
         let motive ← withLocalDeclD `ved_y (← inferType x) fun v => mkLambdaFVars #[v] (.proj n i v)
-        return ← mkCongrArg motive p
+        return (← mkCongrArg motive p, m)
     if let (.lam n ty bA bi, .lam _ ty' bB _) := (A, B) then
       if ty == ty' then
         stBump "funext"
         let cache ← cache.scope
-        let p ← withLocalDecl n bi ty fun x => do
-          mkLambdaFVars #[x] (← dagEq cache ag (bA.instantiate1 x) (bB.instantiate1 x))
-        return ← mkFunExt p
+        let (p, m) ← withLocalDecl n bi ty fun x => do
+          cache.reg #[x]
+          let (p, m) ← dagEq cache ag (bA.instantiate1 x) (bB.instantiate1 x)
+          return (← mkLambdaFVars #[x] p, closeMask cache m)
+        return (← mkFunExt p, m)
     stBump "no-rule"
     dbgLogWith do return s!"causal_dag: no rule for [{(toString (← ppExpr A)).take 300}] against [{(toString (← ppExpr B)).take 300}]"
     throwError "ved_causal_dag: no rule for this pair of subterms"
@@ -739,6 +921,7 @@ elab "ved_causal_dag" : tactic => do
   let hb0 ← IO.getNumHeartbeats
   dbgLogWith do return s!"TLOG causal_dag begin t={t0}"
   stReset
+  dgHits.set {}
   tryCatchRuntimeEx (do
    for g in ← getGoals do
     setGoals [g]
@@ -750,12 +933,12 @@ elab "ved_causal_dag" : tactic => do
       let some h := lctx.findFromUserName? `h | throwError "ved_causal_dag: no h"
       let cache ← DagCache.new
       dbgLogWith do return s!"causal_dag top: nargs={A.getAppNumArgs} head={A.getAppFn} {(toString (← withOptions (fun o => o.setBool `pp.explicit true) (ppExpr (mkAppN A.getAppFn (A.getAppArgs.extract 0 2))))).take 300} | arg2={(toString (← ppExpr (A.getArg! 2))).take 200} | arg3={(toString (← ppExpr (A.getArg! 3))).take 100}"
-      let p ← dagEq cache #[(s1.toExpr, s2.toExpr, h.toExpr)] A B
+      let (p, _) ← dagEq cache #[(s1.toExpr, s2.toExpr, h.toExpr)] A B
       (← getMainGoal).assign p
-      dbgLogWith do return s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.own.get).size} {← stRender}"
+      dbgLogWith do return s!"TLOG causal_dag goal closed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000} cache={(← cache.own.get).size} {← hitsRender} {← stRender}"
    ) fun e => do
     if e.isRuntime then
-      dbgLogWith do return s!"TLOG causal_dag RUNTIME EXCEPTION (heartbeats/recursion) t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000}: {← stRender}"
+      dbgLogWith do return s!"TLOG causal_dag RUNTIME EXCEPTION (heartbeats/recursion) t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000}: {← hitsRender} {← stRender}"
     else
       dbgLogWith do return s!"TLOG causal_dag failed t={← IO.monoMsNow} hb={((← IO.getNumHeartbeats) - hb0) / 1000}: {(← e.toMessageData.toString).take 600}"
     throw e
