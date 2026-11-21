@@ -340,6 +340,9 @@ lean_lib «Tools.VedU2HierMultiBundle» where
 lean_lib «Tools.VedU2HierMultiChain» where
   roots := #[`Tools.VedU2HierMultiChain]
 
+lean_lib «Tools.VedComposeStep» where
+  roots := #[`Tools.VedComposeStep]
+
 lean_lib «Tools.VedU2HierXorAttr» where
   roots := #[`Tools.VedU2HierXorAttr]
 

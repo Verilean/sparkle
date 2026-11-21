@@ -9,6 +9,7 @@
   pack and each reader equals the IR register (`hRd`).  The text produced here is what `scriptText` splices in.
 -/
 import Lean
+import Sparkle.IR.AST
 
 namespace Tools.VedU2HierStateArgs
 
@@ -29,6 +30,10 @@ structure DeepInfo where
   dups : List (Nat × Nat × String) := []
   /-- the open parent, as the script spells it -/
   openUser : String := ""
+  /-- VED compose: the checked arrangement, the module's widths, and the option `ved.compose.step` -/
+  b0 : List Sparkle.IR.AST.Stmt := []
+  wd : String → Nat := fun _ => 0
+  compose : Bool := false
 
 /-- The spellings the lines use. -/
 structure Sp where

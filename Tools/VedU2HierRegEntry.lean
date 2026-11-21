@@ -15,6 +15,7 @@ import Tools.VedU2HierStateArgs
 import Tools.VedU2HierBvAppend
 import Tools.VedU2HierBudget
 import Tools.VedU2HierLoopRw
+import Tools.VedComposeStep
 
 /-!
 # Stateful hierarchical entry, H2b: a parent WITH REGISTERS (`#ved_u2_hier decl`)
@@ -620,6 +621,125 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     [s!"{OInp}_at_{j}", s!"{OInp}_at_mk_{j}"]) ++ ", Tools.VedU1Contract.PTy.sig"
   let argDefsL := ", ".intercalate (calls.toList.flatMap fun c => c.argDefs.map fun n => toString (userName n))
   let evalL := s!"{if argDefsL.isEmpty then "" else argDefsL ++ ", "}Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, envOfC, weOfC, chainMap, List.finRange, {ONm}, Tools.VedU1Deep.reduceFinVal, natJoin, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Sparkle.IR.Semantics.mask, Nat.shiftRight_eq_div_pow, Tools.VedU1Entry.or_mod _ _ _ _ rfl, {inpL}"
+  -- VED compose (option `ved.compose.step`, `Tools/VedComposeStep.lean`): the step fact from local facts about an abstract
+  -- environment, cone by cone, instead of one `simp` over the whole arrangement
+  let regsB0 : List (String × String × Sparkle.IR.AST.Expr) := di.b0.filterMap fun s => match s with
+    | .register o _ (r, _) inp _ => some (o, r, inp)
+    | _ => none
+  let rstNames := (regsB0.map (·.2.1)).eraseDups
+  let regIns : List (Option String) := regsB0.map fun (_, _, inp) => match inp with | .ref x => some x | _ => none
+  if di.compose && !di.b0.isEmpty && rstNames.length == 1 && regIns.all (·.isSome) &&
+      regsB0.length == di.pm.length && di.pm.all (fun r => regsB0.any (·.1 == r)) then
+    let b0 := di.b0
+    let rstN := rstNames.head!
+    let dataN := tbl.binders.map ("_gen_" ++ ·)
+    let regNames := di.pm
+    let modN := toString (userName nm.mod)
+    let bodyN := toString (userName nm.body)
+    let roots : List String := regIns.filterMap id ++ ["out"]
+    let netsM : StateM Nat (List (List String × List Tools.VedU2HierMultiChain.BSlice)) :=
+      roots.mapM fun x => Tools.VedU2HierMultiChain.netChainB (dataN ++ regNames) regNames b0 di.wd modN bodyN b0.length x
+    let nets := netsM.run' 0
+    let chain := (nets.flatMap (·.1)).eraseDups
+    let bsl := (nets.flatMap (·.2)).foldl (fun (acc : List Tools.VedU2HierMultiChain.BSlice) b =>
+      if acc.any (·.w == b.w) then acc else acc ++ [b]) []
+    -- the facts a wire's value is read from
+    let outsW (j : Nat) : Nat := match insts[j]? with | some ii => (match kidOut ii.kid with | .bv w => w | .bit => 1) | none => 1
+    let factsOfRef (x : String) : List String :=
+      match chain.idxOf? x with
+      | some wi => if di.wd x == 0 then [s!"f_{wi}"] else [s!"f_{wi}", s!"hlt_{wi}"]
+      | none =>
+        match bsl.zipIdx.find? (fun (b, _) => b.w == x) with
+        | some (_, bi) => [s!"f_bs{bi}", s!"hlt_bs{bi}"]
+        | none =>
+          match regNames.idxOf? x with
+          | some i => if regNames.contains x then [s!"hEr{i}", s!"hlS{i}"] else []
+          | none =>
+            if dataN.contains x then [s!"hE_{x}"]
+            else match insts.zipIdx.find? (fun (ii, _) => ii.y == x) with
+              | some (_, j) => [s!"hEo{j}", s!"hlto{j}"]
+              | none => []
+    let rootFact (x : String) : Option String :=
+      (factsOfRef x).head?
+    if roots.all (fun x => (rootFact x).isSome) then
+      L := L.push s!"    refine Tools.VedCompose.step_local (c := {P.contract}) (m := {P.mod}) (d := {P.design}) (f := {FT}) (b0 := {P.body}) (Ow := fun ins y t => {owBody}) (R := {rTerm}) hb0.2.1 hb0.2.2.1 (Tools.VedU2Hier.exprsSupp_perm (hadm.1.trans hb0.1.symm) hsupp) hb0.2.2.2.2.1 hb0.2.2.2.2.2.1 hb0.2.2.2.2.2.2 ins t p ?_"
+      L := L.push s!"    intro E hasgF hEin hEreg hEorc"
+      L := L.push s!"    have hErst : E {sq rstN} = 0 := by rw [hEin {sq rstN} (by decide)]; simpa using hrst"
+      for n in dataN do
+        L := L.push s!"    have hE_{n} : E {sq n} = ins t {sq n} := hEin {sq n} (by decide)"
+      for i in List.range k do
+        L := L.push s!"    have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {k}) := by rw [hEreg {sq di.pm[i]!} (by decide)]; exact hR{i}"
+        L := L.push s!"    have hlS{i} : {irS} ins t ({i} : Fin {k}) < {2 ^ di.regWs[i]!} := by"
+        L := L.push s!"      have := hl{i}"
+        L := L.push s!"      simpa using this"
+      for (ii, j) in insts.zipIdx do
+        L := L.push s!"    have hEo{j} : E {sq ii.y} = {obsOf (kidOut ii.kid) (callTxt calls[ii.call]!)} := by"
+        L := L.push s!"      have h := hEorc {sq ii.mn} {sq ii.iname} {connsLit ii.cs} (by simp [{P.body}]) {sq ii.y} (by rw [hO{j}]; simp)"
+        L := L.push s!"      simpa using h"
+        L := L.push s!"    have hlto{j} : E {sq ii.y} < 2 ^ {outsW j} := by"
+        L := L.push s!"      rw [hEo{j}]"
+        L := L.push s!"      simpa [Tools.VedU1Contract.PTy.obs] using hlo{ii.call}"
+      for (bs, bi) in bsl.zipIdx do
+        for l in bs.lines do L := L.push ("  " ++ l)
+        L := L.push s!"    have f_bs{bi} : E {sq bs.w} = {irS} ins t ({bs.slot} : Fin {k}) := by rw [{bs.pf}, hEr{bs.slot}]"
+        L := L.push s!"    have hlt_bs{bi} : E {sq bs.w} < {2 ^ di.regWs[bs.slot]!} := by rw [f_bs{bi}]; exact hlS{bs.slot}"
+      for (w, wi) in chain.zipIdx do
+        let wd := di.wd w
+        let rs := match asgOf b0 w with | some r => (refsOf r).eraseDups | none => []
+        let fs := ", ".intercalate (rs.flatMap factsOfRef)
+        let fsC := if fs.isEmpty then "" else ", " ++ fs
+        L := L.push s!"    have e_{wi} := hasgF {sq w} _ rfl"
+        L := L.push s!"    simp (config := \{ maxSteps := 2000000 }) [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin{fsC}] at e_{wi}"
+        L := L.push s!"    try simp (config := \{ maxSteps := 2000000 }) [{rawOpL}, {netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin{fsC}] at e_{wi}"
+        L := L.push s!"    have f_{wi} := e_{wi}.symm"
+        if wd != 0 then L := L.push s!"    have hlt_{wi} : E {sq w} < {2 ^ wd} := by first | omega | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.and_lt_two_pow _ (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.or_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.xor_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; (repeat' split) <;> (first | omega | exact Nat.and_lt_two_pow _ (by omega) | exact Nat.or_lt_two_pow (by omega) (by omega) | exact Nat.xor_lt_two_pow (by omega) (by omega)))"
+      -- the next-value list, in the order of the checked arrangement
+      let lits := ", ".intercalate (regsB0.map fun (o, _, inp) =>
+        s!"({sq o}, Sparkle.IR.Semantics.mask (Tools.VedU1Contract.declWidth {P.mod} {sq o}) (E {sq (match inp with | .ref x => x | _ => "?")}))")
+      L := L.push s!"    have hn : Sparkle.IR.Semantics.regNexts (Tools.VedU1Contract.declWidth {P.mod}) (fun _ _ => 0) {P.body} E = some [{lits}] := by"
+      L := L.push s!"      simp (config := \{ maxSteps := 4000000 }) [Sparkle.IR.Semantics.regNexts, {P.body}, Sparkle.IR.Semantics.evalExpr, hErst]"
+      L := L.push s!"    refine ⟨_, hn, ?_, ?_⟩"
+      -- the output
+      L := L.push s!"    · intro o ho"
+      L := L.push s!"      rw [hout] at ho"
+      L := L.push s!"      simp [{P.outs}] at ho"
+      L := L.push s!"      subst ho"
+      L := L.push s!"      show E {sq "out"} = _"
+      L := L.push s!"      rw [{(rootFact "out").getD "?"}]"
+      L := L.push s!"      try rw [if_pos rfl]"
+      L := L.push s!"      ved_clear_env"
+      L := L.push s!"      all_goals simp {outCfg}[Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {OE}, Tools.VedU1Contract.PTy.sig]"
+      L := L.push s!"      all_goals rw [{OTrace}]"
+      L := L.push s!"      all_goals unfold {irS} {inpU} at {locsU}"
+      L := L.push s!"      all_goals simp only [CExpr.compile, {OOut}]"
+      L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) [{evalL}] at {locs} ⊢"
+      L := L.push s!"      all_goals ved_fin_norm"
+      L := L.push s!"      all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}] at ⊢"
+      L := L.push s!"      all_goals try simp only [{hRs}]"
+      L := L.push s!"      all_goals try simp only [{hMods}]"
+      L := L.push s!"      all_goals ved_hier_close"
+      -- the registers' next values, one cone each
+      let holes2 := ", ".intercalate ((List.range k).map fun _ => "?_")
+      L := L.push s!"    · {if k == 1 then "skip" else s!"refine ⟨{holes2}⟩"}"
+      for i in List.range k do
+        let inW := (regIns[(regsB0.map (·.1)).idxOf di.pm[i]!]!).getD "?"
+        L := L.push s!"      · simp (config := \{ maxSteps := 4000000 }) [Sparkle.IR.Semantics.applyNexts, List.find?, Sparkle.IR.Semantics.mask, Tools.VedU1Contract.declWidth, {P.mod}, {(rootFact inW).getD "?"}]"
+        if dbg then L := L.push s!"        trace_state"
+        L := L.push s!"        ved_clear_env"
+        if dbg then L := L.push s!"        trace_state"
+        L := L.push s!"        all_goals (try clear hR)"
+        for j in [0:calls.size] do
+          L := L.push s!"        all_goals (try clear hlo{j})"
+        L := L.push s!"        all_goals unfold {irS} at *"
+        L := L.push s!"        all_goals simp (config := \{ maxSteps := 4000000 }) only [Cdo.irState, {ONext}, CExpr.compile]"
+        L := L.push s!"        all_goals simp (config := \{ maxSteps := 4000000 }) only [hinpU] at *"
+        L := L.push s!"        all_goals simp (config := \{ maxSteps := 4000000 }) [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at {locsN} ⊢"
+        L := L.push s!"        all_goals ved_fin_norm"
+        L := L.push s!"        all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}, Signal.map, cond_eq_ite, bne_iff_ne, ne_eq, Tools.VedU1Contract.PTy.obs] at ⊢"
+        L := L.push s!"        all_goals (try simp only [{hRs}])"
+        L := L.push s!"        all_goals (try simp only [{hModsN}])"
+        L := L.push s!"        all_goals ved_hier_close"
+      return "\n".intercalate L.toList
   L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [hout, {P.outs}, Tools.VedU1Hier.evalAssignsI, Tools.VedU1Hier.cellVals, {T2}.oracleIE, {hOl}, {P.body}, Sparkle.IR.Semantics.regNexts, {T2}.regOuts, Tools.VedU1Contract.regsOf, {T2}.restrictTo, Tools.VedU1Contract.seedIn, {P.mod}, Tools.VedU1Contract.declWidth, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.widthOf.go, Tools.VedU1Hier.upd, Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.applyNexts, Tools.VedU1Entry.or_mod _ _ _ _ rfl, Nat.shiftRight_eq_div_pow, hrst]"
   L := L.push s!"    constructor"
   -- the output
@@ -688,6 +808,7 @@ structure Phase1 where
   insts : List InstInfo
   childMs : Nat
   t1 : Nat
+  b0 : List Stmt := []
 
 /-- Everything up to and including the generation of the open parent, for a parent with registers.
 (The same stages and refusals as `checkU2H`, minus the register-free scope clause.) -/
@@ -888,7 +1009,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
               m!"instance {iname}: the declaration's body has no call of {mn} on the parent inputs {args}"
         insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := ci }]
     | _ => pure ()
-  return { tbl, opn, kids, insts, childMs := t1 - t0, t1 }
+  return { tbl, opn, kids, insts, childMs := t1 - t0, t1, b0 }
 
 /-- The second phase: the deep facts of the open parent exist; build the invariant's constants,
 the proof of `U2HRStmt`, and check it. -/
@@ -949,7 +1070,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       if (← getEnv).contains n then
         if let some c ← dupTargetOf n then
           dups := dups ++ [(slot, c, deepC opn.openName (ptag ++ s!"_deep_dup_r{slot}"))]
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName) }
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions) }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU
@@ -991,6 +1112,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
   let text := "by\n" ++ scriptTextR nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
   if (← IO.getEnv "VED_HIER_DEBUG").isSome then IO.eprintln text
+  if let some f ← IO.getEnv "VED_HIER_SCRIPT_FILE" then IO.FS.writeFile f text
   let stx ← match Lean.Parser.runParserCategory (← getEnv) `term text "<ved_u2_hier_reg>" with
     | .ok s => pure s
     | .error e => refuse decl "proof" m!"generated script does not parse: {e}"
