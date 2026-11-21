@@ -677,7 +677,7 @@ private def dedup (xs : List String) : List String :=
 
 /-! ### per-stage stamps (default OFF)
 
-Measurement aid, `VED_STAGE_STAMPS=1`: one stderr line per event, prefix `VED STAGE`.  The state is one
+Measurement aid, `VED_STAGE_STAMPS=1`: one stderr line per event, prefix `VED STAGE` (and a flushed copy in the file `VED_STAGE_LOG`, if given).  The state is one
 `IO.Ref` (the attempt in progress); `ved_stage "name"` ends the current stage and begins `name`.  The
 script of `seqLoopScript` contains `ved_stage` tactics ONLY when it is asked to (`stamps := true`,
 decided by the caller once); otherwise the script is the one it always was.  Nothing here touches a
@@ -700,9 +700,13 @@ structure StageCtx where
 
 initialize stageCtx : IO.Ref (Option StageCtx) ← IO.mkRef none
 
-/-- the real stderr, opened once (`/dev/stderr`, append) and flushed per line: Lean captures `IO.eprintln`
-into the command's messages, which are lost when the process is killed, so the stamp lines are also written
-here; `none` when it cannot be opened -/
+/-- the diagnostic file named by `VED_STAGE_LOG` (an absolute path; opened once in append mode, flushed per
+line): Lean captures `IO.eprintln` into the command's messages, which are lost when the process is killed, so
+the stamp lines are also written there.  A separate file, never the process's stderr: reopening `/dev/stderr`
+gives a second file description whose writes overwrite what the parent (e.g. the RSS guard) writes through its
+own descriptor of the same file.  `none` when the variable is unset/empty or the file cannot be opened; then
+the lines go to the messages only.  The messages stay the record of a finished command; the file is the copy
+that survives a kill, so a reader counts lines from ONE of the two (the file when it is given), never both. -/
 initialize stageErr : IO.Ref (Option (Option IO.FS.Handle)) ← IO.mkRef none
 
 /-- `key` of `/proc/self/status` (`VmRSS` / `VmHWM`, in kB) as text, `?` on any error -/
@@ -716,13 +720,15 @@ def procStatusKb (key : String) : IO String := do
     return "?"
   catch _ => return "?"
 
-/-- the line to the real stderr (flushed); errors are swallowed -/
+/-- the line to the `VED_STAGE_LOG` file (flushed); errors are swallowed -/
 def stageRawLine (line : String) : IO Unit := do
   try
     let h ← match ← stageErr.get with
       | some h => pure h
       | none =>
-        let h ← try some <$> IO.FS.Handle.mk "/dev/stderr" .append catch _ => pure none
+        let path := (← IO.getEnv "VED_STAGE_LOG").getD ""
+        let h ← if path.isEmpty then pure none
+          else try some <$> IO.FS.Handle.mk path .append catch _ => pure none
         stageErr.set (some h)
         pure h
     if let some h := h then
