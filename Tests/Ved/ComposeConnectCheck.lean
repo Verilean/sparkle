@@ -364,4 +364,43 @@ info: compose connect input-bound controls: 1 accepted, 2 refused by the kernel 
 #guard_msgs in
 run_cmd eqnControls
 
+/-! ## Controls of the map-based `WOKbF` / `RegsOkF` (kernel evaluation on the accepted `multiTwo`)
+
+The real module and table give `true`; one wrong declared width, swapped oracle slots, exchanged register input wires give `false`;
+the list-scanning `WOKb` / `RegsOk` give the same verdict on every variant. -/
+
+def fastControls : CommandElabM Unit := liftTermElabM do
+  let M := "Tests.Ved.ComposeConnectCheck.multiTwo"
+  let nm := s!"{M}.ved_open_Tests_Ved_ComposeConnectCheck_multiTwo_nm"
+  let deep := s!"{M}.ved_open_Tests_Ved_ComposeConnectCheck_multiTwo_deep"
+  let tabTxt (o0 o1 : Nat) :=
+    s!"([(\"_tmp_a_4\", 0), (\"_tmp_a_15\", 1), (\"_gen_start\", 2), (\"_gen_inp\", 3), (\"_tmp_op_b_9\", {o0}), (\"_tmp_op_b_12\", {o1}), (\"_gen_k1\", {o0}), (\"_gen_k2\", {o1})] : List (String × Nat))"
+  let needed := "([\"_tmp_a_4\", \"_tmp_a_15\", \"_gen_start\", \"_gen_inp\", \"_tmp_op_b_9\", \"_gen_k1\", \"_tmp_op_b_12\", \"_gen_k2\"] : List String)"
+  let modW (w : String) (k : Nat) :=
+    s!"(\{ {M}.ved_mod with wires := {M}.ved_mod.wires.map fun w => if w.name == \"{w}\" then \{ w with ty := Sparkle.IR.Type.HWType.bitVector {k} } else w } : Sparkle.IR.AST.Module)"
+  let isTrue (t : String) : TermElabM Bool := do kernelEqual (← elabText t) (toExpr true)
+  -- WOKbF: the real module -> true (and WOKb agrees); one internal wire of the wrong width -> false (both)
+  let wok (f : String) (m : String) := s!"Tools.VedComposeConnect.{f} {m} {M}.ved_body"
+  let wokL (m : String) := s!"Tools.VedComposeResearch.WOKb (Tools.VedU1Contract.declWidth {m}) {m} {M}.ved_body"
+  unless ← isTrue (wok "WOKbF" s!"{M}.ved_mod") do throwError "control void: WOKbF rejects the real module"
+  unless ← isTrue (wokL s!"{M}.ved_mod") do throwError "control void: WOKb rejects the real module"
+  if ← isTrue (wok "WOKbF" (modW "_tmp_mux_else_5" 5)) then throwError "WOKbF accepts a wrong width"
+  if ← isTrue (wokL (modW "_tmp_mux_else_5" 5)) then throwError "WOKb accepts a wrong width (control void)"
+  logInfo m!"compose connect WOKbF controls: 1 accepted, 1 refused by the kernel"
+  -- RegsOkF
+  let regsOkF (m : String) (o0 o1 : Nat) (xs : String) :=
+    s!"Tools.VedComposeConnect.RegsOkF {deep} {nm} {M}.ved_design {m} {M}.ved_body {needed} {tabTxt o0 o1} 28 28 28 ([{xs}] : List String)"
+  let real := "\"_tmp_reg_input_3\", \"_tmp_reg_input_14\""
+  unless ← isTrue (regsOkF s!"{M}.ved_mod" 4 5 real) do throwError "control void: RegsOkF rejects the real table"
+  if ← isTrue (regsOkF s!"{M}.ved_mod" 5 4 real) then throwError "RegsOkF accepts swapped oracle slots"
+  if ← isTrue (regsOkF s!"{M}.ved_mod" 4 5 "\"_tmp_reg_input_14\", \"_tmp_reg_input_3\"") then throwError "RegsOkF accepts exchanged register input wires"
+  if ← isTrue (regsOkF (modW "_tmp_a_4" 5) 4 5 real) then throwError "RegsOkF accepts a register of the wrong width"
+  logInfo m!"compose connect RegsOkF controls: 1 accepted, 3 refused by the kernel"
+
+/-- info: compose connect WOKbF controls: 1 accepted, 1 refused by the kernel
+---
+info: compose connect RegsOkF controls: 1 accepted, 3 refused by the kernel -/
+#guard_msgs in
+run_cmd fastControls
+
 end Tests.Ved.ComposeConnectCheck
