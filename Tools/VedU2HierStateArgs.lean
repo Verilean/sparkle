@@ -42,6 +42,10 @@ structure DeepInfo where
   noKernelDecide : Bool := false
   /-- measurement only (`VED_COMPOSE_NOOKONCE`): `hord` re-evaluates `OrderOkHS` instead of using `hOK` -/
   noOkOnce : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOFAST`): `hOK` by the kernel evaluation of `OrderOkHS` itself, not of `OrderOkFast` (+ soundness) -/
+  noFastOrder : Bool := false
+  /-- VED compose: the indices of the body that give the arrangement (`Tools.VedCompose.permBy`) -/
+  perm : List Nat := []
 
 /-- The spellings the lines use. -/
 structure Sp where

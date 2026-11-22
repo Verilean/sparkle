@@ -16,6 +16,7 @@ import Tools.VedU2HierBvAppend
 import Tools.VedU2HierBudget
 import Tools.VedU2HierLoopRw
 import Tools.VedComposeStep
+import Tools.VedComposeOrder
 
 /-!
 # Stateful hierarchical entry, H2b: a parent WITH REGISTERS (`#ved_u2_hier decl`)
@@ -316,7 +317,12 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   -- VED compose: `OrderOkHS` is evaluated once (it is the largest closed check: it scans the whole arrangement); `hord` is
   -- `hOK` under the witness (`OrderHS d m` is `∃ b, OrderOkHS d m b = true`)
   if di.compose && !di.noOkOnce then
-    L := L.push s!"  have hOK : {T2}.OrderOkHS {P.design} {P.mod} {P.body} = true := by {dk}"
+    -- VED compose: `OrderOkFast` is one pass with a name tree (O(n log n) kernel steps); `orderOkFast_sound` gives `OrderOkHS`
+    if di.noFastOrder then
+      L := L.push s!"  have hOK : {T2}.OrderOkHS {P.design} {P.mod} {P.body} = true := by {dk}"
+    else
+      let permEq := toString (userName (nm.body ++ `perm_eq))
+      L := L.push s!"  have hOK : {T2}.OrderOkHS {P.design} {P.mod} {P.body} = true := Tools.VedCompose.orderOkFast_sound (σ := {di.perm}) {permEq} (by {dk}) (by {dk})"
     L := L.push s!"  have hord : {T2}.OrderHS {P.design} {P.mod} := ⟨{P.body}, hOK⟩"
   else
     L := L.push s!"  have hord : {T2}.OrderHS {P.design} {P.mod} := ⟨{P.body}, by {dk}⟩"
@@ -889,6 +895,35 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   unless OrderOkHS d m b0 do refuse decl "order" m!"{orderDiagHS d m b0}"
   addDefn nm.body (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Stmt))
     (toExpr b0)
+  -- VED compose: the arrangement is the body read at the indices `σ`; the kernel checks this by evaluation (`Eq.refl`, no String compare)
+  if Tools.VedCompose.ved.compose.step.get (← getOptions) then
+    let σ := Tools.VedCompose.permIdx m.body b0
+    let ty ← mkEq (Lean.mkConst nm.body)
+      (mkAppN (Lean.mkConst ``Tools.VedCompose.permBy) #[toExpr σ, mkApp (Lean.mkConst ``Sparkle.IR.AST.Module.body) (Lean.mkConst nm.mod)])
+    let val ← mkEqRefl (Lean.mkConst nm.body)
+    try
+      withOptions (fun o => o.setBool `Elab.async false) do
+        addDecl (.thmDecl { name := nm.body ++ `perm_eq, levelParams := [], type := ty, value := val })
+    catch e => refuse decl "order" m!"the arrangement is not a permutation of the body by the computed indices: {e.toMessageData}"
+  -- measurement only (`VED_COMPOSE_FACT_ONLY=old,fast,p1,..,p8`): the kernel time of each closed order fact alone, then stop
+  if let some facts ← IO.getEnv "VED_COMPOSE_FACT_ONLY" then
+    for f in facts.splitOn "," do
+      let fn : Name := match f with
+        | "old" => ``OrderOkHS
+        | "fast" => ``Tools.VedCompose.OrderOkFast
+        | _ => (`Tools.VedCompose).str ("ordP" ++ (f.drop 1).toString)
+      let ty ← mkEq (mkAppN (Lean.mkConst fn) #[Lean.mkConst nm.design, Lean.mkConst nm.mod, Lean.mkConst nm.body])
+        (Lean.mkConst ``Bool.true)
+      let val ← mkEqRefl (Lean.mkConst ``Bool.true)
+      let t0 ← IO.monoMsNow
+      try
+        withOptions (fun o => o.setBool `Elab.async false) do
+          addDecl (.thmDecl { name := nm.body ++ (Name.mkSimple s!"fact_{f}"), levelParams := [], type := ty, value := val })
+        let t1 ← IO.monoMsNow
+        IO.eprintln s!"[fact] {f} body={b0.length} kernel {t1 - t0} ms"
+      catch e =>
+        IO.eprintln s!"[fact] {f} body={b0.length} FAILED after {(← IO.monoMsNow) - t0} ms: {(← e.toMessageData.toString).take 200}"
+    refuse decl "measure" m!"VED_COMPOSE_FACT_ONLY: stopped after the fact timings"
   if d.modules.isEmpty then
     refuse decl "scope" m!"the parent has no child instance (a parent without instances is `#ved_u1` / `#ved_u1_deep`)"
   let mut pre : List (Sparkle.IR.AST.Module × Name × Lean.Expr × Nat × DeclTable) := []
@@ -1106,7 +1141,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       if (← getEnv).contains n then
         if let some c ← dupTargetOf n then
           dups := dups ++ [(slot, c, deepC opn.openName (ptag ++ s!"_deep_dup_r{slot}"))]
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome, noKernelDecide := (← IO.getEnv "VED_COMPOSE_NODK").isSome, noOkOnce := (← IO.getEnv "VED_COMPOSE_NOOKONCE").isSome }
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, perm := Tools.VedCompose.permIdx m.body p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome, noKernelDecide := (← IO.getEnv "VED_COMPOSE_NODK").isSome, noOkOnce := (← IO.getEnv "VED_COMPOSE_NOOKONCE").isSome, noFastOrder := (← IO.getEnv "VED_COMPOSE_NOFAST").isSome }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU
