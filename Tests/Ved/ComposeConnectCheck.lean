@@ -403,4 +403,48 @@ info: compose connect RegsOkF controls: 1 accepted, 3 refused by the kernel -/
 #guard_msgs in
 run_cmd fastControls
 
+/-! ## Controls of the one-check bundle-slice chain `ChainOkF` (kernel evaluation on the accepted `multiShared`)
+
+A slice step is read off the module itself (a wire that is `slice (ref x) hi lo` of a concatenation of refs that is exactly one
+element); the real step -> true; a wrong offset, a wrong element index, a wrong declared width, a wrong bundle name -> false. -/
+
+def chainControls : CommandElabM Unit := do
+  let (m, _) ← synthOf ``multiShared
+  let M := "Tests.Ved.ComposeConnectCheck.multiShared"
+  let we := declWidth m
+  let asg (x : String) : Option Sparkle.IR.AST.Expr := Tools.VedU2Hier.asgOf m.body x
+  let some step := m.body.findSome? (fun st => match st with
+    | .assign w (.slice (.ref x) hi lo) =>
+      -- `x` is the bundle wire itself or an alias (`ref y`) of it
+      let y := match asg x with | some (.ref y) => y | _ => x
+      match asg y with
+      | some (.concat es) =>
+        match es.mapM (fun e => match e with | .ref n => some n | _ => none) with
+        | some names =>
+          match (List.range names.length).find? (fun k =>
+              ((names.drop (k + 1)).map we).foldl (· + ·) 0 == lo && hi + 1 == lo + we names[k]! && 0 < we names[k]!) with
+          | some k => some (w, x, y, hi, lo, names, k)
+          | none => none
+        | none => none
+      | _ => none
+    | _ => none) | throwError "control void: no slice step in multiShared"
+  let (w, x, y, hi, lo, names, k) := step
+  let q (s : String) := s!"\"{s}\""
+  let nameL (ns : List String) := "[" ++ ", ".intercalate (ns.map q) ++ "]"
+  let tup (lo' k' : Nat) (ns : List String) := s!"({q w}, {q x}, {q y}, {hi}, {lo'}, {nameL ns}, {k'})"
+  liftTermElabM do
+    let isTrue (t : String) : TermElabM Bool := do kernelEqual (← elabText t) (toExpr true)
+    let chk (modT : String) (t : String) := s!"Tools.VedComposeConnect.ChainOkF {modT} {M}.ved_body [{t}] [] []"
+    unless ← isTrue (chk s!"{M}.ved_mod" (tup lo k names)) do throwError "control void: ChainOkF rejects the real step"
+    if ← isTrue (chk s!"{M}.ved_mod" (tup (lo + 1) k names)) then throwError "ChainOkF accepts a wrong offset"
+    if ← isTrue (chk s!"{M}.ved_mod" (tup lo ((k + 1) % names.length) names)) then throwError "ChainOkF accepts a wrong element index"
+    let modW := s!"(\{ {M}.ved_mod with wires := {M}.ved_mod.wires.map fun w => if w.name == {q names[k]!} then \{ w with ty := Sparkle.IR.Type.HWType.bitVector {we names[k]! + 1} } else w } : Sparkle.IR.AST.Module)"
+    if ← isTrue (chk modW (tup lo k names)) then throwError "ChainOkF accepts a wrong declared width"
+    if ← isTrue (chk s!"{M}.ved_mod" (tup lo k (names.reverse))) then throwError "ChainOkF accepts a wrong bundle name list"
+  logInfo m!"compose connect ChainOkF controls: 1 accepted, 4 refused by the kernel"
+
+/-- info: compose connect ChainOkF controls: 1 accepted, 4 refused by the kernel -/
+#guard_msgs in
+run_cmd chainControls
+
 end Tests.Ved.ComposeConnectCheck
