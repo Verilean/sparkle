@@ -827,6 +827,24 @@ class U1Harness(unittest.TestCase):
         self.assertLess(text.index("#ved_u2_hier foo1"), text.index("VED U1P HIERTOP"))
         self.assertIn('startsWith "ved_"', text)
 
+    def test_u2_hier_extra_opts(self):
+        def gen(name, row, route, extra):
+            d = os.path.join(self.base, name)
+            env = {k: v for k, v in os.environ.items() if k != "U1_EXTRA_OPTS"}
+            env.update(extra)
+            sh([sys.executable, "-I", GEN, "--repo", self.fx.repo, "--commit", self.fx.commit, "--blob", self.fx.blob,
+                "gen", "--row", str(row), "--setting", route, "--dir", d], env=env)
+            return open(os.path.join(d, "Case.lean")).read()
+        base = gen("e0", 1, "u2_hier", {})
+        self.assertEqual(base, gen("e1", 1, "u2_hier", {"U1_EXTRA_OPTS": ""}))
+        self.assertEqual(base, gen("e2", 1, "u2_hier", {"U1_EXTRA_OPTS": " ; "}))
+        x = gen("e3", 1, "u2_hier", {"U1_EXTRA_OPTS": "ved.compose.step true;ved.compose.connect true"})
+        self.assertIn("set_option Elab.async false in\nset_option ved.compose.step true in\n"
+                      "set_option ved.compose.connect true in\n#ved_u2_hier foo1\n", x)
+        self.assertEqual(x.replace("set_option ved.compose.step true in\nset_option ved.compose.connect true in\n", ""), base)
+        # other routes are untouched
+        self.assertNotIn("ved.compose", gen("e4", 1, "u1_hier", {"U1_EXTRA_OPTS": "ved.compose.step true"}))
+
     def test_u2_hier_expected_statement_is_logged_and_required(self):
         r = self.one(1, "u2_hier", expstmt="U2HRStmt registers=true")
         self.assertEqual((r["strict_counted"], r["probe_expected_stmt"]), ("yes", "U2HRStmt registers=true"))
