@@ -984,7 +984,10 @@ elab "ved_hstep_guard " "[" new:tactic "]" "[" old:tactic "]" : tactic => do
     Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: NEW branch closed, hb new {used / 1000}k")
   else
     let hb1 ← IO.getNumHeartbeats
-    withTheReader Core.Context (fun c => { c with initHeartbeats := c.initHeartbeats + used }) (evalTactic old)
+    -- `ved.mem.hstepRefund` (default true): the heartbeats `new` used are handed back; false: `old` runs on what is left of the ambient budget (new + old <= ambient)
+    if (← getOptions).get `ved.mem.hstepRefund (true : Bool) then
+      withTheReader Core.Context (fun c => { c with initHeartbeats := c.initHeartbeats + used }) (evalTactic old)
+    else evalTactic old
     Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: OLD step closed, hb new {used / 1000}k, hb old {((← IO.getNumHeartbeats) - hb1) / 1000}k, total {((← IO.getNumHeartbeats) - hb0) / 1000}k")
 
 end Tools.VedMemPack

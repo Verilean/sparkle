@@ -1349,6 +1349,8 @@ def hsK {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Sign
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
 def hsL {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsM {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
 
 def hnormStatsCheck : CommandElabM Unit := do
   let (c, _) ← Tools.VedMemLoop.hnormStats.get
@@ -1525,5 +1527,23 @@ run_cmd hstepRanCheck []
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsL -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedPackedOk ``hsL
+
+-- (13) ON, `ved.mem.hstepRefund false` (no refund: the old script runs on what is left of the ambient budget), the new branch is forced to fail late
+-- (heartbeat timeout seam): the old script closes within the remaining ambient budget, the stored type is the statement.
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.hstepRefund false in
+#ved_u1_mem_packed hsM
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set false
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsM -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsM
 
 end Tests.Ved.VedMemCloseCheck

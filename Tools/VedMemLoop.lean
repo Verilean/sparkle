@@ -1987,17 +1987,23 @@ register_option ved.mem.hstepNorm : Bool := {
   descr := "step case of the memory loop: the simps after the invariant do not normalise `Signal.loop` bodies, the goal's loops are made the hypotheses' loops by definitional equality; the old script is the fallback"
 }
 
-/-- local heartbeat cap (thousands) of the whole new branch of the step case (`ved_hstep_guard`, `Tools/VedMemPack.lean`): a branch that runs into it (or into any
+/-- local heartbeat cap (units of `maxHeartbeats`, like `ved.mem.h0Budget`) of the whole new branch of the step case (`ved_hstep_guard`, `Tools/VedMemPack.lean`): a branch that runs into it (or into any
 runtime limit) is abandoned, the state restored, and the old script runs as the fallback with the heartbeats the new branch used refunded -/
 register_option ved.mem.hstepNewBudget : Nat := {
   defValue := 0
-  descr := "local heartbeat cap (thousands) of the new step-case branch (`ved.mem.hstepNorm`); 0: only the ambient budget; the old script is the fallback and gets back the heartbeats the new branch used"
+  descr := "local heartbeat cap of the new step-case branch (`ved.mem.hstepNorm`) in the units of `maxHeartbeats` (like `ved.mem.h0Budget`; the number in the \"maximum number of heartbeats (N)\" message, the ambient 8000000 of the U1 entry), not thousands of them; 0: only the ambient budget; the old script is the fallback and (`ved.mem.hstepRefund`) gets back the heartbeats the new branch used"
 }
 
-/-- local heartbeat budget (thousands) of one `isDefEq` of `vedMemLoopFreeze` -/
+/-- `ved_hstep_guard` fallback: true (default) the old script gets back the heartbeats the failed new branch used; false: it runs on what is left of the ambient budget -/
+register_option ved.mem.hstepRefund : Bool := {
+  defValue := true
+  descr := "true: the old step-case script (fallback of `ved.mem.hstepNorm`) gets back the heartbeats the failed new branch used (total may exceed the ambient budget by that much); false: no refund, new + old stay within the ambient budget"
+}
+
+/-- local heartbeat budget (units of `maxHeartbeats`, like `ved.mem.h0Budget`) of one `isDefEq` of `vedMemLoopFreeze` -/
 register_option ved.mem.hstepNormBudget : Nat := {
   defValue := 2000
-  descr := "local heartbeat budget (thousands) of one definitional-equality test of a goal loop against a hypothesis loop (`ved.mem.hstepNorm`)"
+  descr := "local heartbeat budget of one definitional-equality test of a goal loop against a hypothesis loop (`ved.mem.hstepNorm`) in the units of `maxHeartbeats` (like `ved.mem.h0Budget`), not thousands of them"
 }
 
 /-- test/diagnosis counter: answered from the table (`declWidth M "lit"`) -/
