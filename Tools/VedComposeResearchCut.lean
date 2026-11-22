@@ -165,4 +165,130 @@ theorem inl_sound (we : WEnv) (E : Env) (A : String → Option Expr)
       | none => rfl
       | some vals => simp only [Bind.bind, Option.bind]; rw [go_map we _ as vals hW]
 
+/-! ## The value of an expression depends only on its leaves -/
+
+mutual
+theorem eval_congr (we : WEnv) (E1 E2 : Env) :
+    ∀ e : Expr, (∀ x ∈ refs e, E1 x = E2 x) → evalExpr we E1 e = evalExpr we E2 e
+  | .const _ _, _ => rfl
+  | .sliceDim _ _ _, _ => rfl
+  | .index _ _, _ => rfl
+  | .ref x, h => by simp only [evalExpr]; rw [h x (by simp [refs])]
+  | .slice e hi lo, h => by
+      simp only [evalExpr]; rw [eval_congr we E1 E2 e (fun x hx => h x (by simpa [refs] using hx))]
+  | .op o as, h => by
+      simp only [evalExpr]
+      rw [evalList_congr we E1 E2 as (fun x hx => h x (by simpa [refs] using hx))]
+  | .concat as, h => by
+      simp only [evalExpr]
+      rw [evalList_congr we E1 E2 as (fun x hx => h x (by simpa [refs] using hx))]
+theorem evalList_congr (we : WEnv) (E1 E2 : Env) :
+    ∀ as : List Expr, (∀ x ∈ refsL as, E1 x = E2 x) → evalList we E1 as = evalList we E2 as
+  | [], _ => rfl
+  | a :: r, h => by
+      simp only [evalList]
+      rw [eval_congr we E1 E2 a (fun x hx => h x (by simp [refsL, hx])),
+        evalList_congr we E1 E2 r (fun x hx => h x (by simp [refsL, hx]))]
+end
+
+/-! ## The connection to `step_local` -/
+
+open Tools.VedU1Hier Tools.VedU2Hier Tools.VedU1Contract
+
+/-- Width consistency of the assignments (the side condition of `inl_sound`), decidable. -/
+def WOKb (we : WEnv) (b : List Stmt) : Bool :=
+  b.all fun s => match s with
+    | .assign l r => widthOf we r == we l
+    | _ => true
+
+theorem WOKb_sound (we : WEnv) (b : List Stmt) (h : WOKb we b = true) :
+    ∀ l r, asgOf b l = some r → widthOf we r = we l := by
+  intro l r hr
+  have hm := asgOf_mem hr
+  simp only [WOKb, List.all_eq_true] at h
+  have := h _ hm
+  simpa using this
+
+/-- The cut points: parent inputs, register outputs, instance outputs.  These are the only names whose value the cone
+side supplies (`hEin`, `hEreg`, `hEorc` of `step_local`) - the transparency condition of the cut. -/
+def cutNames (d : Design) (m : Module) (b0 : List Stmt) : List String :=
+  inNames m ++ regOuts b0 ++ instOutsOf d b0
+
+/-- The cone's leaves are all cut points. -/
+def leafOk (cut : List String) (c : Expr) : Bool := (refs c).all fun x => cut.contains x
+
+theorem leafOk_sound (cut : List String) (c : Expr) (h : leafOk cut c = true) : ∀ x ∈ refs c, x ∈ cut := by
+  intro x hx
+  simp only [leafOk, List.all_eq_true] at h
+  exact List.contains_iff_mem.mp (h x hx)
+
+theorem mem_instOutsOf (d : Design) : ∀ (b : List Stmt) (n : String), n ∈ instOutsOf d b →
+    ∃ mn i cs, Stmt.inst mn i cs ∈ b ∧ n ∈ instOuts d mn cs := by
+  intro b
+  induction b with
+  | nil => intro n h; cases h
+  | cons s rest ih =>
+    intro n h
+    cases s with
+    | inst mn i cs =>
+      simp only [instOutsOf, List.mem_append] at h
+      rcases h with h | h
+      · exact ⟨mn, i, cs, List.mem_cons_self .., h⟩
+      · obtain ⟨a, b', c, h1, h2⟩ := ih n h
+        exact ⟨a, b', c, List.mem_cons_of_mem _ h1, h2⟩
+    | assign l r =>
+      simp only [instOutsOf] at h
+      obtain ⟨a, b', c, h1, h2⟩ := ih n h
+      exact ⟨a, b', c, List.mem_cons_of_mem _ h1, h2⟩
+    | register _ _ _ _ _ =>
+      simp only [instOutsOf] at h
+      obtain ⟨a, b', c, h1, h2⟩ := ih n h
+      exact ⟨a, b', c, List.mem_cons_of_mem _ h1, h2⟩
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ =>
+      simp only [instOutsOf] at h
+      obtain ⟨a, b', c, h1, h2⟩ := ih n h
+      exact ⟨a, b', c, List.mem_cons_of_mem _ h1, h2⟩
+
+/-- The valuation the cone is evaluated at: the cycle's inputs, the pre-update registers, the oracle values. -/
+def leafEnv (m : Module) (b0 : List Stmt) (ins : Nat → String → Nat) (t : Nat) (p : String → Nat)
+    (Ow : (Nat → String → Nat) → String → Nat → Nat) : Env :=
+  fun x => if x ∈ inNames m then ins t x else if x ∈ regOuts b0 then p x else Ow ins x t
+
+/-- **THE CONNECTION PROPOSITION (cone level).**  The hypotheses `hasg hEin hEreg hEorc` are exactly the ones `step_local`
+hands to `hloc` for an abstract environment `E`; `hW` is a closed Bool fact about the body; `hc` is a closed equation
+(`rfl`) between the inlined right-hand side of ONE register or output and the cone literal; `hl` is a closed Bool fact
+about the literal.  Conclusion: the value of that right-hand side at `E` is the value of the cone literal at the
+LEAF valuation (inputs of the cycle, pre-state, oracle `Ow`) - the valuation the open parent's deep trace evaluates its
+cones at. -/
+theorem cone_connect (d : Design) (m : Module) (b0 : List Stmt)
+    (Ow : (Nat → String → Nat) → String → Nat → Nat)
+    (hwi : ∀ n ∈ wrsH d b0, n ∉ inNames m) (hri : ∀ n ∈ regOuts b0, n ∉ inNames m)
+    (hwr : ∀ n ∈ wrsH d b0, n ∉ regOuts b0)
+    (hW : WOKb (declWidth m) b0 = true)
+    (ins : Nat → String → Nat) (t : Nat) (p : String → Nat) (E : Env)
+    (hasg : ∀ l r, asgOf b0 l = some r → evalExpr (declWidth m) E r = some (E l))
+    (hEin : ∀ x ∈ inNames m, E x = ins t x)
+    (hEreg : ∀ r ∈ regOuts b0, E r = p r)
+    (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
+    (n : Nat) (e c : Expr) (hc : inl (asgOf b0) n e = c)
+    (hl : leafOk (cutNames d m b0) c = true) :
+    evalExpr (declWidth m) E e = evalExpr (declWidth m) (leafEnv m b0 ins t p Ow) c := by
+  have hWo := WOKb_sound _ _ hW
+  have hs := inl_sound (declWidth m) E (asgOf b0)
+    (fun l r h => ⟨hasg l r h, hWo l r h⟩) n e
+  subst hc
+  rw [← hs.1]
+  apply eval_congr
+  intro x hx
+  have hcut := leafOk_sound _ _ hl x hx
+  simp only [cutNames, List.mem_append] at hcut
+  unfold leafEnv
+  rcases hcut with (h | h) | h
+  · rw [if_pos h]; exact hEin x h
+  · rw [if_neg (hri x h), if_pos h]; exact hEreg x h
+  · obtain ⟨mn, i, cs, hi, hy⟩ := mem_instOutsOf d b0 x h
+    have hw := instOutsOf_sub_wrsH d b0 x h
+    rw [if_neg (hwi x hw), if_neg (hwr x hw)]
+    exact hEorc mn i cs hi x hy
+
 end Tools.VedComposeResearch
