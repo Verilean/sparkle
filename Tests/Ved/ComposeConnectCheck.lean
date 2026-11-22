@@ -145,6 +145,46 @@ def toyK4Ref (start : Signal defaultDomain Bool) (inp : Signal defaultDomain (Bi
     r3 <~ Signal.mux start inp s2
     return s0
 
+/-! ## projTx: ONE instance of the child whose output feeds the parent's own register, the declaration a projection of the circuit's
+structure result (the shape of `synth_usbWebServer` = `(usbWebServer ..).uartTx`, where `respByteMux` is read once and its byte goes
+through registers).  Without the option this is refused at `[open]` (`genOpenSt` needs the declaration to BE the child's call). -/
+
+structure PT (dom : DomainConfig) where
+  b : Signal dom (BitVec 4)
+  v : Signal dom Bool
+
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (PT dom) dom := ⟨⟩
+
+def projCirc (go : Signal defaultDomain Bool) : PT defaultDomain :=
+  circuit do
+    let phase ← Signal.reg 0#4
+    let outR ← Signal.reg 0#4
+    let vR ← Signal.reg false
+    let ph := (phase : Signal defaultDomain (BitVec 4))
+    phase <~ Signal.mux go (ph + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4)) ph
+    outR <~ mkA ph
+    vR <~ go
+    return ({ b := (outR : Signal defaultDomain (BitVec 4)), v := (vR : Signal defaultDomain Bool) } : PT defaultDomain)
+
+def projTx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) := (projCirc go).b
+
+/-- copies for the controls (never accepted themselves); `projTxVRef` is the other field of the circuit -/
+def projCircRef (go : Signal defaultDomain Bool) : PT defaultDomain :=
+  circuit do
+    let phase ← Signal.reg 0#4
+    let outR ← Signal.reg 0#4
+    let vR ← Signal.reg false
+    let ph := (phase : Signal defaultDomain (BitVec 4))
+    phase <~ Signal.mux go (ph + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4)) ph
+    outR <~ mkA ph
+    vR <~ go
+    return ({ b := (outR : Signal defaultDomain (BitVec 4)), v := (vR : Signal defaultDomain Bool) } : PT defaultDomain)
+
+def projTxRef (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) := (projCircRef go).b
+
+/-- the other field of the same circuit (the control: its declaration against the module of `projTx`) -/
+def projTxVRef (go : Signal defaultDomain Bool) : Signal defaultDomain Bool := (projCircRef go).v
+
 /-! ## Helpers -/
 
 /-- How many distinct (maximal) application sites of the constant `c` the term has. -/
@@ -220,6 +260,13 @@ set_option ved.compose.step true in
 set_option ved.compose.connect true in
 run_cmd checkRow ``toyK4 `Tests.Ved.ComposeConnectCheck.toyK4.ved_child.Sparkle.IP.Crypto.SHA512HW.kMux.ved_u1 5
 
+-- projTx: single instance through registers, struct projection (3 registers: phase, outR, vR)
+/-- info: compose connect OK: 3 registers by reg_connect, 1 port by out_connect, child theorem Tests.Ved.ComposeConnectCheck.projTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+run_cmd checkRow ``projTx `Tests.Ved.ComposeConnectCheck.projTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1 3
+
 /-! ## Controls (entry level): ONE piece altered, refused at a named stage, nothing left -/
 
 /- Names in the synthesised `multiTwoRef`: parent registers `_tmp_a_4` (cnt) and `_tmp_a_15` (acc), their input nets
@@ -293,6 +340,26 @@ run_cmd do
   let (mK, dK) ← synthOf ``toyK4Ref
   expectRefusedT ``toyK4Ref "proof" "?" { mK with body := mapRegs (fun _ s => setInit 5 s) mK.body } dK (fun p => pure p)
   logInfo m!"compose connect toyK4 control: refused"
+
+/-! ### projTx controls (entry level)
+
+* the option OFF (default path, unchanged): refused at `[open]` exactly as before (the declaration is not one call of the child);
+* a WRONG PROJECTION: the module of `projTx` (field `b`, 4 bits) against the declaration of the other field `projTxVRef` (a bit): refused;
+* every register starts at 5, the declaration's loop at 0: refused at `[proof]`. -/
+
+/-- info: compose connect projTx controls: 3 refused -/
+#guard_msgs in
+run_cmd do
+  let (m, d) ← synthOf ``projTxRef
+  let noT : Phase1 → CommandElabM Phase1 := fun p => pure p
+  -- option off: the single-call slice, as before
+  expectRefusedT ``projTxRef "open" "does not reduce to a call of" m d noT
+  -- the other projection of the same circuit
+  expectRefusedT ``projTxVRef "artifact" "?" m d noT
+  -- initial values (option on)
+  withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true }) do
+    expectRefusedT ``projTxRef "proof" "?" { m with body := mapRegs (fun _ s => setInit 5 s) m.body } d noT
+  logInfo m!"compose connect projTx controls: 3 refused"
 
 /-! ## Controls of the connection equation itself, evaluated by the KERNEL on the accepted `multiTwo` -/
 
