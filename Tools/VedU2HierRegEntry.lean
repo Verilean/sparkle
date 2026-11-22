@@ -69,6 +69,18 @@ subtraction of the register count from a numeral `Fin` value), which neither `Fi
 `_inp_at_<j>` lemmas, stated at a literal `j`, do not fire.  The simproc evaluates the closed
 first argument and returns the literal; the result is definitionally the same term. -/
 
+/-- Measurement only (`VED_HIER_HB`): the heartbeats used so far against the budget the elaborator checks
+(`IO.getNumHeartbeats - Core.Context.initHeartbeats` vs `Core.Context.maxHeartbeats`, both raw units), to stderr as
+`VED-HB <label> used=<raw> limit=<raw> permille=<used*1000/limit>`.  Changes nothing. -/
+def hbLog (label : String) : CoreM Unit := do
+  let c ← readThe Lean.Core.Context
+  let n ← (IO.getNumHeartbeats : IO Nat)
+  let used := n - c.initHeartbeats
+  IO.eprintln s!"VED-HB {label} used={used} limit={c.maxHeartbeats} permille={used * 1000 / (max 1 c.maxHeartbeats)}"
+
+/-- `ved_hb "label"`: measurement only (`VED_HIER_HB`), `hbLog` as a tactic; changes no goal. -/
+elab "ved_hb " tag:str : tactic => hbLog tag.getString
+
 open Lean Meta Elab Tactic in
 /-- Replace every `Fin.mk a h` whose first argument is a closed, non-literal numeral expression by
 the literal `(value : Fin n)`, and every `Fin.val` of a numeral by its value (definitionally the
@@ -1246,13 +1258,14 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   if (← IO.getEnv "VED_HIER_DEBUG").isSome then IO.eprintln text
   if let some f ← IO.getEnv "VED_HIER_SCRIPT_FILE" then IO.FS.writeFile f text
   -- measurement only (`VED_HIER_TICK`): a `ved_tick "<script line>"` before the block-opening lines, to attribute the elaboration time to blocks
-  let text ← if (← IO.getEnv "VED_HIER_TICK").isNone then pure text else
+  let hbOn := (← IO.getEnv "VED_HIER_HB").isSome
+  let text ← if (← IO.getEnv "VED_HIER_TICK").isNone && !hbOn then pure text else
     let marks := ["· ", "have hrunF", "have hasgF", "have hregE", "have hEr0 ", "have hAl", "have e_0 ", "have bs0_a0", "rw [hdl] at hp", "obtain ⟨x, hx, hv⟩", "generalize hNS", "have hsig0", "have hx'", "have e_1 ", "have e_2 ", "have hRd0 ", "have hrdE0 ", "have hLhstA", "try unfold loopFOf", "all_goals ved_unfold_helpers", "all_goals (try ved_rw_loops", "all_goals (try (ved_port_ctx", "have hstA", "simp only [hrdE", "rw [hrdE", "have bs0_a0", "have bs1_a0", "have bs2_a0", "have bs2_s16 ", "have f_bs0"]
     let ls := text.splitOn "\n"
     let out := ls.zipIdx.flatMap fun (l, i) =>
       let tr := l.trimLeft
       if i > 0 && (marks.any (tr.startsWith ·) || (i < 45 && (tr.startsWith "have " || tr.startsWith "refine"))) then
-        [String.mk (List.replicate (l.length - tr.length) ' ') ++ s!"ved_tick \"{i + 1}\"", l]
+        [String.mk (List.replicate (l.length - tr.length) ' ') ++ (if hbOn then s!"ved_hb \"{i + 1}\"" else s!"ved_tick \"{i + 1}\""), l]
       else [l]
     pure ("\n".intercalate out)
   let stx ← match Lean.Parser.runParserCategory (← getEnv) `term text "<ved_u2_hier_reg>" with
@@ -1276,6 +1289,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
           IO.eprintln s!"[proof-msg] {if msg.severity == .error then "error" else "info"} @{msg.pos.line}:{msg.pos.column} {(← msg.data.toString).take 3000}"
       refuse decl "proof" e.toMessageData
   let tElab := (← IO.monoMsNow) - tProof0
+  if (← IO.getEnv "VED_HIER_HB").isSome then hbLog "proof elaboration end"
   Tools.VedU2HierDbg.phaseLog "parent proof elaboration end"
   let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
   if (← IO.getEnv "VED_HIER_DEBUG").isSome then
