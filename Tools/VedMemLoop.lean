@@ -1988,16 +1988,10 @@ register_option ved.mem.hstepNorm : Bool := {
 }
 
 /-- local heartbeat cap (units of `maxHeartbeats`, like `ved.mem.h0Budget`) of the whole new branch of the step case (`ved_hstep_guard`, `Tools/VedMemPack.lean`): a branch that runs into it (or into any
-runtime limit) is abandoned, the state restored, and the old script runs as the fallback with the heartbeats the new branch used refunded -/
+runtime limit) is abandoned, the state restored, and the old script runs as the fallback on what is left of the ambient budget (no refund) -/
 register_option ved.mem.hstepNewBudget : Nat := {
   defValue := 0
-  descr := "local heartbeat cap of the new step-case branch (`ved.mem.hstepNorm`) in the units of `maxHeartbeats` (like `ved.mem.h0Budget`; the number in the \"maximum number of heartbeats (N)\" message, the ambient 8000000 of the U1 entry), not thousands of them; 0: only the ambient budget; the old script is the fallback and (`ved.mem.hstepRefund`) gets back the heartbeats the new branch used"
-}
-
-/-- `ved_hstep_guard` fallback: true (default) the old script gets back the heartbeats the failed new branch used; false: it runs on what is left of the ambient budget -/
-register_option ved.mem.hstepRefund : Bool := {
-  defValue := true
-  descr := "true: the old step-case script (fallback of `ved.mem.hstepNorm`) gets back the heartbeats the failed new branch used (total may exceed the ambient budget by that much); false: no refund, new + old stay within the ambient budget"
+  descr := "local heartbeat cap of the new step-case branch (`ved.mem.hstepNorm`) in the units of `maxHeartbeats` (like `ved.mem.h0Budget`; the number in the \"maximum number of heartbeats (N)\" message, the ambient 8000000 of the U1 entry), not thousands of them; 0: only the ambient budget; the old script is the fallback and runs on what is left of the ambient budget (new + old <= maxHeartbeats, no refund)"
 }
 
 /-- local heartbeat budget (units of `maxHeartbeats`, like `ved.mem.h0Budget`) of one `isDefEq` of `vedMemLoopFreeze` -/
@@ -2025,11 +2019,26 @@ initialize hstepFailLate : IO.Ref Bool ← IO.mkRef false
 /-- test seam: the new branch ends with a heartbeat timeout (a runtime exception, which `first` does not catch; `ved_hstep_guard` does) -/
 initialize hstepTimeoutLate : IO.Ref Bool ← IO.mkRef false
 
+/-- test seam: the new branch makes partial progress and leaves a goal behind (it returns normally) -/
+initialize hstepPartial : IO.Ref Bool ← IO.mkRef false
+
+/-- test seam: the old step-case script fails (at `ved_hstep_fallback_reset`) -/
+initialize hstepOldFail : IO.Ref Bool ← IO.mkRef false
+
+/-- test log of `ved_hstep_guard`: "new closed" / "new abandoned" then "old closed" / "old failed" -/
+initialize hstepGuardLog : IO.Ref (Array String) ← IO.mkRef #[]
+
+/-- test log of `ved_hstep_guard`: raw heartbeats (new, old) used by the last guarded step case -/
+initialize hstepGuardHb : IO.Ref (Nat × Nat) ← IO.mkRef (0, 0)
+
 /-- test log: the new branch ran to its end -/
 elab "ved_hstep_norm_ran" : tactic => do
   if (← hstepFailLate.get) then throwError "ved_hstep_norm: failed late (test seam)"
   if (← hstepTimeoutLate.get) then Lean.Core.throwMaxHeartbeat `ved_hstep_test `maxHeartbeats 1
   hstepRan.modify (·.push "norm_skip")
+  if (← hstepPartial.get) then
+    let g ← mkFreshExprMVar (mkConst ``False)
+    setGoals ((← getGoals) ++ [g.mvarId!])
 
 /-- the loops of the hypotheses (types), the targets of `vedMemLoopFreeze` -/
 initialize hnormLoops : IO.Ref (Array Expr) ← IO.mkRef #[]

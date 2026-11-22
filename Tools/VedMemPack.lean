@@ -950,44 +950,69 @@ elab "ved_ctrl_cases" : tactic => do
     if dump then Tools.VedMemLoop.dbgLog s!"ctrl_cases: {(← e.toMessageData.toString).take 300}"
     throw e
 
+/-- the proof caches of the closing tactics are emptied (see `ved_hstep_fallback_reset`) -/
+def hstepResetCaches : MetaM Unit := do
+  Tools.VedMemLoop.hstepAttempted.set false
+  proofCache.set {}
+  Tools.VedU1ScriptSeq.vedOmegaOk.set {}
+  Tools.VedU1ScriptSeq.vedUbFail.set {}
+  Tools.VedU1ScriptSeq.vedOmegaFail.set {}
+
 /-- `ved_hstep_fallback_reset`: first tactic of the old step-case script when it runs as the fallback of the new branch (`ved.mem.hstepNorm`): the proof
 caches of the closing tactics are emptied if the new branch has started.  The caches are global `IO.Ref`s; their proofs may contain auxiliary lemmas
 (`_proof_N`) that the failed branch added to the environment, and the state restore of `first` removes those from the environment but not from the caches
 (observed: "(kernel) unknown constant _private._stdin.0._proof_N" after a late failure of the new branch).  With the option off the flag is never set and
-nothing changes. -/
+nothing changes.  (Test seam `hstepOldFail`: the old script fails here.) -/
 elab "ved_hstep_fallback_reset" : tactic => do
-  if (← Tools.VedMemLoop.hstepAttempted.get) then
-    Tools.VedMemLoop.hstepAttempted.set false
-    proofCache.set {}
-    Tools.VedU1ScriptSeq.vedOmegaOk.set {}
-    Tools.VedU1ScriptSeq.vedUbFail.set {}
-    Tools.VedU1ScriptSeq.vedOmegaFail.set {}
+  if (← Tools.VedMemLoop.hstepOldFail.get) then throwError "ved_hstep_fallback: the old script fails (test seam)"
+  if (← Tools.VedMemLoop.hstepAttempted.get) then hstepResetCaches
 
-/-- `ved_hstep_guard [new] [old]`: `new` (the new branch of the step case) under the local heartbeat cap `ved.mem.hstepNewBudget` (`withLocalHb`, never above the
-ambient budget that is left).  Any failure of `new` - an error, a heartbeat timeout, the recursion limit (Lean's `first` does not catch runtime exceptions) -
-restores the state from before `new` and runs `old` instead, with the heartbeats `new` used handed back to the ambient budget (`initHeartbeats`
-moved up by that amount), so a failing or expensive `new` costs `old` neither state nor budget.  Same effect on the state as `first | new | old`
-otherwise.  `old` is expected to start with `ved_hstep_fallback_reset`. -/
+/-- `ved_hstep_guard [new] [old]`: the guard wraps the WHOLE step case.
+* Option `ved.mem.hstepNorm` off (default): `old` runs, `new` is not tried (no `saveState`, no `try`).
+* On: `new` runs under the local heartbeat cap `ved.mem.hstepNewBudget` (`withLocalHb`, never above the ambient budget that is left).  It counts as closed only
+  if it returns and NO goal is left (every goal the guard started with is closed, no new goal remains).  An error, a heartbeat timeout / the recursion limit
+  (Lean's `first` does not catch runtime exceptions), or goals left behind (a `new` that skips or stops half way) is a failure: the state from before `new`
+  and the proof caches are restored and `old` runs instead, on what is left of the ambient budget (no refund: `new` + `old` stay within the ambient
+  `maxHeartbeats`).  If `old` fails too, the step case fails (the declaration is refused) with a text that names the step case and why `new` was abandoned;
+  a runtime exception of `old` (heartbeats) propagates unchanged.
+`old` is expected to start with `ved_hstep_fallback_reset`. -/
 elab "ved_hstep_guard " "[" new:tactic "]" "[" old:tactic "]" : tactic => do
+  unless (← getOptions).getBool `ved.mem.hstepNorm false do
+    evalTactic old
+    return
   let s ← saveState
+  let goals0 ← getGoals
   let n := (← getOptions).get `ved.mem.hstepNewBudget (0 : Nat)
   let hb0 ← IO.getNumHeartbeats
-  let ok ← tryCatchRuntimeEx
+  let failure : Option String ← tryCatchRuntimeEx
     (do (if n == 0 then Tactic.withoutRecover (evalTactic new)
-          else Tools.VedMemLoop.withLocalHb (n * 1000) (Tactic.withoutRecover (evalTactic new))); pure true)
+          else Tools.VedMemLoop.withLocalHb (n * 1000) (Tactic.withoutRecover (evalTactic new)))
+        let rest ← getUnsolvedGoals
+        if rest.isEmpty then pure none
+        else
+          let fresh := rest.filter fun g => !goals0.contains g
+          pure (some s!"new branch left {rest.length} goal(s) ({fresh.length} of them new) of the step case"))
     fun e => do
-      s.restore
-      Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: new branch abandoned ({if e.isRuntime then "runtime limit" else "error"}), hb used {((← IO.getNumHeartbeats) - hb0) / 1000}k: {((← e.toMessageData.toString).replace "\n" " ").take 300}")
-      pure false
+      pure (some s!"{if e.isRuntime then "runtime limit" else "error"}: {((← e.toMessageData.toString).replace "\n" " ").take 300}")
   let used := (← IO.getNumHeartbeats) - hb0
-  if ok then
+  match failure with
+  | none =>
+    Tools.VedMemLoop.hstepGuardLog.modify (·.push "new closed")
+    Tools.VedMemLoop.hstepGuardHb.set (used, 0)
     Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: NEW branch closed, hb new {used / 1000}k")
-  else
+  | some why =>
+    s.restore
+    hstepResetCaches
+    Tools.VedMemLoop.hstepGuardLog.modify (·.push "new abandoned")
+    Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: NEW branch abandoned, hb used {used / 1000}k: {why}")
     let hb1 ← IO.getNumHeartbeats
-    -- `ved.mem.hstepRefund` (default true): the heartbeats `new` used are handed back; false: `old` runs on what is left of the ambient budget (new + old <= ambient)
-    if (← getOptions).get `ved.mem.hstepRefund (true : Bool) then
-      withTheReader Core.Context (fun c => { c with initHeartbeats := c.initHeartbeats + used }) (evalTactic old)
-    else evalTactic old
+    tryCatchRuntimeEx (evalTactic old) fun e => do
+      Tools.VedMemLoop.hstepGuardLog.modify (·.push "old failed")
+      Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: OLD step failed too, hb new {used / 1000}k, hb old {((← IO.getNumHeartbeats) - hb1) / 1000}k")
+      if e.isRuntime then throw e
+      throwError "ved_hstep_guard: the step case (hstep) is not closed: the new branch was abandoned ({why}) and the old script failed: {e.toMessageData}"
+    Tools.VedMemLoop.hstepGuardLog.modify (·.push "old closed")
+    Tools.VedMemLoop.hstepGuardHb.set (used, (← IO.getNumHeartbeats) - hb1)
     Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: OLD step closed, hb new {used / 1000}k, hb old {((← IO.getNumHeartbeats) - hb1) / 1000}k, total {((← IO.getNumHeartbeats) - hb0) / 1000}k")
 
 end Tools.VedMemPack

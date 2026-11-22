@@ -1256,6 +1256,11 @@ def storedPackedOk (decl : Name) : TermElabM Unit := do
   unless axs.all (std.contains ·) && std.all (axs.contains ·) do throwError "{thm}: axioms {axs}"
   logInfo m!"stored type == statement, axioms std3: {decl}"
 
+def guardLogCheck (want : List String) : CommandElabM Unit := do
+  let got := (← Tools.VedMemLoop.hstepGuardLog.get).toList
+  unless got == want do throwError "guard log: {got}, expected {want}"
+  logInfo m!"guard log: {got}"
+
 def hstepRanCheck (want : List String) : CommandElabM Unit := do
   let got := (← Tools.VedMemLoop.hstepRan.get).toList
   unless got == want do throwError "hstepRan: {got}, expected {want}"
@@ -1350,6 +1355,16 @@ def hsK {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Sign
 def hsL {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
 def hsM {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsN {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsO {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsP {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsQ {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsR {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
 
 def hnormStatsCheck : CommandElabM Unit := do
@@ -1528,13 +1543,13 @@ run_cmd hstepRanCheck []
 #guard_msgs in
 run_cmd liftTermElabM <| storedPackedOk ``hsL
 
--- (13) ON, `ved.mem.hstepRefund false` (no refund: the old script runs on what is left of the ambient budget), the new branch is forced to fail late
--- (heartbeat timeout seam): the old script closes within the remaining ambient budget, the stored type is the statement.
+-- (13) ON, the new branch is forced to fail late (heartbeat timeout seam): the old script closes on what is left of the ambient budget (no refund), the stored
+-- type is the statement; the guard log says the new branch was abandoned.
 run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
 run_cmd Tools.VedMemLoop.hstepTimeoutLate.set true
 #guard_msgs (drop info) in
 set_option ved.mem.hstepNorm true in
-set_option ved.mem.hstepRefund false in
 #ved_u1_mem_packed hsM
 run_cmd Tools.VedMemLoop.hstepTimeoutLate.set false
 
@@ -1542,8 +1557,127 @@ run_cmd Tools.VedMemLoop.hstepTimeoutLate.set false
 #guard_msgs in
 run_cmd hstepRanCheck []
 
+/-- info: guard log: [new abandoned, old closed] -/
+#guard_msgs in
+run_cmd guardLogCheck ["new abandoned", "old closed"]
+
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsM -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedPackedOk ``hsM
+
+/-! ### `ved_hstep_guard` contract (sparkle-ved-mem-hstep, review of 93b85dc2)
+
+The guard wraps the whole step case: a new branch that returns normally but leaves a goal (partial progress; skip) is a failure, state and proof caches are
+restored and the old script runs; if the old script cannot close it either, the declaration is refused and the refusal names the step case.  The old script
+runs on what is left of the ambient budget (no refund): a fixed small `maxHeartbeats` that the new branch uses part of and new + old would exceed is refused
+with the heartbeat error.  With `ved.mem.hstepNorm` off the new branch is not tried at all (guard log empty). -/
+
+-- (14) ON, the new branch makes partial progress and returns with a goal left (test seam `hstepPartial`): NEW is abandoned, OLD closes, stored type exact, std3
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+run_cmd Tools.VedMemLoop.hstepPartial.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsN
+run_cmd Tools.VedMemLoop.hstepPartial.set false
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: guard log: [new abandoned, old closed] -/
+#guard_msgs in
+run_cmd guardLogCheck ["new abandoned", "old closed"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsN -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsN
+
+-- (15) ON, the new branch leaves a goal and the old script cannot close either (test seam `hstepOldFail`): REFUSED, naming the step case; no theorem added
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+run_cmd Tools.VedMemLoop.hstepPartial.set true
+run_cmd Tools.VedMemLoop.hstepOldFail.set true
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.hsO [proof]: errors were logged while elaborating the proof; first: ved_hstep_guard: the step case (hstep) is not closed: the new branch was abandoned (new branch left 1 goal(s) (1 of them new) of the step case) and the old script failed: ved_hstep_fallback: the old script fails (test seam) -/
+#guard_msgs in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsO
+run_cmd Tools.VedMemLoop.hstepPartial.set false
+run_cmd Tools.VedMemLoop.hstepOldFail.set false
+
+/-- info: guard log: [new abandoned, old failed] -/
+#guard_msgs in
+run_cmd guardLogCheck ["new abandoned", "old failed"]
+
+/-- info: no theorem Tests.Ved.VedMemCloseCheck.hsO.ved_mem -/
+#guard_msgs in
+run_cmd do
+  if (← getEnv).contains (``hsO ++ `ved_mem) then throwError "theorem added"
+  logInfo m!"no theorem {``hsO ++ `ved_mem}"
+
+-- (16) default (option off): the new branch is not tried (guard log empty) and the old script closes
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+#guard_msgs (drop info) in
+#ved_u1_mem_packed hsP
+
+/-- info: guard log: [] -/
+#guard_msgs in
+run_cmd guardLogCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsP -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsP
+
+-- (17) a small fixed `maxHeartbeats` (120000, units of 1000 heartbeats; `ved.u1.proofHeartbeats 0`: the entry's 8000000 floor is off): the new branch (forced to fail late) uses part of it (observed 71161), new + old
+-- (observed 72535k + 87906k) would exceed it.  No refund: REFUSED with the heartbeat error (the old script is not given the new branch's heartbeats back).
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set true
+/--
+error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.hsQ [proof]: (deterministic) timeout at `«tactic execution»`, maximum number of heartbeats (120000) has been reached
+
+Note: Use `set_option maxHeartbeats <num>` to set the limit.
+
+Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.
+-/
+#guard_msgs in
+set_option maxHeartbeats 120000 in
+set_option ved.u1.proofHeartbeats 0 in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsQ
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set false
+
+/-- info: guard log: [new abandoned, old failed] -/
+#guard_msgs in
+run_cmd guardLogCheck ["new abandoned", "old failed"]
+
+/-- info: no theorem Tests.Ved.VedMemCloseCheck.hsQ.ved_mem -/
+#guard_msgs in
+run_cmd do
+  if (← getEnv).contains (``hsQ ++ `ved_mem) then throwError "theorem added"
+  logInfo m!"no theorem {``hsQ ++ `ved_mem}"
+
+-- (18) the same with room (400000): accepted (new + old within the ambient budget), stored type exact, std3; new <= 120000 < new + old (sanity of (17))
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set true
+#guard_msgs (drop info) in
+set_option maxHeartbeats 400000 in
+set_option ved.u1.proofHeartbeats 0 in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsR
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set false
+
+/-- info: guard log: [new abandoned, old closed] -/
+#guard_msgs in
+run_cmd guardLogCheck ["new abandoned", "old closed"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsR -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsR
+
+/-- info: new < 120000k < new + old -/
+#guard_msgs in
+run_cmd do
+  let (n, o) ← Tools.VedMemLoop.hstepGuardHb.get
+  unless n / 1000 < 120000 && 120000 < (n + o) / 1000 do throwError "heartbeats new {n} old {o} do not straddle 120000k"
+  logInfo m!"new < 120000k < new + old"
 
 end Tests.Ved.VedMemCloseCheck
