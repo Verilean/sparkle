@@ -346,6 +346,9 @@ lean_lib «Tools.VedComposeStep» where
 lean_lib «Tools.VedComposeOrder» where
   roots := #[`Tools.VedComposeOrder]
 
+lean_lib «Tools.VedComposeResearchCut» where
+  roots := #[`Tools.VedComposeResearchCut]
+
 lean_lib «Tools.VedU2HierXorAttr» where
   roots := #[`Tools.VedU2HierXorAttr]
 
