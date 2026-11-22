@@ -115,3 +115,6 @@ after `kjob lake build Tests.Ved.ComposeConnectCheck` and `kjob lake build IP.Cr
 * Controls (`Tests/Ved/ComposeConnectCheck.lean`, kernel evaluation): `WOKbF` real module true, one wrong width false; `RegsOkF` real true, swapped slots / exchanged
   input wires / one register of the wrong width false; `ChainOkF` real step true, wrong offset / element index / declared width / bundle names false.
 * Measured (observed, single runs): see the unit report; R194 total 427.7 s -> 217.1 s, peak 17.68 -> 9.54 GB, heartbeats 1.98e9 of 8.0e9.
+
+## Unit 6 (R193 and next rows; observed, single run)
+R193 `synth_sha512Block_out0` is accepted through the connection path (post-check `Tests/Ved/ComposeConnectR193Check.lean`, not in CI): rc 0, total 213.5 s, parent proof 107.8 s, 1.957e9 of 8.0e9 heartbeats (24.4 %), peak 9.51 GB. R246 is refused before the connection path (`genOpenSt`: the declaration is not one call of the single child, VedU2HierStGen.lean:116). R231/R232 hit the 890 s timeout inside phase 1 / deep run without reaching proof generation. Coverage is not updated.
