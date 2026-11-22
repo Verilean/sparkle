@@ -1,5 +1,6 @@
 import Lean
 import Tools.VedMemLoop
+import Tools.VedMemS94Fix
 import Tools.VedU1WireShare
 
 /-!
@@ -389,5 +390,167 @@ elab "ved_s94_exit " k:num : tactic => do
   if (← IO.getEnv "VED_EXIT_AT").bind String.toNat? == some k.getNat then
     dbgLog s!"S94 exit at stamp {k.getNat}"
     IO.Process.exit 0
+
+/-! ### Stage-94 checkpoint (`VED_S94_CKPT=DIR`, with the gate; never in a default script)
+
+`ved_s94_ckpt [lemmas]` (emitted by the entry right after `ved_stamp 94`, i.e. with the goal the stage-94 simp starts from, only when the gate and
+`VED_S94_CKPT` are set at generation time) writes the goal so that the stage-94 simp can be run again in a SEPARATE process without the prefix:
+
+* `DIR/VedCkpt.olean`: `Lean.writeModule` of the whole environment of the run (the generated declarations of the module, the user's definitions of the file)
+  plus the axiom `ved_ckpt.goal : ∀ (context) , target` (`mkForallFVars` over the local context of the goal, `let` variables stay `let`s; the axiom is
+  never used in a proof: it only transports the term).  It imports what the run imported (same header) and is imported by name (`import VedCkpt`
+  with `DIR` on `LEAN_PATH`).
+* `DIR/ckpt.txt`: the simp arguments (pre/post arrow, `←`, a local hypothesis by its position in the local context, or a constant by its name components)
+  and the table of `Tools.VedMemLoop.declWidthTab` (the only state outside the goal that the stage-94 simprocs read).
+
+`#ved_s94_ckpt_replay "DIR"` (in a file that imports the same modules and `VedCkpt`) re-creates the goal (hypotheses named `ck0, ck1, ..`), runs
+`ved_loop_simp [args]` on it (inside `ved_s94_noitecongr (..)` when the option `ved.mem.s94NoIteCongr` is set) and logs the time, heartbeats and the result sizes.
+The process ends after the write (a diagnosis run, no proof). -/
+
+private def nameComps (n : Name) : List String :=
+  n.components.map fun
+    | .str _ s => "s" ++ s
+    | .num _ k => "n" ++ toString k
+    | .anonymous => "a"
+
+private def compsName (cs : List String) : Name :=
+  cs.foldl (fun n c => if c.startsWith "n" then Name.mkNum n (c.drop 1).toNat! else Name.mkStr n (c.drop 1).toString) Name.anonymous
+
+open Lean Meta Elab Tactic in
+elab "ved_s94_ckpt " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withMainContext do
+  unless (← s94Gate) do return
+  let some dir := (← IO.getEnv "VED_S94_CKPT") | return
+  let g ← getMainGoal
+  unless (← getGoals).length == 1 do throwError "ved_s94_ckpt: {(← getGoals).length} goals"
+  let tgt ← instantiateMVars (← g.getType)
+  let fvs : Array Expr := (← getLCtx).foldl (fun a d => a.push d.toExpr) #[]
+  let fvIds := fvs.map (·.fvarId!)
+  dbgLog "S94 ckpt: start"
+  let ty ← instantiateMVars (← mkForallFVars fvs tgt (usedLetOnly := false))
+  dbgLog "S94 ckpt: goal closed over the context"
+  if ty.hasFVar || ty.hasMVar || ty.hasLevelParam || ty.hasLevelMVar then
+    throwError "ved_s94_ckpt: the goal still has fvars/mvars/level parameters (fvar {ty.hasFVar} mvar {ty.hasMVar} lparam {ty.hasLevelParam})"
+  let mut lines : Array String := #[]
+  for l in ls.getElems do
+    let pre := if l.raw[0].getNumArgs > 0 then ((l.raw[0].reprint.getD "?").trimAscii.toString) else ""
+    let arrow := if l.raw[1].getNumArgs > 0 then "1" else "0"
+    unless l.raw[2].isIdent do throwError "ved_s94_ckpt: a simp argument that is not an identifier: {l.raw[2]}"
+    -- an identifier elaborates to the constant (or variable) applied to metavariables for its implicit arguments
+    let e := (← instantiateMVars (← Tactic.elabTerm l.raw[2] none)).getAppFn
+    if e.isFVar then
+      let some i := fvIds.findIdx? (· == e.fvarId!) | throwError "ved_s94_ckpt: hypothesis not in the context"
+      lines := lines.push s!"fv\t{pre}\t{arrow}\t{i}"
+    else if e.isConst then
+      lines := lines.push ("c\t" ++ pre ++ "\t" ++ arrow ++ "\t" ++ "\t".intercalate (nameComps e.constName!))
+    else throwError "ved_s94_ckpt: unsupported simp argument {← ppExpr e}"
+  let tab ← Tools.VedMemLoop.declWidthTab.get
+  match tab with
+  | some (mn, t) =>
+    lines := lines.push ("tab\t" ++ "\t".intercalate (nameComps mn))
+    for (k, v) in t.toList do lines := lines.push s!"w\t{k}\t{v}"
+  | none => lines := lines.push "notab"
+  -- an axiom that only transports the term: no kernel check (the type is the stage-94 goal, tree size ~4.5e8)
+  withTheReader Core.Context (fun c => { c with options := c.options.setBool `debug.skipKernelTC true }) do
+    addDecl (.axiomDecl { name := `ved_ckpt.goal, levelParams := [], type := ty, isUnsafe := false })
+  dbgLog "S94 ckpt: axiom added"
+  IO.FS.createDirAll dir
+  IO.FS.writeFile (dir ++ "/ckpt.txt") ("\n".intercalate lines.toList ++ "\n")
+  -- the equation lemmas / splitters that the run realized lazily are left out (the replay realizes them again: an imported splitter without its extension
+  -- entry makes `getEquationsFor` fail)
+  let md ← Lean.mkModuleData (← getEnv)
+  let realized (n : Name) : Bool :=
+    match n with
+    | .str _ s => s == "splitter" || s == "eq_def" || s == "sunfold" || (s.startsWith "eq_" && (s.drop 3).all Char.isDigit)
+    | _ => false
+  let keep := md.constants.filter (fun c => !realized c.name)
+  let md' := { md with constNames := keep.map (·.name), constants := keep }
+  dbgLog s!"S94 ckpt: {md.constants.size} constants, {md.constants.size - keep.size} realized equation constants left out"
+  Lean.saveModuleData (dir ++ "/VedCkpt.olean") (← getEnv).mainModule md'
+  dbgLog s!"S94 ckpt written to {dir}: {fvs.size} context entries, {ls.getElems.size} simp arguments, goal dag={(Tools.VedU1WireShare.collectDag (fun _ => true) tgt).size}"
+  IO.Process.exit 0
+
+open Lean Meta in
+/-- realize the equations of the matchers reachable from `n` (project constants only, bounded depth) -/
+partial def ckptRealize (seen : IO.Ref (Std.HashSet Name)) (n : Name) (depth : Nat) : MetaM Unit := do
+  if depth == 0 || (← seen.get).contains n then return
+  seen.modify (·.insert n)
+  let some info := (← getEnv).find? n | return
+  if (← Meta.isMatcher n) then
+    try discard <| Lean.Meta.Match.getEquationsFor n; dbgLog s!"S94 replay: equations of {n} realized"
+    catch ex => dbgLog s!"S94 replay: equations of {n} FAILED: {((← ex.toMessageData.toString).replace "\n" " ").take 200}"
+  let mut cs : Array Name := #[]
+  for e in [info.type] ++ (match info.value? with | some v => [v] | none => []) do
+    cs := cs ++ (Tools.VedU1WireShare.collectDag (fun x => x.isConst) e).map (·.constName!)
+  for c in cs do
+    if (`Sparkle).isPrefixOf c || (`Tools).isPrefixOf c || (`Tests).isPrefixOf c || (`_private).isPrefixOf c then ckptRealize seen c (depth - 1)
+
+open Lean Meta Elab Command Term in
+elab "#ved_s94_ckpt_replay " d:str : command => do
+  let dir := d.getString
+  let rows := ((← IO.FS.readFile (dir ++ "/ckpt.txt")).splitOn "\n").filter (· ≠ "") |>.map (·.splitOn "\t")
+  let mut args : Array (Bool × String × Bool × (Sum Nat Name)) := #[]
+  let mut tab : Option (Name × Std.HashMap String Nat) := none
+  for r in rows do
+    match r with
+    | "fv" :: pre :: ar :: [i] => args := args.push (true, pre, ar == "1", .inl i.toNat!)
+    | "c" :: pre :: ar :: cs =>
+      -- the counting probe is a diagnosis simproc (open gate at generation time), not part of the production simp set
+      unless compsName cs == ``vedMemProbe do args := args.push (true, pre, ar == "1", .inr (compsName cs))
+    | "tab" :: cs => tab := some (compsName cs, {})
+    | ["w", k, v] => tab := tab.map fun (n, t) => (n, t.insert k v.toNat!)
+    | _ => pure ()
+  liftTermElabM do
+    let ci ← getConstInfo `ved_ckpt.goal
+    let tgtConsts : Array Name := (Tools.VedU1WireShare.collectDag (fun x => x.isConst) ci.type).map (·.constName!)
+    -- the equations of the matchers that the simp unfolds are realized in the EMPTY local context (in the run they were realized by earlier stages;
+    -- realized here inside the goal's context they fail the instances-transparency check of the context's `let` values)
+    let seen ← IO.mkRef (({} : Std.HashSet Name))
+    let mut roots : Array Name := tgtConsts
+    for (_, _, _, a) in args do
+      if let .inr n := a then roots := roots.push n
+    for c in roots do ckptRealize seen c 6
+    dbgLog s!"S94 replay: {(← seen.get).size} constants visited for matcher equations"
+    let mut g := (← mkFreshExprMVar ci.type).mvarId!
+    let mut k := 0
+    repeat
+      unless (← g.getType).isForall || (← g.getType).isLet do break
+      let (_, g') ← g.intro (Name.mkSimple s!"ck{k}")
+      g := g'; k := k + 1
+    let tgt ← instantiateMVars (← g.getType)
+    dbgLog s!"S94 replay: {k} context entries, goal dag={(Tools.VedU1WireShare.collectDag (fun _ => true) tgt).size} tree={Tools.VedU1Loop.treeSizeVal tgt}"
+    if (← IO.getEnv "VED_CKPT_CHECK").isSome then
+      for tr in [TransparencyMode.default, .instances] do
+        let r ← try g.withContext (withTransparency tr (do Meta.check tgt; pure "ok")) catch ex => pure ((← ex.toMessageData.toString).replace "\n" " " |>.take 400 |>.toString)
+        dbgLog s!"S94 replay: Meta.check ({repr tr}) of the goal: {r}"
+    let mut elems : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
+    for (_, pre, ar, a) in args do
+      let t : Term := match a with
+        | .inl i => mkIdent (Name.mkSimple s!"ck{i}")
+        | .inr n => mkCIdent n
+      let st ← match pre.trimAscii.toString, ar with
+        | "↓", false => `(Lean.Parser.Tactic.simpLemma| ↓ $t:term)
+        | "↓", true => `(Lean.Parser.Tactic.simpLemma| ↓ ← $t:term)
+        | _, false => `(Lean.Parser.Tactic.simpLemma| $t:term)
+        | _, true => `(Lean.Parser.Tactic.simpLemma| ← $t:term)
+      elems := elems.push st
+    let simp ← `(tactic| ved_loop_simp [$elems,*])
+    let nic := Tools.VedMemS94Fix.ved.mem.s94NoIteCongr.get (← getOptions)
+    let stx ← if nic then `(tactic| ved_s94_noitecongr ($simp:tactic)) else pure simp
+    Tools.VedMemLoop.declWidthTab.set tab
+    let t0 ← IO.monoMsNow
+    let hb0 ← IO.getNumHeartbeats
+    try
+      let gs ← Tactic.run g (Tactic.evalTactic stx)
+      let ms := (← IO.monoMsNow) - t0
+      let mut sz := ""
+      for g2 in gs do
+        let e ← instantiateMVars (← g2.getType)
+        sz := sz ++ s!" [dag={(Tools.VedU1WireShare.collectDag (fun _ => true) e).size} tree={Tools.VedU1Loop.treeSizeVal e}]"
+      dbgLog s!"S94 replay: simp {if nic then "without" else "with"} ite_congr done ms={ms} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000} goals={gs.length}{sz}"
+      logInfo m!"ckpt replay ok: ms={ms} goals={gs.length}"
+    catch ex =>
+      dbgLog s!"S94 replay: FAILED ms={(← IO.monoMsNow) - t0}: {((← ex.toMessageData.toString).replace "\n" " ").take 600}"
+      throw ex
+    finally Tools.VedMemLoop.declWidthTab.set none
 
 end Tools.VedMemS94Diag

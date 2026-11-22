@@ -657,6 +657,13 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
     let exitAt := (← Tools.VedMemS94Diag.s94Gate) && isNew && ((← IO.getEnv "VED_EXIT_AT").bind String.toNat?).isSome
     let ex93 : TSyntax `tactic ← if exitAt && (← IO.getEnv "VED_EXIT_AT") == some "93" then `(tactic| ved_s94_exit 93) else `(tactic| skip)
     let ex94 : TSyntax `tactic ← if exitAt && (← IO.getEnv "VED_EXIT_AT") == some "94" then `(tactic| ved_s94_exit 94) else `(tactic| skip)
+    -- diagnosis only: the stage-94 checkpoint (`VED_S94_CKPT=DIR`, see `Tools/VedMemS94Diag.lean`), written right after stamp 94
+    let ckT : TSyntax `tactic ← if isNew && (← Tools.VedMemS94Diag.s94Gate) && (← IO.getEnv "VED_S94_CKPT").isSome then
+        `(tactic| ved_s94_ckpt [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
+            comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
+            Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
+            Sparkle.Core.Signal.Signal.memory_val_zero, $e1,*])
+      else `(tactic| skip)
     let ex95 : TSyntax `tactic ← if exitAt && (← IO.getEnv "VED_EXIT_AT") == some "95" then `(tactic| ved_s94_exit 95) else `(tactic| skip)
     `(tactic| (
           $nh
@@ -667,6 +674,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           $d2
           ved_stamp 94
           $ex94
+          $ckT
           $dgT
           $simp94
           $un
