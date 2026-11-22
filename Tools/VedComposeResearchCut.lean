@@ -321,6 +321,124 @@ theorem bnS_sound (we : WEnv) (E : Env) (hi lo : Nat) (e : Expr)
   | index _ _ => exact ⟨rfl, rfl⟩
 
 
+theorem refsL_mem_of_mem (as : List Expr) (a : Expr) (ha : a ∈ as) (x : String) (hx : x ∈ refs a) : x ∈ refsL as := by
+  induction as with
+  | nil => cases ha
+  | cons b r ih =>
+    simp only [refsL, List.mem_append]
+    rcases List.mem_cons.mp ha with rfl | h
+    · exact Or.inl hx
+    · exact Or.inr (ih h)
+
+theorem refsL_map_sub (f : Expr → Expr) (as : List Expr) (h : ∀ a ∈ as, ∀ x ∈ refs (f a), x ∈ refs a)
+    (x : String) (hx : x ∈ refsL (as.map f)) : x ∈ refsL as := by
+  induction as with
+  | nil => simp [refsL] at hx
+  | cons b r ih =>
+    simp only [List.map_cons, refsL, List.mem_append] at hx ⊢
+    rcases hx with hx | hx
+    · exact Or.inl (h b (by simp) x hx)
+    · exact Or.inr (ih (fun a ha y hy => h a (by simp [ha]) y hy) hx)
+
+theorem refs_bnS (we : WEnv) (hi lo : Nat) (e : Expr) (x : String) (hx : x ∈ refs (bnS we hi lo e)) : x ∈ refs e := by
+  cases e with
+  | concat es =>
+    simp only [bnS] at hx
+    cases hm : refNames es with
+    | none => simpa [hm, refs] using hx
+    | some names =>
+      cases ha : alignedIdx we names hi lo with
+      | none => simpa [hm, ha, refs] using hx
+      | some k =>
+        simp only [hm, ha, refs, refsL, List.append_nil, List.mem_singleton] at hx
+        obtain ⟨hk, _⟩ := alignedIdx_spec we names hi lo k ha
+        have hes := refNames_eq es names hm
+        subst hes
+        rw [refs_concat_refs]
+        subst hx
+        have : names.getD k "" = names[k] := by simp [List.getD_eq_getElem?_getD, hk]
+        rw [this]; exact List.getElem_mem hk
+  | ref y =>
+    simp only [bnS] at hx
+    split at hx
+    · exact hx
+    · simpa [refs] using hx
+  | const _ _ => simpa [bnS, refs] using hx
+  | op _ _ => simpa [bnS, refs] using hx
+  | slice _ _ _ => simpa [bnS, refs] using hx
+  | sliceDim _ _ _ => simpa [bnS, refs] using hx
+  | index _ _ => simpa [bnS, refs] using hx
+
+theorem refs_bn (we : WEnv) : ∀ n e x, x ∈ refs (bn we n e) → x ∈ refs e := by
+  intro n
+  induction n with
+  | zero => intro e x hx; exact hx
+  | succ n ih =>
+    intro e x hx
+    cases e with
+    | op o as =>
+      simp only [bn, refs] at hx ⊢
+      exact refsL_map_sub _ as (fun a _ y hy => ih a y hy) x hx
+    | concat as =>
+      simp only [bn, refs] at hx ⊢
+      exact refsL_map_sub _ as (fun a _ y hy => ih a y hy) x hx
+    | slice e hi lo =>
+      simp only [bn] at hx
+      have := refs_bnS we hi lo _ x hx
+      simp only [refs]
+      exact ih e x this
+    | const _ _ => exact hx
+    | ref _ => exact hx
+    | sliceDim _ _ _ => exact hx
+    | index _ _ => exact hx
+
+/-- THE NORMALISER IS SOUND under range facts on the leaves of the expression. -/
+theorem bn_sound (we : WEnv) (E : Env) :
+    ∀ n e, (∀ x ∈ refs e, E x < 2 ^ we x) →
+      evalExpr we E (bn we n e) = evalExpr we E e ∧ widthOf we (bn we n e) = widthOf we e := by
+  intro n
+  induction n with
+  | zero => intro e _; exact ⟨rfl, rfl⟩
+  | succ n ih =>
+    intro e hr
+    cases e with
+    | const _ _ => exact ⟨rfl, rfl⟩
+    | ref _ => exact ⟨rfl, rfl⟩
+    | sliceDim _ _ _ => exact ⟨rfl, rfl⟩
+    | index _ _ => exact ⟨rfl, rfl⟩
+    | slice e hi lo =>
+      simp only [bn]
+      have h1 := ih e (by simpa [refs] using hr)
+      have h2 := bnS_sound we E hi lo (bn we n e)
+        (fun x hx => hr x (by simpa [refs] using refs_bn we n e x hx))
+      refine ⟨?_, ?_⟩
+      · rw [h2.1]; simp only [evalExpr]; rw [h1.1]
+      · rw [h2.2]; rfl
+    | op o as =>
+      simp only [bn]
+      have hE : ∀ a ∈ as, evalExpr we E (bn we n a) = evalExpr we E a :=
+        fun a ha => (ih a (fun x hx => hr x (by simpa [refs] using refsL_mem_of_mem as a ha x hx))).1
+      have hW : ∀ a ∈ as, widthOf we (bn we n a) = widthOf we a :=
+        fun a ha => (ih a (fun x hx => hr x (by simpa [refs] using refsL_mem_of_mem as a ha x hx))).2
+      refine ⟨?_, width_op_map we _ o as hW⟩
+      simp only [evalExpr]
+      rw [evalList_map we E _ as hE, width_op_map we _ o as hW]
+      cases evalList we E as with
+      | none => rfl
+      | some vals => simp only [Bind.bind, Option.bind]; rw [evalOp_map we _ o as vals _ hW]
+    | concat as =>
+      simp only [bn]
+      have hE : ∀ a ∈ as, evalExpr we E (bn we n a) = evalExpr we E a :=
+        fun a ha => (ih a (fun x hx => hr x (by simpa [refs] using refsL_mem_of_mem as a ha x hx))).1
+      have hW : ∀ a ∈ as, widthOf we (bn we n a) = widthOf we a :=
+        fun a ha => (ih a (fun x hx => hr x (by simpa [refs] using refsL_mem_of_mem as a ha x hx))).2
+      refine ⟨?_, width_concat_map we _ as hW⟩
+      simp only [evalExpr]
+      rw [evalList_map we E _ as hE]
+      cases evalList we E as with
+      | none => rfl
+      | some vals => simp only [Bind.bind, Option.bind]; rw [go_map we _ as vals hW]
+
 /-! ## The connection to `step_local` -/
 
 open Tools.VedU1Hier Tools.VedU2Hier Tools.VedU1Contract
