@@ -979,8 +979,12 @@ elab "ved_hstep_guard " "[" new:tactic "]" "[" old:tactic "]" : tactic => do
       s.restore
       Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: new branch abandoned ({if e.isRuntime then "runtime limit" else "error"}), hb used {((← IO.getNumHeartbeats) - hb0) / 1000}k: {((← e.toMessageData.toString).replace "\n" " ").take 300}")
       pure false
-  unless ok do
-    let used := (← IO.getNumHeartbeats) - hb0
+  let used := (← IO.getNumHeartbeats) - hb0
+  if ok then
+    Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: NEW branch closed, hb new {used / 1000}k")
+  else
+    let hb1 ← IO.getNumHeartbeats
     withTheReader Core.Context (fun c => { c with initHeartbeats := c.initHeartbeats + used }) (evalTactic old)
+    Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: OLD step closed, hb new {used / 1000}k, hb old {((← IO.getNumHeartbeats) - hb1) / 1000}k, total {((← IO.getNumHeartbeats) - hb0) / 1000}k")
 
 end Tools.VedMemPack
