@@ -68,3 +68,22 @@ inlined cone from a cold cache every time (observed on the kMux toy, 13 register
 (`hren` through `eqE_sound` against `CExpr.compile nm (deep.next i)`, identified with the fidelity literal by `hfid`).
 The approved lemma statements are unchanged. Observed (single runs): parent proof 8/12/24 registers 19.3 / 27.1 / 64.4 s (before: 42.9 / 80.7 / 368.4 s).
 Scope: local-lemma result on toys; a real-IP row (R194) was run once and is NOT accepted (budget exhausted before the connection block, see the unit report).
+
+## Parent prelude and instance blocks (unit 3, option `ved.compose.connect`; default path unchanged)
+
+R194 (`synth_sha512Block_done`, 34 register slots, 25 data inputs, two `kMux` instances) was refused at the 8,000,000-heartbeat budget in OLD reused
+code before the connection block (unit 2 report). Attribution (script ticks; observed, single run): (a) `simp [contractOf, dataInputs, declWidth, ..] at hin`
+(the 25 input bounds), 162 s of script lines 45-74, generated four times; (b) the bundle-slice chain of the first instance's hkid block, ~77-86 s;
+(c) one `simp` per hypothesis (`hstA` and all 34 `hRd_i`) in the instance port lines, 55 s and 85 s.
+
+* (a) `Tools/VedComposePrelude.lean` (new lean_lib): `hin_bnd` takes the closed equation `c.dataInputs.map (fun p => (p.name, declWidth m p.name)) = L`
+  (decided by the kernel; `L` is read off the declaration table by `Tools.VedComposeConnectGen.hinLines`, it is CHECKED, not assumed) and `hok.1 t`
+  and returns `bndConj (ins t) L`; `simp only [bndConj, bndConjAux, Nat.reducePow]` gives the literal conjunction the old `simp` gave.
+  `bit_obs` bridges the trace theorem of a one-bit output (`(bif b then 1 else 0 : BitVec 1).toNat`) to the `Bool.toNat` the entry's `simp` leaves
+  (found by R194 run 1: the `done` port; toys had 64-bit outputs).
+* (c) under `connect` the port-line unfolding simps run at the loop copies (`hL..`, the hypotheses `ved_rw_loops` reads) only, not at `hstA` and the 34 `hRd_i`
+  (`Tools/VedU2HierStateArgs.lean`, `portLines`); the bundle-slice chain facts use `decide +kernel` (RegEntry hunk; measured gain small).
+* Not changed: (b) the chain itself (one `concat_range` + one `bundle_slice_fact` per slice step; ~1.1-1.3 s per step at 34 slots, 25 inputs), `WOKb` and `RegsOk` (kernel
+  evaluations; the largest remaining costs).
+* Statements unchanged (`U2HRStmt` stored type is the entry's expected type). Controls: `ComposeConnectCheck` has kernel controls for the input-bound equation
+  (real list accepted, a wrong width and swapped names refused).
