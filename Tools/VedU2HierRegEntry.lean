@@ -563,7 +563,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       -- H3-open: each read of the register bundle is ONE fact per slice step (`bundle_slice_fact`), not an evaluation of the
       -- concatenation
       for (bs, bi) in ii.bsl.zipIdx do
-        X := X ++ bs.lines
+        -- VED compose connect: the chain's closed shape facts by the kernel (one `by decide` per fact costs ~0.3 s each at 34 registers)
+        X := X ++ (if di.connect then bs.lines.map (·.replace "(by decide)" "(by decide +kernel)") else bs.lines)
         X := X.push s!"  have f_bs{bi} : E {sq bs.w} = {irS} ins t ({bs.slot} : Fin {di.regWs.length}) := by rw [{bs.pf}, hEr{bs.slot}]"
         let wBs := di.regWs[bs.slot]!
         X := X.push s!"  have hlt_bs{bi} : E {sq bs.w} < {2 ^ wBs} := by rw [f_bs{bi}]; exact hlS{bs.slot}"
@@ -1246,7 +1247,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   if let some f ← IO.getEnv "VED_HIER_SCRIPT_FILE" then IO.FS.writeFile f text
   -- measurement only (`VED_HIER_TICK`): a `ved_tick "<script line>"` before the block-opening lines, to attribute the elaboration time to blocks
   let text ← if (← IO.getEnv "VED_HIER_TICK").isNone then pure text else
-    let marks := ["· ", "have hrunF", "have hasgF", "have hregE", "have hEr0 ", "have hAl", "have e_0 ", "have bs0_a0", "rw [hdl] at hp", "obtain ⟨x, hx, hv⟩", "generalize hNS", "have hsig0", "have hx'"]
+    let marks := ["· ", "have hrunF", "have hasgF", "have hregE", "have hEr0 ", "have hAl", "have e_0 ", "have bs0_a0", "rw [hdl] at hp", "obtain ⟨x, hx, hv⟩", "generalize hNS", "have hsig0", "have hx'", "have e_1 ", "have e_2 ", "have hRd0 ", "have hrdE0 ", "have hLhstA", "try unfold loopFOf", "all_goals ved_unfold_helpers", "all_goals (try ved_rw_loops", "all_goals (try (ved_port_ctx", "have hstA", "simp only [hrdE", "rw [hrdE", "have bs0_a0", "have bs1_a0", "have bs2_a0", "have bs2_s16 ", "have f_bs0"]
     let ls := text.splitOn "\n"
     let out := ls.zipIdx.flatMap fun (l, i) =>
       let tr := l.trimLeft

@@ -149,12 +149,15 @@ def portLines (di : DeepInfo) (dbg : Bool) (bn : String) (isSlot : Bool) (ad fj 
   let obs := "Tools.VedU1Contract.PTy.obs"
   let adU := if isSlot then "" else s!"{ad}, "
   let facts := ", ".intercalate fs
+  -- VED compose connect: the unfolding simps run at the loop copies only (`hL..`: what `ved_rw_loops` reads), not at the state
+  -- theorems and all `n` register readers `hRd<slot>` (one simp per hypothesis: observed ~1.4 s each at 34 registers, 25 inputs)
+  let stU' := if di.connect then [] else stU
   unless stU.isEmpty do
     -- the state theorem speaks of `Signal.loop (loopFOf ..)` and of the arguments `PTy.sig ins ..`; the
     -- declaration's term has the loop unfolded and the signals unfolded: bring the facts to the same form
     for h in stU.filter (·.startsWith "hst") do
       X := X.push s!"    try unfold loopFOf at {h}"
-    X := X.push s!"    try simp (config := \{ maxSteps := 2000000 }) [loopFOf, {adU}{obs}, {netSimpL}] at {" ".intercalate (stU ++ lps)}"
+    X := X.push s!"    try simp (config := \{ maxSteps := 2000000 }) [loopFOf, {adU}{obs}, {netSimpL}] at {" ".intercalate (stU' ++ lps)}"
     if dbg then X := X.push s!"    all_goals ved_eprint_state \"stU-simp {bn}\""
   if stU.isEmpty then
     X := X.push s!"    simp [{fj}, {adU}{obs}, {netSimpL}, hin, {facts}]"
@@ -169,7 +172,7 @@ def portLines (di : DeepInfo) (dbg : Bool) (bn : String) (isSlot : Bool) (ad fj 
     -- a concatenation of signals (`onesAdd16Sig`, unfolded above) is read pointwise.  The full simp set does not apply
     -- `sigval_append` to it (it unfolds `Signal.pure` to a term that is not type correct at instance transparency
     -- first), `simp only` does; the facts get the same pass so that both sides keep one normal form
-    X := X.push s!"    all_goals (try simp only [{pointwiseL}] at {" ".intercalate (stU ++ lps)} ⊢)"
+    X := X.push s!"    all_goals (try simp only [{pointwiseL}] at {" ".intercalate (stU' ++ lps)} ⊢)"
     -- the loops of the declaration's term, whatever their syntactic form, become the register values; `{ val := f }.val t`
     -- is reduced first, so that the loop sits at the goal's time and not under a binder
     unless lps.isEmpty do X := X.push s!"    all_goals (try dsimp only)"
