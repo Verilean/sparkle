@@ -436,8 +436,11 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     L := L.push s!"    have hEin : ∀ x ∈ {T2}.inNames {P.mod}, E x = ins t x := fun x hx => by"
     L := L.push s!"      have := {T2}.runHS_inputs {P.design} arr {P.mod} hadm hwr ins K K (Nat.le_refl K) _ envs sts hrun t ht E hE x hx"
     L := L.push s!"      simpa using this"
-    L := L.push s!"    have hin := hok.1 t"
-    L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
+    if di.connect then
+      L := L ++ (Tools.VedComposeConnectGen.hinLines "    " tbl.binders (tbl.ins.map (·.width))).toArray
+    else
+      L := L.push s!"    have hin := hok.1 t"
+      L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
     for n in tbl.binders.map ("_gen_" ++ ·) do
       L := L.push s!"    have hE_{n} : E {sq n} = ins t {sq n} := hEin _ (by decide)"
     L := L.push s!"    have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
@@ -512,8 +515,11 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         X := X.push s!"  have hEin : ∀ x ∈ {T2}.inNames {P.mod}, E x = ins t x := fun x hx => by"
         X := X.push s!"    have := {T2}.runHS_inputs {P.design} arr {P.mod} hadm hwr ins K K (Nat.le_refl K) _ envs sts hrun t ht E hE x hx"
         X := X.push s!"    simpa using this"
-        X := X.push s!"  have hin := hok.1 t"
-        X := X.push s!"  simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
+        if di.connect then
+          X := X ++ (Tools.VedComposeConnectGen.hinLines "  " tbl.binders (tbl.ins.map (·.width))).toArray
+        else
+          X := X.push s!"  have hin := hok.1 t"
+          X := X.push s!"  simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
       let dataNames := tbl.binders.map ("_gen_" ++ ·)
       let mut facts : List String := []
       for n in dataNames do
@@ -636,7 +642,10 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     L := L.extract 0 hkStart ++ h0Block ++ L.extract hkStart hkEnd
   -- hstep
   L := L.push s!"  · intro ins hok t p hR"
-  L := L.push s!"    have hin := hok.1 t"
+  if di.connect then
+    L := L ++ (Tools.VedComposeConnectGen.hinLines "    " tbl.binders (tbl.ins.map (·.width))).toArray
+  else
+    L := L.push s!"    have hin := hok.1 t"
   L := L.push s!"    have hrst := hok.2 t"
   L := L.push s!"    have hinpU : ∀ (ins : Nat → String → Nat) (t : Nat) j, {inpU} ins t j = ({OInp} {sigsAll} j).val t := fun _ _ _ => rfl"
   for i in [0:k] do
@@ -649,7 +658,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     match kidOut c.kid with
     | .bv w => L := L.push s!"    have hlo{j} : ({sg}.val t).toNat < 2 ^ {w} := ({sg}.val t).isLt"
     | .bit => L := L.push s!"    have hlo{j} : Bool.toNat ({sg}.val t) < 2 ^ 1 := by cases ({sg}.val t) <;> simp"
-  L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin hrst"
+  L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at {if di.connect then "hrst" else "hin hrst"}"
   let locs := " ".intercalate (((List.range k).map fun i => s!"hR{i}") ++ ((List.range k).map fun i => s!"hl{i}") ++
     ((List.range calls.size).map fun j => s!"hlo{j}"))
   let locsU := " ".intercalate (((List.range k).map fun i => s!"hR{i}") ++ ((List.range k).map fun i => s!"hl{i}"))

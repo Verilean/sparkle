@@ -1,5 +1,6 @@
 import Lean
 import Tools.VedComposeConnect
+import Tools.VedComposePrelude
 
 /-!
 # VED compose, connection: the generated script of the parent's one-cycle step (option `ved.compose.connect`)
@@ -58,6 +59,13 @@ structure ConnArgs where
   outCfg : String
 
 def sq (s : String) : String := "\"" ++ s ++ "\""
+
+/-- The two lines that give `hin` (the conjunction of the input bounds) in the shape `simp` produced, through the once-proved
+`Tools.VedComposePrelude.hin_bnd` and ONE kernel-checked equation (the list `L` is read off the declaration table). -/
+def hinLines (ind : String) (binders : List String) (widths : List Nat) : List String :=
+  let L := "[" ++ ", ".intercalate ((binders.zip widths).map fun (n, w) => s!"({sq ("_gen_" ++ n)}, {w})") ++ "]"
+  [s!"{ind}have hin := Tools.VedComposePrelude.hin_bnd (ins t) (L := {L}) (by decide +kernel) (hok.1 t)",
+   s!"{ind}simp only [Tools.VedComposePrelude.bndConj, Tools.VedComposePrelude.bndConjAux, Nat.reducePow] at hin"]
 
 def tabOf (a : ConnArgs) : List (String × Nat) :=
   let nReg := a.pm.length
