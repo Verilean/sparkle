@@ -106,6 +106,9 @@ jobs:
     - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_leaf_gate; refusal controls)
       run: lake build Tests.Ved.VedMemCloseCheck
 
+    - name: User lemma for one memory-loop causal side condition (ved.mem.userLemma; isDefEq on the full goal type, strict audit; refusal controls)
+      run: lake build Tests.Ved.VedSupplementCheck
+
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
@@ -236,6 +239,9 @@ jobs:
 
     - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_leaf_gate; refusal controls)
       run: lake build Tests.Ved.VedMemCloseCheck
+
+    - name: User lemma for one memory-loop causal side condition (ved.mem.userLemma; isDefEq on the full goal type, strict audit; refusal controls)
+      run: lake build Tests.Ved.VedSupplementCheck
 
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck

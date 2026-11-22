@@ -544,6 +544,9 @@ lean_lib «Tests.Ved.VedMemPackCheck» where
 lean_lib «Tests.Ved.VedMemCloseCheck» where
   roots := #[`Tests.Ved.VedMemCloseCheck]
 
+lean_lib «Tests.Ved.VedSupplementCheck» where
+  roots := #[`Tests.Ved.VedSupplementCheck]
+
 lean_lib «Tests.Ved.VedMemWriteCheck» where
   roots := #[`Tests.Ved.VedMemWriteCheck]
 
@@ -1744,6 +1747,9 @@ lean_lib «Tools.VedMem» where
 
 lean_lib «Tools.VedMemEntry» where
   roots := #[`Tools.VedMemEntry]
+
+lean_lib «Tools.VedSupplement» where
+  roots := #[`Tools.VedSupplement]
 
 lean_lib «Tools.VedMemLoop» where
   roots := #[`Tools.VedMemLoop]

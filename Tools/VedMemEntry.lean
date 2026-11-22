@@ -822,6 +822,7 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
       (withProofBudget do
         withoutErrToSorry do
           rssNote "before elab"
+          let tGen0 ← IO.monoMsNow
           let e ← elabTermEnsuringType stx expected
           rssNote "elabTermEnsuringType done"
           synthesizeSyntheticMVarsNoPostponing
@@ -830,6 +831,8 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
           if ved.mem.showScript.get (← getOptions) then
             IO.eprintln s!"VED MEM proof dag size {(Tools.VedU1WireShare.collectDag (fun _ => true) e).size}"
           rssNote "instantiateMVars done"
+          let tGen1 ← IO.monoMsNow
+          Tools.VedSupplement.lastRun.modify fun r => { r with genMs := tGen1 - tGen0 }
           return e)
       fun e => do
         if ved.mem.showScript.get (← getOptions) then
@@ -849,10 +852,13 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     rssNote "proof elaborated"
     if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
     if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM kernel check starts"
+    let tKern0 ← IO.monoMsNow
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
         addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
       fun e => refuse decl "kernel" e.toMessageData
+    let tKern1 ← IO.monoMsNow
+    Tools.VedSupplement.lastRun.modify fun r => { r with kernelMs := tKern1 - tKern0 }
     rssNote "kernel done"
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
       | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
