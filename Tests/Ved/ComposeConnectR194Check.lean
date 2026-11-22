@@ -4,15 +4,15 @@ import Tests.Ved.ComposeConnectCheck
 /-!
 # Independent post-check of the real row R194 (`synth_sha512Block_done`) accepted through the connection path
 
-NOT part of CI (a ~7 min proof, ~18 GB).  Run by hand, ONE process, guarded:
+NOT part of CI (unit-4 measurement: ~7 min, ~18 GB; unit 5: ~3.6 min, ~9.5 GB).  Run by hand, ONE process, guarded:
 
     VED_HIER_STATS=1 VED_HIER_SCRIPT_FILE=<abs>/script.txt VED_HIER_PHASE_FILE=<abs>/phase \
       python3 -I rss_guard.py 23068672 timeout 890 kjob lake env lean <abs>/Tests/Ved/ComposeConnectR194Check.lean
 
 (`kjob lake build Tests.Ved.ComposeConnectCheck` and `kjob lake build IP.Crypto.SHA512BlockHW` first.)  It runs the entry ONCE
 (`checkRow`, the toys' check from `Tests/Ved/ComposeConnectCheck.lean`, not a weaker copy) and then, in the same command, checks
-independently of the entry: (i) the stored type `==` `U2HRStmt` of the ORIGINAL declaration (Expr equality), (ii) the module/design
-equal a fresh synthesis of the declaration, (iii) the axioms are within the standard three, (iv) 35 `VED COMPOSE CONNECT` log
+independently of the entry: (i) the stored type `==` `U2HRStmt` of the declaration below (a COPY of the test file's private wrapper, run as `_private._stdin.0.*`; not the fixed inventory constant) (Expr equality), (ii) the module/design
+equal a fresh synthesis of that copy, (iii) the axioms are within the standard three, (iv) 35 `VED COMPOSE CONNECT` log
 lines, 34 `reg_connect` and 1 `out_connect` site in the proof, (v) the child's real theorem constant occurs in the proof.
 The declaration is the one of `Tests/IP/Crypto/SHA512BlockHWTest.lean` (`synth_sha512Block_done`, copied unchanged).
 -/

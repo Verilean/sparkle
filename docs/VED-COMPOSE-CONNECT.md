@@ -7,8 +7,8 @@ addition to `DeepInfo` (`Tools/VedU2HierStateArgs.lean`) and one option-gated hu
 
 ## Scope (do not read more into it)
 
-Small-example result: `multiTwo` and `multiShared` of `Tests/Ved/U2HierMultiCheck.lean` (copied into the Check).  No real-IP row
-was run; the coverage stays 244/327; this is not the completion of circuit composition in general.  The statement `U2HRStmt`
+Small-example result: `multiTwo` and `multiShared` of `Tests/Ved/U2HierMultiCheck.lean` (copied into the Check).  At the time of unit 1 no real-IP row
+was run (later units: R194/R193 wrapper copies, see below); the coverage stays 244/327; this is not the completion of circuit composition in general.  The statement `U2HRStmt`
 is unchanged (the stored type is compared with `==`), the guarantee is that of docs/VED-MAIN-INTRO.md ("What it guarantees, and
 what it does not") and docs/VED-U1-MAIN.md ("What it does not claim").  The parent's loop is still tied to the declaration by the
 existing knot; the child theorem is the child's own `ved_u1`.
@@ -67,7 +67,7 @@ inlined cone from a cold cache every time (observed on the kMux toy, 13 register
 `RegsOk` is one Bool over all register slots, evaluated once by the kernel; `regs_spec` returns each slot's four facts
 (`hren` through `eqE_sound` against `CExpr.compile nm (deep.next i)`, identified with the fidelity literal by `hfid`).
 The approved lemma statements are unchanged. Observed (single runs): parent proof 8/12/24 registers 19.3 / 27.1 / 64.4 s (before: 42.9 / 80.7 / 368.4 s).
-Scope: local-lemma result on toys; a real-IP row (R194) was run once and is NOT accepted (budget exhausted before the connection block, see the unit report).
+Scope: local-lemma result on toys; a real-IP row (R194) was run once and was NOT accepted at that time (unit 2; budget exhausted before the connection block, see the unit report; accepted in unit 3).
 
 ## Parent prelude and instance blocks (unit 3, option `ved.compose.connect`; default path unchanged)
 
@@ -91,9 +91,9 @@ code before the connection block (unit 2 report). Attribution (script ticks; obs
 ## Unit 4: independent post-check of R194 (`Tests/Ved/ComposeConnectR194Check.lean`, not in CI)
 
 Runs `#ved_u2_hier`'s entry once on `synth_sha512Block_done` (`ved.compose.step` + `ved.compose.connect`) through `checkRow`
-(the same function as the toys' Check) and checks, independently of the entry: stored type `==` `U2HRStmt` of the original declaration,
-module/design `==` a fresh synthesis, axioms within std3, 35 connect log lines (34 `reg_connect` + 1 `out_connect` sites), the child
-theorem `kMux.ved_u1` in the proof. Run (one process, guarded, ~7 min, ~18 GB):
+(the same function as the toys' Check) and checks, independently of the entry: stored type `==` `U2HRStmt` of the declaration in the Check (a copy of the test file's private wrapper, run as `_private._stdin.0.*`; not the fixed inventory constant itself),
+module/design `==` a fresh synthesis of that copy, axioms within std3, 35 connect log lines (34 `reg_connect` + 1 `out_connect` sites), the child
+theorem `kMux.ved_u1` in the proof. Run (one process, guarded; unit-4 measurement ~7 min, ~18 GB, unit 5: ~3.6 min, ~9.5 GB):
 `VED_HIER_STATS=1 python3 -I rss_guard.py 23068672 timeout 890 kjob lake env lean <abs>/Tests/Ved/ComposeConnectR194Check.lean`
 after `kjob lake build Tests.Ved.ComposeConnectCheck` and `kjob lake build IP.Crypto.SHA512BlockHW`. Observed, single run: passes.
 
@@ -118,3 +118,7 @@ after `kjob lake build Tests.Ved.ComposeConnectCheck` and `kjob lake build IP.Cr
 
 ## Unit 6 (R193 and next rows; observed, single run)
 R193 `synth_sha512Block_out0` is accepted through the connection path (post-check `Tests/Ved/ComposeConnectR193Check.lean`, not in CI): rc 0, total 213.5 s, parent proof 107.8 s, 1.957e9 of 8.0e9 heartbeats (24.4 %), peak 9.51 GB. R246 is refused before the connection path (`genOpenSt`: the declaration is not one call of the single child, VedU2HierStGen.lean:116). R231/R232 hit the 890 s timeout inside phase 1 / deep run without reaching proof generation. Coverage is not updated.
+
+## Scope correction (review of 14129475)
+
+The R193/R194 Checks run a COPY of the private wrapper of `Tests/IP/Crypto/SHA512BlockHWTest.lean` (wrapper text equal after whitespace normalisation, IP body imported); the executed names are `_private._stdin.0.*`, not the fixed inventory constants, and "same artifact" compares with a re-synthesis of that copy. They are local real-IP-content results, not success of the fixed ledger rows; row success needs the standard harness on the original source scope.
