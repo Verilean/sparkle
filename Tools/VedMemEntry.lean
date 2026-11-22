@@ -8,6 +8,7 @@ import Tools.VedMemLoop
 import Tools.VedMemS94Diag
 import Tools.VedMemS94Prof
 import Tools.VedMemS94Fix
+import Tools.VedMemS94Peel
 import Tools.VedMemPack
 import Tools.VedMemShape
 import Tools.VedMemOrder
@@ -560,6 +561,10 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
   let mut peelAlt : TSyntax `tactic := peels[0]!
   for c in peels.toList.drop 1 do
     peelAlt ← `(tactic| first | ($peelAlt:tactic) | ($c:tactic))
+  -- option `ved.mem.s94PeelDag` (new branch only): the DAG-aware peel first; the old peel (a tree walk) is the fallback
+  if Tools.VedMemS94Peel.ved.mem.s94PeelDag.get (← getOptions) then
+    let hsD : Array (TSyntax `ident) := hM
+    peelAlt ← `(tactic| first | (ved_mem_peel_dag $[$hsD]*) | ($peelAlt:tactic))
   let zeroTerms ← (List.range n).mapM fun _ => `(Tools.VedMem.MemInv.zero _ _ _ _)
   let h0Elems : Array Term ← do
     let mut a : Array Term := #[]

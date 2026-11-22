@@ -1,6 +1,7 @@
 import Lean
 import Tools.VedMemLoop
 import Tools.VedMemS94Fix
+import Tools.VedMemS94Peel
 import Tools.VedU1WireShare
 
 /-!
@@ -961,11 +962,17 @@ elab "#ved_s94_ckpt97_replay " d:str : command => do
         dbgLog s!"S97 walk goal {j} done (work left {work.size}, distinct memory arrays {(← seenH.get).size}): steps={steps} leaves={leafs} side goals={sideGoals.size} ({(sideGoals.toList.take 4)}) ms={(← IO.monoMsNow) - tStart} hb(k)={((← IO.getNumHeartbeats) - hbStart) / 1000}"
       let t0 ← IO.monoMsNow
       let hb0 ← IO.getNumHeartbeats
-      let pickT : TSyntax `tactic := alt
+      -- `VED_S97_DAG` set: the DAG peel first (`ved.mem.s94PeelDag`'s tactic), the old peel as the fallback
+      let pickT : TSyntax `tactic ← if (← IO.getEnv "VED_S97_DAG") == some "only" then `(tactic| (first | (ved_mem_peel_dag $[$hs.toArray]*) | skip)) else if (← IO.getEnv "VED_S97_DAG").isSome then `(tactic| first | (ved_mem_peel_dag $[$hs.toArray]*) | ($alt:tactic)) else pure alt
       let run : TermElabM String := do
         try
-          let gs ← Tactic.run g (Tactic.evalTactic (← `(tactic| try $pickT:tactic)))
-          pure s!"ok goals={gs.length}"
+          let gs ← Tactic.run g (Tactic.evalTactic (← if (← IO.getEnv "VED_S97_DAG") == some "only" then `(tactic| (ved_mem_peel_dag $[$hs.toArray]*)) else `(tactic| try $pickT:tactic)))
+          let mut shapes : Array String := #[]
+          for sg in gs do
+            let ty ← instantiateMVars (← sg.getType)
+            let nctx ← sg.withContext do pure (← getLCtx).decls.size
+            shapes := shapes.push s!"{ty.getAppFn.constName?.getD `_}/{ty.getAppNumArgs}/{Tools.VedU1Loop.treeSizeVal ty}/h{ty.hash}/ctx{nctx}"
+          pure s!"ok goals={gs.length} shapes={(shapes.toList.take 12)} hits={← Tools.VedMemS94Peel.peelDagHits.get}"
         catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 300}"
       let res ← match hbN? with
         | some n => withTheReader Core.Context (fun c => { c with maxHeartbeats := n * 1000, initHeartbeats := hb0 }) (tryCatchRuntimeEx run fun ex => do pure s!"EXN {((← ex.toMessageData.toString).replace "\n" " ").take 200}")
