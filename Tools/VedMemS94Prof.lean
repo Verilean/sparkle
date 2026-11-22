@@ -282,6 +282,36 @@ def startMonitor (a : Acc) (secs : Nat) : IO (IO.Ref Bool) := do
       a.report s!"tick {k}"
   return stop
 
+/-- `VED_S94_PROF_VARIANTS` (diagnosis): one variant of the stage's simp context. `spec` is a `,`-list of `nocongr=true`, `congrdrop=A+B`,
+`nosimproc=A+B` (simprocs erased by declaration name), `erase=A+B` (simp lemmas erased by name, ignored if absent), `FIELD=bool` (Simp.Config);
+the empty spec is the base context. -/
+def variantCtx (ctx0 : Simp.Context) (sp0 : SimprocsArray) (spec : String) : MetaM (Simp.Context × SimprocsArray) := do
+  let kvs := (spec.splitOn ",").filterMap fun kv => (match kv.splitOn "=" with | [k, v] => some (k, v) | _ => none)
+  let mut ctx := ctx0
+  let mut sps := sp0
+  let mut cfg := ctx.config
+  for (k, v) in kvs do
+    let b := v == "true"
+    cfg := match k with
+      | "dsimp" => { cfg with dsimp := b } | "proj" => { cfg with proj := b } | "beta" => { cfg with beta := b }
+      | "eta" => { cfg with eta := b } | "zeta" => { cfg with zeta := b } | "iota" => { cfg with iota := b }
+      | "contextual" => { cfg with contextual := b } | "arith" => { cfg with arith := b } | "ground" => { cfg with ground := b }
+      | _ => cfg
+  ctx ← ctx.setConfig cfg
+  let all := ctx.congrTheorems.lemmas.fold (fun (acc : Array SimpCongrTheorem) _ l => acc ++ l.toArray) #[]
+  let drops := (kvs.filter (·.1 == "congrdrop")).flatMap fun kv => kv.2.splitOn "+"
+  if kvs.contains ("nocongr", "true") then ctx ← Simp.mkContext ctx.config ctx.simpTheorems {} ctx.userConfig
+  else if !drops.isEmpty then
+    let kept := all.filter fun c => !(drops.contains c.theoremName.toString || drops.contains c.funName.toString)
+    ctx ← Simp.mkContext ctx.config ctx.simpTheorems { lemmas := kept.foldl (fun (m : SMap Name (List SimpCongrTheorem)) c => m.insert c.funName (c :: m.findD c.funName [])) {} } ctx.userConfig
+  for (k, v) in kvs do
+    if k == "nosimproc" then
+      for n in v.splitOn "+" do sps := sps.map (·.erase n.toName)
+    if k == "erase" then
+      for n in v.splitOn "+" do
+        ctx ← Simp.mkContext ctx.config (ctx.simpTheorems.map (·.eraseCore (.decl n.toName))) ctx.congrTheorems ctx.userConfig
+  return (ctx, sps)
+
 open Lean Elab Tactic in
 elab "ved_s94_prof " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withMainContext do
   unless (← IO.getEnv "VED_S94_PROF").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome do return
@@ -369,6 +399,28 @@ elab "ved_s94_prof " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
       let (r, ms, hb) ← run none
       summary "plain" r ms hb
       plainRes := some r.1.expr
+    if let some vs := ← IO.getEnv "VED_S94_PROF_VARIANTS" then
+      -- each variant: unwrapped, from the saved Meta state (caches included), the state restored afterwards
+      for spec in vs.splitOn ";" do
+        let spec := if spec == "base" then "" else spec
+        let (ctxV, spV) ← variantCtx sc.ctx sc.simprocs spec
+        let sv ← Meta.saveState
+        let hb0 ← IO.getNumHeartbeats
+        let t0 ← IO.monoMsNow
+        let r ← try
+            let r ← withTheReader Core.Context (fun cc => { cc with maxHeartbeats := 2000000000, initHeartbeats := hb0 }) do
+              sc.dischargeWrapper.with fun d? => Simp.mainCore c ctxV {} (methods := mkMeth spV d?)
+            pure (some r)
+          catch ex => do
+            Tools.VedMemLoop.dbgLog s!"S94P #{i} variant [{spec}] ERROR {(← ex.toMessageData.toString).take 200}"
+            pure none
+        if let some (r, st) := r then
+          let ms := (← IO.monoMsNow) - t0
+          let hb := ((← IO.getNumHeartbeats) - hb0) / 1000
+          let pf := match r.proof? with | some p => dagOf p | none => 0
+          Tools.VedMemLoop.dbgLog s!"S94P #{i} variant [{spec}]: ms={ms} hb(k)={hb} numSteps={st.numSteps} usedThms={st.usedTheorems.map.foldl (fun n _ _ => n + 1) 0} result dag={dagOf r.expr} tree={Tools.VedU1Loop.treeSizeVal r.expr} proofDag={pf} hash={r.expr.hash}"
+        sv.restore
+      return
     if (← IO.getEnv "VED_S94_PROF_NOWRAP").isSome then
       let (r, ms, hb) ← run none
       summary "plain-only" r ms hb
