@@ -5,6 +5,7 @@ import Tools.VedMem
 import Tools.VedStrictAudit
 import Tools.VedU1Uns
 import Tools.VedMemLoop
+import Tools.VedMemS94Diag
 import Tools.VedMemS94Prof
 import Tools.VedMemS94Fix
 import Tools.VedMemPack
@@ -536,15 +537,14 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
   let dw1L ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedDeclWidth1):term)
   let bsO ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedBindStrictO):term)
   let bsB ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedBindStrictB):term)
-  -- `VED_S94_NOBIND` (diagnosis only): the new branch without the in-order `Option.bind` simprocs
   let efL ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedEnvFreeze):term)
-  let fzs0 := if (← IO.getEnv "VED_S94_NOBIND").isSome then #[fzL, dwL, dw1L] else #[fzL, dwL, dw1L, bsO, bsB]
+  let fzs0 := if (← Tools.VedMemS94Diag.s94NoBind) then #[fzL, dwL, dw1L] else #[fzL, dwL, dw1L, bsO, bsB]
   -- option `ved.mem.s94EnvFreeze` (new branch only): the environment functions of the module semantics are not entered
   let fzs := if Tools.VedMemLoop.ved.mem.s94EnvFreeze.get (← getOptions) then fzs0.push efL else fzs0
-  -- diagnosis only (`VED_PROBE_S94` and `VED_DUMP_DIR`): the counting simproc of stage 94
+  -- diagnosis only (gate `Tools.VedMemS94Diag.s94Gate`): the counting simproc of stage 94
   let probeL : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
-    if (← IO.getEnv "VED_PROBE_S94").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome && (← IO.getEnv "VED_S94_PROF").isNone then
-      pure #[← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedMemProbe):term)]
+    if (← Tools.VedMemS94Diag.s94Gate) && !(← Tools.VedMemS94Diag.s94Prof) then
+      pure #[← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemS94Diag.vedMemProbe):term)]
     else pure #[]
   let ex1F : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," := Syntax.TSepArray.ofElems (probeL ++ fzs ++ (hsA ++ rdLemmas))
   let ex2F : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
@@ -633,8 +633,8 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
       ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
   -- the step case from the hypotheses' normalisation to the end; `fz`: the simps do not enter `Signal.loop` (option `ved.mem.hstepNorm`)
-  let prof := (← IO.getEnv "VED_S94_PROF").isSome
-  let mkSeg := fun (nh : TSyntax `tactic) (e1 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (tl : Array (TSyntax `tactic)) (r99 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (un : TSyntax `tactic) (dg : Bool) (atm : Bool) (nic : Bool) => do
+  let mkSeg := fun (nh : TSyntax `tactic) (e1 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (tl : Array (TSyntax `tactic)) (r99 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (un : TSyntax `tactic) (dg : Bool) (isNew : Bool) (atm : Bool) (nic : Bool) => do
+    let prof ← Tools.VedMemS94Diag.s94Prof
     let dgT : TSyntax `tactic ← if dg && prof then `(tactic| all_goals (ved_s94_prof [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
             Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
@@ -643,26 +643,35 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
             comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
             Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
             Sparkle.Core.Signal.Signal.memory_val_zero, $e1,*])) else `(tactic| skip)
-    let simpT : TSyntax `tactic ← `(tactic| all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
+    let simpT ← `(tactic| all_goals (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
             Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
             Sparkle.Core.Signal.Signal.memory_val_zero, $e1,*]))
     -- option `ved.mem.s94LoopAtom` (new branch only): the stage-94 simp runs on a goal whose loops are atoms; the plain simp is the fallback
-    let s94T0 : TSyntax `tactic ← if atm then `(tactic| first | ved_s94_atom ($dgT:tactic; $simpT:tactic) | ($dgT:tactic; $simpT:tactic)) else `(tactic| ($dgT:tactic; $simpT:tactic))
+    let s94T0 : TSyntax `tactic ← if atm then `(tactic| first | ved_s94_atom ($simpT:tactic) | $simpT:tactic) else pure simpT
     -- option `ved.mem.s94NoIteCongr` (new branch only): the stage-94 simp without the congruence theorem `ite_congr`; the old simp is the fallback
-    let s94T : TSyntax `tactic ← if nic then `(tactic| first | ved_s94_noitecongr ($s94T0:tactic) | $s94T0:tactic) else pure s94T0
+    let s94T1 : TSyntax `tactic ← if nic then `(tactic| first | ved_s94_noitecongr ($s94T0:tactic) | $s94T0:tactic) else pure s94T0
+    -- diagnosis only (gate open at generation time): the stage-94 simp under a monitor with its own stop token
+    let simp94 ← if isNew && (← Tools.VedMemS94Diag.s94Gate) && !prof then `(tactic| ved_s94_probe [$s94T1:tactic]) else pure s94T1
+    -- diagnosis only: `VED_EXIT_AT` (the process ends right after that stamp; the stamps of the new segment)
+    let exitAt := (← Tools.VedMemS94Diag.s94Gate) && isNew && ((← IO.getEnv "VED_EXIT_AT").bind String.toNat?).isSome
+    let ex93 : TSyntax `tactic ← if exitAt && (← IO.getEnv "VED_EXIT_AT") == some "93" then `(tactic| ved_s94_exit 93) else `(tactic| skip)
+    let ex94 : TSyntax `tactic ← if exitAt && (← IO.getEnv "VED_EXIT_AT") == some "94" then `(tactic| ved_s94_exit 94) else `(tactic| skip)
+    let ex95 : TSyntax `tactic ← if exitAt && (← IO.getEnv "VED_EXIT_AT") == some "95" then `(tactic| ved_s94_exit 95) else `(tactic| skip)
     `(tactic| (
           $nh
           ved_stamp 93
+          $ex93
           $d1
           ved_loop_unfold_mem (limit := $loopGateN) [$hsSep,*] ($sI + 1)
           $d2
           ved_stamp 94
-          ved_s94_probe_start
-          $s94T
-          ved_s94_probe_stop
+          $ex94
+          $dgT
+          $simp94
           $un
           ved_stamp 95
+          $ex95
           $d3
           all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
           ved_stamp 96
@@ -686,8 +695,8 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
          Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
          Sparkle.Core.Signal.Signal.memory_val_zero, $hsSepF,*] at $[$hNorm]*); ved_hstep_loops))
   let mcr ← `(Lean.Parser.Tactic.simpLemma| Sparkle.Core.Signal.Signal.memoryComboRead_val)
-  let segOld ← mkSeg normHyps ex1 tail (Syntax.TSepArray.ofElems #[mcr]) (← `(tactic| skip)) false false false
-  let segNew ← mkSeg normHypsF ex1F tailF (Syntax.TSepArray.ofElems (fzs.push mcr)) (← `(tactic| ved_hstep_unify)) ((← IO.getEnv "VED_S94_DIAG").isSome || prof) (Tools.VedMemLoop.ved.mem.s94LoopAtom.get (← getOptions)) (Tools.VedMemS94Fix.ved.mem.s94NoIteCongr.get (← getOptions))
+  let segOld ← mkSeg normHyps ex1 tail (Syntax.TSepArray.ofElems #[mcr]) (← `(tactic| skip)) false false false false
+  let segNew ← mkSeg normHypsF ex1F tailF (Syntax.TSepArray.ofElems (fzs.push mcr)) (← `(tactic| ved_hstep_unify)) ((← IO.getEnv "VED_S94_DIAG").isSome || (← Tools.VedMemS94Diag.s94Prof)) true (Tools.VedMemLoop.ved.mem.s94LoopAtom.get (← getOptions)) (Tools.VedMemS94Fix.ved.mem.s94NoIteCongr.get (← getOptions))
   let core ← `(by
     ved_no_recover (
         ved_stamp 80
@@ -738,13 +747,13 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           ved_stamp 92
           $rdTacs*
           ved_stamp 921
-          first
-            | (ved_hstep_norm_on
-               ved_hstep_logfail $segNew
-               ved_hstep_loops_clear
-               ved_hstep_norm_ran)
-            | (ved_hstep_fallback_reset
-               $segOld:tactic)
+          ved_hstep_guard
+            [(ved_hstep_norm_on
+              ved_hstep_logfail $segNew
+              ved_hstep_loops_clear
+              ved_hstep_norm_ran)]
+            [(ved_hstep_fallback_reset
+              $segOld:tactic)]
           ))
   if pk then
     `(by
@@ -835,6 +844,7 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
       (withProofBudget do
         withoutErrToSorry do
           rssNote "before elab"
+          let tGen0 ← IO.monoMsNow
           let e ← elabTermEnsuringType stx expected
           rssNote "elabTermEnsuringType done"
           synthesizeSyntheticMVarsNoPostponing
@@ -843,6 +853,8 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
           if ved.mem.showScript.get (← getOptions) then
             IO.eprintln s!"VED MEM proof dag size {(Tools.VedU1WireShare.collectDag (fun _ => true) e).size}"
           rssNote "instantiateMVars done"
+          let tGen1 ← IO.monoMsNow
+          Tools.VedSupplement.lastRun.modify fun r => { r with genMs := tGen1 - tGen0 }
           return e)
       fun e => do
         if ved.mem.showScript.get (← getOptions) then
@@ -862,10 +874,13 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     rssNote "proof elaborated"
     if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
     if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM kernel check starts"
+    let tKern0 ← IO.monoMsNow
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
         addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
       fun e => refuse decl "kernel" e.toMessageData
+    let tKern1 ← IO.monoMsNow
+    Tools.VedSupplement.lastRun.modify fun r => { r with kernelMs := tKern1 - tKern0 }
     rssNote "kernel done"
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
       | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"

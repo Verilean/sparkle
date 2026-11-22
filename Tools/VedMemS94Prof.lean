@@ -1,5 +1,6 @@
 import Lean
 import Tools.VedMemLoop
+import Tools.VedMemS94Diag
 
 /-!
 # Exclusive-time profile of the stage-94 simp (diagnosis only; never in a default script)
@@ -168,15 +169,15 @@ def Acc.simproc (a : Acc) (l : String) (p : Simproc) : Simproc := fun e => do
       a.charge
       let msg ← gapOps e (← a.lastPost.get)
       let path := String.intercalate " > " ((← a.stack.get).map (·.label)).toList
-      Tools.VedMemLoop.dbgLog s!"S94P gapops after {gap / 1000} us before pre:{Tools.VedMemLoop.s94Head e}: ptrObjs(e)={← Lean.Expr.numObjs e} stack={path.take 600}: {msg}"
+      Tools.VedMemLoop.dbgLog s!"S94P gapops after {gap / 1000} us before pre:{Tools.VedMemS94Diag.s94Head e}: ptrObjs(e)={← Lean.Expr.numObjs e} stack={path.take 600}: {msg}"
       a.last.set ((← IO.monoNanosNow), (← IO.getNumHeartbeats))
-  let (s, ns) ← a.frame (l ++ ":" ++ Tools.VedMemLoop.s94Head e) (p e)
+  let (s, ns) ← a.frame (l ++ ":" ++ Tools.VedMemS94Diag.s94Head e) (p e)
   if l == "post" then a.lastPost.set (some (e, s))
   if stepFired s then a.fire l (stepProof? s) ns
   return s
 
 def Acc.dproc (a : Acc) (l : String) (p : DSimproc) : DSimproc := fun e => do
-  let (s, _) ← a.frame (l ++ ":" ++ Tools.VedMemLoop.s94Head e) (p e)
+  let (s, _) ← a.frame (l ++ ":" ++ Tools.VedMemS94Diag.s94Head e) (p e)
   return s
 
 /-- the body of `bindStrictStep` (same operations in the same order) with a frame around each part; used instead of the simproc itself in the wrapped run -/
@@ -355,7 +356,7 @@ elab "ved_s94_prof " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
   let tick := ((← IO.getEnv "VED_S94_PROF_TICK").bind (·.toNat?)).getD 60
   let idx ← IO.mkRef 0
   let dagOf := fun (x : Expr) => (Tools.VedU1WireShare.collectDag (fun _ => true) x).size
-  Tools.VedMemLoop.s94Walk tgt fun c => do
+  Tools.VedMemS94Diag.s94Walk tgt fun c => do
     let i ← idx.modifyGet fun i => (i, i + 1)
     unless only.contains i do return
     Tools.VedMemLoop.dbgLog s!"S94P #{i} start dag={dagOf c} tree={Tools.VedU1Loop.treeSizeVal c}"
