@@ -1355,6 +1355,9 @@ elab "ved_stamp " k:num : tactic => do
         pure r
     let both := (lt.filter fun l => lh.contains l).size
     dbgLog s!"STAMP {k.getNat} t={← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000} goals={gs.length} tree: total={szs.foldl (· + ·) 0} max={szs.foldl max 0} big(>100k)={(szs.filter (· > 100000)).size} loops: tgt={lt.size} hyp1={lh.size} shared={both}"
+    -- diagnosis only: the process ends here (no fallback, no later stages)
+    if let some st ← IO.getEnv "VED_EXIT_AT" then
+      if st.toNat? == some k.getNat then IO.Process.exit 0
     if let some st ← IO.getEnv "VED_STOP_AT" then
       if st.toNat? == some k.getNat then
         dbgLog s!"sizes {szs}"
@@ -2224,6 +2227,136 @@ elab "ved_hstep_unify" : tactic => do
   hnormStats.set (conv, left)
   setGoals out
 
+/-! ### The loops of the goal are atoms during the stage-94 simp (`ved.mem.s94LoopAtom`)
+
+Observed (small examples, `VED_S94_DIAG` gap table): the large gaps between two visits of the stage-94 simp (0.34-0.72 s each on a 13-register example, linear in the
+number of registers and statements) sit before a term that CONTAINS the `Signal.loop` DAG (tree size 4.5e8 at stage 94, DAG a few thousand nodes).  With the
+loops frozen (`vedMemLoopFreeze`) simp does not rewrite inside them, but every term above a loop still carries it through the simp cache, the congruence
+steps and the instantiation of the result.  `ved_s94_atom (tacs)`: (1) every outermost loop `L` of the target and of the hypotheses is replaced by a `let`
+variable `ved_axJ := L` (definitional; the simp lemmas that are hypotheses see the atom too), (2) `tacs` run on the atomised goals, (3) every atom is replaced by
+its value again (`Expr.replace`, definitional) and cleared.  Sound: only definitional replacements (kernel-checked by `replaceTargetDefEq` /
+`replaceLocalDecl`). -/
+
+register_option ved.mem.s94LoopAtom : Bool := {
+  defValue := false
+  descr := "the stage-94 simp of the new branch (`ved.mem.hstepNorm`) runs on a goal whose `Signal.loop`s are let-variables (atoms), the loops are put back afterwards; the old simp is the fallback"
+}
+
+/-- number of goals atomised by `ved_s94_atom` / atoms made / hypotheses rewritten (test counters) -/
+initialize loopAtomHits : IO.Ref (Nat × Nat × Nat) ← IO.mkRef (0, 0, 0)
+
+/-- test seam (never set by production code): `ved_s94_atom` refuses, the old simp is the fallback -/
+initialize loopAtomRefuse : IO.Ref Bool ← IO.mkRef false
+
+/-- test seam: `ved_s94_atom` fails after its inner tactics have run (the atoms are not put back) -/
+initialize loopAtomFailLate : IO.Ref Bool ← IO.mkRef false
+
+/-- user-name prefix of the atoms -/
+def loopAtomPrefix : String := "ved_ax"
+
+/-- the atoms (fvar, value) of the context of the main goal (inside `MVarId.withContext`) -/
+def loopAtomsOf : MetaM (Array (FVarId × Expr)) := do
+  let mut atoms : Array (FVarId × Expr) := #[]
+  for d in ← getLCtx do
+    if !d.isImplementationDetail && d.isLet && d.userName.toString.startsWith loopAtomPrefix then
+      atoms := atoms.push (d.fvarId, ← instantiateMVars d.value)
+  return atoms
+
+/-- the first hypothesis (not an atom) whose type changes under `swap` is replaced (`replaceLocalDecl` reintroduces the later hypotheses with new
+free variables, so the context is read again after every step); (goal, number of hypotheses replaced) -/
+def swapHyps (g0 : MVarId) (mkSwap : Array (FVarId × Expr) → Expr → Expr) : MetaM (MVarId × Nat) := do
+  let mut g := g0
+  let mut n := 0
+  for _ in [0:100000] do
+    let found ← g.withContext do
+      let atoms ← loopAtomsOf
+      let swap := mkSwap atoms
+      let mut r : Option (FVarId × Expr × Expr) := none
+      for d in ← getLCtx do
+        if d.isImplementationDetail || (d.isLet && d.userName.toString.startsWith loopAtomPrefix) then continue
+        let ty ← instantiateMVars d.type
+        let ty' := swap ty
+        if ty' != ty then r := some (d.fvarId, ty, ty'); break
+      pure r
+    let some (hf, ty, ty') := found | break
+    let (r : AssertAfterResult) ← g.replaceLocalDecl hf ty' (← g.withContext do mkExpectedTypeHint (← mkEqRefl ty) (← mkEq ty ty'))
+    g := r.mvarId
+    n := n + 1
+  return (g, n)
+
+/-- loops to atoms -/
+def swapIn (atoms : Array (FVarId × Expr)) : Expr → Expr :=
+  let m : Std.HashMap Expr Expr := atoms.foldl (fun m (x, v) => m.insert v (mkFVar x)) {}
+  fun e => e.replace fun x => if x.isAppOfArity ``Signal.loop 4 && !x.hasLooseBVars then m[x]? else none
+
+/-- atoms to loops -/
+def swapOut (atoms : Array (FVarId × Expr)) : Expr → Expr :=
+  let m : Std.HashMap FVarId Expr := atoms.foldl (fun m (x, v) => m.insert x v) {}
+  fun e => e.replace fun x => if x.isFVar then m[x.fvarId!]? else none
+
+/-- (atomised goal, number of atoms, number of hypotheses rewritten) -/
+def atomiseGoal (g0 : MVarId) : MetaM (MVarId × Nat × Nat) := do
+  let (loops : Array Expr) ← g0.withContext do
+    let mut loops : Array Expr := outerLoops (← instantiateMVars (← g0.getType))
+    for d in ← getLCtx do
+      unless d.isImplementationDetail do
+        for l in outerLoops (← instantiateMVars d.type) do unless loops.contains l do loops := loops.push l
+    pure loops
+  if loops.isEmpty then return (g0, 0, 0)
+  let mut g := g0
+  for j in [0:loops.size] do
+    let ty ← g.withContext (inferType loops[j]!)
+    let g1 ← g.define (Name.mkSimple s!"{loopAtomPrefix}{j}") ty loops[j]!
+    let (_, g2) ← g1.intro1P
+    g := g2
+  let (g3, nh) ← swapHyps g swapIn
+  let tgt ← g3.withContext do instantiateMVars (← g3.getType)
+  let tgt' ← g3.withContext do pure (swapIn (← loopAtomsOf) tgt)
+  let g4 ← if tgt' != tgt then g3.replaceTargetDefEq tgt' else pure g3
+  return (g4, loops.size, nh)
+
+/-- every atom of the context of `g` is replaced by its value in the target and the hypotheses, then cleared -/
+def deatomiseGoal (g0 : MVarId) : MetaM MVarId := do
+  let atoms0 ← g0.withContext loopAtomsOf
+  if atoms0.isEmpty then return g0
+  let (g, _) ← swapHyps g0 swapOut
+  let tgt ← g.withContext do instantiateMVars (← g.getType)
+  let tgt' ← g.withContext do pure (swapOut (← loopAtomsOf) tgt)
+  let g ← if tgt' != tgt then g.replaceTargetDefEq tgt' else pure g
+  let atoms ← g.withContext loopAtomsOf
+  g.tryClearMany (atoms.map (·.1))
+
+def s94AtomCore (t : TSyntax ``Lean.Parser.Tactic.tacticSeq) : TacticM Unit := do
+  unless (← getOptions).getBool `ved.mem.s94LoopAtom false do throwError "ved_s94_atom: option ved.mem.s94LoopAtom is off"
+  if (← loopAtomRefuse.get) then throwError "ved_s94_atom: refused (test seam)"
+  let t0 ← IO.monoMsNow
+  let mut out : List MVarId := []
+  let mut na := 0
+  let mut nh := 0
+  let mut ng := 0
+  for g in ← getGoals do
+    let (g', a, h) ← atomiseGoal g
+    out := out ++ [g']
+    na := na + a; nh := nh + h
+    if a > 0 then ng := ng + 1
+  setGoals out
+  dbgLog s!"s94_atom: {ng} goals atomised, {na} atoms, {nh} hypotheses ms={(← IO.monoMsNow) - t0}"
+  evalTactic t
+  let t1 ← IO.monoMsNow
+  dbgLog s!"s94_atom: inner done ms={t1 - t0}"
+  let mut out2 : List MVarId := []
+  for g in ← getGoals do out2 := out2 ++ [← deatomiseGoal g]
+  setGoals out2
+  if (← loopAtomFailLate.get) then throwError "ved_s94_atom: failed late (test seam)"
+  loopAtomHits.modify fun (a, b, c) => (a + ng, b + na, c + nh)
+  dbgLog s!"s94_atom: inner ms={t1 - t0} restore ms={(← IO.monoMsNow) - t1}"
+
+elab "ved_s94_atom " "(" t:tacticSeq ")" : tactic => do
+  try s94AtomCore t
+  catch e =>
+    dbgLogWith (do return s!"s94_atom: refused: {((← e.toMessageData.toString).replace "\n" " ").take 600}")
+    throw e
+
 /-! ## Diagnosis of stage 94 (`VED_PROBE_S94` and `VED_DUMP_DIR` set; never in a default script)
 
 `↓ vedMemProbe` (a wildcard pre-simproc, only added to the stage-94 simp when the gate is open) counts the visited sub-terms (a pre call happens after the
@@ -2244,6 +2377,7 @@ initialize s94Gap : IO.Ref (Std.HashMap String Nat) ← IO.mkRef {}
 initialize s94GapT : IO.Ref Nat ← IO.mkRef 0
 /-- gap diagnosis: the previous visited term, and the largest single gaps (µs, previous head, head, the previous term printed, the next term printed) -/
 initialize s94PrevE : IO.Ref (Option Lean.Expr) ← IO.mkRef none
+initialize s94PrevHb : IO.Ref Nat ← IO.mkRef 0
 initialize s94Big : IO.Ref (Array (Nat × String)) ← IO.mkRef #[]
 
 def s94Head (e : Expr) : String :=
@@ -2260,6 +2394,57 @@ def s94Head (e : Expr) : String :=
   | .sort _ => "<sort>"
   | .mvar _ => "<mvar>"
   | .app .. => "<app>"
+
+/-- `VED_S94_DISCH` (diagnosis only): (calls, us, heartbeats) of the discharger of the conjunct simp (inclusive: nested calls are counted twice) -/
+initialize s94Dis : IO.Ref (Nat × Nat × Nat) ← IO.mkRef (0, 0, 0)
+
+open Lean Meta Simp in
+/-- the discharger of the simp set with a timer around it -/
+def s94TimedDisch (d? : Option Simp.Discharge) : Simp.Discharge := fun e => do
+  let t0 ← IO.monoNanosNow
+  let h0 ← IO.getNumHeartbeats
+  let r ← (match d? with | some d => d e | none => Simp.dischargeDefault? e)
+  let t1 ← IO.monoNanosNow
+  let h1 ← IO.getNumHeartbeats
+  s94Dis.modify fun (a, b, c) => (a + 1, b + (t1 - t0) / 1000, c + (h1 - h0))
+  return r
+
+/-- `VED_S94_OPS` (diagnosis only): number of operation tables logged -/
+initialize s94OpsN : IO.Ref Nat ← IO.mkRef 0
+
+/-- time (us) of single `Expr`/`Meta` operations on `e`, the term visited right after a large gap (diagnosis only; the ones that simp itself runs between two visits) -/
+def s94Ops (e : Expr) : MetaM String := do
+  let mut out : Array String := #[]
+  let timed := fun (nm : String) (act : MetaM Unit) => do
+    let t ← IO.monoNanosNow
+    try act catch _ => pure ()
+    pure s!"{nm}={((← IO.monoNanosNow) - t) / 1000}"
+  out := out.push (← timed "instMVars" do discard <| instantiateMVars e)
+  out := out.push (← timed "replaceId" do discard <| pure (e.replace fun _ => none))
+  let saved ← get
+  modify fun s => { s with cache := {} }
+  out := out.push (← timed "inferType(cold)" do discard <| inferType e)
+  out := out.push (← timed "inferType(warm)" do discard <| inferType e)
+  out := out.push (← timed "isProof" do discard <| isProof e)
+  out := out.push (← timed "whnfCore" do discard <| whnfCore e)
+  -- a structurally equal copy with other pointers at the free variables
+  let e' := e.replace fun x => if x.isFVar then some (mkFVar x.fvarId!) else none
+  out := out.push (← timed "eqvCopy" do discard <| pure (e == e'))
+  out := out.push (← timed "hashMapCopy" do
+    let m : Std.HashMap Expr Nat := ({} : Std.HashMap Expr Nat).insert e 1
+    discard <| pure (m[e']?))
+  let ites := Tools.VedU1WireShare.collectDag (fun x => x.isAppOfArity ``ite 5) e
+  if let some i := ites[0]? then
+    let c := i.getArg! 1
+    out := out.push (← timed "synthDecidable" do
+      let ty ← mkAppM ``Decidable #[c]
+      discard <| synthInstance ty)
+    out := out.push (← timed "inferType(ite cond)" do discard <| inferType c)
+  let lts := Tools.VedU1WireShare.collectDag (fun x => x.isAppOfArity ``LT.lt 4) e
+  if let some i := lts[0]? then
+    out := out.push (← timed "isDefEq(lt,lt)" do discard <| isDefEq i i)
+  set saved
+  return s!"dag={(Tools.VedU1WireShare.collectDag (fun _ => true) e).size} ites={ites.size} lts={lts.size} " ++ " ".intercalate out.toList
 
 open Lean Meta Simp in
 simproc_decl vedMemProbe (_) := fun e => do
@@ -2280,11 +2465,24 @@ simproc_decl vedMemProbe (_) := fun e => do
         try pure (((toString (← Meta.ppExpr x)).replace "\n" " ").take 240).toString catch _ => pure "?"
       let pe ← s94PrevE.get
       let ps ← match pe with | some x => pp x | none => pure "-"
-      let line := s!"gap {gapUs} us {ph} -> {h}; prev dag={match pe with | some x => (Tools.VedU1WireShare.collectDag (fun _ => true) x).size | none => 0}: {ps} || next: {← pp e}"
+      let hbGap := (← IO.getNumHeartbeats) - (← s94PrevHb.get)
+      let line := s!"gap {gapUs} us hb={hbGap} {ph} -> {h}; prev dag={match pe with | some x => (Tools.VedU1WireShare.collectDag (fun _ => true) x).size | none => 0} tree={match pe with | some x => Tools.VedU1Loop.treeSizeVal x | none => 0}; next dag={(Tools.VedU1WireShare.collectDag (fun _ => true) e).size} tree={Tools.VedU1Loop.treeSizeVal e}: {ps} || next: {← pp e}"
+      if gapUs ≥ 200000 && (← IO.getEnv "VED_S94_OPS").isSome && (← s94OpsN.get) < 6 then
+        s94OpsN.modify (· + 1)
+        dbgLog s!"S94 ops after gap {gapUs} us {ph} -> {h}: next: {← s94Ops e}"
+        if let some x := pe then
+          -- the largest argument of the previously visited term (the gap is the simp of its arguments, answered by the cache)
+          let mut best : Option Expr := none
+          let mut bsz := 0
+          for a in x.getAppArgs do
+            let z := (Tools.VedU1WireShare.collectDag (fun _ => true) a).size
+            if z > bsz then best := some a; bsz := z
+          if let some a := best then dbgLog s!"S94 ops   prev's largest arg ({s94Head a}): {← s94Ops a}"
       s94Big.modify fun a =>
         let a := a.push (gapUs, line)
         if a.size > 6 then (a.qsort (fun x y => x.1 > y.1)).extract 0 6 else a
   s94GapT.set nowN
+  s94PrevHb.set (← IO.getNumHeartbeats)
   s94PrevE.set (some e)
   s94Last.modify fun a => (a.push h).extract (a.size + 1 - 6) (a.size + 1)
   if v % 2000 == 0 then
@@ -2349,6 +2547,7 @@ partial def s94Walk (e : Expr) (k : Expr → TacticM Unit) : TacticM Unit := do
 open Lean Meta Elab Tactic in
 elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withMainContext do
   unless (← IO.getEnv "VED_S94_DIAG").isSome && (← IO.getEnv "VED_PROBE_S94").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome do return
+  s94OpsN.set 6
   let stx0 ← `(tactic| ved_loop_simp [$ls,*])
   let some (_, .ok stx1) ← liftMacroM (Lean.Elab.expandMacroImpl? (← getEnv) stx0) | throwError "ved_s94_diag: ved_loop_simp does not expand"
   let sc ← Lean.Elab.Tactic.mkSimpContext stx1 (eraseLocal := false)
@@ -2429,7 +2628,8 @@ elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
       dbgLog s!"S94D #{i} SKIPPED (total 500 s used) dag={dag0} tree={tree0}"
       return
     s94Hist.set {}
-    s94Gap.set {}; s94GapT.set 0; s94Big.set #[]; s94PrevE.set none
+    s94Gap.set {}; s94GapT.set 0; s94Big.set #[]; s94PrevE.set none; s94OpsN.set 0
+    s94Dis.set (0, 0, 0)
     let v0 ← s94Visits.get
     let h0 ← declWidthHits.get
     let t1 ← IO.monoMsNow
@@ -2437,7 +2637,8 @@ elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
     let r ← try
         withTheReader Core.Context (fun c => { c with maxHeartbeats := (if i == 0 then 2000000000 else 500000000), initHeartbeats := hb }) do
           tryCatchRuntimeEx (do
-            let (r, _) ← sc.dischargeWrapper.with fun d? => Meta.simp c sc.ctx sc.simprocs d?
+            let timed := (← IO.getEnv "VED_S94_DISCH").isSome
+            let (r, _) ← sc.dischargeWrapper.with fun d? => Meta.simp c sc.ctx sc.simprocs (if timed then some (s94TimedDisch d?) else d?)
             pure (some r)) fun ex => if ex.isRuntime then do dbgLog s!"S94D #{i} runtime exception: {((← ex.toMessageData.toString).replace "\n" " ").take 700}"; pure none else throw ex
       catch ex => do dbgLog s!"S94D #{i} error {← ex.toMessageData.toString}"; pure none
     let ms := (← IO.monoMsNow) - t1
@@ -2484,6 +2685,7 @@ elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
         dbgLog s!"S94D #0 erase {nm}: {if r2.isSome then "done" else "BUDGET"} ms={(← IO.monoMsNow) - t1} hb={((← IO.getNumHeartbeats) - hb) / 1000} visits={(← s94Visits.get) - v0} tree={match r2 with | some r => Tools.VedU1Loop.treeSizeVal r.expr | none => 0} top={top}"
     match r with
     | some r =>
+      dbgLog s!"S94D #{i} disch(calls,us,hb)={← s94Dis.get}"
       dbgLog s!"S94D #{i} ms={ms} hb={hbd} visits={v1 - v0} declWidthHits={(← declWidthHits.get) - h0} bindUs(simp m, proof)={← bindStrictMs.get} dag {dag0}->{(Tools.VedU1WireShare.collectDag (fun _ => true) r.expr).size} ptrObjs {← Lean.Expr.numObjs c}->{← Lean.Expr.numObjs r.expr} tree {tree0}->{Tools.VedU1Loop.treeSizeVal r.expr} top={top} src={head.take 110}"
     | none =>
       dbgLog s!"S94D #{i} BUDGET/ERR ms={ms} visits={v1 - v0} dag={dag0} tree={tree0} top={top} src={head.take 110}"
