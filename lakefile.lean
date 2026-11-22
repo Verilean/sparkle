@@ -1703,6 +1703,9 @@ lean_lib «Tests.Ved.U2HierStateCallCheck» where
 lean_lib «Tests.Ved.U2HierMultiCheck» where
   roots := #[`Tests.Ved.U2HierMultiCheck]
 
+lean_lib «Tests.Ved.ComposeCheckUtil» where
+  roots := #[`Tests.Ved.ComposeCheckUtil]
+
 lean_lib «Tests.Ved.ComposeStepCheck» where
   roots := #[`Tests.Ved.ComposeStepCheck]
 

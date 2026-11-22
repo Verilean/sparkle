@@ -1,6 +1,6 @@
 import Tools.VedU2HierRegEntry
 import Tools.VedComposeStep
-import Tests.Ved.U2HierWireCheck
+import Tests.Ved.ComposeCheckUtil
 import Sparkle.Core.CircuitMonad
 import Sparkle.Core.CircuitDo
 
@@ -27,7 +27,7 @@ namespace Tests.Ved.ComposeStepCheck
 open Lean Elab Command Term Meta
 open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.VedU1Contract Tools.VedU1Entry Tools.VedU1Hier Tools.VedU1HierEntry Tools.VedU2Hier
-  Tools.VedU2HierEntry Tools.VedU2HierRegEntry Tests.Ved.U2HierWireCheck
+  Tools.VedU2HierEntry Tools.VedU2HierRegEntry Tests.Ved.ComposeCheckUtil
 
 /-! ## Declarations -/
 
