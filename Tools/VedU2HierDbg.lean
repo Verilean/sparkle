@@ -32,3 +32,8 @@ elab "ved_eprint_state" tag:(str)? : tactic => do
     let tg := tag.map (·.getString) |>.getD ""
     if tg.startsWith stop then
       throwError "VED_HIER_STOP_AT: stopped at {tg} ({gs.length} goals open; debugging only)"
+
+open Lean Elab Tactic in
+/-- `ved_tick "label"`: measurement only (`VED_HIER_TICK`): prints the label and the monotonic ms to stderr; changes no goal. -/
+elab "ved_tick " tag:str : tactic => do
+  IO.eprintln s!"VED-TICK {tag.getString} t={← IO.monoMsNow}"

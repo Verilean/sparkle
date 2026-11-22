@@ -36,6 +36,8 @@ structure DeepInfo where
   compose : Bool := false
   /-- measurement only (`VED_COMPOSE_NOSHARE`): do not share the bundle-slice prefix walk -/
   noShare : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOHOIST`): keep the instance-independent prelude in every instance's block -/
+  noHoist : Bool := false
 
 /-- The spellings the lines use. -/
 structure Sp where

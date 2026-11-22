@@ -409,6 +409,28 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"    have hin0 := hin"
   L := L.push s!"    have hin1 : Sparkle.IR.AST.Stmt.inst mn i cs ∈ {P.body} := hb0.1.mem_iff.mpr hin"
   L := L.push s!"    simp only [{P.body}, List.mem_cons, List.not_mem_nil, or_false, false_or, Sparkle.IR.AST.Stmt.inst.injEq, reduceCtorEq] at hin1"
+  -- VED compose (option `ved.compose.step`): the instance-independent prelude of the state-argument instances (the run's
+  -- assignment fact `hasgF`, the input and register facts of cycle t) is proved ONCE before the case split, not in every
+  -- instance's `hrunF`
+  let hoist := st && di.compose && !di.noHoist
+  if hoist then
+    L := L.push s!"    have hasgF := {T2}.closed_run_asgOf {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 (Tools.VedU1Contract.seedFwd {P.mod} K ins) K ({T2}.st0H {P.design} {P.mod}) envs sts hrun t ht E hE"
+    L := L.push s!"    have hEin : ∀ x ∈ {T2}.inNames {P.mod}, E x = ins t x := fun x hx => by"
+    L := L.push s!"      have := {T2}.runHS_inputs {P.design} arr {P.mod} hadm hwr ins K K (Nat.le_refl K) _ envs sts hrun t ht E hE x hx"
+    L := L.push s!"      simpa using this"
+    L := L.push s!"    have hin := hok.1 t"
+    L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
+    for n in tbl.binders.map ("_gen_" ++ ·) do
+      L := L.push s!"    have hE_{n} : E {sq n} = ins t {sq n} := hEin _ (by decide)"
+    L := L.push s!"    have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
+    for i in List.range di.regWs.length do
+      let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < di.regWs.length then ".1" else "")
+      L := L.push s!"    have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {di.regWs.length}) := by"
+      L := L.push s!"      rw [hregE _ (by decide)]"
+      L := L.push s!"      exact {proj}"
+      L := L.push s!"    have hlS{i} : {irS} ins t ({i} : Fin {di.regWs.length}) < {2 ^ di.regWs[i]!} := by"
+      L := L.push s!"      have := hltS ins t ⟨{i}, by decide⟩"
+      L := L.push s!"      simpa using this"
   let nI := insts.length
   let patI := " | ".intercalate (insts.map fun _ => "⟨rfl, rfl, rfl⟩")
   if nI == 1 then
@@ -466,31 +488,34 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       else
         X := X.push s!"have hrunF : ∀ t, t < K → ∀ E, envs[t]? = some E → ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
         X := X.push s!"  intro t ht E hE p hp"
-      X := X.push s!"  have hasgF := {T2}.closed_run_asgOf {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 (Tools.VedU1Contract.seedFwd {P.mod} K ins) K ({T2}.st0H {P.design} {P.mod}) envs sts hrun t ht E hE"
-      X := X.push s!"  have hEin : ∀ x ∈ {T2}.inNames {P.mod}, E x = ins t x := fun x hx => by"
-      X := X.push s!"    have := {T2}.runHS_inputs {P.design} arr {P.mod} hadm hwr ins K K (Nat.le_refl K) _ envs sts hrun t ht E hE x hx"
-      X := X.push s!"    simpa using this"
-      X := X.push s!"  have hin := hok.1 t"
-      X := X.push s!"  simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
+      let hoisted := hoist && ii.stateArg
+      unless hoisted do
+        X := X.push s!"  have hasgF := {T2}.closed_run_asgOf {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 (Tools.VedU1Contract.seedFwd {P.mod} K ins) K ({T2}.st0H {P.design} {P.mod}) envs sts hrun t ht E hE"
+        X := X.push s!"  have hEin : ∀ x ∈ {T2}.inNames {P.mod}, E x = ins t x := fun x hx => by"
+        X := X.push s!"    have := {T2}.runHS_inputs {P.design} arr {P.mod} hadm hwr ins K K (Nat.le_refl K) _ envs sts hrun t ht E hE x hx"
+        X := X.push s!"    simpa using this"
+        X := X.push s!"  have hin := hok.1 t"
+        X := X.push s!"  simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
       let dataNames := tbl.binders.map ("_gen_" ++ ·)
       let mut facts : List String := []
       for n in dataNames do
-        X := X.push s!"  have hE_{n} : E {sq n} = ins t {sq n} := hEin _ (by decide)"
+        unless hoisted do X := X.push s!"  have hE_{n} : E {sq n} = ins t {sq n} := hEin _ (by decide)"
         facts := facts ++ [s!"hE_{n}"]
       let mut stFacts : List String := []
       let mut loopFs : List String := []
       if ii.stateArg then
         -- the parent's registers at cycle t: the pre-update state, which the invariant speaks about
-        X := X.push s!"  have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
+        unless hoisted do X := X.push s!"  have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
         -- H3-open: only the registers the instance's net reads get facts
         for i in List.range di.regWs.length do
           let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < di.regWs.length then ".1" else "")
-          X := X.push s!"  have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {di.regWs.length}) := by"
-          X := X.push s!"    rw [hregE _ (by decide)]"
-          X := X.push s!"    exact {proj}"
-          X := X.push s!"  have hlS{i} : {irS} ins t ({i} : Fin {di.regWs.length}) < {2 ^ di.regWs[i]!} := by"
-          X := X.push s!"    have := hltS ins t ⟨{i}, by decide⟩"
-          X := X.push s!"    simpa using this"
+          unless hoisted do
+            X := X.push s!"  have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {di.regWs.length}) := by"
+            X := X.push s!"    rw [hregE _ (by decide)]"
+            X := X.push s!"    exact {proj}"
+            X := X.push s!"  have hlS{i} : {irS} ins t ({i} : Fin {di.regWs.length}) < {2 ^ di.regWs[i]!} := by"
+            X := X.push s!"    have := hltS ins t ⟨{i}, by decide⟩"
+            X := X.push s!"    simpa using this"
           if opn.knot.isNone || ii.needSlots.contains i then facts := facts ++ [s!"hEr{i}", s!"hlS{i}"]
         -- H2d (`Tools/VedU2HierStateArgs.lean`): an argument that is a derived net over the register state reads
         -- the loop inside a term; the state theorems rewrite it to its pack
@@ -1072,7 +1097,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       if (← getEnv).contains n then
         if let some c ← dupTargetOf n then
           dups := dups ++ [(slot, c, deepC opn.openName (ptag ++ s!"_deep_dup_r{slot}"))]
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome }
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU
@@ -1122,6 +1147,16 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     IO.eprintln s!"[stats] script chars {text.length} lines {(text.splitOn "\n").length} have {cnt "have "} bundle_slice_fact {cnt "bundle_slice_fact"} bs_haves {cnt "have bs"} chain_haves {cnt "have e_"} generation {tGen} ms"
   if (← IO.getEnv "VED_HIER_DEBUG").isSome then IO.eprintln text
   if let some f ← IO.getEnv "VED_HIER_SCRIPT_FILE" then IO.FS.writeFile f text
+  -- measurement only (`VED_HIER_TICK`): a `ved_tick "<script line>"` before the block-opening lines, to attribute the elaboration time to blocks
+  let text ← if (← IO.getEnv "VED_HIER_TICK").isNone then pure text else
+    let marks := ["· ", "have hrunF", "have hasgF", "have hregE", "have hEr0 ", "have hAl", "have e_0 ", "have bs0_a0", "rw [hdl] at hp", "obtain ⟨x, hx, hv⟩", "generalize hNS", "have hsig0", "have hx'"]
+    let ls := text.splitOn "\n"
+    let out := ls.zipIdx.flatMap fun (l, i) =>
+      let tr := l.trimLeft
+      if i > 0 && marks.any (tr.startsWith ·) then
+        [String.mk (List.replicate (l.length - tr.length) ' ') ++ s!"ved_tick \"{i + 1}\"", l]
+      else [l]
+    pure ("\n".intercalate out)
   let stx ← match Lean.Parser.runParserCategory (← getEnv) `term text "<ved_u2_hier_reg>" with
     | .ok s => pure s
     | .error e => refuse decl "proof" m!"generated script does not parse: {e}"
