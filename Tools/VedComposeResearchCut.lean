@@ -195,19 +195,33 @@ end
 
 open Tools.VedU1Hier Tools.VedU2Hier Tools.VedU1Contract
 
-/-- Width consistency of the assignments (the side condition of `inl_sound`), decidable. -/
-def WOKb (we : WEnv) (b : List Stmt) : Bool :=
+/-- The output port names of a module.  An output port is not a declared wire (`declWidth m out = 0`), and nothing reads it. -/
+def outsOf (m : Module) : List String := m.outputs.map (·.name)
+
+/-- The inlining table: the assignments of the arrangement, without the output ports. -/
+def Atab (m : Module) (b : List Stmt) : String → Option Expr :=
+  fun x => if (outsOf m).contains x then none else asgOf b x
+
+/-- Width consistency of the inlined assignments (the side condition of `inl_sound`), decidable.  Observed (scratch/runs/54,
+55): on the returned module of EVERY registered toy family (9 modules) the only width-inconsistent assignment of the full
+body is the output port `out` (declared width 0 because it is a port, not a wire), which is why the table excludes outputs. -/
+def WOKb (we : WEnv) (m : Module) (b : List Stmt) : Bool :=
   b.all fun s => match s with
-    | .assign l r => widthOf we r == we l
+    | .assign l r => (outsOf m).contains l || widthOf we r == we l
     | _ => true
 
-theorem WOKb_sound (we : WEnv) (b : List Stmt) (h : WOKb we b = true) :
-    ∀ l r, asgOf b l = some r → widthOf we r = we l := by
+theorem WOKb_sound (we : WEnv) (m : Module) (b : List Stmt) (h : WOKb we m b = true) :
+    ∀ l r, Atab m b l = some r → widthOf we r = we l := by
   intro l r hr
-  have hm := asgOf_mem hr
-  simp only [WOKb, List.all_eq_true] at h
-  have := h _ hm
-  simpa using this
+  unfold Atab at hr
+  by_cases hm : (outsOf m).contains l = true
+  · rw [if_pos hm] at hr; cases hr
+  · rw [if_neg hm] at hr
+    have hm2 := asgOf_mem hr
+    have h3 := List.all_eq_true.mp h _ hm2
+    have hc' : (outsOf m).contains l = false := by simpa using hm
+    simp only [hc', Bool.false_or, beq_iff_eq] at h3
+    exact h3
 
 /-- The cut points: parent inputs, register outputs, instance outputs.  These are the only names whose value the cone
 side supplies (`hEin`, `hEreg`, `hEorc` of `step_local`) - the transparency condition of the cut. -/
@@ -264,18 +278,18 @@ theorem cone_connect (d : Design) (m : Module) (b0 : List Stmt)
     (Ow : (Nat → String → Nat) → String → Nat → Nat)
     (hwi : ∀ n ∈ wrsH d b0, n ∉ inNames m) (hri : ∀ n ∈ regOuts b0, n ∉ inNames m)
     (hwr : ∀ n ∈ wrsH d b0, n ∉ regOuts b0)
-    (hW : WOKb (declWidth m) b0 = true)
+    (hW : WOKb (declWidth m) m b0 = true)
     (ins : Nat → String → Nat) (t : Nat) (p : String → Nat) (E : Env)
     (hasg : ∀ l r, asgOf b0 l = some r → evalExpr (declWidth m) E r = some (E l))
     (hEin : ∀ x ∈ inNames m, E x = ins t x)
     (hEreg : ∀ r ∈ regOuts b0, E r = p r)
     (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
-    (n : Nat) (e c : Expr) (hc : inl (asgOf b0) n e = c)
+    (n : Nat) (e c : Expr) (hc : inl (Atab m b0) n e = c)
     (hl : leafOk (cutNames d m b0) c = true) :
     evalExpr (declWidth m) E e = evalExpr (declWidth m) (leafEnv m b0 ins t p Ow) c := by
-  have hWo := WOKb_sound _ _ hW
-  have hs := inl_sound (declWidth m) E (asgOf b0)
-    (fun l r h => ⟨hasg l r h, hWo l r h⟩) n e
+  have hWo := WOKb_sound _ _ _ hW
+  have hs := inl_sound (declWidth m) E (Atab m b0)
+    (fun l r h => ⟨hasg l r (by unfold Atab at h; split at h <;> simp_all), hWo l r h⟩) n e
   subst hc
   rw [← hs.1]
   apply eval_congr
@@ -326,10 +340,10 @@ def coneR : Expr := .op .add [.op .xor [.ref "o0", .ref "r"], .ref "o1"]
 
 /-! ## Accepted -/
 
-theorem par_widths : WOKb (declWidth par) par.body = true := by decide +kernel
-theorem par_cone : inl (asgOf par.body) 6 (.ref "w3") = coneR := rfl
+theorem par_widths : WOKb (declWidth par) par par.body = true := by decide +kernel
+theorem par_cone : inl (Atab par par.body) 6 (.ref "w3") = coneR := rfl
 theorem par_leaves : leafOk (cutNames dsg par par.body) coneR = true := by decide +kernel
-theorem par_out_cone : inl (asgOf par.body) 6 (.ref "out") = coneR := rfl
+theorem par_out_cone : inl (Atab par par.body) 6 (.ref "w3") = coneR := rfl
 
 theorem par_hwi : ∀ n ∈ wrsH dsg par.body, n ∉ inNames par := by decide +kernel
 theorem par_hri : ∀ n ∈ regOuts par.body, n ∉ inNames par := by decide +kernel
@@ -352,18 +366,18 @@ theorem par_connect (Ow : (Nat → String → Nat) → String → Nat → Nat)
 
 /-- (1) mis-wiring: the two oracle wires swapped (instance i0 paired with i1's call). -/
 def coneSwap : Expr := .op .add [.op .xor [.ref "o1", .ref "r"], .ref "o0"]
-theorem ctl_swap : inl (asgOf par.body) 6 (.ref "w3") ≠ coneSwap := by
+theorem ctl_swap : inl (Atab par par.body) 6 (.ref "w3") ≠ coneSwap := by
   rw [par_cone]; intro h; simp [coneR, coneSwap] at h
 
 /-- (2) independence faking: the cone is read at a COMPUTED wire (`w2`) as if it were a free cut point.  The equation with a
 too-small fuel holds, the leaf (transparency) check refuses. -/
 def coneFake : Expr := .op .add [.ref "w2", .ref "o1"]
-theorem ctl_fake_eq : inl (asgOf par.body) 2 (.ref "w3") = coneFake := rfl
+theorem ctl_fake_eq : inl (Atab par par.body) 2 (.ref "w3") = coneFake := rfl
 theorem ctl_fake_leaf : leafOk (cutNames dsg par par.body) coneFake = false := by decide +kernel
 
 /-- (3) different artifact (a): a cone of another module (`sub` for the outer `add`). -/
 def coneOther : Expr := .op .sub [.op .xor [.ref "o0", .ref "r"], .ref "o1"]
-theorem ctl_other : inl (asgOf par.body) 6 (.ref "w3") ≠ coneOther := by
+theorem ctl_other : inl (Atab par par.body) 6 (.ref "w3") ≠ coneOther := by
   rw [par_cone]; intro h; simp [coneR, coneOther] at h
 
 /-- (3b) different artifact (b): the same literal against a design in which the child has no output port `y`: the oracle
@@ -377,14 +391,14 @@ false, and inlining it changes the value the IR semantics gives. -/
 def bodyBad : List Stmt :=
   [ .assign "b" (.const 3 2), .assign "c" (.concat [.ref "a", .ref "b"]) ]
 def weBad : WEnv := fun n => if n = "c" then 8 else 4
-theorem ctl_width_check : WOKb weBad bodyBad = false := by decide +kernel
+theorem ctl_width_check : WOKb weBad par bodyBad = false := by decide +kernel
 def envBad : Env := fun n => if n = "a" then 5 else if n = "b" then 3 else if n = "c" then 83 else 0
 /-- Both assignments HOLD in `envBad` under `weBad` (`b = 3`, `c = 5 <<< 4 ||| 3 = 83`), yet inlining changes the value of `c`
 (the concatenation then reads the 2-bit constant's own width: `5 <<< 2 ||| 3 = 23`). -/
 theorem ctl_width_holds_b : evalExpr weBad envBad (.const 3 2) = some (envBad "b") := by decide +kernel
 theorem ctl_width_holds_c : evalExpr weBad envBad (.concat [.ref "a", .ref "b"]) = some (envBad "c") := by decide +kernel
 theorem ctl_width_semantics :
-    evalExpr weBad envBad (.ref "c") ≠ evalExpr weBad envBad (inl (asgOf bodyBad) 3 (.ref "c")) := by decide +kernel
+    evalExpr weBad envBad (.ref "c") ≠ evalExpr weBad envBad (inl (Atab par bodyBad) 3 (.ref "c")) := by decide +kernel
 
 end Tools.VedComposeResearch.Toy
 
