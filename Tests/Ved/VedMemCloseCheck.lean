@@ -1348,6 +1348,32 @@ def hsJ {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Sign
 def hsK {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
 
+def hsL {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def hsM {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def hsN {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def hsO {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def loopAtomHitsCheck (atLeast : Bool) : CommandElabM Unit := do
+  let (g, a, _) ← Tools.VedMemLoop.loopAtomHits.get
+  if atLeast then
+    unless g ≥ 1 && a ≥ 1 do throwError "loopAtomHits: ({g}, {a}), expected at least one goal with one loop atom"
+    logInfo m!"loops were atoms during the stage-94 simp"
+  else
+    unless g == 0 && a == 0 do throwError "loopAtomHits: ({g}, {a}), expected 0"
+    logInfo m!"loops were not made atoms"
+
+/-- info: s94LoopAtom default false -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"s94LoopAtom default {Tools.VedMemLoop.ved.mem.s94LoopAtom.get (← getOptions)}"
+
 def envFreezeHitsCheck (atLeast : Bool) : CommandElabM Unit := do
   let n ← Tools.VedMemLoop.envFreezeHits.get
   if atLeast then
@@ -1535,5 +1561,92 @@ run_cmd envFreezeHitsCheck true
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsK -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedPackedOk ``hsK
+
+-- (12) hstepNorm ON and s94LoopAtom ON, packed: the loops are atoms during the stage-94 simp, the proof is accepted, the stored type is exact
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.loopAtomHits.set (0, 0, 0)
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94LoopAtom true in
+#ved_u1_mem_packed hsL
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: loops were atoms during the stage-94 simp -/
+#guard_msgs in
+run_cmd loopAtomHitsCheck true
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsL -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsL
+
+-- (12b) s94LoopAtom OFF (hstepNorm ON): accepted, the loops were not made atoms
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.loopAtomHits.set (0, 0, 0)
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+#ved_u1_mem_packed hsM
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: loops were not made atoms -/
+#guard_msgs in
+run_cmd loopAtomHitsCheck false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsM -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsM
+
+-- (12c) s94LoopAtom ON, the atom step refuses (test seam `loopAtomRefuse`): the plain simp is the fallback, accepted, no atoms
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.loopAtomHits.set (0, 0, 0)
+run_cmd Tools.VedMemLoop.loopAtomRefuse.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94LoopAtom true in
+#ved_u1_mem_packed hsN
+run_cmd Tools.VedMemLoop.loopAtomRefuse.set false
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: loops were not made atoms -/
+#guard_msgs in
+run_cmd loopAtomHitsCheck false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsN -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsN
+
+-- (12d) s94LoopAtom ON, the atom step fails after its inner simp (test seam `loopAtomFailLate`): state restored, plain simp, accepted, no atoms
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.loopAtomHits.set (0, 0, 0)
+run_cmd Tools.VedMemLoop.loopAtomFailLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94LoopAtom true in
+#ved_u1_mem_packed hsO
+run_cmd Tools.VedMemLoop.loopAtomFailLate.set false
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: loops were not made atoms -/
+#guard_msgs in
+run_cmd loopAtomHitsCheck false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsO -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsO
 
 end Tests.Ved.VedMemCloseCheck
