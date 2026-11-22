@@ -44,6 +44,8 @@ structure DeepInfo where
   noOkOnce : Bool := false
   /-- measurement only (`VED_COMPOSE_NOFAST`): `hOK` by the kernel evaluation of `OrderOkHS` itself, not of `OrderOkFast` (+ soundness) -/
   noFastOrder : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOFASTW`): the `WidthStmt` fact by the kernel evaluation of the statement itself, not of `widthFast` (+ soundness) -/
+  noFastWidth : Bool := false
   /-- VED compose: the indices of the body that give the arrangement (`Tools.VedCompose.permBy`) -/
   perm : List Nat := []
 

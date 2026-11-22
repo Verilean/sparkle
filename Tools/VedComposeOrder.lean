@@ -529,6 +529,135 @@ theorem orderOkFast_sound {d : Design} {m : Module} {b : List Stmt} {σ : List N
         · rfl
         · have := (hI n).mpr (List.contains_iff_mem.mp hh); simp_all
 
+/-! ## `WidthStmt` as one pass with name trees (`WidthFast`, new path only)
+
+`WidthStmt c m` has `(m.wires.map (·.name)).Nodup` (W^2/2 String compares), the declared widths of the data inputs
+(`declWidth` scans the wires: I*W compares) and `∀ r ∈ regsOf m.body, ∃ p ∈ m.wires, p.name = r.1 ∧ scalar p.ty` (R*W compares).
+`widthFast c m` inserts the wire names once into a tree (`insAll`: new names only), builds a tree of the names of the scalar wires
+and a tree of the pairs (name, declared width), and looks the registers / data inputs up there. -/
+
+/-- The key of a (name, width) pair; injective for widths below `2^32` (the guard is part of the check). -/
+def pairKey (a w : Nat) : Nat := a * 4294967296 + w
+
+theorem pairKey_inj {a a' w w' : Nat} (hw : w < 4294967296) (hw' : w' < 4294967296)
+    (h : pairKey a w = pairKey a' w') : a = a' ∧ w = w' := by
+  unfold pairKey at h; omega
+
+/-- What `declWidth` reads off a wire's type. -/
+def dwOf : Sparkle.IR.Type.HWType → Nat
+  | .bitVector k => k
+  | .bit => 1
+  | _ => 0
+
+/-- Insert the key of each wire for which `f` gives one. -/
+def fk (f : Sparkle.IR.AST.Port → Option Nat) (t : NTree) (p : Sparkle.IR.AST.Port) : NTree :=
+  match f p with
+  | some k => insK t k
+  | none => t
+
+theorem hasK_foldl (f : Sparkle.IR.AST.Port → Option Nat) (l : List Sparkle.IR.AST.Port) : ∀ (t : NTree) (k : Nat),
+    hasK (l.foldl (fk f) t) k = true ↔ (∃ p ∈ l, f p = some k) ∨ hasK t k = true := by
+  induction l with
+  | nil => intro t k; simp
+  | cons a l ih =>
+    intro t k
+    simp only [List.foldl_cons, ih, List.mem_cons]
+    unfold fk
+    cases hf : f a with
+    | none =>
+      simp only
+      constructor
+      · rintro ((⟨p, hp, hq⟩) | h)
+        · exact Or.inl ⟨p, Or.inr hp, hq⟩
+        · exact Or.inr h
+      · rintro ((⟨p, hp | hp, hq⟩) | h)
+        · subst hp; rw [hf] at hq; exact absurd hq (by simp)
+        · exact Or.inl ⟨p, hp, hq⟩
+        · exact Or.inr h
+    | some k' =>
+      simp only [hasK_insK]
+      constructor
+      · rintro ((⟨p, hp, hq⟩) | h | h)
+        · exact Or.inl ⟨p, Or.inr hp, hq⟩
+        · exact Or.inl ⟨a, Or.inl rfl, by rw [hf, h]⟩
+        · exact Or.inr h
+      · rintro ((⟨p, hp | hp, hq⟩) | h)
+        · subst hp; rw [hf] at hq; exact Or.inr (Or.inl (Option.some.inj hq).symm)
+        · exact Or.inl ⟨p, hp, hq⟩
+        · exact Or.inr (Or.inr h)
+
+/-- The first wire named `x` is THE wire named `x` when the wire names are distinct. -/
+theorem find_wire_of_nodup : ∀ (l : List Sparkle.IR.AST.Port), (l.map (·.name)).Nodup → ∀ p ∈ l,
+    l.find? (fun q => q.name == p.name) = some p := by
+  intro l
+  induction l with
+  | nil => intro _ p hp; exact absurd hp (by simp)
+  | cons q rest ih =>
+    intro hnd p hp
+    rw [List.map_cons, List.nodup_cons] at hnd
+    obtain ⟨hq, hrest⟩ := hnd
+    rw [List.find?_cons]
+    rcases List.mem_cons.mp hp with rfl | hp'
+    · simp
+    · have hne : (q.name == p.name) = false := by
+        cases h : (q.name == p.name)
+        · rfl
+        · exfalso
+          apply hq
+          have e : q.name = p.name := by simpa using h
+          rw [e]; exact List.mem_map.mpr ⟨p, hp', rfl⟩
+      rw [hne]; exact ih hrest p hp'
+
+def widthTreeW (m : Module) : NTree :=
+  m.wires.foldl (fk fun w => if dwOf w.ty < 4294967296 then some (pairKey (nameKey w.name) (dwOf w.ty)) else none) .leaf
+
+def widthTreeS (m : Module) : NTree :=
+  m.wires.foldl (fk fun w => if scalar w.ty then some (nameKey w.name) else none) .leaf
+
+def widthFast (c : Contract) (m : Module) : Bool :=
+  (insAll (m.wires.map (·.name)) .leaf).isSome &&
+  (c.dataInputs.all fun p => scalar p.ty && decide (p.ty.bitWidth < 4294967296) &&
+    hasK (widthTreeW m) (pairKey (nameKey p.name) p.ty.bitWidth)) &&
+  (c.outputs.all fun p => scalar p.ty) &&
+  ((regsOf m.body).all fun r => hasK (widthTreeS m) (nameKey r.1))
+
+theorem widthFast_sound {c : Contract} {m : Module} (h : widthFast c m = true) : WidthStmt c m := by
+  unfold widthFast at h
+  simp only [Bool.and_eq_true, List.all_eq_true] at h
+  obtain ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩ := h
+  have hnd : (m.wires.map (·.name)).Nodup := by
+    cases hi : insAll (m.wires.map (·.name)) .leaf with
+    | none => rw [hi] at h1; exact absurd h1 (by simp)
+    | some t => exact (insAll_sound _ _ _ hi).1
+  refine ⟨hnd, ?_, ?_, ?_⟩
+  · intro p hp
+    obtain ⟨hs, hhas⟩ := h2 p hp
+    simp only [decide_eq_true_eq] at hs hhas
+    obtain ⟨hs', hlt⟩ := hs
+    refine ⟨hs', ?_⟩
+    have := (hasK_foldl _ m.wires .leaf _).mp hhas
+    rcases this with ⟨w, hw, hf⟩ | hleaf
+    · by_cases hdw : dwOf w.ty < 4294967296
+      · simp only [hdw, if_true, Option.some.injEq] at hf
+        obtain ⟨hk, hv⟩ := pairKey_inj hdw hlt hf
+        have hname : w.name = p.name := nameKey_inj hk
+        have hfind := find_wire_of_nodup m.wires hnd w hw
+        rw [hname] at hfind
+        unfold declWidth
+        rw [hfind, ← hv]
+        cases w with | mk n ty => cases ty <;> simp [dwOf]
+      · simp [hdw] at hf
+    · simp [hasK, NTree.mem] at hleaf
+  · intro p hp; exact h3 p hp
+  · intro r hr
+    have hh := h4 r hr
+    rcases (hasK_foldl _ m.wires .leaf _).mp hh with ⟨w, hw, hf⟩ | hleaf
+    · by_cases hs : scalar w.ty = true
+      · simp only [hs, if_true, Option.some.injEq] at hf
+        exact ⟨w, hw, nameKey_inj hf, hs⟩
+      · simp [hs] at hf
+    · simp [hasK, NTree.mem] at hleaf
+
 /-! ## Measurement only: the conjuncts of `OrderOkHS` as separate closed checks (`VED_COMPOSE_FACT_ONLY`) -/
 
 def ordP1 (_d : Design) (m : Module) (b : List Stmt) : Bool := isPermOf b m.body

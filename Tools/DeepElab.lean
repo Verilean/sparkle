@@ -1532,6 +1532,20 @@ kernel-checked like every other generated theorem; if `n` already exists (anothe
 `first` combinator exported it) nothing is added. -/
 syntax (name := vedHaveExport) "ved_have_export " ident " : " term " := " "(" tacticSeq ")" ident " => " ident : tactic
 
+/-- `deep_tick "label"`: measurement only.  Appends `[monotonic ms] label` to the file named by `SPARKLE_DEEP_TACTIC_TICK`;
+without that variable it does nothing.  The generator inserts it only when the variable is set (default: never), so the
+generated proofs are unchanged. -/
+syntax (name := deepTick) "deep_tick " str : tactic
+
+open Lean Elab Tactic in
+@[tactic deepTick] def evalDeepTick : Tactic := fun stx => do
+  match stx with
+  | `(tactic| deep_tick $s:str) =>
+    if let some f ← IO.getEnv "SPARKLE_DEEP_TACTIC_TICK" then
+      let ms ← IO.monoMsNow
+      IO.FS.withFile f .append fun h => h.putStrLn s!"[{ms}] {s.getString}"
+  | _ => throwUnsupportedSyntax
+
 /-- Local variables the expression mentions, with those their types mention (transitively). -/
 partial def vedCollectFVars (e : Lean.Expr) (acc : Std.HashSet Lean.FVarId) :
     Lean.MetaM (Std.HashSet Lean.FVarId) := do
@@ -4631,6 +4645,11 @@ elab "#verify_elab_deep" id:ident : command =>
           throwError "#verify_elab_deep: return type mentions a local binder: {retTy}"
         Lean.PrettyPrinter.delab retTy
       let topTys := topNode.tys
+      -- measurement only (`SPARKLE_DEEP_TACTIC_TICK=file`): a `deep_tick` between the tactics of the capstone proof; without
+      -- the variable the arrays are empty and the generated syntax is unchanged
+      let tickOn := (← IO.getEnv "SPARKLE_DEEP_TACTIC_TICK").isSome
+      let tk (lbl : String) : CommandElabM (Array (Lean.TSyntax `tactic)) :=
+        if tickOn then do pure #[← `(tactic| deep_tick $(Lean.quote lbl))] else pure #[]
       let mkTopProof (b : Array Nat) : CommandElabM (Lean.TSyntax `tactic) := do
         let packS ← packOf topNode b (← `($sId))
         let packU ← packOf topNode b (← `($uId))
@@ -4659,40 +4678,78 @@ elab "#verify_elab_deep" id:ident : command =>
         let innerHLt ← innerBlock (← `(($LId).val $iId = $packI)) hLtGuard depth 0
         let st1z ← stage1 #[]
         let st1s ← stage1 #[← `($hpreId $nId (Nat.lt_succ_self $nId))]
+        let tG ← tk "top: generalize loop"
+        let tR ← tk "top: loop_trace_at refine/intro/cases"
+        let tZ1 ← tk "zero: stage1 simp"
+        let tZ2 ← tk "zero: appendFix"
+        let tZ3 ← tk "zero: rdZeroAll simp"
+        let tZ4 ← tk "zero: closers"
+        let tS1 ← tk "succ: stage1 simp"
+        let tS2 ← tk "succ: appendFix"
+        let tS3 ← tk "succ: innerHpre"
+        let tS4 ← tk "succ: rdSuccAll simp"
+        let tS5 ← tk "succ: dupSimp"
+        let tS6 ← tk "succ: genLines (gen_occ)"
+        let tS7 ← tk "succ: closers"
+        let tX ← tk "top: ved_have_export done (state theorem)"
+        let tO1 ← tk "out: rw outSId + simp hLt"
+        let tO2 ← tk "out: innerHLt"
+        let tO3 ← tk "out: dupSimp"
+        let tO4 ← tk "out: genLines (gen_occ)"
+        let tO5 ← tk "out: closers"
         `(tactic| (
           generalize $hLId : Signal.loop (loopFOf
             (dom := Sparkle.Core.Domain.defaultDomain)
             (αs := [$topTys,*]) (ρ := $retTyStx) _ _) = $LId
+          $[$tG:tactic]*
           ved_have_export $hLtId : (∀ ($uId : Nat), ($LId).val $uId = $packU) := (
             intro $uId:ident
             rw [← $hLId:ident]
             refine loop_trace_at _ (fun $sId => $packS) ?_ $uId
             intro $uId:ident $preId:ident $hpreId:ident
+            $[$tR:tactic]*
             cases $uId:ident with
             | zero =>
               $st1z:tactic
+              $[$tZ1:tactic]*
               $appendFix:tactic
+              $[$tZ2:tactic]*
               -- stage 2: the spec side is the readers at cycle 0
               all_goals (try simp only [$[$rdZeroAll:ident],*])
+              $[$tZ3:tactic]*
               $closers:tactic
+              $[$tZ4:tactic]*
             | succ $nId =>
               $st1s:tactic
+              $[$tS1:tactic]*
               $appendFix:tactic
+              $[$tS2:tactic]*
               $innerHpre:tactic
+              $[$tS3:tactic]*
               -- stage 2: one step of the spec recurrence, as the shallow
               -- literal-width expressions over the readers at cycle n
               all_goals (try simp only [$[$rdSuccAll:ident],*])
+              $[$tS4:tactic]*
               $dupSimp:tactic
+              $[$tS5:tactic]*
               ($[$genLines:tactic]*)
-              $closers:tactic) $hLId => $stateThId
+              $[$tS6:tactic]*
+              $closers:tactic
+              $[$tS7:tactic]*) $hLId => $stateThId
+          $[$tX:tactic]*
           -- the output side: outSig against the packed projection, via
           -- the shallow output equation
           rw [$outSId:ident]
           all_goals (try simp only [$hLtId:ident])
+          $[$tO1:tactic]*
           $innerHLt:tactic
+          $[$tO2:tactic]*
           $dupSimp:tactic
+          $[$tO3:tactic]*
           ($[$genLines:tactic]*)
-          $closers:tactic))
+          $[$tO4:tactic]*
+          $closers:tactic
+          $[$tO5:tactic]*))
       let topProof : Lean.TSyntax `tactic ← do
         let alts ← topBlocks.toArray.mapM mkTopProof
         let mut alt : Lean.TSyntax `tactic := alts.back!
@@ -4745,6 +4802,13 @@ elab "#verify_elab_deep" id:ident : command =>
       let elabGenRw : Lean.TSyntax `tactic ← if hasMem then
           `(tactic| rw [← CdoM.elab_general $deepId $nmId (by decide) $inpS t])
         else `(tactic| rw [← Cdo.elab_general $deepId $nmId (by decide) $inpS t])
+      let tkA ← tk "capstone: begin (before rw elab_general)"
+      let tkB ← tk "capstone: rw elab_general done"
+      let tkC ← tk "capstone: congr 1 done"
+      let tkD ← tk "capstone: idUnfold/chainUnfold/projRw done"
+      let tkE ← tk "capstone: simp only [outFOf, sigval_*, outUnfold] done"
+      let tkF ← tk "capstone: appendFix done"
+      let tkG2 ← tk "capstone: topProof done (end of tactic block)"
       let thmCmd ← `(set_option maxRecDepth 65536 in
         set_option maxHeartbeats 1600000 in
         theorem $thId $paramBinders* (t : Nat) :
@@ -4753,8 +4817,11 @@ elab "#verify_elab_deep" id:ident : command =>
               (weOfC $nmId (fun j => ($ΓAllT).get j))
               (envOfC $nmId $irEnvT)
               (CExpr.compile $nmId $outT)).getD 0 := by
+        $[$tkA:tactic]*
         $elabGenRw:tactic
+        $[$tkB:tactic]*
         congr 1
+        $[$tkC:tactic]*
         -- the Signal-side bridge: f's runCircuitH loop against the deep
         -- spec recurrence, both through loop_trace.  For a struct
         -- output we unfold the function to expose runCircuitH, then push
@@ -4767,16 +4834,22 @@ elab "#verify_elab_deep" id:ident : command =>
         $idUnfold:tactic
         ($[$chainUnfold:tactic]*)
         $projRw:tactic
+        $[$tkD:tactic]*
         simp only [outFOf, mkHolds, Signal.map, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
           $[$outUnfoldIds:ident],*]
+        $[$tkE:tactic]*
         $appendFix:tactic
-        $topProof:tactic))
+        $[$tkF:tactic]*
+        $topProof:tactic
+        $[$tkG2:tactic]*))
       if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
         logInfo m!"{thmCmd}"
       if (← IO.getEnv "SPARKLE_DEEP_NOTHM").isSome then
         logInfo m!"#verify_elab_deep {declName}.{portName}: defs only (SPARKLE_DEEP_NOTHM)"
         return none
+      if tickOn then deepTrace fun _ => "#verify_elab_deep TICK capstone: elabSync begin"
       elabSync thmCmd
+      if tickOn then deepTrace fun _ => "#verify_elab_deep TICK capstone: elabSync end (kernel addDecl done)"
       -- H2d: the state of the nested loops of a circuit whose top state was exported
       if !hasMem && !nestedNodes.isEmpty then
         let stFull := (← getCurrNamespace) ++ stateThId.getId

@@ -344,7 +344,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     L := L.push s!"    rcases hx with {pat}"
     for k in kids do
       L := L.push s!"    · subst h; exact {k.nm.thm}.2.2.2.1"
-  L := L.push s!"  refine ⟨by {dk}, by {dk}, by {dk}, hS, by {dk}, hord, hch, {T2}.exists_arrHS _ _ hord hch hne, ?_⟩"
+  -- VED compose: `WidthStmt` has a quadratic `Nodup` / lookup over the wires; `widthFast` is one pass with name trees
+  let wFact := if di.compose && !di.noFastWidth then s!"Tools.VedCompose.widthFast_sound (by {dk})" else s!"by {dk}"
+  L := L.push s!"  refine ⟨by {dk}, by {dk}, by {dk}, hS, {wFact}, hord, hch, {T2}.exists_arrHS _ _ hord hch hne, ?_⟩"
   L := L.push s!"  intro arr hadm"
   L := L.push s!"  have hwr := {T2}.orderOkHS_hwr hOK hadm.1"
   L := L.push s!"  have htie : {P.contract}.clkRst = {T2}.designClkRst {P.design} {P.mod} := by decide"
@@ -908,13 +910,29 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   -- measurement only (`VED_COMPOSE_FACT_ONLY=old,fast,p1,..,p8`): the kernel time of each closed order fact alone, then stop
   if let some facts ← IO.getEnv "VED_COMPOSE_FACT_ONLY" then
     for f in facts.splitOn "," do
+      -- the four closed facts of the script's line-13 `refine` (`c1` CorrStmt, `c2` ShapeCore, `c3` clk/rst tie, `c4` WidthStmt, `c5` HierShapeS), as `decide .. = true`
+      let cprop? : Option Lean.Expr ← match f with
+        | "c1" => pure (some (mkApp (Lean.mkConst ``Tools.VedU1Contract.CorrStmt) (Lean.mkConst nm.contract)))
+        | "c2" => pure (some (mkAppN (Lean.mkConst ``Tools.VedU1Contract.ShapeCore) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod]))
+        | "c3" => do
+          let rhs := mkAppN (Lean.mkConst ``designClkRst) #[Lean.mkConst nm.design, Lean.mkConst nm.mod]
+          let lhs := mkApp (Lean.mkConst ``Tools.VedU1Contract.Contract.clkRst) (Lean.mkConst nm.contract)
+          pure (some (← mkEq lhs rhs))
+        | "c4" => pure (some (mkAppN (Lean.mkConst ``Tools.VedU1Contract.WidthStmt) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod]))
+        | "c5" => do pure (some (← mkEq (mkAppN (Lean.mkConst ``HierShapeS) #[Lean.mkConst nm.design, Lean.mkConst nm.mod]) (Lean.mkConst ``Bool.true)))
+        | _ => pure none
       let fn : Name := match f with
         | "old" => ``OrderOkHS
         | "fast" => ``Tools.VedCompose.OrderOkFast
         | _ => (`Tools.VedCompose).str ("ordP" ++ (f.drop 1).toString)
-      let lhs : Lean.Expr := if f == "perm" then
-          mkAppN (Lean.mkConst ``Tools.VedCompose.permOk) #[toExpr (Tools.VedCompose.permIdx m.body b0), toExpr m.body.length]
-        else mkAppN (Lean.mkConst fn) #[Lean.mkConst nm.design, Lean.mkConst nm.mod, Lean.mkConst nm.body]
+      let lhs : Lean.Expr ← match cprop? with
+        | some pr => Lean.Meta.mkDecide pr
+        | none =>
+          if f == "cw" then
+            pure (mkAppN (Lean.mkConst ``Tools.VedCompose.widthFast) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod])
+          else if f == "perm" then
+            pure (mkAppN (Lean.mkConst ``Tools.VedCompose.permOk) #[toExpr (Tools.VedCompose.permIdx m.body b0), toExpr m.body.length])
+          else pure (mkAppN (Lean.mkConst fn) #[Lean.mkConst nm.design, Lean.mkConst nm.mod, Lean.mkConst nm.body])
       let ty ← mkEq lhs (Lean.mkConst ``Bool.true)
       let val ← mkEqRefl (Lean.mkConst ``Bool.true)
       let t0 ← IO.monoMsNow
@@ -1143,7 +1161,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       if (← getEnv).contains n then
         if let some c ← dupTargetOf n then
           dups := dups ++ [(slot, c, deepC opn.openName (ptag ++ s!"_deep_dup_r{slot}"))]
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, perm := Tools.VedCompose.permIdx m.body p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome, noKernelDecide := (← IO.getEnv "VED_COMPOSE_NODK").isSome, noOkOnce := (← IO.getEnv "VED_COMPOSE_NOOKONCE").isSome, noFastOrder := (← IO.getEnv "VED_COMPOSE_NOFAST").isSome }
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, perm := Tools.VedCompose.permIdx m.body p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome, noKernelDecide := (← IO.getEnv "VED_COMPOSE_NODK").isSome, noOkOnce := (← IO.getEnv "VED_COMPOSE_NOOKONCE").isSome, noFastOrder := (← IO.getEnv "VED_COMPOSE_NOFAST").isSome, noFastWidth := (← IO.getEnv "VED_COMPOSE_NOFASTW").isSome }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU
