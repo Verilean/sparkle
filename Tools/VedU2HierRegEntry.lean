@@ -912,8 +912,10 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
         | "old" => ``OrderOkHS
         | "fast" => ``Tools.VedCompose.OrderOkFast
         | _ => (`Tools.VedCompose).str ("ordP" ++ (f.drop 1).toString)
-      let ty ← mkEq (mkAppN (Lean.mkConst fn) #[Lean.mkConst nm.design, Lean.mkConst nm.mod, Lean.mkConst nm.body])
-        (Lean.mkConst ``Bool.true)
+      let lhs : Lean.Expr := if f == "perm" then
+          mkAppN (Lean.mkConst ``Tools.VedCompose.permOk) #[toExpr (Tools.VedCompose.permIdx m.body b0), toExpr m.body.length]
+        else mkAppN (Lean.mkConst fn) #[Lean.mkConst nm.design, Lean.mkConst nm.mod, Lean.mkConst nm.body]
+      let ty ← mkEq lhs (Lean.mkConst ``Bool.true)
       let val ← mkEqRefl (Lean.mkConst ``Bool.true)
       let t0 ← IO.monoMsNow
       try
