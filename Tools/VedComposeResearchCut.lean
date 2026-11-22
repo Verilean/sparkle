@@ -556,8 +556,12 @@ theorem cone_connect (d : Design) (m : Module) (b0 : List Stmt)
 /-- **THE CONNECTION PROPOSITION WITH BUNDLE SLICES.**  As `cone_connect`, with the narrow normaliser `bn` applied to the
 inlined right-hand side before the comparison.  Closed facts: `hW` (`WOKb`), `hc` (`rfl`), `hl0` (every leaf of the INLINED
 expression is a cut point: the fuel sufficed and nothing but inputs, registers and instance outputs is read).  The range facts
-`hrange` (`E x < 2 ^ we x` on the cut points) are what the register invariant, the input contract and the child's output width
-supply; they are hypotheses of the per-cone obligation, not assumed done. -/
+`hrange` (`E x < 2 ^ we x`) are what the register invariant, the input contract and the child's output width supply; they are
+hypotheses of the per-cone obligation, not assumed done.  REVIEW FIX (P2-1): `hrange` is restricted to the NEEDED leaves, those
+read by the inlined expression (`refs (inl ..)`), not the whole `cutNames`.  The earlier form quantified over every cut name,
+including unread ones such as `clk` (declared width 0 in `parB`, so `E clk < 1` would force clock = 0, which the clock-universal
+input contract cannot supply); `Toy.ctl_clock_old_hrange` shows that form is refused at clock = 1 and
+`Toy.parB_connect_clock1` shows the restricted form applies at clock = 1. -/
 theorem cone_connect_bn (d : Design) (m : Module) (b0 : List Stmt)
     (Ow : (Nat → String → Nat) → String → Nat → Nat)
     (hwi : ∀ n ∈ wrsH d b0, n ∉ inNames m) (hri : ∀ n ∈ regOuts b0, n ∉ inNames m)
@@ -568,15 +572,16 @@ theorem cone_connect_bn (d : Design) (m : Module) (b0 : List Stmt)
     (hEin : ∀ x ∈ inNames m, E x = ins t x)
     (hEreg : ∀ r ∈ regOuts b0, E r = p r)
     (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
-    (hrange : ∀ x ∈ cutNames d m b0, E x < 2 ^ declWidth m x)
-    (n n2 : Nat) (e c : Expr) (hc : bn (declWidth m) n2 (inl (Atab m b0) n e) = c)
+    (n n2 : Nat) (e c : Expr)
+    (hrange : ∀ x ∈ refs (inl (Atab m b0) n e), E x < 2 ^ declWidth m x)
+    (hc : bn (declWidth m) n2 (inl (Atab m b0) n e) = c)
     (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) n e) = true) :
     evalExpr (declWidth m) E e = evalExpr (declWidth m) (leafEnv m b0 ins t p Ow) c := by
   have hWo := WOKb_sound _ _ _ hW
   have hs := inl_sound (declWidth m) E (Atab m b0)
     (fun l r h => ⟨hasg l r (by unfold Atab at h; split at h <;> simp_all), hWo l r h⟩) n e
   have hleaf := leafOk_sound _ _ hl0
-  have hb := bn_sound (declWidth m) E n2 (inl (Atab m b0) n e) (fun x hx => hrange x (hleaf x hx))
+  have hb := bn_sound (declWidth m) E n2 (inl (Atab m b0) n e) hrange
   subst hc
   rw [← hs.1, ← hb.1]
   apply eval_congr
@@ -728,11 +733,11 @@ theorem parB_connect0 (Ow : (Nat → String → Nat) → String → Nat → Nat)
     (hEin : ∀ x ∈ inNames parB, E x = ins t x)
     (hEreg : ∀ r ∈ regOuts parB.body, E r = p r)
     (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ parB.body → ∀ y ∈ instOuts dsg mn cs, E y = Ow ins y t)
-    (hrange : ∀ x ∈ cutNames dsg parB parB.body, E x < 2 ^ declWidth parB x) :
+    (hrange : ∀ x ∈ refs (inl (Atab parB parB.body) 20 (.ref "n0")), E x < 2 ^ declWidth parB x) :
     evalExpr (declWidth parB) E (.ref "n0")
       = evalExpr (declWidth parB) (leafEnv parB parB.body ins t p Ow) coneB0 :=
-  cone_connect_bn dsg parB parB.body Ow parB_hwi parB_hri parB_hwr parB_widths ins t p E hasg hEin hEreg hEorc hrange
-    20 20 _ _ parB_c0 parB_l0
+  cone_connect_bn dsg parB parB.body Ow parB_hwi parB_hri parB_hwr parB_widths ins t p E hasg hEin hEreg hEorc
+    20 20 _ _ hrange parB_c0 parB_l0
 
 /-- (5) a misaligned slice is NOT resolved: `bun[6:3]` spans two registers. -/
 def parC : Module :=
@@ -751,6 +756,42 @@ theorem ctl_range :
     evalExpr (fun _ => 4) (fun _ => 20) (.slice (.ref "x") 3 0) ≠ evalExpr (fun _ => 4) (fun _ => 20) (.ref "x") := by
   decide +kernel
 
+/-! ## Clock = 1 control (P2-1): the connection applies with every needed premise discharged -/
+
+/-- An environment with clock = 1 (`clk = 1`, `rst = 0`) satisfying every assignment of `parB` (4-bit wraparound is not hit). -/
+def envC : Env := fun n => match n with
+  | "x" => 2 | "clk" => 1 | "rst" => 0 | "r0" => 3 | "r1" => 5 | "bun" => 53 | "s0" => 3 | "sa" => 5 | "sb" => 5
+  | "o0" => 1 | "n0" => 4 | "n1" => 7 | "out" => 7 | _ => 0
+
+theorem envC_clock : envC "clk" = 1 := rfl
+
+theorem envC_hasg_all : parB.body.all (fun s => match s with
+    | .assign l r => evalExpr (declWidth parB) envC r == some (envC l)
+    | _ => true) = true := by decide +kernel
+
+theorem envC_hasg : ∀ l r, asgOf parB.body l = some r → evalExpr (declWidth parB) envC r = some (envC l) := by
+  intro l r h
+  have h3 := List.all_eq_true.mp envC_hasg_all _ (asgOf_mem h)
+  simpa using h3
+
+/-- the needed leaves of `n0` are in range at `envC` -/
+theorem envC_hrange :
+    ∀ x ∈ refs (inl (Atab parB parB.body) 20 (.ref "n0")), envC x < 2 ^ declWidth parB x := by decide +kernel
+
+/-- (7) the OLD whole-`cutNames` range hypothesis is unsatisfiable at clock = 1: `clk` has declared width 0. -/
+theorem ctl_clock_old_hrange : ¬ (∀ x ∈ cutNames dsg parB parB.body, envC x < 2 ^ declWidth parB x) := by
+  decide +kernel
+
+/-- **Clock = 1 control.**  The connection theorem applies at an environment with clock = 1: `hEin`, `hEreg`, `hEorc`, `hasg`
+and the needed-leaf `hrange` are all discharged, no free premise remains. -/
+theorem parB_connect_clock1 :
+    evalExpr (declWidth parB) envC (.ref "n0")
+      = evalExpr (declWidth parB) (leafEnv parB parB.body (fun _ n => envC n) 0 envC (fun _ y _ => envC y)) coneB0 := by
+  refine parB_connect0 (fun _ y _ => envC y) (fun _ n => envC n) 0 envC envC envC_hasg ?_ ?_ ?_ envC_hrange
+  · intro x _; rfl
+  · intro r _; rfl
+  · intro mn i cs _ y _; rfl
+
 end Tools.VedComposeResearch.Toy
 
 #print axioms Tools.VedComposeResearch.Toy.par_connect
@@ -763,3 +804,6 @@ end Tools.VedComposeResearch.Toy
 #print axioms Tools.VedComposeResearch.inl_sound
 #print axioms Tools.VedComposeResearch.Toy.ctl_misaligned
 #print axioms Tools.VedComposeResearch.Toy.ctl_range
+#print axioms Tools.VedComposeResearch.Toy.parB_connect_clock1
+#print axioms Tools.VedComposeResearch.Toy.ctl_clock_old_hrange
+#print axioms Tools.VedComposeResearch.Toy.envC_hasg
