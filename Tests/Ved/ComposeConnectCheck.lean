@@ -1,6 +1,7 @@
 import Tools.VedU2HierRegEntry
 import Tools.VedComposeConnectGen
 import Tests.Ved.ComposeCheckUtil
+import IP.Crypto.SHA512HW
 import Sparkle.Core.CircuitMonad
 import Sparkle.Core.CircuitDo
 
@@ -93,6 +94,57 @@ def multiSharedRef (start : Signal defaultDomain Bool) (inp : Signal defaultDoma
     b <~ Signal.mux start inp (bS + aS + k : Signal defaultDomain (BitVec 4))
     return bS
 
+/-! ## toyK: the real child `kMux` (an 80-entry mux chain), 64-bit registers in a right-nested bundle (compose7's generator, 4 registers) -/
+
+def toyK4 (start : Signal defaultDomain Bool) (inp : Signal defaultDomain (BitVec 64)) :
+    Signal defaultDomain (BitVec 64) :=
+  circuit do
+    let cnt ← Signal.reg 0#8
+    let r0 ← Signal.reg 0#64
+    let r1 ← Signal.reg 0#64
+    let r2 ← Signal.reg 0#64
+    let r3 ← Signal.reg 0#64
+    let cntSig := (cnt : Signal defaultDomain (BitVec 8))
+    let s0 := (r0 : Signal defaultDomain (BitVec 64))
+    let s1 := (r1 : Signal defaultDomain (BitVec 64))
+    let s2 := (r2 : Signal defaultDomain (BitVec 64))
+    let s3 := (r3 : Signal defaultDomain (BitVec 64))
+    let cnt7 := (cntSig.map (BitVec.extractLsb' 0 7 ·) : Signal defaultDomain (BitVec 7))
+    let p1_7 := (Signal.pure 1#7 : Signal defaultDomain (BitVec 7))
+    let kIdx := (cnt7 - p1_7 : Signal defaultDomain (BitVec 7))
+    let kVal := Sparkle.IP.Crypto.SHA512HW.kMux kIdx
+    cnt <~ (cntSig + (Signal.pure 1#8 : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8))
+    r0 <~ Signal.mux start inp (s0 + kVal : Signal defaultDomain (BitVec 64))
+    r1 <~ Signal.mux start inp s0
+    r2 <~ Signal.mux start inp s1
+    r3 <~ Signal.mux start inp s2
+    return s0
+
+/-- A copy for the control. -/
+def toyK4Ref (start : Signal defaultDomain Bool) (inp : Signal defaultDomain (BitVec 64)) :
+    Signal defaultDomain (BitVec 64) :=
+  circuit do
+    let cnt ← Signal.reg 0#8
+    let r0 ← Signal.reg 0#64
+    let r1 ← Signal.reg 0#64
+    let r2 ← Signal.reg 0#64
+    let r3 ← Signal.reg 0#64
+    let cntSig := (cnt : Signal defaultDomain (BitVec 8))
+    let s0 := (r0 : Signal defaultDomain (BitVec 64))
+    let s1 := (r1 : Signal defaultDomain (BitVec 64))
+    let s2 := (r2 : Signal defaultDomain (BitVec 64))
+    let s3 := (r3 : Signal defaultDomain (BitVec 64))
+    let cnt7 := (cntSig.map (BitVec.extractLsb' 0 7 ·) : Signal defaultDomain (BitVec 7))
+    let p1_7 := (Signal.pure 1#7 : Signal defaultDomain (BitVec 7))
+    let kIdx := (cnt7 - p1_7 : Signal defaultDomain (BitVec 7))
+    let kVal := Sparkle.IP.Crypto.SHA512HW.kMux kIdx
+    cnt <~ (cntSig + (Signal.pure 1#8 : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8))
+    r0 <~ Signal.mux start inp (s0 + kVal : Signal defaultDomain (BitVec 64))
+    r1 <~ Signal.mux start inp s0
+    r2 <~ Signal.mux start inp s1
+    r3 <~ Signal.mux start inp s2
+    return s0
+
 /-! ## Helpers -/
 
 /-- How many distinct (maximal) application sites of the constant `c` the term has. -/
@@ -161,6 +213,13 @@ set_option ved.compose.step true in
 set_option ved.compose.connect true in
 run_cmd checkRow ``multiShared `Tests.Ved.ComposeConnectCheck.multiShared.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1 3
 
+-- toyK4: real child kMux, 64-bit registers (cnt + 4 registers = 5 `reg_connect` sites).
+/-- info: compose connect OK: 5 registers by reg_connect, 1 port by out_connect, child theorem Tests.Ved.ComposeConnectCheck.toyK4.ved_child.Sparkle.IP.Crypto.SHA512HW.kMux.ved_u1, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+run_cmd checkRow ``toyK4 `Tests.Ved.ComposeConnectCheck.toyK4.ved_child.Sparkle.IP.Crypto.SHA512HW.kMux.ved_u1 5
+
 /-! ## Controls (entry level): ONE piece altered, refused at a named stage, nothing left -/
 
 /- Names in the synthesised `multiTwoRef`: parent registers `_tmp_a_4` (cnt) and `_tmp_a_15` (acc), their input nets
@@ -221,13 +280,19 @@ def controls : CommandElabM Unit := do
   expectRefusedT name "hier-shape" "clock/reset" { m with body := mapRegs (fun o s => if o == "_tmp_a_15" then
       (match s with | .register o' k (_, rk) e i => .register o' k ("_gen_start", rk) e i | s => s) else s) m.body } d noT
 
-/-- info: compose connect controls (entry level): 7 refused -/
+/-- info: compose connect controls (entry level): 7 refused
+---
+info: compose connect toyK4 control: refused -/
 #guard_msgs in
 set_option ved.compose.step true in
 set_option ved.compose.connect true in
 run_cmd do
   controls
   logInfo m!"compose connect controls (entry level): 7 refused"
+  -- toyK4 (real child, 64-bit registers): every register starts at 5, the declaration's loop at 0
+  let (mK, dK) ← synthOf ``toyK4Ref
+  expectRefusedT ``toyK4Ref "proof" "?" { mK with body := mapRegs (fun _ s => setInit 5 s) mK.body } dK (fun p => pure p)
+  logInfo m!"compose connect toyK4 control: refused"
 
 /-! ## Controls of the connection equation itself, evaluated by the KERNEL on the accepted `multiTwo` -/
 
@@ -266,8 +331,23 @@ def eqnControls : CommandElabM Unit := liftTermElabM do
   let tw2 := s!"Tools.VedComposeConnect.tabW ([4, 4] ++ [1, 4, 4, 4]) (Tools.VedU1Contract.declWidth {M}.ved_mod) ([(\"_tmp_a_4\", 0)] : List (String × Nat)) {cone}"
   if ← kernelEqual (← elabText tw2) (toExpr true) then throwError "tabW accepts a cone with a leaf outside the table"
   logInfo m!"compose connect equation controls: 1 accepted, 4 refused by the kernel"
+  -- the batched check `RegsOk` (all register slots at once): the real table and inputs -> true; oracle slots swapped, input wires
+  -- exchanged -> false
+  let deep := s!"{M}.ved_open_Tests_Ved_ComposeConnectCheck_multiTwo_deep"
+  let needed := "([\"_tmp_a_4\", \"_tmp_a_15\", \"_gen_start\", \"_gen_inp\", \"_tmp_op_b_9\", \"_gen_k1\", \"_tmp_op_b_12\", \"_gen_k2\"] : List String)"
+  let regsOk (o0 o1 : Nat) (xs : String) :=
+    s!"Tools.VedComposeConnect.RegsOk {deep} {nm} {M}.ved_design {M}.ved_mod {M}.ved_body {needed} {tabTxt o0 o1} 28 28 28 ([{xs}] : List String)"
+  unless ← kernelEqual (← elabText (regsOk 4 5 "\"_tmp_reg_input_3\", \"_tmp_reg_input_14\"")) (toExpr true) do
+    throwError "control void: RegsOk rejects the real table"
+  if ← kernelEqual (← elabText (regsOk 5 4 "\"_tmp_reg_input_3\", \"_tmp_reg_input_14\"")) (toExpr true) then
+    throwError "RegsOk accepts swapped oracle slots"
+  if ← kernelEqual (← elabText (regsOk 4 5 "\"_tmp_reg_input_14\", \"_tmp_reg_input_3\"")) (toExpr true) then
+    throwError "RegsOk accepts exchanged register input wires"
+  logInfo m!"compose connect batch controls: 1 accepted, 2 refused by the kernel"
 
-/-- info: compose connect equation controls: 1 accepted, 4 refused by the kernel -/
+/-- info: compose connect equation controls: 1 accepted, 4 refused by the kernel
+---
+info: compose connect batch controls: 1 accepted, 2 refused by the kernel -/
 #guard_msgs in
 run_cmd eqnControls
 
