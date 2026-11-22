@@ -2,6 +2,7 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import Tools.VedMemEntry
 import Tools.VedMemLoop
+import Tools.VedMemS94Fix
 import Tools.VedMemPack
 
 /-!
@@ -1360,6 +1361,32 @@ def hsN {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Sign
 def hsO {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
 
+def hsP {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def hsQ {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def hsR {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def hsS {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def noIteCongrHitsCheck (atLeast : Bool) : CommandElabM Unit := do
+  let n ← Tools.VedMemS94Fix.noIteCongrHits.get
+  if atLeast then
+    unless n ≥ 1 do throwError "noIteCongrHits: {n}, expected at least 1"
+    logInfo m!"the stage-94 simp ran without ite_congr"
+  else
+    unless n == 0 do throwError "noIteCongrHits: {n}, expected 0"
+    logInfo m!"the stage-94 simp ran with ite_congr"
+
+/-- info: s94NoIteCongr default false -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"s94NoIteCongr default {Tools.VedMemS94Fix.ved.mem.s94NoIteCongr.get (← getOptions)}"
+
 def loopAtomHitsCheck (atLeast : Bool) : CommandElabM Unit := do
   let (g, a, _) ← Tools.VedMemLoop.loopAtomHits.get
   if atLeast then
@@ -1648,5 +1675,93 @@ run_cmd loopAtomHitsCheck false
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsO -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedPackedOk ``hsO
+
+
+-- (13) hstepNorm ON and s94NoIteCongr ON, packed: the stage-94 simp runs without ite_congr, the proof is accepted, the stored type is exact
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemS94Fix.noIteCongrHits.set 0
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94NoIteCongr true in
+#ved_u1_mem_packed hsP
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: the stage-94 simp ran without ite_congr -/
+#guard_msgs in
+run_cmd noIteCongrHitsCheck true
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsP -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsP
+
+-- (13b) s94NoIteCongr OFF (hstepNorm ON): accepted, ite_congr was in use
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemS94Fix.noIteCongrHits.set 0
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+#ved_u1_mem_packed hsQ
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: the stage-94 simp ran with ite_congr -/
+#guard_msgs in
+run_cmd noIteCongrHitsCheck false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsQ -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsQ
+
+-- (13c) s94NoIteCongr ON, the wrapper refuses (test seam `noIteCongrRefuse`): the old simp is the fallback, accepted, counter 0
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemS94Fix.noIteCongrHits.set 0
+run_cmd Tools.VedMemS94Fix.noIteCongrRefuse.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94NoIteCongr true in
+#ved_u1_mem_packed hsR
+run_cmd Tools.VedMemS94Fix.noIteCongrRefuse.set false
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: the stage-94 simp ran with ite_congr -/
+#guard_msgs in
+run_cmd noIteCongrHitsCheck false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsR -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsR
+
+-- (13d) s94NoIteCongr ON, the wrapper fails after its inner simp (test seam `noIteCongrFailLate`): entry put back, old simp, accepted, counter 0
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemS94Fix.noIteCongrHits.set 0
+run_cmd Tools.VedMemS94Fix.noIteCongrFailLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94NoIteCongr true in
+#ved_u1_mem_packed hsS
+run_cmd Tools.VedMemS94Fix.noIteCongrFailLate.set false
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: the stage-94 simp ran with ite_congr -/
+#guard_msgs in
+run_cmd noIteCongrHitsCheck false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsS -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsS
 
 end Tests.Ved.VedMemCloseCheck
