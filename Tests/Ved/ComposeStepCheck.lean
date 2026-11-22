@@ -165,4 +165,43 @@ run_cmd do
   controls
   logInfo m!"compose step controls: 6 refused"
 
+/-! ## Controls of the fast order check (`Tools/VedComposeOrder.lean`), evaluated by the KERNEL -/
+
+/-- The kernel (not the elaborator) evaluates `e` to `expect`. -/
+def kernelIs (what : String) (e : Lean.Expr) (expect : Bool) : CommandElabM Unit := liftTermElabM do
+  match Lean.Kernel.isDefEq (← getEnv) {} e (toExpr expect) with
+  | .ok true => pure ()
+  | .ok false => throwError "{what}: the kernel evaluates it to {!expect}, expected {expect}"
+  | .error _ => throwError "{what}: kernel error"
+
+def orderControls : CommandElabM Unit := do
+  let (m, d) ← synthOf ``cmpThreeRef
+  let b0 := orderBodyH d m.body
+  let fast (b : List Stmt) : Lean.Expr :=
+    mkAppN (Lean.mkConst ``Tools.VedCompose.OrderOkFast) #[toExpr d, toExpr m, toExpr b]
+  let perm (σ : List Nat) (n : Nat) : Lean.Expr :=
+    mkAppN (Lean.mkConst ``Tools.VedCompose.permOk) #[toExpr σ, toExpr n]
+  -- the checked arrangement is accepted, by both checks, and the certificate is the one the generator computes
+  unless OrderOkHS d m b0 do throwError "the ordered body is not accepted by OrderOkHS"
+  kernelIs "OrderOkFast (ordered body)" (fast b0) true
+  kernelIs "permOk (generator's indices)" (perm (Tools.VedCompose.permIdx m.body b0) m.body.length) true
+  -- a MIS-ORDERED body (a register's reads after the wires: the whole body reversed, so a wire is read before it is written)
+  let bad := b0.reverse
+  if OrderOkHS d m bad then throwError "the reversed body is accepted by OrderOkHS (control is void)"
+  kernelIs "OrderOkFast (reversed body)" (fast bad) false
+  -- a write that is twice in the body (a duplicate statement): both checks reject it
+  let dup := b0 ++ b0.take 1
+  kernelIs "OrderOkFast (duplicated statement)" (fast dup) false
+  -- the permutation certificate: a repeated index, an index out of range, a missing index
+  let σ := Tools.VedCompose.permIdx m.body b0
+  kernelIs "permOk (repeated index)" (perm (σ ++ σ.take 1) m.body.length) false
+  kernelIs "permOk (index out of range)" (perm (σ.dropLast ++ [m.body.length]) m.body.length) false
+  kernelIs "permOk (missing index)" (perm σ.dropLast m.body.length) false
+
+/-- info: compose order controls: accepted, 6 rejected -/
+#guard_msgs in
+run_cmd do
+  orderControls
+  logInfo m!"compose order controls: accepted, 6 rejected"
+
 end Tests.Ved.ComposeStepCheck
