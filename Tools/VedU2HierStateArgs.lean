@@ -38,6 +38,8 @@ structure DeepInfo where
   noShare : Bool := false
   /-- measurement only (`VED_COMPOSE_NOHOIST`): keep the instance-independent prelude in every instance's block -/
   noHoist : Bool := false
+  /-- measurement only (`VED_COMPOSE_NODK`): the shape facts by `decide`, not `decide +kernel` -/
+  noKernelDecide : Bool := false
 
 /-- The spellings the lines use. -/
 structure Sp where

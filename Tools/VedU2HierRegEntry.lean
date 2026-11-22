@@ -308,10 +308,13 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let irS := toString (userName (opn.openName ++ `ved_irS))
   let k := di.regWs.length
   let mut L : Array String := #[]
-  L := L.push s!"  have hS : {T2}.HierShapeS {P.design} {P.mod} = true := by decide"
+  -- VED compose (option `ved.compose.step`): the shape facts (closed Bool checks) are decided by the kernel (`decide +kernel`:
+  -- the kernel evaluates the instance; no `native_decide`, no `ofReduceBool`) instead of the elaborator's `whnf`
+  let dk := if di.compose && !di.noKernelDecide then "decide +kernel" else "decide"
+  L := L.push s!"  have hS : {T2}.HierShapeS {P.design} {P.mod} = true := by {dk}"
   L := L.push s!"  have hne := {T2}.hierS_ne hS"
-  L := L.push s!"  have hord : {T2}.OrderHS {P.design} {P.mod} := ⟨{P.body}, by decide⟩"
-  L := L.push s!"  have hOK : {T2}.OrderOkHS {P.design} {P.mod} {P.body} = true := by decide"
+  L := L.push s!"  have hord : {T2}.OrderHS {P.design} {P.mod} := ⟨{P.body}, by {dk}⟩"
+  L := L.push s!"  have hOK : {T2}.OrderOkHS {P.design} {P.mod} {P.body} = true := by {dk}"
   L := L.push s!"  have hb0 := {T2}.orderOkHS_sound hOK"
   let modsList := "[" ++ ", ".intercalate (kids.map fun k => s!"{k.nm.mod}") ++ "]"
   L := L.push s!"  have hmods : {P.design}.modules = {modsList} := by decide"
@@ -329,7 +332,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     L := L.push s!"    rcases hx with {pat}"
     for k in kids do
       L := L.push s!"    · subst h; exact {k.nm.thm}.2.2.2.1"
-  L := L.push s!"  refine ⟨by decide, by decide, by decide, hS, by decide, hord, hch, {T2}.exists_arrHS _ _ hord hch hne, ?_⟩"
+  L := L.push s!"  refine ⟨by {dk}, by {dk}, by {dk}, hS, by {dk}, hord, hch, {T2}.exists_arrHS _ _ hord hch hne, ?_⟩"
   L := L.push s!"  intro arr hadm"
   L := L.push s!"  have hwr := {T2}.orderOkHS_hwr hOK hadm.1"
   L := L.push s!"  have htie : {P.contract}.clkRst = {T2}.designClkRst {P.design} {P.mod} := by decide"
@@ -1097,7 +1100,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       if (← getEnv).contains n then
         if let some c ← dupTargetOf n then
           dups := dups ++ [(slot, c, deepC opn.openName (ptag ++ s!"_deep_dup_r{slot}"))]
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome }
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome, noKernelDecide := (← IO.getEnv "VED_COMPOSE_NODK").isSome }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU
@@ -1153,7 +1156,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     let ls := text.splitOn "\n"
     let out := ls.zipIdx.flatMap fun (l, i) =>
       let tr := l.trimLeft
-      if i > 0 && marks.any (tr.startsWith ·) then
+      if i > 0 && (marks.any (tr.startsWith ·) || (i < 45 && (tr.startsWith "have " || tr.startsWith "refine"))) then
         [String.mk (List.replicate (l.length - tr.length) ' ') ++ s!"ved_tick \"{i + 1}\"", l]
       else [l]
     pure ("\n".intercalate out)
