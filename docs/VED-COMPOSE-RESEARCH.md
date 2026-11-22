@@ -11,9 +11,10 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
    (`WOH`/`OrderOkHS`, now `OrderOkFast`).  What it lacks is not the cut: it is a kernel statement that the RETURNED statement list,
    read from the cut leaves, computes the cone that the open parent's deep run was proved about.  ACL2 never needs that statement
    because (my reading of the sources, not a quoted claim) the object that is simulated and the object that is proved about are the same `svex-alist`; Kami never needs it
-   because widths are in the Coq types and inlining is a verified function (Thm 5.5).
+   because (inference from the paper, an analogy) widths are in the Coq types and inlining is a verified function (Thm 5.5).
 2. That statement is small to *state* and to PROVE for the inlining and bundle-slice parts (`cone_connect`, `cone_connect_bn`,
-   type-checked and PROVED, prototype below; the remaining piece is the slot renaming with its width transfer), but it exposes
+   type-checked and PROVED, prototype below; the remaining pieces are the slot renaming with its width transfer and the mechanical link to the deep literals; `cone_connect_bn`'s
+   range premise is restricted to the leaves actually read, see §4(a)), but it exposes
    type/semantics mismatches that the 600-1000-line estimate did not list: (M1) inlining is NOT sound in the IR semantics
    unless the assignments are width-consistent (`widthOf` reads the syntax); (M2) bundle slices (`slice (concat ..)`) remain
    after inlining on the real synthesiser output; (M3) the cone literal's slot names differ from the returned module's names;
@@ -23,12 +24,14 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
    inputs equal the deep route's cone literals (`_deep_fidelity_r0/r1`) under a slot renaming, by a closed `rfl` (literal typed
    by hand from the printed theorem type: not machine-linked yet).
 4. The stage it can shorten is the parent `hstep` (per-cone closers) only.  The R193 table says the run does not reach `hstep`;
-   74-76 % of the time is before the parent proof (child 231 s, deep run 442 s) and the first unmet stage is the closed shape
-   facts (>= 185 s).  So the cone check is NOT the next thing for R193; it is the right thing AFTER the closed facts are cut.
+   74-76 % of the time is before the parent proof (child 231 s, deep run 442 s).  HYPOTHESIS (not established): the first unmet
+   stage is the closed shape facts (>= 185 s unfinished; which of the four facts is slow, and whether String compares are the
+   cause, was not measured).  If that hypothesis holds the cone check is not the next thing for R193; it would come after the
+   closed facts are cut.
 5. Recommendation: **adopt** (b) with the keyed closed facts as the next R193 unit (other worker's files); **hold** (a) the
    cone check, with an explicit next unit (below) whose first acceptance is a machine-linked match on `multiTwo`/`multiShared`;
-   **drop** the cone-of-influence/partition idea (c) for instances (it cannot prune instance proofs because `fold_oracle` needs
-   every instance output).
+   **do not pursue** the cone-of-influence/partition idea (c) for instances without changing the current `fold_oracle` (it needs
+   every instance output, so it cannot prune instance proofs as is); register-side COI stays on HOLD (not rejected).
 6. External solver success is not used anywhere; EQY is background from memory only (section 5, route c).
 
 ## 1. Sources: statements, hypotheses, generic vs per design, trust boundary
@@ -86,7 +89,9 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
   construction, N instances of one module share one child theorem and N state slices; Kami has no reset or time (atomic rules),
   Sparkle has the synchronous `rst` of `regNexts` and the contract `InputsOk` (reset = 0); Kami widths are `Bit n` types, so
   "widths" are free there and are exactly what Sparkle must re-establish (M1); Kami's existential on the spec trace is
-  replaced here by an equation with a deterministic declaration, so Thm 5.4(2) specialises to "oracle = the child's output".
+  replaced here by an equation with a deterministic declaration.  SEPARATION: the correspondence above is an ANALOGY (my reading
+  of the paper); nothing in Lean here instantiates Kami's Thm 5.4.  What is PROVED is Sparkle's own `fold_oracle` /
+  `outputsOnHS_of_stepRK` / `step_local` (oracle = the child's output), of which Thm 5.4(2) is only the conceptual counterpart.
 
 ### 1.3 Sparkle, as it stands (all at bbd88dd0)
 
@@ -110,6 +115,9 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
   slices.
 
 ## 2. Mapping table: published notion → Sparkle
+
+(Analogy table.  "EXISTS" means the Sparkle theorem/definition exists and is proved on its own; it does NOT mean it is an instance of
+the published theorem named in the first column.)
 
 | published notion | Sparkle counterpart | Lean type it needs / status |
 |---|---|---|
@@ -147,7 +155,8 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
   instance↔call pairing) or the entry passes the returned names as `nm` to `CExpr.compile`.
 * **M4.**  Cost: the lookup `asgOf b l` is a `String` scan.  Observed (scratch/runs/4100, 4200, chain of N assigns, one cone of depth N,
   baseline file 13.3-13.7 s): N=100 +1.7 s, N=200 +11 s (single runs).  R193: 349 statements and next-arms syntax of 107,095 characters
-  (compose5, reify stage), i.e. of the order of 10^5 cone nodes and lookups: it needs the `nameKey` byte-key tree (`VedComposeOrder`), not `asgOf`.
+  (compose5, reify stage).  A character count is NOT a cone node count; the number of cone nodes and lookups at R193 was not measured.
+  Inference: lookups at that size are likely too many for the `asgOf` scan, so the `nameKey` byte-key tree (`VedComposeOrder`) is the candidate.
 * **M5.**  Cones carry no reset/init (`Cdo` has `inits`, no `rst`); `regNexts` has `if E rst ≠ 0 then init`.  `hloc` must still
   discharge the reset branch from `InputsOk` (reset = 0).  Unchanged by the cone check.
 * **M6.**  Instance ARGUMENT nets (`hkid`, O4) are not cones of the open parent: the deep run reifies registers and the port, not the
@@ -164,8 +173,14 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
   literal at the LEAF valuation (cycle inputs, pre-state, oracle `Ow`), which is the valuation the deep trace evaluates its cones at;
   `hc` and `hW`, `hl` are closed facts for the kernel (`rfl`, `decide +kernel`).  With bundle slices (M2), also PROVED:
   `theorem bn_sound (we E) : ∀ n e, (∀ x ∈ refs e, E x < 2 ^ we x) → evalExpr we E (bn we n e) = evalExpr we E e ∧ widthOf we (bn we n e) = widthOf we e`
-  `theorem cone_connect_bn … (hrange : ∀ x ∈ cutNames d m b0, E x < 2 ^ declWidth m x) (hc : bn (declWidth m) n2 (inl (Atab m b0) n e) = c) (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) n e) = true) : evalExpr (declWidth m) E e = evalExpr (declWidth m) (leafEnv m b0 ins t p Ow) c`
+  `theorem cone_connect_bn … (hrange : ∀ x ∈ refs (inl (Atab m b0) n e), E x < 2 ^ declWidth m x) (hc : bn (declWidth m) n2 (inl (Atab m b0) n e) = c) (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) n e) = true) : evalExpr (declWidth m) E e = evalExpr (declWidth m) (leafEnv m b0 ins t p Ow) c`
   `hrange` (register invariant, input contract, child output width) is an obligation of the per-cone step, not assumed done.
+  REVIEW FIX: it is restricted to the NEEDED leaves (those the inlined expression reads).  The first version quantified over all of
+  `cutNames`, which includes unread names such as `clk`; in `parB`, `declWidth clk = 0`, so `hEin` + that `hrange` would demand
+  `clock < 1`, which the clock-universal `InputsOk` cannot supply.  Now PROVED and controlled: `ctl_clock_old_hrange` (the old form is
+  refuted at `envC`, clock = 1) and `parB_connect_clock1` (the connection applies at clock = 1 with `hasg`, `hEin`, `hEreg`, `hEorc`
+  and the needed-leaf `hrange` all discharged, no free premise).  Remaining obstacle: supplying the needed-leaf range from the register
+  invariant / input contract / child width in a real row is still an obligation (§7).
   Still to state and prove: `ren_sound` for the slot renaming (M3) including the transfer from the returned module's width
   function to `weOfC nm widths` — see section 7 (or avoid it by passing the returned names as `nm`).
 * (ii) Obligations: O1 done (plus the new width condition); O2 reduced from "general normaliser" to aligned bundle slices over
@@ -189,8 +204,8 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
   is needed to STATE it.  The recommended addition is not a theorem but the compose5 lesson applied to the closed shape facts.
 * (ii) Obligations: none of O1-O3 (the facts are proved per cone, as now); O4/O5 as now.
 * (iii) Stage: the closed shape facts (`refine ⟨by decide +kernel ×4, …⟩`, >= 185 s unfinished at R193), by replacing String
-  compares by byte keys exactly as `OrderOkFast` did (hOK: ESTIMATED ~285 s for the old check, 10.6 s measured for the new one: ratio ~27, difference ~275 s, the old figure is an
-  extrapolation, not a measurement);
+  compares by byte keys exactly as `OrderOkFast` did (hOK: ~285 s for the old check is an ESTIMATE (extrapolation, not measured);
+  10.6 s was measured for the new one; the ratio ~27 and difference ~275 s are therefore estimates too);
   `WidthStmt` contains `(m.wires.map (·.name)).Nodup` (Tools/VedU1Contract.lean:345), a quadratic String scan, and `declWidth`
   is a `find?` over `m.wires`.  Which of the four facts is slow was NOT measured.
 * (iv) Benefit up to ~185 s+ at R193; cost small (one unit, like `OrderOkFast`); failure: the slow fact is not String-bound.
@@ -218,13 +233,15 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
   `Tools.VedComposeResearch.Toy`): toy 1 `par`: a register and TWO instances of the same child `kid` (the second reads the first's
   output), accepted (`par_widths`, `par_cone`, `par_out_cone`, `par_leaves`, `par_connect`); toy 2 `parB`: two registers read through
   a bundle `concat` and `slice`/`slice∘slice` (the shape of the real output), one instance, accepted (`parB_widths`, `parB_c0`,
-  `parB_c1`, `parB_l0`, `parB_l1`, `parB_connect0`).
+  `parB_c1`, `parB_l0`, `parB_l1`, `parB_connect0` (needed-leaf `hrange`)), and the clock = 1 control (`envC`, `envC_hasg`, `envC_hrange`,
+  `ctl_clock_old_hrange`, `parB_connect_clock1`).
 * Same artifact / contract: `cone_connect` takes exactly the hypotheses `step_local` hands to `hloc` (`hasg hEin hEreg hEorc`)
   and its conclusion is the per-cone value fact `hloc` needs; no statement (`U2HRStmt`, `U1Stmt`, `MemStmt`) and no existing file is
   changed; no new hypothesis in any final statement.  It is NOT yet wired into an entry (that is O5).
 * Axioms (observed, `#print axioms` in the file): `cone_connect`, `par_connect`: `[propext, Quot.sound]`; `ctl_swap`:
   `[propext, Classical.choice, Quot.sound]`; `cone_connect_bn`, `bn_sound`, `parB_connect0`: `[propext, Quot.sound]`; `inl_sound`,
-  `ctl_misaligned`, `ctl_range`: `[propext]` (run 69).  No `sorry`, no `native_decide`, no new axiom (grep on the file: none).
+  `ctl_misaligned`, `ctl_range`: `[propext]` (run 69); after the review fix (unit 2, run 11): `parB_connect_clock1`, `envC_hasg`:
+  `[propext, Quot.sound]`, `ctl_clock_old_hrange`: `[propext]`.  No `sorry`, no `native_decide`, no new axiom (grep on the file: none).
 * Refused controls (kernel-evaluated, run 57): (1) mis-wiring: `inl … ≠ coneSwap` (the two oracle wires swapped, instance i0 paired
   with i1's call); (2) independence faking: a cone that stops at the computed wire `w2` — the equation `inl A 2 w3 = coneFake` HOLDS
   (`ctl_fake_eq`) and `leafOk … coneFake = false` (`ctl_fake_leaf`): the transparency/leaf condition is what refuses it;
@@ -241,18 +258,25 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
   (multiTwo, multiShared, multiKids) and `Tests.Ved.U2HierWireCheck` (wireMix, wireOrd, wireShared, wireTwo, wireRn, wireAdd) —
   with output ports excluded; with them included it is false for all nine (run 54); the offenders listed for `multiTwo` and `wireAdd` (run 55) are only the
   wire `out` (widths 4 and 8 vs declared 0).  On `multiTwo.ved_mod`, `bn (inl A 300 (register input)) = ren ρ literal` holds by closed `rfl` for both registers
-  (run 64), where `bn` resolves aligned bundle slices (soundness NOT yet proved) and `literal` is typed from the printed
+  (run 64), where `bn` resolves aligned bundle slices (soundness PROVED: `bn_sound`, given range facts on the leaves) and `literal` is typed from the printed
   `_deep_fidelity_r0/r1` types (NOT machine-linked yet).
 
 ## 6. Decisions
 
 | route | decision | reason |
 |---|---|---|
-| (b) local proofs + keyed closed facts | ADOPT as the next R193 unit (not this worker's files) | the first unmet R193 stage is the closed facts (>= 185 s), a measured quadratic-String cost class with a proven fix (hOK 285 s → 10.6 s); the cone check cannot help until that is passed |
+| (b) local proofs + keyed closed facts | ADOPT as the next R193 unit (not this worker's files) | HYPOTHESIS: the first unmet R193 stage is the closed facts (>= 185 s unfinished; cause not established), a candidate quadratic-String cost class whose analogue (`OrderOkFast`: ~285 s estimated → 10.6 s measured) is encouraging; the cone check cannot help until that stage is passed.  Verify first by the tick in §4(b)(v) |
 | (a) returned-IR cone check | HOLD, next small unit below | connection statement proved and controlled; two mismatches (M2, M3) have observed real-shape answers; shortens only `hstep`, which R193 does not reach yet |
-| (c) COI partition | DROP for instances, HOLD for registers | `fold_oracle` needs all instance outputs; the register fan-in is unmeasured |
+| (c) COI partition | NOT PURSUED for instances without changing the current `fold_oracle`; registers HOLD (not rejected) | `fold_oracle` needs all instance outputs; the register fan-in is unmeasured |
 
 ## 7. Next small unit (2-3 h) and its acceptance
+
+The next (a) prototype must state explicitly three things: (W) WIDTH TRANSPORT: the transfer from the returned module's width
+function (`declWidth m`) to the width environment of the deep cone literal (`weOfC nm widths`) on the leaves; (R) NEEDED-LEAF RANGE:
+the range premise `E x < 2 ^ declWidth m x` for exactly the leaves the inlined cone reads (not all cut names; the clock-universal
+contract must supply it), derived from the register invariant, the input contract and the child's output width; (F) MECHANICAL
+FIDELITY CONNECTION: the match between the normalised returned cone and the deep `_deep_fidelity_r` literal obtained from the
+theorem type by machine, not typed by hand.
 
 "Cone check on the real shapes": in a new file (no shared edits) (1) define the byte-key table `Atab` on top of `VedComposeOrder`'s
 `nameKey`/`NTree` and prove it agrees with `Atab` above (the cone theorems then apply unchanged); (2) prove `ren_sound` (renaming of
@@ -261,7 +285,7 @@ leaves plus width transfer to `weOfC nm widths`), or have the entry pass the ret
 `Tests.Ved.U2HierMultiCheck.multiTwo` and `multiShared`, `bn (inl A n input_r) = ren ρ (literal of the type of `_deep_fidelity_r`)` with
 the literal obtained from the theorem's type by `Lean.Meta`/`type_of%`, not typed by hand; (4) controls as in section 5 plus a
 mis-paired renaming `ρ` (refused).  Acceptance: kernel-accepted, std3 axioms, all registers of both toys match, the three controls
-refused, and a keyed-lookup microbenchmark at 349 synthetic statements / ~10^5 cone nodes under 20 s (report ratio and absolute
+refused, and a keyed-lookup microbenchmark at 349 synthetic statements with a stated synthetic cone-node count (the R193 node count is not measured) under 20 s (report ratio and absolute
 difference against the `asgOf` scan).  Stop: any register of either toy not matching after the three rules.
 
 ## 8. Commits
