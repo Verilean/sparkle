@@ -4701,55 +4701,55 @@ elab "#verify_elab_deep" id:ident : command =>
           generalize $hLId : Signal.loop (loopFOf
             (dom := Sparkle.Core.Domain.defaultDomain)
             (αs := [$topTys,*]) (ρ := $retTyStx) _ _) = $LId
-          $[$tG:tactic]*
+          ($[$tG:tactic]*)
           ved_have_export $hLtId : (∀ ($uId : Nat), ($LId).val $uId = $packU) := (
             intro $uId:ident
             rw [← $hLId:ident]
             refine loop_trace_at _ (fun $sId => $packS) ?_ $uId
             intro $uId:ident $preId:ident $hpreId:ident
-            $[$tR:tactic]*
+            ($[$tR:tactic]*)
             cases $uId:ident with
             | zero =>
               $st1z:tactic
-              $[$tZ1:tactic]*
+              ($[$tZ1:tactic]*)
               $appendFix:tactic
-              $[$tZ2:tactic]*
+              ($[$tZ2:tactic]*)
               -- stage 2: the spec side is the readers at cycle 0
               all_goals (try simp only [$[$rdZeroAll:ident],*])
-              $[$tZ3:tactic]*
+              ($[$tZ3:tactic]*)
               $closers:tactic
-              $[$tZ4:tactic]*
+              ($[$tZ4:tactic]*)
             | succ $nId =>
               $st1s:tactic
-              $[$tS1:tactic]*
+              ($[$tS1:tactic]*)
               $appendFix:tactic
-              $[$tS2:tactic]*
+              ($[$tS2:tactic]*)
               $innerHpre:tactic
-              $[$tS3:tactic]*
+              ($[$tS3:tactic]*)
               -- stage 2: one step of the spec recurrence, as the shallow
               -- literal-width expressions over the readers at cycle n
               all_goals (try simp only [$[$rdSuccAll:ident],*])
-              $[$tS4:tactic]*
+              ($[$tS4:tactic]*)
               $dupSimp:tactic
-              $[$tS5:tactic]*
+              ($[$tS5:tactic]*)
               ($[$genLines:tactic]*)
-              $[$tS6:tactic]*
+              ($[$tS6:tactic]*)
               $closers:tactic
-              $[$tS7:tactic]*) $hLId => $stateThId
-          $[$tX:tactic]*
+              ($[$tS7:tactic]*)) $hLId => $stateThId
+          ($[$tX:tactic]*)
           -- the output side: outSig against the packed projection, via
           -- the shallow output equation
           rw [$outSId:ident]
           all_goals (try simp only [$hLtId:ident])
-          $[$tO1:tactic]*
+          ($[$tO1:tactic]*)
           $innerHLt:tactic
-          $[$tO2:tactic]*
+          ($[$tO2:tactic]*)
           $dupSimp:tactic
-          $[$tO3:tactic]*
+          ($[$tO3:tactic]*)
           ($[$genLines:tactic]*)
-          $[$tO4:tactic]*
+          ($[$tO4:tactic]*)
           $closers:tactic
-          $[$tO5:tactic]*))
+          ($[$tO5:tactic]*)))
       let topProof : Lean.TSyntax `tactic ← do
         let alts ← topBlocks.toArray.mapM mkTopProof
         let mut alt : Lean.TSyntax `tactic := alts.back!
@@ -4802,7 +4802,7 @@ elab "#verify_elab_deep" id:ident : command =>
       let elabGenRw : Lean.TSyntax `tactic ← if hasMem then
           `(tactic| rw [← CdoM.elab_general $deepId $nmId (by decide) $inpS t])
         else `(tactic| rw [← Cdo.elab_general $deepId $nmId (by decide) $inpS t])
-      -- (no tick FIRST in the tactic block: an empty splice there loses the whole block; `elabSync begin` is the start)
+      -- (each tick splice is parenthesized: a bare empty `$[..]*` between tactics of a quotation drops the rest of the block; `elabSync begin` is the start)
       let tkB ← tk "capstone: rw elab_general done"
       let tkC ← tk "capstone: congr 1 done"
       let tkD ← tk "capstone: idUnfold/chainUnfold/projRw done"
@@ -4818,9 +4818,9 @@ elab "#verify_elab_deep" id:ident : command =>
               (envOfC $nmId $irEnvT)
               (CExpr.compile $nmId $outT)).getD 0 := by
         $elabGenRw:tactic
-        $[$tkB:tactic]*
+        ($[$tkB:tactic]*)
         congr 1
-        $[$tkC:tactic]*
+        ($[$tkC:tactic]*)
         -- the Signal-side bridge: f's runCircuitH loop against the deep
         -- spec recurrence, both through loop_trace.  For a struct
         -- output we unfold the function to expose runCircuitH, then push
@@ -4833,14 +4833,14 @@ elab "#verify_elab_deep" id:ident : command =>
         $idUnfold:tactic
         ($[$chainUnfold:tactic]*)
         $projRw:tactic
-        $[$tkD:tactic]*
+        ($[$tkD:tactic]*)
         simp only [outFOf, mkHolds, Signal.map, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
           $[$outUnfoldIds:ident],*]
-        $[$tkE:tactic]*
+        ($[$tkE:tactic]*)
         $appendFix:tactic
-        $[$tkF:tactic]*
+        ($[$tkF:tactic]*)
         $topProof:tactic
-        $[$tkG2:tactic]*))
+        ($[$tkG2:tactic]*)))
       if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
         logInfo m!"{thmCmd}"
       if (← IO.getEnv "SPARKLE_DEEP_NOTHM").isSome then
