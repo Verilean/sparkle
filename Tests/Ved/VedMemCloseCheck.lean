@@ -1345,6 +1345,11 @@ def hsI {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Sign
 def hsJ {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
 
+def hsK {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsL {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
 def hnormStatsCheck : CommandElabM Unit := do
   let (c, _) ← Tools.VedMemLoop.hnormStats.get
   unless c ≥ 1 do throwError "hnormStats: no loop of the goal was made a loop of a hypothesis"
@@ -1488,5 +1493,37 @@ run_cmd hstepRanCheck []
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsJ -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedPackedOk ``hsJ
+
+-- (11) ON, the new branch ends with a HEARTBEAT TIMEOUT (runtime exception, test seam `hstepTimeoutLate`): `first` would let it propagate and the proof
+-- would be refused (the strict-row regression of ved-hstep7); `ved_hstep_guard` restores the state and the old script closes.
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsK
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set false
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsK -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsK
+
+-- (12) ON, the local cap of the new branch (`ved.mem.hstepNewBudget`, here 1 thousand heartbeats) is exceeded for real: the branch is abandoned, the old script closes.
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.hstepNewBudget 1 in
+#ved_u1_mem_packed hsL
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsL -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsL
 
 end Tests.Ved.VedMemCloseCheck

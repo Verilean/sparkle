@@ -1987,6 +1987,13 @@ register_option ved.mem.hstepNorm : Bool := {
   descr := "step case of the memory loop: the simps after the invariant do not normalise `Signal.loop` bodies, the goal's loops are made the hypotheses' loops by definitional equality; the old script is the fallback"
 }
 
+/-- local heartbeat cap (thousands) of the whole new branch of the step case (`ved_hstep_guard`, `Tools/VedMemPack.lean`): a branch that runs into it (or into any
+runtime limit) is abandoned, the state restored, and the old script runs as the fallback with the heartbeats the new branch used refunded -/
+register_option ved.mem.hstepNewBudget : Nat := {
+  defValue := 0
+  descr := "local heartbeat cap (thousands) of the new step-case branch (`ved.mem.hstepNorm`); 0: only the ambient budget; the old script is the fallback and gets back the heartbeats the new branch used"
+}
+
 /-- local heartbeat budget (thousands) of one `isDefEq` of `vedMemLoopFreeze` -/
 register_option ved.mem.hstepNormBudget : Nat := {
   defValue := 2000
@@ -2009,9 +2016,13 @@ elab "ved_hstep_norm_on" : tactic => do
 /-- test seam: the new branch fails at its very end (after the tail stages, whose auxiliary proofs it has created) -/
 initialize hstepFailLate : IO.Ref Bool ← IO.mkRef false
 
+/-- test seam: the new branch ends with a heartbeat timeout (a runtime exception, which `first` does not catch; `ved_hstep_guard` does) -/
+initialize hstepTimeoutLate : IO.Ref Bool ← IO.mkRef false
+
 /-- test log: the new branch ran to its end -/
 elab "ved_hstep_norm_ran" : tactic => do
   if (← hstepFailLate.get) then throwError "ved_hstep_norm: failed late (test seam)"
+  if (← hstepTimeoutLate.get) then Lean.Core.throwMaxHeartbeat `ved_hstep_test `maxHeartbeats 1
   hstepRan.modify (·.push "norm_skip")
 
 /-- the loops of the hypotheses (types), the targets of `vedMemLoopFreeze` -/

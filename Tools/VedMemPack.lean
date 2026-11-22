@@ -963,4 +963,24 @@ elab "ved_hstep_fallback_reset" : tactic => do
     Tools.VedU1ScriptSeq.vedUbFail.set {}
     Tools.VedU1ScriptSeq.vedOmegaFail.set {}
 
+/-- `ved_hstep_guard [new] [old]`: `new` (the new branch of the step case) under the local heartbeat cap `ved.mem.hstepNewBudget` (`withLocalHb`, never above the
+ambient budget that is left).  Any failure of `new` - an error, a heartbeat timeout, the recursion limit (Lean's `first` does not catch runtime exceptions) -
+restores the state from before `new` and runs `old` instead, with the heartbeats `new` used handed back to the ambient budget (`initHeartbeats`
+moved up by that amount), so a failing or expensive `new` costs `old` neither state nor budget.  Same effect on the state as `first | new | old`
+otherwise.  `old` is expected to start with `ved_hstep_fallback_reset`. -/
+elab "ved_hstep_guard " "[" new:tactic "]" "[" old:tactic "]" : tactic => do
+  let s ← saveState
+  let n := (← getOptions).get `ved.mem.hstepNewBudget (0 : Nat)
+  let hb0 ← IO.getNumHeartbeats
+  let ok ← tryCatchRuntimeEx
+    (do (if n == 0 then Tactic.withoutRecover (evalTactic new)
+          else Tools.VedMemLoop.withLocalHb (n * 1000) (Tactic.withoutRecover (evalTactic new))); pure true)
+    fun e => do
+      s.restore
+      Tools.VedMemLoop.dbgLogWith (do return s!"hstep_guard: new branch abandoned ({if e.isRuntime then "runtime limit" else "error"}), hb used {((← IO.getNumHeartbeats) - hb0) / 1000}k: {((← e.toMessageData.toString).replace "\n" " ").take 300}")
+      pure false
+  unless ok do
+    let used := (← IO.getNumHeartbeats) - hb0
+    withTheReader Core.Context (fun c => { c with initHeartbeats := c.initHeartbeats + used }) (evalTactic old)
+
 end Tools.VedMemPack

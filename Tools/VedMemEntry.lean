@@ -724,13 +724,13 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           ved_stamp 92
           $rdTacs*
           ved_stamp 921
-          first
-            | (ved_hstep_norm_on
-               ved_hstep_logfail $segNew
-               ved_hstep_loops_clear
-               ved_hstep_norm_ran)
-            | (ved_hstep_fallback_reset
-               $segOld:tactic)
+          ved_hstep_guard
+            [(ved_hstep_norm_on
+              ved_hstep_logfail $segNew
+              ved_hstep_loops_clear
+              ved_hstep_norm_ran)]
+            [(ved_hstep_fallback_reset
+              $segOld:tactic)]
           ))
   if pk then
     `(by
