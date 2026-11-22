@@ -37,9 +37,17 @@ structure Res where
   z : String
   id : Ident
 
-abbrev M := StateM Nat
+/-- The state of the walk: the fresh-name counter and, when `memo` is on (option `ved.compose.step`: all the reads are
+emitted into one scope), the walks already emitted.  A wire whose walk is in `cache` is reused through its hypothesis, so
+the prefix of the nested pairs is proved once and not once per register. -/
+structure St where
+  n : Nat := 0
+  memo : Bool := false
+  cache : List (String × Res) := []
 
-def fresh : M Nat := modifyGet fun n => (n, n + 1)
+abbrev M := StateM St
+
+def fresh : M Nat := modifyGet fun s => (s.n, { s with n := s.n + 1 })
 
 /-- `valOf`: follow aliases, concatenations and slices of concatenations that are exactly one element, to a register or to a
 concatenation. -/
@@ -49,6 +57,17 @@ partial def valOf (b : List Stmt) (regs : List String) (wd : String → Nat) (mo
   | 0 => return none
   | f + 1 =>
     if regs.contains w then return some { lines := #[], pf := "rfl", z := w, id := .reg w }
+    let st ← get
+    if st.memo then
+      if let some r := st.cache.lookup w then return some { r with lines := #[] }
+    let res ← valOfStep b regs wd modN bodyN tag f w
+    if st.memo then
+      if let some r := res then
+        modify fun s => { s with cache := (w, { r with lines := #[] }) :: s.cache }
+    return res
+where
+  valOfStep (b : List Stmt) (regs : List String) (wd : String → Nat) (modN bodyN : String) (tag : String)
+      (f : Nat) (w : String) : M (Option Res) := do
     match asgOf b w with
     | some (.ref w') =>
       let some r ← valOf b regs wd modN bodyN tag f w' | return none
@@ -104,33 +123,39 @@ partial def valOf (b : List Stmt) (regs : List String) (wd : String → Nat) (mo
       | .reg _ => return none
     | _ => return none
 
-/-- Does `w` read exactly one register of the bundle (through slices of concatenations)?  The wire's facts. -/
+/-- Does `w` read exactly one register of the bundle (through slices of concatenations)?  The wire's facts.  With `memo`
+the walk runs in the shared state (the steps an earlier read emitted are reused, and kept only when this read succeeds);
+without it each read walks alone, from a fresh counter. -/
 def bundleRead? (b : List Stmt) (regs : List String) (wd : String → Nat) (modN bodyN : String) (idx : Nat)
-    (w : String) : Option BSlice :=
-  if regs.contains w then none
+    (w : String) : M (Option BSlice) := do
+  if regs.contains w then return none
   else match asgOf b w with
     | some (.slice _ _ _) =>
-      match (valOf b regs wd modN bodyN s!"bs{idx}_" 400 w).run' 0 with
-      | some r =>
-        match r.id with
-        | .reg reg => match regs.idxOf? reg with
-          | some slot => some { w, reg, slot, pf := s!"bsr{idx}", lines := r.lines.push s!"  have bsr{idx} : E {w.quote} = E {reg.quote} := {r.pf}" }
-          | none => none
-        | .cat .. => none
-      | none => none
-    | _ => none
+      let saved ← get
+      let (r?, st') := (valOf b regs wd modN bodyN s!"bs{idx}_" 400 w).run (if saved.memo then saved else {})
+      let res : Option BSlice := match r? with
+        | some r =>
+          match r.id with
+          | .reg reg => match regs.idxOf? reg with
+            | some slot => some { w, reg, slot, pf := s!"bsr{idx}", lines := r.lines.push s!"  have bsr{idx} : E {w.quote} = E {reg.quote} := {r.pf}" }
+            | none => none
+          | .cat .. => none
+        | none => none
+      if saved.memo && res.isSome then set st'
+      return res
+    | _ => return none
 
 /-- The wires of the nets read by `x`, in dependency order (dependencies first), stopping at `stops` (inputs, register
 outputs) and at the register-bundle reads; and those reads. -/
 partial def netChainB (stops : List String) (regs : List String) (b : List Stmt) (wd : String → Nat) (modN bodyN : String)
-    (fuel : Nat) (x : String) : StateM Nat (List String × List BSlice) := do
+    (fuel : Nat) (x : String) : M (List String × List BSlice) := do
   match fuel with
   | 0 => return ([], [])
   | f + 1 =>
     if stops.contains x then return ([], [])
     else
-      let idx ← modifyGet fun n => (n, n + 1)
-      match bundleRead? b regs wd modN bodyN idx x with
+      let idx ← modifyGet fun s => (s.n, { s with n := s.n + 1 })
+      match ← bundleRead? b regs wd modN bodyN idx x with
       | some bs => return ([], [bs])
       | none =>
         match asgOf b x with

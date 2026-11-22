@@ -637,9 +637,11 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     let modN := toString (userName nm.mod)
     let bodyN := toString (userName nm.body)
     let roots : List String := regIns.filterMap id ++ ["out"]
-    let netsM : StateM Nat (List (List String × List Tools.VedU2HierMultiChain.BSlice)) :=
+    let netsM : Tools.VedU2HierMultiChain.M (List (List String × List Tools.VedU2HierMultiChain.BSlice)) :=
       roots.mapM fun x => Tools.VedU2HierMultiChain.netChainB (dataN ++ regNames) regNames b0 di.wd modN bodyN b0.length x
-    let nets := netsM.run' 0
+    -- all the register-bundle reads share one scope: the nested-pair prefix is proved once (memo), `noShare` (measurement
+    -- only, `VED_COMPOSE_NOSHARE`) walks it once per read as before
+    let nets := netsM.run' { memo := !di.noShare }
     let chain := (nets.flatMap (·.1)).eraseDups
     let bsl := (nets.flatMap (·.2)).foldl (fun (acc : List Tools.VedU2HierMultiChain.BSlice) b =>
       if acc.any (·.w == b.w) then acc else acc ++ [b]) []
@@ -969,11 +971,11 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
           let regNames := (regsOf m.body).map (·.1)
           let modN := toString (userName nm.mod)
           let bodyN := toString (userName nm.body)
-          let netsM : StateM Nat (List (List String × List Tools.VedU2HierMultiChain.BSlice)) :=
+          let netsM : Tools.VedU2HierMultiChain.M (List (List String × List Tools.VedU2HierMultiChain.BSlice)) :=
             ck.dataInputs.mapM fun (p : Sparkle.IR.AST.Port) => match cs.lookup p.name with
               | some (.ref x) => Tools.VedU2HierMultiChain.netChainB (dataInsP ++ regLeaves) regNames b0 (declWidth m) modN bodyN b0.length x
               | _ => pure ([], [])
-          let nets := netsM.run' 0
+          let nets := netsM.run' {}
           let chainB := (nets.flatMap (·.1)).eraseDups.map fun w => (w, declWidth m w)
           let bsl := (nets.flatMap (·.2))
           let readRegs := (chainB.flatMap fun (w, _) => match asgOf b0 w with
@@ -1070,7 +1072,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       if (← getEnv).contains n then
         if let some c ← dupTargetOf n then
           dups := dups ++ [(slot, c, deepC opn.openName (ptag ++ s!"_deep_dup_r{slot}"))]
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions) }
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU
@@ -1110,7 +1112,14 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst nm.design, stmt]
   try check expected catch e => refuse decl "type" e.toMessageData
   unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
+  let tGen0 ← IO.monoMsNow
   let text := "by\n" ++ scriptTextR nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
+  let tGen := (← IO.monoMsNow) - tGen0 + (if text.length > 0 then 0 else 1)
+  -- measurement only: the size of the generated script, facts and generation time
+  let stats := (← IO.getEnv "VED_HIER_STATS").isSome
+  if stats then
+    let cnt (pat : String) := (text.splitOn pat).length - 1
+    IO.eprintln s!"[stats] script chars {text.length} lines {(text.splitOn "\n").length} have {cnt "have "} bundle_slice_fact {cnt "bundle_slice_fact"} bs_haves {cnt "have bs"} chain_haves {cnt "have e_"} generation {tGen} ms"
   if (← IO.getEnv "VED_HIER_DEBUG").isSome then IO.eprintln text
   if let some f ← IO.getEnv "VED_HIER_SCRIPT_FILE" then IO.FS.writeFile f text
   let stx ← match Lean.Parser.runParserCategory (← getEnv) `term text "<ved_u2_hier_reg>" with
@@ -1132,6 +1141,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
         for msg in (← Core.getMessageLog).toList.drop allBefore do
           IO.eprintln s!"[proof-msg] {if msg.severity == .error then "error" else "info"} @{msg.pos.line}:{msg.pos.column} {(← msg.data.toString).take 3000}"
       refuse decl "proof" e.toMessageData
+  let tElab := (← IO.monoMsNow) - tProof0
   let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
   if (← IO.getEnv "VED_HIER_DEBUG").isSome then
     IO.eprintln s!"[proof] elaboration {(← IO.monoMsNow) - tProof0} ms"
@@ -1150,10 +1160,12 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   -- them before the kernel checks the term (the kernel's caches are the peak of the run)
   modifyThe Lean.Meta.State fun st => { st with mctx := {} }
   modifyThe Lean.Meta.State fun st => { st with cache := {} }
+  let tK0 ← IO.monoMsNow
   try
     withOptions (fun o => o.setBool `Elab.async false) do
       addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf })
   catch e => refuse decl "kernel" e.toMessageData
+  if stats then IO.eprintln s!"[stats] parent proof elaboration {tElab} ms, kernel addDecl {(← IO.monoMsNow) - tK0} ms"
   let some (.thmInfo ti) := (← getEnv).find? nm.thm
     | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
   unless ti.type == expected do refuse decl "type" m!"stored type differs from the expected statement"

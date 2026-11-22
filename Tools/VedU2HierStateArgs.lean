@@ -34,6 +34,8 @@ structure DeepInfo where
   b0 : List Sparkle.IR.AST.Stmt := []
   wd : String → Nat := fun _ => 0
   compose : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOSHARE`): do not share the bundle-slice prefix walk -/
+  noShare : Bool := false
 
 /-- The spellings the lines use. -/
 structure Sp where
