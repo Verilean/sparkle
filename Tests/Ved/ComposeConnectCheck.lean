@@ -344,10 +344,23 @@ def eqnControls : CommandElabM Unit := liftTermElabM do
   if ← kernelEqual (← elabText (regsOk 4 5 "\"_tmp_reg_input_14\", \"_tmp_reg_input_3\"")) (toExpr true) then
     throwError "RegsOk accepts exchanged register input wires"
   logInfo m!"compose connect batch controls: 1 accepted, 2 refused by the kernel"
+  -- the input-bound list of `Tools.VedComposePrelude.hin_bnd`: the equation `dataInputs.map (name, declWidth) = L` is decided by the
+  -- kernel; the real list -> true; a wrong width, swapped names -> false
+  let inEq (l : String) :=
+    s!"decide (({M}.ved_contract.dataInputs.map fun p => (p.name, Tools.VedU1Contract.declWidth {M}.ved_mod p.name)) = ({l} : List (String × Nat)))"
+  unless ← kernelEqual (← elabText (inEq "[(\"_gen_start\", 1), (\"_gen_inp\", 4)]")) (toExpr true) do
+    throwError "control void: the input-bound list equation rejects the real list"
+  if ← kernelEqual (← elabText (inEq "[(\"_gen_start\", 1), (\"_gen_inp\", 5)]")) (toExpr true) then
+    throwError "the input-bound list equation accepts a wrong width"
+  if ← kernelEqual (← elabText (inEq "[(\"_gen_inp\", 1), (\"_gen_start\", 4)]")) (toExpr true) then
+    throwError "the input-bound list equation accepts swapped names"
+  logInfo m!"compose connect input-bound controls: 1 accepted, 2 refused by the kernel"
 
 /-- info: compose connect equation controls: 1 accepted, 4 refused by the kernel
 ---
-info: compose connect batch controls: 1 accepted, 2 refused by the kernel -/
+info: compose connect batch controls: 1 accepted, 2 refused by the kernel
+---
+info: compose connect input-bound controls: 1 accepted, 2 refused by the kernel -/
 #guard_msgs in
 run_cmd eqnControls
 
