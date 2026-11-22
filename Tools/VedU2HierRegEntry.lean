@@ -574,9 +574,14 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       let mut lts : List String := []
       -- H3-open: each read of the register bundle is ONE fact per slice step (`bundle_slice_fact`), not an evaluation of the
       -- concatenation
+      -- VED compose connect: the chain's closed shape facts of all the reads of this block in ONE kernel check (`ChainOkF`), or
+      -- (`VED_COMPOSE_NOFASTWR`) each by its own kernel `decide` (~0.3 s each at 34 registers)
+      let (chainLine, chainLs) :=
+        if di.connect && !di.noFastWR then Tools.VedComposeConnectGen.batchChain "hbch" (toString P.mod) (toString P.body) (ii.bsl.map (·.lines))
+        else ("", ii.bsl.map fun bs => bs.lines.map (·.replace "(by decide)" "(by decide +kernel)"))
+      if di.connect && !di.noFastWR && !ii.bsl.isEmpty then X := X.push chainLine
       for (bs, bi) in ii.bsl.zipIdx do
-        -- VED compose connect: the chain's closed shape facts by the kernel (one `by decide` per fact costs ~0.3 s each at 34 registers)
-        X := X ++ (if di.connect then bs.lines.map (·.replace "(by decide)" "(by decide +kernel)") else bs.lines)
+        X := X ++ (if di.connect then chainLs[bi]! else bs.lines)
         X := X.push s!"  have f_bs{bi} : E {sq bs.w} = {irS} ins t ({bs.slot} : Fin {di.regWs.length}) := by rw [{bs.pf}, hEr{bs.slot}]"
         let wBs := di.regWs[bs.slot]!
         X := X.push s!"  have hlt_bs{bi} : E {sq bs.w} < {2 ^ wBs} := by rw [f_bs{bi}]; exact hlS{bs.slot}"

@@ -950,4 +950,112 @@ theorem outSpecF_sound {Γr Γi : List Nat} {wOut : Nat} {deep : Cdo Γr Γi wOu
   simp only [specOkLe, slowLk, Bool.and_eq_true] at h1
   exact ⟨h1.1.1.1, h1.1.1.2, h1.1.2, eqE_sound _ _ h1.2⟩
 
+/-! ## The bundle-slice chain as ONE closed `Bool`
+
+The generated prelude proves, per slice step of the register-bundle reads, six closed shape facts (`asgOf` of the wire and of the
+bundle, the offset and width arithmetic over `declWidth`), per concatenation range two, per element width one, each by its own
+kernel evaluation with list scans from a cold cache.  `ChainOkF` checks all steps of one block at once with the width / assignment
+maps; `slice_fact_F` / `concat_range_F` / `wd_F` hand one step's facts back through its index. -/
+
+def asgF (b : List Stmt) : String → Option Expr := fun x => smGet (smOf (asgList b)) x
+
+theorem asgF_eq (b : List Stmt) (x : String) : asgF b x = asgOf b x := by
+  unfold asgF; rw [smGet_smOf, asgOf_lookup]
+
+abbrev SliceStep := String × String × String × Nat × Nat × List String × Nat
+
+def sliceOkF (m : Module) (b0 : List Stmt) : SliceStep → Bool
+  | (w, x, y, hi, lo, names, k) =>
+    decide (k < names.length) &&
+    (match asgF b0 w with
+     | some (.slice (.ref x') hi' lo') => decide (x' = x) && decide (hi' = hi) && decide (lo' = lo)
+     | _ => false) &&
+    (match asgF b0 y with
+     | some (.concat es) => eqL es (names.map Expr.ref)
+     | _ => false) &&
+    decide (lo = Tools.VedU2HierMulti.W (weF m) (names.drop (k + 1))) &&
+    decide (hi + 1 = lo + weF m (names.getD k "")) && decide (0 < weF m (names.getD k ""))
+
+def crOkF (m : Module) (b0 : List Stmt) : String × List String → Bool
+  | (B, names) =>
+    (match asgF b0 B with
+     | some (.concat es) => eqL es (names.map Expr.ref)
+     | _ => false) &&
+    decide (weF m B = Tools.VedU2HierMulti.W (weF m) names)
+
+def wdOkF (m : Module) : String × Nat → Bool
+  | (n, v) => decide (weF m n = v)
+
+def ChainOkF (m : Module) (b0 : List Stmt) (sl : List SliceStep) (cr : List (String × List String))
+    (wl : List (String × Nat)) : Bool :=
+  sl.all (sliceOkF m b0) && cr.all (crOkF m b0) && wl.all (wdOkF m)
+
+theorem asg_slice_of {b0 : List Stmt} {w x : String} {hi lo : Nat}
+    (h : (match asgF b0 w with
+     | some (.slice (.ref x') hi' lo') => decide (x' = x) && decide (hi' = hi) && decide (lo' = lo)
+     | _ => false) = true) : asgOf b0 w = some (.slice (.ref x) hi lo) := by
+  rw [← asgF_eq]
+  cases hh : asgF b0 w with
+  | none => rw [hh] at h; simp at h
+  | some e =>
+    rw [hh] at h
+    cases e with
+    | slice e' hi' lo' =>
+      cases e' with
+      | ref x' =>
+        simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+        obtain ⟨⟨a, b⟩, c⟩ := h
+        rw [a, b, c]
+      | _ => simp at h
+    | _ => simp at h
+
+theorem asg_concat_of {b0 : List Stmt} {y : String} {names : List String}
+    (h : (match asgF b0 y with
+     | some (.concat es) => eqL es (names.map Expr.ref)
+     | _ => false) = true) : asgOf b0 y = some (.concat (names.map Expr.ref)) := by
+  rw [← asgF_eq]
+  cases hh : asgF b0 y with
+  | none => rw [hh] at h; simp at h
+  | some e =>
+    rw [hh] at h
+    cases e with
+    | concat es => simp only at h; rw [eqL_sound _ _ h]
+    | _ => simp at h
+
+theorem slice_fact_F {m : Module} {b0 : List Stmt} {sl : List SliceStep} {cr : List (String × List String)}
+    {wl : List (String × Nat)} (h : ChainOkF m b0 sl cr wl = true) (i : Nat) (E : Env)
+    (hasg : ∀ l r, asgOf b0 l = some r → evalExpr (declWidth m) E r = some (E l))
+    (w x y : String) (hi lo : Nat) (names : List String) (k : Nat) (hk : k < names.length)
+    (hs : sl[i]? = some (w, x, y, hi, lo, names, k)) (hEx : E x = E y)
+    (hrange : E names[k] < 2 ^ declWidth m names[k]) : E w = E names[k] := by
+  simp only [ChainOkF, Bool.and_eq_true, List.all_eq_true] at h
+  have h1 := h.1.1 _ (List.mem_of_getElem? hs)
+  simp only [sliceOkF, Bool.and_eq_true] at h1
+  obtain ⟨⟨⟨⟨⟨_, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ := h1
+  simp only [decide_eq_true_eq] at h4 h5 h6
+  have hg : names.getD k "" = names[k] := by simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hk]
+  rw [hg, weF_eq] at h5 h6
+  rw [weF_eq] at h4
+  exact Tools.VedU2HierMulti.bundle_slice_fact (declWidth m) b0 E hasg w x y hi lo names k hk (asg_slice_of h2) hEx
+    (asg_concat_of h3) h4 h5 h6 hrange
+
+theorem concat_range_F {m : Module} {b0 : List Stmt} {sl : List SliceStep} {cr : List (String × List String)}
+    {wl : List (String × Nat)} (h : ChainOkF m b0 sl cr wl = true) (j : Nat) (E : Env)
+    (hasg : ∀ l r, asgOf b0 l = some r → evalExpr (declWidth m) E r = some (E l))
+    (B : String) (names : List String) (hs : cr[j]? = some (B, names)) : E B < 2 ^ declWidth m B := by
+  simp only [ChainOkF, Bool.and_eq_true, List.all_eq_true] at h
+  have h1 := h.1.2 _ (List.mem_of_getElem? hs)
+  simp only [crOkF, Bool.and_eq_true, decide_eq_true_eq] at h1
+  rw [weF_eq] at h1
+  exact Tools.VedU2HierMulti.concat_range (declWidth m) b0 E hasg B names (asg_concat_of h1.1) h1.2
+
+theorem wd_F {m : Module} {b0 : List Stmt} {sl : List SliceStep} {cr : List (String × List String)}
+    {wl : List (String × Nat)} (h : ChainOkF m b0 sl cr wl = true) (j : Nat) (n : String) (v : Nat)
+    (hs : wl[j]? = some (n, v)) : declWidth m n = v := by
+  simp only [ChainOkF, Bool.and_eq_true, List.all_eq_true] at h
+  have h1 := h.2 _ (List.mem_of_getElem? hs)
+  simp only [wdOkF, decide_eq_true_eq] at h1
+  rw [weF_eq] at h1
+  exact h1
+
 end Tools.VedComposeConnect

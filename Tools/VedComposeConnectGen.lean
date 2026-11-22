@@ -181,4 +181,82 @@ def hlocLines (a : ConnArgs) : List String := Id.run do
     L := L.push s!"        simpa [Sparkle.IR.Semantics.applyNexts, List.find?] using hmk"
   return L.toList
 
+
+/-! ## The bundle-slice chain facts as one closed check
+
+`bundleRead?`'s script lines (`Tools/VedU2HierMultiChain.lean`) prove each slice step's closed shape facts by their own kernel
+evaluation.  `batchChain` reads the steps back off those lines (the shapes are fixed by the generator; a line of another shape is
+left as it is), emits ONE `ChainOkF` check over all of them, and rewrites each step to take its facts from that check by index. -/
+
+structure ChainBatch where
+  sl : Array String := #[]
+  cr : Array String := #[]
+  wl : Array String := #[]
+
+private def idxOrPush (a : Array String) (t : String) : Array String × Nat :=
+  match a.findIdx? (· == t) with
+  | some i => (a, i)
+  | none => (a.push t, a.size)
+
+/-- One line -> (the line to use, the updated batch). -/
+def batchLine (hb : String) (B : ChainBatch) (l : String) : String × ChainBatch :=
+  let pSlice := "    exact Tools.VedU2HierMulti.bundle_slice_fact ("
+  let pRange := "    exact Tools.VedU2HierMulti.concat_range ("
+  let pWd := "    have hwd : Tools.VedU1Contract.declWidth "
+  if l.startsWith pSlice then
+    match l.splitOn " E hasgF " with
+    | [_, rest] =>
+      match rest.splitOn "[" with
+      | [pre, mid] =>
+        match mid.splitOn "]" with
+        | [names, post] =>
+          let preT := (pre.splitOn " ").filter (· ≠ "")
+          let postT := ((post.replace "(by decide)" "D").splitOn " ").filter (· ≠ "")
+          match preT, postT with
+          | [w, x, y, hi, lo], [k, "D", "D", pf, "D", "D", "D", "D", hr] =>
+            let (sl, i) := idxOrPush B.sl s!"({w}, {x}, {y}, {hi}, {lo}, [{names}], {k})"
+            (s!"    exact Tools.VedComposeConnect.slice_fact_F {hb} {i} E hasgF {w} {x} {y} {hi} {lo} [{names}] {k} (by decide +kernel) rfl {pf} {hr}",
+             { B with sl })
+          | _, _ => (l.replace "(by decide)" "(by decide +kernel)", B)
+        | _ => (l.replace "(by decide)" "(by decide +kernel)", B)
+      | _ => (l.replace "(by decide)" "(by decide +kernel)", B)
+    | _ => (l.replace "(by decide)" "(by decide +kernel)", B)
+  else if l.startsWith pRange then
+    match l.splitOn " E hasgF " with
+    | [_, rest] =>
+      match rest.splitOn "[" with
+      | [pre, mid] =>
+        match mid.splitOn "]" with
+        | [names, post] =>
+          match (pre.splitOn " ").filter (· ≠ ""), ((post.replace "(by decide)" "D").splitOn " ").filter (· ≠ "") with
+          | [z], ["D", "D"] =>
+            let (cr, j) := idxOrPush B.cr s!"({z}, [{names}])"
+            (s!"    exact Tools.VedComposeConnect.concat_range_F {hb} {j} E hasgF {z} [{names}] rfl", { B with cr })
+          | _, _ => (l.replace "(by decide)" "(by decide +kernel)", B)
+        | _ => (l.replace "(by decide)" "(by decide +kernel)", B)
+      | _ => (l.replace "(by decide)" "(by decide +kernel)", B)
+    | _ => (l.replace "(by decide)" "(by decide +kernel)", B)
+  else if l.startsWith pWd && l.endsWith " := by decide" then
+    -- `have hwd : declWidth <mod> "<n>" = <v> := by decide`
+    match (l.drop pWd.length).toString.splitOn " " with
+    | [m, n, "=", v, ":=", "by", "decide"] =>
+      let (wl, j) := idxOrPush B.wl s!"({n}, {v})"
+      (s!"    have hwd : Tools.VedU1Contract.declWidth {m} {n} = {v} := Tools.VedComposeConnect.wd_F {hb} {j} {n} {v} rfl", { B with wl })
+    | _ => (l.replace "(by decide)" "(by decide +kernel)", B)
+  else (l.replace "(by decide)" "(by decide +kernel)", B)
+
+/-- The check line (at indent 2) and the rewritten step lines of every slice read of an instance block. -/
+def batchChain (hb : String) (modTxt bodyTxt : String) (lss : List (Array String)) : String × List (Array String) := Id.run do
+  let mut B : ChainBatch := {}
+  let mut out : List (Array String) := []
+  for ls in lss do
+    let mut o : Array String := #[]
+    for l in ls do
+      let (l', B') := batchLine hb B l
+      B := B'
+      o := o.push l'
+    out := out ++ [o]
+  let lst (a : Array String) := "[" ++ ", ".intercalate a.toList ++ "]"
+  (s!"  have {hb} : Tools.VedComposeConnect.ChainOkF {modTxt} {bodyTxt} {lst B.sl} {lst B.cr} {lst B.wl} = true := by decide +kernel", out)
+
 end Tools.VedComposeConnectGen
