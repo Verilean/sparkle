@@ -87,3 +87,12 @@ code before the connection block (unit 2 report). Attribution (script ticks; obs
   evaluations; the largest remaining costs).
 * Statements unchanged (`U2HRStmt` stored type is the entry's expected type). Controls: `ComposeConnectCheck` has kernel controls for the input-bound equation
   (real list accepted, a wrong width and swapped names refused).
+
+## Unit 4: independent post-check of R194 (`Tests/Ved/ComposeConnectR194Check.lean`, not in CI)
+
+Runs `#ved_u2_hier`'s entry once on `synth_sha512Block_done` (`ved.compose.step` + `ved.compose.connect`) through `checkRow`
+(the same function as the toys' Check) and checks, independently of the entry: stored type `==` `U2HRStmt` of the original declaration,
+module/design `==` a fresh synthesis, axioms within std3, 35 connect log lines (34 `reg_connect` + 1 `out_connect` sites), the child
+theorem `kMux.ved_u1` in the proof. Run (one process, guarded, ~7 min, ~18 GB):
+`VED_HIER_STATS=1 python3 -I rss_guard.py 23068672 timeout 890 kjob lake env lean <abs>/Tests/Ved/ComposeConnectR194Check.lean`
+after `kjob lake build Tests.Ved.ComposeConnectCheck` and `kjob lake build IP.Crypto.SHA512BlockHW`. Observed, single run: passes.
