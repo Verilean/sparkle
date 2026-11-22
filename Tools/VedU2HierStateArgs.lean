@@ -40,6 +40,8 @@ structure DeepInfo where
   noHoist : Bool := false
   /-- measurement only (`VED_COMPOSE_NODK`): the shape facts by `decide`, not `decide +kernel` -/
   noKernelDecide : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOOKONCE`): `hord` re-evaluates `OrderOkHS` instead of using `hOK` -/
+  noOkOnce : Bool := false
 
 /-- The spellings the lines use. -/
 structure Sp where
