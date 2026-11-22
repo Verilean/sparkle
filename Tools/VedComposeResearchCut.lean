@@ -553,6 +553,45 @@ theorem cone_connect (d : Design) (m : Module) (b0 : List Stmt)
     rw [if_neg (hwi x hw), if_neg (hwr x hw)]
     exact hEorc mn i cs hi x hy
 
+/-- **THE CONNECTION PROPOSITION WITH BUNDLE SLICES.**  As `cone_connect`, with the narrow normaliser `bn` applied to the
+inlined right-hand side before the comparison.  Closed facts: `hW` (`WOKb`), `hc` (`rfl`), `hl0` (every leaf of the INLINED
+expression is a cut point: the fuel sufficed and nothing but inputs, registers and instance outputs is read).  The range facts
+`hrange` (`E x < 2 ^ we x` on the cut points) are what the register invariant, the input contract and the child's output width
+supply; they are hypotheses of the per-cone obligation, not assumed done. -/
+theorem cone_connect_bn (d : Design) (m : Module) (b0 : List Stmt)
+    (Ow : (Nat → String → Nat) → String → Nat → Nat)
+    (hwi : ∀ n ∈ wrsH d b0, n ∉ inNames m) (hri : ∀ n ∈ regOuts b0, n ∉ inNames m)
+    (hwr : ∀ n ∈ wrsH d b0, n ∉ regOuts b0)
+    (hW : WOKb (declWidth m) m b0 = true)
+    (ins : Nat → String → Nat) (t : Nat) (p : String → Nat) (E : Env)
+    (hasg : ∀ l r, asgOf b0 l = some r → evalExpr (declWidth m) E r = some (E l))
+    (hEin : ∀ x ∈ inNames m, E x = ins t x)
+    (hEreg : ∀ r ∈ regOuts b0, E r = p r)
+    (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
+    (hrange : ∀ x ∈ cutNames d m b0, E x < 2 ^ declWidth m x)
+    (n n2 : Nat) (e c : Expr) (hc : bn (declWidth m) n2 (inl (Atab m b0) n e) = c)
+    (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) n e) = true) :
+    evalExpr (declWidth m) E e = evalExpr (declWidth m) (leafEnv m b0 ins t p Ow) c := by
+  have hWo := WOKb_sound _ _ _ hW
+  have hs := inl_sound (declWidth m) E (Atab m b0)
+    (fun l r h => ⟨hasg l r (by unfold Atab at h; split at h <;> simp_all), hWo l r h⟩) n e
+  have hleaf := leafOk_sound _ _ hl0
+  have hb := bn_sound (declWidth m) E n2 (inl (Atab m b0) n e) (fun x hx => hrange x (hleaf x hx))
+  subst hc
+  rw [← hs.1, ← hb.1]
+  apply eval_congr
+  intro x hx
+  have hcut := hleaf x (refs_bn _ _ _ x hx)
+  simp only [cutNames, List.mem_append] at hcut
+  unfold leafEnv
+  rcases hcut with (h | h) | h
+  · rw [if_pos h]; exact hEin x h
+  · rw [if_neg (hri x h), if_pos h]; exact hEreg x h
+  · obtain ⟨mn, i, cs, hi, hy⟩ := mem_instOutsOf d b0 x h
+    have hw := instOutsOf_sub_wrsH d b0 x h
+    rw [if_neg (hwi x hw), if_neg (hwr x hw)]
+    exact hEorc mn i cs hi x hy
+
 end Tools.VedComposeResearch
 
 /-! # Toy: one parent, a register, two instances of one child; accepted cone and refused controls -/
@@ -648,8 +687,79 @@ theorem ctl_width_holds_c : evalExpr weBad envBad (.concat [.ref "a", .ref "b"])
 theorem ctl_width_semantics :
     evalExpr weBad envBad (.ref "c") ≠ evalExpr weBad envBad (inl (Atab par bodyBad) 3 (.ref "c")) := by decide +kernel
 
+
+/-! ## Toy 2: register bundle read through slices (the shape of the real synthesiser output) -/
+
+def bundleWires : List Port :=
+  [bv "r0", bv "r1", bv "sa", bv "sb", bv "s0", bv "n0", bv "n1", bv "o0", bv "x", ⟨"bun", .bitVector 8⟩]
+
+/-- Registers `r0`, `r1` are read through the bundle `bun = {r0, r1}`: `s0 = bun[7:4]`, `sb = (bun[3:0])[3:0]`. -/
+def parB : Module :=
+  { name := "parB", inputs := [bv "x", ⟨"clk", .bit⟩, ⟨"rst", .bit⟩], outputs := [bv "out"], wires := bundleWires,
+    body :=
+      [ .assign "bun" (.concat [.ref "r0", .ref "r1"]),
+        .assign "s0" (.slice (.ref "bun") 7 4),
+        .assign "sa" (.slice (.ref "bun") 3 0),
+        .assign "sb" (.slice (.ref "sa") 3 0),
+        .inst "kid" "i0" [("a", .ref "sb"), ("y", .ref "o0")],
+        .assign "n0" (.op .add [.ref "s0", .ref "o0"]),
+        .assign "n1" (.op .add [.ref "sb", .ref "x"]),
+        .register "r0" "clk" ("rst", .synchronous) (.ref "n0") 0,
+        .register "r1" "clk" ("rst", .synchronous) (.ref "n1") 0,
+        .assign "out" (.ref "n1") ] }
+
+def coneB0 : Expr := .op .add [.ref "r0", .ref "o0"]
+def coneB1 : Expr := .op .add [.ref "r1", .ref "x"]
+
+theorem parB_widths : WOKb (declWidth parB) parB parB.body = true := by decide +kernel
+theorem parB_c0 : bn (declWidth parB) 20 (inl (Atab parB parB.body) 20 (.ref "n0")) = coneB0 := rfl
+theorem parB_c1 : bn (declWidth parB) 20 (inl (Atab parB parB.body) 20 (.ref "n1")) = coneB1 := rfl
+theorem parB_l0 : leafOk (cutNames dsg parB parB.body) (inl (Atab parB parB.body) 20 (.ref "n0")) = true := by
+  decide +kernel
+theorem parB_l1 : leafOk (cutNames dsg parB parB.body) (inl (Atab parB parB.body) 20 (.ref "n1")) = true := by
+  decide +kernel
+theorem parB_hwi : ∀ n ∈ wrsH dsg parB.body, n ∉ inNames parB := by decide +kernel
+theorem parB_hri : ∀ n ∈ regOuts parB.body, n ∉ inNames parB := by decide +kernel
+theorem parB_hwr : ∀ n ∈ wrsH dsg parB.body, n ∉ regOuts parB.body := by decide +kernel
+
+theorem parB_connect0 (Ow : (Nat → String → Nat) → String → Nat → Nat)
+    (ins : Nat → String → Nat) (t : Nat) (p : String → Nat) (E : Env)
+    (hasg : ∀ l r, asgOf parB.body l = some r → evalExpr (declWidth parB) E r = some (E l))
+    (hEin : ∀ x ∈ inNames parB, E x = ins t x)
+    (hEreg : ∀ r ∈ regOuts parB.body, E r = p r)
+    (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ parB.body → ∀ y ∈ instOuts dsg mn cs, E y = Ow ins y t)
+    (hrange : ∀ x ∈ cutNames dsg parB parB.body, E x < 2 ^ declWidth parB x) :
+    evalExpr (declWidth parB) E (.ref "n0")
+      = evalExpr (declWidth parB) (leafEnv parB parB.body ins t p Ow) coneB0 :=
+  cone_connect_bn dsg parB parB.body Ow parB_hwi parB_hri parB_hwr parB_widths ins t p E hasg hEin hEreg hEorc hrange
+    20 20 _ _ parB_c0 parB_l0
+
+/-- (5) a misaligned slice is NOT resolved: `bun[6:3]` spans two registers. -/
+def parC : Module :=
+  { parB with body := parB.body.map fun s => match s with
+      | .assign "s0" _ => .assign "s0" (.slice (.ref "bun") 6 3)
+      | s => s }
+theorem ctl_misaligned : bn (declWidth parC) 20 (inl (Atab parC parC.body) 20 (.ref "n0")) ≠ coneB0 := by
+  intro h
+  have : bn (declWidth parC) 20 (inl (Atab parC parC.body) 20 (.ref "n0")) =
+      .op .add [.slice (.concat [.ref "r0", .ref "r1"]) 6 3, .ref "o0"] := rfl
+  rw [this] at h
+  simp [coneB0] at h
+
+/-- (6) the range hypothesis of `bn_sound` is real: a slice of a ref is the ref only if the value fits. -/
+theorem ctl_range :
+    evalExpr (fun _ => 4) (fun _ => 20) (.slice (.ref "x") 3 0) ≠ evalExpr (fun _ => 4) (fun _ => 20) (.ref "x") := by
+  decide +kernel
+
 end Tools.VedComposeResearch.Toy
 
 #print axioms Tools.VedComposeResearch.Toy.par_connect
 #print axioms Tools.VedComposeResearch.Toy.ctl_swap
 #print axioms Tools.VedComposeResearch.cone_connect
+
+#print axioms Tools.VedComposeResearch.Toy.parB_connect0
+#print axioms Tools.VedComposeResearch.cone_connect_bn
+#print axioms Tools.VedComposeResearch.bn_sound
+#print axioms Tools.VedComposeResearch.inl_sound
+#print axioms Tools.VedComposeResearch.Toy.ctl_misaligned
+#print axioms Tools.VedComposeResearch.Toy.ctl_range
