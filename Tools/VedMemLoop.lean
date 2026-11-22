@@ -2128,6 +2128,42 @@ simproc_decl vedBindStrictO (Option.bind _ _) := bindStrictStep
 open Lean Meta Simp in
 simproc_decl vedBindStrictB (Bind.bind _ _) := bindStrictStep
 
+/-! ### The environment functions of the module semantics are not entered (`ved.mem.s94EnvFreeze`)
+
+Observed (small examples, `VED_S94_SAMPLE`: the visited `ite` of conjunct `stepModule .. = some ..` are `if n = "w" then v else (fun n => ..) n` UNDER a binder `n`):
+`evalAssigns` extends the environment by `fun n => if n = l then v else env n`; simp enters this lambda, beta-reduces `env n` (`env` is the
+previous, already flattened, function) and so rewrites the whole chain of the `k` earlier statements again, with a fresh `n`, for EVERY statement:
+the `ite` visits of the statement `k` cost `O(k)` each (`Expr.instantiate` of the flat chain), `O(n^2)` visits and `O(n^3)` work in all, and every visit
+builds a new copy of the chain (pointer objects 5x the DAG).  `vedEnvFreeze` (pre-simproc, `.done`, no rewrite, no proof) leaves a function of exactly this
+shape unchanged: the value `v` is simplified before the function is built (`vedBindStrict*`), `env "lit"` is beta-reduced on demand (the lookup chain is
+walked by `reduceIte`, each step a small term).  Sound: no rewriting inside the function. -/
+
+/-- number of environment functions left alone by `vedEnvFreeze` (test counter) -/
+initialize envFreezeHits : IO.Ref Nat ← IO.mkRef 0
+
+/-- `fun n : String => if n = "lit" then v else f n` with `v`, `f` not mentioning `n` -/
+def isEnvCell (e : Lean.Expr) : Bool :=
+  match e with
+  | .lam _ ty body _ =>
+    ty.isConstOf ``String && body.isAppOfArity ``ite 5 &&
+    (let c := body.getArg! 1
+     c.isAppOfArity ``Eq 3 && c.getArg! 1 == .bvar 0 && (match c.getArg! 2 with | .lit (.strVal _) => true | _ => false)) &&
+    !(body.getArg! 3).hasLooseBVars &&
+    (let el := body.getArg! 4
+     el.isApp && el.appArg! == .bvar 0 && !el.appFn!.hasLooseBVars)
+  | _ => false
+
+open Lean Meta Simp in
+simproc_decl vedEnvFreeze (_) := fun e => do
+  unless e.isLambda && isEnvCell e do return .continue
+  envFreezeHits.modify (· + 1)
+  return .done { expr := e }
+
+register_option ved.mem.s94EnvFreeze : Bool := {
+  defValue := false
+  descr := "the stage-94 simps of the new branch (`ved.mem.hstepNorm`) do not enter the environment functions `fun n => if n = \"w\" then v else env n` (`vedEnvFreeze`)"
+}
+
 /-- `ved_hstep_logfail t`: `t`; a failure is logged (`addr.log`, first 600 characters) and rethrown -/
 elab "ved_hstep_logfail " t:tactic : tactic => do
   try evalTactic t

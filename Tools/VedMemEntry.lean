@@ -535,7 +535,10 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
   let bsO ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedBindStrictO):term)
   let bsB ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedBindStrictB):term)
   -- `VED_S94_NOBIND` (diagnosis only): the new branch without the in-order `Option.bind` simprocs
-  let fzs := if (← IO.getEnv "VED_S94_NOBIND").isSome then #[fzL, dwL, dw1L] else #[fzL, dwL, dw1L, bsO, bsB]
+  let efL ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedEnvFreeze):term)
+  let fzs0 := if (← IO.getEnv "VED_S94_NOBIND").isSome then #[fzL, dwL, dw1L] else #[fzL, dwL, dw1L, bsO, bsB]
+  -- option `ved.mem.s94EnvFreeze` (new branch only): the environment functions of the module semantics are not entered
+  let fzs := if Tools.VedMemLoop.ved.mem.s94EnvFreeze.get (← getOptions) then fzs0.push efL else fzs0
   -- diagnosis only (`VED_PROBE_S94` and `VED_DUMP_DIR`): the counting simproc of stage 94
   let probeL : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     if (← IO.getEnv "VED_PROBE_S94").isSome && (← IO.getEnv "VED_DUMP_DIR").isSome then
