@@ -699,6 +699,10 @@ def block_pieces(r, route, ns, write_cmd=None):
     command of the U1 step (a `#writeDesign` row routed to `#ved_write_checked`)."""
     opts = lean_option_lines(r["options"], "default")
     prefix = "".join(f"set_option {o} in\n" for o in ["Elab.async false"] + opts)
+    if route == "u2_hier":
+        # measurement only: U1_EXTRA_OPTS="NAME VALUE;NAME VALUE" adds `set_option NAME VALUE in` lines in
+        # front of the inserted command (default empty: byte-identical cases)
+        prefix += "".join(f"set_option {o.strip()} in\n" for o in os.environ.get("U1_EXTRA_OPTS", "").split(";") if o.strip())
     top, q = r["top"], r["qualified"] or ""
     sub = lambda s: s.replace("@TOP@", top).replace("@Q@", q)
     hier = route in HIER_ROUTES
