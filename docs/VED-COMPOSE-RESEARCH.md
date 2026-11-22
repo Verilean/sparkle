@@ -12,14 +12,16 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
    read from the cut leaves, computes the cone that the open parent's deep run was proved about.  ACL2 never needs that statement
    because the object that is simulated and the object that is proved about are the same `svex-alist`; Kami never needs it
    because widths are in the Coq types and inlining is a verified function (Thm 5.5).
-2. That statement is small to *state* (`cone_connect`, type-checked and PROVED, prototype below), but it exposes four
+2. That statement is small to *state* and to PROVE for the inlining and bundle-slice parts (`cone_connect`, `cone_connect_bn`,
+   type-checked and PROVED, prototype below; the remaining piece is the slot renaming with its width transfer), but it exposes
    type/semantics mismatches that the 600-1000-line estimate did not list: (M1) inlining is NOT sound in the IR semantics
    unless the assignments are width-consistent (`widthOf` reads the syntax); (M2) bundle slices (`slice (concat ..)`) remain
    after inlining on the real synthesiser output; (M3) the cone literal's slot names differ from the returned module's names;
    (M4) string lookups cost ~0.5 ms per compare in the kernel, so the lookup table needs the byte-key tree of `VedComposeOrder`.
 3. Observed on the REAL returned module of the registered families: width consistency holds for all 9 (only the output port
    `out` is "inconsistent", because a port is not a declared wire); on `multiTwo.ved_mod` the inlined, bundle-normalised register
-   inputs equal the deep route's cone literals (`_deep_fidelity_r0/r1`) under a slot renaming, by a closed `rfl`.
+   inputs equal the deep route's cone literals (`_deep_fidelity_r0/r1`) under a slot renaming, by a closed `rfl` (literal typed
+   by hand from the printed theorem type: not machine-linked yet).
 4. The stage it can shorten is the parent `hstep` (per-cone closers) only.  The R193 table says the run does not reach `hstep`;
    74-76 % of the time is before the parent proof (child 231 s, deep run 442 s) and the first unmet stage is the closed shape
    facts (>= 185 s).  So the cone check is NOT the next thing for R193; it is the right thing AFTER the closed facts are cut.
@@ -160,8 +162,12 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
   `theorem cone_connect … (hW : WOKb (declWidth m) m b0 = true) … (hasg hEin hEreg hEorc : the step_local facts) (hc : inl (Atab m b0) n e = c) (hl : leafOk (cutNames d m b0) c = true) : evalExpr (declWidth m) E e = evalExpr (declWidth m) (leafEnv m b0 ins t p Ow) c`
   Reading: the value of a register's (or output's) right-hand side at the abstract environment equals the value of the cone
   literal at the LEAF valuation (cycle inputs, pre-state, oracle `Ow`), which is the valuation the deep trace evaluates its cones at;
-  `hc` and `hW`, `hl` are closed facts for the kernel (`rfl`, `decide +kernel`).  Still to state (blocked only by work, not by a
-  mismatch): `bn_sound` for the bundle normaliser (M2) and `ren_sound` for the renaming (M3) — see section 7.
+  `hc` and `hW`, `hl` are closed facts for the kernel (`rfl`, `decide +kernel`).  With bundle slices (M2), also PROVED:
+  `theorem bn_sound (we E) : ∀ n e, (∀ x ∈ refs e, E x < 2 ^ we x) → evalExpr we E (bn we n e) = evalExpr we E e ∧ widthOf we (bn we n e) = widthOf we e`
+  `theorem cone_connect_bn … (hrange : ∀ x ∈ cutNames d m b0, E x < 2 ^ declWidth m x) (hc : bn (declWidth m) n2 (inl (Atab m b0) n e) = c) (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) n e) = true) : evalExpr (declWidth m) E e = evalExpr (declWidth m) (leafEnv m b0 ins t p Ow) c`
+  `hrange` (register invariant, input contract, child output width) is an obligation of the per-cone step, not assumed done.
+  Still to state and prove: `ren_sound` for the slot renaming (M3) including the transfer from the returned module's width
+  function to `weOfC nm widths` — see section 7 (or avoid it by passing the returned names as `nm`).
 * (ii) Obligations: O1 done (plus the new width condition); O2 reduced from "general normaliser" to aligned bundle slices over
   register leaves plus `ConcatNorm` (exists, `norm2_eval`, Tools/ConcatNorm.lean:102); O3 reduced to a slot renaming and a
   width-environment transfer (`weOfC nm widths` vs `declWidth m` on leaves); O4 NOT needed for cones (stays as is); O5 (generator)
@@ -205,24 +211,31 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
 
 ## 5. Prototype (route a, cone level) — `Tools/VedComposeResearchCut.lean`
 
-* Contents: `inl`, `refs`, `width_op_map`, `width_concat_map`, `evalOp_map`, `evalList_map`, `foldl_zip_map`, `go_map`,
-  `inl_sound`, `eval_congr`/`evalList_congr`, `outsOf`, `Atab`, `WOKb`/`WOKb_sound`, `cutNames`, `leafOk`/`leafOk_sound`,
-  `mem_instOutsOf`, `leafEnv`, `cone_connect`; then the Toy (namespace `Tools.VedComposeResearch.Toy`): parent `par` with a
-  register and TWO instances of the same child `kid` (the second reads the first's output), the cone check accepted
-  (`par_widths`, `par_cone`, `par_out_cone`, `par_leaves`, `par_connect`).
+* Contents (≈ 520 lines incl. toys): `inl`, `refs`, `width_op_map`, `width_concat_map`, `evalOp_map`, `evalList_map`,
+  `foldl_zip_map`, `go_map`, `inl_sound`, `eval_congr`/`evalList_congr`, `outsOf`, `Atab`, `WOKb`/`WOKb_sound`, `cutNames`,
+  `leafOk`/`leafOk_sound`, `mem_instOutsOf`, `leafEnv`, `cone_connect`; `alignedIdx`, `refNames`, `bnS`, `bn`, `alignedIdx_spec`,
+  `refNames_eq`, `bnS_sound`, `refs_bnS`, `refs_bn`, `bn_sound`, `cone_connect_bn`; then the Toys (namespace
+  `Tools.VedComposeResearch.Toy`): toy 1 `par`: a register and TWO instances of the same child `kid` (the second reads the first's
+  output), accepted (`par_widths`, `par_cone`, `par_out_cone`, `par_leaves`, `par_connect`); toy 2 `parB`: two registers read through
+  a bundle `concat` and `slice`/`slice∘slice` (the shape of the real output), one instance, accepted (`parB_widths`, `parB_c0`,
+  `parB_c1`, `parB_l0`, `parB_l1`, `parB_connect0`).
 * Same artifact / contract: `cone_connect` takes exactly the hypotheses `step_local` hands to `hloc` (`hasg hEin hEreg hEorc`)
   and its conclusion is the per-cone value fact `hloc` needs; no statement (`U2HRStmt`, `U1Stmt`, `MemStmt`) and no existing file is
   changed; no new hypothesis in any final statement.  It is NOT yet wired into an entry (that is O5).
 * Axioms (observed, `#print axioms` in the file): `cone_connect`, `par_connect`: `[propext, Quot.sound]`; `ctl_swap`:
-  `[propext, Classical.choice, Quot.sound]`.  No `sorry`, no `native_decide`, no new axiom.
+  `[propext, Classical.choice, Quot.sound]`; `cone_connect_bn`, `bn_sound`, `parB_connect0`: `[propext, Quot.sound]`; `inl_sound`,
+  `ctl_misaligned`, `ctl_range`: `[propext]` (run 69).  No `sorry`, no `native_decide`, no new axiom (grep on the file: none).
 * Refused controls (kernel-evaluated, run 57): (1) mis-wiring: `inl … ≠ coneSwap` (the two oracle wires swapped, instance i0 paired
   with i1's call); (2) independence faking: a cone that stops at the computed wire `w2` — the equation `inl A 2 w3 = coneFake` HOLDS
   (`ctl_fake_eq`) and `leafOk … coneFake = false` (`ctl_fake_leaf`): the transparency/leaf condition is what refuses it;
   (3) different artifact: `inl … ≠ coneOther` (a cone of another module) and `leafOk (cutNames dsgNoOut …) coneR = false` (same
-  literal, a design whose child has no output `y`); (4) the width side condition is real: `ctl_width_check` (`WOKb … = false`) and
+  literal, a design whose child has no output `y`); (5) a misaligned slice is not resolved (`ctl_misaligned`: `bun[6:3]` stays a slice, the equation with the cone literal is refuted);
+  (6) the range hypothesis is real (`ctl_range`: `slice (ref x) 3 0 ≠ ref x` when the value does not fit); (4) the width side condition is real: `ctl_width_check` (`WOKb … = false`) and
   `ctl_width_semantics` (inlining changes the value although both assignments hold).
-* Timing: the whole file (imports + proofs + toy + controls) 12.7-13.7 s wall; the kernel work of the toy is below the noise of the
-  import cost.  The M4 scaling runs (above) are the only cost data and are bounded to N=200.
+* Timing (observed, single runs): an import-only file 11.8 s wall; the whole prototype file (proofs + both toys + controls)
+  13.3-17.0 s wall over runs 57-71, i.e. ~2-5 s over the import cost, difference dominated by elaborating the proofs; the
+  profiler (run 72) shows a type-checking step of ~1.1-1.3 s for the largest theorems and nothing in the closed toy facts above the
+  100 ms threshold.  Generation (meta) time of a cone set is not in scope here.  The M4 scaling runs (above) are the only cost data and are bounded to N=200.
 * Real-shape observations (scratch/runs/58, 64; scratch/Real.lean, Real3.lean, not committed):
   `WOKb (declWidth M) M M.body` holds (by `decide +kernel`) for all nine returned modules of `Tests.Ved.U2HierMultiCheck`
   (multiTwo, multiShared, multiKids) and `Tests.Ved.U2HierWireCheck` (wireMix, wireOrd, wireShared, wireTwo, wireRn, wireAdd) —
@@ -242,8 +255,9 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
 ## 7. Next small unit (2-3 h) and its acceptance
 
 "Cone check on the real shapes": in a new file (no shared edits) (1) define the byte-key table `Atab` on top of `VedComposeOrder`'s
-`nameKey`/`NTree`; (2) prove `bn_sound` (aligned slice of a concat of refs → the element; `slice (ref x) hi 0` with
-`hi+1 = we x` → `ref x`; hypothesis: `E x < 2 ^ we x` on the leaves) and `ren_sound`; (3) machine-link the literal: state, for
+`nameKey`/`NTree` and prove it agrees with `Atab` above (the cone theorems then apply unchanged); (2) prove `ren_sound` (renaming of
+leaves plus width transfer to `weOfC nm widths`), or have the entry pass the returned names as `nm` and skip it; (`bn_sound` is done);
+(3) machine-link the literal: state, for
 `Tests.Ved.U2HierMultiCheck.multiTwo` and `multiShared`, `bn (inl A n input_r) = ren ρ (literal of the type of `_deep_fidelity_r`)` with
 the literal obtained from the theorem's type by `Lean.Meta`/`type_of%`, not typed by hand; (4) controls as in section 5 plus a
 mis-paired renaming `ρ` (refused).  Acceptance: kernel-accepted, std3 axioms, all registers of both toys match, the three controls
