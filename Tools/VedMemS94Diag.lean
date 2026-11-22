@@ -851,11 +851,120 @@ elab "#ved_s94_ckpt97_replay " d:str : command => do
       for h in hs do peels := peels.push (← `(tactic| (ved_s97_peel $h:ident)))
       let mut alt : TSyntax `tactic := peels[0]!
       for c in peels.toList.drop 1 do alt ← `(tactic| first | ($alt:tactic) | ($c:tactic))
+      if (← IO.getEnv "VED_S97_STEPS").isSome then
+        -- diagnosis: the steps of the peel one by one, each under its own budget (`VED_S97_STEPHB` thousand heartbeats)
+        let stepHb := ((← IO.getEnv "VED_S97_STEPHB").bind String.toNat?).getD 50000
+        let tg ← instantiateMVars (← g.getType)
+        g.withContext do
+          let nArgs := tg.getAppNumArgs
+          let mArr := tg.getArg! (nArgs - 1)
+          dbgLog s!"S97 step goal {j}: head={s94Head tg} nargs={nArgs} memArray head={s94Head mArr.consumeMData} tree={Tools.VedU1Loop.treeSizeVal mArr}; args trees={(tg.getAppArgs.map Tools.VedU1Loop.treeSizeVal).toList}"
+          let hbA ← IO.getNumHeartbeats
+          let withB (act : MetaM String) : MetaM String :=
+            withTheReader Core.Context (fun c => { c with maxHeartbeats := stepHb * 1000, initHeartbeats := hbA }) (tryCatchRuntimeEx act fun ex => do pure s!"EXN {((← ex.toMessageData.toString).replace "\n" " ").take 80}")
+          for (h, i) in (hms.getD j []).zipIdx do
+            if i > 2 then break
+            let hd ← (mkIdent (Name.mkSimple s!"ck{h}")).getId |> fun n => pure n
+            let some d := (← getLCtx).findFromUserName? hd | continue
+            let t1 ← IO.monoMsNow
+            let hb1 ← IO.getNumHeartbeats
+            let r ← withB do
+              let hb ← IO.getNumHeartbeats
+              withTheReader Core.Context (fun c => { c with initHeartbeats := hb }) do
+                let a ← withTransparency .default (Meta.isDefEq d.type tg)
+                pure s!"isDefEq(hM_{i} type, goal)={a}"
+            dbgLog s!"S97 step goal {j} exact-h{i}: {r} ms={(← IO.monoMsNow) - t1} hb(k)={((← IO.getNumHeartbeats) - hb1) / 1000} hType head={s94Head d.type} tree={Tools.VedU1Loop.treeSizeVal d.type}"
+      if (← IO.getEnv "VED_S97_COUNT").isSome then
+        -- diagnosis: the number of peel steps the memory array needs: ite = 1 + both branches (as a tree), update lambda = 1 + the inner array, other = 1
+        let tg ← instantiateMVars (← g.getType)
+        if tg.isAppOf ``Tools.VedMem.MemInv then
+          let cache ← IO.mkRef (({} : Std.HashMap Lean.Expr Nat))
+          let rec cnt (e : Lean.Expr) (fuel : Nat) : IO Nat := do
+            match fuel with
+            | 0 => return 0
+            | fuel + 1 =>
+            let e := e.consumeMData
+            if let some v := (← cache.get)[e]? then return v
+            let r ← if e.isAppOfArity ``ite 5 then
+                pure ((← cnt (e.getArg! 3) fuel) + (← cnt (e.getArg! 4) fuel) + 1)
+              else if e.isLambda then
+                let body := (e.bindingBody!).bindingBody!
+                if body.isAppOfArity ``ite 5 then
+                  let els := body.getArg! 4
+                  -- the else branch is `M nm i` (M = the application without its last two arguments)
+                  if els.isApp && els.appFn!.isApp && !els.appFn!.appFn!.hasLooseBVars then pure ((← cnt els.appFn!.appFn! fuel) + 1) else pure 1
+                else pure 1
+              else pure 1
+            cache.modify (·.insert e r)
+            return r
+          let steps ← cnt (tg.getArg! (tg.getAppNumArgs - 1)) 100000
+          dbgLog s!"S97 count goal {j}: peel steps (tree count of the memory array) = {steps}"
+      if (← IO.getEnv "VED_S97_WALK").isSome then
+        -- diagnosis: the whole peel as a worklist over ALL branches (hypothesis = the one of the goal's name), the refine steps one at a time,
+        -- each under its own budget (`VED_S97_STEPHB` thousand heartbeats); logs every step over 100 ms or 2M heartbeats and the totals
+        let stepHb := ((← IO.getEnv "VED_S97_STEPHB").bind String.toNat?).getD 50000
+        let mut work : Array MVarId := #[g]
+        let mut steps := 0
+        let mut sideGoals : Array String := #[]
+        let mut leafs := 0
+        let tStart ← IO.monoMsNow
+        let hbStart ← IO.getNumHeartbeats
+        let seenH ← IO.mkRef (({} : Std.HashSet UInt64))
+        let walkMs := ((← IO.getEnv "VED_S97_WALKMS").bind String.toNat?).getD 100000000
+        while !work.isEmpty && (← IO.monoMsNow) - tStart < walkMs do
+          let cur := work.back!
+          work := work.pop
+          let tg ← instantiateMVars (← cur.getType)
+          if !tg.isAppOf ``Tools.VedMem.MemInv then
+            sideGoals := sideGoals.push s!"{s94Head tg}:{Tools.VedU1Loop.treeSizeVal tg}"
+            continue
+          let mArr := tg.getArg! (tg.getAppNumArgs - 1)
+          let sh := s94Head mArr.consumeMData
+          seenH.modify (·.insert (hash mArr))
+          let cands : List (String × TSyntax `tactic) := [
+            ("ite", ← `(tactic| (ved_mem_shape ite; refine Tools.VedMem.MemInv.ite (fun _ => ?_) (fun _ => ?_)))),
+            ("other", ← `(tactic| (ved_mem_shape lam; refine Tools.VedMem.MemInv.other_leaf ?_ (by decide) _ _))),
+            ("write", ← `(tactic| (ved_mem_shape lam; refine Tools.VedMem.MemInv.write_leaf ?_ ?_ ?_ ?_))),
+            ("hold", ← `(tactic| (ved_mem_shape fvar; refine Tools.VedMem.MemInv.hold_leaf ?_ ?_)))]
+          let mut done := false
+          for (nm, tac) in cands do
+            let t1 ← IO.monoMsNow
+            let hb1 ← IO.getNumHeartbeats
+            let res ← try
+                withTheReader Core.Context (fun c => { c with maxHeartbeats := stepHb * 1000, initHeartbeats := hb1 }) (tryCatchRuntimeEx (do
+                    let gs ← Tactic.run cur (Tactic.evalTactic tac)
+                    pure (some gs)) fun _ => pure none)
+              catch _ => pure none
+            let ms := (← IO.monoMsNow) - t1
+            let hbd := ((← IO.getNumHeartbeats) - hb1) / 1000
+            if res.isSome && (ms > 100 || hbd > 2000) then dbgLog s!"S97 walk SLOW step {nm} shape={sh} ms={ms} hb(k)={hbd}"
+            if let some gs := res then
+              steps := steps + 1
+              work := work ++ gs.reverse.toArray
+              done := true
+              break
+          if !done then
+            leafs := leafs + 1
+            let okAny ← IO.mkRef false
+            cur.withContext do
+              for h in hms.getD j [] do
+                let some d := (← getLCtx).findFromUserName? (Name.mkSimple s!"ck{h}") | continue
+                let t1 ← IO.monoMsNow
+                let hb1 ← IO.getNumHeartbeats
+                let r ← withTheReader Core.Context (fun c => { c with maxHeartbeats := stepHb * 1000, initHeartbeats := hb1 }) (tryCatchRuntimeEx (do
+                    let a ← Meta.isDefEq d.type tg
+                    pure s!"{a}") fun ex => do pure s!"EXN {((← ex.toMessageData.toString).replace "\n" " ").take 60}")
+                let ms := (← IO.monoMsNow) - t1
+                if r == "true" then okAny.set true
+                if (r != "false" && r != "true") || ms > 100 then dbgLog s!"S97 walk leaf exact ck{h}: {r} ms={ms}"
+            if !(← okAny.get) then dbgLog s!"S97 walk leaf NO hypothesis accepted: shape={sh} trees={(tg.getAppArgs.map Tools.VedU1Loop.treeSizeVal).toList}"
+        dbgLog s!"S97 walk goal {j} done (work left {work.size}, distinct memory arrays {(← seenH.get).size}): steps={steps} leaves={leafs} side goals={sideGoals.size} ({(sideGoals.toList.take 4)}) ms={(← IO.monoMsNow) - tStart} hb(k)={((← IO.getNumHeartbeats) - hbStart) / 1000}"
       let t0 ← IO.monoMsNow
       let hb0 ← IO.getNumHeartbeats
+      let pickT : TSyntax `tactic := alt
       let run : TermElabM String := do
         try
-          let gs ← Tactic.run g (Tactic.evalTactic (← `(tactic| try $alt:tactic)))
+          let gs ← Tactic.run g (Tactic.evalTactic (← `(tactic| try $pickT:tactic)))
           pure s!"ok goals={gs.length}"
         catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 300}"
       let res ← match hbN? with
