@@ -756,7 +756,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
             regIn := (List.range k).map fun i => (regIns[(regsB0.map (·.1)).idxOf di.pm[i]!]!).getD "?",
             dataN := dataN, dataW := tbl.ins.map (fun pt => match pt with | .bit => none | .bv w => some w), insts := insts.map fun ii => (ii.y, ii.call), instW := (List.range insts.length).map outsW,
             nCalls := calls.size, fuel := b0.length + 1, contract := toString P.contract, outs := toString P.outs, oe := toString OE, otrace := OTrace,
-            rst := rstN, regNext := regsB0.map fun (o, _, inp) => (o, match inp with | .ref x => x | _ => "?"), outCfg := outCfg }).toArray
+            rst := rstN, regNext := regsB0.map fun (o, _, inp) => (o, match inp with | .ref x => x | _ => "?"), outCfg := outCfg, slow := di.noFastWR }).toArray
         return "\n".intercalate L.toList
       for (bs, bi) in bsl.zipIdx do
         for l in bs.lines do L := L.push ("  " ++ l)
@@ -1206,7 +1206,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       if (← getEnv).contains n then
         if let some c ← dupTargetOf n then
           dups := dups ++ [(slot, c, deepC opn.openName (ptag ++ s!"_deep_dup_r{slot}"))]
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, perm := Tools.VedCompose.permIdx m.body p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), connect := Tools.VedComposeConnect.ved.compose.connect.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome, noKernelDecide := (← IO.getEnv "VED_COMPOSE_NODK").isSome, noOkOnce := (← IO.getEnv "VED_COMPOSE_NOOKONCE").isSome, noFastOrder := (← IO.getEnv "VED_COMPOSE_NOFAST").isSome, noFastWidth := (← IO.getEnv "VED_COMPOSE_NOFASTW").isSome }
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, perm := Tools.VedCompose.permIdx m.body p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), connect := Tools.VedComposeConnect.ved.compose.connect.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome, noKernelDecide := (← IO.getEnv "VED_COMPOSE_NODK").isSome, noOkOnce := (← IO.getEnv "VED_COMPOSE_NOOKONCE").isSome, noFastOrder := (← IO.getEnv "VED_COMPOSE_NOFAST").isSome, noFastWidth := (← IO.getEnv "VED_COMPOSE_NOFASTW").isSome, noFastWR := (← IO.getEnv "VED_COMPOSE_NOFASTWR").isSome }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU

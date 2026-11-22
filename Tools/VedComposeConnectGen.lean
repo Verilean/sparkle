@@ -57,6 +57,8 @@ structure ConnArgs where
   /-- each register of the body with the wire that feeds it, in body order -/
   regNext : List (String × String)
   outCfg : String
+  /-- measurement only (`VED_COMPOSE_NOFASTWR`): the closed width / register facts by the list-scanning `Bool`s, not the map-based ones -/
+  slow : Bool := false
 
 def sq (s : String) : String := "\"" ++ s ++ "\""
 
@@ -93,7 +95,8 @@ def hlocLines (a : ConnArgs) : List String := Id.run do
   let owT := s!"(fun ins y t => {a.ow})"
   let common := s!"hinj ({a.inpU} ins) t"
   let mut L : Array String := #[]
-  L := L.push s!"    have hWk : Tools.VedComposeResearch.WOKb ({dw}) {a.mod} {a.body} = true := by decide +kernel"
+  L := L.push (if a.slow then s!"    have hWk : Tools.VedComposeResearch.WOKb ({dw}) {a.mod} {a.body} = true := by decide +kernel"
+    else s!"    have hWk : Tools.VedComposeResearch.WOKb ({dw}) {a.mod} {a.body} = true := Tools.VedComposeConnect.wokbF_sound (by decide +kernel)")
   -- R: the needed leaves' range
   L := L.push s!"    have hrangeN : ∀ y ∈ {neededTxt a}, E y < 2 ^ {dw} y := by"
   L := L.push s!"      intro y hy"
@@ -152,10 +155,15 @@ def hlocLines (a : ConnArgs) : List String := Id.run do
   L := L.push s!"      all_goals first | rw [{a.otrace}] | (rw [← Tools.VedComposePrelude.bit_obs]; erw [{a.otrace}])"
   L := L.push s!"      have hOutA := hasgF \"out\" _ rfl"
   L := L.push s!"      ved_connect_log \"port out via out_connect (fidelity {a.fidOut})\""
-  L := L.push s!"      exact Tools.VedComposeConnect.out_connect ({a.deep}) ({a.nm}) hinj ({a.inpU} ins) t _ {a.fidOut} {a.design} {a.mod} {a.body} {owT} {hwiT} {hriT} {hwrT} hWk ins p E hasgF hEin hEreg hEorc _ \"out\" hOutA {a.fuel} {a.fuel} {a.fuel} {neededTxt a} hrangeN (by decide +kernel) (by decide +kernel) {tabTxt a} (by rfl) (by decide +kernel) hV"
+  -- the port cone's four closed facts: ONE map-based `specOkL` (default), or the four list-scanning evaluations (`slow`)
+  let outTail := if a.slow then s!"(by decide +kernel) (by decide +kernel) {tabTxt a} (by rfl) (by decide +kernel)" else s!"hsO.1 hsO.2.1 {tabTxt a} hsO.2.2.2 hsO.2.2.1"
+  unless a.slow do
+    L := L.push s!"      have hAsgO : Tools.VedU2Hier.asgOf {a.body} \"out\" = some _ := rfl"
+    L := L.push s!"      have hsO := Tools.VedComposeConnect.outSpecF_sound (deep := {a.deep}) (nm := {a.nm}) (d := {a.design}) (m := {a.mod}) (b0 := {a.body}) (needed := {neededTxt a}) (tab := {tabTxt a}) (nIn := {a.fuel}) (n2 := {a.fuel}) (n3 := {a.fuel}) (x := \"out\") hAsgO {a.fidOut} (by decide +kernel)"
+  L := L.push s!"      exact Tools.VedComposeConnect.out_connect ({a.deep}) ({a.nm}) hinj ({a.inpU} ins) t _ {a.fidOut} {a.design} {a.mod} {a.body} {owT} {hwiT} {hriT} {hwrT} hWk ins p E hasgF hEin hEreg hEorc _ \"out\" hOutA {a.fuel} {a.fuel} {a.fuel} {neededTxt a} hrangeN {outTail} hV"
   -- ONE closed kernel check for all register slots (`RegsOk`); `regs_spec` hands each slot's four facts back
   let xsTxt := "([" ++ ", ".intercalate (a.regIn.map sq) ++ "] : List String)"
-  L := L.push s!"    have hallR : Tools.VedComposeConnect.RegsOk {a.deep} {a.nm} {a.design} {a.mod} {a.body} {neededTxt a} {tabTxt a} {a.fuel} {a.fuel} {a.fuel} {xsTxt} = true := by decide +kernel"
+  L := L.push s!"    have hallR : Tools.VedComposeConnect.RegsOk {a.deep} {a.nm} {a.design} {a.mod} {a.body} {neededTxt a} {tabTxt a} {a.fuel} {a.fuel} {a.fuel} {xsTxt} = true := {if a.slow then "by decide +kernel" else "Tools.VedComposeConnect.regsOkF_sound (by decide +kernel)"}"
   -- the registers
   let holes := ", ".intercalate ((List.range k).map fun _ => "?_")
   L := L.push s!"    · {if k == 1 then "skip" else s!"refine ⟨{holes}⟩"}"

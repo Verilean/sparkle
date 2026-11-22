@@ -1,6 +1,7 @@
 import Lean
 import Tools.VedComposeResearchCut
 import Tools.DeepElab
+import Tools.VedComposeOrder
 
 /-!
 # VED compose, connection (unit `sparkle-ved-compose-connect`): the returned IR's cone to the open parent's deep cone
@@ -696,5 +697,257 @@ theorem mask_next {w a v : Nat} (h : v = a) (hlt : v < 2 ^ w) : mask w a = v := 
 open Lean Elab Tactic in
 /-- The observable record of the new path: one info line per connection the generated proof applies. -/
 elab "ved_connect_log " s:str : tactic => logInfo m!"VED COMPOSE CONNECT: {s.getString}"
+
+end Tools.VedComposeConnect
+
+/-!
+# VED compose connect: fast closed Bools for `WOKb` and `RegsOk` (new path only)
+
+`WOKb (declWidth m) m b` and `RegsOk` are closed `Bool`s the generated parent proof evaluates with the kernel.  Their unit step is a
+list scan with `String` comparisons: `declWidth m` scans the wires for every `ref` the width of which is asked, `Atab m b0` scans the
+statements for every inlined wire, `needed.contains` / `cutNames.contains` / `tab.lookup` scan a list for every leaf.
+
+Here the same lookups go through a name map (`VT`: a binary search tree on a 32-bit mix of the exact name key `nameKey`, the same
+idea as `NTree` of `Tools/VedComposeOrder.lean`; a node keeps the `(exact key, value)` pairs of its search key).  The hash is never
+trusted: `smGet_smOf : smGet (smOf l) x = l.lookup x` is proved from `nameKey_inj` only, so a bad hash can only cost time.
+`wokbF_sound` / `regsOkF_sound` give the existing `Bool`s; their statements and the lemmas that use them are unchanged.
+-/
+
+namespace Tools.VedComposeConnect
+
+open Sparkle.IR.AST Sparkle.IR.Semantics Tools.VedCompose Tools.VedComposeResearch Tools.VedComposeConnect
+  Tools.VedU1Contract Tools.VedU1Hier Tools.VedU2Hier
+
+/-- A binary search tree on search keys; a node keeps the `(exact key, value)` pairs that have its search key, newest first. -/
+inductive VT (α : Type) where
+  | leaf : VT α
+  | node (k : Nat) (es : List (Nat × α)) (l r : VT α) : VT α
+
+def VT.get {α : Type} (h s : Nat) : VT α → Option α
+  | .leaf => none
+  | .node k es l r => if h = k then es.lookup s else if h < k then l.get h s else r.get h s
+
+def VT.ins {α : Type} (h s : Nat) (v : α) : VT α → VT α
+  | .leaf => .node h [(s, v)] .leaf .leaf
+  | .node k es l r =>
+    if h = k then .node k ((s, v) :: es) l r
+    else if h < k then .node k es (l.ins h s v) r else .node k es l (r.ins h s v)
+
+theorem VT.get_ins {α : Type} (h h' s s' : Nat) (v : α) (t : VT α) :
+    (t.ins h' s' v).get h s = if h = h' ∧ s = s' then some v else t.get h s := by
+  induction t with
+  | leaf =>
+    by_cases hh : h = h'
+    · subst hh
+      by_cases hs : s = s'
+      · subst hs; simp [VT.ins, VT.get, List.lookup]
+      · have hb : (s == s') = false := by simpa using hs
+        simp [VT.ins, VT.get, List.lookup, hs, hb]
+    · by_cases hlt : h < h' <;> simp [VT.ins, VT.get, hh, hlt]
+  | node k es l r ihl ihr =>
+    by_cases hk : h' = k
+    · subst hk
+      by_cases hh : h = h'
+      · subst hh
+        by_cases hs : s = s'
+        · subst hs; simp [VT.ins, VT.get, List.lookup]
+        · have hb : (s == s') = false := by simpa using hs
+          simp [VT.ins, VT.get, List.lookup, hs, hb]
+      · by_cases hlt : h < h' <;> simp [VT.ins, VT.get, hh, hlt]
+    · by_cases hlt' : h' < k
+      · by_cases hh : h = k
+        · simp [VT.ins, VT.get, hk, hlt', hh, Ne.symm hk]
+        · by_cases hlt : h < k
+          · simp [VT.ins, VT.get, hk, hlt', hh, hlt, ihl]
+          · simp [VT.ins, VT.get, hk, hlt', hh, hlt]
+            intro e; omega
+      · by_cases hh : h = k
+        · simp [VT.ins, VT.get, hk, hlt', hh, Ne.symm hk]
+        · by_cases hlt : h < k
+          · simp [VT.ins, VT.get, hk, hlt', hh, hlt]
+            intro e; omega
+          · simp [VT.ins, VT.get, hk, hlt', hh, hlt, ihr]
+
+/-- The map of an association list: `smGet (smOf l) x` is the FIRST value of `x` (`smGet_smOf`). -/
+def smOf {α : Type} (l : List (String × α)) : VT α :=
+  l.foldr (fun p t => t.ins (hsh (nameKey p.1)) (nameKey p.1) p.2) .leaf
+
+def smGet {α : Type} (t : VT α) (x : String) : Option α := t.get (hsh (nameKey x)) (nameKey x)
+
+theorem smGet_smOf {α : Type} (l : List (String × α)) (x : String) : smGet (smOf l) x = l.lookup x := by
+  induction l with
+  | nil => rfl
+  | cons p r ih =>
+    obtain ⟨a, v⟩ := p
+    simp only [smOf, List.foldr_cons] at ih ⊢
+    unfold smGet at ih ⊢
+    rw [VT.get_ins, ih]
+    by_cases hx : x = a
+    · subst hx; simp [List.lookup]
+    · have hk : nameKey x ≠ nameKey a := fun h => hx (nameKey_inj h)
+      have hb : (x == a) = false := by simpa using hx
+      simp [List.lookup, hk, hx, hb]
+
+/-- A name set. -/
+def setOf (l : List String) : VT Unit := smOf (l.map fun x => (x, ()))
+
+def memF (t : VT Unit) (x : String) : Bool := (smGet t x).isSome
+
+theorem memF_setOf (l : List String) (x : String) : memF (setOf l) x = l.contains x := by
+  unfold memF setOf
+  rw [smGet_smOf]
+  induction l with
+  | nil => rfl
+  | cons a r ih =>
+    simp only [List.map_cons, List.lookup, List.contains_cons]
+    by_cases h : x = a
+    · subst h; simp
+    · have hb : (x == a) = false := by simpa using h
+      simp [hb, ih]
+
+/-! ## The declared width -/
+
+def wtab (m : Module) : VT Nat := smOf (m.wires.map fun w => (w.name, dwOf w.ty))
+
+def weF (m : Module) : WEnv := fun x => (smGet (wtab m) x).getD 0
+
+theorem dw_find (x : String) : ∀ l : List Sparkle.IR.AST.Port,
+    ((l.map fun w => (w.name, dwOf w.ty)).lookup x).getD 0 =
+      (match l.find? (fun p => p.name == x) with
+       | some { ty := .bitVector k, .. } => k
+       | some { ty := .bit, .. } => 1
+       | _ => 0)
+  | [] => rfl
+  | w :: r => by
+    by_cases h : w.name = x
+    · have hb : (w.name == x) = true := by simpa using h
+      have hb' : (x == w.name) = true := by simpa using h.symm
+      cases w with | mk n ty => cases ty <;> simp_all [dwOf, List.lookup, List.find?_cons]
+    · have hb : (w.name == x) = false := by simpa using h
+      have hb' : (x == w.name) = false := by simpa using Ne.symm h
+      simp only [List.map_cons, List.lookup, List.find?_cons, hb, hb']
+      exact dw_find x r
+
+theorem weF_eq (m : Module) : weF m = declWidth m := by
+  funext x
+  unfold weF wtab declWidth
+  rw [smGet_smOf]
+  exact dw_find x m.wires
+
+/-- `WOKb` with the width map. -/
+def WOKbF (m : Module) (b : List Stmt) : Bool := WOKb (weF m) m b
+
+theorem wokbF_sound {m : Module} {b : List Stmt} (h : WOKbF m b = true) : WOKb (declWidth m) m b = true := by
+  rw [← weF_eq]; exact h
+
+/-! ## The assignment table -/
+
+def asgList (b : List Stmt) : List (String × Expr) :=
+  b.filterMap fun s => match s with
+    | .assign l r => some (l, r)
+    | _ => none
+
+theorem asgOf_lookup (b : List Stmt) (x : String) : asgOf b x = (asgList b).lookup x := by
+  induction b with
+  | nil => rfl
+  | cons s r ih =>
+    cases s with
+    | assign l e =>
+      simp only [asgOf, asgList, List.findSome?_cons, List.filterMap_cons, List.lookup] at ih ⊢
+      by_cases h : l = x
+      · subst h; simp
+      · have h' : (x == l) = false := by simpa using Ne.symm h
+        simp [h, h', ih]
+    | _ => simpa [asgOf, asgList, List.findSome?_cons, List.filterMap_cons] using ih
+
+def atabF (m : Module) (b : List Stmt) : String → Option Expr :=
+  fun x => if (outsOf m).contains x then none else smGet (smOf (asgList b)) x
+
+theorem atabF_eq (m : Module) (b : List Stmt) : atabF m b = Atab m b := by
+  funext x
+  unfold atabF Atab
+  rw [smGet_smOf, ← asgOf_lookup]
+
+/-! ## `RegsOk` over a bundle of lookups -/
+
+structure Lk where
+  we : WEnv
+  A : String → Option Expr
+  needS : String → Bool
+  cutS : String → Bool
+  tabL : String → Option Nat
+
+def tauOfL {n : Nat} (nm : Fin n → String) (tabL : String → Option Nat) : String → String :=
+  fun x => match tabL x with
+    | some j => if h : j < n then nm ⟨j, h⟩ else x
+    | none => x
+
+def tabWL (Γ : List Nat) (wm : WEnv) (tabL : String → Option Nat) (c : Expr) : Bool :=
+  (refs c).all fun x => match tabL x with
+    | some j => decide (j < Γ.length) && (wm x == Γ.getD j 0)
+    | none => false
+
+def specOkLe (lk : Lk) (Γ : List Nat) (τ : String → String) (nIn n2 n3 : Nat) (e : Expr) (L : Expr) : Bool :=
+  (refs (inl lk.A nIn e)).all lk.needS && (refs (inl lk.A nIn e)).all lk.cutS &&
+    tabWL Γ lk.we lk.tabL (bn lk.we n2 (flat n3 (inl lk.A nIn e))) &&
+    eqE (renE τ (bn lk.we n2 (flat n3 (inl lk.A nIn e)))) L
+
+def specOkL (lk : Lk) (Γ : List Nat) (τ : String → String) (nIn n2 n3 : Nat) (x : String) (L : Expr) : Bool :=
+  specOkLe lk Γ τ nIn n2 n3 (.ref x) L
+
+def RegsOkL {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String) (lk : Lk)
+    (nIn n2 n3 : Nat) (xs : List String) : Bool :=
+  (List.finRange Γr.length).all fun i =>
+    specOkL lk (Γr ++ Γi) (tauOfL nm lk.tabL) nIn n2 n3 (xs.getD i.val "") (CExpr.compile nm (deep.next i))
+
+def slowLk (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (tab : List (String × Nat)) : Lk :=
+  ⟨declWidth m, Atab m b0, fun x => needed.contains x, fun x => (cutNames d m b0).contains x, fun x => tab.lookup x⟩
+
+def fastLk (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (tab : List (String × Nat)) : Lk :=
+  ⟨weF m, atabF m b0, memF (setOf needed), memF (setOf (cutNames d m b0)), smGet (smOf tab)⟩
+
+theorem fastLk_eq (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (tab : List (String × Nat)) :
+    fastLk d m b0 needed tab = slowLk d m b0 needed tab := by
+  unfold fastLk slowLk
+  rw [weF_eq, atabF_eq]
+  congr 1
+  · funext x; exact memF_setOf _ x
+  · funext x; exact memF_setOf _ x
+  · funext x; rw [smGet_smOf]
+
+theorem RegsOk_eq_L {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String)
+    (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (tab : List (String × Nat)) (nIn n2 n3 : Nat)
+    (xs : List String) :
+    RegsOk deep nm d m b0 needed tab nIn n2 n3 xs = RegsOkL deep nm (slowLk d m b0 needed tab) nIn n2 n3 xs := rfl
+
+/-- `RegsOk` with the lookup maps. -/
+def RegsOkF {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String)
+    (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (tab : List (String × Nat)) (nIn n2 n3 : Nat)
+    (xs : List String) : Bool :=
+  RegsOkL deep nm (fastLk d m b0 needed tab) nIn n2 n3 xs
+
+theorem regsOkF_sound {Γr Γi : List Nat} {wOut : Nat} {deep : Cdo Γr Γi wOut} {nm : Fin (Γr ++ Γi).length → String}
+    {d : Design} {m : Module} {b0 : List Stmt} {needed : List String} {tab : List (String × Nat)} {nIn n2 n3 : Nat}
+    {xs : List String} (h : RegsOkF deep nm d m b0 needed tab nIn n2 n3 xs = true) :
+    RegsOk deep nm d m b0 needed tab nIn n2 n3 xs = true := by
+  rw [RegsOk_eq_L, ← fastLk_eq]; exact h
+
+/-- The four closed facts of the port cone (`out_connect`), from ONE `specOkLe` with the lookup maps (`hA` only pins the cone
+`e`, the right-hand side of the port wire `x`; the slot is the deep context's output `deep.out`). -/
+theorem outSpecF_sound {Γr Γi : List Nat} {wOut : Nat} {deep : Cdo Γr Γi wOut} {nm : Fin (Γr ++ Γi).length → String}
+    {d : Design} {m : Module} {b0 : List Stmt} {needed : List String} {tab : List (String × Nat)} {nIn n2 n3 : Nat}
+    {x : String} {e : Expr} {L : Expr} (_hA : asgOf b0 x = some e) (hfid : CExpr.compile nm deep.out = L)
+    (h : specOkLe (fastLk d m b0 needed tab) (Γr ++ Γi) (tauOfL nm (smGet (smOf tab))) nIn n2 n3 e (CExpr.compile nm deep.out) = true) :
+    neededOk needed (inl (Atab m b0) nIn e) = true ∧
+    leafOk (cutNames d m b0) (inl (Atab m b0) nIn e) = true ∧
+    tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) = true ∧
+    renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) = L := by
+  have h1 : specOkLe (slowLk d m b0 needed tab) (Γr ++ Γi) (tauOf nm tab) nIn n2 n3 e (CExpr.compile nm deep.out) = true := by
+    have e' : tauOfL nm (smGet (smOf tab)) = tauOf nm tab := by
+      funext y; unfold tauOfL tauOf; rw [smGet_smOf]
+    rw [← fastLk_eq, ← e']; simpa only [fastLk] using h
+  subst hfid
+  simp only [specOkLe, slowLk, Bool.and_eq_true] at h1
+  exact ⟨h1.1.1.1, h1.1.1.2, h1.1.2, eqE_sound _ _ h1.2⟩
 
 end Tools.VedComposeConnect

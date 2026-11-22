@@ -48,6 +48,8 @@ structure DeepInfo where
   noFastOrder : Bool := false
   /-- measurement only (`VED_COMPOSE_NOFASTW`): the `WidthStmt` fact by the kernel evaluation of the statement itself, not of `widthFast` (+ soundness) -/
   noFastWidth : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOFASTWR`): `WOKb` / `RegsOk` by the list-scanning `Bool`s, not the map-based ones -/
+  noFastWR : Bool := false
   /-- VED compose: the indices of the body that give the arrangement (`Tools.VedCompose.permBy`) -/
   perm : List Nat := []
 
