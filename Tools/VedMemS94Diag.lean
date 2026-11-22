@@ -500,7 +500,11 @@ partial def progShallow (d : Nat) (e : Lean.Expr) : String :=
 
 /-- the last visited terms (the stall dump prints them raw when `sinceLastVisit` passes `VED_S94_STALL_MS`) -/
 initialize progLastE : IO.Ref (Array Lean.Expr) ← IO.mkRef #[]
+/-- the number of recent visited terms kept (3; more with `VED_S94_CAPTURE_AT`, for the ancestor search of the capture) -/
+initialize progKeepRef : IO.Ref Nat ← IO.mkRef 3
 initialize progDumped : IO.Ref Bool ← IO.mkRef false
+
+initialize progCap : IO.Ref (Option (Lean.Expr × Lean.LocalContext × Lean.LocalInstances)) ← IO.mkRef none
 
 open Lean Meta Simp in
 simproc_decl vedMemProgress (_) := fun e => do
@@ -510,7 +514,18 @@ simproc_decl vedMemProgress (_) := fun e => do
   progLastMs.set (← IO.monoMsNow)
   progHb.set ((← IO.getNumHeartbeats) - (← progHb0.get))
   progSteps.set (← get).numSteps
-  progLastE.modify fun a => (a.push e).extract (a.size + 1 - 3) (a.size + 1)
+  let keep ← progKeepRef.get
+  progLastE.modify fun a => (a.push e).extract (a.size + 1 - keep) (a.size + 1)
+  -- diagnosis: reset the diagnostics counters at visit `VED_S94_RESET_AT`, so that a refusal soon after shows only the counters of the stalled step
+  if let some r := (← IO.getEnv "VED_S94_RESET_AT").bind String.toNat? then
+    if v == r then
+      modifyThe Meta.State fun s => { s with diag := {} }
+      modify fun s => { s with diag := {} }
+  -- diagnosis: at visit `VED_S94_CAPTURE_AT` keep the visited term and abort the simp (the replay then re-runs the simp on that term alone, traced)
+  if let some r := (← IO.getEnv "VED_S94_CAPTURE_AT").bind String.toNat? then
+    if v == r then
+      progCap.set (some (e, ← getLCtx, ← getLocalInstances))
+      throwError "S94 captured visit {v}"
   if v % 1000 == 0 then
     progRecent.modify fun a => (a.push h).extract (a.size + 1 - 8) (a.size + 1)
   return .continue
@@ -520,6 +535,7 @@ def progStart (tickMs : Nat) : IO (IO.Ref Bool × Task (Except IO.Error Unit)) :
   progVisits.set 0; progHb.set 0; progHb0.set (← IO.getNumHeartbeats); progSteps.set 0
   let t0 ← IO.monoMsNow
   progLastMs.set t0; progHead.set "-"; progRecent.set #[]; progLastE.set #[]; progDumped.set false
+  progKeepRef.set (if (← IO.getEnv "VED_S94_CAPTURE_AT").isSome then 400 else 3)
   let stallMs := ((← IO.getEnv "VED_S94_STALL_MS").bind String.toNat?)
   let stop ← IO.mkRef false
   let task ← IO.asTask (prio := .dedicated) do
@@ -627,6 +643,7 @@ elab "#ved_s94_ckpt_replay " d:str : command => do
     if prog?.isSome then
       elems := elems.push (← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``vedMemProgress):term))
     let simp ← `(tactic| ved_loop_simp [$elems,*])
+    let simp ← if (← IO.getEnv "VED_S94_ATOM").isSome then `(tactic| ved_s94_atom ($simp:tactic)) else pure simp
     let nic := Tools.VedMemS94Fix.ved.mem.s94NoIteCongr.get (← getOptions)
     let stx ← if nic then `(tactic| ved_s94_noitecongr ($simp:tactic)) else pure simp
     Tools.VedMemLoop.declWidthTab.set tab
@@ -646,6 +663,91 @@ elab "#ved_s94_ckpt_replay " d:str : command => do
       logInfo m!"ckpt replay ok: ms={ms} goals={gs.length}"
     catch ex =>
       dbgLog s!"S94 replay: FAILED ms={(← IO.monoMsNow) - t0}: {((← ex.toMessageData.toString).replace "\n" " ").take 600}"
+      if let some (e, lctx, linst) := ← progCap.get then
+       withLCtx lctx linst do
+        -- diagnosis: the captured term alone, under a local budget (`VED_S94_CAP_HB` thousand heartbeats), traced
+        let e ← instantiateMVars e
+        dbgLog s!"S94 capture: dag={(Tools.VedU1WireShare.collectDag (fun _ => true) e).size} tree={Tools.VedU1Loop.treeSizeVal e} looseBVars={e.hasLooseBVars} head={s94Head e}"
+        for fv in (Tools.VedU1WireShare.collectDag (fun x => x.isFVar) e).map (·.fvarId!) do
+          let d ← fv.getDecl
+          dbgLog s!"S94 capture fvar {fv.name} {d.userName} isLet={d.isLet} type={(progShallow 4 d.type).take 300} value={if d.isLet then (progShallow 4 d.value).take 300 else "-"}"
+        let sub := ((Tools.VedU1WireShare.collectDag (fun x => x.isAppOf ``Sparkle.Core.Signal.Signal.val) e).extract 0 3)
+        let withHb (n : Nat) (act : MetaM String) : MetaM String := do
+          let hb ← IO.getNumHeartbeats
+          withTheReader Core.Context (fun c => { c with maxHeartbeats := n * 1000, initHeartbeats := hb }) do
+            tryCatchRuntimeEx act fun ex => do pure s!"EXN {((← ex.toMessageData.toString).replace "\n" " ").take 120}"
+        for x in sub do
+          for (nm, f) in [("whnfCore", fun (y : Lean.Expr) => Meta.whnfCore y), ("whnfR", fun y => Meta.whnfR y), ("whnf", fun y => Meta.whnf y)] do
+            let t2 ← IO.monoMsNow
+            let r ← withHb 200000 do
+              let y ← f x
+              pure s!"head={s94Head y} tree={Tools.VedU1Loop.treeSizeVal y}"
+            dbgLog s!"S94 capture probe {nm} of Signal.val-app (tree={Tools.VedU1Loop.treeSizeVal x}): {r} ms={(← IO.monoMsNow) - t2}"
+        let parts : List (String × Lean.Expr) :=
+          if e.isAppOfArity ``And 2 && (e.appFn!.appArg!).isAppOfArity ``And 2 then
+            let e12 := e.appFn!.appArg!
+            [("E1", e12.appFn!.appArg!), ("E2", e12.appArg!), ("E1&E2", e12), ("E3", e.appArg!)]
+          else []
+        if (← IO.getEnv "VED_S94_TCTRACE").isSome then
+          if let some (_, x) := parts[0]? then
+            let _ ← withHb 300000 <| withOptions (fun o => ((o.setBool `trace.Meta.synthInstance true).setBool `trace.Meta.isDefEq true).setBool `trace.Meta.synthInstance.unusedInstances false) do
+              let r ← Meta.synthInstance? (mkApp (mkConst ``Decidable) x)
+              pure s!"{r.isSome}"
+        for (nm, x) in parts ++ [("And (capture)", e), ("recent#2 Eq", (← progLastE.get).reverse[1]!)] do
+          let t2 ← IO.monoMsNow
+          let r ← withHb 300000 do
+            let r ← Meta.synthInstance? (mkApp (mkConst ``Decidable) x)
+            pure s!"{r.isSome}"
+          dbgLog s!"S94 capture probe synthInstance (Decidable {nm}): {r} ms={(← IO.monoMsNow) - t2}"
+        if e.isAppOfArity ``And 2 && (e.appFn!.appArg!).isAppOfArity ``And 2 then
+          let e12 := e.appFn!.appArg!
+          let e1 := e12.appFn!.appArg!
+          let e2 := e12.appArg!
+          let e3 := e.appArg!
+          for (nm, a, b) in [("E1=?=E3", e1, e3), ("E2=?=E3", e2, e3), ("E1=?=E2", e1, e2)] do
+            let t2 ← IO.monoMsNow
+            let r ← withHb 300000 do
+              let ok ← withReducible (Meta.isDefEq a b)
+              pure s!"{ok}"
+            dbgLog s!"S94 capture probe reducible isDefEq {nm} (trees {Tools.VedU1Loop.treeSizeVal a} {Tools.VedU1Loop.treeSizeVal b}): {r} ms={(← IO.monoMsNow) - t2}"
+        if e.isAppOfArity ``And 2 then
+          let e3 := e.appArg!
+          let recent := (← progLastE.get).reverse
+          let mut shown := 0
+          for t in recent do
+            let hasE3 := !(Tools.VedU1WireShare.collectDag (fun x => x == e3) t).isEmpty
+            if shown < 8 || hasE3 then
+              shown := shown + 1
+              dbgLog s!"S94 capture recent ({s94Head t}) dag={(Tools.VedU1WireShare.collectDag (fun _ => true) t).size} tree={Tools.VedU1Loop.treeSizeVal t} containsE3={hasE3}: {(progShallow 4 t).take 500}"
+            if shown > 40 then break
+        let hbN := ((← IO.getEnv "VED_S94_CAP_HB").bind String.toNat?).getD 100000
+        let hbL := Syntax.mkNumLit (toString hbN)
+        let tr ← `(tactic| first | (set_option trace.Debug.Meta.Tactic.simp true in ved_budget $hbL ($simp:tactic)) | skip)
+        let g2 := (← mkFreshExprMVar e).mvarId!
+        let t1 ← IO.monoMsNow
+        let gs ← Tactic.run g2 (Tactic.evalTactic tr)
+        dbgLog s!"S94 capture: isolated simp done ms={(← IO.monoMsNow) - t1} goals={gs.length}"
+        if let some hb2 := (← IO.getEnv "VED_S94_CAP2_HB").bind String.toNat? then
+          let hbL2 := Syntax.mkNumLit (toString hb2)
+          for v in ((← IO.getEnv "VED_S94_VARIANTS").getD "").splitOn "," do
+            if v == "" then continue
+            let inner ← `(tactic| ved_budget $hbL2 ($simp:tactic))
+            let tr2 ← match v with
+              | "sp" => `(tactic| set_option simprocs false in $inner:tactic)
+              | "tr" => `(tactic| set_option trace.Meta.Tactic.simp true in set_option trace.Meta.synthInstance true in $inner:tactic)
+              | _ => pure inner
+            let g3 := (← mkFreshExprMVar e).mvarId!
+            let t3 ← IO.monoMsNow
+            let res ← try
+                let gs3 ← Tactic.run g3 (Tactic.evalTactic tr2)
+                let mut sz3 := ""
+                for g4 in gs3 do
+                  let r ← instantiateMVars (← g4.getType)
+                  sz3 := sz3 ++ s!" [dag={(Tools.VedU1WireShare.collectDag (fun _ => true) r).size} tree={Tools.VedU1Loop.treeSizeVal r} head={s94Head r}]"
+                pure s!"ok goals={gs3.length}{sz3}"
+              catch ex => pure s!"FAIL {((← ex.toMessageData.toString).replace "\n" " ").take 160}"
+            dbgLog s!"S94 capture variant {v}: ms={(← IO.monoMsNow) - t3} {res}"
+       return
       throw ex
     finally
       Tools.VedMemLoop.declWidthTab.set none
