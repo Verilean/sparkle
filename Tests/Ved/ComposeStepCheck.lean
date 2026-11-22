@@ -209,34 +209,36 @@ run_cmd do
 def widthControls : CommandElabM Unit := do
   let (m, _d) ← synthOf ``cmpThreeRef
   let (stmt, _) ← liftTermElabM (specialiseDomain ``cmpThreeRef)
-  let tbl ← liftTermElabM (readTableOfType ``cmpThreeRef (← inferType stmt))
+  let tbl ← liftTermElabM do readTableOfType ``cmpThreeRef (← inferType stmt)
   let some clkRst := parentClkRst tbl m | throwError "no clock/reset pair"
   let c := contractOf tbl ["out"] clkRst m
-  let wf (c : Contract) (m : Module) : Lean.Expr :=
-    mkAppN (Lean.mkConst ``Tools.VedCompose.widthFast) #[toExpr c, toExpr m]
+  -- the contract is the real one (`contractOf` of the real module); the module is altered
+  let cE : Lean.Expr := mkAppN (Lean.mkConst ``contractOf) #[toExpr tbl, toExpr ["out"], toExpr clkRst, toExpr m]
+  let wf (m : Sparkle.IR.AST.Module) : Lean.Expr :=
+    mkAppN (Lean.mkConst ``Tools.VedCompose.widthFast) #[cE, toExpr m]
   -- the real module: accepted by `WidthStmt` and by `widthFast`
   unless decide (WidthStmt c m) do throwError "the synthesised parent does not satisfy WidthStmt"
-  kernelIs "widthFast (real module)" (wf c m) true
+  kernelIs "widthFast (real module)" (wf m) true
   -- a DUPLICATED wire name (the same wire twice)
   let dupM := { m with wires := m.wires ++ m.wires.take 1 }
   if decide (WidthStmt c dupM) then throwError "the duplicate-wire module satisfies WidthStmt (control is void)"
-  kernelIs "widthFast (duplicated wire name)" (wf c dupM) false
+  kernelIs "widthFast (duplicated wire name)" (wf dupM) false
   -- a MISSING wire: a register's output has no declared wire
   let some r := (regsOf m.body).head? | throwError "no register"
   let missM := { m with wires := m.wires.filter (·.name != r.1) }
   if decide (WidthStmt c missM) then throwError "the missing-wire module satisfies WidthStmt (control is void)"
-  kernelIs "widthFast (register wire missing)" (wf c missM) false
+  kernelIs "widthFast (register wire missing)" (wf missM) false
   -- a WRONG WIDTH: the declared width of a data input differs from the table's
   let some p := c.dataInputs.head? | throwError "no data input"
   let wrongM := { m with wires := m.wires.map fun w =>
     if w.name == p.name then { w with ty := .bitVector (p.ty.bitWidth + 1) } else w }
   if decide (WidthStmt c wrongM) then throwError "the wrong-width module satisfies WidthStmt (control is void)"
-  kernelIs "widthFast (wrong declared width)" (wf c wrongM) false
+  kernelIs "widthFast (wrong declared width)" (wf wrongM) false
   -- a register wire that is not a scalar (width 0)
   let zeroM := { m with wires := m.wires.map fun w =>
     if w.name == r.1 then { w with ty := .bitVector 0 } else w }
   if decide (WidthStmt c zeroM) then throwError "the zero-width module satisfies WidthStmt (control is void)"
-  kernelIs "widthFast (register wire of width 0)" (wf c zeroM) false
+  kernelIs "widthFast (register wire of width 0)" (wf zeroM) false
 
 /-- info: compose width controls: accepted, 4 rejected -/
 #guard_msgs in
