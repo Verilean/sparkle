@@ -328,6 +328,36 @@ lean_lib «Tools.VedU2HierBvAppend» where
 lean_lib «Tools.VedU2HierLoopRw» where
   roots := #[`Tools.VedU2HierLoopRw]
 
+lean_lib «Tools.VedU2HierMultiLoop» where
+  roots := #[`Tools.VedU2HierMultiLoop]
+
+lean_lib «Tools.VedU2HierMultiGen» where
+  roots := #[`Tools.VedU2HierMultiGen]
+
+lean_lib «Tools.VedU2HierMultiBundle» where
+  roots := #[`Tools.VedU2HierMultiBundle]
+
+lean_lib «Tools.VedU2HierMultiChain» where
+  roots := #[`Tools.VedU2HierMultiChain]
+
+lean_lib «Tools.VedComposeStep» where
+  roots := #[`Tools.VedComposeStep]
+
+lean_lib «Tools.VedComposeOrder» where
+  roots := #[`Tools.VedComposeOrder]
+
+lean_lib «Tools.VedComposeResearchCut» where
+  roots := #[`Tools.VedComposeResearchCut]
+
+lean_lib «Tools.VedComposePrelude» where
+  roots := #[`Tools.VedComposePrelude]
+
+lean_lib «Tools.VedComposeConnect» where
+  roots := #[`Tools.VedComposeConnect]
+
+lean_lib «Tools.VedComposeConnectGen» where
+  roots := #[`Tools.VedComposeConnectGen]
+
 lean_lib «Tools.VedU2HierXorAttr» where
   roots := #[`Tools.VedU2HierXorAttr]
 
@@ -1688,6 +1718,15 @@ lean_lib «Tests.IP.Net.HTTPTest» where
 lean_lib «Tests.Ved.U2HierStateCallCheck» where
   roots := #[`Tests.Ved.U2HierStateCallCheck]
 
+lean_lib «Tests.Ved.U2HierMultiCheck» where
+  roots := #[`Tests.Ved.U2HierMultiCheck]
+
+lean_lib «Tests.Ved.ComposeCheckUtil» where
+  roots := #[`Tests.Ved.ComposeCheckUtil]
+
+lean_lib «Tests.Ved.ComposeStepCheck» where
+  roots := #[`Tests.Ved.ComposeStepCheck]
+
 lean_lib «Tests.Ved.U2HierPartialDeepCheck» where
   roots := #[`Tests.Ved.U2HierPartialDeepCheck]
 
@@ -1774,3 +1813,6 @@ lean_lib «Tools.VedMemOrder» where
 
 lean_lib «Tools.VedMemWidth» where
   roots := #[`Tools.VedMemWidth]
+
+lean_lib «Tests.Ved.ComposeConnectCheck» where
+  roots := #[`Tests.Ved.ComposeConnectCheck]

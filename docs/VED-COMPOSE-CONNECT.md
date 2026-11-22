@@ -1,0 +1,120 @@
+# VED-COMPOSE-CONNECT: the returned IR's cones connected to the open parent's deep cones (small examples)
+
+Issue `sparkle-ved-compose-connect`, branch `ved/compose-connect1` (base 425119c7 = `ved/proof-compose` 6ff184d4 + the approved
+research ca892a1f).  Option `ved.compose.connect` (default `false`).  New files: `Tools/VedComposeConnect.lean`,
+`Tools/VedComposeConnectGen.lean`, `Tests/Ved/ComposeConnectCheck.lean`; edited: `lakefile.lean` (four stanzas), a one-field
+addition to `DeepInfo` (`Tools/VedU2HierStateArgs.lean`) and one option-gated hunk in `Tools/VedU2HierRegEntry.lean`.
+
+## Scope (do not read more into it)
+
+Small-example result: `multiTwo` and `multiShared` of `Tests/Ved/U2HierMultiCheck.lean` (copied into the Check).  No real-IP row
+was run; the coverage stays 244/327; this is not the completion of circuit composition in general.  The statement `U2HRStmt`
+is unchanged (the stored type is compared with `==`), the guarantee is that of docs/VED-MAIN-INTRO.md ("What it guarantees, and
+what it does not") and docs/VED-U1-MAIN.md ("What it does not claim").  The parent's loop is still tied to the declaration by the
+existing knot; the child theorem is the child's own `ved_u1`.
+
+## What the option changes
+
+With the option on (and `ved.compose.step` on), `scriptTextR` returns, right after the prelude of the step (`intro E hasgF hEin
+hEreg hEorc`, the register/input/oracle facts `hEr`, `hlS`, `hE_`, `hEo`, `hlto`), the lines of
+`Tools.VedComposeConnectGen.hlocLines` and nothing else: the chain walk, the `bundle_slice_fact` reads and the per-cone `simp`
+closers are NOT emitted, so there is no old fallback in that mode.  The hkid blocks (instance arguments, child theorems,
+H2/H3 wiring) are the existing ones.  Every connection logs `VED COMPOSE CONNECT: ...` (tactic `ved_connect_log`).
+
+## Supply table: `cone_connect_bnf` (the approved `cone_connect_bn` plus the flattening step)
+
+| hypothesis | supplied by |
+|---|---|
+| `hwi hri hwr` | the three `hb0.*` facts the `refine step_local` already passes |
+| `hW : WOKb (declWidth m) m b0 = true` | closed, `decide +kernel`, once per `hloc` (W, returned side) |
+| `hasg hEin hEreg hEorc` | the binders of `hloc` (`step_local`) |
+| `hl0 : leafOk (cutNames d m b0) (inl ..) = true` | closed, `decide +kernel`, per cone |
+| `hrange` (needed leaves only) | `hrangeN : ∀ y ∈ needed, E y < 2 ^ declWidth m y` proved once from the prelude facts (register: `hEr`+`hlS`, i.e. `BitVec.isLt`; data input: `hok.1 t` (`InputsOk`), the clock is not in `needed`; instance output: `hlto` from the child's output `isLt`), and `neededOk needed (inl ..) = true` (closed) per cone (R) |
+| `hc` | the cone `bn (declWidth m) n2 (flat n3 (inl (Atab m b0) n e))`, never written out |
+
+## The new lemmas (`Tools/VedComposeConnect.lean`)
+
+* `ren_eval` (W): `evalExpr we' E' (renE τ c) = evalExpr we E c ∧ widthOf we' (renE τ c) = widthOf we c` when every leaf `x` of `c`
+  has `we' (τ x) = we x` and `E' (τ x) = E x` (the two-environment versions of the research file's `*_map` lemmas).
+* `tauOf`, `tabW` (closed), `tabW_sound`, `cone_deep_eval`: the leaf table `tab : List (String × Nat)` (returned name ↦ slot of the deep
+  context) gives the renaming into `nm`; `tabW` checks that every leaf of the returned cone is in the table and that
+  `declWidth m x` is the width of the slot in the deep context `Γr ++ Γi`; `hV` (`VOk`) is the leaf-value obligation (registers by
+  `hR`, data inputs by `InputsOk` + `bit_toNat`/`bv_toNat`, oracle inputs by the definition of `Ow`: ONE cone input serves every
+  instance of the class).
+* `flat`, `slc`, `flat_sound`, `refs_flat`, `cone_connect_bnf`: the right-nested register bundle of the synthesiser
+  (`concat [r0, concat [r1, r2]]`) is flattened (`Tools.ConcatNorm.concat_pivot`) and a slice of a slice that stays inside is composed
+  (`slice_slice_val`, by `Nat.testBit`); needed because the approved `bn` resolves slices of FLAT concatenations only (this is
+  what stopped `multiShared`, three registers).
+* `connect_value`, `reg_connect`, `out_connect` (F): `reg_connect` concludes `Cdo.irState deep nm inp (t+1) i = E x`, `out_connect` the
+  `getD 0 (evalExpr .. (compile nm deep.out))` form of `_deep_trace`; the fidelity theorem `_deep_fidelity_*` enters as an argument
+  and its TYPE supplies the literal (`renE (tauOf ..) (bn ..) = L` is closed, proved by `rfl`).
+
+## Observations
+
+* `multiTwo`: 2 registers + the port, `multiShared`: 3 registers + the port, all by the connection lemmas; proof elaboration ~4.4 s
+  (the option-off compose script ~6 s for `multiTwo`; single runs, not a measurement of anything at scale).
+* The connection equation is checked by `rfl` in the elaborator (Meta `isDefEq`); the kernel then re-evaluates it.  At R193 size
+  this and the `String` scans in `asgOf` are the expected costs (research §M4); nothing is claimed.
+
+## Commits
+
+See `git log ved/compose-connect1`.
+
+## Batched closed checks (unit 2)
+
+`reg_connect` takes four closed facts per register. Proving them by four `decide +kernel` / `rfl` calls per register re-evaluated the
+inlined cone from a cold cache every time (observed on the kMux toy, 13 registers: ~1 s each, 48 of 81 s of the parent proof; 24 registers: 368 s).
+`RegsOk` is one Bool over all register slots, evaluated once by the kernel; `regs_spec` returns each slot's four facts
+(`hren` through `eqE_sound` against `CExpr.compile nm (deep.next i)`, identified with the fidelity literal by `hfid`).
+The approved lemma statements are unchanged. Observed (single runs): parent proof 8/12/24 registers 19.3 / 27.1 / 64.4 s (before: 42.9 / 80.7 / 368.4 s).
+Scope: local-lemma result on toys; a real-IP row (R194) was run once and is NOT accepted (budget exhausted before the connection block, see the unit report).
+
+## Parent prelude and instance blocks (unit 3, option `ved.compose.connect`; default path unchanged)
+
+R194 (`synth_sha512Block_done`, 34 register slots, 25 data inputs, two `kMux` instances) was refused at the 8,000,000-heartbeat budget in OLD reused
+code before the connection block (unit 2 report). Attribution (script ticks; observed, single run): (a) `simp [contractOf, dataInputs, declWidth, ..] at hin`
+(the 25 input bounds), 162 s of script lines 45-74, generated four times; (b) the bundle-slice chain of the first instance's hkid block, ~77-86 s;
+(c) one `simp` per hypothesis (`hstA` and all 34 `hRd_i`) in the instance port lines, 55 s and 85 s.
+
+* (a) `Tools/VedComposePrelude.lean` (new lean_lib): `hin_bnd` takes the closed equation `c.dataInputs.map (fun p => (p.name, declWidth m p.name)) = L`
+  (decided by the kernel; `L` is read off the declaration table by `Tools.VedComposeConnectGen.hinLines`, it is CHECKED, not assumed) and `hok.1 t`
+  and returns `bndConj (ins t) L`; `simp only [bndConj, bndConjAux, Nat.reducePow]` gives the literal conjunction the old `simp` gave.
+  `bit_obs` bridges the trace theorem of a one-bit output (`(bif b then 1 else 0 : BitVec 1).toNat`) to the `Bool.toNat` the entry's `simp` leaves
+  (found by R194 run 1: the `done` port; toys had 64-bit outputs).
+* (c) under `connect` the port-line unfolding simps run at the loop copies (`hL..`, the hypotheses `ved_rw_loops` reads) only, not at `hstA` and the 34 `hRd_i`
+  (`Tools/VedU2HierStateArgs.lean`, `portLines`); the bundle-slice chain facts use `decide +kernel` (RegEntry hunk; measured gain small).
+* Not changed: (b) the chain itself (one `concat_range` + one `bundle_slice_fact` per slice step; ~1.1-1.3 s per step at 34 slots, 25 inputs), `WOKb` and `RegsOk` (kernel
+  evaluations; the largest remaining costs).
+* Statements unchanged (`U2HRStmt` stored type is the entry's expected type). Controls: `ComposeConnectCheck` has kernel controls for the input-bound equation
+  (real list accepted, a wrong width and swapped names refused).
+
+## Unit 4: independent post-check of R194 (`Tests/Ved/ComposeConnectR194Check.lean`, not in CI)
+
+Runs `#ved_u2_hier`'s entry once on `synth_sha512Block_done` (`ved.compose.step` + `ved.compose.connect`) through `checkRow`
+(the same function as the toys' Check) and checks, independently of the entry: stored type `==` `U2HRStmt` of the original declaration,
+module/design `==` a fresh synthesis, axioms within std3, 35 connect log lines (34 `reg_connect` + 1 `out_connect` sites), the child
+theorem `kMux.ved_u1` in the proof. Run (one process, guarded, ~7 min, ~18 GB):
+`VED_HIER_STATS=1 python3 -I rss_guard.py 23068672 timeout 890 kjob lake env lean <abs>/Tests/Ved/ComposeConnectR194Check.lean`
+after `kjob lake build Tests.Ved.ComposeConnectCheck` and `kjob lake build IP.Crypto.SHA512BlockHW`. Observed, single run: passes.
+
+## Unit 5: heartbeat measurement and map-based closed facts (option `ved.compose.connect`; default path unchanged)
+
+* Measurement (`Tools/VedU2HierRegEntry.lean`, env `VED_HIER_HB=1`, off by default, no budget change): `ved_hb "<script line>"` before the block-opening lines
+  and one line at the end of the proof elaboration, `VED-HB <label> used=<raw> limit=<raw> permille=<..>` on stderr, with `used = IO.getNumHeartbeats -
+  Core.Context.initHeartbeats` and `limit = Core.Context.maxHeartbeats` (the 8,000,000 option x 1000 = 8.0e9 raw): what the elaborator's own check compares.
+  It replaces `VED_HIER_TICK`'s `ved_tick` lines when both are set.
+* `WOKb`, `RegsOk`, the port cone's four facts and the bundle-slice chain evaluated list scans with `String` comparisons (`declWidth m`, `Atab m b0`,
+  `needed.contains`, `tab.lookup`, `asgOf`). `Tools/VedComposeConnect.lean` (end of file) now has a name map `VT` (binary search tree on `hsh (nameKey x)`,
+  the idea of `NTree` in `VedComposeOrder`; a node keeps `(nameKey, value)` pairs), `smGet_smOf : smGet (smOf l) x = l.lookup x` (from `nameKey_inj` only: the
+  hash is never trusted, a bad hash can only cost time), the pointwise equalities `weF_eq`, `atabF_eq`, `asgF_eq`, `memF_setOf`, and the closed Bools
+  `WOKbF` (`wokbF_sound : WOKbF m b = true -> WOKb (declWidth m) m b = true`), `RegsOkF` (`regsOkF_sound`), `specOkLe` for the port (`outSpecF_sound`) and
+  `ChainOkF` (one check over all slice steps / concat ranges / element widths of an instance block; `slice_fact_F`, `concat_range_F`, `wd_F` return one step's
+  facts by its index). The generator (`Tools/VedComposeConnectGen.lean`: `batchChain` reads the steps back off the chain lines, a line of another shape is left
+  as it is) uses them by default; `VED_COMPOSE_NOFASTWR=1` (`DeepInfo.noFastWR`) restores the list evaluations for measurement. The statements of
+  `reg_connect`, `out_connect`, `regs_spec`, `WOKb`, `RegsOk`, `bundle_slice_fact` are unchanged.
+* Controls (`Tests/Ved/ComposeConnectCheck.lean`, kernel evaluation): `WOKbF` real module true, one wrong width false; `RegsOkF` real true, swapped slots / exchanged
+  input wires / one register of the wrong width false; `ChainOkF` real step true, wrong offset / element index / declared width / bundle names false.
+* Measured (observed, single runs): see the unit report; R194 total 427.7 s -> 217.1 s, peak 17.68 -> 9.54 GB, heartbeats 1.98e9 of 8.0e9.
+
+## Unit 6 (R193 and next rows; observed, single run)
+R193 `synth_sha512Block_out0` is accepted through the connection path (post-check `Tests/Ved/ComposeConnectR193Check.lean`, not in CI): rc 0, total 213.5 s, parent proof 107.8 s, 1.957e9 of 8.0e9 heartbeats (24.4 %), peak 9.51 GB. R246 is refused before the connection path (`genOpenSt`: the declaration is not one call of the single child, VedU2HierStGen.lean:116). R231/R232 hit the 890 s timeout inside phase 1 / deep run without reaching proof generation. Coverage is not updated.

@@ -9,6 +9,7 @@
   pack and each reader equals the IR register (`hRd`).  The text produced here is what `scriptText` splices in.
 -/
 import Lean
+import Sparkle.IR.AST
 
 namespace Tools.VedU2HierStateArgs
 
@@ -29,6 +30,28 @@ structure DeepInfo where
   dups : List (Nat × Nat × String) := []
   /-- the open parent, as the script spells it -/
   openUser : String := ""
+  /-- VED compose: the checked arrangement, the module's widths, and the option `ved.compose.step` -/
+  b0 : List Sparkle.IR.AST.Stmt := []
+  wd : String → Nat := fun _ => 0
+  compose : Bool := false
+  /-- VED compose connect: the option `ved.compose.connect` (Tools/VedComposeConnect.lean) -/
+  connect : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOSHARE`): do not share the bundle-slice prefix walk -/
+  noShare : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOHOIST`): keep the instance-independent prelude in every instance's block -/
+  noHoist : Bool := false
+  /-- measurement only (`VED_COMPOSE_NODK`): the shape facts by `decide`, not `decide +kernel` -/
+  noKernelDecide : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOOKONCE`): `hord` re-evaluates `OrderOkHS` instead of using `hOK` -/
+  noOkOnce : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOFAST`): `hOK` by the kernel evaluation of `OrderOkHS` itself, not of `OrderOkFast` (+ soundness) -/
+  noFastOrder : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOFASTW`): the `WidthStmt` fact by the kernel evaluation of the statement itself, not of `widthFast` (+ soundness) -/
+  noFastWidth : Bool := false
+  /-- measurement only (`VED_COMPOSE_NOFASTWR`): `WOKb` / `RegsOk` by the list-scanning `Bool`s, not the map-based ones -/
+  noFastWR : Bool := false
+  /-- VED compose: the indices of the body that give the arrangement (`Tools.VedCompose.permBy`) -/
+  perm : List Nat := []
 
 /-- The spellings the lines use. -/
 structure Sp where
@@ -44,13 +67,22 @@ structure Sp where
   sigsAll : String
   /-- `rd<slot>`'s name, given the slot -/
   rd : Nat → String
+  /-- H3-open: the loop knot of the declaration (`<knot> <binder signals>`, applied to `t` below): the declaration's own
+  loop is the open parent's loop at the oracle along it, so the top state theorem is read through it -/
+  knot : Option String := none
+
+/-- The top state theorem at `t`, as a fact about the loop the declaration's term holds (H3-open: through the knot). -/
+def topState (sp : Sp) : String :=
+  match sp.knot with
+  | some k => s!"(({k} t).trans ({sp.state} {sp.sigsAll} t))"
+  | none => s!"{sp.state} {sp.sigsAll} t"
 
 /-- The state theorems, the readers' equalities with the IR registers and the copies' equalities, as script lines;
 and the names of the facts the per-port simps use. -/
 def stateFacts (sp : Sp) (di : DeepInfo) : Array String × List String × List String := Id.run do
   let mut X : Array String := #[]
   let mut stFacts : List String := ["hstA"]
-  X := X.push s!"  have hstA := {sp.state} {sp.sigsAll} t"
+  X := X.push s!"  have hstA := {topState sp}"
   let nestedSlots := di.nested.flatMap (·.2)
   for (nm, _) in di.nested, jj in List.range di.nested.length do
     X := X.push s!"  have hstN{jj} := {nm} {sp.sigsAll} t"
@@ -99,7 +131,7 @@ def slotLines (sp : Sp) (di : DeepInfo) (bn ad : String) (slot : Nat) : Array St
     X := X.push s!"  fail \"H2D: register slot {slot} is in no exported state block (top {di.block}, nested {di.nested}, copies {di.dups})\""
   let dupRw := match dupT with | some (_, _, dn) => s!"rw [{dn} {sp.sigsAll} t]; " | none => ""
   X := X.push s!"  have hAl{bn} : (({ad} ins).val t).toNat = {sp.irS} ins t ({slot} : Fin {di.regWs.length}) := by"
-  X := X.push s!"    have hst := {stName} {sp.sigsAll} t"
+  X := X.push s!"    have hst := {if stName == sp.state then topState sp else s!"{stName} {sp.sigsAll} t"}"
   X := X.push s!"    have h1 : ({ad} ins).val t = {sp.rd slot} {sp.sigsAll} t := by {dupRw}ved_kernel_exact (congrArg (fun x => {sel}) hst)"
   X := X.push s!"    unfold {sp.irS} {sp.inpU}"
   X := X.push s!"    rw [Cdo.irState_eq {sp.deep} {sp.nm} hinj, h1]"
@@ -119,12 +151,15 @@ def portLines (di : DeepInfo) (dbg : Bool) (bn : String) (isSlot : Bool) (ad fj 
   let obs := "Tools.VedU1Contract.PTy.obs"
   let adU := if isSlot then "" else s!"{ad}, "
   let facts := ", ".intercalate fs
+  -- VED compose connect: the unfolding simps run at the loop copies only (`hL..`: what `ved_rw_loops` reads), not at the state
+  -- theorems and all `n` register readers `hRd<slot>` (one simp per hypothesis: observed ~1.4 s each at 34 registers, 25 inputs)
+  let stU' := if di.connect then [] else stU
   unless stU.isEmpty do
     -- the state theorem speaks of `Signal.loop (loopFOf ..)` and of the arguments `PTy.sig ins ..`; the
     -- declaration's term has the loop unfolded and the signals unfolded: bring the facts to the same form
     for h in stU.filter (·.startsWith "hst") do
       X := X.push s!"    try unfold loopFOf at {h}"
-    X := X.push s!"    try simp (config := \{ maxSteps := 2000000 }) [loopFOf, {adU}{obs}, {netSimpL}] at {" ".intercalate (stU ++ lps)}"
+    X := X.push s!"    try simp (config := \{ maxSteps := 2000000 }) [loopFOf, {adU}{obs}, {netSimpL}] at {" ".intercalate (stU' ++ lps)}"
     if dbg then X := X.push s!"    all_goals ved_eprint_state \"stU-simp {bn}\""
   if stU.isEmpty then
     X := X.push s!"    simp [{fj}, {adU}{obs}, {netSimpL}, hin, {facts}]"
@@ -139,7 +174,7 @@ def portLines (di : DeepInfo) (dbg : Bool) (bn : String) (isSlot : Bool) (ad fj 
     -- a concatenation of signals (`onesAdd16Sig`, unfolded above) is read pointwise.  The full simp set does not apply
     -- `sigval_append` to it (it unfolds `Signal.pure` to a term that is not type correct at instance transparency
     -- first), `simp only` does; the facts get the same pass so that both sides keep one normal form
-    X := X.push s!"    all_goals (try simp only [{pointwiseL}] at {" ".intercalate (stU ++ lps)} ⊢)"
+    X := X.push s!"    all_goals (try simp only [{pointwiseL}] at {" ".intercalate (stU' ++ lps)} ⊢)"
     -- the loops of the declaration's term, whatever their syntactic form, become the register values; `{ val := f }.val t`
     -- is reduced first, so that the loop sits at the goal's time and not under a binder
     unless lps.isEmpty do X := X.push s!"    all_goals (try dsimp only)"

@@ -118,6 +118,15 @@ jobs:
     - name: "H2c-state (a child call on the parent's register state): copies, controls"
       run: lake build Tests.Ved.U2HierStateCallCheck
 
+    - name: "H3-open (several child instances on the parent's register state, the child output feeding the loop): loop knot, bundle reads; controls"
+      run: lake build Tests.Ved.U2HierMultiCheck
+
+    - name: "Composed step (ved.compose.step, shared bundle-slice walk): accepted, independent type == U2HRStmt, std3; new-path controls"
+      run: lake build Tests.Ved.ComposeStepCheck
+
+    - name: "Composed connection (ved.compose.connect, approved cone_connect_bn via reg_connect/out_connect): multiTwo/multiShared accepted, type == U2HRStmt, same artifact, std3; refused controls"
+      run: lake build Tests.Ved.ComposeConnectCheck
+
     - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
       run: lake build Tests.Ved.U2HierPartialDeepCheck
 
@@ -251,6 +260,15 @@ jobs:
 
     - name: "H2c-state (a child call on the parent's register state): copies, controls"
       run: lake build Tests.Ved.U2HierStateCallCheck
+
+    - name: "H3-open (several child instances on the parent's register state, the child output feeding the loop): loop knot, bundle reads; controls"
+      run: lake build Tests.Ved.U2HierMultiCheck
+
+    - name: "Composed step (ved.compose.step, shared bundle-slice walk): accepted, independent type == U2HRStmt, std3; new-path controls"
+      run: lake build Tests.Ved.ComposeStepCheck
+
+    - name: "Composed connection (ved.compose.connect, approved cone_connect_bn via reg_connect/out_connect): multiTwo/multiShared accepted, type == U2HRStmt, same artifact, std3; refused controls"
+      run: lake build Tests.Ved.ComposeConnectCheck
 
     - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
       run: lake build Tests.Ved.U2HierPartialDeepCheck

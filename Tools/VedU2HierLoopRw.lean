@@ -17,6 +17,13 @@ open Lean Meta Elab Tactic
 
 namespace Tools.VedU2HierLoopRw
 
+/-- H3-open: the declaration's own loop is a constant `<decl>.ved_open_…_Q` (`Tools/VedU2HierMultiGen.lean`), applied to the
+parent's inputs; it is matched like a `Signal.loop` term. -/
+def isLoopConst (f : Lean.Expr) : Bool :=
+  match f.constName? with
+  | some n => n.isStr && (n.getString!.endsWith "_Q") && (n.getString!.splitOn "ved_open").length > 1
+  | none => false
+
 /-- The closed subterms `Signal.val _ _ (Signal.loop _) _` of `e`, outermost first. -/
 partial def loopInstances (e : Lean.Expr) : Array Lean.Expr :=
   let rec go (e : Lean.Expr) (acc : Array Lean.Expr) : Array Lean.Expr :=
@@ -28,7 +35,7 @@ partial def loopInstances (e : Lean.Expr) : Array Lean.Expr :=
       | .mdata _ b | .proj _ _ b => go b acc
       | _ => acc
     else if e.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal.val && e.getAppNumArgs == 4
-        && (e.getArg! 2).getAppFn.isConstOf ``Sparkle.Core.Signal.Signal.loop then
+        && ((e.getArg! 2).getAppFn.isConstOf ``Sparkle.Core.Signal.Signal.loop || isLoopConst (e.getArg! 2).getAppFn) then
       if acc.contains e then acc else acc.push e
     else
       match e with
