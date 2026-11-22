@@ -1345,6 +1345,23 @@ def hsI {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Sign
 def hsJ {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
     (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
 
+def hsK {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def envFreezeHitsCheck (atLeast : Bool) : CommandElabM Unit := do
+  let n ← Tools.VedMemLoop.envFreezeHits.get
+  if atLeast then
+    unless n ≥ 1 do throwError "envFreezeHits: {n}, expected at least one environment function left alone"
+    logInfo m!"environment functions not entered"
+  else
+    unless n == 0 do throwError "envFreezeHits: {n}, expected 0"
+    logInfo m!"environment functions entered (freeze not used)"
+
+/-- info: s94EnvFreeze default false -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"s94EnvFreeze default {Tools.VedMemLoop.ved.mem.s94EnvFreeze.get (← getOptions)}"
+
 def hnormStatsCheck : CommandElabM Unit := do
   let (c, _) ← Tools.VedMemLoop.hnormStats.get
   unless c ≥ 1 do throwError "hnormStats: no loop of the goal was made a loop of a hypothesis"
@@ -1376,6 +1393,7 @@ def bindStrictHitsCheck (atLeast : Bool) : CommandElabM Unit := do
 -- (5) hstepNorm ON, packed
 run_cmd Tools.VedMemLoop.hstepRan.set #[]
 run_cmd Tools.VedMemLoop.declWidthHits.set 0
+run_cmd Tools.VedMemLoop.envFreezeHits.set 0
 run_cmd Tools.VedMemLoop.bindStrictHits.set 0
 #guard_msgs (drop info) in
 set_option ved.mem.hstepNorm true in
@@ -1396,6 +1414,10 @@ run_cmd declWidthHitsCheck true
 /-- info: Option.bind evaluated in order -/
 #guard_msgs in
 run_cmd bindStrictHitsCheck true
+
+/-- info: environment functions entered (freeze not used) -/
+#guard_msgs in
+run_cmd envFreezeHitsCheck false
 
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsE -/
 #guard_msgs in
@@ -1450,6 +1472,7 @@ run_cmd liftTermElabM <| storedPackedOk ``hsH
 -- (9) OFF (default), nothing of the new branch
 run_cmd Tools.VedMemLoop.hstepRan.set #[]
 run_cmd Tools.VedMemLoop.declWidthHits.set 0
+run_cmd Tools.VedMemLoop.envFreezeHits.set 0
 run_cmd Tools.VedMemLoop.bindStrictHits.set 0
 #guard_msgs (drop info) in
 #ved_u1_mem_packed hsG
@@ -1470,6 +1493,10 @@ run_cmd declWidthHitsCheck false
 #guard_msgs in
 run_cmd bindStrictHitsCheck false
 
+/-- info: environment functions entered (freeze not used) -/
+#guard_msgs in
+run_cmd envFreezeHitsCheck false
+
 
 -- (10) ON, the new branch fails LATE (after its tail stages, test seam `hstepFailLate`): the old script closes and the kernel accepts the result.
 -- Before `ved_hstep_fallback_reset` the kernel said "unknown constant _private._stdin.0._proof_N": the global proof caches (`proofCache`,
@@ -1488,5 +1515,25 @@ run_cmd hstepRanCheck []
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsJ -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedPackedOk ``hsJ
+
+-- (11) hstepNorm ON and s94EnvFreeze ON, packed: the environment functions are left alone, the proof is accepted, the stored type is exact
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.envFreezeHits.set 0
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+#ved_u1_mem_packed hsK
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: environment functions not entered -/
+#guard_msgs in
+run_cmd envFreezeHitsCheck true
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsK -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsK
 
 end Tests.Ved.VedMemCloseCheck
