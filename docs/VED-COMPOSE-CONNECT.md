@@ -96,3 +96,22 @@ module/design `==` a fresh synthesis, axioms within std3, 35 connect log lines (
 theorem `kMux.ved_u1` in the proof. Run (one process, guarded, ~7 min, ~18 GB):
 `VED_HIER_STATS=1 python3 -I rss_guard.py 23068672 timeout 890 kjob lake env lean <abs>/Tests/Ved/ComposeConnectR194Check.lean`
 after `kjob lake build Tests.Ved.ComposeConnectCheck` and `kjob lake build IP.Crypto.SHA512BlockHW`. Observed, single run: passes.
+
+## Unit 5: heartbeat measurement and map-based closed facts (option `ved.compose.connect`; default path unchanged)
+
+* Measurement (`Tools/VedU2HierRegEntry.lean`, env `VED_HIER_HB=1`, off by default, no budget change): `ved_hb "<script line>"` before the block-opening lines
+  and one line at the end of the proof elaboration, `VED-HB <label> used=<raw> limit=<raw> permille=<..>` on stderr, with `used = IO.getNumHeartbeats -
+  Core.Context.initHeartbeats` and `limit = Core.Context.maxHeartbeats` (the 8,000,000 option x 1000 = 8.0e9 raw): what the elaborator's own check compares.
+  It replaces `VED_HIER_TICK`'s `ved_tick` lines when both are set.
+* `WOKb`, `RegsOk`, the port cone's four facts and the bundle-slice chain evaluated list scans with `String` comparisons (`declWidth m`, `Atab m b0`,
+  `needed.contains`, `tab.lookup`, `asgOf`). `Tools/VedComposeConnect.lean` (end of file) now has a name map `VT` (binary search tree on `hsh (nameKey x)`,
+  the idea of `NTree` in `VedComposeOrder`; a node keeps `(nameKey, value)` pairs), `smGet_smOf : smGet (smOf l) x = l.lookup x` (from `nameKey_inj` only: the
+  hash is never trusted, a bad hash can only cost time), the pointwise equalities `weF_eq`, `atabF_eq`, `asgF_eq`, `memF_setOf`, and the closed Bools
+  `WOKbF` (`wokbF_sound : WOKbF m b = true -> WOKb (declWidth m) m b = true`), `RegsOkF` (`regsOkF_sound`), `specOkLe` for the port (`outSpecF_sound`) and
+  `ChainOkF` (one check over all slice steps / concat ranges / element widths of an instance block; `slice_fact_F`, `concat_range_F`, `wd_F` return one step's
+  facts by its index). The generator (`Tools/VedComposeConnectGen.lean`: `batchChain` reads the steps back off the chain lines, a line of another shape is left
+  as it is) uses them by default; `VED_COMPOSE_NOFASTWR=1` (`DeepInfo.noFastWR`) restores the list evaluations for measurement. The statements of
+  `reg_connect`, `out_connect`, `regs_spec`, `WOKb`, `RegsOk`, `bundle_slice_fact` are unchanged.
+* Controls (`Tests/Ved/ComposeConnectCheck.lean`, kernel evaluation): `WOKbF` real module true, one wrong width false; `RegsOkF` real true, swapped slots / exchanged
+  input wires / one register of the wrong width false; `ChainOkF` real step true, wrong offset / element index / declared width / bundle names false.
+* Measured (observed, single runs): see the unit report; R194 total 427.7 s -> 217.1 s, peak 17.68 -> 9.54 GB, heartbeats 1.98e9 of 8.0e9.
