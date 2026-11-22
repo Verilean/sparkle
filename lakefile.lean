@@ -1751,6 +1751,9 @@ lean_lib «Tools.VedMemLoop» where
 lean_lib «Tools.VedMemS94Prof» where
   roots := #[`Tools.VedMemS94Prof]
 
+lean_lib «Tools.VedMemS94Fix» where
+  roots := #[`Tools.VedMemS94Fix]
+
 lean_lib «Tools.VedMemCausalProbe» where
   roots := #[`Tools.VedMemCausalProbe]
 

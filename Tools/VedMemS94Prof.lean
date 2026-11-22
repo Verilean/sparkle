@@ -305,7 +305,18 @@ elab "ved_s94_prof " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
           | "decide" => { cfg with decide := b } | "autoUnfold" => { cfg with autoUnfold := b }
           | _ => cfg
       | _ => pure ()
-    pure { sc with ctx := ← sc.ctx.setConfig cfg }
+    let ctx ← sc.ctx.setConfig cfg
+    -- `nocongr=true`: no user congruence theorems; `congrdrop=NAME` drops the congruence theorems whose theorem or function name is NAME (`+`-separated list)
+    let cfgS := ((← IO.getEnv "VED_S94_PROF_CFG").getD "").splitOn ","
+    let drops := (cfgS.filterMap fun kv => (match kv.splitOn "=" with | ["congrdrop", v] => some (v.splitOn "+") | _ => none)).flatten
+    let all := sc.ctx.congrTheorems.lemmas.fold (fun (acc : Array SimpCongrTheorem) _ l => acc ++ l.toArray) #[]
+    Tools.VedMemLoop.dbgLog s!"S94P congr theorems: {all.size}: {", ".intercalate (all.map fun c => s!"{c.theoremName}@{c.funName}").toList}"
+    let ctx ← if cfgS.contains "nocongr=true" then Simp.mkContext ctx.config ctx.simpTheorems {} ctx.userConfig
+      else if drops.isEmpty then pure ctx
+      else
+        let kept := all.filter fun c => !(drops.contains c.theoremName.toString || drops.contains c.funName.toString)
+        Simp.mkContext ctx.config ctx.simpTheorems { lemmas := kept.foldl (fun (m : SMap Name (List SimpCongrTheorem)) c => m.insert c.funName (c :: m.findD c.funName [])) {} } ctx.userConfig
+    pure { sc with ctx := ctx }
   Tools.VedMemLoop.dbgLog s!"S94P config: dsimp={sc.ctx.config.dsimp} proj={sc.ctx.config.proj} beta={sc.ctx.config.beta} eta={sc.ctx.config.eta} etaStruct={repr sc.ctx.config.etaStruct} zeta={sc.ctx.config.zeta} zetaDelta={sc.ctx.config.zetaDelta} iota={sc.ctx.config.iota} memoize={sc.ctx.config.memoize} contextual={sc.ctx.config.contextual} arith={sc.ctx.config.arith} ground={sc.ctx.config.ground} index={sc.ctx.config.index} implicitDefEqProofs={sc.ctx.config.implicitDefEqProofs} decide={sc.ctx.config.decide} maxSteps={sc.ctx.config.maxSteps}"
   let g ← getMainGoal
   let tgt ← instantiateMVars (← g.getType)
@@ -350,7 +361,7 @@ elab "ved_s94_prof " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
       return (r, ms, ((← IO.getNumHeartbeats) - hb) / 1000)
     let summary := fun (tag : String) (r : Simp.Result × Simp.State) (ms hb : Nat) => do
       let pf := match r.1.proof? with | some p => dagOf p | none => 0
-      Tools.VedMemLoop.dbgLog s!"S94P #{i} {tag}: ms={ms} hb(k)={hb} numSteps={r.2.numSteps} cache={r.2.cache.foldStage2 (fun n _ _ => n + 1) 0} usedThms={r.2.usedTheorems.map.foldl (fun n _ _ => n + 1) 0} result dag={dagOf r.1.expr} tree={Tools.VedU1Loop.treeSizeVal r.1.expr} proofDag={pf}"
+      Tools.VedMemLoop.dbgLog s!"S94P #{i} {tag}: ms={ms} hb(k)={hb} numSteps={r.2.numSteps} cache={r.2.cache.foldStage2 (fun n _ _ => n + 1) 0} usedThms={r.2.usedTheorems.map.foldl (fun n _ _ => n + 1) 0} result dag={dagOf r.1.expr} tree={Tools.VedU1Loop.treeSizeVal r.1.expr} proofDag={pf} hash={r.1.expr.hash}"
     let bs0 ← Tools.VedMemLoop.bindStrictMs.get
     let mut plainRes : Option Expr := none
     let plain2 := (← IO.getEnv "VED_S94_PROF_PLAIN") == some "2"
