@@ -2242,6 +2242,9 @@ initialize s94T0 : IO.Ref Nat ← IO.mkRef 0
 /-- gap diagnosis: time (µs) between two consecutive visits by (previous head → head), and the last visit's time stamp (ns) -/
 initialize s94Gap : IO.Ref (Std.HashMap String Nat) ← IO.mkRef {}
 initialize s94GapT : IO.Ref Nat ← IO.mkRef 0
+/-- gap diagnosis: the previous visited term, and the largest single gaps (µs, previous head, head, the previous term printed, the next term printed) -/
+initialize s94PrevE : IO.Ref (Option Lean.Expr) ← IO.mkRef none
+initialize s94Big : IO.Ref (Array (Nat × String)) ← IO.mkRef #[]
 
 def s94Head (e : Expr) : String :=
   match e.getAppFn with
@@ -2270,7 +2273,19 @@ simproc_decl vedMemProbe (_) := fun e => do
   if prevN != 0 then
     let ph := (← s94Last.get).back?.getD "-"
     s94Gap.modify fun m => let k := ph ++ " -> " ++ h; m.insert k (m.getD k 0 + (nowN - prevN) / 1000)
+    let gapUs := (nowN - prevN) / 1000
+    -- the largest single gaps (>= 20 ms) with the terms around them
+    if gapUs ≥ 20000 && ((← s94Big.get).size < 6 || gapUs > ((← s94Big.get).foldl (fun a x => min a x.1) gapUs)) then
+      let pp (x : Expr) : MetaM String := do
+        try pure (((toString (← Meta.ppExpr x)).replace "\n" " ").take 240).toString catch _ => pure "?"
+      let pe ← s94PrevE.get
+      let ps ← match pe with | some x => pp x | none => pure "-"
+      let line := s!"gap {gapUs} us {ph} -> {h}; prev dag={match pe with | some x => (Tools.VedU1WireShare.collectDag (fun _ => true) x).size | none => 0}: {ps} || next: {← pp e}"
+      s94Big.modify fun a =>
+        let a := a.push (gapUs, line)
+        if a.size > 6 then (a.qsort (fun x y => x.1 > y.1)).extract 0 6 else a
   s94GapT.set nowN
+  s94PrevE.set (some e)
   s94Last.modify fun a => (a.push h).extract (a.size + 1 - 6) (a.size + 1)
   if v % 2000 == 0 then
     let st ← get
@@ -2382,6 +2397,28 @@ elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
         dbgLog s!"S94D prefix {m}/{n}: BUDGET ms={ms} visits={(← s94Visits.get) - v0} top={top}"
         stop := true
     pure ()
+  -- `VED_S94_MATCH`: time of the match test (`isDefEq` at reducible transparency) of the left side of the first `hreg*` hypotheses against the first `Signal.val` terms of the goal
+  if (← IO.getEnv "VED_S94_MATCH").isSome then
+    let vals := Tools.VedU1WireShare.collectDag (fun x => x.isAppOf ``Sparkle.Core.Signal.Signal.val) tgt
+    dbgLog s!"S94D match: {vals.size} Signal.val terms in the goal"
+    let mut shown := 0
+    for d in (← getLCtx) do
+      if d.isImplementationDetail || !(d.userName.toString.startsWith "hreg") || shown ≥ 3 then continue
+      shown := shown + 1
+      let ty ← instantiateMVars d.type
+      let (_, _, body) ← forallMetaTelescopeReducing ty
+      let lhs := (body.getAppArgs[1]?).getD body
+      dbgLog s!"S94D match {d.userName}: type={((toString (← ppExpr ty)).replace "\n" " ").take 500}"
+      dbgLog s!"S94D match {d.userName}: lhs head={lhs.getAppFn.constName?} dag={(Tools.VedU1WireShare.collectDag (fun _ => true) lhs).size}"
+      for v in vals.extract 0 4 do
+        let t1 ← IO.monoNanosNow
+        let ok ← withReducible do
+          let sv ← saveState
+          let r ← try isDefEq lhs v catch _ => pure false
+          sv.restore
+          pure r
+        dbgLog s!"S94D match   vs val dag={(Tools.VedU1WireShare.collectDag (fun _ => true) v).size}: {ok} {((← IO.monoNanosNow) - t1) / 1000} us"
+  if (← IO.getEnv "VED_S94_MATCH_ONLY").isSome then IO.Process.exit 0
   let idx ← IO.mkRef 0
   s94Walk tgt fun c => do
     let i ← idx.modifyGet fun i => (i, i + 1)
@@ -2392,7 +2429,7 @@ elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
       dbgLog s!"S94D #{i} SKIPPED (total 500 s used) dag={dag0} tree={tree0}"
       return
     s94Hist.set {}
-    s94Gap.set {}; s94GapT.set 0
+    s94Gap.set {}; s94GapT.set 0; s94Big.set #[]; s94PrevE.set none
     let v0 ← s94Visits.get
     let h0 ← declWidthHits.get
     let t1 ← IO.monoMsNow
@@ -2411,10 +2448,23 @@ elab "ved_s94_diag " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
     if i == 0 then
       let gp := ((← s94Gap.get).toList.toArray.qsort (fun a b => a.2 > b.2)).toList.take 10
       dbgLog s!"S94D #0 gap(us) by prev->head: {gp}"
+      let gp2 := ((← s94Gap.get).toList.toArray.qsort (fun a b => a.2 > b.2)).toList.take 40
+      dbgLog s!"S94D #0 gap40 total={((← s94Gap.get).fold (fun a _ v => a + v) 0)}: {gp2.drop 10}"
+      for (_, l) in ← s94Big.get do dbgLog s!"S94D #0 big {l}"
       -- variants: the same simp with one simp lemma erased (diagnosis of which rule's cost dominates)
       for nm in ((← IO.getEnv "VED_S94_ERASE").getD "").splitOn "," do
         if nm.isEmpty then continue
+        -- `fvars:PREFIX`: the local hypotheses whose name starts with PREFIX are erased from the simp set (`hreg`, `hM`, `hD`, `hL` of the step case)
+        let lctx ← getLCtx
+        let fvIds : Array FVarId :=
+          if nm.startsWith "fvars:" then
+            lctx.foldl (fun a d => if !d.isImplementationDetail && (d.userName.toString.startsWith (nm.drop 6).toString) then a.push d.fvarId else a) #[]
+          else #[]
+        dbgLog s!"S94D #0 erase {nm}: {fvIds.size} hypotheses"
         let thms ← sc.ctx.simpTheorems.mapM fun th => do
+          let mut th := th
+          for id in fvIds do
+            try th ← th.erase (.fvar id) catch _ => pure ()
           try th.erase (.decl nm.toName) catch _ => pure th
         let ctx2 := sc.ctx.setSimpTheorems thms
         -- a name that is a simproc is erased from the simprocs as well (diagnosis of builtin simprocs such as `reduceIte`)
