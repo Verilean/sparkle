@@ -143,7 +143,7 @@ def hlocLines (a : ConnArgs) : List String := Id.run do
   L := L.push s!"      all_goals rw [{a.otrace}]"
   L := L.push s!"      have hOutA := hasgF \"out\" _ rfl"
   L := L.push s!"      ved_connect_log \"port out via out_connect (fidelity {a.fidOut})\""
-  L := L.push s!"      exact Tools.VedComposeConnect.out_connect ({a.deep}) ({a.nm}) hinj ({a.inpU} ins) t _ {a.fidOut} {a.design} {a.mod} {a.body} {owT} {hwiT} {hriT} {hwrT} hWk ins p E hasgF hEin hEreg hEorc _ \"out\" hOutA {a.fuel} {a.fuel} {neededTxt a} hrangeN (by decide +kernel) (by decide +kernel) {tabTxt a} (by rfl) (by decide +kernel) hV"
+  L := L.push s!"      exact Tools.VedComposeConnect.out_connect ({a.deep}) ({a.nm}) hinj ({a.inpU} ins) t _ {a.fidOut} {a.design} {a.mod} {a.body} {owT} {hwiT} {hriT} {hwrT} hWk ins p E hasgF hEin hEreg hEorc _ \"out\" hOutA {a.fuel} {a.fuel} {a.fuel} {neededTxt a} hrangeN (by decide +kernel) (by decide +kernel) {tabTxt a} (by rfl) (by decide +kernel) hV"
   -- the registers
   let holes := ", ".intercalate ((List.range k).map fun _ => "?_")
   L := L.push s!"    · {if k == 1 then "skip" else s!"refine ⟨{holes}⟩"}"
@@ -151,7 +151,7 @@ def hlocLines (a : ConnArgs) : List String := Id.run do
     let fid := a.fidR[i]!
     let w := a.regWs[i]!
     let inW := a.regIn[i]!
-    L := L.push s!"      · have hcon : {a.irS} ins (t + 1) ⟨{i}, by decide⟩ = E {sq inW} := Tools.VedComposeConnect.reg_connect ({a.deep}) ({a.nm}) hinj ({a.inpU} ins) t ⟨{i}, by decide⟩ _ {fid} {a.design} {a.mod} {a.body} {owT} {hwiT} {hriT} {hwrT} hWk ins p E hasgF hEin hEreg hEorc {sq inW} {a.fuel} {a.fuel} {neededTxt a} hrangeN (by decide +kernel) (by decide +kernel) {tabTxt a} (by rfl) (by decide +kernel) hV"
+    L := L.push s!"      · have hcon : {a.irS} ins (t + 1) ⟨{i}, by decide⟩ = E {sq inW} := Tools.VedComposeConnect.reg_connect ({a.deep}) ({a.nm}) hinj ({a.inpU} ins) t ⟨{i}, by decide⟩ _ {fid} {a.design} {a.mod} {a.body} {owT} {hwiT} {hriT} {hwrT} hWk ins p E hasgF hEin hEreg hEorc {sq inW} {a.fuel} {a.fuel} {a.fuel} {neededTxt a} hrangeN (by decide +kernel) (by decide +kernel) {tabTxt a} (by rfl) (by decide +kernel) hV"
     L := L.push s!"        have hlN : {a.irS} ins (t + 1) ⟨{i}, by decide⟩ < 2 ^ {w} := by"
     L := L.push s!"          have := hltS ins (t + 1) ⟨{i}, by decide⟩"
     L := L.push s!"          simpa using this"

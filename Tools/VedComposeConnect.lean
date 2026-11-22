@@ -253,6 +253,196 @@ theorem needed_range (wm : WEnv) (E : Env) (needed : List String) (c : Expr)
   simp only [neededOk, List.all_eq_true] at h
   exact hn x (List.contains_iff_mem.mp (h x hx))
 
+/-! ## Nested bundles: `concat [a, concat rest] = concat (a :: rest)`
+
+The synthesiser bundles the registers of one `circuit do` as a RIGHT-NESTED pair (`concat [r0, concat [r1, r2]]`); the approved
+`bn` resolves slices of a FLAT concatenation of refs.  `flat` flattens one nesting level bottom-up; its soundness is
+`Tools.ConcatNorm.concat_pivot` (no range fact needed). -/
+
+theorem slice_slice_val (v l1 A hi lo : Nat) (hlo : lo ≤ hi) (hhi : hi + 1 ≤ A) :
+    mask (hi - lo + 1) (mask A (v >>> l1) >>> lo) = mask (hi - lo + 1) (v >>> (l1 + lo)) := by
+  unfold mask
+  apply Nat.eq_of_testBit_eq
+  intro i
+  simp only [Nat.testBit_mod_two_pow, Nat.testBit_shiftRight]
+  by_cases h : i < hi - lo + 1
+  · have h2 : lo + i < A := by omega
+    have h3 : l1 + (lo + i) = l1 + lo + i := by omega
+    simp [h, h2, h3]
+  · simp [h]
+
+/-- A slice of a slice that stays inside the inner slice is ONE slice of the inner operand. -/
+def slc (hi lo : Nat) : Expr → Expr
+  | .slice e h1 l1 => if lo ≤ hi ∧ hi + l1 ≤ h1 then .slice e (l1 + hi) (l1 + lo) else .slice (.slice e h1 l1) hi lo
+  | e => .slice e hi lo
+
+theorem slc_sound (we : WEnv) (E : Env) (hi lo : Nat) (e : Expr) :
+    evalExpr we E (slc hi lo e) = evalExpr we E (.slice e hi lo) ∧ widthOf we (slc hi lo e) = widthOf we (.slice e hi lo) := by
+  cases e with
+  | slice e h1 l1 =>
+    by_cases hc : lo ≤ hi ∧ hi + l1 ≤ h1
+    · have hslc : slc hi lo (.slice e h1 l1) = .slice e (l1 + hi) (l1 + lo) := by simp only [slc]; rw [if_pos hc]
+      rw [hslc]
+      refine ⟨?_, by simp only [widthOf]; omega⟩
+      simp only [evalExpr]
+      cases hv : evalExpr we E e with
+      | none => rfl
+      | some v =>
+        simp only [Bind.bind, Option.bind]
+        have : l1 + hi - (l1 + lo) = hi - lo := by omega
+        rw [this, slice_slice_val v l1 (h1 - l1 + 1) hi lo hc.1 (by omega)]
+    · have hslc : slc hi lo (.slice e h1 l1) = .slice (.slice e h1 l1) hi lo := by simp only [slc]; rw [if_neg hc]
+      rw [hslc]
+      exact ⟨rfl, rfl⟩
+  | const _ _ => exact ⟨rfl, rfl⟩
+  | ref _ => exact ⟨rfl, rfl⟩
+  | op _ _ => exact ⟨rfl, rfl⟩
+  | concat _ => exact ⟨rfl, rfl⟩
+  | sliceDim _ _ _ => exact ⟨rfl, rfl⟩
+  | index _ _ => exact ⟨rfl, rfl⟩
+
+theorem refs_slc (hi lo : Nat) (e : Expr) (x : String) (hx : x ∈ refs (slc hi lo e)) : x ∈ refs e := by
+  cases e with
+  | slice e h1 l1 =>
+    by_cases hc : lo ≤ hi ∧ hi + l1 ≤ h1
+    · have hslc : slc hi lo (.slice e h1 l1) = .slice e (l1 + hi) (l1 + lo) := by simp only [slc]; rw [if_pos hc]
+      rw [hslc] at hx
+      simpa [refs] using hx
+    · have hslc : slc hi lo (.slice e h1 l1) = .slice (.slice e h1 l1) hi lo := by simp only [slc]; rw [if_neg hc]
+      rw [hslc] at hx
+      simpa [refs] using hx
+  | const _ _ => simpa [slc, refs] using hx
+  | ref _ => simpa [slc, refs] using hx
+  | op _ _ => simpa [slc, refs] using hx
+  | concat _ => simpa [slc, refs] using hx
+  | sliceDim _ _ _ => simpa [slc, refs] using hx
+  | index _ _ => simpa [slc, refs] using hx
+
+def flatC : List Expr → Expr
+  | [a, .concat rest] => .concat (a :: rest)
+  | as => .concat as
+
+def flat : Nat → Expr → Expr
+  | 0, e => e
+  | n+1, .op o as => .op o (as.map (flat n))
+  | n+1, .concat as => flatC (as.map (flat n))
+  | n+1, .slice e hi lo => slc hi lo (flat n e)
+  | _+1, e => e
+
+theorem flatC_sound (we : WEnv) (E : Env) (l : List Expr) :
+    evalExpr we E (flatC l) = evalExpr we E (.concat l) ∧ widthOf we (flatC l) = widthOf we (.concat l) := by
+  unfold flatC
+  split
+  · next a rest =>
+    refine ⟨(Tools.ConcatNorm.concat_pivot we E a rest).symm, ?_⟩
+    simp [widthOf, widthOf.go]
+  · exact ⟨rfl, rfl⟩
+
+theorem refs_flatC (l : List Expr) (x : String) (hx : x ∈ refs (flatC l)) : x ∈ refsL l := by
+  unfold flatC at hx
+  split at hx
+  · next a rest => simp only [refs, refsL, List.append_nil, List.mem_append] at hx ⊢; exact hx
+  · simpa [refs] using hx
+
+theorem refs_flat : ∀ n e x, x ∈ refs (flat n e) → x ∈ refs e := by
+  intro n
+  induction n with
+  | zero => intro e x hx; exact hx
+  | succ n ih =>
+    intro e x hx
+    cases e with
+    | op o as =>
+      simp only [flat, refs] at hx ⊢
+      exact refsL_map_sub _ as (fun a _ y hy => ih a y hy) x hx
+    | concat as =>
+      simp only [flat, refs] at hx ⊢
+      exact refsL_map_sub _ as (fun a _ y hy => ih a y hy) x (refs_flatC _ x hx)
+    | slice e hi lo =>
+      simp only [flat, refs]
+      simp only [flat] at hx
+      exact ih e x (refs_slc _ _ _ x hx)
+    | const _ _ => exact hx
+    | ref _ => exact hx
+    | sliceDim _ _ _ => exact hx
+    | index _ _ => exact hx
+
+theorem flat_sound (we : WEnv) (E : Env) :
+    ∀ n e, evalExpr we E (flat n e) = evalExpr we E e ∧ widthOf we (flat n e) = widthOf we e := by
+  intro n
+  induction n with
+  | zero => intro e; exact ⟨rfl, rfl⟩
+  | succ n ih =>
+    intro e
+    cases e with
+    | const _ _ => exact ⟨rfl, rfl⟩
+    | ref _ => exact ⟨rfl, rfl⟩
+    | sliceDim _ _ _ => exact ⟨rfl, rfl⟩
+    | index _ _ => exact ⟨rfl, rfl⟩
+    | slice e hi lo =>
+      simp only [flat]
+      have hs := slc_sound we E hi lo (flat n e)
+      refine ⟨hs.1.trans ?_, hs.2.trans ?_⟩
+      · simp only [evalExpr]; rw [(ih e).1]
+      · simp only [widthOf]
+    | op o as =>
+      simp only [flat]
+      have hE : ∀ a ∈ as, evalExpr we E (flat n a) = evalExpr we E a := fun a _ => (ih a).1
+      have hW : ∀ a ∈ as, widthOf we (flat n a) = widthOf we a := fun a _ => (ih a).2
+      refine ⟨?_, width_op_map we _ o as hW⟩
+      simp only [evalExpr]
+      rw [evalList_map we E _ as hE, width_op_map we _ o as hW]
+      cases evalList we E as with
+      | none => rfl
+      | some vals => simp only [Bind.bind, Option.bind]; rw [evalOp_map we _ o as vals _ hW]
+    | concat as =>
+      simp only [flat]
+      have hE : ∀ a ∈ as, evalExpr we E (flat n a) = evalExpr we E a := fun a _ => (ih a).1
+      have hW : ∀ a ∈ as, widthOf we (flat n a) = widthOf we a := fun a _ => (ih a).2
+      have hc := flatC_sound we E (as.map (flat n))
+      refine ⟨hc.1.trans ?_, hc.2.trans (width_concat_map we _ as hW)⟩
+      simp only [evalExpr]
+      rw [evalList_map we E _ as hE]
+      cases evalList we E as with
+      | none => rfl
+      | some vals => simp only [Bind.bind, Option.bind]; rw [go_map we _ as vals hW]
+
+/-- `cone_connect_bn` with the flattening step: the normalised cone is `bn .. (flat .. (inl ..))`. -/
+theorem cone_connect_bnf (d : Design) (m : Module) (b0 : List Stmt)
+    (Ow : (Nat → String → Nat) → String → Nat → Nat)
+    (hwi : ∀ n ∈ wrsH d b0, n ∉ inNames m) (hri : ∀ n ∈ regOuts b0, n ∉ inNames m)
+    (hwr : ∀ n ∈ wrsH d b0, n ∉ regOuts b0)
+    (hW : WOKb (declWidth m) m b0 = true)
+    (ins : Nat → String → Nat) (t : Nat) (p : String → Nat) (E : Env)
+    (hasg : ∀ l r, asgOf b0 l = some r → evalExpr (declWidth m) E r = some (E l))
+    (hEin : ∀ x ∈ inNames m, E x = ins t x)
+    (hEreg : ∀ r ∈ regOuts b0, E r = p r)
+    (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
+    (n n2 n3 : Nat) (e : Expr)
+    (hrange : ∀ x ∈ refs (inl (Atab m b0) n e), E x < 2 ^ declWidth m x)
+    (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) n e) = true) :
+    evalExpr (declWidth m) E e =
+      evalExpr (declWidth m) (leafEnv m b0 ins t p Ow) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) n e))) := by
+  have hWo := WOKb_sound _ _ _ hW
+  have hs := inl_sound (declWidth m) E (Atab m b0)
+    (fun l r h => ⟨hasg l r (by unfold Atab at h; split at h <;> simp_all), hWo l r h⟩) n e
+  have hleaf := leafOk_sound _ _ hl0
+  have hf := flat_sound (declWidth m) E n3 (inl (Atab m b0) n e)
+  have hb := bn_sound (declWidth m) E n2 (flat n3 (inl (Atab m b0) n e))
+    (fun x hx => hrange x (refs_flat _ _ x hx))
+  rw [← hs.1, ← hf.1, ← hb.1]
+  apply eval_congr
+  intro x hx
+  have hcut := hleaf x (refs_flat _ _ x (refs_bn _ _ _ x hx))
+  simp only [cutNames, List.mem_append] at hcut
+  unfold leafEnv
+  rcases hcut with (h | h) | h
+  · rw [if_pos h]; exact hEin x h
+  · rw [if_neg (hri x h), if_pos h]; exact hEreg x h
+  · obtain ⟨mn, i, cs, hi, hy⟩ := mem_instOutsOf d b0 x h
+    have hw := instOutsOf_sub_wrsH d b0 x h
+    rw [if_neg (hwi x hw), if_neg (hwr x hw)]
+    exact hEorc mn i cs hi x hy
+
 /-! ## F: the connection -/
 
 /-- **The connection (value form).**  The right-hand side `e` of an assignment holds in `E` (`he`); the normalised inlined
@@ -272,17 +462,17 @@ theorem connect_value {n : Nat} (nm : Fin n → String) (hinj : ∀ i j, nm i = 
     (hEreg : ∀ r ∈ regOuts b0, E r = p r)
     (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
     (e : Expr) (x : String) (he : evalExpr (declWidth m) E e = some (E x))
-    (nIn n2 : Nat) (needed : List String)
+    (nIn n2 n3 : Nat) (needed : List String)
     (hrangeN : ∀ y ∈ needed, E y < 2 ^ declWidth m y)
     (hneed : neededOk needed (inl (Atab m b0) nIn e) = true)
     (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) nIn e) = true)
     (tab : List (String × Nat)) (L : Expr)
-    (hren : renE (tauOf nm tab) (bn (declWidth m) n2 (inl (Atab m b0) nIn e)) = L)
-    (hTW : tabW Γ (declWidth m) tab (bn (declWidth m) n2 (inl (Atab m b0) nIn e)) = true)
+    (hren : renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) = L)
+    (hTW : tabW Γ (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) = true)
     (hV : ∀ q ∈ tab, ∀ hq : q.2 < n, leafEnv m b0 ins t p Ow q.1 = V ⟨q.2, hq⟩) :
     evalExpr (weOfC nm (fun j : Fin n => Γ.getD j.val 0)) (envOfC nm V) L = some (E x) := by
-  have hcc := cone_connect_bn d m b0 Ow hwi hri hwr hW ins t p E hasg hEin hEreg hEorc nIn n2 e _
-    (needed_range _ E needed _ hrangeN hneed) rfl hl0
+  have hcc := cone_connect_bnf d m b0 Ow hwi hri hwr hW ins t p E hasg hEin hEreg hEorc nIn n2 n3 e
+    (needed_range _ E needed _ hrangeN hneed) hl0
   rw [he] at hcc
   rw [cone_deep_eval nm hinj (fun j : Fin n => Γ.getD j.val 0) V (declWidth m) (leafEnv m b0 ins t p Ow) tab _ L hren
     (tabW_sound _ Γ (fun _ => rfl) hn _ tab _ hTW) hV]
@@ -320,18 +510,18 @@ theorem reg_connect {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut)
     (hEin : ∀ x ∈ inNames m, E x = ins t x)
     (hEreg : ∀ r ∈ regOuts b0, E r = p r)
     (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
-    (x : String) (nIn n2 : Nat) (needed : List String)
+    (x : String) (nIn n2 n3 : Nat) (needed : List String)
     (hrangeN : ∀ y ∈ needed, E y < 2 ^ declWidth m y)
     (hneed : neededOk needed (inl (Atab m b0) nIn (.ref x)) = true)
     (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) nIn (.ref x)) = true)
     (tab : List (String × Nat))
-    (hren : renE (tauOf nm tab) (bn (declWidth m) n2 (inl (Atab m b0) nIn (.ref x))) = L)
-    (hTW : tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (inl (Atab m b0) nIn (.ref x))) = true)
+    (hren : renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x)))) = L)
+    (hTW : tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x)))) = true)
     (hV : VOk deep nm inp t m b0 ins p Ow tab) :
     deep.irState nm inp (t + 1) i = E x := by
   have hv := connect_value nm hinj (Γr ++ Γi) rfl
     (natJoin (deep.irState nm inp t) (fun j => (inp t j).toNat)) d m b0 Ow hwi hri hwr hW ins t p E
-    hasg hEin hEreg hEorc (.ref x) x rfl nIn n2 needed hrangeN hneed hl0 tab L hren hTW hV
+    hasg hEin hEreg hEorc (.ref x) x rfl nIn n2 n3 needed hrangeN hneed hl0 tab L hren hTW hV
   show (evalExpr (weOfC nm (fun j => (Γr ++ Γi).get j)) (envOfC nm (natJoin (deep.irState nm inp t)
       (fun j => (inp t j).toNat))) ((deep.next i).compile nm)).getD 0 = E x
   rw [hfid]
@@ -358,19 +548,19 @@ theorem out_connect {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut)
     (hEreg : ∀ r ∈ regOuts b0, E r = p r)
     (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
     (e : Expr) (x : String) (he : evalExpr (declWidth m) E e = some (E x))
-    (nIn n2 : Nat) (needed : List String)
+    (nIn n2 n3 : Nat) (needed : List String)
     (hrangeN : ∀ y ∈ needed, E y < 2 ^ declWidth m y)
     (hneed : neededOk needed (inl (Atab m b0) nIn e) = true)
     (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) nIn e) = true)
     (tab : List (String × Nat))
-    (hren : renE (tauOf nm tab) (bn (declWidth m) n2 (inl (Atab m b0) nIn e)) = L)
-    (hTW : tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (inl (Atab m b0) nIn e)) = true)
+    (hren : renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) = L)
+    (hTW : tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) = true)
     (hV : VOk deep nm inp t m b0 ins p Ow tab) :
     E x = (evalExpr (weOfC nm (fun j => (Γr ++ Γi).get j)) (envOfC nm (natJoin (deep.irState nm inp t)
       (fun j => (inp t j).toNat))) (CExpr.compile nm deep.out)).getD 0 := by
   have hv := connect_value nm hinj (Γr ++ Γi) rfl
     (natJoin (deep.irState nm inp t) (fun j => (inp t j).toNat)) d m b0 Ow hwi hri hwr hW ins t p E
-    hasg hEin hEreg hEorc e x he nIn n2 needed hrangeN hneed hl0 tab L hren hTW hV
+    hasg hEin hEreg hEorc e x he nIn n2 n3 needed hrangeN hneed hl0 tab L hren hTW hV
   rw [hfid]
   have hw : (fun j : Fin (Γr ++ Γi).length => (Γr ++ Γi).getD j.val 0) = fun j => (Γr ++ Γi).get j := by
     funext j; simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem j.isLt]
