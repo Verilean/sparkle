@@ -4802,7 +4802,7 @@ elab "#verify_elab_deep" id:ident : command =>
       let elabGenRw : Lean.TSyntax `tactic ← if hasMem then
           `(tactic| rw [← CdoM.elab_general $deepId $nmId (by decide) $inpS t])
         else `(tactic| rw [← Cdo.elab_general $deepId $nmId (by decide) $inpS t])
-      let tkA ← tk "capstone: begin (before rw elab_general)"
+      -- (no tick FIRST in the tactic block: an empty splice there loses the whole block; `elabSync begin` is the start)
       let tkB ← tk "capstone: rw elab_general done"
       let tkC ← tk "capstone: congr 1 done"
       let tkD ← tk "capstone: idUnfold/chainUnfold/projRw done"
@@ -4817,7 +4817,6 @@ elab "#verify_elab_deep" id:ident : command =>
               (weOfC $nmId (fun j => ($ΓAllT).get j))
               (envOfC $nmId $irEnvT)
               (CExpr.compile $nmId $outT)).getD 0 := by
-        $[$tkA:tactic]*
         $elabGenRw:tactic
         $[$tkB:tactic]*
         congr 1
