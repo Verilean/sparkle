@@ -292,3 +292,102 @@ theorem cone_connect (d : Design) (m : Module) (b0 : List Stmt)
     exact hEorc mn i cs hi x hy
 
 end Tools.VedComposeResearch
+
+/-! # Toy: one parent, a register, two instances of one child; accepted cone and refused controls -/
+
+namespace Tools.VedComposeResearch.Toy
+
+open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics
+open Tools.VedU1Hier Tools.VedU2Hier Tools.VedU1Contract Tools.VedComposeResearch
+
+def bv (n : String) : Port := ⟨n, .bitVector 4⟩
+
+def kid : Module :=
+  { name := "kid", inputs := [bv "a"], outputs := [bv "y"], wires := [], body := [] }
+
+def dsg : Design := { topModule := "par", modules := [kid] }
+
+def parWires : List Port := ["r", "w1", "w2", "w3", "o0", "o1", "out", "x"].map bv
+
+/-- The parent: `r <= (o0 xor r) + o1`, where `o0 = kid(r + x)` and `o1 = kid(o0 xor r)`. -/
+def par : Module :=
+  { name := "par", inputs := [bv "x", ⟨"clk", .bit⟩, ⟨"rst", .bit⟩], outputs := [bv "out"], wires := parWires,
+    body :=
+      [ .assign "w1" (.op .add [.ref "r", .ref "x"]),
+        .inst "kid" "i0" [("a", .ref "w1"), ("y", .ref "o0")],
+        .assign "w2" (.op .xor [.ref "o0", .ref "r"]),
+        .inst "kid" "i1" [("a", .ref "w2"), ("y", .ref "o1")],
+        .assign "w3" (.op .add [.ref "w2", .ref "o1"]),
+        .register "r" "clk" ("rst", .synchronous) (.ref "w3") 0,
+        .assign "out" (.ref "w3") ] }
+
+/-- The cone literal the open parent's deep run is proved about (leaves: the register, the oracle wires). -/
+def coneR : Expr := .op .add [.op .xor [.ref "o0", .ref "r"], .ref "o1"]
+
+/-! ## Accepted -/
+
+theorem par_widths : WOKb (declWidth par) par.body = true := by decide +kernel
+theorem par_cone : inl (asgOf par.body) 6 (.ref "w3") = coneR := rfl
+theorem par_leaves : leafOk (cutNames dsg par par.body) coneR = true := by decide +kernel
+theorem par_out_cone : inl (asgOf par.body) 6 (.ref "out") = coneR := rfl
+
+theorem par_hwi : ∀ n ∈ wrsH dsg par.body, n ∉ inNames par := by decide +kernel
+theorem par_hri : ∀ n ∈ regOuts par.body, n ∉ inNames par := by decide +kernel
+theorem par_hwr : ∀ n ∈ wrsH dsg par.body, n ∉ regOuts par.body := by decide +kernel
+
+/-- The register's next-value expression at an abstract environment satisfying the `step_local` facts is the cone literal at the
+leaf valuation. -/
+theorem par_connect (Ow : (Nat → String → Nat) → String → Nat → Nat)
+    (ins : Nat → String → Nat) (t : Nat) (p : String → Nat) (E : Env)
+    (hasg : ∀ l r, asgOf par.body l = some r → evalExpr (declWidth par) E r = some (E l))
+    (hEin : ∀ x ∈ inNames par, E x = ins t x)
+    (hEreg : ∀ r ∈ regOuts par.body, E r = p r)
+    (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ par.body → ∀ y ∈ instOuts dsg mn cs, E y = Ow ins y t) :
+    evalExpr (declWidth par) E (.ref "w3")
+      = evalExpr (declWidth par) (leafEnv par par.body ins t p Ow) coneR :=
+  cone_connect dsg par par.body Ow par_hwi par_hri par_hwr par_widths ins t p E hasg hEin hEreg hEorc 6 _ _ par_cone
+    par_leaves
+
+/-! ## Negative controls (all refused by closed kernel evaluation) -/
+
+/-- (1) mis-wiring: the two oracle wires swapped (instance i0 paired with i1's call). -/
+def coneSwap : Expr := .op .add [.op .xor [.ref "o1", .ref "r"], .ref "o0"]
+theorem ctl_swap : inl (asgOf par.body) 6 (.ref "w3") ≠ coneSwap := by
+  rw [par_cone]; intro h; simp [coneR, coneSwap] at h
+
+/-- (2) independence faking: the cone is read at a COMPUTED wire (`w2`) as if it were a free cut point.  The equation with a
+too-small fuel holds, the leaf (transparency) check refuses. -/
+def coneFake : Expr := .op .add [.ref "w2", .ref "o1"]
+theorem ctl_fake_eq : inl (asgOf par.body) 2 (.ref "w3") = coneFake := rfl
+theorem ctl_fake_leaf : leafOk (cutNames dsg par par.body) coneFake = false := by decide +kernel
+
+/-- (3) different artifact (a): a cone of another module (`sub` for the outer `add`). -/
+def coneOther : Expr := .op .sub [.op .xor [.ref "o0", .ref "r"], .ref "o1"]
+theorem ctl_other : inl (asgOf par.body) 6 (.ref "w3") ≠ coneOther := by
+  rw [par_cone]; intro h; simp [coneR, coneOther] at h
+
+/-- (3b) different artifact (b): the same literal against a design in which the child has no output port `y`: the oracle
+wires are no cut points. -/
+def kidNoOut : Module := { kid with outputs := [] }
+def dsgNoOut : Design := { topModule := "par", modules := [kidNoOut] }
+theorem ctl_design : leafOk (cutNames dsgNoOut par par.body) coneR = false := by decide +kernel
+
+/-- (4) the width side condition is real: a wire declared 4 bits wide whose right-hand side is 2 bits wide makes `WOKb`
+false, and inlining it changes the value the IR semantics gives. -/
+def bodyBad : List Stmt :=
+  [ .assign "b" (.const 3 2), .assign "c" (.concat [.ref "a", .ref "b"]) ]
+def weBad : WEnv := fun n => if n = "c" then 8 else 4
+theorem ctl_width_check : WOKb weBad bodyBad = false := by decide +kernel
+def envBad : Env := fun n => if n = "a" then 5 else if n = "b" then 3 else if n = "c" then 83 else 0
+/-- Both assignments HOLD in `envBad` under `weBad` (`b = 3`, `c = 5 <<< 4 ||| 3 = 83`), yet inlining changes the value of `c`
+(the concatenation then reads the 2-bit constant's own width: `5 <<< 2 ||| 3 = 23`). -/
+theorem ctl_width_holds_b : evalExpr weBad envBad (.const 3 2) = some (envBad "b") := by decide +kernel
+theorem ctl_width_holds_c : evalExpr weBad envBad (.concat [.ref "a", .ref "b"]) = some (envBad "c") := by decide +kernel
+theorem ctl_width_semantics :
+    evalExpr weBad envBad (.ref "c") ≠ evalExpr weBad envBad (inl (asgOf bodyBad) 3 (.ref "c")) := by decide +kernel
+
+end Tools.VedComposeResearch.Toy
+
+#print axioms Tools.VedComposeResearch.Toy.par_connect
+#print axioms Tools.VedComposeResearch.Toy.ctl_swap
+#print axioms Tools.VedComposeResearch.cone_connect
