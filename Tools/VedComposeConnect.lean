@@ -568,6 +568,111 @@ theorem out_connect {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut)
   rw [hv]
   rfl
 
+/-! ## Batched closed checks (one kernel evaluation for all registers)
+
+`reg_connect` takes four closed facts per register (`hneed`, `hl0`, `hTW`, `hren`).  Proving them by four `decide +kernel` / `rfl`
+calls per register re-evaluates the inlined cone, with its `String` table scans, from a cold cache every time (observed: ~1 s each at
+13 registers, growing with the register count).  `RegsOk` is ONE Bool over all register slots, evaluated once by the kernel;
+`regs_spec` hands each slot's four facts back.  The equation `hren` is decided by `eqE` (a structural equality of expressions, with
+`eqE_sound`) against `CExpr.compile nm (deep.next i)`, which the fidelity theorem `hfid` identifies with the literal `L`.  The
+statements of `reg_connect` / `out_connect` are unchanged. -/
+
+mutual
+/-- Structural equality of the expression forms a returned cone consists of (anything else compares unequal). -/
+def eqE : Expr → Expr → Bool
+  | .const v w, b => match b with
+    | .const v' w' => decide (v = v') && decide (w = w')
+    | _ => false
+  | .ref x, b => match b with
+    | .ref y => decide (x = y)
+    | _ => false
+  | .op o as, b => match b with
+    | .op o' as' => decide (o = o') && eqL as as'
+    | _ => false
+  | .concat as, b => match b with
+    | .concat as' => eqL as as'
+    | _ => false
+  | .slice e hi lo, b => match b with
+    | .slice e' hi' lo' => eqE e e' && decide (hi = hi') && decide (lo = lo')
+    | _ => false
+  | .sliceDim .., _ => false
+  | .index .., _ => false
+def eqL : List Expr → List Expr → Bool
+  | [], b => match b with
+    | [] => true
+    | _ => false
+  | a :: r, b => match b with
+    | c :: s => eqE a c && eqL r s
+    | [] => false
+end
+
+mutual
+theorem eqE_sound : ∀ a b : Expr, eqE a b = true → a = b
+  | .const v w, b, h => by
+      cases b with
+      | const v' w' => simp only [eqE, Bool.and_eq_true, decide_eq_true_eq] at h; rw [h.1, h.2]
+      | _ => simp [eqE] at h
+  | .ref x, b, h => by
+      cases b with
+      | ref y => simp only [eqE, decide_eq_true_eq] at h; rw [h]
+      | _ => simp [eqE] at h
+  | .op o as, b, h => by
+      cases b with
+      | op o' as' => simp only [eqE, Bool.and_eq_true, decide_eq_true_eq] at h; rw [h.1, eqL_sound as _ h.2]
+      | _ => simp [eqE] at h
+  | .concat as, b, h => by
+      cases b with
+      | concat as' => simp only [eqE] at h; rw [eqL_sound as _ h]
+      | _ => simp [eqE] at h
+  | .slice e hi lo, b, h => by
+      cases b with
+      | slice e' hi' lo' =>
+        simp only [eqE, Bool.and_eq_true, decide_eq_true_eq] at h
+        rw [eqE_sound e _ h.1.1, h.1.2, h.2]
+      | _ => simp [eqE] at h
+  | .sliceDim .., b, h => by simp [eqE] at h
+  | .index .., b, h => by simp [eqE] at h
+theorem eqL_sound : ∀ as bs : List Expr, eqL as bs = true → as = bs
+  | [], b, h => by
+      cases b with
+      | nil => rfl
+      | cons _ _ => simp [eqL] at h
+  | a :: r, b, h => by
+      cases b with
+      | nil => simp [eqL] at h
+      | cons c s =>
+        simp only [eqL, Bool.and_eq_true] at h
+        rw [eqE_sound a _ h.1, eqL_sound r _ h.2]
+end
+
+/-- The four closed facts of one register slot: its input wire `x`, the cone compared with `L`. -/
+def specOk (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (Γ : List Nat) (τ : String → String)
+    (tab : List (String × Nat)) (nIn n2 n3 : Nat) (x : String) (L : Expr) : Bool :=
+  neededOk needed (inl (Atab m b0) nIn (.ref x)) && leafOk (cutNames d m b0) (inl (Atab m b0) nIn (.ref x)) &&
+    tabW Γ (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x)))) &&
+    eqE (renE τ (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x))))) L
+
+/-- ONE Bool for all register slots of the deep context (`xs`: the input wire of each slot). -/
+def RegsOk {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String)
+    (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (tab : List (String × Nat)) (nIn n2 n3 : Nat)
+    (xs : List String) : Bool :=
+  (List.finRange Γr.length).all fun i =>
+    specOk d m b0 needed (Γr ++ Γi) (tauOf nm tab) tab nIn n2 n3 (xs.getD i.val "") (CExpr.compile nm (deep.next i))
+
+theorem regs_spec {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String)
+    (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (tab : List (String × Nat)) (nIn n2 n3 : Nat)
+    (xs : List String) (h : RegsOk deep nm d m b0 needed tab nIn n2 n3 xs = true)
+    (i : Fin Γr.length) (x : String) (hx : xs.getD i.val "" = x) (L : Expr) (hfid : CExpr.compile nm (deep.next i) = L) :
+    neededOk needed (inl (Atab m b0) nIn (.ref x)) = true ∧
+    leafOk (cutNames d m b0) (inl (Atab m b0) nIn (.ref x)) = true ∧
+    tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x)))) = true ∧
+    renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x)))) = L := by
+  simp only [RegsOk, List.all_eq_true] at h
+  have h1 := h i (List.mem_finRange i)
+  rw [hx, hfid] at h1
+  simp only [specOk, Bool.and_eq_true] at h1
+  exact ⟨h1.1.1.1, h1.1.1.2, h1.1.2, eqE_sound _ _ h1.2⟩
+
 /-! ## Small facts the generated proof uses -/
 
 theorem leafEnv_reg {m : Module} {b0 : List Stmt} {ins : Nat → String → Nat} {t : Nat} {p : String → Nat}
