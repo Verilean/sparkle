@@ -118,6 +118,9 @@ jobs:
     - name: "H3-open (several child instances on the parent's register state, the child output feeding the loop): loop knot, bundle reads; controls"
       run: lake build Tests.Ved.U2HierMultiCheck
 
+    - name: "Composed step (ved.compose.step, shared bundle-slice walk): accepted, independent type == U2HRStmt, std3; new-path controls"
+      run: lake build Tests.Ved.ComposeStepCheck
+
     - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
       run: lake build Tests.Ved.U2HierPartialDeepCheck
 
@@ -251,6 +254,9 @@ jobs:
 
     - name: "H3-open (several child instances on the parent's register state, the child output feeding the loop): loop knot, bundle reads; controls"
       run: lake build Tests.Ved.U2HierMultiCheck
+
+    - name: "Composed step (ved.compose.step, shared bundle-slice walk): accepted, independent type == U2HRStmt, std3; new-path controls"
+      run: lake build Tests.Ved.ComposeStepCheck
 
     - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
       run: lake build Tests.Ved.U2HierPartialDeepCheck
