@@ -183,9 +183,38 @@ def proveByScript (decl : Name) (n : Name) (ty : Lean.Expr) (text : String) : Te
       addDecl (.thmDecl { name := n, levelParams := [], type := ty, value := pf })
   catch e => refuse decl "open" m!"the kernel refused {n}: {e.toMessageData}"
 
-/-- The analysis and the generated constants. -/
+/-- VED compose (`pw`): the pointwise lemma of a combinational child call `fn` (of type `fnTy`, a function of signals):
+`G v1 .. vn := (fn (pure v1) .. (pure vn)).val 0` and `pw : ∀ As i, (fn As).val i = G (As_1.val i) .. (As_n.val i)`, the
+latter a kernel `Eq.refl` (the kernel refuses a child that is not pointwise; then `false`).  With `pw` the proof of `hOs`
+rewrites a call by this lemma instead of unfolding the child's definitions on both sides.  `false` also when an argument
+is not a signal.  Nothing about the child is assumed: the lemma is checked by the kernel. -/
+def mkPointwise (gName pwName : Name) (fn fnTy : Lean.Expr) : TermElabM Bool := do
+  forallTelescope fnTy fun As _ => do
+    let sigArgs ← As.mapM fun a => do
+      let t ← whnf (← inferType a)
+      pure (if t.isAppOf ``Sparkle.Core.Signal.Signal && t.getAppNumArgs == 2 then some t.getAppArgs else none)
+    if As.isEmpty || sigArgs.any (·.isNone) then return false
+    let sa := sigArgs.map (·.get!)
+    withFVars (sa.mapIdx fun i _ => Name.mkSimple s!"ved_v{i}") (sa.map (·[1]!)) fun vs => do
+      let ps ← (vs.zip sa).mapM fun (v, a) =>
+        mkAppOptM ``Sparkle.Core.Signal.Signal.pure #[some a[0]!, some a[1]!, some v]
+      let gVal ← mkLambdaFVars vs (← valAt (mkAppN fn ps) (mkNatLit 0))
+      addDefnRegular gName (← inferType gVal) gVal
+    withLocalDeclD `i (Lean.mkConst ``Nat) fun i => do
+      let lhs ← valAt (mkAppN fn As) i
+      let rhs := mkAppN (Lean.mkConst gName) (← As.mapM fun a => valAt a i)
+      let ty ← mkForallFVars (As.push i) (← mkEq lhs rhs)
+      let val ← mkLambdaFVars (As.push i) (← mkEqRefl lhs)
+      try
+        withOptions (fun o => o.setBool `Elab.async false) do
+          addDecl (.thmDecl { name := pwName, levelParams := [], type := ty, value := val })
+        return true
+      catch _ => return false
+
+/-- The analysis and the generated constants.  `pw` (option `ved.compose.step`): the proof of `hOs` uses the children's
+pointwise lemmas (`mkPointwise`) instead of unfolding them; the produced definitions are the same. -/
 def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (kids : Array Kid)
-    (base : Name) (openSuf : String) : TermElabM OpenInfo := do
+    (base : Name) (openSuf : String) (pw : Bool := false) : TermElabM OpenInfo := do
   let openName := base ++ Name.mkSimple openSuf
   Tools.VedU2HierDbg.openTick "genOpenMulti begin"
   let ty ← inferType stmt
@@ -375,6 +404,18 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
     obtain ⟨{pat}⟩ := hs
     {OPEN} simp only [{fU}, {plumbingL}, {sigvalL}, {", ".intercalate hn}]"
           Tools.VedU2HierDbg.openTick "hcO end"
+          -- the children's pointwise lemmas (option `pw`; none when a child is not pointwise or not a function of signals)
+          let mut pwNames : Array Name := #[]
+          if pw then
+            let kidsUsed := (orcKey.map (·.1)).toList.eraseDups
+            for ki in kidsUsed do
+              let some j0 := orcKey.findIdx? (fun q => q.1 == ki) | pure ()
+              let k0 := orcSite[j0]!
+              let pwName := base ++ Name.mkSimple (openSuf ++ s!"_pw{ki}")
+              let ok ← try mkPointwise (base ++ Name.mkSimple (openSuf ++ s!"_G{ki}")) pwName siteFn[k0]! siteTy[k0]! catch _ => pure false
+              if ok then pwNames := pwNames.push pwName
+            if pwNames.size != kidsUsed.length then pwNames := #[]
+          Tools.VedU2HierDbg.openTick s!"pointwise lemmas end, {pwNames.size}"
           -- hOs
           let hOsName := base ++ Name.mkSimple (openSuf ++ "_hOs")
           let hOsTy ← mkForallFVars xs (← withLocalDeclD `t natTy fun t => withLocalDeclD `x liveTy fun x =>
@@ -382,12 +423,15 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             let hyp ← agreeBelow x y t
             let c := mkAppN eConst #[mkAppN osConst (xs ++ #[x]), mkAppN osConst (xs ++ #[y]), t]
             mkForallFVars #[t, x, y] (← mkArrow hyp c))
+          let hOsOld := s!"simp only [{osU}, {reachL}, {plumbingL}, {sigvalL}, hx, and_self, and_true]"
+          let hOsClose := if pwNames.isEmpty then hOsOld else
+            s!"first | (simp only [{osU}, {", ".intercalate (pwNames.toList.map fun n => toString (userName n))}, {plumbingL}, {sigvalL}, hx, and_self, and_true]; done) | ({hOsOld})"
           proveByScript decl hOsName hOsTy s!"by
   intro {intros} t x y h
   unfold {eU}
   intro i hi
   have hx := h i hi
-  {OPEN} simp only [{osU}, {reachL}, {plumbingL}, {sigvalL}, hx, and_self, and_true]"
+  {OPEN} {hOsClose}"
           Tools.VedU2HierDbg.openTick "hOs end"
           -- the knot: the declaration's loop IS the open loop with the oracle fixed along it
           let Qx := qBody

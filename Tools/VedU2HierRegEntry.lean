@@ -1000,6 +1000,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   Tools.VedU2HierDbg.openTick s!"genOpen dispatch begin multi={multi} kids={kids.length} instances={nInst}"
   let opn ← if multi then
       Tools.VedU2HierMultiGen.genOpenMulti decl stmt nDom tbl kids.toArray nm.mod.getPrefix openSuf
+        (pw := Tools.VedCompose.ved.compose.step.get (← getOptions) && (← IO.getEnv "VED_COMPOSE_NOPW").isNone)
     else if useState then
       Tools.VedU2HierStGen.genOpenSt decl stmt nDom tbl kids[0]! nm.mod.getPrefix openSuf
     else genOpen decl stmt nDom tbl kids nm.mod.getPrefix openSuf (allowDerived := true)
