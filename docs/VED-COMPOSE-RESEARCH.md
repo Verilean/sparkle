@@ -10,7 +10,7 @@ Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88d
    generic theorem for the instance cut (`fold_oracle`, `outputsOnHS_of_stepRK`, `step_local`) and the per-design ordering check
    (`WOH`/`OrderOkHS`, now `OrderOkFast`).  What it lacks is not the cut: it is a kernel statement that the RETURNED statement list,
    read from the cut leaves, computes the cone that the open parent's deep run was proved about.  ACL2 never needs that statement
-   because the object that is simulated and the object that is proved about are the same `svex-alist`; Kami never needs it
+   because (my reading of the sources, not a quoted claim) the object that is simulated and the object that is proved about are the same `svex-alist`; Kami never needs it
    because widths are in the Coq types and inlining is a verified function (Thm 5.5).
 2. That statement is small to *state* and to PROVE for the inlining and bundle-slice parts (`cone_connect`, `cone_connect_bn`,
    type-checked and PROVED, prototype below; the remaining piece is the slot renaming with its width transfer), but it exposes
