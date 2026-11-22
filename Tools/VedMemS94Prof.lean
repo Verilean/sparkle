@@ -288,6 +288,25 @@ elab "ved_s94_prof " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
   let stx0 ← `(tactic| ved_loop_simp [$ls,*])
   let some (_, .ok stx1) ← liftMacroM (Lean.Elab.expandMacroImpl? (← getEnv) stx0) | throwError "ved_s94_prof: ved_loop_simp does not expand"
   let sc ← Lean.Elab.Tactic.mkSimpContext stx1 (eraseLocal := false)
+  -- `VED_S94_PROF_CFG=field=val,...` (diagnosis): override `Simp.Config` fields of the stage's config for every run of this call
+  let sc ← do
+    let mut cfg := sc.ctx.config
+    for kv in ((← IO.getEnv "VED_S94_PROF_CFG").getD "").splitOn "," do
+      match kv.splitOn "=" with
+      | [k, v] =>
+        let b := v == "true"
+        cfg := match k with
+          | "dsimp" => { cfg with dsimp := b } | "proj" => { cfg with proj := b } | "beta" => { cfg with beta := b }
+          | "eta" => { cfg with eta := b } | "etaStruct" => { cfg with etaStruct := if b then .all else .none }
+          | "zeta" => { cfg with zeta := b } | "zetaDelta" => { cfg with zetaDelta := b } | "iota" => { cfg with iota := b }
+          | "memoize" => { cfg with memoize := b } | "contextual" => { cfg with contextual := b } | "arith" => { cfg with arith := b }
+          | "ground" => { cfg with ground := b } | "index" => { cfg with index := b }
+          | "implicitDefEqProofs" => { cfg with implicitDefEqProofs := b }
+          | "decide" => { cfg with decide := b } | "autoUnfold" => { cfg with autoUnfold := b }
+          | _ => cfg
+      | _ => pure ()
+    pure { sc with ctx := ← sc.ctx.setConfig cfg }
+  Tools.VedMemLoop.dbgLog s!"S94P config: dsimp={sc.ctx.config.dsimp} proj={sc.ctx.config.proj} beta={sc.ctx.config.beta} eta={sc.ctx.config.eta} etaStruct={repr sc.ctx.config.etaStruct} zeta={sc.ctx.config.zeta} zetaDelta={sc.ctx.config.zetaDelta} iota={sc.ctx.config.iota} memoize={sc.ctx.config.memoize} contextual={sc.ctx.config.contextual} arith={sc.ctx.config.arith} ground={sc.ctx.config.ground} index={sc.ctx.config.index} implicitDefEqProofs={sc.ctx.config.implicitDefEqProofs} decide={sc.ctx.config.decide} maxSteps={sc.ctx.config.maxSteps}"
   let g ← getMainGoal
   let tgt ← instantiateMVars (← g.getType)
   let only := ((← IO.getEnv "VED_S94_PROF_ONLY").getD "0").splitOn "," |>.filterMap (·.toNat?)
@@ -339,6 +358,12 @@ elab "ved_s94_prof " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
       let (r, ms, hb) ← run none
       summary "plain" r ms hb
       plainRes := some r.1.expr
+    if (← IO.getEnv "VED_S94_PROF_NOWRAP").isSome then
+      let (r, ms, hb) ← run none
+      summary "plain-only" r ms hb
+      if let some pe := plainRes then
+        Tools.VedMemLoop.dbgLog s!"S94P #{i} plain-only result == first plain result: {pe == r.1.expr}"
+      return
     let a ← Acc.new
     let stop ← startMonitor a tick
     try
