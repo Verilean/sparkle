@@ -484,6 +484,23 @@ initialize progSteps : IO.Ref Nat ← IO.mkRef 0
 initialize progLastMs : IO.Ref Nat ← IO.mkRef 0
 initialize progHead : IO.Ref String ← IO.mkRef "-"
 initialize progRecent : IO.Ref (Array String) ← IO.mkRef #[]
+/-- a depth-limited rendering (heads only; the raw `toString` of a stalled term can be exponentially large) -/
+partial def progShallow (d : Nat) (e : Lean.Expr) : String :=
+  if d == 0 then "…" else
+  match e with
+  | .app .. =>
+    let args := e.getAppArgs.map (progShallow (d - 1))
+    s!"({s94Head e} {" ".intercalate args.toList})"
+  | .lam _ _ b _ => s!"(fun {progShallow (d - 1) b})"
+  | .mdata _ b => progShallow d b
+  | .fvar f => s!"{f.name}"
+  | .lit (.natVal n) => s!"{n}"
+  | .const n _ => n.toString
+  | _ => s94Head e
+
+/-- the last visited terms (the stall dump prints them raw when `sinceLastVisit` passes `VED_S94_STALL_MS`) -/
+initialize progLastE : IO.Ref (Array Lean.Expr) ← IO.mkRef #[]
+initialize progDumped : IO.Ref Bool ← IO.mkRef false
 
 open Lean Meta Simp in
 simproc_decl vedMemProgress (_) := fun e => do
@@ -493,6 +510,7 @@ simproc_decl vedMemProgress (_) := fun e => do
   progLastMs.set (← IO.monoMsNow)
   progHb.set ((← IO.getNumHeartbeats) - (← progHb0.get))
   progSteps.set (← get).numSteps
+  progLastE.modify fun a => (a.push e).extract (a.size + 1 - 3) (a.size + 1)
   if v % 1000 == 0 then
     progRecent.modify fun a => (a.push h).extract (a.size + 1 - 8) (a.size + 1)
   return .continue
@@ -501,7 +519,8 @@ simproc_decl vedMemProgress (_) := fun e => do
 def progStart (tickMs : Nat) : IO (IO.Ref Bool × Task (Except IO.Error Unit)) := do
   progVisits.set 0; progHb.set 0; progHb0.set (← IO.getNumHeartbeats); progSteps.set 0
   let t0 ← IO.monoMsNow
-  progLastMs.set t0; progHead.set "-"; progRecent.set #[]
+  progLastMs.set t0; progHead.set "-"; progRecent.set #[]; progLastE.set #[]; progDumped.set false
+  let stallMs := ((← IO.getEnv "VED_S94_STALL_MS").bind String.toNat?)
   let stop ← IO.mkRef false
   let task ← IO.asTask (prio := .dedicated) do
     let mut waited := 0
@@ -524,6 +543,14 @@ def progStart (tickMs : Nat) : IO (IO.Ref Bool × Task (Except IO.Error Unit)) :
           pure ((st.splitOn "\n").find? (·.startsWith "VmRSS") |>.getD "")
         catch _ => pure ""
       dbgLog s!"S94 progress {k} t={now - t0} ms visits={v} rate={rate}/s hb(k)={(← progHb.get) / 1000} steps={← progSteps.get} {(rss.replace "\t" " ").replace "  " " "} sinceLastVisit={now - (← progLastMs.get)} ms head={← progHead.get} recent={← progRecent.get}"
+      if let some sm := stallMs then
+        if now - (← progLastMs.get) ≥ sm && !(← progDumped.get) then
+          progDumped.set true
+          for e in ← progLastE.get do
+            dbgLog s!"S94 stall term ({s94Head e}) dag={(Tools.VedU1WireShare.collectDag (fun _ => true) e).size} tree={Tools.VedU1Loop.treeSizeVal e}: {(progShallow 5 e).take 1800}"
+          if (← IO.getEnv "VED_S94_STALL_EXIT").isSome then
+            dbgLog "S94 stall exit"
+            IO.Process.exit 3
   return (stop, task)
 
 /-- stop the progress monitor and log the last counters -/
