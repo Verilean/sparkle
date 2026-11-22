@@ -1143,6 +1143,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let tGen0 ← IO.monoMsNow
   let text := "by\n" ++ scriptTextR nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
   let tGen := (← IO.monoMsNow) - tGen0 + (if text.length > 0 then 0 else 1)
+  Tools.VedU2HierDbg.phaseLog s!"script generated ({text.length} chars, {tGen} ms)"
   -- measurement only: the size of the generated script, facts and generation time
   let stats := (← IO.getEnv "VED_HIER_STATS").isSome
   if stats then
@@ -1166,6 +1167,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
   let allBefore := (← Core.getMessageLog).toList.length
   let tProof0 ← IO.monoMsNow
+  Tools.VedU2HierDbg.phaseLog "parent proof elaboration start"
   let prof := (← IO.getEnv "VED_HIER_PROFILE").isSome
   let pf ← try
       withOptions (fun o => (((o.setBool `linter.unusedSimpArgs false).setBool
@@ -1180,6 +1182,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
           IO.eprintln s!"[proof-msg] {if msg.severity == .error then "error" else "info"} @{msg.pos.line}:{msg.pos.column} {(← msg.data.toString).take 3000}"
       refuse decl "proof" e.toMessageData
   let tElab := (← IO.monoMsNow) - tProof0
+  Tools.VedU2HierDbg.phaseLog "parent proof elaboration end"
   let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
   if (← IO.getEnv "VED_HIER_DEBUG").isSome then
     IO.eprintln s!"[proof] elaboration {(← IO.monoMsNow) - tProof0} ms"
@@ -1199,10 +1202,12 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   modifyThe Lean.Meta.State fun st => { st with mctx := {} }
   modifyThe Lean.Meta.State fun st => { st with cache := {} }
   let tK0 ← IO.monoMsNow
+  Tools.VedU2HierDbg.phaseLog "kernel addDecl start"
   try
     withOptions (fun o => o.setBool `Elab.async false) do
       addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf })
   catch e => refuse decl "kernel" e.toMessageData
+  Tools.VedU2HierDbg.phaseLog "kernel addDecl end"
   if stats then IO.eprintln s!"[stats] parent proof elaboration {tElab} ms, kernel addDecl {(← IO.monoMsNow) - tK0} ms"
   let some (.thmInfo ti) := (← getEnv).find? nm.thm
     | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
@@ -1280,7 +1285,9 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
     CommandElabM (Name × Nat × Nat) := do
   let saved ← get
   try
+    Tools.VedU2HierDbg.phaseLog "phase1 start (children)"
     let p1 ← liftTermElabM (phase1 decl stmt nDom m d clkRstOverride)
+    Tools.VedU2HierDbg.phaseLog "phase1 end"
     let msgs0 := (← get).messages
     let nMsg0 := msgs0.toList.length
     let stx ← `(command| #verify_elab_deep $(mkIdent p1.opn.openName))
@@ -1290,8 +1297,10 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
     let portOpt := fun (o : Lean.Options) => match p1.opn.knot, p1.opn.port with
       | some _, some p => o.insert `sparkle.deepPorts (Lean.DataValue.ofString p)
       | _, _ => o
+    Tools.VedU2HierDbg.phaseLog "deep run (#verify_elab_deep open parent) start"
     try withScope (fun sc => { sc with currNamespace := decl, opts := portOpt (((sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true).setBool `sparkle.deepNoNative true) }) (withEnableInfoTree false (elabCommand stx))
     catch e => liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName}: {e.toMessageData}"
+    Tools.VedU2HierDbg.phaseLog "deep run end"
     let p1 ← tamper p1
     let newMsgs := (← get).messages.toList.drop nMsg0
     let msgTxt ← newMsgs.mapM fun msg => do pure (msg.severity == .error, ← msg.data.toString)
@@ -1316,6 +1325,7 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
         logInfo m!"VED U2 HIER PARTIAL-DEEP {decl}: port {p}, {k} errors, first: {e.take 400}"
     -- H2e: a limit reached while the proof is elaborated (`maxHeartbeats`, `maxRecDepth`: runtime exceptions, which `catch`
     -- does not see) is a refusal at `[proof]`, like any other failure of the proof
+    Tools.VedU2HierDbg.phaseLog "phase2 start"
     let (thm, proofMs) ← liftTermElabM (tryCatchRuntimeEx (phase2 decl stmt nDom m p1) fun ex =>
       if ex.isRuntime then refuse decl "proof" ex.toMessageData else throw ex)
     return (thm, p1.childMs, proofMs)
@@ -1345,9 +1355,11 @@ def vedU2HierEntryR (declName : Name) :
     liftTermElabM <| refuse declName "multi-output"
       m!"{tbl.out.flat.length} output projections (multi-output: H3), refused (H2b: one output)"
   let t0 ← IO.monoMsNow
+  Tools.VedU2HierDbg.phaseLog "synthesis start"
   let (m, d) ← liftTermElabM <| try Sparkle.Compiler.Elab.synthesizeCombinational declName
     catch e => refuse declName "synthesis" e.toMessageData
   let t1 ← IO.monoMsNow
+  Tools.VedU2HierDbg.phaseLog "synthesis end"
   if (regsOf m.body).isEmpty then
     let (thm, childMs, proofMs) ← liftTermElabM (checkU2H declName stmt nDom m d)
     return (m, d, thm, nDom, { synthMs := t1 - t0, childMs, proofMs, peakKb := ← peakKb })
