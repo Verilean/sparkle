@@ -1,4 +1,5 @@
 import Lean
+import Std.Data.HashSet
 
 /-!
 # `ved_eprint_state`
@@ -53,6 +54,35 @@ def phaseLog (label : String) : IO Unit := do
     let h ← IO.FS.Handle.mk f .append
     h.putStr s!"{← IO.monoMsNow} {hwm} {rss} {label}\n"
     h.flush
+
+/-- Measurement only (`VED_OPEN_TICK=1`): are the open-parent generation ticks on? -/
+def openTickOn : IO Bool := do return (← IO.getEnv "VED_OPEN_TICK").isSome
+
+/-- Measurement only (`VED_OPEN_TICK=1`, `VED_HIER_PHASE_FILE`): a phase-clock line `open: <label>` for the generation
+of the open parent (`genOpenMulti`, the instance loop).  Off: nothing happens. -/
+def openTick (label : String) : IO Unit := do
+  if ← openTickOn then phaseLog s!"open: {label}"
+
+/-- Number of distinct subterms (DAG nodes, by structural identity with the kernel's pointer-sharing cache) of `e`. -/
+partial def dagNodes (e : Lean.Expr) : Nat :=
+  let rec go (e : Lean.Expr) (seen : Std.HashSet Lean.Expr) : Std.HashSet Lean.Expr :=
+    if seen.contains e then seen else
+    let seen := seen.insert e
+    match e with
+    | .app f a => go a (go f seen)
+    | .lam _ t b _ | .forallE _ t b _ => go b (go t seen)
+    | .letE _ t v b _ => go b (go v (go t seen))
+    | .mdata _ b | .proj _ _ b => go b seen
+    | _ => seen
+  (go e {}).size
+
+/-- Measurement only (`VED_OPEN_TICK=1`): `openTick` with the label, the DAG size of `e` and its time to compute. -/
+def openTickE (label : String) (e : Lean.Expr) : IO Unit := do
+  if ← openTickOn then
+    let t0 ← IO.monoMsNow
+    let n := dagNodes e
+    let t1 ← IO.monoMsNow
+    phaseLog s!"open: {label} dagNodes={n} (count {t1 - t0} ms)"
 
 end Tools.VedU2HierDbg
 

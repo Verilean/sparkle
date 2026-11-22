@@ -187,6 +187,7 @@ def proveByScript (decl : Name) (n : Name) (ty : Lean.Expr) (text : String) : Te
 def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (kids : Array Kid)
     (base : Name) (openSuf : String) : TermElabM OpenInfo := do
   let openName := base ++ Name.mkSimple openSuf
+  Tools.VedU2HierDbg.openTick "genOpenMulti begin"
   let ty ← inferType stmt
   forallTelescope ty fun xs _ => do
     let some (.defnInfo ci) := (← getEnv).find? decl
@@ -196,6 +197,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
     let body0 := (mkAppN ci.value args).headBeta
     let some (run, wrap) ← findRun body0 24
       | refuse decl "open" m!"the declaration's value does not reduce to a `circuit do` (runCircuitH)"
+    Tools.VedU2HierDbg.openTickE "findRun end" body0
     let rargs := run.getAppArgs
     unless rargs.size == 8 do refuse decl "open" m!"runCircuitH is not fully applied"
     let dom := rargs[0]!; let αs := rargs[1]!; let rhoTy := rargs[2]!; let inits := rargs[6]!; let body := rargs[7]!
@@ -217,11 +219,13 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
       siteTy.modify (·.push (← inferType (mkAppN fn dargs)))
       return Lean.mkConst ``True
     let siteKid ← siteKid.get; let siteFn ← siteFn.get; let siteTy ← siteTy.get
+    Tools.VedU2HierDbg.openTickE s!"replaceCalls #1 (site collection) end, sites={siteKid.size}" body
     if siteKid.isEmpty then refuse decl "open" m!"no call of a child in the circuit body"
     let liveTy := (← inferType (← mkAppOptM ``Sparkle.Core.packRegister #[some dom, some αs, some inits])).bindingBody!
     let natTy := Lean.mkConst ``Nat
     withFVars (siteKid.mapIdx fun i _ => Name.mkSimple s!"ved_G{i}") siteTy fun gs => do
       let bodyM ← replaceCalls kids body fun idx _ _ _ das => pure (mkAppN gs[idx]! das)
+      Tools.VedU2HierDbg.openTickE "replaceCalls #2 (marker variables) end" bodyM
       withLocalDeclD `live liveTy fun live => do
         let idRead ← withLocalDeclD `s liveTy fun s => mkLambdaFVars #[s] s
         let sigListTy := mkApp2 (Lean.mkConst ``Sparkle.Core.Circuit.SigList) dom αs
@@ -230,8 +234,11 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
         let holds ← mkAppM ``Sparkle.Core.mkHolds #[αs, live]
         let r0 ← withTransparency .reducible <|
           reduce (mkApp (mkApp bodyM regs) holds) (skipTypes := true) (skipProofs := true)
+        Tools.VedU2HierDbg.openTickE "reduce end" r0
         let r ← unfoldUser kids r0
+        Tools.VedU2HierDbg.openTickE "unfoldUser end" r
         let marks := collectMarks (gs.map (·.fvarId!)) r #[]
+        Tools.VedU2HierDbg.openTick s!"collectMarks end, marks={marks.size}"
         -- distinct calls: (child, arguments over `live`)
         let mut orcKey : Array (Nat × Array Lean.Expr) := #[]
         let mut orcSite : Array Nat := #[]
@@ -253,6 +260,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             | some j => kToJ := kToJ.set! k (some j)
             | none => refuse decl "open" m!"child {kids[ki]!.decl} is called only in dead code"
         let n := orcKey.size
+        Tools.VedU2HierDbg.openTick s!"oracle dedup end, distinct calls={n}"
         let mut orcTys : Array Lean.Expr := #[]
         for (key, k) in orcKey.zip orcSite do
           orcTys := orcTys.push (← inferType (mkAppN siteFn[k]! key.2))
@@ -265,7 +273,9 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
           let runO := mkAppN run.getAppFn (rargs.set! 7 bodyO)
           let openVal ← mkLambdaFVars (xs ++ os) runO
           let openTy ← inferType openVal
+          Tools.VedU2HierDbg.openTickE "replaceCalls #3 (oracle variables) end" bodyO
           addDefnRegular openName openTy openVal
+          Tools.VedU2HierDbg.openTick "open definition added"
           let pre := rargs.extract 0 6
           let loopFOfOf (b : Lean.Expr) : MetaM Lean.Expr :=
             mkAppOptM ``loopFOf ((pre.map some) ++ #[some inits, some b])
@@ -288,16 +298,19 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             let w := (wO.replaceFVars os projs).replaceFVar live x
             let f2Val ← mkLambdaFVars (xs ++ #[ot, x]) (← mkAppOptM ``Sparkle.Core.packRegister #[some dom, some αs, some inits, some w])
             addDefnRegular f2Name (← inferType f2Val) f2Val
+            Tools.VedU2HierDbg.openTickE "F2 definition added" f2Val
           -- Os xs live = the oracle values the real children give
           let osComps : Array Lean.Expr := (orcKey.zip orcSite).map fun (key, k) => mkAppN siteFn[k]! key.2
           let osName := base ++ Name.mkSimple (openSuf ++ "_Os")
           let osVal ← mkLambdaFVars (xs ++ #[live]) (← mkTuple osComps)
           addDefnRegular osName (← inferType osVal) osVal
+          Tools.VedU2HierDbg.openTick "Os definition added"
           -- the declaration's own loop
           -- the declaration's own loop, as a CONSTANT (the proof's `simp` must not unfold the 34-register body)
           let qName := base ++ Name.mkSimple (openSuf ++ "_Q")
           let qVal ← mkLambdaFVars xs (← mkAppM ``Sparkle.Core.Signal.Signal.loop #[← loopFOfOf body])
           addDefnRegular qName (← inferType qVal) qVal
+          Tools.VedU2HierDbg.openTick "Q definition added"
           let qBody := mkAppN (Lean.mkConst qName) xs
           -- E: the oracle tuples agree below t
           let eName := base ++ Name.mkSimple (openSuf ++ "_E")
@@ -332,6 +345,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             let lhs ← valAt (mkAppN (mkConst f2Name) (xs ++ #[o, x])) t
             let rhs ← valAt (mkAppN (mkConst f2Name) (xs ++ #[o, y])) t
             mkForallFVars #[o, t, x, y] (← mkArrow hyp (← mkEq lhs rhs)))
+          Tools.VedU2HierDbg.openTick "obligation setup end, hcF begin"
           proveByScript decl hcFName hcFTy s!"by
   intro {intros} o t x y h
   cases t with
@@ -340,6 +354,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
   | succ s =>
     have hs := h s (Nat.lt_succ_self s)
     {OPEN} simp only [{fU}, {plumbingL}, {sigvalL}, hs]"
+          Tools.VedU2HierDbg.openTick "hcF end"
           -- hcO
           let hcOName := base ++ Name.mkSimple (openSuf ++ "_hcO")
           let hcOTy ← mkForallFVars xs (← withLocalDeclD `o osTy fun o => withLocalDeclD `o' osTy fun o' =>
@@ -359,6 +374,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
     have hs := h s (Nat.lt_succ_self s)
     obtain ⟨{pat}⟩ := hs
     {OPEN} simp only [{fU}, {plumbingL}, {sigvalL}, {", ".intercalate hn}]"
+          Tools.VedU2HierDbg.openTick "hcO end"
           -- hOs
           let hOsName := base ++ Name.mkSimple (openSuf ++ "_hOs")
           let hOsTy ← mkForallFVars xs (← withLocalDeclD `t natTy fun t => withLocalDeclD `x liveTy fun x =>
@@ -372,6 +388,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
   intro i hi
   have hx := h i hi
   {OPEN} simp only [{osU}, {reachL}, {plumbingL}, {sigvalL}, hx, and_self, and_true]"
+          Tools.VedU2HierDbg.openTick "hOs end"
           -- the knot: the declaration's loop IS the open loop with the oracle fixed along it
           let Qx := qBody
           let osQ := osComps.map fun c => c.replaceFVar live Qx
@@ -389,6 +406,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             withOptions (fun o => o.setBool `Elab.async false) do
               addDecl (.thmDecl { name := knotName, levelParams := [], type := knotTy, value := ← mkLambdaFVars xs hknot })
           catch e => refuse decl "open" m!"the kernel refused the loop knot: {e.toMessageData}"
+          Tools.VedU2HierDbg.openTick "knot end"
           -- the equation: the declaration is the open parent at the oracle the real children give along its own loop
           let lhs := mkAppN stmt xs
           let openApp := wrap (mkAppN (Lean.mkConst openName) (xs ++ osQ))
@@ -403,6 +421,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             withOptions (fun o => o.setBool `Elab.async false) do
               addDecl (.thmDecl { name := eqName, levelParams := [], type := eqTy, value := pf })
           catch e => refuse decl "open" m!"the kernel refused the open-parent equation: {e.toMessageData}"
+          Tools.VedU2HierDbg.openTick "eq end"
           -- the closed argument definitions `fun ins => argument[state := the declaration's loop][inputs := input streams]`
           let insTy := Lean.mkForall `n .default (Lean.mkConst ``Nat)
             (Lean.mkForall `s .default (Lean.mkConst ``String) (Lean.mkConst ``Nat))
@@ -420,6 +439,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
                 ds := ds ++ [nmA]
               return ds
             infos := infos.push { kid := key.1, args := defs.map fun _ => "?", derived := true, argDefs := defs, stateArg := true }
+          Tools.VedU2HierDbg.openTick "arg definitions end"
           -- the ports of the open parent: the fields of its struct result
           let ports : List String ← do
             let st ← whnf rhoTy

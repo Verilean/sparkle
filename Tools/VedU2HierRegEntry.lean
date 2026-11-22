@@ -997,11 +997,13 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   -- (`Tools/VedU2HierMultiGen.lean`); ONE instance keeps the H2c-state path
   let nInst := (b0.filter fun s => match s with | .inst .. => true | _ => false).length
   let multi := useState && !(kids.length == 1 && nInst == 1)
+  Tools.VedU2HierDbg.openTick s!"genOpen dispatch begin multi={multi} kids={kids.length} instances={nInst}"
   let opn ← if multi then
       Tools.VedU2HierMultiGen.genOpenMulti decl stmt nDom tbl kids.toArray nm.mod.getPrefix openSuf
     else if useState then
       Tools.VedU2HierStGen.genOpenSt decl stmt nDom tbl kids[0]! nm.mod.getPrefix openSuf
     else genOpen decl stmt nDom tbl kids nm.mod.getPrefix openSuf (allowDerived := true)
+  Tools.VedU2HierDbg.openTick "genOpen dispatch end"
   -- H3-open: the instance <-> call pairing.  The instances' input nets are grouped (equal nets over the parent's inputs and
   -- register outputs are one class) and the classes of a child, in the order of the body, are paired with the calls
   -- found in the loop body, in their order; a wrong pairing fails in the proof (never accepted)
@@ -1020,6 +1022,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   for s in b0 do
     if let some key := netKeyOfInst s then
       unless classKeys.contains key do classKeys := classKeys ++ [key]
+  Tools.VedU2HierDbg.openTick s!"classKeys end, classes={classKeys.length}"
   let callOfClass (key : Nat × List Sparkle.IR.AST.Expr) : Option Nat :=
     let rank := (classKeys.filter (·.1 == key.1)).idxOf key
     let calls := (List.range opn.calls.size).filter fun j => opn.calls[j]!.kid == key.1
@@ -1030,7 +1033,9 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       let nCalls := (opn.calls.toList.filter (·.kid == ki)).length
       unless nCls == nCalls do
         refuse decl "open" m!"child {kids[ki]!.c.name}: its instances' input nets form {nCls} distinct classes, the declaration's loop body has {nCalls} distinct calls of it (the instances and the calls cannot be paired)"
+  Tools.VedU2HierDbg.openTick "pairing check end"
   let mut insts : List InstInfo := []
+  let mut chainMs := 0
   let mut usedDerived : List Nat := []
   let mut derivedKeys : List (List Sparkle.IR.AST.Expr × Nat) := []
   let dataInsP := c.dataInputs.map (·.name)
@@ -1064,8 +1069,10 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
             ck.dataInputs.mapM fun (p : Sparkle.IR.AST.Port) => match cs.lookup p.name with
               | some (.ref x) => Tools.VedU2HierMultiChain.netChainB (dataInsP ++ regLeaves) regNames b0 (declWidth m) modN bodyN b0.length x
               | _ => pure ([], [])
+          let tc0 ← IO.monoMsNow
           let nets := netsM.run' {}
           let chainB := (nets.flatMap (·.1)).eraseDups.map fun w => (w, declWidth m w)
+          chainMs := chainMs + ((← IO.monoMsNow) - tc0)
           let bsl := (nets.flatMap (·.2))
           let readRegs := (chainB.flatMap fun (w, _) => match asgOf b0 w with
               | some r => (refsOfE r).filter regNames.contains
@@ -1075,6 +1082,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
           let needSlots := (readRegs.eraseDups.filterMap fun r => regNames.idxOf? r)
           insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := callIdx, derived := true, chain := chainB, stateArg := true, slots,
                                bsl, needSlots }]
+          Tools.VedU2HierDbg.openTick s!"inst {iname}: chain={chainB.length} bsl={bsl.length} needSlots={needSlots.length} netChainB+eraseDups so far {chainMs} ms"
         else
           insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := callIdx, derived := true, chain, stateArg := true, slots }]
       else if instDerived c ck cs then
@@ -1100,6 +1108,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
               m!"instance {iname}: the declaration's body has no call of {mn} on the parent inputs {args}"
         insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := ci }]
     | _ => pure ()
+  Tools.VedU2HierDbg.openTick s!"insts loop end, instances={insts.length}, netChainB+eraseDups total {chainMs} ms"
   return { tbl, opn, kids, insts, childMs := t1 - t0, t1, b0 }
 
 /-- The second phase: the deep facts of the open parent exist; build the invariant's constants,
@@ -1349,6 +1358,9 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
     Tools.VedU2HierDbg.phaseLog "phase1 start (children)"
     let p1 ← liftTermElabM (phase1 decl stmt nDom m d clkRstOverride)
     Tools.VedU2HierDbg.phaseLog "phase1 end"
+    -- measurement only (`VED_OPEN_STOP`): stop after the open-parent generation (the deep run and the proof do not run)
+    if (← IO.getEnv "VED_OPEN_STOP").isSome then
+      liftTermElabM <| refuse decl "measure" m!"VED_OPEN_STOP: stopped after phase 1"
     let msgs0 := (← get).messages
     let nMsg0 := msgs0.toList.length
     let stx ← `(command| #verify_elab_deep $(mkIdent p1.opn.openName))
