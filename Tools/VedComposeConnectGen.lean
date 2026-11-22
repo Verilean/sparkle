@@ -148,7 +148,8 @@ def hlocLines (a : ConnArgs) : List String := Id.run do
   L := L.push s!"      subst ho"
   L := L.push s!"      show E {sq "out"} = _"
   L := L.push s!"      all_goals simp {a.outCfg}[Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {a.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {a.oe}, Tools.VedU1Contract.PTy.sig]"
-  L := L.push s!"      all_goals rw [{a.otrace}]"
+  -- a one-bit port: the trace theorem is about `(bif b then 1 else 0 : BitVec 1).toNat`, the simp'd goal has `Bool.toNat b`
+  L := L.push s!"      all_goals first | rw [{a.otrace}] | (rw [← Tools.VedComposePrelude.bit_obs]; erw [{a.otrace}])"
   L := L.push s!"      have hOutA := hasgF \"out\" _ rfl"
   L := L.push s!"      ved_connect_log \"port out via out_connect (fidelity {a.fidOut})\""
   L := L.push s!"      exact Tools.VedComposeConnect.out_connect ({a.deep}) ({a.nm}) hinj ({a.inpU} ins) t _ {a.fidOut} {a.design} {a.mod} {a.body} {owT} {hwiT} {hriT} {hwrT} hWk ins p E hasgF hEin hEreg hEorc _ \"out\" hOutA {a.fuel} {a.fuel} {a.fuel} {neededTxt a} hrangeN (by decide +kernel) (by decide +kernel) {tabTxt a} (by rfl) (by decide +kernel) hV"

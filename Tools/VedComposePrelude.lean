@@ -54,4 +54,9 @@ theorem hin_bnd {c : Contract} {m : Sparkle.IR.AST.Module} (f : String → Nat) 
   obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hpw
   exact h p hp
 
+/-- A one-bit output port: the trace theorem reads `(Signal.map (fun b => bif b then 1 else 0) x).val t` as a `BitVec 1`; the
+goal after the entry's `simp` reads `Bool.toNat (x.val t)`. -/
+theorem bit_obs (b : Bool) : (bif b then (1 : BitVec 1) else 0).toNat = Bool.toNat b := by
+  cases b <;> rfl
+
 end Tools.VedComposePrelude
