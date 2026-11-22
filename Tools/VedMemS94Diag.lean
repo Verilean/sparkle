@@ -469,6 +469,69 @@ elab "ved_s94_ckpt " "[" ls:Lean.Parser.Tactic.simpLemma,* "]" : tactic => withM
   dbgLog s!"S94 ckpt written to {dir}: {fvs.size} context entries, {ls.getElems.size} simp arguments, goal dag={(Tools.VedU1WireShare.collectDag (fun _ => true) tgt).size}"
   IO.Process.exit 0
 
+
+/-! ### Progress output of the checkpoint replay (`VED_S94_PROGRESS=tickMs`, diagnosis only)
+
+`↓ vedMemProgress` is a wildcard pre-simproc that only counts (visits, heartbeats since the replay start, the simp state's step count, the head of the term
+being visited, the time of the visit) and returns `.continue`: it never rewrites, so the simp path is the one without it (checked by the result DAG/tree and
+the heartbeat total on the s150r checkpoint).  A monitor task with its own stop token (stopped in a `finally`) logs a line every `tickMs` ms:
+elapsed, visits, visits/s of the interval, heartbeats (k), steps, RSS, time since the last visit, the current head and a few recent heads. -/
+
+initialize progVisits : IO.Ref Nat ← IO.mkRef 0
+initialize progHb : IO.Ref Nat ← IO.mkRef 0
+initialize progHb0 : IO.Ref Nat ← IO.mkRef 0
+initialize progSteps : IO.Ref Nat ← IO.mkRef 0
+initialize progLastMs : IO.Ref Nat ← IO.mkRef 0
+initialize progHead : IO.Ref String ← IO.mkRef "-"
+initialize progRecent : IO.Ref (Array String) ← IO.mkRef #[]
+
+open Lean Meta Simp in
+simproc_decl vedMemProgress (_) := fun e => do
+  let h := s94Head e
+  let v ← progVisits.modifyGet fun v => (v + 1, v + 1)
+  progHead.set h
+  progLastMs.set (← IO.monoMsNow)
+  progHb.set ((← IO.getNumHeartbeats) - (← progHb0.get))
+  progSteps.set (← get).numSteps
+  if v % 1000 == 0 then
+    progRecent.modify fun a => (a.push h).extract (a.size + 1 - 8) (a.size + 1)
+  return .continue
+
+/-- the progress monitor: (stop token, task) -/
+def progStart (tickMs : Nat) : IO (IO.Ref Bool × Task (Except IO.Error Unit)) := do
+  progVisits.set 0; progHb.set 0; progHb0.set (← IO.getNumHeartbeats); progSteps.set 0
+  let t0 ← IO.monoMsNow
+  progLastMs.set t0; progHead.set "-"; progRecent.set #[]
+  let stop ← IO.mkRef false
+  let task ← IO.asTask (prio := .dedicated) do
+    let mut waited := 0
+    let mut k := 0
+    let mut prevV := 0
+    let mut prevT := t0
+    while !(← stop.get) do
+      IO.sleep 100
+      waited := waited + 100
+      if (← stop.get) then break
+      if waited < tickMs then continue
+      waited := 0
+      k := k + 1
+      let now ← IO.monoMsNow
+      let v ← progVisits.get
+      let rate := (v - prevV) * 1000 / (max 1 (now - prevT))
+      prevV := v; prevT := now
+      let rss ← try
+          let st ← IO.FS.readFile "/proc/self/status"
+          pure ((st.splitOn "\n").find? (·.startsWith "VmRSS") |>.getD "")
+        catch _ => pure ""
+      dbgLog s!"S94 progress {k} t={now - t0} ms visits={v} rate={rate}/s hb(k)={(← progHb.get) / 1000} steps={← progSteps.get} {(rss.replace "\t" " ").replace "  " " "} sinceLastVisit={now - (← progLastMs.get)} ms head={← progHead.get} recent={← progRecent.get}"
+  return (stop, task)
+
+/-- stop the progress monitor and log the last counters -/
+def progFinish (stop : IO.Ref Bool) (task : Task (Except IO.Error Unit)) : IO Unit := do
+  stop.set true
+  let _ ← IO.wait task
+  dbgLog s!"S94 progress stop visits={← progVisits.get} hb(k)={(← progHb.get) / 1000} steps={← progSteps.get}"
+
 open Lean Meta in
 /-- realize the equations of the matchers reachable from `n` (project constants only, bounded depth) -/
 partial def ckptRealize (seen : IO.Ref (Std.HashSet Name)) (n : Name) (depth : Nat) : MetaM Unit := do
@@ -533,10 +596,16 @@ elab "#ved_s94_ckpt_replay " d:str : command => do
         | _, false => `(Lean.Parser.Tactic.simpLemma| $t:term)
         | _, true => `(Lean.Parser.Tactic.simpLemma| ← $t:term)
       elems := elems.push st
+    let prog? := ((← IO.getEnv "VED_S94_PROGRESS").bind String.toNat?)
+    if prog?.isSome then
+      elems := elems.push (← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``vedMemProgress):term))
     let simp ← `(tactic| ved_loop_simp [$elems,*])
     let nic := Tools.VedMemS94Fix.ved.mem.s94NoIteCongr.get (← getOptions)
     let stx ← if nic then `(tactic| ved_s94_noitecongr ($simp:tactic)) else pure simp
     Tools.VedMemLoop.declWidthTab.set tab
+    let mon ← match prog? with
+      | some ms => do pure (some (← progStart (max ms 1000)))
+      | none => pure none
     let t0 ← IO.monoMsNow
     let hb0 ← IO.getNumHeartbeats
     try
@@ -551,6 +620,8 @@ elab "#ved_s94_ckpt_replay " d:str : command => do
     catch ex =>
       dbgLog s!"S94 replay: FAILED ms={(← IO.monoMsNow) - t0}: {((← ex.toMessageData.toString).replace "\n" " ").take 600}"
       throw ex
-    finally Tools.VedMemLoop.declWidthTab.set none
+    finally
+      Tools.VedMemLoop.declWidthTab.set none
+      if let some (st, tk) := mon then progFinish st tk
 
 end Tools.VedMemS94Diag
