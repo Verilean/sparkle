@@ -191,6 +191,136 @@ theorem evalList_congr (we : WEnv) (E1 E2 : Env) :
         evalList_congr we E1 E2 r (fun x hx => h x (by simp [refsL, hx]))]
 end
 
+/-! ## Bundle slices: the narrow normaliser (M2) -/
+
+open Tools.VedU2HierMulti in
+/-- Index of the element of a concatenation of refs that an `[hi:lo]` slice spans exactly. -/
+def alignedIdx (we : WEnv) : List String → Nat → Nat → Option Nat
+  | [], _, _ => none
+  | n :: rest, hi, lo =>
+    if lo = W we rest ∧ hi + 1 = lo + we n ∧ 0 < we n then some 0
+    else (alignedIdx we rest hi lo).map (· + 1)
+
+def refNames : List Expr → Option (List String)
+  | [] => some []
+  | .ref x :: r => (refNames r).map (x :: ·)
+  | _ => none
+
+/-- One slice step on an already normalised operand. -/
+def bnS (we : WEnv) (hi lo : Nat) : Expr → Expr
+  | .concat es =>
+    match refNames es with
+    | some names =>
+      match alignedIdx we names hi lo with
+      | some k => .ref (names.getD k "")
+      | none => .slice (.concat es) hi lo
+    | none => .slice (.concat es) hi lo
+  | .ref x => if lo = 0 ∧ hi + 1 = we x then .ref x else .slice (.ref x) hi lo
+  | e => .slice e hi lo
+
+/-- Resolve aligned bundle slices (and full-width slices of a ref), bottom-up, `n` levels deep. -/
+def bn (we : WEnv) : Nat → Expr → Expr
+  | 0, e => e
+  | n+1, .op o as => .op o (as.map (bn we n))
+  | n+1, .concat as => .concat (as.map (bn we n))
+  | n+1, .slice e hi lo => bnS we hi lo (bn we n e)
+  | _+1, e => e
+
+open Tools.VedU2HierMulti in
+theorem alignedIdx_spec (we : WEnv) : ∀ (names : List String) (hi lo k : Nat),
+    alignedIdx we names hi lo = some k →
+    ∃ hk : k < names.length, lo = W we (names.drop (k + 1)) ∧ hi + 1 = lo + we names[k] ∧ 0 < we names[k] := by
+  intro names
+  induction names with
+  | nil => intro hi lo k h; simp [alignedIdx] at h
+  | cons n rest ih =>
+    intro hi lo k h
+    simp only [alignedIdx] at h
+    split at h
+    · rename_i hc
+      cases h
+      exact ⟨by simp, by simpa using hc.1, by simpa using hc.2.1, by simpa using hc.2.2⟩
+    · simp only [Option.map_eq_some_iff] at h
+      obtain ⟨j, hj, rfl⟩ := h
+      obtain ⟨hk, h1, h2, h3⟩ := ih hi lo j hj
+      exact ⟨by simpa using hk, by simpa using h1, by simpa using h2, by simpa using h3⟩
+
+theorem refNames_eq (es : List Expr) (names : List String) (h : refNames es = some names) :
+    es = names.map Expr.ref := by
+  induction es generalizing names with
+  | nil => simp only [refNames, Option.some.injEq] at h; subst h; rfl
+  | cons e r ih =>
+    cases e <;> try (simp [refNames] at h; done)
+    rename_i x
+    simp only [refNames, Option.map_eq_some_iff] at h
+    obtain ⟨ns, hns, rfl⟩ := h
+    simp only [List.map_cons, List.cons.injEq, true_and]
+    exact ih ns hns
+
+theorem refs_concat_refs (names : List String) : refs (.concat (names.map Expr.ref)) = names := by
+  simp only [refs]
+  induction names with
+  | nil => rfl
+  | cons n r ih => simp [refsL, refs, ih]
+
+theorem bnS_sound (we : WEnv) (E : Env) (hi lo : Nat) (e : Expr)
+    (hr : ∀ x ∈ refs e, E x < 2 ^ we x) :
+    evalExpr we E (bnS we hi lo e) = evalExpr we E (.slice e hi lo) ∧
+    widthOf we (bnS we hi lo e) = widthOf we (.slice e hi lo) := by
+  cases e with
+  | concat es =>
+    simp only [bnS]
+    cases hm : refNames es with
+    | none => exact ⟨rfl, rfl⟩
+    | some names =>
+      simp only
+      cases ha : alignedIdx we names hi lo with
+      | none => exact ⟨rfl, rfl⟩
+      | some k =>
+        simp only
+        obtain ⟨hk, hlo, hhi, hw0⟩ := alignedIdx_spec we names hi lo k ha
+        have hes := refNames_eq es names hm
+        subst hes
+        have hrk : E names[k] < 2 ^ we names[k] := by
+          apply hr
+          rw [refs_concat_refs]
+          exact List.getElem_mem hk
+        have hv : evalExpr we E (.concat (names.map Expr.ref)) = some (evalExpr.go we (names.map Expr.ref) (names.map E)) :=
+          Tools.VedU2HierMulti.eval_concat_refs we E names
+        have hsl := Tools.VedU2HierMulti.slice_concat_val we E names k hk _ hi lo hv hlo hhi hw0 hrk
+        have getD_eq : names.getD k "" = names[k] := by simp [List.getD_eq_getElem?_getD, hk]
+        rw [getD_eq]
+        refine ⟨?_, ?_⟩
+        · have hsl' : evalExpr we E (.slice (.concat (names.map Expr.ref)) hi lo)
+              = (evalExpr we E (.concat (names.map Expr.ref))).bind
+                  (fun v => some (mask (hi - lo + 1) (v >>> lo))) := rfl
+          rw [hsl', hv]
+          show some (E names[k]) = some _
+          rw [hsl]
+        · simp only [widthOf]; omega
+  | ref x =>
+    simp only [bnS]
+    split
+    · rename_i hc
+      obtain ⟨h0, h1⟩ := hc
+      subst h0
+      refine ⟨?_, ?_⟩
+      · have hx := hr x (by simp [refs])
+        have hs : evalExpr we E (.slice (.ref x) hi 0) = some (mask (hi - 0 + 1) (E x >>> 0)) := rfl
+        rw [hs]
+        show some (E x) = some _
+        have hw : hi - 0 + 1 = we x := by omega
+        rw [hw]
+        simp [mask, Nat.mod_eq_of_lt hx]
+      · simp only [widthOf]; omega
+    · exact ⟨rfl, rfl⟩
+  | const _ _ => exact ⟨rfl, rfl⟩
+  | op _ _ => exact ⟨rfl, rfl⟩
+  | slice _ _ _ => exact ⟨rfl, rfl⟩
+  | sliceDim _ _ _ => exact ⟨rfl, rfl⟩
+  | index _ _ => exact ⟨rfl, rfl⟩
+
+
 /-! ## The connection to `step_local` -/
 
 open Tools.VedU1Hier Tools.VedU2Hier Tools.VedU1Contract
