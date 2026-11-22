@@ -1801,3 +1801,6 @@ lean_lib «Tools.VedMemOrder» where
 
 lean_lib «Tools.VedMemWidth» where
   roots := #[`Tools.VedMemWidth]
+
+lean_lib «Tests.Ved.ComposeConnectCheck» where
+  roots := #[`Tests.Ved.ComposeConnectCheck]
