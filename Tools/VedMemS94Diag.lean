@@ -391,6 +391,66 @@ elab "ved_s94_exit " k:num : tactic => do
     dbgLog s!"S94 exit at stamp {k.getNat}"
     IO.Process.exit 0
 
+syntax (name := vedS97Peel) "ved_s97_peel " ident : tactic
+
+/-- the same expansion as `ved_mem_peel` (`Tools/VedMemEntry.lean`, which imports this module) -/
+macro_rules
+  | `(tactic| ved_s97_peel $h:ident) =>
+    `(tactic| first
+      | exact $h
+      | (ved_mem_shape ite; refine Tools.VedMem.MemInv.ite (fun _ => ?_) (fun _ => ?_) <;> ved_s97_peel $h)
+      | (ved_mem_shape lam; refine Tools.VedMem.MemInv.other_leaf ?_ (by decide) _ _; ved_s97_peel $h)
+      | (ved_mem_shape lam; refine Tools.VedMem.MemInv.write_leaf ?_ ?_ ?_ ?_; ved_s97_peel $h)
+      | (ved_mem_shape fvar; refine Tools.VedMem.MemInv.hold_leaf ?_ ?_; ved_s97_peel $h))
+
+/-! ### Stage-97 checkpoint (`VED_S94_CKPT=DIR` and `VED_S94_CKPT_AT=97`, with the gate; never in a default script)
+
+`ved_s94_ckpt97 [hM0, hM1, ..]` (emitted by the entry right after `ved_stamp 97` instead of the stage-94 checkpoint) writes EVERY open goal as the axiom
+`ved_ckpt97.goal<j> : ∀ (context), target` into `DIR/VedCkpt.olean` (as above, the same module data) and `DIR/ckpt97.txt` (`n<TAB>goals`, then per goal
+`hm<TAB>j<TAB>positions of the memory invariants hM_i in its context`), then the process ends.  `#ved_s94_ckpt97_replay "DIR"` re-creates goal(s) (hypotheses
+`ck0, ck1, ..`) and runs the peel (`all_goals (try (first | ved_mem_peel ck_a | ved_mem_peel ck_b ..))`, the step of the script after stamp 97) goal by goal with
+a per-goal line (time, heartbeats, goals left). -/
+
+open Lean Meta Elab Tactic in
+elab "ved_s94_ckpt97 " "[" hs:ident,* "]" : tactic => do
+  unless (← s94Gate) do return
+  let some dir := (← IO.getEnv "VED_S94_CKPT") | return
+  let gs ← getGoals
+  dbgLog s!"S94 ckpt97: start, {gs.length} goals"
+  let mut lines : Array String := #[s!"n\t{gs.length}"]
+  let mut j : Nat := 0
+  -- an axiom that only transports the term: no kernel check
+  for g in gs do
+    let (ty, hmLine) ← g.withContext do
+      let tgt ← instantiateMVars (← g.getType)
+      let fvs : Array Expr := (← getLCtx).foldl (fun a d => if d.isImplementationDetail then a else a.push d.toExpr) #[]
+      let ids := fvs.map (·.fvarId!)
+      let mut pos : Array String := #[]
+      for h in hs.getElems do
+        let some d := (← getLCtx).findFromUserName? h.getId | throwError "ved_s94_ckpt97: no hypothesis {h.getId}"
+        let some i := ids.findIdx? (· == d.fvarId) | throwError "ved_s94_ckpt97: hypothesis not in the context"
+        pos := pos.push (toString i)
+      pure ((← instantiateMVars (← mkForallFVars fvs tgt (usedLetOnly := false))), s!"hm\t{j}\t" ++ "\t".intercalate pos.toList)
+    lines := lines.push hmLine
+    if ty.hasFVar || ty.hasMVar || ty.hasLevelParam || ty.hasLevelMVar then
+      throwError "ved_s94_ckpt97: goal {j} still has fvars/mvars/level parameters (fvar {ty.hasFVar} mvar {ty.hasMVar} lparam {ty.hasLevelParam})"
+    withTheReader Core.Context (fun c => { c with options := c.options.setBool `debug.skipKernelTC true }) do
+      addDecl (.axiomDecl { name := Name.mkSimple s!"ved_ckpt97_goal{j}", levelParams := [], type := ty, isUnsafe := false })
+    j := j + 1
+  dbgLog "S94 ckpt97: axioms added"
+  IO.FS.createDirAll dir
+  IO.FS.writeFile (dir ++ "/ckpt97.txt") ("\n".intercalate lines.toList ++ "\n")
+  let md ← Lean.mkModuleData (← getEnv)
+  let realized (n : Name) : Bool :=
+    match n with
+    | .str _ s => s == "splitter" || s == "eq_def" || s == "sunfold" || (s.startsWith "eq_" && (s.drop 3).all Char.isDigit)
+    | _ => false
+  let keep := md.constants.filter (fun c => !realized c.name)
+  let md' := { md with constNames := keep.map (·.name), constants := keep }
+  Lean.saveModuleData (dir ++ "/VedCkpt.olean") (← getEnv).mainModule md'
+  dbgLog s!"S94 ckpt97 written to {dir}: {gs.length} goals, {md.constants.size} constants ({md.constants.size - keep.size} realized equation constants left out)"
+  IO.Process.exit 0
+
 /-! ### Stage-94 checkpoint (`VED_S94_CKPT=DIR`, with the gate; never in a default script)
 
 `ved_s94_ckpt [lemmas]` (emitted by the entry right after `ved_stamp 94`, i.e. with the goal the stage-94 simp starts from, only when the gate and
@@ -752,5 +812,55 @@ elab "#ved_s94_ckpt_replay " d:str : command => do
     finally
       Tools.VedMemLoop.declWidthTab.set none
       if let some (st, tk) := mon then progFinish st tk
+
+open Lean Meta Elab Command Term in
+/-- replay of the stage-97 checkpoint: `VED_S97_GOALS=a-b` (default all), `VED_S97_HB` (thousand heartbeats per goal; default the ambient budget) -/
+elab "#ved_s94_ckpt97_replay " d:str : command => do
+  let dir := d.getString
+  let rows := ((← IO.FS.readFile (dir ++ "/ckpt97.txt")).splitOn "\n").filter (· ≠ "") |>.map (·.splitOn "\t")
+  let mut nG := 0
+  let mut hms : Std.HashMap Nat (List Nat) := {}
+  for r in rows do
+    match r with
+    | ["n", k] => nG := k.toNat!
+    | "hm" :: j :: ps => hms := hms.insert j.toNat! (ps.map String.toNat!)
+    | _ => pure ()
+  let (lo, hi) := match ((← IO.getEnv "VED_S97_GOALS").getD "").splitOn "-" with
+    | [a, b] => (a.toNat!, b.toNat!)
+    | [a] => if a == "" then (0, nG - 1) else (a.toNat!, a.toNat!)
+    | _ => (0, nG - 1)
+  let hbN? := (← IO.getEnv "VED_S97_HB").bind String.toNat?
+  liftTermElabM do
+    for j in [lo:hi+1] do
+      let nm := Name.mkSimple s!"ved_ckpt97_goal{j}"
+      let ci ← getConstInfo nm
+      if j == lo then
+        let seen ← IO.mkRef (({} : Std.HashSet Name))
+        for c in (Tools.VedU1WireShare.collectDag (fun x => x.isConst) ci.type).map (·.constName!) do ckptRealize seen c 6
+        dbgLog s!"S97 replay: {(← seen.get).size} constants visited for matcher equations"
+      let mut g := (← mkFreshExprMVar ci.type).mvarId!
+      let mut k := 0
+      repeat
+        unless (← g.getType).isForall || (← g.getType).isLet do break
+        let (_, g') ← g.intro (Name.mkSimple s!"ck{k}")
+        g := g'; k := k + 1
+      let tgt ← instantiateMVars (← g.getType)
+      dbgLog s!"S97 replay goal {j}: {k} context entries, goal dag={(Tools.VedU1WireShare.collectDag (fun _ => true) tgt).size} tree={Tools.VedU1Loop.treeSizeVal tgt}"
+      let hs := (hms.getD j []).map fun i => mkIdent (Name.mkSimple s!"ck{i}")
+      let mut peels : Array (TSyntax `tactic) := #[]
+      for h in hs do peels := peels.push (← `(tactic| (ved_s97_peel $h:ident)))
+      let mut alt : TSyntax `tactic := peels[0]!
+      for c in peels.toList.drop 1 do alt ← `(tactic| first | ($alt:tactic) | ($c:tactic))
+      let t0 ← IO.monoMsNow
+      let hb0 ← IO.getNumHeartbeats
+      let run : TermElabM String := do
+        try
+          let gs ← Tactic.run g (Tactic.evalTactic (← `(tactic| try $alt:tactic)))
+          pure s!"ok goals={gs.length}"
+        catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 300}"
+      let res ← match hbN? with
+        | some n => withTheReader Core.Context (fun c => { c with maxHeartbeats := n * 1000, initHeartbeats := hb0 }) (tryCatchRuntimeEx run fun ex => do pure s!"EXN {((← ex.toMessageData.toString).replace "\n" " ").take 200}")
+        | none => run
+      dbgLog s!"S97 replay goal {j}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"
 
 end Tools.VedMemS94Diag
