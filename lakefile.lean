@@ -358,6 +358,9 @@ lean_lib «Tools.VedComposeConnect» where
 lean_lib «Tools.VedComposeConnectGen» where
   roots := #[`Tools.VedComposeConnectGen]
 
+lean_lib «Tools.VedComposeMultiLoop» where
+  roots := #[`Tools.VedComposeMultiLoop]
+
 lean_lib «Tools.VedU2HierXorAttr» where
   roots := #[`Tools.VedU2HierXorAttr]
 
