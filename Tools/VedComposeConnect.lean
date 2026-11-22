@@ -288,6 +288,23 @@ theorem connect_value {n : Nat} (nm : Fin n → String) (hinj : ∀ i j, nm i = 
     (tabW_sound _ Γ (fun _ => rfl) hn _ tab _ hTW) hV]
   exact hcc.symm
 
+theorem bit_toNat (n : Nat) (h : n < 2) : (bif (n != 0) then (1#1 : BitVec 1) else (0#1 : BitVec 1)).toNat = n := by
+  rcases Nat.lt_or_ge n 1 with h0 | h0
+  · have : n = 0 := by omega
+    subst this; decide
+  · have : n = 1 := by omega
+    subst this; decide
+
+theorem bv_toNat (w n : Nat) (h : n < 2 ^ w) : (BitVec.ofNat w n).toNat = n := by
+  rw [BitVec.toNat_ofNat]; exact Nat.mod_eq_of_lt h
+
+/-- The leaf-value obligation, as a name (the generated proof states it once and proves it per table entry). -/
+def VOk {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String)
+    (inp : Nat → CEnv Γi) (t : Nat) (m : Module) (b0 : List Stmt) (ins : Nat → String → Nat) (p : String → Nat)
+    (Ow : (Nat → String → Nat) → String → Nat → Nat) (tab : List (String × Nat)) : Prop :=
+  ∀ q ∈ tab, ∀ hq : q.2 < (Γr ++ Γi).length, leafEnv m b0 ins t p Ow q.1 =
+    natJoin (deep.irState nm inp t) (fun j => (inp t j).toNat) ⟨q.2, hq⟩
+
 /-- **Register form**: the deep recurrence at `t + 1` is the value of the register's input wire `x` in `E`. -/
 theorem reg_connect {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut)
     (nm : Fin (Γr ++ Γi).length → String) (hinj : ∀ i j, nm i = nm j → i = j)
@@ -310,8 +327,7 @@ theorem reg_connect {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut)
     (tab : List (String × Nat))
     (hren : renE (tauOf nm tab) (bn (declWidth m) n2 (inl (Atab m b0) nIn (.ref x))) = L)
     (hTW : tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (inl (Atab m b0) nIn (.ref x))) = true)
-    (hV : ∀ q ∈ tab, ∀ hq : q.2 < (Γr ++ Γi).length, leafEnv m b0 ins t p Ow q.1 =
-      natJoin (deep.irState nm inp t) (fun j => (inp t j).toNat) ⟨q.2, hq⟩) :
+    (hV : VOk deep nm inp t m b0 ins p Ow tab) :
     deep.irState nm inp (t + 1) i = E x := by
   have hv := connect_value nm hinj (Γr ++ Γi) rfl
     (natJoin (deep.irState nm inp t) (fun j => (inp t j).toNat)) d m b0 Ow hwi hri hwr hW ins t p E
@@ -349,8 +365,7 @@ theorem out_connect {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut)
     (tab : List (String × Nat))
     (hren : renE (tauOf nm tab) (bn (declWidth m) n2 (inl (Atab m b0) nIn e)) = L)
     (hTW : tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (inl (Atab m b0) nIn e)) = true)
-    (hV : ∀ q ∈ tab, ∀ hq : q.2 < (Γr ++ Γi).length, leafEnv m b0 ins t p Ow q.1 =
-      natJoin (deep.irState nm inp t) (fun j => (inp t j).toNat) ⟨q.2, hq⟩) :
+    (hV : VOk deep nm inp t m b0 ins p Ow tab) :
     E x = (evalExpr (weOfC nm (fun j => (Γr ++ Γi).get j)) (envOfC nm (natJoin (deep.irState nm inp t)
       (fun j => (inp t j).toNat))) (CExpr.compile nm deep.out)).getD 0 := by
   have hv := connect_value nm hinj (Γr ++ Γi) rfl
@@ -362,5 +377,29 @@ theorem out_connect {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut)
   rw [hw] at hv
   rw [hv]
   rfl
+
+/-! ## Small facts the generated proof uses -/
+
+theorem leafEnv_reg {m : Module} {b0 : List Stmt} {ins : Nat → String → Nat} {t : Nat} {p : String → Nat}
+    {Ow : (Nat → String → Nat) → String → Nat → Nat} {x : String} (hx : x ∈ regOuts b0) (hn : x ∉ inNames m) :
+    leafEnv m b0 ins t p Ow x = p x := by
+  unfold leafEnv; rw [if_neg hn, if_pos hx]
+
+theorem leafEnv_in {m : Module} {b0 : List Stmt} {ins : Nat → String → Nat} {t : Nat} {p : String → Nat}
+    {Ow : (Nat → String → Nat) → String → Nat → Nat} {x : String} (hx : x ∈ inNames m) :
+    leafEnv m b0 ins t p Ow x = ins t x := by
+  unfold leafEnv; rw [if_pos hx]
+
+theorem leafEnv_orc {m : Module} {b0 : List Stmt} {ins : Nat → String → Nat} {t : Nat} {p : String → Nat}
+    {Ow : (Nat → String → Nat) → String → Nat → Nat} {x : String} (hn : x ∉ inNames m) (hr : x ∉ regOuts b0) :
+    leafEnv m b0 ins t p Ow x = Ow ins x t := by
+  unfold leafEnv; rw [if_neg hn, if_neg hr]
+
+theorem mask_next {w a v : Nat} (h : v = a) (hlt : v < 2 ^ w) : mask w a = v := by
+  subst h; exact Nat.mod_eq_of_lt hlt
+
+open Lean Elab Tactic in
+/-- The observable record of the new path: one info line per connection the generated proof applies. -/
+elab "ved_connect_log " s:str : tactic => logInfo m!"VED COMPOSE CONNECT: {s.getString}"
 
 end Tools.VedComposeConnect
