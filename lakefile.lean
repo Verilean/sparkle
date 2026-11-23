@@ -1871,5 +1871,14 @@ lean_lib «Tools.VedU2HierRecReg» where
 lean_lib «Tools.VedU2HierRecCausal» where
   roots := #[`Tools.VedU2HierRecCausal]
 
+lean_lib «Tools.VedU2HierRecLeaf» where
+  roots := #[`Tools.VedU2HierRecLeaf]
+
 lean_lib «Tests.Ved.U2HierRecStructCheck» where
   roots := #[`Tests.Ved.U2HierRecStructCheck]
+
+lean_lib «Tests.Ved.U2HierRecLeafCheck» where
+  roots := #[`Tests.Ved.U2HierRecLeafCheck]
+
+lean_lib «Tests.Ved.U2HierRecPortsCheck» where
+  roots := #[`Tests.Ved.U2HierRecPortsCheck]

@@ -4,6 +4,7 @@ import Tools.VedU1StructOut
 import Tools.VedU2HierRecOr
 import Tools.VedU2HierRecReg
 import Tools.VedU2HierRecCausal
+import Tools.VedU2HierRecLeaf
 
 /-!
 # The nested entry (option `ved.compose.nested`, default OFF; CANDIDATE, Tools/VedU2HierRec.lean)
@@ -230,9 +231,9 @@ def ensureMids (midEntry : Name → Sparkle.IR.AST.Module → Design → Command
     | .inst mn iname _ =>
       let some cm := d.modules.find? (fun x => x.name == mn)
         | liftTermElabM <| refuse decl "child" m!"instance {iname}: no module {mn}"
-      if leafBody cm.body then
-        liftTermElabM <| refuse decl "scope" m!"nested route: instance {iname}: {mn} is a leaf (a leaf child next to middle modules is not generated yet)"
-      unless midMods.contains cm do
+      -- (a LEAF direct child next to the middle modules is not a middle module: it goes through the ordinary child stage of
+      -- `phase1`, its own `U1Stmt` theorem, and `kid_seq_RL`)
+      if !leafBody cm.body && !midMods.contains cm then
         let mi ← ensureMid midEntry decl d cm parent mids.length
         logInfo m!"VED NESTED {decl}: middle module {cm.name}: theorem {mi.thmR} ({if mi.hit then "stored, checked" else "from its entry run"})"
         mids := mids ++ [mi]
@@ -273,19 +274,26 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
   let mut blk : List String := []
   for (k, i) in kids.zipIdx do
     let K := k.nm
-    blk := blk ++ [
-      s!"  have hmemN{i} : {K.mod} ∈ {P.design}.modules := {T}.mem_of_ex1 (by decide)",
-      s!"  have hnl{i} : Tools.VedU1Hier.leafBody {K.mod}.body = false := by decide",
-      s!"  have hsub{i} : ∀ x ∈ {userName mids[i]!.dC}.modules, x ∈ {P.design}.modules := {T}.mem_of_ex (by decide)"]
+    if i < n then
+      blk := blk ++ [
+        s!"  have hmemN{i} : {K.mod} ∈ {P.design}.modules := {T}.mem_of_ex1 (by decide)",
+        s!"  have hnl{i} : Tools.VedU1Hier.leafBody {K.mod}.body = false := by decide",
+        s!"  have hsub{i} : ∀ x ∈ {userName mids[i]!.dC}.modules, x ∈ {P.design}.modules := {T}.mem_of_ex (by decide)"]
+    else
+      -- a LEAF direct child (its own `U1Stmt` theorem; `kid_seq_RL`): membership and the leaf test, decided on the real design
+      blk := blk ++ [
+        s!"  have hmemN{i} : {K.mod} ∈ {P.design}.modules := {T}.mem_of_ex1 (by decide)",
+        s!"  have hlf{i} : Tools.VedU1Hier.leafBody {K.mod}.body = true := by decide"]
   for (x, j) in nl.zipIdx do
     blk := blk ++ [s!"  have hnlO{j} : {T2}.OrderHS {P.design} {userName x.modC} := ⟨{userName x.bodyC}, by decide⟩"]
   -- the direct middle module `i` is the non-leaf module number `nlIdx i`
   let nlIdx (i : Nat) : Nat := (nl.zipIdx.find? (fun (x, _) => userName x.modC == kids[i]!.nm.mod)).map (·.2) |>.getD 0
   for (_, i) in kids.zipIdx do
     blk := blk ++ [s!"  have hordc{i} := hnlO{nlIdx i}"]
-  let djL := " ∨ ".intercalate (midA.toList.map fun dC => s!"(∃ y ∈ {dC}.modules, y = x)")
+  let leafKs := kids.zipIdx.filter fun (_, i) => i ≥ n
+  let djL := " ∨ ".intercalate (midA.toList.map (fun dC => s!"(∃ y ∈ {dC}.modules, y = x)") ++ leafKs.map fun (k, _) => s!"x = {k.nm.mod}")
   let djN := " ∨ ".intercalate (nl.map fun x => s!"x = {userName x.modC}")
-  let patL := " | ".intercalate (List.replicate n "h")
+  let patL := " | ".intercalate (List.replicate (n + leafKs.length) "h")
   let patN := " | ".intercalate (List.replicate nl.length "h")
   blk := blk ++ [
     s!"  have hsplitL : ∀ x ∈ {P.design}.modules, Tools.VedU1Hier.leafBody x.body = true → {djL} := by decide",
@@ -294,8 +302,11 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
     s!"    intro x hx",
     s!"    refine ⟨fun hl => ?_, fun hl => ?_⟩",
     s!"    · rcases hsplitL x hx hl with {patL}"]
-  for (k, _) in (kids.zipIdx) do
-    blk := blk ++ [s!"      · obtain ⟨y, hy, rfl⟩ := h; exact ({k.nm.thm}.2.2.2.2.2.2.1 y hy).1 hl"]
+  for (k, i) in (kids.zipIdx) do
+    if i < n then
+      blk := blk ++ [s!"      · obtain ⟨y, hy, rfl⟩ := h; exact ({k.nm.thm}.2.2.2.2.2.2.1 y hy).1 hl"]
+    else
+      blk := blk ++ [s!"      · subst h; exact {k.nm.thm}.2.2.2.1"]
   blk := blk ++ [s!"    · rcases hsplitN x hx hl with {patN}"]
   for (_, j) in nl.zipIdx do
     blk := blk ++ [s!"      · subst h; exact hnlO{j}"]
@@ -320,14 +331,21 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
     else X := X ++ [s!"    rcases hin1 with {patI}"]
     for (ii, _) in insts.zipIdx do
       let k := kids[ii.kid]!
-      let dC := midA[ii.kid]!
+      let dC := midA.getD ii.kid Lean.Name.anonymous
       let G := bundleOf[ii.kid]!
       let ind := if nI == 1 then "    " else "    · "
       let ind2 := if nI == 1 then "    " else "      "
-      X := X ++ [
-        s!"{ind}have hfm : Tools.VedU1Hier.findMod {P.design} {sq ii.mn} = some {k.nm.mod} := by decide",
-        s!"{ind2}rw [hfm] at hf; obtain rfl := Option.some.inj hf",
-        s!"{ind2}exact {T}.succF_of_theoremR {P.design} arr {P.mod} hS hadm _ hmemN{ii.kid} hnl{ii.kid} {dC} hsub{ii.kid} {k.nm.contract} {G} {k.nm.thm}"]
+      if ii.kid < n then
+        X := X ++ [
+          s!"{ind}have hfm : Tools.VedU1Hier.findMod {P.design} {sq ii.mn} = some {k.nm.mod} := by decide",
+          s!"{ind2}rw [hfm] at hf; obtain rfl := Option.some.inj hf",
+          s!"{ind2}exact {T}.succF_of_theoremR {P.design} arr {P.mod} hS hadm _ hmemN{ii.kid} hnl{ii.kid} {dC} hsub{ii.kid} {k.nm.contract} {G} {k.nm.thm}"]
+      else
+        -- a LEAF child: `SuccF` from its `ChildSucc` (its own theorem's `OutputsStmt` at K = 1)
+        X := X ++ [
+          s!"{ind}have hfm : Tools.VedU1Hier.findMod {P.design} {sq ii.mn} = some {k.nm.mod} := by decide",
+          s!"{ind2}rw [hfm] at hf; obtain rfl := Option.some.inj hf",
+          s!"{ind2}exact {T}.succF_of_leaf {P.design} arr {k.nm.mod} ({T2}.leafBody_perm (hadm.2.2 _ hmemN{ii.kid}).1.symm hlf{ii.kid}) ({T2}.childSucc_of_outputsOn {k.nm.contract} {k.nm.mod} (arr {k.nm.mod}) {G} ({k.nm.thm}.2.2.2.2 _ (hadm.2.2 _ hmemN{ii.kid}).1 ((hadm.2.2 _ hmemN{ii.kid}).2.1 hlf{ii.kid}))) _"]
     return X
   ls := replaceBlock ls (·.startsWith "  have hmem0") (·.startsWith "  have hsupp") []
   let some iSupp := (List.range ls.size).find? (fun i => ls[i]!.startsWith "  have hsupp") | return "?"
@@ -345,15 +363,23 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
     if l.contains "Tools.VedU2Hier.kid_seq_multi " then
       let idx := (insts.zipIdx.find? (fun (ii, _) => l.contains s!"{sq ii.iname}")).map (·.1.kid) |>.getD 0
       let k := kids[idx]!
-      (l.replace "Tools.VedU2Hier.kid_seq_multi " s!"{T}.kid_seq_R ").replace s!"{k.nm.mod} (by decide) {k.nm.contract}"
-        s!"{k.nm.mod} (by decide) hnl{idx} hordc{idx} {userName mids[idx]!.dC} hsub{idx} {k.nm.contract}"
+      if idx < n then
+        (l.replace "Tools.VedU2Hier.kid_seq_multi " s!"{T}.kid_seq_R ").replace s!"{k.nm.mod} (by decide) {k.nm.contract}"
+          s!"{k.nm.mod} (by decide) hnl{idx} hordc{idx} {userName mids[idx]!.dC} hsub{idx} {k.nm.contract}"
+      else
+        (l.replace "Tools.VedU2Hier.kid_seq_multi " s!"{T}.kid_seq_RL ").replace s!"{k.nm.mod} (by decide) {k.nm.contract}"
+          s!"{k.nm.mod} (by decide) hlf{idx} hordc{idx} {k.nm.contract}"
     else if l.contains "Tools.VedU2Hier.kid_inst " || l.contains "Tools.VedU2Hier.kid_inst_multi " then
       let l1 := (l.replace "Tools.VedU2Hier.kid_inst_multi " s!"{T}.kid_inst_R ").replace "Tools.VedU2Hier.kid_inst " s!"{T}.kid_inst_R "
       let idx := (insts.zipIdx.find? (fun (ii, _) => l1.contains s!"{sq ii.iname}")).map (·.1.kid) |>.getD 0
       let k := kids[idx]!
       let tail := s!"{k.nm.mod} (by decide)"
-      (l1.replace tail s!"{k.nm.mod} (by decide) hnl{idx} hordc{idx} {userName mids[idx]!.dC} hsub{idx}").replace
-        " t ht E hE _ hq" s!" ({T}.rstnd_sound (by decide)) t ht E hE _ hq"
+      if idx < n then
+        (l1.replace tail s!"{k.nm.mod} (by decide) hnl{idx} hordc{idx} {userName mids[idx]!.dC} hsub{idx}").replace
+          " t ht E hE _ hq" s!" ({T}.rstnd_sound (by decide)) t ht E hE _ hq"
+      else
+        ((l1.replace s!"{T}.kid_inst_R " s!"{T}.kid_inst_RL ").replace tail s!"{k.nm.mod} (by decide) hlf{idx} hordc{idx}").replace
+          " t ht E hE _ hq" s!" ({T}.rstnd_sound (by decide)) t ht E hE _ hq"
     else l
   -- (5) the closed-run lemmas of the register script, by their recursive analogues
   if reg then

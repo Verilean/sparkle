@@ -336,7 +336,7 @@ def stateSlotOf (b : List Stmt) (regs : List String) (wd : String → Nat) (fuel
 
 set_option maxHeartbeats 1000000 in
 def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : OpenInfo)
-    (kids : List Kid) (insts : List InstInfo) (di : DeepInfo) (dbg : Bool := false) : String := Id.run do
+    (kids : List Kid) (insts : List InstInfo) (di : DeepInfo) (dbg : Bool := false) (nestedAll : Bool := false) (shareFact : Bool := false) : String := Id.run do
   let P := nm.user
   let kids := kids.map fun k => { k with nm := namesUser k.nm }
   let kidA := kids.toArray
@@ -370,7 +370,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   -- option `ved.compose.multiOut`: a multi-output child WITH registers (sequential): its instance fact is asked through `kid_seq_multi`
   -- (`hrunF` at every cycle `s ≤ t`, from the history of the invariant), not `kid_step_multi` (combinational children only)
   -- (a scalar sequential child next to a struct-result parent is also asked through `kid_seq_multi`: `kid_step` is for combinational children)
-  let isSeqK (k : Kid) : Bool := mo && !(regsOf k.c.body).isEmpty
+  -- (option `ved.compose.nested`, `nestedAll`: a LEAF direct child next to a middle module is also asked through the register-fed
+  -- instance route, `kid_seq_RL`, whether or not it has a register)
+  let isSeqK (k : Kid) : Bool := mo && (nestedAll || !(regsOf k.c.body).isEmpty)
   let GS (k : Kid) : String :=
     if isMultiK k then toString (userName (k.nm.mod.getPrefix ++ `ved_bundle)) else declTerm k.decl k.nDom
   -- the (port, wire) pairs of an instance's outputs, in the order of its connections (`instOuts`)
@@ -555,6 +557,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     let first := if nI == 1 then "    " else "    · "
     let outsL := outsOf ii k
     let mut branches : List (List String) := []
+    let mut sharedL : List String := []
     for (outPort, yv) in outsL do
       let outName := outPort.name
       let plainLines : List String := [
@@ -567,7 +570,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         s!"rw [hv]",
         s!"simp [{bx}Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {K.contract}, Tools.VedU1Contract.contractOf, {T2}.insCIn, List.lookup, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig]"]
       -- H2c: an instance whose data ports read derived parent nets
-      let derivedLines : List String := Id.run do
+      let derivedPair : List String × Nat := Id.run do
         let call : CallInfo := opn.calls[ii.call]!
         let Fj := toString (userName (fDefName opn ii.call))
         let ports : List (String × PTy × Name) := k.tbl.binders.zip (k.tbl.ins.zip call.argDefs)
@@ -786,30 +789,40 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           X := X.push s!"  intro s hs E' hE' p hp"
           X := X.push s!"  obtain ⟨_, S', _, hS2, _⟩ := {T2}.runHSTrace_cycle {P.design} arr {P.mod} (Tools.VedU1Contract.seedFwd {P.mod} K ins) K ({T2}.st0H {P.design} {P.mod}) envs sts hrun s (by omega)"
           X := X.push s!"  exact hrunF0 s (by omega) S' E' hS2 hE' (hh s hs S' E' hS2 hE') (fun s' hs' S'' E'' h1 h2 => hh s' (Nat.le_trans hs' hs) S'' E'' h1 h2) p hp"
-          X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_seq_multi {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht hrunF E hE _ hq"
+          -- option `ved.compose.nested` (`shareFact`): the instance fact for EVERY output port of the child is obtained ONCE
+          -- (`hfact`), and each port's branch only selects its port (the port-independent block is not repeated per port)
+          let seqCall := s!"{T2}.kid_seq_multi {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht hrunF E hE"
+          if shareFact then X := X.push s!"have hfact := {seqCall}"
+          else X := X.push s!"obtain ⟨x, hx, hv⟩ := {seqCall} _ hq"
         else if ii.stateArg then
           X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_step{sfx} {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht E hE hrunF _ hq"
         else
           X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_inst_net{sfx} {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange hrunF t ht E hE _ hq"
         -- the signals the child's theorem is applied to are the declaration's arguments
-        X := X.push s!"generalize hNS : {T2}.netIn {K.contract} ({connsLit ii.cs}) ins ({Fj} ins) = NS at hv"
+        X := X.push s!"generalize hNS : {T2}.netIn {K.contract} ({connsLit ii.cs}) ins ({Fj} ins) = NS at {if shareFact && seqI then "hfact" else "hv"}"
         let mut sigFacts : List String := []
         for ((bn, (pt, ad)), kk) in ports.zipIdx do
           let nm := "_gen_" ++ bn
           let lem := match pt with | .bv w => s!"{T2}.sig_of_obs_bv {w}" | .bit => s!"{T2}.sig_of_obs_bit"
           X := X.push s!"have hsig{kk} := {lem} (({toString (userName ad)}) ins) NS {sq nm} (fun t => by rw [← hNS]; simp (config := \{ maxSteps := 2000000 }) [{T2}.netIn, {K.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {Fj}, Tools.VedU1Contract.PTy.obs])"
           sigFacts := sigFacts ++ [s!"hsig{kk}"]
+        -- (the port-independent part ends here under `shareFact`)
+        let cutIdx := X.size
+        if shareFact && seqI then X := X.push s!"obtain ⟨x, hx, hv⟩ := hfact _ hq"
         X := X.push s!"have hx' : x = {sq yv} := by\n  have h2 : ({connsLit ii.cs}).lookup {sq outName} = some (Sparkle.IR.AST.Expr.ref {sq yv}) := by decide\n  rw [h2] at hx\n  simpa using hx.symm"
         X := X.push s!"subst hx'"
         X := X.push s!"rw [hv]"
         X := X.push s!"simp (config := \{ maxSteps := 2000000 }) [{bx}Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {K.contract}, Tools.VedU1Contract.contractOf, List.lookup, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {", ".intercalate sigFacts}]"
-        return X.toList
+        return (X.toList, if shareFact && seqI then cutIdx else 0)
+      let derivedLines := derivedPair.1
+      let derivedCut := derivedPair.2
+      if ii.derived && derivedCut > 0 then sharedL := derivedLines.take derivedCut
       branches := branches ++ [if ii.derived then
         -- the shared prefix of the plain lines (the instance's output wire) stays; the child's
         -- theorem is applied through `kid_inst_net`
-        (plainLines.take 3) ++ derivedLines else plainLines]
+        (plainLines.take 3) ++ (if derivedCut > 0 then derivedLines.drop derivedCut else derivedLines) else plainLines]
     -- several outputs (option `ved.compose.multiOut`): the wire the fact is asked of is one of them; one branch per output
-    let lines : List String :=
+    let lines : List String := sharedL ++
       match branches with
       | [one] => one
       | _ =>
@@ -1253,7 +1266,8 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   -- option `ved.compose.nested`: the kids are the middle modules (theorems from their own entry runs, in `checkU2HRCore`), in the order of `mids`
   if let some (mids, _) := nested then
     kids := mids.map (·.kid)
-  for (cm, cdecl, cstmt, cdom, ctbl) in (if nestedOn then [] else pre) do
+  -- (a LEAF direct child of the nested parent goes through the ordinary child stage below: its own `U1Stmt` theorem)
+  for (cm, cdecl, cstmt, cdom, ctbl) in (if nestedOn then pre.filter (fun x => leafBody x.1.body) else pre) do
     let base := (decl ++ `ved_child) ++ cdecl
     Tools.VedU2HierDbg.phaseLog s!"p1: child {cdecl} begin (registers={(regsOf cm.body).length}, body={cm.body.length})"
     -- option `ved.compose.multiOut`: each child theorem is elaborated in a FRESH metavariable context.  This loop is one
@@ -1425,6 +1439,20 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
         insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := ci }]
     | _ => pure ()
   Tools.VedU2HierDbg.openTick s!"insts loop end, instances={insts.length}, netChainB+eraseDups total {chainMs} ms"
+  -- option `ved.compose.nested`: the arrangement constants of the LEAF direct children's bodies in the PARENT's design
+  -- (`OrderHS d x`: the order the recursive step reads), appended to the non-leaf modules' list
+  let nested ← match nested with
+    | some (mids, nl) => do
+        let mut nl' := nl
+        for k in kids.drop mids.length do
+          let bm := orderBodyH d k.c.body
+          unless decide (Tools.VedU2Hier.OrderOkHS d k.c bm) do
+            refuse decl "order" m!"leaf child {k.c.name}: {orderDiagHS d k.c bm}"
+          let bodyC := nm.body ++ Name.mkSimple s!"leaf{nl'.length}"
+          addDefn bodyC (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Stmt)) (toExpr bm)
+          nl' := nl' ++ [{ modC := k.nm.mod, bodyC }]
+        pure (some (mids, nl'))
+    | none => pure none
   return { tbl, opn, kids, insts, childMs := t1 - t0, t1, b0, nested }
 
 /-- The second phase: the deep facts of the open parent exist; build the invariant's constants,
@@ -1542,7 +1570,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let (fN, fD) := match bundleC with
     | some n => (n, 0)
     | none => (stmt.getAppFn.constName!, stmt.getAppNumArgs)
-  let text00 := scriptTextR nm fN fD tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
+  let text00 := scriptTextR nm fN fD tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome) (p1.nested.isSome && kids.any (fun k => leafBody k.c.body)) (p1.nested.isSome && (← IO.getEnv "VED_NESTED_NOONCE").isNone)
   -- option `ved.compose.nested`: the recursive shape/order/success/instance blocks (Tools/VedU2HierRecEntry.lean)
   let text0 := match p1.nested with
     | some (mids, nl) => Tools.VedU2HierRecEntry.transformN text00 nm kids mids nl p1.insts true
