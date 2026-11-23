@@ -1984,6 +1984,8 @@ elab "ved_local_diag" : tactic => do
           let nodes := Tools.VedU1WireShare.collectDag (fun _ => true) tg
           let cnt (c : Name) : Nat := (nodes.filter fun x => x.isAppOf c).size
           s94LdLog s!"LDIAG {tag} FEAT after {name}: or={cnt ``HOr.hOr} and={cnt ``HAnd.hAnd} xor={cnt ``HXor.hXor} shl={cnt ``HShiftLeft.hShiftLeft} shr={cnt ``HShiftRight.hShiftRight} ite={cnt ``ite} mod={cnt ``HMod.hMod} div={cnt ``HDiv.hDiv} mul={cnt ``HMul.hMul} add={cnt ``HAdd.hAdd} sub={cnt ``HSub.hSub} pow={cnt ``HPow.hPow} toNat={cnt ``BitVec.toNat} Eq={cnt ``Eq} Or={cnt ``Or} And={cnt ``And} Not={cnt ``Not}"
+          for o in (nodes.filter fun x => x.isAppOf ``HOr.hOr).toList.take 4 do
+            s94LdLog s!"LDIAG {tag} OR node: {(progCut 8 o).take 500}"
           s94LdLog s!"LDIAG {tag} SHOW after {name}: {(progCut ((← IO.getEnv "VED_LDIAG_DEPTH").bind String.toNat? |>.getD 12) (← instantiateMVars (← g.getType))).take 3000}"
     if r != "ok" then failed := name; break
     if gs.isEmpty then break
