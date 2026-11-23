@@ -1355,6 +1355,44 @@ register_option sparkle.deepNoNative : Bool := {
   descr := "#verify_elab_deep: the trace closers do not use bv_decide (no native axiom)"
 }
 
+/-- Multi-circuit (ved.compose.multiCircuit): in the top loop's succ case, apply the previous-cycle state fact `hpre n` once
+more after `appendFix` (the `++` rewrite exposes `(pre.val n).snd…` occurrences the stage-1 simp could not yet see).  Default off. -/
+register_option sparkle.deepRepre : Bool := {
+  defValue := false
+  descr := "#verify_elab_deep: re-apply the previous-cycle state fact after appendFix in the top loop's succ case"
+}
+
+theorem bv1_and_eq_one (a b : BitVec 1) : (a &&& b = 1#1) ↔ (a = 1#1 ∧ b = 1#1) := by
+  rcases bv1_cases a with h | h <;> rcases bv1_cases b with h' | h' <;> subst h <;> subst h' <;> decide
+theorem bv1_or_eq_one (a b : BitVec 1) : (a ||| b = 1#1) ↔ (a = 1#1 ∨ b = 1#1) := by
+  rcases bv1_cases a with h | h <;> rcases bv1_cases b with h' | h' <;> subst h <;> subst h' <;> decide
+theorem bv1_not_eq_one (a : BitVec 1) : (~~~a = 1#1) ↔ ¬ a = 1#1 := by
+  rcases bv1_cases a with h | h <;> subst h <;> decide
+theorem bv1_ite_eq_one (p : Prop) [Decidable p] : ((if p then 1#1 else 0#1) = 1#1) ↔ p := by
+  by_cases h : p <;> simp [h]
+
+open Lean Meta Elab Tactic in
+/-- Like `ved_cases_bv1`, but splits every `BitVec 1` variable on EVERY open goal (the original acts on the main goal only). -/
+elab "ved_cases_bv1_all" : tactic => withMainContext do
+  let lctx ← getLCtx
+  let mut names : Array Name := #[]
+  for d in lctx do
+    if d.isImplementationDetail then continue
+    let ty ← instantiateMVars d.type
+    if ty.isAppOfArity ``BitVec 1 && (ty.getArg! 0).nat? == some 1 then names := names.push d.userName
+  for n in names do
+    evalTactic (← `(tactic| all_goals (try (rcases bv1_cases $(mkIdent n) with h | h <;> subst h))))
+
+/-- Multi-circuit closer (option `sparkle.deepRepre`): first normalise the `BitVec 1` bit forms (`&&& ||| ~~~ if.. 1#1 0#1` compared with
+`1#1`) to propositions, so that the specification's `if` tree and the implementation's become the same tree (no case split); then,
+for what is left, split one `if` at a time and simplify each branch immediately (the original `ved_bv_close` splits all `if`s first). -/
+macro "ved_bv_norm" : tactic =>
+  `(tactic| simp only [cond_eq_ite, bv1_and_eq_one, bv1_or_eq_one, bv1_not_eq_one, bv1_ite_eq_one, not_or, not_and, and_assoc])
+macro "ved_bv_close2" : tactic =>
+  `(tactic| (((repeat' apply And.intro) <;> (try simp only [cond_eq_ite]) <;> (try ved_bv_ctx) <;> (try ved_cases_bv1_all) <;>
+      (repeat' (split <;> (try simp_all))) <;> (try simp_all) <;> (try bv_omega)); done))
+macro "ved_bv_close3" : tactic => `(tactic| ((try ved_bv_norm) <;> ved_bv_close2))
+
 /-- H2d: attempt the remaining ports after one whose block throws (see the port loop of `#verify_elab_deep`). -/
 register_option sparkle.deepContinue : Bool := {
   defValue := false
@@ -1564,6 +1602,32 @@ open Lean Elab Tactic in
     if let some f ← IO.getEnv "SPARKLE_DEEP_TACTIC_TICK" then
       let ms ← IO.monoMsNow
       IO.FS.withFile f .append fun h => h.putStrLn s!"[{ms}] {s.getString}"
+      -- measurement only (`SPARKLE_DEEP_DUMP=file`): the open goals at the tick labelled `succ: genLines ...`
+      if let some d := (← IO.getEnv "SPARKLE_DEEP_DUMP") then
+        if s.getString.startsWith "succ: genLines" then
+          let gs ← getGoals
+          let mut out := s!"== {s.getString}: {gs.length} goals\n"
+          for g in gs do
+            let ty ← instantiateMVars (← g.getType)
+            let mut seen : Std.HashSet Lean.Expr := {}
+            let mut stack := #[ty]
+            while !stack.isEmpty do
+              let e := stack.back!
+              stack := stack.pop
+              unless seen.contains e do
+                seen := seen.insert e
+                match e with
+                | .app f a => stack := (stack.push f).push a
+                | .lam _ t b _ | .forallE _ t b _ => stack := (stack.push t).push b
+                | .letE _ t v b _ => stack := ((stack.push t).push v).push b
+                | .mdata _ b | .proj _ _ b => stack := stack.push b
+                | _ => pure ()
+            let pp ← g.withContext do (Lean.Meta.ppExpr ty)
+            out := out ++ s!"-- goal: dag={seen.size} tree={ty.sizeWithoutSharing} depth={ty.approxDepth} ctx={(← g.getDecl).lctx.size}\n{(toString pp).take 400000}\n"
+            for ld in (← g.getDecl).lctx do
+              unless ld.isImplementationDetail do
+                out := out ++ s!"-- ctx: {ld.userName} : {← g.withContext do (Lean.Meta.ppExpr ld.type)}\n"
+          IO.FS.withFile d .append fun h => h.putStr out
   | _ => throwUnsupportedSyntax
 
 /-- Local variables the expression mentions, with those their types mention (transitively). -/
@@ -4445,7 +4509,18 @@ elab "#verify_elab_deep" id:ident : command =>
       -- reader variables and the input values; bv_decide is the closer,
       -- rfl/simp for the degenerate ones, bv_omega for Nat-cast shapes.
       let noNative := sparkle.deepNoNative.get (← getOptions)
-      let closers : Lean.TSyntax `tactic ← if noNative then
+      let closers : Lean.TSyntax `tactic ← if noNative && sparkle.deepRepre.get (← getOptions) then
+        `(tactic| all_goals (first
+          | ved_bv_close3
+          | rfl
+          | ved_bv_close
+          | (simp_all [BitVec.toNat_eq, BitVec.toNat_add,
+              BitVec.toNat_ofNat, bif_beq_ofBool, bif_beq_ofBool_toNat,
+              $[$inpAtIds:ident],*]; done)
+          | bv_omega
+          | (simp; done)
+          | fail "#verify_elab_deep: closers exhausted on this goal"))
+      else if noNative then
         `(tactic| all_goals (first
           | rfl
           -- the register-step goals of a real circuit are conjunctions of `if`/`bif` identities over Bool and
@@ -4707,6 +4782,10 @@ elab "#verify_elab_deep" id:ident : command =>
         let tZ4 ← tk "zero: closers"
         let tS1 ← tk "succ: stage1 simp"
         let tS2 ← tk "succ: appendFix"
+        let rePre : Array (Lean.TSyntax `tactic) ← if sparkle.deepRepre.get (← getOptions) then
+            let hpn : Term ← `($hpreId $nId (Nat.lt_succ_self $nId))
+            pure #[← `(tactic| all_goals (try simp only [$hpn:term]))]
+          else pure #[]
         let tS3 ← tk "succ: innerHpre"
         let tS4 ← tk "succ: rdSuccAll simp"
         let tS5 ← tk "succ: dupSimp"
@@ -4745,6 +4824,7 @@ elab "#verify_elab_deep" id:ident : command =>
               ($[$tS1:tactic]*)
               $appendFix:tactic
               ($[$tS2:tactic]*)
+              ($[$rePre:tactic]*)
               $innerHpre:tactic
               ($[$tS3:tactic]*)
               -- stage 2: one step of the spec recurrence, as the shallow

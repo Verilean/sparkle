@@ -1497,7 +1497,7 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
       | some _, some p => o.insert `sparkle.deepPorts (Lean.DataValue.ofString p)
       | _, _ => o
     Tools.VedU2HierDbg.phaseLog "deep run (#verify_elab_deep open parent) start"
-    try withScope (fun sc => { sc with currNamespace := decl, opts := portOpt (((sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true).setBool `sparkle.deepNoNative true) }) (withEnableInfoTree false (elabCommand stx))
+    try withScope (fun sc => { sc with currNamespace := decl, opts := portOpt (((sc.opts.setBool `sparkle.deepNoReplay true).setBool `sparkle.deepContinue true).setBool `sparkle.deepNoNative true |> fun o => if o.getBool `ved.compose.multiCircuit then o.setBool `sparkle.deepRepre true else o) }) (withEnableInfoTree false (elabCommand stx))
     catch e => liftTermElabM <| refuse decl "deep" m!"#verify_elab_deep of the open parent {p1.opn.openName}: {e.toMessageData}"
     Tools.VedU2HierDbg.phaseLog "deep run end"
     let p1 ← tamper p1
