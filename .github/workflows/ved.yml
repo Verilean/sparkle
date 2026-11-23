@@ -124,6 +124,9 @@ jobs:
     - name: "Composed connection (ved.compose.connect, approved cone_connect_bn via reg_connect/out_connect): multiTwo/multiShared accepted, type == U2HRStmt, same artifact, std3; refused controls"
       run: lake build Tests.Ved.ComposeConnectCheck
 
+    - name: "Multi-output statement candidate (U2HRStmtK, coincidence with U2HRStmt for single-output designs; ved.compose.multiOut shape stage and controls)"
+      run: lake build Tests.Ved.MultiOutCheck
+
     - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
       run: lake build Tests.Ved.U2HierPartialDeepCheck
 
@@ -263,6 +266,9 @@ jobs:
 
     - name: "Composed connection (ved.compose.connect, approved cone_connect_bn via reg_connect/out_connect): multiTwo/multiShared accepted, type == U2HRStmt, same artifact, std3; refused controls"
       run: lake build Tests.Ved.ComposeConnectCheck
+
+    - name: "Multi-output statement candidate (U2HRStmtK, coincidence with U2HRStmt for single-output designs; ved.compose.multiOut shape stage and controls)"
+      run: lake build Tests.Ved.MultiOutCheck
 
     - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
       run: lake build Tests.Ved.U2HierPartialDeepCheck
