@@ -1294,12 +1294,12 @@ run_cmd do
 /-! ## Unit 19: no unfolding candidates of the children's bodies (option `ved.compose.noReach`)
 
 The open parent's `hOs` obligation used to carry the user definitions reachable from each child declaration (`reachDefs`) as unfolding
-candidates behind its pointwise attempt.  With `ved.compose.noReach` the obligation is closed by the children's local pointwise lemmas
-`pw{k}` alone, or refused.  The check below is independent of the entry: in the generated `hOs` proof no equation lemma of any definition
-the children reach occurs, and the only user-module constants in it are the child itself, the declaration, and the constants the entry
-generated under the declaration's name.  `multiTwoB` is `multiTwo` with a child (`mkA2`) whose body is written differently
-(`3 + x`) with the same statement: the parent's `hOs` proof goes through with the same check, i.e. it does not use the body.
-The fusion side goals `hWA`/`hWB` (`fuseOne`) are NOT covered by the option (that function is another worker's). -/
+candidates behind its pointwise attempt.  With `ved.compose.noReach` the generated script has no such candidates: the obligation is closed
+by the children's local pointwise lemmas `pw{k}`, or refused.  (`mkPointwise` proves `pw{k}` by a lemma that unfolds the child in the KERNEL, checked by
+`Eq.refl`, and the parent then reuses `pw{k}`.)  The scan below is NOT a closure audit and does not detect kernel delta unfolding: it
+reads the proof value's direct `getUsedConstants` and looks for `eq_` names of the fuel-6 reach set; so even a scanned proof is not claimed
+"never unfolded".  The scan is independent of the entry; `multiTwoB` is `multiTwo` with a child (`mkA2`) whose body is written differently
+(`3 + x`) with the same statement.  The fusion side goals `hWA`/`hWB` (`fuseOne`) are gated by the same option since unit 20. -/
 
 @[hardware_module]
 def mkA2 (x : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
@@ -1357,7 +1357,7 @@ def chainTxNRef (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 
 /-- After the entry: in every `hOs` proof of `decl` no equation lemma of a definition `kids` reach occurs, and the user-module
 constants in it are within the kids, `decl` and the generated constants (name prefix `decl`). -/
 def checkNoReach (decl : Name) (kids : List Name) (kidThms : List Name) (nRegs : Nat) : CommandElabM Unit := do
-  unless Tools.VedComposeMultiCircuit.ved.compose.noReach.get (← getOptions) do throwError "the option ved.compose.noReach is not on"
+  unless Tools.VedComposeMultiCircuit.noReachEff (← getOptions) do throwError "noReach is not in effect"
   checkChain decl kidThms nRegs
   let env ← getEnv
   let reach := (kids.flatMap fun k => (Tools.VedU2HierMultiGen.reachDefs env k 6 #[]).toList).eraseDups
@@ -1424,8 +1424,8 @@ run_cmd do
 
 /-! ## Unit 20: the fusion side goals `hWA`/`hWB` without unfolding candidates (`fuseOne`, option `ved.compose.noReach`)
 
-With the option the `hWA`/`hWB` scripts of `fuseOne` carry no `reachDefs` candidates.  The assertion below (a proof-term scan, not a
-`#print`): the fused declaration is accepted (`checkChain`), it has at least one `hWA`/`hWB` theorem, and in none of them (nor in the
+With the option the `hWA`/`hWB` scripts of `fuseOne` carry no `reachDefs` candidates.  The assertion below (a proof-term scan of direct references, not a
+`#print` and not a closure audit): the fused declaration is accepted (`checkChain`), it has at least one `hWA`/`hWB` theorem, and in none of them (nor in the
 `hOs` theorems) occurs an equation lemma of a definition the real child reaches.  Copies of `indepTx`, `wsTx`, `ws2Tx`, `dmTx`. -/
 
 def indepTxN (go go2 : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
@@ -1443,7 +1443,7 @@ def dmTxN (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
 /-- After the entry: the number of `hWA`/`hWB` theorems of `decl` is positive and no `hWA`/`hWB`/`hOs` proof of `decl` uses an equation
 lemma of a definition the children `kids` reach. -/
 def checkNoReachFuse (decl : Name) (kids : List Name) (kidThms : List Name) (nRegs : Nat) : CommandElabM Unit := do
-  unless Tools.VedComposeMultiCircuit.ved.compose.noReach.get (← getOptions) do throwError "the option ved.compose.noReach is not on"
+  unless Tools.VedComposeMultiCircuit.noReachEff (← getOptions) do throwError "noReach is not in effect"
   checkChain decl kidThms nRegs
   let env ← getEnv
   let reach := (kids.flatMap fun k => (Tools.VedU2HierMultiGen.reachDefs env k 6 #[]).toList).eraseDups
@@ -1496,7 +1496,41 @@ info: compose connect noReach fuse OK: hWA/hWB theorems present (count > 0) with
 set_option ved.compose.step true in
 set_option ved.compose.connect true in
 set_option ved.compose.multiCircuit true in
-set_option ved.compose.noReach true in
 run_cmd checkNoReachFuse ``dmTxN [``mkA] [`Tests.Ved.ComposeConnectCheck.dmTxN.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
+/-! ## Unit 21: `noReach` is the default under `ved.compose.connect`; the generated candidate list pinned directly
+
+`reachItems o reach` is the one place that builds the unfolding-candidate part of the `hOs` (`genOpenMulti`) and `hWA`/`hWB` (`fuseOne`)
+scripts.  A proof scan cannot see the gate (the accepted cases also close in the old pw-first order), so the four configurations are
+pinned on the generated text itself, for a non-empty reach list.  Unset under connect: no candidates; explicit `false`: honoured (the
+candidates are present); connect off: unchanged (the candidates are present).  A goal the pw lemmas do not close is refused under the
+default (no candidate to fall back on); no cheap such toy exists (a non-pointwise child has no `pw{k}` and its causal-agreement lemma is
+unbuilt), so that case is argued from the script, not run. -/
+
+def candOf (kv : List (Name × Bool)) : Lean.Options :=
+  kv.foldl (fun o (k, b) => o.setBool k b) ({} : Lean.Options)
+
+def reachItemsControls : CommandElabM Unit := do
+  let reach := ["Foo.mkA", "Foo.mkB", "Foo.mkA"]
+  let items (kv : List (Name × Bool)) := Tools.VedComposeMultiCircuit.reachItems (candOf kv) reach
+  let cn := (`ved.compose.connect, true)
+  let nr (b : Bool) := (`ved.compose.noReach, b)
+  unless items [cn] == "" do throwError "connect on, default: candidates present: {items [cn]}"
+  unless items [cn, nr true] == "" do throwError "connect on, noReach true: candidates present"
+  unless items [cn, nr false] == "Foo.mkA, Foo.mkB, " do throwError "connect on, noReach false: got {items [cn, nr false]}"
+  unless items [] == "Foo.mkA, Foo.mkB, " do throwError "connect off, default: got {items []}"
+  unless items [nr true] == "" do throwError "connect off, noReach true: candidates present"
+  unless Tools.VedComposeMultiCircuit.reachItems (candOf [nr false]) [] == "" do throwError "empty reach: not empty"
+  -- the real option scope of the command: the same function on `getOptions`
+  withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.connect true }) do
+    unless Tools.VedComposeMultiCircuit.noReachEff (← getOptions) do throwError "scope: connect on, unset: noReachEff false"
+  withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.connect true).setBool `ved.compose.noReach false }) do
+    if Tools.VedComposeMultiCircuit.noReachEff (← getOptions) then throwError "scope: explicit false not honoured"
+
+/-- info: compose connect reach candidates: default-on under connect, explicit false honoured, connect off unchanged -/
+#guard_msgs in
+run_cmd do
+  reachItemsControls
+  logInfo m!"compose connect reach candidates: default-on under connect, explicit false honoured, connect off unchanged"
 
 end Tests.Ved.ComposeConnectCheck

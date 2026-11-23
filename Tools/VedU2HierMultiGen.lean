@@ -356,7 +356,7 @@ def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) 
   withLocalDeclD `xz τ fun xz => collect (abs.instantiate1 xz)
   let siteKid ← siteKid.get; let siteFn ← siteFn.get; let siteTy ← siteTy.get
   let envNow ← getEnv
-  let reachL := if Tools.VedComposeMultiCircuit.ved.compose.noReach.get (← getOptions) then "" else ", ".intercalate ((kids.toList.flatMap fun k => (reachDefs envNow k.decl 6 #[]).toList.map fun c => toString (userName c)).eraseDups)
+  let reachPart := Tools.VedComposeMultiCircuit.reachItems (← getOptions) (kids.toList.flatMap fun k => (reachDefs envNow k.decl 6 #[]).toList.map fun c => toString (userName c))
   let mut pwNames : Array Name := #[]
   if pw then
     let kidsUsed := siteKid.toList.eraseDups
@@ -397,7 +397,6 @@ def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) 
     let c ← mkEq (← satOf αA (mkAppN waC (xs ++ #[xv])) t) (← satOf αA (mkAppN waC (xs ++ #[yv])) t)
     mkForallFVars #[t, xv, yv] (← mkArrow hyp c))
   let hWAn := base ++ Name.mkSimple (sfx ++ "_hWA")
-  let reachPart := if reachL.isEmpty then "" else reachL ++ ", "
   let pwPart := if pwNames.isEmpty then "" else ", ".intercalate (pwNames.toList.map fun n => toString (userName n)) ++ ", "
   proveByScript decl hWAn hWAty s!"by
   intro {intros} t x y h
@@ -854,9 +853,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
           let envNow ← getEnv
           let reach := (kids.toList.flatMap fun k => (reachDefs envNow k.decl 6 #[]).toList.map fun c => toString (userName c))
           -- option `ved.compose.noReach`: no unfolding candidates of the children's bodies in `hOs`
-          let noReach := Tools.VedComposeMultiCircuit.ved.compose.noReach.get (← getOptions)
-          let reachL := if noReach then "" else ", ".intercalate reach.eraseDups
-          let reachOs := if reachL.isEmpty then "" else reachL ++ ", "
+          let reachOs := Tools.VedComposeMultiCircuit.reachItems (← getOptions) reach
           -- hcF
           let hcFName := base ++ Name.mkSimple (openSuf ++ "_hcF")
           let hcFTy ← mkForallFVars xs (← withLocalDeclD `o osTy fun o => withLocalDeclD `t natTy fun t =>

@@ -29,8 +29,19 @@ register_option ved.compose.multiCircuit : Bool := {
 
 register_option ved.compose.noReach : Bool := {
   defValue := false
-  descr := "VED compose: the open parent's `hOs` obligation gets NO unfolding candidates of the children's bodies (`reachDefs`): it is closed by the children's pointwise lemmas `pw{k}` (local child lemmas) or refused"
+  descr := "VED compose: the open parent's `hOs` obligation and the fusion goals `hWA`/`hWB` get NO unfolding candidates of the children's bodies (`reachDefs`): closed by the children's pointwise lemmas `pw{k}` (local child lemmas) or refused. Unset: on exactly when `ved.compose.connect` is on; an explicit value wins (`noReachEff`)"
 }
+
+/-- The effective `noReach`: an explicit `ved.compose.noReach` (true or false) wins; unset, it is on exactly when `ved.compose.connect` is on. -/
+def noReachEff (o : Lean.Options) : Bool :=
+  match o.find `ved.compose.noReach with
+  | some (.ofBool b) => b
+  | _ => o.getBool `ved.compose.connect false
+
+/-- The spliced unfolding-candidate text of a `simp only [..]` list: the user definitions `reach` the children reach with a trailing
+`", "`, or `""` when `noReachEff` (or when `reach` is empty).  The one place the gate is applied (`genOpenMulti` hOs, `fuseOne` hWA/hWB). -/
+def reachItems (o : Lean.Options) (reach : List String) : String :=
+  if noReachEff o || reach.isEmpty then "" else ", ".intercalate reach.eraseDups ++ ", "
 
 /-- Append of two register files. -/
 @[reducible] def happend : (αA : List Type) → {αB : List Type} → HList αA → HList αB → HList (αA ++ αB)
